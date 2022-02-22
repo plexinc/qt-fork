@@ -8,7 +8,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/optional.h"
 #include "content/browser/cookie_store/cookie_change_subscriptions.pb.h"
 #include "content/browser/service_worker/embedded_worker_status.h"
@@ -16,9 +16,10 @@
 #include "content/browser/service_worker/service_worker_metrics.h"
 #include "content/browser/service_worker/service_worker_registration.h"
 #include "content/browser/service_worker/service_worker_version.h"
-#include "content/common/service_worker/service_worker_utils.h"
 #include "content/public/browser/browser_context.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
+#include "services/network/public/cpp/is_potentially_trustworthy.h"
+#include "third_party/blink/public/common/service_worker/service_worker_scope_match.h"
 #include "third_party/blink/public/common/service_worker/service_worker_status_code.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_event_status.mojom.h"
 #include "url/gurl.h"
@@ -48,6 +49,11 @@ void CookieStoreManager::CreateService(
     mojo::PendingReceiver<blink::mojom::CookieStore> receiver,
     const url::Origin& origin) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  if (!network::IsOriginPotentiallyTrustworthy(origin)) {
+    mojo::ReportBadMessage("Cookie Store access from an insecure origin");
+    return;
+  }
 
   receivers_.Add(std::make_unique<CookieStoreHost>(this, origin),
                  std::move(receiver));
@@ -187,7 +193,7 @@ void CookieStoreManager::AddSubscriptions(
   }
 
   for (const auto& mojo_subscription : mojo_subscriptions) {
-    if (!ServiceWorkerUtils::ScopeMatches(service_worker_registration->scope(),
+    if (!blink::ServiceWorkerScopeMatches(service_worker_registration->scope(),
                                           mojo_subscription->url)) {
       // Blink should have validated subscription URLs against the service
       // worker registration scope. A mismatch here means that the renderer was
@@ -412,7 +418,8 @@ void CookieStoreManager::StoreSubscriptions(
       << "Failed to create cookie change subscriptions protobuf";
 
   service_worker_context_->StoreRegistrationUserData(
-      service_worker_registration_id, service_worker_origin,
+      service_worker_registration_id,
+      url::Origin::Create(service_worker_origin),
       std::vector<std::pair<std::string, std::string>>(
           {{registration_user_data_key_, subscriptions_data}}),
       base::BindOnce(
@@ -563,8 +570,8 @@ void CookieStoreManager::OnCookieChange(const net::CookieChangeInfo& change) {
            subscriptions.head();
        node != subscriptions.end(); node = node->next()) {
     const CookieChangeSubscription* subscription = node->value();
-    if (subscription->ShouldObserveChangeTo(change.cookie,
-                                            change.access_semantics)) {
+    if (subscription->ShouldObserveChangeTo(
+            change.cookie, change.access_result.access_semantics)) {
       interested_registration_ids.insert(
           subscription->service_worker_registration_id());
     }

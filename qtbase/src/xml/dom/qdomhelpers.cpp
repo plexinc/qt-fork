@@ -44,132 +44,10 @@
 #include "qdomhelpers_p.h"
 #include "qdom_p.h"
 #include "qxmlstream.h"
-#include "private/qxml_p.h"
+
+#include <stack>
 
 QT_BEGIN_NAMESPACE
-
-#if QT_DEPRECATED_SINCE(5, 15)
-
-/**************************************************************
- *
- * QDomHandler
- *
- **************************************************************/
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-QDomHandler::QDomHandler(QDomDocumentPrivate *adoc, QXmlSimpleReader *areader,
-                         bool namespaceProcessing)
-    : cdata(false), reader(areader), domBuilder(adoc, &locator, namespaceProcessing)
-{
-}
-
-QDomHandler::~QDomHandler() {}
-
-bool QDomHandler::endDocument()
-{
-    return domBuilder.endDocument();
-}
-
-bool QDomHandler::startDTD(const QString &name, const QString &publicId, const QString &systemId)
-{
-    return domBuilder.startDTD(name, publicId, systemId);
-}
-
-bool QDomHandler::startElement(const QString &nsURI, const QString &, const QString &qName,
-                               const QXmlAttributes &atts)
-{
-    return domBuilder.startElement(nsURI, qName, atts);
-}
-
-bool QDomHandler::endElement(const QString &, const QString &, const QString &)
-{
-    return domBuilder.endElement();
-}
-
-bool QDomHandler::characters(const QString &ch)
-{
-    return domBuilder.characters(ch, cdata);
-}
-
-bool QDomHandler::processingInstruction(const QString &target, const QString &data)
-{
-    return domBuilder.processingInstruction(target, data);
-}
-
-bool QDomHandler::skippedEntity(const QString &name)
-{
-    // we can only handle inserting entity references into content
-    if (reader && !reader->d_ptr->skipped_entity_in_content)
-        return true;
-
-    return domBuilder.skippedEntity(name);
-}
-
-bool QDomHandler::fatalError(const QXmlParseException &exception)
-{
-    domBuilder.errorMsg = exception.message();
-    domBuilder.errorLine = exception.lineNumber();
-    domBuilder.errorColumn = exception.columnNumber();
-    return QXmlDefaultHandler::fatalError(exception);
-}
-
-bool QDomHandler::startCDATA()
-{
-    cdata = true;
-    return true;
-}
-
-bool QDomHandler::endCDATA()
-{
-    cdata = false;
-    return true;
-}
-
-bool QDomHandler::startEntity(const QString &name)
-{
-    return domBuilder.startEntity(name);
-}
-
-bool QDomHandler::endEntity(const QString &)
-{
-    return domBuilder.endEntity();
-}
-
-bool QDomHandler::comment(const QString &ch)
-{
-    return domBuilder.comment(ch);
-}
-
-bool QDomHandler::unparsedEntityDecl(const QString &name, const QString &publicId,
-                                     const QString &systemId, const QString &notationName)
-{
-    return domBuilder.unparsedEntityDecl(name, publicId, systemId, notationName);
-}
-
-bool QDomHandler::externalEntityDecl(const QString &name, const QString &publicId,
-                                     const QString &systemId)
-{
-    return unparsedEntityDecl(name, publicId, systemId, QString());
-}
-
-bool QDomHandler::notationDecl(const QString &name, const QString &publicId,
-                               const QString &systemId)
-{
-    return domBuilder.notationDecl(name, publicId, systemId);
-}
-
-void QDomHandler::setDocumentLocator(QXmlLocator *locator)
-{
-    this->locator.setLocator(locator);
-}
-
-QDomBuilder::ErrorInfo QDomHandler::errorInfo() const
-{
-    return domBuilder.error();
-}
-QT_WARNING_POP
-
-#endif // QT_DEPRECATED_SINCE(5, 15)
 
 /**************************************************************
  *
@@ -188,36 +66,6 @@ int QDomDocumentLocator::line() const
     Q_ASSERT(reader);
     return static_cast<int>(reader->lineNumber());
 }
-
-#if QT_DEPRECATED_SINCE(5, 15)
-
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-
-void QSAXDocumentLocator::setLocator(QXmlLocator *l)
-{
-    locator = l;
-}
-
-int QSAXDocumentLocator::column() const
-{
-    if (!locator)
-        return 0;
-
-    return static_cast<int>(locator->columnNumber());
-}
-
-int QSAXDocumentLocator::line() const
-{
-    if (!locator)
-        return 0;
-
-    return static_cast<int>(locator->lineNumber());
-}
-
-QT_WARNING_POP
-
-#endif // QT_DEPRECATED_SINCE(5, 15)
 
 /**************************************************************
  *
@@ -253,53 +101,6 @@ bool QDomBuilder::startDTD(const QString &name, const QString &publicId, const Q
     return true;
 }
 
-#if QT_DEPRECATED_SINCE(5, 15)
-
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-bool QDomBuilder::startElement(const QString &nsURI, const QString &qName,
-                               const QXmlAttributes &atts)
-{
-    // tag name
-    QDomNodePrivate *n;
-    if (nsProcessing) {
-        n = doc->createElementNS(nsURI, qName);
-    } else {
-        n = doc->createElement(qName);
-    }
-
-    if (!n)
-        return false;
-
-    n->setLocation(locator->line(), locator->column());
-
-    node->appendChild(n);
-    node = n;
-
-    // attributes
-    for (int i = 0; i < atts.length(); i++) {
-        auto domElement = static_cast<QDomElementPrivate *>(node);
-        if (nsProcessing)
-            domElement->setAttributeNS(atts.uri(i), atts.qName(i), atts.value(i));
-        else
-            domElement->setAttribute(atts.qName(i), atts.value(i));
-    }
-
-    return true;
-}
-QT_WARNING_POP
-
-#endif // QT_DEPRECATED_SINCE(5, 15)
-
-inline QString stringRefToString(const QStringRef &stringRef)
-{
-    // Calling QStringRef::toString() on a NULL QStringRef in some cases returns
-    // an empty string (i.e. QString("")) instead of a NULL string (i.e. QString()).
-    // QDom implementation differentiates between NULL and empty strings, so
-    // we need this as workaround to keep the current behavior unchanged.
-    return stringRef.isNull() ? QString() : stringRef.toString();
-}
-
 bool QDomBuilder::startElement(const QString &nsURI, const QString &qName,
                                const QXmlStreamAttributes &atts)
 {
@@ -317,12 +118,12 @@ bool QDomBuilder::startElement(const QString &nsURI, const QString &qName,
     for (const auto &attr : atts) {
         auto domElement = static_cast<QDomElementPrivate *>(node);
         if (nsProcessing) {
-            domElement->setAttributeNS(stringRefToString(attr.namespaceUri()),
-                                       stringRefToString(attr.qualifiedName()),
-                                       stringRefToString(attr.value()));
+            domElement->setAttributeNS(attr.namespaceUri().toString(),
+                                       attr.qualifiedName().toString(),
+                                       attr.value().toString());
         } else {
-            domElement->setAttribute(stringRefToString(attr.qualifiedName()),
-                                     stringRefToString(attr.value()));
+            domElement->setAttribute(attr.qualifiedName().toString(),
+                                     attr.value().toString());
         }
     }
 
@@ -513,9 +314,9 @@ bool QDomParser::parseProlog()
             }
             foundDtd = true;
 
-            if (!domBuilder.startDTD(stringRefToString(reader->dtdName()),
-                                     stringRefToString(reader->dtdPublicId()),
-                                     stringRefToString(reader->dtdSystemId()))) {
+            if (!domBuilder.startDTD(reader->dtdName().toString(),
+                                     reader->dtdPublicId().toString(),
+                                     reader->dtdSystemId().toString())) {
                 domBuilder.fatalError(
                         QDomParser::tr("Error occurred while processing document type declaration"));
                 return false;
@@ -550,13 +351,13 @@ bool QDomParser::parseBody()
 {
     Q_ASSERT(reader);
 
-    std::stack<QStringRef> tagStack;
+    std::stack<QString> tagStack;
     while (!reader->atEnd() && !reader->hasError()) {
         switch (reader->tokenType()) {
         case QXmlStreamReader::StartElement:
-            tagStack.push(reader->qualifiedName());
-            if (!domBuilder.startElement(stringRefToString(reader->namespaceUri()),
-                                         stringRefToString(reader->qualifiedName()),
+            tagStack.push(reader->qualifiedName().toString());
+            if (!domBuilder.startElement(reader->namespaceUri().toString(),
+                                         reader->qualifiedName().toString(),
                                          reader->attributes())) {
                 domBuilder.fatalError(
                         QDomParser::tr("Error occurred while processing a start element"));
@@ -636,15 +437,15 @@ bool QDomParser::parseMarkupDecl()
 
     const auto entities = reader->entityDeclarations();
     for (const auto &entityDecl : entities) {
-        // Entity declarations are created only for Extrenal Entities. Internal Entities
+        // Entity declarations are created only for External Entities. Internal Entities
         // are parsed, and QXmlStreamReader handles the parsing itself and returns the
         // parsed result. So we don't need to do anything for the Internal Entities.
         if (!entityDecl.publicId().isEmpty() || !entityDecl.systemId().isEmpty()) {
             // External Entity
-            if (!domBuilder.unparsedEntityDecl(stringRefToString(entityDecl.name()),
-                                               stringRefToString(entityDecl.publicId()),
-                                               stringRefToString(entityDecl.systemId()),
-                                               stringRefToString(entityDecl.notationName()))) {
+            if (!domBuilder.unparsedEntityDecl(entityDecl.name().toString(),
+                                               entityDecl.publicId().toString(),
+                                               entityDecl.systemId().toString(),
+                                               entityDecl.notationName().toString())) {
                 domBuilder.fatalError(
                         QDomParser::tr("Error occurred while processing entity declaration"));
                 return false;
@@ -654,9 +455,9 @@ bool QDomParser::parseMarkupDecl()
 
     const auto notations = reader->notationDeclarations();
     for (const auto &notationDecl : notations) {
-        if (!domBuilder.notationDecl(stringRefToString(notationDecl.name()),
-                                     stringRefToString(notationDecl.publicId()),
-                                     stringRefToString(notationDecl.systemId()))) {
+        if (!domBuilder.notationDecl(notationDecl.name().toString(),
+                                     notationDecl.publicId().toString(),
+                                     notationDecl.systemId().toString())) {
             domBuilder.fatalError(
                     QDomParser::tr("Error occurred while processing notation declaration"));
             return false;

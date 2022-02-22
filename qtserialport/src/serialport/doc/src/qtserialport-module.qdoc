@@ -30,6 +30,7 @@
     \title Qt Serial Port C++ Classes
     \ingroup modules
     \qtvariable serialport
+    \qtcmakepackage SerialPort
     \brief List of C++ classes that enable access to a serial port.
 
     To use QSerialPort in your application, add the following include
@@ -45,10 +46,11 @@
     #include <QSerialPortInfo>
     \endcode
 
-    To link against the module, add this line to your \l qmake \c
-    .pro file:
+    To use the module with cmake, use the \c{find_package()} command to locate
+    the needed module components in the \c{Qt6} package:
+    \include qtserialport-module-use.qdocinc cmakebuild
 
-    \code
-    QT += serialport
-    \endcode
+    To use the module for building with qmake, add the module as a value of the
+    \c QT variable in the project's .pro file:
+    \include qtserialport-module-use.qdocinc qmakebuild
 */

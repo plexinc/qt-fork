@@ -65,24 +65,20 @@ class QBluetoothDeviceInfoPrivate
 public:
     QBluetoothDeviceInfoPrivate();
 
-    bool valid;
-    bool cached;
+    bool valid = false;
+    bool cached = false;
+    qint16 rssi = 1;
+    quint8 minorDeviceClass = 0;
 
     QBluetoothAddress address;
     QString name;
+    QBluetoothDeviceInfo::MajorDeviceClass majorDeviceClass = QBluetoothDeviceInfo::MiscellaneousDevice;
 
-    qint16 rssi;
+    QBluetoothDeviceInfo::ServiceClasses serviceClasses = QBluetoothDeviceInfo::NoService;
 
-    QBluetoothDeviceInfo::ServiceClasses serviceClasses;
-    QBluetoothDeviceInfo::MajorDeviceClass majorDeviceClass;
-    quint8 minorDeviceClass;
-
-#if QT_DEPRECATED_SINCE(5, 13)
-    QBluetoothDeviceInfo::DataCompleteness serviceUuidsCompleteness;
-#endif
-    QVector<QBluetoothUuid> serviceUuids;
+    QList<QBluetoothUuid> serviceUuids;
     QMultiHash<quint16, QByteArray> manufacturerData;
-    QBluetoothDeviceInfo::CoreConfigurations deviceCoreConfiguration;
+    QBluetoothDeviceInfo::CoreConfigurations deviceCoreConfiguration = QBluetoothDeviceInfo::UnknownCoreConfiguration;
 
     QBluetoothUuid deviceUuid;
 };

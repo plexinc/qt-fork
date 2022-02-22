@@ -176,20 +176,6 @@ String FillTypeName(SkPathFillType type) {
   };
 }
 
-String ConvexityName(SkPathConvexityType convexity) {
-  switch (convexity) {
-    case SkPathConvexityType::kUnknown:
-      return "Unknown";
-    case SkPathConvexityType::kConvex:
-      return "Convex";
-    case SkPathConvexityType::kConcave:
-      return "Concave";
-    default:
-      NOTREACHED();
-      return "?";
-  };
-}
-
 VerbParams SegmentParams(SkPath::Verb verb) {
   switch (verb) {
     case SkPath::kMove_Verb:
@@ -215,9 +201,9 @@ VerbParams SegmentParams(SkPath::Verb verb) {
 std::unique_ptr<JSONObject> ObjectForSkPath(const SkPath& path) {
   auto path_item = std::make_unique<JSONObject>();
   path_item->SetString("fillType", FillTypeName(path.getFillType()));
-  path_item->SetString("convexity", ConvexityName(path.getConvexityType()));
+  path_item->SetBoolean("convex", path.isConvex());
   path_item->SetBoolean("isRect", path.isRect(nullptr));
-  SkPath::Iter iter(path, false);
+  SkPath::RawIter iter(path);
   SkPoint points[4];
   auto path_points_array = std::make_unique<JSONArray>();
   for (SkPath::Verb verb = iter.next(points); verb != SkPath::kDone_Verb;
@@ -246,13 +232,6 @@ std::unique_ptr<JSONObject> ObjectForSkImage(const SkImage* image) {
   image_item->SetBoolean("opaque", image->isOpaque());
   image_item->SetInteger("uniqueID", image->uniqueID());
   return image_item;
-}
-
-std::unique_ptr<JSONArray> ArrayForSkMatrix(const SkMatrix& matrix) {
-  auto matrix_array = std::make_unique<JSONArray>();
-  for (int i = 0; i < 9; ++i)
-    matrix_array->PushDouble(matrix[i]);
-  return matrix_array;
 }
 
 std::unique_ptr<JSONArray> ArrayForSkScalars(size_t count,
@@ -341,8 +320,6 @@ String StyleName(SkPaint::Style style) {
       return "Fill";
     case SkPaint::kStroke_Style:
       return "Stroke";
-    case SkPaint::kStrokeAndFill_Style:
-      return "StrokeAndFill";
     default:
       NOTREACHED();
       return "?";
@@ -468,10 +445,11 @@ void LoggingCanvas::onDrawPath(const SkPath& path, const SkPaint& paint) {
   this->SkCanvas::onDrawPath(path, paint);
 }
 
-void LoggingCanvas::onDrawImage(const SkImage* image,
-                                SkScalar left,
-                                SkScalar top,
-                                const SkPaint* paint) {
+void LoggingCanvas::onDrawImage2(const SkImage* image,
+                                 SkScalar left,
+                                 SkScalar top,
+                                 const SkSamplingOptions& sampling,
+                                 const SkPaint* paint) {
   AutoLogger logger(this);
   JSONObject* params = logger.LogItemWithParams("drawImage");
   params->SetDouble("left", left);
@@ -479,23 +457,24 @@ void LoggingCanvas::onDrawImage(const SkImage* image,
   params->SetObject("image", ObjectForSkImage(image));
   if (paint)
     params->SetObject("paint", ObjectForSkPaint(*paint));
-  this->SkCanvas::onDrawImage(image, left, top, paint);
+  this->SkCanvas::onDrawImage2(image, left, top, sampling, paint);
 }
 
-void LoggingCanvas::onDrawImageRect(const SkImage* image,
-                                    const SkRect* src,
-                                    const SkRect& dst,
-                                    const SkPaint* paint,
-                                    SrcRectConstraint constraint) {
+void LoggingCanvas::onDrawImageRect2(const SkImage* image,
+                                     const SkRect& src,
+                                     const SkRect& dst,
+                                     const SkSamplingOptions& sampling,
+                                     const SkPaint* paint,
+                                     SrcRectConstraint constraint) {
   AutoLogger logger(this);
   JSONObject* params = logger.LogItemWithParams("drawImageRect");
   params->SetObject("image", ObjectForSkImage(image));
-  if (src)
-    params->SetObject("src", ObjectForSkRect(*src));
+  params->SetObject("src", ObjectForSkRect(src));
   params->SetObject("dst", ObjectForSkRect(dst));
   if (paint)
     params->SetObject("paint", ObjectForSkPaint(*paint));
-  this->SkCanvas::onDrawImageRect(image, src, dst, paint, constraint);
+  this->SkCanvas::onDrawImageRect2(image, src, dst, sampling, paint,
+                                   constraint);
 }
 
 void LoggingCanvas::onDrawVerticesObject(const SkVertices* vertices,
@@ -576,39 +555,20 @@ void LoggingCanvas::onDrawPicture(const SkPicture* picture,
   this->UnrollDrawPicture(picture, matrix, paint, nullptr);
 }
 
-void LoggingCanvas::didSetMatrix(const SkMatrix& matrix) {
+void LoggingCanvas::didSetM44(const SkM44& matrix) {
+  SkScalar m[16];
+  matrix.getColMajor(m);
   AutoLogger logger(this);
   JSONObject* params = logger.LogItemWithParams("setMatrix");
-  params->SetArray("matrix", ArrayForSkMatrix(matrix));
-}
-
-void LoggingCanvas::didConcat44(const SkScalar m[16]) {
-  AutoLogger logger(this);
-  JSONObject* params = logger.LogItemWithParams("concat44");
   params->SetArray("matrix44", ArrayForSkScalars(16, m));
 }
 
-void LoggingCanvas::didConcat(const SkMatrix& matrix) {
+void LoggingCanvas::didConcat44(const SkM44& matrix) {
+  SkScalar m[16];
+  matrix.getColMajor(m);
   AutoLogger logger(this);
-  JSONObject* params;
-
-  switch (matrix.getType()) {
-    case SkMatrix::kTranslate_Mask:
-      params = logger.LogItemWithParams("translate");
-      params->SetDouble("dx", matrix.getTranslateX());
-      params->SetDouble("dy", matrix.getTranslateY());
-      break;
-
-    case SkMatrix::kScale_Mask:
-      params = logger.LogItemWithParams("scale");
-      params->SetDouble("scaleX", matrix.getScaleX());
-      params->SetDouble("scaleY", matrix.getScaleY());
-      break;
-
-    default:
-      params = logger.LogItemWithParams("concat");
-      params->SetArray("matrix", ArrayForSkMatrix(matrix));
-  }
+  JSONObject* params = logger.LogItemWithParams("concat44");
+  params->SetArray("matrix44", ArrayForSkScalars(16, m));
 }
 
 void LoggingCanvas::didScale(SkScalar x, SkScalar y) {

@@ -1,7 +1,7 @@
 /****************************************************************************
 **
 ** Copyright (C) 2014 BogDan Vatra <bogdan@kde.org>
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the plugins of the Qt Toolkit.
@@ -40,30 +40,31 @@
 
 #include <dlfcn.h>
 #include <pthread.h>
-#include <semaphore.h>
 #include <qplugin.h>
-#include <qdebug.h>
+#include <semaphore.h>
 
-#include "androidjnimain.h"
-#include "androidjniaccessibility.h"
-#include "androidjniinput.h"
-#include "androidjniclipboard.h"
-#include "androidjnimenu.h"
 #include "androidcontentfileengine.h"
 #include "androiddeadlockprotector.h"
+#include "androidjniaccessibility.h"
+#include "androidjniclipboard.h"
+#include "androidjniinput.h"
+#include "androidjnimain.h"
+#include "androidjnimenu.h"
+#include "qandroidassetsfileenginehandler.h"
+#include "qandroideventdispatcher.h"
 #include "qandroidplatformdialoghelpers.h"
 #include "qandroidplatformintegration.h"
-#include "qandroidassetsfileenginehandler.h"
 
-#include <android/bitmap.h>
-#include <android/asset_manager_jni.h>
-#include "qandroideventdispatcher.h"
 #include <android/api-level.h>
+#include <android/asset_manager_jni.h>
+#include <android/bitmap.h>
 
+#include <QtCore/private/qjnihelpers_p.h>
+#include <QtCore/qbasicatomic.h>
+#include <QtCore/qjnienvironment.h>
+#include <QtCore/qjniobject.h>
 #include <QtCore/qresource.h>
 #include <QtCore/qthread.h>
-#include <QtCore/private/qjnihelpers_p.h>
-#include <QtCore/private/qjni_p.h>
 #include <QtGui/private/qguiapplication_p.h>
 #include <QtGui/private/qhighdpiscaling_p.h>
 
@@ -92,8 +93,6 @@ static jmethodID m_createBitmapMethodID = nullptr;
 static jobject m_ARGB_8888_BitmapConfigValue = nullptr;
 static jobject m_RGB_565_BitmapConfigValue = nullptr;
 
-static bool m_statusBarShowing = true;
-
 static jclass m_bitmapDrawableClass = nullptr;
 static jmethodID m_bitmapDrawableConstructorMethodID = nullptr;
 
@@ -106,13 +105,12 @@ static sem_t m_exitSemaphore, m_terminateSemaphore;
 QHash<int, AndroidSurfaceClient *> m_surfaces;
 
 static QBasicMutex m_surfacesMutex;
-static int m_surfaceId = 1;
 
 
 static QAndroidPlatformIntegration *m_androidPlatformIntegration = nullptr;
 
-static int m_desktopWidthPixels  = 0;
-static int m_desktopHeightPixels = 0;
+static int m_availableWidthPixels  = 0;
+static int m_availableHeightPixels = 0;
 static double m_scaledDensity = 0;
 static double m_density = 1.0;
 
@@ -124,6 +122,8 @@ static AndroidContentFileEngineHandler *m_androidContentFileEngineHandler = null
 static const char m_qtTag[] = "Qt";
 static const char m_classErrorMsg[] = "Can't find class \"%s\"";
 static const char m_methodErrorMsg[] = "Can't find method \"%s%s\"";
+
+static QBasicAtomicInt startQtAndroidPluginCalled = Q_BASIC_ATOMIC_INITIALIZER(0);
 
 namespace QtAndroid
 {
@@ -137,8 +137,13 @@ namespace QtAndroid
         m_androidPlatformIntegration = androidPlatformIntegration;
 
         // flush the pending state if necessary.
-        if (m_androidPlatformIntegration && (m_pendingApplicationState != -1))
+        if (m_androidPlatformIntegration && (m_pendingApplicationState != -1)) {
+            if (m_pendingApplicationState == Qt::ApplicationActive)
+                QtAndroidPrivate::handleResume();
+            else if (m_pendingApplicationState == Qt::ApplicationInactive)
+                QtAndroidPrivate::handlePause();
             QWindowSystemInterface::handleApplicationStateChanged(Qt::ApplicationState(m_pendingApplicationState));
+        }
 
         m_pendingApplicationState = -1;
     }
@@ -155,14 +160,14 @@ namespace QtAndroid
                : 0;
     }
 
-    int desktopWidthPixels()
+    int availableWidthPixels()
     {
-        return m_desktopWidthPixels;
+        return m_availableWidthPixels;
     }
 
-    int desktopHeightPixels()
+    int availableHeightPixels()
     {
-        return m_desktopHeightPixels;
+        return m_availableHeightPixels;
     }
 
     double scaledDensity()
@@ -200,22 +205,29 @@ namespace QtAndroid
         return m_serviceObject;
     }
 
-    void showStatusBar()
+    void setSystemUiVisibility(SystemUiVisibility uiVisibility)
     {
-        if (m_statusBarShowing)
-            return;
-
-        QJNIObjectPrivate::callStaticMethod<void>(m_applicationClass, "setFullScreen", "(Z)V", false);
-        m_statusBarShowing = true;
+        QJniObject::callStaticMethod<void>(m_applicationClass, "setSystemUiVisibility", "(I)V", jint(uiVisibility));
     }
 
-    void hideStatusBar()
+    void notifyAccessibilityLocationChange()
     {
-        if (!m_statusBarShowing)
-            return;
+        QJniObject::callStaticMethod<void>(m_applicationClass, "notifyAccessibilityLocationChange");
+    }
 
-        QJNIObjectPrivate::callStaticMethod<void>(m_applicationClass, "setFullScreen", "(Z)V", true);
-        m_statusBarShowing = false;
+    void notifyObjectHide(uint accessibilityObjectId)
+    {
+        QJniObject::callStaticMethod<void>(m_applicationClass, "notifyObjectHide","(I)V", accessibilityObjectId);
+    }
+
+    void notifyObjectFocus(uint accessibilityObjectId)
+    {
+        QJniObject::callStaticMethod<void>(m_applicationClass, "notifyObjectFocus","(I)V", accessibilityObjectId);
+    }
+
+    void notifyQtAndroidPluginRunning(bool running)
+    {
+        QJniObject::callStaticMethod<void>(m_applicationClass, "notifyQtAndroidPluginRunning","(Z)V", running);
     }
 
     jobject createBitmap(QImage img, JNIEnv *env)
@@ -306,20 +318,25 @@ namespace QtAndroid
 
     QString deviceName()
     {
-        QString manufacturer = QJNIObjectPrivate::getStaticObjectField("android/os/Build", "MANUFACTURER", "Ljava/lang/String;").toString();
-        QString model = QJNIObjectPrivate::getStaticObjectField("android/os/Build", "MODEL", "Ljava/lang/String;").toString();
+        QString manufacturer = QJniObject::getStaticObjectField("android/os/Build", "MANUFACTURER", "Ljava/lang/String;").toString();
+        QString model = QJniObject::getStaticObjectField("android/os/Build", "MODEL", "Ljava/lang/String;").toString();
 
         return manufacturer + QLatin1Char(' ') + model;
     }
 
+    jint generateViewId()
+    {
+        return QJniObject::callStaticMethod<jint>("android/view/View", "generateViewId", "()I");
+    }
+
     int createSurface(AndroidSurfaceClient *client, const QRect &geometry, bool onTop, int imageDepth)
     {
-        QJNIEnvironmentPrivate env;
-        if (!env)
+        QJniEnvironment env;
+        if (!env.jniEnv())
             return -1;
 
         m_surfacesMutex.lock();
-        int surfaceId = m_surfaceId++;
+        jint surfaceId = generateViewId();
         m_surfaces[surfaceId] = client;
         m_surfacesMutex.unlock();
 
@@ -342,7 +359,7 @@ namespace QtAndroid
     int insertNativeView(jobject view, const QRect &geometry)
     {
         m_surfacesMutex.lock();
-        const int surfaceId = m_surfaceId++;
+        jint surfaceId = generateViewId();
         m_surfaces[surfaceId] = nullptr; // dummy
         m_surfacesMutex.unlock();
 
@@ -350,26 +367,26 @@ namespace QtAndroid
         if (!geometry.isNull())
             geometry.getRect(&x, &y, &w, &h);
 
-        QJNIObjectPrivate::callStaticMethod<void>(m_applicationClass,
-                                                  "insertNativeView",
-                                                  "(ILandroid/view/View;IIII)V",
-                                                  surfaceId,
-                                                  view,
-                                                  x,
-                                                  y,
-                                                  qMax(w, 1),
-                                                  qMax(h, 1));
+        QJniObject::callStaticMethod<void>(m_applicationClass,
+                                           "insertNativeView",
+                                           "(ILandroid/view/View;IIII)V",
+                                           surfaceId,
+                                           view,
+                                           x,
+                                           y,
+                                           qMax(w, 1),
+                                           qMax(h, 1));
 
         return surfaceId;
     }
 
     void setViewVisibility(jobject view, bool visible)
     {
-        QJNIObjectPrivate::callStaticMethod<void>(m_applicationClass,
-                                                  "setViewVisibility",
-                                                  "(Landroid/view/View;Z)V",
-                                                  view,
-                                                  visible);
+        QJniObject::callStaticMethod<void>(m_applicationClass,
+                                           "setViewVisibility",
+                                           "(Landroid/view/View;Z)V",
+                                           view,
+                                           visible);
     }
 
     void setSurfaceGeometry(int surfaceId, const QRect &geometry)
@@ -377,8 +394,8 @@ namespace QtAndroid
         if (surfaceId == -1)
             return;
 
-        QJNIEnvironmentPrivate env;
-        if (!env)
+        QJniEnvironment env;
+        if (!env.jniEnv())
             return;
         jint x = 0, y = 0, w = -1, h = -1;
         if (!geometry.isNull()) {
@@ -388,9 +405,9 @@ namespace QtAndroid
             h = geometry.height();
         }
         env->CallStaticVoidMethod(m_applicationClass,
-                                     m_setSurfaceGeometryMethodID,
-                                     surfaceId,
-                                     x, y, w, h);
+                                  m_setSurfaceGeometryMethodID,
+                                  surfaceId,
+                                  x, y, w, h);
     }
 
 
@@ -406,11 +423,11 @@ namespace QtAndroid
                 m_surfaces.erase(it);
         }
 
-        QJNIEnvironmentPrivate env;
-        if (env)
+        QJniEnvironment env;
+        if (env.jniEnv())
             env->CallStaticVoidMethod(m_applicationClass,
-                                     m_destroySurfaceMethodID,
-                                     surfaceId);
+                                      m_destroySurfaceMethodID,
+                                      surfaceId);
     }
 
     void bringChildToFront(int surfaceId)
@@ -418,10 +435,10 @@ namespace QtAndroid
         if (surfaceId == -1)
             return;
 
-        QJNIObjectPrivate::callStaticMethod<void>(m_applicationClass,
-                                                  "bringChildToFront",
-                                                  "(I)V",
-                                                  surfaceId);
+        QJniObject::callStaticMethod<void>(m_applicationClass,
+                                           "bringChildToFront",
+                                           "(I)V",
+                                           surfaceId);
     }
 
     void bringChildToBack(int surfaceId)
@@ -429,10 +446,10 @@ namespace QtAndroid
         if (surfaceId == -1)
             return;
 
-        QJNIObjectPrivate::callStaticMethod<void>(m_applicationClass,
-                                                  "bringChildToBack",
-                                                  "(I)V",
-                                                  surfaceId);
+        QJniObject::callStaticMethod<void>(m_applicationClass,
+                                           "bringChildToBack",
+                                           "(I)V",
+                                           surfaceId);
     }
 
     bool blockEventLoopsWhenSuspended()
@@ -469,7 +486,8 @@ static jboolean startQtAndroidPlugin(JNIEnv *env, jobject /*object*/, jstring pa
     QByteArray string = nativeString;
     env->ReleaseStringUTFChars(paramsString, nativeString);
 
-    m_applicationParams=string.split('\t');
+    for (auto str : string.split('\t'))
+        m_applicationParams.append(str.split(' '));
 
     // Go home
     QDir::setCurrent(QDir::homePath());
@@ -513,7 +531,7 @@ static void waitForServiceSetup(JNIEnv *env, jclass /*clazz*/)
         QtAndroidPrivate::waitForServiceSetup();
 }
 
-static jboolean startQtApplication(JNIEnv */*env*/, jclass /*clazz*/)
+static void startQtApplication(JNIEnv */*env*/, jclass /*clazz*/)
 {
     {
         JNIEnv* env = nullptr;
@@ -521,8 +539,8 @@ static jboolean startQtApplication(JNIEnv */*env*/, jclass /*clazz*/)
         args.version = JNI_VERSION_1_6;
         args.name = "QtMainThread";
         args.group = NULL;
-        JavaVM *vm = QtAndroidPrivate::javaVM();
-        if (vm != 0)
+        JavaVM *vm = QJniEnvironment::javaVM();
+        if (vm)
             vm->AttachCurrentThread(&env, &args);
     }
 
@@ -534,6 +552,7 @@ static jboolean startQtApplication(JNIEnv */*env*/, jclass /*clazz*/)
     for (int i = 0; i < m_applicationParams.size(); i++)
         params[i] = static_cast<const char *>(m_applicationParams[i].constData());
 
+    startQtAndroidPluginCalled.fetchAndAddRelease(1);
     int ret = m_main(m_applicationParams.length(), const_cast<char **>(params.data()));
 
     if (m_mainLibraryHnd) {
@@ -544,7 +563,7 @@ static jboolean startQtApplication(JNIEnv */*env*/, jclass /*clazz*/)
 
     if (m_applicationClass) {
         qWarning("exit app 0");
-        QJNIObjectPrivate::callStaticMethod<void>(m_applicationClass, "quitApp", "()V");
+        QJniObject::callStaticMethod<void>(m_applicationClass, "quitApp", "()V");
     }
 
     sem_post(&m_terminateSemaphore);
@@ -552,7 +571,8 @@ static jboolean startQtApplication(JNIEnv */*env*/, jclass /*clazz*/)
     sem_destroy(&m_exitSemaphore);
 
     // We must call exit() to ensure that all global objects will be destructed
-    exit(ret);
+    if (!qEnvironmentVariableIsSet("QT_ANDROID_NO_EXIT_CALL"))
+        exit(ret);
 }
 
 static void quitQtCoreApplication(JNIEnv *env, jclass /*clazz*/)
@@ -580,7 +600,9 @@ static void terminateQt(JNIEnv *env, jclass /*clazz*/)
         QAndroidEventDispatcherStopper::instance()->goingToStop(false);
     }
 
-    sem_wait(&m_terminateSemaphore);
+    if (startQtAndroidPluginCalled.loadAcquire())
+        sem_wait(&m_terminateSemaphore);
+
     sem_destroy(&m_terminateSemaphore);
 
     env->DeleteGlobalRef(m_applicationClass);
@@ -620,35 +642,33 @@ static void setSurface(JNIEnv *env, jobject /*thiz*/, jint id, jobject jSurface,
 }
 
 static void setDisplayMetrics(JNIEnv */*env*/, jclass /*clazz*/,
-                            jint widthPixels, jint heightPixels,
-                            jint desktopWidthPixels, jint desktopHeightPixels,
+                            jint screenWidthPixels, jint screenHeightPixels,
+                            jint availableLeftPixels, jint availableTopPixels,
+                            jint availableWidthPixels, jint availableHeightPixels,
                             jdouble xdpi, jdouble ydpi,
                             jdouble scaledDensity, jdouble density)
 {
-    // Android does not give us the correct screen size for immersive mode, but
-    // the surface does have the right size
-
-    widthPixels = qMax(widthPixels, desktopWidthPixels);
-    heightPixels = qMax(heightPixels, desktopHeightPixels);
-
-    m_desktopWidthPixels = desktopWidthPixels;
-    m_desktopHeightPixels = desktopHeightPixels;
+    m_availableWidthPixels = availableWidthPixels;
+    m_availableHeightPixels = availableHeightPixels;
     m_scaledDensity = scaledDensity;
     m_density = density;
 
     QMutexLocker lock(&m_platformMutex);
     if (!m_androidPlatformIntegration) {
-        QAndroidPlatformIntegration::setDefaultDisplayMetrics(desktopWidthPixels,
-                                                              desktopHeightPixels,
-                                                              qRound(double(widthPixels)  / xdpi * 25.4),
-                                                              qRound(double(heightPixels) / ydpi * 25.4),
-                                                              widthPixels,
-                                                              heightPixels);
+        QAndroidPlatformIntegration::setDefaultDisplayMetrics(availableLeftPixels,
+                                                              availableTopPixels,
+                                                              availableWidthPixels,
+                                                              availableHeightPixels,
+                                                              qRound(double(screenWidthPixels)  / xdpi * 25.4),
+                                                              qRound(double(screenHeightPixels) / ydpi * 25.4),
+                                                              screenWidthPixels,
+                                                              screenHeightPixels);
     } else {
-        m_androidPlatformIntegration->setDisplayMetrics(qRound(double(widthPixels)  / xdpi * 25.4),
-                                                        qRound(double(heightPixels) / ydpi * 25.4));
-        m_androidPlatformIntegration->setScreenSize(widthPixels, heightPixels);
-        m_androidPlatformIntegration->setDesktopSize(desktopWidthPixels, desktopHeightPixels);
+        m_androidPlatformIntegration->setPhysicalSize(qRound(double(screenWidthPixels)  / xdpi * 25.4),
+                                                      qRound(double(screenHeightPixels) / ydpi * 25.4));
+        m_androidPlatformIntegration->setScreenSize(screenWidthPixels, screenHeightPixels);
+        m_androidPlatformIntegration->setAvailableGeometry(QRect(availableLeftPixels, availableTopPixels,
+                                                                 availableWidthPixels, availableHeightPixels));
     }
 }
 
@@ -774,7 +794,7 @@ static JNINativeMethod methods[] = {
     {"quitQtCoreApplication", "()V", (void *)quitQtCoreApplication},
     {"terminateQt", "()V", (void *)terminateQt},
     {"waitForServiceSetup", "()V", (void *)waitForServiceSetup},
-    {"setDisplayMetrics", "(IIIIDDDD)V", (void *)setDisplayMetrics},
+    {"setDisplayMetrics", "(IIIIIIDDDD)V", (void *)setDisplayMetrics},
     {"setSurface", "(ILjava/lang/Object;II)V", (void *)setSurface},
     {"updateWindow", "()V", (void *)updateWindow},
     {"updateApplicationState", "(I)V", (void *)updateApplicationState},
@@ -822,7 +842,7 @@ if (!VAR) { \
 static int registerNatives(JNIEnv *env)
 {
     jclass clazz;
-    FIND_AND_CHECK_CLASS("org/qtproject/qt5/android/QtNative");
+    FIND_AND_CHECK_CLASS("org/qtproject/qt/android/QtNative");
     m_applicationClass = static_cast<jclass>(env->NewGlobalRef(clazz));
 
     if (env->RegisterNatives(m_applicationClass, methods, sizeof(methods) / sizeof(methods[0])) < 0) {

@@ -56,11 +56,13 @@ class Q_QML_EXPORT QQmlFileSelector : public QObject
 public:
     explicit QQmlFileSelector(QQmlEngine *engine, QObject *parent = nullptr);
     ~QQmlFileSelector() override;
-    QFileSelector *selector() const Q_DECL_NOTHROW;
+    QFileSelector *selector() const noexcept;
     void setSelector(QFileSelector *selector);
-    void setExtraSelectors(QStringList &strings); // TODO Qt6: remove
     void setExtraSelectors(const QStringList &strings);
-    static QQmlFileSelector* get(QQmlEngine*);
+
+#if QT_DEPRECATED_SINCE(6, 0)
+    QT_DEPRECATED static QQmlFileSelector *get(QQmlEngine*);
+#endif
 
 private:
     Q_DISABLE_COPY(QQmlFileSelector)

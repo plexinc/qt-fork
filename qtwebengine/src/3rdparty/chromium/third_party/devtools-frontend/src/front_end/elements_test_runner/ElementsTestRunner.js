@@ -4,8 +4,8 @@
 
 /**
  * @fileoverview using private properties isn't a Closure violation in tests.
- * @suppress {accessControls}
  */
+self.ElementsTestRunner = self.ElementsTestRunner || {};
 
 /**
  * @param {string} idValue
@@ -104,6 +104,22 @@ ElementsTestRunner.findNodePromise = function(matchFunction) {
   return new Promise(resolve => ElementsTestRunner.findNode(matchFunction, resolve));
 };
 
+
+/**
+ * @param {!UI.TreeOutline.TreeElement} treeElement
+ */
+function dumpObjectPropertyTreeElement(treeElement) {
+  const expandedSubstring = treeElement.expanded ? '[expanded]' : '[collapsed]';
+  TestRunner.addResult(expandedSubstring + ' ' + treeElement.listItemElement.deepTextContent());
+
+  for (const child of treeElement.children()) {
+    const property = /** @type {!ObjectUI.ObjectPropertiesSection.ObjectPropertyTreeElement} */ (child).property;
+    const key = property.name;
+    const value = /** @type {!SDK.RemoteObject.RemoteObjectImpl} */ (property.value)._description;
+    TestRunner.addResult('    ' + key + ': ' + value);
+  }
+}
+
 /**
  * @param {!EventListeners.EventListenersView} eventListenersView
  * @param {function():void} callback
@@ -134,7 +150,7 @@ ElementsTestRunner.expandAndDumpEventListeners = function(eventListenersView, ca
       const listenerItems = listenerTypes[i].children();
       for (let j = 0; j < listenerItems.length; ++j) {
         TestRunner.addResult('== ' + listenerItems[j].eventListener().origin());
-        TestRunner.dumpObjectPropertyTreeElement(listenerItems[j]);
+        dumpObjectPropertyTreeElement(listenerItems[j]);
       }
     }
     callback();
@@ -171,33 +187,31 @@ ElementsTestRunner.dumpComputedStyle = async function(doNotAutoExpand, printInne
   const children = treeOutline.rootElement().children();
 
   for (const treeElement of children) {
-    const property = treeElement[Elements.ComputedStyleWidget._propertySymbol];
-
-    if (property.name === 'width' || property.name === 'height') {
+    const property = computed._propertyByTreeElement.get(treeElement);
+    if (!property || property.name === 'width' || property.name === 'height') {
       continue;
     }
 
-    let dumpText = '';
-    dumpText += text(treeElement.title.querySelector('.property-name'));
-    dumpText += text(treeElement.title.querySelector('.property-value'));
-    TestRunner.addResult(dumpText);
+    const propertyName = text(treeElement.title.querySelector('.webkit-css-property'));
+    const propertyValue = text(treeElement.title.querySelector('.value'));
+    TestRunner.addResult(`${propertyName}: ${propertyValue};`);
 
     if (doNotAutoExpand && !treeElement.expanded) {
       continue;
     }
 
-    for (const trace of treeElement.children()) {
-      const title = trace.title;
+    for (const traceTreeElement of treeElement.children()) {
+      const trace = traceTreeElement.title;
       let dumpText = '';
 
-      if (trace.title.classList.contains('property-trace-inactive')) {
+      if (trace.shadowRoot.querySelector('.computed-style-trace.inactive')) {
         dumpText += 'OVERLOADED ';
       }
 
-      dumpText += text(title.querySelector('.property-trace-value'));
+      dumpText += text(trace.querySelector('.value'));
       dumpText += ' - ';
-      dumpText += text(title.querySelector('.property-trace-selector'));
-      const link = title.querySelector('.trace-link');
+      dumpText += text(trace.shadowRoot.querySelector('.trace-selector'));
+      const link = trace.querySelector('[slot="trace-link"]');
 
       if (link) {
         dumpText += ' ' + await extractLinkText(link);
@@ -218,8 +232,10 @@ ElementsTestRunner.findComputedPropertyWithName = function(name) {
   const children = treeOutline.rootElement().children();
 
   for (const treeElement of children) {
-    const property = treeElement[Elements.ComputedStyleWidget._propertySymbol];
-
+    const property = computed._propertyByTreeElement.get(treeElement);
+    if (!property) {
+      continue;
+    }
     if (property.name === name) {
       return treeElement;
     }
@@ -261,11 +277,13 @@ ElementsTestRunner.nodeWithClass = function(classValue, callback) {
 
 ElementsTestRunner.expandedNodeWithId = function(idValue) {
   let result;
-  ElementsTestRunner.nodeWithId(idValue, node => result = node);
+  ElementsTestRunner.nodeWithId(idValue, node => {
+    result = node;
+  });
   return result;
 };
 
-function waitForStylesRebuild(matchFunction, callback, requireRebuild) {
+globalThis.waitForStylesRebuild = function(matchFunction, callback, requireRebuild) {
   (function sniff(node, rebuild) {
     if ((rebuild || !requireRebuild) && node && matchFunction(node)) {
       callback();
@@ -274,7 +292,7 @@ function waitForStylesRebuild(matchFunction, callback, requireRebuild) {
 
     TestRunner.addSniffer(Elements.StylesSidebarPane.prototype, '_nodeStylesUpdatedForTest', sniff);
   })(null);
-}
+};
 
 ElementsTestRunner.waitForStyles = function(idValue, callback, requireRebuild) {
   callback = TestRunner.safeWrap(callback);
@@ -283,7 +301,7 @@ ElementsTestRunner.waitForStyles = function(idValue, callback, requireRebuild) {
     return node.getAttribute('id') === idValue;
   }
 
-  waitForStylesRebuild(nodeWithId, callback, requireRebuild);
+  globalThis.waitForStylesRebuild(nodeWithId, callback, requireRebuild);
 };
 
 ElementsTestRunner.waitForStyleCommitted = function(next) {
@@ -300,7 +318,7 @@ ElementsTestRunner.waitForStylesForClass = function(classValue, callback, requir
     return classAttr && classAttr.indexOf(classValue) > -1;
   }
 
-  waitForStylesRebuild(nodeWithClass, callback, requireRebuild);
+  globalThis.waitForStylesRebuild(nodeWithClass, callback, requireRebuild);
 };
 
 ElementsTestRunner.waitForSelectorCommitted = function(callback) {
@@ -341,7 +359,7 @@ ElementsTestRunner.selectNodeAndWaitForStylesPromise = function(idValue) {
 ElementsTestRunner.selectPseudoElementAndWaitForStyles = function(parentId, pseudoType, callback) {
   callback = TestRunner.safeWrap(callback);
   let targetNode;
-  waitForStylesRebuild(isPseudoElement, stylesUpdated, true);
+  globalThis.waitForStylesRebuild(isPseudoElement, stylesUpdated, true);
   ElementsTestRunner.findNode(isPseudoElement, nodeFound);
 
   function nodeFound(node) {
@@ -362,8 +380,8 @@ ElementsTestRunner.selectNodeAndWaitForStylesWithComputed = function(idValue, ca
   callback = TestRunner.safeWrap(callback);
   ElementsTestRunner.selectNodeAndWaitForStyles(idValue, onSidebarRendered);
 
-  function onSidebarRendered(node) {
-    ElementsTestRunner.computedStyleWidget().doUpdate().then(callback.bind(null, node));
+  async function onSidebarRendered(node) {
+    await ElementsTestRunner.computedStyleWidget().doUpdate().then(callback.bind(null, node));
   }
 };
 
@@ -440,8 +458,8 @@ ElementsTestRunner.dumpRenderedMatchedStyles = function() {
   }
 };
 
-ElementsTestRunner.dumpSelectedElementStyles = async function(
-    excludeComputed, excludeMatched, omitLonghands, includeSelectorGroupMarks, printInnerText) {
+ElementsTestRunner.dumpSelectedElementStyles =
+    async function(excludeComputed, excludeMatched, omitLonghands, includeSelectorGroupMarks, printInnerText) {
   const sectionBlocks = UI.panels.elements._stylesWidget._sectionBlocks;
 
   if (!excludeComputed) {
@@ -520,7 +538,7 @@ async function extractLinkText(element) {
   }
 
   const anchorText = anchor.textContent;
-  const info = Components.Linkifier._linkInfo(anchor);
+  const info = Components.Linkifier.linkInfo(anchor);
   const uiLocation = info && info.uiLocation;
   const anchorTarget =
       (uiLocation ?
@@ -718,7 +736,7 @@ ElementsTestRunner.dumpElementsTree = function(rootNode, depth, resultsArray) {
   }
 
   function markersDataDump(treeItem) {
-    if (treeItem._elementCloseTag) {
+    if (treeItem._isClosingTag) {
       return '';
     }
 
@@ -788,7 +806,7 @@ ElementsTestRunner.dumpElementsTree = function(rootNode, depth, resultsArray) {
     const newPrefix = (treeItem.root ? '' : prefix + '    ');
 
     for (let i = 0; depth && children && i < children.length; ++i) {
-      if (!children[i]._elementCloseTag) {
+      if (!children[i]._isClosingTag) {
         print(children[i], newPrefix, depth - 1);
       } else {
         print(children[i], prefix, depth);
@@ -831,7 +849,7 @@ ElementsTestRunner.dumpDOMUpdateHighlights = function(rootNode, callback, depth)
         if (classList.contains('webkit-html-attribute-name')) {
           xpath += '/@' + element.textContent + ' (empty)';
         } else if (classList.contains('webkit-html-attribute-value')) {
-          name = element.parentElement.querySelector('.webkit-html-attribute-name').textContent;
+          const name = element.parentElement.querySelector('.webkit-html-attribute-name').textContent;
           xpath += '/@' + name + ' ' + element.textContent;
         } else if (classList.contains('webkit-html-text-node')) {
           xpath += '/text() "' + element.textContent + '"';
@@ -850,7 +868,7 @@ ElementsTestRunner.dumpDOMUpdateHighlights = function(rootNode, callback, depth)
     const newPrefix = (treeItem.root ? '' : prefix + '    ');
 
     for (let i = 0; depth && children && i < children.length; ++i) {
-      if (!children[i]._elementCloseTag) {
+      if (!children[i]._isClosingTag) {
         print(children[i], newPrefix, depth - 1);
       }
     }
@@ -890,7 +908,9 @@ ElementsTestRunner.expandElementsTree = function(callback) {
 ElementsTestRunner.expandAndDump = function() {
   TestRunner.addResult('\nDump tree');
   let callback;
-  const result = new Promise(f => callback = f);
+  const result = new Promise(f => {
+    callback = f;
+  });
   ElementsTestRunner.expandElementsTree(() => {
     ElementsTestRunner.dumpElementsTree();
     callback();
@@ -1193,14 +1213,42 @@ function onBlankSection(selector, callback) {
   ElementsTestRunner.waitForSelectorCommitted(callback.bind(null, section));
 }
 
-ElementsTestRunner.dumpInspectorHighlightJSON = function(idValue, callback) {
+/**
+ * The function accepts 2 or 3 arguments. Callback is the last one and the second argument is optional.
+ *
+ * To dump all highlight properties: dumpInspectorHighlightJSON(idValue, callback).
+ * To pick which properties to dump: dumpInspectorHighlightJSON(idValue, ['prop'], callback).
+ *
+ * @param {string} idValue
+ * @param {?Array<string>} attributes List of top-level property names to include in the result
+ * @param {?Function=} maybeCallback
+ */
+ElementsTestRunner.dumpInspectorHighlightJSON = function(idValue, attributes, maybeCallback) {
+  const callback = arguments.length === 3 ? maybeCallback : attributes;
+  const attributeSet = arguments.length === 3 ? new Set(attributes) : new Set();
   ElementsTestRunner.nodeWithId(idValue, nodeResolved);
 
   async function nodeResolved(node) {
     const result = await TestRunner.OverlayAgent.getHighlightObjectForTest(node.id);
-    TestRunner.addResult(idValue + JSON.stringify(result, null, 2));
+    const view = attributeSet.size ? {} : result;
+    for (const key of Object.keys(result).filter(key => attributeSet.has(key))) {
+      view[key] = result[key];
+    }
+    TestRunner.addResult(idValue + JSON.stringify(view, null, 2));
     callback();
   }
+};
+
+ElementsTestRunner.dumpInspectorGridHighlightsJSON = async function(idValues, callback) {
+  const nodeIds = [];
+  for (const id of idValues) {
+    const node = await ElementsTestRunner.nodeWithIdPromise(id);
+    nodeIds.push(node.id);
+  }
+
+  const result = await TestRunner.OverlayAgent.getGridHighlightObjectsForTest(nodeIds);
+  TestRunner.addResult(JSON.stringify(result, null, 2));
+  callback();
 };
 
 ElementsTestRunner.dumpInspectorDistanceJSON = function(idValue, callback) {

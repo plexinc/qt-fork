@@ -79,7 +79,9 @@ class COMPONENT_EXPORT(EVDEV) EventFactoryEvdev : public DeviceEventObserver,
   void DispatchKeyboardDevicesUpdated(const std::vector<InputDevice>& devices);
   void DispatchTouchscreenDevicesUpdated(
       const std::vector<TouchscreenDevice>& devices);
-  void DispatchMouseDevicesUpdated(const std::vector<InputDevice>& devices);
+  void DispatchMouseDevicesUpdated(const std::vector<InputDevice>& devices,
+                                   bool has_mouse,
+                                   bool has_pointing_stick);
   void DispatchTouchpadDevicesUpdated(const std::vector<InputDevice>& devices);
   void DispatchUncategorizedDevicesUpdated(
       const std::vector<InputDevice>& devices);
@@ -111,6 +113,8 @@ class COMPONENT_EXPORT(EVDEV) EventFactoryEvdev : public DeviceEventObserver,
   void OnThreadStarted(
       std::unique_ptr<InputDeviceFactoryEvdevProxy> input_device_factory);
 
+  void NotifyMiceAndPointingSticksUpdated();
+
   // Used to uniquely identify input devices.
   int last_device_id_ = 0;
 
@@ -128,7 +132,10 @@ class COMPONENT_EXPORT(EVDEV) EventFactoryEvdev : public DeviceEventObserver,
   EventModifiers modifiers_;
 
   // Mouse button map.
-  MouseButtonMapEvdev button_map_;
+  MouseButtonMapEvdev mouse_button_map_;
+
+  // Pointing stick (a.k.a. TrackPoint) button map.
+  MouseButtonMapEvdev pointing_stick_button_map_;
 
   // Keyboard state.
   KeyboardEvdev keyboard_;

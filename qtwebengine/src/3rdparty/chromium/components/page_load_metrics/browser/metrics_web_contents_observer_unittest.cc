@@ -16,6 +16,7 @@
 #include "components/page_load_metrics/browser/page_load_metrics_test_content_browser_client.h"
 #include "components/page_load_metrics/browser/page_load_tracker.h"
 #include "components/page_load_metrics/browser/test_metrics_web_contents_observer_embedder.h"
+#include "content/public/browser/back_forward_cache.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/content_features.h"
@@ -113,7 +114,7 @@ class MetricsWebContentsObserverTest
         std::vector<mojom::ResourceDataUpdatePtr>(),
         mojom::FrameRenderDataUpdatePtr(base::in_place), timing.Clone(),
         mojom::DeferredResourceCountsPtr(base::in_place),
-        mojom::InputTimingPtr(base::in_place));
+        mojom::InputTimingPtr(base::in_place), blink::MobileFriendliness());
   }
 
   void SimulateTimingUpdate(const mojom::PageLoadTiming& timing,
@@ -139,7 +140,7 @@ class MetricsWebContentsObserverTest
         mojom::FrameRenderDataUpdatePtr(base::in_place),
         mojom::CpuTimingPtr(base::in_place),
         mojom::DeferredResourceCountsPtr(base::in_place),
-        mojom::InputTimingPtr(base::in_place));
+        mojom::InputTimingPtr(base::in_place), blink::MobileFriendliness());
   }
 
   void AttachObserver() {
@@ -174,6 +175,14 @@ class MetricsWebContentsObserverTest
     return empty;
   }
 
+  void CheckErrorNoIPCsReceivedIfNeeded(int count) {
+    // With BackForwardCache, page is kept alive after navigation.
+    // ERR_NO_IPCS_RECEIVED isn't recorded as it is reported during destruction
+    // of page after navigation which doesn't happen with BackForwardCache.
+    if (!content::BackForwardCache::IsBackForwardCacheFeatureEnabled())
+      CheckErrorEvent(ERR_NO_IPCS_RECEIVED, count);
+  }
+
   const std::vector<mojom::PageLoadTimingPtr>& updated_timings() const {
     return embedder_interface_->updated_timings();
   }
@@ -192,6 +201,9 @@ class MetricsWebContentsObserverTest
   int CountUpdatedCpuTimingReported() { return updated_cpu_timings().size(); }
   int CountUpdatedSubFrameTimingReported() {
     return updated_subframe_timings().size();
+  }
+  int CountOnBackForwardCacheEntered() const {
+    return embedder_interface_->count_on_enter_back_forward_cache();
   }
 
   const std::vector<GURL>& observed_committed_urls_from_on_start() const {
@@ -276,9 +288,7 @@ TEST_F(MetricsWebContentsObserverTest,
        DISABLED_MainFrameNavigationInternalAbort) {
   auto navigation = content::NavigationSimulator::CreateBrowserInitiated(
       GURL(kDefaultTestUrl), web_contents());
-  navigation->FailWithResponseHeaders(
-      net::ERR_ABORTED,
-      base::MakeRefCounted<net::HttpResponseHeaders>("some_headers"));
+  navigation->Fail(net::ERR_ABORTED);
   ASSERT_EQ(1u, observed_aborted_urls().size());
   ASSERT_EQ(kDefaultTestUrl, observed_aborted_urls().front().spec());
 }
@@ -549,7 +559,7 @@ TEST_F(MetricsWebContentsObserverTest, DontLogAbortChains) {
   NavigateAndCommit(GURL(kDefaultTestUrl2));
   NavigateAndCommit(GURL(kDefaultTestUrl));
   histogram_tester_.ExpectTotalCount(internal::kAbortChainSizeNewNavigation, 0);
-  CheckErrorEvent(ERR_NO_IPCS_RECEIVED, 2);
+  CheckErrorNoIPCsReceivedIfNeeded(2);
   CheckTotalErrorEvents();
 }
 
@@ -854,6 +864,19 @@ TEST_F(MetricsWebContentsObserverTest, OutOfOrderCrossFrameTiming2) {
   CheckNoErrorEvents();
 }
 
+TEST_F(MetricsWebContentsObserverTest, FlushBufferOnAppBackground) {
+  mojom::PageLoadTiming timing;
+  PopulatePageLoadTiming(&timing);
+  timing.paint_timing->first_paint = base::TimeDelta::FromMilliseconds(100000);
+  content::NavigationSimulator::NavigateAndCommitFromBrowser(
+      web_contents(), GURL(kDefaultTestUrl));
+  SimulateTimingUpdateWithoutFiringDispatchTimer(timing, main_rfh());
+
+  ASSERT_EQ(0, CountUpdatedTimingReported());
+  observer()->FlushMetricsOnAppEnterBackground();
+  ASSERT_EQ(1, CountUpdatedTimingReported());
+}
+
 TEST_F(MetricsWebContentsObserverTest,
        FirstInputDelayMissingFirstInputTimestamp) {
   mojom::PageLoadTiming timing;
@@ -880,7 +903,7 @@ TEST_F(MetricsWebContentsObserverTest,
       page_load_metrics::internal::INVALID_NULL_FIRST_INPUT_TIMESTAMP, 1);
 
   CheckErrorEvent(ERR_BAD_TIMING_IPC_INVALID_TIMING, 1);
-  CheckErrorEvent(ERR_NO_IPCS_RECEIVED, 1);
+  CheckErrorNoIPCsReceivedIfNeeded(1);
   CheckTotalErrorEvents();
 }
 
@@ -910,7 +933,7 @@ TEST_F(MetricsWebContentsObserverTest,
       page_load_metrics::internal::INVALID_NULL_FIRST_INPUT_DELAY, 1);
 
   CheckErrorEvent(ERR_BAD_TIMING_IPC_INVALID_TIMING, 1);
-  CheckErrorEvent(ERR_NO_IPCS_RECEIVED, 1);
+  CheckErrorNoIPCsReceivedIfNeeded(1);
   CheckTotalErrorEvents();
 }
 
@@ -940,7 +963,7 @@ TEST_F(MetricsWebContentsObserverTest,
       page_load_metrics::internal::INVALID_NULL_LONGEST_INPUT_TIMESTAMP, 1);
 
   CheckErrorEvent(ERR_BAD_TIMING_IPC_INVALID_TIMING, 1);
-  CheckErrorEvent(ERR_NO_IPCS_RECEIVED, 1);
+  CheckErrorNoIPCsReceivedIfNeeded(1);
   CheckTotalErrorEvents();
 }
 
@@ -970,7 +993,7 @@ TEST_F(MetricsWebContentsObserverTest,
       page_load_metrics::internal::INVALID_NULL_LONGEST_INPUT_DELAY, 1);
 
   CheckErrorEvent(ERR_BAD_TIMING_IPC_INVALID_TIMING, 1);
-  CheckErrorEvent(ERR_NO_IPCS_RECEIVED, 1);
+  CheckErrorNoIPCsReceivedIfNeeded(1);
   CheckTotalErrorEvents();
 }
 
@@ -1009,7 +1032,7 @@ TEST_F(MetricsWebContentsObserverTest,
       1);
 
   CheckErrorEvent(ERR_BAD_TIMING_IPC_INVALID_TIMING, 1);
-  CheckErrorEvent(ERR_NO_IPCS_RECEIVED, 1);
+  CheckErrorNoIPCsReceivedIfNeeded(1);
   CheckTotalErrorEvents();
 }
 
@@ -1048,7 +1071,7 @@ TEST_F(MetricsWebContentsObserverTest,
       1);
 
   CheckErrorEvent(ERR_BAD_TIMING_IPC_INVALID_TIMING, 1);
-  CheckErrorEvent(ERR_NO_IPCS_RECEIVED, 1);
+  CheckErrorNoIPCsReceivedIfNeeded(1);
   CheckTotalErrorEvents();
 }
 
@@ -1457,18 +1480,48 @@ TEST_F(MetricsWebContentsObserverTest, RecordFeatureUsageNoObserver) {
 
 class MetricsWebContentsObserverBackForwardCacheTest
     : public MetricsWebContentsObserverTest {
+  class CreatedPageLoadTrackerObserver
+      : public MetricsWebContentsObserver::TestingObserver {
+   public:
+    explicit CreatedPageLoadTrackerObserver(content::WebContents* web_contents)
+        : MetricsWebContentsObserver::TestingObserver(web_contents) {}
+
+    int tracker_committed_count() const { return tracker_committed_count_; }
+
+    void OnCommit(PageLoadTracker* tracker) override {
+      tracker_committed_count_++;
+    }
+
+   private:
+    int tracker_committed_count_ = 0;
+  };
+
  public:
   MetricsWebContentsObserverBackForwardCacheTest() {
     feature_list_.InitWithFeaturesAndParameters(
         {{features::kBackForwardCache,
           {{"TimeToLiveInBackForwardCacheInSeconds", "3600"}}}},
-        {});
+        // Allow BackForwardCache for all devices regardless of their memory.
+        {features::kBackForwardCacheMemoryControls});
   }
 
-  ~MetricsWebContentsObserverBackForwardCacheTest() override {}
+  ~MetricsWebContentsObserverBackForwardCacheTest() override = default;
+
+  int tracker_committed_count() const {
+    return created_page_load_tracker_observer_->tracker_committed_count();
+  }
+
+  void SetUp() override {
+    MetricsWebContentsObserverTest::SetUp();
+    created_page_load_tracker_observer_ =
+        std::make_unique<CreatedPageLoadTrackerObserver>(web_contents());
+    observer()->AddTestingObserver(created_page_load_tracker_observer_.get());
+  }
 
  private:
   base::test::ScopedFeatureList feature_list_;
+  std::unique_ptr<CreatedPageLoadTrackerObserver>
+      created_page_load_tracker_observer_;
 };
 
 TEST_F(MetricsWebContentsObserverBackForwardCacheTest,
@@ -1499,6 +1552,86 @@ TEST_F(MetricsWebContentsObserverBackForwardCacheTest,
   // For now back-forward cached navigations are not tracked and the events
   // after the history navigation are not tracked.
   EXPECT_THAT(features, testing::ElementsAre(web_features1));
+}
+
+// Checks OnEnterBackForwardCache is called appropriately with back-forward
+// cache enabled.
+TEST_F(MetricsWebContentsObserverBackForwardCacheTest, EnterBackForwardCache) {
+  // Go to the URL1.
+  content::NavigationSimulator::NavigateAndCommitFromBrowser(
+      web_contents(), GURL(kDefaultTestUrl));
+  ASSERT_EQ(main_rfh()->GetLastCommittedURL().spec(), GURL(kDefaultTestUrl));
+
+  ASSERT_EQ(0, CountCompleteTimingReported());
+  EXPECT_EQ(0, CountOnBackForwardCacheEntered());
+  EXPECT_EQ(1, tracker_committed_count());
+
+  // Go to the URL2.
+  content::NavigationSimulator::NavigateAndCommitFromBrowser(
+      web_contents(), GURL(kDefaultTestUrl2));
+  ASSERT_EQ(main_rfh()->GetLastCommittedURL().spec(), GURL(kDefaultTestUrl2));
+
+  // With the default implementation of PageLoadMetricsObserver,
+  // OnEnteringBackForwardCache invokes OnComplete and returns STOP_OBSERVING.
+  ASSERT_EQ(1, CountCompleteTimingReported());
+  EXPECT_EQ(1, CountOnBackForwardCacheEntered());
+  EXPECT_EQ(2, tracker_committed_count());
+
+  // Go back.
+  content::NavigationSimulator::GoBack(web_contents());
+  EXPECT_EQ(2, CountOnBackForwardCacheEntered());
+
+  // Again, OnComplete is assured to be called.
+  ASSERT_EQ(2, CountCompleteTimingReported());
+
+  // A new page load tracker is not created or committed. A page load tracker in
+  // the cache is used instead.
+  EXPECT_EQ(2, tracker_committed_count());
+}
+
+// TODO(hajimehoshi): Detect the document eviction so that PageLoadTracker in
+// the cache is destroyed. This would call PageLoadMetricsObserver::OnComplete.
+// This test can be implemented after a PageLoadMetricsObserver's
+// OnEnterBackForwardCache returns CONTINUE_OBSERVING.
+
+class MetricsWebContentsObserverBackForwardCacheDisabledTest
+    : public MetricsWebContentsObserverTest {
+ public:
+  MetricsWebContentsObserverBackForwardCacheDisabledTest() {
+    feature_list_.InitWithFeaturesAndParameters({},
+                                                {features::kBackForwardCache});
+  }
+
+  ~MetricsWebContentsObserverBackForwardCacheDisabledTest() override = default;
+
+ private:
+  base::test::ScopedFeatureList feature_list_;
+};
+
+// Checks OnEnterBackForwardCache is NOT called without back-forward cache
+// enabled.
+TEST_F(MetricsWebContentsObserverBackForwardCacheDisabledTest,
+       EnterBackForwardCacheNotCalled) {
+  // Go to the URL1.
+  content::NavigationSimulator::NavigateAndCommitFromBrowser(
+      web_contents(), GURL(kDefaultTestUrl));
+  ASSERT_EQ(main_rfh()->GetLastCommittedURL().spec(), GURL(kDefaultTestUrl));
+
+  ASSERT_EQ(0, CountCompleteTimingReported());
+
+  // Go to the URL2.
+  content::NavigationSimulator::NavigateAndCommitFromBrowser(
+      web_contents(), GURL(kDefaultTestUrl2));
+  ASSERT_EQ(main_rfh()->GetLastCommittedURL().spec(), GURL(kDefaultTestUrl2));
+
+  ASSERT_EQ(1, CountCompleteTimingReported());
+  EXPECT_EQ(0, CountOnBackForwardCacheEntered());
+
+  // Go back.
+  content::NavigationSimulator::GoBack(web_contents());
+  EXPECT_EQ(0, CountOnBackForwardCacheEntered());
+
+  ASSERT_EQ(2, CountCompleteTimingReported());
 }
 
 }  // namespace page_load_metrics

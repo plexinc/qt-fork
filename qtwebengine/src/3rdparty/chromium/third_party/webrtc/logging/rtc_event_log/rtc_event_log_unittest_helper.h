@@ -25,6 +25,7 @@
 #include "logging/rtc_event_log/events/rtc_event_bwe_update_loss_based.h"
 #include "logging/rtc_event_log/events/rtc_event_dtls_transport_state.h"
 #include "logging/rtc_event_log/events/rtc_event_dtls_writable_state.h"
+#include "logging/rtc_event_log/events/rtc_event_frame_decoded.h"
 #include "logging/rtc_event_log/events/rtc_event_generic_ack_received.h"
 #include "logging/rtc_event_log/events/rtc_event_generic_packet_received.h"
 #include "logging/rtc_event_log/events/rtc_event_generic_packet_sent.h"
@@ -44,6 +45,7 @@
 #include "logging/rtc_event_log/rtc_event_log_parser.h"
 #include "logging/rtc_event_log/rtc_stream_config.h"
 #include "modules/rtp_rtcp/include/rtp_header_extension_map.h"
+#include "modules/rtp_rtcp/source/rtcp_packet/bye.h"
 #include "modules/rtp_rtcp/source/rtcp_packet/extended_reports.h"
 #include "modules/rtp_rtcp/source/rtcp_packet/fir.h"
 #include "modules/rtp_rtcp/source/rtcp_packet/loss_notification.h"
@@ -71,6 +73,7 @@ class EventGenerator {
   std::unique_ptr<RtcEventBweUpdateLossBased> NewBweUpdateLossBased();
   std::unique_ptr<RtcEventDtlsTransportState> NewDtlsTransportState();
   std::unique_ptr<RtcEventDtlsWritableState> NewDtlsWritableState();
+  std::unique_ptr<RtcEventFrameDecoded> NewFrameDecodedEvent(uint32_t ssrc);
   std::unique_ptr<RtcEventGenericAckReceived> NewGenericAckReceived();
   std::unique_ptr<RtcEventGenericPacketReceived> NewGenericPacketReceived();
   std::unique_ptr<RtcEventGenericPacketSent> NewGenericPacketSent();
@@ -91,6 +94,7 @@ class EventGenerator {
   rtcp::Remb NewRemb();
   rtcp::Fir NewFir();
   rtcp::Pli NewPli();
+  rtcp::Bye NewBye();
   rtcp::TransportFeedback NewTransportFeedback();
   rtcp::LossNotification NewLossNotification();
 
@@ -189,6 +193,9 @@ class EventVerifier {
       const RtcEventDtlsWritableState& original_event,
       const LoggedDtlsWritableState& logged_event) const;
 
+  void VerifyLoggedFrameDecoded(const RtcEventFrameDecoded& original_event,
+                                const LoggedFrameDecoded& logged_event) const;
+
   void VerifyLoggedIceCandidatePairConfig(
       const RtcEventIceCandidatePairConfig& original_event,
       const LoggedIceCandidatePairConfig& logged_event) const;
@@ -270,6 +277,9 @@ class EventVerifier {
   void VerifyLoggedPli(int64_t log_time_us,
                        const rtcp::Pli& original_pli,
                        const LoggedRtcpPacketPli& logged_pli);
+  void VerifyLoggedBye(int64_t log_time_us,
+                       const rtcp::Bye& original_bye,
+                       const LoggedRtcpPacketBye& logged_bye);
   void VerifyLoggedNack(int64_t log_time_us,
                         const rtcp::Nack& original_nack,
                         const LoggedRtcpPacketNack& logged_nack);

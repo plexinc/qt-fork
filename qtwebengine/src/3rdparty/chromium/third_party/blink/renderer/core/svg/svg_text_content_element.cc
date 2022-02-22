@@ -27,6 +27,7 @@
 #include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/layout/api/line_layout_item.h"
 #include "third_party/blink/renderer/core/layout/svg/svg_text_query.h"
+#include "third_party/blink/renderer/core/svg/svg_animated_length.h"
 #include "third_party/blink/renderer/core/svg/svg_enumeration_map.h"
 #include "third_party/blink/renderer/core/svg/svg_point_tear_off.h"
 #include "third_party/blink/renderer/core/svg/svg_rect_tear_off.h"
@@ -85,7 +86,7 @@ SVGTextContentElement::SVGTextContentElement(const QualifiedName& tag_name,
   AddToPropertyMap(length_adjust_);
 }
 
-void SVGTextContentElement::Trace(Visitor* visitor) {
+void SVGTextContentElement::Trace(Visitor* visitor) const {
   visitor->Trace(text_length_);
   visitor->Trace(length_adjust_);
   SVGGraphicsElement::Trace(visitor);
@@ -257,7 +258,8 @@ void SVGTextContentElement::CollectStyleForPresentationAttribute(
 }
 
 void SVGTextContentElement::SvgAttributeChanged(
-    const QualifiedName& attr_name) {
+    const SvgAttributeChangedParams& params) {
+  const QualifiedName& attr_name = params.name;
   if (attr_name == svg_names::kTextLengthAttr)
     text_length_is_specified_by_user_ = true;
 
@@ -272,7 +274,7 @@ void SVGTextContentElement::SvgAttributeChanged(
     return;
   }
 
-  SVGGraphicsElement::SvgAttributeChanged(attr_name);
+  SVGGraphicsElement::SvgAttributeChanged(params);
 }
 
 bool SVGTextContentElement::SelfHasRelativeLengths() const {

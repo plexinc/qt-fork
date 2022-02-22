@@ -41,7 +41,6 @@
 // We mean it.
 //
 
-#include <QtQuick3DRender/private/qssgrendercontext_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrendercontextcore_p.h>
 
 #include <qsgtextureprovider.h>
@@ -49,6 +48,11 @@
 #include <QSGSimpleTextureNode>
 
 #include <QtQuick3D/private/qquick3dviewport_p.h>
+#include <QtQuick3DRuntimeRender/private/qssgrenderlayer_p.h>
+#include <QtQuick3DRuntimeRender/private/qssgrhieffectsystem_p.h>
+#include <QtQuick3DRuntimeRender/private/qssgrenderer_p.h>
+
+#include "qquick3dsceneenvironment_p.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -59,46 +63,61 @@ struct QSSGRenderLayer;
 
 class QQuick3DSceneRenderer
 {
+    using PickResultList = QVarLengthArray<QSSGRenderPickResult, 20>;
 public:
-    struct FramebufferObject {
-        FramebufferObject(const QSize &s, const QSSGRef<QSSGRenderContext> &context,
-                          int msaaSamples = 1);
-        ~FramebufferObject();
-        QSize size;
-        QSSGRef<QSSGRenderContext> renderContext;
-        QSSGRef<QSSGRenderFrameBuffer> fbo;
-        QSSGRef<QSSGRenderTexture2D> color0;
-        QSSGRef<QSSGRenderTexture2D> depthStencil;
-        int samples;
-    };
-
-    QQuick3DSceneRenderer(QWindow *window);
+    QQuick3DSceneRenderer(const QSSGRef<QSSGRenderContextInterface> &rci);
     ~QQuick3DSceneRenderer();
+
 protected:
-    GLuint render();
-    void render(const QRect &viewport, bool clearFirst = false);
-    void synchronize(QQuick3DViewport *item, const QSize &size, bool useFBO = true);
+    QRhiTexture *renderToRhiTexture(QQuickWindow *qw);
+    void rhiPrepare(const QRect &viewport, qreal displayPixelRatio);
+    void rhiRender();
+    void synchronize(QQuick3DViewport *view3D, const QSize &size, float dpr, bool useFBO = true);
     void update();
     void invalidateFramebufferObject();
     QSize surfaceSize() const { return m_surfaceSize; }
-    QSSGRenderPickResult pick(const QPointF &pos);
-    QSSGRenderPickResult syncPick(const QPointF &pos);
+
+    QSSGOption<QSSGRenderRay> getRayFromViewportPos(const QPointF &pos);
+    QSSGRenderPickResult syncPick(const QSSGRenderRay &ray);
+    QSSGRenderPickResult syncPickOne(const QSSGRenderRay &ray, QSSGRenderNode *node);
+    PickResultList syncPickAll(const QSSGRenderRay &ray);
+
+    void setGlobalPickingEnabled(bool isEnabled);
+
     QQuick3DRenderStats *renderStats();
 
 private:
+    void releaseAaDependentRhiResources();
     void updateLayerNode(QQuick3DViewport *view3D);
     void addNodeToLayer(QSSGRenderNode *node);
     void removeNodeFromLayer(QSSGRenderNode *node);
     QSSGRef<QSSGRenderContextInterface> m_sgContext;
-    QSharedPointer<QQuick3DSceneManager> m_sceneManager;
     QSSGRenderLayer *m_layer = nullptr;
     QSize m_surfaceSize;
-    void *data = nullptr;
-    bool m_layerSizeIsDirty = true;
+    SGFramebufferObjectNode *fboNode = nullptr;
     bool m_aaIsDirty = true;
-    QWindow *m_window = nullptr;
-    FramebufferObject *m_antialiasingFbo = nullptr;
-    FramebufferObject *m_fbo = nullptr;
+
+    // RHI
+    QRhiTexture *m_texture = nullptr;
+    // the rt is set up to output into m_texture or m_ssaaTexture or m_msaaRenderBuffer(+resolve into m_texture)
+    QRhiTextureRenderTarget *m_textureRenderTarget = nullptr;
+    QRhiRenderPassDescriptor *m_textureRenderPassDescriptor = nullptr;
+    // used by the draw quad that does m_ssaaTexture -> m_texture
+    QRhiTextureRenderTarget *m_ssaaTextureToTextureRenderTarget = nullptr;
+    QRhiRenderPassDescriptor *m_ssaaTextureToTextureRenderPassDescriptor = nullptr;
+    QRhiRenderBuffer *m_msaaRenderBuffer = nullptr;
+    QRhiTexture *m_ssaaTexture = nullptr;
+    QRhiTexture *m_temporalAATexture = nullptr;
+    QRhiTexture *m_prevTempAATexture = nullptr;
+    QRhiTextureRenderTarget *m_temporalAARenderTarget = nullptr;
+    QRhiRenderPassDescriptor *m_temporalAARenderPassDescriptor = nullptr;
+    QRhiRenderBuffer *m_depthStencilBuffer = nullptr;
+    bool m_textureNeedsFlip = true;
+    QSSGRenderLayer::Background m_backgroundMode;
+    QColor m_backgroundColor;
+    int m_samples = 1;
+    QSSGRhiEffectSystem *m_effectSystem = nullptr;
+
     QQuick3DRenderStats *m_renderStats = nullptr;
 
     QSSGRenderNode *m_sceneRootNode = nullptr;
@@ -106,13 +125,18 @@ private:
 
     float m_ssaaMultiplier = 1.5f;
 
+    bool m_prepared = false;
+
     friend class SGFramebufferObjectNode;
     friend class QQuick3DSGRenderNode;
     friend class QQuick3DSGDirectRenderer;
     friend class QQuick3DViewport;
+    friend struct ViewportTransformHelper;
 };
 
-class QOpenGLVertexArrayObjectHelper;
+namespace QQuick3DRenderLayerHelpers {
+Q_QUICK3D_EXPORT void updateLayerNodeHelper(const QQuick3DViewport &view3D, QSSGRenderLayer &layerNode, bool &aaIsDirty, bool &temporalIsDirty, float &ssaaMultiplier);
+}
 
 class SGFramebufferObjectNode final : public QSGTextureProvider, public QSGSimpleTextureNode
 {
@@ -148,7 +172,8 @@ public:
 class QQuick3DSGRenderNode final : public QSGRenderNode
 {
 public:
-
+    ~QQuick3DSGRenderNode();
+    void prepare() override;
     StateFlags changedStates() const override;
     void render(const RenderState *state) override;
     void releaseResources() override;
@@ -176,6 +201,7 @@ public:
     void setVisibility(bool visible);
 
 private Q_SLOTS:
+    void prepare();
     void render();
 
 private:

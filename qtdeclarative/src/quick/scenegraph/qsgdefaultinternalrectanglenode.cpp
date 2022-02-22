@@ -50,63 +50,7 @@
 
 QT_BEGIN_NAMESPACE
 
-class SmoothColorMaterialShader : public QSGMaterialShader
-{
-public:
-    SmoothColorMaterialShader();
-
-    void updateState(const RenderState &state, QSGMaterial *newEffect, QSGMaterial *oldEffect) override;
-    char const *const *attributeNames() const override;
-
-private:
-    void initialize() override;
-
-    int m_matrixLoc;
-    int m_opacityLoc;
-    int m_pixelSizeLoc;
-};
-
-SmoothColorMaterialShader::SmoothColorMaterialShader()
-{
-    setShaderSourceFile(QOpenGLShader::Vertex, QStringLiteral(":/qt-project.org/scenegraph/shaders/smoothcolor.vert"));
-    setShaderSourceFile(QOpenGLShader::Fragment, QStringLiteral(":/qt-project.org/scenegraph/shaders/smoothcolor.frag"));
-}
-
-void SmoothColorMaterialShader::updateState(const RenderState &state, QSGMaterial *, QSGMaterial *oldEffect)
-{
-    if (state.isOpacityDirty())
-        program()->setUniformValue(m_opacityLoc, state.opacity());
-
-    if (state.isMatrixDirty())
-        program()->setUniformValue(m_matrixLoc, state.combinedMatrix());
-
-    if (oldEffect == nullptr) {
-        // The viewport is constant, so set the pixel size uniform only once.
-        QRect r = state.viewportRect();
-        program()->setUniformValue(m_pixelSizeLoc, 2.0f / r.width(), 2.0f / r.height());
-    }
-}
-
-char const *const *SmoothColorMaterialShader::attributeNames() const
-{
-    static char const *const attributes[] = {
-        "vertex",
-        "vertexColor",
-        "vertexOffset",
-        nullptr
-    };
-    return attributes;
-}
-
-void SmoothColorMaterialShader::initialize()
-{
-    m_matrixLoc = program()->uniformLocation("matrix");
-    m_opacityLoc = program()->uniformLocation("opacity");
-    m_pixelSizeLoc = program()->uniformLocation("pixelSize");
-}
-
-
-class SmoothColorMaterialRhiShader : public QSGMaterialRhiShader
+class SmoothColorMaterialRhiShader : public QSGMaterialShader
 {
 public:
     SmoothColorMaterialRhiShader();
@@ -154,7 +98,6 @@ QSGSmoothColorMaterial::QSGSmoothColorMaterial()
 {
     setFlag(RequiresFullMatrixExceptTranslate, true);
     setFlag(Blending, true);
-    setFlag(SupportsRhiShader, true);
 }
 
 int QSGSmoothColorMaterial::compare(const QSGMaterial *) const
@@ -169,12 +112,10 @@ QSGMaterialType *QSGSmoothColorMaterial::type() const
     return &type;
 }
 
-QSGMaterialShader *QSGSmoothColorMaterial::createShader() const
+QSGMaterialShader *QSGSmoothColorMaterial::createShader(QSGRendererInterface::RenderMode renderMode) const
 {
-    if (flags().testFlag(RhiShaderWanted))
-        return new SmoothColorMaterialRhiShader;
-    else
-        return new SmoothColorMaterialShader;
+    Q_UNUSED(renderMode);
+    return new SmoothColorMaterialRhiShader;
 }
 
 QSGDefaultInternalRectangleNode::QSGDefaultInternalRectangleNode()

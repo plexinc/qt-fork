@@ -61,7 +61,7 @@
 QT_BEGIN_NAMESPACE
 
 class QQuickParentChangePrivate;
-class Q_AUTOTEST_EXPORT QQuickParentChange : public QQuickStateOperation, public QQuickStateActionEvent
+class Q_QUICK_PRIVATE_EXPORT QQuickParentChange : public QQuickStateOperation, public QQuickStateActionEvent
 {
     Q_OBJECT
     Q_DECLARE_PRIVATE(QQuickParentChange)
@@ -74,7 +74,9 @@ class Q_AUTOTEST_EXPORT QQuickParentChange : public QQuickStateOperation, public
     Q_PROPERTY(QQmlScriptString height READ height WRITE setHeight)
     Q_PROPERTY(QQmlScriptString scale READ scale WRITE setScale)
     Q_PROPERTY(QQmlScriptString rotation READ rotation WRITE setRotation)
+    Q_CLASSINFO("ParentProperty", "parent")
     QML_NAMED_ELEMENT(ParentChange)
+    QML_ADDED_IN_VERSION(2, 0)
 public:
     QQuickParentChange(QObject *parent=nullptr);
     ~QQuickParentChange();
@@ -126,7 +128,7 @@ public:
 
 class QQuickAnchorChanges;
 class QQuickAnchorSetPrivate;
-class Q_AUTOTEST_EXPORT QQuickAnchorSet : public QObject
+class Q_QUICK_PRIVATE_EXPORT QQuickAnchorSet : public QObject
 {
     Q_OBJECT
 
@@ -138,6 +140,7 @@ class Q_AUTOTEST_EXPORT QQuickAnchorSet : public QObject
     Q_PROPERTY(QQmlScriptString verticalCenter READ verticalCenter WRITE setVerticalCenter RESET resetVerticalCenter)
     Q_PROPERTY(QQmlScriptString baseline READ baseline WRITE setBaseline RESET resetBaseline)
     QML_ANONYMOUS
+    QML_ADDED_IN_VERSION(2, 0)
 
 public:
     QQuickAnchorSet(QObject *parent=nullptr);
@@ -180,7 +183,7 @@ private:
 };
 
 class QQuickAnchorChangesPrivate;
-class Q_AUTOTEST_EXPORT QQuickAnchorChanges : public QQuickStateOperation, public QQuickStateActionEvent
+class Q_QUICK_PRIVATE_EXPORT QQuickAnchorChanges : public QQuickStateOperation, public QQuickStateActionEvent
 {
     Q_OBJECT
     Q_DECLARE_PRIVATE(QQuickAnchorChanges)
@@ -188,6 +191,7 @@ class Q_AUTOTEST_EXPORT QQuickAnchorChanges : public QQuickStateOperation, publi
     Q_PROPERTY(QQuickItem *target READ object WRITE setObject)
     Q_PROPERTY(QQuickAnchorSet *anchors READ anchors CONSTANT)
     QML_NAMED_ELEMENT(AnchorChanges)
+    QML_ADDED_IN_VERSION(2, 0)
 
 public:
     QQuickAnchorChanges(QObject *parent=nullptr);

@@ -8,12 +8,13 @@
 #include <string>
 #include <vector>
 
+#include "ash/components/account_manager/account_manager.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "chrome/browser/ui/webui/settings/settings_page_ui_handler.h"
-#include "chromeos/components/account_manager/account_manager.h"
 #include "components/account_id/account_id.h"
+#include "components/account_manager_core/account.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 
 class Profile;
@@ -39,8 +40,8 @@ class AccountManagerUIHandler : public ::settings::SettingsPageUIHandler,
   // |AccountManager::Observer| overrides.
   // |AccountManager| is considered to be the source of truth for account
   // information.
-  void OnTokenUpserted(const AccountManager::Account& account) override;
-  void OnAccountRemoved(const AccountManager::Account& account) override;
+  void OnTokenUpserted(const ::account_manager::Account& account) override;
+  void OnAccountRemoved(const ::account_manager::Account& account) override;
 
   // |signin::IdentityManager::Observer| overrides.
   void OnExtendedAccountInfoUpdated(const AccountInfo& info) override;
@@ -71,17 +72,23 @@ class AccountManagerUIHandler : public ::settings::SettingsPageUIHandler,
   // WebUI "showWelcomeDialogIfRequired" message callback.
   void HandleShowWelcomeDialogIfRequired(const base::ListValue* args);
 
-  // |AccountManager::GetAccounts| callback.
-  void OnGetAccounts(
+  // |AccountManager::CheckDummyGaiaTokenForAllAccounts| callback.
+  void OnCheckDummyGaiaTokenForAllAccounts(
       base::Value callback_id,
-      const std::vector<AccountManager::Account>& stored_accounts);
+      const std::vector<std::pair<::account_manager::Account, bool>>&
+          account_dummy_token_list);
 
   // Returns secondary Gaia accounts from |stored_accounts| list. If the Device
   // Account is a Gaia account, populates |device_account| with information
   // about that account, otherwise does not modify |device_account|.
+  // If user (device account) is child - |is_child_user| should be set to true,
+  // in this case "unmigrated" property will be always false for secondary
+  // accounts.
   base::ListValue GetSecondaryGaiaAccounts(
-      const std::vector<AccountManager::Account>& stored_accounts,
+      const std::vector<std::pair<::account_manager::Account, bool>>&
+          account_dummy_token_list,
       const AccountId device_account_id,
+      const bool is_child_user,
       base::DictionaryValue* device_account);
 
   // Refreshes the UI.
@@ -97,13 +104,14 @@ class AccountManagerUIHandler : public ::settings::SettingsPageUIHandler,
 
   // An observer for |AccountManager|. Automatically deregisters when |this| is
   // destructed.
-  ScopedObserver<AccountManager, AccountManager::Observer>
-      account_manager_observer_;
+  base::ScopedObservation<AccountManager, AccountManager::Observer>
+      account_manager_observation_{this};
 
   // An observer for |signin::IdentityManager|. Automatically deregisters when
   // |this| is destructed.
-  ScopedObserver<signin::IdentityManager, signin::IdentityManager::Observer>
-      identity_manager_observer_;
+  base::ScopedObservation<signin::IdentityManager,
+                          signin::IdentityManager::Observer>
+      identity_manager_observation_{this};
 
   base::WeakPtrFactory<AccountManagerUIHandler> weak_factory_{this};
 

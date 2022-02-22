@@ -40,7 +40,7 @@
 #ifndef QT3DINPUT_INPUT_QKEYBOARDDEVICE_H
 #define QT3DINPUT_INPUT_QKEYBOARDDEVICE_H
 
-#include <Qt3DInput/QKeyboardHandler>
+#include <Qt3DInput/qkeyboardhandler.h>
 #include <Qt3DInput/qt3dinput_global.h>
 #include <Qt3DInput/qabstractphysicaldevice.h>
 
@@ -49,7 +49,6 @@ QT_BEGIN_NAMESPACE
 namespace Qt3DInput {
 
 class QKeyboardDevicePrivate;
-class QKeyboardHandler;
 
 class Q_3DINPUTSHARED_EXPORT QKeyboardDevice : public Qt3DInput::QAbstractPhysicalDevice
 {
@@ -71,8 +70,6 @@ public:
 
 protected:
     explicit QKeyboardDevice(QKeyboardDevicePrivate &dd, QNode *parent = nullptr);
-    // TODO Unused remove in Qt6
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) override;
 
 Q_SIGNALS:
     void activeInputChanged(QKeyboardHandler *activeInput);

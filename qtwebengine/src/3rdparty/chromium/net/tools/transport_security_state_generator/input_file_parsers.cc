@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "base/json/json_reader.h"
+#include "base/logging.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
@@ -58,17 +59,16 @@ bool MatchCertificateName(base::StringPiece name, base::StringPiece pin_name) {
   std::vector<base::StringPiece> words = base::SplitStringPiece(
       name, " ", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
   if (words.empty()) {
-    LOG(ERROR) << "No words in certificate name for pin "
-               << pin_name.as_string();
+    LOG(ERROR) << "No words in certificate name for pin " << pin_name;
     return false;
   }
   base::StringPiece first_word = words[0];
 
-  if (first_word.ends_with(",")) {
+  if (base::EndsWith(first_word, ",")) {
     first_word = first_word.substr(0, first_word.size() - 1);
   }
 
-  if (first_word.starts_with("*.")) {
+  if (base::StartsWith(first_word, "*.")) {
     first_word = first_word.substr(2, first_word.size() - 2);
   }
 
@@ -83,8 +83,7 @@ bool MatchCertificateName(base::StringPiece name, base::StringPiece pin_name) {
   }
 
   if (first_word.empty()) {
-    LOG(ERROR) << "First word of certificate name (" << name.as_string()
-               << ") is empty";
+    LOG(ERROR) << "First word of certificate name (" << name << ") is empty";
     return false;
   }
 
@@ -92,10 +91,8 @@ bool MatchCertificateName(base::StringPiece name, base::StringPiece pin_name) {
   first_word = filtered_word;
   if (!base::EqualsCaseInsensitiveASCII(pin_name.substr(0, first_word.size()),
                                         first_word)) {
-    LOG(ERROR) << "The first word of the certificate name ("
-               << first_word.as_string()
-               << ") isn't a prefix of the variable name ("
-               << pin_name.as_string() << ")";
+    LOG(ERROR) << "The first word of the certificate name (" << first_word
+               << ") isn't a prefix of the variable name (" << pin_name << ")";
     return false;
   }
 
@@ -109,22 +106,22 @@ bool MatchCertificateName(base::StringPiece name, base::StringPiece pin_name) {
         LOG(ERROR)
             << "Certficate class specification doesn't appear in the variable "
                "name ("
-            << pin_name.as_string() << ")";
+            << pin_name << ")";
         return false;
       }
     } else if (word.size() == 1 && word[0] >= '0' && word[0] <= '9') {
       size_t pos = pin_name.find(word);
       if (pos == std::string::npos) {
         LOG(ERROR) << "Number doesn't appear in the certificate variable name ("
-                   << pin_name.as_string() << ")";
+                   << pin_name << ")";
         return false;
       }
     } else if (IsImportantWordInCertificateName(word)) {
       size_t pos = pin_name.find(word);
       if (pos == std::string::npos) {
-        LOG(ERROR) << word.as_string() +
+        LOG(ERROR) << std::string(word) +
                           " doesn't appear in the certificate variable name ("
-                   << pin_name.as_string() << ")";
+                   << pin_name << ")";
         return false;
       }
     }
@@ -215,7 +212,7 @@ bool ParseCertificatesFile(base::StringPiece certs_input, Pinsets* pinsets) {
           LOG(ERROR) << "Invalid name in pins file: " << line;
           return false;
         }
-        name = line.as_string();
+        name = std::string(line);
         current_state = CertificateParserState::POST_NAME;
         break;
       case CertificateParserState::POST_NAME:
@@ -228,10 +225,10 @@ bool ParseCertificatesFile(base::StringPiece certs_input, Pinsets* pinsets) {
           pinsets->RegisterSPKIHash(name, hash);
           current_state = CertificateParserState::PRE_NAME;
         } else if (base::StartsWith(line, kStartOfCert, compare_mode)) {
-          buffer = line.as_string() + '\n';
+          buffer = std::string(line) + '\n';
           current_state = CertificateParserState::IN_CERTIFICATE;
         } else if (base::StartsWith(line, kStartOfPublicKey, compare_mode)) {
-          buffer = line.as_string() + '\n';
+          buffer = std::string(line) + '\n';
           current_state = CertificateParserState::IN_PUBLIC_KEY;
         } else {
           LOG(ERROR) << "Invalid value in pins file for " << name;
@@ -239,7 +236,7 @@ bool ParseCertificatesFile(base::StringPiece certs_input, Pinsets* pinsets) {
         }
         break;
       case CertificateParserState::IN_CERTIFICATE:
-        buffer += line.as_string() + '\n';
+        buffer += std::string(line) + '\n';
         if (!base::StartsWith(line, kEndOfCert, compare_mode)) {
           continue;
         }
@@ -271,7 +268,7 @@ bool ParseCertificatesFile(base::StringPiece certs_input, Pinsets* pinsets) {
         current_state = CertificateParserState::PRE_NAME;
         break;
       case CertificateParserState::IN_PUBLIC_KEY:
-        buffer += line.as_string() + '\n';
+        buffer += std::string(line) + '\n';
         if (!base::StartsWith(line, kEndOfPublicKey, compare_mode)) {
           continue;
         }

@@ -39,40 +39,45 @@ export class ChunkedReader {
    * @return {number}
    */
   fileSize() {
+    throw new Error('Not implemented yet');
   }
 
   /**
    * @return {number}
    */
   loadedSize() {
+    throw new Error('Not implemented yet');
   }
 
   /**
    * @return {string}
    */
   fileName() {
+    throw new Error('Not implemented yet');
   }
 
   cancel() {
   }
 
   /**
-   * @return {?FileError}
+   * @return {?DOMError}
    */
-  error() {}
+  error() {
+    throw new Error('Not implemented yet');
+  }
 }
 
 /**
  * @implements {ChunkedReader}
- * @unrestricted
  */
 export class ChunkedFileReader {
   /**
-   * @param {!Blob} blob
+   * @param {!File} blob
    * @param {number} chunkSize
    * @param {function(!ChunkedReader)=} chunkTransferredCallback
    */
   constructor(blob, chunkSize, chunkTransferredCallback) {
+    /** @type {?File} */
     this._file = blob;
     this._fileSize = blob.size;
     this._loadedSize = 0;
@@ -80,8 +85,10 @@ export class ChunkedFileReader {
     this._chunkTransferredCallback = chunkTransferredCallback;
     this._decoder = new TextDecoder();
     this._isCanceled = false;
-    /** @type {?FileError} */
+    /** @type {?DOMError} */
     this._error = null;
+    /** @type {function(boolean):void} */
+    this._transferFinished;
   }
 
   /**
@@ -97,7 +104,9 @@ export class ChunkedFileReader {
     this._reader.onload = this._onChunkLoaded.bind(this);
     this._reader.onerror = this._onError.bind(this);
     this._loadChunk();
-    return new Promise(resolve => this._transferFinished = resolve);
+    return new Promise(resolve => {
+      this._transferFinished = resolve;
+    });
   }
 
   /**
@@ -128,12 +137,15 @@ export class ChunkedFileReader {
    * @return {string}
    */
   fileName() {
+    if (!this._file) {
+      return '';
+    }
     return this._file.name;
   }
 
   /**
    * @override
-   * @return {?FileError}
+   * @return {?DOMError}
    */
   error() {
     return this._error;
@@ -147,11 +159,16 @@ export class ChunkedFileReader {
       return;
     }
 
-    if (event.target.readyState !== FileReader.DONE) {
+    const eventTarget = /** @type {!FileReader} */ (event.target);
+    if (eventTarget.readyState !== FileReader.DONE) {
       return;
     }
 
-    const buffer = this._reader.result;
+    if (!this._output || !this._reader) {
+      return;
+    }
+
+    const buffer = /** @type {!ArrayBuffer} */ (this._reader.result);
     this._loadedSize += buffer.byteLength;
     const endOfFile = this._loadedSize === this._fileSize;
     const decodedString = this._decoder.decode(buffer, {stream: !endOfFile});
@@ -175,6 +192,9 @@ export class ChunkedFileReader {
   }
 
   _loadChunk() {
+    if (!this._output || !this._reader || !this._file) {
+      return;
+    }
     const chunkStart = this._loadedSize;
     const chunkEnd = Math.min(this._fileSize, chunkStart + this._chunkSize);
     const nextPart = this._file.slice(chunkStart, chunkEnd);
@@ -185,41 +205,49 @@ export class ChunkedFileReader {
    * @param {!Event} event
    */
   _onError(event) {
-    this._error = event.target.error;
+    const eventTarget = /** @type {!FileReader} */ (event.target);
+    this._error = /** @type {!DOMError} */ (eventTarget.error);
     this._transferFinished(false);
   }
 }
 
 /**
  * @implements {Common.StringOutputStream.OutputStream}
- * @unrestricted
  */
 export class FileOutputStream {
+  constructor() {
+    /** @type {!Array<function():void>} */
+    this._writeCallbacks = [];
+    /** @type {string} */
+    this._fileName;
+  }
+
   /**
    * @param {string} fileName
    * @return {!Promise<boolean>}
    */
   async open(fileName) {
     this._closed = false;
-    /** @type {!Array<function()>} */
+    /** @type {!Array<function():void>} */
     this._writeCallbacks = [];
     this._fileName = fileName;
-    const saveResponse = await self.Workspace.fileManager.save(this._fileName, '', true);
+    const saveResponse = await Workspace.FileManager.FileManager.instance().save(this._fileName, '', true);
     if (saveResponse) {
-      self.Workspace.fileManager.addEventListener(Workspace.FileManager.Events.AppendedToURL, this._onAppendDone, this);
+      Workspace.FileManager.FileManager.instance().addEventListener(
+          Workspace.FileManager.Events.AppendedToURL, this._onAppendDone, this);
     }
-    return !!saveResponse;
+    return Boolean(saveResponse);
   }
 
   /**
    * @override
    * @param {string} data
-   * @return {!Promise}
+   * @return {!Promise<void>}
    */
   write(data) {
     return new Promise(resolve => {
       this._writeCallbacks.push(resolve);
-      self.Workspace.fileManager.append(this._fileName, data);
+      Workspace.FileManager.FileManager.instance().append(this._fileName, data);
     });
   }
 
@@ -231,9 +259,9 @@ export class FileOutputStream {
     if (this._writeCallbacks.length) {
       return;
     }
-    self.Workspace.fileManager.removeEventListener(
+    Workspace.FileManager.FileManager.instance().removeEventListener(
         Workspace.FileManager.Events.AppendedToURL, this._onAppendDone, this);
-    self.Workspace.fileManager.close(this._fileName);
+    Workspace.FileManager.FileManager.instance().close(this._fileName);
   }
 
   /**
@@ -243,15 +271,18 @@ export class FileOutputStream {
     if (event.data !== this._fileName) {
       return;
     }
-    this._writeCallbacks.shift()();
+    const writeCallback = this._writeCallbacks.shift();
+    if (writeCallback) {
+      writeCallback();
+    }
     if (this._writeCallbacks.length) {
       return;
     }
     if (!this._closed) {
       return;
     }
-    self.Workspace.fileManager.removeEventListener(
+    Workspace.FileManager.FileManager.instance().removeEventListener(
         Workspace.FileManager.Events.AppendedToURL, this._onAppendDone, this);
-    self.Workspace.fileManager.close(this._fileName);
+    Workspace.FileManager.FileManager.instance().close(this._fileName);
   }
 }

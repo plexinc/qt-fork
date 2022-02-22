@@ -36,15 +36,16 @@
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/renderer/content_renderer_client.h"
-#include "services/service_manager/embedder/switches.h"
+#include "services/network/public/cpp/features.h"
 #include "third_party/blink/public/common/features.h"
+#include "third_party/blink/public/web/blink.h"
 #include "third_party/blink/public/web/web_frame.h"
 #include "v8/include/v8.h"
 
 #if defined(OS_WIN)
 #include "base/win/win_util.h"
 #endif
-#if defined(OS_LINUX) && defined(ARCH_CPU_X86_64)
+#if (defined(OS_LINUX) || defined(OS_CHROMEOS)) && defined(ARCH_CPU_X86_64)
 #include "v8/include/v8-wasm-trap-handler-posix.h"
 #endif
 namespace {
@@ -79,7 +80,8 @@ GetThreadPoolInitParams() {
 void V8DcheckCallbackHandler(const char* file, int line, const char* message) {
   // TODO(siggi): Set a crash key or a breadcrumb so the fact that we hit a
   //     V8 DCHECK gets out in the crash report.
-  ::logging::LogMessage(file, line, logging::LOG_DCHECK).stream() << message;
+  ::logging::LogMessage(file, line, logging::LOGGING_DCHECK).stream()
+      << message;
 }
 #endif  // defined(DCHECK_IS_CONFIGURABLE)
 
@@ -88,8 +90,7 @@ void V8DcheckCallbackHandler(const char* file, int line, const char* message) {
 namespace content {
 
 RenderProcessImpl::RenderProcessImpl()
-    : RenderProcess("Renderer", GetThreadPoolInitParams()),
-      enabled_bindings_(0) {
+    : RenderProcess("Renderer", GetThreadPoolInitParams()) {
 #if defined(DCHECK_IS_CONFIGURABLE)
   // Some official builds ship with DCHECKs compiled in. Failing DCHECKs then
   // are either fatal or simply log the error, based on a feature flag.
@@ -122,9 +123,8 @@ RenderProcessImpl::RenderProcessImpl()
   SetV8FlagIfHasSwitch(switches::kEnableExperimentalWebAssemblyFeatures,
                        "--wasm-staging");
 
-  constexpr char kModuleFlags[] =
-      "--harmony-dynamic-import --harmony-import-meta";
-  v8::V8::SetFlagsFromString(kModuleFlags, sizeof(kModuleFlags));
+  SetV8FlagIfHasSwitch(switches::kEnableUnsafeFastJSCalls,
+                       "--turbo-fast-api-calls");
 
   SetV8FlagIfFeature(features::kV8VmFuture, "--future");
   SetV8FlagIfNotFeature(features::kV8VmFuture, "--no-future");
@@ -144,17 +144,41 @@ RenderProcessImpl::RenderProcessImpl()
   SetV8FlagIfFeature(blink::features::kTopLevelAwait,
                      "--harmony-top-level-await");
 
-  if (base::FeatureList::IsEnabled(features::kWebAssemblyThreads)) {
-    constexpr char kFlags[] =
-        "--harmony-sharedarraybuffer "
-        "--experimental-wasm-threads";
+  constexpr char kAtomicsFlag[] = "--harmony-atomics";
+  v8::V8::SetFlagsFromString(kAtomicsFlag, sizeof(kAtomicsFlag));
 
-    v8::V8::SetFlagsFromString(kFlags, sizeof(kFlags));
+  // SharedArrayBuffers require the feature flag, or the WebAssembly threads
+  // feature, or site isolation. On Android, SABs are disabled by default, so
+  // site isolation is required. On desktop, site isolation is optional while we
+  // migrate existing web pages to require site isolation.
+  bool enable_wasm_threads =
+      base::FeatureList::IsEnabled(features::kWebAssemblyThreads);
+  bool restrict_shared_array_buffers =
+      base::FeatureList::IsEnabled(features::kRestrictSharedArrayBuffer);
+  bool cross_origin_isolated =
+      base::FeatureList::IsEnabled(network::features::kCrossOriginIsolated) &&
+      blink::IsCrossOriginIsolated();
+
+  bool enable_shared_array_buffer = false;
+  if (cross_origin_isolated) {
+    enable_shared_array_buffer = true;
+    enable_wasm_threads = true;
+  } else if (!restrict_shared_array_buffers) {
+    enable_shared_array_buffer =
+        enable_wasm_threads ||
+        base::FeatureList::IsEnabled(features::kSharedArrayBuffer);
+  }
+
+  if (enable_wasm_threads) {
+    constexpr char kWasmThreadsFlag[] = "--experimental-wasm-threads";
+    v8::V8::SetFlagsFromString(kWasmThreadsFlag, sizeof(kWasmThreadsFlag));
+  }
+  if (enable_shared_array_buffer) {
+    constexpr char kSABFlag[] = "--harmony-sharedarraybuffer";
+    v8::V8::SetFlagsFromString(kSABFlag, sizeof(kSABFlag));
   } else {
-    SetV8FlagIfFeature(features::kSharedArrayBuffer,
-                       "--harmony-sharedarraybuffer");
-    SetV8FlagIfNotFeature(features::kSharedArrayBuffer,
-                          "--no-harmony-sharedarraybuffer");
+    constexpr char kNoSABFlag[] = "--no-harmony-sharedarraybuffer";
+    v8::V8::SetFlagsFromString(kNoSABFlag, sizeof(kNoSABFlag));
   }
 
   SetV8FlagIfFeature(features::kWebAssemblyTiering, "--wasm-tier-up");
@@ -162,26 +186,29 @@ RenderProcessImpl::RenderProcessImpl()
 
   SetV8FlagIfNotFeature(features::kWebAssemblyTrapHandler,
                         "--no-wasm-trap-handler");
-#if defined(OS_LINUX) && defined(ARCH_CPU_X86_64)
+#if (defined(OS_LINUX) || defined(OS_CHROMEOS)) && defined(ARCH_CPU_X86_64)
   if (base::FeatureList::IsEnabled(features::kWebAssemblyTrapHandler)) {
     base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-    if (!command_line->HasSwitch(
-            service_manager::switches::kDisableInProcessStackTraces)) {
-      // Only enable WebAssembly trap handler if we can set the callback.
+
+    if (command_line->HasSwitch(switches::kEnableCrashpad) ||
+        command_line->HasSwitch(switches::kEnableCrashReporter) ||
+        command_line->HasSwitch(switches::kEnableCrashReporterForTesting)) {
+      // The trap handler is set as the first chance handler for Crashpad or
+      // Breakpad's signal handler.
+      v8::V8::EnableWebAssemblyTrapHandler(/*use_v8_signal_handler=*/false);
+    } else if (!command_line->HasSwitch(
+                   switches::kDisableInProcessStackTraces)) {
       if (base::debug::SetStackDumpFirstChanceCallback(
               v8::TryHandleWebAssemblyTrapPosix)) {
-        // We registered the WebAssembly trap handler callback with the stack
-        // dump signal handler successfully. We can tell V8 that it can enable
-        // WebAssembly trap handler without using the V8 signal handler.
+        // Crashpad and Breakpad are disabled, but the in-process stack dump
+        // handlers are enabled, so set the callback on the stack dump handlers.
         v8::V8::EnableWebAssemblyTrapHandler(/*use_v8_signal_handler=*/false);
+      } else {
+        // As the registration of the callback failed, we don't enable trap
+        // handlers.
       }
-    } else if (!command_line->HasSwitch(switches::kEnableCrashReporter) &&
-               !command_line->HasSwitch(
-                   switches::kEnableCrashReporterForTesting)) {
-      // If we are using WebAssembly trap handling but both Breakpad and
-      // in-process stack traces are disabled then there will be no signal
-      // handler. In this case, we fall back on V8's default handler
-      // (https://crbug.com/798150).
+    } else {
+      // There is no signal handler yet, but it's okay if v8 registers one.
       v8::V8::EnableWebAssemblyTrapHandler(/*use_v8_signal_handler=*/true);
     }
   }
@@ -193,7 +220,7 @@ RenderProcessImpl::RenderProcessImpl()
     v8::V8::EnableWebAssemblyTrapHandler(use_v8_trap_handler);
   }
 #endif
-#if defined(OS_MACOSX) && defined(ARCH_CPU_X86_64)
+#if defined(OS_MAC) && (defined(ARCH_CPU_X86_64) || defined(ARCH_CPU_ARM64))
   if (base::FeatureList::IsEnabled(features::kWebAssemblyTrapHandler)) {
     // On macOS, Crashpad uses exception ports to handle signals in a different
     // process. As we cannot just pass a callback to this other process, we ask
@@ -201,7 +228,7 @@ RenderProcessImpl::RenderProcessImpl()
     bool use_v8_signal_handler = true;
     v8::V8::EnableWebAssemblyTrapHandler(use_v8_signal_handler);
   }
-#endif  // defined(OS_MACOSX) && defined(ARCH_CPU_X86_64)
+#endif  // defined(OS_MAC) && defined(ARCH_CPU_X86_64)
 
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();
@@ -221,11 +248,6 @@ RenderProcessImpl::RenderProcessImpl()
       v8::V8::SetFlagsFromString(flag.as_string().c_str(), flag.size());
     }
   }
-
-  if (command_line.HasSwitch(switches::kDomAutomationController))
-    enabled_bindings_ |= BINDINGS_POLICY_DOM_AUTOMATION;
-  if (command_line.HasSwitch(switches::kStatsCollectionController))
-    enabled_bindings_ |= BINDINGS_POLICY_STATS_COLLECTION;
 }
 
 RenderProcessImpl::~RenderProcessImpl() {
@@ -240,14 +262,6 @@ RenderProcessImpl::~RenderProcessImpl() {
 
 std::unique_ptr<RenderProcess> RenderProcessImpl::Create() {
   return base::WrapUnique(new RenderProcessImpl());
-}
-
-void RenderProcessImpl::AddBindings(int bindings) {
-  enabled_bindings_ |= bindings;
-}
-
-int RenderProcessImpl::GetEnabledBindings() const {
-  return enabled_bindings_;
 }
 
 void RenderProcessImpl::AddRefProcess() {

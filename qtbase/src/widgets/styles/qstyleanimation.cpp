@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtWidgets module of the Qt Toolkit.
@@ -87,7 +87,7 @@ QTime QStyleAnimation::startTime() const
     return _startTime;
 }
 
-void QStyleAnimation::setStartTime(const QTime &time)
+void QStyleAnimation::setStartTime(QTime time)
 {
     _startTime = time;
 }
@@ -122,9 +122,9 @@ bool QStyleAnimation::isUpdateNeeded() const
     return currentTime() > _delay;
 }
 
-void QStyleAnimation::updateCurrentTime(int)
+void QStyleAnimation::updateCurrentTime(int time)
 {
-    if (++_skip >= _fps) {
+    if (++_skip >= _fps || time >= duration()) {
         _skip = 0;
         if (target() && isUpdateNeeded())
             updateTarget();
@@ -266,7 +266,7 @@ static QImage blendedImage(const QImage &start, const QImage &end, float alpha)
     const int ia = 256 - a;
     const int sw = start.width();
     const int sh = start.height();
-    const int bpl = start.bytesPerLine();
+    const qsizetype bpl = start.bytesPerLine();
     switch (start.depth()) {
     case 32:
         {

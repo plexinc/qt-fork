@@ -53,13 +53,13 @@ QRectF Callout::boundingRect() const
 
 void Callout::paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget)
 {
-    Q_UNUSED(option)
-    Q_UNUSED(widget)
+    Q_UNUSED(option);
+    Q_UNUSED(widget);
     QPainterPath path;
     path.addRoundedRect(m_rect, 5, 5);
 
     QPointF anchor = mapFromParent(m_chart->mapToPosition(m_anchor));
-    if (!m_rect.contains(anchor)) {
+    if (!m_rect.contains(anchor) && !m_anchor.isNull()) {
         QPointF point1, point2;
 
         // establish the position of the anchor point in relation to m_rect

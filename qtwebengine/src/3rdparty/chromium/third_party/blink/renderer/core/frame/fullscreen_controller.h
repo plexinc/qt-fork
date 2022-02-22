@@ -34,10 +34,10 @@
 #include <memory>
 
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/platform/geometry/float_point.h"
 #include "third_party/blink/renderer/platform/geometry/int_size.h"
 #include "third_party/blink/renderer/platform/graphics/color.h"
+#include "third_party/blink/renderer/platform/heap/heap_allocator.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
@@ -45,7 +45,10 @@ namespace blink {
 
 class Element;
 class FullscreenOptions;
+class LocalFrame;
 class WebViewImpl;
+
+enum class FullscreenRequestType;
 
 // FullscreenController is a per-WebView class that manages the transition into
 // and out of fullscreen, including restoring scroll offset and scale after
@@ -60,7 +63,7 @@ class CORE_EXPORT FullscreenController {
   // fullscreen.
   void EnterFullscreen(LocalFrame&,
                        const FullscreenOptions*,
-                       bool for_cross_process_descendant);
+                       FullscreenRequestType request_type);
   void ExitFullscreen(LocalFrame&);
 
   // Called by content::RenderWidget (via WebWidget) to notify that we've
@@ -71,7 +74,10 @@ class CORE_EXPORT FullscreenController {
 
   // Called by Fullscreen (via ChromeClient) to notify that the fullscreen
   // element has changed.
-  void FullscreenElementChanged(Element* old_element, Element* new_element);
+  void FullscreenElementChanged(Element* old_element,
+                                Element* new_element,
+                                const FullscreenOptions*,
+                                FullscreenRequestType request_type);
 
   bool IsFullscreenOrTransitioning() const { return state_ != State::kInitial; }
 

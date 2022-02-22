@@ -9,7 +9,7 @@
 #include <string>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/cancelable_callback.h"
 #include "base/component_export.h"
 #include "base/containers/queue.h"
@@ -68,6 +68,7 @@ class COMPONENT_EXPORT(LEVELDB_PROTO) SharedProtoDatabase
   friend class SharedProtoDatabaseTest;
   friend class SharedProtoDatabaseClientTest;
   friend class TestSharedProtoDatabase;
+  friend class TestSharedProtoDatabaseClient;
   FRIEND_TEST_ALL_PREFIXES(SharedProtoDatabaseTest,
                            CancelDeleteObsoleteClients);
   FRIEND_TEST_ALL_PREFIXES(SharedProtoDatabaseTest, DeleteObsoleteClients);

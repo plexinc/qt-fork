@@ -43,15 +43,12 @@
 #ifndef QT_NO_OPENGL
 # include "qminimaleglbackingstore.h"
 #endif
-#include <QtFontDatabaseSupport/private/qgenericunixfontdatabase_p.h>
+#include <QtGui/private/qgenericunixfontdatabase_p.h>
 
 #if defined(Q_OS_UNIX)
-#  include <QtEventDispatcherSupport/private/qgenericunixeventdispatcher_p.h>
-#elif defined(Q_OS_WINRT)
-#  include <QtCore/private/qeventdispatcher_winrt_p.h>
-#  include <QtGui/qpa/qwindowsysteminterface.h>
+#  include <QtGui/private/qgenericunixeventdispatcher_p.h>
 #elif defined(Q_OS_WIN)
-#  include <QtEventDispatcherSupport/private/qwindowsguieventdispatcher_p.h>
+#  include <QtGui/private/qwindowsguieventdispatcher_p.h>
 #endif
 
 #include <qpa/qplatformwindow.h>
@@ -64,29 +61,6 @@
 #include "qminimaleglscreen.h"
 
 QT_BEGIN_NAMESPACE
-
-#ifdef Q_OS_WINRT
-namespace {
-class QWinRTEventDispatcher : public QEventDispatcherWinRT {
-public:
-    QWinRTEventDispatcher() {}
-
-protected:
-    bool hasPendingEvents() override
-    {
-        return QEventDispatcherWinRT::hasPendingEvents() || QWindowSystemInterface::windowSystemEventsQueued();
-    }
-
-    bool sendPostedEvents(QEventLoop::ProcessEventsFlags flags)
-    {
-        bool didProcess = QEventDispatcherWinRT::sendPostedEvents(flags);
-        if (!(flags & QEventLoop::ExcludeUserInputEvents))
-            didProcess |= QWindowSystemInterface::sendWindowSystemEvents(flags);
-        return didProcess;
-    }
-};
-} // anonymous namespace
-#endif // Q_OS_WINRT
 
 QMinimalEglIntegration::QMinimalEglIntegration()
     : mFontDb(new QGenericUnixFontDatabase()), mScreen(new QMinimalEglScreen(EGL_DEFAULT_DISPLAY))
@@ -153,8 +127,6 @@ QAbstractEventDispatcher *QMinimalEglIntegration::createEventDispatcher() const
 {
 #if defined(Q_OS_UNIX)
     return createUnixEventDispatcher();
-#elif defined(Q_OS_WINRT)
-    return new QWinRTEventDispatcher;
 #elif defined(Q_OS_WIN)
     return new QWindowsGuiEventDispatcher;
 #else

@@ -36,7 +36,7 @@ class PacketSequenceState;
 struct TimestampedTracePiece;
 class TraceProcessorContext;
 
-// This file contains a base class for ProtoTraceTokenizer/Parser modules.
+// This file contains a base class for ProtoTraceReader/Parser modules.
 // A module implements support for a subset of features of the TracePacket
 // proto format.
 // To add and integrate a new module:
@@ -98,7 +98,7 @@ class ProtoImporterModule {
 
   virtual ~ProtoImporterModule();
 
-  // Called by ProtoTraceTokenizer during the tokenization stage, i.e. before
+  // Called by ProtoTraceReader during the tokenization stage, i.e. before
   // sorting. It's called for each TracePacket that contains fields for which
   // the module was registered. If this returns a result other than
   // ModuleResult::Ignored(), tokenization of the packet will be aborted after
@@ -109,6 +109,13 @@ class ProtoImporterModule {
       int64_t packet_timestamp,
       PacketSequenceState*,
       uint32_t field_id);
+
+  // Called by ProtoTraceReader during the tokenization stage i.e. before
+  // sorting. Indicates that sequence with id |packet_sequence_id| has cleared
+  // its incremental state. This should be used to clear any cached state the
+  // tokenizer has built up while reading packets until this point for this
+  // packet sequence.
+  virtual void OnIncrementalStateCleared(uint32_t /* packet_sequence_id */) {}
 
   // Called by ProtoTraceParser after the sorting stage for each non-ftrace
   // TracePacket that contains fields for which the module was registered.

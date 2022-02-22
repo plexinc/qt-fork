@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Copyright (C) 2017 Klarälvdalens Datakonsult AB, a KDAB Group company, info@kdab.com, author Marc Mutz <marc.mutz@kdab.com>
 ** Contact: https://www.qt.io/licensing/
 **
@@ -58,7 +58,7 @@ void _q_toHex(char *&dst, Integral value)
 {
     value = qToBigEndian(value);
 
-    const char* p = reinterpret_cast<const char*>(&value);
+    const char *p = reinterpret_cast<const char *>(&value);
 
     for (uint i = 0; i < sizeof(Integral); ++i, dst += 2) {
         dst[0] = QtMiscUtils::toHexLower((p[i] >> 4) & 0xf);
@@ -290,7 +290,7 @@ static QUuid createFromName(const QUuid &ns, const QByteArray &baseData, QCrypto
     \endtable
 
     The field layouts for the DCE versions listed in the table above
-    are specified in the \l{http://www.ietf.org/rfc/rfc4122.txt}
+    are specified in the \l{RFC 4122}
     {Network Working Group UUID Specification}.
 
     Most platforms provide a tool for generating new UUIDs, e.g. \c
@@ -569,49 +569,6 @@ QUuid QUuid::fromRfc4122(const QByteArray &bytes)
 */
 
 /*!
-    Returns the string representation of this QUuid. The string is
-    formatted as five hex fields separated by '-' and enclosed in
-    curly braces, i.e., "{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}" where
-    'x' is a hex digit.  From left to right, the five hex fields are
-    obtained from the four public data members in QUuid as follows:
-
-    \table
-    \header
-    \li Field #
-    \li Source
-
-    \row
-    \li 1
-    \li data1
-
-    \row
-    \li 2
-    \li data2
-
-    \row
-    \li 3
-    \li data3
-
-    \row
-    \li 4
-    \li data4[0] .. data4[1]
-
-    \row
-    \li 5
-    \li data4[2] .. data4[7]
-
-    \endtable
-*/
-QString QUuid::toString() const
-{
-    char latin1[MaxStringUuidLength];
-    const auto end = _q_uuidToHex(*this, latin1);
-    Q_ASSERT(end - latin1 == MaxStringUuidLength);
-    Q_UNUSED(end);
-    return QString::fromLatin1(latin1, MaxStringUuidLength);
-}
-
-/*!
     \since 5.11
 
     Returns the string representation of this QUuid, with the formattiong
@@ -653,51 +610,6 @@ QString QUuid::toString(QUuid::StringFormat mode) const
 }
 
 /*!
-    Returns the binary representation of this QUuid. The byte array is
-    formatted as five hex fields separated by '-' and enclosed in
-    curly braces, i.e., "{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}" where
-    'x' is a hex digit.  From left to right, the five hex fields are
-    obtained from the four public data members in QUuid as follows:
-
-    \table
-    \header
-    \li Field #
-    \li Source
-
-    \row
-    \li 1
-    \li data1
-
-    \row
-    \li 2
-    \li data2
-
-    \row
-    \li 3
-    \li data3
-
-    \row
-    \li 4
-    \li data4[0] .. data4[1]
-
-    \row
-    \li 5
-    \li data4[2] .. data4[7]
-
-    \endtable
-
-    \since 4.8
-*/
-QByteArray QUuid::toByteArray() const
-{
-    QByteArray result(MaxStringUuidLength, Qt::Uninitialized);
-    const auto end = _q_uuidToHex(*this, const_cast<char*>(result.constData()));
-    Q_ASSERT(end - result.constData() == MaxStringUuidLength);
-    Q_UNUSED(end);
-    return result;
-}
-
-/*!
     \since 5.11
 
     Returns the string representation of this QUuid, with the formattiong
@@ -734,7 +646,7 @@ QByteArray QUuid::toByteArray() const
 QByteArray QUuid::toByteArray(QUuid::StringFormat mode) const
 {
     QByteArray result(MaxStringUuidLength, Qt::Uninitialized);
-    const auto end = _q_uuidToHex(*this, const_cast<char*>(result.constData()), mode);
+    const auto end = _q_uuidToHex(*this, const_cast<char *>(result.constData()), mode);
     result.resize(end - result.constData());
     return result;
 }
@@ -775,7 +687,7 @@ QByteArray QUuid::toRfc4122() const
 {
     // we know how many bytes a UUID has, I hope :)
     QByteArray bytes(16, Qt::Uninitialized);
-    uchar *data = reinterpret_cast<uchar*>(bytes.data());
+    uchar *data = reinterpret_cast<uchar *>(bytes.data());
 
     qToBigEndian(data1, data);
     data += sizeof(quint32);
@@ -805,7 +717,7 @@ QDataStream &operator<<(QDataStream &s, const QUuid &id)
     } else {
         // we know how many bytes a UUID has, I hope :)
         bytes = QByteArray(16, Qt::Uninitialized);
-        uchar *data = reinterpret_cast<uchar*>(bytes.data());
+        uchar *data = reinterpret_cast<uchar *>(bytes.data());
 
         qToLittleEndian(id.data1, data);
         data += sizeof(quint32);
@@ -1089,7 +1001,7 @@ QDebug operator<<(QDebug dbg, const QUuid &id)
     \relates QUuid
     Returns a hash of the UUID \a uuid, using \a seed to seed the calculation.
 */
-uint qHash(const QUuid &uuid, uint seed) noexcept
+size_t qHash(const QUuid &uuid, size_t seed) noexcept
 {
     return uuid.data1 ^ uuid.data2 ^ (uuid.data3 << 16)
             ^ ((uuid.data4[0] << 24) | (uuid.data4[1] << 16) | (uuid.data4[2] << 8) | uuid.data4[3])

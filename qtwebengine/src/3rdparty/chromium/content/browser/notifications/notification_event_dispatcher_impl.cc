@@ -5,17 +5,14 @@
 #include "content/browser/notifications/notification_event_dispatcher_impl.h"
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/callback_helpers.h"
 #include "base/optional.h"
-#include "base/task/post_task.h"
 #include "build/build_config.h"
 #include "content/browser/notifications/devtools_event_logging.h"
 #include "content/browser/notifications/platform_notification_context_impl.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/browser/service_worker/service_worker_registration.h"
-#include "content/browser/service_worker/service_worker_storage.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -73,6 +70,7 @@ PersistentNotificationStatus ConvertServiceWorkerStatus(
     case blink::ServiceWorkerStatusCode::kErrorRedundant:
     case blink::ServiceWorkerStatusCode::kErrorDisallowed:
     case blink::ServiceWorkerStatusCode::kErrorInvalidArguments:
+    case blink::ServiceWorkerStatusCode::kErrorStorageDisconnected:
       return PersistentNotificationStatus::kServiceWorkerError;
   }
   NOTREACHED();
@@ -142,6 +140,7 @@ void DispatchNotificationEventOnRegistration(
     case blink::ServiceWorkerStatusCode::kErrorRedundant:
     case blink::ServiceWorkerStatusCode::kErrorDisallowed:
     case blink::ServiceWorkerStatusCode::kErrorInvalidArguments:
+    case blink::ServiceWorkerStatusCode::kErrorStorageDisconnected:
       status = PersistentNotificationStatus::kServiceWorkerError;
       break;
     case blink::ServiceWorkerStatusCode::kOk:
@@ -149,14 +148,14 @@ void DispatchNotificationEventOnRegistration(
       break;
   }
 
-  base::PostTask(FROM_HERE, {BrowserThread::UI},
-                 base::BindOnce(std::move(dispatch_complete_callback), status));
+  GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(std::move(dispatch_complete_callback), status));
 }
 
 // Finds the ServiceWorkerRegistration associated with the |origin| and
 // |service_worker_registration_id|. Must be called on the UI thread.
 void FindServiceWorkerRegistration(
-    const GURL& origin,
+    const url::Origin& origin,
     const scoped_refptr<ServiceWorkerContextWrapper>& service_worker_context,
     NotificationOperationCallback notification_action_callback,
     NotificationDispatchCompleteCallback dispatch_complete_callback,
@@ -200,8 +199,8 @@ void ReadNotificationDatabaseData(
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   notification_context->ReadNotificationDataAndRecordInteraction(
       notification_id, origin, interaction,
-      base::BindOnce(&FindServiceWorkerRegistration, origin,
-                     service_worker_context,
+      base::BindOnce(&FindServiceWorkerRegistration,
+                     url::Origin::Create(origin), service_worker_context,
                      std::move(notification_read_callback),
                      std::move(dispatch_complete_callback)));
 }
@@ -458,7 +457,8 @@ void NotificationEventDispatcherImpl::RegisterNonPersistentNotificationListener(
     non_persistent_notification_listeners_.erase(notification_id);
   }
 
-  non_persistent_notification_listeners_.emplace(notification_id, std::move(bound_remote));
+  non_persistent_notification_listeners_.insert(
+      {notification_id, std::move(bound_remote)});
 }
 
 void NotificationEventDispatcherImpl::DispatchNonPersistentShowEvent(

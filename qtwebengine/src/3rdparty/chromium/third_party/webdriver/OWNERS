@@ -1,6 +1,5 @@
 # primary reviewer
-johnchen@chromium.org
+shengfa@google.com
 
-# backup reviewer
-jbudorick@chromium.org
-# COMPONENT: Test>WebDriver
+# secondary reviewer
+johnchen@chromium.org

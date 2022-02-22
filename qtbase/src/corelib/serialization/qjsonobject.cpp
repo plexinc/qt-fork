@@ -106,7 +106,7 @@ QT_BEGIN_NAMESPACE
 /*!
     \typedef QJsonObject::size_type
 
-    Typedef for int. Provided for STL compatibility.
+    Typedef for qsizetype. Provided for STL compatibility.
 */
 
 
@@ -138,23 +138,6 @@ QJsonObject::QJsonObject(QCborContainerPrivate *object)
     : o(object)
 {
     Q_ASSERT(o);
-}
-
-/*!
-    This method replaces part of the QJsonObject(std::initializer_list<QPair<QString, QJsonValue>> args) body.
-    The constructor needs to be inline, but we do not want to leak implementation details
-    of this class.
-    \note this method is called for an uninitialized object
-    \internal
- */
-
-void QJsonObject::initialize()
-{
-    // Because we're being called with uninitialized state, we can't do:
-    //    o = nullptr;
-    // QExplicitlyDataSharedPointer::operator= will read the current value
-    void *ptr = &o;
-    memset(ptr, 0, sizeof(o));
 }
 
 /*!
@@ -289,7 +272,7 @@ QStringList QJsonObject::keys() const
     QStringList keys;
     if (o) {
         keys.reserve(o->elements.length() / 2);
-        for (int i = 0, end = o->elements.length(); i < end; i += 2)
+        for (qsizetype i = 0, end = o->elements.length(); i < end; i += 2)
             keys.append(o->stringAt(i));
     }
     return keys;
@@ -298,7 +281,7 @@ QStringList QJsonObject::keys() const
 /*!
     Returns the number of (key, value) pairs stored in the object.
  */
-int QJsonObject::size() const
+qsizetype QJsonObject::size() const
 {
     return o ? o->elements.length() / 2 : 0;
 }
@@ -314,8 +297,8 @@ bool QJsonObject::isEmpty() const
 }
 
 template<typename String>
-static int indexOf(const QExplicitlySharedDataPointer<QCborContainerPrivate> &o,
-                   String key, bool *keyExists)
+static qsizetype indexOf(const QExplicitlySharedDataPointer<QCborContainerPrivate> &o,
+                         String key, bool *keyExists)
 {
     const auto begin = QJsonPrivate::ConstKeyIterator(o->elements.constBegin());
     const auto end = QJsonPrivate::ConstKeyIterator(o->elements.constEnd());
@@ -372,7 +355,7 @@ QJsonValue QJsonObject::valueImpl(T key) const
         return QJsonValue(QJsonValue::Undefined);
 
     bool keyExists;
-    int i = indexOf(o, key, &keyExists);
+    auto i = indexOf(o, key, &keyExists);
     if (!keyExists)
         return QJsonValue(QJsonValue::Undefined);
     return QJsonPrivate::Value::fromTrustedCbor(o->valueAt(i + 1));
@@ -456,9 +439,9 @@ QJsonValueRef QJsonObject::atImpl(T key)
         o = new QCborContainerPrivate;
 
     bool keyExists = false;
-    int index = indexOf(o, key, &keyExists);
+    auto index = indexOf(o, key, &keyExists);
     if (!keyExists) {
-        detach2(o->elements.length() / 2 + 1);
+        detach(o->elements.length() / 2 + 1);
         o->insertAt(index, key);
         o->insertAt(index + 1, QCborValue::fromJsonValue(QJsonValue()));
     }
@@ -515,7 +498,7 @@ QJsonObject::iterator QJsonObject::insertImpl(T key, const QJsonValue &value)
         return end();
     }
     bool keyExists = false;
-    int pos = o ? indexOf(o, key, &keyExists) : 0;
+    auto pos = o ? indexOf(o, key, &keyExists) : 0;
     return insertAt(pos, key, value, keyExists);
 }
 
@@ -523,10 +506,10 @@ QJsonObject::iterator QJsonObject::insertImpl(T key, const QJsonValue &value)
     \internal
  */
 template <typename T>
-QJsonObject::iterator QJsonObject::insertAt(int pos, T key, const QJsonValue &value, bool keyExists)
+QJsonObject::iterator QJsonObject::insertAt(qsizetype pos, T key, const QJsonValue &value, bool keyExists)
 {
     if (o)
-        detach2(o->elements.length() / 2 + (keyExists ? 0 : 1));
+        detach(o->elements.length() / 2 + (keyExists ? 0 : 1));
     else
         o = new QCborContainerPrivate;
 
@@ -579,7 +562,7 @@ void QJsonObject::removeImpl(T key)
         return;
 
     bool keyExists;
-    int index = indexOf(o, key, &keyExists);
+    auto index = indexOf(o, key, &keyExists);
     if (!keyExists)
         return;
 
@@ -630,10 +613,11 @@ QJsonValue QJsonObject::takeImpl(T key)
         return QJsonValue(QJsonValue::Undefined);
 
     bool keyExists;
-    int index = indexOf(o, key, &keyExists);
+    auto index = indexOf(o, key, &keyExists);
     if (!keyExists)
         return QJsonValue(QJsonValue::Undefined);
 
+    detach();
     const QJsonValue v = QJsonPrivate::Value::fromTrustedCbor(o->extractAt(index + 1));
     removeAt(index / 2);
     return v;
@@ -698,7 +682,7 @@ bool QJsonObject::operator==(const QJsonObject &other) const
     if (o->elements.length() != other.o->elements.length())
         return false;
 
-    for (int i = 0, end = o->elements.length(); i < end; ++i) {
+    for (qsizetype i = 0, end = o->elements.length(); i < end; ++i) {
         if (o->valueAt(i) != other.o->valueAt(i))
             return false;
     }
@@ -723,12 +707,10 @@ bool QJsonObject::operator!=(const QJsonObject &other) const
  */
 QJsonObject::iterator QJsonObject::erase(QJsonObject::iterator it)
 {
-    if (it.o != this || it.i < 0 || it.i >= o->elements.length())
+    if (it.item.o != this || qsizetype(it.item.index) >= o->elements.length())
         return {this, o->elements.length()};
 
-    int index = it.i;
-
-    removeAt(index);
+    removeAt(it.item.index);
 
     // iterator hasn't changed
     return it;
@@ -773,10 +755,10 @@ template <typename T>
 QJsonObject::iterator QJsonObject::findImpl(T key)
 {
     bool keyExists = false;
-    int index = o ? indexOf(o, key, &keyExists) : 0;
+    auto index = o ? indexOf(o, key, &keyExists) : 0;
     if (!keyExists)
         return end();
-    detach2();
+    detach();
     return {this, index / 2};
 }
 
@@ -838,20 +820,20 @@ template <typename T>
 QJsonObject::const_iterator QJsonObject::constFindImpl(T key) const
 {
     bool keyExists = false;
-    int index = o ? indexOf(o, key, &keyExists) : 0;
+    auto index = o ? indexOf(o, key, &keyExists) : 0;
     if (!keyExists)
         return end();
     return {this, index / 2};
 }
 
-/*! \fn int QJsonObject::count() const
+/*! \fn qsizetype QJsonObject::count() const
 
     \overload
 
     Same as size().
 */
 
-/*! \fn int QJsonObject::length() const
+/*! \fn qsizetype QJsonObject::length() const
 
     \overload
 
@@ -975,7 +957,7 @@ QJsonObject::const_iterator QJsonObject::constFindImpl(T key) const
     \sa QJsonObject::begin(), QJsonObject::end()
 */
 
-/*! \fn QJsonObject::iterator::iterator(QJsonObject *obj, int index)
+/*! \fn QJsonObject::iterator::iterator(QJsonObject *obj, qsizetype index)
     \internal
 */
 
@@ -1026,7 +1008,7 @@ QJsonObject::const_iterator QJsonObject::constFindImpl(T key) const
     Returns a pointer to a modifiable reference to the current item.
 */
 
-/*! \fn const QJsonValueRef QJsonObject::iterator::operator[](int j)
+/*! \fn const QJsonValueRef QJsonObject::iterator::operator[](qsizetype j)
 
     Returns a modifiable reference to the item at offset \a j from the
     item pointed to by this iterator (the item at position \c{*this + j}).
@@ -1135,7 +1117,7 @@ QJsonObject::const_iterator QJsonObject::constFindImpl(T key) const
     current item.
 */
 
-/*! \fn QJsonObject::iterator QJsonObject::iterator::operator+(int j) const
+/*! \fn QJsonObject::iterator QJsonObject::iterator::operator+(qsizetype j) const
 
     Returns an iterator to the item at \a j positions forward from
     this iterator. If \a j is negative, the iterator goes backward.
@@ -1144,7 +1126,7 @@ QJsonObject::const_iterator QJsonObject::constFindImpl(T key) const
 
 */
 
-/*! \fn QJsonObject::iterator QJsonObject::iterator::operator-(int j) const
+/*! \fn QJsonObject::iterator QJsonObject::iterator::operator-(qsizetype j) const
 
     Returns an iterator to the item at \a j positions backward from
     this iterator. If \a j is negative, the iterator goes forward.
@@ -1152,7 +1134,7 @@ QJsonObject::const_iterator QJsonObject::constFindImpl(T key) const
     \sa operator+()
 */
 
-/*! \fn QJsonObject::iterator &QJsonObject::iterator::operator+=(int j)
+/*! \fn QJsonObject::iterator &QJsonObject::iterator::operator+=(qsizetype j)
 
     Advances the iterator by \a j items. If \a j is negative, the
     iterator goes backward.
@@ -1160,7 +1142,7 @@ QJsonObject::const_iterator QJsonObject::constFindImpl(T key) const
     \sa operator-=(), operator+()
 */
 
-/*! \fn QJsonObject::iterator &QJsonObject::iterator::operator-=(int j)
+/*! \fn QJsonObject::iterator &QJsonObject::iterator::operator-=(qsizetype j)
 
     Makes the iterator go back by \a j items. If \a j is negative,
     the iterator goes forward.
@@ -1168,7 +1150,7 @@ QJsonObject::const_iterator QJsonObject::constFindImpl(T key) const
     \sa operator+=(), operator-()
 */
 
-/*! \fn int QJsonObject::iterator::operator-(iterator other) const
+/*! \fn qsizetype QJsonObject::iterator::operator-(iterator other) const
 
     Returns the number of items between the item pointed to by \a
     other and the item pointed to by this iterator.
@@ -1240,7 +1222,7 @@ QJsonObject::const_iterator QJsonObject::constFindImpl(T key) const
     \sa QJsonObject::constBegin(), QJsonObject::constEnd()
 */
 
-/*! \fn QJsonObject::const_iterator::const_iterator(const QJsonObject *obj, int index)
+/*! \fn QJsonObject::const_iterator::const_iterator(const QJsonObject *obj, qsizetype index)
     \internal
 */
 
@@ -1256,14 +1238,14 @@ QJsonObject::const_iterator QJsonObject::constFindImpl(T key) const
     \sa value()
 */
 
-/*! \fn QJsonValue QJsonObject::const_iterator::value() const
+/*! \fn QJsonValueRef QJsonObject::const_iterator::value() const
 
     Returns the current item's value.
 
     \sa key(), operator*()
 */
 
-/*! \fn QJsonValue QJsonObject::const_iterator::operator*() const
+/*! \fn const QJsonValueRef QJsonObject::const_iterator::operator*() const
 
     Returns the current item's value.
 
@@ -1272,12 +1254,12 @@ QJsonObject::const_iterator QJsonObject::constFindImpl(T key) const
     \sa key()
 */
 
-/*! \fn QJsonValue *QJsonObject::const_iterator::operator->() const
+/*! \fn const QJsonValueRef *QJsonObject::const_iterator::operator->() const
 
     Returns a pointer to the current item.
 */
 
-/*! \fn const QJsonValue QJsonObject::const_iterator::operator[](int j)
+/*! \fn const QJsonValue QJsonObject::const_iterator::operator[](qsizetype j)
 
     Returns the item at offset \a j from the item pointed to by this iterator (the item at
     position \c{*this + j}).
@@ -1375,7 +1357,7 @@ QJsonObject::const_iterator QJsonObject::constFindImpl(T key) const
     current item.
 */
 
-/*! \fn QJsonObject::const_iterator QJsonObject::const_iterator::operator+(int j) const
+/*! \fn QJsonObject::const_iterator QJsonObject::const_iterator::operator+(qsizetype j) const
 
     Returns an iterator to the item at \a j positions forward from
     this iterator. If \a j is negative, the iterator goes backward.
@@ -1385,7 +1367,7 @@ QJsonObject::const_iterator QJsonObject::constFindImpl(T key) const
     \sa operator-()
 */
 
-/*! \fn QJsonObject::const_iterator QJsonObject::const_iterator::operator-(int j) const
+/*! \fn QJsonObject::const_iterator QJsonObject::const_iterator::operator-(qsizetype j) const
 
     Returns an iterator to the item at \a j positions backward from
     this iterator. If \a j is negative, the iterator goes forward.
@@ -1395,7 +1377,7 @@ QJsonObject::const_iterator QJsonObject::constFindImpl(T key) const
     \sa operator+()
 */
 
-/*! \fn QJsonObject::const_iterator &QJsonObject::const_iterator::operator+=(int j)
+/*! \fn QJsonObject::const_iterator &QJsonObject::const_iterator::operator+=(qsizetype j)
 
     Advances the iterator by \a j items. If \a j is negative, the
     iterator goes backward.
@@ -1405,7 +1387,7 @@ QJsonObject::const_iterator QJsonObject::constFindImpl(T key) const
     \sa operator-=(), operator+()
 */
 
-/*! \fn QJsonObject::const_iterator &QJsonObject::const_iterator::operator-=(int j)
+/*! \fn QJsonObject::const_iterator &QJsonObject::const_iterator::operator-=(qsizetype j)
 
     Makes the iterator go back by \a j items. If \a j is negative,
     the iterator goes forward.
@@ -1415,7 +1397,7 @@ QJsonObject::const_iterator QJsonObject::constFindImpl(T key) const
     \sa operator+=(), operator-()
 */
 
-/*! \fn int QJsonObject::const_iterator::operator-(const_iterator other) const
+/*! \fn qsizetype QJsonObject::const_iterator::operator-(const_iterator other) const
 
     Returns the number of items between the item pointed to by \a
     other and the item pointed to by this iterator.
@@ -1425,14 +1407,7 @@ QJsonObject::const_iterator QJsonObject::constFindImpl(T key) const
 /*!
     \internal
  */
-void QJsonObject::detach(uint reserve)
-{
-    Q_UNUSED(reserve)
-    Q_ASSERT(!reserve);
-    detach2(reserve);
-}
-
-bool QJsonObject::detach2(uint reserve)
+bool QJsonObject::detach(qsizetype reserve)
 {
     if (!o)
         return true;
@@ -1443,19 +1418,7 @@ bool QJsonObject::detach2(uint reserve)
 /*!
     \internal
  */
-void QJsonObject::compact()
-{
-    if (!o)
-        return;
-
-    detach2();
-    o->compact(o->elements.length());
-}
-
-/*!
-    \internal
- */
-QString QJsonObject::keyAt(int i) const
+QString QJsonObject::keyAt(qsizetype i) const
 {
     Q_ASSERT(o && i >= 0 && i * 2 < o->elements.length());
     return o->stringAt(i * 2);
@@ -1464,7 +1427,7 @@ QString QJsonObject::keyAt(int i) const
 /*!
     \internal
  */
-QJsonValue QJsonObject::valueAt(int i) const
+QJsonValue QJsonObject::valueAt(qsizetype i) const
 {
     if (!o || i < 0 || 2 * i + 1 >= o->elements.length())
         return QJsonValue(QJsonValue::Undefined);
@@ -1474,10 +1437,10 @@ QJsonValue QJsonObject::valueAt(int i) const
 /*!
     \internal
  */
-void QJsonObject::setValueAt(int i, const QJsonValue &val)
+void QJsonObject::setValueAt(qsizetype i, const QJsonValue &val)
 {
     Q_ASSERT(o && i >= 0 && 2 * i + 1 < o->elements.length());
-    detach2();
+    detach();
     if (val.isUndefined()) {
         o->removeAt(2 * i + 1);
         o->removeAt(2 * i);
@@ -1489,14 +1452,14 @@ void QJsonObject::setValueAt(int i, const QJsonValue &val)
 /*!
     \internal
  */
-void QJsonObject::removeAt(int index)
+void QJsonObject::removeAt(qsizetype index)
 {
-    detach2();
+    detach();
     o->removeAt(2 * index + 1);
     o->removeAt(2 * index);
 }
 
-uint qHash(const QJsonObject &object, uint seed)
+size_t qHash(const QJsonObject &object, size_t seed)
 {
     QtPrivate::QHashCombine hash;
     for (auto it = object.begin(), end = object.end(); it != end; ++it) {

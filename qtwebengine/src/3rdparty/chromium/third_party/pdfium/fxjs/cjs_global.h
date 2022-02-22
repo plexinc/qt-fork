@@ -29,7 +29,7 @@ class CFX_GlobalData;
 
 class CJS_Global final : public CJS_Object {
  public:
-  static int GetObjDefnID();
+  static uint32_t GetObjDefnID();
   static void DefineJSObjects(CFXJS_Engine* pEngine);
   static void DefineAllProperties(CFXJS_Engine* pEngine);
 
@@ -71,7 +71,7 @@ class CJS_Global final : public CJS_Object {
     bool bDeleted = false;
   };
 
-  static int ObjDefnID;
+  static uint32_t ObjDefnID;
   static const JSMethodSpec MethodSpecs[];
 
   void UpdateGlobalPersistentVariables();
@@ -84,13 +84,12 @@ class CJS_Global final : public CJS_Object {
                                 const ByteString& sData,
                                 v8::Local<v8::Object> pData,
                                 bool bDefaultPersistent);
-  void ObjectToArray(CJS_Runtime* pRuntime,
-                     v8::Local<v8::Object> pObj,
-                     std::vector<std::unique_ptr<CFX_KeyValue>>* pArray);
+  std::vector<std::unique_ptr<CFX_KeyValue>> ObjectToArray(
+      CJS_Runtime* pRuntime,
+      v8::Local<v8::Object> pObj);
   void PutObjectProperty(v8::Local<v8::Object> obj, CFX_KeyValue* pData);
 
   std::map<ByteString, std::unique_ptr<JSGlobalData>> m_MapGlobal;
-  WideString m_sFilePath;
   CFX_GlobalData* m_pGlobalData;
   ObservedPtr<CPDFSDK_FormFillEnvironment> m_pFormFillEnv;
 };

@@ -44,19 +44,16 @@ class CONTENT_EXPORT ChildFrameCompositingHelper
                     const gfx::Size& frame_size_in_dip,
                     const cc::DeadlinePolicy& deadline);
   void UpdateVisibility(bool visible);
-  void ChildFrameGone(const gfx::Size& frame_size_in_dip,
-                      float device_scale_factor);
+  void ChildFrameGone(float device_scale_factor);
 
   const viz::SurfaceId& surface_id() const { return surface_id_; }
 
  private:
   // cc::ContentLayerClient implementation. Called from the cc::PictureLayer
   // created for the crashed child frame to display the sad image.
-  gfx::Rect PaintableRegion() override;
-  scoped_refptr<cc::DisplayItemList> PaintContentsToDisplayList(
-      PaintingControlSetting) override;
+  gfx::Rect PaintableRegion() const override;
+  scoped_refptr<cc::DisplayItemList> PaintContentsToDisplayList() override;
   bool FillsBoundsCompletely() const override;
-  size_t GetApproximateUnsharedMemoryUsage() const override;
 
   ChildFrameCompositor* const child_frame_compositor_;
   viz::SurfaceId surface_id_;

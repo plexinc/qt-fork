@@ -37,7 +37,7 @@
     game generally involves serializing each game object's member variables
     to a file. Many formats can be used for this purpose, one of which is JSON.
     With QJsonDocument, you also have the ability to serialize a document in a
-    \l {https://tools.ietf.org/html/rfc7049} {CBOR} format, which is great if you
+    \l {RFC 7049} {CBOR} format, which is great if you
     don't want the save file to be readable, or if you need to keep the file size down.
 
     In this example, we'll demonstrate how to save and load a simple game to
@@ -77,7 +77,7 @@
     \snippet serialization/savegame/level.h 0
 
     We want to have several levels in our game, each with several NPCs, so we
-    keep a QVector of Character objects. We also provide the familiar read() and
+    keep a QList of Character objects. We also provide the familiar read() and
     write() functions.
 
     \snippet serialization/savegame/level.cpp 0
@@ -136,9 +136,8 @@
     and \c "save.dat" for CBOR. We print a warning and return \c false if the
     file couldn't be opened.
 
-    Since QJsonDocument's \l{QJsonDocument::fromJson()}{fromJson()} and
-    \l{QJsonDocument::fromBinaryData()}{fromBinaryData()} functions both take a
-    QByteArray, we can read the entire contents of the save file into one,
+    Since \l QJsonDocument::fromJson() and \l QCborValue::fromCbor() both take
+    a QByteArray, we can read the entire contents of the save file into one,
     regardless of the save format.
 
     After constructing the QJsonDocument, we instruct the Game object to read

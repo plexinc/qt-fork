@@ -73,6 +73,7 @@ class Q_QUICK_PRIVATE_EXPORT QQuickHandlerPoint {
     Q_PROPERTY(qreal rotation READ rotation)
     Q_PROPERTY(qreal pressure READ pressure)
     Q_PROPERTY(QSizeF ellipseDiameters READ ellipseDiameters)
+    Q_PROPERTY(QPointingDevice *device READ device)
 
 public:
     QQuickHandlerPoint();
@@ -90,14 +91,17 @@ public:
     qreal pressure() const { return m_pressure; }
     QSizeF ellipseDiameters() const { return m_ellipseDiameters; }
     QPointingDeviceUniqueId uniqueId() const { return m_uniqueId; }
+    // non-const only because of QML engine limitations (similar to QTBUG-61749)
+    QPointingDevice *device() const { return const_cast<QPointingDevice *>(m_device); }
     void localize(QQuickItem *item);
 
     void reset();
-    void reset(const QQuickEventPoint *point);
+    void reset(const QPointerEvent *event, const QEventPoint &point);
     void reset(const QVector<QQuickHandlerPoint> &points);
 
 private:
-    int m_id = 0;
+    int m_id = -1;
+    const QPointingDevice *m_device = QPointingDevice::primaryPointingDevice();
     QPointingDeviceUniqueId m_uniqueId;
     Qt::MouseButtons m_pressedButtons = Qt::NoButton;
     Qt::KeyboardModifiers m_pressedModifiers = Qt::NoModifier;

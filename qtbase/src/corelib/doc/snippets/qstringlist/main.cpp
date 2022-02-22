@@ -55,7 +55,7 @@ using namespace std;
 class Widget : public QWidget
 {
 public:
-    Widget(QWidget *parent = 0);
+    Widget(QWidget *parent = nullptr);
 };
 
 Widget::Widget(QWidget *parent)
@@ -143,20 +143,6 @@ Widget::Widget(QWidget *parent)
     list.replaceInStrings("a", "o");
     // list == ["olpho", "beto", "gommo", "epsilon"]
 //! [13]
-
-    list.clear();
-//! [14]
-    list << "alpha" << "beta" << "gamma" << "epsilon";
-    list.replaceInStrings(QRegExp("^a"), "o");
-    // list == ["olpha", "beta", "gamma", "epsilon"]
-//! [14]
-
-    list.clear();
-//! [15]
-    list << "Bill Clinton" << "Murray, Bill";
-    list.replaceInStrings(QRegExp("^(.*), (.*)$"), "\\2 \\1");
-    // list == ["Bill Clinton", "Bill Murray"]
-//! [15]
 
     list.clear();
 //! [16]

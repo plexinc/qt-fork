@@ -6,8 +6,10 @@
 
 #include <vector>
 
+#include "base/guid.h"
 #include "base/run_loop.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/signin/internal/identity_manager/account_tracker_service.h"
 #include "components/signin/internal/identity_manager/gaia_cookie_manager_service.h"
 #include "components/signin/internal/identity_manager/primary_account_manager.h"
@@ -16,9 +18,15 @@
 #include "components/signin/public/base/list_accounts_test_utils.h"
 #include "components/signin/public/identity_manager/consent_level.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
+#include "components/signin/public/identity_manager/primary_account_mutator.h"
 #include "components/signin/public/identity_manager/test_identity_manager_observer.h"
 #include "google_apis/gaia/gaia_auth_util.h"
 #include "google_apis/gaia/gaia_constants.h"
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/components/account_manager/account_manager.h"
+#include "components/account_manager_core/account.h"
+#endif
 
 #if defined(OS_ANDROID)
 #include "components/signin/internal/identity_manager/profile_oauth2_token_service_delegate_android.h"
@@ -51,6 +59,9 @@ void WaitForLoadCredentialsToComplete(IdentityManager* identity_manager) {
 void UpdateRefreshTokenForAccount(
     ProfileOAuth2TokenService* token_service,
     AccountTrackerService* account_tracker_service,
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+    ash::AccountManager* account_manager,
+#endif
     IdentityManager* identity_manager,
     const CoreAccountId& account_id,
     const std::string& new_token) {
@@ -70,7 +81,18 @@ void UpdateRefreshTokenForAccount(
   token_updated_observer.SetOnRefreshTokenUpdatedCallback(
       run_loop.QuitClosure());
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  const AccountInfo& account_info =
+      account_tracker_service->GetAccountInfo(account_id);
+
+  DCHECK(account_manager);
+  account_manager->UpsertAccount(
+      account_manager::AccountKey{account_info.gaia,
+                                  account_manager::AccountType::kGaia},
+      account_info.email, new_token);
+#else
   token_service->UpdateCredentials(account_id, new_token);
+#endif
 
   run_loop.Run();
 }
@@ -94,20 +116,20 @@ AccountInfo EnsureAccountExists(AccountTrackerService* account_tracker_service,
 
 CoreAccountInfo SetPrimaryAccount(IdentityManager* identity_manager,
                                   const std::string& email) {
-  DCHECK(!identity_manager->HasPrimaryAccount());
+  DCHECK(!identity_manager->HasPrimaryAccount(signin::ConsentLevel::kSync));
   PrimaryAccountManager* primary_account_manager =
       identity_manager->GetPrimaryAccountManager();
-  DCHECK(!primary_account_manager->IsAuthenticated());
+  DCHECK(!primary_account_manager->HasPrimaryAccount(ConsentLevel::kSync));
 
   AccountInfo account_info =
       EnsureAccountExists(identity_manager->GetAccountTrackerService(), email);
   DCHECK(!account_info.gaia.empty());
 
-  primary_account_manager->SignIn(email);
+  primary_account_manager->SetSyncPrimaryAccountInfo(account_info);
 
-  DCHECK(primary_account_manager->IsAuthenticated());
-  DCHECK(identity_manager->HasPrimaryAccount());
-  return identity_manager->GetPrimaryAccountInfo();
+  DCHECK(primary_account_manager->HasPrimaryAccount(ConsentLevel::kSync));
+  DCHECK(identity_manager->HasPrimaryAccount(signin::ConsentLevel::kSync));
+  return identity_manager->GetPrimaryAccountInfo(signin::ConsentLevel::kSync);
 }
 
 CoreAccountInfo SetUnconsentedPrimaryAccount(IdentityManager* identity_manager,
@@ -133,24 +155,27 @@ CoreAccountInfo SetUnconsentedPrimaryAccount(IdentityManager* identity_manager,
 
 void SetRefreshTokenForPrimaryAccount(IdentityManager* identity_manager,
                                       const std::string& token_value) {
-  DCHECK(identity_manager->HasPrimaryAccount());
-  CoreAccountId account_id = identity_manager->GetPrimaryAccountId();
+  DCHECK(identity_manager->HasPrimaryAccount(signin::ConsentLevel::kSync));
+  CoreAccountId account_id =
+      identity_manager->GetPrimaryAccountId(signin::ConsentLevel::kSync);
   SetRefreshTokenForAccount(identity_manager, account_id, token_value);
 }
 
 void SetInvalidRefreshTokenForPrimaryAccount(
     IdentityManager* identity_manager) {
-  DCHECK(identity_manager->HasPrimaryAccount());
-  CoreAccountId account_id = identity_manager->GetPrimaryAccountId();
+  DCHECK(identity_manager->HasPrimaryAccount(signin::ConsentLevel::kSync));
+  CoreAccountId account_id =
+      identity_manager->GetPrimaryAccountId(signin::ConsentLevel::kSync);
 
   SetInvalidRefreshTokenForAccount(identity_manager, account_id);
 }
 
 void RemoveRefreshTokenForPrimaryAccount(IdentityManager* identity_manager) {
-  if (!identity_manager->HasPrimaryAccount())
+  if (!identity_manager->HasPrimaryAccount(signin::ConsentLevel::kSync))
     return;
 
-  CoreAccountId account_id = identity_manager->GetPrimaryAccountId();
+  CoreAccountId account_id =
+      identity_manager->GetPrimaryAccountId(signin::ConsentLevel::kSync);
 
   RemoveRefreshTokenForAccount(identity_manager, account_id);
 }
@@ -169,44 +194,56 @@ AccountInfo MakePrimaryAccountAvailable(IdentityManager* identity_manager,
   return primary_account_info.value();
 }
 
-void ClearPrimaryAccount(IdentityManager* identity_manager,
-                         ClearPrimaryAccountPolicy policy) {
-#if defined(OS_CHROMEOS)
+void RevokeSyncConsent(IdentityManager* identity_manager) {
+  if (!identity_manager->HasPrimaryAccount(ConsentLevel::kSync))
+    return;
+
+  DCHECK(identity_manager->GetPrimaryAccountMutator());
+  base::RunLoop run_loop;
+  TestIdentityManagerObserver signout_observer(identity_manager);
+  signout_observer.SetOnPrimaryAccountChangedCallback(base::BindOnce(
+      [](base::RunLoop* run_loop, PrimaryAccountChangeEvent event) {
+        if (event.GetEventTypeFor(ConsentLevel::kSync) ==
+            PrimaryAccountChangeEvent::Type::kCleared) {
+          run_loop->Quit();
+        }
+      },
+      &run_loop));
+  identity_manager->GetPrimaryAccountMutator()->RevokeSyncConsent(
+      signin_metrics::SIGNOUT_TEST,
+      signin_metrics::SignoutDelete::IGNORE_METRIC);
+  run_loop.Run();
+}
+
+void ClearPrimaryAccount(IdentityManager* identity_manager) {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // TODO(blundell): If we ever need this functionality on ChromeOS (which seems
   // unlikely), plumb this through to just clear the primary account info
   // synchronously with IdentityManager.
   NOTREACHED();
 #else
-  if (!identity_manager->HasPrimaryAccount())
+  if (!identity_manager->HasPrimaryAccount(ConsentLevel::kNotRequired))
     return;
 
+  DCHECK(identity_manager->GetPrimaryAccountMutator());
+  bool wait_for_primary_acount_cleared_notification =
+      identity_manager->HasPrimaryAccount(ConsentLevel::kSync);
   base::RunLoop run_loop;
   TestIdentityManagerObserver signout_observer(identity_manager);
-  signout_observer.SetOnPrimaryAccountClearedCallback(run_loop.QuitClosure());
+  signout_observer.SetOnPrimaryAccountChangedCallback(base::BindOnce(
+      [](base::RunLoop* run_loop, PrimaryAccountChangeEvent event) {
+        if (event.GetEventTypeFor(ConsentLevel::kNotRequired) ==
+            PrimaryAccountChangeEvent::Type::kCleared) {
+          run_loop->Quit();
+        }
+      },
+      &run_loop));
+  identity_manager->GetPrimaryAccountMutator()->ClearPrimaryAccount(
+      signin_metrics::SIGNOUT_TEST,
+      signin_metrics::SignoutDelete::IGNORE_METRIC);
 
-  PrimaryAccountManager* primary_account_manager =
-      identity_manager->GetPrimaryAccountManager();
-  signin_metrics::ProfileSignout signout_source_metric =
-      signin_metrics::SIGNOUT_TEST;
-  signin_metrics::SignoutDelete signout_delete_metric =
-      signin_metrics::SignoutDelete::IGNORE_METRIC;
-
-  switch (policy) {
-    case ClearPrimaryAccountPolicy::DEFAULT:
-      primary_account_manager->SignOut(signout_source_metric,
-                                       signout_delete_metric);
-      break;
-    case ClearPrimaryAccountPolicy::KEEP_ALL_ACCOUNTS:
-      primary_account_manager->SignOutAndKeepAllAccounts(signout_source_metric,
-                                                         signout_delete_metric);
-      break;
-    case ClearPrimaryAccountPolicy::REMOVE_ALL_ACCOUNTS:
-      primary_account_manager->SignOutAndRemoveAllAccounts(
-          signout_source_metric, signout_delete_metric);
-      break;
-  }
-
-  run_loop.Run();
+  if (wait_for_primary_acount_cleared_notification)
+    run_loop.Run();
 #endif
 }
 
@@ -268,9 +305,13 @@ void SetRefreshTokenForAccount(IdentityManager* identity_manager,
                                const std::string& token_value) {
   UpdateRefreshTokenForAccount(
       identity_manager->GetTokenService(),
-      identity_manager->GetAccountTrackerService(), identity_manager,
-      account_id,
-      token_value.empty() ? "refresh_token_for_" + account_id.ToString()
+      identity_manager->GetAccountTrackerService(),
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+      identity_manager->GetAshAccountManager(),
+#endif
+      identity_manager, account_id,
+      token_value.empty() ? "refresh_token_for_" + account_id.ToString() + "_" +
+                                base::GenerateGUID()
                           : token_value);
 }
 
@@ -279,6 +320,9 @@ void SetInvalidRefreshTokenForAccount(IdentityManager* identity_manager,
   UpdateRefreshTokenForAccount(identity_manager->GetTokenService(),
 
                                identity_manager->GetAccountTrackerService(),
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+                               identity_manager->GetAshAccountManager(),
+#endif
                                identity_manager, account_id,
                                GaiaConstants::kInvalidRefreshToken);
 }
@@ -293,7 +337,16 @@ void RemoveRefreshTokenForAccount(IdentityManager* identity_manager,
   token_updated_observer.SetOnRefreshTokenRemovedCallback(
       run_loop.QuitClosure());
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  const AccountInfo& account_info =
+      identity_manager->GetAccountTrackerService()->GetAccountInfo(account_id);
+
+  identity_manager->GetAshAccountManager()->RemoveAccount(
+      account_manager::AccountKey{account_info.gaia,
+                                  account_manager::AccountType::kGaia});
+#else
   identity_manager->GetTokenService()->RevokeCredentials(account_id);
+#endif
 
   run_loop.Run();
 }

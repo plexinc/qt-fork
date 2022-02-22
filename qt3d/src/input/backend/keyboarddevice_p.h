@@ -81,7 +81,7 @@ public:
     float axisValue(int axisIdentifier) const override;
     bool isButtonPressed(int buttonIdentifier) const override;
 
-    void updateKeyEvents(const QList<QT_PREPEND_NAMESPACE(QKeyEvent)> &events);
+    void updateKeyEvent(QT_PREPEND_NAMESPACE(QKeyEvent) *event);
 
     inline Qt3DCore::QNodeId currentFocusItem() const { return m_currentFocusItem; }
     inline Qt3DCore::QNodeId lastKeyboardInputRequester() const { return m_lastRequester; }
@@ -90,7 +90,7 @@ private:
     void setButtonValue(int key, bool value);
 
     InputHandler *m_inputHandler;
-    QVector<Qt3DCore::QNodeId> m_keyboardInputs;
+    QList<Qt3DCore::QNodeId> m_keyboardInputs;
     Qt3DCore::QNodeId m_lastRequester;
     Qt3DCore::QNodeId m_currentFocusItem;
 
@@ -265,7 +265,7 @@ class KeyboardDeviceFunctor : public Qt3DCore::QBackendNodeMapper
 public:
     explicit KeyboardDeviceFunctor(QInputAspect *inputaspect, InputHandler *handler);
 
-    Qt3DCore::QBackendNode *create(const Qt3DCore::QNodeCreatedChangeBasePtr &change) const override;
+    Qt3DCore::QBackendNode *create(Qt3DCore::QNodeId id) const override;
     Qt3DCore::QBackendNode *get(Qt3DCore::QNodeId id) const override;
     void destroy(Qt3DCore::QNodeId id) const override;
 

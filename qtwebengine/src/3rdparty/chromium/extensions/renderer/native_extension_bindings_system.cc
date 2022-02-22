@@ -15,6 +15,7 @@
 #include "extensions/common/event_filtering_info.h"
 #include "extensions/common/extension_api.h"
 #include "extensions/common/extension_messages.h"
+#include "extensions/common/features/feature.h"
 #include "extensions/common/features/feature_provider.h"
 #include "extensions/common/manifest_constants.h"
 #include "extensions/common/manifest_handlers/content_capabilities_handler.h"
@@ -28,6 +29,7 @@
 #include "extensions/renderer/console.h"
 #include "extensions/renderer/content_setting.h"
 #include "extensions/renderer/declarative_content_hooks_delegate.h"
+#include "extensions/renderer/dom_hooks_delegate.h"
 #include "extensions/renderer/extension_frame_helper.h"
 #include "extensions/renderer/extension_interaction_provider.h"
 #include "extensions/renderer/extension_js_runner.h"
@@ -189,6 +191,15 @@ bool IsAPIFeatureAvailable(v8::Local<v8::Context> context,
                            const std::string& name) {
   ScriptContext* script_context = GetScriptContextFromV8ContextChecked(context);
   return script_context->GetAvailability(name).is_available();
+}
+
+// Returns true if the specified |context| is allowed to use promise based
+// returns from APIs.
+bool ArePromisesAllowed(v8::Local<v8::Context> context) {
+  ScriptContext* script_context = GetScriptContextFromV8ContextChecked(context);
+  const Extension* extension = script_context->extension();
+  return (extension && extension->manifest_version() >= 3) ||
+         script_context->context_type() == Feature::WEBUI_CONTEXT;
 }
 
 // Instantiates the binding object for the given |name|. |name| must specify a
@@ -448,6 +459,7 @@ NativeExtensionBindingsSystem::NativeExtensionBindingsSystem(
       api_system_(
           base::BindRepeating(&GetAPISchema),
           base::BindRepeating(&IsAPIFeatureAvailable),
+          base::BindRepeating(&ArePromisesAllowed),
           base::BindRepeating(&NativeExtensionBindingsSystem::SendRequest,
                               base::Unretained(this)),
           std::make_unique<ExtensionInteractionProvider>(),
@@ -457,19 +469,22 @@ NativeExtensionBindingsSystem::NativeExtensionBindingsSystem(
           base::BindRepeating(&GetContextOwner),
           base::BindRepeating(&APIActivityLogger::LogAPICall),
           base::BindRepeating(&AddConsoleError),
-          APILastError(base::Bind(&GetLastErrorParents),
-                       base::Bind(&AddConsoleError))),
+          APILastError(base::BindRepeating(&GetLastErrorParents),
+                       base::BindRepeating(&AddConsoleError))),
       messaging_service_(this) {
-  api_system_.RegisterCustomType("storage.StorageArea",
-                                 base::Bind(&StorageArea::CreateStorageArea));
+  api_system_.RegisterCustomType(
+      "storage.StorageArea",
+      base::BindRepeating(&StorageArea::CreateStorageArea));
   api_system_.RegisterCustomType("types.ChromeSetting",
-                                 base::Bind(&ChromeSetting::Create));
+                                 base::BindRepeating(&ChromeSetting::Create));
   api_system_.RegisterCustomType("contentSettings.ContentSetting",
-                                 base::Bind(&ContentSetting::Create));
+                                 base::BindRepeating(&ContentSetting::Create));
   api_system_.GetHooksForAPI("webRequest")
       ->SetDelegate(std::make_unique<WebRequestHooks>());
   api_system_.GetHooksForAPI("declarativeContent")
       ->SetDelegate(std::make_unique<DeclarativeContentHooksDelegate>());
+  api_system_.GetHooksForAPI("dom")->SetDelegate(
+      std::make_unique<DOMHooksDelegate>());
   api_system_.GetHooksForAPI("i18n")->SetDelegate(
       std::make_unique<I18nHooksDelegate>());
   api_system_.GetHooksForAPI("runtime")->SetDelegate(
@@ -509,8 +524,8 @@ void NativeExtensionBindingsSystem::DidCreateScriptContext(
   context->module_system()->SetGetInternalAPIHook(
       get_internal_api_.Get(isolate));
   context->module_system()->SetJSBindingUtilGetter(
-      base::Bind(&NativeExtensionBindingsSystem::GetJSBindingUtil,
-                 weak_factory_.GetWeakPtr()));
+      base::BindRepeating(&NativeExtensionBindingsSystem::GetJSBindingUtil,
+                          weak_factory_.GetWeakPtr()));
 
   UpdateBindingsForContext(context);
 }
@@ -554,10 +569,6 @@ void NativeExtensionBindingsSystem::UpdateBindingsForContext(
       is_webpage = true;
       break;
     case Feature::BLESSED_EXTENSION_CONTEXT:
-      if (context->IsForServiceWorker())
-        DCHECK(ExtensionsClient::Get()
-                   ->ExtensionAPIEnabledInExtensionServiceWorkers());
-      FALLTHROUGH;
     case Feature::LOCK_SCREEN_EXTENSION_CONTEXT:
     case Feature::UNBLESSED_EXTENSION_CONTEXT:
     case Feature::CONTENT_SCRIPT_CONTEXT:
@@ -969,8 +980,10 @@ void NativeExtensionBindingsSystem::UpdateContentCapabilities(
     GURL url = context->url();
     // We allow about:blank pages to take on the privileges of their parents if
     // they aren't sandboxed.
-    if (web_frame && !web_frame->GetSecurityOrigin().IsOpaque())
-      url = ScriptContext::GetEffectiveDocumentURL(web_frame, url, true);
+    if (web_frame && !web_frame->GetSecurityOrigin().IsOpaque()) {
+      url = ScriptContext::GetEffectiveDocumentURLForContext(web_frame, url,
+                                                             true);
+    }
     const ContentCapabilitiesInfo& info =
         ContentCapabilitiesInfo::Get(extension.get());
     if (info.url_patterns.MatchesURL(url)) {

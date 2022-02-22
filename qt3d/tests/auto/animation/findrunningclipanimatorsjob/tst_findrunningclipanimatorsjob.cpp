@@ -41,14 +41,14 @@
 #include <Qt3DCore/private/qscene_p.h>
 #include <Qt3DCore/private/qbackendnode_p.h>
 #include <qbackendnodetester.h>
-#include <testpostmanarbiter.h>
+#include <testarbiter.h>
 
 using namespace Qt3DAnimation::Animation;
 
 Q_DECLARE_METATYPE(Qt3DAnimation::Animation::Handler*)
 Q_DECLARE_METATYPE(QVector<Qt3DAnimation::Animation::HClipAnimator>)
 
-typedef QHash<ClipAnimator*, QVector<Qt3DAnimation::Animation::MappingData>> MappingDataResults;
+using MappingDataResults = QHash<ClipAnimator *, QVector<Qt3DAnimation::Animation::MappingData>>;
 Q_DECLARE_METATYPE(MappingDataResults)
 
 class tst_FindRunningClipAnimatorsJob: public Qt3DCore::QBackendNodeTester
@@ -76,7 +76,7 @@ public:
     }
 
     ChannelMapper *createChannelMapper(Handler *handler,
-                                       const QVector<Qt3DCore::QNodeId> &mappingIds)
+                                       const QList<Qt3DCore::QNodeId> &mappingIds)
     {
         auto channelMapperId = Qt3DCore::QNodeId::createId();
         ChannelMapper *channelMapper = handler->channelMapperManager()->getOrCreateResource(channelMapperId);
@@ -124,7 +124,6 @@ private Q_SLOTS:
             Handler *handler;
             AnimationClip *clip;
             ClipAnimator *animator;
-            QVector<HClipAnimator> dirtyClipAnimators;
             ChannelMapper *channelMapper;
             MappingDataResults expectedResults;
             handler = new Handler();
@@ -134,19 +133,16 @@ private Q_SLOTS:
             const int loops = 1;
             animator = createClipAnimator(handler, globalStartTimeNS, loops);
             animator->setClipId(clip->peerId());
-            dirtyClipAnimators = (QVector<HClipAnimator>()
-                                 << handler->clipAnimatorManager()->getOrAcquireHandle(animator->peerId()));
+            const QVector<HClipAnimator> dirtyClipAnimators
+                    = { handler->clipAnimatorManager()->getOrAcquireHandle(animator->peerId()) };
 
             auto channelMapping = createChannelMapping(handler,
                                                        QLatin1String("Location"),
                                                        Qt3DCore::QNodeId::createId(),
                                                        "translation",
-                                                       static_cast<int>(QVariant::Vector3D),
+                                                       static_cast<int>(QMetaType::QVector3D),
                                                        3);
-            QVector<ChannelMapping *> channelMappings;
-            channelMappings.push_back(channelMapping);
-
-            channelMapper = createChannelMapper(handler, QVector<Qt3DCore::QNodeId>() << channelMapping->peerId());
+            channelMapper = createChannelMapper(handler, QList<Qt3DCore::QNodeId> { channelMapping->peerId() });
             animator->setMapperId(channelMapper->peerId());
             animator->setRunning(true); // Has to be marked as running for the job to process it
             animator->setEnabled(true); // Has to be marked as enabled for the job to process it
@@ -157,7 +153,7 @@ private Q_SLOTS:
             expectedMapping.propertyName = channelMapping->propertyName();
             expectedMapping.type = channelMapping->type();
             expectedMapping.channelIndices = locationIndices;
-            expectedResults.insert(animator, QVector<MappingData>() << expectedMapping);
+            expectedResults.insert(animator, QVector<MappingData> { expectedMapping });
 
             QTest::newRow("single mapping")
                             << handler
@@ -169,7 +165,6 @@ private Q_SLOTS:
             Handler *handler;
             AnimationClip *clip;
             ClipAnimator *animator;
-            QVector<HClipAnimator> dirtyClipAnimators;
             ChannelMapper *channelMapper;
             MappingDataResults expectedResults;
             handler = new Handler();
@@ -179,19 +174,16 @@ private Q_SLOTS:
             const int loops = 1;
             animator = createClipAnimator(handler, globalStartTimeNS, loops);
             animator->setClipId(clip->peerId());
-            dirtyClipAnimators = (QVector<HClipAnimator>()
-                                  << handler->clipAnimatorManager()->getOrAcquireHandle(animator->peerId()));
+            const QVector<HClipAnimator> dirtyClipAnimators
+                    = { handler->clipAnimatorManager()->getOrAcquireHandle(animator->peerId()) };
 
             auto channelMapping = createChannelMapping(handler,
                                                        QLatin1String("Location"),
                                                        Qt3DCore::QNodeId::createId(),
                                                        "translation",
-                                                       static_cast<int>(QVariant::Vector3D),
+                                                       static_cast<int>(QMetaType::QVector3D),
                                                        3);
-            QVector<ChannelMapping *> channelMappings;
-            channelMappings.push_back(channelMapping);
-
-            channelMapper = createChannelMapper(handler, QVector<Qt3DCore::QNodeId>() << channelMapping->peerId());
+            channelMapper = createChannelMapper(handler, QList<Qt3DCore::QNodeId> { channelMapping->peerId() });
             animator->setMapperId(channelMapper->peerId());
             animator->setRunning(true); // Has to be marked as running for the job to process it
             animator->setEnabled(false); // Has to be marked as enabled for the job to process it

@@ -39,6 +39,11 @@
 
 #include "profile_adapter.h"
 
+#include "base/task/cancelable_task_tracker.h"
+#include "components/favicon/core/favicon_service.h"
+#include "components/history/content/browser/history_database_helper.h"
+#include "components/history/core/browser/history_database_params.h"
+#include "components/history/core/browser/history_service.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/browsing_data_remover.h"
@@ -51,6 +56,7 @@
 #include "api/qwebengineurlscheme.h"
 #include "content_browser_client_qt.h"
 #include "download_manager_delegate_qt.h"
+#include "favicon_service_factory_qt.h"
 #include "permission_manager_qt.h"
 #include "profile_adapter_client.h"
 #include "profile_io_data_qt.h"
@@ -99,7 +105,6 @@ ProfileAdapter::ProfileAdapter(const QString &storageName):
     WebEngineContext::current()->addProfileAdapter(this);
     // creation of profile requires webengine context
     m_profile.reset(new ProfileQt(this));
-    content::BrowserContext::Initialize(m_profile.data(), toFilePath(dataPath()));
     // fixme: this should not be here
     m_profile->m_profileIOData->initializeOnUIThread();
     m_customUrlSchemeHandlers.insert(QByteArrayLiteral("qrc"), &m_qrcHandler);
@@ -107,21 +112,13 @@ ProfileAdapter::ProfileAdapter(const QString &storageName):
     if (!storageName.isEmpty())
         extensions::ExtensionSystem::Get(m_profile.data())->InitForRegularProfile(true);
 #endif
-
-    // Allow XMLHttpRequests from qrc to file.
-    // ### consider removing for Qt6
-    url::Origin qrc = url::Origin::Create(GURL("qrc://"));
-    auto pattern = network::mojom::CorsOriginPattern::New("file", "", 0,
-                                                          network::mojom::CorsDomainMatchMode::kAllowSubdomains,
-                                                          network::mojom::CorsPortMatchMode::kAllowAnyPort,
-                                                          network::mojom::CorsOriginAccessMatchPriority::kDefaultPriority);
-    std::vector<network::mojom::CorsOriginPatternPtr> list;
-    list.push_back(std::move(pattern));
-    m_profile->GetSharedCorsOriginAccessList()->SetForOrigin(qrc, std::move(list), {}, base::BindOnce([]{}));
+    m_cancelableTaskTracker.reset(new base::CancelableTaskTracker());
 }
 
 ProfileAdapter::~ProfileAdapter()
 {
+    m_cancelableTaskTracker->TryCancelAll();
+    content::BrowserContext::NotifyWillBeDestroyed(m_profile.data());
     while (!m_webContentsAdapterClients.isEmpty()) {
        m_webContentsAdapterClients.first()->releaseProfile();
     }
@@ -132,7 +129,9 @@ ProfileAdapter::~ProfileAdapter()
     }
 #if QT_CONFIG(ssl)
     delete m_clientCertificateStore;
+    m_clientCertificateStore = nullptr;
 #endif
+    WebEngineContext::flushMessages();
 }
 
 void ProfileAdapter::setStorageName(const QString &storageName)
@@ -146,6 +145,8 @@ void ProfileAdapter::setStorageName(const QString &storageName)
             m_profile->m_profileIOData->resetNetworkContext();
         if (m_visitedLinksManager)
             resetVisitedLinksManager();
+
+        reinitializeHistoryService();
     }
 }
 
@@ -159,6 +160,14 @@ void ProfileAdapter::setOffTheRecord(bool offTheRecord)
         m_profile->m_profileIOData->resetNetworkContext();
     if (m_visitedLinksManager)
         resetVisitedLinksManager();
+
+    if (offTheRecord) {
+        favicon::FaviconService *faviconService =
+                FaviconServiceFactoryQt::GetForBrowserContext(m_profile.data());
+        faviconService->SetHistoryService(nullptr);
+    } else if (!m_name.isEmpty()) {
+        reinitializeHistoryService();
+    }
 }
 
 ProfileQt *ProfileAdapter::profile()
@@ -255,7 +264,7 @@ QString ProfileAdapter::dataPath() const
         name = QStringLiteral("OffTheRecord");
     else if (m_name.isEmpty())
         name = QStringLiteral("UnknownProfile");
-    return buildLocationFromStandardPath(QStandardPaths::writableLocation(QStandardPaths::DataLocation), name);
+    return buildLocationFromStandardPath(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation), name);
 }
 
 void ProfileAdapter::setDataPath(const QString &path)
@@ -268,6 +277,9 @@ void ProfileAdapter::setDataPath(const QString &path)
         m_profile->m_profileIOData->resetNetworkContext();
     if (!m_offTheRecord && m_visitedLinksManager)
         resetVisitedLinksManager();
+
+    if (!m_offTheRecord)
+        reinitializeHistoryService();
 }
 
 void ProfileAdapter::setDownloadPath(const QString &path)
@@ -583,7 +595,7 @@ void ProfileAdapter::setHttpAcceptLanguage(const QString &httpAcceptLanguage)
     std::vector<content::WebContentsImpl *> list = content::WebContentsImpl::GetAllWebContents();
     for (content::WebContentsImpl *web_contents : list) {
         if (web_contents->GetBrowserContext() == m_profile.data()) {
-            blink::mojom::RendererPreferences *rendererPrefs = web_contents->GetMutableRendererPrefs();
+            blink::RendererPreferences *rendererPrefs = web_contents->GetMutableRendererPrefs();
             rendererPrefs->accept_languages = http_accept_language;
             web_contents->SyncRendererPrefs();
         }
@@ -647,36 +659,19 @@ void ProfileAdapter::resetVisitedLinksManager()
     m_visitedLinksManager.reset(new VisitedLinksManagerQt(m_profile.data(), persistVisitedLinks()));
 }
 
-void ProfileAdapter::setUseForGlobalCertificateVerification(bool enable)
+void ProfileAdapter::reinitializeHistoryService()
 {
-    if (m_usedForGlobalCertificateVerification == enable)
-        return;
-
-    static QPointer<ProfileAdapter> profileForglobalCertificateVerification;
-
-    m_usedForGlobalCertificateVerification = enable;
-    if (enable) {
-        if (profileForglobalCertificateVerification) {
-            profileForglobalCertificateVerification->m_usedForGlobalCertificateVerification = false;
-            if (!m_profile->m_profileIOData->isClearHttpCacheInProgress())
-                profileForglobalCertificateVerification->m_profile->m_profileIOData->resetNetworkContext();
-            for (auto *client : qAsConst(profileForglobalCertificateVerification->m_clients))
-                client->useForGlobalCertificateVerificationChanged();
-        }
-        profileForglobalCertificateVerification = this;
+    Q_ASSERT(!m_profile->IsOffTheRecord());
+    if (m_profile->ensureDirectoryExists()) {
+        favicon::FaviconService *faviconService =
+                FaviconServiceFactoryQt::GetForBrowserContext(m_profile.data());
+        history::HistoryService *historyService = static_cast<history::HistoryService *>(
+                HistoryServiceFactoryQt::GetInstance()->GetForBrowserContext(m_profile.data()));
+        Q_ASSERT(historyService);
+        faviconService->SetHistoryService(historyService);
     } else {
-        Q_ASSERT(profileForglobalCertificateVerification);
-        Q_ASSERT(profileForglobalCertificateVerification == this);
-        profileForglobalCertificateVerification = nullptr;
+        qWarning("Favicon database is not available for this profile.");
     }
-
-    if (!m_profile->m_profileIOData->isClearHttpCacheInProgress())
-        m_profile->m_profileIOData->resetNetworkContext();
-}
-
-bool ProfileAdapter::isUsedForGlobalCertificateVerification() const
-{
-    return m_usedForGlobalCertificateVerification;
 }
 
 QString ProfileAdapter::determineDownloadPath(const QString &downloadDirectory, const QString &suggestedFilename, const time_t &startTime)
@@ -708,5 +703,102 @@ QWebEngineClientCertificateStore *ProfileAdapter::clientCertificateStore()
     return m_clientCertificateStore;
 }
 #endif
+
+static void callbackOnIconAvailableForPageURL(std::function<void (const QIcon &, const QUrl &, const QUrl &)> iconAvailableCallback,
+                                              const QUrl &pageUrl,
+                                              const favicon_base::FaviconRawBitmapResult &result)
+{
+    if (!result.is_valid()) {
+        iconAvailableCallback(QIcon(), toQt(result.icon_url), pageUrl);
+        return;
+    }
+    QPixmap pixmap(toQt(result.pixel_size));
+    pixmap.loadFromData(result.bitmap_data->data(), result.bitmap_data->size());
+    iconAvailableCallback(QIcon(pixmap), toQt(result.icon_url), pageUrl);
+}
+
+void ProfileAdapter::requestIconForPageURL(const QUrl &pageUrl,
+                                           int desiredSizeInPixel,
+                                           bool touchIconsEnabled,
+                                           std::function<void (const QIcon &, const QUrl &, const QUrl &)> iconAvailableCallback)
+{
+    DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+    favicon::FaviconService *service = FaviconServiceFactoryQt::GetForBrowserContext(m_profile.data());
+
+    if (!service->HistoryService()) {
+        callbackOnIconAvailableForPageURL(iconAvailableCallback, pageUrl,
+                                          favicon_base::FaviconRawBitmapResult());
+        return;
+    }
+
+    favicon_base::IconTypeSet types = { favicon_base::IconType::kFavicon };
+    if (touchIconsEnabled) {
+        types.insert(favicon_base::IconType::kTouchIcon);
+        types.insert(favicon_base::IconType::kTouchPrecomposedIcon);
+        types.insert(favicon_base::IconType::kWebManifestIcon);
+    }
+    service->GetRawFaviconForPageURL(
+            toGurl(pageUrl), types, desiredSizeInPixel, true /* fallback_to_host */,
+            base::BindOnce(&callbackOnIconAvailableForPageURL, iconAvailableCallback, pageUrl),
+            m_cancelableTaskTracker.get());
+}
+
+static void callbackOnIconAvailableForIconURL(std::function<void (const QIcon &, const QUrl &)> iconAvailableCallback,
+                                              ProfileAdapter *profileAdapter,
+                                              const QUrl &iconUrl, int iconType,
+                                              int desiredSizeInPixel,
+                                              bool touchIconsEnabled,
+                                              const favicon_base::FaviconRawBitmapResult &result)
+{
+    if (!result.is_valid()) {
+        // If touch icons are disabled there is no need to try further icon types.
+        if (!touchIconsEnabled) {
+            iconAvailableCallback(QIcon(), iconUrl);
+            return;
+        }
+        if (static_cast<favicon_base::IconType>(iconType) != favicon_base::IconType::kMax) {
+            //Q_ASSERT(profileAdapter->profile());
+            favicon::FaviconService *service = FaviconServiceFactoryQt::GetForBrowserContext(profileAdapter->profile());
+            service->GetRawFavicon(toGurl(iconUrl),
+                                   static_cast<favicon_base::IconType>(iconType + 1),
+                                   desiredSizeInPixel,
+                                   base::BindOnce(&callbackOnIconAvailableForIconURL, iconAvailableCallback,
+                                                  profileAdapter, iconUrl, iconType + 1, desiredSizeInPixel,
+                                                  touchIconsEnabled),
+                                   profileAdapter->cancelableTaskTracker());
+            return;
+        }
+        iconAvailableCallback(QIcon(), iconUrl);
+        return;
+    }
+    QPixmap pixmap(toQt(result.pixel_size));
+    pixmap.loadFromData(result.bitmap_data->data(), result.bitmap_data->size());
+    iconAvailableCallback(QIcon(pixmap), toQt(result.icon_url));
+}
+
+void ProfileAdapter::requestIconForIconURL(const QUrl &iconUrl,
+                                           int desiredSizeInPixel,
+                                           bool touchIconsEnabled,
+                                           std::function<void (const QIcon &, const QUrl &)> iconAvailableCallback)
+{
+    DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+    favicon::FaviconService *service = FaviconServiceFactoryQt::GetForBrowserContext(m_profile.data());
+
+    if (!service->HistoryService()) {
+        callbackOnIconAvailableForIconURL(iconAvailableCallback,
+                                          this,
+                                          iconUrl,
+                                          static_cast<int>(favicon_base::IconType::kMax), 0,
+                                          touchIconsEnabled,
+                                          favicon_base::FaviconRawBitmapResult());
+        return;
+    }
+    service->GetRawFavicon(
+            toGurl(iconUrl), favicon_base::IconType::kFavicon, desiredSizeInPixel,
+            base::BindOnce(&callbackOnIconAvailableForIconURL, iconAvailableCallback, this, iconUrl,
+                           static_cast<int>(favicon_base::IconType::kFavicon), desiredSizeInPixel,
+                           touchIconsEnabled),
+            m_cancelableTaskTracker.get());
+}
 
 } // namespace QtWebEngineCore

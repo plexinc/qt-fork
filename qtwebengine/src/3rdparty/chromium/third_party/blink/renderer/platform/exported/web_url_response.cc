@@ -36,6 +36,7 @@
 
 #include "base/memory/ptr_util.h"
 #include "base/memory/scoped_refptr.h"
+#include "services/network/public/mojom/ip_address_space.mojom-shared.h"
 #include "services/network/public/mojom/load_timing_info.mojom.h"
 #include "third_party/blink/public/platform/web_http_header_visitor.h"
 #include "third_party/blink/public/platform/web_http_load_info.h"
@@ -111,6 +112,9 @@ void WebURLResponse::SetLoadTiming(
   timing->SetConnectEnd(mojo_timing.connect_timing.connect_end);
   timing->SetWorkerStart(mojo_timing.service_worker_start_time);
   timing->SetWorkerReady(mojo_timing.service_worker_ready_time);
+  timing->SetWorkerFetchStart(mojo_timing.service_worker_fetch_start);
+  timing->SetWorkerRespondWithSettled(
+      mojo_timing.service_worker_respond_with_settled);
   timing->SetSendStart(mojo_timing.send_start);
   timing->SetSendEnd(mojo_timing.send_end);
   timing->SetReceiveHeadersStart(mojo_timing.receive_headers_start);
@@ -124,6 +128,10 @@ void WebURLResponse::SetLoadTiming(
 
 void WebURLResponse::SetHTTPLoadInfo(const WebHTTPLoadInfo& value) {
   resource_response_->SetResourceLoadInfo(value);
+}
+
+base::Time WebURLResponse::ResponseTime() const {
+  return resource_response_->ResponseTime();
 }
 
 void WebURLResponse::SetResponseTime(base::Time response_time) {
@@ -261,6 +269,10 @@ void WebURLResponse::SetIsLegacyTLSVersion(bool value) {
   resource_response_->SetIsLegacyTLSVersion(value);
 }
 
+void WebURLResponse::SetHasRangeRequested(bool value) {
+  resource_response_->SetHasRangeRequested(value);
+}
+
 void WebURLResponse::SetTimingAllowPassed(bool value) {
   resource_response_->SetTimingAllowPassed(value);
 }
@@ -340,6 +352,16 @@ void WebURLResponse::SetWasFetchedViaServiceWorker(bool value) {
   resource_response_->SetWasFetchedViaServiceWorker(value);
 }
 
+network::mojom::FetchResponseSource
+WebURLResponse::GetServiceWorkerResponseSource() const {
+  return resource_response_->GetServiceWorkerResponseSource();
+}
+
+void WebURLResponse::SetServiceWorkerResponseSource(
+    network::mojom::FetchResponseSource value) {
+  resource_response_->SetServiceWorkerResponseSource(value);
+}
+
 void WebURLResponse::SetWasFallbackRequiredByServiceWorker(bool value) {
   resource_response_->SetWasFallbackRequiredByServiceWorker(value);
 }
@@ -350,6 +372,14 @@ void WebURLResponse::SetType(network::mojom::FetchResponseType value) {
 
 network::mojom::FetchResponseType WebURLResponse::GetType() const {
   return resource_response_->GetType();
+}
+
+void WebURLResponse::SetPadding(int64_t padding) {
+  resource_response_->SetPadding(padding);
+}
+
+int64_t WebURLResponse::GetPadding() const {
+  return resource_response_->GetPadding();
 }
 
 void WebURLResponse::SetUrlListViaServiceWorker(
@@ -365,6 +395,10 @@ bool WebURLResponse::HasUrlListViaServiceWorker() const {
   DCHECK(resource_response_->UrlListViaServiceWorker().size() == 0 ||
          WasFetchedViaServiceWorker());
   return resource_response_->UrlListViaServiceWorker().size() > 0;
+}
+
+WebString WebURLResponse::CacheStorageCacheName() const {
+  return resource_response_->CacheStorageCacheName();
 }
 
 void WebURLResponse::SetCacheStorageCacheName(
@@ -387,20 +421,26 @@ void WebURLResponse::SetDidServiceWorkerNavigationPreload(bool value) {
   resource_response_->SetDidServiceWorkerNavigationPreload(value);
 }
 
-WebString WebURLResponse::RemoteIPAddress() const {
-  return resource_response_->RemoteIPAddress();
+net::IPEndPoint WebURLResponse::RemoteIPEndpoint() const {
+  return resource_response_->RemoteIPEndpoint();
 }
 
-void WebURLResponse::SetRemoteIPAddress(const WebString& remote_ip_address) {
-  resource_response_->SetRemoteIPAddress(remote_ip_address);
+void WebURLResponse::SetRemoteIPEndpoint(
+    const net::IPEndPoint& remote_ip_endpoint) {
+  resource_response_->SetRemoteIPEndpoint(remote_ip_endpoint);
 }
 
-uint16_t WebURLResponse::RemotePort() const {
-  return resource_response_->RemotePort();
+network::mojom::IPAddressSpace WebURLResponse::AddressSpace() const {
+  return resource_response_->AddressSpace();
 }
 
-void WebURLResponse::SetRemotePort(uint16_t remote_port) {
-  resource_response_->SetRemotePort(remote_port);
+void WebURLResponse::SetAddressSpace(
+    network::mojom::IPAddressSpace remote_ip_address_space) {
+  resource_response_->SetAddressSpace(remote_ip_address_space);
+}
+
+void WebURLResponse::SetIsValidated(bool is_validated) {
+  resource_response_->SetIsValidated(is_validated);
 }
 
 void WebURLResponse::SetEncodedDataLength(int64_t length) {
@@ -423,6 +463,10 @@ void WebURLResponse::SetIsSignedExchangeInnerResponse(
 
 void WebURLResponse::SetWasInPrefetchCache(bool was_in_prefetch_cache) {
   resource_response_->SetWasInPrefetchCache(was_in_prefetch_cache);
+}
+
+void WebURLResponse::SetWasCookieInRequest(bool was_cookie_in_request) {
+  resource_response_->SetWasCookieInRequest(was_cookie_in_request);
 }
 
 void WebURLResponse::SetRecursivePrefetchToken(
@@ -476,6 +520,31 @@ void WebURLResponse::SetNetworkAccessed(bool network_accessed) {
 
 bool WebURLResponse::FromArchive() const {
   return resource_response_->FromArchive();
+}
+
+void WebURLResponse::SetDnsAliases(const WebVector<WebString>& aliases) {
+  Vector<String> dns_aliases(aliases.size());
+  std::transform(aliases.begin(), aliases.end(), dns_aliases.begin(),
+                 [](const WebString& h) { return WTF::String(h); });
+  resource_response_->SetDnsAliases(std::move(dns_aliases));
+}
+
+WebURL WebURLResponse::WebBundleURL() const {
+  return resource_response_->WebBundleURL();
+}
+
+void WebURLResponse::SetWebBundleURL(const WebURL& url) {
+  resource_response_->SetWebBundleURL(url);
+}
+
+void WebURLResponse::SetAuthChallengeInfo(
+    const base::Optional<net::AuthChallengeInfo>& auth_challenge_info) {
+  resource_response_->SetAuthChallengeInfo(auth_challenge_info);
+}
+
+const base::Optional<net::AuthChallengeInfo>&
+WebURLResponse::AuthChallengeInfo() const {
+  return resource_response_->AuthChallengeInfo();
 }
 
 WebURLResponse::WebURLResponse(ResourceResponse& r) : resource_response_(&r) {}

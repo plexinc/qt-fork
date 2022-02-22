@@ -1,7 +1,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'connectdialog.ui'
 **
-** Created by: Qt User Interface Compiler version 5.12.0
+** Created by: Qt User Interface Compiler version 6.0.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -10,6 +10,7 @@
 #define CONNECTDIALOG_H
 
 #include <QtCore/QVariant>
+#include <QtWidgets/QAbstractButton>
 #include <QtWidgets/QApplication>
 #include <QtWidgets/QCheckBox>
 #include <QtWidgets/QDialog>
@@ -118,8 +119,8 @@ public:
 
 
         retranslateUi(ConnectDialog);
-        QObject::connect(buttonBox, SIGNAL(accepted()), ConnectDialog, SLOT(accept()));
-        QObject::connect(buttonBox, SIGNAL(rejected()), ConnectDialog, SLOT(reject()));
+        QObject::connect(buttonBox, &QDialogButtonBox::accepted, ConnectDialog, qOverload<>(&QDialog::accept));
+        QObject::connect(buttonBox, &QDialogButtonBox::rejected, ConnectDialog, qOverload<>(&QDialog::reject));
 
         QMetaObject::connectSlotsByName(ConnectDialog);
     } // setupUi

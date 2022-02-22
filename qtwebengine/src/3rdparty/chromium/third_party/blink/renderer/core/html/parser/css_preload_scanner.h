@@ -48,11 +48,13 @@ class CSSPreloadScanner {
   void Scan(const HTMLToken::DataVector&,
             const SegmentedString&,
             PreloadRequestStream&,
-            const KURL&);
+            const KURL&,
+            const PreloadRequest::ExclusionInfo*);
   void Scan(const String&,
             const SegmentedString&,
             PreloadRequestStream&,
-            const KURL&);
+            const KURL&,
+            const PreloadRequest::ExclusionInfo*);
 
   void SetReferrerPolicy(network::mojom::ReferrerPolicy);
 
@@ -75,10 +77,13 @@ class CSSPreloadScanner {
                   const Char* end,
                   const SegmentedString&,
                   PreloadRequestStream&,
-                  const KURL&);
+                  const KURL&,
+                  const PreloadRequest::ExclusionInfo*);
 
   inline void Tokenize(UChar, const SegmentedString&);
   void EmitRule(const SegmentedString&);
+
+  bool HasFinishedRuleValue() const;
 
   State state_ = kInitial;
   StringBuilder rule_;
@@ -90,6 +95,7 @@ class CSSPreloadScanner {
   // Below members only non-null during scan()
   PreloadRequestStream* requests_ = nullptr;
   const KURL* predicted_base_element_url_ = nullptr;
+  const PreloadRequest::ExclusionInfo* exclusion_info_;
 
   DISALLOW_COPY_AND_ASSIGN(CSSPreloadScanner);
 };

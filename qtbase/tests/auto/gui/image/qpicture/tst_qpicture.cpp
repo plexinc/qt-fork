@@ -27,7 +27,8 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QBuffer>
 
 #include <qpicture.h>
 #include <qpainter.h>
@@ -37,6 +38,8 @@
 #include <qscreen.h>
 #include <limits.h>
 
+#ifndef QT_NO_PICTURE
+
 class tst_QPicture : public QObject
 {
     Q_OBJECT
@@ -45,7 +48,6 @@ public:
     tst_QPicture();
 
 private slots:
-    void getSetCheck();
     void devType();
     void paintingActive();
     void boundingRect();
@@ -55,31 +57,6 @@ private slots:
     void boundaryValues_data();
     void boundaryValues();
 };
-
-// Testing get/set functions
-void tst_QPicture::getSetCheck()
-{
-    QPictureIO obj1;
-    // const QPicture & QPictureIO::picture()
-    // void QPictureIO::setPicture(const QPicture &)
-    // const char * QPictureIO::format()
-    // void QPictureIO::setFormat(const char *)
-    const char var2[] = "PNG";
-    obj1.setFormat(var2);
-    QCOMPARE(var2, obj1.format());
-    obj1.setFormat((char *)0);
-    // The format is stored internally in a QString, so return is always a valid char *
-    QVERIFY(QString(obj1.format()).isEmpty());
-
-    // const char * QPictureIO::parameters()
-    // void QPictureIO::setParameters(const char *)
-    const char var3[] = "Bogus data";
-    obj1.setParameters(var3);
-    QCOMPARE(var3, obj1.parameters());
-    obj1.setParameters((char *)0);
-    // The format is stored internally in a QString, so return is always a valid char *
-    QVERIFY(QString(obj1.parameters()).isEmpty());
-}
 
 tst_QPicture::tst_QPicture()
 {
@@ -176,11 +153,11 @@ class PaintEngine : public QPaintEngine
 {
 public:
     PaintEngine() : QPaintEngine() {}
-    bool begin(QPaintDevice *) { return true; }
-    bool end() { return true; }
-    void updateState(const QPaintEngineState &) {}
-    void drawPixmap(const QRectF &, const QPixmap &, const QRectF &) {}
-    Type type() const { return Raster; }
+    bool begin(QPaintDevice *) override { return true; }
+    bool end() override { return true; }
+    void updateState(const QPaintEngineState &) override {}
+    void drawPixmap(const QRectF &, const QPixmap &, const QRectF &) override {}
+    Type type() const override { return Raster; }
 
     QFont font() { return state->font(); }
 };
@@ -189,7 +166,7 @@ class Picture : public QPicture
 {
 public:
     Picture() : QPicture() {}
-    QPaintEngine *paintEngine() const { return (QPaintEngine*)&mPaintEngine; }
+    QPaintEngine *paintEngine() const override { return (QPaintEngine*)&mPaintEngine; }
 private:
     PaintEngine mPaintEngine;
 };
@@ -316,6 +293,7 @@ void tst_QPicture::boundaryValues()
     painter.end();
 }
 
-
 QTEST_MAIN(tst_QPicture)
 #include "tst_qpicture.moc"
+
+#endif // QT_NO_PICTURE

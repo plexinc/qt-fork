@@ -41,6 +41,7 @@
 #define QTOPENGLGLOBAL_H
 
 #include <QtCore/qglobal.h>
+#include <QtGui/qtguiglobal.h>
 
 QT_BEGIN_NAMESPACE
 

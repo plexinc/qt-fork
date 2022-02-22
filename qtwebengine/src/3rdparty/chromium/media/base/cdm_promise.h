@@ -9,6 +9,7 @@
 
 #include <string>
 
+#include "base/check.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "media/base/cdm_key_information.h"
@@ -114,10 +115,6 @@ class CdmPromiseTemplate : public CdmPromise {
   virtual void resolve(const T&... result) = 0;
 
   // CdmPromise implementation.
-  virtual void reject(Exception exception_code,
-                      uint32_t system_code,
-                      const std::string& error_message) = 0;
-
   ResolveParameterType GetResolveParameterType() const final;
 
  protected:

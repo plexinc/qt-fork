@@ -25,11 +25,11 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import QtTest 1.0
-import QtWebEngine 1.2
+import QtQuick
+import QtTest
+import QtWebEngine
 
-import QtWebChannel 1.0
+import QtWebChannel
 
 Item {
     id: test
@@ -81,6 +81,12 @@ Item {
         }
 
         function test_basic() {
+            webView.userScripts.collection = [ {
+                name: "qtwebchanneljs",
+                sourceUrl: Qt.resolvedUrl("qrc:/qtwebchannel/qwebchannel.js"),
+                injectionPoint: WebEngineScript.DocumentCreation,
+                worldId: WebEngineScript.MainWorld
+            }]
             webView.url = testUrl;
             verify(webView.waitForLoadSucceeded());
 

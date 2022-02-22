@@ -12,7 +12,6 @@
 #include "base/containers/flat_map.h"
 #include "base/optional.h"
 #include "base/sequence_checker.h"
-#include "mojo/public/cpp/bindings/interface_ptr_set.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
 #include "mojo/public/cpp/bindings/remote_set.h"
@@ -53,6 +52,7 @@ class MediaController : public mojom::MediaController,
   void ScrubTo(base::TimeDelta seek_time) override;
   void EnterPictureInPicture() override;
   void ExitPictureInPicture() override;
+  void SetAudioSinkId(const base::Optional<std::string>& id) override;
 
   // mojom::MediaSessionObserver overrides.
   void MediaSessionInfoChanged(

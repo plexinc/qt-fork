@@ -54,10 +54,9 @@
 #include <QtWidgets/private/qtwidgetsglobal_p.h>
 #include "QtWidgets/qlayoutitem.h"
 #include "QtWidgets/qstyle.h"
+#include <QtCore/qcontainerfwd.h>
 
 QT_BEGIN_NAMESPACE
-
-template <typename T> class QVector;
 
 struct QLayoutStruct
 {
@@ -95,9 +94,8 @@ struct QLayoutStruct
     int size;
 };
 
-
-Q_WIDGETS_EXPORT void qGeomCalc(QVector<QLayoutStruct> &chain, int start, int count,
-                            int pos, int space, int spacer = -1);
+Q_WIDGETS_EXPORT void qGeomCalc(QList<QLayoutStruct> &chain, int start, int count, int pos,
+                                int space, int spacer = -1);
 Q_WIDGETS_EXPORT QSize qSmartMinSize(const QSize &sizeHint, const QSize &minSizeHint,
                                  const QSize &minSize, const QSize &maxSize,
                                  const QSizePolicy &sizePolicy);

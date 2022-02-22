@@ -44,7 +44,6 @@
 
 QT_BEGIN_NAMESPACE
 
-
 class QEventLoopPrivate;
 
 class Q_CORE_EXPORT QEventLoop : public QObject
@@ -71,7 +70,6 @@ public:
     void processEvents(ProcessEventsFlags flags, int maximumTime);
 
     int exec(ProcessEventsFlags flags = AllEvents);
-    void exit(int returnCode = 0);
     bool isRunning() const;
 
     void wakeUp();
@@ -79,11 +77,11 @@ public:
     bool event(QEvent *event) override;
 
 public Q_SLOTS:
+    void exit(int returnCode = 0);
     void quit();
 };
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(QEventLoop::ProcessEventsFlags)
-
 
 class QEventLoopLockerPrivate;
 

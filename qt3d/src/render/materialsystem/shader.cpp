@@ -48,7 +48,6 @@
 #include <Qt3DRender/private/attachmentpack_p.h>
 #include <Qt3DRender/private/qshaderprogram_p.h>
 #include <Qt3DRender/private/stringtoint_p.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include <Qt3DRender/private/managers_p.h>
 
 QT_BEGIN_NAMESPACE
@@ -81,6 +80,8 @@ const int Shader::gammaNameId = StringToInt::lookupId(QLatin1String("gamma"));
 const int Shader::timeNameId = StringToInt::lookupId(QLatin1String("time"));
 const int Shader::eyePositionNameId = StringToInt::lookupId(QLatin1String("eyePosition"));
 const int Shader::skinningPaletteNameId = StringToInt::lookupId(QLatin1String("skinningPalette[0]"));
+const int Shader::yUpInFBOId = StringToInt::lookupId(QLatin1String("yUpInFBO"));
+const int Shader::yUpInNDCId = StringToInt::lookupId(QLatin1String("yUpInNDC"));
 
 Shader::Shader()
     : BackendNode(ReadWrite)
@@ -121,7 +122,7 @@ void Shader::syncFromFrontEnd(const QNode *frontEnd, bool firstTime)
     for (int i = QShaderProgram::Vertex; i <= QShaderProgram::Compute; ++i) {
         const QShaderProgram::ShaderType shaderType = static_cast<QShaderProgram::ShaderType>(i);
         const QByteArray code = node->shaderCode(shaderType);
-        if (code != m_shaderCode.value(shaderType))
+        if (code != m_shaderCode[shaderType])
             setShaderCode(shaderType, code);
     }
     setFormat(node->format());
@@ -149,7 +150,7 @@ void Shader::setFormat(QShaderProgram::Format format)
     markDirty(AbstractRenderer::ShadersDirty);
 }
 
-QVector<QByteArray> Shader::shaderCode() const
+const std::vector<QByteArray> &Shader::shaderCode() const
 {
     return m_shaderCode;
 }
@@ -192,11 +193,11 @@ ShaderFunctor::ShaderFunctor(AbstractRenderer *renderer, ShaderManager *manager)
 {
 }
 
-QBackendNode *ShaderFunctor::create(const QNodeCreatedChangeBasePtr &change) const
+QBackendNode *ShaderFunctor::create(QNodeId id) const
 {
-    Shader *backend = m_shaderManager->getOrCreateResource(change->subjectId());
+    Shader *backend = m_shaderManager->getOrCreateResource(id);
     // Remove from the list of ids to destroy in case we were added to it
-    m_shaderManager->removeShaderIdFromIdsToCleanup(change->subjectId());
+    m_shaderManager->removeShaderIdFromIdsToCleanup(id);
     backend->setRenderer(m_renderer);
     return backend;
 }
@@ -212,10 +213,11 @@ QBackendNode *ShaderFunctor::get(QNodeId id) const
 
 void ShaderFunctor::destroy(QNodeId id) const
 {
-    m_shaderManager->addShaderIdToCleanup(id);
     // We only add ourselves to the dirty list
     // The actual removal needs to be performed after we have
     // destroyed the associated APIShader in the RenderThread
+    if (m_shaderManager->lookupResource(id))
+        m_shaderManager->addShaderIdToCleanup(id);
 }
 
 } // namespace Render

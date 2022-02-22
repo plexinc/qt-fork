@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 #include <QtCore/QCoreApplication>
-#include <QtTest/QtTest>
+#include <QTest>
 #include <private/qtestlog_p.h>
 
 class tst_Signaldumper : public QObject
@@ -79,7 +79,7 @@ public:
 
 public slots:
     void slotWithoutParameters() {}
-    void slotWithParameters(int i, char c) { Q_UNUSED(i); Q_UNUSED(c); }
+    void slotWithParameters(int, char) {}
     void emitSecondSignal() { emit nestedSignal(); }
 
 signals:
@@ -95,18 +95,18 @@ signals:
     void qStringConstRefSignal(const QString &string);
     void qByteArraySignal(QByteArray byteArray);
     void qListSignal(QList<int> list);
-    void qVectorSignal(QVector<int> vector);
-    void qVectorRefSignal(QVector<int> &vector);
-    void qVectorConstRefSignal(const QVector<int> &vector);
-    void qVectorConstPointerSignal(const QVector<int> *vector);
-    void qVectorPointerConstSignal(QVector<int> *const vector);
+    void qVectorSignal(QList<int> vector);
+    void qVectorRefSignal(QList<int> &vector);
+    void qVectorConstRefSignal(const QList<int> &vector);
+    void qVectorConstPointerSignal(const QList<int> *vector);
+    void qVectorPointerConstSignal(QList<int> *const vector);
     void qVariantSignal(QVariant variant);
 };
 
 SignalSlotClass::SignalSlotClass()
 {
     // For printing signal argument in "variousTypes" test
-    qRegisterMetaType<QVector<int>>();
+    qRegisterMetaType<QList<int>>();
     qRegisterMetaType<QList<int>>();
 }
 
@@ -402,7 +402,7 @@ void tst_Signaldumper::variousTypes()
     QList<int> list{1, 2, 3, 242};
     emit signalSlotOwner.qListSignal(list);
 
-    QVector<int> vector{1, 2, 3, 242};
+    QList<int> vector { 1, 2, 3, 242 };
     emit signalSlotOwner.qVectorSignal(vector);
     emit signalSlotOwner.qVectorRefSignal(vector);
     emit signalSlotOwner.qVectorConstRefSignal(vector);
@@ -428,7 +428,7 @@ int main(int argc, char *argv[])
 {
     std::vector<const char*> args(argv, argv + argc);
     args.push_back("-vs");
-    argc = args.size();
+    argc = int(args.size());
     argv = const_cast<char**>(&args[0]);
 
     QTEST_MAIN_IMPL(tst_Signaldumper)

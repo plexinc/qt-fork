@@ -4,17 +4,19 @@
 
 #include "cast/streaming/sender_packet_router.h"
 
+#include <chrono>
+
 #include "cast/streaming/constants.h"
+#include "cast/streaming/mock_environment.h"
+#include "cast/streaming/testing/simple_socket_subscriber.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "platform/base/ip_address.h"
 #include "platform/test/fake_clock.h"
 #include "platform/test/fake_task_runner.h"
 #include "util/big_endian.h"
-#include "util/logging.h"
-
-using std::chrono::milliseconds;
-using std::chrono::seconds;
+#include "util/chrono_helpers.h"
+#include "util/osp_logging.h"
 
 using testing::_;
 using testing::Invoke;
@@ -126,16 +128,6 @@ absl::Span<uint8_t> ToEmptyPacketBuffer(Clock::time_point send_time,
   return buffer.subspan(0, 0);
 }
 
-class MockEnvironment : public Environment {
- public:
-  MockEnvironment(ClockNowFunctionPtr now_function, TaskRunner* task_runner)
-      : Environment(now_function, task_runner) {}
-
-  ~MockEnvironment() override = default;
-
-  MOCK_METHOD1(SendPacket, void(absl::Span<const uint8_t> packet));
-};
-
 class MockSender : public SenderPacketRouter::Sender {
  public:
   MockSender() = default;
@@ -164,8 +156,7 @@ class SenderPacketRouterTest : public testing::Test {
         task_runner_(&clock_),
         env_(&FakeClock::now, &task_runner_),
         router_(&env_, kMaxPacketsPerBurst, kBurstInterval) {
-    env_.set_socket_error_handler(
-        [](Error error) { ASSERT_TRUE(error.ok()) << error; });
+    env_.SetSocketSubscriber(&socket_subscriber_);
   }
 
   ~SenderPacketRouterTest() override = default;
@@ -191,6 +182,7 @@ class SenderPacketRouterTest : public testing::Test {
   SenderPacketRouter router_;
   testing::NiceMock<MockSender> audio_sender_;
   testing::NiceMock<MockSender> video_sender_;
+  SimpleSubscriber socket_subscriber_;
 };
 
 // Tests that the SenderPacketRouter is correctly configured from the specific

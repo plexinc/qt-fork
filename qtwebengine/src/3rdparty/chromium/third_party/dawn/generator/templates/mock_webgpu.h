@@ -39,7 +39,7 @@ class ProcTableAsClass {
         {% endfor %}
 
         {% for type in by_category["object"] %}
-            {% for method in type.methods if len(method.arguments) < 10 and not has_callback_arguments(method) %}
+            {% for method in type.methods if not has_callback_arguments(method) %}
                 virtual {{as_cType(method.return_type.name)}} {{as_MethodSuffix(type.name, method.name)}}(
                     {{-as_cType(type.name)}} {{as_varName(type.name)}}
                     {%- for arg in method.arguments -%}
@@ -47,74 +47,49 @@ class ProcTableAsClass {
                     {%- endfor -%}
                 ) = 0;
             {% endfor %}
+
             virtual void {{as_MethodSuffix(type.name, Name("reference"))}}({{as_cType(type.name)}} self) = 0;
             virtual void {{as_MethodSuffix(type.name, Name("release"))}}({{as_cType(type.name)}} self) = 0;
+
+            {% for method in type.methods if has_callback_arguments(method) %}
+                {% set Suffix = as_MethodSuffix(type.name, method.name) %}
+                //* Stores callback and userdata and calls the On* method.
+                {{as_cType(method.return_type.name)}} {{Suffix}}(
+                    {{-as_cType(type.name)}} {{as_varName(type.name)}}
+                    {%- for arg in method.arguments -%}
+                        , {{as_annotated_cType(arg)}}
+                    {%- endfor -%}
+                );
+                //* The virtual function to call after saving the callback and userdata in the proc.
+                //* This function can be mocked.
+                virtual {{as_cType(method.return_type.name)}} On{{Suffix}}(
+                    {{-as_cType(type.name)}} {{as_varName(type.name)}}
+                    {%- for arg in method.arguments -%}
+                        , {{as_annotated_cType(arg)}}
+                    {%- endfor -%}
+                ) = 0;
+
+                //* Calls the stored callback.
+                {% for callback_arg in method.arguments if callback_arg.type.category == 'callback' %}
+                    void Call{{as_MethodSuffix(type.name, method.name)}}Callback(
+                        {{-as_cType(type.name)}} {{as_varName(type.name)}}
+                        {%- for arg in callback_arg.type.arguments -%}
+                            {%- if not loop.last -%}, {{as_annotated_cType(arg)}}{%- endif -%}
+                        {%- endfor -%}
+                    );
+                {% endfor %}
+            {% endfor %}
         {% endfor %}
-
-        // Stores callback and userdata and calls the On* methods
-        void DeviceSetUncapturedErrorCallback(WGPUDevice self,
-                                    WGPUErrorCallback callback,
-                                    void* userdata);
-        void DeviceSetDeviceLostCallback(WGPUDevice self,
-                                         WGPUDeviceLostCallback callback,
-                                         void* userdata);
-        bool DevicePopErrorScope(WGPUDevice self, WGPUErrorCallback callback, void* userdata);
-        void DeviceCreateBufferMappedAsync(WGPUDevice self,
-                                           const WGPUBufferDescriptor* descriptor,
-                                           WGPUBufferCreateMappedCallback callback,
-                                           void* userdata);
-        void BufferMapReadAsync(WGPUBuffer self,
-                                WGPUBufferMapReadCallback callback,
-                                void* userdata);
-        void BufferMapWriteAsync(WGPUBuffer self,
-                                 WGPUBufferMapWriteCallback callback,
-                                 void* userdata);
-        void FenceOnCompletion(WGPUFence self,
-                               uint64_t value,
-                               WGPUFenceOnCompletionCallback callback,
-                               void* userdata);
-
-        // Special cased mockable methods
-        virtual void OnDeviceSetUncapturedErrorCallback(WGPUDevice device,
-                                              WGPUErrorCallback callback,
-                                              void* userdata) = 0;
-        virtual void OnDeviceSetDeviceLostCallback(WGPUDevice device,
-                                                   WGPUDeviceLostCallback callback,
-                                                   void* userdata) = 0;
-        virtual bool OnDevicePopErrorScopeCallback(WGPUDevice device,
-                                              WGPUErrorCallback callback,
-                                              void* userdata) = 0;
-        virtual void OnDeviceCreateBufferMappedAsyncCallback(WGPUDevice self,
-                                                             const WGPUBufferDescriptor* descriptor,
-                                                             WGPUBufferCreateMappedCallback callback,
-                                                             void* userdata) = 0;
-        virtual void OnBufferMapReadAsyncCallback(WGPUBuffer buffer,
-                                                  WGPUBufferMapReadCallback callback,
-                                                  void* userdata) = 0;
-        virtual void OnBufferMapWriteAsyncCallback(WGPUBuffer buffer,
-                                                   WGPUBufferMapWriteCallback callback,
-                                                   void* userdata) = 0;
-        virtual void OnFenceOnCompletionCallback(WGPUFence fence,
-                                                 uint64_t value,
-                                                 WGPUFenceOnCompletionCallback callback,
-                                                 void* userdata) = 0;
-
-        // Calls the stored callbacks
-        void CallDeviceErrorCallback(WGPUDevice device, WGPUErrorType type, const char* message);
-        void CallDeviceLostCallback(WGPUDevice device, const char* message);
-        void CallCreateBufferMappedCallback(WGPUDevice device, WGPUBufferMapAsyncStatus status, WGPUCreateBufferMappedResult result);
-        void CallMapReadCallback(WGPUBuffer buffer, WGPUBufferMapAsyncStatus status, const void* data, uint64_t dataLength);
-        void CallMapWriteCallback(WGPUBuffer buffer, WGPUBufferMapAsyncStatus status, void* data, uint64_t dataLength);
-        void CallFenceOnCompletionCallback(WGPUFence fence, WGPUFenceCompletionStatus status);
 
         struct Object {
             ProcTableAsClass* procs = nullptr;
-            WGPUErrorCallback deviceErrorCallback = nullptr;
-            WGPUDeviceLostCallback deviceLostCallback = nullptr;
-            WGPUBufferCreateMappedCallback createBufferMappedCallback = nullptr;
-            WGPUBufferMapReadCallback mapReadCallback = nullptr;
-            WGPUBufferMapWriteCallback mapWriteCallback = nullptr;
-            WGPUFenceOnCompletionCallback fenceOnCompletionCallback = nullptr;
+            {% for type in by_category["object"] %}
+                {% for method in type.methods if has_callback_arguments(method) %}
+                    {% for callback_arg in method.arguments if callback_arg.type.category == 'callback' %}
+                        {{as_cType(callback_arg.type.name)}} m{{as_MethodSuffix(type.name, method.name)}}Callback = nullptr;
+                    {% endfor %}
+                {% endfor %}
+            {% endfor %}
             void* userdata = 0;
         };
 
@@ -126,37 +101,34 @@ class ProcTableAsClass {
 class MockProcTable : public ProcTableAsClass {
     public:
         MockProcTable();
+        ~MockProcTable() override;
 
         void IgnoreAllReleaseCalls();
 
         {% for type in by_category["object"] %}
-            {% for method in type.methods if len(method.arguments) < 10 and not has_callback_arguments(method) %}
-                MOCK_METHOD{{len(method.arguments) + 1}}(
-                    {{-as_MethodSuffix(type.name, method.name)}},
-                    {{as_cType(method.return_type.name)}}(
+            {% for method in type.methods if not has_callback_arguments(method) %}
+                MOCK_METHOD({{as_cType(method.return_type.name)}},{{" "}}
+                    {{-as_MethodSuffix(type.name, method.name)}}, (
                         {{-as_cType(type.name)}} {{as_varName(type.name)}}
                         {%- for arg in method.arguments -%}
                             , {{as_annotated_cType(arg)}}
                         {%- endfor -%}
-                    ));
+                    ), (override));
             {% endfor %}
 
-            MOCK_METHOD1({{as_MethodSuffix(type.name, Name("reference"))}}, void({{as_cType(type.name)}} self));
-            MOCK_METHOD1({{as_MethodSuffix(type.name, Name("release"))}}, void({{as_cType(type.name)}} self));
-        {% endfor %}
+            MOCK_METHOD(void, {{as_MethodSuffix(type.name, Name("reference"))}}, ({{as_cType(type.name)}} self), (override));
+            MOCK_METHOD(void, {{as_MethodSuffix(type.name, Name("release"))}}, ({{as_cType(type.name)}} self), (override));
 
-        MOCK_METHOD3(OnDeviceSetUncapturedErrorCallback, void(WGPUDevice device, WGPUErrorCallback callback, void* userdata));
-        MOCK_METHOD3(OnDeviceSetDeviceLostCallback,
-                     void(WGPUDevice device, WGPUDeviceLostCallback callback, void* userdata));
-        MOCK_METHOD3(OnDevicePopErrorScopeCallback, bool(WGPUDevice device, WGPUErrorCallback callback, void* userdata));
-        MOCK_METHOD4(OnDeviceCreateBufferMappedAsyncCallback, void(WGPUDevice device, const WGPUBufferDescriptor* descriptor, WGPUBufferCreateMappedCallback callback, void* userdata));
-        MOCK_METHOD3(OnBufferMapReadAsyncCallback, void(WGPUBuffer buffer, WGPUBufferMapReadCallback callback, void* userdata));
-        MOCK_METHOD3(OnBufferMapWriteAsyncCallback, void(WGPUBuffer buffer, WGPUBufferMapWriteCallback callback, void* userdata));
-        MOCK_METHOD4(OnFenceOnCompletionCallback,
-                     void(WGPUFence fence,
-                          uint64_t value,
-                          WGPUFenceOnCompletionCallback callback,
-                          void* userdata));
+            {% for method in type.methods if has_callback_arguments(method) %}
+                MOCK_METHOD({{as_cType(method.return_type.name)}},{{" "-}}
+                    On{{as_MethodSuffix(type.name, method.name)}}, (
+                        {{-as_cType(type.name)}} {{as_varName(type.name)}}
+                        {%- for arg in method.arguments -%}
+                            , {{as_annotated_cType(arg)}}
+                        {%- endfor -%}
+                    ), (override));
+            {% endfor %}
+        {% endfor %}
 };
 
 #endif  // MOCK_WEBGPU_H

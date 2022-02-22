@@ -5,7 +5,7 @@
 #include "services/device/hid/hid_connection_impl.h"
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/memory/ref_counted_memory.h"
 #include "build/build_config.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
@@ -18,7 +18,7 @@ namespace device {
 
 namespace {
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 const uint64_t kTestDeviceId = 123;
 #elif defined(OS_WIN)
 const wchar_t* kTestDeviceId = L"123";
@@ -37,8 +37,8 @@ const uint64_t kMaxReportSizeBytes = 10;
 // input report.
 class FakeHidConnection : public HidConnection {
  public:
-  FakeHidConnection(scoped_refptr<HidDeviceInfo> device)
-      : HidConnection(device) {}
+  explicit FakeHidConnection(scoped_refptr<HidDeviceInfo> device)
+      : HidConnection(device, /*allow_protected_reports=*/false) {}
 
   // HidConnection implementation.
   void PlatformClose() override {}
@@ -175,13 +175,18 @@ class HidConnectionImplTest : public DeviceServiceTestBase {
   }
 
   scoped_refptr<HidDeviceInfo> CreateTestDevice() {
+    HidDeviceInfo::PlatformDeviceIdMap platform_device_id_map;
+    platform_device_id_map.emplace_back(base::flat_set<uint8_t>{0},
+                                        kTestDeviceId);
+    std::vector<mojom::HidCollectionInfoPtr> collections;
     auto hid_collection_info = mojom::HidCollectionInfo::New();
     hid_collection_info->usage = mojom::HidUsageAndPage::New(0, 0);
     hid_collection_info->report_ids.push_back(kTestReportId);
+    collections.push_back(std::move(hid_collection_info));
     return base::MakeRefCounted<HidDeviceInfo>(
-        kTestDeviceId, "1", 0x1234, 0xabcd, "product name", "serial number",
-        mojom::HidBusType::kHIDBusTypeUSB, std::move(hid_collection_info),
-        kMaxReportSizeBytes, kMaxReportSizeBytes, 0);
+        std::move(platform_device_id_map), "1", 0x1234, 0xabcd, "product name",
+        "serial number", mojom::HidBusType::kHIDBusTypeUSB,
+        std::move(collections), kMaxReportSizeBytes, kMaxReportSizeBytes, 0);
   }
 
   std::vector<uint8_t> CreateTestReportBuffer(uint8_t report_id, size_t size) {

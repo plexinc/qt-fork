@@ -65,6 +65,13 @@ class MEDIA_EXPORT AudioRenderer {
   // (restore UA default).
   virtual void SetLatencyHint(base::Optional<base::TimeDelta> latency_hint) = 0;
 
+  // Sets a flag indicating that the AudioRenderer should use or avoid pitch
+  // preservation when playing back at speeds other than 1.0.
+  virtual void SetPreservesPitch(bool preserves_pitch) = 0;
+
+  // Sets a flag indicating whether the audio stream was initiated by autoplay.
+  virtual void SetAutoplayInitiated(bool autoplay_initiated) = 0;
+
  private:
   DISALLOW_COPY_AND_ASSIGN(AudioRenderer);
 };

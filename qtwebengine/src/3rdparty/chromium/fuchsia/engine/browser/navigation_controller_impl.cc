@@ -5,44 +5,16 @@
 #include "fuchsia/engine/browser/navigation_controller_impl.h"
 
 #include "base/strings/strcat.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/utf_string_conversions.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/was_activated_option.mojom.h"
 #include "fuchsia/base/string_util.h"
+#include "net/base/net_errors.h"
 #include "net/http/http_util.h"
 #include "ui/base/page_transition_types.h"
-
-namespace {
-
-void UpdateNavigationStateFromNavigationEntry(
-    content::NavigationEntry* entry,
-    content::WebContents* web_contents,
-    fuchsia::web::NavigationState* navigation_state) {
-  DCHECK(entry);
-  DCHECK(web_contents);
-  DCHECK(navigation_state);
-
-  navigation_state->set_title(base::UTF16ToUTF8(entry->GetTitleForDisplay()));
-  navigation_state->set_url(entry->GetURL().spec());
-
-  switch (entry->GetPageType()) {
-    case content::PageType::PAGE_TYPE_NORMAL:
-    case content::PageType::PAGE_TYPE_INTERSTITIAL:
-      navigation_state->set_page_type(fuchsia::web::PageType::NORMAL);
-      break;
-    case content::PageType::PAGE_TYPE_ERROR:
-      navigation_state->set_page_type(fuchsia::web::PageType::ERROR);
-      break;
-  }
-
-  navigation_state->set_can_go_back(web_contents->GetController().CanGoBack());
-  navigation_state->set_can_go_forward(
-      web_contents->GetController().CanGoForward());
-}
-
-}  // namespace
 
 NavigationControllerImpl::NavigationControllerImpl(
     content::WebContents* web_contents)
@@ -87,13 +59,47 @@ void NavigationControllerImpl::SetEventListener(
   }
 }
 
-void NavigationControllerImpl::OnNavigationEntryChanged() {
-  fuchsia::web::NavigationState new_state;
-  new_state.set_is_main_document_loaded(is_main_document_loaded_);
-  UpdateNavigationStateFromNavigationEntry(
-      web_contents_->GetController().GetVisibleEntry(), web_contents_,
-      &new_state);
+fuchsia::web::NavigationState
+NavigationControllerImpl::GetVisibleNavigationState() const {
+  content::NavigationEntry* const entry =
+      web_contents_->GetController().GetVisibleEntry();
+  if (!entry)
+    return fuchsia::web::NavigationState();
 
+  fuchsia::web::NavigationState state;
+
+  // Populate some fields directly from the NavigationEntry.
+  state.set_title(base::UTF16ToUTF8(entry->GetTitleForDisplay()));
+  state.set_url(entry->GetURL().spec());
+
+  if (web_contents_->IsCrashed()) {
+    // TODO(https:://crbug.com/1092506): Add an explicit crashed indicator to
+    // NavigationState, separate from PageType::ERROR.
+    state.set_page_type(fuchsia::web::PageType::ERROR);
+  } else if (uncommitted_load_error_) {
+    // If there was a loading error which prevented the navigation entry from
+    // being committed, then report PageType::ERROR.
+    state.set_page_type(fuchsia::web::PageType::ERROR);
+  } else {
+    switch (entry->GetPageType()) {
+      case content::PageType::PAGE_TYPE_NORMAL:
+        state.set_page_type(fuchsia::web::PageType::NORMAL);
+        break;
+      case content::PageType::PAGE_TYPE_ERROR:
+        state.set_page_type(fuchsia::web::PageType::ERROR);
+        break;
+    }
+  }
+
+  state.set_is_main_document_loaded(is_main_document_loaded_);
+  state.set_can_go_back(web_contents_->GetController().CanGoBack());
+  state.set_can_go_forward(web_contents_->GetController().CanGoForward());
+
+  return state;
+}
+
+void NavigationControllerImpl::OnNavigationEntryChanged() {
+  fuchsia::web::NavigationState new_state = GetVisibleNavigationState();
   DiffNavigationEntries(previous_navigation_state_, new_state,
                         &pending_navigation_event_);
   previous_navigation_state_ = std::move(new_state);
@@ -202,17 +208,7 @@ void NavigationControllerImpl::Reload(fuchsia::web::ReloadType type) {
 
 void NavigationControllerImpl::GetVisibleEntry(
     fuchsia::web::NavigationController::GetVisibleEntryCallback callback) {
-  content::NavigationEntry* entry =
-      web_contents_->GetController().GetVisibleEntry();
-  if (!entry) {
-    callback({});
-    return;
-  }
-
-  fuchsia::web::NavigationState state;
-  state.set_is_main_document_loaded(is_main_document_loaded_);
-  UpdateNavigationStateFromNavigationEntry(entry, web_contents_, &state);
-  callback(std::move(state));
+  callback(GetVisibleNavigationState());
 }
 
 void NavigationControllerImpl::TitleWasSet(content::NavigationEntry* entry) {
@@ -230,8 +226,22 @@ void NavigationControllerImpl::DocumentAvailableInMainFrame() {
 void NavigationControllerImpl::DidFinishLoad(
     content::RenderFrameHost* render_frame_host,
     const GURL& validated_url) {
-  // The document and its statically-declared subresources are loaded.
+  // The current document and its statically-declared subresources are loaded.
+
+  // Don't process load completion on the current document if the WebContents
+  // is already in the process of navigating to a different page.
+  if (active_navigation_)
+    return;
+
   is_main_document_loaded_ = true;
+  OnNavigationEntryChanged();
+}
+
+void NavigationControllerImpl::RenderProcessGone(
+    base::TerminationStatus status) {
+  // If the current RenderProcess terminates then trigger a NavigationState
+  // change to let the caller know that something is wrong.
+  LOG(WARNING) << "RenderProcess gone, TerminationStatus=" << status;
   OnNavigationEntryChanged();
 }
 
@@ -242,7 +252,23 @@ void NavigationControllerImpl::DidStartNavigation(
     return;
   }
 
+  uncommitted_load_error_ = false;
+  active_navigation_ = navigation_handle;
   is_main_document_loaded_ = false;
+  OnNavigationEntryChanged();
+}
+
+void NavigationControllerImpl::DidFinishNavigation(
+    content::NavigationHandle* navigation_handle) {
+  if (!navigation_handle->IsInMainFrame() ||
+      navigation_handle->IsSameDocument() ||
+      navigation_handle != active_navigation_) {
+    return;
+  }
+
+  active_navigation_ = nullptr;
+  uncommitted_load_error_ = !navigation_handle->HasCommitted() &&
+                            navigation_handle->GetNetErrorCode() != net::OK;
   OnNavigationEntryChanged();
 }
 

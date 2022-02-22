@@ -8,7 +8,7 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
 #include "content/browser/cookie_store/cookie_store_context.h"
 #include "content/browser/cookie_store/cookie_store_manager.h"
@@ -19,9 +19,12 @@
 #include "content/browser/storage_partition_impl.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/test_browser_context.h"
+#include "content/test/fake_mojo_message_dispatch_context.h"
 #include "mojo/public/cpp/test_support/test_utils.h"
 #include "net/base/features.h"
+#include "net/cookies/cookie_access_result.h"
 #include "net/cookies/cookie_constants.h"
+#include "net/cookies/cookie_util.h"
 #include "services/network/public/cpp/features.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker.mojom.h"
@@ -283,12 +286,12 @@ class CookieStoreManagerTest
     base::RunLoop run_loop;
     bool success = false;
     cookie_manager_->SetCanonicalCookie(
-        cookie, "https", net::CookieOptions::MakeAllInclusive(),
-        base::BindLambdaForTesting(
-            [&](net::CanonicalCookie::CookieInclusionStatus service_status) {
-              success = service_status.IsInclude();
-              run_loop.Quit();
-            }));
+        cookie, net::cookie_util::SimulatedCookieSource(cookie, "https"),
+        net::CookieOptions::MakeAllInclusive(),
+        base::BindLambdaForTesting([&](net::CookieAccessResult result) {
+          success = result.status.IsInclude();
+          run_loop.Quit();
+        }));
     run_loop.Run();
     return success;
   }
@@ -301,19 +304,23 @@ class CookieStoreManagerTest
                         const char* value,
                         const char* domain,
                         const char* path) {
-    return SetCanonicalCookie(net::CanonicalCookie(
-        name, value, domain, path, base::Time(), base::Time(), base::Time(),
-        /* secure = */ true,
-        /* httponly = */ false, net::CookieSameSite::NO_RESTRICTION,
-        net::COOKIE_PRIORITY_DEFAULT));
+    return SetCanonicalCookie(
+        *net::CanonicalCookie::CreateUnsafeCookieForTesting(
+            name, value, domain, path, base::Time(), base::Time(), base::Time(),
+            /* secure = */ true,
+            /* httponly = */ false, net::CookieSameSite::NO_RESTRICTION,
+            net::COOKIE_PRIORITY_DEFAULT, /* same_party = */ false));
   }
 
   bool DeleteCookie(const char* name, const char* domain, const char* path) {
-    return SetCanonicalCookie(net::CanonicalCookie(
-        name, /* value = */ "", domain, path, /* creation = */ base::Time(),
-        /* expiration = */ base::Time::Min(), /* last_access = */ base::Time(),
-        /* secure = */ true, /* httponly = */ false,
-        net::CookieSameSite::NO_RESTRICTION, net::COOKIE_PRIORITY_DEFAULT));
+    return SetCanonicalCookie(
+        *net::CanonicalCookie::CreateUnsafeCookieForTesting(
+            name, /* value = */ "", domain, path, /* creation = */ base::Time(),
+            /* expiration = */ base::Time::Min(),
+            /* last_access = */ base::Time(),
+            /* secure = */ true, /* httponly = */ false,
+            net::CookieSameSite::NO_RESTRICTION, net::COOKIE_PRIORITY_DEFAULT,
+            /* same_party = */ false));
   }
 
   // Designates a closure for preparing the cookie store for the current test.
@@ -1227,7 +1234,7 @@ TEST_P(CookieStoreManagerTest, OneCookieChange) {
   // example.com does not have a custom access semantics setting, so it defaults
   // to NONLEGACY, because the FeatureList has SameSiteByDefaultCookies enabled.
   EXPECT_EQ(net::CookieAccessSemantics::NONLEGACY,
-            worker_test_helper_->changes()[0].access_semantics);
+            worker_test_helper_->changes()[0].access_result.access_semantics);
 }
 
 // Same as above except this tests that the LEGACY access semantics for
@@ -1267,7 +1274,7 @@ TEST_P(CookieStoreManagerTest, OneCookieChangeLegacy) {
             worker_test_helper_->changes()[0].cause);
   // legacy.com has a custom Legacy setting.
   EXPECT_EQ(net::CookieAccessSemantics::LEGACY,
-            worker_test_helper_->changes()[0].access_semantics);
+            worker_test_helper_->changes()[0].access_result.access_semantics);
 }
 
 TEST_P(CookieStoreManagerTest, CookieChangeNameStartsWith) {
@@ -1312,7 +1319,7 @@ TEST_P(CookieStoreManagerTest, CookieChangeNameStartsWith) {
   // example.com does not have a custom access semantics setting, so it defaults
   // to NONLEGACY, because the FeatureList has SameSiteByDefaultCookies enabled.
   EXPECT_EQ(net::CookieAccessSemantics::NONLEGACY,
-            worker_test_helper_->changes()[0].access_semantics);
+            worker_test_helper_->changes()[0].access_result.access_semantics);
 
   worker_test_helper_->changes().clear();
   ASSERT_TRUE(SetSessionCookie("cookie-name-22", "cookie-value-22",
@@ -1330,7 +1337,7 @@ TEST_P(CookieStoreManagerTest, CookieChangeNameStartsWith) {
   // example.com does not have a custom access semantics setting, so it defaults
   // to NONLEGACY, because the FeatureList has SameSiteByDefaultCookies enabled.
   EXPECT_EQ(net::CookieAccessSemantics::NONLEGACY,
-            worker_test_helper_->changes()[0].access_semantics);
+            worker_test_helper_->changes()[0].access_result.access_semantics);
 }
 
 // Same as above except this tests that the LEGACY access semantics for
@@ -1376,7 +1383,7 @@ TEST_P(CookieStoreManagerTest, CookieChangeNameStartsWithLegacy) {
             worker_test_helper_->changes()[0].cause);
   // legacy.com has a custom Legacy setting.
   EXPECT_EQ(net::CookieAccessSemantics::LEGACY,
-            worker_test_helper_->changes()[0].access_semantics);
+            worker_test_helper_->changes()[0].access_result.access_semantics);
 
   worker_test_helper_->changes().clear();
   ASSERT_TRUE(
@@ -1393,7 +1400,7 @@ TEST_P(CookieStoreManagerTest, CookieChangeNameStartsWithLegacy) {
             worker_test_helper_->changes()[0].cause);
   // legacy.com has a custom Legacy setting.
   EXPECT_EQ(net::CookieAccessSemantics::LEGACY,
-            worker_test_helper_->changes()[0].access_semantics);
+            worker_test_helper_->changes()[0].access_result.access_semantics);
 }
 
 TEST_P(CookieStoreManagerTest, CookieChangeUrl) {
@@ -1444,7 +1451,7 @@ TEST_P(CookieStoreManagerTest, CookieChangeUrl) {
   // example.com does not have a custom access semantics setting, so it defaults
   // to NONLEGACY, because the FeatureList has SameSiteByDefaultCookies enabled.
   EXPECT_EQ(net::CookieAccessSemantics::NONLEGACY,
-            worker_test_helper_->changes()[0].access_semantics);
+            worker_test_helper_->changes()[0].access_result.access_semantics);
 
   worker_test_helper_->changes().clear();
   ASSERT_TRUE(
@@ -1461,7 +1468,7 @@ TEST_P(CookieStoreManagerTest, CookieChangeUrl) {
   // example.com does not have a custom access semantics setting, so it defaults
   // to NONLEGACY, because the FeatureList has SameSiteByDefaultCookies enabled.
   EXPECT_EQ(net::CookieAccessSemantics::NONLEGACY,
-            worker_test_helper_->changes()[0].access_semantics);
+            worker_test_helper_->changes()[0].access_result.access_semantics);
 }
 
 // Same as above except this tests that the LEGACY access semantics for
@@ -1513,7 +1520,7 @@ TEST_P(CookieStoreManagerTest, CookieChangeUrlLegacy) {
             worker_test_helper_->changes()[0].cause);
   // legacy.com has a custom Legacy setting.
   EXPECT_EQ(net::CookieAccessSemantics::LEGACY,
-            worker_test_helper_->changes()[0].access_semantics);
+            worker_test_helper_->changes()[0].access_result.access_semantics);
 
   worker_test_helper_->changes().clear();
   ASSERT_TRUE(
@@ -1529,7 +1536,7 @@ TEST_P(CookieStoreManagerTest, CookieChangeUrlLegacy) {
             worker_test_helper_->changes()[0].cause);
   // legacy.com has a custom Legacy setting.
   EXPECT_EQ(net::CookieAccessSemantics::LEGACY,
-            worker_test_helper_->changes()[0].access_semantics);
+            worker_test_helper_->changes()[0].access_result.access_semantics);
 }
 
 TEST_P(CookieStoreManagerTest, HttpOnlyCookieChange) {
@@ -1554,22 +1561,24 @@ TEST_P(CookieStoreManagerTest, HttpOnlyCookieChange) {
   if (reset_context_during_test())
     ResetServiceWorkerContext();
 
-  ASSERT_TRUE(SetCanonicalCookie(net::CanonicalCookie(
-      "cookie-name-1", "cookie-value-1", "example.com", "/", base::Time(),
-      base::Time(), base::Time(),
-      /* secure = */ true,
-      /* httponly = */ true, net::CookieSameSite::NO_RESTRICTION,
-      net::COOKIE_PRIORITY_DEFAULT)));
+  ASSERT_TRUE(
+      SetCanonicalCookie(*net::CanonicalCookie::CreateUnsafeCookieForTesting(
+          "cookie-name-1", "cookie-value-1", "example.com", "/", base::Time(),
+          base::Time(), base::Time(),
+          /* secure = */ true,
+          /* httponly = */ true, net::CookieSameSite::NO_RESTRICTION,
+          net::COOKIE_PRIORITY_DEFAULT, /* same_party = */ false)));
   task_environment_.RunUntilIdle();
   EXPECT_EQ(0u, worker_test_helper_->changes().size());
 
   worker_test_helper_->changes().clear();
-  ASSERT_TRUE(SetCanonicalCookie(net::CanonicalCookie(
-      "cookie-name-2", "cookie-value-2", "example.com", "/", base::Time(),
-      base::Time(), base::Time(),
-      /* secure = */ true,
-      /* httponly = */ false, net::CookieSameSite::NO_RESTRICTION,
-      net::COOKIE_PRIORITY_DEFAULT)));
+  ASSERT_TRUE(
+      SetCanonicalCookie(*net::CanonicalCookie::CreateUnsafeCookieForTesting(
+          "cookie-name-2", "cookie-value-2", "example.com", "/", base::Time(),
+          base::Time(), base::Time(),
+          /* secure = */ true,
+          /* httponly = */ false, net::CookieSameSite::NO_RESTRICTION,
+          net::COOKIE_PRIORITY_DEFAULT, /* same_party = */ false)));
   task_environment_.RunUntilIdle();
 
   ASSERT_EQ(1u, worker_test_helper_->changes().size());
@@ -1582,7 +1591,7 @@ TEST_P(CookieStoreManagerTest, HttpOnlyCookieChange) {
   // example.com does not have a custom access semantics setting, so it defaults
   // to NONLEGACY, because the FeatureList has SameSiteByDefaultCookies enabled.
   EXPECT_EQ(net::CookieAccessSemantics::NONLEGACY,
-            worker_test_helper_->changes()[0].access_semantics);
+            worker_test_helper_->changes()[0].access_result.access_semantics);
 }
 
 // Same as above except this tests that the LEGACY access semantics for
@@ -1609,22 +1618,24 @@ TEST_P(CookieStoreManagerTest, HttpOnlyCookieChangeLegacy) {
   if (reset_context_during_test())
     ResetServiceWorkerContext();
 
-  ASSERT_TRUE(SetCanonicalCookie(net::CanonicalCookie(
-      "cookie-name-1", "cookie-value-1", "legacy.com", "/", base::Time(),
-      base::Time(), base::Time(),
-      /* secure = */ false,
-      /* httponly = */ true, net::CookieSameSite::NO_RESTRICTION,
-      net::COOKIE_PRIORITY_DEFAULT)));
+  ASSERT_TRUE(
+      SetCanonicalCookie(*net::CanonicalCookie::CreateUnsafeCookieForTesting(
+          "cookie-name-1", "cookie-value-1", "legacy.com", "/", base::Time(),
+          base::Time(), base::Time(),
+          /* secure = */ false,
+          /* httponly = */ true, net::CookieSameSite::NO_RESTRICTION,
+          net::COOKIE_PRIORITY_DEFAULT, /* same_party = */ false)));
   task_environment_.RunUntilIdle();
   EXPECT_EQ(0u, worker_test_helper_->changes().size());
 
   worker_test_helper_->changes().clear();
-  ASSERT_TRUE(SetCanonicalCookie(net::CanonicalCookie(
-      "cookie-name-2", "cookie-value-2", "legacy.com", "/", base::Time(),
-      base::Time(), base::Time(),
-      /* secure = */ false,
-      /* httponly = */ false, net::CookieSameSite::NO_RESTRICTION,
-      net::COOKIE_PRIORITY_DEFAULT)));
+  ASSERT_TRUE(
+      SetCanonicalCookie(*net::CanonicalCookie::CreateUnsafeCookieForTesting(
+          "cookie-name-2", "cookie-value-2", "legacy.com", "/", base::Time(),
+          base::Time(), base::Time(),
+          /* secure = */ false,
+          /* httponly = */ false, net::CookieSameSite::NO_RESTRICTION,
+          net::COOKIE_PRIORITY_DEFAULT, /* same_party = */ false)));
   task_environment_.RunUntilIdle();
 
   ASSERT_EQ(1u, worker_test_helper_->changes().size());
@@ -1636,7 +1647,7 @@ TEST_P(CookieStoreManagerTest, HttpOnlyCookieChangeLegacy) {
             worker_test_helper_->changes()[0].cause);
   // legacy.com has a custom Legacy setting.
   EXPECT_EQ(net::CookieAccessSemantics::LEGACY,
-            worker_test_helper_->changes()[0].access_semantics);
+            worker_test_helper_->changes()[0].access_result.access_semantics);
 }
 
 TEST_P(CookieStoreManagerTest, CookieChangeForDeletion) {
@@ -1745,6 +1756,23 @@ TEST_P(CookieStoreManagerTest, GetSubscriptionsFromWrongOrigin) {
       google_service_->GetSubscriptions(example_registration_id);
   EXPECT_FALSE(wrong_subscriptions_opt.has_value());
   EXPECT_EQ("Invalid service worker", bad_mesage_observer.WaitForBadMessage());
+}
+
+TEST_F(CookieStoreManagerTest, UnTrustworthyOrigin) {
+  mojo::Remote<blink::mojom::CookieStore> untrustworthy_service_remote;
+
+  // Create a fake dispatch context to trigger a bad message in.
+  FakeMojoMessageDispatchContext fake_dispatch_context;
+  mojo::test::BadMessageObserver bad_mesage_observer;
+
+  cookie_store_context_->CreateServiceForTesting(
+      url::Origin::Create(GURL("http://insecure.com")),
+      untrustworthy_service_remote.BindNewPipeAndPassReceiver());
+
+  untrustworthy_service_remote.FlushForTesting();
+  EXPECT_FALSE(untrustworthy_service_remote.is_connected());
+  EXPECT_EQ("Cookie Store access from an insecure origin",
+            bad_mesage_observer.WaitForBadMessage());
 }
 
 INSTANTIATE_TEST_SUITE_P(All,

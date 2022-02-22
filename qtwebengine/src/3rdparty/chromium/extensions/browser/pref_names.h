@@ -58,12 +58,12 @@ extern const char kExtensionManagement[];
 extern const char kInsecureExtensionUpdatesEnabled[];
 
 // A whitelist of extension ids the user can install: exceptions from the
-// following blacklist.
+// following denylist.
 extern const char kInstallAllowList[];
 
-// A blacklist, containing extensions the user cannot install. This list can
+// A denylist, containing extensions the user cannot install. This list can
 // contain "*" meaning all extensions. This list should not be confused with the
-// extension blacklist, which is Google controlled.
+// extension blocklist, which is Google controlled.
 extern const char kInstallDenyList[];
 
 // A list containing extensions that Chrome will silently install
@@ -73,20 +73,13 @@ extern const char kInstallDenyList[];
 // accessed through extensions::ExternalPolicyProvider.
 extern const char kInstallForceList[];
 
-// A list containing apps or extensions that Chrome will silently install on the
-// login screen on Chrome OS at startup time. It is a list of strings, each
-// string contains an app ID and an update URL, delimited by a semicolon. This
-// preference is set by an admin policy, and meant to be only accessed through
-// extensions::ExternalPolicyProvider.
-extern const char kLoginScreenExtensions[];
-
 // String pref for what version chrome was last time the extension prefs were
 // loaded.
 extern const char kLastChromeVersion[];
 
-// Blacklist and whitelist for Native Messaging Hosts.
-extern const char kNativeMessagingBlacklist[];
-extern const char kNativeMessagingWhitelist[];
+// Blocklist and allowlist for Native Messaging Hosts.
+extern const char kNativeMessagingBlocklist[];
+extern const char kNativeMessagingAllowlist[];
 
 // Flag allowing usage of Native Messaging hosts installed on user level.
 extern const char kNativeMessagingUserLevelHosts[];
@@ -113,6 +106,10 @@ extern const char kToolbarSize[];
 // Indicates whether extensions have been migrated from BrowserActionsContainer
 // to the ExtensionsToolbarContainer.
 extern const char kPinnedExtensionsMigrationComplete[];
+
+// A preference for a list of Component extensions that have been
+// uninstalled/removed and should not be reloaded.
+extern const char kDeletedComponentExtensions[];
 
 // Properties in kExtensions dictionaries --------------------------------------
 

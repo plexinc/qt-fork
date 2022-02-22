@@ -38,7 +38,7 @@
 ****************************************************************************/
 
 #include <QtCore/QLoggingCategory>
-#include <QtAndroidExtras/QAndroidJniEnvironment>
+#include <QtCore/QJniEnvironment>
 
 #include "android/serveracceptancethread_p.h"
 
@@ -79,11 +79,11 @@ bool ServerAcceptanceThread::hasPendingConnections() const
  * connections. Pending connections are only terminated upon
  * thread restart or destruction.
  */
-QAndroidJniObject ServerAcceptanceThread::nextPendingConnection()
+QJniObject ServerAcceptanceThread::nextPendingConnection()
 {
     QMutexLocker lock(&m_mutex);
     if (pendingSockets.isEmpty())
-        return QAndroidJniObject();
+        return QJniObject();
     else
         return pendingSockets.takeFirst();
 }
@@ -108,20 +108,18 @@ void ServerAcceptanceThread::run()
         shutdownPendingConnections();
     }
 
-    javaThread = QAndroidJniObject("org/qtproject/qt5/android/bluetooth/QtBluetoothSocketServer");
+    javaThread = QJniObject("org/qtproject/qt/android/bluetooth/QtBluetoothSocketServer");
     if (!javaThread.isValid())
         return;
 
     javaThread.setField<jlong>("qtObject", reinterpret_cast<long>(this));
     javaThread.setField<jboolean>("logEnabled", QT_BT_ANDROID().isDebugEnabled());
 
-    QString tempUuid = m_uuid.toString();
-    tempUuid.chop(1); //remove trailing '}'
-    tempUuid.remove(0,1); //remove first '{'
+    QString tempUuid = m_uuid.toString(QUuid::WithoutBraces);
 
-    QAndroidJniObject uuidString = QAndroidJniObject::fromString(tempUuid);
-    QAndroidJniObject serviceNameString = QAndroidJniObject::fromString(m_serviceName);
-    bool isSecure = !(secFlags == QBluetooth::NoSecurity);
+    QJniObject uuidString = QJniObject::fromString(tempUuid);
+    QJniObject serviceNameString = QJniObject::fromString(m_serviceName);
+    bool isSecure = !(secFlags == QBluetooth::SecurityFlags(QBluetooth::Security::NoSecurity));
     javaThread.callMethod<void>("setServiceDetails", "(Ljava/lang/String;Ljava/lang/String;Z)V",
                                 uuidString.object<jstring>(),
                                 serviceNameString.object<jstring>(),
@@ -149,7 +147,7 @@ bool ServerAcceptanceThread::isRunning() const
 void ServerAcceptanceThread::javaThreadErrorOccurred(int errorCode)
 {
     qCDebug(QT_BT_ANDROID) << "JavaThread error:" << errorCode;
-    emit error(QBluetoothServer::InputOutputError);
+    emit errorOccurred(QBluetoothServer::InputOutputError);
 }
 
 //Runs inside the Java thread
@@ -157,7 +155,7 @@ void ServerAcceptanceThread::javaNewSocket(jobject s)
 {
     QMutexLocker lock(&m_mutex);
 
-    QAndroidJniObject socket(s);
+    QJniObject socket(s);
     if (!socket.isValid())
        return;
 
@@ -166,14 +164,8 @@ void ServerAcceptanceThread::javaNewSocket(jobject s)
         pendingSockets.append(socket);
         emit newConnection();
     } else {
-        QAndroidJniEnvironment env;
         qCWarning(QT_BT_ANDROID) << "Refusing connection due to limited pending socket queue";
         socket.callMethod<void>("close");
-        if (env->ExceptionCheck()) {
-            qCWarning(QT_BT_ANDROID) << "Error during refusal of new socket";
-            env->ExceptionDescribe();
-            env->ExceptionClear();
-        }
     }
 }
 
@@ -185,7 +177,7 @@ bool ServerAcceptanceThread::validSetup() const
 void ServerAcceptanceThread::shutdownPendingConnections()
 {
     while (!pendingSockets.isEmpty()) {
-        QAndroidJniObject socket = pendingSockets.takeFirst();
+        QJniObject socket = pendingSockets.takeFirst();
         socket.callMethod<void>("close");
     }
 }

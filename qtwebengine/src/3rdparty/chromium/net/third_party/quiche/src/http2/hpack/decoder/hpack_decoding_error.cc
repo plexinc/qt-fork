@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/http2/hpack/decoder/hpack_decoding_error.h"
+#include "http2/hpack/decoder/hpack_decoding_error.h"
 
 namespace http2 {
 
 // static
-quiche::QuicheStringPiece HpackDecodingErrorToString(HpackDecodingError error) {
+absl::string_view HpackDecodingErrorToString(HpackDecodingError error) {
   switch (error) {
     case HpackDecodingError::kOk:
       return "No error detected";

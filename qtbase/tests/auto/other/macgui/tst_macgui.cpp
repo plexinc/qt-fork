@@ -29,11 +29,14 @@
 
 #include <QApplication>
 #include <QMessageBox>
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QSplashScreen>
 #include <QScrollBar>
 #include <QProgressDialog>
 #include <QSpinBox>
+#include <QScreen>
+#include <QTestEventLoop>
+#include <QTimer>
 
 #include <guitest.h>
 
@@ -53,7 +56,12 @@ private slots:
 
 QPixmap grabWindowContents(QWidget * widget)
 {
-    return QPixmap::grabWindow(widget->winId());
+    QScreen *screen = widget->window()->windowHandle()->screen();
+    if (!screen) {
+        qWarning() << "Grabbing pixmap failed, no QScreen for" << widget;
+        return QPixmap();
+    }
+    return screen->grabWindow(widget->winId());
 }
 
 /*
@@ -86,7 +94,6 @@ void tst_MacGui::scrollbarPainting()
 
     QPixmap pixmap = grabWindowContents(&colorWidget);
 
-    QEXPECT_FAIL("", "QTBUG-26371", Abort);
     QVERIFY(isContent(pixmap.toImage(), verticalScrollbar.geometry(), GuiTester::Horizontal));
     QVERIFY(isContent(pixmap.toImage(), horizontalScrollbar.geometry(), GuiTester::Vertical));
 }

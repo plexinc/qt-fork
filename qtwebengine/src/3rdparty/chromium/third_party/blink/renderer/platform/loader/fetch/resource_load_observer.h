@@ -8,7 +8,8 @@
 #include <inttypes.h>
 
 #include "base/containers/span.h"
-#include "base/util/type_safety/strong_alias.h"
+#include "base/types/strong_alias.h"
+#include "third_party/blink/public/mojom/frame/back_forward_cache_controller.mojom-blink-forward.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_load_priority.h"
@@ -51,7 +52,8 @@ class PLATFORM_EXPORT ResourceLoadObserver
                                const ResourceRequest&,
                                const ResourceResponse& redirect_response,
                                ResourceType,
-                               const FetchInitiatorInfo&) = 0;
+                               const FetchInitiatorInfo&,
+                               RenderBlockingBehavior) = 0;
 
   // Called when the priority of the request changes.
   virtual void DidChangePriority(uint64_t identifier,
@@ -88,7 +90,7 @@ class PLATFORM_EXPORT ResourceLoadObserver
                                 int64_t decoded_body_length,
                                 bool should_report_corb_blocking) = 0;
 
-  using IsInternalRequest = util::StrongAlias<class IsInternalRequestTag, bool>;
+  using IsInternalRequest = base::StrongAlias<class IsInternalRequestTag, bool>;
   // Called when a request fails.
   virtual void DidFailLoading(const KURL&,
                               uint64_t identifier,
@@ -96,7 +98,7 @@ class PLATFORM_EXPORT ResourceLoadObserver
                               int64_t encoded_data_length,
                               IsInternalRequest) = 0;
 
-  virtual void Trace(Visitor*) {}
+  virtual void Trace(Visitor*) const {}
 };
 
 }  // namespace blink

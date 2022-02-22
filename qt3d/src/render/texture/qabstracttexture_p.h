@@ -55,8 +55,8 @@
 #include <Qt3DCore/private/qnode_p.h>
 #include <Qt3DRender/qabstracttexture.h>
 #include <Qt3DRender/qtexturewrapmode.h>
-#include <Qt3DRender/qtexturegenerator.h>
 #include <Qt3DRender/qtexturedataupdate.h>
+#include <Qt3DRender/private/qtexturegenerator_p.h>
 #include <Qt3DRender/private/qt3drender_global_p.h>
 
 QT_BEGIN_NAMESPACE
@@ -75,7 +75,7 @@ public :
     int m_width, m_height, m_depth;
     bool m_autoMipMap;
 
-    QVector<QTextureImageDataPtr> m_data;
+    QList<QTextureImageDataPtr> m_data;
 
     QAbstractTexture::Filter m_minFilter, m_magFilter;
     // FIXME, store per direction
@@ -84,9 +84,10 @@ public :
     float m_maximumAnisotropy;
     QAbstractTexture::ComparisonFunction m_comparisonFunction;
     QAbstractTexture::ComparisonMode m_comparisonMode;
-    QVector<QAbstractTextureImage *> m_textureImages;
+    QList<QAbstractTextureImage *> m_textureImages;
     int m_layers;
     int m_samples;
+    int m_mipmapLevels;
 
     int m_sharedTextureId;
 
@@ -100,34 +101,10 @@ public :
     void setHandle(const QVariant &handle);
     void setHandleType(QAbstractTexture::HandleType type);
 
-    QVector<QTextureDataUpdate> m_pendingDataUpdates;
+    QList<QTextureDataUpdate> m_pendingDataUpdates;
 
 private:
     QTextureGeneratorPtr m_dataFunctor;
-};
-
-struct QAbstractTextureData
-{
-    QAbstractTexture::Target target;
-    QAbstractTexture::TextureFormat format;
-    int width;
-    int height;
-    int depth;
-    bool autoMipMap;
-    QAbstractTexture::Filter minFilter;
-    QAbstractTexture::Filter magFilter;
-    QTextureWrapMode::WrapMode wrapModeX;
-    QTextureWrapMode::WrapMode wrapModeY;
-    QTextureWrapMode::WrapMode wrapModeZ;
-    float maximumAnisotropy;
-    QAbstractTexture::ComparisonFunction comparisonFunction;
-    QAbstractTexture::ComparisonMode comparisonMode;
-    Qt3DCore::QNodeIdVector textureImageIds;
-    int layers;
-    int samples;
-    int sharedTextureId;
-    QTextureGeneratorPtr dataFunctor;
-    QVector<QTextureDataUpdate> initialDataUpdates;
 };
 
 } // QT3D

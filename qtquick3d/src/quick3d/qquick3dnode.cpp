@@ -67,10 +67,22 @@ void QQuick3DNodePrivate::setIsHiddenInEditor(bool isHidden)
     \qmltype Node
     \inherits Object3D
     \inqmlmodule QtQuick3D
-    \brief The base component for an object that exists in a 3D Scene.
+    \brief The base component for an object that exists in a 3D scene.
 
-    Node type can be used to wrap other objects for the purpose of grouping them, or animating them.
-    This snippet shows how to use Node to animate a camera.
+    The Node type serves as the base class for other spatial types, such as, \l Model, \l Camera, \l Light.
+    These objects represent an entity that exists in the 3D scene, due to having a position and
+    other properties in the 3D world. With the exception of the root node(s), all Node types are
+    transformed relative to their parent Node, that is, in local coordinates. In many ways the Node
+    type serves the same purpose in Qt Quick 3D scenes as \l Item does for Qt Quick scenes.
+
+    In addition to types deriving from Node, it is also possible to parent other types to
+    a Node.  This includes QObject instances, where the Node merely serves as the
+    \l{QObject::parent()}{QObject parent}, and \l{Qt Quick 3D Scenes with 2D Content}{Qt
+    Quick items}.
+
+    Wrapping other objects for the purpose of grouping them into components or sub-trees can be
+    a convenient way to, for example, animated a group of nodes as a whole. This snippet shows how
+    to use Node to animate a camera:
 
     \qml
     Node {
@@ -89,8 +101,8 @@ void QQuick3DNodePrivate::setIsHiddenInEditor(bool isHidden)
     }
     \endqml
 
-    Node has to be used also if creating a scene outside of \l View3D, for example for the purpose
-    of switching scenes on the fly, or showing the same scene on multiple views.
+    Node has to be used also if creating a scene outside of \l View3D, for example for the
+    purpose of switching scenes on the fly, or showing the same scene on multiple views.
 
     \qml
     Node {
@@ -100,11 +112,11 @@ void QQuick3DNodePrivate::setIsHiddenInEditor(bool isHidden)
 
         Model {
             source: "#Sphere"
-            materials: [ CopperMaterial {} ]
+            materials: [ DefaultMaterial {} ]
         }
 
         PerspectiveCamera {
-            z: -600
+            z: 600
         }
     }
 
@@ -226,7 +238,7 @@ QVector3D QQuick3DNode::pivot() const
     \qmlproperty real QtQuick3D::Node::opacity
 
     This property contains the local opacity value of the Node.  Since Node
-    objects are not necessarialy visible, this value might not have any affect,
+    objects are not necessarily visible, this value might not have any effect,
     but this value is inherited by all children of the Node, which might be visible.
 
 */
@@ -270,6 +282,7 @@ QQuick3DNode *QQuick3DNode::parentNode() const
 
 /*!
     \qmlproperty vector3d QtQuick3D::Node::forward
+    \readonly
 
     This property returns a normalized vector of the nodes forward direction
     in scene space.
@@ -283,6 +296,7 @@ QVector3D QQuick3DNode::forward() const
 
 /*!
     \qmlproperty vector3d QtQuick3D::Node::up
+    \readonly
 
     This property returns a normalized vector of the nodes up direction
     in scene space.
@@ -296,6 +310,7 @@ QVector3D QQuick3DNode::up() const
 
 /*!
     \qmlproperty vector3d QtQuick3D::Node::right
+    \readonly
 
     This property returns a normalized vector of the nodes right direction
     in scene space.
@@ -308,6 +323,7 @@ QVector3D QQuick3DNode::right() const
 }
 /*!
     \qmlproperty vector3d QtQuick3D::Node::scenePosition
+    \readonly
 
     This property returns the position of the node in scene space.
 
@@ -325,6 +341,7 @@ QVector3D QQuick3DNode::scenePosition() const
 
 /*!
     \qmlproperty vector3d QtQuick3D::Node::sceneRotation
+    \readonly
 
     This property returns the rotation of the node in scene space.
 */
@@ -336,6 +353,7 @@ QQuaternion QQuick3DNode::sceneRotation() const
 
 /*!
     \qmlproperty vector3d QtQuick3D::Node::sceneScale
+    \readonly
 
     This property returns the scale of the node in scene space.
 */
@@ -346,6 +364,7 @@ QVector3D QQuick3DNode::sceneScale() const
 
 /*!
     \qmlproperty matrix4x4 QtQuick3D::Node::sceneTransform
+    \readonly
 
     This property returns the global transform matrix for this node.
     \note the return value will be in right-handed coordinates.
@@ -442,12 +461,33 @@ void QQuick3DNodePrivate::emitChangesToSceneTransform()
     const QVector3D prevPosition = mat44::getPosition(m_sceneTransform);
     const QQuaternion prevRotation = QQuaternion::fromRotationMatrix(mat44::getUpper3x3(m_sceneTransform)).normalized();
     const QVector3D prevScale = mat44::getScale(m_sceneTransform);
+    QVector3D prevForward, prevUp, prevRight;
+    QVector3D newForward, newUp, newRight;
+    // Do direction (forward, up, right) calculations only if they have connections
+    bool emitDirectionChanges = (m_directionConnectionCount > 0);
+    if (emitDirectionChanges) {
+        // Instead of calling forward(), up() and right(), calculate them here.
+        // This way m_sceneTransform isn't updated due to m_sceneTransformDirty and
+        // common theDirMatrix operations are not duplicated.
+        QMatrix3x3 theDirMatrix = mat44::getUpper3x3(m_sceneTransform);
+        theDirMatrix = mat33::getInverse(theDirMatrix).transposed();
+        prevForward = mat33::transform(theDirMatrix, QVector3D(0, 0, -1)).normalized();
+        prevUp = mat33::transform(theDirMatrix, QVector3D(0, 1, 0)).normalized();
+        prevRight = mat33::transform(theDirMatrix, QVector3D(1, 0, 0)).normalized();
+    }
 
     calculateGlobalVariables();
 
     const QVector3D newPosition = mat44::getPosition(m_sceneTransform);
     const QQuaternion newRotation = QQuaternion::fromRotationMatrix(mat44::getUpper3x3(m_sceneTransform)).normalized();
     const QVector3D newScale = mat44::getScale(m_sceneTransform);
+    if (emitDirectionChanges) {
+        QMatrix3x3 theDirMatrix = mat44::getUpper3x3(m_sceneTransform);
+        theDirMatrix = mat33::getInverse(theDirMatrix).transposed();
+        newForward = mat33::transform(theDirMatrix, QVector3D(0, 0, -1)).normalized();
+        newUp = mat33::transform(theDirMatrix, QVector3D(0, 1, 0)).normalized();
+        newRight = mat33::transform(theDirMatrix, QVector3D(1, 0, 0)).normalized();
+    }
 
     const bool positionChanged = prevPosition != newPosition;
     const bool rotationChanged = prevRotation != newRotation;
@@ -464,6 +504,17 @@ void QQuick3DNodePrivate::emitChangesToSceneTransform()
         emit q->sceneRotationChanged();
     if (scaleChanged)
         emit q->sceneScaleChanged();
+    if (emitDirectionChanges) {
+        const bool forwardChanged = prevForward != newForward;
+        const bool upChanged = prevUp != newUp;
+        const bool rightChanged = prevRight != newRight;
+        if (forwardChanged)
+            Q_EMIT q->forwardChanged();
+        if (upChanged)
+            Q_EMIT q->upChanged();
+        if (rightChanged)
+            Q_EMIT q->rightChanged();
+    }
 }
 
 bool QQuick3DNodePrivate::isSceneTransformRelatedSignal(const QMetaMethod &signal) const
@@ -481,6 +532,19 @@ bool QQuick3DNodePrivate::isSceneTransformRelatedSignal(const QMetaMethod &signa
             || signal == sceneScaleSignal);
 }
 
+bool QQuick3DNodePrivate::isDirectionRelatedSignal(const QMetaMethod &signal) const
+{
+    // Return true if its likely that we need to emit
+    // the given signal when our global transform changes.
+    static const QMetaMethod forwardSignal = QMetaMethod::fromSignal(&QQuick3DNode::forwardChanged);
+    static const QMetaMethod upSignal = QMetaMethod::fromSignal(&QQuick3DNode::upChanged);
+    static const QMetaMethod rightSignal = QMetaMethod::fromSignal(&QQuick3DNode::rightChanged);
+
+    return (signal == forwardSignal
+            || signal == upSignal
+            || signal == rightSignal);
+}
+
 void QQuick3DNode::connectNotify(const QMetaMethod &signal)
 {
     Q_D(QQuick3DNode);
@@ -490,6 +554,8 @@ void QQuick3DNode::connectNotify(const QMetaMethod &signal)
     // whenever our geometry changes (unless someone asks for it explicitly).
     if (d->isSceneTransformRelatedSignal(signal))
         d->m_sceneTransformConnectionCount++;
+    if (d->isDirectionRelatedSignal(signal))
+        d->m_directionConnectionCount++;
 }
 
 void QQuick3DNode::disconnectNotify(const QMetaMethod &signal)
@@ -497,13 +563,15 @@ void QQuick3DNode::disconnectNotify(const QMetaMethod &signal)
     Q_D(QQuick3DNode);
     if (d->isSceneTransformRelatedSignal(signal))
         d->m_sceneTransformConnectionCount--;
+    if (d->isDirectionRelatedSignal(signal))
+        d->m_directionConnectionCount--;
 }
 
 void QQuick3DNode::componentComplete()
 {
     Q_D(QQuick3DNode);
     QQuick3DObject::componentComplete();
-    if (d->m_sceneTransformConnectionCount > 0)
+    if (d->m_sceneTransformConnectionCount > 0 || d->m_directionConnectionCount > 0)
         d->emitChangesToSceneTransform();
 }
 
@@ -524,7 +592,7 @@ void QQuick3DNodePrivate::markSceneTransformDirty()
 
     m_sceneTransformDirty = true;
 
-    if (m_sceneTransformConnectionCount > 0)
+    if (m_sceneTransformConnectionCount > 0 || m_directionConnectionCount > 0)
         emitChangesToSceneTransform();
 
     auto children = QQuick3DObjectPrivate::get(q)->childItems;
@@ -689,9 +757,11 @@ void QQuick3DNode::setEulerRotation(const QVector3D &eulerRotation) {
 }
 
 /*!
-    \qmlproperty enumeration QQuick3D::Node::TransformSpace
+    \qmlmethod QQuick3D::Node::rotate(real degrees, vector3d axis, enumeration space)
 
-    Defines the relationship of the axis.
+    Rotates this node around an \a axis by the given \a degrees. The specified
+    rotation will be added to the node's current rotation. The axis can
+    be specified relative to different \a {space}s.
 
     \value Node.LocalSpace
            Axis is relative to the local orientation of this node.
@@ -699,14 +769,7 @@ void QQuick3DNode::setEulerRotation(const QVector3D &eulerRotation) {
            Axis is relative to the local orientation of the parent node.
     \value Node.SceneSpace
            Axis is relative to the scene.
-*/
 
-/*!
-    \qmlmethod QQuick3D::Node::rotate(real degrees, vector3d axis, TransformSpace space)
-
-    Rotates this node around an \a axis by the given \a degrees. The specified
-    rotation will be added to the node's current rotation. The axis can
-    be specified relative to different \l {TransformSpace}{\a {space}s}.
 */
 void QQuick3DNode::rotate(qreal degrees, const QVector3D &axis, TransformSpace space)
 {
@@ -835,11 +898,14 @@ QVector3D QQuick3DNode::mapPositionFromScene(const QVector3D &scenePosition) con
     Transforms \a localPosition from the local space of this node to
     the local space of \a node.
 
+    \note If \a node is null, then \a localPosition will be transformed into scene space coordinates.
+
     \sa mapPositionToScene, mapPositionFromScene, mapPositionFromNode
 */
-QVector3D QQuick3DNode::mapPositionToNode(QQuick3DNode *node, const QVector3D &localPosition) const
+QVector3D QQuick3DNode::mapPositionToNode(const QQuick3DNode *node, const QVector3D &localPosition) const
 {
-    return node->mapPositionFromScene(mapPositionToScene(localPosition));
+    const auto scenePositionSelf = mapPositionToScene(localPosition);
+    return node ? node->mapPositionFromScene(scenePositionSelf) : scenePositionSelf;
 }
 
 /*!
@@ -848,11 +914,14 @@ QVector3D QQuick3DNode::mapPositionToNode(QQuick3DNode *node, const QVector3D &l
     Transforms \a localPosition from the local space of \a node to
     the local space of this node.
 
+    \note If \a node is null, then \a localPosition is interpreted as it is in scene space coordinates.
+
     \sa mapPositionToScene, mapPositionFromScene, mapPositionToNode
 */
-QVector3D QQuick3DNode::mapPositionFromNode(QQuick3DNode *node, const QVector3D &localPosition) const
+QVector3D QQuick3DNode::mapPositionFromNode(const QQuick3DNode *node, const QVector3D &localPosition) const
 {
-    return mapPositionFromScene(node->mapPositionToScene(localPosition));
+    const auto scenePositionOther = node ? node->mapPositionToScene(localPosition) : localPosition;
+    return mapPositionFromScene(scenePositionOther);
 }
 
 /*!
@@ -904,11 +973,14 @@ QVector3D QQuick3DNode::mapDirectionFromScene(const QVector3D &sceneDirection) c
     \note the return value will have the same length as \a localDirection
     (i.e. not normalized).
 
+    \note if \a node is null, then the returned direction will be transformed into scene space coordinates.
+
     \sa mapDirectionFromNode, mapDirectionFromScene, mapDirectionToScene
 */
-QVector3D QQuick3DNode::mapDirectionToNode(QQuick3DNode *node, const QVector3D &localDirection) const
+QVector3D QQuick3DNode::mapDirectionToNode(const QQuick3DNode *node, const QVector3D &localDirection) const
 {
-    return node->mapDirectionFromScene(mapDirectionToScene(localDirection));
+    const auto sceneDirectionSelf = mapDirectionToScene(localDirection);
+    return node ? node->mapDirectionFromScene(sceneDirectionSelf) : sceneDirectionSelf;
 }
 
 /*!
@@ -922,11 +994,14 @@ QVector3D QQuick3DNode::mapDirectionToNode(QQuick3DNode *node, const QVector3D &
     \note the return value will have the same length as \a localDirection
     (i.e. not normalized).
 
+    \note If \a node is null, then \a localDirection is interpreted as it is in scene space coordinates.
+
     \sa mapDirectionToNode, mapDirectionFromScene, mapDirectionToScene
 */
-QVector3D QQuick3DNode::mapDirectionFromNode(QQuick3DNode *node, const QVector3D &localDirection) const
+QVector3D QQuick3DNode::mapDirectionFromNode(const QQuick3DNode *node, const QVector3D &localDirection) const
 {
-    return mapDirectionFromScene(node->mapDirectionToScene(localDirection));
+    const auto sceneDirectionOther = node ? node->mapDirectionToScene(localDirection) : localDirection;
+    return mapDirectionFromScene(sceneDirectionOther);
 }
 
 void QQuick3DNode::markAllDirty()
@@ -942,7 +1017,9 @@ void QQuick3DNode::markAllDirty()
 
     This property contains the rotation values for the x, y, and z axis.
     These values are stored as a vector3d.  Rotation order is assumed to
-    be XYZ.
+    be ZXY.
+
+    \sa QQuaternion::fromEulerAngles()
 */
 
 QVector3D QQuick3DNode::eulerRotation() const

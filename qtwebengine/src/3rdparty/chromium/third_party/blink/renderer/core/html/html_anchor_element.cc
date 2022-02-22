@@ -25,7 +25,10 @@
 #include "third_party/blink/renderer/core/html/html_anchor_element.h"
 
 #include "base/metrics/histogram_macros.h"
+#include "base/time/time.h"
 #include "third_party/blink/public/common/features.h"
+#include "third_party/blink/public/mojom/feature_policy/feature_policy_feature.mojom-blink.h"
+#include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
 #include "third_party/blink/public/mojom/input/focus_type.mojom-blink.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/web_prescient_networking.h"
@@ -34,12 +37,16 @@
 #include "third_party/blink/renderer/core/events/mouse_event.h"
 #include "third_party/blink/renderer/core/frame/ad_tracker.h"
 #include "third_party/blink/renderer/core/frame/deprecation.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame_client.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/html/anchor_element_metrics.h"
 #include "third_party/blink/renderer/core/html/anchor_element_metrics_sender.h"
+#include "third_party/blink/renderer/core/html/conversion_measurement_parsing.h"
 #include "third_party/blink/renderer/core/html/html_image_element.h"
 #include "third_party/blink/renderer/core/html/parser/html_parser_idioms.h"
+#include "third_party/blink/renderer/core/html_names.h"
+#include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/core/layout/layout_box.h"
 #include "third_party/blink/renderer/core/loader/frame_load_request.h"
 #include "third_party/blink/renderer/core/loader/navigation_policy.h"
@@ -50,6 +57,7 @@
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+#include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 #include "third_party/blink/renderer/platform/weborigin/security_policy.h"
 
 namespace blink {
@@ -78,7 +86,8 @@ bool ShouldInterveneDownloadByFramePolicy(LocalFrame* frame) {
         should_intervene_download = true;
     }
   }
-  if (document.IsSandboxed(mojom::blink::WebSandboxFlags::kDownloads)) {
+  if (frame->DomWindow()->IsSandboxed(
+          network::mojom::blink::WebSandboxFlags::kDownloads)) {
     UseCounter::Count(document, WebFeature::kDownloadInSandbox);
     if (RuntimeEnabledFeatures::BlockingDownloadsInSandboxEnabled())
       should_intervene_download = true;
@@ -157,7 +166,7 @@ static void AppendServerMapMousePosition(StringBuilder& url, Event* event) {
   // The origin (0,0) is at the upper left of the content area, inside the
   // padding and border.
   map_point -=
-      FloatSize(ToLayoutBox(layout_object)->PhysicalContentBoxOffset());
+      FloatSize(To<LayoutBox>(layout_object)->PhysicalContentBoxOffset());
 
   // CSS zoom is not reflected in the map coordinates.
   float scale_factor = 1 / layout_object->Style()->EffectiveZoom();
@@ -196,7 +205,7 @@ bool HTMLAnchorElement::HasActivationBehavior() const {
 }
 
 void HTMLAnchorElement::SetActive(bool active) {
-  if (HasEditableStyle(*this))
+  if (active && HasEditableStyle(*this))
     return;
 
   HTMLElement::SetActive(active);
@@ -252,11 +261,6 @@ void HTMLAnchorElement::ParseAttribute(
   } else {
     HTMLElement::ParseAttribute(params);
   }
-}
-
-void HTMLAnchorElement::AccessKeyAction(bool send_mouse_events) {
-  DispatchSimulatedClick(
-      nullptr, send_mouse_events ? kSendMouseUpDownEvents : kSendNoEvents);
 }
 
 bool HTMLAnchorElement::IsURLAttribute(const Attribute& attribute) const {
@@ -322,10 +326,19 @@ void HTMLAnchorElement::SetRel(const AtomicString& value) {
     link_relations_ |= kRelationNoReferrer;
   if (new_link_relations.Contains("noopener"))
     link_relations_ |= kRelationNoOpener;
+  if (new_link_relations.Contains("opener"))
+    link_relations_ |= kRelationOpener;
 }
 
 const AtomicString& HTMLAnchorElement::GetName() const {
   return GetNameAttribute();
+}
+
+const AtomicString& HTMLAnchorElement::GetEffectiveTarget() const {
+  const AtomicString& target = FastGetAttribute(html_names::kTargetAttr);
+  if (!target.IsEmpty())
+    return target;
+  return GetDocument().BaseTarget();
 }
 
 int HTMLAnchorElement::DefaultTabIndex() const {
@@ -334,6 +347,11 @@ int HTMLAnchorElement::DefaultTabIndex() const {
 
 bool HTMLAnchorElement::IsLiveLink() const {
   return IsLink() && !HasEditableStyle(*this);
+}
+
+bool HTMLAnchorElement::HasImpression() const {
+  return hasAttribute(html_names::kImpressiondataAttr) &&
+         hasAttribute(html_names::kConversiondestinationAttr);
 }
 
 void HTMLAnchorElement::SendPings(const KURL& destination_url) const {
@@ -351,7 +369,7 @@ void HTMLAnchorElement::SendPings(const KURL& destination_url) const {
        ping_value.Contains('\t')) &&
       ping_value.Contains('<')) {
     Deprecation::CountDeprecation(
-        GetDocument(), WebFeature::kCanRequestURLHTTPContainingNewline);
+        GetExecutionContext(), WebFeature::kCanRequestURLHTTPContainingNewline);
     return;
   }
 
@@ -368,8 +386,8 @@ void HTMLAnchorElement::SendPings(const KURL& destination_url) const {
 void HTMLAnchorElement::HandleClick(Event& event) {
   event.SetDefaultHandled();
 
-  LocalFrame* frame = GetDocument().GetFrame();
-  if (!frame)
+  LocalDOMWindow* window = GetDocument().domWindow();
+  if (!window)
     return;
 
   if (!isConnected()) {
@@ -404,48 +422,75 @@ void HTMLAnchorElement::HandleClick(Event& event) {
 
   // Ignore the download attribute if we either can't read the content, or
   // the event is an alt-click or similar.
+  LocalFrame* frame = window->GetFrame();
   if (FastHasAttribute(html_names::kDownloadAttr) &&
       NavigationPolicyFromEvent(&event) != kNavigationPolicyDownload &&
-      GetDocument().GetSecurityOrigin()->CanReadContent(completed_url)) {
+      window->GetSecurityOrigin()->CanReadContent(completed_url)) {
     if (ShouldInterveneDownloadByFramePolicy(frame))
       return;
     request.SetSuggestedFilename(
         static_cast<String>(FastGetAttribute(html_names::kDownloadAttr)));
-    request.SetRequestContext(mojom::RequestContextType::DOWNLOAD);
-    request.SetRequestorOrigin(GetDocument().GetSecurityOrigin());
+    request.SetRequestContext(mojom::blink::RequestContextType::DOWNLOAD);
+    request.SetRequestorOrigin(window->GetSecurityOrigin());
+    network::mojom::ReferrerPolicy referrer_policy =
+        request.GetReferrerPolicy();
+    if (referrer_policy == network::mojom::ReferrerPolicy::kDefault)
+      referrer_policy = window->GetReferrerPolicy();
+    Referrer referrer = SecurityPolicy::GenerateReferrer(
+        referrer_policy, completed_url, window->OutgoingReferrer());
+    request.SetReferrerString(referrer.referrer);
+    request.SetReferrerPolicy(referrer.referrer_policy);
     frame->DownloadURL(request, network::mojom::blink::RedirectMode::kManual);
     return;
   }
 
-  request.SetRequestContext(mojom::RequestContextType::HYPERLINK);
+  request.SetRequestContext(mojom::blink::RequestContextType::HYPERLINK);
   request.SetHasUserGesture(LocalFrame::HasTransientUserActivation(frame));
-  const AtomicString& target = FastGetAttribute(html_names::kTargetAttr);
-  FrameLoadRequest frame_request(&GetDocument(), request);
+  const AtomicString& target = GetEffectiveTarget();
+  FrameLoadRequest frame_request(window, request);
   frame_request.SetNavigationPolicy(NavigationPolicyFromEvent(&event));
   frame_request.SetClientRedirectReason(ClientNavigationReason::kAnchorClick);
   if (HasRel(kRelationNoReferrer)) {
     frame_request.SetNoReferrer();
     frame_request.SetNoOpener();
   }
-  if (HasRel(kRelationNoOpener))
+  if (HasRel(kRelationNoOpener) ||
+      (EqualIgnoringASCIICase(target, "_blank") && !HasRel(kRelationOpener) &&
+       RuntimeEnabledFeatures::TargetBlankImpliesNoOpenerEnabled() &&
+       frame->GetSettings()
+           ->GetTargetBlankImpliesNoOpenerEnabledWillBeRemoved())) {
     frame_request.SetNoOpener();
+  }
+
   frame_request.SetTriggeringEventInfo(
-      event.isTrusted() ? TriggeringEventInfo::kFromTrustedEvent
-                        : TriggeringEventInfo::kFromUntrustedEvent);
+      event.isTrusted()
+          ? mojom::blink::TriggeringEventInfo::kFromTrustedEvent
+          : mojom::blink::TriggeringEventInfo::kFromUntrustedEvent);
   frame_request.SetInputStartTime(event.PlatformTimeStamp());
 
   frame->MaybeLogAdClickNavigation();
 
+  if (request.HasUserGesture() && HasImpression()) {
+    // An impression must be attached prior to the
+    // FindOrCreateFrameForNavigation() call, as that call may result in
+    // performing a navigation if the call results in creating a new window with
+    // noopener set.
+    // At this time we don't know if the navigation will navigate a main frame
+    // or subframe. For example, a middle click on the anchor element will
+    // set `target_frame` to `frame`, but end up targeting a new window.
+    // Attach the impression regardless, the embedder will be able to drop
+    // impressions for subframe navigations.
+    base::Optional<WebImpression> impression = GetImpressionForAnchor(this);
+    if (impression)
+      frame_request.SetImpression(*impression);
+  }
+
   Frame* target_frame =
-      frame->Tree()
-          .FindOrCreateFrameForNavigation(
-              frame_request,
-              target.IsEmpty() ? GetDocument().BaseTarget() : target)
-          .frame;
+      frame->Tree().FindOrCreateFrameForNavigation(frame_request, target).frame;
 
   // If hrefTranslate is enabled and set restrict processing it
   // to same frame or navigations with noopener set.
-  if (RuntimeEnabledFeatures::HrefTranslateEnabled(&GetDocument()) &&
+  if (RuntimeEnabledFeatures::HrefTranslateEnabled(GetExecutionContext()) &&
       FastHasAttribute(html_names::kHreftranslateAttr) &&
       (target_frame == frame || frame_request.GetWindowFeatures().noopener)) {
     frame_request.SetHrefTranslate(
@@ -454,28 +499,8 @@ void HTMLAnchorElement::HandleClick(Event& event) {
                       WebFeature::kHTMLAnchorElementHrefTranslateAttribute);
   }
 
-  if (target_frame) {
-    // If we also have a pending form submission, make sure this anchor
-    // navigation takes precedence over it, except in the case of href being
-    // a fragment, in which case pending form submissions should go through.
-    // In the case of a target RemoteFrame, don't cancel form submissions
-    // because we can't be sure what the remote document's urlForBinding is.
-    // In the case of href="javascript:", don't cancel form submissions because
-    // we have always let form submissions take precedence in this case.
-    // TODO(crbug.com/1053679): Remove this after making anchor navigations
-    //   async like the spec says to do, which will also provide the desired
-    //   behavior.
-    if (LocalFrame* target_local_frame = DynamicTo<LocalFrame>(target_frame)) {
-      KURL document_url = target_local_frame->GetDocument()->urlForBinding();
-      bool equal_ignoring_fragment =
-          completed_url.HasFragmentIdentifier() &&
-          EqualIgnoringFragmentIdentifier(completed_url, document_url);
-      if (!equal_ignoring_fragment && !completed_url.ProtocolIsJavaScript())
-        target_frame->CancelFormSubmission();
-    }
-
+  if (target_frame)
     target_frame->Navigate(frame_request, WebFrameLoadType::kStandard);
-  }
 }
 
 bool IsEnterKeyKeydownEvent(Event& event) {
@@ -518,7 +543,7 @@ Node::InsertionNotificationRequest HTMLAnchorElement::InsertedInto(
   return request;
 }
 
-void HTMLAnchorElement::Trace(Visitor* visitor) {
+void HTMLAnchorElement::Trace(Visitor* visitor) const {
   visitor->Trace(rel_list_);
   HTMLElement::Trace(visitor);
 }

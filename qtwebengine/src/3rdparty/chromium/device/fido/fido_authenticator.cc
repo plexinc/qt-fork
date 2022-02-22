@@ -7,8 +7,7 @@
 #include <utility>
 
 #include "base/callback.h"
-#include "base/logging.h"
-#include "device/fido/fido_constants.h"
+#include "base/notreached.h"
 
 namespace device {
 
@@ -26,6 +25,8 @@ void FidoAuthenticator::GetPinRetries(
 
 void FidoAuthenticator::GetPINToken(
     std::string pin,
+    std::vector<pin::Permissions> permissions,
+    base::Optional<std::string> rp_id,
     FidoAuthenticator::GetTokenCallback callback) {
   NOTREACHED();
 }
@@ -35,9 +36,30 @@ void FidoAuthenticator::GetUvRetries(
   NOTREACHED();
 }
 
+bool FidoAuthenticator::CanGetUvToken() {
+  return false;
+}
+
 void FidoAuthenticator::GetUvToken(
+    std::vector<pin::Permissions> permissions,
+    base::Optional<std::string> rp_id,
     FidoAuthenticator::GetTokenCallback callback) {
   NOTREACHED();
+}
+
+uint32_t FidoAuthenticator::CurrentMinPINLength() {
+  NOTREACHED();
+  return kMinPinLength;
+}
+
+uint32_t FidoAuthenticator::NewMinPINLength() {
+  NOTREACHED();
+  return kMinPinLength;
+}
+
+bool FidoAuthenticator::ForcePINChange() {
+  NOTREACHED();
+  return false;
 }
 
 void FidoAuthenticator::SetPIN(const std::string& pin,
@@ -51,34 +73,34 @@ void FidoAuthenticator::ChangePIN(const std::string& old_pin,
   NOTREACHED();
 }
 
-FidoAuthenticator::MakeCredentialPINDisposition
-FidoAuthenticator::WillNeedPINToMakeCredential(
+FidoAuthenticator::PINUVDisposition
+FidoAuthenticator::PINUVDispositionForMakeCredential(
     const CtapMakeCredentialRequest& request,
     const FidoRequestHandlerBase::Observer* observer) {
-  return MakeCredentialPINDisposition::kNoPIN;
+  return PINUVDisposition::kNoUV;
 }
 
-FidoAuthenticator::GetAssertionPINDisposition
-FidoAuthenticator::WillNeedPINToGetAssertion(
+FidoAuthenticator::PINUVDisposition
+FidoAuthenticator::PINUVDispositionForGetAssertion(
     const CtapGetAssertionRequest& request,
     const FidoRequestHandlerBase::Observer* observer) {
-  return GetAssertionPINDisposition::kNoPIN;
+  return PINUVDisposition::kNoUV;
 }
 
 void FidoAuthenticator::GetCredentialsMetadata(
-    base::span<const uint8_t> pin_token,
+    const pin::TokenResponse& pin_token,
     GetCredentialsMetadataCallback callback) {
   NOTREACHED();
 }
 
 void FidoAuthenticator::EnumerateCredentials(
-    base::span<const uint8_t> pin_token,
+    const pin::TokenResponse& pin_token,
     EnumerateCredentialsCallback callback) {
   NOTREACHED();
 }
 
 void FidoAuthenticator::DeleteCredential(
-    base::span<const uint8_t> pin_token,
+    const pin::TokenResponse& pin_token,
     const PublicKeyCredentialDescriptor& credential_id,
     DeleteCredentialCallback callback) {
   NOTREACHED();
@@ -121,13 +143,52 @@ void FidoAuthenticator::BioEnrollDelete(const pin::TokenResponse&,
   NOTREACHED();
 }
 
+void FidoAuthenticator::WriteLargeBlob(
+    const std::vector<uint8_t>& large_blob,
+    const LargeBlobKey& large_blob_key,
+    const base::Optional<pin::TokenResponse> pin_uv_auth_token,
+    base::OnceCallback<void(CtapDeviceResponseCode)> callback) {
+  NOTREACHED();
+}
+
+void FidoAuthenticator::ReadLargeBlob(
+    const std::vector<LargeBlobKey>& large_blob_keys,
+    const base::Optional<pin::TokenResponse> pin_uv_auth_token,
+    LargeBlobReadCallback callback) {
+  NOTREACHED();
+}
+
+base::Optional<base::span<const int32_t>> FidoAuthenticator::GetAlgorithms() {
+  return base::nullopt;
+}
+
+bool FidoAuthenticator::DiscoverableCredentialStorageFull() const {
+  return false;
+}
+
 void FidoAuthenticator::Reset(ResetCallback callback) {
   std::move(callback).Run(CtapDeviceResponseCode::kCtap1ErrInvalidCommand,
                           base::nullopt);
 }
 
+std::string FidoAuthenticator::GetDisplayName() const {
+  return GetId();
+}
+
 ProtocolVersion FidoAuthenticator::SupportedProtocol() const {
   return ProtocolVersion::kUnknown;
+}
+
+bool FidoAuthenticator::SupportsCredProtectExtension() const {
+  return Options() && Options()->supports_cred_protect;
+}
+
+bool FidoAuthenticator::SupportsHMACSecretExtension() const {
+  return false;
+}
+
+bool FidoAuthenticator::SupportsEnterpriseAttestation() const {
+  return false;
 }
 
 }  // namespace device

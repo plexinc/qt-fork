@@ -42,10 +42,17 @@ AAudioOutputStream::AAudioOutputStream(AudioManagerAndroid* manager,
   DCHECK(params.IsValid());
 
   if (AudioManagerAndroid::SupportsPerformanceModeForOutput()) {
-    if (params.latency_tag() == AudioLatency::LATENCY_PLAYBACK)
-      performance_mode_ = AAUDIO_PERFORMANCE_MODE_POWER_SAVING;
-    else if (params.latency_tag() == AudioLatency::LATENCY_RTC)
-      performance_mode_ = AAUDIO_PERFORMANCE_MODE_LOW_LATENCY;
+    switch (params.latency_tag()) {
+      case AudioLatency::LATENCY_INTERACTIVE:
+      case AudioLatency::LATENCY_RTC:
+        performance_mode_ = AAUDIO_PERFORMANCE_MODE_LOW_LATENCY;
+        break;
+      case AudioLatency::LATENCY_PLAYBACK:
+        performance_mode_ = AAUDIO_PERFORMANCE_MODE_POWER_SAVING;
+        break;
+      default:
+        performance_mode_ = AAUDIO_PERFORMANCE_MODE_NONE;
+    }
   }
 }
 
@@ -70,8 +77,6 @@ bool AAudioOutputStream::Open() {
   AAudioStreamBuilder_setFormat(builder, AAUDIO_FORMAT_PCM_FLOAT);
   AAudioStreamBuilder_setUsage(builder, usage_);
   AAudioStreamBuilder_setPerformanceMode(builder, performance_mode_);
-  AAudioStreamBuilder_setBufferCapacityInFrames(builder,
-                                                params_.frames_per_buffer());
   AAudioStreamBuilder_setFramesPerDataCallback(builder,
                                                params_.frames_per_buffer());
 
@@ -86,6 +91,13 @@ bool AAudioOutputStream::Open() {
 
   if (AAUDIO_OK != result)
     return false;
+
+  // After opening the stream, sets the effective buffer size to 3X the burst
+  // size to prevent glitching if the burst is small (e.g. < 128). On some
+  // devices you can get by with 1X or 2X, but 3X is safer.
+  int32_t framesPerBurst = AAudioStream_getFramesPerBurst(aaudio_stream_);
+  int32_t sizeRequested = framesPerBurst * (framesPerBurst < 128 ? 3 : 2);
+  AAudioStream_setBufferSizeInFrames(aaudio_stream_, sizeRequested);
 
   audio_bus_ = AudioBus::Create(params_);
 
@@ -114,6 +126,13 @@ void AAudioOutputStream::Start(AudioSourceCallback* callback) {
 
   {
     base::AutoLock al(lock_);
+
+    // The device might have been disconnected between Open() and Start().
+    if (device_changed_) {
+      callback->OnError(AudioSourceCallback::ErrorType::kDeviceChange);
+      return;
+    }
+
     DCHECK(!callback_);
     callback_ = callback;
   }
@@ -134,21 +153,35 @@ void AAudioOutputStream::Start(AudioSourceCallback* callback) {
 void AAudioOutputStream::Stop() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
-  base::AutoLock al(lock_);
-  if (!callback_ || !aaudio_stream_)
-    return;
-
-  // Note: This call is asynchronous, so we must clear |callback_| under lock
-  // below to ensure no further calls occur after Stop().
-  auto result = AAudioStream_requestStop(aaudio_stream_);
-
-  if (result != AAUDIO_OK) {
-    DLOG(ERROR) << "Failed to stop audio stream, result: "
-                << AAudio_convertResultToText(result);
-    callback_->OnError(AudioSourceCallback::ErrorType::kUnknown);
+  {
+    base::AutoLock al(lock_);
+    if (!callback_ || !aaudio_stream_)
+      return;
   }
 
-  callback_ = nullptr;
+  // Note: This call may be asynchronous, so we must clear |callback_| under
+  // lock below to ensure no further calls occur after Stop(). Since it may
+  // not always be asynchronous, we don't hold |lock_| while we call stop.
+  auto result = AAudioStream_requestStop(aaudio_stream_);
+
+  {
+    base::AutoLock al(lock_);
+    if (result != AAUDIO_OK) {
+      DLOG(ERROR) << "Failed to stop audio stream, result: "
+                  << AAudio_convertResultToText(result);
+      callback_->OnError(AudioSourceCallback::ErrorType::kUnknown);
+    }
+
+    callback_ = nullptr;
+  }
+
+  // Wait for AAUDIO_STREAM_STATE_STOPPED, but do not explicitly check for the
+  // success of this wait.
+  aaudio_stream_state_t current_state = AAUDIO_STREAM_STATE_STOPPING;
+  aaudio_stream_state_t next_state = AAUDIO_STREAM_STATE_UNINITIALIZED;
+  static const int64_t kTimeoutNanoseconds = 1e8;
+  result = AAudioStream_waitForStateChange(aaudio_stream_, current_state,
+                                           &next_state, kTimeoutNanoseconds);
 }
 
 base::TimeDelta AAudioOutputStream::GetDelay(base::TimeTicks delay_timestamp) {
@@ -173,8 +206,10 @@ base::TimeDelta AAudioOutputStream::GetDelay(base::TimeTicks delay_timestamp) {
   const base::TimeDelta next_frame_pts = base::TimeDelta::FromNanosecondsD(
       existing_frame_pts + frame_index_delta * ns_per_frame_);
 
-  // Calculate the latency between write time and presentation time.
-  return next_frame_pts - (delay_timestamp - base::TimeTicks());
+  // Calculate the latency between write time and presentation time. At startup
+  // we may end up with negative values here.
+  return std::max(base::TimeDelta(),
+                  next_frame_pts - (delay_timestamp - base::TimeTicks()));
 }
 
 aaudio_data_callback_result_t AAudioOutputStream::OnAudioDataRequested(
@@ -201,9 +236,20 @@ aaudio_data_callback_result_t AAudioOutputStream::OnAudioDataRequested(
 
 void AAudioOutputStream::OnStreamError(aaudio_result_t error) {
   base::AutoLock al(lock_);
+
+  if (error == AAUDIO_ERROR_DISCONNECTED)
+    device_changed_ = true;
+
+  if (!callback_)
+    return;
+
+  if (device_changed_) {
+    callback_->OnError(AudioSourceCallback::ErrorType::kDeviceChange);
+    return;
+  }
+
   // TODO(dalecurtis): Consider sending a translated |error| code.
-  if (callback_)
-    callback_->OnError(AudioSourceCallback::ErrorType::kUnknown);
+  callback_->OnError(AudioSourceCallback::ErrorType::kUnknown);
 }
 
 void AAudioOutputStream::SetVolume(double volume) {
@@ -232,4 +278,5 @@ void AAudioOutputStream::SetMute(bool muted) {
   base::AutoLock al(lock_);
   muted_ = muted;
 }
+
 }  // namespace media

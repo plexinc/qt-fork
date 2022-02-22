@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
@@ -46,10 +46,10 @@
 
 #include <QtCore/QObject>
 #include <QtCore/QList>
+#include <QtCore/qproperty.h>
 #include <QtGui/qevent.h>
 #include <QtGui/qfont.h>
 #include <QtGui/qaccessible.h>
-
 
 QT_BEGIN_NAMESPACE
 
@@ -59,6 +59,7 @@ class Q_QUICK_EXPORT QQuickTransform : public QObject
 {
     Q_OBJECT
     QML_ANONYMOUS
+    QML_ADDED_IN_VERSION(2, 0)
 public:
     explicit QQuickTransform(QObject *parent = nullptr);
     ~QQuickTransform() override;
@@ -93,6 +94,7 @@ class QSGNode;
 class QSGTransformNode;
 class QSGTextureProvider;
 class QQuickItemGrabResult;
+class QQuickPalette;
 
 class Q_QUICK_EXPORT QQuickItem : public QObject, public QQmlParserStatus
 {
@@ -104,15 +106,16 @@ class Q_QUICK_EXPORT QQuickItem : public QObject, public QQmlParserStatus
     Q_PRIVATE_PROPERTY(QQuickItem::d_func(), QQmlListProperty<QObject> resources READ resources DESIGNABLE false)
     Q_PRIVATE_PROPERTY(QQuickItem::d_func(), QQmlListProperty<QQuickItem> children READ children NOTIFY childrenChanged DESIGNABLE false)
 
-    Q_PROPERTY(qreal x READ x WRITE setX NOTIFY xChanged FINAL)
-    Q_PROPERTY(qreal y READ y WRITE setY NOTIFY yChanged FINAL)
+    Q_PROPERTY(qreal x READ x WRITE setX NOTIFY xChanged BINDABLE bindableX FINAL)
+    Q_PROPERTY(qreal y READ y WRITE setY NOTIFY yChanged BINDABLE bindableY FINAL)
     Q_PROPERTY(qreal z READ z WRITE setZ NOTIFY zChanged FINAL)
-    Q_PROPERTY(qreal width READ width WRITE setWidth NOTIFY widthChanged RESET resetWidth FINAL)
-    Q_PROPERTY(qreal height READ height WRITE setHeight NOTIFY heightChanged RESET resetHeight FINAL)
+    Q_PROPERTY(qreal width READ width WRITE setWidth NOTIFY widthChanged RESET resetWidth BINDABLE bindableWidth FINAL)
+    Q_PROPERTY(qreal height READ height WRITE setHeight NOTIFY heightChanged RESET resetHeight BINDABLE bindableHeight FINAL)
 
     Q_PROPERTY(qreal opacity READ opacity WRITE setOpacity NOTIFY opacityChanged FINAL)
     Q_PROPERTY(bool enabled READ isEnabled WRITE setEnabled NOTIFY enabledChanged)
     Q_PROPERTY(bool visible READ isVisible WRITE setVisible NOTIFY visibleChanged FINAL)
+    Q_PRIVATE_PROPERTY(QQuickItem::d_func(), QQuickPalette *palette READ palette WRITE setPalette RESET resetPalette NOTIFY paletteChanged REVISION(6, 0))
     Q_PRIVATE_PROPERTY(QQuickItem::d_func(), QQmlListProperty<QQuickItem> visibleChildren READ visibleChildren NOTIFY visibleChildrenChanged DESIGNABLE false)
 
     Q_PRIVATE_PROPERTY(QQuickItem::d_func(), QQmlListProperty<QQuickState> states READ states DESIGNABLE false)
@@ -133,7 +136,7 @@ class Q_QUICK_EXPORT QQuickItem : public QObject, public QQmlParserStatus
 
     Q_PROPERTY(bool focus READ hasFocus WRITE setFocus NOTIFY focusChanged FINAL)
     Q_PROPERTY(bool activeFocus READ hasActiveFocus NOTIFY activeFocusChanged FINAL)
-    Q_PROPERTY(bool activeFocusOnTab READ activeFocusOnTab WRITE setActiveFocusOnTab NOTIFY activeFocusOnTabChanged FINAL REVISION 1)
+    Q_PROPERTY(bool activeFocusOnTab READ activeFocusOnTab WRITE setActiveFocusOnTab NOTIFY activeFocusOnTabChanged FINAL REVISION(2, 1))
 
     Q_PROPERTY(qreal rotation READ rotation WRITE setRotation NOTIFY rotationChanged)
     Q_PROPERTY(qreal scale READ scale WRITE setScale NOTIFY scaleChanged)
@@ -145,13 +148,15 @@ class Q_QUICK_EXPORT QQuickItem : public QObject, public QQmlParserStatus
     Q_PROPERTY(bool antialiasing READ antialiasing WRITE setAntialiasing NOTIFY antialiasingChanged RESET resetAntialiasing)
     Q_PROPERTY(qreal implicitWidth READ implicitWidth WRITE setImplicitWidth NOTIFY implicitWidthChanged)
     Q_PROPERTY(qreal implicitHeight READ implicitHeight WRITE setImplicitHeight NOTIFY implicitHeightChanged)
-    Q_PROPERTY(QObject *containmentMask READ containmentMask WRITE setContainmentMask NOTIFY containmentMaskChanged REVISION 11)
+    Q_PROPERTY(QObject *containmentMask READ containmentMask WRITE setContainmentMask NOTIFY containmentMaskChanged REVISION(2, 11))
 
     Q_PRIVATE_PROPERTY(QQuickItem::d_func(), QQuickItemLayer *layer READ layer DESIGNABLE false CONSTANT FINAL)
 
     Q_CLASSINFO("DefaultProperty", "data")
+    Q_CLASSINFO("ParentProperty", "parent")
     Q_CLASSINFO("qt_QmlJSWrapperFactoryMethod", "_q_createJSWrapper(QV4::ExecutionEngine*)")
     QML_NAMED_ELEMENT(Item)
+    QML_ADDED_IN_VERSION(2, 0)
 
 public:
     enum Flag {
@@ -229,18 +234,22 @@ public:
     void setX(qreal);
     void setY(qreal);
     void setPosition(const QPointF &);
+    QBindable<qreal> bindableX();
+    QBindable<qreal> bindableY();
 
     qreal width() const;
     void setWidth(qreal);
     void resetWidth();
     void setImplicitWidth(qreal);
     qreal implicitWidth() const;
+    QBindable<qreal> bindableWidth();
 
     qreal height() const;
     void setHeight(qreal);
     void resetHeight();
     void setImplicitHeight(qreal);
     qreal implicitHeight() const;
+    QBindable<qreal> bindableHeight();
 
     QSizeF size() const;
     void setSize(const QSizeF &size);
@@ -314,13 +323,13 @@ public:
     bool filtersChildMouseEvents() const;
     void setFiltersChildMouseEvents(bool filter);
 
-    void grabTouchPoints(const QVector<int> &ids);
+    void grabTouchPoints(const QList<int> &ids);
     void ungrabTouchPoints();
     bool keepTouchGrab() const;
     void setKeepTouchGrab(bool);
 
     // implemented in qquickitemgrabresult.cpp
-    Q_REVISION(4) Q_INVOKABLE bool grabToImage(const QJSValue &callback, const QSize &targetSize = QSize());
+    Q_REVISION(2, 4) Q_INVOKABLE bool grabToImage(const QJSValue &callback, const QSize &targetSize = QSize());
     QSharedPointer<QQuickItemGrabResult> grabToImage(const QSize &targetSize = QSize());
 
     Q_INVOKABLE virtual bool contains(const QPointF &point) const;
@@ -343,11 +352,11 @@ public:
 
     Q_INVOKABLE void mapFromItem(QQmlV4Function*) const;
     Q_INVOKABLE void mapToItem(QQmlV4Function*) const;
-    Q_REVISION(7) Q_INVOKABLE void mapFromGlobal(QQmlV4Function*) const;
-    Q_REVISION(7) Q_INVOKABLE void mapToGlobal(QQmlV4Function*) const;
+    Q_REVISION(2, 7) Q_INVOKABLE void mapFromGlobal(QQmlV4Function*) const;
+    Q_REVISION(2, 7) Q_INVOKABLE void mapToGlobal(QQmlV4Function*) const;
     Q_INVOKABLE void forceActiveFocus();
     Q_INVOKABLE void forceActiveFocus(Qt::FocusReason reason);
-    Q_REVISION(1) Q_INVOKABLE QQuickItem *nextItemInFocusChain(bool forward = true);
+    Q_REVISION(2, 1) Q_INVOKABLE QQuickItem *nextItemInFocusChain(bool forward = true);
     Q_INVOKABLE QQuickItem *childAt(qreal x, qreal y) const;
 
 #if QT_CONFIG(im)
@@ -373,13 +382,13 @@ Q_SIGNALS:
     void stateChanged(const QString &);
     void focusChanged(bool);
     void activeFocusChanged(bool);
-    Q_REVISION(1) void activeFocusOnTabChanged(bool);
+    Q_REVISION(2, 1) void activeFocusOnTabChanged(bool);
     void parentChanged(QQuickItem *);
     void transformOriginChanged(TransformOrigin);
     void smoothChanged(bool);
     void antialiasingChanged(bool);
     void clipChanged(bool);
-    Q_REVISION(1) void windowChanged(QQuickWindow* window);
+    Q_REVISION(2, 1) void windowChanged(QQuickWindow* window);
 
     void childrenChanged();
     void opacityChanged();
@@ -396,13 +405,17 @@ Q_SIGNALS:
     void zChanged();
     void implicitWidthChanged();
     void implicitHeightChanged();
-    Q_REVISION(11) void containmentMaskChanged();
+    Q_REVISION(2, 11) void containmentMaskChanged();
+
+    Q_REVISION(6, 0) void paletteChanged();
+    Q_REVISION(6, 0) void paletteCreated();
 
 protected:
     bool event(QEvent *) override;
 
     bool isComponentComplete() const;
     virtual void itemChange(ItemChange, const ItemChangeData &);
+    virtual void geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry);
 
 #if QT_CONFIG(im)
     void updateInputMethod(Qt::InputMethodQueries queries = Qt::ImQueryInput);
@@ -442,10 +455,6 @@ protected:
     virtual void dropEvent(QDropEvent *);
 #endif
     virtual bool childMouseEventFilter(QQuickItem *, QEvent *);
-    virtual void windowDeactivateEvent();
-
-    virtual void geometryChanged(const QRectF &newGeometry,
-                                 const QRectF &oldGeometry);
 
     virtual QSGNode *updatePaintNode(QSGNode *, UpdatePaintNodeData *);
     virtual void releaseResources();
@@ -458,9 +467,8 @@ private:
     Q_PRIVATE_SLOT(d_func(), void _q_resourceObjectDeleted(QObject *))
     Q_PRIVATE_SLOT(d_func(), quint64 _q_createJSWrapper(QV4::ExecutionEngine *))
 
-    friend class QQuickEventPoint;
-    friend class QQuickWindow;
     friend class QQuickWindowPrivate;
+    friend class QQuickDeliveryAgentPrivate;
     friend class QSGRenderer;
     friend class QAccessibleQuickItem;
     friend class QQuickAccessibleAttached;

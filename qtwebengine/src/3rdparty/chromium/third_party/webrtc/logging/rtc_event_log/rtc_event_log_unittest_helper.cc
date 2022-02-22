@@ -23,10 +23,10 @@
 
 #include "absl/types/optional.h"
 #include "api/array_view.h"
+#include "api/network_state_predictor.h"
 #include "api/rtp_headers.h"
 #include "api/rtp_parameters.h"
 #include "modules/audio_coding/audio_network_adaptor/include/audio_network_adaptor_config.h"
-#include "modules/remote_bitrate_estimator/include/bwe_defines.h"
 #include "modules/rtp_rtcp/include/rtp_cvo.h"
 #include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
 #include "modules/rtp_rtcp/source/rtcp_packet/dlrr.h"
@@ -37,6 +37,7 @@
 #include "modules/rtp_rtcp/source/rtp_packet_to_send.h"
 #include "rtc_base/buffer.h"
 #include "rtc_base/checks.h"
+#include "rtc_base/time_utils.h"
 #include "system_wrappers/include/ntp_time.h"
 #include "test/gtest.h"
 
@@ -145,6 +146,29 @@ std::unique_ptr<RtcEventDtlsWritableState>
 EventGenerator::NewDtlsWritableState() {
   bool writable = prng_.Rand<bool>();
   return std::make_unique<RtcEventDtlsWritableState>(writable);
+}
+
+std::unique_ptr<RtcEventFrameDecoded> EventGenerator::NewFrameDecodedEvent(
+    uint32_t ssrc) {
+  constexpr int kMinRenderDelayMs = 1;
+  constexpr int kMaxRenderDelayMs = 2000000;
+  constexpr int kMaxWidth = 15360;
+  constexpr int kMaxHeight = 8640;
+  constexpr int kMinWidth = 16;
+  constexpr int kMinHeight = 16;
+  constexpr int kNumCodecTypes = 5;
+
+  constexpr VideoCodecType kCodecList[kNumCodecTypes] = {
+      kVideoCodecGeneric, kVideoCodecVP8, kVideoCodecVP9, kVideoCodecAV1,
+      kVideoCodecH264};
+  const int64_t render_time_ms =
+      rtc::TimeMillis() + prng_.Rand(kMinRenderDelayMs, kMaxRenderDelayMs);
+  const int width = prng_.Rand(kMinWidth, kMaxWidth);
+  const int height = prng_.Rand(kMinHeight, kMaxHeight);
+  const VideoCodecType codec = kCodecList[prng_.Rand(0, kNumCodecTypes - 1)];
+  const uint8_t qp = prng_.Rand<uint8_t>();
+  return std::make_unique<RtcEventFrameDecoded>(render_time_ms, ssrc, width,
+                                                height, codec, qp);
 }
 
 std::unique_ptr<RtcEventProbeClusterCreated>
@@ -314,6 +338,19 @@ rtcp::Pli EventGenerator::NewPli() {
   return pli;
 }
 
+rtcp::Bye EventGenerator::NewBye() {
+  rtcp::Bye bye;
+  bye.SetSenderSsrc(prng_.Rand<uint32_t>());
+  std::vector<uint32_t> csrcs{prng_.Rand<uint32_t>(), prng_.Rand<uint32_t>()};
+  bye.SetCsrcs(csrcs);
+  if (prng_.Rand(0, 2)) {
+    bye.SetReason("foo");
+  } else {
+    bye.SetReason("bar");
+  }
+  return bye;
+}
+
 rtcp::TransportFeedback EventGenerator::NewTransportFeedback() {
   rtcp::TransportFeedback transport_feedback;
   uint16_t base_seq_no = prng_.Rand<uint16_t>();
@@ -372,6 +409,7 @@ EventGenerator::NewRtcpPacketIncoming() {
     kPli,
     kNack,
     kRemb,
+    kBye,
     kTransportFeedback,
     kNumValues
   };
@@ -411,6 +449,11 @@ EventGenerator::NewRtcpPacketIncoming() {
     case SupportedRtcpTypes::kRemb: {
       rtcp::Remb remb = NewRemb();
       rtc::Buffer buffer = remb.Build();
+      return std::make_unique<RtcEventRtcpPacketIncoming>(buffer);
+    }
+    case SupportedRtcpTypes::kBye: {
+      rtcp::Bye bye = NewBye();
+      rtc::Buffer buffer = bye.Build();
       return std::make_unique<RtcEventRtcpPacketIncoming>(buffer);
     }
     case SupportedRtcpTypes::kTransportFeedback: {
@@ -435,6 +478,7 @@ EventGenerator::NewRtcpPacketOutgoing() {
     kPli,
     kNack,
     kRemb,
+    kBye,
     kTransportFeedback,
     kNumValues
   };
@@ -474,6 +518,11 @@ EventGenerator::NewRtcpPacketOutgoing() {
     case SupportedRtcpTypes::kRemb: {
       rtcp::Remb remb = NewRemb();
       rtc::Buffer buffer = remb.Build();
+      return std::make_unique<RtcEventRtcpPacketOutgoing>(buffer);
+    }
+    case SupportedRtcpTypes::kBye: {
+      rtcp::Bye bye = NewBye();
+      rtc::Buffer buffer = bye.Build();
       return std::make_unique<RtcEventRtcpPacketOutgoing>(buffer);
     }
     case SupportedRtcpTypes::kTransportFeedback: {
@@ -835,6 +884,18 @@ void EventVerifier::VerifyLoggedDtlsWritableState(
   EXPECT_EQ(original_event.writable(), logged_event.writable);
 }
 
+void EventVerifier::VerifyLoggedFrameDecoded(
+    const RtcEventFrameDecoded& original_event,
+    const LoggedFrameDecoded& logged_event) const {
+  EXPECT_EQ(original_event.timestamp_ms(), logged_event.log_time_ms());
+  EXPECT_EQ(original_event.ssrc(), logged_event.ssrc);
+  EXPECT_EQ(original_event.render_time_ms(), logged_event.render_time_ms);
+  EXPECT_EQ(original_event.width(), logged_event.width);
+  EXPECT_EQ(original_event.height(), logged_event.height);
+  EXPECT_EQ(original_event.codec(), logged_event.codec);
+  EXPECT_EQ(original_event.qp(), logged_event.qp);
+}
+
 void EventVerifier::VerifyLoggedIceCandidatePairConfig(
     const RtcEventIceCandidatePairConfig& original_event,
     const LoggedIceCandidatePairConfig& logged_event) const {
@@ -1097,6 +1158,7 @@ void EventVerifier::VerifyLoggedExtendedReports(
     int64_t log_time_us,
     const rtcp::ExtendedReports& original_xr,
     const LoggedRtcpPacketExtendedReports& logged_xr) {
+  EXPECT_EQ(log_time_us, logged_xr.log_time_us());
   EXPECT_EQ(original_xr.sender_ssrc(), logged_xr.xr.sender_ssrc());
 
   EXPECT_EQ(original_xr.rrtr().has_value(), logged_xr.xr.rrtr().has_value());
@@ -1137,8 +1199,8 @@ void EventVerifier::VerifyLoggedExtendedReports(
 void EventVerifier::VerifyLoggedFir(int64_t log_time_us,
                                     const rtcp::Fir& original_fir,
                                     const LoggedRtcpPacketFir& logged_fir) {
+  EXPECT_EQ(log_time_us, logged_fir.log_time_us());
   EXPECT_EQ(original_fir.sender_ssrc(), logged_fir.fir.sender_ssrc());
-
   const auto& original_requests = original_fir.requests();
   const auto& logged_requests = logged_fir.fir.requests();
   ASSERT_EQ(original_requests.size(), logged_requests.size());
@@ -1151,8 +1213,18 @@ void EventVerifier::VerifyLoggedFir(int64_t log_time_us,
 void EventVerifier::VerifyLoggedPli(int64_t log_time_us,
                                     const rtcp::Pli& original_pli,
                                     const LoggedRtcpPacketPli& logged_pli) {
+  EXPECT_EQ(log_time_us, logged_pli.log_time_us());
   EXPECT_EQ(original_pli.sender_ssrc(), logged_pli.pli.sender_ssrc());
   EXPECT_EQ(original_pli.media_ssrc(), logged_pli.pli.media_ssrc());
+}
+
+void EventVerifier::VerifyLoggedBye(int64_t log_time_us,
+                                    const rtcp::Bye& original_bye,
+                                    const LoggedRtcpPacketBye& logged_bye) {
+  EXPECT_EQ(log_time_us, logged_bye.log_time_us());
+  EXPECT_EQ(original_bye.sender_ssrc(), logged_bye.bye.sender_ssrc());
+  EXPECT_EQ(original_bye.csrcs(), logged_bye.bye.csrcs());
+  EXPECT_EQ(original_bye.reason(), logged_bye.bye.reason());
 }
 
 void EventVerifier::VerifyLoggedNack(int64_t log_time_us,

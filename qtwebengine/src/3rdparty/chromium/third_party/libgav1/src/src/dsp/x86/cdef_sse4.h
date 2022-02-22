@@ -23,16 +23,23 @@
 namespace libgav1 {
 namespace dsp {
 
-// Initializes Dsp::cdef_direction and Dsp::cdef_filter. This function is not
+// Initializes Dsp::cdef_direction and Dsp::cdef_filters. This function is not
 // thread-safe.
 void CdefInit_SSE4_1();
 
 }  // namespace dsp
 }  // namespace libgav1
 
-#if LIBGAV1_ENABLE_SSE4_1
+#if LIBGAV1_TARGETING_SSE4_1
+
+#ifndef LIBGAV1_Dsp8bpp_CdefDirection
 #define LIBGAV1_Dsp8bpp_CdefDirection LIBGAV1_CPU_SSE4_1
-#define LIBGAV1_Dsp8bpp_CdefFilter LIBGAV1_CPU_SSE4_1
-#endif  // LIBGAV1_ENABLE_SSE4_1
+#endif
+
+#ifndef LIBGAV1_Dsp8bpp_CdefFilters
+#define LIBGAV1_Dsp8bpp_CdefFilters LIBGAV1_CPU_SSE4_1
+#endif
+
+#endif  // LIBGAV1_TARGETING_SSE4_1
 
 #endif  // LIBGAV1_SRC_DSP_X86_CDEF_SSE4_H_

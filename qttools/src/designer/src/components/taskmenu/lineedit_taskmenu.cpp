@@ -31,9 +31,10 @@
 
 #include <QtDesigner/abstractformwindow.h>
 
-#include <QtWidgets/qaction.h>
 #include <QtWidgets/qstyle.h>
 #include <QtWidgets/qstyleoption.h>
+
+#include <QtGui/qaction.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -57,7 +58,7 @@ LineEditTaskMenuInlineEditor::LineEditTaskMenuInlineEditor(QLineEdit *w, QObject
 QRect LineEditTaskMenuInlineEditor::editRectangle() const
 {
     QStyleOption opt;
-    opt.init(widget());
+    opt.initFrom(widget());
     return opt.rect;
 }
 

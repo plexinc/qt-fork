@@ -33,8 +33,8 @@
 
 #include <qpa/qplatformnativeinterface.h>
 #include <qpa/qplatformintegration.h>
+#include <QtOpenGL/QOpenGLTexture>
 #include <QtGui/QOpenGLContext>
-#include <QtGui/QOpenGLTexture>
 
 #include "xcompositebuffer.h"
 #include "xcompositehandler.h"
@@ -44,9 +44,9 @@
 
 QT_BEGIN_NAMESPACE
 
-QVector<int> qglx_buildSpec()
+QList<int> qglx_buildSpec()
 {
-    QVector<int> spec(48);
+    QList<int> spec(48);
     int i = 0;
 
     spec[i++] = GLX_LEVEL;
@@ -102,7 +102,7 @@ void XCompositeGLXClientBufferIntegration::initializeHardware(struct ::wl_displa
 
 QtWayland::ClientBuffer *XCompositeGLXClientBufferIntegration::createBufferFor(wl_resource *buffer)
 {
-    if (wl_shm_buffer_get(buffer))
+    if (!mHandler->isXCompositeBuffer(buffer))
         return nullptr;
     return new XCompositeGLXClientBuffer(this, buffer);
 }
@@ -120,11 +120,11 @@ QOpenGLTexture *XCompositeGLXClientBuffer::toOpenGlTexture(int plane)
     XCompositeBuffer *compositorBuffer = XCompositeBuffer::fromResource(m_buffer);
     Pixmap pixmap = XCompositeNameWindowPixmap(m_integration->xDisplay(), compositorBuffer->window());
 
-    QVector<int> glxConfigSpec = qglx_buildSpec();
+    QList<int> glxConfigSpec = qglx_buildSpec();
     int numberOfConfigs;
     GLXFBConfig *configs = glXChooseFBConfig(m_integration->xDisplay(),m_integration->xScreen(),glxConfigSpec.constData(),&numberOfConfigs);
 
-    QVector<int> attribList;
+    QList<int> attribList;
     attribList.append(GLX_TEXTURE_FORMAT_EXT);
     attribList.append(GLX_TEXTURE_FORMAT_RGB_EXT);
     attribList.append(GLX_TEXTURE_TARGET_EXT);

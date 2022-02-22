@@ -49,8 +49,6 @@
 
 #define USE_STATIC_DATA
 
-using namespace QtDataVisualization;
-
 class GraphDataGenerator : public QObject
 {
 public:
@@ -116,7 +114,9 @@ GraphDataGenerator::GraphDataGenerator(Q3DBars *bargraph, QTableWidget *tableWid
     m_graph->activeTheme()->setType(Q3DTheme::ThemeDigia);
 
     // Set font
-    m_graph->activeTheme()->setFont(QFont("Impact", 20));
+    QFont font = QFont("Impact", 20);
+    font.setStyleHint(QFont::SansSerif);
+    m_graph->activeTheme()->setFont(font);
 
     // Set preset camera position
     m_graph->scene()->activeCamera()->setCameraPreset(Q3DCamera::CameraPresetFront);
@@ -229,8 +229,8 @@ void GraphDataGenerator::selectFromTable(const QPoint &selection)
 void GraphDataGenerator::selectedFromTable(int currentRow, int currentColumn,
                                            int previousRow, int previousColumn)
 {
-    Q_UNUSED(previousRow)
-    Q_UNUSED(previousColumn)
+    Q_UNUSED(previousRow);
+    Q_UNUSED(previousColumn);
     m_graph->seriesList().at(0)->setSelectedBar(QPoint(currentRow, currentColumn));
 }
 //! [14]
@@ -247,6 +247,7 @@ void GraphDataGenerator::fixTableSize()
 
 int main(int argc, char **argv)
 {
+    qputenv("QSG_RHI_BACKEND", "opengl");
     //! [0]
     QApplication app(argc, argv);
     Q3DBars *graph = new Q3DBars();

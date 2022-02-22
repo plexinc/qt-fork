@@ -45,9 +45,7 @@
     \brief The QMovie class is a convenience class for playing movies
     with QImageReader.
 
-    This class is used to show simple animations without sound. If you want
-    to display video and media content, use the \l{Qt Multimedia}
-    multimedia framework instead.
+    This class is used to show simple animations without sound.
 
     First, create a QMovie object by passing either the name of a file or a
     pointer to a QIODevice containing an animated image format to QMovie's
@@ -188,6 +186,7 @@
 #include "qbuffer.h"
 #include "qdir.h"
 #include "private/qobject_p.h"
+#include "private/qproperty_p.h"
 
 #define QMOVIE_INVALID_DELAY -1
 
@@ -222,7 +221,7 @@ public:
     static inline QFrameInfo endMarker()
     { return QFrameInfo(true); }
 };
-Q_DECLARE_TYPEINFO(QFrameInfo, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QFrameInfo, Q_RELOCATABLE_TYPE);
 
 class QMoviePrivate : public QObjectPrivate
 {
@@ -249,20 +248,24 @@ public:
     void _q_loadNextFrame();
     void _q_loadNextFrame(bool starting);
 
-    QImageReader *reader;
-    int speed;
-    QMovie::MovieState movieState;
+    QImageReader *reader = nullptr;
+
+    void setSpeed(int percentSpeed) { q_func()->setSpeed(percentSpeed); }
+    Q_OBJECT_COMPAT_PROPERTY_WITH_ARGS(QMoviePrivate, int, speed, &QMoviePrivate::setSpeed, 100)
+
+    QMovie::MovieState movieState = QMovie::NotRunning;
     QRect frameRect;
     QPixmap currentPixmap;
-    int currentFrameNumber;
-    int nextFrameNumber;
-    int greatestFrameNumber;
-    int nextDelay;
-    int playCounter;
-    qint64 initialDevicePos;
-    QMovie::CacheMode cacheMode;
-    bool haveReadAll;
-    bool isFirstIteration;
+    int currentFrameNumber = -1;
+    int nextFrameNumber = 0;
+    int greatestFrameNumber = -1;
+    int nextDelay = 0;
+    int playCounter = -1;
+    qint64 initialDevicePos = 0;
+    Q_OBJECT_BINDABLE_PROPERTY_WITH_ARGS(QMoviePrivate, QMovie::CacheMode, cacheMode,
+                                         QMovie::CacheNone)
+    bool haveReadAll = false;
+    bool isFirstIteration = true;
     QMap<int, QFrameInfo> frameMap;
     QString absoluteFilePath;
 
@@ -272,10 +275,6 @@ public:
 /*! \internal
  */
 QMoviePrivate::QMoviePrivate(QMovie *qq)
-    : reader(nullptr), speed(100), movieState(QMovie::NotRunning),
-      currentFrameNumber(-1), nextFrameNumber(0), greatestFrameNumber(-1),
-      nextDelay(0), playCounter(-1),
-      cacheMode(QMovie::CacheNone), haveReadAll(false), isFirstIteration(true)
 {
     q_ptr = qq;
     nextImageTimer.setSingleShot(true);
@@ -930,13 +929,24 @@ void QMovie::setSpeed(int percentSpeed)
     Q_D(QMovie);
     if (!d->speed && d->movieState == Running)
         d->nextImageTimer.start(nextFrameDelay());
-    d->speed = percentSpeed;
+    if (percentSpeed != d->speed) {
+        d->speed = percentSpeed;
+        d->speed.notify();
+    } else {
+        d->speed.removeBindingUnlessInWrapper();
+    }
 }
 
 int QMovie::speed() const
 {
     Q_D(const QMovie);
     return d->speed;
+}
+
+QBindable<int> QMovie::bindableSpeed()
+{
+    Q_D(QMovie);
+    return &d->speed;
 }
 
 /*!
@@ -1024,7 +1034,7 @@ QList<QByteArray> QMovie::supportedFormats()
                 return !QImageReader(&buffer, format).supportsOption(QImageIOHandler::Animation);
             };
 
-    list.erase(std::remove_if(list.begin(), list.end(), doesntSupportAnimation), list.end());
+    list.removeIf(doesntSupportAnimation);
     return list;
 }
 
@@ -1059,6 +1069,12 @@ void QMovie::setCacheMode(CacheMode cacheMode)
 {
     Q_D(QMovie);
     d->cacheMode = cacheMode;
+}
+
+QBindable<QMovie::CacheMode> QMovie::bindableCacheMode()
+{
+    Q_D(QMovie);
+    return &d->cacheMode;
 }
 
 QT_END_NAMESPACE

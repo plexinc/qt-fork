@@ -209,7 +209,7 @@ void QPaintedTextureImage::setSize(QSize size)
 */
 void QPaintedTextureImage::update(const QRect &rect)
 {
-    Q_UNUSED(rect)
+    Q_UNUSED(rect);
     Q_D(QPaintedTextureImage);
 
     d->repaint();

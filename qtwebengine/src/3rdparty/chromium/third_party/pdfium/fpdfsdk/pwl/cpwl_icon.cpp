@@ -13,12 +13,13 @@
 #include "core/fpdfdoc/cpdf_icon.h"
 #include "core/fpdfdoc/cpdf_iconfit.h"
 #include "fpdfsdk/pwl/cpwl_wnd.h"
+#include "third_party/base/check.h"
 
 CPWL_Icon::CPWL_Icon(const CreateParams& cp,
                      std::unique_ptr<CPDF_Icon> pIcon,
                      CPDF_IconFit* pFit)
     : CPWL_Wnd(cp, nullptr), m_pIcon(std::move(pIcon)), m_pIconFit(pFit) {
-  ASSERT(m_pIcon);
+  DCHECK(m_pIcon);
 }
 
 CPWL_Icon::~CPWL_Icon() = default;
@@ -53,35 +54,35 @@ std::pair<float, float> CPWL_Icon::GetScale() {
   CFX_SizeF image_size = GetImageSize();
   float fImageWidth = image_size.width;
   float fImageHeight = image_size.height;
-  int32_t nScaleMethod = m_pIconFit ? m_pIconFit->GetScaleMethod() : 0;
+  CPDF_IconFit::ScaleMethod scale_method =
+      m_pIconFit ? m_pIconFit->GetScaleMethod()
+                 : CPDF_IconFit::ScaleMethod::kAlways;
 
-  switch (nScaleMethod) {
-    default:
-    case 0:
+  switch (scale_method) {
+    case CPDF_IconFit::ScaleMethod::kAlways:
       fHScale = fPlateWidth / std::max(fImageWidth, 1.0f);
       fVScale = fPlateHeight / std::max(fImageHeight, 1.0f);
       break;
-    case 1:
+    case CPDF_IconFit::ScaleMethod::kBigger:
       if (fPlateWidth < fImageWidth)
         fHScale = fPlateWidth / std::max(fImageWidth, 1.0f);
       if (fPlateHeight < fImageHeight)
         fVScale = fPlateHeight / std::max(fImageHeight, 1.0f);
       break;
-    case 2:
+    case CPDF_IconFit::ScaleMethod::kSmaller:
       if (fPlateWidth > fImageWidth)
         fHScale = fPlateWidth / std::max(fImageWidth, 1.0f);
       if (fPlateHeight > fImageHeight)
         fVScale = fPlateHeight / std::max(fImageHeight, 1.0f);
       break;
-    case 3:
+    case CPDF_IconFit::ScaleMethod::kNever:
       break;
   }
 
-  float fMinScale;
   if (m_pIconFit && m_pIconFit->IsProportionalScale()) {
-    fMinScale = std::min(fHScale, fVScale);
-    fHScale = fMinScale;
-    fVScale = fMinScale;
+    float min_scale = std::min(fHScale, fVScale);
+    fHScale = min_scale;
+    fVScale = min_scale;
   }
   return {fHScale, fVScale};
 }

@@ -48,15 +48,17 @@
     To import the QML types into your application, use the following import statement
     in your .qml file:
 
-    \qml \QtMinorVersion
-    import QtScxml 5.\1
+    \qml
+    import QtScxml
     \endqml
 
-    To link against the module, add this line to your qmake .pro file:
+    To link against the module:
 
-    \code
-    QT += scxml
-    \endcode
+    Using cmake:
+    \include qtscxml-module-use.qdocinc cmakebuild
+
+    Using qmake:
+    \include qtscxml-module-use.qdocinc qmakebuild
 
     \section1 Articles and Guides
 
@@ -79,4 +81,16 @@
       \li \l {Qt SCXML C++ Classes} {C++ Classes and Namespaces}
       \li \l {Qt SCXML QML Types} {QML Types}
     \endlist
+
+    \section1 Module Evolution
+    \l{Changes to Qt SCXML} lists important changes in the module API
+       and functionality that were done for the Qt 6 series of Qt.
+
+    \section1 Licenses and Trademarks
+
+    The Qt SCXML module is available under commercial licenses from
+    \l{The Qt Company}. In addition, it is available under free software licenses:
+       The \l{GNU Lesser General Public License, version 3}, or
+       the \l{GNU General Public License, version 2}.
+       See \l{Qt Licensing} for further details.
 */

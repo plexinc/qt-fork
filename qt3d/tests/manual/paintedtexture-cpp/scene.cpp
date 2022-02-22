@@ -57,6 +57,7 @@
 #include <QtGui/QPainter>
 #include <Qt3DRender/QPaintedTextureImage>
 #include <Qt3DRender/QTexture>
+#include <Qt3DRender/QGeometryRenderer>
 
 #include <Qt3DExtras/QCuboidMesh>
 #include <Qt3DExtras/QDiffuseMapMaterial>
@@ -70,7 +71,7 @@ public:
     }
 
 protected:
-    void paint(QPainter *painter)
+    void paint(QPainter *painter) override
     {
         int w = painter->device()->width();
         int h = painter->device()->height();

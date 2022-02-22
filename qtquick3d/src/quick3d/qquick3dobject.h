@@ -63,6 +63,9 @@ class Q_QUICK3D_EXPORT QQuick3DObject : public QObject, public QQmlParserStatus
 
     Q_CLASSINFO("DefaultProperty", "data")
     Q_CLASSINFO("qt_QmlJSWrapperFactoryMethod", "_q_createJSWrapper(QV4::ExecutionEngine*)")
+
+    QML_NAMED_ELEMENT(Object3D)
+    QML_UNCREATABLE("Object3D is Abstract")
 public:
     enum ItemChange {
         ItemChildAddedChange, // value.item
@@ -78,19 +81,16 @@ public:
         ItemEnabledHasChanged // value.boolValue
     };
 
-    struct ItemChangeData {
+    union ItemChangeData {
         ItemChangeData(QQuick3DObject *v) : item(v) {}
-        ItemChangeData(const QSharedPointer<QQuick3DSceneManager> &v) : sceneManager(v) {}
+        ItemChangeData(QQuick3DSceneManager *v) : sceneManager(v) {}
         ItemChangeData(qreal v) : realValue(v) {}
         ItemChangeData(bool v) : boolValue(v) {}
-        ~ItemChangeData() {}
 
-        QSharedPointer<QQuick3DSceneManager> sceneManager;
-        union {
-            QQuick3DObject *item;
-            qreal realValue;
-            bool boolValue;
-        };
+        QQuick3DObject *item;
+        QQuick3DSceneManager *sceneManager;
+        qreal realValue;
+        bool boolValue;
     };
 
     explicit QQuick3DObject(QQuick3DObject *parent = nullptr);
@@ -114,7 +114,6 @@ Q_SIGNALS:
     void stateChanged();
 
 protected:
-    using ConnectionMap = QHash<QByteArray, QMetaObject::Connection>;
     virtual QSSGRenderGraphObject *updateSpatialNode(QSSGRenderGraphObject *node) = 0;
     virtual void markAllDirty();
     virtual void itemChange(ItemChange, const ItemChangeData &);
@@ -125,16 +124,12 @@ protected:
 
     bool isComponentComplete() const;
 
-    static void updatePropertyListener(QQuick3DObject *newO,
-                                       QQuick3DObject *oldO,
-                                       const QSharedPointer<QQuick3DSceneManager> &window,
-                                       const QByteArray &propertyKey,
-                                       ConnectionMap &connections,
-                                       const std::function<void(QQuick3DObject *o)> &callFn);
+    virtual void preSync();
 
 private:
     Q_PRIVATE_SLOT(d_func(), void _q_resourceObjectDeleted(QObject *))
     Q_PRIVATE_SLOT(d_func(), quint64 _q_createJSWrapper(QV4::ExecutionEngine *))
+    Q_PRIVATE_SLOT(d_func(), void _q_cleanupContentItem2D())
 
     friend class QQuick3DSceneManager;
 };

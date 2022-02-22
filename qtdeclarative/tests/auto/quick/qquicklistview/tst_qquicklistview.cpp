@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2018 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
@@ -45,9 +45,10 @@
 #include <QtQmlModels/private/qqmlobjectmodel_p.h>
 #include <QtQmlModels/private/qqmllistmodel_p.h>
 #include <QtQmlModels/private/qqmldelegatemodel_p.h>
-#include "../../shared/util.h"
-#include "../shared/viewtestutil.h"
-#include "../shared/visualtestutil.h"
+#include <qpa/qwindowsysteminterface.h>
+#include <QtQuickTestUtils/private/qmlutils_p.h>
+#include <QtQuickTestUtils/private/viewtestutils_p.h>
+#include <QtQuickTestUtils/private/visualtestutils_p.h>
 #include "incrementalmodel.h"
 #include "proxytestinnermodel.h"
 #include "randomsortmodel.h"
@@ -61,8 +62,8 @@ Q_DECLARE_METATYPE(QQuickListView::Orientation)
 Q_DECLARE_METATYPE(QQuickFlickable::FlickableDirection)
 Q_DECLARE_METATYPE(Qt::Key)
 
-using namespace QQuickViewTestUtil;
-using namespace QQuickVisualTestUtil;
+using namespace QQuickViewTestUtils;
+using namespace QQuickVisualTestUtils;
 
 #define SHARE_VIEWS
 
@@ -73,6 +74,8 @@ public:
     tst_QQuickListView();
 
 private slots:
+    // WARNING: please add new tests to tst_qquicklistview2; this file is too slow to work with.
+
     void init();
     void cleanupTestCase();
     // Test QAbstractItemModel model types
@@ -129,6 +132,8 @@ private slots:
     void spacing();
     void qAbstractItemModel_package_sections();
     void qAbstractItemModel_sections();
+    void sectionsSnap_data();
+    void sectionsSnap();
     void sectionsPositioning();
     void sectionsDelegate_data();
     void sectionsDelegate();
@@ -138,8 +143,6 @@ private slots:
     void sectionPropertyChange();
     void sectionDelegateChange();
     void sectionsItemInsertion();
-    void sectionsSnap_data();
-    void sectionsSnap();
     void cacheBuffer();
     void positionViewAtBeginningEnd();
     void positionViewAtIndex();
@@ -255,8 +258,8 @@ private slots:
 
     void layoutChange();
 
-    void QTBUG_39492_data();
-    void QTBUG_39492();
+    void treeDelegateModelLayoutChange_data();
+    void treeDelegateModelLayoutChange();
 
     void jsArrayChange();
     void objectModel();
@@ -298,6 +301,9 @@ private slots:
 
     void requiredObjectListModel();
     void clickHeaderAndFooterWhenClip();
+    void animatedDelegate();
+
+    // WARNING: please add new tests to tst_qquicklistview2; this file is too slow to work with.
 
 private:
     template <class T> void items(const QUrl &source);
@@ -353,7 +359,7 @@ private:
 
     QQuickView *m_view;
     QString testForView;
-    QTouchDevice *touchDevice = QTest::createTouchDevice();
+    QPointingDevice *touchDevice = QTest::createTouchDevice();
 };
 
 class TestObject : public QObject
@@ -395,7 +401,9 @@ public:
     int mCacheBuffer;
 };
 
-tst_QQuickListView::tst_QQuickListView() : m_view(nullptr)
+tst_QQuickListView::tst_QQuickListView()
+     : QQmlDataTest(QT_QMLTEST_DATADIR)
+     , m_view(nullptr)
 {
 }
 
@@ -2303,7 +2311,7 @@ void tst_QQuickListView::sectionsDragOutsideBounds()
     QFETCH(int, cacheBuffer);
 
     QQuickView *window = getView();
-    QQuickViewTestUtil::moveMouseAway(window);
+    QQuickViewTestUtils::moveMouseAway(window);
 
     QaimModel model;
     for (int i = 0; i < 10; i++)
@@ -3206,14 +3214,14 @@ void tst_QQuickListView::cacheBuffer()
         QVERIFY(findItem<QQuickItem>(listview, "wrapper", i) == nullptr);
         QQuickItem *item = nullptr;
         while (!item) {
-            bool b = false;
+            std::atomic<bool> b = false;
             controller.incubateWhile(&b);
             item = findItem<QQuickItem>(listview, "wrapper", i);
         }
     }
 
     {
-        bool b = true;
+        std::atomic<bool> b = true;
         controller.incubateWhile(&b);
     }
 
@@ -3245,14 +3253,14 @@ void tst_QQuickListView::cacheBuffer()
         QQuickItem *item = nullptr;
         while (!item) {
             qGuiApp->processEvents(); // allow refill to happen
-            bool b = false;
+            std::atomic<bool> b = false;
             controller.incubateWhile(&b);
             item = findItem<QQuickItem>(listview, "wrapper", i);
         }
     }
 
     {
-        bool b = true;
+        std::atomic<bool> b = true;
         controller.incubateWhile(&b);
     }
 
@@ -5164,7 +5172,7 @@ void tst_QQuickListView::marginsResize()
     QQuickView *window = getView();
 
     window->setSource(testFileUrl("margins2.qml"));
-    QQuickViewTestUtil::moveMouseAway(window);
+    QQuickViewTestUtils::moveMouseAway(window);
     window->show();
     QVERIFY(QTest::qWaitForWindowExposed(window));
 
@@ -5300,7 +5308,7 @@ void tst_QQuickListView::snapToItem()
     QFETCH(qreal, startExtent);
 
     QQuickView *window = getView();
-    QQuickViewTestUtil::moveMouseAway(window);
+    QQuickViewTestUtils::moveMouseAway(window);
 
     window->setSource(testFileUrl("snapToItem.qml"));
     window->show();
@@ -5488,9 +5496,9 @@ void tst_QQuickListView::headerSnapToItem()
     QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, startPos, 200);     // Wait 200 ms before we release to avoid trigger a flick
 
     // wait for the "fixup" animation to finish
-    QTest::qWaitFor([&]()
+    QVERIFY(QTest::qWaitFor([&]()
         { return !listview->isMoving();}
-    );
+    ));
 
     QCOMPARE(listview->contentPosition(), expectedContentPosition);
     QCOMPARE(listview->headerPosition(),  expectedHeaderPosition);
@@ -5984,7 +5992,7 @@ void tst_QQuickListView::snapOneItemResize_QTBUG_43555()
     QScopedPointer<QQuickView> window(createView());
     window->resize(QSize(100, 320));
     window->setResizeMode(QQuickView::SizeRootObjectToView);
-    QQuickViewTestUtil::moveMouseAway(window.data());
+    QQuickVisualTestUtils::moveMouseAway(window.data());
 
     window->setSource(testFileUrl("snapOneItemResize.qml"));
     window->show();
@@ -6196,7 +6204,7 @@ void tst_QQuickListView::asynchronous()
 
     QQuickListView *listview = nullptr;
     while (!listview) {
-        bool b = false;
+        std::atomic<bool> b = false;
         controller.incubateWhile(&b);
         listview = rootObject->findChild<QQuickListView*>("view");
     }
@@ -6206,14 +6214,14 @@ void tst_QQuickListView::asynchronous()
         QVERIFY(findItem<QQuickItem>(listview, "wrapper", i) == nullptr);
         QQuickItem *item = nullptr;
         while (!item) {
-            bool b = false;
+            std::atomic<bool> b = false;
             controller.incubateWhile(&b);
             item = findItem<QQuickItem>(listview, "wrapper", i);
         }
     }
 
     {
-        bool b = true;
+        std::atomic<bool> b = true;
         controller.incubateWhile(&b);
     }
 
@@ -6298,7 +6306,7 @@ void tst_QQuickListView::snapOneItem()
     qreal flickDuration = 180 * flickSlowdown;
 
     QQuickView *window = getView();
-    QQuickViewTestUtil::moveMouseAway(window);
+    QQuickViewTestUtils::moveMouseAway(window);
 
     window->setSource(testFileUrl("snapOneItem.qml"));
     window->show();
@@ -7905,7 +7913,7 @@ void tst_QQuickListView::matchIndexLists(const QVariantList &indexLists, const Q
 void tst_QQuickListView::matchItemsAndIndexes(const QVariantMap &items, const QaimModel &model, const QList<int> &expectedIndexes)
 {
     for (QVariantMap::const_iterator it = items.begin(); it != items.end(); ++it) {
-        QCOMPARE(it.value().type(), QVariant::Int);
+        QCOMPARE(it.value().typeId(), QMetaType::Int);
         QString name = it.key();
         int itemIndex = it.value().toInt();
         QVERIFY2(expectedIndexes.contains(itemIndex), qPrintable(QString("Index %1 not found in expectedIndexes").arg(itemIndex)));
@@ -7919,7 +7927,7 @@ void tst_QQuickListView::matchItemsAndIndexes(const QVariantMap &items, const Qa
 void tst_QQuickListView::matchItemLists(const QVariantList &itemLists, const QList<QQuickItem *> &expectedItems)
 {
     for (int i=0; i<itemLists.count(); i++) {
-        QCOMPARE(itemLists[i].type(), QVariant::List);
+        QCOMPARE(itemLists[i].typeId(), QMetaType::QVariantList);
         QVariantList current = itemLists[i].toList();
         for (int j=0; j<current.count(); j++) {
             QQuickItem *o = qobject_cast<QQuickItem*>(current[j].value<QObject*>());
@@ -7933,7 +7941,7 @@ void tst_QQuickListView::matchItemLists(const QVariantList &itemLists, const QLi
 void tst_QQuickListView::flickBeyondBounds()
 {
     QScopedPointer<QQuickView> window(createView());
-    QQuickViewTestUtil::moveMouseAway(window.data());
+    QQuickVisualTestUtils::moveMouseAway(window.data());
 
     window->setSource(testFileUrl("flickBeyondBoundsBug.qml"));
     window->show();
@@ -7975,7 +7983,7 @@ void tst_QQuickListView::flickBothDirections()
     QFETCH(QPointF, targetPos);
 
     QQuickView *window = getView();
-    QQuickViewTestUtil::moveMouseAway(window);
+    QQuickViewTestUtils::moveMouseAway(window);
 
     QQmlContext *ctxt = window->rootContext();
     ctxt->setContextProperty("initialOrientation", initValues ? orientation : QQuickListView::Vertical);
@@ -8069,6 +8077,13 @@ void tst_QQuickListView::destroyItemOnCreation()
 
 void tst_QQuickListView::parentBinding()
 {
+    // Ensure there's at least one mouse on every platform, to avoid the messageHandler seeing "no mouse-like devices registered"
+    QScopedPointer<QPointingDevice> fallbackMouse(
+            new QPointingDevice("test mouse", 1000, QInputDevice::DeviceType::Mouse, QPointingDevice::PointerType::Generic,
+                                QInputDevice::Capability::Position | QInputDevice::Capability::Hover | QInputDevice::Capability::Scroll,
+                                1, 5, QString(), QPointingDeviceUniqueId(), this));
+    QWindowSystemInterface::registerInputDevice(fallbackMouse.data());
+
     QScopedPointer<QQuickView> window(createView());
     QQmlTestMessageHandler messageHandler;
 
@@ -8141,7 +8156,7 @@ void tst_QQuickListView::delayedChanges_QTBUG_30555()
 void tst_QQuickListView::outsideViewportChangeNotAffectingView()
 {
     QScopedPointer<QQuickView> window(createView());
-    QQuickViewTestUtil::moveMouseAway(window.data());
+    QQuickVisualTestUtils::moveMouseAway(window.data());
     window->setSource(testFileUrl("outsideViewportChangeNotAffectingView.qml"));
 
     QQuickListView *listview = window->rootObject()->findChild<QQuickListView*>();
@@ -8175,7 +8190,7 @@ void tst_QQuickListView::outsideViewportChangeNotAffectingView()
 void tst_QQuickListView::testProxyModelChangedAfterMove()
 {
     QScopedPointer<QQuickView> window(createView());
-    QQuickViewTestUtil::moveMouseAway(window.data());
+    QQuickVisualTestUtils::moveMouseAway(window.data());
     window->setSource(testFileUrl("proxytest.qml"));
 
     QQuickListView *listview = window->rootObject()->findChild<QQuickListView*>();
@@ -8947,7 +8962,7 @@ void tst_QQuickListView::layoutChange()
     }
 }
 
-void tst_QQuickListView::QTBUG_39492_data()
+void tst_QQuickListView::treeDelegateModelLayoutChange_data()
 {
     QStandardItemModel *sourceModel = new QStandardItemModel(this);
     for (int i = 0; i < 5; ++i) {
@@ -8983,14 +8998,15 @@ void tst_QQuickListView::QTBUG_39492_data()
         << QPersistentModelIndex(sortModel->index(1, 0, rootIndex2));
 }
 
-void tst_QQuickListView::QTBUG_39492()
+void tst_QQuickListView::treeDelegateModelLayoutChange() // QTBUG-39492
 {
     QFETCH(QSortFilterProxyModel*, model);
     QFETCH(QPersistentModelIndex, rootIndex);
 
+    qmlRegisterSingletonInstance("Qt.treemodel", 1, 0, "TreeModelCpp", model);
+
     QQuickView *window = getView();
-    window->rootContext()->setContextProperty("testModel", QVariant::fromValue(model));
-    window->setSource(testFileUrl("qtbug39492.qml"));
+    window->setSource(testFileUrl("treeDelegateModel.qml"));
 
     QQuickListView *listview = window->rootObject()->findChild<QQuickListView *>("listView");
     QVERIFY(listview);
@@ -9495,7 +9511,7 @@ void tst_QQuickListView::itemFiltered()
     QSortFilterProxyModel proxy2;
     proxy2.setSourceModel(&proxy1);
     proxy2.setFilterRole(Qt::DisplayRole);
-    proxy2.setFilterRegExp("^[^ ]*$");
+    proxy2.setFilterRegularExpression("^[^ ]*$");
     proxy2.setDynamicSortFilter(true);
 
     QScopedPointer<QQuickView> window(createView());
@@ -9673,8 +9689,7 @@ void tst_QQuickListView::touchCancel() // QTBUG-74679
     // and because Flickable filtered it, QQuickFlickablePrivate::pressed
     // should be true, but it's not easily tested here
 
-    QTouchEvent cancelEvent(QEvent::TouchCancel);
-    cancelEvent.setDevice(touchDevice);
+    QTouchEvent cancelEvent(QEvent::TouchCancel, touchDevice);
     QCoreApplication::sendEvent(window.data(), &cancelEvent);
     // now QQuickWindowPrivate::sendUngrabEvent() will be called, Flickable will filter it,
     // QQuickFlickablePrivate::pressed will be set to false, and that will allow setCurrentIndex() to make it move
@@ -9905,7 +9920,7 @@ void tst_QQuickListView::reuse_checkThatItemsAreReused()
 void tst_QQuickListView::dragOverFloatingHeaderOrFooter() // QTBUG-74046
 {
     QQuickView *window = getView();
-    QQuickViewTestUtil::moveMouseAway(window);
+    QQuickViewTestUtils::moveMouseAway(window);
     window->setSource(testFileUrl("qtbug63974.qml"));
     window->show();
     QVERIFY(QTest::qWaitForWindowExposed(window));
@@ -10093,6 +10108,22 @@ void tst_QQuickListView::clickHeaderAndFooterWhenClip() // QTBUG-85302
     QTest::mouseClick(window.data(), Qt::LeftButton, Qt::NoModifier, footer->mapToItem(root, QPoint(footer->width() / 2, footer->height() / 2)).toPoint());
     QVERIFY(root->property("footerPressed").toBool());
 }
+
+void tst_QQuickListView::animatedDelegate()
+{
+    // QTBUG-86567: Should not crash
+    QScopedPointer<QQuickView> window(createView());
+    window->setSource(testFileUrl("animatedDelegate.qml"));
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window.data()));
+
+    for (int i = 0; i < 100; ++i) {
+        QMetaObject::invokeMethod(window->rootObject(), "refreshModel");
+        QTest::qWait(10);
+    }
+}
+
+// WARNING: please add new tests to tst_qquicklistview2; this file is too slow to work with.
 
 QTEST_MAIN(tst_QQuickListView)
 

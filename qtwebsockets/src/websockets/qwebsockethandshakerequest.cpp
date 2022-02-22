@@ -119,7 +119,7 @@ bool QWebSocketHandshakeRequest::isValid() const
 /*!
     \internal
  */
-QMap<QString, QString> QWebSocketHandshakeRequest::headers() const
+QMultiMap<QString, QString> QWebSocketHandshakeRequest::headers() const
 {
     return m_headers;
 }
@@ -230,7 +230,7 @@ void QWebSocketHandshakeRequest::readHandshake(QTextStream &textStream, int maxH
         clear();
         return;
     }
-    const QStringList tokens = requestLine.split(' ', Qt::SkipEmptyParts);
+    const QStringList tokens = requestLine.split(QLatin1Char(' '), Qt::SkipEmptyParts);
     if (Q_UNLIKELY(tokens.length() < 3)) {
         clear();
         return;
@@ -239,7 +239,7 @@ void QWebSocketHandshakeRequest::readHandshake(QTextStream &textStream, int maxH
     const QString resourceName(tokens.at(1));
     const QString httpProtocol(tokens.at(2));
     bool conversionOk = false;
-    const float httpVersion = httpProtocol.midRef(5).toFloat(&conversionOk);
+    const float httpVersion = QStringView(httpProtocol).mid(5).toFloat(&conversionOk);
 
     if (Q_UNLIKELY(!conversionOk)) {
         clear();

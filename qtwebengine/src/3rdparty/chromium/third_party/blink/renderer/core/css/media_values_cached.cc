@@ -6,8 +6,10 @@
 
 #include "third_party/blink/public/common/css/forced_colors.h"
 #include "third_party/blink/public/common/css/navigation_controls.h"
-#include "third_party/blink/public/common/css/preferred_color_scheme.h"
+#include "third_party/blink/public/mojom/css/preferred_color_scheme.mojom-blink.h"
+#include "third_party/blink/public/mojom/css/preferred_contrast.mojom-blink.h"
 #include "third_party/blink/renderer/core/css/css_primitive_value.h"
+#include "third_party/blink/renderer/core/css/media_values.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
@@ -23,27 +25,29 @@ MediaValuesCached::MediaValuesCachedData::MediaValuesCachedData()
       device_pixel_ratio(1.0),
       color_bits_per_component(24),
       monochrome_bits_per_component(0),
-      primary_pointer_type(kPointerTypeNone),
-      available_pointer_types(kPointerTypeNone),
-      primary_hover_type(kHoverTypeNone),
-      available_hover_types(kHoverTypeNone),
+      primary_pointer_type(mojom::blink::PointerType::kPointerNone),
+      available_pointer_types(ui::POINTER_TYPE_NONE),
+      primary_hover_type(mojom::blink::HoverType::kHoverNone),
+      available_hover_types(ui::HOVER_TYPE_NONE),
       default_font_size(16),
       three_d_enabled(false),
       immersive_mode(false),
       strict_mode(true),
       display_mode(blink::mojom::DisplayMode::kBrowser),
-      display_shape(kDisplayShapeRect),
       color_gamut(ColorSpaceGamut::kUnknown),
-      preferred_color_scheme(PreferredColorScheme::kNoPreference),
+      preferred_color_scheme(mojom::blink::PreferredColorScheme::kLight),
+      preferred_contrast(mojom::blink::PreferredContrast::kNoPreference),
       prefers_reduced_motion(false),
       forced_colors(ForcedColors::kNone),
-      navigation_controls(NavigationControls::kNone) {}
+      navigation_controls(NavigationControls::kNone),
+      screen_spanning(ScreenSpanning::kNone),
+      screen_fold_posture(ScreenFoldPosture::kNoFold) {}
 
 MediaValuesCached::MediaValuesCachedData::MediaValuesCachedData(
     Document& document)
     : MediaValuesCached::MediaValuesCachedData() {
   DCHECK(IsMainThread());
-  LocalFrame* frame = document.GetFrameOfMasterDocument();
+  LocalFrame* frame = document.GetFrameOfTreeRootDocument();
   // TODO(hiroshige): Clean up |frame->view()| conditions.
   DCHECK(!frame || frame->View());
   if (frame && frame->View()) {
@@ -74,12 +78,15 @@ MediaValuesCached::MediaValuesCachedData::MediaValuesCachedData(
     strict_mode = MediaValues::CalculateStrictMode(frame);
     display_mode = MediaValues::CalculateDisplayMode(frame);
     media_type = MediaValues::CalculateMediaType(frame);
-    display_shape = MediaValues::CalculateDisplayShape(frame);
     color_gamut = MediaValues::CalculateColorGamut(frame);
     preferred_color_scheme = MediaValues::CalculatePreferredColorScheme(frame);
+    preferred_contrast = MediaValues::CalculatePreferredContrast(frame);
     prefers_reduced_motion = MediaValues::CalculatePrefersReducedMotion(frame);
+    prefers_reduced_data = MediaValues::CalculatePrefersReducedData(frame);
     forced_colors = MediaValues::CalculateForcedColors();
     navigation_controls = MediaValues::CalculateNavigationControls(frame);
+    screen_spanning = MediaValues::CalculateScreenSpanning(frame);
+    screen_fold_posture = MediaValues::CalculateScreenFoldPosture(frame);
   }
 }
 
@@ -136,7 +143,7 @@ int MediaValuesCached::MonochromeBitsPerComponent() const {
   return data_.monochrome_bits_per_component;
 }
 
-PointerType MediaValuesCached::PrimaryPointerType() const {
+mojom::blink::PointerType MediaValuesCached::PrimaryPointerType() const {
   return data_.primary_pointer_type;
 }
 
@@ -144,7 +151,7 @@ int MediaValuesCached::AvailablePointerTypes() const {
   return data_.available_pointer_types;
 }
 
-HoverType MediaValuesCached::PrimaryHoverType() const {
+mojom::blink::HoverType MediaValuesCached::PrimaryHoverType() const {
   return data_.primary_hover_type;
 }
 
@@ -186,20 +193,26 @@ void MediaValuesCached::OverrideViewportDimensions(double width,
   data_.viewport_height = height;
 }
 
-DisplayShape MediaValuesCached::GetDisplayShape() const {
-  return data_.display_shape;
-}
-
 ColorSpaceGamut MediaValuesCached::ColorGamut() const {
   return data_.color_gamut;
 }
 
-PreferredColorScheme MediaValuesCached::GetPreferredColorScheme() const {
+mojom::blink::PreferredColorScheme MediaValuesCached::GetPreferredColorScheme()
+    const {
   return data_.preferred_color_scheme;
+}
+
+mojom::blink::PreferredContrast MediaValuesCached::GetPreferredContrast()
+    const {
+  return data_.preferred_contrast;
 }
 
 bool MediaValuesCached::PrefersReducedMotion() const {
   return data_.prefers_reduced_motion;
+}
+
+bool MediaValuesCached::PrefersReducedData() const {
+  return data_.prefers_reduced_data;
 }
 
 ForcedColors MediaValuesCached::GetForcedColors() const {
@@ -208,6 +221,14 @@ ForcedColors MediaValuesCached::GetForcedColors() const {
 
 NavigationControls MediaValuesCached::GetNavigationControls() const {
   return data_.navigation_controls;
+}
+
+ScreenSpanning MediaValuesCached::GetScreenSpanning() const {
+  return data_.screen_spanning;
+}
+
+ScreenFoldPosture MediaValuesCached::GetScreenFoldPosture() const {
+  return data_.screen_fold_posture;
 }
 
 }  // namespace blink

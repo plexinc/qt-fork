@@ -154,7 +154,9 @@
 #if QT_CONFIG(whatsthis)
 #include <QWhatsThis>
 #endif
+#if QT_CONFIG(tooltip)
 #include <QToolTip>
+#endif
 #if QT_CONFIG(mainwindow)
 #include <QMainWindow>
 #endif
@@ -162,7 +164,9 @@
 #include <QDebug>
 #include <QMdiArea>
 #include <QScopedValueRollback>
-#include <QAction>
+#if QT_CONFIG(action)
+#  include <qaction.h>
+#endif
 #if QT_CONFIG(menu)
 #include <QMenu>
 #endif
@@ -259,11 +263,28 @@ static inline ControlElement<T> *ptr(QWidget *widget)
     return nullptr;
 }
 
+QString QMdiSubWindowPrivate::originalWindowTitleHelper() const
+{
+    Q_Q(const QMdiSubWindow);
+    // QTBUG-92240: When DontMaximizeSubWindowOnActivation is set and
+    // there is another subwindow maximized, use its original title.
+    if (auto *mdiArea = q->mdiArea()) {
+        const auto &subWindows = mdiArea->subWindowList();
+        for (auto *subWindow : subWindows) {
+            if (subWindow != q && subWindow->isMaximized()) {
+                auto *subWindowD = static_cast<QMdiSubWindowPrivate *>(qt_widget_private(subWindow));
+                if (!subWindowD->originalTitle.isNull())
+                    return subWindowD->originalTitle;
+            }
+        }
+    }
+    return q->window()->windowTitle();
+}
+
 QString QMdiSubWindowPrivate::originalWindowTitle()
 {
-    Q_Q(QMdiSubWindow);
     if (originalTitle.isNull()) {
-        originalTitle = q->window()->windowTitle();
+        originalTitle = originalWindowTitleHelper();
         if (originalTitle.isNull())
             originalTitle = QLatin1String("");
     }
@@ -278,11 +299,17 @@ void QMdiSubWindowPrivate::setNewWindowTitle()
         return;
     QString original = originalWindowTitle();
     if (!original.isEmpty()) {
-        if (!original.contains(QMdiSubWindow::tr("- [%1]").arg(childTitle)))
-            q->window()->setWindowTitle(QMdiSubWindow::tr("%1 - [%2]").arg(original, childTitle));
+        if (!original.contains(QMdiSubWindow::tr("- [%1]").arg(childTitle))) {
+            auto title = QMdiSubWindow::tr("%1 - [%2]").arg(original, childTitle);
+            ignoreWindowTitleChange = true;
+            q->window()->setWindowTitle(title);
+            ignoreWindowTitleChange = false;
+        }
 
     } else {
+        ignoreWindowTitleChange = true;
         q->window()->setWindowTitle(childTitle);
+        ignoreWindowTitleChange = false;
     }
 }
 
@@ -291,7 +318,7 @@ static inline bool isHoverControl(QStyle::SubControl control)
     return control != QStyle::SC_None && control != QStyle::SC_TitleBarLabel;
 }
 
-#ifndef QT_NO_TOOLTIP
+#if QT_CONFIG(tooltip)
 static void showToolTip(QHelpEvent *helpEvent, QWidget *widget, const QStyleOptionComplex &opt,
                         QStyle::ComplexControl complexControl, QStyle::SubControl subControl)
 {
@@ -356,7 +383,7 @@ static void showToolTip(QHelpEvent *helpEvent, QWidget *widget, const QStyleOpti
     const QRect rect = widget->style()->subControlRect(complexControl, &opt, subControl, widget);
     QToolTip::showText(helpEvent->globalPos(), toolTip, widget, rect);
 }
-#endif // QT_NO_TOOLTIP
+#endif // QT_CONFIG(tooltip)
 
 namespace QMdi {
 /*
@@ -395,7 +422,7 @@ ControlLabel::ControlLabel(QMdiSubWindow *subWindow, QWidget *parent)
     Q_UNUSED(subWindow);
     setFocusPolicy(Qt::NoFocus);
     updateWindowIcon();
-    setFixedSize(label.size());
+    setFixedSize(label.size() / label.devicePixelRatio());
 }
 
 /*
@@ -403,7 +430,7 @@ ControlLabel::ControlLabel(QMdiSubWindow *subWindow, QWidget *parent)
 */
 QSize ControlLabel::sizeHint() const
 {
-    return label.size();
+    return label.size() / label.devicePixelRatio();
 }
 
 /*
@@ -417,7 +444,7 @@ bool ControlLabel::event(QEvent *event)
         updateWindowIcon();
         setFixedSize(label.size());
     }
-#ifndef QT_NO_TOOLTIP
+#if QT_CONFIG(tooltip)
     else if (event->type() == QEvent::ToolTip) {
         QStyleOptionTitleBar options;
         options.initFrom(this);
@@ -612,7 +639,7 @@ void ControllerWidget::mousePressEvent(QMouseEvent *event)
         event->ignore();
         return;
     }
-    activeControl = getSubControl(event->pos());
+    activeControl = getSubControl(event->position().toPoint());
     update();
 }
 
@@ -626,7 +653,7 @@ void ControllerWidget::mouseReleaseEvent(QMouseEvent *event)
         return;
     }
 
-    QStyle::SubControl under_mouse = getSubControl(event->pos());
+    QStyle::SubControl under_mouse = getSubControl(event->position().toPoint());
     if (under_mouse == activeControl) {
         switch (activeControl) {
         case QStyle::SC_MdiCloseButton:
@@ -652,7 +679,7 @@ void ControllerWidget::mouseReleaseEvent(QMouseEvent *event)
 */
 void ControllerWidget::mouseMoveEvent(QMouseEvent *event)
 {
-    QStyle::SubControl under_mouse = getSubControl(event->pos());
+    QStyle::SubControl under_mouse = getSubControl(event->position().toPoint());
     //test if hover state changes
     if (hoverControl != under_mouse) {
         hoverControl = under_mouse;
@@ -674,14 +701,14 @@ void ControllerWidget::leaveEvent(QEvent * /*event*/)
 */
 bool ControllerWidget::event(QEvent *event)
 {
-#ifndef QT_NO_TOOLTIP
+#if QT_CONFIG(tooltip)
     if (event->type() == QEvent::ToolTip) {
         QStyleOptionComplex opt;
         initStyleOption(&opt);
         QHelpEvent *helpEvent = static_cast<QHelpEvent *>(event);
         showToolTip(helpEvent, this, opt, QStyle::CC_MdiControls, getSubControl(helpEvent->pos()));
     }
-#endif // QT_NO_TOOLTIP
+#endif // QT_CONFIG(tooltip)
     return QWidget::event(event);
 }
 
@@ -740,7 +767,7 @@ ControlContainer::~ControlContainer()
 QMenuBar *QMdiSubWindowPrivate::menuBar() const
 {
 #if !QT_CONFIG(mainwindow)
-    return 0;
+    return nullptr;
 #else
     Q_Q(const QMdiSubWindow);
     if (!q->isMaximized() || drawTitleBarWhenMaximized() || isChildOfTabbedQMdiArea(q))
@@ -898,7 +925,7 @@ QMdiSubWindowPrivate::QMdiSubWindowPrivate()
 */
 void QMdiSubWindowPrivate::_q_updateStaysOnTopHint()
 {
-#ifndef QT_NO_ACTION
+#if QT_CONFIG(action)
     Q_Q(QMdiSubWindow);
     if (QAction *senderAction = qobject_cast<QAction *>(q->sender())) {
         if (senderAction->isChecked()) {
@@ -909,7 +936,7 @@ void QMdiSubWindowPrivate::_q_updateStaysOnTopHint()
             q->lower();
         }
     }
-#endif // QT_NO_ACTION
+#endif // QT_CONFIG(action)
 }
 
 /*!
@@ -2658,12 +2685,12 @@ bool QMdiSubWindow::eventFilter(QObject *object, QEvent *event)
     if (d->systemMenu && d->systemMenu == object) {
         if (event->type() == QEvent::MouseButtonDblClick) {
             const QMouseEvent *mouseEvent = static_cast<const QMouseEvent *>(event);
-            const QAction *action = d->systemMenu->actionAt(mouseEvent->pos());
+            const QAction *action = d->systemMenu->actionAt(mouseEvent->position().toPoint());
             if (!action || action->isEnabled())
                 close();
         } else if (event->type() == QEvent::MouseMove) {
             QMouseEvent *mouseEvent = static_cast<QMouseEvent *>(event);
-            d->hoveredSubControl = d->getSubControl(mapFromGlobal(mouseEvent->globalPos()));
+            d->hoveredSubControl = d->getSubControl(mapFromGlobal(mouseEvent->globalPosition().toPoint()));
         } else if (event->type() == QEvent::Hide) {
             d->activeSubControl = QStyle::SC_None;
             update(QRegion(0, 0, width(), d->titleBarHeight()));
@@ -2677,7 +2704,7 @@ bool QMdiSubWindow::eventFilter(QObject *object, QEvent *event)
         if (event->type() != QEvent::MouseButtonPress || !testOption(QMdiSubWindow::RubberBandResize))
             return QWidget::eventFilter(object, event);
         const QMouseEvent *mouseEvent = static_cast<QMouseEvent *>(event);
-        d->mousePressPosition = parentWidget()->mapFromGlobal(mouseEvent->globalPos());
+        d->mousePressPosition = parentWidget()->mapFromGlobal(mouseEvent->globalPosition().toPoint());
         d->oldGeometry = geometry();
         d->currentOperation = isLeftToRight() ? QMdiSubWindowPrivate::BottomRightResize
                                               : QMdiSubWindowPrivate::BottomLeftResize;
@@ -2875,7 +2902,7 @@ bool QMdiSubWindow::event(QEvent *event)
     case QEvent::FontChange:
         d->font = font();
         break;
-#ifndef QT_NO_TOOLTIP
+#if QT_CONFIG(tooltip)
     case QEvent::ToolTip:
         showToolTip(static_cast<QHelpEvent *>(event), this, d->titleBarOptions(),
                     QStyle::CC_TitleBar, d->hoveredSubControl);
@@ -3172,7 +3199,7 @@ void QMdiSubWindow::mousePressEvent(QMouseEvent *mouseEvent)
 
     if (d->currentOperation != QMdiSubWindowPrivate::None) {
         d->updateCursor();
-        d->mousePressPosition = mapToParent(mouseEvent->pos());
+        d->mousePressPosition = mapToParent(mouseEvent->position().toPoint());
         if (d->resizeEnabled || d->moveEnabled)
             d->oldGeometry = geometry();
 #if QT_CONFIG(rubberband)
@@ -3263,10 +3290,10 @@ void QMdiSubWindow::mouseReleaseEvent(QMouseEvent *mouseEvent)
             d->oldGeometry = geometry();
     }
 
-    d->currentOperation = d->getOperation(mouseEvent->pos());
+    d->currentOperation = d->getOperation(mouseEvent->position().toPoint());
     d->updateCursor();
 
-    d->hoveredSubControl = d->getSubControl(mouseEvent->pos());
+    d->hoveredSubControl = d->getSubControl(mouseEvent->position().toPoint());
     if (d->activeSubControl != QStyle::SC_None
             && d->activeSubControl == d->hoveredSubControl) {
         d->processClickedSubControl();
@@ -3291,7 +3318,7 @@ void QMdiSubWindow::mouseMoveEvent(QMouseEvent *mouseEvent)
         // Find previous and current hover region.
         const QStyleOptionTitleBar options = d->titleBarOptions();
         QStyle::SubControl oldHover = d->hoveredSubControl;
-        d->hoveredSubControl = d->getSubControl(mouseEvent->pos());
+        d->hoveredSubControl = d->getSubControl(mouseEvent->position().toPoint());
         QRegion hoverRegion;
         if (isHoverControl(oldHover) && oldHover != d->hoveredSubControl)
             hoverRegion += style()->subControlRect(QStyle::CC_TitleBar, &options, oldHover, this);
@@ -3311,13 +3338,13 @@ void QMdiSubWindow::mouseMoveEvent(QMouseEvent *mouseEvent)
         if ((d->isResizeOperation() && d->resizeEnabled) || (d->isMoveOperation() && d->moveEnabled)) {
             // As setNewGeometry moves the window, it invalidates the pos() value of any mouse move events that are
             // currently queued in the event loop. Map to parent using globalPos() instead.
-            d->setNewGeometry(parentWidget()->mapFromGlobal(mouseEvent->globalPos()));
+            d->setNewGeometry(parentWidget()->mapFromGlobal(mouseEvent->globalPosition().toPoint()));
         }
         return;
     }
 
     // Do not resize/move if not allowed.
-    d->currentOperation = d->getOperation(mouseEvent->pos());
+    d->currentOperation = d->getOperation(mouseEvent->position().toPoint());
     if ((d->isResizeOperation() && !d->resizeEnabled) || (d->isMoveOperation() && !d->moveEnabled))
         d->currentOperation = QMdiSubWindowPrivate::None;
     d->updateCursor();
@@ -3517,7 +3544,7 @@ QSize QMdiSubWindow::minimumSizeHint() const
     minHeight = qMax(minHeight, decorationHeight + sizeGripHeight);
 #endif
 
-    return QSize(minWidth, minHeight).expandedTo(QApplication::globalStrut());
+    return QSize(minWidth, minHeight);
 }
 
 QT_END_NAMESPACE

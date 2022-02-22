@@ -59,9 +59,9 @@ const char *GetPathSeparatorForEnvironmentVar()
 std::string GetHelperExecutableDir()
 {
     std::string directory;
-    static int dummySymbol = 0;
+    static int placeholderSymbol = 0;
     Dl_info dlInfo;
-    if (dladdr(&dummySymbol, &dlInfo) != 0)
+    if (dladdr(&placeholderSymbol, &dlInfo) != 0)
     {
         std::string moduleName = dlInfo.dli_fname;
         directory              = moduleName.substr(0, moduleName.find_last_of('/') + 1);
@@ -72,21 +72,7 @@ std::string GetHelperExecutableDir()
 class PosixLibrary : public Library
 {
   public:
-    PosixLibrary(const char *libraryName, SearchType searchType)
-    {
-        std::string directory;
-        if (searchType == SearchType::ApplicationDir)
-        {
-            directory = GetHelperExecutableDir();
-        }
-
-        std::string fullPath = directory + libraryName + "." + GetSharedLibraryExtension();
-        mModule              = dlopen(fullPath.c_str(), RTLD_NOW);
-        if (!mModule)
-        {
-            std::cerr << "Failed to load " << libraryName << ": " << dlerror() << std::endl;
-        }
-    }
+    PosixLibrary(const std::string &fullPath) : mModule(dlopen(fullPath.c_str(), RTLD_NOW)) {}
 
     ~PosixLibrary() override
     {
@@ -114,7 +100,28 @@ class PosixLibrary : public Library
 
 Library *OpenSharedLibrary(const char *libraryName, SearchType searchType)
 {
-    return new PosixLibrary(libraryName, searchType);
+    std::string directory;
+    if (searchType == SearchType::ApplicationDir)
+    {
+#if ANGLE_PLATFORM_IOS
+        // On iOS, shared libraries must be loaded from within the app bundle.
+        directory = GetExecutableDirectory() + "/Frameworks/";
+#else
+        directory = GetHelperExecutableDir();
+#endif
+    }
+
+    std::string fullPath = directory + libraryName + "." + GetSharedLibraryExtension();
+#if ANGLE_PLATFORM_IOS
+    // On iOS, dlopen needs a suffix on the framework name to work.
+    fullPath = fullPath + "/" + libraryName;
+#endif
+    return new PosixLibrary(fullPath);
+}
+
+Library *OpenSharedLibraryWithExtension(const char *libraryName)
+{
+    return new PosixLibrary(libraryName);
 }
 
 bool IsDirectory(const char *filename)

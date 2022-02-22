@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the Qt Charts module of the Qt Toolkit.
@@ -49,7 +49,7 @@
 #include <QtWidgets/QGraphicsLayoutItem>
 #include <QtCharts/private/qchartglobal_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class QLegendMarkerPrivate;
 
@@ -61,7 +61,11 @@ public:
     enum ItemType {
         TypeRect,
         TypeLine,
-        TypeCircle
+        TypeCircle,
+        TypeRotatedRect,
+        TypeTriangle,
+        TypeStar,
+        TypePentagon
     };
 
     explicit LegendMarkerItem(QLegendMarkerPrivate *marker, QGraphicsObject *parent = nullptr);
@@ -75,6 +79,7 @@ public:
 
     void setSeriesPen(const QPen &pen);
     void setSeriesBrush(const QBrush &brush);
+    void setSeriesLightMarker(const QImage &image);
 
     void setFont(const QFont &font);
     QFont font() const;
@@ -85,15 +90,15 @@ public:
     void setLabelBrush(const QBrush &brush);
     QBrush labelBrush() const;
 
-    void setGeometry(const QRectF &rect);
-    QRectF boundingRect() const;
+    void setGeometry(const QRectF &rect) override;
+    QRectF boundingRect() const override;
     QRectF markerRect() const;
 
-    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option,QWidget *widget = nullptr);
-    QSizeF sizeHint (Qt::SizeHint which, const QSizeF &constraint) const;
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option,QWidget *widget = nullptr) override;
+    QSizeF sizeHint (Qt::SizeHint which, const QSizeF &constraint) const override;
 
-    void hoverEnterEvent(QGraphicsSceneHoverEvent *event);
-    void hoverLeaveEvent(QGraphicsSceneHoverEvent *event);
+    void hoverEnterEvent(QGraphicsSceneHoverEvent *event) override;
+    void hoverLeaveEvent(QGraphicsSceneHoverEvent *event) override;
 
     QString displayedLabel() const;
     void setToolTip(const QString &tooltip);
@@ -125,6 +130,7 @@ protected:
     qreal m_space;
     QString m_label;
     QLegend::MarkerShape m_markerShape;
+    QImage m_seriesLightMarker;
 
     QBrush m_labelBrush;
     QPen m_pen;
@@ -141,6 +147,6 @@ protected:
     friend class LegendLayout;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // LEGENDMARKERITEM_P_H

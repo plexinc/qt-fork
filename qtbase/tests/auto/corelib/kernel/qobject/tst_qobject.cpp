@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Copyright (C) 2015 Olivier Goffart <ogoffart@woboq.com>
 ** Contact: https://www.qt.io/licensing/
 **
@@ -27,10 +27,20 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+// This test actually wants to practice narrowing conditions, so never define this.
+#ifdef QT_NO_NARROWING_CONVERSIONS_IN_CONNECT
+#undef QT_NO_NARROWING_CONVERSIONS_IN_CONNECT
+#endif
+
+#include <QTest>
+#include <QtTest/private/qpropertytesthelper_p.h>
+#include <QStringListModel>
+#include <QAbstractEventDispatcher>
+#include <QScopedValueRollback>
 
 #include <qcoreapplication.h>
 #include <qpointer.h>
+#include <qproperty.h>
 #include <qtimer.h>
 #include <qregularexpression.h>
 #include <qmetaobject.h>
@@ -48,6 +58,8 @@
 #ifdef QT_BUILD_INTERNAL
 #include <private/qobject_p.h>
 #endif
+
+#include <functional>
 
 #include <math.h>
 
@@ -69,6 +81,7 @@ private slots:
     void disconnectNotify_metaObjConnection();
     void connectNotify_connectSlotsByName();
     void connectDisconnectNotify_shadowing();
+    void connectReferenceToIncompleteTypes();
     void emitInDefinedOrder();
     void customTypes();
     void streamCustomTypes();
@@ -81,9 +94,6 @@ private slots:
     void senderTest();
     void declareInterface();
     void qpointerResetBeforeDestroyedSignal();
-#ifndef QT_NO_USERDATA
-    void testUserData();
-#endif
     void childDeletesItsSibling();
     void dynamicProperties();
     void floatProperty();
@@ -149,14 +159,16 @@ private slots:
     void connectBase();
     void connectWarnings();
     void qmlConnect();
+    void qmlConnectToQObjectReceiver();
     void exceptions();
-    void noDeclarativeParentChangedOnDestruction();
     void deleteLaterInAboutToBlockHandler();
     void mutableFunctor();
     void checkArgumentsForNarrowing();
     void nullReceiver();
     void functorReferencesConnection();
     void disconnectDisconnects();
+    void singleShotConnection();
+    void objectNameBinding();
 };
 
 struct QObjectCreatedOnShutdown
@@ -210,7 +222,11 @@ protected:
     Q_INVOKABLE QT_MOC_COMPAT void invoke2(int){}
     Q_SCRIPTABLE QT_MOC_COMPAT void sinvoke2(){}
 private:
-    Q_INVOKABLE void invoke3(int hinz = 0, int kunz = 0){Q_UNUSED(hinz) Q_UNUSED(kunz)}
+    Q_INVOKABLE void invoke3(int hinz = 0, int kunz = 0)
+    {
+        Q_UNUSED(hinz);
+        Q_UNUSED(kunz);
+    }
     Q_SCRIPTABLE void sinvoke3(){}
 
     int recursionCount;
@@ -429,15 +445,12 @@ public:
 
 public slots:
     void on_Sender_signalNoParams() { called_slots << 1; }
-    void on_Sender_signalWithParams(int i = 0) { called_slots << 2; Q_UNUSED(i); }
-    void on_Sender_signalWithParams(int i, QString string) { called_slots << 3; Q_UNUSED(i);Q_UNUSED(string); }
+    void on_Sender_signalWithParams(int = 0) { called_slots << 2; }
+    void on_Sender_signalWithParams(int, QString) { called_slots << 3; }
     void on_Sender_signalManyParams() { called_slots << 4; }
-    void on_Sender_signalManyParams(int i1, int i2, int i3, QString string, bool onoff)
-    { called_slots << 5; Q_UNUSED(i1);Q_UNUSED(i2);Q_UNUSED(i3);Q_UNUSED(string);Q_UNUSED(onoff); }
-    void on_Sender_signalManyParams(int i1, int i2, int i3, QString string, bool onoff, bool dummy)
-    { called_slots << 6; Q_UNUSED(i1);Q_UNUSED(i2);Q_UNUSED(i3);Q_UNUSED(string);Q_UNUSED(onoff); Q_UNUSED(dummy);}
-    void on_Sender_signalManyParams2(int i1, int i2, int i3, QString string, bool onoff)
-    { called_slots << 7; Q_UNUSED(i1);Q_UNUSED(i2);Q_UNUSED(i3);Q_UNUSED(string);Q_UNUSED(onoff); }
+    void on_Sender_signalManyParams(int, int, int, QString, bool) { called_slots << 5; }
+    void on_Sender_signalManyParams(int, int, int, QString, bool, bool) { called_slots << 6; }
+    void on_Sender_signalManyParams2(int, int, int, QString, bool) { called_slots << 7; }
     void slotLoopBack() { called_slots << 8; }
     void on_Receiver_signalNoParams() { called_slots << 9; }
     void on_Receiver_signal_with_underscore() { called_slots << 10; }
@@ -463,7 +476,7 @@ void tst_QObject::connectSlotsByName()
     sender.setObjectName("Sender");
 
     QTest::ignoreMessage(QtWarningMsg, "QMetaObject::connectSlotsByName: No matching signal for on_child_signal()");
-    QTest::ignoreMessage(QtWarningMsg, "QMetaObject::connectSlotsByName: Connecting slot on_Sender_signalManyParams() with the first of the following compatible signals: (\"signalManyParams(int,int,int,QString,bool)\", \"signalManyParams(int,int,int,QString,bool,bool)\")");
+    QTest::ignoreMessage(QtWarningMsg, "QMetaObject::connectSlotsByName: Connecting slot on_Sender_signalManyParams() with the first of the following compatible signals: QList(\"signalManyParams(int,int,int,QString,bool)\", \"signalManyParams(int,int,int,QString,bool,bool)\")");
     QMetaObject::connectSlotsByName(&receiver);
 
     receiver.called_slots.clear();
@@ -536,7 +549,7 @@ void tst_QObject::findChildren()
     Q_SET_OBJECT_NAME(t121);
     emptyname.setObjectName("");
 
-    QObject *op = 0;
+    QObject *op = nullptr;
 
     op = o.findChild<QObject*>("o1");
     QCOMPARE(op, &o1);
@@ -775,9 +788,9 @@ public:
         disconnectedSignals.clear();
     }
 protected:
-    void connectNotify(const QMetaMethod &signal)
+    void connectNotify(const QMetaMethod &signal) override
     { connectedSignals.append(signal); }
-    void disconnectNotify(const QMetaMethod &signal)
+    void disconnectNotify(const QMetaMethod &signal) override
     { disconnectedSignals.append(signal); }
 };
 
@@ -878,6 +891,25 @@ void tst_QObject::connectDisconnectNotify()
     QCOMPARE(s.disconnectedSignals.size(), 1);
     QCOMPARE(s.disconnectedSignals.at(0), signal);
     QCOMPARE(s.connectedSignals.size(), 1);
+}
+
+struct Incomplete;
+class QObjectWithIncomplete : public QObject {
+    Q_OBJECT
+
+public:
+    QObjectWithIncomplete(QObject *parent=nullptr) : QObject(parent) {}
+signals:
+    void signalWithIncomplete(const Incomplete &);
+public slots:
+    void slotWithIncomplete(const Incomplete &) {}
+};
+
+void tst_QObject::connectReferenceToIncompleteTypes() {
+    QObjectWithIncomplete withIncomplete;
+    auto connection = QObject::connect(&withIncomplete, &QObjectWithIncomplete::signalWithIncomplete,
+                                       &withIncomplete, &QObjectWithIncomplete::slotWithIncomplete);
+    QVERIFY(connection);
 }
 
 static void connectDisconnectNotifyTestSlot() {}
@@ -1002,9 +1034,9 @@ public:
         disconnectedSignals.clear();
     }
 protected:
-    void connectNotify(const QMetaMethod &signal)
+    void connectNotify(const QMetaMethod &signal) override
     { connectedSignals.append(signal); }
-    void disconnectNotify(const QMetaMethod &signal)
+    void disconnectNotify(const QMetaMethod &signal) override
     { disconnectedSignals.append(signal); }
 Q_SIGNALS:
     void signal1();
@@ -1407,6 +1439,20 @@ struct CustomType
     int value() { return i1 + i2 + i3; }
 };
 
+QDataStream &operator<<(QDataStream &stream, const CustomType &ct)
+{
+    stream << ct.i1 << ct.i2 << ct.i3;
+    return stream;
+}
+
+QDataStream &operator>>(QDataStream &stream, CustomType &ct)
+{
+    stream >> ct.i1;
+    stream >> ct.i2;
+    stream >> ct.i3;
+    return stream;
+}
+
 Q_DECLARE_METATYPE(CustomType*)
 Q_DECLARE_METATYPE(CustomType)
 
@@ -1415,7 +1461,7 @@ class QCustomTypeChecker: public QObject
     Q_OBJECT
 
 public:
-    QCustomTypeChecker(QObject *parent = 0): QObject(parent) {}
+    QCustomTypeChecker(QObject *parent = nullptr): QObject(parent) {}
     void doEmit(CustomType ct)
     { emit signal1(ct); }
 
@@ -1477,26 +1523,11 @@ void tst_QObject::customTypes()
     QCOMPARE(instanceCount, 3);
 }
 
-QDataStream &operator<<(QDataStream &stream, const CustomType &ct)
-{
-    stream << ct.i1 << ct.i2 << ct.i3;
-    return stream;
-}
-
-QDataStream &operator>>(QDataStream &stream, CustomType &ct)
-{
-    stream >> ct.i1;
-    stream >> ct.i2;
-    stream >> ct.i3;
-    return stream;
-}
-
 void tst_QObject::streamCustomTypes()
 {
     QByteArray ba;
 
     int idx = qRegisterMetaType<CustomType>("CustomType");
-    qRegisterMetaTypeStreamOperators<CustomType>("CustomType");
 
     {
         CustomType t1(1, 2, 3);
@@ -1606,7 +1637,7 @@ class TestThread : public QThread
 {
     Q_OBJECT
 public:
-    inline void run()
+    inline void run() override
     {
         *object = new QObject;
         *child = new QObject(*object);
@@ -1638,8 +1669,8 @@ void tst_QObject::thread()
         QCOMPARE(child.thread(), object.thread());
     }
 
-    QObject *object = 0;
-    QObject *child = 0;
+    QObject *object = nullptr;
+    QObject *child = nullptr;
 
     {
         TestThread thr;
@@ -1681,15 +1712,15 @@ class MoveToThreadObject : public QObject
 {
     Q_OBJECT
 public:
-    QThread *timerEventThread;
-    QThread *customEventThread;
-    QThread *slotThread;
+    QThread *timerEventThread = nullptr;
+    QThread *customEventThread = nullptr;
+    QThread *slotThread = nullptr;
 
-    MoveToThreadObject(QObject *parent = 0)
-        : QObject(parent), timerEventThread(0), customEventThread(0), slotThread(0)
+    MoveToThreadObject(QObject *parent = nullptr)
+        : QObject(parent)
     { }
 
-    void customEvent(QEvent *)
+    void customEvent(QEvent *) override
     {
         if (customEventThread)
             qFatal("%s: customEventThread should be null", Q_FUNC_INFO);
@@ -1697,7 +1728,7 @@ public:
         emit theSignal();
     }
 
-    void timerEvent(QTimerEvent *)
+    void timerEvent(QTimerEvent *) override
     {
         if (timerEventThread)
             qFatal("%s: timerEventThread should be null", Q_FUNC_INFO);
@@ -1736,7 +1767,7 @@ public:
         // wait for thread to start
         (void) eventLoop.exec();
     }
-    void run()
+    void run() override
     { (void) exec(); }
 };
 
@@ -1865,8 +1896,6 @@ void tst_QObject::moveToThread()
         thread.wait();
     }
 
-    // WinRT does not allow connection to localhost
-#ifndef Q_OS_WINRT
     {
         // make sure socket notifiers are moved with the object
         MoveToThreadThread thread;
@@ -1902,7 +1931,6 @@ void tst_QObject::moveToThread()
         QMetaObject::invokeMethod(socket, "deleteLater", Qt::QueuedConnection);
         thread.wait();
     }
-#endif
 }
 
 
@@ -1916,8 +1944,8 @@ void tst_QObject::property()
     QVERIFY(mo->indexOfProperty("alpha") != -1);
     property = mo->property(mo->indexOfProperty("alpha"));
     QVERIFY(property.isEnumType());
-    QCOMPARE(property.typeName(), "Alpha");
-    QCOMPARE(property.type(), QVariant::Int);
+    QCOMPARE(property.typeName(), "PropertyObject::Alpha");
+    QCOMPARE(property.userType(), QMetaType::fromType<PropertyObject::Alpha>().id());
 
     QVariant var = object.property("alpha");
     QVERIFY(!var.isNull());
@@ -1928,7 +1956,8 @@ void tst_QObject::property()
     QCOMPARE(object.property("alpha").toInt(), int(PropertyObject::Alpha2));
     QVERIFY(object.setProperty("alpha", "Alpha1"));
     QCOMPARE(object.property("alpha").toInt(), int(PropertyObject::Alpha1));
-    QVERIFY(!object.setProperty("alpha", QVariant()));
+    QVERIFY(object.setProperty("alpha", QVariant()));
+    QCOMPARE(object.property("alpha").toInt(), 0);
 
     QVERIFY(mo->indexOfProperty("number") != -1);
     QCOMPARE(object.property("number").toInt(), 0);
@@ -1971,7 +2000,7 @@ void tst_QObject::property()
     QCOMPARE(property.type(), QVariant::UserType);
     QCOMPARE(property.userType(), qMetaTypeId<CustomType*>());
 
-    CustomType *customPointer = 0;
+    CustomType *customPointer = nullptr;
     QVariant customVariant = object.property("custom");
     customPointer = qvariant_cast<CustomType *>(customVariant);
     QCOMPARE(customPointer, object.custom());
@@ -1997,8 +2026,8 @@ void tst_QObject::property()
     QVERIFY(mo->indexOfProperty("priority") != -1);
     property = mo->property(mo->indexOfProperty("priority"));
     QVERIFY(property.isEnumType());
-    QCOMPARE(property.typeName(), "Priority");
-    QCOMPARE(property.type(), QVariant::Int);
+    QCOMPARE(property.typeName(), "PropertyObject::Priority");
+    QCOMPARE(property.userType(), QMetaType::fromType<PropertyObject::Priority>().id());
 
     var = object.property("priority");
     QVERIFY(!var.isNull());
@@ -2009,7 +2038,8 @@ void tst_QObject::property()
     QCOMPARE(object.property("priority").toInt(), int(PropertyObject::VeryHigh));
     QVERIFY(object.setProperty("priority", "High"));
     QCOMPARE(object.property("priority").toInt(), int(PropertyObject::High));
-    QVERIFY(!object.setProperty("priority", QVariant()));
+    QVERIFY(object.setProperty("priority", QVariant()));
+    QCOMPARE(object.property("priority").toInt(), 0);
 
     // now it's registered, so it works as expected
     int priorityMetaTypeId = qRegisterMetaType<PropertyObject::Priority>("PropertyObject::Priority");
@@ -2017,7 +2047,7 @@ void tst_QObject::property()
     QVERIFY(mo->indexOfProperty("priority") != -1);
     property = mo->property(mo->indexOfProperty("priority"));
     QVERIFY(property.isEnumType());
-    QCOMPARE(property.typeName(), "Priority");
+    QCOMPARE(property.typeName(), "PropertyObject::Priority");
     QCOMPARE(property.type(), QVariant::UserType);
     QCOMPARE(property.userType(), priorityMetaTypeId);
 
@@ -2031,7 +2061,8 @@ void tst_QObject::property()
     QCOMPARE(qvariant_cast<PropertyObject::Priority>(object.property("priority")), PropertyObject::VeryHigh);
     QVERIFY(object.setProperty("priority", "High"));
     QCOMPARE(qvariant_cast<PropertyObject::Priority>(object.property("priority")), PropertyObject::High);
-    QVERIFY(!object.setProperty("priority", QVariant()));
+    QVERIFY(object.setProperty("priority", QVariant()));
+    QCOMPARE(object.property("priority").toInt(), 0);
 
     var = object.property("priority");
     QCOMPARE(qvariant_cast<PropertyObject::Priority>(var), PropertyObject::High);
@@ -2166,7 +2197,7 @@ public:
 
     SuperObject()
     {
-        theSender = 0;
+        theSender = nullptr;
         theSignalId = 0;
     }
 
@@ -2230,7 +2261,7 @@ void tst_QObject::senderTest()
 
         QCOMPARE(receiver->sender(), (QObject *)0);
         QCOMPARE(receiver->senderSignalIndex(), -1);
-        receiver->theSender = 0;
+        receiver->theSender = nullptr;
         receiver->theSignalId = -1;
         thread.start();
         emit sender->theSignal();
@@ -2311,7 +2342,7 @@ class FooObject: public QObject, public Foo::Bar
     Q_OBJECT
     Q_INTERFACES(Foo::Bar)
 public:
-    int rtti() const { return 42; }
+    int rtti() const override { return 42; }
 };
 
 class BlehObject : public QObject, public Foo::Bleh
@@ -2319,7 +2350,7 @@ class BlehObject : public QObject, public Foo::Bleh
     Q_OBJECT
     Q_INTERFACES(Foo::Bleh)
 public:
-    int rtti() const { return 43; }
+    int rtti() const override { return 43; }
 };
 
 void tst_QObject::declareInterface()
@@ -2340,51 +2371,6 @@ void tst_QObject::declareInterface()
     QCOMPARE(static_cast<Foo::Bleh *>(&bleh), b);
 
 }
-
-#ifndef QT_NO_USERDATA
-class CustomData : public QObjectUserData
-{
-public:
-    int id;
-};
-
-void tst_QObject::testUserData()
-{
-    const int USER_DATA_COUNT = 100;
-    int user_data_ids[USER_DATA_COUNT];
-
-    // Register a few
-    for (int i=0; i<USER_DATA_COUNT; ++i) {
-        user_data_ids[i] = QObject::registerUserData();
-    }
-
-    // Randomize the table a bit
-    for (int i=0; i<100; ++i) {
-        int p1 = QRandomGenerator::global()->bounded(USER_DATA_COUNT);
-        int p2 = QRandomGenerator::global()->bounded(USER_DATA_COUNT);
-
-        int tmp = user_data_ids[p1];
-        user_data_ids[p1] = user_data_ids[p2];
-        user_data_ids[p2] = tmp;
-    }
-
-    // insert the user data into an object
-    QObject my_test_object;
-    for (int i=0; i<USER_DATA_COUNT; ++i) {
-        CustomData *data = new CustomData;
-        data->id = user_data_ids[i];
-        my_test_object.setUserData(data->id, data);
-    }
-
-    // verify that all ids and positions are matching
-    for (int i=0; i<USER_DATA_COUNT; ++i) {
-        int id = user_data_ids[i];
-        CustomData *data = static_cast<CustomData *>(my_test_object.userData(id));
-        QVERIFY(data != nullptr);
-        QCOMPARE(data->id, id);
-    }
-}
-#endif // QT_NO_USERDATA
 
 class DestroyedListener : public QObject
 {
@@ -2958,7 +2944,7 @@ class DynamicPropertyObject : public PropertyObject
 public:
     inline DynamicPropertyObject() {}
 
-    inline virtual bool event(QEvent *e) {
+    inline virtual bool event(QEvent *e) override {
         if (e->type() == QEvent::DynamicPropertyChange) {
             changedDynamicProperties.append(static_cast<QDynamicPropertyChangeEvent *>(e)->propertyName());
         }
@@ -3024,7 +3010,7 @@ void tst_QObject::recursiveSignalEmission()
 #else
     QProcess proc;
     // signalbug helper app should always be next to this test binary
-    const QString path = QStringLiteral("signalbug_helper");
+    const QString path =  QCoreApplication::applicationDirPath() + QDir::separator() + QStringLiteral("signalbug_helper");
     proc.start(path);
     QVERIFY2(proc.waitForStarted(), qPrintable(QString::fromLatin1("Cannot start '%1': %2").arg(path, proc.errorString())));
     QVERIFY(proc.waitForFinished());
@@ -3091,7 +3077,7 @@ class EventSpy : public QObject
 public:
     typedef QList<QPair<QObject *, QEvent::Type> > EventList;
 
-    EventSpy(QObject *parent = 0)
+    EventSpy(QObject *parent = nullptr)
         : QObject(parent)
     { }
 
@@ -3105,7 +3091,7 @@ public:
         events.clear();
     }
 
-    bool eventFilter(QObject *object, QEvent *event)
+    bool eventFilter(QObject *object, QEvent *event) override
     {
         events.append(qMakePair(object, event->type()));
         return false;
@@ -3243,7 +3229,7 @@ void tst_QObject::installEventFilter()
 class EmitThread : public QThread
 {   Q_OBJECT
 public:
-    void run(void) {
+    void run(void) override {
         emit work();
     }
 signals:
@@ -3627,9 +3613,9 @@ class OverloadObject : public QObject
     signals:
         void sig(int i, char c, qreal m = 12);
         void sig(int i, int j = 12);
-        void sig(QObject *o, QObject *p, QObject *q = 0, QObject *r = 0) const;
+        void sig(QObject *o, QObject *p, QObject *q = nullptr, QObject *r = nullptr) const;
         void other(int a = 0);
-        void sig(QObject *o, OverloadObject *p = 0, QObject *q = 0, QObject *r = nullptr);
+        void sig(QObject *o, OverloadObject *p = nullptr, QObject *q = nullptr, QObject *r = nullptr);
         void sig(double r = 0.5);
     public slots:
         void slo(int i, int j = 43)
@@ -4337,7 +4323,7 @@ public:
     ThreadAffinityThread(SenderObject *sender)
         : sender(sender)
     { }
-    void run()
+    void run() override
     {
         sender->emitSignal1();
     }
@@ -5323,6 +5309,8 @@ void tst_QObject::connectForwardDeclare()
     QVERIFY(connect(&ob, &ForwardDeclareArguments::mySignal, &ob, &ForwardDeclareArguments::mySlot, Qt::QueuedConnection));
 }
 
+class ForwardDeclared {}; // complete definition for moc
+
 class NoDefaultConstructor
 {
     Q_GADGET
@@ -5698,7 +5686,7 @@ signals:
 class VirtualSlotsObject : public VirtualSlotsObjectBase {
     Q_OBJECT
 public slots:
-    virtual void slot1() {
+    virtual void slot1() override {
         derived_counter1++;
     }
 public:
@@ -5747,8 +5735,8 @@ public:
 
 public slots:
     void regularSlot() { ++regular_call_count; }
-    virtual void slot1() { ++derived_counter2; }
-    virtual void slot2() { ++virtual_base_count; }
+    virtual void slot1() override { ++derived_counter2; }
+    virtual void slot2() override { ++virtual_base_count; }
 };
 
 struct NormalBase
@@ -6100,13 +6088,41 @@ void tst_QObject::connectFunctorWithContext()
     connect(context, &QObject::destroyed, &obj, &SenderObject::signal1, Qt::QueuedConnection);
     context->deleteLater();
 
-    QCOMPARE(status, 1);
+    obj.emitSignal1();
+    QCOMPARE(status, 2);
     e.exec();
-    QCOMPARE(status, 1);
+    QCOMPARE(status, 2);
+
+    // Check disconnect with the context object as "receiver" argument, all signals
+    context = new ContextObject;
+    status = 1;
+    connect(&obj, &SenderObject::signal1, context, SlotArgFunctor(&status));
+
+    obj.emitSignal1();
+    QCOMPARE(status, 2);
+    QObject::disconnect(&obj, nullptr, context, nullptr);
+    obj.emitSignal1();
+    QCOMPARE(status, 2);
+
+    delete context;
+
+    // Check disconnect with the context object as "receiver" argument, specific signal
+    context = new ContextObject;
+    status = 1;
+    connect(&obj, &SenderObject::signal1, context, SlotArgFunctor(&status));
+
+    obj.emitSignal1();
+    QCOMPARE(status, 2);
+    QObject::disconnect(&obj, &SenderObject::signal1, context, nullptr);
+    obj.emitSignal1();
+    QCOMPARE(status, 2);
+
+    delete context;
 
     // Check the sender arg is set correctly in the context
     context = new ContextObject;
 
+    status = 1;
     connect(&obj, &SenderObject::signal1, context,
             SlotArgFunctor(context, &obj, &status), Qt::QueuedConnection);
 
@@ -6123,8 +6139,7 @@ void tst_QObject::connectFunctorWithContext()
     e.exec();
     QCOMPARE(status, 2);
 
-    // Free
-    context->deleteLater();
+    delete context;
 }
 
 class StatusChanger : public QObject
@@ -6176,7 +6191,7 @@ public slots:
     {
         if (abouttoblock) {
             abouttoblock->deleteLater();
-            abouttoblock = 0;
+            abouttoblock = nullptr;
         }
         ++m_aboutToBlocks;
     }
@@ -6184,7 +6199,7 @@ public slots:
     {
         if (awake) {
             awake->deleteLater();
-            awake = 0;
+            awake = nullptr;
         }
         ++m_awakes;
 
@@ -6783,6 +6798,33 @@ void tst_QObject::qmlConnect()
 #endif
 }
 
+void tst_QObject::qmlConnectToQObjectReceiver()
+{
+#ifdef QT_BUILD_INTERNAL
+    SenderObject sender;
+    QScopedPointer<QObject> receiver(new QObject);
+    QmlReceiver *slotObject = new QmlReceiver;
+    slotObject->magic = slotObject;
+    slotObject->ref(); // extra ref so that slot object is not implicitly deleted
+
+    QVERIFY(QObjectPrivate::connect(&sender, sender.metaObject()->indexOfSignal("signal1()"),
+                                    receiver.get(), slotObject, Qt::AutoConnection));
+
+    QCOMPARE(slotObject->callCount, 0);
+    sender.emitSignal1();
+    QCOMPARE(slotObject->callCount, 1);
+
+    receiver.reset(); // this should disconnect the slotObject
+
+    sender.emitSignal1();
+    QCOMPARE(slotObject->callCount, 1);
+
+    slotObject->destroyIfLastRef();
+#else
+    QSKIP("Needs QT_BUILD_INTERNAL");
+#endif
+}
+
 #ifndef QT_NO_EXCEPTIONS
 class ObjectException : public std::exception { };
 
@@ -6820,8 +6862,11 @@ public:
     explicit CountedExceptionThrower(bool throwException, QObject *parent = nullptr)
         : QObject(parent)
     {
+        Q_UNUSED(throwException);
+#ifndef QT_NO_EXCEPTIONS
         if (throwException)
             throw ObjectException();
+#endif
         ++counter;
     }
 
@@ -6955,43 +7000,6 @@ void tst_QObject::exceptions()
 #endif
 }
 
-#ifdef QT_BUILD_INTERNAL
-static bool parentChangeCalled = false;
-
-static void testParentChanged(QAbstractDeclarativeData *, QObject *, QObject *)
-{
-    parentChangeCalled = true;
-}
-#endif
-
-void tst_QObject::noDeclarativeParentChangedOnDestruction()
-{
-#ifdef QT_BUILD_INTERNAL
-    typedef void (*ParentChangedCallback)(QAbstractDeclarativeData *, QObject *, QObject *);
-    QScopedValueRollback<ParentChangedCallback> rollback(QAbstractDeclarativeData::parentChanged);
-    QAbstractDeclarativeData::parentChanged = testParentChanged;
-
-    QObject *parent = new QObject;
-    QObject *child = new QObject;
-
-    QAbstractDeclarativeDataImpl dummy;
-    dummy.ownedByQml1 = false;
-    QObjectPrivate::get(child)->declarativeData = &dummy;
-
-    parentChangeCalled = false;
-    child->setParent(parent);
-
-    QVERIFY(parentChangeCalled);
-    parentChangeCalled = false;
-
-    delete child;
-    QVERIFY(!parentChangeCalled);
-
-    delete parent;
-#else
-    QSKIP("Needs QT_BUILD_INTERNAL");
-#endif
-}
 
 struct MutableFunctor {
     int count;
@@ -7013,24 +7021,34 @@ void tst_QObject::mutableFunctor()
 
 void tst_QObject::checkArgumentsForNarrowing()
 {
-    enum UnscopedEnum {};
-    enum SignedUnscopedEnum { SignedUnscopedEnumV1 = -1, SignedUnscopedEnumV2 = 1 };
+    // Clang and ICC masquerade as GCC, so introduce a more strict define
+    // for exactly GCC (to exclude/include it from some tests).
+#if defined(Q_CC_GNU) && !defined(Q_CC_CLANG) && !defined(Q_CC_INTEL)
+#define Q_CC_EXACTLY_GCC Q_CC_GNU
+#endif
 
-    // a constexpr would suffice, but MSVC2013 RTM doesn't support them...
-#define IS_UNSCOPED_ENUM_SIGNED (std::is_signed<typename std::underlying_type<UnscopedEnum>::type>::value)
+    enum UnscopedEnum { UnscopedEnumV1 = INT_MAX, UnscopedEnumV2 };
+    enum SignedUnscopedEnum { SignedUnscopedEnumV1 = INT_MIN, SignedUnscopedEnumV2 = INT_MAX };
 
-#define NARROWS_IF(x, y, test) Q_STATIC_ASSERT((QtPrivate::AreArgumentsNarrowedBase<x, y>::value) == (test))
-#define FITS_IF(x, y, test)    Q_STATIC_ASSERT((QtPrivate::AreArgumentsNarrowedBase<x, y>::value) != (test))
+    static constexpr bool IsUnscopedEnumSigned = std::is_signed_v<std::underlying_type_t<UnscopedEnum>>;
+
+#define NARROWS_IF(x, y, test) static_assert((QtPrivate::AreArgumentsConvertibleWithoutNarrowingBase<x, y>::value) != (test))
+#define FITS_IF(x, y, test)    static_assert((QtPrivate::AreArgumentsConvertibleWithoutNarrowingBase<x, y>::value) == (test))
 #define NARROWS(x, y)          NARROWS_IF(x, y, true)
 #define FITS(x, y)             FITS_IF(x, y, true)
 
-    Q_STATIC_ASSERT(sizeof(UnscopedEnum) <= sizeof(int));
-    Q_STATIC_ASSERT(sizeof(SignedUnscopedEnum) <= sizeof(int));
+    static_assert(sizeof(UnscopedEnum) <= sizeof(int));
+    static_assert(sizeof(SignedUnscopedEnum) <= sizeof(int));
 
     // floating point to integral
+
+    // GCC < 9 does not consider floating point to bool to be narrowing,
+    // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=65043
+#if !defined(Q_CC_EXACTLY_GCC) || Q_CC_EXACTLY_GCC >= 900
     NARROWS(float, bool);
     NARROWS(double, bool);
     NARROWS(long double, bool);
+#endif
 
     NARROWS(float, char);
     NARROWS(double, char);
@@ -7054,12 +7072,19 @@ void tst_QObject::checkArgumentsForNarrowing()
 
 
     // floating point to a smaller floating point
-    NARROWS_IF(double, float, (sizeof(double) > sizeof(float)));
-    NARROWS_IF(long double, float, (sizeof(long double) > sizeof(float)));
+    NARROWS(double, float);
+    NARROWS(long double, float);
     FITS(float, double);
     FITS(float, long double);
 
-    NARROWS_IF(long double, double, (sizeof(long double) > sizeof(double)));
+    // GCC < 11 thinks this is narrowing only on architectures where
+    // sizeof(long double) > sizeof(double)
+    // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=94590
+#if defined(Q_CC_EXACTLY_GCC) && (Q_CC_EXACTLY_GCC < 1100)
+    NARROWS_IF(long double, double, sizeof(long double) > sizeof(double));
+#else
+    NARROWS(long double, double);
+#endif
     FITS(double, long double);
 
 
@@ -7205,11 +7230,14 @@ void tst_QObject::checkArgumentsForNarrowing()
 
     // integral to integral with different signedness. smaller ones tested above
     NARROWS(signed char, unsigned char);
+
+    // Issue is reported to Green Hills, 2021-09-14.
+#if !defined(Q_CC_GHS)
     NARROWS(signed char, unsigned short);
     NARROWS(signed char, unsigned int);
     NARROWS(signed char, unsigned long);
     NARROWS(signed char, unsigned long long);
-
+#endif // Q_CC_GHS
     NARROWS(unsigned char, signed char);
     FITS(unsigned char, short);
     FITS(unsigned char, int);
@@ -7217,19 +7245,23 @@ void tst_QObject::checkArgumentsForNarrowing()
     FITS(unsigned char, long long);
 
     NARROWS(short, unsigned short);
+#if !defined(Q_CC_GHS)
     NARROWS(short, unsigned int);
     NARROWS(short, unsigned long);
-    NARROWS(short, unsigned long long);
 
+    NARROWS(short, unsigned long long);
+#endif // Q_CC_GHS
     NARROWS(unsigned short, short);
+
     FITS(unsigned short, int);
     FITS(unsigned short, long);
     FITS(unsigned short, long long);
 
     NARROWS(int, unsigned int);
+#if !defined(Q_CC_GHS)
     NARROWS(int, unsigned long);
     NARROWS(int, unsigned long long);
-
+#endif // Q_CC_GHS
     NARROWS(unsigned int, int);
     NARROWS_IF(unsigned int, long, (sizeof(int) >= sizeof(long)));
     FITS(unsigned int, long long);
@@ -7248,23 +7280,23 @@ void tst_QObject::checkArgumentsForNarrowing()
     FITS(UnscopedEnum, UnscopedEnum);
     FITS(SignedUnscopedEnum, SignedUnscopedEnum);
 
-    NARROWS_IF(UnscopedEnum, char, ((sizeof(UnscopedEnum) > sizeof(char)) || (sizeof(UnscopedEnum) == sizeof(char) && IS_UNSCOPED_ENUM_SIGNED == std::is_signed<char>::value)));
-    NARROWS_IF(UnscopedEnum, signed char, ((sizeof(UnscopedEnum) > sizeof(char)) || (sizeof(UnscopedEnum) == sizeof(char) && !IS_UNSCOPED_ENUM_SIGNED)));
-    NARROWS_IF(UnscopedEnum, unsigned char, ((sizeof(UnscopedEnum) > sizeof(char)) || IS_UNSCOPED_ENUM_SIGNED));
+    NARROWS_IF(UnscopedEnum, char, ((sizeof(UnscopedEnum) > sizeof(char)) || (sizeof(UnscopedEnum) == sizeof(char) && IsUnscopedEnumSigned == std::is_signed<char>::value)));
+    NARROWS_IF(UnscopedEnum, signed char, ((sizeof(UnscopedEnum) > sizeof(char)) || (sizeof(UnscopedEnum) == sizeof(char) && !IsUnscopedEnumSigned)));
+    NARROWS_IF(UnscopedEnum, unsigned char, ((sizeof(UnscopedEnum) > sizeof(char)) || IsUnscopedEnumSigned));
 
-    NARROWS_IF(UnscopedEnum, short, ((sizeof(UnscopedEnum) > sizeof(short)) || (sizeof(UnscopedEnum) == sizeof(short) && !IS_UNSCOPED_ENUM_SIGNED)));
-    NARROWS_IF(UnscopedEnum, unsigned short, ((sizeof(UnscopedEnum) > sizeof(short)) || IS_UNSCOPED_ENUM_SIGNED));
+    NARROWS_IF(UnscopedEnum, short, ((sizeof(UnscopedEnum) > sizeof(short)) || (sizeof(UnscopedEnum) == sizeof(short) && !IsUnscopedEnumSigned)));
+    NARROWS_IF(UnscopedEnum, unsigned short, ((sizeof(UnscopedEnum) > sizeof(short)) || IsUnscopedEnumSigned));
 
-    NARROWS_IF(UnscopedEnum, int, (sizeof(UnscopedEnum) == sizeof(int) && !IS_UNSCOPED_ENUM_SIGNED));
-    NARROWS_IF(UnscopedEnum, unsigned int, IS_UNSCOPED_ENUM_SIGNED);
+    NARROWS_IF(UnscopedEnum, int, sizeof(UnscopedEnum) > sizeof(int) || (sizeof(UnscopedEnum) == sizeof(int) && !IsUnscopedEnumSigned));
+    NARROWS_IF(UnscopedEnum, unsigned int, IsUnscopedEnumSigned);
 
-    NARROWS_IF(UnscopedEnum, long, (sizeof(UnscopedEnum) == sizeof(long) && !IS_UNSCOPED_ENUM_SIGNED));
-    NARROWS_IF(UnscopedEnum, unsigned long, IS_UNSCOPED_ENUM_SIGNED);
+    NARROWS_IF(UnscopedEnum, long, sizeof(UnscopedEnum) > sizeof(long) || (sizeof(UnscopedEnum) == sizeof(long) && !IsUnscopedEnumSigned));
+    NARROWS_IF(UnscopedEnum, unsigned long, IsUnscopedEnumSigned);
 
-    NARROWS_IF(UnscopedEnum, long long, (sizeof(UnscopedEnum) == sizeof(long long) && !IS_UNSCOPED_ENUM_SIGNED));
-    NARROWS_IF(UnscopedEnum, unsigned long long, IS_UNSCOPED_ENUM_SIGNED);
+    NARROWS_IF(UnscopedEnum, long long, sizeof(UnscopedEnum) > sizeof(long long) || (sizeof(UnscopedEnum) == sizeof(long long) && !IsUnscopedEnumSigned));
+    NARROWS_IF(UnscopedEnum, unsigned long long, IsUnscopedEnumSigned);
 
-    Q_STATIC_ASSERT(std::is_signed<typename std::underlying_type<SignedUnscopedEnum>::type>::value);
+    static_assert(std::is_signed<typename std::underlying_type<SignedUnscopedEnum>::type>::value);
 
     NARROWS_IF(SignedUnscopedEnum, signed char, (sizeof(SignedUnscopedEnum) > sizeof(char)));
     NARROWS_IF(SignedUnscopedEnum, short, (sizeof(SignedUnscopedEnum) > sizeof(short)));
@@ -7272,208 +7304,73 @@ void tst_QObject::checkArgumentsForNarrowing()
     FITS(SignedUnscopedEnum, long);
     FITS(SignedUnscopedEnum, long long);
 
-
-    enum class ScopedEnumBackedBySChar : signed char { A };
-    enum class ScopedEnumBackedByUChar : unsigned char { A };
-    enum class ScopedEnumBackedByShort : short { A };
-    enum class ScopedEnumBackedByUShort : unsigned short { A };
-    enum class ScopedEnumBackedByInt : int { A };
-    enum class ScopedEnumBackedByUInt : unsigned int { A };
-    enum class ScopedEnumBackedByLong : long { A };
-    enum class ScopedEnumBackedByULong : unsigned long { A };
-    enum class ScopedEnumBackedByLongLong : long long { A };
-    enum class ScopedEnumBackedByULongLong : unsigned long long { A };
-
-    FITS(ScopedEnumBackedBySChar, ScopedEnumBackedBySChar);
-    FITS(ScopedEnumBackedByUChar, ScopedEnumBackedByUChar);
-    FITS(ScopedEnumBackedByShort, ScopedEnumBackedByShort);
-    FITS(ScopedEnumBackedByUShort, ScopedEnumBackedByUShort);
-    FITS(ScopedEnumBackedByInt, ScopedEnumBackedByInt);
-    FITS(ScopedEnumBackedByUInt, ScopedEnumBackedByUInt);
-    FITS(ScopedEnumBackedByLong, ScopedEnumBackedByLong);
-    FITS(ScopedEnumBackedByULong, ScopedEnumBackedByULong);
-    FITS(ScopedEnumBackedByLongLong, ScopedEnumBackedByLongLong);
-    FITS(ScopedEnumBackedByULongLong, ScopedEnumBackedByULongLong);
-
-    FITS(ScopedEnumBackedBySChar, signed char);
-    FITS(ScopedEnumBackedByUChar, unsigned char);
-    FITS(ScopedEnumBackedByShort, short);
-    FITS(ScopedEnumBackedByUShort, unsigned short);
-    FITS(ScopedEnumBackedByInt, int);
-    FITS(ScopedEnumBackedByUInt, unsigned int);
-    FITS(ScopedEnumBackedByLong, long);
-    FITS(ScopedEnumBackedByULong, unsigned long);
-    FITS(ScopedEnumBackedByLongLong, long long);
-    FITS(ScopedEnumBackedByULongLong, unsigned long long);
-
-    FITS(ScopedEnumBackedBySChar, signed char);
-    FITS(ScopedEnumBackedBySChar, short);
-    FITS(ScopedEnumBackedBySChar, int);
-    FITS(ScopedEnumBackedBySChar, long);
-    FITS(ScopedEnumBackedBySChar, long long);
-
-    FITS(ScopedEnumBackedByUChar, unsigned char);
-    FITS(ScopedEnumBackedByUChar, unsigned short);
-    FITS(ScopedEnumBackedByUChar, unsigned int);
-    FITS(ScopedEnumBackedByUChar, unsigned long);
-    FITS(ScopedEnumBackedByUChar, unsigned long long);
-
-    NARROWS_IF(ScopedEnumBackedByShort, char, (sizeof(short) > sizeof(char) || std::is_unsigned<char>::value));
-    NARROWS_IF(ScopedEnumBackedByUShort, char, (sizeof(short) > sizeof(char) || std::is_signed<char>::value));
-    NARROWS_IF(ScopedEnumBackedByInt, char, (sizeof(int) > sizeof(char) || std::is_unsigned<char>::value));
-    NARROWS_IF(ScopedEnumBackedByUInt, char, (sizeof(int) > sizeof(char) || std::is_signed<char>::value));
-    NARROWS_IF(ScopedEnumBackedByLong, char, (sizeof(long) > sizeof(char) || std::is_unsigned<char>::value));
-    NARROWS_IF(ScopedEnumBackedByULong, char, (sizeof(long) > sizeof(char) || std::is_signed<char>::value));
-    NARROWS_IF(ScopedEnumBackedByLongLong, char, (sizeof(long long) > sizeof(char) || std::is_unsigned<char>::value));
-    NARROWS_IF(ScopedEnumBackedByULongLong, char, (sizeof(long long) > sizeof(char) || std::is_signed<char>::value));
-
-    NARROWS_IF(ScopedEnumBackedByShort, signed char, (sizeof(short) > sizeof(char)));
-    NARROWS(ScopedEnumBackedByUShort, signed char);
-    NARROWS_IF(ScopedEnumBackedByInt, signed char, (sizeof(int) > sizeof(char)));
-    NARROWS(ScopedEnumBackedByUInt, signed char);
-    NARROWS_IF(ScopedEnumBackedByLong, signed char, (sizeof(long) > sizeof(char)));
-    NARROWS(ScopedEnumBackedByULong, signed char);
-    NARROWS_IF(ScopedEnumBackedByLongLong, signed char, (sizeof(long long) > sizeof(char)));
-    NARROWS(ScopedEnumBackedByULongLong, signed char);
-
-    NARROWS(ScopedEnumBackedByShort, unsigned char);
-    NARROWS_IF(ScopedEnumBackedByUShort, unsigned char, (sizeof(short) > sizeof(char)));
-    NARROWS(ScopedEnumBackedByInt, unsigned char);
-    NARROWS_IF(ScopedEnumBackedByUInt, unsigned char, (sizeof(int) > sizeof(char)));
-    NARROWS(ScopedEnumBackedByLong, unsigned char);
-    NARROWS_IF(ScopedEnumBackedByULong, unsigned char, (sizeof(long) > sizeof(char)));
-    NARROWS(ScopedEnumBackedByLongLong, unsigned char);
-    NARROWS_IF(ScopedEnumBackedByULongLong, unsigned char, (sizeof(long long) > sizeof(char)));
-
-    NARROWS_IF(ScopedEnumBackedByInt, short, (sizeof(int) > sizeof(short)));
-    NARROWS(ScopedEnumBackedByUInt, short);
-    NARROWS_IF(ScopedEnumBackedByLong, short, (sizeof(long) > sizeof(short)));
-    NARROWS(ScopedEnumBackedByULong, short);
-    NARROWS_IF(ScopedEnumBackedByLongLong, short, (sizeof(long long) > sizeof(short)));
-    NARROWS(ScopedEnumBackedByULongLong, short);
-
-    NARROWS(ScopedEnumBackedByInt, unsigned short);
-    NARROWS_IF(ScopedEnumBackedByUInt, unsigned short, (sizeof(int) > sizeof(short)));
-    NARROWS(ScopedEnumBackedByLong, unsigned short);
-    NARROWS_IF(ScopedEnumBackedByULong, unsigned short, (sizeof(long) > sizeof(short)));
-    NARROWS(ScopedEnumBackedByLongLong, unsigned short);
-    NARROWS_IF(ScopedEnumBackedByULongLong, unsigned short, (sizeof(long long) > sizeof(short)));
-
-    NARROWS_IF(ScopedEnumBackedByLong, int, (sizeof(long) > sizeof(int)));
-    NARROWS(ScopedEnumBackedByULong, int);
-    NARROWS_IF(ScopedEnumBackedByLongLong, int, (sizeof(long long) > sizeof(int)));
-    NARROWS(ScopedEnumBackedByULongLong, int);
-
-    NARROWS(ScopedEnumBackedByLong, unsigned int);
-    NARROWS_IF(ScopedEnumBackedByULong, unsigned int, (sizeof(long) > sizeof(int)));
-    NARROWS(ScopedEnumBackedByLongLong, unsigned int);
-    NARROWS_IF(ScopedEnumBackedByULongLong, unsigned int, (sizeof(long long) > sizeof(int)));
-
-    NARROWS_IF(ScopedEnumBackedByLongLong, long, (sizeof(long long) > sizeof(long)));
-    NARROWS(ScopedEnumBackedByULongLong, long);
-
-    NARROWS(ScopedEnumBackedByLongLong, unsigned long);
-    NARROWS_IF(ScopedEnumBackedByULongLong, unsigned long, (sizeof(long long) > sizeof(long)));
-
-    // different signedness of the underlying type
-    NARROWS(SignedUnscopedEnum, unsigned char);
-    NARROWS(SignedUnscopedEnum, unsigned short);
-    NARROWS(SignedUnscopedEnum, unsigned int);
-    NARROWS(SignedUnscopedEnum, unsigned long);
-    NARROWS(SignedUnscopedEnum, unsigned long long);
-
-    NARROWS(ScopedEnumBackedBySChar, unsigned char);
-    NARROWS(ScopedEnumBackedBySChar, unsigned short);
-    NARROWS(ScopedEnumBackedBySChar, unsigned int);
-    NARROWS(ScopedEnumBackedBySChar, unsigned long);
-    NARROWS(ScopedEnumBackedBySChar, unsigned long long);
-
-    NARROWS(ScopedEnumBackedByShort, unsigned char);
-    NARROWS(ScopedEnumBackedByShort, unsigned short);
-    NARROWS(ScopedEnumBackedByShort, unsigned int);
-    NARROWS(ScopedEnumBackedByShort, unsigned long);
-    NARROWS(ScopedEnumBackedByShort, unsigned long long);
-
-    NARROWS(ScopedEnumBackedByInt, unsigned char);
-    NARROWS(ScopedEnumBackedByInt, unsigned short);
-    NARROWS(ScopedEnumBackedByInt, unsigned int);
-    NARROWS(ScopedEnumBackedByInt, unsigned long);
-    NARROWS(ScopedEnumBackedByInt, unsigned long long);
-
-    NARROWS(ScopedEnumBackedByLong, unsigned char);
-    NARROWS(ScopedEnumBackedByLong, unsigned short);
-    NARROWS(ScopedEnumBackedByLong, unsigned int);
-    NARROWS(ScopedEnumBackedByLong, unsigned long);
-    NARROWS(ScopedEnumBackedByLong, unsigned long long);
-
-    NARROWS(ScopedEnumBackedByLongLong, unsigned char);
-    NARROWS(ScopedEnumBackedByLongLong, unsigned short);
-    NARROWS(ScopedEnumBackedByLongLong, unsigned int);
-    NARROWS(ScopedEnumBackedByLongLong, unsigned long);
-    NARROWS(ScopedEnumBackedByLongLong, unsigned long long);
-
-    NARROWS(ScopedEnumBackedByUChar, signed char);
-    FITS_IF(ScopedEnumBackedByUChar, short, (sizeof(char) < sizeof(short)));
-    FITS_IF(ScopedEnumBackedByUChar, int, (sizeof(char) < sizeof(int)));
-    FITS_IF(ScopedEnumBackedByUChar, long, (sizeof(char) < sizeof(long)));
-    FITS_IF(ScopedEnumBackedByUChar, long long, (sizeof(char) < sizeof(long long)));
-
-    NARROWS(ScopedEnumBackedByUShort, signed char);
-    NARROWS(ScopedEnumBackedByUShort, short);
-    FITS_IF(ScopedEnumBackedByUShort, int, (sizeof(short) < sizeof(int)));
-    FITS_IF(ScopedEnumBackedByUShort, long, (sizeof(short) < sizeof(long)));
-    FITS_IF(ScopedEnumBackedByUShort, long long, (sizeof(short) < sizeof(long long)));
-
-    NARROWS(ScopedEnumBackedByUInt, signed char);
-    NARROWS(ScopedEnumBackedByUInt, short);
-    NARROWS(ScopedEnumBackedByUInt, int);
-    FITS_IF(ScopedEnumBackedByUInt, long, (sizeof(ScopedEnumBackedByUInt) < sizeof(long)));
-    FITS(ScopedEnumBackedByUInt, long long);
-
-    NARROWS(ScopedEnumBackedByULong, signed char);
-    NARROWS(ScopedEnumBackedByULong, short);
-    NARROWS(ScopedEnumBackedByULong, int);
-    NARROWS(ScopedEnumBackedByULong, long);
-    FITS_IF(ScopedEnumBackedByULong, long long, (sizeof(ScopedEnumBackedByULong) < sizeof(long long)));
-
-    NARROWS(ScopedEnumBackedByULongLong, signed char);
-    NARROWS(ScopedEnumBackedByULongLong, short);
-    NARROWS(ScopedEnumBackedByULongLong, int);
-    NARROWS(ScopedEnumBackedByULongLong, long);
-    NARROWS(ScopedEnumBackedByULongLong, long long);
-
     // other types which should be always unaffected
     FITS(void *, void *);
 
     FITS(QString, QString);
-    FITS(QString &, QString &);
-    FITS(const QString &, const QString &);
-
     FITS(QObject, QObject);
     FITS(QObject *, QObject *);
     FITS(const QObject *, const QObject *);
 
     FITS(std::nullptr_t, std::nullptr_t);
 
-    FITS(QString, QObject);
-    FITS(QString, QVariant);
-    FITS(QString, void *);
-    FITS(QString, long long);
-    FITS(bool, const QObject *&);
-    FITS(int (*)(bool), void (QObject::*)());
+    // classes with conversion operators undergoing implicit conversions
+    struct ConvertingToDouble {
+        /* implicit */ operator double() const { return 42.0; }
+    };
 
+#if !defined(Q_CC_GHS)
+    NARROWS(ConvertingToDouble, char);
+    NARROWS(ConvertingToDouble, short);
+    NARROWS(ConvertingToDouble, int);
+    NARROWS(ConvertingToDouble, long);
+    NARROWS(ConvertingToDouble, long long);
+    NARROWS(ConvertingToDouble, float);
+#endif // Q_CC_GHS
+    FITS(ConvertingToDouble, double);
+    FITS(ConvertingToDouble, long double);
+
+
+    // GCC, GHS and clang don't implement this properly yet:
+    // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=99625
+    // https://bugs.llvm.org/show_bug.cgi?id=49676
+#if defined(Q_CC_MSVC) // at least since VS2017
+    struct ConstructibleFromInt {
+        /* implicit */ ConstructibleFromInt(int) {}
+    };
+
+    FITS(char, ConstructibleFromInt);
+    FITS(short, ConstructibleFromInt);
+    FITS(int, ConstructibleFromInt);
+    NARROWS(unsigned int, ConstructibleFromInt);
+    NARROWS_IF(long, ConstructibleFromInt, sizeof(long) > sizeof(int));
+    NARROWS_IF(long long, ConstructibleFromInt, sizeof(long long) > sizeof(int));
+    NARROWS(float, ConstructibleFromInt);
+    NARROWS(double, ConstructibleFromInt);
+#endif
+
+    // forward declared classes must work
+    class ForwardDeclared;
+    FITS(ForwardDeclared, ForwardDeclared);
+
+#if (defined(Q_CC_EXACTLY_GCC) && Q_CC_EXACTLY_GCC >= 1100) \
+    || (defined(Q_CC_CLANG) && Q_CC_CLANG >= 1100) \
+    || defined(Q_CC_MSVC) // at least since VS2017
     {
         // wg21.link/P1957
         NARROWS(char*, bool);
         NARROWS(void (QObject::*)(), bool);
     }
-
-#undef IS_UNSCOPED_ENUM_SIGNED
+#endif
 
 #undef NARROWS_IF
 #undef FITS_IF
 #undef NARROWS
 #undef FITS
+
+#ifdef Q_CC_EXACTLY_GCC
+#undef Q_CC_EXACTLY_GCC
+#endif
 }
 
 void tst_QObject::nullReceiver()
@@ -7647,9 +7544,604 @@ void tst_QObject::disconnectDisconnects()
     QCOMPARE(count, 3); // + δ
 }
 
+class ReceiverDisconnecting : public QObject
+{
+    Q_OBJECT
+
+public:
+    SenderObject *sender;
+    int slotCalledCount = 0;
+
+public slots:
+    void aSlotByName()
+    {
+        ++slotCalledCount;
+        QVERIFY(!disconnect(sender, SIGNAL(signal1()), this, SLOT(aSlotByName())));
+    }
+
+    void aSlotByPtr()
+    {
+        ++slotCalledCount;
+        QVERIFY(!disconnect(sender, &SenderObject::signal1, this, &ReceiverDisconnecting::aSlotByPtr));
+    }
+};
+
+class DeleteThisReceiver : public QObject
+{
+    Q_OBJECT
+
+public:
+    static int counter;
+
+public slots:
+    void deleteThis()
+    {
+        ++counter;
+        delete this;
+    }
+};
+
+int DeleteThisReceiver::counter = 0;
+
+void tst_QObject::singleShotConnection()
+{
+    {
+        // Non single shot behavior: slot called every time the signal is emitted
+        SenderObject sender;
+        QMetaObject::Connection c = connect(&sender, &SenderObject::signal1,
+                                            &sender, &SenderObject::aPublicSlot);
+        QVERIFY(c);
+        QCOMPARE(sender.aPublicSlotCalled, 0);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 1);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 2);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 3);
+    }
+
+    {
+        // Non single shot behavior: multiple connections cause multiple invocations
+        SenderObject sender;
+        QMetaObject::Connection c = connect(&sender, &SenderObject::signal1,
+                                            &sender, &SenderObject::aPublicSlot);
+        QVERIFY(c);
+        QCOMPARE(sender.aPublicSlotCalled, 0);
+
+        sender.emitSignal1();
+        QVERIFY(c);
+        QCOMPARE(sender.aPublicSlotCalled, 1);
+
+        sender.emitSignal1();
+        QVERIFY(c);
+        QCOMPARE(sender.aPublicSlotCalled, 2);
+
+        QMetaObject::Connection c2 = connect(&sender, &SenderObject::signal1,
+                                            &sender, &SenderObject::aPublicSlot);
+        QVERIFY(c);
+        QVERIFY(c2);
+        QCOMPARE(sender.aPublicSlotCalled, 2);
+
+        sender.emitSignal1();
+        QVERIFY(c);
+        QVERIFY(c2);
+        QCOMPARE(sender.aPublicSlotCalled, 4);
+
+        sender.emitSignal1();
+        QVERIFY(c);
+        QVERIFY(c2);
+        QCOMPARE(sender.aPublicSlotCalled, 6);
+    }
+
+    {
+        // Single shot behavior: slot called only once
+        SenderObject sender;
+        QMetaObject::Connection c = connect(&sender, &SenderObject::signal1,
+                                            &sender, &SenderObject::aPublicSlot,
+                                            static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
+        QVERIFY(c);
+        QCOMPARE(sender.aPublicSlotCalled, 0);
+
+        sender.emitSignal1();
+        QVERIFY(!c);
+        QCOMPARE(sender.aPublicSlotCalled, 1);
+
+        sender.emitSignal1();
+        QVERIFY(!c);
+        QCOMPARE(sender.aPublicSlotCalled, 1);
+
+        sender.emitSignal1();
+        QVERIFY(!c);
+        QCOMPARE(sender.aPublicSlotCalled, 1);
+    }
+
+    {
+        // Same, without holding a Connection object
+        SenderObject sender;
+        bool ok = connect(&sender, &SenderObject::signal1,
+                          &sender, &SenderObject::aPublicSlot,
+                          static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
+        QVERIFY(ok);
+        QCOMPARE(sender.aPublicSlotCalled, 0);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 1);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 1);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 1);
+    }
+
+    {
+        // Single shot, disconnect before emitting
+        SenderObject sender;
+        QMetaObject::Connection c = connect(&sender, &SenderObject::signal1,
+                                            &sender, &SenderObject::aPublicSlot,
+                                            static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
+        QVERIFY(c);
+        QCOMPARE(sender.aPublicSlotCalled, 0);
+
+        QVERIFY(QObject::disconnect(c));
+        QVERIFY(!c);
+
+        sender.emitSignal1();
+        QVERIFY(!c);
+        QCOMPARE(sender.aPublicSlotCalled, 0);
+
+        sender.emitSignal1();
+        QVERIFY(!c);
+        QCOMPARE(sender.aPublicSlotCalled, 0);
+    }
+
+    {
+        // Single shot together with another connection
+        SenderObject sender;
+        QVERIFY(connect(&sender, &SenderObject::signal1,
+                        &sender, &SenderObject::aPublicSlot));
+        QCOMPARE(sender.aPublicSlotCalled, 0);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 1);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 2);
+
+        QVERIFY(connect(&sender, &SenderObject::signal1,
+                        &sender, &SenderObject::aPublicSlot,
+                        static_cast<Qt::ConnectionType>(Qt::SingleShotConnection)));
+        QCOMPARE(sender.aPublicSlotCalled, 2);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 4);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 5);
+    }
+
+    {
+        // Two single shot, from the same signal, to the same slot
+        SenderObject sender;
+        QVERIFY(connect(&sender, &SenderObject::signal1,
+                        &sender, &SenderObject::aPublicSlot,
+                        static_cast<Qt::ConnectionType>(Qt::SingleShotConnection)));
+        QVERIFY(connect(&sender, &SenderObject::signal1,
+                        &sender, &SenderObject::aPublicSlot,
+                        static_cast<Qt::ConnectionType>(Qt::SingleShotConnection)));
+
+        QCOMPARE(sender.aPublicSlotCalled, 0);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 2);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 2);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 2);
+    }
+
+    {
+        // Two single shot, from different signals, to the same slot
+        SenderObject sender;
+        QVERIFY(connect(&sender, &SenderObject::signal1,
+                        &sender, &SenderObject::aPublicSlot,
+                        static_cast<Qt::ConnectionType>(Qt::SingleShotConnection)));
+        QVERIFY(connect(&sender, &SenderObject::signal2,
+                        &sender, &SenderObject::aPublicSlot,
+                        static_cast<Qt::ConnectionType>(Qt::SingleShotConnection)));
+
+        QCOMPARE(sender.aPublicSlotCalled, 0);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 1);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 1);
+
+        sender.emitSignal2();
+        QCOMPARE(sender.aPublicSlotCalled, 2);
+
+        sender.emitSignal2();
+        QCOMPARE(sender.aPublicSlotCalled, 2);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 2);
+    }
+
+    {
+        // Same signal, different connections
+        SenderObject sender;
+        ReceiverObject receiver1, receiver2;
+        receiver1.reset();
+        receiver2.reset();
+
+        QVERIFY(connect(&sender, &SenderObject::signal1,
+                        &receiver1, &ReceiverObject::slot1));
+        QVERIFY(connect(&sender, &SenderObject::signal1,
+                        &receiver2, &ReceiverObject::slot1,
+                        static_cast<Qt::ConnectionType>(Qt::SingleShotConnection)));
+        QCOMPARE(receiver1.count_slot1, 0);
+        QCOMPARE(receiver2.count_slot1, 0);
+
+        sender.emitSignal1();
+        QCOMPARE(receiver1.count_slot1, 1);
+        QCOMPARE(receiver2.count_slot1, 1);
+
+        sender.emitSignal1();
+        QCOMPARE(receiver1.count_slot1, 2);
+        QCOMPARE(receiver2.count_slot1, 1);
+
+        sender.emitSignal1();
+        QCOMPARE(receiver1.count_slot1, 3);
+        QCOMPARE(receiver2.count_slot1, 1);
+
+        // Reestablish a single shot
+        QVERIFY(connect(&sender, &SenderObject::signal1,
+                        &receiver2, &ReceiverObject::slot1,
+                        static_cast<Qt::ConnectionType>(Qt::SingleShotConnection)));
+        QCOMPARE(receiver1.count_slot1, 3);
+        QCOMPARE(receiver2.count_slot1, 1);
+
+        sender.emitSignal1();
+        QCOMPARE(receiver1.count_slot1, 4);
+        QCOMPARE(receiver2.count_slot1, 2);
+
+        sender.emitSignal1();
+        QCOMPARE(receiver1.count_slot1, 5);
+        QCOMPARE(receiver2.count_slot1, 2);
+    }
+
+    {
+        // Check that the slot is invoked with the connection already disconnected
+        SenderObject sender;
+        QMetaObject::Connection c;
+        auto breakSlot = [&]() {
+            QVERIFY(!c);
+            ++sender.aPublicSlotCalled;
+        };
+
+        c = connect(&sender, &SenderObject::signal1,
+                    &sender, breakSlot,
+                    static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
+
+        QVERIFY(c);
+        QCOMPARE(sender.aPublicSlotCalled, 0);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 1);
+        QVERIFY(!c);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 1);
+        QVERIFY(!c);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 1);
+        QVERIFY(!c);
+    }
+
+    {
+        // Same
+        SenderObject sender;
+        ReceiverDisconnecting receiver;
+        receiver.sender = &sender;
+        bool ok = connect(&sender, SIGNAL(signal1()),
+                          &receiver, SLOT(aSlotByName()),
+                          static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
+        QVERIFY(ok);
+        QCOMPARE(receiver.slotCalledCount, 0);
+
+        sender.emitSignal1();
+        QCOMPARE(receiver.slotCalledCount, 1);
+
+        sender.emitSignal1();
+        QCOMPARE(receiver.slotCalledCount, 1);
+
+        // reconnect
+        ok = connect(&sender, SIGNAL(signal1()),
+                     &receiver, SLOT(aSlotByName()),
+                     static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
+        QVERIFY(ok);
+        QCOMPARE(receiver.slotCalledCount, 1);
+
+        sender.emitSignal1();
+        QCOMPARE(receiver.slotCalledCount, 2);
+
+        sender.emitSignal1();
+        QCOMPARE(receiver.slotCalledCount, 2);
+    }
+
+    {
+        // Same
+        SenderObject sender;
+        ReceiverDisconnecting receiver;
+        receiver.sender = &sender;
+        bool ok = connect(&sender, &SenderObject::signal1,
+                          &receiver, &ReceiverDisconnecting::aSlotByPtr,
+                          static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
+
+        QVERIFY(ok);
+        QCOMPARE(receiver.slotCalledCount, 0);
+
+        sender.emitSignal1();
+        QCOMPARE(receiver.slotCalledCount, 1);
+
+        sender.emitSignal1();
+        QCOMPARE(receiver.slotCalledCount, 1);
+
+        // reconnect
+        ok = connect(&sender, &SenderObject::signal1,
+                     &receiver, &ReceiverDisconnecting::aSlotByPtr,
+                     static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
+        QVERIFY(ok);
+        QCOMPARE(receiver.slotCalledCount, 1);
+
+        sender.emitSignal1();
+        QCOMPARE(receiver.slotCalledCount, 2);
+
+        sender.emitSignal1();
+        QCOMPARE(receiver.slotCalledCount, 2);
+    }
+
+    {
+        // Reconnect from inside the slot
+        SenderObject sender;
+        std::function<void()> reconnectingSlot;
+        bool reconnect = false;
+        reconnectingSlot = [&]() {
+            ++sender.aPublicSlotCalled;
+            if (reconnect) {
+                QObject::connect(&sender, &SenderObject::signal1,
+                                 &sender, reconnectingSlot,
+                                 static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
+            }
+        };
+
+        bool ok = connect(&sender, &SenderObject::signal1,
+                          &sender, reconnectingSlot,
+                          static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
+        QVERIFY(ok);
+        QCOMPARE(sender.aPublicSlotCalled, 0);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 1);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 1);
+
+        reconnect = true;
+        ok = connect(&sender, &SenderObject::signal1,
+                                  &sender, reconnectingSlot,
+                                  static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
+        QVERIFY(ok);
+        QCOMPARE(sender.aPublicSlotCalled, 1);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 2);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 3);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 4);
+
+        reconnect = false;
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 5);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 5);
+    }
+
+    {
+        // Delete the receiver from inside the slot
+        SenderObject sender;
+        QPointer<DeleteThisReceiver> p = new DeleteThisReceiver;
+        DeleteThisReceiver::counter = 0;
+
+        QVERIFY(connect(&sender, &SenderObject::signal1,
+                        p.get(), &DeleteThisReceiver::deleteThis,
+                        static_cast<Qt::ConnectionType>(Qt::SingleShotConnection)));
+
+        QVERIFY(p);
+        QCOMPARE(DeleteThisReceiver::counter, 0);
+
+        sender.emitSignal1();
+        QCOMPARE(DeleteThisReceiver::counter, 1);
+        QVERIFY(!p);
+
+        sender.emitSignal1();
+        QCOMPARE(DeleteThisReceiver::counter, 1);
+        QVERIFY(!p);
+    }
+
+    {
+        // Queued, non single shot
+        SenderObject sender;
+        QVERIFY(connect(&sender, &SenderObject::signal1,
+                        &sender, &SenderObject::aPublicSlot,
+                        static_cast<Qt::ConnectionType>(Qt::QueuedConnection)));
+        QCOMPARE(sender.aPublicSlotCalled, 0);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 0);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 0);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 0);
+
+        QTRY_COMPARE(sender.aPublicSlotCalled, 3);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 3);
+
+        QTRY_COMPARE(sender.aPublicSlotCalled, 4);
+    }
+
+    {
+        // Queued, single shot
+        SenderObject sender;
+        QVERIFY(connect(&sender, &SenderObject::signal1,
+                        &sender, &SenderObject::aPublicSlot,
+                        static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection)));
+        QCOMPARE(sender.aPublicSlotCalled, 0);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 0);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 0);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 0);
+
+        QTRY_COMPARE(sender.aPublicSlotCalled, 1);
+        QTest::qWait(0);
+        QCOMPARE(sender.aPublicSlotCalled, 1);
+    }
+
+    {
+        // Queued, single shot, checking the connection handle
+        SenderObject sender;
+        QMetaObject::Connection c = connect(&sender, &SenderObject::signal1,
+                                            &sender, &SenderObject::aPublicSlot,
+                                            static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
+        QVERIFY(c);
+        QCOMPARE(sender.aPublicSlotCalled, 0);
+
+        sender.emitSignal1();
+        QVERIFY(!c);
+        QCOMPARE(sender.aPublicSlotCalled, 0);
+
+        sender.emitSignal1();
+        QVERIFY(!c);
+        QCOMPARE(sender.aPublicSlotCalled, 0);
+
+        sender.emitSignal1();
+        QVERIFY(!c);
+        QCOMPARE(sender.aPublicSlotCalled, 0);
+
+        QTRY_COMPARE(sender.aPublicSlotCalled, 1);
+        QVERIFY(!c);
+        QTest::qWait(0);
+        QVERIFY(!c);
+        QCOMPARE(sender.aPublicSlotCalled, 1);
+    }
+
+    {
+        // Queued, single shot, disconnect before emitting
+        SenderObject sender;
+        QVERIFY(connect(&sender, &SenderObject::signal1,
+                        &sender, &SenderObject::aPublicSlot,
+                        static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection)));
+        QCOMPARE(sender.aPublicSlotCalled, 0);
+
+        QVERIFY(QObject::disconnect(&sender, &SenderObject::signal1,
+                                    &sender, &SenderObject::aPublicSlot));
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 0);
+
+        sender.emitSignal1();
+        QCOMPARE(sender.aPublicSlotCalled, 0);
+
+        QTest::qWait(0);
+        QCOMPARE(sender.aPublicSlotCalled, 0);
+    }
+
+    {
+        // Queued, single shot, disconnect before emitting by using the connection handle
+        SenderObject sender;
+        QMetaObject::Connection c = connect(&sender, &SenderObject::signal1,
+                                            &sender, &SenderObject::aPublicSlot,
+                                            static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
+        QVERIFY(c);
+        QCOMPARE(sender.aPublicSlotCalled, 0);
+
+        QVERIFY(QObject::disconnect(c));
+        QVERIFY(!c);
+
+        sender.emitSignal1();
+        QVERIFY(!c);
+        QCOMPARE(sender.aPublicSlotCalled, 0);
+
+        sender.emitSignal1();
+        QVERIFY(!c);
+        QCOMPARE(sender.aPublicSlotCalled, 0);
+
+        QTest::qWait(0);
+        QVERIFY(!c);
+        QCOMPARE(sender.aPublicSlotCalled, 0);
+    }
+
+    {
+        // Queued, single shot, delete the receiver from inside the slot
+        SenderObject sender;
+        QPointer<DeleteThisReceiver> p = new DeleteThisReceiver;
+        DeleteThisReceiver::counter = 0;
+
+        QVERIFY(connect(&sender, &SenderObject::signal1,
+                        p.get(), &DeleteThisReceiver::deleteThis,
+                        static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection)));
+        QCOMPARE(DeleteThisReceiver::counter, 0);
+
+        sender.emitSignal1();
+        QVERIFY(p);
+        QCOMPARE(DeleteThisReceiver::counter, 0);
+
+        sender.emitSignal1();
+        QVERIFY(p);
+        QCOMPARE(DeleteThisReceiver::counter, 0);
+
+        sender.emitSignal1();
+        QVERIFY(p);
+        QCOMPARE(DeleteThisReceiver::counter, 0);
+
+        QTRY_COMPARE(DeleteThisReceiver::counter, 1);
+        QVERIFY(!p);
+        QTest::qWait(0);
+        QCOMPARE(DeleteThisReceiver::counter, 1);
+        QVERIFY(!p);
+    }
+}
+
+void tst_QObject::objectNameBinding()
+{
+    QObject obj;
+    QTestPrivate::testReadWritePropertyBasics<QObject, QString>(obj, "test1", "test2",
+                                                                "objectName");
+}
+
 // Test for QtPrivate::HasQ_OBJECT_Macro
-Q_STATIC_ASSERT(QtPrivate::HasQ_OBJECT_Macro<tst_QObject>::Value);
-Q_STATIC_ASSERT(!QtPrivate::HasQ_OBJECT_Macro<SiblingDeleter>::Value);
+static_assert(QtPrivate::HasQ_OBJECT_Macro<tst_QObject>::Value);
+static_assert(!QtPrivate::HasQ_OBJECT_Macro<SiblingDeleter>::Value);
 
 QTEST_MAIN(tst_QObject)
 #include "tst_qobject.moc"

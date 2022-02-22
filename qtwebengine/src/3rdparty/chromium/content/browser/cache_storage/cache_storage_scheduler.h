@@ -10,6 +10,7 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/feature_list.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
@@ -19,6 +20,8 @@
 namespace content {
 
 class CacheStorageOperation;
+
+CONTENT_EXPORT extern const base::Feature kCacheStorageParallelOps;
 
 // TODO(jkarlin): Support operation identification so that ops can be checked in
 // DCHECKs.
@@ -110,11 +113,6 @@ class CONTENT_EXPORT CacheStorageScheduler {
   // Number of shared/exclusive operations currently running.
   int num_running_shared_ = 0;
   int num_running_exclusive_ = 0;
-
-  // The peak number of parallel shared operations that ran at once.  Measured
-  // between the last time the sheduler started running shared operations and
-  // when the number of running shared operations drops to zero.
-  int peak_parallel_shared_ = 0;
 
   SEQUENCE_CHECKER(sequence_checker_);
   base::WeakPtrFactory<CacheStorageScheduler> weak_ptr_factory_{this};

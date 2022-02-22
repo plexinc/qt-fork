@@ -51,12 +51,13 @@ static void add_spatial_candidate(refmvs_candidate *const mvstack, int *const cn
                 const mv cand_mv = ((b->mf & 1) && gmv[0].n != INVALID_MV) ?
                                    gmv[0] : b->mv.mv[n];
 
+                *have_refmv_match = 1;
+                *have_newmv_match |= b->mf >> 1;
+
                 const int last = *cnt;
                 for (int m = 0; m < last; m++)
                     if (mvstack[m].mv.mv[0].n == cand_mv.n) {
                         mvstack[m].weight += weight;
-                        *have_refmv_match = 1;
-                        *have_newmv_match |= b->mf >> 1;
                         return;
                     }
 
@@ -65,8 +66,6 @@ static void add_spatial_candidate(refmvs_candidate *const mvstack, int *const cn
                     mvstack[last].weight = weight;
                     *cnt = last + 1;
                 }
-                *have_refmv_match = 1;
-                *have_newmv_match |= b->mf >> 1;
                 return;
             }
         }
@@ -76,12 +75,13 @@ static void add_spatial_candidate(refmvs_candidate *const mvstack, int *const cn
             [1] = ((b->mf & 1) && gmv[1].n != INVALID_MV) ? gmv[1] : b->mv.mv[1],
         }};
 
+        *have_refmv_match = 1;
+        *have_newmv_match |= b->mf >> 1;
+
         const int last = *cnt;
         for (int n = 0; n < last; n++)
             if (mvstack[n].mv.n == cand_mv.n) {
                 mvstack[n].weight += weight;
-                *have_refmv_match = 1;
-                *have_newmv_match |= b->mf >> 1;
                 return;
             }
 
@@ -90,8 +90,6 @@ static void add_spatial_candidate(refmvs_candidate *const mvstack, int *const cn
             mvstack[last].weight = weight;
             *cnt = last + 1;
         }
-        *have_refmv_match = 1;
-        *have_newmv_match |= b->mf >> 1;
     }
 }
 
@@ -182,10 +180,13 @@ static inline union mv mv_projection(const union mv mv, const int num, const int
     };
     assert(den > 0 && den < 32);
     assert(num > -32 && num < 32);
-    const int dm = div_mult[den];
-    const int y = mv.y * num * dm, x = mv.x * num * dm;
-    return (union mv) { .y = (y + 8192 + (y >> 31)) >> 14,
-                        .x = (x + 8192 + (x >> 31)) >> 14 };
+    const int frac = num * div_mult[den];
+    const int y = mv.y * frac, x = mv.x * frac;
+    // Round and clip according to AV1 spec section 7.9.3
+    return (union mv) { // 0x3fff == (1 << 14) - 1
+        .y = iclip((y + 8192 + (y >> 31)) >> 14, -0x3fff, 0x3fff),
+        .x = iclip((x + 8192 + (x >> 31)) >> 14, -0x3fff, 0x3fff)
+    };
 }
 
 static void add_temporal_candidate(const refmvs_frame *const rf,

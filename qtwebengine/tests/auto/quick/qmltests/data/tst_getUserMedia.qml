@@ -26,9 +26,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.2
-import QtTest 1.0
-import QtWebEngine 1.6
+import QtQuick
+import QtTest
+import QtWebEngine
 
 TestWebEngineView {
     id: webEngineView
@@ -126,8 +126,8 @@ TestWebEngineView {
         signalName: "loadFinished"
     }
 
-    onLoadingChanged: {
-        if (loadRequest.status == WebEngineLoadRequest.LoadSucceededStatus) {
+    onLoadingChanged: function(load) {
+        if (load.status == WebEngineView.LoadSucceededStatus) {
             loadFinished()
         }
     }
@@ -143,7 +143,7 @@ TestWebEngineView {
     property variant requestedFeature
     property variant requestedSecurityOrigin
 
-    onFeaturePermissionRequested: {
+    onFeaturePermissionRequested: function(securityOrigin, feature) {
         requestedFeature = feature
         requestedSecurityOrigin = securityOrigin
     }

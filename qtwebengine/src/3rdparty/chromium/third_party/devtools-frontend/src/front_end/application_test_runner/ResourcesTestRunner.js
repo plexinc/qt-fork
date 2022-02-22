@@ -4,8 +4,8 @@
 
 /**
  * @fileoverview using private properties isn't a Closure violation in tests.
- * @suppress {accessControls}
  */
+self.ApplicationTestRunner = self.ApplicationTestRunner || {};
 
 /**
  * Many application panel tests are flaky because storage state (e.g. IndexedDB)
@@ -15,8 +15,7 @@ ApplicationTestRunner.resetState = async function() {
   const targets = self.SDK.targetManager.targets();
   for (const target of targets) {
     const securityOrigin = new Common.ParsedURL(target.inspectedURL()).securityOrigin();
-    await target.storageAgent().clearDataForOrigin(
-        securityOrigin, Resources.ClearStorageView.AllStorageTypes.join(','));
+    await target.storageAgent().clearDataForOrigin(securityOrigin, Resources.StorageView.AllStorageTypes.join(','));
   }
 };
 

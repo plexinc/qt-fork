@@ -8,7 +8,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/views/test/native_widget_factory.h"
@@ -83,7 +83,7 @@ class NamedWidgetShownWaiterTest : public views::test::WidgetTest {
     Widget* widget = new Widget;
     Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_WINDOW);
     params.native_widget = views::test::CreatePlatformNativeWidgetImpl(
-        params, widget, views::test::kStubCapture, nullptr);
+        widget, views::test::kStubCapture, nullptr);
     params.name = name;
     widget->Init(std::move(params));
     return widget;

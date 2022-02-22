@@ -1,7 +1,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'addtorrentform.ui'
 **
-** Created by: Qt User Interface Compiler version 5.12.0
+** Created by: Qt User Interface Compiler version 6.0.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -198,8 +198,8 @@ public:
         QWidget::setTabOrder(okButton, cancelButton);
 
         retranslateUi(AddTorrentFile);
-        QObject::connect(okButton, SIGNAL(clicked()), AddTorrentFile, SLOT(accept()));
-        QObject::connect(cancelButton, SIGNAL(clicked()), AddTorrentFile, SLOT(reject()));
+        QObject::connect(okButton, &QPushButton::clicked, AddTorrentFile, qOverload<>(&QDialog::accept));
+        QObject::connect(cancelButton, &QPushButton::clicked, AddTorrentFile, qOverload<>(&QDialog::reject));
 
         browseTorrents->setDefault(true);
 

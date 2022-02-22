@@ -29,8 +29,6 @@
 ****************************************************************************/
 
 #include <QtQuick3DRuntimeRender/private/qssgrenderimage_p.h>
-#include <QtQuick3DRuntimeRender/private/qssgrenderbuffermanager_p.h>
-#include <QtQuick3DRuntimeRender/private/qssgrenderprefiltertexture_p.h>
 #include <QtQuick/QSGTexture>
 
 QT_BEGIN_NAMESPACE
@@ -38,30 +36,16 @@ QT_BEGIN_NAMESPACE
 QSSGRenderImage::QSSGRenderImage()
     : QSSGRenderGraphObject(QSSGRenderGraphObject::Type::Image)
 {
-    m_flags.setFlag(Flag::Active);
     m_flags.setFlag(Flag::Dirty);
     m_flags.setFlag(Flag::TransformDirty);
 }
 
 QSSGRenderImage::~QSSGRenderImage() = default;
 
-
-bool QSSGRenderImage::clearDirty(const QSSGRef<QSSGBufferManager> &inBufferManager, bool forIbl)
+bool QSSGRenderImage::clearDirty()
 {
-    bool wasDirty = m_flags.testFlag(Flag::Dirty);
+    const bool wasDirty = m_flags.testFlag(Flag::Dirty);
     m_flags.setFlag(Flag::Dirty, false);
-
-    if (wasDirty) {
-        QSSGRenderImageTextureData newImage;
-        if (m_qsgTexture)
-            newImage = inBufferManager->loadRenderImage(m_qsgTexture);
-        else
-            newImage = inBufferManager->loadRenderImage(m_imagePath, m_format, false, forIbl);
-
-        if (newImage.m_texture != m_textureData.m_texture)
-            m_textureData = newImage;
-    }
-
     if (m_flags.testFlag(Flag::TransformDirty)) {
         calculateTextureTransform();
         return true;
@@ -73,13 +57,18 @@ void QSSGRenderImage::calculateTextureTransform()
 {
     m_flags.setFlag(Flag::TransformDirty, false);
 
+    m_textureTransform = QMatrix4x4();
+    if (m_flipU) {
+        m_textureTransform *= QMatrix4x4(-1.f, 0.f, 0.f, 1.f,
+                                         0.f,  1.f, 0.f, 0.f,
+                                         0.f,  0.f, 1.f, 0.f,
+                                         0.f,  0.f, 0.f, 1.f);
+    }
     if (m_flipV) {
-        m_textureTransform = QMatrix4x4(1.f,  0.f, 0.f, 0.f,
-                                        0.f, -1.f, 0.f, 1.f,
-                                        0.f,  0.f, 1.f, 0.f,
-                                        0.f,  0.f, 0.f, 1.f);
-    } else {
-        m_textureTransform = QMatrix4x4();
+        m_textureTransform *= QMatrix4x4(1.f,  0.f, 0.f, 0.f,
+                                         0.f, -1.f, 0.f, 1.f,
+                                         0.f,  0.f, 1.f, 0.f,
+                                         0.f,  0.f, 0.f, 1.f);
     }
 
     QMatrix4x4 pivot;
@@ -107,8 +96,5 @@ bool QSSGRenderImage::isImageTransformIdentity() const
         return false;
     return m_textureTransform.isIdentity();
 }
-
-QSSGRenderImageTextureData::QSSGRenderImageTextureData() = default;
-QSSGRenderImageTextureData::~QSSGRenderImageTextureData() = default;
 
 QT_END_NAMESPACE

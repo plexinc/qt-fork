@@ -25,7 +25,7 @@
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include <QtGui/qpixelformat.h>
 
@@ -56,8 +56,8 @@ void tst_QPixelFormat::testOperators()
 
 void tst_QPixelFormat::testQVectorOfFormats()
 {
-    QVector<QPixelFormat> reallocedVector;
-    QVector<QPixelFormat> reservedVector;
+    QList<QPixelFormat> reallocedVector;
+    QList<QPixelFormat> reservedVector;
     reservedVector.reserve(QImage::NImageFormats);
     for (int i = 0; i < QImage::NImageFormats; i++) {
         if (i == 0 || i == 2) // skip invalid and monolsb

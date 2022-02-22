@@ -37,7 +37,9 @@
 **
 ****************************************************************************/
 
-#include <QtTest>
+#include <QTest>
+#include <QCborStreamWriter>
+#include <QBuffer>
 
 class tst_QCborStreamWriter : public QObject
 {
@@ -69,33 +71,33 @@ void encodeVariant(QCborStreamWriter &writer, const QVariant &v)
 {
     int type = v.userType();
     switch (type) {
-    case QVariant::Int:
-    case QVariant::LongLong:
+    case QMetaType::Int:
+    case QMetaType::LongLong:
         return writer.append(v.toLongLong());
 
-    case QVariant::UInt:
-    case QVariant::ULongLong:
+    case QMetaType::UInt:
+    case QMetaType::ULongLong:
         return writer.append(v.toULongLong());
 
-    case QVariant::Bool:
+    case QMetaType::Bool:
         return writer.append(v.toBool());
 
-    case QVariant::Invalid:
+    case QMetaType::UnknownType:
         return writer.appendUndefined();
 
     case QMetaType::VoidStar:
         return writer.append(nullptr);
 
-    case QVariant::Double:
+    case QMetaType::Double:
         return writer.append(v.toDouble());
 
     case QMetaType::Float:
         return writer.append(v.toFloat());
 
-    case QVariant::String:
+    case QMetaType::QString:
         return writer.append(v.toString());
 
-    case QVariant::ByteArray:
+    case QMetaType::QByteArray:
         return writer.append(v.toByteArray());
 
     default:
@@ -109,7 +111,7 @@ void encodeVariant(QCborStreamWriter &writer, const QVariant &v)
             writer.append(QCborTag(v.value<Tag>().tag));
             return encodeVariant(writer, v.value<Tag>().tagged);
         }
-        if (type == QVariant::List || type == qMetaTypeId<IndeterminateLengthArray>()) {
+        if (type == QMetaType::QVariantList || type == qMetaTypeId<IndeterminateLengthArray>()) {
             QVariantList list = v.toList();
             if (type == qMetaTypeId<IndeterminateLengthArray>()) {
                 list = v.value<IndeterminateLengthArray>();
@@ -191,7 +193,7 @@ void tst_QCborStreamWriter::nonAsciiStrings_data()
     QTest::addColumn<QString>("input");
     QTest::addColumn<bool>("isLatin1");
 
-    QByteArray latin1 = u8"Résumé";
+    QByteArray latin1 = "Résumé";
     QTest::newRow("shortlatin1")
             << ("\x68" + latin1) << QString::fromUtf8(latin1) << true;
 
@@ -200,7 +202,7 @@ void tst_QCborStreamWriter::nonAsciiStrings_data()
     QTest::newRow("longlatin1")
             << ("\x78\x28" + latin1) << QString::fromUtf8(latin1) << true;
 
-    QByteArray nonlatin1 = u8"Χαίρετε";
+    QByteArray nonlatin1 = "Χαίρετε";
     QTest::newRow("shortnonlatin1")
             << ("\x6e" + nonlatin1) << QString::fromUtf8(nonlatin1) << false;
 

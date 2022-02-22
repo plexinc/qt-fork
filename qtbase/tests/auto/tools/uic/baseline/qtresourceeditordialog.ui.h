@@ -1,7 +1,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'qtresourceeditordialog.ui'
 **
-** Created by: Qt User Interface Compiler version 5.12.0
+** Created by: Qt User Interface Compiler version 6.0.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -10,6 +10,7 @@
 #define QTRESOURCEEDITORDIALOG_H
 
 #include <QtCore/QVariant>
+#include <QtWidgets/QAbstractButton>
 #include <QtWidgets/QApplication>
 #include <QtWidgets/QDialog>
 #include <QtWidgets/QDialogButtonBox>
@@ -133,8 +134,8 @@ public:
 
 
         retranslateUi(QtResourceEditorDialog);
-        QObject::connect(buttonBox, SIGNAL(accepted()), QtResourceEditorDialog, SLOT(accept()));
-        QObject::connect(buttonBox, SIGNAL(rejected()), QtResourceEditorDialog, SLOT(reject()));
+        QObject::connect(buttonBox, &QDialogButtonBox::accepted, QtResourceEditorDialog, qOverload<>(&QDialog::accept));
+        QObject::connect(buttonBox, &QDialogButtonBox::rejected, QtResourceEditorDialog, qOverload<>(&QDialog::reject));
 
         QMetaObject::connectSlotsByName(QtResourceEditorDialog);
     } // setupUi

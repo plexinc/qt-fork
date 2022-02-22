@@ -22,11 +22,12 @@
 #include "dawn_native/ObjectBase.h"
 #include "dawn_native/PassResourceUsage.h"
 
+#include <map>
 #include <string>
 
 namespace dawn_native {
 
-    struct BeginRenderPassCmd;
+    using QueryAvailabilityMap = std::map<QuerySetBase*, std::vector<bool>>;
 
     class CommandEncoder final : public ObjectBase {
       public:
@@ -34,6 +35,10 @@ namespace dawn_native {
 
         CommandIterator AcquireCommands();
         CommandBufferResourceUsage AcquireResourceUsages();
+
+        void TrackUsedQuerySet(QuerySetBase* querySet);
+        void TrackQueryAvailability(QuerySetBase* querySet, uint32_t queryIndex);
+        const QueryAvailabilityMap& GetQueryAvailabilityMap() const;
 
         // Dawn API
         ComputePassEncoder* BeginComputePass(const ComputePassDescriptor* descriptor);
@@ -54,11 +59,19 @@ namespace dawn_native {
                                   const TextureCopyView* destination,
                                   const Extent3D* copySize);
 
+        void InjectValidationError(const char* message);
         void InsertDebugMarker(const char* groupLabel);
         void PopDebugGroup();
         void PushDebugGroup(const char* groupLabel);
 
-        CommandBufferBase* Finish(const CommandBufferDescriptor* descriptor);
+        void ResolveQuerySet(QuerySetBase* querySet,
+                             uint32_t firstQuery,
+                             uint32_t queryCount,
+                             BufferBase* destination,
+                             uint64_t destinationOffset);
+        void WriteTimestamp(QuerySetBase* querySet, uint32_t queryIndex);
+
+        CommandBufferBase* Finish(const CommandBufferDescriptor* descriptor = nullptr);
 
       private:
         MaybeError ValidateFinish(CommandIterator* commands,
@@ -67,6 +80,10 @@ namespace dawn_native {
         EncodingContext mEncodingContext;
         std::set<BufferBase*> mTopLevelBuffers;
         std::set<TextureBase*> mTopLevelTextures;
+        std::set<QuerySetBase*> mUsedQuerySets;
+        QueryAvailabilityMap mQueryAvailabilityMap;
+
+        uint64_t mDebugGroupStackSize = 0;
     };
 
 }  // namespace dawn_native

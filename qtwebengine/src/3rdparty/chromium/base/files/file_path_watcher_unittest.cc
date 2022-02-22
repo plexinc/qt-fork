@@ -12,15 +12,17 @@
 #endif
 
 #include <set>
+#include <string>
+#include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/compiler_specific.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/location.h"
-#include "base/macros.h"
+#include "base/logging.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
@@ -105,12 +107,11 @@ class NotificationCollector
 class TestDelegateBase : public SupportsWeakPtr<TestDelegateBase> {
  public:
   TestDelegateBase() = default;
+  TestDelegateBase(const TestDelegateBase&) = delete;
+  TestDelegateBase& operator=(const TestDelegateBase&) = delete;
   virtual ~TestDelegateBase() = default;
 
   virtual void OnFileChanged(const FilePath& path, bool error) = 0;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(TestDelegateBase);
 };
 
 // A mock class for testing. Gmock is not appropriate because it is not
@@ -124,19 +125,26 @@ class TestDelegate : public TestDelegateBase {
       : collector_(collector) {
     collector_->Register(this);
   }
+  TestDelegate(const TestDelegate&) = delete;
+  TestDelegate& operator=(const TestDelegate&) = delete;
   ~TestDelegate() override = default;
 
+  // Configure this delegate so that it expects an error.
+  void set_expect_error() { expect_error_ = true; }
+
+  // TestDelegateBase:
   void OnFileChanged(const FilePath& path, bool error) override {
-    if (error)
-      ADD_FAILURE() << "Error " << path.value();
-    else
+    if (error != expect_error_) {
+      ADD_FAILURE() << "Unexpected change for \"" << path
+                    << "\" with |error| = " << (error ? "true" : "false");
+    } else {
       collector_->OnChange(this);
+    }
   }
 
  private:
   scoped_refptr<NotificationCollector> collector_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestDelegate);
+  bool expect_error_ = false;
 };
 
 class FilePathWatcherTest : public testing::Test {
@@ -148,6 +156,8 @@ class FilePathWatcherTest : public testing::Test {
   {
   }
 
+  FilePathWatcherTest(const FilePathWatcherTest&) = delete;
+  FilePathWatcherTest& operator=(const FilePathWatcherTest&) = delete;
   ~FilePathWatcherTest() override = default;
 
  protected:
@@ -176,16 +186,10 @@ class FilePathWatcherTest : public testing::Test {
     return temp_dir_.GetPath().AppendASCII("FilePathWatcherTest.lnk");
   }
 
-  // Write |content| to |file|. Returns true on success.
-  bool WriteFile(const FilePath& file, const std::string& content) {
-    int write_size = ::base::WriteFile(file, content.c_str(), content.length());
-    return write_size == static_cast<int>(content.length());
-  }
-
   bool SetupWatch(const FilePath& target,
                   FilePathWatcher* watcher,
                   TestDelegateBase* delegate,
-                  bool recursive_watch) WARN_UNUSED_RESULT;
+                  FilePathWatcher::Type watch_type) WARN_UNUSED_RESULT;
 
   bool WaitForEvents() WARN_UNUSED_RESULT {
     return WaitForEventsWithTimeout(TestTimeouts::action_timeout());
@@ -208,16 +212,13 @@ class FilePathWatcherTest : public testing::Test {
 
   ScopedTempDir temp_dir_;
   scoped_refptr<NotificationCollector> collector_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(FilePathWatcherTest);
 };
 
 bool FilePathWatcherTest::SetupWatch(const FilePath& target,
                                      FilePathWatcher* watcher,
                                      TestDelegateBase* delegate,
-                                     bool recursive_watch) {
-  return watcher->Watch(target, recursive_watch,
+                                     FilePathWatcher::Type watch_type) {
+  return watcher->Watch(target, watch_type,
                         base::BindRepeating(&TestDelegateBase::OnFileChanged,
                                             delegate->AsWeakPtr()));
 }
@@ -226,7 +227,8 @@ bool FilePathWatcherTest::SetupWatch(const FilePath& target,
 TEST_F(FilePathWatcherTest, NewFile) {
   FilePathWatcher watcher;
   std::unique_ptr<TestDelegate> delegate(new TestDelegate(collector()));
-  ASSERT_TRUE(SetupWatch(test_file(), &watcher, delegate.get(), false));
+  ASSERT_TRUE(SetupWatch(test_file(), &watcher, delegate.get(),
+                         FilePathWatcher::Type::kNonRecursive));
 
   ASSERT_TRUE(WriteFile(test_file(), "content"));
   ASSERT_TRUE(WaitForEvents());
@@ -238,7 +240,8 @@ TEST_F(FilePathWatcherTest, ModifiedFile) {
 
   FilePathWatcher watcher;
   std::unique_ptr<TestDelegate> delegate(new TestDelegate(collector()));
-  ASSERT_TRUE(SetupWatch(test_file(), &watcher, delegate.get(), false));
+  ASSERT_TRUE(SetupWatch(test_file(), &watcher, delegate.get(),
+                         FilePathWatcher::Type::kNonRecursive));
 
   // Now make sure we get notified if the file is modified.
   ASSERT_TRUE(WriteFile(test_file(), "new content"));
@@ -252,7 +255,8 @@ TEST_F(FilePathWatcherTest, MovedFile) {
 
   FilePathWatcher watcher;
   std::unique_ptr<TestDelegate> delegate(new TestDelegate(collector()));
-  ASSERT_TRUE(SetupWatch(test_file(), &watcher, delegate.get(), false));
+  ASSERT_TRUE(SetupWatch(test_file(), &watcher, delegate.get(),
+                         FilePathWatcher::Type::kNonRecursive));
 
   // Now make sure we get notified if the file is modified.
   ASSERT_TRUE(base::Move(source_file, test_file()));
@@ -264,10 +268,11 @@ TEST_F(FilePathWatcherTest, DeletedFile) {
 
   FilePathWatcher watcher;
   std::unique_ptr<TestDelegate> delegate(new TestDelegate(collector()));
-  ASSERT_TRUE(SetupWatch(test_file(), &watcher, delegate.get(), false));
+  ASSERT_TRUE(SetupWatch(test_file(), &watcher, delegate.get(),
+                         FilePathWatcher::Type::kNonRecursive));
 
   // Now make sure we get notified if the file is deleted.
-  base::DeleteFile(test_file(), false);
+  base::DeleteFile(test_file());
   ASSERT_TRUE(WaitForEvents());
 }
 
@@ -278,6 +283,8 @@ class Deleter : public TestDelegateBase {
   explicit Deleter(base::OnceClosure done_closure)
       : watcher_(std::make_unique<FilePathWatcher>()),
         done_closure_(std::move(done_closure)) {}
+  Deleter(const Deleter&) = delete;
+  Deleter& operator=(const Deleter&) = delete;
   ~Deleter() override = default;
 
   void OnFileChanged(const FilePath&, bool) override {
@@ -290,15 +297,14 @@ class Deleter : public TestDelegateBase {
  private:
   std::unique_ptr<FilePathWatcher> watcher_;
   base::OnceClosure done_closure_;
-
-  DISALLOW_COPY_AND_ASSIGN(Deleter);
 };
 
 // Verify that deleting a watcher during the callback doesn't crash.
 TEST_F(FilePathWatcherTest, DeleteDuringNotify) {
   base::RunLoop run_loop;
   Deleter deleter(run_loop.QuitClosure());
-  ASSERT_TRUE(SetupWatch(test_file(), deleter.watcher(), &deleter, false));
+  ASSERT_TRUE(SetupWatch(test_file(), deleter.watcher(), &deleter,
+                         FilePathWatcher::Type::kNonRecursive));
 
   ASSERT_TRUE(WriteFile(test_file(), "content"));
   run_loop.Run();
@@ -313,7 +319,8 @@ TEST_F(FilePathWatcherTest, DeleteDuringNotify) {
 TEST_F(FilePathWatcherTest, DestroyWithPendingNotification) {
   std::unique_ptr<TestDelegate> delegate(new TestDelegate(collector()));
   FilePathWatcher watcher;
-  ASSERT_TRUE(SetupWatch(test_file(), &watcher, delegate.get(), false));
+  ASSERT_TRUE(SetupWatch(test_file(), &watcher, delegate.get(),
+                         FilePathWatcher::Type::kNonRecursive));
   ASSERT_TRUE(WriteFile(test_file(), "content"));
 }
 
@@ -321,8 +328,10 @@ TEST_F(FilePathWatcherTest, MultipleWatchersSingleFile) {
   FilePathWatcher watcher1, watcher2;
   std::unique_ptr<TestDelegate> delegate1(new TestDelegate(collector()));
   std::unique_ptr<TestDelegate> delegate2(new TestDelegate(collector()));
-  ASSERT_TRUE(SetupWatch(test_file(), &watcher1, delegate1.get(), false));
-  ASSERT_TRUE(SetupWatch(test_file(), &watcher2, delegate2.get(), false));
+  ASSERT_TRUE(SetupWatch(test_file(), &watcher1, delegate1.get(),
+                         FilePathWatcher::Type::kNonRecursive));
+  ASSERT_TRUE(SetupWatch(test_file(), &watcher2, delegate2.get(),
+                         FilePathWatcher::Type::kNonRecursive));
 
   ASSERT_TRUE(WriteFile(test_file(), "content"));
   ASSERT_TRUE(WaitForEvents());
@@ -335,7 +344,8 @@ TEST_F(FilePathWatcherTest, NonExistentDirectory) {
   FilePath dir(temp_dir_.GetPath().AppendASCII("dir"));
   FilePath file(dir.AppendASCII("file"));
   std::unique_ptr<TestDelegate> delegate(new TestDelegate(collector()));
-  ASSERT_TRUE(SetupWatch(file, &watcher, delegate.get(), false));
+  ASSERT_TRUE(SetupWatch(file, &watcher, delegate.get(),
+                         FilePathWatcher::Type::kNonRecursive));
 
   ASSERT_TRUE(base::CreateDirectory(dir));
 
@@ -348,7 +358,7 @@ TEST_F(FilePathWatcherTest, NonExistentDirectory) {
   VLOG(1) << "Waiting for file change";
   ASSERT_TRUE(WaitForEvents());
 
-  ASSERT_TRUE(base::DeleteFile(file, false));
+  ASSERT_TRUE(base::DeleteFile(file));
   VLOG(1) << "Waiting for file deletion";
   ASSERT_TRUE(WaitForEvents());
 }
@@ -367,7 +377,8 @@ TEST_F(FilePathWatcherTest, DirectoryChain) {
   FilePathWatcher watcher;
   FilePath file(path.AppendASCII("file"));
   std::unique_ptr<TestDelegate> delegate(new TestDelegate(collector()));
-  ASSERT_TRUE(SetupWatch(file, &watcher, delegate.get(), false));
+  ASSERT_TRUE(SetupWatch(file, &watcher, delegate.get(),
+                         FilePathWatcher::Type::kNonRecursive));
 
   FilePath sub_path(temp_dir_.GetPath());
   for (std::vector<std::string>::const_iterator d(dir_names.begin());
@@ -392,9 +403,10 @@ TEST_F(FilePathWatcherTest, DisappearingDirectory) {
   ASSERT_TRUE(base::CreateDirectory(dir));
   ASSERT_TRUE(WriteFile(file, "content"));
   std::unique_ptr<TestDelegate> delegate(new TestDelegate(collector()));
-  ASSERT_TRUE(SetupWatch(file, &watcher, delegate.get(), false));
+  ASSERT_TRUE(SetupWatch(file, &watcher, delegate.get(),
+                         FilePathWatcher::Type::kNonRecursive));
 
-  ASSERT_TRUE(base::DeleteFileRecursively(dir));
+  ASSERT_TRUE(base::DeletePathRecursively(dir));
   ASSERT_TRUE(WaitForEvents());
 }
 
@@ -403,9 +415,10 @@ TEST_F(FilePathWatcherTest, DeleteAndRecreate) {
   ASSERT_TRUE(WriteFile(test_file(), "content"));
   FilePathWatcher watcher;
   std::unique_ptr<TestDelegate> delegate(new TestDelegate(collector()));
-  ASSERT_TRUE(SetupWatch(test_file(), &watcher, delegate.get(), false));
+  ASSERT_TRUE(SetupWatch(test_file(), &watcher, delegate.get(),
+                         FilePathWatcher::Type::kNonRecursive));
 
-  ASSERT_TRUE(base::DeleteFile(test_file(), false));
+  ASSERT_TRUE(base::DeleteFile(test_file()));
   VLOG(1) << "Waiting for file deletion";
   ASSERT_TRUE(WaitForEvents());
 
@@ -420,7 +433,8 @@ TEST_F(FilePathWatcherTest, WatchDirectory) {
   FilePath file1(dir.AppendASCII("file1"));
   FilePath file2(dir.AppendASCII("file2"));
   std::unique_ptr<TestDelegate> delegate(new TestDelegate(collector()));
-  ASSERT_TRUE(SetupWatch(dir, &watcher, delegate.get(), false));
+  ASSERT_TRUE(SetupWatch(dir, &watcher, delegate.get(),
+                         FilePathWatcher::Type::kNonRecursive));
 
   ASSERT_TRUE(base::CreateDirectory(dir));
   VLOG(1) << "Waiting for directory creation";
@@ -430,14 +444,14 @@ TEST_F(FilePathWatcherTest, WatchDirectory) {
   VLOG(1) << "Waiting for file1 creation";
   ASSERT_TRUE(WaitForEvents());
 
-#if !defined(OS_MACOSX)
+#if !defined(OS_APPLE)
   // Mac implementation does not detect files modified in a directory.
   ASSERT_TRUE(WriteFile(file1, "content v2"));
   VLOG(1) << "Waiting for file1 modification";
   ASSERT_TRUE(WaitForEvents());
-#endif  // !OS_MACOSX
+#endif  // !OS_APPLE
 
-  ASSERT_TRUE(base::DeleteFile(file1, false));
+  ASSERT_TRUE(base::DeleteFile(file1));
   VLOG(1) << "Waiting for file1 deletion";
   ASSERT_TRUE(WaitForEvents());
 
@@ -454,10 +468,11 @@ TEST_F(FilePathWatcherTest, MoveParent) {
   FilePath subdir(dir.AppendASCII("subdir"));
   FilePath file(subdir.AppendASCII("file"));
   std::unique_ptr<TestDelegate> file_delegate(new TestDelegate(collector()));
-  ASSERT_TRUE(SetupWatch(file, &file_watcher, file_delegate.get(), false));
+  ASSERT_TRUE(SetupWatch(file, &file_watcher, file_delegate.get(),
+                         FilePathWatcher::Type::kNonRecursive));
   std::unique_ptr<TestDelegate> subdir_delegate(new TestDelegate(collector()));
   ASSERT_TRUE(SetupWatch(subdir, &subdir_watcher, subdir_delegate.get(),
-                         false));
+                         FilePathWatcher::Type::kNonRecursive));
 
   // Setup a directory hierarchy.
   ASSERT_TRUE(base::CreateDirectory(subdir));
@@ -475,7 +490,8 @@ TEST_F(FilePathWatcherTest, RecursiveWatch) {
   FilePathWatcher watcher;
   FilePath dir(temp_dir_.GetPath().AppendASCII("dir"));
   std::unique_ptr<TestDelegate> delegate(new TestDelegate(collector()));
-  bool setup_result = SetupWatch(dir, &watcher, delegate.get(), true);
+  bool setup_result = SetupWatch(dir, &watcher, delegate.get(),
+                                 FilePathWatcher::Type::kRecursive);
   if (!FilePathWatcher::RecursiveWatchAvailable()) {
     ASSERT_FALSE(setup_result);
     return;
@@ -498,13 +514,13 @@ TEST_F(FilePathWatcherTest, RecursiveWatch) {
 
 // Mac and Win don't generate events for Touch.
 // Android TouchFile returns false.
-#if !(defined(OS_MACOSX) || defined(OS_WIN) || defined(OS_ANDROID))
+#if !(defined(OS_APPLE) || defined(OS_WIN) || defined(OS_ANDROID))
   // Touch "$dir".
   Time access_time;
   ASSERT_TRUE(Time::FromString("Wed, 16 Nov 1994, 00:00:00", &access_time));
   ASSERT_TRUE(base::TouchFile(dir, access_time, access_time));
   ASSERT_TRUE(WaitForEvents());
-#endif  // !(defined(OS_MACOSX) || defined(OS_WIN) || defined(OS_ANDROID))
+#endif  // !(defined(OS_APPLE) || defined(OS_WIN) || defined(OS_ANDROID))
 
   // Create "$dir/subdir/subdir_file1".
   FilePath subdir_file1(subdir.AppendASCII("subdir_file1"));
@@ -537,11 +553,11 @@ TEST_F(FilePathWatcherTest, RecursiveWatch) {
 #endif
 
   // Delete "$dir/subdir/subdir_file1".
-  ASSERT_TRUE(base::DeleteFile(subdir_file1, false));
+  ASSERT_TRUE(base::DeleteFile(subdir_file1));
   ASSERT_TRUE(WaitForEvents());
 
   // Delete "$dir/subdir/subdir_child_dir/child_dir_file1".
-  ASSERT_TRUE(base::DeleteFile(child_dir_file1, false));
+  ASSERT_TRUE(base::DeleteFile(child_dir_file1));
   ASSERT_TRUE(WaitForEvents());
 }
 
@@ -562,7 +578,8 @@ TEST_F(FilePathWatcherTest, RecursiveWithSymLink) {
   ASSERT_TRUE(base::CreateDirectory(test_dir));
   FilePath symlink(test_dir.AppendASCII("symlink"));
   std::unique_ptr<TestDelegate> delegate(new TestDelegate(collector()));
-  ASSERT_TRUE(SetupWatch(symlink, &watcher, delegate.get(), true));
+  ASSERT_TRUE(SetupWatch(symlink, &watcher, delegate.get(),
+                         FilePathWatcher::Type::kRecursive));
 
   // Link creation.
   FilePath target1(temp_dir_.GetPath().AppendASCII("target1"));
@@ -581,7 +598,7 @@ TEST_F(FilePathWatcherTest, RecursiveWithSymLink) {
   // Link change.
   FilePath target2(temp_dir_.GetPath().AppendASCII("target2"));
   ASSERT_TRUE(base::CreateDirectory(target2));
-  ASSERT_TRUE(base::DeleteFile(symlink, false));
+  ASSERT_TRUE(base::DeleteFile(symlink));
   ASSERT_TRUE(base::CreateSymbolicLink(target2, symlink));
   ASSERT_TRUE(WaitForEvents());
 
@@ -607,10 +624,11 @@ TEST_F(FilePathWatcherTest, MoveChild) {
   ASSERT_TRUE(WriteFile(source_file, "content"));
 
   std::unique_ptr<TestDelegate> file_delegate(new TestDelegate(collector()));
-  ASSERT_TRUE(SetupWatch(dest_file, &file_watcher, file_delegate.get(), false));
+  ASSERT_TRUE(SetupWatch(dest_file, &file_watcher, file_delegate.get(),
+                         FilePathWatcher::Type::kNonRecursive));
   std::unique_ptr<TestDelegate> subdir_delegate(new TestDelegate(collector()));
   ASSERT_TRUE(SetupWatch(dest_subdir, &subdir_watcher, subdir_delegate.get(),
-                         false));
+                         FilePathWatcher::Type::kNonRecursive));
 
   // Move the directory into place, s.t. the watched file appears.
   ASSERT_TRUE(base::Move(source_dir, dest_dir));
@@ -630,21 +648,23 @@ TEST_F(FilePathWatcherTest, FileAttributesChanged) {
   ASSERT_TRUE(WriteFile(test_file(), "content"));
   FilePathWatcher watcher;
   std::unique_ptr<TestDelegate> delegate(new TestDelegate(collector()));
-  ASSERT_TRUE(SetupWatch(test_file(), &watcher, delegate.get(), false));
+  ASSERT_TRUE(SetupWatch(test_file(), &watcher, delegate.get(),
+                         FilePathWatcher::Type::kNonRecursive));
 
   // Now make sure we get notified if the file is modified.
   ASSERT_TRUE(base::MakeFileUnreadable(test_file()));
   ASSERT_TRUE(WaitForEvents());
 }
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
 
 // Verify that creating a symlink is caught.
 TEST_F(FilePathWatcherTest, CreateLink) {
   FilePathWatcher watcher;
   std::unique_ptr<TestDelegate> delegate(new TestDelegate(collector()));
   // Note that we are watching the symlink
-  ASSERT_TRUE(SetupWatch(test_link(), &watcher, delegate.get(), false));
+  ASSERT_TRUE(SetupWatch(test_link(), &watcher, delegate.get(),
+                         FilePathWatcher::Type::kNonRecursive));
 
   // Now make sure we get notified if the link is created.
   // Note that test_file() doesn't have to exist.
@@ -660,10 +680,11 @@ TEST_F(FilePathWatcherTest, DeleteLink) {
   ASSERT_TRUE(CreateSymbolicLink(test_file(), test_link()));
   FilePathWatcher watcher;
   std::unique_ptr<TestDelegate> delegate(new TestDelegate(collector()));
-  ASSERT_TRUE(SetupWatch(test_link(), &watcher, delegate.get(), false));
+  ASSERT_TRUE(SetupWatch(test_link(), &watcher, delegate.get(),
+                         FilePathWatcher::Type::kNonRecursive));
 
   // Now make sure we get notified if the link is deleted.
-  ASSERT_TRUE(base::DeleteFile(test_link(), false));
+  ASSERT_TRUE(base::DeleteFile(test_link()));
   ASSERT_TRUE(WaitForEvents());
 }
 
@@ -675,7 +696,8 @@ TEST_F(FilePathWatcherTest, ModifiedLinkedFile) {
   FilePathWatcher watcher;
   std::unique_ptr<TestDelegate> delegate(new TestDelegate(collector()));
   // Note that we are watching the symlink.
-  ASSERT_TRUE(SetupWatch(test_link(), &watcher, delegate.get(), false));
+  ASSERT_TRUE(SetupWatch(test_link(), &watcher, delegate.get(),
+                         FilePathWatcher::Type::kNonRecursive));
 
   // Now make sure we get notified if the file is modified.
   ASSERT_TRUE(WriteFile(test_file(), "new content"));
@@ -689,7 +711,8 @@ TEST_F(FilePathWatcherTest, CreateTargetLinkedFile) {
   FilePathWatcher watcher;
   std::unique_ptr<TestDelegate> delegate(new TestDelegate(collector()));
   // Note that we are watching the symlink.
-  ASSERT_TRUE(SetupWatch(test_link(), &watcher, delegate.get(), false));
+  ASSERT_TRUE(SetupWatch(test_link(), &watcher, delegate.get(),
+                         FilePathWatcher::Type::kNonRecursive));
 
   // Now make sure we get notified if the target file is created.
   ASSERT_TRUE(WriteFile(test_file(), "content"));
@@ -704,10 +727,11 @@ TEST_F(FilePathWatcherTest, DeleteTargetLinkedFile) {
   FilePathWatcher watcher;
   std::unique_ptr<TestDelegate> delegate(new TestDelegate(collector()));
   // Note that we are watching the symlink.
-  ASSERT_TRUE(SetupWatch(test_link(), &watcher, delegate.get(), false));
+  ASSERT_TRUE(SetupWatch(test_link(), &watcher, delegate.get(),
+                         FilePathWatcher::Type::kNonRecursive));
 
   // Now make sure we get notified if the target file is deleted.
-  ASSERT_TRUE(base::DeleteFile(test_file(), false));
+  ASSERT_TRUE(base::DeleteFile(test_file()));
   ASSERT_TRUE(WaitForEvents());
 }
 
@@ -724,7 +748,8 @@ TEST_F(FilePathWatcherTest, LinkedDirectoryPart1) {
   ASSERT_TRUE(base::CreateDirectory(dir));
   ASSERT_TRUE(WriteFile(file, "content"));
   // Note that we are watching dir.lnk/file which doesn't exist yet.
-  ASSERT_TRUE(SetupWatch(linkfile, &watcher, delegate.get(), false));
+  ASSERT_TRUE(SetupWatch(linkfile, &watcher, delegate.get(),
+                         FilePathWatcher::Type::kNonRecursive));
 
   ASSERT_TRUE(CreateSymbolicLink(dir, link_dir));
   VLOG(1) << "Waiting for link creation";
@@ -734,7 +759,7 @@ TEST_F(FilePathWatcherTest, LinkedDirectoryPart1) {
   VLOG(1) << "Waiting for file change";
   ASSERT_TRUE(WaitForEvents());
 
-  ASSERT_TRUE(base::DeleteFile(file, false));
+  ASSERT_TRUE(base::DeleteFile(file));
   VLOG(1) << "Waiting for file deletion";
   ASSERT_TRUE(WaitForEvents());
 }
@@ -752,7 +777,8 @@ TEST_F(FilePathWatcherTest, LinkedDirectoryPart2) {
   // neither dir nor dir/file exist yet.
   ASSERT_TRUE(CreateSymbolicLink(dir, link_dir));
   // Note that we are watching dir.lnk/file.
-  ASSERT_TRUE(SetupWatch(linkfile, &watcher, delegate.get(), false));
+  ASSERT_TRUE(SetupWatch(linkfile, &watcher, delegate.get(),
+                         FilePathWatcher::Type::kNonRecursive));
 
   ASSERT_TRUE(base::CreateDirectory(dir));
   ASSERT_TRUE(WriteFile(file, "content"));
@@ -763,7 +789,7 @@ TEST_F(FilePathWatcherTest, LinkedDirectoryPart2) {
   VLOG(1) << "Waiting for file change";
   ASSERT_TRUE(WaitForEvents());
 
-  ASSERT_TRUE(base::DeleteFile(file, false));
+  ASSERT_TRUE(base::DeleteFile(file));
   VLOG(1) << "Waiting for file deletion";
   ASSERT_TRUE(WaitForEvents());
 }
@@ -780,7 +806,8 @@ TEST_F(FilePathWatcherTest, LinkedDirectoryPart3) {
   ASSERT_TRUE(base::CreateDirectory(dir));
   ASSERT_TRUE(CreateSymbolicLink(dir, link_dir));
   // Note that we are watching dir.lnk/file but the file doesn't exist yet.
-  ASSERT_TRUE(SetupWatch(linkfile, &watcher, delegate.get(), false));
+  ASSERT_TRUE(SetupWatch(linkfile, &watcher, delegate.get(),
+                         FilePathWatcher::Type::kNonRecursive));
 
   ASSERT_TRUE(WriteFile(file, "content"));
   VLOG(1) << "Waiting for file creation";
@@ -790,12 +817,12 @@ TEST_F(FilePathWatcherTest, LinkedDirectoryPart3) {
   VLOG(1) << "Waiting for file change";
   ASSERT_TRUE(WaitForEvents());
 
-  ASSERT_TRUE(base::DeleteFile(file, false));
+  ASSERT_TRUE(base::DeleteFile(file));
   VLOG(1) << "Waiting for file deletion";
   ASSERT_TRUE(WaitForEvents());
 }
 
-#endif  // OS_LINUX
+#endif  // defined(OS_LINUX) || defined(OS_CHROMEOS)
 
 enum Permission {
   Read,
@@ -803,7 +830,7 @@ enum Permission {
   Execute
 };
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
 bool ChangeFilePermissions(const FilePath& path, Permission perm, bool allow) {
   struct stat stat_buf;
 
@@ -832,9 +859,9 @@ bool ChangeFilePermissions(const FilePath& path, Permission perm, bool allow) {
   }
   return chmod(path.value().c_str(), stat_buf.st_mode) == 0;
 }
-#endif  // defined(OS_MACOSX)
+#endif  // defined(OS_APPLE)
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
 // Linux implementation of FilePathWatcher doesn't catch attribute changes.
 // http://crbug.com/78043
 // Windows implementation of FilePathWatcher catches attribute changes that
@@ -854,7 +881,8 @@ TEST_F(FilePathWatcherTest, DirAttributesChanged) {
 
   FilePathWatcher watcher;
   std::unique_ptr<TestDelegate> delegate(new TestDelegate(collector()));
-  ASSERT_TRUE(SetupWatch(test_file, &watcher, delegate.get(), false));
+  ASSERT_TRUE(SetupWatch(test_file, &watcher, delegate.get(),
+                         FilePathWatcher::Type::kNonRecursive));
 
   // We should not get notified in this case as it hasn't affected our ability
   // to access the file.
@@ -869,7 +897,82 @@ TEST_F(FilePathWatcherTest, DirAttributesChanged) {
   ASSERT_TRUE(ChangeFilePermissions(test_dir1, Execute, true));
 }
 
-#endif  // OS_MACOSX
+#endif  // OS_APPLE
+
+#if defined(OS_MAC)
+
+// Fail fast if trying to trivially watch a non-existent item.
+TEST_F(FilePathWatcherTest, TrivialNoDir) {
+  const FilePath tmp_dir = temp_dir_.GetPath();
+  const FilePath non_existent = tmp_dir.Append(FILE_PATH_LITERAL("nope"));
+
+  FilePathWatcher watcher;
+  auto delegate = std::make_unique<TestDelegate>(collector());
+  ASSERT_FALSE(SetupWatch(non_existent, &watcher, delegate.get(),
+                          FilePathWatcher::Type::kTrivial));
+}
+
+// Succeed starting a watch on a directory.
+TEST_F(FilePathWatcherTest, TrivialDirStart) {
+  const FilePath tmp_dir = temp_dir_.GetPath();
+
+  FilePathWatcher watcher;
+  auto delegate = std::make_unique<TestDelegate>(collector());
+  ASSERT_TRUE(SetupWatch(tmp_dir, &watcher, delegate.get(),
+                         FilePathWatcher::Type::kTrivial));
+}
+
+// Observe a change on a directory
+TEST_F(FilePathWatcherTest, TrivialDirChange) {
+  const FilePath tmp_dir = temp_dir_.GetPath();
+
+  FilePathWatcher watcher;
+  auto delegate = std::make_unique<TestDelegate>(collector());
+  ASSERT_TRUE(SetupWatch(tmp_dir, &watcher, delegate.get(),
+                         FilePathWatcher::Type::kTrivial));
+
+  ASSERT_TRUE(TouchFile(tmp_dir, base::Time::Now(), base::Time::Now()));
+  ASSERT_TRUE(WaitForEvents());
+}
+
+// Observe no change when a parent is modified.
+TEST_F(FilePathWatcherTest, TrivialParentDirChange) {
+  const FilePath tmp_dir = temp_dir_.GetPath();
+  const FilePath sub_dir1 = tmp_dir.Append(FILE_PATH_LITERAL("subdir"));
+  const FilePath sub_dir2 = sub_dir1.Append(FILE_PATH_LITERAL("subdir_redux"));
+
+  ASSERT_TRUE(CreateDirectory(sub_dir1));
+  ASSERT_TRUE(CreateDirectory(sub_dir2));
+
+  FilePathWatcher watcher;
+  auto delegate = std::make_unique<TestDelegate>(collector());
+  ASSERT_TRUE(SetupWatch(sub_dir2, &watcher, delegate.get(),
+                         FilePathWatcher::Type::kTrivial));
+
+  // There should be no notification for a change to |sub_dir2|'s parent.
+  ASSERT_TRUE(Move(sub_dir1, tmp_dir.Append(FILE_PATH_LITERAL("over_here"))));
+  ASSERT_FALSE(WaitForEvents());
+}
+
+// Do not crash when a directory is moved; https://crbug.com/1156603.
+TEST_F(FilePathWatcherTest, TrivialDirMove) {
+  const FilePath tmp_dir = temp_dir_.GetPath();
+  const FilePath sub_dir = tmp_dir.Append(FILE_PATH_LITERAL("subdir"));
+
+  ASSERT_TRUE(CreateDirectory(sub_dir));
+
+  FilePathWatcher watcher;
+  auto delegate = std::make_unique<TestDelegate>(collector());
+  delegate->set_expect_error();
+  ASSERT_TRUE(SetupWatch(sub_dir, &watcher, delegate.get(),
+                         FilePathWatcher::Type::kTrivial));
+
+  ASSERT_TRUE(Move(sub_dir, tmp_dir.Append(FILE_PATH_LITERAL("over_here"))));
+  ASSERT_TRUE(WaitForEvents());
+}
+
+#endif  // defined(OS_MAC)
+
 }  // namespace
 
 }  // namespace base

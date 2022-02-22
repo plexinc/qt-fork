@@ -41,6 +41,9 @@ class Producer;
 class SharedMemoryArbiter;
 class TraceWriter;
 
+// Exposed for testing.
+extern const char* kBugreportTracePath;
+
 // TODO: for the moment this assumes that all the calls happen on the same
 // thread/sequence. Not sure this will be the case long term in Chrome.
 
@@ -136,6 +139,12 @@ class PERFETTO_EXPORT ProducerEndpoint {
   // This informs the service to activate any of these triggers if any tracing
   // session was waiting for them.
   virtual void ActivateTriggers(const std::vector<std::string>&) = 0;
+
+  // Emits a synchronization barrier to linearize with the service. When
+  // |callback| is invoked, the caller has the guarantee that the service has
+  // seen and processed all the requests sent by this producer prior to the
+  // Sync() call. Used mainly in tests.
+  virtual void Sync(std::function<void()> callback) = 0;
 };  // class ProducerEndpoint.
 
 // The API for the Consumer port of the Service.
@@ -145,7 +154,7 @@ class PERFETTO_EXPORT ProducerEndpoint {
 //    the ConnectConsumer() method.
 // 2. The transport layer (e.g., src/ipc) when the consumer and
 //    the service don't talk locally but via some IPC mechanism.
-class ConsumerEndpoint {
+class PERFETTO_EXPORT ConsumerEndpoint {
  public:
   virtual ~ConsumerEndpoint();
 
@@ -210,6 +219,26 @@ class ConsumerEndpoint {
   using QueryServiceStateCallback =
       std::function<void(bool success, const TracingServiceState&)>;
   virtual void QueryServiceState(QueryServiceStateCallback) = 0;
+
+  // Used for feature detection. Makes sense only when the consumer and the
+  // service talk over IPC and can be from different versions.
+  using QueryCapabilitiesCallback =
+      std::function<void(const TracingServiceCapabilities&)>;
+  virtual void QueryCapabilities(QueryCapabilitiesCallback) = 0;
+
+  // If any tracing session with TraceConfig.bugreport_score > 0 is running,
+  // this will pick the highest-score one, stop it and save it into a fixed
+  // path (See kBugreportTracePath).
+  // The callback is invoked when the file has been saved, in case of success,
+  // or whenever an error occurs.
+  // Args:
+  // - success: if true, an eligible trace was found and saved into file.
+  //            If false, either there was no eligible trace running or
+  //            something else failed (See |msg|).
+  // - msg: human readable diagnostic messages to debug failures.
+  using SaveTraceForBugreportCallback =
+      std::function<void(bool /*success*/, const std::string& /*msg*/)>;
+  virtual void SaveTraceForBugreport(SaveTraceForBugreportCallback) = 0;
 };  // class ConsumerEndpoint.
 
 // The public API of the tracing Service business logic.

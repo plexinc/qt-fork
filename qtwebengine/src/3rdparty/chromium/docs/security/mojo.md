@@ -22,7 +22,7 @@ that needs to be maintained in sync.
 
 ```c++
 interface TeleporterFactory {
-  Create(Location start, Location end) => (Teleporter);
+  Create(Location start, Location end) => (pending_remote<Teleporter>);
 };
 
 interface Teleporter {
@@ -64,8 +64,9 @@ interface Teleporter {
   TeleportGoat(Goat) = ();
   TeleportPlant(Plant) => ();
 
-  // TeleportStats is only non-null if success is true.
-  GetStats() => (bool success, TeleporterStats?);
+  // TeleporterStats will be have a value if and only if the call was
+  // successful.
+  GetStats() => (TeleporterStats?);
 };
 ```
 
@@ -78,7 +79,7 @@ interface Teleporter {
   // supposed to only pass one non-null argument per call?
   Teleport(Animal?, Fungi?, Goat?, Plant?) => ();
 
-  // Does this return all stats if sucess is true? Or just the categories that
+  // Does this return all stats if success is true? Or just the categories that
   // the teleporter already has stats for? The intent is uncertain, so wrapping
   // the disparate values into a result struct would be cleaner.
   GetStats() =>
@@ -114,11 +115,9 @@ interface Teleporter {
   TeleportGoat(Goat) => ();
   TeleportPlant(Plant) => ();
 
-  // Returns current teleportation stats. On failure (e.g. a teleportation
-  // operation is currently in progress) success will be false and a null stats
-  // object will be returned.
-  GetStats() =>
-      (bool success, TeleportationStats?);
+  // Returns current teleporter stats. On failure (e.g. a teleportation
+  // operation is currently in progress) a null stats object will be returned.
+  GetStats() => (TeleporterStats?);
 };
 ```
 
@@ -533,8 +532,8 @@ destroyed, e.g.:
 
 ```c++
   {
-    base::Callback<int> cb = mojo::WrapCallbackWithDefaultInvokeIfNotRun(
-        base::Bind([](int) { ... }), -1);
+    base::OnceCallback<int> cb = mojo::WrapCallbackWithDefaultInvokeIfNotRun(
+        base::BindOnce([](int) { ... }), -1);
   }  // |cb| is automatically invoked with an argument of -1.
 ```
 
@@ -543,7 +542,7 @@ This can be useful for detecting interface errors:
 ```c++
   process->GetMemoryStatistics(
       mojo::WrapCallbackWithDefaultInvokeIfNotRun(
-          base::Bind(&MemoryProfiler::OnReplyFromRenderer), <failure args>));
+          base::BindOnce(&MemoryProfiler::OnReplyFromRenderer), <failure args>));
   // If the remote process dies, &MemoryProfiler::OnReplyFromRenderer will be
   // invoked with <failure args> when Mojo drops outstanding callbacks due to
   // a connection error on |process|.

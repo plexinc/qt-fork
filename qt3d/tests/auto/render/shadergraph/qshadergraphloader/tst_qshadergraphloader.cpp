@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QtTest/QTest>
 
 #include <QtCore/qbuffer.h>
 
@@ -69,7 +69,7 @@ namespace
         return port;
     }
 
-    QShaderNode createNode(const QVector<QShaderNodePort> &ports, const QStringList &layers = QStringList())
+    QShaderNode createNode(const QList<QShaderNodePort> &ports, const QStringList &layers = QStringList())
     {
         auto node = QShaderNode();
         node.setUuid(QUuid::createUuid());
@@ -218,7 +218,7 @@ namespace
         qDebug() << prefix << statement.inputs << statement.uuid().toString() << statement.outputs;
     }
 
-    void dumpStatementsIfNeeded(const QVector<QShaderGraph::Statement> &statements, const QVector<QShaderGraph::Statement> &expected)
+    void dumpStatementsIfNeeded(const QList<QShaderGraph::Statement> &statements, const QList<QShaderGraph::Statement> &expected)
     {
         if (statements != expected) {
             for (int i = 0; i < qMax(statements.size(), expected.size()); i++) {
@@ -276,7 +276,7 @@ void tst_QShaderGraphLoader::shouldManipulateLoaderMembers()
 
 
     // WHEN
-    const auto prototypes = [this]{
+    const auto prototypes = []{
         auto res = QHash<QString, QShaderNode>();
         res.insert("foo", createNode({}));
         return res;
@@ -332,7 +332,7 @@ void tst_QShaderGraphLoader::shouldLoadFromJsonStream_data()
                            "    ]"
                            "}";
 
-    const auto smallProtos = [this]{
+    const auto smallProtos = []{
         auto protos = PrototypeHash();
 
         auto input = createNode({
@@ -353,7 +353,7 @@ void tst_QShaderGraphLoader::shouldLoadFromJsonStream_data()
         return protos;
     }();
 
-    const auto smallGraph = [this]{
+    const auto smallGraph = []{
         auto graph = QShaderGraph();
 
         auto input = createNode({
@@ -485,7 +485,7 @@ void tst_QShaderGraphLoader::shouldLoadFromJsonStream_data()
                              "    ]"
                              "}";
 
-    const auto complexProtos = [this]{
+    const auto complexProtos = []{
         const auto openGLES2 = createFormat(QShaderFormat::OpenGLES, 2, 0);
         const auto openGL3 = createFormat(QShaderFormat::OpenGLCoreProfile, 3, 0);
 

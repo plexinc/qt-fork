@@ -26,7 +26,9 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QtTest/private/qpropertytesthelper_p.h>
+#include <QSignalSpy>
 
 #include <QtGui/QtGui>
 
@@ -82,11 +84,9 @@ private slots:
     void layoutChangedWithAllSelected2();
     void layoutChangedTreeSelection();
     void deselectRemovedMiddleRange();
-#if QT_DEPRECATED_SINCE(5, 15)
-    void rangeOperatorLessThan_data();
-    void rangeOperatorLessThan();
-#endif
     void setModel();
+
+    void bindableModel();
 
     void testDifferentModels();
 
@@ -103,10 +103,14 @@ private slots:
     void QTBUG18001_data();
     void QTBUG18001();
 
+    void QTBUG93305();
+
 private:
     QAbstractItemModel *model;
     QItemSelectionModel *selection;
 };
+
+QT_BEGIN_NAMESPACE
 
 QDataStream &operator<<(QDataStream &, const QModelIndex &);
 QDataStream &operator>>(QDataStream &, QModelIndex &);
@@ -127,17 +131,17 @@ public:
         return helper.QAbstractItemModel::createIndex(row, column, data);
     }
 
-    QModelIndex index(int, int, const QModelIndex&) const
+    QModelIndex index(int, int, const QModelIndex&) const override
         { return QModelIndex(); }
-    QModelIndex parent(const QModelIndex&) const
+    QModelIndex parent(const QModelIndex&) const override
         { return QModelIndex(); }
-    int rowCount(const QModelIndex & = QModelIndex()) const
+    int rowCount(const QModelIndex & = QModelIndex()) const override
         { return 0; }
-    int columnCount(const QModelIndex & = QModelIndex()) const
+    int columnCount(const QModelIndex & = QModelIndex()) const override
         { return 0; }
-    QVariant data(const QModelIndex &, int = Qt::DisplayRole) const
+    QVariant data(const QModelIndex &, int = Qt::DisplayRole) const override
         { return QVariant(); }
-    bool hasChildren(const QModelIndex &) const
+    bool hasChildren(const QModelIndex &) const override
         { return false; }
 };
 
@@ -179,6 +183,8 @@ QDataStream &operator>>(QDataStream &s, QModelIndexList &output)
     }
     return s;
 }
+
+QT_END_NAMESPACE
 
 tst_QItemSelectionModel::tst_QItemSelectionModel()
     : model(0), selection(0)
@@ -2064,8 +2070,10 @@ void tst_QItemSelectionModel::unselectable()
     selectionModel.select(QItemSelection(model.index(0, 0), model.index(9, 0)), QItemSelectionModel::Select);
     QCOMPARE(selectionModel.selectedIndexes().count(), 10);
     QCOMPARE(selectionModel.selectedRows().count(), 10);
+    QVERIFY(selectionModel.hasSelection());
     for (int j = 0; j < 10; ++j)
         model.item(j)->setFlags({ });
+    QVERIFY(!selectionModel.hasSelection());
     QCOMPARE(selectionModel.selectedIndexes().count(), 0);
     QCOMPARE(selectionModel.selectedRows().count(), 0);
 }
@@ -2090,18 +2098,18 @@ class QtTestTableModel: public QAbstractTableModel
 {
     Q_OBJECT
 public:
-    QtTestTableModel(int rows = 0, int columns = 0, QObject *parent = 0)
+    QtTestTableModel(int rows = 0, int columns = 0, QObject *parent = nullptr)
         : QAbstractTableModel(parent)
         , row_count(rows)
         , column_count(columns)
     {
     }
 
-    int rowCount(const QModelIndex& = QModelIndex()) const { return row_count; }
-    int columnCount(const QModelIndex& = QModelIndex()) const { return column_count; }
+    int rowCount(const QModelIndex& = QModelIndex()) const override { return row_count; }
+    int columnCount(const QModelIndex& = QModelIndex()) const override { return column_count; }
     bool isEditable(const QModelIndex &) const { return true; }
 
-    QVariant data(const QModelIndex &idx, int role) const
+    QVariant data(const QModelIndex &idx, int role) const override
     {
         if (role == Qt::DisplayRole || role == Qt::EditRole)
             return QLatin1Char('[') + QString::number(idx.row()) + QLatin1Char(',')
@@ -2303,7 +2311,7 @@ void tst_QItemSelectionModel::layoutChangedWithAllSelected2()
     struct MyFilterModel : public QSortFilterProxyModel
     {     // Override sort filter proxy to remove even numbered rows.
         bool filtering;
-        virtual bool filterAcceptsRow( int source_row, const QModelIndex& /* source_parent */) const
+        virtual bool filterAcceptsRow( int source_row, const QModelIndex& /* source_parent */) const override
         {
             return !filtering || !( source_row & 1 );
         }
@@ -2419,167 +2427,6 @@ void tst_QItemSelectionModel::deselectRemovedMiddleRange()
     QCOMPARE(spy.size(), 1);
 }
 
-static QStandardItemModel* getModel(QObject *parent)
-{
-    QStandardItemModel *model = new QStandardItemModel(parent);
-
-    for (int i = 0; i < 4; ++i) {
-        QStandardItem *parentItem = model->invisibleRootItem();
-        QList<QStandardItem*> list;
-        const QString prefix = QLatin1String("item ") + QString::number(i) + QLatin1String(", ");
-        for (int j = 0; j < 4; ++j) {
-            list.append(new QStandardItem(prefix + QString::number(j)));
-        }
-        parentItem->appendRow(list);
-        parentItem = list.first();
-        for (int j = 0; j < 4; ++j) {
-            QList<QStandardItem*> list;
-            for (int k = 0; k < 4; ++k) {
-                list.append(new QStandardItem(prefix + QString::number(j)));
-            }
-            parentItem->appendRow(list);
-        }
-    }
-    return model;
-}
-
-#if QT_DEPRECATED_SINCE(5, 15)
-enum Result {
-    LessThan,
-    NotLessThan,
-    NotEqual
-};
-
-Q_DECLARE_METATYPE(Result);
-
-void tst_QItemSelectionModel::rangeOperatorLessThan_data()
-{
-    QTest::addColumn<int>("parent1");
-    QTest::addColumn<int>("top1");
-    QTest::addColumn<int>("left1");
-    QTest::addColumn<int>("bottom1");
-    QTest::addColumn<int>("right1");
-    QTest::addColumn<int>("parent2");
-    QTest::addColumn<int>("top2");
-    QTest::addColumn<int>("left2");
-    QTest::addColumn<int>("bottom2");
-    QTest::addColumn<int>("right2");
-    QTest::addColumn<Result>("result");
-
-    QTest::newRow("lt01") << -1 << 0 << 0 << 3 << 3
-                          << -1 << 0 << 0 << 3 << 3 << NotLessThan;
-
-    QTest::newRow("lt02") << -1 << 0 << 0 << 2 << 3
-                          << -1 << 0 << 0 << 3 << 3 << LessThan;
-    QTest::newRow("lt03") << -1 << 0 << 0 << 3 << 2
-                          << -1 << 0 << 0 << 3 << 3 << LessThan;
-    QTest::newRow("lt04") << -1 << 0 << 0 << 2 << 2
-                          << -1 << 0 << 0 << 3 << 3 << LessThan;
-
-    QTest::newRow("lt05") << -1 << 0 << 0 << 3 << 3
-                          << -1 << 0 << 0 << 2 << 3 << NotLessThan;
-    QTest::newRow("lt06") << -1 << 0 << 0 << 3 << 3
-                          << -1 << 0 << 0 << 3 << 2 << NotLessThan;
-    QTest::newRow("lt07") << -1 << 0 << 0 << 3 << 3
-                          << -1 << 0 << 0 << 2 << 2 << NotLessThan;
-
-    QTest::newRow("lt08") << -1 << 0 << 0 << 3 << 3
-                          << 0 << 0 << 0 << 3 << 3 << NotEqual;
-    QTest::newRow("lt09") << 1 << 0 << 0 << 3 << 3
-                          << 0 << 0 << 0 << 3 << 3 << NotEqual;
-    QTest::newRow("lt10") << 1 << 0 << 0 << 1 << 1
-                          << 0 << 2 << 2 << 3 << 3 << NotEqual;
-    QTest::newRow("lt11") << 1 << 2 << 2 << 3 << 3
-                          << 0 << 0 << 0 << 1 << 1 << NotEqual;
-
-    QTest::newRow("lt12") << -1 << 0 << 0 << 1 << 1
-                          << -1 << 2 << 2 << 3 << 3 << LessThan;
-    QTest::newRow("lt13") << -1 << 2 << 2 << 3 << 3
-                          << -1 << 0 << 0 << 1 << 1 << NotLessThan;
-    QTest::newRow("lt14") << 1 << 0 << 0 << 1 << 1
-                          << 1 << 2 << 2 << 3 << 3 << LessThan;
-    QTest::newRow("lt15") << 1 << 2 << 2 << 3 << 3
-                          << 1 << 0 << 0 << 1 << 1 << NotLessThan;
-
-    QTest::newRow("lt16") << -1 << 0 << 0 << 2 << 2
-                          << -1 << 1 << 1 << 3 << 3 << LessThan;
-    QTest::newRow("lt17") << -1 << 1 << 1 << 3 << 3
-                          << -1 << 0 << 0 << 2 << 2 << NotLessThan;
-    QTest::newRow("lt18") << 1 << 0 << 0 << 2 << 2
-                          << 1 << 1 << 1 << 3 << 3 << LessThan;
-    QTest::newRow("lt19") << 1 << 1 << 1 << 3 << 3
-                          << 1 << 0 << 0 << 2 << 2 << NotLessThan;
-}
-
-void tst_QItemSelectionModel::rangeOperatorLessThan()
-{
-    QStandardItemModel *model1 = getModel(this);
-    QStandardItemModel *model2 = getModel(this);
-
-    QFETCH(int, parent1);
-    QFETCH(int, top1);
-    QFETCH(int, left1);
-    QFETCH(int, bottom1);
-    QFETCH(int, right1);
-    QFETCH(int, parent2);
-    QFETCH(int, top2);
-    QFETCH(int, left2);
-    QFETCH(int, bottom2);
-    QFETCH(int, right2);
-    QFETCH(Result, result);
-
-    QModelIndex p1 = model1->index(parent1, 0);
-
-    QModelIndex tl1 = model1->index(top1, left1, p1);
-    QModelIndex br1 = model1->index(bottom1, right1, p1);
-
-    QItemSelectionRange r1(tl1, br1);
-
-    QModelIndex p2 = model1->index(parent2, 0);
-
-    QModelIndex tl2 = model1->index(top2, left2, p2);
-    QModelIndex br2 = model1->index(bottom2, right2, p2);
-
-    QItemSelectionRange r2(tl2, br2);
-
-    if (result == LessThan)
-        QVERIFY(r1 < r2);
-    else if (result == NotLessThan)
-        QVERIFY(!(r1 < r2));
-    else if (result == NotEqual)
-        if (!(r1 < r2))
-            QVERIFY(r2 < r1);
-
-    // Ranges in different models are always non-equal
-
-    QModelIndex p3 = model2->index(parent1, 0);
-
-    QModelIndex tl3 = model2->index(top1, left1, p3);
-    QModelIndex br3 = model2->index(bottom1, right1, p3);
-
-    QItemSelectionRange r3(tl3, br3);
-
-    if (!(r1 < r3))
-        QVERIFY(r3 < r1);
-
-    if (!(r2 < r3))
-        QVERIFY(r3 < r2);
-
-    QModelIndex p4 = model2->index(parent2, 0);
-
-    QModelIndex tl4 = model2->index(top2, left2, p4);
-    QModelIndex br4 = model2->index(bottom2, right2, p4);
-
-    QItemSelectionRange r4(tl4, br4);
-
-    if (!(r1 < r4))
-        QVERIFY(r4 < r1);
-
-    if (!(r2 < r4))
-        QVERIFY(r4 < r2);
-}
-#endif
-
 void tst_QItemSelectionModel::setModel()
 {
     QItemSelectionModel sel;
@@ -2593,6 +2440,29 @@ void tst_QItemSelectionModel::setModel()
     QVERIFY(!sel.selection().isEmpty());
     sel.setModel(0);
     QVERIFY(sel.selection().isEmpty());
+}
+
+void tst_QItemSelectionModel::bindableModel()
+{
+    QItemSelectionModel sel;
+    QVERIFY(!sel.model());
+
+    std::unique_ptr<QStringListModel> firstModel(
+            new QStringListModel(QStringList { "Some", "random", "content" }));
+    std::unique_ptr<QStringListModel> changedModel(
+            new QStringListModel(QStringList { "Other", "random", "content" }));
+
+    QTestPrivate::testReadWritePropertyBasics<QItemSelectionModel, QAbstractItemModel *>(
+            sel, firstModel.get(), changedModel.get(), "model");
+    if (QTest::currentTestFailed()) {
+        qDebug("Failed property test for QItemSelectionModel::model");
+        return;
+    }
+
+    // check that model is set to nullptr when the object pointed to is deleted:
+    sel.setModel(firstModel.get());
+    firstModel.reset();
+    QCOMPARE(sel.model(), nullptr);
 }
 
 void tst_QItemSelectionModel::testDifferentModels()
@@ -2624,7 +2494,7 @@ class SelectionObserver : public QObject
 {
     Q_OBJECT
 public:
-    SelectionObserver(QAbstractItemModel *model, QObject *parent = 0)
+    SelectionObserver(QAbstractItemModel *model, QObject *parent = nullptr)
         : QObject(parent), m_model(model), m_selectionModel(0)
     {
         connect(model, SIGNAL(modelReset()), SLOT(modelReset()));
@@ -2688,12 +2558,12 @@ class DuplicateItemSelectionModel : public QItemSelectionModel
 {
     Q_OBJECT
 public:
-    DuplicateItemSelectionModel(QItemSelectionModel *target, QAbstractItemModel *model, QObject *parent = 0)
+    DuplicateItemSelectionModel(QItemSelectionModel *target, QAbstractItemModel *model, QObject *parent = nullptr)
         : QItemSelectionModel(model, parent), m_target(target)
     {
     }
 
-    void select(const QItemSelection &selection, QItemSelectionModel::SelectionFlags command)
+    void select(const QItemSelection &selection, QItemSelectionModel::SelectionFlags command) override
     {
         QItemSelectionModel::select(selection, command);
         m_target->select(selection, command);
@@ -2701,13 +2571,13 @@ public:
 
     using QItemSelectionModel::select;
 
-    void setCurrentIndex(const QModelIndex &index, QItemSelectionModel::SelectionFlags command)
+    void setCurrentIndex(const QModelIndex &index, QItemSelectionModel::SelectionFlags command) override
     {
         QItemSelectionModel::setCurrentIndex(index, command);
         m_target->setCurrentIndex(index, command);
     }
 
-    void clearCurrentIndex()
+    void clearCurrentIndex() override
     {
         QItemSelectionModel::clearCurrentIndex();
         m_target->clearCurrentIndex();
@@ -3029,6 +2899,47 @@ void tst_QItemSelectionModel::QTBUG18001()
        QVERIFY2(expected == actual, description.data());
     }
 
+}
+
+void tst_QItemSelectionModel::QTBUG93305()
+{
+    // make sure the model is sane (5x5)
+    QCOMPARE(model->rowCount(QModelIndex()), 5);
+    QCOMPARE(model->columnCount(QModelIndex()), 5);
+
+    QSignalSpy spy(selection, &QItemSelectionModel::selectionChanged);
+
+    // select in row 1
+    QModelIndex index = model->index(1, 0, QModelIndex());
+    selection->select(index, QItemSelectionModel::ClearAndSelect);
+    QVERIFY(selection->hasSelection());
+    QCOMPARE(spy.count(), 1);
+
+    // removing row 0 does not change which cells are selected, but it
+    // does change the row number of the selected cells. Thus it changes
+    // what selectedIndexes() returns.
+    // The property selectedIndexes() has selectionChanged() as its
+    // NOTIFY signal, so selectionChanged() should be emitted.
+
+    // delete row 0
+    model->removeRows(0, 1, QModelIndex());
+    QVERIFY(selection->hasSelection());
+    QCOMPARE(spy.count(), 2);
+
+    // inserting a row before the first row again does not change which cells
+    // are selected, but does change the row number of the selected cells.
+    // This changes what selectedIndexes() returns and should thus trigger
+    // a selectionChanged() signal
+
+    // insert row 0 again
+    model->insertRows(0, 1, QModelIndex());
+    QVERIFY(selection->hasSelection());
+    QCOMPARE(spy.count(), 3);
+
+    // test for inserting multiple (6) rows
+    model->insertRows(0, 6, QModelIndex());
+    QVERIFY(selection->hasSelection());
+    QCOMPARE(spy.count(), 4);
 }
 
 QTEST_MAIN(tst_QItemSelectionModel)

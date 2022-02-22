@@ -13,6 +13,7 @@
 #include "base/memory/ref_counted_memory.h"
 #include "base/strings/string16.h"
 #include "base/values.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/common/buildflags.h"
 
 namespace content {
@@ -49,14 +50,12 @@ class PrinterHandler {
   using PrintCallback = base::OnceCallback<void(const base::Value& error)>;
   using GetPrinterInfoCallback =
       base::OnceCallback<void(const base::DictionaryValue& printer_info)>;
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   using GetEulaUrlCallback =
       base::OnceCallback<void(const std::string& license)>;
+  using PrinterStatusRequestCallback =
+      base::OnceCallback<void(const base::Value& cups_printer_status)>;
 #endif
-
-  // Creates an instance of a PrinterHandler for cloud printers.
-  // Note: Implementation currently empty, see https://crbug.com/829414
-  static std::unique_ptr<PrinterHandler> CreateForCloudPrinters();
 
   // Creates an instance of a PrinterHandler for extension printers.
   static std::unique_ptr<PrinterHandler> CreateForExtensionPrinters(
@@ -119,12 +118,18 @@ class PrinterHandler {
                           scoped_refptr<base::RefCountedMemory> print_data,
                           PrintCallback callback) = 0;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // Starts getting the printer's PPD EULA URL with the provided destination ID.
   // |destination_id|: The ID of the printer.
   // |callback| should be called in response to the request.
   virtual void StartGetEulaUrl(const std::string& destination_id,
                                GetEulaUrlCallback callback);
+
+  // Initiates a status request for specified printer.
+  // |printer_id|: Printer id.
+  // |callback|: should be called in response to the request.
+  virtual void StartPrinterStatusRequest(const std::string& printer_id,
+                                         PrinterStatusRequestCallback callback);
 #endif
 };
 

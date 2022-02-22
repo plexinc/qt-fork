@@ -42,20 +42,20 @@
 #include <private/qxyseries_p.h>
 #include <QtCharts/private/qchartglobal_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 
 class Q_CHARTS_PRIVATE_EXPORT QLineSeriesPrivate: public QXYSeriesPrivate
 {
 public:
     QLineSeriesPrivate(QLineSeries *q);
-    void initializeGraphics(QGraphicsItem* parent);
-    void initializeTheme(int index, ChartTheme* theme, bool forced = false);
+    void initializeGraphics(QGraphicsItem* parent) override;
+    void initializeTheme(int index, ChartTheme* theme, bool forced = false) override;
 
 private:
     Q_DECLARE_PUBLIC(QLineSeries);
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif

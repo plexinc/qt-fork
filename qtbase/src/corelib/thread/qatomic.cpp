@@ -261,19 +261,6 @@
 
 
 /*!
-    \fn template <typename T> T QAtomicInteger<T>::load() const
-    \obsolete
-
-    Use loadRelaxed() instead.
-
-    Atomically loads the value of this QAtomicInteger using relaxed memory
-    ordering. The value is not modified in any way, but note that there's no
-    guarantee that it remains so.
-
-    \sa storeRelaxed(), loadAcquire()
-*/
-
-/*!
     \fn template <typename T> T QAtomicInteger<T>::loadRelaxed() const
     \since 5.14
 
@@ -295,18 +282,6 @@
 */
 
 /*!
-    \fn template <typename T> void QAtomicInteger<T>::store(T newValue)
-    \obsolete
-
-    Use storeRelaxed() instead.
-
-    Atomically stores the \a newValue value into this atomic type, using
-    relaxed memory ordering.
-
-    \sa storeRelease(), loadRelaxed()
-*/
-
-/*!
     \fn template <typename T> void QAtomicInteger<T>::storeRelaxed(T newValue)
     \since 5.14
 
@@ -322,7 +297,7 @@
     Atomically stores the \a newValue value into this atomic type, using
     the "Release" memory ordering.
 
-    \sa store(), loadAcquire()
+    \sa storeRelaxed(), loadAcquire()
 */
 
 /*!
@@ -1354,19 +1329,6 @@
 */
 
 /*!
-    \fn template <typename T> T *QAtomicPointer<T>::load() const
-    \obsolete
-
-    Use loadRelaxed() instead.
-
-    Atomically loads the value of this QAtomicPointer using relaxed memory
-    ordering. The value is not modified in any way, but note that there's no
-    guarantee that it remains so.
-
-    \sa storeRelaxed(), loadAcquire()
-*/
-
-/*!
     \fn template <typename T> T *QAtomicPointer<T>::loadRelaxed() const
     \since 5.14
 
@@ -1384,18 +1346,6 @@
     Atomically loads the value of this QAtomicPointer using the "Acquire" memory
     ordering. The value is not modified in any way, but note that there's no
     guarantee that it remains so.
-
-    \sa storeRelease(), loadRelaxed()
-*/
-
-/*!
-    \fn template <typename T> void QAtomicPointer<T>::store(T *newValue)
-    \obsolete
-
-    Use storeRelaxed() instead.
-
-    Atomically stores the \a newValue value into this atomic type, using
-    relaxed memory ordering.
 
     \sa storeRelease(), loadRelaxed()
 */
@@ -1750,33 +1700,29 @@
 QT_BEGIN_NAMESPACE
 
 // The following specializations must always be defined
-Q_STATIC_ASSERT(sizeof(QAtomicInteger<unsigned>));
-Q_STATIC_ASSERT(sizeof(QAtomicInteger<long>));
-Q_STATIC_ASSERT(sizeof(QAtomicInteger<unsigned long>));
-Q_STATIC_ASSERT(sizeof(QAtomicInteger<quintptr>));
-Q_STATIC_ASSERT(sizeof(QAtomicInteger<qptrdiff>));
-#ifdef Q_COMPILER_UNICODE_STRINGS
-Q_STATIC_ASSERT(sizeof(QAtomicInteger<char32_t>));
-#endif
+static_assert(sizeof(QAtomicInteger<unsigned>));
+static_assert(sizeof(QAtomicInteger<long>));
+static_assert(sizeof(QAtomicInteger<unsigned long>));
+static_assert(sizeof(QAtomicInteger<quintptr>));
+static_assert(sizeof(QAtomicInteger<qptrdiff>));
+static_assert(sizeof(QAtomicInteger<char32_t>));
 
 #ifdef Q_ATOMIC_INT16_IS_SUPPORTED
-Q_STATIC_ASSERT(sizeof(QAtomicInteger<short>));
-Q_STATIC_ASSERT(sizeof(QAtomicInteger<unsigned short>));
+static_assert(sizeof(QAtomicInteger<short>));
+static_assert(sizeof(QAtomicInteger<unsigned short>));
 #  if WCHAR_MAX < 0x10000
-Q_STATIC_ASSERT(sizeof(QAtomicInteger<wchar_t>));
+static_assert(sizeof(QAtomicInteger<wchar_t>));
 #  endif
-#  ifdef Q_COMPILER_UNICODE_STRINGS
-Q_STATIC_ASSERT(sizeof(QAtomicInteger<char16_t>));
-#  endif
+static_assert(sizeof(QAtomicInteger<char16_t>));
 #endif
 
 #ifdef Q_ATOMIC_INT64_IS_SUPPORTED
-Q_STATIC_ASSERT(sizeof(QAtomicInteger<qint64>));
-Q_STATIC_ASSERT(sizeof(QAtomicInteger<quint64>));
+static_assert(sizeof(QAtomicInteger<qint64>));
+static_assert(sizeof(QAtomicInteger<quint64>));
 #endif
 
 #if WCHAR_MAX == INT_MAX
-Q_STATIC_ASSERT(sizeof(QAtomicInteger<wchar_t>));
+static_assert(sizeof(QAtomicInteger<wchar_t>));
 #endif
 
 QT_END_NAMESPACE

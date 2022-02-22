@@ -2,23 +2,28 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/quic_datagram_queue.h"
+#include "quic/core/quic_datagram_queue.h"
 
-#include "net/third_party/quiche/src/quic/core/quic_constants.h"
-#include "net/third_party/quiche/src/quic/core/quic_session.h"
-#include "net/third_party/quiche/src/quic/core/quic_time.h"
-#include "net/third_party/quiche/src/quic/core/quic_types.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_mem_slice_span.h"
+#include "quic/core/quic_constants.h"
+#include "quic/core/quic_session.h"
+#include "quic/core/quic_time.h"
+#include "quic/core/quic_types.h"
+#include "quic/platform/api/quic_mem_slice_span.h"
 
 namespace quic {
 
-using quiche::QuicheOptional;
 
 constexpr float kExpiryInMinRtts = 1.25;
 constexpr float kMinPacingWindows = 4;
 
 QuicDatagramQueue::QuicDatagramQueue(QuicSession* session)
-    : session_(session), clock_(session->connection()->clock()) {}
+    : QuicDatagramQueue(session, nullptr) {}
+
+QuicDatagramQueue::QuicDatagramQueue(QuicSession* session,
+                                     std::unique_ptr<Observer> observer)
+    : session_(session),
+      clock_(session->connection()->clock()),
+      observer_(std::move(observer)) {}
 
 MessageStatus QuicDatagramQueue::SendOrQueueDatagram(QuicMemSlice datagram) {
   // If the queue is non-empty, always queue the daragram.  This ensures that
@@ -28,6 +33,9 @@ MessageStatus QuicDatagramQueue::SendOrQueueDatagram(QuicMemSlice datagram) {
     QuicMemSliceSpan span(&datagram);
     MessageResult result = session_->SendMessage(span);
     if (result.status != MESSAGE_STATUS_BLOCKED) {
+      if (observer_) {
+        observer_->OnDatagramProcessed(result.status);
+      }
       return result.status;
     }
   }
@@ -37,16 +45,19 @@ MessageStatus QuicDatagramQueue::SendOrQueueDatagram(QuicMemSlice datagram) {
   return MESSAGE_STATUS_BLOCKED;
 }
 
-QuicheOptional<MessageStatus> QuicDatagramQueue::TrySendingNextDatagram() {
+absl::optional<MessageStatus> QuicDatagramQueue::TrySendingNextDatagram() {
   RemoveExpiredDatagrams();
   if (queue_.empty()) {
-    return QuicheOptional<MessageStatus>();
+    return absl::nullopt;
   }
 
   QuicMemSliceSpan span(&queue_.front().datagram);
   MessageResult result = session_->SendMessage(span);
   if (result.status != MESSAGE_STATUS_BLOCKED) {
     queue_.pop_front();
+    if (observer_) {
+      observer_->OnDatagramProcessed(result.status);
+    }
   }
   return result.status;
 }
@@ -54,7 +65,7 @@ QuicheOptional<MessageStatus> QuicDatagramQueue::TrySendingNextDatagram() {
 size_t QuicDatagramQueue::SendDatagrams() {
   size_t num_datagrams = 0;
   for (;;) {
-    QuicheOptional<MessageStatus> status = TrySendingNextDatagram();
+    absl::optional<MessageStatus> status = TrySendingNextDatagram();
     if (!status.has_value()) {
       break;
     }
@@ -81,6 +92,9 @@ void QuicDatagramQueue::RemoveExpiredDatagrams() {
   QuicTime now = clock_->ApproximateNow();
   while (!queue_.empty() && queue_.front().expiry <= now) {
     queue_.pop_front();
+    if (observer_) {
+      observer_->OnDatagramProcessed(absl::nullopt);
+    }
   }
 }
 

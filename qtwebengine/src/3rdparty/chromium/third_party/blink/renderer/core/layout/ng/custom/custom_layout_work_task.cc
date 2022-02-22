@@ -40,17 +40,25 @@ CustomLayoutWorkTask::CustomLayoutWorkTask(
 
 CustomLayoutWorkTask::~CustomLayoutWorkTask() = default;
 
+void CustomLayoutWorkTask::Trace(Visitor* visitor) const {
+  visitor->Trace(child_);
+  visitor->Trace(token_);
+  visitor->Trace(resolver_);
+  visitor->Trace(options_);
+}
+
 void CustomLayoutWorkTask::Run(
     const NGConstraintSpace& parent_space,
     const ComputedStyle& parent_style,
-    const LayoutUnit child_percentage_resolution_block_size_for_min_max) {
+    const LayoutUnit child_percentage_resolution_block_size_for_min_max,
+    bool* child_depends_on_percentage_block_size) {
   DCHECK(token_->IsValid());
   NGLayoutInputNode child = child_->GetLayoutNode();
 
   if (type_ == CustomLayoutWorkTask::TaskType::kIntrinsicSizes) {
     RunIntrinsicSizesTask(parent_style,
                           child_percentage_resolution_block_size_for_min_max,
-                          child);
+                          child, child_depends_on_percentage_block_size);
   } else {
     DCHECK_EQ(type_, CustomLayoutWorkTask::TaskType::kLayoutFragment);
     RunLayoutFragmentTask(parent_space, parent_style, child);
@@ -64,7 +72,8 @@ void CustomLayoutWorkTask::RunLayoutFragmentTask(
   DCHECK_EQ(type_, CustomLayoutWorkTask::TaskType::kLayoutFragment);
   DCHECK(options_ && resolver_);
 
-  NGConstraintSpaceBuilder builder(parent_space, child.Style().GetWritingMode(),
+  NGConstraintSpaceBuilder builder(parent_space,
+                                   child.Style().GetWritingDirection(),
                                    /* is_new_fc */ true);
   SetOrthogonalFallbackInlineSizeIfNeeded(parent_style, child, &builder);
 
@@ -119,21 +128,17 @@ void CustomLayoutWorkTask::RunLayoutFragmentTask(
     percentage_size.block_size = kIndefiniteSize;
   }
 
-  builder.SetTextDirection(child.Style().Direction());
   builder.SetAvailableSize(available_size);
   builder.SetPercentageResolutionSize(percentage_size);
   builder.SetReplacedPercentageResolutionSize(percentage_size);
-  builder.SetIsShrinkToFit(child.Style().LogicalWidth().IsAuto());
   builder.SetIsFixedInlineSize(is_fixed_inline_size);
   builder.SetIsFixedBlockSize(is_fixed_block_size);
-  builder.SetNeedsBaseline(true);
   if (child.IsLayoutNGCustom())
     builder.SetCustomLayoutData(std::move(constraint_data_));
   auto space = builder.ToConstraintSpace();
   auto result = To<NGBlockNode>(child).Layout(space, nullptr /* break_token */);
 
-  NGBoxFragment fragment(parent_space.GetWritingMode(),
-                         parent_space.Direction(),
+  NGBoxFragment fragment(parent_space.GetWritingDirection(),
                          To<NGPhysicalBoxFragment>(result->PhysicalFragment()));
 
   resolver_->Resolve(MakeGarbageCollected<CustomLayoutFragment>(
@@ -144,15 +149,22 @@ void CustomLayoutWorkTask::RunLayoutFragmentTask(
 void CustomLayoutWorkTask::RunIntrinsicSizesTask(
     const ComputedStyle& parent_style,
     const LayoutUnit child_percentage_resolution_block_size_for_min_max,
-    NGLayoutInputNode child) {
+    NGLayoutInputNode child,
+    bool* child_depends_on_percentage_block_size) {
   DCHECK_EQ(type_, CustomLayoutWorkTask::TaskType::kIntrinsicSizes);
   DCHECK(resolver_);
 
-  MinMaxSizesInput input(child_percentage_resolution_block_size_for_min_max);
-  MinMaxSizes sizes =
-      ComputeMinAndMaxContentContribution(parent_style, child, input);
+  MinMaxSizesInput input(child_percentage_resolution_block_size_for_min_max,
+                         MinMaxSizesType::kContent);
+  MinMaxSizesResult result = ComputeMinAndMaxContentContribution(
+      parent_style, To<NGBlockNode>(child), input);
   resolver_->Resolve(MakeGarbageCollected<CustomIntrinsicSizes>(
-      child_, token_, sizes.min_size, sizes.max_size));
+      child_, token_, result.sizes.min_size, result.sizes.max_size));
+
+  if (child_depends_on_percentage_block_size) {
+    *child_depends_on_percentage_block_size |=
+        result.depends_on_percentage_block_size;
+  }
 }
 
 }  // namespace blink

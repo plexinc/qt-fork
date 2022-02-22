@@ -43,7 +43,7 @@
 #include <private/qabstractseries_p.h>
 #include <QtCharts/private/qchartglobal_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 class QLegendPrivate;
 
 class Q_CHARTS_PRIVATE_EXPORT QPieSeriesPrivate : public QAbstractSeriesPrivate
@@ -54,17 +54,17 @@ public:
     QPieSeriesPrivate(QPieSeries *parent);
     ~QPieSeriesPrivate();
 
-    void initializeDomain();
-    void initializeAxes();
-    void initializeGraphics(QGraphicsItem* parent);
-    void initializeAnimations(QtCharts::QChart::AnimationOptions options, int duration,
-                              QEasingCurve &curve);
-    void initializeTheme(int index, ChartTheme* theme, bool forced = false);
+    void initializeDomain() override;
+    void initializeAxes() override;
+    void initializeGraphics(QGraphicsItem* parent) override;
+    void initializeAnimations(QChart::AnimationOptions options, int duration,
+                              QEasingCurve &curve) override;
+    void initializeTheme(int index, ChartTheme* theme, bool forced = false) override;
 
-    QList<QLegendMarker *> createLegendMarkers(QLegend *legend);
+    QList<QLegendMarker *> createLegendMarkers(QLegend *legend) override;
 
-    QAbstractAxis::AxisType defaultAxisType(Qt::Orientation orientation) const;
-    QAbstractAxis* createDefaultAxis(Qt::Orientation orientation) const;
+    QAbstractAxis::AxisType defaultAxisType(Qt::Orientation orientation) const override;
+    QAbstractAxis* createDefaultAxis(Qt::Orientation orientation) const override;
 
     void updateDerivativeData();
     void setSizes(qreal innerSize, qreal outerSize);
@@ -102,6 +102,6 @@ public:
     Q_DECLARE_PUBLIC(QPieSeries)
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // QPIESERIES_P_H

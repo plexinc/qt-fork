@@ -32,12 +32,13 @@
 #include <QtCharts/QChartView>
 #include <QtCharts/QValueAxis>
 #include <QtCore/QDateTime>
+#include <QtCore/QFile>
 #include <QtWidgets/QApplication>
 #include <QtWidgets/QMainWindow>
 
 #include "candlestickdatareader.h"
 
-QT_CHARTS_USE_NAMESPACE
+QT_USE_NAMESPACE
 
 int main(int argc, char *argv[])
 {

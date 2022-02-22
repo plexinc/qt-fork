@@ -1,6 +1,7 @@
 /****************************************************************************
 **
 ** Copyright (C) 2019 Thibaut Cuvelier
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -26,10 +27,6 @@
 **
 ****************************************************************************/
 
-/*
-  docbookgenerator.h
-*/
-
 #ifndef DOCBOOKGENERATOR_H
 #define DOCBOOKGENERATOR_H
 
@@ -38,10 +35,13 @@
 #include "xmlgenerator.h"
 
 #include <QtCore/qhash.h>
-#include <QtCore/qregexp.h>
 #include <QtCore/qxmlstream.h>
 
 QT_BEGIN_NAMESPACE
+
+class Aggregate;
+class ExampleNode;
+class FunctionNode;
 
 class DocBookGenerator : public XmlGenerator
 {
@@ -52,7 +52,7 @@ public:
     QString format() override;
 
 protected:
-    QString fileExtension() const override;
+    [[nodiscard]] QString fileExtension() const override;
     void generateDocumentation(Node *node) override;
     using Generator::generateCppReferencePage;
     void generateCppReferencePage(Node *node);
@@ -76,21 +76,20 @@ protected:
     void generateDocBookSynopsis(const Node *node);
     void generateRequisites(const Aggregate *inner);
     void generateQmlRequisites(const QmlTypeNode *qcn);
-    void generateSortedNames(const ClassNode *cn, const QVector<RelatedClass> &rc);
+    void generateSortedNames(const ClassNode *cn, const QList<RelatedClass> &rc);
     void generateSortedQmlNames(const Node *base, const NodeList &subs);
     bool generateStatus(const Node *node);
     bool generateThreadSafeness(const Node *node);
     bool generateSince(const Node *node);
-    void generateAddendum(const Node *node, Generator::Addendum type, CodeMarker *marker = nullptr,
-                          bool generateNote = true) override;
+    void generateAddendum(const Node *node, Generator::Addendum type, CodeMarker *marker,
+                          bool generateNote) override;
     using Generator::generateBody;
     void generateBody(const Node *node);
 
-    bool generateText(const Text &text, const Node *relative,
-                      CodeMarker *marker = nullptr) override;
+    bool generateText(const Text &text, const Node *relative) override;
     const Atom *generateAtomList(const Atom *atom, const Node *relative, bool generate,
                                  int &numAtoms);
-    int generateAtom(const Atom *atom, const Node *relative, CodeMarker *marker = nullptr) override;
+    qsizetype generateAtom(const Atom *atom, const Node *relative) override;
 
 private:
     QXmlStreamWriter *startDocument(const Node *node);
@@ -99,8 +98,6 @@ private:
     void endDocument();
 
     void generateAnnotatedList(const Node *relative, const NodeList &nodeList,
-                               const QString &selector);
-    void generateAnnotatedList(const Node *relative, const NodeMultiMap &nmm,
                                const QString &selector);
     void generateAnnotatedLists(const Node *relative, const NodeMultiMap &nmm,
                                 const QString &selector);
@@ -125,18 +122,16 @@ private:
     void generateFullName(const Node *apparentNode, const QString &fullName,
                           const Node *actualNode);
     void generateBrief(const Node *node);
-    void generateAlsoList(const Node *node, CodeMarker *marker = nullptr) override;
+    void generateAlsoList(const Node *node) override;
     void generateSignatureList(const NodeList &nodes);
-    void generateMaintainerList(const Aggregate *node, CodeMarker *marker = nullptr) override;
+    void generateMaintainerList(const Aggregate *node) override;
     void generateReimplementsClause(const FunctionNode *fn);
-    void generateClassHierarchy(const Node *relative, NodeMap &classMap);
+    void generateClassHierarchy(const Node *relative, NodeMultiMap &classMap);
     void generateFunctionIndex(const Node *relative);
     void generateLegaleseList(const Node *relative);
-    void generateExampleFilePage(const Node *en, const QString &file,
-                                 CodeMarker *marker = nullptr) override;
+    void generateExampleFilePage(const Node *en, const QString &file) override;
     void generateOverloadedSignal(const Node *node);
-    bool generateQmlText(const Text &text, const Node *relative, CodeMarker *marker = nullptr,
-                         const QString &qmlName = QString()) override;
+    bool generateQmlText(const Text &text, const Node *relative) override;
     void generateRequiredLinks(const Node *node);
     void generateLinkToExample(const ExampleNode *en, const QString &baseUrl);
 
@@ -156,22 +151,22 @@ private:
     void generateStartRequisite(const QString &description);
     void generateEndRequisite();
     void generateRequisite(const QString &description, const QString &value);
+    void generateCMakeRequisite(const QStringList &values);
     void generateSynopsisInfo(const QString &key, const QString &value);
     void generateModifier(const QString &value);
 
-    bool inListItemLineOpen {};
-    bool inLink {};
+    bool m_inListItemLineOpen {};
     int currentSectionLevel {};
     QStack<int> sectionLevels {};
-    QString qflagsHref_;
+    QString m_qflagsHref {};
 
-    QString project;
-    QString projectDescription;
-    QString naturalLanguage;
-    QString buildversion;
-    QXmlStreamWriter *writer = nullptr;
+    QString m_project {};
+    QString m_projectDescription {};
+    QString m_naturalLanguage {};
+    QString m_buildVersion {};
+    QXmlStreamWriter *m_writer { nullptr };
 
-    Config *config = nullptr;
+    Config *m_config { nullptr };
 };
 
 QT_END_NAMESPACE

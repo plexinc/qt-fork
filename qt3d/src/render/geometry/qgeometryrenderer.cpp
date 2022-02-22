@@ -49,7 +49,7 @@ using namespace Qt3DCore;
 namespace Qt3DRender {
 
 QGeometryRendererPrivate::QGeometryRendererPrivate()
-    : QComponentPrivate()
+    : Qt3DCore::QBoundingVolumePrivate()
     , m_instanceCount(1)
     , m_vertexCount(0)
     , m_indexOffset(0)
@@ -61,18 +61,47 @@ QGeometryRendererPrivate::QGeometryRendererPrivate()
     , m_primitiveRestart(false)
     , m_geometry(nullptr)
     , m_primitiveType(QGeometryRenderer::Triangles)
+    , m_sortIndex(-1.f)
 {
+    m_primaryProvider = false;
 }
 
 QGeometryRendererPrivate::~QGeometryRendererPrivate()
 {
 }
 
+void QGeometryRendererPrivate::setView(QGeometryView *view)
+{
+    Q_Q(QGeometryRenderer);
+    if (m_view == view)
+        return;
+
+    if (m_view)
+        m_view->disconnect(q);
+
+    QBoundingVolumePrivate::setView(view);
+
+    // Ensures proper bookkeeping
+    if (m_view) {
+        QObject::connect(view, &QGeometryView::instanceCountChanged, q, [this]() { update(); });
+        QObject::connect(view, &QGeometryView::vertexCountChanged, q, [this]() { update(); });
+        QObject::connect(view, &QGeometryView::indexOffsetChanged, q, [this]() { update(); });
+        QObject::connect(view, &QGeometryView::firstInstanceChanged, q, [this]() { update(); });
+        QObject::connect(view, &QGeometryView::firstVertexChanged, q, [this]() { update(); });
+        QObject::connect(view, &QGeometryView::indexBufferByteOffsetChanged, q, [this]() { update(); });
+        QObject::connect(view, &QGeometryView::restartIndexValueChanged, q, [this]() { update(); });
+        QObject::connect(view, &QGeometryView::verticesPerPatchChanged, q, [this]() { update(); });
+        QObject::connect(view, &QGeometryView::primitiveRestartEnabledChanged, q, [this]() { update(); });
+        QObject::connect(view, &QGeometryView::geometryChanged, q, [this]() { update(); });
+        QObject::connect(view, &QGeometryView::primitiveTypeChanged, q, [this]() { update(); });
+    }
+}
+
 /*!
     \qmltype GeometryRenderer
     \instantiates Qt3DRender::QGeometryRenderer
     \inqmlmodule Qt3D.Render
-    \inherits Component3D
+    \inherits BoundingVolume
     \since 5.7
     \brief Encapsulates geometry rendering.
 
@@ -88,7 +117,7 @@ QGeometryRendererPrivate::~QGeometryRendererPrivate()
     \brief Encapsulates geometry rendering.
 
     A Qt3DRender::QGeometryRenderer holds all the information necessary to draw
-    a Qt3DRender::QGeometry. A QGeometry holds the coordinates of the geometry data -
+    a Qt3DCore::QGeometry. A QGeometry holds the coordinates of the geometry data -
     QGeometryRenderer specifies how to interpret that data.
  */
 
@@ -193,13 +222,37 @@ QGeometryRendererPrivate::~QGeometryRendererPrivate()
     \endlist
     \sa Qt3DRender::QGeometryRenderer::PrimitiveType
  */
+/*!
+    \qmlproperty float GeometryRenderer::sortIndex
+    \since 6.0
+
+    Overrides the sorting index when depth sorting is enabled.
+
+    If depth sorting is enabled on the frame graph, the renderer will sort
+    objects based on how far the center of the bounding volume is from
+    the camera and render objects from the furthest to the closest.
+
+    This property can be used to override the depth index and precisely
+    control the order in which objects are rendered. This is useful when
+    all objects are at the same physical distance from the camera.
+
+    The actual values are not significant, only that they define an order
+    to sort the objects. These are sorted such as the object with the
+    smallest value is drawn first, then the second smallest, and so on.
+
+    \note Setting this to -1.f will disable the explicit sorting for this
+    entity and revert to using the distance from the center of the bounding
+    volume.
+
+    \sa SortPolicy
+*/
 
 
 /*!
     Constructs a new QGeometryRenderer with \a parent.
  */
 QGeometryRenderer::QGeometryRenderer(QNode *parent)
-    : QComponent(*new QGeometryRendererPrivate(), parent)
+    : Qt3DCore::QBoundingVolume(*new QGeometryRendererPrivate(), parent)
 {
 }
 
@@ -214,12 +267,7 @@ QGeometryRenderer::~QGeometryRenderer()
     \internal
  */
 QGeometryRenderer::QGeometryRenderer(QGeometryRendererPrivate &dd, QNode *parent)
-    : QComponent(dd, parent)
-{
-}
-
-// TODO Unused remove in Qt6
-void QGeometryRenderer::sceneChangeEvent(const QSceneChangePtr &)
+    : Qt3DCore::QBoundingVolume(dd, parent)
 {
 }
 
@@ -345,12 +393,33 @@ QGeometryRenderer::PrimitiveType QGeometryRenderer::primitiveType() const
 }
 
 /*!
-    Returns the geometry functor.
- */
-QGeometryFactoryPtr QGeometryRenderer::geometryFactory() const
+    \property QGeometryRenderer::sortIndex
+    \since 6.0
+
+    Overrides the sorting index when depth sorting is enabled.
+
+    If depth sorting is enabled on the frame graph, the renderer will sort
+    objects based on how far the center of the bounding volume is from
+    the camera and render objects from the furthest to the closest.
+
+    This property can be used to override the depth index and precisely
+    control the order in which objects are rendered. This is useful when
+    all objects are at the same physical distance from the camera.
+
+    The actual values are not significant, only that they define an order
+    to sort the objects. These are sorted such as the object with the
+    smallest value is drawn first, then the second smallest, and so on.
+
+    \note Setting this to -1.f will disable the explicit sorting for this
+    entity and revert to using the distance from the center of the bounding
+    volume.
+
+    \sa Qt3DRender::QSortPolicy
+*/
+float QGeometryRenderer::sortIndex() const
 {
     Q_D(const QGeometryRenderer);
-    return d->m_geometryFactory;
+    return d->m_sortIndex;
 }
 
 void QGeometryRenderer::setInstanceCount(int instanceCount)
@@ -473,36 +542,14 @@ void QGeometryRenderer::setPrimitiveType(QGeometryRenderer::PrimitiveType primit
     emit primitiveTypeChanged(primitiveType);
 }
 
-/*!
-    Sets the geometry \a factory.
- */
-void QGeometryRenderer::setGeometryFactory(const QGeometryFactoryPtr &factory)
+void QGeometryRenderer::setSortIndex(float sortIndex)
 {
     Q_D(QGeometryRenderer);
-    if (factory && d->m_geometryFactory && *factory == *d->m_geometryFactory)
+    if (qFuzzyCompare(d->m_sortIndex, sortIndex))
         return;
-    d->m_geometryFactory = factory;
-    d->update();
-}
 
-Qt3DCore::QNodeCreatedChangeBasePtr QGeometryRenderer::createNodeCreationChange() const
-{
-    auto creationChange = Qt3DCore::QNodeCreatedChangePtr<QGeometryRendererData>::create(this);
-    auto &data = creationChange->data;
-    Q_D(const QGeometryRenderer);
-    data.instanceCount = d->m_instanceCount;
-    data.vertexCount = d->m_vertexCount;
-    data.indexOffset = d->m_indexOffset;
-    data.firstInstance = d->m_firstInstance;
-    data.firstVertex = d->m_firstVertex;
-    data.indexBufferByteOffset = d->m_indexBufferByteOffset;
-    data.restartIndexValue = d->m_restartIndexValue;
-    data.verticesPerPatch = d->m_verticesPerPatch;
-    data.primitiveRestart = d->m_primitiveRestart;
-    data.geometryId = qIdForNode(d->m_geometry);
-    data.primitiveType = d->m_primitiveType;
-    data.geometryFactory = d->m_geometryFactory;
-    return creationChange;
+    d->m_sortIndex = sortIndex;
+    emit sortIndexChanged(d->m_sortIndex);
 }
 
 } // namespace Qt3DRender

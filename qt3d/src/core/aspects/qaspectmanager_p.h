@@ -51,13 +51,15 @@
 // We mean it.
 //
 
-#include <Qt3DCore/qnodecreatedchange.h>
 #include <Qt3DCore/qaspectengine.h>
+#include <Qt3DCore/private/qabstractfrontendnodemanager_p.h>
+#include <Qt3DCore/qnode.h>
+#include <Qt3DCore/qnodeid.h>
+#include <QtCore/QList>
 #include <QtCore/QObject>
 #include <QtCore/QScopedPointer>
 #include <QtCore/QSemaphore>
 #include <QtCore/QVariant>
-#include <QtCore/QVector>
 
 #include <Qt3DCore/private/qt3dcore_global_p.h>
 
@@ -67,7 +69,6 @@ class QSurface;
 
 namespace Qt3DCore {
 
-class QNode;
 class QEntity;
 class QScheduler;
 class QChangeArbiter;
@@ -75,18 +76,22 @@ class QAbstractAspect;
 class QAbstractAspectJobManager;
 class QAspectEngine;
 class QServiceLocator;
+class QScene;
 class NodePostConstructorInit;
 struct NodeTreeChange;
 #if QT_CONFIG(animation)
 class RequestFrameAnimation;
 #endif
 
-class Q_3DCORE_PRIVATE_EXPORT QAspectManager : public QObject
+class Q_3DCORE_PRIVATE_EXPORT QAspectManager : public QObject, public QAbstractFrontEndNodeManager
 {
     Q_OBJECT
 public:
     explicit QAspectManager(QAspectEngine *parent = nullptr);
     ~QAspectManager();
+
+    QAspectEngine * engine() const { return  m_engine; }
+    QScheduler *scheduler() const { return m_scheduler; }
 
     void setRunMode(QAspectEngine::RunMode mode);
     void enterSimulationLoop();
@@ -99,21 +104,24 @@ public Q_SLOTS:
     void shutdown();
     void processFrame();
 
-    void setRootEntity(Qt3DCore::QEntity *root, const QVector<QNode *> &nodes);
-    void addNodes(const QVector<QNode *> &nodes);
-    void removeNodes(const QVector<QNode *> &nodes);
+    void setRootEntity(Qt3DCore::QEntity *root, const QList<QNode *> &nodes);
+    void addNodes(const QList<QNode *> &nodes);
+    void removeNodes(const QList<QNode *> &nodes);
     void registerAspect(Qt3DCore::QAbstractAspect *aspect);
     void unregisterAspect(Qt3DCore::QAbstractAspect *aspect);
 
 public:
-    const QVector<QAbstractAspect *> &aspects() const;
+    const QList<QAbstractAspect *> &aspects() const;
+    QAbstractAspect *aspect(const QString &name) const;
+    QAbstractAspect *aspect(const QMetaObject *metaType) const;
     QAbstractAspectJobManager *jobManager() const;
     QChangeArbiter *changeArbiter() const;
     QServiceLocator *serviceLocator() const;
     void setPostConstructorInit(NodePostConstructorInit *postConstructorInit);
 
-    QNode *lookupNode(QNodeId id) const;
-    QVector<QNode *> lookupNodes(const QVector<QNodeId> &ids) const;
+    QNode *lookupNode(QNodeId id) const override;
+    QList<QNode *> lookupNodes(const QList<QNodeId> &ids) const override;
+    QScene *scene() const;
 
     int jobsInLastFrame() const { return m_jobsInLastFrame; }
     void dumpJobsOnNextFrame();
@@ -125,7 +133,7 @@ private:
     void requestNextFrame();
 
     QAspectEngine *m_engine;
-    QVector<QAbstractAspect *> m_aspects;
+    QList<QAbstractAspect *> m_aspects;
     QEntity *m_root;
     QVariantMap m_data;
     QScheduler *m_scheduler;
@@ -134,7 +142,7 @@ private:
     QScopedPointer<QServiceLocator> m_serviceLocator;
     bool m_simulationLoopRunning;
     QAspectEngine::RunMode m_driveMode;
-    QVector<NodeTreeChange> m_nodeTreeChanges;
+    QList<NodeTreeChange> m_nodeTreeChanges;
     NodePostConstructorInit* m_postConstructorInit;
 
 #if QT_CONFIG(animation)

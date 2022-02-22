@@ -47,16 +47,12 @@
 #include <QtQml/private/qabstractanimationjob_p.h>
 #include <private/qqmlengine_p.h>
 #include <private/qquickview_p.h>
-#include <private/qsgrenderloop_p.h>
 #include <QtQuick/private/qquickstategroup_p.h>
 #include <QtGui/QImage>
 #include <private/qqmlvme_p.h>
 #include <private/qqmlcomponentattached_p.h>
 #include <private/qqmldata_p.h>
 #include <private/qsgadaptationlayer_p.h>
-
-#include "qquickdesignerwindowmanager_p.h"
-
 
 QT_BEGIN_NAMESPACE
 
@@ -97,7 +93,7 @@ void QQuickDesignerSupport::refFromEffectItem(QQuickItem *referencedItem, bool h
         texture->setSize(itemSize.toSize());
         texture->setRecursive(true);
 #if QT_CONFIG(opengl)
-#ifndef QT_OPENGL_ES
+#if !QT_CONFIG(opengles2)
         if (QOpenGLContext::openGLModuleType() == QOpenGLContext::LibGL)
             texture->setFormat(GL_RGBA8);
         else
@@ -390,13 +386,13 @@ void QQuickDesignerSupport::emitComponentCompleteSignalForAttachedProperty(QObje
 
     QQmlData *data = QQmlData::get(object);
     if (data && data->context) {
-        QQmlComponentAttached *componentAttached = data->context->componentAttached;
+        QQmlComponentAttached *componentAttached = data->context->componentAttacheds();
         while (componentAttached) {
             if (componentAttached->parent())
                 if (componentAttached->parent() == object)
                     emit componentAttached->completed();
 
-            componentAttached = componentAttached->next;
+            componentAttached = componentAttached->next();
         }
     }
 }
@@ -429,7 +425,7 @@ int QQuickDesignerSupport::borderWidth(QQuickItem *item)
 
 void QQuickDesignerSupport::refreshExpressions(QQmlContext *context)
 {
-    QQmlContextPrivate::get(context)->data->refreshExpressions();
+    QQmlContextData::get(context)->refreshExpressions();
 }
 
 void QQuickDesignerSupport::setRootItem(QQuickView *view, QQuickItem *item)
@@ -439,23 +435,18 @@ void QQuickDesignerSupport::setRootItem(QQuickView *view, QQuickItem *item)
 
 bool QQuickDesignerSupport::isValidWidth(QQuickItem *item)
 {
-    return QQuickItemPrivate::get(item)->heightValid;
+    return QQuickItemPrivate::get(item)->heightValid();
 }
 
 bool QQuickDesignerSupport::isValidHeight(QQuickItem *item)
 {
-    return QQuickItemPrivate::get(item)->widthValid;
+    return QQuickItemPrivate::get(item)->widthValid();
 }
 
 void QQuickDesignerSupport::updateDirtyNode(QQuickItem *item)
 {
     if (item->window())
         QQuickWindowPrivate::get(item->window())->updateDirtyNode(item);
-}
-
-void QQuickDesignerSupport::activateDesignerWindowManager()
-{
-    QSGRenderLoop::setInstance(new QQuickDesignerWindowManager);
 }
 
 void QQuickDesignerSupport::activateDesignerMode()
@@ -471,11 +462,6 @@ void QQuickDesignerSupport::disableComponentComplete()
 void QQuickDesignerSupport::enableComponentComplete()
 {
     QQmlVME::enableComponentComplete();
-}
-
-void QQuickDesignerSupport::createOpenGLContext(QQuickWindow *window)
-{
-    QQuickDesignerWindowManager::createOpenGLContext(window);
 }
 
 void QQuickDesignerSupport::polishItems(QQuickWindow *window)

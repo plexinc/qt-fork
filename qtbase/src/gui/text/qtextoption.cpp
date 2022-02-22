@@ -55,14 +55,7 @@ struct QTextOptionPrivate
     using of design metrics flag is set to false.
 */
 QTextOption::QTextOption()
-    : align(Qt::AlignLeft),
-      wordWrap(QTextOption::WordWrap),
-      design(false),
-      unused(0),
-      unused2(0),
-      f(0),
-      tab(-1),
-      d(nullptr)
+    : QTextOption(Qt::AlignLeft)
 {
     direction = Qt::LayoutDirectionAuto;
 }
@@ -77,7 +70,6 @@ QTextOption::QTextOption(Qt::Alignment alignment)
       wordWrap(QTextOption::WordWrap),
       design(false),
       unused(0),
-      unused2(0),
       f(0),
       tab(-1),
       d(nullptr)
@@ -104,7 +96,6 @@ QTextOption::QTextOption(const QTextOption &o)
       design(o.design),
       direction(o.direction),
       unused(o.unused),
-      unused2(o.unused2),
       f(o.f),
       tab(o.tab),
       d(nullptr)
@@ -165,7 +156,7 @@ void QTextOption::setTabArray(const QList<qreal> &tabStops)
     Sets the tab positions for the text layout to those specified by
     \a tabStops.
 
-    \sa tabStop()
+    \sa tabStopDistance()
 */
 void QTextOption::setTabs(const QList<QTextOption::Tab> &tabStops)
 {
@@ -177,7 +168,7 @@ void QTextOption::setTabs(const QList<QTextOption::Tab> &tabStops)
 /*!
     Returns a list of tab positions defined for the text layout.
 
-    \sa setTabArray(), tabStop()
+    \sa setTabArray(), tabStopDistance()
 */
 QList<qreal> QTextOption::tabArray() const
 {
@@ -333,28 +324,6 @@ QList<QTextOption::Tab> QTextOption::tabs() const
   \sa flags()
 */
 
-#if QT_DEPRECATED_SINCE(5, 10)
-/*!
-  \fn qreal QTextOption::tabStop() const
-  \deprecated in Qt 5.10. Use tabStopDistance() instead.
-
-  Returns the distance in device units between tab stops.
-  Convenient function for the above method
-
-  \sa setTabStopDistance(), tabArray(), setTabs(), tabs()
-*/
-
-/*!
-  \fn void QTextOption::setTabStop(qreal tabStop)
-  \deprecated in Qt 5.10. Use setTabStopDistance() instead.
-
-  Sets the default distance in device units between tab stops to the value specified
-  by \a tabStop.
-
-  \sa tabStopDistance(), setTabArray(), setTabs(), tabs()
-*/
-#endif
-
 /*!
   \fn qreal QTextOption::tabStopDistance() const
   \since 5.10
@@ -398,7 +367,7 @@ QList<QTextOption::Tab> QTextOption::tabs() const
     Distance from the start of the paragraph.
     The position of a tab is from the start of the paragraph which implies that when
     the alignment of the paragraph is set to centered, the tab is interpreted to be
-    moved the same distance as the left ege of the paragraph does.
+    moved the same distance as the left edge of the paragraph does.
     In case the paragraph is set to have a layoutDirection() RightToLeft the position
     is interpreted to be from the right side of the paragraph with higher numbers moving
     the tab to the left.
@@ -451,7 +420,7 @@ QList<QTextOption::Tab> QTextOption::tabs() const
   \fn QList<QTextOption::Tab> QTextOption::tabs() const
   Returns a list of tab positions defined for the text layout.
 
-  \sa tabStopDistance(), setTabs(), setTabStop()
+  \sa tabStopDistance(), setTabs(), setTabStopDistance()
 */
 
 

@@ -66,8 +66,7 @@ int main(int argc, char *argv[])
 
     if (argumentCount == 1) {
         standardOutput << QObject::tr("Usage: %1 <serialportname> [baudrate]")
-                          .arg(argumentList.first())
-                       << "\n";
+                          .arg(argumentList.first()) << Qt::endl;
         return 1;
     }
 
@@ -83,7 +82,7 @@ int main(int argc, char *argv[])
 
     QFile dataFile;
     if (!dataFile.open(stdin, QIODevice::ReadOnly)) {
-        standardOutput << QObject::tr("Failed to open stdin for reading") << "\n";
+        standardOutput << QObject::tr("Failed to open stdin for reading") << Qt::endl;
         return 1;
     }
 
@@ -94,8 +93,7 @@ int main(int argc, char *argv[])
         standardOutput << QObject::tr("Either no data was currently available on "
                                       "the standard input for reading, "
                                       "or an error occurred for port %1, error: %2")
-                          .arg(serialPortName).arg(serialPort.errorString())
-                       << "\n";
+                          .arg(serialPortName).arg(serialPort.errorString()) << Qt::endl;
         return 1;
     }
 

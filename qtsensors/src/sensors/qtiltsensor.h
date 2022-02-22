@@ -74,10 +74,10 @@ class Q_SENSORS_EXPORT QTiltSensor : public QSensor
 {
     Q_OBJECT
 public:
-    explicit QTiltSensor(QObject *parent = Q_NULLPTR);
+    explicit QTiltSensor(QObject *parent = nullptr);
     ~QTiltSensor();
     QTiltReading *reading() const;
-    static char const * const type;
+    static char const * const sensorType;
 
     Q_INVOKABLE void calibrate();
 

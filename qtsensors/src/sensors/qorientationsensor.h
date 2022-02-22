@@ -49,7 +49,6 @@ class QOrientationReadingPrivate;
 class Q_SENSORS_EXPORT QOrientationReading : public QSensorReading
 {
     Q_OBJECT
-    Q_ENUMS(Orientation)
     Q_PROPERTY(Orientation orientation READ orientation)
     DECLARE_READING(QOrientationReading)
 public:
@@ -62,6 +61,7 @@ public:
         FaceUp,
         FaceDown
     };
+    Q_ENUM(Orientation)
 
     Orientation orientation() const;
     void setOrientation(Orientation orientation);
@@ -79,10 +79,10 @@ class Q_SENSORS_EXPORT QOrientationSensor : public QSensor
 {
     Q_OBJECT
 public:
-    explicit QOrientationSensor(QObject *parent = Q_NULLPTR);
+    explicit QOrientationSensor(QObject *parent = nullptr);
     virtual ~QOrientationSensor();
     QOrientationReading *reading() const;
-    static char const * const type;
+    static char const * const sensorType;
 
 private:
     Q_DISABLE_COPY(QOrientationSensor)
@@ -91,4 +91,3 @@ private:
 QT_END_NAMESPACE
 
 #endif
-

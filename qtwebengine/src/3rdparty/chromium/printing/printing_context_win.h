@@ -8,7 +8,6 @@
 #include <memory>
 #include <string>
 
-#include "base/macros.h"
 #include "printing/printing_context.h"
 #include "ui/gfx/native_widget_types.h"
 
@@ -20,10 +19,12 @@ class PrintSettings;
 class PRINTING_EXPORT PrintingContextWin : public PrintingContext {
  public:
   explicit PrintingContextWin(Delegate* delegate);
+  PrintingContextWin(const PrintingContextWin&) = delete;
+  PrintingContextWin& operator=(const PrintingContextWin&) = delete;
   ~PrintingContextWin() override;
 
   // Prints the document contained in |metafile|.
-  void PrintDocument(const base::string16& device_name,
+  void PrintDocument(const std::wstring& device_name,
                      const MetafileSkia& metafile);
 
   // Initializes with predefined settings.
@@ -52,7 +53,7 @@ class PRINTING_EXPORT PrintingContextWin : public PrintingContext {
 
   // Reads the settings from the selected device context. Updates settings_ and
   // its margins.
-  virtual Result InitializeSettings(const base::string16& device_name,
+  virtual Result InitializeSettings(const std::wstring& device_name,
                                     DEVMODE* dev_mode);
 
   void set_context(HDC context) { context_ = context; }
@@ -63,8 +64,6 @@ class PRINTING_EXPORT PrintingContextWin : public PrintingContext {
 
   // The selected printer context.
   HDC context_;
-
-  DISALLOW_COPY_AND_ASSIGN(PrintingContextWin);
 };
 
 }  // namespace printing

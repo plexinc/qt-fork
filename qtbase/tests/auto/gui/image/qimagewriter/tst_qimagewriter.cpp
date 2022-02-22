@@ -26,10 +26,7 @@
 **
 ****************************************************************************/
 
-
-#include <QtTest/QtTest>
-
-
+#include <QTest>
 #include <QDebug>
 #include <QFile>
 #include <QImage>
@@ -38,16 +35,22 @@
 #include <QPainter>
 #include <QSet>
 #include <QTemporaryDir>
+#include <QTemporaryFile>
+#include <QSaveFile>
 
 #ifdef Q_OS_UNIX // for geteuid()
 # include <sys/types.h>
 # include <unistd.h>
 #endif
 
+#ifdef Q_OS_INTEGRITY
+#include "qplatformdefs.h"
+#endif
+
 #include <algorithm>
 
 typedef QMap<QString, QString> QStringMap;
-typedef QVector<int> QIntList;
+typedef QList<int> QIntList;
 Q_DECLARE_METATYPE(QImageWriter::ImageWriterError)
 Q_DECLARE_METATYPE(QImage::Format)
 
@@ -77,6 +80,7 @@ private slots:
     void saveWithNoFormat();
 
     void saveToTemporaryFile();
+    void saveToSaveFile();
 
     void writeEmpty();
 
@@ -94,8 +98,8 @@ private:
 
 static void initializePadding(QImage *image)
 {
-    int effectiveBytesPerLine = (image->width() * image->depth() + 7) / 8;
-    int paddingBytes = image->bytesPerLine() - effectiveBytesPerLine;
+    qsizetype effectiveBytesPerLine = (qsizetype(image->width()) * image->depth() + 7) / 8;
+    qsizetype paddingBytes = image->bytesPerLine() - effectiveBytesPerLine;
     if (paddingBytes == 0)
         return;
     for (int y = 0; y < image->height(); ++y) {
@@ -146,13 +150,6 @@ void tst_QImageWriter::getSetCheck()
     QCOMPARE(INT_MIN, obj1.compression());
     obj1.setCompression(INT_MAX);
     QCOMPARE(INT_MAX, obj1.compression());
-
-    // float QImageWriter::gamma()
-    // void QImageWriter::setGamma(float)
-    obj1.setGamma(0.0f);
-    QCOMPARE(0.0f, obj1.gamma());
-    obj1.setGamma(1.1f);
-    QCOMPARE(1.1f, obj1.gamma());
 }
 
 void tst_QImageWriter::writeImage_data()
@@ -300,7 +297,13 @@ void tst_QImageWriter::writeImage2()
         QVERIFY(reader.read(&written));
     }
 
-    written = written.convertToFormat(image.format());
+    // The 8-bit input value might have turned into a fraction in 16-bit grayscale
+    // which can't be preserved in file formats that doesn't support 16bpc.
+    if (image.format() == QImage::Format_Grayscale16 &&
+        written.format() != QImage::Format_Grayscale16 && written.depth() <= 32)
+        image.convertTo(QImage::Format_Grayscale8);
+
+    written.convertTo(image.format());
     if (!equalImageContents(written, image)) {
         qDebug() << "image" << image.format() << image.width()
                  << image.height() << image.depth()
@@ -420,7 +423,7 @@ void tst_QImageWriter::supportsOption()
     QFETCH(QString, fileName);
     QFETCH(QIntList, options);
 
-    static Q_CONSTEXPR QImageIOHandler::ImageOption allOptions[] = {
+    static constexpr QImageIOHandler::ImageOption allOptions[] = {
         QImageIOHandler::Size,
         QImageIOHandler::ClipRect,
         QImageIOHandler::Description,
@@ -529,6 +532,59 @@ void tst_QImageWriter::saveToTemporaryFile()
         file.reset();
         QImage tmp;
         QVERIFY(tmp.load(&file, "PNG"));
+        QCOMPARE(tmp, image);
+    }
+}
+
+void tst_QImageWriter::saveToSaveFile()
+{
+    QImage image(prefix + "kollada.png");
+    QVERIFY(!image.isNull());
+
+    {
+        // Check canWrite
+        QImageWriter writer;
+        QSaveFile file(writePrefix + "savefile0.png");
+        writer.setDevice(&file);
+        QVERIFY2(writer.canWrite(), qPrintable(writer.errorString()));
+    }
+
+    QString fileName1(writePrefix + "savefile1.garble");
+    {
+        // Check failing canWrite
+        QVERIFY(!QFileInfo(fileName1).exists());
+        QImageWriter writer;
+        QSaveFile file(fileName1);
+        writer.setDevice(&file);
+        QVERIFY(!writer.canWrite());
+        QCOMPARE(writer.error(), QImageWriter::UnsupportedFormatError);
+    }
+    QVERIFY(!QFileInfo(fileName1).exists());
+
+    QString fileName2(writePrefix + "savefile2.png");
+    {
+        QImageWriter writer;
+        QSaveFile file(fileName2);
+        writer.setDevice(&file);
+        QCOMPARE(writer.fileName(), fileName2);
+        QVERIFY2(writer.write(image), qPrintable(writer.errorString()));
+        QVERIFY(file.commit());
+    }
+    {
+        QImage tmp;
+        QVERIFY(tmp.load(fileName2, "PNG"));
+        QCOMPARE(tmp, image);
+    }
+
+    QString fileName3(writePrefix + "savefile3.png");
+    {
+        QSaveFile file(fileName3);
+        QVERIFY(image.save(&file));
+        QVERIFY(file.commit());
+    }
+    {
+        QImage tmp;
+        QVERIFY(tmp.load(fileName3, "PNG"));
         QCOMPARE(tmp, image);
     }
 }

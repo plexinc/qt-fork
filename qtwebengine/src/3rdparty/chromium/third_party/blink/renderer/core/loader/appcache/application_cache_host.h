@@ -36,8 +36,6 @@
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
-#include "mojo/public/cpp/bindings/receiver.h"
-#include "mojo/public/cpp/bindings/remote.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/public/mojom/appcache/appcache.mojom-blink.h"
 #include "third_party/blink/public/mojom/appcache/appcache_info.mojom-blink-forward.h"
@@ -45,6 +43,9 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_response.h"
+#include "third_party/blink/renderer/platform/mojo/heap_mojo_receiver.h"
+#include "third_party/blink/renderer/platform/mojo/heap_mojo_remote.h"
+#include "third_party/blink/renderer/platform/mojo/heap_mojo_wrapper_mode.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
@@ -108,10 +109,12 @@ class CORE_EXPORT ApplicationCacheHost
       mojo::PendingRemote<network::mojom::blink::URLLoaderFactory>
           url_loader_factory) override {}
 
-  virtual void Trace(Visitor*) {}
+  virtual void Trace(Visitor*) const;
 
  protected:
-  mojo::Remote<mojom::blink::AppCacheHost> backend_host_;
+  // ApplicationCacheHost will be instantiated before ExecutionContext becomes
+  // available. So we can't supply ExecutionContext to HeapMojoRemote.
+  HeapMojoRemote<mojom::blink::AppCacheHost> backend_host_{nullptr};
   mojom::blink::AppCacheStatus status_ =
       mojom::blink::AppCacheStatus::APPCACHE_STATUS_UNCACHED;
 
@@ -129,8 +132,13 @@ class CORE_EXPORT ApplicationCacheHost
 
   void GetAssociatedCacheInfo(CacheInfo* info);
 
-  mojo::Receiver<mojom::blink::AppCacheFrontend> receiver_{this};
-  mojo::Remote<mojom::blink::AppCacheBackend> backend_remote_;
+  // ApplicationCacheHost will be instantiated before ExecutionContext becomes
+  // available. So we can't supply ExecutionContext to HeapMojoReceiver.
+  HeapMojoReceiver<mojom::blink::AppCacheFrontend, ApplicationCacheHost>
+      receiver_{this, nullptr};
+  // ApplicationCacheHost will be instantiated before ExecutionContext becomes
+  // available. So we can't supply ExecutionContext to HeapMojoRemote.
+  HeapMojoRemote<mojom::blink::AppCacheBackend> backend_remote_{nullptr};
 
   base::UnguessableToken host_id_;
   mojom::blink::AppCacheInfo cache_info_;

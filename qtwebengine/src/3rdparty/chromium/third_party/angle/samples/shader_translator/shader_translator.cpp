@@ -65,6 +65,7 @@ void GenerateResources(ShBuiltInResources *resources)
     resources->OES_EGL_image_external    = 0;
     resources->EXT_geometry_shader       = 1;
     resources->ANGLE_texture_multisample = 0;
+    resources->APPLE_clip_distance       = 0;
 }
 
 int main(int argc, char *argv[])
@@ -247,9 +248,10 @@ int main(int argc, char *argv[])
                           compileOptions |= SH_SELECT_VIEW_IN_NV_GLSL_VERTEX_SHADER;
                           break;
                       case 'y': resources.EXT_YUV_target = 1; break;
+                      case 's': resources.OES_sample_variables = 1; break;
                       default: failCode = EFailUsage;
                     }
-                    // clang-format on
+                        // clang-format on
                     }
                     else
                     {
@@ -412,7 +414,8 @@ void usage()
         "       -x=n     : enable NV_shader_framebuffer_fetch\n"
         "       -x=a     : enable ARM_shader_framebuffer_fetch\n"
         "       -x=m     : enable OVR_multiview\n"
-        "       -x=y     : enable YUV_target\n");
+        "       -x=y     : enable YUV_target\n"
+        "       -x=s     : enable OES_sample_variables\n");
     // clang-format on
 }
 
@@ -670,7 +673,7 @@ void PrintVariable(const std::string &prefix, size_t index, const sh::ShaderVari
         std::string structPrefix;
         for (size_t i = 0; i < prefix.size(); ++i)
             structPrefix += ' ';
-        printf("%s  struct %s\n", structPrefix.c_str(), var.structName.c_str());
+        printf("%s  struct %s\n", structPrefix.c_str(), var.structOrBlockName.c_str());
         structPrefix += "    field";
         for (size_t i = 0; i < var.fields.size(); ++i)
             PrintVariable(structPrefix, i, var.fields[i]);

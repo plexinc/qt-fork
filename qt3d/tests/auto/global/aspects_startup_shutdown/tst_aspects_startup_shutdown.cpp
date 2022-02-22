@@ -48,7 +48,7 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QtTest/QTest>
 
 #include <Qt3DCore/QEntity>
 #include <Qt3DCore/QTransform>
@@ -63,6 +63,7 @@
 #include <Qt3DRender/QCameraLens>
 #include <Qt3DRender/QRenderAspect>
 #include <Qt3DRender/QRenderSettings>
+#include <Qt3DRender/QGeometryRenderer>
 
 #include <Qt3DExtras/QForwardRenderer>
 #include <Qt3DExtras/Qt3DWindow>
@@ -71,6 +72,7 @@
 #include <Qt3DExtras/QTorusMesh>
 
 #include <QPropertyAnimation>
+#include <QThread>
 
 namespace {
 

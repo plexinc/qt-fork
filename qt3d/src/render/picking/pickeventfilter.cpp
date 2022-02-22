@@ -38,8 +38,8 @@
 ****************************************************************************/
 
 #include "pickeventfilter_p.h"
+#include <Qt3DRender/private/qrenderaspect_p.h>
 
-#include <QtCore/QMutexLocker>
 #include <QtGui/QHoverEvent>
 
 QT_BEGIN_NAMESPACE
@@ -48,8 +48,9 @@ namespace Qt3DRender {
 
 namespace Render {
 
-PickEventFilter::PickEventFilter(QObject *parent)
+PickEventFilter::PickEventFilter(QRenderAspectPrivate *aspect, QObject *parent)
     : QObject(parent)
+    , m_aspect(aspect)
 {
 }
 
@@ -59,54 +60,34 @@ PickEventFilter::~PickEventFilter()
 
 /*!
     \internal
-    Called from a worker thread in the thread pool so be sure to
-    mutex protect the data.
-*/
-QList<QPair<QObject *, QMouseEvent> > PickEventFilter::pendingMouseEvents()
-{
-    QMutexLocker locker(&m_mutex);
-    QList<QPair<QObject*, QMouseEvent>> pendingEvents(m_pendingMouseEvents);
-    m_pendingMouseEvents.clear();
-    return pendingEvents;
-}
-
-QList<QKeyEvent> PickEventFilter::pendingKeyEvents()
-{
-    QMutexLocker locker(&m_mutex);
-    QList<QKeyEvent> pendingEvents(m_pendingKeyEvents);
-    m_pendingKeyEvents.clear();
-    return pendingEvents;
-}
-
-/*!
-    \internal
     Called from the main thread.
 */
 bool PickEventFilter::eventFilter(QObject *obj, QEvent *e)
 {
-    Q_UNUSED(obj);
     switch (e->type()) {
     case QEvent::MouseButtonPress:
     case QEvent::MouseButtonRelease:
-    case QEvent::MouseMove: {
-        QMutexLocker locker(&m_mutex);
-        m_pendingMouseEvents.push_back({obj, QMouseEvent(*static_cast<QMouseEvent *>(e))});
-    } break;
+    case QEvent::MouseMove:
+        return m_aspect->processMouseEvent(obj, static_cast<QMouseEvent *>(e));
     case QEvent::HoverMove: {
-        QMutexLocker locker(&m_mutex);
         QHoverEvent *he = static_cast<QHoverEvent *>(e);
-        m_pendingMouseEvents.push_back({obj, QMouseEvent(QEvent::MouseMove,
-                                                   he->pos(), Qt::NoButton, Qt::NoButton,
-                                                   he->modifiers())});
-    } break;
+        auto mouseEvent = QMouseEvent(QEvent::MouseMove,
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+                                      he->position(),
+#else
+                                      he->pos(),
+#endif
+                                      Qt::NoButton, Qt::NoButton,
+                                      he->modifiers());
+        return m_aspect->processMouseEvent(obj, &mouseEvent);
+        }
     case QEvent::KeyPress:
-    case QEvent::KeyRelease: {
-        QMutexLocker locker(&m_mutex);
-        m_pendingKeyEvents.push_back(QKeyEvent(*static_cast<QKeyEvent *>(e)));
-    }
+    case QEvent::KeyRelease:
+        return m_aspect->processKeyEvent(obj, static_cast<QKeyEvent *>(e));
     default:
         break;
     }
+
     return false;
 }
 

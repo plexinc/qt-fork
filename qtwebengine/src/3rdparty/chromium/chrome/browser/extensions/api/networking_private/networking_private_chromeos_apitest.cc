@@ -5,23 +5,23 @@
 #include <memory>
 #include <utility>
 
+#include "ash/constants/ash_switches.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/optional.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
+#include "base/test/bind.h"
 #include "base/threading/thread_restrictions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/login/helper.h"
-#include "chrome/browser/chromeos/net/network_portal_detector_test_impl.h"
 #include "chrome/browser/extensions/api/networking_cast_private/chrome_networking_cast_private_delegate.h"
 #include "chrome/browser/extensions/api/networking_private/networking_private_ui_delegate_chromeos.h"
 #include "chrome/browser/extensions/extension_apitest.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/cryptohome/cryptohome_parameters.h"
 #include "chromeos/dbus/cryptohome/cryptohome_client.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
@@ -38,7 +38,6 @@
 #include "chromeos/network/network_state_handler.h"
 #include "chromeos/network/network_type_pattern.h"
 #include "chromeos/network/onc/onc_utils.h"
-#include "chromeos/network/portal_detector/network_portal_detector.h"
 #include "components/onc/onc_constants.h"
 #include "components/onc/onc_pref_names.h"
 #include "components/policy/core/browser/browser_policy_connector.h"
@@ -59,6 +58,7 @@
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_source.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/test_utils.h"
 #include "dbus/object_path.h"
 #include "extensions/browser/api/networking_private/networking_private_chromeos.h"
@@ -79,8 +79,6 @@ using testing::_;
 
 using chromeos::CryptohomeClient;
 using chromeos::DBusThreadManager;
-using chromeos::NetworkPortalDetector;
-using chromeos::NetworkPortalDetectorTestImpl;
 using chromeos::ShillDeviceClient;
 using chromeos::ShillIPConfigClient;
 using chromeos::ShillManagerClient;
@@ -114,18 +112,18 @@ class TestNetworkingCastPrivateDelegate
 
   // VerifyDelegate
   void VerifyDestination(std::unique_ptr<Credentials> credentials,
-                         const VerifiedCallback& success_callback,
-                         const FailureCallback& failure_callback) override {
+                         VerifiedCallback success_callback,
+                         FailureCallback failure_callback) override {
     AssertCredentials(*credentials);
-    success_callback.Run(true);
+    std::move(success_callback).Run(true);
   }
 
   void VerifyAndEncryptData(const std::string& data,
                             std::unique_ptr<Credentials> credentials,
-                            const DataCallback& success_callback,
-                            const FailureCallback& failure_callback) override {
+                            DataCallback success_callback,
+                            FailureCallback failure_callback) override {
     AssertCredentials(*credentials);
-    success_callback.Run("encrypted_data");
+    std::move(success_callback).Run("encrypted_data");
   }
 
  private:
@@ -188,8 +186,7 @@ class TestListener : public content::NotificationObserver {
 class NetworkingPrivateChromeOSApiTest : public extensions::ExtensionApiTest {
  public:
   NetworkingPrivateChromeOSApiTest()
-      : detector_(nullptr),
-        manager_test_(nullptr),
+      : manager_test_(nullptr),
         profile_test_(nullptr),
         service_test_(nullptr),
         device_test_(nullptr) {}
@@ -202,8 +199,9 @@ class NetworkingPrivateChromeOSApiTest : public extensions::ExtensionApiTest {
   }
 
   void SetUpInProcessBrowserTestFixture() override {
-    EXPECT_CALL(provider_, IsInitializationComplete(_))
-        .WillRepeatedly(Return(true));
+    ON_CALL(provider_, IsInitializationComplete(_)).WillByDefault(Return(true));
+    ON_CALL(provider_, IsFirstPolicyLoadComplete(_))
+        .WillByDefault(Return(true));
     policy::BrowserPolicyConnector::SetPolicyProviderForTesting(&provider_);
 
     extensions::ExtensionApiTest::SetUpInProcessBrowserTestFixture();
@@ -211,9 +209,9 @@ class NetworkingPrivateChromeOSApiTest : public extensions::ExtensionApiTest {
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
     extensions::ExtensionApiTest::SetUpCommandLine(command_line);
-    // Whitelist the extension ID of the test extension.
+    // Allowlist the extension ID of the test extension.
     command_line->AppendSwitchASCII(
-        extensions::switches::kWhitelistedExtensionID,
+        extensions::switches::kAllowlistedExtensionID,
         "epcifkihnkjgphfkloaaleeakhpmgdmn");
 
     // TODO(pneubeck): Remove the following hack, once the NetworkingPrivateAPI
@@ -334,7 +332,7 @@ class NetworkingPrivateChromeOSApiTest : public extensions::ExtensionApiTest {
   }
 
   void SetUp() override {
-    networking_cast_delegate_factory_ = base::Bind(
+    networking_cast_delegate_factory_ = base::BindRepeating(
         &NetworkingPrivateChromeOSApiTest::CreateNetworkingCastPrivateDelegate,
         base::Unretained(this));
     ChromeNetworkingCastPrivateDelegate::SetFactoryCallbackForTest(
@@ -344,9 +342,6 @@ class NetworkingPrivateChromeOSApiTest : public extensions::ExtensionApiTest {
   }
 
   void SetUpOnMainThread() override {
-    detector_ = new NetworkPortalDetectorTestImpl();
-    chromeos::network_portal_detector::InitializeForTesting(detector_);
-
     extensions::ExtensionApiTest::SetUpOnMainThread();
     content::RunAllPendingInMessageLoop();
 
@@ -495,14 +490,11 @@ class NetworkingPrivateChromeOSApiTest : public extensions::ExtensionApiTest {
   }
 
  protected:
-  NetworkPortalDetectorTestImpl* detector() { return detector_; }
-
-  NetworkPortalDetectorTestImpl* detector_;
   ShillManagerClient::TestInterface* manager_test_;
   ShillProfileClient::TestInterface* profile_test_;
   ShillServiceClient::TestInterface* service_test_;
   ShillDeviceClient::TestInterface* device_test_;
-  policy::MockConfigurationPolicyProvider provider_;
+  testing::NiceMock<policy::MockConfigurationPolicyProvider> provider_;
   sync_preferences::TestingPrefServiceSyncable user_prefs_;
   TestingPrefServiceSimple local_state_;
   std::string userhash_;
@@ -611,8 +603,6 @@ IN_PROC_BROWSER_TEST_F(NetworkingPrivateChromeOSApiTest,
           ->network_state_handler()
           ->FirstNetworkByType(chromeos::NetworkTypePattern::Cellular());
   ASSERT_TRUE(cellular);
-  std::string cellular_guid = std::string(kCellular1ServicePath) + "_guid";
-  EXPECT_EQ(cellular_guid, cellular->guid());
   // Remove the Cellular service. This should create a default Cellular network.
   service_test_->RemoveService(kCellular1ServicePath);
   content::RunAllPendingInMessageLoop();
@@ -620,7 +610,6 @@ IN_PROC_BROWSER_TEST_F(NetworkingPrivateChromeOSApiTest,
                  ->network_state_handler()
                  ->FirstNetworkByType(chromeos::NetworkTypePattern::Cellular());
   ASSERT_TRUE(cellular);
-  EXPECT_EQ(cellular_guid, cellular->guid());
   EXPECT_TRUE(RunNetworkingSubtest("getPropertiesCellularDefault")) << message_;
 }
 
@@ -672,8 +661,8 @@ IN_PROC_BROWSER_TEST_F(NetworkingPrivateChromeOSApiTest,
   policy::PolicyMap policy;
   policy.Set(policy::key::kOpenNetworkConfiguration,
              policy::POLICY_LEVEL_MANDATORY, policy::POLICY_SCOPE_USER,
-             policy::POLICY_SOURCE_CLOUD,
-             std::make_unique<base::Value>(kUserPolicyBlob), nullptr);
+             policy::POLICY_SOURCE_CLOUD, base::Value(kUserPolicyBlob),
+             nullptr);
   provider_.UpdateChromePolicy(policy);
 
   content::RunAllPendingInMessageLoop();
@@ -707,8 +696,8 @@ IN_PROC_BROWSER_TEST_F(NetworkingPrivateChromeOSApiTest,
   policy::PolicyMap policy;
   policy.Set(policy::key::kOpenNetworkConfiguration,
              policy::POLICY_LEVEL_MANDATORY, policy::POLICY_SCOPE_USER,
-             policy::POLICY_SOURCE_CLOUD,
-             std::make_unique<base::Value>(kUserPolicyBlob), nullptr);
+             policy::POLICY_SOURCE_CLOUD, base::Value(kUserPolicyBlob),
+             nullptr);
   provider_.UpdateChromePolicy(policy);
 
   content::RunAllPendingInMessageLoop();
@@ -756,8 +745,8 @@ IN_PROC_BROWSER_TEST_F(NetworkingPrivateChromeOSApiTest, GetManagedProperties) {
   policy::PolicyMap policy;
   policy.Set(policy::key::kOpenNetworkConfiguration,
              policy::POLICY_LEVEL_MANDATORY, policy::POLICY_SCOPE_USER,
-             policy::POLICY_SOURCE_CLOUD,
-             std::make_unique<base::Value>(kUserPolicyBlob), nullptr);
+             policy::POLICY_SOURCE_CLOUD, base::Value(kUserPolicyBlob),
+             nullptr);
   provider_.UpdateChromePolicy(policy);
 
   content::RunAllPendingInMessageLoop();
@@ -821,48 +810,30 @@ IN_PROC_BROWSER_TEST_F(NetworkingPrivateChromeOSApiTest, VerifyAndEncryptData) {
 }
 
 IN_PROC_BROWSER_TEST_F(NetworkingPrivateChromeOSApiTest,
-                       SetWifiTDLSEnabledState) {
-  device_test_->SetTDLSState(shill::kTDLSConnectedState);
-  EXPECT_TRUE(RunNetworkingSubtest("setWifiTDLSEnabledState")) << message_;
-}
-
-IN_PROC_BROWSER_TEST_F(NetworkingPrivateChromeOSApiTest, GetWifiTDLSStatus) {
-  device_test_->SetTDLSState(shill::kTDLSConnectedState);
-  EXPECT_TRUE(RunNetworkingSubtest("getWifiTDLSStatus")) << message_;
-}
-
-IN_PROC_BROWSER_TEST_F(NetworkingPrivateChromeOSApiTest,
                        GetCaptivePortalStatus) {
-  SetupCellular();
-
-  NetworkPortalDetector::CaptivePortalState state;
-  state.status = NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_ONLINE;
-  detector()->SetDetectionResultsForTesting("stub_ethernet_guid", state);
-
-  state.status = NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_OFFLINE;
-  detector()->SetDetectionResultsForTesting("stub_wifi1_guid", state);
-
-  state.status = NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_PORTAL;
-  detector()->SetDetectionResultsForTesting("stub_wifi2_guid", state);
-
-  state.status =
-      NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_PROXY_AUTH_REQUIRED;
-  detector()->SetDetectionResultsForTesting("stub_cellular1_guid", state);
+  // Ethernet defaults to online. Set wifi1 to idle -> 'Offline', and wifi2 to
+  // redirect-found -> 'Portal'.
+  service_test_->SetServiceProperty(kWifi1ServicePath, shill::kStateProperty,
+                                    base::Value(shill::kStateIdle));
+  service_test_->SetServiceProperty(kWifi2ServicePath, shill::kStateProperty,
+                                    base::Value(shill::kStateRedirectFound));
+  base::RunLoop().RunUntilIdle();
 
   EXPECT_TRUE(RunNetworkingSubtest("getCaptivePortalStatus")) << message_;
 }
 
 IN_PROC_BROWSER_TEST_F(NetworkingPrivateChromeOSApiTest,
                        CaptivePortalNotification) {
-  detector()->SetDefaultNetworkForTesting("wifi_guid");
-  NetworkPortalDetector::CaptivePortalState state;
-  state.status = NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_ONLINE;
-  detector()->SetDetectionResultsForTesting("wifi_guid", state);
-
-  TestListener listener(
-      "notifyPortalDetectorObservers",
-      base::Bind(&NetworkPortalDetectorTestImpl::NotifyObserversForTesting,
-                 base::Unretained(detector())));
+  // Make wifi1 the default service since captive portal notifications only
+  // occur for the default service.
+  service_test_->RemoveService("stub_ethernet");
+  service_test_->RemoveService("stub_vpn1");
+  TestListener listener("notifyPortalDetectorObservers",
+                        base::BindLambdaForTesting([&]() {
+                          service_test_->SetServiceProperty(
+                              kWifi1ServicePath, shill::kStateProperty,
+                              base::Value(shill::kStateRedirectFound));
+                        }));
   EXPECT_TRUE(RunNetworkingSubtest("captivePortalNotification")) << message_;
 }
 

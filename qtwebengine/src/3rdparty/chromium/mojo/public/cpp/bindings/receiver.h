@@ -8,8 +8,8 @@
 #include <memory>
 #include <utility>
 
+#include "base/check.h"
 #include "base/compiler_specific.h"
-#include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/sequenced_task_runner.h"
@@ -146,6 +146,7 @@ class Receiver {
   // disconnection notifications on the default SequencedTaskRunner (i.e.
   // base::SequencedTaskRunnerHandle::Get() at the time of this call).
   void Bind(PendingReceiver<Interface> pending_receiver) {
+    DCHECK(!is_bound()) << "Receiver is already bound";
     Bind(std::move(pending_receiver), nullptr);
   }
 
@@ -156,6 +157,7 @@ class Receiver {
   // Receiver.
   void Bind(PendingReceiver<Interface> pending_receiver,
             scoped_refptr<base::SequencedTaskRunner> task_runner) {
+    DCHECK(!is_bound()) << "Receiver is already bound";
     if (pending_receiver) {
       internal_state_.Bind(pending_receiver.internal_state(),
                            std::move(task_runner));
@@ -179,15 +181,16 @@ class Receiver {
   // unbound those response callbacks are no longer valid and the Remote will
   // never be able to receive its expected responses.
   PendingReceiver<Interface> Unbind() WARN_UNUSED_RESULT {
+    DCHECK(is_bound());
     CHECK(!internal_state_.HasAssociatedInterfaces());
     return PendingReceiver<Interface>(
         internal_state_.Unbind().PassMessagePipe());
   }
 
   // Sets the message filter to be notified of each incoming message before
-  // dispatch. If a filter returns |false| from Accept(), the message is not
-  // dispatched and the pipe is closed. Filters cannot be removed once added
-  // and only one can be set.
+  // dispatch. If a filter returns |false| from WillDispatch(), the message is
+  // not dispatched and the pipe is closed. Filters cannot be removed once
+  // added and only one can be set.
   void SetFilter(std::unique_ptr<MessageFilter> filter) {
     DCHECK(is_bound());
     internal_state_.SetFilter(std::move(filter));
@@ -204,7 +207,7 @@ class Receiver {
   // Blocks the calling thread until a new message arrives and is dispatched
   // to the bound implementation.
   bool WaitForIncomingCall() {
-    return internal_state_.WaitForIncomingMethodCall(MOJO_DEADLINE_INDEFINITE);
+    return internal_state_.WaitForIncomingMethodCall();
   }
 
   // Pauses the Remote endpoint, stopping dispatch of callbacks on that end. Any

@@ -7,11 +7,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <cstring>
 #include <limits>
 #include <utility>
 
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/memory/ptr_util.h"
+#include "base/notreached.h"
 #include "base/numerics/safe_conversions.h"
 #include "media/base/audio_parameters.h"
 #include "media/base/limits.h"
@@ -269,81 +271,6 @@ void AudioBus::BuildChannelData(int channels, int aligned_frames, float* data) {
   channel_data_.reserve(channels);
   for (int i = 0; i < channels; ++i)
     channel_data_.push_back(data + i * aligned_frames);
-}
-
-// Forwards to non-deprecated version.
-void AudioBus::FromInterleaved(const void* source,
-                               int frames,
-                               int bytes_per_sample) {
-  DCHECK(!is_bitstream_format_);
-  switch (bytes_per_sample) {
-    case 1:
-      FromInterleaved<UnsignedInt8SampleTypeTraits>(
-          reinterpret_cast<const uint8_t*>(source), frames);
-      break;
-    case 2:
-      FromInterleaved<SignedInt16SampleTypeTraits>(
-          reinterpret_cast<const int16_t*>(source), frames);
-      break;
-    case 4:
-      FromInterleaved<SignedInt32SampleTypeTraits>(
-          reinterpret_cast<const int32_t*>(source), frames);
-      break;
-    default:
-      NOTREACHED() << "Unsupported bytes per sample encountered: "
-                   << bytes_per_sample;
-      ZeroFrames(frames);
-  }
-}
-
-// Forwards to non-deprecated version.
-void AudioBus::FromInterleavedPartial(const void* source,
-                                      int start_frame,
-                                      int frames,
-                                      int bytes_per_sample) {
-  DCHECK(!is_bitstream_format_);
-  switch (bytes_per_sample) {
-    case 1:
-      FromInterleavedPartial<UnsignedInt8SampleTypeTraits>(
-          reinterpret_cast<const uint8_t*>(source), start_frame, frames);
-      break;
-    case 2:
-      FromInterleavedPartial<SignedInt16SampleTypeTraits>(
-          reinterpret_cast<const int16_t*>(source), start_frame, frames);
-      break;
-    case 4:
-      FromInterleavedPartial<SignedInt32SampleTypeTraits>(
-          reinterpret_cast<const int32_t*>(source), start_frame, frames);
-      break;
-    default:
-      NOTREACHED() << "Unsupported bytes per sample encountered: "
-                   << bytes_per_sample;
-      ZeroFramesPartial(start_frame, frames);
-  }
-}
-
-// Forwards to non-deprecated version.
-void AudioBus::ToInterleaved(int frames,
-                             int bytes_per_sample,
-                             void* dest) const {
-  DCHECK(!is_bitstream_format_);
-  switch (bytes_per_sample) {
-    case 1:
-      ToInterleaved<UnsignedInt8SampleTypeTraits>(
-          frames, reinterpret_cast<uint8_t*>(dest));
-      break;
-    case 2:
-      ToInterleaved<SignedInt16SampleTypeTraits>(
-          frames, reinterpret_cast<int16_t*>(dest));
-      break;
-    case 4:
-      ToInterleaved<SignedInt32SampleTypeTraits>(
-          frames, reinterpret_cast<int32_t*>(dest));
-      break;
-    default:
-      NOTREACHED() << "Unsupported bytes per sample encountered: "
-                   << bytes_per_sample;
-  }
 }
 
 void AudioBus::CopyTo(AudioBus* dest) const {

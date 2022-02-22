@@ -34,7 +34,7 @@
 #include <QtCore/QDateTime>
 #include <QtCore/QDebug>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 /*!
     Constructs a mapper object which is a child of \a parent.
@@ -263,10 +263,10 @@ QModelIndex QXYModelMapperPrivate::yModelIndex(int yPos)
 qreal QXYModelMapperPrivate::valueFromModel(QModelIndex index)
 {
     QVariant value = m_model->data(index, Qt::DisplayRole);
-    switch (value.type()) {
-    case QVariant::DateTime:
+    switch (value.metaType().id()) {
+    case QMetaType::QDateTime:
         return value.toDateTime().toMSecsSinceEpoch();
-    case QVariant::Date:
+    case QMetaType::QDate:
         return value.toDate().startOfDay().toMSecsSinceEpoch();
     default:
         return value.toReal();
@@ -276,11 +276,11 @@ qreal QXYModelMapperPrivate::valueFromModel(QModelIndex index)
 void QXYModelMapperPrivate::setValueToModel(QModelIndex index, qreal value)
 {
     QVariant oldValue = m_model->data(index, Qt::DisplayRole);
-    switch (oldValue.type()) {
-    case QVariant::DateTime:
+    switch (oldValue.metaType().id()) {
+    case QMetaType::QDateTime:
         m_model->setData(index, QDateTime::fromMSecsSinceEpoch(value));
         break;
-    case QVariant::Date:
+    case QMetaType::QDate:
         m_model->setData(index, QDateTime::fromMSecsSinceEpoch(value).date());
         break;
     default:
@@ -573,7 +573,7 @@ void QXYModelMapperPrivate::initializeXYFromModel()
     blockSeriesSignals(false);
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_qxymodelmapper.cpp"
 #include "moc_qxymodelmapper_p.cpp"

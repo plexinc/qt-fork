@@ -1,6 +1,7 @@
 /****************************************************************************
 **
 ** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2021 Andre Hartmann <aha_1980@gmx.de>
 ** Contact: http://www.qt.io/licensing/
 **
 ** This file is part of the QtSerialBus module of the Qt Toolkit.
@@ -116,27 +117,27 @@ public:
         };
         Q_DECLARE_FLAGS(FormatFilters, FormatFilter)
 
-        quint32 frameId = 0;
-        quint32 frameIdMask = 0;
+        QCanBusFrame::FrameId frameId = 0;
+        QCanBusFrame::FrameId frameIdMask = 0;
         QCanBusFrame::FrameType type = QCanBusFrame::InvalidFrame;
         FormatFilter format = MatchBaseAndExtendedFormat;
     };
 
     explicit QCanBusDevice(QObject *parent = nullptr);
 
-    virtual void setConfigurationParameter(int key, const QVariant &value);
-    QVariant configurationParameter(int key) const;
-    QVector<int> configurationKeys() const;
+    virtual void setConfigurationParameter(ConfigurationKey key, const QVariant &value);
+    QVariant configurationParameter(ConfigurationKey key) const;
+    QList<ConfigurationKey> configurationKeys() const;
 
     virtual bool writeFrame(const QCanBusFrame &frame) = 0;
     QCanBusFrame readFrame();
-    QVector<QCanBusFrame> readAllFrames();
+    QList<QCanBusFrame> readAllFrames();
     qint64 framesAvailable() const;
     qint64 framesToWrite() const;
 
-    void resetController();
-    bool hasBusStatus() const;
-    QCanBusDevice::CanBusStatus busStatus() const;
+    virtual void resetController();
+    virtual bool hasBusStatus() const;
+    virtual CanBusStatus busStatus();
 
     enum Direction {
         Input = 1,
@@ -149,7 +150,6 @@ public:
     virtual bool waitForFramesWritten(int msecs);
     virtual bool waitForFramesReceived(int msecs);
 
-    // TODO rename these once QIODevice dependency has been removed
     bool connectDevice();
     void disconnectDevice();
 
@@ -159,6 +159,7 @@ public:
     QString errorString() const;
 
     virtual QString interpretErrorFrame(const QCanBusFrame &errorFrame) = 0;
+    virtual QCanBusDeviceInfo deviceInfo() const;
 
 Q_SIGNALS:
     void errorOccurred(QCanBusDevice::CanBusError);
@@ -171,26 +172,27 @@ protected:
     void setError(const QString &errorText, QCanBusDevice::CanBusError);
     void clearError();
 
-    void enqueueReceivedFrames(const QVector<QCanBusFrame> &newFrames);
+    void enqueueReceivedFrames(const QList<QCanBusFrame> &newFrames);
 
     void enqueueOutgoingFrame(const QCanBusFrame &newFrame);
     QCanBusFrame dequeueOutgoingFrame();
     bool hasOutgoingFrames() const;
 
-    // TODO Remove once official plugin system is gone
-    //      Can be folded into one call to connectDevice() & disconnectDevice()
     virtual bool open() = 0;
     virtual void close() = 0;
 
-    void setResetControllerFunction(std::function<void()> resetter);
-    void setCanBusStatusGetter(std::function<CanBusStatus()> busStatusGetter);
-
-    static QCanBusDeviceInfo createDeviceInfo(const QString &name,
-                                              bool isVirtual = false,
-                                              bool isFlexibleDataRateCapable = false);
-    static QCanBusDeviceInfo createDeviceInfo(const QString &name, const QString &serialNumber,
-                                              const QString &description, int channel,
-                                              bool isVirtual, bool isFlexibleDataRateCapable);
+    static QCanBusDeviceInfo createDeviceInfo(const QString &plugin,
+                                              const QString &name,
+                                              bool isVirtual,
+                                              bool isFlexibleDataRateCapable);
+    static QCanBusDeviceInfo createDeviceInfo(const QString &plugin,
+                                              const QString &name,
+                                              const QString &serialNumber,
+                                              const QString &description,
+                                              const QString &alias,
+                                              int channel,
+                                              bool isVirtual,
+                                              bool isFlexibleDataRateCapable);
 };
 
 Q_DECLARE_TYPEINFO(QCanBusDevice::CanBusError, Q_PRIMITIVE_TYPE);

@@ -7,8 +7,9 @@
 
 #include <memory>
 #include <set>
+#include <string>
+#include <vector>
 
-#include "base/containers/circular_deque.h"
 #include "base/containers/flat_map.h"
 #include "base/containers/flat_set.h"
 #include "base/containers/unique_ptr_adapters.h"
@@ -60,13 +61,14 @@ class InputHandler : public DevToolsDomainHandler, public Input::Backend {
       Maybe<bool> is_keypad,
       Maybe<bool> is_system_key,
       Maybe<int> location,
+      Maybe<Array<std::string>> commands,
       std::unique_ptr<DispatchKeyEventCallback> callback) override;
 
   void InsertText(const std::string& text,
                   std::unique_ptr<InsertTextCallback> callback) override;
 
   void DispatchMouseEvent(
-      const std::string& type,
+      const std::string& event_type,
       double x,
       double y,
       Maybe<int> modifiers,
@@ -74,6 +76,11 @@ class InputHandler : public DevToolsDomainHandler, public Input::Backend {
       Maybe<std::string> button,
       Maybe<int> buttons,
       Maybe<int> click_count,
+      Maybe<double> force,
+      Maybe<double> tangential_pressure,
+      Maybe<int> tilt_x,
+      Maybe<int> tilt_y,
+      Maybe<int> twist,
       Maybe<double> delta_x,
       Maybe<double> delta_y,
       Maybe<std::string> pointer_type,
@@ -146,6 +153,19 @@ class InputHandler : public DevToolsDomainHandler, public Input::Backend {
       protocol::Maybe<double> timestamp,
       std::unique_ptr<DispatchTouchEventCallback> callback);
 
+  void OnWidgetForDispatchMouseEvent(
+      std::unique_ptr<DispatchMouseEventCallback> callback,
+      std::unique_ptr<blink::WebMouseEvent> mouse_event,
+      blink::WebMouseWheelEvent* wheel_event,
+      base::WeakPtr<RenderWidgetHostViewBase> target,
+      base::Optional<gfx::PointF> point);
+
+  void OnWidgetForDispatchWebTouchEvent(
+      std::unique_ptr<DispatchTouchEventCallback> callback,
+      std::vector<blink::WebTouchEvent> events,
+      base::WeakPtr<RenderWidgetHostViewBase> target,
+      base::Optional<gfx::PointF> point);
+
   SyntheticPointerActionParams PrepareSyntheticPointerActionParams(
       SyntheticPointerActionParams::PointerActionType pointer_action_type,
       int id,
@@ -177,12 +197,12 @@ class InputHandler : public DevToolsDomainHandler, public Input::Backend {
   void ClearInputState();
   bool PointIsWithinContents(gfx::PointF point) const;
   InputInjector* EnsureInjector(RenderWidgetHostImpl* widget_host);
-  RenderWidgetHostImpl* FindTargetWidgetHost(const gfx::PointF& point,
-                                             gfx::PointF* transformed);
 
   RenderWidgetHostViewBase* GetRootView();
 
   RenderFrameHostImpl* host_;
+  // WebContents associated with the |host_|.
+  WebContents* web_contents_;
   base::flat_set<std::unique_ptr<InputInjector>, base::UniquePtrComparator>
       injectors_;
   float page_scale_factor_;

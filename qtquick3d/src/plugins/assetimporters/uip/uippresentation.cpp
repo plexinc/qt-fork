@@ -32,13 +32,13 @@
 #include "datamodelparser.h"
 #include "propertymap.h"
 #include "uniqueidmapper.h"
-#include <QtQuick3DAssetImport/private/qssgqmlutilities_p.h>
+#include <QtQuick3DAssetUtils/private/qssgqmlutilities_p.h>
 
 QT_BEGIN_NAMESPACE
 
 namespace Q3DS {
 
-bool convertToPropertyType(const QStringRef &value, Q3DS::PropertyType *type, int *componentCount, const char *desc, QXmlStreamReader *reader)
+bool convertToPropertyType(QStringView value, Q3DS::PropertyType *type, int *componentCount, const char *desc, QXmlStreamReader *reader)
 {
     if (componentCount)
         *componentCount = 1;
@@ -150,7 +150,7 @@ bool convertToPropertyType(const QStringRef &value, Q3DS::PropertyType *type, in
     return ok;
 }
 
-bool convertToInt(const QStringRef &value, int *v, const char *desc, QXmlStreamReader *reader)
+bool convertToInt(QStringView value, int *v, const char *desc, QXmlStreamReader *reader)
 {
     if (value.isEmpty()) {
         *v = 0;
@@ -163,7 +163,7 @@ bool convertToInt(const QStringRef &value, int *v, const char *desc, QXmlStreamR
     return ok;
 }
 
-bool convertToInt32(const QStringRef &value, qint32 *v, const char *desc, QXmlStreamReader *reader)
+bool convertToInt32(QStringView value, qint32 *v, const char *desc, QXmlStreamReader *reader)
 {
     if (value.isEmpty()) {
         *v = 0;
@@ -176,7 +176,7 @@ bool convertToInt32(const QStringRef &value, qint32 *v, const char *desc, QXmlSt
     return r;
 }
 
-bool convertToBool(const QStringRef &value, bool *v, const char *desc, QXmlStreamReader *reader)
+bool convertToBool(QStringView value, bool *v, const char *desc, QXmlStreamReader *reader)
 {
     Q_UNUSED(desc);
     Q_UNUSED(reader);
@@ -186,7 +186,7 @@ bool convertToBool(const QStringRef &value, bool *v, const char *desc, QXmlStrea
     return true;
 }
 
-bool convertToFloat(const QStringRef &value, float *v, const char *desc, QXmlStreamReader *reader)
+bool convertToFloat(QStringView value, float *v, const char *desc, QXmlStreamReader *reader)
 {
     if (value.isEmpty()) {
         *v = 0;
@@ -203,9 +203,9 @@ bool convertToFloat(const QStringRef &value, float *v, const char *desc, QXmlStr
     return ok;
 }
 
-bool convertToVector2D(const QStringRef &value, QVector2D *v, const char *desc, QXmlStreamReader *reader)
+bool convertToVector2D(QStringView value, QVector2D *v, const char *desc, QXmlStreamReader *reader)
 {
-    QVector<QStringRef> floatStrings = value.split(' ', Qt::SkipEmptyParts);
+    QVector<QStringView> floatStrings = value.split(' ', Qt::SkipEmptyParts);
     if (floatStrings.count() != 2) {
         if (reader)
             reader->raiseError(QObject::tr("Invalid %1 \"%2\"").arg(QString::fromUtf8(desc)).arg(value.toString()));
@@ -222,9 +222,9 @@ bool convertToVector2D(const QStringRef &value, QVector2D *v, const char *desc, 
     return true;
 }
 
-bool convertToVector3D(const QStringRef &value, QVector3D *v, const char *desc, QXmlStreamReader *reader)
+bool convertToVector3D(QStringView value, QVector3D *v, const char *desc, QXmlStreamReader *reader)
 {
-    QVector<QStringRef> floatStrings = value.split(' ', Qt::SkipEmptyParts);
+    QVector<QStringView> floatStrings = value.split(' ', Qt::SkipEmptyParts);
     if (floatStrings.count() != 3) {
         if (reader)
             reader->raiseError(QObject::tr("Invalid %1 \"%2\"").arg(QString::fromUtf8(desc)).arg(value.toString()));
@@ -245,9 +245,9 @@ bool convertToVector3D(const QStringRef &value, QVector3D *v, const char *desc, 
     return true;
 }
 
-bool convertToVector4D(const QStringRef &value, QVector4D *v, const char *desc, QXmlStreamReader *reader)
+bool convertToVector4D(QStringView value, QVector4D *v, const char *desc, QXmlStreamReader *reader)
 {
-    QVector<QStringRef> floatStrings = value.split(' ', Qt::SkipEmptyParts);
+    QVector<QStringView> floatStrings = value.split(' ', Qt::SkipEmptyParts);
     if (!(floatStrings.count() == 4 || floatStrings.count() == 3)) {
         if (reader)
             reader->raiseError(QObject::tr("Invalid %1 \"%2\"").arg(QString::fromUtf8(desc)).arg(value.toString()));
@@ -278,9 +278,9 @@ bool convertToVector4D(const QStringRef &value, QVector4D *v, const char *desc, 
     return true;
 }
 
-bool convertToMatrix4x4(const QStringRef &value, QMatrix4x4 *v, const char *desc, QXmlStreamReader *reader)
+bool convertToMatrix4x4(QStringView value, QMatrix4x4 *v, const char *desc, QXmlStreamReader *reader)
 {
-    QVector<QStringRef> floatStrings = value.split(' ', Qt::SkipEmptyParts);
+    QVector<QStringView> floatStrings = value.split(' ', Qt::SkipEmptyParts);
     if (floatStrings.count() != 16) {
         if (reader)
             reader->raiseError(QObject::tr("Invalid %1 \"%2\"").arg(QString::fromUtf8(desc)).arg(value.toString()));
@@ -309,19 +309,19 @@ int animatablePropertyTypeToMetaType(Q3DS::PropertyType type)
     case Float:
         return QMetaType::Float;
     case Long:
-        return QVariant::Int;
+        return QMetaType::Int;
     case Float2:
-        return QVariant::Vector2D;
+        return QMetaType::QVector2D;
     case Matrix4x4:
-        return QVariant::Matrix4x4;
+        return QMetaType::QMatrix4x4;
     case Vector:
     case Scale:
     case Rotation:
-        return QVariant::Vector3D;
+        return QMetaType::QVector3D;
     case Color:
-        return QVariant::Color;
+        return QMetaType::QColor;
     default:
-        return QVariant::Invalid;
+        return QMetaType::UnknownType;
     }
 }
 
@@ -355,14 +355,14 @@ QVariant convertToVariant(const QString &value, Q3DS::PropertyType type)
     case Float2:
     {
         QVector2D v;
-        if (convertToVector2D(&value, &v))
+        if (convertToVector2D(value, &v))
             return v;
     }
         break;
     case Matrix4x4:
     {
         QMatrix4x4 v;
-        if (convertToMatrix4x4(&value, &v))
+        if (convertToMatrix4x4(value, &v))
             return v;
     }
         break;
@@ -372,14 +372,14 @@ QVariant convertToVariant(const QString &value, Q3DS::PropertyType type)
     case Color:
     {
         QVector4D v;
-        if (convertToVector4D(&value, &v))
+        if (convertToVector4D(value, &v))
             return v;
     }
         break;
     case Boolean:
     {
         bool v;
-        if (convertToBool(&value, &v))
+        if (convertToBool(value, &v))
             return v;
     }
         break;
@@ -405,30 +405,26 @@ QVariant convertToVariant(const QString &value, Q3DS::PropertyType type)
 
 QString convertFromVariant(const QVariant &value)
 {
-    switch (value.type()) {
-    case QVariant::Vector2D:
-    {
+    switch (value.typeId()) {
+    case QMetaType::QVector2D: {
         const QVector2D v = value.value<QVector2D>();
         return QString(QLatin1String("%1 %2"))
                 .arg(QString::number(v.x())).arg(QString::number(v.y()));
     }
-    case QVariant::Vector3D:
-    {
+    case QMetaType::QVector3D: {
         const QVector3D v = value.value<QVector3D>();
         return QString(QLatin1String("%1 %2 %3"))
                 .arg(QString::number(v.x())).arg(QString::number(v.y())).arg(QString::number(v.z()));
     }
-    case QVariant::Color:
-    {
+    case QMetaType::QColor: {
         const QColor c = value.value<QColor>();
         const QVector4D v = QVector4D(c.redF(), c.greenF(), c.blueF(), c.alphaF());
         return QString(QLatin1String("%1 %2 %3 %4"))
                 .arg(QString::number(v.x())).arg(QString::number(v.y())).arg(QString::number(v.z())).arg(QString::number(v.w()));
     }
-    case QVariant::Bool:
+    case QMetaType::Bool:
         return value.toBool() ? QLatin1String("true") : QLatin1String("false");
-    case QVariant::Matrix4x4:
-    {
+    case QMetaType::QMatrix4x4: {
         const QMatrix4x4 v = value.value<QMatrix4x4>();
         const float *data = v.constData();
         return QString(QLatin1String("%1 %2 %3 %4 %5 %6 %7 %8 %9 %10 %11 %12 %13 %14 %15 %16"))
@@ -690,7 +686,7 @@ void GraphObject::reparentChildNodesTo(GraphObject *newParent)
 template<typename T, typename V>
 bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags,
                    const QString &dataModelTypeName, const QString &propName, Q3DS::PropertyType propType,
-                   T *dst, std::function<bool(const QStringRef &, T *v)> convertFunc)
+                   T *dst, std::function<bool(QStringView , T *v)> convertFunc)
 {
     auto it = std::find_if(attrs.cbegin(), attrs.cend(), [propName](const typename V::value_type &v) { return v.name() == propName; });
     if (it != attrs.cend()) {
@@ -705,7 +701,7 @@ bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags,
                 if (it != props->cend()) {
                     Q_UNUSED(propType);
                     Q_ASSERT(it->type == propType);
-                    return convertFunc(QStringRef(&it->defaultValue), dst);
+                    return convertFunc(QStringView(it->defaultValue), dst);
                 }
             }
         }
@@ -716,38 +712,38 @@ bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags,
 template<typename V>
 bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, bool *dst)
 {
-    return ::parseProperty<bool>(attrs, flags, typeName, propName, Q3DS::Boolean, dst, [](const QStringRef &s, bool *v) { return Q3DS::convertToBool(s, v); });
+    return ::parseProperty<bool>(attrs, flags, typeName, propName, Q3DS::Boolean, dst, [](QStringView s, bool *v) { return Q3DS::convertToBool(s, v); });
 }
 
 template<typename V>
 bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, qint32 *dst)
 {
-    return ::parseProperty<qint32>(attrs, flags, typeName, propName, Q3DS::Long, dst, [](const QStringRef &s, qint32 *v) { return Q3DS::convertToInt32(s, v); });
+    return ::parseProperty<qint32>(attrs, flags, typeName, propName, Q3DS::Long, dst, [](QStringView s, qint32 *v) { return Q3DS::convertToInt32(s, v); });
 }
 
 template<typename V>
 bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, float *dst)
 {
-    return ::parseProperty<float>(attrs, flags, typeName, propName, Q3DS::Float, dst, [](const QStringRef &s, float *v) { return Q3DS::convertToFloat(s, v); });
+    return ::parseProperty<float>(attrs, flags, typeName, propName, Q3DS::Float, dst, [](QStringView s, float *v) { return Q3DS::convertToFloat(s, v); });
 }
 
 template<typename V>
 bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, QMatrix4x4 *dst)
 {
-    return ::parseProperty<float>(attrs, flags, typeName, propName, Q3DS::Matrix4x4, dst, [](const QStringRef &s, QMatrix4x4 *v) { return Q3DS::convertToMatrix4x4(s, v); });
+    return ::parseProperty<float>(attrs, flags, typeName, propName, Q3DS::Matrix4x4, dst, [](QStringView s, QMatrix4x4 *v) { return Q3DS::convertToMatrix4x4(s, v); });
 }
 
 template<typename V>
 bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, QVector3D *dst)
 {
-    return ::parseProperty<QVector3D>(attrs, flags, typeName, propName, Q3DS::Vector, dst, [](const QStringRef &s, QVector3D *v) { return Q3DS::convertToVector3D(s, v); });
+    return ::parseProperty<QVector3D>(attrs, flags, typeName, propName, Q3DS::Vector, dst, [](QStringView s, QVector3D *v) { return Q3DS::convertToVector3D(s, v); });
 }
 
 template<typename V>
 bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, QColor *dst)
 {
     QVector4D rgba;
-    bool r = ::parseProperty<QVector4D>(attrs, flags, typeName, propName, Q3DS::Color, &rgba, [](const QStringRef &s, QVector4D *v) { return Q3DS::convertToVector4D(s, v); });
+    bool r = ::parseProperty<QVector4D>(attrs, flags, typeName, propName, Q3DS::Color, &rgba, [](QStringView s, QVector4D *v) { return Q3DS::convertToVector4D(s, v); });
     if (r)
         *dst = QColor::fromRgbF(rgba.x(), rgba.y(), rgba.z(), rgba.w());
 
@@ -757,55 +753,55 @@ bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags, const QStrin
 template<typename V>
 bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, QString *dst)
 {
-    return ::parseProperty<QString>(attrs, flags, typeName, propName, Q3DS::String, dst, [](const QStringRef &s, QString *v) { *v = s.toString(); return true; });
+    return ::parseProperty<QString>(attrs, flags, typeName, propName, Q3DS::String, dst, [](QStringView s, QString *v) { *v = s.toString(); return true; });
 }
 
 template<typename V>
 bool parseRotationProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, QVector3D *dst)
 {
-    return ::parseProperty<QVector3D>(attrs, flags, typeName, propName, Q3DS::Rotation, dst, [](const QStringRef &s, QVector3D *v) { return Q3DS::convertToVector3D(s, v); });
+    return ::parseProperty<QVector3D>(attrs, flags, typeName, propName, Q3DS::Rotation, dst, [](QStringView s, QVector3D *v) { return Q3DS::convertToVector3D(s, v); });
 }
 
 template<typename V>
 bool parseImageProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, QString *dst)
 {
-    return ::parseProperty<QString>(attrs, flags, typeName, propName, Q3DS::Image, dst, [](const QStringRef &s, QString *v) { *v = s.toString(); return true; });
+    return ::parseProperty<QString>(attrs, flags, typeName, propName, Q3DS::Image, dst, [](QStringView s, QString *v) { *v = s.toString(); return true; });
 }
 
 template<typename V>
 bool parseMeshProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, QString *dst)
 {
-    return ::parseProperty<QString>(attrs, flags, typeName, propName, Q3DS::Mesh, dst, [](const QStringRef &s, QString *v) { *v = s.toString(); return true; });
+    return ::parseProperty<QString>(attrs, flags, typeName, propName, Q3DS::Mesh, dst, [](QStringView s, QString *v) { *v = s.toString(); return true; });
 }
 
 template<typename V>
 bool parseObjectRefProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, QString *dst)
 {
-    return ::parseProperty<QString>(attrs, flags, typeName, propName, Q3DS::ObjectRef, dst, [](const QStringRef &s, QString *v) { *v = s.toString(); return true; });
+    return ::parseProperty<QString>(attrs, flags, typeName, propName, Q3DS::ObjectRef, dst, [](QStringView s, QString *v) { *v = s.toString(); return true; });
 }
 
 template<typename V>
 bool parseMultiLineStringProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, QString *dst)
 {
-    return ::parseProperty<QString>(attrs, flags, typeName, propName, Q3DS::MultiLineString, dst, [](const QStringRef &s, QString *v) { *v = s.toString(); return true; });
+    return ::parseProperty<QString>(attrs, flags, typeName, propName, Q3DS::MultiLineString, dst, [](QStringView s, QString *v) { *v = s.toString(); return true; });
 }
 
 template<typename V>
 bool parseFontProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, QString *dst)
 {
-    return ::parseProperty<QString>(attrs, flags, typeName, propName, Q3DS::Font, dst, [](const QStringRef &s, QString *v) { *v = s.toString(); return true; });
+    return ::parseProperty<QString>(attrs, flags, typeName, propName, Q3DS::Font, dst, [](QStringView s, QString *v) { *v = s.toString(); return true; });
 }
 
 template<typename V>
 bool parseFontSizeProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, float *dst)
 {
-    return ::parseProperty<float>(attrs, flags, typeName, propName, Q3DS::FontSize, dst, [](const QStringRef &s, float *v) { return Q3DS::convertToFloat(s, v); });
+    return ::parseProperty<float>(attrs, flags, typeName, propName, Q3DS::FontSize, dst, [](QStringView s, float *v) { return Q3DS::convertToFloat(s, v); });
 }
 
 template<typename V>
 bool parseSizeProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, QVector2D *dst)
 {
-    return ::parseProperty<QVector2D>(attrs, flags, typeName, propName, Q3DS::Float2, dst, [](const QStringRef &s, QVector2D *v) { return Q3DS::convertToVector2D(s, v); });
+    return ::parseProperty<QVector2D>(attrs, flags, typeName, propName, Q3DS::Float2, dst, [](QStringView s, QVector2D *v) { return Q3DS::convertToVector2D(s, v); });
 }
 
 struct StringOrInt {
@@ -820,7 +816,7 @@ bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags, const QStrin
     // StringListOrInt -> either an enum value or an int
     QString tmp;
     if (parseProperty<QString>(attrs, flags, typeName, propName, Q3DS::StringListOrInt, &tmp,
-                                 [](const QStringRef &s, QString *v) { *v = s.toString(); return true; }))
+                                 [](QStringView s, QString *v) { *v = s.toString(); return true; }))
     {
         bool ok = false;
         int v = tmp.toInt(&ok);
@@ -839,133 +835,127 @@ bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags, const QStrin
 template<typename V>
 bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, Node::RotationOrder *dst)
 {
-    return ::parseProperty<Node::RotationOrder>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](const QStringRef &s, Node::RotationOrder *v) { return EnumMap::enumFromStr(s, v); });
+    return ::parseProperty<Node::RotationOrder>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](QStringView s, Node::RotationOrder *v) { return EnumMap::enumFromStr(s, v); });
 }
 
 template<typename V>
 bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, Node::Orientation *dst)
 {
-    return ::parseProperty<Node::Orientation>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](const QStringRef &s, Node::Orientation *v) { return EnumMap::enumFromStr(s, v); });
+    return ::parseProperty<Node::Orientation>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](QStringView s, Node::Orientation *v) { return EnumMap::enumFromStr(s, v); });
 }
 
 template<typename V>
 bool parseProperty(const V &attrs,GraphObject:: PropSetFlags flags, const QString &typeName, const QString &propName, Slide::PlayMode *dst)
 {
-    return ::parseProperty<Slide::PlayMode>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](const QStringRef &s, Slide::PlayMode *v) { return EnumMap::enumFromStr(s, v); });
+    return ::parseProperty<Slide::PlayMode>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](QStringView s, Slide::PlayMode *v) { return EnumMap::enumFromStr(s, v); });
 }
 
 template<typename V>
 bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, Slide::InitialPlayState *dst)
 {
-    return ::parseProperty<Slide::InitialPlayState>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](const QStringRef &s, Slide::InitialPlayState *v) { return EnumMap::enumFromStr(s, v); });
+    return ::parseProperty<Slide::InitialPlayState>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](QStringView s, Slide::InitialPlayState *v) { return EnumMap::enumFromStr(s, v); });
 }
 
 template<typename V>
 bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, LayerNode::ProgressiveAA *dst)
 {
-    return ::parseProperty<LayerNode::ProgressiveAA>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](const QStringRef &s, LayerNode::ProgressiveAA *v) { return EnumMap::enumFromStr(s, v); });
+    return ::parseProperty<LayerNode::ProgressiveAA>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](QStringView s, LayerNode::ProgressiveAA *v) { return EnumMap::enumFromStr(s, v); });
 }
 
 template<typename V>
 bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, LayerNode::MultisampleAA *dst)
 {
-    return ::parseProperty<LayerNode::MultisampleAA>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](const QStringRef &s, LayerNode::MultisampleAA *v) { return EnumMap::enumFromStr(s, v); });
+    return ::parseProperty<LayerNode::MultisampleAA>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](QStringView s, LayerNode::MultisampleAA *v) { return EnumMap::enumFromStr(s, v); });
 }
 
 template<typename V>
 bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, LayerNode::LayerBackground *dst)
 {
-    return ::parseProperty<LayerNode::LayerBackground>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](const QStringRef &s, LayerNode::LayerBackground *v) { return EnumMap::enumFromStr(s, v); });
+    return ::parseProperty<LayerNode::LayerBackground>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](QStringView s, LayerNode::LayerBackground *v) { return EnumMap::enumFromStr(s, v); });
 }
 
 template<typename V>
 bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, LayerNode::BlendType *dst)
 {
-    return ::parseProperty<LayerNode::BlendType>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](const QStringRef &s, LayerNode::BlendType *v) { return EnumMap::enumFromStr(s, v); });
+    return ::parseProperty<LayerNode::BlendType>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](QStringView s, LayerNode::BlendType *v) { return EnumMap::enumFromStr(s, v); });
 }
 
 template<typename V>
 bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, LayerNode::HorizontalFields *dst)
 {
-    return ::parseProperty<LayerNode::HorizontalFields>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](const QStringRef &s, LayerNode::HorizontalFields *v) { return EnumMap::enumFromStr(s, v); });
+    return ::parseProperty<LayerNode::HorizontalFields>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](QStringView s, LayerNode::HorizontalFields *v) { return EnumMap::enumFromStr(s, v); });
 }
 
 template<typename V>
 bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, LayerNode::Units *dst)
 {
-    return ::parseProperty<LayerNode::Units>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](const QStringRef &s, LayerNode::Units *v) { return EnumMap::enumFromStr(s, v); });
+    return ::parseProperty<LayerNode::Units>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](QStringView s, LayerNode::Units *v) { return EnumMap::enumFromStr(s, v); });
 }
 
 template<typename V>
 bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, LayerNode::VerticalFields *dst)
 {
-    return ::parseProperty<LayerNode::VerticalFields>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](const QStringRef &s, LayerNode::VerticalFields *v) { return EnumMap::enumFromStr(s, v); });
+    return ::parseProperty<LayerNode::VerticalFields>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](QStringView s, LayerNode::VerticalFields *v) { return EnumMap::enumFromStr(s, v); });
 }
 
 template<typename V>
 bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, Image::MappingMode *dst)
 {
-    return ::parseProperty<Image::MappingMode>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](const QStringRef &s, Image::MappingMode *v) { return EnumMap::enumFromStr(s, v); });
+    return ::parseProperty<Image::MappingMode>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](QStringView s, Image::MappingMode *v) { return EnumMap::enumFromStr(s, v); });
 }
 
 template<typename V>
 bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, Image::TilingMode *dst)
 {
-    return ::parseProperty<Image::TilingMode>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](const QStringRef &s, Image::TilingMode *v) { return EnumMap::enumFromStr(s, v); });
-}
-
-template<typename V>
-bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, ModelNode::Tessellation *dst)
-{
-    return ::parseProperty<ModelNode::Tessellation>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](const QStringRef &s, ModelNode::Tessellation *v) { return EnumMap::enumFromStr(s, v); });
+    return ::parseProperty<Image::TilingMode>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](QStringView s, Image::TilingMode *v) { return EnumMap::enumFromStr(s, v); });
 }
 
 template<typename V>
 bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, LightNode::LightType *dst)
 {
-    return ::parseProperty<LightNode::LightType>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](const QStringRef &s, LightNode::LightType *v) { return EnumMap::enumFromStr(s, v); });
+    return ::parseProperty<LightNode::LightType>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](QStringView s, LightNode::LightType *v) { return EnumMap::enumFromStr(s, v); });
 }
 
 template<typename V>
 bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, DefaultMaterial::ShaderLighting *dst)
 {
-    return ::parseProperty<DefaultMaterial::ShaderLighting>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](const QStringRef &s, DefaultMaterial::ShaderLighting *v) { return EnumMap::enumFromStr(s, v); });
+    return ::parseProperty<DefaultMaterial::ShaderLighting>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](QStringView s, DefaultMaterial::ShaderLighting *v) { return EnumMap::enumFromStr(s, v); });
 }
 
 template<typename V>
 bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, DefaultMaterial::BlendMode *dst)
 {
-    return ::parseProperty<DefaultMaterial::BlendMode>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](const QStringRef &s, DefaultMaterial::BlendMode *v) { return EnumMap::enumFromStr(s, v); });
+    return ::parseProperty<DefaultMaterial::BlendMode>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](QStringView s, DefaultMaterial::BlendMode *v) { return EnumMap::enumFromStr(s, v); });
 }
 
 template<typename V>
 bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, DefaultMaterial::SpecularModel *dst)
 {
-    return ::parseProperty<DefaultMaterial::SpecularModel>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](const QStringRef &s, DefaultMaterial::SpecularModel *v) { return EnumMap::enumFromStr(s, v); });
+    return ::parseProperty<DefaultMaterial::SpecularModel>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](QStringView s, DefaultMaterial::SpecularModel *v) { return EnumMap::enumFromStr(s, v); });
 }
 
 template<typename V>
 bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, TextNode::HorizontalAlignment *dst)
 {
-    return ::parseProperty<TextNode::HorizontalAlignment>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](const QStringRef &s, TextNode::HorizontalAlignment *v) { return EnumMap::enumFromStr(s, v); });
+    return ::parseProperty<TextNode::HorizontalAlignment>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](QStringView s, TextNode::HorizontalAlignment *v) { return EnumMap::enumFromStr(s, v); });
 }
 
 template<typename V>
 bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, TextNode::VerticalAlignment *dst)
 {
-    return ::parseProperty<TextNode::VerticalAlignment>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](const QStringRef &s, TextNode::VerticalAlignment *v) { return EnumMap::enumFromStr(s, v); });
+    return ::parseProperty<TextNode::VerticalAlignment>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](QStringView s, TextNode::VerticalAlignment *v) { return EnumMap::enumFromStr(s, v); });
 }
 
 template<typename V>
 bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, TextNode::WordWrap *dst)
 {
-    return ::parseProperty<TextNode::WordWrap>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](const QStringRef &s, TextNode::WordWrap *v) { return EnumMap::enumFromStr(s, v); });
+    return ::parseProperty<TextNode::WordWrap>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](QStringView s, TextNode::WordWrap *v) { return EnumMap::enumFromStr(s, v); });
 }
 
 template<typename V>
 bool parseProperty(const V &attrs, GraphObject::PropSetFlags flags, const QString &typeName, const QString &propName, TextNode::Elide *dst)
 {
-    return ::parseProperty<TextNode::Elide>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](const QStringRef &s, TextNode::Elide *v) { return EnumMap::enumFromStr(s, v); });
+    return ::parseProperty<TextNode::Elide>(attrs, flags, typeName, propName, Q3DS::Enum, dst, [](QStringView s, TextNode::Elide *v) { return EnumMap::enumFromStr(s, v); });
 }
 
 template<typename V>
@@ -1040,22 +1030,22 @@ void Scene::setProperties(const QXmlStreamAttributes &attrs, PropSetFlags flags)
 
 void Scene::writeQmlHeader(QTextStream &output, int tabLevel)
 {
-    Q_UNUSED(output)
-    Q_UNUSED(tabLevel)
+    Q_UNUSED(output);
+    Q_UNUSED(tabLevel);
 }
 
 void Scene::writeQmlProperties(QTextStream &output, int tabLevel, bool isInRootLevel)
 {
-    Q_UNUSED(output)
-    Q_UNUSED(tabLevel)
-    Q_UNUSED(isInRootLevel)
+    Q_UNUSED(output);
+    Q_UNUSED(tabLevel);
+    Q_UNUSED(isInRootLevel);
 }
 
 void Scene::writeQmlProperties(const PropertyChangeList &changeList, QTextStream &output, int tabLevel)
 {
-    Q_UNUSED(changeList)
-    Q_UNUSED(output)
-    Q_UNUSED(tabLevel)
+    Q_UNUSED(changeList);
+    Q_UNUSED(output);
+    Q_UNUSED(tabLevel);
 }
 
 void Scene::writeQmlFooter(QTextStream &output, int tabLevel)
@@ -1093,7 +1083,7 @@ void Slide::setProps(const V &attrs, PropSetFlags flags)
             m_playThrough = Value;
             m_playThroughValue = isRef ? QVariant::fromValue(pt.s) : QVariant::fromValue(pt.n);
         } else {
-            EnumMap::enumFromStr(QStringRef(&pt.s), &m_playThrough);
+            EnumMap::enumFromStr(QStringView(pt.s), &m_playThrough);
         }
     }
 
@@ -1162,28 +1152,28 @@ void Slide::removeAnimation(const AnimationTrack &track)
 
 void Slide::writeQmlHeader(QTextStream &output, int tabLevel)
 {
-    Q_UNUSED(output)
-    Q_UNUSED(tabLevel)
+    Q_UNUSED(output);
+    Q_UNUSED(tabLevel);
 }
 
 void Slide::writeQmlProperties(QTextStream &output, int tabLevel, bool isInRootLevel)
 {
-    Q_UNUSED(output)
-    Q_UNUSED(tabLevel)
-    Q_UNUSED(isInRootLevel)
+    Q_UNUSED(output);
+    Q_UNUSED(tabLevel);
+    Q_UNUSED(isInRootLevel);
 }
 
 void Slide::writeQmlProperties(const PropertyChangeList &changeList, QTextStream &output, int tabLevel)
 {
-    Q_UNUSED(changeList)
-    Q_UNUSED(output)
-    Q_UNUSED(tabLevel)
+    Q_UNUSED(changeList);
+    Q_UNUSED(output);
+    Q_UNUSED(tabLevel);
 }
 
 void Slide::writeQmlFooter(QTextStream &output, int tabLevel)
 {
-    Q_UNUSED(output)
-    Q_UNUSED(tabLevel)
+    Q_UNUSED(output);
+    Q_UNUSED(tabLevel);
 }
 
 Image::Image()
@@ -1246,7 +1236,7 @@ QString tilingModeToString(Image::TilingMode mode)
 
 void Image::writeQmlProperties(QTextStream &output, int tabLevel, bool isInRootLevel)
 {
-    Q_UNUSED(isInRootLevel)
+    Q_UNUSED(isInRootLevel);
     output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("id: ") << qmlId() << Qt::endl;
     if (m_subPresentation.isEmpty()) {
         // if there is no sub-presentation, there is a source
@@ -1287,7 +1277,7 @@ void Image::writeQmlProperties(const PropertyChangeList &changeList, QTextStream
 {
     // apply the changes so the values are translated
     applyPropertyChanges(changeList);
-    for (auto change : changeList) {
+    for (const auto &change : changeList) {
         QString targetProperty = change.nameStr();
         if (targetProperty == QStringLiteral("sourcepath")) {
             output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("source: ") <<  QSSGQmlUtilities::sanitizeQmlSourcePath(m_sourcePath) << Qt::endl;
@@ -1427,7 +1417,7 @@ QString rotationOrderToString(Node::RotationOrder ro) {
 
 void Node::writeQmlProperties(QTextStream &output, int tabLevel, bool isInRootLevel)
 {
-    Q_UNUSED(isInRootLevel)
+    Q_UNUSED(isInRootLevel);
     const float handednessAdjustment = (m_orientation == Node::LeftHanded) ? -1.0f : 1.0f;
     output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("id: ") << qmlId() << Qt::endl;
     writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("position.x"), m_position.x());
@@ -1453,7 +1443,7 @@ void Node::writeQmlProperties(const PropertyChangeList &changeList, QTextStream 
     // apply the changes so the values are translated
     applyPropertyChanges(changeList);
     const float handednessAdjustment = (m_orientation == Node::LeftHanded) ? -1.0f : 1.0f;
-    for (auto change : changeList) {
+    for (const auto &change : changeList) {
         QString targetProperty = change.nameStr();
         if (targetProperty == QStringLiteral("position")) {
             writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("position.x"), m_position.x(), true);
@@ -1612,7 +1602,7 @@ void LayerNode::outputAAModeAndQuality(QTextStream &output, int tabLevel, const 
 
 void LayerNode::writeQmlProperties(QTextStream &output, int tabLevel, bool isInRootLevel)
 {
-    Q_UNUSED(isInRootLevel)
+    Q_UNUSED(isInRootLevel);
     output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("id: ") << qmlId() << Qt::endl;
     //need to manually call visible flag here
     writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("visible"), m_flags.testFlag(Node::Active));
@@ -1729,7 +1719,7 @@ void LayerNode::writeQmlProperties(QTextStream &output, int tabLevel, bool isInR
 
         if (!m_lightProbe_unresolved.isEmpty()) {
             output << QSSGQmlUtilities::insertTabs(tabLevel + 1) << "lightProbe: " << UniqueIdMapper::instance()->queryId(m_lightProbe_unresolved) << Qt::endl;
-            writeQmlPropertyHelper(output, tabLevel + 1, type(), QStringLiteral("probebright"), m_probeBright);
+            writeQmlPropertyHelper(output, tabLevel + 1, type(), QStringLiteral("probebright"), m_probeBright * 0.01);
             writeQmlPropertyHelper(output, tabLevel + 1, type(), QStringLiteral("fastibl"), m_layerFlags.testFlag(LayerNode::FastIBL));
             writeQmlPropertyHelper(output, tabLevel + 1, type(), QStringLiteral("probehorizon"), m_probeHorizon);
             writeQmlPropertyHelper(output, tabLevel + 1, type(), QStringLiteral("probefov"), m_probeFov);
@@ -1747,7 +1737,7 @@ void LayerNode::writeQmlProperties(const PropertyChangeList &changeList, QTextSt
 
     // TODO: Layer -> Item Anchors (requires a differnt type of change)
 
-    for (auto change : changeList) {
+    for (const auto &change : changeList) {
         QString targetProperty = change.nameStr();
         if (targetProperty == QStringLiteral("progressiveaa")) {
             outputAAModeAndQuality(output, tabLevel + 1, QStringLiteral("environment.progressiveaa"));
@@ -1879,7 +1869,7 @@ void CameraNode::writeQmlHeader(QTextStream &output, int tabLevel)
 
 void CameraNode::writeQmlProperties(QTextStream &output, int tabLevel, bool isInRootLevel)
 {
-    Q_UNUSED(isInRootLevel)
+    Q_UNUSED(isInRootLevel);
     Node::writeQmlProperties(output, tabLevel);
     writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("clipnear"), m_clipNear);
     writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("clipfar"), m_clipFar);
@@ -1888,8 +1878,8 @@ void CameraNode::writeQmlProperties(QTextStream &output, int tabLevel, bool isIn
     if (!m_orthographic) {
         writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("fov"), m_fov);
         writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("fovhorizontal"),
-                               m_fovHorizontal ? QStringLiteral("Camera.Horizontal")
-                                               : QStringLiteral("Camera.Vertical"));
+                               m_fovHorizontal ? QStringLiteral("PerspectiveCamera.Horizontal")
+                                               : QStringLiteral("PerspectiveCamera.Vertical"));
     }
 }
 
@@ -1900,7 +1890,7 @@ void CameraNode::writeQmlProperties(const PropertyChangeList &changeList, QTextS
     // apply the changes so the values are translated
     applyPropertyChanges(changeList);
 
-    for (auto change : changeList) {
+    for (const auto &change : changeList) {
         QString targetProperty = change.nameStr();
         if (targetProperty == QStringLiteral("clipnear")) {
             writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("clipnear"), m_clipNear);
@@ -1913,8 +1903,8 @@ void CameraNode::writeQmlProperties(const PropertyChangeList &changeList, QTextS
             writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("fov"), m_fov);
         } else if (targetProperty == QStringLiteral("fovhorizontal")) {
             writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("fovhorizontal"),
-                                   m_fovHorizontal ? QStringLiteral("Camera.Horizontal")
-                                                   : QStringLiteral("Camera.Vertical"));
+                                   m_fovHorizontal ? QStringLiteral("PerspectiveCamera.Horizontal")
+                                                   : QStringLiteral("PerspectiveCamera.Vertical"));
         }
     }
 }
@@ -1976,34 +1966,30 @@ QString shadowMapQualityToString(qint32 res)
 void LightNode::writeQmlHeader(QTextStream &output, int tabLevel)
 {
     switch (m_lightType) {
+    case LightNode::Area:
+        qWarning("UipPresentation: Area light sources will not supported. Current light source is mapped to DirectionalLight");
+        Q_FALLTHROUGH();
     case LightNode::Directional:
         output << QSSGQmlUtilities::insertTabs(tabLevel) << "DirectionalLight {\n";
         break;
     case LightNode::Point:
         output << QSSGQmlUtilities::insertTabs(tabLevel) << "PointLight {\n";
         break;
-    case LightNode::Area:
-        output << QSSGQmlUtilities::insertTabs(tabLevel) << "AreaLight {\n";
-        break;
     }
 }
 
 void LightNode::writeQmlProperties(QTextStream &output, int tabLevel, bool isInRootLevel)
 {
-    Q_UNUSED(isInRootLevel)
+    Q_UNUSED(isInRootLevel);
     Node::writeQmlProperties(output, tabLevel);
     writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("lightdiffuse"), m_lightDiffuse);
     writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("lightspecular"), m_lightSpecular);
     writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("lightambient"), m_lightAmbient);
-    writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("brightness"), m_brightness);
+    writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("brightness"), m_brightness / 100.f);
     if (m_lightType == LightNode::Point) {
         writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("constantfade"), m_constantFade);
         writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("linearfade"), m_linearFade);
         writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("expfade"), m_expFade);
-    }
-    if (m_lightType == LightNode::Area) {
-        writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("areawidth"), m_areaWidth);
-        writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("areaheight"), m_areaHeight);
     }
     writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("castshadow"), m_castShadow);
     writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("shdwbias"), m_shadowBias);
@@ -2022,7 +2008,7 @@ void LightNode::writeQmlProperties(const PropertyChangeList &changeList, QTextSt
     // apply the changes so the values are translated
     applyPropertyChanges(changeList);
 
-    for (auto change : changeList) {
+    for (const auto &change : changeList) {
         QString targetProperty = change.nameStr();
         if (targetProperty == QStringLiteral("lightdiffuse")) {
             writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("lightdiffuse"), m_lightDiffuse);
@@ -2031,17 +2017,13 @@ void LightNode::writeQmlProperties(const PropertyChangeList &changeList, QTextSt
         } else if (targetProperty == QStringLiteral("lightambient")) {
             writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("lightambient"), m_lightAmbient);
         } else if (targetProperty == QStringLiteral("brightness")) {
-            writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("brightness"), m_brightness);
+            writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("brightness"), m_brightness / 100.f);
         } else if (targetProperty == QStringLiteral("constantfade")) {
             writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("constantfade"), m_constantFade);
         } else if (targetProperty == QStringLiteral("linearfade")) {
             writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("linearfade"), m_linearFade);
         } else if (targetProperty == QStringLiteral("expfade")) {
             writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("expfade"), m_expFade);
-        } else if (targetProperty == QStringLiteral("scale.x")) {
-            writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("areawidth"), m_areaWidth);
-        } else if (targetProperty == QStringLiteral("scale.y")) {
-            writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("areaheight"), m_areaHeight);
         } else if (targetProperty == QStringLiteral("castshadow")) {
             writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("castshadow"), m_castShadow);
         } else if (targetProperty == QStringLiteral("shdwbias")) {
@@ -2076,12 +2058,6 @@ void LightNode::setProps(const V &attrs, PropSetFlags flags)
     parseProperty(attrs, flags, typeName, QStringLiteral("constantfade"), &m_constantFade);
     parseProperty(attrs, flags, typeName, QStringLiteral("linearfade"), &m_linearFade);
     parseProperty(attrs, flags, typeName, QStringLiteral("expfade"), &m_expFade);
-    parseProperty(attrs, flags, typeName, QStringLiteral("scale.x"), &m_areaWidth);
-    parseProperty(attrs, flags, typeName, QStringLiteral("scale.y"), &m_areaHeight);
-    QVector3D scale;
-    parseProperty(attrs, flags, typeName, QStringLiteral("scale"), &scale);
-    m_areaWidth = scale[0];
-    m_areaHeight = scale[1];
     parseProperty(attrs, flags, typeName, QStringLiteral("castshadow"), &m_castShadow);
     parseProperty(attrs, flags, typeName, QStringLiteral("shdwfactor"), &m_shadowFactor);
     parseProperty(attrs, flags, typeName, QStringLiteral("shdwfilter"), &m_shadowFilter);
@@ -2122,24 +2098,6 @@ void ModelNode::writeQmlHeader(QTextStream &output, int tabLevel)
     output << QSSGQmlUtilities::insertTabs(tabLevel) << "Model {\n";
 }
 
-namespace {
-QString tesselationModeToString(ModelNode::Tessellation mode)
-{
-    switch (mode) {
-    case ModelNode::None:
-        return QStringLiteral("Model.NoTessellation");
-    case ModelNode::Linear:
-        return QStringLiteral("Model.Linear");
-    case ModelNode::Phong:
-        return QStringLiteral("Model.Phong");
-    case ModelNode::NPatch:
-        return QStringLiteral("Model.NPatch");
-    }
-    Q_ASSERT(false);
-    return QString();
-}
-}
-
 void ModelNode::writeQmlProperties(QTextStream &output, int tabLevel, bool isInRootLevel)
 {
     Node::writeQmlProperties(output, tabLevel);
@@ -2147,9 +2105,6 @@ void ModelNode::writeQmlProperties(QTextStream &output, int tabLevel, bool isInR
     if (!isInRootLevel)
         sanitizedSource.insert(1, QLatin1String("../"));
     output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("source: ") << sanitizedSource << Qt::endl;
-    writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("tessellation"), tesselationModeToString(m_tessellation));
-    writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("edgetess"), m_edgeTess);
-    writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("innertess"), m_innerTess);
 }
 
 void ModelNode::writeQmlProperties(const PropertyChangeList &changeList, QTextStream &output, int tabLevel)
@@ -2159,16 +2114,10 @@ void ModelNode::writeQmlProperties(const PropertyChangeList &changeList, QTextSt
     // apply the changes so the values are translated
     applyPropertyChanges(changeList);
 
-    for (auto change : changeList) {
+    for (const auto &change : changeList) {
         QString targetProperty = change.nameStr();
         if (targetProperty == QStringLiteral("source")) {
             output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("source: ") << QSSGQmlUtilities::sanitizeQmlSourcePath(m_mesh_unresolved) << Qt::endl;
-        } else if (targetProperty == QStringLiteral("tessellation")) {
-            writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("tessellation"), tesselationModeToString(m_tessellation));
-        } else if (targetProperty == QStringLiteral("edgetess")) {
-            writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("edgetess"), m_edgeTess);
-        } else if (targetProperty == QStringLiteral("innertess")) {
-            writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("innertess"), m_innerTess);
         }
     }
 }
@@ -2178,9 +2127,6 @@ void ModelNode::setProps(const V &attrs, PropSetFlags flags)
 {
     const QString typeName = QStringLiteral("Model");
     parseMeshProperty(attrs, flags, typeName, QStringLiteral("sourcepath"), &m_mesh_unresolved);
-    parseProperty(attrs, flags, typeName, QStringLiteral("tessellation"), &m_tessellation);
-    parseProperty(attrs, flags, typeName, QStringLiteral("edgetess"), &m_edgeTess);
-    parseProperty(attrs, flags, typeName, QStringLiteral("innertess"), &m_innerTess);
 
     // Different default value.
     parseProperty(attrs, flags, typeName, QStringLiteral("name"), &m_name);
@@ -2211,7 +2157,7 @@ void GroupNode::writeQmlHeader(QTextStream &output, int tabLevel)
 
 void GroupNode::writeQmlProperties(QTextStream &output, int tabLevel, bool isInRootLevel)
 {
-    Q_UNUSED(isInRootLevel)
+    Q_UNUSED(isInRootLevel);
     Node::writeQmlProperties(output, tabLevel);
 }
 
@@ -2259,7 +2205,7 @@ void ComponentNode::writeQmlHeader(QTextStream &output, int tabLevel)
 
 void ComponentNode::writeQmlProperties(QTextStream &output, int tabLevel, bool isInRootLevel)
 {
-    Q_UNUSED(isInRootLevel)
+    Q_UNUSED(isInRootLevel);
     Node::writeQmlProperties(output, tabLevel);
 }
 
@@ -2349,7 +2295,7 @@ QString textElideToString(TextNode::Elide mode)
 
 void TextNode::writeQmlProperties(QTextStream &output, int tabLevel, bool isInRootLevel)
 {
-    Q_UNUSED(isInRootLevel)
+    Q_UNUSED(isInRootLevel);
     Node::writeQmlProperties(output, tabLevel);
     output << QSSGQmlUtilities::insertTabs(tabLevel) << "Text {\n";
     m_text.prepend('"');
@@ -2379,7 +2325,7 @@ void TextNode::writeQmlProperties(QTextStream &output, int tabLevel, bool isInRo
 void TextNode::writeQmlProperties(const PropertyChangeList &changeList, QTextStream &output, int tabLevel)
 {
     applyPropertyChanges(changeList);
-    for (auto change : changeList) {
+    for (const auto &change : changeList) {
         QString targetProperty = change.nameStr();
         if (targetProperty == QStringLiteral("textstring")) {
             m_text.prepend('"');
@@ -2481,12 +2427,9 @@ QString shaderBlendModeToString(DefaultMaterial::BlendMode mode)
         return QStringLiteral("DefaultMaterial.Screen");
     case DefaultMaterial::Multiply:
         return QStringLiteral("DefaultMaterial.Multiply");
-    case DefaultMaterial::Overlay:
-        return QStringLiteral("DefaultMaterial.Overlay");
-    case DefaultMaterial::ColorBurn:
-        return QStringLiteral("DefaultMaterial.ColorBurn");
-    case DefaultMaterial::ColorDodge:
-        return QStringLiteral("DefaultMaterial.ColorDodge");
+    default:
+        // Note: other blending modes not supported -> Use default
+        return QStringLiteral("DefaultMaterial.SourceOver");
     }
     Q_ASSERT(false);
     return QString();
@@ -2498,8 +2441,6 @@ QString shaderSpecularModelToString(DefaultMaterial::SpecularModel model)
             return QStringLiteral("DefaultMaterial.Default");
     case DefaultMaterial::KGGX:
         return QStringLiteral("DefaultMaterial.KGGX");
-    case DefaultMaterial::KWard:
-        return QStringLiteral("DefaultMaterial.KWard");
     }
     Q_ASSERT(false);
     return QString();
@@ -2508,7 +2449,7 @@ QString shaderSpecularModelToString(DefaultMaterial::SpecularModel model)
 
 void DefaultMaterial::writeQmlProperties(QTextStream &output, int tabLevel, bool isInRootLevel)
 {
-    Q_UNUSED(isInRootLevel)
+    Q_UNUSED(isInRootLevel);
     output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("id: ") << qmlId() << Qt::endl;
     writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("shaderlighting"), shaderLightingToString(m_shaderLighting));
     writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("blendmode"), shaderBlendModeToString(m_blendMode));
@@ -2516,10 +2457,16 @@ void DefaultMaterial::writeQmlProperties(QTextStream &output, int tabLevel, bool
     if (!m_diffuseMap_unresolved.isEmpty())
         output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("diffuseMap: ") << UniqueIdMapper::instance()->queryId(m_diffuseMap_unresolved) << Qt::endl;
 
-    writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("emissivepower"), m_emissiveFactor / 100.0f);
     if (!m_emissiveMap_unresolved.isEmpty())
         output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("emissiveMap: ") << UniqueIdMapper::instance()->queryId(m_emissiveMap_unresolved) << Qt::endl;
-    writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("emissivecolor"), m_emissiveColor);
+    QVector3D emissiveFactor(1.f, 1.f, 1.f);
+    emissiveFactor *= (m_emissiveFactor / 100.f);
+    writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("emissivepower.x"),
+                           emissiveFactor.x() * m_emissiveColor.redF());
+    writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("emissivepower.y"),
+                           emissiveFactor.y() * m_emissiveColor.greenF());
+    writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("emissivepower.z"),
+                           emissiveFactor.z() * m_emissiveColor.blueF());
 
     if (!m_specularReflection_unresolved.isEmpty())
         output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("specularReflectionMap: ") << UniqueIdMapper::instance()->queryId(m_specularReflection_unresolved) << Qt::endl;
@@ -2555,17 +2502,8 @@ void DefaultMaterial::writeQmlProperties(QTextStream &output, int tabLevel, bool
     writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("vertexcolors"), m_vertexColors);
 
     // Common Material values
-    if (!m_lightmapIndirectMap_unresolved.isEmpty())
-        output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("lightmapIndirect: ") << UniqueIdMapper::instance()->queryId(m_lightmapIndirectMap_unresolved) << Qt::endl;
-    if (!m_lightmapRadiosityMap_unresolved.isEmpty())
-        output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("lightmapRadiosity: ") << UniqueIdMapper::instance()->queryId(m_lightmapRadiosityMap_unresolved) << Qt::endl;
-    if (!m_lightmapShadowMap_unresolved.isEmpty())
-        output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("lightmapShadow: ") << UniqueIdMapper::instance()->queryId(m_lightmapShadowMap_unresolved) << Qt::endl;
     if (!m_lightProbe_unresolved.isEmpty())
         output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("lightProbe: ") << UniqueIdMapper::instance()->queryId(m_lightProbe_unresolved) << Qt::endl;
-    if (!m_displacementMap_unresolved.isEmpty())
-        output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("displacementMap: ") << UniqueIdMapper::instance()->queryId(m_displacementMap_unresolved) << Qt::endl;
-    writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("displacementamount"), m_displaceAmount);
 }
 
 void DefaultMaterial::writeQmlProperties(const PropertyChangeList &changeList, QTextStream &output, int tabLevel)
@@ -2573,7 +2511,7 @@ void DefaultMaterial::writeQmlProperties(const PropertyChangeList &changeList, Q
     // apply the changes so the values are translated
     applyPropertyChanges(changeList);
 
-    for (auto change : changeList) {
+    for (const auto &change : changeList) {
         QString targetProperty = change.nameStr();
         if (targetProperty == QStringLiteral("shaderlighting")) {
             writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("shaderlighting"), shaderLightingToString(m_shaderLighting));
@@ -2584,9 +2522,14 @@ void DefaultMaterial::writeQmlProperties(const PropertyChangeList &changeList, Q
         } else if (targetProperty == QStringLiteral("diffusemap")) {
             output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("diffuseMap: ") << UniqueIdMapper::instance()->queryId(m_diffuseMap_unresolved) << Qt::endl;
         } else if (targetProperty == QStringLiteral("emissivepower")) {
-            writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("emissivepower"), m_emissiveFactor / 100.0f);
-        } else if (targetProperty == QStringLiteral("emissivecolor")) {
-            writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("emissivecolor"), m_emissiveColor);
+            QVector3D emissiveFactor(1.f, 1.f, 1.f);
+            emissiveFactor *= (m_emissiveFactor / 100.f);
+            writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("emissivepower.x"),
+                                   emissiveFactor.x() * m_emissiveColor.redF());
+            writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("emissivepower.y"),
+                                   emissiveFactor.y() * m_emissiveColor.greenF());
+            writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("emissivepower.z"),
+                                   emissiveFactor.z() * m_emissiveColor.blueF());
         } else if (targetProperty == QStringLiteral("emissivemap")) {
             output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("emissiveMap: ") << UniqueIdMapper::instance()->queryId(m_emissiveMap_unresolved) << Qt::endl;
         } else if (targetProperty == QStringLiteral("specularreflection")) {
@@ -2625,18 +2568,8 @@ void DefaultMaterial::writeQmlProperties(const PropertyChangeList &changeList, Q
             writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("diffuselightwrap"), m_diffuseLightWrap);
         } else if (targetProperty == QStringLiteral("vertexcolors")) {
             writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("vertexcolors"), m_vertexColors);
-        } else if (targetProperty == QStringLiteral("lightmapindirect")) {
-            output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("lightmapIndirect: ") << UniqueIdMapper::instance()->queryId(m_lightmapIndirectMap_unresolved) << Qt::endl;
-        } else if (targetProperty == QStringLiteral("lightmapradiosity")) {
-            output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("lightmapRadiosity: ") << UniqueIdMapper::instance()->queryId(m_lightmapRadiosityMap_unresolved) << Qt::endl;
-        } else if (targetProperty == QStringLiteral("lightmapshadow")) {
-            output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("lightmapShadow: ") << UniqueIdMapper::instance()->queryId(m_lightmapShadowMap_unresolved) << Qt::endl;
         } else if (targetProperty == QStringLiteral("iblprobe")) {
             output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("lightProbe: ") << UniqueIdMapper::instance()->queryId(m_lightProbe_unresolved) << Qt::endl;
-        } else if (targetProperty == QStringLiteral("displacementmap")) {
-            output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("displacementMap: ") << UniqueIdMapper::instance()->queryId(m_displacementMap_unresolved) << Qt::endl;
-        } else if (targetProperty == QStringLiteral("displacementamount")) {
-            writeQmlPropertyHelper(output, tabLevel, type(), QStringLiteral("displacementamount"), m_displaceAmount);
         }
     }
 }
@@ -2674,9 +2607,6 @@ void DefaultMaterial::setProps(const V &attrs, PropSetFlags flags)
 
     parseProperty(attrs, flags, typeName, QStringLiteral("bumpamount"), &m_bumpAmount);
 
-    parseImageProperty(attrs, flags, typeName, QStringLiteral("displacementmap"), &m_displacementMap_unresolved);
-
-    parseProperty(attrs, flags, typeName, QStringLiteral("displaceamount"), &m_displaceAmount);
     parseProperty(attrs, flags, typeName, QStringLiteral("opacity"), &m_opacity);
 
     parseImageProperty(attrs, flags, typeName, QStringLiteral("opacitymap"), &m_opacityMap_unresolved);
@@ -2726,23 +2656,17 @@ void ReferencedMaterial::writeQmlHeader(QTextStream &output, int tabLevel)
 
 void ReferencedMaterial::writeQmlProperties(QTextStream &output, int tabLevel, bool isInRootLevel)
 {
-    Q_UNUSED(isInRootLevel)
+    Q_UNUSED(isInRootLevel);
     output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("id: ") << qmlId() << Qt::endl;
-    if (!m_lightmapIndirectMap_unresolved.isEmpty())
-        output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("lightmapIndirect: ") << UniqueIdMapper::instance()->queryId(m_lightmapIndirectMap_unresolved) << Qt::endl;
-    if (!m_lightmapRadiosityMap_unresolved.isEmpty())
-        output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("lightmapRadiosity: ") << UniqueIdMapper::instance()->queryId(m_lightmapRadiosityMap_unresolved) << Qt::endl;
-    if (!m_lightmapShadowMap_unresolved.isEmpty())
-        output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("lightmapShadow: ") << UniqueIdMapper::instance()->queryId(m_lightmapShadowMap_unresolved) << Qt::endl;
     if (!m_lightProbe_unresolved.isEmpty())
         output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("lightProbe: ") << UniqueIdMapper::instance()->queryId(m_lightProbe_unresolved) << Qt::endl;
 }
 
 void ReferencedMaterial::writeQmlProperties(const PropertyChangeList &changeList, QTextStream &output, int tabLevel)
 {
-    Q_UNUSED(changeList)
-    Q_UNUSED(output)
-    Q_UNUSED(tabLevel)
+    Q_UNUSED(changeList);
+    Q_UNUSED(output);
+    Q_UNUSED(tabLevel);
 }
 
 template<typename V>
@@ -2799,26 +2723,20 @@ void CustomMaterialInstance::writeQmlHeader(QTextStream &output, int tabLevel)
 
 void CustomMaterialInstance::writeQmlProperties(QTextStream &output, int tabLevel, bool isInRootLevel)
 {
-    Q_UNUSED(isInRootLevel)
+    Q_UNUSED(isInRootLevel);
     output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("id: ") << qmlId() << Qt::endl;
     output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("source: ") << QStringLiteral("\"") << UniqueIdMapper::instance()->queryId(m_material_unresolved) << QStringLiteral("\"") << Qt::endl;
 
     // Common Material values
-    if (!m_lightmapIndirectMap_unresolved.isEmpty())
-        output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("lightmapIndirect: ") << UniqueIdMapper::instance()->queryId(m_lightmapIndirectMap_unresolved) << Qt::endl;
-    if (!m_lightmapRadiosityMap_unresolved.isEmpty())
-        output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("lightmapRadiosity: ") << UniqueIdMapper::instance()->queryId(m_lightmapRadiosityMap_unresolved) << Qt::endl;
-    if (!m_lightmapShadowMap_unresolved.isEmpty())
-        output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("lightmapShadow: ") << UniqueIdMapper::instance()->queryId(m_lightmapShadowMap_unresolved) << Qt::endl;
     if (!m_lightProbe_unresolved.isEmpty())
         output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("lightProbe: ") << UniqueIdMapper::instance()->queryId(m_lightProbe_unresolved) << Qt::endl;
 }
 
 void CustomMaterialInstance::writeQmlProperties(const PropertyChangeList &changeList, QTextStream &output, int tabLevel)
 {
-    Q_UNUSED(changeList)
-    Q_UNUSED(output)
-    Q_UNUSED(tabLevel)
+    Q_UNUSED(changeList);
+    Q_UNUSED(output);
+    Q_UNUSED(tabLevel);
 }
 
 template<typename V>
@@ -2872,31 +2790,31 @@ void EffectInstance::applyPropertyChanges(const PropertyChangeList &changeList)
 
 void EffectInstance::writeQmlHeader(QTextStream &output, int tabLevel)
 {
-    Q_UNUSED(output)
-    Q_UNUSED(tabLevel)
+    Q_UNUSED(output);
+    Q_UNUSED(tabLevel);
     //output << QSSGQmlUtilities::insertTabs(tabLevel) << "Effect {\n";
 }
 
 void EffectInstance::writeQmlProperties(QTextStream &output, int tabLevel, bool isInRootLevel)
 {
-    Q_UNUSED(output)
-    Q_UNUSED(tabLevel)
-    Q_UNUSED(isInRootLevel)
+    Q_UNUSED(output);
+    Q_UNUSED(tabLevel);
+    Q_UNUSED(isInRootLevel);
     //output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("id: ") << qmlId() << Qt::endl;
     //output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("source: ") << QSSGQmlUtilities::sanitizeQmlId(m_effect_unresolved) << Qt::endl;
 }
 
 void EffectInstance::writeQmlProperties(const PropertyChangeList &changeList, QTextStream &output, int tabLevel)
 {
-    Q_UNUSED(changeList)
-    Q_UNUSED(output)
-    Q_UNUSED(tabLevel)
+    Q_UNUSED(changeList);
+    Q_UNUSED(output);
+    Q_UNUSED(tabLevel);
 }
 
 void EffectInstance::writeQmlFooter(QTextStream &output, int tabLevel)
 {
-    Q_UNUSED(output)
-    Q_UNUSED(tabLevel)
+    Q_UNUSED(output);
+    Q_UNUSED(tabLevel);
 }
 
 template<typename V>
@@ -2946,28 +2864,28 @@ void BehaviorInstance::applyPropertyChanges(const PropertyChangeList &changeList
 
 void BehaviorInstance::writeQmlHeader(QTextStream &output, int tabLevel)
 {
-    Q_UNUSED(output)
-    Q_UNUSED(tabLevel)
+    Q_UNUSED(output);
+    Q_UNUSED(tabLevel);
 }
 
 void BehaviorInstance::writeQmlProperties(QTextStream &output, int tabLevel, bool isInRootLevel)
 {
-    Q_UNUSED(output)
-    Q_UNUSED(tabLevel)
-    Q_UNUSED(isInRootLevel)
+    Q_UNUSED(output);
+    Q_UNUSED(tabLevel);
+    Q_UNUSED(isInRootLevel);
 }
 
 void BehaviorInstance::writeQmlProperties(const PropertyChangeList &changeList, QTextStream &output, int tabLevel)
 {
-    Q_UNUSED(changeList)
-    Q_UNUSED(output)
-    Q_UNUSED(tabLevel)
+    Q_UNUSED(changeList);
+    Q_UNUSED(output);
+    Q_UNUSED(tabLevel);
 }
 
 void BehaviorInstance::writeQmlFooter(QTextStream &output, int tabLevel)
 {
-    Q_UNUSED(output)
-    Q_UNUSED(tabLevel)
+    Q_UNUSED(output);
+    Q_UNUSED(tabLevel);
 }
 
 template<typename V>
@@ -3009,7 +2927,7 @@ void AliasNode::writeQmlHeader(QTextStream &output, int tabLevel)
 
 void AliasNode::writeQmlProperties(QTextStream &output, int tabLevel, bool isInRootLevel)
 {
-    Q_UNUSED(isInRootLevel)
+    Q_UNUSED(isInRootLevel);
     Node::writeQmlProperties(output, tabLevel);
 }
 

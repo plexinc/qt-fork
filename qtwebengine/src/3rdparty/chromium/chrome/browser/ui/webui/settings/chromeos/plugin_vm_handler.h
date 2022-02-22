@@ -22,20 +22,15 @@ class PluginVmHandler : public ::settings::SettingsPageUIHandler {
 
   // SettingsPageUIHandler
   void RegisterMessages() override;
-  void OnJavascriptAllowed() override {}
-  void OnJavascriptDisallowed() override {}
+  void OnJavascriptAllowed() override;
+  void OnJavascriptDisallowed() override;
 
  private:
-  // Callback for the "getSharedPathsDisplayText" message.  Converts actual
-  // paths in chromeos to values suitable to display to users.
-  // E.g. /home/chronos/u-<hash>/Downloads/foo => "Downloads > foo".
-  void HandleGetPluginVmSharedPathsDisplayText(const base::ListValue* args);
-  // Remove a specified path from being shared.
-  void HandleRemovePluginVmSharedPath(const base::ListValue* args);
-  // Remove Plugin VM.
-  void HandleRemovePluginVm(const base::ListValue* args);
-  // Show the Plugin VM installer view if Plugin VM is not currently installed.
-  void HandleRequestPluginVmInstallerView(const base::ListValue* args);
+  // Checks if Plugin VM would need to be relaunched if the proposed changes are
+  // made.
+  void HandleIsRelaunchNeededForNewPermissions(const base::ListValue* args);
+  // Relaunches Plugin VM.
+  void HandleRelaunchPluginVm(const base::ListValue* args);
 
   Profile* profile_;
   // weak_ptr_factory_ should always be last member.

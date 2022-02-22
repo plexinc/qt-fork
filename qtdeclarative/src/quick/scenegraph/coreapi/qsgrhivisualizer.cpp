@@ -41,9 +41,7 @@
 
 #include "qsgrhivisualizer_p.h"
 #include <qmath.h>
-#include <QQuickWindow>
-#include <private/qsgmaterialrhishader_p.h>
-#include <private/qsgshadersourcebuilder_p.h>
+#include <private/qsgmaterialshader_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -94,9 +92,9 @@ void RhiVisualizer::prepareVisualize()
         return;
 
     if (!m_vs.isValid()) {
-        m_vs = QSGMaterialRhiShaderPrivate::loadShader(
+        m_vs = QSGMaterialShaderPrivate::loadShader(
                     QLatin1String(":/qt-project.org/scenegraph/shaders_ng/visualization.vert.qsb"));
-        m_fs = QSGMaterialRhiShaderPrivate::loadShader(
+        m_fs = QSGMaterialShaderPrivate::loadShader(
                     QLatin1String(":/qt-project.org/scenegraph/shaders_ng/visualization.frag.qsb"));
     }
 
@@ -195,14 +193,14 @@ void RhiVisualizer::Fade::prepare(RhiVisualizer *visualizer,
     if (!vbuf) {
         float v[] = { -1, 1,   1, 1,   -1, -1,   1, -1 };
         vbuf = rhi->newBuffer(QRhiBuffer::Immutable, QRhiBuffer::VertexBuffer, sizeof(v));
-        if (!vbuf->build())
+        if (!vbuf->create())
             return;
         u->uploadStaticBuffer(vbuf, v);
     }
 
     if (!ubuf) {
         ubuf = rhi->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, DrawCall::UBUF_SIZE);
-        if (!ubuf->build())
+        if (!ubuf->create())
             return;
         float bgOpacity = 0.8f;
         if (visualizer->m_visualizeMode == Visualizer::VisualizeBatches)
@@ -221,7 +219,7 @@ void RhiVisualizer::Fade::prepare(RhiVisualizer *visualizer,
     if (!srb) {
         srb = rhi->newShaderResourceBindings();
         srb->setBindings({ QRhiShaderResourceBinding::uniformBuffer(0, ubufVisibility, ubuf) });
-        if (!srb->build())
+        if (!srb->create())
             return;
     }
 
@@ -239,7 +237,7 @@ void RhiVisualizer::Fade::prepare(RhiVisualizer *visualizer,
         ps->setVertexInputLayout(inputLayout);
         ps->setShaderResourceBindings(srb);
         ps->setRenderPassDescriptor(rpDesc);
-        if (!ps->build())
+        if (!ps->create())
             return;
     }
 }
@@ -294,11 +292,11 @@ static bool ensureBuffer(QRhi *rhi, QRhiBuffer **buf, QRhiBuffer::UsageFlags usa
 {
     if (!*buf) {
         *buf = rhi->newBuffer(QRhiBuffer::Dynamic, usage, newSize);
-        if (!(*buf)->build())
+        if (!(*buf)->create())
             return false;
     } else if ((*buf)->size() < newSize) {
         (*buf)->setSize(newSize);
-        if (!(*buf)->build())
+        if (!(*buf)->create())
             return false;
     }
     return true;
@@ -339,7 +337,7 @@ QRhiGraphicsPipeline *RhiVisualizer::PipelineCache::pipeline(RhiVisualizer *visu
     ps->setVertexInputLayout(inputLayout);
     ps->setShaderResourceBindings(srb);
     ps->setRenderPassDescriptor(rpDesc);
-    if (!ps->build())
+    if (!ps->create())
         return nullptr;
 
     Pipeline p;
@@ -453,7 +451,7 @@ void RhiVisualizer::ChangeVis::prepare(Node *n, RhiVisualizer *visualizer,
     if (!srb) {
         srb = rhi->newShaderResourceBindings();
         srb->setBindings({ QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(0, ubufVisibility, ubuf, DrawCall::UBUF_SIZE) });
-        if (!srb->build())
+        if (!srb->create())
             return;
     }
 }
@@ -591,7 +589,7 @@ void RhiVisualizer::BatchVis::prepare(const QDataBuffer<Batch *> &opaqueBatches,
     if (!srb) {
         srb = rhi->newShaderResourceBindings();
         srb->setBindings({ QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(0, ubufVisibility, ubuf, DrawCall::UBUF_SIZE) });
-        if (!srb->build())
+        if (!srb->create())
             return;
     }
 }
@@ -685,7 +683,7 @@ void RhiVisualizer::ClipVis::prepare(QSGNode *node, RhiVisualizer *visualizer,
     if (!srb) {
         srb = rhi->newShaderResourceBindings();
         srb->setBindings({ QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(0, ubufVisibility, ubuf, DrawCall::UBUF_SIZE) });
-        if (!srb->build())
+        if (!srb->create())
             return;
     }
 }
@@ -793,14 +791,14 @@ void RhiVisualizer::OverdrawVis::prepare(Node *n, RhiVisualizer *visualizer,
             1, 1, 0,    1, 1, 1
         };
         box.vbuf = rhi->newBuffer(QRhiBuffer::Immutable, QRhiBuffer::VertexBuffer, sizeof(v));
-        if (!box.vbuf->build())
+        if (!box.vbuf->create())
             return;
         u->uploadStaticBuffer(box.vbuf, v);
     }
 
     if (!box.ubuf) {
         box.ubuf = rhi->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, DrawCall::UBUF_SIZE);
-        if (!box.ubuf->build())
+        if (!box.ubuf->create())
             return;
         QMatrix4x4 ident;
         u->updateDynamicBuffer(box.ubuf, 0, 64, ident.constData());
@@ -817,7 +815,7 @@ void RhiVisualizer::OverdrawVis::prepare(Node *n, RhiVisualizer *visualizer,
     if (!box.srb) {
         box.srb = rhi->newShaderResourceBindings();
         box.srb->setBindings({ QRhiShaderResourceBinding::uniformBuffer(0, ubufVisibility, box.ubuf) });
-        if (!box.srb->build())
+        if (!box.srb->create())
             return;
     }
 
@@ -840,7 +838,7 @@ void RhiVisualizer::OverdrawVis::prepare(Node *n, RhiVisualizer *visualizer,
         box.ps->setVertexInputLayout(inputLayout);
         box.ps->setShaderResourceBindings(box.srb);
         box.ps->setRenderPassDescriptor(visualizer->m_renderer->renderPassDescriptor());
-        if (!box.ps->build())
+        if (!box.ps->create())
             return;
     }
 
@@ -881,7 +879,7 @@ void RhiVisualizer::OverdrawVis::prepare(Node *n, RhiVisualizer *visualizer,
     if (!srb) {
         srb = rhi->newShaderResourceBindings();
         srb->setBindings({ QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(0, ubufVisibility, ubuf, DrawCall::UBUF_SIZE) });
-        if (!srb->build())
+        if (!srb->create())
             return;
     }
 }

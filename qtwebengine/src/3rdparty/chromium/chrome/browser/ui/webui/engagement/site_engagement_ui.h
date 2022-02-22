@@ -6,7 +6,7 @@
 #define CHROME_BROWSER_UI_WEBUI_ENGAGEMENT_SITE_ENGAGEMENT_UI_H_
 
 #include "base/macros.h"
-#include "chrome/browser/engagement/site_engagement_details.mojom-forward.h"
+#include "components/site_engagement/core/mojom/site_engagement_details.mojom-forward.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "ui/webui/mojo_web_ui_controller.h"
 
@@ -19,10 +19,12 @@ class SiteEngagementUI : public ui::MojoWebUIController {
   // Instantiates the implementor of the mojom::SiteEngagementDetailsProvider
   // mojo interface passing the pending receiver that will be internally bound.
   void BindInterface(
-      mojo::PendingReceiver<mojom::SiteEngagementDetailsProvider> receiver);
+      mojo::PendingReceiver<
+          site_engagement::mojom::SiteEngagementDetailsProvider> receiver);
 
  private:
-  std::unique_ptr<mojom::SiteEngagementDetailsProvider> ui_handler_;
+  std::unique_ptr<site_engagement::mojom::SiteEngagementDetailsProvider>
+      ui_handler_;
 
   WEB_UI_CONTROLLER_TYPE_DECL();
 

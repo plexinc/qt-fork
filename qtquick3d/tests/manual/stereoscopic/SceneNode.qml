@@ -48,8 +48,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.11
-import QtQuick3D 1.15
+import QtQuick
+import QtQuick3D
 
 Node {
     id: sceneRoot
@@ -57,11 +57,11 @@ Node {
     property alias mainCamera: mainCamera
 
     DirectionalLight {
-        brightness: 40
+        brightness: 0.4
         color: "#f0e0a0"
     }
     DirectionalLight {
-        brightness: 40
+        brightness: 0.4
         position: Qt.vector3d(-200,-200,-500)
         eulerRotation: Qt.vector3d(20,-20,20)
         color: "#f0e0a0"
@@ -174,6 +174,7 @@ Node {
         y: 260
         z: -100
         Text {
+            anchors.centerIn: parent
             color: "white"
             font.pixelSize: 36
             font.bold: true
@@ -184,6 +185,7 @@ Node {
         y: -260
         z: -100
         Text {
+            anchors.centerIn: parent
             color: "white"
             font.pixelSize: 36
             font.bold: true

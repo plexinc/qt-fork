@@ -175,6 +175,9 @@ QHash<QString, QObject *> QWebChannel::registeredObjects() const
     The properties, signals and public methods of the \a object are published to the remote clients.
     There, an object with the identifier \a id is then constructed.
 
+    \note A property that is \c BINDABLE but does not have a \c NOTIFY signal will have working property
+          updates on the client side, but no mechanism to register a callback for the change notifications.
+
     \note A current limitation is that objects must be registered before any client is initialized.
 
     \sa QWebChannel::registerObjects(), QWebChannel::deregisterObject(), QWebChannel::registeredObjects()
@@ -212,13 +215,49 @@ void QWebChannel::deregisterObject(QObject *object)
 bool QWebChannel::blockUpdates() const
 {
     Q_D(const QWebChannel);
-    return d->publisher->blockUpdates;
+    return d->publisher->blockUpdates();
 }
 
 void QWebChannel::setBlockUpdates(bool block)
 {
     Q_D(QWebChannel);
     d->publisher->setBlockUpdates(block);
+}
+
+QBindable<bool> QWebChannel::bindableBlockUpdates()
+{
+    Q_D(QWebChannel);
+    return &d->publisher->blockUpdatesStatus;
+}
+
+/*!
+    \property QWebChannel::propertyUpdateInterval
+
+    \brief The property update interval.
+
+    This interval can be changed to a different interval in milliseconds by
+    setting it to a positive value. Property updates are batched and sent out
+    after the interval expires. If set to zero, the updates occurring within a
+    single event loop run are batched and sent out on the next run.
+    If negative, updates will be sent immediately.
+    Default value is 50 milliseconds.
+*/
+int QWebChannel::propertyUpdateInterval() const
+{
+    Q_D(const QWebChannel);
+    return d->publisher->propertyUpdateInterval();
+}
+
+void QWebChannel::setPropertyUpdateInterval(int ms)
+{
+    Q_D(QWebChannel);
+    d->publisher->setPropertyUpdateInterval(ms);
+}
+
+QBindable<int> QWebChannel::bindablePropertyUpdateInterval()
+{
+    Q_D(QWebChannel);
+    return &d->publisher->propertyUpdateIntervalTime;
 }
 
 /*!

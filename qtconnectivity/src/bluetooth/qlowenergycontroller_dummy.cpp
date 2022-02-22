@@ -80,7 +80,8 @@ void QLowEnergyControllerPrivateCommon::discoverServices()
 
 }
 
-void QLowEnergyControllerPrivateCommon::discoverServiceDetails(const QBluetoothUuid &/*service*/)
+void QLowEnergyControllerPrivateCommon::discoverServiceDetails(
+        const QBluetoothUuid & /*service*/, QLowEnergyService::DiscoveryMode /*mode*/)
 {
 
 }
@@ -132,6 +133,12 @@ void QLowEnergyControllerPrivateCommon::requestConnectionUpdate(const QLowEnergy
 void QLowEnergyControllerPrivateCommon::addToGenericAttributeList(const QLowEnergyServiceData &/* service */,
                                                             QLowEnergyHandle /* startHandle */)
 {
+}
+
+int QLowEnergyControllerPrivateCommon::mtu() const
+{
+    // not supported
+    return -1;
 }
 
 QT_END_NAMESPACE

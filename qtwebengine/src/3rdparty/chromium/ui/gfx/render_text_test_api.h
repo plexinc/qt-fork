@@ -33,7 +33,8 @@ class RenderTextTestApi {
     return render_text_->GetRunList();
   }
 
-  void DrawVisualText(internal::SkiaTextRenderer* renderer, Range selection) {
+  void DrawVisualText(internal::SkiaTextRenderer* renderer,
+                      const std::vector<Range> selection) {
     render_text_->DrawVisualText(renderer, selection);
   }
 
@@ -59,12 +60,14 @@ class RenderTextTestApi {
     return render_text_->weights();
   }
 
-  const std::vector<BreakList<bool>>& styles() const {
-    return render_text_->styles();
-  }
+  const internal::StyleArray& styles() const { return render_text_->styles(); }
 
   const std::vector<internal::Line>& lines() const {
     return render_text_->GetShapedText()->lines();
+  }
+
+  const Vector2d& display_offset() const {
+    return render_text_->display_offset_;
   }
 
   SelectionModel EdgeSelectionModel(VisualCursorDirection direction) {
@@ -89,16 +92,22 @@ class RenderTextTestApi {
     return render_text_->GetDisplayTextBaseline();
   }
 
-  // Callers must ensure that the underlying RenderText object is a
-  // RenderTextHarfBuzz instance.
   void SetGlyphWidth(float test_width) {
     render_text_->set_glyph_width_for_test(test_width);
+  }
+
+  void SetGlyphHeight(float test_height) {
+    render_text_->set_glyph_height_for_test(test_height);
   }
 
   static gfx::Rect ExpandToBeVerticallySymmetric(
       const gfx::Rect& rect,
       const gfx::Rect& display_rect) {
     return RenderText::ExpandToBeVerticallySymmetric(rect, display_rect);
+  }
+
+  static void MergeIntersectingRects(std::vector<Rect>& rects) {
+    RenderText::MergeIntersectingRects(rects);
   }
 
   void reset_cached_cursor_x() { render_text_->reset_cached_cursor_x(); }

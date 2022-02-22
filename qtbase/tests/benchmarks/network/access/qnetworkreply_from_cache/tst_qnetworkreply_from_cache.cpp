@@ -26,7 +26,9 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QBuffer>
+#include <QTestEventLoop>
 #include <QtNetwork/QNetworkAccessManager>
 #include <QtNetwork/QNetworkDiskCache>
 #include <QtNetwork/QNetworkReply>
@@ -38,14 +40,14 @@
 class NetworkDiskCache : public QNetworkDiskCache
 {
 public:
-    NetworkDiskCache(QObject *parent = 0)
+    NetworkDiskCache(QObject *parent = nullptr)
         : QNetworkDiskCache(parent)
     {
     }
 
     QByteArray cachedData;
 
-    virtual QNetworkCacheMetaData metaData(const QUrl &url)
+    QNetworkCacheMetaData metaData(const QUrl &url) override
     {
         QNetworkCacheMetaData metaData;
         if (!cachedData.isEmpty()) {
@@ -58,7 +60,7 @@ public:
         return metaData;
     }
 
-    virtual QIODevice *data(const QUrl &/*url*/)
+    QIODevice *data(const QUrl &/*url*/) override
     {
         if (cachedData.isEmpty())
             return 0;

@@ -70,6 +70,7 @@ struct {
   size_t num_planes;
 } constexpr kSupportedFormatsAndPlanarity[] = {
     {V4L2_PIX_FMT_YUV420, PIXEL_FORMAT_I420, 1},
+    {V4L2_PIX_FMT_NV12, PIXEL_FORMAT_NV12, 1},
     {V4L2_PIX_FMT_Y16, PIXEL_FORMAT_Y16, 1},
     {V4L2_PIX_FMT_Z16, PIXEL_FORMAT_Y16, 1},
     {V4L2_PIX_FMT_INVZ, PIXEL_FORMAT_Y16, 1},
@@ -145,7 +146,7 @@ bool IsSpecialControl(int control_id) {
 #if !defined(V4L2_CID_PANTILT_CMD)
 #define V4L2_CID_PANTILT_CMD (V4L2_CID_CAMERA_CLASS_BASE + 34)
 #endif
-bool IsBlacklistedControl(int control_id) {
+bool IsBlockedControl(int control_id) {
   switch (control_id) {
     case V4L2_CID_PAN_RELATIVE:
     case V4L2_CID_TILT_RELATIVE:
@@ -268,10 +269,18 @@ void V4L2CaptureDelegate::AllocateAndStart(
 
   ResetUserAndCameraControlsToDefault();
 
+  // In theory, checking for CAPTURE/OUTPUT in caps.capabilities should only
+  // be done if V4L2_CAP_DEVICE_CAPS is not set. However, this was not done
+  // in the past and it is unclear if it breaks with existing devices. And if
+  // a device is accepted incorrectly then it will not have any usable
+  // formats and is skipped anyways.
   v4l2_capability cap = {};
   if (!(DoIoctl(VIDIOC_QUERYCAP, &cap) == 0 &&
-        ((cap.capabilities & V4L2_CAP_VIDEO_CAPTURE) &&
-         !(cap.capabilities & V4L2_CAP_VIDEO_OUTPUT)))) {
+        (((cap.capabilities & V4L2_CAP_VIDEO_CAPTURE) &&
+          !(cap.capabilities & V4L2_CAP_VIDEO_OUTPUT)) ||
+         ((cap.capabilities & V4L2_CAP_DEVICE_CAPS) &&
+          (cap.device_caps & V4L2_CAP_VIDEO_CAPTURE) &&
+          !(cap.device_caps & V4L2_CAP_VIDEO_OUTPUT))))) {
     device_fd_.reset();
     SetErrorState(VideoCaptureError::kV4L2ThisIsNotAV4L2VideoCaptureDevice,
                   FROM_HERE, "This is not a V4L2 video capture device");
@@ -737,7 +746,7 @@ void V4L2CaptureDelegate::ResetUserAndCameraControlsToDefault() {
 
       if (IsSpecialControl(range.id & ~V4L2_CTRL_FLAG_NEXT_CTRL))
         continue;
-      if (IsBlacklistedControl(range.id & ~V4L2_CTRL_FLAG_NEXT_CTRL))
+      if (IsBlockedControl(range.id & ~V4L2_CTRL_FLAG_NEXT_CTRL))
         continue;
 
       struct v4l2_ext_control ext_control = {};

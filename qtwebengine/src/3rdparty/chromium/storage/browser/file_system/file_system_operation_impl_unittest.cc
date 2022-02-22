@@ -14,9 +14,9 @@
 #include "base/bind.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
@@ -57,12 +57,12 @@ class FileSystemOperationImplTest : public testing::Test {
     update_observers_ = MockFileUpdateObserver::CreateList(&update_observer_);
 
     base::FilePath base_dir = base_.GetPath().AppendASCII("filesystem");
-    quota_manager_ =
-        new MockQuotaManager(false /* is_incognito */, base_dir,
-                             base::ThreadTaskRunnerHandle::Get().get(),
-                             nullptr /* special storage policy */);
-    quota_manager_proxy_ = new MockQuotaManagerProxy(
-        quota_manager(), base::ThreadTaskRunnerHandle::Get().get());
+    quota_manager_ = base::MakeRefCounted<MockQuotaManager>(
+        /* is_incognito= */ false, base_dir,
+        base::ThreadTaskRunnerHandle::Get().get(),
+        /* special storage policy= */ nullptr);
+    quota_manager_proxy_ = base::MakeRefCounted<MockQuotaManagerProxy>(
+        quota_manager(), base::ThreadTaskRunnerHandle::Get());
     sandbox_file_system_.SetUp(base_dir, quota_manager_proxy_.get());
     sandbox_file_system_.AddFileChangeObserver(&change_observer_);
     sandbox_file_system_.AddFileUpdateObserver(&update_observer_);
@@ -104,11 +104,10 @@ class FileSystemOperationImplTest : public testing::Test {
   MockFileChangeObserver* change_observer() { return &change_observer_; }
 
   std::unique_ptr<FileSystemOperationContext> NewContext() {
-    FileSystemOperationContext* context =
-        sandbox_file_system_.NewOperationContext();
+    auto context = sandbox_file_system_.NewOperationContext();
     // Grant enough quota for all test cases.
     context->set_allowed_bytes_growth(1000000);
-    return base::WrapUnique(context);
+    return context;
   }
 
   FileSystemURL URLForPath(const std::string& path) const {
@@ -980,11 +979,12 @@ TEST_F(FileSystemOperationImplTest, TestReadDirSuccess) {
   EXPECT_EQ(base::File::FILE_OK, ReadDirectory(parent_dir));
   EXPECT_EQ(2u, entries().size());
 
-  for (size_t i = 0; i < entries().size(); ++i) {
-    if (entries()[i].type == filesystem::mojom::FsFileType::DIRECTORY)
-      EXPECT_EQ(FILE_PATH_LITERAL("child_dir"), entries()[i].name.value());
-    else
-      EXPECT_EQ(FILE_PATH_LITERAL("child_file"), entries()[i].name.value());
+  for (const filesystem::mojom::DirectoryEntry& entry : entries()) {
+    if (entry.type == filesystem::mojom::FsFileType::DIRECTORY) {
+      EXPECT_EQ(FILE_PATH_LITERAL("child_dir"), entry.name.value());
+    } else {
+      EXPECT_EQ(FILE_PATH_LITERAL("child_file"), entry.name.value());
+    }
   }
   EXPECT_EQ(1, quota_manager_proxy()->notify_storage_accessed_count());
   EXPECT_TRUE(change_observer()->HasNoChange());

@@ -41,8 +41,8 @@
 #define ABSTRACT3DRENDERER_P_H
 
 #include <QtGui/QOpenGLFunctions>
-#if !defined(QT_OPENGL_ES_2)
-#  include <QtGui/QOpenGLFunctions_2_1>
+#if !QT_CONFIG(opengles2)
+#  include <QtOpenGL/QOpenGLFunctions_2_1>
 #endif
 #include "datavisualizationglobal_p.h"
 #include "abstract3dcontroller_p.h"
@@ -52,7 +52,7 @@
 
 QT_FORWARD_DECLARE_CLASS(QOffscreenSurface)
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 class TextureHelper;
 class Theme;
@@ -142,7 +142,7 @@ public:
                                            bool visible);
     virtual void updateAxisTitleFixed(QAbstract3DAxis::AxisOrientation orientation,
                                       bool fixed);
-    virtual void modifiedSeriesList(const QVector<QAbstract3DSeries *> &seriesList);
+    virtual void modifiedSeriesList(const QList<QAbstract3DSeries *> &seriesList);
 
     virtual void fixMeshFileName(QString &fileName, QAbstract3DSeries::Mesh mesh);
 
@@ -333,8 +333,8 @@ protected:
     qreal m_reflectivity;
 
     QLocale m_locale;
-#if !defined(QT_OPENGL_ES_2)
-    QOpenGLFunctions_2_1 *m_funcs_2_1;  // Not owned
+#if !QT_CONFIG(opengles2)
+    QOpenGLFunctions_2_1 *m_funcs_2_1;
 #endif
     QPointer<QOpenGLContext> m_context; // Not owned
     bool m_isOpenGLES;
@@ -343,6 +343,6 @@ private:
     friend class Abstract3DController;
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

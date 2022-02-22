@@ -4,11 +4,10 @@
 
 #include "third_party/blink/renderer/core/streams/queue_with_sizes.h"
 
-#include <cmath>
+#include <math.h>
 
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/trace_wrapper_v8_reference.h"
-#include "third_party/blink/renderer/platform/heap/visitor.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 
 namespace blink {
@@ -17,7 +16,7 @@ namespace {
 
 // https://streams.spec.whatwg.org/#is-finite-non-negative-number
 bool IsFiniteNonNegativeNumber(double v) {
-  return std::isfinite(v) && v >= 0;
+  return isfinite(v) && v >= 0;
 }
 
 }  // namespace
@@ -34,7 +33,7 @@ class QueueWithSizes::ValueSizePair final
 
   double Size() { return size_; }
 
-  void Trace(Visitor* visitor) { visitor->Trace(value_); }
+  void Trace(Visitor* visitor) const { visitor->Trace(value_); }
 
  private:
   TraceWrapperV8Reference<v8::Value> value_;
@@ -111,7 +110,7 @@ void QueueWithSizes::ResetQueue() {
   queue_total_size_ = 0;
 }
 
-void QueueWithSizes::Trace(Visitor* visitor) {
+void QueueWithSizes::Trace(Visitor* visitor) const {
   visitor->Trace(queue_);
 }
 

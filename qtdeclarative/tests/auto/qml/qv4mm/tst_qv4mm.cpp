@@ -35,7 +35,7 @@
 #include <private/qv4qobjectwrapper_p.h>
 #include <private/qjsvalue_p.h>
 
-#include "../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 
 #include <memory>
 
@@ -43,12 +43,21 @@ class tst_qv4mm : public QQmlDataTest
 {
     Q_OBJECT
 
+public:
+    tst_qv4mm();
+
 private slots:
     void gcStats();
     void multiWrappedQObjects();
     void accessParentOnDestruction();
     void clearICParent();
+    void createObjectsOnDestruction();
 };
+
+tst_qv4mm::tst_qv4mm()
+    : QQmlDataTest(QT_QMLTEST_DATADIR)
+{
+}
 
 void tst_qv4mm::gcStats()
 {
@@ -76,10 +85,10 @@ void tst_qv4mm::multiWrappedQObjects()
         QCOMPARE(engine1.memoryManager->m_pendingFreedObjectWrapperValue.size(), 1);
         QCOMPARE(engine2.memoryManager->m_pendingFreedObjectWrapperValue.size(), 0);
 
-        // Moves the additional WeakValue from m_multiplyWrappedQObjects to
-        // m_pendingFreedObjectWrapperValue. It's still alive after all.
+        // The additional WeakValue from m_multiplyWrappedQObjects hasn't been moved
+        // to m_pendingFreedObjectWrapperValue yet. It's still alive after all.
         engine1.memoryManager->runGC();
-        QCOMPARE(engine1.memoryManager->m_pendingFreedObjectWrapperValue.size(), 2);
+        QCOMPARE(engine1.memoryManager->m_pendingFreedObjectWrapperValue.size(), 1);
 
         // engine2 doesn't own the object as engine1 was the first to wrap it above.
         // Therefore, no effect here.
@@ -146,6 +155,17 @@ void tst_qv4mm::clearICParent()
             return;
     }
     QFAIL("Garbage collector was not triggered by large amount of InternalClasses");
+}
+
+void tst_qv4mm::createObjectsOnDestruction()
+{
+    QLoggingCategory::setFilterRules("qt.qml.gc.*=false");
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("createobjects.qml"));
+    std::unique_ptr<QObject> obj(component.create());
+    QVERIFY(obj);
+    QCOMPARE(obj->property("numChecked").toInt(), 1000);
+    QCOMPARE(obj->property("ok").toBool(), true);
 }
 
 QTEST_MAIN(tst_qv4mm)

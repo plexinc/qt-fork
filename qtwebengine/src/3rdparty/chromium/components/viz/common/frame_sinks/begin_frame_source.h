@@ -8,10 +8,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <memory>
 #include <string>
 
+#include "base/check.h"
 #include "base/containers/flat_set.h"
-#include "base/logging.h"
 #include "base/macros.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
@@ -33,7 +34,7 @@ namespace viz {
 // objects.
 class VIZ_COMMON_EXPORT BeginFrameObserver {
  public:
-  virtual ~BeginFrameObserver() {}
+  virtual ~BeginFrameObserver() = default;
 
   // The |args| given to OnBeginFrame is guaranteed to have
   // |args|.IsValid()==true. If |args|.frame_id.source_id did not change
@@ -371,6 +372,10 @@ class VIZ_COMMON_EXPORT ExternalBeginFrameSource : public BeginFrameSource {
   // the rate in frames per second.
   virtual void UpdateRefreshRate(float refresh_rate) {}
 #endif
+
+  // Notifies the begin frame source of the desired frame interval for the
+  // observers.
+  virtual void SetPreferredInterval(base::TimeDelta interval) {}
 
  protected:
   // Called on AddObserver and gets missed BeginFrameArgs for the given

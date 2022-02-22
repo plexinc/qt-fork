@@ -9,9 +9,10 @@
 #include <lib/sys/cpp/service_directory.h>
 
 #include "base/fuchsia/file_utils.h"
+#include "base/logging.h"
+#include "base/macros.h"
 
 namespace base {
-namespace fuchsia {
 
 StartupContext::StartupContext(::fuchsia::sys::StartupInfo startup_info) {
   std::unique_ptr<sys::ServiceDirectory> incoming_services;
@@ -96,5 +97,4 @@ void StartupContext::ServeOutgoingDirectory() {
   component_context_->outgoing()->Serve(std::move(outgoing_directory_request_));
 }
 
-}  // namespace fuchsia
 }  // namespace base

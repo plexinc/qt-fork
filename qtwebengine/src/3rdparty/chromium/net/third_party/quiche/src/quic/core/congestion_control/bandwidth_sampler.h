@@ -5,17 +5,17 @@
 #ifndef QUICHE_QUIC_CORE_CONGESTION_CONTROL_BANDWIDTH_SAMPLER_H_
 #define QUICHE_QUIC_CORE_CONGESTION_CONTROL_BANDWIDTH_SAMPLER_H_
 
-#include "net/third_party/quiche/src/quic/core/congestion_control/send_algorithm_interface.h"
-#include "net/third_party/quiche/src/quic/core/congestion_control/windowed_filter.h"
-#include "net/third_party/quiche/src/quic/core/packet_number_indexed_queue.h"
-#include "net/third_party/quiche/src/quic/core/quic_bandwidth.h"
-#include "net/third_party/quiche/src/quic/core/quic_circular_deque.h"
-#include "net/third_party/quiche/src/quic/core/quic_packets.h"
-#include "net/third_party/quiche/src/quic/core/quic_time.h"
-#include "net/third_party/quiche/src/quic/core/quic_types.h"
-#include "net/third_party/quiche/src/quic/core/quic_unacked_packet_map.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
+#include "quic/core/congestion_control/send_algorithm_interface.h"
+#include "quic/core/congestion_control/windowed_filter.h"
+#include "quic/core/packet_number_indexed_queue.h"
+#include "quic/core/quic_bandwidth.h"
+#include "quic/core/quic_circular_deque.h"
+#include "quic/core/quic_packets.h"
+#include "quic/core/quic_time.h"
+#include "quic/core/quic_types.h"
+#include "quic/core/quic_unacked_packet_map.h"
+#include "quic/platform/api/quic_export.h"
+#include "quic/platform/api/quic_flags.h"
 
 namespace quic {
 
@@ -129,11 +129,10 @@ class QUIC_EXPORT_PRIVATE MaxAckHeightTracker {
  private:
   // Tracks the maximum number of bytes acked faster than the estimated
   // bandwidth.
-  typedef WindowedFilter<QuicByteCount,
-                         MaxFilter<QuicByteCount>,
-                         QuicRoundTripCount,
-                         QuicRoundTripCount>
-      MaxAckHeightFilter;
+  using MaxAckHeightFilter = WindowedFilter<QuicByteCount,
+                                            MaxFilter<QuicByteCount>,
+                                            QuicRoundTripCount,
+                                            QuicRoundTripCount>;
   MaxAckHeightFilter max_ack_height_filter_;
 
   // The time this aggregation started and the number of bytes acked during it.
@@ -370,7 +369,7 @@ class QUIC_EXPORT_PRIVATE BandwidthSampler : public BandwidthSamplerInterface {
   class QUIC_NO_EXPORT RecentAckPoints {
    public:
     void Update(QuicTime ack_time, QuicByteCount total_bytes_acked) {
-      DCHECK_GE(total_bytes_acked, ack_points_[1].total_bytes_acked);
+      QUICHE_DCHECK_GE(total_bytes_acked, ack_points_[1].total_bytes_acked);
 
       if (ack_time < ack_points_[1].ack_time) {
         // This can only happen when time goes backwards, we use the smaller
@@ -528,10 +527,6 @@ class QUIC_EXPORT_PRIVATE BandwidthSampler : public BandwidthSamplerInterface {
   // The most recently sent packet.
   QuicPacketNumber last_sent_packet_;
 
-  // Indicates whether the bandwidth sampler is started in app-limited phase.
-  const bool started_as_app_limited_ =
-      GetQuicReloadableFlag(quic_bw_sampler_app_limited_starting_value);
-
   // Indicates whether the bandwidth sampler is currently in an app-limited
   // phase.
   bool is_app_limited_;
@@ -565,8 +560,7 @@ class QUIC_EXPORT_PRIVATE BandwidthSampler : public BandwidthSamplerInterface {
   MaxAckHeightTracker max_ack_height_tracker_;
   QuicByteCount total_bytes_acked_after_last_ack_event_;
 
-  // True if --quic_avoid_overestimate_bandwidth_with_aggregation=true and
-  // connection option 'BSAO' is set.
+  // True if connection option 'BSAO' is set.
   bool overestimate_avoidance_;
 };
 

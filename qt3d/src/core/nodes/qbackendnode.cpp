@@ -42,8 +42,6 @@
 
 #include <Qt3DCore/qaspectengine.h>
 #include <Qt3DCore/qnode.h>
-#include <Qt3DCore/qnodecommand.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 
 #include <Qt3DCore/private/corelogging_p.h>
 
@@ -59,31 +57,11 @@ QBackendNodeMapper::~QBackendNodeMapper()
 QBackendNodePrivate::QBackendNodePrivate(QBackendNode::Mode mode)
     : q_ptr(nullptr)
     , m_mode(mode)
-    , m_arbiter(nullptr)
     , m_enabled(false)
 {
 }
 
-// Called by backend thread (renderer or other) while we are locked to sync changes
-void QBackendNodePrivate::setArbiter(QLockableObserverInterface *arbiter)
-{
-    Q_ASSERT(m_mode == QBackendNode::ReadWrite);
-    m_arbiter = arbiter;
-}
-
-// Called by backend thread/worker threads. We don't need locking
-// as setting/unsetting the arbiter cannot happen at that time
-void QBackendNodePrivate::notifyObservers(const QSceneChangePtr &e)
-{
-    Q_ASSERT(m_mode == QBackendNode::ReadWrite);
-    if (m_arbiter != nullptr)
-        m_arbiter->sceneChangeEvent(e);
-}
-
-void QBackendNodePrivate::sceneChangeEvent(const QSceneChangePtr &e)
-{
-    q_func()->sceneChangeEvent(e);
-}
+QBackendNodePrivate::~QBackendNodePrivate() = default;
 
 void QBackendNodePrivate::setEnabled(bool enabled)
 {
@@ -97,22 +75,22 @@ QBackendNodePrivate *QBackendNodePrivate::get(QBackendNode *n)
 
 void QBackendNodePrivate::addedToEntity(QNode *frontend)
 {
-    Q_UNUSED(frontend)
+    Q_UNUSED(frontend);
 }
 
 void QBackendNodePrivate::removedFromEntity(QNode *frontend)
 {
-    Q_UNUSED(frontend)
+    Q_UNUSED(frontend);
 }
 
 void QBackendNodePrivate::componentAdded(QNode *frontend)
 {
-    Q_UNUSED(frontend)
+    Q_UNUSED(frontend);
 }
 
 void QBackendNodePrivate::componentRemoved(QNode *frontend)
 {
-    Q_UNUSED(frontend)
+    Q_UNUSED(frontend);
 }
 
 /*!
@@ -124,11 +102,11 @@ void QBackendNodePrivate::componentRemoved(QNode *frontend)
  */
 
 /*!
- * \fn Qt3DCore::QBackendNode *Qt3DCore::QBackendNodeMapper::create(const Qt3DCore::QNodeCreatedChangeBasePtr &change) const
+ * \fn Qt3DCore::QBackendNode *Qt3DCore::QBackendNodeMapper::create(Qt3DCore::QNodeId id) const
  *
  * \TODO
  *
- * \a change
+ * \a id
  *
  * \return created node.
  */
@@ -176,7 +154,7 @@ QBackendNode::~QBackendNode()
 /*!
  * Sets the peer \a id.
  */
-void QBackendNode::setPeerId(QNodeId id) Q_DECL_NOTHROW
+void QBackendNode::setPeerId(QNodeId id) noexcept
 {
     Q_D(QBackendNode);
     d->m_peerId = id;
@@ -185,7 +163,7 @@ void QBackendNode::setPeerId(QNodeId id) Q_DECL_NOTHROW
 /*!
  * \return the peer id of the backend node.
  */
-QNodeId QBackendNode::peerId() const Q_DECL_NOTHROW
+QNodeId QBackendNode::peerId() const noexcept
 {
     Q_D(const QBackendNode);
     return d->m_peerId;
@@ -194,7 +172,7 @@ QNodeId QBackendNode::peerId() const Q_DECL_NOTHROW
 /*!
  * \return \c true if the backend node is enabled.
  */
-bool QBackendNode::isEnabled() const Q_DECL_NOTHROW
+bool QBackendNode::isEnabled() const noexcept
 {
     Q_D(const QBackendNode);
     return d->m_enabled;
@@ -203,10 +181,26 @@ bool QBackendNode::isEnabled() const Q_DECL_NOTHROW
 /*!
  * \return the mode of the backend mode.
  */
-QBackendNode::Mode QBackendNode::mode() const Q_DECL_NOTHROW
+QBackendNode::Mode QBackendNode::mode() const noexcept
 {
     Q_D(const QBackendNode);
     return d->m_mode;
+}
+
+/*!
+ * \brief QBackendNode::syncFromFrontEnd
+ * \param frontEnd
+ * \param firstTime
+ *
+ * This is called by the aspect when a \a frontEnd node needs to synchronize it's changes
+ * with the backend (normally due to property changes).
+ *
+ * \a firstTime will be true if the backend node was just created
+ */
+void QBackendNode::syncFromFrontEnd(const QNode *frontEnd, bool firstTime)
+{
+    Q_UNUSED(frontEnd);
+    Q_UNUSED(firstTime);
 }
 
 /*!
@@ -219,80 +213,12 @@ QBackendNode::QBackendNode(QBackendNodePrivate &dd)
 }
 
 /*!
- * Notifies observers of scene change \a e.
- * \obsolete
- */
-void QBackendNode::notifyObservers(const QSceneChangePtr &e)
-{
-    Q_D(QBackendNode);
-    d->notifyObservers(e);
-}
-
-/*!
-    \obsolete
-
-    Send the command named \a name with contents \a data,
-    and specify \a replyTo as the command id to which the
-    reply needs to be sent.
-*/
-QNodeCommand::CommandId QBackendNode::sendCommand(const QString &name,
-                                                  const QVariant &data,
-                                                  QNodeCommand::CommandId replyTo)
-{
-    auto e = QNodeCommandPtr::create(peerId());
-    e->setName(name);
-    e->setData(data);
-    e->setReplyToCommandId(replyTo);
-    e->setDeliveryFlags(QSceneChange::Nodes);
-    notifyObservers(e);
-    return e->commandId();
-}
-
-/*!
-    Send the reply to \a command.
-    \obsolete
-*/
-void QBackendNode::sendReply(const QNodeCommandPtr &command)
-{
-    command->setDeliveryFlags(QSceneChange::Nodes);
-    notifyObservers(command);
-}
-
-/*!
- * \obsolete
- */
-void QBackendNode::initializeFromPeer(const QNodeCreatedChangeBasePtr &change)
-{
-    Q_UNUSED(change)
-    qCDebug(Nodes) << Q_FUNC_INFO << change->metaObject()->className() << "does not override";
-}
-
-/*!
  * Enables or disables the backend node by \a enabled.
  */
-void QBackendNode::setEnabled(bool enabled) Q_DECL_NOTHROW
+void QBackendNode::setEnabled(bool enabled) noexcept
 {
     Q_D(QBackendNode);
     d->m_enabled = enabled;
-}
-
-/*!
- * \obsolete
- */
-void QBackendNode::sceneChangeEvent(const QSceneChangePtr &e)
-{
-    Q_D(QBackendNode);
-
-    switch (e->type()) {
-    case PropertyUpdated: {
-        auto propertyChange = qSharedPointerCast<QPropertyUpdatedChange>(e);
-        if (propertyChange->propertyName() == QByteArrayLiteral("enabled"))
-            d->m_enabled = propertyChange->value().toBool();
-        break;
-    }
-    default:
-        break;
-    }
 }
 
 } // Qt3D

@@ -17,6 +17,8 @@
 #include "base/threading/thread_checker.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
+#include "chromeos/cryptohome/cryptohome_parameters.h"
+#include "components/arc/session/arc_client_adapter.h"
 #include "components/arc/session/arc_instance_mode.h"
 #include "components/arc/session/arc_session.h"
 #include "components/arc/session/arc_stop_reason.h"
@@ -98,9 +100,16 @@ class ArcSessionRunner : public ArcSession::Observer {
   // when this function is called, MessageLoop is no longer exists.
   void OnShutdown();
 
-  // Sets a hash string of the profile user ID and an ARC serial number for the
+  // Sets a hash string of the profile user IDs and an ARC serial number for the
   // user.
-  void SetUserInfo(const std::string& hash, const std::string& serial_number);
+  void SetUserInfo(const cryptohome::Identification& cryptohome_id,
+                   const std::string& hash,
+                   const std::string& serial_number);
+
+  // Provides the DemoModeDelegate which will be used to load the demo session
+  // apps path.
+  void SetDemoModeDelegate(
+      std::unique_ptr<ArcClientAdapter::DemoModeDelegate> delegate);
 
   // Returns the current ArcSession instance for testing purpose.
   ArcSession* GetArcSessionForTesting() { return arc_session_.get(); }
@@ -150,12 +159,17 @@ class ArcSessionRunner : public ArcSession::Observer {
   // Parameters to upgrade request.
   UpgradeParams upgrade_params_;
 
+  // A cryptohome ID of the profile.
+  cryptohome::Identification cryptohome_id_;
   // A hash string of the profile user ID.
   std::string user_id_hash_;
   // A serial number for the current profile.
   std::string serial_number_;
 
   bool resumed_ = false;
+
+  // DemoModeDelegate to be used by ArcSession.
+  std::unique_ptr<ArcClientAdapter::DemoModeDelegate> demo_mode_delegate_;
 
   // WeakPtrFactory to use callbacks.
   base::WeakPtrFactory<ArcSessionRunner> weak_ptr_factory_{this};

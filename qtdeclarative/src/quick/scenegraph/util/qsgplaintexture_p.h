@@ -53,7 +53,7 @@
 
 #include <QtQuick/private/qtquickglobal_p.h>
 #include <QtQuick/private/qsgtexture_p.h>
-#include <QtQuick/qquickwindow.h>
+#include <QtQuick/private/qquickwindow_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -70,8 +70,6 @@ public:
     void setOwnsTexture(bool owns) { m_owns_texture = owns; }
     bool ownsTexture() const { return m_owns_texture; }
 
-    void setTextureId(int id);
-    int textureId() const override;
     void setTextureSize(const QSize &size) { m_texture_size = size; }
     QSize textureSize() const override { return m_texture_size; }
 
@@ -83,12 +81,18 @@ public:
     void setImage(const QImage &image);
     const QImage &image() { return m_image; }
 
-    void bind() override;
+    qint64 comparisonKey() const override;
+
+    QRhiTexture *rhiTexture() const override;
+    void commitTextureOperations(QRhi *rhi, QRhiResourceUpdateBatch *resourceUpdates) override;
 
     void setTexture(QRhiTexture *texture);
-    void setTextureFromNativeObject(QRhi *rhi, QQuickWindow::NativeObjectType type,
-                                    const void *nativeObjectPtr, int nativeLayout,
-                                    const QSize &size, bool mipmap);
+    void setTextureFromNativeTexture(QRhi *rhi,
+                                     quint64 nativeObjectHandle,
+                                     int nativeLayout,
+                                     const QSize &size,
+                                     QQuickWindow::CreateTextureOptions options,
+                                     QQuickWindowPrivate::TextureFromNativeTextureFlags flags);
 
     static QSGPlainTexture *fromImage(const QImage &image) {
         QSGPlainTexture *t = new QSGPlainTexture();
@@ -101,7 +105,6 @@ protected:
 
     QImage m_image;
 
-    uint m_texture_id;
     QSize m_texture_size;
     QRectF m_texture_rect;
     QRhiTexture *m_texture;
@@ -119,10 +122,7 @@ class QSGPlainTexturePrivate : public QSGTexturePrivate
 {
     Q_DECLARE_PUBLIC(QSGPlainTexture)
 public:
-    int comparisonKey() const override;
-    QRhiTexture *rhiTexture() const override;
-    void updateRhiTexture(QRhi *rhi, QRhiResourceUpdateBatch *resourceUpdates) override;
-
+    QSGPlainTexturePrivate(QSGTexture *t) : QSGTexturePrivate(t) { }
     QSGTexture::Filtering m_last_mipmap_filter = QSGTexture::None;
 };
 

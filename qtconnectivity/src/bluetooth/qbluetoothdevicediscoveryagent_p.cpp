@@ -51,9 +51,7 @@ QT_BEGIN_NAMESPACE
 QBluetoothDeviceDiscoveryAgentPrivate::QBluetoothDeviceDiscoveryAgentPrivate(
                 const QBluetoothAddress &deviceAdapter,
                 QBluetoothDeviceDiscoveryAgent *parent)
-    :   inquiryType(QBluetoothDeviceDiscoveryAgent::GeneralUnlimitedInquiry),
-        lastError(QBluetoothDeviceDiscoveryAgent::NoError),
-        lowEnergySearchTimeout(-1),
+    :   lowEnergySearchTimeout(-1),
         q_ptr(parent)
 {
     Q_UNUSED(deviceAdapter);
@@ -80,7 +78,7 @@ void QBluetoothDeviceDiscoveryAgentPrivate::start(QBluetoothDeviceDiscoveryAgent
     lastError = QBluetoothDeviceDiscoveryAgent::UnsupportedPlatformError;
     errorString = QBluetoothDeviceDiscoveryAgent::tr("Device discovery not supported on this platform");
 
-    emit q->error(lastError);
+    emit q->errorOccurred(lastError);
 }
 
 void QBluetoothDeviceDiscoveryAgentPrivate::stop()

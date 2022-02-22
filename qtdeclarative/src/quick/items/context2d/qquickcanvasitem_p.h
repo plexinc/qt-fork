@@ -100,6 +100,7 @@ class QQuickCanvasItem : public QQuickItem
     Q_PROPERTY(RenderTarget renderTarget READ renderTarget WRITE setRenderTarget NOTIFY renderTargetChanged)
     Q_PROPERTY(RenderStrategy renderStrategy READ renderStrategy WRITE setRenderStrategy NOTIFY renderStrategyChanged)
     QML_NAMED_ELEMENT(Canvas)
+    QML_ADDED_IN_VERSION(2, 0)
 
 public:
     enum RenderTarget {
@@ -190,7 +191,7 @@ protected:
     void itemChange(QQuickItem::ItemChange, const QQuickItem::ItemChangeData &) override;
     void updatePolish() override;
     QSGNode *updatePaintNode(QSGNode *, UpdatePaintNodeData *) override;
-    void geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry) override;
+    void geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry) override;
     void releaseResources() override;
     bool event(QEvent *event) override;
 private:

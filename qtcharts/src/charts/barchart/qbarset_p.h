@@ -45,8 +45,9 @@
 #include <QtGui/QPen>
 #include <QtGui/QBrush>
 #include <QtGui/QFont>
+#include <QSet>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class Q_CHARTS_PRIVATE_EXPORT QBarSetPrivate : public QObject
 {
@@ -57,8 +58,8 @@ public:
     ~QBarSetPrivate();
 
     void append(QPointF value);
-    void append(QList<QPointF> values);
-    void append(QList<qreal> values);
+    void append(const QList<QPointF> &values);
+    void append(const QList<qreal> &values);
 
     void insert(const int index, const qreal value);
     void insert(const int index, const QPointF value);
@@ -74,6 +75,9 @@ public:
     void setLabelsDirty(bool dirty) { m_labelsDirty = dirty; }
     bool labelsDirty() const { return m_labelsDirty; }
 
+    void setBarSelected(int index, bool selected, bool &callSignal);
+    bool isBarSelected(int index) const;
+
 Q_SIGNALS:
     void updatedBars();
     void valueChanged(int index);
@@ -84,16 +88,18 @@ public:
     QBarSet * const q_ptr;
     QString m_label;
     QList<QPointF> m_values;
+    QSet<int> m_selectedBars;
     QPen m_pen;
     QBrush m_brush;
     QBrush m_labelBrush;
     QFont m_labelFont;
+    QColor m_selectedColor;
     bool m_visualsDirty;
     bool m_labelsDirty;
 
     friend class QBarSet;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // QBARSETPRIVATE_P_H

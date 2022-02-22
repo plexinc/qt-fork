@@ -57,7 +57,7 @@ ZoomSelector::ZoomSelector(QWidget *parent)
     addItem(QLatin1String("200%"));
     addItem(QLatin1String("400%"));
 
-    connect(this, static_cast<void(QComboBox::*)(const QString &)>(&QComboBox::currentIndexChanged),
+    connect(this, &QComboBox::currentTextChanged,
             this, &ZoomSelector::onCurrentTextChanged);
 
     connect(lineEdit(), &QLineEdit::editingFinished,

@@ -43,19 +43,22 @@
 #include <QtCore/QPointer>
 #include <QtCore/private/qcore_mac_p.h>
 #include <qpa/qplatformopenglcontext.h>
-#include <QtGui/QOpenGLContext>
+#include <QtGui/qopenglcontext.h>
+#include <QtGui/private/qopenglcontext_p.h>
 #include <QtGui/QWindow>
 
-#include <AppKit/AppKit.h>
+Q_FORWARD_DECLARE_OBJC_CLASS(NSOpenGLContext);
+Q_FORWARD_DECLARE_OBJC_CLASS(NSOpenGLPixelFormat);
 
 QT_BEGIN_NAMESPACE
 
 class QCocoaWindow;
 
-class QCocoaGLContext : public QPlatformOpenGLContext
+class QCocoaGLContext : public QPlatformOpenGLContext, public QNativeInterface::QCocoaGLContext
 {
 public:
     QCocoaGLContext(QOpenGLContext *context);
+    QCocoaGLContext(NSOpenGLContext *context);
     ~QCocoaGLContext();
 
     void initialize() override;
@@ -70,7 +73,7 @@ public:
     bool isSharing() const override;
     bool isValid() const override;
 
-    NSOpenGLContext *nativeContext() const;
+    NSOpenGLContext *nativeContext() const override;
 
     QFunctionPointer getProcAddress(const char *procName) override;
 
@@ -78,7 +81,6 @@ private:
     static NSOpenGLPixelFormat *pixelFormatForSurfaceFormat(const QSurfaceFormat &format);
 
     bool setDrawable(QPlatformSurface *surface);
-    void prepareDrawable(QCocoaWindow *platformWindow);
     void updateSurfaceFormat();
 
     NSOpenGLContext *m_context = nil;

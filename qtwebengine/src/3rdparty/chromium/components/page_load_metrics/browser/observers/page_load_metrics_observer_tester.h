@@ -14,6 +14,7 @@
 #include "components/page_load_metrics/common/page_load_metrics.mojom.h"
 #include "components/page_load_metrics/common/test/weak_mock_timer.h"
 #include "components/ukm/test_ukm_recorder.h"
+#include "content/public/browser/cookie_access_details.h"
 #include "net/cookies/canonical_cookie.h"
 #include "ui/base/page_transition_types.h"
 
@@ -131,23 +132,21 @@ class PageLoadMetricsObserverTester : public test::WeakMockTimerProvider {
   // Simulate playing a media element.
   void SimulateMediaPlayed();
 
-  // Simulate reading cookies.
-  void SimulateCookiesRead(const GURL& url,
-                           const GURL& first_party_url,
-                           const net::CookieList& cookie_list,
-                           bool blocked_by_policy);
-
-  // Simulate writing a cookie.
-  void SimulateCookieChange(const GURL& url,
-                            const GURL& first_party_url,
-                            const net::CanonicalCookie& cookie,
-                            bool blocked_by_policy);
+  // Simulate accessingcookies.
+  void SimulateCookieAccess(const content::CookieAccessDetails& details);
 
   // Simulate accessing the local storage or session storage.
   void SimulateStorageAccess(const GURL& url,
                              const GURL& first_party_url,
                              bool blocked_by_policy,
                              StorageType storage_type);
+
+  // Simulate a V8 per-frame memory update.
+  void SimulateMemoryUpdate(content::RenderFrameHost* render_frame_host,
+                            int64_t delta_bytes);
+
+  void SimulateMobileFriendlinessUpdate(
+      blink::MobileFriendliness& mobile_friendliness);
 
   MetricsWebContentsObserver* metrics_web_contents_observer() {
     return metrics_web_contents_observer_;
@@ -170,6 +169,7 @@ class PageLoadMetricsObserverTester : public test::WeakMockTimerProvider {
       const mojom::CpuTiming& cpu_timing,
       const mojom::DeferredResourceCounts& new_deferred_resource_data,
       const mojom::InputTiming& input_timing,
+      const blink::MobileFriendliness& mobile_friendliness,
       content::RenderFrameHost* rfh);
 
   content::WebContents* web_contents() const { return web_contents_; }

@@ -57,13 +57,13 @@
 #include "qbluetoothserver.h"
 #include "qbluetooth.h"
 
-#if QT_CONFIG(bluez) || defined(QT_WIN_BLUETOOTH)
+#if QT_CONFIG(bluez)
 QT_FORWARD_DECLARE_CLASS(QSocketNotifier)
 #endif
 
 #ifdef QT_ANDROID_BLUETOOTH
-#include <QtAndroidExtras/QAndroidJniEnvironment>
-#include <QtAndroidExtras/QAndroidJniObject>
+#include <QtCore/QJniEnvironment>
+#include <QtCore/QJniObject>
 #include <QtBluetooth/QBluetoothUuid>
 
 class ServerAcceptanceThread;
@@ -79,10 +79,10 @@ class ServerAcceptanceThread;
 
 #ifdef QT_OSX_BLUETOOTH
 
-#include "osx/btdelegates_p.h"
-#include "osx/btraii_p.h"
+#include "darwin/btdelegates_p.h"
+#include "darwin/btraii_p.h"
 
-#include <QtCore/qvector.h>
+#include <QtCore/QMutex>
 
 #endif // QT_OSX_BLUETOOTH
 
@@ -110,23 +110,20 @@ public:
     static QBluetoothSocket *createSocketForServer(
                 QBluetoothServiceInfo::Protocol socketType = QBluetoothServiceInfo::RfcommProtocol);
 #endif
-#if defined(QT_WIN_BLUETOOTH)
-    void _q_newConnection();
-#endif
 
 public:
-    QBluetoothSocket *socket;
+    QBluetoothSocket *socket = nullptr;
 
-    int maxPendingConnections;
-    QBluetooth::SecurityFlags securityFlags;
+    int maxPendingConnections = 1;
+    QBluetooth::SecurityFlags securityFlags = QBluetooth::Security::NoSecurity;
     QBluetoothServiceInfo::Protocol serverType;
 
 protected:
     QBluetoothServer *q_ptr;
 
 private:
-    QBluetoothServer::Error m_lastError;
-#if QT_CONFIG(bluez) || defined(QT_WIN_BLUETOOTH)
+    QBluetoothServer::Error m_lastError = QBluetoothServer::NoError;
+#if QT_CONFIG(bluez)
     QSocketNotifier *socketNotifier = nullptr;
 #elif defined(QT_ANDROID_BLUETOOTH)
     ServerAcceptanceThread *thread;
@@ -140,7 +137,8 @@ public:
     EventRegistrationToken connectionToken {-1};
 
     mutable QMutex pendingConnectionsMutex;
-    QVector<Microsoft::WRL::ComPtr<ABI::Windows::Networking::Sockets::IStreamSocket>> pendingConnections;
+    QList<Microsoft::WRL::ComPtr<ABI::Windows::Networking::Sockets::IStreamSocket>>
+            pendingConnections;
 
     Microsoft::WRL::ComPtr<ABI::Windows::Networking::Sockets::IStreamSocketListener> socketListener;
     HRESULT handleClientConnection(ABI::Windows::Networking::Sockets::IStreamSocketListener *listener,
@@ -195,7 +193,7 @@ private:
     static void unregisterServer(QBluetoothServerPrivate *server);
 
     using PendingConnection = DarwinBluetooth::StrongReference;
-    QVector<PendingConnection> pendingConnections;
+    QList<PendingConnection> pendingConnections;
 
 #endif // QT_OSX_BLUETOOTH
 };

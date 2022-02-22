@@ -2,7 +2,7 @@
 
 As an ANGLE Sheriff. Your job is to:
 
- 1. Keep the [ANGLE Try Waterfall](https://ci.chromium.org/p/chromium/g/angle.try/builders) in good
+ 1. Keep the [ANGLE Try Waterfall](https://ci.chromium.org/p/chromium/g/tryserver.chromium.angle/builders) in good
     working order.
  1. Monitor the
     [Chromium GPU FYI Waterfall](https://ci.chromium.org/p/chromium/g/chromium.gpu.fyi/console)
@@ -11,6 +11,7 @@ As an ANGLE Sheriff. Your job is to:
  1. Keep the [ANGLE Standalone Testers](README.md) in good working order.
  1. Keep the [SwANGLE Try Waterfall](https://luci-milo.appspot.com/p/chromium/g/tryserver.chromium.swangle/builders) in good
     working order.
+ 1. Monitor and respond to ANGLE's [Perf alerts](https://groups.google.com/u/0/a/chromium.org/g/angle-perf-alerts)
 
 If you're not an ANGLE team member, you can contact us on the public ANGLE project
 [Google group](https://groups.google.com/forum/#!forum/angleproject).
@@ -23,7 +24,7 @@ extension for inspecting bot builds. It'll save you a lot of time.
 ## Task 1: Monitor ANGLE CI and Try Testers
 
 Your first job is to keep the
-[ANGLE Try Waterfall](https://ci.chromium.org/p/chromium/g/angle.try/builders) healthy.  Some
+[ANGLE Try Waterfall](https://ci.chromium.org/p/chromium/g/tryserver.chromium.angle/builders) healthy.  Some
 failures are expected on this waterfall. Developers might be testing expectedly buggy code. But
 persistent flakiness and failures should be reported and reverted.
 
@@ -84,19 +85,24 @@ Chrome with the latest ANGLE changes.
 
 We also use additional auto-rollers to roll third party libraries into ANGLE once per day:
 
- * [SPIRV-Tools into ANGLE](https://autoroll.skia.org/r/spirv-tools-angle-autoroll)
- * [glslang into ANGLE](https://autoroll.skia.org/r/glslang-angle-autoroll)
  * [SwiftShader into ANGLE](https://autoroll.skia.org/r/swiftshader-angle-autoroll)
- * [Vulkan-Tools into ANGLE](https://autoroll.skia.org/r/vulkan-tools-angle-autoroll)
- * [Vulkan-Loader into ANGLE](https://autoroll.skia.org/r/vulkan-loader-angle-autoroll)
- * [Vulkan-Headers into ANGLE](https://autoroll.skia.org/r/vulkan-headers-angle-autoroll)
- * [Vulkan-ValidationLayers into ANGLE](https://autoroll.skia.org/r/vulkan-validation-layers-angle-autoroll)
+ * [vulkan-deps into ANGLE](https://autoroll.skia.org/r/vulkan-deps-angle-autoroll)
+ * [VK-GL-CTS into ANGLE](https://autoroll.skia.org/r/vk-gl-cts-angle-autoroll?tab=status)
 
-Please ensure these rollers are also healthy and unblocked. You can trigger manual rolls using the dashboards
-to land high-priority changes.
+Please ensure these rollers are also healthy and unblocked. You can trigger manual rolls using the
+dashboards to land high-priority changes. When a roll fails, stop the roller, determine if the root
+cause is a problem with ANGLE or with the upstream repo, and file an issue with an appropriate next
+step.
 
 The autoroller configurations live in the [skia/buildbot repository](https://skia.googlesource.com/buildbot/)
 in the [autoroll/config](https://skia.googlesource.com/buildbot/+/master/autoroll/config) folder.
+
+**NOTE: vulkan-deps consists of several related Vulkan dependencies:**
+
+vulkan-deps houses Vulkan-Tools, Vulkan-Loader, Vulkan-ValidationLayers, Vulkan-Headers and other
+related repos. If the roll fails, you will have to determine the correct upstream repo and file
+an issue upstream. For more info on vulkan-deps see the
+[README](https://chromium.googlesource.com/vulkan-deps/+/refs/heads/master/README.md).
 
 ## Task 4: ANGLE Standalone Testing
 
@@ -129,3 +135,9 @@ The possible ways to handle these failures are:
 A lower priority task here is to keep healthy all the SwANGLE
 [CI](https://luci-milo.appspot.com/p/chromium/g/chromium.swangle/builders) and
 [Try](https://luci-milo.appspot.com/p/chromium/g/tryserver.chromium.swangle/builders) bots.
+
+## Task 6: Monitor and respond to ANGLE's perf alerts
+
+Any large regressions should be triaged with a new ANGLE bug linked to any suspected CLs that may
+have caused performance to regress. If it's a known/expected regression, the bug can be closed as
+such. The tests are very flaky right now, so a WontFix resolution is often appropriate.

@@ -40,10 +40,13 @@
 #include "qt3dquick3dextrasplugin.h"
 
 #include <Qt3DExtras/qconegeometry.h>
+#include <Qt3DExtras/qconegeometryview.h>
 #include <Qt3DExtras/qconemesh.h>
 #include <Qt3DExtras/qcuboidgeometry.h>
+#include <Qt3DExtras/qcuboidgeometryview.h>
 #include <Qt3DExtras/qcuboidmesh.h>
 #include <Qt3DExtras/qcylindergeometry.h>
+#include <Qt3DExtras/qcylindergeometryview.h>
 #include <Qt3DExtras/qcylindermesh.h>
 #include <Qt3DExtras/qdiffusemapmaterial.h>
 #include <Qt3DExtras/qdiffusespecularmapmaterial.h>
@@ -63,16 +66,18 @@
 #include <Qt3DExtras/qphongalphamaterial.h>
 #include <Qt3DExtras/qphongmaterial.h>
 #include <Qt3DExtras/qplanegeometry.h>
+#include <Qt3DExtras/qplanegeometryview.h>
 #include <Qt3DExtras/qplanemesh.h>
 #include <Qt3DExtras/qskyboxentity.h>
 #include <Qt3DExtras/qspheregeometry.h>
+#include <Qt3DExtras/qspheregeometryview.h>
 #include <Qt3DExtras/qspheremesh.h>
 #include <Qt3DExtras/qspritegrid.h>
 #include <Qt3DExtras/qspritesheetitem.h>
 #include <Qt3DExtras/qtext2dentity.h>
 #include <Qt3DExtras/qtexturematerial.h>
-#include <Qt3DExtras/qtexturedmetalroughmaterial.h>
 #include <Qt3DExtras/qtorusgeometry.h>
+#include <Qt3DExtras/qtorusgeometryview.h>
 #include <Qt3DExtras/qtorusmesh.h>
 
 #include <Qt3DQuickExtras/private/quick3dlevelofdetailloader_p.h>
@@ -115,11 +120,6 @@ void Qt3DQuick3DExtrasPlugin::registerTypes(const char *uri)
     qmlRegisterType<Qt3DExtras::QDiffuseSpecularMaterial>(uri, 2, 10, "DiffuseSpecularMaterial");
     qmlRegisterType<Qt3DExtras::QMetalRoughMaterial>(uri, 2, 9, "MetalRoughMaterial");
     qmlRegisterType<Qt3DExtras::QMetalRoughMaterial, 10>(uri, 2, 10, "MetalRoughMaterial");
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-    qmlRegisterType<Qt3DExtras::QTexturedMetalRoughMaterial>(uri, 2, 9, "TexturedMetalRoughMaterial");
-QT_WARNING_POP
-    qmlRegisterType<Qt3DExtras::QMorphPhongMaterial>(uri, 2, 9, "MorphPhongMaterial");
 
     qmlRegisterType<Qt3DExtras::QSpriteGrid>(uri, 2, 10, "SpriteGrid");
     qmlRegisterType<Qt3DExtras::QSpriteSheetItem>(uri, 2, 10, "SpriteItem");
@@ -128,18 +128,24 @@ QT_WARNING_POP
     // Meshes
     qmlRegisterType<Qt3DExtras::QConeMesh>(uri, 2, 0, "ConeMesh");
     qmlRegisterType<Qt3DExtras::QConeGeometry>(uri, 2, 0, "ConeGeometry");
+    qmlRegisterType<Qt3DExtras::QConeGeometryView>(uri, 2, 16, "ConeGeometryView");
     qmlRegisterType<Qt3DExtras::QCuboidMesh>(uri, 2, 0, "CuboidMesh");
     qmlRegisterType<Qt3DExtras::QCuboidGeometry>(uri, 2, 0, "CuboidGeometry");
+    qmlRegisterType<Qt3DExtras::QCuboidGeometryView>(uri, 2, 16, "CuboidGeometryView");
     qmlRegisterType<Qt3DExtras::QCylinderMesh>(uri, 2, 0, "CylinderMesh");
     qmlRegisterType<Qt3DExtras::QCylinderGeometry>(uri, 2, 0, "CylinderGeometry");
+    qmlRegisterType<Qt3DExtras::QCylinderGeometryView>(uri, 2, 16, "CylinderGeometryView");
     qmlRegisterType<Qt3DExtras::QPlaneMesh>(uri, 2, 0, "PlaneMesh");
     qmlRegisterType<Qt3DExtras::QPlaneMesh, 9>(uri, 2, 9, "PlaneMesh");
     qmlRegisterType<Qt3DExtras::QPlaneGeometry>(uri, 2, 0, "PlaneGeometry");
+    qmlRegisterType<Qt3DExtras::QPlaneGeometryView>(uri, 2, 16, "PlaneGeometryView");
     qmlRegisterType<Qt3DExtras::QPlaneGeometry, 9>(uri, 2, 9, "PlaneGeometry");
     qmlRegisterType<Qt3DExtras::QTorusMesh>(uri, 2, 0, "TorusMesh");
     qmlRegisterType<Qt3DExtras::QTorusGeometry>(uri, 2, 0, "TorusGeometry");
+    qmlRegisterType<Qt3DExtras::QTorusGeometryView>(uri, 2, 16, "TorusGeometryView");
     qmlRegisterType<Qt3DExtras::QSphereMesh>(uri, 2, 0, "SphereMesh");
     qmlRegisterType<Qt3DExtras::QSphereGeometry>(uri, 2, 0, "SphereGeometry");
+    qmlRegisterType<Qt3DExtras::QSphereGeometryView>(uri, 2, 16, "SphereGeometryView");
 
     // 3D Text
     qmlRegisterType<Qt3DExtras::QExtrudedTextGeometry>(uri, 2, 9, "ExtrudedTextGeometry");
@@ -148,7 +154,7 @@ QT_WARNING_POP
     qmlRegisterType<Qt3DExtras::QText2DEntity>(uri, 2, 9, "Text2DEntity");
 
     // Auto-increment the import to stay in sync with ALL future Qt minor versions
-    qmlRegisterModule(uri, 2, QT_VERSION_MINOR);
+    qmlRegisterModule(uri, 2, 15);
 }
 
 

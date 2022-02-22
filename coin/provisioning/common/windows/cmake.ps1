@@ -1,6 +1,6 @@
 #############################################################################
 ##
-## Copyright (C) 2017 The Qt Company Ltd.
+## Copyright (C) 2019 The Qt Company Ltd.
 ## Contact: http://www.qt.io/licensing/
 ##
 ## This file is part of the provisioning scripts of the Qt Toolkit.
@@ -33,21 +33,21 @@
 
 . "$PSScriptRoot\helpers.ps1"
 
-$majorminorversion = "3.7"
-$version = "3.7.2"
+$majorminorversion = "3.21"
+$version = "3.21.1"
 
-$zip = Get-DownloadLocation ("cmake-" + $version + "-win32-x86.zip")
-$officialurl = "https://cmake.org/files/v" + $majorminorversion + "/cmake-" + $version + "-win32-x86.zip"
-$cachedurl = "\\ci-files01-hki.intra.qt.io\provisioning\cmake\cmake-" + $version + "-win32-x86.zip"
+$zip = Get-DownloadLocation ("cmake-" + $version + "-windows-i386.zip")
+$officialurl = "https://cmake.org/files/v" + $majorminorversion + "/cmake-" + $version + "-windows-i386.zip"
+$cachedurl = "\\ci-files01-hki.intra.qt.io\provisioning\cmake\cmake-" + $version + "-windows-i386.zip"
 
 Write-Host "Removing old cmake"
-Remove-Item "C:\CMake" -Force -Recurse -ErrorAction SilentlyContinue
+Remove "C:\CMake"
 
 Download $officialurl $cachedurl $zip
-Verify-Checksum $zip "c80c17e858ecfebfaf16fe8af18b174d2600c4e6"
+Verify-Checksum $zip "7271b8c568f428af433f3aae80c292ef868993c5"
 
 Extract-7Zip $zip C:
-$defaultinstallfolder = "C:\cmake-" + $version + "-win32-x86"
+$defaultinstallfolder = "C:\cmake-" + $version + "-windows-i386"
 Rename-Item $defaultinstallfolder C:\CMake
 
 Add-Path "C:\CMake\bin"

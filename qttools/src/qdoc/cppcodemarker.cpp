@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2019 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -26,38 +26,23 @@
 **
 ****************************************************************************/
 
-/*
-  cppcodemarker.cpp
-*/
-
 #include "cppcodemarker.h"
 
-#include "generator.h"
+#include "access.h"
+#include "enumnode.h"
+#include "functionnode.h"
+#include "namespacenode.h"
+#include "propertynode.h"
+#include "qmlpropertynode.h"
 #include "text.h"
 #include "tree.h"
+#include "typedefnode.h"
+#include "variablenode.h"
 
 #include <QtCore/qdebug.h>
-#include <QtCore/qregexp.h>
-
-#include <ctype.h>
+#include <QtCore/qregularexpression.h>
 
 QT_BEGIN_NAMESPACE
-
-/*!
-  The constructor does nothing.
- */
-CppCodeMarker::CppCodeMarker()
-{
-    // nothing.
-}
-
-/*!
-  The destructor does nothing.
- */
-CppCodeMarker::~CppCodeMarker()
-{
-    // nothing.
-}
 
 /*!
   Returns \c true.
@@ -109,9 +94,7 @@ QString CppCodeMarker::markedUpSynopsis(const Node *node, const Node * /* relati
     const PropertyNode *property;
     const VariableNode *variable;
     const EnumNode *enume;
-    const TypedefNode *typedeff;
     QString synopsis;
-    QString extra;
     QString name;
 
     name = taggedNode(node);
@@ -138,7 +121,7 @@ QString CppCodeMarker::markedUpSynopsis(const Node *node, const Node * /* relati
     case Node::Function:
         func = (const FunctionNode *)node;
         if (style == Section::Details) {
-            QString templateDecl = node->templateDecl();
+            const QString &templateDecl = node->templateDecl();
             if (!templateDecl.isEmpty())
                 synopsis = templateDecl + QLatin1Char(' ');
         }
@@ -155,15 +138,10 @@ QString CppCodeMarker::markedUpSynopsis(const Node *node, const Node * /* relati
                     QString name = parameters.at(i).name();
                     QString type = parameters.at(i).type();
                     QString value = parameters.at(i).defaultValue();
-                    QString paramName;
-                    if (!name.isEmpty()) {
-                        synopsis += typified(type, true);
-                        paramName = name;
-                    } else {
-                        paramName = type;
-                    }
-                    if (style != Section::AllMembers || name.isEmpty())
-                        synopsis += "<@param>" + protect(paramName) + "</@param>";
+                    bool trailingSpace = style != Section::AllMembers && !name.isEmpty();
+                    synopsis += typified(type, trailingSpace);
+                    if (style != Section::AllMembers && !name.isEmpty())
+                        synopsis += "<@param>" + protect(name) + "</@param>";
                     if (style != Section::AllMembers && !value.isEmpty())
                         synopsis += " = " + protect(value);
                 }
@@ -194,30 +172,6 @@ QString CppCodeMarker::markedUpSynopsis(const Node *node, const Node * /* relati
                 synopsis.append(" &");
             else if (func->isRefRef())
                 synopsis.append(" &&");
-            QStringList bracketed;
-            if (func->isStatic()) {
-                bracketed += "static";
-            } else if (!func->isNonvirtual()) {
-                if (func->isFinal())
-                    bracketed += "final";
-                if (func->isOverride())
-                    bracketed += "override";
-                if (func->isPureVirtual())
-                    bracketed += "pure";
-                bracketed += "virtual";
-            }
-
-            if (func->access() == Node::Protected)
-                bracketed += "protected";
-            else if (func->access() == Node::Private)
-                bracketed += "private";
-
-            if (func->isSignal())
-                bracketed += "signal";
-            else if (func->isSlot())
-                bracketed += "slot";
-            if (!bracketed.isEmpty())
-                extra += QLatin1Char('[') + bracketed.join(' ') + QStringLiteral("] ");
         }
         break;
     case Node::Enum:
@@ -254,23 +208,17 @@ QString CppCodeMarker::markedUpSynopsis(const Node *node, const Node * /* relati
         }
         break;
     case Node::TypeAlias:
-        if (style == Section::Summary)
-            synopsis = "(alias) ";
-        else if (style == Section::Details) {
-            extra = QStringLiteral("[alias] ");
-            QString templateDecl = node->templateDecl();
+        if (style == Section::Details) {
+            const QString &templateDecl = node->templateDecl();
             if (!templateDecl.isEmpty())
-                synopsis = templateDecl + QLatin1Char(' ');
+                synopsis += templateDecl + QLatin1Char(' ');
         }
         synopsis += name;
         break;
     case Node::Typedef:
-        typedeff = static_cast<const TypedefNode *>(node);
-        if (typedeff->associatedEnum()) {
-            synopsis = "flags " + name;
-        } else {
-            synopsis = "typedef " + name;
-        }
+        if (static_cast<const TypedefNode *>(node)->associatedEnum())
+            synopsis = "flags ";
+        synopsis += name;
         break;
     case Node::Property:
         property = static_cast<const PropertyNode *>(node);
@@ -288,19 +236,12 @@ QString CppCodeMarker::markedUpSynopsis(const Node *node, const Node * /* relati
         synopsis = name;
     }
 
-    if (style == Section::Summary) {
-        if (node->isPreliminary())
-            extra += "(preliminary) ";
-        else if (node->isDeprecated())
-            extra += "(deprecated) ";
-        else if (node->isObsolete())
-            extra += "(obsolete) ";
-    }
-
+    QString extra = CodeMarker::extraSynopsis(node, style);
     if (!extra.isEmpty()) {
         extra.prepend("<@extra>");
         extra.append("</@extra>");
     }
+
     return extra + synopsis;
 }
 
@@ -312,17 +253,17 @@ QString CppCodeMarker::markedUpQmlItem(const Node *node, bool summary)
     if (summary) {
         name = linkTag(node, name);
     } else if (node->isQmlProperty() || node->isJsProperty()) {
-        const QmlPropertyNode *pn = static_cast<const QmlPropertyNode *>(node);
+        const auto *pn = static_cast<const QmlPropertyNode *>(node);
         if (pn->isAttached())
             name.prepend(pn->element() + QLatin1Char('.'));
     }
     name = "<@name>" + name + "</@name>";
     QString synopsis;
     if (node->isQmlProperty() || node->isJsProperty()) {
-        const QmlPropertyNode *pn = static_cast<const QmlPropertyNode *>(node);
+        const auto *pn = static_cast<const QmlPropertyNode *>(node);
         synopsis = name + " : " + typified(pn->dataType());
     } else if (node->isFunction(Node::QML) || node->isFunction(Node::JS)) {
-        const FunctionNode *func = static_cast<const FunctionNode *>(node);
+        const auto *func = static_cast<const FunctionNode *>(node);
         if (!func->returnType().isEmpty())
             synopsis = typified(func->returnType(), true) + name;
         else
@@ -354,10 +295,12 @@ QString CppCodeMarker::markedUpQmlItem(const Node *node, bool summary)
     if (summary) {
         if (node->isPreliminary())
             extra += " (preliminary)";
-        else if (node->isDeprecated())
-            extra += " (deprecated)";
-        else if (node->isObsolete())
-            extra += " (obsolete)";
+        else if (node->isDeprecated()) {
+            if (const QString &version = node->deprecatedSince(); !version.isEmpty())
+                extra += " (deprecated since " + version + ")";
+            else
+                extra += " (deprecated)";
+        }
     }
 
     if (!extra.isEmpty()) {
@@ -373,22 +316,6 @@ QString CppCodeMarker::markedUpName(const Node *node)
     if (node->isFunction() && !node->isMacro())
         name += "()";
     return name;
-}
-
-QString CppCodeMarker::markedUpFullName(const Node *node, const Node *relative)
-{
-    if (node->name().isEmpty())
-        return "global";
-
-    QString fullName;
-    for (;;) {
-        fullName.prepend(markedUpName(node));
-        if (node->parent() == relative || node->parent()->name().isEmpty())
-            break;
-        fullName.prepend("<@op>::</@op>");
-        node = node->parent();
-    }
-    return fullName;
 }
 
 QString CppCodeMarker::markedUpEnumValue(const QString &enumValue, const Node *relative)
@@ -423,7 +350,7 @@ QString CppCodeMarker::markedUpIncludes(const QStringList &includes)
 
 QString CppCodeMarker::functionBeginRegExp(const QString &funcName)
 {
-    return QLatin1Char('^') + QRegExp::escape(funcName) + QLatin1Char('$');
+    return QLatin1Char('^') + QRegularExpression::escape(funcName) + QLatin1Char('$');
 }
 
 QString CppCodeMarker::functionEndRegExp(const QString & /* funcName */)
@@ -502,24 +429,30 @@ QString CppCodeMarker::addMarkUp(const QString &in, const Node * /* relative */,
         for (int j = sizeof(keywordTable) / sizeof(QString) - 1; j; --j)
             keywords.insert(keywordTable[j]);
     }
-#define readChar() ch = (i < code.length()) ? code[i++].cell() : EOF
 
     QString code = in;
     QString out;
-    QStringRef text;
+    QStringView text;
     int braceDepth = 0;
     int parenDepth = 0;
     int i = 0;
     int start = 0;
     int finish = 0;
     QChar ch;
-    QRegExp classRegExp("Qt?(?:[A-Z3]+[a-z][A-Za-z]*|t)");
-    QRegExp functionRegExp("q([A-Z][a-z]+)+");
-    QRegExp findFunctionRegExp(QStringLiteral("^\\s*\\("));
+    QRegularExpression classRegExp(QRegularExpression::anchoredPattern("Qt?(?:[A-Z3]+[a-z][A-Za-z]*|t)"));
+    QRegularExpression functionRegExp(QRegularExpression::anchoredPattern("q([A-Z][a-z]+)+"));
+    QRegularExpression findFunctionRegExp(QStringLiteral("^\\s*\\("));
+    bool atEOF = false;
+
+    auto readChar = [&]() {
+         if (i < code.length())
+            ch = code[i++];
+         else
+            atEOF = true;
+    };
 
     readChar();
-
-    while (ch != QChar(EOF)) {
+    while (!atEOF) {
         QString tag;
         bool target = false;
 
@@ -529,11 +462,11 @@ QString CppCodeMarker::addMarkUp(const QString &in, const Node * /* relative */,
                 ident += ch;
                 finish = i;
                 readChar();
-            } while (ch.isLetterOrNumber() || ch == '_');
+            } while (!atEOF && (ch.isLetterOrNumber() || ch == '_'));
 
-            if (classRegExp.exactMatch(ident)) {
+            if (classRegExp.match(ident).hasMatch()) {
                 tag = QStringLiteral("type");
-            } else if (functionRegExp.exactMatch(ident)) {
+            } else if (functionRegExp.match(ident).hasMatch()) {
                 tag = QStringLiteral("func");
                 target = true;
             } else if (types.contains(ident)) {
@@ -549,7 +482,7 @@ QString CppCodeMarker::addMarkUp(const QString &in, const Node * /* relative */,
             do {
                 finish = i;
                 readChar();
-            } while (ch.isLetterOrNumber() || ch == '.');
+            } while (!atEOF && (ch.isLetterOrNumber() || ch == '.'));
             tag = QStringLiteral("number");
         } else {
             switch (ch.unicode()) {
@@ -578,7 +511,7 @@ QString CppCodeMarker::addMarkUp(const QString &in, const Node * /* relative */,
                 finish = i;
                 readChar();
 
-                while (ch != QChar(EOF) && ch != '"') {
+                while (!atEOF && ch != '"') {
                     if (ch == '\\')
                         readChar();
                     readChar();
@@ -590,7 +523,7 @@ QString CppCodeMarker::addMarkUp(const QString &in, const Node * /* relative */,
             case '#':
                 finish = i;
                 readChar();
-                while (ch != QChar(EOF) && ch != '\n') {
+                while (!atEOF && ch != '\n') {
                     if (ch == '\\')
                         readChar();
                     finish = i;
@@ -602,7 +535,7 @@ QString CppCodeMarker::addMarkUp(const QString &in, const Node * /* relative */,
                 finish = i;
                 readChar();
 
-                while (ch != QChar(EOF) && ch != '\'') {
+                while (!atEOF && ch != '\'') {
                     if (ch == '\\')
                         readChar();
                     readChar();
@@ -624,7 +557,7 @@ QString CppCodeMarker::addMarkUp(const QString &in, const Node * /* relative */,
             case ':':
                 finish = i;
                 readChar();
-                if (ch == ':') {
+                if (!atEOF && ch == ':') {
                     finish = i;
                     readChar();
                     tag = QStringLiteral("op");
@@ -633,11 +566,11 @@ QString CppCodeMarker::addMarkUp(const QString &in, const Node * /* relative */,
             case '/':
                 finish = i;
                 readChar();
-                if (ch == '/') {
+                if (!atEOF && ch == '/') {
                     do {
                         finish = i;
                         readChar();
-                    } while (ch != QChar(EOF) && ch != '\n');
+                    } while (!atEOF && ch != '\n');
                     tag = QStringLiteral("comment");
                 } else if (ch == '*') {
                     bool metAster = false;
@@ -647,9 +580,8 @@ QString CppCodeMarker::addMarkUp(const QString &in, const Node * /* relative */,
                     readChar();
 
                     while (!metAsterSlash) {
-                        if (ch == QChar(EOF))
+                        if (atEOF)
                             break;
-
                         if (ch == '*')
                             metAster = true;
                         else if (metAster && ch == '/')
@@ -680,7 +612,7 @@ QString CppCodeMarker::addMarkUp(const QString &in, const Node * /* relative */,
             }
         }
 
-        text = code.midRef(start, finish - start);
+        text = QStringView{code}.mid(start, finish - start);
         start = finish;
 
         if (!tag.isEmpty()) {
@@ -704,7 +636,7 @@ QString CppCodeMarker::addMarkUp(const QString &in, const Node * /* relative */,
     }
 
     if (start < code.length()) {
-        appendProtectedString(&out, code.midRef(start));
+        appendProtectedString(&out, QStringView{code}.mid(start));
     }
 
     return out;

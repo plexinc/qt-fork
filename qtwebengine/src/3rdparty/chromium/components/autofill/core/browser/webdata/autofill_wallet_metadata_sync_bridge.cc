@@ -10,7 +10,9 @@
 #include <vector>
 
 #include "base/base64.h"
-#include "base/logging.h"
+#include "base/callback_helpers.h"
+#include "base/check_op.h"
+#include "base/notreached.h"
 #include "base/optional.h"
 #include "base/pickle.h"
 #include "components/autofill/core/browser/data_model/autofill_metadata.h"
@@ -21,10 +23,10 @@
 #include "components/autofill/core/browser/webdata/autofill_webdata_service.h"
 #include "components/autofill/core/common/autofill_clock.h"
 #include "components/autofill/core/common/autofill_util.h"
-#include "components/sync/model/entity_data.h"
+#include "components/sync/engine/entity_data.h"
+#include "components/sync/model/client_tag_based_model_type_processor.h"
 #include "components/sync/model/mutable_data_batch.h"
-#include "components/sync/model_impl/client_tag_based_model_type_processor.h"
-#include "components/sync/model_impl/sync_metadata_store_change_list.h"
+#include "components/sync/model/sync_metadata_store_change_list.h"
 
 namespace autofill {
 
@@ -309,7 +311,7 @@ void AutofillWalletMetadataSyncBridge::CreateForWebDataServiceAndBackend(
       std::make_unique<AutofillWalletMetadataSyncBridge>(
           std::make_unique<syncer::ClientTagBasedModelTypeProcessor>(
               syncer::AUTOFILL_WALLET_METADATA,
-              /*dump_stack=*/base::RepeatingClosure()),
+              /*dump_stack=*/base::DoNothing()),
           web_data_backend));
 }
 
@@ -328,7 +330,7 @@ AutofillWalletMetadataSyncBridge::AutofillWalletMetadataSyncBridge(
     : ModelTypeSyncBridge(std::move(change_processor)),
       web_data_backend_(web_data_backend) {
   DCHECK(web_data_backend_);
-  scoped_observer_.Add(web_data_backend_);
+  scoped_observation_.Observe(web_data_backend_);
 
   LoadDataCacheAndMetadata();
 
@@ -663,7 +665,10 @@ AutofillWalletMetadataSyncBridge::MergeRemoteChanges(
   if (is_any_local_modified) {
     web_data_backend_->NotifyOfMultipleAutofillChanges();
   }
-  return base::nullopt;
+
+  return static_cast<syncer::SyncMetadataStoreChangeList*>(
+             metadata_change_list.get())
+      ->TakeError();
 }
 
 template <class DataType>

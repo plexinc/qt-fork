@@ -27,9 +27,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import QtQuick.Layouts 1.0
-import QtQuick.VirtualKeyboard 2.1
+import QtQuick
+import QtQuick.Layouts
+import QtQuick.VirtualKeyboard
 
 /*!
     \qmltype KeyboardLayout
@@ -45,9 +45,9 @@ import QtQuick.VirtualKeyboard 2.1
     Example:
 
     \code
-    import QtQuick 2.0
-    import QtQuick.Layouts 1.0
-    import QtQuick.VirtualKeyboard 2.1
+    import QtQuick
+    import QtQuick.Layouts
+    import QtQuick.VirtualKeyboard
 
     // file: layouts/en_GB/main.qml
 
@@ -83,6 +83,8 @@ import QtQuick.VirtualKeyboard 2.1
 */
 
 ColumnLayout {
+    id: root
+
     /*! Sets the input method to be used in this layout.
 
         This property allows a custom input method to be
@@ -145,4 +147,42 @@ ColumnLayout {
     property bool smallTextVisible
 
     spacing: 0
+
+    function scanLayout() {
+        var layout = {
+            width: root.width,
+            height: root.height,
+            keys: []
+        }
+        __scanLayoutRecursive(this, layout)
+        return layout
+    }
+
+    function __scanLayoutRecursive(parent, layout) {
+        for (var i in parent.children) {
+            var child = parent.children[i]
+            if (child.keyType !== undefined) {
+                var pos = mapFromItem(child, 0, 0)
+                var key = {
+                    left: pos.x,
+                    top: pos.y,
+                    width: child.width,
+                    height: child.height,
+                    keyType: child.keyType,
+                    key: child.key,
+                    text: child.text,
+                    altKeys: child.effectiveAlternativeKeys,
+                    isFunctionKey: child.functionKey,
+                    noKeyEvent: child.noKeyEvent
+                }
+                if (key.left + key.width > layout.width)
+                    layout.width = key.left + key.width
+                if (key.top + key.height > layout.height)
+                    layout.height = key.top + key.height
+                layout.keys.push(key)
+            } else {
+                __scanLayoutRecursive(child, layout)
+            }
+        }
+    }
 }

@@ -74,16 +74,20 @@ namespace Qt3DInput {
 
 QKeyEvent::QKeyEvent(QEvent::Type type, int key, Qt::KeyboardModifiers modifiers, const QString &text, bool autorep, ushort count)
     : QObject()
-    , m_event(type, key, modifiers, text, autorep, count)
+      , m_event(new QT_PREPEND_NAMESPACE(QKeyEvent){type, key, modifiers, text, autorep, count})
 {
-    m_event.setAccepted(false);
+    m_event->setAccepted(false);
 }
 
 QKeyEvent::QKeyEvent(const QT_PREPEND_NAMESPACE(QKeyEvent) &ke)
     : QObject()
-    , m_event(ke)
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    , m_event(static_cast<QT_PREPEND_NAMESPACE(QKeyEvent) *>(ke.clone()))
+#else
+    , m_event(new QT_PREPEND_NAMESPACE(QKeyEvent)(ke))
+#endif
 {
-    m_event.setAccepted(false);
+    m_event->setAccepted(false);
 }
 
 /*! \internal */

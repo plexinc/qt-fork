@@ -42,9 +42,9 @@
 #include <QtQuick/qquickview.h>
 #include <QtQml/qqmlcontext.h>
 
-#include "../../shared/testhttpserver.h"
-#include "../../shared/util.h"
-#include "../shared/visualtestutil.h"
+#include <QtQuickTestUtils/private/testhttpserver_p.h>
+#include <QtQuickTestUtils/private/qmlutils_p.h>
+#include <QtQuickTestUtils/private/visualtestutils_p.h>
 
 Q_LOGGING_CATEGORY(lcTests, "qt.quick.tests")
 
@@ -96,6 +96,7 @@ void tst_qquickborderimage::cleanup()
 }
 
 tst_qquickborderimage::tst_qquickborderimage()
+    : QQmlDataTest(QT_QMLTEST_DATADIR)
 {
 }
 
@@ -429,7 +430,7 @@ void tst_qquickborderimage::statusChanges_data()
     QTest::newRow("localfile") << testFileUrl("colors.png").toString() << 1 << false << QQuickImageBase::Ready;
     QTest::newRow("nofile") << "" << 0 << false << QQuickImageBase::Null;
     QTest::newRow("nonexistent") << testFileUrl("thisfiledoesnotexist.png").toString() << 1 << false << QQuickImageBase::Error;
-    QTest::newRow("noprotocol") << QString("thisfiledoesnotexisteither.png") << 2 << false << QQuickImageBase::Error;
+    QTest::newRow("noprotocol") << QString("thisfiledoesnotexisteither.png") << 1 << false << QQuickImageBase::Error;
     QTest::newRow("remote") << "/colors.png" << 2 << true << QQuickImageBase::Ready;
 }
 
@@ -601,7 +602,7 @@ void tst_qquickborderimage::borderImageMesh()
     QImage mesh = window->grabWindow();
 
     QString errorMessage;
-    QVERIFY2(QQuickVisualTestUtil::compareImages(mesh, nonmesh, &errorMessage),
+    QVERIFY2(QQuickVisualTestUtils::compareImages(mesh, nonmesh, &errorMessage),
              qPrintable(errorMessage));
 }
 #endif
@@ -623,7 +624,7 @@ void tst_qquickborderimage::multiFrame()
 
     QFETCH(QString, qmlfile);
     QFETCH(bool, asynchronous);
-    Q_UNUSED(asynchronous)
+    Q_UNUSED(asynchronous);
 
     QQuickView view(testFileUrl(qmlfile));
     QQuickBorderImage *image = qobject_cast<QQuickBorderImage*>(view.rootObject());

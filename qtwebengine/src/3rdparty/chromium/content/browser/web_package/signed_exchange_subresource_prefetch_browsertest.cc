@@ -23,8 +23,8 @@
 #include "base/time/time_override.h"
 #include "build/build_config.h"
 #include "content/browser/blob_storage/chrome_blob_storage_context.h"
-#include "content/browser/frame_host/render_frame_host_impl.h"
 #include "content/browser/loader/prefetch_browsertest_base.h"
+#include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/browser/web_package/mock_signed_exchange_handler.h"
 #include "content/browser/web_package/prefetched_signed_exchange_cache.h"
 #include "content/public/browser/browser_context.h"
@@ -36,16 +36,20 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_paths.h"
+#include "content/public/common/content_switches.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/browsing_data_remover_test_util.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
+#include "content/public/test/test_navigation_observer.h"
 #include "content/shell/browser/shell.h"
 #include "content/shell/common/shell_switches.h"
 #include "net/base/features.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/http/http_cache.h"
-#include "services/network/cross_origin_read_blocking.h"
+#include "net/test/embedded_test_server/controllable_http_response.h"
+#include "services/network/public/cpp/cross_origin_read_blocking.h"
 #include "services/network/public/cpp/features.h"
 #include "storage/browser/blob/blob_storage_context.h"
 
@@ -61,7 +65,8 @@ std::string GetHeaderIntegrityString(const net::SHA256HashValue& hash) {
 }
 
 PrefetchedSignedExchangeCache::EntryMap GetCachedExchanges(Shell* shell) {
-  RenderViewHost* rvh = shell->web_contents()->GetRenderViewHost();
+  RenderViewHost* rvh =
+      shell->web_contents()->GetMainFrame()->GetRenderViewHost();
   RenderFrameHostImpl* rfh =
       static_cast<RenderFrameHostImpl*>(rvh->GetMainFrame());
   scoped_refptr<PrefetchedSignedExchangeCache> cache =
@@ -252,8 +257,8 @@ class SignedExchangePrefetchBrowserTest
     scoped_refptr<ChromeBlobStorageContext> blob_context =
         ChromeBlobStorageContext::GetFor(
             shell()->web_contents()->GetBrowserContext());
-    base::PostTask(
-        FROM_HERE, {BrowserThread::IO},
+    GetIOThreadTaskRunner({})->PostTask(
+        FROM_HERE,
         base::BindOnce(&SignedExchangePrefetchBrowserTest::SetBlobLimitsOnIO,
                        blob_context));
   }
@@ -326,8 +331,8 @@ class SignedExchangePrefetchBrowserTest
     EXPECT_EQ(1u, cached_exchanges.size());
     const auto it = cached_exchanges.find(sxg_url);
     ASSERT_TRUE(it != cached_exchanges.end());
-    const std::unique_ptr<const PrefetchedSignedExchangeCache::Entry>&
-        exchange = it->second;
+    const std::unique_ptr<const PrefetchedSignedExchangeCacheEntry>& exchange =
+        it->second;
     EXPECT_EQ(sxg_url, exchange->outer_url());
     EXPECT_EQ(inner_url, exchange->inner_url());
     EXPECT_EQ(header_integrity, *exchange->header_integrity());
@@ -365,7 +370,8 @@ class SignedExchangePrefetchBrowserTest
       const net::SHA256HashValue& header_integrity,
       const std::string& content,
       const std::vector<std::pair<std::string, std::string>>& sxg_outer_headers,
-      const std::vector<std::string>& sxg_inner_headers = {},
+      const std::vector<std::pair<std::string, std::string>>&
+          sxg_inner_headers = {},
       const base::Time& signature_expire_time = base::Time()) {
     auto sxg_request_counter =
         RequestCounter::CreateAndMonitor(embedded_test_server(), sxg_path);
@@ -490,8 +496,9 @@ IN_PROC_BROWSER_TEST_P(
       "/target.html" /* inner_url_path */,
       net::SHA256HashValue({{0x01}}) /* header_integrity */, content,
       {} /* sxg_outer_headers */,
-      {base::StringPrintf("content-length: %" PRIuS,
-                          content.size())} /* sxg_inner_headers */);
+      {{"content-length",
+        base::StringPrintf("%" PRIuS,
+                           content.size())}} /* sxg_inner_headers */);
   const auto cached_exchanges = GetCachedExchanges(shell());
   // The content of prefetched SXG is larger than the Blob storage limit.
   // So the SXG should not be stored to the cache.
@@ -693,7 +700,7 @@ IN_PROC_BROWSER_TEST_P(SignedExchangePrefetchBrowserTest,
 }
 
 // Flaky on Linux TSan, http://crbug.com/1050879
-#if defined(OS_LINUX) && defined(THREAD_SANITIZER)
+#if (defined(OS_LINUX) || defined(OS_CHROMEOS)) && defined(THREAD_SANITIZER)
 #define MAYBE_PrefetchMainResourceSXG_SignatureExpire \
   DISABLED_PrefetchMainResourceSXG_SignatureExpire
 #else
@@ -789,7 +796,6 @@ IN_PROC_BROWSER_TEST_P(SignedExchangePrefetchBrowserTest,
   const std::string outer_link_header =
       CreateAlternateLinkHeader(sxg_script_url, inner_url_script_url);
   const std::string inner_link_headers =
-      std::string("Link: ") +
       base::JoinString(
           {CreateAllowedAltSxgLinkHeader(inner_url_script_url,
                                          script_header_integrity),
@@ -815,7 +821,7 @@ IN_PROC_BROWSER_TEST_P(SignedExchangePrefetchBrowserTest,
   MockSignedExchangeHandlerFactory factory(
       {MockSignedExchangeHandlerParams(
            sxg_page_url, SignedExchangeLoadResult::kSuccess, net::OK,
-           inner_url_page_url, "text/html", {inner_link_headers},
+           inner_url_page_url, "text/html", {{"Link", inner_link_headers}},
            page_header_integrity),
        MockSignedExchangeHandlerParams(
            sxg_script_url, SignedExchangeLoadResult::kSuccess, net::OK,
@@ -857,7 +863,7 @@ IN_PROC_BROWSER_TEST_P(SignedExchangePrefetchBrowserTest,
 
       const auto script_it = cached_exchanges.find(sxg_script_url);
       ASSERT_TRUE(script_it != cached_exchanges.end());
-      const std::unique_ptr<const PrefetchedSignedExchangeCache::Entry>&
+      const std::unique_ptr<const PrefetchedSignedExchangeCacheEntry>&
           script_exchange = script_it->second;
       EXPECT_EQ(sxg_script_url, script_exchange->outer_url());
       EXPECT_EQ(inner_url_script_url, script_exchange->inner_url());
@@ -873,7 +879,7 @@ IN_PROC_BROWSER_TEST_P(SignedExchangePrefetchBrowserTest,
     }
     const auto page_it = cached_exchanges.find(sxg_page_url);
     ASSERT_TRUE(page_it != cached_exchanges.end());
-    const std::unique_ptr<const PrefetchedSignedExchangeCache::Entry>&
+    const std::unique_ptr<const PrefetchedSignedExchangeCacheEntry>&
         page_exchange = page_it->second;
     EXPECT_EQ(sxg_page_url, page_exchange->outer_url());
     EXPECT_EQ(inner_url_page_url, page_exchange->inner_url());
@@ -1003,8 +1009,8 @@ class SignedExchangeSubresourcePrefetchBrowserTest
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
     PrefetchBrowserTestBase::SetUpCommandLine(command_line);
-    // Needed to call internals.scheduleBlinkGC().
-    command_line->AppendSwitch(switches::kExposeInternalsForTesting);
+    // For window.gc().
+    command_line->AppendSwitchASCII(switches::kJavaScriptFlags, "--expose-gc");
   }
 
   void SetUp() override {
@@ -1015,6 +1021,17 @@ class SignedExchangeSubresourcePrefetchBrowserTest
     // Need to run the network service in process for testing cache expirity
     // (PrefetchMainResourceSXG_ExceedPrefetchReuseMins) using MockClock.
     enable_features.push_back(features::kNetworkServiceInProcess);
+
+    // Needed for reporting test. Doesn't significantly impact other tests.
+    enable_features.push_back(
+        net::features::kPartitionNelAndReportingByNetworkIsolationKey);
+    // These last two are not strictly necessary, but make this test more robust
+    // against enabling NetworkIsolationKeys everywhere.
+    enable_features.push_back(
+        net::features::kPartitionConnectionsByNetworkIsolationKey);
+    enable_features.push_back(
+        net::features::kPartitionSSLSessionsByNetworkIsolationKey);
+
     feature_list_.InitWithFeatures(enable_features, disabled_features);
     PrefetchBrowserTestBase::SetUp();
   }
@@ -1077,7 +1094,6 @@ class SignedExchangeSubresourcePrefetchBrowserTest
     const std::string outer_link_header =
         CreateAlternateLinkHeader(sxg_script_url, inner_url_script_url);
     const std::string inner_link_headers =
-        std::string("Link: ") +
         base::JoinString(
             {CreateAllowedAltSxgLinkHeader(inner_url_script_url,
                                            script_header_integrity),
@@ -1108,7 +1124,7 @@ class SignedExchangeSubresourcePrefetchBrowserTest
     MockSignedExchangeHandlerFactory factory(
         {MockSignedExchangeHandlerParams(
              sxg_page_url, SignedExchangeLoadResult::kSuccess, net::OK,
-             inner_url_page_url, "text/html", {inner_link_headers},
+             inner_url_page_url, "text/html", {{"Link", inner_link_headers}},
              page_header_integrity),
          MockSignedExchangeHandlerParams(
              sxg_script_url, SignedExchangeLoadResult::kSuccess, net::OK,
@@ -1215,7 +1231,6 @@ class SignedExchangeSubresourcePrefetchBrowserTest
     const std::string outer_link_header =
         CreateAlternateLinkHeader(script_sxg_url, script_url);
     const std::string inner_link_headers =
-        std::string("Link: ") +
         base::JoinString(
             {CreateAllowedAltSxgLinkHeader(script_url, script_header_integrity),
              CreatePreloadLinkHeader(script_url, "script")},
@@ -1236,15 +1251,16 @@ class SignedExchangeSubresourcePrefetchBrowserTest
                          {{"link", outer_link_header}}));
     RegisterResponse(script_sxg_path,
                      CreateSignedExchangeResponseEntry(content));
-    std::vector<std::string> script_inner_response_headers;
+    std::vector<std::pair<std::string, std::string>>
+        script_inner_response_headers;
     if (has_nosniff) {
-      script_inner_response_headers.emplace_back(
-          "x-content-type-options: nosniff");
+      script_inner_response_headers.emplace_back(std::make_pair(
+          std::string("x-content-type-options"), std::string("nosniff")));
     }
     MockSignedExchangeHandlerFactory factory(
         {MockSignedExchangeHandlerParams(
              target_sxg_url, SignedExchangeLoadResult::kSuccess, net::OK,
-             target_url, "text/html", {inner_link_headers},
+             target_url, "text/html", {{"Link", inner_link_headers}},
              target_header_integrity),
          MockSignedExchangeHandlerParams(
              script_sxg_url, SignedExchangeLoadResult::kSuccess, net::OK,
@@ -1560,7 +1576,6 @@ IN_PROC_BROWSER_TEST_F(SignedExchangeSubresourcePrefetchBrowserTest,
                         CreateAlternateLinkHeader(image2_sxg_url, image2_url)},
                        ",");
   const std::string inner_link_headers =
-      std::string("Link: ") +
       base::JoinString(
           {CreateAllowedAltSxgLinkHeader(image1_url, image1_header_integrity),
            CreateAllowedAltSxgLinkHeader(image2_url, image2_header_integrity),
@@ -1595,7 +1610,7 @@ IN_PROC_BROWSER_TEST_F(SignedExchangeSubresourcePrefetchBrowserTest,
   MockSignedExchangeHandlerFactory factory(
       {MockSignedExchangeHandlerParams(
            target_sxg_url, SignedExchangeLoadResult::kSuccess, net::OK,
-           target_url, "text/html", {inner_link_headers},
+           target_url, "text/html", {{"Link", inner_link_headers}},
            target_header_integrity),
        MockSignedExchangeHandlerParams(
            image1_sxg_url, SignedExchangeLoadResult::kSuccess, net::OK,
@@ -1676,7 +1691,6 @@ IN_PROC_BROWSER_TEST_F(SignedExchangeSubresourcePrefetchBrowserTest,
        CreateAlternateLinkHeader(script2_sxg_url, script2_url)},
       ",");
   const std::string inner_link_headers =
-      std::string("Link: ") +
       base::JoinString(
           {CreateAllowedAltSxgLinkHeader(script1_url, script1_header_integrity),
            CreateAllowedAltSxgLinkHeader(script2_url, script2_header_integrity),
@@ -1705,7 +1719,7 @@ IN_PROC_BROWSER_TEST_F(SignedExchangeSubresourcePrefetchBrowserTest,
   MockSignedExchangeHandlerFactory factory({
       MockSignedExchangeHandlerParams(
           target_sxg_url, SignedExchangeLoadResult::kSuccess, net::OK,
-          target_url, "text/html", {inner_link_headers},
+          target_url, "text/html", {{"Link", inner_link_headers}},
           target_header_integrity),
       MockSignedExchangeHandlerParams(
           script1_sxg_url, SignedExchangeLoadResult::kSuccess, net::OK,
@@ -1791,7 +1805,6 @@ IN_PROC_BROWSER_TEST_F(SignedExchangeSubresourcePrefetchBrowserTest,
   // Use the wrong header integrity value for "allowed-alt-sxg" link header to
   // trigger the integrity mismatch fallback logic.
   const std::string inner_link_headers =
-      std::string("Link: ") +
       base::JoinString({CreateAllowedAltSxgLinkHeader(
                             script_url, wrong_script_header_integrity),
                         CreatePreloadLinkHeader(script_url, "script")},
@@ -1813,7 +1826,7 @@ IN_PROC_BROWSER_TEST_F(SignedExchangeSubresourcePrefetchBrowserTest,
   MockSignedExchangeHandlerFactory factory(
       {MockSignedExchangeHandlerParams(
            target_sxg_url, SignedExchangeLoadResult::kSuccess, net::OK,
-           target_url, "text/html", {inner_link_headers},
+           target_url, "text/html", {{"Link", inner_link_headers}},
            target_header_integrity),
        MockSignedExchangeHandlerParams(
            script_sxg_url, SignedExchangeLoadResult::kSuccess, net::OK,
@@ -1836,6 +1849,111 @@ IN_PROC_BROWSER_TEST_F(SignedExchangeSubresourcePrefetchBrowserTest,
 
   EXPECT_EQ(1, script_sxg_request_counter->GetRequestCount());
   EXPECT_EQ(1, script_request_counter->GetRequestCount());
+}
+
+IN_PROC_BROWSER_TEST_F(SignedExchangeSubresourcePrefetchBrowserTest,
+                       IntegrityMismatchSendsReport) {
+  net::test_server::EmbeddedTestServer ssl_server(
+      net::test_server::EmbeddedTestServer::TYPE_HTTPS);
+
+  const char* prefetch_path = "/prefetch.html";
+  const char* target_sxg_path = "/target.sxg";
+  const char* target_path = "/target.html";
+  const char* script_path = "/script.js";
+  const char* script_sxg_path = "/script_js.sxg";
+  const char* learn_report_to_path = "/report-to";
+  const char* report_path = "/report";
+
+  net::test_server::ControllableHttpResponse learn_report_to_response(
+      &ssl_server, learn_report_to_path);
+  net::test_server::ControllableHttpResponse report_response(&ssl_server,
+                                                             report_path);
+
+  RegisterRequestHandler(&ssl_server);
+  ASSERT_TRUE(ssl_server.Start());
+
+  const GURL report_url = ssl_server.GetURL(report_path);
+
+  // Get Report-To and NEL information for the server that serves the signed
+  // exchange. The same site is also used for the NetworkIsolationKey. This
+  // should result in sending a report to that server a request for that signed
+  // exchange fails with a certificate error.
+  {
+    const GURL learn_report_to_url = ssl_server.GetURL(learn_report_to_path);
+    TestNavigationObserver same_tab_observer(shell()->web_contents(),
+                                             1 /* number_of_navigations */);
+    NavigationController::LoadURLParams params(learn_report_to_url);
+    params.transition_type = ui::PageTransitionFromInt(
+        ui::PAGE_TRANSITION_TYPED | ui::PAGE_TRANSITION_FROM_ADDRESS_BAR);
+    shell()->web_contents()->GetController().LoadURLWithParams(params);
+    learn_report_to_response.WaitForRequest();
+    learn_report_to_response.Send("HTTP/1.1 200 OK\r\n");
+    learn_report_to_response.Send("Report-To: {\"endpoints\":[{\"url\":\"" +
+                                  report_url.spec() +
+                                  "\"}],\"max_age\":86400}\r\n");
+    learn_report_to_response.Send(
+        "NEL: {\"report_to\":\"default\",\"max_age\":86400}\r\n");
+    learn_report_to_response.Send("\r\n");
+    learn_report_to_response.Done();
+    same_tab_observer.Wait();
+  }
+
+  const GURL target_sxg_url = ssl_server.GetURL(target_sxg_path);
+  const GURL target_url = ssl_server.GetURL(target_path);
+  const GURL script_sxg_url = ssl_server.GetURL(script_sxg_path);
+  const GURL script_url = ssl_server.GetURL(script_path);
+
+  const net::SHA256HashValue target_header_integrity = {{0x01}};
+  const net::SHA256HashValue script_header_integrity = {{0x02}};
+  const net::SHA256HashValue wrong_script_header_integrity = {{0x03}};
+
+  const std::string outer_link_header =
+      CreateAlternateLinkHeader(script_sxg_url, script_url);
+  // Use the wrong header integrity value for "allowed-alt-sxg" link header to
+  // trigger the integrity mismatch fallback logic.
+  const std::string inner_link_headers = base::JoinString(
+      {CreateAllowedAltSxgLinkHeader(script_url, wrong_script_header_integrity),
+       CreatePreloadLinkHeader(script_url, "script")},
+      ",");
+
+  RegisterResponse(
+      prefetch_path,
+      ResponseEntry(base::StringPrintf(
+          "<body><link rel='prefetch' href='%s'></body>", target_sxg_path)));
+  RegisterResponse(script_path, ResponseEntry("document.title=\"from server\";",
+                                              "text/javascript"));
+  RegisterResponse(target_sxg_path,
+                   CreateSignedExchangeResponseEntry(
+                       "<head><title>Prefetch Target (SXG)</title>"
+                       "<script src=\"./script.js\"></script></head>",
+                       {{"link", outer_link_header}}));
+  RegisterResponse(script_sxg_path, CreateSignedExchangeResponseEntry(
+                                        "document.title=\"done\";"));
+  MockSignedExchangeHandlerFactory factory(
+      {MockSignedExchangeHandlerParams(
+           target_sxg_url, SignedExchangeLoadResult::kSuccess, net::OK,
+           target_url, "text/html", {{"Link", inner_link_headers}},
+           target_header_integrity),
+       MockSignedExchangeHandlerParams(
+           script_sxg_url, SignedExchangeLoadResult::kSuccess, net::OK,
+           script_url, "text/javascript", {}, script_header_integrity)});
+  ScopedSignedExchangeHandlerFactory scoped_factory(&factory);
+
+  EXPECT_TRUE(NavigateToURL(shell(), ssl_server.GetURL(prefetch_path)));
+
+  WaitUntilLoaded(target_sxg_url);
+  WaitUntilLoaded(script_sxg_url);
+
+  // The value of "header-integrity" in "allowed-alt-sxg" link header of the
+  // inner response doesn't match the actual header integrity of script_js.sxg.
+  // So the script request must go to the server.
+  NavigateToURLAndWaitTitle(target_sxg_url, "from server");
+
+  // Check that a report was received.
+  report_response.WaitForRequest();
+  EXPECT_EQ(report_url, report_response.http_request()->GetURL());
+  EXPECT_EQ(net::test_server::METHOD_POST,
+            report_response.http_request()->method);
 }
 
 IN_PROC_BROWSER_TEST_F(SignedExchangeSubresourcePrefetchBrowserTest,
@@ -1879,7 +1997,6 @@ IN_PROC_BROWSER_TEST_F(SignedExchangeSubresourcePrefetchBrowserTest,
   // Use the wrong header integrity value for "allowed-alt-sxg" link header for
   // script2 to trigger the integrity mismatch fallback logic.
   const std::string inner_link_headers =
-      std::string("Link: ") +
       base::JoinString(
           {CreateAllowedAltSxgLinkHeader(script1_url, script1_header_integrity),
            CreateAllowedAltSxgLinkHeader(script2_url,
@@ -1910,7 +2027,7 @@ IN_PROC_BROWSER_TEST_F(SignedExchangeSubresourcePrefetchBrowserTest,
   MockSignedExchangeHandlerFactory factory({
       MockSignedExchangeHandlerParams(
           target_sxg_url, SignedExchangeLoadResult::kSuccess, net::OK,
-          target_url, "text/html", {inner_link_headers},
+          target_url, "text/html", {{"Link", inner_link_headers}},
           target_header_integrity),
       MockSignedExchangeHandlerParams(
           script1_sxg_url, SignedExchangeLoadResult::kSuccess, net::OK,
@@ -2054,7 +2171,7 @@ IN_PROC_BROWSER_TEST_F(SignedExchangeSubresourcePrefetchBrowserTest, CORS) {
   const net::SHA256HashValue target_header_integrity = {{0x01}};
 
   std::string target_sxg_outer_link_header;
-  std::string target_sxg_inner_link_header("Link: ");
+  std::string target_sxg_inner_link_header;
   std::string requests_list_string;
 
   std::vector<MockSignedExchangeHandlerParams> mock_params;
@@ -2090,27 +2207,27 @@ IN_PROC_BROWSER_TEST_F(SignedExchangeSubresourcePrefetchBrowserTest, CORS) {
             "server", "text/plain",
             {{"Access-Control-Allow-Origin", test_server_origin.c_str()},
              {"Access-Control-Allow-Credentials", "true"}}));
-    std::vector<std::string> data_sxg_inner_headers;
+    std::vector<std::pair<std::string, std::string>> data_sxg_inner_headers;
     if (kTestCases[i].access_control_allow_origin_header) {
-      data_sxg_inner_headers.emplace_back(
-          base::StringPrintf("Access-Control-Allow-Origin: %s",
-                             kTestCases[i].access_control_allow_origin_header));
+      data_sxg_inner_headers.emplace_back(std::make_pair(
+          std::string("Access-Control-Allow-Origin"),
+          std::string(kTestCases[i].access_control_allow_origin_header)));
     }
     if (kTestCases[i].has_access_control_allow_credentials_true_header) {
       data_sxg_inner_headers.emplace_back(
-          "Access-Control-Allow-Credentials: true");
+          std::make_pair(std::string("Access-Control-Allow-Credentials"),
+                         std::string("true")));
     }
     mock_params.emplace_back(
         data_sxg_url, SignedExchangeLoadResult::kSuccess, net::OK, data_url,
         "text/plain", std::move(data_sxg_inner_headers), data_header_integrity);
   }
 
-  std::vector<std::string> target_sxg_inner_headers = {
-      std::move(target_sxg_inner_link_header)};
+  std::vector<std::pair<std::string, std::string>> target_sxg_inner_headers = {
+      {"Link", target_sxg_inner_link_header}};
   mock_params.emplace_back(target_sxg_url, SignedExchangeLoadResult::kSuccess,
                            net::OK, target_url, "text/html",
-                           std::move(target_sxg_inner_headers),
-                           target_header_integrity);
+                           target_sxg_inner_headers, target_header_integrity);
   MockSignedExchangeHandlerFactory factory(std::move(mock_params));
 
   RegisterResponse(
@@ -2222,7 +2339,6 @@ IN_PROC_BROWSER_TEST_F(SignedExchangeSubresourcePrefetchBrowserTest,
   const std::string outer_link_header =
       CreateAlternateLinkHeader(sxg_script_url, inner_url_script_url);
   const std::string inner_link_headers =
-      std::string("Link: ") +
       base::JoinString(
           {CreateAllowedAltSxgLinkHeader(inner_url_script_url,
                                          script_header_integrity),
@@ -2244,14 +2360,15 @@ IN_PROC_BROWSER_TEST_F(SignedExchangeSubresourcePrefetchBrowserTest,
   MockSignedExchangeHandlerFactory factory(
       {MockSignedExchangeHandlerParams(
            sxg_page_url, SignedExchangeLoadResult::kSuccess, net::OK,
-           inner_url_page_url, "text/html", {inner_link_headers},
+           inner_url_page_url, "text/html", {{"Link", inner_link_headers}},
            page_header_integrity),
        MockSignedExchangeHandlerParams(
            sxg_script_url, SignedExchangeLoadResult::kSuccess, net::OK,
            inner_url_script_url, "text/javascript",
            // Set "cache-control: public" to keep the script in the memory
            // cache.
-           {"cache-control: public, max-age=600"}, script_header_integrity)});
+           {{"cache-control", "public, max-age=600"}},
+           script_header_integrity)});
   ScopedSignedExchangeHandlerFactory scoped_factory(&factory);
 
   EXPECT_EQ(0, GetPrefetchURLLoaderCallCount());
@@ -2283,8 +2400,7 @@ IN_PROC_BROWSER_TEST_F(SignedExchangeSubresourcePrefetchBrowserTest,
           "<head><title>Next page</title>"
           "<script src=\"./script.js\" async defer></script></head>"));
   // Triggers GC.
-  EXPECT_TRUE(
-      ExecuteScript(shell()->web_contents(), "internals.scheduleBlinkGC();"));
+  EXPECT_TRUE(ExecuteScript(shell()->web_contents(), "window.gc();"));
   // The script which was served via SXG must be kept in memory cache and must
   // be reused.
   NavigateToURLAndWaitTitle(next_page_url, "done");

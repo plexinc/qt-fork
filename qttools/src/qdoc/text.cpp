@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2019 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -26,26 +26,22 @@
 **
 ****************************************************************************/
 
-/*
-  text.cpp
-*/
-
 #include "text.h"
 
-#include <QtCore/qregexp.h>
+#include <QtCore/qregularexpression.h>
 
-#include <stdio.h>
+#include <cstdio>
 
 QT_BEGIN_NAMESPACE
 
-Text::Text() : first(nullptr), last(nullptr) {}
+Text::Text() : m_first(nullptr), m_last(nullptr) { }
 
-Text::Text(const QString &str) : first(nullptr), last(nullptr)
+Text::Text(const QString &str) : m_first(nullptr), m_last(nullptr)
 {
     operator<<(str);
 }
 
-Text::Text(const Text &text) : first(nullptr), last(nullptr)
+Text::Text(const Text &text) : m_first(nullptr), m_last(nullptr)
 {
     operator=(text);
 }
@@ -71,23 +67,23 @@ Text &Text::operator<<(Atom::AtomType atomType)
 
 Text &Text::operator<<(const QString &string)
 {
-    return operator<<(Atom(Atom::String, string));
+    return string.isEmpty() ? *this : operator<<(Atom(Atom::String, string));
 }
 
 Text &Text::operator<<(const Atom &atom)
 {
     if (atom.count() < 2) {
-        if (first == nullptr) {
-            first = new Atom(atom.type(), atom.string());
-            last = first;
+        if (m_first == nullptr) {
+            m_first = new Atom(atom.type(), atom.string());
+            m_last = m_first;
         } else
-            last = new Atom(last, atom.type(), atom.string());
+            m_last = new Atom(m_last, atom.type(), atom.string());
     } else {
-        if (first == nullptr) {
-            first = new Atom(atom.type(), atom.string(), atom.string(1));
-            last = first;
+        if (m_first == nullptr) {
+            m_first = new Atom(atom.type(), atom.string(), atom.string(1));
+            m_last = m_first;
         } else
-            last = new Atom(last, atom.type(), atom.string(), atom.string(1));
+            m_last = new Atom(m_last, atom.type(), atom.string(), atom.string(1));
     }
     return *this;
 }
@@ -99,11 +95,11 @@ Text &Text::operator<<(const Atom &atom)
  */
 Text &Text::operator<<(const LinkAtom &atom)
 {
-    if (first == nullptr) {
-        first = new LinkAtom(atom);
-        last = first;
+    if (m_first == nullptr) {
+        m_first = new LinkAtom(atom);
+        m_last = m_first;
     } else
-        last = new LinkAtom(last, atom);
+        m_last = new LinkAtom(m_last, atom);
     return *this;
 }
 
@@ -119,27 +115,27 @@ Text &Text::operator<<(const Text &text)
 
 void Text::stripFirstAtom()
 {
-    if (first != nullptr) {
-        if (first == last)
-            last = nullptr;
-        Atom *oldFirst = first;
-        first = first->next();
+    if (m_first != nullptr) {
+        if (m_first == m_last)
+            m_last = nullptr;
+        Atom *oldFirst = m_first;
+        m_first = m_first->next();
         delete oldFirst;
     }
 }
 
 void Text::stripLastAtom()
 {
-    if (last != nullptr) {
-        Atom *oldLast = last;
-        if (first == last) {
-            first = nullptr;
-            last = nullptr;
+    if (m_last != nullptr) {
+        Atom *oldLast = m_last;
+        if (m_first == m_last) {
+            m_first = nullptr;
+            m_last = nullptr;
         } else {
-            last = first;
-            while (last->next() != oldLast)
-                last = last->next();
-            last->setNext(nullptr);
+            m_last = m_first;
+            while (m_last->next() != oldLast)
+                m_last = m_last->next();
+            m_last->setNext(nullptr);
         }
         delete oldLast;
     }
@@ -221,20 +217,6 @@ Text Text::sectionHeading(const Atom *sectionLeft)
     return Text();
 }
 
-const Atom *Text::sectionHeadingAtom(const Atom *sectionLeft)
-{
-    if (sectionLeft != nullptr) {
-        const Atom *begin = sectionLeft;
-        while (begin != nullptr && begin->type() != Atom::SectionHeadingLeft)
-            begin = begin->next();
-        if (begin != nullptr)
-            begin = begin->next();
-
-        return begin;
-    }
-    return nullptr;
-}
-
 void Text::dump() const
 {
     const Atom *atom = firstAtom();
@@ -243,7 +225,7 @@ void Text::dump() const
         str.replace("\\", "\\\\");
         str.replace("\"", "\\\"");
         str.replace("\n", "\\n");
-        str.replace(QRegExp("[^\x20-\x7e]"), "?");
+        str.replace(QRegularExpression(R"([^ -~])"), "?");
         if (!str.isEmpty())
             str = " \"" + str + QLatin1Char('"');
         fprintf(stderr, "    %-15s%s\n", atom->typeString().toLatin1().data(),
@@ -266,13 +248,13 @@ Text Text::subText(const Atom *begin, const Atom *end)
 
 void Text::clear()
 {
-    while (first != nullptr) {
-        Atom *atom = first;
-        first = first->next();
+    while (m_first != nullptr) {
+        Atom *atom = m_first;
+        m_first = m_first->next();
         delete atom;
     }
-    first = nullptr;
-    last = nullptr;
+    m_first = nullptr;
+    m_last = nullptr;
 }
 
 int Text::compare(const Text &text1, const Text &text2)

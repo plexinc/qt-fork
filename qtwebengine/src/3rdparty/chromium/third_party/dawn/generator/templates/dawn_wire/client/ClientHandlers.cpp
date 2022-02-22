@@ -19,9 +19,9 @@
 
 namespace dawn_wire { namespace client {
     {% for command in cmd_records["return command"] %}
-        bool Client::Handle{{command.name.CamelCase()}}(const volatile char** commands, size_t* size) {
+        bool Client::Handle{{command.name.CamelCase()}}(DeserializeBuffer* deserializeBuffer) {
             Return{{command.name.CamelCase()}}Cmd cmd;
-            DeserializeResult deserializeResult = cmd.Deserialize(commands, size, &mAllocator);
+            DeserializeResult deserializeResult = cmd.Deserialize(deserializeBuffer, &mAllocator);
 
             if (deserializeResult == DeserializeResult::FatalError) {
                 return false;
@@ -33,8 +33,8 @@ namespace dawn_wire { namespace client {
 
                 {% if member.type.dict_name == "ObjectHandle" %}
                     {{Type}}* {{name}} = {{Type}}Allocator().GetObject(cmd.{{name}}.id);
-                    uint32_t {{name}}Serial = {{Type}}Allocator().GetSerial(cmd.{{name}}.id);
-                    if ({{name}}Serial != cmd.{{name}}.serial) {
+                    uint32_t {{name}}Generation = {{Type}}Allocator().GetGeneration(cmd.{{name}}.id);
+                    if ({{name}}Generation != cmd.{{name}}.generation) {
                         {{name}} = nullptr;
                     }
                 {% endif %}
@@ -53,16 +53,29 @@ namespace dawn_wire { namespace client {
         }
     {% endfor %}
 
-    const volatile char* Client::HandleCommands(const volatile char* commands, size_t size) {
-        while (size >= sizeof(ReturnWireCmd)) {
-            ReturnWireCmd cmdId = *reinterpret_cast<const volatile ReturnWireCmd*>(commands);
+    const volatile char* Client::HandleCommandsImpl(const volatile char* commands, size_t size) {
+        DeserializeBuffer deserializeBuffer(commands, size);
 
+        while (deserializeBuffer.AvailableSize() >= sizeof(CmdHeader) + sizeof(ReturnWireCmd)) {
+            // Start by chunked command handling, if it is done, then it means the whole buffer
+            // was consumed by it, so we return a pointer to the end of the commands.
+            switch (HandleChunkedCommands(deserializeBuffer.Buffer(), deserializeBuffer.AvailableSize())) {
+                case ChunkedCommandsResult::Consumed:
+                    return commands + size;
+                case ChunkedCommandsResult::Error:
+                    return nullptr;
+                case ChunkedCommandsResult::Passthrough:
+                    break;
+            }
+
+            ReturnWireCmd cmdId = *static_cast<const volatile ReturnWireCmd*>(static_cast<const volatile void*>(
+                deserializeBuffer.Buffer() + sizeof(CmdHeader)));
             bool success = false;
             switch (cmdId) {
                 {% for command in cmd_records["return command"] %}
                     {% set Suffix = command.name.CamelCase() %}
                     case ReturnWireCmd::{{Suffix}}:
-                        success = Handle{{Suffix}}(&commands, &size);
+                        success = Handle{{Suffix}}(&deserializeBuffer);
                         break;
                 {% endfor %}
                 default:
@@ -75,7 +88,7 @@ namespace dawn_wire { namespace client {
             mAllocator.Reset();
         }
 
-        if (size != 0) {
+        if (deserializeBuffer.AvailableSize() != 0) {
             return nullptr;
         }
 

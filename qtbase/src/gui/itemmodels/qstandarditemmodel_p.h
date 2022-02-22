@@ -58,7 +58,6 @@
 #include <QtCore/qpair.h>
 #include <QtCore/qstack.h>
 #include <QtCore/qvariant.h>
-#include <QtCore/qvector.h>
 #include <QtCore/qdebug.h>
 
 QT_REQUIRE_CONFIG(standarditemmodel);
@@ -75,7 +74,7 @@ public:
     QVariant value;
     inline bool operator==(const QStandardItemData &other) const { return role == other.role && value == other.value; }
 };
-Q_DECLARE_TYPEINFO(QStandardItemData, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QStandardItemData, Q_RELOCATABLE_TYPE);
 
 #ifndef QT_NO_DATASTREAM
 
@@ -191,8 +190,8 @@ public:
 
     QStandardItemModel *model;
     QStandardItem *parent;
-    QVector<QStandardItemData> values;
-    QVector<QStandardItem*> children;
+    QList<QStandardItemData> values;
+    QList<QStandardItem *> children;
     int rows;
     int columns;
 
@@ -228,7 +227,7 @@ public:
     }
 
     void sort(QStandardItem *parent, int column, Qt::SortOrder order);
-    void itemChanged(QStandardItem *item, const QVector<int> &roles = QVector<int>());
+    void itemChanged(QStandardItem *item, const QList<int> &roles = QList<int>());
     void rowsAboutToBeInserted(QStandardItem *parent, int start, int end);
     void columnsAboutToBeInserted(QStandardItem *parent, int start, int end);
     void rowsAboutToBeRemoved(QStandardItem *parent, int start, int end);
@@ -243,11 +242,12 @@ public:
 
     void decodeDataRecursive(QDataStream &stream, QStandardItem *item);
 
-    QVector<QStandardItem*> columnHeaderItems;
-    QVector<QStandardItem*> rowHeaderItems;
+    QList<QStandardItem *> columnHeaderItems;
+    QList<QStandardItem *> rowHeaderItems;
+    QHash<int, QByteArray> roleNames;
     QScopedPointer<QStandardItem> root;
     const QStandardItem *itemPrototype;
-    int sortRole;
+    Q_OBJECT_BINDABLE_PROPERTY_WITH_ARGS(QStandardItemModelPrivate, int, sortRole, Qt::DisplayRole)
 };
 
 QT_END_NAMESPACE

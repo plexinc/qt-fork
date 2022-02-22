@@ -2,14 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/quic_crypto_client_handshaker.h"
+#include "quic/core/quic_crypto_client_handshaker.h"
 
 #include <utility>
 
-#include "net/third_party/quiche/src/quic/core/proto/crypto_server_config_proto.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/proto/crypto_server_config_proto.h"
+#include "quic/platform/api/quic_test.h"
+#include "quic/test_tools/quic_test_utils.h"
 
 namespace quic {
 namespace {
@@ -34,7 +34,7 @@ class InsecureProofVerifier : public ProofVerifier {
       const uint16_t /*port*/,
       const std::string& /*server_config*/,
       QuicTransportVersion /*transport_version*/,
-      quiche::QuicheStringPiece /*chlo_hash*/,
+      absl::string_view /*chlo_hash*/,
       const std::vector<std::string>& /*certs*/,
       const std::string& /*cert_sct*/,
       const std::string& /*signature*/,
@@ -47,12 +47,14 @@ class InsecureProofVerifier : public ProofVerifier {
 
   QuicAsyncStatus VerifyCertChain(
       const std::string& /*hostname*/,
+      const uint16_t /*port*/,
       const std::vector<std::string>& /*certs*/,
       const std::string& /*ocsp_response*/,
       const std::string& /*cert_sct*/,
       const ProofVerifyContext* /*context*/,
       std::string* /*error_details*/,
       std::unique_ptr<ProofVerifyDetails>* /*details*/,
+      uint8_t* /*out_alert*/,
       std::unique_ptr<ProofVerifierCallback> /*callback*/) override {
     return QUIC_SUCCESS;
   }
@@ -69,13 +71,14 @@ class DummyProofSource : public ProofSource {
 
   // ProofSource override.
   void GetProof(const QuicSocketAddress& server_address,
+                const QuicSocketAddress& client_address,
                 const std::string& hostname,
                 const std::string& /*server_config*/,
                 QuicTransportVersion /*transport_version*/,
-                quiche::QuicheStringPiece /*chlo_hash*/,
+                absl::string_view /*chlo_hash*/,
                 std::unique_ptr<Callback> callback) override {
     QuicReferenceCountedPointer<ProofSource::Chain> chain =
-        GetCertChain(server_address, hostname);
+        GetCertChain(server_address, client_address, hostname);
     QuicCryptoProof proof;
     proof.signature = "Dummy signature";
     proof.leaf_cert_scts = "Dummy timestamp";
@@ -84,6 +87,7 @@ class DummyProofSource : public ProofSource {
 
   QuicReferenceCountedPointer<Chain> GetCertChain(
       const QuicSocketAddress& /*server_address*/,
+      const QuicSocketAddress& /*client_address*/,
       const std::string& /*hostname*/) override {
     std::vector<std::string> certs;
     certs.push_back("Dummy cert");
@@ -93,12 +97,15 @@ class DummyProofSource : public ProofSource {
 
   void ComputeTlsSignature(
       const QuicSocketAddress& /*server_address*/,
+      const QuicSocketAddress& /*client_address*/,
       const std::string& /*hostname*/,
       uint16_t /*signature_algorit*/,
-      quiche::QuicheStringPiece /*in*/,
+      absl::string_view /*in*/,
       std::unique_ptr<SignatureCallback> callback) override {
     callback->Run(true, "Dummy signature", /*details=*/nullptr);
   }
+
+  TicketCrypter* GetTicketCrypter() override { return nullptr; }
 };
 
 class Handshaker : public QuicCryptoClientHandshaker {
@@ -136,11 +143,13 @@ class QuicCryptoClientHandshakerTest
                                                  {version_})),
         session_(connection_, false),
         crypto_client_config_(std::make_unique<InsecureProofVerifier>()),
-        client_stream_(new QuicCryptoClientStream(server_id_,
-                                                  &session_,
-                                                  nullptr,
-                                                  &crypto_client_config_,
-                                                  &proof_handler_)),
+        client_stream_(
+            new QuicCryptoClientStream(server_id_,
+                                       &session_,
+                                       nullptr,
+                                       &crypto_client_config_,
+                                       &proof_handler_,
+                                       /*has_application_state = */ false)),
         handshaker_(server_id_,
                     client_stream_,
                     &session_,

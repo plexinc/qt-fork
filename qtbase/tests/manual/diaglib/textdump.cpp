@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
@@ -408,8 +408,8 @@ struct FormattingContext
 static void formatCharacter(QTextStream &str, const QChar &qc, FormattingContext &context)
 {
     const ushort unicode = qc.unicode();
-    str << "U+" << qSetFieldWidth(4) << qSetPadChar('0') << Qt::uppercasedigits
-        << Qt::hex << unicode << Qt::dec << qSetFieldWidth(0) << ' ';
+    str << "U+" << qSetFieldWidth(4) << qSetPadChar('0') << Qt::uppercasedigits << Qt::hex
+        << unicode << Qt::dec << qSetFieldWidth(0) << ' ';
 
     const EnumLookup *specialChar = enumLookup(unicode, specialCharactersEnumLookup, sizeof(specialCharactersEnumLookup) / sizeof(EnumLookup));
     if (specialChar)

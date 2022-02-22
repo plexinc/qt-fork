@@ -42,7 +42,7 @@
 
 #include "provider.h"
 
-#include <qvector.h>
+#include <qlist.h>
 #include <qstring.h>
 
 enum ParamType {
@@ -51,7 +51,7 @@ enum ParamType {
 };
 
 QString includeGuard(const QString &filename);
-QString formatFunctionSignature(const QVector<Tracepoint::Argument> &args);
-QString formatParameterList(const QVector<Tracepoint::Argument> &args, ParamType type);
+QString formatFunctionSignature(const QList<Tracepoint::Argument> &args);
+QString formatParameterList(const QList<Tracepoint::Argument> &args, ParamType type);
 
 #endif // HELPERS_H

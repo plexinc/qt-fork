@@ -292,8 +292,7 @@ QSize QCheckBox::sizeHint() const
                                      text()).size();
     if (!opt.icon.isNull())
         sz = QSize(sz.width() + opt.iconSize.width() + 4, qMax(sz.height(), opt.iconSize.height()));
-    d->sizeHint = (style()->sizeFromContents(QStyle::CT_CheckBox, &opt, sz, this)
-                  .expandedTo(QApplication::globalStrut()));
+    d->sizeHint = style()->sizeFromContents(QStyle::CT_CheckBox, &opt, sz, this);
     return d->sizeHint;
 }
 
@@ -326,7 +325,7 @@ void QCheckBox::mouseMoveEvent(QMouseEvent *e)
     if (testAttribute(Qt::WA_Hover)) {
         bool hit = false;
         if (underMouse())
-            hit = hitButton(e->pos());
+            hit = hitButton(e->position().toPoint());
 
         if (hit != d->hovering) {
             update(rect());

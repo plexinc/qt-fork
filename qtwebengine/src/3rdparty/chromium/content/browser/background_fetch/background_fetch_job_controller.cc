@@ -5,14 +5,14 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "content/browser/background_fetch/background_fetch_cross_origin_filter.h"
 #include "content/browser/background_fetch/background_fetch_data_manager.h"
 #include "content/browser/background_fetch/background_fetch_job_controller.h"
 #include "content/browser/background_fetch/background_fetch_request_match_params.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/common/origin_util.h"
 #include "services/network/public/cpp/cors/cors.h"
+#include "services/network/public/cpp/is_potentially_trustworthy.h"
 #include "third_party/blink/public/mojom/background_fetch/background_fetch.mojom.h"
 
 namespace content {
@@ -29,7 +29,7 @@ bool IsMixedContent(const BackgroundFetchRequestInfo& request) {
   if (request.fetch_request()->url.is_empty())
     return false;
 
-  return !IsOriginSecure(request.fetch_request()->url);
+  return !network::IsUrlPotentiallyTrustworthy(request.fetch_request()->url);
 }
 
 // Whether the |request| needs CORS preflight.
@@ -173,6 +173,8 @@ void BackgroundFetchJobController::DidStartRequest(
   // TODO(crbug.com/884672): Stop the fetch if the cross origin filter fails.
   BackgroundFetchCrossOriginFilter filter(registration_id_.origin(), *request);
   request->set_can_populate_body(filter.CanPopulateBody());
+  if (!request->can_populate_body())
+    has_failed_cors_request_ = true;
 }
 
 void BackgroundFetchJobController::DidUpdateRequest(const std::string& guid,
@@ -253,7 +255,14 @@ uint64_t BackgroundFetchJobController::GetInProgressUploadedBytes() {
 
 void BackgroundFetchJobController::AbortFromDelegate(
     BackgroundFetchFailureReason failure_reason) {
-  failure_reason_ = failure_reason;
+  if (failure_reason == BackgroundFetchFailureReason::DOWNLOAD_TOTAL_EXCEEDED &&
+      has_failed_cors_request_) {
+    // Don't expose that the download total has been exceeded. Use a less
+    // specific error.
+    failure_reason_ = BackgroundFetchFailureReason::FETCH_ERROR;
+  } else {
+    failure_reason_ = failure_reason;
+  }
 
   Finish(failure_reason_, base::DoNothing());
 }
@@ -377,6 +386,7 @@ void BackgroundFetchJobController::DidGetUploadData(
     Abort(BackgroundFetchFailureReason::SERVICE_WORKER_UNAVAILABLE,
           base::DoNothing());
     std::move(callback).Run(nullptr);
+    return;
   }
 
   DCHECK(blob);

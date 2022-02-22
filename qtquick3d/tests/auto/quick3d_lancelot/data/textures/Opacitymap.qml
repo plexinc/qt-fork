@@ -48,8 +48,8 @@
 **
 ****************************************************************************/
 
-import QtQuick3D 1.15
-import QtQuick 2.15
+import QtQuick3D
+import QtQuick
 
 Rectangle {
     id: opacitymap
@@ -100,7 +100,6 @@ Rectangle {
                 specularRoughness: 0
                 bumpAmount: 0.5
                 translucentFalloff: 1
-                displacementAmount: 20
             }
             materials: [material]
         }
@@ -122,7 +121,6 @@ Rectangle {
                 opacityMap: material_001_opacitymap
                 bumpAmount: 0.5
                 translucentFalloff: 1
-                displacementAmount: 20
 
                 Texture {
                     id: material_001_opacitymap
@@ -150,7 +148,6 @@ Rectangle {
                 opacityMap: material_002_opacitymap
                 bumpAmount: 0.5
                 translucentFalloff: 1
-                displacementAmount: 20
 
                 Texture {
                     id: material_002_opacitymap

@@ -34,22 +34,18 @@
 #include <private/qhighdpiscaling_p.h>
 #include <QtGui/QPainter>
 
-#include <QtTest/QtTest>
-
+#include <QTest>
+#include <QSignalSpy>
 #include <QEvent>
 #include <QStyleHints>
 
 #if defined(Q_OS_QNX)
 #include <QOpenGLContext>
-#elif defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#elif defined(Q_OS_WIN)
 #  include <QtCore/qt_windows.h>
 #endif
 
-static bool isPlatformWinRT()
-{
-    static const bool isWinRT = !QGuiApplication::platformName().compare(QLatin1String("winrt"), Qt::CaseInsensitive);
-    return isWinRT;
-}
+Q_LOGGING_CATEGORY(lcTests, "qt.gui.tests")
 
 class tst_QWindow: public QObject
 {
@@ -61,6 +57,7 @@ private slots:
     void setVisible();
     void setVisibleFalseDoesNotCreateWindow();
     void eventOrderOnShow();
+    void paintEvent();
     void resizeEventAfterResize();
     void exposeEventOnShrink_QTBUG54040();
     void mapGlobal();
@@ -112,11 +109,15 @@ private slots:
     void testBlockingWindowShownAfterModalDialog();
     void generatedMouseMove();
     void keepPendingUpdateRequests();
+    void activateDeactivateEvent();
 
 private:
     QPoint m_availableTopLeft;
     QSize m_testWindowSize;
-    QTouchDevice *touchDevice = QTest::createTouchDevice();
+    QPointingDevice *touchDevice = QTest::createTouchDevice();
+    QPointingDevice *touchDeviceWithMouseEmulation =
+            QTest::createTouchDevice(QInputDevice::DeviceType::TouchScreen,
+                                     QInputDevice::Capability::Position | QInputDevice::Capability::MouseEmulation);
 };
 
 void tst_QWindow::initTestCase()
@@ -239,8 +240,6 @@ void tst_QWindow::setVisible()
     QVERIFY(h.handle());
     i.setParent(&h);
     QVERIFY2(i.handle(), "Making a visible but not created child window child of a created window should create it");
-    if (isPlatformWinRT())
-        QEXPECT_FAIL("", "Child windows are unsupported on winrt", Continue);
     QVERIFY(QTest::qWaitForWindowExposed(&i));
 }
 
@@ -265,10 +264,16 @@ void tst_QWindow::mapGlobal()
     c.setGeometry(40, 40, 100, 100);
 
     QCOMPARE(a.mapToGlobal(QPoint(100, 100)), QPoint(110, 110));
+    auto delta = a.mapToGlobal(QPointF(100.5, 100.5)) - QPointF(110.5, 110.5);
+    QVERIFY(qFuzzyIsNull(delta.manhattanLength()));
+
     QCOMPARE(b.mapToGlobal(QPoint(100, 100)), QPoint(130, 130));
     QCOMPARE(c.mapToGlobal(QPoint(100, 100)), QPoint(170, 170));
 
     QCOMPARE(a.mapFromGlobal(QPoint(100, 100)), QPoint(90, 90));
+    delta = a.mapFromGlobal(QPointF(100.5, 100.5)) - QPointF(90.5, 90.5);
+    QVERIFY(qFuzzyIsNull(delta.manhattanLength()));
+
     QCOMPARE(b.mapFromGlobal(QPoint(100, 100)), QPoint(70, 70));
     QCOMPARE(c.mapFromGlobal(QPoint(100, 100)), QPoint(30, 30));
 }
@@ -306,7 +311,10 @@ public:
         m_order << event->type();
         switch (event->type()) {
         case QEvent::Expose:
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
             m_exposeRegion = static_cast<QExposeEvent *>(event)->region();
+QT_WARNING_POP
             break;
 
         case QEvent::PlatformSurface:
@@ -348,12 +356,12 @@ public:
         return m_surfaceventType;
     }
 
-    QVector<QPoint> m_framePositionsOnMove;
+    QList<QPoint> m_framePositionsOnMove;
     Qt::WindowStates lastReceivedWindowState;
 
 private:
     QHash<QEvent::Type, int> m_received;
-    QVector<QEvent::Type> m_order;
+    QList<QEvent::Type> m_order;
     QRegion m_exposeRegion;
     QPlatformSurfaceEvent::SurfaceEventType m_surfaceventType;
 };
@@ -391,6 +399,45 @@ void tst_QWindow::eventOrderOnShow()
     QVERIFY(window.eventIndex(QEvent::Resize) < window.eventIndex(QEvent::Expose));
 }
 
+class PaintWindow : public Window
+{
+public:
+    using Window::Window;
+
+protected:
+    void paintEvent(QPaintEvent *) override
+    {
+        // Handled, not calling base class
+    }
+};
+
+void tst_QWindow::paintEvent()
+{
+    PaintWindow window;
+    window.setTitle(QLatin1String(QTest::currentTestFunction()));
+    window.setGeometry(QRect(m_availableTopLeft, m_testWindowSize));
+    window.show();
+
+    QTRY_VERIFY(window.received(QEvent::Expose));
+    QTRY_VERIFY(window.received(QEvent::Paint));
+    QVERIFY(window.isExposed());
+
+    // There is no defined order between paint and expose, so we don't test that
+
+    window.reset();
+    window.resize(m_testWindowSize * 2);
+
+    QTRY_VERIFY(window.received(QEvent::Paint));
+    QVERIFY(!window.received(QEvent::Expose));
+
+    window.reset();
+    window.hide();
+
+    QTRY_VERIFY(window.received(QEvent::Expose));
+    QVERIFY(!window.received(QEvent::Paint));
+    QVERIFY(!window.isExposed());
+}
+
 void tst_QWindow::resizeEventAfterResize()
 {
     // Some platforms enforce minimum widths for windows, which can cause extra resize
@@ -407,15 +454,11 @@ void tst_QWindow::resizeEventAfterResize()
     // Make sure we get a resizeEvent after calling resize
     window.resize(m_testWindowSize);
 
-    if (isPlatformWinRT())
-        QEXPECT_FAIL("", "Winrt windows are fullscreen by default.", Continue);
     QTRY_COMPARE(window.received(QEvent::Resize), 2);
 }
 
 void tst_QWindow::exposeEventOnShrink_QTBUG54040()
 {
-    if (isPlatformWinRT())
-        QSKIP("", "WinRT does not support non-maximized/non-fullscreen top level windows. QTBUG-54528", Continue);
     Window window;
     window.setGeometry(QRect(m_availableTopLeft + QPoint(80, 80), m_testWindowSize));
     window.setTitle(QTest::currentTestFunction());
@@ -603,8 +646,6 @@ void tst_QWindow::childWindowPositioning()
 {
     if (isPlatformWayland())
         QSKIP("Wayland: This is flaky (protocol errors for xdg-shell v6). See QTBUG-67648.");
-    else if (isPlatformWinRT())
-        QSKIP("WinRT does not support child windows.");
 
     const QPoint topLeftOrigin(0, 0);
 
@@ -796,8 +837,6 @@ void tst_QWindow::isExposed()
 
     QCoreApplication::processEvents();
     QTRY_VERIFY(window.received(QEvent::Expose) > 1);
-    if (isPlatformWinRT())
-        QEXPECT_FAIL("", "WinRT does not destroy the window. Figure out why. QTBUG-68297", Continue);
     QTRY_VERIFY(!window.isExposed());
 }
 
@@ -832,8 +871,6 @@ void tst_QWindow::isActive()
     child.setGeometry(10, 10, 20, 20);
     child.show();
 
-    if (isPlatformWinRT())
-        QEXPECT_FAIL("", "WinRT does not support native child windows.", Abort);
     QTRY_VERIFY(child.isExposed());
 
     child.requestActivate();
@@ -923,23 +960,34 @@ public:
     }
     void mousePressEvent(QMouseEvent *event) override
     {
+        qCDebug(lcTests) << event;
+        mouseDevice = event->pointingDevice();
         if (ignoreMouse) {
             event->ignore();
         } else {
+            QCOMPARE(event->isBeginEvent(), true);
+            QCOMPARE(event->isUpdateEvent(), false);
+            QCOMPARE(event->isEndEvent(), false);
+            QCOMPARE(event->points().first().state(), QEventPoint::State::Pressed);
             ++mousePressedCount;
             mouseSequenceSignature += 'p';
             mousePressButton = event->button();
-            mousePressScreenPos = event->screenPos();
-            mousePressLocalPos = event->localPos();
+            mousePressScreenPos = event->globalPosition();
+            mousePressLocalPos = event->position();
             if (spinLoopWhenPressed)
                 QCoreApplication::processEvents();
         }
     }
     void mouseReleaseEvent(QMouseEvent *event) override
     {
+        qCDebug(lcTests) << event;
         if (ignoreMouse) {
             event->ignore();
         } else {
+            QCOMPARE(event->isBeginEvent(), false);
+            QCOMPARE(event->isUpdateEvent(), false);
+            QCOMPARE(event->isEndEvent(), true);
+            QCOMPARE(event->points().first().state(), QEventPoint::State::Released);
             ++mouseReleasedCount;
             mouseSequenceSignature += 'r';
             mouseReleaseButton = event->button();
@@ -947,43 +995,60 @@ public:
     }
     void mouseMoveEvent(QMouseEvent *event) override
     {
+        qCDebug(lcTests) << event;
         buttonStateInGeneratedMove = event->buttons();
         if (ignoreMouse) {
             event->ignore();
         } else {
+            QCOMPARE(event->isBeginEvent(), false);
+            QCOMPARE(event->isUpdateEvent(), true);
+            QCOMPARE(event->isEndEvent(), false);
+            QCOMPARE(event->points().first().state(), QEventPoint::State::Updated);
             ++mouseMovedCount;
             mouseMoveButton = event->button();
-            mouseMoveScreenPos = event->screenPos();
+            mouseMoveScreenPos = event->globalPosition();
         }
     }
     void mouseDoubleClickEvent(QMouseEvent *event) override
     {
+        qCDebug(lcTests) << event;
         if (ignoreMouse) {
             event->ignore();
         } else {
+            QCOMPARE(event->isBeginEvent(), false);
+            QCOMPARE(event->isUpdateEvent(), true);
+            QCOMPARE(event->isEndEvent(), false);
+            QCOMPARE(event->points().first().state(), QEventPoint::State::Stationary);
             ++mouseDoubleClickedCount;
             mouseSequenceSignature += 'd';
         }
     }
     void touchEvent(QTouchEvent *event) override
     {
+        qCDebug(lcTests) << event;
+        touchDevice = event->pointingDevice();
         if (ignoreTouch) {
             event->ignore();
             return;
         }
         touchEventType = event->type();
-        QList<QTouchEvent::TouchPoint> points = event->touchPoints();
+        QList<QTouchEvent::TouchPoint> points = event->points();
         for (int i = 0; i < points.count(); ++i) {
-            switch (points.at(i).state()) {
-            case Qt::TouchPointPressed:
+            const auto &point = points.at(i);
+            switch (point.state()) {
+            case QEventPoint::State::Pressed:
                 ++touchPressedCount;
                 if (spinLoopWhenPressed)
                     QCoreApplication::processEvents();
+                if (i == 0) {
+                    touchPressLocalPos = point.position();
+                    touchPressGlobalPos = point.globalPosition();
+                }
                 break;
-            case Qt::TouchPointReleased:
+            case QEventPoint::State::Released:
                 ++touchReleasedCount;
                 break;
-            case Qt::TouchPointMoved:
+            case QEventPoint::State::Updated:
                 ++touchMovedCount;
                 break;
             default:
@@ -995,9 +1060,11 @@ public:
     {
         switch (e->type()) {
         case QEvent::Enter:
+            qCDebug(lcTests) << e;
             ++enterEventCount;
             break;
         case QEvent::Leave:
+            qCDebug(lcTests) << e;
             ++leaveEventCount;
             break;
         default:
@@ -1021,6 +1088,7 @@ public:
     int mousePressedCount = 0, mouseReleasedCount = 0, mouseMovedCount = 0, mouseDoubleClickedCount = 0;
     QString mouseSequenceSignature;
     QPointF mousePressScreenPos, mouseMoveScreenPos, mousePressLocalPos;
+    QPointF touchPressGlobalPos, touchPressLocalPos;
     int touchPressedCount = 0, touchReleasedCount = 0, touchMovedCount = 0;
     QEvent::Type touchEventType = QEvent::None;
     int enterEventCount = 0, leaveEventCount = 0;
@@ -1029,23 +1097,26 @@ public:
 
     bool spinLoopWhenPressed = false;
     Qt::MouseButtons buttonStateInGeneratedMove;
+
+    const QPointingDevice *mouseDevice = nullptr;
+    const QPointingDevice *touchDevice = nullptr;
 };
 
 static void simulateMouseClick(QWindow *target, const QPointF &local, const QPointF &global)
 {
     QWindowSystemInterface::handleMouseEvent(target, local, global,
-                                             {}, Qt::LeftButton, QEvent::MouseButtonPress);
+                                             Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
     QWindowSystemInterface::handleMouseEvent(target, local, global,
-                                             Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonRelease);
+                                             {}, Qt::LeftButton, QEvent::MouseButtonRelease);
 }
 
 static void simulateMouseClick(QWindow *target, ulong &timeStamp,
                                const QPointF &local, const QPointF &global)
 {
     QWindowSystemInterface::handleMouseEvent(target, timeStamp++, local, global,
-                                             {}, Qt::LeftButton, QEvent::MouseButtonPress);
+                                             Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
     QWindowSystemInterface::handleMouseEvent(target, timeStamp++, local, global,
-                                             Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonRelease);
+                                             {}, Qt::LeftButton, QEvent::MouseButtonRelease);
 }
 
 void tst_QWindow::testInputEvents()
@@ -1070,15 +1141,15 @@ void tst_QWindow::testInputEvents()
     QList<QWindowSystemInterface::TouchPoint> points;
     QWindowSystemInterface::TouchPoint tp1, tp2;
     tp1.id = 1;
-    tp1.state = Qt::TouchPointPressed;
+    tp1.state = QEventPoint::State::Pressed;
     tp1.area = QRect(10, 10, 4, 4);
     tp2.id = 2;
-    tp2.state = Qt::TouchPointPressed;
+    tp2.state = QEventPoint::State::Pressed;
     tp2.area = QRect(20, 20, 4, 4);
     points << tp1 << tp2;
     QWindowSystemInterface::handleTouchEvent(&window, touchDevice, points);
-    points[0].state = Qt::TouchPointReleased;
-    points[1].state = Qt::TouchPointReleased;
+    points[0].state = QEventPoint::State::Released;
+    points[1].state = QEventPoint::State::Released;
     QWindowSystemInterface::handleTouchEvent(&window, touchDevice, points);
     QCoreApplication::processEvents();
     QTRY_COMPARE(window.touchPressedCount, 2);
@@ -1117,24 +1188,24 @@ void tst_QWindow::touchToMouseTranslation()
     const QRectF pressArea(101, 102, 4, 4);
     const QRectF moveArea(105, 108, 4, 4);
     tp1.id = 1;
-    tp1.state = Qt::TouchPointPressed;
+    tp1.state = QEventPoint::State::Pressed;
     tp1.area = QHighDpi::toNativePixels(pressArea, &window);
     tp2.id = 2;
-    tp2.state = Qt::TouchPointPressed;
+    tp2.state = QEventPoint::State::Pressed;
     points << tp1 << tp2;
     QWindowSystemInterface::handleTouchEvent(&window, touchDevice, points);
     // Now an update but with changed list order. The mouse event should still
     // be generated from the point with id 1.
     tp1.id = 2;
-    tp1.state = Qt::TouchPointStationary;
+    tp1.state = QEventPoint::State::Stationary;
     tp2.id = 1;
-    tp2.state = Qt::TouchPointMoved;
+    tp2.state = QEventPoint::State::Updated;
     tp2.area = QHighDpi::toNativePixels(moveArea, &window);
     points.clear();
     points << tp1 << tp2;
     QWindowSystemInterface::handleTouchEvent(&window, touchDevice, points);
-    points[0].state = Qt::TouchPointReleased;
-    points[1].state = Qt::TouchPointReleased;
+    points[0].state = QEventPoint::State::Released;
+    points[1].state = QEventPoint::State::Released;
     QWindowSystemInterface::handleTouchEvent(&window, touchDevice, points);
     QCoreApplication::processEvents();
 
@@ -1142,17 +1213,19 @@ void tst_QWindow::touchToMouseTranslation()
     QTRY_COMPARE(window.mouseReleaseButton, int(Qt::LeftButton));
     QTRY_COMPARE(window.mousePressScreenPos, pressArea.center());
     QTRY_COMPARE(window.mouseMoveScreenPos, moveArea.center());
+    QCOMPARE(window.mouseDevice, window.touchDevice);
+    QCOMPARE(window.mouseDevice->type(), QInputDevice::DeviceType::TouchScreen);
 
     window.mousePressButton = 0;
     window.mouseReleaseButton = 0;
 
     window.ignoreTouch = false;
 
-    points[0].state = Qt::TouchPointPressed;
-    points[1].state = Qt::TouchPointPressed;
+    points[0].state = QEventPoint::State::Pressed;
+    points[1].state = QEventPoint::State::Pressed;
     QWindowSystemInterface::handleTouchEvent(&window, touchDevice, points);
-    points[0].state = Qt::TouchPointReleased;
-    points[1].state = Qt::TouchPointReleased;
+    points[0].state = QEventPoint::State::Released;
+    points[1].state = QEventPoint::State::Released;
     QWindowSystemInterface::handleTouchEvent(&window, touchDevice, points);
     QCoreApplication::processEvents();
 
@@ -1163,11 +1236,11 @@ void tst_QWindow::touchToMouseTranslation()
     QCoreApplication::setAttribute(Qt::AA_SynthesizeMouseForUnhandledTouchEvents, false);
 
     window.ignoreTouch = true;
-    points[0].state = Qt::TouchPointPressed;
-    points[1].state = Qt::TouchPointPressed;
+    points[0].state = QEventPoint::State::Pressed;
+    points[1].state = QEventPoint::State::Pressed;
     QWindowSystemInterface::handleTouchEvent(&window, touchDevice, points);
-    points[0].state = Qt::TouchPointReleased;
-    points[1].state = Qt::TouchPointReleased;
+    points[0].state = QEventPoint::State::Released;
+    points[1].state = QEventPoint::State::Released;
     QWindowSystemInterface::handleTouchEvent(&window, touchDevice, points);
     QCoreApplication::processEvents();
 
@@ -1179,24 +1252,24 @@ void tst_QWindow::touchToMouseTranslation()
 
     points.clear();
     points.append(tp2);
-    points[0].state = Qt::TouchPointPressed;
+    points[0].state = QEventPoint::State::Pressed;
     QWindowSystemInterface::handleTouchEvent(&window, touchDevice, points);
     QCoreApplication::processEvents();
     points.clear();
     points.append(tp1);
-    points[0].state = Qt::TouchPointPressed;
+    points[0].state = QEventPoint::State::Pressed;
     QWindowSystemInterface::handleTouchEvent(&window, touchDevice, points);
     QCoreApplication::processEvents();
     QTRY_COMPARE(window.mousePressButton, 1);
 
     points.clear();
     points.append(tp2);
-    points[0].state = Qt::TouchPointReleased;
+    points[0].state = QEventPoint::State::Released;
     QWindowSystemInterface::handleTouchEvent(&window, touchDevice, points);
     QCoreApplication::processEvents();
     points.clear();
     points.append(tp1);
-    points[0].state = Qt::TouchPointReleased;
+    points[0].state = QEventPoint::State::Released;
     QWindowSystemInterface::handleTouchEvent(&window, touchDevice, points);
     QCoreApplication::processEvents();
     QTRY_COMPARE(window.mouseReleaseButton, 1);
@@ -1222,11 +1295,9 @@ void tst_QWindow::touchToMouseTranslationForDevices()
 
     window.resetCounters();
 
-    touchDevice->setCapabilities(touchDevice->capabilities() | QTouchDevice::MouseEmulation);
-    QTest::touchEvent(&window, touchDevice).press(0, touchPoint, &window);
-    QTest::touchEvent(&window, touchDevice).release(0, touchPoint, &window);
+    QTest::touchEvent(&window, touchDeviceWithMouseEmulation).press(0, touchPoint, &window);
+    QTest::touchEvent(&window, touchDeviceWithMouseEmulation).release(0, touchPoint, &window);
     QCoreApplication::processEvents();
-    touchDevice->setCapabilities(touchDevice->capabilities() & ~QTouchDevice::MouseEmulation);
 
     QCOMPARE(window.mousePressedCount, 0);
     QCOMPARE(window.mouseReleasedCount, 0);
@@ -1243,19 +1314,24 @@ void tst_QWindow::mouseToTouchTranslation()
     window.show();
     QVERIFY(QTest::qWaitForWindowExposed(&window));
 
-    QTest::mouseClick(&window, Qt::LeftButton, {}, QPoint(10, 10));
+    const QPoint localPos(10, 10);
+    QTest::mouseClick(&window, Qt::LeftButton, {}, localPos);
     QCoreApplication::processEvents();
 
     QCoreApplication::setAttribute(Qt::AA_SynthesizeTouchForUnhandledMouseEvents, false);
 
     QTRY_COMPARE(window.touchPressedCount, 1);
     QTRY_COMPARE(window.touchReleasedCount, 1);
+    QCOMPARE(window.mouseDevice, window.touchDevice);
+    QCOMPARE(window.touchDevice->type(), QInputDevice::DeviceType::Mouse);
+    QCOMPARE(window.touchPressLocalPos.toPoint(), localPos);
+    QCOMPARE(window.touchPressGlobalPos.toPoint(), window.mapToGlobal(localPos));
 
     QCoreApplication::setAttribute(Qt::AA_SynthesizeTouchForUnhandledMouseEvents, true);
 
     window.ignoreMouse = false;
 
-    QTest::mouseClick(&window, Qt::LeftButton, {}, QPoint(10, 10));
+    QTest::mouseClick(&window, Qt::LeftButton, {}, localPos);
     QCoreApplication::processEvents();
 
     QCoreApplication::setAttribute(Qt::AA_SynthesizeTouchForUnhandledMouseEvents, false);
@@ -1266,14 +1342,12 @@ void tst_QWindow::mouseToTouchTranslation()
 
     window.ignoreMouse = true;
 
-    QTest::mouseClick(&window, Qt::LeftButton, {}, QPoint(10, 10));
+    QTest::mouseClick(&window, Qt::LeftButton, {}, localPos);
     QCoreApplication::processEvents();
 
     // touch event synthesis disabled
     QTRY_COMPARE(window.touchPressedCount, 1);
     QTRY_COMPARE(window.touchReleasedCount, 1);
-
-
 }
 
 void tst_QWindow::mouseToTouchLoop()
@@ -1311,7 +1385,7 @@ void tst_QWindow::touchCancel()
     tp1.id = 1;
 
     // Start a touch.
-    tp1.state = Qt::TouchPointPressed;
+    tp1.state = QEventPoint::State::Pressed;
     tp1.area = QRect(10, 10, 4, 4);
     points << tp1;
     QWindowSystemInterface::handleTouchEvent(&window, touchDevice, points);
@@ -1326,7 +1400,7 @@ void tst_QWindow::touchCancel()
 
     // Send a move -> will not be delivered due to the cancellation.
     QTRY_COMPARE(window.touchMovedCount, 0);
-    points[0].state = Qt::TouchPointMoved;
+    points[0].state = QEventPoint::State::Updated;
     tp1.area.adjust(2, 2, 2, 2);
     QWindowSystemInterface::handleTouchEvent(&window, touchDevice, points);
     QCoreApplication::processEvents();
@@ -1334,25 +1408,25 @@ void tst_QWindow::touchCancel()
 
     // Likewise. The only allowed transition is TouchCancel -> TouchBegin.
     QTRY_COMPARE(window.touchReleasedCount, 0);
-    points[0].state = Qt::TouchPointReleased;
+    points[0].state = QEventPoint::State::Released;
     QWindowSystemInterface::handleTouchEvent(&window, touchDevice, points);
     QCoreApplication::processEvents();
     QTRY_COMPARE(window.touchReleasedCount, 0);
 
     // Start a new sequence -> from this point on everything should go through normally.
-    points[0].state = Qt::TouchPointPressed;
+    points[0].state = QEventPoint::State::Pressed;
     QWindowSystemInterface::handleTouchEvent(&window, touchDevice, points);
     QCoreApplication::processEvents();
     QTRY_COMPARE(window.touchEventType, QEvent::TouchBegin);
     QTRY_COMPARE(window.touchPressedCount, 2);
 
-    points[0].state = Qt::TouchPointMoved;
+    points[0].state = QEventPoint::State::Updated;
     tp1.area.adjust(2, 2, 2, 2);
     QWindowSystemInterface::handleTouchEvent(&window, touchDevice, points);
     QCoreApplication::processEvents();
     QTRY_COMPARE(window.touchMovedCount, 1);
 
-    points[0].state = Qt::TouchPointReleased;
+    points[0].state = QEventPoint::State::Released;
     QWindowSystemInterface::handleTouchEvent(&window, touchDevice, points);
     QCoreApplication::processEvents();
     QTRY_COMPARE(window.touchReleasedCount, 1);
@@ -1371,7 +1445,7 @@ void tst_QWindow::touchCancelWithTouchToMouse()
     QWindowSystemInterface::TouchPoint tp1;
     tp1.id = 1;
 
-    tp1.state = Qt::TouchPointPressed;
+    tp1.state = QEventPoint::State::Pressed;
     const QRect area(100, 100, 4, 4);
     tp1.area = QHighDpi::toNativePixels(area, &window);
     points << tp1;
@@ -1420,7 +1494,7 @@ void tst_QWindow::touchInterruptedByPopup()
     tp1.id = 1;
 
     // Start a touch.
-    tp1.state = Qt::TouchPointPressed;
+    tp1.state = QEventPoint::State::Pressed;
     tp1.area = QRect(10, 10, 4, 4);
     points << tp1;
     QWindowSystemInterface::handleTouchEvent(&window, touchDevice, points);
@@ -1440,7 +1514,7 @@ void tst_QWindow::touchInterruptedByPopup()
     // Send a move -> will not be delivered to the original window
     // (TODO verify where it is forwarded, after we've defined that)
     QTRY_COMPARE(window.touchMovedCount, 0);
-    points[0].state = Qt::TouchPointMoved;
+    points[0].state = QEventPoint::State::Updated;
     tp1.area.adjust(2, 2, 2, 2);
     QWindowSystemInterface::handleTouchEvent(&window, touchDevice, points);
     QCoreApplication::processEvents();
@@ -1448,7 +1522,7 @@ void tst_QWindow::touchInterruptedByPopup()
 
     // Send a touch end -> will not be delivered to the original window
     QTRY_COMPARE(window.touchReleasedCount, 0);
-    points[0].state = Qt::TouchPointReleased;
+    points[0].state = QEventPoint::State::Released;
     QWindowSystemInterface::handleTouchEvent(&window, touchDevice, points);
     QCoreApplication::processEvents();
     QTRY_COMPARE(window.touchReleasedCount, 0);
@@ -1528,20 +1602,114 @@ void tst_QWindow::sizes()
     QCOMPARE(maximumHeightSpy.count(), 1);
 }
 
+class CloseOnCloseEventWindow : public QWindow
+{
+public:
+    inline static int closeEvents;
+    CloseOnCloseEventWindow() { closeEvents = 0; }
+
+protected:
+    void closeEvent(QCloseEvent *e) override
+    {
+        if (++closeEvents > 1)
+            return;
+
+        close();
+        e->accept();
+    }
+};
+
 void tst_QWindow::close()
 {
-    QWindow a;
-    a.setTitle(QLatin1String(QTest::currentTestFunction()));
-    QWindow b;
-    QWindow c(&a);
+    {
+        QWindow a;
+        QWindow b;
+        QWindow c(&a);
 
-    a.show();
-    b.show();
+        a.show();
+        b.show();
 
-    // we can not close a non top level window
-    QVERIFY(!c.close());
-    QVERIFY(a.close());
-    QVERIFY(b.close());
+        // we can not close a non top level window
+        QVERIFY(!c.close());
+        QVERIFY(a.close());
+        QVERIFY(b.close());
+    }
+
+    // Verify that closing a QWindow deletes its platform window,
+    // independent of API used to close the window.
+    {
+        // Close with QWindow::close
+        {
+            QWindow w;
+            w.create();
+            QVERIFY(w.handle());
+            w.close();
+            QVERIFY(!w.handle());
+        }
+
+        // Close with QWindowSystemInterface::handleCloseEvent();
+        {
+            QWindow w;
+            w.create();
+            QVERIFY(w.handle());
+            QWindowSystemInterface::handleCloseEvent(&w);
+            QCoreApplication::processEvents();
+            QVERIFY(!w.handle());
+        }
+    }
+
+    // Verify that closing a QWindow deletes the platform window for
+    // child windows
+    {
+        QWindow w;
+        QWindow c(&w);
+        w.create();
+        c.create();
+        QVERIFY(w.handle());
+        QVERIFY(c.handle());
+        w.close();
+        QVERIFY(!w.handle());
+        QVERIFY(!c.handle());
+    }
+
+    // Verify that re-creating closed windows is possble.
+    {
+        // Re-create top-level window
+        {
+            QWindow w;
+            w.create();
+            QVERIFY(w.handle());
+            w.close();
+            QVERIFY(!w.handle());
+            w.create();
+            QVERIFY(w.handle());
+        }
+
+        // Re-create top-level window with child window
+        {
+            QWindow w;
+            QWindow c(&w);
+            c.create();
+            QVERIFY(w.handle());
+            QVERIFY(c.handle());
+            w.close();
+            QVERIFY(!w.handle());
+            QVERIFY(!c.handle());
+            c.create();
+            QVERIFY(w.handle());
+            QVERIFY(c.handle());
+        }
+    }
+
+    {
+        // A QWidget will call close() from the destructor, and
+        // we allow widgets deleting itself in the closeEvent,
+        // so we need to guard against close being called recursively.
+        CloseOnCloseEventWindow w;
+        w.create();
+        w.close();
+        QCOMPARE(CloseOnCloseEventWindow::closeEvents, 1);
+    }
 }
 
 void tst_QWindow::activateAndClose()
@@ -1696,12 +1864,12 @@ void tst_QWindow::inputReentrancy()
 
     // Queue three events.
     QPointF local(12, 34);
-    QWindowSystemInterface::handleMouseEvent(&window, local, local, {},
+    QWindowSystemInterface::handleMouseEvent(&window, local, local, Qt::LeftButton,
                                              Qt::LeftButton, QEvent::MouseButtonPress);
     local += QPointF(2, 2);
     QWindowSystemInterface::handleMouseEvent(&window, local, local,
-                                             Qt::LeftButton, Qt::LeftButton, QEvent::MouseMove);
-    QWindowSystemInterface::handleMouseEvent(&window, local, local, Qt::LeftButton,
+                                             Qt::LeftButton, {}, QEvent::MouseMove);
+    QWindowSystemInterface::handleMouseEvent(&window, local, local, {},
                                              Qt::LeftButton, QEvent::MouseButtonRelease);
     // Process them. However, the event handler for the press will also call
     // processEvents() so the move and release will be delivered before returning
@@ -1710,21 +1878,22 @@ void tst_QWindow::inputReentrancy()
     QCOMPARE(window.mousePressButton, int(Qt::LeftButton));
     QCOMPARE(window.mouseReleaseButton, int(Qt::LeftButton));
     QCOMPARE(window.mousePressedCount, 1);
-    QCOMPARE(window.mouseMovedCount, 1);
+    // The mouse press may have generated a synthetic move in QGuiApplicationPrivate::processMouseEvent()
+    QVERIFY(window.mouseMovedCount == 1 || window.mouseMovedCount == 2);
     QCOMPARE(window.mouseReleasedCount, 1);
 
     // Now the same for touch.
     QList<QWindowSystemInterface::TouchPoint> points;
     QWindowSystemInterface::TouchPoint tp1;
     tp1.id = 1;
-    tp1.state = Qt::TouchPointPressed;
+    tp1.state = QEventPoint::State::Pressed;
     tp1.area = QRectF(10, 10, 4, 4);
     points << tp1;
     QWindowSystemInterface::handleTouchEvent(&window, touchDevice, points);
-    points[0].state = Qt::TouchPointMoved;
+    points[0].state = QEventPoint::State::Updated;
     points[0].area = QRectF(20, 20, 8, 8);
     QWindowSystemInterface::handleTouchEvent(&window, touchDevice, points);
-    points[0].state = Qt::TouchPointReleased;
+    points[0].state = QEventPoint::State::Released;
     QWindowSystemInterface::handleTouchEvent(&window, touchDevice, points);
     QCoreApplication::processEvents();
     QCOMPARE(window.touchPressedCount, 1);
@@ -1739,14 +1908,15 @@ public:
     void tabletEvent(QTabletEvent *ev) override
     {
         eventType = ev->type();
-        eventGlobal = ev->globalPosF();
-        eventLocal = ev->posF();
-        eventDevice = ev->device();
+        eventGlobal = ev->globalPosition();
+        eventLocal = ev->position();
+        eventDevice = ev->deviceType();
     }
 
     QEvent::Type eventType = QEvent::None;
     QPointF eventGlobal, eventLocal;
-    int eventDevice = -1;
+    QInputDevice::DeviceType eventDevice = QInputDevice::DeviceType::Unknown;
+    QPointingDevice::PointerType eventPointerType = QPointingDevice::PointerType::Unknown;
 
     bool eventFilter(QObject *obj, QEvent *ev) override
     {
@@ -1754,7 +1924,8 @@ public:
                 || ev->type() == QEvent::TabletLeaveProximity) {
             eventType = ev->type();
             QTabletEvent *te = static_cast<QTabletEvent *>(ev);
-            eventDevice = te->device();
+            eventDevice = te->deviceType();
+            eventPointerType = te->pointerType();
         }
         return QWindow::eventFilter(obj, ev);
     }
@@ -1764,6 +1935,11 @@ public:
 void tst_QWindow::tabletEvents()
 {
 #if QT_CONFIG(tabletevent)
+    // the fake USB tablet device is "plugged in"
+    QPointingDevice tabletDevice("macow", 0xbeef, QInputDevice::DeviceType::Unknown, QPointingDevice::PointerType::Generic,
+                                 QInputDevice::Capability::Position, 1, 0);
+    QWindowSystemInterface::registerInputDevice(&tabletDevice);
+
     TabletTestWindow window;
     window.setGeometry(QRect(m_availableTopLeft + QPoint(10, 10), m_testWindowSize));
     qGuiApp->installEventFilter(&window);
@@ -1772,27 +1948,40 @@ void tst_QWindow::tabletEvents()
     const QPoint global = window.mapToGlobal(local);
     const QPoint deviceLocal = QHighDpi::toNativeLocalPosition(local, &window);
     const QPoint deviceGlobal = QHighDpi::toNativePixels(global, window.screen());
-    QWindowSystemInterface::handleTabletEvent(&window, deviceLocal, deviceGlobal,
-                                              1, 2, Qt::LeftButton, 0.5, 1, 2, 0.1, 0, 0, 0);
+    ulong timestamp = 1234;
+
+    // the stylus is just now seen for the first time, as it comes into proximity
+    // its QObject-parent will be the tablet device
+    QPointingDevice tabletStylus("macow stylus eraser", 0xe6a5e6, QInputDevice::DeviceType::Stylus, QPointingDevice::PointerType::Eraser,
+                                 QInputDevice::Capability::Position | QInputDevice::Capability::Pressure, 1, 3, QString(),
+                                 QPointingDeviceUniqueId::fromNumericId(42), &tabletDevice);
+    QWindowSystemInterface::registerInputDevice(&tabletStylus);
+    QWindowSystemInterface::handleTabletEnterLeaveProximityEvent(&window, timestamp++, &tabletStylus, true);
+    QCoreApplication::processEvents();
+    QTRY_COMPARE(window.eventType, QEvent::TabletEnterProximity);
+    QCOMPARE(window.eventDevice, QInputDevice::DeviceType::Stylus);
+    QCOMPARE(window.eventPointerType, QPointingDevice::PointerType::Eraser);
+
+    // the eraser is pressed into contact with the tablet surface
+    QWindowSystemInterface::handleTabletEvent(&window, timestamp++, &tabletStylus, deviceLocal, deviceGlobal,
+                                              Qt::LeftButton, 0.5, 1, 2, 0.1, 0, 0, {});
     QCoreApplication::processEvents();
     QTRY_VERIFY(window.eventType == QEvent::TabletPress);
     QTRY_COMPARE(window.eventGlobal.toPoint(), global);
     QTRY_COMPARE(window.eventLocal.toPoint(), local);
-    QWindowSystemInterface::handleTabletEvent(&window, deviceLocal, deviceGlobal, 1, 2,
-                                              {}, 0.5, 1, 2, 0.1, 0, 0, 0);
+
+    // now it's lifted
+    QWindowSystemInterface::handleTabletEvent(&window, timestamp++, &tabletStylus, deviceLocal, deviceGlobal,
+                                              Qt::NoButton, 0, 3, 4, 0.11, 2, 1, {});
     QCoreApplication::processEvents();
     QTRY_COMPARE(window.eventType, QEvent::TabletRelease);
 
-    QWindowSystemInterface::handleTabletEnterProximityEvent(1, 2, 3);
-    QCoreApplication::processEvents();
-    QTRY_COMPARE(window.eventType, QEvent::TabletEnterProximity);
-    QTRY_COMPARE(window.eventDevice, 1);
-
-    QWindowSystemInterface::handleTabletLeaveProximityEvent(1, 2, 3);
+    // and is taken away (goes out of proxmity)
+    QWindowSystemInterface::handleTabletEnterLeaveProximityEvent(&window, timestamp, &tabletStylus, false);
     QCoreApplication::processEvents();
     QTRY_COMPARE(window.eventType, QEvent::TabletLeaveProximity);
-    QTRY_COMPARE(window.eventDevice, 1);
-
+    QCOMPARE(window.eventDevice, QInputDevice::DeviceType::Stylus);
+    QCOMPARE(window.eventPointerType, QPointingDevice::PointerType::Eraser);
 #endif
 }
 
@@ -1918,8 +2107,6 @@ void tst_QWindow::initialSize()
     w.setTitle(QLatin1String(QTest::currentTestFunction()));
     w.setWidth(m_testWindowSize.width());
     w.showNormal();
-    if (isPlatformWinRT())
-        QEXPECT_FAIL("", "WinRT shows windows as fullscreen by default.", Continue);
     QTRY_COMPARE(w.width(), m_testWindowSize.width());
     QTRY_VERIFY(w.height() > 0);
     }
@@ -1931,8 +2118,6 @@ void tst_QWindow::initialSize()
     w.showNormal();
 
     const QSize expectedSize = testSize;
-    if (isPlatformWinRT())
-        QEXPECT_FAIL("", "WinRT shows windows as fullscreen by default.", Continue);
     QTRY_COMPARE(w.size(), expectedSize);
     }
 }
@@ -1972,13 +2157,11 @@ void tst_QWindow::modalDialog()
     QGuiApplication::processEvents();
 
     if (isPlatformOffscreenOrMinimal()) {
-        QWARN("Focus stays in normalWindow on offscreen/minimal platforms");
+        qWarning("Focus stays in normalWindow on offscreen/minimal platforms");
         QTRY_COMPARE(QGuiApplication::focusWindow(), &normalWindow);
         return;
     }
 
-    if (isPlatformWinRT())
-        QEXPECT_FAIL("", "WinRT only support one native window.", Continue);
     QTRY_COMPARE(QGuiApplication::focusWindow(), &dialog);
 }
 
@@ -2020,13 +2203,11 @@ void tst_QWindow::modalDialogClosingOneOfTwoModal()
     QGuiApplication::processEvents();
 
     if (isPlatformOffscreenOrMinimal()) {
-        QWARN("Focus is lost when closing modal dialog on offscreen/minimal platforms");
+        qWarning("Focus is lost when closing modal dialog on offscreen/minimal platforms");
         QTRY_COMPARE(QGuiApplication::focusWindow(), nullptr);
         return;
     }
 
-    if (isPlatformWinRT())
-        QEXPECT_FAIL("", "WinRT only support one native window.", Continue);
     QTRY_COMPARE(QGuiApplication::focusWindow(), &first_dialog);
 }
 
@@ -2055,8 +2236,6 @@ void tst_QWindow::modalWithChildWindow()
 
     tlw_dialog.show();
     QVERIFY(QTest::qWaitForWindowExposed(&tlw_dialog));
-    if (isPlatformWinRT())
-        QEXPECT_FAIL("", "WinRT only support one native window.", Abort);
     QVERIFY(QTest::qWaitForWindowExposed(&sub_window));
 
     QTRY_COMPARE(QGuiApplication::focusWindow(), &tlw_dialog);
@@ -2111,8 +2290,6 @@ void tst_QWindow::modalWindowPosition()
     window.setModality(Qt::WindowModal);
     window.show();
     QVERIFY(QTest::qWaitForWindowExposed(&window));
-    if (isPlatformWinRT())
-        QEXPECT_FAIL("", "WinRT windows are fullscreen by default.", Continue);
     QCOMPARE(window.geometry(), origGeo);
 }
 
@@ -2173,9 +2350,6 @@ void tst_QWindow::modalWindowEnterEventOnHide_QTBUG35109()
         root.resetCounters();
         modal.close();
 
-        if (isPlatformWinRT())
-            QEXPECT_FAIL("", "WinRT does not trigger the enter event correctly"
-                         "- QTBUG-68297.", Abort);
         // Check for the enter event
         QTRY_COMPARE(root.enterEventCount, 1);
     }
@@ -2306,8 +2480,8 @@ void tst_QWindow::spuriousMouseMove()
     const QString &platformName = QGuiApplication::platformName();
     if (platformName == QLatin1String("offscreen") || platformName == QLatin1String("cocoa"))
         QSKIP("No enter events sent");
-    if (isPlatformWayland() || isPlatformWinRT())
-        QSKIP("QCursor::setPos() is not supported on this platform");
+    if (platformName == QLatin1String("wayland"))
+        QSKIP("Setting mouse cursor position is not possible on Wayland");
     const QRect screenGeometry = QGuiApplication::primaryScreen()->geometry();
     const QPoint center = screenGeometry.center();
     QCursor::setPos(center);
@@ -2345,7 +2519,7 @@ void tst_QWindow::spuriousMouseMove()
 
 static bool isNativeWindowVisible(const QWindow *window)
 {
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
     return IsWindowVisible(reinterpret_cast<HWND>(window->winId()));
 #else
     Q_UNIMPLEMENTED();
@@ -2523,6 +2697,51 @@ void tst_QWindow::keepPendingUpdateRequests()
 
     QVERIFY(platformWindow->hasPendingUpdateRequest());
     QTRY_VERIFY(!platformWindow->hasPendingUpdateRequest());
+}
+
+void tst_QWindow::activateDeactivateEvent()
+{
+    if (!QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::WindowActivation))
+        QSKIP("QWindow::requestActivate() is not supported.");
+
+    class Window : public QWindow
+    {
+    public:
+        using QWindow::QWindow;
+
+        int activateCount = 0;
+        int deactivateCount = 0;
+    protected:
+        bool event(QEvent *e)
+        {
+            switch (e->type()) {
+            case QEvent::WindowActivate:
+                ++activateCount;
+                break;
+            case QEvent::WindowDeactivate:
+                ++deactivateCount;
+                break;
+            default:
+                break;
+            }
+            return QWindow::event(e);
+        }
+    };
+
+    Window w1;
+    Window w2;
+
+    w1.show();
+    w1.requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(&w1));
+    QCOMPARE(w1.activateCount, 1);
+    QCOMPARE(w1.deactivateCount, 0);
+
+    w2.show();
+    w2.requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(&w2));
+    QCOMPARE(w1.deactivateCount, 1);
+    QCOMPARE(w2.activateCount, 1);
 }
 
 #include <tst_qwindow.moc>

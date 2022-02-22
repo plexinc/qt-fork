@@ -11,25 +11,26 @@
 #include <vector>
 
 #include "core/fxcrt/cfx_memorystream.h"
+#include "core/fxcrt/cfx_readonlymemorystream.h"
 #include "core/fxcrt/fx_codepage.h"
 #include "core/fxcrt/xml/cfx_xmldocument.h"
-#include "core/fxcrt/xml/cfx_xmlnode.h"
+#include "core/fxcrt/xml/cfx_xmlelement.h"
+#include "core/fxcrt/xml/cfx_xmlparser.h"
+#include "fxjs/fxv8.h"
 #include "fxjs/js_resources.h"
 #include "fxjs/xfa/cfxjse_engine.h"
-#include "fxjs/xfa/cfxjse_value.h"
-#include "third_party/base/ptr_util.h"
 #include "xfa/fxfa/cxfa_eventparam.h"
 #include "xfa/fxfa/cxfa_ffdoc.h"
 #include "xfa/fxfa/cxfa_ffnotify.h"
 #include "xfa/fxfa/parser/cxfa_document.h"
-#include "xfa/fxfa/parser/cxfa_document_parser.h"
+#include "xfa/fxfa/parser/cxfa_document_builder.h"
 #include "xfa/fxfa/parser/cxfa_node.h"
 #include "xfa/fxfa/parser/xfa_basic_data.h"
 #include "xfa/fxfa/parser/xfa_utils.h"
 
 namespace {
 
-enum class EventAppliesToo : uint8_t {
+enum class EventAppliesTo : uint8_t {
   kNone = 0,
   kAll = 1,
   kAllNonRecursive = 2,
@@ -40,90 +41,48 @@ enum class EventAppliesToo : uint8_t {
   kChoiceList = 7
 };
 
-struct XFA_ExecEventParaInfo {
+struct ExecEventParaInfo {
  public:
   uint32_t m_uHash;  // hashed as wide string.
   XFA_EVENTTYPE m_eventType;
-  EventAppliesToo m_validFlags;
+  EventAppliesTo m_validFlags;
 };
 
 #undef PARA
-#define PARA(a, b, c, d) a, c, d
-const XFA_ExecEventParaInfo gs_eventParaInfos[] = {
-    {PARA(0x109d7ce7,
-          "mouseEnter",
-          XFA_EVENT_MouseEnter,
-          EventAppliesToo::kField)},
-    {PARA(0x1bfc72d9,
-          "preOpen",
-          XFA_EVENT_PreOpen,
-          EventAppliesToo::kChoiceList)},
-    {PARA(0x2196a452,
-          "initialize",
-          XFA_EVENT_Initialize,
-          EventAppliesToo::kAll)},
-    {PARA(0x27410f03,
-          "mouseExit",
-          XFA_EVENT_MouseExit,
-          EventAppliesToo::kField)},
-    {PARA(0x36f1c6d8,
-          "preSign",
-          XFA_EVENT_PreSign,
-          EventAppliesToo::kSignature)},
-    {PARA(0x4731d6ba,
-          "exit",
-          XFA_EVENT_Exit,
-          EventAppliesToo::kAllNonRecursive)},
-    {PARA(0x7233018a, "validate", XFA_EVENT_Validate, EventAppliesToo::kAll)},
-    {PARA(0x8808385e,
-          "indexChange",
-          XFA_EVENT_IndexChange,
-          EventAppliesToo::kSubform)},
-    {PARA(0x891f4606,
-          "change",
-          XFA_EVENT_Change,
-          EventAppliesToo::kFieldOrExclusion)},
-    {PARA(0x9f693b21,
-          "mouseDown",
-          XFA_EVENT_MouseDown,
-          EventAppliesToo::kField)},
-    {PARA(0xcdce56b3,
-          "full",
-          XFA_EVENT_Full,
-          EventAppliesToo::kFieldOrExclusion)},
-    {PARA(0xd576d08e, "mouseUp", XFA_EVENT_MouseUp, EventAppliesToo::kField)},
-    {PARA(0xd95657a6,
-          "click",
-          XFA_EVENT_Click,
-          EventAppliesToo::kFieldOrExclusion)},
-    {PARA(0xdbfbe02e, "calculate", XFA_EVENT_Calculate, EventAppliesToo::kAll)},
-    {PARA(0xe25fa7b8,
-          "postOpen",
-          XFA_EVENT_PostOpen,
-          EventAppliesToo::kChoiceList)},
-    {PARA(0xe28dce7e,
-          "enter",
-          XFA_EVENT_Enter,
-          EventAppliesToo::kAllNonRecursive)},
-    {PARA(0xfd54fbb7,
-          "postSign",
-          XFA_EVENT_PostSign,
-          EventAppliesToo::kSignature)},
+#define PARA(a, b, c, d) a, c, EventAppliesTo::d
+const ExecEventParaInfo kExecEventParaInfoTable[] = {
+    {PARA(0x109d7ce7, "mouseEnter", XFA_EVENT_MouseEnter, kField)},
+    {PARA(0x1bfc72d9, "preOpen", XFA_EVENT_PreOpen, kChoiceList)},
+    {PARA(0x2196a452, "initialize", XFA_EVENT_Initialize, kAll)},
+    {PARA(0x27410f03, "mouseExit", XFA_EVENT_MouseExit, kField)},
+    {PARA(0x36f1c6d8, "preSign", XFA_EVENT_PreSign, kSignature)},
+    {PARA(0x4731d6ba, "exit", XFA_EVENT_Exit, kAllNonRecursive)},
+    {PARA(0x7233018a, "validate", XFA_EVENT_Validate, kAll)},
+    {PARA(0x8808385e, "indexChange", XFA_EVENT_IndexChange, kSubform)},
+    {PARA(0x891f4606, "change", XFA_EVENT_Change, kFieldOrExclusion)},
+    {PARA(0x9f693b21, "mouseDown", XFA_EVENT_MouseDown, kField)},
+    {PARA(0xcdce56b3, "full", XFA_EVENT_Full, kFieldOrExclusion)},
+    {PARA(0xd576d08e, "mouseUp", XFA_EVENT_MouseUp, kField)},
+    {PARA(0xd95657a6, "click", XFA_EVENT_Click, kFieldOrExclusion)},
+    {PARA(0xdbfbe02e, "calculate", XFA_EVENT_Calculate, kAll)},
+    {PARA(0xe25fa7b8, "postOpen", XFA_EVENT_PostOpen, kChoiceList)},
+    {PARA(0xe28dce7e, "enter", XFA_EVENT_Enter, kAllNonRecursive)},
+    {PARA(0xfd54fbb7, "postSign", XFA_EVENT_PostSign, kSignature)},
 };
 #undef PARA
 
-const XFA_ExecEventParaInfo* GetEventParaInfoByName(
+const ExecEventParaInfo* GetExecEventParaInfoByName(
     WideStringView wsEventName) {
   if (wsEventName.IsEmpty())
     return nullptr;
 
   uint32_t uHash = FX_HashCode_GetW(wsEventName, false);
   auto* result = std::lower_bound(
-      std::begin(gs_eventParaInfos), std::end(gs_eventParaInfos), uHash,
-      [](const XFA_ExecEventParaInfo& iter, const uint16_t& hash) {
+      std::begin(kExecEventParaInfoTable), std::end(kExecEventParaInfoTable),
+      uHash, [](const ExecEventParaInfo& iter, const uint16_t& hash) {
         return iter.m_uHash < hash;
       });
-  if (result != std::end(gs_eventParaInfos) && result->m_uHash == uHash)
+  if (result != std::end(kExecEventParaInfoTable) && result->m_uHash == uHash)
     return result;
   return nullptr;
 }
@@ -153,10 +112,6 @@ bool CJX_Node::DynamicTypeIs(TypeTag eType) const {
   return eType == static_type__ || ParentType__::DynamicTypeIs(eType);
 }
 
-CXFA_Node* CJX_Node::GetXFANode() const {
-  return ToNode(GetXFAObject());
-}
-
 CJS_Result CJX_Node::applyXSL(CFX_V8* runtime,
                               const std::vector<v8::Local<v8::Value>>& params) {
   if (params.size() != 1)
@@ -182,12 +137,9 @@ CJS_Result CJX_Node::clone(CFX_V8* runtime,
     return CJS_Result::Failure(JSMessage::kParamError);
 
   CXFA_Node* pCloneNode = GetXFANode()->Clone(runtime->ToBoolean(params[0]));
-  CFXJSE_Value* value =
-      GetDocument()->GetScriptContext()->GetOrCreateJSBindingFromMap(
-          pCloneNode);
-
   return CJS_Result::Success(
-      value->DirectGetValue().Get(runtime->GetIsolate()));
+      GetDocument()->GetScriptContext()->GetOrCreateJSBindingFromMap(
+          pCloneNode));
 }
 
 CJS_Result CJX_Node::getAttribute(
@@ -198,7 +150,7 @@ CJS_Result CJX_Node::getAttribute(
 
   WideString expression = runtime->ToWideString(params[0]);
   return CJS_Result::Success(runtime->NewString(
-      GetAttribute(expression.AsStringView()).ToUTF8().AsStringView()));
+      GetAttributeByString(expression.AsStringView()).ToUTF8().AsStringView()));
 }
 
 CJS_Result CJX_Node::getElement(
@@ -217,11 +169,8 @@ CJS_Result CJX_Node::getElement(
   if (!pNode)
     return CJS_Result::Success(runtime->NewNull());
 
-  CFXJSE_Value* value =
-      GetDocument()->GetScriptContext()->GetOrCreateJSBindingFromMap(pNode);
-
   return CJS_Result::Success(
-      value->DirectGetValue().Get(runtime->GetIsolate()));
+      GetDocument()->GetScriptContext()->GetOrCreateJSBindingFromMap(pNode));
 }
 
 CJS_Result CJX_Node::isPropertySpecified(
@@ -269,14 +218,19 @@ CJS_Result CJX_Node::loadXML(CFX_V8* runtime,
   if (params.size() >= 3)
     bOverwrite = runtime->ToBoolean(params[2]);
 
-  auto pParser = pdfium::MakeUnique<CXFA_DocumentParser>(GetDocument());
-  CFX_XMLNode* pXMLNode = pParser->ParseXMLData(expression);
+  auto stream =
+      pdfium::MakeRetain<CFX_ReadOnlyMemoryStream>(expression.raw_span());
+
+  CFX_XMLParser parser(stream);
+  std::unique_ptr<CFX_XMLDocument> xml_doc = parser.Parse();
+  CXFA_DocumentBuilder builder(GetDocument());
+  CFX_XMLNode* pXMLNode = builder.Build(xml_doc.get());
   if (!pXMLNode)
     return CJS_Result::Success();
 
   CFX_XMLDocument* top_xml_doc =
-      GetXFANode()->GetDocument()->GetNotify()->GetHDOC()->GetXMLDocument();
-  top_xml_doc->AppendNodesFrom(pParser->GetXMLDoc().get());
+      GetXFANode()->GetDocument()->GetNotify()->GetFFDoc()->GetXMLDocument();
+  top_xml_doc->AppendNodesFrom(xml_doc.get());
 
   if (bIgnoreRoot &&
       (pXMLNode->GetType() != CFX_XMLNode::Type::kElement ||
@@ -288,7 +242,7 @@ CJS_Result CJX_Node::loadXML(CFX_V8* runtime,
   WideString wsContentType = GetCData(XFA_Attribute::ContentType);
   if (!wsContentType.IsEmpty()) {
     pFakeRoot->JSObject()->SetCData(XFA_Attribute::ContentType,
-                                    WideString(wsContentType), false, false);
+                                    WideString(wsContentType));
   }
 
   CFX_XMLNode* pFakeXMLRoot = pFakeRoot->GetXMLMappingNode();
@@ -317,8 +271,8 @@ CJS_Result CJX_Node::loadXML(CFX_V8* runtime,
     pFakeXMLRoot->AppendLastChild(pXMLNode);
   }
 
-  pParser->ConstructXFANode(pFakeRoot, pFakeXMLRoot);
-  pFakeRoot = pParser->GetRootNode();
+  builder.ConstructXFANode(pFakeRoot, pFakeXMLRoot);
+  pFakeRoot = builder.GetRootNode();
   if (!pFakeRoot)
     return CJS_Result::Success();
 
@@ -432,7 +386,7 @@ CJS_Result CJX_Node::setAttribute(
   WideString attribute = runtime->ToWideString(params[1]);
 
   // Pass them to our method, however, in the more usual manner.
-  SetAttribute(attribute.AsStringView(), attributeValue.AsStringView(), true);
+  SetAttributeByString(attribute.AsStringView(), attributeValue);
   return CJS_Result::Success();
 }
 
@@ -446,39 +400,43 @@ CJS_Result CJX_Node::setElement(
   return CJS_Result::Success();
 }
 
-void CJX_Node::ns(CFXJSE_Value* pValue,
+void CJX_Node::ns(v8::Isolate* pIsolate,
+                  v8::Local<v8::Value>* pValue,
                   bool bSetting,
                   XFA_Attribute eAttribute) {
   if (bSetting) {
     ThrowInvalidPropertyException();
     return;
   }
-  pValue->SetString(
-      TryNamespace().value_or(WideString()).ToUTF8().AsStringView());
+  *pValue = fxv8::NewStringHelper(
+      pIsolate, TryNamespace().value_or(WideString()).ToUTF8().AsStringView());
 }
 
-void CJX_Node::model(CFXJSE_Value* pValue,
+void CJX_Node::model(v8::Isolate* pIsolate,
+                     v8::Local<v8::Value>* pValue,
                      bool bSetting,
                      XFA_Attribute eAttribute) {
   if (bSetting) {
     ThrowInvalidPropertyException();
     return;
   }
-  pValue->Assign(GetDocument()->GetScriptContext()->GetOrCreateJSBindingFromMap(
-      GetXFANode()->GetModelNode()));
+  *pValue = GetDocument()->GetScriptContext()->GetOrCreateJSBindingFromMap(
+      GetXFANode()->GetModelNode());
 }
 
-void CJX_Node::isContainer(CFXJSE_Value* pValue,
+void CJX_Node::isContainer(v8::Isolate* pIsolate,
+                           v8::Local<v8::Value>* pValue,
                            bool bSetting,
                            XFA_Attribute eAttribute) {
   if (bSetting) {
     ThrowInvalidPropertyException();
     return;
   }
-  pValue->SetBoolean(GetXFANode()->IsContainerNode());
+  *pValue = fxv8::NewBooleanHelper(pIsolate, GetXFANode()->IsContainerNode());
 }
 
-void CJX_Node::isNull(CFXJSE_Value* pValue,
+void CJX_Node::isNull(v8::Isolate* pIsolate,
+                      v8::Local<v8::Value>* pValue,
                       bool bSetting,
                       XFA_Attribute eAttribute) {
   if (bSetting) {
@@ -486,13 +444,14 @@ void CJX_Node::isNull(CFXJSE_Value* pValue,
     return;
   }
   if (GetXFANode()->GetElementType() == XFA_Element::Subform) {
-    pValue->SetBoolean(false);
+    *pValue = fxv8::NewBooleanHelper(pIsolate, false);
     return;
   }
-  pValue->SetBoolean(GetContent(false).IsEmpty());
+  *pValue = fxv8::NewBooleanHelper(pIsolate, GetContent(false).IsEmpty());
 }
 
-void CJX_Node::oneOfChild(CFXJSE_Value* pValue,
+void CJX_Node::oneOfChild(v8::Isolate* pIsolate,
+                          v8::Local<v8::Value>* pValue,
                           bool bSetting,
                           XFA_Attribute eAttribute) {
   if (bSetting) {
@@ -503,9 +462,8 @@ void CJX_Node::oneOfChild(CFXJSE_Value* pValue,
   std::vector<CXFA_Node*> properties =
       GetXFANode()->GetNodeListWithFilter(XFA_NODEFILTER_OneOfProperty);
   if (!properties.empty()) {
-    pValue->Assign(
-        GetDocument()->GetScriptContext()->GetOrCreateJSBindingFromMap(
-            properties.front()));
+    *pValue = GetDocument()->GetScriptContext()->GetOrCreateJSBindingFromMap(
+        properties.front());
   }
 }
 
@@ -515,26 +473,26 @@ XFA_EventError CJX_Node::execSingleEventByName(WideStringView wsEventName,
   if (!pNotify)
     return XFA_EventError::kNotExist;
 
-  const XFA_ExecEventParaInfo* eventParaInfo =
-      GetEventParaInfoByName(wsEventName);
+  const ExecEventParaInfo* eventParaInfo =
+      GetExecEventParaInfoByName(wsEventName);
   if (!eventParaInfo)
     return XFA_EventError::kNotExist;
 
   switch (eventParaInfo->m_validFlags) {
-    case EventAppliesToo::kNone:
+    case EventAppliesTo::kNone:
       return XFA_EventError::kNotExist;
-    case EventAppliesToo::kAll:
-    case EventAppliesToo::kAllNonRecursive:
+    case EventAppliesTo::kAll:
+    case EventAppliesTo::kAllNonRecursive:
       return pNotify->ExecEventByDeepFirst(
           GetXFANode(), eventParaInfo->m_eventType, false,
-          eventParaInfo->m_validFlags == EventAppliesToo::kAll);
-    case EventAppliesToo::kSubform:
+          eventParaInfo->m_validFlags == EventAppliesTo::kAll);
+    case EventAppliesTo::kSubform:
       if (eType != XFA_Element::Subform)
         return XFA_EventError::kNotExist;
 
       return pNotify->ExecEventByDeepFirst(
           GetXFANode(), eventParaInfo->m_eventType, false, false);
-    case EventAppliesToo::kFieldOrExclusion: {
+    case EventAppliesTo::kFieldOrExclusion: {
       if (eType != XFA_Element::ExclGroup && eType != XFA_Element::Field)
         return XFA_EventError::kNotExist;
 
@@ -548,13 +506,13 @@ XFA_EventError CJX_Node::execSingleEventByName(WideStringView wsEventName,
       return pNotify->ExecEventByDeepFirst(
           GetXFANode(), eventParaInfo->m_eventType, false, false);
     }
-    case EventAppliesToo::kField:
+    case EventAppliesTo::kField:
       if (eType != XFA_Element::Field)
         return XFA_EventError::kNotExist;
 
       return pNotify->ExecEventByDeepFirst(
           GetXFANode(), eventParaInfo->m_eventType, false, false);
-    case EventAppliesToo::kSignature: {
+    case EventAppliesTo::kSignature: {
       if (!GetXFANode()->IsWidgetReady())
         return XFA_EventError::kNotExist;
       if (GetXFANode()->GetUIChildNode()->GetElementType() !=
@@ -564,7 +522,7 @@ XFA_EventError CJX_Node::execSingleEventByName(WideStringView wsEventName,
       return pNotify->ExecEventByDeepFirst(
           GetXFANode(), eventParaInfo->m_eventType, false, false);
     }
-    case EventAppliesToo::kChoiceList: {
+    case EventAppliesTo::kChoiceList: {
       if (!GetXFANode()->IsWidgetReady())
         return XFA_EventError::kNotExist;
       if (GetXFANode()->GetUIChildNode()->GetElementType() !=

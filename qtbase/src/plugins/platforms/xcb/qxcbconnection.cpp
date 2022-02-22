@@ -221,6 +221,12 @@ void QXcbConnection::printXcbEvent(const QLoggingCategory &log, const char *mess
 }
 #define CASE_PRINT_AND_RETURN(name) case name : PRINT_AND_RETURN(#name);
 
+#define XI_PRINT_AND_RETURN(name) { \
+    qCDebug(log, "%s | XInput Event(%s) | sequence: %d", message, name, sequence); \
+    return; \
+}
+#define XI_CASE_PRINT_AND_RETURN(name) case name : XI_PRINT_AND_RETURN(#name);
+
     switch (response_type) {
     CASE_PRINT_AND_RETURN( XCB_KEY_PRESS );
     CASE_PRINT_AND_RETURN( XCB_KEY_RELEASE );
@@ -255,7 +261,44 @@ void QXcbConnection::printXcbEvent(const QLoggingCategory &log, const char *mess
     CASE_PRINT_AND_RETURN( XCB_COLORMAP_NOTIFY );
     CASE_PRINT_AND_RETURN( XCB_CLIENT_MESSAGE );
     CASE_PRINT_AND_RETURN( XCB_MAPPING_NOTIFY );
-    CASE_PRINT_AND_RETURN( XCB_GE_GENERIC );
+    case XCB_GE_GENERIC: {
+        if (hasXInput2() && isXIEvent(event)) {
+            auto *xiDeviceEvent = reinterpret_cast<const xcb_input_button_press_event_t*>(event); // qt_xcb_input_device_event_t
+            switch (xiDeviceEvent->event_type) {
+            XI_CASE_PRINT_AND_RETURN( XCB_INPUT_KEY_PRESS );
+            XI_CASE_PRINT_AND_RETURN( XCB_INPUT_KEY_RELEASE );
+            XI_CASE_PRINT_AND_RETURN( XCB_INPUT_BUTTON_PRESS );
+            XI_CASE_PRINT_AND_RETURN( XCB_INPUT_BUTTON_RELEASE );
+            XI_CASE_PRINT_AND_RETURN( XCB_INPUT_MOTION );
+            XI_CASE_PRINT_AND_RETURN( XCB_INPUT_ENTER );
+            XI_CASE_PRINT_AND_RETURN( XCB_INPUT_LEAVE );
+            XI_CASE_PRINT_AND_RETURN( XCB_INPUT_FOCUS_IN );
+            XI_CASE_PRINT_AND_RETURN( XCB_INPUT_FOCUS_OUT );
+            XI_CASE_PRINT_AND_RETURN( XCB_INPUT_HIERARCHY );
+            XI_CASE_PRINT_AND_RETURN( XCB_INPUT_PROPERTY );
+            XI_CASE_PRINT_AND_RETURN( XCB_INPUT_RAW_KEY_PRESS );
+            XI_CASE_PRINT_AND_RETURN( XCB_INPUT_RAW_KEY_RELEASE );
+            XI_CASE_PRINT_AND_RETURN( XCB_INPUT_RAW_BUTTON_PRESS );
+            XI_CASE_PRINT_AND_RETURN( XCB_INPUT_RAW_BUTTON_RELEASE );
+            XI_CASE_PRINT_AND_RETURN( XCB_INPUT_RAW_MOTION );
+            XI_CASE_PRINT_AND_RETURN( XCB_INPUT_TOUCH_BEGIN );
+            XI_CASE_PRINT_AND_RETURN( XCB_INPUT_TOUCH_UPDATE );
+            XI_CASE_PRINT_AND_RETURN( XCB_INPUT_TOUCH_END );
+            XI_CASE_PRINT_AND_RETURN( XCB_INPUT_TOUCH_OWNERSHIP );
+            XI_CASE_PRINT_AND_RETURN( XCB_INPUT_RAW_TOUCH_BEGIN );
+            XI_CASE_PRINT_AND_RETURN( XCB_INPUT_RAW_TOUCH_UPDATE );
+            XI_CASE_PRINT_AND_RETURN( XCB_INPUT_RAW_TOUCH_END );
+            XI_CASE_PRINT_AND_RETURN( XCB_INPUT_BARRIER_HIT );
+            XI_CASE_PRINT_AND_RETURN( XCB_INPUT_BARRIER_LEAVE );
+            default:
+                qCDebug(log, "%s | XInput Event(other type) | sequence: %d", message, sequence);
+                return;
+            }
+        } else {
+            qCDebug(log, "%s | %s(%d) | sequence: %d", message, "XCB_GE_GENERIC", response_type, sequence);
+            return;
+        }
+    }
     }
     // XFixes
     if (isXFixesType(response_type, XCB_XFIXES_SELECTION_NOTIFY))
@@ -428,11 +471,7 @@ const char *xcb_protocol_request_codes[] =
 
 void QXcbConnection::handleXcbError(xcb_generic_error_t *error)
 {
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     qintptr result = 0;
-#else
-    long result = 0;
-#endif
     QAbstractEventDispatcher* dispatcher = QAbstractEventDispatcher::instance();
     if (dispatcher && dispatcher->filterNativeEvent(m_nativeInterface->nativeEventType(), error, &result))
         return;
@@ -527,11 +566,7 @@ void QXcbConnection::handleXcbEvent(xcb_generic_event_t *event)
     if (Q_UNLIKELY(lcQpaEvents().isDebugEnabled()))
         printXcbEvent(lcQpaEvents(), "Event", event);
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     qintptr result = 0; // Used only by MS Windows
-#else
-    long result = 0; // Used only by MS Windows
-#endif
     if (QAbstractEventDispatcher *dispatcher = QAbstractEventDispatcher::instance()) {
         if (dispatcher->filterNativeEvent(m_nativeInterface->nativeEventType(), event, &result))
             return;
@@ -545,6 +580,7 @@ void QXcbConnection::handleXcbEvent(xcb_generic_event_t *event)
         HANDLE_PLATFORM_WINDOW_EVENT(xcb_expose_event_t, window, handleExposeEvent);
     case XCB_BUTTON_PRESS: {
         auto ev = reinterpret_cast<xcb_button_press_event_t *>(event);
+        setTime(ev->time);
         m_keyboard->updateXKBStateFromCore(ev->state);
         // the event explicitly contains the state of the three first buttons,
         // the rest we need to manage ourselves
@@ -557,6 +593,7 @@ void QXcbConnection::handleXcbEvent(xcb_generic_event_t *event)
     }
     case XCB_BUTTON_RELEASE: {
         auto ev = reinterpret_cast<xcb_button_release_event_t *>(event);
+        setTime(ev->time);
         m_keyboard->updateXKBStateFromCore(ev->state);
         m_buttonState = (m_buttonState & ~0x7) | translateMouseButtons(ev->state);
         setButtonState(translateMouseButton(ev->detail), false);
@@ -567,6 +604,7 @@ void QXcbConnection::handleXcbEvent(xcb_generic_event_t *event)
     }
     case XCB_MOTION_NOTIFY: {
         auto ev = reinterpret_cast<xcb_motion_notify_event_t *>(event);
+        setTime(ev->time);
         m_keyboard->updateXKBStateFromCore(ev->state);
         m_buttonState = (m_buttonState & ~0x7) | translateMouseButtons(ev->state);
         if (Q_UNLIKELY(lcQpaXInputEvents().isDebugEnabled()))
@@ -597,14 +635,23 @@ void QXcbConnection::handleXcbEvent(xcb_generic_event_t *event)
         HANDLE_PLATFORM_WINDOW_EVENT(xcb_client_message_event_t, window, handleClientMessageEvent);
     }
     case XCB_ENTER_NOTIFY:
-        if (hasXInput2() && !xi2MouseEventsDisabled())
+        if (hasXInput2()) {
+            // Prefer XI2 enter (XCB_INPUT_ENTER) events over core events.
             break;
+        }
+        setTime(reinterpret_cast<xcb_enter_notify_event_t *>(event)->time);
         HANDLE_PLATFORM_WINDOW_EVENT(xcb_enter_notify_event_t, event, handleEnterNotifyEvent);
     case XCB_LEAVE_NOTIFY:
-        if (hasXInput2() && !xi2MouseEventsDisabled())
+    {
+        if (hasXInput2()) {
+            // Prefer XI2 leave (XCB_INPUT_LEAVE) events over core events.
             break;
-        m_keyboard->updateXKBStateFromCore(reinterpret_cast<xcb_leave_notify_event_t *>(event)->state);
+        }
+        auto ev = reinterpret_cast<xcb_leave_notify_event_t *>(event);
+        setTime(ev->time);
+        m_keyboard->updateXKBStateFromCore(ev->state);
         HANDLE_PLATFORM_WINDOW_EVENT(xcb_leave_notify_event_t, event, handleLeaveNotifyEvent);
+    }
     case XCB_FOCUS_IN:
         HANDLE_PLATFORM_WINDOW_EVENT(xcb_focus_in_event_t, event, handleFocusInEvent);
     case XCB_FOCUS_OUT:
@@ -612,13 +659,18 @@ void QXcbConnection::handleXcbEvent(xcb_generic_event_t *event)
     case XCB_KEY_PRESS:
     {
         auto keyPress = reinterpret_cast<xcb_key_press_event_t *>(event);
+        setTime(keyPress->time);
         m_keyboard->updateXKBStateFromCore(keyPress->state);
         setTime(keyPress->time);
         HANDLE_KEYBOARD_EVENT(xcb_key_press_event_t, handleKeyPressEvent);
     }
     case XCB_KEY_RELEASE:
-        m_keyboard->updateXKBStateFromCore(reinterpret_cast<xcb_key_release_event_t *>(event)->state);
+    {
+        auto keyRelease = reinterpret_cast<xcb_key_release_event_t *>(event);
+        setTime(keyRelease->time);
+        m_keyboard->updateXKBStateFromCore(keyRelease->state);
         HANDLE_KEYBOARD_EVENT(xcb_key_release_event_t, handleKeyReleaseEvent);
+    }
     case XCB_MAPPING_NOTIFY:
         m_keyboard->updateKeymap(reinterpret_cast<xcb_mapping_notify_event_t *>(event));
         break;
@@ -626,6 +678,7 @@ void QXcbConnection::handleXcbEvent(xcb_generic_event_t *event)
     {
 #if QT_CONFIG(draganddrop) || QT_CONFIG(clipboard)
         auto selectionRequest = reinterpret_cast<xcb_selection_request_event_t *>(event);
+        setTime(selectionRequest->time);
 #endif
 #if QT_CONFIG(draganddrop)
         if (selectionRequest->selection == atom(QXcbAtom::XdndSelection))
@@ -650,15 +703,18 @@ void QXcbConnection::handleXcbEvent(xcb_generic_event_t *event)
         break;
     case XCB_PROPERTY_NOTIFY:
     {
+        auto propertyNotify = reinterpret_cast<xcb_property_notify_event_t *>(event);
+        setTime(propertyNotify->time);
 #ifndef QT_NO_CLIPBOARD
         if (m_clipboard->handlePropertyNotify(event))
             break;
 #endif
-        auto propertyNotify = reinterpret_cast<xcb_property_notify_event_t *>(event);
         if (propertyNotify->atom == atom(QXcbAtom::_NET_WORKAREA)) {
             QXcbVirtualDesktop *virtualDesktop = virtualDesktopForRootWindow(propertyNotify->window);
             if (virtualDesktop)
                 virtualDesktop->updateWorkArea();
+        } else if (propertyNotify->atom == atom(QXcbAtom::_NET_SUPPORTED)) {
+            m_wmSupport->updateNetWMAtoms();
         } else {
             HANDLE_PLATFORM_WINDOW_EVENT(xcb_property_notify_event_t, window, handlePropertyNotifyEvent);
         }
@@ -707,7 +763,7 @@ void QXcbConnection::handleXcbEvent(xcb_generic_event_t *event)
                 case XCB_XKB_NEW_KEYBOARD_NOTIFY: {
                     xcb_xkb_new_keyboard_notify_event_t *ev = &xkb_event->new_keyboard_notify;
                     if (ev->changed & XCB_XKB_NKN_DETAIL_KEYCODES)
-                        m_keyboard->updateKeymap();
+                        m_keyboard->updateKeymap(ev);
                     break;
                 }
                 default:
@@ -763,7 +819,10 @@ xcb_timestamp_t QXcbConnection::getTimestamp()
 
     xcb_generic_event_t *event = nullptr;
 
-    while (!event) {
+    // When disconnection is caused by X server, event will never be able to hold
+    // a valid pointer. isConnected(), which calls xcb_connection_has_error(),
+    // can handle this type of disconnection and properly quits the loop.
+    while (isConnected() && !event) {
         connection()->sync();
         event = eventQueue()->peek([window, dummyAtom](xcb_generic_event_t *event, int type) {
             if (type != XCB_PROPERTY_NOTIFY)
@@ -771,6 +830,14 @@ xcb_timestamp_t QXcbConnection::getTimestamp()
             auto propertyNotify = reinterpret_cast<xcb_property_notify_event_t *>(event);
             return propertyNotify->window == window && propertyNotify->atom == dummyAtom;
         });
+    }
+
+    if (!event) {
+        // https://www.x.org/releases/X11R7.7/doc/xproto/x11protocol.html#glossary
+        // > One timestamp value (named CurrentTime) is never generated by the
+        // > server. This value is reserved for use in requests to represent the
+        // > current server time.
+        return XCB_CURRENT_TIME;
     }
 
     xcb_property_notify_event_t *pn = reinterpret_cast<xcb_property_notify_event_t *>(event);
@@ -784,7 +851,13 @@ xcb_timestamp_t QXcbConnection::getTimestamp()
 
 xcb_window_t QXcbConnection::getSelectionOwner(xcb_atom_t atom) const
 {
-    return Q_XCB_REPLY(xcb_get_selection_owner, xcb_connection(), atom)->owner;
+    auto reply = Q_XCB_REPLY(xcb_get_selection_owner, xcb_connection(), atom);
+    if (!reply) {
+        qCDebug(lcQpaXcb) << "failed to query selection owner";
+        return XCB_NONE;
+    }
+
+    return reply->owner;
 }
 
 xcb_window_t QXcbConnection::getQtSelectionOwner()
@@ -803,7 +876,7 @@ xcb_window_t QXcbConnection::getQtSelectionOwner()
                           XCB_WINDOW_CLASS_INPUT_OUTPUT,      // window class
                           xcbScreen->root_visual,             // visual
                           0,                                  // value mask
-                          nullptr);                                 // value list
+                          nullptr);                           // value list
 
         QXcbWindow::setWindowTitle(connection(), m_qtSelectionOwner,
                                    QLatin1String("Qt Selection Owner for ") + QCoreApplication::applicationName());

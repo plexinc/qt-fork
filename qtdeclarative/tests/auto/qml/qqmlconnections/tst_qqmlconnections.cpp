@@ -30,8 +30,8 @@
 #include <QtQml/qqmlcomponent.h>
 #include <private/qqmlconnections_p.h>
 #include <private/qquickitem_p.h>
-#include "../../shared/util.h"
 #include <QtQml/qqmlscriptstring.h>
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 
 class tst_qqmlconnections : public QQmlDataTest
 {
@@ -85,6 +85,7 @@ private:
 };
 
 tst_qqmlconnections::tst_qqmlconnections()
+    : QQmlDataTest(QT_QMLTEST_DATADIR)
 {
 }
 
@@ -335,8 +336,8 @@ private:
 
 static QObject *module_api_factory(QQmlEngine *engine, QJSEngine *scriptEngine)
 {
-   Q_UNUSED(engine)
-   Q_UNUSED(scriptEngine)
+   Q_UNUSED(engine);
+   Q_UNUSED(scriptEngine);
    MyTestSingletonType *api = new MyTestSingletonType();
    return api;
 }
@@ -472,7 +473,7 @@ void tst_qqmlconnections::noAcceleratedGlobalLookup()
     QVERIFY(c.isReady());
     QScopedPointer<QObject> object(c.create());
     const QVariant val = object->property("testEnum");
-    QCOMPARE(val.type(), QVariant::Int);
+    QCOMPARE(val.typeId(), QMetaType::Int);
     QCOMPARE(val.toInt(), int(Proxy::EnumValue));
 }
 

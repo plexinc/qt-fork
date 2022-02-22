@@ -9,13 +9,11 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
-#include "base/memory/singleton.h"
+#include "base/callback_helpers.h"
 #include "base/process/process.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/strings/string_util.h"
+#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "build/branding_buildflags.h"
 #include "components/dbus/properties/dbus_properties.h"
 #include "components/dbus/properties/success_barrier_callback.h"
 #include "components/dbus/thread_linux/dbus_thread_linux.h"
@@ -25,17 +23,16 @@
 #include "dbus/message.h"
 #include "dbus/object_path.h"
 #include "dbus/property.h"
-#include "dbus/string_util.h"
-#include "media/audio/audio_manager.h"
 
 namespace system_media_controls {
 
 // static
-SystemMediaControls* SystemMediaControls::GetInstance() {
-  internal::SystemMediaControlsLinux* service =
-      internal::SystemMediaControlsLinux::GetInstance();
+std::unique_ptr<SystemMediaControls> SystemMediaControls::Create(
+    const std::string& product_name) {
+  auto service =
+      std::make_unique<internal::SystemMediaControlsLinux>(product_name);
   service->StartService();
-  return service;
+  return std::move(service);
 }
 
 namespace internal {
@@ -44,41 +41,19 @@ namespace {
 
 constexpr int kNumMethodsToExport = 11;
 
-#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
-const char kMprisAPIServiceNameFallback[] =
-    "chrome";
-#else
-const char kMprisAPIServiceNameFallback[] =
-    "chromium";
-#endif
-
 }  // namespace
 
-const char kMprisAPIServiceNamePrefix[] =
-    "org.mpris.MediaPlayer2.";
-
+const char kMprisAPIServiceNameFormatString[] =
+    "org.mpris.MediaPlayer2.chromium.instance%i";
 const char kMprisAPIObjectPath[] = "/org/mpris/MediaPlayer2";
 const char kMprisAPIInterfaceName[] = "org.mpris.MediaPlayer2";
 const char kMprisAPIPlayerInterfaceName[] = "org.mpris.MediaPlayer2.Player";
 
-// static
-SystemMediaControlsLinux* SystemMediaControlsLinux::GetInstance() {
-  return base::Singleton<SystemMediaControlsLinux>::get();
-}
-
-static std::string MakeServiceName() {
-  std::string baseName = media::AudioManager::GetGlobalAppName();
-  if (baseName.size() > 100 || !dbus::IsValidServiceNameElement(baseName))
-    baseName = kMprisAPIServiceNameFallback;
-  return std::string(kMprisAPIServiceNamePrefix) + baseName +
-      std::string(".instance") +
-      base::NumberToString(base::Process::Current().Pid());
-}
-
-SystemMediaControlsLinux::SystemMediaControlsLinux()
-    : service_name_(MakeServiceName())
-{
-}
+SystemMediaControlsLinux::SystemMediaControlsLinux(
+    const std::string& product_name)
+    : product_name_(product_name),
+      service_name_(base::StringPrintf(kMprisAPIServiceNameFormatString,
+                                       base::Process::Current().Pid())) {}
 
 SystemMediaControlsLinux::~SystemMediaControlsLinux() {
   if (bus_) {
@@ -170,13 +145,13 @@ void SystemMediaControlsLinux::InitializeProperties() {
   // org.mpris.MediaPlayer2 interface properties.
   auto set_property = [&](const std::string& property_name, auto&& value) {
     properties_->SetProperty(kMprisAPIInterfaceName, property_name,
-                             std::move(value), false);
+                             std::forward<decltype(value)>(value), false);
   };
   set_property("CanQuit", DbusBoolean(false));
   set_property("CanRaise", DbusBoolean(false));
   set_property("HasTrackList", DbusBoolean(false));
 
-  set_property("Identity", DbusString(media::AudioManager::GetGlobalAppName()));
+  set_property("Identity", DbusString(product_name_));
   set_property("SupportedUriSchemes", DbusArray<DbusString>());
   set_property("SupportedMimeTypes", DbusArray<DbusString>());
 
@@ -184,7 +159,7 @@ void SystemMediaControlsLinux::InitializeProperties() {
   auto set_player_property = [&](const std::string& property_name,
                                  auto&& value) {
     properties_->SetProperty(kMprisAPIPlayerInterfaceName, property_name,
-                             std::move(value), false);
+                             std::forward<decltype(value)>(value), false);
   };
   set_player_property("PlaybackStatus", DbusString("Stopped"));
   set_player_property("Rate", DbusDouble(1.0));

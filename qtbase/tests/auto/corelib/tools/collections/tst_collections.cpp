@@ -32,7 +32,6 @@
 
 static QCache<int, int> *cacheX;
 static QHash<int, int> *hashX;
-static QLinkedList<int> *linkedListX;
 static QList<int> *listX;
 static QMap<int, int> *mapX;
 static QMultiHash<int, int> *multiHashX;
@@ -43,13 +42,12 @@ static QSet<int> *setX;
 static QStack<int> *stackX;
 static QVarLengthArray<int> *varLengthArrayX;
 static QVarLengthArray<int, 512> *varLengthArrayY;
-static QVector<int> *vectorX;
+static QList<int> *vectorX;
 
 void foo()
 {
     cacheX = 0;
     hashX = 0;
-    linkedListX = 0;
     listX = 0;
     mapX = 0;
     multiHashX = 0;
@@ -63,7 +61,8 @@ void foo()
     vectorX = 0;
 }
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QVector>
 
 #include <algorithm>
 
@@ -71,7 +70,6 @@ void foo()
 #include "qbytearray.h"
 #include "qcache.h"
 #include "qhash.h"
-#include "qlinkedlist.h"
 #include "qlist.h"
 #include "qmap.h"
 #include "qpair.h"
@@ -81,12 +79,7 @@ void foo()
 #include "qstring.h"
 #include "qstringlist.h"
 #include "qvarlengtharray.h"
-#include "qvector.h"
 #include "qqueue.h"
-
-QT_BEGIN_NAMESPACE
-template class QList<int>;
-QT_END_NAMESPACE
 
 class tst_Collections : public QObject
 {
@@ -96,9 +89,6 @@ private slots:
     void typeinfo();
     void qstring();
     void list();
-#if QT_DEPRECATED_SINCE(5, 15)
-    void linkedList();
-#endif
     void vector();
     void byteArray();
     void stack();
@@ -111,9 +101,6 @@ private slots:
 #endif
     void pair();
     void sharableQList();
-#if QT_DEPRECATED_SINCE(5, 15)
-    void sharableQLinkedList();
-#endif
     void sharableQVector();
     void sharableQMap();
     void sharableQHash();
@@ -125,10 +112,6 @@ private slots:
     void vector_stl();
     void list_stl_data();
     void list_stl();
-#if QT_DEPRECATED_SINCE(5, 15)
-    void linkedlist_stl_data();
-    void linkedlist_stl();
-#endif
     void q_init();
     void pointersize();
     void containerInstantiation();
@@ -146,6 +129,12 @@ struct LargeStatic {
     static int count;
     LargeStatic():c(count) { ++count; }
     LargeStatic(const LargeStatic& o):c(o.c) { ++count; }
+    LargeStatic &operator=(const LargeStatic &o)
+    {
+        c = o.c;
+        ++count;
+        return *this;
+    };
     ~LargeStatic() { --count; }
     int c;
     int data[8];
@@ -163,13 +152,155 @@ struct Movable {
 
 int Movable::count = 0;
 QT_BEGIN_NAMESPACE
-Q_DECLARE_TYPEINFO(Movable, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(Movable, Q_RELOCATABLE_TYPE);
 QT_END_NAMESPACE
 
 
 struct Pod {
     int i1, i2;
 };
+
+// Compile-time checks for recursive containers
+struct Dummy
+{
+    bool operator==(const Dummy &) const { return false; }
+    bool operator<(const Dummy &) const { return false; }
+};
+
+struct RecursiveList : public QList<RecursiveList> {};
+struct RecursiveSet : public QSet<RecursiveSet> {};
+struct RecursiveMapV : public QMap<Dummy, RecursiveMapV> {};
+struct RecursiveMapK : public QMap<RecursiveMapK, Dummy> {};
+struct RecursiveMultiMapV : public QMultiMap<Dummy, RecursiveMultiMapV> {};
+struct RecursiveMultiMapK : public QMultiMap<RecursiveMultiMapK, Dummy> {};
+struct RecursiveHashV : public QHash<Dummy, RecursiveHashV> {};
+struct RecursiveHashK : public QHash<RecursiveHashK, Dummy> {};
+struct RecursiveMultiHashV : public QMultiHash<Dummy, RecursiveMultiHashV> {};
+struct RecursiveMultiHashK : public QMultiHash<RecursiveMultiHashK, Dummy> {};
+
+struct Empty {};
+struct NoCmpParamRecursiveMapV : public QMap<Empty, NoCmpParamRecursiveMapV> {};
+struct NoCmpParamRecursiveMapK : public QMap<NoCmpParamRecursiveMapK, Empty> {};
+struct NoCmpParamRecursiveMultiMapV : public QMultiMap<Empty, NoCmpParamRecursiveMultiMapV> {};
+struct NoCmpParamRecursiveMultiMapK : public QMultiMap<NoCmpParamRecursiveMultiMapK, Empty> {};
+struct NoCmpParamRecursiveHashV : public QHash<Empty, NoCmpParamRecursiveHashV> {};
+struct NoCmpParamRecursiveHashK : public QHash<NoCmpParamRecursiveHashK, Empty> {};
+struct NoCmpParamRecursiveMultiHashV : public QMultiHash<Empty, NoCmpParamRecursiveMultiHashV> {};
+struct NoCmpParamRecursiveMultiHashK : public QMultiHash<NoCmpParamRecursiveMultiHashK, Empty> {};
+
+struct NoCmpRecursiveList : public QList<NoCmpRecursiveList>
+{
+    bool operator==(const RecursiveList &) const = delete;
+    bool operator<(const RecursiveList &) const = delete;
+};
+struct NoCmpRecursiveSet : public QSet<NoCmpRecursiveSet>
+{
+    bool operator==(const NoCmpRecursiveSet &) const = delete;
+};
+struct NoCmpRecursiveMapV : public QMap<Dummy, NoCmpRecursiveMapV>
+{
+    bool operator==(const NoCmpRecursiveMapV &) const = delete;
+};
+struct NoCmpRecursiveMapK : public QMap<NoCmpRecursiveMapK, Dummy>
+{
+    bool operator==(const NoCmpRecursiveMapK &) const = delete;
+};
+struct NoCmpRecursiveMultiMapV : public QMultiMap<Dummy, NoCmpRecursiveMultiMapV>
+{
+    bool operator==(const NoCmpRecursiveMultiMapV &) const = delete;
+};
+struct NoCmpRecursiveMultiMapK : public QMultiMap<NoCmpRecursiveMultiMapK, Dummy>
+{
+    bool operator==(const NoCmpRecursiveMultiMapK &) const = delete;
+};
+struct NoCmpRecursiveHashV : public QHash<Dummy, NoCmpRecursiveHashV>
+{
+    bool operator==(const NoCmpRecursiveHashV &) const = delete;
+};
+struct NoCmpRecursiveHashK : public QHash<NoCmpRecursiveHashK, Dummy>
+{
+    bool operator==(const NoCmpRecursiveHashK &) const = delete;
+};
+struct NoCmpRecursiveMultiHashV : public QMultiHash<Dummy, NoCmpRecursiveMultiHashV>
+{
+    bool operator==(const NoCmpRecursiveMultiHashV &) const = delete;
+};
+struct NoCmpRecursiveMultiHashK : public QMultiHash<NoCmpRecursiveMultiHashK, Dummy>
+{
+    bool operator==(const NoCmpRecursiveMultiHashK &) const = delete;
+};
+
+uint qHash(const Dummy &) { return 0; }
+uint qHash(const RecursiveSet &) { return 0; }
+uint qHash(const RecursiveHashK &) { return 0; }
+uint qHash(const RecursiveHashV &) { return 0; }
+uint qHash(const RecursiveMultiHashK &) { return 0; }
+uint qHash(const RecursiveMultiHashV &) { return 0; }
+
+Q_DECLARE_METATYPE(RecursiveList);
+Q_DECLARE_METATYPE(RecursiveSet);
+Q_DECLARE_METATYPE(RecursiveMapV);
+Q_DECLARE_METATYPE(RecursiveMapK);
+Q_DECLARE_METATYPE(RecursiveMultiMapV);
+Q_DECLARE_METATYPE(RecursiveMultiMapK);
+Q_DECLARE_METATYPE(RecursiveHashV);
+Q_DECLARE_METATYPE(RecursiveHashK);
+Q_DECLARE_METATYPE(RecursiveMultiHashV);
+Q_DECLARE_METATYPE(RecursiveMultiHashK);
+
+Q_DECLARE_METATYPE(NoCmpParamRecursiveMapV);
+Q_DECLARE_METATYPE(NoCmpParamRecursiveMapK);
+Q_DECLARE_METATYPE(NoCmpParamRecursiveMultiMapV);
+Q_DECLARE_METATYPE(NoCmpParamRecursiveMultiMapK);
+Q_DECLARE_METATYPE(NoCmpParamRecursiveHashK);
+Q_DECLARE_METATYPE(NoCmpParamRecursiveHashV);
+Q_DECLARE_METATYPE(NoCmpParamRecursiveMultiHashK);
+Q_DECLARE_METATYPE(NoCmpParamRecursiveMultiHashV);
+
+Q_DECLARE_METATYPE(NoCmpRecursiveList);
+// TODO: fix, this requires operator== (QTBUG-96257)
+// Q_DECLARE_METATYPE(NoCmpRecursiveSet);
+Q_DECLARE_METATYPE(NoCmpRecursiveMapV);
+Q_DECLARE_METATYPE(NoCmpRecursiveMapK);
+Q_DECLARE_METATYPE(NoCmpRecursiveMultiMapV);
+Q_DECLARE_METATYPE(NoCmpRecursiveMultiMapK);
+Q_DECLARE_METATYPE(NoCmpRecursiveHashV);
+Q_DECLARE_METATYPE(NoCmpRecursiveHashK);
+Q_DECLARE_METATYPE(NoCmpRecursiveMultiHashV);
+Q_DECLARE_METATYPE(NoCmpRecursiveMultiHashK);
+
+static_assert(QTypeTraits::has_operator_equal_v<RecursiveList>);
+static_assert(QTypeTraits::has_operator_less_than_v<RecursiveList>);
+static_assert(QTypeTraits::has_operator_equal_v<RecursiveSet>);
+static_assert(QTypeTraits::has_operator_equal_v<RecursiveMapV>);
+static_assert(QTypeTraits::has_operator_equal_v<RecursiveMapK>);
+static_assert(QTypeTraits::has_operator_equal_v<RecursiveMultiMapV>);
+static_assert(QTypeTraits::has_operator_equal_v<RecursiveMultiMapK>);
+static_assert(QTypeTraits::has_operator_equal_v<RecursiveHashV>);
+static_assert(QTypeTraits::has_operator_equal_v<RecursiveHashK>);
+static_assert(QTypeTraits::has_operator_equal_v<RecursiveMultiHashV>);
+static_assert(QTypeTraits::has_operator_equal_v<RecursiveMultiHashK>);
+
+static_assert(!QTypeTraits::has_operator_equal_v<NoCmpParamRecursiveMapV>);
+static_assert(!QTypeTraits::has_operator_equal_v<NoCmpParamRecursiveMapK>);
+static_assert(!QTypeTraits::has_operator_equal_v<NoCmpParamRecursiveMultiMapV>);
+static_assert(!QTypeTraits::has_operator_equal_v<NoCmpParamRecursiveMultiMapK>);
+static_assert(!QTypeTraits::has_operator_equal_v<NoCmpParamRecursiveHashV>);
+static_assert(!QTypeTraits::has_operator_equal_v<NoCmpParamRecursiveHashK>);
+static_assert(!QTypeTraits::has_operator_equal_v<NoCmpParamRecursiveMultiHashV>);
+static_assert(!QTypeTraits::has_operator_equal_v<NoCmpParamRecursiveMultiHashK>);
+
+static_assert(!QTypeTraits::has_operator_equal_v<NoCmpRecursiveList>);
+static_assert(!QTypeTraits::has_operator_less_than_v<NoCmpRecursiveList>);
+static_assert(!QTypeTraits::has_operator_equal_v<NoCmpRecursiveSet>);
+static_assert(!QTypeTraits::has_operator_equal_v<NoCmpRecursiveMapV>);
+static_assert(!QTypeTraits::has_operator_equal_v<NoCmpRecursiveMapK>);
+static_assert(!QTypeTraits::has_operator_equal_v<NoCmpRecursiveMultiMapV>);
+static_assert(!QTypeTraits::has_operator_equal_v<NoCmpRecursiveMultiMapK>);
+static_assert(!QTypeTraits::has_operator_equal_v<NoCmpRecursiveHashV>);
+static_assert(!QTypeTraits::has_operator_equal_v<NoCmpRecursiveHashK>);
+static_assert(!QTypeTraits::has_operator_equal_v<NoCmpRecursiveMultiHashV>);
+static_assert(!QTypeTraits::has_operator_equal_v<NoCmpRecursiveMultiHashK>);
 
 void tst_Collections::typeinfo()
 {
@@ -467,7 +598,10 @@ void tst_Collections::list()
         {
             QList<int> list;
             list.append(1);
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_CLANG("-Wself-assign-overloaded")
             list = list;
+QT_WARNING_POP
             QVERIFY(list.size() == 1);
         }
     }
@@ -481,7 +615,7 @@ void tst_Collections::list()
     }
 
     {
-        QVector<QString> vector(5);
+        QList<QString> vector(5);
         vector[0] = "99";
         vector[4] ="100";
         QList<QString> list = vector.toList();
@@ -557,19 +691,12 @@ void tst_Collections::list()
         list << "foo" << "bar";
         QVERIFY(!list.isEmpty());
 
-        list.insert(-1, "lessthanzero");
-        QCOMPARE(list.at(0), QString("lessthanzero"));
-
         list.insert(0, "atzero");
         QCOMPARE(list.at(0), QString("atzero"));
 
         int listCount = list.count();
         list.insert(listCount, "atcount");
         QCOMPARE(list.at(listCount), QString("atcount"));
-
-        listCount = list.count();
-        list.insert(listCount + 1, "beyondcount");
-        QCOMPARE(list.at(listCount), QString("beyondcount"));
     }
 
     {
@@ -742,236 +869,9 @@ void tst_Collections::list()
     }
 }
 
-#if QT_DEPRECATED_SINCE(5, 15)
-void tst_Collections::linkedList()
-{
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-    {
-        QLinkedList<int> list;
-        QVERIFY(list.isEmpty());
-        list.append(1);
-        list.push_back(2);
-        list += (3);
-        list << 4 << 5 << 6;
-        QVERIFY(!list.isEmpty());
-        QVERIFY(list.size() == 6);
-        {
-            int sum = 0;
-            QLinkedListIterator<int> i = list;
-            while (i.hasNext()) {
-                sum += i.next();
-            }
-            QVERIFY(sum == 21);
-        }
-        {
-            int sum = 0;
-            QLinkedList<int>::const_iterator i = list.begin();
-            while (i != list.end())
-                sum += *i++;
-            QVERIFY(sum == 21);
-        }
-        {
-            QMutableLinkedListIterator<int> i = list;
-            while (i.hasNext())
-                i.setValue(2*i.next());
-        }
-        {
-            int sum = 0;
-            QLinkedListIterator<int> i = list;
-            i.toBack();
-            while (i.hasPrevious())
-                sum += i.previous();
-            QVERIFY(sum == 2*21);
-        }
-        {
-            QMutableLinkedListIterator<int> i = list;
-            i.toBack();
-            while (i.hasPrevious())
-                i.setValue(2*i.previous());
-        }
-        {
-            int sum = 0;
-            QLinkedListIterator<int> i = list;
-            i.toBack();
-            while (i.hasPrevious())
-                sum += i.previous();
-            QVERIFY(sum == 2*2*21);
-        }
-        {
-            QMutableLinkedListIterator<int> i = list;
-            while (i.hasNext()) {
-                int a = i.next();
-                i.insert(a);
-            }
-        }
-        {
-            int sum = 0;
-            QLinkedList<int>::iterator i = list.begin();
-            while (i != list.end())
-                sum += *i++;
-            QVERIFY(sum == 2*2*2*21);
-        }
-        {
-            int duplicates = 0;
-            QLinkedListIterator<int> i = list;
-            while (i.hasNext()) {
-                int a = i.next();
-                if (i.hasNext() && a == i.peekNext())
-                    duplicates++;
-            }
-            QVERIFY(duplicates == 6);
-        }
-        {
-            int duplicates = 0;
-            QLinkedListIterator<int> i = list;
-            i.toBack();
-            while (i.hasPrevious()) {
-                int a = i.previous();
-                if (i.hasPrevious() && a == i.peekPrevious())
-                    duplicates++;
-            }
-            QVERIFY(duplicates == 6);
-        }
-        {
-            QMutableLinkedListIterator<int> i = list;
-            while (i.hasNext()) {
-                int a = i.next();
-                if (i.hasNext() &&
-                     i.peekNext() == a)
-                    i.remove();
-            }
-        }
-        {
-            int duplicates = 0;
-            QMutableLinkedListIterator<int> i = list;
-            i.toBack();
-            while (i.hasPrevious()) {
-                int a = i.previous();
-                if (i.hasPrevious() && a == i.peekPrevious())
-                    duplicates++;
-            }
-            QVERIFY(duplicates == 0);
-        }
-        {
-            QVERIFY(list.size() == 6);
-            QMutableLinkedListIterator<int> i = list;
-            while (i.hasNext()) {
-                int a = i.peekNext();
-                i.insert(42);
-                QVERIFY(i.peekPrevious() == 42 && i.peekNext() == a);
-                i.next();
-            }
-            QVERIFY(list.size() == 12);
-            i.toFront();
-            while (i.findNext(42))
-                i.remove();
-        }
-        {
-            QLinkedList<int> l;
-            l << 4 << 8 << 12 << 16 << 20 << 24;
-            QVERIFY(l == list);
-            QLinkedList<int> copy = list;
-            list += list;
-            QVERIFY(l != list && l.size() == list.size()/2 && l == copy);
-            l += copy;
-            QVERIFY(l == list);
-            list = copy;
-        }
-        {
-            QLinkedList<int> copy = list;
-            list.prepend(999);
-            list.append(999);
-            QVERIFY(list.contains(999));
-            QVERIFY(list.count(999) == 2);
-            list.removeAll(999);
-            QVERIFY(list == copy);
-        }
-        {
-            QLinkedList<QString> list;
-            list << "one" << "two" << "three" << "four" << "five" << "six";
-            while (!list.isEmpty())
-                list.removeAll(list.first());
-        }
-        {
-            QLinkedList<QString> list;
-            list << "one" << "two" << "one" << "two";
-            QVERIFY(!list.removeOne("three"));
-            QVERIFY(list.removeOne("two"));
-            QCOMPARE(list, QLinkedList<QString>() << "one" << "one" << "two");;
-            QVERIFY(list.removeOne("two"));
-            QCOMPARE(list, QLinkedList<QString>() << "one" << "one");
-            QVERIFY(!list.removeOne("two"));
-            QCOMPARE(list, QLinkedList<QString>() << "one" << "one");
-            QVERIFY(list.removeOne("one"));
-            QCOMPARE(list, QLinkedList<QString>() << "one");
-            QVERIFY(list.removeOne("one"));
-            QVERIFY(list.isEmpty());
-            QVERIFY(!list.removeOne("one"));
-            QVERIFY(list.isEmpty());
-        }
-        {
-            list.clear();
-            QVERIFY(list.isEmpty());
-            QVERIFY(list.begin() == list.end());
-            QLinkedListIterator<int> i(list);
-            QVERIFY(!i.hasNext() && !i.hasPrevious());
-        }
-    }
-
-    {
-        QLinkedList<QString> list;
-        list.append("Hello");
-
-        QLinkedList<QString>::iterator it = list.begin();
-        QVERIFY((*it)[0] == QChar('H'));
-        QVERIFY(it->constData()[0] == QChar('H'));
-        it->replace(QChar('H'), QChar('X'));
-        QCOMPARE(list.first(), QLatin1String("Xello"));
-
-        QLinkedList<QString>::const_iterator cit = list.constBegin();
-        QCOMPARE((*cit).toLower(), QLatin1String("xello"));
-        QCOMPARE(cit->toUpper(), QLatin1String("XELLO"));
-
-        cit = list.cbegin();
-        QCOMPARE((*cit).toLower(), QLatin1String("xello"));
-        QCOMPARE(cit->toUpper(), QLatin1String("XELLO"));
-    }
-
-    {
-        QLinkedList<QString> list;
-        list << "alpha" << "beta";
-        list += list;
-        QVERIFY(list.size() == 4);
-        QCOMPARE(*list.begin(), QLatin1String("alpha"));
-        QCOMPARE(*(list.begin() + 1), QLatin1String("beta"));
-        QCOMPARE(*(list.begin() + 2), QLatin1String("alpha"));
-        QCOMPARE(*(list.begin() + 3), QLatin1String("beta"));
-    }
-
-    {
-        QLinkedList<int> a;
-        QCOMPARE(a.startsWith(1), false);
-        QCOMPARE(a.endsWith(1), false);
-        a.append(1);
-        QCOMPARE(a.startsWith(1), true);
-        QCOMPARE(a.startsWith(2), false);
-        QCOMPARE(a.endsWith(1), true);
-        QCOMPARE(a.endsWith(2), false);
-        a.append(2);
-        QCOMPARE(a.startsWith(1), true);
-        QCOMPARE(a.startsWith(2), false);
-        QCOMPARE(a.endsWith(1), false);
-        QCOMPARE(a.endsWith(2), true);
-    }
-QT_WARNING_POP
-};
-#endif
-
-
 void tst_Collections::vector()
 {
-    QVector<int> v1;
+    QList<int> v1;
     v1 << 1 << 2 << 3;
     QVector<int> v2;
     v2 << 4 << 5;
@@ -1055,7 +955,7 @@ void tst_Collections::vector()
     QVERIFY(LargeStatic::count == originalLargeStaticCount);
     {
         QVector<LargeStatic> vector;
-        LargeStatic *dummy = 0;
+        LargeStatic *dummy = nullptr;
         for (int i = 0; i < 10000; ++i) {
             delete dummy;
             dummy = new LargeStatic;
@@ -1077,7 +977,7 @@ void tst_Collections::vector()
     QVERIFY(Movable::count == originalMovableCount);
     {
         QVector<Movable> vector;
-        Movable *dummy = 0;
+        Movable *dummy = nullptr;
         for (int i = 0; i < 10000; ++i) {
             delete dummy;
             dummy = new Movable;
@@ -1220,6 +1120,16 @@ void tst_Collections::byteArray()
     QVERIFY(hello.indexOf('l',2) == 2);
     QVERIFY(hello.indexOf('l',3) == 3);
 
+    QByteArray empty;
+    QCOMPARE(empty.indexOf("x"), -1);
+    QCOMPARE(empty.lastIndexOf("x"), -1);
+    QCOMPARE(empty.lastIndexOf("x", 0), -1);
+    QCOMPARE(empty.count("x"), 0);
+    QCOMPARE(empty.indexOf(""), 0);
+    QCOMPARE(empty.lastIndexOf(""), 0);
+    QCOMPARE(empty.lastIndexOf("", -1), -1);
+    QCOMPARE(empty.count(""), 1);
+
     QByteArray large = "000 100 200 300 400 500 600 700 800 900";
 
     QVERIFY(large.indexOf("700") == 28);
@@ -1335,7 +1245,7 @@ void tst_Collections::stack()
     stack.push(1);
     stack.push(2);
     stack.push(3);
-    QVectorIterator<int> i = stack;
+    QListIterator<int> i = stack;
     i.toBack();
     int sum = 0;
     while (i.hasPrevious())
@@ -1364,17 +1274,17 @@ void tst_Collections::hash()
         Hash hash;
         QString key = QLatin1String("  ");
         for (int i = 0; i < 10; ++i) {
-            key[0] = i + '0';
+            key[0] = QChar(i + '0');
             for (int j = 0; j < 10; ++j) {
-                key[1] = j + '0';
+                key[1] = QChar(j + '0');
                 hash.insert(key, "V" + key);
             }
         }
 
         for (int i = 0; i < 10; ++i) {
-            key[0] = i + '0';
+            key[0] = QChar(i + '0');
             for (int j = 0; j < 10; ++j) {
-                key[1] = j + '0';
+                key[1] = QChar(j + '0');
                 hash.remove(key);
             }
         }
@@ -1389,6 +1299,8 @@ void tst_Collections::hash()
         QVERIFY(hash.size() == 2);
         QVERIFY(!hash.isEmpty());
 
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_CLANG("-Wself-assign-overloaded")
         {
             Hash hash2 = hash;
             hash2 = hash;
@@ -1401,6 +1313,7 @@ void tst_Collections::hash()
             QVERIFY(hash2.isEmpty());
         }
         QVERIFY(hash.size() == 2);
+QT_WARNING_POP
 
         {
             Hash hash2 = hash;
@@ -1537,19 +1450,13 @@ void tst_Collections::hash()
             QHash<int, int> hash;
             for (int i = 0; i < 1000; ++i)
                 hash.insert(i, i);
-            QVERIFY(hash.capacity() == 1031);
-            hash.squeeze();
-            QVERIFY(hash.capacity() == 521);
-
-            hash.insert(12345, 12345);
-            QVERIFY(hash.capacity() == 1031);
+            QVERIFY(hash.capacity() > 1000);
 
             for (int j = 0; j < 900; ++j)
                 hash.remove(j);
-            QVERIFY(hash.capacity() == 257);
+            QVERIFY(hash.capacity() > 1000);
             hash.squeeze();
-            QVERIFY(hash.capacity() == 67);
-            hash.reserve(0);
+            QVERIFY(hash.capacity() < 200);
         }
     }
 
@@ -1573,22 +1480,30 @@ void tst_Collections::hash()
     }
 
     {
-        QHash<int, QString> hash1, hash2;
-        hash1.insertMulti(1, "Alpha");
-        hash1.insertMulti(1, "Gamma");
-        hash2.insertMulti(1, "Beta");
-        hash2.insertMulti(1, "Gamma");
-        hash2.insertMulti(1, "Gamma");
+        QMultiHash<int, QString> hash1, hash2;
+        hash1.insert(1, "Alpha");
+        hash1.insert(1, "Gamma");
+        hash2.insert(1, "Beta");
+        hash2.insert(1, "Gamma");
+        hash2.insert(1, "Gamma");
 
         hash1.unite(hash2);
         QCOMPARE(hash1.size(), 5);
-        QCOMPARE(hash1.values(),
-                (QList<QString>() << "Gamma" << "Gamma" << "Beta" << "Gamma" << "Alpha"));
+        auto values = hash1.values();
+        std::sort(values.begin(), values.end());
+        QList<QString> expected;
+        expected << "Gamma" << "Gamma" << "Beta" << "Gamma" << "Alpha";
+        std::sort(expected.begin(), expected.end());
+        QCOMPARE(values, expected);
 
         hash2 = hash1;
         hash2.unite(hash2);
         QCOMPARE(hash2.size(), 10);
-        QCOMPARE(hash2.values(), hash1.values() + hash1.values());
+        values = hash2.values();
+        std::sort(values.begin(), values.end());
+        expected += expected;
+        std::sort(expected.begin(), expected.end());
+        QCOMPARE(values, expected);
     }
 }
 
@@ -1610,6 +1525,8 @@ void tst_Collections::map()
         QVERIFY(map.size() == 2);
         QVERIFY(!map.isEmpty());
 
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_CLANG("-Wself-assign-overloaded")
         {
             Map map2 = map;
             map2 = map;
@@ -1622,6 +1539,7 @@ void tst_Collections::map()
             QVERIFY(map2.isEmpty());
         }
         QVERIFY(map.size() == 2);
+QT_WARNING_POP
 
         {
             Map map2 = map;
@@ -1894,12 +1812,12 @@ void tst_Collections::map()
     }
 
     {
-        QMap<int, QString> map1, map2;
-        map1.insertMulti(1, "Alpha");
-        map1.insertMulti(1, "Gamma");
-        map2.insertMulti(1, "Beta");
-        map2.insertMulti(1, "Gamma");
-        map2.insertMulti(1, "Gamma");
+        QMultiMap<int, QString> map1, map2;
+        map1.insert(1, "Alpha");
+        map1.insert(1, "Gamma");
+        map2.insert(1, "Beta");
+        map2.insert(1, "Gamma");
+        map2.insert(1, "Gamma");
 
         map1.unite(map2);
         QCOMPARE(map1.size(), 5);
@@ -1949,6 +1867,16 @@ void tst_Collections::qstring()
     QVERIFY(hello.indexOf('l',2) == 2);
     QVERIFY(hello.indexOf('l',3) == 3);
 
+    QString empty;
+    QCOMPARE(empty.indexOf("x"), -1);
+    QCOMPARE(empty.lastIndexOf("x"), -1);
+    QCOMPARE(empty.lastIndexOf("x", 0), -1);
+    QCOMPARE(empty.count("x"), 0);
+    QCOMPARE(empty.indexOf(""), 0);
+    QCOMPARE(empty.lastIndexOf(""), 0);
+    QCOMPARE(empty.lastIndexOf("", -1), -1);
+    QCOMPARE(empty.count(""), 1);
+
     QString large = "000 100 200 300 400 500 600 700 800 900";
 
     QVERIFY(large.indexOf("700") == 28);
@@ -1957,6 +1885,20 @@ void tst_Collections::qstring()
     QVERIFY(large.lastIndexOf("700") == 28);
     QVERIFY(large.lastIndexOf("700", 28) == 28);
     QVERIFY(large.lastIndexOf("700", 27) == -1);
+
+    QCOMPARE(large.indexOf(""), 0);
+    QCOMPARE(large.indexOf(QString()), 0);
+    QCOMPARE(large.indexOf(QLatin1String()), 0);
+    QCOMPARE(large.indexOf(QStringView()), 0);
+    QCOMPARE(large.lastIndexOf(""), large.size());
+    QCOMPARE(large.lastIndexOf("", -1), large.size() - 1);
+    QCOMPARE(large.lastIndexOf(QString()), large.size());
+    QCOMPARE(large.lastIndexOf(QLatin1String()), large.size());
+    QCOMPARE(large.lastIndexOf(QStringView()), large.size());
+    QCOMPARE(large.count(""), large.size() + 1);
+    QCOMPARE(large.count(QString()), large.size() + 1);
+    QCOMPARE(large.count(QLatin1String()), large.size() + 1);
+    QCOMPARE(large.count(QStringView()), large.size() + 1);
 
     QVERIFY(large.contains("200"));
     QVERIFY(!large.contains("201"));
@@ -2007,15 +1949,6 @@ void tst_Collections::qstring()
     QVERIFY(null.mid(0).isNull());
     QVERIFY(null.isNull());
     QVERIFY(!nonNull.isNull());
-
-#if QT_DEPRECATED_SINCE(5, 9)
-    QVERIFY(null == QString::null);
-    QVERIFY(QString::null  == null);
-    QVERIFY(nonNull != QString::null);
-    QVERIFY(QString::null != nonNull);
-    QVERIFY(null == nonNull);
-    QVERIFY(QString::null == QString::null);
-#endif
 
     QString fill = "123";
     fill.fill('a');
@@ -2341,23 +2274,6 @@ void populate(QList<int> &container)
     container << 1 << 2 << 4 << 8;
 }
 
-#if QT_DEPRECATED_SINCE(5, 15)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-template <>
-void populate(QLinkedList<int> &container)
-{
-    container << 1 << 2 << 4 << 8;
-}
-QT_WARNING_POP
-#endif
-
-template <>
-void populate(QVector<int> &container)
-{
-    container << 1 << 2 << 4 << 8;
-}
-
 template <>
 void populate(QMap<int, int> &container)
 {
@@ -2446,16 +2362,6 @@ void tst_Collections::sharableQList()
 {
     TEST_SEQUENTIAL_CONTAINER(List);
 }
-
-#if QT_DEPRECATED_SINCE(5, 15)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-void tst_Collections::sharableQLinkedList()
-{
-    TEST_SEQUENTIAL_CONTAINER(LinkedList);
-}
-QT_WARNING_POP
-#endif
 
 void tst_Collections::sharableQVector()
 {
@@ -2632,7 +2538,7 @@ template <class Container>
 void testLinkedListLikeStlIterators()
 {
     Container fake;
-    typename Container::value_type t;
+    typename Container::value_type t = {};
     fake << t;
 
     typename Container::iterator i1 = fake.begin(), i2 = i1 + 1;
@@ -2665,7 +2571,7 @@ void testListLikeStlIterators()
     testLinkedListLikeStlIterators<Container>();
 
     Container fake;
-    typename Container::value_type t;
+    typename Container::value_type t = {};
     fake << t;
 
     typename Container::iterator i1 = fake.begin(), i2 = i1 + 1;
@@ -2748,8 +2654,10 @@ void testMapLikeStlIterators()
     QString t;
     fake.insert(k, t);
 
-    typename Container::iterator i1 = fake.begin(), i2 = i1 + 1;
-    typename Container::const_iterator c1 = i1, c2 = c1 + 1;
+    typename Container::iterator i1 = fake.begin(), i2 = i1;
+    ++i2;
+    typename Container::const_iterator c1 = i1, c2 = c1;
+    ++c2;
 
     QVERIFY(i1 == i1);
     QVERIFY(i1 == c1);
@@ -2759,8 +2667,6 @@ void testMapLikeStlIterators()
     QVERIFY(i2 == c2);
     QVERIFY(c2 == i2);
     QVERIFY(c2 == c2);
-    QVERIFY(1 + i1 == i1 + 1);
-    QVERIFY(1 + c1 == c1 + 1);
 
     QVERIFY(i1 != i2);
     QVERIFY(i1 != c2);
@@ -2774,19 +2680,12 @@ void testMapLikeStlIterators()
 
 void tst_Collections::constAndNonConstStlIterators()
 {
-    testListLikeStlIterators<QList<int> >();
-    testListLikeStlIterators<QStringList >();
-#if QT_DEPRECATED_SINCE(5, 15)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-    testLinkedListLikeStlIterators<QLinkedList<int> >();
-QT_WARNING_POP
-#endif
-    testListLikeStlIterators<QVector<int> >();
-    testMapLikeStlIterators<QMap<QString, QString> >();
-    testMapLikeStlIterators<QMultiMap<QString, QString> >();
-    testMapLikeStlIterators<QHash<QString, QString> >();
-    testMapLikeStlIterators<QMultiHash<QString, QString> >();
+    testListLikeStlIterators<QList<int>>();
+    testListLikeStlIterators<QStringList>();
+    testMapLikeStlIterators<QMap<QString, QString>>();
+    testMapLikeStlIterators<QMultiMap<QString, QString>>();
+    testMapLikeStlIterators<QHash<QString, QString>>();
+    testMapLikeStlIterators<QMultiHash<QString, QString>>();
 }
 
 void tst_Collections::vector_stl_data()
@@ -2803,7 +2702,7 @@ void tst_Collections::vector_stl()
 {
     QFETCH(QStringList, elements);
 
-    QVector<QString> vector;
+    QList<QString> vector;
     for (int i = 0; i < elements.count(); ++i)
         vector << elements.at(i);
 
@@ -2819,40 +2718,10 @@ void tst_Collections::vector_stl()
         QCOMPARE(*it, vector[j]);
 
 #if QT_VERSION < QT_VERSION_CHECK(6,0,0)
-    QCOMPARE(QVector<QString>::fromStdVector(stdVector), vector);
+    QCOMPARE(QList<QString>::fromStdVector(stdVector), vector);
 #endif
-    QCOMPARE(QVector<QString>(stdVector.begin(), stdVector.end()), vector);
+    QCOMPARE(QList<QString>(stdVector.begin(), stdVector.end()), vector);
 }
-
-#if QT_DEPRECATED_SINCE(5, 15)
-void tst_Collections::linkedlist_stl_data()
-{
-    list_stl_data();
-}
-
-void tst_Collections::linkedlist_stl()
-{
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-    QFETCH(QStringList, elements);
-
-    QLinkedList<QString> list;
-    for (int i = 0; i < elements.count(); ++i)
-        list << elements.at(i);
-
-    std::list<QString> stdList = list.toStdList();
-
-    QCOMPARE(int(stdList.size()), elements.size());
-
-    std::list<QString>::const_iterator it = stdList.begin();
-    QLinkedList<QString>::const_iterator it2 = list.cbegin();
-    for (uint j = 0; j < stdList.size(); ++j, ++it, ++it2)
-        QCOMPARE(*it, *it2);
-
-    QCOMPARE(QLinkedList<QString>::fromStdList(stdList), list);
-QT_WARNING_POP
-}
-#endif
 
 void tst_Collections::list_stl_data()
 {
@@ -2891,7 +2760,7 @@ void tst_Collections::list_stl()
 }
 
 template <typename T>
-T qtInit(T * = 0)
+T qtInit(T * = nullptr)
 {
     return T();
 }
@@ -2901,9 +2770,9 @@ void tst_Collections::q_init()
     QCOMPARE(qtInit<int>(), 0);
     QCOMPARE(qtInit<double>(), 0.0);
     QCOMPARE(qtInit<QString>(), QString());
-    QCOMPARE(qtInit<int *>(), static_cast<int *>(0));
-    QCOMPARE(qtInit<double *>(), static_cast<double *>(0));
-    QCOMPARE(qtInit<QString *>(), static_cast<QString *>(0));
+    QCOMPARE(qtInit<int *>(), static_cast<int *>(nullptr));
+    QCOMPARE(qtInit<double *>(), static_cast<double *>(nullptr));
+    QCOMPARE(qtInit<QString *>(), static_cast<QString *>(nullptr));
     QCOMPARE(qtInit<Pod>().i1, 0);
     QCOMPARE(qtInit<Pod>().i2, 0);
 }
@@ -2917,6 +2786,7 @@ class LessThanComparable
 {
 public:
     bool operator<(const LessThanComparable &) const { return true; }
+    bool operator==(const LessThanComparable &) const { return true; }
 };
 
 class EqualsComparable
@@ -2925,7 +2795,7 @@ public:
     bool operator==(const EqualsComparable &) const { return true; }
 };
 
-uint qHash(const EqualsComparable &)
+size_t qHash(const EqualsComparable &)
 {
     return 0;
 }
@@ -2957,7 +2827,7 @@ void instantiateContainer()
     constIt = constContainer.end();
     constIt = constContainer.cend();
     container.constEnd();
-    Q_UNUSED(constIt)
+    Q_UNUSED(constIt);
 
     container.clear();
     container.contains(value);
@@ -2980,11 +2850,7 @@ void instantiateMutableIterationContainer()
     typename ContainerType::iterator it;
     it = container.begin();
     it = container.end();
-    Q_UNUSED(it)
-
-    // QSet lacks count(T).
-    const ValueType value = ValueType();
-    container.count(value);
+    Q_UNUSED(it);
 }
 
 template <typename ContainerType, typename ValueType>
@@ -2992,10 +2858,9 @@ void instantiateSequence()
 {
     instantiateMutableIterationContainer<ContainerType, ValueType>();
 
-// QVector lacks removeAll(T)
-//    ValueType value = ValueType();
-//    ContainerType container;
-//    container.removeAll(value);
+    ValueType value = ValueType();
+    ContainerType container;
+    container.removeAll(value);
 }
 
 template <typename ContainerType, typename ValueType>
@@ -3050,14 +2915,12 @@ void instantiatePairAssociative()
 {
     instantiateMutableIterationContainer<ContainerType, KeyType>();
 
-    typename ContainerType::iterator it;
-    typename ContainerType::const_iterator constIt;
     const KeyType key = KeyType();
     const ValueType value = ValueType();
     ContainerType container;
     const ContainerType constContainer(container);
 
-    it = container.insert(key, value);
+    auto it = container.insert(key, value);
     container.erase(it);
     container.find(key);
     container.constFind(key);
@@ -3068,11 +2931,10 @@ void instantiatePairAssociative()
     constContainer.keys();
     container.remove(key);
     container.take(key);
-    container.unite(constContainer);
+    container.insert(constContainer);
     container.value(key);
     container.value(key, value);
     container.values();
-    container.values(key);
     container[key];
     const int foo = constContainer[key];
     Q_UNUSED(foo);
@@ -3101,21 +2963,6 @@ void tst_Collections::containerInstantiation()
     typedef QSet<EqualsComparable> Set;
     instantiateAssociative<Set, EqualsComparable>();
 
-#if QT_DEPRECATED_SINCE(5, 15)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-
-    //Instantiate QLinkedList member functions.
-    typedef QLinkedList<EqualsComparable> LinkedList;
-    instantiateSequence<LinkedList, EqualsComparable> ();
-    {
-        EqualsComparable value;
-        LinkedList list;
-        list.removeAll(value);
-    }
-QT_WARNING_POP
-#endif
-
     //Instantiate QList member functions.
     typedef QList<EqualsComparable> List;
     instantiateRandomAccess<List, EqualsComparable>();
@@ -3124,10 +2971,6 @@ QT_WARNING_POP
         List list;
         list.removeAll(value);
     }
-
-    //Instantiate QVector member functions.
-    typedef QVector<EqualsComparable> Vector;
-    instantiateRandomAccess<Vector, EqualsComparable>();
 
     //Instantiate QQueue member functions.
     typedef QQueue<EqualsComparable> Queue;
@@ -3166,7 +3009,7 @@ void tst_Collections::qtimerList()
 template <typename Container>
 void testContainerTypedefs(Container container)
 {
-    Q_UNUSED(container)
+    Q_UNUSED(container);
     { QVERIFY_TYPE(typename Container::value_type); }
     { QVERIFY_TYPE(typename Container::iterator); }
     { QVERIFY_TYPE(typename Container::const_iterator); }
@@ -3180,7 +3023,7 @@ void testContainerTypedefs(Container container)
 template <typename Container>
 void testPairAssociativeContainerTypedefs(Container container)
 {
-    Q_UNUSED(container)
+    Q_UNUSED(container);
 
 //  TODO: Not sure how to define value_type for our associative containers
 //    { QVERIFY_TYPE(typename Container::value_type); }
@@ -3202,7 +3045,7 @@ void testPairAssociativeContainerTypedefs(Container container)
 template <typename Container>
 void testSetContainerTypedefs(Container container)
 {
-    Q_UNUSED(container)
+    Q_UNUSED(container);
     { QVERIFY_TYPE(typename Container::iterator); }
     { QVERIFY_TYPE(typename Container::const_iterator); }
     { QVERIFY_TYPE(typename Container::reference); }
@@ -3219,15 +3062,8 @@ void testSetContainerTypedefs(Container container)
 */
 void tst_Collections::containerTypedefs()
 {
-    testContainerTypedefs(QVector<int>());
     testContainerTypedefs(QStack<int>());
     testContainerTypedefs(QList<int>());
-#if QT_DEPRECATED_SINCE(5, 15)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-    testContainerTypedefs(QLinkedList<int>());
-QT_WARNING_POP
-#endif
     testContainerTypedefs(QQueue<int>());
 
     testPairAssociativeContainerTypedefs(QMap<int, int>());
@@ -3243,39 +3079,42 @@ class T2;
 
 void tst_Collections::forwardDeclared()
 {
-    { typedef QHash<Key1, T1> C; C *x = 0; C::iterator i; C::const_iterator j; Q_UNUSED(x) }
-    { typedef QMultiHash<Key1, T1> C; C *x = 0; C::iterator i; C::const_iterator j; Q_UNUSED(x) }
-    { typedef QMap<Key1, T1> C; C *x = 0; C::iterator i; C::const_iterator j; Q_UNUSED(x) }
-    { typedef QMultiMap<Key1, T1> C; C *x = 0; C::iterator i; C::const_iterator j; Q_UNUSED(x) }
-    { typedef QPair<T1, T2> C; C *x = 0; Q_UNUSED(x) }
-    { typedef QList<T1> C; C *x = 0; C::iterator i; C::const_iterator j; Q_UNUSED(x) }
-#if QT_DEPRECATED_SINCE(5, 15)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-    { typedef QLinkedList<T1> C; C *x = 0; C::iterator i; C::const_iterator j; Q_UNUSED(x) }
-QT_WARNING_POP
-#endif
-    { typedef QVector<T1> C; C *x = 0; C::iterator i; C::const_iterator j; Q_UNUSED(x) Q_UNUSED(i) Q_UNUSED(j) }
-    { typedef QStack<T1> C; C *x = 0; C::iterator i; C::const_iterator j; Q_UNUSED(x) Q_UNUSED(i) Q_UNUSED(j) }
-    { typedef QQueue<T1> C; C *x = 0; C::iterator i; C::const_iterator j; Q_UNUSED(x) }
-    { typedef QSet<T1> C; C *x = 0; /* C::iterator i; */ C::const_iterator j; Q_UNUSED(x) }
+#define COMMA ,
+#define TEST(type) do { \
+        using C = type; \
+        C *x = nullptr; \
+        C::iterator i; \
+        C::const_iterator j; \
+        Q_UNUSED(x); \
+        Q_UNUSED(i); \
+        Q_UNUSED(j); \
+    } while (false)
+
+    TEST(QHash<Key1 COMMA T1>);
+    TEST(QMap<Key1 COMMA T1>);
+    TEST(QMultiMap<Key1 COMMA T1>);
+    TEST(QList<T1>);
+    TEST(QVector<T1>);
+    TEST(QStack<T1>);
+    TEST(QQueue<T1>);
+    TEST(QSet<T1>);
+#undef TEST
+#undef COMMA
+
+    {
+        using C = QPair<T1, T2>;
+        C *x = nullptr;
+        Q_UNUSED(x);
+    }
+
+    {
+        using C = QSet<T1>;
+        C *x = nullptr;
+        C::const_iterator j;
+        Q_UNUSED(x);
+        Q_UNUSED(j);
+    }
 }
-
-#if defined(Q_ALIGNOF) && defined(Q_DECL_ALIGN)
-
-class Q_DECL_ALIGN(4) Aligned4
-{
-    char i;
-public:
-    Aligned4(int i = 0) : i(i) {}
-
-    enum { PreferredAlignment = 4 };
-
-    inline bool operator==(const Aligned4 &other) const { return i == other.i; }
-    inline bool operator<(const Aligned4 &other) const { return i < other.i; }
-    friend inline int qHash(const Aligned4 &a) { return qHash(a.i); }
-};
-Q_STATIC_ASSERT(Q_ALIGNOF(Aligned4) % 4 == 0);
 
 #if defined(Q_PROCESSOR_ARM)
 #  if defined(Q_COMPILER_ALIGNAS) && defined(__BIGGEST_ALIGNMENT__)
@@ -3289,19 +3128,30 @@ Q_STATIC_ASSERT(Q_ALIGNOF(Aligned4) % 4 == 0);
 #  define BIGGEST_ALIGNMENT_TO_TEST 128
 #endif
 
-class Q_DECL_ALIGN(BIGGEST_ALIGNMENT_TO_TEST) AlignedBiggest
+template <size_t Alignment>
+class alignas(Alignment) AlignedClass
 {
     char i;
+
 public:
-    AlignedBiggest(int i = 0) : i(i) {}
+    AlignedClass(int i = 0) : i(i) {}
 
-    enum { PreferredAlignment = BIGGEST_ALIGNMENT_TO_TEST };
+    enum { PreferredAlignment = Alignment };
 
-    inline bool operator==(const AlignedBiggest &other) const { return i == other.i; }
-    inline bool operator<(const AlignedBiggest &other) const { return i < other.i; }
-    friend inline int qHash(const AlignedBiggest &a) { return qHash(a.i); }
+    inline bool operator==(const AlignedClass &other) const { return i == other.i; }
+    inline bool operator<(const AlignedClass &other) const { return i < other.i; }
+    friend inline size_t qHash(const AlignedClass &a) { return qHash(a.i); }
 };
-Q_STATIC_ASSERT(Q_ALIGNOF(AlignedBiggest) % BIGGEST_ALIGNMENT_TO_TEST == 0);
+
+using Aligned4 = AlignedClass<4>;
+static_assert(alignof(Aligned4) % 4 == 0);
+
+using AlignedStdMax = AlignedClass<alignof(std::max_align_t)>;
+static_assert(alignof(AlignedStdMax) % alignof(std::max_align_t) == 0);
+
+using AlignedBiggest = AlignedClass<BIGGEST_ALIGNMENT_TO_TEST>;
+static_assert(BIGGEST_ALIGNMENT_TO_TEST > alignof(std::max_align_t), "Not overly aligned");
+static_assert(alignof(AlignedBiggest) % BIGGEST_ALIGNMENT_TO_TEST == 0);
 
 template<typename C>
 void testVectorAlignment()
@@ -3358,26 +3208,30 @@ void testAssociativeContainerAlignment()
 
 void tst_Collections::alignment()
 {
-    testVectorAlignment<QVector<Aligned4> >();
-    testVectorAlignment<QVector<AlignedBiggest> >();
+    testVectorAlignment<QList<Aligned4> >();
+    testVectorAlignment<QList<AlignedStdMax> >();
+    testVectorAlignment<QList<AlignedBiggest> >();
+
     testContiguousCacheAlignment<QContiguousCache<Aligned4> >();
+    testContiguousCacheAlignment<QContiguousCache<AlignedStdMax> >();
     testContiguousCacheAlignment<QContiguousCache<AlignedBiggest> >();
+
+    // there's no guarentee that std::map supports over-aligned types
     testAssociativeContainerAlignment<QMap<Aligned4, Aligned4> >();
-    testAssociativeContainerAlignment<QMap<Aligned4, AlignedBiggest> >();
-    testAssociativeContainerAlignment<QMap<AlignedBiggest, Aligned4> >();
-    testAssociativeContainerAlignment<QMap<AlignedBiggest, AlignedBiggest> >();
+    testAssociativeContainerAlignment<QMap<Aligned4, AlignedStdMax> >();
+    testAssociativeContainerAlignment<QMap<AlignedStdMax, Aligned4> >();
+    testAssociativeContainerAlignment<QMap<AlignedStdMax, AlignedStdMax> >();
+
     testAssociativeContainerAlignment<QHash<Aligned4, Aligned4> >();
+    testAssociativeContainerAlignment<QHash<Aligned4, AlignedStdMax> >();
     testAssociativeContainerAlignment<QHash<Aligned4, AlignedBiggest> >();
+    testAssociativeContainerAlignment<QHash<AlignedStdMax, Aligned4> >();
+    testAssociativeContainerAlignment<QHash<AlignedStdMax, AlignedStdMax> >();
+    testAssociativeContainerAlignment<QHash<AlignedStdMax, AlignedBiggest> >();
     testAssociativeContainerAlignment<QHash<AlignedBiggest, Aligned4> >();
+    testAssociativeContainerAlignment<QHash<AlignedBiggest, AlignedStdMax> >();
     testAssociativeContainerAlignment<QHash<AlignedBiggest, AlignedBiggest> >();
 }
-
-#else
-void tst_Collections::alignment()
-{
-    QSKIP("Compiler doesn't support necessary extension keywords");
-}
-#endif
 
 #ifndef QT_NO_TEMPLATE_TEMPLATE_PARAMETERS
 
@@ -3432,7 +3286,7 @@ template<template<class, class> class C> void QTBUG13079_collectionInsideCollect
 }
 
 
-quint32 qHash(const QTBUG13079_Node<QSet> &)
+size_t qHash(const QTBUG13079_Node<QSet> &)
 {
     return 0;
 }
@@ -3488,12 +3342,6 @@ void tst_Collections::QTBUG13079_collectionInsideCollection()
     QTBUG13079_collectionInsideCollectionImpl<QVector>();
     QTBUG13079_collectionInsideCollectionImpl<QStack>();
     QTBUG13079_collectionInsideCollectionImpl<QList>();
-#if QT_DEPRECATED_SINCE(5, 15)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-    QTBUG13079_collectionInsideCollectionImpl<QLinkedList>();
-QT_WARNING_POP
-#endif
     QTBUG13079_collectionInsideCollectionImpl<QQueue>();
 
     {
@@ -3562,9 +3410,6 @@ void tst_Collections::foreach_2()
     QCOMPARE(varl1.count(), intlist.count());
     QCOMPARE(varl2.count(), intlist.count());
     QCOMPARE(varl3.count(), intlist.count());
-    foreach_test_arrays(varl1);
-    foreach_test_arrays(varl2);
-    foreach_test_arrays(varl3);
 
     QVarLengthArray<QString> varl4;
     QVarLengthArray<QString, 3> varl5;
@@ -3577,9 +3422,6 @@ void tst_Collections::foreach_2()
     QCOMPARE(varl4.count(), strlist.count());
     QCOMPARE(varl5.count(), strlist.count());
     QCOMPARE(varl6.count(), strlist.count());
-    foreach_test_arrays(varl4);
-    foreach_test_arrays(varl5);
-    foreach_test_arrays(varl6);
 }
 
 struct IntOrString
@@ -3664,55 +3506,45 @@ template<class Container> void insert_remove_loop_impl()
     for (int i = 0; i < t.count(); i++) {
         QCOMPARE(t[i], T(IntOrString(expect5[i])));
     }
+
+    t.clear();
+    t << T(IntOrString(1)) << T(IntOrString(2)) << T(IntOrString(3)) << T(IntOrString(4));
+    t.insert(2, 4, T(IntOrString(9)));
+    t.insert(2, 4, T(IntOrString(7)));
+
+    int expect6[] = { 1, 2, 7, 7, 7, 7, 9, 9, 9, 9, 3, 4 };
+    QCOMPARE(size_t(t.count()), sizeof(expect6)/sizeof(int));
+    for (int i = 0; i < t.count(); i++) {
+        QCOMPARE(t[i], T(IntOrString(expect6[i])));
+    }
+
 }
 
 
-//Add insert(int, int, T) so it has the same interface as QVector and QVarLengthArray for the test.
 template<typename T>
-struct ExtList : QList<T> {
-    using QList<T>::insert;
-    void insert(int before, int n, const T&x) {
-        while (n--) {
-            this->insert(before, x );
-        }
-    }
-    void insert(typename QList<T>::iterator before, int n, const T&x) {
-        while (n--) {
-            before = this->insert(before, x);
-        }
-    }
-
-    void remove(int i) {
-        this->removeAt(i);
-    }
-    void remove(int i, int n) {
-        while (n--) {
-            this->removeAt(i);
-        }
-    }
-};
+using ExtList = QList<T>;
 
 void tst_Collections::insert_remove_loop()
 {
-    insert_remove_loop_impl<ExtList<int> >();
-    insert_remove_loop_impl<ExtList<QString> >();
-    insert_remove_loop_impl<QVector<int> >();
-    insert_remove_loop_impl<QVector<QString> >();
-    insert_remove_loop_impl<QVarLengthArray<int> >();
-    insert_remove_loop_impl<QVarLengthArray<QString> >();
-    insert_remove_loop_impl<QVarLengthArray<int, 10> >();
-    insert_remove_loop_impl<QVarLengthArray<QString, 10> >();
-    insert_remove_loop_impl<QVarLengthArray<int, 3> >();
-    insert_remove_loop_impl<QVarLengthArray<QString, 3> >();
-    insert_remove_loop_impl<QVarLengthArray<int, 15> >();
-    insert_remove_loop_impl<QVarLengthArray<QString, 15> >();
+    insert_remove_loop_impl<ExtList<int>>();
+    insert_remove_loop_impl<ExtList<QString>>();
+    insert_remove_loop_impl<QList<int>>();
+    insert_remove_loop_impl<QList<QString>>();
+    insert_remove_loop_impl<QVarLengthArray<int>>();
+    insert_remove_loop_impl<QVarLengthArray<QString>>();
+    insert_remove_loop_impl<QVarLengthArray<int, 10>>();
+    insert_remove_loop_impl<QVarLengthArray<QString, 10>>();
+    insert_remove_loop_impl<QVarLengthArray<int, 3>>();
+    insert_remove_loop_impl<QVarLengthArray<QString, 3>>();
+    insert_remove_loop_impl<QVarLengthArray<int, 15>>();
+    insert_remove_loop_impl<QVarLengthArray<QString, 15>>();
 
-    insert_remove_loop_impl<ExtList<std::string> >();
-    insert_remove_loop_impl<QVector<std::string> >();
-    insert_remove_loop_impl<QVarLengthArray<std::string> >();
-    insert_remove_loop_impl<QVarLengthArray<std::string, 10> >();
-    insert_remove_loop_impl<QVarLengthArray<std::string, 3> >();
-    insert_remove_loop_impl<QVarLengthArray<std::string, 15> >();
+    insert_remove_loop_impl<ExtList<std::string>>();
+    insert_remove_loop_impl<QList<std::string>>();
+    insert_remove_loop_impl<QVarLengthArray<std::string>>();
+    insert_remove_loop_impl<QVarLengthArray<std::string, 10>>();
+    insert_remove_loop_impl<QVarLengthArray<std::string, 3>>();
+    insert_remove_loop_impl<QVarLengthArray<std::string, 15>>();
 }
 
 

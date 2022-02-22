@@ -5,13 +5,15 @@
 #include <vector>
 
 #include "base/strings/string_util.h"
-#include "content/browser/frame_host/frame_tree_node.h"
-#include "content/browser/frame_host/render_frame_host_impl.h"
+#include "build/build_config.h"
+#include "content/browser/renderer_host/frame_tree_node.h"
+#include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/host_zoom_map.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_types.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
@@ -271,7 +273,8 @@ IN_PROC_BROWSER_TEST_F(ZoomBrowserTest, ZoomPreservedOnReload) {
       0.01);
 }
 
-IN_PROC_BROWSER_TEST_F(IFrameZoomBrowserTest, SubframesZoomProperly) {
+// http://crbug.com/1174371
+IN_PROC_BROWSER_TEST_F(IFrameZoomBrowserTest, DISABLED_SubframesZoomProperly) {
   std::string top_level_host("a.com");
   GURL main_url(embedded_test_server()->GetURL(
       top_level_host, "/cross_site_iframe_factory.html?a(b(a))"));
@@ -375,7 +378,9 @@ IN_PROC_BROWSER_TEST_F(IFrameZoomBrowserTest, SubframesDontZoomIndependently) {
       GetMainFrameZoomFactor(web_contents(), main_frame_window_border));
 }
 
-IN_PROC_BROWSER_TEST_F(IFrameZoomBrowserTest, AllFramesGetDefaultZoom) {
+// This test is flaky. https://crbug.com/1171748
+IN_PROC_BROWSER_TEST_F(IFrameZoomBrowserTest,
+                       DISABLED_AllFramesGetDefaultZoom) {
   std::string top_level_host("a.com");
   GURL main_url(embedded_test_server()->GetURL(
       top_level_host, "/cross_site_iframe_factory.html?a(b(a))"));
@@ -432,7 +437,13 @@ IN_PROC_BROWSER_TEST_F(IFrameZoomBrowserTest, AllFramesGetDefaultZoom) {
   );
 }
 
-IN_PROC_BROWSER_TEST_F(IFrameZoomBrowserTest, SiblingFramesZoom) {
+// Flaky on mac, https://crbug.com/1055282
+#if defined(OS_MAC)
+#define MAYBE_SiblingFramesZoom DISABLED_SiblingFramesZoom
+#else
+#define MAYBE_SiblingFramesZoom SiblingFramesZoom
+#endif
+IN_PROC_BROWSER_TEST_F(IFrameZoomBrowserTest, MAYBE_SiblingFramesZoom) {
   std::string top_level_host("a.com");
   GURL main_url(embedded_test_server()->GetURL(
       top_level_host, "/cross_site_iframe_factory.html?a(b,b)"));
@@ -537,7 +548,7 @@ IN_PROC_BROWSER_TEST_F(IFrameZoomBrowserTest, SubframeRetainsZoomOnNavigation) {
   // Navigate child frame cross site, and make sure zoom is the same.
   TestNavigationObserver observer(web_contents());
   GURL url = embedded_test_server()->GetURL("c.com", "/title1.html");
-  NavigateFrameToURL(root->child_at(0), url);
+  EXPECT_TRUE(NavigateToURLFromRenderer(root->child_at(0), url));
   EXPECT_TRUE(observer.last_navigation_succeeded());
   EXPECT_EQ(url, observer.last_navigation_url());
 

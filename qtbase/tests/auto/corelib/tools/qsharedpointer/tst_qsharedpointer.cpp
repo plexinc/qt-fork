@@ -30,13 +30,14 @@
 
 #define QT_SHAREDPOINTER_TRACK_POINTERS
 #include "qsharedpointer.h"
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QPointer>
+#include <QRandomGenerator>
 #include <QtCore/QHash>
+#include <QtCore/QList>
 #include <QtCore/QMap>
 #include <QtCore/QThread>
-#include <QtCore/QVector>
 
-#include "externaltests.h"
 #include "forwarddeclared.h"
 #include "nontracked.h"
 #include "wrapper.h"
@@ -46,7 +47,7 @@
 #include <stdlib.h>
 #include <time.h>
 
-#ifdef Q_OS_UNIX
+#if defined(Q_OS_UNIX) && !defined(Q_OS_INTEGRITY)
 #include <sys/resource.h>
 #endif
 
@@ -77,10 +78,6 @@ private slots:
     void functionCallDownCast();
     void upCast();
     void qobjectWeakManagement();
-#if QT_DEPRECATED_SINCE(5, 0)
-    void noSharedPointerFromWeakQObject();
-    void sharedPointerFromQObjectWithWeak();
-#endif
     void weakQObjectFromSharedPointer();
     void objectCast();
     void objectCastStdSharedPtr();
@@ -114,9 +111,10 @@ private slots:
     void threadStressTest_data();
     void threadStressTest();
     void validConstructs();
+#if 0
     void invalidConstructs_data();
     void invalidConstructs();
-
+#endif
 
     // let invalidConstructs be the last test, because it's the slowest;
     // add new tests above this block
@@ -134,7 +132,7 @@ public:
 
 void tst_QSharedPointer::initTestCase()
 {
-#if defined(Q_OS_UNIX)
+#if defined(Q_OS_UNIX) && !defined(Q_OS_INTEGRITY)
     // The tests create a lot of threads, which require file descriptors. On systems like
     // OS X low defaults such as 256 as the limit for the number of simultaneously
     // open files is not sufficient.
@@ -155,7 +153,7 @@ QtSharedPointer::ExternalRefCountData *refCountData(const QSharedPointer<T> &b)
         QtSharedPointer::ExternalRefCountData* data;
     };
     // sanity checks:
-    Q_STATIC_ASSERT(sizeof(QSharedPointer<T>) == sizeof(Dummy));
+    static_assert(sizeof(QSharedPointer<T>) == sizeof(Dummy));
     Q_ASSERT(static_cast<const Dummy*>(static_cast<const void*>(&b))->value == b.data());
     return static_cast<const Dummy*>(static_cast<const void*>(&b))->data;
 }
@@ -343,6 +341,11 @@ void tst_QSharedPointer::basics()
         QCOMPARE(!weak, isNull);
         QCOMPARE(bool(weak), !isNull);
 
+        QCOMPARE(weak.isNull(), (weak == nullptr));
+        QCOMPARE(weak.isNull(), (nullptr == weak));
+        QCOMPARE(!weak.isNull(), (weak != nullptr));
+        QCOMPARE(!weak.isNull(), (nullptr != weak));
+
         QVERIFY(ptr == weak);
         QVERIFY(weak == ptr);
         QVERIFY(! (ptr != weak));
@@ -428,6 +431,12 @@ void tst_QSharedPointer::nullptrOps()
     QVERIFY(!p2.get());
     QVERIFY(p1 == p2);
 
+    QWeakPointer<char> wp1 = p1;
+    QVERIFY(wp1 == nullptr);
+    QVERIFY(nullptr == wp1);
+    QCOMPARE(wp1, nullptr);
+    QCOMPARE(nullptr, wp1);
+
     QSharedPointer<char> p3 = p1;
     QVERIFY(p3 == p1);
     QVERIFY(p3 == null);
@@ -454,6 +463,10 @@ void tst_QSharedPointer::nullptrOps()
     QVERIFY(p4 != p2);
     QVERIFY(p4 != null);
     QVERIFY(p4 != p3);
+
+    QWeakPointer<char> wp2 = p4;
+    QVERIFY(wp2 != nullptr);
+    QVERIFY(nullptr != wp2);
 }
 
 void tst_QSharedPointer::swap()
@@ -596,6 +609,9 @@ void tst_QSharedPointer::useOfForwardDeclared()
 
 void tst_QSharedPointer::memoryManagement()
 {
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_CLANG("-Wself-assign-overloaded")
+
     int generation = Data::generationCounter + 1;
     int destructorCounter = Data::destructorCounter;
 
@@ -657,6 +673,7 @@ void tst_QSharedPointer::memoryManagement()
     QVERIFY(ptr.isNull());
     QVERIFY(ptr == 0);
     QCOMPARE(ptr.data(), (Data*)0);
+QT_WARNING_POP
 }
 
 void tst_QSharedPointer::dropLastReferenceOfForwardDeclared()
@@ -956,156 +973,10 @@ void tst_QSharedPointer::qobjectWeakManagement()
         QVERIFY(weak.isNull());
     }
     safetyCheck();
-
-#if QT_DEPRECATED_SINCE(5, 0)
-    {
-        QWeakPointer<QObject> weak;
-        weak = QWeakPointer<QObject>();
-        QVERIFY(weak.isNull());
-        QVERIFY(!weak.data());
-    }
-
-    {
-        QObject *obj = new QObject;
-        QWeakPointer<QObject> weak(obj);
-        QVERIFY(!weak.isNull());
-        QVERIFY(weak.data() == obj);
-
-        // now delete
-        delete obj;
-        QVERIFY(weak.isNull());
-    }
-    safetyCheck();
-
-    {
-        // same, bit with operator=
-        QObject *obj = new QObject;
-        QWeakPointer<QObject> weak;
-        weak = obj;
-        QVERIFY(!weak.isNull());
-        QVERIFY(weak.data() == obj);
-
-        // now delete
-        delete obj;
-        QVERIFY(weak.isNull());
-    }
-    safetyCheck();
-
-    {
-        // delete triggered by parent
-        QObject *obj, *parent;
-        parent = new QObject;
-        obj = new QObject(parent);
-        QWeakPointer<QObject> weak(obj);
-
-        // now delete the parent
-        delete parent;
-        QVERIFY(weak.isNull());
-    }
-    safetyCheck();
-
-    {
-        // same as above, but set the parent after QWeakPointer is created
-        QObject *obj, *parent;
-        obj = new QObject;
-        QWeakPointer<QObject> weak(obj);
-
-        parent = new QObject;
-        obj->setParent(parent);
-
-        // now delete the parent
-        delete parent;
-        QVERIFY(weak.isNull());
-    }
-    safetyCheck();
-
-    {
-        // with two QWeakPointers
-        QObject *obj = new QObject;
-        QWeakPointer<QObject> weak(obj);
-
-        {
-            QWeakPointer<QObject> weak2(obj);
-            QVERIFY(!weak2.isNull());
-            QVERIFY(weak == weak2);
-        }
-        QVERIFY(!weak.isNull());
-
-        delete obj;
-        QVERIFY(weak.isNull());
-    }
-    safetyCheck();
-
-    {
-        // same, but delete the pointer while two QWeakPointers exist
-        QObject *obj = new QObject;
-        QWeakPointer<QObject> weak(obj);
-
-        {
-            QWeakPointer<QObject> weak2(obj);
-            QVERIFY(!weak2.isNull());
-
-            delete obj;
-            QVERIFY(weak.isNull());
-            QVERIFY(weak2.isNull());
-        }
-        QVERIFY(weak.isNull());
-    }
-    safetyCheck();
-#endif
 }
-
-#if QT_DEPRECATED_SINCE(5, 0)
-void tst_QSharedPointer::noSharedPointerFromWeakQObject()
-{
-    // you're not allowed to create a QSharedPointer from an unmanaged QObject
-    QObject obj;
-    QWeakPointer<QObject> weak(&obj);
-
-    {
-        QTest::ignoreMessage(QtWarningMsg ,  "QSharedPointer: cannot create a QSharedPointer from a QObject-tracking QWeakPointer");
-        QSharedPointer<QObject> strong = weak.toStrongRef();
-        QVERIFY(strong.isNull());
-    }
-    {
-        QTest::ignoreMessage(QtWarningMsg ,  "QSharedPointer: cannot create a QSharedPointer from a QObject-tracking QWeakPointer");
-        QSharedPointer<QObject> strong = weak;
-        QVERIFY(strong.isNull());
-    }
-
-    QCOMPARE(weak.data(), &obj);
-    // if something went wrong, we'll probably crash here
-}
-
-void tst_QSharedPointer::sharedPointerFromQObjectWithWeak()
-{
-    QObject *ptr = new QObject;
-    QWeakPointer<QObject> weak = ptr;
-    {
-        QSharedPointer<QObject> shared(ptr);
-        QVERIFY(!weak.isNull());
-        QCOMPARE(shared.data(), ptr);
-        QCOMPARE(weak.data(), ptr);
-    }
-    QVERIFY(weak.isNull());
-}
-#endif
 
 void tst_QSharedPointer::weakQObjectFromSharedPointer()
 {
-#if QT_DEPRECATED_SINCE(5, 0)
-    {
-        // this is the inverse of the above: you're allowed to create a QWeakPointer
-        // from a managed QObject
-        QSharedPointer<QObject> shared(new QObject);
-        QWeakPointer<QObject> weak = shared.data();
-        QVERIFY(!weak.isNull());
-
-        // delete:
-        shared.clear();
-        QVERIFY(weak.isNull());
-    }
-#endif
     {
         QSharedPointer<QObject> shared(new QObject);
         QWeakPointer<QObject> weak = shared;
@@ -2143,7 +2014,7 @@ void tst_QSharedPointer::threadStressTest()
     memset(guard2, 0, sizeof guard2);
 
     for (int r = 0; r < 5; ++r) {
-        QVector<QThread*> allThreads(6 * qMax(strongThreadCount, weakThreadCount) + 3, 0);
+        QList<QThread*> allThreads(6 * qMax(strongThreadCount, weakThreadCount) + 3, 0);
         QSharedPointer<ThreadData> base = QSharedPointer<ThreadData>(new ThreadData(&counter));
         counter.storeRelaxed(0);
 
@@ -2184,7 +2055,7 @@ void tst_QSharedPointer::threadStressTest()
     }
 }
 
-template<typename Container, bool Ordered>
+template<typename Container, bool Ordered, bool Multi>
 void hashAndMapTest()
 {
     typedef typename Container::key_type Key;
@@ -2229,26 +2100,30 @@ void hashAndMapTest()
         QVERIFY(it == c.end());
     }
 
-    c.insertMulti(k1, Value(47));
-    it = c.find(k1);
-    QVERIFY(it != c.end());
-    QCOMPARE(it.key(), k1);
-    ++it;
-    QVERIFY(it != c.end());
-    QCOMPARE(it.key(), k1);
-    ++it;
-    if (Ordered)
-        QVERIFY(it == c.end());
+    if (Multi) {
+        c.insert(k1, Value(47));
+        it = c.find(k1);
+        QVERIFY(it != c.end());
+        QCOMPARE(it.key(), k1);
+        ++it;
+        QVERIFY(it != c.end());
+        QCOMPARE(it.key(), k1);
+        ++it;
+        if (Ordered)
+            QVERIFY(it == c.end());
+    }
 }
 
 void tst_QSharedPointer::map()
 {
-    hashAndMapTest<QMap<QSharedPointer<int>, int>, true>();
+    hashAndMapTest<QMap<QSharedPointer<int>, int>, true, false>();
+    hashAndMapTest<QMultiMap<QSharedPointer<int>, int>, true, true>();
 }
 
 void tst_QSharedPointer::hash()
 {
-    hashAndMapTest<QHash<QSharedPointer<int>, int>, false>();
+    hashAndMapTest<QHash<QSharedPointer<int>, int>, false, false>();
+    hashAndMapTest<QMultiHash<QSharedPointer<int>, int>, false, true>();
 }
 
 void tst_QSharedPointer::validConstructs()
@@ -2257,7 +2132,10 @@ void tst_QSharedPointer::validConstructs()
         Data *aData = new Data;
         QSharedPointer<Data> ptr1 = QSharedPointer<Data>(aData);
 
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_CLANG("-Wself-assign-overloaded")
         ptr1 = ptr1;            // valid
+QT_WARNING_POP
 
         QSharedPointer<Data> ptr2(ptr1);
 
@@ -2269,6 +2147,7 @@ void tst_QSharedPointer::validConstructs()
     }
 }
 
+#if 0
 typedef bool (QTest::QExternalTest:: * TestFunction)(const QByteArray &body);
 Q_DECLARE_METATYPE(TestFunction)
 void tst_QSharedPointer::invalidConstructs_data()
@@ -2397,12 +2276,12 @@ void tst_QSharedPointer::invalidConstructs_data()
 
     QTest::newRow("weak-pointer-from-regular-pointer")
         << &QTest::QExternalTest::tryCompileFail
-        << "Data *ptr = 0;\n"
+        << "Data *ptr = nullptr;\n"
            "QWeakPointer<Data> weakptr(ptr);\n";
 
     QTest::newRow("shared-pointer-implicit-from-uninitialized")
         << &QTest::QExternalTest::tryCompileFail
-        << "Data *ptr = 0;\n"
+        << "Data *ptr = nullptr;\n"
            "QSharedPointer<Data> weakptr = Qt::Uninitialized;\n";
 
     QTest::newRow("incompatible-custom-deleter1")
@@ -2478,6 +2357,7 @@ void tst_QSharedPointer::invalidConstructs()
         QFAIL("Fail");
     }
 }
+#endif // #if 0
 
 void tst_QSharedPointer::qvariantCast()
 {
@@ -2503,52 +2383,6 @@ void tst_QSharedPointer::qvariantCast()
     }
     // Intentionally does not compile.
 //     QSharedPointer<int> sop = qSharedPointerFromVariant<int>(v);
-
-#if QT_DEPRECATED_SINCE(5, 0)
-    v = QVariant::fromValue(sp.toWeakRef());
-
-    {
-        QWeakPointer<QObject> other = qWeakPointerFromVariant<QObject>(v);
-        QCOMPARE(other.data()->objectName(), QString::fromLatin1("A test name"));
-    }
-    {
-        QWeakPointer<QIODevice> other = qWeakPointerFromVariant<QIODevice>(v);
-        QCOMPARE(other.data()->objectName(), QString::fromLatin1("A test name"));
-    }
-    {
-        QWeakPointer<QFile> other = qWeakPointerFromVariant<QFile>(v);
-        QCOMPARE(other.data()->objectName(), QString::fromLatin1("A test name"));
-    }
-    {
-        QWeakPointer<QThread> other = qWeakPointerFromVariant<QThread>(v);
-        QVERIFY(!other);
-    }
-
-    // Intentionally does not compile.
-//     QWeakPointer<int> sop = qWeakPointerFromVariant<int>(v);
-
-    QFile file;
-    QWeakPointer<QFile> tracking = &file;
-    tracking.data()->setObjectName("A test name");
-    v = QVariant::fromValue(tracking);
-
-    {
-        QWeakPointer<QObject> other = qWeakPointerFromVariant<QObject>(v);
-        QCOMPARE(other.data()->objectName(), QString::fromLatin1("A test name"));
-    }
-    {
-        QWeakPointer<QIODevice> other = qWeakPointerFromVariant<QIODevice>(v);
-        QCOMPARE(other.data()->objectName(), QString::fromLatin1("A test name"));
-    }
-    {
-        QWeakPointer<QFile> other = qWeakPointerFromVariant<QFile>(v);
-        QCOMPARE(other.data()->objectName(), QString::fromLatin1("A test name"));
-    }
-    {
-        QWeakPointer<QThread> other = qWeakPointerFromVariant<QThread>(v);
-        QVERIFY(!other);
-    }
-#endif
 }
 
 class SomeClass : public QEnableSharedFromThis<SomeClass>
@@ -2939,12 +2773,12 @@ struct Overloaded
     {
         return {};
     }
-    static const Q_CONSTEXPR uint base1Called = sizeof(std::array<int, 1>);
-    static const Q_CONSTEXPR uint base2Called = sizeof(std::array<int, 2>);
+    static const constexpr uint base1Called = sizeof(std::array<int, 1>);
+    static const constexpr uint base2Called = sizeof(std::array<int, 2>);
 
     void test()
     {
-#define QVERIFY_CALLS(expr, base) Q_STATIC_ASSERT(sizeof(call(expr)) == base##Called)
+#define QVERIFY_CALLS(expr, base) static_assert(sizeof(call(expr)) == base##Called)
         QVERIFY_CALLS(SmartPtr<Base1>{}, base1);
         QVERIFY_CALLS(SmartPtr<Base2>{}, base2);
         QVERIFY_CALLS(SmartPtr<const Base1>{}, base1);

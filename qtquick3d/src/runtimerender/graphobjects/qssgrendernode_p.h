@@ -45,6 +45,7 @@
 #include <QtQuick3DRuntimeRender/private/qssgrendergraphobject_p.h>
 
 #include <QtQuick3DUtils/private/qssgbounds3_p.h>
+#include <QtQuick3DUtils/private/qssginvasivelinkedlist_p.h>
 
 #include <QtGui/QMatrix4x4>
 #include <QtGui/QVector3D>
@@ -58,8 +59,6 @@ struct QSSGRenderText;
 struct QSSGRenderNode;
 class QSSGBufferManager;
 
-class QSSGRenderNodeFilterInterface;
-
 struct Q_QUICK3DRUNTIMERENDER_EXPORT QSSGRenderNode : public QSSGRenderGraphObject
 {
     enum class Flag
@@ -67,22 +66,18 @@ struct Q_QUICK3DRUNTIMERENDER_EXPORT QSSGRenderNode : public QSSGRenderGraphObje
         Dirty = 1,
         TransformDirty = 1 << 1,
         Active = 1 << 2, ///< Is this exact object active
-        Orthographic = 1 << 3,
-        PointLight = 1 << 4,
-        GloballyActive = 1 << 5, ///< set based in Active and if a parent is active.
-        TextDirty = 1 << 6,
-        LocallyPickable = 1 << 7,
-        GloballyPickable = 1 << 8,
-        LayerEnableDepthTest = 1 << 9,
-        LayerRenderToTarget = 1 << 10, ///< Does this layer render to the normal render target,
+        GloballyActive = 1 << 3, ///< set based in Active and if a parent is active.
+        TextDirty = 1 << 4,
+        LocallyPickable = 1 << 5,
+        GloballyPickable = 1 << 6,
+        LayerEnableDepthTest = 1 << 7,
+        LayerRenderToTarget = 1 << 8, ///< Does this layer render to the normal render target,
         /// or is it offscreen-only
-        ForceLayerOffscreen = 1 << 11, ///< Forces a layer to always use the offscreen rendering
+        ForceLayerOffscreen = 1 << 9, ///< Forces a layer to always use the offscreen rendering
         /// mechanism.  This can be usefulf or caching purposes.
-        IgnoreParentTransform = 1 << 12,
-        LayerEnableDepthPrePass = 1 << 13, ///< True when we render a depth pass before
-        CameraDirty = 1 << 14, ///< True when the camera inheriting from this is dirty
-        CameraFrustumProjection = 1 << 15,
-        CameraCustomProjection = 1 << 16
+        IgnoreParentTransform = 1 << 10,
+        LayerEnableDepthPrePass = 1 << 11, ///< True when we render a depth pass before
+        CameraDirty = 1 << 12, ///< True when the camera inheriting from this is dirty
     };
     Q_DECLARE_FLAGS(Flags, Flag)
 
@@ -95,7 +90,7 @@ struct Q_QUICK3DRUNTIMERENDER_EXPORT QSSGRenderNode : public QSSGRenderGraphObje
     // changing any one of these means you have to
     // set this object dirty
     QQuaternion rotation;
-    QVector3D position { 0.0f, 0.0f, 0.0f };
+    QVector3D position { 0.0f, 0.0f, 600.0f };
     QVector3D scale { 1.0f, 1.0f, 1.0f };
     QVector3D pivot { 0.0f, 0.0f, 0.0f };
     int staticFlags = 0;
@@ -113,6 +108,8 @@ struct Q_QUICK3DRUNTIMERENDER_EXPORT QSSGRenderNode : public QSSGRenderGraphObje
     // These end up right handed
     QMatrix4x4 localTransform;
     QMatrix4x4 globalTransform;
+    QMatrix4x4 localInstanceTransform;
+    QMatrix4x4 globalInstanceTransform;
     float globalOpacity = 1.0f;
     qint32 skeletonId = -1;
 
@@ -120,14 +117,16 @@ struct Q_QUICK3DRUNTIMERENDER_EXPORT QSSGRenderNode : public QSSGRenderGraphObje
     QSSGRenderNode *parent = nullptr;
     QSSGRenderNode *nextSibling = nullptr;
     QSSGRenderNode *previousSibling = nullptr;
-    QSSGRenderNode *firstChild = nullptr;
+    QSSGRenderNode *instanceRoot = nullptr;
     // Property maintained solely by the render system.
     // Depth-first-search index assigned and maintained by render system.
     quint32 dfsIndex = 0;
 
+    using ChildList = QSSGInvasiveLinkedList<QSSGRenderNode, &QSSGRenderNode::previousSibling, &QSSGRenderNode::nextSibling>;
+    ChildList children;
+
     QSSGRenderNode();
-    QSSGRenderNode(Type type);
-    QSSGRenderNode(const QSSGRenderNode &inCloningObject);
+    explicit QSSGRenderNode(Type type);
     ~QSSGRenderNode() {}
 
     // Sets this object dirty and walks down the graph setting all
@@ -135,10 +134,7 @@ struct Q_QUICK3DRUNTIMERENDER_EXPORT QSSGRenderNode : public QSSGRenderGraphObje
     void markDirty(TransformDirtyFlag inTransformDirty = TransformDirtyFlag::TransformNotDirty);
 
     void addChild(QSSGRenderNode &inChild);
-    // Specital function for importScene
-    void addChildrenToLayer(QSSGRenderNode &inChildren);
     void removeChild(QSSGRenderNode &inChild);
-    QSSGRenderNode *getLastChild();
 
     // Remove this node from the graph.
     // It is no longer the the parent's child lists
@@ -173,10 +169,8 @@ struct Q_QUICK3DRUNTIMERENDER_EXPORT QSSGRenderNode : public QSSGRenderGraphObje
 
     // Get the bounds of us and our children in our local space.
     QSSGBounds3 getBounds(const QSSGRef<QSSGBufferManager> &inManager,
-                            bool inIncludeChildren = true,
-                            QSSGRenderNodeFilterInterface *inChildFilter = nullptr) const;
-    QSSGBounds3 getChildBounds(const QSSGRef<QSSGBufferManager> &inManager,
-                                 QSSGRenderNodeFilterInterface *inChildFilter = nullptr) const;
+                            bool inIncludeChildren = true) const;
+    QSSGBounds3 getChildBounds(const QSSGRef<QSSGBufferManager> &inManager) const;
     // Assumes CalculateGlobalVariables has already been called.
     QVector3D getGlobalPos() const;
     QVector3D getGlobalPivot() const;

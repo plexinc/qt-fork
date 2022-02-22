@@ -50,7 +50,7 @@
 
 #include "colorswatch.h"
 
-#include <QAction>
+#include <QActionGroup>
 #include <QtEvents>
 #include <QFrame>
 #include <QMainWindow>
@@ -628,7 +628,7 @@ void BlueTitleBar::paintEvent(QPaintEvent*)
 
 void BlueTitleBar::mouseReleaseEvent(QMouseEvent *event)
 {
-    QPoint pos = event->pos();
+    QPoint pos = event->position().toPoint();
 
     QRect rect = this->rect();
 
@@ -680,7 +680,7 @@ void BlueTitleBar::updateMask()
     Q_ASSERT(dw);
 
     QRect rect = dw->rect();
-    QPixmap bitmap(dw->size());
+    QBitmap bitmap(dw->size());
 
     {
         QPainter painter(&bitmap);

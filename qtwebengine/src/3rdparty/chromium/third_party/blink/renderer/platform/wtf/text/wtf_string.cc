@@ -25,19 +25,25 @@
 #include <locale.h>
 #include <stdarg.h>
 #include <algorithm>
+#include "base/callback.h"
 #include "base/strings/string_util.h"
 #include "build/build_config.h"
 #include "third_party/blink/renderer/platform/wtf/dtoa.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
+#include "third_party/blink/renderer/platform/wtf/size_assertions.h"
 #include "third_party/blink/renderer/platform/wtf/text/ascii_ctype.h"
 #include "third_party/blink/renderer/platform/wtf/text/case_map.h"
 #include "third_party/blink/renderer/platform/wtf/text/character_names.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
+#include "third_party/blink/renderer/platform/wtf/text/string_utf8_adaptor.h"
 #include "third_party/blink/renderer/platform/wtf/text/unicode.h"
 #include "third_party/blink/renderer/platform/wtf/text/utf8.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
+#include "third_party/perfetto/include/perfetto/tracing/traced_value.h"
 
 namespace WTF {
+
+ASSERT_SIZE(String, void*);
 
 // Construct a string with UTF-16 data.
 String::String(const UChar* characters, unsigned length)
@@ -72,6 +78,11 @@ int CodeUnitCompare(const String& a, const String& b) {
 int CodeUnitCompareIgnoringASCIICase(const String& a, const char* b) {
   return CodeUnitCompareIgnoringASCIICase(a.Impl(),
                                           reinterpret_cast<const LChar*>(b));
+}
+
+wtf_size_t String::Find(base::RepeatingCallback<bool(UChar)> match_callback,
+                        wtf_size_t index) const {
+  return impl_ ? impl_->Find(match_callback, index) : kNotFound;
 }
 
 UChar32 String::CharacterStartingAt(unsigned i) const {
@@ -583,8 +594,9 @@ String String::FromUTF8(const LChar* string_start, size_t string_length) {
   if (!length)
     return g_empty_string;
 
-  if (CharactersAreAllASCII(string_start, length))
-    return StringImpl::Create(string_start, length);
+  ASCIIStringAttributes attributes = CharacterAttributes(string_start, length);
+  if (attributes.contains_only_ascii)
+    return StringImpl::Create(string_start, length, attributes);
 
   Vector<UChar, 1024> buffer(length);
   UChar* buffer_start = buffer.data();
@@ -629,5 +641,10 @@ void String::Show() const {
   DLOG(INFO) << *this;
 }
 #endif
+
+void String::WriteIntoTracedValue(perfetto::TracedValue context) const {
+  StringUTF8Adaptor adaptor(*this);
+  std::move(context).WriteString(adaptor.data(), adaptor.size());
+}
 
 }  // namespace WTF

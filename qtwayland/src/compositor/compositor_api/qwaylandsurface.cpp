@@ -195,9 +195,26 @@ void QWaylandSurfacePrivate::surface_attach(Resource *, struct wl_resource *buff
     pending.newlyAttached = true;
 }
 
+/*
+    Note: The Wayland protocol specifies that buffer scale and damage can be interleaved, so
+    we cannot scale the damage region until commit. We assume that clients will either use
+    surface_damage or surface_damage_buffer within one frame for one surface.
+*/
+
 void QWaylandSurfacePrivate::surface_damage(Resource *, int32_t x, int32_t y, int32_t width, int32_t height)
 {
+    if (Q_UNLIKELY(pending.damageInBufferCoordinates && !pending.damage.isNull()))
+        qCWarning(qLcWaylandCompositor) << "Unsupported: Client is using both wl_surface.damage_buffer and wl_surface.damage.";
     pending.damage = pending.damage.united(QRect(x, y, width, height));
+    pending.damageInBufferCoordinates = false;
+}
+
+void QWaylandSurfacePrivate::surface_damage_buffer(Resource *, int32_t x, int32_t y, int32_t width, int32_t height)
+{
+    if (Q_UNLIKELY(!pending.damageInBufferCoordinates && !pending.damage.isNull()))
+        qCWarning(qLcWaylandCompositor) << "Unsupported: Client is using both wl_surface.damage_buffer and wl_surface.damage.";
+    pending.damage = pending.damage.united(QRect(x, y, width, height));
+    pending.damageInBufferCoordinates = true;
 }
 
 void QWaylandSurfacePrivate::surface_frame(Resource *resource, uint32_t callback)
@@ -240,7 +257,24 @@ void QWaylandSurfacePrivate::surface_commit(Resource *)
     QSize surfaceSize = bufferSize / bufferScale;
     sourceGeometry = !pending.sourceGeometry.isValid() ? QRect(QPoint(), surfaceSize) : pending.sourceGeometry;
     destinationSize = pending.destinationSize.isEmpty() ? sourceGeometry.size().toSize() : pending.destinationSize;
-    damage = pending.damage.intersected(QRect(QPoint(), destinationSize));
+    if (!pending.damageInBufferCoordinates || pending.bufferScale == 1) {
+        // pending.damage is already in surface coordinates
+        damage = pending.damage.intersected(QRect(QPoint(), destinationSize));
+    } else {
+        // We must transform pending.damage from buffer coordinate system to surface coordinates
+        // TODO(QTBUG-85461): Also support wp_viewport setting more complex transformations
+        auto xform = [](const QRect &r, int scale) -> QRect {
+            QRect res{
+                QPoint{ r.x() / scale, r.y() / scale },
+                QPoint{ (r.right() + scale - 1) / scale, (r.bottom() + scale - 1) / scale }
+            };
+            return res;
+        };
+        damage = {};
+        for (const QRect &r : pending.damage) {
+            damage |= xform(r, bufferScale).intersected(QRect{{}, destinationSize});
+        }
+    }
     hasContent = bufferRef.hasContent();
     frameCallbacks << pendingFrameCallbacks;
     inputRegion = pending.inputRegion.intersected(QRect(QPoint(), destinationSize));
@@ -255,6 +289,7 @@ void QWaylandSurfacePrivate::surface_commit(Resource *)
     pending.offset = QPoint();
     pending.newlyAttached = false;
     pending.damage = QRegion();
+    pending.damageInBufferCoordinates = false;
     pendingFrameCallbacks.clear();
 
     // Notify buffers and views
@@ -269,15 +304,8 @@ void QWaylandSurfacePrivate::surface_commit(Resource *)
 
     emit q->damaged(damage);
 
-    if (oldBufferSize != bufferSize) {
+    if (oldBufferSize != bufferSize)
         emit q->bufferSizeChanged();
-#if QT_DEPRECATED_SINCE(5, 13)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-        emit q->sizeChanged();
-QT_WARNING_POP
-#endif
-    }
 
     if (oldBufferScale != bufferScale)
         emit q->bufferScaleChanged();
@@ -335,6 +363,7 @@ QtWayland::ClientBuffer *QWaylandSurfacePrivate::getBuffer(struct ::wl_resource 
 
 /*!
  * \qmltype WaylandSurface
+ * \instantiates QWaylandSurface
  * \inqmlmodule QtWayland.Compositor
  * \since 5.8
  * \brief Represents a rectangular area on an output device.
@@ -557,26 +586,6 @@ QSize QWaylandSurface::bufferSize() const
     Q_D(const QWaylandSurface);
     return d->bufferSize;
 }
-
-#if QT_DEPRECATED_SINCE(5, 13)
-/*!
- * \qmlproperty size QtWaylandCompositor::WaylandSurface::size
- * \obsolete use bufferSize or destinationSize instead
- *
- * This property has been deprecated, use \l bufferSize or \l destinationSize instead.
- */
-
-/*!
- * \property QWaylandSurface::size
- * \obsolete use bufferSize or destinationSize instead
- *
- * This property has been deprecated, use \l bufferSize or \l destinationSize instead.
- */
-QSize QWaylandSurface::size() const
-{
-    return bufferSize();
-}
-#endif
 
 /*!
  * \qmlproperty size QtWaylandCompositor::WaylandSurface::bufferScale

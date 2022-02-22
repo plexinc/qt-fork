@@ -10,11 +10,13 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/test/task_environment.h"
 #include "base/win/scoped_handle.h"
 #include "base/win/scoped_hdc.h"
 #include "printing/backend/printing_info_win.h"
 #include "printing/backend/win_helper.h"
+#include "printing/mojom/print.mojom.h"
 #include "printing/print_settings.h"
 #include "printing/printing_context_system_dialog_win.h"
 #include "printing/printing_test.h"
@@ -75,7 +77,7 @@ class MockPrintingContextWin : public PrintingContextSystemDialogWin {
     lppd->lpPageRanges[0].nFromPage = 1;
     lppd->lpPageRanges[0].nToPage = 5;
 
-    base::string16 printer_name = PrintingContextTest::GetDefaultPrinter();
+    std::wstring printer_name = PrintingContextTest::GetDefaultPrinter();
     ScopedPrinterHandle printer;
     if (!printer.OpenPrinterWithName(printer_name.c_str()))
       return E_FAIL;
@@ -170,7 +172,7 @@ TEST_F(PrintingContextTest, Color) {
                      base::Unretained(this)));
   EXPECT_EQ(PrintingContext::OK, result());
   const PrintSettings& settings = context.settings();
-  EXPECT_NE(settings.color(), UNKNOWN_COLOR_MODEL);
+  EXPECT_NE(settings.color(), mojom::ColorModel::kUnknownColorModel);
 }
 
 TEST_F(PrintingContextTest, Base) {
@@ -178,7 +180,7 @@ TEST_F(PrintingContextTest, Base) {
     return;
 
   auto settings = std::make_unique<PrintSettings>();
-  settings->set_device_name(GetDefaultPrinter());
+  settings->set_device_name(base::WideToUTF16(GetDefaultPrinter()));
   // Initialize it.
   PrintingContextWin context(this);
   EXPECT_EQ(PrintingContext::OK,

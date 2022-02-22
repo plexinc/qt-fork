@@ -28,9 +28,9 @@
 
 #include "qdesigner_introspection_p.h"
 
+#include <QtCore/qlist.h>
 #include <QtCore/qmetaobject.h>
 #include <QtCore/qstringlist.h>
-#include <QtCore/qvector.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -99,9 +99,9 @@ namespace  {
         Kind kind() const override { return m_kind; }
 
         AccessFlags accessFlags() const override { return m_access; }
-        Attributes attributes(const QObject *object = nullptr) const override;
+        Attributes attributes() const override;
 
-        QVariant::Type type() const override { return m_property.type(); }
+        int type() const override            { return m_property.metaType().id(); }
         QString name() const override        { return m_name; }
         QString typeName() const override    { return m_typeName; }
         int userType() const override        { return m_property.userType(); }
@@ -162,20 +162,9 @@ namespace  {
         delete m_enumerator;
     }
 
-    QDesignerMetaProperty::Attributes QDesignerMetaProperty::attributes(const QObject *object) const
+    QDesignerMetaProperty::Attributes QDesignerMetaProperty::attributes() const
     {
-        if (!object)
-            return m_defaultAttributes;
-        Attributes rc;
-        if (m_property.isDesignable(object))
-            rc |= DesignableAttribute;
-        if (m_property.isScriptable(object))
-            rc |= ScriptableAttribute;
-        if (m_property.isStored(object))
-            rc |= StoredAttribute;
-        if (m_property.isUser(object))
-            rc |= UserAttribute;
-        return rc;
+        return m_defaultAttributes;
     }
 
     // -------------- QDesignerMetaMethod
@@ -283,13 +272,13 @@ namespace  {
         const qdesigner_internal::QDesignerIntrospection *m_introspection;
         const QMetaObject *m_metaObject;
 
-        using Enumerators = QVector<QDesignerMetaEnumInterface *>;
+        using Enumerators = QList<QDesignerMetaEnumInterface *>;
         Enumerators m_enumerators;
 
-        using Methods = QVector<QDesignerMetaMethodInterface *>;
+        using Methods = QList<QDesignerMetaMethodInterface *>;
         Methods m_methods;
 
-        using Properties = QVector<QDesignerMetaPropertyInterface *>;
+        using Properties = QList<QDesignerMetaPropertyInterface *>;
         Properties m_properties;
 
         QDesignerMetaPropertyInterface *m_userProperty;

@@ -122,7 +122,7 @@ QardboardRootEntity {
 
     // Cylinder
     Entity {
-        property CylinderMesh cylinder: CylinderMesh {
+        property GeometryRenderer cylinder: CylinderMesh {
             radius: 1
             length: 3
             rings: 100

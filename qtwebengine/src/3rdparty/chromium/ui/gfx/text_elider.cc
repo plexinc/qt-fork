@@ -16,11 +16,13 @@
 #include <string>
 #include <vector>
 
+#include "base/check_op.h"
 #include "base/files/file_path.h"
 #include "base/i18n/break_iterator.h"
 #include "base/i18n/char_iterator.h"
 #include "base/i18n/rtl.h"
 #include "base/macros.h"
+#include "base/notreached.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/sys_string_conversions.h"
@@ -171,9 +173,10 @@ base::string16 ElideFilename(const base::FilePath& filename,
                              const FontList& font_list,
                              float available_pixel_width) {
 #if defined(OS_WIN)
-  base::string16 filename_utf16 = filename.value();
-  base::string16 extension = filename.Extension();
-  base::string16 rootname = filename.BaseName().RemoveExtension().value();
+  base::string16 filename_utf16 = WideToUTF16(filename.value());
+  base::string16 extension = WideToUTF16(filename.Extension());
+  base::string16 rootname =
+      WideToUTF16(filename.BaseName().RemoveExtension().value());
 #elif defined(OS_POSIX) || defined(OS_FUCHSIA)
   base::string16 filename_utf16 = WideToUTF16(base::SysNativeMBToWide(
       filename.value()));
@@ -439,10 +442,10 @@ void RectangleString::AddWord(const base::string16& word) {
     Append(word);
   } else {
     // Word is so big that it must be fragmented.
-    int array_start = 0;
+    size_t array_start = 0;
     int char_start = 0;
-    base::i18n::UTF16CharIterator chars(&word);
-    while (!chars.end()) {
+    base::i18n::UTF16CharIterator chars(word);
+    for (; !chars.end(); chars.Advance()) {
       // When boundary is hit, add as much as will fit on this line.
       if (current_col_ + (chars.char_offset() - char_start) >= max_cols_) {
         Append(word.substr(array_start, chars.array_pos() - array_start));
@@ -450,7 +453,6 @@ void RectangleString::AddWord(const base::string16& word) {
         array_start = chars.array_pos();
         char_start = chars.char_offset();
       }
-      chars.Advance();
     }
     // Add the last remaining fragment, if any.
     if (array_start != chars.array_pos())

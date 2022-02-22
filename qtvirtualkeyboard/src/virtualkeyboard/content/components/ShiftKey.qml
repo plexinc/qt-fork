@@ -27,8 +27,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import QtQuick.VirtualKeyboard 2.1
+import QtQuick
+import QtQuick.VirtualKeyboard
 
 /*!
     \qmltype ShiftKey
@@ -43,9 +43,10 @@ import QtQuick.VirtualKeyboard 2.1
 
 BaseKey {
     id: shiftKey
+    keyType: QtVirtualKeyboard.ShiftKey
     key: Qt.Key_Shift
     enabled: InputContext.priv.shiftHandler.toggleShiftEnabled
-    highlighted: InputContext.capsLockActive
+    highlighted: true
     functionKey: true
     keyPanelDelegate: keyboard.style ? keyboard.style.shiftKeyPanel : undefined
     onClicked: InputContext.priv.shiftHandler.toggleShift()

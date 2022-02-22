@@ -35,8 +35,6 @@
 #include <utility>
 
 #include "third_party/blink/public/platform/platform.h"
-#include "third_party/blink/public/platform/web_float_rect.h"
-#include "third_party/blink/public/platform/web_rect.h"
 #include "third_party/blink/public/platform/web_scoped_page_pauser.h"
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/public/web/web_settings.h"
@@ -51,7 +49,7 @@
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
-#include "third_party/blink/renderer/core/frame/web_frame_widget_base.h"
+#include "third_party/blink/renderer/core/frame/web_frame_widget_impl.h"
 #include "third_party/blink/renderer/core/frame/web_local_frame_impl.h"
 #include "third_party/blink/renderer/core/inspector/dev_tools_emulator.h"
 #include "third_party/blink/renderer/core/inspector/devtools_agent.h"
@@ -74,6 +72,7 @@
 #include "third_party/blink/renderer/core/inspector/inspector_overlay_agent.h"
 #include "third_party/blink/renderer/core/inspector/inspector_page_agent.h"
 #include "third_party/blink/renderer/core/inspector/inspector_performance_agent.h"
+#include "third_party/blink/renderer/core/inspector/inspector_performance_timeline_agent.h"
 #include "third_party/blink/renderer/core/inspector/inspector_resource_container.h"
 #include "third_party/blink/renderer/core/inspector/inspector_resource_content_loader.h"
 #include "third_party/blink/renderer/core/inspector/inspector_task_runner.h"
@@ -160,7 +159,7 @@ class ClientMessageLoopAdapter : public MainThreadDebugger::ClientMessageLoop {
     agent->FlushProtocolNotifications();
 
     // 1. Disable input events.
-    WebFrameWidgetBase::SetIgnoreInputEvents(true);
+    WebFrameWidgetImpl::SetIgnoreInputEvents(true);
     for (auto* const view : WebViewImpl::AllInstances())
       view->GetChromeClient().NotifyPopupOpeningObservers();
 
@@ -193,7 +192,7 @@ class ClientMessageLoopAdapter : public MainThreadDebugger::ClientMessageLoop {
     // code, but it is moved here to support browser-side navigation.
     message_loop_->QuitNow();
     page_pauser_.reset();
-    WebFrameWidgetBase::SetIgnoreInputEvents(false);
+    WebFrameWidgetImpl::SetIgnoreInputEvents(false);
   }
 
   bool running_for_debug_break_;
@@ -279,7 +278,8 @@ void WebDevToolsAgentImpl::AttachSession(DevToolsSession* session,
 
   session->Append(MakeGarbageCollected<InspectorAuditsAgent>(
       network_agent,
-      &inspected_frames->Root()->GetPage()->GetInspectorIssueStorage()));
+      &inspected_frames->Root()->GetPage()->GetInspectorIssueStorage(),
+      inspected_frames));
 
   session->Append(MakeGarbageCollected<InspectorMediaAgent>(inspected_frames));
 
@@ -288,6 +288,9 @@ void WebDevToolsAgentImpl::AttachSession(DevToolsSession* session,
   // we have to store the frame which will become the main frame later.
   session->Append(MakeGarbageCollected<InspectorEmulationAgent>(
       web_local_frame_impl_.Get()));
+
+  session->Append(MakeGarbageCollected<InspectorPerformanceTimelineAgent>(
+      inspected_frames));
 
   // Call session init callbacks registered from higher layers.
   CoreInitializer::GetInstance().InitInspectorAgentSession(
@@ -338,7 +341,7 @@ WebDevToolsAgentImpl::WebDevToolsAgentImpl(
 
 WebDevToolsAgentImpl::~WebDevToolsAgentImpl() {}
 
-void WebDevToolsAgentImpl::Trace(Visitor* visitor) {
+void WebDevToolsAgentImpl::Trace(Visitor* visitor) const {
   visitor->Trace(agent_);
   visitor->Trace(network_agents_);
   visitor->Trace(page_agents_);
@@ -376,16 +379,15 @@ void WebDevToolsAgentImpl::DetachSession(DevToolsSession* session) {
 
 void WebDevToolsAgentImpl::InspectElement(
     const gfx::Point& point_in_local_root) {
-  WebFloatRect rect(point_in_local_root.x(), point_in_local_root.y(), 0, 0);
-  web_local_frame_impl_->FrameWidgetImpl()->Client()->ConvertWindowToViewport(
-      &rect);
-  gfx::PointF point(rect.x, rect.y);
+  gfx::PointF point =
+      web_local_frame_impl_->FrameWidgetImpl()->DIPsToBlinkSpace(
+          gfx::PointF(point_in_local_root));
 
   HitTestRequest::HitTestRequestType hit_type =
       HitTestRequest::kMove | HitTestRequest::kReadOnly |
       HitTestRequest::kAllowChildFrameContent;
   HitTestRequest request(hit_type);
-  WebMouseEvent dummy_event(WebInputEvent::kMouseDown,
+  WebMouseEvent dummy_event(WebInputEvent::Type::kMouseDown,
                             WebInputEvent::kNoModifiers,
                             base::TimeTicks::Now());
   dummy_event.SetPositionInWidget(point);
@@ -480,6 +482,11 @@ void WebDevToolsAgentImpl::PaintOverlays(GraphicsContext& context) {
 void WebDevToolsAgentImpl::DispatchBufferedTouchEvents() {
   for (auto& it : overlay_agents_)
     it.value->DispatchBufferedTouchEvents();
+}
+
+void WebDevToolsAgentImpl::SetPageIsScrolling(bool is_scrolling) {
+  for (auto& it : overlay_agents_)
+    it.value->SetPageIsScrolling(is_scrolling);
 }
 
 WebInputEventResult WebDevToolsAgentImpl::HandleInputEvent(

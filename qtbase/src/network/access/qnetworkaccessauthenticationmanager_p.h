@@ -54,7 +54,6 @@
 #include <QtNetwork/private/qtnetworkglobal_p.h>
 #include "qnetworkaccessmanager.h"
 #include "qnetworkaccesscache_p.h"
-#include "qnetworkaccessbackend_p.h"
 #include "QtNetwork/qnetworkproxy.h"
 #include "QtCore/QMutex"
 
@@ -75,7 +74,7 @@ public:
         return domain.isNull() && user.isNull() && password.isNull();
     }
 };
-Q_DECLARE_TYPEINFO(QNetworkAuthenticationCredential, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QNetworkAuthenticationCredential, Q_RELOCATABLE_TYPE);
 inline bool operator<(const QNetworkAuthenticationCredential &t1, const QString &t2)
 { return t1.domain < t2; }
 inline bool operator<(const QString &t1, const QNetworkAuthenticationCredential &t2)
@@ -86,7 +85,7 @@ inline bool operator<(const QNetworkAuthenticationCredential &t1, const QNetwork
 class QNetworkAccessAuthenticationManager
 {
 public:
-    QNetworkAccessAuthenticationManager() { };
+    QNetworkAccessAuthenticationManager() {}
 
     void cacheCredentials(const QUrl &url, const QAuthenticator *auth);
     QNetworkAuthenticationCredential fetchCachedCredentials(const QUrl &url,

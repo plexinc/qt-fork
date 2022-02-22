@@ -24,7 +24,6 @@
 #include <algorithm>
 #include "third_party/blink/renderer/platform/geometry/blend.h"
 #include "third_party/blink/renderer/platform/geometry/float_box.h"
-#include "third_party/blink/renderer/platform/transforms/identity_transform_operation.h"
 #include "third_party/blink/renderer/platform/transforms/interpolated_transform_operation.h"
 #include "third_party/blink/renderer/platform/transforms/matrix_3d_transform_operation.h"
 #include "third_party/blink/renderer/platform/transforms/rotate_transform_operation.h"
@@ -73,11 +72,6 @@ TransformOperations ApplyFunctionToMatchingPrefix(
 }
 }  // namespace
 
-TransformOperations::TransformOperations(bool make_identity) {
-  if (make_identity)
-    operations_.push_back(IdentityTransformOperation::Create());
-}
-
 bool TransformOperations::operator==(const TransformOperations& o) const {
   if (operations_.size() != o.operations_.size())
     return false;
@@ -99,15 +93,24 @@ void TransformOperations::ApplyRemaining(const FloatSize& border_box_size,
   }
 }
 
+TransformOperation::BoxSizeDependency TransformOperations::BoxSizeDependencies(
+    wtf_size_t start) const {
+  TransformOperation::BoxSizeDependency deps = TransformOperation::kDependsNone;
+  for (wtf_size_t i = start; i < operations_.size(); i++) {
+    deps = TransformOperation::CombineDependencies(
+        deps, operations_[i]->BoxSizeDependencies());
+  }
+  return deps;
+}
+
 wtf_size_t TransformOperations::MatchingPrefixLength(
     const TransformOperations& other) const {
   wtf_size_t num_operations =
       std::min(Operations().size(), other.Operations().size());
   for (wtf_size_t i = 0; i < num_operations; ++i) {
-    if (Operations()[i]->PrimitiveType() !=
-        other.Operations()[i]->PrimitiveType()) {
-      // Remaining operations in each operations list require matrix/matrix3d
-      // interpolation.
+    if (!Operations()[i]->CanBlendWith(*other.Operations()[i])) {
+      // Remaining operations in each operations list require merging for
+      // matrix/matrix3d interpolation.
       return i;
     }
   }
@@ -124,7 +127,8 @@ TransformOperations::BlendRemainingByUsingMatrixInterpolation(
     double progress) const {
   // Not safe to use a cached transform if any of the operations are size
   // dependent.
-  if (DependsOnBoxSize() || from.DependsOnBoxSize()) {
+  if (BoxSizeDependencies(matching_prefix_length) ||
+      from.BoxSizeDependencies(matching_prefix_length)) {
     return InterpolatedTransformOperation::Create(
         from, *this, matching_prefix_length, progress);
   }
@@ -391,9 +395,6 @@ bool TransformOperations::BlendedBoundsForBox(const FloatBox& box,
       return false;
 
     switch (interpolation_type) {
-      case TransformOperation::kIdentity:
-        bounds->ExpandTo(box);
-        continue;
       case TransformOperation::kTranslate:
       case TransformOperation::kTranslateX:
       case TransformOperation::kTranslateY:

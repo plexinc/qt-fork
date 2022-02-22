@@ -32,6 +32,11 @@
     #endif
 #endif
 
+static bool runtime_cpu_detection = true;
+void skcms_DisableRuntimeCPUDetection() {
+    runtime_cpu_detection = false;
+}
+
 // sizeof(x) will return size_t, which is 32-bit on some machines and 64-bit on others.
 // We have better testing on 64-bit machines, so force 32-bit machines to behave like 64-bit.
 //
@@ -84,11 +89,12 @@ static float exp2f_(float x) {
 
     // Before we cast fbits to int32_t, check for out of range values to pacify UBSAN.
     // INT_MAX is not exactly representable as a float, so exclude it as effectively infinite.
-    // INT_MIN is a power of 2 and exactly representable as a float, so it's fine.
+    // Negative values are effectively underflow - we'll end up returning a (different) negative
+    // value, which makes no sense. So clamp to zero.
     if (fbits >= (float)INT_MAX) {
         return INFINITY_;
-    } else if (fbits < (float)INT_MIN) {
-        return -INFINITY_;
+    } else if (fbits < 0) {
+        return 0;
     }
 
     int32_t bits = (int32_t)fbits;
@@ -126,7 +132,10 @@ static float minus_1_ulp(float x) {
 // and repurpose the other fields to hold the parameters of the HDR functions.
 enum TFKind { Bad, sRGBish, PQish, HLGish, HLGinvish };
 struct TF_PQish  { float A,B,C,D,E,F; };
-struct TF_HLGish { float R,G,a,b,c; };
+struct TF_HLGish { float R,G,a,b,c,K_minus_1; };
+// We didn't originally support a scale factor K for HLG, and instead just stored 0 in
+// the unused `f` field of skcms_TransferFunction for HLGish and HLGInvish transfer functions.
+// By storing f=K-1, those old unusued f=0 values now mean K=1, a noop scale factor.
 
 static float TFKind_marker(TFKind kind) {
     // We'd use different NaNs, but those aren't guaranteed to be preserved by WASM.
@@ -160,19 +169,29 @@ static TFKind classify(const skcms_TransferFunction& tf, TF_PQish*   pq = nullpt
     return Bad;
 }
 
+bool skcms_TransferFunction_isSRGBish(const skcms_TransferFunction* tf) {
+    return classify(*tf) == sRGBish;
+}
+bool skcms_TransferFunction_isPQish(const skcms_TransferFunction* tf) {
+    return classify(*tf) == PQish;
+}
+bool skcms_TransferFunction_isHLGish(const skcms_TransferFunction* tf) {
+    return classify(*tf) == HLGish;
+}
+
 bool skcms_TransferFunction_makePQish(skcms_TransferFunction* tf,
                                       float A, float B, float C,
                                       float D, float E, float F) {
     *tf = { TFKind_marker(PQish), A,B,C,D,E,F };
-    assert(classify(*tf) == PQish);
+    assert(skcms_TransferFunction_isPQish(tf));
     return true;
 }
 
-bool skcms_TransferFunction_makeHLGish(skcms_TransferFunction* tf,
-                                       float R, float G,
-                                       float a, float b, float c) {
-    *tf = { TFKind_marker(HLGish), R,G, a,b,c, 0 };
-    assert(classify(*tf) == HLGish);
+bool skcms_TransferFunction_makeScaledHLGish(skcms_TransferFunction* tf,
+                                             float K, float R, float G,
+                                             float a, float b, float c) {
+    *tf = { TFKind_marker(HLGish), R,G, a,b,c, K-1.0f };
+    assert(skcms_TransferFunction_isHLGish(tf));
     return true;
 }
 
@@ -185,12 +204,19 @@ float skcms_TransferFunction_eval(const skcms_TransferFunction* tf, float x) {
     switch (classify(*tf, &pq, &hlg)) {
         case Bad:       break;
 
-        case HLGish:    return sign * (x*hlg.R <= 1 ? powf_(x*hlg.R, hlg.G)
-                                                    : expf_((x-hlg.c)*hlg.a) + hlg.b);
+        case HLGish: {
+            const float K = hlg.K_minus_1 + 1.0f;
+            return K * sign * (x*hlg.R <= 1 ? powf_(x*hlg.R, hlg.G)
+                                            : expf_((x-hlg.c)*hlg.a) + hlg.b);
+        }
 
         // skcms_TransferFunction_invert() inverts R, G, and a for HLGinvish so this math is fast.
-        case HLGinvish: return sign * (x <= 1 ? hlg.R * powf_(x, hlg.G)
-                                              : hlg.a * logf_(x - hlg.b) + hlg.c);
+        case HLGinvish: {
+            const float K = hlg.K_minus_1 + 1.0f;
+            x /= K;
+            return sign * (x <= 1 ? hlg.R * powf_(x, hlg.G)
+                                  : hlg.a * logf_(x - hlg.b) + hlg.c);
+        }
 
 
         case sRGBish: return sign * (x < tf->d ?       tf->c * x + tf->f
@@ -479,7 +505,7 @@ static bool read_curve_para(const uint8_t* buf, uint32_t size,
             curve->parametric.f = read_big_fixed(paraTag->variable + 24);
             break;
     }
-    return classify(curve->parametric) == sRGBish;
+    return skcms_TransferFunction_isSRGBish(&curve->parametric);
 }
 
 typedef struct {
@@ -1298,7 +1324,10 @@ bool skcms_ApproximatelyEqualProfiles(const skcms_ICCProfile* A, const skcms_ICC
     // skcms_252_random_bytes are 252 of a random shuffle of all possible bytes.
     // 252 is evenly divisible by 3 and 4.  Only 192, 10, 241, and 43 are missing.
 
-    if (A->data_color_space != B->data_color_space) {
+    // We want to allow otherwise equivalent profiles tagged as grayscale and RGB
+    // to be treated as equal.  But CMYK profiles are a totally different ballgame.
+    const auto CMYK = skcms_Signature_CMYK;
+    if ((A->data_color_space == CMYK) != (B->data_color_space == CMYK)) {
         return false;
     }
 
@@ -1535,12 +1564,14 @@ bool skcms_TransferFunction_invert(const skcms_TransferFunction* src, skcms_Tran
 
         case HLGish:
             *dst = { TFKind_marker(HLGinvish), 1.0f/hlg.R, 1.0f/hlg.G
-                                             , 1.0f/hlg.a, hlg.b, hlg.c, 0 };
+                                             , 1.0f/hlg.a, hlg.b, hlg.c
+                                             , hlg.K_minus_1 };
             return true;
 
         case HLGinvish:
             *dst = { TFKind_marker(HLGish), 1.0f/hlg.R, 1.0f/hlg.G
-                                          , 1.0f/hlg.a, hlg.b, hlg.c, 0 };
+                                          , 1.0f/hlg.a, hlg.b, hlg.c
+                                          , hlg.K_minus_1 };
             return true;
     }
 
@@ -2143,6 +2174,9 @@ namespace baseline {
         enum class CpuType { None, HSW, SKX };
         static CpuType cpu_type() {
             static const CpuType type = []{
+                if (!runtime_cpu_detection) {
+                    return CpuType::None;
+                }
                 // See http://www.sandpile.org/x86/cpuid.htm
 
                 // First, a basic cpuid(1) lets us check prerequisites for HSW, SKX.

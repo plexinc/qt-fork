@@ -7,7 +7,6 @@
 #include <string>
 #include <utility>
 
-#include "base/logging.h"
 #include "chromeos/services/machine_learning/public/cpp/service_connection.h"
 
 namespace chromeos {
@@ -24,8 +23,10 @@ void MachineLearningInternalsPageHandler::LoadBuiltinModel(
     mojom::BuiltinModelSpecPtr spec,
     mojo::PendingReceiver<mojom::Model> receiver,
     LoadBuiltinModelCallback callback) {
-  ServiceConnection::GetInstance()->LoadBuiltinModel(
-      std::move(spec), std::move(receiver), std::move(callback));
+  ServiceConnection::GetInstance()
+      ->GetMachineLearningService()
+      .LoadBuiltinModel(std::move(spec), std::move(receiver),
+                        std::move(callback));
 }
 
 }  // namespace machine_learning

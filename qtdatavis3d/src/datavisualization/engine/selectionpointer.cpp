@@ -34,7 +34,7 @@
 #include "q3dcamera_p.h"
 #include "utils_p.h"
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 const GLfloat sliceUnits = 2.5;
 
@@ -80,7 +80,7 @@ void SelectionPointer::updateScene(Q3DScene *scene)
 
 void SelectionPointer::renderSelectionPointer(GLuint defaultFboHandle, bool useOrtho)
 {
-    Q_UNUSED(defaultFboHandle)
+    Q_UNUSED(defaultFboHandle);
 
     glViewport(m_mainViewPort.x(), m_mainViewPort.y(),
                m_mainViewPort.width(), m_mainViewPort.height());
@@ -151,7 +151,7 @@ void SelectionPointer::renderSelectionPointer(GLuint defaultFboHandle, bool useO
 
 void SelectionPointer::renderSelectionLabel(GLuint defaultFboHandle, bool useOrtho)
 {
-    Q_UNUSED(defaultFboHandle)
+    Q_UNUSED(defaultFboHandle);
 
     glViewport(m_mainViewPort.x(), m_mainViewPort.y(),
                m_mainViewPort.width(), m_mainViewPort.height());
@@ -305,4 +305,4 @@ void SelectionPointer::initShaders()
     m_pointShader->initialize();
 }
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE

@@ -35,7 +35,7 @@
 
 #include <algorithm>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 /*!
     \class QCandlestickModelMapper
@@ -477,7 +477,7 @@ void QCandlestickModelMapperPrivate::modelHeaderDataUpdated(Qt::Orientation orie
 
 void QCandlestickModelMapperPrivate::modelRowsInserted(QModelIndex parent, int start, int end)
 {
-    Q_UNUSED(parent)
+    Q_UNUSED(parent);
 
     Q_Q(QCandlestickModelMapper);
 
@@ -494,7 +494,7 @@ void QCandlestickModelMapperPrivate::modelRowsInserted(QModelIndex parent, int s
 
 void QCandlestickModelMapperPrivate::modelRowsRemoved(QModelIndex parent, int start, int end)
 {
-    Q_UNUSED(parent)
+    Q_UNUSED(parent);
 
     Q_Q(QCandlestickModelMapper);
 
@@ -511,7 +511,7 @@ void QCandlestickModelMapperPrivate::modelRowsRemoved(QModelIndex parent, int st
 
 void QCandlestickModelMapperPrivate::modelColumnsInserted(QModelIndex parent, int start, int end)
 {
-    Q_UNUSED(parent)
+    Q_UNUSED(parent);
 
     Q_Q(QCandlestickModelMapper);
 
@@ -528,7 +528,7 @@ void QCandlestickModelMapperPrivate::modelColumnsInserted(QModelIndex parent, in
 
 void QCandlestickModelMapperPrivate::modelColumnsRemoved(QModelIndex parent, int start, int end)
 {
-    Q_UNUSED(parent)
+    Q_UNUSED(parent);
 
     Q_Q(QCandlestickModelMapper);
 
@@ -592,7 +592,7 @@ void QCandlestickModelMapperPrivate::candlestickSetsRemoved(const QList<QCandles
     if (sets.isEmpty())
         return;
 
-    QVector<int> removedIndices;
+    QList<int> removedIndices;
     for (auto &set : sets) {
         int index = m_sets.indexOf(set);
         if (index != -1)
@@ -689,8 +689,8 @@ QModelIndex QCandlestickModelMapperPrivate::candlestickModelIndex(int section, i
 
 void QCandlestickModelMapperPrivate::insertData(int start, int end)
 {
-    Q_UNUSED(start)
-    Q_UNUSED(end)
+    Q_UNUSED(start);
+    Q_UNUSED(end);
 
     // Currently candlestickchart needs to be fully recalculated when change is made.
     initializeCandlestickFromModel();
@@ -698,8 +698,8 @@ void QCandlestickModelMapperPrivate::insertData(int start, int end)
 
 void QCandlestickModelMapperPrivate::removeData(int start, int end)
 {
-    Q_UNUSED(start)
-    Q_UNUSED(end)
+    Q_UNUSED(start);
+    Q_UNUSED(end);
 
     // Currently candlestickchart needs to be fully recalculated when change is made.
     initializeCandlestickFromModel();
@@ -715,7 +715,7 @@ void QCandlestickModelMapperPrivate::blockSeriesSignals(bool block)
     m_seriesSignalsBlock = block;
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_qcandlestickmodelmapper.cpp"
 #include "moc_qcandlestickmodelmapper_p.cpp"

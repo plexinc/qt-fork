@@ -4,6 +4,7 @@
 
 #include "base/bind.h"
 #include "base/run_loop.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/apps/platform_apps/app_browsertest_util.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/devtools/devtools_window_testing.h"
@@ -19,6 +20,7 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/api/feedback_private/feedback_private_api.h"
@@ -44,7 +46,7 @@ class FeedbackTest : public ExtensionBrowserTest {
  public:
   void SetUp() override {
     extensions::ComponentLoader::EnableBackgroundExtensionsForTesting();
-    InProcessBrowserTest::SetUp();
+    ExtensionBrowserTest::SetUp();
   }
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
@@ -63,12 +65,12 @@ class FeedbackTest : public ExtensionBrowserTest {
                        const std::string& extra_diagnostics,
                        bool from_assistant = false,
                        bool include_bluetooth_logs = false) {
-    base::Closure callback = base::Bind(&StopMessageLoopCallback);
+    base::OnceClosure callback = base::BindOnce(&StopMessageLoopCallback);
     extensions::FeedbackPrivateGetStringsFunction::set_test_callback(&callback);
     InvokeFeedbackUI(flow, extra_diagnostics, from_assistant,
                      include_bluetooth_logs);
     content::RunMessageLoop();
-    extensions::FeedbackPrivateGetStringsFunction::set_test_callback(NULL);
+    extensions::FeedbackPrivateGetStringsFunction::set_test_callback(nullptr);
   }
 
   void VerifyFeedbackAppLaunch() {
@@ -138,8 +140,7 @@ IN_PROC_BROWSER_TEST_F(FeedbackTest, ShowLoginFeedback) {
   EXPECT_TRUE(bool_result);
 }
 
-// Tests that there's an option in the email drop down box with a value
-// 'anonymous_user'.
+// Tests that there's an option in the email drop down box with a value ''.
 IN_PROC_BROWSER_TEST_F(FeedbackTest, AnonymousUser) {
   WaitForExtensionViewsToLoad();
 
@@ -159,7 +160,7 @@ IN_PROC_BROWSER_TEST_F(FeedbackTest, AnonymousUser) {
       "  ((function() {"
       "      var options = $('user-email-drop-down').options;"
       "      for (var option in options) {"
-      "        if (options[option].value == 'anonymous_user')"
+      "        if (options[option].value == '')"
       "          return true;"
       "      }"
       "      return false;"
@@ -232,7 +233,7 @@ IN_PROC_BROWSER_TEST_F(FeedbackTest, ShowFeedbackFromAssistant) {
   EXPECT_TRUE(bool_result);
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 // Ensures that when triggered from a Google account and a Bluetooth related
 // string is entered into the description, that we provide the option for
 // uploading Bluetooth logs as well.
@@ -283,10 +284,11 @@ IN_PROC_BROWSER_TEST_F(FeedbackTest, ProvideBluetoothLogs) {
 }
 #endif  // if defined(CHROME_OS)
 
-IN_PROC_BROWSER_TEST_F(FeedbackTest, GetTargetTabUrl) {
+// Disabled due to flake: https://crbug.com/1069870
+IN_PROC_BROWSER_TEST_F(FeedbackTest, DISABLED_GetTargetTabUrl) {
   const std::pair<std::string, std::string> test_cases[] = {
       {"https://www.google.com/", "https://www.google.com/"},
-      {"about://version/", chrome::kChromeUIVersionURL},
+      {"chrome://version/", chrome::kChromeUIVersionURL},
       {chrome::kChromeUIBookmarksURL, chrome::kChromeUIBookmarksURL},
   };
 
@@ -298,8 +300,10 @@ IN_PROC_BROWSER_TEST_F(FeedbackTest, GetTargetTabUrl) {
     // Sanity check that we always have one tab in the browser.
     ASSERT_EQ(browser()->tab_strip_model()->count(), 1);
 
-    ASSERT_EQ(expected_url,
-              browser()->tab_strip_model()->GetWebContentsAt(0)->GetURL());
+    ASSERT_EQ(expected_url, browser()
+                                ->tab_strip_model()
+                                ->GetWebContentsAt(0)
+                                ->GetLastCommittedURL());
 
     ASSERT_EQ(expected_url,
               chrome::GetTargetTabUrl(browser()->session_id(), 0));
@@ -320,7 +324,8 @@ IN_PROC_BROWSER_TEST_F(FeedbackTest, GetTargetTabUrl) {
   }
 }
 
-IN_PROC_BROWSER_TEST_F(FeedbackTest, SubmissionTest) {
+// Disabled due to flake: https://crbug.com/1180373
+IN_PROC_BROWSER_TEST_F(FeedbackTest, DISABLED_SubmissionTest) {
   WaitForExtensionViewsToLoad();
 
   ASSERT_TRUE(IsFeedbackAppAvailable());

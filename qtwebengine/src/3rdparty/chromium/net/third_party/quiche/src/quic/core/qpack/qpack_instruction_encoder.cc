@@ -2,32 +2,37 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/qpack/qpack_instruction_encoder.h"
+#include "quic/core/qpack/qpack_instruction_encoder.h"
 
 #include <limits>
 
-#include "net/third_party/quiche/src/http2/hpack/huffman/hpack_huffman_encoder.h"
-#include "net/third_party/quiche/src/http2/hpack/varint/hpack_varint_encoder.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_string_utils.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "http2/hpack/huffman/hpack_huffman_encoder.h"
+#include "http2/hpack/varint/hpack_varint_encoder.h"
+#include "quic/platform/api/quic_flags.h"
+#include "quic/platform/api/quic_logging.h"
 
 namespace quic {
 
 QpackInstructionEncoder::QpackInstructionEncoder()
-    : byte_(0), state_(State::kOpcode), instruction_(nullptr) {}
+    : use_huffman_(false),
+      string_length_(0),
+      byte_(0),
+      state_(State::kOpcode),
+      instruction_(nullptr) {}
 
 void QpackInstructionEncoder::Encode(
     const QpackInstructionWithValues& instruction_with_values,
     std::string* output) {
-  DCHECK(instruction_with_values.instruction());
+  QUICHE_DCHECK(instruction_with_values.instruction());
 
   state_ = State::kOpcode;
   instruction_ = instruction_with_values.instruction();
   field_ = instruction_->fields.begin();
 
   // Field list must not be empty.
-  DCHECK(field_ != instruction_->fields.end());
+  QUICHE_DCHECK(field_ != instruction_->fields.end());
 
   do {
     switch (state_) {
@@ -49,16 +54,17 @@ void QpackInstructionEncoder::Encode(
                       instruction_with_values.value());
         break;
       case State::kWriteString:
-        DoWriteString(output);
+        DoWriteString(instruction_with_values.name(),
+                      instruction_with_values.value(), output);
         break;
     }
   } while (field_ != instruction_->fields.end());
 
-  DCHECK(state_ == State::kStartField);
+  QUICHE_DCHECK(state_ == State::kStartField);
 }
 
 void QpackInstructionEncoder::DoOpcode() {
-  DCHECK_EQ(0u, byte_);
+  QUICHE_DCHECK_EQ(0u, byte_);
 
   byte_ = instruction_->opcode.value;
 
@@ -82,10 +88,10 @@ void QpackInstructionEncoder::DoStartField() {
 }
 
 void QpackInstructionEncoder::DoSBit(bool s_bit) {
-  DCHECK(field_->type == QpackInstructionFieldType::kSbit);
+  QUICHE_DCHECK(field_->type == QpackInstructionFieldType::kSbit);
 
   if (s_bit) {
-    DCHECK_EQ(0, byte_ & field_->param);
+    QUICHE_DCHECK_EQ(0, byte_ & field_->param);
 
     byte_ |= field_->param;
   }
@@ -97,10 +103,10 @@ void QpackInstructionEncoder::DoSBit(bool s_bit) {
 void QpackInstructionEncoder::DoVarintEncode(uint64_t varint,
                                              uint64_t varint2,
                                              std::string* output) {
-  DCHECK(field_->type == QpackInstructionFieldType::kVarint ||
-         field_->type == QpackInstructionFieldType::kVarint2 ||
-         field_->type == QpackInstructionFieldType::kName ||
-         field_->type == QpackInstructionFieldType::kValue);
+  QUICHE_DCHECK(field_->type == QpackInstructionFieldType::kVarint ||
+                field_->type == QpackInstructionFieldType::kVarint2 ||
+                field_->type == QpackInstructionFieldType::kName ||
+                field_->type == QpackInstructionFieldType::kValue);
   uint64_t integer_to_encode;
   switch (field_->type) {
     case QpackInstructionFieldType::kVarint:
@@ -110,7 +116,7 @@ void QpackInstructionEncoder::DoVarintEncode(uint64_t varint,
       integer_to_encode = varint2;
       break;
     default:
-      integer_to_encode = string_to_write_.size();
+      integer_to_encode = string_length_;
       break;
   }
 
@@ -128,30 +134,41 @@ void QpackInstructionEncoder::DoVarintEncode(uint64_t varint,
   state_ = State::kWriteString;
 }
 
-void QpackInstructionEncoder::DoStartString(quiche::QuicheStringPiece name,
-                                            quiche::QuicheStringPiece value) {
-  DCHECK(field_->type == QpackInstructionFieldType::kName ||
-         field_->type == QpackInstructionFieldType::kValue);
+void QpackInstructionEncoder::DoStartString(absl::string_view name,
+                                            absl::string_view value) {
+  QUICHE_DCHECK(field_->type == QpackInstructionFieldType::kName ||
+                field_->type == QpackInstructionFieldType::kValue);
 
-  string_to_write_ =
+  absl::string_view string_to_write =
       (field_->type == QpackInstructionFieldType::kName) ? name : value;
-  http2::HuffmanEncode(string_to_write_, &huffman_encoded_string_);
+  string_length_ = string_to_write.size();
 
-  if (huffman_encoded_string_.size() < string_to_write_.size()) {
-    DCHECK_EQ(0, byte_ & (1 << field_->param));
+  size_t encoded_size = http2::HuffmanSize(string_to_write);
+  use_huffman_ = encoded_size < string_length_;
 
+  if (use_huffman_) {
+    QUICHE_DCHECK_EQ(0, byte_ & (1 << field_->param));
     byte_ |= (1 << field_->param);
-    string_to_write_ = huffman_encoded_string_;
+
+    string_length_ = encoded_size;
   }
 
   state_ = State::kVarintEncode;
 }
 
-void QpackInstructionEncoder::DoWriteString(std::string* output) {
-  DCHECK(field_->type == QpackInstructionFieldType::kName ||
-         field_->type == QpackInstructionFieldType::kValue);
+void QpackInstructionEncoder::DoWriteString(absl::string_view name,
+                                            absl::string_view value,
+                                            std::string* output) {
+  QUICHE_DCHECK(field_->type == QpackInstructionFieldType::kName ||
+                field_->type == QpackInstructionFieldType::kValue);
 
-  QuicStrAppend(output, string_to_write_);
+  absl::string_view string_to_write =
+      (field_->type == QpackInstructionFieldType::kName) ? name : value;
+  if (use_huffman_) {
+    http2::HuffmanEncodeFast(string_to_write, string_length_, output);
+  } else {
+    absl::StrAppend(output, string_to_write);
+  }
 
   ++field_;
   state_ = State::kStartField;

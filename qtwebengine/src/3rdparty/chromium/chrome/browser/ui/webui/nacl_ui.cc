@@ -12,7 +12,7 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/json/json_file_value_serializer.h"
@@ -43,6 +43,7 @@
 #include "content/public/browser/web_ui_data_source.h"
 #include "content/public/browser/web_ui_message_handler.h"
 #include "content/public/common/webplugininfo.h"
+#include "services/network/public/mojom/content_security_policy.mojom.h"
 #include "ui/base/l10n/l10n_util.h"
 
 #if defined(OS_WIN)
@@ -60,8 +61,12 @@ namespace {
 content::WebUIDataSource* CreateNaClUIHTMLSource() {
   content::WebUIDataSource* source =
       content::WebUIDataSource::Create(chrome::kChromeUINaClHost);
-  source->OverrideContentSecurityPolicyScriptSrc(
+  source->OverrideContentSecurityPolicy(
+      network::mojom::CSPDirectiveName::ScriptSrc,
       "script-src chrome://resources 'self' 'unsafe-eval';");
+  source->OverrideContentSecurityPolicy(
+      network::mojom::CSPDirectiveName::TrustedTypes,
+      "trusted-types jstemplate;");
   source->UseStringsJs();
   source->AddResourcePath("about_nacl.css", IDR_ABOUT_NACL_CSS);
   source->AddResourcePath("about_nacl.js", IDR_ABOUT_NACL_JS);
@@ -83,6 +88,7 @@ class NaClDomHandler : public WebUIMessageHandler {
 
   // WebUIMessageHandler implementation.
   void RegisterMessages() override;
+  void OnJavascriptDisallowed() override;
 
  private:
   // Callback for the "requestNaClInfo" message.
@@ -131,7 +137,6 @@ class NaClDomHandler : public WebUIMessageHandler {
   bool pnacl_path_exists_;
   std::string pnacl_version_string_;
 
-  // Factory for the creating refs in callbacks.
   base::WeakPtrFactory<NaClDomHandler> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(NaClDomHandler);
@@ -141,18 +146,19 @@ NaClDomHandler::NaClDomHandler()
     : has_plugin_info_(false),
       pnacl_path_validated_(false),
       pnacl_path_exists_(false) {
-  PluginService::GetInstance()->GetPlugins(base::Bind(
-      &NaClDomHandler::OnGotPlugins, weak_ptr_factory_.GetWeakPtr()));
 }
 
-NaClDomHandler::~NaClDomHandler() {
-}
+NaClDomHandler::~NaClDomHandler() = default;
 
 void NaClDomHandler::RegisterMessages() {
   web_ui()->RegisterMessageCallback(
       "requestNaClInfo",
       base::BindRepeating(&NaClDomHandler::HandleRequestNaClInfo,
                           base::Unretained(this)));
+}
+
+void NaClDomHandler::OnJavascriptDisallowed() {
+  weak_ptr_factory_.InvalidateWeakPtrs();
 }
 
 void AddPair(base::ListValue* list,
@@ -299,6 +305,11 @@ void NaClDomHandler::HandleRequestNaClInfo(const base::ListValue* args) {
   CHECK(callback_id_.empty());
   CHECK_EQ(1U, args->GetSize());
   callback_id_ = args->GetList()[0].GetString();
+
+  if (!has_plugin_info_) {
+    PluginService::GetInstance()->GetPlugins(base::BindOnce(
+        &NaClDomHandler::OnGotPlugins, weak_ptr_factory_.GetWeakPtr()));
+  }
 
   // Force re-validation of PNaCl's path in the next call to
   // MaybeRespondToPage(), in case PNaCl went from not-installed

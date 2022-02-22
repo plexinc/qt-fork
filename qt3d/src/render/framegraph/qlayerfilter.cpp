@@ -40,7 +40,6 @@
 #include "qlayerfilter.h"
 #include "qlayerfilter_p.h"
 #include "qlayer.h"
-#include <Qt3DRender/qframegraphnodecreatedchange.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -203,7 +202,7 @@ void QLayerFilter::addLayer(QLayer *layer)
         if (!layer->parent())
             layer->setParent(this);
 
-        d->updateNode(layer, "layer", Qt3DCore::PropertyValueAdded);
+        d->update();
     }
 }
 
@@ -216,7 +215,7 @@ void QLayerFilter::removeLayer(QLayer *layer)
     Q_D(QLayerFilter);
     if (!d->m_layers.removeOne(layer))
         return;
-    d->updateNode(layer, "layer", Qt3DCore::PropertyValueRemoved);
+    d->update();
     // Remove bookkeeping connection
     d->unregisterDestructionHelper(layer);
 }
@@ -224,7 +223,7 @@ void QLayerFilter::removeLayer(QLayer *layer)
 /*!
     \return the current list of layers
  */
-QVector<QLayer *> QLayerFilter::layers() const
+QList<QLayer *> QLayerFilter::layers() const
 {
     Q_D(const QLayerFilter);
     return d->m_layers;
@@ -243,16 +242,6 @@ void QLayerFilter::setFilterMode(QLayerFilter::FilterMode filterMode)
         d->m_filterMode = filterMode;
         emit filterModeChanged(filterMode);
     }
-}
-
-Qt3DCore::QNodeCreatedChangeBasePtr QLayerFilter::createNodeCreationChange() const
-{
-    auto creationChange = QFrameGraphNodeCreatedChangePtr<QLayerFilterData>::create(this);
-    auto &data = creationChange->data;
-    Q_D(const QLayerFilter);
-    data.layerIds = qIdsForNodes(d->m_layers);
-    data.filterMode = d->m_filterMode;
-    return creationChange;
 }
 
 } // namespace Qt3DRender

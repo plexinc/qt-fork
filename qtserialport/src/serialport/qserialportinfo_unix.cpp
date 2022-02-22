@@ -151,13 +151,13 @@ static bool isValidSerial8250(const QString &systemLocation)
     return false;
 }
 
-static bool isRfcommDevice(const QString &portName)
+static bool isRfcommDevice(QStringView portName)
 {
     if (!portName.startsWith(QLatin1String("rfcomm")))
         return false;
 
     bool ok;
-    const int portNumber = portName.midRef(6).toInt(&ok);
+    const int portNumber = portName.mid(6).toInt(&ok);
     if (!ok || (portNumber < 0) || (portNumber > 255))
         return false;
     return true;
@@ -471,39 +471,6 @@ QList<QSerialPortInfo> QSerialPortInfo::availablePorts()
 
     return serialPortInfoList;
 }
-
-#if QT_DEPRECATED_SINCE(5, 6)
-bool QSerialPortInfo::isBusy() const
-{
-    QString lockFilePath = serialPortLockFilePath(portName());
-    if (lockFilePath.isEmpty())
-        return false;
-
-    QFile reader(lockFilePath);
-    if (!reader.open(QIODevice::ReadOnly))
-        return false;
-
-    QByteArray pidLine = reader.readLine();
-    pidLine.chop(1);
-    if (pidLine.isEmpty())
-        return false;
-
-    qint64 pid = pidLine.toLongLong();
-
-    if (pid && (::kill(pid, 0) == -1) && (errno == ESRCH))
-        return false; // PID doesn't exist anymore
-
-    return true;
-}
-#endif // QT_DEPRECATED_SINCE(5, 6)
-
-#if QT_DEPRECATED_SINCE(5, 2)
-bool QSerialPortInfo::isValid() const
-{
-    QFile f(systemLocation());
-    return f.exists();
-}
-#endif // QT_DEPRECATED_SINCE(5, 2)
 
 QString QSerialPortInfoPrivate::portNameToSystemLocation(const QString &source)
 {

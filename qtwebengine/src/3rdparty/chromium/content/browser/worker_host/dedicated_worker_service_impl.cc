@@ -5,6 +5,7 @@
 #include "content/browser/worker_host/dedicated_worker_service_impl.h"
 
 #include "base/stl_util.h"
+#include "content/browser/worker_host/dedicated_worker_host.h"
 
 namespace content {
 
@@ -21,57 +22,68 @@ void DedicatedWorkerServiceImpl::RemoveObserver(Observer* observer) {
 }
 
 void DedicatedWorkerServiceImpl::EnumerateDedicatedWorkers(Observer* observer) {
-  for (const auto& kv : dedicated_worker_infos_) {
-    DedicatedWorkerId dedicated_worker_id = kv.first;
-    const DedicatedWorkerInfo& dedicated_worker_info = kv.second;
+  for (const auto& kv : dedicated_worker_hosts_) {
+    const blink::DedicatedWorkerToken& dedicated_worker_token = kv.first;
+    DedicatedWorkerHost* host = kv.second;
 
-    observer->OnWorkerStarted(
-        dedicated_worker_id, dedicated_worker_info.worker_process_id,
-        dedicated_worker_info.ancestor_render_frame_host_id);
+    observer->OnWorkerCreated(dedicated_worker_token,
+                              host->GetProcessHost()->GetID(),
+                              host->GetAncestorRenderFrameHostId());
+    auto& maybe_url = host->GetFinalResponseURL();
+    if (maybe_url) {
+      observer->OnFinalResponseURLDetermined(dedicated_worker_token,
+                                             *maybe_url);
+    }
   }
 }
 
-DedicatedWorkerId DedicatedWorkerServiceImpl::GenerateNextDedicatedWorkerId() {
-  return dedicated_worker_id_generator_.GenerateNextId();
-}
-
-void DedicatedWorkerServiceImpl::NotifyWorkerStarted(
-    DedicatedWorkerId dedicated_worker_id,
-    int worker_process_id,
-    GlobalFrameRoutingId ancestor_render_frame_host_id) {
+void DedicatedWorkerServiceImpl::NotifyWorkerCreated(
+    DedicatedWorkerHost* host) {
   bool inserted =
-      dedicated_worker_infos_
-          .emplace(dedicated_worker_id,
-                   DedicatedWorkerInfo{worker_process_id,
-                                       ancestor_render_frame_host_id})
-          .second;
+      dedicated_worker_hosts_.emplace(host->GetToken(), host).second;
   DCHECK(inserted);
 
   for (Observer& observer : observers_) {
-    observer.OnWorkerStarted(dedicated_worker_id, worker_process_id,
-                             ancestor_render_frame_host_id);
+    observer.OnWorkerCreated(host->GetToken(), host->GetProcessHost()->GetID(),
+                             host->GetAncestorRenderFrameHostId());
   }
 }
 
-void DedicatedWorkerServiceImpl::NotifyWorkerTerminating(
-    DedicatedWorkerId dedicated_worker_id,
+void DedicatedWorkerServiceImpl::NotifyBeforeWorkerDestroyed(
+    const blink::DedicatedWorkerToken& dedicated_worker_token,
     GlobalFrameRoutingId ancestor_render_frame_host_id) {
-  size_t removed = dedicated_worker_infos_.erase(dedicated_worker_id);
-  DCHECK_EQ(removed, 1u);
+  size_t removed = dedicated_worker_hosts_.erase(dedicated_worker_token);
+  DCHECK_EQ(1u, removed);
 
   for (Observer& observer : observers_) {
-    observer.OnBeforeWorkerTerminated(dedicated_worker_id,
-                                      ancestor_render_frame_host_id);
+    observer.OnBeforeWorkerDestroyed(dedicated_worker_token,
+                                     ancestor_render_frame_host_id);
   }
 }
 
 void DedicatedWorkerServiceImpl::NotifyWorkerFinalResponseURLDetermined(
-    DedicatedWorkerId dedicated_worker_id,
+    const blink::DedicatedWorkerToken& dedicated_worker_token,
     const GURL& url) {
-  DCHECK(base::Contains(dedicated_worker_infos_, dedicated_worker_id));
+  auto it = dedicated_worker_hosts_.find(dedicated_worker_token);
+  DCHECK(it != dedicated_worker_hosts_.end());
 
   for (Observer& observer : observers_)
-    observer.OnFinalResponseURLDetermined(dedicated_worker_id, url);
+    observer.OnFinalResponseURLDetermined(dedicated_worker_token, url);
+}
+
+bool DedicatedWorkerServiceImpl::HasToken(
+    const blink::DedicatedWorkerToken& worker_token) const {
+  return dedicated_worker_hosts_.count(worker_token);
+}
+
+DedicatedWorkerHost*
+DedicatedWorkerServiceImpl::GetDedicatedWorkerHostFromToken(
+    const blink::DedicatedWorkerToken& dedicated_worker_token) const {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  auto it = dedicated_worker_hosts_.find(dedicated_worker_token);
+  if (it == dedicated_worker_hosts_.end())
+    return nullptr;
+  return it->second;
 }
 
 }  // namespace content

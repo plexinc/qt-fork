@@ -3,14 +3,12 @@
 // found in the LICENSE file.
 
 import * as Common from '../common/common.js';
+import * as Root from '../root/root.js';
 import * as SDK from '../sdk/sdk.js';
 import * as UI from '../ui/ui.js';
 
 import {MaxDeviceSize, MinDeviceSize} from './DeviceModeModel.js';
 
-/**
- * @unrestricted
- */
 export class EmulatedDevice {
   constructor() {
     /** @type {string} */
@@ -18,17 +16,26 @@ export class EmulatedDevice {
     /** @type {string} */
     this.type = Type.Unknown;
     /** @type {!Orientation} */
-    this.vertical = {width: 0, height: 0, outlineInsets: null, outlineImage: null};
+    this.vertical = {width: 0, height: 0, outlineInsets: null, outlineImage: null, hinge: null};
     /** @type {!Orientation} */
-    this.horizontal = {width: 0, height: 0, outlineInsets: null, outlineImage: null};
+    this.horizontal = {width: 0, height: 0, outlineInsets: null, outlineImage: null, hinge: null};
     /** @type {number} */
     this.deviceScaleFactor = 1;
     /** @type {!Array.<string>} */
     this.capabilities = [Capability.Touch, Capability.Mobile];
     /** @type {string} */
     this.userAgent = '';
+    /** @type {?Protocol.Emulation.UserAgentMetadata} */
+    this.userAgentMetadata = null;
     /** @type {!Array.<!Mode>} */
     this.modes = [];
+
+    /** @type {boolean} */
+    this.isDualScreen = false;
+    /** @type {!Orientation} */
+    this.verticalSpanned = {width: 0, height: 0, outlineInsets: null, outlineImage: null, hinge: null};
+    /** @type {!Orientation} */
+    this.horizontalSpanned = {width: 0, height: 0, outlineInsets: null, outlineImage: null, hinge: null};
 
     /** @type {string} */
     this._show = _Show.Default;
@@ -91,6 +98,73 @@ export class EmulatedDevice {
 
       /**
        * @param {*} json
+       * @return {!SDK.OverlayModel.HighlightColor}
+       */
+      function parseRGBA(json) {
+        const result = {};
+        result.r = parseIntValue(json, 'r');
+        if (result.r < 0 || result.r > 255) {
+          throw new Error('color has wrong r value: ' + result.r);
+        }
+
+        result.g = parseIntValue(json, 'g');
+        if (result.g < 0 || result.g > 255) {
+          throw new Error('color has wrong g value: ' + result.g);
+        }
+
+        result.b = parseIntValue(json, 'b');
+        if (result.b < 0 || result.b > 255) {
+          throw new Error('color has wrong b value: ' + result.b);
+        }
+
+        result.a = /** @type {number} */ (parseValue(json, 'a', 'number'));
+        if (result.a < 0 || result.a > 1) {
+          throw new Error('color has wrong a value: ' + result.a);
+        }
+
+        return /** @type {!SDK.OverlayModel.HighlightColor} */ (result);
+      }
+
+      /**
+       * @param {*} json
+       * @return {!SDK.OverlayModel.Hinge}
+       */
+      function parseHinge(json) {
+        const result = {};
+
+        result.width = parseIntValue(json, 'width');
+        if (result.width < 0 || result.width > MaxDeviceSize) {
+          throw new Error('Emulated device has wrong hinge width: ' + result.width);
+        }
+
+        result.height = parseIntValue(json, 'height');
+        if (result.height < 0 || result.height > MaxDeviceSize) {
+          throw new Error('Emulated device has wrong hinge height: ' + result.height);
+        }
+
+        result.x = parseIntValue(json, 'x');
+        if (result.x < 0 || result.x > MaxDeviceSize) {
+          throw new Error('Emulated device has wrong x offset: ' + result.height);
+        }
+
+        result.y = parseIntValue(json, 'y');
+        if (result.x < 0 || result.x > MaxDeviceSize) {
+          throw new Error('Emulated device has wrong y offset: ' + result.height);
+        }
+
+        if (json['contentColor']) {
+          result.contentColor = parseRGBA(json['contentColor']);
+        }
+
+        if (json['outlineColor']) {
+          result.outlineColor = parseRGBA(json['outlineColor']);
+        }
+
+        return /** @type {!SDK.OverlayModel.Hinge} */ (result);
+      }
+
+      /**
+       * @param {*} json
        * @return {!Orientation}
        */
       function parseOrientation(json) {
@@ -114,6 +188,11 @@ export class EmulatedDevice {
           }
           result.outlineImage = /** @type {string} */ (parseValue(json['outline'], 'image', 'string'));
         }
+
+        if (json['hinge']) {
+          result.hinge = parseHinge(parseValue(json, 'hinge', 'object', undefined));
+        }
+
         return /** @type {!Orientation} */ (result);
       }
 
@@ -122,6 +201,9 @@ export class EmulatedDevice {
       result.type = /** @type {string} */ (parseValue(json, 'type', 'string'));
       const rawUserAgent = /** @type {string} */ (parseValue(json, 'user-agent', 'string'));
       result.userAgent = SDK.NetworkManager.MultitargetNetworkManager.patchUserAgentWithChromeVersion(rawUserAgent);
+
+      result.userAgentMetadata =
+          /** @type {?Protocol.Emulation.UserAgentMetadata} */ parseValue(json, 'user-agent-metadata', 'object', null);
 
       const capabilities = parseValue(json, 'capabilities', 'object', []);
       if (!Array.isArray(capabilities)) {
@@ -142,8 +224,20 @@ export class EmulatedDevice {
 
       result.vertical = parseOrientation(parseValue(json['screen'], 'vertical', 'object'));
       result.horizontal = parseOrientation(parseValue(json['screen'], 'horizontal', 'object'));
+      result.isDualScreen = /** @type {boolean} */ (parseValue(json, 'dual-screen', 'boolean', false));
 
-      const modes = parseValue(json, 'modes', 'object', []);
+      if (result.isDualScreen) {
+        result.verticalSpanned = parseOrientation(parseValue(json['screen'], 'vertical-spanned', 'object', null));
+        result.horizontalSpanned = parseOrientation(parseValue(json['screen'], 'horizontal-spanned', 'object', null));
+      }
+      if (result.isDualScreen && (!result.verticalSpanned || !result.horizontalSpanned)) {
+        throw new Error('Emulated device \'' + result.title + '\'has dual screen without spanned orientations');
+      }
+
+      const modes = parseValue(json, 'modes', 'object', [
+        {'title': 'default', 'orientation': 'vertical'},
+        {'title': 'default', 'orientation': 'horizontal'},
+      ]);
       if (!Array.isArray(modes)) {
         throw new Error('Emulated device modes must be an array');
       }
@@ -152,11 +246,12 @@ export class EmulatedDevice {
         const mode = {};
         mode.title = /** @type {string} */ (parseValue(modes[i], 'title', 'string'));
         mode.orientation = /** @type {string} */ (parseValue(modes[i], 'orientation', 'string'));
-        if (mode.orientation !== Vertical && mode.orientation !== Horizontal) {
+        if (mode.orientation !== Vertical && mode.orientation !== Horizontal && mode.orientation !== VerticalSpanned &&
+            mode.orientation !== HorizontalSpanned) {
           throw new Error('Emulated device mode has wrong orientation \'' + mode.orientation + '\'');
         }
         const orientation = result.orientationByName(mode.orientation);
-        mode.insets = parseInsets(parseValue(modes[i], 'insets', 'object'));
+        mode.insets = parseInsets(parseValue(modes[i], 'insets', 'object', {left: 0, top: 0, right: 0, bottom: 0}));
         if (mode.insets.top < 0 || mode.insets.left < 0 || mode.insets.right < 0 || mode.insets.bottom < 0 ||
             mode.insets.top + mode.insets.bottom > orientation.height ||
             mode.insets.left + mode.insets.right > orientation.width) {
@@ -223,6 +318,40 @@ export class EmulatedDevice {
   }
 
   /**
+   * @param {!Mode} mode
+   * @return {(!Mode|undefined)}
+   */
+  getSpanPartner(mode) {
+    switch (mode.orientation) {
+      case Vertical:
+        return this.modesForOrientation(VerticalSpanned)[0];
+      case Horizontal:
+        return this.modesForOrientation(HorizontalSpanned)[0];
+      case VerticalSpanned:
+        return this.modesForOrientation(Vertical)[0];
+      default:
+        return this.modesForOrientation(Horizontal)[0];
+    }
+  }
+
+  /**
+   * @param {!Mode} mode
+   * @return {?Mode}
+   */
+  getRotationPartner(mode) {
+    switch (mode.orientation) {
+      case HorizontalSpanned:
+        return this.modesForOrientation(VerticalSpanned)[0];
+      case VerticalSpanned:
+        return this.modesForOrientation(HorizontalSpanned)[0];
+      case Horizontal:
+        return this.modesForOrientation(Vertical)[0];
+      default:
+        return this.modesForOrientation(Horizontal)[0];
+    }
+  }
+
+  /**
    * @return {*}
    */
   _toJSON() {
@@ -232,29 +361,46 @@ export class EmulatedDevice {
     json['user-agent'] = this.userAgent;
     json['capabilities'] = this.capabilities;
 
-    json['screen'] = {};
-    json['screen']['device-pixel-ratio'] = this.deviceScaleFactor;
-    json['screen']['vertical'] = this._orientationToJSON(this.vertical);
-    json['screen']['horizontal'] = this._orientationToJSON(this.horizontal);
+    /** @type {{'device-pixel-ratio': number, vertical: object, horizontal: object, 'vertical-spanned': (object|undefined), 'horizontal-spanned': (object|undefined)}} */
+    json['screen'] = {
+      'device-pixel-ratio': this.deviceScaleFactor,
+      vertical: this._orientationToJSON(this.vertical),
+      horizontal: this._orientationToJSON(this.horizontal),
+      'vertical-spanned': undefined,
+      'horizontal-spanned': undefined,
+    };
 
+    if (this.isDualScreen) {
+      json['screen']['vertical-spanned'] = this._orientationToJSON(this.verticalSpanned);
+      json['screen']['horizontal-spanned'] = this._orientationToJSON(this.horizontalSpanned);
+    }
+
+
+    /** @type {!Array.<!JSONMode>} */
     json['modes'] = [];
     for (let i = 0; i < this.modes.length; ++i) {
-      const mode = {};
-      mode['title'] = this.modes[i].title;
-      mode['orientation'] = this.modes[i].orientation;
-      mode['insets'] = {};
-      mode['insets']['left'] = this.modes[i].insets.left;
-      mode['insets']['top'] = this.modes[i].insets.top;
-      mode['insets']['right'] = this.modes[i].insets.right;
-      mode['insets']['bottom'] = this.modes[i].insets.bottom;
-      if (this.modes[i].image) {
-        mode['image'] = this.modes[i].image;
-      }
+      /** @type {!JSONMode} */
+      const mode = {
+        'title': this.modes[i].title,
+        'orientation': this.modes[i].orientation,
+        'insets': {
+          'left': this.modes[i].insets.left,
+          'top': this.modes[i].insets.top,
+          'right': this.modes[i].insets.right,
+          'bottom': this.modes[i].insets.bottom,
+        },
+        image: this.modes[i].image || undefined,
+      };
       json['modes'].push(mode);
     }
 
     json['show-by-default'] = this._showByDefault;
+    json['dual-screen'] = this.isDualScreen;
     json['show'] = this._show;
+
+    if (this.userAgentMetadata) {
+      json['user-agent-metadata'] = this.userAgentMetadata;
+    }
 
     return json;
   }
@@ -268,13 +414,45 @@ export class EmulatedDevice {
     json['width'] = orientation.width;
     json['height'] = orientation.height;
     if (orientation.outlineInsets) {
-      json['outline'] = {};
-      json['outline']['insets'] = {};
-      json['outline']['insets']['left'] = orientation.outlineInsets.left;
-      json['outline']['insets']['top'] = orientation.outlineInsets.top;
-      json['outline']['insets']['right'] = orientation.outlineInsets.right;
-      json['outline']['insets']['bottom'] = orientation.outlineInsets.bottom;
-      json['outline']['image'] = orientation.outlineImage;
+      /** @type {!{image: ?string, insets: {left: number, right: number, top: number, bottom: number}}} */
+      json.outline = {
+        insets: {
+          'left': orientation.outlineInsets.left,
+          'top': orientation.outlineInsets.top,
+          'right': orientation.outlineInsets.right,
+          'bottom': orientation.outlineInsets.bottom,
+        },
+        image: orientation.outlineImage
+      };
+    }
+    if (orientation.hinge) {
+      /** @type {!{width: number, height: number, x: number, y: number,   contentColor: (!{r:number,g:number,b:number,a:number}|undefined),  outlineColor: (!{r:number,g:number,b:number,a:number}|undefined)
+       * }} */
+      json.hinge = {
+        'width': orientation.hinge.width,
+        'height': orientation.hinge.height,
+        'x': orientation.hinge.x,
+        'y': orientation.hinge.y,
+        contentColor: undefined,
+        outlineColor: undefined,
+      };
+
+      if (orientation.hinge.contentColor) {
+        json.hinge.contentColor = {
+          'r': orientation.hinge.contentColor.r,
+          'g': orientation.hinge.contentColor.g,
+          'b': orientation.hinge.contentColor.b,
+          'a': orientation.hinge.contentColor.a,
+        };
+      }
+      if (orientation.hinge.outlineColor) {
+        json.hinge.outlineColor = {
+          'r': orientation.hinge.outlineColor.r,
+          'g': orientation.hinge.outlineColor.g,
+          'b': orientation.hinge.outlineColor.b,
+          'a': orientation.hinge.outlineColor.a,
+        };
+      }
     }
     return json;
   }
@@ -313,9 +491,17 @@ export class EmulatedDevice {
    * @return {!Orientation}
    */
   orientationByName(name) {
-    return name === Vertical ? this.vertical : this.horizontal;
+    switch (name) {
+      case VerticalSpanned:
+        return this.verticalSpanned;
+      case HorizontalSpanned:
+        return this.horizontalSpanned;
+      case Vertical:
+        return this.vertical;
+      default:
+        return this.horizontal;
+    }
   }
-
   /**
    * @return {boolean}
    */
@@ -357,6 +543,8 @@ export class EmulatedDevice {
 
 export const Horizontal = 'horizontal';
 export const Vertical = 'vertical';
+export const HorizontalSpanned = 'horizontal-spanned';
+export const VerticalSpanned = 'vertical-spanned';
 
 export const Type = {
   Phone: 'phone',
@@ -380,21 +568,18 @@ export const _Show = {
 /** @type {!EmulatedDevicesList} */
 let _instance;
 
-/**
- * @unrestricted
- */
 export class EmulatedDevicesList extends Common.ObjectWrapper.ObjectWrapper {
   constructor() {
     super();
 
-    /** @type {!Common.Settings.Setting} */
+    /** @type {!Common.Settings.Setting<!Array<?>>} */
     this._standardSetting = Common.Settings.Settings.instance().createSetting('standardEmulatedDeviceList', []);
     /** @type {!Set.<!EmulatedDevice>} */
     this._standard = new Set();
     this._listFromJSONV1(this._standardSetting.get(), this._standard);
     this._updateStandardDevices();
 
-    /** @type {!Common.Settings.Setting} */
+    /** @type {!Common.Settings.Setting<!Array<?>>} */
     this._customSetting = Common.Settings.Settings.instance().createSetting('customEmulatedDeviceList', []);
     /** @type {!Set.<!EmulatedDevice>} */
     this._custom = new Set();
@@ -414,12 +599,15 @@ export class EmulatedDevicesList extends Common.ObjectWrapper.ObjectWrapper {
   }
 
   _updateStandardDevices() {
+    /** @type {!Set<!EmulatedDevice>} */
     const devices = new Set();
-    const extensions = self.runtime.extensions('emulated-device');
+    const extensions = Root.Runtime.Runtime.instance().extensions('emulated-device');
     for (const extension of extensions) {
-      const device = EmulatedDevice.fromJSONV1(extension.descriptor()['device']);
-      device.setExtension(extension);
-      devices.add(device);
+      const device = EmulatedDevice.fromJSONV1(extension.descriptor().device);
+      if (device) {
+        device.setExtension(extension);
+        devices.add(device);
+      }
     }
     this._copyShowValues(this._standard, devices);
     this._standard = devices;
@@ -488,6 +676,7 @@ export class EmulatedDevicesList extends Common.ObjectWrapper.ObjectWrapper {
   }
 
   saveCustomDevices() {
+    /** @type {!Array<?>} */
     const json = [];
     this._custom.forEach(device => json.push(device._toJSON()));
 
@@ -496,6 +685,7 @@ export class EmulatedDevicesList extends Common.ObjectWrapper.ObjectWrapper {
   }
 
   saveStandardDevices() {
+    /** @type {!Array<?>} */
     const json = [];
     this._standard.forEach(device => json.push(device._toJSON()));
 
@@ -529,7 +719,13 @@ export const Events = {
 };
 
 /** @typedef {!{title: string, orientation: string, insets: !UI.Geometry.Insets, image: ?string}} */
+// @ts-ignore typedef
 export let Mode;
 
-/** @typedef {!{width: number, height: number, outlineInsets: ?UI.Geometry.Insets, outlineImage: ?string}} */
+/** @typedef {!{width: number, height: number, outlineInsets: ?UI.Geometry.Insets, outlineImage: ?string, hinge: ?SDK.OverlayModel.Hinge}} */
+// @ts-ignore typedef
 export let Orientation;
+
+/** @typedef {!{title: string, orientation: string, image: (string|undefined), insets: {left: number, right: number, top: number, bottom: number}}} */
+// @ts-ignore typedef
+export let JSONMode;  // eslint-disable-line no-unused-vars

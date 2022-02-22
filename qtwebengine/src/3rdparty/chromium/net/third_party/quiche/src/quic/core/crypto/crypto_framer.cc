@@ -2,20 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/crypto/crypto_framer.h"
+#include "quic/core/crypto/crypto_framer.h"
 
 #include <string>
 #include <utility>
 
-#include "net/third_party/quiche/src/quic/core/crypto/crypto_protocol.h"
-#include "net/third_party/quiche/src/quic/core/quic_data_reader.h"
-#include "net/third_party/quiche/src/quic/core/quic_data_writer.h"
-#include "net/third_party/quiche/src/quic/core/quic_packets.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_fallthrough.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_endian.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/base/attributes.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/crypto/crypto_protocol.h"
+#include "quic/core/quic_data_reader.h"
+#include "quic/core/quic_data_writer.h"
+#include "quic/core/quic_packets.h"
+#include "quic/platform/api/quic_logging.h"
+#include "common/quiche_endian.h"
 
 namespace quic {
 
@@ -60,7 +60,7 @@ CryptoFramer::~CryptoFramer() {}
 
 // static
 std::unique_ptr<CryptoHandshakeMessage> CryptoFramer::ParseMessage(
-    quiche::QuicheStringPiece in) {
+    absl::string_view in) {
   OneShotVisitor visitor;
   CryptoFramer framer;
 
@@ -81,19 +81,19 @@ const std::string& CryptoFramer::error_detail() const {
   return error_detail_;
 }
 
-bool CryptoFramer::ProcessInput(quiche::QuicheStringPiece input,
+bool CryptoFramer::ProcessInput(absl::string_view input,
                                 EncryptionLevel /*level*/) {
   return ProcessInput(input);
 }
 
-bool CryptoFramer::ProcessInput(quiche::QuicheStringPiece input) {
-  DCHECK_EQ(QUIC_NO_ERROR, error_);
+bool CryptoFramer::ProcessInput(absl::string_view input) {
+  QUICHE_DCHECK_EQ(QUIC_NO_ERROR, error_);
   if (error_ != QUIC_NO_ERROR) {
     return false;
   }
   error_ = Process(input);
   if (error_ != QUIC_NO_ERROR) {
-    DCHECK(!error_detail_.empty());
+    QUICHE_DCHECK(!error_detail_.empty());
     visitor_->OnError(this);
     return false;
   }
@@ -121,7 +121,7 @@ void CryptoFramer::ForceHandshake() {
   QuicDataReader reader(buffer_.data(), buffer_.length(),
                         quiche::HOST_BYTE_ORDER);
   for (const std::pair<QuicTag, size_t>& item : tags_and_lengths_) {
-    quiche::QuicheStringPiece value;
+    absl::string_view value;
     if (reader.BytesRemaining() < item.second) {
       break;
     }
@@ -160,15 +160,15 @@ std::unique_ptr<QuicData> CryptoFramer::ConstructHandshakeMessage(
   std::unique_ptr<char[]> buffer(new char[len]);
   QuicDataWriter writer(len, buffer.get(), quiche::HOST_BYTE_ORDER);
   if (!writer.WriteTag(message.tag())) {
-    DCHECK(false) << "Failed to write message tag.";
+    QUICHE_DCHECK(false) << "Failed to write message tag.";
     return nullptr;
   }
   if (!writer.WriteUInt16(static_cast<uint16_t>(num_entries))) {
-    DCHECK(false) << "Failed to write size.";
+    QUICHE_DCHECK(false) << "Failed to write size.";
     return nullptr;
   }
   if (!writer.WriteUInt16(0)) {
-    DCHECK(false) << "Failed to write padding.";
+    QUICHE_DCHECK(false) << "Failed to write padding.";
     return nullptr;
   }
 
@@ -180,7 +180,8 @@ std::unique_ptr<QuicData> CryptoFramer::ConstructHandshakeMessage(
       // Existing PAD tags are only checked when padding needs to be added
       // because parts of the code may need to reserialize received messages
       // and those messages may, legitimately include padding.
-      DCHECK(false) << "Message needed padding but already contained a PAD tag";
+      QUICHE_DCHECK(false)
+          << "Message needed padding but already contained a PAD tag";
       return nullptr;
     }
 
@@ -192,12 +193,12 @@ std::unique_ptr<QuicData> CryptoFramer::ConstructHandshakeMessage(
     }
 
     if (!writer.WriteTag(it->first)) {
-      DCHECK(false) << "Failed to write tag.";
+      QUICHE_DCHECK(false) << "Failed to write tag.";
       return nullptr;
     }
     end_offset += it->second.length();
     if (!writer.WriteUInt32(end_offset)) {
-      DCHECK(false) << "Failed to write end offset.";
+      QUICHE_DCHECK(false) << "Failed to write end offset.";
       return nullptr;
     }
   }
@@ -214,20 +215,20 @@ std::unique_ptr<QuicData> CryptoFramer::ConstructHandshakeMessage(
     if (it->first > kPAD && need_pad_value) {
       need_pad_value = false;
       if (!writer.WriteRepeatedByte('-', pad_length)) {
-        DCHECK(false) << "Failed to write padding.";
+        QUICHE_DCHECK(false) << "Failed to write padding.";
         return nullptr;
       }
     }
 
     if (!writer.WriteBytes(it->second.data(), it->second.length())) {
-      DCHECK(false) << "Failed to write value.";
+      QUICHE_DCHECK(false) << "Failed to write value.";
       return nullptr;
     }
   }
 
   if (need_pad_value) {
     if (!writer.WriteRepeatedByte('-', pad_length)) {
-      DCHECK(false) << "Failed to write padding.";
+      QUICHE_DCHECK(false) << "Failed to write padding.";
       return nullptr;
     }
   }
@@ -243,7 +244,7 @@ void CryptoFramer::Clear() {
   state_ = STATE_READING_TAG;
 }
 
-QuicErrorCode CryptoFramer::Process(quiche::QuicheStringPiece input) {
+QuicErrorCode CryptoFramer::Process(absl::string_view input) {
   // Add this data to the buffer.
   buffer_.append(input.data(), input.length());
   QuicDataReader reader(buffer_.data(), buffer_.length(),
@@ -258,14 +259,14 @@ QuicErrorCode CryptoFramer::Process(quiche::QuicheStringPiece input) {
       reader.ReadTag(&message_tag);
       message_.set_tag(message_tag);
       state_ = STATE_READING_NUM_ENTRIES;
-      QUIC_FALLTHROUGH_INTENDED;
+      ABSL_FALLTHROUGH_INTENDED;
     case STATE_READING_NUM_ENTRIES:
       if (reader.BytesRemaining() < kNumEntriesSize + sizeof(uint16_t)) {
         break;
       }
       reader.ReadUInt16(&num_entries_);
       if (num_entries_ > kMaxEntries) {
-        error_detail_ = quiche::QuicheStrCat(num_entries_, " entries");
+        error_detail_ = absl::StrCat(num_entries_, " entries");
         return QUIC_CRYPTO_TOO_MANY_ENTRIES;
       }
       uint16_t padding;
@@ -274,7 +275,7 @@ QuicErrorCode CryptoFramer::Process(quiche::QuicheStringPiece input) {
       tags_and_lengths_.reserve(num_entries_);
       state_ = STATE_READING_TAGS_AND_LENGTHS;
       values_len_ = 0;
-      QUIC_FALLTHROUGH_INTENDED;
+      ABSL_FALLTHROUGH_INTENDED;
     case STATE_READING_TAGS_AND_LENGTHS: {
       if (reader.BytesRemaining() <
           num_entries_ * (kQuicTagSize + kCryptoEndOffsetSize)) {
@@ -287,10 +288,10 @@ QuicErrorCode CryptoFramer::Process(quiche::QuicheStringPiece input) {
         reader.ReadTag(&tag);
         if (i > 0 && tag <= tags_and_lengths_[i - 1].first) {
           if (tag == tags_and_lengths_[i - 1].first) {
-            error_detail_ = quiche::QuicheStrCat("Duplicate tag:", tag);
+            error_detail_ = absl::StrCat("Duplicate tag:", tag);
             return QUIC_CRYPTO_DUPLICATE_TAG;
           }
-          error_detail_ = quiche::QuicheStrCat("Tag ", tag, " out of order");
+          error_detail_ = absl::StrCat("Tag ", tag, " out of order");
           return QUIC_CRYPTO_TAGS_OUT_OF_ORDER;
         }
 
@@ -298,8 +299,8 @@ QuicErrorCode CryptoFramer::Process(quiche::QuicheStringPiece input) {
         reader.ReadUInt32(&end_offset);
 
         if (end_offset < last_end_offset) {
-          error_detail_ = quiche::QuicheStrCat("End offset: ", end_offset,
-                                               " vs ", last_end_offset);
+          error_detail_ =
+              absl::StrCat("End offset: ", end_offset, " vs ", last_end_offset);
           return QUIC_CRYPTO_TAGS_OUT_OF_ORDER;
         }
         tags_and_lengths_.push_back(std::make_pair(
@@ -308,7 +309,7 @@ QuicErrorCode CryptoFramer::Process(quiche::QuicheStringPiece input) {
       }
       values_len_ = last_end_offset;
       state_ = STATE_READING_VALUES;
-      QUIC_FALLTHROUGH_INTENDED;
+      ABSL_FALLTHROUGH_INTENDED;
     }
     case STATE_READING_VALUES:
       if (reader.BytesRemaining() < values_len_) {
@@ -319,9 +320,9 @@ QuicErrorCode CryptoFramer::Process(quiche::QuicheStringPiece input) {
                         << values_len_ - reader.BytesRemaining() << " bytes.";
       }
       for (const std::pair<QuicTag, size_t>& item : tags_and_lengths_) {
-        quiche::QuicheStringPiece value;
+        absl::string_view value;
         if (!reader.ReadStringPiece(&value, item.second)) {
-          DCHECK(process_truncated_messages_);
+          QUICHE_DCHECK(process_truncated_messages_);
           // Store an empty value.
           message_.SetStringPiece(item.first, "");
           continue;
@@ -343,12 +344,12 @@ bool CryptoFramer::WritePadTag(QuicDataWriter* writer,
                                size_t pad_length,
                                uint32_t* end_offset) {
   if (!writer->WriteTag(kPAD)) {
-    DCHECK(false) << "Failed to write tag.";
+    QUICHE_DCHECK(false) << "Failed to write tag.";
     return false;
   }
   *end_offset += pad_length;
   if (!writer->WriteUInt32(*end_offset)) {
-    DCHECK(false) << "Failed to write end offset.";
+    QUICHE_DCHECK(false) << "Failed to write end offset.";
     return false;
   }
   return true;

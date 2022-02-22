@@ -126,7 +126,7 @@ QT_BEGIN_NAMESPACE
  */
 
 /*!
-    \fn template <typename T, typename Cleanup> QScopedPointer<T, Cleanup>::QScopedPointer(T *p = 0)
+    \fn template <typename T, typename Cleanup> QScopedPointer<T, Cleanup>::QScopedPointer(T *p = nullptr)
 
     Constructs this QScopedPointer instance and sets its pointer to \a p.
 */
@@ -183,21 +183,20 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
-    \fn template <typename T, typename Cleanup> bool operator==(const QScopedPointer<T, Cleanup> &lhs, const QScopedPointer<T, Cleanup> &rhs)
+    \fn template <typename T, typename Cleanup> bool QScopedPointer<T, Cleanup>::operator==(const QScopedPointer<T, Cleanup> &lhs, const QScopedPointer<T, Cleanup> &rhs)
 
-    Returns \c true if \a ptr1 and \a ptr2 refer to the same pointer.
+    Returns \c true if \a lhs and \a rhs refer to the same pointer.
 */
 
 
 /*!
-    \fn template <typename T, typename Cleanup> bool operator!=(const QScopedPointer<T, Cleanup> &lhs, const QScopedPointer<T, Cleanup> &rhs)
+    \fn template <typename T, typename Cleanup> bool QScopedPointer<T, Cleanup>::operator!=(const QScopedPointer<T, Cleanup> &lhs, const QScopedPointer<T, Cleanup> &rhs)
 
     Returns \c true if \a lhs and \a rhs refer to distinct pointers.
 */
 
 /*!
-    \fn template <typename T, typename Cleanup> bool operator==(const QScopedPointer<T, Cleanup> &lhs, std::nullptr_t)
-    \relates QScopedPointer
+    \fn template <typename T, typename Cleanup> bool QScopedPointer<T, Cleanup>::operator==(const QScopedPointer<T, Cleanup> &lhs, std::nullptr_t)
     \since 5.8
 
     Returns \c true if \a lhs refers to \nullptr.
@@ -206,8 +205,7 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
-    \fn template <typename T, typename Cleanup> bool operator==(std::nullptr_t, const QScopedPointer<T, Cleanup> &rhs)
-    \relates QScopedPointer
+    \fn template <typename T, typename Cleanup> bool QScopedPointer<T, Cleanup>::operator==(std::nullptr_t, const QScopedPointer<T, Cleanup> &rhs)
     \since 5.8
 
     Returns \c true if \a rhs refers to \nullptr.
@@ -216,8 +214,7 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
-    \fn template <typename T, typename Cleanup> bool operator!=(const QScopedPointer<T, Cleanup> &lhs, std::nullptr_t)
-    \relates QScopedPointer
+    \fn template <typename T, typename Cleanup> bool QScopedPointer<T, Cleanup>::operator!=(const QScopedPointer<T, Cleanup> &lhs, std::nullptr_t)
     \since 5.8
 
     Returns \c true if \a lhs refers to a valid (i.e. non-null) pointer.
@@ -226,8 +223,7 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
-    \fn template <typename T, typename Cleanup> bool operator!=(std::nullptr_t, const QScopedPointer<T, Cleanup> &rhs)
-    \relates QScopedPointer
+    \fn template <typename T, typename Cleanup> bool QScopedPointer<T, Cleanup>::operator!=(std::nullptr_t, const QScopedPointer<T, Cleanup> &rhs)
     \since 5.8
 
     Returns \c true if \a rhs refers to a valid (i.e. non-null) pointer.
@@ -242,18 +238,17 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
-    \fn template <typename T, typename Cleanup> void QScopedPointer<T, Cleanup>::reset(T *other = 0)
+    \fn template <typename T, typename Cleanup> void QScopedPointer<T, Cleanup>::reset(T *other = nullptr)
 
     Deletes the existing object it is pointing to (if any), and sets its pointer to
     \a other. QScopedPointer now owns \a other and will delete it in its
     destructor.
-
-    To clear the pointer held without deleting the object it points to (and hence take ownership
-    of the object), use \l take() instead.
 */
 
 /*!
     \fn template <typename T, typename Cleanup> T *QScopedPointer<T, Cleanup>::take()
+
+    \deprecated [6.1] Use \c std::unique_ptr and \c release() instead.
 
     Returns the value of the pointer referenced by this object. The pointer of this
     QScopedPointer object will be reset to \nullptr.
@@ -268,8 +263,12 @@ QT_BEGIN_NAMESPACE
     \sa isNull()
 */
 
-/*! \fn template <typename T, typename Cleanup> void QScopedPointer<T, Cleanup>::swap(QScopedPointer<T, Cleanup> &other)
-  Swap this pointer with \a other.
+/*! \fn template <typename T, typename Cleanup> void QScopedPointer<T, Cleanup>::swap(QScopedPointer<T, Cleanup> &lhs, QScopedPointer<T, Cleanup> &rhs)
+
+    \deprecated [6.1] Use \c std::unique_ptr instead; this function may let a pointer
+    escape its scope.
+
+    Swaps \a lhs with \a rhs.
  */
 
 /*!
@@ -335,7 +334,11 @@ QT_BEGIN_NAMESPACE
 */
 
 /*! \fn template <typename T, typename Cleanup> void QScopedArrayPointer<T, Cleanup>::swap(QScopedArrayPointer<T, Cleanup> &other)
-  Swap this pointer with \a other.
+
+    \deprecated [6.1] Use \c std::unique_ptr instead; this function may let a pointer
+    escape its scope.
+
+    Swap this pointer with \a other.
  */
 
 QT_END_NAMESPACE

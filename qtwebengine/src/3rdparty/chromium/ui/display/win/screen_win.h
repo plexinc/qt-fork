@@ -11,7 +11,7 @@
 #include <vector>
 
 #include "base/macros.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "ui/display/display_change_notifier.h"
 #include "ui/display/display_export.h"
 #include "ui/display/screen.h"
@@ -148,11 +148,14 @@ class DISPLAY_EXPORT ScreenWin : public Screen,
   // to return that HDR is supported.
   static void SetHDREnabled(bool hdr_enabled);
 
-  // Returns the HWND associated with the NativeView.
-  virtual HWND GetHWNDFromNativeView(gfx::NativeView view) const;
+  // Returns the HWND associated with the NativeWindow.
+  virtual HWND GetHWNDFromNativeWindow(gfx::NativeWindow view) const;
 
-  // Returns the NativeView associated with the HWND.
+  // Returns the NativeWindow associated with the HWND.
   virtual gfx::NativeWindow GetNativeWindowFromHWND(HWND hwnd) const;
+
+  // Returns true if the native window is occluded.
+  virtual bool IsNativeWindowOccluded(gfx::NativeWindow window) const;
 
  protected:
   ScreenWin(bool initialize);
@@ -161,6 +164,9 @@ class DISPLAY_EXPORT ScreenWin : public Screen,
   gfx::Point GetCursorScreenPoint() override;
   bool IsWindowUnderCursor(gfx::NativeWindow window) override;
   gfx::NativeWindow GetWindowAtScreenPoint(const gfx::Point& point) override;
+  gfx::NativeWindow GetLocalProcessWindowAtPoint(
+      const gfx::Point& point,
+      const std::set<gfx::NativeWindow>& ignore) override;
   int GetNumDisplays() const override;
   const std::vector<Display>& GetAllDisplays() const override;
   Display GetDisplayNearestWindow(gfx::NativeWindow window) const override;
@@ -170,9 +176,10 @@ class DISPLAY_EXPORT ScreenWin : public Screen,
   void AddObserver(DisplayObserver* observer) override;
   void RemoveObserver(DisplayObserver* observer) override;
   gfx::Rect ScreenToDIPRectInWindow(
-      gfx::NativeView view, const gfx::Rect& screen_rect) const override;
-  gfx::Rect DIPToScreenRectInWindow(
-      gfx::NativeView view, const gfx::Rect& dip_rect) const override;
+      gfx::NativeWindow window,
+      const gfx::Rect& screen_rect) const override;
+  gfx::Rect DIPToScreenRectInWindow(gfx::NativeWindow window,
+                                    const gfx::Rect& dip_rect) const override;
 
   // ColorProfileReader::Client:
   void OnColorProfilesChanged() override;
@@ -259,8 +266,8 @@ class DISPLAY_EXPORT ScreenWin : public Screen,
   // advanced color" setting.
   bool hdr_enabled_ = false;
 
-  ScopedObserver<UwpTextScaleFactor, UwpTextScaleFactor::Observer>
-      scale_factor_observer_{this};
+  base::ScopedObservation<UwpTextScaleFactor, UwpTextScaleFactor::Observer>
+      scale_factor_observation_{this};
 
   DISALLOW_COPY_AND_ASSIGN(ScreenWin);
 };

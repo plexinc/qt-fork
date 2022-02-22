@@ -8,7 +8,7 @@
 
 #include "core/fpdfapi/page/cpdf_patterncs.h"
 #include "core/fxcrt/fx_system.h"
-#include "third_party/base/ptr_util.h"
+#include "third_party/base/check.h"
 
 CPDF_Color::CPDF_Color() = default;
 
@@ -30,7 +30,7 @@ void CPDF_Color::SetColorSpace(const RetainPtr<CPDF_ColorSpace>& pCS) {
   m_pCS = pCS;
   if (IsPatternInternal()) {
     m_Buffer.clear();
-    m_pValue = pdfium::MakeUnique<PatternValue>();
+    m_pValue = std::make_unique<PatternValue>();
   } else {
     m_Buffer = pCS->CreateBufAndSetDefaultColor();
     m_pValue.reset();
@@ -38,8 +38,8 @@ void CPDF_Color::SetColorSpace(const RetainPtr<CPDF_ColorSpace>& pCS) {
 }
 
 void CPDF_Color::SetValueForNonPattern(const std::vector<float>& values) {
-  ASSERT(!IsPatternInternal());
-  ASSERT(m_pCS->CountComponents() <= values.size());
+  DCHECK(!IsPatternInternal());
+  DCHECK(m_pCS->CountComponents() <= values.size());
   m_Buffer = values;
 }
 
@@ -60,8 +60,8 @@ CPDF_Color& CPDF_Color::operator=(const CPDF_Color& that) {
     return *this;
 
   m_Buffer = that.m_Buffer;
-  m_pValue = that.m_pValue ? pdfium::MakeUnique<PatternValue>(*that.m_pValue)
-                           : nullptr;
+  m_pValue =
+      that.m_pValue ? std::make_unique<PatternValue>(*that.m_pValue) : nullptr;
   m_pCS = that.m_pCS;
   return *this;
 }
@@ -86,7 +86,7 @@ bool CPDF_Color::GetRGB(int* R, int* G, int* B) const {
     }
   } else {
     if (!m_Buffer.empty())
-      result = m_pCS->GetRGB(m_Buffer.data(), &r, &g, &b);
+      result = m_pCS->GetRGB(m_Buffer, &r, &g, &b);
   }
   if (!result)
     return false;
@@ -98,6 +98,6 @@ bool CPDF_Color::GetRGB(int* R, int* G, int* B) const {
 }
 
 CPDF_Pattern* CPDF_Color::GetPattern() const {
-  ASSERT(IsPattern());
+  DCHECK(IsPattern());
   return m_pValue ? m_pValue->GetPattern() : nullptr;
 }

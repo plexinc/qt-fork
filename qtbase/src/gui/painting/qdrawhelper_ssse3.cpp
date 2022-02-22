@@ -47,7 +47,7 @@
 QT_BEGIN_NAMESPACE
 
 /* The instruction palignr uses direct arguments, so we have to generate the code fo the different
-   shift (4, 8, 12). Checking the alignment inside the loop is unfortunatelly way too slow.
+   shift (4, 8, 12). Checking the alignment inside the loop is unfortunately way too slow.
  */
 #define BLENDING_LOOP(palignrOffset, length)\
     for (; x-minusOffsetToAlignSrcOn16Bytes < length-7; x += 4) { \
@@ -197,7 +197,7 @@ void qt_memfill24_ssse3(quint24 *dest, quint24 color, qsizetype count)
     quint24 *end = dest + count;
 
     constexpr uchar x = 2, y = 1, z = 0;
-    Q_DECL_ALIGN(__m128i) static const uchar
+    alignas(__m128i) static const uchar
     shuffleMask[16 + 1] = { x, y, z, x,  y, z, x, y,  z, x, y, z,  x, y, z, x,  y };
 
     __m128i mval1 = _mm_shuffle_epi8(m, _mm_load_si128(reinterpret_cast<const __m128i *>(shuffleMask)));

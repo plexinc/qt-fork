@@ -39,16 +39,8 @@ struct BLINK_COMMON_EXPORT TransferableMessage : public CloneableMessage {
   // The state of user activation.
   mojom::UserActivationSnapshotPtr user_activation;
 
-  // Whether the state of user activation should be transferred to the
-  // destination frame.
-  bool transfer_user_activation = false;
-
-  // Whether the destination frame is allowed to autoplay.
-  //
-  // TODO(mustaq): Ideally the |transfer_user_activation| field above should be
-  // replaced by bits specific to "safe-to-delegate" capabilities, like the
-  // autoplay bit below.  See crbug.com/985914.
-  bool allow_autoplay = false;
+  // Whether payment request capability is delegated to the destination frame.
+  bool delegate_payment_request = false;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(TransferableMessage);

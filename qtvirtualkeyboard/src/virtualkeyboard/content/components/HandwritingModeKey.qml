@@ -27,7 +27,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
+import QtQuick
+import QtQuick.VirtualKeyboard
 
 /*!
     \qmltype HandwritingModeKey
@@ -45,10 +46,12 @@ import QtQuick 2.0
 */
 
 Key {
+    keyType: QtVirtualKeyboard.HandwritingModeKey
     key: Qt.Key_Context2
     displayText: "HWR"
     functionKey: true
-    visible: keyboard.isHandwritingAvailable()
-    onClicked: keyboard.setHandwritingMode(!keyboard.handwritingMode)
+    highlighted: true
+    visible: keyboard.isKeyboardFunctionAvailable(QtVirtualKeyboard.ToggleHandwritingMode)
+    onClicked: keyboard.doKeyboardFunction(QtVirtualKeyboard.ToggleHandwritingMode)
     keyPanelDelegate: keyboard.style ? keyboard.style.handwritingKeyPanel : undefined
 }

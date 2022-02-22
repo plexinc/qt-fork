@@ -4,6 +4,7 @@
 
 #include "ui/views/accessibility/ax_view_obj_wrapper.h"
 
+#include <string>
 #include <vector>
 
 #include "ui/accessibility/ax_action_data.h"
@@ -20,14 +21,10 @@ AXViewObjWrapper::AXViewObjWrapper(AXAuraObjCache* aura_obj_cache, View* view)
     : AXAuraObjWrapper(aura_obj_cache), view_(view) {
   if (view->GetWidget())
     aura_obj_cache_->GetOrCreate(view->GetWidget());
-  observer_.Add(view);
+  observation_.Observe(view);
 }
 
 AXViewObjWrapper::~AXViewObjWrapper() = default;
-
-bool AXViewObjWrapper::IsIgnored() {
-  return !view_ || view_->GetViewAccessibility().IsIgnored();
-}
 
 AXAuraObjWrapper* AXViewObjWrapper::GetParent() {
   if (!view_)
@@ -66,9 +63,7 @@ void AXViewObjWrapper::Serialize(ui::AXNodeData* out_node_data) {
     return;
 
   ViewAccessibility& view_accessibility = view_->GetViewAccessibility();
-
   view_accessibility.GetAccessibleNodeData(out_node_data);
-  out_node_data->id = GetUniqueId();
 
   if (view_accessibility.GetNextFocus()) {
     out_node_data->AddIntAttribute(
@@ -83,17 +78,21 @@ void AXViewObjWrapper::Serialize(ui::AXNodeData* out_node_data) {
   }
 }
 
-int32_t AXViewObjWrapper::GetUniqueId() const {
+ui::AXNodeID AXViewObjWrapper::GetUniqueId() const {
   return view_ ? view_->GetViewAccessibility().GetUniqueId()
-               : ui::AXNode::kInvalidAXID;
+               : ui::kInvalidAXNodeID;
 }
 
 bool AXViewObjWrapper::HandleAccessibleAction(const ui::AXActionData& action) {
   return view_ ? view_->HandleAccessibleAction(action) : false;
 }
 
+std::string AXViewObjWrapper::ToString() const {
+  return std::string(view_ ? view_->GetClassName() : "Null view");
+}
+
 void AXViewObjWrapper::OnViewIsDeleting(View* observed_view) {
-  observer_.RemoveAll();
+  observation_.Reset();
   view_ = nullptr;
 }
 

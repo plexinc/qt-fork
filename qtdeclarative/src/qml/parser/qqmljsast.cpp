@@ -37,9 +37,11 @@
 **
 ****************************************************************************/
 
+#include <QLocale>
 #include "qqmljsast_p.h"
 
 #include "qqmljsastvisitor_p.h"
+#include <qlocale.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -116,6 +118,44 @@ ExpressionNode *ExpressionNode::expressionCast()
     return this;
 }
 
+bool ExpressionNode::containsOptionalChain() const
+{
+    for (const Node *node = this;;) {
+        switch (node->kind) {
+        case Kind_FieldMemberExpression: {
+            const auto *fme = AST::cast<const FieldMemberExpression*>(node);
+            if (fme->isOptional)
+                return true;
+            node = fme->base;
+            break;
+        }
+        case Kind_ArrayMemberExpression: {
+            const auto *ame = AST::cast<const ArrayMemberExpression*>(node);
+            if (ame->isOptional)
+                return true;
+            node = ame->base;
+            break;
+        }
+        case Kind_CallExpression: {
+            const auto *ce = AST::cast<const CallExpression*>(node);
+            if (ce->isOptional)
+                return true;
+            node = ce->base;
+            break;
+        }
+        case Kind_NestedExpression: {
+            const auto *ne = AST::cast<const NestedExpression*>(node);
+            node = ne->expression;
+            break;
+        }
+        default:
+            // These unhandled nodes lead to invalid lvalues anyway, so they do not need to be handled here.
+            return false;
+        }
+    }
+    return false;
+}
+
 FormalParameterList *ExpressionNode::reparseAsFormalParameterList(MemoryPool *pool)
 {
     AST::ExpressionNode *expr = this;
@@ -155,6 +195,12 @@ FormalParameterList *ExpressionNode::reparseAsFormalParameterList(MemoryPool *po
 BinaryExpression *BinaryExpression::binaryExpressionCast()
 {
     return this;
+}
+
+void TypeExpression::accept0(BaseVisitor *visitor)
+{
+    visitor->visit(this);
+    visitor->endVisit(this);
 }
 
 Statement *Statement::statementCast()
@@ -1001,7 +1047,13 @@ BoundNames FormalParameterList::formals() const
                 // change the name of the earlier argument to enforce the lookup semantics from the spec
                 formals[duplicateIndex].id += QLatin1String("#") + QString::number(i);
             }
-            formals += {name, it->element->typeAnnotation};
+            formals += {
+                    name,
+                    it->element->typeAnnotation,
+                    it->element->isInjectedSignalParameter
+                        ? BoundName::Injected
+                        : BoundName::Declared
+            };
         }
         ++i;
     }
@@ -1404,7 +1456,8 @@ void PatternElement::boundNames(BoundNames *names)
         else if (PatternPropertyList *p = propertyList())
             p->boundNames(names);
     } else {
-        names->append({bindingIdentifier.toString(), typeAnnotation});
+        names->append({bindingIdentifier.toString(), typeAnnotation,
+                       isInjectedSignalParameter ? BoundName::Injected : BoundName::Declared});
     }
 }
 

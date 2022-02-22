@@ -70,7 +70,7 @@ Rectangle {
 
     Connections {
         target: device
-        onCharacteristicsUpdated: {
+        function onCharacteristicsUpdated() {
             menu.menuText = "Back"
             if (characteristicview.count === 0) {
                 info.dialogText = "No characteristic found"
@@ -81,7 +81,7 @@ Rectangle {
             }
         }
 
-        onDisconnected: {
+        function onDisconnected() {
             pageLoader.source = "main.qml"
         }
     }
@@ -98,7 +98,7 @@ Rectangle {
         delegate: Rectangle {
             id: characteristicbox
             height:300
-            width: parent.width
+            width: characteristicview.width
             color: "lightsteelblue"
             border.width: 2
             border.color: "black"

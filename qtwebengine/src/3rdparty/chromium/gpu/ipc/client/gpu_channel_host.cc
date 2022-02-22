@@ -54,9 +54,9 @@ GpuChannelHost::GpuChannelHost(int channel_id,
        i <= static_cast<int32_t>(GpuChannelReservedRoutes::kMaxValue); ++i)
     next_route_id_.GetNext();
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   gpu::SetMacOSSpecificTextureTarget(gpu_info.macos_specific_texture_target);
-#endif  // defined(OS_MACOSX)
+#endif  // defined(OS_MAC)
 }
 
 bool GpuChannelHost::Send(IPC::Message* msg) {
@@ -90,30 +90,20 @@ bool GpuChannelHost::Send(IPC::Message* msg) {
       FROM_HERE,
       base::BindOnce(&Listener::SendMessage, base::Unretained(listener_.get()),
                      std::move(message), &pending_sync));
+  base::TimeTicks start_time = base::TimeTicks::Now();
 
   // http://crbug.com/125264
   base::ScopedAllowBaseSyncPrimitivesOutsideBlockingScope allow_wait;
 
-  // TODO(magchen): crbug.com/949839. Remove this histogram and do only one
-  // done_event->Wait() after the GPU watchdog V2 is fully launched.
-  base::TimeTicks start_time = base::TimeTicks::Now();
+  pending_sync.done_event->Wait();
 
-  // The wait for event is split into two phases so we can still record the
-  // case in which the GPU hangs but not killed. Also all data should be
-  // recorded in the range of max_wait_sec seconds for easier comparison.
-  bool signaled =
-      pending_sync.done_event->TimedWait(kGpuChannelHostMaxWaitTime);
-
+  // Histogram to measure how long the browser UI thread spends blocked.
+  // Recorded only for users with high-resolution clocks.
   base::TimeDelta wait_duration = base::TimeTicks::Now() - start_time;
-
-  // Histogram of wait-for-sync time, used for monitoring the GPU watchdog.
-  UMA_HISTOGRAM_CUSTOM_TIMES("GPU.GPUChannelHostWaitTime2", wait_duration,
-                             base::TimeDelta::FromSeconds(1),
-                             kGpuChannelHostMaxWaitTime, 50);
-
-  // Continue waiting for the event if not signaled
-  if (!signaled)
-    pending_sync.done_event->Wait();
+  UMA_HISTOGRAM_CUSTOM_MICROSECONDS_TIMES("GPU.GPUChannelHostWaitTime3",
+                                          wait_duration,
+                                          base::TimeDelta::FromMicroseconds(5),
+                                          base::TimeDelta::FromSeconds(1), 50);
 
   return pending_sync.send_result;
 }
@@ -244,6 +234,10 @@ int32_t GpuChannelHost::GenerateRouteID() {
 
 void GpuChannelHost::CrashGpuProcessForTesting() {
   Send(new GpuChannelMsg_CrashForTesting());
+}
+
+void GpuChannelHost::TerminateGpuProcessForTesting() {
+  Send(new GpuChannelMsg_TerminateForTesting());
 }
 
 std::unique_ptr<ClientSharedImageInterface>

@@ -8,7 +8,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/cancelable_callback.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/sequenced_task_runner_handle.h"
@@ -38,8 +38,8 @@ class SubKeyRequest : public SubKeyRequester::Request {
         address_validator_(address_validator),
         on_subkeys_received_(std::move(on_subkeys_received)),
         has_responded_(false),
-        on_timeout_(base::BindRepeating(&SubKeyRequest::OnRulesLoaded,
-                                        base::Unretained(this))) {
+        on_timeout_(base::BindOnce(&SubKeyRequest::OnRulesLoaded,
+                                   base::Unretained(this))) {
     base::SequencedTaskRunnerHandle::Get()->PostDelayedTask(
         FROM_HERE, on_timeout_.callback(),
         base::TimeDelta::FromSeconds(timeout_seconds));
@@ -74,7 +74,7 @@ class SubKeyRequest : public SubKeyRequester::Request {
   SubKeyReceiverCallback on_subkeys_received_;
 
   bool has_responded_;
-  base::CancelableCallback<void()> on_timeout_;
+  base::CancelableOnceClosure on_timeout_;
 
   DISALLOW_COPY_AND_ASSIGN(SubKeyRequest);
 };

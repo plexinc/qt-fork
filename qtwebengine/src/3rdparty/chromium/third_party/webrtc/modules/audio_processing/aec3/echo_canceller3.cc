@@ -213,13 +213,10 @@ void CopyBufferIntoFrame(const AudioBuffer& buffer,
 EchoCanceller3Config AdjustConfig(const EchoCanceller3Config& config) {
   EchoCanceller3Config adjusted_cfg = config;
 
-  if (adjusted_cfg.filter.use_legacy_filter_naming) {
-    adjusted_cfg.filter.refined = adjusted_cfg.filter.main;
-    adjusted_cfg.filter.refined_initial = adjusted_cfg.filter.main_initial;
-    adjusted_cfg.filter.coarse = adjusted_cfg.filter.shadow;
-    adjusted_cfg.filter.coarse_initial = adjusted_cfg.filter.shadow_initial;
-    adjusted_cfg.filter.enable_coarse_filter_output_usage =
-        adjusted_cfg.filter.enable_shadow_filter_output_usage;
+  if (field_trial::IsEnabled("WebRTC-Aec3AntiHowlingMinimizationKillSwitch")) {
+    adjusted_cfg.suppressor.high_bands_suppression
+        .anti_howling_activation_threshold = 25.f;
+    adjusted_cfg.suppressor.high_bands_suppression.anti_howling_gain = 0.01f;
   }
 
   if (field_trial::IsEnabled("WebRTC-Aec3UseShortConfigChangeDuration")) {
@@ -252,6 +249,10 @@ EchoCanceller3Config AdjustConfig(const EchoCanceller3Config& config) {
   } else if (field_trial::IsEnabled(
                  "WebRTC-Aec3Use2Dot0SecondsInitialStateDuration")) {
     adjusted_cfg.filter.initial_state_seconds = 2.0f;
+  }
+
+  if (field_trial::IsEnabled("WebRTC-Aec3HighPassFilterEchoReference")) {
+    adjusted_cfg.filter.high_pass_filter_echo_reference = true;
   }
 
   if (field_trial::IsEnabled("WebRTC-Aec3EchoSaturationDetectionKillSwitch")) {
@@ -371,6 +372,10 @@ EchoCanceller3Config AdjustConfig(const EchoCanceller3Config& config) {
     adjusted_cfg.suppressor.nearend_tuning.max_dec_factor_lf = .2f;
   }
 
+  if (field_trial::IsEnabled("WebRTC-Aec3EnforceConservativeHfSuppression")) {
+    adjusted_cfg.suppressor.conservative_hf_suppression = true;
+  }
+
   if (field_trial::IsEnabled("WebRTC-Aec3EnforceStationarityProperties")) {
     adjusted_cfg.echo_audibility.use_stationarity_properties = true;
   }
@@ -385,6 +390,10 @@ EchoCanceller3Config AdjustConfig(const EchoCanceller3Config& config) {
   } else if (field_trial::IsEnabled(
                  "WebRTC-Aec3EnforceVeryLowActiveRenderLimit")) {
     adjusted_cfg.render_levels.active_render_limit = 30.f;
+  }
+
+  if (field_trial::IsEnabled("WebRTC-Aec3NonlinearModeReverbKillSwitch")) {
+    adjusted_cfg.echo_model.model_reverb_in_nonlinear_mode = false;
   }
 
   // Field-trial based override for the whole suppressor tuning.
@@ -569,10 +578,16 @@ EchoCanceller3Config AdjustConfig(const EchoCanceller3Config& config) {
 class EchoCanceller3::RenderWriter {
  public:
   RenderWriter(ApmDataDumper* data_dumper,
+               const EchoCanceller3Config& config,
                SwapQueue<std::vector<std::vector<std::vector<float>>>,
                          Aec3RenderQueueItemVerifier>* render_transfer_queue,
                size_t num_bands,
                size_t num_channels);
+
+  RenderWriter() = delete;
+  RenderWriter(const RenderWriter&) = delete;
+  RenderWriter& operator=(const RenderWriter&) = delete;
+
   ~RenderWriter();
   void Insert(const AudioBuffer& input);
 
@@ -580,15 +595,15 @@ class EchoCanceller3::RenderWriter {
   ApmDataDumper* data_dumper_;
   const size_t num_bands_;
   const size_t num_channels_;
-  HighPassFilter high_pass_filter_;
+  std::unique_ptr<HighPassFilter> high_pass_filter_;
   std::vector<std::vector<std::vector<float>>> render_queue_input_frame_;
   SwapQueue<std::vector<std::vector<std::vector<float>>>,
             Aec3RenderQueueItemVerifier>* render_transfer_queue_;
-  RTC_DISALLOW_IMPLICIT_CONSTRUCTORS(RenderWriter);
 };
 
 EchoCanceller3::RenderWriter::RenderWriter(
     ApmDataDumper* data_dumper,
+    const EchoCanceller3Config& config,
     SwapQueue<std::vector<std::vector<std::vector<float>>>,
               Aec3RenderQueueItemVerifier>* render_transfer_queue,
     size_t num_bands,
@@ -596,7 +611,6 @@ EchoCanceller3::RenderWriter::RenderWriter(
     : data_dumper_(data_dumper),
       num_bands_(num_bands),
       num_channels_(num_channels),
-      high_pass_filter_(16000, num_channels),
       render_queue_input_frame_(
           num_bands_,
           std::vector<std::vector<float>>(
@@ -604,6 +618,9 @@ EchoCanceller3::RenderWriter::RenderWriter(
               std::vector<float>(AudioBuffer::kSplitBandSize, 0.f))),
       render_transfer_queue_(render_transfer_queue) {
   RTC_DCHECK(data_dumper);
+  if (config.filter.high_pass_filter_echo_reference) {
+    high_pass_filter_ = std::make_unique<HighPassFilter>(16000, num_channels);
+  }
 }
 
 EchoCanceller3::RenderWriter::~RenderWriter() = default;
@@ -622,7 +639,9 @@ void EchoCanceller3::RenderWriter::Insert(const AudioBuffer& input) {
 
   CopyBufferIntoFrame(input, num_bands_, num_channels_,
                       &render_queue_input_frame_);
-  high_pass_filter_.Process(&render_queue_input_frame_[0]);
+  if (high_pass_filter_) {
+    high_pass_filter_->Process(&render_queue_input_frame_[0]);
+  }
 
   static_cast<void>(render_transfer_queue_->Insert(&render_queue_input_frame_));
 }
@@ -695,7 +714,7 @@ EchoCanceller3::EchoCanceller3(const EchoCanceller3Config& config,
         config_.delay.fixed_capture_delay_samples));
   }
 
-  render_writer_.reset(new RenderWriter(data_dumper_.get(),
+  render_writer_.reset(new RenderWriter(data_dumper_.get(), config_,
                                         &render_transfer_queue_, num_bands_,
                                         num_render_channels_));
 

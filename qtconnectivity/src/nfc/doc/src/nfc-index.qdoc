@@ -1,7 +1,7 @@
 /****************************************************************************
 **
 ** Copyright (C) 2013 Aaron McCarthy <mccarthy.aaron@gmail.com>
-** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -34,8 +34,7 @@
 
 The NFC API provides connectivity between NFC enabled devices.
 
-Currently the API is supported on \l{Qt for Android}{Android},
-and \l{Qt for Linux/X11}{Linux} using \l {https://01.org/linux-nfc}{Neard} v0.14 or later.
+Currently the API is supported on \l{Qt for Android}{Android} and \l{Qt for iOS}{iOS}.
 
 \section1 Overview
 
@@ -47,18 +46,25 @@ The NFC API provides APIs for interacting with NFC Forum Tags and NFC Forum Devi
 target detection and loss, registering NDEF message handlers, reading and writing NDEF messages
 on NFC Forum Tags and sending tag specific commands.
 
+\include module-use.qdocinc using qt module
 
-\section1 Getting Started
+\badcode
+find_package(Qt6 COMPONENTS Nfc REQUIRED)
+target_link_libraries(mytarget PRIVATE Qt::Nfc)
+\endcode
 
-To use the C++ library in your application, add the following configuration
-option to your \c .pro file:
+See also the \l {Build with CMake} overview.
 
-\snippet snippets.pro project modification
+\include module-use.qdocinc building with qmake
 
-To use the classes of the module in your application you need the following
-import statement in your \c .qml file:
+\badcode
+QT += nfc
+\endcode
 
-\snippet doc_src_qtnfc.qml import
+\section1 Module Evolution
+
+\l {Changes to Qt NFC} lists important changes in the module API and
+functionality that were done for the Qt 6 series of Qt.
 
 \section1 Licenses
 
@@ -74,35 +80,16 @@ See \l{Qt Licensing} for further details.
 \section2 Guides
 \list
     \li \l {Qt NFC Overview}
+    \li \l {Qt NFC on Android}
 \endlist
 
 \section2 Reference
 \list
-    \li \l {Qt NFC QML Types}{QML Types}
     \li \l {Qt NFC C++ Classes}{C++ Classes}
 \endlist
 
-\section2 Logging Categories
-
-The \l QtNfc module exports the following
-\l {Configuring Categories}{logging categories}:
-
-\table
-\header
-    \li Logging Category
-    \li Description
-\row
-    \li qt.nfc.neard
-    \li Enables logging of the Neard/Linux implementation
-\endtable
-
 \section2 Examples
 \list
-    \li QML
-    \list
-        \li \l {corkboard}{CorkBoard}
-        \li \l {poster}{QML Poster}
-    \endlist
     \li C++
     \list
         \li \l {annotatedurl}{Annotated URL}

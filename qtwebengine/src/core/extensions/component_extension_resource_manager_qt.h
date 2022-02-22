@@ -47,9 +47,9 @@
 #include <map>
 
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "extensions/browser/component_extension_resource_manager.h"
-
-struct GritResourceMap;
+#include "ui/base/webui/resource_path.h"
 
 namespace extensions {
 
@@ -66,11 +66,14 @@ public:
     const ui::TemplateReplacements *GetTemplateReplacementsForExtension(const std::string &extension_id) const override;
 
 private:
-    void AddComponentResourceEntries(const GritResourceMap *entries, size_t size);
+    void AddComponentResourceEntries(const webui::ResourcePath *entries, size_t size);
 
     // A map from a resource path to the resource ID.  Used by
     // IsComponentExtensionResource.
     std::map<base::FilePath, int> path_to_resource_id_;
+
+    // A map from an extension ID to its i18n template replacements.
+    std::map<std::string, ui::TemplateReplacements> template_replacements_;
 
     DISALLOW_COPY_AND_ASSIGN(ComponentExtensionResourceManagerQt);
 };

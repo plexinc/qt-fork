@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2019 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Copyright (C) 2013 Konstantin Ritt
 ** Contact: https://www.qt.io/licensing/
 **
@@ -41,7 +41,6 @@
 #include "qharfbuzzng_p.h"
 
 #include <qstring.h>
-#include <qvector.h>
 
 #include <private/qstringiterator_p.h>
 
@@ -82,7 +81,7 @@ static const hb_script_t _qtscript_to_hbscript[] = {
     HB_SCRIPT_HANGUL,
     HB_SCRIPT_ETHIOPIC,
     HB_SCRIPT_CHEROKEE,
-    HB_SCRIPT_CANADIAN_ABORIGINAL,
+    HB_SCRIPT_CANADIAN_SYLLABICS,
     HB_SCRIPT_OGHAM,
     HB_SCRIPT_RUNIC,
     HB_SCRIPT_KHMER,
@@ -218,26 +217,35 @@ static const hb_script_t _qtscript_to_hbscript[] = {
     HB_SCRIPT_SOYOMBO,
     HB_SCRIPT_ZANABAZAR_SQUARE,
 
-    // Unicode 12.1 additions (not present in harfbuzz-ng 1.7.4)
-    hb_script_t(HB_TAG('D', 'o', 'g', 'r')), // Script_Dogra
-    hb_script_t(HB_TAG('G', 'o', 'n', 'g')), // Script_GunjalaGondi
-    hb_script_t(HB_TAG('R', 'o', 'h', 'g')), // Script_HanifiRohingya
-    hb_script_t(HB_TAG('M', 'a', 'k', 'a')), // Script_Makasar
-    hb_script_t(HB_TAG('M', 'e', 'd', 'f')), // Script_Medefaidrin
-    hb_script_t(HB_TAG('S', 'o', 'g', 'o')), // Script_OldSogdian
-    hb_script_t(HB_TAG('S', 'o', 'g', 'd')), // Script_Sogdian
-    hb_script_t(HB_TAG('E', 'l', 'y', 'm')), // Script_Elymaic
-    hb_script_t(HB_TAG('N', 'a', 'n', 'd')), // Script_Nandinagari
-    hb_script_t(HB_TAG('H', 'm', 'n', 'p')), // Script_NyiakengPuachueHmong
-    hb_script_t(HB_TAG('W', 'c', 'h', 'o')), // Script_Wancho
+    // Unicode 11.0 additions
+    HB_SCRIPT_DOGRA,
+    HB_SCRIPT_GUNJALA_GONDI,
+    HB_SCRIPT_HANIFI_ROHINGYA,
+    HB_SCRIPT_MAKASAR,
+    HB_SCRIPT_MEDEFAIDRIN,
+    HB_SCRIPT_OLD_SOGDIAN,
+    HB_SCRIPT_SOGDIAN,
 
-    // Unicode 13.0 additions (as above)
-    hb_script_t(HB_TAG('C', 'h', 'o', 'r')), // Script_Chorasmian
-    hb_script_t(HB_TAG('D', 'i', 'v', 'e')), // Script_DivesAkuru
-    hb_script_t(HB_TAG('K', 'h', 'i', 't')), // Script_KhitanSmallScript
+    // Unicode 12.0 additions
+    HB_SCRIPT_ELYMAIC,
+    HB_SCRIPT_NANDINAGARI,
+    HB_SCRIPT_NYIAKENG_PUACHUE_HMONG,
+    HB_SCRIPT_WANCHO,
+
+    // Unicode 13.0 additions (not present in harfbuzz-ng 2.6.6 and earlier)
+#if !HB_VERSION_ATLEAST(2, 6, 7)
+    hb_script_t(HB_TAG('C', 'h', 'r', 's')), // Script_Chorasmian
+    hb_script_t(HB_TAG('D', 'i', 'a', 'k')), // Script_DivesAkuru
+    hb_script_t(HB_TAG('K', 'i', 't', 's')), // Script_KhitanSmallScript
     hb_script_t(HB_TAG('Y', 'e', 'z', 'i')), // Script_Yezidi
+#else
+    HB_SCRIPT_CHORASMIAN,
+    HB_SCRIPT_DIVES_AKURU,
+    HB_SCRIPT_KHITAN_SMALL_SCRIPT,
+    HB_SCRIPT_YEZIDI
+#endif
 };
-Q_STATIC_ASSERT(QChar::ScriptCount == sizeof(_qtscript_to_hbscript) / sizeof(_qtscript_to_hbscript[0]));
+static_assert(QChar::ScriptCount == sizeof(_qtscript_to_hbscript) / sizeof(_qtscript_to_hbscript[0]));
 
 hb_script_t hb_qt_script_to_script(QChar::Script script)
 {
@@ -259,15 +267,6 @@ _hb_qt_unicode_combining_class(hb_unicode_funcs_t * /*ufuncs*/,
                                void * /*user_data*/)
 {
     return hb_unicode_combining_class_t(QChar::combiningClass(unicode));
-}
-
-static unsigned int
-_hb_qt_unicode_eastasian_width(hb_unicode_funcs_t * /*ufuncs*/,
-                               hb_codepoint_t /*unicode*/,
-                               void * /*user_data*/)
-{
-    qCritical("hb_qt_unicode_eastasian_width: not implemented!");
-    return 1;
 }
 
 static const hb_unicode_general_category_t _qtcategory_to_hbcategory[] = {
@@ -340,7 +339,10 @@ _hb_qt_unicode_compose(hb_unicode_funcs_t * /*ufuncs*/,
                        void * /*user_data*/)
 {
     // ### optimize
-    QString s = QString::fromUcs4(&a, 1) + QString::fromUcs4(&b, 1);
+    QString s;
+    s.reserve(4);
+    s += QChar::fromUcs4(a);
+    s += QChar::fromUcs4(b);
     QString normalized = s.normalized(QString::NormalizationForm_C);
 
     QStringIterator it(normalized);
@@ -405,37 +407,17 @@ _hb_qt_unicode_decompose(hb_unicode_funcs_t * /*ufuncs*/,
     return true;
 }
 
-static unsigned int
-_hb_qt_unicode_decompose_compatibility(hb_unicode_funcs_t * /*ufuncs*/,
-                                       hb_codepoint_t u,
-                                       hb_codepoint_t *decomposed,
-                                       void * /*user_data*/)
-{
-    const QString normalized = QChar::decomposition(u);
-
-    uint outlen = 0;
-    QStringIterator it(normalized);
-    while (it.hasNext()) {
-        Q_ASSERT(outlen < HB_UNICODE_MAX_DECOMPOSITION_LEN);
-        decomposed[outlen++] = it.next();
-    }
-
-    return outlen;
-}
-
 
 struct _hb_unicode_funcs_t {
     _hb_unicode_funcs_t()
     {
         funcs = hb_unicode_funcs_create(NULL);
         hb_unicode_funcs_set_combining_class_func(funcs, _hb_qt_unicode_combining_class, NULL, NULL);
-        hb_unicode_funcs_set_eastasian_width_func(funcs, _hb_qt_unicode_eastasian_width, NULL, NULL);
         hb_unicode_funcs_set_general_category_func(funcs, _hb_qt_unicode_general_category, NULL, NULL);
         hb_unicode_funcs_set_mirroring_func(funcs, _hb_qt_unicode_mirroring, NULL, NULL);
         hb_unicode_funcs_set_script_func(funcs, _hb_qt_unicode_script, NULL, NULL);
         hb_unicode_funcs_set_compose_func(funcs, _hb_qt_unicode_compose, NULL, NULL);
         hb_unicode_funcs_set_decompose_func(funcs, _hb_qt_unicode_decompose, NULL, NULL);
-        hb_unicode_funcs_set_decompose_compatibility_func(funcs, _hb_qt_unicode_decompose_compatibility, NULL, NULL);
     }
     ~_hb_unicode_funcs_t()
     {
@@ -619,11 +601,6 @@ struct _hb_qt_font_funcs_t {
 
 Q_GLOBAL_STATIC(_hb_qt_font_funcs_t, qt_ffuncs)
 
-hb_font_funcs_t *hb_qt_get_font_funcs()
-{
-    return qt_ffuncs()->funcs;
-}
-
 
 static hb_blob_t *
 _hb_qt_reference_table(hb_face_t * /*face*/, hb_tag_t tag, void *user_data)
@@ -639,13 +616,14 @@ _hb_qt_reference_table(hb_face_t * /*face*/, hb_tag_t tag, void *user_data)
         return hb_blob_get_empty();
 
     char *buffer = static_cast<char *>(malloc(length));
-    Q_CHECK_PTR(buffer);
+    if (q_check_ptr(buffer) == nullptr)
+        return nullptr;
 
     if (Q_UNLIKELY(!get_font_table(data->user_data, tag, reinterpret_cast<uchar *>(buffer), &length)))
-        length = 0;
+        return nullptr;
 
     return hb_blob_create(const_cast<const char *>(buffer), length,
-                          HB_MEMORY_MODE_READONLY,
+                          HB_MEMORY_MODE_WRITABLE,
                           buffer, free);
 }
 
@@ -658,10 +636,6 @@ _hb_qt_face_create(QFontEngine *fe)
     data->get_font_table = fe->faceData.get_font_table;
 
     hb_face_t *face = hb_face_create_for_tables(_hb_qt_reference_table, (void *)data, free);
-    if (Q_UNLIKELY(hb_face_is_immutable(face))) {
-        hb_face_destroy(face);
-        return NULL;
-    }
 
     hb_face_set_index(face, fe->faceId().index);
     hb_face_set_upem(face, fe->emSquareSize().truncate());
@@ -672,8 +646,7 @@ _hb_qt_face_create(QFontEngine *fe)
 static void
 _hb_qt_face_release(void *user_data)
 {
-    if (Q_LIKELY(user_data))
-        hb_face_destroy(static_cast<hb_face_t *>(user_data));
+    hb_face_destroy(static_cast<hb_face_t *>(user_data));
 }
 
 hb_face_t *hb_qt_face_get_for_engine(QFontEngine *fe)
@@ -691,20 +664,13 @@ static inline hb_font_t *
 _hb_qt_font_create(QFontEngine *fe)
 {
     hb_face_t *face = hb_qt_face_get_for_engine(fe);
-    if (Q_UNLIKELY(!face))
-        return NULL;
 
     hb_font_t *font = hb_font_create(face);
-
-    if (Q_UNLIKELY(hb_font_is_immutable(font))) {
-        hb_font_destroy(font);
-        return NULL;
-    }
 
     const qreal y_ppem = fe->fontDef.pixelSize;
     const qreal x_ppem = (fe->fontDef.pixelSize * fe->fontDef.stretch) / 100.0;
 
-    hb_font_set_funcs(font, hb_qt_get_font_funcs(), (void *)fe, NULL);
+    hb_font_set_funcs(font, qt_ffuncs()->funcs, fe, nullptr);
     hb_font_set_scale(font, QFixed::fromReal(x_ppem).value(), -QFixed::fromReal(y_ppem).value());
     hb_font_set_ppem(font, int(x_ppem), int(y_ppem));
 
@@ -716,8 +682,7 @@ _hb_qt_font_create(QFontEngine *fe)
 static void
 _hb_qt_font_release(void *user_data)
 {
-    if (Q_LIKELY(user_data))
-        hb_font_destroy(static_cast<hb_font_t *>(user_data));
+    hb_font_destroy(static_cast<hb_font_t *>(user_data));
 }
 
 hb_font_t *hb_qt_font_get_for_engine(QFontEngine *fe)

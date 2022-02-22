@@ -24,6 +24,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_HTML_FORMS_HTML_BUTTON_ELEMENT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_FORMS_HTML_BUTTON_ELEMENT_H_
 
+#include "third_party/blink/renderer/core/dom/events/simulated_click_options.h"
 #include "third_party/blink/renderer/core/html/forms/html_form_control_element.h"
 
 namespace blink {
@@ -60,7 +61,6 @@ class HTMLButtonElement final : public HTMLFormControlElement {
 
   bool IsEnumeratable() const override { return true; }
   bool IsLabelable() const override { return true; }
-  bool TypeShouldForceLegacyLayout() const final { return true; }
   bool IsInteractiveContent() const override;
   bool MatchesDefaultPseudoClass() const override;
 
@@ -68,7 +68,7 @@ class HTMLButtonElement final : public HTMLFormControlElement {
   bool IsActivatedSubmit() const override;
   void SetActivatedSubmit(bool flag) override;
 
-  void AccessKeyAction(bool send_mouse_events) override;
+  void AccessKeyAction(SimulatedClickCreationScope creation_scope) override;
   bool IsURLAttribute(const Attribute&) const override;
 
   bool CanStartSelection() const override { return false; }

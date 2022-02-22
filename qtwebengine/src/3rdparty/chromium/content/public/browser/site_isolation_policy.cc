@@ -114,19 +114,42 @@ bool SiteIsolationPolicy::IsErrorPageIsolationEnabled(bool in_main_frame) {
 }
 
 // static
-bool SiteIsolationPolicy::ShouldPdfCompositorBeEnabledForOopifs() {
-  // TODO(weili): We only create pdf compositor client and use pdf compositor
-  // service when site-per-process or isolate-origins flag/feature is enabled,
-  // or top-document-isolation feature is enabled. This may not cover all cases
-  // where OOPIF is used such as isolate-extensions, but should be good for
-  // feature testing purpose. Eventually, we will remove this check and use pdf
-  // compositor service by default for printing.
-  return AreIsolatedOriginsEnabled() || UseDedicatedProcessesForAllSites();
+bool SiteIsolationPolicy::AreDynamicIsolatedOriginsEnabled() {
+  return !IsSiteIsolationDisabled();
 }
 
 // static
-bool SiteIsolationPolicy::AreDynamicIsolatedOriginsEnabled() {
-  return !IsSiteIsolationDisabled();
+bool SiteIsolationPolicy::ArePreloadedIsolatedOriginsEnabled() {
+  if (IsSiteIsolationDisabled())
+    return false;
+
+  // Currently, preloaded isolated origins are redundant when full site
+  // isolation is enabled.  This may be true on Android if full site isolation
+  // is enabled manually or via field trials.
+  if (UseDedicatedProcessesForAllSites())
+    return false;
+
+  return true;
+}
+
+// static
+bool SiteIsolationPolicy::IsProcessIsolationForOriginAgentClusterEnabled() {
+  // If strict site isolation is in use (either by default on desktop or via a
+  // user opt-in on Android), unconditionally enable opt-in origin isolation.
+  if (UseDedicatedProcessesForAllSites())
+    return true;
+
+  // Otherwise, if site isolation is disabled (e.g., on Android due to being
+  // under a memory threshold), turn off opt-in origin isolation.
+  if (IsSiteIsolationDisabled())
+    return false;
+
+  return IsOriginAgentClusterEnabled();
+}
+
+// static
+bool SiteIsolationPolicy::IsOriginAgentClusterEnabled() {
+  return base::FeatureList::IsEnabled(features::kOriginIsolationHeader);
 }
 
 // static

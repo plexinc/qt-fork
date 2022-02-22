@@ -47,7 +47,7 @@
 #include "private/qtldurl_p.h"
 #else
 QT_BEGIN_NAMESPACE
-static bool qIsEffectiveTLD(QString domain)
+static bool qIsEffectiveTLD(QStringView domain)
 {
     // provide minimal checking by not accepting cookies on real TLDs
     return !domain.contains(QLatin1Char('.'));
@@ -154,12 +154,12 @@ static inline bool isParentPath(const QString &path, const QString &reference)
             return true;
         //The cookie-path is a prefix of the request-path, and the last
         //character of the cookie-path is %x2F ("/").
-        if (reference.endsWith('/'))
+        if (reference.endsWith(u'/'))
             return true;
         //The cookie-path is a prefix of the request-path, and the first
         //character of the request-path that is not included in the cookie-
         //path is a %x2F ("/") character.
-        if (path.at(reference.length()) == '/')
+        if (path.at(reference.length()) == u'/')
             return true;
     }
     return false;
@@ -170,7 +170,7 @@ static inline bool isParentDomain(const QString &domain, const QString &referenc
     if (!reference.startsWith(QLatin1Char('.')))
         return domain == reference;
 
-    return domain.endsWith(reference) || domain == reference.midRef(1);
+    return domain.endsWith(reference) || domain == QStringView{reference}.mid(1);
 }
 
 /*!

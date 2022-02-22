@@ -84,6 +84,7 @@ class Q_QUICKPARTICLES_PRIVATE_EXPORT QQuickParticleEmitter : public QQuickItem
     Q_PROPERTY(QQuickDirection *acceleration READ acceleration WRITE setAcceleration NOTIFY accelerationChanged)
     Q_PROPERTY(qreal velocityFromMovement READ velocityFromMovement WRITE setVelocityFromMovement NOTIFY velocityFromMovementChanged)
     QML_NAMED_ELEMENT(Emitter)
+    QML_ADDED_IN_VERSION(2, 0)
 
 public:
     explicit QQuickParticleEmitter(QQuickItem *parent = 0);
@@ -340,7 +341,6 @@ protected:
        qreal m_particleEndSize;
        qreal m_particleSizeVariation;
 
-       qreal m_velocityFromMovement;
        int m_startTime;
        bool m_overwrite;
 
@@ -358,7 +358,6 @@ protected:
 
        QPointF m_last_emitter;
        QPointF m_last_last_emitter;
-       QPointF m_last_last_last_emitter;
 
        bool isEmitConnected();
 

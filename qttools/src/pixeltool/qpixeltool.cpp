@@ -29,7 +29,6 @@
 #include "qpixeltool.h"
 
 #include <qapplication.h>
-#include <qdesktopwidget.h>
 #include <qdir.h>
 #include <qapplication.h>
 #include <qscreen.h>
@@ -109,9 +108,11 @@ void QPixelTool::timerEvent(QTimerEvent *event)
         grabScreen();
     } else if (event->timerId() == m_displayZoomId) {
         killTimer(m_displayZoomId);
+        m_displayZoomId = 0;
         setZoomVisible(false);
     } else if (event->timerId() == m_displayGridSizeId) {
         killTimer(m_displayGridSizeId);
+        m_displayGridSizeId = 0;
         m_displayGridSize = false;
     }
 }
@@ -230,8 +231,7 @@ void QPixelTool::paintEvent(QPaintEvent *)
         }
     }
 
-    QFont f(QLatin1String("courier"));
-    f.setBold(true);
+    QFont f(QStringList{u"courier"_qs}, -1, QFont::Bold);
     p.setFont(f);
 
     if (m_displayZoom) {
@@ -349,8 +349,9 @@ void QPixelTool::mouseMoveEvent(QMouseEvent *e)
     if (m_mouseDown)
         m_dragCurrent = e->pos();
 
-    int x = e->x() / m_zoom;
-    int y = e->y() / m_zoom;
+    const auto pos = e->position().toPoint();
+    const int x = pos.x() / m_zoom;
+    const int y = pos.y() / m_zoom;
 
     QImage im = m_buffer.toImage().convertToFormat(QImage::Format_ARGB32);
     if (x < im.width() && y < im.height() && x >= 0 && y >= 0) {
@@ -534,9 +535,8 @@ void QPixelTool::grabScreen()
     int y = mousePos.y() - h/2;
 
     const QBrush darkBrush = palette().color(QPalette::Dark);
-    const QDesktopWidget *desktopWidget = QApplication::desktop();
     if (QScreen *screen = this->screen()) {
-        m_buffer = screen->grabWindow(desktopWidget->winId(), x, y, w, h);
+        m_buffer = screen->grabWindow(0, x, y, w, h);
     } else {
         m_buffer = QPixmap(w, h);
         m_buffer.fill(darkBrush.color());
@@ -564,9 +564,8 @@ void QPixelTool::grabScreen()
 
 void QPixelTool::startZoomVisibleTimer()
 {
-    if (m_displayZoomId > 0) {
+    if (m_displayZoomId > 0)
         killTimer(m_displayZoomId);
-    }
     m_displayZoomId = startTimer(5000);
     setZoomVisible(true);
 }

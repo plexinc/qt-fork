@@ -53,7 +53,7 @@
 
 #include "qeglfsglobal_p.h"
 #include "qeglfscursor_p.h"
-#include <QtEglSupport/private/qeglplatformcontext_p.h>
+#include <QtGui/private/qeglplatformcontext_p.h>
 #include <QtCore/QVariant>
 
 QT_BEGIN_NAMESPACE
@@ -61,8 +61,10 @@ QT_BEGIN_NAMESPACE
 class Q_EGLFS_EXPORT QEglFSContext : public QEGLPlatformContext
 {
 public:
+    using QEGLPlatformContext::QEGLPlatformContext;
+    QEglFSContext() = default; // workaround for INTEGRITY compiler
     QEglFSContext(const QSurfaceFormat &format, QPlatformOpenGLContext *share, EGLDisplay display,
-                  EGLConfig *config, const QVariant &nativeHandle);
+                  EGLConfig *config);
     EGLSurface eglSurfaceForPlatformSurface(QPlatformSurface *surface) override;
     EGLSurface createTemporaryOffscreenSurface() override;
     void destroyTemporaryOffscreenSurface(EGLSurface surface) override;
@@ -72,7 +74,7 @@ public:
     QEglFSCursorData cursorData;
 
 private:
-    EGLNativeWindowType m_tempWindow;
+    EGLNativeWindowType m_tempWindow = 0;
 };
 
 QT_END_NAMESPACE

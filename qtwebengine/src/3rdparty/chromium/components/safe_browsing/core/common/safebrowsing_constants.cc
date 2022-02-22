@@ -14,15 +14,15 @@ const base::FilePath::CharType kSafeBrowsingBaseFilename[] =
 
 const base::FilePath::CharType kCookiesFile[] = FILE_PATH_LITERAL(" Cookies");
 
-// The URL for the Safe Browsing page.
-const char kSafeBrowsingUrl[] = "https://safebrowsing.google.com/";
-
 const char kCustomCancelReasonForURLLoader[] = "SafeBrowsing";
 
-int GetNetErrorCodeForSafeBrowsing() {
-  return base::FeatureList::IsEnabled(safe_browsing::kCommittedSBInterstitials)
-             ? net::ERR_BLOCKED_BY_CLIENT
-             : net::ERR_ABORTED;
+const int kNetErrorCodeForSafeBrowsing = net::ERR_BLOCKED_BY_CLIENT;
+
+const char kSafeBrowsingEnabledHistogramName[] = "SafeBrowsing.Pref.General";
+
+const std::vector<std::string> GetExcludedCountries() {
+  // Safe Browsing endpoint doesn't exist.
+  return {"cn"};
 }
 
 }  // namespace safe_browsing

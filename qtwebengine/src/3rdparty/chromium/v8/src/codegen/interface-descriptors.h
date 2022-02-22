@@ -20,89 +20,118 @@ namespace internal {
   BUILTIN_LIST_FROM_TORQUE(IGNORE_BUILTIN, IGNORE_BUILTIN, V, IGNORE_BUILTIN, \
                            IGNORE_BUILTIN, IGNORE_BUILTIN)
 
-#define INTERFACE_DESCRIPTOR_LIST(V)  \
-  V(Abort)                            \
-  V(Allocate)                         \
-  V(AllocateHeapNumber)               \
-  V(ApiCallback)                      \
-  V(ApiGetter)                        \
-  V(ArgumentsAdaptor)                 \
-  V(ArrayConstructor)                 \
-  V(ArrayNArgumentsConstructor)       \
-  V(ArrayNoArgumentConstructor)       \
-  V(ArraySingleArgumentConstructor)   \
-  V(AsyncFunctionStackParameter)      \
-  V(BigIntToI64)                      \
-  V(BigIntToI32Pair)                  \
-  V(I64ToBigInt)                      \
-  V(I32PairToBigInt)                  \
-  V(BinaryOp)                         \
-  V(CallForwardVarargs)               \
-  V(CallFunctionTemplate)             \
-  V(CallTrampoline)                   \
-  V(CallVarargs)                      \
-  V(CallWithArrayLike)                \
-  V(CallWithSpread)                   \
-  V(CEntry1ArgvOnStack)               \
-  V(CloneObjectWithVector)            \
-  V(Compare)                          \
-  V(ConstructForwardVarargs)          \
-  V(ConstructStub)                    \
-  V(ConstructVarargs)                 \
-  V(ConstructWithArrayLike)           \
-  V(ConstructWithSpread)              \
-  V(ContextOnly)                      \
-  V(CppBuiltinAdaptor)                \
-  V(EphemeronKeyBarrier)              \
-  V(FastNewFunctionContext)           \
-  V(FastNewObject)                    \
-  V(FrameDropperTrampoline)           \
-  V(GetIteratorStackParameter)        \
-  V(GetProperty)                      \
-  V(GrowArrayElements)                \
-  V(InterpreterCEntry1)               \
-  V(InterpreterCEntry2)               \
-  V(InterpreterDispatch)              \
-  V(InterpreterPushArgsThenCall)      \
-  V(InterpreterPushArgsThenConstruct) \
-  V(JSTrampoline)                     \
-  V(Load)                             \
-  V(LoadGlobal)                       \
-  V(LoadGlobalNoFeedback)             \
-  V(LoadNoFeedback)                   \
-  V(LoadGlobalWithVector)             \
-  V(LoadWithVector)                   \
-  V(NewArgumentsElements)             \
-  V(NoContext)                        \
-  V(RecordWrite)                      \
-  V(ResumeGenerator)                  \
-  V(RunMicrotasksEntry)               \
-  V(RunMicrotasks)                    \
-  V(Store)                            \
-  V(StoreGlobal)                      \
-  V(StoreGlobalWithVector)            \
-  V(StoreTransition)                  \
-  V(StoreWithVector)                  \
-  V(StringAt)                         \
-  V(StringAtAsString)                 \
-  V(StringSubstring)                  \
-  V(TypeConversion)                   \
-  V(TypeConversionStackParameter)     \
-  V(Typeof)                           \
-  V(Void)                             \
-  V(WasmAtomicNotify)                 \
-  V(WasmI32AtomicWait32)              \
-  V(WasmI32AtomicWait64)              \
-  V(WasmI64AtomicWait32)              \
-  V(WasmI64AtomicWait64)              \
-  V(WasmMemoryGrow)                   \
-  V(WasmTableInit)                    \
-  V(WasmTableCopy)                    \
-  V(WasmTableGet)                     \
-  V(WasmTableSet)                     \
-  V(WasmThrow)                        \
-  BUILTIN_LIST_TFS(V)                 \
+#define INTERFACE_DESCRIPTOR_LIST(V)     \
+  V(Abort)                               \
+  V(Allocate)                            \
+  V(ApiCallback)                         \
+  V(ApiGetter)                           \
+  V(ArrayConstructor)                    \
+  V(ArrayNArgumentsConstructor)          \
+  V(ArrayNoArgumentConstructor)          \
+  V(ArraySingleArgumentConstructor)      \
+  V(AsyncFunctionStackParameter)         \
+  V(BigIntToI32Pair)                     \
+  V(BigIntToI64)                         \
+  V(BinaryOp)                            \
+  V(BinaryOp_Baseline)                   \
+  V(BinaryOp_WithFeedback)               \
+  V(CallForwardVarargs)                  \
+  V(CallFunctionTemplate)                \
+  V(CallTrampoline)                      \
+  V(CallTrampoline_Baseline)             \
+  V(CallTrampoline_WithFeedback)         \
+  V(CallVarargs)                         \
+  V(CallWithArrayLike)                   \
+  V(CallWithArrayLike_WithFeedback)      \
+  V(CallWithSpread)                      \
+  V(CallWithSpread_Baseline)             \
+  V(CallWithSpread_WithFeedback)         \
+  V(CEntry1ArgvOnStack)                  \
+  V(CloneObjectBaseline)                 \
+  V(CloneObjectWithVector)               \
+  V(Compare)                             \
+  V(Compare_Baseline)                    \
+  V(Compare_WithFeedback)                \
+  V(ConstructForwardVarargs)             \
+  V(ConstructStub)                       \
+  V(ConstructVarargs)                    \
+  V(ConstructWithArrayLike)              \
+  V(ConstructWithArrayLike_WithFeedback) \
+  V(Construct_WithFeedback)              \
+  V(Construct_Baseline)                  \
+  V(ConstructWithSpread)                 \
+  V(ConstructWithSpread_Baseline)        \
+  V(ConstructWithSpread_WithFeedback)    \
+  V(ContextOnly)                         \
+  V(CppBuiltinAdaptor)                   \
+  V(DynamicCheckMaps)                    \
+  V(EphemeronKeyBarrier)                 \
+  V(FastNewObject)                       \
+  V(ForInPrepare)                        \
+  V(FrameDropperTrampoline)              \
+  V(GetIteratorStackParameter)           \
+  V(GetProperty)                         \
+  V(GrowArrayElements)                   \
+  V(I32PairToBigInt)                     \
+  V(I64ToBigInt)                         \
+  V(InterpreterCEntry1)                  \
+  V(InterpreterCEntry2)                  \
+  V(InterpreterDispatch)                 \
+  V(TailCallOptimizedCodeSlot)           \
+  V(InterpreterPushArgsThenCall)         \
+  V(InterpreterPushArgsThenConstruct)    \
+  V(JSTrampoline)                        \
+  V(BaselineOutOfLinePrologue)           \
+  V(BaselineLeaveFrame)                  \
+  V(Load)                                \
+  V(LoadBaseline)                        \
+  V(LoadGlobal)                          \
+  V(LoadGlobalBaseline)                  \
+  V(LoadGlobalNoFeedback)                \
+  V(LoadGlobalWithVector)                \
+  V(LoadNoFeedback)                      \
+  V(LoadWithVector)                      \
+  V(LoadWithReceiverAndVector)           \
+  V(LoadWithReceiverBaseline)            \
+  V(LookupBaseline)                      \
+  V(NoContext)                           \
+  V(RecordWrite)                         \
+  V(ResumeGenerator)                     \
+  V(RunMicrotasks)                       \
+  V(RunMicrotasksEntry)                  \
+  V(SingleParameterOnStack)              \
+  V(Store)                               \
+  V(StoreBaseline)                       \
+  V(StoreGlobal)                         \
+  V(StoreGlobalBaseline)                 \
+  V(StoreGlobalWithVector)               \
+  V(StoreTransition)                     \
+  V(StoreWithVector)                     \
+  V(StringAt)                            \
+  V(StringAtAsString)                    \
+  V(StringSubstring)                     \
+  V(TypeConversion)                      \
+  V(TypeConversionNoContext)             \
+  V(TypeConversion_Baseline)             \
+  V(Typeof)                              \
+  V(UnaryOp_Baseline)                    \
+  V(UnaryOp_WithFeedback)                \
+  V(Void)                                \
+  V(WasmFloat32ToNumber)                 \
+  V(WasmFloat64ToNumber)                 \
+  V(WasmI32AtomicWait32)                 \
+  V(WasmI64AtomicWait32)                 \
+  BUILTIN_LIST_TFS(V)                    \
   TORQUE_BUILTIN_LIST_TFC(V)
+
+enum class StackArgumentOrder {
+  kDefault,  // Arguments in the stack are pushed in the default/stub order (the
+             // first argument is pushed first).
+  kJS,  // Arguments in the stack are pushed in the same order as the one used
+        // by JS-to-JS function calls. This should be used if calling a
+        // JSFunction or if the builtin is expected to be called directly from a
+        // JSFunction. This order is reversed compared to kDefault.
+};
 
 class V8_EXPORT_PRIVATE CallInterfaceDescriptorData {
  public:
@@ -122,6 +151,10 @@ class V8_EXPORT_PRIVATE CallInterfaceDescriptorData {
 
   CallInterfaceDescriptorData() = default;
 
+  CallInterfaceDescriptorData(const CallInterfaceDescriptorData&) = delete;
+  CallInterfaceDescriptorData& operator=(const CallInterfaceDescriptorData&) =
+      delete;
+
   // A copy of the passed in registers and param_representations is made
   // and owned by the CallInterfaceDescriptorData.
 
@@ -139,7 +172,8 @@ class V8_EXPORT_PRIVATE CallInterfaceDescriptorData {
   void InitializePlatformIndependent(Flags flags, int return_count,
                                      int parameter_count,
                                      const MachineType* machine_types,
-                                     int machine_types_length);
+                                     int machine_types_length,
+                                     StackArgumentOrder stack_order);
 
   void Reset();
 
@@ -162,6 +196,7 @@ class V8_EXPORT_PRIVATE CallInterfaceDescriptorData {
     DCHECK_LT(index, param_count_);
     return machine_types_[return_count_ + index];
   }
+  StackArgumentOrder stack_order() const { return stack_order_; }
 
   void RestrictAllocatableRegisters(const Register* registers, int num) {
     DCHECK_EQ(allocatable_registers_, 0);
@@ -196,6 +231,7 @@ class V8_EXPORT_PRIVATE CallInterfaceDescriptorData {
   int return_count_ = -1;
   int param_count_ = -1;
   Flags flags_ = kNoFlags;
+  StackArgumentOrder stack_order_ = StackArgumentOrder::kDefault;
 
   // Specifying the set of registers that could be used by the register
   // allocator. Currently, it's only used by RecordWrite code stub.
@@ -209,8 +245,6 @@ class V8_EXPORT_PRIVATE CallInterfaceDescriptorData {
   // runtime static initializers which we don't want.
   Register* register_params_ = nullptr;
   MachineType* machine_types_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(CallInterfaceDescriptorData);
 };
 
 class V8_EXPORT_PRIVATE CallDescriptors : public AllStatic {
@@ -280,6 +314,7 @@ class V8_EXPORT_PRIVATE CallInterfaceDescriptor {
   }
 
   Register GetRegisterParameter(int index) const {
+    DCHECK_LT(index, data()->register_param_count());
     return data()->register_param(index);
   }
 
@@ -290,6 +325,10 @@ class V8_EXPORT_PRIVATE CallInterfaceDescriptor {
 
   RegList allocatable_registers() const {
     return data()->allocatable_registers();
+  }
+
+  StackArgumentOrder GetStackArgumentOrder() const {
+    return data()->stack_order();
   }
 
   static const Register ContextRegister();
@@ -307,13 +346,21 @@ class V8_EXPORT_PRIVATE CallInterfaceDescriptor {
     UNREACHABLE();
   }
 
+  // Initializes |data| to an unspecified state, for platforms that haven't
+  // implemented a given builtin.
+  static void InitializePlatformUnimplemented(CallInterfaceDescriptorData* data,
+                                              int register_parameter_count) {
+    DefaultInitializePlatformSpecific(data,
+                                      std::min(register_parameter_count, 4));
+  }
+
   virtual void InitializePlatformIndependent(
       CallInterfaceDescriptorData* data) {
     // Default descriptor configuration: one result, all parameters are passed
     // in registers and all parameters have MachineType::AnyTagged() type.
-    data->InitializePlatformIndependent(CallInterfaceDescriptorData::kNoFlags,
-                                        1, data->register_param_count(),
-                                        nullptr, 0);
+    data->InitializePlatformIndependent(
+        CallInterfaceDescriptorData::kNoFlags, 1, data->register_param_count(),
+        nullptr, 0, StackArgumentOrder::kDefault);
   }
 
   // Initializes |data| using the platform dependent default set of registers.
@@ -399,7 +446,8 @@ STATIC_ASSERT(kMaxTFSBuiltinRegisterParams <= kMaxBuiltinRegisterParams);
   void InitializePlatformIndependent(CallInterfaceDescriptorData* data)        \
       override {                                                               \
     data->InitializePlatformIndependent(Flags(kDescriptorFlags), kReturnCount, \
-                                        kParameterCount, nullptr, 0);          \
+                                        kParameterCount, nullptr, 0,           \
+                                        kStackArgumentOrder);                  \
   }                                                                            \
   name(CallDescriptors::Key key) : base(key) {}                                \
                                                                                \
@@ -417,9 +465,11 @@ STATIC_ASSERT(kMaxTFSBuiltinRegisterParams <= kMaxBuiltinRegisterParams);
                                                                             \
  public:
 
-#define DEFINE_FLAGS_AND_RESULT_AND_PARAMETERS(flags, return_count, ...) \
+#define DEFINE_FLAGS_AND_RESULT_AND_PARAMETERS(flags, stack_order,       \
+                                               return_count, ...)        \
   static constexpr int kDescriptorFlags = flags;                         \
   static constexpr int kReturnCount = return_count;                      \
+  static constexpr StackArgumentOrder kStackArgumentOrder = stack_order; \
   enum ParameterIndices {                                                \
     __dummy = -1, /* to be able to pass zero arguments */                \
     ##__VA_ARGS__,                                                       \
@@ -428,35 +478,41 @@ STATIC_ASSERT(kMaxTFSBuiltinRegisterParams <= kMaxBuiltinRegisterParams);
     kContext = kParameterCount /* implicit parameter */                  \
   };
 
-#define DEFINE_RESULT_AND_PARAMETERS(return_count, ...) \
-  DEFINE_FLAGS_AND_RESULT_AND_PARAMETERS(               \
-      CallInterfaceDescriptorData::kNoFlags, return_count, ##__VA_ARGS__)
+#define DEFINE_RESULT_AND_PARAMETERS(return_count, ...)                    \
+  DEFINE_FLAGS_AND_RESULT_AND_PARAMETERS(                                  \
+      CallInterfaceDescriptorData::kNoFlags, StackArgumentOrder::kDefault, \
+      return_count, ##__VA_ARGS__)
 
 // This is valid only for builtins that use EntryFrame, which does not scan
 // stack arguments on GC.
-#define DEFINE_PARAMETERS_ENTRY(...)                      \
-  static constexpr int kDescriptorFlags =                 \
-      CallInterfaceDescriptorData::kNoContext |           \
-      CallInterfaceDescriptorData::kNoStackScan;          \
-  static constexpr int kReturnCount = 1;                  \
-  enum ParameterIndices {                                 \
-    __dummy = -1, /* to be able to pass zero arguments */ \
-    ##__VA_ARGS__,                                        \
-                                                          \
-    kParameterCount                                       \
+#define DEFINE_PARAMETERS_ENTRY(...)                        \
+  static constexpr int kDescriptorFlags =                   \
+      CallInterfaceDescriptorData::kNoContext |             \
+      CallInterfaceDescriptorData::kNoStackScan;            \
+  static constexpr StackArgumentOrder kStackArgumentOrder = \
+      StackArgumentOrder::kDefault;                         \
+  static constexpr int kReturnCount = 1;                    \
+  enum ParameterIndices {                                   \
+    __dummy = -1, /* to be able to pass zero arguments */   \
+    ##__VA_ARGS__,                                          \
+                                                            \
+    kParameterCount                                         \
   };
 
-#define DEFINE_PARAMETERS(...)            \
-  DEFINE_FLAGS_AND_RESULT_AND_PARAMETERS( \
-      CallInterfaceDescriptorData::kNoFlags, 1, ##__VA_ARGS__)
+#define DEFINE_PARAMETERS(...)                                                \
+  DEFINE_FLAGS_AND_RESULT_AND_PARAMETERS(                                     \
+      CallInterfaceDescriptorData::kNoFlags, StackArgumentOrder::kDefault, 1, \
+      ##__VA_ARGS__)
 
-#define DEFINE_PARAMETERS_NO_CONTEXT(...) \
-  DEFINE_FLAGS_AND_RESULT_AND_PARAMETERS( \
-      CallInterfaceDescriptorData::kNoContext, 1, ##__VA_ARGS__)
+#define DEFINE_PARAMETERS_NO_CONTEXT(...)                                    \
+  DEFINE_FLAGS_AND_RESULT_AND_PARAMETERS(                                    \
+      CallInterfaceDescriptorData::kNoContext, StackArgumentOrder::kDefault, \
+      1, ##__VA_ARGS__)
 
-#define DEFINE_PARAMETERS_VARARGS(...)    \
-  DEFINE_FLAGS_AND_RESULT_AND_PARAMETERS( \
-      CallInterfaceDescriptorData::kAllowVarArgs, 1, ##__VA_ARGS__)
+#define DEFINE_PARAMETERS_VARARGS(...)                                        \
+  DEFINE_FLAGS_AND_RESULT_AND_PARAMETERS(                                     \
+      CallInterfaceDescriptorData::kAllowVarArgs, StackArgumentOrder::kJS, 1, \
+      ##__VA_ARGS__)
 
 #define DEFINE_RESULT_AND_PARAMETER_TYPES_WITH_FLAG(flag, ...)                \
   void InitializePlatformIndependent(CallInterfaceDescriptorData* data)       \
@@ -467,7 +523,7 @@ STATIC_ASSERT(kMaxTFSBuiltinRegisterParams <= kMaxBuiltinRegisterParams);
         "Parameter names definition is not consistent with parameter types"); \
     data->InitializePlatformIndependent(                                      \
         Flags(flag | kDescriptorFlags), kReturnCount, kParameterCount,        \
-        machine_types, arraysize(machine_types));                             \
+        machine_types, arraysize(machine_types), kStackArgumentOrder);        \
   }
 
 #define DEFINE_RESULT_AND_PARAMETER_TYPES(...) \
@@ -478,18 +534,36 @@ STATIC_ASSERT(kMaxTFSBuiltinRegisterParams <= kMaxBuiltinRegisterParams);
   DEFINE_RESULT_AND_PARAMETER_TYPES(MachineType::AnyTagged() /* result */, \
                                     ##__VA_ARGS__)
 
-#define DEFINE_JS_PARAMETERS(...)                       \
-  static constexpr int kDescriptorFlags =               \
-      CallInterfaceDescriptorData::kAllowVarArgs;       \
-  static constexpr int kReturnCount = 1;                \
-  enum ParameterIndices {                               \
-    kTarget,                                            \
-    kNewTarget,                                         \
-    kActualArgumentsCount,                              \
-    ##__VA_ARGS__,                                      \
-                                                        \
-    kParameterCount,                                    \
-    kContext = kParameterCount /* implicit parameter */ \
+// When the extra arguments described here are located in the stack, they are
+// just above the return address in the frame (first arguments).
+#define DEFINE_JS_PARAMETERS(...)                           \
+  static constexpr int kDescriptorFlags =                   \
+      CallInterfaceDescriptorData::kAllowVarArgs;           \
+  static constexpr int kReturnCount = 1;                    \
+  static constexpr StackArgumentOrder kStackArgumentOrder = \
+      StackArgumentOrder::kJS;                              \
+  enum ParameterIndices {                                   \
+    kTarget,                                                \
+    kNewTarget,                                             \
+    kActualArgumentsCount,                                  \
+    ##__VA_ARGS__,                                          \
+    kParameterCount,                                        \
+    kContext = kParameterCount /* implicit parameter */     \
+  };
+
+#define DEFINE_JS_PARAMETERS_NO_CONTEXT(...)                \
+  static constexpr int kDescriptorFlags =                   \
+      CallInterfaceDescriptorData::kAllowVarArgs |          \
+      CallInterfaceDescriptorData::kNoContext;              \
+  static constexpr int kReturnCount = 1;                    \
+  static constexpr StackArgumentOrder kStackArgumentOrder = \
+      StackArgumentOrder::kJS;                              \
+  enum ParameterIndices {                                   \
+    kTarget,                                                \
+    kNewTarget,                                             \
+    kActualArgumentsCount,                                  \
+    ##__VA_ARGS__,                                          \
+    kParameterCount,                                        \
   };
 
 #define DEFINE_JS_PARAMETER_TYPES(...)                                         \
@@ -514,10 +588,12 @@ class V8_EXPORT_PRIVATE VoidDescriptor : public CallInterfaceDescriptor {
 };
 
 // This class is subclassed by Torque-generated call interface descriptors.
-template <int parameter_count>
+template <int return_count, int parameter_count, bool has_context_parameter>
 class TorqueInterfaceDescriptor : public CallInterfaceDescriptor {
  public:
-  static constexpr int kDescriptorFlags = CallInterfaceDescriptorData::kNoFlags;
+  static constexpr int kDescriptorFlags =
+      has_context_parameter ? CallInterfaceDescriptorData::kNoFlags
+                            : CallInterfaceDescriptorData::kNoContext;
   static constexpr int kParameterCount = parameter_count;
   enum ParameterIndices { kContext = kParameterCount };
   template <int i>
@@ -525,7 +601,7 @@ class TorqueInterfaceDescriptor : public CallInterfaceDescriptor {
     STATIC_ASSERT(0 <= i && i < kParameterCount);
     return static_cast<ParameterIndices>(i);
   }
-  static constexpr int kReturnCount = 1;
+  static constexpr int kReturnCount = return_count;
 
   using CallInterfaceDescriptor::CallInterfaceDescriptor;
 
@@ -535,21 +611,23 @@ class TorqueInterfaceDescriptor : public CallInterfaceDescriptor {
           ? kMaxTFSBuiltinRegisterParams
           : kParameterCount;
   static const int kStackParams = kParameterCount - kRegisterParams;
-  virtual MachineType ReturnType() = 0;
+  virtual std::vector<MachineType> ReturnType() = 0;
   virtual std::array<MachineType, kParameterCount> ParameterTypes() = 0;
   void InitializePlatformSpecific(CallInterfaceDescriptorData* data) override {
     DefaultInitializePlatformSpecific(data, kRegisterParams);
   }
   void InitializePlatformIndependent(
       CallInterfaceDescriptorData* data) override {
-    std::vector<MachineType> machine_types = {ReturnType()};
+    std::vector<MachineType> machine_types = ReturnType();
+    DCHECK_EQ(kReturnCount, machine_types.size());
     auto parameter_types = ParameterTypes();
     machine_types.insert(machine_types.end(), parameter_types.begin(),
                          parameter_types.end());
     DCHECK_EQ(kReturnCount + kParameterCount, machine_types.size());
     data->InitializePlatformIndependent(Flags(kDescriptorFlags), kReturnCount,
                                         kParameterCount, machine_types.data(),
-                                        static_cast<int>(machine_types.size()));
+                                        static_cast<int>(machine_types.size()),
+                                        StackArgumentOrder::kDefault);
   }
 };
 
@@ -559,6 +637,12 @@ using DummyDescriptor = VoidDescriptor;
 
 // Dummy descriptor that marks builtins with C calling convention.
 using CCallDescriptor = VoidDescriptor;
+
+// Marks deoptimization entry builtins. Precise calling conventions currently
+// differ based on the platform.
+// TODO(jgruber): Once this is unified, we could create a better description
+// here.
+using DeoptimizationEntryDescriptor = VoidDescriptor;
 
 class AllocateDescriptor : public CallInterfaceDescriptor {
  public:
@@ -607,6 +691,17 @@ class LoadDescriptor : public CallInterfaceDescriptor {
   static const Register ReceiverRegister();
   static const Register NameRegister();
   static const Register SlotRegister();
+};
+
+// LoadBaselineDescriptor is a load descriptor that does not take a context as
+// input.
+class LoadBaselineDescriptor : public CallInterfaceDescriptor {
+ public:
+  DEFINE_PARAMETERS_NO_CONTEXT(kReceiver, kName, kSlot)
+  DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(),     // kReceiver
+                         MachineType::AnyTagged(),     // kName
+                         MachineType::TaggedSigned())  // kSlot
+  DECLARE_DESCRIPTOR(LoadBaselineDescriptor, CallInterfaceDescriptor)
 };
 
 class LoadGlobalNoFeedbackDescriptor : public CallInterfaceDescriptor {
@@ -662,6 +757,23 @@ class LoadGlobalDescriptor : public CallInterfaceDescriptor {
   }
 };
 
+class LoadGlobalBaselineDescriptor : public CallInterfaceDescriptor {
+ public:
+  DEFINE_PARAMETERS_NO_CONTEXT(kName, kSlot)
+  DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(),     // kName
+                         MachineType::TaggedSigned())  // kSlot
+  DECLARE_DESCRIPTOR(LoadGlobalBaselineDescriptor, CallInterfaceDescriptor)
+};
+
+class LookupBaselineDescriptor : public CallInterfaceDescriptor {
+ public:
+  DEFINE_PARAMETERS_NO_CONTEXT(kName, kDepth, kSlot)
+  DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(),  // kName
+                         MachineType::AnyTagged(),  // kDepth
+                         MachineType::AnyTagged())  // kSlot
+  DECLARE_DESCRIPTOR(LookupBaselineDescriptor, CallInterfaceDescriptor)
+};
+
 class StoreDescriptor : public CallInterfaceDescriptor {
  public:
   DEFINE_PARAMETERS(kReceiver, kName, kValue, kSlot)
@@ -675,6 +787,25 @@ class StoreDescriptor : public CallInterfaceDescriptor {
   static const Register NameRegister();
   static const Register ValueRegister();
   static const Register SlotRegister();
+
+#if V8_TARGET_ARCH_IA32
+  static const bool kPassLastArgsOnStack = true;
+#else
+  static const bool kPassLastArgsOnStack = false;
+#endif
+
+  // Pass value and slot through the stack.
+  static const int kStackArgumentsCount = kPassLastArgsOnStack ? 2 : 0;
+};
+
+class StoreBaselineDescriptor : public CallInterfaceDescriptor {
+ public:
+  DEFINE_PARAMETERS_NO_CONTEXT(kReceiver, kName, kValue, kSlot)
+  DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(),     // kReceiver
+                         MachineType::AnyTagged(),     // kName
+                         MachineType::AnyTagged(),     // kValue
+                         MachineType::TaggedSigned())  // kSlot
+  DECLARE_DESCRIPTOR(StoreBaselineDescriptor, CallInterfaceDescriptor)
 
 #if V8_TARGET_ARCH_IA32
   static const bool kPassLastArgsOnStack = true;
@@ -747,6 +878,20 @@ class StoreGlobalDescriptor : public CallInterfaceDescriptor {
   }
 };
 
+class StoreGlobalBaselineDescriptor : public CallInterfaceDescriptor {
+ public:
+  DEFINE_PARAMETERS_NO_CONTEXT(kName, kValue, kSlot)
+  DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(),     // kName
+                         MachineType::AnyTagged(),     // kValue
+                         MachineType::TaggedSigned())  // kSlot
+  DECLARE_DESCRIPTOR(StoreGlobalBaselineDescriptor, CallInterfaceDescriptor)
+
+  static const bool kPassLastArgsOnStack =
+      StoreDescriptor::kPassLastArgsOnStack;
+  // Pass value and slot through the stack.
+  static const int kStackArgumentsCount = kPassLastArgsOnStack ? 2 : 0;
+};
+
 class StoreGlobalWithVectorDescriptor : public StoreGlobalDescriptor {
  public:
   DEFINE_PARAMETERS(kName, kValue, kSlot, kVector)
@@ -787,6 +932,46 @@ class LoadWithVectorDescriptor : public LoadDescriptor {
   static const int kStackArgumentsCount = kPassLastArgsOnStack ? 1 : 0;
 };
 
+// Like LoadWithVectorDescriptor, except we pass the receiver (the object which
+// should be used as the receiver for accessor function calls) and the lookup
+// start object separately.
+class LoadWithReceiverAndVectorDescriptor : public LoadWithVectorDescriptor {
+ public:
+  // TODO(v8:9497): Revert the Machine type for kSlot to the
+  // TaggedSigned once Torque can emit better call descriptors
+  DEFINE_PARAMETERS(kReceiver, kLookupStartObject, kName, kSlot, kVector)
+  DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(),  // kReceiver
+                         MachineType::AnyTagged(),  // kLookupStartObject
+                         MachineType::AnyTagged(),  // kName
+                         MachineType::AnyTagged(),  // kSlot
+                         MachineType::AnyTagged())  // kVector
+  DECLARE_DESCRIPTOR(LoadWithReceiverAndVectorDescriptor,
+                     LoadWithVectorDescriptor)
+
+  static const Register LookupStartObjectRegister();
+
+#if V8_TARGET_ARCH_IA32
+  static const bool kPassLastArgsOnStack = true;
+#else
+  static const bool kPassLastArgsOnStack = false;
+#endif
+
+  // Pass vector through the stack.
+  static const int kStackArgumentsCount = kPassLastArgsOnStack ? 1 : 0;
+};
+
+class LoadWithReceiverBaselineDescriptor : public LoadBaselineDescriptor {
+ public:
+  // TODO(v8:9497): Revert the Machine type for kSlot to the
+  // TaggedSigned once Torque can emit better call descriptors
+  DEFINE_PARAMETERS_NO_CONTEXT(kReceiver, kLookupStartObject, kName, kSlot)
+  DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(),  // kReceiver
+                         MachineType::AnyTagged(),  // kLookupStartObject
+                         MachineType::AnyTagged(),  // kName
+                         MachineType::AnyTagged())  // kSlot
+  DECLARE_DESCRIPTOR(LoadWithReceiverBaselineDescriptor, LoadBaselineDescriptor)
+};
+
 class LoadGlobalWithVectorDescriptor : public LoadGlobalDescriptor {
  public:
   DEFINE_PARAMETERS(kName, kSlot, kVector)
@@ -806,15 +991,15 @@ class LoadGlobalWithVectorDescriptor : public LoadGlobalDescriptor {
 #endif
 };
 
-class FastNewFunctionContextDescriptor : public CallInterfaceDescriptor {
+class DynamicCheckMapsDescriptor final : public CallInterfaceDescriptor {
  public:
-  DEFINE_PARAMETERS(kScopeInfo, kSlots)
-  DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(),  // kScopeInfo
-                         MachineType::Uint32())     // kSlots
-  DECLARE_DESCRIPTOR(FastNewFunctionContextDescriptor, CallInterfaceDescriptor)
+  DEFINE_PARAMETERS(kMap, kSlot, kHandler)
+  DEFINE_RESULT_AND_PARAMETER_TYPES(MachineType::Int32(),          // return val
+                                    MachineType::TaggedPointer(),  // kMap
+                                    MachineType::IntPtr(),         // kSlot
+                                    MachineType::TaggedSigned())   // kHandler
 
-  static const Register ScopeInfoRegister();
-  static const Register SlotsRegister();
+  DECLARE_DESCRIPTOR(DynamicCheckMapsDescriptor, CallInterfaceDescriptor)
 };
 
 class FastNewObjectDescriptor : public CallInterfaceDescriptor {
@@ -857,13 +1042,25 @@ class TypeConversionDescriptor final : public CallInterfaceDescriptor {
   static const Register ArgumentRegister();
 };
 
-class TypeConversionStackParameterDescriptor final
-    : public CallInterfaceDescriptor {
+class TypeConversionNoContextDescriptor final : public CallInterfaceDescriptor {
+ public:
+  DEFINE_PARAMETERS_NO_CONTEXT(kArgument)
+  DEFINE_PARAMETER_TYPES(MachineType::AnyTagged())
+  DECLARE_DESCRIPTOR(TypeConversionNoContextDescriptor, CallInterfaceDescriptor)
+};
+
+class TypeConversion_BaselineDescriptor final : public CallInterfaceDescriptor {
+ public:
+  DEFINE_PARAMETERS_NO_CONTEXT(kArgument, kSlot)
+  DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(), MachineType::UintPtr())
+  DECLARE_DESCRIPTOR(TypeConversion_BaselineDescriptor, CallInterfaceDescriptor)
+};
+
+class SingleParameterOnStackDescriptor final : public CallInterfaceDescriptor {
  public:
   DEFINE_PARAMETERS(kArgument)
   DEFINE_PARAMETER_TYPES(MachineType::AnyTagged())
-  DECLARE_DESCRIPTOR(TypeConversionStackParameterDescriptor,
-                     CallInterfaceDescriptor)
+  DECLARE_DESCRIPTOR(SingleParameterOnStackDescriptor, CallInterfaceDescriptor)
 };
 
 class AsyncFunctionStackParameterDescriptor final
@@ -908,8 +1105,8 @@ class CallTrampolineDescriptor : public CallInterfaceDescriptor {
 
 class CallVarargsDescriptor : public CallInterfaceDescriptor {
  public:
-  DEFINE_PARAMETERS(kTarget, kActualArgumentsCount, kArgumentsLength,
-                    kArgumentsList)
+  DEFINE_PARAMETERS_VARARGS(kTarget, kActualArgumentsCount, kArgumentsLength,
+                            kArgumentsList)
   DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(),  // kTarget
                          MachineType::Int32(),      // kActualArgumentsCount
                          MachineType::Int32(),      // kArgumentsLength
@@ -919,7 +1116,7 @@ class CallVarargsDescriptor : public CallInterfaceDescriptor {
 
 class CallForwardVarargsDescriptor : public CallInterfaceDescriptor {
  public:
-  DEFINE_PARAMETERS(kTarget, kActualArgumentsCount, kStartIndex)
+  DEFINE_PARAMETERS_VARARGS(kTarget, kActualArgumentsCount, kStartIndex)
   DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(),  // kTarget
                          MachineType::Int32(),      // kActualArgumentsCount
                          MachineType::Int32())      // kStartIndex
@@ -936,11 +1133,34 @@ class CallFunctionTemplateDescriptor : public CallInterfaceDescriptor {
 
 class CallWithSpreadDescriptor : public CallInterfaceDescriptor {
  public:
-  DEFINE_PARAMETERS(kTarget, kArgumentsCount, kSpread)
+  DEFINE_PARAMETERS_VARARGS(kTarget, kArgumentsCount, kSpread)
   DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(),  // kTarget
                          MachineType::Int32(),      // kArgumentsCount
                          MachineType::AnyTagged())  // kSpread
   DECLARE_DESCRIPTOR(CallWithSpreadDescriptor, CallInterfaceDescriptor)
+};
+
+class CallWithSpread_BaselineDescriptor : public CallInterfaceDescriptor {
+ public:
+  DEFINE_PARAMETERS_VARARGS(kTarget, kArgumentsCount, kSpread, kSlot)
+  DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(),  // kTarget
+                         MachineType::Int32(),      // kArgumentsCount
+                         MachineType::AnyTagged(),  // kSpread
+                         MachineType::UintPtr())    // kSlot
+  DECLARE_DESCRIPTOR(CallWithSpread_BaselineDescriptor, CallInterfaceDescriptor)
+};
+
+class CallWithSpread_WithFeedbackDescriptor : public CallInterfaceDescriptor {
+ public:
+  DEFINE_PARAMETERS_VARARGS(kTarget, kArgumentsCount, kSpread, kSlot,
+                            kFeedbackVector)
+  DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(),  // kTarget
+                         MachineType::Int32(),      // kArgumentsCount
+                         MachineType::AnyTagged(),  // kSpread
+                         MachineType::UintPtr(),    // kSlot
+                         MachineType::AnyTagged())  // kFeedbackVector
+  DECLARE_DESCRIPTOR(CallWithSpread_WithFeedbackDescriptor,
+                     CallInterfaceDescriptor)
 };
 
 class CallWithArrayLikeDescriptor : public CallInterfaceDescriptor {
@@ -949,6 +1169,18 @@ class CallWithArrayLikeDescriptor : public CallInterfaceDescriptor {
   DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(),  // kTarget
                          MachineType::AnyTagged())  // kArgumentsList
   DECLARE_DESCRIPTOR(CallWithArrayLikeDescriptor, CallInterfaceDescriptor)
+};
+
+class CallWithArrayLike_WithFeedbackDescriptor
+    : public CallInterfaceDescriptor {
+ public:
+  DEFINE_PARAMETERS(kTarget, kArgumentsList, kSlot, kFeedbackVector)
+  DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(),  // kTarget
+                         MachineType::AnyTagged(),  // kArgumentsList
+                         MachineType::UintPtr(),    // kSlot
+                         MachineType::AnyTagged())  // kFeedbackVector
+  DECLARE_DESCRIPTOR(CallWithArrayLike_WithFeedbackDescriptor,
+                     CallInterfaceDescriptor)
 };
 
 class ConstructVarargsDescriptor : public CallInterfaceDescriptor {
@@ -974,6 +1206,39 @@ class ConstructWithSpreadDescriptor : public CallInterfaceDescriptor {
   DECLARE_DESCRIPTOR(ConstructWithSpreadDescriptor, CallInterfaceDescriptor)
 };
 
+class ConstructWithSpread_BaselineDescriptor : public CallInterfaceDescriptor {
+ public:
+  // Note: kSlot comes before kSpread since as an untagged value it must be
+  // passed in a register.
+  DEFINE_JS_PARAMETERS(kSlot, kSpread)
+  DEFINE_JS_PARAMETER_TYPES(MachineType::UintPtr(),    // kSlot
+                            MachineType::AnyTagged())  // kSpread
+  DECLARE_DESCRIPTOR(ConstructWithSpread_BaselineDescriptor,
+                     CallInterfaceDescriptor)
+
+#if V8_TARGET_ARCH_IA32
+  static const bool kPassLastArgsOnStack = true;
+#else
+  static const bool kPassLastArgsOnStack = false;
+#endif
+
+  // Pass spread through the stack.
+  static const int kStackArgumentsCount = kPassLastArgsOnStack ? 1 : 0;
+};
+
+class ConstructWithSpread_WithFeedbackDescriptor
+    : public CallInterfaceDescriptor {
+ public:
+  // Note: kSlot comes before kSpread since as an untagged value it must be
+  // passed in a register.
+  DEFINE_JS_PARAMETERS(kSlot, kSpread, kFeedbackVector)
+  DEFINE_JS_PARAMETER_TYPES(MachineType::UintPtr(),    // kSlot
+                            MachineType::AnyTagged(),  // kSpread
+                            MachineType::AnyTagged())  // kFeedbackVector
+  DECLARE_DESCRIPTOR(ConstructWithSpread_WithFeedbackDescriptor,
+                     CallInterfaceDescriptor)
+};
+
 class ConstructWithArrayLikeDescriptor : public CallInterfaceDescriptor {
  public:
   DEFINE_PARAMETERS(kTarget, kNewTarget, kArgumentsList)
@@ -981,6 +1246,19 @@ class ConstructWithArrayLikeDescriptor : public CallInterfaceDescriptor {
                          MachineType::AnyTagged(),  // kNewTarget
                          MachineType::AnyTagged())  // kArgumentsList
   DECLARE_DESCRIPTOR(ConstructWithArrayLikeDescriptor, CallInterfaceDescriptor)
+};
+
+class ConstructWithArrayLike_WithFeedbackDescriptor
+    : public CallInterfaceDescriptor {
+ public:
+  DEFINE_PARAMETERS(kTarget, kNewTarget, kArgumentsList, kSlot, kFeedbackVector)
+  DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(),  // kTarget
+                         MachineType::AnyTagged(),  // kNewTarget
+                         MachineType::AnyTagged(),  // kArgumentsList
+                         MachineType::UintPtr(),    // kSlot
+                         MachineType::AnyTagged())  // kFeedbackVector
+  DECLARE_DESCRIPTOR(ConstructWithArrayLike_WithFeedbackDescriptor,
+                     CallInterfaceDescriptor)
 };
 
 // TODO(ishell): consider merging this with ArrayConstructorDescriptor
@@ -999,13 +1277,6 @@ class AbortDescriptor : public CallInterfaceDescriptor {
   DEFINE_PARAMETERS_NO_CONTEXT(kMessageOrMessageId)
   DEFINE_PARAMETER_TYPES(MachineType::AnyTagged())
   DECLARE_DESCRIPTOR(AbortDescriptor, CallInterfaceDescriptor)
-};
-
-class AllocateHeapNumberDescriptor : public CallInterfaceDescriptor {
- public:
-  DEFINE_PARAMETERS_NO_CONTEXT()
-  DEFINE_PARAMETER_TYPES()
-  DECLARE_DESCRIPTOR(AllocateHeapNumberDescriptor, CallInterfaceDescriptor)
 };
 
 class ArrayConstructorDescriptor : public CallInterfaceDescriptor {
@@ -1047,7 +1318,6 @@ class ArrayNoArgumentConstructorDescriptor
                      ArrayNArgumentsConstructorDescriptor)
 };
 
-#ifdef V8_REVERSE_JSARGS
 class ArraySingleArgumentConstructorDescriptor
     : public ArrayNArgumentsConstructorDescriptor {
  public:
@@ -1065,25 +1335,6 @@ class ArraySingleArgumentConstructorDescriptor
   DECLARE_DESCRIPTOR(ArraySingleArgumentConstructorDescriptor,
                      ArrayNArgumentsConstructorDescriptor)
 };
-#else
-class ArraySingleArgumentConstructorDescriptor
-    : public ArrayNArgumentsConstructorDescriptor {
- public:
-  // This descriptor declares same register arguments as the parent
-  // ArrayNArgumentsConstructorDescriptor and it declares indices for
-  // JS arguments passed on the expression stack.
-  DEFINE_PARAMETERS(kFunction, kAllocationSite, kActualArgumentsCount,
-                    kReceiverParameter, kArraySizeSmiParameter)
-  DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(),  // kFunction
-                         MachineType::AnyTagged(),  // kAllocationSite
-                         MachineType::Int32(),      // kActualArgumentsCount
-                         // JS arguments on the stack
-                         MachineType::AnyTagged(),  // kReceiverParameter
-                         MachineType::AnyTagged())  // kArraySizeSmiParameter
-  DECLARE_DESCRIPTOR(ArraySingleArgumentConstructorDescriptor,
-                     ArrayNArgumentsConstructorDescriptor)
-};
-#endif
 
 class CompareDescriptor : public CallInterfaceDescriptor {
  public:
@@ -1095,6 +1346,15 @@ class BinaryOpDescriptor : public CallInterfaceDescriptor {
  public:
   DEFINE_PARAMETERS(kLeft, kRight)
   DECLARE_DESCRIPTOR(BinaryOpDescriptor, CallInterfaceDescriptor)
+};
+
+class BinaryOp_BaselineDescriptor : public CallInterfaceDescriptor {
+ public:
+  DEFINE_PARAMETERS_NO_CONTEXT(kLeft, kRight, kSlot)
+  DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(),  // kLeft
+                         MachineType::AnyTagged(),  // kRight
+                         MachineType::UintPtr())    // kSlot
+  DECLARE_DESCRIPTOR(BinaryOp_BaselineDescriptor, CallInterfaceDescriptor)
 };
 
 // This desciptor is shared among String.p.charAt/charCodeAt/codePointAt
@@ -1129,13 +1389,6 @@ class StringSubstringDescriptor final : public CallInterfaceDescriptor {
 
   // TODO(turbofan): Allow builtins to return untagged values.
   DECLARE_DESCRIPTOR(StringSubstringDescriptor, CallInterfaceDescriptor)
-};
-
-class ArgumentsAdaptorDescriptor : public CallInterfaceDescriptor {
- public:
-  DEFINE_JS_PARAMETERS(kExpectedArgumentsCount)
-  DEFINE_JS_PARAMETER_TYPES(MachineType::Int32())
-  DECLARE_DESCRIPTOR(ArgumentsAdaptorDescriptor, CallInterfaceDescriptor)
 };
 
 class CppBuiltinAdaptorDescriptor : public CallInterfaceDescriptor {
@@ -1201,13 +1454,39 @@ class GrowArrayElementsDescriptor : public CallInterfaceDescriptor {
   static const Register KeyRegister();
 };
 
-class NewArgumentsElementsDescriptor final : public CallInterfaceDescriptor {
+class V8_EXPORT_PRIVATE TailCallOptimizedCodeSlotDescriptor
+    : public CallInterfaceDescriptor {
  public:
-  DEFINE_PARAMETERS(kFrame, kLength, kMappedCount)
-  DEFINE_PARAMETER_TYPES(MachineType::Pointer(),       // kFrame
-                         MachineType::TaggedSigned(),  // kLength
-                         MachineType::TaggedSigned())  // kMappedCount
-  DECLARE_DESCRIPTOR(NewArgumentsElementsDescriptor, CallInterfaceDescriptor)
+  DEFINE_PARAMETERS(kOptimizedCodeEntry)
+  DEFINE_PARAMETER_TYPES(MachineType::AnyTagged())  // kAccumulator
+  DECLARE_DESCRIPTOR(TailCallOptimizedCodeSlotDescriptor,
+                     CallInterfaceDescriptor)
+};
+
+class BaselineOutOfLinePrologueDescriptor : public CallInterfaceDescriptor {
+ public:
+  DEFINE_PARAMETERS_NO_CONTEXT(kCalleeContext, kClosure,
+                               kJavaScriptCallArgCount,
+                               kInterpreterBytecodeArray,
+                               kJavaScriptCallNewTarget)
+  DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(),  // kCalleeContext
+                         MachineType::AnyTagged(),  // kClosure
+                         MachineType::Int32(),      // kJavaScriptCallArgCount
+                         MachineType::AnyTagged(),  // kInterpreterBytecodeArray
+                         MachineType::AnyTagged())  // kJavaScriptCallNewTarget
+  DECLARE_DESCRIPTOR(BaselineOutOfLinePrologueDescriptor,
+                     CallInterfaceDescriptor)
+};
+
+class BaselineLeaveFrameDescriptor : public CallInterfaceDescriptor {
+ public:
+  DEFINE_PARAMETERS_NO_CONTEXT(kParamsSize, kWeight)
+  DEFINE_PARAMETER_TYPES(MachineType::Int32(),  // kParamsSize
+                         MachineType::Int32())  // kWeight
+  DECLARE_DESCRIPTOR(BaselineLeaveFrameDescriptor, CallInterfaceDescriptor)
+
+  static const Register ParamsSizeRegister();
+  static const Register WeightRegister();
 };
 
 class V8_EXPORT_PRIVATE InterpreterDispatchDescriptor
@@ -1278,6 +1557,18 @@ class InterpreterCEntry2Descriptor : public CallInterfaceDescriptor {
   DECLARE_DESCRIPTOR(InterpreterCEntry2Descriptor, CallInterfaceDescriptor)
 };
 
+class ForInPrepareDescriptor : public CallInterfaceDescriptor {
+ public:
+  DEFINE_RESULT_AND_PARAMETERS(2, kEnumerator, kVectorIndex, kFeedbackVector)
+  DEFINE_RESULT_AND_PARAMETER_TYPES(
+      MachineType::AnyTagged(),     // result 1 (cache array)
+      MachineType::AnyTagged(),     // result 2 (cache length)
+      MachineType::AnyTagged(),     // kEnumerator
+      MachineType::TaggedSigned(),  // kVectorIndex
+      MachineType::AnyTagged())     // kFeedbackVector
+  DECLARE_DESCRIPTOR(ForInPrepareDescriptor, CallInterfaceDescriptor)
+};
+
 class ResumeGeneratorDescriptor final : public CallInterfaceDescriptor {
  public:
   DEFINE_PARAMETERS(kValue, kGenerator)
@@ -1310,84 +1601,20 @@ class RunMicrotasksDescriptor final : public CallInterfaceDescriptor {
   static Register MicrotaskQueueRegister();
 };
 
-class WasmMemoryGrowDescriptor final : public CallInterfaceDescriptor {
+class WasmFloat32ToNumberDescriptor final : public CallInterfaceDescriptor {
  public:
-  DEFINE_PARAMETERS_NO_CONTEXT(kNumPages)
-  DEFINE_RESULT_AND_PARAMETER_TYPES(MachineType::Int32(),  // result 1
-                                    MachineType::Int32())  // kNumPages
-  DECLARE_DESCRIPTOR(WasmMemoryGrowDescriptor, CallInterfaceDescriptor)
+  DEFINE_PARAMETERS_NO_CONTEXT(kValue)
+  DEFINE_RESULT_AND_PARAMETER_TYPES(MachineType::AnyTagged(),  // result
+                                    MachineType::Float32())    // value
+  DECLARE_DESCRIPTOR(WasmFloat32ToNumberDescriptor, CallInterfaceDescriptor)
 };
 
-class WasmTableInitDescriptor final : public CallInterfaceDescriptor {
+class WasmFloat64ToNumberDescriptor final : public CallInterfaceDescriptor {
  public:
-  DEFINE_PARAMETERS_NO_CONTEXT(kDestination, kSource, kSize, kTableIndex,
-                               kSegmentIndex)
-  DEFINE_PARAMETER_TYPES(MachineType::Int32(),      // kDestination
-                         MachineType::Int32(),      // kSource
-                         MachineType::Int32(),      // kSize
-                         MachineType::AnyTagged(),  // kTableIndex
-                         MachineType::AnyTagged(),  // kSegmentindex
-  )
-
-#if V8_TARGET_ARCH_IA32
-  static constexpr bool kPassLastArgOnStack = true;
-#else
-  static constexpr bool kPassLastArgOnStack = false;
-#endif
-
-  // Pass the last parameter through the stack.
-  static constexpr int kStackArgumentsCount = kPassLastArgOnStack ? 1 : 0;
-
-  DECLARE_DESCRIPTOR(WasmTableInitDescriptor, CallInterfaceDescriptor)
-};
-
-class WasmTableCopyDescriptor final : public CallInterfaceDescriptor {
- public:
-  DEFINE_PARAMETERS_NO_CONTEXT(kDestination, kSource, kSize, kDestinationTable,
-                               kSourceTable)
-  DEFINE_PARAMETER_TYPES(MachineType::Int32(),      // kDestination
-                         MachineType::Int32(),      // kSource
-                         MachineType::Int32(),      // kSize
-                         MachineType::AnyTagged(),  // kDestinationTable
-                         MachineType::AnyTagged(),  // kSourceTable
-  )
-
-#if V8_TARGET_ARCH_IA32
-  static constexpr bool kPassLastArgOnStack = true;
-#else
-  static constexpr bool kPassLastArgOnStack = false;
-#endif
-
-  // Pass the last parameter through the stack.
-  static constexpr int kStackArgumentsCount = kPassLastArgOnStack ? 1 : 0;
-
-  DECLARE_DESCRIPTOR(WasmTableCopyDescriptor, CallInterfaceDescriptor)
-};
-
-class WasmTableGetDescriptor final : public CallInterfaceDescriptor {
- public:
-  DEFINE_PARAMETERS_NO_CONTEXT(kTableIndex, kEntryIndex)
-  DEFINE_RESULT_AND_PARAMETER_TYPES(MachineType::AnyTagged(),     // result 1
-                                    MachineType::TaggedSigned(),  // kTableIndex
-                                    MachineType::Int32())         // kEntryIndex
-  DECLARE_DESCRIPTOR(WasmTableGetDescriptor, CallInterfaceDescriptor)
-};
-
-class WasmTableSetDescriptor final : public CallInterfaceDescriptor {
- public:
-  DEFINE_PARAMETERS_NO_CONTEXT(kTableIndex, kEntryIndex, kValue)
-  DEFINE_PARAMETER_TYPES(MachineType::TaggedSigned(),  // kTableIndex
-                         MachineType::Int32(),         // kEntryIndex
-                         MachineType::AnyTagged())     // kValue
-  DECLARE_DESCRIPTOR(WasmTableSetDescriptor, CallInterfaceDescriptor)
-};
-
-class WasmThrowDescriptor final : public CallInterfaceDescriptor {
- public:
-  DEFINE_PARAMETERS_NO_CONTEXT(kException)
-  DEFINE_RESULT_AND_PARAMETER_TYPES(MachineType::AnyTagged(),  // result 1
-                                    MachineType::AnyTagged())  // kException
-  DECLARE_DESCRIPTOR(WasmThrowDescriptor, CallInterfaceDescriptor)
+  DEFINE_PARAMETERS_NO_CONTEXT(kValue)
+  DEFINE_RESULT_AND_PARAMETER_TYPES(MachineType::AnyTagged(),  // result
+                                    MachineType::Float64())    // value
+  DECLARE_DESCRIPTOR(WasmFloat64ToNumberDescriptor, CallInterfaceDescriptor)
 };
 
 class V8_EXPORT_PRIVATE I64ToBigIntDescriptor final
@@ -1425,15 +1652,6 @@ class V8_EXPORT_PRIVATE BigIntToI32PairDescriptor final
                                     MachineType::Uint32(),     // result 2
                                     MachineType::AnyTagged())  // kArgument
   DECLARE_DESCRIPTOR(BigIntToI32PairDescriptor, CallInterfaceDescriptor)
-};
-
-class WasmAtomicNotifyDescriptor final : public CallInterfaceDescriptor {
- public:
-  DEFINE_PARAMETERS_NO_CONTEXT(kAddress, kCount)
-  DEFINE_RESULT_AND_PARAMETER_TYPES(MachineType::Uint32(),  // result 1
-                                    MachineType::Uint32(),  // kAddress
-                                    MachineType::Uint32())  // kCount
-  DECLARE_DESCRIPTOR(WasmAtomicNotifyDescriptor, CallInterfaceDescriptor)
 };
 
 class WasmI32AtomicWait32Descriptor final : public CallInterfaceDescriptor {
@@ -1474,26 +1692,6 @@ class WasmI64AtomicWait32Descriptor final : public CallInterfaceDescriptor {
   DECLARE_DESCRIPTOR(WasmI64AtomicWait32Descriptor, CallInterfaceDescriptor)
 };
 
-class WasmI32AtomicWait64Descriptor final : public CallInterfaceDescriptor {
- public:
-  DEFINE_PARAMETERS_NO_CONTEXT(kAddress, kExpectedValue, kTimeout)
-  DEFINE_RESULT_AND_PARAMETER_TYPES(MachineType::Uint32(),  // result 1
-                                    MachineType::Uint32(),  // kAddress
-                                    MachineType::Int32(),   // kExpectedValue
-                                    MachineType::Uint64())  // kTimeout
-  DECLARE_DESCRIPTOR(WasmI32AtomicWait64Descriptor, CallInterfaceDescriptor)
-};
-
-class WasmI64AtomicWait64Descriptor final : public CallInterfaceDescriptor {
- public:
-  DEFINE_PARAMETERS_NO_CONTEXT(kAddress, kExpectedValue, kTimeout)
-  DEFINE_RESULT_AND_PARAMETER_TYPES(MachineType::Uint32(),  // result 1
-                                    MachineType::Uint32(),  // kAddress
-                                    MachineType::Uint64(),  // kExpectedValue
-                                    MachineType::Uint64())  // kTimeout
-  DECLARE_DESCRIPTOR(WasmI64AtomicWait64Descriptor, CallInterfaceDescriptor)
-};
-
 class CloneObjectWithVectorDescriptor final : public CallInterfaceDescriptor {
  public:
   DEFINE_PARAMETERS(kSource, kFlags, kSlot, kVector)
@@ -1503,6 +1701,100 @@ class CloneObjectWithVectorDescriptor final : public CallInterfaceDescriptor {
                                     MachineType::TaggedSigned(),   // kSlot
                                     MachineType::AnyTagged())      // kVector
   DECLARE_DESCRIPTOR(CloneObjectWithVectorDescriptor, CallInterfaceDescriptor)
+};
+
+class CloneObjectBaselineDescriptor final : public CallInterfaceDescriptor {
+ public:
+  DEFINE_PARAMETERS_NO_CONTEXT(kSource, kFlags, kSlot)
+  DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(),     // kSource
+                         MachineType::TaggedSigned(),  // kFlags
+                         MachineType::TaggedSigned())  // kSlot
+  DECLARE_DESCRIPTOR(CloneObjectBaselineDescriptor, CallInterfaceDescriptor)
+};
+
+class BinaryOp_WithFeedbackDescriptor : public CallInterfaceDescriptor {
+ public:
+  DEFINE_PARAMETERS(kLeft, kRight, kSlot, kFeedbackVector)
+  DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(),  // kLeft
+                         MachineType::AnyTagged(),  // kRight
+                         MachineType::UintPtr(),    // kSlot
+                         MachineType::AnyTagged())  // kFeedbackVector
+  DECLARE_DESCRIPTOR(BinaryOp_WithFeedbackDescriptor, CallInterfaceDescriptor)
+};
+
+class CallTrampoline_BaselineDescriptor : public CallInterfaceDescriptor {
+ public:
+  DEFINE_PARAMETERS_VARARGS(kFunction, kActualArgumentsCount, kSlot)
+  DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(),  // kFunction
+                         MachineType::Int32(),      // kActualArgumentsCount
+                         MachineType::UintPtr())    // kSlot
+  DECLARE_DESCRIPTOR(CallTrampoline_BaselineDescriptor, CallInterfaceDescriptor)
+};
+
+class CallTrampoline_WithFeedbackDescriptor : public CallInterfaceDescriptor {
+ public:
+  DEFINE_PARAMETERS_VARARGS(kFunction, kActualArgumentsCount, kSlot,
+                            kFeedbackVector)
+  DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(),  // kFunction
+                         MachineType::Int32(),      // kActualArgumentsCount
+                         MachineType::UintPtr(),    // kSlot
+                         MachineType::AnyTagged())  // kFeedbackVector
+  DECLARE_DESCRIPTOR(CallTrampoline_WithFeedbackDescriptor,
+                     CallInterfaceDescriptor)
+};
+
+class Compare_WithFeedbackDescriptor : public CallInterfaceDescriptor {
+ public:
+  DEFINE_PARAMETERS(kLeft, kRight, kSlot, kFeedbackVector)
+  DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(),  // kLeft
+                         MachineType::AnyTagged(),  // kRight
+                         MachineType::UintPtr(),    // kSlot
+                         MachineType::AnyTagged())  // kFeedbackVector
+  DECLARE_DESCRIPTOR(Compare_WithFeedbackDescriptor, CallInterfaceDescriptor)
+};
+
+class Compare_BaselineDescriptor : public CallInterfaceDescriptor {
+ public:
+  DEFINE_PARAMETERS_NO_CONTEXT(kLeft, kRight, kSlot)
+  DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(),  // kLeft
+                         MachineType::AnyTagged(),  // kRight
+                         MachineType::UintPtr())    // kSlot
+  DECLARE_DESCRIPTOR(Compare_BaselineDescriptor, CallInterfaceDescriptor)
+};
+
+class Construct_BaselineDescriptor : public CallInterfaceDescriptor {
+ public:
+  DEFINE_JS_PARAMETERS_NO_CONTEXT(kSlot)
+  DEFINE_JS_PARAMETER_TYPES(MachineType::UintPtr())  // kSlot
+  DECLARE_JS_COMPATIBLE_DESCRIPTOR(Construct_BaselineDescriptor,
+                                   CallInterfaceDescriptor, 1)
+};
+
+class Construct_WithFeedbackDescriptor : public CallInterfaceDescriptor {
+ public:
+  // kSlot is passed in a register, kFeedbackVector on the stack.
+  DEFINE_JS_PARAMETERS(kSlot, kFeedbackVector)
+  DEFINE_JS_PARAMETER_TYPES(MachineType::UintPtr(),    // kSlot
+                            MachineType::AnyTagged())  // kFeedbackVector
+  DECLARE_JS_COMPATIBLE_DESCRIPTOR(Construct_WithFeedbackDescriptor,
+                                   CallInterfaceDescriptor, 1)
+};
+
+class UnaryOp_WithFeedbackDescriptor : public CallInterfaceDescriptor {
+ public:
+  DEFINE_PARAMETERS(kValue, kSlot, kFeedbackVector)
+  DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(),  // kValue
+                         MachineType::UintPtr(),    // kSlot
+                         MachineType::AnyTagged())  // kFeedbackVector
+  DECLARE_DESCRIPTOR(UnaryOp_WithFeedbackDescriptor, CallInterfaceDescriptor)
+};
+
+class UnaryOp_BaselineDescriptor : public CallInterfaceDescriptor {
+ public:
+  DEFINE_PARAMETERS(kValue, kSlot)
+  DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(),  // kValue
+                         MachineType::UintPtr())    // kSlot
+  DECLARE_DESCRIPTOR(UnaryOp_BaselineDescriptor, CallInterfaceDescriptor)
 };
 
 #define DEFINE_TFS_BUILTIN_DESCRIPTOR(Name, ...)                          \
@@ -1517,7 +1809,7 @@ BUILTIN_LIST_TFS(DEFINE_TFS_BUILTIN_DESCRIPTOR)
 // This file contains interface descriptor class definitions for builtins
 // defined in Torque. It is included here because the class definitions need to
 // precede the definition of name##Descriptor::key() below.
-#include "torque-generated/interface-descriptors-tq.inc"
+#include "torque-generated/interface-descriptors.inc"
 
 #undef DECLARE_DEFAULT_DESCRIPTOR
 #undef DECLARE_DESCRIPTOR_WITH_BASE

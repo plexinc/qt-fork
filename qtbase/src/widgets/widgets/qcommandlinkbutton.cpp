@@ -216,6 +216,7 @@ void QCommandLinkButtonPrivate::init()
     Q_Q(QCommandLinkButton);
     QPushButtonPrivate::init();
     q->setAttribute(Qt::WA_Hover);
+    q->setAttribute(Qt::WA_MacShowFocusRect, false);
 
     QSizePolicy policy(QSizePolicy::Preferred, QSizePolicy::Preferred, QSizePolicy::PushButton);
     policy.setHeightForWidth(true);
@@ -262,6 +263,12 @@ QSize QCommandLinkButton::minimumSizeHint() const
                              icon().actualSize(iconSize()).height() + d->topMargin());
     size.setHeight(minimumHeight);
     return size;
+}
+
+void QCommandLinkButton::initStyleOption(QStyleOptionButton *option) const
+{
+    QPushButton::initStyleOption(option);
+    option->features |= QStyleOptionButton::CommandLinkButton;
 }
 
 /*!
@@ -349,8 +356,6 @@ void QCommandLinkButton::paintEvent(QPaintEvent *)
     QStyleOptionButton option;
     initStyleOption(&option);
 
-    //Enable command link appearance on Vista
-    option.features |= QStyleOptionButton::CommandLinkButton;
     option.text = QString();
     option.icon = QIcon(); //we draw this ourselves
     QSize pixmapSize = icon().actualSize(iconSize());

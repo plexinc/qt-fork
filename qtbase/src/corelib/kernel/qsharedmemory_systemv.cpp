@@ -109,7 +109,7 @@ key_t QSharedMemoryPrivate::handle()
      0 already existed
      1 created
   */
-int QSharedMemoryPrivate::createUnixKeyFile(const QString &fileName)
+int QT_PREPEND_NAMESPACE(QSharedMemoryPrivate)::createUnixKeyFile(const QString &fileName)
 {
     int fd = qt_safe_open(QFile::encodeName(fileName).constData(),
             O_EXCL | O_CREAT | O_RDWR, 0640);
@@ -132,7 +132,7 @@ bool QSharedMemoryPrivate::cleanHandle()
     return true;
 }
 
-bool QSharedMemoryPrivate::create(int size)
+bool QSharedMemoryPrivate::create(qsizetype size)
 {
     // build file if needed
     bool createdFile = false;
@@ -154,7 +154,7 @@ bool QSharedMemoryPrivate::create(int size)
     }
 
     // create
-    if (-1 == shmget(unix_key, size, 0600 | IPC_CREAT | IPC_EXCL)) {
+    if (-1 == shmget(unix_key, size_t(size), 0600 | IPC_CREAT | IPC_EXCL)) {
         const QLatin1String function("QSharedMemory::create");
         switch (errno) {
         case EINVAL:
@@ -183,7 +183,7 @@ bool QSharedMemoryPrivate::attach(QSharedMemory::AccessMode mode)
 
     // grab the memory
     memory = shmat(id, nullptr, (mode == QSharedMemory::ReadOnly ? SHM_RDONLY : 0));
-    if ((void*) - 1 == memory) {
+    if ((void *)-1 == memory) {
         memory = nullptr;
         setErrorString(QLatin1String("QSharedMemory::attach (shmat)"));
         return false;
@@ -192,7 +192,7 @@ bool QSharedMemoryPrivate::attach(QSharedMemory::AccessMode mode)
     // grab the size
     shmid_ds shmid_ds;
     if (!shmctl(id, IPC_STAT, &shmid_ds)) {
-        size = (int)shmid_ds.shm_segsz;
+        size = (qsizetype)shmid_ds.shm_segsz;
     } else {
         setErrorString(QLatin1String("QSharedMemory::attach (shmctl)"));
         return false;

@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/http/quic_spdy_stream_body_manager.h"
+#include "quic/core/http/quic_spdy_stream_body_manager.h"
 
 #include <algorithm>
 
-#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/string_view.h"
+#include "quic/platform/api/quic_logging.h"
 
 namespace quic {
 
@@ -15,7 +15,7 @@ QuicSpdyStreamBodyManager::QuicSpdyStreamBodyManager()
     : total_body_bytes_received_(0) {}
 
 size_t QuicSpdyStreamBodyManager::OnNonBody(QuicByteCount length) {
-  DCHECK_NE(0u, length);
+  QUICHE_DCHECK_NE(0u, length);
 
   if (fragments_.empty()) {
     // Non-body bytes can be consumed immediately, because all previously
@@ -28,8 +28,8 @@ size_t QuicSpdyStreamBodyManager::OnNonBody(QuicByteCount length) {
   return 0;
 }
 
-void QuicSpdyStreamBodyManager::OnBody(quiche::QuicheStringPiece body) {
-  DCHECK(!body.empty());
+void QuicSpdyStreamBodyManager::OnBody(absl::string_view body) {
+  QUICHE_DCHECK(!body.empty());
 
   fragments_.push_back({body, 0});
   total_body_bytes_received_ += body.length();
@@ -46,7 +46,7 @@ size_t QuicSpdyStreamBodyManager::OnBodyConsumed(size_t num_bytes) {
     }
 
     Fragment& fragment = fragments_.front();
-    const quiche::QuicheStringPiece body = fragment.body;
+    const absl::string_view body = fragment.body;
 
     if (body.length() > remaining_bytes) {
       // Consume leading |remaining_bytes| bytes of body.
@@ -66,8 +66,8 @@ size_t QuicSpdyStreamBodyManager::OnBodyConsumed(size_t num_bytes) {
 }
 
 int QuicSpdyStreamBodyManager::PeekBody(iovec* iov, size_t iov_len) const {
-  DCHECK(iov);
-  DCHECK_GT(iov_len, 0u);
+  QUICHE_DCHECK(iov);
+  QUICHE_DCHECK_GT(iov_len, 0u);
 
   // TODO(bnc): Is this really necessary?
   if (fragments_.empty()) {
@@ -78,7 +78,7 @@ int QuicSpdyStreamBodyManager::PeekBody(iovec* iov, size_t iov_len) const {
 
   size_t iov_filled = 0;
   while (iov_filled < fragments_.size() && iov_filled < iov_len) {
-    quiche::QuicheStringPiece body = fragments_[iov_filled].body;
+    absl::string_view body = fragments_[iov_filled].body;
     iov[iov_filled].iov_base = const_cast<char*>(body.data());
     iov[iov_filled].iov_len = body.size();
     iov_filled++;
@@ -102,7 +102,7 @@ size_t QuicSpdyStreamBodyManager::ReadBody(const struct iovec* iov,
 
   while (!fragments_.empty()) {
     Fragment& fragment = fragments_.front();
-    const quiche::QuicheStringPiece body = fragment.body;
+    const absl::string_view body = fragment.body;
 
     const size_t bytes_to_copy =
         std::min<size_t>(body.length(), dest_remaining);

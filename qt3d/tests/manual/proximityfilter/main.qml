@@ -126,7 +126,7 @@ Entity {
                 effect: phongMaterial.effect
                 parameters: Parameter { name: "kd"; value: meshColor }
             }
-            readonly property SphereMesh mesh: sphereMesh
+            readonly property GeometryRenderer mesh: sphereMesh
             components: [ transform, mesh, material ]
         }
     }

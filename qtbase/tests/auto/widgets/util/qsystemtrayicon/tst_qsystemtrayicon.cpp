@@ -27,7 +27,9 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QTimer>
+#include <QSignalSpy>
 
 #include <qguiapplication.h>
 #include <qdebug.h>
@@ -109,6 +111,9 @@ void tst_QSystemTrayIcon::supportsMessages()
     if (QGuiApplication::platformName().startsWith(QLatin1String("wayland"), Qt::CaseInsensitive))
         QSKIP("Wayland: This fails. Figure out why.");
 
+    if (QGuiApplication::platformName() == u"offscreen")
+        QSKIP("Offscreen rendering. Might or might not have system tray icon.");
+
     // ### fixme: Check platforms.
     const QString platform = QGuiApplication::platformName();
     if (platform.compare(QStringLiteral("xcb"), Qt::CaseInsensitive)
@@ -121,7 +126,7 @@ void tst_QSystemTrayIcon::supportsMessages()
 
 void tst_QSystemTrayIcon::lastWindowClosed()
 {
-    QSignalSpy spy(qApp, &QApplication::lastWindowClosed);
+    QSignalSpy spy(qApp, &QGuiApplication::lastWindowClosed);
     QWidget window;
     QSystemTrayIcon icon;
     icon.setIcon(QIcon("whatever.png"));

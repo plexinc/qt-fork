@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
@@ -26,7 +26,9 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QSignalSpy>
+#include <QSortFilterProxyModel>
 
 #include "qcombobox.h"
 #include <private/qcombobox_p.h>
@@ -166,6 +168,8 @@ private slots:
     void inputMethodUpdate();
     void task_QTBUG_52027_mapCompleterIndex();
     void checkMenuItemPosWhenStyleSheetIsSet();
+    void checkEmbeddedLineEditWhenStyleSheetIsSet();
+    void propagateStyleChanges();
 
 private:
     PlatformInputContext m_platformInputContext;
@@ -175,26 +179,26 @@ class MyAbstractItemDelegate : public QAbstractItemDelegate
 {
 public:
     MyAbstractItemDelegate() : QAbstractItemDelegate() {};
-    void paint(QPainter *, const QStyleOptionViewItem &, const QModelIndex &) const {}
-    QSize sizeHint(const QStyleOptionViewItem &, const QModelIndex &) const { return QSize(); }
+    void paint(QPainter *, const QStyleOptionViewItem &, const QModelIndex &) const override {}
+    QSize sizeHint(const QStyleOptionViewItem &, const QModelIndex &) const override { return QSize(); }
 };
 
 class MyAbstractItemModel: public QAbstractItemModel
 {
 public:
     MyAbstractItemModel() : QAbstractItemModel() {};
-    QModelIndex index(int, int, const QModelIndex &) const { return QModelIndex(); }
-    QModelIndex parent(const QModelIndex &) const  { return QModelIndex(); }
-    int rowCount(const QModelIndex &) const { return 0; }
-    int columnCount(const QModelIndex &) const { return 0; }
-    bool hasChildren(const QModelIndex &) const { return false; }
-    QVariant data(const QModelIndex &, int) const { return QVariant(); }
-    bool setData(const QModelIndex &, const QVariant &, int) { return false; }
-    bool insertRows(int, int, const QModelIndex &) { return false; }
-    bool insertColumns(int, int, const QModelIndex &) { return false; }
+    QModelIndex index(int, int, const QModelIndex &) const override { return QModelIndex(); }
+    QModelIndex parent(const QModelIndex &) const override { return QModelIndex(); }
+    int rowCount(const QModelIndex &) const override { return 0; }
+    int columnCount(const QModelIndex &) const override { return 0; }
+    bool hasChildren(const QModelIndex &) const override { return false; }
+    QVariant data(const QModelIndex &, int) const override { return QVariant(); }
+    bool setData(const QModelIndex &, const QVariant &, int) override { return false; }
+    bool insertRows(int, int, const QModelIndex &) override { return false; }
+    bool insertColumns(int, int, const QModelIndex &) override { return false; }
     void setPersistent(const QModelIndex &, const QModelIndex &) {}
-    bool removeRows (int, int, const QModelIndex &) { return false; }
-    bool removeColumns(int, int, const QModelIndex &) { return false; }
+    bool removeRows (int, int, const QModelIndex &) override { return false; }
+    bool removeColumns(int, int, const QModelIndex &) override { return false; }
     void reset() {}
 };
 
@@ -202,16 +206,16 @@ class MyAbstractItemView : public QAbstractItemView
 {
 public:
     MyAbstractItemView() : QAbstractItemView() {}
-    QRect visualRect(const QModelIndex &) const { return QRect(); }
-    void scrollTo(const QModelIndex &, ScrollHint) {}
-    QModelIndex indexAt(const QPoint &) const { return QModelIndex(); }
+    QRect visualRect(const QModelIndex &) const override { return QRect(); }
+    void scrollTo(const QModelIndex &, ScrollHint) override {}
+    QModelIndex indexAt(const QPoint &) const override { return QModelIndex(); }
 protected:
-    QModelIndex moveCursor(CursorAction, Qt::KeyboardModifiers) { return QModelIndex(); }
-    int horizontalOffset() const { return 0; }
-    int verticalOffset() const { return 0; }
-    bool isIndexHidden(const QModelIndex &) const { return false; }
-    void setSelection(const QRect &, QItemSelectionModel::SelectionFlags) {}
-    QRegion visualRegionForSelection(const QItemSelection &) const { return QRegion(); }
+    QModelIndex moveCursor(CursorAction, Qt::KeyboardModifiers) override { return QModelIndex(); }
+    int horizontalOffset() const override { return 0; }
+    int verticalOffset() const override { return 0; }
+    bool isIndexHidden(const QModelIndex &) const override { return false; }
+    void setSelection(const QRect &, QItemSelectionModel::SelectionFlags) override {}
+    QRegion visualRegionForSelection(const QItemSelection &) const override { return QRegion(); }
 };
 
 void tst_QComboBox::initTestCase()
@@ -263,15 +267,6 @@ void tst_QComboBox::getSetCheck()
     obj1.setCompleter(&completer);
     QVERIFY(obj1.completer() == nullptr); // no QLineEdit is set
 
-#if QT_DEPRECATED_SINCE(5, 13)
-    // bool QComboBox::autoCompletion()
-    // void QComboBox::setAutoCompletion(bool)
-    obj1.setAutoCompletion(false);
-    QCOMPARE(false, obj1.autoCompletion());
-    obj1.setAutoCompletion(true);
-    QCOMPARE(true, obj1.autoCompletion());
-#endif
-
     // bool QComboBox::duplicatesEnabled()
     // void QComboBox::setDuplicatesEnabled(bool)
     obj1.setDuplicatesEnabled(false);
@@ -302,8 +297,6 @@ void tst_QComboBox::getSetCheck()
     QCOMPARE(QComboBox::SizeAdjustPolicy(QComboBox::AdjustToContents), obj1.sizeAdjustPolicy());
     obj1.setSizeAdjustPolicy(QComboBox::SizeAdjustPolicy(QComboBox::AdjustToContentsOnFirstShow));
     QCOMPARE(QComboBox::SizeAdjustPolicy(QComboBox::AdjustToContentsOnFirstShow), obj1.sizeAdjustPolicy());
-    obj1.setSizeAdjustPolicy(QComboBox::SizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLength));
-    QCOMPARE(QComboBox::SizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLength), obj1.sizeAdjustPolicy());
     obj1.setSizeAdjustPolicy(QComboBox::SizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon));
     QCOMPARE(QComboBox::SizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon), obj1.sizeAdjustPolicy());
 
@@ -531,19 +524,10 @@ void tst_QComboBox::sizeAdjustPolicy()
     testWidget->addItem("normal item");
     QCOMPARE(testWidget->sizeHint(), firstShow);
 
-    // check that with minimumContentsLength/AdjustToMinimumContentsLength sizehint changes
-    testWidget->setMinimumContentsLength(30);
-    QCOMPARE(testWidget->sizeHint(), firstShow);
-    testWidget->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLength);
-    QSize minimumContentsLength = testWidget->sizeHint();
-    QVERIFY(minimumContentsLength.width() > firstShow.width());
-    testWidget->setMinimumContentsLength(60);
-    QVERIFY(minimumContentsLength.width() < testWidget->sizeHint().width());
-
     // check that with minimumContentsLength/AdjustToMinimumContentsLengthWithIcon sizehint changes
     testWidget->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
     testWidget->setMinimumContentsLength(30);
-    minimumContentsLength = testWidget->sizeHint();
+    QSize minimumContentsLength = testWidget->sizeHint();
     QVERIFY(minimumContentsLength.width() > firstShow.width());
     testWidget->setMinimumContentsLength(60);
     QVERIFY(minimumContentsLength.width() < testWidget->sizeHint().width());
@@ -816,9 +800,6 @@ void tst_QComboBox::virtualAutocompletion()
     QVERIFY(QTest::qWaitForWindowExposed(&topLevel));
     QComboBox *testWidget = topLevel.comboBox();
     testWidget->clear();
-#if QT_DEPRECATED_SINCE(5, 13)
-    testWidget->setAutoCompletion(true);
-#endif
     testWidget->addItem("Foo");
     testWidget->addItem("Bar");
     testWidget->addItem("Boat");
@@ -881,9 +862,6 @@ void tst_QComboBox::autoCompletionCaseSensitivity()
     QCOMPARE(qApp->focusWidget(), (QWidget *)testWidget);
 
     testWidget->clear();
-#if QT_DEPRECATED_SINCE(5, 13)
-    testWidget->setAutoCompletion(true);
-#endif
     testWidget->addItem("Cow");
     testWidget->addItem("irrelevant1");
     testWidget->addItem("aww");
@@ -1209,7 +1187,6 @@ void tst_QComboBox::currentIndex()
 
         // spy on currentIndexChanged
         QSignalSpy indexChangedInt(testWidget, SIGNAL(currentIndexChanged(int)));
-        QSignalSpy indexChangedString(testWidget, SIGNAL(currentIndexChanged(QString)));
 
         // stuff items into it
         foreach(QString text, initialItems) {
@@ -1234,15 +1211,11 @@ void tst_QComboBox::currentIndex()
 
         // check that signal count is correct
         QCOMPARE(indexChangedInt.count(), expectedSignalCount);
-        QCOMPARE(indexChangedString.count(), expectedSignalCount);
 
         // compare with last sent signal values
         if (indexChangedInt.count())
             QCOMPARE(indexChangedInt.at(indexChangedInt.count() - 1).at(0).toInt(),
                     testWidget->currentIndex());
-        if (indexChangedString.count())
-            QCOMPARE(indexChangedString.at(indexChangedString.count() - 1).at(0).toString(),
-                     testWidget->currentText());
 
         if (edit) {
             testWidget->setCurrentIndex(-1);
@@ -1725,9 +1698,6 @@ void tst_QComboBox::setCustomModelAndView()
     QTest::qWait(QApplication::doubleClickInterval());
 
     QTest::mouseClick(window->windowHandle(), Qt::LeftButton, {}, view->mapTo(window, subItemRect.center()));
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("", "Fails on WinRT - QTBUG-68297", Abort);
-#endif
     QTRY_COMPARE(combo.currentText(), subItem21Text);
 }
 
@@ -1856,7 +1826,7 @@ class ReturnClass : public QWidget
 {
     Q_OBJECT
 public:
-    ReturnClass(QWidget *parent = 0)
+    ReturnClass(QWidget *parent = nullptr)
         : QWidget(parent), received(false)
     {
         QComboBox *box = new QComboBox(this);
@@ -1865,7 +1835,7 @@ public:
         box->setGeometry(rect());
     }
 
-    void keyPressEvent(QKeyEvent *e)
+    void keyPressEvent(QKeyEvent *e) override
     {
         received = (e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter);
     }
@@ -2337,7 +2307,7 @@ class task166349_ComboBox : public QComboBox
 {
     Q_OBJECT
 public:
-    task166349_ComboBox(QWidget *parent = 0) : QComboBox(parent)
+    task166349_ComboBox(QWidget *parent = nullptr) : QComboBox(parent)
     {
         QStringList list;
         list << "one" << "two";
@@ -2437,9 +2407,6 @@ void tst_QComboBox::task190205_setModelAdjustToContents()
     correctBox.addItems(finalContent);
     correctBox.showNormal();
 
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("", "WinRT does not support more than 1 native top level widget", Abort);
-#endif
     QVERIFY(QTest::qWaitForWindowExposed(&box));
     QVERIFY(QTest::qWaitForWindowExposed(&correctBox));
 
@@ -2486,7 +2453,7 @@ void tst_QComboBox::task247863_keyBoardSelection()
   QApplication::setActiveWindow(&combo);
   QTRY_COMPARE(QApplication::activeWindow(), static_cast<QWidget *>(&combo));
 
-  QSignalSpy spy(&combo, SIGNAL(activated(QString)));
+  QSignalSpy spy(&combo, &QComboBox::activated);
   qApp->setEffectEnabled(Qt::UI_AnimateCombo, false);
   QTest::keyClick(&combo, Qt::Key_Space);
   qApp->setEffectEnabled(Qt::UI_AnimateCombo, true);
@@ -2703,13 +2670,13 @@ void tst_QComboBox::task260974_menuItemRectangleForComboBoxPopup()
     public:
         TestStyle() : QProxyStyle(QStyleFactory::create("windows")) { }
 
-        int styleHint(StyleHint hint, const QStyleOption *option, const QWidget *widget, QStyleHintReturn *ret) const
+        int styleHint(StyleHint hint, const QStyleOption *option, const QWidget *widget, QStyleHintReturn *ret) const override
         {
             if (hint == SH_ComboBox_Popup) return 1;
             else return QCommonStyle::styleHint(hint, option, widget, ret);
         }
 
-        void drawControl(ControlElement element, const QStyleOption *option, QPainter *, const QWidget *) const
+        void drawControl(ControlElement element, const QStyleOption *option, QPainter *, const QWidget *) const override
         {
             if (element == CE_MenuItem)
                 discoveredRect = option->rect;
@@ -2767,7 +2734,7 @@ void tst_QComboBox::resetModel()
     };
     QComboBox cb;
     StringListModel model({"1", "2"});
-    QSignalSpy spy(&cb, QOverload<int>::of(&QComboBox::currentIndexChanged));
+    QSignalSpy spy(&cb, &QComboBox::currentIndexChanged);
     QCOMPARE(spy.count(), 0);
     QCOMPARE(cb.currentIndex(), -1); //no selection
 
@@ -3109,9 +3076,6 @@ void tst_QComboBox::task_QTBUG_31146_popupCompletion()
 
     QComboBox comboBox;
     comboBox.setEditable(true);
-#if QT_DEPRECATED_SINCE(5, 13)
-    comboBox.setAutoCompletion(true);
-#endif
     comboBox.setInsertPolicy(QComboBox::NoInsert);
     comboBox.completer()->setCaseSensitivity(Qt::CaseInsensitive);
     comboBox.completer()->setCompletionMode(QCompleter::PopupCompletion);
@@ -3314,7 +3278,6 @@ void tst_QComboBox::task_QTBUG_49831_scrollerNotActivated()
             if (scroller->isVisible()) {
                 QSignalSpy doScrollSpy(scroller, SIGNAL(doScroll(int)));
                 QTest::mouseMove(scroller, QPoint(5, 5), 500);
-                QTest::mouseMove(scroller, QPoint(6, 5), 500);
                 QTRY_VERIFY(doScrollSpy.count() > 0);
             }
         }
@@ -3388,9 +3351,6 @@ void tst_QComboBox::task_QTBUG_56693_itemFontFromModel()
     QVERIFY(container);
     QVERIFY(QTest::qWaitForWindowExposed(container));
 
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("", "Fails on WinRT - QTBUG-68297", Abort);
-#endif
     QCOMPARE(proxyStyle->italicItemsNo, 5);
 
     box.hidePopup();
@@ -3500,7 +3460,7 @@ void tst_QComboBox::task_QTBUG_52027_mapCompleterIndex()
     completer->setModel(model);
 
     if (QGuiApplication::platformName() == "offscreen") {
-        QWARN("Offscreen platform requires explicit activateWindow()");
+        qWarning("Offscreen platform requires explicit activateWindow()");
         cbox.activateWindow();
     }
 
@@ -3557,6 +3517,77 @@ void tst_QComboBox::checkMenuItemPosWhenStyleSheetIsSet()
     QCOMPARE(menuHeight, menuItemRect.y() + menuItemRect.height());
 
     qApp->setStyleSheet(oldCss);
+}
+
+void tst_QComboBox::checkEmbeddedLineEditWhenStyleSheetIsSet()
+{
+    QString newCss = "QWidget { background-color: red; color: white; }";
+    QString oldCss = qApp->styleSheet();
+    qApp->setStyleSheet(newCss);
+
+    QWidget topLevel;
+    auto layout = new QVBoxLayout(&topLevel);
+    topLevel.setLayout(layout);
+    auto comboBox = new QComboBox;
+    layout->addWidget(comboBox);
+    topLevel.show();
+    comboBox->setEditable(true);
+    QApplication::setActiveWindow(&topLevel);
+    QVERIFY(QTest::qWaitForWindowActive(&topLevel));
+
+    QImage grab = comboBox->grab().toImage();
+    auto color = grab.pixelColor(grab.rect().center());
+
+    QVERIFY(color.red() > 240);
+    QVERIFY(color.green() < 20);
+    QVERIFY(color.blue() < 20);
+
+    qApp->setStyleSheet(oldCss);
+}
+
+/*!
+    Tests that the style-based frame style propagates to the internal container
+    widget of QComboBox when the style changes by verifying that the respective
+    styleHint is asked for when the style changes.
+
+    See QTBUG-92488
+*/
+void tst_QComboBox::propagateStyleChanges()
+{
+    class FrameStyle : public QProxyStyle
+    {
+    public:
+        FrameStyle(int frameStyle, QStyle *style = nullptr)
+            : QProxyStyle(style), frameStyle(frameStyle)
+        {}
+
+        int styleHint(QStyle::StyleHint hint, const QStyleOption *opt,
+                      const QWidget *widget, QStyleHintReturn *returnData) const
+        {
+            if (hint == QStyle::SH_ComboBox_PopupFrameStyle) {
+                inquired = true;
+                return frameStyle;
+            }
+            return QProxyStyle::styleHint(hint, opt, widget, returnData);
+        }
+
+        int frameStyle;
+        mutable bool inquired = false;
+    };
+
+    FrameStyle framelessStyle(QFrame::NoFrame);
+    FrameStyle frameStyle(QFrame::Plain | QFrame::Sunken);
+
+    QComboBox combo;
+    // container will be created and take settings from this style
+    combo.setStyle(&framelessStyle);
+    QVERIFY(framelessStyle.inquired);
+    combo.addItem(QLatin1String("Open"));
+    combo.addItem(QLatin1String("Close"));
+    // needed because of QComboBox's adjustSizeTimer not doing anything otherwise
+    combo.setSizeAdjustPolicy(QComboBox::AdjustToContents);
+    combo.setStyle(&frameStyle);
+    QVERIFY(frameStyle.inquired);
 }
 
 QTEST_MAIN(tst_QComboBox)

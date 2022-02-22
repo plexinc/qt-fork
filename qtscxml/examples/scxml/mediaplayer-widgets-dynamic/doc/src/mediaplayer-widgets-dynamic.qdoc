@@ -47,11 +47,20 @@
     \section1 Dynamically Loading the State Machine
 
     We link against the Qt SCXML module by adding the following line to the
-    example \e .pro file:
+    project build files.
+
+    With qmake to the \e mediaplayer-widgets-dynamic.pro
 
     \quotefromfile mediaplayer-widgets-dynamic/mediaplayer-widgets-dynamic.pro
     \skipto QT
-    \printuntil scxml
+    \printline scxml
+
+    With cmake to the \e CMakeLists.txt
+    \quotefromfile mediaplayer-widgets-dynamic/CMakeLists.txt
+    \skipto find_package
+    \printline Scxml
+    \skipto target_link_libraries
+    \printuntil )
 
     \quotefromfile mediaplayer-widgets-dynamic/mediaplayer-widgets-dynamic.cpp
 

@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <qlayout.h>
 #include <qapplication.h>
 #include <qwidget.h>
@@ -52,7 +52,7 @@ using namespace QTestPrivate;
 
 // ItemRole has enumerators for numerical values 0..2, thus the only
 // valid numerical values for storing into an ItemRole variable are 0..3:
-Q_CONSTEXPR QFormLayout::ItemRole invalidRole = QFormLayout::ItemRole(3);
+constexpr QFormLayout::ItemRole invalidRole = QFormLayout::ItemRole(3);
 
 struct QFormLayoutTakeRowResultHolder {
     QFormLayoutTakeRowResultHolder(QFormLayout::TakeRowResult result) noexcept
@@ -99,7 +99,9 @@ class tst_QFormLayout : public QObject
 private slots:
     void cleanup();
     void rowCount();
+#if QT_CONFIG(shortcut)
     void buddies();
+#endif
     void getItemPosition();
     void wrapping();
     void spacing();
@@ -190,6 +192,8 @@ void tst_QFormLayout::rowCount()
     //TODO: remove items
 }
 
+#if QT_CONFIG(shortcut)
+
 void tst_QFormLayout::buddies()
 {
     QWidget w;
@@ -217,6 +221,8 @@ void tst_QFormLayout::buddies()
 
     //TODO: empty label?
 }
+
+#endif // QT_CONFIG(shortcut)
 
 void tst_QFormLayout::getItemPosition()
 {
@@ -276,9 +282,6 @@ void tst_QFormLayout::wrapping()
     w.setWindowTitle(QTest::currentTestFunction());
     w.show();
 
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("", "setFixedWidth does not work on WinRT", Abort);
-#endif
     QCOMPARE(le->geometry().y() > lbl->geometry().y(), true);
 
     //TODO: additional tests covering different wrapping cases
@@ -294,15 +297,15 @@ public:
         vspacing = 10;
     }
 
-    virtual int pixelMetric(PixelMetric metric, const QStyleOption * option = 0,
-                            const QWidget * widget = 0 ) const;
+    virtual int pixelMetric(PixelMetric metric, const QStyleOption * option = nullptr,
+                            const QWidget * widget = nullptr) const override;
 
     int hspacing;
     int vspacing;
 };
 
-int CustomLayoutStyle::pixelMetric(PixelMetric metric, const QStyleOption * option /*= 0*/,
-                                   const QWidget * widget /*= 0*/ ) const
+int CustomLayoutStyle::pixelMetric(PixelMetric metric, const QStyleOption * option /*= nullptr*/,
+                                   const QWidget * widget /*= nullptr*/ ) const
 {
     switch (metric) {
         case PM_LayoutHorizontalSpacing:
@@ -388,7 +391,7 @@ void tst_QFormLayout::contentsRect()
 class DummyMacStyle : public QCommonStyle
 {
 public:
-    virtual int styleHint ( StyleHint hint, const QStyleOption * option = 0, const QWidget * widget = 0, QStyleHintReturn * returnData = 0 ) const
+    virtual int styleHint ( StyleHint hint, const QStyleOption * option = 0, const QWidget * widget = nullptr, QStyleHintReturn * returnData = 0 ) const override
     {
         switch(hint) {
             case SH_FormLayoutFormAlignment:
@@ -408,7 +411,7 @@ public:
 class DummyQtopiaStyle : public QCommonStyle
 {
 public:
-    virtual int styleHint ( StyleHint hint, const QStyleOption * option = 0, const QWidget * widget = 0, QStyleHintReturn * returnData = 0 ) const
+    virtual int styleHint ( StyleHint hint, const QStyleOption * option = 0, const QWidget * widget = nullptr, QStyleHintReturn * returnData = 0 ) const override
     {
         switch(hint) {
             case SH_FormLayoutFormAlignment:
@@ -687,17 +690,21 @@ void tst_QFormLayout::insertRow_QString_QWidget()
     layout->insertRow(-5, "&Name:", fld1);
     QLabel *label1 = qobject_cast<QLabel *>(layout->itemAt(0, QFormLayout::LabelRole)->widget());
     QVERIFY(label1 != 0);
+#if QT_CONFIG(shortcut)
     QCOMPARE(label1->buddy(), fld1);
-
+#endif
     layout->insertRow(0, "&Email:", fld2);
     QLabel *label2 = qobject_cast<QLabel *>(layout->itemAt(0, QFormLayout::LabelRole)->widget());
     QVERIFY(label2 != 0);
+#if QT_CONFIG(shortcut)
     QCOMPARE(label2->buddy(), fld2);
-
+#endif
     layout->insertRow(5, "&Age:", fld3);
     QLabel *label3 = qobject_cast<QLabel *>(layout->itemAt(2, QFormLayout::LabelRole)->widget());
     QVERIFY(label3 != 0);
+#if QT_CONFIG(shortcut)
     QCOMPARE(label3->buddy(), fld3);
+#endif
 }
 
 void tst_QFormLayout::insertRow_QString_QLayout()
@@ -711,21 +718,27 @@ void tst_QFormLayout::insertRow_QString_QLayout()
     layout->insertRow(-5, "&Name:", fld1);
     QLabel *label1 = qobject_cast<QLabel *>(layout->itemAt(0, QFormLayout::LabelRole)->widget());
     QVERIFY(label1 != 0);
+#if QT_CONFIG(shortcut)
     QVERIFY(!label1->buddy());
+#endif
 
     QCOMPARE(layout->rowCount(), 1);
 
     layout->insertRow(0, "&Email:", fld2);
     QLabel *label2 = qobject_cast<QLabel *>(layout->itemAt(0, QFormLayout::LabelRole)->widget());
     QVERIFY(label2 != 0);
+#if QT_CONFIG(shortcut)
     QVERIFY(!label2->buddy());
+#endif
 
     QCOMPARE(layout->rowCount(), 2);
 
     layout->insertRow(5, "&Age:", fld3);
     QLabel *label3 = qobject_cast<QLabel *>(layout->itemAt(2, QFormLayout::LabelRole)->widget());
     QVERIFY(label3 != 0);
+#if QT_CONFIG(shortcut)
     QVERIFY(!label3->buddy());
+#endif
 
     QCOMPARE(layout->rowCount(), 3);
 }

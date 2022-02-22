@@ -15,8 +15,8 @@
 #include "base/trace_event/trace_event.h"
 #include "base/trace_event/traced_value.h"
 #include "components/subresource_filter/content/browser/content_activation_list_utils.h"
+#include "components/subresource_filter/content/browser/devtools_interaction_tracker.h"
 #include "components/subresource_filter/content/browser/navigation_console_logger.h"
-#include "components/subresource_filter/content/browser/subresource_filter_client.h"
 #include "components/subresource_filter/content/browser/subresource_filter_observer_manager.h"
 #include "components/subresource_filter/content/browser/subresource_filter_safe_browsing_client.h"
 #include "components/subresource_filter/core/browser/subresource_filter_constants.h"
@@ -63,7 +63,7 @@ base::Optional<RedirectPosition> GetEnforcementRedirectPosition(
 SubresourceFilterSafeBrowsingActivationThrottle::
     SubresourceFilterSafeBrowsingActivationThrottle(
         content::NavigationHandle* handle,
-        SubresourceFilterClient* client,
+        Delegate* delegate,
         scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
         scoped_refptr<safe_browsing::SafeBrowsingDatabaseManager>
             database_manager)
@@ -75,7 +75,7 @@ SubresourceFilterSafeBrowsingActivationThrottle::
                            io_task_runner_,
                            base::ThreadTaskRunnerHandle::Get()),
                        base::OnTaskRunnerDeleter(io_task_runner_)),
-      client_(client) {
+      delegate_(delegate) {
   DCHECK(handle->IsInMainFrame());
 
   CheckCurrentUrl();
@@ -194,10 +194,21 @@ void SubresourceFilterSafeBrowsingActivationThrottle::NotifyResult() {
     activation_level = mojom::ActivationLevel::kDisabled;
   }
 
-  // Let the embedder get the last word when it comes to activation level.
-  // TODO(csharrison): Move all ActivationDecision code to the embedder.
-  activation_level = client_->OnPageActivationComputed(
-      navigation_handle(), activation_level, &activation_decision);
+  auto* devtools_interaction_tracker =
+      DevtoolsInteractionTracker::FromWebContents(
+          navigation_handle()->GetWebContents());
+
+  if (devtools_interaction_tracker &&
+      devtools_interaction_tracker->activated_via_devtools()) {
+    activation_level = mojom::ActivationLevel::kEnabled;
+    activation_decision = ActivationDecision::FORCED_ACTIVATION;
+  }
+
+  // Let the delegate adjust the activation decision if present.
+  if (delegate_) {
+    activation_level = delegate_->OnPageActivationComputed(
+        navigation_handle(), activation_level, &activation_decision);
+  }
 
   LogMetricsOnChecksComplete(selection.matched_list, activation_decision,
                              activation_level);
@@ -229,12 +240,8 @@ void SubresourceFilterSafeBrowsingActivationThrottle::
     builder.SetDryRun(true);
   }
 
-  if (auto optional_position = GetEnforcementRedirectPosition(check_results_)) {
-    RedirectPosition position = *optional_position;
-    UMA_HISTOGRAM_ENUMERATION(
-        "SubresourceFilter.PageLoad.Activation.RedirectPosition2.Enforcement",
-        position);
-    builder.SetEnforcementRedirectPosition(static_cast<int64_t>(position));
+  if (auto position = GetEnforcementRedirectPosition(check_results_)) {
+    builder.SetEnforcementRedirectPosition(static_cast<int64_t>(*position));
   }
 
   builder.Record(ukm::UkmRecorder::Get());

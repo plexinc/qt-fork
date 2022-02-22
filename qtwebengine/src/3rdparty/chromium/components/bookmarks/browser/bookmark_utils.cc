@@ -10,13 +10,13 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/containers/contains.h"
 #include "base/files/file_path.h"
 #include "base/guid.h"
 #include "base/i18n/case_conversion.h"
 #include "base/i18n/string_search.h"
 #include "base/macros.h"
 #include "base/metrics/user_metrics_action.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -31,6 +31,7 @@
 #include "components/query_parser/query_parser.h"
 #include "components/url_formatter/url_formatter.h"
 #include "ui/base/clipboard/clipboard.h"
+#include "ui/base/data_transfer_policy/data_transfer_endpoint.h"
 #include "ui/base/models/tree_node_iterator.h"
 #include "url/gurl.h"
 
@@ -142,11 +143,13 @@ std::string TruncateUrl(const std::string& url) {
 
 // Returns the URL from the clipboard. If there is no URL an empty URL is
 // returned.
-GURL GetUrlFromClipboard() {
+GURL GetUrlFromClipboard(bool notify_if_restricted) {
   base::string16 url_text;
 #if !defined(OS_IOS)
+  ui::DataTransferEndpoint data_dst = ui::DataTransferEndpoint(
+      ui::EndpointType::kDefault, notify_if_restricted);
   ui::Clipboard::GetForCurrentThread()->ReadText(
-      ui::ClipboardBuffer::kCopyPaste, &url_text);
+      ui::ClipboardBuffer::kCopyPaste, &data_dst, &url_text);
 #endif
   return GURL(url_text);
 }
@@ -290,10 +293,10 @@ void PasteFromClipboard(BookmarkModel* model,
 
   BookmarkNodeData bookmark_data;
   if (!bookmark_data.ReadFromClipboard(ui::ClipboardBuffer::kCopyPaste)) {
-    GURL url = GetUrlFromClipboard();
+    GURL url = GetUrlFromClipboard(/*notify_if_restricted=*/true);
     if (!url.is_valid())
       return;
-    BookmarkNode node(/*id=*/0, base::GenerateGUID(), url);
+    BookmarkNode node(/*id=*/0, base::GUID::GenerateRandomV4(), url);
     node.SetTitle(base::ASCIIToUTF16(url.spec()));
     bookmark_data = BookmarkNodeData(&node);
   }
@@ -315,7 +318,7 @@ bool CanPasteFromClipboard(BookmarkModel* model, const BookmarkNode* node) {
   if (!node || !model->client()->CanBeEditedByUser(node))
     return false;
   return (BookmarkNodeData::ClipboardContainsBookmarks() ||
-          GetUrlFromClipboard().is_valid());
+          GetUrlFromClipboard(/*notify_if_restricted=*/false).is_valid());
 }
 
 std::vector<const BookmarkNode*> GetMostRecentlyModifiedUserFolders(
@@ -414,11 +417,10 @@ void GetBookmarksMatchingProperties(BookmarkModel* model,
 std::vector<base::string16> ParseBookmarkQuery(
     const bookmarks::QueryFields& query) {
   std::vector<base::string16> query_words;
-  query_parser::QueryParser parser;
   if (query.word_phrase_query) {
-    parser.ParseQueryWords(base::i18n::ToLower(*query.word_phrase_query),
-                           query_parser::MatchingAlgorithm::DEFAULT,
-                           &query_words);
+    query_parser::QueryParser::ParseQueryWords(
+        base::i18n::ToLower(*query.word_phrase_query),
+        query_parser::MatchingAlgorithm::DEFAULT, &query_words);
   }
   return query_words;
 }
@@ -445,6 +447,9 @@ void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
   registry->RegisterBooleanPref(
       prefs::kShowAppsShortcutInBookmarkBar,
       true,
+      user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
+  registry->RegisterBooleanPref(
+      prefs::kShowReadingListInBookmarkBar, true,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
   registry->RegisterBooleanPref(
       prefs::kShowManagedBookmarksInBookmarkBar,

@@ -51,7 +51,7 @@ class CustomDialog : public QDialog, public Ui::Dialog
 {
     Q_OBJECT
 public:
-    CustomDialog(QWidget *parent = 0)
+    CustomDialog(QWidget *parent = nullptr)
         : QDialog(parent)
     {
         setupUi(this);
@@ -101,7 +101,7 @@ private slots:
 private:
     void newDialog(DialogType dialogType, Qt::WindowModality windowModality)
     {
-        QWidget *parent = 0;
+        QWidget *parent = nullptr;
         if (useThisAsParentCheckBox->isChecked())
             parent = this;
         else if (createSiblingDialogCheckBox->isChecked())
@@ -166,7 +166,7 @@ class Widget : public QWidget, public Ui::Widget
 {
     Q_OBJECT
 public:
-    Widget(QWidget *parent = 0)
+    Widget(QWidget *parent = nullptr)
         : QWidget(parent)
     {
         setupUi(this);
@@ -175,12 +175,6 @@ public:
 private slots:
     void on_windowButton_clicked()
     { (new Widget)->show(); }
-    void on_groupLeaderButton_clicked()
-    {
-        Widget *w = new Widget;
-        w->setAttribute(Qt::WA_GroupLeader);
-        w->show();
-    }
 
     void on_modelessCustomDialogButton_clicked()
     { newDialog(CustomDialogType, Qt::NonModal); }
@@ -218,7 +212,7 @@ private slots:
 private:
     void newDialog(DialogType dialogType, Qt::WindowModality windowModality)
     {
-        QWidget *parent = 0;
+        QWidget *parent = nullptr;
         if (useThisAsParentCheckBox->isChecked())
             parent = this;
 

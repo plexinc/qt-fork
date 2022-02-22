@@ -59,7 +59,7 @@ static bool isUncRoot(const QString &server)
     if (idx == -1 || idx + 1 == localPath.length())
         return true;
 
-    return localPath.rightRef(localPath.length() - idx - 1).trimmed().isEmpty();
+    return QStringView{localPath}.right(localPath.length() - idx - 1).trimmed().isEmpty();
 }
 
 static inline QString fixIfRelativeUncPath(const QString &path)
@@ -140,14 +140,8 @@ QFileSystemEntry::NativePath QFileSystemEntry::nativeFilePath() const
 void QFileSystemEntry::resolveFilePath() const
 {
     if (m_filePath.isEmpty() && !m_nativeFilePath.isEmpty()) {
-#if defined(QFILESYSTEMENTRY_NATIVE_PATH_IS_UTF16)
-        m_filePath = QDir::fromNativeSeparators(m_nativeFilePath);
 #ifdef Q_OS_WIN
-        if (m_filePath.startsWith(QLatin1String("//?/UNC/")))
-            m_filePath = m_filePath.remove(2,6);
-        if (m_filePath.startsWith(QLatin1String("//?/")))
-            m_filePath = m_filePath.remove(0,4);
-#endif
+        m_filePath = QDir::fromNativeSeparators(m_nativeFilePath);
 #else
         m_filePath = QDir::fromNativeSeparators(QFile::decodeName(m_nativeFilePath));
 #endif
@@ -162,20 +156,8 @@ void QFileSystemEntry::resolveNativeFilePath() const
         if (isRelative())
             filePath = fixIfRelativeUncPath(m_filePath);
         m_nativeFilePath = QFSFileEnginePrivate::longFileName(QDir::toNativeSeparators(filePath));
-#elif defined(QFILESYSTEMENTRY_NATIVE_PATH_IS_UTF16)
-        m_nativeFilePath = QDir::toNativeSeparators(m_filePath);
 #else
         m_nativeFilePath = QFile::encodeName(QDir::toNativeSeparators(m_filePath));
-#endif
-#ifdef Q_OS_WINRT
-        while (m_nativeFilePath.startsWith(QLatin1Char('\\')))
-            m_nativeFilePath.remove(0,1);
-        if (m_nativeFilePath.isEmpty())
-            m_nativeFilePath.append(QLatin1Char('.'));
-        // WinRT/MSVC2015 allows a maximum of 256 characters for a filepath
-        // unless //?/ is prepended which extends the rule to have a maximum
-        // of 256 characters in the filename plus the preprending path
-        m_nativeFilePath.prepend("\\\\?\\");
 #endif
     }
 }
@@ -302,13 +284,37 @@ bool QFileSystemEntry::isDriveRoot() const
 
 bool QFileSystemEntry::isDriveRootPath(const QString &path)
 {
-#ifndef Q_OS_WINRT
     return (path.length() == 3
            && path.at(0).isLetter() && path.at(1) == QLatin1Char(':')
            && path.at(2) == QLatin1Char('/'));
-#else // !Q_OS_WINRT
-    return path == QDir::rootPath();
-#endif // !Q_OS_WINRT
+}
+
+QString QFileSystemEntry::removeUncOrLongPathPrefix(QString path)
+{
+    constexpr qsizetype minPrefixSize = 4;
+    if (path.size() < minPrefixSize)
+        return path;
+
+    auto data = path.data();
+    const auto slash = path[0];
+    if (slash != u'\\' && slash != u'/')
+        return path;
+
+    // check for "//?/" or "/??/"
+    if (data[2] == u'?' && data[3] == slash && (data[1] == slash || data[1] == u'?')) {
+        path = path.sliced(minPrefixSize);
+
+        // check for a possible "UNC/" prefix left-over
+        if (path.size() >= 4) {
+            data = path.data();
+            if (data[0] == u'U' && data[1] == u'N' && data[2] == u'C' && data[3] == slash) {
+                data[2] = slash;
+                return path.sliced(2);
+            }
+        }
+    }
+
+    return path;
 }
 #endif // Q_OS_WIN
 

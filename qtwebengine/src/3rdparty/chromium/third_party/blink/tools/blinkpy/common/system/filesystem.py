@@ -25,16 +25,15 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
 """Wrapper object for functions that access the filesystem.
 
 A FileSystem object can be used to represent dependency on the
 filesystem, and can be replaced with a MockFileSystem in tests.
 """
+from __future__ import unicode_literals
 
 import codecs
 import errno
-import exceptions
 import glob
 import hashlib
 import logging
@@ -45,6 +44,12 @@ import subprocess
 import sys
 import tempfile
 import time
+
+try:
+    import exceptions
+except ImportError:
+    # In py3, exceptions were moved into builtins
+    import builtins as exceptions
 
 _log = logging.getLogger(__name__)
 
@@ -76,7 +81,7 @@ class FileSystem(object):
         """
         if sys.platform == 'win32' and len(path) >= self.WINDOWS_MAX_PATH:
             assert not path.startswith(r'\\'), "must not already be UNC"
-            return ur'\\?\%s' % (self.abspath(path),)
+            return r'\\?\%s' % (self.abspath(path), )
         return path
 
     def abspath(self, path):
@@ -104,7 +109,8 @@ class FileSystem(object):
 
     def copyfile(self, source, destination):
         # shutil.copyfile() uses open() underneath, which supports UNC paths.
-        shutil.copyfile(self._path_for_access(source), self._path_for_access(destination))
+        shutil.copyfile(
+            self._path_for_access(source), self._path_for_access(destination))
 
     def dirname(self, path):
         return os.path.dirname(path)
@@ -175,7 +181,8 @@ class FileSystem(object):
         return os.listdir(path)
 
     def walk(self, top, topdown=True, onerror=None, followlinks=False):
-        return os.walk(top, topdown=topdown, onerror=onerror, followlinks=followlinks)
+        return os.walk(
+            top, topdown=topdown, onerror=onerror, followlinks=followlinks)
 
     def mkdtemp(self, **kwargs):
         """Creates and returns a uniquely-named directory.
@@ -190,8 +197,8 @@ class FileSystem(object):
         of the string methods. If you need a string, coerce the object to a
         string and go from there.
         """
-        class TemporaryDirectory(object):
 
+        class TemporaryDirectory(object):
             def __init__(self, **kwargs):
                 self._kwargs = kwargs
                 self._directory_path = tempfile.mkdtemp(**self._kwargs)
@@ -336,7 +343,8 @@ class FileSystem(object):
             # Ensure the root of the tree being rmtree'd is not a long path.
             # We can't convert it to a long path (using _path_for_access),
             # because long paths are not supported in 'rmdir' on Windows 7.
-            assert len(path_abs) < self.WINDOWS_MAX_PATH, 'root path is too long'
+            assert len(path_abs) < self.WINDOWS_MAX_PATH, \
+                'root path is too long'
 
             # Ensure (hopefully) that the quoting done on the next line is safe.
             assert '"' not in path_abs, 'path contains a quotation mark (")'
@@ -382,7 +390,9 @@ class FileSystem(object):
         return os.path.splitext(path)
 
     def make_executable(self, file_path):
-        os.chmod(file_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP)
+        os.chmod(
+            file_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
+            | stat.S_IRGRP | stat.S_IXGRP)
 
     def symlink(self, source, link_name):
         """Create a symbolic link. Unix only."""
@@ -459,11 +469,14 @@ def _remove_contents(fs, dirname, sleep=time.sleep):
         return True
 
     _log.warning('Unable to remove %s', dirname)
-    for dirpath, dirnames, filenames in fs.walk(dirname, onerror=onerror, topdown=False):
+    for dirpath, dirnames, filenames in fs.walk(
+            dirname, onerror=onerror, topdown=False):
         for fname in filenames:
-            _log.warning('File %s still in output dir.', fs.join(dirpath, fname))
+            _log.warning('File %s still in output dir.', fs.join(
+                dirpath, fname))
         for dname in dirnames:
-            _log.warning('Dir %s still in output dir.', fs.join(dirpath, dname))
+            _log.warning('Dir %s still in output dir.', fs.join(
+                dirpath, dname))
 
     return False
 

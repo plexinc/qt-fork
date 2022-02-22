@@ -37,7 +37,7 @@
 **
 ****************************************************************************/
 
-#include "common/user_script_data.h"
+#include "qtwebengine/userscript/user_script_data.h"
 #include "user_script.h"
 #include "type_conversion.h"
 
@@ -72,30 +72,19 @@ ASSERT_ENUMS_MATCH(UserScript::DocumentElementCreation, UserScriptData::Document
 UserScript::UserScript()
     : QSharedData()
 {
+    static uint64_t idCount = 0;
+    m_scriptData.scriptId = idCount++;
 }
 
-UserScript::UserScript(const UserScript &other)
-    : QSharedData(other)
-{
-    if (other.isNull())
-        return;
-    scriptData.reset(new UserScriptData(*other.scriptData));
-    m_name = other.m_name;
-}
+UserScript::UserScript(const UserScript &other) = default;
 
-UserScript::~UserScript()
-{
-}
+UserScript::~UserScript() = default;
 
 UserScript &UserScript::operator=(const UserScript &other)
 {
-    if (other.isNull()) {
-        scriptData.reset();
-        m_name = QString();
-        return *this;
-    }
-    scriptData.reset(new UserScriptData(*other.scriptData));
+    m_scriptData = other.m_scriptData;
     m_name = other.m_name;
+    m_url = other.m_url;
     return *this;
 }
 
@@ -107,101 +96,82 @@ QString UserScript::name() const
 void UserScript::setName(const QString &name)
 {
     m_name = name;
-    initData();
-    scriptData->url = GURL(QStringLiteral("userScript:%1").arg(name).toStdString());
+    m_scriptData.url = GURL(QStringLiteral("userScript:%1").arg(name).toStdString());
 }
 
 QString UserScript::sourceCode() const
 {
-    if (isNull())
-        return QString();
-    return toQt(scriptData->source);
+    return toQt(m_scriptData.source);
 }
 
 void UserScript::setSourceCode(const QString &source)
 {
-    initData();
-    scriptData->source = source.toStdString();
+    m_scriptData.source = source.toStdString();
     parseMetadataHeader();
+}
+
+QUrl UserScript::sourceUrl() const
+{
+    return m_url;
+}
+
+void UserScript::setSourceUrl(const QUrl &url)
+{
+    m_url = url;
 }
 
 UserScript::InjectionPoint UserScript::injectionPoint() const
 {
-    if (isNull())
-        return UserScript::AfterLoad;
-    return static_cast<UserScript::InjectionPoint>(scriptData->injectionPoint);
+    return static_cast<UserScript::InjectionPoint>(m_scriptData.injectionPoint);
 }
 
 void UserScript::setInjectionPoint(UserScript::InjectionPoint p)
 {
-    initData();
-    scriptData->injectionPoint = p;
+    m_scriptData.injectionPoint = p;
 }
 
-uint UserScript::worldId() const
+quint32 UserScript::worldId() const
 {
-    if (isNull())
-        return 1;
-    return scriptData->worldId;
+    return m_scriptData.worldId;
 }
 
-void UserScript::setWorldId(uint id)
+void UserScript::setWorldId(quint32 id)
 {
-    initData();
-    scriptData->worldId = id;
+    m_scriptData.worldId = id;
 }
 
 bool UserScript::runsOnSubFrames() const
 {
-    if (isNull())
-        return false;
-    return scriptData->injectForSubframes;
+    return m_scriptData.injectForSubframes;
 }
 
 void UserScript::setRunsOnSubFrames(bool on)
 {
-    initData();
-    scriptData->injectForSubframes = on;
+    m_scriptData.injectForSubframes = on;
+}
+
+const UserScriptData &UserScript::data() const
+{
+    return m_scriptData;
 }
 
 bool UserScript::operator==(const UserScript &other) const
 {
-    if (isNull() != other.isNull())
-        return false;
-    if (isNull()) // neither is valid
-        return true;
-    return worldId() == other.worldId()
-            && runsOnSubFrames() == other.runsOnSubFrames()
-            && injectionPoint() == other.injectionPoint()
-            && name() == other.name() && sourceCode() == other.sourceCode();
-}
-
-void UserScript::initData()
-{
-    if (scriptData.isNull())
-        scriptData.reset(new UserScriptData);
-}
-
-bool UserScript::isNull() const
-{
-    return scriptData.isNull();
-}
-
-UserScriptData &UserScript::data() const
-{
-    return *(scriptData.data());
+    return worldId() == other.worldId() && runsOnSubFrames() == other.runsOnSubFrames()
+            && injectionPoint() == other.injectionPoint() && name() == other.name()
+            && sourceCode() == other.sourceCode() && sourceUrl() == other.sourceUrl();
 }
 
 void UserScript::parseMetadataHeader()
 {
     // Clear previous values
-    scriptData->globs.clear();
-    scriptData->excludeGlobs.clear();
-    scriptData->urlPatterns.clear();
+    m_scriptData.globs.clear();
+    m_scriptData.excludeGlobs.clear();
+    m_scriptData.urlPatterns.clear();
 
     // Logic taken from Chromium (extensions/browser/user_script_loader.cc)
     // http://wiki.greasespot.net/Metadata_block
-    const std::string &script_text = scriptData->source;
+    const std::string &script_text = m_scriptData.source;
     base::StringPiece line;
     size_t line_start = 0;
     size_t line_end = line_start;
@@ -231,10 +201,10 @@ void UserScript::parseMetadataHeader()
         line = base::StringPiece(script_text.data() + line_start, line_end - line_start);
 
         if (!in_metadata) {
-            if (line.starts_with(kUserScriptBegin))
+            if (base::StartsWith(line, kUserScriptBegin))
                 in_metadata = true;
         } else {
-            if (line.starts_with(kUserScriptEnd))
+            if (base::StartsWith(line, kUserScriptEnd))
                 break;
 
             std::string value;
@@ -247,7 +217,7 @@ void UserScript::parseMetadataHeader()
                   base::ReplaceSubstringsAfterOffset(&value, 0, "\\", "\\\\");
                   base::ReplaceSubstringsAfterOffset(&value, 0, "?", "\\?");
                 }
-                scriptData->globs.push_back(value);
+                m_scriptData.globs.push_back(value);
             } else if (GetDeclarationValue(line, kExcludeDeclaration, &value)) {
                 if (value.front() != '/' || value.back() != '/') {
                   // The greasemonkey spec only allows for wildcards (*), so
@@ -255,16 +225,16 @@ void UserScript::parseMetadataHeader()
                   base::ReplaceSubstringsAfterOffset(&value, 0, "\\", "\\\\");
                   base::ReplaceSubstringsAfterOffset(&value, 0, "?", "\\?");
                 }
-                scriptData->excludeGlobs.push_back(value);
+                m_scriptData.excludeGlobs.push_back(value);
             } else if (GetDeclarationValue(line, kMatchDeclaration, &value)) {
-                scriptData->urlPatterns.push_back(value);
+                m_scriptData.urlPatterns.push_back(value);
             } else if (GetDeclarationValue(line, kRunAtDeclaration, &value)) {
                 if (value == kRunAtDocumentStartValue)
-                    scriptData->injectionPoint = DocumentElementCreation;
+                    m_scriptData.injectionPoint = DocumentElementCreation;
                 else if (value == kRunAtDocumentEndValue)
-                    scriptData->injectionPoint = DocumentLoadFinished;
+                    m_scriptData.injectionPoint = DocumentLoadFinished;
                 else if (value == kRunAtDocumentIdleValue)
-                    scriptData->injectionPoint = AfterLoad;
+                    m_scriptData.injectionPoint = AfterLoad;
             }
         }
 
@@ -273,8 +243,8 @@ void UserScript::parseMetadataHeader()
 
     // If no patterns were specified, default to @include *. This is what
     // Greasemonkey does.
-    if (scriptData->globs.empty() && scriptData->urlPatterns.empty())
-        scriptData->globs.push_back("*");
+    if (m_scriptData.globs.empty() && m_scriptData.urlPatterns.empty())
+        m_scriptData.globs.push_back("*");
 }
 
 } // namespace QtWebEngineCore

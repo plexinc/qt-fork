@@ -1,18 +1,20 @@
 {
   "sandbox": {
+    "dev": [
+      "null",
+      "zero"
+    ],
     "features": [
       "deprecated-ambient-replace-as-executable",
+      "isolated-cache-storage",
       "isolated-persistent-storage",
       "isolated-temp",
       "root-ssl-certificates",
       "vulkan"
     ],
-    "dev": [
-      "null",
-      "zero"
-    ],
     "services": [
       "fuchsia.accessibility.semantics.SemanticsManager",
+      "fuchsia.camera3.DeviceWatcher",
       "fuchsia.device.NameProvider",
       "fuchsia.fonts.Provider",
       "fuchsia.intl.PropertyProvider",
@@ -24,7 +26,7 @@
       "fuchsia.mediacodec.CodecFactory",
       "fuchsia.memorypressure.Provider",
       "fuchsia.net.NameLookup",
-      "fuchsia.netstack.Netstack",
+      "fuchsia.net.interfaces.State",
       "fuchsia.posix.socket.Provider",
       "fuchsia.process.Launcher",
       "fuchsia.sys.Environment",
@@ -33,6 +35,9 @@
       "fuchsia.sysmem.Allocator",
       "fuchsia.ui.input.ImeService",
       "fuchsia.ui.input.ImeVisibilityService",
+      "fuchsia.ui.scenic.Scenic",
+      "fuchsia.ui.policy.Presenter",
+      "fuchsia.vulkan.loader.Loader",
       "fuchsia.web.ContextProvider"
     ]
   }

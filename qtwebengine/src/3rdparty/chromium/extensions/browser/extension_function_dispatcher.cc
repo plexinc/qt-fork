@@ -42,7 +42,6 @@
 #include "extensions/common/extension_api.h"
 #include "extensions/common/extension_messages.h"
 #include "extensions/common/extension_set.h"
-#include "extensions/common/extensions_client.h"
 #include "ipc/ipc_message.h"
 #include "ipc/ipc_message_macros.h"
 
@@ -131,9 +130,6 @@ class ExtensionFunctionDispatcher::WorkerResponseCallbackWrapper
         observer_(this),
         render_process_host_(render_process_host) {
     observer_.Add(render_process_host_);
-
-    DCHECK(ExtensionsClient::Get()
-               ->ExtensionAPIEnabledInExtensionServiceWorkers());
   }
 
   ~WorkerResponseCallbackWrapper() override = default;
@@ -338,6 +334,10 @@ void ExtensionFunctionDispatcher::DispatchWithCallbackInternal(
     if (function->source_context_type() == Feature::WEBUI_CONTEXT) {
       base::UmaHistogramSparse("Extensions.Functions.WebUICalls",
                                function->histogram_value());
+    } else if (function->source_context_type() ==
+               Feature::WEBUI_UNTRUSTED_CONTEXT) {
+      base::UmaHistogramSparse("Extensions.Functions.WebUIUntrustedCalls",
+                               function->histogram_value());
     }
 
     // Skip the quota, event page, activity logging stuff if there
@@ -448,6 +448,29 @@ content::WebContents*
 ExtensionFunctionDispatcher::GetVisibleWebContents() const {
   return delegate_ ? delegate_->GetVisibleWebContents() :
       GetAssociatedWebContents();
+}
+
+void ExtensionFunctionDispatcher::AddWorkerResponseTarget(
+    ExtensionFunction* func) {
+  DCHECK(func->is_from_service_worker());
+  worker_response_targets_.insert(func);
+}
+
+void ExtensionFunctionDispatcher::ProcessServiceWorkerResponse(
+    int request_id,
+    int64_t service_worker_version_id) {
+  for (auto it = worker_response_targets_.begin();
+       it != worker_response_targets_.end(); ++it) {
+    ExtensionFunction* func = *it;
+    if (func->request_id() == request_id &&
+        func->service_worker_version_id() == service_worker_version_id) {
+      // Calling this may cause the instance to delete itself, so no
+      // referencing it after this!
+      func->OnServiceWorkerAck();
+      worker_response_targets_.erase(it);
+      break;
+    }
+  }
 }
 
 // static

@@ -4,13 +4,12 @@
 
 #include <memory>
 
-#include "base/test/scoped_feature_list.h"
 #include "chrome/browser/chromeos/crostini/fake_crostini_features.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
-#include "chrome/common/chrome_features.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
@@ -18,12 +17,9 @@
 namespace extensions {
 
 class TerminalPrivateBrowserTest : public InProcessBrowserTest {
- public:
-  TerminalPrivateBrowserTest() {
-    scoped_feature_list_.InitAndEnableFeature(features::kTerminalSystemApp);
-  }
-
  protected:
+  TerminalPrivateBrowserTest() = default;
+
   void ExpectJsResult(const std::string& script, const std::string& expected) {
     content::WebContents* web_contents =
         browser()->tab_strip_model()->GetActiveWebContents();
@@ -34,7 +30,6 @@ class TerminalPrivateBrowserTest : public InProcessBrowserTest {
   }
 
  private:
-  base::test::ScopedFeatureList scoped_feature_list_;
   DISALLOW_COPY_AND_ASSIGN(TerminalPrivateBrowserTest);
 };
 
@@ -50,14 +45,15 @@ IN_PROC_BROWSER_TEST_F(TerminalPrivateBrowserTest, OpenTerminalProcessChecks) {
 
   // 'vmshell not allowed' when crostini is not allowed.
   crostini::FakeCrostiniFeatures crostini_features;
-  crostini_features.set_allowed(false);
+  crostini_features.set_could_be_allowed(true);
+  crostini_features.set_is_allowed_now(false);
   ExpectJsResult(script, "vmshell not allowed");
 
   // 'Error starting crostini for terminal: 22' when crostini is allowed.
   // This is the specific error we expect to see in a test environment
   // (LOAD_COMPONENT_FAILED), but the point of the test is to see that we get
   // past the vmshell allowed checks.
-  crostini_features.set_allowed(true);
+  crostini_features.set_is_allowed_now(true);
   ExpectJsResult(script, "Waiting for component update dialog response");
 
   // openTerminalProcess not defined.

@@ -169,7 +169,7 @@ void destroyRhi()
 }
 
 struct {
-    QVector<QWindow *> windows;
+    QList<QWindow *> windows;
 
     QRhiBuffer *vbuf = nullptr;
     QRhiBuffer *ubuf = nullptr;
@@ -201,14 +201,14 @@ void ensureSharedResources(QRhiRenderPassDescriptor *rp)
 {
     if (!d.vbuf) {
         d.vbuf = r.r->newBuffer(QRhiBuffer::Immutable, QRhiBuffer::VertexBuffer, sizeof(vertexData));
-        d.vbuf->build();
+        d.vbuf->create();
         d.initialUpdates = r.r->nextResourceUpdateBatch();
         d.initialUpdates->uploadStaticBuffer(d.vbuf, vertexData);
     }
 
     if (!d.ubuf) {
         d.ubuf = r.r->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, 68);
-        d.ubuf->build();
+        d.ubuf->create();
     }
 
     if (!d.srb) {
@@ -216,7 +216,7 @@ void ensureSharedResources(QRhiRenderPassDescriptor *rp)
         d.srb->setBindings({
                                QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage, d.ubuf)
                            });
-        d.srb->build();
+        d.srb->create();
     }
 
     if (!d.ps) {
@@ -251,7 +251,7 @@ void ensureSharedResources(QRhiRenderPassDescriptor *rp)
         d.ps->setShaderResourceBindings(d.srb);
         d.ps->setRenderPassDescriptor(rp);
 
-        d.ps->build();
+        d.ps->create();
     }
 }
 
@@ -295,7 +295,7 @@ protected:
     bool m_newlyExposed = false;
 
     QMatrix4x4 m_proj;
-    QVector<QRhiResource *> m_releasePool;
+    QList<QRhiResource *> m_releasePool;
 
     bool m_hasSwapChain = false;
     QRhiSwapChain *m_sc = nullptr;
@@ -330,12 +330,10 @@ Window::Window(const QString &title, const QColor &bgColor, int axis, bool noVSy
 #endif
         break;
     case D3D11:
-        setSurfaceType(OpenGLSurface); // not a typo
+        setSurfaceType(Direct3DSurface);
         break;
     case Metal:
-#if (QT_VERSION >= QT_VERSION_CHECK(5, 12, 0))
         setSurfaceType(MetalSurface);
-#endif
         break;
     default:
         break;
@@ -427,7 +425,7 @@ void Window::releaseResources()
 
 void Window::resizeSwapChain()
 {
-    m_hasSwapChain = m_sc->buildOrResize();
+    m_hasSwapChain = m_sc->createOrResize();
 
     const QSize outputSize = m_sc->currentPixelSize();
     m_proj = r.r->clipSpaceCorrMatrix();
@@ -439,7 +437,7 @@ void Window::releaseSwapChain()
 {
     if (m_hasSwapChain) {
         m_hasSwapChain = false;
-        m_sc->release();
+        m_sc->destroy();
     }
 }
 
@@ -525,7 +523,6 @@ void closeWindow()
 
 int main(int argc, char **argv)
 {
-    QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
     QApplication app(argc, argv);
 
 #if defined(Q_OS_WIN)
@@ -564,18 +561,7 @@ int main(int argc, char **argv)
 #if QT_CONFIG(vulkan)
     r.instance = new QVulkanInstance;
     if (graphicsApi == Vulkan) {
-#ifndef Q_OS_ANDROID
-        r.instance->setLayers({ "VK_LAYER_LUNARG_standard_validation" });
-#else
-        r.instance->setLayers(QByteArrayList()
-                       << "VK_LAYER_GOOGLE_threading"
-                       << "VK_LAYER_LUNARG_parameter_validation"
-                       << "VK_LAYER_LUNARG_object_tracker"
-                       << "VK_LAYER_LUNARG_core_validation"
-                       << "VK_LAYER_LUNARG_image"
-                       << "VK_LAYER_LUNARG_swapchain"
-                       << "VK_LAYER_GOOGLE_unique_objects");
-#endif
+        r.instance->setLayers({ "VK_LAYER_KHRONOS_validation" });
         if (!r.instance->create()) {
             qWarning("Failed to create Vulkan instance, switching to OpenGL");
             graphicsApi = OpenGL;

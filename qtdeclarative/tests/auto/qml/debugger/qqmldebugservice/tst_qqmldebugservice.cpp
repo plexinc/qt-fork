@@ -30,7 +30,7 @@
 #include "qqmldebugtestservice.h"
 #include "debugutil_p.h"
 #include "qqmldebugprocess_p.h"
-#include "../../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 
 #include <private/qqmldebugclient_p.h>
 #include <private/qqmldebugconnection_p.h>
@@ -51,13 +51,16 @@
 class tst_QQmlDebugService : public QQmlDataTest
 {
     Q_OBJECT
+public:
+    tst_QQmlDebugService();
+
 private:
     QQmlDebugConnection *m_conn;
     QQmlDebugTestService *m_service;
 
 private slots:
 
-    void initTestCase();
+    void initTestCase() override;
     void checkPortRange();
     void name();
     void version();
@@ -68,6 +71,11 @@ private slots:
     void checkSupportForDataStreamVersion();
     void checkSupportForOldDataStreamVersion();
 };
+
+tst_QQmlDebugService::tst_QQmlDebugService()
+    : QQmlDataTest(QT_QMLTEST_DATADIR)
+{
+}
 
 void tst_QQmlDebugService::initTestCase()
 {
@@ -106,7 +114,7 @@ void tst_QQmlDebugService::checkPortRange()
 {
     QScopedPointer<QQmlDebugConnection> connection1(new QQmlDebugConnection());
     QScopedPointer<QQmlDebugProcess> process1(
-                new QQmlDebugProcess(QLibraryInfo::location(QLibraryInfo::BinariesPath)
+                new QQmlDebugProcess(QLibraryInfo::path(QLibraryInfo::BinariesPath)
                                      + "/qmlscene", this));
 
     process1->start(QStringList() << QLatin1String("-qmljsdebugger=port:3782,3792")
@@ -123,7 +131,7 @@ void tst_QQmlDebugService::checkPortRange()
     // Second instance
     QScopedPointer<QQmlDebugConnection> connection2(new QQmlDebugConnection());
     QScopedPointer<QQmlDebugProcess> process2(
-                new QQmlDebugProcess(QLibraryInfo::location(QLibraryInfo::BinariesPath)
+                new QQmlDebugProcess(QLibraryInfo::path(QLibraryInfo::BinariesPath)
                                      + "/qmlscene", this));
 
     process2->start(QStringList() << QLatin1String("-qmljsdebugger=port:3782,3792")

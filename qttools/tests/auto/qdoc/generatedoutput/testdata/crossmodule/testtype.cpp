@@ -30,6 +30,14 @@
 /*!
     \module CrossModule
 */
+
+/*!
+    Function under a namespace that's documented elsewhere.
+*/
+void CrossModuleRef::documentMeToo()
+{
+}
+
 /*!
     \class TestType
     \inmodule CrossModule
@@ -43,7 +51,13 @@
       \li \l {TestQDoc::TestDerived}
       \li \l {TestQDoc::}{Test} class \l Usage.
       \li QDOCTEST_MACRO
+      \li DontLinkToMe
     \endlist
+
+    \section1 Generated Lists
+
+    This is an annotated list of entries in a group:
+    \annotatedlist testgroup
 
     \sa {TestQDoc::Test::}{someFunction()}
 */

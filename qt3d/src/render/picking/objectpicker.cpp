@@ -41,7 +41,6 @@
 #include "qpickevent.h"
 #include <Qt3DRender/qobjectpicker.h>
 #include <Qt3DRender/private/qobjectpicker_p.h>
-#include <Qt3DRender/qattribute.h>
 #include <Qt3DRender/private/pickboundingvolumejob_p.h>
 #include <Qt3DRender/private/qrenderaspect_p.h>
 
@@ -81,7 +80,15 @@ void ObjectPicker::syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firstT
     if (!node)
         return;
 
-    BackendNode::syncFromFrontEnd(frontEnd, firstTime);
+    if (firstTime) {
+        markDirty(AbstractRenderer::AllDirty);
+        notifyJob();
+    }
+
+    if (isEnabled() != node->isEnabled()) {
+        markDirty(AbstractRenderer::AllDirty);
+        // We let QBackendNode::syncFromFrontEnd change the enabled property
+    }
 
     if (node->isHoverEnabled() != m_hoverEnabled) {
         m_hoverEnabled = node->isHoverEnabled();
@@ -100,6 +107,8 @@ void ObjectPicker::syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firstT
         markDirty(AbstractRenderer::AllDirty);
         notifyJob();
     }
+
+    BackendNode::syncFromFrontEnd(frontEnd, firstTime);
 }
 
 void ObjectPicker::notifyJob()

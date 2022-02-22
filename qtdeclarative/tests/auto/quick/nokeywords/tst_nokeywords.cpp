@@ -49,11 +49,9 @@
 #include <QtQuick/private/qsgcontext_p.h>
 #include <QtQuick/private/qsgcontextplugin_p.h>
 #if QT_CONFIG(opengl)
-#include <QtQuick/private/qsgopengldistancefieldglyphcache_p.h>
 #include <QtQuick/private/qsgdefaultglyphnode_p.h>
 #include <QtQuick/private/qsgdefaultinternalimagenode_p.h>
 #include <QtQuick/private/qsgdefaultinternalrectanglenode_p.h>
-#include <QtQuick/private/qsgdepthstencilbuffer_p.h>
 #include <QtQuick/private/qsgdistancefieldglyphnode_p.h>
 #endif
 #include <QtQuick/private/qsggeometry_p.h>
@@ -67,7 +65,6 @@
 #include <QtQuick/private/qsgtexture_p.h>
 #include <QtQuick/private/qsgplaintexture_p.h>
 #include <QtQuick/private/qsgthreadedrenderloop_p.h>
-#include <QtQuick/private/qsgwindowsrenderloop_p.h>
 
 #include <QtQuick/private/qsgrhiatlastexture_p.h>
 #include <QtQuick/private/qsgrhidistancefieldglyphcache_p.h>

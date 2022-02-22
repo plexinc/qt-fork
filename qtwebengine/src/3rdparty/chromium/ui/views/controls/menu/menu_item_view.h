@@ -5,11 +5,11 @@
 #ifndef UI_VIEWS_CONTROLS_MENU_MENU_ITEM_VIEW_H_
 #define UI_VIEWS_CONTROLS_MENU_MENU_ITEM_VIEW_H_
 
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "base/compiler_specific.h"
-#include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
@@ -117,12 +117,13 @@ class VIEWS_EXPORT MenuItemView : public View {
 
   // Constructor for use with the top level menu item. This menu is never
   // shown to the user, rather its use as the parent for all menu items.
-  explicit MenuItemView(MenuDelegate* delegate);
+  explicit MenuItemView(MenuDelegate* delegate = nullptr);
 
   // Overridden from View:
   base::string16 GetTooltipText(const gfx::Point& p) const override;
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   bool HandleAccessibleAction(const ui::AXActionData& action_data) override;
+  FocusBehavior GetFocusBehavior() const override;
 
   // Returns the preferred height of menu items. This is only valid when the
   // menu is about to be shown.
@@ -138,7 +139,8 @@ class VIEWS_EXPORT MenuItemView : public View {
   // removed and the menu item accelerator text is appended.
   static base::string16 GetAccessibleNameForMenuItem(
       const base::string16& item_text,
-      const base::string16& accelerator_text);
+      const base::string16& accelerator_text,
+      bool is_new_feature);
 
   // Hides and cancels the menu. This does nothing if the menu is not open.
   void Cancel();
@@ -148,6 +150,7 @@ class VIEWS_EXPORT MenuItemView : public View {
   MenuItemView* AddMenuItemAt(int index,
                               int item_id,
                               const base::string16& label,
+                              const base::string16& secondary_label,
                               const base::string16& minor_text,
                               const ui::ThemedVectorIcon& minor_icon,
                               const gfx::ImageSkia& icon,
@@ -214,6 +217,11 @@ class VIEWS_EXPORT MenuItemView : public View {
   void SetTitle(const base::string16& title);
   const base::string16& title() const { return title_; }
 
+  // Sets/Gets the secondary title. When not empty, they are shown in the line
+  // below the title.
+  void SetSecondaryTitle(const base::string16& secondary_title);
+  const base::string16& secondary_title() const { return secondary_title_; }
+
   // Sets the minor text.
   void SetMinorText(const base::string16& minor_text);
 
@@ -229,6 +237,11 @@ class VIEWS_EXPORT MenuItemView : public View {
 
   // Returns true if the item is selected.
   bool IsSelected() const { return selected_; }
+
+  // Adds a callback subscription associated with the above selected property.
+  // The callback will be invoked whenever the selected property changes.
+  base::CallbackListSubscription AddSelectedChangedCallback(
+      PropertyChangedCallback callback) WARN_UNUSED_RESULT;
 
   // Sets whether the submenu area of an ACTIONABLE_SUBMENU is selected.
   void SetSelectionOfActionableSubmenu(
@@ -263,6 +276,14 @@ class VIEWS_EXPORT MenuItemView : public View {
 
   // Returns the command id of this item.
   int GetCommand() const { return command_; }
+
+  void set_is_new(bool is_new) { is_new_ = is_new; }
+  bool is_new() const { return is_new_; }
+
+  void set_may_have_mnemonics(bool may_have_mnemonics) {
+    may_have_mnemonics_ = may_have_mnemonics;
+  }
+  bool may_have_mnemonics() const { return may_have_mnemonics_; }
 
   // Paints the menu item.
   void OnPaint(gfx::Canvas* canvas) override;
@@ -343,6 +364,14 @@ class VIEWS_EXPORT MenuItemView : public View {
   // run.
   void SetAlerted();
   bool is_alerted() const { return is_alerted_; }
+
+  // Returns whether or not a "new" badge should be shown on this menu item.
+  // Takes into account whether the badging feature is enabled.
+  bool ShouldShowNewBadge() const;
+
+  // Returns whether keyboard navigation through the menu should stop on this
+  // item.
+  bool IsTraversableByKeyboard() const;
 
  protected:
   // Creates a MenuItemView. This is used by the various AddXXX methods.
@@ -505,16 +534,19 @@ class VIEWS_EXPORT MenuItemView : public View {
   // Command id.
   int command_ = 0;
 
+  // Whether the menu item should be badged as "New" (if badging is enabled) as
+  // a way to highlight a new feature for users.
+  bool is_new_ = false;
+
+  // Whether the menu item contains user-created text.
+  bool may_have_mnemonics_ = true;
+
   // Submenu, created via CreateSubmenu.
   SubmenuView* submenu_ = nullptr;
 
-  // Title.
   base::string16 title_;
-
-  // Minor text.
+  base::string16 secondary_title_;
   base::string16 minor_text_;
-
-  // Minor icon.
   ui::ThemedVectorIcon minor_icon_;
 
   // The icon used for |icon_view_| when a vector icon has been set instead of a

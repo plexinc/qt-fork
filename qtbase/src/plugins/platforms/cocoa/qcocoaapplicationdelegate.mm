@@ -71,13 +71,15 @@
  **
  ****************************************************************************/
 
+#include <AppKit/AppKit.h>
 
-#import "qcocoaapplicationdelegate.h"
+#include "qcocoaapplicationdelegate.h"
 #include "qcocoaintegration.h"
 #include "qcocoamenu.h"
 #include "qcocoamenuloader.h"
 #include "qcocoamenuitem.h"
 #include "qcocoansmenu.h"
+#include "qcocoahelpers.h"
 
 #if QT_CONFIG(sessionmanager)
 #  include "qcocoasessionmanager.h"
@@ -89,10 +91,6 @@
 #include <qguiapplication.h>
 #include <qpa/qwindowsysteminterface.h>
 #include <qwindowdefs.h>
-
-QT_BEGIN_NAMESPACE
-Q_LOGGING_CATEGORY(lcQpaApplication, "qt.qpa.application");
-QT_END_NAMESPACE
 
 QT_USE_NAMESPACE
 
@@ -345,7 +343,7 @@ QT_USE_NAMESPACE
         return item.enabled; // FIXME Test with with Qt as plugin or embedded QWindow.
 
     auto *platformItem = nativeItem.platformMenuItem;
-    if (!platformItem) // Try a bit harder with orphan menu itens
+    if (!platformItem) // Try a bit harder with orphan menu items
         return item.hasSubmenu || (item.enabled && (item.action != @selector(qt_itemFired:)));
 
     // Menu-holding items are always enabled, as it's conventional in Cocoa
@@ -373,7 +371,7 @@ QT_USE_NAMESPACE
         return;
 
     QScopedScopeLevelCounter scopeLevelCounter(QGuiApplicationPrivate::instance()->threadData.loadRelaxed());
-    QGuiApplicationPrivate::modifier_buttons = [QNSView convertKeyModifiers:[NSEvent modifierFlags]];
+    QGuiApplicationPrivate::modifier_buttons = QAppleKeyMapper::fromCocoaModifiers([NSEvent modifierFlags]);
 
     static QMetaMethod activatedSignal = QMetaMethod::fromSignal(&QCocoaMenuItem::activated);
     activatedSignal.invoke(platformItem, Qt::QueuedConnection);

@@ -64,16 +64,16 @@ class CONTENT_EXPORT RenderFrameDevToolsAgentHost
   // Whether the RFH passed may have associated DevTools agent host
   // (i.e. the specified RFH is a local root). This does not indicate
   // whether DevToolsAgentHost has actually been created.
-  static bool ShouldCreateDevToolsForHost(RenderFrameHost* rfh);
+  static bool ShouldCreateDevToolsForHost(RenderFrameHostImpl* rfh);
 
-  // This method is called when new frame is created during cross process
+  // This method is called when new frame is created for a portal or local root
   // navigation.
-  static scoped_refptr<DevToolsAgentHost> CreateForCrossProcessNavigation(
+  static scoped_refptr<DevToolsAgentHost> CreateForLocalRootOrPortalNavigation(
       NavigationRequest* request);
   static scoped_refptr<DevToolsAgentHost> FindForDangling(
       FrameTreeNode* frame_tree_node);
 
-  static void WebContentsCreated(WebContents* web_contents);
+  static void WebContentsMainFrameCreated(WebContents* web_contents);
 
 #if defined(OS_ANDROID)
   static void SignalSynchronousSwapCompositorFrame(
@@ -93,6 +93,8 @@ class CONTENT_EXPORT RenderFrameDevToolsAgentHost
   WebContents* GetWebContents() override;
   std::string GetParentId() override;
   std::string GetOpenerId() override;
+  std::string GetOpenerFrameId() override;
+  bool CanAccessOpener() override;
   std::string GetType() override;
   std::string GetTitle() override;
   std::string GetDescription() override;
@@ -104,19 +106,23 @@ class CONTENT_EXPORT RenderFrameDevToolsAgentHost
   bool Close() override;
   base::TimeTicks GetLastActivityTime() override;
 
+  base::Optional<network::CrossOriginEmbedderPolicy>
+  cross_origin_embedder_policy(const std::string& id) override;
+  base::Optional<network::CrossOriginOpenerPolicy> cross_origin_opener_policy(
+      const std::string& id) override;
+
   RenderFrameHostImpl* GetFrameHostForTesting() { return frame_host_; }
 
  private:
   friend class DevToolsAgentHost;
 
-  static void UpdateRawHeadersAccess(RenderFrameHostImpl* old_rfh,
-                                     RenderFrameHostImpl* new_rfh);
+  static void UpdateRawHeadersAccess(RenderFrameHostImpl* rfh);
 
   RenderFrameDevToolsAgentHost(FrameTreeNode*, RenderFrameHostImpl*);
   ~RenderFrameDevToolsAgentHost() override;
 
   // DevToolsAgentHostImpl overrides.
-  bool AttachSession(DevToolsSession* session) override;
+  bool AttachSession(DevToolsSession* session, bool acquire_wake_lock) override;
   void DetachSession(DevToolsSession* session) override;
   void InspectElement(RenderFrameHost* frame_host, int x, int y) override;
   void UpdateRendererChannel(bool force) override;
@@ -129,8 +135,6 @@ class CONTENT_EXPORT RenderFrameDevToolsAgentHost
                               RenderFrameHost* new_host) override;
   void FrameDeleted(RenderFrameHost* rfh) override;
   void RenderFrameDeleted(RenderFrameHost* rfh) override;
-  void DidAttachInterstitialPage() override;
-  void DidDetachInterstitialPage() override;
   void OnVisibilityChanged(content::Visibility visibility) override;
   void OnPageScaleFactorChanged(float page_scale_factor) override;
 
@@ -174,6 +178,10 @@ class CONTENT_EXPORT RenderFrameDevToolsAgentHost
 
   DISALLOW_COPY_AND_ASSIGN(RenderFrameDevToolsAgentHost);
 };
+
+// Returns the ancestor FrameTreeNode* for which a RenderFrameDevToolsAgentHost
+// should be created (i.e. the next local root).
+FrameTreeNode* GetFrameTreeNodeAncestor(FrameTreeNode* frame_tree_node);
 
 }  // namespace content
 

@@ -310,7 +310,7 @@ void tst_QPainter::drawLine_data()
     QTest::addColumn<QLine>("line");
     QTest::addColumn<QPen>("pen");
 
-    QVector<QPen> pens;
+    QList<QPen> pens;
     pens << QPen(Qt::black)
          << QPen(Qt::black, 0, Qt::DashDotLine)
          << QPen(Qt::black, 4)
@@ -554,7 +554,7 @@ void tst_QPainter::drawLine_clipped()
                        qMin(line.y1(), line.y2())
                        + 2*offset + qAbs(line.dy()));
 
-    const QRect clip = QRect(line.p1(), line.p2()).normalized();
+    const QRect clip = QRect::span(line.p1(), line.p2());
 
     pixmapClipped.fill(Qt::white);
     QPainter p(&pixmapClipped);
@@ -589,7 +589,7 @@ void tst_QPainter::drawLine_antialiased_clipped()
                        qMin(line.y1(), line.y2())
                        + 2*offset + qAbs(line.dy()));
 
-    const QRect clip = QRect(line.p1(), line.p2()).normalized();
+    const QRect clip = QRect::span(line.p1(), line.p2());
 
     pixmapClipped.fill(Qt::white);
     QPainter p(&pixmapClipped);

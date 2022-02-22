@@ -29,15 +29,14 @@
  */
 
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/input/web_coalesced_input_event.h"
 #include "third_party/blink/public/common/input/web_touch_event.h"
-#include "third_party/blink/public/platform/web_coalesced_input_event.h"
 #include "third_party/blink/public/platform/web_url_loader_mock_factory.h"
 #include "third_party/blink/public/web/web_document.h"
 #include "third_party/blink/public/web/web_frame.h"
 #include "third_party/blink/public/web/web_hit_test_result.h"
 #include "third_party/blink/public/web/web_view.h"
 #include "third_party/blink/public/web/web_view_client.h"
-#include "third_party/blink/public/web/web_widget_client.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
@@ -54,6 +53,7 @@
 #include "third_party/blink/renderer/core/layout/hit_test_result.h"
 #include "third_party/blink/renderer/core/layout/layout_tree_as_text.h"
 #include "third_party/blink/renderer/core/layout/layout_view.h"
+#include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/core/paint/paint_layer_scrollable_area.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
 #include "third_party/blink/renderer/platform/testing/url_test_helpers.h"
@@ -62,36 +62,58 @@ using blink::test::RunPendingTasks;
 
 namespace blink {
 
-class TouchActionTrackingWebWidgetClient
-    : public frame_test_helpers::TestWebWidgetClient {
+class TouchActionWidgetInputHandlerHost
+    : public frame_test_helpers::TestWidgetInputHandlerHost {
  public:
-  TouchActionTrackingWebWidgetClient()
-      : action_set_count_(0), action_(TouchAction::kAuto) {}
-
-  // WebWidgetClient methods
-  void SetTouchAction(TouchAction touch_action) override {
+  void SetTouchActionFromMain(TouchAction touch_action) override {
     action_set_count_++;
     action_ = touch_action;
   }
 
-  // Local methods
-  void Reset() {
+  void ResetTouchAction() {
     action_set_count_ = 0;
     action_ = TouchAction::kAuto;
   }
 
-  int TouchActionSetCount() { return action_set_count_; }
+  int action_set_count() const { return action_set_count_; }
 
-  TouchAction LastTouchAction() { return action_; }
+  TouchAction action() const { return action_; }
 
  private:
-  int action_set_count_;
-  TouchAction action_;
+  int action_set_count_ = 0;
+  TouchAction action_ = TouchAction::kAuto;
+};
+
+class TouchActionTrackingWebFrameWidget
+    : public frame_test_helpers::TestWebFrameWidget {
+ public:
+  template <typename... Args>
+  explicit TouchActionTrackingWebFrameWidget(Args&&... args)
+      : frame_test_helpers::TestWebFrameWidget(std::forward<Args>(args)...) {}
+
+  // frame_test_helpers::TestWebFrameWidget overrides.
+  frame_test_helpers::TestWidgetInputHandlerHost* GetInputHandlerHost()
+      override {
+    return &input_handler_host_;
+  }
+
+  void Reset() { input_handler_host_.ResetTouchAction(); }
+
+  int TouchActionSetCount() { return input_handler_host_.action_set_count(); }
+
+  TouchAction LastTouchAction() { return input_handler_host_.action(); }
+
+ private:
+  TouchActionWidgetInputHandlerHost input_handler_host_;
 };
 
 class TouchActionTest : public testing::Test {
  public:
-  TouchActionTest() : base_url_("http://www.test.com/") {
+  TouchActionTest()
+      : base_url_("http://www.test.com/"),
+        web_view_helper_(base::BindRepeating(
+            &frame_test_helpers::WebViewHelper::CreateTestWebFrameWidget<
+                TouchActionTrackingWebFrameWidget>)) {
     // TODO(crbug.com/751425): We should use the mock functionality
     // via |web_view_helper_|.
     url_test_helpers::RegisterMockedURLLoadFromBase(
@@ -118,18 +140,14 @@ class TouchActionTest : public testing::Test {
   void RunShadowDOMTest(String file);
   void RunIFrameTest(String file);
   void SendTouchEvent(WebView*, WebInputEvent::Type, IntPoint client_point);
-  WebViewImpl* SetupTest(String file, TouchActionTrackingWebWidgetClient*);
-  void RunTestOnTree(ContainerNode* root,
-                     WebView*,
-                     TouchActionTrackingWebWidgetClient&);
+  WebViewImpl* SetupTest(String file);
+  void RunTestOnTree(ContainerNode* root, WebView*);
 
   String base_url_;
   frame_test_helpers::WebViewHelper web_view_helper_;
 };
 
 void TouchActionTest::RunTouchActionTest(String file) {
-  TouchActionTrackingWebWidgetClient client;
-
   // runTouchActionTest() loads a document in a frame, setting up a
   // nested run loop. Should any Oilpan GC happen while it is in
   // effect, the implicit assumption that we're outside any event
@@ -140,20 +158,18 @@ void TouchActionTest::RunTouchActionTest(String file) {
   // turn them into persistent, stack allocated references. This
   // workaround is sufficient to handle this artificial test
   // scenario.
-  WebViewImpl* web_view = SetupTest(file, &client);
+  WebViewImpl* web_view = SetupTest(file);
 
   Persistent<Document> document =
       static_cast<Document*>(web_view->MainFrameImpl()->GetDocument());
-  RunTestOnTree(document.Get(), web_view, client);
+  RunTestOnTree(document.Get(), web_view);
 
   // Explicitly reset to break dependency on locally scoped client.
   web_view_helper_.Reset();
 }
 
 void TouchActionTest::RunShadowDOMTest(String file) {
-  TouchActionTrackingWebWidgetClient client;
-
-  WebViewImpl* web_view = SetupTest(file, &client);
+  WebViewImpl* web_view = SetupTest(file);
 
   DummyExceptionStateForTesting es;
 
@@ -168,20 +184,18 @@ void TouchActionTest::RunShadowDOMTest(String file) {
 
   for (unsigned index = 0; index < host_nodes->length(); index++) {
     ShadowRoot* shadow_root = host_nodes->item(index)->OpenShadowRoot();
-    RunTestOnTree(shadow_root, web_view, client);
+    RunTestOnTree(shadow_root, web_view);
   }
 
   // Projections show up in the main document.
-  RunTestOnTree(document.Get(), web_view, client);
+  RunTestOnTree(document.Get(), web_view);
 
   // Explicitly reset to break dependency on locally scoped client.
   web_view_helper_.Reset();
 }
 
 void TouchActionTest::RunIFrameTest(String file) {
-  TouchActionTrackingWebWidgetClient client;
-
-  WebViewImpl* web_view = SetupTest(file, &client);
+  WebViewImpl* web_view = SetupTest(file);
   WebFrame* cur_frame = web_view->MainFrame()->FirstChild();
   ASSERT_TRUE(cur_frame);
 
@@ -190,27 +204,25 @@ void TouchActionTest::RunIFrameTest(String file) {
     // references.
     Persistent<Document> content_doc =
         static_cast<Document*>(cur_frame->ToWebLocalFrame()->GetDocument());
-    RunTestOnTree(content_doc.Get(), web_view, client);
+    RunTestOnTree(content_doc.Get(), web_view);
   }
 
   // Explicitly reset to break dependency on locally scoped client.
   web_view_helper_.Reset();
 }
 
-WebViewImpl* TouchActionTest::SetupTest(
-    String file,
-    TouchActionTrackingWebWidgetClient* client) {
+WebViewImpl* TouchActionTest::SetupTest(String file) {
   // TODO(crbug.com/751425): We should use the mock functionality
   // via |web_view_helper_|.
   url_test_helpers::RegisterMockedURLLoadFromBase(
       WebString(base_url_), test::CoreTestDataPath(), WebString(file));
   // Note that JavaScript must be enabled for shadow DOM tests.
   WebViewImpl* web_view = web_view_helper_.InitializeAndLoad(
-      base_url_.Utf8() + file.Utf8(), nullptr, nullptr, client);
+      base_url_.Utf8() + file.Utf8(), nullptr, nullptr);
 
   // Set size to enable hit testing, and avoid line wrapping for consistency
   // with browser.
-  web_view->MainFrameWidget()->Resize(WebSize(900, 1600));
+  web_view->MainFrameViewWidget()->Resize(gfx::Size(900, 1600));
 
   // Scroll to verify the code properly transforms windows to client co-ords.
   const int kScrollOffset = 100;
@@ -222,18 +234,23 @@ WebViewImpl* TouchActionTest::SetupTest(
   return web_view;
 }
 
+static const LayoutBoxModelObject& EnclosingCompositedContainer(
+    const LayoutObject& layout_object) {
+  DCHECK(!RuntimeEnabledFeatures::CompositeAfterPaintEnabled());
+  return layout_object.PaintingLayer()
+      ->EnclosingLayerForPaintInvalidationCrossingFrameBoundaries()
+      ->GetLayoutObject();
+}
+
 IntRect WindowClipRect(const LocalFrameView& frame_view) {
   PhysicalRect clip_rect(PhysicalOffset(), PhysicalSize(frame_view.Size()));
   frame_view.GetLayoutView()->MapToVisualRectInAncestorSpace(
-      &frame_view.GetLayoutView()->ContainerForPaintInvalidation(), clip_rect,
-      0, kDefaultVisualRectFlags);
+      &EnclosingCompositedContainer(*frame_view.GetLayoutView()), clip_rect, 0,
+      kDefaultVisualRectFlags);
   return EnclosingIntRect(clip_rect);
 }
 
-void TouchActionTest::RunTestOnTree(
-    ContainerNode* root,
-    WebView* web_view,
-    TouchActionTrackingWebWidgetClient& client) {
+void TouchActionTest::RunTestOnTree(ContainerNode* root, WebView* web_view) {
   // Find all elements to test the touch-action of in the document.
   DummyExceptionStateForTesting es;
 
@@ -270,6 +287,8 @@ void TouchActionTest::RunTestOnTree(
     // debugging).
     Persistent<DOMRectList> rects = element->getClientRects();
     ASSERT_GE(rects->length(), 0u) << failure_context.ToString();
+    if (!rects->length())
+      continue;
     Persistent<DOMRect> r = rects->item(0);
     FloatRect client_float_rect =
         FloatRect(r->left(), r->top(), r->width(), r->height());
@@ -335,29 +354,38 @@ void TouchActionTest::RunTestOnTree(
           << ExternalRepresentation(root->GetDocument().GetFrame()).Utf8();
 
       // Now send the touch event and check any touch action result.
-      SendTouchEvent(web_view, WebInputEvent::kPointerDown, window_point);
+      SendTouchEvent(web_view, WebInputEvent::Type::kPointerDown, window_point);
+      RunPendingTasks();
+
+      TouchActionTrackingWebFrameWidget* widget =
+          static_cast<TouchActionTrackingWebFrameWidget*>(
+              web_view->MainFrameWidget());
 
       AtomicString expected_action = element->getAttribute("expected-action");
       // Should have received exactly one touch action, even for auto.
-      EXPECT_EQ(1, client.TouchActionSetCount()) << failure_context_pos;
-      if (client.TouchActionSetCount()) {
+      EXPECT_EQ(1, widget->TouchActionSetCount()) << failure_context_pos;
+      if (widget->TouchActionSetCount()) {
         if (expected_action == "auto") {
-          EXPECT_EQ(TouchAction::kAuto, client.LastTouchAction())
+          EXPECT_EQ(TouchAction::kAuto, widget->LastTouchAction())
               << failure_context_pos;
         } else if (expected_action == "none") {
-          EXPECT_EQ(TouchAction::kNone, client.LastTouchAction())
+          EXPECT_EQ(TouchAction::kNone, widget->LastTouchAction())
               << failure_context_pos;
         } else if (expected_action == "pan-x") {
-          EXPECT_EQ(TouchAction::kPanX, client.LastTouchAction())
+          EXPECT_EQ(TouchAction::kPanX, widget->LastTouchAction() &
+                                            ~TouchAction::kInternalPanXScrolls)
               << failure_context_pos;
         } else if (expected_action == "pan-y") {
-          EXPECT_EQ(TouchAction::kPanY, client.LastTouchAction())
+          EXPECT_EQ(TouchAction::kPanY, widget->LastTouchAction())
               << failure_context_pos;
         } else if (expected_action == "pan-x-y") {
-          EXPECT_EQ((TouchAction::kPan), client.LastTouchAction())
+          EXPECT_EQ(TouchAction::kPan, widget->LastTouchAction() &
+                                           ~TouchAction::kInternalPanXScrolls)
               << failure_context_pos;
         } else if (expected_action == "manipulation") {
-          EXPECT_EQ((TouchAction::kManipulation), client.LastTouchAction())
+          EXPECT_EQ(
+              TouchAction::kManipulation,
+              widget->LastTouchAction() & ~TouchAction::kInternalPanXScrolls)
               << failure_context_pos;
         } else {
           FAIL() << "Unrecognized expected-action " << expected_action << " "
@@ -366,17 +394,18 @@ void TouchActionTest::RunTestOnTree(
       }
 
       // Reset webview touch state.
-      client.Reset();
-      SendTouchEvent(web_view, WebInputEvent::kPointerCancel, window_point);
-      EXPECT_EQ(0, client.TouchActionSetCount());
+      widget->Reset();
+      SendTouchEvent(web_view, WebInputEvent::Type::kPointerCancel,
+                     window_point);
+      EXPECT_EQ(0, widget->TouchActionSetCount());
     }
   }
 }
 void TouchActionTest::SendTouchEvent(WebView* web_view,
                                      WebInputEvent::Type type,
                                      IntPoint client_point) {
-  ASSERT_TRUE(type == WebInputEvent::kPointerDown ||
-              type == WebInputEvent::kPointerCancel);
+  ASSERT_TRUE(type == WebInputEvent::Type::kPointerDown ||
+              type == WebInputEvent::Type::kPointerCancel);
 
   WebPointerEvent event(
       type,
@@ -385,10 +414,13 @@ void TouchActionTest::SendTouchEvent(WebView* web_view,
                            gfx::PointF(client_point.X(), client_point.Y()),
                            gfx::PointF(client_point.X(), client_point.Y())),
       10.0f, 10.0f);
-  if (type == WebInputEvent::kPointerCancel)
-    event.dispatch_type = WebInputEvent::kEventNonBlocking;
+  if (type == WebInputEvent::Type::kPointerCancel)
+    event.dispatch_type = WebInputEvent::DispatchType::kEventNonBlocking;
+  else
+    event.touch_start_or_first_touch_move = true;
 
-  web_view->MainFrameWidget()->HandleInputEvent(WebCoalescedInputEvent(event));
+  web_view->MainFrameWidget()->ProcessInputEventSynchronouslyForTesting(
+      WebCoalescedInputEvent(event, ui::LatencyInfo()), base::DoNothing());
   web_view->MainFrameWidget()->DispatchBufferedTouchEvents();
   RunPendingTasks();
 }

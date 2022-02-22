@@ -69,7 +69,7 @@ public:
     void _q_slotColumnsInserted(const QModelIndex &parent, int, int);
     void _q_slotColumnsAboutToBeRemoved(const QModelIndex &parent, int start, int end);
     void _q_slotColumnsRemoved(const QModelIndex &parent, int, int);
-    void _q_slotDataChanged(const QModelIndex &from, const QModelIndex &to, const QVector<int> &roles);
+    void _q_slotDataChanged(const QModelIndex &from, const QModelIndex &to, const QList<int> &roles);
     void _q_slotSourceLayoutAboutToBeChanged(const QList<QPersistentModelIndex> &sourceParents, QAbstractItemModel::LayoutChangeHint hint);
     void _q_slotSourceLayoutChanged(const QList<QPersistentModelIndex> &sourceParents, QAbstractItemModel::LayoutChangeHint hint);
     void _q_slotModelAboutToBeReset();
@@ -80,7 +80,7 @@ public:
     bool mapDropCoordinatesToSource(int row, int column, const QModelIndex &parent,
                                     int *sourceRow, int *sourceColumn, QModelIndex *sourceParent, QAbstractItemModel **sourceModel) const;
 
-    QVector<QAbstractItemModel *> m_models;
+    QList<QAbstractItemModel *> m_models;
     int m_rowCount; // have to maintain it here since we can't compute during model destruction
     int m_columnCount;
 
@@ -88,8 +88,8 @@ public:
     int m_newColumnCount;
 
     // for layoutAboutToBeChanged/layoutChanged
-    QVector<QPersistentModelIndex> layoutChangePersistentIndexes;
-    QVector<QModelIndex> layoutChangeProxyIndexes;
+    QList<QPersistentModelIndex> layoutChangePersistentIndexes;
+    QList<QModelIndex> layoutChangeProxyIndexes;
 };
 
 QConcatenateTablesProxyModelPrivate::QConcatenateTablesProxyModelPrivate()
@@ -313,8 +313,8 @@ QModelIndex QConcatenateTablesProxyModel::parent(const QModelIndex &index) const
 int QConcatenateTablesProxyModel::rowCount(const QModelIndex &parent) const
 {
     Q_D(const QConcatenateTablesProxyModel);
-    Q_ASSERT(checkIndex(parent, QAbstractItemModel::CheckIndexOption::ParentIsInvalid)); // flat model
-    Q_UNUSED(parent);
+    if (parent.isValid())
+        return 0; // flat model
     return d->m_rowCount;
 }
 
@@ -470,7 +470,7 @@ void QConcatenateTablesProxyModel::addSourceModel(QAbstractItemModel *sourceMode
     Q_D(QConcatenateTablesProxyModel);
     Q_ASSERT(sourceModel);
     Q_ASSERT(!d->m_models.contains(sourceModel));
-    connect(sourceModel, SIGNAL(dataChanged(QModelIndex,QModelIndex,QVector<int>)), this, SLOT(_q_slotDataChanged(QModelIndex,QModelIndex,QVector<int>)));
+    connect(sourceModel, SIGNAL(dataChanged(QModelIndex,QModelIndex,QList<int>)), this, SLOT(_q_slotDataChanged(QModelIndex,QModelIndex,QList<int>)));
     connect(sourceModel, SIGNAL(rowsInserted(QModelIndex,int,int)), this, SLOT(_q_slotRowsInserted(QModelIndex,int,int)));
     connect(sourceModel, SIGNAL(rowsRemoved(QModelIndex,int,int)), this, SLOT(_q_slotRowsRemoved(QModelIndex,int,int)));
     connect(sourceModel, SIGNAL(rowsAboutToBeInserted(QModelIndex,int,int)), this, SLOT(_q_slotRowsAboutToBeInserted(QModelIndex,int,int)));
@@ -617,14 +617,19 @@ void QConcatenateTablesProxyModelPrivate::_q_slotColumnsRemoved(const QModelInde
     }
 }
 
-void QConcatenateTablesProxyModelPrivate::_q_slotDataChanged(const QModelIndex &from, const QModelIndex &to, const QVector<int> &roles)
+void QConcatenateTablesProxyModelPrivate::_q_slotDataChanged(const QModelIndex &from, const QModelIndex &to, const QList<int> &roles)
 {
     Q_Q(QConcatenateTablesProxyModel);
     Q_ASSERT(from.isValid());
     Q_ASSERT(to.isValid());
+    if (from.column() >= m_columnCount)
+        return;
+    QModelIndex adjustedTo = to;
+    if (to.column() >= m_columnCount)
+        adjustedTo = to.siblingAtColumn(m_columnCount - 1);
     const QModelIndex myFrom = q->mapFromSource(from);
     Q_ASSERT(q->checkIndex(myFrom, QAbstractItemModel::CheckIndexOption::IndexIsValid));
-    const QModelIndex myTo = q->mapFromSource(to);
+    const QModelIndex myTo = q->mapFromSource(adjustedTo);
     Q_ASSERT(q->checkIndex(myTo, QAbstractItemModel::CheckIndexOption::IndexIsValid));
     emit q->dataChanged(myFrom, myTo, roles);
 }

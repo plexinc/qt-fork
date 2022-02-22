@@ -151,15 +151,15 @@ static ParseCommandLineArgumentsResult
                 return CommandLineArgumentsError;
             if (++i == argumentCount)
                 return CommandLineArgumentsError;
-            const QString sizeStr = arguments.at(i);
+            const QStringView sizeStr{ arguments.at(i) };
             const int idx = sizeStr.indexOf(QLatin1Char('x'));
             if (idx == -1)
                 return CommandLineArgumentsError;
             bool ok;
-            const int w = sizeStr.leftRef(idx).toInt(&ok);
+            const int w = sizeStr.left(idx).toInt(&ok);
             if (!ok)
                 return CommandLineArgumentsError;
-            const int h = sizeStr.midRef(idx + 1).toInt(&ok);
+            const int h = sizeStr.mid(idx + 1).toInt(&ok);
             if (!ok)
                 return CommandLineArgumentsError;
             result->insert(name, QSize(w, h));
@@ -175,8 +175,6 @@ static ParseCommandLineArgumentsResult
 
 int main(int argc, char **argv)
 {
-    QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
-    QApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
     QApplication app(argc, argv);
     MainWindow::CustomSizeHintMap customSizeHints;
     switch (parseCustomSizeHints(QCoreApplication::arguments(), &customSizeHints)) {

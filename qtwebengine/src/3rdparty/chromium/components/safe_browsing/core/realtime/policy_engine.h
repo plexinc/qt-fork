@@ -5,25 +5,19 @@
 #ifndef COMPONENTS_SAFE_BROWSING_CORE_REALTIME_POLICY_ENGINE_H_
 #define COMPONENTS_SAFE_BROWSING_CORE_REALTIME_POLICY_ENGINE_H_
 
+#include <string>
+
+#include "base/callback.h"
 #include "build/build_config.h"
+#include "services/network/public/mojom/fetch_api.mojom.h"
 
 class PrefService;
 
-namespace syncer {
-class SyncService;
+namespace variations {
+class VariationsService;
 }
 
 namespace safe_browsing {
-
-enum class ResourceType;
-
-#if defined(OS_ANDROID)
-// A parameter controlled by finch experiment.
-// On Android, performs real time URL lookup only if |kRealTimeUrlLookupEnabled|
-// is enabled, and system memory is larger than threshold.
-const char kRealTimeUrlLookupMemoryThresholdMb[] =
-    "SafeBrowsingRealTimeUrlLookupMemoryThresholdMb";
-#endif
 
 // This class implements the logic to decide whether the real time lookup
 // feature is enabled for a given user/profile.
@@ -35,38 +29,46 @@ class RealTimePolicyEngine {
   RealTimePolicyEngine() = delete;
   ~RealTimePolicyEngine() = delete;
 
-  // Return true if full URL lookups are enabled for |resource_type|.
-  static bool CanPerformFullURLLookupForResourceType(
-      ResourceType resource_type,
-      bool enhanced_protection_enabled);
+  // A callback via which the client of this class indicates whether they
+  // are configured to support token fetches. Used as part of
+  // CanPerformFullURLLookupWithToken().
+  using ClientConfiguredForTokenFetchesCallback =
+      base::OnceCallback<bool(bool user_has_enabled_enhanced_protection)>;
+
+  // Return true if full URL lookups are enabled for |request_destination|. If
+  // |can_rt_check_subresource_url| is set to false, return true only if
+  // |request_destination| is |kDocument|.
+  static bool CanPerformFullURLLookupForRequestDestination(
+      network::mojom::RequestDestination request_destination,
+      bool can_rt_check_subresource_url);
 
   // Return true if the feature to enable full URL lookups is enabled and the
   // allowlist fetch is enabled for the profile represented by
   // |pref_service|.
-  static bool CanPerformFullURLLookup(PrefService* pref_service,
-                                      bool is_off_the_record);
+  static bool CanPerformFullURLLookup(
+      PrefService* pref_service,
+      bool is_off_the_record,
+      variations::VariationsService* variations_service);
 
   // Return true if the OAuth token should be associated with the URL lookup
   // pings.
   static bool CanPerformFullURLLookupWithToken(
       PrefService* pref_service,
       bool is_off_the_record,
-      syncer::SyncService* sync_service);
+      ClientConfiguredForTokenFetchesCallback client_callback,
+      variations::VariationsService* variations_service);
+
+  static bool CanPerformEnterpriseFullURLLookup(const PrefService* pref_service,
+                                                bool has_valid_dm_token,
+                                                bool is_off_the_record);
 
   friend class SafeBrowsingService;
-  friend class SafeBrowsingUIHandler;
 
  private:
+  static bool IsInExcludedCountry(const std::string& country_code);
+
   // Is the feature to perform real-time URL lookup enabled?
   static bool IsUrlLookupEnabled();
-
-  // Is the feature to perform real-time URL lookup enabled for enhanced
-  // protection users?
-  static bool IsUrlLookupEnabledForEp();
-
-  // Is the feature to include OAuth tokens with real-time URL lookup enabled
-  // for Enhanced Protection users?
-  static bool IsUrlLookupEnabledForEpWithToken();
 
   // Whether the user has opted-in to MBB.
   static bool IsUserMbbOptedIn(PrefService* pref_service);

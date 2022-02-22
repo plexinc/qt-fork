@@ -169,7 +169,7 @@ static QByteArray makeCacheKey(QUrl &url, QNetworkProxy *proxy, const QString &p
         }
     }
 #else
-    Q_UNUSED(proxy)
+    Q_UNUSED(proxy);
 #endif
     if (!peerVerifyName.isEmpty())
         result += QLatin1Char(':') + peerVerifyName;
@@ -181,17 +181,9 @@ class QNetworkAccessCachedHttpConnection: public QHttpNetworkConnection,
 {
     // Q_OBJECT
 public:
-#ifdef QT_NO_BEARERMANAGEMENT
     QNetworkAccessCachedHttpConnection(const QString &hostName, quint16 port, bool encrypt,
                                        QHttpNetworkConnection::ConnectionType connectionType)
         : QHttpNetworkConnection(hostName, port, encrypt, connectionType)
-#else // ### Qt6: Remove section
-    QNetworkAccessCachedHttpConnection(const QString &hostName, quint16 port, bool encrypt,
-                                       QHttpNetworkConnection::ConnectionType connectionType,
-                                       QSharedPointer<QNetworkSession> networkSession)
-        : QHttpNetworkConnection(hostName, port, encrypt, connectionType, /*parent=*/nullptr,
-                                 std::move(networkSession))
-#endif
     {
         setExpires(true);
         setShareable(true);
@@ -236,7 +228,7 @@ QHttpThreadDelegate::QHttpThreadDelegate(QObject *parent) :
     , synchronous(false)
     , incomingStatusCode(0)
     , isPipeliningUsed(false)
-    , isSpdyUsed(false)
+    , isHttp2Used(false)
     , incomingContentLength(-1)
     , removedContentLength(-1)
     , incomingErrorCode(QNetworkReply::NoError)
@@ -265,7 +257,7 @@ void QHttpThreadDelegate::startRequestSynchronously()
     synchronousRequestLoop.exec();
 
     connections.localData()->releaseEntry(cacheKey);
-    connections.setLocalData(0);
+    connections.setLocalData(nullptr);
 
 #ifdef QHTTPTHREADDELEGATE_DEBUG
     qDebug() << "QHttpThreadDelegate::startRequestSynchronously() thread=" << QThread::currentThreadId() << "finished";
@@ -297,6 +289,12 @@ void QHttpThreadDelegate::startRequest()
         connectionType = QHttpNetworkConnection::ConnectionTypeHTTP2Direct;
     }
 
+    // Use HTTP/1.1 if h2c is not allowed and we would otherwise choose to use it
+    if (!ssl && connectionType == QHttpNetworkConnection::ConnectionTypeHTTP2
+        && !httpRequest.isH2cAllowed()) {
+        connectionType = QHttpNetworkConnection::ConnectionTypeHTTP;
+    }
+
 #if QT_CONFIG(ssl)
     // See qnetworkreplyhttpimpl, delegate's initialization code.
     Q_ASSERT(!ssl || incomingSslConfiguration.data());
@@ -320,17 +318,6 @@ void QHttpThreadDelegate::startRequest()
         }
     }
 
-#ifndef QT_NO_SSL
-    if (!isH2 && httpRequest.isSPDYAllowed() && ssl) {
-        connectionType = QHttpNetworkConnection::ConnectionTypeSPDY;
-        urlCopy.setScheme(QStringLiteral("spdy")); // to differentiate SPDY requests from HTTPS requests
-        QList<QByteArray> nextProtocols;
-        nextProtocols << QSslConfiguration::NextProtocolSpdy3_0
-                      << QSslConfiguration::NextProtocolHttp1_1;
-        incomingSslConfiguration->setAllowedNextProtocols(nextProtocols);
-    }
-#endif // QT_NO_SSL
-
 #ifndef QT_NO_NETWORKPROXY
     if (transparentProxy.type() != QNetworkProxy::NoProxy)
         cacheKey = makeCacheKey(urlCopy, &transparentProxy, httpRequest.peerVerifyName());
@@ -345,14 +332,8 @@ void QHttpThreadDelegate::startRequest()
     if (!httpConnection) {
         // no entry in cache; create an object
         // the http object is actually a QHttpNetworkConnection
-#ifdef QT_NO_BEARERMANAGEMENT
         httpConnection = new QNetworkAccessCachedHttpConnection(urlCopy.host(), urlCopy.port(), ssl,
                                                                 connectionType);
-#else // ### Qt6: Remove section
-        httpConnection = new QNetworkAccessCachedHttpConnection(urlCopy.host(), urlCopy.port(), ssl,
-                                                                connectionType,
-                                                                networkSession);
-#endif // QT_NO_BEARERMANAGEMENT
         if (connectionType == QHttpNetworkConnection::ConnectionTypeHTTP2
             || connectionType == QHttpNetworkConnection::ConnectionTypeHTTP2Direct) {
             httpConnection->setHttp2Parameters(http2Parameters);
@@ -658,7 +639,7 @@ void QHttpThreadDelegate::headerChangedSlot()
     isPipeliningUsed = httpReply->isPipeliningUsed();
     incomingContentLength = httpReply->contentLength();
     removedContentLength = httpReply->removedContentLength();
-    isSpdyUsed = httpReply->isSpdyUsed();
+    isHttp2Used = httpReply->isHttp2Used();
 
     emit downloadMetaData(incomingHeaders,
                           incomingStatusCode,
@@ -667,7 +648,7 @@ void QHttpThreadDelegate::headerChangedSlot()
                           downloadBuffer,
                           incomingContentLength,
                           removedContentLength,
-                          isSpdyUsed);
+                          isHttp2Used);
 }
 
 void QHttpThreadDelegate::synchronousHeaderChangedSlot()
@@ -683,7 +664,7 @@ void QHttpThreadDelegate::synchronousHeaderChangedSlot()
     incomingStatusCode = httpReply->statusCode();
     incomingReasonPhrase = httpReply->reasonPhrase();
     isPipeliningUsed = httpReply->isPipeliningUsed();
-    isSpdyUsed = httpReply->isSpdyUsed();
+    isHttp2Used = httpReply->isHttp2Used();
     incomingContentLength = httpReply->contentLength();
 }
 

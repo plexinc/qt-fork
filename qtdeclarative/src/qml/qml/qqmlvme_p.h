@@ -52,7 +52,6 @@
 //
 
 #include "qqmlerror.h"
-#include <private/qbitfield_p.h>
 #include <private/qrecursionwatcher_p.h>
 
 #include <QtCore/QStack>
@@ -69,49 +68,20 @@
 QT_BEGIN_NAMESPACE
 
 class QObject;
-class QJSValue;
-class QQmlScriptData;
-class QQmlContextData;
-
-namespace QQmlVMETypes {
-    struct List
-    {
-        List() : type(0) {}
-        List(int t) : type(t) {}
-
-        int type;
-        QQmlListProperty<void> qListProperty;
-    };
-    struct State {
-        enum Flag { Deferred = 0x00000001 };
-
-        State() : flags(0), context(nullptr), instructionStream(nullptr) {}
-        quint32 flags;
-        QQmlContextData *context;
-        const char *instructionStream;
-        QBitField bindingSkipList;
-    };
-}
-Q_DECLARE_TYPEINFO(QQmlVMETypes::List, Q_PRIMITIVE_TYPE  | Q_MOVABLE_TYPE);
-template<>
-class QTypeInfo<QQmlVMETypes::State> : public QTypeInfoMerger<QQmlVMETypes::State, QBitField> {}; //Q_DECLARE_TYPEINFO
 
 class QQmlInstantiationInterrupt {
 public:
     inline QQmlInstantiationInterrupt();
-    // ### Qt 6: remove
-    inline QQmlInstantiationInterrupt(volatile bool *runWhile, qint64 nsecs=0);
     inline QQmlInstantiationInterrupt(std::atomic<bool> *runWhile, qint64 nsecs = 0);
     inline QQmlInstantiationInterrupt(qint64 nsecs);
 
     inline void reset();
     inline bool shouldInterrupt() const;
 private:
-    enum Mode { None, Time, LegacyFlag, Flag }; // ### Qt 6: remove LegacyFlag
+    enum Mode { None, Time, Flag };
     Mode mode;
     QElapsedTimer timer;
     qint64 nsecs = 0;
-    volatile bool *runWhileLegacy = nullptr; // ### Qt 6: remove
     std::atomic<bool> *runWhile = nullptr;
 };
 
@@ -146,18 +116,13 @@ public:
 
 private:
     int m_objectCount;
-    QPointer<QObject> *m_objects;
+    QQmlGuard<QObject> *m_objects;
     int m_contextCount;
     QQmlGuardedContextData *m_contexts;
 };
 
 QQmlInstantiationInterrupt::QQmlInstantiationInterrupt()
     : mode(None)
-{
-}
-
-QQmlInstantiationInterrupt::QQmlInstantiationInterrupt(volatile bool *runWhile, qint64 nsecs)
-    : mode(LegacyFlag), nsecs(nsecs), runWhileLegacy(runWhile)
 {
 }
 
@@ -184,8 +149,6 @@ bool QQmlInstantiationInterrupt::shouldInterrupt() const
         return false;
     case Time:
         return timer.nsecsElapsed() > nsecs;
-    case LegacyFlag:
-        return !*runWhileLegacy || (nsecs && timer.nsecsElapsed() > nsecs);
     case Flag:
         return !runWhile->load(std::memory_order_acquire) || (nsecs && timer.nsecsElapsed() > nsecs);
     }

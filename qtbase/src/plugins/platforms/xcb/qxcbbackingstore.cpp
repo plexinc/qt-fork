@@ -479,23 +479,27 @@ bool QXcbBackingStoreImage::scroll(const QRegion &area, int dx, int dy)
     const QRect bounds(QPoint(), size());
     const QRegion scrollArea(area & bounds);
     const QPoint delta(dx, dy);
+    const QRegion destinationRegion = scrollArea.translated(delta).intersected(bounds);
 
     if (m_clientSideScroll) {
         if (m_qimage.isNull())
             return false;
 
         if (hasShm())
-            preparePaint(scrollArea);
+            preparePaint(destinationRegion);
 
         for (const QRect &rect : scrollArea)
             qt_scrollRectInImage(m_qimage, rect, delta);
     } else {
-        if (hasShm())
-            shmPutImage(m_xcb_pixmap, m_pendingFlush.intersected(scrollArea));
-        else
-            flushPixmap(scrollArea);
-
         ensureGC(m_xcb_pixmap);
+
+        if (hasShm()) {
+            QRegion partialFlushRegion = m_pendingFlush.intersected(scrollArea);
+            shmPutImage(m_xcb_pixmap, partialFlushRegion);
+            m_pendingFlush -= partialFlushRegion;
+        } else {
+            flushPixmap(scrollArea);
+        }
 
         for (const QRect &src : scrollArea) {
             const QRect dst = src.translated(delta).intersected(bounds);
@@ -507,13 +511,12 @@ bool QXcbBackingStoreImage::scroll(const QRegion &area, int dx, int dy)
                           dst.x(), dst.y(),
                           dst.width(), dst.height());
         }
+
+        if (hasShm())
+            m_pendingFlush -= destinationRegion;
     }
 
-    m_scrolledRegion |= scrollArea.translated(delta).intersected(bounds);
-    if (hasShm()) {
-        m_pendingFlush -= scrollArea;
-        m_pendingFlush -= m_scrolledRegion;
-    }
+    m_scrolledRegion |= destinationRegion;
 
     return true;
 }
@@ -537,7 +540,7 @@ void QXcbBackingStoreImage::ensureGC(xcb_drawable_t dst)
 static inline void copy_unswapped(char *dst, int dstBytesPerLine, const QImage &img, const QRect &rect)
 {
     const uchar *srcData = img.constBits();
-    const int srcBytesPerLine = img.bytesPerLine();
+    const qsizetype srcBytesPerLine = img.bytesPerLine();
 
     const int leftOffset = rect.left() * img.depth() >> 3;
     const int bottom = rect.bottom() + 1;
@@ -553,7 +556,7 @@ template <class Pixel>
 static inline void copy_swapped(char *dst, const int dstStride, const QImage &img, const QRect &rect)
 {
     const uchar *srcData = img.constBits();
-    const int srcBytesPerLine = img.bytesPerLine();
+    const qsizetype srcBytesPerLine = img.bytesPerLine();
 
     const int left = rect.left();
     const int width = rect.width();
@@ -842,7 +845,18 @@ QImage QXcbBackingStore::toImage() const
     // If the backingstore is rgbSwapped, return the internal image type here.
     if (!m_rgbImage.isNull())
         return m_rgbImage;
-    return m_image && m_image->image() ? *m_image->image() : QImage();
+
+    if (!m_image || !m_image->image())
+        return QImage();
+
+    m_image->flushScrolledRegion(true);
+
+    QImage image = *m_image->image();
+
+    // Return an image that does not share QImageData with the original image,
+    // even if they both point to the same data of the m_xcb_image, otherwise
+    // painting to m_qimage would detach it from the m_xcb_image data.
+    return QImage(image.constBits(), image.width(), image.height(), image.format());
 }
 
 QPlatformGraphicsBuffer *QXcbBackingStore::graphicsBuffer() const

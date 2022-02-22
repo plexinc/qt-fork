@@ -54,14 +54,14 @@
 
 #include "qbluetoothdevicediscoveryagent.h"
 #ifdef QT_ANDROID_BLUETOOTH
-#include <QtAndroidExtras/QAndroidJniObject>
+#include <QtCore/QJniObject>
 #include "android/devicediscoverybroadcastreceiver_p.h"
 #include <QtCore/QTimer>
 #endif
 
 #ifdef Q_OS_DARWIN
-#include "osx/btdelegates_p.h"
-#include "osx/btraii_p.h"
+#include "darwin/btdelegates_p.h"
+#include "darwin/btraii_p.h"
 #endif // Q_OS_DARWIN
 
 #include <QtCore/QVariantMap>
@@ -84,20 +84,7 @@ class QDBusVariant;
 QT_END_NAMESPACE
 #endif
 
-#ifdef QT_WIN_BLUETOOTH
-QT_BEGIN_NAMESPACE
-class QThread;
-
-class ThreadWorkerDeviceDiscovery : public QObject
-{
-    Q_OBJECT
-signals:
-    void discoveryCompleted(const QVariant res);
-};
-
-QT_END_NAMESPACE
-
-#elif defined(QT_WINRT_BLUETOOTH)
+#ifdef QT_WINRT_BLUETOOTH
 #include <QtCore/QPointer>
 #include <QtCore/QTimer>
 
@@ -112,7 +99,7 @@ class QWinRTBluetoothDeviceDiscoveryWorker;
 #endif
 
 class QBluetoothDeviceDiscoveryAgentPrivate
-#if defined(QT_ANDROID_BLUETOOTH) || defined(QT_WINRT_BLUETOOTH) || defined(QT_WIN_BLUETOOTH) \
+#if defined(QT_ANDROID_BLUETOOTH) || defined(QT_WINRT_BLUETOOTH) \
             || defined(Q_OS_DARWIN)
     : public QObject
 #if defined(Q_OS_MACOS)
@@ -135,8 +122,6 @@ public:
     bool isActive() const;
 
 #if QT_CONFIG(bluez)
-    void _q_deviceFound(const QString &address, const QVariantMap &dict);
-    void _q_propertyChanged(const QString &name, const QDBusVariant &value);
     void _q_InterfacesAdded(const QDBusObjectPath &object_path,
                             InterfaceList interfaces_and_properties);
     void _q_discoveryFinished();
@@ -145,14 +130,12 @@ public:
                               const QString &path,
                               const QVariantMap &changed_properties,
                               const QStringList &invalidated_properties);
-    void _q_extendedDeviceDiscoveryTimeout();
 #endif
 
 private:
     QList<QBluetoothDeviceInfo> discoveredDevices;
-    QBluetoothDeviceDiscoveryAgent::InquiryType inquiryType;
 
-    QBluetoothDeviceDiscoveryAgent::Error lastError;
+    QBluetoothDeviceDiscoveryAgent::Error lastError = QBluetoothDeviceDiscoveryAgent::NoError;
     QString errorString;
 
 #ifdef QT_ANDROID_BLUETOOTH
@@ -165,58 +148,27 @@ private slots:
 private:
     void startLowEnergyScan();
 
-    DeviceDiscoveryBroadcastReceiver *receiver;
+    DeviceDiscoveryBroadcastReceiver *receiver = nullptr;
     QBluetoothAddress m_adapterAddress;
     short m_active;
-    QAndroidJniObject adapter;
-    QAndroidJniObject leScanner;
-    QTimer *leScanTimeout;
+    QJniObject adapter;
+    QJniObject leScanner;
+    QTimer *leScanTimeout = nullptr;
 
-    bool pendingCancel, pendingStart;
+    bool pendingCancel = false;
+    bool pendingStart = false;
 #elif QT_CONFIG(bluez)
     QBluetoothAddress m_adapterAddress;
-    bool pendingCancel;
-    bool pendingStart;
-    OrgBluezManagerInterface *manager = nullptr;
-    OrgBluezAdapterInterface *adapter = nullptr;
-    OrgFreedesktopDBusObjectManagerInterface *managerBluez5 = nullptr;
-    OrgBluezAdapter1Interface *adapterBluez5 = nullptr;
+    bool pendingCancel = false;
+    bool pendingStart = false;
+    OrgFreedesktopDBusObjectManagerInterface *manager = nullptr;
+    OrgBluezAdapter1Interface *adapter = nullptr;
     QTimer *discoveryTimer = nullptr;
     QList<OrgFreedesktopDBusPropertiesInterface *> propertyMonitors;
 
-    void deviceFoundBluez5(const QString &devicePath, const QVariantMap &properties);
-    void startBluez5(QBluetoothDeviceDiscoveryAgent::DiscoveryMethods methods);
+    void deviceFound(const QString &devicePath, const QVariantMap &properties);
 
-    bool useExtendedDiscovery;
-    QTimer extendedDiscoveryTimer;
     QMap<QString, QVariantMap> devicesProperties;
-#endif
-
-#ifdef QT_WIN_BLUETOOTH
-public:
-    static QString discoveredLeDeviceSystemPath(const QBluetoothAddress &deviceAddress);
-
-private:
-    void cancelDiscovery();
-    void restartDiscovery();
-    void finishDiscovery(QBluetoothDeviceDiscoveryAgent::Error errorCode, const QString &errorText);
-
-    void startLeDevicesDiscovery();
-    void completeLeDevicesDiscovery(const QVariant &res);
-    void startClassicDevicesDiscovery(Qt::HANDLE hSearch = nullptr);
-    void completeClassicDevicesDiscovery(const QVariant &res);
-
-    void processDiscoveredDevice(const QBluetoothDeviceInfo &foundDevice);
-
-    QBluetoothAddress adapterAddress;
-    bool pendingCancel;
-    bool pendingStart;
-    bool active;
-
-    QThread *threadLE = nullptr;
-    QThread *threadClassic = nullptr;
-    ThreadWorkerDeviceDiscovery *threadWorkerLE = nullptr;
-    ThreadWorkerDeviceDiscovery *threadWorkerClassic = nullptr;
 #endif
 
 #ifdef QT_WINRT_BLUETOOTH
@@ -224,12 +176,13 @@ private slots:
     void registerDevice(const QBluetoothDeviceInfo &info);
     void updateDeviceData(const QBluetoothAddress &address, QBluetoothDeviceInfo::Fields fields,
                           qint16 rssi, ManufacturerData manufacturerData);
+    void onErrorOccured(QBluetoothDeviceDiscoveryAgent::Error e);
     void onScanFinished();
 
 private:
     void disconnectAndClearWorker();
     QPointer<QWinRTBluetoothDeviceDiscoveryWorker> worker;
-    QTimer *leScanTimer;
+    QTimer *leScanTimer = nullptr;
 #endif
 
 #ifdef Q_OS_DARWIN
@@ -269,8 +222,8 @@ private:
 
     QBluetoothAddress adapterAddress;
 
-    bool startPending;
-    bool stopPending;
+    bool startPending = false;
+    bool stopPending = false;
 
 #ifdef Q_OS_MACOS
 
@@ -283,7 +236,7 @@ private:
 
 #endif // Q_OS_DARWIN
 
-    int lowEnergySearchTimeout;
+    int lowEnergySearchTimeout = 25000;
     QBluetoothDeviceDiscoveryAgent::DiscoveryMethods requestedMethods;
     QBluetoothDeviceDiscoveryAgent *q_ptr;
 };

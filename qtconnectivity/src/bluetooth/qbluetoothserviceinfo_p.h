@@ -60,7 +60,7 @@
 #include <QVariant>
 
 #ifdef Q_OS_MACOS
-#include "osx/btraii_p.h"
+#include "darwin/btraii_p.h"
 #endif
 
 class OrgBluezServiceInterface;
@@ -80,11 +80,6 @@ namespace ABI {
         }
     }
 }
-#endif
-
-#ifdef QT_WIN_BLUETOOTH
-#include <winsock2.h>
-#include <ws2bth.h>
 #endif
 
 QT_BEGIN_NAMESPACE
@@ -113,10 +108,7 @@ public:
     int serverChannel() const;
 private:
 #if QT_CONFIG(bluez)
-    bool ensureSdpConnection(const QBluetoothAddress &localAdapter = QBluetoothAddress());
-
-    OrgBluezServiceInterface *service = nullptr;
-    OrgBluezProfileManager1Interface *serviceBluez5 = nullptr;
+    OrgBluezProfileManager1Interface *service = nullptr;
     quint32 serviceRecord;
     QBluetoothAddress currentLocalAdapter;
     QString profilePath;
@@ -126,14 +118,6 @@ private:
     Microsoft::WRL::ComPtr<ABI::Windows::Devices::Bluetooth::Rfcomm::IRfcommServiceProvider> serviceProvider;
 
     bool writeSdpAttributes();
-#endif
-
-#ifdef QT_WIN_BLUETOOTH
-    SOCKADDR_BTH sockaddr = {};
-    CSADDR_INFO addrinfo = {};
-    WSAQUERYSET regInfo = {};
-    QVector<WCHAR> serviceName;
-    QVector<WCHAR> serviceDescription;
 #endif
 
 #if QT_OSX_BLUETOOTH

@@ -29,7 +29,7 @@
 
 #include "declarativesplineseries_p.h"
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 DeclarativeSplineSeries::DeclarativeSplineSeries(QObject *parent) :
     QSplineSeries(parent),
@@ -48,7 +48,7 @@ DeclarativeSplineSeries::DeclarativeSplineSeries(QObject *parent) :
 
 void DeclarativeSplineSeries::handleCountChanged(int index)
 {
-    Q_UNUSED(index)
+    Q_UNUSED(index);
     emit countChanged(points().count());
 }
 
@@ -104,11 +104,11 @@ QQmlListProperty<QObject> DeclarativeSplineSeries::declarativeChildren()
 
 void DeclarativeSplineSeries::appendDeclarativeChildren(QQmlListProperty<QObject> *list, QObject *element)
 {
-    Q_UNUSED(list)
-    Q_UNUSED(element)
+    Q_UNUSED(list);
+    Q_UNUSED(element);
     // Empty implementation, children are parsed in componentComplete
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_declarativesplineseries_p.cpp"

@@ -60,18 +60,17 @@ public:
 
     void addParameter(QParameter *parameter);
     void removeParameter(QParameter *parameter);
-    QVector<QParameter *> parameters() const;
+    QList<QParameter *> parameters() const;
 
     void addTechnique(QTechnique *t);
     void removeTechnique(QTechnique *t);
-    QVector<QTechnique *> techniques() const;
+    QList<QTechnique *> techniques() const;
 
 protected:
     explicit QEffect(QEffectPrivate &dd, Qt3DCore::QNode *parent = nullptr);
 
 private:
     Q_DECLARE_PRIVATE(QEffect)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DRender

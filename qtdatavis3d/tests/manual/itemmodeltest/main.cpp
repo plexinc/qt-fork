@@ -50,8 +50,6 @@
 
 #define USE_STATIC_DATA
 
-using namespace QtDataVisualization;
-
 class GraphDataGenerator : public QObject
 {
 public:
@@ -216,8 +214,8 @@ void GraphDataGenerator::selectFromTable(const QPoint &selection)
 void GraphDataGenerator::selectedFromTable(int currentRow, int currentColumn,
                                            int previousRow, int previousColumn)
 {
-    Q_UNUSED(previousRow)
-    Q_UNUSED(previousColumn)
+    Q_UNUSED(previousRow);
+    Q_UNUSED(previousColumn);
     m_barGraph->seriesList().at(0)->setSelectedBar(QPoint(currentRow, currentColumn));
     m_surfaceGraph->seriesList().at(0)->setSelectedPoint(QPoint(currentRow, currentColumn));
 }
@@ -249,6 +247,7 @@ void GraphDataGenerator::changeSelectedButtonClicked()
 
 int main(int argc, char **argv)
 {
+    qputenv("QSG_RHI_BACKEND", "opengl");
     QApplication app(argc, argv);
     Q3DBars *barGraph = new Q3DBars();
     Q3DSurface *surfaceGraph = new Q3DSurface();
@@ -288,17 +287,17 @@ int main(int argc, char **argv)
     barProxy->setUseModelCategories(true);
     surfaceProxy->setUseModelCategories(true);
     barProxy->setRotationRole(tableWidget->model()->roleNames().value(Qt::DisplayRole));
-    barProxy->setValueRolePattern(QRegExp(QStringLiteral("^(\\d*)(\\/)(\\d*)\\/(\\d*[\\.\\,]?\\d*)\\/\\d*[\\.\\,]?\\d*$")));
-    barProxy->setRotationRolePattern(QRegExp(QStringLiteral("^(\\d*)(\\/)\\d*\\/\\d*([\\.\\,]?)\\d*(\\/)(\\d*[\\.\\,]?\\d*)$")));
+    barProxy->setValueRolePattern(QRegularExpression(QStringLiteral("^(\\d*)(\\/)(\\d*)\\/(\\d*[\\.\\,]?\\d*)\\/\\d*[\\.\\,]?\\d*$")));
+    barProxy->setRotationRolePattern(QRegularExpression(QStringLiteral("^(\\d*)(\\/)\\d*\\/\\d*([\\.\\,]?)\\d*(\\/)(\\d*[\\.\\,]?\\d*)$")));
     barProxy->setValueRoleReplace(QStringLiteral("\\4"));
     barProxy->setRotationRoleReplace(QStringLiteral("\\5"));
     surfaceProxy->setXPosRole(tableWidget->model()->roleNames().value(Qt::DisplayRole));
     surfaceProxy->setZPosRole(tableWidget->model()->roleNames().value(Qt::DisplayRole));
-    surfaceProxy->setXPosRolePattern(QRegExp(QStringLiteral("^(\\d*)\\/(\\d*)\\/\\d*[\\.\\,]?\\d*\\/\\d*[\\.\\,]?\\d*$")));
+    surfaceProxy->setXPosRolePattern(QRegularExpression(QStringLiteral("^(\\d*)\\/(\\d*)\\/\\d*[\\.\\,]?\\d*\\/\\d*[\\.\\,]?\\d*$")));
     surfaceProxy->setXPosRoleReplace(QStringLiteral("\\2"));
-    surfaceProxy->setYPosRolePattern(QRegExp(QStringLiteral("^\\d*(\\/)(\\d*)\\/(\\d*[\\.\\,]?\\d*)\\/\\d*[\\.\\,]?\\d*$")));
+    surfaceProxy->setYPosRolePattern(QRegularExpression(QStringLiteral("^\\d*(\\/)(\\d*)\\/(\\d*[\\.\\,]?\\d*)\\/\\d*[\\.\\,]?\\d*$")));
     surfaceProxy->setYPosRoleReplace(QStringLiteral("\\3"));
-    surfaceProxy->setZPosRolePattern(QRegExp(QStringLiteral("^(\\d*)(\\/)(\\d*)\\/\\d*[\\.\\,]?\\d*\\/\\d*[\\.\\,]?\\d*$")));
+    surfaceProxy->setZPosRolePattern(QRegularExpression(QStringLiteral("^(\\d*)(\\/)(\\d*)\\/\\d*[\\.\\,]?\\d*\\/\\d*[\\.\\,]?\\d*$")));
     surfaceProxy->setZPosRoleReplace(QStringLiteral("\\1"));
     QBar3DSeries *barSeries = new QBar3DSeries(barProxy);
     QSurface3DSeries *surfaceSeries = new QSurface3DSeries(surfaceProxy);

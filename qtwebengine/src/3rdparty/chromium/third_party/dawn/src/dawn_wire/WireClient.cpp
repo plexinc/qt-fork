@@ -25,15 +25,6 @@ namespace dawn_wire {
         mImpl.reset();
     }
 
-    // static
-    DawnProcTable WireClient::GetProcs() {
-        return client::GetProcs();
-    }
-
-    WGPUDevice WireClient::GetDevice() const {
-        return mImpl->GetDevice();
-    }
-
     const volatile char* WireClient::HandleCommands(const volatile char* commands, size_t size) {
         return mImpl->HandleCommands(commands, size);
     }
@@ -42,7 +33,25 @@ namespace dawn_wire {
         return mImpl->ReserveTexture(device);
     }
 
+    ReservedDevice WireClient::ReserveDevice() {
+        return mImpl->ReserveDevice();
+    }
+
+    void WireClient::ReclaimTextureReservation(const ReservedTexture& reservation) {
+        mImpl->ReclaimTextureReservation(reservation);
+    }
+
+    void WireClient::ReclaimDeviceReservation(const ReservedDevice& reservation) {
+        mImpl->ReclaimDeviceReservation(reservation);
+    }
+
+    void WireClient::Disconnect() {
+        mImpl->Disconnect();
+    }
+
     namespace client {
+        MemoryTransferService::MemoryTransferService() = default;
+
         MemoryTransferService::~MemoryTransferService() = default;
 
         MemoryTransferService::ReadHandle*
@@ -55,7 +64,11 @@ namespace dawn_wire {
             return CreateWriteHandle(size);
         }
 
+        MemoryTransferService::ReadHandle::ReadHandle() = default;
+
         MemoryTransferService::ReadHandle::~ReadHandle() = default;
+
+        MemoryTransferService::WriteHandle::WriteHandle() = default;
 
         MemoryTransferService::WriteHandle::~WriteHandle() = default;
     }  // namespace client

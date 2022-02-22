@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include <qtextdocument.h>
 #include <qabstracttextdocumentlayout.h>
@@ -301,6 +301,7 @@ void tst_QTextDocumentLayout::imageAtRightAlignedTab()
     imgFormat.setName(name);
     cursor.insertImage(imgFormat);
 
+    // Everything should fit into the 300 pixels
     qreal bearing = QFontMetricsF(doc->defaultFont()).rightBearing(QLatin1Char('t'));
     QCOMPARE(doc->idealWidth(), std::max(300.0, 300.0 - bearing));
 }

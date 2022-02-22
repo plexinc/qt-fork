@@ -190,8 +190,11 @@ struct Q_QML_PRIVATE_EXPORT Value : public StaticValue
     inline double toNumber() const;
     static double toNumberImpl(Value v);
     double toNumberImpl() const { return toNumberImpl(*this); }
+
     QString toQStringNoThrow() const;
     QString toQString() const;
+    QString toQString(bool *ok) const;
+
     Heap::String *toString(ExecutionEngine *e) const {
         if (isString())
             return reinterpret_cast<Heap::String *>(m());
@@ -434,9 +437,9 @@ inline int Value::toInt32() const
         return int_32();
 
     if (Q_LIKELY(isDouble()))
-        return Double::toInt32(doubleValue());
+        return QJSNumberCoercion::toInteger(doubleValue());
 
-    return Double::toInt32(toNumberImpl());
+    return QJSNumberCoercion::toInteger(toNumberImpl());
 }
 
 inline unsigned int Value::toUInt32() const
@@ -480,7 +483,7 @@ inline double Value::toInteger() const
 
 template <size_t o>
 struct HeapValue : Value {
-    static Q_CONSTEXPR size_t offset = o;
+    static constexpr size_t offset = o;
     HeapBasePtr base() {
         HeapBasePtr base = reinterpret_cast<HeapBasePtr>(this) - (offset/sizeof(Heap::Base));
         Q_ASSERT(base->inUse());
@@ -497,7 +500,7 @@ struct HeapValue : Value {
 
 template <size_t o>
 struct ValueArray {
-    static Q_CONSTEXPR size_t offset = o;
+    static constexpr size_t offset = o;
     uint size;
     uint alloc;
     Value values[1];

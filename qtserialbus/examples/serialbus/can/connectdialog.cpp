@@ -82,6 +82,10 @@ ConnectDialog::ConnectDialog(QWidget *parent) :
             this, &ConnectDialog::pluginChanged);
     connect(m_ui->interfaceListBox, &QComboBox::currentTextChanged,
             this, &ConnectDialog::interfaceChanged);
+    connect(m_ui->ringBufferBox, &QCheckBox::stateChanged, [this](int state){
+            m_ui->ringBufferLimitBox->setEnabled(state == Qt::CheckState::Checked);
+    });
+
     m_ui->rawFilterEdit->hide();
     m_ui->rawFilterLabel->hide();
 
@@ -120,6 +124,10 @@ void ConnectDialog::interfaceChanged(const QString &interface)
             if (serialNumber.isEmpty())
                 serialNumber = tr("n/a");
             m_ui->serialNumberLabel->setText(tr("Serial: %1").arg(serialNumber));
+            QString alias = info.alias();
+            if (alias.isEmpty())
+                alias = tr("n/a");
+            m_ui->aliasLabel->setText(tr("Alias: %1").arg(alias));
             m_ui->channelLabel->setText(tr("Channel: %1").arg(info.channel()));
             m_ui->isVirtual->setChecked(info.isVirtual());
             m_ui->isFlexibleDataRateCapable->setChecked(info.hasFlexibleDataRate());
@@ -190,6 +198,10 @@ void ConnectDialog::updateSettings()
     m_currentSettings.pluginName = m_ui->pluginListBox->currentText();
     m_currentSettings.deviceInterfaceName = m_ui->interfaceListBox->currentText();
     m_currentSettings.useConfigurationEnabled = m_ui->useConfigurationBox->isChecked();
+
+    m_currentSettings.useModelRingBuffer = m_ui->ringBufferBox->isChecked();
+    m_currentSettings.modelRingBufferSize = m_ui->ringBufferLimitBox->value();
+    m_currentSettings.useAutoscroll = m_ui->autoscrollBox->isChecked();
 
     if (m_currentSettings.useConfigurationEnabled) {
         m_currentSettings.configurations.clear();

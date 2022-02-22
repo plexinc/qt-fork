@@ -58,6 +58,7 @@
 #include "content/public/browser/storage_partition.h"
 
 #include "base/base_paths.h"
+#include "base/files/file_util.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/prefs/pref_member.h"
 #include "components/prefs/pref_service.h"
@@ -111,7 +112,6 @@ ProfileQt::~ProfileQt()
 {
     DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
     m_prefServiceAdapter.commit();
-    content::BrowserContext::NotifyWillBeDestroyed(this);
     BrowserContextDependencyManager::GetInstance()->DestroyBrowserContextServices(this);
     ShutdownStoragePartitions();
     m_profileIOData->shutdownOnUIThread();
@@ -220,11 +220,14 @@ content::StorageNotificationService *ProfileQt::GetStorageNotificationService()
     return nullptr;
 }
 
-void ProfileQt::SetCorsOriginAccessListForOrigin(const url::Origin &source_origin,
+void ProfileQt::SetCorsOriginAccessListForOrigin(TargetBrowserContexts target_mode,
+                                                 const url::Origin &source_origin,
                                                  std::vector<network::mojom::CorsOriginPatternPtr> allow_patterns,
                                                  std::vector<network::mojom::CorsOriginPatternPtr> block_patterns,
                                                  base::OnceClosure closure)
 {
+    Q_UNUSED(target_mode); // We have no related OTR profiles
+
     auto barrier_closure = base::BarrierClosure(2, std::move(closure));
 
     // Keep profile storage partitions' NetworkContexts synchronized.
@@ -233,9 +236,7 @@ void ProfileQt::SetCorsOriginAccessListForOrigin(const url::Origin &source_origi
                 content::CorsOriginPatternSetter::ClonePatterns(allow_patterns),
                 content::CorsOriginPatternSetter::ClonePatterns(block_patterns),
                 barrier_closure);
-    ForEachStoragePartition(this,
-                            base::BindRepeating(&content::CorsOriginPatternSetter::SetLists,
-                                                base::RetainedRef(profile_setter.get())));
+    profile_setter->ApplyToEachStoragePartition(this);
 
     m_sharedCorsOriginAccessList->SetForOrigin(source_origin,
                                                std::move(allow_patterns),
@@ -297,6 +298,23 @@ content::PlatformNotificationService *ProfileQt::platformNotificationService()
     if (!m_platformNotificationService)
         m_platformNotificationService = std::make_unique<PlatformNotificationServiceQt>(this);
     return m_platformNotificationService.get();
+}
+
+bool ProfileQt::ensureDirectoryExists()
+{
+    const base::FilePath &path = GetPath();
+
+    if (base::PathExists(path))
+        return true;
+
+    base::File::Error error;
+    if (base::CreateDirectoryAndGetError(path, &error))
+        return true;
+
+    std::string errorstr = base::File::ErrorToString(error);
+    qWarning("Cannot create directory %s. Error: %s.", path.AsUTF8Unsafe().c_str(),
+             errorstr.c_str());
+    return false;
 }
 
 } // namespace QtWebEngineCore

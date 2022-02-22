@@ -50,15 +50,17 @@ enum GraphicsLayerPaintingPhaseFlags {
 };
 typedef unsigned GraphicsLayerPaintingPhase;
 
-enum class DisplayLockContextLifecycleTarget { kSelf, kChildren };
-
 class PLATFORM_EXPORT GraphicsLayerClient {
  public:
   virtual ~GraphicsLayerClient() = default;
 
+  // Used only when CullRectUpdate is not enabled.
   virtual IntRect ComputeInterestRect(
       const GraphicsLayer*,
       const IntRect& previous_interest_rect) const = 0;
+  // Used when CullRectUpdate is enabled.
+  virtual IntRect PaintableRegion(const GraphicsLayer*) const = 0;
+
   virtual LayoutSize SubpixelAccumulation() const { return LayoutSize(); }
   // Returns whether the client needs to be repainted with respect to the given
   // graphics layer.
@@ -68,13 +70,7 @@ class PLATFORM_EXPORT GraphicsLayerClient {
                              GraphicsLayerPaintingPhase,
                              const IntRect& interest_rect) const = 0;
 
-  // Returns true if the GraphicsLayer is under a frame that should not render
-  // (see LocalFrameView::ShouldThrottleRendering()).
-  virtual bool ShouldThrottleRendering() const { return false; }
-
-  // Content under a LayoutSVGHiddenContainer is an auxiliary resource for
-  // painting and hit testing.
-  virtual bool IsUnderSVGHiddenContainer() const { return false; }
+  virtual bool ShouldSkipPaintingSubtree() const { return false; }
 
   virtual bool IsTrackingRasterInvalidations() const { return false; }
 
@@ -86,15 +82,6 @@ class PLATFORM_EXPORT GraphicsLayerClient {
       const GraphicsLayer*) const {
     return nullptr;
   }
-
-  // Returns true if this client is prevented from painting by its own
-  // display-lock (in case of target = kSelf) or by any of its ancestors (in
-  // case of target = kSelf or kChildren).
-  virtual bool PaintBlockedByDisplayLockIncludingAncestors(
-      DisplayLockContextLifecycleTarget) const {
-    return false;
-  }
-  virtual void NotifyDisplayLockNeedsGraphicsLayerCollection() {}
 
 #if DCHECK_IS_ON()
   // CompositedLayerMapping overrides this to verify that it is not

@@ -5,8 +5,8 @@
 #ifndef QUICHE_QUIC_TEST_TOOLS_MOCK_CLOCK_H_
 #define QUICHE_QUIC_TEST_TOOLS_MOCK_CLOCK_H_
 
-#include "net/third_party/quiche/src/quic/core/quic_clock.h"
-#include "net/third_party/quiche/src/quic/core/quic_time.h"
+#include "quic/core/quic_clock.h"
+#include "quic/core/quic_time.h"
 
 namespace quic {
 
@@ -24,6 +24,8 @@ class MockClock : public QuicClock {
 
   // Advances the current time by |delta|, which may be negative.
   void AdvanceTime(QuicTime::Delta delta);
+  // Resets time back to zero.
+  void Reset();
 
  private:
   QuicTime now_;

@@ -10,6 +10,7 @@
 #include "src/debug/debug-evaluate.h"
 #include "src/debug/debug-frames.h"
 #include "src/debug/debug-scopes.h"
+#include "src/debug/debug-wasm-objects.h"
 #include "src/debug/debug.h"
 #include "src/debug/liveedit.h"
 #include "src/execution/arguments-inl.h"
@@ -27,6 +28,7 @@
 #include "src/objects/js-promise-inl.h"
 #include "src/runtime/runtime-utils.h"
 #include "src/runtime/runtime.h"
+#include "src/snapshot/embedded/embedded-data.h"
 #include "src/snapshot/snapshot.h"
 #include "src/wasm/wasm-objects-inl.h"
 
@@ -76,7 +78,7 @@ RUNTIME_FUNCTION_RETURN_PAIR(Runtime_DebugBreakOnBytecode) {
   // Make sure to only access these objects after the side effect check, as the
   // check can allocate on failure.
   SharedFunctionInfo shared = interpreted_frame->function().shared();
-  BytecodeArray bytecode_array = shared.GetBytecodeArray();
+  BytecodeArray bytecode_array = shared.GetBytecodeArray(isolate);
   int bytecode_offset = interpreted_frame->GetBytecodeOffset();
   Bytecode bytecode = Bytecodes::FromByte(bytecode_array.get(bytecode_offset));
 
@@ -240,7 +242,7 @@ MaybeHandle<JSArray> Runtime::GetInternalProperties(Isolate* isolate,
 
     Handle<FixedArray> result = factory->NewFixedArray(2 * 3);
     Handle<String> generator_status =
-        factory->NewStringFromAsciiChecked("[[GeneratorStatus]]");
+        factory->NewStringFromAsciiChecked("[[GeneratorState]]");
     result->set(0, *generator_status);
     Handle<String> status_str = factory->NewStringFromAsciiChecked(status);
     result->set(1, *status_str);
@@ -260,7 +262,7 @@ MaybeHandle<JSArray> Runtime::GetInternalProperties(Isolate* isolate,
     const char* status = JSPromise::Status(promise->status());
     Handle<FixedArray> result = factory->NewFixedArray(2 * 2);
     Handle<String> promise_status =
-        factory->NewStringFromAsciiChecked("[[PromiseStatus]]");
+        factory->NewStringFromAsciiChecked("[[PromiseState]]");
     result->set(0, *promise_status);
     Handle<String> status_str = factory->NewStringFromAsciiChecked(status);
     result->set(1, *status_str);
@@ -270,7 +272,7 @@ MaybeHandle<JSArray> Runtime::GetInternalProperties(Isolate* isolate,
                                  : promise->result(),
                              isolate);
     Handle<String> promise_value =
-        factory->NewStringFromAsciiChecked("[[PromiseValue]]");
+        factory->NewStringFromAsciiChecked("[[PromiseResult]]");
     result->set(2, *promise_value);
     result->set(3, *value_obj);
     return factory->NewJSArrayWithElements(result);
@@ -303,6 +305,86 @@ MaybeHandle<JSArray> Runtime::GetInternalProperties(Isolate* isolate,
     result->set(0, *primitive_value);
     result->set(1, js_value->value());
     return factory->NewJSArrayWithElements(result);
+  } else if (object->IsJSArrayBuffer()) {
+    Handle<JSArrayBuffer> js_array_buffer = Handle<JSArrayBuffer>::cast(object);
+    if (js_array_buffer->was_detached()) {
+      // Mark a detached JSArrayBuffer and such and don't even try to
+      // create views for it, since the TypedArray constructors will
+      // throw a TypeError when the underlying buffer is detached.
+      Handle<FixedArray> result = factory->NewFixedArray(1 * 2);
+      Handle<String> is_detached_str =
+          factory->NewStringFromAsciiChecked("[[IsDetached]]");
+      result->set(0, *is_detached_str);
+      result->set(1, isolate->heap()->ToBoolean(true));
+      return factory->NewJSArrayWithElements(result, PACKED_ELEMENTS);
+    }
+    const size_t byte_length = js_array_buffer->byte_length();
+    static const ExternalArrayType kTypes[] = {
+        kExternalInt8Array,
+        kExternalUint8Array,
+        kExternalInt16Array,
+        kExternalInt32Array,
+    };
+    Handle<FixedArray> result =
+        factory->NewFixedArray((3 + arraysize(kTypes)) * 2);
+    int index = 0;
+    for (auto type : kTypes) {
+      switch (type) {
+#define TYPED_ARRAY_CASE(Type, type, TYPE, ctype)                            \
+  case kExternal##Type##Array: {                                             \
+    if ((byte_length % sizeof(ctype)) != 0) continue;                        \
+    Handle<String> typed_array_str =                                         \
+        factory->NewStringFromStaticChars("[[" #Type "Array]]");             \
+    Handle<JSTypedArray> js_typed_array =                                    \
+        factory->NewJSTypedArray(kExternal##Type##Array, js_array_buffer, 0, \
+                                 byte_length / sizeof(ctype));               \
+    result->set(index++, *typed_array_str);                                  \
+    result->set(index++, *js_typed_array);                                   \
+    break;                                                                   \
+  }
+        TYPED_ARRAYS(TYPED_ARRAY_CASE)
+#undef TYPED_ARRAY_CASE
+        default:
+          UNREACHABLE();
+      }
+    }
+    Handle<String> byte_length_str =
+        factory->NewStringFromAsciiChecked("[[ArrayBufferByteLength]]");
+    Handle<Object> byte_length_obj = factory->NewNumberFromSize(byte_length);
+    result->set(index++, *byte_length_str);
+    result->set(index++, *byte_length_obj);
+
+    Handle<String> buffer_data_str =
+        factory->NewStringFromAsciiChecked("[[ArrayBufferData]]");
+    // Use the backing store pointer as a unique ID
+    EmbeddedVector<char, 32> buffer_data_vec;
+    int len =
+        SNPrintF(buffer_data_vec, V8PRIxPTR_FMT,
+                 reinterpret_cast<Address>(js_array_buffer->backing_store()));
+    Handle<String> buffer_data_obj =
+        factory->InternalizeUtf8String(buffer_data_vec.SubVector(0, len));
+    result->set(index++, *buffer_data_str);
+    result->set(index++, *buffer_data_obj);
+
+    Handle<Symbol> memory_symbol = factory->array_buffer_wasm_memory_symbol();
+    Handle<Object> memory_object =
+        JSObject::GetDataProperty(js_array_buffer, memory_symbol);
+    if (!memory_object->IsUndefined(isolate)) {
+      Handle<String> buffer_memory_str =
+          factory->NewStringFromAsciiChecked("[[WebAssemblyMemory]]");
+      Handle<WasmMemoryObject> buffer_memory_obj =
+          Handle<WasmMemoryObject>::cast(memory_object);
+      result->set(index++, *buffer_memory_str);
+      result->set(index++, *buffer_memory_obj);
+    }
+
+    return factory->NewJSArrayWithElements(result, PACKED_ELEMENTS, index);
+  } else if (object->IsWasmInstanceObject()) {
+    return GetWasmInstanceObjectInternalProperties(
+        Handle<WasmInstanceObject>::cast(object));
+  } else if (object->IsWasmModuleObject()) {
+    return GetWasmModuleObjectInternalProperties(
+        Handle<WasmModuleObject>::cast(object));
   }
   return factory->NewJSArray(0);
 }
@@ -476,25 +558,14 @@ RUNTIME_FUNCTION(Runtime_CollectGarbage) {
   return ReadOnlyRoots(isolate).undefined_value();
 }
 
-
-// Gets the current heap usage.
-RUNTIME_FUNCTION(Runtime_GetHeapUsage) {
-  SealHandleScope shs(isolate);
-  DCHECK_EQ(0, args.length());
-  int usage = static_cast<int>(isolate->heap()->SizeOfObjects());
-  if (!Smi::IsValid(usage)) {
-    return *isolate->factory()->NewNumberFromInt(usage);
-  }
-  return Smi::FromInt(usage);
-}
-
 namespace {
 
 int ScriptLinePosition(Handle<Script> script, int line) {
   if (line < 0) return -1;
 
   if (script->type() == Script::TYPE_WASM) {
-    return GetWasmFunctionOffset(script->wasm_native_module()->module(), line);
+    // Wasm positions are relative to the start of the module.
+    return 0;
   }
 
   Script::InitLineEnds(script->GetIsolate(), script);
@@ -532,11 +603,12 @@ Handle<Object> GetJSPositionInfo(Handle<Script> script, int position,
     return isolate->factory()->null_value();
   }
 
-  Handle<String> source = handle(String::cast(script->source()), isolate);
-  Handle<String> sourceText = script->type() == Script::TYPE_WASM
-                                  ? isolate->factory()->empty_string()
-                                  : isolate->factory()->NewSubString(
-                                        source, info.line_start, info.line_end);
+  Handle<String> sourceText =
+      script->type() == Script::TYPE_WASM
+          ? isolate->factory()->empty_string()
+          : isolate->factory()->NewSubString(
+                handle(String::cast(script->source()), isolate),
+                info.line_start, info.line_end);
 
   Handle<JSObject> jsinfo =
       isolate->factory()->NewJSObject(isolate->object_function());
@@ -846,10 +918,9 @@ RUNTIME_FUNCTION(Runtime_ProfileCreateSnapshotDataBlob) {
 
   // Track the embedded blob size as well.
   {
-    int embedded_blob_size = 0;
     i::EmbeddedData d = i::EmbeddedData::FromBlob();
-    embedded_blob_size = static_cast<int>(d.size());
-    PrintF("Embedded blob is %d bytes\n", embedded_blob_size);
+    PrintF("Embedded blob is %d bytes\n",
+           static_cast<int>(d.code_size() + d.data_size()));
   }
 
   FreeCurrentEmbeddedBlob();

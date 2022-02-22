@@ -58,9 +58,11 @@
 #include <Qt3DRender/private/nodemanagers_p.h>
 #include <Qt3DRender/private/frustumcullingjob_p.h>
 #include <Qt3DRender/private/filterproximitydistancejob_p.h>
-#include <renderviewcommandbuilderjob_p.h>
-#include <renderviewcommandupdaterjob_p.h>
-#include <materialparametergathererjob_p.h>
+#include <Qt3DRender/private/materialparametergathererjob_p.h>
+#include <Qt3DRender/private/renderviewcommandbuilderjob_p.h>
+#include <Qt3DRender/private/renderviewcommandupdaterjob_p.h>
+#include <Qt3DRender/private/rendersyncjobs_p.h>
+#include <rendercommand_p.h>
 #include <renderview_p.h>
 
 QT_BEGIN_NAMESPACE
@@ -74,31 +76,35 @@ namespace Rhi {
 class Renderer;
 
 using SynchronizerJobPtr = GenericLambdaJobPtr<std::function<void()>>;
+#define CreateSynchronizerJobPtr(lambda, type) \
+    SynchronizerJobPtr::create(lambda, type, #type)
+
+using RenderViewCommandBuilderJobPtr = Render::RenderViewCommandBuilderJobPtr<RenderView, RenderCommand>;
+using RenderViewCommandUpdaterJobPtr = Render::RenderViewCommandUpdaterJobPtr<RenderView, RenderCommand>;
+using RenderViewInitializerJobPtr = Render::RenderViewInitializerJobPtr<RenderView, Renderer>;
 
 class Q_AUTOTEST_EXPORT RenderViewBuilder
 {
 public:
-    explicit RenderViewBuilder(Render::FrameGraphNode *leafNode, int renderViewIndex,
-                               Renderer *renderer);
+    explicit RenderViewBuilder(Render::FrameGraphNode *leafNode, int renderViewIndex, Renderer *renderer);
 
     RenderViewInitializerJobPtr renderViewJob() const;
     FilterLayerEntityJobPtr filterEntityByLayerJob() const;
     FrustumCullingJobPtr frustumCullingJob() const;
-    QVector<RenderViewCommandBuilderJobPtr> renderViewCommandBuilderJobs() const;
-    QVector<RenderViewCommandUpdaterJobPtr> renderViewCommandUpdaterJobs() const;
-    QVector<MaterialParameterGathererJobPtr> materialGathererJobs() const;
+    const std::vector<RenderViewCommandBuilderJobPtr> &renderViewCommandBuilderJobs() const;
+    const std::vector<RenderViewCommandUpdaterJobPtr> &renderViewCommandUpdaterJobs() const;
+    const std::vector<MaterialParameterGathererJobPtr> &materialGathererJobs() const;
     SynchronizerJobPtr syncRenderViewPostInitializationJob() const;
     SynchronizerJobPtr syncPreFrustumCullingJob() const;
     SynchronizerJobPtr syncRenderViewPreCommandBuildingJob() const;
     SynchronizerJobPtr syncRenderViewPreCommandUpdateJob() const;
     SynchronizerJobPtr syncRenderViewPostCommandUpdateJob() const;
-    SynchronizerJobPtr setClearDrawBufferIndexJob() const;
     SynchronizerJobPtr syncFilterEntityByLayerJob() const;
     FilterProximityDistanceJobPtr filterProximityJob() const;
     SynchronizerJobPtr syncMaterialGathererJob() const;
 
     void prepareJobs();
-    QVector<Qt3DCore::QAspectJobPtr> buildJobHierachy() const;
+    std::vector<Qt3DCore::QAspectJobPtr> buildJobHierachy() const;
 
     Renderer *renderer() const;
     int renderViewIndex() const;
@@ -109,37 +115,35 @@ public:
     bool materialGathererCacheNeedsToBeRebuilt() const;
     void setRenderCommandCacheNeedsToBeRebuilt(bool needsToBeRebuilt);
     bool renderCommandCacheNeedsToBeRebuilt() const;
+    void setLightCacheNeedsToBeRebuilt(bool needsToBeRebuilt);
+    bool lightCacheNeedsToBeRebuilt() const;
 
-    static int optimalJobCount();
-    static QVector<Entity *> entitiesInSubset(const QVector<Entity *> &entities,
-                                              const QVector<Entity *> &subset);
+    int optimalJobCount() const;
+    void setOptimalJobCount(int v);
 
 private:
     Render::FrameGraphNode *m_leafNode;
     const int m_renderViewIndex;
     Renderer *m_renderer;
-    bool m_layerCacheNeedsToBeRebuilt;
-    bool m_materialGathererCacheNeedsToBeRebuilt;
-    bool m_renderCommandCacheNeedsToBeRebuilt;
+    RebuildFlagSet m_rebuildFlags;
 
     RenderViewInitializerJobPtr m_renderViewJob;
     FilterLayerEntityJobPtr m_filterEntityByLayerJob;
     FrustumCullingJobPtr m_frustumCullingJob;
-    QVector<RenderViewCommandBuilderJobPtr> m_renderViewCommandBuilderJobs;
-    QVector<RenderViewCommandUpdaterJobPtr> m_renderViewCommandUpdaterJobs;
-    QVector<MaterialParameterGathererJobPtr> m_materialGathererJobs;
+    std::vector<RenderViewCommandBuilderJobPtr> m_renderViewCommandBuilderJobs;
+    std::vector<RenderViewCommandUpdaterJobPtr> m_renderViewCommandUpdaterJobs;
+    std::vector<MaterialParameterGathererJobPtr> m_materialGathererJobs;
 
     SynchronizerJobPtr m_syncRenderViewPostInitializationJob;
     SynchronizerJobPtr m_syncPreFrustumCullingJob;
     SynchronizerJobPtr m_syncRenderViewPreCommandBuildingJob;
     SynchronizerJobPtr m_syncRenderViewPreCommandUpdateJob;
     SynchronizerJobPtr m_syncRenderViewPostCommandUpdateJob;
-    SynchronizerJobPtr m_setClearDrawBufferIndexJob;
     SynchronizerJobPtr m_syncFilterEntityByLayerJob;
     SynchronizerJobPtr m_syncMaterialGathererJob;
     FilterProximityDistanceJobPtr m_filterProximityJob;
 
-    static const int m_optimalParallelJobCount;
+    int m_optimalParallelJobCount;
 };
 
 } // Rhi

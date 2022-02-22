@@ -61,6 +61,7 @@ class QQuickDragAttachedPrivate : public QObjectPrivate, public QQuickItemChange
 {
     Q_DECLARE_PUBLIC(QQuickDragAttached)
     QML_ANONYMOUS
+    QML_ADDED_IN_VERSION(2, 0)
 
 public:
     static QQuickDragAttachedPrivate *get(QQuickDragAttached *attached) {
@@ -239,7 +240,7 @@ void QQuickDragAttachedPrivate::deliverEvent(QQuickWindow *window, QEvent *event
 {
     Q_ASSERT(!inEvent);
     inEvent = true;
-    QQuickWindowPrivate::get(window)->deliverDragEvent(&dragGrabber, event);
+    QQuickWindowPrivate::get(window)->deliveryAgentPrivate()->deliverDragEvent(&dragGrabber, event);
     inEvent = false;
 }
 

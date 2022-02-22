@@ -51,6 +51,7 @@
 // We mean it.
 //
 
+#include <private/qtquickglobal_p.h>
 #include <qqml.h>
 
 #include <QtGui/QFontMetricsF>
@@ -60,7 +61,7 @@ QT_BEGIN_NAMESPACE
 
 class QFont;
 
-class Q_AUTOTEST_EXPORT QQuickTextMetrics : public QObject
+class Q_QUICK_PRIVATE_EXPORT QQuickTextMetrics : public QObject
 {
     Q_OBJECT
 
@@ -75,7 +76,7 @@ class Q_AUTOTEST_EXPORT QQuickTextMetrics : public QObject
     Q_PROPERTY(Qt::TextElideMode elide READ elide WRITE setElide NOTIFY elideChanged FINAL)
     Q_PROPERTY(qreal elideWidth READ elideWidth WRITE setElideWidth NOTIFY elideWidthChanged FINAL)
     QML_NAMED_ELEMENT(TextMetrics)
-    QML_ADDED_IN_MINOR_VERSION(4)
+    QML_ADDED_IN_VERSION(2, 4)
 
 public:
     explicit QQuickTextMetrics(QObject *parent = 0);

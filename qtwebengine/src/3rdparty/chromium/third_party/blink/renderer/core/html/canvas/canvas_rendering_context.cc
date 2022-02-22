@@ -25,6 +25,7 @@
 
 #include "third_party/blink/renderer/core/html/canvas/canvas_rendering_context.h"
 
+#include "services/metrics/public/cpp/ukm_builders.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/core/animation_frame/worker_animation_frame_provider.h"
 #include "third_party/blink/renderer/core/html/canvas/canvas_context_creation_attributes_core.h"
@@ -39,61 +40,8 @@ CanvasRenderingContext::CanvasRenderingContext(
     CanvasRenderingContextHost* host,
     const CanvasContextCreationAttributesCore& attrs)
     : host_(host),
-      color_params_(CanvasColorSpace::kSRGB,
-                    CanvasColorParams::GetNativeCanvasPixelFormat(),
-                    kNonOpaque),
-      creation_attributes_(attrs) {
-  // Supported color spaces and pixel formats: sRGB in uint8, e-sRGB in f16,
-  // linear sRGB and p3 and rec2020 with linear gamma transfer function in f16.
-  // For wide gamut color spaces, user must explicitly request half float
-  // storage. Otherwise, we fall back to sRGB in uint8. Invalid requests fall
-  // back to sRGB in uint8 too.
-  if (creation_attributes_.pixel_format == kF16CanvasPixelFormatName) {
-    color_params_.SetCanvasPixelFormat(CanvasPixelFormat::kF16);
-    if (creation_attributes_.color_space == kLinearRGBCanvasColorSpaceName)
-      color_params_.SetCanvasColorSpace(CanvasColorSpace::kLinearRGB);
-    if (creation_attributes_.color_space == kRec2020CanvasColorSpaceName)
-      color_params_.SetCanvasColorSpace(CanvasColorSpace::kRec2020);
-    else if (creation_attributes_.color_space == kP3CanvasColorSpaceName)
-      color_params_.SetCanvasColorSpace(CanvasColorSpace::kP3);
-  }
-
-  if (!creation_attributes_.alpha)
-    color_params_.SetOpacityMode(kOpaque);
-
-  // Make creation_attributes_ reflect the effective color_space and
-  // pixel_format rather than the requested one.
-  creation_attributes_.color_space = ColorSpaceAsString();
-  creation_attributes_.pixel_format = PixelFormatAsString();
-}
-
-WTF::String CanvasRenderingContext::ColorSpaceAsString() const {
-  switch (color_params_.ColorSpace()) {
-    case CanvasColorSpace::kSRGB:
-      return kSRGBCanvasColorSpaceName;
-    case CanvasColorSpace::kLinearRGB:
-      return kLinearRGBCanvasColorSpaceName;
-    case CanvasColorSpace::kRec2020:
-      return kRec2020CanvasColorSpaceName;
-    case CanvasColorSpace::kP3:
-      return kP3CanvasColorSpaceName;
-  };
-  CHECK(false);
-  return "";
-}
-
-WTF::String CanvasRenderingContext::PixelFormatAsString() const {
-  switch (color_params_.PixelFormat()) {
-    case CanvasPixelFormat::kRGBA8:
-      return kRGBA8CanvasPixelFormatName;
-    case CanvasPixelFormat::kF16:
-      return kF16CanvasPixelFormatName;
-    case CanvasPixelFormat::kBGRA8:
-      return kBGRA8CanvasPixelFormatName;
-  };
-  CHECK(false);
-  return "";
-}
+      color_params_(attrs.color_space, attrs.pixel_format, attrs.alpha),
+      creation_attributes_(attrs) {}
 
 void CanvasRenderingContext::Dispose() {
   StopListeningForDidProcessTask();
@@ -133,6 +81,38 @@ void CanvasRenderingContext::DidProcessTask(
     Host()->PostFinalizeFrame();
 }
 
+void CanvasRenderingContext::RecordUKMCanvasRenderingAPI(
+    CanvasRenderingAPI canvasRenderingAPI) {
+  DCHECK(Host());
+  const auto& ukm_params = Host()->GetUkmParameters();
+  if (Host()->IsOffscreenCanvas()) {
+    ukm::builders::ClientRenderingAPI(ukm_params.source_id)
+        .SetOffscreenCanvas_RenderingContext(
+            static_cast<int>(canvasRenderingAPI))
+        .Record(ukm_params.ukm_recorder);
+  } else {
+    ukm::builders::ClientRenderingAPI(ukm_params.source_id)
+        .SetCanvas_RenderingContext(static_cast<int>(canvasRenderingAPI))
+        .Record(ukm_params.ukm_recorder);
+  }
+}
+
+void CanvasRenderingContext::RecordUKMCanvasDrawnToRenderingAPI(
+    CanvasRenderingAPI canvasRenderingAPI) {
+  DCHECK(Host());
+  const auto& ukm_params = Host()->GetUkmParameters();
+  if (Host()->IsOffscreenCanvas()) {
+    ukm::builders::ClientRenderingAPI(ukm_params.source_id)
+        .SetOffscreenCanvas_RenderingContextDrawnTo(
+            static_cast<int>(canvasRenderingAPI))
+        .Record(ukm_params.ukm_recorder);
+  } else {
+    ukm::builders::ClientRenderingAPI(ukm_params.source_id)
+        .SetCanvas_RenderingContextDrawnTo(static_cast<int>(canvasRenderingAPI))
+        .Record(ukm_params.ukm_recorder);
+  }
+}
+
 CanvasRenderingContext::ContextType CanvasRenderingContext::ContextTypeFromId(
     const String& id) {
   if (id == "2d")
@@ -143,9 +123,6 @@ CanvasRenderingContext::ContextType CanvasRenderingContext::ContextTypeFromId(
     return kContextWebgl;
   if (id == "webgl2")
     return kContextWebgl2;
-  if (id == "webgl2-compute" &&
-      RuntimeEnabledFeatures::WebGL2ComputeContextEnabled())
-    return kContextWebgl2Compute;
   if (id == "bitmaprenderer")
     return kContextImageBitmap;
   if (id == "gpupresent" && RuntimeEnabledFeatures::WebGPUEnabled())
@@ -177,7 +154,7 @@ bool CanvasRenderingContext::WouldTaintOrigin(CanvasImageSource* image_source) {
   return image_source->WouldTaintOrigin();
 }
 
-void CanvasRenderingContext::Trace(Visitor* visitor) {
+void CanvasRenderingContext::Trace(Visitor* visitor) const {
   visitor->Trace(host_);
   ScriptWrappable::Trace(visitor);
 }

@@ -76,8 +76,6 @@
 
 QT_BEGIN_NAMESPACE
 
-using namespace QQmlVMETypes;
-
 bool QQmlVME::s_enableComponentComplete = true;
 
 void QQmlVME::enableComponentComplete()
@@ -109,9 +107,9 @@ void QQmlVMEGuard::guard(QQmlObjectCreator *creator)
 {
     clear();
 
-    QFiniteStack<QPointer<QObject> > &objects = creator->allCreatedObjects();
+    QFiniteStack<QQmlGuard<QObject> > &objects = creator->allCreatedObjects();
     m_objectCount = objects.count();
-    m_objects = new QPointer<QObject>[m_objectCount];
+    m_objects = new QQmlGuard<QObject>[m_objectCount];
     for (int ii = 0; ii < m_objectCount; ++ii)
         m_objects[ii] = objects[ii];
 
@@ -138,7 +136,7 @@ bool QQmlVMEGuard::isOK() const
             return false;
 
     for (int ii = 0; ii < m_contextCount; ++ii)
-        if (m_contexts[ii].isNull() || !m_contexts[ii]->engine)
+        if (m_contexts[ii].isNull() || !m_contexts[ii]->engine())
             return false;
 
     return true;

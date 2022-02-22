@@ -12,6 +12,7 @@
 
 #include "base/bind.h"
 #include "base/guid.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/strings/string16.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/task/post_task.h"
@@ -68,11 +69,6 @@ CreditCardAccessManager::CreditCardAccessManager(
           base::WaitableEvent::InitialState::NOT_SIGNALED),
       can_fetch_unmask_details_(base::WaitableEvent::ResetPolicy::AUTOMATIC,
                                 base::WaitableEvent::InitialState::SIGNALED) {
-#if !defined(OS_IOS)
-  // This is to initialize StrikeDatabase is if it hasn't been already, so that
-  // its cache would be loaded and ready to use when the first CCAM is created.
-  client_->GetStrikeDatabase();
-#endif
 }
 
 CreditCardAccessManager::~CreditCardAccessManager() {}
@@ -113,6 +109,10 @@ bool CreditCardAccessManager::ShouldDisplayGPayLogo() {
   return true;
 }
 
+bool CreditCardAccessManager::UnmaskedCardCacheIsEmpty() {
+  return unmasked_card_cache_.empty();
+}
+
 bool CreditCardAccessManager::ServerCardsAvailable() {
   for (const CreditCard* credit_card : GetCreditCardsToSuggest()) {
     if (!IsLocalCard(credit_card))
@@ -139,7 +139,7 @@ bool CreditCardAccessManager::GetDeletionConfirmationText(
     return false;
 
   if (title)
-    title->assign(card->NetworkAndLastFourDigits());
+    title->assign(card->CardIdentifierStringForAutofillDisplay());
   if (body) {
     body->assign(l10n_util::GetStringUTF16(
         IDS_AUTOFILL_DELETE_CREDIT_CARD_SUGGESTION_CONFIRMATION_BODY));
@@ -259,6 +259,18 @@ void CreditCardAccessManager::FetchCreditCard(
     return;
   }
 
+  // If card has been previously unmasked, use cached data.
+  std::unordered_map<std::string, CachedServerCardInfo>::iterator it =
+      unmasked_card_cache_.find(card->server_id());
+  if (it != unmasked_card_cache_.end()) {  // key is in cache
+    accessor->OnCreditCardFetched(/*did_succeed=*/true,
+                                  /*credit_card=*/&it->second.card,
+                                  /*cvc=*/it->second.cvc);
+    base::UmaHistogramCounts1000("Autofill.UsedCachedServerCard",
+                                 ++it->second.cache_uses);
+    return;
+  }
+
   // Latency metrics should only be logged if the user is verifiable and the
   // flag is turned on. If flag is turned off, then |is_user_verifiable_| is not
   // set.
@@ -351,6 +363,17 @@ void CreditCardAccessManager::OnSettingsPageFIDOAuthToggled(bool opt_in) {
   // TODO(crbug/949269): Add a rate limiter to counter spam clicking.
   FIDOAuthOptChange(opt_in);
 #endif
+}
+
+void CreditCardAccessManager::SignalCanFetchUnmaskDetails() {
+  can_fetch_unmask_details_.Signal();
+}
+
+void CreditCardAccessManager::CacheUnmaskedCardInfo(const CreditCard& card,
+                                                    const base::string16& cvc) {
+  DCHECK_EQ(card.record_type(), CreditCard::FULL_SERVER_CARD);
+  CachedServerCardInfo card_info = {card, cvc, 0};
+  unmasked_card_cache_[card.server_id()] = card_info;
 }
 
 UnmaskAuthFlowType CreditCardAccessManager::GetAuthenticationType(
@@ -569,9 +592,18 @@ void CreditCardAccessManager::OnCVCAuthenticationComplete(
 #endif
 }
 
+#if defined(OS_ANDROID)
 bool CreditCardAccessManager::ShouldOfferFidoAuth() const {
-  return unmask_details_.offer_fido_opt_in;
+  // If the user opted-in through the settings page, do not show checkbox.
+  return unmask_details_.offer_fido_opt_in &&
+         opt_in_intention_ != UserOptInIntention::kIntentToOptIn;
 }
+
+bool CreditCardAccessManager::UserOptedInToFidoFromSettingsPageOnMobile()
+    const {
+  return opt_in_intention_ == UserOptInIntention::kIntentToOptIn;
+}
+#endif
 
 #if !defined(OS_IOS)
 void CreditCardAccessManager::OnFIDOAuthenticationComplete(
@@ -681,10 +713,6 @@ void CreditCardAccessManager::HandleDialogUserResponse(
   }
 }
 #endif
-
-void CreditCardAccessManager::SignalCanFetchUnmaskDetails() {
-  can_fetch_unmask_details_.Signal();
-}
 
 void CreditCardAccessManager::AdditionallyPerformFidoAuth(
     const CreditCardCVCAuthenticator::CVCAuthenticationResponse& response,

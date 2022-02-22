@@ -4,7 +4,12 @@
 
 #include "content/public/renderer/content_renderer_client.h"
 
+#include "base/command_line.h"
+#include "build/build_config.h"
+#include "content/public/common/content_switches.h"
+#include "media/base/demuxer.h"
 #include "media/base/renderer_factory.h"
+#include "third_party/blink/public/common/security/protocol_handler_security_level.h"
 #include "third_party/blink/public/platform/web_audio_device.h"
 #include "third_party/blink/public/platform/web_prescient_networking.h"
 #include "ui/gfx/icc_profile.h"
@@ -47,17 +52,13 @@ blink::WebPlugin* ContentRendererClient::CreatePluginReplacement(
   return nullptr;
 }
 
-bool ContentRendererClient::HasErrorPage(int http_status_code) {
-  return false;
-}
-
-bool ContentRendererClient::ShouldSuppressErrorPage(RenderFrame* render_frame,
-                                                    const GURL& url) {
-  return false;
-}
-
-bool ContentRendererClient::ShouldTrackUseCounter(const GURL& url) {
-  return true;
+void ContentRendererClient::PrepareErrorPageForHttpStatusError(
+    content::RenderFrame* render_frame,
+    const blink::WebURLError& error,
+    const std::string& http_method,
+    int http_status,
+    std::string* error_html) {
+  PrepareErrorPage(render_frame, error, http_method, error_html);
 }
 
 bool ContentRendererClient::DeferMediaLoad(RenderFrame* render_frame,
@@ -65,6 +66,13 @@ bool ContentRendererClient::DeferMediaLoad(RenderFrame* render_frame,
                                            base::OnceClosure closure) {
   std::move(closure).Run();
   return false;
+}
+
+std::unique_ptr<media::Demuxer> ContentRendererClient::OverrideDemuxerForUrl(
+    RenderFrame* render_frame,
+    const GURL& url,
+    scoped_refptr<base::SingleThreadTaskRunner> task_runner) {
+  return nullptr;
 }
 
 blink::WebThemeEngine* ContentRendererClient::OverrideThemeEngine() {
@@ -90,6 +98,11 @@ bool ContentRendererClient::AllowPopup() {
   return false;
 }
 
+blink::ProtocolHandlerSecurityLevel
+ContentRendererClient::GetProtocolHandlerSecurityLevel() {
+  return blink::ProtocolHandlerSecurityLevel::kStrict;
+}
+
 #if defined(OS_ANDROID)
 bool ContentRendererClient::HandleNavigation(
     RenderFrame* render_frame,
@@ -110,12 +123,9 @@ void ContentRendererClient::WillSendRequest(
     const blink::WebURL& url,
     const net::SiteForCookies& site_for_cookies,
     const url::Origin* initiator_origin,
-    GURL* new_url,
-    bool* attach_same_site_cookies) {}
+    GURL* new_url) {}
 
-bool ContentRendererClient::IsPrefetchOnly(
-    RenderFrame* render_frame,
-    const blink::WebURLRequest& request) {
+bool ContentRendererClient::IsPrefetchOnly(RenderFrame* render_frame) {
   return false;
 }
 
@@ -140,7 +150,13 @@ bool ContentRendererClient::IsExternalPepperPlugin(
 
 bool ContentRendererClient::IsOriginIsolatedPepperPlugin(
     const base::FilePath& plugin_path) {
-  return false;
+  // Hosting plugins in-process is inherently incompatible with attempting to
+  // process-isolate plugins from different origins.
+  auto* cmdline = base::CommandLine::ForCurrentProcess();
+  if (cmdline->HasSwitch(switches::kPpapiInProcess))
+    return false;
+
+  return true;
 }
 
 void ContentRendererClient::AddSupportedKeySystems(
@@ -176,27 +192,23 @@ ContentRendererClient::CreateWorkerContentSettingsClient(
   return nullptr;
 }
 
+#if !defined(OS_ANDROID)
 std::unique_ptr<media::SpeechRecognitionClient>
 ContentRendererClient::CreateSpeechRecognitionClient(
-    RenderFrame* render_frame) {
+    RenderFrame* render_frame,
+    media::SpeechRecognitionClient::OnReadyCallback callback) {
   return nullptr;
 }
+#endif
 
 bool ContentRendererClient::IsPluginAllowedToUseCameraDeviceAPI(
     const GURL& url) {
   return false;
 }
 
-bool ContentRendererClient::IsPluginAllowedToUseDevChannelAPIs() {
+bool ContentRendererClient::AllowScriptExtensionForServiceWorker(
+    const url::Origin& script_origin) {
   return false;
-}
-
-BrowserPluginDelegate* ContentRendererClient::CreateBrowserPluginDelegate(
-    RenderFrame* render_frame,
-    const WebPluginInfo& info,
-    const std::string& mime_type,
-    const GURL& original_url) {
-  return nullptr;
 }
 
 bool ContentRendererClient::IsExcludedHeaderForServiceWorkerFetchEvent(
@@ -239,7 +251,7 @@ bool ContentRendererClient::IsSafeRedirectTarget(const GURL& url) {
 
 void ContentRendererClient::DidSetUserAgent(const std::string& user_agent) {}
 
-bool ContentRendererClient::RequiresWebComponentsV0(const GURL& url) {
+bool ContentRendererClient::RequiresHtmlImports(const GURL& url) {
   return false;
 }
 
@@ -248,8 +260,5 @@ ContentRendererClient::GetAudioRendererAlgorithmParameters(
     media::AudioParameters audio_parameters) {
   return base::nullopt;
 }
-
-void ContentRendererClient::BindReceiverOnMainThread(
-    mojo::GenericPendingReceiver receiver) {}
 
 }  // namespace content

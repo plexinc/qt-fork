@@ -8,11 +8,13 @@
 #ifndef SKSL_GLSLCODEGENERATOR
 #define SKSL_GLSLCODEGENERATOR
 
+#include <set>
 #include <stack>
 #include <tuple>
 #include <unordered_map>
 
 #include "src/sksl/SkSLCodeGenerator.h"
+#include "src/sksl/SkSLOperators.h"
 #include "src/sksl/SkSLStringStream.h"
 #include "src/sksl/ir/SkSLBinaryExpression.h"
 #include "src/sksl/ir/SkSLBoolLiteral.h"
@@ -25,6 +27,7 @@
 #include "src/sksl/ir/SkSLFunctionCall.h"
 #include "src/sksl/ir/SkSLFunctionDeclaration.h"
 #include "src/sksl/ir/SkSLFunctionDefinition.h"
+#include "src/sksl/ir/SkSLFunctionPrototype.h"
 #include "src/sksl/ir/SkSLIfStatement.h"
 #include "src/sksl/ir/SkSLIndexExpression.h"
 #include "src/sksl/ir/SkSLIntLiteral.h"
@@ -39,54 +42,25 @@
 #include "src/sksl/ir/SkSLSwizzle.h"
 #include "src/sksl/ir/SkSLTernaryExpression.h"
 #include "src/sksl/ir/SkSLVarDeclarations.h"
-#include "src/sksl/ir/SkSLVarDeclarationsStatement.h"
 #include "src/sksl/ir/SkSLVariableReference.h"
-#include "src/sksl/ir/SkSLWhileStatement.h"
 
 namespace SkSL {
-
-#define kLast_Capability SpvCapabilityMultiViewport
 
 /**
  * Converts a Program into GLSL code.
  */
 class GLSLCodeGenerator : public CodeGenerator {
 public:
-    enum Precedence {
-        kParentheses_Precedence    =  1,
-        kPostfix_Precedence        =  2,
-        kPrefix_Precedence         =  3,
-        kMultiplicative_Precedence =  4,
-        kAdditive_Precedence       =  5,
-        kShift_Precedence          =  6,
-        kRelational_Precedence     =  7,
-        kEquality_Precedence       =  8,
-        kBitwiseAnd_Precedence     =  9,
-        kBitwiseXor_Precedence     = 10,
-        kBitwiseOr_Precedence      = 11,
-        kLogicalAnd_Precedence     = 12,
-        kLogicalXor_Precedence     = 13,
-        kLogicalOr_Precedence      = 14,
-        kTernary_Precedence        = 15,
-        kAssignment_Precedence     = 16,
-        kSequence_Precedence       = 17,
-        kTopLevel_Precedence       = kSequence_Precedence
-    };
-
     GLSLCodeGenerator(const Context* context, const Program* program, ErrorReporter* errors,
                       OutputStream* out)
     : INHERITED(program, errors, out)
     , fLineEnding("\n")
-    , fContext(*context)
-    , fProgramKind(program->fKind) {}
+    , fContext(*context) {}
 
     bool generateCode() override;
 
 protected:
-    enum class SwizzleOrder {
-        MASK_FIRST,
-        CONSTANTS_FIRST
-    };
+    using Precedence = Operator::Precedence;
 
     void write(const char* s);
 
@@ -106,6 +80,8 @@ protected:
 
     virtual String getTypeName(const Type& type);
 
+    void writeStructDefinition(const StructDefinition& s);
+
     void writeType(const Type& type);
 
     void writeExtension(const String& name);
@@ -117,6 +93,8 @@ protected:
     void writeFunctionStart(const FunctionDeclaration& f);
 
     void writeFunctionDeclaration(const FunctionDeclaration& f);
+
+    void writeFunctionPrototype(const FunctionPrototype& f);
 
     virtual void writeFunction(const FunctionDefinition& f);
 
@@ -132,7 +110,7 @@ protected:
 
     void writeTypePrecision(const Type& type);
 
-    void writeVarDeclarations(const VarDeclarations& decl, bool global);
+    void writeVarDeclaration(const VarDeclaration& var, bool global);
 
     void writeFragCoord();
 
@@ -158,18 +136,7 @@ protected:
 
     virtual void writeFieldAccess(const FieldAccess& f);
 
-    void writeConstantSwizzle(const Swizzle& swizzle, const String& constants);
-
-    void writeSwizzleMask(const Swizzle& swizzle, const String& mask);
-
-    void writeSwizzleConstructor(const Swizzle& swizzle, const String& constants,
-                                 const String& mask, SwizzleOrder order);
-
-    void writeSwizzleConstructor(const Swizzle& swizzle, const String& constants,
-                                 const String& mask, const String& reswizzle);
     virtual void writeSwizzle(const Swizzle& swizzle);
-
-    static Precedence GetBinaryPrecedence(Token::Kind op);
 
     virtual void writeBinaryExpression(const BinaryExpression& b, Precedence parentPrecedence);
     void writeShortCircuitWorkaroundExpression(const BinaryExpression& b,
@@ -193,15 +160,11 @@ protected:
 
     void writeStatement(const Statement& s);
 
-    void writeStatements(const std::vector<std::unique_ptr<Statement>>& statements);
-
     void writeBlock(const Block& b);
 
     virtual void writeIfStatement(const IfStatement& stmt);
 
     void writeForStatement(const ForStatement& f);
-
-    void writeWhileStatement(const WhileStatement& w);
 
     void writeDoStatement(const DoStatement& d);
 
@@ -211,20 +174,17 @@ protected:
 
     virtual void writeProgramElement(const ProgramElement& e);
 
+    const ShaderCapsClass& caps() const { return fContext.fCaps; }
+
     const char* fLineEnding;
     const Context& fContext;
     StringStream fExtensions;
     StringStream fGlobals;
     StringStream fExtraFunctions;
     String fFunctionHeader;
-    Program::Kind fProgramKind;
     int fVarCount = 0;
     int fIndentation = 0;
     bool fAtLineStart = false;
-    // Keeps track of which struct types we have written. Given that we are unlikely to ever write
-    // more than one or two structs per shader, a simple linear search will be faster than anything
-    // fancier.
-    std::vector<const Type*> fWrittenStructs;
     std::set<String> fWrittenIntrinsics;
     // true if we have run into usages of dFdx / dFdy
     bool fFoundDerivatives = false;
@@ -258,9 +218,9 @@ protected:
     };
     static std::unordered_map<StringFragment, FunctionClass>* fFunctionClasses;
 
-    typedef CodeGenerator INHERITED;
+    using INHERITED = CodeGenerator;
 };
 
-}
+}  // namespace SkSL
 
 #endif

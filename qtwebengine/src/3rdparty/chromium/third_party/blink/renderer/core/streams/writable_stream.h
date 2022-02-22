@@ -5,6 +5,8 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_STREAMS_WRITABLE_STREAM_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_STREAMS_WRITABLE_STREAM_H_
 
+#include <memory>
+
 #include "base/optional.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
@@ -28,6 +30,7 @@ class StreamStartAlgorithm;
 class UnderlyingSinkBase;
 class WritableStreamDefaultController;
 class WritableStreamDefaultWriter;
+class WritableStreamTransferringOptimizer;
 
 class CORE_EXPORT WritableStream : public ScriptWrappable {
   DEFINE_WRAPPERTYPEINFO();
@@ -66,6 +69,11 @@ class CORE_EXPORT WritableStream : public ScriptWrappable {
       ScriptState*,
       UnderlyingSinkBase*,
       size_t high_water_mark);
+  static WritableStream* CreateWithCountQueueingStrategy(
+      ScriptState*,
+      UnderlyingSinkBase*,
+      size_t high_water_mark,
+      std::unique_ptr<WritableStreamTransferringOptimizer> optimizer);
 
   // Called by Create().
   WritableStream();
@@ -92,21 +100,15 @@ class CORE_EXPORT WritableStream : public ScriptWrappable {
 
   // Inherited methods used internally.
 
-  // https://streams.spec.whatwg.org/#is-writable-stream-locked
-  // TODO(ricea): Delete this variant once the V8 extras implementation is
-  // removed.
-  base::Optional<bool> IsLocked(ScriptState*, ExceptionState&) const {
-    return IsLocked(this);
-  }
-
-  // This version can't fail.
   static bool IsLocked(const WritableStream* stream) { return stream->writer_; }
 
   void Serialize(ScriptState*, MessagePort*, ExceptionState&);
 
-  static WritableStream* Deserialize(ScriptState*,
-                                     MessagePort*,
-                                     ExceptionState&);
+  static WritableStream* Deserialize(
+      ScriptState*,
+      MessagePort*,
+      std::unique_ptr<WritableStreamTransferringOptimizer> optimizer,
+      ExceptionState&);
 
   //
   // Methods used by ReadableStream::PipeTo
@@ -209,6 +211,9 @@ class CORE_EXPORT WritableStream : public ScriptWrappable {
   void SetController(WritableStreamDefaultController*);
   void SetWriter(WritableStreamDefaultWriter*);
 
+  std::unique_ptr<WritableStreamTransferringOptimizer>
+  TakeTransferringOptimizer();
+
   // Utility methods shared with other classes.
   static v8::Local<v8::String> CreateCannotActionOnStateStreamMessage(
       v8::Isolate*,
@@ -220,7 +225,7 @@ class CORE_EXPORT WritableStream : public ScriptWrappable {
       const char* action,
       State);
 
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
  protected:
   // Used when creating a stream from JavaScript. Called from Create().
@@ -267,6 +272,7 @@ class CORE_EXPORT WritableStream : public ScriptWrappable {
   Member<WritableStreamDefaultController> writable_stream_controller_;
   Member<WritableStreamDefaultWriter> writer_;
   PromiseQueue write_requests_;
+  std::unique_ptr<WritableStreamTransferringOptimizer> transferring_optimizer_;
 };
 
 }  // namespace blink

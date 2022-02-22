@@ -11,26 +11,34 @@
 #include "third_party/blink/public/mojom/locks/lock_manager.mojom-blink-forward.h"
 #include "third_party/blink/renderer/bindings/core/v8/string_or_string_sequence.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_lock_options.h"
+#include "third_party/blink/renderer/core/execution_context/navigator_base.h"
 #include "third_party/blink/renderer/modules/locks/lock.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/heap_allocator.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_remote.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_wrapper_mode.h"
+#include "third_party/blink/renderer/platform/supplementable.h"
 
 namespace blink {
 
+class NavigatorBase;
 class ScriptPromise;
 class ScriptState;
 class V8LockGrantedCallback;
 
 class LockManager final : public ScriptWrappable,
+                          public Supplement<NavigatorBase>,
                           public ExecutionContextLifecycleObserver {
   DEFINE_WRAPPERTYPEINFO();
-  USING_GARBAGE_COLLECTED_MIXIN(LockManager);
 
  public:
-  explicit LockManager(ExecutionContext*);
+  static const char kSupplementName[];
+
+  // Web-exposed as navigator.locks
+  static LockManager* locks(NavigatorBase&);
+
+  explicit LockManager(NavigatorBase&);
 
   ScriptPromise request(ScriptState*,
                         const String& name,
@@ -44,7 +52,7 @@ class LockManager final : public ScriptWrappable,
 
   ScriptPromise query(ScriptState*, ExceptionState&);
 
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
   // Terminate all outstanding requests when the context is destroyed, since
   // this can unblock requests by other contexts.

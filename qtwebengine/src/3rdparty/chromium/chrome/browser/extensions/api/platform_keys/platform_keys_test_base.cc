@@ -7,8 +7,9 @@
 #include "base/bind.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
-#include "base/task/post_task.h"
+#include "chrome/browser/chromeos/platform_keys/platform_keys_service_factory.h"
 #include "chrome/browser/chromeos/policy/affiliation_test_helper.h"
+#include "chrome/browser/extensions/mixin_based_extension_apitest.h"
 #include "chrome/browser/policy/profile_policy_connector.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_paths.h"
@@ -71,11 +72,14 @@ void PlatformKeysTestBase::SetUp() {
       GaiaUrls::GetInstance()->gaia_url().host(),
       embedded_test_server()->base_url()));
 
-  extensions::ExtensionApiTest::SetUp();
+  chromeos::platform_keys::PlatformKeysServiceFactory::GetInstance()
+      ->SetTestingMode(true);
+
+  extensions::MixinBasedExtensionApiTest::SetUp();
 }
 
 void PlatformKeysTestBase::SetUpCommandLine(base::CommandLine* command_line) {
-  extensions::ExtensionApiTest::SetUpCommandLine(command_line);
+  extensions::MixinBasedExtensionApiTest::SetUpCommandLine(command_line);
 
   policy::AffiliationTestHelper::AppendCommandLineSwitchesForLoginManager(
       command_line);
@@ -90,7 +94,7 @@ void PlatformKeysTestBase::SetUpCommandLine(base::CommandLine* command_line) {
 }
 
 void PlatformKeysTestBase::SetUpInProcessBrowserTestFixture() {
-  extensions::ExtensionApiTest::SetUpInProcessBrowserTestFixture();
+  extensions::MixinBasedExtensionApiTest::SetUpInProcessBrowserTestFixture();
 
   chromeos::SessionManagerClient::InitializeFakeInMemory();
 
@@ -117,8 +121,10 @@ void PlatformKeysTestBase::SetUpInProcessBrowserTestFixture() {
         &user_policy, account_id_, user_affiliation_ids));
   }
 
-  EXPECT_CALL(mock_policy_provider_, IsInitializationComplete(testing::_))
-      .WillRepeatedly(testing::Return(true));
+  ON_CALL(mock_policy_provider_, IsInitializationComplete(testing::_))
+      .WillByDefault(testing::Return(true));
+  ON_CALL(mock_policy_provider_, IsFirstPolicyLoadComplete(testing::_))
+      .WillByDefault(testing::Return(true));
   mock_policy_provider_.SetAutoRefresh();
   policy::BrowserPolicyConnector::SetPolicyProviderForTesting(
       &mock_policy_provider_);
@@ -132,7 +138,7 @@ void PlatformKeysTestBase::SetUpOnMainThread() {
 
   FakeGaia::AccessTokenInfo token_info;
   token_info.scopes.insert(GaiaConstants::kDeviceManagementServiceOAuth);
-  token_info.scopes.insert(GaiaConstants::kOAuthWrapBridgeUserInfoScope);
+  token_info.scopes.insert(GaiaConstants::kGoogleUserInfoEmail);
   token_info.audience = GaiaUrls::GetInstance()->oauth2_chrome_client_id();
   token_info.token = kTestUserinfoToken;
   token_info.email = account_id_.GetUserEmail();
@@ -155,23 +161,26 @@ void PlatformKeysTestBase::SetUpOnMainThread() {
 
   if (system_token_status() == SystemTokenStatus::EXISTS) {
     base::RunLoop loop;
-    base::PostTask(
-        FROM_HERE, {content::BrowserThread::IO},
+    content::GetIOThreadTaskRunner({})->PostTask(
+        FROM_HERE,
         base::BindOnce(&PlatformKeysTestBase::SetUpTestSystemSlotOnIO,
                        base::Unretained(this), loop.QuitClosure()));
     loop.Run();
   }
 
-  extensions::ExtensionApiTest::SetUpOnMainThread();
+  extensions::MixinBasedExtensionApiTest::SetUpOnMainThread();
 }
 
 void PlatformKeysTestBase::TearDownOnMainThread() {
-  extensions::ExtensionApiTest::TearDownOnMainThread();
+  extensions::MixinBasedExtensionApiTest::TearDownOnMainThread();
+
+  chromeos::platform_keys::PlatformKeysServiceFactory::GetInstance()
+      ->SetTestingMode(false);
 
   if (system_token_status() == SystemTokenStatus::EXISTS) {
     base::RunLoop loop;
-    base::PostTask(
-        FROM_HERE, {content::BrowserThread::IO},
+    content::GetIOThreadTaskRunner({})->PostTask(
+        FROM_HERE,
         base::BindOnce(&PlatformKeysTestBase::TearDownTestSystemSlotOnIO,
                        base::Unretained(this), loop.QuitClosure()));
     loop.Run();
@@ -211,14 +220,14 @@ void PlatformKeysTestBase::SetUpTestSystemSlotOnIO(
 
   PrepareTestSystemSlotOnIO(test_system_slot_.get());
 
-  base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                 std::move(done_callback));
+  content::GetUIThreadTaskRunner({})->PostTask(FROM_HERE,
+                                               std::move(done_callback));
 }
 
 void PlatformKeysTestBase::TearDownTestSystemSlotOnIO(
     base::OnceClosure done_callback) {
   test_system_slot_.reset();
 
-  base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                 std::move(done_callback));
+  content::GetUIThreadTaskRunner({})->PostTask(FROM_HERE,
+                                               std::move(done_callback));
 }

@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/qbone/qbone_control_stream.h"
+#include "quic/qbone/qbone_control_stream.h"
 
-#include "net/third_party/quiche/src/quic/core/quic_session.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_bug_tracker.h"
-#include "net/third_party/quiche/src/quic/qbone/qbone_constants.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/quic_session.h"
+#include "quic/platform/api/quic_bug_tracker.h"
+#include "quic/qbone/qbone_constants.h"
 
 namespace quic {
 
@@ -59,8 +59,8 @@ bool QboneControlStreamBase::SendMessage(const proto2::Message& proto) {
   uint16_t size = tmp.size();
   char size_str[kRequestSizeBytes];
   memcpy(size_str, &size, kRequestSizeBytes);
-  WriteOrBufferData(quiche::QuicheStringPiece(size_str, kRequestSizeBytes),
-                    false, nullptr);
+  WriteOrBufferData(absl::string_view(size_str, kRequestSizeBytes), false,
+                    nullptr);
   WriteOrBufferData(tmp, false, nullptr);
   return true;
 }

@@ -51,6 +51,7 @@
 #include "../trafficlight-common/trafficlight.h"
 
 #include <QApplication>
+#include <QIODevice>
 #include <QTextStream>
 
 int main(int argc, char **argv)

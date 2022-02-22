@@ -27,7 +27,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
+import QtQuick
+import QtQuick.VirtualKeyboard
 
 /*!
     \qmltype SymbolModeKey
@@ -41,9 +42,11 @@ import QtQuick 2.0
 */
 
 Key {
+    keyType: QtVirtualKeyboard.SymbolModeKey
     key: Qt.Key_Context1
     displayText: "&123"
     functionKey: true
+    highlighted: true
     onClicked: keyboard.symbolMode = !keyboard.symbolMode
     keyPanelDelegate: keyboard.style ? keyboard.style.symbolKeyPanel : undefined
 }

@@ -42,7 +42,6 @@
 
 #include <QtWidgets/qtoolbutton.h>
 #include <QtWidgets/qcombobox.h>
-#include <QtWidgets/qaction.h>
 #include <QtWidgets/qdialogbuttonbox.h>
 #include <QtWidgets/qpushbutton.h>
 #include <QtWidgets/qdialog.h>
@@ -53,10 +52,12 @@
 #include <QtWidgets/qdialogbuttonbox.h>
 #include <QtWidgets/qlineedit.h>
 #include <QtWidgets/qlabel.h>
-#include <QtGui/qvalidator.h>
-#include <QtCore/qdebug.h>
-#include <QtCore/qvector.h>
 
+#include <QtGui/qaction.h>
+#include <QtGui/qvalidator.h>
+
+#include <QtCore/qdebug.h>
+#include <QtCore/qlist.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -190,7 +191,7 @@ public:
     void slotResetAllActivated();
     void slotUpdate();
 
-    QVector<QPair<QPair<QIcon::Mode, QIcon::State>, QString> > m_stateToName; // could be static map
+    QList<QPair<QPair<QIcon::Mode, QIcon::State>, QString> > m_stateToName; // could be static map
 
     QMap<QPair<QIcon::Mode, QIcon::State>, int>  m_stateToIndex;
     QMap<int, QPair<QIcon::Mode, QIcon::State> > m_indexToState;

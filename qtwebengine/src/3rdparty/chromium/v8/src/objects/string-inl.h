@@ -5,8 +5,10 @@
 #ifndef V8_OBJECTS_STRING_INL_H_
 #define V8_OBJECTS_STRING_INL_H_
 
-#include "src/objects/string.h"
-
+#include "src/common/assert-scope.h"
+#include "src/common/external-pointer-inl.h"
+#include "src/common/external-pointer.h"
+#include "src/common/globals.h"
 #include "src/handles/handles-inl.h"
 #include "src/heap/factory.h"
 #include "src/numbers/conversions-inl.h"
@@ -14,7 +16,9 @@
 #include "src/objects/name-inl.h"
 #include "src/objects/smi-inl.h"
 #include "src/objects/string-table-inl.h"
+#include "src/objects/string.h"
 #include "src/strings/string-hasher-inl.h"
+#include "src/utils/utils.h"
 
 // Has to be the last include (doesn't have include guards):
 #include "src/objects/object-macros.h"
@@ -22,14 +26,78 @@
 namespace v8 {
 namespace internal {
 
+#include "torque-generated/src/objects/string-tq-inl.inc"
+
+class V8_NODISCARD SharedStringAccessGuardIfNeeded {
+ public:
+  // Creates no SharedMutexGuard<kShared> for the string access since it was
+  // called from the main thread.
+  explicit SharedStringAccessGuardIfNeeded(Isolate* isolate) {}
+
+  // Creates a SharedMutexGuard<kShared> for the string access if it was called
+  // from a background thread.
+  explicit SharedStringAccessGuardIfNeeded(LocalIsolate* local_isolate) {
+    if (IsNeeded(local_isolate)) {
+      mutex_guard.emplace(local_isolate->string_access());
+    }
+  }
+
+  // Slow version which gets the isolate from the String.
+  explicit SharedStringAccessGuardIfNeeded(String str) {
+    Isolate* isolate = GetIsolateIfNeeded(str);
+    if (isolate != nullptr) mutex_guard.emplace(isolate->string_access());
+  }
+
+  static SharedStringAccessGuardIfNeeded NotNeeded() {
+    return SharedStringAccessGuardIfNeeded();
+  }
+
+#ifdef DEBUG
+  static bool IsNeeded(String str) {
+    return GetIsolateIfNeeded(str) != nullptr;
+  }
+#endif
+
+  static bool IsNeeded(LocalIsolate* local_isolate) {
+    // TODO(leszeks): Remove the nullptr check for local_isolate.
+    return local_isolate && !local_isolate->heap()->is_main_thread();
+  }
+
+ private:
+  // Default constructor and move constructor required for the NotNeeded()
+  // static constructor.
+  constexpr SharedStringAccessGuardIfNeeded() = default;
+  constexpr SharedStringAccessGuardIfNeeded(SharedStringAccessGuardIfNeeded&&)
+      V8_NOEXCEPT {
+    DCHECK(!mutex_guard.has_value());
+  }
+
+  // Returns the Isolate from the String if we need it for the lock.
+  static Isolate* GetIsolateIfNeeded(String str) {
+    LocalHeap* local_heap = LocalHeap::Current();
+    // Don't acquire the lock for the main thread.
+    if (!local_heap || local_heap->is_main_thread()) return nullptr;
+
+    Isolate* isolate;
+    if (!GetIsolateFromHeapObject(str, &isolate)) {
+      // If we can't get the isolate from the String, it must be read-only.
+      DCHECK(ReadOnlyHeap::Contains(str));
+      return nullptr;
+    }
+    return isolate;
+  }
+
+  base::Optional<base::SharedMutexGuard<base::kShared>> mutex_guard;
+};
+
 int String::synchronized_length() const {
   return base::AsAtomic32::Acquire_Load(
-      reinterpret_cast<const int32_t*>(FIELD_ADDR(*this, kLengthOffset)));
+      reinterpret_cast<const int32_t*>(field_address(kLengthOffset)));
 }
 
 void String::synchronized_set_length(int value) {
   base::AsAtomic32::Release_Store(
-      reinterpret_cast<int32_t*>(FIELD_ADDR(*this, kLengthOffset)), value);
+      reinterpret_cast<int32_t*>(field_address(kLengthOffset)), value);
 }
 
 TQ_OBJECT_CONSTRUCTORS_IMPL(String)
@@ -48,7 +116,8 @@ CAST_ACCESSOR(ExternalOneByteString)
 CAST_ACCESSOR(ExternalString)
 CAST_ACCESSOR(ExternalTwoByteString)
 
-StringShape::StringShape(const String str) : type_(str.map().instance_type()) {
+StringShape::StringShape(const String str)
+    : type_(str.synchronized_map().instance_type()) {
   set_valid();
   DCHECK_EQ(type_ & kIsNotStringMask, kStringTag);
 }
@@ -92,6 +161,10 @@ bool StringShape::IsExternal() {
 
 bool StringShape::IsSequential() {
   return (type_ & kStringRepresentationMask) == kSeqStringTag;
+}
+
+bool StringShape::IsUncachedExternal() {
+  return (type_ & kUncachedExternalStringMask) == kUncachedExternalStringTag;
 }
 
 StringRepresentationTag StringShape::representation_tag() {
@@ -235,7 +308,7 @@ uc32 FlatStringReader::Get(int index) {
 template <typename Char>
 Char FlatStringReader::Get(int index) {
   DCHECK_EQ(is_one_byte_, sizeof(Char) == 1);
-  DCHECK(0 <= index && index <= length_);
+  DCHECK(0 <= index && index < length_);
   if (sizeof(Char) == 1) {
     return static_cast<Char>(static_cast<const uint8_t*>(start_)[index]);
   } else {
@@ -252,29 +325,33 @@ class SequentialStringKey final : public StringTableKey {
                                 chars.begin(), chars.length(), seed),
                             chars, convert) {}
 
-  SequentialStringKey(int hash, const Vector<const Char>& chars,
+  SequentialStringKey(int raw_hash_field, const Vector<const Char>& chars,
                       bool convert = false)
-      : StringTableKey(hash, chars.length()),
+      : StringTableKey(raw_hash_field, chars.length()),
         chars_(chars),
         convert_(convert) {}
 
-  bool IsMatch(String s) override {
-    DisallowHeapAllocation no_gc;
-    if (s.IsOneByteRepresentation()) {
-      const uint8_t* chars = s.GetChars<uint8_t>(no_gc);
-      return CompareChars(chars, chars_.begin(), chars_.length()) == 0;
-    }
-    const uint16_t* chars = s.GetChars<uint16_t>(no_gc);
-    return CompareChars(chars, chars_.begin(), chars_.length()) == 0;
+  template <typename LocalIsolate>
+  bool IsMatch(LocalIsolate* isolate, String s) {
+    return s.IsEqualTo<String::EqualityType::kNoLengthCheck>(chars_, isolate);
   }
 
-  Handle<String> AsHandle(Isolate* isolate) override {
+  Handle<String> AsHandle(Isolate* isolate) {
     if (sizeof(Char) == 1) {
       return isolate->factory()->NewOneByteInternalizedString(
-          Vector<const uint8_t>::cast(chars_), hash_field());
+          Vector<const uint8_t>::cast(chars_), raw_hash_field());
     }
     return isolate->factory()->NewTwoByteInternalizedString(
-        Vector<const uint16_t>::cast(chars_), hash_field());
+        Vector<const uint16_t>::cast(chars_), raw_hash_field());
+  }
+
+  Handle<String> AsHandle(LocalIsolate* isolate) {
+    if (sizeof(Char) == 1) {
+      return isolate->factory()->NewOneByteInternalizedString(
+          Vector<const uint8_t>::cast(chars_), raw_hash_field());
+    }
+    return isolate->factory()->NewTwoByteInternalizedString(
+        Vector<const uint16_t>::cast(chars_), raw_hash_field());
   }
 
  private:
@@ -304,10 +381,10 @@ class SeqSubStringKey final : public StringTableKey {
         from_(from),
         convert_(convert) {
     // We have to set the hash later.
-    DisallowHeapAllocation no_gc;
-    uint32_t hash = StringHasher::HashSequentialString(
+    DisallowGarbageCollection no_gc;
+    uint32_t raw_hash_field = StringHasher::HashSequentialString(
         string->GetChars(no_gc) + from, len, HashSeed(isolate));
-    set_hash_field(hash);
+    set_raw_hash_field(raw_hash_field);
 
     DCHECK_LE(0, length());
     DCHECK_LE(from_ + length(), string_->length());
@@ -318,31 +395,28 @@ class SeqSubStringKey final : public StringTableKey {
 #pragma warning(pop)
 #endif
 
-  bool IsMatch(String string) override {
-    DisallowHeapAllocation no_gc;
-    if (string.IsOneByteRepresentation()) {
-      const uint8_t* data = string.GetChars<uint8_t>(no_gc);
-      return CompareChars(string_->GetChars(no_gc) + from_, data, length()) ==
-             0;
-    }
-    const uint16_t* data = string.GetChars<uint16_t>(no_gc);
-    return CompareChars(string_->GetChars(no_gc) + from_, data, length()) == 0;
+  bool IsMatch(Isolate* isolate, String string) {
+    DCHECK(!SharedStringAccessGuardIfNeeded::IsNeeded(string));
+    DCHECK(!SharedStringAccessGuardIfNeeded::IsNeeded(*string_));
+    DisallowGarbageCollection no_gc;
+    return string.IsEqualTo<String::EqualityType::kNoLengthCheck>(
+        Vector<const Char>(string_->GetChars(no_gc) + from_, length()));
   }
 
-  Handle<String> AsHandle(Isolate* isolate) override {
+  Handle<String> AsHandle(Isolate* isolate) {
     if (sizeof(Char) == 1 || (sizeof(Char) == 2 && convert_)) {
       Handle<SeqOneByteString> result =
           isolate->factory()->AllocateRawOneByteInternalizedString(
-              length(), hash_field());
-      DisallowHeapAllocation no_gc;
+              length(), raw_hash_field());
+      DisallowGarbageCollection no_gc;
       CopyChars(result->GetChars(no_gc), string_->GetChars(no_gc) + from_,
                 length());
       return result;
     }
     Handle<SeqTwoByteString> result =
-        isolate->factory()->AllocateRawTwoByteInternalizedString(length(),
-                                                                 hash_field());
-    DisallowHeapAllocation no_gc;
+        isolate->factory()->AllocateRawTwoByteInternalizedString(
+            length(), raw_hash_field());
+    DisallowGarbageCollection no_gc;
     CopyChars(result->GetChars(no_gc), string_->GetChars(no_gc) + from_,
               length());
     return result;
@@ -373,11 +447,112 @@ bool String::Equals(Isolate* isolate, Handle<String> one, Handle<String> two) {
   return SlowEquals(isolate, one, two);
 }
 
+template <String::EqualityType kEqType, typename Char>
+bool String::IsEqualTo(Vector<const Char> str, Isolate* isolate) const {
+  DCHECK(!SharedStringAccessGuardIfNeeded::IsNeeded(*this));
+  return IsEqualToImpl<kEqType>(str,
+                                SharedStringAccessGuardIfNeeded::NotNeeded());
+}
+
+template <String::EqualityType kEqType, typename Char>
+bool String::IsEqualTo(Vector<const Char> str, LocalIsolate* isolate) const {
+  SharedStringAccessGuardIfNeeded access_guard(isolate);
+  return IsEqualToImpl<kEqType>(str, access_guard);
+}
+
+template <String::EqualityType kEqType, typename Char>
+bool String::IsEqualToImpl(
+    Vector<const Char> str,
+    const SharedStringAccessGuardIfNeeded& access_guard) const {
+  size_t len = str.size();
+  switch (kEqType) {
+    case EqualityType::kWholeString:
+      if (static_cast<size_t>(length()) != len) return false;
+      break;
+    case EqualityType::kPrefix:
+      if (static_cast<size_t>(length()) < len) return false;
+      break;
+    case EqualityType::kNoLengthCheck:
+      DCHECK_EQ(length(), len);
+      break;
+  }
+
+  DisallowGarbageCollection no_gc;
+
+  class IsEqualToDispatcher : public AllStatic {
+   public:
+    static inline bool HandleSeqOneByteString(
+        SeqOneByteString str, const Char* data, size_t len,
+        const DisallowGarbageCollection& no_gc,
+        const SharedStringAccessGuardIfNeeded& access_guard) {
+      return CompareCharsEqual(str.GetChars(no_gc, access_guard), data, len);
+    }
+    static inline bool HandleSeqTwoByteString(
+        SeqTwoByteString str, const Char* data, size_t len,
+        const DisallowGarbageCollection& no_gc,
+        const SharedStringAccessGuardIfNeeded& access_guard) {
+      return CompareCharsEqual(str.GetChars(no_gc, access_guard), data, len);
+    }
+    static inline bool HandleExternalOneByteString(
+        ExternalOneByteString str, const Char* data, size_t len,
+        const DisallowGarbageCollection& no_gc,
+        const SharedStringAccessGuardIfNeeded& access_guard) {
+      return CompareCharsEqual(str.GetChars(), data, len);
+    }
+    static inline bool HandleExternalTwoByteString(
+        ExternalTwoByteString str, const Char* data, size_t len,
+        const DisallowGarbageCollection& no_gc,
+        const SharedStringAccessGuardIfNeeded& access_guard) {
+      return CompareCharsEqual(str.GetChars(), data, len);
+    }
+    static inline bool HandleConsString(
+        ConsString str, const Char* data, size_t len,
+        const DisallowGarbageCollection& no_gc,
+        const SharedStringAccessGuardIfNeeded& access_guard) {
+      UNREACHABLE();
+    }
+    static inline bool HandleSlicedString(
+        SlicedString str, const Char* data, size_t len,
+        const DisallowGarbageCollection& no_gc,
+        const SharedStringAccessGuardIfNeeded& access_guard) {
+      UNREACHABLE();
+    }
+    static inline bool HandleThinString(
+        ThinString str, const Char* data, size_t len,
+        const DisallowGarbageCollection& no_gc,
+        const SharedStringAccessGuardIfNeeded& access_guard) {
+      UNREACHABLE();
+    }
+    static inline bool HandleInvalidString(
+        String str, const Char* data, size_t len,
+        const DisallowGarbageCollection& no_gc,
+        const SharedStringAccessGuardIfNeeded& access_guard) {
+      UNREACHABLE();
+    }
+  };
+
+  return StringShape(*this).DispatchToSpecificType<IsEqualToDispatcher, bool>(
+      *this, str.data(), len, no_gc, access_guard);
+}
+
+bool String::IsOneByteEqualTo(Vector<const char> str) { return IsEqualTo(str); }
+
 template <typename Char>
-const Char* String::GetChars(const DisallowHeapAllocation& no_gc) {
+const Char* String::GetChars(const DisallowGarbageCollection& no_gc) {
+  DCHECK(!SharedStringAccessGuardIfNeeded::IsNeeded(*this));
   return StringShape(*this).IsExternal()
              ? CharTraits<Char>::ExternalString::cast(*this).GetChars()
              : CharTraits<Char>::String::cast(*this).GetChars(no_gc);
+}
+
+template <typename Char>
+const Char* String::GetChars(
+    const DisallowGarbageCollection& no_gc,
+    const SharedStringAccessGuardIfNeeded& access_guard) {
+  return StringShape(*this).IsExternal()
+             ? CharTraits<Char>::ExternalString::cast(*this).GetChars()
+             : CharTraits<Char>::String::cast(*this).GetChars(no_gc,
+                                                              access_guard);
 }
 
 Handle<String> String::Flatten(Isolate* isolate, Handle<String> string,
@@ -397,14 +572,24 @@ Handle<String> String::Flatten(Isolate* isolate, Handle<String> string,
   return string;
 }
 
-Handle<String> String::Flatten(OffThreadIsolate* isolate, Handle<String> string,
+Handle<String> String::Flatten(LocalIsolate* isolate, Handle<String> string,
                                AllocationType allocation) {
   // We should never pass non-flat strings to String::Flatten when off-thread.
   DCHECK(string->IsFlat());
   return string;
 }
 
-uint16_t String::Get(int index) {
+uint16_t String::Get(int index, Isolate* isolate) {
+  DCHECK(!SharedStringAccessGuardIfNeeded::IsNeeded(*this));
+  return GetImpl(index);
+}
+
+uint16_t String::Get(int index, LocalIsolate* local_isolate) {
+  SharedStringAccessGuardIfNeeded scope(local_isolate);
+  return GetImpl(index);
+}
+
+uint16_t String::GetImpl(int index) {
   DCHECK(index >= 0 && index < length());
 
   class StringGetDispatcher : public AllStatic {
@@ -454,7 +639,16 @@ String String::GetUnderlying() {
 template <class Visitor>
 ConsString String::VisitFlat(Visitor* visitor, String string,
                              const int offset) {
-  DisallowHeapAllocation no_gc;
+  DCHECK(!SharedStringAccessGuardIfNeeded::IsNeeded(string));
+  return VisitFlat(visitor, string, offset,
+                   SharedStringAccessGuardIfNeeded::NotNeeded());
+}
+
+template <class Visitor>
+ConsString String::VisitFlat(
+    Visitor* visitor, String string, const int offset,
+    const SharedStringAccessGuardIfNeeded& access_guard) {
+  DisallowGarbageCollection no_gc;
   int slice_offset = offset;
   const int length = string.length();
   DCHECK(offset <= length);
@@ -463,13 +657,15 @@ ConsString String::VisitFlat(Visitor* visitor, String string,
     switch (type & (kStringRepresentationMask | kStringEncodingMask)) {
       case kSeqStringTag | kOneByteStringTag:
         visitor->VisitOneByteString(
-            SeqOneByteString::cast(string).GetChars(no_gc) + slice_offset,
+            SeqOneByteString::cast(string).GetChars(no_gc, access_guard) +
+                slice_offset,
             length - offset);
         return ConsString();
 
       case kSeqStringTag | kTwoByteStringTag:
         visitor->VisitTwoByteString(
-            SeqTwoByteString::cast(string).GetChars(no_gc) + slice_offset,
+            SeqTwoByteString::cast(string).GetChars(no_gc, access_guard) +
+                slice_offset,
             length - offset);
         return ConsString();
 
@@ -510,7 +706,7 @@ ConsString String::VisitFlat(Visitor* visitor, String string,
 
 template <>
 inline Vector<const uint8_t> String::GetCharVector(
-    const DisallowHeapAllocation& no_gc) {
+    const DisallowGarbageCollection& no_gc) {
   String::FlatContent flat = GetFlatContent(no_gc);
   DCHECK(flat.IsOneByte());
   return flat.ToOneByteVector();
@@ -518,7 +714,7 @@ inline Vector<const uint8_t> String::GetCharVector(
 
 template <>
 inline Vector<const uc16> String::GetCharVector(
-    const DisallowHeapAllocation& no_gc) {
+    const DisallowGarbageCollection& no_gc) {
   String::FlatContent flat = GetFlatContent(no_gc);
   DCHECK(flat.IsTwoByte());
   return flat.ToUC16Vector();
@@ -542,21 +738,39 @@ void SeqOneByteString::SeqOneByteStringSet(int index, uint16_t value) {
 }
 
 Address SeqOneByteString::GetCharsAddress() {
-  return FIELD_ADDR(*this, kHeaderSize);
+  return field_address(kHeaderSize);
 }
 
-uint8_t* SeqOneByteString::GetChars(const DisallowHeapAllocation& no_gc) {
+uint8_t* SeqOneByteString::GetChars(const DisallowGarbageCollection& no_gc) {
   USE(no_gc);
+  DCHECK(!SharedStringAccessGuardIfNeeded::IsNeeded(*this));
+  return reinterpret_cast<uint8_t*>(GetCharsAddress());
+}
+
+uint8_t* SeqOneByteString::GetChars(
+    const DisallowGarbageCollection& no_gc,
+    const SharedStringAccessGuardIfNeeded& access_guard) {
+  USE(no_gc);
+  USE(access_guard);
   return reinterpret_cast<uint8_t*>(GetCharsAddress());
 }
 
 Address SeqTwoByteString::GetCharsAddress() {
-  return FIELD_ADDR(*this, kHeaderSize);
+  return field_address(kHeaderSize);
 }
 
-uc16* SeqTwoByteString::GetChars(const DisallowHeapAllocation& no_gc) {
+uc16* SeqTwoByteString::GetChars(const DisallowGarbageCollection& no_gc) {
   USE(no_gc);
-  return reinterpret_cast<uc16*>(FIELD_ADDR(*this, kHeaderSize));
+  DCHECK(!SharedStringAccessGuardIfNeeded::IsNeeded(*this));
+  return reinterpret_cast<uc16*>(GetCharsAddress());
+}
+
+uc16* SeqTwoByteString::GetChars(
+    const DisallowGarbageCollection& no_gc,
+    const SharedStringAccessGuardIfNeeded& access_guard) {
+  USE(no_gc);
+  USE(access_guard);
+  return reinterpret_cast<uc16*>(GetCharsAddress());
 }
 
 uint16_t SeqTwoByteString::Get(int index) {
@@ -569,12 +783,13 @@ void SeqTwoByteString::SeqTwoByteStringSet(int index, uint16_t value) {
   WriteField<uint16_t>(kHeaderSize + index * kShortSize, value);
 }
 
-int SeqTwoByteString::SeqTwoByteStringSize(InstanceType instance_type) {
-  return SizeFor(length());
+// Due to ThinString rewriting, concurrent visitors need to read the length with
+// acquire semantics.
+inline int SeqOneByteString::AllocatedSize() {
+  return SizeFor(synchronized_length());
 }
-
-int SeqOneByteString::SeqOneByteStringSize(InstanceType instance_type) {
-  return SizeFor(length());
+inline int SeqTwoByteString::AllocatedSize() {
+  return SizeFor(synchronized_length());
 }
 
 void SlicedString::set_parent(String parent, WriteBarrierMode mode) {
@@ -599,54 +814,78 @@ bool ExternalString::is_uncached() const {
   return (type & kUncachedExternalStringMask) == kUncachedExternalStringTag;
 }
 
-Address ExternalString::resource_as_address() {
-  return ReadField<Address>(kResourceOffset);
+void ExternalString::AllocateExternalPointerEntries(Isolate* isolate) {
+  InitExternalPointerField(kResourceOffset, isolate);
+  if (is_uncached()) return;
+  InitExternalPointerField(kResourceDataOffset, isolate);
 }
 
-void ExternalString::set_address_as_resource(Address address) {
-  WriteField<Address>(kResourceOffset, address);
+DEF_GETTER(ExternalString, resource_as_address, Address) {
+  return ReadExternalPointerField(kResourceOffset, isolate,
+                                  kExternalStringResourceTag);
+}
+
+void ExternalString::set_address_as_resource(Isolate* isolate, Address value) {
+  WriteExternalPointerField(kResourceOffset, isolate, value,
+                            kExternalStringResourceTag);
   if (IsExternalOneByteString()) {
-    ExternalOneByteString::cast(*this).update_data_cache();
+    ExternalOneByteString::cast(*this).update_data_cache(isolate);
   } else {
-    ExternalTwoByteString::cast(*this).update_data_cache();
+    ExternalTwoByteString::cast(*this).update_data_cache(isolate);
   }
 }
 
-uint32_t ExternalString::resource_as_uint32() {
-  return static_cast<uint32_t>(ReadField<Address>(kResourceOffset));
+uint32_t ExternalString::GetResourceRefForDeserialization() {
+  ExternalPointer_t encoded_address =
+      ReadField<ExternalPointer_t>(kResourceOffset);
+  return static_cast<uint32_t>(encoded_address);
 }
 
-void ExternalString::set_uint32_as_resource(uint32_t value) {
-  WriteField<Address>(kResourceOffset, value);
+void ExternalString::SetResourceRefForSerialization(uint32_t ref) {
+  WriteField<ExternalPointer_t>(kResourceOffset,
+                                static_cast<ExternalPointer_t>(ref));
   if (is_uncached()) return;
-  WriteField<Address>(kResourceDataOffset, kNullAddress);
+  WriteField<ExternalPointer_t>(kResourceDataOffset, kNullExternalPointer);
 }
 
-void ExternalString::DisposeResource() {
+void ExternalString::DisposeResource(Isolate* isolate) {
+  Address value = ReadExternalPointerField(kResourceOffset, isolate,
+                                           kExternalStringResourceTag);
   v8::String::ExternalStringResourceBase* resource =
-      reinterpret_cast<v8::String::ExternalStringResourceBase*>(
-          ReadField<Address>(ExternalString::kResourceOffset));
+      reinterpret_cast<v8::String::ExternalStringResourceBase*>(value);
 
   // Dispose of the C++ object if it has not already been disposed.
   if (resource != nullptr) {
     resource->Dispose();
-    WriteField<Address>(ExternalString::kResourceOffset, kNullAddress);
+    WriteExternalPointerField(kResourceOffset, isolate, kNullAddress,
+                              kExternalStringResourceTag);
   }
 }
 
-const ExternalOneByteString::Resource* ExternalOneByteString::resource() {
-  return reinterpret_cast<Resource*>(ReadField<Address>(kResourceOffset));
+DEF_GETTER(ExternalOneByteString, resource,
+           const ExternalOneByteString::Resource*) {
+  return mutable_resource();
 }
 
-void ExternalOneByteString::update_data_cache() {
-  if (is_uncached()) return;
-  WriteField<Address>(kResourceDataOffset,
-                      reinterpret_cast<Address>(resource()->data()));
+DEF_GETTER(ExternalOneByteString, mutable_resource,
+           ExternalOneByteString::Resource*) {
+  return reinterpret_cast<Resource*>(resource_as_address(isolate));
+}
+
+void ExternalOneByteString::update_data_cache(Isolate* isolate) {
+  DisallowGarbageCollection no_gc;
+  if (is_uncached()) {
+    if (resource()->IsCacheable()) mutable_resource()->UpdateDataCache();
+  } else {
+    WriteExternalPointerField(kResourceDataOffset, isolate,
+                              reinterpret_cast<Address>(resource()->data()),
+                              kExternalStringResourceDataTag);
+  }
 }
 
 void ExternalOneByteString::SetResource(
     Isolate* isolate, const ExternalOneByteString::Resource* resource) {
-  set_resource(resource);
+  set_resource(isolate, resource);
   size_t new_payload = resource == nullptr ? 0 : resource->length();
   if (new_payload > 0) {
     isolate->heap()->UpdateExternalString(*this, 0, new_payload);
@@ -654,12 +893,32 @@ void ExternalOneByteString::SetResource(
 }
 
 void ExternalOneByteString::set_resource(
-    const ExternalOneByteString::Resource* resource) {
-  WriteField<Address>(kResourceOffset, reinterpret_cast<Address>(resource));
-  if (resource != nullptr) update_data_cache();
+    Isolate* isolate, const ExternalOneByteString::Resource* resource) {
+  WriteExternalPointerField(kResourceOffset, isolate,
+                            reinterpret_cast<Address>(resource),
+                            kExternalStringResourceTag);
+  if (resource != nullptr) update_data_cache(isolate);
 }
 
 const uint8_t* ExternalOneByteString::GetChars() {
+  DisallowGarbageCollection no_gc;
+  if (is_uncached()) {
+    if (resource()->IsCacheable()) {
+      // TODO(solanes): Teach TurboFan/CSA to not bailout to the runtime to
+      // avoid this call.
+      return reinterpret_cast<const uint8_t*>(resource()->cached_data());
+    }
+#if DEBUG
+    // Check that this method is called only from the main thread if we have an
+    // uncached string with an uncacheable resource.
+    {
+      Isolate* isolate;
+      DCHECK_IMPLIES(GetIsolateFromHeapObject(*this, &isolate),
+                     ThreadId::Current() == isolate->thread_id());
+    }
+#endif
+  }
+
   return reinterpret_cast<const uint8_t*>(resource()->data());
 }
 
@@ -668,19 +927,30 @@ uint8_t ExternalOneByteString::Get(int index) {
   return GetChars()[index];
 }
 
-const ExternalTwoByteString::Resource* ExternalTwoByteString::resource() {
-  return reinterpret_cast<Resource*>(ReadField<Address>(kResourceOffset));
+DEF_GETTER(ExternalTwoByteString, resource,
+           const ExternalTwoByteString::Resource*) {
+  return mutable_resource();
 }
 
-void ExternalTwoByteString::update_data_cache() {
-  if (is_uncached()) return;
-  WriteField<Address>(kResourceDataOffset,
-                      reinterpret_cast<Address>(resource()->data()));
+DEF_GETTER(ExternalTwoByteString, mutable_resource,
+           ExternalTwoByteString::Resource*) {
+  return reinterpret_cast<Resource*>(resource_as_address(isolate));
+}
+
+void ExternalTwoByteString::update_data_cache(Isolate* isolate) {
+  DisallowGarbageCollection no_gc;
+  if (is_uncached()) {
+    if (resource()->IsCacheable()) mutable_resource()->UpdateDataCache();
+  } else {
+    WriteExternalPointerField(kResourceDataOffset, isolate,
+                              reinterpret_cast<Address>(resource()->data()),
+                              kExternalStringResourceDataTag);
+  }
 }
 
 void ExternalTwoByteString::SetResource(
     Isolate* isolate, const ExternalTwoByteString::Resource* resource) {
-  set_resource(resource);
+  set_resource(isolate, resource);
   size_t new_payload = resource == nullptr ? 0 : resource->length() * 2;
   if (new_payload > 0) {
     isolate->heap()->UpdateExternalString(*this, 0, new_payload);
@@ -688,12 +958,34 @@ void ExternalTwoByteString::SetResource(
 }
 
 void ExternalTwoByteString::set_resource(
-    const ExternalTwoByteString::Resource* resource) {
-  WriteField<Address>(kResourceOffset, reinterpret_cast<Address>(resource));
-  if (resource != nullptr) update_data_cache();
+    Isolate* isolate, const ExternalTwoByteString::Resource* resource) {
+  WriteExternalPointerField(kResourceOffset, isolate,
+                            reinterpret_cast<Address>(resource),
+                            kExternalStringResourceTag);
+  if (resource != nullptr) update_data_cache(isolate);
 }
 
-const uint16_t* ExternalTwoByteString::GetChars() { return resource()->data(); }
+const uint16_t* ExternalTwoByteString::GetChars() {
+  DisallowGarbageCollection no_gc;
+  if (is_uncached()) {
+    if (resource()->IsCacheable()) {
+      // TODO(solanes): Teach TurboFan/CSA to not bailout to the runtime to
+      // avoid this call.
+      return resource()->cached_data();
+    }
+#if DEBUG
+    // Check that this method is called only from the main thread if we have an
+    // uncached string with an uncacheable resource.
+    {
+      Isolate* isolate;
+      DCHECK_IMPLIES(GetIsolateFromHeapObject(*this, &isolate),
+                     ThreadId::Current() == isolate->thread_id());
+    }
+#endif
+  }
+
+  return resource()->data();
+}
 
 uint16_t ExternalTwoByteString::Get(int index) {
   DCHECK(index >= 0 && index < length());
@@ -726,6 +1018,28 @@ void ConsStringIterator::Pop() {
   depth_--;
 }
 
+class StringCharacterStream {
+ public:
+  inline explicit StringCharacterStream(String string, int offset = 0);
+  StringCharacterStream(const StringCharacterStream&) = delete;
+  StringCharacterStream& operator=(const StringCharacterStream&) = delete;
+  inline uint16_t GetNext();
+  inline bool HasMore();
+  inline void Reset(String string, int offset = 0);
+  inline void VisitOneByteString(const uint8_t* chars, int length);
+  inline void VisitTwoByteString(const uint16_t* chars, int length);
+
+ private:
+  ConsStringIterator iter_;
+  bool is_one_byte_;
+  union {
+    const uint8_t* buffer8_;
+    const uint16_t* buffer16_;
+  };
+  const uint8_t* end_;
+  SharedStringAccessGuardIfNeeded access_guard_;
+};
+
 uint16_t StringCharacterStream::GetNext() {
   DCHECK(buffer8_ != nullptr && end_ != nullptr);
   // Advance cursor if needed.
@@ -734,19 +1048,25 @@ uint16_t StringCharacterStream::GetNext() {
   return is_one_byte_ ? *buffer8_++ : *buffer16_++;
 }
 
+// TODO(solanes, v8:7790, chromium:1166095): Assess if we need to use
+// Isolate/LocalIsolate and pipe them through, instead of using the slow
+// version of the SharedStringAccessGuardIfNeeded.
 StringCharacterStream::StringCharacterStream(String string, int offset)
-    : is_one_byte_(false) {
+    : is_one_byte_(false), access_guard_(string) {
   Reset(string, offset);
 }
 
 void StringCharacterStream::Reset(String string, int offset) {
   buffer8_ = nullptr;
   end_ = nullptr;
-  ConsString cons_string = String::VisitFlat(this, string, offset);
+
+  ConsString cons_string =
+      String::VisitFlat(this, string, offset, access_guard_);
   iter_.Reset(cons_string, offset);
   if (!cons_string.is_null()) {
     string = iter_.Next(&offset);
-    if (!string.is_null()) String::VisitFlat(this, string, offset);
+    if (!string.is_null())
+      String::VisitFlat(this, string, offset, access_guard_);
   }
 }
 
@@ -756,7 +1076,7 @@ bool StringCharacterStream::HasMore() {
   String string = iter_.Next(&offset);
   DCHECK_EQ(offset, 0);
   if (string.is_null()) return false;
-  String::VisitFlat(this, string);
+  String::VisitFlat(this, string, 0, access_guard_);
   DCHECK(buffer8_ != end_);
   return true;
 }
@@ -776,8 +1096,8 @@ void StringCharacterStream::VisitTwoByteString(const uint16_t* chars,
 }
 
 bool String::AsArrayIndex(uint32_t* index) {
-  DisallowHeapAllocation no_gc;
-  uint32_t field = hash_field();
+  DisallowGarbageCollection no_gc;
+  uint32_t field = raw_hash_field();
   if (ContainsCachedArrayIndex(field)) {
     *index = ArrayIndexValueBits::decode(field);
     return true;
@@ -789,7 +1109,7 @@ bool String::AsArrayIndex(uint32_t* index) {
 }
 
 bool String::AsIntegerIndex(size_t* index) {
-  uint32_t field = hash_field();
+  uint32_t field = raw_hash_field();
   if (ContainsCachedArrayIndex(field)) {
     *index = ArrayIndexValueBits::decode(field);
     return true;
@@ -801,8 +1121,8 @@ bool String::AsIntegerIndex(size_t* index) {
 }
 
 SubStringRange::SubStringRange(String string,
-                               const DisallowHeapAllocation& no_gc, int first,
-                               int length)
+                               const DisallowGarbageCollection& no_gc,
+                               int first, int length)
     : string_(string),
       first_(first),
       length_(length == -1 ? string.length() : length),
@@ -834,7 +1154,7 @@ class SubStringRange::iterator final {
  private:
   friend class String;
   friend class SubStringRange;
-  iterator(String from, int offset, const DisallowHeapAllocation& no_gc)
+  iterator(String from, int offset, const DisallowGarbageCollection& no_gc)
       : content_(from.GetFlatContent(no_gc)), offset_(offset) {}
   String::FlatContent content_;
   int offset_;

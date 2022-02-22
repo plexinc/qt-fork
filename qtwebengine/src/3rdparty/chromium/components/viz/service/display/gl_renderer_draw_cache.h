@@ -8,9 +8,10 @@
 #include <vector>
 
 #include "base/macros.h"
+#include "components/viz/common/resources/resource_id.h"
 #include "components/viz/service/display/program_binding.h"
 #include "third_party/skia/include/core/SkColor.h"
-#include "ui/gfx/rrect_f.h"
+#include "ui/gfx/mask_filter_info.h"
 
 namespace viz {
 
@@ -35,11 +36,11 @@ struct TexturedQuadDrawCache {
 
   // Values tracked to determine if textured quads may be coalesced.
   ProgramKey program_key;
-  int resource_id = -1;
+  ResourceId resource_id = kInvalidResourceId;
   bool needs_blending = false;
   bool nearest_neighbor = false;
   SkColor background_color = 0;
-  gfx::RRectF rounded_corner_bounds;
+  gfx::MaskFilterInfo mask_filter_info;
 
   // A cache for the coalesced quad data.
   std::vector<Float4> uv_xform_data;
@@ -48,6 +49,9 @@ struct TexturedQuadDrawCache {
 
   // Don't batch if tex clamp rect is given.
   Float4 tex_clamp_rect_data;
+
+  // Video frames need special white level adjustment.
+  bool is_video_frame = false;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(TexturedQuadDrawCache);

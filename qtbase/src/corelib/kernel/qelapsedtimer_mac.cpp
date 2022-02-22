@@ -68,7 +68,7 @@ bool QElapsedTimer::isMonotonic() noexcept
     return true;
 }
 
-static mach_timebase_info_data_t info = {0,0};
+static mach_timebase_info_data_t info = { 0, 0 };
 static qint64 absoluteToNSecs(qint64 cpuTime)
 {
     if (info.denom == 0)
@@ -156,7 +156,7 @@ bool operator<(const QElapsedTimer &v1, const QElapsedTimer &v2) noexcept
 
 QDeadlineTimer QDeadlineTimer::current(Qt::TimerType timerType) noexcept
 {
-    Q_STATIC_ASSERT(!QDeadlineTimerNanosecondsInT2);
+    static_assert(!QDeadlineTimerNanosecondsInT2);
     QDeadlineTimer result;
     result.type = timerType;
     result.t1 = absoluteToNSecs(mach_absolute_time());

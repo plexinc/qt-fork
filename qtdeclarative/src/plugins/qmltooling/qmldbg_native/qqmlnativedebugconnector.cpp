@@ -91,6 +91,8 @@ Q_DECL_EXPORT void qt_qmlDebugObjectAvailable()
 Q_DECL_EXPORT void qt_qmlDebugClearBuffer()
 {
     responseBuffer->clear();
+    qt_qmlDebugMessageBuffer = nullptr;
+    qt_qmlDebugMessageLength = 0;
 }
 
 // Send a message to a service.
@@ -157,7 +159,8 @@ quintptr qt_qmlDebugTestHooks[] = {
     quintptr(&qt_qmlDebugSendDataToService),
     quintptr(&qt_qmlDebugEnableService),
     quintptr(&qt_qmlDebugDisableService),
-    quintptr(&qt_qmlDebugObjectAvailable)
+    quintptr(&qt_qmlDebugObjectAvailable),
+    quintptr(&qt_qmlDebugClearBuffer)
 };
 
 // In blocking mode, this will busy wait until the debugger sets block to false.
@@ -183,9 +186,9 @@ QQmlNativeDebugConnector::QQmlNativeDebugConnector()
     : m_blockingMode(false)
 {
     const QString args = commandLineArguments();
-    const auto lstjsDebugArguments = args.splitRef(QLatin1Char(','), Qt::SkipEmptyParts);
+    const auto lstjsDebugArguments = QStringView{args}.split(QLatin1Char(','), Qt::SkipEmptyParts);
     QStringList services;
-    for (const QStringRef &strArgument : lstjsDebugArguments) {
+    for (const QStringView &strArgument : lstjsDebugArguments) {
         if (strArgument == QLatin1String("block")) {
             m_blockingMode = true;
         } else if (strArgument == QLatin1String("native")) {
@@ -279,6 +282,8 @@ void QQmlNativeDebugConnector::announceObjectAvailability(const QString &objectT
     qt_qmlDebugMessageLength = ba.size();
     TRACE_PROTOCOL("Reporting engine availabilty");
     qt_qmlDebugObjectAvailable(); // Trigger native breakpoint.
+    qt_qmlDebugMessageBuffer = nullptr;
+    qt_qmlDebugMessageLength = 0;
 }
 
 bool QQmlNativeDebugConnector::addService(const QString &name, QQmlDebugService *service)

@@ -31,7 +31,7 @@
 #include <private/chartpresenter_p.h>
 #include <private/abstractchartlayout_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 PolarChartValueAxisRadial::PolarChartValueAxisRadial(QValueAxis *axis, QGraphicsItem *item)
     : PolarChartAxisRadial(axis, item)
@@ -46,12 +46,12 @@ PolarChartValueAxisRadial::~PolarChartValueAxisRadial()
 {
 }
 
-QVector<qreal> PolarChartValueAxisRadial::calculateLayout() const
+QList<qreal> PolarChartValueAxisRadial::calculateLayout() const
 {
     int tickCount = static_cast<QValueAxis *>(axis())->tickCount();
     Q_ASSERT(tickCount >= 2);
 
-    QVector<qreal> points;
+    QList<qreal> points;
     points.resize(tickCount);
 
     const qreal d = (axisGeometry().width() / 2) / qreal(tickCount - 1);
@@ -64,7 +64,7 @@ QVector<qreal> PolarChartValueAxisRadial::calculateLayout() const
     return points;
 }
 
-void PolarChartValueAxisRadial::createAxisLabels(const QVector<qreal> &layout)
+void PolarChartValueAxisRadial::createAxisLabels(const QList<qreal> &layout)
 {
     setLabels(createValueLabels(min(), max(), layout.size(), 0.0, 0.0,
                                 QValueAxis::TicksFixed,
@@ -95,6 +95,6 @@ void PolarChartValueAxisRadial::handleLabelFormatChanged(const QString &format)
         presenter()->layout()->invalidate();
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_polarchartvalueaxisradial_p.cpp"

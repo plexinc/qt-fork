@@ -37,6 +37,8 @@
 **
 ****************************************************************************/
 
+#include <AppKit/AppKit.h>
+
 #include "qcocoaintegration.h"
 
 #include "qcocoawindow.h"
@@ -55,25 +57,19 @@
 #if QT_CONFIG(sessionmanager)
 #  include "qcocoasessionmanager.h"
 #endif
+#include "qcocoawindowmanager.h"
 
 #include <qpa/qplatforminputcontextfactory_p.h>
 #include <qpa/qplatformaccessibility.h>
 #include <qpa/qplatforminputcontextfactory_p.h>
 #include <qpa/qplatformoffscreensurface.h>
 #include <QtCore/qcoreapplication.h>
-
-#include <QtPlatformHeaders/qcocoanativecontext.h>
+#include <QtGui/qpointingdevice.h>
 
 #include <QtGui/private/qcoregraphics_p.h>
+#include <QtGui/private/qopenglcontext_p.h>
 
-#include <QtFontDatabaseSupport/private/qfontengine_coretext_p.h>
-
-#ifdef QT_WIDGETS_LIB
-#include <QtWidgets/qtwidgetsglobal.h>
-#if QT_CONFIG(filedialog)
-#include "qcocoafiledialoghelper.h"
-#endif
-#endif
+#include <QtGui/private/qfontengine_coretext_p.h>
 
 #include <IOKit/graphics/IOGraphicsLib.h>
 
@@ -85,6 +81,11 @@ static void initResources()
 QT_BEGIN_NAMESPACE
 
 Q_LOGGING_CATEGORY(lcQpa, "qt.qpa", QtWarningMsg);
+
+// Lives here so that the linker is forced to include the QCocoaWindowManager
+// object file also in static builds.
+static void initializeWindowManager() { Q_UNUSED(QCocoaWindowManager::instance()); }
+Q_CONSTRUCTOR_FUNCTION(initializeWindowManager)
 
 static void logVersionInformation()
 {
@@ -141,7 +142,7 @@ QCocoaIntegration::QCocoaIntegration(const QStringList &paramList)
     , mCocoaDrag(new QCocoaDrag)
     , mNativeInterface(new QCocoaNativeInterface)
     , mServices(new QCocoaServices)
-    , mKeyboardMapper(new QCocoaKeyMapper)
+    , mKeyboardMapper(new QAppleKeyMapper)
 {
     logVersionInformation();
 
@@ -168,7 +169,7 @@ QCocoaIntegration::QCocoaIntegration(const QStringList &paramList)
 
     if (qEnvironmentVariableIsEmpty("QT_MAC_DISABLE_FOREGROUND_APPLICATION_TRANSFORM")) {
         // Applications launched from plain executables (without an app
-        // bundle) are "background" applications that does not take keybaord
+        // bundle) are "background" applications that does not take keyboard
         // focus or have a dock icon or task switcher entry. Qt Gui apps generally
         // wants to be foreground applications so change the process type. (But
         // see the function implementation for exceptions.)
@@ -185,7 +186,6 @@ QCocoaIntegration::QCocoaIntegration(const QStringList &paramList)
         }
     }
 
-    // ### For AA_MacPluginApplication we don't want to load the menu nib.
     // Qt 4 also does not set the application delegate, so that behavior
     // is matched here.
     if (!QCoreApplication::testAttribute(Qt::AA_PluginApplication)) {
@@ -205,6 +205,8 @@ QCocoaIntegration::QCocoaIntegration(const QStringList &paramList)
     QMacInternalPasteboardMime::initializeMimeTypes();
     QCocoaMimeTypes::initializeMimeTypes();
     QWindowSystemInterfacePrivate::TabletEvent::setPlatformSynthesizesMouse(false);
+    QWindowSystemInterface::registerInputDevice(new QInputDevice(QString("keyboard"), 0,
+                                                                 QInputDevice::DeviceType::Keyboard, QString(), this));
 
     connect(qGuiApp, &QGuiApplication::focusWindowChanged,
         this, &QCocoaIntegration::focusWindowChanged);
@@ -263,8 +265,8 @@ bool QCocoaIntegration::hasCapability(QPlatformIntegration::Capability cap) cons
         // AppKit expects rendering to happen on the main thread, and we can
         // easily end up in situations where rendering on secondary threads
         // will result in visual artifacts, bugs, or even deadlocks, when
-        // building with SDK 10.14 or higher which enbles view layer-backing.
-        return QMacVersion::buildSDK() < QOperatingSystemVersion(QOperatingSystemVersion::MacOSMojave);
+        // layer-backed.
+        return false;
     case OpenGL:
     case BufferQueueingOpenGL:
 #endif
@@ -314,6 +316,19 @@ QPlatformOpenGLContext *QCocoaIntegration::createPlatformOpenGLContext(QOpenGLCo
 {
     return new QCocoaGLContext(context);
 }
+
+QOpenGLContext *QCocoaIntegration::createOpenGLContext(NSOpenGLContext *nativeContext, QOpenGLContext *shareContext) const
+{
+    if (!nativeContext)
+        return nullptr;
+
+    auto *context = new QOpenGLContext;
+    context->setShareContext(shareContext);
+    auto *contextPrivate = QOpenGLContextPrivate::get(context);
+    contextPrivate->adopt(new QCocoaGLContext(nativeContext));
+    return context;
+}
+
 #endif
 
 QPlatformBackingStore *QCocoaIntegration::createPlatformBackingStore(QWindow *window) const
@@ -324,10 +339,7 @@ QPlatformBackingStore *QCocoaIntegration::createPlatformBackingStore(QWindow *wi
         return nullptr;
     }
 
-    if (platformWindow->view().layer)
-        return new QCALayerBackingStore(window);
-    else
-        return new QNSWindowBackingStore(window);
+    return new QCALayerBackingStore(window);
 }
 
 QAbstractEventDispatcher *QCocoaIntegration::createEventDispatcher() const
@@ -414,7 +426,7 @@ QVariant QCocoaIntegration::styleHint(StyleHint hint) const
 
 Qt::KeyboardModifiers QCocoaIntegration::queryKeyboardModifiers() const
 {
-    return QCocoaKeyMapper::queryKeyboardModifiers();
+    return QAppleKeyMapper::queryKeyboardModifiers();
 }
 
 QList<int> QCocoaIntegration::possibleKeys(const QKeyEvent *event) const
@@ -482,6 +494,12 @@ void QCocoaIntegration::beep() const
     NSBeep();
 }
 
+void QCocoaIntegration::quit() const
+{
+    qCDebug(lcQpaApplication) << "Terminating application";
+    [NSApp terminate:nil];
+}
+
 void QCocoaIntegration::closePopups(QWindow *forWindow)
 {
     for (auto it = m_popupWindowStack.begin(); it != m_popupWindowStack.end();) {
@@ -522,6 +540,6 @@ void QCocoaIntegration::focusWindowChanged(QWindow *focusWindow)
     setApplicationIcon(focusWindow->icon());
 }
 
-#include "moc_qcocoaintegration.cpp"
-
 QT_END_NAMESPACE
+
+#include "moc_qcocoaintegration.cpp"

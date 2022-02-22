@@ -6,17 +6,17 @@
 #define CHROME_BROWSER_UI_WEBUI_SETTINGS_CHROMEOS_WALLPAPER_HANDLER_H_
 
 #include "base/macros.h"
+#include "base/memory/weak_ptr.h"
+#include "chrome/browser/chromeos/backdrop_wallpaper_handlers/backdrop_wallpaper_handlers.h"
 #include "chrome/browser/ui/webui/settings/settings_page_ui_handler.h"
+
+namespace backdrop {
+class Collection;
+}  // namespace backdrop
 
 namespace base {
 class ListValue;
-}
-
-namespace content {
-class WebUI;
-}
-
-class Profile;
+}  // namespace base
 
 namespace chromeos {
 namespace settings {
@@ -24,7 +24,7 @@ namespace settings {
 // Chrome "Personalization" settings page UI handler.
 class WallpaperHandler : public ::settings::SettingsPageUIHandler {
  public:
-  explicit WallpaperHandler(content::WebUI* webui);
+  WallpaperHandler();
   ~WallpaperHandler() override;
 
   // SettingsPageUIHandler implementation.
@@ -42,10 +42,20 @@ class WallpaperHandler : public ::settings::SettingsPageUIHandler {
   // Open the wallpaper manager app.
   void HandleOpenWallpaperManager(const base::ListValue* args);
 
+  // Begin to fetch wallpaper collection info.
+  void HandleFetchWallpaperCollections(const base::ListValue* args);
+
+  void OnFetchWallpaperCollections(
+      const base::Value& callback_id,
+      bool success,
+      const std::vector<backdrop::Collection>& collections);
+
   // Helper function to resolve the Javascript callback.
   void ResolveCallback(const base::Value& callback_id, bool result);
 
-  Profile* const profile_;
+  backdrop_wallpaper_handlers::CollectionInfoFetcher collection_info_fetcher_;
+
+  base::WeakPtrFactory<WallpaperHandler> backdrop_api_weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(WallpaperHandler);
 };

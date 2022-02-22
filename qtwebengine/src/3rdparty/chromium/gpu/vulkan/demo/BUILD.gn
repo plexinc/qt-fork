@@ -28,6 +28,7 @@ if (use_x11) {
       "//components/tracing:startup_tracing",
       "//components/viz/common",
       "//gpu/vulkan/init",
+      "//skia",
       "//ui/display/types",
       "//ui/events",
       "//ui/events/platform",
@@ -39,6 +40,5 @@ if (use_x11) {
     ]
 
     deps += [ "//ui/gfx/x" ]
-    configs += [ "//build/config/linux:x11" ]
   }
 }

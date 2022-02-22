@@ -52,7 +52,10 @@ QT_BEGIN_NAMESPACE
 
 static void openHelp()
 {
-    QDesktopServices::openUrl(QUrl(QLatin1String("http://doc.qt.io/qt-5/qtdistancefieldgenerator-index.html")));
+    const int qtVersion = QT_VERSION;
+    QString url;
+    QTextStream(&url) << "https://doc.qt.io/qt-" << (qtVersion >> 16) << "/qtdistancefieldgenerator-index.html";
+    QDesktopServices::openUrl(QUrl(url));
 }
 
 MainWindow::MainWindow(QWidget *parent)
@@ -438,7 +441,7 @@ QByteArray MainWindow::createSfntTable()
                      sizeof(QtdfHeader));
 
         // Maximum height allocator to find optimal number of textures
-        QVector<QRect> allocatedAreaPerTexture;
+        QList<QRect> allocatedAreaPerTexture;
 
         struct GlyphData {
             QSGDistanceFieldGlyphCache::TexCoord texCoord;
@@ -446,7 +449,7 @@ QByteArray MainWindow::createSfntTable()
             QSize glyphSize;
             int textureIndex;
         };
-        QVector<GlyphData> glyphDatas;
+        QList<GlyphData> glyphDatas;
         glyphDatas.resize(m_model->rowCount());
 
         int textureCount = 0;
@@ -513,7 +516,7 @@ QByteArray MainWindow::createSfntTable()
             }
         }
 
-        QVector<QDistanceField> textures;
+        QList<QDistanceField> textures;
         textures.resize(textureCount);
 
         for (int textureIndex = 0; textureIndex < textureCount; ++textureIndex) {
@@ -746,7 +749,7 @@ void MainWindow::selectString()
                                       tr("Select glyphs for string"),
                                       tr("String to parse:"));
     if (!s.isEmpty()) {
-        QVector<uint> ucs4String = s.toUcs4();
+        QList<uint> ucs4String = s.toUcs4();
         for (uint ucs4 : ucs4String) {
             glyph_t glyph = m_model->glyphIndexForUcs4(ucs4);
             if (glyph != 0) {

@@ -20,8 +20,10 @@
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
+#include "third_party/blink/renderer/core/frame/visual_viewport.h"
 #include "third_party/blink/renderer/core/html/forms/html_input_element.h"
 #include "third_party/blink/renderer/core/html/forms/html_text_area_element.h"
+#include "third_party/blink/renderer/core/layout/layout_theme.h"
 
 using ui::mojom::ImeTextSpanThickness;
 using ui::mojom::ImeTextSpanUnderlineStyle;
@@ -30,6 +32,8 @@ namespace blink {
 
 class InputMethodControllerTest : public EditingTestBase {
  protected:
+  enum SelectionType { kNoSelection, kCaretSelection, kRangeSelection };
+
   InputMethodController& Controller() {
     return GetFrame().GetInputMethodController();
   }
@@ -182,6 +186,50 @@ TEST_F(InputMethodControllerTest, SetCompositionFromExistingText) {
   PlainTextRange plain_text_range(PlainTextRange::Create(*div, *range));
   EXPECT_EQ(0u, plain_text_range.Start());
   EXPECT_EQ(5u, plain_text_range.End());
+}
+
+TEST_F(InputMethodControllerTest, AddImeTextSpansToExistingText) {
+  InsertHTMLElement("<div id='sample' contenteditable>hello world</div>",
+                    "sample");
+  Vector<ImeTextSpan> ime_text_spans;
+  ime_text_spans.push_back(ImeTextSpan(
+      ImeTextSpan::Type::kAutocorrect, 0, 5, Color(255, 0, 0),
+      ImeTextSpanThickness::kThin, ImeTextSpanUnderlineStyle::kSolid, 0, 0));
+  Controller().AddImeTextSpansToExistingText(ime_text_spans, 0, 5);
+
+  EXPECT_EQ(1u, GetDocument().Markers().Markers().size());
+  EXPECT_EQ(0u, GetDocument().Markers().Markers()[0]->StartOffset());
+  EXPECT_EQ(5u, GetDocument().Markers().Markers()[0]->EndOffset());
+  EXPECT_EQ(DocumentMarker::MarkerType::kSuggestion,
+            GetDocument().Markers().Markers()[0]->GetType());
+  EXPECT_EQ(SuggestionMarker::SuggestionType::kAutocorrect,
+            To<SuggestionMarker>(GetDocument().Markers().Markers()[0].Get())
+                ->GetSuggestionType());
+}
+
+TEST_F(InputMethodControllerTest, GetImeTextSpansAroundPosition) {
+  InsertHTMLElement("<div id='sample' contenteditable>hello world</div>",
+                    "sample");
+  ImeTextSpan span1 = ImeTextSpan(ImeTextSpan::Type::kAutocorrect, 0, 5,
+                                  Color(255, 0, 0), ImeTextSpanThickness::kThin,
+                                  ImeTextSpanUnderlineStyle::kSolid, 0, 0);
+  ImeTextSpan span2 = ImeTextSpan(ImeTextSpan::Type::kComposition, 1, 3,
+                                  Color(255, 0, 0), ImeTextSpanThickness::kThin,
+                                  ImeTextSpanUnderlineStyle::kSolid, 0, 0);
+  ImeTextSpan span3 = ImeTextSpan(
+      ImeTextSpan::Type::kMisspellingSuggestion, 1, 3, Color(255, 0, 0),
+      ImeTextSpanThickness::kThin, ImeTextSpanUnderlineStyle::kSolid, 0, 0);
+
+  Controller().AddImeTextSpansToExistingText({span1, span2, span3}, 0, 5);
+  Controller().SetEditableSelectionOffsets(PlainTextRange(1, 1));
+
+  const WebVector<ui::ImeTextSpan>& ime_text_spans =
+      Controller().TextInputInfo().ime_text_spans;
+
+  EXPECT_EQ(1u, ime_text_spans.size());
+  EXPECT_EQ(0u, ime_text_spans[0].start_offset);
+  EXPECT_EQ(5u, ime_text_spans[0].end_offset);
+  EXPECT_EQ(ui::ImeTextSpan::Type::kAutocorrect, ime_text_spans[0].type);
 }
 
 TEST_F(InputMethodControllerTest, SetCompositionAfterEmoji) {
@@ -369,6 +417,15 @@ TEST_F(InputMethodControllerTest, FinishComposingTextKeepingStyle) {
 
   Controller().FinishComposingText(InputMethodController::kKeepSelection);
   EXPECT_EQ("abc1<b>2</b>3hello7<b>8</b>9", div->innerHTML());
+}
+
+TEST_F(InputMethodControllerTest, FinishComposingTextKeepingBackwardSelection) {
+  GetFrame().Selection().SetSelectionAndEndTyping(
+      SetSelectionTextToBody("<div contenteditable>|abc^</div>"));
+
+  Controller().FinishComposingText(InputMethodController::kKeepSelection);
+
+  EXPECT_EQ("<div contenteditable>|abc^</div>", GetSelectionTextFromBody());
 }
 
 TEST_F(InputMethodControllerTest, CommitTextKeepingStyle) {
@@ -1401,6 +1458,26 @@ TEST_F(InputMethodControllerTest, SetCompositionPlainTextWithIme_Text_Span) {
   EXPECT_EQ(1u, GetDocument().Markers().Markers()[0]->EndOffset());
 }
 
+TEST_F(InputMethodControllerTest,
+       SetCompositionPlainTextWithIme_Text_Span_Interim_Char_Selection) {
+  InsertHTMLElement("<div id='sample' contenteditable></div>", "sample");
+
+  Vector<ImeTextSpan> ime_text_spans;
+  ime_text_spans.push_back(ImeTextSpan(
+      ImeTextSpan::Type::kComposition, 0, 1, Color(255, 0, 0),
+      ImeTextSpanThickness::kThin, ImeTextSpanUnderlineStyle::kSolid, 0, 0, 0,
+      false, true /*interim_char_selection*/));
+
+  Controller().SetComposition("a", ime_text_spans, 0, 1);
+
+  ASSERT_EQ(1u, GetDocument().Markers().Markers().size());
+
+  auto* styleable_marker =
+      DynamicTo<StyleableMarker>(GetDocument().Markers().Markers()[0].Get());
+  EXPECT_EQ(ImeTextSpanUnderlineStyle::kSolid,
+            styleable_marker->UnderlineStyle());
+}
+
 TEST_F(InputMethodControllerTest, CommitPlainTextWithIme_Text_SpanInsert) {
   InsertHTMLElement("<div id='sample' contenteditable>Initial text.</div>",
                     "sample");
@@ -2404,6 +2481,26 @@ TEST_F(InputMethodControllerTest, RemoveSuggestionMarkerInRangeOnFinish) {
             GetDocument().Markers().Markers()[0]->GetType());
 }
 
+TEST_F(InputMethodControllerTest, ClearImeTextSpansByType) {
+  InsertHTMLElement(
+      "<div id='sample' contenteditable spellcheck='true'>hello</div>",
+      "sample");
+  ImeTextSpan::Type type = ImeTextSpan::Type::kAutocorrect;
+  unsigned start = 0;
+  unsigned end = 1;
+  Vector<ImeTextSpan> ime_text_spans;
+  ime_text_spans.push_back(ImeTextSpan(
+      type, start, end, Color::kTransparent, ImeTextSpanThickness::kNone,
+      ImeTextSpanUnderlineStyle::kNone, Color::kTransparent,
+      Color::kTransparent, Color ::kTransparent));
+
+  Controller().AddImeTextSpansToExistingText(ime_text_spans, start, end);
+  EXPECT_EQ(1u, GetDocument().Markers().Markers().size());
+
+  Controller().ClearImeTextSpansByType(type, start, end);
+  EXPECT_EQ(0u, GetDocument().Markers().Markers().size());
+}
+
 // For http://crbug.com/712761
 TEST_F(InputMethodControllerTest, TextInputTypeAtBeforeEditable) {
   GetDocument().body()->setContentEditable("true", ASSERT_NO_EXCEPTION);
@@ -3303,6 +3400,84 @@ TEST_F(InputMethodControllerTest, SetCompositionInMyanmar) {
   EXPECT_EQ(
       String::FromUTF8("\xE2\x80\x8C\xE1\x80\xB1\xE2\x80\x8C\xE1\x80\xB1"),
       div->innerHTML());
+}
+
+TEST_F(InputMethodControllerTest, VirtualKeyboardPolicyOfFocusedElement) {
+  EXPECT_EQ(ui::mojom::VirtualKeyboardPolicy::AUTO,
+            Controller().VirtualKeyboardPolicyOfFocusedElement());
+  InsertHTMLElement("<input id='a' virtualkeyboardpolicy='manual'>", "a")
+      ->focus();
+  EXPECT_EQ(ui::mojom::VirtualKeyboardPolicy::MANUAL,
+            Controller().VirtualKeyboardPolicyOfFocusedElement());
+}
+
+TEST_F(InputMethodControllerTest, SetCompositionInTibetan) {
+  GetFrame().Selection().SetSelectionAndEndTyping(
+      SetSelectionTextToBody(u8"<div id='sample' contenteditable>|</div>"));
+  Element* const div = GetDocument().getElementById("sample");
+  div->focus();
+
+  Vector<ImeTextSpan> ime_text_spans;
+  Controller().SetComposition(String(Vector<UChar>{0xF56}), ime_text_spans, 1,
+                              1);
+  EXPECT_EQ(u8"<div contenteditable id=\"sample\">\u0F56|</div>",
+            GetSelectionTextFromBody());
+
+  Controller().CommitText(String(Vector<UChar>{0xF56}), ime_text_spans, 0);
+  EXPECT_EQ(u8"<div contenteditable id=\"sample\">\u0F56|</div>",
+            GetSelectionTextFromBody());
+
+  Controller().SetComposition(String(Vector<UChar>{0xFB7}), ime_text_spans, 1,
+                              1);
+  EXPECT_EQ(u8"<div contenteditable id=\"sample\">\u0F56\u0FB7|</div>",
+            GetSelectionTextFromBody());
+
+  // Attempt to replace part of grapheme cluster "\u0FB7" in composition
+  Controller().CommitText(String(Vector<UChar>{0xFB7}), ime_text_spans, 0);
+  EXPECT_EQ(u8"<div contenteditable id=\"sample\">\u0F56\u0FB7|</div>",
+            GetSelectionTextFromBody());
+
+  Controller().SetComposition(String(Vector<UChar>{0xF74}), ime_text_spans, 1,
+                              1);
+  EXPECT_EQ(u8"<div contenteditable id=\"sample\">\u0F56\u0FB7\u0F74|</div>",
+            GetSelectionTextFromBody());
+}
+
+TEST_F(InputMethodControllerTest, SetCompositionInDevanagari) {
+  GetFrame().Selection().SetSelectionAndEndTyping(SetSelectionTextToBody(
+      u8"<div id='sample' contenteditable>\u0958|</div>"));
+  Element* const div = GetDocument().getElementById("sample");
+  div->focus();
+
+  Vector<ImeTextSpan> ime_text_spans;
+  Controller().SetComposition(String(Vector<UChar>{0x94D}), ime_text_spans, 1,
+                              1);
+  EXPECT_EQ(u8"<div contenteditable id=\"sample\">\u0958\u094D|</div>",
+            GetSelectionTextFromBody());
+
+  Controller().CommitText(String(Vector<UChar>{0x94D, 0x930}), ime_text_spans,
+                          0);
+  EXPECT_EQ(u8"<div contenteditable id=\"sample\">\u0958\u094D\u0930|</div>",
+            GetSelectionTextFromBody());
+}
+
+TEST_F(InputMethodControllerTest, SetCompositionTamil) {
+  GetFrame().Selection().SetSelectionAndEndTyping(
+      SetSelectionTextToBody(u8"<div id='sample' contenteditable>|</div>"));
+  Element* const div = GetDocument().getElementById("sample");
+  div->focus();
+
+  Vector<ImeTextSpan> ime_text_spans;
+  // Note: region starts out with space.
+  Controller().CommitText(String(Vector<UChar>{0xA0}), ime_text_spans, 0);
+  // Add character U+0BB5: 'TAMIL LETTER VA'
+  Controller().SetComposition(String(Vector<UChar>{0xBB5}), ime_text_spans, 0,
+                              0);
+  // Add character U+0BC7: 'TAMIL VOWEL SIGN EE'
+  Controller().CommitText(String(Vector<UChar>{0xBB5, 0xBC7}), ime_text_spans,
+                          1);
+  EXPECT_EQ(u8"<div contenteditable id=\"sample\">\u00A0\u0BB5\u0BC7|</div>",
+            GetSelectionTextFromBody());
 }
 
 }  // namespace blink

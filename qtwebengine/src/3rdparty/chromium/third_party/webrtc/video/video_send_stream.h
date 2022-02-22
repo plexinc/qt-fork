@@ -16,14 +16,13 @@
 #include <vector>
 
 #include "api/fec_controller.h"
+#include "api/sequence_checker.h"
 #include "api/video/video_stream_encoder_interface.h"
 #include "call/bitrate_allocator.h"
 #include "call/video_receive_stream.h"
 #include "call/video_send_stream.h"
-#include "rtc_base/critical_section.h"
 #include "rtc_base/event.h"
 #include "rtc_base/task_queue.h"
-#include "rtc_base/thread_checker.h"
 #include "video/send_delay_stats.h"
 #include "video/send_statistics_proxy.h"
 
@@ -58,7 +57,7 @@ class VideoSendStream : public webrtc::VideoSendStream {
       int num_cpu_cores,
       ProcessThread* module_process_thread,
       TaskQueueFactory* task_queue_factory,
-      CallStats* call_stats,
+      RtcpRttStats* call_stats,
       RtpTransportControllerSendInterface* transport,
       BitrateAllocatorInterface* bitrate_allocator,
       SendDelayStats* send_delay_stats,
@@ -79,6 +78,9 @@ class VideoSendStream : public webrtc::VideoSendStream {
   void Start() override;
   void Stop() override;
 
+  void AddAdaptationResource(rtc::scoped_refptr<Resource> resource) override;
+  std::vector<rtc::scoped_refptr<Resource>> GetAdaptationResources() override;
+
   void SetSource(rtc::VideoSourceInterface<webrtc::VideoFrame>* source,
                  const DegradationPreference& degradation_preference) override;
 
@@ -95,7 +97,7 @@ class VideoSendStream : public webrtc::VideoSendStream {
 
   absl::optional<float> GetPacingFactorOverride() const;
 
-  rtc::ThreadChecker thread_checker_;
+  SequenceChecker thread_checker_;
   rtc::TaskQueue* const worker_queue_;
   rtc::Event thread_sync_event_;
 

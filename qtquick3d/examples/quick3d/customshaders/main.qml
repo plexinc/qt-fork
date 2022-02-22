@@ -48,15 +48,14 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.15
-import QtQuick.Window 2.11
-import QtQuick3D 1.15
-import QtQuick.Controls 2.4
+import QtQuick
+import QtQuick3D
+import QtQuick.Controls
 
 Window {
     id: window
-    width: 800
-    height: 600
+    width: 1280
+    height: 720
     visible: true
     color: "#848895"
 
@@ -79,6 +78,13 @@ Window {
         //! [use]
         Model {
             position: Qt.vector3d(0, 0, 0)
+            NumberAnimation on eulerRotation.y {
+                from: 0
+                to: 360
+                duration: 3000
+                loops: -1
+                running: control.animateRotation
+            }
             scale: Qt.vector3d(2, 2, 2)
             source: "#Sphere"
             materials: [
@@ -86,6 +92,26 @@ Window {
                     id: exampleMaterial
                     time: control.time
                     amplitude: control.amplitude
+                    alpha: control.alpha
+                    texturing: control.texturing
+                    textureFromItem: control.textureFromItem
+                    texSrc: Rectangle {
+                        layer.enabled: true
+                        layer.textureMirroring: ShaderEffectSource.NoMirroring
+                        visible: false
+                        SequentialAnimation on color {
+                            ColorAnimation { from: "black"; to: "yellow"; duration: 2000 }
+                            ColorAnimation { from: "yellow"; to: "cyan"; duration: 1000 }
+                            ColorAnimation { from: "cyan"; to: "black"; duration: 500 }
+                            loops: -1
+                        }
+                        width: 512
+                        height: 512
+                        Image {
+                            source: "qt_logo.png"
+                            anchors.centerIn: parent
+                        }
+                    }
                 }
             ]
         }

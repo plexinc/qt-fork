@@ -7,7 +7,6 @@
 #include <stddef.h>
 
 #include "base/stl_util.h"
-#include "base/task/post_task.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -81,7 +80,7 @@ PepperIsolatedFileSystemMessageFilter::OverrideTaskRunnerForMessage(
     const IPC::Message& msg) {
   // In order to reach ExtensionSystem, we need to get ProfileManager first.
   // ProfileManager lives in UI thread, so we need to do this in UI thread.
-  return base::CreateSingleThreadTaskRunner({content::BrowserThread::UI});
+  return content::GetUIThreadTaskRunner({});
 }
 
 int32_t PepperIsolatedFileSystemMessageFilter::OnResourceMessageReceived(
@@ -113,9 +112,7 @@ PepperIsolatedFileSystemMessageFilter::CreateCrxFileSystem(Profile* profile) {
   // First level directory for isolated filesystem to lookup.
   std::string kFirstLevelDirectory("crxfs");
   return storage::IsolatedContext::GetInstance()->RegisterFileSystemForPath(
-      storage::kFileSystemTypeNativeLocal,
-      std::string(),
-      extension->path(),
+      storage::kFileSystemTypeLocal, std::string(), extension->path(),
       &kFirstLevelDirectory);
 #else
   return storage::IsolatedContext::ScopedFSHandle();

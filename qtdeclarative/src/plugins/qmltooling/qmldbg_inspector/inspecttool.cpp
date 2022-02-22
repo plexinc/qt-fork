@@ -71,7 +71,7 @@ InspectTool::InspectTool(QQuickWindowInspector *inspector, QQuickWindow *view) :
     connect(&m_nameDisplayTimer, &QTimer::timeout, this, &InspectTool::showItemName);
 }
 
-void InspectTool::enterEvent(QEvent *)
+void InspectTool::enterEvent(QEnterEvent *)
 {
     m_hoverHighlight->setVisible(true);
 }
@@ -83,7 +83,7 @@ void InspectTool::leaveEvent(QEvent *)
 
 void InspectTool::mousePressEvent(QMouseEvent *event)
 {
-    m_mousePosition = event->localPos();
+    m_mousePosition = event->position();
     if (event->button() == Qt::LeftButton) {
         selectItem();
         m_hoverHighlight->setVisible(false);
@@ -92,7 +92,7 @@ void InspectTool::mousePressEvent(QMouseEvent *event)
 
 void InspectTool::mouseDoubleClickEvent(QMouseEvent *event)
 {
-    m_mousePosition = event->localPos();
+    m_mousePosition = event->position();
     if (event->button() == Qt::LeftButton) {
         selectNextItem();
         m_hoverHighlight->setVisible(false);
@@ -106,8 +106,8 @@ void InspectTool::mouseMoveEvent(QMouseEvent *event)
 
 void InspectTool::hoverMoveEvent(QMouseEvent *event)
 {
-    m_mousePosition = event->localPos();
-    QQuickItem *item = inspector()->topVisibleItemAt(event->pos());
+    m_mousePosition = event->position();
+    QQuickItem *item = inspector()->topVisibleItemAt(event->position().toPoint());
     if (!item || item == m_lastClickedItem) {
         m_hoverHighlight->setVisible(false);
     } else {
@@ -118,12 +118,12 @@ void InspectTool::hoverMoveEvent(QMouseEvent *event)
 
 void InspectTool::touchEvent(QTouchEvent *event)
 {
-    QList<QTouchEvent::TouchPoint> touchPoints = event->touchPoints();
+    const auto &touchPoints = event->points();
 
     switch (event->type()) {
     case QEvent::TouchBegin:
-        if (touchPoints.count() == 1 && (event->touchPointStates() & Qt::TouchPointPressed)) {
-            m_mousePosition = touchPoints.first().pos();
+        if (touchPoints.count() == 1 && (event->touchPointStates() & QEventPoint::State::Pressed)) {
+            m_mousePosition = touchPoints.first().position();
             m_tapEvent = true;
         } else {
             m_tapEvent = false;
@@ -132,8 +132,8 @@ void InspectTool::touchEvent(QTouchEvent *event)
     case QEvent::TouchUpdate: {
         if (touchPoints.count() > 1)
             m_tapEvent = false;
-        else if ((touchPoints.count() == 1) && (event->touchPointStates() & Qt::TouchPointMoved))
-            m_mousePosition = touchPoints.first().pos();
+        else if ((touchPoints.count() == 1) && (event->touchPointStates() & QEventPoint::State::Updated))
+            m_mousePosition = touchPoints.first().position();
         break;
     }
     case QEvent::TouchEnd: {

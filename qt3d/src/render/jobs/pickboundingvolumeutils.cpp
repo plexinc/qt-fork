@@ -52,6 +52,9 @@
 #include <Qt3DRender/private/segmentsvisitor_p.h>
 #include <Qt3DRender/private/pointsvisitor_p.h>
 #include <Qt3DRender/private/layer_p.h>
+#include <Qt3DRender/private/layerfilternode_p.h>
+#include <Qt3DRender/private/rendersettings_p.h>
+#include <Qt3DRender/private/filterlayerentityjob_p.h>
 
 #include <vector>
 #include <algorithm>
@@ -66,6 +69,31 @@ namespace Render {
 
 namespace PickingUtils {
 
+
+PickConfiguration::PickConfiguration(FrameGraphNode *frameGraphRoot, RenderSettings *renderSettings)
+{
+    ViewportCameraAreaGatherer vcaGatherer;
+    // TO DO: We could cache this and only gather when we know the FrameGraph tree has changed
+    vcaDetails = vcaGatherer.gather(frameGraphRoot);
+
+    // If we have no viewport / camera or area, return early
+    if (vcaDetails.empty())
+        return;
+
+    // TO DO:
+    // If we have move or hover move events that someone cares about, we try to avoid expensive computations
+    // by compressing them into a single one
+
+    trianglePickingRequested = (renderSettings->pickMethod() & QPickingSettings::TrianglePicking);
+    edgePickingRequested = (renderSettings->pickMethod() & QPickingSettings::LinePicking);
+    pointPickingRequested = (renderSettings->pickMethod() & QPickingSettings::PointPicking);
+    primitivePickingRequested = pointPickingRequested | edgePickingRequested | trianglePickingRequested;
+    frontFaceRequested = renderSettings->faceOrientationPickingMode() != QPickingSettings::BackFace;
+    backFaceRequested = renderSettings->faceOrientationPickingMode() != QPickingSettings::FrontFace;
+    pickWorldSpaceTolerance = renderSettings->pickWorldSpaceTolerance();
+}
+
+
 void ViewportCameraAreaGatherer::visit(FrameGraphNode *node)
 {
     const auto children = node->children();
@@ -78,7 +106,7 @@ void ViewportCameraAreaGatherer::visit(FrameGraphNode *node)
 ViewportCameraAreaDetails ViewportCameraAreaGatherer::gatherUpViewportCameraAreas(Render::FrameGraphNode *node) const
 {
     ViewportCameraAreaDetails vca;
-    vca.viewport = QRectF(0.0f, 0.0f, 1.0f, 1.0f);
+    vca.viewport = QRectF(0., 0., 1., 1.);
 
     while (node) {
         if (node->isEnabled()) {
@@ -105,6 +133,11 @@ ViewportCameraAreaDetails ViewportCameraAreaGatherer::gatherUpViewportCameraArea
                 // prevent picking in the presence of a NoPicking node
                 return {};
             }
+            case FrameGraphNode::LayerFilter: {
+                auto fnode = static_cast<const LayerFilterNode *>(node);
+                vca.layersFilters.push_back(fnode->peerId());
+                break;
+            }
             default:
                 break;
             }
@@ -114,15 +147,15 @@ ViewportCameraAreaDetails ViewportCameraAreaGatherer::gatherUpViewportCameraArea
     return vca;
 }
 
-QVector<ViewportCameraAreaDetails> ViewportCameraAreaGatherer::gather(FrameGraphNode *root)
+std::vector<ViewportCameraAreaDetails> ViewportCameraAreaGatherer::gather(FrameGraphNode *root)
 {
     // Retrieve all leaves
     visit(root);
-    QVector<ViewportCameraAreaDetails> vcaTriplets;
-    vcaTriplets.reserve(m_leaves.count());
+    std::vector<ViewportCameraAreaDetails> vcaTriplets;
+    vcaTriplets.reserve(m_leaves.size());
 
     // Find all viewport/camera pairs by traversing from leaf to root
-    for (Render::FrameGraphNode *leaf : qAsConst(m_leaves)) {
+    for (Render::FrameGraphNode *leaf : m_leaves) {
         ViewportCameraAreaDetails vcaDetails = gatherUpViewportCameraAreas(leaf);
         if (!m_targetCamera.isNull() && vcaDetails.cameraId != m_targetCamera)
             continue;
@@ -132,14 +165,15 @@ QVector<ViewportCameraAreaDetails> ViewportCameraAreaGatherer::gather(FrameGraph
     return vcaTriplets;
 }
 
-bool ViewportCameraAreaGatherer::isUnique(const QVector<ViewportCameraAreaDetails> &vcaList,
+bool ViewportCameraAreaGatherer::isUnique(const std::vector<ViewportCameraAreaDetails> &vcaList,
                                           const ViewportCameraAreaDetails &vca) const
 {
     for (const ViewportCameraAreaDetails &listItem : vcaList) {
         if (vca.cameraId == listItem.cameraId &&
                 vca.viewport == listItem.viewport &&
                 vca.surface == listItem.surface &&
-                vca.area == listItem.area)
+                vca.area == listItem.area &&
+                vca.layersFilters == listItem.layersFilters)
             return false;
     }
     return true;
@@ -390,7 +424,7 @@ HitList reduceToFirstHit(HitList &result, const HitList &intermediate)
         float closest = result.front().m_distance;
         for (const auto &v : intermediate) {
             if (v.m_distance < closest) {
-                result.push_front(v);
+                result.insert(result.begin(), v);
                 closest = v.m_distance;
             }
         }
@@ -422,12 +456,12 @@ struct HighestPriorityHitReducer
             for (const auto &v : intermediate) {
                 const int newEntryPriority = entityToPriorityTable.value(v.m_entityId, 0);
                 if (newEntryPriority > currentPriority) {
-                    result.push_front(v);
+                    result.insert(result.begin(), v);
                     currentPriority = newEntryPriority;
                     closest = v.m_distance;
                 } else if (newEntryPriority == currentPriority) {
                     if (v.m_distance < closest) {
-                        result.push_front(v);
+                        result.insert(result.begin(), v);
                         closest = v.m_distance;
                         currentPriority = newEntryPriority;
                     }
@@ -444,7 +478,9 @@ struct HighestPriorityHitReducer
 HitList reduceToAllHits(HitList &results, const HitList &intermediate)
 {
     if (!intermediate.empty())
-        results << intermediate;
+        results.insert(results.end(),
+                       std::make_move_iterator(intermediate.begin()),
+                       std::make_move_iterator(intermediate.end()));
     return results;
 }
 
@@ -515,7 +551,7 @@ struct MapFunctorHolder
 
 } // anonymous
 
-HitList EntityCollisionGathererFunctor::computeHits(const QVector<Entity *> &entities,
+HitList EntityCollisionGathererFunctor::computeHits(const std::vector<Entity *> &entities,
                                                     Qt3DRender::QPickingSettings::PickResultMode mode)
 {
     std::function<HitList (HitList &, const HitList &)> reducerOp;
@@ -536,7 +572,7 @@ HitList EntityCollisionGathererFunctor::computeHits(const QVector<Entity *> &ent
     return QtConcurrent::blockingMappedReduced<HitList>(entities, holder, reducerOp);
 #else
     HitList sphereHits;
-    QVector<PickingUtils::EntityCollisionGathererFunctor::result_type> results;
+    QList<PickingUtils::EntityCollisionGathererFunctor::result_type> results;
     for (const Entity *entity : entities)
         sphereHits = reducerOp(sphereHits, holder(entity));
     return sphereHits;
@@ -555,7 +591,7 @@ HitList EntityCollisionGathererFunctor::pick(const Entity *entity) const
     return result;
 }
 
-HitList TriangleCollisionGathererFunctor::computeHits(const QVector<Entity *> &entities,
+HitList TriangleCollisionGathererFunctor::computeHits(const std::vector<Entity *> &entities,
                                                       Qt3DRender::QPickingSettings::PickResultMode mode)
 {
     std::function<HitList (HitList &, const HitList &)> reducerOp;
@@ -576,7 +612,7 @@ HitList TriangleCollisionGathererFunctor::computeHits(const QVector<Entity *> &e
     return QtConcurrent::blockingMappedReduced<HitList>(entities, holder, reducerOp);
 #else
     HitList sphereHits;
-    QVector<PickingUtils::TriangleCollisionGathererFunctor::result_type> results;
+    QList<PickingUtils::TriangleCollisionGathererFunctor::result_type> results;
     for (const Entity *entity : entities)
         sphereHits = reducerOp(sphereHits, holder(entity));
         return sphereHits;
@@ -587,22 +623,33 @@ HitList TriangleCollisionGathererFunctor::pick(const Entity *entity) const
 {
     HitList result;
 
-    GeometryRenderer *gRenderer = entity->renderComponent<GeometryRenderer>();
-    if (!gRenderer)
-        return result;
+    PickingProxy *proxy = entity->renderComponent<PickingProxy>();
+    if (proxy && proxy->isEnabled() && proxy->isValid()) {
+        if (rayHitsEntity(entity)) {
+            TriangleCollisionVisitor visitor(m_manager, entity, m_ray, m_frontFaceRequested, m_backFaceRequested);
+            visitor.apply(proxy, entity->peerId());
+            result = visitor.hits;
 
-    if (rayHitsEntity(entity)) {
-        TriangleCollisionVisitor visitor(m_manager, entity, m_ray, m_frontFaceRequested, m_backFaceRequested);
-        visitor.apply(gRenderer, entity->peerId());
-        result = visitor.hits;
+            sortHits(result);
+        }
+    } else {
+        GeometryRenderer *gRenderer = entity->renderComponent<GeometryRenderer>();
+        if (!gRenderer || !gRenderer->isEnabled())
+            return result;
 
-        sortHits(result);
+        if (rayHitsEntity(entity)) {
+            TriangleCollisionVisitor visitor(m_manager, entity, m_ray, m_frontFaceRequested, m_backFaceRequested);
+            visitor.apply(gRenderer, entity->peerId());
+            result = visitor.hits;
+
+            sortHits(result);
+        }
     }
 
     return result;
 }
 
-HitList LineCollisionGathererFunctor::computeHits(const QVector<Entity *> &entities,
+HitList LineCollisionGathererFunctor::computeHits(const std::vector<Entity *> &entities,
                                                   Qt3DRender::QPickingSettings::PickResultMode mode)
 {
     std::function<HitList (HitList &, const HitList &)> reducerOp;
@@ -623,7 +670,7 @@ HitList LineCollisionGathererFunctor::computeHits(const QVector<Entity *> &entit
     return QtConcurrent::blockingMappedReduced<HitList>(entities, holder, reducerOp);
 #else
     HitList sphereHits;
-    QVector<PickingUtils::LineCollisionGathererFunctor::result_type> results;
+    QList<PickingUtils::LineCollisionGathererFunctor::result_type> results;
     for (const Entity *entity : entities)
         sphereHits = reducerOp(sphereHits, holder(entity));
     return sphereHits;
@@ -634,21 +681,32 @@ HitList LineCollisionGathererFunctor::pick(const Entity *entity) const
 {
     HitList result;
 
-    GeometryRenderer *gRenderer = entity->renderComponent<GeometryRenderer>();
-    if (!gRenderer)
-        return result;
+    PickingProxy *proxy = entity->renderComponent<PickingProxy>();
+    if (proxy && proxy->isEnabled() && proxy->isValid()) {
+        if (rayHitsEntity(entity)) {
+            LineCollisionVisitor visitor(m_manager, entity, m_ray, m_pickWorldSpaceTolerance);
+            visitor.apply(proxy, entity->peerId());
+            result = visitor.hits;
 
-    if (rayHitsEntity(entity)) {
-        LineCollisionVisitor visitor(m_manager, entity, m_ray, m_pickWorldSpaceTolerance);
-        visitor.apply(gRenderer, entity->peerId());
-        result = visitor.hits;
-        sortHits(result);
+            sortHits(result);
+        }
+    } else {
+        GeometryRenderer *gRenderer = entity->renderComponent<GeometryRenderer>();
+        if (!gRenderer)
+            return result;
+
+        if (rayHitsEntity(entity)) {
+            LineCollisionVisitor visitor(m_manager, entity, m_ray, m_pickWorldSpaceTolerance);
+            visitor.apply(gRenderer, entity->peerId());
+            result = visitor.hits;
+            sortHits(result);
+        }
     }
 
     return result;
 }
 
-HitList PointCollisionGathererFunctor::computeHits(const QVector<Entity *> &entities,
+HitList PointCollisionGathererFunctor::computeHits(const std::vector<Entity *> &entities,
                                                    Qt3DRender::QPickingSettings::PickResultMode mode)
 {
     std::function<HitList (HitList &, const HitList &)> reducerOp;
@@ -669,7 +727,7 @@ HitList PointCollisionGathererFunctor::computeHits(const QVector<Entity *> &enti
     return QtConcurrent::blockingMappedReduced<HitList>(entities, holder, reducerOp);
 #else
     HitList sphereHits;
-    QVector<PickingUtils::PointCollisionGathererFunctor::result_type> results;
+    QList<PickingUtils::PointCollisionGathererFunctor::result_type> results;
     for (const Entity *entity : entities)
         sphereHits = reducerOp(sphereHits, holder(entity));
     return sphereHits;
@@ -680,18 +738,29 @@ HitList PointCollisionGathererFunctor::pick(const Entity *entity) const
 {
     HitList result;
 
-    GeometryRenderer *gRenderer = entity->renderComponent<GeometryRenderer>();
-    if (!gRenderer)
-        return result;
+    PickingProxy *proxy = entity->renderComponent<PickingProxy>();
+    if (proxy && proxy->isEnabled() && proxy->isValid() && proxy->primitiveType() != Qt3DCore::QGeometryView::Points) {
+        if (rayHitsEntity(entity)) {
+            PointCollisionVisitor visitor(m_manager, entity, m_ray, m_pickWorldSpaceTolerance);
+            visitor.apply(proxy, entity->peerId());
+            result = visitor.hits;
 
-    if (gRenderer->primitiveType() != Qt3DRender::QGeometryRenderer::Points)
-        return result;
+            sortHits(result);
+        }
+    } else {
+        GeometryRenderer *gRenderer = entity->renderComponent<GeometryRenderer>();
+        if (!gRenderer)
+            return result;
 
-    if (rayHitsEntity(entity)) {
-        PointCollisionVisitor visitor(m_manager, entity, m_ray, m_pickWorldSpaceTolerance);
-        visitor.apply(gRenderer, entity->peerId());
-        result = visitor.hits;
-        sortHits(result);
+        if (gRenderer->primitiveType() != Qt3DRender::QGeometryRenderer::Points)
+            return result;
+
+        if (rayHitsEntity(entity)) {
+            PointCollisionVisitor visitor(m_manager, entity, m_ray, m_pickWorldSpaceTolerance);
+            visitor.apply(gRenderer, entity->peerId());
+            result = visitor.hits;
+            sortHits(result);
+        }
     }
 
     return result;
@@ -700,16 +769,19 @@ HitList PointCollisionGathererFunctor::pick(const Entity *entity) const
 HierarchicalEntityPicker::HierarchicalEntityPicker(const QRay3D &ray, bool requireObjectPicker)
     : m_ray(ray)
     , m_objectPickersRequired(requireObjectPicker)
-    , m_filterMode(QAbstractRayCaster::AcceptAnyMatchingLayers)
 {
-
 }
 
-void HierarchicalEntityPicker::setFilterLayers(const Qt3DCore::QNodeIdVector &layerIds, QAbstractRayCaster::FilterMode mode)
+void HierarchicalEntityPicker::setLayerFilterIds(const Qt3DCore::QNodeIdVector &layerFilterIds)
 {
-    m_filterMode = mode;
+    m_layerFilterIds = layerFilterIds;
+}
+
+void HierarchicalEntityPicker::setLayerIds(const Qt3DCore::QNodeIdVector &layerIds,
+                                           QAbstractRayCaster::FilterMode mode)
+{
     m_layerIds = layerIds;
-    std::sort(m_layerIds.begin(), m_layerIds.end());
+    m_layerFilterMode = mode;
 }
 
 bool HierarchicalEntityPicker::collectHits(NodeManagers *manager, Entity *root)
@@ -722,59 +794,36 @@ bool HierarchicalEntityPicker::collectHits(NodeManagers *manager, Entity *root)
     struct EntityData {
         Entity* entity;
         bool hasObjectPicker;
-        Qt3DCore::QNodeIdVector recursiveLayers;
         int priority;
     };
     std::vector<EntityData> worklist;
-    worklist.push_back({root, !root->componentHandle<ObjectPicker>().isNull(), {}, 0});
+    worklist.push_back({root, !root->componentHandle<ObjectPicker>().isNull(), 0});
 
-    LayerManager *layerManager = manager->layerManager();
+    // Record all entities that satisfy layerFiltering. We can then check against
+    // that to see if a picked Entity also satisfies the layer filtering
+
+    // Note: PickBoundingVolumeJob filters against LayerFilter nodes (FG) whereas
+    // the RayCastingJob filters only against a set of Layers and a filter Mode
+    const bool hasLayerFilters = m_layerFilterIds.size() > 0;
+    const bool hasLayers = m_layerIds.size() > 0;
+    const bool hasLayerFiltering = hasLayerFilters || hasLayers;
+    std::vector<Entity *> layerFilterEntities;
+    FilterLayerEntityJob layerFilterJob;
+    layerFilterJob.setManager(manager);
+
+    if (hasLayerFilters) {
+        // Note: we expect UpdateEntityLayersJob was called beforehand to handle layer recursivness
+        // Filtering against LayerFilters (PickBoundingVolumeJob)
+        if (m_layerFilterIds.size()) {
+            layerFilterJob.setLayerFilters(m_layerFilterIds);
+            layerFilterJob.run();
+            layerFilterEntities = layerFilterJob.filteredEntities();
+        }
+    }
 
     while (!worklist.empty()) {
         EntityData current = worklist.back();
         worklist.pop_back();
-
-        bool accepted = true;
-        if (m_layerIds.size()) {
-            // TODO investigate reusing logic from LayerFilter job
-            Qt3DCore::QNodeIdVector filterLayers = current.recursiveLayers + current.entity->componentsUuid<Layer>();
-
-            // remove disabled layers
-            filterLayers.erase(std::remove_if(filterLayers.begin(), filterLayers.end(),
-                                              [layerManager](const Qt3DCore::QNodeId layerId) {
-                Layer *layer = layerManager->lookupResource(layerId);
-                return !layer || !layer->isEnabled();
-            }), filterLayers.end());
-
-            std::sort(filterLayers.begin(), filterLayers.end());
-
-            Qt3DCore::QNodeIdVector commonIds;
-            std::set_intersection(m_layerIds.cbegin(), m_layerIds.cend(),
-                                  filterLayers.cbegin(), filterLayers.cend(),
-                                  std::back_inserter(commonIds));
-
-            switch (m_filterMode) {
-            case QAbstractRayCaster::AcceptAnyMatchingLayers: {
-                accepted = !commonIds.empty();
-                break;
-            }
-            case QAbstractRayCaster::AcceptAllMatchingLayers: {
-                accepted = commonIds == m_layerIds;
-                break;
-            }
-            case QAbstractRayCaster::DiscardAnyMatchingLayers: {
-                accepted = commonIds.empty();
-                break;
-            }
-            case QAbstractRayCaster::DiscardAllMatchingLayers: {
-                accepted = !(commonIds == m_layerIds);
-                break;
-            }
-            default:
-                Q_UNREACHABLE();
-                break;
-            }
-        }
 
         // first pick entry sub-scene-graph
         QCollisionQueryResult::Hit queryResult =
@@ -784,29 +833,34 @@ bool HierarchicalEntityPicker::collectHits(NodeManagers *manager, Entity *root)
 
         // if we get a hit, we check again for this specific entity
         queryResult = rayCasting.query(m_ray, current.entity->worldBoundingVolume());
-        if (accepted && queryResult.m_distance >= 0.f && (current.hasObjectPicker || !m_objectPickersRequired)) {
+
+        // Check Entity is in selected Layers if we have LayerIds or LayerFilterIds
+        // Note: it's not because a parent doesn't satisfy the layerFiltering that a child might not.
+        // Therefore we need to keep traversing children in all cases
+
+        // Are we filtering against layerIds (RayCastingJob)
+        if (hasLayers) {
+            // QLayerFilter::FilterMode and QAbstractRayCaster::FilterMode are the same
+            layerFilterJob.filterEntityAgainstLayers(current.entity, m_layerIds, static_cast<QLayerFilter::FilterMode>(m_layerFilterMode));
+            layerFilterEntities = layerFilterJob.filteredEntities();
+        }
+
+        const bool isInLayers = !hasLayerFiltering || Qt3DCore::contains(layerFilterEntities, current.entity);
+
+        if (isInLayers && queryResult.m_distance >= 0.f && (current.hasObjectPicker || !m_objectPickersRequired)) {
             m_entities.push_back(current.entity);
             m_hits.push_back(queryResult);
             // Record entry for entity/priority
             m_entityToPriorityTable.insert(current.entity->peerId(), current.priority);
         }
 
-        Qt3DCore::QNodeIdVector recursiveLayers;
-        const Qt3DCore::QNodeIdVector entityLayers = current.entity->componentsUuid<Layer>();
-        for (const Qt3DCore::QNodeId layerId : entityLayers) {
-            Layer *layer = layerManager->lookupResource(layerId);
-            if (layer->recursive())
-                recursiveLayers << layerId;
-        }
-
         // and pick children
-        const auto childrenHandles = current.entity->childrenHandles();
+        const auto &childrenHandles = current.entity->childrenHandles();
         for (const HEntity &handle : childrenHandles) {
             Entity *child = manager->renderNodesManager()->data(handle);
             if (child) {
                 ObjectPicker *childPicker = child->renderComponent<ObjectPicker>();
                 worklist.push_back({child, current.hasObjectPicker || childPicker,
-                                    current.recursiveLayers + recursiveLayers,
                                     (childPicker ? childPicker->priority() : current.priority)});
             }
         }

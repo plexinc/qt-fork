@@ -4,10 +4,10 @@
 
 #include "components/feed/core/v2/feed_network.h"
 
-#include "components/feed/core/proto/v2/wire/action_request.pb.h"
-#include "components/feed/core/proto/v2/wire/feed_action_response.pb.h"
+#include "components/feed/core/proto/v2/wire/discover_actions_service.pb.h"
 #include "components/feed/core/proto/v2/wire/request.pb.h"
 #include "components/feed/core/proto/v2/wire/response.pb.h"
+#include "components/feed/core/proto/v2/wire/web_feeds.pb.h"
 
 namespace feed {
 
@@ -17,13 +17,6 @@ FeedNetwork::QueryRequestResult::QueryRequestResult(QueryRequestResult&&) =
     default;
 FeedNetwork::QueryRequestResult& FeedNetwork::QueryRequestResult::operator=(
     QueryRequestResult&&) = default;
-
-FeedNetwork::ActionRequestResult::ActionRequestResult() = default;
-FeedNetwork::ActionRequestResult::~ActionRequestResult() = default;
-FeedNetwork::ActionRequestResult::ActionRequestResult(ActionRequestResult&&) =
-    default;
-FeedNetwork::ActionRequestResult& FeedNetwork::ActionRequestResult::operator=(
-    ActionRequestResult&&) = default;
 
 FeedNetwork::~FeedNetwork() = default;
 

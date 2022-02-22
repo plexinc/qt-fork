@@ -58,12 +58,18 @@ void QQmlIRLoader::load()
     for (quint32 i = 0; i < qmlUnit->nImports; ++i)
         output->imports << qmlUnit->importAt(i);
 
-    if (unit->flags & QV4::CompiledData::Unit::IsSingleton) {
+    const auto createPragma = [&](QmlIR::Pragma::PragmaType type) {
         QmlIR::Pragma *p = New<QmlIR::Pragma>();
         p->location = QV4::CompiledData::Location();
-        p->type = QmlIR::Pragma::PragmaSingleton;
+        p->type = type;
         output->pragmas << p;
-    }
+    };
+
+    if (unit->flags & QV4::CompiledData::Unit::IsSingleton)
+        createPragma(QmlIR::Pragma::PragmaSingleton);
+    if (unit->flags & QV4::CompiledData::Unit::IsStrict)
+        createPragma(QmlIR::Pragma::PragmaStrict);
+
 
     for (uint i = 0; i < qmlUnit->nObjects; ++i) {
         const QV4::CompiledData::Object *serializedObject = qmlUnit->objectAt(i);
@@ -78,10 +84,10 @@ struct FakeExpression : public QQmlJS::AST::NullExpression
         : location(start, length)
     {}
 
-    virtual QQmlJS::SourceLocation firstSourceLocation() const
+    QQmlJS::SourceLocation firstSourceLocation() const override
     { return location; }
 
-    virtual QQmlJS::SourceLocation lastSourceLocation() const
+    QQmlJS::SourceLocation lastSourceLocation() const override
     { return location; }
 
 private:
@@ -91,14 +97,14 @@ private:
 QmlIR::Object *QQmlIRLoader::loadObject(const QV4::CompiledData::Object *serializedObject)
 {
     QmlIR::Object *object = pool->New<QmlIR::Object>();
-    object->init(pool, serializedObject->inheritedTypeNameIndex, serializedObject->idNameIndex);
+    object->init(pool, serializedObject->inheritedTypeNameIndex, serializedObject->idNameIndex,
+                 serializedObject->location);
 
     object->indexOfDefaultPropertyOrAlias = serializedObject->indexOfDefaultPropertyOrAlias;
     object->defaultPropertyIsAlias = serializedObject->defaultPropertyIsAlias;
     object->isInlineComponent = serializedObject->flags & QV4::CompiledData::Object::IsInlineComponentRoot;
     object->flags = serializedObject->flags;
     object->id = serializedObject->id;
-    object->location = serializedObject->location;
     object->locationOfIdProperty = serializedObject->locationOfIdProperty;
 
     QVector<int> functionIndices;
@@ -206,6 +212,13 @@ QmlIR::Object *QQmlIRLoader::loadObject(const QV4::CompiledData::Object *seriali
         QmlIR::InlineComponent *ic = pool->New<QmlIR::InlineComponent>();
         *static_cast<QV4::CompiledData::InlineComponent*>(ic) = *serializedInlineComponent;
         object->inlineComponents->append(ic);
+    }
+
+    const QV4::CompiledData::RequiredPropertyExtraData *serializedRequiredPropertyExtraData = serializedObject->requiredPropertyExtraDataTable();
+    for (uint i = 0u; i < serializedObject->nRequiredPropertyExtraData; ++i, ++serializedRequiredPropertyExtraData) {
+        QmlIR::RequiredPropertyExtraData *extra = pool->New<QmlIR::RequiredPropertyExtraData>();
+        *static_cast<QV4::CompiledData::RequiredPropertyExtraData *>(extra) = *serializedRequiredPropertyExtraData;
+        object->requiredPropertyExtraDatas->append(extra);
     }
 
     return object;

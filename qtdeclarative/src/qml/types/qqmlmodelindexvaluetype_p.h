@@ -53,6 +53,7 @@
 
 #include <QtCore/qabstractitemmodel.h>
 #include <QtCore/qitemselectionmodel.h>
+#include <QtQml/qqml.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -67,16 +68,20 @@ struct QQmlModelIndexValueType
     Q_PROPERTY(QAbstractItemModel *model READ model CONSTANT FINAL)
     Q_PROPERTY(quint64 internalId READ internalId CONSTANT FINAL)
     Q_GADGET
+    QML_ANONYMOUS
+    QML_EXTENDED(QQmlModelIndexValueType)
+    QML_FOREIGN(QModelIndex)
+    QML_ADDED_IN_VERSION(2, 0)
 
 public:
     Q_INVOKABLE QString toString() const
     { return QLatin1String("QModelIndex") + propertiesString(v); }
 
-    inline int row() const Q_DECL_NOTHROW { return v.row(); }
-    inline int column() const Q_DECL_NOTHROW { return v.column(); }
+    inline int row() const noexcept { return v.row(); }
+    inline int column() const noexcept { return v.column(); }
     inline QModelIndex parent() const { return v.parent(); }
-    inline bool isValid() const Q_DECL_NOTHROW { return v.isValid(); }
-    inline QAbstractItemModel *model() const Q_DECL_NOTHROW
+    inline bool isValid() const noexcept { return v.isValid(); }
+    inline QAbstractItemModel *model() const noexcept
     { return const_cast<QAbstractItemModel *>(v.model()); }
     quint64 internalId() const { return v.internalId(); }
 
@@ -97,6 +102,10 @@ struct QQmlPersistentModelIndexValueType
     Q_PROPERTY(QAbstractItemModel *model READ model FINAL)
     Q_PROPERTY(quint64 internalId READ internalId FINAL)
     Q_GADGET
+    QML_ANONYMOUS
+    QML_EXTENDED(QQmlPersistentModelIndexValueType)
+    QML_FOREIGN(QPersistentModelIndex)
+    QML_ADDED_IN_VERSION(2, 0)
 
 public:
     Q_INVOKABLE QString toString() const
@@ -108,9 +117,6 @@ public:
     inline bool isValid() const { return v.isValid(); }
     inline QAbstractItemModel *model() const { return const_cast<QAbstractItemModel *>(v.model()); }
     inline quint64 internalId() const { return v.internalId(); }
-
-    static const QModelIndex &toModelIndex(const QPersistentModelIndex &index)
-    { return index; }
 };
 
 struct QQmlItemSelectionRangeValueType
@@ -130,6 +136,10 @@ struct QQmlItemSelectionRangeValueType
     Q_PROPERTY(bool empty READ isEmpty FINAL)
     Q_PROPERTY(QAbstractItemModel *model READ model FINAL)
     Q_GADGET
+    QML_ANONYMOUS
+    QML_EXTENDED(QQmlItemSelectionRangeValueType)
+    QML_FOREIGN(QItemSelectionRange)
+    QML_ADDED_IN_VERSION(2, 0)
 
 public:
     Q_INVOKABLE QString toString() const;

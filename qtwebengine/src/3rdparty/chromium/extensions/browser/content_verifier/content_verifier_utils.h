@@ -5,7 +5,7 @@
 #define EXTENSIONS_BROWSER_CONTENT_VERIFIER_CONTENT_VERIFIER_UTILS_H_
 
 #include "base/files/file_path.h"
-#include "base/util/type_safety/strong_alias.h"
+#include "base/types/strong_alias.h"
 #include "build/build_config.h"
 
 namespace extensions {
@@ -20,7 +20,7 @@ namespace content_verifier_utils {
 //   - In case-insensitive OS, lower casing path.
 //   - In Windows, trimming "dot-space" suffix in path.
 using CanonicalRelativePath =
-    ::util::StrongAlias<class CanonicalRelativePathTag,
+    ::base::StrongAlias<class CanonicalRelativePathTag,
                         base::FilePath::StringType>;
 
 // Returns true if |path| ends with (.| )+.
@@ -30,7 +30,7 @@ bool TrimDotSpaceSuffix(const base::FilePath::StringType& path,
 
 // Returns true if this system/OS's file access is case sensitive.
 constexpr bool IsFileAccessCaseSensitive() {
-#if defined(OS_WIN) || defined(OS_MACOSX)
+#if defined(OS_WIN) || defined(OS_MAC)
   return false;
 #else
   return true;

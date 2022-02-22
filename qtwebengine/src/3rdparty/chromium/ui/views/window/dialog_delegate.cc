@@ -12,6 +12,7 @@
 #include "build/build_config.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
+#include "ui/accessibility/ax_role_properties.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/strings/grit/ui_strings.h"
@@ -20,6 +21,7 @@
 #include "ui/views/buildflags.h"
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/layout/layout_provider.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/style/platform_style.h"
 #include "ui/views/views_features.h"
 #include "ui/views/widget/widget.h"
@@ -42,6 +44,8 @@ DialogDelegate::Params::~Params() = default;
 // DialogDelegate:
 
 DialogDelegate::DialogDelegate() {
+  WidgetDelegate::RegisterWindowWillCloseCallback(
+      base::BindOnce(&DialogDelegate::WindowWillClose, base::Unretained(this)));
   UMA_HISTOGRAM_BOOLEAN("Dialog.DialogDelegate.Create", true);
   creation_time_ = base::TimeTicks::Now();
 }
@@ -58,8 +62,18 @@ Widget* DialogDelegate::CreateDialogWidget(WidgetDelegate* delegate,
 }
 
 // static
+Widget* DialogDelegate::CreateDialogWidget(
+    std::unique_ptr<WidgetDelegate> delegate,
+    gfx::NativeWindow context,
+    gfx::NativeView parent) {
+  DCHECK(delegate->owned_by_widget());
+  return CreateDialogWidget(delegate.release(), context, parent);
+}
+
+// static
 bool DialogDelegate::CanSupportCustomFrame(gfx::NativeView parent) {
-#if defined(OS_LINUX) && BUILDFLAG(ENABLE_DESKTOP_AURA)
+#if (defined(OS_LINUX) || defined(OS_CHROMEOS)) && \
+    BUILDFLAG(ENABLE_DESKTOP_AURA)
   // The new style doesn't support unparented dialogs on Linux desktop.
   return parent != nullptr;
 #else
@@ -89,7 +103,7 @@ Widget::InitParams DialogDelegate::GetDialogWidgetInitParams(
   if (!dialog || dialog->use_custom_frame()) {
     params.opacity = Widget::InitParams::WindowOpacity::kTranslucent;
     params.remove_standard_frame = true;
-#if !defined(OS_MACOSX)
+#if !defined(OS_APPLE)
     // Except on Mac, the bubble frame includes its own shadow; remove any
     // native shadowing. On Mac, the window server provides the shadow.
     params.shadow_type = views::Widget::InitParams::ShadowType::kNone;
@@ -97,7 +111,7 @@ Widget::InitParams DialogDelegate::GetDialogWidgetInitParams(
   }
   params.context = context;
   params.parent = parent;
-#if !defined(OS_MACOSX)
+#if !defined(OS_APPLE)
   // Web-modal (ui::MODAL_TYPE_CHILD) dialogs with parents are marked as child
   // widgets to prevent top-level window behavior (independent movement, etc).
   // On Mac, however, the parent may be a native window (not a views::Widget),
@@ -135,7 +149,7 @@ base::string16 DialogDelegate::GetDialogButtonLabel(
 }
 
 bool DialogDelegate::IsDialogButtonEnabled(ui::DialogButton button) const {
-  return true;
+  return params_.enabled_buttons & button;
 }
 
 bool DialogDelegate::Cancel() {
@@ -159,6 +173,9 @@ void DialogDelegate::RunCloseCallback(base::OnceClosure callback) {
 }
 
 View* DialogDelegate::GetInitiallyFocusedView() {
+  if (WidgetDelegate::HasConfiguredInitiallyFocusedView())
+    return WidgetDelegate::GetInitiallyFocusedView();
+
   // Focus the default button if any.
   const DialogClientView* dcv = GetDialogClientView();
   if (!dcv)
@@ -185,14 +202,13 @@ DialogDelegate* DialogDelegate::AsDialogDelegate() {
 }
 
 ClientView* DialogDelegate::CreateClientView(Widget* widget) {
-  return new DialogClientView(widget, GetContentsView());
+  return new DialogClientView(widget, TransferOwnershipOfContentsView());
 }
 
-NonClientFrameView* DialogDelegate::CreateNonClientFrameView(Widget* widget) {
-  if (use_custom_frame())
-    return CreateDialogFrameView(widget);
-
-  return WidgetDelegate::CreateNonClientFrameView(widget);
+std::unique_ptr<NonClientFrameView> DialogDelegate::CreateNonClientFrameView(
+    Widget* widget) {
+  return use_custom_frame() ? CreateDialogFrameView(widget)
+                            : WidgetDelegate::CreateNonClientFrameView(widget);
 }
 
 void DialogDelegate::WindowWillClose() {
@@ -208,16 +224,6 @@ void DialogDelegate::WindowWillClose() {
   if (new_callback_present)
     return;
 
-  // Old-style close behavior: if the only button was Ok, call Accept();
-  // otherwise call Cancel(). Note that in this case the window is already going
-  // to close, so the return values of Accept()/Cancel(), which normally say
-  // whether the window should close, are ignored.
-  int buttons = GetDialogButtons();
-  if (buttons == ui::DIALOG_BUTTON_OK)
-    Accept();
-  else
-    Cancel();
-
   // This is set here instead of before the invocations of Accept()/Cancel() so
   // that those methods can DCHECK that !already_started_close_. Otherwise,
   // client code could (eg) call Accept() from inside the cancel callback, which
@@ -226,9 +232,10 @@ void DialogDelegate::WindowWillClose() {
 }
 
 // static
-NonClientFrameView* DialogDelegate::CreateDialogFrameView(Widget* widget) {
+std::unique_ptr<NonClientFrameView> DialogDelegate::CreateDialogFrameView(
+    Widget* widget) {
   LayoutProvider* provider = LayoutProvider::Get();
-  BubbleFrameView* frame = new BubbleFrameView(
+  auto frame = std::make_unique<BubbleFrameView>(
       provider->GetInsetsMetric(INSETS_DIALOG_TITLE), gfx::Insets());
 
   const BubbleBorder::Shadow kShadow = BubbleBorder::DIALOG_SHADOW;
@@ -237,13 +244,8 @@ NonClientFrameView* DialogDelegate::CreateDialogFrameView(Widget* widget) {
   border->set_use_theme_background_color(true);
   DialogDelegate* delegate = widget->widget_delegate()->AsDialogDelegate();
   if (delegate) {
-    if (delegate->GetParams().round_corners) {
-      border->SetCornerRadius(
-          base::FeatureList::IsEnabled(
-              features::kEnableMDRoundedCornersOnDialogs)
-              ? provider->GetCornerRadiusMetric(views::EMPHASIS_HIGH)
-              : 2);
-    }
+    if (delegate->GetParams().round_corners)
+      border->SetCornerRadius(delegate->GetCornerRadius());
     frame->SetFootnoteView(delegate->DisownFootnoteView());
   }
   frame->SetBubbleBorder(std::move(border));
@@ -324,16 +326,35 @@ void DialogDelegate::DialogModelChanged() {
 }
 
 void DialogDelegate::SetDefaultButton(int button) {
+  if (params_.default_button == button)
+    return;
   params_.default_button = button;
+  DialogModelChanged();
 }
 
 void DialogDelegate::SetButtons(int buttons) {
+  if (params_.buttons == buttons)
+    return;
   params_.buttons = buttons;
+  DialogModelChanged();
+}
+
+void DialogDelegate::SetButtonEnabled(ui::DialogButton button, bool enabled) {
+  if (!!(params_.enabled_buttons & button) == enabled)
+    return;
+  if (enabled)
+    params_.enabled_buttons |= button;
+  else
+    params_.enabled_buttons &= ~button;
+  DialogModelChanged();
 }
 
 void DialogDelegate::SetButtonLabel(ui::DialogButton button,
     base::string16 label) {
+  if (params_.button_labels[button] == label)
+    return;
   params_.button_labels[button] = label;
+  DialogModelChanged();
 }
 
 void DialogDelegate::SetAcceptCallback(base::OnceClosure callback) {
@@ -366,6 +387,7 @@ void DialogDelegate::SetButtonRowInsets(const gfx::Insets& insets) {
 }
 
 void DialogDelegate::AcceptDialog() {
+  DCHECK(IsDialogButtonEnabled(ui::DIALOG_BUTTON_OK));
   if (already_started_close_ || !Accept())
     return;
 
@@ -375,6 +397,9 @@ void DialogDelegate::AcceptDialog() {
 }
 
 void DialogDelegate::CancelDialog() {
+  // Note: don't DCHECK(IsDialogButtonEnabled(ui::DIALOG_BUTTON_CANCEL)) here;
+  // CancelDialog() is *always* reachable via Esc closing the dialog, even if
+  // the cancel button is disabled or there is no cancel button at all.
   if (already_started_close_ || !Cancel())
     return;
 
@@ -392,6 +417,17 @@ ax::mojom::Role DialogDelegate::GetAccessibleWindowRole() {
   return ax::mojom::Role::kDialog;
 }
 
+int DialogDelegate::GetCornerRadius() const {
+#if defined(OS_MAC)
+  // TODO(crbug.com/1116680): On Mac MODAL_TYPE_WINDOW is implemented using
+  // sheets which causes visual artifacts when corner radius is increased for
+  // modal types. Remove this after this issue has been addressed.
+  if (GetModalType() == ui::MODAL_TYPE_WINDOW)
+    return 2;
+#endif
+  return LayoutProvider::Get()->GetCornerRadiusMetric(views::EMPHASIS_MEDIUM);
+}
+
 std::unique_ptr<View> DialogDelegate::DisownFootnoteView() {
   return std::move(footnote_view_);
 }
@@ -404,16 +440,12 @@ void DialogDelegate::OnWidgetInitialized() {
 // DialogDelegateView:
 
 DialogDelegateView::DialogDelegateView() {
-  // A WidgetDelegate should be deleted on DeleteDelegate.
   set_owned_by_client();
+  SetOwnedByWidget(true);
   UMA_HISTOGRAM_BOOLEAN("Dialog.DialogDelegateView.Create", true);
 }
 
 DialogDelegateView::~DialogDelegateView() = default;
-
-void DialogDelegateView::DeleteDelegate() {
-  delete this;
-}
 
 Widget* DialogDelegateView::GetWidget() {
   return View::GetWidget();
@@ -427,13 +459,7 @@ View* DialogDelegateView::GetContentsView() {
   return this;
 }
 
-void DialogDelegateView::ViewHierarchyChanged(
-    const ViewHierarchyChangedDetails& details) {
-  if (details.is_add && details.child == this && GetWidget() &&
-      (GetAccessibleWindowRole() == ax::mojom::Role::kAlert ||
-       GetAccessibleWindowRole() == ax::mojom::Role::kAlertDialog)) {
-    NotifyAccessibilityEvent(ax::mojom::Event::kAlert, true);
-  }
-}
+BEGIN_METADATA(DialogDelegateView, View)
+END_METADATA
 
 }  // namespace views

@@ -23,13 +23,14 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "crypto/sha2.h"
-#include "device/fido/features.h"
+#include "device/fido/filter.h"
 #include "extensions/browser/extension_api_frame_id_map.h"
 #include "extensions/common/error_utils.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "url/origin.h"
 
 #if defined(OS_WIN)
+#include "device/fido/features.h"
 #include "device/fido/win/webauthn_api.h"
 #endif  // defined(OS_WIN)
 
@@ -38,25 +39,6 @@ namespace extensions {
 namespace api {
 
 namespace {
-
-// U2FAttestationPromptResult enumerates events related to attestation prompts.
-// These values are recorded in an UMA histogram and so should not be
-// reassigned.
-enum class U2FAttestationPromptResult {
-  // kQueried indicates that the embedder was queried in order to determine
-  // whether attestation information should be returned to the origin.
-  kQueried = 0,
-  // kAllowed indicates that the query to the embedder was resolved positively.
-  // (E.g. the user clicked to allow, or the embedder allowed immediately by
-  // policy.) Note that this may still be recorded if the user clicks to allow
-  // attestation after the request has timed out.
-  kAllowed = 1,
-  // kBlocked indicates that the query to the embedder was resolved negatively.
-  // (E.g. the user clicked to block, or closed the dialog.) Navigating away or
-  // closing the tab also fall into this bucket.
-  kBlocked = 2,
-  kMaxValue = kBlocked,
-};
 
 const char kGoogleDotCom[] = "google.com";
 constexpr const char* kGoogleGstaticAppIds[] = {
@@ -87,11 +69,6 @@ bool ContainsAppIdByHash(const base::ListValue& list,
   }
 
   return false;
-}
-
-void RecordAttestationEvent(U2FAttestationPromptResult event) {
-  UMA_HISTOGRAM_ENUMERATION("WebAuthentication.U2FAttestationPromptResult",
-                            event);
 }
 
 content::RenderFrameHost* RenderFrameHostForTabAndFrameId(
@@ -135,7 +112,7 @@ CryptotokenPrivateCanOriginAssertAppIdFunction::Run() {
   }
 
   if (origin_url == app_id_url) {
-    return RespondNow(OneArgument(std::make_unique<base::Value>(true)));
+    return RespondNow(OneArgument(base::Value(true)));
   }
 
   // Fetch the eTLD+1 of both.
@@ -156,7 +133,7 @@ CryptotokenPrivateCanOriginAssertAppIdFunction::Run() {
         "Could not find an eTLD for appId *", params->app_id_url)));
   }
   if (origin_etldp1 == app_id_etldp1) {
-    return RespondNow(OneArgument(std::make_unique<base::Value>(true)));
+    return RespondNow(OneArgument(base::Value(true)));
   }
   // For legacy purposes, allow google.com origins to assert certain
   // gstatic.com appIds.
@@ -164,10 +141,10 @@ CryptotokenPrivateCanOriginAssertAppIdFunction::Run() {
   if (origin_etldp1 == kGoogleDotCom) {
     for (const char* id : kGoogleGstaticAppIds) {
       if (params->app_id_url == id)
-        return RespondNow(OneArgument(std::make_unique<base::Value>(true)));
+        return RespondNow(OneArgument(base::Value(true)));
     }
   }
-  return RespondNow(OneArgument(std::make_unique<base::Value>(false)));
+  return RespondNow(OneArgument(base::Value(false)));
 }
 
 CryptotokenPrivateIsAppIdHashInEnterpriseContextFunction::
@@ -220,20 +197,22 @@ CryptotokenPrivateCanAppIdGetAttestationFunction::Run() {
                    [&app_id](const base::Value& v) -> bool {
                      return v.GetString() == app_id;
                    }) != permit_attestation->end()) {
-    return RespondNow(OneArgument(std::make_unique<base::Value>(true)));
+    return RespondNow(OneArgument(base::Value(true)));
   }
 
   // If the origin is blocked, reject attestation.
-  if (device::DoesMatchWebAuthAttestationBlockedDomains(
-          url::Origin::Create(origin_url))) {
-    return RespondNow(OneArgument(std::make_unique<base::Value>(false)));
+  if (device::fido_filter::Evaluate(
+          device::fido_filter::Operation::MAKE_CREDENTIAL, origin.Serialize(),
+          /*device=*/base::nullopt, /*id=*/base::nullopt) ==
+      device::fido_filter::Action::NO_ATTESTATION) {
+    return RespondNow(OneArgument(base::Value(false)));
   }
 
   // If prompting is disabled, allow attestation because that is the historical
   // behavior.
   if (!base::FeatureList::IsEnabled(
           ::features::kSecurityKeyAttestationPrompt)) {
-    return RespondNow(OneArgument(std::make_unique<base::Value>(true)));
+    return RespondNow(OneArgument(base::Value(true)));
   }
 
 #if defined(OS_WIN)
@@ -249,7 +228,7 @@ CryptotokenPrivateCanAppIdGetAttestationFunction::Run() {
       device::WinWebAuthnApi::GetDefault()->IsAvailable() &&
       device::WinWebAuthnApi::GetDefault()->Version() >=
           WEBAUTHN_API_VERSION_2) {
-    return RespondNow(OneArgument(std::make_unique<base::Value>(true)));
+    return RespondNow(OneArgument(base::Value(true)));
   }
 #endif  // defined(OS_WIN)
 
@@ -270,19 +249,21 @@ CryptotokenPrivateCanAppIdGetAttestationFunction::Run() {
     return RespondNow(Error("no PermissionRequestManager"));
   }
 
-  RecordAttestationEvent(U2FAttestationPromptResult::kQueried);
   // The created AttestationPermissionRequest deletes itself once complete.
-  permission_request_manager->AddRequest(NewAttestationPermissionRequest(
-      origin,
-      base::BindOnce(
-          &CryptotokenPrivateCanAppIdGetAttestationFunction::Complete, this)));
+  permission_request_manager->AddRequest(
+      web_contents->GetMainFrame(),  // Extension API targets a particular tab,
+                                     // so select the current main frame to
+                                     // handle the request.
+      NewAttestationPermissionRequest(
+          origin,
+          base::BindOnce(
+              &CryptotokenPrivateCanAppIdGetAttestationFunction::Complete,
+              this)));
   return RespondLater();
 }
 
 void CryptotokenPrivateCanAppIdGetAttestationFunction::Complete(bool result) {
-  RecordAttestationEvent(result ? U2FAttestationPromptResult::kAllowed
-                                : U2FAttestationPromptResult::kBlocked);
-  Respond(OneArgument(std::make_unique<base::Value>(result)));
+  Respond(OneArgument(base::Value(result)));
 }
 
 ExtensionFunction::ResponseAction

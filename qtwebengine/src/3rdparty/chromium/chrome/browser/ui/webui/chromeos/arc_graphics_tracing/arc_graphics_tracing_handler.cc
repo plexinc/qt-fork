@@ -18,7 +18,9 @@
 #include "base/process/process_iterator.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_tokenizer.h"
+#include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/values.h"
@@ -30,7 +32,6 @@
 #include "chrome/browser/chromeos/file_manager/path_util.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/ash/launcher/arc_app_window_launcher_controller.h"
 #include "components/arc/arc_prefs.h"
 #include "components/arc/arc_util.h"
 #include "components/exo/shell_surface_util.h"
@@ -146,7 +147,7 @@ bool ReadNameFromStatus(pid_t pid, pid_t tid, std::string* out_name) {
   base::StringTokenizer tokenizer(status, "\n");
   while (tokenizer.GetNext()) {
     base::StringPiece value_str(tokenizer.token_piece());
-    if (!value_str.starts_with("Name:"))
+    if (!base::StartsWith(value_str, "Name:"))
       continue;
     std::vector<base::StringPiece> split_value_str = base::SplitStringPiece(
         value_str, "\t", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
@@ -271,14 +272,15 @@ base::trace_event::TraceConfig GetTracingConfig(ArcGraphicsTracingMode mode) {
   switch (mode) {
     case ArcGraphicsTracingMode::kFull: {
       base::trace_event::TraceConfig config(
-          "-*,exo,viz,toplevel,gpu,cc,blink,disabled-by-default-android "
-          "gfx,disabled-by-default-android view",
+          "-*,exo,viz,toplevel,gpu,cc,blink,disabled-by-default-android gfx,"
+          "disabled-by-default-android view",
           base::trace_event::RECORD_CONTINUOUSLY);
       config.EnableSystrace();
       // By default, systracing starts pre-defined set of categories with
       // predefined set of events in each category. Limit events to what we
       // actually analyze in ArcTracingModel.
       config.EnableSystraceEvent("i915:intel_gpu_freq_change");
+      config.EnableSystraceEvent("drm_msm_gpu:msm_gpu_freq_change");
       config.EnableSystraceEvent("power:cpu_idle");
       config.EnableSystraceEvent("sched:sched_wakeup");
       config.EnableSystraceEvent("sched:sched_switch");
@@ -289,6 +291,7 @@ base::trace_event::TraceConfig GetTracingConfig(ArcGraphicsTracingMode mode) {
           "-*,exo,viz,toplevel,gpu", base::trace_event::RECORD_CONTINUOUSLY);
       config.EnableSystrace();
       config.EnableSystraceEvent("i915:intel_gpu_freq_change");
+      config.EnableSystraceEvent("drm_msm_gpu:msm_gpu_freq_change");
       return config;
     }
   }
@@ -370,7 +373,7 @@ void ArcGraphicsTracingHandler::OnWindowActivated(ActivationReason reason,
   jank_detector_ =
       std::make_unique<arc::ArcGraphicsJankDetector>(base::BindRepeating(
           &ArcGraphicsTracingHandler::OnJankDetected, base::Unretained(this)));
-  exo::Surface* const surface = exo::GetShellMainSurface(arc_active_window_);
+  exo::Surface* const surface = exo::GetShellRootSurface(arc_active_window_);
   DCHECK(surface);
   surface->AddSurfaceObserver(this);
 }
@@ -448,7 +451,7 @@ void ArcGraphicsTracingHandler::DiscardActiveArcWindow() {
   if (!arc_active_window_)
     return;
 
-  exo::Surface* const surface = exo::GetShellMainSurface(arc_active_window_);
+  exo::Surface* const surface = exo::GetShellRootSurface(arc_active_window_);
   if (surface)
     surface->RemoveSurfaceObserver(this);
 
@@ -475,8 +478,8 @@ void ArcGraphicsTracingHandler::StartTracing() {
   tracing_active_ = true;
   if (jank_detector_)
     jank_detector_->Reset();
-  system_stat_colletor_ = std::make_unique<arc::ArcSystemStatCollector>();
-  system_stat_colletor_->Start(GetMaxInterval());
+  system_stat_collector_ = std::make_unique<arc::ArcSystemStatCollector>();
+  system_stat_collector_->Start(GetMaxInterval());
 
   // Timestamp and app information would be updated when |OnTracingStarted| is
   // called.
@@ -497,8 +500,8 @@ void ArcGraphicsTracingHandler::StopTracing() {
 
   tracing_time_max_ = TRACE_TIME_TICKS_NOW();
 
-  if (system_stat_colletor_)
-    system_stat_colletor_->Stop();
+  if (system_stat_collector_)
+    system_stat_collector_->Stop();
 
   content::TracingController* const controller =
       content::TracingController::GetInstance();
@@ -534,7 +537,7 @@ void ArcGraphicsTracingHandler::OnTracingStarted() {
   tracing_time_min_ = TRACE_TIME_TICKS_NOW();
   if (mode_ == ArcGraphicsTracingMode::kOverview) {
     stop_tracing_timer_.Start(
-        FROM_HERE, system_stat_colletor_->max_interval(),
+        FROM_HERE, system_stat_collector_->max_interval(),
         base::BindOnce(&ArcGraphicsTracingHandler::StopTracingAndActivate,
                        base::Unretained(this)));
   }
@@ -555,7 +558,7 @@ void ArcGraphicsTracingHandler::OnTracingStopped(
       FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
       base::BindOnce(&BuildGraphicsModel, std::move(string_data), mode_,
                      active_task_title_, active_task_icon_png_, timestamp_,
-                     std::move(system_stat_colletor_), tracing_time_min_,
+                     std::move(system_stat_collector_), tracing_time_min_,
                      tracing_time_max_, model_path),
       base::BindOnce(&ArcGraphicsTracingHandler::OnGraphicsModelReady,
                      weak_ptr_factory_.GetWeakPtr()));

@@ -56,7 +56,7 @@ struct CORE_EXPORT PhysicalSize {
   }
 
   constexpr bool operator==(const PhysicalSize& other) const {
-    return other.width == width && other.height == height;
+    return std::tie(other.width, other.height) == std::tie(width, height);
   }
   constexpr bool operator!=(const PhysicalSize& other) const {
     return !(*this == other);
@@ -98,6 +98,10 @@ struct CORE_EXPORT PhysicalSize {
   static PhysicalSize FromFloatSizeRound(const FloatSize& size) {
     return {LayoutUnit::FromFloatRound(size.Width()),
             LayoutUnit::FromFloatRound(size.Height())};
+  }
+  static PhysicalSize FromFloatSizeFloor(const FloatSize& size) {
+    return {LayoutUnit::FromFloatFloor(size.Width()),
+            LayoutUnit::FromFloatFloor(size.Height())};
   }
   constexpr explicit operator FloatSize() const { return {width, height}; }
 

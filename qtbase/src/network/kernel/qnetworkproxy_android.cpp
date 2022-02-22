@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2020 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtNetwork module of the Qt Toolkit.
@@ -38,8 +38,10 @@
 ****************************************************************************/
 
 #include "qnetworkproxy.h"
-#include <QtCore/private/qjni_p.h>
-#include <QtCore/private/qjnihelpers_p.h>
+
+#include <QtCore/qcoreapplication_platform.h>
+#include <QtCore/qjnienvironment.h>
+#include <QtCore/qjniobject.h>
 
 #ifndef QT_NO_NETWORKPROXY
 
@@ -52,24 +54,26 @@ public:
     ~ProxyInfoObject();
 };
 
+using namespace QNativeInterface;
+
 Q_GLOBAL_STATIC(ProxyInfoObject, proxyInfoInstance)
 
-static const char networkClass[] = "org/qtproject/qt5/android/network/QtNetwork";
+static const char networkClass[] = "org/qtproject/qt/android/network/QtNetwork";
 
 ProxyInfoObject::ProxyInfoObject()
 {
-    QJNIObjectPrivate::callStaticMethod<void>(networkClass,
-                                              "registerReceiver",
-                                              "(Landroid/content/Context;)V",
-                                              QtAndroidPrivate::context());
+    QJniObject::callStaticMethod<void>(networkClass,
+                                       "registerReceiver",
+                                       "(Landroid/content/Context;)V",
+                                       QAndroidApplication::context());
 }
 
 ProxyInfoObject::~ProxyInfoObject()
 {
-    QJNIObjectPrivate::callStaticMethod<void>(networkClass,
-                                              "unregisterReceiver",
-                                              "(Landroid/content/Context;)V",
-                                              QtAndroidPrivate::context());
+    QJniObject::callStaticMethod<void>(networkClass,
+                                       "unregisterReceiver",
+                                       "(Landroid/content/Context;)V",
+                                       QAndroidApplication::context());
 }
 
 QList<QNetworkProxy> QNetworkProxyFactory::systemProxyForQuery(const QNetworkProxyQuery &query)
@@ -78,18 +82,18 @@ QList<QNetworkProxy> QNetworkProxyFactory::systemProxyForQuery(const QNetworkPro
     if (!proxyInfoInstance)
         return proxyList;
 
-    QJNIObjectPrivate proxyInfo = QJNIObjectPrivate::callStaticObjectMethod(networkClass,
+    QJniObject proxyInfo = QJniObject::callStaticObjectMethod(networkClass,
                                       "getProxyInfo",
                                       "(Landroid/content/Context;)Landroid/net/ProxyInfo;",
-                                      QtAndroidPrivate::context());
+                                      QAndroidApplication::context());
     if (proxyInfo.isValid()) {
-        QJNIObjectPrivate exclusionList = proxyInfo.callObjectMethod("getExclusionList",
-                                                                     "()[Ljava/lang/String;");
+        QJniObject exclusionList = proxyInfo.callObjectMethod("getExclusionList",
+                                                              "()[Ljava/lang/String;");
         bool exclude = false;
         if (exclusionList.isValid()) {
-            jobjectArray listObject = static_cast<jobjectArray>(exclusionList.object());
-            QJNIEnvironmentPrivate env;
-            QJNIObjectPrivate entry;
+            jobjectArray listObject = exclusionList.object<jobjectArray>();
+            QJniEnvironment env;
+            QJniObject entry;
             const int size = env->GetArrayLength(listObject);
             QUrl host = QUrl(query.url().host());
             for (int i = 0; i < size; ++i) {
@@ -101,7 +105,7 @@ QList<QNetworkProxy> QNetworkProxyFactory::systemProxyForQuery(const QNetworkPro
             }
         }
         if (!exclude) {
-            QJNIObjectPrivate hostName = proxyInfo.callObjectMethod<jstring>("getHost");
+            QJniObject hostName = proxyInfo.callObjectMethod<jstring>("getHost");
             const int port = proxyInfo.callMethod<jint>("getPort");
             QNetworkProxy proxy(QNetworkProxy::HttpProxy, hostName.toString(), port);
             proxyList << proxy;

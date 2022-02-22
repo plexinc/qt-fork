@@ -4,9 +4,6 @@
 
 import {Target} from './SDKModel.js';  // eslint-disable-line no-unused-vars
 
-/**
- * @unrestricted
- */
 export class ProfileNode {
   /**
    * @param {!Protocol.Runtime.CallFrame} callFrame
@@ -26,6 +23,10 @@ export class ProfileNode {
     this.parent = null;
     /** @type {!Array<!ProfileNode>} */
     this.children = [];
+    /** @type {number} */
+    this.depth;
+    /** @type {?string} */
+    this.deoptReason;
   }
 
   /**
@@ -64,15 +65,18 @@ export class ProfileNode {
   }
 }
 
-/**
- * @unrestricted
- */
 export class ProfileTreeModel {
   /**
    * @param {?Target=} target
    */
   constructor(target) {
     this._target = target || null;
+    /** @type {!ProfileNode} */
+    this.root;
+    /** @type {number} */
+    this.total;
+    /** @type {number} */
+    this.maxDepth;
   }
 
   /**
@@ -92,15 +96,13 @@ export class ProfileTreeModel {
     this.maxDepth = 0;
     const nodesToTraverse = [root];
     while (nodesToTraverse.length) {
-      const parent = nodesToTraverse.pop();
+      const parent = /** @type {!ProfileNode} */ (nodesToTraverse.pop());
       const depth = parent.depth + 1;
       if (depth > this.maxDepth) {
         this.maxDepth = depth;
       }
       const children = parent.children;
-      const length = children.length;
-      for (let i = 0; i < length; ++i) {
-        const child = children[i];
+      for (const child of children) {
         child.depth = depth;
         child.parent = parent;
         if (child.children.length) {
@@ -118,14 +120,16 @@ export class ProfileTreeModel {
     const nodesToTraverse = [root];
     const dfsList = [];
     while (nodesToTraverse.length) {
-      const node = nodesToTraverse.pop();
+      const node = /** @type {!ProfileNode} */ (nodesToTraverse.pop());
       node.total = node.self;
       dfsList.push(node);
       nodesToTraverse.push(...node.children);
     }
     while (dfsList.length > 1) {
-      const node = dfsList.pop();
-      node.parent.total += node.total;
+      const node = /** @type {!ProfileNode} */ (dfsList.pop());
+      if (node.parent) {
+        node.parent.total += node.total;
+      }
     }
     return root.total;
   }

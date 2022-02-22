@@ -7,7 +7,7 @@
 #include <stddef.h>
 
 #include "base/lazy_instance.h"
-#include "content/browser/frame_host/debug_urls.h"
+#include "content/browser/renderer_host/debug_urls.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/web_ui_controller.h"
 #include "content/public/common/content_client.h"
@@ -74,18 +74,6 @@ bool WebUIControllerFactoryRegistry::UseWebUIForURL(
       g_web_ui_controller_factories.Pointer();
   for (size_t i = 0; i < factories->size(); ++i) {
     if ((*factories)[i]->UseWebUIForURL(browser_context, url))
-      return true;
-  }
-  return false;
-}
-
-bool WebUIControllerFactoryRegistry::UseWebUIBindingsForURL(
-    BrowserContext* browser_context,
-    const GURL& url) {
-  std::vector<WebUIControllerFactory*>* factories =
-      g_web_ui_controller_factories.Pointer();
-  for (size_t i = 0; i < factories->size(); ++i) {
-    if ((*factories)[i]->UseWebUIBindingsForURL(browser_context, url))
       return true;
   }
   return false;

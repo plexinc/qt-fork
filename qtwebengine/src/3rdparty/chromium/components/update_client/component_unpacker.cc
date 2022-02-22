@@ -64,9 +64,9 @@ bool ComponentUnpacker::Verify() {
   std::vector<std::vector<uint8_t>> required_keys;
   if (!pk_hash_.empty())
     required_keys.push_back(pk_hash_);
-  const crx_file::VerifierResult result =
-      crx_file::Verify(path_, crx_format_, required_keys,
-                       std::vector<uint8_t>(), &public_key_, nullptr);
+  const crx_file::VerifierResult result = crx_file::Verify(
+      path_, crx_format_, required_keys, std::vector<uint8_t>(), &public_key_,
+      nullptr, /*compressed_verified_contents=*/nullptr);
   if (result != crx_file::VerifierResult::OK_FULL &&
       result != crx_file::VerifierResult::OK_DELTA) {
     error_ = UnpackerError::kInvalidFile;
@@ -138,9 +138,9 @@ void ComponentUnpacker::EndPatching(UnpackerError error, int extended_error) {
 
 void ComponentUnpacker::EndUnpacking() {
   if (!unpack_diff_path_.empty())
-    base::DeleteFileRecursively(unpack_diff_path_);
+    base::DeletePathRecursively(unpack_diff_path_);
   if (error_ != UnpackerError::kNone && !unpack_path_.empty())
-    base::DeleteFileRecursively(unpack_path_);
+    base::DeletePathRecursively(unpack_path_);
 
   Result result;
   result.error = error_;

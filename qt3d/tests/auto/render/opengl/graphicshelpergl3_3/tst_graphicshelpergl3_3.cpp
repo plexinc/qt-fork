@@ -32,11 +32,14 @@
 #include <Qt3DRender/private/attachmentpack_p.h>
 #include <graphicshelpergl3_3_p.h>
 #include <QOpenGLBuffer>
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+#include <QOpenGLVersionFunctionsFactory>
+#endif
 #include <QOpenGLFunctions_3_3_Core>
 #include <QOpenGLShaderProgram>
 #include <QOpenGLVertexArrayObject>
 
-#if !defined(QT_OPENGL_ES_2) && defined(QT_OPENGL_3_2)
+#if !QT_CONFIG(opengles2) && defined(QT_OPENGL_3_2)
 
 #define TEST_SHOULD_BE_PERFORMED 1
 
@@ -207,7 +210,11 @@ private Q_SLOTS:
             return;
         }
 
-        if ((m_func = m_glContext.versionFunctions<QOpenGLFunctions_3_3_Core>()) != nullptr) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        if ((m_func = QOpenGLVersionFunctionsFactory::get<QOpenGLFunctions_3_3_Core>()) != nullptr) {
+#else
+        if ((m_func = m_glContext.versionFunctions<QOpenGLFunctions_3_3_Core>())) {
+#endif
             m_glHelper.initializeHelper(&m_glContext, m_func);
             m_initializationSuccessful = true;
         }
@@ -651,9 +658,8 @@ private Q_SLOTS:
         m_func->glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, colors.data());
         textures[3]->release();
 
-        for (const QVector4D c : colors) {
+        for (const QVector4D &c : colors)
             QVERIFY(c == clearValue1);
-        }
 
         // WHEN
         const QVector4D clearValue2 = QVector4D(0.4f, 0.5f, 0.4f, 1.0f);
@@ -663,9 +669,8 @@ private Q_SLOTS:
         textures[3]->bind();
         m_func->glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, colors.data());
         textures[3]->release();
-        for (const QVector4D c : colors) {
+        for (const QVector4D &c : colors)
             QVERIFY(c == clearValue2);
-        }
         // Restore
         m_func->glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
         m_func->glDeleteFramebuffers(1, &fboId);
@@ -1068,11 +1073,11 @@ private Q_SLOTS:
         QVERIFY(shaderProgram.link());
 
         // WHEN
-        const QVector<ShaderUniformBlock> activeUniformBlocks = m_glHelper.programUniformBlocks(shaderProgram.programId());
+        const std::vector<ShaderUniformBlock> activeUniformBlocks = m_glHelper.programUniformBlocks(shaderProgram.programId());
 
         // THEN
         QCOMPARE(activeUniformBlocks.size(), 1);
-        const ShaderUniformBlock uniformBlock = activeUniformBlocks.first();
+        const ShaderUniformBlock uniformBlock = activeUniformBlocks.front();
 
         QCOMPARE(uniformBlock.m_activeUniformsCount, 1);
         QCOMPARE(uniformBlock.m_name, QStringLiteral("ColorArray"));
@@ -1096,7 +1101,7 @@ private Q_SLOTS:
         QVERIFY(shaderProgram.link());
 
         // WHEN
-        QVector<ShaderAttribute> activeAttributes = m_glHelper.programAttributesAndLocations(shaderProgram.programId());
+        std::vector<ShaderAttribute> activeAttributes = m_glHelper.programAttributesAndLocations(shaderProgram.programId());
 
         // THEN
         QCOMPARE(activeAttributes.size(), 2);
@@ -1127,7 +1132,7 @@ private Q_SLOTS:
         QVERIFY(shaderProgram.link());
 
         // WHEN
-        QVector<ShaderUniform> activeUniforms = m_glHelper.programUniformsAndLocations(shaderProgram.programId());
+        std::vector<ShaderUniform> activeUniforms = m_glHelper.programUniformsAndLocations(shaderProgram.programId());
 
         // THEN
         QCOMPARE(activeUniforms.size(), 4);
@@ -1386,7 +1391,7 @@ private Q_SLOTS:
 
         GLint location = shaderProgram.uniformLocation(name);
         // WHEN
-        const QVector<ShaderUniform> activeUniforms = m_glHelper.programUniformsAndLocations(shaderProgram.programId());
+        const std::vector<ShaderUniform> activeUniforms = m_glHelper.programUniformsAndLocations(shaderProgram.programId());
         ShaderUniform matchingUniform;
         for (const ShaderUniform &u : activeUniforms) {
             if (u.m_location == location) {

@@ -18,7 +18,6 @@
 #include "api/packet_socket_factory.h"
 #include "api/transport/stun.h"
 #include "p2p/base/async_stun_tcp_socket.h"
-#include "rtc_base/bind.h"
 #include "rtc_base/byte_buffer.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/helpers.h"
@@ -59,7 +58,7 @@ enum {
 // Encapsulates a TURN permission.
 // The object is created when a create permission request is received by an
 // allocation, and self-deletes when its lifetime timer expires.
-class TurnServerAllocation::Permission : public rtc::MessageHandler {
+class TurnServerAllocation::Permission : public rtc::MessageHandlerAutoCleanup {
  public:
   Permission(rtc::Thread* thread, const rtc::IPAddress& peer);
   ~Permission() override;
@@ -79,7 +78,7 @@ class TurnServerAllocation::Permission : public rtc::MessageHandler {
 // Encapsulates a TURN channel binding.
 // The object is created when a channel bind request is received by an
 // allocation, and self-deletes when its lifetime timer expires.
-class TurnServerAllocation::Channel : public rtc::MessageHandler {
+class TurnServerAllocation::Channel : public rtc::MessageHandlerAutoCleanup {
  public:
   Channel(rtc::Thread* thread, int id, const rtc::SocketAddress& peer);
   ~Channel() override;
@@ -575,7 +574,7 @@ void TurnServer::DestroyInternalSocket(rtc::AsyncPacketSocket* socket) {
     sockets_to_delete_.push_back(
         std::unique_ptr<rtc::AsyncPacketSocket>(socket));
     invoker_.AsyncInvoke<void>(RTC_FROM_HERE, rtc::Thread::Current(),
-                               rtc::Bind(&TurnServer::FreeSockets, this));
+                               [this] { FreeSockets(); });
   }
 }
 

@@ -98,9 +98,6 @@ class QHttp2ConfigurationPrivate : public QSharedData
 {
 public:
     unsigned sessionWindowSize = Http2::defaultSessionWindowSize;
-    // The size below is quite a limiting default value, QNetworkRequest
-    // by default sets a larger number, an application can change this using
-    // QNetworkRequest::setHttp2Configuration.
     unsigned streamWindowSize = Http2::defaultSessionWindowSize;
 
     unsigned maxFrameSize = Http2::minPayloadLimit; // Initial (default) value of 16Kb.
@@ -141,12 +138,12 @@ QHttp2Configuration::QHttp2Configuration(QHttp2Configuration &&other) noexcept
 }
 
 /*!
-    Copy-assigns to this QHttp2Configuration.
+    Copy-assigns \a other to this QHttp2Configuration.
 */
 QHttp2Configuration &QHttp2Configuration::operator=(const QHttp2Configuration &) = default;
 
 /*!
-    Move-assigns to this QHttp2Configuration.
+    Move-assigns \a other to this QHttp2Configuration.
 */
 QHttp2Configuration &QHttp2Configuration::operator=(QHttp2Configuration &&) noexcept = default;
 
@@ -159,7 +156,7 @@ QHttp2Configuration::~QHttp2Configuration()
 
 /*!
     If \a enable is \c true, a remote server can potentially
-    use server push to send reponses in advance.
+    use server push to send responses in advance.
 
     \sa serverPushEnabled
 */
@@ -209,6 +206,8 @@ bool QHttp2Configuration::huffmanCompressionEnabled() const
     Sets the window size for connection-level flow control.
     \a size cannot be 0 and must not exceed 2147483647 octets.
 
+    Returns \c true on success, \c false otherwise.
+
     \sa sessionReceiveWindowSize
 */
 bool QHttp2Configuration::setSessionReceiveWindowSize(unsigned size)
@@ -236,6 +235,8 @@ unsigned QHttp2Configuration::sessionReceiveWindowSize() const
     Sets the window size for stream-level flow control.
     \a size cannot be 0 and must not exceed 2147483647 octets.
 
+    Returns \c true on success, \c false otherwise.
+
     \sa streamReceiveWindowSize
  */
 bool QHttp2Configuration::setStreamReceiveWindowSize(unsigned size)
@@ -252,7 +253,7 @@ bool QHttp2Configuration::setStreamReceiveWindowSize(unsigned size)
 /*!
     Returns the window size for stream-level flow control.
     The default value QNetworkAccessManager will be using is
-    21474836 octets.
+    65535 octets (see \l {https://httpwg.org/specs/rfc7540.html#SettingValues}{RFC 7540}).
 */
 unsigned QHttp2Configuration::streamReceiveWindowSize() const
 {
@@ -265,6 +266,8 @@ unsigned QHttp2Configuration::streamReceiveWindowSize() const
     \note While this \a size is required to be within a range between
     16384 and 16777215 inclusive, the actual payload size in frames
     that carry payload maybe be less than 16384.
+
+    Returns \c true on success, \c false otherwise.
 */
 bool QHttp2Configuration::setMaxFrameSize(unsigned size)
 {
@@ -278,7 +281,7 @@ bool QHttp2Configuration::setMaxFrameSize(unsigned size)
 }
 
 /*!
-    The maximum payload size that HTTP/2 frames can
+    Returns the maximum payload size that HTTP/2 frames can
     have. The default (initial) value is 16384 octets.
 */
 unsigned QHttp2Configuration::maxFrameSize() const
@@ -295,18 +298,29 @@ void QHttp2Configuration::swap(QHttp2Configuration &other) noexcept
 }
 
 /*!
+    \fn bool QHttp2Configuration::operator==(const QHttp2Configuration &lhs, const QHttp2Configuration &rhs) noexcept
     Returns \c true if \a lhs and \a rhs have the same set of HTTP/2
     parameters.
 */
-bool operator==(const QHttp2Configuration &lhs, const QHttp2Configuration &rhs)
+
+/*!
+    \fn bool QHttp2Configuration::operator!=(const QHttp2Configuration &lhs, const QHttp2Configuration &rhs) noexcept
+    Returns \c true if \a lhs and \a rhs do not have the same set of HTTP/2
+    parameters.
+*/
+
+/*!
+    \internal
+*/
+bool QHttp2Configuration::isEqual(const QHttp2Configuration &other) const noexcept
 {
-    if (lhs.d == rhs.d)
+    if (d == other.d)
         return true;
 
-    return lhs.d->pushEnabled == rhs.d->pushEnabled
-           && lhs.d->huffmanCompressionEnabled == rhs.d->huffmanCompressionEnabled
-           && lhs.d->sessionWindowSize == rhs.d->sessionWindowSize
-           && lhs.d->streamWindowSize == rhs.d->streamWindowSize;
+    return d->pushEnabled == other.d->pushEnabled
+           && d->huffmanCompressionEnabled == other.d->huffmanCompressionEnabled
+           && d->sessionWindowSize == other.d->sessionWindowSize
+           && d->streamWindowSize == other.d->streamWindowSize;
 }
 
 QT_END_NAMESPACE

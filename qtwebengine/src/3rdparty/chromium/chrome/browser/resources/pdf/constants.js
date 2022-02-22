@@ -3,6 +3,40 @@
 // found in the LICENSE file.
 
 /**
+ * @typedef {{
+ *   name: string,
+ *   size: number,
+ *   readable: boolean,
+ * }}
+ */
+export let Attachment;
+
+/** @enum {string} */
+export const DisplayAnnotationsAction = {
+  DISPLAY_ANNOTATIONS: 'display-annotations',
+  HIDE_ANNOTATIONS: 'hide-annotations',
+};
+
+/**
+ * @typedef {{
+ *   author: string,
+ *   canSerializeDocument: boolean,
+ *   creationDate: string,
+ *   creator: string,
+ *   fileSize: string,
+ *   keywords: string,
+ *   linearized: boolean,
+ *   modDate: string,
+ *   pageSize: string,
+ *   producer: string,
+ *   subject: string,
+ *   title: string,
+ *   version: string,
+ * }}
+ */
+export let DocumentMetadata;
+
+/**
  * Enumeration of page fitting types.
  * @enum {string}
  */
@@ -14,10 +48,24 @@ export const FittingType = {
 };
 
 /**
- * Enumeration of two up view actions.
- * @enum {string}
+ * @typedef {{
+ *   messageId: string,
+ *   namedDestinationView: (string|undefined),
+ *   pageNumber: number,
+ * }}
  */
-export const TwoUpViewAction = {
-  TWO_UP_VIEW_ENABLE: 'two-up-view-enable',
-  TWO_UP_VIEW_DISABLE: 'two-up-view-disable',
+export let NamedDestinationMessageData;
+
+/**
+ * Enumeration of save message request types. Must Match SaveRequestType in
+ * pdf/out_of_process_instance.h.
+ * @enum {number}
+ */
+export const SaveRequestType = {
+  ANNOTATION: 0,
+  ORIGINAL: 1,
+  EDITED: 2,
 };
+
+/** @typedef {{x: number, y: number}} */
+export let Point;

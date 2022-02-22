@@ -14,7 +14,7 @@ import("//build_overrides/build.gni")
 # - libs - Additional libraries to link.
 # - additional_configs - additional configs to be used for compilation
 # - dict - a dictionary file for the fuzzer.
-# - environment_variables - certain whitelisted environment variables for the
+# - environment_variables - certain environment variables allowed for the
 # fuzzer (AFL_DRIVER_DONT_DEFER is the only one allowed currently).
 # - libfuzzer_options - options for the fuzzer (e.g. -close_fd_mask=N).
 # - asan_options - AddressSanitizer options (e.g. allow_user_segv_handler=1).
@@ -36,14 +36,6 @@ template("openscreen_fuzzer_test") {
     assert(defined(invoker.sources), "Need sources in $target_name.")
 
     test_deps = [ "//testing/libfuzzer:fuzzing_engine_main" ]
-    test_data_deps = []
-
-    if (defined(invoker.deps)) {
-      test_deps += invoker.deps
-    }
-    if (defined(invoker.data_deps)) {
-      test_data_deps += invoker.data_deps
-    }
 
     if (defined(invoker.seed_corpus) || defined(invoker.seed_corpuses)) {
       assert(!(defined(invoker.seed_corpus) && defined(invoker.seed_corpuses)),
@@ -75,9 +67,7 @@ template("openscreen_fuzzer_test") {
           }
         }
 
-        outputs = [
-          out,
-        ]
+        outputs = [ out ]
 
         deps = [ "//testing/libfuzzer:seed_corpus" ] + seed_corpus_deps
       }
@@ -92,12 +82,8 @@ template("openscreen_fuzzer_test") {
       if (defined(invoker.dict)) {
         # Copy dictionary to output.
         copy(target_name + "_dict_copy") {
-          sources = [
-            invoker.dict,
-          ]
-          outputs = [
-            "$root_build_dir/" + target_name + ".dict",
-          ]
+          sources = [ invoker.dict ]
+          outputs = [ "$root_build_dir/" + target_name + ".dict" ]
         }
         test_deps += [ ":" + target_name + "_dict_copy" ]
       }
@@ -144,26 +130,15 @@ template("openscreen_fuzzer_test") {
           args += invoker.environment_variables
         }
 
-        outputs = [
-          "$root_build_dir/$config_file_name",
-        ]
+        outputs = [ "$root_build_dir/$config_file_name" ]
       }
       test_deps += [ ":" + config_file_name ]
     }
 
     executable(target_name) {
-      forward_variables_from(invoker,
-                             [
-                               "cflags",
-                               "cflags_cc",
-                               "check_includes",
-                               "defines",
-                               "include_dirs",
-                               "sources",
-                               "libs",
-                             ])
-      deps = test_deps
-      data_deps = test_data_deps
+      testonly = true
+      forward_variables_from(invoker, "*")
+      deps += test_deps
 
       if (defined(invoker.additional_configs)) {
         configs += invoker.additional_configs

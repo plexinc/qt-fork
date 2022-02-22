@@ -56,7 +56,9 @@
 #include <QtScxml/private/qscxmlstatemachineinfo_p.h>
 #include <QtCore/private/qobject_p.h>
 #include <QtCore/private/qmetaobject_p.h>
+#include <QtCore/private/qproperty_p.h>
 #include <QtCore/qmetaobject.h>
+#include "qscxmlglobals_p.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -113,14 +115,14 @@ public:
     {}
 
 Q_SIGNALS:
-    void statesEntered(const QVector<QScxmlStateMachineInfo::StateId> &states);
-    void statesExited(const QVector<QScxmlStateMachineInfo::StateId> &states);
-    void transitionsTriggered(const QVector<QScxmlStateMachineInfo::TransitionId> &transitions);
+    void statesEntered(const QList<QScxmlStateMachineInfo::StateId> &states);
+    void statesExited(const QList<QScxmlStateMachineInfo::StateId> &states);
+    void transitionsTriggered(const QList<QScxmlStateMachineInfo::TransitionId> &transitions);
 };
 } // QScxmlInternal namespace
 
 class QScxmlInvokableService;
-class QScxmlStateMachinePrivate: public QObjectPrivate
+class Q_SCXML_PRIVATE_EXPORT QScxmlStateMachinePrivate: public QObjectPrivate
 {
     Q_DECLARE_PUBLIC(QScxmlStateMachine)
 
@@ -152,7 +154,7 @@ public: // types
     {
     public:
         QScopedPointer<QScxmlDataModel> m_ownedDataModel;
-        QVector<QScxmlError> m_errors;
+        QList<QScxmlError> m_errors;
     };
 
     // The OrderedSet is a set where it elements are in insertion order. See
@@ -216,7 +218,7 @@ public: // types
 
     class Queue
     {
-        QVector<QScxmlEvent *> storage;
+        QList<QScxmlEvent *> storage;
 
     public:
         Queue()
@@ -328,14 +330,46 @@ private:
 public: // types & data fields:
     QString m_sessionId;
     bool m_isInvoked;
-    bool m_isInitialized;
+
+    void isInitializedChanged()
+    {
+        emit q_func()->initializedChanged(m_isInitialized.value());
+    }
+    Q_OBJECT_BINDABLE_PROPERTY_WITH_ARGS(QScxmlStateMachinePrivate,
+                                         bool, m_isInitialized, false,
+                                         &QScxmlStateMachinePrivate::isInitializedChanged);
+
+    void initialValuesChanged()
+    {
+        emit q_func()->initialValuesChanged(m_initialValues.value());
+    }
+    Q_OBJECT_BINDABLE_PROPERTY(QScxmlStateMachinePrivate, QVariantMap, m_initialValues,
+                               &QScxmlStateMachinePrivate::initialValuesChanged);
+
+    void loaderChanged()
+    {
+        emit q_func()->loaderChanged(m_loader.value());
+    }
+    Q_OBJECT_BINDABLE_PROPERTY(QScxmlStateMachinePrivate, QScxmlCompiler::Loader*, m_loader,
+                               &QScxmlStateMachinePrivate::loaderChanged);
+
+    void setDataModel(QScxmlDataModel* loader)
+    {
+        q_func()->setDataModel(loader);
+    }
+    Q_OBJECT_COMPAT_PROPERTY_WITH_ARGS(QScxmlStateMachinePrivate, QScxmlDataModel*, m_dataModel,
+                                       &QScxmlStateMachinePrivate::setDataModel, nullptr);
+
+    void setTableData(QScxmlTableData* tableData)
+    {
+        q_func()->setTableData(tableData);
+    }
+    Q_OBJECT_COMPAT_PROPERTY_WITH_ARGS(QScxmlStateMachinePrivate, QScxmlTableData*, m_tableData,
+                                       &QScxmlStateMachinePrivate::setTableData, nullptr);
+
     bool m_isProcessingEvents;
-    QVariantMap m_initialValues;
-    QScxmlDataModel *m_dataModel;
     QScxmlCompilerPrivate::DefaultLoader m_defaultLoader;
-    QScxmlCompiler::Loader *m_loader;
     QScxmlExecutionEngine *m_executionEngine;
-    QScxmlTableData *m_tableData;
     const StateTable *m_stateTable;
     QScxmlStateMachine *m_parentStateMachine;
     QScxmlInternal::EventLoopHook m_eventLoopHook;
@@ -346,7 +380,7 @@ public: // types & data fields:
 
 private:
     QScopedPointer<ParserData> m_parserData; // used when created by StateMachine::fromFile.
-    typedef QHash<int, QVector<int>> HistoryValues;
+    typedef QHash<int, QList<int>> HistoryValues;
     struct InvokedService {
         int invokingState;
         QScxmlInvokableService *service;
@@ -360,6 +394,18 @@ private:
     Queue m_externalQueue;
     QSet<int> m_statesToInvoke;
     std::vector<InvokedService> m_invokedServices;
+    QList<QScxmlInvokableService*> invokedServicesActualCalculation() const
+    {
+        QList<QScxmlInvokableService *> result;
+        for (size_t i = 0, ei = m_invokedServices.size(); i != ei; ++i) {
+            if (auto service = m_invokedServices[i].service)
+                result.append(service);
+        }
+        return result;
+    }
+    Q_OBJECT_COMPUTED_PROPERTY(QScxmlStateMachinePrivate, QList<QScxmlInvokableService*>,
+                               m_invokedServicesComputedProperty,
+                               &QScxmlStateMachinePrivate::invokedServicesActualCalculation);
     std::vector<bool> m_isFirstStateEntry;
     std::vector<QScxmlInvokableServiceFactory *> m_cachedFactories;
     enum { Invalid = 0, Starting, Running, Paused, Finished } m_runningState = Invalid;

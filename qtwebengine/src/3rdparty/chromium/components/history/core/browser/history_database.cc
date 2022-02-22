@@ -14,6 +14,7 @@
 
 #include "base/command_line.h"
 #include "base/files/file_util.h"
+#include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/numerics/safe_conversions.h"
@@ -27,7 +28,7 @@
 #include "sql/statement.h"
 #include "sql/transaction.h"
 
-#if defined(OS_MACOSX) && !defined(OS_IOS)
+#if defined(OS_MAC)
 #include "base/mac/mac_util.h"
 #endif
 
@@ -38,7 +39,7 @@ namespace {
 // Current version number. We write databases at the "current" version number,
 // but any previous version that can read the "compatible" one can make do with
 // our database without *too* many bad effects.
-const int kCurrentVersionNumber = 42;
+const int kCurrentVersionNumber = 43;
 const int kCompatibleVersionNumber = 16;
 const char kEarlyExpirationThresholdKey[] = "early_expiration_threshold";
 
@@ -78,30 +79,27 @@ HistoryDatabase::HistoryDatabase(
     DownloadInterruptReason download_interrupt_reason_none,
     DownloadInterruptReason download_interrupt_reason_crash)
     : DownloadDatabase(download_interrupt_reason_none,
-                       download_interrupt_reason_crash) {
-}
+                       download_interrupt_reason_crash),
+      db_(sql::DatabaseOptions(
+           // Note that we don't set exclusive locking here. That's done by
+           // BeginExclusiveMode below which is called later (we have to be in
+           // shared mode to start out for the in-memory backend to read the
+           // data).
+           // TODO(1153459) Remove this dependency on normal locking mode. 
+           /*.exclusive_locking =*/ false,
+           // Set the database page size to something a little larger to give us
+           // better performance (we're typically seek rather than bandwidth
+           // limited). Must be a power of 2 and a max of 65536.
+           /*.page_size =*/ 4096,
+           // Set the cache size. The page size, plus a little extra, times this
+           // value, tells us how much memory the cache will use maximum.
+           // 1000 * 4kB = 4MB
+           /*.cache_size =*/ 1000)) {}
 
-HistoryDatabase::~HistoryDatabase() {
-}
+HistoryDatabase::~HistoryDatabase() = default;
 
 sql::InitStatus HistoryDatabase::Init(const base::FilePath& history_name) {
   db_.set_histogram_tag("History");
-
-  // Set the database page size to something a little larger to give us
-  // better performance (we're typically seek rather than bandwidth limited).
-  // This only has an effect before any tables have been created, otherwise
-  // this is a NOP. Must be a power of 2 and a max of 8192.
-  db_.set_page_size(4096);
-
-  // Set the cache size. The page size, plus a little extra, times this
-  // value, tells us how much memory the cache will use maximum.
-  // 1000 * 4kB = 4MB
-  // TODO(brettw) scale this value to the amount of available memory.
-  db_.set_cache_size(1000);
-
-  // Note that we don't set exclusive locking here. That's done by
-  // BeginExclusiveMode below which is called later (we have to be in shared
-  // mode to start out for the in-memory backend to read the data).
 
   if (!db_.Open(history_name))
     return LogInitFailure(InitStep::OPEN);
@@ -112,7 +110,7 @@ sql::InitStatus HistoryDatabase::Init(const base::FilePath& history_name) {
   if (!committer.Begin())
     return LogInitFailure(InitStep::TRANSACTION_BEGIN);
 
-#if defined(OS_MACOSX) && !defined(OS_IOS)
+#if defined(OS_MAC)
   // Exclude the history file from backups.
   base::mac::SetFileBackupExclusion(history_name);
 #endif
@@ -127,7 +125,11 @@ sql::InitStatus HistoryDatabase::Init(const base::FilePath& history_name) {
     return LogInitFailure(InitStep::META_TABLE_INIT);
   if (!CreateURLTable(false) || !InitVisitTable() ||
       !InitKeywordSearchTermsTable() || !InitDownloadTable() ||
+#if !defined(TOOLKIT_QT)
       !InitSegmentTables() || !InitSyncTable())
+#else
+      !InitSegmentTables())
+#endif
     return LogInitFailure(InitStep::CREATE_TABLES);
   CreateMainURLIndex();
 
@@ -284,8 +286,7 @@ int HistoryDatabase::CountUniqueDomainsVisited(base::Time begin_time,
 }
 
 void HistoryDatabase::BeginExclusiveMode() {
-  // We can't use set_exclusive_locking() since that only has an effect before
-  // the DB is opened.
+  // We need to use a PRAGMA statement here as the DB has already been created.
   ignore_result(db_.Execute("PRAGMA locking_mode=EXCLUSIVE"));
 }
 
@@ -368,6 +369,10 @@ SegmentID HistoryDatabase::GetSegmentID(VisitID visit_id) {
   if (!s.Step() || s.GetColumnType(0) == sql::ColumnType::kNull)
     return 0;
   return s.ColumnInt64(0);
+}
+
+bool HistoryDatabase::GetVisitsForUrl2(URLID url_id, VisitVector* visits) {
+  return GetVisitsForURL(url_id, visits);
 }
 
 base::Time HistoryDatabase::GetEarlyExpirationThreshold() {
@@ -606,6 +611,7 @@ sql::InitStatus HistoryDatabase::EnsureCurrentVersion() {
     meta_table_.SetVersionNumber(cur_version);
   }
 
+#if !defined(TOOLKIT_QT)
   if (cur_version == 40) {
     std::vector<URLID> visited_url_rowids_sorted;
     if (!GetAllVisitedURLRowidsForMigrationToVersion40(
@@ -617,10 +623,18 @@ sql::InitStatus HistoryDatabase::EnsureCurrentVersion() {
     cur_version++;
     meta_table_.SetVersionNumber(cur_version);
   }
+#endif
 
   if (cur_version == 41) {
     if (!MigrateKeywordsSearchTermsLowerTermColumn())
       return LogMigrationFailure(41);
+    cur_version++;
+    meta_table_.SetVersionNumber(cur_version);
+  }
+
+  if (cur_version == 42) {
+    if (!MigrateVisitsWithoutPubliclyRoutableColumn())
+      return LogMigrationFailure(42);
     cur_version++;
     meta_table_.SetVersionNumber(cur_version);
   }

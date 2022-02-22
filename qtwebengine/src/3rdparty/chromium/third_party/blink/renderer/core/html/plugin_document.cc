@@ -42,6 +42,7 @@
 #include "third_party/blink/renderer/core/layout/layout_embedded_object.h"
 #include "third_party/blink/renderer/core/loader/document_loader.h"
 #include "third_party/blink/renderer/core/loader/frame_loader.h"
+#include "third_party/blink/renderer/core/page/plugin_data.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
@@ -57,7 +58,7 @@ class PluginDocumentParser : public RawDataDocumentParser {
         embed_element_(nullptr),
         background_color_(background_color) {}
 
-  void Trace(Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(embed_element_);
     RawDataDocumentParser::Trace(visitor);
   }
@@ -94,8 +95,7 @@ void PluginDocumentParser::CreateDocumentStructure() {
     return;
 
   // FIXME: Why does this check settings?
-  if (!frame->GetSettings() ||
-      !frame->Loader().AllowPlugins(kNotAboutToInstantiatePlugin))
+  if (!frame->GetSettings() || !frame->Loader().AllowPlugins())
     return;
 
   auto* root_element = MakeGarbageCollected<HTMLHtmlElement>(*GetDocument());
@@ -182,14 +182,14 @@ WebPluginContainerImpl* PluginDocumentParser::GetPluginView() const {
 
 PluginDocument::PluginDocument(const DocumentInit& initializer)
     : HTMLDocument(initializer, kPluginDocumentClass),
-      background_color_(initializer.GetPluginBackgroundColor()) {
-  SetCompatibilityMode(kQuirksMode);
+      background_color_(
+          GetFrame()->GetPluginData()->PluginBackgroundColorForMimeType(
+              initializer.GetMimeType())) {
+  SetCompatibilityMode(kNoQuirksMode);
   LockCompatibilityMode();
-  if (GetScheduler()) {
-    GetScheduler()->RegisterStickyFeature(
-        SchedulingPolicy::Feature::kContainsPlugins,
-        {SchedulingPolicy::RecordMetricsForBackForwardCache()});
-  }
+  GetExecutionContext()->GetScheduler()->RegisterStickyFeature(
+      SchedulingPolicy::Feature::kContainsPlugins,
+      {SchedulingPolicy::DisableBackForwardCache()});
 }
 
 DocumentParser* PluginDocument::CreateParser() {
@@ -206,7 +206,7 @@ void PluginDocument::Shutdown() {
   HTMLDocument::Shutdown();
 }
 
-void PluginDocument::Trace(Visitor* visitor) {
+void PluginDocument::Trace(Visitor* visitor) const {
   visitor->Trace(plugin_node_);
   HTMLDocument::Trace(visitor);
 }

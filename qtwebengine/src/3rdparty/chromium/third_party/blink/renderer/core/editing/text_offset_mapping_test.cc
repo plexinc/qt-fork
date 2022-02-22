@@ -38,8 +38,11 @@ class ParameterizedTextOffsetMappingTest
   }
 
   std::string GetRange(const std::string& selection_text) {
-    const PositionInFlatTree position =
-        ToPositionInFlatTree(SetSelectionTextToBody(selection_text).Base());
+    return GetRange(
+        ToPositionInFlatTree(SetSelectionTextToBody(selection_text).Base()));
+  }
+
+  std::string GetRange(const PositionInFlatTree& position) {
     return GetRange(GetInlineContents(position));
   }
 
@@ -194,6 +197,39 @@ TEST_P(ParameterizedTextOffsetMappingTest, RangeOfBlockWithRUBY) {
             GetRange("<ruby>|abc<rt>123</rt></ruby>"));
   EXPECT_EQ("<ruby>abc<rt>^123|</rt></ruby>",
             GetRange("<ruby>abc<rt>1|23</rt></ruby>"));
+}
+
+// http://crbug.com/1124584
+TEST_P(ParameterizedTextOffsetMappingTest, RangeOfBlockWithRubyAsBlock) {
+  // We should not make <ruby> as |InlineContent| container because "XYZ" comes
+  // before "abc" but in DOM tree, order is "abc" then "XYZ".
+  // Layout tree:
+  //  LayoutNGBlockFlow {BODY} at (8,8) size 784x27
+  //   LayoutNGRubyAsBlock {RUBY} at (0,0) size 784x27
+  //     LayoutNGRubyRun (anonymous) at (0,7) size 22x20
+  //       LayoutNGRubyText {RT} at (0,-10) size 22x12
+  //         LayoutText {#text} at (2,0) size 18x12
+  //           text run at (2,0) width 18: "XYZ"
+  //       LayoutNGRubyBase (anonymous) at (0,0) size 22x20
+  //         LayoutText {#text} at (0,0) size 22x19
+  //           text run at (0,0) width 22: "abc"
+  InsertStyleElement("ruby { display: block; }");
+  EXPECT_EQ("<ruby>^abc|<rt>XYZ</rt></ruby>",
+            GetRange("|<ruby>abc<rt>XYZ</rt></ruby>"));
+  EXPECT_EQ("<ruby>^abc|<rt>XYZ</rt></ruby>",
+            GetRange("<ruby>|abc<rt>XYZ</rt></ruby>"));
+  EXPECT_EQ("<ruby>abc<rt>^XYZ|</rt></ruby>",
+            GetRange("<ruby>abc<rt>|XYZ</rt></ruby>"));
+}
+
+TEST_P(ParameterizedTextOffsetMappingTest, RangeOfBlockWithRubyAsInlineBlock) {
+  InsertStyleElement("ruby { display: inline-block; }");
+  EXPECT_EQ("<ruby>^abc|<rt>XYZ</rt></ruby>",
+            GetRange("|<ruby>abc<rt>XYZ</rt></ruby>"));
+  EXPECT_EQ("<ruby>^abc|<rt>XYZ</rt></ruby>",
+            GetRange("<ruby>|abc<rt>XYZ</rt></ruby>"));
+  EXPECT_EQ("<ruby>abc<rt>^XYZ|</rt></ruby>",
+            GetRange("<ruby>abc<rt>|XYZ</rt></ruby>"));
 }
 
 TEST_P(ParameterizedTextOffsetMappingTest, RangeOfBlockWithRUBYandBR) {
@@ -388,13 +424,41 @@ TEST_P(ParameterizedTextOffsetMappingTest, RangeWithNestedPosition) {
 }
 
 // http://crbug.com//834623
-TEST_P(ParameterizedTextOffsetMappingTest, RangeWithSelect) {
-  EXPECT_EQ(
+TEST_P(ParameterizedTextOffsetMappingTest, RangeWithSelect1) {
+  SetBodyContent("<select></select>foo");
+  Element* select = GetDocument().QuerySelector("select");
+  const auto& expected_outer =
       "^<select>"
       "<div aria-hidden=\"true\"></div>"
       "<slot name=\"user-agent-custom-assign-slot\"></slot>"
-      "</select>foo|",
-      GetRange("<select>|</select>foo"));
+      "</select>foo|";
+  const auto& expected_inner =
+      "<select>"
+      "<div aria-hidden=\"true\">^|</div>"
+      "<slot name=\"user-agent-custom-assign-slot\"></slot>"
+      "</select>foo";
+  EXPECT_EQ(expected_outer, GetRange(PositionInFlatTree::BeforeNode(*select)));
+  EXPECT_EQ(expected_inner, GetRange(PositionInFlatTree(select, 0)));
+  EXPECT_EQ(expected_outer, GetRange(PositionInFlatTree::AfterNode(*select)));
+}
+
+TEST_P(ParameterizedTextOffsetMappingTest, RangeWithSelect2) {
+  SetBodyContent("<select>bar</select>foo");
+  Element* select = GetDocument().QuerySelector("select");
+  const auto& expected_outer =
+      "^<select>"
+      "<div aria-hidden=\"true\"></div>"
+      "<slot name=\"user-agent-custom-assign-slot\"></slot>"
+      "</select>foo|";
+  const auto& expected_inner =
+      "<select>"
+      "<div aria-hidden=\"true\">^|</div>"
+      "<slot name=\"user-agent-custom-assign-slot\"></slot>"
+      "</select>foo";
+  EXPECT_EQ(expected_outer, GetRange(PositionInFlatTree::BeforeNode(*select)));
+  EXPECT_EQ(expected_inner, GetRange(PositionInFlatTree(select, 0)));
+  EXPECT_EQ(expected_outer, GetRange(PositionInFlatTree(select, 1)));
+  EXPECT_EQ(expected_outer, GetRange(PositionInFlatTree::AfterNode(*select)));
 }
 
 // http://crbug.com//832350

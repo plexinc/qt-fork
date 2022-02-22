@@ -17,6 +17,7 @@
 
 #include "base/debug/alias.h"
 #include "base/logging.h"
+#include "base/notreached.h"
 #include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -52,7 +53,7 @@ DWORD WINAPI Thread3(LPVOID context) {
   HANDLE event = context;
   PCHECK(SetEnvironmentVariable(
       L"CRASHPAD_TEST_DLL_EVENT",
-      base::UTF8ToUTF16(base::StringPrintf("%p", event)).c_str()));
+      base::UTF8ToWide(base::StringPrintf("%p", event)).c_str()));
 
   HMODULE dll = LoadLibrary(L"loader_lock_dll.dll");
   if (!dll)

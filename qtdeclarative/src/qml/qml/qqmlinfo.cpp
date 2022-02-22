@@ -51,13 +51,8 @@
 QT_BEGIN_NAMESPACE
 
 /*!
-    \namespace QtQml
-    \inmodule QtQml
-    \brief Provides functions for producing logging messages for QML types.
-*/
-
-/*!
-    \fn QQmlInfo QtQml::qmlDebug(const QObject *object)
+    \fn QQmlInfo qmlDebug(const QObject *object)
+    \relates QQmlEngine
     \since 5.9
 
     Prints debug messages that include the file and line number for the
@@ -86,11 +81,12 @@ QT_BEGIN_NAMESPACE
     QML MyCustomType (unknown location): Internal state: 42
     \endcode
 
-    \sa QtQml::qmlInfo, QtQml::qmlWarning
+    \sa qmlInfo, qmlWarning
 */
 
 /*!
-    \fn QQmlInfo QtQml::qmlInfo(const QObject *object)
+    \fn QQmlInfo qmlInfo(const QObject *object)
+    \relates QQmlEngine
 
     Prints informational messages that include the file and line number for the
     specified QML \a object.
@@ -113,11 +109,12 @@ QT_BEGIN_NAMESPACE
     QtMsgType. For Qt 5.9 and above, qmlInfo uses an info QtMsgType. To send
     warnings, use qmlWarning.
 
-    \sa QtQml::qmlDebug, QtQml::qmlWarning
+    \sa qmlDebug, qmlWarning
 */
 
 /*!
-    \fn QQmlInfo QtQml::qmlWarning(const QObject *object)
+    \fn QQmlInfo qmlWarning(const QObject *object)
+    \relates QQmlEngine
     \since 5.9
 
     Prints warning messages that include the file and line number for the
@@ -137,36 +134,36 @@ QT_BEGIN_NAMESPACE
     QML MyCustomType (unknown location): property cannot be set to 0
     \endcode
 
-    \sa QtQml::qmlDebug, QtQml::qmlInfo
+    \sa qmlDebug, qmlInfo
 */
 
 /*!
-    \fn QQmlInfo QtQml::qmlDebug(const QObject *object, const QQmlError &error)
+    \fn QQmlInfo qmlDebug(const QObject *object, const QQmlError &error)
     \internal
 */
 
 /*!
-    \fn QQmlInfo QtQml::qmlDebug(const QObject *object, const QList<QQmlError> &errors)
+    \fn QQmlInfo qmlDebug(const QObject *object, const QList<QQmlError> &errors)
     \internal
 */
 
 /*!
-    \fn QQmlInfo QtQml::qmlInfo(const QObject *object, const QQmlError &error)
+    \fn QQmlInfo qmlInfo(const QObject *object, const QQmlError &error)
     \internal
 */
 
 /*!
-    \fn QQmlInfo QtQml::qmlInfo(const QObject *object, const QList<QQmlError> &errors)
+    \fn QQmlInfo qmlInfo(const QObject *object, const QList<QQmlError> &errors)
     \internal
 */
 
 /*!
-    \fn QQmlInfo QtQml::qmlWarning(const QObject *object, const QQmlError &error)
+    \fn QQmlInfo qmlWarning(const QObject *object, const QQmlError &error)
     \internal
 */
 
 /*!
-    \fn QQmlInfo QtQml::qmlWarning(const QObject *object, const QList<QQmlError> &errors)
+    \fn QQmlInfo qmlWarning(const QObject *object, const QList<QQmlError> &errors)
     \internal
 */
 
@@ -248,8 +245,6 @@ QQmlInfo::~QQmlInfo()
     }
 }
 
-namespace QtQml {
-
 #define MESSAGE_FUNCS(FuncName, MessageLevel) \
     QQmlInfo FuncName(const QObject *me) \
     { \
@@ -275,29 +270,5 @@ namespace QtQml {
 MESSAGE_FUNCS(qmlDebug, QtMsgType::QtDebugMsg)
 MESSAGE_FUNCS(qmlInfo, QtMsgType::QtInfoMsg)
 MESSAGE_FUNCS(qmlWarning, QtMsgType::QtWarningMsg)
-
-
-} // namespace QtQml
-
-#if QT_DEPRECATED_SINCE(5, 1)
-
-// Also define symbols outside namespace to keep binary compatibility with Qt 5.0
-
-QQmlInfo qmlInfo(const QObject *me)
-{
-    return QtQml::qmlInfo(me);
-}
-
-QQmlInfo qmlInfo(const QObject *me, const QQmlError &error)
-{
-    return QtQml::qmlInfo(me, error);
-}
-
-QQmlInfo qmlInfo(const QObject *me, const QList<QQmlError> &errors)
-{
-    return QtQml::qmlInfo(me, errors);
-}
-
-#endif // QT_DEPRECATED_SINCE(5, 1)
 
 QT_END_NAMESPACE

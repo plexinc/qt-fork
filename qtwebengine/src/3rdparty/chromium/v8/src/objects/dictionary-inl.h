@@ -5,10 +5,9 @@
 #ifndef V8_OBJECTS_DICTIONARY_INL_H_
 #define V8_OBJECTS_DICTIONARY_INL_H_
 
-#include "src/objects/dictionary.h"
-
 #include "src/execution/isolate-utils-inl.h"
 #include "src/numbers/hash-seed-inl.h"
+#include "src/objects/dictionary.h"
 #include "src/objects/hash-table-inl.h"
 #include "src/objects/objects-inl.h"
 #include "src/objects/oddball.h"
@@ -31,12 +30,12 @@ Dictionary<Derived, Shape>::Dictionary(Address ptr)
 
 template <typename Derived, typename Shape>
 Object Dictionary<Derived, Shape>::ValueAt(InternalIndex entry) {
-  const Isolate* isolate = GetIsolateForPtrCompr(*this);
+  IsolateRoot isolate = GetIsolateForPtrCompr(*this);
   return ValueAt(isolate, entry);
 }
 
 template <typename Derived, typename Shape>
-Object Dictionary<Derived, Shape>::ValueAt(const Isolate* isolate,
+Object Dictionary<Derived, Shape>::ValueAt(IsolateRoot isolate,
                                            InternalIndex entry) {
   return this->get(isolate, DerivedHashTable::EntryToIndex(entry) +
                                 Derived::kEntryValueIndex);
@@ -140,7 +139,7 @@ void Dictionary<Derived, Shape>::SetEntry(InternalIndex entry, Object key,
   DCHECK(Dictionary::kEntrySize == 2 || Dictionary::kEntrySize == 3);
   DCHECK(!key.IsName() || details.dictionary_index() > 0);
   int index = DerivedHashTable::EntryToIndex(entry);
-  DisallowHeapAllocation no_gc;
+  DisallowGarbageCollection no_gc;
   WriteBarrierMode mode = this->GetWriteBarrierMode(no_gc);
   this->set(index + Derived::kEntryKeyIndex, key, mode);
   this->set(index + Derived::kEntryValueIndex, value, mode);
@@ -177,58 +176,49 @@ Object GlobalDictionaryShape::Unwrap(Object object) {
   return PropertyCell::cast(object).name();
 }
 
-Handle<Map> GlobalDictionaryShape::GetMap(ReadOnlyRoots roots) {
+Handle<Map> GlobalDictionary::GetMap(ReadOnlyRoots roots) {
   return roots.global_dictionary_map_handle();
 }
 
 Name NameDictionary::NameAt(InternalIndex entry) {
-  const Isolate* isolate = GetIsolateForPtrCompr(*this);
+  IsolateRoot isolate = GetIsolateForPtrCompr(*this);
   return NameAt(isolate, entry);
 }
 
-Name NameDictionary::NameAt(const Isolate* isolate, InternalIndex entry) {
+Name NameDictionary::NameAt(IsolateRoot isolate, InternalIndex entry) {
   return Name::cast(KeyAt(isolate, entry));
 }
 
-Handle<Map> NameDictionaryShape::GetMap(ReadOnlyRoots roots) {
+Handle<Map> NameDictionary::GetMap(ReadOnlyRoots roots) {
   return roots.name_dictionary_map_handle();
 }
 
 PropertyCell GlobalDictionary::CellAt(InternalIndex entry) {
-  const Isolate* isolate = GetIsolateForPtrCompr(*this);
+  IsolateRoot isolate = GetIsolateForPtrCompr(*this);
   return CellAt(isolate, entry);
 }
 
-PropertyCell GlobalDictionary::CellAt(const Isolate* isolate,
+PropertyCell GlobalDictionary::CellAt(IsolateRoot isolate,
                                       InternalIndex entry) {
   DCHECK(KeyAt(isolate, entry).IsPropertyCell(isolate));
   return PropertyCell::cast(KeyAt(isolate, entry));
 }
 
-bool GlobalDictionaryShape::IsLive(ReadOnlyRoots roots, Object k) {
-  DCHECK_NE(roots.the_hole_value(), k);
-  return k != roots.undefined_value();
-}
-
-bool GlobalDictionaryShape::IsKey(ReadOnlyRoots roots, Object k) {
-  return IsLive(roots, k) && !PropertyCell::cast(k).value().IsTheHole(roots);
-}
-
 Name GlobalDictionary::NameAt(InternalIndex entry) {
-  const Isolate* isolate = GetIsolateForPtrCompr(*this);
+  IsolateRoot isolate = GetIsolateForPtrCompr(*this);
   return NameAt(isolate, entry);
 }
 
-Name GlobalDictionary::NameAt(const Isolate* isolate, InternalIndex entry) {
+Name GlobalDictionary::NameAt(IsolateRoot isolate, InternalIndex entry) {
   return CellAt(isolate, entry).name(isolate);
 }
 
 Object GlobalDictionary::ValueAt(InternalIndex entry) {
-  const Isolate* isolate = GetIsolateForPtrCompr(*this);
+  IsolateRoot isolate = GetIsolateForPtrCompr(*this);
   return ValueAt(isolate, entry);
 }
 
-Object GlobalDictionary::ValueAt(const Isolate* isolate, InternalIndex entry) {
+Object GlobalDictionary::ValueAt(IsolateRoot isolate, InternalIndex entry) {
   return CellAt(isolate, entry).value(isolate);
 }
 
@@ -237,6 +227,11 @@ void GlobalDictionary::SetEntry(InternalIndex entry, Object key, Object value,
   DCHECK_EQ(key, PropertyCell::cast(value).name());
   set(EntryToIndex(entry) + kEntryKeyIndex, value);
   DetailsAtPut(entry, details);
+}
+
+void GlobalDictionary::ClearEntry(InternalIndex entry) {
+  Object the_hole = this->GetReadOnlyRoots().the_hole_value();
+  set(EntryToIndex(entry) + kEntryKeyIndex, the_hole);
 }
 
 void GlobalDictionary::ValueAtPut(InternalIndex entry, Object value) {
@@ -264,16 +259,16 @@ Handle<Object> NumberDictionaryBaseShape::AsHandle(Isolate* isolate,
   return isolate->factory()->NewNumberFromUint(key);
 }
 
-Handle<Object> NumberDictionaryBaseShape::AsHandle(OffThreadIsolate* isolate,
+Handle<Object> NumberDictionaryBaseShape::AsHandle(LocalIsolate* isolate,
                                                    uint32_t key) {
   return isolate->factory()->NewNumberFromUint<AllocationType::kOld>(key);
 }
 
-Handle<Map> NumberDictionaryShape::GetMap(ReadOnlyRoots roots) {
+Handle<Map> NumberDictionary::GetMap(ReadOnlyRoots roots) {
   return roots.number_dictionary_map_handle();
 }
 
-Handle<Map> SimpleNumberDictionaryShape::GetMap(ReadOnlyRoots roots) {
+Handle<Map> SimpleNumberDictionary::GetMap(ReadOnlyRoots roots) {
   return roots.simple_number_dictionary_map_handle();
 }
 
@@ -284,21 +279,24 @@ bool NameDictionaryShape::IsMatch(Handle<Name> key, Object other) {
 }
 
 uint32_t NameDictionaryShape::Hash(ReadOnlyRoots roots, Handle<Name> key) {
-  return key->Hash();
+  DCHECK(key->IsUniqueName());
+  return key->hash();
 }
 
 uint32_t NameDictionaryShape::HashForObject(ReadOnlyRoots roots, Object other) {
-  return Name::cast(other).Hash();
+  DCHECK(other.IsUniqueName());
+  return Name::cast(other).hash();
 }
 
 bool GlobalDictionaryShape::IsMatch(Handle<Name> key, Object other) {
+  DCHECK(key->IsUniqueName());
   DCHECK(PropertyCell::cast(other).name().IsUniqueName());
   return *key == PropertyCell::cast(other).name();
 }
 
 uint32_t GlobalDictionaryShape::HashForObject(ReadOnlyRoots roots,
                                               Object other) {
-  return PropertyCell::cast(other).name().Hash();
+  return PropertyCell::cast(other).name().hash();
 }
 
 Handle<Object> NameDictionaryShape::AsHandle(Isolate* isolate,
@@ -307,7 +305,7 @@ Handle<Object> NameDictionaryShape::AsHandle(Isolate* isolate,
   return key;
 }
 
-Handle<Object> NameDictionaryShape::AsHandle(OffThreadIsolate* isolate,
+Handle<Object> NameDictionaryShape::AsHandle(LocalIsolate* isolate,
                                              Handle<Name> key) {
   DCHECK(key->IsUniqueName());
   return key;
@@ -324,12 +322,7 @@ template <typename Dictionary>
 void GlobalDictionaryShape::DetailsAtPut(Dictionary dict, InternalIndex entry,
                                          PropertyDetails value) {
   DCHECK(entry.is_found());
-  PropertyCell cell = dict.CellAt(entry);
-  if (cell.property_details().IsReadOnly() != value.IsReadOnly()) {
-    cell.dependent_code().DeoptimizeDependentCodeGroup(
-        DependentCode::kPropertyCellChangedGroup);
-  }
-  cell.set_property_details(value);
+  dict.CellAt(entry).UpdatePropertyDetailsExceptCellType(value);
 }
 
 }  // namespace internal

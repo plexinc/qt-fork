@@ -423,6 +423,41 @@ void QAuthenticatorPrivate::updateCredentials()
     }
 }
 
+bool QAuthenticatorPrivate::isMethodSupported(QByteArrayView method)
+{
+    Q_ASSERT(!method.startsWith(' ')); // This should be trimmed during parsing
+    auto separator = method.indexOf(' ');
+    if (separator != -1)
+        method = method.first(separator);
+    const auto isSupported = [method](QByteArrayView reference) {
+        return method.compare(reference, Qt::CaseInsensitive) == 0;
+    };
+    static const char methods[][10] = {
+        "basic",
+        "ntlm",
+        "digest",
+#if QT_CONFIG(sspi) || QT_CONFIG(gssapi)
+        "negotiate",
+#endif
+    };
+    return std::any_of(methods, methods + std::size(methods), isSupported);
+}
+
+static bool verifyDigestMD5(QByteArrayView value)
+{
+    auto opts = QAuthenticatorPrivate::parseDigestAuthenticationChallenge(value.toByteArray());
+    if (auto it = opts.constFind("algorithm"); it != opts.cend()) {
+        QByteArray alg = it.value();
+        if (alg.size() < 3)
+            return false;
+        // Just compare the first 3 characters, that way we match other subvariants as well, such as
+        // "MD5-sess"
+        auto view = QByteArrayView(alg).first(3);
+        return view.compare("MD5", Qt::CaseInsensitive) == 0;
+    }
+    return true; // assume it's ok if algorithm is not specified
+}
+
 void QAuthenticatorPrivate::parseHttpResponse(const QList<QPair<QByteArray, QByteArray> > &values, bool isProxy, const QString &host)
 {
 #if !QT_CONFIG(gssapi)
@@ -454,6 +489,10 @@ void QAuthenticatorPrivate::parseHttpResponse(const QList<QPair<QByteArray, QByt
             method = Ntlm;
             headerVal = current.second.mid(5);
         } else if (method < DigestMd5 && str.startsWith("digest")) {
+            // Make sure the algorithm is actually MD5 before committing to it:
+            if (!verifyDigestMD5(QByteArrayView(current.second).sliced(7)))
+                continue;
+
             method = DigestMd5;
             headerVal = current.second.mid(7);
         } else if (method < Negotiate && str.startsWith("negotiate")) {
@@ -643,7 +682,6 @@ QHash<QByteArray, QByteArray> QAuthenticatorPrivate::parseDigestAuthenticationCh
             ++d;
         if (d >= end)
             break;
-        start = d;
         QByteArray value;
         while (d < end) {
             bool backslash = false;
@@ -1228,7 +1266,7 @@ QByteArray qEncodeHmacMd5(QByteArray &key, const QByteArray &message)
     hash.reset();
     // Adjust the key length to blockSize
 
-    if(blockSize < key.length()) {
+    if (blockSize < key.length()) {
         hash.addData(key);
         key = hash.result(); //MD5 will always return 16 bytes length output
     }
@@ -1280,7 +1318,7 @@ static QByteArray qCreatev2Hash(const QAuthenticatorPrivate *ctx,
     Q_ASSERT(phase3 != nullptr);
     // since v2 Hash is need for both NTLMv2 and LMv2 it is calculated
     // only once and stored and reused
-    if(phase3->v2Hash.size() == 0) {
+    if (phase3->v2Hash.size() == 0) {
         QCryptographicHash md4(QCryptographicHash::Md4);
         QByteArray passUnicode = qStringAsUcs2Le(ctx->password);
         md4.addData(passUnicode.data(), passUnicode.size());
@@ -1317,7 +1355,7 @@ static QByteArray qExtractServerTime(const QByteArray& targetInfoBuff)
     ds >> avId;
     ds >> avLen;
     while(avId != 0) {
-        if(avId == AVTIMESTAMP) {
+        if (avId == AVTIMESTAMP) {
             timeArray.resize(avLen);
             //avLen size of QByteArray is allocated
             ds.readRawData(timeArray.data(), avLen);
@@ -1352,13 +1390,13 @@ static QByteArray qEncodeNtlmv2Response(const QAuthenticatorPrivate *ctx,
     quint64 time = 0;
     QByteArray timeArray;
 
-    if(ch.targetInfo.len)
+    if (ch.targetInfo.len)
     {
         timeArray = qExtractServerTime(ch.targetInfoBuff);
     }
 
     //if server sends time, use it instead of current time
-    if(timeArray.size()) {
+    if (timeArray.size()) {
         ds.writeRawData(timeArray.constData(), timeArray.size());
     } else {
         // number of seconds between 1601 and the epoch (1970)
@@ -1442,7 +1480,7 @@ static bool qNtlmDecodePhase2(const QByteArray& data, QNtlmPhase2Block& ch)
     ds >> ch.targetInfo;
 
     if (ch.targetName.len > 0) {
-        if (ch.targetName.len + ch.targetName.offset > (unsigned)data.size())
+        if (qsizetype(ch.targetName.len + ch.targetName.offset) > data.size())
             return false;
 
         ch.targetNameStr = qStringFromUcs2Le(data.mid(ch.targetName.offset, ch.targetName.len));
@@ -1530,27 +1568,16 @@ static QByteArray qNtlmPhase3(QAuthenticatorPrivate *ctx, const QByteArray& phas
 // See http://davenport.sourceforge.net/ntlm.html
 // and libcurl http_ntlm.c
 
-// Handle of secur32.dll
-static HMODULE securityDLLHandle = nullptr;
 // Pointer to SSPI dispatch table
-static PSecurityFunctionTable pSecurityFunctionTable = nullptr;
+static PSecurityFunctionTableW pSecurityFunctionTable = nullptr;
 
 static bool q_SSPI_library_load()
 {
     static QBasicMutex mutex;
     QMutexLocker l(&mutex);
 
-    // Initialize security interface
-    if (pSecurityFunctionTable == nullptr) {
-        securityDLLHandle = LoadLibrary(L"secur32.dll");
-        if (securityDLLHandle != nullptr) {
-            INIT_SECURITY_INTERFACE pInitSecurityInterface =
-                reinterpret_cast<INIT_SECURITY_INTERFACE>(
-                    reinterpret_cast<QFunctionPointer>(GetProcAddress(securityDLLHandle, "InitSecurityInterfaceW")));
-            if (pInitSecurityInterface != nullptr)
-                pSecurityFunctionTable = pInitSecurityInterface();
-        }
-    }
+    if (pSecurityFunctionTable == nullptr)
+        pSecurityFunctionTable = InitSecurityInterfaceW();
 
     if (pSecurityFunctionTable == nullptr)
         return false;

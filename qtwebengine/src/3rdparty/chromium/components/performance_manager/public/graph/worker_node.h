@@ -9,19 +9,20 @@
 
 #include "base/containers/flat_set.h"
 #include "base/macros.h"
+#include "base/util/type_safety/token_type.h"
+#include "components/performance_manager/public/execution_context_priority/execution_context_priority.h"
 #include "components/performance_manager/public/graph/node.h"
+#include "third_party/blink/public/common/tokens/tokens.h"
 
 class GURL;
-
-namespace base {
-class UnguessableToken;
-}
 
 namespace performance_manager {
 
 class WorkerNodeObserver;
 class FrameNode;
 class ProcessNode;
+
+using execution_context_priority::PriorityAndReason;
 
 // Represents a running instance of a WorkerGlobalScope.
 // See https://developer.mozilla.org/en-US/docs/Web/API/WorkerGlobalScope.
@@ -47,6 +48,8 @@ class ProcessNode;
 // or a service worker is registered to handle their network requests.
 class WorkerNode : public Node {
  public:
+  using WorkerNodeVisitor = base::RepeatingCallback<bool(const WorkerNode*)>;
+
   // The different possible worker types.
   enum class WorkerType {
     kDedicated,
@@ -70,8 +73,8 @@ class WorkerNode : public Node {
   // over the lifetime of the frame.
   virtual const ProcessNode* GetProcessNode() const = 0;
 
-  // Returns the dev tools token for this worker.
-  virtual const base::UnguessableToken& GetDevToolsToken() const = 0;
+  // Returns the unique token identifying this worker.
+  virtual const blink::WorkerToken& GetWorkerToken() const = 0;
 
   // Returns the URL of the worker script. This is the final response URL which
   // takes into account redirections.
@@ -95,6 +98,20 @@ class WorkerNode : public Node {
   // - A service worker will become a child worker of every worker for which
   //   it handles network requests.
   virtual const base::flat_set<const WorkerNode*> GetChildWorkers() const = 0;
+
+  // Visits the child dedicated workers of this frame. The iteration is halted
+  // if the visitor returns false. Returns true if every call to the visitor
+  // returned true, false otherwise.
+  //
+  // The reason why we don't have a generic VisitChildWorkers method is that
+  // a service/shared worker may appear as a child of multiple other nodes
+  // and thus may be visited multiple times.
+  virtual bool VisitChildDedicatedWorkers(
+      const WorkerNodeVisitor& visitor) const = 0;
+
+  // Returns the current priority of the worker, and the reason for the worker
+  // having that particular priority.
+  virtual const PriorityAndReason& GetPriorityAndReason() const = 0;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(WorkerNode);
@@ -139,6 +156,11 @@ class WorkerNodeObserver {
       const WorkerNode* worker_node,
       const WorkerNode* client_worker_node) = 0;
 
+  // Invoked when the worker priority and reason changes.
+  virtual void OnPriorityAndReasonChanged(
+      const WorkerNode* worker_node,
+      const PriorityAndReason& previous_value) = 0;
+
  private:
   DISALLOW_COPY_AND_ASSIGN(WorkerNodeObserver);
 };
@@ -167,6 +189,9 @@ class WorkerNode::ObserverDefaultImpl : public WorkerNodeObserver {
   void OnBeforeClientWorkerRemoved(
       const WorkerNode* worker_node,
       const WorkerNode* client_worker_node) override {}
+  void OnPriorityAndReasonChanged(
+      const WorkerNode* worker_node,
+      const PriorityAndReason& previous_value) override {}
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ObserverDefaultImpl);

@@ -2,12 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/frames/quic_ping_frame.h"
+#include "quic/core/frames/quic_ping_frame.h"
 
 namespace quic {
 
-QuicPingFrame::QuicPingFrame()
-    : QuicInlinedFrame(PING_FRAME), control_frame_id(kInvalidControlFrameId) {}
+QuicPingFrame::QuicPingFrame() : QuicInlinedFrame(PING_FRAME) {}
 
 QuicPingFrame::QuicPingFrame(QuicControlFrameId control_frame_id)
     : QuicInlinedFrame(PING_FRAME), control_frame_id(control_frame_id) {}

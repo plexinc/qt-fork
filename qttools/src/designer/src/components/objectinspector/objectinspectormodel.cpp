@@ -41,10 +41,12 @@
 #include <QtDesigner/abstractmetadatabase.h>
 #include <QtDesigner/qextensionmanager.h>
 #include <QtWidgets/qlayout.h>
-#include <QtWidgets/qaction.h>
 #include <QtWidgets/qlayoutitem.h>
 #include <QtWidgets/qmenu.h>
 #include <QtWidgets/qbuttongroup.h>
+
+#include <QtGui/qaction.h>
+
 #include <QtCore/qset.h>
 #include <QtCore/qdebug.h>
 #include <QtCore/qcoreapplication.h>
@@ -59,11 +61,6 @@ namespace {
 
 static inline QObject *objectOfItem(const QStandardItem *item) {
     return qvariant_cast<QObject *>(item->data(DataRole));
-}
-
-static bool sortEntry(const QObject *a, const QObject *b)
-{
-    return a->objectName() < b->objectName();
 }
 
 static bool sameIcon(const QIcon &i1, const QIcon &i2)
@@ -267,7 +264,7 @@ namespace qdesigner_internal {
                               ObjectModel &model,
                               const ModelRecursionContext &ctx)
     {
-        using ButtonGroupList = QVector<QButtonGroup *>;
+        using ButtonGroupList = QList<QButtonGroup *>;
         // 1) Create entry
         const ObjectData entry(parent, object, ctx);
         model.push_back(entry);
@@ -287,9 +284,7 @@ namespace qdesigner_internal {
 
         if (!object->children().isEmpty()) {
             ButtonGroupList buttonGroups;
-            QObjectList children = object->children();
-            std::sort(children.begin(), children.end(), sortEntry);
-            for (QObject *childObject : qAsConst(children)) {
+            for (QObject *childObject : object->children()) {
                 // Managed child widgets unless we had a container extension
                 if (childObject->isWidgetType()) {
                     if (!containerExtension) {
@@ -461,7 +456,7 @@ namespace qdesigner_internal {
         const QVariant rc = QStandardItemModel::data(index, role);
         // Return <noname> if the string is empty for the display role
         // only (else, editing starts with <noname>).
-        if (role == Qt::DisplayRole && rc.type() == QVariant::String) {
+        if (role == Qt::DisplayRole && rc.metaType().id() == QMetaType::QString) {
             const QString s = rc.toString();
             if (s.isEmpty()) {
                 static const QString noName = QCoreApplication::translate("ObjectInspectorModel", "<noname>");

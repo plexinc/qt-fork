@@ -41,7 +41,6 @@
 
 #include <private/qpixmapcache_p.h>
 #include <private/qpaintengine_p.h>
-#include <private/qpolygonclipper_p.h>
 #include <private/qpainterpath_p.h>
 #include <private/qdrawhelper_p.h>
 #include <private/qfontengineglyphcache_p.h>
@@ -51,6 +50,7 @@
 #endif
 
 #include "qpaintengine_x11_p.h"
+#include "qpolygonclipper_p.h"
 #include "qtessellator_p.h"
 #include "qpixmap_x11_p.h"
 #include "qcolormap_x11_p.h"
@@ -70,7 +70,7 @@ public:
     XTrapezoid *traps;
     int allocated;
     int size;
-    void addTrap(const Trapezoid &trap);
+    void addTrap(const Trapezoid &trap) override;
     QRect tessellate(const QPointF *points, int nPoints, bool winding) {
         size = 0;
         setWinding(winding);
@@ -150,17 +150,11 @@ public:
                             || (render_hints & QPainter::Antialiasing);
     }
     void decideCoordAdjust() {
-        adjust_coords = !(render_hints & QPainter::Antialiasing)
-                        && (render_hints & QPainter::Qt4CompatiblePainting)
-                        && (has_alpha_pen
-                            || (has_alpha_brush && has_pen && !has_alpha_pen)
-                            || (cpen.style() > Qt::SolidLine));
+        adjust_coords = false;
     }
     void clipPolygon_dev(const QPolygonF &poly, QPolygonF *clipped_poly);
     void systemStateChanged() override;
     inline bool isCosmeticPen() const {
-        if ((render_hints & QPainter::Qt4CompatiblePainting) && cpen == QPen())
-            return true;
         return cpen.isCosmetic();
     }
 
@@ -392,7 +386,7 @@ static inline void x11SetClipRegion(Display *dpy, GC gc, GC gc2,
 {
 //    int num;
 //    XRectangle *rects = (XRectangle *)qt_getClipRects(r, num);
-    QVector<XRectangle> rects = qt_region_to_xrectangles(r);
+    QList<XRectangle> rects = qt_region_to_xrectangles(r);
     int num = rects.size();
 
     if (gc)
@@ -2018,7 +2012,7 @@ Q_GUI_EXPORT void qt_x11_drawImage(const QRect &rect, const QPoint &pos, const Q
         || (image_byte_order == LSBFirst && bgr_layout))
     {
         im = image.copy(rect);
-        const int iw = im.bytesPerLine() / 4;
+        const qsizetype iw = im.bytesPerLine() / 4;
         uint *data = (uint *)im.bits();
         for (int i=0; i < h; i++) {
             uint *p = data;
@@ -2129,7 +2123,7 @@ void QX11PaintEngine::drawPixmap(const QRectF &r, const QPixmap &px, const QRect
         XSetBackground(d->dpy, cgc, 0);
         XSetForeground(d->dpy, cgc, 1);
         if (!d->crgn.isEmpty()) {
-            QVector<XRectangle> rects = qt_region_to_xrectangles(d->crgn);
+            QList<XRectangle> rects = qt_region_to_xrectangles(d->crgn);
             XSetClipRectangles(d->dpy, cgc, -x, -y, rects.data(), rects.size(), Unsorted);
         } else if (d->has_clipping) {
             XSetClipRectangles(d->dpy, cgc, 0, 0, 0, 0, Unsorted);
@@ -2152,7 +2146,7 @@ void QX11PaintEngine::drawPixmap(const QRectF &r, const QPixmap &px, const QRect
             GC cgc = XCreateGC(d->dpy, comb, 0, 0);
             XSetForeground(d->dpy, cgc, 0);
             XFillRectangle(d->dpy, comb, cgc, 0, 0, sw, sh);
-            QVector<XRectangle> rects = qt_region_to_xrectangles(d->crgn);
+            QList<XRectangle> rects = qt_region_to_xrectangles(d->crgn);
             XSetClipRectangles(d->dpy, cgc, -x, -y, rects.data(), rects.size(), Unsorted);
             XCopyArea(d->dpy, qt_x11PixmapHandle(pixmap), comb, cgc, sx, sy, sw, sh, 0, 0);
             XFreeGC(d->dpy, cgc);
@@ -2201,7 +2195,7 @@ void QX11PaintEngine::drawPixmap(const QRectF &r, const QPixmap &px, const QRect
 
     if (restore_clip) {
         XSetClipOrigin(d->dpy, d->gc, 0, 0);
-        QVector<XRectangle> rects = qt_region_to_xrectangles(d->crgn);
+        QList<XRectangle> rects = qt_region_to_xrectangles(d->crgn);
         if (rects.isEmpty())
             XSetClipMask(d->dpy, d->gc, XNone);
         else
@@ -2303,21 +2297,6 @@ void QX11PaintEngine::drawTiledPixmap(const QRectF &r, const QPixmap &pixmap, co
 
 #if QT_CONFIG(xrender)
     if (X11->use_xrender && d->picture && qt_x11PictureHandle(pixmap)) {
-#if 0
-        // ### Qt 5: enable this
-        XRenderPictureAttributes attrs;
-        attrs.repeat = true;
-        XRenderChangePicture(d->dpy, pixmap.x11PictureHandle(), CPRepeat, &attrs);
-
-        if (mono_src) {
-            qt_render_bitmap(d->dpy, d->scrn, pixmap.x11PictureHandle(), d->picture,
-                             sx, sy, x, y, w, h, d->cpen);
-        } else {
-            XRenderComposite(d->dpy, d->composition_mode,
-                             pixmap.x11PictureHandle(), XNone, d->picture,
-                             sx, sy, 0, 0, x, y, w, h);
-        }
-#else
         const int numTiles = (w / pixmap.width()) * (h / pixmap.height());
         if (numTiles < 100) {
             // this is essentially qt_draw_tile(), inlined for
@@ -2400,7 +2379,6 @@ void QX11PaintEngine::drawTiledPixmap(const QRectF &r, const QPixmap &pixmap, co
                                  pmPicture, XNone, d->picture,
                                  sx, sy, 0, 0, x, y, w, h);
         }
-#endif
     } else
 #endif // QT_CONFIG(xrender)
         if (pixmap.depth() > 1 && !static_cast<QX11PlatformPixmap*>(pixmap.handle())->x11_mask) {
@@ -2476,7 +2454,7 @@ static bool path_for_glyphs(QPainterPath *path,
     ft->lockFace();
     int i = 0;
     while (i < glyphs.size()) {
-        QFontEngineFT::Glyph *glyph = ft->loadGlyph(glyphs[i], 0, QFontEngineFT::Format_Mono);
+        QFontEngineFT::Glyph *glyph = ft->loadGlyph(glyphs[i], QFixedPoint(), QFontEngineFT::Format_Mono);
         // #### fix case where we don't get a glyph
         if (!glyph || glyph->format != QFontEngineFT::Format_Mono) {
             result = false;
@@ -2628,7 +2606,8 @@ bool QXRenderGlyphCache::addGlyphs(const QTextItemInt &ti,
     XGlyphInfo xglyphinfo;
 
     for (int i = 0; i < glyphs.size(); ++i) {
-        const QFixed spp = ft->subPixelPositionForX(positions[i].x);
+        const QFixed sppx = ft->subPixelPositionForX(positions[i].x);
+        const QFixedPoint spp(sppx, 0);
         QFontEngineFT::Glyph *glyph = set->getGlyph(glyphs[i], spp);
         Glyph xglyphid = qHash(QFontEngineFT::GlyphAndSubPixelPosition(glyphs[i], spp));
 
@@ -2720,7 +2699,8 @@ bool QXRenderGlyphCache::draw(Drawable src, Drawable dst, const QTransform &matr
         if (!isValidCoordinate(positions[i]))
             break;
 
-        const QFixed spp = ft->subPixelPositionForX(positions[i].x);
+        const QFixed sppx = ft->subPixelPositionForX(positions[i].x);
+        const QFixedPoint spp(sppx, 0);
         QFontEngineFT::Glyph *g = set->getGlyph(glyphs[i], spp);
 
         if (g
@@ -2847,7 +2827,7 @@ QFontEngine::GlyphFormat QXRenderGlyphCache::glyphFormatForDepth(QFontEngine *fo
 
 Glyph QXRenderGlyphCache::glyphId(glyph_t glyph, QFixed subPixelPosition)
 {
-    return qHash(QFontEngineFT::GlyphAndSubPixelPosition(glyph, subPixelPosition));
+    return qHash(QFontEngineFT::GlyphAndSubPixelPosition(glyph, QFixedPoint(subPixelPosition, 0)));
 }
 
 bool QXRenderGlyphCache::isValidCoordinate(const QFixedPoint &fp)

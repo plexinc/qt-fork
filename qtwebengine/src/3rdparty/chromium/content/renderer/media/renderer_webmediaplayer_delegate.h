@@ -9,10 +9,12 @@
 #include <memory>
 #include <set>
 
+#include "base/containers/flat_set.h"
 #include "base/containers/id_map.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
+#include "base/metrics/single_sample_metrics.h"
 #include "base/single_thread_task_runner.h"
 #include "base/time/default_tick_clock.h"
 #include "base/timer/timer.h"
@@ -50,26 +52,17 @@ class CONTENT_EXPORT RendererWebMediaPlayerDelegate
   bool IsFrameClosed() override;
   int AddObserver(Observer* observer) override;
   void RemoveObserver(int player_id) override;
-  void DidPlay(int player_id,
-               bool has_video,
-               bool has_audio,
-               MediaContentType media_content_type) override;
-  void DidPause(int player_id) override;
+  void DidMediaMetadataChange(int player_id,
+                              bool has_audio,
+                              bool has_video,
+                              MediaContentType media_content_type) override;
+  void DidPlay(int player_id) override;
+  void DidPause(int player_id, bool reached_end_of_stream) override;
   void PlayerGone(int player_id) override;
   void SetIdle(int player_id, bool is_idle) override;
   bool IsIdle(int player_id) override;
   void ClearStaleFlag(int player_id) override;
   bool IsStale(int player_id) override;
-  void SetIsEffectivelyFullscreen(
-      int player_id,
-      blink::WebFullscreenVideoStatus fullscreen_video_status) override;
-  void DidPlayerSizeChange(int delegate_id, const gfx::Size& size) override;
-  void DidPlayerMutedStatusChange(int delegate_id, bool muted) override;
-  void DidPlayerMediaPositionStateChange(
-      int delegate_id,
-      const media_session::MediaPosition& position) override;
-  void DidPictureInPictureAvailabilityChange(int delegate_id,
-                                             bool available) override;
 
   // content::RenderFrameObserver overrides.
   void WasHidden() override;
@@ -92,16 +85,9 @@ class CONTENT_EXPORT RendererWebMediaPlayerDelegate
   friend class RendererWebMediaPlayerDelegateTest;
 
  private:
-  void OnMediaDelegatePause(int player_id, bool triggered_by_user);
-  void OnMediaDelegatePlay(int player_id);
-  void OnMediaDelegateMuted(int player_id, bool muted);
-  void OnMediaDelegateSeekForward(int player_id, base::TimeDelta seek_time);
-  void OnMediaDelegateSeekBackward(int player_id, base::TimeDelta seek_time);
   void OnMediaDelegateSuspendAllMediaPlayers();
   void OnMediaDelegateVolumeMultiplierUpdate(int player_id, double multiplier);
   void OnMediaDelegateBecamePersistentVideo(int player_id, bool value);
-  void OnMediaDelegateEnterPictureInPicture(int player_id);
-  void OnMediaDelegateExitPictureInPicture(int player_id);
   void OnMediaDelegatePowerExperimentState(int player_id, bool state);
 
   // Schedules UpdateTask() to run soon.
@@ -160,14 +146,21 @@ class CONTENT_EXPORT RendererWebMediaPlayerDelegate
   base::TimeTicks background_video_start_time_;
 #endif  // OS_ANDROID
 
+  // Players with a video track.
+  base::flat_set<int> players_with_video_;
+
   // The currently playing local videos. Used to determine whether
   // OnMediaDelegatePlay() should allow the videos to play in the background or
   // not.
-  std::set<int> playing_videos_;
+  base::flat_set<int> playing_videos_;
 
   // Determined at construction time based on system information; determines
   // when the idle cleanup timer should be fired more aggressively.
   bool is_low_end_;
+
+  // Records the peak player count for this render frame.
+  size_t peak_player_count_ = 0u;
+  std::unique_ptr<base::SingleSampleMetric> peak_player_count_uma_;
 
   DISALLOW_COPY_AND_ASSIGN(RendererWebMediaPlayerDelegate);
 };

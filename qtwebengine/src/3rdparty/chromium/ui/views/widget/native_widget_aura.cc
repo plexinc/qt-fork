@@ -10,6 +10,7 @@
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/single_thread_task_runner.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
@@ -17,6 +18,7 @@
 #include "ui/aura/client/capture_client.h"
 #include "ui/aura/client/cursor_client.h"
 #include "ui/aura/client/drag_drop_client.h"
+#include "ui/aura/client/drag_drop_delegate.h"
 #include "ui/aura/client/focus_client.h"
 #include "ui/aura/client/screen_position_client.h"
 #include "ui/aura/client/window_parenting_client.h"
@@ -27,6 +29,7 @@
 #include "ui/aura/window_observer.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/base/class_property.h"
+#include "ui/base/data_transfer_policy/data_transfer_endpoint.h"
 #include "ui/base/dragdrop/os_exchange_data.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/compositor/layer.h"
@@ -64,7 +67,8 @@
 #include "ui/views/widget/desktop_aura/desktop_window_tree_host_win.h"
 #endif
 
-#if BUILDFLAG(ENABLE_DESKTOP_AURA) && defined(OS_LINUX)
+#if BUILDFLAG(ENABLE_DESKTOP_AURA) && \
+    (defined(OS_LINUX) || defined(OS_CHROMEOS))
 #include "ui/views/linux_ui/linux_ui.h"
 #include "ui/views/widget/desktop_aura/desktop_window_tree_host_linux.h"
 #endif
@@ -170,6 +174,19 @@ void NativeWidgetAura::InitNativeWidget(Widget::InitParams params) {
                          *params.corner_radius);
   }
   window_->SetProperty(aura::client::kShowStateKey, params.show_state);
+
+  int desk_index;
+  // Set workspace property of this window created with a specified workspace
+  // in InitParams. The desk index can be kActiveWorkspace=-1, representing
+  // an active desk. If the window is visible on all workspaces, it belongs on
+  // the active desk.
+  if (params.visible_on_all_workspaces) {
+    window_->SetProperty(aura::client::kWindowWorkspaceKey,
+                         aura::client::kUnassignedWorkspace);
+  } else if (base::StringToInt(params.workspace, &desk_index)) {
+    window_->SetProperty(aura::client::kWindowWorkspaceKey, desk_index);
+  }
+
   if (params.type == Widget::InitParams::TYPE_BUBBLE)
     wm::SetHideOnDeactivate(window_, true);
   window_->SetTransparent(params.opacity ==
@@ -243,6 +260,8 @@ void NativeWidgetAura::InitNativeWidget(Widget::InitParams params) {
     SetRestoreBounds(window_, window_bounds);
   else
     SetBounds(window_bounds);
+  // For similar reasons, wait to set visible on all workspaces.
+  SetVisibleOnAllWorkspaces(params.visible_on_all_workspaces);
   window_->SetEventTargetingPolicy(
       params.accept_events ? aura::EventTargetingPolicy::kTargetAndDescendants
                            : aura::EventTargetingPolicy::kNone);
@@ -269,7 +288,8 @@ void NativeWidgetAura::InitNativeWidget(Widget::InitParams params) {
 
 void NativeWidgetAura::OnWidgetInitDone() {}
 
-NonClientFrameView* NativeWidgetAura::CreateNonClientFrameView() {
+std::unique_ptr<NonClientFrameView>
+NativeWidgetAura::CreateNonClientFrameView() {
   return nullptr;
 }
 
@@ -470,11 +490,29 @@ gfx::Rect NativeWidgetAura::GetRestoredBounds() const {
     if (restore_bounds)
       return *restore_bounds;
   }
+
+  // Prefer getting the window bounds and converting them to screen bounds since
+  // Window::GetBoundsInScreen takes into the account the window transform.
+  auto* screen_position_client =
+      aura::client::GetScreenPositionClient(window_->GetRootWindow());
+  if (screen_position_client) {
+    // |window_|'s bounds are in parent's coordinate system so use that when
+    // converting.
+    gfx::Rect bounds = window_->bounds();
+    gfx::Point origin = bounds.origin();
+    screen_position_client->ConvertPointToScreenIgnoringTransforms(
+        window_->parent(), &origin);
+    return gfx::Rect(origin, bounds.size());
+  }
+
   return window_->GetBoundsInScreen();
 }
 
 std::string NativeWidgetAura::GetWorkspace() const {
-  return std::string();
+  int desk_index = window_->GetProperty(aura::client::kWindowWorkspaceKey);
+  return desk_index == aura::client::kUnassignedWorkspace
+             ? std::string()
+             : base::NumberToString(desk_index);
 }
 
 void NativeWidgetAura::SetBounds(const gfx::Rect& bounds) {
@@ -628,11 +666,13 @@ ui::ZOrderLevel NativeWidgetAura::GetZOrderLevel() const {
 }
 
 void NativeWidgetAura::SetVisibleOnAllWorkspaces(bool always_visible) {
-  // Not implemented on chromeos or for child widgets.
+  window_->SetProperty(aura::client::kVisibleOnAllWorkspacesKey,
+                       always_visible);
 }
 
 bool NativeWidgetAura::IsVisibleOnAllWorkspaces() const {
-  return false;
+  return window_ &&
+         window_->GetProperty(aura::client::kVisibleOnAllWorkspacesKey);
 }
 
 void NativeWidgetAura::Maximize() {
@@ -699,7 +739,7 @@ void NativeWidgetAura::RunShellDrag(View* view,
                                     std::unique_ptr<ui::OSExchangeData> data,
                                     const gfx::Point& location,
                                     int operation,
-                                    ui::DragDropTypes::DragEventSource source) {
+                                    ui::mojom::DragEventSource source) {
   if (window_)
     views::RunShellDrag(window_, std::move(data), location, operation, source);
 }
@@ -938,6 +978,11 @@ void NativeWidgetAura::OnWindowPropertyChanged(aura::Window* window,
                                                intptr_t old) {
   if (key == aura::client::kShowStateKey)
     delegate_->OnNativeWidgetWindowShowStateChanged();
+
+  if (key == aura::client::kWindowWorkspaceKey ||
+      key == aura::client::kVisibleOnAllWorkspacesKey) {
+    delegate_->OnNativeWidgetWorkspaceChanged();
+  }
 }
 
 void NativeWidgetAura::OnResizeLoopStarted(aura::Window* window) {
@@ -1029,11 +1074,14 @@ void NativeWidgetAura::OnDragEntered(const ui::DropTargetEvent& event) {
       event.data(), event.location(), event.source_operations());
 }
 
-int NativeWidgetAura::OnDragUpdated(const ui::DropTargetEvent& event) {
+aura::client::DragUpdateInfo NativeWidgetAura::OnDragUpdated(
+    const ui::DropTargetEvent& event) {
   DCHECK(drop_helper_.get() != nullptr);
   last_drop_operation_ = drop_helper_->OnDragOver(
       event.data(), event.location(), event.source_operations());
-  return last_drop_operation_;
+  return aura::client::DragUpdateInfo(
+      last_drop_operation_,
+      ui::DataTransferEndpoint(ui::EndpointType::kDefault));
 }
 
 void NativeWidgetAura::OnDragExited() {
@@ -1041,8 +1089,9 @@ void NativeWidgetAura::OnDragExited() {
   drop_helper_->OnDragExit();
 }
 
-int NativeWidgetAura::OnPerformDrop(const ui::DropTargetEvent& event,
-                                    std::unique_ptr<ui::OSExchangeData> data) {
+ui::mojom::DragOperation NativeWidgetAura::OnPerformDrop(
+    const ui::DropTargetEvent& event,
+    std::unique_ptr<ui::OSExchangeData> data) {
   DCHECK(drop_helper_.get() != nullptr);
   return drop_helper_->OnDrop(event.data(), event.location(),
                               last_drop_operation_);
@@ -1072,7 +1121,8 @@ void NativeWidgetAura::SetInitialFocus(ui::WindowShowState show_state) {
 // Widget, public:
 
 namespace {
-#if BUILDFLAG(ENABLE_DESKTOP_AURA)
+#if BUILDFLAG(ENABLE_DESKTOP_AURA) && \
+    (defined(OS_WIN) || defined(OS_LINUX) || defined(OS_CHROMEOS))
 void CloseWindow(aura::Window* window) {
   if (window) {
     Widget* widget = Widget::GetWidgetForNativeView(window);
@@ -1102,13 +1152,15 @@ void Widget::CloseAllSecondaryWidgets() {
   EnumThreadWindows(GetCurrentThreadId(), WindowCallbackProc, 0);
 #endif
 
-#if BUILDFLAG(ENABLE_DESKTOP_AURA) && defined(OS_LINUX)
+#if BUILDFLAG(ENABLE_DESKTOP_AURA) && \
+    (defined(OS_LINUX) || defined(OS_CHROMEOS))
   DesktopWindowTreeHostLinux::CleanUpWindowList(CloseWindow);
 #endif
 }
 
 const ui::NativeTheme* Widget::GetNativeTheme() const {
-#if BUILDFLAG(ENABLE_DESKTOP_AURA) && defined(OS_LINUX)
+#if BUILDFLAG(ENABLE_DESKTOP_AURA) && \
+    (defined(OS_LINUX) || defined(OS_CHROMEOS))
   const LinuxUI* linux_ui = LinuxUI::instance();
   if (linux_ui) {
     ui::NativeTheme* native_theme =

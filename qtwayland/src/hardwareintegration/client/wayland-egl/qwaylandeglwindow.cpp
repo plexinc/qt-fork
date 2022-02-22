@@ -37,12 +37,12 @@
 **
 ****************************************************************************/
 
-#include "qwaylandeglwindow.h"
+#include "qwaylandeglwindow_p.h"
 
 #include <QtWaylandClient/private/qwaylandscreen_p.h>
-#include "qwaylandglcontext.h"
+#include "qwaylandglcontext_p.h"
 
-#include <QtEglSupport/private/qeglconvenience_p.h>
+#include <QtGui/private/qeglconvenience_p.h>
 
 #include <QDebug>
 #include <QtGui/QWindow>
@@ -131,14 +131,16 @@ void QWaylandEglWindow::updateSurface(bool create)
             if (!disableResizeCheck) {
                 wl_egl_window_get_attached_size(m_waylandEglWindow, &current_width, &current_height);
             }
-            if (disableResizeCheck || (current_width != sizeWithMargins.width() || current_height != sizeWithMargins.height())) {
+            if (disableResizeCheck || (current_width != sizeWithMargins.width() || current_height != sizeWithMargins.height()) || m_requestedSize != sizeWithMargins) {
                 wl_egl_window_resize(m_waylandEglWindow, sizeWithMargins.width(), sizeWithMargins.height(), mOffset.x(), mOffset.y());
+                m_requestedSize = sizeWithMargins;
                 mOffset = QPoint();
 
                 m_resize = true;
             }
         } else if (create && wlSurface()) {
             m_waylandEglWindow = wl_egl_window_create(wlSurface(), sizeWithMargins.width(), sizeWithMargins.height());
+            m_requestedSize = sizeWithMargins;
         }
 
         if (!m_eglSurface && m_waylandEglWindow && create) {

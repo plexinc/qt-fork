@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: http://www.qt.io/licensing/
 **
 ** This file is part of the ActiveQt framework of the Qt Toolkit.
@@ -50,6 +50,8 @@
 
 #include "qaxbindable.h"
 #include "qaxfactory.h"
+
+#include <QtAxBase/private/qaxutils_p.h>
 
 #include <qapplication.h>
 #include <qdatetime.h>
@@ -104,7 +106,7 @@ QAxFactory *qAxFactory()
         QStringList keys(qax_factory->featureList());
         for (int i = 0; i < keys.count(); ++i) {
             QByteArray pointerType = keys.at(i).toLatin1() + '*';
-            if (!QMetaType::type(pointerType.constData()))
+            if (QMetaType::fromName(pointerType).id() == QMetaType::UnknownType)
                 qRegisterMetaType<void *>(pointerType);
         }
     }
@@ -437,7 +439,7 @@ HRESULT UpdateRegistry(bool bRegister, bool perUser)
     QString file = QString::fromWCharArray(qAxModuleFilename);
     const QString module = QFileInfo(file).baseName();
 
-    const QString libFile = qAxInit();
+    QString libFile = qAxInit();
     auto libFile_cleanup = qScopeGuard([] { qAxCleanup(); });
 
     TLIBATTR *libAttr = nullptr;
@@ -449,7 +451,7 @@ HRESULT UpdateRegistry(bool bRegister, bool perUser)
 
     if (bRegister) {
         if (!perUser) {
-            HRESULT hr = RegisterTypeLib(qAxTypeLibrary, reinterpret_cast<wchar_t *>(const_cast<ushort *>(libFile.utf16())), nullptr);
+            HRESULT hr = RegisterTypeLib(qAxTypeLibrary, qaxQString2MutableOleChars(libFile), nullptr);
             if (FAILED(hr)) {
                 qWarning("Failing to register %s due to insufficient permission.", qPrintable(module));
                 return hr;
@@ -457,7 +459,7 @@ HRESULT UpdateRegistry(bool bRegister, bool perUser)
         } else {
 #ifndef Q_CC_MINGW
             // MinGW does not have RegisterTypeLibForUser() implemented so we cannot fallback in this case
-            RegisterTypeLibForUser(qAxTypeLibrary, reinterpret_cast<wchar_t *>(const_cast<ushort *>(libFile.utf16())), nullptr);
+            RegisterTypeLibForUser(qAxTypeLibrary, qaxQString2MutableOleChars(libFile), nullptr);
 #endif
         }
     } else {
@@ -817,7 +819,8 @@ static QByteArray addDefaultArguments(const QByteArray &prototype, int numDefArg
             type += ' ' + ptype.mid(in + 5, ptype.indexOf(' ', in + 5) - in - 5);
         if (type == "struct")
             type += ' ' + ptype.mid(in + 7, ptype.indexOf(' ', in + 7) - in - 7);
-        ptype.replace(in, type.length(), QByteArray("VARIANT /*was: ") + type + "*/");
+        const QByteArray replacement = QByteArray("VARIANT /*was: ") + type + "*/";
+        ptype.replace(in, type.length(), replacement);
         --numDefArgs;
     }
 
@@ -960,9 +963,9 @@ static HRESULT classIDL(QObject *o, const QMetaObject *mo, const QString &classN
         out << "\t\t[id(" << id << ')';
         if (!property.isWritable())
             out << ", readonly";
-        if (isBindable && property.isScriptable(o))
+        if (isBindable && property.isScriptable())
             out << ", bindable";
-        if (!property.isDesignable(o))
+        if (!property.isDesignable())
             out << ", nonbrowsable";
         if (isBindable)
             out << ", requestedit";
@@ -1256,11 +1259,11 @@ extern "C" HRESULT __stdcall DumpIDL(const QString &outfile, const QString &ver)
             QByteArray cleanType = qax_clean_type(className, mo).toLatin1();
             out << "\tcoclass " << cleanType << ';' << Qt::endl;
             subtypes.append(cleanType);
-            if (!QMetaType::type(cleanType))
+            if (QMetaType::fromName(cleanType).id() == QMetaType::UnknownType)
                 qRegisterMetaType<void *>(cleanType);
             cleanType += '*';
             subtypes.append(cleanType);
-            if (!QMetaType::type(cleanType))
+            if (QMetaType::fromName(cleanType).id() == QMetaType::UnknownType)
                 qRegisterMetaType<void *>(cleanType);
         }
     }

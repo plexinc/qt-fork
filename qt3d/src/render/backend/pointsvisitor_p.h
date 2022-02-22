@@ -66,6 +66,7 @@ namespace Render {
 
 class GeometryRenderer;
 class NodeManagers;
+class PickingProxy;
 
 class Q_AUTOTEST_EXPORT PointsVisitor
 {
@@ -75,6 +76,7 @@ public:
 
     void apply(const Qt3DCore::QEntity *entity);
     void apply(const GeometryRenderer *renderer, const Qt3DCore::QNodeId id);
+    void apply(const PickingProxy *proxy, const Qt3DCore::QNodeId id);
 
     virtual void visit(uint ndx, const Vector3D &c) = 0;
 

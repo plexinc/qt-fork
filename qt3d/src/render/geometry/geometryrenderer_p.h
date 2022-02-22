@@ -51,9 +51,9 @@
 // We mean it.
 //
 
+#include <Qt3DCore/private/qgeometryfactory_p.h>
 #include <Qt3DRender/private/backendnode_p.h>
 #include <Qt3DRender/qgeometryrenderer.h>
-#include <Qt3DRender/qgeometryfactory.h>
 #include <Qt3DRender/qmesh.h>
 
 QT_BEGIN_NAMESPACE
@@ -69,7 +69,7 @@ class GeometryRendererManager;
 
 struct GeometryFunctorResult
 {
-    QGeometry *geometry;
+    Qt3DCore::QGeometry *geometry;
     QMesh::Status status;
 };
 
@@ -96,13 +96,10 @@ public:
     inline bool primitiveRestartEnabled() const { return m_primitiveRestartEnabled; }
     inline QGeometryRenderer::PrimitiveType primitiveType() const { return m_primitiveType; }
     inline bool isDirty() const { return m_dirty; }
-    inline QGeometryFactoryPtr geometryFactory() const { return m_geometryFactory; }
+    inline Qt3DCore::QGeometryFactoryPtr geometryFactory() const { return m_geometryFactory; }
     void unsetDirty();
-
-    // Build triangle data Job thread
-    void setTriangleVolumes(const  QVector<RayCasting::QBoundingVolume *> &volumes);
-    // Pick volumes job
-    QVector<RayCasting::QBoundingVolume *> triangleData() const;
+    bool hasView() const { return m_hasView; }
+    float sortIndex() const { return m_sortIndex; }
 
 private:
     Qt3DCore::QNodeId m_geometryId;
@@ -117,16 +114,17 @@ private:
     bool m_primitiveRestartEnabled;
     QGeometryRenderer::PrimitiveType m_primitiveType;
     bool m_dirty;
-    QGeometryFactoryPtr m_geometryFactory;
+    bool m_hasView;
+    Qt3DCore::QGeometryFactoryPtr m_geometryFactory;
     GeometryRendererManager *m_manager;
-    QVector<RayCasting::QBoundingVolume *> m_triangleVolumes;
+    float m_sortIndex;
 };
 
 class GeometryRendererFunctor : public Qt3DCore::QBackendNodeMapper
 {
 public:
     explicit GeometryRendererFunctor(AbstractRenderer *renderer, GeometryRendererManager *manager);
-    Qt3DCore::QBackendNode *create(const Qt3DCore::QNodeCreatedChangeBasePtr &change) const override;
+    Qt3DCore::QBackendNode *create(Qt3DCore::QNodeId id) const override;
     Qt3DCore::QBackendNode *get(Qt3DCore::QNodeId id) const override;
     void destroy(Qt3DCore::QNodeId id) const override;
 private:

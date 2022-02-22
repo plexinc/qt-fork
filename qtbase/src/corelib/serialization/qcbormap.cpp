@@ -58,7 +58,7 @@ using namespace QtCbor;
     Representation, a very compact form of binary data encoding that is a
     superset of JSON. It was created by the IETF Constrained RESTful
     Environments (CoRE) WG, which has used it in many new RFCs. It is meant to
-    be used alongside the \l{https://tools.ietf.org/html/rfc7252}{CoAP
+    be used alongside the \l{RFC 7252}{CoAP
     protocol}.
 
     Unlike JSON and \l QVariantMap, CBOR map keys can be of any type, not just
@@ -298,9 +298,9 @@ void QCborMap::clear()
 
     \sa QMap::keys(), QHash::keys()
  */
-QVector<QCborValue> QCborMap::keys() const
+QList<QCborValue> QCborMap::keys() const
 {
-    QVector<QCborValue> result;
+    QList<QCborValue> result;
     if (d) {
         result.reserve(size());
         for (qsizetype i = 0; i < d->elements.size(); i += 2)
@@ -1591,7 +1591,7 @@ void QCborMap::detach(qsizetype reserved)
 /*!
     \fn QCborMap::ConstIterator::value_type QCborMap::ConstIterator::operator*() const
 
-    Returns a pair containing the curent item's key and value.
+    Returns a pair containing the current item's key and value.
 
     \sa key(), value()
  */
@@ -1740,7 +1740,7 @@ void QCborMap::detach(qsizetype reserved)
     \sa operator+=(), operator-()
 */
 
-uint qHash(const QCborMap &map, uint seed)
+size_t qHash(const QCborMap &map, size_t seed)
 {
     return qHashRange(map.begin(), map.end(), seed);
 }
@@ -1760,11 +1760,13 @@ QDebug operator<<(QDebug dbg, const QCborMap &m)
 #endif
 
 #ifndef QT_NO_DATASTREAM
+#if QT_CONFIG(cborstreamwriter)
 QDataStream &operator<<(QDataStream &stream, const QCborMap &value)
 {
     stream << value.toCborValue().toCbor();
     return stream;
 }
+#endif
 
 QDataStream &operator>>(QDataStream &stream, QCborMap &value)
 {

@@ -91,8 +91,9 @@ QEffectPrivate::QEffectPrivate()
     effect->addTechnique(gl3Technique);
     \endcode
 
-    A QParameter defined on an Effect is overridden by a QParameter (of the same
-    name) defined in a QMaterial, QTechniqueFilter, QRenderPassFilter.
+    A QParameter defined on a QEffect overrides parameter (of the same
+    name) defined in QTechnique and QRenderPass, but are overridden by parameter in
+    QRenderPassFilter, QTechniqueFilter and QMaterial.
 
     \sa QMaterial, QTechnique, QParameter
 */
@@ -110,8 +111,9 @@ QEffectPrivate::QEffectPrivate()
 
     An Effect instance should be shared among several Material instances when possible.
 
-    A Parameter defined on an Effect is overridden by a QParameter (of the same
-    name) defined in a Material, TechniqueFilter, RenderPassFilter.
+    A Parameter defined on a Effect overrides parameter (of the same
+    name) defined in Technique and RenderPass, but are overridden by parameter in
+    RenderPassFilter, TechniqueFilter and Material.
 
     \note Effect node can not be disabled.
 
@@ -192,7 +194,7 @@ void QEffect::addParameter(QParameter *parameter)
         if (!parameter->parent())
             parameter->setParent(this);
 
-        d->updateNode(parameter, "parameter", Qt3DCore::PropertyValueAdded);
+        d->update();
     }
 }
 
@@ -207,13 +209,13 @@ void QEffect::removeParameter(QParameter *parameter)
         return;
     // Remove bookkeeping connection
     d->unregisterDestructionHelper(parameter);
-    d->updateNode(parameter, "parameter", Qt3DCore::PropertyValueRemoved);
+    d->update();
 }
 
 /*!
  * Returns the list of parameters used by the effect.
  */
-QVector<QParameter *> QEffect::parameters() const
+QList<QParameter *> QEffect::parameters() const
 {
     Q_D(const QEffect);
     return d->m_parameters;
@@ -239,7 +241,7 @@ void QEffect::addTechnique(QTechnique *t)
         if (!t->parent())
             t->setParent(this);
 
-        d->updateNode(t, "technique", Qt3DCore::PropertyValueAdded);
+        d->update();
     }
 }
 
@@ -251,7 +253,7 @@ void QEffect::removeTechnique(QTechnique *t)
     Q_D(QEffect);
     if (!d->m_techniques.removeOne(t))
         return;
-    d->updateNode(t, "technique", Qt3DCore::PropertyValueRemoved);
+    d->update();
     // Remove bookkeeping connection
     d->unregisterDestructionHelper(t);
 }
@@ -259,20 +261,10 @@ void QEffect::removeTechnique(QTechnique *t)
 /*!
  * Returns the list of techniques used by the effect.
  */
-QVector<QTechnique *> QEffect::techniques() const
+QList<QTechnique *> QEffect::techniques() const
 {
     Q_D(const QEffect);
     return d->m_techniques;
-}
-
-Qt3DCore::QNodeCreatedChangeBasePtr QEffect::createNodeCreationChange() const
-{
-    auto creationChange = Qt3DCore::QNodeCreatedChangePtr<QEffectData>::create(this);
-    auto &data = creationChange->data;
-    Q_D(const QEffect);
-    data.parameterIds = qIdsForNodes(d->m_parameters);
-    data.techniqueIds = qIdsForNodes(d->m_techniques);
-    return creationChange;
 }
 
 } // namespace Qt3DRender

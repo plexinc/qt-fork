@@ -7,12 +7,16 @@
 
 #include <stdint.h>
 
+#include <memory>
+
 #include "base/callback.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/optional.h"
 #include "components/download/public/common/download_export.h"
 #include "components/download/public/common/download_item.h"
+#include "components/download/public/common/download_item_rename_handler.h"
+#include "components/download/public/common/download_schedule.h"
 #include "components/download/public/common/download_url_parameters.h"
 #include "components/download/public/common/quarantine_connection.h"
 #include "components/services/quarantine/public/mojom/quarantine.mojom.h"
@@ -45,6 +49,7 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImplDelegate {
       DownloadDangerType danger_type,
       DownloadItem::MixedContentStatus mixed_content_status,
       const base::FilePath& intermediate_path,
+      base::Optional<DownloadSchedule> download_schedule,
       DownloadInterruptReason interrupt_reason)>;
   // Request determination of the download target from the delegate.
   virtual void DetermineDownloadTarget(DownloadItemImpl* download,
@@ -64,7 +69,12 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImplDelegate {
                                   ShouldOpenDownloadCallback callback);
 
   // Tests if a file type should be opened automatically.
-  virtual bool ShouldOpenFileBasedOnExtension(const base::FilePath& path);
+  virtual bool ShouldAutomaticallyOpenFile(const GURL& url,
+                                           const base::FilePath& path);
+
+  // Tests if a file type should be opened automatically by policy.
+  virtual bool ShouldAutomaticallyOpenFileByPolicy(const GURL& url,
+                                                   const base::FilePath& path);
 
   // Checks whether a downloaded file still exists and updates the
   // file's state if the file is already removed.
@@ -116,6 +126,12 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImplDelegate {
 
   // Gets a callback that can connect to the Quarantine Service if available.
   virtual QuarantineConnectionCallback GetQuarantineConnectionCallback();
+
+  // Gets a handler to perform the rename for a download item.  If no special
+  // rename handling is required, this function returns null and the default
+  // rename handling is performed.
+  virtual std::unique_ptr<DownloadItemRenameHandler>
+  GetRenameHandlerForDownload(DownloadItemImpl* download_item);
 
  private:
   // For "Outlives attached DownloadItemImpl" invariant assertion.

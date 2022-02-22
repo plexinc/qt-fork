@@ -42,7 +42,7 @@ Like a browser or server-side JavaScript environment, the QML runtime implements
 all of the built-in types and functions defined by the standard, such as Object, Array, and Math.
 The QML runtime implements the 7th edition of the standard.
 
-Since Qt 5.15 \l{Nullish Coalescing} is also implemented in the QML runtime.
+\l{Nullish Coalescing} (since Qt 5.15) and \l{Optional Chaining} (since Qt 6.2) are also implemented in the QML runtime.
 
 The standard ECMAScript built-ins are not explicitly documented in the QML documentation. For more
 information on their use, please refer to the ECMA-262 7th edition standard or one of the many online
@@ -53,6 +53,36 @@ specific to the browser environment. In the case of the W3Schools link above, th
 Reference} section generally covers the standard, while the \c{Browser Objects Reference} and \c{HTML DOM
 Objects Reference} sections are browser specific (and thus not applicable to QML).
 
+\section1 Type annotations and assertions
+
+Function declarations can, and should, contain type annotations. Type
+annotations are appended to the declaration of arguments and to the function
+itself, for annotating the return type. The following function takes an \c int
+and a \c string parameter, and returns a \c QtObject:
+
+\qml
+function doThings(a: int, b: string) : QtObject { ... }
+\endqml
+
+Type annotations help tools like \l{Qt Creator} and \l{qmllint} to make sense
+of the code and provide better diagnostics. Moreover, they make functions easier
+to use from C++. See
+\l {qtqml-cppintegration-interactqmlfromcpp.html}{Interacting with QML Objects from C++}
+for more information.
+
+Type assertions (sometimes called \e as-casts) can also be used in order to cast an object to a
+different object type. If the object is actually of the given type, then the type assertion returns
+the same object. If not, it returns \c null. In the following snippet we assert that the \c parent
+object is a \c Rectangle before accessing a specific member of it.
+
+\qml
+Item {
+    property color parentColor: (parent as Rectangle)?.color || "red"
+}
+\endqml
+
+The optional chaining (\c{?.}) avoids throwing an exception if the parent is
+actually not a rectangle. In that case "red" is chosen as \c parentColor.
 
 \section1 QML Global Object
 

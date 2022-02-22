@@ -5,6 +5,7 @@
 #ifndef SERVICES_DEVICE_USB_USB_DEVICE_HANDLE_WIN_H_
 #define SERVICES_DEVICE_USB_USB_DEVICE_HANDLE_WIN_H_
 
+#include <list>
 #include <map>
 #include <memory>
 #include <vector>
@@ -40,7 +41,9 @@ class UsbDeviceHandleWin : public UsbDeviceHandle {
                                     int alternate_setting,
                                     ResultCallback callback) override;
   void ResetDevice(ResultCallback callback) override;
-  void ClearHalt(uint8_t endpoint, ResultCallback callback) override;
+  void ClearHalt(mojom::UsbTransferDirection direction,
+                 uint8_t endpoint_number,
+                 ResultCallback callback) override;
 
   void ControlTransfer(mojom::UsbTransferDirection direction,
                        mojom::UsbControlTransferType request_type,
@@ -75,7 +78,7 @@ class UsbDeviceHandleWin : public UsbDeviceHandle {
   friend class UsbDeviceWin;
 
   // Constructor used to build a connection to the device.
-  UsbDeviceHandleWin(scoped_refptr<UsbDeviceWin> device, bool composite);
+  UsbDeviceHandleWin(scoped_refptr<UsbDeviceWin> device);
 
   // Constructor used to build a connection to the device's parent hub.
   UsbDeviceHandleWin(scoped_refptr<UsbDeviceWin> device,
@@ -83,18 +86,40 @@ class UsbDeviceHandleWin : public UsbDeviceHandle {
 
   ~UsbDeviceHandleWin() override;
 
+  void UpdateFunction(int interface_number,
+                      const std::wstring& function_driver,
+                      const std::wstring& function_path);
+
  private:
+  struct Interface;
   class Request;
+
+  using OpenInterfaceCallback = base::OnceCallback<void(Interface*)>;
 
   struct Interface {
     Interface();
     ~Interface();
 
-    uint8_t interface_number;
-    uint8_t first_interface;
+    const mojom::UsbInterfaceInfo* info;
+
+    // In a composite device each function has its own driver and path to open.
+    std::wstring function_driver;
+    std::wstring function_path;
+    base::win::ScopedHandle function_handle;
+
     ScopedWinUsbHandle handle;
     bool claimed = false;
+
+    // The currently selected alternative interface setting. This is assumed to
+    // be the first alternate when the device is opened.
     uint8_t alternate_setting = 0;
+
+    // The count of outstanding requests, including associated interfaces
+    // claimed which require keeping the handles owned by this object open.
+    int reference_count = 0;
+
+    // Closures to execute when |function_path| has been populated.
+    std::vector<OpenInterfaceCallback> ready_callbacks;
 
     DISALLOW_COPY_AND_ASSIGN(Interface);
   };
@@ -104,33 +129,58 @@ class UsbDeviceHandleWin : public UsbDeviceHandle {
     mojom::UsbTransferType type;
   };
 
-  bool OpenInterfaceHandle(Interface* interface);
-  void RegisterEndpoints(const CombinedInterfaceInfo& interface);
-  void UnregisterEndpoints(const CombinedInterfaceInfo& interface);
-  WINUSB_INTERFACE_HANDLE GetInterfaceForControlTransfer(
+  void OpenInterfaceHandle(Interface* interface,
+                           OpenInterfaceCallback callback);
+
+  // Interfaces on a USB device are organized into "functions". When making a
+  // request to a device the first interface of each function is the one that
+  // has a valid |function_handle|. This function finds the correct interface
+  // for making requests to the provided interface based on the device's driver
+  // configuration.
+  Interface* GetFirstInterfaceForFunction(Interface* interface);
+  void OnFunctionAvailable(OpenInterfaceCallback callback,
+                           Interface* interface);
+  void OnFirstInterfaceOpened(int interface_number,
+                              OpenInterfaceCallback callback,
+                              Interface* first_interface);
+  void OnInterfaceClaimed(ResultCallback callback, Interface* interface);
+  void OnSetAlternateInterfaceSetting(int interface_number,
+                                      int alternate_setting,
+                                      ResultCallback callback,
+                                      bool result);
+  void RegisterEndpoints(const mojom::UsbInterfaceInfo* interface,
+                         const mojom::UsbAlternateInterfaceInfo& alternate);
+  void UnregisterEndpoints(const mojom::UsbAlternateInterfaceInfo& alternate);
+  void OnClearHalt(int interface_number, ResultCallback callback, bool result);
+  void OpenInterfaceForControlTransfer(
       mojom::UsbControlTransferRecipient recipient,
-      uint16_t index);
-  void SetInterfaceAlternateSettingBlocking(uint8_t interface_number,
-                                            uint8_t alternate_setting,
-                                            const ResultCallback& callback);
-  void SetInterfaceAlternateSettingComplete(uint8_t interface_number,
-                                            uint8_t alternate_setting,
-                                            const ResultCallback& callback);
-  Request* MakeRequest(bool winusb_handle);
+      uint16_t index,
+      OpenInterfaceCallback callback);
+  void OnFunctionAvailableForEp0(OpenInterfaceCallback callback,
+                                 Interface* interface);
+  void OnInterfaceOpenedForControlTransfer(
+      mojom::UsbTransferDirection direction,
+      mojom::UsbControlTransferType request_type,
+      mojom::UsbControlTransferRecipient recipient,
+      uint8_t request,
+      uint16_t value,
+      uint16_t index,
+      scoped_refptr<base::RefCountedBytes> buffer,
+      unsigned int timeout,
+      TransferCallback callback,
+      Interface* interface);
+  Request* MakeRequest(Interface* interface);
   std::unique_ptr<Request> UnlinkRequest(Request* request);
-  void GotNodeConnectionInformation(TransferCallback callback,
-                                    void* node_connection_info,
-                                    scoped_refptr<base::RefCountedBytes> buffer,
-                                    Request* request_ptr,
-                                    DWORD win32_result,
-                                    size_t bytes_transferred);
+  void GotNodeConnectionInformation(
+      TransferCallback callback,
+      void* node_connection_info,
+      scoped_refptr<base::RefCountedBytes> buffer,
+      std::pair<DWORD, DWORD> result_and_bytes_transferred);
   void GotDescriptorFromNodeConnection(
       TransferCallback callback,
       scoped_refptr<base::RefCountedBytes> request_buffer,
       scoped_refptr<base::RefCountedBytes> original_buffer,
-      Request* request_ptr,
-      DWORD win32_result,
-      size_t bytes_transferred);
+      std::pair<DWORD, DWORD> result_and_bytes_transferred);
   void TransferComplete(TransferCallback callback,
                         scoped_refptr<base::RefCountedBytes> buffer,
                         Request* request_ptr,
@@ -139,6 +189,8 @@ class UsbDeviceHandleWin : public UsbDeviceHandle {
   void ReportIsochronousError(const std::vector<uint32_t>& packet_lengths,
                               IsochronousTransferCallback callback,
                               mojom::UsbTransferStatus status);
+  bool AllFunctionsEnumerated() const;
+  void ReleaseInterfaceReference(Interface* interface);
 
   SEQUENCE_CHECKER(sequence_checker_);
 
@@ -149,14 +201,13 @@ class UsbDeviceHandleWin : public UsbDeviceHandle {
   // objects hold on to the raw handles for the purpose of calling
   // GetOverlappedResult().
   base::win::ScopedHandle hub_handle_;
-  base::win::ScopedHandle function_handle_;
-
-  // The handle returned by WinUsb_Initialize is special.
-  WINUSB_INTERFACE_HANDLE first_interface_handle_ = INVALID_HANDLE_VALUE;
 
   std::map<uint8_t, Interface> interfaces_;
   std::map<uint8_t, Endpoint> endpoints_;
-  std::map<Request*, std::unique_ptr<Request>> requests_;
+  std::list<std::unique_ptr<Request>> requests_;
+
+  // Control transfers which are waiting for a function handle to be ready.
+  std::vector<OpenInterfaceCallback> ep0_ready_callbacks_;
 
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
   scoped_refptr<base::SequencedTaskRunner> blocking_task_runner_;

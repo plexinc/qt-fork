@@ -26,11 +26,13 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include <QtCore/qpauseanimation.h>
 #include <QtCore/qpropertyanimation.h>
 #include <QtCore/qsequentialanimationgroup.h>
+
+#include <QParallelAnimationGroup>
 
 #include <private/qabstractanimation_p.h>
 
@@ -56,7 +58,7 @@ class TestablePauseAnimation : public QPauseAnimation
 {
     Q_OBJECT
 public:
-    TestablePauseAnimation(QObject *parent = 0)
+    TestablePauseAnimation(QObject *parent = nullptr)
         : QPauseAnimation(parent),
         m_updateCurrentTimeCount(0)
     {
@@ -64,7 +66,7 @@ public:
 
     int m_updateCurrentTimeCount;
 protected:
-    void updateCurrentTime(int currentTime)
+    void updateCurrentTime(int currentTime) override
     {
         QPauseAnimation::updateCurrentTime(currentTime);
         ++m_updateCurrentTimeCount;
@@ -103,6 +105,7 @@ private slots:
     void sequentialGroupWithPause();
     void multipleSequentialGroups();
     void zeroDuration();
+    void bindings();
 };
 
 void tst_QPauseAnimation::initTestCase()
@@ -438,6 +441,46 @@ void tst_QPauseAnimation::zeroDuration()
     WAIT_FOR_STOPPED(animation, expectedDuration);
 
     QCOMPARE(animation.m_updateCurrentTimeCount, 1);
+}
+
+void tst_QPauseAnimation::bindings()
+{
+    TestablePauseAnimation animation;
+
+    QProperty<int> duration;
+    animation.bindableDuration().setBinding(Qt::makePropertyBinding(duration));
+
+    duration = 42;
+    QCOMPARE(animation.duration(), 42);
+
+    // negative values must be ignored
+    QTest::ignoreMessage(QtWarningMsg,
+                         "QPauseAnimation::setDuration: cannot set a negative duration");
+    duration = -1;
+    QCOMPARE(animation.duration(), 42);
+    QCOMPARE(duration, -1);
+
+    // Setting an invalid value shouldn't clear the binding
+    QTest::ignoreMessage(QtWarningMsg,
+                         "QPauseAnimation::setDuration: cannot set a negative duration");
+    animation.setDuration(-1);
+    QVERIFY(animation.bindableDuration().hasBinding());
+    QCOMPARE(animation.duration(), 42);
+
+    QProperty<int> durationObserver;
+    durationObserver.setBinding(animation.bindableDuration().makeBinding());
+
+    animation.setDuration(46);
+    QCOMPARE(durationObserver, 46);
+
+    // Setting a valid value should clear the binding
+    QVERIFY(!animation.bindableDuration().hasBinding());
+
+    // Setting an invalid value also doesn't affect the observer
+    QTest::ignoreMessage(QtWarningMsg,
+                         "QPauseAnimation::setDuration: cannot set a negative duration");
+    animation.setDuration(-1);
+    QCOMPARE(durationObserver, 46);
 }
 
 QTEST_MAIN(tst_QPauseAnimation)

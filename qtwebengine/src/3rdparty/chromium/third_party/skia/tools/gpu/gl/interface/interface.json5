@@ -79,7 +79,9 @@
   },
 
   {
-    "GL":    [{"ext": "<core>"}],
+    "GL":    [{"min_version": [3, 0], "ext": "<core>"},
+              {/*    else if      */  "ext": "GL_ARB_vertex_array_object"},
+              {/*    else if      */  "ext": "GL_APPLE_vertex_array_object"}],
     "GLES":  [{"min_version": [3, 0], "ext": "<core>"},
               {/*    else if      */  "ext": "GL_OES_vertex_array_object"}],
     "WebGL": [{"min_version": [2, 0], "ext": "<core>"},
@@ -103,10 +105,6 @@
     "functions": [
       "PatchParameteri",
     ],
-    // FIXME: Make this method non-optional once Chrome starts adding it to the interface.
-    "optional": [
-      "PatchParameteri",
-    ]
   },
 
   {
@@ -174,14 +172,11 @@
               {/*    else if      */  "ext": "GL_ARB_base_instance"}],
     "GLES":  [{"ext": "GL_EXT_base_instance"},
               {/*    else if      */  "ext": "GL_ANGLE_base_vertex_base_instance"}],
-    "WebGL": null,
+    "WebGL": [{"ext": "GL_WEBGL_draw_instanced_base_vertex_base_instance"}],
 
     "functions": [
       "DrawArraysInstancedBaseInstance", "DrawElementsInstancedBaseVertexBaseInstance"
-    ],
-    "optional": [
-      "DrawArraysInstancedBaseInstance", "DrawElementsInstancedBaseVertexBaseInstance"
-    ],
+    ]
   },
 
   { // ES 3.0 has glDrawBuffers but not glDrawBuffer
@@ -202,6 +197,16 @@
 
     "functions": [
       "DrawArraysIndirect", "DrawElementsIndirect",
+    ]
+  },
+
+  {
+    "GL":    null,
+    "GLES":  [{"ext": "GL_ANGLE_base_vertex_base_instance"}],
+    "WebGL": [{"ext": "GL_WEBGL_multi_draw_instanced_base_vertex_base_instance"}],
+
+    "functions": [
+      "MultiDrawArraysInstancedBaseInstance", "MultiDrawElementsInstancedBaseVertexBaseInstance",
     ]
   },
 

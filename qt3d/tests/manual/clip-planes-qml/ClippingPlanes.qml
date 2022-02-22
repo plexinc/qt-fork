@@ -83,7 +83,7 @@ Entity {
             }
         }
 
-        property PlaneMesh mesh: PlaneMesh {
+        property GeometryRenderer mesh: PlaneMesh {
             width: 20.0
             height: 20.0
             meshResolution: Qt.size(2, 2)

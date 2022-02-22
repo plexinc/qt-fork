@@ -43,6 +43,7 @@
 #include <QtGui/QPainterPath>
 #include <QtGui/QPalette>
 #include <QtGui/QLinearGradient>
+#include <QtGui/QPainterPath>
 
 #include <qpa/qwindowsysteminterface.h>
 
@@ -72,10 +73,10 @@ class Q_WAYLAND_CLIENT_EXPORT QWaylandBradientDecoration : public QWaylandAbstra
 public:
     QWaylandBradientDecoration();
 protected:
-    QMargins margins() const override;
+    QMargins margins(MarginsType marginsType = Full) const override;
     void paint(QPaintDevice *device) override;
     bool handleMouse(QWaylandInputDevice *inputDevice, const QPointF &local, const QPointF &global,Qt::MouseButtons b,Qt::KeyboardModifiers mods) override;
-    bool handleTouch(QWaylandInputDevice *inputDevice, const QPointF &local, const QPointF &global, Qt::TouchPointState state, Qt::KeyboardModifiers mods) override;
+    bool handleTouch(QWaylandInputDevice *inputDevice, const QPointF &local, const QPointF &global, QEventPoint::State state, Qt::KeyboardModifiers mods) override;
 private:
     void processMouseTop(QWaylandInputDevice *inputDevice, const QPointF &local, Qt::MouseButtons b,Qt::KeyboardModifiers mods);
     void processMouseBottom(QWaylandInputDevice *inputDevice, const QPointF &local, Qt::MouseButtons b,Qt::KeyboardModifiers mods);
@@ -129,8 +130,11 @@ QRectF QWaylandBradientDecoration::minimizeButtonRect() const
                   (margins().top() - BUTTON_WIDTH) / 2, BUTTON_WIDTH, BUTTON_WIDTH);
 }
 
-QMargins QWaylandBradientDecoration::margins() const
+QMargins QWaylandBradientDecoration::margins(MarginsType marginsType) const
 {
+    if (marginsType == ShadowsOnly)
+        return QMargins();
+
     return QMargins(3, 30, 3, 3);
 }
 
@@ -164,13 +168,10 @@ void QWaylandBradientDecoration::paint(QPaintDevice *device)
     // Window icon
     QIcon icon = waylandWindow()->windowIcon();
     if (!icon.isNull()) {
-        QPixmap pixmap = icon.pixmap(QSize(128, 128));
-        QPixmap scaled = pixmap.scaled(22, 22, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
-
         QRectF iconRect(0, 0, 22, 22);
-        p.drawPixmap(iconRect.adjusted(margins().left() + BUTTON_SPACING, 4,
-                                       margins().left() + BUTTON_SPACING, 4),
-                     scaled, iconRect);
+        iconRect.adjust(margins().left() + BUTTON_SPACING, 4,
+                        margins().left() + BUTTON_SPACING, 4),
+        icon.paint(&p, iconRect.toRect());
     }
 
     // Window title
@@ -289,12 +290,12 @@ bool QWaylandBradientDecoration::handleMouse(QWaylandInputDevice *inputDevice, c
     return true;
 }
 
-bool QWaylandBradientDecoration::handleTouch(QWaylandInputDevice *inputDevice, const QPointF &local, const QPointF &global, Qt::TouchPointState state, Qt::KeyboardModifiers mods)
+bool QWaylandBradientDecoration::handleTouch(QWaylandInputDevice *inputDevice, const QPointF &local, const QPointF &global, QEventPoint::State state, Qt::KeyboardModifiers mods)
 {
     Q_UNUSED(inputDevice);
     Q_UNUSED(global);
     Q_UNUSED(mods);
-    bool handled = state == Qt::TouchPointPressed;
+    bool handled = state == QEventPoint::Pressed;
     if (handled) {
         if (closeButtonRect().contains(local))
             QWindowSystemInterface::handleCloseEvent(window());

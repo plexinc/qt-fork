@@ -42,7 +42,7 @@
 #include <private/verticalaxis_p.h>
 #include <QtCharts/private/qchartglobal_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class QCategoryAxis;
 
@@ -53,19 +53,19 @@ public:
     ChartCategoryAxisY(QCategoryAxis *axis, QGraphicsItem* item = 0);
     ~ChartCategoryAxisY();
 
-    QSizeF sizeHint(Qt::SizeHint which, const QSizeF &constraint) const;
+    QSizeF sizeHint(Qt::SizeHint which, const QSizeF &constraint) const override;
 
 public Q_SLOTS:
     void handleCategoriesChanged();
 
 protected:
-    QVector<qreal> calculateLayout() const;
-    void updateGeometry();
+    QList<qreal> calculateLayout() const override;
+    void updateGeometry() override;
 
 private:
     QCategoryAxis *m_axis;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif /* CHARTCATEGORYAXISY_H */

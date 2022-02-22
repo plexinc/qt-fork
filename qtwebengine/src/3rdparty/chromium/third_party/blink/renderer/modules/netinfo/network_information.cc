@@ -8,9 +8,10 @@
 
 #include "third_party/blink/public/mojom/devtools/console_message.mojom-blink.h"
 #include "third_party/blink/public/platform/task_type.h"
-#include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/core/execution_context/navigator_base.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/modules/event_target_modules.h"
@@ -23,16 +24,8 @@ namespace blink {
 namespace {
 
 Settings* GetSettings(ExecutionContext* execution_context) {
-  if (!execution_context)
-    return nullptr;
-
-  auto* document = Document::DynamicFrom(execution_context);
-  if (!document)
-    return nullptr;
-
-  // |document| is guaranteed to be non-null since |execution_context| is
-  // non-null.
-  return document->GetSettings();
+  auto* window = DynamicTo<LocalDOMWindow>(execution_context);
+  return window ? window->GetFrame()->GetSettings() : nullptr;
 }
 
 bool IsInDataSaverHoldbackWebApi(ExecutionContext* execution_context) {
@@ -278,8 +271,23 @@ void NetworkInformation::StopObserving() {
   }
 }
 
-NetworkInformation::NetworkInformation(ExecutionContext* context)
-    : ExecutionContextLifecycleObserver(context),
+const char NetworkInformation::kSupplementName[] = "NetworkInformation";
+
+NetworkInformation* NetworkInformation::connection(NavigatorBase& navigator) {
+  if (!navigator.GetExecutionContext())
+    return nullptr;
+  NetworkInformation* supplement =
+      Supplement<NavigatorBase>::From<NetworkInformation>(navigator);
+  if (!supplement) {
+    supplement = MakeGarbageCollected<NetworkInformation>(navigator);
+    ProvideTo(navigator, supplement);
+  }
+  return supplement;
+}
+
+NetworkInformation::NetworkInformation(NavigatorBase& navigator)
+    : Supplement<NavigatorBase>(navigator),
+      ExecutionContextLifecycleObserver(navigator.GetExecutionContext()),
       web_holdback_console_message_shown_(false),
       context_stopped_(false) {
   base::Optional<base::TimeDelta> http_rtt;
@@ -298,8 +306,9 @@ NetworkInformation::NetworkInformation(ExecutionContext* context)
   DCHECK_GE(20u, GetNetworkStateNotifier().RandomizationSalt());
 }
 
-void NetworkInformation::Trace(Visitor* visitor) {
+void NetworkInformation::Trace(Visitor* visitor) const {
   EventTargetWithInlineData::Trace(visitor);
+  Supplement<NavigatorBase>::Trace(visitor);
   ExecutionContextLifecycleObserver::Trace(visitor);
 }
 

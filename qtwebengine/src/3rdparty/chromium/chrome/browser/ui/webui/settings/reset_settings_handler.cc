@@ -7,13 +7,14 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/strings/string16.h"
 #include "base/time/time.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/google/google_brand.h"
 #include "chrome/browser/net/system_network_context_manager.h"
@@ -31,14 +32,10 @@
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
 #include "ui/base/l10n/l10n_util.h"
 
-#if defined(OS_CHROMEOS)
-#include "chrome/browser/browser_process.h"
-#include "chrome/browser/browser_process_platform_part.h"
-#include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
-#include "chrome/browser/chromeos/reset/metrics.h"
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "chrome/browser/ash/reset/metrics.h"
 #include "chrome/common/pref_names.h"
-#include "components/user_manager/user_manager.h"
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 #if defined(OS_WIN)
 #include "chrome/browser/profile_resetter/triggered_profile_resetter.h"
@@ -70,7 +67,24 @@ ResetRequestOriginFromString(const std::string& request_origin) {
 
 }  // namespace
 
+// static
 const char ResetSettingsHandler::kCctResetSettingsHash[] = "cct";
+
+// static
+bool ResetSettingsHandler::ShouldShowResetProfileBanner(Profile* profile) {
+  const base::Time reset_time = chrome_prefs::GetResetTime(profile);
+
+  // If there is no reset time, do not show the banner.
+  if (reset_time.is_null())
+    return false;
+
+  // Otherwise, only show the banner if it has been less than |kBannerShowTime|
+  // since reset.
+  static constexpr base::TimeDelta kBannerShowTime =
+      base::TimeDelta::FromDays(5);
+  const base::TimeDelta since_reset = base::Time::Now() - reset_time;
+  return since_reset < kBannerShowTime;
+}
 
 ResetSettingsHandler::ResetSettingsHandler(Profile* profile)
     : profile_(profile) {
@@ -78,33 +92,6 @@ ResetSettingsHandler::ResetSettingsHandler(Profile* profile)
 }
 
 ResetSettingsHandler::~ResetSettingsHandler() {}
-
-ResetSettingsHandler* ResetSettingsHandler::Create(
-    content::WebUIDataSource* html_source, Profile* profile) {
-#if defined(OS_CHROMEOS)
-  // TODO(crbug.com/891905): Centralize powerwash restriction checks.
-  bool allow_powerwash = false;
-  policy::BrowserPolicyConnectorChromeOS* connector =
-      g_browser_process->platform_part()->browser_policy_connector_chromeos();
-  allow_powerwash =
-      !connector->IsEnterpriseManaged() &&
-      !user_manager::UserManager::Get()->IsLoggedInAsGuest() &&
-      !user_manager::UserManager::Get()->IsLoggedInAsSupervisedUser() &&
-      !user_manager::UserManager::Get()->IsLoggedInAsChildUser();
-  html_source->AddBoolean("allowPowerwash", allow_powerwash);
-#endif  // defined(OS_CHROMEOS)
-
-  bool show_reset_profile_banner = false;
-  static const int kBannerShowTimeInDays = 5;
-  const base::Time then = chrome_prefs::GetResetTime(profile);
-  if (!then.is_null()) {
-    show_reset_profile_banner =
-        (base::Time::Now() - then).InDays() < kBannerShowTimeInDays;
-  }
-  html_source->AddBoolean("showResetProfileBanner", show_reset_profile_banner);
-
-  return new ResetSettingsHandler(profile);
-}
 
 void ResetSettingsHandler::OnJavascriptDisallowed() {
   callback_weak_ptr_factory_.InvalidateWeakPtrs();
@@ -136,12 +123,12 @@ void ResetSettingsHandler::RegisterMessages() {
       base::BindRepeating(
           &ResetSettingsHandler::HandleGetTriggeredResetToolName,
           base::Unretained(this)));
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   web_ui()->RegisterMessageCallback(
       "onPowerwashDialogShow",
       base::BindRepeating(&ResetSettingsHandler::OnShowPowerwashDialog,
                           base::Unretained(this)));
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 }
 
 void ResetSettingsHandler::HandleResetProfileSettings(
@@ -161,9 +148,9 @@ void ResetSettingsHandler::HandleResetProfileSettings(
   DCHECK(brandcode_.empty() || config_fetcher_);
   if (config_fetcher_ && config_fetcher_->IsActive()) {
     // Reset once the prefs are fetched.
-    config_fetcher_->SetCallback(base::Bind(&ResetSettingsHandler::ResetProfile,
-                                            base::Unretained(this), callback_id,
-                                            send_settings, request_origin));
+    config_fetcher_->SetCallback(base::BindOnce(
+        &ResetSettingsHandler::ResetProfile, base::Unretained(this),
+        callback_id, send_settings, request_origin));
   } else {
     ResetProfile(callback_id, send_settings, request_origin);
   }
@@ -199,8 +186,8 @@ void ResetSettingsHandler::HandleGetReportedSettings(
   CHECK(args->GetString(0, &callback_id));
 
   setting_snapshot_->RequestShortcuts(
-      base::Bind(&ResetSettingsHandler::OnGetReportedSettingsDone,
-                 callback_weak_ptr_factory_.GetWeakPtr(), callback_id));
+      base::BindOnce(&ResetSettingsHandler::OnGetReportedSettingsDone,
+                     callback_weak_ptr_factory_.GetWeakPtr(), callback_id));
 }
 
 void ResetSettingsHandler::OnGetReportedSettingsDone(std::string callback_id) {
@@ -220,8 +207,8 @@ void ResetSettingsHandler::OnShowResetProfileDialog(
   config_fetcher_ = std::make_unique<BrandcodeConfigFetcher>(
       g_browser_process->system_network_context_manager()
           ->GetURLLoaderFactory(),
-      base::Bind(&ResetSettingsHandler::OnSettingsFetched,
-                 base::Unretained(this)),
+      base::BindOnce(&ResetSettingsHandler::OnSettingsFetched,
+                     base::Unretained(this)),
       GURL("https://tools.google.com/service/update2"), brandcode_);
 }
 
@@ -239,7 +226,7 @@ void ResetSettingsHandler::OnHideResetProfileBanner(
 void ResetSettingsHandler::OnSettingsFetched() {
   DCHECK(config_fetcher_);
   DCHECK(!config_fetcher_->IsActive());
-  // The master prefs is fetched. We are waiting for user pressing 'Reset'.
+  // The initial prefs is fetched. We are waiting for user pressing 'Reset'.
 }
 
 void ResetSettingsHandler::ResetProfile(
@@ -264,9 +251,9 @@ void ResetSettingsHandler::ResetProfile(
 
   GetResetter()->Reset(
       ProfileResetter::ALL, std::move(default_settings),
-      base::Bind(&ResetSettingsHandler::OnResetProfileSettingsDone,
-                 callback_weak_ptr_factory_.GetWeakPtr(), callback_id,
-                 send_settings, request_origin));
+      base::BindOnce(&ResetSettingsHandler::OnResetProfileSettingsDone,
+                     callback_weak_ptr_factory_.GetWeakPtr(), callback_id,
+                     send_settings, request_origin));
   base::RecordAction(base::UserMetricsAction("ResetProfile"));
   UMA_HISTOGRAM_ENUMERATION(
       "ProfileReset.ResetRequestOrigin", request_origin,
@@ -312,14 +299,14 @@ void ResetSettingsHandler::HandleGetTriggeredResetToolName(
   ResolveJavascriptCallback(*callback_id, string_value);
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 void ResetSettingsHandler::OnShowPowerwashDialog(
      const base::ListValue* args) {
   UMA_HISTOGRAM_ENUMERATION(
       "Reset.ChromeOS.PowerwashDialogShown",
-      chromeos::reset::DIALOG_FROM_OPTIONS,
-      chromeos::reset::DIALOG_VIEW_TYPE_SIZE);
+      ash::reset::DialogViewType::kFromOptions,
+      ash::reset::DialogViewType::kCount);
 }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 }  // namespace settings

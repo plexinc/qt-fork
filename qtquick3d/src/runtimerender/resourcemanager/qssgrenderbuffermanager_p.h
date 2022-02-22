@@ -43,118 +43,151 @@
 //
 
 #include <QtQuick3DRuntimeRender/private/qtquick3druntimerenderglobal_p.h>
-#include <QtQuick3DRuntimeRender/private/qssgrenderimagetexturedata_p.h>
+#include <QtQuick3DRuntimeRender/private/qssgrenderimagetexture_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrendermesh_p.h>
-#include <QtQuick3DAssetImport/private/qssgmeshutilities_p.h>
-#include <QtQuick3DUtils/private/qssgperftimer_p.h>
-#include <QtQuick3DUtils/private/qssgbounds3_p.h>
+#include <QtQuick3DRuntimeRender/private/qssgrendererutil_p.h>
+#include <QtQuick3DRuntimeRender/private/qssgrendershadercache_p.h>
+#include <QtQuick3DUtils/private/qssgmesh_p.h>
 
-#include <QtCore/qmutex.h>
+#include <QtCore/QMutex>
 
 QT_BEGIN_NAMESPACE
 
 struct QSSGRenderMesh;
 struct QSSGLoadedTexture;
-class QSSGRenderContext;
-class QSSGInputStreamFactory;
+class QSSGRhiContext;
 struct QSSGMeshBVH;
-namespace QSSGMeshUtilities {
-    struct MultiLoadResult;
-}
+class QSGTexture;
+class QSSGRenderGeometry;
+class QSSGRenderTextureData;
+struct QSSGRenderModel;
+struct QSSGRenderImage;
+
+// There is one QSSGBufferManager per QSSGRenderContextInterface, and so per
+// QQuickWindow, and by extension, per scenegraph render thread. This is
+// essential here because graphics resources (vertex/index buffers, textures)
+// are always specific to one render thread, they cannot be used and shared
+// between different threads (and so windows). This is ensured by design, by
+// having a dedicated BufferManager for each render thread (window).
 
 class Q_QUICK3DRUNTIMERENDER_EXPORT QSSGBufferManager
 {
 public:
     QAtomicInt ref;
-private:
-    typedef QSet<QString> StringSet;
-    typedef QHash<QString, QSSGRenderImageTextureData> ImageMap;
-    typedef QHash<QSGTexture *, QSSGRenderImageTextureData> QSGImageMap;
-    typedef QHash<QSSGRenderMeshPath, QSSGRenderMesh *> MeshMap;
-    typedef QHash<QString, QString> AliasImageMap;
 
-    QSSGRef<QSSGRenderContext> context;
-    QSSGRef<QSSGInputStreamFactory> inputStreamFactory;
-    QSSGPerfTimer *perfTimer;
+    struct ImageCacheKey {
+        QSSGRenderPath path;
+        int mipMode;
+    };
+
+private:
+    typedef QHash<ImageCacheKey, QSSGRenderImageTexture> ImageMap;
+    typedef QHash<QSGTexture *, QSSGRenderImageTexture> QSGImageMap;
+    typedef QHash<QSSGRenderPath, QSSGRenderMesh *> MeshMap;
+    typedef QHash<QSSGRenderGeometry *, QSSGRenderMesh *> CustomMeshMap;
+    typedef QHash<QSSGRenderTextureData *, QSSGRenderImageTexture> CustomTextureMap;
+
+    typedef QHash<QSSGRenderPath, QSet<const QSSGRenderModel *>> ModelPathRefereneMap;
+    typedef QHash<QSSGRenderPath, QSet<const QSSGRenderImage *>> ImagePathReferenceMap;
+    typedef QHash<const QSSGRenderModel *, QSSGRenderPath> ModelPathMap;
+    typedef QHash<const QSSGRenderImage *, QSSGRenderPath> ImagePathMap;
+
+
+    QSSGRef<QSSGRhiContext> context;
+    QSSGRef<QSSGShaderCache> shaderCache;
     ImageMap imageMap;
     QSGImageMap qsgImageMap;
-    QMutex loadedImageSetMutex;
-    StringSet loadedImageSet;
-    AliasImageMap aliasImageMap;
     MeshMap meshMap;
+    CustomMeshMap customMeshMap;
+    CustomTextureMap customTextureMap;
     QVector<QSSGRenderVertexBufferEntry> entryBuffer;
-    bool gpuSupportsDXT;
+    ModelPathRefereneMap modelRefMap;
+    ImagePathReferenceMap imageRefMap;
+    ModelPathMap cachedModelPathMap;
+    ImagePathMap cachedImagePathMap;
+    QRhiResourceUpdateBatch *meshBufferUpdates = nullptr;
+    QMutex meshBufferMutex;
 
     void clear();
 
-    QSSGMeshUtilities::MultiLoadResult loadPrimitive(const QString &inRelativePath) const;
-    QVector<QVector3D> createPackedPositionDataArray(
-            const QSSGMeshUtilities::MultiLoadResult &inResult) const;
-    static void releaseMesh(QSSGRenderMesh &inMesh);
-    static void releaseTexture(QSSGRenderImageTextureData &inEntry);
+    QSSGMesh::Mesh loadPrimitive(const QString &inRelativePath) const;
 
 public:
-    QSSGBufferManager(const QSSGRef<QSSGRenderContext> &inRenderContext,
-                        const QSSGRef<QSSGInputStreamFactory> &inInputStreamFactory,
-                        QSSGPerfTimer *inTimer);
+    enum MipMode {
+        MipModeNone = 0,
+        MipModeBsdf,
+        MipModeGenerated,
+    };
+
+    enum LoadRenderImageFlag {
+        LoadWithFlippedY = 0x01
+    };
+    Q_DECLARE_FLAGS(LoadRenderImageFlags, LoadRenderImageFlag)
+
+    QSSGBufferManager(const QSSGRef<QSSGRhiContext> &inRenderContext,
+                      const QSSGRef<QSSGShaderCache> &inShaderContext);
     ~QSSGBufferManager();
 
-    void setImageHasTransparency(const QString &inSourcePath, bool inHasTransparency);
-    bool getImageHasTransparency(const QString &inSourcePath) const;
-    void setImageTransparencyToFalseIfNotSet(const QString &inSourcePath);
-    void setInvertImageUVCoords(const QString &inSourcePath, bool inShouldInvertCoords);
-
-    // Returns true if this image has been loaded into memory
-    // This call is threadsafe.  Nothing else on this object is guaranteed to be.
-    bool isImageLoaded(const QString &inSourcePath);
-
-    // Alias one image path with another image path.  Optionally this object will ignore the
-    // call if
-    // the source path is already loaded.  Aliasing is currently used to allow a default image
-    // to be shown
-    // in place of an image that is loading offline.
-    // Returns true if the image was aliased, false otherwise.
-    bool aliasImagePath(const QString &inSourcePath, const QString &inAliasPath, bool inIgnoreIfLoaded);
-    void unaliasImagePath(const QString &inSourcePath);
-
-    // Returns the given source path unless the source path is aliased; in which case returns
-    // the aliased path.
-    QString getImagePath(const QString &inSourcePath) const;
-    // Returns a texture and a boolean indicating if this texture has transparency in it or not.
-    // Can't name this LoadImage because that gets mangled by windows to LoadImageA (uggh)
-    // In some cases we need to only scan particular images for transparency.
-    QSSGRenderImageTextureData loadRenderImage(const QString &inImagePath,
-                                                 const QSSGRef<QSSGLoadedTexture> &inTexture,
-                                                 bool inForceScanForTransparency = false,
-                                                 bool inBsdfMipmaps = false);
-    QSSGRenderImageTextureData loadRenderImage(const QString &inSourcePath,
-                                                 const QSSGRenderTextureFormat &inFormat = QSSGRenderTextureFormat::Unknown,
-                                                 bool inForceScanForTransparency = false,
-                                                 bool inBsdfMipmaps = false);
-    QSSGRenderImageTextureData loadRenderImage(QSGTexture *qsgTexture);
-    QSSGRenderMesh *getMesh(const QSSGRenderMeshPath &inSourcePath) const;
-    QSSGRenderMesh *loadMesh(const QSSGRenderMeshPath &inSourcePath);
-    QSSGRenderMesh *loadCustomMesh(const QSSGRenderMeshPath &inSourcePath,
-                                   QSSGMeshUtilities::Mesh *mesh,
+    QSSGRenderImageTexture loadRenderImage(const QSSGRenderImage *image,
+                                           MipMode inMipMode = MipModeNone,
+                                           LoadRenderImageFlags flags = LoadWithFlippedY);
+    QSSGRenderImageTexture loadTextureData(QSSGRenderTextureData *data, MipMode inMipMode);
+    QSSGRenderMesh *getMesh(const QSSGRenderPath &inSourcePath) const;
+    QSSGRenderMesh *getMesh(QSSGRenderGeometry *geometry) const;
+    QSSGRenderMesh *loadMesh(const QSSGRenderModel *model);
+    QSSGRenderMesh *loadCustomMesh(QSSGRenderGeometry *geometry,
+                                   const QSSGMesh::Mesh &mesh,
                                    bool update = false);
-    QSSGMeshBVH *loadMeshBVH(const QSSGRenderMeshPath &inSourcePath);
-    QSSGMeshUtilities::MultiLoadResult loadMeshData(const QSSGRenderMeshPath &inSourcePath) const;
+    QSSGMeshBVH *loadMeshBVH(const QSSGRenderPath &inSourcePath);
+    QSSGMeshBVH *loadMeshBVH(QSSGRenderGeometry *geometry);
+    QSSGMesh::Mesh loadMeshData(const QSSGRenderPath &inSourcePath) const;
 
-    QSSGRenderMesh *createMesh(const QString &inSourcePath,
-                                         quint8 *inVertData,
-                                         quint32 inNumVerts,
-                                         quint32 inVertStride,
-                                         quint32 *inIndexData,
-                                         quint32 inIndexCount,
-                                         QSSGBounds3 inBounds);
-    QSSGRenderMesh *createRenderMesh(const QSSGMeshUtilities::MultiLoadResult &result,
-                                     const QSSGRenderMeshPath &inSourcePath);
+    QSSGRenderMesh *createRenderMesh(const QSSGMesh::Mesh &mesh);
 
-    // Remove *all* buffers from the buffer manager;
+    void addMeshReference(const QSSGRenderPath &sourcePath, const QSSGRenderModel *model);
+    void addImageReference(const QSSGRenderPath &sourcePath, const QSSGRenderImage *image);
+    void removeMeshReference(const QSSGRenderPath &sourcePath, const QSSGRenderModel *model);
+    void removeImageReference(const QSSGRenderPath &sourcePath, const QSSGRenderImage *image);
+    void cleanupUnreferencedBuffers();
+    void releaseGeometry(QSSGRenderGeometry *geometry);
+    void releaseTextureData(QSSGRenderTextureData *textureData);
 
-    void invalidateBuffer(const QString &inSourcePath);
+    static QRhiTexture::Format toRhiFormat(const QSSGRenderTextureFormat format);
 
+    QRhiResourceUpdateBatch *meshBufferUpdateBatch();
+    void commitBufferResourceUpdates();
+
+    static void registerMeshData(const QString &assetId, const QVector<QSSGMesh::Mesh> &meshData);
+    static void unregisterMeshData(const QString &assetId);
+    static QString runtimeMeshSourceName(const QString &assetId, qsizetype meshId);
+    static QString primitivePath(const QString &primitive);
+
+    QMutex *meshUpdateMutex();
+
+private:
+    bool createRhiTexture(QSSGRenderImageTexture &texture,
+                          const QSSGLoadedTexture *inTexture,
+                          bool inForceScanForTransparency = false,
+                          MipMode inMipMode = MipModeNone);
+    QSSGRenderMesh *loadMesh(const QSSGRenderPath &inSourcePath);
+    bool createEnvironmentMap(const QSSGLoadedTexture *inImage, QSSGRenderImageTexture *outTexture);
+    void releaseMesh(const QSSGRenderPath &inSourcePath);
+    void releaseImage(const ImageCacheKey &key);
+    void releaseImage(const QSSGRenderPath &sourcePath);
 };
+
+Q_DECLARE_OPERATORS_FOR_FLAGS(QSSGBufferManager::LoadRenderImageFlags)
+
+inline size_t qHash(const QSSGBufferManager::ImageCacheKey &k, size_t seed) Q_DECL_NOTHROW
+{
+    return qHash(k.path, seed) ^ k.mipMode;
+}
+
+inline bool operator==(const QSSGBufferManager::ImageCacheKey &a, const QSSGBufferManager::ImageCacheKey &b) Q_DECL_NOTHROW
+{
+    return a.path == b.path && a.mipMode == b.mipMode;
+}
+
 QT_END_NAMESPACE
 
 #endif

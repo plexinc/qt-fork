@@ -54,8 +54,16 @@ class Q_QUICK3D_EXPORT QQuick3DPerspectiveCamera : public QQuick3DCamera
     Q_PROPERTY(float fieldOfView READ fieldOfView WRITE setFieldOfView NOTIFY fieldOfViewChanged)
     Q_PROPERTY(FieldOfViewOrientation fieldOfViewOrientation READ fieldOfViewOrientation WRITE setFieldOfViewOrientation NOTIFY fieldOfViewOrientationChanged)
 
+    QML_NAMED_ELEMENT(PerspectiveCamera)
+
 public:
-    QQuick3DPerspectiveCamera();
+    enum FieldOfViewOrientation {
+        Vertical,
+        Horizontal
+    };
+    Q_ENUM(FieldOfViewOrientation)
+
+    explicit QQuick3DPerspectiveCamera(QQuick3DNode *parent = nullptr);
 
     float clipNear() const;
     float clipFar() const;
@@ -66,7 +74,7 @@ public Q_SLOTS:
     void setClipNear(float clipNear);
     void setClipFar(float clipFar);
     void setFieldOfView(float fieldOfView);
-    void setFieldOfViewOrientation(FieldOfViewOrientation fieldOfViewOrientation);
+    void setFieldOfViewOrientation(QQuick3DPerspectiveCamera::FieldOfViewOrientation fieldOfViewOrientation);
 
 Q_SIGNALS:
     void clipNearChanged();
@@ -75,7 +83,8 @@ Q_SIGNALS:
     void fieldOfViewOrientationChanged();
 
 protected:
-    virtual bool checkSpatialNode(QSSGRenderCamera *camera) override;
+    explicit QQuick3DPerspectiveCamera(QQuick3DNodePrivate &dd, QQuick3DNode *parent = nullptr);
+    QSSGRenderGraphObject *updateSpatialNode(QSSGRenderGraphObject *node) override;
 
 private:
     float m_clipNear = 10.0f;

@@ -91,15 +91,11 @@ private:
 };
 
 
-class Q_QML_PRIVATE_EXPORT QQmlLocale
+namespace QQmlLocale
 {
-    Q_GADGET
+    Q_NAMESPACE_EXPORT(Q_QML_PRIVATE_EXPORT)
     QML_NAMED_ELEMENT(Locale)
-    QML_UNCREATABLE("Locale cannot be instantiated. Use Qt.locale().")
-    QML_ADDED_IN_MINOR_VERSION(2)
-
-public:
-    ~QQmlLocale();
+    QML_ADDED_IN_VERSION(2, 2)
 
     enum MeasurementSystem {
         MetricSystem = QLocale::MetricSystem,
@@ -107,19 +103,20 @@ public:
         ImperialUSSystem = QLocale::ImperialUSSystem,
         ImperialUKSystem = QLocale::ImperialUKSystem
     };
-    Q_ENUM(MeasurementSystem)
+    Q_ENUM_NS(MeasurementSystem)
+
     enum FormatType {
         LongFormat = QLocale::LongFormat,
         ShortFormat = QLocale::ShortFormat,
         NarrowFormat = QLocale::NarrowFormat
     };
-    Q_ENUM(FormatType)
+    Q_ENUM_NS(FormatType)
     enum CurrencySymbolFormat {
         CurrencyIsoCode = QLocale::CurrencyIsoCode,
         CurrencySymbol = QLocale::CurrencySymbol,
         CurrencyDisplayName = QLocale::CurrencyDisplayName
     };
-    Q_ENUM(CurrencySymbolFormat)
+    Q_ENUM_NS(CurrencySymbolFormat)
     // Qt defines Sunday as 7, but JS Date assigns Sunday 0
     enum DayOfWeek {
         Sunday = 0,
@@ -130,7 +127,7 @@ public:
         Friday = Qt::Friday,
         Saturday = Qt::Saturday
     };
-    Q_ENUM(DayOfWeek)
+    Q_ENUM_NS(DayOfWeek)
     enum NumberOptions {
         DefaultNumberOptions = QLocale::DefaultNumberOptions,
         OmitGroupSeparator = QLocale::OmitGroupSeparator,
@@ -140,17 +137,21 @@ public:
         IncludeTrailingZeroesAfterDot = QLocale::IncludeTrailingZeroesAfterDot,
         RejectTrailingZeroesAfterDot = QLocale::RejectTrailingZeroesAfterDot
     };
-    Q_ENUM(NumberOptions)
+    Q_ENUM_NS(NumberOptions)
 
-    static QV4::ReturnedValue locale(QV4::ExecutionEngine *engine, const QString &localeName);
-    static QV4::ReturnedValue wrap(QV4::ExecutionEngine *engine, const QLocale &locale);
+    enum DataSizeFormat {
+        DataSizeBase1000 = QLocale::DataSizeBase1000,
+        DataSizeSIQuantifiers = QLocale::DataSizeSIQuantifiers,
+        DataSizeIecFormat = QLocale::DataSizeIecFormat,
+        DataSizeTraditionalFormat = QLocale::DataSizeTraditionalFormat,
+        DataSizeSIFormat = QLocale::DataSizeSIFormat
+    };
+    Q_ENUM_NS(DataSizeFormat)
 
-    static void registerStringLocaleCompare(QV4::ExecutionEngine *engine);
-
-private:
-    QQmlLocale();
-
-    static QV4::ReturnedValue method_localeCompare(const QV4::FunctionObject *, const QV4::Value *thisObject, const QV4::Value *argv, int argc);
+    Q_QML_PRIVATE_EXPORT QV4::ReturnedValue locale(QV4::ExecutionEngine *engine, const QString &localeName);
+    Q_QML_PRIVATE_EXPORT QV4::ReturnedValue wrap(QV4::ExecutionEngine *engine, const QLocale &locale);
+    Q_QML_PRIVATE_EXPORT void registerStringLocaleCompare(QV4::ExecutionEngine *engine);
+    Q_QML_PRIVATE_EXPORT QV4::ReturnedValue method_localeCompare(const QV4::FunctionObject *, const QV4::Value *thisObject, const QV4::Value *argv, int argc);
 };
 
 namespace QV4 {
@@ -213,6 +214,8 @@ struct QQmlLocaleData : public QV4::Object
 
     static QV4::ReturnedValue method_get_numberOptions(const QV4::FunctionObject *, const QV4::Value *thisObject, const QV4::Value *argv, int argc);
     static QV4::ReturnedValue method_set_numberOptions(const QV4::FunctionObject *, const QV4::Value *thisObject, const QV4::Value *argv, int argc);
+
+    static QV4::ReturnedValue method_get_formattedDataSize(const QV4::FunctionObject *, const QV4::Value *thisObject, const QV4::Value *argv, int argc);
 };
 
 }

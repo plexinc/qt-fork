@@ -8,10 +8,13 @@
 
 #include <stdarg.h>
 #include <stdlib.h>
+
 #include <cmath>
 
 #include "src/base/bits.h"
 #include "src/base/lazy-instance.h"
+#include "src/base/platform/platform.h"
+#include "src/base/platform/wrappers.h"
 #include "src/codegen/assembler.h"
 #include "src/codegen/macro-assembler.h"
 #include "src/codegen/ppc/constants-ppc.h"
@@ -481,7 +484,7 @@ void PPCDebugger::Debug() {
         PrintF("FPSCR: %08x\n", sim_->fp_condition_reg_);
       } else if (strcmp(cmd, "stop") == 0) {
         intptr_t value;
-        intptr_t stop_pc = sim_->get_pc() - (kInstrSize + kPointerSize);
+        intptr_t stop_pc = sim_->get_pc() - (kInstrSize + kSystemPointerSize);
         Instruction* stop_instr = reinterpret_cast<Instruction*>(stop_pc);
         Instruction* msg_address =
             reinterpret_cast<Instruction*>(stop_pc + kInstrSize);
@@ -712,7 +715,7 @@ void Simulator::CheckICache(base::CustomMatcherHashMap* i_cache,
                        cache_page->CachedData(offset), kInstrSize));
   } else {
     // Cache miss.  Load memory into the cache.
-    memcpy(cached_line, line, CachePage::kLineLength);
+    base::Memcpy(cached_line, line, CachePage::kLineLength);
     *cache_valid_byte = CachePage::LINE_VALID;
   }
 }
@@ -726,7 +729,7 @@ Simulator::Simulator(Isolate* isolate) : isolate_(isolate) {
   size_t stack_size = MB;  // allocate 1MB for stack
 #endif
   stack_size += 2 * stack_protection_size_;
-  stack_ = reinterpret_cast<char*>(malloc(stack_size));
+  stack_ = reinterpret_cast<char*>(base::Malloc(stack_size));
   pc_modified_ = false;
   icount_ = 0;
   break_pc_ = nullptr;
@@ -757,7 +760,7 @@ Simulator::Simulator(Isolate* isolate) : isolate_(isolate) {
   last_debugger_input_ = nullptr;
 }
 
-Simulator::~Simulator() { free(stack_); }
+Simulator::~Simulator() { base::Free(stack_); }
 
 // Get the active Simulator for the current thread.
 Simulator* Simulator::current(Isolate* isolate) {
@@ -798,8 +801,8 @@ double Simulator::get_double_from_register_pair(int reg) {
   // Read the bits from the unsigned integer register_[] array
   // into the double precision floating point value and return it.
   char buffer[sizeof(fp_registers_[0])];
-  memcpy(buffer, &registers_[reg], 2 * sizeof(registers_[0]));
-  memcpy(&dm_val, buffer, 2 * sizeof(registers_[0]));
+  base::Memcpy(buffer, &registers_[reg], 2 * sizeof(registers_[0]));
+  base::Memcpy(&dm_val, buffer, 2 * sizeof(registers_[0]));
 #endif
   return (dm_val);
 }
@@ -869,7 +872,7 @@ RW_VAR_LIST(GENERATE_RW_FUNC)
 uintptr_t Simulator::StackLimit(uintptr_t c_limit) const {
   // The simulator uses a separate JS stack. If we have exhausted the C stack,
   // we also drop down the JS limit to reflect the exhaustion on the JS stack.
-  if (GetCurrentStackPosition() < c_limit) {
+  if (base::Stack::GetCurrentStackPosition() < c_limit) {
     return reinterpret_cast<uintptr_t>(get_sp());
   }
 
@@ -1191,8 +1194,8 @@ void Simulator::SoftwareInterrupt(Instruction* instr) {
             set_register(r3, x);
             set_register(r4, y);
           } else {
-            memcpy(reinterpret_cast<void*>(result_buffer), &result,
-                   sizeof(ObjectPair));
+            base::Memcpy(reinterpret_cast<void*>(result_buffer), &result,
+                         sizeof(ObjectPair));
             set_register(r3, result_buffer);
           }
         } else {
@@ -1230,7 +1233,7 @@ void Simulator::SoftwareInterrupt(Instruction* instr) {
           }
           DebugAtNextPC();
         } else {
-          set_pc(get_pc() + kInstrSize + kPointerSize);
+          set_pc(get_pc() + kInstrSize + kSystemPointerSize);
         }
       } else {
         // This is not a valid svc code.
@@ -2216,7 +2219,9 @@ void Simulator::ExecuteGeneric(Instruction* instr) {
       int32_t ra_val = (get_register(ra) & 0xFFFFFFFF);
       int32_t rb_val = (get_register(rb) & 0xFFFFFFFF);
       int64_t alu_out = (int64_t)ra_val * (int64_t)rb_val;
-      alu_out >>= 32;
+      // High 32 bits of the result is undefined,
+      // Which is simulated here by adding random bits.
+      alu_out = (alu_out >> 32) | 0x421000000000000;
       set_register(rt, alu_out);
       if (instr->Bit(0)) {  // RC bit set
         SetCR0(static_cast<intptr_t>(alu_out));
@@ -2230,7 +2235,9 @@ void Simulator::ExecuteGeneric(Instruction* instr) {
       uint32_t ra_val = (get_register(ra) & 0xFFFFFFFF);
       uint32_t rb_val = (get_register(rb) & 0xFFFFFFFF);
       uint64_t alu_out = (uint64_t)ra_val * (uint64_t)rb_val;
-      alu_out >>= 32;
+      // High 32 bits of the result is undefined,
+      // Which is simulated here by adding random bits.
+      alu_out = (alu_out >> 32) | 0x421000000000000;
       set_register(rt, alu_out);
       if (instr->Bit(0)) {  // RC bit set
         SetCR0(static_cast<intptr_t>(alu_out));
@@ -3331,6 +3338,7 @@ void Simulator::ExecuteGeneric(Instruction* instr) {
       int64_t frt_val;
       int64_t kMinVal = kMinInt;
       int64_t kMaxVal = kMaxInt;
+      bool invalid_convert = false;
 
       if (std::isnan(frb_val)) {
         frt_val = kMinVal;
@@ -3360,13 +3368,60 @@ void Simulator::ExecuteGeneric(Instruction* instr) {
         }
         if (frb_val < kMinVal) {
           frt_val = kMinVal;
+          invalid_convert = true;
         } else if (frb_val > kMaxVal) {
           frt_val = kMaxVal;
+          invalid_convert = true;
         } else {
           frt_val = (int64_t)frb_val;
         }
       }
       set_d_register(frt, frt_val);
+      if (invalid_convert) SetFPSCR(VXCVI);
+      return;
+    }
+    case FCTIWU:
+    case FCTIWUZ: {
+      int frt = instr->RTValue();
+      int frb = instr->RBValue();
+      double frb_val = get_double_from_d_register(frb);
+      int mode = (opcode == FCTIWUZ)
+                     ? kRoundToZero
+                     : (fp_condition_reg_ & kFPRoundingModeMask);
+      uint64_t frt_val;
+      uint64_t kMinVal = 0;
+      uint64_t kMaxVal = kMinVal - 1;
+      bool invalid_convert = false;
+
+      if (std::isnan(frb_val)) {
+        frt_val = kMinVal;
+      } else {
+        switch (mode) {
+          case kRoundToZero:
+            frb_val = std::trunc(frb_val);
+            break;
+          case kRoundToPlusInf:
+            frb_val = std::ceil(frb_val);
+            break;
+          case kRoundToMinusInf:
+            frb_val = std::floor(frb_val);
+            break;
+          default:
+            UNIMPLEMENTED();  // Not used by V8.
+            break;
+        }
+        if (frb_val < kMinVal) {
+          frt_val = kMinVal;
+          invalid_convert = true;
+        } else if (frb_val > kMaxVal) {
+          frt_val = kMaxVal;
+          invalid_convert = true;
+        } else {
+          frt_val = (uint64_t)frb_val;
+        }
+      }
+      set_d_register(frt, frt_val);
+      if (invalid_convert) SetFPSCR(VXCVI);
       return;
     }
     case FNEG: {
@@ -3871,8 +3926,8 @@ intptr_t Simulator::CallImpl(Address entry, int argument_count,
   // +2 is a hack for the LR slot + old SP on PPC
   intptr_t* stack_argument =
       reinterpret_cast<intptr_t*>(entry_stack) + kStackFrameExtraParamSlot;
-  memcpy(stack_argument, arguments + reg_arg_count,
-         stack_arg_count * sizeof(*arguments));
+  base::Memcpy(stack_argument, arguments + reg_arg_count,
+               stack_arg_count * sizeof(*arguments));
   set_register(sp, entry_stack);
 
   CallInternal(entry);

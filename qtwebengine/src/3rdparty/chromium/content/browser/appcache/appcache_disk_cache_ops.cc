@@ -9,8 +9,8 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/check_op.h"
 #include "base/location.h"
-#include "base/logging.h"
 #include "base/numerics/checked_math.h"
 #include "base/pickle.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -18,7 +18,6 @@
 #include "net/base/completion_once_callback.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
-#include "storage/common/storage_histograms.h"
 
 namespace content {
 
@@ -232,7 +231,6 @@ void AppCacheResponseReader::OnIOComplete(int result) {
   if (result >= 0) {
     if (reading_metadata_size_) {
       DCHECK(reading_metadata_size_ == result);
-      DCHECK(info_buffer_->http_info->metadata);
       reading_metadata_size_ = 0;
     } else if (info_buffer_.get()) {
       // Deserialize the http info structure, ensuring we got headers.
@@ -254,19 +252,15 @@ void AppCacheResponseReader::OnIOComplete(int result) {
       int64_t metadata_size = entry_->GetSize(kResponseMetadataIndex);
       if (metadata_size > 0) {
         reading_metadata_size_ = metadata_size;
-        info_buffer_->http_info->metadata =
-            base::MakeRefCounted<net::IOBufferWithSize>(
-                base::checked_cast<size_t>(metadata_size));
-        ReadRaw(kResponseMetadataIndex, 0,
-                info_buffer_->http_info->metadata.get(), metadata_size);
+        metadata_ = base::MakeRefCounted<net::IOBufferWithSize>(
+            base::checked_cast<size_t>(metadata_size));
+        ReadRaw(kResponseMetadataIndex, 0, metadata_.get(), metadata_size);
         return;
       }
     } else {
       read_position_ += result;
     }
   }
-  if (result > 0 && disk_cache_)
-    storage::RecordBytesRead(disk_cache_->uma_name(), result);
   InvokeUserCompletionCallback(result);
   // Note: |this| may have been deleted by the completion callback.
 }
@@ -362,8 +356,6 @@ void AppCacheResponseWriter::OnIOComplete(int result) {
     else
       info_size_ = result;
   }
-  if (result > 0 && disk_cache_)
-    storage::RecordBytesWritten(disk_cache_->uma_name(), result);
   InvokeUserCompletionCallback(result);
   // Note: |this| may have been deleted by the completion callback.
 }
@@ -488,8 +480,6 @@ void AppCacheResponseMetadataWriter::OnOpenEntryComplete() {
 
 void AppCacheResponseMetadataWriter::OnIOComplete(int result) {
   DCHECK(result < 0 || write_amount_ == result);
-  if (result > 0 && disk_cache_)
-    storage::RecordBytesWritten(disk_cache_->uma_name(), result);
   InvokeUserCompletionCallback(result);
   // Note: |this| may have been deleted by the completion callback.
 }

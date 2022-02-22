@@ -15,6 +15,7 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/sequenced_task_runner.h"
+#include "base/supports_user_data.h"
 #include "build/build_config.h"
 #include "components/keyed_service/core/keyed_service.h"
 
@@ -47,7 +48,7 @@ class DisplayLockHandle {
 // input about user behavior. Whenever the frontend gives a trigger signal that
 // IPH could be displayed, the backend will provide an answer to whether it is
 // appropriate to show it or not.
-class Tracker : public KeyedService {
+class Tracker : public KeyedService, public base::SupportsUserData {
  public:
   // Describes the state of whether in-product helps has already been displayed
   // enough times or not within the bounds of the configuration for a
@@ -103,6 +104,18 @@ class Tracker : public KeyedService {
   // in-between the calls because time has passed, other events might have been
   // triggered, and other state might have changed.
   virtual bool WouldTriggerHelpUI(const base::Feature& feature) const = 0;
+
+  // This function can be called to query if a particular |feature| has ever
+  // been displayed at least once in the past. The days counted is controlled by
+  // the EventConfig of "event_trigger". If |from_window| is set to true, the
+  // search window size will be set to event_trigger.window; otherwise, the
+  // window size will be event_trigger.storage.
+  //
+  // Calling this method requires the Tracker to already have been initialized.
+  // See IsInitialized() and AddOnInitializedCallback(...) for how to ensure
+  // the call to this is delayed.
+  virtual bool HasEverTriggered(const base::Feature& feature,
+                                bool from_window) const = 0;
 
   // This function can be called to query if a particular |feature| meets its
   // particular precondition for triggering within the bounds of the current

@@ -38,7 +38,7 @@
 #include <QtCore/qtranslator.h>
 #include <QSignalSpy>
 
-#include "../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 
 Q_DECLARE_METATYPE(QList<int>)
 Q_DECLARE_METATYPE(QList<QVariantHash>)
@@ -73,6 +73,7 @@ class tst_qqmllistmodelworkerscript : public QQmlDataTest
     Q_OBJECT
 public:
     tst_qqmllistmodelworkerscript()
+        : QQmlDataTest(QT_QMLTEST_DATADIR)
     {
         qRegisterMetaType<QVector<int> >();
     }
@@ -104,6 +105,7 @@ private slots:
     void worker_remove_list();
     void dynamic_role_data();
     void dynamic_role();
+    void correctMoves();
 };
 
 bool tst_qqmllistmodelworkerscript::compareVariantList(const QVariantList &testList, QVariant object)
@@ -119,7 +121,7 @@ bool tst_qqmllistmodelworkerscript::compareVariantList(const QVariantList &testL
 
     for (int i=0 ; i < testList.count() ; ++i) {
         const QVariant &testVariant = testList.at(i);
-        if (testVariant.type() != QVariant::Map)
+        if (testVariant.typeId() != QMetaType::QVariantMap)
             return false;
         const QVariantMap &map = testVariant.toMap();
 
@@ -138,7 +140,7 @@ bool tst_qqmllistmodelworkerscript::compareVariantList(const QVariantList &testL
 
             const QVariant &modelData = model->data(model->index(i, 0, QModelIndex()), roleIndex);
 
-            if (testData.type() == QVariant::List) {
+            if (testData.typeId() == QMetaType::QVariantList) {
                 const QVariantList &subList = testData.toList();
                 allOk = allOk && compareVariantList(subList, modelData);
             } else {
@@ -484,7 +486,7 @@ void tst_qqmllistmodelworkerscript::get_worker()
     waitForWorker(item);
 
     // see if we receive the model changes in the main thread's model
-    if (roleValue.type() == QVariant::List) {
+    if (roleValue.typeId() == QMetaType::QVariantList) {
         const QVariantList &list = roleValue.toList();
         QVERIFY(compareVariantList(list, model.data(index, role)));
     } else {
@@ -840,6 +842,22 @@ void tst_qqmllistmodelworkerscript::dynamic_role()
 
     delete item;
     qApp->processEvents();
+}
+
+void tst_qqmllistmodelworkerscript::correctMoves()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("listmodel_async_sort/main.qml"));
+    QScopedPointer<QObject> root {component.create()};
+    QVERIFY2(root, qPrintable(component.errorString()));
+    bool ok =QMetaObject::invokeMethod(root.get(), "doSort");
+    QVERIFY(ok);
+    auto check = [&](){
+        bool success = false;
+        QMetaObject::invokeMethod(root.get(), "verify", Q_RETURN_ARG(bool, success));
+        return success;
+    };
+    QTRY_VERIFY(check());
 }
 
 QTEST_MAIN(tst_qqmllistmodelworkerscript)

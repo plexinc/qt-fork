@@ -44,7 +44,7 @@
 #include "drawer_p.h"
 #include <QtCore/QPointer>
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 class AxisRenderCache : public QObject
 {
@@ -142,8 +142,8 @@ private:
     Drawer *m_drawer; // Not owned
     LabelItem m_titleItem;
     QList<LabelItem *> m_labelItems;
-    QVector<float> m_adjustedGridLinePositions;
-    QVector<float> m_adjustedLabelPositions;
+    QList<float> m_adjustedGridLinePositions;
+    QList<float> m_adjustedLabelPositions;
     bool m_positionsDirty;
     float m_translate;
     float m_scale;
@@ -154,6 +154,6 @@ private:
     Q_DISABLE_COPY(AxisRenderCache)
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

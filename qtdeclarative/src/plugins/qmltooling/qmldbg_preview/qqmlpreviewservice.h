@@ -73,8 +73,7 @@ public:
         Directory,
         ClearCache,
         Zoom,
-        Fps,
-        Language
+        Fps
     };
 
     static const QString s_key;
@@ -91,6 +90,8 @@ public:
     void forwardError(const QString &error);
     void forwardFps(const QQmlPreviewHandler::FpsInfo &frames);
 
+    QQuickItem *currentRootItem();
+
 signals:
     void error(const QString &file);
     void file(const QString &file, const QByteArray &contents);
@@ -99,9 +100,6 @@ signals:
     void rerun();
     void clearCache();
     void zoom(qreal factor);
-#if QT_CONFIG(translation)
-    void language(const QUrl &context, const QLocale &locale);
-#endif
 
 private:
     QScopedPointer<QQmlPreviewFileEngineHandler> m_fileEngine;

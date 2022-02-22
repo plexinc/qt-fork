@@ -51,9 +51,9 @@ static bool readFromDevice(QIODevice *device, QJsonArray *allMetaObjects)
     return true;
 }
 
-int collectJson(const QStringList &jsonFiles, const QString &outputFile)
+int collectJson(const QStringList &jsonFiles, const QString &outputFile, bool skipStdIn)
 {
-    qSetGlobalQHashSeed(0);
+    QHashSeed::setDeterministicGlobalSeed();
 
     QFile output;
     if (outputFile.isEmpty()) {
@@ -70,7 +70,7 @@ int collectJson(const QStringList &jsonFiles, const QString &outputFile)
     }
 
     QJsonArray allMetaObjects;
-    if (jsonFiles.isEmpty()) {
+    if (jsonFiles.isEmpty() && !skipStdIn) {
         QFile f;
         if (!f.open(stdin, QIODevice::ReadOnly)) {
             fprintf(stderr, "Error opening stdin for reading\n");
@@ -83,7 +83,9 @@ int collectJson(const QStringList &jsonFiles, const QString &outputFile)
         }
     }
 
-    for (const QString &jsonFile: jsonFiles) {
+    QStringList jsonFilesSorted = jsonFiles;
+    jsonFilesSorted.sort();
+    for (const QString &jsonFile : qAsConst(jsonFilesSorted)) {
         QFile f(jsonFile);
         if (!f.open(QIODevice::ReadOnly)) {
             fprintf(stderr, "Error opening %s for reading\n", qPrintable(jsonFile));

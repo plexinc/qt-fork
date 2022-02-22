@@ -160,7 +160,6 @@
      /Users/me/qt5/qttools/src/designer/src/designer/doc/qtdesigner.qdocconf
      /Users/me/qt5/qttools/src/linguist/linguist/doc/qtlinguist.qdocconf
      /Users/me/qt5/qtwebkit-examples/doc/qtwebkitexamples.qdocconf
-     /Users/me/qt5/qtimageformats/src/imageformats/doc/qtimageformats.qdocconf
      /Users/me/qt5/qtgraphicaleffects/src/effects/doc/qtgraphicaleffects.qdocconf
      /Users/me/qt5/qtscript/src/script/doc/qtscript.qdocconf
      /Users/me/qt5/qtscript/src/scripttools/doc/qtscripttools.qdocconf
@@ -205,7 +204,7 @@
     module's, that module is said to depend on those other Qt modules.
     Hence when QDoc runs the \e {generate phase} for that module, it
     must also load the index files for those modules so it can create
-    those thinks.
+    those links.
 
     Hence, when the Qt build system generates the Qt documentation, it
     first runs QDoc once for each module to perform the \e {prepare

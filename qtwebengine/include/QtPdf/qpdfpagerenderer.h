@@ -1,1 +1,1 @@
-#include "../../src/pdf/api/qpdfpagerenderer.h"
+#include "../../src/pdf/qpdfpagerenderer.h"

@@ -54,12 +54,12 @@
 #include "qfilesystemwatcher_p.h"
 
 #include <QtCore/qdatetime.h>
-#include <QtCore/qthread.h>
 #include <QtCore/qfile.h>
 #include <QtCore/qfileinfo.h>
 #include <QtCore/qhash.h>
+#include <QtCore/qlist.h>
 #include <QtCore/qmutex.h>
-#include <QtCore/qvector.h>
+#include <QtCore/qthread.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -126,9 +126,7 @@ signals:
 
 private:
     QList<QWindowsFileSystemWatcherEngineThread *> threads;
-#ifndef Q_OS_WINRT
     QWindowsRemovableDriveListener *m_driveListener = nullptr;
-#endif
 };
 
 class QFileSystemWatcherPathKey : public QString
@@ -140,9 +138,9 @@ public:
     bool operator==(const QFileSystemWatcherPathKey &other) const { return !compare(other, Qt::CaseInsensitive); }
 };
 
-Q_DECLARE_TYPEINFO(QFileSystemWatcherPathKey, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QFileSystemWatcherPathKey, Q_RELOCATABLE_TYPE);
 
-inline uint qHash(const QFileSystemWatcherPathKey &key) { return qHash(key.toCaseFolded()); }
+inline size_t qHash(const QFileSystemWatcherPathKey &key) { return qHash(key.toCaseFolded()); }
 
 class QWindowsFileSystemWatcherEngineThread : public QThread
 {
@@ -159,7 +157,7 @@ public:
     void wakeup();
 
     QMutex mutex;
-    QVector<Qt::HANDLE> handles;
+    QList<Qt::HANDLE> handles;
     int msg;
 
     HandleForDirHash handleForDir;

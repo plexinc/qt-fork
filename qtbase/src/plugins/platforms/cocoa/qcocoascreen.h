@@ -40,11 +40,16 @@
 #ifndef QCOCOASCREEN_H
 #define QCOCOASCREEN_H
 
-#include <AppKit/AppKit.h>
-
 #include "qcocoacursor.h"
 
 #include <qpa/qplatformintegration.h>
+#include <QtCore/private/qcore_mac_p.h>
+
+#include <CoreGraphics/CoreGraphics.h>
+#include <CoreVideo/CoreVideo.h>
+
+Q_FORWARD_DECLARE_OBJC_CLASS(NSScreen);
+Q_FORWARD_DECLARE_OBJC_CLASS(NSArray);
 
 QT_BEGIN_NAMESPACE
 
@@ -62,6 +67,7 @@ public:
     QRect availableGeometry() const override { return m_availableGeometry; }
     int depth() const override { return m_depth; }
     QImage::Format format() const override { return m_format; }
+    QColorSpace colorSpace() const override { return m_colorSpace; }
     qreal devicePixelRatio() const override { return m_devicePixelRatio; }
     QSizeF physicalSize() const override { return m_physicalSize; }
     QDpi logicalDpi() const override { return m_logicalDpi; }
@@ -75,6 +81,7 @@ public:
 
     // ----------------------------------------------------
 
+    static NSScreen *nativeScreenForDisplayId(CGDirectDisplayID displayId);
     NSScreen *nativeScreen() const;
 
     void requestUpdate();
@@ -96,8 +103,8 @@ private:
     static void updateScreens();
     static void cleanupScreens();
 
-    static bool updateScreensIfNeeded();
-    static NSArray *s_screenConfigurationBeforeUpdate;
+    static QMacNotificationObserver s_screenParameterObserver;
+    static CGDisplayReconfigurationCallBack s_displayReconfigurationCallBack;
 
     static void add(CGDirectDisplayID displayId);
     QCocoaScreen(CGDirectDisplayID displayId);
@@ -117,6 +124,7 @@ private:
     int m_depth = 0;
     QString m_name;
     QImage::Format m_format;
+    QColorSpace m_colorSpace;
     QSizeF m_physicalSize;
     QCocoaCursor *m_cursor;
     qreal m_devicePixelRatio = 0;
@@ -136,8 +144,10 @@ QDebug operator<<(QDebug debug, const QCocoaScreen *screen);
 
 QT_END_NAMESPACE
 
+#if defined(__OBJC__)
 @interface NSScreen (QtExtras)
 @property(readonly) CGDirectDisplayID qt_displayId;
 @end
+#endif
 
 #endif // QCOCOASCREEN_H

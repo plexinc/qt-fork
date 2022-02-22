@@ -36,10 +36,9 @@
 #include <Qt3DCore/private/qbackendnode_p.h>
 #include <Qt3DCore/private/qaspectmanager_p.h>
 #include <Qt3DCore/private/qscene_p.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include "qbackendnodetester.h"
 #include "testrenderer.h"
-#include "testpostmanarbiter.h"
+#include "testarbiter.h"
 
 
 class tst_ComputeCommand : public Qt3DCore::QBackendNodeTester
@@ -141,6 +140,10 @@ private Q_SLOTS:
         backendComputeCommand.setRenderer(&renderer);
         simulateInitializationSync(&computeCommand, &backendComputeCommand);
 
+        // THEN
+        QVERIFY(renderer.dirtyBits() & Qt3DRender::Render::AbstractRenderer::ComputeDirty);
+        renderer.clearDirtyBits(Qt3DRender::Render::AbstractRenderer::AllDirty);
+
         {
             // WHEN
             const bool newValue = false;
@@ -149,6 +152,8 @@ private Q_SLOTS:
 
             // THEN
             QCOMPARE(backendComputeCommand.isEnabled(), newValue);
+            QVERIFY(renderer.dirtyBits() & Qt3DRender::Render::AbstractRenderer::ComputeDirty);
+            renderer.clearDirtyBits(Qt3DRender::Render::AbstractRenderer::AllDirty);
         }
         {
             // WHEN
@@ -158,6 +163,8 @@ private Q_SLOTS:
 
             // THEN
             QCOMPARE(backendComputeCommand.x(), newValue);
+            QVERIFY(renderer.dirtyBits() & Qt3DRender::Render::AbstractRenderer::ComputeDirty);
+            renderer.clearDirtyBits(Qt3DRender::Render::AbstractRenderer::AllDirty);
         }
         {
             // WHEN
@@ -167,6 +174,8 @@ private Q_SLOTS:
 
             // THEN
             QCOMPARE(backendComputeCommand.y(), newValue);
+            QVERIFY(renderer.dirtyBits() & Qt3DRender::Render::AbstractRenderer::ComputeDirty);
+            renderer.clearDirtyBits(Qt3DRender::Render::AbstractRenderer::AllDirty);
         }
         {
             // WHEN
@@ -176,6 +185,8 @@ private Q_SLOTS:
 
             // THEN
             QCOMPARE(backendComputeCommand.z(), newValue);
+            QVERIFY(renderer.dirtyBits() & Qt3DRender::Render::AbstractRenderer::ComputeDirty);
+            renderer.clearDirtyBits(Qt3DRender::Render::AbstractRenderer::AllDirty);
         }
         {
             // WHEN
@@ -185,6 +196,8 @@ private Q_SLOTS:
 
             // THEN
             QCOMPARE(backendComputeCommand.runType(), newValue);
+            QVERIFY(renderer.dirtyBits() & Qt3DRender::Render::AbstractRenderer::ComputeDirty);
+            renderer.clearDirtyBits(Qt3DRender::Render::AbstractRenderer::AllDirty);
         }
         {
             // WHEN
@@ -194,6 +207,8 @@ private Q_SLOTS:
 
             // THEN
             QCOMPARE(backendComputeCommand.frameCount(), newValue);
+            QVERIFY(renderer.dirtyBits() & Qt3DRender::Render::AbstractRenderer::ComputeDirty);
+            renderer.clearDirtyBits(Qt3DRender::Render::AbstractRenderer::AllDirty);
         }
     }
 
@@ -201,7 +216,6 @@ private Q_SLOTS:
     {
         // GIVEN
         TestRenderer renderer;
-        TestArbiter arbiter;
 
         Qt3DRender::QComputeCommand computeCommand;
         Qt3DRender::Render::ComputeCommand backendComputeCommand;
@@ -212,8 +226,6 @@ private Q_SLOTS:
         computeCommand.setRunType(Qt3DRender::QComputeCommand::Manual);
         computeCommand.trigger(6);
 
-
-        Qt3DCore::QBackendNodePrivate::get(&backendComputeCommand)->setArbiter(&arbiter);
 
         backendComputeCommand.setRenderer(&renderer);
         simulateInitializationSync(&computeCommand, &backendComputeCommand);
@@ -226,7 +238,6 @@ private Q_SLOTS:
             QCOMPARE(backendComputeCommand.frameCount(), 6 - (i + 1));
             QCOMPARE(backendComputeCommand.isEnabled(), true);
             QCOMPARE(backendComputeCommand.hasReachedFrameCount(), false);
-            QCOMPARE(arbiter.events.size(), 0);
         }
 
         // WHEN

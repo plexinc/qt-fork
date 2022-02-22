@@ -7,10 +7,10 @@
 
 #include <ostream>
 
-#include "net/third_party/quiche/src/quic/core/frames/quic_inlined_frame.h"
-#include "net/third_party/quiche/src/quic/core/quic_constants.h"
-#include "net/third_party/quiche/src/quic/core/quic_types.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
+#include "quic/core/frames/quic_inlined_frame.h"
+#include "quic/core/quic_constants.h"
+#include "quic/core/quic_types.h"
+#include "quic/platform/api/quic_export.h"
 
 namespace quic {
 
@@ -28,14 +28,16 @@ struct QUIC_EXPORT_PRIVATE QuicMaxStreamsFrame
       std::ostream& os,
       const QuicMaxStreamsFrame& frame);
 
+  QuicFrameType type;
+
   // A unique identifier of this control frame. 0 when this frame is received,
   // and non-zero when sent.
-  QuicControlFrameId control_frame_id;
+  QuicControlFrameId control_frame_id = kInvalidControlFrameId;
 
   // The number of streams that may be opened.
-  QuicStreamCount stream_count;
+  QuicStreamCount stream_count = 0;
   // Whether uni- or bi-directional streams
-  bool unidirectional;
+  bool unidirectional = false;
 };
 
 }  // namespace quic

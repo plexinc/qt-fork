@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtWebEngine module of the Qt Toolkit.
@@ -52,6 +52,9 @@ QT_BEGIN_NAMESPACE
 #endif
 
 #define ASSERT_ENUMS_MATCH(A, B) Q_STATIC_ASSERT_X(static_cast<int>(A) == static_cast<int>(B), "The enum values must match");
+
+Q_WEBENGINECORE_EXPORT Q_DECL_CONST_FUNCTION const char *qWebEngineVersion() noexcept;
+Q_WEBENGINECORE_EXPORT Q_DECL_CONST_FUNCTION const char *qWebEngineChromiumVersion() noexcept;
 
 QT_END_NAMESPACE
 

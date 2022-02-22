@@ -33,11 +33,14 @@
 #include <QtCharts/QChartGlobal>
 #include <QtCore/QObject>
 
+Q_MOC_INCLUDE(<QtCharts/qabstractbarseries.h>)
+Q_MOC_INCLUDE(<QtCharts/qvbarmodelmapper.h>)
+
 QT_BEGIN_NAMESPACE
 class QAbstractItemModel;
 QT_END_NAMESPACE
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class QBarModelMapperPrivate;
 class QAbstractBarSeries;
@@ -75,6 +78,6 @@ protected:
     Q_DECLARE_PRIVATE(QBarModelMapper)
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // QBARMODELMAPPER_H

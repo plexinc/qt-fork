@@ -18,6 +18,7 @@ class AffineTransform;
 class FloatRect;
 class LayoutRect;
 class LayoutUnit;
+class PropertyTreeState;
 class TransformPaintPropertyNode;
 
 class PLATFORM_EXPORT CullRect {
@@ -32,26 +33,24 @@ class PLATFORM_EXPORT CullRect {
   bool IsInfinite() const { return rect_ == LayoutRect::InfiniteIntRect(); }
 
   bool Intersects(const IntRect&) const;
-  bool Intersects(const LayoutRect&) const;
-  bool Intersects(const LayoutRect&, const LayoutPoint& offset) const;
   bool IntersectsTransformed(const AffineTransform&, const FloatRect&) const;
   bool IntersectsHorizontalRange(LayoutUnit lo, LayoutUnit hi) const;
   bool IntersectsVerticalRange(LayoutUnit lo, LayoutUnit hi) const;
 
   void MoveBy(const IntPoint& offset);
   void Move(const IntSize& offset);
+  void Move(const FloatSize& offset);
 
   // Applies one transform to the cull rect. Before this function is called,
   // the cull rect is in the space of the parent the transform node.
   // For CompositeAfterPaint, when the transform is a scroll translation, the
   // cull rect is converted in the following steps:
-  // 1. it's clipped by the container rect if |clip_to_scroll_container| is
-  //    true,
+  // 1. it's clipped by the container rect,
   // 2. transformed by inverse of the scroll translation,
   // 3. expanded by thousands of pixels for composited scrolling.
-  void ApplyTransform(const TransformPaintPropertyNode& transform) {
-    ApplyTransformInternal(transform);
-  }
+  // 4. clipped by the contents rect.
+  // TODO(wangxianzhu): Remove this function for CullRectUpdate.
+  void ApplyTransform(const TransformPaintPropertyNode&);
 
   // For CompositeAfterPaint only. Applies transforms from |source| (not
   // included) to |destination| (included). For each scroll translation, the
@@ -60,10 +59,20 @@ class PLATFORM_EXPORT CullRect {
   // doesn't cover the whole scrolling contents, and the new cull rect doesn't
   // change enough (by hundreds of pixels) from |old_cull_rect|, the cull rect
   // will be set to |old_cull_rect| to avoid repaint on each composited scroll.
+  // TODO(wangxianzhu): Remove this function for CullRectUpdate.
   void ApplyTransforms(const TransformPaintPropertyNode& source,
                        const TransformPaintPropertyNode& destination,
-                       const base::Optional<CullRect>& old_cull_rect,
-                       bool clip_to_scroll_container = true);
+                       const base::Optional<CullRect>& old_cull_rect);
+
+  // For CullRectUpdate only. Similar to the above but also applies clips and
+  // expands for all directly composited transforms (including scrolling and
+  // non-scrolling ones). |root| is used to calculate the expansion distance in
+  // the local space, to make the expansion distance approximately the same in
+  // the root space.
+  void ApplyPaintProperties(const PropertyTreeState& root,
+                            const PropertyTreeState& source,
+                            const PropertyTreeState& destination,
+                            const base::Optional<CullRect>& old_cull_rect);
 
   const IntRect& Rect() const { return rect_; }
 
@@ -85,11 +94,17 @@ class PLATFORM_EXPORT CullRect {
     // doesn't cover the whole scrolling contents.
     kExpandedForPartialScrollingContents,
   };
-  ApplyTransformResult ApplyTransformInternal(
-      const TransformPaintPropertyNode&,
-      bool clip_to_scroll_container = true);
+  ApplyTransformResult ApplyScrollTranslation(
+      const TransformPaintPropertyNode& root_transform,
+      const TransformPaintPropertyNode& scroll_translation);
 
-  bool ChangedEnough(const CullRect& old_cull_rect) const;
+  void ApplyTransformWithoutExpansion(const TransformPaintPropertyNode&);
+  void ApplyPaintPropertiesWithoutExpansion(
+      const PropertyTreeState& source,
+      const PropertyTreeState& destination);
+
+  bool ChangedEnough(const CullRect& old_cull_rect,
+                     const IntSize* bounds) const;
 
   IntRect rect_;
 };

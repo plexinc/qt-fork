@@ -40,7 +40,6 @@
 
 namespace blink {
 
-class CompositorAnimationTimeline;
 class ScrollableArea;
 class Scrollbar;
 
@@ -91,8 +90,7 @@ class CORE_EXPORT ScrollAnimatorBase
   void UpdateCompositorAnimations() override {}
   void NotifyCompositorAnimationFinished(int group_id) override {}
   void NotifyCompositorAnimationAborted(int group_id) override {}
-  void LayerForCompositedScrollingDidChange(
-      CompositorAnimationTimeline*) override {}
+  void MainThreadScrollingDidChange() override {}
 
   virtual void ContentAreaWillPaint() const {}
   virtual void MouseEnteredContentArea() const {}
@@ -116,7 +114,7 @@ class CORE_EXPORT ScrollAnimatorBase
 
   virtual bool SetScrollbarsVisibleForTesting(bool) { return false; }
 
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
  protected:
   virtual void NotifyOffsetChanged();

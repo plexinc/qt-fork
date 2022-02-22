@@ -7,6 +7,7 @@ import("//tools/polymer/polymer.gni")
 import("../../tools/js_modulizer.gni")
 
 js_type_check("closure_compile") {
+  uses_legacy_modules = true
   deps = [
     ":cr_search_field",
     ":cr_search_field_behavior",
@@ -36,7 +37,6 @@ group("polymer3_elements") {
 
 js_modulizer("modulize") {
   input_files = [ "cr_search_field_behavior.js" ]
-  deps = []
 }
 
 polymer_modulizer("cr_search_field") {

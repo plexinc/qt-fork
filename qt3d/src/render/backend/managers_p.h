@@ -84,6 +84,8 @@
 #include <Qt3DRender/private/skeleton_p.h>
 #include <Qt3DRender/private/joint_p.h>
 #include <Qt3DRender/private/shaderimage_p.h>
+#include <Qt3DRender/private/pickingproxy_p.h>
+#include <Qt3DCore/private/vector_helper_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -200,7 +202,7 @@ public:
 class Q_3DRENDERSHARED_PRIVATE_EXPORT ShaderManager : public Qt3DCore::QResourceManager<
         Shader,
         Qt3DCore::QNodeId,
-        Qt3DCore::NonLockingPolicy>
+        Qt3DCore::ObjectLevelLockingPolicy>
 {
 public:
     ShaderManager() {}
@@ -221,19 +223,19 @@ public:
         return m_shaderIdsToCleanup.contains(id);
     }
 
-    QVector<Qt3DCore::QNodeId> shaderIdsToCleanup() const
+    QList<Qt3DCore::QNodeId> shaderIdsToCleanup() const
     {
         return m_shaderIdsToCleanup;
     }
 
     // Called by RenderThread in updateGLResources (locked)
-    QVector<Qt3DCore::QNodeId> takeShaderIdsToCleanup()
+    QList<Qt3DCore::QNodeId> takeShaderIdsToCleanup()
     {
-        return std::move(m_shaderIdsToCleanup);
+        return Qt3DCore::moveAndClear(m_shaderIdsToCleanup);
     }
 
 private:
-    QVector<Qt3DCore::QNodeId> m_shaderIdsToCleanup;
+    QList<Qt3DCore::QNodeId> m_shaderIdsToCleanup;
 };
 
 class Q_3DRENDERSHARED_PRIVATE_EXPORT ShaderBuilderManager : public Qt3DCore::QResourceManager<
@@ -266,14 +268,14 @@ public:
     }
 
     // Called by RenderThread in updateGLResources (locked)
-    QVector<Qt3DCore::QNodeId> takeTexturesIdsToCleanup()
+    QList<Qt3DCore::QNodeId> takeTexturesIdsToCleanup()
     {
-        return std::move(m_textureIdsToCleanup);
+        return Qt3DCore::moveAndClear(m_textureIdsToCleanup);
     }
 
 #ifdef QT_BUILD_INTERNAL
     // For unit testing purposes only
-    QVector<Qt3DCore::QNodeId> textureIdsToCleanup() const
+    QList<Qt3DCore::QNodeId> textureIdsToCleanup() const
     {
         return m_textureIdsToCleanup;
     }
@@ -281,7 +283,7 @@ public:
 #endif
 
 private:
-    QVector<Qt3DCore::QNodeId> m_textureIdsToCleanup;
+    QList<Qt3DCore::QNodeId> m_textureIdsToCleanup;
 };
 
 class Q_3DRENDERSHARED_PRIVATE_EXPORT TransformManager : public Qt3DCore::QResourceManager<
@@ -314,21 +316,21 @@ public:
     }
 
     // Called by RenderThread in updateGLResources (locked)
-    QVector<Qt3DCore::QNodeId> takeRenderTargetIdsToCleanup()
+    QList<Qt3DCore::QNodeId> takeRenderTargetIdsToCleanup()
     {
-        return std::move(m_renderTargetIdsToCleanup);
+         return Qt3DCore::moveAndClear(m_renderTargetIdsToCleanup);
     }
 
 #ifdef QT_BUILD_INTERNAL
     // For unit testing purposes only
-    QVector<Qt3DCore::QNodeId> renderTargetIdsToCleanup() const
+    QList<Qt3DCore::QNodeId> renderTargetIdsToCleanup() const
     {
         return m_renderTargetIdsToCleanup;
     }
 #endif
 
 private:
-    QVector<Qt3DCore::QNodeId> m_renderTargetIdsToCleanup;
+    QList<Qt3DCore::QNodeId> m_renderTargetIdsToCleanup;
 };
 
 class Q_3DRENDERSHARED_PRIVATE_EXPORT RenderPassManager : public Qt3DCore::QResourceManager<
@@ -465,11 +467,11 @@ public:
     };
 
     void addDirtySkeleton(DirtyFlag dirtyFlag, HSkeleton skeletonHandle);
-    QVector<HSkeleton> takeDirtySkeletons(DirtyFlag dirtyFlag);
+    QList<HSkeleton> takeDirtySkeletons(DirtyFlag dirtyFlag);
 
 private:
-    QVector<HSkeleton> m_dirtyDataSkeletons;
-    QVector<HSkeleton> m_dirtyTransformSkeletons;
+    QList<HSkeleton> m_dirtyDataSkeletons;
+    QList<HSkeleton> m_dirtyTransformSkeletons;
 };
 
 class Q_3DRENDERSHARED_PRIVATE_EXPORT JointManager : public Qt3DCore::QResourceManager<
@@ -480,10 +482,17 @@ class Q_3DRENDERSHARED_PRIVATE_EXPORT JointManager : public Qt3DCore::QResourceM
 public:
     void addDirtyJoint(Qt3DCore::QNodeId jointId);
     void removeDirtyJoint(Qt3DCore::QNodeId jointId);
-    QVector<HJoint> dirtyJoints();
+    QList<HJoint> dirtyJoints();
 
 private:
-    QVector<HJoint> m_dirtyJoints;
+    QList<HJoint> m_dirtyJoints;
+};
+
+class Q_3DRENDERSHARED_PRIVATE_EXPORT PickingProxyManager : public Qt3DCore::QResourceManager<
+        PickingProxy,
+        Qt3DCore::QNodeId,
+        Qt3DCore::NonLockingPolicy>
+{
 };
 
 } // namespace Render
@@ -512,6 +521,7 @@ Q_DECLARE_RESOURCE_INFO(Qt3DRender::Render::Skeleton, Q_REQUIRES_CLEANUP)
 Q_DECLARE_RESOURCE_INFO(Qt3DRender::Render::Joint, Q_REQUIRES_CLEANUP)
 Q_DECLARE_RESOURCE_INFO(Qt3DRender::Render::ShaderBuilder, Q_REQUIRES_CLEANUP)
 Q_DECLARE_RESOURCE_INFO(Qt3DRender::Render::ShaderImage, Q_REQUIRES_CLEANUP)
+Q_DECLARE_RESOURCE_INFO(Qt3DRender::Render::PickingProxy, Q_REQUIRES_CLEANUP)
 
 QT_END_NAMESPACE
 

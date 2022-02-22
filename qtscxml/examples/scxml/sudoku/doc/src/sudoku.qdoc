@@ -106,10 +106,10 @@
             remains unchanged.
     \row
         \li \c undoStack
-        \li Holds the history of players' moves. It is a vector of
+        \li Holds the history of players' moves. It is a list of
             the cells' coordinates that were touched last. Each
             new modification during a game adds a pair of
-            x and y coordinates to that vector.
+            x and y coordinates to that list.
     \endtable
 
     The variables above are shared with the script helper functions
@@ -257,12 +257,12 @@
     grid is properly solved. Since we need to check
     each row, each column, and each 3x3 square, we define
     the \c isOK() helper function. This function takes
-    the vector of numbers and returns \c true if the passed vector
+    the list of numbers and returns \c true if the passed list
     contains unique numbers and no number equals zero, meaning
     there is no empty cell. The main loop of the \c isSolved() is invoked
-    nine times. In every iteration, we construct three vectors of numbers
+    nine times. In every iteration, we construct three lists of numbers
     representing a row, a column, and a square of the grid and call \c isOK()
-    for them. When all 27 vectors are OK, the grid is solved properly
+    for them. When all 27 lists are OK, the grid is solved properly
     and we return \c true.
 
     Coming back to our SCXML file, in case \c isSolved()

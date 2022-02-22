@@ -75,19 +75,12 @@ QSizeF QEglFSEmulatorScreen::physicalSize() const
 
 QDpi QEglFSEmulatorScreen::logicalDpi() const
 {
-    const QSizeF ps = m_physicalSize;
-    const QSize s = m_geometry.size();
-
-    if (!ps.isEmpty() && !s.isEmpty())
-        return QDpi(25.4 * s.width() / ps.width(),
-                    25.4 * s.height() / ps.height());
-    else
-        return QDpi(100, 100);
+    return logicalBaseDpi();
 }
 
-qreal QEglFSEmulatorScreen::pixelDensity() const
+QDpi QEglFSEmulatorScreen::logicalBaseDpi() const
 {
-    return m_pixelDensity;
+    return QDpi(100, 100);
 }
 
 qreal QEglFSEmulatorScreen::refreshRate() const
@@ -163,9 +156,6 @@ void QEglFSEmulatorScreen::initFromJsonObject(const QJsonObject &description)
             m_physicalSize.setHeight(value.toInt());
     }
 
-    value = description.value(QLatin1String("pixelDensity"));
-    if (!value.isUndefined() && value.isDouble())
-        m_pixelDensity = value.toDouble();
 
     value = description.value(QLatin1String("refreshRate"));
     if (!value.isUndefined() && value.isDouble())

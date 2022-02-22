@@ -53,9 +53,6 @@
 #include <QtGui/qopenglcontext.h>
 #include <QtGui/qscreen.h>
 
-#include <QtPlatformHeaders/qxcbwindowfunctions.h>
-#include <QtPlatformHeaders/qxcbscreenfunctions.h>
-
 #include <stdio.h>
 
 #include <algorithm>
@@ -121,7 +118,7 @@ void *QXcbNativeInterface::nativeResourceForIntegration(const QByteArray &resour
     case RootWindow:
         result = rootWindow();
         break;
-    case Display:
+    case XDisplay:
         result = display();
         break;
     case AtspiBus:
@@ -158,7 +155,7 @@ void *QXcbNativeInterface::nativeResourceForScreen(const QByteArray &resourceStr
 
     const QXcbScreen *xcbScreen = static_cast<QXcbScreen *>(screen->handle());
     switch (resourceType(lowerCaseResource)) {
-    case Display:
+    case XDisplay:
 #if QT_CONFIG(xcb_xlib)
         result = xcbScreen->connection()->xlib_display();
 #endif
@@ -206,7 +203,7 @@ void *QXcbNativeInterface::nativeResourceForWindow(const QByteArray &resourceStr
         return result;
 
     switch (resourceType(lowerCaseResource)) {
-    case Display:
+    case XDisplay:
         result = displayForWindow(window);
         break;
     case Connection:
@@ -311,26 +308,8 @@ QPlatformNativeInterface::NativeResourceForBackingStoreFunction QXcbNativeInterf
 QFunctionPointer QXcbNativeInterface::platformFunction(const QByteArray &function) const
 {
     const QByteArray lowerCaseFunction = function.toLower();
-    QFunctionPointer func = handlerPlatformFunction(lowerCaseFunction);
-    if (func)
+    if (QFunctionPointer func = handlerPlatformFunction(lowerCaseFunction))
         return func;
-
-    //case sensitive
-    if (function == QXcbWindowFunctions::setWmWindowTypeIdentifier())
-        return QFunctionPointer(QXcbWindowFunctions::SetWmWindowType(QXcbWindow::setWmWindowTypeStatic));
-
-    if (function == QXcbWindowFunctions::setWmWindowRoleIdentifier())
-        return QFunctionPointer(QXcbWindowFunctions::SetWmWindowRole(QXcbWindow::setWmWindowRoleStatic));
-
-    if (function == QXcbWindowFunctions::setWmWindowIconTextIdentifier())
-        return QFunctionPointer(QXcbWindowFunctions::SetWmWindowIconText(QXcbWindow::setWindowIconTextStatic));
-
-    if (function == QXcbWindowFunctions::visualIdIdentifier()) {
-        return QFunctionPointer(QXcbWindowFunctions::VisualId(QXcbWindow::visualIdStatic));
-    }
-
-    if (function == QXcbScreenFunctions::virtualDesktopNumberIdentifier())
-        return QFunctionPointer(QXcbScreenFunctions::VirtualDesktopNumber(reinterpret_cast<void *>(QXcbScreen::virtualDesktopNumberStatic)));
 
     return nullptr;
 }
@@ -362,55 +341,54 @@ void *QXcbNativeInterface::getTimestamp(const QXcbScreen *screen)
 void *QXcbNativeInterface::startupId()
 {
     QXcbIntegration* integration = QXcbIntegration::instance();
-    QXcbConnection *defaultConnection = integration->defaultConnection();
-    if (defaultConnection)
-        return reinterpret_cast<void *>(const_cast<char *>(defaultConnection->startupId().constData()));
+    QXcbConnection *connection = integration->connection();
+    if (connection)
+        return reinterpret_cast<void *>(const_cast<char *>(connection->startupId().constData()));
     return nullptr;
 }
 
 void *QXcbNativeInterface::x11Screen()
 {
     QXcbIntegration *integration = QXcbIntegration::instance();
-    QXcbConnection *defaultConnection = integration->defaultConnection();
-    if (defaultConnection)
-        return reinterpret_cast<void *>(defaultConnection->primaryScreenNumber());
+    QXcbConnection *connection = integration->connection();
+    if (connection)
+        return reinterpret_cast<void *>(connection->primaryScreenNumber());
     return nullptr;
 }
 
 void *QXcbNativeInterface::rootWindow()
 {
     QXcbIntegration *integration = QXcbIntegration::instance();
-    QXcbConnection *defaultConnection = integration->defaultConnection();
-    if (defaultConnection)
-        return reinterpret_cast<void *>(defaultConnection->rootWindow());
+    QXcbConnection *connection = integration->connection();
+    if (connection)
+        return reinterpret_cast<void *>(connection->rootWindow());
     return nullptr;
 }
 
-void *QXcbNativeInterface::display()
+Display *QXcbNativeInterface::display() const
 {
 #if QT_CONFIG(xcb_xlib)
     QXcbIntegration *integration = QXcbIntegration::instance();
-    QXcbConnection *defaultConnection = integration->defaultConnection();
-    if (defaultConnection)
-        return defaultConnection->xlib_display();
+    if (QXcbConnection *connection = integration->connection())
+        return reinterpret_cast<Display *>(connection->xlib_display());
 #endif
     return nullptr;
 }
 
-void *QXcbNativeInterface::connection()
+xcb_connection_t *QXcbNativeInterface::connection() const
 {
     QXcbIntegration *integration = QXcbIntegration::instance();
-    return integration->defaultConnection()->xcb_connection();
+    return integration->connection()->xcb_connection();
 }
 
 void *QXcbNativeInterface::atspiBus()
 {
     QXcbIntegration *integration = static_cast<QXcbIntegration *>(QGuiApplicationPrivate::platformIntegration());
-    QXcbConnection *defaultConnection = integration->defaultConnection();
-    if (defaultConnection) {
-        auto atspiBusAtom = defaultConnection->atom(QXcbAtom::AT_SPI_BUS);
-        auto reply = Q_XCB_REPLY(xcb_get_property, defaultConnection->xcb_connection(),
-                                     false, defaultConnection->rootWindow(),
+    QXcbConnection *connection = integration->connection();
+    if (connection) {
+        auto atspiBusAtom = connection->atom(QXcbAtom::AT_SPI_BUS);
+        auto reply = Q_XCB_REPLY(xcb_get_property, connection->xcb_connection(),
+                                     false, connection->rootWindow(),
                                      atspiBusAtom, XCB_ATOM_STRING, 0, 128);
         if (!reply)
             return nullptr;
@@ -440,29 +418,29 @@ void QXcbNativeInterface::setAppUserTime(QScreen* screen, xcb_timestamp_t time)
 qint32 QXcbNativeInterface::generatePeekerId()
 {
     QXcbIntegration *integration = QXcbIntegration::instance();
-    return integration->defaultConnection()->eventQueue()->generatePeekerId();
+    return integration->connection()->eventQueue()->generatePeekerId();
 }
 
 bool QXcbNativeInterface::removePeekerId(qint32 peekerId)
 {
     QXcbIntegration *integration = QXcbIntegration::instance();
-    return integration->defaultConnection()->eventQueue()->removePeekerId(peekerId);
+    return integration->connection()->eventQueue()->removePeekerId(peekerId);
 }
 
 bool QXcbNativeInterface::peekEventQueue(QXcbEventQueue::PeekerCallback peeker, void *peekerData,
                                          QXcbEventQueue::PeekOptions option, qint32 peekerId)
 {
     QXcbIntegration *integration = QXcbIntegration::instance();
-    return integration->defaultConnection()->eventQueue()->peekEventQueue(peeker, peekerData, option, peekerId);
+    return integration->connection()->eventQueue()->peekEventQueue(peeker, peekerData, option, peekerId);
 }
 
 void QXcbNativeInterface::setStartupId(const char *data)
 {
     QByteArray startupId(data);
     QXcbIntegration *integration = QXcbIntegration::instance();
-    QXcbConnection *defaultConnection = integration->defaultConnection();
-    if (defaultConnection)
-        defaultConnection->setStartupId(startupId);
+    QXcbConnection *connection = integration->connection();
+    if (connection)
+        connection->setStartupId(startupId);
 }
 
 QXcbScreen *QXcbNativeInterface::qPlatformScreenForWindow(QWindow *window)
@@ -671,7 +649,7 @@ QString QXcbNativeInterface::dumpConnectionNativeWindows(const QXcbConnection *c
 
 QString QXcbNativeInterface::dumpNativeWindows(WId root) const
 {
-    return dumpConnectionNativeWindows(QXcbIntegration::instance()->defaultConnection(), root);
+    return dumpConnectionNativeWindows(QXcbIntegration::instance()->connection(), root);
 }
 
 QT_END_NAMESPACE

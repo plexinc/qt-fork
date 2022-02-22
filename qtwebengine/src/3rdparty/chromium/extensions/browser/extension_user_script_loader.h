@@ -31,23 +31,29 @@ class ExtensionUserScriptLoader : public UserScriptLoader,
   };
   using HostsInfo = std::map<HostID, PathAndLocaleInfo>;
 
-  // The listen_for_extension_system_loaded is only set true when initilizing
-  // the Extension System, e.g, when constructs SharedUserScriptMaster in
+  // The listen_for_extension_system_loaded is only set true when initializing
+  // the Extension System, e.g, when constructs UserScriptManager in
   // ExtensionSystemImpl.
   ExtensionUserScriptLoader(content::BrowserContext* browser_context,
-                            const HostID& host_id,
+                            const ExtensionId& extension_id,
                             bool listen_for_extension_system_loaded);
+  ExtensionUserScriptLoader(content::BrowserContext* browser_context,
+                            const ExtensionId& extension_id,
+                            bool listen_for_extension_system_loaded,
+                            scoped_refptr<ContentVerifier> content_verifier);
   ~ExtensionUserScriptLoader() override;
 
-  // A wrapper around the method to load user scripts, which is normally run on
-  // the file thread. Exposed only for tests.
-  void LoadScriptsForTest(UserScriptList* user_scripts);
+  // A wrapper around the method to load user scripts. Waits for the user
+  // scripts to load and returns the scripts that were loaded. Exposed only for
+  // tests.
+  std::unique_ptr<UserScriptList> LoadScriptsForTest(
+      std::unique_ptr<UserScriptList> user_scripts);
 
  private:
   // UserScriptLoader:
   void LoadScripts(std::unique_ptr<UserScriptList> user_scripts,
                    const std::set<HostID>& changed_hosts,
-                   const std::set<int>& added_script_ids,
+                   const std::set<std::string>& added_script_ids,
                    LoadScriptsCallback callback) override;
 
   // Updates |hosts_info_| to contain info for each element of

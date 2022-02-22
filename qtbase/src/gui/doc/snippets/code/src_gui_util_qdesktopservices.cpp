@@ -47,27 +47,49 @@
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
+#include <QDesktopServices>
+#include <QObject>
+#include <QStandardPaths>
+#include <QUrl>
+
+namespace src_gui_util_qdesktopservices {
 
 //! [0]
 class MyHelpHandler : public QObject
 {
     Q_OBJECT
 public:
-    ...
+    // ...
 public slots:
     void showHelp(const QUrl &url);
 };
-
-QDesktopServices::setUrlHandler("help", helpInstance, "showHelp");
 //! [0]
+
+void wrapper0() {
+MyHelpHandler *helpInstance = nullptr;
+//! [setUrlHandler]
+QDesktopServices::setUrlHandler("help", helpInstance, "showHelp");
+//! [setUrlHandler]
+} // wrapper
+
+
+/* comment wrapper 1
 
 //! [1]
 mailto:user@foo.com?subject=Test&body=Just a test
 //! [1]
 
+*/ // comment wrapper 1
+
+
+void wrapper1() {
 //! [2]
 QDesktopServices::openUrl(QUrl("file:///C:/Documents and Settings/All Users/Desktop", QUrl::TolerantMode));
 //! [2]
+}
+
+
+/* comment wrapper 2
 
 //! [3]
 <key>LSApplicationQueriesSchemes</key>
@@ -88,15 +110,18 @@ QDesktopServices::openUrl(QUrl("file:///C:/Documents and Settings/All Users/Desk
 </array>
 //! [4]
 
-//! [5]
-QDesktopServices::storageLocation(QDesktopServices::DataLocation)
-//! [5]
+*/ // comment wrapper 2
 
+
+void wrapper3() {
 //! [6]
 QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) +
-    "/data/organization/application"
+    "/data/organization/application";
 //! [6]
+} // wrapper3
 
+
+/* comment wrapper 3
 //! [7]
 <key>com.apple.developer.associated-domains</key>
 <array>
@@ -118,3 +143,32 @@ QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) +
     }
 }
 //! [8]
+
+//! [9]
+<intent-filter>
+    <action android:name="android.intent.action.VIEW" />
+    <category android:name="android.intent.category.DEFAULT" />
+    <category android:name="android.intent.category.BROWSABLE" />
+    <data android:scheme="https" android:host="your.domain.com" android:port="1337" android:path="/help"/>
+</intent-filter>
+//! [9]
+
+//! [10]
+<intent-filter android:autoVerify="true">
+//! [10]
+
+//! [11]
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "com.example.app",
+    "sha256_cert_fingerprints":
+    ["14:6D:E9:83:C5:73:06:50:D8:EE:B9:95:2F:34:FC:64:16:A0:83:42:E6:1D:BE:A8:8A:04:96:B2:3F:CF:44:E5"]
+  }
+}]
+//! [11]
+
+*/ // comment wrapper 3
+
+} // src_gui_util_qdesktopservices

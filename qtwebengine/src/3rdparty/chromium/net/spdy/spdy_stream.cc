@@ -9,12 +9,14 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/check_op.h"
 #include "base/compiler_specific.h"
 #include "base/location.h"
-#include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/notreached.h"
 #include "base/single_thread_task_runner.h"
+#include "base/strings/abseil_string_conversions.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -34,11 +36,11 @@ namespace {
 
 base::Value NetLogSpdyStreamErrorParams(spdy::SpdyStreamId stream_id,
                                         int net_error,
-                                        const std::string* description) {
+                                        base::StringPiece description) {
   base::Value dict(base::Value::Type::DICTIONARY);
   dict.SetIntKey("stream_id", static_cast<int>(stream_id));
   dict.SetStringKey("net_error", ErrorToShortString(net_error));
-  dict.SetStringKey("description", *description);
+  dict.SetStringKey("description", description);
   return dict;
 }
 
@@ -49,6 +51,16 @@ base::Value NetLogSpdyStreamWindowUpdateParams(spdy::SpdyStreamId stream_id,
   dict.SetIntKey("stream_id", stream_id);
   dict.SetIntKey("delta", delta);
   dict.SetIntKey("window_size", window_size);
+  return dict;
+}
+
+base::Value NetLogSpdyDataParams(spdy::SpdyStreamId stream_id,
+                                 int size,
+                                 bool fin) {
+  base::Value dict(base::Value::Type::DICTIONARY);
+  dict.SetIntKey("stream_id", static_cast<int>(stream_id));
+  dict.SetIntKey("size", size);
+  dict.SetBoolKey("fin", fin);
   return dict;
 }
 
@@ -372,7 +384,7 @@ void SpdyStream::SetRequestTime(base::Time t) {
 }
 
 void SpdyStream::OnHeadersReceived(
-    const spdy::SpdyHeaderBlock& response_headers,
+    const spdy::Http2HeaderBlock& response_headers,
     base::Time response_time,
     base::TimeTicks recv_first_byte_time) {
   switch (response_state_) {
@@ -380,7 +392,7 @@ void SpdyStream::OnHeadersReceived(
       // No header block has been received yet.
       DCHECK(response_headers_.empty());
 
-      spdy::SpdyHeaderBlock::const_iterator it =
+      spdy::Http2HeaderBlock::const_iterator it =
           response_headers.find(spdy::kHttp2StatusHeader);
       if (it == response_headers.end()) {
         const std::string error("Response headers do not include :status.");
@@ -390,7 +402,8 @@ void SpdyStream::OnHeadersReceived(
       }
 
       int status;
-      if (!StringToInt(it->second, &status)) {
+      if (!base::StringToInt(base::StringViewToStringPiece(it->second),
+                             &status)) {
         const std::string error("Cannot parse :status.");
         LogStreamError(ERR_HTTP2_PROTOCOL_ERROR, error);
         session_->ResetStream(stream_id_, ERR_HTTP2_PROTOCOL_ERROR, error);
@@ -399,10 +412,16 @@ void SpdyStream::OnHeadersReceived(
 
       base::UmaHistogramSparse("Net.SpdyResponseCode", status);
 
-      // Include 1XX responses in the TTFB as per the resource timing spec
-      // for responseStart.
+      // Include informational responses (1xx) in the TTFB as per the resource
+      // timing spec for responseStart.
       if (recv_first_byte_time_.is_null())
         recv_first_byte_time_ = recv_first_byte_time;
+      // Also record the TTFB of non-informational responses.
+      if (status / 100 != 1) {
+        DCHECK(recv_first_byte_time_for_non_informational_response_.is_null());
+        recv_first_byte_time_for_non_informational_response_ =
+            recv_first_byte_time;
+      }
 
       // Ignore informational headers like 103 Early Hints.
       // TODO(bnc): Add support for 103 Early Hints, https://crbug.com/671310.
@@ -411,6 +430,10 @@ void SpdyStream::OnHeadersReceived(
       // in which case it needs to pass through so that the WebSocket layer
       // can signal an error.
       if (status / 100 == 1 && status != 101) {
+        // Record the timing of the 103 Early Hints response for the experiment
+        // (https://crbug.com/1093693).
+        if (status == 103 && first_early_hints_time_.is_null())
+          first_early_hints_time_ = recv_first_byte_time;
         return;
       }
 
@@ -477,7 +500,7 @@ bool SpdyStream::ShouldRetryRSTPushStream() const {
   return (response_headers_.empty() && type_ == SPDY_PUSH_STREAM && delegate_);
 }
 
-void SpdyStream::OnPushPromiseHeadersReceived(spdy::SpdyHeaderBlock headers,
+void SpdyStream::OnPushPromiseHeadersReceived(spdy::Http2HeaderBlock headers,
                                               GURL url) {
   CHECK(!request_headers_valid_);
   CHECK_EQ(io_state_, STATE_IDLE);
@@ -577,21 +600,12 @@ void SpdyStream::OnPaddingConsumed(size_t len) {
 
 void SpdyStream::OnFrameWriteComplete(spdy::SpdyFrameType frame_type,
                                       size_t frame_size) {
-  // PRIORITY writes are allowed at any time and do not trigger a state update.
-  if (frame_type == spdy::SpdyFrameType::PRIORITY) {
+  if (frame_type != spdy::SpdyFrameType::HEADERS &&
+      frame_type != spdy::SpdyFrameType::DATA) {
     return;
   }
 
-  // Frame types reserved in
-  // https://tools.ietf.org/html/draft-bishop-httpbis-grease-00 ought to be
-  // ignored.
-  if (static_cast<uint8_t>(frame_type) % 0x1f == 0x0b)
-    return;
-
   DCHECK_NE(type_, SPDY_PUSH_STREAM);
-  CHECK(frame_type == spdy::SpdyFrameType::HEADERS ||
-        frame_type == spdy::SpdyFrameType::DATA)
-      << frame_type;
 
   int result = (frame_type == spdy::SpdyFrameType::HEADERS)
                    ? OnHeadersSent()
@@ -659,9 +673,9 @@ int SpdyStream::OnDataSent(size_t frame_size) {
   }
 }
 
-void SpdyStream::LogStreamError(int error, const std::string& description) {
+void SpdyStream::LogStreamError(int error, base::StringPiece description) {
   net_log_.AddEvent(NetLogEventType::HTTP2_STREAM_ERROR, [&] {
-    return NetLogSpdyStreamErrorParams(stream_id_, error, &description);
+    return NetLogSpdyStreamErrorParams(stream_id_, error, description);
   });
 }
 
@@ -714,7 +728,7 @@ base::WeakPtr<SpdyStream> SpdyStream::GetWeakPtr() {
   return weak_ptr_factory_.GetWeakPtr();
 }
 
-int SpdyStream::SendRequestHeaders(spdy::SpdyHeaderBlock request_headers,
+int SpdyStream::SendRequestHeaders(spdy::Http2HeaderBlock request_headers,
                                    SpdySendStatus send_status) {
   CHECK_NE(type_, SPDY_PUSH_STREAM);
   CHECK_EQ(pending_send_status_, MORE_DATA_TO_SEND);
@@ -815,6 +829,9 @@ bool SpdyStream::GetLoadTimingInfo(LoadTimingInfo* load_timing_info) const {
   // first bytes of the HEADERS frame were received to BufferedSpdyFramer
   // (https://crbug.com/568024).
   load_timing_info->receive_headers_start = recv_first_byte_time_;
+  load_timing_info->receive_non_informational_headers_start =
+      recv_first_byte_time_for_non_informational_response_;
+  load_timing_info->first_early_hints_time = first_early_hints_time_;
   return result;
 }
 
@@ -844,9 +861,12 @@ void SpdyStream::QueueNextDataFrame() {
   spdy::SpdyDataFlags flags = (pending_send_status_ == NO_MORE_DATA_TO_SEND)
                                   ? spdy::DATA_FLAG_FIN
                                   : spdy::DATA_FLAG_NONE;
+  int effective_len;
+  bool end_stream;
   std::unique_ptr<SpdyBuffer> data_buffer(
       session_->CreateDataBuffer(stream_id_, pending_send_data_.get(),
-                                 pending_send_data_->BytesRemaining(), flags));
+                                 pending_send_data_->BytesRemaining(), flags,
+                                 &effective_len, &end_stream));
   // We'll get called again by PossiblyResumeIfSendStalled().
   if (!data_buffer)
     return;
@@ -872,13 +892,17 @@ void SpdyStream::QueueNextDataFrame() {
     session_->EnqueueGreasedFrame(GetWeakPtr());
   }
 
+  session_->net_log().AddEvent(NetLogEventType::HTTP2_SESSION_SEND_DATA, [&] {
+    return NetLogSpdyDataParams(stream_id_, effective_len, end_stream);
+  });
+
   session_->EnqueueStreamWrite(
       GetWeakPtr(), spdy::SpdyFrameType::DATA,
       std::make_unique<SimpleBufferProducer>(std::move(data_buffer)));
 }
 
 void SpdyStream::SaveResponseHeaders(
-    const spdy::SpdyHeaderBlock& response_headers,
+    const spdy::Http2HeaderBlock& response_headers,
     int status) {
   DCHECK(response_headers_.empty());
   if (response_headers.find("transfer-encoding") != response_headers.end()) {
@@ -887,7 +911,7 @@ void SpdyStream::SaveResponseHeaders(
     return;
   }
 
-  for (spdy::SpdyHeaderBlock::const_iterator it = response_headers.begin();
+  for (spdy::Http2HeaderBlock::const_iterator it = response_headers.begin();
        it != response_headers.end(); ++it) {
     response_headers_.insert(*it);
   }

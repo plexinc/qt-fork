@@ -66,45 +66,37 @@ QT_BEGIN_NAMESPACE
 
 struct QDBusMetaTypeId
 {
-    static int message();         // QDBusMessage
-    static int argument();        // QDBusArgument
-    static int variant();         // QDBusVariant
-    static int objectpath();      // QDBusObjectPath
-    static int signature();       // QDBusSignature
-    static int error();           // QDBusError
-    static int unixfd();          // QDBusUnixFileDescriptor
+    static QMetaType message();         // QDBusMessage
+    static QMetaType argument();        // QDBusArgument
+    static QMetaType variant();         // QDBusVariant
+    static QMetaType objectpath();      // QDBusObjectPath
+    static QMetaType signature();       // QDBusSignature
+    static QMetaType error();           // QDBusError
+    static QMetaType unixfd();          // QDBusUnixFileDescriptor
 
     static void init();
 };
 
-inline int QDBusMetaTypeId::message()
-#ifdef QT_BOOTSTRAPPED
-{ return qDBusRegisterMetaType<QList<QDBusUnixFileDescriptor> >() + 1; }
-#else
-{ return qMetaTypeId<QDBusMessage>(); }
-#endif
+inline QMetaType QDBusMetaTypeId::message()
+{ return QMetaType::fromType<QDBusMessage>(); }
 
-inline int QDBusMetaTypeId::argument()
-{ return qMetaTypeId<QDBusArgument>(); }
+inline QMetaType QDBusMetaTypeId::argument()
+{ return QMetaType::fromType<QDBusArgument>(); }
 
-inline int QDBusMetaTypeId::variant()
-{ return qMetaTypeId<QDBusVariant>(); }
+inline QMetaType QDBusMetaTypeId::variant()
+{ return QMetaType::fromType<QDBusVariant>(); }
 
-inline int QDBusMetaTypeId::objectpath()
-{ return qMetaTypeId<QDBusObjectPath>(); }
+inline QMetaType QDBusMetaTypeId::objectpath()
+{ return QMetaType::fromType<QDBusObjectPath>(); }
 
-inline int QDBusMetaTypeId::signature()
-{ return qMetaTypeId<QDBusSignature>(); }
+inline QMetaType QDBusMetaTypeId::signature()
+{ return QMetaType::fromType<QDBusSignature>(); }
 
-inline int QDBusMetaTypeId::error()
-#ifdef QT_BOOTSTRAPPED
-{ return qDBusRegisterMetaType<QList<QDBusUnixFileDescriptor> >() + 2; }
-#else
-{ return qMetaTypeId<QDBusError>(); }
-#endif
+inline QMetaType QDBusMetaTypeId::error()
+{ return QMetaType::fromType<QDBusError>(); }
 
-inline int QDBusMetaTypeId::unixfd()
-{ return qMetaTypeId<QDBusUnixFileDescriptor>(); }
+inline QMetaType QDBusMetaTypeId::unixfd()
+{ return QMetaType::fromType<QDBusUnixFileDescriptor>(); }
 
 QT_END_NAMESPACE
 

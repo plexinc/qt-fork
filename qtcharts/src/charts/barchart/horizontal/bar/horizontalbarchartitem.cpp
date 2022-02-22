@@ -32,7 +32,7 @@
 #include <private/qbarset_p.h>
 #include <private/bar_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 HorizontalBarChartItem::HorizontalBarChartItem(QAbstractBarSeries *series, QGraphicsItem* item)
     : AbstractBarChartItem(series, item)
@@ -93,9 +93,9 @@ QPointF HorizontalBarChartItem::bottomRightPoint(int set, int setCount, int cate
                 m_validData);
 }
 
-QVector<QRectF> HorizontalBarChartItem::calculateLayout()
+QList<QRectF> HorizontalBarChartItem::calculateLayout()
 {
-    QVector<QRectF> layout;
+    QList<QRectF> layout;
     layout.resize(m_layout.size());
 
     const int setCount = m_series->count();
@@ -126,6 +126,6 @@ QVector<QRectF> HorizontalBarChartItem::calculateLayout()
     return layout;
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_horizontalbarchartitem_p.cpp"

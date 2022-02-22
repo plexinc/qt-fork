@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 import * as Common from '../common/common.js';
+import * as Platform from '../platform/platform.js';
 
 /**
  * @implements {Iterable<T>}
@@ -14,6 +15,7 @@ export class ListModel extends Common.ObjectWrapper.ObjectWrapper {
    */
   constructor(items) {
     super();
+    /** @type {!Array<T>} */
     this._items = items || [];
   }
 
@@ -94,7 +96,7 @@ export class ListModel extends Common.ObjectWrapper.ObjectWrapper {
    * @param {function(T, T):number} comparator
    */
   insertWithComparator(value, comparator) {
-    this.insert(this._items.lowerBound(value, comparator), value);
+    this.insert(Platform.ArrayUtilities.lowerBound(this._items, value, comparator), value);
   }
 
   /**
@@ -119,12 +121,13 @@ export class ListModel extends Common.ObjectWrapper.ObjectWrapper {
   /**
    * @param {number} index
    * @param {T} value
+   * @param {boolean=} keepSelectedIndex
    * @return {T}
    */
-  replace(index, value) {
+  replace(index, value, keepSelectedIndex) {
     const oldValue = this._items[index];
     this._items[index] = value;
-    this._replaced(index, [oldValue], 1);
+    this._replaced(index, [oldValue], 1, keepSelectedIndex);
     return oldValue;
   }
 
@@ -143,7 +146,7 @@ export class ListModel extends Common.ObjectWrapper.ObjectWrapper {
       // Splice may fail with too many arguments.
       const before = this._items.slice(0, from);
       const after = this._items.slice(to);
-      this._items = [].concat(before, items, after);
+      this._items = [...before, ...items, ...after];
     }
     this._replaced(from, removed, items.length);
     return removed;
@@ -181,9 +184,10 @@ export class ListModel extends Common.ObjectWrapper.ObjectWrapper {
    * @param {number} index
    * @param {!Array<T>} removed
    * @param {number} inserted
+   * @param {boolean=} keepSelectedIndex
    */
-  _replaced(index, removed, inserted) {
-    this.dispatchEventToListeners(Events.ItemsReplaced, {index: index, removed: removed, inserted: inserted});
+  _replaced(index, removed, inserted, keepSelectedIndex) {
+    this.dispatchEventToListeners(Events.ItemsReplaced, {index, removed, inserted, keepSelectedIndex});
   }
 }
 

@@ -5,6 +5,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/rejected_promises.h"
 
 #include <memory>
+#include <utility>
 
 #include "base/memory/ptr_util.h"
 #include "third_party/blink/public/platform/platform.h"
@@ -208,11 +209,13 @@ void RejectedPromises::HandlerAdded(v8::PromiseRejectMessage data) {
     std::unique_ptr<Message>& message = reported_as_errors_.at(i);
     if (!message->IsCollected() && message->HasPromise(data.GetPromise())) {
       message->MakePromiseStrong();
-      message->GetContext()
-          ->GetTaskRunner(TaskType::kDOMManipulation)
+      // Since we move out of `message` below, we need to pull `context` out in
+      // a separate statement.
+      ExecutionContext* context = message->GetContext();
+      context->GetTaskRunner(TaskType::kDOMManipulation)
           ->PostTask(FROM_HERE, WTF::Bind(&RejectedPromises::RevokeNow,
                                           scoped_refptr<RejectedPromises>(this),
-                                          WTF::Passed(std::move(message))));
+                                          std::move(message)));
       reported_as_errors_.EraseAt(i);
       return;
     }
@@ -242,7 +245,7 @@ void RejectedPromises::ProcessQueue() {
     kv.key->GetTaskRunner(blink::TaskType::kDOMManipulation)
         ->PostTask(FROM_HERE, WTF::Bind(&RejectedPromises::ProcessQueueNow,
                                         scoped_refptr<RejectedPromises>(this),
-                                        WTF::Passed(std::move(kv.value))));
+                                        std::move(kv.value)));
   }
 }
 

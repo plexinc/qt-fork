@@ -40,39 +40,48 @@
 #include "browser_accessibility_manager_qt.h"
 
 #include "ui/accessibility/ax_enums.mojom.h"
+
 #include "browser_accessibility_qt.h"
+#include "render_widget_host_view_qt.h"
 
 using namespace blink;
 
 namespace content {
 
-BrowserAccessibilityManager* BrowserAccessibilityManager::Create(
-      const ui::AXTreeUpdate& initialTree,
-      BrowserAccessibilityDelegate* delegate,
-      BrowserAccessibilityFactory* factory)
+// static
+BrowserAccessibilityManager *BrowserAccessibilityManager::Create(
+        const ui::AXTreeUpdate &initialTree,
+        BrowserAccessibilityDelegate *delegate)
 {
 #if QT_CONFIG(accessibility)
-    return new BrowserAccessibilityManagerQt(nullptr, initialTree, delegate, factory);
+    Q_ASSERT(delegate);
+    QObject *parent = nullptr;
+    if (delegate->AccessibilityIsMainFrame()) {
+        auto *access = static_cast<QtWebEngineCore::WebContentsAccessibilityQt *>(delegate->AccessibilityGetWebContentsAccessibility());
+        parent = access ? access->accessibilityParentObject() : nullptr;
+    }
+    return new BrowserAccessibilityManagerQt(parent, initialTree, delegate);
 #else
-    delete factory;
     return nullptr;
 #endif // QT_CONFIG(accessibility)
 }
 
-BrowserAccessibility *BrowserAccessibility::Create()
+// static
+BrowserAccessibilityManager *BrowserAccessibilityManager::Create(
+        BrowserAccessibilityDelegate *delegate)
 {
 #if QT_CONFIG(accessibility)
-    return new BrowserAccessibilityQt();
+    return BrowserAccessibilityManager::Create(BrowserAccessibilityManagerQt::GetEmptyDocument(), delegate);
 #else
     return nullptr;
-#endif // QT_CONFIG(accessibility)
+#endif
 }
 
 #if QT_CONFIG(accessibility)
 BrowserAccessibilityManagerQt::BrowserAccessibilityManagerQt(
     QObject *parentObject, const ui::AXTreeUpdate &initialTree,
-    BrowserAccessibilityDelegate* delegate, BrowserAccessibilityFactory* factory)
-      : BrowserAccessibilityManager(delegate, factory)
+    BrowserAccessibilityDelegate* delegate)
+      : BrowserAccessibilityManager(delegate)
       , m_parentObject(parentObject)
 {
     Initialize(initialTree);
@@ -153,7 +162,7 @@ void BrowserAccessibilityManagerQt::FireGeneratedEvent(ui::AXEventGenerator::Eve
     BrowserAccessibilityQt *iface = static_cast<BrowserAccessibilityQt*>(node);
 
     switch (event_type) {
-    case ui::AXEventGenerator::Event::VALUE_CHANGED:
+    case ui::AXEventGenerator::Event::VALUE_IN_TEXT_FIELD_CHANGED:
         if (iface->role() == QAccessible::EditableText) {
             QAccessibleTextUpdateEvent event(iface, -1, QString(), QString());
             QAccessible::updateAccessibility(&event);

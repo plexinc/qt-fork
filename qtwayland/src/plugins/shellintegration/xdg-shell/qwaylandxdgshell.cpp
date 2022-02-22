@@ -83,7 +83,7 @@ QWaylandXdgSurface::Toplevel::~Toplevel()
 void QWaylandXdgSurface::Toplevel::applyConfigure()
 {
     if (!(m_applied.states & (Qt::WindowMaximized|Qt::WindowFullScreen)))
-        m_normalSize = m_xdgSurface->m_window->window()->frameGeometry().size();
+        m_normalSize = m_xdgSurface->m_window->windowFrameGeometry().size();
 
     if ((m_pending.states & Qt::WindowActive) && !(m_applied.states & Qt::WindowActive))
         m_xdgSurface->m_window->display()->handleWindowActivated(m_xdgSurface->m_window);
@@ -94,6 +94,7 @@ void QWaylandXdgSurface::Toplevel::applyConfigure()
     // TODO: none of the other plugins send WindowActive either, but is it on purpose?
     Qt::WindowStates statesWithoutActive = m_pending.states & ~Qt::WindowActive;
 
+    m_xdgSurface->m_window->handleToplevelWindowTilingStatesChanged(m_toplevelStates);
     m_xdgSurface->m_window->handleWindowStatesChanged(statesWithoutActive);
 
     if (m_pending.size.isEmpty()) {
@@ -104,8 +105,6 @@ void QWaylandXdgSurface::Toplevel::applyConfigure()
     } else {
         m_xdgSurface->m_window->resizeFromApplyConfigure(m_pending.size);
     }
-
-    m_xdgSurface->setSizeHints();
 
     m_applied = m_pending;
     qCDebug(lcQpaWayland) << "Applied pending xdg_toplevel configure event:" << m_applied.size << m_applied.states;
@@ -128,6 +127,7 @@ void QWaylandXdgSurface::Toplevel::xdg_toplevel_configure(int32_t width, int32_t
     size_t numStates = states->size / sizeof(uint32_t);
 
     m_pending.states = Qt::WindowNoState;
+    m_toplevelStates = QWaylandWindow::WindowNoState;
 
     for (size_t i = 0; i < numStates; i++) {
         switch (xdgStates[i]) {
@@ -139,6 +139,18 @@ void QWaylandXdgSurface::Toplevel::xdg_toplevel_configure(int32_t width, int32_t
             break;
         case XDG_TOPLEVEL_STATE_FULLSCREEN:
             m_pending.states |= Qt::WindowFullScreen;
+            break;
+        case XDG_TOPLEVEL_STATE_TILED_LEFT:
+            m_toplevelStates |= QWaylandWindow::WindowTiledLeft;
+            break;
+        case XDG_TOPLEVEL_STATE_TILED_RIGHT:
+            m_toplevelStates |= QWaylandWindow::WindowTiledRight;
+            break;
+        case XDG_TOPLEVEL_STATE_TILED_TOP:
+            m_toplevelStates |= QWaylandWindow::WindowTiledTop;
+            break;
+        case XDG_TOPLEVEL_STATE_TILED_BOTTOM:
+            m_toplevelStates |= QWaylandWindow::WindowTiledBottom;
             break;
         default:
             break;
@@ -178,9 +190,12 @@ void QWaylandXdgSurface::Toplevel::requestWindowStates(Qt::WindowStates states)
     }
 
     if (changedStates & Qt::WindowFullScreen) {
-        if (states & Qt::WindowFullScreen)
-            set_fullscreen(nullptr);
-        else
+        if (states & Qt::WindowFullScreen) {
+            auto screen = m_xdgSurface->window()->waylandScreen();
+            if (screen) {
+                set_fullscreen(screen->output());
+            }
+        } else
             unset_fullscreen();
     }
 
@@ -254,6 +269,7 @@ QWaylandXdgSurface::QWaylandXdgSurface(QWaylandXdgShell *shell, ::xdg_surface *s
                 m_toplevel->set_parent(parentXdgSurface->m_toplevel->object());
         }
     }
+    setSizeHints();
 }
 
 QWaylandXdgSurface::~QWaylandXdgSurface()
@@ -332,15 +348,16 @@ bool QWaylandXdgSurface::handleExpose(const QRegion &region)
 
 void QWaylandXdgSurface::applyConfigure()
 {
-    Q_ASSERT(m_pendingConfigureSerial != 0);
+    // It is a redundant ack_configure, so skipped.
+    if (m_pendingConfigureSerial == m_appliedConfigureSerial)
+        return;
 
     if (m_toplevel)
         m_toplevel->applyConfigure();
+    m_appliedConfigureSerial = m_pendingConfigureSerial;
 
     m_configured = true;
-    ack_configure(m_pendingConfigureSerial);
-
-    m_pendingConfigureSerial = 0;
+    ack_configure(m_appliedConfigureSerial);
 }
 
 bool QWaylandXdgSurface::wantsDecorations() const
@@ -376,6 +393,18 @@ void QWaylandXdgSurface::setSizeHints()
             maxHeight = 0;
         m_toplevel->set_max_size(maxWidth, maxHeight);
     }
+}
+
+void *QWaylandXdgSurface::nativeResource(const QByteArray &resource)
+{
+    QByteArray lowerCaseResource = resource.toLower();
+    if (lowerCaseResource == "xdg_surface")
+        return object();
+    else if (lowerCaseResource == "xdg_toplevel" && m_toplevel)
+        return m_toplevel->object();
+    else if (lowerCaseResource == "xdg_popup" && m_popup)
+        return m_popup->object();
+    return nullptr;
 }
 
 void QWaylandXdgSurface::requestWindowStates(Qt::WindowStates states)
@@ -455,7 +484,7 @@ void QWaylandXdgSurface::xdg_surface_configure(uint32_t serial)
 }
 
 QWaylandXdgShell::QWaylandXdgShell(QWaylandDisplay *display, uint32_t id, uint32_t availableVersion)
-    : QtWayland::xdg_wm_base(display->wl_registry(), id, qMin(availableVersion, 1u))
+    : QtWayland::xdg_wm_base(display->wl_registry(), id, qMin(availableVersion, 2u))
     , m_display(display)
 {
     display->addRegistryListener(&QWaylandXdgShell::handleRegistryGlobal, this);

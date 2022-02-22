@@ -17,7 +17,6 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
-#include "base/task/post_task.h"
 #include "base/threading/thread_checker.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/profiles/profile.h"
@@ -236,8 +235,8 @@ class SocketTunnel {
         adb_thread_runner_(base::ThreadTaskRunnerHandle::Get()) {
     ResolveHostCallback resolve_host_callback = base::BindOnce(
         &SocketTunnel::OnResolveHostComplete, base::Unretained(this));
-    base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                   base::BindOnce(&ResolveHost, profile, host, port,
+    content::GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE, base::BindOnce(&ResolveHost, profile, host, port,
                                   std::move(resolve_host_callback)));
   }
 
@@ -257,10 +256,10 @@ class SocketTunnel {
   void OnResolved(net::AddressList resolved_addresses) {
     DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
-    host_socket_.reset(new net::TCPClientSocket(resolved_addresses, nullptr,
-                                                nullptr, net::NetLogSource()));
+    host_socket_.reset(new net::TCPClientSocket(
+        resolved_addresses, nullptr, nullptr, nullptr, net::NetLogSource()));
     int result = host_socket_->Connect(
-        base::Bind(&SocketTunnel::OnConnected, base::Unretained(this)));
+        base::BindOnce(&SocketTunnel::OnConnected, base::Unretained(this)));
     if (result != net::ERR_IO_PENDING)
       OnConnected(result);
   }
@@ -288,11 +287,10 @@ class SocketTunnel {
 
     scoped_refptr<net::IOBuffer> buffer =
         base::MakeRefCounted<net::IOBuffer>(kBufferSize);
-    int result = from->Read(
-        buffer.get(),
-        kBufferSize,
-        base::Bind(
-            &SocketTunnel::OnRead, base::Unretained(this), from, to, buffer));
+    int result =
+        from->Read(buffer.get(), kBufferSize,
+                   base::BindOnce(&SocketTunnel::OnRead, base::Unretained(this),
+                                  from, to, buffer));
     if (result != net::ERR_IO_PENDING)
       OnRead(from, to, std::move(buffer), result);
   }
@@ -313,10 +311,11 @@ class SocketTunnel {
         base::MakeRefCounted<net::DrainableIOBuffer>(std::move(buffer), total);
 
     ++pending_writes_;
-    result = to->Write(drainable.get(), total,
-                       base::Bind(&SocketTunnel::OnWritten,
-                                  base::Unretained(this), drainable, from, to),
-                       kPortForwardingControllerTrafficAnnotation);
+    result =
+        to->Write(drainable.get(), total,
+                  base::BindOnce(&SocketTunnel::OnWritten,
+                                 base::Unretained(this), drainable, from, to),
+                  kPortForwardingControllerTrafficAnnotation);
     if (result != net::ERR_IO_PENDING)
       OnWritten(drainable, from, to, result);
   }
@@ -338,8 +337,8 @@ class SocketTunnel {
       ++pending_writes_;
       result =
           to->Write(drainable.get(), drainable->BytesRemaining(),
-                    base::Bind(&SocketTunnel::OnWritten, base::Unretained(this),
-                               drainable, from, to),
+                    base::BindOnce(&SocketTunnel::OnWritten,
+                                   base::Unretained(this), drainable, from, to),
                     kPortForwardingControllerTrafficAnnotation);
       if (result != net::ERR_IO_PENDING)
         OnWritten(drainable, from, to, result);
@@ -399,9 +398,9 @@ class PortForwardingController::Connection
       content::BrowserThread::UI>;
   friend class base::DeleteHelper<Connection>;
 
-  typedef std::map<int, std::string> ForwardingMap;
-  typedef base::Callback<void(PortStatus)> CommandCallback;
-  typedef std::map<int, CommandCallback> CommandCallbackMap;
+  using ForwardingMap = std::map<int, std::string>;
+  using CommandCallback = base::OnceCallback<void(PortStatus)>;
+  using CommandCallbackMap = std::map<int, CommandCallback>;
 
   void SerializeChanges(const std::string& method,
                         const ForwardingMap& old_map,
@@ -492,12 +491,8 @@ void PortForwardingController::Connection::SendCommand(
   int id = ++command_id_;
 
   if (method == kBindMethod) {
-    pending_responses_[id] =
-        base::Bind(&Connection::ProcessBindResponse,
-                   base::Unretained(this), port);
-#if BUILDFLAG(DEBUG_DEVTOOLS)
-    port_status_[port] = kStatusConnecting;
-#endif  // BUILDFLAG(DEBUG_DEVTOOLS)
+    pending_responses_[id] = base::BindOnce(&Connection::ProcessBindResponse,
+                                            base::Unretained(this), port);
   } else {
     auto it = port_status_.find(port);
     if (it != port_status_.end() && it->second == kStatusError) {
@@ -506,12 +501,8 @@ void PortForwardingController::Connection::SendCommand(
       return;
     }
 
-    pending_responses_[id] =
-        base::Bind(&Connection::ProcessUnbindResponse,
-                   base::Unretained(this), port);
-#if BUILDFLAG(DEBUG_DEVTOOLS)
-    port_status_[port] = kStatusDisconnecting;
-#endif  // BUILDFLAG(DEBUG_DEVTOOLS)
+    pending_responses_[id] = base::BindOnce(&Connection::ProcessUnbindResponse,
+                                            base::Unretained(this), port);
   }
 
   web_socket_->SendFrame(SerializeCommand(id, method, std::move(params)));
@@ -528,7 +519,7 @@ bool PortForwardingController::Connection::ProcessResponse(
   if (it == pending_responses_.end())
     return false;
 
-  it->second.Run(error_code ? kStatusError : kStatusOK);
+  std::move(it->second).Run(error_code ? kStatusError : kStatusOK);
   pending_responses_.erase(it);
   return true;
 }
@@ -599,14 +590,14 @@ void PortForwardingController::Connection::OnFrameRead(
   std::string destination_host = tokens[0];
 
   device_->OpenSocket(*connection_id,
-                      base::Bind(&SocketTunnel::StartTunnel, profile_,
-                                 destination_host, destination_port));
+                      base::BindOnce(&SocketTunnel::StartTunnel, profile_,
+                                     destination_host, destination_port));
 }
 
 PortForwardingController::PortForwardingController(Profile* profile)
     : profile_(profile), pref_service_(profile->GetPrefs()) {
   pref_change_registrar_.Init(pref_service_);
-  base::Closure callback = base::Bind(
+  base::RepeatingClosure callback = base::BindRepeating(
       &PortForwardingController::OnPrefsChange, base::Unretained(this));
   pref_change_registrar_.Add(prefs::kDevToolsPortForwardingEnabled, callback);
   pref_change_registrar_.Add(prefs::kDevToolsPortForwardingConfig, callback);

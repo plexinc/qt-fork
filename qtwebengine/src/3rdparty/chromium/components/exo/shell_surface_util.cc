@@ -6,30 +6,35 @@
 
 #include <memory>
 
-#include "ash/public/cpp/app_types.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/trace_event/trace_event.h"
+#include "build/chromeos_buildflags.h"
 #include "components/exo/permission.h"
 #include "components/exo/shell_surface_base.h"
 #include "components/exo/surface.h"
 #include "components/exo/wm_helper.h"
-#include "ui/aura/client/aura_constants.h"
 #include "ui/aura/client/capture_client.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_delegate.h"
+#include "ui/aura/window_targeter.h"
+#include "ui/events/base_event_utils.h"
 #include "ui/events/event.h"
 #include "ui/views/widget/widget.h"
 #include "ui/wm/core/window_util.h"
 
-DEFINE_UI_CLASS_PROPERTY_TYPE(exo::Permission*)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "chromeos/ui/base/window_properties.h"
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace exo {
 
 namespace {
 
-DEFINE_UI_CLASS_PROPERTY_KEY(Surface*, kMainSurfaceKey, nullptr)
+DEFINE_UI_CLASS_PROPERTY_KEY(Surface*, kRootSurfaceKey, nullptr)
 
-// Application Id set by the client.
+// Application Id set by the client. For example:
+// "org.chromium.arc.<task-id>" for ARC++ shell surfaces.
+// "org.chromium.lacros.<window-id>" for Lacros browser shell surfaces.
 DEFINE_OWNED_UI_CLASS_PROPERTY_KEY(std::string, kApplicationIdKey, nullptr)
 
 // Startup Id set by the client.
@@ -37,9 +42,6 @@ DEFINE_OWNED_UI_CLASS_PROPERTY_KEY(std::string, kStartupIdKey, nullptr)
 
 // Accessibility Id set by the client.
 DEFINE_UI_CLASS_PROPERTY_KEY(int32_t, kClientAccessibilityIdKey, -1)
-
-// Permission object allowing this window to activate itself.
-DEFINE_UI_CLASS_PROPERTY_KEY(exo::Permission*, kPermissionKey, nullptr)
 
 // Returns true if the component for a located event should be taken care of
 // by the window system.
@@ -57,39 +59,56 @@ bool ShouldHTComponentBlocked(int component) {
   }
 }
 
+// Find the lowest targeter in the parent chain.
+aura::WindowTargeter* FindTargeter(ui::EventTarget* target) {
+  do {
+    ui::EventTargeter* targeter = target->GetEventTargeter();
+    if (targeter)
+      return static_cast<aura::WindowTargeter*>(targeter);
+    target = target->GetParentTarget();
+  } while (target);
+
+  return nullptr;
+}
+
 }  // namespace
 
-void SetShellApplicationId(aura::Window* window,
+void SetShellApplicationId(ui::PropertyHandler* property_handler,
                            const base::Optional<std::string>& id) {
   TRACE_EVENT1("exo", "SetApplicationId", "application_id", id ? *id : "null");
 
   if (id)
-    window->SetProperty(kApplicationIdKey, *id);
+    property_handler->SetProperty(kApplicationIdKey, *id);
   else
-    window->ClearProperty(kApplicationIdKey);
+    property_handler->ClearProperty(kApplicationIdKey);
 }
 
-const std::string* GetShellApplicationId(const aura::Window* window) {
-  return window->GetProperty(kApplicationIdKey);
+const std::string* GetShellApplicationId(const aura::Window* property_handler) {
+  return property_handler->GetProperty(kApplicationIdKey);
 }
 
-void SetArcAppType(aura::Window* window) {
-  window->SetProperty(aura::client::kAppType,
-                      static_cast<int>(ash::AppType::ARC_APP));
-}
-
-void SetShellStartupId(aura::Window* window,
+void SetShellStartupId(ui::PropertyHandler* property_handler,
                        const base::Optional<std::string>& id) {
   TRACE_EVENT1("exo", "SetStartupId", "startup_id", id ? *id : "null");
 
   if (id)
-    window->SetProperty(kStartupIdKey, *id);
+    property_handler->SetProperty(kStartupIdKey, *id);
   else
-    window->ClearProperty(kStartupIdKey);
+    property_handler->ClearProperty(kStartupIdKey);
 }
 
 const std::string* GetShellStartupId(aura::Window* window) {
   return window->GetProperty(kStartupIdKey);
+}
+
+void SetShellUseImmersiveForFullscreen(aura::Window* window, bool value) {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  window->SetProperty(chromeos::kImmersiveImpliedByFullscreen, value);
+
+  // Ensure the shelf is fully hidden in plain fullscreen, but shown
+  // (auto-hides based on mouse movement) when in immersive fullscreen.
+  window->SetProperty(chromeos::kHideShelfWhenFullscreenKey, !value);
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 }
 
 void SetShellClientAccessibilityId(aura::Window* window,
@@ -112,17 +131,18 @@ const base::Optional<int32_t> GetShellClientAccessibilityId(
     return id;
 }
 
-void SetShellMainSurface(aura::Window* window, Surface* surface) {
-  window->SetProperty(kMainSurfaceKey, surface);
+void SetShellRootSurface(ui::PropertyHandler* property_handler,
+                         Surface* surface) {
+  property_handler->SetProperty(kRootSurfaceKey, surface);
 }
 
-Surface* GetShellMainSurface(const aura::Window* window) {
-  return window->GetProperty(kMainSurfaceKey);
+Surface* GetShellRootSurface(const aura::Window* window) {
+  return window->GetProperty(kRootSurfaceKey);
 }
 
 ShellSurfaceBase* GetShellSurfaceBaseForWindow(aura::Window* window) {
   // Only windows with a surface can have a shell surface.
-  if (!GetShellMainSurface(window))
+  if (!GetShellRootSurface(window))
     return nullptr;
   views::Widget* widget = views::Widget::GetWidgetForNativeWindow(window);
   if (!widget)
@@ -130,31 +150,51 @@ ShellSurfaceBase* GetShellSurfaceBaseForWindow(aura::Window* window) {
   return static_cast<ShellSurfaceBase*>(widget->widget_delegate());
 }
 
-Surface* GetTargetSurfaceForLocatedEvent(ui::LocatedEvent* event) {
+Surface* GetTargetSurfaceForLocatedEvent(
+    const ui::LocatedEvent* original_event) {
   aura::Window* window =
       WMHelper::GetInstance()->GetCaptureClient()->GetCaptureWindow();
-  gfx::PointF location_in_target_f = event->location_f();
+  if (!window) {
+    return Surface::AsSurface(
+        static_cast<aura::Window*>(original_event->target()));
+  }
 
-  if (!window)
-    return Surface::AsSurface(static_cast<aura::Window*>(event->target()));
-
-  Surface* main_surface = GetShellMainSurface(window);
+  Surface* root_surface = GetShellRootSurface(window);
   // Skip if the event is captured by non exo windows.
-  if (!main_surface) {
+  if (!root_surface) {
     auto* widget = views::Widget::GetTopLevelWidgetForNativeView(window);
     if (!widget)
       return nullptr;
-    main_surface = GetShellMainSurface(widget->GetNativeWindow());
-    if (!main_surface)
+    root_surface = GetShellRootSurface(widget->GetNativeWindow());
+    if (!root_surface)
       return nullptr;
   }
 
-  while (true) {
-    gfx::Point location_in_target = gfx::ToFlooredPoint(location_in_target_f);
-    aura::Window* focused = window->GetEventHandlerForPoint(location_in_target);
+  // Create a clone of the event as targeter may update it during the
+  // search.
+  auto cloned = ui::Event::Clone(*original_event);
+  ui::LocatedEvent* event = cloned->AsLocatedEvent();
 
-    if (focused)
-      return Surface::AsSurface(focused);
+  while (true) {
+    gfx::PointF location_in_target_f = event->location_f();
+    gfx::Point location_in_target = event->location();
+    ui::EventTarget* event_target = window;
+    aura::WindowTargeter* targeter = FindTargeter(event_target);
+    DCHECK(targeter);
+
+    aura::Window* focused =
+        static_cast<aura::Window*>(targeter->FindTargetForEvent(window, event));
+
+    if (focused) {
+      Surface* surface = Surface::AsSurface(focused);
+      if (focused != window)
+        return surface;
+      else if (surface && surface->HitTest(location_in_target)) {
+        // If the targeting fallback to the root (first) window, test the
+        // hit region again.
+        return surface;
+      }
+    }
 
     // If the event falls into the place where the window system should care
     // about (i.e. window caption), do not check the transient parent but just
@@ -168,49 +208,93 @@ Surface* GetTargetSurfaceForLocatedEvent(ui::LocatedEvent* event) {
     aura::Window* parent_window = wm::GetTransientParent(window);
 
     if (!parent_window)
-      return main_surface;
+      return root_surface;
 
-    aura::Window::ConvertPointToTarget(window, parent_window,
-                                       &location_in_target_f);
+    event->set_location_f(location_in_target_f);
+    event_target->ConvertEventToTarget(parent_window, event);
     window = parent_window;
   }
 }
 
-namespace {
+void GrantPermissionToActivate(aura::Window* window, base::TimeDelta timeout) {
+  // Activation is the only permission, so just set the property. The window
+  // owns the Permission object.
+  window->SetProperty(
+      kPermissionKey,
+      new Permission(Permission::Capability::kActivate, timeout));
+}
 
-// An activation-permission object whose lifetime is tied to a window property.
-class ScopedWindowActivationPermission : public Permission {
- public:
-  ScopedWindowActivationPermission(aura::Window* window,
-                                   base::TimeDelta timeout)
-      : Permission(Permission::Capability::kActivate, timeout),
-        window_(window) {
-    Permission* other = window_->GetProperty(kPermissionKey);
-    if (other) {
-      other->Revoke();
-    }
-    window_->SetProperty(kPermissionKey, reinterpret_cast<Permission*>(this));
-  }
-
-  ~ScopedWindowActivationPermission() override {
-    if (window_->GetProperty(kPermissionKey) == this)
-      window_->ClearProperty(kPermissionKey);
-  }
-
- private:
-  aura::Window* window_;
-};
-
-}  // namespace
-
-std::unique_ptr<Permission> GrantPermissionToActivate(aura::Window* window,
-                                                      base::TimeDelta timeout) {
-  return std::make_unique<ScopedWindowActivationPermission>(window, timeout);
+void RevokePermissionToActivate(aura::Window* window) {
+  // Activation is the only permission, so just clear the property.
+  window->ClearProperty(kPermissionKey);
 }
 
 bool HasPermissionToActivate(aura::Window* window) {
   Permission* permission = window->GetProperty(kPermissionKey);
   return permission && permission->Check(Permission::Capability::kActivate);
+}
+
+bool ConsumedByIme(aura::Window* window, const ui::KeyEvent& event) {
+  // When IME is blocked, Exo can handle any key events.
+  if (WMHelper::GetInstance()->IsImeBlocked(window))
+    return false;
+
+  // Check if IME consumed the event, to avoid it to be doubly processed.
+  // First let us see whether IME is active and is in text input mode.
+  views::Widget* widget = views::Widget::GetTopLevelWidgetForNativeView(window);
+  ui::InputMethod* ime = widget ? widget->GetInputMethod() : nullptr;
+  if (!ime || ime->GetTextInputType() == ui::TEXT_INPUT_TYPE_NONE ||
+      ime->GetTextInputType() == ui::TEXT_INPUT_TYPE_NULL) {
+    return false;
+  }
+
+  // Case 1:
+  // When IME ate a key event but did not emit character insertion event yet
+  // (e.g., when it is still showing a candidate list UI to the user,) the
+  // consumed key event is re-sent after masked |key_code| by VKEY_PROCESSKEY.
+  if (event.key_code() == ui::VKEY_PROCESSKEY)
+    return true;
+
+  // Except for PROCESSKEY, never discard "key-up" events. A keydown not paired
+  // by a keyup can trigger a never-ending key repeat in the client, which can
+  // never be desirable.
+  if (event.type() == ui::ET_KEY_RELEASED)
+    return false;
+
+  // Case 2:
+  // When IME ate a key event and generated a single character input, it leaves
+  // the key event as-is, and in addition calls the active ui::TextInputClient's
+  // InsertChar() method. (In our case, arc::ArcImeService::InsertChar()).
+  //
+  // In Chrome OS (and Web) convention, the two calls won't cause duplicates,
+  // because key-down events do not mean any character inputs there.
+  // (InsertChar issues a DOM "keypress" event, which is distinct from keydown.)
+  // Unfortunately, this is not necessary the case for our clients that may
+  // treat keydown as a trigger of text inputs. We need suppression for keydown.
+  //
+  // Same condition as components/arc/ime/arc_ime_service.cc#InsertChar.
+  const base::char16 ch = event.GetCharacter();
+  const bool is_control_char =
+      (0x00 <= ch && ch <= 0x1f) || (0x7f <= ch && ch <= 0x9f);
+  if (!is_control_char && !ui::IsSystemKeyModifier(event.flags()))
+    return true;
+
+  // Case 3:
+  // Workaround for apps that doesn't handle hardware keyboard events well.
+  // Keys typically on software keyboard and lack of them are fatal, namely,
+  // unmodified enter and backspace keys, are sent through IME.
+  constexpr int kModifierMask = ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN |
+                                ui::EF_ALT_DOWN | ui::EF_COMMAND_DOWN |
+                                ui::EF_ALTGR_DOWN | ui::EF_MOD3_DOWN;
+  // Same condition as components/arc/ime/arc_ime_service.cc#InsertChar.
+  if ((event.flags() & kModifierMask) == 0) {
+    if (event.key_code() == ui::VKEY_RETURN ||
+        event.key_code() == ui::VKEY_BACK) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 }  // namespace exo

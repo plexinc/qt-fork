@@ -29,7 +29,7 @@
 #include <QtTest/QtTest>
 #include <QtQml/qqmlcomponent.h>
 #include <QtQml/qqmlengine.h>
-#include "../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 
 Q_DECLARE_METATYPE(QMetaMethod::MethodType)
 
@@ -42,8 +42,12 @@ QML_DECLARE_TYPE(MyQmlObject)
 class tst_QQmlMetaObject : public QQmlDataTest
 {
     Q_OBJECT
+
+public:
+    tst_QQmlMetaObject();
+
 private slots:
-    void initTestCase();
+    void initTestCase() override;
 
     void property_data();
     void property();
@@ -53,6 +57,11 @@ private slots:
 private:
     MyQmlObject myQmlObject;
 };
+
+tst_QQmlMetaObject::tst_QQmlMetaObject()
+    : QQmlDataTest(QT_QMLTEST_DATADIR)
+{
+}
 
 void tst_QQmlMetaObject::initTestCase()
 {
@@ -115,12 +124,6 @@ void tst_QQmlMetaObject::property_data()
             << QVariant(QDate(2012, 2, 7).startOfDay())
             << true // writable
             << QVariant(QDate(2010, 7, 2).startOfDay());
-    QTest::newRow("variant") << "property.variant.qml"
-            << QByteArray("QVariant") << int(QMetaType::QVariant)
-            << true // default
-            << QVariant(QPointF(12, 34))
-            << true // writable
-            << QVariant(QSizeF(45, 67));
     QTest::newRow("var") << "property.var.qml"
             << QByteArray("QVariant") << int(QMetaType::QVariant)
             << false // default
@@ -198,11 +201,7 @@ void tst_QQmlMetaObject::property()
     QCOMPARE(prop.name(), "test");
 
     QCOMPARE(QByteArray(prop.typeName()), cppTypeName);
-    if (prop.userType() < QMetaType::User)
-        QCOMPARE(prop.type(), QVariant::Type(cppType));
-    else
-        QCOMPARE(prop.type(), QVariant::UserType);
-    QCOMPARE(prop.userType(), cppType);
+    QCOMPARE(prop.metaType().id(), cppType);
 
     QVERIFY(!prop.isConstant());
     QVERIFY(!prop.isDesignable());

@@ -10,10 +10,13 @@
 #include <map>
 
 #include "base/macros.h"
+#include "base/scoped_observation.h"
 #include "base/time/time.h"
 #include "base/unguessable_token.h"
 #include "content/browser/devtools/devtools_agent_host_impl.h"
 #include "content/browser/devtools/service_worker_devtools_manager.h"
+#include "content/public/browser/render_process_host.h"
+#include "content/public/browser/render_process_host_observer.h"
 #include "services/network/public/cpp/cross_origin_embedder_policy.h"
 #include "services/network/public/mojom/cross_origin_embedder_policy.mojom.h"
 #include "third_party/blink/public/mojom/devtools/devtools_agent.mojom.h"
@@ -22,7 +25,8 @@ namespace content {
 
 class BrowserContext;
 
-class ServiceWorkerDevToolsAgentHost : public DevToolsAgentHostImpl {
+class ServiceWorkerDevToolsAgentHost : public DevToolsAgentHostImpl,
+                                       RenderProcessHostObserver {
  public:
   using List = std::vector<scoped_refptr<ServiceWorkerDevToolsAgentHost>>;
   using Map = std::map<std::string,
@@ -31,8 +35,7 @@ class ServiceWorkerDevToolsAgentHost : public DevToolsAgentHostImpl {
   ServiceWorkerDevToolsAgentHost(
       int worker_process_id,
       int worker_route_id,
-      const ServiceWorkerContextCore* context,
-      base::WeakPtr<ServiceWorkerContextCore> context_weak,
+      scoped_refptr<ServiceWorkerContextWrapper> context_wrapper,
       int64_t version_id,
       const GURL& url,
       const GURL& scope,
@@ -51,6 +54,11 @@ class ServiceWorkerDevToolsAgentHost : public DevToolsAgentHostImpl {
   bool Activate() override;
   void Reload() override;
   bool Close() override;
+  NetworkLoaderFactoryParamsAndInfo CreateNetworkFactoryParamsForDevTools()
+      override;
+  RenderProcessHost* GetProcessHost() override;
+  base::Optional<network::CrossOriginEmbedderPolicy>
+  cross_origin_embedder_policy(const std::string& id) override;
 
   void WorkerRestarted(int worker_process_id, int worker_route_id);
   void WorkerReadyForInspection(
@@ -60,7 +68,7 @@ class ServiceWorkerDevToolsAgentHost : public DevToolsAgentHostImpl {
       network::CrossOriginEmbedderPolicy cross_origin_embedder_policy,
       mojo::PendingRemote<network::mojom::CrossOriginEmbedderPolicyReporter>
           coep_reporter);
-  void WorkerDestroyed();
+  void WorkerStopped();
   void WorkerVersionInstalled();
   void WorkerVersionDoomed();
 
@@ -78,16 +86,21 @@ class ServiceWorkerDevToolsAgentHost : public DevToolsAgentHostImpl {
   base::Time version_doomed_time() const { return version_doomed_time_; }
 
   int64_t version_id() const { return version_id_; }
-
-  bool Matches(const ServiceWorkerContextCore* context, int64_t version_id);
+  const ServiceWorkerContextWrapper* context_wrapper() const {
+    return context_wrapper_.get();
+  }
 
  private:
   ~ServiceWorkerDevToolsAgentHost() override;
   void UpdateIsAttached(bool attached);
+  void UpdateProcessHost();
 
   // DevToolsAgentHostImpl overrides.
-  bool AttachSession(DevToolsSession* session) override;
+  bool AttachSession(DevToolsSession* session, bool acquire_wake_lock) override;
   void DetachSession(DevToolsSession* session) override;
+
+  // RenderProcessHostObserver implementation.
+  void RenderProcessHostDestroyed(RenderProcessHost* host) override;
 
   void UpdateLoaderFactories(base::OnceClosure callback);
 
@@ -100,8 +113,7 @@ class ServiceWorkerDevToolsAgentHost : public DevToolsAgentHostImpl {
   base::UnguessableToken devtools_worker_token_;
   int worker_process_id_;
   int worker_route_id_;
-  const ServiceWorkerContextCore* context_;
-  base::WeakPtr<ServiceWorkerContextCore> context_weak_;
+  scoped_refptr<ServiceWorkerContextWrapper> context_wrapper_;
   int64_t version_id_;
   GURL url_;
   GURL scope_;
@@ -111,6 +123,8 @@ class ServiceWorkerDevToolsAgentHost : public DevToolsAgentHostImpl {
       cross_origin_embedder_policy_;
   mojo::Remote<network::mojom::CrossOriginEmbedderPolicyReporter>
       coep_reporter_;
+  base::ScopedObservation<RenderProcessHost, RenderProcessHostObserver>
+      process_observation_{this};
 
   DISALLOW_COPY_AND_ASSIGN(ServiceWorkerDevToolsAgentHost);
 };

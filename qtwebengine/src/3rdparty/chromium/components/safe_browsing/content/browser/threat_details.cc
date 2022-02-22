@@ -13,14 +13,13 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/containers/contains.h"
 #include "base/feature_list.h"
 #include "base/lazy_instance.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/stl_util.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
-#include "base/task/post_task.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/safe_browsing/content/base_ui_manager.h"
 #include "components/safe_browsing/content/browser/threat_details_cache.h"
@@ -68,7 +67,7 @@ typedef std::unordered_set<std::string> StringSet;
 // A set of HTTPS headers that are allowed to be collected. Contains both
 // request and response headers. All entries in this list should be lower-case
 // to support case-insensitive comparison.
-struct WhitelistedHttpsHeadersTraits
+struct AllowlistedHttpsHeadersTraits
     : base::internal::DestructorAtExitLazyInstanceTraits<StringSet> {
   static StringSet* New(void* instance) {
     StringSet* headers =
@@ -80,8 +79,8 @@ struct WhitelistedHttpsHeadersTraits
     return headers;
   }
 };
-base::LazyInstance<StringSet, WhitelistedHttpsHeadersTraits>
-    g_https_headers_whitelist = LAZY_INSTANCE_INITIALIZER;
+base::LazyInstance<StringSet, AllowlistedHttpsHeadersTraits>
+    g_https_headers_allowlist = LAZY_INSTANCE_INITIALIZER;
 
 // Helper function that converts SBThreatType to
 // ClientSafeBrowsingReportRequest::ReportType.
@@ -119,10 +118,10 @@ ClientSafeBrowsingReportRequest::ReportType GetReportTypeFromSBThreatType(
     case SB_THREAT_TYPE_SAFE:
     case SB_THREAT_TYPE_URL_BINARY_MALWARE:
     case SB_THREAT_TYPE_EXTENSION:
-    case SB_THREAT_TYPE_BLACKLISTED_RESOURCE:
+    case SB_THREAT_TYPE_BLOCKLISTED_RESOURCE:
     case SB_THREAT_TYPE_API_ABUSE:
     case SB_THREAT_TYPE_SUBRESOURCE_FILTER:
-    case SB_THREAT_TYPE_CSD_WHITELIST:
+    case SB_THREAT_TYPE_CSD_ALLOWLIST:
     case SB_THREAT_TYPE_HIGH_CONFIDENCE_ALLOWLIST:
     case DEPRECATED_SB_THREAT_TYPE_URL_PASSWORD_PROTECTION_PHISHING:
       // Gated by SafeBrowsingBlockingPage::ShouldReportThreatDetails.
@@ -133,17 +132,17 @@ ClientSafeBrowsingReportRequest::ReportType GetReportTypeFromSBThreatType(
 }
 
 // Clears the specified HTTPS resource of any sensitive data, only retaining
-// data that is whitelisted for collection.
+// data that is allowlisted for collection.
 void ClearHttpsResource(ClientSafeBrowsingReportRequest::Resource* resource) {
   // Make a copy of the original resource to retain all data.
   ClientSafeBrowsingReportRequest::Resource orig_resource(*resource);
 
-  // Clear the request headers and copy over any whitelisted ones.
+  // Clear the request headers and copy over any allowlisted ones.
   resource->clear_request();
   for (int i = 0; i < orig_resource.request().headers_size(); ++i) {
     ClientSafeBrowsingReportRequest::HTTPHeader* orig_header =
         orig_resource.mutable_request()->mutable_headers(i);
-    if (g_https_headers_whitelist.Get().count(
+    if (g_https_headers_allowlist.Get().count(
             base::ToLowerASCII(orig_header->name())) > 0) {
       resource->mutable_request()->add_headers()->Swap(orig_header);
     }
@@ -159,7 +158,7 @@ void ClearHttpsResource(ClientSafeBrowsingReportRequest::Resource* resource) {
   for (int i = 0; i < orig_resource.response().headers_size(); ++i) {
     ClientSafeBrowsingReportRequest::HTTPHeader* orig_header =
         orig_resource.mutable_response()->mutable_headers(i);
-    if (g_https_headers_whitelist.Get().count(
+    if (g_https_headers_allowlist.Get().count(
             base::ToLowerASCII(orig_header->name())) > 0) {
       resource->mutable_response()->add_headers()->Swap(orig_header);
     }
@@ -182,20 +181,16 @@ using CSBRR = safe_browsing::ClientSafeBrowsingReportRequest;
 CSBRR::SafeBrowsingUrlApiType GetUrlApiTypeForThreatSource(
     safe_browsing::ThreatSource source) {
   switch (source) {
-    case safe_browsing::ThreatSource::DATA_SAVER:
-      return CSBRR::FLYWHEEL;
-    case safe_browsing::ThreatSource::LOCAL_PVER3:
-      return CSBRR::PVER3_NATIVE;
     case safe_browsing::ThreatSource::LOCAL_PVER4:
       return CSBRR::PVER4_NATIVE;
     case safe_browsing::ThreatSource::REMOTE:
       return CSBRR::ANDROID_SAFETYNET;
+    case safe_browsing::ThreatSource::REAL_TIME_CHECK:
+      return CSBRR::REAL_TIME;
     case safe_browsing::ThreatSource::UNKNOWN:
     case safe_browsing::ThreatSource::CLIENT_SIDE_DETECTION:
-    case safe_browsing::ThreatSource::PASSWORD_PROTECTION_SERVICE:
-      break;
+      return CSBRR::SAFE_BROWSING_URL_API_TYPE_UNSPECIFIED;
   }
-  return CSBRR::SAFE_BROWSING_URL_API_TYPE_UNSPECIFIED;
 }
 
 void TrimElements(const std::set<int> target_ids,
@@ -329,9 +324,9 @@ class ThreatDetailsFactoryImpl : public ThreatDetailsFactory {
       ReferrerChainProvider* referrer_chain_provider,
       bool trim_to_ad_tags,
       ThreatDetailsDoneCallback done_callback) override {
-    // We can't use make_unique due to the protected constructor. We can't
-    // directly use std::unique_ptr<ThreatDetails>(new ThreatDetails(...))
-    // due to presubmit errors. So we use base::WrapUnique:
+    // We can't use make_unique due to the protected constructor, so we use bare
+    // new and base::WrapUnique. base::PassKey would allow make_unique to be
+    // used.
     auto threat_details = base::WrapUnique(new ThreatDetails(
         ui_manager, web_contents, unsafe_resource, url_loader_factory,
         history_service, referrer_chain_provider, trim_to_ad_tags,
@@ -384,6 +379,7 @@ ThreatDetails::ThreatDetails(
     : content::WebContentsObserver(web_contents),
       url_loader_factory_(url_loader_factory),
       ui_manager_(ui_manager),
+      browser_context_(web_contents->GetBrowserContext()),
       resource_(resource),
       referrer_chain_provider_(referrer_chain_provider),
       cache_result_(false),
@@ -583,8 +579,6 @@ void ThreatDetails::StartCollection() {
   // navigation to the interstitial, and the entry with the page details get
   // destroyed when leaving the interstitial.
   if (!resource_.navigation_url.is_empty()) {
-    DCHECK(
-        base::FeatureList::IsEnabled(safe_browsing::kCommittedSBInterstitials));
     page_url = resource_.navigation_url;
     referrer_url = resource_.referrer_url;
   } else {
@@ -646,6 +640,14 @@ void ThreatDetails::StartCollection() {
 void ThreatDetails::RequestThreatDOMDetails(content::RenderFrameHost* frame) {
   content::BackForwardCache::DisableForRenderFrameHost(
       frame, "safe_browsing::ThreatDetails");
+  if (!frame->IsRenderFrameCreated()) {
+    // A child frame may have been created browser-side but has not completed
+    // setting up the renderer for it yet. In particular, this occurs if the
+    // child frame was blocked and that's why we're showing a safe browsing page
+    // in the main frame.
+    DCHECK(frame->GetParent());
+    return;
+  }
   mojo::Remote<safe_browsing::mojom::ThreatReporter> threat_reporter;
   frame->GetRemoteInterfaces()->GetInterface(
       threat_reporter.BindNewPipeAndPassReceiver());
@@ -851,13 +853,13 @@ void ThreatDetails::OnCacheCollectionReady() {
     return;
   }
 
-  base::PostTask(
-      FROM_HERE, {content::BrowserThread::UI},
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(&WebUIInfoSingleton::AddToCSBRRsSent,
                      base::Unretained(WebUIInfoSingleton::GetInstance()),
                      std::move(report_)));
 
-  ui_manager_->SendSerializedThreatDetails(serialized);
+  ui_manager_->SendSerializedThreatDetails(browser_context_, serialized);
 
   AllDone();
 }
@@ -879,23 +881,18 @@ void ThreatDetails::MaybeFillReferrerChain() {
 
 void ThreatDetails::AllDone() {
   is_all_done_ = true;
-  base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                 base::BindOnce(std::move(done_callback_),
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(std::move(done_callback_),
                                 base::Unretained(web_contents())));
 }
 
 void ThreatDetails::FrameDeleted(RenderFrameHost* render_frame_host) {
-  auto render_frame_host_it =
-      std::find(pending_render_frame_hosts_.begin(),
-                pending_render_frame_hosts_.end(), render_frame_host);
-  if (render_frame_host_it != pending_render_frame_hosts_.end()) {
-    pending_render_frame_hosts_.erase(render_frame_host_it);
-  }
+  base::Erase(pending_render_frame_hosts_, render_frame_host);
 }
 
 void ThreatDetails::RenderFrameHostChanged(RenderFrameHost* old_host,
                                            RenderFrameHost* new_host) {
-  FrameDeleted(old_host);
+  base::Erase(pending_render_frame_hosts_, old_host);
 }
 
 base::WeakPtr<ThreatDetails> ThreatDetails::GetWeakPtr() {

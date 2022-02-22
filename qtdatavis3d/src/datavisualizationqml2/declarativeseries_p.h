@@ -47,7 +47,7 @@
 #include "colorgradient_p.h"
 #include <QtQml/QQmlListProperty>
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 enum GradientType {
     GradientTypeBase,
@@ -93,7 +93,7 @@ public Q_SLOTS:
     void handleMultiHighlightGradientUpdate();
 
 Q_SIGNALS:
-    void selectedBarChanged(QPointF position);
+    void selectedBarChanged(const QPointF &position);
     void baseGradientChanged(ColorGradient *gradient);
     void singleHighlightGradientChanged(ColorGradient *gradient);
     void multiHighlightGradientChanged(ColorGradient *gradient);
@@ -185,7 +185,7 @@ public Q_SLOTS:
     void handleMultiHighlightGradientUpdate();
 
 Q_SIGNALS:
-    void selectedPointChanged(QPointF position);
+    void selectedPointChanged(const QPointF &position);
     void baseGradientChanged(ColorGradient *gradient);
     void singleHighlightGradientChanged(ColorGradient *gradient);
     void multiHighlightGradientChanged(ColorGradient *gradient);
@@ -196,6 +196,6 @@ private:
     ColorGradient *m_multiHighlightGradient; // Not owned
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

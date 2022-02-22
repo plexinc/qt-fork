@@ -127,27 +127,37 @@ QDBusMetaObjectGenerator::QDBusMetaObjectGenerator(const QString &interfaceName,
     }
 }
 
-static int registerComplexDBusType(const char *typeName)
+static int registerComplexDBusType(const QByteArray &typeName)
 {
-    struct QDBusRawTypeHandler {
-        static void destruct(void *)
-        {
-            qFatal("Cannot destruct placeholder type QDBusRawType");
-        }
-
-        static void *construct(void *, const void *)
-        {
-            qFatal("Cannot construct placeholder type QDBusRawType");
-            return nullptr;
-        }
+    struct QDBusRawTypeHandler : QtPrivate::QMetaTypeInterface
+    {
+        const QByteArray name;
+        QDBusRawTypeHandler(const QByteArray &name)
+            : QtPrivate::QMetaTypeInterface {
+                0, sizeof(void *), sizeof(void *), QMetaType::RelocatableType, 0, nullptr,
+                name.constData(),
+                nullptr, nullptr, nullptr, nullptr,
+                nullptr, nullptr, nullptr,
+                nullptr, nullptr, nullptr
+            },
+            name(name)
+        {}
     };
 
-    return QMetaType::registerNormalizedType(typeName,
-                                             QDBusRawTypeHandler::destruct,
-                                             QDBusRawTypeHandler::construct,
-                                             sizeof(void *),
-                                             QMetaType::MovableType,
-                                             nullptr);
+    static QBasicMutex mutex;
+    static struct Hash : QHash<QByteArray, QMetaType>
+    {
+        ~Hash()
+        {
+            for (QMetaType entry : *this)
+                QMetaType::unregisterMetaType(std::move(entry));
+        }
+    } hash;
+    QMutexLocker lock(&mutex);
+    QMetaType &metatype = hash[typeName];
+    if (!metatype.isValid())
+        metatype = QMetaType(new QDBusRawTypeHandler(typeName));
+    return metatype.id();
 }
 
 Q_DBUS_EXPORT bool qt_dbus_metaobject_skip_annotations = false;
@@ -160,7 +170,7 @@ QDBusMetaObjectGenerator::findType(const QByteArray &signature,
     Type result;
     result.id = QMetaType::UnknownType;
 
-    int type = QDBusMetaType::signatureToType(signature);
+    int type = QDBusMetaType::signatureToMetaType(signature).id();
     if (type == QMetaType::UnknownType && !qt_dbus_metaobject_skip_annotations) {
         // it's not a type normally handled by our meta type system
         // it must contain an annotation
@@ -186,10 +196,10 @@ QDBusMetaObjectGenerator::findType(const QByteArray &signature,
 
         if (!typeName.isEmpty()) {
             // type name found
-            type = QMetaType::type(typeName);
+            type = QMetaType::fromName(typeName).id();
         }
 
-        if (type == QMetaType::UnknownType || signature != QDBusMetaType::typeToSignature(type)) {
+        if (type == QMetaType::UnknownType || signature != QDBusMetaType::typeToSignature(QMetaType(type))) {
             // type is still unknown or doesn't match back to the signature that it
             // was expected to, so synthesize a fake type
             typeName = "QDBusRawType<0x" + signature.toHex() + ">*";
@@ -210,12 +220,15 @@ QDBusMetaObjectGenerator::findType(const QByteArray &signature,
         } else if (signature == "a{ss}") {
             result.name = "QMap<QString,QString>";
             type = qMetaTypeId<QMap<QString, QString> >();
+        } else if (signature == "aay") {
+            result.name = "QByteArrayList";
+            type = qMetaTypeId<QByteArrayList>();
         } else {
             result.name = "{D-Bus type \"" + signature + "\"}";
             type = registerComplexDBusType(result.name);
         }
     } else {
-        result.name = QMetaType::typeName(type);
+        result.name = QMetaType(type).name();
     }
 
     result.id = type;
@@ -387,7 +400,7 @@ int QDBusMetaObjectGenerator::aggregateParameterCount(const QMap<QByteArray, Met
     QMap<QByteArray, Method>::const_iterator it;
     for (it = map.constBegin(); it != map.constEnd(); ++it) {
         const Method &m = it.value();
-        sum += m.inputTypes.size() + qMax(1, m.outputTypes.size());
+        sum += m.inputTypes.size() + qMax(qsizetype(1), m.outputTypes.size());
     }
     return sum;
 }
@@ -412,7 +425,7 @@ void QDBusMetaObjectGenerator::write(QDBusMetaObject *obj)
             - methods.count(); // ditto
 
     QDBusMetaObjectPrivate *header = reinterpret_cast<QDBusMetaObjectPrivate *>(idata.data());
-    Q_STATIC_ASSERT_X(QMetaObjectPrivate::OutputRevision == 8, "QtDBus meta-object generator should generate the same version as moc");
+    static_assert(QMetaObjectPrivate::OutputRevision == 10, "QtDBus meta-object generator should generate the same version as moc");
     header->revision = QMetaObjectPrivate::OutputRevision;
     header->className = 0;
     header->classInfoCount = 0;
@@ -420,7 +433,7 @@ void QDBusMetaObjectGenerator::write(QDBusMetaObject *obj)
     header->methodCount = signals_.count() + methods.count();
     header->methodData = idata.size();
     header->propertyCount = properties.count();
-    header->propertyData = header->methodData + header->methodCount * 5 + methodParametersDataSize;
+    header->propertyData = header->methodData + header->methodCount * QMetaObjectPrivate::IntsPerMethod + methodParametersDataSize;
     header->enumeratorCount = 0;
     header->enumeratorData = 0;
     header->constructorCount = 0;
@@ -428,12 +441,12 @@ void QDBusMetaObjectGenerator::write(QDBusMetaObject *obj)
     header->flags = RequiresVariantMetaObject;
     header->signalCount = signals_.count();
     // These are specific to QDBusMetaObject:
-    header->propertyDBusData = header->propertyData + header->propertyCount * 3;
+    header->propertyDBusData = header->propertyData + header->propertyCount * QMetaObjectPrivate::IntsPerProperty;
     header->methodDBusData = header->propertyDBusData + header->propertyCount * intsPerProperty;
 
     int data_size = idata.size() +
-                    (header->methodCount * (5+intsPerMethod)) + methodParametersDataSize +
-                    (header->propertyCount * (3+intsPerProperty));
+                    (header->methodCount * (QMetaObjectPrivate::IntsPerMethod+intsPerMethod)) + methodParametersDataSize +
+                    (header->propertyCount * (QMetaObjectPrivate::IntsPerProperty+intsPerProperty));
     for (const Method &mm : qAsConst(signals_))
         data_size += 2 + mm.inputTypes.count() + mm.outputTypes.count();
     for (const Method &mm : qAsConst(methods))
@@ -443,12 +456,24 @@ void QDBusMetaObjectGenerator::write(QDBusMetaObject *obj)
     QMetaStringTable strings(className.toLatin1());
 
     int offset = header->methodData;
-    int parametersOffset = offset + header->methodCount * 5;
+    int parametersOffset = offset + header->methodCount * QMetaObjectPrivate::IntsPerMethod;
     int signatureOffset = header->methodDBusData;
     int typeidOffset = header->methodDBusData + header->methodCount * intsPerMethod;
     idata[typeidOffset++] = 0;                           // eod
 
+    int totalMetaTypeCount = properties.count();
+    ++totalMetaTypeCount; // + 1 for metatype of dynamic metaobject
+    for (const auto& methodContainer: {signals_, methods}) {
+        for (const auto& method: methodContainer) {
+            int argc = method.inputTypes.size() + qMax(qsizetype(0), method.outputTypes.size() - 1);
+            totalMetaTypeCount += argc + 1;
+        }
+    }
+    QMetaType *metaTypes = new QMetaType[totalMetaTypeCount];
+    int propertyId = 0;
+
     // add each method:
+    int currentMethodMetaTypeOffset = properties.count() + 1;
     for (int x = 0; x < 2; ++x) {
         // Signals must be added before other methods, to match moc.
         QMap<QByteArray, Method> &map = (x == 0) ? signals_ : methods;
@@ -456,13 +481,14 @@ void QDBusMetaObjectGenerator::write(QDBusMetaObject *obj)
              it != map.constEnd(); ++it) {
             const Method &mm = it.value();
 
-            int argc = mm.inputTypes.size() + qMax(0, mm.outputTypes.size() - 1);
+            int argc = mm.inputTypes.size() + qMax(qsizetype(0), mm.outputTypes.size() - 1);
 
             idata[offset++] = strings.enter(mm.name);
             idata[offset++] = argc;
             idata[offset++] = parametersOffset;
             idata[offset++] = strings.enter(mm.tag);
             idata[offset++] = mm.flags;
+            idata[offset++] = currentMethodMetaTypeOffset;
 
             // Parameter types
             for (int i = -1; i < argc; ++i) {
@@ -483,7 +509,7 @@ void QDBusMetaObjectGenerator::write(QDBusMetaObject *obj)
                     Q_ASSERT(mm.outputTypes.size() > 1);
                     type = mm.outputTypes.at(i - mm.inputTypes.size() + 1);
                     // Output parameters are references; type id not available
-                    typeName = QMetaType::typeName(type);
+                    typeName = QMetaType(type).name();
                     typeName.append('&');
                 }
                 Q_ASSERT(type != QMetaType::UnknownType);
@@ -492,6 +518,7 @@ void QDBusMetaObjectGenerator::write(QDBusMetaObject *obj)
                     typeInfo = IsUnresolvedType | strings.enter(typeName);
                 else
                     typeInfo = type;
+                metaTypes[currentMethodMetaTypeOffset++] = QMetaType (type);
                 idata[parametersOffset++] = typeInfo;
             }
             // Parameter names
@@ -510,7 +537,7 @@ void QDBusMetaObjectGenerator::write(QDBusMetaObject *obj)
         }
     }
 
-    Q_ASSERT(offset == header->methodData + header->methodCount * 5);
+    Q_ASSERT(offset == header->methodData + header->methodCount * QMetaObjectPrivate::IntsPerMethod);
     Q_ASSERT(parametersOffset == header->propertyData);
     Q_ASSERT(signatureOffset == header->methodDBusData + header->methodCount * intsPerMethod);
     Q_ASSERT(typeidOffset == idata.size());
@@ -528,10 +555,15 @@ void QDBusMetaObjectGenerator::write(QDBusMetaObject *obj)
         Q_ASSERT(mp.type != QMetaType::UnknownType);
         idata[offset++] = mp.type;
         idata[offset++] = mp.flags;
+        idata[offset++] = -1; // notify index
+        idata[offset++] = 0; // revision
 
         idata[signatureOffset++] = strings.enter(mp.signature);
         idata[signatureOffset++] = mp.type;
+
+        metaTypes[propertyId++] = QMetaType(mp.type);
     }
+    metaTypes[propertyId] = QMetaType(); // we can't know our own metatype
 
     Q_ASSERT(offset == header->propertyDBusData);
     Q_ASSERT(signatureOffset == header->methodDBusData);
@@ -547,8 +579,9 @@ void QDBusMetaObjectGenerator::write(QDBusMetaObject *obj)
     obj->d.relatedMetaObjects = nullptr;
     obj->d.static_metacall = nullptr;
     obj->d.extradata = nullptr;
-    obj->d.stringdata = reinterpret_cast<const QByteArrayData *>(string_data);
+    obj->d.stringdata = reinterpret_cast<const uint *>(string_data);
     obj->d.superdata = &QDBusAbstractInterface::staticMetaObject;
+    obj->d.metaTypes = reinterpret_cast<QtPrivate::QMetaTypeInterface *const *>(metaTypes);
 }
 
 #if 0

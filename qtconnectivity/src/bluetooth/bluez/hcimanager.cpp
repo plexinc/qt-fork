@@ -168,7 +168,7 @@ bool HciManager::monitorEvent(HciManager::HciEvent event)
     }
 
     hci_filter_set_ptype(HCI_EVENT_PKT, &filter);
-    hci_filter_set_event(event, &filter);
+    hci_filter_set_event(static_cast<int>(event), &filter);
     //hci_filter_all_events(&filter);
 
     if (setsockopt(hciSocket, SOL_HCI, HCI_FILTER, &filter, sizeof(hci_filter)) < 0) {
@@ -202,7 +202,7 @@ bool HciManager::monitorAclPackets()
     return true;
 }
 
-bool HciManager::sendCommand(OpCodeGroupField ogf, OpCodeCommandField ocf, const QByteArray &parameters)
+bool HciManager::sendCommand(QBluezConst::OpCodeGroupField ogf, QBluezConst::OpCodeCommandField ocf, const QByteArray &parameters)
 {
     qCDebug(QT_BT_BLUEZ) << "sending command; ogf:" << ogf << "ocf:" << ocf;
     quint8 packetType = HCI_COMMAND_PKT;
@@ -284,10 +284,10 @@ QBluetoothAddress HciManager::addressForConnectionHandle(quint16 handle) const
     return QBluetoothAddress();
 }
 
-QVector<quint16> HciManager::activeLowEnergyConnections() const
+QList<quint16> HciManager::activeLowEnergyConnections() const
 {
     if (!isValid())
-        return QVector<quint16>();
+        return QList<quint16>();
 
     hci_conn_info *info;
     hci_conn_list_req *infoList;
@@ -297,7 +297,7 @@ QVector<quint16> HciManager::activeLowEnergyConnections() const
             malloc(sizeof(hci_conn_list_req) + maxNoOfConnections * sizeof(hci_conn_info));
 
     if (!infoList)
-        return QVector<quint16>();
+        return QList<quint16>();
 
     QScopedPointer<hci_conn_list_req, QScopedPointerPodDeleter> p(infoList);
     p->conn_num = maxNoOfConnections;
@@ -306,10 +306,10 @@ QVector<quint16> HciManager::activeLowEnergyConnections() const
 
     if (ioctl(hciSocket, HCIGETCONNLIST, (void *) infoList) < 0) {
         qCWarning(QT_BT_BLUEZ) << "Cannot retrieve connection list";
-        return QVector<quint16>();
+        return QList<quint16>();
     }
 
-    QVector<quint16> activeLowEnergyHandles;
+    QList<quint16> activeLowEnergyHandles;
     for (int i = 0; i < infoList->conn_num; i++) {
         switch (info[i].type) {
         case SCO_LINK:
@@ -320,7 +320,7 @@ QVector<quint16> HciManager::activeLowEnergyConnections() const
             activeLowEnergyHandles.append(info[i].handle);
             break;
         default:
-            qCWarning(QT_BT_BLUEZ) << "Unknown active connection type:" << hex << info[i].type;
+            qCWarning(QT_BT_BLUEZ) << "Unknown active connection type:" << Qt::hex << info[i].type;
             break;
         }
     }
@@ -369,7 +369,7 @@ bool HciManager::sendConnectionUpdateCommand(quint16 handle,
     commandParams.maxCeLength = qToLittleEndian(quint16(0xffff));
     const QByteArray data = QByteArray::fromRawData(reinterpret_cast<char *>(&commandParams),
                                                     sizeof commandParams);
-    return sendCommand(OgfLinkControl, OcfLeConnectionUpdate, data);
+    return sendCommand(QBluezConst::OgfLinkControl, QBluezConst::OcfLeConnectionUpdate, data);
 }
 
 bool HciManager::sendConnectionParameterUpdateRequest(quint16 handle,
@@ -467,23 +467,22 @@ void HciManager::handleHciEventPacket(const quint8 *data, int size)
         return;
     }
 
-    qCDebug(QT_BT_BLUEZ) << "HCI event triggered, type:" << hex << header->evt;
+    qCDebug(QT_BT_BLUEZ) << "HCI event triggered, type:" << (HciManager::HciEvent)header->evt
+                         << "type code:" << Qt::hex << header->evt;
 
-    switch (header->evt) {
-    case EVT_ENCRYPT_CHANGE:
-    {
+    switch ((HciManager::HciEvent)header->evt) {
+    case HciEvent::EVT_ENCRYPT_CHANGE: {
         const evt_encrypt_change *event = (evt_encrypt_change *) data;
         qCDebug(QT_BT_BLUEZ) << "HCI Encrypt change, status:"
                              << (event->status == 0 ? "Success" : "Failed")
-                             << "handle:" << hex << event->handle
+                             << "handle:" << Qt::hex << event->handle
                              << "encrypt:" << event->encrypt;
 
         QBluetoothAddress remoteDevice = addressForConnectionHandle(event->handle);
         if (!remoteDevice.isNull())
             emit encryptionChangedEvent(remoteDevice, event->status == 0);
-    }
-        break;
-    case EVT_CMD_COMPLETE: {
+    } break;
+    case HciEvent::EVT_CMD_COMPLETE: {
         auto * const event = reinterpret_cast<const evt_cmd_complete *>(data);
         static_assert(sizeof *event == 3, "unexpected struct size");
 
@@ -493,9 +492,8 @@ void HciManager::handleHciEventPacket(const quint8 *data, int size)
         const auto additionalData = QByteArray(reinterpret_cast<const char *>(data)
                                                + sizeof *event + 1, size - sizeof *event - 1);
         emit commandCompleted(event->opcode, status, additionalData);
-    }
-        break;
-    case LeMetaEvent:
+    } break;
+    case HciEvent::EVT_LE_META_EVENT:
         handleLeMetaEvent(data);
         break;
     default:

@@ -12,6 +12,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string16.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "components/autofill/core/browser/autofill_client.h"
 #include "components/autofill/core/browser/payments/card_unmask_delegate.h"
 #include "components/autofill/core/browser/payments/payments_client.h"
@@ -31,6 +32,24 @@ namespace payments {
 // TODO(crbug/1061638): Refactor to use base::WaitableEvent where possible.
 class FullCardRequest final : public CardUnmaskDelegate {
  public:
+  // The type of failure.
+  enum FailureType {
+    // The user closed the prompt. The following scenarios are possible:
+    // 1) The user declined to enter their CVC and closed the prompt.
+    // 2) The user provided their CVC, got auth declined and then closed the
+    //    prompt without attempting a second time.
+    // 3) The user provided their CVC and closed the prompt before waiting for
+    //    the result.
+    PROMPT_CLOSED,
+
+    // The card could not be looked up due to card auth declined or failed.
+    VERIFICATION_DECLINED,
+
+    // The request failed for technical reasons, such as a closing page or lack
+    // of network connection.
+    GENERIC_FAILURE
+  };
+
   // The interface for receiving the full card details.
   class ResultDelegate {
    public:
@@ -39,7 +58,7 @@ class FullCardRequest final : public CardUnmaskDelegate {
         const payments::FullCardRequest& full_card_request,
         const CreditCard& card,
         const base::string16& cvc) = 0;
-    virtual void OnFullCardRequestFailed() = 0;
+    virtual void OnFullCardRequestFailed(FailureType failure_type) = 0;
   };
 
   // The delegate responsible for displaying the unmask prompt UI.
@@ -53,13 +72,21 @@ class FullCardRequest final : public CardUnmaskDelegate {
     virtual void OnUnmaskVerificationResult(
         AutofillClient::PaymentsRpcResult result) = 0;
 
+#if defined(OS_ANDROID)
     // Returns whether or not the user, while on the CVC prompt, should be
     // offered to switch to FIDO authentication for card unmasking. This will
     // always be false for Desktop since FIDO authentication is offered as a
     // separate prompt after the CVC prompt. On Android, however, this may be
     // offered through a checkbox on the CVC prompt. This feature does not yet
     // exist on iOS.
-    virtual bool ShouldOfferFidoAuth() const;
+    virtual bool ShouldOfferFidoAuth() const = 0;
+
+    // This returns true only on Android when the user previously opted-in for
+    // FIDO authentication through the settings page and this is the first card
+    // downstream since. In this case, the opt-in checkbox is not shown and the
+    // opt-in request is sent.
+    virtual bool UserOptedInToFidoFromSettingsPageOnMobile() const = 0;
+#endif
   };
 
   // The parameters should outlive the FullCardRequest.

@@ -45,7 +45,7 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <SystemConfiguration/SystemConfiguration.h>
 
-#include <QtCore/QRegExp>
+#include <QtCore/QRegularExpression>
 #include <QtCore/QStringList>
 #include <QtCore/QUrl>
 #include <QtCore/qendian.h>
@@ -110,8 +110,8 @@ static bool isHostExcluded(CFDictionaryRef dict, const QString &host)
             return true;        // excluded
         } else {
             // do wildcard matching
-            QRegExp rx(entry, Qt::CaseInsensitive, QRegExp::Wildcard);
-            if (rx.exactMatch(host))
+            auto rx = QRegularExpression::fromWildcard(entry, Qt::CaseInsensitive);
+            if (rx.match(host).hasMatch())
                 return true;
         }
     }
@@ -208,7 +208,7 @@ QCFType<CFStringRef> stringByAddingPercentEscapes(CFStringRef originalPath)
 {
     Q_ASSERT(originalPath);
     const auto qtPath = QString::fromCFString(originalPath);
-    const auto escaped = QString::fromUtf8(QUrl::toPercentEncoding(qtPath));
+    const auto escaped = QString::fromUtf8(QUrl(qtPath).toEncoded());
     return escaped.toCFString();
 }
 

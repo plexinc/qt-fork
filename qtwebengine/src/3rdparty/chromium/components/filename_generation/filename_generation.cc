@@ -4,15 +4,16 @@
 
 #include "components/filename_generation/filename_generation.h"
 
+#include "base/check.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/i18n/file_util_icu.h"
-#include "base/logging.h"
 #include "base/strings/string_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/third_party/icu/icu_utf.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/url_formatter/url_formatter.h"
 #include "net/base/filename_util.h"
 #include "net/base/mime_util.h"
@@ -161,7 +162,7 @@ bool TruncateFilename(base::FilePath* path, size_t limit) {
 
   // Encoding specific truncation logic.
   base::FilePath::StringType truncated;
-#if defined(OS_CHROMEOS) || defined(OS_MACOSX)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || defined(OS_APPLE)
   // UTF-8.
   base::TruncateUTF8ToByteSize(name, limit, &truncated);
 #elif defined(OS_WIN)

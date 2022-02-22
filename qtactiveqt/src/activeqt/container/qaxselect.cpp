@@ -148,7 +148,7 @@ static QString replaceEnvironmentVariables(QString in)
         const int closingPercentPos = in.indexOf(QLatin1Char('%'), openInPercentPos + 1);
         if (closingPercentPos < 0)
             break;
-        const QStringRef varName = in.midRef(openInPercentPos + 1, closingPercentPos - openInPercentPos - 1);
+        const QStringView varName = QStringView{in}.mid(openInPercentPos + 1, closingPercentPos - openInPercentPos - 1);
         const QString contents = QString::fromLocal8Bit(qgetenv(varName.toLocal8Bit()));
         in.replace(openInPercentPos, closingPercentPos - openInPercentPos + 1, contents);
     }
@@ -208,9 +208,9 @@ static bool querySubKeyValue(HKEY hKey, const QString &subKeyName,  LPBYTE lpDat
     return result;
 }
 
-static QVector<Control> readControls(const wchar_t *rootKey, unsigned wordSize)
+static QList<Control> readControls(const wchar_t *rootKey, unsigned wordSize)
 {
-    QVector<Control> controls;
+    QList<Control> controls;
     HKEY classesKey;
     RegOpenKeyEx(HKEY_CLASSES_ROOT, rootKey, 0, KEY_READ, &classesKey);
     if (!classesKey) {
@@ -282,7 +282,7 @@ public:
     Qt::ItemFlags flags(const QModelIndex &index) const override ;
 
 private:
-    QVector<Control> m_controls;
+    QList<Control> m_controls;
 };
 
 QVariant ControlList::data(const QModelIndex &index, int role) const

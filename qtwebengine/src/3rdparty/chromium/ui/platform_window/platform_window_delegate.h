@@ -14,6 +14,8 @@ class Rect;
 class Size;
 }  // namespace gfx
 
+class SkPath;
+
 namespace ui {
 
 class Event;
@@ -49,6 +51,9 @@ class COMPONENT_EXPORT(PLATFORM_WINDOW) PlatformWindowDelegate {
 
   virtual void OnAcceleratedWidgetAvailable(gfx::AcceleratedWidget widget) = 0;
 
+  // Notifies the delegate that the widget is about to be destroyed.
+  virtual void OnWillDestroyAcceleratedWidget() = 0;
+
   // Notifies the delegate that the widget cannot be used anymore until
   // a new widget is made available through OnAcceleratedWidgetAvailable().
   // Must not be called when the PlatformWindow is being destroyed.
@@ -59,6 +64,11 @@ class COMPONENT_EXPORT(PLATFORM_WINDOW) PlatformWindowDelegate {
   // Requests size constraints for the PlatformWindow.
   virtual base::Optional<gfx::Size> GetMinimumSizeForWindow();
   virtual base::Optional<gfx::Size> GetMaximumSizeForWindow();
+
+  // Returns a mask to be used to clip the window for the size of
+  // |WindowTreeHost::GetBoundsInPixels|.
+  // This is used to create the non-rectangular window shape.
+  virtual SkPath GetWindowMaskForWindowShapeInPixels();
 
   // Called when the location of mouse pointer entered the window.  This is
   // different from ui::ET_MOUSE_ENTERED which may not be generated when mouse

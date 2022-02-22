@@ -29,25 +29,29 @@
 #ifndef MEDIAFILESELECTOR_H
 #define MEDIAFILESELECTOR_H
 
-#include <QMediaContent>
+#include <QUrl>
 #include <QMediaPlayer>
+#include <QAudioOutput>
+#include <qsignalspy.h>
+#include <qfileinfo.h>
+#include <qtest.h>
 
 QT_BEGIN_NAMESPACE
 
 namespace MediaFileSelector {
 
-static QMediaContent selectMediaFile(const QStringList& mediaCandidates)
+static QUrl selectMediaFile(const QStringList& mediaCandidates)
 {
     QMediaPlayer player;
+    QAudioOutput audioOutput;
+    QVideoSink videoOutput;
+    player.setAudioOutput(&audioOutput);
+    player.setVideoOutput(&videoOutput);
 
-    QSignalSpy errorSpy(&player, SIGNAL(error(QMediaPlayer::Error)));
+    QSignalSpy errorSpy(&player, SIGNAL(errorOccurred(QMediaPlayer::Error, const QString&)));
 
-    for (const QString &s : mediaCandidates) {
-        QFileInfo mediaFile(s);
-        if (!mediaFile.exists())
-            continue;
-        QMediaContent media = QMediaContent(QUrl::fromLocalFile(mediaFile.absoluteFilePath()));
-        player.setMedia(media);
+    for (const QString &media : mediaCandidates) {
+        player.setSource(media);
         player.play();
 
         for (int i = 0; i < 2000 && player.mediaStatus() != QMediaPlayer::BufferedMedia && errorSpy.isEmpty(); i+=50) {
@@ -60,7 +64,7 @@ static QMediaContent selectMediaFile(const QStringList& mediaCandidates)
         errorSpy.clear();
     }
 
-    return QMediaContent();
+    return QUrl();
 }
 
 } // MediaFileSelector namespace

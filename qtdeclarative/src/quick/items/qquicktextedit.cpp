@@ -95,11 +95,11 @@ TextEdit {
     Setting \l {Item::focus}{focus} to \c true enables the TextEdit item to receive keyboard focus.
 
     Note that the TextEdit does not implement scrolling, following the cursor, or other behaviors specific
-    to a look-and-feel. For example, to add flickable scrolling that follows the cursor:
+    to a look and feel. For example, to add flickable scrolling that follows the cursor:
 
     \snippet qml/texteditor.qml 0
 
-    A particular look-and-feel might use smooth scrolling (eg. using SmoothedAnimation), might have a visible
+    A particular look and feel might use smooth scrolling (eg. using SmoothedAnimation), might have a visible
     scrollbar, or a scrollbar that fades in to show location, etc.
 
     Clipboard support is provided by the cut(), copy(), and paste() functions, and the selection can
@@ -231,11 +231,10 @@ QString QQuickTextEdit::text() const
 */
 
 /*!
-    \qmlproperty enumeration QtQuick::TextEdit::font.weight
+    \qmlproperty int QtQuick::TextEdit::font.weight
 
-    Sets the font's weight.
-
-    The weight can be one of:
+    The requested weight of the font. The weight requested must be an integer
+    between 1 and 1000, or one of the predefined values:
     \list
     \li Font.Thin
     \li Font.Light
@@ -822,6 +821,7 @@ void QQuickTextEditPrivate::setTopPadding(qreal value, bool reset)
     }
     if ((!reset && !qFuzzyCompare(oldPadding, value)) || (reset && !qFuzzyCompare(oldPadding, padding()))) {
         q->updateSize();
+        q->updateWholeDocument();
         emit q->topPaddingChanged();
     }
 }
@@ -836,6 +836,7 @@ void QQuickTextEditPrivate::setLeftPadding(qreal value, bool reset)
     }
     if ((!reset && !qFuzzyCompare(oldPadding, value)) || (reset && !qFuzzyCompare(oldPadding, padding()))) {
         q->updateSize();
+        q->updateWholeDocument();
         emit q->leftPaddingChanged();
     }
 }
@@ -850,6 +851,7 @@ void QQuickTextEditPrivate::setRightPadding(qreal value, bool reset)
     }
     if ((!reset && !qFuzzyCompare(oldPadding, value)) || (reset && !qFuzzyCompare(oldPadding, padding()))) {
         q->updateSize();
+        q->updateWholeDocument();
         emit q->rightPaddingChanged();
     }
 }
@@ -864,6 +866,7 @@ void QQuickTextEditPrivate::setBottomPadding(qreal value, bool reset)
     }
     if ((!reset && !qFuzzyCompare(oldPadding, value)) || (reset && !qFuzzyCompare(oldPadding, padding()))) {
         q->updateSize();
+        q->updateWholeDocument();
         emit q->bottomPaddingChanged();
     }
 }
@@ -1444,8 +1447,7 @@ void QQuickTextEdit::setInputMethodHints(Qt::InputMethodHints hints)
 #endif // im
 }
 
-void QQuickTextEdit::geometryChanged(const QRectF &newGeometry,
-                                  const QRectF &oldGeometry)
+void QQuickTextEdit::geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry)
 {
     Q_D(QQuickTextEdit);
     if (!d->inLayout && ((newGeometry.width() != oldGeometry.width() && widthValid())
@@ -1454,7 +1456,7 @@ void QQuickTextEdit::geometryChanged(const QRectF &newGeometry,
         updateWholeDocument();
         moveCursorDelegate();
     }
-    QQuickImplicitSizeItem::geometryChanged(newGeometry, oldGeometry);
+    QQuickImplicitSizeItem::geometryChange(newGeometry, oldGeometry);
 
 }
 
@@ -1467,7 +1469,9 @@ void QQuickTextEdit::componentComplete()
     Q_D(QQuickTextEdit);
     QQuickImplicitSizeItem::componentComplete();
 
-    d->document->setBaseUrl(baseUrl());
+    const QUrl url = baseUrl();
+    const QQmlContext *context = qmlContext(this);
+    d->document->setBaseUrl(context ? context->resolvedUrl(url) : url);
 #if QT_CONFIG(texthtmlparser)
     if (d->richText)
         d->control->setHtml(d->text);
@@ -1952,6 +1956,9 @@ QVariant QQuickTextEdit::inputMethodQuery(Qt::InputMethodQuery property, QVarian
     case Qt::ImInputItemClipRectangle:
         v = QQuickItem::inputMethodQuery(property);
         break;
+    case Qt::ImReadOnly:
+        v = isReadOnly();
+        break;
     default:
         if (property == Qt::ImCursorPosition && !argument.isNull())
             argument = QVariant(argument.toPointF() - QPointF(d->xoff, d->yoff));
@@ -2355,6 +2362,14 @@ void QQuickTextEdit::q_textChanged()
     d->determineHorizontalAlignment();
     d->updateDefaultTextOption();
     updateSize();
+
+    markDirtyNodesForRange(0, d->document->characterCount(), 0);
+    polish();
+    if (isComponentComplete()) {
+        d->updateType = QQuickTextEditPrivate::UpdatePaintNode;
+        update();
+    }
+
     emit textChanged();
 }
 
@@ -3139,7 +3154,7 @@ void QQuickTextEdit::resetBottomPadding()
 
     The default distance, in device units, between tab stops.
 
-    \sa QTextOption::setTabStop()
+    \sa QTextOption::setTabStopDistance()
 */
 int QQuickTextEdit::tabStopDistance() const
 {

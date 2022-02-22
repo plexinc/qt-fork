@@ -56,6 +56,7 @@
 #include <QtDBus/qdbusunixfiledescriptor.h>
 
 #include <QtNetwork/qlocalsocket.h>
+#include <QDBusPendingCallWatcher>
 
 class OrgBluezProfileManager1Interface;
 
@@ -103,12 +104,15 @@ public:
     qint64 readData(char *data, qint64 maxSize) override;
 
     bool setSocketDescriptor(int socketDescriptor, QBluetoothServiceInfo::Protocol socketType,
-                             QBluetoothSocket::SocketState socketState = QBluetoothSocket::ConnectedState,
+                             QBluetoothSocket::SocketState socketState = QBluetoothSocket::SocketState::ConnectedState,
                              QBluetoothSocket::OpenMode openMode = QBluetoothSocket::ReadWrite) override;
 
     qint64 bytesAvailable() const override;
     bool canReadLine() const override;
     qint64 bytesToWrite() const override;
+
+public slots:
+    void connectToServiceReplyHandler(QDBusPendingCallWatcher *);
 
 private:
     void remoteConnected(const QDBusUnixFileDescriptor &fd);

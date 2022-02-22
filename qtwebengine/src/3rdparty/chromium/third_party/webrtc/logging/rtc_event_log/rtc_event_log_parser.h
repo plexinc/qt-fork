@@ -11,6 +11,7 @@
 #define LOGGING_RTC_EVENT_LOG_RTC_EVENT_LOG_PARSER_H_
 
 #include <iterator>
+#include <limits>
 #include <map>
 #include <set>
 #include <sstream>  // no-presubmit-check TODO(webrtc:8982)
@@ -18,9 +19,32 @@
 #include <utility>  // pair
 #include <vector>
 
+#include "absl/base/attributes.h"
 #include "api/rtc_event_log/rtc_event_log.h"
 #include "call/video_receive_stream.h"
 #include "call/video_send_stream.h"
+#include "logging/rtc_event_log/events/rtc_event_alr_state.h"
+#include "logging/rtc_event_log/events/rtc_event_audio_network_adaptation.h"
+#include "logging/rtc_event_log/events/rtc_event_audio_playout.h"
+#include "logging/rtc_event_log/events/rtc_event_audio_receive_stream_config.h"
+#include "logging/rtc_event_log/events/rtc_event_audio_send_stream_config.h"
+#include "logging/rtc_event_log/events/rtc_event_bwe_update_delay_based.h"
+#include "logging/rtc_event_log/events/rtc_event_bwe_update_loss_based.h"
+#include "logging/rtc_event_log/events/rtc_event_dtls_transport_state.h"
+#include "logging/rtc_event_log/events/rtc_event_dtls_writable_state.h"
+#include "logging/rtc_event_log/events/rtc_event_frame_decoded.h"
+#include "logging/rtc_event_log/events/rtc_event_generic_ack_received.h"
+#include "logging/rtc_event_log/events/rtc_event_generic_packet_received.h"
+#include "logging/rtc_event_log/events/rtc_event_generic_packet_sent.h"
+#include "logging/rtc_event_log/events/rtc_event_ice_candidate_pair.h"
+#include "logging/rtc_event_log/events/rtc_event_ice_candidate_pair_config.h"
+#include "logging/rtc_event_log/events/rtc_event_probe_cluster_created.h"
+#include "logging/rtc_event_log/events/rtc_event_probe_result_failure.h"
+#include "logging/rtc_event_log/events/rtc_event_probe_result_success.h"
+#include "logging/rtc_event_log/events/rtc_event_remote_estimate.h"
+#include "logging/rtc_event_log/events/rtc_event_route_change.h"
+#include "logging/rtc_event_log/events/rtc_event_video_receive_stream_config.h"
+#include "logging/rtc_event_log/events/rtc_event_video_send_stream_config.h"
 #include "logging/rtc_event_log/logged_events.h"
 #include "modules/rtp_rtcp/include/rtp_header_extension_map.h"
 #include "modules/rtp_rtcp/source/rtcp_packet/common_header.h"
@@ -193,6 +217,8 @@ class PacketView {
 
   size_t size() const { return num_elements_; }
 
+  bool empty() const { return num_elements_ == 0; }
+
   T& operator[](size_t i) {
     auto elem_ptr = data_ + i * element_size_;
     return *reinterpret_cast<T*>(elem_ptr);
@@ -271,7 +297,7 @@ class ParsedRtcEventLog {
       return error_ + " failed at " + file_ + " line " + std::to_string(line_);
     }
 
-    RTC_DEPRECATED operator bool() const { return ok(); }
+    ABSL_DEPRECATED("Use ok() instead") operator bool() const { return ok(); }
 
    private:
     ParseStatus() : error_(), file_(), line_(0) {}
@@ -328,6 +354,20 @@ class ParsedRtcEventLog {
     LoggedRtpStreamView(const LoggedRtpStreamView&);
     uint32_t ssrc;
     PacketView<const LoggedRtpPacket> packet_view;
+  };
+
+  class LogSegment {
+   public:
+    LogSegment(int64_t start_time_us, int64_t stop_time_us)
+        : start_time_us_(start_time_us), stop_time_us_(stop_time_us) {}
+    int64_t start_time_ms() const { return start_time_us_ / 1000; }
+    int64_t start_time_us() const { return start_time_us_; }
+    int64_t stop_time_ms() const { return stop_time_us_ / 1000; }
+    int64_t stop_time_us() const { return stop_time_us_; }
+
+   private:
+    int64_t start_time_us_;
+    int64_t stop_time_us_;
   };
 
   static webrtc::RtpHeaderExtensionMap GetDefaultHeaderExtensionMap();
@@ -564,6 +604,15 @@ class ParsedRtcEventLog {
     }
   }
 
+  const std::vector<LoggedRtcpPacketBye>& byes(
+      PacketDirection direction) const {
+    if (direction == kIncomingPacket) {
+      return incoming_bye_;
+    } else {
+      return outgoing_bye_;
+    }
+  }
+
   const std::vector<LoggedRtcpPacketTransportFeedback>& transport_feedbacks(
       PacketDirection direction) const {
     if (direction == kIncomingPacket) {
@@ -594,8 +643,16 @@ class ParsedRtcEventLog {
     return generic_acks_received_;
   }
 
+  // Media
+  const std::map<uint32_t, std::vector<LoggedFrameDecoded>>& decoded_frames()
+      const {
+    return decoded_frames_;
+  }
+
   int64_t first_timestamp() const { return first_timestamp_; }
   int64_t last_timestamp() const { return last_timestamp_; }
+
+  const LogSegment& first_log_segment() const { return first_log_segment_; }
 
   std::vector<LoggedPacketInfo> GetPacketInfos(PacketDirection direction) const;
   std::vector<LoggedPacketInfo> GetIncomingPacketInfos() const {
@@ -645,8 +702,7 @@ class ParsedRtcEventLog {
   // NB: The packet must have space for at least IP_PACKET_SIZE bytes.
   ParseStatus GetRtcpPacket(const rtclog::Event& event,
                             PacketDirection* incoming,
-                            uint8_t* packet,
-                            size_t* length) const;
+                            std::vector<uint8_t>* packet) const;
 
   ParseStatusOr<rtclog::StreamConfig> GetVideoReceiveConfig(
       const rtclog::Event& event) const;
@@ -707,6 +763,8 @@ class ParsedRtcEventLog {
   ParseStatus StoreDtlsTransportState(
       const rtclog2::DtlsTransportStateEvent& proto);
   ParseStatus StoreDtlsWritableState(const rtclog2::DtlsWritableState& proto);
+  ParsedRtcEventLog::ParseStatus StoreFrameDecodedEvents(
+      const rtclog2::FrameDecodedEvents& proto);
   ParseStatus StoreGenericAckReceivedEvent(
       const rtclog2::GenericAckReceived& proto);
   ParseStatus StoreGenericPacketReceivedEvent(
@@ -801,6 +859,8 @@ class ParsedRtcEventLog {
   std::vector<LoggedRtcpPacketFir> outgoing_fir_;
   std::vector<LoggedRtcpPacketPli> incoming_pli_;
   std::vector<LoggedRtcpPacketPli> outgoing_pli_;
+  std::vector<LoggedRtcpPacketBye> incoming_bye_;
+  std::vector<LoggedRtcpPacketBye> outgoing_bye_;
   std::vector<LoggedRtcpPacketTransportFeedback> incoming_transport_feedback_;
   std::vector<LoggedRtcpPacketTransportFeedback> outgoing_transport_feedback_;
   std::vector<LoggedRtcpPacketLossNotification> incoming_loss_notification_;
@@ -829,6 +889,8 @@ class ParsedRtcEventLog {
   std::vector<LoggedDtlsTransportState> dtls_transport_states_;
   std::vector<LoggedDtlsWritableState> dtls_writable_states_;
 
+  std::map<uint32_t, std::vector<LoggedFrameDecoded>> decoded_frames_;
+
   std::vector<LoggedIceCandidatePairConfig> ice_candidate_pair_configs_;
   std::vector<LoggedIceCandidatePairEvent> ice_candidate_pair_events_;
 
@@ -844,11 +906,13 @@ class ParsedRtcEventLog {
   std::vector<LoggedRouteChangeEvent> route_change_events_;
   std::vector<LoggedRemoteEstimateEvent> remote_estimate_events_;
 
-  uint8_t last_incoming_rtcp_packet_[IP_PACKET_SIZE];
-  uint8_t last_incoming_rtcp_packet_length_;
+  std::vector<uint8_t> last_incoming_rtcp_packet_;
 
   int64_t first_timestamp_;
   int64_t last_timestamp_;
+
+  LogSegment first_log_segment_ =
+      LogSegment(0, std::numeric_limits<int64_t>::max());
 
   // The extension maps are mutable to allow us to insert the default
   // configuration when parsing an RTP header for an unconfigured stream.

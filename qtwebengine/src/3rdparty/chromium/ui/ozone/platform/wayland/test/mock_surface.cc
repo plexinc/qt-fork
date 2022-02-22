@@ -4,6 +4,8 @@
 
 #include "ui/ozone/platform/wayland/test/mock_surface.h"
 
+#include "ui/ozone/platform/wayland/test/test_region.h"
+
 namespace wl {
 
 namespace {
@@ -20,13 +22,13 @@ void Attach(wl_client* client,
 void SetOpaqueRegion(wl_client* client,
                      wl_resource* resource,
                      wl_resource* region) {
-  GetUserDataAs<MockSurface>(resource)->SetOpaqueRegion(region);
+  GetUserDataAs<MockSurface>(resource)->SetOpaqueRegionImpl(region);
 }
 
 void SetInputRegion(wl_client* client,
                     wl_resource* resource,
                     wl_resource* region) {
-  GetUserDataAs<MockSurface>(resource)->SetInputRegion(region);
+  GetUserDataAs<MockSurface>(resource)->SetInputRegionImpl(region);
 }
 
 void Damage(wl_client* client,
@@ -87,6 +89,10 @@ MockSurface::MockSurface(wl_resource* resource) : ServerObject(resource) {}
 MockSurface::~MockSurface() {
   if (xdg_surface_ && xdg_surface_->resource())
     wl_resource_destroy(xdg_surface_->resource());
+  if (sub_surface_ && sub_surface_->resource())
+    wl_resource_destroy(sub_surface_->resource());
+  if (viewport_ && viewport_->resource())
+    wl_resource_destroy(viewport_->resource());
 }
 
 MockSurface* MockSurface::FromResource(wl_resource* resource) {
@@ -96,13 +102,40 @@ MockSurface* MockSurface::FromResource(wl_resource* resource) {
   return GetUserDataAs<MockSurface>(resource);
 }
 
+void MockSurface::SetOpaqueRegionImpl(wl_resource* region) {
+  if (!region) {
+    opaque_region_ = gfx::Rect(-1, -1, 0, 0);
+    return;
+  }
+  auto bounds = GetUserDataAs<TestRegion>(region)->getBounds();
+  opaque_region_ =
+      gfx::Rect(bounds.fLeft, bounds.fTop, bounds.fRight - bounds.fLeft,
+                bounds.fBottom - bounds.fTop);
+
+  SetOpaqueRegion(region);
+}
+
+void MockSurface::SetInputRegionImpl(wl_resource* region) {
+  // It is unsafe to always treat |region| as a valid pointer.
+  // According to the protocol about wl_surface::set_input_region
+  // "A NULL wl_region cuases the input region to be set to infinite."
+  if (!region) {
+    input_region_ = gfx::Rect(-1, -1, 0, 0);
+    return;
+  }
+  auto bounds = GetUserDataAs<TestRegion>(region)->getBounds();
+  input_region_ =
+      gfx::Rect(bounds.fLeft, bounds.fTop, bounds.fRight - bounds.fLeft,
+                bounds.fBottom - bounds.fTop);
+
+  SetInputRegion(region);
+}
+
 void MockSurface::AttachNewBuffer(wl_resource* buffer_resource,
                                   int32_t x,
                                   int32_t y) {
-  if (attached_buffer_) {
-    DCHECK(!prev_attached_buffer_);
+  if (attached_buffer_)
     prev_attached_buffer_ = attached_buffer_;
-  }
   attached_buffer_ = buffer_resource;
 
   Attach(buffer_resource, x, y);
@@ -113,13 +146,14 @@ void MockSurface::DestroyPrevAttachedBuffer() {
   prev_attached_buffer_ = nullptr;
 }
 
-void MockSurface::ReleasePrevAttachedBuffer() {
-  if (!prev_attached_buffer_)
-    return;
-
-  wl_buffer_send_release(prev_attached_buffer_);
-  wl_client_flush(wl_resource_get_client(prev_attached_buffer_));
-  prev_attached_buffer_ = nullptr;
+void MockSurface::ReleaseBuffer(wl_resource* buffer) {
+  DCHECK(buffer);
+  wl_buffer_send_release(buffer);
+  wl_client_flush(wl_resource_get_client(buffer));
+  if (buffer == prev_attached_buffer_)
+    prev_attached_buffer_ = nullptr;
+  if (buffer == attached_buffer_)
+    attached_buffer_ = nullptr;
 }
 
 void MockSurface::SendFrameCallback() {

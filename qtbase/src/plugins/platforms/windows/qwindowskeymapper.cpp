@@ -49,7 +49,7 @@
 #include <private/qguiapplication_p.h>
 #include <private/qhighdpiscaling_p.h>
 #include <QtGui/qevent.h>
-#include <QtEventDispatcherSupport/private/qwindowsguieventdispatcher_p.h>
+#include <QtGui/private/qwindowsguieventdispatcher_p.h>
 #include <QtCore/private/qdebug_p.h>
 
 #if defined(WM_APPCOMMAND)
@@ -389,7 +389,8 @@ static const uint KeyTbl[] = { // Keyboard mapping table
     Qt::Key_MediaNext,  // 176   0xB0   VK_MEDIA_NEXT_TRACK | Next Track key
     Qt::Key_MediaPrevious, //177 0xB1   VK_MEDIA_PREV_TRACK | Previous Track key
     Qt::Key_MediaStop,  // 178   0xB2   VK_MEDIA_STOP       | Stop Media key
-    Qt::Key_MediaPlay,  // 179   0xB3   VK_MEDIA_PLAY_PAUSE | Play/Pause Media key
+    Qt::Key_MediaTogglePlayPause,
+                        // 179   0xB3   VK_MEDIA_PLAY_PAUSE | Play/Pause Media key
     Qt::Key_LaunchMail, // 180   0xB4   VK_LAUNCH_MAIL      | Start Mail key
     Qt::Key_LaunchMedia,// 181   0xB5   VK_LAUNCH_MEDIA_SELECT Select Media key
     Qt::Key_Launch0,    // 182   0xB6   VK_LAUNCH_APP1      | Start Application 1 key
@@ -540,7 +541,7 @@ static const Qt::KeyboardModifiers ModsTbl[] = {
     Qt::NoModifier,                                             // Fall-back to raw Key_*
 };
 static const size_t NumMods = sizeof ModsTbl / sizeof *ModsTbl;
-Q_STATIC_ASSERT((NumMods == KeyboardLayoutItem::NumQtKeys));
+static_assert((NumMods == KeyboardLayoutItem::NumQtKeys));
 
 #ifndef QT_NO_DEBUG_STREAM
 QDebug operator<<(QDebug d, const KeyboardLayoutItem &k)
@@ -907,7 +908,7 @@ bool QWindowsKeyMapper::translateMultimediaKeyEventInternal(QWindow *window, con
     // QTBUG-43343: Make sure to return false if Qt does not handle the key, otherwise,
     // the keys are not passed to the active media player.
 # if QT_CONFIG(shortcut)
-    const QKeySequence sequence(Qt::Modifier(state) + qtKey);
+    const QKeySequence sequence(Qt::Modifier(state) | Qt::Key(qtKey));
     return QGuiApplicationPrivate::instance()->shortcutMap.hasShortcutForKeySequence(sequence);
 # else
     return false;
@@ -1255,7 +1256,7 @@ bool QWindowsKeyMapper::translateKeyEventInternal(QWindow *window, MSG msg,
 #ifndef QT_NO_SHORTCUT
             // Is Qt interested in the context menu key?
             if (modifiers == Qt::SHIFT && code == Qt::Key_F10
-                && !QGuiApplicationPrivate::instance()->shortcutMap.hasShortcutForKeySequence(QKeySequence(Qt::SHIFT + Qt::Key_F10))) {
+                && !QGuiApplicationPrivate::instance()->shortcutMap.hasShortcutForKeySequence(QKeySequence(Qt::SHIFT | Qt::Key_F10))) {
                 return false;
             }
 #endif // !QT_NO_SHORTCUT
@@ -1376,17 +1377,17 @@ QList<int> QWindowsKeyMapper::possibleKeys(const QKeyEvent *e) const
     quint32 baseKey = kbItem.qtKey[0];
     Qt::KeyboardModifiers keyMods = e->modifiers();
     if (baseKey == Qt::Key_Return && (e->nativeModifiers() & ExtendedKey)) {
-        result << int(Qt::Key_Enter + keyMods);
+        result << (Qt::Key_Enter | keyMods).toCombined();
         return result;
     }
-    result << int(baseKey + keyMods); // The base key is _always_ valid, of course
+    result << int(baseKey) + int(keyMods); // The base key is _always_ valid, of course
 
     for (size_t i = 1; i < NumMods; ++i) {
         Qt::KeyboardModifiers neededMods = ModsTbl[i];
         quint32 key = kbItem.qtKey[i];
         if (key && key != baseKey && ((keyMods & neededMods) == neededMods)) {
             const Qt::KeyboardModifiers missingMods = keyMods & ~neededMods;
-            const int matchedKey = int(key) + missingMods;
+            const int matchedKey = int(key) + int(missingMods);
             const auto it =
                 std::find_if(result.begin(), result.end(),
                              [key] (int k) { return (k & ~Qt::KeyboardModifierMask) == key; });

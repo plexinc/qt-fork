@@ -54,40 +54,56 @@
 #include <qvideoframe.h>
 #include <private/qsimd_p.h>
 
+QT_BEGIN_NAMESPACE
+
+// Converts to RGB32 or ARGB32_Premultiplied
 typedef void (QT_FASTCALL *VideoFrameConvertFunc)(const QVideoFrame &frame, uchar *output);
 
-inline quint32 qConvertBGRA32ToARGB32(quint32 bgra)
-{
-    return (((bgra & 0xFF000000) >> 24)
-            | ((bgra & 0x00FF0000) >> 8)
-            | ((bgra & 0x0000FF00) << 8)
-            | ((bgra & 0x000000FF) << 24));
-}
+VideoFrameConvertFunc qConverterForFormat(QVideoFrameFormat::PixelFormat format);
 
-inline quint32 qConvertBGR24ToARGB32(const uchar *bgr)
+template<int a, int r, int g, int b>
+struct RgbPixel
 {
-    return 0xFF000000 | bgr[0] | bgr[1] << 8 | bgr[2] << 16;
-}
+    uchar data[4];
+    inline quint32 convert() const
+    {
+        return (a >= 0 ? (uint(data[a]) << 24) : 0xff000000)
+               | (uint(data[r]) << 16)
+               | (uint(data[g]) << 8)
+               | (uint(data[b]));
+    }
 
-inline quint32 qConvertBGR565ToARGB32(quint16 bgr)
-{
-    return 0xff000000
-            | ((((bgr) >> 8) & 0xf8) | (((bgr) >> 13) & 0x7))
-            | ((((bgr) << 5) & 0xfc00) | (((bgr) >> 1) & 0x300))
-            | ((((bgr) << 19) & 0xf80000) | (((bgr) << 14) & 0x70000));
-}
+};
 
-inline quint32 qConvertBGR555ToARGB32(quint16 bgr)
+template<typename Y>
+struct YPixel
 {
-    return 0xff000000
-            | ((((bgr) >> 7) & 0xf8) | (((bgr) >> 12) & 0x7))
-            | ((((bgr) << 6) & 0xf800) | (((bgr) << 1) & 0x700))
-            | ((((bgr) << 19) & 0xf80000) | (((bgr) << 11) & 0x70000));
-}
+    Y data;
+    static constexpr uint shift = (sizeof(Y) - 1)*8;
+    inline quint32 convert() const
+    {
+        uint y = (data >> shift) & 0xff;
+        return (0xff000000)
+               | (y << 16)
+               | (y << 8)
+               | (y);
+    }
+
+};
+
+
+using ARGB8888 = RgbPixel<0, 1, 2, 3>;
+using ABGR8888 = RgbPixel<0, 3, 2, 1>;
+using RGBA8888 = RgbPixel<3, 0, 1, 2>;
+using BGRA8888 = RgbPixel<3, 2, 1, 0>;
+using XRGB8888 = RgbPixel<-1, 1, 2, 3>;
+using XBGR8888 = RgbPixel<-1, 3, 2, 1>;
+using RGBX8888 = RgbPixel<-1, 0, 1, 2>;
+using BGRX8888 = RgbPixel<-1, 2, 1, 0>;
 
 #define FETCH_INFO_PACKED(frame) \
-    const uchar *src = frame.bits(); \
-    int stride = frame.bytesPerLine(); \
+    const uchar *src = frame.bits(0); \
+    int stride = frame.bytesPerLine(0); \
     int width = frame.width(); \
     int height = frame.height();
 
@@ -118,6 +134,8 @@ inline quint32 qConvertBGR555ToARGB32(quint16 bgr)
 
 #define ALIGN(boundary, ptr, x, length) \
     for (; ((reinterpret_cast<qintptr>(ptr) & (boundary - 1)) != 0) && x < length; ++x)
+
+QT_END_NAMESPACE
 
 #endif // QVIDEOFRAMECONVERSIONHELPER_P_H
 

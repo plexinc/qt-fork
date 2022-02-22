@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QtTest/QTest>
 
 #include <QtCore/qmetaobject.h>
 #include <Qt3DRender/private/qshadergenerator_p.h>
@@ -54,7 +54,7 @@ namespace
         return port;
     }
 
-    QShaderNode createNode(const QVector<QShaderNodePort> &ports, const QStringList &layers = QStringList())
+    QShaderNode createNode(const QList<QShaderNodePort> &ports, const QStringList &layers = QStringList())
     {
         auto node = QShaderNode();
         node.setUuid(QUuid::createUuid());
@@ -516,7 +516,7 @@ namespace {
         case QShaderLanguage::Sampler1DArrayShadow:
             return "sampler1DArrayShadow";
         case QShaderLanguage::Sampler2DArrayShadow:
-            return "sample2DArrayShadow";
+            return "sampler2DArrayShadow";
         case QShaderLanguage::SamplerCubeShadow:
             return "samplerCubeShadow";
         case QShaderLanguage::SamplerCubeArrayShadow:

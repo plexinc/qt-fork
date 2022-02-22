@@ -8,7 +8,6 @@
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/single_thread_task_runner.h"
-#include "base/task/post_task.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/prefs/pref_service.h"
 #include "components/safe_browsing/core/triggers/trigger_manager.h"
@@ -68,26 +67,9 @@ SuspiciousSiteTrigger::SuspiciousSiteTrigger(
       prefs_(prefs),
       url_loader_factory_(url_loader_factory),
       history_service_(history_service),
-      task_runner_(
-          base::CreateSingleThreadTaskRunner({content::BrowserThread::UI})) {}
+      task_runner_(content::GetUIThreadTaskRunner({})) {}
 
 SuspiciousSiteTrigger::~SuspiciousSiteTrigger() {}
-
-// static
-void SuspiciousSiteTrigger::CreateForWebContents(
-    content::WebContents* web_contents,
-    TriggerManager* trigger_manager,
-    PrefService* prefs,
-    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
-    history::HistoryService* history_service,
-    bool monitor_mode) {
-  if (!FromWebContents(web_contents)) {
-    web_contents->SetUserData(
-        UserDataKey(), base::WrapUnique(new SuspiciousSiteTrigger(
-                           web_contents, trigger_manager, prefs,
-                           url_loader_factory, history_service, monitor_mode)));
-  }
-}
 
 bool SuspiciousSiteTrigger::MaybeStartReport() {
   SBErrorOptions error_options =

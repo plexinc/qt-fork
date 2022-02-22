@@ -39,6 +39,7 @@
 
 #include "qtimeline.h"
 
+#include <private/qproperty_p.h>
 #include <private/qobject_p.h>
 #include <QtCore/qcoreevent.h>
 #include <QtCore/qmath.h>
@@ -50,31 +51,29 @@ class QTimeLinePrivate : public QObjectPrivate
 {
     Q_DECLARE_PUBLIC(QTimeLine)
 public:
-    inline QTimeLinePrivate()
-        : easingCurve(QEasingCurve::InOutSine),
-          startTime(0), duration(1000), startFrame(0), endFrame(0),
-          updateInterval(1000 / 25),
-          totalLoopCount(1), currentLoopCount(0), currentTime(0), timerId(0),
-          direction(QTimeLine::Forward),
-          state(QTimeLine::NotRunning)
-    { }
-
     QElapsedTimer timer;
-    QEasingCurve easingCurve;
+    Q_OBJECT_BINDABLE_PROPERTY_WITH_ARGS(QTimeLinePrivate, QEasingCurve, easingCurve,
+                                         QEasingCurve::InOutSine)
 
-    int startTime;
-    int duration;
-    int startFrame;
-    int endFrame;
-    int updateInterval;
-    int totalLoopCount;
-    int currentLoopCount;
+    int startTime = 0;
+    void setDuration(int duration) { q_func()->setDuration(duration); }
+    Q_OBJECT_COMPAT_PROPERTY_WITH_ARGS(QTimeLinePrivate, int, duration,
+                                       &QTimeLinePrivate::setDuration, 1000)
+    int startFrame = 0;
+    int endFrame = 0;
+    Q_OBJECT_BINDABLE_PROPERTY_WITH_ARGS(QTimeLinePrivate, int, updateInterval, 1000 / 25)
+    Q_OBJECT_BINDABLE_PROPERTY_WITH_ARGS(QTimeLinePrivate, int, loopCount, 1)
+    int currentLoopCount = 0;
 
-    int currentTime;
-    int timerId;
+    void setCurrentTimeForwardToQ(int time) { q_func()->setCurrentTime(time); }
+    Q_OBJECT_COMPAT_PROPERTY_WITH_ARGS(QTimeLinePrivate, int, currentTime,
+                                       &QTimeLinePrivate::setCurrentTimeForwardToQ, 0)
+    int timerId = 0;
 
-    QTimeLine::Direction direction;
-    QTimeLine::State state;
+    void setDirection(QTimeLine::Direction direction) { q_func()->setDirection(direction); }
+    Q_OBJECT_COMPAT_PROPERTY_WITH_ARGS(QTimeLinePrivate, QTimeLine::Direction, direction,
+                                       &QTimeLinePrivate::setDirection, QTimeLine::Forward)
+    QTimeLine::State state = QTimeLine::NotRunning;
     inline void setState(QTimeLine::State newState)
     {
         Q_Q(QTimeLine);
@@ -91,34 +90,35 @@ public:
 void QTimeLinePrivate::setCurrentTime(int msecs)
 {
     Q_Q(QTimeLine);
+    currentTime.removeBindingUnlessInWrapper();
+    auto previousCurrentTime = currentTime.value();
 
     qreal lastValue = q->currentValue();
     int lastFrame = q->currentFrame();
 
     // Determine if we are looping.
-    int elapsed = (direction == QTimeLine::Backward) ? (-msecs +  duration) : msecs;
-    int loopCount = elapsed / duration;
+    int elapsed = (direction == QTimeLine::Backward) ? (-msecs + duration) : msecs;
+    int loopCountNow = elapsed / duration;
 
-    bool looping = (loopCount != currentLoopCount);
+    bool looping = (loopCountNow != currentLoopCount);
 #ifdef QTIMELINE_DEBUG
-    qDebug() << "QTimeLinePrivate::setCurrentTime:" << msecs << duration << "with loopCount" << loopCount
-             << "currentLoopCount" << currentLoopCount
-             << "looping" << looping;
+    qDebug() << "QTimeLinePrivate::setCurrentTime:" << msecs << duration << "with loopCountNow"
+             << loopCountNow << "currentLoopCount" << currentLoopCount << "looping" << looping;
 #endif
     if (looping)
-        currentLoopCount = loopCount;
+        currentLoopCount = loopCountNow;
 
     // Normalize msecs to be between 0 and duration, inclusive.
-    currentTime = elapsed % duration;
-    if (direction == QTimeLine::Backward)
-        currentTime = duration - currentTime;
+    currentTime.setValueBypassingBindings(elapsed % duration);
+    if (direction.value() == QTimeLine::Backward)
+        currentTime.setValueBypassingBindings(duration - currentTime);
 
     // Check if we have reached the end of loopcount.
     bool finished = false;
-    if (totalLoopCount && currentLoopCount >= totalLoopCount) {
+    if (loopCount && currentLoopCount >= loopCount) {
         finished = true;
-        currentTime = (direction == QTimeLine::Backward) ? 0 : duration;
-        currentLoopCount = totalLoopCount - 1;
+        currentTime.setValueBypassingBindings((direction == QTimeLine::Backward) ? 0 : duration);
+        currentLoopCount = loopCount - 1;
     }
 
     int currentFrame = q->frameForTime(currentTime);
@@ -159,6 +159,13 @@ void QTimeLinePrivate::setCurrentTime(int msecs)
         q->stop();
         emit q->finished(QTimeLine::QPrivateSignal());
     }
+    if (currentTime.value() != previousCurrentTime)
+        currentTime.notify();
+}
+QBindable<int> QTimeLine::bindableCurrentTime()
+{
+    Q_D(QTimeLine);
+    return &d->currentTime;
 }
 
 /*!
@@ -250,24 +257,6 @@ void QTimeLinePrivate::setCurrentTime(int msecs)
 */
 
 /*!
-    \enum QTimeLine::CurveShape
-    \obsolete use QEasingCurve instead
-
-    This enum describes the shape of QTimeLine's value curve. The default shape
-    is EaseInOutCurve. The curve defines the relation between the value and the
-    timeline.
-
-    \value EaseInCurve Obsolete equivalent of QEasingCurve::InCurve
-    \value EaseOutCurve Obsolete equivalent of QEasingCurve::OutCurve
-    \value EaseInOutCurve Obsolete equivalent of QEasingCurve::InOutSine
-    \value LinearCurve Obsolete equivalent of QEasingCurve::Linear
-    \value SineCurve Obsolete equivalent of QEasingCurve::SineCurve
-    \value CosineCurve Obsolete equivalent of QEasingCurve::CosineCurve
-
-    \sa curveShape, setCurveShape(), easingCurve, QEasingCurve
-*/
-
-/*!
     \fn void QTimeLine::valueChanged(qreal value)
 
     QTimeLine emits this signal at regular intervals when in \l Running state,
@@ -344,12 +333,19 @@ QTimeLine::State QTimeLine::state() const
 int QTimeLine::loopCount() const
 {
     Q_D(const QTimeLine);
-    return d->totalLoopCount;
+    return d->loopCount;
 }
+
 void QTimeLine::setLoopCount(int count)
 {
     Q_D(QTimeLine);
-    d->totalLoopCount = count;
+    d->loopCount = count;
+}
+
+QBindable<int> QTimeLine::bindableLoopCount()
+{
+    Q_D(QTimeLine);
+    return &d->loopCount;
 }
 
 /*!
@@ -361,6 +357,9 @@ void QTimeLine::setLoopCount(int count)
     timeline duration, or from the value of the duration and towards 0 after
     start() has been called.
 
+    Any binding of direction will be removed not only by setDirection(),
+    but also by toggleDirection().
+
     By default, this property is set to \l Forward.
 */
 QTimeLine::Direction QTimeLine::direction() const
@@ -371,9 +370,18 @@ QTimeLine::Direction QTimeLine::direction() const
 void QTimeLine::setDirection(Direction direction)
 {
     Q_D(QTimeLine);
-    d->direction = direction;
+    auto previousDirection = d->direction.value();
+    d->direction.setValue(direction);
     d->startTime = d->currentTime;
     d->timer.start();
+    if (previousDirection != d->direction.value())
+        d->direction.notify();
+}
+
+QBindable<QTimeLine::Direction> QTimeLine::bindableDirection()
+{
+    Q_D(QTimeLine);
+    return &d->direction;
 }
 
 /*!
@@ -400,7 +408,18 @@ void QTimeLine::setDuration(int duration)
         qWarning("QTimeLine::setDuration: cannot set duration <= 0");
         return;
     }
-    d->duration = duration;
+    if (duration == d->duration) {
+        d->duration.removeBindingUnlessInWrapper();
+        return;
+    }
+    d->duration.setValue(duration);
+    d->duration.notify();
+}
+
+QBindable<int> QTimeLine::bindableDuration()
+{
+    Q_D(QTimeLine);
+    return &d->duration;
 }
 
 /*!
@@ -490,66 +509,11 @@ void QTimeLine::setUpdateInterval(int interval)
     Q_D(QTimeLine);
     d->updateInterval = interval;
 }
-
-#if QT_DEPRECATED_SINCE(5, 15)
-/*!
-    \property QTimeLine::curveShape
-    \brief the shape of the timeline curve.
-
-    The curve shape describes the relation between the time and value for the
-    base implementation of valueForTime().
-
-    This property is an indirect way to update the easingCurve property; if you
-    set both, the one set more recently overrides the other. (If valueForTime()
-    is reimplemented it will override both.)
-
-    By default, this property is set to \l EaseInOutCurve.
-
-    \obsolete Access \c easingCurve instead.
-
-    \sa valueForTime(), easingCurve
-*/
-QTimeLine::CurveShape QTimeLine::curveShape() const
+QBindable<int> QTimeLine::bindableUpdateInterval()
 {
-    Q_D(const QTimeLine);
-    switch (d->easingCurve.type()) {
-    default:
-    case QEasingCurve::InOutSine:
-        return EaseInOutCurve;
-    case QEasingCurve::InCurve:
-        return EaseInCurve;
-    case QEasingCurve::OutCurve:
-        return EaseOutCurve;
-    case QEasingCurve::Linear:
-        return LinearCurve;
-    case QEasingCurve::SineCurve:
-        return SineCurve;
-    case QEasingCurve::CosineCurve:
-        return CosineCurve;
-    }
-    return EaseInOutCurve;
+    Q_D(QTimeLine);
+    return &d->updateInterval;
 }
-
-static QEasingCurve::Type convert(QTimeLine::CurveShape shape)
-{
-    switch (shape) {
-#define CASE(x, y) case QTimeLine::x: return QEasingCurve::y
-    CASE(EaseInOutCurve, InOutSine);
-    CASE(EaseInCurve,    InCurve);
-    CASE(EaseOutCurve,   OutCurve);
-    CASE(LinearCurve,    Linear);
-    CASE(SineCurve,      SineCurve);
-    CASE(CosineCurve,    CosineCurve);
-#undef CASE
-    }
-    Q_UNREACHABLE();
-}
-
-void QTimeLine::setCurveShape(CurveShape shape)
-{
-    setEasingCurve(convert(shape));
-}
-#endif // 5.15 deprecation
 
 /*!
     \property QTimeLine::easingCurve
@@ -558,8 +522,6 @@ void QTimeLine::setCurveShape(CurveShape shape)
 
     Specifies the easing curve that the timeline will use.
     If valueForTime() is reimplemented, this value is ignored.
-    If both easingCurve and curveShape are set, the last property set will
-    override the previous one.
 
     \sa valueForTime()
 */
@@ -570,10 +532,16 @@ QEasingCurve QTimeLine::easingCurve() const
     return d->easingCurve;
 }
 
-void QTimeLine::setEasingCurve(const QEasingCurve& curve)
+void QTimeLine::setEasingCurve(const QEasingCurve &curve)
 {
     Q_D(QTimeLine);
     d->easingCurve = curve;
+}
+
+QBindable<QEasingCurve> QTimeLine::bindableEasingCurve()
+{
+    Q_D(QTimeLine);
+    return &d->easingCurve;
 }
 
 /*!
@@ -584,6 +552,10 @@ void QTimeLine::setEasingCurve(const QEasingCurve& curve)
     a function of the duration and direction of the timeline. Otherwise, it is
     value that was current when stop() was called last, or the value set by
     setCurrentTime().
+
+    \note You can bind other properties to currentTime, but it is not
+    recommended setting bindings to it. As animation progresses, the currentTime
+    is updated automatically, which cancels its bindings.
 
     By default, this property contains a value of 0.
 */
@@ -646,15 +618,15 @@ int QTimeLine::frameForTime(int msec) const
     Reimplement this function to provide a custom curve shape for your
     timeline.
 
-    \sa CurveShape, frameForTime()
+    \sa easingCurve, frameForTime()
 */
 qreal QTimeLine::valueForTime(int msec) const
 {
     Q_D(const QTimeLine);
-    msec = qMin(qMax(msec, 0), d->duration);
+    msec = qBound(0, msec, d->duration.value());
 
-    qreal value = msec / qreal(d->duration);
-    return d->easingCurve.valueForProgress(value);
+    qreal value = msec / qreal(d->duration.value());
+    return d->easingCurve.value().valueForProgress(value);
 }
 
 /*!
@@ -757,6 +729,8 @@ void QTimeLine::setPaused(bool paused)
 /*!
     Toggles the direction of the timeline. If the direction was Forward, it
     becomes Backward, and vice verca.
+
+    Existing bindings of \l direction are removed.
 
     \sa setDirection()
 */

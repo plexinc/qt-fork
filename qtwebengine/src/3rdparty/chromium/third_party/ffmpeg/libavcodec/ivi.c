@@ -30,13 +30,12 @@
 
 #include "libavutil/attributes.h"
 #include "libavutil/imgutils.h"
-#include "libavutil/timer.h"
+#include "libavutil/thread.h"
 
 #define BITSTREAM_READER_LE
 #include "avcodec.h"
 #include "get_bits.h"
 #include "internal.h"
-#include "mathops.h"
 #include "ivi.h"
 #include "ivi_dsp.h"
 
@@ -116,23 +115,6 @@ static int ivi_mc(const IVIBandDesc *band, ivi_mc_func mc, ivi_mc_avg_func mc_av
     return 0;
 }
 
-/**
- *  Reverse "nbits" bits of the value "val" and return the result
- *  in the least significant bits.
- */
-static uint16_t inv_bits(uint16_t val, int nbits)
-{
-    uint16_t res;
-
-    if (nbits <= 8) {
-        res = ff_reverse[val] >> (8 - nbits);
-    } else
-        res = ((ff_reverse[val & 0xFF] << 8) +
-               (ff_reverse[val >> 8])) >> (16 - nbits);
-
-    return res;
-}
-
 /*
  *  Generate a huffman codebook from the given descriptor
  *  and convert it into the FFmpeg VLC table.
@@ -163,7 +145,7 @@ static int ivi_create_huff_from_desc(const IVIHuffDesc *cb, VLC *vlc, int flag)
             if (bits[pos] > IVI_VLC_BITS)
                 return AVERROR_INVALIDDATA; /* invalid descriptor */
 
-            codewords[pos] = inv_bits((prefix | j), bits[pos]);
+            codewords[pos] = prefix | j;
             if (!bits[pos])
                 bits[pos] = 1;
 
@@ -173,17 +155,14 @@ static int ivi_create_huff_from_desc(const IVIHuffDesc *cb, VLC *vlc, int flag)
 
     /* number of codewords = pos */
     return init_vlc(vlc, IVI_VLC_BITS, pos, bits, 1, 1, codewords, 2, 2,
-                    (flag ? INIT_VLC_USE_NEW_STATIC : 0) | INIT_VLC_LE);
+                    (flag ? INIT_VLC_USE_NEW_STATIC : 0) | INIT_VLC_OUTPUT_LE);
 }
 
-av_cold void ff_ivi_init_static_vlc(void)
+static av_cold void ivi_init_static_vlc(void)
 {
     int i;
     static VLC_TYPE table_data[8192 * 16][2];
-    static int initialized_vlcs = 0;
 
-    if (initialized_vlcs)
-        return;
     for (i = 0; i < 8; i++) {
         ivi_mb_vlc_tabs[i].table = table_data + i * 2 * 8192;
         ivi_mb_vlc_tabs[i].table_allocated = 8192;
@@ -194,7 +173,12 @@ av_cold void ff_ivi_init_static_vlc(void)
         ivi_create_huff_from_desc(&ivi_blk_huff_desc[i],
                                   &ivi_blk_vlc_tabs[i], 1);
     }
-    initialized_vlcs = 1;
+}
+
+av_cold void ff_ivi_init_static_vlc(void)
+{
+    static AVOnce init_static_once = AV_ONCE_INIT;
+    ff_thread_once(&init_static_once, ivi_init_static_vlc);
 }
 
 /*
@@ -443,8 +427,10 @@ av_cold int ff_ivi_init_tiles(IVIPlaneDesc *planes,
 
             av_freep(&band->tiles);
             band->tiles = av_mallocz_array(band->num_tiles, sizeof(IVITile));
-            if (!band->tiles)
+            if (!band->tiles) {
+                band->num_tiles = 0;
                 return AVERROR(ENOMEM);
+            }
 
             /* use the first luma band as reference for motion vectors
              * and quant */
@@ -1124,8 +1110,6 @@ int ff_ivi_decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
 
     ctx->switch_buffers(ctx);
 
-    //{ START_TIMER;
-
     if (ctx->is_nonnull_frame(ctx)) {
         ctx->buf_invalid[ctx->dst_buf] = 1;
         for (p = 0; p < 3; p++) {
@@ -1150,8 +1134,6 @@ int ff_ivi_decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
     }
     if (ctx->buf_invalid[ctx->dst_buf])
         return -1;
-
-    //STOP_TIMER("decode_planes"); }
 
     if (!ctx->is_nonnull_frame(ctx))
         return buf_size;
@@ -1197,6 +1179,8 @@ int ff_ivi_decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
             AVPacket pkt;
             pkt.data = avpkt->data + (get_bits_count(&ctx->gb) >> 3);
             pkt.size = get_bits_left(&ctx->gb) >> 3;
+            ctx->got_p_frame = 0;
+            av_frame_unref(ctx->p_frame);
             ff_ivi_decode_frame(avctx, ctx->p_frame, &ctx->got_p_frame, &pkt);
         }
     }

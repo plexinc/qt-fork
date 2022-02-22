@@ -1,6 +1,6 @@
 #############################################################################
 ##
-## Copyright (C) 2020 The Qt Company Ltd.
+## Copyright (C) 2021 The Qt Company Ltd.
 ## Contact: http://www.qt.io/licensing/
 ##
 ## This file is part of the provisioning scripts of the Qt Toolkit.
@@ -36,12 +36,12 @@
 # This script will pre-installed squish package for Windows.
 # Squish is need by Release Test Automation (RTA)
 
-$version = "6.6.1"
-$qtBranch = "515x"
+$version = "6.7-20210614-1625"
+$qtBranch = "61x"
 $targetDir = "C:\Utils\squish"
 $squishPackage = "C:\Utils\rta_squish"
-$squishUrl = "\\ci-files01-hki.intra.qt.io\provisioning\squish\jenkins_build"
-$licenseUrl = "\\ci-files01-hki.intra.qt.io\provisioning\squish\coin"
+$squishUrl = "\\ci-files01-hki.intra.qt.io\provisioning\squish\jenkins_build\stable"
+$licenseUrl = "\\ci-files01-hki.intra.qt.io\provisioning\squish\coin\515x"
 
 # Squish license
 $licensePackage = ".squish-3-license"
@@ -50,27 +50,25 @@ Write-Host "Installing Squish license to home directory"
 Copy-Item $licenseUrl\$licensePackage ~\$licensePackage
 
 if (Is64BitWinHost) {
-     $arch = "x64"
+    $arch = "x64"
 } else {
     $arch = "x86"
 }
 
 $OSVersion = (get-itemproperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion" -Name ProductName).ProductName
 
-if ($OSVersion -eq "Windows 10 Enterprise") {
+if (($OSVersion -eq "Windows 10 Enterprise") -or ($OSVersion -eq "Windows 10 Pro")) {
+    # In Windows 11 case $OSVersion is 'Windows 10 Pro'
     $winVersion = "win10"
     if (Is64BitWinHost) {
-        $sha1 = "17b5bec83f448877e42e5effdc7daf723d157800"
-    } else {
-        $sha1 = "1e6c1b3935e1c1bcdd28ec2511f24b8656d3ee6a"
+        $sha1 = "0ce4f94ebff488fedef29e9ed62b400a8b5014fb"
     }
-} elseif ($OSVersion -eq "Windows 7 Enterprise") {
-    $winVersion = "win7"
-    $sha1 = "ec890c16bb671ae79b093ba81e6567d2780f85a2"
+} else {
+    $winVersion = "n/a"
 }
 $squishArchive = "prebuild-squish-$version-$qtBranch-$winVersion-$arch.zip"
 
-Copy-Item "\\ci-files01-hki.intra.qt.io\provisioning\squish\jenkins_build\stable\$squishArchive" "C:\Utils"
+Copy-Item "$squishUrl\$squishArchive" "C:\Utils"
 Verify-Checksum "C:\Utils\$squishArchive" $sha1
 Extract-7Zip "C:\Utils\$squishArchive" "C:\Utils"
 Rename-Item "$squishPackage" "$targetDir"

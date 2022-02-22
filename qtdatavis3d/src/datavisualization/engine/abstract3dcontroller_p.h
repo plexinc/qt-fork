@@ -54,8 +54,9 @@
 
 QT_FORWARD_DECLARE_CLASS(QOpenGLFramebufferObject)
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
+class AbstractDeclarative;
 class Abstract3DRenderer;
 class QAbstract3DSeries;
 class ThemeManager;
@@ -215,7 +216,7 @@ protected:
     int m_numFrames;
     qreal m_currentFps;
 
-    QVector<QAbstract3DSeries *> m_changedSeriesList;
+    QList<QAbstract3DSeries *> m_changedSeriesList;
 
     QList<QCustom3DItem *> m_customItems;
 
@@ -225,6 +226,7 @@ protected:
     qreal m_margin;
 
     QMutex m_renderMutex;
+    AbstractDeclarative *m_qml = nullptr;
 
     explicit Abstract3DController(QRect initialViewport, Q3DScene *scene, QObject *parent = 0);
 
@@ -435,6 +437,6 @@ private:
     friend class QAbstract3DGraphPrivate;
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

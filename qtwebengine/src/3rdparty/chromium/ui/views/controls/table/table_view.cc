@@ -41,6 +41,7 @@
 #include "ui/views/controls/table/table_utils.h"
 #include "ui/views/controls/table/table_view_observer.h"
 #include "ui/views/layout/layout_provider.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/style/platform_style.h"
 #include "ui/views/style/typography.h"
 
@@ -85,7 +86,7 @@ ui::NativeTheme::ColorId selected_text_color_id(bool has_focus) {
 
 // Whether the platform "command" key is down.
 bool IsCmdOrCtrl(const ui::Event& event) {
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   return event.IsCommandDown();
 #else
   return event.IsControlDown();
@@ -150,39 +151,36 @@ class TableView::HighlightPathGenerator : public views::HighlightPathGenerator {
       return SkPath();
 
     // Draw a focus indicator around the active cell.
-    return SkPath().addRect(gfx::RectToSkRect(table->GetActiveCellBounds()));
+    gfx::Rect bounds = table->GetActiveCellBounds();
+    bounds.set_x(table->GetMirroredXForRect(bounds));
+    return SkPath().addRect(gfx::RectToSkRect(bounds));
   }
 
  private:
   DISALLOW_COPY_AND_ASSIGN(HighlightPathGenerator);
 };
 
-TableView::TableView(ui::TableModel* model,
-                     const std::vector<ui::TableColumn>& columns,
-                     TableTypes table_type,
-                     bool single_selection)
-    : columns_(columns),
-      table_type_(table_type),
-      single_selection_(single_selection) {
+TableView::TableView() {
   constexpr int kTextContext = style::CONTEXT_TABLE_ROW;
   constexpr int kTextStyle = style::STYLE_PRIMARY;
   font_list_ = style::GetFont(kTextContext, kTextStyle);
   row_height_ = LayoutProvider::GetControlHeightForFont(kTextContext,
                                                         kTextStyle, font_list_);
 
-  for (const auto& column : columns) {
-    VisibleColumn visible_column;
-    visible_column.column = column;
-    visible_columns_.push_back(visible_column);
-  }
-
   // Always focusable, even on Mac (consistent with NSTableView).
   SetFocusBehavior(FocusBehavior::ALWAYS);
   views::HighlightPathGenerator::Install(
       this, std::make_unique<TableView::HighlightPathGenerator>());
-  SetModel(model);
-  if (model_)
-    UpdateVirtualAccessibilityChildren();
+
+  focus_ring_ = FocusRing::Install(this);
+}
+
+TableView::TableView(ui::TableModel* model,
+                     const std::vector<ui::TableColumn>& columns,
+                     TableTypes table_type,
+                     bool single_selection)
+    : TableView() {
+  Init(model, std::move(columns), table_type, single_selection);
 }
 
 TableView::~TableView() {
@@ -200,6 +198,23 @@ std::unique_ptr<ScrollView> TableView::CreateScrollViewWithTable(
   return scroll_view;
 }
 
+void TableView::Init(ui::TableModel* model,
+                     const std::vector<ui::TableColumn>& columns,
+                     TableTypes table_type,
+                     bool single_selection) {
+  columns_ = columns;
+  table_type_ = table_type;
+  single_selection_ = single_selection;
+
+  for (const auto& column : columns) {
+    VisibleColumn visible_column;
+    visible_column.column = column;
+    visible_columns_.push_back(visible_column);
+  }
+
+  SetModel(model);
+}
+
 // TODO(sky): this doesn't support arbitrarily changing the model, rename this
 // to ClearModel() or something.
 void TableView::SetModel(ui::TableModel* model) {
@@ -210,8 +225,14 @@ void TableView::SetModel(ui::TableModel* model) {
     model_->SetObserver(nullptr);
   model_ = model;
   selection_model_.Clear();
-  if (model_)
+  if (model_) {
     model_->SetObserver(this);
+
+    // Clears and creates a new virtual accessibility tree.
+    RebuildVirtualAccessibilityChildren();
+  } else {
+    ClearVirtualAccessibilityChildren();
+  }
 }
 
 void TableView::SetGrouper(TableGrouper* grouper) {
@@ -230,8 +251,25 @@ void TableView::Select(int model_row) {
   SelectByViewIndex(model_row == -1 ? -1 : ModelToView(model_row));
 }
 
+void TableView::SetSelectionAll(bool select) {
+  if (!GetRowCount())
+    return;
+
+  ui::ListSelectionModel selection_model;
+
+  if (select)
+    selection_model.AddIndexRangeToSelection(0, GetRowCount() - 1);
+
+  selection_model.set_anchor(selection_model_.anchor());
+  selection_model.set_active(selection_model_.active());
+
+  SetSelectionModel(std::move(selection_model));
+}
+
 int TableView::GetFirstSelectedRow() const {
-  return selection_model_.empty() ? -1 : selection_model_.selected_indices()[0];
+  return selection_model_.empty()
+             ? -1
+             : *selection_model_.selected_indices().begin();
 }
 
 void TableView::SetColumnVisibility(int id, bool is_visible) {
@@ -252,13 +290,17 @@ void TableView::SetColumnVisibility(int id, bool is_visible) {
         SetActiveVisibleColumnIndex(int{visible_columns_.size()} - 1);
     }
   }
-  ClearVirtualAccessibilityChildren();
+
   UpdateVisibleColumnSizes();
   PreferredSizeChanged();
   SchedulePaint();
+
   if (header_)
     header_->SchedulePaint();
-  UpdateVirtualAccessibilityChildren();
+
+  // This will clear and create the entire accessibility tree, to optimize this
+  // further, removing/adding the cell's dynamically could be done instead.
+  RebuildVirtualAccessibilityChildren();
 }
 
 void TableView::ToggleSortOrder(int visible_column_index) {
@@ -301,11 +343,6 @@ bool TableView::IsColumnVisible(int id) const {
                      ids_match);
 }
 
-void TableView::AddColumn(const ui::TableColumn& col) {
-  DCHECK(!HasColumn(col.id));
-  columns_.push_back(col);
-}
-
 bool TableView::HasColumn(int id) const {
   const auto ids_match = [id](const auto& column) { return column.id == id; };
   return std::any_of(columns_.cbegin(), columns_.cend(), ids_match);
@@ -339,19 +376,22 @@ void TableView::SetVisibleColumnWidth(int index, int width) {
 }
 
 int TableView::ModelToView(int model_index) const {
+  DCHECK_GE(model_index, 0) << " negative model_index " << model_index;
   if (!GetIsSorted())
     return model_index;
-  DCHECK_GE(model_index, 0) << " negative model_index " << model_index;
-  DCHECK_LT(model_index, GetRowCount())
+  DCHECK_LT(model_index, int{model_to_view_.size()})
       << " out of bounds model_index " << model_index;
   return model_to_view_[model_index];
 }
 
 int TableView::ViewToModel(int view_index) const {
   DCHECK_GE(view_index, 0) << " negative view_index " << view_index;
-  DCHECK_LT(view_index, GetRowCount())
+  DCHECK_LT(view_index, GetRowCount());
+  if (!GetIsSorted())
+    return view_index;
+  DCHECK_LT(view_index, int{view_to_model_.size()})
       << " out of bounds view_index " << view_index;
-  return GetIsSorted() ? view_to_model_[view_index] : view_index;
+  return view_to_model_[view_index];
 }
 
 bool TableView::GetSelectOnRemove() const {
@@ -380,6 +420,13 @@ void TableView::SetSortOnPaint(bool sort_on_paint) {
 
   sort_on_paint_ = sort_on_paint;
   OnPropertyChanged(&sort_on_paint_, kPropertyEffectsNone);
+}
+
+ax::mojom::SortDirection TableView::GetFirstSortDescriptorDirection() const {
+  DCHECK(!sort_descriptors().empty());
+  if (sort_descriptors()[0].ascending)
+    return ax::mojom::SortDirection::kAscending;
+  return ax::mojom::SortDirection::kDescending;
 }
 
 void TableView::Layout() {
@@ -440,11 +487,7 @@ bool TableView::OnKeyPressed(const ui::KeyEvent& event) {
     case ui::VKEY_A:
       // control-a selects all.
       if (IsCmdOrCtrl(event) && !single_selection_ && GetRowCount()) {
-        ui::ListSelectionModel selection_model;
-        selection_model.SetSelectedIndex(selection_model_.active());
-        for (int i = 0; i < GetRowCount(); ++i)
-          selection_model.AddIndexToSelection(i);
-        SetSelectionModel(std::move(selection_model));
+        SetSelectionAll(/*select=*/true);
         return true;
       }
       break;
@@ -460,7 +503,7 @@ bool TableView::OnKeyPressed(const ui::KeyEvent& event) {
       return true;
 
     case ui::VKEY_UP:
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
       if (event.IsAltDown()) {
         if (GetRowCount())
           SelectByViewIndex(0);
@@ -473,7 +516,7 @@ bool TableView::OnKeyPressed(const ui::KeyEvent& event) {
       return true;
 
     case ui::VKEY_DOWN:
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
       if (event.IsAltDown()) {
         if (GetRowCount())
           SelectByViewIndex(GetRowCount() - 1);
@@ -487,17 +530,17 @@ bool TableView::OnKeyPressed(const ui::KeyEvent& event) {
 
     case ui::VKEY_LEFT:
       if (PlatformStyle::kTableViewSupportsKeyboardNavigationByCell) {
+        const AdvanceDirection direction = base::i18n::IsRTL()
+                                               ? AdvanceDirection::kIncrement
+                                               : AdvanceDirection::kDecrement;
         if (IsCmdOrCtrl(event)) {
           if (active_visible_column_index_ != -1 && header_) {
-            const AdvanceDirection direction =
-                base::i18n::IsRTL() ? AdvanceDirection::kIncrement
-                                    : AdvanceDirection::kDecrement;
             header_->ResizeColumnViaKeyboard(active_visible_column_index_,
                                              direction);
             focus_ring_->SchedulePaint();
           }
         } else {
-          AdvanceActiveVisibleColumn(AdvanceDirection::kDecrement);
+          AdvanceActiveVisibleColumn(direction);
         }
         return true;
       }
@@ -505,17 +548,17 @@ bool TableView::OnKeyPressed(const ui::KeyEvent& event) {
 
     case ui::VKEY_RIGHT:
       if (PlatformStyle::kTableViewSupportsKeyboardNavigationByCell) {
+        const AdvanceDirection direction = base::i18n::IsRTL()
+                                               ? AdvanceDirection::kDecrement
+                                               : AdvanceDirection::kIncrement;
         if (IsCmdOrCtrl(event)) {
           if (active_visible_column_index_ != -1 && header_) {
-            const AdvanceDirection direction =
-                base::i18n::IsRTL() ? AdvanceDirection::kDecrement
-                                    : AdvanceDirection::kIncrement;
             header_->ResizeColumnViaKeyboard(active_visible_column_index_,
                                              direction);
             focus_ring_->SchedulePaint();
           }
         } else {
-          AdvanceActiveVisibleColumn(AdvanceDirection::kIncrement);
+          AdvanceActiveVisibleColumn(direction);
         }
         return true;
       }
@@ -671,7 +714,8 @@ bool TableView::HandleAccessibleAction(const ui::AXActionData& action_data) {
 
 void TableView::OnModelChanged() {
   selection_model_.Clear();
-  NumRowsChanged();
+  RebuildVirtualAccessibilityChildren();
+  PreferredSizeChanged();
 }
 
 void TableView::OnItemsChanged(int start, int length) {
@@ -679,9 +723,21 @@ void TableView::OnItemsChanged(int start, int length) {
 }
 
 void TableView::OnItemsAdded(int start, int length) {
+  DCHECK_GE(start, 0);
+  DCHECK_GE(length, 0);
+  DCHECK_LE(start + length, GetRowCount());
+
   for (int i = 0; i < length; ++i)
     selection_model_.IncrementFrom(start);
-  NumRowsChanged();
+
+  // Create the accessibility view for the new row and insert it in the
+  // virtual accessibility tree.
+  for (int i = start; i < start + length; i++)
+    GetViewAccessibility().AddVirtualChildView(CreateRowAccessibilityView(i));
+
+  SortItemsAndUpdateMapping(/*schedule_paint=*/true);
+  PreferredSizeChanged();
+  NotifyAccessibilityEvent(ax::mojom::Event::kChildrenChanged, true);
 }
 
 void TableView::OnItemsMoved(int old_start, int length, int new_start) {
@@ -691,6 +747,8 @@ void TableView::OnItemsMoved(int old_start, int length, int new_start) {
 
 void TableView::OnItemsRemoved(int start, int length) {
   DCHECK_GE(start, 0);
+  DCHECK_GE(length, 0);
+
   // Determine the currently selected index in terms of the view. We inline the
   // implementation here since ViewToModel() has DCHECKs that fail since the
   // model has changed but |model_to_view_| has not been updated yet.
@@ -701,7 +759,20 @@ void TableView::OnItemsRemoved(int start, int length) {
         model_to_view_[previously_selected_model_index];
   for (int i = 0; i < length; ++i)
     selection_model_.DecrementFrom(start);
-  NumRowsChanged();
+
+  // Update the `view_to_model_` and `model_to_view_` mappings prior to updating
+  // TableView's virtual children below. We do this because at this point the
+  // table model has changed but the model-view mappings have not yet been
+  // updated to reflect this. `RemoveFromParentView()` below may trigger calls
+  // back into TableView and this would happen before the model-view mappings
+  // have been updated. This can result in memory overflow errors.
+  // See (https://crbug.com/1173373).
+  SortItemsAndUpdateMapping(/*schedule_paint=*/true);
+  if (GetIsSorted()) {
+    DCHECK_EQ(GetRowCount(), int{view_to_model_.size()});
+    DCHECK_EQ(GetRowCount(), int{model_to_view_.size()});
+  }
+
   // If the selection was empty and is no longer empty select the same visual
   // index.
   if (selection_model_.empty() && previously_selected_view_index != -1 &&
@@ -714,6 +785,15 @@ void TableView::OnItemsRemoved(int start, int length) {
   if (!selection_model_.empty() && selection_model_.anchor() == -1)
     selection_model_.set_anchor(GetFirstSelectedRow());
   NotifyAccessibilityEvent(ax::mojom::Event::kSelection, true);
+
+  // Remove the virtual views that are no longer needed.
+  auto& virtual_children = GetViewAccessibility().virtual_children();
+  for (int i = start; i < start + length; i++)
+    virtual_children[virtual_children.size() - 1]->RemoveFromParentView();
+
+  UpdateVirtualAccessibilityChildrenBounds();
+  PreferredSizeChanged();
+  NotifyAccessibilityEvent(ax::mojom::Event::kChildrenChanged, true);
   if (observer_)
     observer_->OnSelectionChanged();
 }
@@ -866,24 +946,24 @@ int TableView::GetCellElementSpacing() const {
       DISTANCE_RELATED_LABEL_HORIZONTAL);
 }
 
-void TableView::NumRowsChanged() {
-  SortItemsAndUpdateMapping(/*schedule_paint=*/true);
-  PreferredSizeChanged();
-}
 
 void TableView::SortItemsAndUpdateMapping(bool schedule_paint) {
+  const int row_count = GetRowCount();
+
   if (!GetIsSorted()) {
     view_to_model_.clear();
     model_to_view_.clear();
   } else {
-    const int row_count = GetRowCount();
     view_to_model_.resize(row_count);
     model_to_view_.resize(row_count);
-    for (int i = 0; i < row_count; ++i)
-      view_to_model_[i] = i;
+
+    // Resets the mapping so it can be sorted again.
+    for (int view_index = 0; view_index < row_count; ++view_index)
+      view_to_model_[view_index] = view_index;
+
     if (grouper_) {
       GroupSortHelper sort_helper(this);
-      GetModelIndexToRangeStart(grouper_, GetRowCount(),
+      GetModelIndexToRangeStart(grouper_, row_count,
                                 &sort_helper.model_index_to_range_start);
       std::stable_sort(view_to_model_.begin(), view_to_model_.end(),
                        sort_helper);
@@ -891,12 +971,15 @@ void TableView::SortItemsAndUpdateMapping(bool schedule_paint) {
       std::stable_sort(view_to_model_.begin(), view_to_model_.end(),
                        SortHelper(this));
     }
-    for (int i = 0; i < row_count; ++i)
-      model_to_view_[view_to_model_[i]] = i;
+
+    for (int view_index = 0; view_index < row_count; ++view_index)
+      model_to_view_[view_to_model_[view_index]] = view_index;
+
     model_->ClearCollator();
   }
 
-  UpdateVirtualAccessibilityChildren();
+  UpdateVirtualAccessibilityChildrenBounds();
+
   if (schedule_paint)
     SchedulePaint();
 }
@@ -926,7 +1009,10 @@ gfx::Rect TableView::GetCellBounds(int row, int visible_column_index) const {
 }
 
 gfx::Rect TableView::GetActiveCellBounds() const {
-  return GetCellBounds(selection_model_.active(), active_visible_column_index_);
+  if (selection_model_.active() == ui::ListSelectionModel::kUnselectedIndex)
+    return gfx::Rect();
+  return GetCellBounds(ModelToView(selection_model_.active()),
+                       active_visible_column_index_);
 }
 
 void TableView::AdjustCellBoundsForText(int visible_column_index,
@@ -951,7 +1037,11 @@ void TableView::CreateHeaderIfNecessary(ScrollView* scroll_view) {
     return;
 
   header_ = scroll_view->SetHeader(std::make_unique<TableHeader>(this));
-  UpdateVirtualAccessibilityChildren();
+
+  // The header accessibility view should be the first row, to match the
+  // original view accessibility construction.
+  GetViewAccessibility().AddVirtualChildViewAt(CreateHeaderAccessibilityView(),
+                                               0);
 }
 
 void TableView::UpdateVisibleColumnSizes() {
@@ -1028,8 +1118,10 @@ void TableView::SchedulePaintForSelection() {
   if (selection_model_.size() == 1) {
     const int first_model_row = GetFirstSelectedRow();
     SchedulePaintInRect(GetRowBounds(ModelToView(first_model_row)));
-    if (first_model_row != selection_model_.active())
-      SchedulePaintInRect(GetRowBounds(ModelToView(selection_model_.active())));
+
+    const int active_row = selection_model_.active();
+    if (active_row >= 0 && first_model_row != active_row)
+      SchedulePaintInRect(GetRowBounds(ModelToView(active_row)));
   } else if (selection_model_.size() > 1) {
     SchedulePaint();
   }
@@ -1203,170 +1295,242 @@ GroupRange TableView::GetGroupRange(int model_index) const {
   return range;
 }
 
-void TableView::UpdateVirtualAccessibilityChildren() {
+void TableView::RebuildVirtualAccessibilityChildren() {
   ClearVirtualAccessibilityChildren();
+
   if (!GetRowCount() || visible_columns_.empty())
     return;
+
+  if (header_)
+    GetViewAccessibility().AddVirtualChildView(CreateHeaderAccessibilityView());
+
+  // Create a virtual accessibility view for each row. At this point on, the
+  // table has no sort behavior, hence the view index is the same as the model
+  // index, the sorting will happen at the end.
+  for (int index = 0; index < GetRowCount(); ++index)
+    GetViewAccessibility().AddVirtualChildView(
+        CreateRowAccessibilityView(index));
+
+  SortItemsAndUpdateMapping(/*schedule_paint=*/true);
+  NotifyAccessibilityEvent(ax::mojom::Event::kChildrenChanged, true);
+}
+
+void TableView::ClearVirtualAccessibilityChildren() {
+  GetViewAccessibility().RemoveAllVirtualChildViews();
+}
+
+std::unique_ptr<AXVirtualView> TableView::CreateRowAccessibilityView(
+    int row_index) {
+  auto ax_row = std::make_unique<AXVirtualView>();
+
+  ui::AXNodeData& row_data = ax_row->GetCustomData();
+  row_data.role = ax::mojom::Role::kRow;
+
+  row_data.AddIntAttribute(ax::mojom::IntAttribute::kTableRowIndex,
+                           static_cast<int32_t>(row_index));
+
+  if (!PlatformStyle::kTableViewSupportsKeyboardNavigationByCell) {
+    row_data.AddState(ax::mojom::State::kFocusable);
+    row_data.AddAction(ax::mojom::Action::kFocus);
+    row_data.AddAction(ax::mojom::Action::kScrollToMakeVisible);
+    row_data.AddAction(ax::mojom::Action::kSetSelection);
+  }
+
+  row_data.SetDefaultActionVerb(ax::mojom::DefaultActionVerb::kSelect);
+  if (!single_selection_)
+    row_data.AddState(ax::mojom::State::kMultiselectable);
+
+  // Add a dynamic accessibility data callback for each row.
+  ax_row->SetPopulateDataCallback(
+      base::BindRepeating(&TableView::PopulateAccessibilityRowData,
+                          base::Unretained(this), ax_row.get()));
+
+  for (size_t visible_column_index = 0;
+       visible_column_index < visible_columns_.size(); ++visible_column_index) {
+    std::unique_ptr<AXVirtualView> ax_cell =
+        CreateCellAccessibilityView(row_index, visible_column_index);
+    ax_row->AddChildView(std::move(ax_cell));
+  }
+
+  return ax_row;
+}
+
+std::unique_ptr<AXVirtualView> TableView::CreateCellAccessibilityView(
+    int row_index,
+    size_t column_index) {
+  const VisibleColumn& visible_column = visible_columns_[column_index];
+  const ui::TableColumn column = visible_column.column;
+  auto ax_cell = std::make_unique<AXVirtualView>();
+  ui::AXNodeData& cell_data = ax_cell->GetCustomData();
+  cell_data.role = ax::mojom::Role::kCell;
+
+  cell_data.AddIntAttribute(ax::mojom::IntAttribute::kTableCellRowIndex,
+                            static_cast<int32_t>(row_index));
+
+  if (PlatformStyle::kTableViewSupportsKeyboardNavigationByCell) {
+    cell_data.AddState(ax::mojom::State::kFocusable);
+    cell_data.AddAction(ax::mojom::Action::kFocus);
+    cell_data.AddAction(ax::mojom::Action::kScrollLeft);
+    cell_data.AddAction(ax::mojom::Action::kScrollRight);
+    cell_data.AddAction(ax::mojom::Action::kScrollToMakeVisible);
+    cell_data.AddAction(ax::mojom::Action::kSetSelection);
+  }
+
+  cell_data.AddIntAttribute(ax::mojom::IntAttribute::kTableCellRowSpan, 1);
+  cell_data.AddIntAttribute(ax::mojom::IntAttribute::kTableCellColumnIndex,
+                            static_cast<int32_t>(column_index));
+  cell_data.AddIntAttribute(ax::mojom::IntAttribute::kTableCellColumnSpan, 1);
+
+  if (base::i18n::IsRTL())
+    cell_data.SetTextDirection(ax::mojom::WritingDirection::kRtl);
+
+  auto sort_direction = ax::mojom::SortDirection::kUnsorted;
+  const base::Optional<int> primary_sorted_column_id =
+      sort_descriptors().empty()
+          ? base::nullopt
+          : base::make_optional(sort_descriptors()[0].column_id);
+
+  if (column.sortable && primary_sorted_column_id.has_value() &&
+      column.id == primary_sorted_column_id.value()) {
+    sort_direction = GetFirstSortDescriptorDirection();
+  }
+  cell_data.AddIntAttribute(ax::mojom::IntAttribute::kSortDirection,
+                            static_cast<int32_t>(sort_direction));
+
+  // Add a dynamic accessibility data callback for each cell.
+  ax_cell->SetPopulateDataCallback(
+      base::BindRepeating(&TableView::PopulateAccessibilityCellData,
+                          base::Unretained(this), ax_cell.get()));
+
+  return ax_cell;
+}
+
+void TableView::PopulateAccessibilityRowData(AXVirtualView* ax_row,
+                                             ui::AXNodeData* data) {
+  int ax_index = GetViewAccessibility().GetIndexOf(ax_row);
+  DCHECK_GE(ax_index, 0);
+
+  int row_index = ax_index - (header_ ? 1 : 0);
+  int model_index = ViewToModel(row_index);
+  DCHECK_GE(model_index, 0);
+
+  // When navigating using up / down cursor keys on the Mac, we read the
+  // contents of the first cell. If the user needs to explore additional cell's,
+  // they can use VoiceOver shortcuts.
+  if (!PlatformStyle::kTableViewSupportsKeyboardNavigationByCell)
+    data->SetName(model_->GetText(model_index, GetVisibleColumn(0).column.id));
+
+  gfx::Rect row_bounds = GetRowBounds(model_index);
+
+  if (!GetVisibleBounds().Intersects(row_bounds))
+    data->AddState(ax::mojom::State::kInvisible);
+
+  if (selection_model().IsSelected(model_index))
+    data->AddBoolAttribute(ax::mojom::BoolAttribute::kSelected, true);
+}
+
+void TableView::PopulateAccessibilityCellData(AXVirtualView* ax_cell,
+                                              ui::AXNodeData* data) {
+  AXVirtualView* ax_row = ax_cell->virtual_parent_view();
+  DCHECK(ax_row);
+
+  int ax_index = GetViewAccessibility().GetIndexOf(ax_row);
+  DCHECK_GE(ax_index, 0);
+
+  int row_index = ax_index - (header_ ? 1 : 0);
+  int column_index = ax_row->GetIndexOf(ax_cell);
+  DCHECK_GE(column_index, 0);
+
+  int model_index = ViewToModel(row_index);
+  DCHECK_GE(model_index, 0);
+
+  gfx::Rect cell_bounds = GetCellBounds(row_index, column_index);
+
+  if (!GetVisibleBounds().Intersects(cell_bounds))
+    data->AddState(ax::mojom::State::kInvisible);
+
+  if (PlatformStyle::kTableViewSupportsKeyboardNavigationByCell &&
+      static_cast<const int>(column_index) == GetActiveVisibleColumnIndex()) {
+    if (selection_model().IsSelected(model_index))
+      data->AddBoolAttribute(ax::mojom::BoolAttribute::kSelected, true);
+  }
+
+  // Set the cell's value since it changes dynamically.
+  base::string16 current_name = base::UTF8ToUTF16(
+      data->GetStringAttribute(ax::mojom::StringAttribute::kName));
+  base::string16 new_name =
+      model()->GetText(model_index, GetVisibleColumn(column_index).column.id);
+  data->SetName(new_name);
+  if (current_name != new_name)
+    NotifyAccessibilityEvent(ax::mojom::Event::kTextChanged, true);
+}
+
+std::unique_ptr<AXVirtualView> TableView::CreateHeaderAccessibilityView() {
+  DCHECK(header_) << "header_ needs to be instantiated before setting its"
+                     "accessibility view.";
 
   const base::Optional<int> primary_sorted_column_id =
       sort_descriptors().empty()
           ? base::nullopt
           : base::make_optional(sort_descriptors()[0].column_id);
-  if (header_) {
-    auto ax_header = std::make_unique<AXVirtualView>();
-    ui::AXNodeData& header_data = ax_header->GetCustomData();
-    header_data.role = ax::mojom::Role::kRow;
 
-    for (size_t visible_column_index = 0;
-         visible_column_index < visible_columns_.size();
-         ++visible_column_index) {
-      const VisibleColumn& visible_column =
-          visible_columns_[visible_column_index];
-      const ui::TableColumn column = visible_column.column;
-      auto ax_cell = std::make_unique<AXVirtualView>();
-      ui::AXNodeData& cell_data = ax_cell->GetCustomData();
-      cell_data.role = ax::mojom::Role::kColumnHeader;
-      cell_data.SetName(column.title);
-      cell_data.AddIntAttribute(ax::mojom::IntAttribute::kTableCellColumnIndex,
-                                static_cast<int32_t>(visible_column_index));
-      cell_data.AddIntAttribute(ax::mojom::IntAttribute::kTableCellColumnSpan,
-                                1);
-      if (base::i18n::IsRTL())
-        cell_data.SetTextDirection(ax::mojom::TextDirection::kRtl);
+  auto ax_header = std::make_unique<AXVirtualView>();
+  ui::AXNodeData& header_data = ax_header->GetCustomData();
+  header_data.role = ax::mojom::Role::kRow;
 
-      auto sort_direction = ax::mojom::SortDirection::kUnsorted;
-      if (column.sortable && primary_sorted_column_id.has_value() &&
-          column.id == primary_sorted_column_id.value()) {
-        DCHECK(!sort_descriptors().empty());
-        if (sort_descriptors()[0].ascending)
-          sort_direction = ax::mojom::SortDirection::kAscending;
-        else
-          sort_direction = ax::mojom::SortDirection::kDescending;
-      }
-      cell_data.AddIntAttribute(ax::mojom::IntAttribute::kSortDirection,
-                                static_cast<int32_t>(sort_direction));
-
-      ax_header->AddChildView(std::move(ax_cell));
+  for (size_t visible_column_index = 0;
+       visible_column_index < visible_columns_.size(); ++visible_column_index) {
+    const VisibleColumn& visible_column =
+        visible_columns_[visible_column_index];
+    const ui::TableColumn column = visible_column.column;
+    auto ax_cell = std::make_unique<AXVirtualView>();
+    ui::AXNodeData& cell_data = ax_cell->GetCustomData();
+    cell_data.role = ax::mojom::Role::kColumnHeader;
+    cell_data.SetName(column.title);
+    cell_data.AddIntAttribute(ax::mojom::IntAttribute::kTableCellColumnIndex,
+                              static_cast<int32_t>(visible_column_index));
+    cell_data.AddIntAttribute(ax::mojom::IntAttribute::kTableCellColumnSpan, 1);
+    if (base::i18n::IsRTL()) {
+      cell_data.SetTextDirection(ax::mojom::WritingDirection::kRtl);
     }
 
-    GetViewAccessibility().AddVirtualChildView(std::move(ax_header));
+    auto sort_direction = ax::mojom::SortDirection::kUnsorted;
+    if (column.sortable && primary_sorted_column_id.has_value() &&
+        column.id == primary_sorted_column_id.value()) {
+      sort_direction = GetFirstSortDescriptorDirection();
+    }
+    cell_data.AddIntAttribute(ax::mojom::IntAttribute::kSortDirection,
+                              static_cast<int32_t>(sort_direction));
+
+    ax_header->AddChildView(std::move(ax_cell));
   }
 
-  for (int view_index = 0; view_index < GetRowCount(); ++view_index) {
-    const int model_index = ViewToModel(view_index);
-    auto ax_row = std::make_unique<AXVirtualView>();
-    ui::AXNodeData& row_data = ax_row->GetCustomData();
-    row_data.role = ax::mojom::Role::kRow;
-
-    if (!PlatformStyle::kTableViewSupportsKeyboardNavigationByCell) {
-      row_data.AddState(ax::mojom::State::kFocusable);
-      row_data.AddAction(ax::mojom::Action::kFocus);
-      row_data.AddAction(ax::mojom::Action::kScrollToMakeVisible);
-      row_data.AddAction(ax::mojom::Action::kSetSelection);
-
-      // When navigating using up / down cursor keys on the Mac, we read the
-      // contents of the first cell. If the user needs to explore additional
-      // cells, they can use VoiceOver shortcuts.
-      row_data.SetName(
-          model_->GetText(model_index, visible_columns_[0].column.id));
-    }
-
-    row_data.SetDefaultActionVerb(ax::mojom::DefaultActionVerb::kSelect);
-    row_data.AddIntAttribute(ax::mojom::IntAttribute::kTableRowIndex,
-                             static_cast<int32_t>(view_index));
-    if (!single_selection_)
-      row_data.AddState(ax::mojom::State::kMultiselectable);
-
-    base::RepeatingCallback<void(ui::AXNodeData*)> row_callback =
-        base::BindRepeating(
-            [](TableView* table, int model_index, ui::AXNodeData* data) {
-              DCHECK(table);
-              gfx::Rect row_bounds =
-                  table->GetRowBounds(table->ModelToView(model_index));
-              if (!table->GetVisibleBounds().Intersects(row_bounds))
-                data->AddState(ax::mojom::State::kInvisible);
-              if (table->selection_model().IsSelected(model_index)) {
-                data->AddBoolAttribute(ax::mojom::BoolAttribute::kSelected,
-                                       true);
-              }
-            },
-            base::Unretained(this), model_index);
-    ax_row->SetPopulateDataCallback(std::move(row_callback));
-
-    for (size_t visible_column_index = 0;
-         visible_column_index < visible_columns_.size();
-         ++visible_column_index) {
-      const VisibleColumn& visible_column =
-          visible_columns_[visible_column_index];
-      const ui::TableColumn column = visible_column.column;
-      auto ax_cell = std::make_unique<AXVirtualView>();
-      ui::AXNodeData& cell_data = ax_cell->GetCustomData();
-      cell_data.role = ax::mojom::Role::kCell;
-      if (PlatformStyle::kTableViewSupportsKeyboardNavigationByCell) {
-        cell_data.AddState(ax::mojom::State::kFocusable);
-        cell_data.AddAction(ax::mojom::Action::kFocus);
-        cell_data.AddAction(ax::mojom::Action::kScrollLeft);
-        cell_data.AddAction(ax::mojom::Action::kScrollRight);
-        cell_data.AddAction(ax::mojom::Action::kScrollToMakeVisible);
-        cell_data.AddAction(ax::mojom::Action::kSetSelection);
-      }
-
-      cell_data.AddIntAttribute(ax::mojom::IntAttribute::kTableCellRowIndex,
-                                static_cast<int32_t>(view_index));
-      cell_data.AddIntAttribute(ax::mojom::IntAttribute::kTableCellRowSpan, 1);
-      cell_data.AddIntAttribute(ax::mojom::IntAttribute::kTableCellColumnIndex,
-                                static_cast<int32_t>(visible_column_index));
-      cell_data.AddIntAttribute(ax::mojom::IntAttribute::kTableCellColumnSpan,
-                                1);
-
-      cell_data.SetName(model_->GetText(model_index, column.id));
-      if (base::i18n::IsRTL())
-        cell_data.SetTextDirection(ax::mojom::TextDirection::kRtl);
-
-      auto sort_direction = ax::mojom::SortDirection::kUnsorted;
-      if (column.sortable && primary_sorted_column_id.has_value() &&
-          column.id == primary_sorted_column_id.value()) {
-        DCHECK(!sort_descriptors().empty());
-        if (sort_descriptors()[0].ascending)
-          sort_direction = ax::mojom::SortDirection::kAscending;
-        else
-          sort_direction = ax::mojom::SortDirection::kDescending;
-      }
-      cell_data.AddIntAttribute(ax::mojom::IntAttribute::kSortDirection,
-                                static_cast<int32_t>(sort_direction));
-
-      base::RepeatingCallback<void(ui::AXNodeData*)> cell_callback =
-          base::BindRepeating(
-              [](TableView* table, int model_index, size_t visible_column_index,
-                 ui::AXNodeData* data) {
-                DCHECK(table);
-                gfx::Rect cell_bounds = table->GetCellBounds(
-                    table->ModelToView(model_index), visible_column_index);
-                if (!table->GetVisibleBounds().Intersects(cell_bounds))
-                  data->AddState(ax::mojom::State::kInvisible);
-                if (PlatformStyle::kTableViewSupportsKeyboardNavigationByCell &&
-                    static_cast<const int>(visible_column_index) ==
-                        table->GetActiveVisibleColumnIndex()) {
-                  if (table->selection_model().IsSelected(model_index)) {
-                    data->AddBoolAttribute(ax::mojom::BoolAttribute::kSelected,
-                                           true);
-                  }
-                }
-              },
-              base::Unretained(this), model_index, visible_column_index);
-      ax_cell->SetPopulateDataCallback(std::move(cell_callback));
-
-      ax_row->AddChildView(std::move(ax_cell));
-    }
-
-    GetViewAccessibility().AddVirtualChildView(std::move(ax_row));
-  }
-
-  UpdateVirtualAccessibilityChildrenBounds();
+  return ax_header;
 }
 
-void TableView::ClearVirtualAccessibilityChildren() {
-  GetViewAccessibility().RemoveAllVirtualChildViews();
+bool TableView::UpdateVirtualAccessibilityRowData(AXVirtualView* ax_row,
+                                                  int view_index,
+                                                  int model_index) {
+  DCHECK_GE(view_index, 0);
+
+  ui::AXNodeData& row_data = ax_row->GetCustomData();
+
+  int previous_view_index =
+      row_data.GetIntAttribute(ax::mojom::IntAttribute::kTableRowIndex);
+  if (previous_view_index == view_index)
+    return false;
+
+  row_data.AddIntAttribute(ax::mojom::IntAttribute::kTableRowIndex,
+                           static_cast<int32_t>(view_index));
+
+  // Update the cell's in the current row to have the new data.
+  for (const auto& ax_cell : ax_row->children()) {
+    ui::AXNodeData& cell_data = ax_cell->GetCustomData();
+    cell_data.AddIntAttribute(ax::mojom::IntAttribute::kTableCellRowIndex,
+                              static_cast<int32_t>(view_index));
+  }
+
+  return true;
 }
 
 void TableView::UpdateVirtualAccessibilityChildrenBounds() {
@@ -1381,7 +1545,7 @@ void TableView::UpdateVirtualAccessibilityChildrenBounds() {
   if (header_) {
     auto& ax_row = virtual_children[0];
     ui::AXNodeData& row_data = ax_row->GetCustomData();
-    DCHECK_EQ(ax_row->GetData().role, ax::mojom::Role::kRow);
+    DCHECK_EQ(row_data.role, ax::mojom::Role::kRow);
     row_data.relative_bounds.bounds =
         gfx::RectF(CalculateHeaderRowAccessibilityBounds());
 
@@ -1391,10 +1555,14 @@ void TableView::UpdateVirtualAccessibilityChildrenBounds() {
          visible_column_index++) {
       ui::AXNodeData& cell_data =
           ax_row->children()[visible_column_index]->GetCustomData();
-
       DCHECK_EQ(cell_data.role, ax::mojom::Role::kColumnHeader);
-      cell_data.relative_bounds.bounds = gfx::RectF(
-          CalculateHeaderCellAccessibilityBounds(visible_column_index));
+
+      if (visible_column_index < visible_columns_.size()) {
+        cell_data.relative_bounds.bounds = gfx::RectF(
+            CalculateHeaderCellAccessibilityBounds(visible_column_index));
+      } else {
+        cell_data.relative_bounds.bounds = gfx::RectF();
+      }
     }
   }
 
@@ -1402,7 +1570,7 @@ void TableView::UpdateVirtualAccessibilityChildrenBounds() {
   for (int row_index = 0; row_index < GetRowCount(); row_index++) {
     auto& ax_row = virtual_children[header_ ? row_index + 1 : row_index];
     ui::AXNodeData& row_data = ax_row->GetCustomData();
-    DCHECK_EQ(ax_row->GetData().role, ax::mojom::Role::kRow);
+    DCHECK_EQ(row_data.role, ax::mojom::Role::kRow);
     row_data.relative_bounds.bounds =
         gfx::RectF(CalculateTableRowAccessibilityBounds(row_index));
 
@@ -1412,38 +1580,47 @@ void TableView::UpdateVirtualAccessibilityChildrenBounds() {
          visible_column_index++) {
       ui::AXNodeData& cell_data =
           ax_row->children()[visible_column_index]->GetCustomData();
-
       DCHECK_EQ(cell_data.role, ax::mojom::Role::kCell);
-      cell_data.relative_bounds.bounds =
-          gfx::RectF(CalculateTableCellAccessibilityBounds(
-              row_index, visible_column_index));
+
+      if (visible_column_index < visible_columns_.size()) {
+        cell_data.relative_bounds.bounds =
+            gfx::RectF(CalculateTableCellAccessibilityBounds(
+                row_index, visible_column_index));
+      } else {
+        cell_data.relative_bounds.bounds = gfx::RectF();
+      }
     }
   }
 }
 
 gfx::Rect TableView::CalculateHeaderRowAccessibilityBounds() const {
-  return AdjustRectForAXRelativeBounds(header_->GetVisibleBounds());
+  gfx::Rect header_bounds = header_->GetVisibleBounds();
+  gfx::Point header_origin = header_bounds.origin();
+  ConvertPointToTarget(header_, this, &header_origin);
+  header_bounds.set_origin(header_origin);
+  return header_bounds;
 }
 
 gfx::Rect TableView::CalculateHeaderCellAccessibilityBounds(
     const int visible_column_index) const {
+  const gfx::Rect& header_bounds = CalculateHeaderRowAccessibilityBounds();
   const VisibleColumn& visible_column = visible_columns_[visible_column_index];
-  gfx::Rect header_cell_bounds(visible_column.x, header_->y(),
-                               visible_column.width, header_->height());
-  return AdjustRectForAXRelativeBounds(header_cell_bounds);
+  gfx::Rect header_cell_bounds(visible_column.x, header_bounds.y(),
+                               visible_column.width, header_bounds.height());
+  return header_cell_bounds;
 }
 
 gfx::Rect TableView::CalculateTableRowAccessibilityBounds(
     const int row_index) const {
   gfx::Rect row_bounds = GetRowBounds(row_index);
-  return AdjustRectForAXRelativeBounds(row_bounds);
+  return row_bounds;
 }
 
 gfx::Rect TableView::CalculateTableCellAccessibilityBounds(
     const int row_index,
     const int visible_column_index) const {
   gfx::Rect cell_bounds = GetCellBounds(row_index, visible_column_index);
-  return AdjustRectForAXRelativeBounds(cell_bounds);
+  return cell_bounds;
 }
 
 void TableView::UpdateAccessibilityFocus() {
@@ -1460,15 +1637,13 @@ void TableView::UpdateAccessibilityFocus() {
   int active_row = ModelToView(selection_model_.active());
   if (!PlatformStyle::kTableViewSupportsKeyboardNavigationByCell) {
     AXVirtualView* ax_row = GetVirtualAccessibilityRow(active_row);
-    if (ax_row) {
+    if (ax_row)
       GetViewAccessibility().OverrideFocus(ax_row);
-    }
   } else {
     AXVirtualView* ax_cell =
         GetVirtualAccessibilityCell(active_row, active_visible_column_index_);
-    if (ax_cell) {
+    if (ax_cell)
       GetViewAccessibility().OverrideFocus(ax_cell);
-    }
   }
 }
 
@@ -1484,7 +1659,7 @@ AXVirtualView* TableView::GetVirtualAccessibilityRow(int row) {
     return ax_row.get();
   }
   NOTREACHED() << "|row| not found. Did you forget to call "
-                  "UpdateVirtualAccessibilityChildren()?";
+                  "RebuildVirtualAccessibilityChildren()?";
   return nullptr;
 }
 
@@ -1493,7 +1668,7 @@ AXVirtualView* TableView::GetVirtualAccessibilityCell(
     int visible_column_index) {
   AXVirtualView* ax_row = GetVirtualAccessibilityRow(row);
   DCHECK(ax_row) << "|row| not found. Did you forget to call "
-                    "UpdateVirtualAccessibilityChildren()?";
+                    "RebuildVirtualAccessibilityChildren()?";
   const auto matches_index = [visible_column_index](const auto& ax_cell) {
     DCHECK(ax_cell);
     DCHECK(ax_cell->GetData().role == ax::mojom::Role::kColumnHeader ||
@@ -1506,15 +1681,8 @@ AXVirtualView* TableView::GetVirtualAccessibilityCell(
                               ax_row->children().cend(), matches_index);
   DCHECK(i != ax_row->children().cend())
       << "|visible_column_index| not found. Did you forget to call "
-      << "UpdateVirtualAccessibilityChildren()?";
+      << "RebuildVirtualAccessibilityChildren()?";
   return i->get();
-}
-
-gfx::Rect TableView::AdjustRectForAXRelativeBounds(
-    const gfx::Rect& rect) const {
-  gfx::Rect converted_rect = rect;
-  View::ConvertRectToScreen(this, &converted_rect);
-  return converted_rect;
 }
 
 DEFINE_ENUM_CONVERTERS(TableTypes,
@@ -1522,17 +1690,16 @@ DEFINE_ENUM_CONVERTERS(TableTypes,
                        {TableTypes::ICON_AND_TEXT,
                         base::ASCIIToUTF16("ICON_AND_TEXT")})
 
-BEGIN_METADATA(TableView)
-METADATA_PARENT_CLASS(View)
-ADD_READONLY_PROPERTY_METADATA(TableView, int, RowCount)
-ADD_READONLY_PROPERTY_METADATA(TableView, int, FirstSelectedRow)
-ADD_READONLY_PROPERTY_METADATA(TableView, bool, HasFocusIndicator)
-ADD_PROPERTY_METADATA(TableView, int, ActiveVisibleColumnIndex)
-ADD_READONLY_PROPERTY_METADATA(TableView, bool, IsSorted)
-ADD_READONLY_PROPERTY_METADATA(TableView, int, RowHeight)
-ADD_PROPERTY_METADATA(TableView, bool, SelectOnRemove)
-ADD_READONLY_PROPERTY_METADATA(TableView, TableTypes, TableType)
-ADD_PROPERTY_METADATA(TableView, bool, SortOnPaint)
-END_METADATA()
+BEGIN_METADATA(TableView, View)
+ADD_READONLY_PROPERTY_METADATA(int, RowCount)
+ADD_READONLY_PROPERTY_METADATA(int, FirstSelectedRow)
+ADD_READONLY_PROPERTY_METADATA(bool, HasFocusIndicator)
+ADD_PROPERTY_METADATA(int, ActiveVisibleColumnIndex)
+ADD_READONLY_PROPERTY_METADATA(bool, IsSorted)
+ADD_READONLY_PROPERTY_METADATA(int, RowHeight)
+ADD_PROPERTY_METADATA(bool, SelectOnRemove)
+ADD_READONLY_PROPERTY_METADATA(TableTypes, TableType)
+ADD_PROPERTY_METADATA(bool, SortOnPaint)
+END_METADATA
 
 }  // namespace views

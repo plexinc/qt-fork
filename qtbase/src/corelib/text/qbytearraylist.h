@@ -46,6 +46,8 @@
 
 #include <QtCore/qbytearray.h>
 
+#include <limits>
+
 QT_BEGIN_NAMESPACE
 
 #if !defined(QT_NO_JAVA_STYLE_ITERATORS)
@@ -54,18 +56,16 @@ typedef QMutableListIterator<QByteArray> QMutableByteArrayListIterator;
 #endif
 
 #ifndef Q_CLANG_QDOC
-typedef QList<QByteArray> QByteArrayList;
 
 namespace QtPrivate {
     QByteArray Q_CORE_EXPORT QByteArrayList_join(const QByteArrayList *that, const char *separator, int separatorLength);
-    int Q_CORE_EXPORT QByteArrayList_indexOf(const QByteArrayList *that, const char *needle, int from);
 }
 #endif
 
 #ifdef Q_CLANG_QDOC
 class QByteArrayList : public QList<QByteArray>
 #else
-template <> struct QListSpecialMethods<QByteArray>
+template <> struct QListSpecialMethods<QByteArray> : QListSpecialMethodsBase<QByteArray>
 #endif
 {
 #ifndef Q_CLANG_QDOC
@@ -73,20 +73,19 @@ protected:
     ~QListSpecialMethods() = default;
 #endif
 public:
+    using QListSpecialMethodsBase<QByteArray>::indexOf;
+    using QListSpecialMethodsBase<QByteArray>::lastIndexOf;
+    using QListSpecialMethodsBase<QByteArray>::contains;
+
     inline QByteArray join() const
     { return QtPrivate::QByteArrayList_join(self(), nullptr, 0); }
     inline QByteArray join(const QByteArray &sep) const
-    { return QtPrivate::QByteArrayList_join(self(), sep.constData(), sep.size()); }
+    {
+        Q_ASSERT(sep.size() <= (std::numeric_limits<int>::max)());
+        return QtPrivate::QByteArrayList_join(self(), sep.data(), sep.size());
+    }
     inline QByteArray join(char sep) const
     { return QtPrivate::QByteArrayList_join(self(), &sep, 1); }
-
-    inline int indexOf(const char *needle, int from = 0) const
-    { return QtPrivate::QByteArrayList_indexOf(self(), needle, from); }
-
-private:
-    typedef QList<QByteArray> Self;
-    Self *self() { return static_cast<Self *>(this); }
-    const Self *self() const { return static_cast<const Self *>(this); }
 };
 
 QT_END_NAMESPACE

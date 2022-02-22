@@ -41,7 +41,7 @@ namespace blink {
 class CORE_EXPORT LinkLoaderClient : public GarbageCollectedMixin {
  public:
   virtual ~LinkLoaderClient() = default;
-  void Trace(Visitor* visitor) override {}
+  void Trace(Visitor* visitor) const override {}
 
   virtual bool ShouldLoadLink() = 0;
 
@@ -49,10 +49,6 @@ class CORE_EXPORT LinkLoaderClient : public GarbageCollectedMixin {
   virtual void LinkLoadingErrored() = 0;
   // There is no notification for cancellation.
 
-  virtual void DidStartLinkPrerender() = 0;
-  virtual void DidStopLinkPrerender() = 0;
-  virtual void DidSendLoadForLinkPrerender() = 0;
-  virtual void DidSendDOMContentLoadedForLinkPrerender() = 0;
   virtual bool IsLinkCreatedByParser() = 0;
 
   virtual scoped_refptr<base::SingleThreadTaskRunner>

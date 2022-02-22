@@ -15,9 +15,11 @@
 
 namespace base {
 class TestSimpleTaskRunner;
+
 namespace trace_event {
 class MemoryDumpManager;
 }  // namespace trace_event
+
 }  // namespace base
 
 namespace IPC {

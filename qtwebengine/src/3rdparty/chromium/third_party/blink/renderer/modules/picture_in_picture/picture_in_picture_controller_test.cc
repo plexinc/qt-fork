@@ -4,6 +4,8 @@
 
 #include "third_party/blink/renderer/modules/picture_in_picture/picture_in_picture_controller_impl.h"
 
+#include "media/mojo/mojom/media_player.mojom-blink.h"
+#include "mojo/public/cpp/bindings/pending_associated_remote.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
@@ -11,8 +13,6 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/public/mojom/picture_in_picture/picture_in_picture.mojom-blink.h"
-#include "third_party/blink/public/platform/web_media_stream.h"
-#include "third_party/blink/public/platform/web_media_stream_track.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/frame/frame_test_helpers.h"
 #include "third_party/blink/renderer/core/frame/web_local_frame_impl.h"
@@ -21,6 +21,8 @@
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
 #include "third_party/blink/renderer/core/testing/wait_for_event.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
+#include "third_party/blink/renderer/platform/mediastream/media_stream_component.h"
+#include "third_party/blink/renderer/platform/mediastream/media_stream_descriptor.h"
 #include "third_party/blink/renderer/platform/testing/empty_web_media_player.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
 
@@ -62,7 +64,7 @@ class MockPictureInPictureService
  public:
   MockPictureInPictureService() {
     // Setup default implementations.
-    ON_CALL(*this, StartSession(_, _, _, _, _, _))
+    ON_CALL(*this, StartSession(_, _, _, _, _, _, _))
         .WillByDefault(testing::Invoke(
             this, &MockPictureInPictureService::StartSessionInternal));
   }
@@ -76,9 +78,10 @@ class MockPictureInPictureService
         session_remote_.InitWithNewPipeAndPassReceiver()));
   }
 
-  MOCK_METHOD6(
+  MOCK_METHOD7(
       StartSession,
       void(uint32_t,
+           mojo::PendingAssociatedRemote<media::mojom::blink::MediaPlayer>,
            const base::Optional<viz::SurfaceId>&,
            const gfx::Size&,
            bool,
@@ -89,6 +92,7 @@ class MockPictureInPictureService
 
   void StartSessionInternal(
       uint32_t,
+      mojo::PendingAssociatedRemote<media::mojom::blink::MediaPlayer>,
       const base::Optional<viz::SurfaceId>&,
       const gfx::Size&,
       bool,
@@ -151,7 +155,7 @@ class PictureInPictureControllerTest : public PageTestBase {
         nullptr, PictureInPictureControllerFrameClient::Create(
                      std::make_unique<PictureInPictureControllerPlayer>()));
 
-    GetDocument().GetBrowserInterfaceBroker().SetBinderForTesting(
+    GetFrame().GetBrowserInterfaceBroker().SetBinderForTesting(
         mojom::blink::PictureInPictureService::Name_,
         WTF::BindRepeating(&MockPictureInPictureService::Bind,
                            WTF::Unretained(&mock_service_)));
@@ -164,10 +168,10 @@ class PictureInPictureControllerTest : public PageTestBase {
     std::string test_name =
         testing::UnitTest::GetInstance()->current_test_info()->name();
     if (test_name.find("MediaSource") != std::string::npos) {
-      blink::WebMediaStream web_media_stream;
-      blink::WebVector<blink::WebMediaStreamTrack> dummy_tracks;
-      web_media_stream.Initialize(dummy_tracks, dummy_tracks);
-      Video()->SetSrcObject(web_media_stream);
+      MediaStreamComponentVector dummy_tracks;
+      auto* descriptor = MakeGarbageCollected<MediaStreamDescriptor>(
+          dummy_tracks, dummy_tracks);
+      Video()->SetSrcObject(descriptor);
     } else {
       video_->SetSrc("http://example.com/foo.mp4");
     }
@@ -176,7 +180,7 @@ class PictureInPictureControllerTest : public PageTestBase {
   }
 
   void TearDown() override {
-    GetDocument().GetBrowserInterfaceBroker().SetBinderForTesting(
+    GetFrame().GetBrowserInterfaceBroker().SetBinderForTesting(
         mojom::blink::PictureInPictureService::Name_, {});
   }
 
@@ -195,7 +199,7 @@ TEST_F(PictureInPictureControllerTest, EnterPictureInPictureFiresEvent) {
 
   WebMediaPlayer* player = Video()->GetWebMediaPlayer();
   EXPECT_CALL(Service(),
-              StartSession(player->GetDelegateId(), player->GetSurfaceId(),
+              StartSession(player->GetDelegateId(), _, player->GetSurfaceId(),
                            player->NaturalSize(), true, _, _));
 
   PictureInPictureControllerImpl::From(GetDocument())
@@ -215,7 +219,7 @@ TEST_F(PictureInPictureControllerTest, ExitPictureInPictureFiresEvent) {
 
   WebMediaPlayer* player = Video()->GetWebMediaPlayer();
   EXPECT_CALL(Service(),
-              StartSession(player->GetDelegateId(), player->GetSurfaceId(),
+              StartSession(player->GetDelegateId(), _, player->GetSurfaceId(),
                            player->NaturalSize(), true, _, _));
 
   PictureInPictureControllerImpl::From(GetDocument())
@@ -243,7 +247,7 @@ TEST_F(PictureInPictureControllerTest, StartObserving) {
 
   WebMediaPlayer* player = Video()->GetWebMediaPlayer();
   EXPECT_CALL(Service(),
-              StartSession(player->GetDelegateId(), player->GetSurfaceId(),
+              StartSession(player->GetDelegateId(), _, player->GetSurfaceId(),
                            player->NaturalSize(), true, _, _));
 
   PictureInPictureControllerImpl::From(GetDocument())
@@ -263,7 +267,7 @@ TEST_F(PictureInPictureControllerTest, StopObserving) {
 
   WebMediaPlayer* player = Video()->GetWebMediaPlayer();
   EXPECT_CALL(Service(),
-              StartSession(player->GetDelegateId(), player->GetSurfaceId(),
+              StartSession(player->GetDelegateId(), _, player->GetSurfaceId(),
                            player->NaturalSize(), true, _, _));
 
   PictureInPictureControllerImpl::From(GetDocument())
@@ -292,7 +296,7 @@ TEST_F(PictureInPictureControllerTest, PlayPauseButton_InfiniteDuration) {
 
   WebMediaPlayer* player = Video()->GetWebMediaPlayer();
   EXPECT_CALL(Service(),
-              StartSession(player->GetDelegateId(), player->GetSurfaceId(),
+              StartSession(player->GetDelegateId(), _, player->GetSurfaceId(),
                            player->NaturalSize(), false, _, _));
 
   PictureInPictureControllerImpl::From(GetDocument())
@@ -312,7 +316,7 @@ TEST_F(PictureInPictureControllerTest, PlayPauseButton_MediaSource) {
 
   WebMediaPlayer* player = Video()->GetWebMediaPlayer();
   EXPECT_CALL(Service(),
-              StartSession(player->GetDelegateId(), player->GetSurfaceId(),
+              StartSession(player->GetDelegateId(), _, player->GetSurfaceId(),
                            player->NaturalSize(), false, _, _));
 
   PictureInPictureControllerImpl::From(GetDocument())

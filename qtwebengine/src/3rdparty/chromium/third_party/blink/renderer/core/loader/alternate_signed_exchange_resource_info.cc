@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/core/loader/alternate_signed_exchange_resource_info.h"
 
+#include "media/media_buildflags.h"
 #include "net/http/http_request_headers.h"
 #include "third_party/blink/public/common/web_package/signed_exchange_consts.h"
 #include "third_party/blink/public/common/web_package/web_package_request_matcher.h"
@@ -11,7 +12,6 @@
 #include "third_party/blink/public/platform/web_url.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource.h"
 #include "third_party/blink/renderer/platform/loader/link_header.h"
-#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/hash_functions.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_hash.h"
 
@@ -28,7 +28,14 @@ constexpr char kAllowedAltSxg[] = "allowed-alt-sxg";
 // TODO(horo): Move somewhere and use shared constant value.
 const char kDefaultAcceptHeader[] = "*/*";
 const char kStylesheetAcceptHeader[] = "text/css,*/*;q=0.1";
-const char kImageAcceptHeader[] = "image/webp,image/apng,image/*,*/*;q=0.8";
+
+#if BUILDFLAG(ENABLE_AV1_DECODER)
+constexpr char kImageAcceptHeader[] =
+    "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8";
+#else
+constexpr char kImageAcceptHeader[] =
+    "image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8";
+#endif
 
 using AlternateSignedExchangeMachingKey =
     std::pair<String /* anchor */,
@@ -141,12 +148,12 @@ AlternateSignedExchangeResourceInfo::FindMatchingEntry(
 AlternateSignedExchangeResourceInfo::Entry*
 AlternateSignedExchangeResourceInfo::FindMatchingEntry(
     const KURL& url,
-    mojom::RequestContextType request_context,
+    mojom::blink::RequestContextType request_context,
     const Vector<String>& languages) const {
   const char* accept_header = kDefaultAcceptHeader;
-  if (request_context == mojom::RequestContextType::STYLE) {
+  if (request_context == mojom::blink::RequestContextType::STYLE) {
     accept_header = kStylesheetAcceptHeader;
-  } else if (request_context == mojom::RequestContextType::IMAGE) {
+  } else if (request_context == mojom::blink::RequestContextType::IMAGE) {
     accept_header = kImageAcceptHeader;
   }
   return FindMatchingEntry(url, accept_header, languages);

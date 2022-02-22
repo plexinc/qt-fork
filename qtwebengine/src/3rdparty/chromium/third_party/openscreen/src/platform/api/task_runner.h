@@ -5,7 +5,7 @@
 #ifndef PLATFORM_API_TASK_RUNNER_H_
 #define PLATFORM_API_TASK_RUNNER_H_
 
-#include <future>  // NOLINT
+#include <future>
 #include <utility>
 
 #include "platform/api/time.h"
@@ -22,7 +22,7 @@ namespace openscreen {
 //     B runs (even if A and B run on different threads).
 class TaskRunner {
  public:
-  using Task = std::packaged_task<void() noexcept>;
+  using Task = std::packaged_task<void()>;
 
   virtual ~TaskRunner() = default;
 

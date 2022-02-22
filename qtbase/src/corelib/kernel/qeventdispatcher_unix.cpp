@@ -130,8 +130,8 @@ static void initThreadPipeFD(int fd)
 
 bool QThreadPipe::init()
 {
-#if defined(Q_OS_NACL) || defined(Q_OS_WASM)
-   // do nothing.
+#if defined(Q_OS_WASM)
+    // do nothing.
 #elif defined(Q_OS_VXWORKS)
     qsnprintf(name, sizeof(name), "/pipe/qt_%08x", int(taskIdSelf()));
 
@@ -322,7 +322,7 @@ QEventDispatcherUNIX::~QEventDispatcherUNIX()
 /*!
     \internal
 */
-void QEventDispatcherUNIX::registerTimer(int timerId, int interval, Qt::TimerType timerType, QObject *obj)
+void QEventDispatcherUNIX::registerTimer(int timerId, qint64 interval, Qt::TimerType timerType, QObject *obj)
 {
 #ifndef QT_NO_DEBUG
     if (timerId < 1 || interval < 0 || !obj) {
@@ -469,7 +469,7 @@ bool QEventDispatcherUNIX::processEvents(QEventLoop::ProcessEventsFlags flags)
 
     const bool include_timers = (flags & QEventLoop::X11ExcludeTimers) == 0;
     const bool include_notifiers = (flags & QEventLoop::ExcludeSocketNotifiers) == 0;
-    const bool wait_for_events = flags & QEventLoop::WaitForMoreEvents;
+    const bool wait_for_events = (flags & QEventLoop::WaitForMoreEvents) != 0;
 
     const bool canWait = (threadData->canWaitLocked()
                           && !d->interrupt.loadRelaxed()
@@ -519,12 +519,6 @@ bool QEventDispatcherUNIX::processEvents(QEventLoop::ProcessEventsFlags flags)
     return (nevents > 0);
 }
 
-bool QEventDispatcherUNIX::hasPendingEvents()
-{
-    extern uint qGlobalPostedEventsCount(); // from qapplication.cpp
-    return qGlobalPostedEventsCount();
-}
-
 int QEventDispatcherUNIX::remainingTime(int timerId)
 {
 #ifndef QT_NO_DEBUG
@@ -550,9 +544,6 @@ void QEventDispatcherUNIX::interrupt()
     d->interrupt.storeRelaxed(1);
     wakeUp();
 }
-
-void QEventDispatcherUNIX::flush()
-{ }
 
 QT_END_NAMESPACE
 

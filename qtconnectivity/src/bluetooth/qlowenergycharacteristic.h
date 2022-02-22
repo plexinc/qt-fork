@@ -73,8 +73,14 @@ public:
     ~QLowEnergyCharacteristic();
 
     QLowEnergyCharacteristic &operator=(const QLowEnergyCharacteristic &other);
-    bool operator==(const QLowEnergyCharacteristic &other) const;
-    bool operator!=(const QLowEnergyCharacteristic &other) const;
+    friend bool operator==(const QLowEnergyCharacteristic &a, const QLowEnergyCharacteristic &b)
+    {
+        return equals(a, b);
+    }
+    friend bool operator!=(const QLowEnergyCharacteristic &a, const QLowEnergyCharacteristic &b)
+    {
+        return !equals(a, b);
+    }
 
     QString name() const;
 
@@ -83,14 +89,20 @@ public:
     QByteArray value() const;
 
     QLowEnergyCharacteristic::PropertyTypes properties() const;
-    QLowEnergyHandle handle() const;
 
     QLowEnergyDescriptor descriptor(const QBluetoothUuid &uuid) const;
     QList<QLowEnergyDescriptor> descriptors() const;
 
+    QLowEnergyDescriptor clientCharacteristicConfiguration() const;
+
     bool isValid() const;
 
-protected:
+    static const QByteArray CCCDDisable;
+    static const QByteArray CCCDEnableNotification;
+    static const QByteArray CCCDEnableIndication;
+
+private:
+    QLowEnergyHandle handle() const;
     QLowEnergyHandle attributeHandle() const;
 
     QSharedPointer<QLowEnergyServicePrivate> d_ptr;
@@ -101,13 +113,13 @@ protected:
     friend class QLowEnergyControllerPrivateBluez;
     friend class QLowEnergyControllerPrivateBluezDBus;
     friend class QLowEnergyControllerPrivateCommon;
-    friend class QLowEnergyControllerPrivateWin32;
     friend class QLowEnergyControllerPrivateDarwin;
     friend class QLowEnergyControllerPrivateWinRT;
-    friend class QLowEnergyControllerPrivateWinRTNew;
     QLowEnergyCharacteristicPrivate *data = nullptr;
     QLowEnergyCharacteristic(QSharedPointer<QLowEnergyServicePrivate> p,
                              QLowEnergyHandle handle);
+
+    static bool equals(const QLowEnergyCharacteristic &a, const QLowEnergyCharacteristic &b);
 };
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(QLowEnergyCharacteristic::PropertyTypes)

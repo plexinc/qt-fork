@@ -5,7 +5,7 @@
 #include "gpu/gles2_conform_support/egl/context.h"
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "gpu/command_buffer/client/gles2_implementation.h"
 #include "gpu/command_buffer/client/gles2_lib.h"
@@ -44,6 +44,7 @@ const bool kLoseContextWhenOutOfMemory = false;
 const bool kSupportClientSideArrays = true;
 }
 
+namespace gles2_conform_support {
 namespace egl {
 // static
 gpu::GpuFeatureInfo Context::platform_gpu_feature_info_;
@@ -399,3 +400,4 @@ bool Context::Flush(gl::GLSurface* gl_surface) {
 }
 
 }  // namespace egl
+}  // namespace gles2_conform_support

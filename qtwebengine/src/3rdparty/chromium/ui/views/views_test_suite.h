@@ -9,12 +9,17 @@
 
 #include "build/build_config.h"
 
-#if defined(USE_AURA) && !defined(OS_CHROMEOS)
+#if defined(USE_AURA)
 #include <memory>
 
 namespace aura {
 class Env;
 }
+#endif
+
+#if defined(USE_OZONE)
+#include "ui/base/ui_base_features.h"
+#include "ui/ozone/public/ozone_platform.h"
 #endif
 
 namespace views {
@@ -32,16 +37,14 @@ class ViewsTestSuite : public base::TestSuite {
   void Initialize() override;
   void Shutdown() override;
 
-#if defined(USE_AURA) && !defined(OS_CHROMEOS)
+#if defined(USE_AURA)
   // Different test suites may wish to create Env differently.
   virtual void InitializeEnv();
   virtual void DestroyEnv();
 #endif
 
  private:
-#if defined(USE_AURA) && !defined(OS_CHROMEOS)
-  // On Chrome OS, aura::Env is set up in individual test fixtures, most notably
-  // ViewsTestBase.
+#if defined(USE_AURA)
   std::unique_ptr<aura::Env> env_;
 #endif
 
@@ -50,6 +53,17 @@ class ViewsTestSuite : public base::TestSuite {
 
   DISALLOW_COPY_AND_ASSIGN(ViewsTestSuite);
 };
+
+#if defined(USE_OZONE)
+// Skips the X11-specific test on Ozone if the current platform is not X11.
+#define SKIP_TEST_IF_NOT_OZONE_X11()                          \
+  if (features::IsUsingOzonePlatform() &&                     \
+      ui::OzonePlatform::GetPlatformNameForTest() != "x11") { \
+    GTEST_SKIP() << "This test is X11-only";                  \
+  }
+#else
+#define SKIP_TEST_IF_NOT_OZONE_X11()
+#endif
 
 }  // namespace views
 

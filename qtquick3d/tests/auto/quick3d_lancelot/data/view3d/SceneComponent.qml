@@ -48,15 +48,14 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.15
-import QtQuick3D 1.15
+import QtQuick
+import QtQuick3D
 
 Node {
     PerspectiveCamera {
         position: Qt.vector3d(0, 0, 200)
     }
     DirectionalLight {
-        brightness: 100
     }
     Model {
         source: "#Cube"

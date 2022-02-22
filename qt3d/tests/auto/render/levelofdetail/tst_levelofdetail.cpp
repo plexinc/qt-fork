@@ -33,7 +33,7 @@
 #include <Qt3DRender/private/levelofdetail_p.h>
 #include <Qt3DRender/private/qlevelofdetail_p.h>
 #include <Qt3DCore/private/qbackendnode_p.h>
-#include "testpostmanarbiter.h"
+#include "testarbiter.h"
 #include "testrenderer.h"
 
 class tst_LevelOfDetail : public Qt3DCore::QBackendNodeTester
@@ -113,7 +113,7 @@ private Q_SLOTS:
             renderer.clearDirtyBits(Qt3DRender::Render::AbstractRenderer::AllDirty);        }
 
         {
-            const QVector<qreal> thresholds = {20.f, 30.f, 40.f};
+            const QList<qreal> thresholds = { 20.f, 30.f, 40.f };
 
             // WHEN
             lod.setThresholds(thresholds);

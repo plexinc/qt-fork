@@ -47,7 +47,7 @@
 #include <private/qguiapplication_p.h>
 #include <QtGui/qpa/qplatformdialoghelper.h>
 #include <QtGui/qpa/qplatformtheme.h>
-#include <QtWidgets/qaction.h>
+#include <QtGui/qaction.h>
 
 #include "qdialogbuttonbox.h"
 
@@ -903,7 +903,7 @@ void QDialogButtonBoxPrivate::_q_handleButtonDestroyed()
     \property QDialogButtonBox::centerButtons
     \brief whether the buttons in the button box are centered
 
-    By default, this property is \c false. This behavior is appopriate
+    By default, this property is \c false. This behavior is appropriate
     for most types of dialogs. A notable exception is message boxes
     on most platforms (e.g. Windows), where the button box is
     centered horizontally.

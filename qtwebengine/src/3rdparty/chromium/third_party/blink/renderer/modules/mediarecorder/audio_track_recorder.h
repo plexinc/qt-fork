@@ -10,7 +10,6 @@
 #include "base/macros.h"
 #include "base/threading/thread_checker.h"
 #include "third_party/blink/public/platform/modules/mediastream/web_media_stream_audio_sink.h"
-#include "third_party/blink/public/platform/web_media_stream_track.h"
 #include "third_party/blink/renderer/modules/mediarecorder/track_recorder.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 
@@ -42,6 +41,8 @@ class MODULES_EXPORT AudioTrackRecorder
     LAST
   };
 
+  enum class BitrateMode { CONSTANT, VARIABLE };
+
   using OnEncodedAudioCB =
       base::RepeatingCallback<void(const media::AudioParameters& params,
                                    std::string encoded_data,
@@ -53,7 +54,8 @@ class MODULES_EXPORT AudioTrackRecorder
                      MediaStreamComponent* track,
                      OnEncodedAudioCB on_encoded_audio_cb,
                      base::OnceClosure on_track_source_ended_cb,
-                     int32_t bits_per_second);
+                     int32_t bits_per_second,
+                     BitrateMode bitrate_mode);
   ~AudioTrackRecorder() override;
 
   // Implement MediaStreamAudioSink.
@@ -70,7 +72,8 @@ class MODULES_EXPORT AudioTrackRecorder
   static scoped_refptr<AudioTrackEncoder> CreateAudioEncoder(
       CodecId codec,
       OnEncodedAudioCB on_encoded_audio_cb,
-      int32_t bits_per_second);
+      int32_t bits_per_second,
+      BitrateMode bitrate_mode);
 
   void ConnectToTrack();
   void DisconnectFromTrack();

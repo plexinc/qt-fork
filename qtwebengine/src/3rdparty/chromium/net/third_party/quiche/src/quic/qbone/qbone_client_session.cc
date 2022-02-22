@@ -2,13 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/qbone/qbone_client_session.h"
+#include "quic/qbone/qbone_client_session.h"
 
 #include <utility>
 
-#include "net/third_party/quiche/src/quic/core/quic_types.h"
-#include "net/third_party/quiche/src/quic/qbone/qbone_constants.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/quic_types.h"
+#include "quic/qbone/qbone_constants.h"
 
 namespace quic {
 
@@ -30,7 +30,8 @@ QboneClientSession::~QboneClientSession() {}
 
 std::unique_ptr<QuicCryptoStream> QboneClientSession::CreateCryptoStream() {
   return std::make_unique<QuicCryptoClientStream>(
-      server_id_, this, nullptr, quic_crypto_client_config_, this);
+      server_id_, this, nullptr, quic_crypto_client_config_, this,
+      /*has_application_state = */ true);
 }
 
 void QboneClientSession::Initialize() {
@@ -41,7 +42,8 @@ void QboneClientSession::Initialize() {
       ->CryptoConnect();
   // Register the reserved control stream.
   QuicStreamId next_id = GetNextOutgoingBidirectionalStreamId();
-  DCHECK_EQ(next_id, QboneConstants::GetControlStreamId(transport_version()));
+  QUICHE_DCHECK_EQ(next_id,
+                   QboneConstants::GetControlStreamId(transport_version()));
   auto control_stream =
       std::make_unique<QboneClientControlStream>(this, handler_);
   control_stream_ = control_stream.get();
@@ -76,13 +78,11 @@ bool QboneClientSession::SendServerRequest(const QboneServerRequest& request) {
   return control_stream_->SendRequest(request);
 }
 
-void QboneClientSession::ProcessPacketFromNetwork(
-    quiche::QuicheStringPiece packet) {
+void QboneClientSession::ProcessPacketFromNetwork(absl::string_view packet) {
   SendPacketToPeer(packet);
 }
 
-void QboneClientSession::ProcessPacketFromPeer(
-    quiche::QuicheStringPiece packet) {
+void QboneClientSession::ProcessPacketFromPeer(absl::string_view packet) {
   writer_->WritePacketToNetwork(packet.data(), packet.size());
 }
 
@@ -93,8 +93,7 @@ void QboneClientSession::OnProofVerifyDetailsAvailable(
     const ProofVerifyDetails& verify_details) {}
 
 bool QboneClientSession::HasActiveRequests() const {
-  return (stream_map().size() - num_incoming_static_streams() -
-          num_outgoing_static_streams()) > 0;
+  return GetNumActiveStreams() + num_draining_streams() > 0;
 }
 
 }  // namespace quic

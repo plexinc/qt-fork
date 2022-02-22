@@ -38,9 +38,8 @@
 ****************************************************************************/
 
 // SHSTOCKICONINFO is only available since Vista
-#if _WIN32_WINNT < 0x0601
-#  undef _WIN32_WINNT
-#  define _WIN32_WINNT 0x0601
+#ifndef _WIN32_WINNT
+#  define _WIN32_WINNT 0x0A00
 #endif
 
 #include "qwindowstheme.h"
@@ -76,8 +75,8 @@
 #include <QtGui/qpainter.h>
 #include <QtGui/qpixmapcache.h>
 #include <qpa/qwindowsysteminterface.h>
-#include <QtThemeSupport/private/qabstractfileiconengine_p.h>
-#include <QtFontDatabaseSupport/private/qwindowsfontdatabase_p.h>
+#include <QtGui/private/qabstractfileiconengine_p.h>
+#include <QtGui/private/qwindowsfontdatabase_p.h>
 #include <private/qhighdpiscaling_p.h>
 #include <private/qsystemlibrary_p.h>
 #include <private/qwinregistry_p.h>
@@ -269,6 +268,12 @@ static inline QPalette standardPalette()
     return palette;
 }
 
+static QColor placeHolderColor(QColor textColor)
+{
+    textColor.setAlpha(128);
+    return textColor;
+}
+
 static void populateLightSystemBasePalette(QPalette &result)
 {
     result.setColor(QPalette::WindowText, getSysColor(COLOR_WINDOWTEXT));
@@ -278,7 +283,9 @@ static void populateLightSystemBasePalette(QPalette &result)
     result.setColor(QPalette::Light, btnHighlight);
     result.setColor(QPalette::Dark, getSysColor(COLOR_BTNSHADOW));
     result.setColor(QPalette::Mid, result.button().color().darker(150));
-    result.setColor(QPalette::Text, getSysColor(COLOR_WINDOWTEXT));
+    const QColor textColor = getSysColor(COLOR_WINDOWTEXT);
+    result.setColor(QPalette::Text, textColor);
+    result.setColor(QPalette::PlaceholderText, placeHolderColor(textColor));
     result.setColor(QPalette::BrightText, btnHighlight);
     result.setColor(QPalette::Base, getSysColor(COLOR_WINDOW));
     result.setColor(QPalette::Window, btnFace);
@@ -300,6 +307,7 @@ static void populateDarkSystemBasePalette(QPalette &result)
     result.setColor(QPalette::Dark, QColor(darkModeBtnShadowRgb));
     result.setColor(QPalette::Mid, result.button().color().darker(150));
     result.setColor(QPalette::Text, darkModeWindowText);
+    result.setColor(QPalette::PlaceholderText, placeHolderColor(darkModeWindowText));
     result.setColor(QPalette::BrightText, btnHighlight);
     result.setColor(QPalette::Base, darkModebtnFace);
     result.setColor(QPalette::Window, darkModebtnFace);
@@ -520,6 +528,11 @@ QVariant QWindowsTheme::themeHint(ThemeHint hint) const
     return QPlatformTheme::themeHint(hint);
 }
 
+QPlatformTheme::Appearance QWindowsTheme::appearance() const
+{
+    return QWindowsContext::isDarkMode() ? Appearance::Dark : Appearance::Light;
+}
+
 void QWindowsTheme::clearPalettes()
 {
     qDeleteAll(m_palettes, m_palettes + NPalettes);
@@ -533,7 +546,7 @@ void QWindowsTheme::refreshPalettes()
         return;
     const bool light =
         !QWindowsContext::isDarkMode()
-        || (QWindowsIntegration::instance()->options() & QWindowsIntegration::DarkModeStyle) == 0;
+        || !QWindowsIntegration::instance()->darkModeHandling().testFlag(QWindowsApplication::DarkModeStyle);
     m_palettes[SystemPalette] = new QPalette(systemPalette(light));
     m_palettes[ToolTipPalette] = new QPalette(toolTipPalette(*m_palettes[SystemPalette], light));
     m_palettes[MenuPalette] = new QPalette(menuPalette(*m_palettes[SystemPalette], light));
@@ -566,18 +579,23 @@ void QWindowsTheme::refresh()
 }
 
 #ifndef QT_NO_DEBUG_STREAM
-QDebug operator<<(QDebug d, const LOGFONT &lf); // in platformsupport
-
 QDebug operator<<(QDebug d, const NONCLIENTMETRICS &m)
 {
     QDebugStateSaver saver(d);
     d.nospace();
     d.noquote();
     d << "NONCLIENTMETRICS(iMenu=" << m.iMenuWidth  << 'x' << m.iMenuHeight
-      << ", lfCaptionFont=" << m.lfCaptionFont << ", lfSmCaptionFont="
-      << m.lfSmCaptionFont << ", lfMenuFont=" << m.lfMenuFont
-      <<  ", lfMessageFont=" << m.lfMessageFont << ", lfStatusFont="
-      << m.lfStatusFont << ')';
+      << ", lfCaptionFont=";
+    QWindowsFontDatabase::debugFormat(d, m.lfCaptionFont);
+    d << ", lfSmCaptionFont=";
+    QWindowsFontDatabase::debugFormat(d, m.lfSmCaptionFont);
+    d << ", lfMenuFont=";
+    QWindowsFontDatabase::debugFormat(d, m.lfMenuFont);
+    d <<  ", lfMessageFont=";
+    QWindowsFontDatabase::debugFormat(d, m.lfMessageFont);
+    d <<", lfStatusFont=";
+    QWindowsFontDatabase::debugFormat(d, m.lfStatusFont);
+    d << ')';
     return d;
 }
 #endif // QT_NO_DEBUG_STREAM
@@ -835,7 +853,7 @@ class FakePointer
 {
 public:
 
-    Q_STATIC_ASSERT_X(sizeof(T) <= sizeof(void *), "FakePointers can only go that far.");
+    static_assert(sizeof(T) <= sizeof(void *), "FakePointers can only go that far.");
 
     static FakePointer *create(T thing)
     {
@@ -871,8 +889,8 @@ static QPixmap pixmapFromShellImageList(int iImageList, const SHFILEINFO &info)
     }
     imageList->Release();
 #else
-    Q_UNUSED(iImageList)
-    Q_UNUSED(info)
+    Q_UNUSED(iImageList);
+    Q_UNUSED(info);
 #endif // USE_IIMAGELIST
     return result;
 }
@@ -883,7 +901,7 @@ public:
     explicit QWindowsFileIconEngine(const QFileInfo &info, QPlatformTheme::IconOptions opts) :
         QAbstractFileIconEngine(info, opts) {}
 
-    QList<QSize> availableSizes(QIcon::Mode = QIcon::Normal, QIcon::State = QIcon::Off) const override
+    QList<QSize> availableSizes(QIcon::Mode = QIcon::Normal, QIcon::State = QIcon::Off) override
     { return QWindowsTheme::instance()->availableFileIconSizes(); }
 
 protected:

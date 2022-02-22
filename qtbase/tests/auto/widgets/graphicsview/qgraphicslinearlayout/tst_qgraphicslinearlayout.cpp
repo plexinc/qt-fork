@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <qgraphicslinearlayout.h>
 #include <qgraphicsproxywidget.h>
 #include <qgraphicswidget.h>
@@ -107,7 +107,7 @@ public:
         layoutDirectionChange(0)
         { }
 
-    void widgetEvent(QEvent *e)
+    void widgetEvent(QEvent *e) override
     {
         switch (e->type()) {
         case QEvent::GraphicsSceneResize:
@@ -143,9 +143,9 @@ void tst_QGraphicsLinearLayout::initTestCase()
 class RectWidget : public QGraphicsWidget
 {
 public:
-    RectWidget(QGraphicsItem *parent = 0, const QBrush &brush = QBrush()) : QGraphicsWidget(parent){ m_brush = brush;}
+    RectWidget(QGraphicsItem *parent = nullptr, const QBrush &brush = QBrush()) : QGraphicsWidget(parent){ m_brush = brush;}
 
-    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget)
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override
     {
         Q_UNUSED(option);
         Q_UNUSED(widget);
@@ -158,7 +158,8 @@ public:
         updateGeometry();
     }
 
-    virtual QSizeF sizeHint(Qt::SizeHint which, const QSizeF &constraint = QSizeF()) const {
+    virtual QSizeF sizeHint(Qt::SizeHint which, const QSizeF &constraint = QSizeF()) const override
+    {
         if (m_sizeHints[which].isValid()) {
             return m_sizeHints[which];
         }
@@ -513,7 +514,7 @@ void tst_QGraphicsLinearLayout::insertItem()
     for (int i = 0; i < layoutCount; ++i)
         layout.addItem(new SubQGraphicsLinearLayout);
 
-    QGraphicsLayoutItem *item = 0;
+    QGraphicsLayoutItem *item = nullptr;
     if (isWidget)
         item = new QGraphicsWidget;
     else
@@ -570,7 +571,7 @@ void tst_QGraphicsLinearLayout::insertStretch()
     scene.addItem(widget);
 
     QList<QGraphicsWidget *>items;
-    QGraphicsWidget *item = 0;
+    QGraphicsWidget *item = nullptr;
     for (int i = 0; i < itemCount; ++i) {
         item = new RectWidget;
         item->setMinimumSize(10, 10);
@@ -791,7 +792,7 @@ void tst_QGraphicsLinearLayout::removeAt()
         layout.addItem(new SubQGraphicsLinearLayout);
     QSizeF oldSizeHint = layout.sizeHint(Qt::PreferredSize, QSizeF());
 
-    QGraphicsLayoutItem *w = 0;
+    QGraphicsLayoutItem *w = nullptr;
     if (removeItemAt >= 0 && removeItemAt < layout.count())
         w = layout.itemAt(removeItemAt);
     if (w) {
@@ -841,7 +842,7 @@ void tst_QGraphicsLinearLayout::removeItem()
     for (int i = 0; i < layoutCount; ++i)
         layout.addItem(new SubQGraphicsLinearLayout);
 
-    QGraphicsLayoutItem *w = 0;
+    QGraphicsLayoutItem *w = nullptr;
     if (removeItemAt >= 0 && removeItemAt < layout.count())
         w = layout.itemAt(removeItemAt);
     QSizeF oldSizeHint = layout.sizeHint(Qt::PreferredSize, QSizeF());

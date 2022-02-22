@@ -68,14 +68,14 @@ public:
     LogicalDevice();
     void cleanup();
 
-    inline QVector<Qt3DCore::QNodeId> axes() const { return m_axes; }
-    inline QVector<Qt3DCore::QNodeId> actions() const { return m_actions; }
+    inline QList<Qt3DCore::QNodeId> axes() const { return m_axes; }
+    inline QList<Qt3DCore::QNodeId> actions() const { return m_actions; }
 
     void syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firstTime) override;
 
 private:
-    QVector<Qt3DCore::QNodeId> m_axes;
-    QVector<Qt3DCore::QNodeId> m_actions;
+    QList<Qt3DCore::QNodeId> m_axes;
+    QList<Qt3DCore::QNodeId> m_actions;
 };
 
 
@@ -84,7 +84,7 @@ class LogicalDeviceNodeFunctor : public Qt3DCore::QBackendNodeMapper
 public:
     explicit LogicalDeviceNodeFunctor(LogicalDeviceManager *manager);
 
-    Qt3DCore::QBackendNode *create(const Qt3DCore::QNodeCreatedChangeBasePtr &change) const final;
+    Qt3DCore::QBackendNode *create(Qt3DCore::QNodeId id) const final;
     Qt3DCore::QBackendNode *get(Qt3DCore::QNodeId id) const final;
     void destroy(Qt3DCore::QNodeId id) const final;
 

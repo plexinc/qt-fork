@@ -14,12 +14,14 @@
 
 import * as m from 'mithril';
 
-import {assertTrue} from '../base/logging';
+import {assertExists, assertTrue} from '../base/logging';
 import {Actions} from '../common/actions';
 import {QueryResponse} from '../common/queries';
-import {EngineMode} from '../common/state';
+import {EngineMode, TraceArrayBufferSource} from '../common/state';
+import * as version from '../gen/perfetto_version';
 
 import {Animation} from './animation';
+import {copyToClipboard} from './clipboard';
 import {globals} from './globals';
 import {toggleHelp} from './help_modal';
 import {
@@ -27,25 +29,20 @@ import {
   openFileWithLegacyTraceViewer,
 } from './legacy_trace_viewer';
 import {showModal} from './modal';
+import {isDownloadable, isShareable} from './trace_attrs';
 
 const ALL_PROCESSES_QUERY = 'select name, pid from process order by name;';
 
 const CPU_TIME_FOR_PROCESSES = `
 select
   process.name,
-  tot_proc/1e9 as cpu_sec
-from
-  (select
-    upid,
-    sum(tot_thd) as tot_proc
-  from
-    (select
-      utid,
-      sum(dur) as tot_thd
-    from sched group by utid)
-  join thread using(utid) group by upid)
+  sum(dur)/1e9 as cpu_sec
+from sched
+join thread using(utid)
 join process using(upid)
-order by cpu_sec desc limit 100;`;
+group by upid
+order by cpu_sec desc
+limit 100;`;
 
 const CYCLES_PER_P_STATE_PER_CPU = `
 select
@@ -64,26 +61,30 @@ from (
 ) group by cpu, freq
 order by mcycles desc limit 32;`;
 
-const CPU_TIME_BY_CLUSTER_BY_PROCESS = `
-select process.name as process, thread, core, cpu_sec from (
-  select thread.name as thread, upid,
-    case when cpug = 0 then 'little' else 'big' end as core,
-    cpu_sec from (select cpu/4 as cpug, utid, sum(dur)/1e9 as cpu_sec
-    from sched group by utid, cpug order by cpu_sec desc
-  ) inner join thread using(utid)
-) inner join process using(upid) limit 30;`;
+const CPU_TIME_BY_CPU_BY_PROCESS = `
+select
+  process.name as process,
+  thread.name as thread,
+  cpu,
+  sum(dur) / 1e9 as cpu_sec
+from sched
+inner join thread using(utid)
+inner join process using(upid)
+group by utid, cpu
+order by cpu_sec desc
+limit 30;`;
 
 const HEAP_GRAPH_BYTES_PER_TYPE = `
 select
-  upid,
-  graph_sample_ts,
-  type_name,
-  sum(self_size) as total_self_size
-from heap_graph_object
+  o.upid,
+  o.graph_sample_ts,
+  c.name,
+  sum(o.self_size) as total_self_size
+from heap_graph_object o join heap_graph_class c on o.type_id = c.id
 group by
- upid,
- graph_sample_ts,
- type_name
+ o.upid,
+ o.graph_sample_ts,
+ c.name
 order by total_self_size desc
 limit 100;`;
 
@@ -96,7 +97,7 @@ select query,
 from sqlstats, first
 order by started desc`;
 
-const TRACE_STATS = 'select * from stats order by severity, source, name, idx';
+let lastTabTitle = '';
 
 function createCannedQuery(query: string): (_: Event) => void {
   return (e: Event) => {
@@ -105,6 +106,16 @@ function createCannedQuery(query: string): (_: Event) => void {
       engineId: '0',
       queryId: 'command',
       query,
+    }));
+  };
+}
+
+function showDebugTrack(): (_: Event) => void {
+  return (e: Event) => {
+    e.preventDefault();
+    globals.dispatch(Actions.addDebugTrack({
+      engineId: Object.keys(globals.state.engines)[0],
+      name: 'Debug Slices',
     }));
   };
 }
@@ -135,13 +146,13 @@ const SECTIONS = [
     summary: 'Actions on the current trace',
     expanded: true,
     hideIfNoTraceLoaded: true,
+    appendOpenedTraceTitle: true,
     items: [
       {t: 'Show timeline', a: navigateViewer, i: 'line_style'},
       {
         t: 'Share',
-        a: dispatchCreatePermalink,
+        a: shareTrace,
         i: 'share',
-        checkDownloadDisabled: true,
         internalUserOnly: true,
       },
       {
@@ -151,6 +162,9 @@ const SECTIONS = [
         checkDownloadDisabled: true,
       },
       {t: 'Legacy UI', a: openCurrentTraceWithOldUI, i: 'filter_none'},
+      {t: 'Query (SQL)', a: navigateAnalyze, i: 'control_camera'},
+      {t: 'Metrics', a: navigateMetrics, i: 'speed'},
+      {t: 'Info and stats', a: navigateInfo, i: 'info'},
     ],
   },
   {
@@ -175,6 +189,11 @@ const SECTIONS = [
     summary: 'Compute summary statistics',
     items: [
       {
+        t: 'Show Debug Track',
+        a: showDebugTrack(),
+        i: 'view_day',
+      },
+      {
         t: 'All Processes',
         a: createCannedQuery(ALL_PROCESSES_QUERY),
         i: 'search',
@@ -190,19 +209,14 @@ const SECTIONS = [
         i: 'search',
       },
       {
-        t: 'CPU Time by cluster by process',
-        a: createCannedQuery(CPU_TIME_BY_CLUSTER_BY_PROCESS),
+        t: 'CPU Time by CPU by process',
+        a: createCannedQuery(CPU_TIME_BY_CPU_BY_PROCESS),
         i: 'search',
       },
       {
         t: 'Heap Graph: Bytes per type',
         a: createCannedQuery(HEAP_GRAPH_BYTES_PER_TYPE),
         i: 'search',
-      },
-      {
-        t: 'Trace stats',
-        a: createCannedQuery(TRACE_STATS),
-        i: 'bug_report',
       },
       {
         t: 'Debug SQL performance',
@@ -270,6 +284,7 @@ function popupFileSelectionDialogOldUI(e: Event) {
 function openCurrentTraceWithOldUI(e: Event) {
   e.preventDefault();
   console.assert(isTraceLoaded());
+  globals.logging.logEvent('Trace Actions', 'Open current trace in legacy UI');
   if (!isTraceLoaded) return;
   const engine = Object.values(globals.state.engines)[0];
   const src = engine.source;
@@ -277,13 +292,30 @@ function openCurrentTraceWithOldUI(e: Event) {
     openInOldUIWithSizeCheck(new Blob([src.buffer]));
   } else if (src.type === 'FILE') {
     openInOldUIWithSizeCheck(src.file);
+  } else if (src.type === 'URL') {
+    m.request({
+       method: 'GET',
+       url: src.url,
+       // TODO(hjd): Once mithril is updated we can use responseType here rather
+       // than using config and remove the extract below.
+       config: xhr => {
+         xhr.responseType = 'blob';
+         xhr.onprogress = progress => {
+           const percent = (100 * progress.loaded / progress.total).toFixed(1);
+           globals.dispatch(Actions.updateStatus({
+             msg: `Downloading trace ${percent}%`,
+             timestamp: Date.now() / 1000,
+           }));
+         };
+       },
+       extract: xhr => {
+         return xhr.response;
+       }
+     }).then(result => {
+      openInOldUIWithSizeCheck(result as Blob);
+    });
   } else {
-    throw new Error('Loading from a URL to catapult is not yet supported');
-    // TODO(nicomazz): Find how to get the data of the current trace if it is
-    // from a URL. It seems that the trace downloaded is given to the trace
-    // processor, but not kept somewhere accessible. Maybe the only way is to
-    // download the trace (again), and then open it. An alternative can be to
-    // save a copy.
+    throw new Error(`Loading to catapult from source with type ${src.type}`);
   }
 }
 
@@ -301,6 +333,7 @@ function popupVideoSelectionDialog(e: Event) {
 
 function openTraceUrl(url: string): (e: Event) => void {
   return e => {
+    globals.logging.logEvent('Trace Actions', 'Open example trace');
     e.preventDefault();
     globals.frontendLocalState.localOnlyMode = false;
     globals.dispatch(Actions.openTraceFromUrl({url}));
@@ -344,12 +377,13 @@ function onInputElementFileSelectionChanged(e: Event) {
     globals.dispatch(Actions.openVideoFromFile({file}));
     return;
   }
-
+  globals.logging.logEvent('Trace Actions', 'Open trace from file');
   globals.dispatch(Actions.openTraceFromFile({file}));
 }
 
 async function openWithLegacyUi(file: File) {
   // Switch back to the old catapult UI.
+  globals.logging.logEvent('Trace Actions', 'Open trace in Legacy UI');
   if (await isLegacyTrace(file)) {
     openFileWithLegacyTraceViewer(file);
     return;
@@ -420,31 +454,67 @@ function navigateRecord(e: Event) {
   globals.dispatch(Actions.navigate({route: '/record'}));
 }
 
+function navigateAnalyze(e: Event) {
+  e.preventDefault();
+  globals.dispatch(Actions.navigate({route: '/query'}));
+}
+
+function navigateMetrics(e: Event) {
+  e.preventDefault();
+  globals.dispatch(Actions.navigate({route: '/metrics'}));
+}
+
+function navigateInfo(e: Event) {
+  e.preventDefault();
+  globals.dispatch(Actions.navigate({route: '/info'}));
+}
+
 function navigateViewer(e: Event) {
   e.preventDefault();
   globals.dispatch(Actions.navigate({route: '/viewer'}));
 }
 
-function isDownloadAndShareDisabled(): boolean {
-  if (globals.frontendLocalState.localOnlyMode) return true;
-  const engine = Object.values(globals.state.engines)[0];
-  if (engine && engine.source.type === 'HTTP_RPC') return true;
-  return false;
-}
-
-function dispatchCreatePermalink(e: Event) {
+function shareTrace(e: Event) {
   e.preventDefault();
-  if (isDownloadAndShareDisabled() || !isTraceLoaded()) return;
+  const engine = assertExists(Object.values(globals.state.engines)[0]);
+  const traceUrl = (engine.source as (TraceArrayBufferSource)).url || '';
+
+  // If the trace is not shareable (has been pushed via postMessage()) but has
+  // a url, create a pseudo-permalink by echoing back the URL.
+  if (!isShareable()) {
+    const msg =
+        [m('p',
+           'This trace was opened by an external site and as such cannot ' +
+               'be re-shared preserving the UI state.')];
+    if (traceUrl) {
+      msg.push(m('p', 'By using the URL below you can open this trace again.'));
+      msg.push(m('p', 'Clicking will copy the URL into the clipboard.'));
+      msg.push(createTraceLink(traceUrl, traceUrl));
+    }
+
+    showModal({
+      title: 'Cannot create permalink from external trace',
+      content: m('div', msg),
+      buttons: []
+    });
+    return;
+  }
+
+  if (!isShareable() || !isTraceLoaded()) return;
 
   const result = confirm(
       `Upload the trace and generate a permalink. ` +
       `The trace will be accessible by anybody with the permalink.`);
-  if (result) globals.dispatch(Actions.createPermalink({}));
+  if (result) {
+    globals.logging.logEvent('Trace Actions', 'Create permalink');
+    globals.dispatch(Actions.createPermalink({isRecordingConfig: false}));
+  }
 }
 
 function downloadTrace(e: Event) {
   e.preventDefault();
-  if (!isTraceLoaded() || isDownloadAndShareDisabled()) return;
+  if (!isDownloadable() || !isTraceLoaded()) return;
+  globals.logging.logEvent('Trace Actions', 'Download trace');
 
   const engine = Object.values(globals.state.engines)[0];
   if (!engine) return;
@@ -468,6 +538,7 @@ function downloadTrace(e: Event) {
   const a = document.createElement('a');
   a.href = url;
   a.download = fileName;
+  a.target = '_blank';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -611,6 +682,17 @@ const SidebarFooter: m.Component = {
             'assessment')),
         m(EngineRPCWidget),
         m(ServiceWorkerWidget),
+        m(
+            '.version',
+            m('a',
+              {
+                href: `https://github.com/google/perfetto/tree/${
+                    version.SCM_REVISION}/ui`,
+                title: `Channel: ${globals.channel}`,
+                target: '_blank',
+              },
+              `${version.VERSION}`),
+            ),
     );
   }
 };
@@ -625,26 +707,69 @@ export class Sidebar implements m.ClassComponent {
       if (section.hideIfNoTraceLoaded && !isTraceLoaded()) continue;
       const vdomItems = [];
       for (const item of section.items) {
+        let css = '';
         let attrs = {
           onclick: typeof item.a === 'function' ? item.a : null,
           href: typeof item.a === 'string' ? item.a : '#',
           target: typeof item.a === 'string' ? '_blank' : null,
           disabled: false,
         };
+        if (item.a === openCurrentTraceWithOldUI &&
+            globals.state.traceConversionInProgress) {
+          attrs.onclick = e => e.preventDefault();
+          css = '.pending';
+        }
         if ((item as {internalUserOnly: boolean}).internalUserOnly === true) {
           if (!globals.isInternalUser) continue;
         }
-        if (isDownloadAndShareDisabled() &&
-            item.hasOwnProperty('checkDownloadDisabled')) {
+        if (!isDownloadable() && item.hasOwnProperty('checkDownloadDisabled')) {
           attrs = {
-            onclick: () => alert('Can not download or share external trace.'),
+            onclick: e => {
+              e.preventDefault();
+              alert('Can not download external trace.');
+            },
             href: '#',
             target: null,
             disabled: true,
           };
         }
-        vdomItems.push(
-            m('li', m('a', attrs, m('i.material-icons', item.i), item.t)));
+        vdomItems.push(m(
+            'li', m(`a${css}`, attrs, m('i.material-icons', item.i), item.t)));
+      }
+      if (section.appendOpenedTraceTitle) {
+        const engines = Object.values(globals.state.engines);
+        if (engines.length === 1) {
+          let traceTitle = '';
+          let traceUrl = '';
+          switch (engines[0].source.type) {
+            case 'FILE':
+              // Split on both \ and / (because C:\Windows\paths\are\like\this).
+              traceTitle = engines[0].source.file.name.split(/[/\\]/).pop()!;
+              const fileSizeMB = Math.ceil(engines[0].source.file.size / 1e6);
+              traceTitle += ` (${fileSizeMB} MB)`;
+              break;
+            case 'URL':
+              traceUrl = engines[0].source.url;
+              traceTitle = traceUrl.split('/').pop()!;
+              break;
+            case 'ARRAY_BUFFER':
+              traceTitle = engines[0].source.title;
+              traceUrl = engines[0].source.url || '';
+              break;
+            case 'HTTP_RPC':
+              traceTitle = 'External trace (RPC)';
+              break;
+            default:
+              break;
+          }
+          if (traceTitle !== '') {
+            const tabTitle = `${traceTitle} - Perfetto UI`;
+            if (tabTitle !== lastTabTitle) {
+              document.title = lastTabTitle = tabTitle;
+            }
+            vdomItems.unshift(m('li', createTraceLink(traceTitle, traceUrl)));
+          }
+        }
       }
       vdomSections.push(
           m(`section${section.expanded ? '.expanded' : ''}`,
@@ -695,8 +820,8 @@ export class Sidebar implements m.ClassComponent {
           ontransitionend: () => this._redrawWhileAnimating.stop(),
         },
         m(
-            'header',
-            m('img[src=assets/brand.png].brand'),
+            `header.${globals.channel}`,
+            m(`img[src=${globals.root}assets/brand.png].brand`),
             m('button.sidebar-button',
               {
                 onclick: () => {
@@ -720,4 +845,21 @@ export class Sidebar implements m.ClassComponent {
               )),
     );
   }
+}
+
+function createTraceLink(title: string, url: string) {
+  const linkProps = {
+    href: url,
+    title: url !== '' ? 'Click to copy the URL' : '',
+    target: '_blank',
+    onclick: (e: Event) => {
+      e.preventDefault();
+      copyToClipboard(url);
+      globals.dispatch(Actions.updateStatus({
+        msg: 'Link copied into the clipboard',
+        timestamp: Date.now() / 1000,
+      }));
+    },
+  };
+  return m('a.trace-file-name', linkProps, title);
 }

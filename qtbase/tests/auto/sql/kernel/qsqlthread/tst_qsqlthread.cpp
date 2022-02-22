@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 
 
 #include "../qsqldatabase/tst_databases.h"
@@ -36,7 +36,7 @@
 #include <QtSql>
 #include "qdebug.h"
 
-const QString qtest(qTableName("qtest", __FILE__, QSqlDatabase()));
+QString qtest;
 // set this define if Oracle is built with threading support
 //#define QOCI_THREADED
 
@@ -93,7 +93,7 @@ class QtTestSqlThread : public QThread
 {
     Q_OBJECT
 public:
-    QtTestSqlThread(const QSqlDatabase &aDb, QObject *parent = 0)
+    QtTestSqlThread(const QSqlDatabase &aDb, QObject *parent = nullptr)
         : QThread(parent), sourceDb(aDb) {}
 
     void runHelper(const QString &dbName)
@@ -110,7 +110,7 @@ public:
         q.clear();
     }
 
-    void run()
+    void run() override
     {
         QString dbName = QString("QThreadDb%1").arg((size_t)currentThreadId());
         runHelper(dbName);
@@ -129,7 +129,7 @@ class SqlProducer: public QThread
 {
     Q_OBJECT
 public:
-    SqlProducer(const QSqlDatabase &aDb, QObject *parent = 0)
+    SqlProducer(const QSqlDatabase &aDb, QObject *parent = nullptr)
         : QThread(parent), sourceDb(aDb) {}
 
     void runHelper(const QString &dbName)
@@ -148,7 +148,7 @@ public:
         }
     }
 
-    void run()
+    void run() override
     {
         QString dbName = QString("Producer%1").arg((size_t)currentThreadId());
         runHelper(dbName);
@@ -164,7 +164,7 @@ class SqlConsumer: public QThread
     Q_OBJECT
 
 public:
-    SqlConsumer(const QSqlDatabase &aDb, QObject *parent = 0)
+    SqlConsumer(const QSqlDatabase &aDb, QObject *parent = nullptr)
         : QThread(parent), sourceDb(aDb) {}
 
     void runHelper(const QString &dbName)
@@ -184,7 +184,7 @@ public:
         }
     }
 
-    void run()
+    void run() override
     {
         QString dbName = QString("Consumer%1").arg((size_t)currentThreadId());
         runHelper(dbName);
@@ -203,10 +203,10 @@ class SqlThread: public QThread
 public:
     enum Mode { SimpleReading, PreparedReading, SimpleWriting, PreparedWriting };
 
-    SqlThread(Mode m, const QSqlDatabase &db, QObject *parent = 0)
+    SqlThread(Mode m, const QSqlDatabase &db, QObject *parent = nullptr)
         : QThread(parent), sourceDb(db), mode(m) {}
 
-    void run()
+    void run() override
     {
         QSqlDatabase &db = sourceDb;
         switch (mode) {
@@ -263,6 +263,8 @@ private:
 tst_QSqlThread::tst_QSqlThread()
     : threadFinishedCount(0)
 {
+    static QSqlDatabase static_qtest_db = QSqlDatabase();
+    qtest = qTableName("qtest", __FILE__, static_qtest_db);
 }
 
 tst_QSqlThread::~tst_QSqlThread()

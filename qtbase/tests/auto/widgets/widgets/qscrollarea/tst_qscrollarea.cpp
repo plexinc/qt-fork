@@ -27,12 +27,13 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include <qcoreapplication.h>
 #include <qdebug.h>
 #include <qscrollarea.h>
 #include <qlayout.h>
+#include <qscrollbar.h>
 
 class tst_QScrollArea : public QObject
 {
@@ -46,6 +47,7 @@ private slots:
     void getSetCheck();
     void ensureMicroFocusVisible_Task_167838();
     void checkHFW_Task_197736();
+    void stableHeightForWidth();
 };
 
 tst_QScrollArea::tst_QScrollArea()
@@ -80,12 +82,12 @@ void tst_QScrollArea::getSetCheck()
 class WidgetWithMicroFocus : public QWidget
 {
 public:
-    WidgetWithMicroFocus(QWidget *parent = 0) : QWidget(parent)
+    WidgetWithMicroFocus(QWidget *parent = nullptr) : QWidget(parent)
     {
         setBackgroundRole(QPalette::Dark);
     }
 protected:
-    QVariant inputMethodQuery(Qt::InputMethodQuery query) const
+    QVariant inputMethodQuery(Qt::InputMethodQuery query) const override
     {
         if (query == Qt::ImCursorRectangle)
             return QRect(width() / 2, height() / 2, 5, 5);
@@ -120,7 +122,7 @@ class HFWWidget : public QWidget
 {
     public:
         HFWWidget();
-        int heightForWidth(int w) const;
+        int heightForWidth(int w) const override;
 };
 
 HFWWidget::HFWWidget()
@@ -163,6 +165,62 @@ void tst_QScrollArea::checkHFW_Task_197736()
     w->resize(QSize(200,200));
     QCOMPARE(w->width(), 200);
     QCOMPARE(w->height(), 200);
+}
+
+
+/*
+    If the scroll area rides the size where, due to the height-for-width
+    implementation of the widget, the vertical scrollbar is needed only
+    if the vertical scrollbar is visible, then we don't want it to flip
+    back and forth, but rather constrain the width of the widget.
+    See QTBUG-92958.
+*/
+void tst_QScrollArea::stableHeightForWidth()
+{
+    struct HeightForWidthWidget : public QWidget
+    {
+        HeightForWidthWidget()
+        {
+            QSizePolicy policy = sizePolicy();
+            policy.setHeightForWidth(true);
+            setSizePolicy(policy);
+        }
+        // Aspect ratio 1:1
+        int heightForWidth(int width) const override { return width; }
+    };
+
+    class HeightForWidthArea : public QScrollArea
+    {
+    public:
+        HeightForWidthArea()
+        {
+            this->verticalScrollBar()->installEventFilter(this);
+        }
+    protected:
+        bool eventFilter(QObject *obj, QEvent *e) override
+        {
+            if (obj == verticalScrollBar() && e->type() == QEvent::Hide)
+                ++m_hideCount;
+            return QScrollArea::eventFilter(obj,e);
+        }
+    public:
+        int m_hideCount = 0;
+    };
+
+    HeightForWidthArea area;
+    HeightForWidthWidget equalWHWidget;
+    area.setWidget(&equalWHWidget);
+    area.setWidgetResizable(true);
+    // at this size, the widget wants to be 501 pixels high,
+    // requiring a vertical scrollbar in a 499 pixel high area.
+    // but the width resulting from showing the scrollbar would
+    // be less than 499, so no scrollbars would be needed anymore.
+    area.resize(501, 499);
+    area.show();
+    QTest::qWait(500);
+    // if the scrollbar got hidden more than once, then the layout
+    // isn't stable.
+    QVERIFY(area.m_hideCount <= 1);
 }
 
 QTEST_MAIN(tst_QScrollArea)

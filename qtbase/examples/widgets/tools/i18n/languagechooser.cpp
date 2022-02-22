@@ -97,12 +97,12 @@ LanguageChooser::LanguageChooser(const QString &defaultLang, QWidget *parent)
     setWindowTitle("I18N");
 }
 
-bool LanguageChooser::languageMatch(const QString &lang, const QString &qmFile)
+bool LanguageChooser::languageMatch(QStringView lang, QStringView qmFile)
 {
     //qmFile: i18n_xx.qm
-    const QString prefix = "i18n_";
+    const QStringView prefix{ u"i18n_" };
     const int langTokenLength = 2; /*FIXME: is checking two chars enough?*/
-    return qmFile.midRef(qmFile.indexOf(prefix) + prefix.length(), langTokenLength) == lang.leftRef(langTokenLength);
+    return qmFile.mid(qmFile.indexOf(prefix) + prefix.length(), langTokenLength) == lang.left(langTokenLength);
 }
 
 bool LanguageChooser::eventFilter(QObject *object, QEvent *event)
@@ -129,8 +129,11 @@ void LanguageChooser::checkBoxToggled()
     MainWindow *window = mainWindowForCheckBoxMap.value(checkBox);
     if (!window) {
         QTranslator translator;
-        translator.load(qmFileForCheckBoxMap.value(checkBox));
-        qApp->installTranslator(&translator);
+        const QString qmlFile = qmFileForCheckBoxMap.value(checkBox);
+        if (translator.load(qmlFile))
+            QCoreApplication::installTranslator(&translator);
+        else
+            qWarning("Unable to load %s", qPrintable(QDir::toNativeSeparators(qmlFile)));
 
         window = new MainWindow;
         window->setPalette(colorForLanguage(checkBox->text()));
@@ -166,14 +169,16 @@ QStringList LanguageChooser::findQmFiles()
 QString LanguageChooser::languageName(const QString &qmFile)
 {
     QTranslator translator;
-    translator.load(qmFile);
-
+    if (!translator.load(qmFile)) {
+        qWarning("Unable to load %s", qPrintable(QDir::toNativeSeparators(qmFile)));
+        return {};
+    }
     return translator.translate("MainWindow", "English");
 }
 
 QColor LanguageChooser::colorForLanguage(const QString &language)
 {
-    uint hashValue = qHash(language);
+    size_t hashValue = qHash(language);
     int red = 156 + (hashValue & 0x3F);
     int green = 156 + ((hashValue >> 6) & 0x3F);
     int blue = 156 + ((hashValue >> 12) & 0x3F);

@@ -41,6 +41,7 @@
 #include "qtexturefiledata_p.h"
 #include <QtEndian>
 #include <QSize>
+#include <QtCore/qiodevice.h>
 
 //#define KTX_DEBUG
 #ifdef KTX_DEBUG
@@ -103,9 +104,16 @@ struct KTXMipmapLevel {
     */
 };
 
+// Returns the nearest multiple of 'rounding' greater than or equal to 'value'
+constexpr quint32 withPadding(quint32 value, quint32 rounding)
+{
+    Q_ASSERT(rounding > 1);
+    return value + (rounding - 1) - ((value + (rounding - 1)) % rounding);
+}
+
 bool QKtxHandler::canRead(const QByteArray &suffix, const QByteArray &block)
 {
-    Q_UNUSED(suffix)
+    Q_UNUSED(suffix);
 
     return (qstrncmp(block.constData(), ktxIdentifier, KTX_IDENTIFIER_LENGTH) == 0);
 }
@@ -137,16 +145,30 @@ QTextureFileData QKtxHandler::read()
     texData.setGLBaseInternalFormat(decode(header->glBaseInternalFormat));
 
     texData.setNumLevels(decode(header->numberOfMipmapLevels));
-    quint32 offset = headerSize + decode(header->bytesOfKeyValueData);
-    const int maxLevels = qMin(texData.numLevels(), 32);               // Cap iterations in case of corrupt file.
-    for (int i = 0; i < maxLevels; i++) {
-        if (offset + sizeof(KTXMipmapLevel) > dataSize)                // Corrupt file; avoid oob read
+    texData.setNumFaces(decode(header->numberOfFaces));
+
+    const quint32 bytesOfKeyValueData = decode(header->bytesOfKeyValueData);
+    if (headerSize + bytesOfKeyValueData < quint64(buf.length())) // oob check
+        texData.setKeyValueMetadata(
+                decodeKeyValues(QByteArrayView(buf.data() + headerSize, bytesOfKeyValueData)));
+    quint32 offset = headerSize + bytesOfKeyValueData;
+
+    constexpr int MAX_ITERATIONS = 32; // cap iterations in case of corrupt data
+
+    for (int level = 0; level < qMin(texData.numLevels(), MAX_ITERATIONS); level++) {
+        if (offset + sizeof(quint32) > dataSize) // Corrupt file; avoid oob read
             break;
-        const KTXMipmapLevel *level = reinterpret_cast<const KTXMipmapLevel *>(buf.constData() + offset);
-        quint32 levelLen = decode(level->imageSize);
-        texData.setDataOffset(offset + sizeof(KTXMipmapLevel::imageSize), i);
-        texData.setDataLength(levelLen, i);
-        offset += sizeof(KTXMipmapLevel::imageSize) + levelLen + (3 - ((levelLen + 3) % 4));
+
+        const quint32 imageSize = decode(qFromUnaligned<quint32>(buf.constData() + offset));
+        offset += sizeof(quint32);
+
+        for (int face = 0; face < qMin(texData.numFaces(), MAX_ITERATIONS); face++) {
+            texData.setDataOffset(offset, level, face);
+            texData.setDataLength(imageSize, level, face);
+
+            // Add image data and padding to offset
+            offset += withPadding(imageSize, 4);
+        }
     }
 
     if (!texData.isValid()) {
@@ -174,9 +196,12 @@ bool QKtxHandler::checkHeader(const KTXHeader &header)
     qDebug("Header of %s:", logName().constData());
     qDebug("  glType: 0x%x (%s)", decode(header.glType), ptme.valueToKey(decode(header.glType)));
     qDebug("  glTypeSize: %u", decode(header.glTypeSize));
-    qDebug("  glFormat: 0x%x (%s)", decode(header.glFormat), tfme.valueToKey(decode(header.glFormat)));
-    qDebug("  glInternalFormat: 0x%x (%s)", decode(header.glInternalFormat), tfme.valueToKey(decode(header.glInternalFormat)));
-    qDebug("  glBaseInternalFormat: 0x%x (%s)", decode(header.glBaseInternalFormat), tfme.valueToKey(decode(header.glBaseInternalFormat)));
+    qDebug("  glFormat: 0x%x (%s)", decode(header.glFormat),
+           tfme.valueToKey(decode(header.glFormat)));
+    qDebug("  glInternalFormat: 0x%x (%s)", decode(header.glInternalFormat),
+           tfme.valueToKey(decode(header.glInternalFormat)));
+    qDebug("  glBaseInternalFormat: 0x%x (%s)", decode(header.glBaseInternalFormat),
+           tfme.valueToKey(decode(header.glBaseInternalFormat)));
     qDebug("  pixelWidth: %u", decode(header.pixelWidth));
     qDebug("  pixelHeight: %u", decode(header.pixelHeight));
     qDebug("  pixelDepth: %u", decode(header.pixelDepth));
@@ -185,13 +210,47 @@ bool QKtxHandler::checkHeader(const KTXHeader &header)
     qDebug("  numberOfMipmapLevels: %u", decode(header.numberOfMipmapLevels));
     qDebug("  bytesOfKeyValueData: %u", decode(header.bytesOfKeyValueData));
 #endif
-    return ((decode(header.glType) == 0) &&
-            (decode(header.glFormat) == 0) &&
-            (decode(header.pixelDepth) == 0) &&
-            (decode(header.numberOfFaces) == 1));
+    const bool isCompressedImage = decode(header.glType) == 0 && decode(header.glFormat) == 0
+            && decode(header.pixelDepth) == 0;
+    const bool isCubeMap = decode(header.numberOfFaces) == 6;
+    const bool is2D = decode(header.pixelDepth) == 0 && decode(header.numberOfArrayElements) == 0;
+
+    return is2D && (isCubeMap || isCompressedImage);
 }
 
-quint32 QKtxHandler::decode(quint32 val)
+QMap<QByteArray, QByteArray> QKtxHandler::decodeKeyValues(QByteArrayView view) const
+{
+    QMap<QByteArray, QByteArray> output;
+    quint32 offset = 0;
+    while (offset < view.size() + sizeof(quint32)) {
+        const quint32 keyAndValueByteSize =
+                decode(qFromUnaligned<quint32>(view.constData() + offset));
+        offset += sizeof(quint32);
+
+        if (offset + keyAndValueByteSize > quint64(view.size()))
+            break; // oob read
+
+        // 'key' is a UTF-8 string ending with a null terminator, 'value' is the rest.
+        // To separate the key and value we convert the complete data to utf-8 and find the first
+        // null terminator from the left, here we split the data into two.
+        const auto str = QString::fromUtf8(view.constData() + offset, keyAndValueByteSize);
+        const int idx = str.indexOf(QLatin1Char('\0'));
+        if (idx == -1)
+            continue;
+
+        const QByteArray key = str.left(idx).toUtf8();
+        const size_t keySize = key.size() + 1; // Actual data size
+        const QByteArray value = QByteArray::fromRawData(view.constData() + offset + keySize,
+                                                         keyAndValueByteSize - keySize);
+
+        offset = withPadding(offset + keyAndValueByteSize, 4);
+        output.insert(key, value);
+    }
+
+    return output;
+}
+
+quint32 QKtxHandler::decode(quint32 val) const
 {
     return inverseEndian ? qbswap<quint32>(val) : val;
 }

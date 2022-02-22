@@ -54,8 +54,8 @@
 #include <QtCore/QUrl>
 #include <QtCore/QHash>
 #include <QtCore/QDebug>
+#include <QtCore/QTypeRevision>
 #include <private/qtqmlcompilerglobal_p.h>
-#include <private/qqmljsengine_p.h>
 #include <private/qqmljsdiagnosticmessage_p.h>
 
 QT_BEGIN_NAMESPACE
@@ -87,22 +87,23 @@ public:
     {
         Plugin() = default;
 
-        Plugin(const QString &name, const QString &path)
-            : name(name), path(path)
+        Plugin(const QString &name, const QString &path, bool optional)
+            : name(name), path(path), optional(optional)
         {
             checkNonRelative("Plugin", name, path);
         }
 
         QString name;
         QString path;
+        bool optional = false;
     };
 
     struct Component
     {
         Component() = default;
 
-        Component(const QString &typeName, const QString &fileName, int majorVersion, int minorVersion)
-            : typeName(typeName), fileName(fileName), majorVersion(majorVersion), minorVersion(minorVersion),
+        Component(const QString &typeName, const QString &fileName, QTypeRevision version)
+            : typeName(typeName), fileName(fileName), version(version),
             internal(false), singleton(false)
         {
             checkNonRelative("Component", typeName, fileName);
@@ -110,8 +111,7 @@ public:
 
         QString typeName;
         QString fileName;
-        int majorVersion = 0;
-        int minorVersion = 0;
+        QTypeRevision version = QTypeRevision::zero();
         bool internal = false;
         bool singleton = false;
     };
@@ -120,37 +120,48 @@ public:
     {
         Script() = default;
 
-        Script(const QString &nameSpace, const QString &fileName, int majorVersion, int minorVersion)
-            : nameSpace(nameSpace), fileName(fileName), majorVersion(majorVersion), minorVersion(minorVersion)
+        Script(const QString &nameSpace, const QString &fileName, QTypeRevision version)
+            : nameSpace(nameSpace), fileName(fileName), version(version)
         {
             checkNonRelative("Script", nameSpace, fileName);
         }
 
         QString nameSpace;
         QString fileName;
-        int majorVersion = 0;
-        int minorVersion = 0;
+        QTypeRevision version = QTypeRevision::zero();
+    };
+
+    struct Import
+    {
+        enum Flag {
+            Default  = 0x0,
+            Auto     = 0x1, // forward the version of the importing module
+            Optional = 0x2  // is not automatically imported but only a tooling hint
+        };
+        Q_DECLARE_FLAGS(Flags, Flag)
+
+        Import() = default;
+        Import(QString module, QTypeRevision version, Flags flags)
+            : module(module), version(version), flags(flags)
+        {
+        }
+
+        QString module;
+        QTypeRevision version;     // invalid version is latest version, unless Flag::Auto
+        Flags flags;
     };
 
     QMultiHash<QString,Component> components() const;
-    QHash<QString,Component> dependencies() const;
-    QStringList imports() const;
+    QList<Import> dependencies() const;
+    QList<Import> imports() const;
     QList<Script> scripts() const;
     QList<Plugin> plugins() const;
     bool designerSupported() const;
 
-    struct TypeInfo
-    {
-        TypeInfo() = default;
-        TypeInfo(const QString &fileName)
-            : fileName(fileName) {}
-
-        QString fileName;
-    };
-
-    QList<TypeInfo> typeInfos() const;
-
-    QString className() const;
+    QStringList typeInfos() const;
+    QStringList classNames() const;
+    QString preferredPath() const;
+    QString linkTarget() const { return _linkTarget; }
 
 private:
     bool maybeAddComponent(const QString &typeName, const QString &fileName, const QString &version, QHash<QString,Component> &hash, int lineNumber = -1, bool multi = true);
@@ -159,19 +170,22 @@ private:
 private:
     QList<QQmlJS::DiagnosticMessage> _errors;
     QString _typeNamespace;
+    QString _preferredPath;
     QMultiHash<QString,Component> _components;
-    QHash<QString,Component> _dependencies;
-    QStringList _imports;
+    QList<Import> _dependencies;
+    QList<Import> _imports;
     QList<Script> _scripts;
     QList<Plugin> _plugins;
     bool _designerSupported = false;
-    QList<TypeInfo> _typeInfos;
-    QString _className;
+    QStringList _typeInfos;
+    QStringList _classNames;
+    QString _linkTarget;
 };
 
 using QQmlDirComponents = QMultiHash<QString,QQmlDirParser::Component>;
 using QQmlDirScripts = QList<QQmlDirParser::Script>;
 using QQmlDirPlugins = QList<QQmlDirParser::Plugin>;
+using QQmlDirImports = QList<QQmlDirParser::Import>;
 
 QDebug &operator<< (QDebug &, const QQmlDirParser::Component &);
 QDebug &operator<< (QDebug &, const QQmlDirParser::Script &);

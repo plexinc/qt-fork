@@ -22,38 +22,46 @@
 namespace dawn_native { namespace opengl {
 
     class Device;
+    class PipelineLayout;
 
-    std::string GetBindingName(uint32_t group, uint32_t binding);
+    std::string GetBindingName(BindGroupIndex group, BindingNumber bindingNumber);
 
     struct BindingLocation {
-        uint32_t group;
-        uint32_t binding;
+        BindGroupIndex group;
+        BindingNumber binding;
     };
     bool operator<(const BindingLocation& a, const BindingLocation& b);
 
     struct CombinedSampler {
         BindingLocation samplerLocation;
         BindingLocation textureLocation;
+        // OpenGL requires a sampler with texelFetch. If this is true, the developer did not provide
+        // one and Dawn should bind a dummy non-filtering sampler. |samplerLocation| is unused.
+        bool useDummySampler;
         std::string GetName() const;
     };
     bool operator<(const CombinedSampler& a, const CombinedSampler& b);
 
-    class ShaderModule : public ShaderModuleBase {
+    using CombinedSamplerInfo = std::vector<CombinedSampler>;
+
+    class ShaderModule final : public ShaderModuleBase {
       public:
         static ResultOrError<ShaderModule*> Create(Device* device,
-                                                   const ShaderModuleDescriptor* descriptor);
+                                                   const ShaderModuleDescriptor* descriptor,
+                                                   ShaderModuleParseResult* parseResult);
 
-        using CombinedSamplerInfo = std::vector<CombinedSampler>;
-
-        const char* GetSource() const;
-        const CombinedSamplerInfo& GetCombinedSamplerInfo() const;
+        std::string TranslateToGLSL(const char* entryPointName,
+                                    SingleShaderStage stage,
+                                    CombinedSamplerInfo* combinedSamplers,
+                                    const PipelineLayout* layout,
+                                    bool* needsDummySampler) const;
 
       private:
         ShaderModule(Device* device, const ShaderModuleDescriptor* descriptor);
-        MaybeError Initialize(const ShaderModuleDescriptor* descriptor);
+        ~ShaderModule() override = default;
+        MaybeError Initialize(ShaderModuleParseResult* parseResult);
 
-        CombinedSamplerInfo mCombinedInfo;
-        std::string mGlslSource;
+        std::vector<uint32_t> mSpirv;
     };
 
 }}  // namespace dawn_native::opengl

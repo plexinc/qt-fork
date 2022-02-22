@@ -4,8 +4,10 @@
 
 #include <stddef.h>
 
+#include <cstring>
 #include <memory>
 
+#include "base/containers/flat_set.h"
 #include "base/environment.h"
 #include "base/files/file_util.h"
 #include "base/i18n/case_conversion.h"
@@ -19,6 +21,7 @@
 #include "base/test/icu_test_util.h"
 #include "base/test/scoped_path_override.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/platform_test.h"
 #include "third_party/icu/source/common/unicode/locid.h"
@@ -27,7 +30,7 @@
 #include "ui/base/l10n/l10n_util_collator.h"
 #include "ui/base/ui_base_paths.h"
 
-#if defined(OS_POSIX) && !defined(OS_MACOSX)
+#if defined(OS_POSIX) && !defined(OS_APPLE)
 #include <cstdlib>
 #endif
 
@@ -68,7 +71,7 @@ TEST_F(L10nUtilTest, GetString) {
   EXPECT_EQ(UTF8ToUTF16("You owe me $$1."), s16);
 }
 
-#if !defined(OS_MACOSX) && !defined(OS_ANDROID)
+#if !defined(OS_APPLE) && !defined(OS_ANDROID)
 // On Mac, we are disabling this test because GetApplicationLocale() as an
 // API isn't something that we'll easily be able to unit test in this manner.
 // The meaning of that API, on the Mac, is "the locale used by Cocoa's main
@@ -78,7 +81,7 @@ TEST_F(L10nUtilTest, GetString) {
 // On Android, we are disabling this test since GetApplicationLocale() just
 // returns the system's locale, which, similarly, is not easily unit tested.
 
-#if defined(OS_POSIX) && defined(USE_GLIB) && !defined(OS_CHROMEOS)
+#if defined(OS_POSIX) && defined(USE_GLIB) && !BUILDFLAG(IS_CHROMEOS_ASH)
 const bool kPlatformHasDefaultLocale = 1;
 const bool kUseLocaleFromEnvironment = 1;
 const bool kSupportsLocalePreference = 0;
@@ -115,7 +118,7 @@ TEST_F(L10nUtilTest, GetAppLocale) {
   for (size_t i = 0; i < base::size(filenames); ++i) {
     base::FilePath filename = new_locale_dir.AppendASCII(
         filenames[i] + ".pak");
-    base::WriteFile(filename, "", 0);
+    base::WriteFile(filename, "");
   }
 
   // Keep a copy of ICU's default locale before we overwrite it.
@@ -380,7 +383,7 @@ TEST_F(L10nUtilTest, GetAppLocale) {
   // Clean up.
   base::i18n::SetICUDefaultLocale(original_locale);
 }
-#endif  // !defined(OS_MACOSX)
+#endif  // !defined(OS_APPLE)
 
 TEST_F(L10nUtilTest, SortStringsUsingFunction) {
   std::vector<std::unique_ptr<StringWrapper>> strings;
@@ -546,7 +549,7 @@ TEST_F(L10nUtilTest, IsValidLocaleSyntax) {
   EXPECT_TRUE(l10n_util::IsValidLocaleSyntax("en_IE_u_cu_IEP"));
   EXPECT_TRUE(l10n_util::IsValidLocaleSyntax("en_IE@currency=IEP"));
   EXPECT_TRUE(l10n_util::IsValidLocaleSyntax("fr@x=y"));
-  EXPECT_TRUE(l10n_util::IsValidLocaleSyntax("zn_CN@foo=bar"));
+  EXPECT_TRUE(l10n_util::IsValidLocaleSyntax("zh_CN@foo=bar"));
   EXPECT_TRUE(l10n_util::IsValidLocaleSyntax(
       "fr@collation=phonebook;calendar=islamic-civil"));
   EXPECT_TRUE(l10n_util::IsValidLocaleSyntax(
@@ -582,7 +585,7 @@ TEST_F(L10nUtilTest, TimeDurationFormatAllLocales) {
   // Verify that base::TimeDurationFormat() works for all available locales:
   // http://crbug.com/707515
   base::TimeDelta kDelta = base::TimeDelta::FromMinutes(15 * 60 + 42);
-  for (const std::string& locale : l10n_util::GetAvailableLocales()) {
+  for (const std::string& locale : l10n_util::GetAvailableICULocales()) {
     base::i18n::SetICUDefaultLocale(locale);
     base::string16 str;
     const bool result =
@@ -590,5 +593,52 @@ TEST_F(L10nUtilTest, TimeDurationFormatAllLocales) {
     EXPECT_TRUE(result) << "Failed to format duration for " << locale;
     if (result)
       EXPECT_FALSE(str.empty()) << "Got empty string for " << locale;
+  }
+}
+
+TEST_F(L10nUtilTest, GetLocalesWithStrings) {
+  // Convert the vector to a set for easy lookup.
+  const base::flat_set<std::string> locales =
+      l10n_util::GetLocalesWithStrings();
+
+  // Common locales which should be available on all platforms.
+  EXPECT_TRUE(locales.contains("en") || locales.contains("en-US"));
+  EXPECT_TRUE(locales.contains("en-GB"));
+  EXPECT_TRUE(locales.contains("es") || locales.contains("es-ES"));
+  EXPECT_TRUE(locales.contains("fr") || locales.contains("fr-FR"));
+
+  // Locales that we should have valid fallbacks for.
+  EXPECT_TRUE(locales.contains("en-CA"));
+  EXPECT_TRUE(locales.contains("es-AR"));
+  EXPECT_TRUE(locales.contains("fr-CA"));
+
+  // Locales that should not be included:
+  // English (Germany). A valid locale and in ICU's list of locales, but not in
+  // our list of Accept-Language locales.
+  EXPECT_FALSE(locales.contains("en-DE"));
+  // Esperanto. Unlikely to be localised and historically included in
+  // GetAvailableICULocales.
+  EXPECT_FALSE(locales.contains("eo"));
+}
+
+TEST_F(L10nUtilTest, PlatformLocalesIsSorted) {
+  const char* const* locales = l10n_util::GetPlatformLocalesForTesting();
+  const size_t locales_size = l10n_util::GetPlatformLocalesSizeForTesting();
+
+  // Check adjacent pairs and ensure they are in sorted order without
+  // duplicates.
+
+  // All 0-length and 1-length lists are sorted.
+  if (locales_size <= 1) {
+    return;
+  }
+
+  const char* last_locale = locales[0];
+  for (size_t i = 1; i < locales_size; i++) {
+    const char* cur_locale = locales[i];
+    EXPECT_LT(strcmp(last_locale, cur_locale), 0)
+        << "Incorrect ordering in kPlatformLocales: " << last_locale
+        << " >= " << cur_locale;
+    last_locale = cur_locale;
   }
 }

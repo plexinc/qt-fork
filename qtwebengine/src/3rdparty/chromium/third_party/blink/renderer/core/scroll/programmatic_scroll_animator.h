@@ -14,7 +14,6 @@
 namespace blink {
 
 class ScrollableArea;
-class CompositorAnimationTimeline;
 class CompositorScrollOffsetAnimationCurve;
 
 // ProgrammaticScrollAnimator manages scroll offset animations ("smooth
@@ -25,10 +24,11 @@ class CompositorScrollOffsetAnimationCurve;
 // ScrollAnimatorMac.
 
 class ProgrammaticScrollAnimator : public ScrollAnimatorCompositorCoordinator {
-  DISALLOW_COPY_AND_ASSIGN(ProgrammaticScrollAnimator);
-
  public:
   explicit ProgrammaticScrollAnimator(ScrollableArea*);
+  ProgrammaticScrollAnimator(const ProgrammaticScrollAnimator&) = delete;
+  ProgrammaticScrollAnimator& operator=(const ProgrammaticScrollAnimator&) =
+      delete;
   ~ProgrammaticScrollAnimator() override;
 
   void ScrollToOffsetWithoutAnimation(const ScrollOffset&,
@@ -49,10 +49,9 @@ class ProgrammaticScrollAnimator : public ScrollAnimatorCompositorCoordinator {
   void UpdateCompositorAnimations() override;
   void NotifyCompositorAnimationFinished(int group_id) override;
   void NotifyCompositorAnimationAborted(int group_id) override {}
-  void LayerForCompositedScrollingDidChange(
-      CompositorAnimationTimeline*) override;
+  void MainThreadScrollingDidChange() override;
 
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
  private:
   void NotifyOffsetChanged(const ScrollOffset&);

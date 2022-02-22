@@ -104,7 +104,7 @@ public:
         Json
     };
 
-    typedef std::function<void(Stage, QVariantMap*)> ModifyParametersFunction;
+    typedef std::function<void(Stage, QMultiMap<QString, QVariant>*)> ModifyParametersFunction;
 
     virtual ~QAbstractOAuth();
 
@@ -138,10 +138,8 @@ public:
     Q_INVOKABLE virtual QNetworkReply *deleteResource(
             const QUrl &url, const QVariantMap &parameters = QVariantMap()) = 0;
 
-    // ### Qt 6: Make this method pure virtual and remove the private implementation
-    void prepareRequest(QNetworkRequest *request,
-                        const QByteArray &verb,
-                        const QByteArray &body = QByteArray());
+    virtual void prepareRequest(QNetworkRequest *request, const QByteArray &verb,
+                                const QByteArray &body = QByteArray()) = 0;
 
     ModifyParametersFunction modifyParametersFunction() const;
     void setModifyParametersFunction(const ModifyParametersFunction &modifyParametersFunction);
@@ -173,7 +171,7 @@ protected:
 
     QString callback() const;
 
-    virtual void resourceOwnerAuthorization(const QUrl &url, const QVariantMap &parameters);
+    virtual void resourceOwnerAuthorization(const QUrl &url, const QMultiMap<QString, QVariant> &parameters);
     static QByteArray generateRandomString(quint8 length);
 
 private:

@@ -13,6 +13,7 @@
 #include "ui/gfx/gpu_fence.h"
 #include "ui/gl/buffer_format_utils.h"
 #include "ui/gl/egl_util.h"
+#include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_context.h"
 #include "ui/gl/gl_enums.h"
 #include "ui/gl/gl_surface_egl.h"
@@ -327,9 +328,12 @@ bool GLImageNativePixmap::ScheduleOverlayPlane(
     bool enable_blend,
     std::unique_ptr<gfx::GpuFence> gpu_fence) {
   DCHECK(pixmap_);
+  std::vector<gfx::GpuFence> acquire_fences;
+  if (gpu_fence)
+    acquire_fences.push_back(std::move(*gpu_fence));
   return pixmap_->ScheduleOverlayPlane(widget, z_order, transform, bounds_rect,
                                        crop_rect, enable_blend,
-                                       std::move(gpu_fence));
+                                       std::move(acquire_fences), {});
 }
 
 void GLImageNativePixmap::Flush() {

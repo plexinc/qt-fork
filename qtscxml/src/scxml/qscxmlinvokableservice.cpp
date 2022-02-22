@@ -158,8 +158,8 @@ QScxmlInvokableServicePrivate::QScxmlInvokableServicePrivate(QScxmlStateMachine 
 
 QScxmlInvokableServiceFactoryPrivate::QScxmlInvokableServiceFactoryPrivate(
         const QScxmlExecutableContent::InvokeInfo &invokeInfo,
-        const QVector<QScxmlExecutableContent::StringId> &namelist,
-        const QVector<QScxmlExecutableContent::ParameterInfo> &parameters)
+        const QList<QScxmlExecutableContent::StringId> &namelist,
+        const QList<QScxmlExecutableContent::ParameterInfo> &parameters)
     : invokeInfo(invokeInfo)
     , names(namelist)
     , parameters(parameters)
@@ -168,8 +168,8 @@ QScxmlInvokableServiceFactoryPrivate::QScxmlInvokableServiceFactoryPrivate(
 QScxmlStaticScxmlServiceFactoryPrivate::QScxmlStaticScxmlServiceFactoryPrivate(
         const QMetaObject *metaObject,
         const QScxmlExecutableContent::InvokeInfo &invokeInfo,
-        const QVector<QScxmlExecutableContent::StringId> &names,
-        const QVector<QScxmlExecutableContent::ParameterInfo> &parameters)
+        const QList<QScxmlExecutableContent::StringId> &names,
+        const QList<QScxmlExecutableContent::ParameterInfo> &parameters)
     : QScxmlInvokableServiceFactoryPrivate(invokeInfo, names, parameters), metaObject(metaObject)
 {
 }
@@ -188,8 +188,8 @@ QScxmlStateMachine *QScxmlInvokableService::parentStateMachine() const
 
 QScxmlInvokableServiceFactory::QScxmlInvokableServiceFactory(
         const QScxmlExecutableContent::InvokeInfo &invokeInfo,
-        const QVector<QScxmlExecutableContent::StringId> &names,
-        const QVector<QScxmlExecutableContent::ParameterInfo> &parameters,
+        const QList<QScxmlExecutableContent::StringId> &names,
+        const QList<QScxmlExecutableContent::ParameterInfo> &parameters,
         QObject *parent)
     : QObject(*(new QScxmlInvokableServiceFactoryPrivate(invokeInfo, names, parameters)), parent)
 {}
@@ -200,14 +200,14 @@ const QScxmlExecutableContent::InvokeInfo &QScxmlInvokableServiceFactory::invoke
     return d->invokeInfo;
 }
 
-const QVector<QScxmlExecutableContent::ParameterInfo> &
+const QList<QScxmlExecutableContent::ParameterInfo> &
 QScxmlInvokableServiceFactory::parameters() const
 {
     Q_D(const QScxmlInvokableServiceFactory);
     return d->parameters;
 }
 
-const QVector<QScxmlExecutableContent::StringId> &QScxmlInvokableServiceFactory::names() const
+const QList<QScxmlExecutableContent::StringId> &QScxmlInvokableServiceFactory::names() const
 {
     Q_D(const QScxmlInvokableServiceFactory);
     return d->names;
@@ -259,8 +259,8 @@ QString QScxmlInvokableServicePrivate::calculateId(
 
 QVariantMap QScxmlInvokableServicePrivate::calculateData(
         QScxmlStateMachine *parent,
-        const QVector<QScxmlExecutableContent::ParameterInfo> &parameters,
-        const QVector<QScxmlExecutableContent::StringId> &names,
+        const QList<QScxmlExecutableContent::ParameterInfo> &parameters,
+        const QList<QScxmlExecutableContent::StringId> &names,
         bool *ok) const
 {
     Q_ASSERT(ok);
@@ -404,8 +404,8 @@ QScxmlStateMachine *QScxmlScxmlService::stateMachine() const
  */
 QScxmlDynamicScxmlServiceFactory::QScxmlDynamicScxmlServiceFactory(
         const QScxmlExecutableContent::InvokeInfo &invokeInfo,
-        const QVector<QScxmlExecutableContent::StringId> &names,
-        const QVector<QScxmlExecutableContent::ParameterInfo> &parameters,
+        const QList<QScxmlExecutableContent::StringId> &names,
+        const QList<QScxmlExecutableContent::ParameterInfo> &parameters,
         QObject *parent)
     : QScxmlInvokableServiceFactory(invokeInfo, names, parameters, parent)
 {}
@@ -427,8 +427,8 @@ QScxmlInvokableService *QScxmlDynamicScxmlServiceFactory::invoke(
 QScxmlStaticScxmlServiceFactory::QScxmlStaticScxmlServiceFactory(
         const QMetaObject *metaObject,
         const QScxmlExecutableContent::InvokeInfo &invokeInfo,
-        const QVector<QScxmlExecutableContent::StringId> &nameList,
-        const QVector<QScxmlExecutableContent::ParameterInfo> &parameters,
+        const QList<QScxmlExecutableContent::StringId> &nameList,
+        const QList<QScxmlExecutableContent::ParameterInfo> &parameters,
         QObject *parent)
     : QScxmlInvokableServiceFactory(*(new QScxmlStaticScxmlServiceFactoryPrivate(
                                       metaObject, invokeInfo, nameList, parameters)), parent)

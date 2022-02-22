@@ -1,26 +1,24 @@
+Version: 2
+Include: [
+    cmake_platforms.yaml,
+    cmake_platforms_static_tests.yaml,
+    macos-developer-build-tests.yaml,
+    integrity.yaml,
+    ios-tests.yaml
+]
+Configurations:
 -
-    Template: 'qtci-linux-Ubuntu-18.04-x86_64'
-    Target os: 'QEMU'
-    Target arch: 'armv7'
+    Template: 'qtci-linux-RHEL-8.4-x86_64-50'
+    Target os: 'Android_ANY'
+    Target arch: 'x86'
     Compiler: 'GCC'
-    Features: ['DisableTests']
-    Configure arguments: '-opensource -confirm-license -verbose -prefix /home/qt/work/install -developer-build -nomake tests -nomake examples -no-xcb -R . -openssl -device linux-imx7-g++ -device-option CROSS_COMPILE=/opt/yocto-armv7/sysroots/x86_64-pokysdk-linux/usr/bin/arm-poky-linux-gnueabi/arm-poky-linux-gnueabi- -device-option DISTRO_OPTS="hard-float boot2qt" -sysroot /opt/yocto-armv7/sysroots/armv7at2hf-neon-poky-linux-gnueabi -extprefix /home/qt/work/install -mysql_config /opt/yocto-armv7/sysroots/armv7at2hf-neon-poky-linux-gnueabi/usr/bin/mysql_config -psql_config /dev/null -tslib'
--
-    Template: 'qtci-linux-Ubuntu-18.04-x86_64'
-    Target os: 'QEMU'
-    Target arch: 'arm64'
-    Compiler: 'GCC'
-    Features: ['DisableTests']
-    Configure arguments: '-opensource -confirm-license -verbose -prefix /home/qt/work/install -developer-build -nomake tests -nomake examples -no-xcb -R . -openssl -device linux-generic-g++ -device-option CROSS_COMPILE=/opt/yocto-arm64/sysroots/x86_64-pokysdk-linux/usr/bin/aarch64-poky-linux/aarch64-poky-linux- -device-option DISTRO_OPTS=boot2qt -sysroot /opt/yocto-arm64/sysroots/aarch64-poky-linux -extprefix /home/qt/work/install -mysql_config /opt/yocto-arm64/sysroots/aarch64-poky-linux/usr/bin/mysql_config -psql_config /dev/null -tslib'
--
-    Template: 'qtci-windows-10-x86_64-51'
-    Target os: 'WinRT_10'
-    Target arch: 'x86_64'
-    Compiler: 'MSVC2015'
-    Configure arguments: '-opensource -confirm-license -verbose -prefix c:\Users\qt\work\install -release -developer-build -static -nomake tests -nomake examples -no-icu -force-debug-info -platform win32-msvc2015 -xplatform winrt-x64-msvc2015'
--
-    Template: 'qtci-linux-openSUSE-15.1-x86_64'
-    Target os: 'WebAssembly'
-    Compiler: 'GCC'
-    Features: ['DisableTests']
-    Configure arguments: '-opensource -confirm-license -verbose -prefix /home/qt/work/install -release -developer-build -static -nomake tests -nomake examples -no-pch -no-feature-thread -no-dbus -no-headersclean -no-ssl -no-warnings-are-errors -xplatform wasm-emscripten'
+    Target compiler: 'Clang'
+    Platform dependency: 'RHEL-8.4-host'
+    Features: ['Packaging', 'Sccache', 'AndroidTestRun']
+    Environment variables: [
+        'TARGET_CONFIGURE_ARGS=-DBUILD_EXAMPLES=OFF -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_TOOLCHAIN_FILE={{.Env.ANDROID_NDK_ROOT}}/build/cmake/android.toolchain.cmake -DANDROID_SDK_ROOT={{.Env.ANDROID_SDK_ROOT}} -DANDROID_ABI=x86 -DCMAKE_C_COMPILER_FRONTEND_VARIANT=GNU -DCMAKE_CXX_COMPILER_FRONTEND_VARIANT=GNU -DOPENSSL_ROOT_DIR={{.Env.OPENSSL_ANDROID_HOME}}',
+        'CONAN_HOST_PROFILE=coin/conan/profiles/linux-x86_64-gcc',
+        'CONAN_INSTALL_DIR={{.InstallDir}}/target',
+        'CONAN_PROFILE=coin/conan/profiles/unix-android-x86-clang']
+
+

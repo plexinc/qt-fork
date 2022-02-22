@@ -36,7 +36,7 @@
 #include <QtCore/QDir>
 #include <QtCore/QFileInfo>
 #include <QtCore/QLibraryInfo>
-#include <QtCore/QRegExp>
+#include <QtCore/QRegularExpression>
 #include <QtCore/QTranslator>
 
 #include <QtGui/QGuiApplication>
@@ -102,6 +102,7 @@ int generateCollectionFile(const QByteArray &data, const QString &basePath, cons
     }
 
     QHelpEngineCore helpEngine(outputFile);
+    helpEngine.setReadOnly(false);
     if (!helpEngine.setupData()) {
         fprintf(stderr, "%s\n", qPrintable(helpEngine.error()));
         return 1;
@@ -194,10 +195,8 @@ int generateCollectionFile(const QByteArray &data, const QString &basePath, cons
         QDataStream s(&ba, QIODevice::WriteOnly);
         QMap<QString, QByteArray> imgData;
 
-        QRegExp srcRegExp(QLatin1String("src=(\"(.+)\"|([^\"\\s]+)).*>"));
-        srcRegExp.setMinimal(true);
-        QRegExp imgRegExp(QLatin1String("(<img[^>]+>)"));
-        imgRegExp.setMinimal(true);
+        QRegularExpression srcRegExp(QLatin1String("src=(\"(.+)\"|([^\"\\s]+)).*>"), QRegularExpression::InvertedGreedinessOption);
+        QRegularExpression imgRegExp(QLatin1String("(<img[^>]+>)"), QRegularExpression::InvertedGreedinessOption);
 
         const QMap<QString, QString> &aboutMenuTexts = config.aboutTextFiles();
         for (auto it = aboutMenuTexts.cbegin(), end = aboutMenuTexts.cend(); it != end; ++it) {
@@ -213,14 +212,15 @@ int generateCollectionFile(const QByteArray &data, const QString &basePath, cons
 
             QString contents = QString::fromUtf8(data);
             int pos = 0;
-            while ((pos = imgRegExp.indexIn(contents, pos)) != -1) {
-                QString imgTag = imgRegExp.cap(1);
-                pos += imgRegExp.matchedLength();
+            QRegularExpressionMatch match;
+            while ((match = imgRegExp.match(contents, pos)).hasMatch()) {
+                QString imgTag = match.captured(1);
+                pos = match.capturedEnd();
 
-                if (srcRegExp.indexIn(imgTag, 0) != -1) {
-                    QString src = srcRegExp.cap(2);
+                if ((match = srcRegExp.match(imgTag)).hasMatch()) {
+                    QString src = match.captured(2);
                     if (src.isEmpty())
-                        src = srcRegExp.cap(3);
+                        src = match.captured(3);
 
                     QFile img(fi.absolutePath() + QDir::separator() + src);
                     if (img.open(QIODevice::ReadOnly)) {
@@ -266,7 +266,7 @@ int main(int argc, char *argv[])
     QTranslator qtTranslator;
     QTranslator qt_helpTranslator;
     QString sysLocale = QLocale::system().name();
-    QString resourceDir = QLibraryInfo::location(QLibraryInfo::TranslationsPath);
+    QString resourceDir = QLibraryInfo::path(QLibraryInfo::TranslationsPath);
     if (translator.load(QLatin1String("assistant_") + sysLocale, resourceDir)
         && qtTranslator.load(QLatin1String("qt_") + sysLocale, resourceDir)
         && qt_helpTranslator.load(QLatin1String("qt_help_") + sysLocale, resourceDir)) {

@@ -165,7 +165,11 @@ public :
         }
 
     private:
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        QMutexLocker<QMutex> m_locker;
+#else
         QMutexLocker m_locker;
+#endif
     };
 
 private:
@@ -271,7 +275,7 @@ public:
         }
     }
 
-    int count() const { return m_activeHandles.size(); }
+    int count() const { return int(m_activeHandles.size()); }
     const std::vector<Handle> &activeHandles() const { return m_activeHandles; }
 
 private:
@@ -289,9 +293,9 @@ private:
         HandleData data[NumEntries];
     };
 
-    Bucket *firstBucket = 0;
+    Bucket *firstBucket = nullptr;
     std::vector<Handle> m_activeHandles;
-    typename Handle::Data *freeList = 0;
+    typename Handle::Data *freeList = nullptr;
     int allocCounter = 1;
 
     void allocateBucket()
@@ -439,6 +443,19 @@ public:
         Handle handle = m_keyToHandleMap.take(id);
         if (!handle.isNull())
             Allocator::releaseResource(handle);
+    }
+
+    // Releases all resources referenced by a key
+    // Resources allocated manually with just a handle aren't releases
+    void releaseAllResources()
+    {
+        typename LockingPolicy<QResourceManager>::WriteLocker lock(this);
+        // Make a copy as releaseResource removes the entry in m_activeHanldes
+        const std::vector<Handle> activeHandles = Allocator::activeHandles();
+        for (const Handle &h : activeHandles)
+            Allocator::releaseResource(h);
+        // Clear Key to Handle Map
+        m_keyToHandleMap.clear();
     }
 
 protected:

@@ -40,11 +40,11 @@
     </tr>
     <tr>
         <td bgcolor="green"></td>
-        <td>The feature is fully supported.</td>
+        <td>The sensor is supported.</td>
     </tr>
     <tr>
         <td bgcolor="gray"></td>
-        <td>The feature is not supported.</td>
+        <td>The sensor is not supported.</td>
     </tr>
     </tbody>
     </table>
@@ -56,29 +56,15 @@
     <td><b>Android</b></td>
     <td><b>Linux</b></td>
     <td><b>iOS</b></td>
-    <td><b>Universal Windows Platform</b></td>
+    <td><b>Windows</b></td>
     <td><b>Generic</b></td>
-    <td><b>Sensorfw</b></td>
-    <td><b>TI Sensor Tag</b></td>
     </tr>
     <tr>
     <td nowrap="nowrap">Accelerometer</td>
     <td bgcolor="green"></td>
-    <td bgcolor="green"></td>
-    <td bgcolor="green"></td>
-    <td bgcolor="green"></td>
     <td bgcolor="gray"></td>
     <td bgcolor="green"></td>
     <td bgcolor="green"></td>
-    </tr>
-    <tr>
-    <td nowrap="nowrap">Altimeter</td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
     </tr>
     <tr>
@@ -86,8 +72,6 @@
     <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
-    <td bgcolor="green"></td>
-    <td bgcolor="green"></td>
     <td bgcolor="green"></td>
     <td bgcolor="green"></td>
     </tr>
@@ -98,8 +82,6 @@
     <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="green"></td>
     </tr>
     <tr>
     <td nowrap="nowrap">Compass</td>
@@ -108,66 +90,12 @@
     <td bgcolor="green"></td>
     <td bgcolor="green"></td>
     <td bgcolor="gray"></td>
-    <td bgcolor="green"></td>
-    <td bgcolor="gray"></td>
-    </tr>
-    <tr>
-    <td nowrap="nowrap">Distance</td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
     </tr>
     <tr>
     <td nowrap="nowrap">Gyroscope</td>
     <td bgcolor="green"></td>
     <td bgcolor="gray"></td>
     <td bgcolor="green"></td>
-    <td bgcolor="green"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="green"></td>
-    <td bgcolor="green"></td>
-    </tr>
-    <tr>
-    <td nowrap="nowrap">Holster Sensor</td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    </tr>
-    <tr>
-    <td nowrap="nowrap">Humidity Sensor</td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="green"></td>
-    </tr>
-    <tr>
-    <td nowrap="nowrap">IR Proximity Sensor</td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="green"></td>
-    <td bgcolor="gray"></td>
-    </tr>
-    <tr>
-    <td nowrap="nowrap">Lid Sensor</td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
     <td bgcolor="green"></td>
     <td bgcolor="gray"></td>
     </tr>
@@ -178,8 +106,6 @@
     <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
-    <td bgcolor="green"></td>
-    <td bgcolor="green"></td>
     </tr>
     <tr>
     <td nowrap="nowrap">Magnetometer</td>
@@ -188,8 +114,6 @@
     <td bgcolor="green"></td>
     <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
-    <td bgcolor="green"></td>
-    <td bgcolor="green"></td>
     </tr>
     <tr>
     <td nowrap="nowrap">Orientation Sensor</td>
@@ -198,18 +122,14 @@
     <td bgcolor="green"></td>
     <td bgcolor="green"></td>
     <td bgcolor="green"></td>
-    <td bgcolor="green"></td>
-    <td bgcolor="gray"></td>
     </tr>
     <tr>
     <td nowrap="nowrap">Pressure Sensor</td>
     <td bgcolor="green"></td>
     <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
     <td bgcolor="green"></td>
+    <td bgcolor="gray"></td>
+    <td bgcolor="gray"></td>
     </tr>
     <tr>
     <td nowrap="nowrap">Proximity Sensor</td>
@@ -217,8 +137,6 @@
     <td bgcolor="gray"></td>
     <td bgcolor="green"></td>
     <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="green"></td>
     <td bgcolor="gray"></td>
     </tr>
     <tr>
@@ -228,18 +146,6 @@
     <td bgcolor="green"></td>
     <td bgcolor="green"></td>
     <td bgcolor="green"></td>
-    <td bgcolor="green"></td>
-    <td bgcolor="gray"></td>
-    </tr>
-    <tr>
-    <td nowrap="nowrap">Tap Sensor</td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
     </tr>
     <tr>
     <td nowrap="nowrap">Tilt Sensor</td>
@@ -248,30 +154,19 @@
     <td bgcolor="green"></td>
     <td bgcolor="gray"></td>
     <td bgcolor="green"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    </tr>
-    <tr>
-    <td nowrap="nowrap">Sensor Gestures</td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="gray"></td>
-    <td bgcolor="green"></td>
-    <td bgcolor="gray"></td>
     </tr>
     </table>
 
     \endraw
 
-    1) Support depends on the underlying platform
-
     In addition to the table above, each sensor type might support specific features. For example,
     a magnetometer might support returning geo values. See QSensor::isFeatureSupported() for
     additional details.
 
-    Sensor Gestures are mostly platform independent, and will run if the platform has the sensors required.
-    Whether they are supported and work well or not depends on the platform.
-*/
+    \section1 Platform specific notes
 
+    \section2 Windows
+
+    The Windows backend is supported in Qt installations that were built with MSVC.
+
+*/

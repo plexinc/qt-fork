@@ -8,12 +8,14 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/metrics/user_metrics.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "build/build_config.h"
 #include "components/feature_engagement/internal/availability_model_impl.h"
 #include "components/feature_engagement/internal/chrome_variations_configuration.h"
 #include "components/feature_engagement/internal/display_lock_controller_impl.h"
@@ -155,8 +157,8 @@ TrackerImpl::TrackerImpl(
       event_model_initialization_finished_(false),
       availability_model_initialization_finished_(false) {
   event_model_->Initialize(
-      base::Bind(&TrackerImpl::OnEventModelInitializationFinished,
-                 weak_ptr_factory_.GetWeakPtr()),
+      base::BindOnce(&TrackerImpl::OnEventModelInitializationFinished,
+                     weak_ptr_factory_.GetWeakPtr()),
       time_provider_->GetCurrentDay());
 
   availability_model_->Initialize(
@@ -205,6 +207,21 @@ bool TrackerImpl::WouldTriggerHelpUI(const base::Feature& feature) const {
            << " tracking_only=" << feature_config.tracking_only << " "
            << result;
   return result.NoErrors() && !feature_config.tracking_only;
+}
+
+bool TrackerImpl::HasEverTriggered(const base::Feature& feature,
+                                   bool from_window) const {
+  const FeatureConfig feature_config =
+      configuration_->GetFeatureConfig(feature);
+  const EventConfig trigger_config = feature_config.trigger;
+
+  uint32_t window_size =
+      from_window ? trigger_config.window : trigger_config.storage;
+
+  uint32_t event_count = event_model_->GetEventCount(
+      trigger_config.name, time_provider_->GetCurrentDay(), window_size);
+
+  return event_count > 0;
 }
 
 Tracker::TriggerState TrackerImpl::GetTriggerState(

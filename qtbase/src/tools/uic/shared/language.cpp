@@ -43,6 +43,8 @@ void setLanguage(Language l)
     switch (_language) {
     case Language::Cpp:
         derefPointer = QLatin1String("->");
+        listStart = '{';
+        listEnd = '}';
         nullPtr = QLatin1String("nullptr");
         operatorNew = QLatin1String("new ");
         qtQualifier = QLatin1String("Qt::");
@@ -54,6 +56,8 @@ void setLanguage(Language l)
         break;
     case Language::Python:
         derefPointer = QLatin1String(".");
+        listStart = '[';
+        listEnd = ']';
         nullPtr = QLatin1String("None");
         operatorNew = QLatin1String("");
         qtQualifier = QLatin1String("Qt.");
@@ -67,6 +71,8 @@ void setLanguage(Language l)
 }
 
 QString derefPointer;
+char listStart;
+char listEnd;
 QString nullPtr;
 QString operatorNew;
 QString qtQualifier;
@@ -387,19 +393,85 @@ void _formatStackVariable(QTextStream &str, const char *className, QStringView v
     }
 }
 
-void formatConnection(QTextStream &str, const SignalSlot &sender, const SignalSlot &receiver)
+enum OverloadUse {
+    UseOverload,
+    UseOverloadWhenNoArguments, // Use overload only when the argument list is empty,
+                                // in this case there is no chance of connecting
+                                // mismatching T against const T &
+    DontUseOverload
+};
+
+// Format a member function for a signal slot connection
+static void formatMemberFnPtr(QTextStream &str, const SignalSlot &s,
+                              OverloadUse useQOverload = DontUseOverload)
+{
+    const int parenPos = s.signature.indexOf(QLatin1Char('('));
+    Q_ASSERT(parenPos >= 0);
+    const auto functionName = QStringView{s.signature}.left(parenPos);
+
+    const auto parameters = QStringView{s.signature}.mid(parenPos + 1,
+                                               s.signature.size() - parenPos - 2);
+    const bool withOverload = useQOverload == UseOverload ||
+            (useQOverload == UseOverloadWhenNoArguments && parameters.isEmpty());
+
+    if (withOverload)
+        str << "qOverload<" << parameters << ">(";
+
+    str << '&' << s.className << "::" << functionName;
+
+    if (withOverload)
+        str << ')';
+}
+
+static void formatMemberFnPtrConnection(QTextStream &str,
+                                        const SignalSlot &sender,
+                                        const SignalSlot &receiver)
+{
+    str << "QObject::connect(" << sender.name << ", ";
+    formatMemberFnPtr(str, sender);
+    str << ", " << receiver.name << ", ";
+    formatMemberFnPtr(str, receiver, UseOverloadWhenNoArguments);
+    str << ')';
+}
+
+static void formatStringBasedConnection(QTextStream &str,
+                                        const SignalSlot &sender,
+                                        const SignalSlot &receiver)
+{
+    str << "QObject::connect(" << sender.name << ", SIGNAL("<< sender.signature
+        << "), " << receiver.name << ", SLOT(" << receiver.signature << "))";
+}
+
+void formatConnection(QTextStream &str, const SignalSlot &sender, const SignalSlot &receiver,
+                      ConnectionSyntax connectionSyntax)
 {
     switch (language()) {
     case Language::Cpp:
-        str << "QObject::connect(" << sender.name << ", SIGNAL("<< sender.signature
-            << "), " << receiver.name << ", SLOT("<< receiver.signature << "))";
+        switch (connectionSyntax) {
+        case ConnectionSyntax::MemberFunctionPtr:
+            formatMemberFnPtrConnection(str, sender, receiver);
+            break;
+        case ConnectionSyntax::StringBased:
+            formatStringBasedConnection(str, sender, receiver);
+            break;
+        }
         break;
-    case Language::Python:
-        str << sender.name << '.'
-            << sender.signature.leftRef(sender.signature.indexOf(QLatin1Char('(')))
-            << ".connect(" << receiver.name << '.'
-            << receiver.signature.leftRef(receiver.signature.indexOf(QLatin1Char('(')))
+    case Language::Python: {
+        const auto paren = sender.signature.indexOf(u'(');
+        auto senderSignature = QStringView{sender.signature};
+        str << sender.name << '.' << senderSignature.left(paren);
+        // Signals like "QAbstractButton::clicked(checked=false)" require
+        // the parameter if it is used.
+        if (sender.options.testFlag(SignalSlotOption::Ambiguous)) {
+            const QStringView parameters =
+                senderSignature.mid(paren + 1, senderSignature.size() - paren - 2);
+            if (!parameters.isEmpty() && !parameters.contains(u','))
+                str << "[\"" << parameters << "\"]";
+        }
+        str << ".connect(" << receiver.name << '.'
+            << QStringView{receiver.signature}.left(receiver.signature.indexOf(QLatin1Char('(')))
             << ')';
+    }
         break;
     }
 }

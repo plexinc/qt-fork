@@ -87,8 +87,21 @@ QCanBusDeviceInfo::~QCanBusDeviceInfo() = default;
 */
 QCanBusDeviceInfo &QCanBusDeviceInfo::operator=(const QCanBusDeviceInfo &) = default;
 
+ /*!
+    \since 6.2
+     Returns the plugin name of this CAN bus interface, e.g. "peakcan".
+
+     This corresponds to the \c plugin parameter of QCanBus::createDevice().
+ */
+QString QCanBusDeviceInfo::plugin() const
+{
+    return d_ptr->plugin;
+}
+
 /*!
-    Returns the interface name of this CAN bus interface, e.g. can0.
+    Returns the interface name of this CAN bus interface, e.g. "can0".
+
+    This corresponds to the \c interfaceName parameter of QCanBus::createDevice().
 */
 QString QCanBusDeviceInfo::name() const
 {
@@ -110,10 +123,30 @@ QString QCanBusDeviceInfo::description() const
     \since 5.11
     Returns the serial number of the CAN bus interface as string, if available.
     Otherwise, an empty string is returned.
+
+    \sa alias()
 */
 QString QCanBusDeviceInfo::serialNumber() const
 {
     return d_ptr->serialNumber;
+}
+
+/*!
+    \since 6.0
+    Returns a user defineable alias associated with this CAN bus interface.
+
+    Some CAN bus interfaces can have a user defined alias associated. This is mostly
+    done with the CAN hardware vendors tools. The alias allows to identify this
+    hardware later, especially when multiple interfaces are connected.
+
+    \note In contrast to serialNumber(), the alias is not guaranteed to be unique.
+
+    If that function is not supported by the CAN plugin, an empty string is returned.
+    \sa serialNumber()
+*/
+QString QCanBusDeviceInfo::alias() const
+{
+    return d_ptr->alias;
 }
 
 /*!

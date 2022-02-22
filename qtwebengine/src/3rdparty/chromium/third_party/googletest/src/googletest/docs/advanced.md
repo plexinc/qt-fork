@@ -2,6 +2,8 @@
 
 <!-- GOOGLETEST_CM0016 DO NOT DELETE -->
 
+<!-- GOOGLETEST_CM0035 DO NOT DELETE -->
+
 ## Introduction
 
 Now that you have read the [googletest Primer](primer.md) and learned how to
@@ -401,7 +403,7 @@ alone with them. For a list of matchers gMock provides, read
 your [own matchers](../../googlemock/docs/cook_book.md#NewMatchers) too.
 
 gMock is bundled with googletest, so you don't need to add any build dependency
-in order to take advantage of this. Just include `"testing/base/public/gmock.h"`
+in order to take advantage of this. Just include `"gmock/gmock.h"`
 and you're ready to go.
 
 ### More String Assertions
@@ -638,6 +640,7 @@ Fatal assertion                                  | Nonfatal assertion           
 ------------------------------------------------ | ------------------------------------------------ | --------
 `ASSERT_DEATH(statement, matcher);`              | `EXPECT_DEATH(statement, matcher);`              | `statement` crashes with the given error
 `ASSERT_DEATH_IF_SUPPORTED(statement, matcher);` | `EXPECT_DEATH_IF_SUPPORTED(statement, matcher);` | if death tests are supported, verifies that `statement` crashes with the given error; otherwise verifies nothing
+`ASSERT_DEBUG_DEATH(statement, matcher);`        | `EXPECT_DEBUG_DEATH(statement, matcher);`        | `statement` crashes with the given error **in debug mode**. When not in debug (i.e. `NDEBUG` is defined), this just executes `statement`
 `ASSERT_EXIT(statement, predicate, matcher);`    | `EXPECT_EXIT(statement, predicate, matcher);`    | `statement` exits with the given error, and its exit code matches `predicate`
 
 where `statement` is a statement that is expected to cause the process to die,
@@ -862,7 +865,7 @@ restored afterwards, so you need not do that yourself. For example:
 
 ```c++
 int main(int argc, char** argv) {
-  InitGoogle(argv[0], &argc, &argv, true);
+  ::testing::InitGoogleTest(&argc, argv);
   ::testing::FLAGS_gtest_death_test_style = "fast";
   return RUN_ALL_TESTS();
 }
@@ -907,6 +910,12 @@ handlers registered with `pthread_atfork(3)`.
 
 
 ## Using Assertions in Sub-routines
+
+Note: If you want to put a series of test assertions in a subroutine to check
+for a complex condition, consider using
+[a custom GMock matcher](../../googlemock/docs/cook_book.md#NewMatchers)
+instead. This lets you provide a more readable error message in case of failure
+and avoid all of the issues described below.
 
 ### Adding Traces to Assertions
 
@@ -1005,7 +1014,7 @@ TEST(FooTest, Bar) {
                  // in Subroutine() to abort the entire test.
 
   // The actual behavior: the function goes on after Subroutine() returns.
-  int* p = NULL;
+  int* p = nullptr;
   *p = 3;  // Segfault!
 }
 ```
@@ -1192,7 +1201,7 @@ class FooTest : public ::testing::Test {
   // Can be omitted if not needed.
   static void TearDownTestSuite() {
     delete shared_resource_;
-    shared_resource_ = NULL;
+    shared_resource_ = nullptr;
   }
 
   // You can define per-test set-up logic as usual.
@@ -1205,7 +1214,7 @@ class FooTest : public ::testing::Test {
   static T* shared_resource_;
 };
 
-T* FooTest::shared_resource_ = NULL;
+T* FooTest::shared_resource_ = nullptr;
 
 TEST_F(FooTest, Test1) {
   ... you can refer to shared_resource_ here ...
@@ -1374,15 +1383,11 @@ INSTANTIATE_TEST_SUITE_P(InstantiationName,
 NOTE: The code above must be placed at global or namespace scope, not at
 function scope.
 
-NOTE: Don't forget this step! If you do your test will silently pass, but none
-of its suites will ever run!
-
-There is work in progress to make omitting `INSTANTIATE_TEST_SUITE_P` show up
-under the `GoogleTestVerification` test suite and to then make that an error.
-If you have a test suite where that omission is not an error, for example it is
-in a library that may be linked in for other reason or where the list of test
-cases is dynamic and may be empty, then this check can be suppressed by tagging
-the test suite:
+Per default, every `TEST_P` without a corresponding `INSTANTIATE_TEST_SUITE_P`
+causes a failing test in test suite `GoogleTestVerification`. If you have a test
+suite where that omission is not an error, for example it is in a library that
+may be linked in for other reason or where the list of test cases is dynamic and
+may be empty, then this check can be suppressed by tagging the test suite:
 
 ```c++
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(FooTest);
@@ -1489,7 +1494,7 @@ for conciseness:
 ```c++
 enum class MyType { MY_FOO = 0, MY_BAR = 1 };
 
-class MyTestSuite : public testing::TestWithParam<std::tuple<MyType, string>> {
+class MyTestSuite : public testing::TestWithParam<std::tuple<MyType, std::string>> {
 };
 
 INSTANTIATE_TEST_SUITE_P(
@@ -1498,7 +1503,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(MyType::VALUE_0, MyType::VALUE_1),
         testing::ValuesIn("", "")),
     [](const testing::TestParamInfo<MyTestSuite::ParamType>& info) {
-      string name = absl::StrCat(
+      std::string name = absl::StrCat(
           std::get<0>(info.param) == MY_FOO ? "Foo" : "Bar", "_",
           std::get<1>(info.param));
       absl::c_replace_if(name, [](char c) { return !std::isalnum(c); }, '_');
@@ -1775,7 +1780,7 @@ In frameworks that report a failure by throwing an exception, you could catch
 the exception and assert on it. But googletest doesn't use exceptions, so how do
 we test that a piece of code generates an expected failure?
 
-gunit-spi.h contains some constructs to do this. After #including this header,
+`"gtest/gtest-spi.h"` contains some constructs to do this. After #including this header,
 you can use
 
 ```c++
@@ -1923,8 +1928,8 @@ To obtain a `TestInfo` object for the currently running test, call
 ```
 
 `current_test_info()` returns a null pointer if no test is running. In
-particular, you cannot find the test suite name in `TestSuiteSetUp()`,
-`TestSuiteTearDown()` (where you know the test suite name implicitly), or
+particular, you cannot find the test suite name in `SetUpTestSuite()`,
+`TearDownTestSuite()` (where you know the test suite name implicitly), or
 functions called from them.
 
 ## Extending googletest by Handling Test Events
@@ -2115,6 +2120,15 @@ For example:
     everything in test suite `FooTest` except `FooTest.Bar` and everything in
     test suite `BarTest` except `BarTest.Foo`.
 
+#### Stop test execution upon first failure
+
+By default, a googletest program runs all tests the user has defined. In some
+cases (e.g. iterative test development & execution) it may be desirable stop
+test execution upon first failure (trading improved latency for completeness).
+If `GTEST_FAIL_FAST` environment variable or `--gtest_fail_fast` flag is set,
+the test runner will stop execution as soon as the first test failure is
+found.
+
 #### Temporarily Disabling Tests
 
 If you have a broken test that you cannot fix right away, you can add the
@@ -2251,6 +2265,12 @@ disable colors, or let googletest decide. When the value is `auto`, googletest
 will use colors if and only if the output goes to a terminal and (on non-Windows
 platforms) the `TERM` environment variable is set to `xterm` or `xterm-color`.
 
+#### Suppressing test passes
+
+By default, googletest prints 1 line of output for each test, indicating if it
+passed or failed. To show only test failures, run the test program with
+`--gtest_brief=1`, or set the GTEST_BRIEF environment variable to `1`.
+
 #### Suppressing the Elapsed Time
 
 By default, googletest prints the time it takes to run each test. To disable
@@ -2272,8 +2292,7 @@ environment variable to `0`.
 
 googletest can emit a detailed XML report to a file in addition to its normal
 textual output. The report contains the duration of each test, and thus can help
-you identify slow tests. The report is also used by the http://unittest
-dashboard to show per-test-method error messages.
+you identify slow tests.
 
 To generate the XML report, set the `GTEST_OUTPUT` environment variable or the
 `--gtest_output` flag to the string `"xml:path_to_output_file"`, which will
@@ -2551,6 +2570,18 @@ could generate this report:
 IMPORTANT: The exact format of the JSON document is subject to change.
 
 ### Controlling How Failures Are Reported
+
+#### Detecting Test Premature Exit
+
+Google Test implements the _premature-exit-file_ protocol for test runners
+to catch any kind of unexpected exits of test programs. Upon start,
+Google Test creates the file which will be automatically deleted after
+all work has been finished. Then, the test runner can check if this file
+exists. In case the file remains undeleted, the inspected test has exited
+prematurely.
+
+This feature is enabled only if the `TEST_PREMATURE_EXIT_FILE` environment
+variable has been set.
 
 #### Turning Assertion Failures into Break-Points
 

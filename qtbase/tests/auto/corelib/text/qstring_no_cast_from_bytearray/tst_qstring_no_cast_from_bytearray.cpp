@@ -26,7 +26,7 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QtCore/QtCore>
 
 class tst_QString_NoCastFromByteArray: public QObject
@@ -38,7 +38,7 @@ private Q_SLOTS:
 
 void tst_QString_NoCastFromByteArray::initTestCase()
 {
-    QWARN("This is a compile test only");
+    qWarning("This is a compile test only");
 }
 
 QTEST_APPLESS_MAIN(tst_QString_NoCastFromByteArray)

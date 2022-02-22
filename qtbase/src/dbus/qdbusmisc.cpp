@@ -41,14 +41,14 @@
 
 #ifndef QT_BOOTSTRAPPED
 #include <QtCore/qcoreapplication.h>
-#include <QtCore/qvariant.h>
+#include <QtCore/qlist.h>
 #include <QtCore/qmetaobject.h>
+#include <QtCore/qvariant.h>
 
 #include "qdbusutil_p.h"
 #include "qdbusconnection_p.h"
 #include "qdbusabstractadaptor_p.h" // for QCLASSINFO_DBUS_*
 #endif
-#include <QtCore/qvector.h>
 #include "qdbusmetatype_p.h"
 
 #ifndef QT_NO_DBUS
@@ -95,7 +95,7 @@ QString qDBusInterfaceFromMetaObject(const QMetaObject *mo)
          } else {
             interface.prepend(QLatin1Char('.')).prepend(QCoreApplication::instance()->applicationName());
             const QString organizationDomain = QCoreApplication::instance()->organizationDomain();
-            const auto domainName = organizationDomain.splitRef(QLatin1Char('.'), Qt::SkipEmptyParts);
+            const auto domainName = QStringView{organizationDomain}.split(QLatin1Char('.'), Qt::SkipEmptyParts);
             if (domainName.isEmpty()) {
                  interface.prepend(QLatin1String("local."));
             } else {
@@ -135,25 +135,26 @@ bool qDBusInterfaceInObject(QObject *obj, const QString &interface_name)
 // metaTypes.count() >= retval + 1 in all cases
 //
 // sig must be the normalised signature for the method
-int qDBusParametersForMethod(const QMetaMethod &mm, QVector<int> &metaTypes, QString &errorMsg)
+int qDBusParametersForMethod(const QMetaMethod &mm, QList<QMetaType> &metaTypes, QString &errorMsg)
 {
     return qDBusParametersForMethod(mm.parameterTypes(), metaTypes, errorMsg);
 }
 
 #endif // QT_BOOTSTRAPPED
 
-int qDBusParametersForMethod(const QList<QByteArray> &parameterTypes, QVector<int>& metaTypes, QString &errorMsg)
+int qDBusParametersForMethod(const QList<QByteArray> &parameterTypes, QList<QMetaType> &metaTypes,
+                             QString &errorMsg)
 {
     QDBusMetaTypeId::init();
     metaTypes.clear();
 
-    metaTypes.append(0);        // return type
+    metaTypes.append(QMetaType());        // return type
     int inputCount = 0;
     bool seenMessage = false;
     QList<QByteArray>::ConstIterator it = parameterTypes.constBegin();
     QList<QByteArray>::ConstIterator end = parameterTypes.constEnd();
     for ( ; it != end; ++it) {
-        const QByteArray &type = *it;
+        QByteArray type = *it;
         if (type.endsWith('*')) {
             errorMsg = QLatin1String("Pointers are not supported: ") + QLatin1String(type);
             return -1;
@@ -163,14 +164,14 @@ int qDBusParametersForMethod(const QList<QByteArray> &parameterTypes, QVector<in
             QByteArray basictype = type;
             basictype.truncate(type.length() - 1);
 
-            int id = QMetaType::type(basictype);
-            if (id == 0) {
+            QMetaType id = QMetaType::fromName(basictype);
+            if (!id.isValid()) {
                 errorMsg = QLatin1String("Unregistered output type in parameter list: ") + QLatin1String(type);
                 return -1;
             } else if (QDBusMetaType::typeToSignature(id) == nullptr)
                 return -1;
 
-            metaTypes.append( id );
+            metaTypes.append(id);
             seenMessage = true; // it cannot appear anymore anyways
             continue;
         }
@@ -180,7 +181,10 @@ int qDBusParametersForMethod(const QList<QByteArray> &parameterTypes, QVector<in
             return -1;          // not allowed
         }
 
-        int id = QMetaType::type(type);
+        if (type.startsWith("QVector<"))
+            type = "QList<" + type.mid(sizeof("QVector<") - 1);
+
+        QMetaType id = QMetaType::fromName(type);
 #ifdef QT_BOOTSTRAPPED
         // in bootstrap mode QDBusMessage isn't included, thus we need to resolve it manually here
         if (type == "QDBusMessage") {
@@ -188,7 +192,7 @@ int qDBusParametersForMethod(const QList<QByteArray> &parameterTypes, QVector<in
         }
 #endif
 
-        if (id == QMetaType::UnknownType) {
+        if (!id.isValid()) {
             errorMsg = QLatin1String("Unregistered input type in parameter list: ") + QLatin1String(type);
             return -1;
         }

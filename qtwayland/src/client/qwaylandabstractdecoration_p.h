@@ -59,6 +59,7 @@
 #include <QtGui/QColor>
 #include <QtGui/QStaticText>
 #include <QtGui/QImage>
+#include <QtGui/QEventPoint>
 #include <QtWaylandClient/qtwaylandclientglobal.h>
 
 #include <QtCore/QDebug>
@@ -82,6 +83,12 @@ class Q_WAYLAND_CLIENT_EXPORT QWaylandAbstractDecoration : public QObject
     Q_OBJECT
     Q_DECLARE_PRIVATE(QWaylandAbstractDecoration)
 public:
+    enum MarginsType {
+        Full,
+        ShadowsExcluded,
+        ShadowsOnly
+    };
+
     QWaylandAbstractDecoration();
     ~QWaylandAbstractDecoration() override;
 
@@ -91,12 +98,13 @@ public:
     void update();
     bool isDirty() const;
 
-    virtual QMargins margins() const = 0;
+    virtual QMargins margins(MarginsType marginsType = Full) const = 0;
+
     QWindow *window() const;
     const QImage &contentImage();
 
     virtual bool handleMouse(QWaylandInputDevice *inputDevice, const QPointF &local, const QPointF &global,Qt::MouseButtons b,Qt::KeyboardModifiers mods) = 0;
-    virtual bool handleTouch(QWaylandInputDevice *inputDevice, const QPointF &local, const QPointF &global, Qt::TouchPointState state, Qt::KeyboardModifiers mods) = 0;
+    virtual bool handleTouch(QWaylandInputDevice *inputDevice, const QPointF &local, const QPointF &global, QEventPoint::State state, Qt::KeyboardModifiers mods) = 0;
 
 protected:
     virtual void paint(QPaintDevice *device) = 0;

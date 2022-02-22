@@ -8,7 +8,7 @@
 #include <utility>
 
 #include "base/callback.h"
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/trace_event/traced_value.h"
 #include "third_party/blink/renderer/platform/scheduler/common/tracing_helper.h"
 #include "third_party/blink/renderer/platform/scheduler/main_thread/frame_scheduler_impl.h"
@@ -17,6 +17,7 @@
 #include "third_party/blink/renderer/platform/scheduler/main_thread/web_scheduling_task_queue_impl.h"
 #include "third_party/blink/renderer/platform/scheduler/public/web_scheduling_priority.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
+#include "third_party/perfetto/include/perfetto/tracing/traced_value.h"
 
 namespace blink {
 namespace scheduler {
@@ -102,19 +103,6 @@ void FrameTaskQueueController::CreateTaskQueue(
           .SetFreezeWhenKeepActive(queue_traits.can_be_throttled)
           .SetFrameScheduler(frame_scheduler_impl_);
 
-  switch (queue_traits.prioritisation_type) {
-    case QueueTraits::PrioritisationType::kVeryHigh:
-      queue_creation_params = queue_creation_params.SetFixedPriority(
-        TaskQueue::QueuePriority::kVeryHighPriority);
-      break;
-    case QueueTraits::PrioritisationType::kBestEffort:
-      queue_creation_params = queue_creation_params.SetFixedPriority(
-        TaskQueue::QueuePriority::kBestEffortPriority);
-      break;
-    default:
-      break;
-  }
-
   scoped_refptr<MainThreadTaskQueue> task_queue =
       main_thread_scheduler_impl_->NewTaskQueue(queue_creation_params);
   TaskQueueCreated(task_queue);
@@ -126,7 +114,7 @@ void FrameTaskQueueController::TaskQueueCreated(
   DCHECK(task_queue);
 
   std::unique_ptr<QueueEnabledVoter> voter =
-      task_queue->CreateQueueEnabledVoter();
+      task_queue->GetTaskQueue()->CreateQueueEnabledVoter();
 
   delegate_->OnTaskQueueCreated(task_queue.get(), voter.get());
 
@@ -172,19 +160,11 @@ bool FrameTaskQueueController::RemoveResourceLoadingTaskQueue(
   return true;
 }
 
-void FrameTaskQueueController::AsValueInto(
-    base::trace_event::TracedValue* state) const {
-  state->BeginArray("task_queues");
-  for (const auto& it : task_queues_) {
-    state->AppendString(PointerToString(it.value.get()));
-  }
-  state->EndArray();
-
-  state->BeginArray("resource_loading_task_queues");
-  for (const auto& queue : resource_loading_task_queues_) {
-    state->AppendString(PointerToString(queue.get()));
-  }
-  state->EndArray();
+void FrameTaskQueueController::WriteIntoTracedValue(
+    perfetto::TracedValue context) const {
+  auto dict = std::move(context).WriteDictionary();
+  dict.Add("task_queues", task_queues_.Values());
+  dict.Add("resource_loading_task_queues", resource_loading_task_queues_);
 }
 
 // static

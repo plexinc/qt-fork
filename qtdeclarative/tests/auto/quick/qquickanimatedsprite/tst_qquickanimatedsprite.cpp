@@ -26,16 +26,15 @@
 **
 ****************************************************************************/
 #include <QtTest/QtTest>
-#include "../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 #include <QtQuick/qquickview.h>
 #include <QtQuickTest/QtQuickTest>
 #include <private/qabstractanimation_p.h>
 #include <private/qquickanimatedsprite_p.h>
 #include <private/qquickitem_p.h>
+#include <private/qquickwindow_p.h>
 #include <QtCore/qscopedpointer.h>
 #include <QtGui/qpainter.h>
-#include <QtGui/qopenglcontext.h>
-#include <QtGui/qopenglfunctions.h>
 #include <QtGui/qoffscreensurface.h>
 #include <QtQml/qqmlproperty.h>
 
@@ -43,10 +42,10 @@ class tst_qquickanimatedsprite : public QQmlDataTest
 {
     Q_OBJECT
 public:
-    tst_qquickanimatedsprite(){}
+    tst_qquickanimatedsprite() : QQmlDataTest(QT_QMLTEST_DATADIR) {}
 
 private slots:
-    void initTestCase();
+    void initTestCase() override;
     void test_properties();
     void test_runningChangedSignal();
     void test_startStop();
@@ -283,7 +282,7 @@ void tst_qquickanimatedsprite::test_largeAnimation()
     sprite->setRunning(true);
     QTRY_VERIFY_WITH_TIMEOUT(!sprite->running(), 100000 /* make sure we wait until its done*/ );
     if (frameSync)
-        QVERIFY(isWithinRange(3*40, frameChangedSpy.count(), 3*40 + 1));
+        QVERIFY(isWithinRange(3*40, int(frameChangedSpy.count()), 3*40 + 1));
     int prevFrame = -1;
     int loopCounter = 0;
     int maxFrame = 0;
@@ -298,15 +297,7 @@ void tst_qquickanimatedsprite::test_largeAnimation()
         maxFrame = qMax(frame, maxFrame);
         prevFrame = frame;
     }
-    int maxTextureSize;
-    QOpenGLContext ctx;
-    ctx.create();
-    QOffscreenSurface offscreenSurface;
-    offscreenSurface.setFormat(ctx.format());
-    offscreenSurface.create();
-    QVERIFY(ctx.makeCurrent(&offscreenSurface));
-    ctx.functions()->glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTextureSize);
-    ctx.doneCurrent();
+    int maxTextureSize = QQuickWindowPrivate::get(window.data())->context->maxTextureSize();
     maxTextureSize /= 512;
     QVERIFY(maxFrame > maxTextureSize); // make sure we go beyond the texture width limitation
     QCOMPARE(loopCounter, sprite->loops());

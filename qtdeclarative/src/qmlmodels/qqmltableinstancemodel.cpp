@@ -68,7 +68,7 @@ void QQmlTableInstanceModel::deleteModelItemLater(QQmlDelegateModelItem *modelIt
 
     if (modelItem->contextData) {
         modelItem->contextData->invalidate();
-        Q_ASSERT(modelItem->contextData->refCount == 1);
+        Q_ASSERT(modelItem->contextData->refCount() == 1);
         modelItem->contextData = nullptr;
     }
 
@@ -83,9 +83,9 @@ QQmlTableInstanceModel::QQmlTableInstanceModel(QQmlContext *qmlContext, QObject 
 {
 }
 
-void QQmlTableInstanceModel::useImportVersion(int minorVersion)
+void QQmlTableInstanceModel::useImportVersion(QTypeRevision version)
 {
-    m_adaptorModel.useImportVersion(minorVersion);
+    m_adaptorModel.useImportVersion(version);
 }
 
 QQmlTableInstanceModel::~QQmlTableInstanceModel()
@@ -330,10 +330,10 @@ void QQmlTableInstanceModel::incubateModelItem(QQmlDelegateModelItem *modelItem,
     } else {
         modelItem->incubationTask = new QQmlTableInstanceModelIncubationTask(this, modelItem, incubationMode);
 
-        QQmlContextData *ctxt = new QQmlContextData;
         QQmlContext *creationContext = modelItem->delegate->creationContext();
-        ctxt->setParent(QQmlContextData::get(creationContext  ? creationContext : m_qmlContext.data()));
-        ctxt->contextObject = modelItem;
+        QQmlRefPointer<QQmlContextData> ctxt = QQmlContextData::createRefCounted(
+                    QQmlContextData::get(creationContext  ? creationContext : m_qmlContext.data()));
+        ctxt->setContextObject(modelItem);
         modelItem->contextData = ctxt;
 
         QQmlComponentPrivate::get(modelItem->delegate)->incubateObject(
@@ -404,6 +404,33 @@ QQmlIncubator::Status QQmlTableInstanceModel::incubationStatus(int index) {
     return QQmlIncubator::Ready;
 }
 
+bool QQmlTableInstanceModel::setRequiredProperty(int index, const QString &name, const QVariant &value)
+{
+    // This function can be called from the view upon
+    // receiving the initItem signal. It can be used to
+    // give all required delegate properties used by the
+    // view an initial value.
+    const auto modelItem = m_modelItems.value(index, nullptr);
+    if (!modelItem)
+        return false;
+    if (!modelItem->object)
+        return false;
+    if (!modelItem->incubationTask)
+        return false;
+
+    bool wasInRequired = false;
+    const auto task = QQmlIncubatorPrivate::get(modelItem->incubationTask);
+    RequiredProperties &props = task->requiredProperties();
+    if (props.empty())
+        return false;
+
+    QQmlProperty componentProp = QQmlComponentPrivate::removePropertyFromRequired(
+                modelItem->object, name, props, &wasInRequired);
+    if (wasInRequired)
+        componentProp.write(value);
+    return wasInRequired;
+}
+
 void QQmlTableInstanceModel::deleteIncubationTaskLater(QQmlIncubator *incubationTask)
 {
     // We often need to post-delete incubation tasks, since we cannot
@@ -433,7 +460,7 @@ void QQmlTableInstanceModel::setModel(const QVariant &model)
     drainReusableItemsPool(0);
     if (auto const aim = abstractItemModel())
         disconnect(aim, &QAbstractItemModel::dataChanged, this, &QQmlTableInstanceModel::dataChangedCallback);
-    m_adaptorModel.setModel(model, this, m_qmlContext->engine());
+    m_adaptorModel.setModel(model, this);
     if (auto const aim = abstractItemModel())
         connect(aim, &QAbstractItemModel::dataChanged, this, &QQmlTableInstanceModel::dataChangedCallback);
 }
@@ -484,10 +511,11 @@ const QAbstractItemModel *QQmlTableInstanceModel::abstractItemModel() const
 void QQmlTableInstanceModelIncubationTask::setInitialState(QObject *object)
 {
     initializeRequiredProperties(modelItemToIncubate, object);
-    if (QQmlIncubatorPrivate::get(this)->requiredProperties().empty()) {
-        modelItemToIncubate->object = object;
-        emit tableInstanceModel->initItem(modelItemToIncubate->index, object);
-    } else {
+    modelItemToIncubate->object = object;
+    emit tableInstanceModel->initItem(modelItemToIncubate->index, object);
+
+    if (!QQmlIncubatorPrivate::get(this)->requiredProperties().empty()) {
+        modelItemToIncubate->object = nullptr;
         object->deleteLater();
     }
 }
@@ -504,7 +532,7 @@ void QQmlTableInstanceModelIncubationTask::statusChanged(QQmlIncubator::Status s
     tableInstanceModel->incubatorStatusChanged(this, status);
 }
 
-#include "moc_qqmltableinstancemodel_p.cpp"
-
 QT_END_NAMESPACE
+
+#include "moc_qqmltableinstancemodel_p.cpp"
 

@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <qapplication.h>
 #include <qfontinfo.h>
 
@@ -88,7 +88,7 @@ public:
     TstDialog( QWidget *mouseWidget, QWidget *parent, const char *name );
     int count() { return c; }
 protected:
-    void showEvent ( QShowEvent * );
+    void showEvent(QShowEvent *) override;
 public slots:
     void releaseMouse();
     void closeDialog();

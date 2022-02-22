@@ -27,8 +27,8 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
-
+#include <QTest>
+#include <QSignalSpy>
 
 #include "qpushbutton.h"
 #include <qapplication.h>
@@ -53,7 +53,9 @@ private slots:
     void getSetCheck();
     void autoRepeat();
     void pressed();
+#if QT_CONFIG(shortcut)
     void setAccel();
+#endif
     void isCheckable();
     void setDown();
     void popupCrash();
@@ -61,13 +63,17 @@ private slots:
     void animateClick();
     void toggle();
     void clicked();
+    void touchTap();
     void toggled();
     void defaultAndAutoDefault();
     void sizeHint_data();
     void sizeHint();
+#if QT_CONFIG(shortcut)
     void taskQTBUG_20191_shortcutWithKeypadModifer();
+#endif
     void emitReleasedAfterChange();
     void hitButton();
+    void iconOnlyStyleSheet();
 
 protected slots:
     void resetCounters();
@@ -84,6 +90,7 @@ private:
     uint release_count;
 
     QPushButton *testWidget;
+    QPointingDevice *m_touchScreen = QTest::createTouchDevice();
 };
 
 // Testing get/set functions
@@ -126,8 +133,10 @@ void tst_QPushButton::init()
     testWidget->setDown( false );
     testWidget->setText("Test");
     testWidget->setEnabled( true );
+#if QT_CONFIG(shortcut)
     QKeySequence seq;
     testWidget->setShortcut( seq );
+#endif
 
     resetCounters();
 }
@@ -319,6 +328,8 @@ void tst_QPushButton::toggled()
     QVERIFY( click_count == 1 );
 }
 
+#if QT_CONFIG(shortcut)
+
 /*
     If we press an accelerator key we ONLY get a pressed signal and
     NOT a released or clicked signal.
@@ -326,11 +337,8 @@ void tst_QPushButton::toggled()
 
 void tst_QPushButton::setAccel()
 {
-    if (QGuiApplication::platformName().startsWith(QLatin1String("wayland"), Qt::CaseInsensitive))
-        QSKIP("Wayland: This fails. Figure out why.");
-
     testWidget->setText("&AccelTest");
-    QKeySequence seq( Qt::ALT + Qt::Key_A );
+    QKeySequence seq( Qt::ALT | Qt::Key_A );
     testWidget->setShortcut( seq );
 
     // The shortcut will not be activated unless the button is in a active
@@ -349,6 +357,8 @@ void tst_QPushButton::setAccel()
     QTest::qWait(200);
     QTRY_VERIFY( !testWidget->isDown() );
 }
+
+#endif // QT_CONFIG(shortcut)
 
 void tst_QPushButton::animateClick()
 {
@@ -381,6 +391,29 @@ void tst_QPushButton::clicked()
         QTest::mouseClick( testWidget, Qt::LeftButton );
     QCOMPARE( press_count, (uint)10 );
     QCOMPARE( release_count, (uint)10 );
+}
+
+void tst_QPushButton::touchTap()
+{
+    QTest::touchEvent(testWidget, m_touchScreen).press(0, QPoint(10, 10));
+    QVERIFY( press_count == 1 );
+    QVERIFY( release_count == 0 );
+    QTest::touchEvent(testWidget, m_touchScreen).release(0, QPoint(10, 10));
+    QCOMPARE( press_count, (uint)1 );
+    QCOMPARE( release_count, (uint)1 );
+    QCOMPARE( click_count, (uint)1 );
+
+    press_count = 0;
+    release_count = 0;
+    click_count = 0;
+    testWidget->setDown(false);
+    for (uint i = 0; i < 10; i++) {
+        QTest::touchEvent(testWidget, m_touchScreen).press(0, QPoint(10, 10));
+        QTest::touchEvent(testWidget, m_touchScreen).release(0, QPoint(10, 10));
+    }
+    QCOMPARE( press_count, (uint)10 );
+    QCOMPARE( release_count, (uint)10 );
+    QCOMPARE( click_count, (uint)10 );
 }
 
 QPushButton *pb = 0;
@@ -506,12 +539,12 @@ void tst_QPushButton::sizeHint_data()
     QTest::newRow("windows") << QString::fromLatin1("windows");
 #endif
 #if defined(Q_OS_MAC) && !defined(QT_NO_STYLE_MAC)
-    QTest::newRow("macintosh") << QString::fromLatin1("macintosh");
+    QTest::newRow("macos") << QString::fromLatin1("macos");
 #endif
 #if !defined(QT_NO_STYLE_FUSION)
     QTest::newRow("fusion") << QString::fromLatin1("fusion");
 #endif
-#if defined(Q_OS_WIN) && !defined(QT_NO_STYLE_WINDOWSVISTA) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN) && !defined(QT_NO_STYLE_WINDOWSVISTA)
     QTest::newRow("windowsvista") << QString::fromLatin1("windowsvista");
 #endif
 }
@@ -540,6 +573,8 @@ void tst_QPushButton::sizeHint()
         button->setDefault(false);
         QCOMPARE(button->sizeHint(), initSizeHint);
         delete button;
+
+        delete widget;
     }
 
 // Test 2
@@ -569,8 +604,12 @@ void tst_QPushButton::sizeHint()
         tabWidget->setCurrentWidget(tab1);
 
         QTRY_COMPARE(button1_2->size(), button2_2->size());
+
+        delete dialog;
     }
 }
+
+#if QT_CONFIG(shortcut)
 
 void tst_QPushButton::taskQTBUG_20191_shortcutWithKeypadModifer()
 {
@@ -598,7 +637,7 @@ void tst_QPushButton::taskQTBUG_20191_shortcutWithKeypadModifer()
     // add shortcut 'keypad 5' to button2
     spy1.clear();
     QSignalSpy spy2(button2, SIGNAL(clicked()));
-    button2->setShortcut(Qt::Key_5 + Qt::KeypadModifier);
+    button2->setShortcut(Qt::Key_5 | Qt::KeypadModifier);
     QTest::keyClick(&dialog, Qt::Key_5);
     QTest::qWait(300);
     QTest::keyClick(&dialog, Qt::Key_5, Qt::KeypadModifier);
@@ -617,6 +656,8 @@ void tst_QPushButton::taskQTBUG_20191_shortcutWithKeypadModifer()
     QCOMPARE(spy1.count(), 0);
     QCOMPARE(spy2.count(), 1);
 }
+
+#endif // QT_CONFIG(shortcut)
 
 void tst_QPushButton::emitReleasedAfterChange()
 {
@@ -693,6 +734,23 @@ void tst_QPushButton::hitButton()
     QVERIFY(button2->hitButton(button2Center));
     QVERIFY(button2->hitButton(QPoint(6, 6)));
     QVERIFY(!button2->hitButton(QPoint(2, 2)));
+}
+
+/*
+    Test that a style sheet with only icon doesn't crash.
+    QTBUG-91735
+*/
+void tst_QPushButton::iconOnlyStyleSheet()
+{
+    QIcon icon(":/qt-project.org/styles/commonstyle/images/dvd-32.png");
+    QVERIFY(!icon.isNull());
+    QPushButton pb;
+    pb.setStyleSheet("QPushButton {"
+        "icon: url(:/qt-project.org/styles/commonstyle/images/dvd-32.png);"
+        "border: red;"
+    "}");
+    pb.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&pb));
 }
 
 QTEST_MAIN(tst_QPushButton)

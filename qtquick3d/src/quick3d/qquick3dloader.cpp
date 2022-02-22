@@ -58,7 +58,7 @@ void QQuick3DLoaderIncubator::setInitialState(QObject *o)
 
     \brief Allows dynamic loading of a 3D subtree from a URL or Component.
 
-    Loader3D is used to dynamically load 3D QML components.
+    Loader3D is used to dynamically load QML components for Qt Quick 3D.
 
     Loader3D can load a
     QML file (using the \l source property) or a \l Component object (using
@@ -67,8 +67,10 @@ void QQuick3DLoaderIncubator::setInitialState(QObject *o)
     be created on demand, or when a component should not be created
     unnecessarily for performance reasons.
 
-    \note Loader3D works like \l Loader, but does not provide or load Item
-    based 2D components.
+    \note Loader3D works the same way as \l Loader. The difference between the
+    two is that \l Loader provides a way to dynamically load objects that inherit
+    \l Item, whereas Loader3D provides a way to load objects that inherit \l Object3D
+    and is part of a 3D scene.
 */
 
 QQuick3DLoader::QQuick3DLoader(QQuick3DNode *parent)
@@ -77,7 +79,6 @@ QQuick3DLoader::QQuick3DLoader(QQuick3DNode *parent)
     , m_object(nullptr)
     , m_itemContext(nullptr)
     , m_incubator(nullptr)
-    , m_updatingSize(false)
     , m_active(true)
     , m_loadingFromSource(false)
     , m_asynchronous(false)
@@ -275,6 +276,7 @@ void QQuick3DLoader::resetSourceComponent()
 
 /*!
     \qmlproperty enumeration QtQuick3D::Loader3D::status
+    \readonly
 
     This property holds the status of QML loading.  It can be one of:
 
@@ -359,6 +361,7 @@ QQuick3DLoader::Status QQuick3DLoader::status() const
 
 /*!
     \qmlproperty real QtQuick3D::Loader3D::progress
+    \readonly
 
     This property holds the progress of loading QML data from the network, from
     0.0 (nothing loaded) to 1.0 (finished).  Most QML files are quite small, so
@@ -442,6 +445,7 @@ void QQuick3DLoader::setAsynchronous(bool a)
 
 /*!
     \qmlproperty object QtQuick3D::Loader3D::item
+    \readonly
     This property holds the top-level object that is currently loaded.
 */
 QObject *QQuick3DLoader::item() const
@@ -451,13 +455,10 @@ QObject *QQuick3DLoader::item() const
 
 void QQuick3DLoader::componentComplete()
 {
-    QQuick3DObject::componentComplete();
+    QQuick3DNode::componentComplete();
     if (active()) {
-        if (m_loadingFromSource) {
-            QQmlComponent::CompilationMode mode = m_asynchronous ? QQmlComponent::Asynchronous : QQmlComponent::PreferSynchronous;
-            if (!m_component)
-                m_component.setObject(new QQmlComponent(qmlEngine(this), m_source, mode, this), this);
-        }
+        if (m_loadingFromSource)
+            createComponent();
         load();
     }
 }
@@ -520,9 +521,8 @@ void QQuick3DLoader::loadFromSource()
     }
 
     if (isComponentComplete()) {
-        QQmlComponent::CompilationMode mode = m_asynchronous ? QQmlComponent::Asynchronous : QQmlComponent::PreferSynchronous;
         if (!m_component)
-            m_component.setObject(new QQmlComponent(qmlEngine(this), m_source, mode, this), this);
+            createComponent();
         load();
     }
 }
@@ -658,11 +658,7 @@ void QQuick3DLoader::setInitialState(QObject *obj)
     QV4::Scope scope(v4);
     QV4::ScopedValue ipv(scope, m_initialPropertyValues.value());
     QV4::Scoped<QV4::QmlContext> qmlContext(scope, m_qmlCallingContext.value());
-#if Q_QML_PRIVATE_API_VERSION >= 6
-        d->initializeObjectWithInitialProperties(qmlContext, ipv, obj, QQmlIncubatorPrivate::get(m_incubator)->requiredProperties());
-#else
-        d->initializeObjectWithInitialProperties(qmlContext, ipv, obj);
-#endif
+    d->initializeObjectWithInitialProperties(qmlContext, ipv, obj, QQmlIncubatorPrivate::get(m_incubator)->requiredProperties());
 }
 
 void QQuick3DLoader::disposeInitialPropertyValues()
@@ -678,8 +674,8 @@ QUrl QQuick3DLoader::resolveSourceUrl(QQmlV4Function *args)
     if (arg.isEmpty())
         return QUrl();
 
-    QQmlContextData *context = scope.engine->callingQmlContext();
-    Q_ASSERT(context);
+    auto context = scope.engine->callingQmlContext();
+    Q_ASSERT(!context.isNull());
     return context->resolvedUrl(QUrl(arg));
 }
 
@@ -701,4 +697,19 @@ QV4::ReturnedValue QQuick3DLoader::extractInitialPropertyValues(QQmlV4Function *
     return valuemap->asReturnedValue();
 }
 
+void QQuick3DLoader::createComponent()
+{
+    const QQmlComponent::CompilationMode mode = m_asynchronous
+            ? QQmlComponent::Asynchronous
+            : QQmlComponent::PreferSynchronous;
+    QQmlContext *context = qmlContext(this);
+    m_component.setObject(new QQmlComponent(context->engine(),
+                                            context->resolvedUrl(m_source),
+                                            mode,
+                                            this),
+                          this);
+}
+
 QT_END_NAMESPACE
+
+#include "moc_qquick3dloader_p.cpp"

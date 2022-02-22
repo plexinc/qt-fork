@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2019 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtWebEngine module of the Qt Toolkit.
@@ -64,17 +64,18 @@ FindTextHelper::~FindTextHelper()
         stopFinding();
 }
 
-void FindTextHelper::startFinding(const QString &findText, bool caseSensitively, bool findBackward, const QWebEngineCallback<bool> resultCallback)
+void FindTextHelper::startFinding(const QString &findText, bool caseSensitively, bool findBackward, const std::function<void(const QWebEngineFindTextResult &)> &resultCallback)
 {
     if (findText.isEmpty()) {
         stopFinding();
         m_viewClient->findTextFinished(QWebEngineFindTextResult());
-        m_widgetCallbacks.invokeEmpty(resultCallback);
+        if (resultCallback)
+            resultCallback(QWebEngineFindTextResult());
         return;
     }
 
     startFinding(findText, caseSensitively, findBackward);
-    m_widgetCallbacks.registerCallback(m_currentFindRequestId, resultCallback);
+    m_widgetCallbacks.insert(m_currentFindRequestId, resultCallback);
 }
 
 void FindTextHelper::startFinding(const QString &findText, bool caseSensitively, bool findBackward, const QJSValue &resultCallback)
@@ -97,26 +98,26 @@ void FindTextHelper::startFinding(const QString &findText, bool caseSensitively,
 
 void FindTextHelper::startFinding(const QString &findText, bool caseSensitively, bool findBackward)
 {
-    if (findText.isEmpty()) {
-        stopFinding();
-        return;
-    }
+    Q_ASSERT(!findText.isEmpty());
 
-    if (m_currentFindRequestId > m_lastCompletedFindRequestId) {
+    const bool findNext = !m_previousFindText.isEmpty() && findText == m_previousFindText;
+    if (isFindTextInProgress()) {
         // There are cases where the render process will overwrite a previous request
         // with the new search and we'll have a dangling callback, leaving the application
         // waiting for it forever.
         // Assume that any unfinished find has been unsuccessful when a new one is started
         // to cover that case.
         m_lastCompletedFindRequestId = m_currentFindRequestId;
+        if (!findNext)
+            m_webContents->StopFinding(content::STOP_FIND_ACTION_KEEP_SELECTION);
         m_viewClient->findTextFinished(QWebEngineFindTextResult());
-        invokeResultCallback(m_currentFindRequestId, 0);
+        invokeResultCallback(m_currentFindRequestId, 0, 0);
     }
 
     blink::mojom::FindOptionsPtr options = blink::mojom::FindOptions::New();
     options->forward = !findBackward;
     options->match_case = caseSensitively;
-    options->find_next = findText == m_previousFindText;
+    options->new_session = !findNext;
     m_previousFindText = findText;
 
     m_currentFindRequestId = m_findRequestIdCounter++;
@@ -148,7 +149,7 @@ void FindTextHelper::handleFindReply(content::WebContents *source, int requestId
     Q_ASSERT(m_currentFindRequestId == requestId);
     m_lastCompletedFindRequestId = requestId;
     m_viewClient->findTextFinished(QWebEngineFindTextResult(numberOfMatches, activeMatch));
-    invokeResultCallback(requestId, numberOfMatches);
+    invokeResultCallback(requestId, numberOfMatches, activeMatch);
 }
 
 void FindTextHelper::handleLoadCommitted()
@@ -157,15 +158,15 @@ void FindTextHelper::handleLoadCommitted()
     m_previousFindText = QString();
 }
 
-void FindTextHelper::invokeResultCallback(int requestId, int numberOfMatches)
+void FindTextHelper::invokeResultCallback(int requestId, int numberOfMatches, int activeMatch)
 {
     if (m_quickCallbacks.contains(requestId)) {
         QJSValue resultCallback = m_quickCallbacks.take(requestId);
         QJSValueList args;
         args.append(QJSValue(numberOfMatches));
         resultCallback.call(args);
-    } else {
-        m_widgetCallbacks.invoke(requestId, numberOfMatches > 0);
+    } else if (auto func = m_widgetCallbacks.take(requestId)) {
+        func(QWebEngineFindTextResult(numberOfMatches, activeMatch));
     }
 }
 

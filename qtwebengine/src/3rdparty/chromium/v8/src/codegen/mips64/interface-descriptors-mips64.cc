@@ -39,14 +39,6 @@ void WasmI32AtomicWait32Descriptor::InitializePlatformSpecific(
   data->InitializePlatformSpecific(kParameterCount, default_stub_registers);
 }
 
-void WasmI32AtomicWait64Descriptor::InitializePlatformSpecific(
-    CallInterfaceDescriptorData* data) {
-  const Register default_stub_registers[] = {a0, a1, a2};
-  CHECK_EQ(static_cast<size_t>(kParameterCount),
-           arraysize(default_stub_registers));
-  data->InitializePlatformSpecific(kParameterCount, default_stub_registers);
-}
-
 void WasmI64AtomicWait32Descriptor::InitializePlatformSpecific(
     CallInterfaceDescriptorData* data) {
   const Register default_stub_registers[] = {a0, a1, a2, a3, a4};
@@ -56,17 +48,21 @@ void WasmI64AtomicWait32Descriptor::InitializePlatformSpecific(
                                    default_stub_registers);
 }
 
-void WasmI64AtomicWait64Descriptor::InitializePlatformSpecific(
+void RecordWriteDescriptor::InitializePlatformSpecific(
     CallInterfaceDescriptorData* data) {
-  const Register default_stub_registers[] = {a0, a1, a2};
-  CHECK_EQ(static_cast<size_t>(kParameterCount),
+  const Register default_stub_registers[] = {a0, a1, a2, a3, kReturnRegister0};
+
+  data->RestrictAllocatableRegisters(default_stub_registers,
+                                     arraysize(default_stub_registers));
+
+  CHECK_LE(static_cast<size_t>(kParameterCount),
            arraysize(default_stub_registers));
   data->InitializePlatformSpecific(kParameterCount, default_stub_registers);
 }
 
-void RecordWriteDescriptor::InitializePlatformSpecific(
+void DynamicCheckMapsDescriptor::InitializePlatformSpecific(
     CallInterfaceDescriptorData* data) {
-  const Register default_stub_registers[] = {a0, a1, a2, a3, kReturnRegister0};
+  Register default_stub_registers[] = {kReturnRegister0, a0, a1, a2, cp};
 
   data->RestrictAllocatableRegisters(default_stub_registers,
                                      arraysize(default_stub_registers));
@@ -88,16 +84,16 @@ void EphemeronKeyBarrierDescriptor::InitializePlatformSpecific(
   data->InitializePlatformSpecific(kParameterCount, default_stub_registers);
 }
 
-const Register FastNewFunctionContextDescriptor::ScopeInfoRegister() {
-  return a1;
-}
-const Register FastNewFunctionContextDescriptor::SlotsRegister() { return a0; }
-
 const Register LoadDescriptor::ReceiverRegister() { return a1; }
 const Register LoadDescriptor::NameRegister() { return a2; }
 const Register LoadDescriptor::SlotRegister() { return a0; }
 
 const Register LoadWithVectorDescriptor::VectorRegister() { return a3; }
+
+const Register
+LoadWithReceiverAndVectorDescriptor::LookupStartObjectRegister() {
+  return a4;
+}
 
 const Register StoreDescriptor::ReceiverRegister() { return a1; }
 const Register StoreDescriptor::NameRegister() { return a2; }
@@ -115,6 +111,15 @@ const Register ApiGetterDescriptor::CallbackRegister() { return a3; }
 
 const Register GrowArrayElementsDescriptor::ObjectRegister() { return a0; }
 const Register GrowArrayElementsDescriptor::KeyRegister() { return a3; }
+
+const Register BaselineLeaveFrameDescriptor::ParamsSizeRegister() {
+  // TODO(v8:11421): Implement on this platform.
+  UNREACHABLE();
+}
+const Register BaselineLeaveFrameDescriptor::WeightRegister() {
+  // TODO(v8:11421): Implement on this platform.
+  UNREACHABLE();
+}
 
 // static
 const Register TypeConversionDescriptor::ArgumentRegister() { return a0; }
@@ -233,16 +238,16 @@ void AbortDescriptor::InitializePlatformSpecific(
   data->InitializePlatformSpecific(arraysize(registers), registers);
 }
 
-void AllocateHeapNumberDescriptor::InitializePlatformSpecific(
-    CallInterfaceDescriptorData* data) {
-  // register state
-  data->InitializePlatformSpecific(0, nullptr);
-}
-
 void CompareDescriptor::InitializePlatformSpecific(
     CallInterfaceDescriptorData* data) {
   Register registers[] = {a1, a0};
   data->InitializePlatformSpecific(arraysize(registers), registers);
+}
+
+void Compare_BaselineDescriptor::InitializePlatformSpecific(
+    CallInterfaceDescriptorData* data) {
+  // TODO(v8:11421): Implement on this platform.
+  InitializePlatformUnimplemented(data, kParameterCount);
 }
 
 void BinaryOpDescriptor::InitializePlatformSpecific(
@@ -251,15 +256,10 @@ void BinaryOpDescriptor::InitializePlatformSpecific(
   data->InitializePlatformSpecific(arraysize(registers), registers);
 }
 
-void ArgumentsAdaptorDescriptor::InitializePlatformSpecific(
+void BinaryOp_BaselineDescriptor::InitializePlatformSpecific(
     CallInterfaceDescriptorData* data) {
-  Register registers[] = {
-      a1,  // JSFunction
-      a3,  // the new target
-      a0,  // actual number of arguments
-      a2,  // expected number of arguments
-  };
-  data->InitializePlatformSpecific(arraysize(registers), registers);
+  // TODO(v8:11421): Implement on this platform.
+  InitializePlatformUnimplemented(data, kParameterCount);
 }
 
 void ApiCallbackDescriptor::InitializePlatformSpecific(

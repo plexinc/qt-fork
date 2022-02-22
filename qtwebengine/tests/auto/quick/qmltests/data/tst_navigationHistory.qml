@@ -26,9 +26,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import QtTest 1.0
-import QtWebEngine 1.2
+import QtQuick
+import QtTest
+import QtWebEngine
 
 TestWebEngineView {
     id: webEngineView
@@ -38,7 +38,7 @@ TestWebEngineView {
     ListView {
         id: backItemsList
         anchors.fill: parent
-        model: webEngineView.navigationHistory.backItems
+        model: webEngineView.history.backItems
         currentIndex: count - 1
         delegate:
             Text {
@@ -50,7 +50,7 @@ TestWebEngineView {
     ListView {
         id: forwardItemsList
         anchors.fill: parent
-        model: webEngineView.navigationHistory.forwardItems
+        model: webEngineView.history.forwardItems
         currentIndex: 0
         delegate:
             Text {
@@ -59,11 +59,23 @@ TestWebEngineView {
             }
     }
 
+    Item { // simple button-like interface to not depend on controls
+        id: backButton
+        enabled: webEngineView.canGoBack
+        function clicked() { if (enabled) webEngineView.goBack() }
+    }
+
+    Item { // simple button-like interface to not depend on controls
+        id: forwardButton
+        enabled: webEngineView.canGoForward
+        function clicked() { if (enabled) webEngineView.goForward() }
+    }
+
     TestCase {
-        name: "WebEngineViewNavigationHistory"
+        name: "NavigationHistory"
 
         function test_navigationHistory() {
-            compare(webEngineView.loadProgress, 0)
+            webEngineView.history.clear()
 
             webEngineView.url = Qt.resolvedUrl("test1.html")
             verify(webEngineView.waitForLoadSucceeded())
@@ -135,12 +147,58 @@ TestWebEngineView {
             compare(backItemsList.currentItem.text, Qt.resolvedUrl("test1.html"))
             compare(forwardItemsList.currentItem.text, Qt.resolvedUrl("javascript.html"))
 
-            webEngineView.navigationHistory.clear()
+            webEngineView.history.clear()
             compare(webEngineView.url, Qt.resolvedUrl("test2.html"))
             compare(webEngineView.canGoBack, false)
             compare(webEngineView.canGoForward, false)
             compare(backItemsList.count, 0)
             compare(forwardItemsList.count, 0)
+        }
+
+        function test_navigationButtons() {
+            webEngineView.history.clear()
+
+            const url1 = Qt.resolvedUrl("test1.html")
+            webEngineView.url = url1
+            verify(webEngineView.waitForLoadSucceeded())
+            compare(backButton.enabled, false)
+            compare(forwardButton.enabled, false)
+
+            const url2 = Qt.resolvedUrl("test2.html")
+            webEngineView.url = url2
+            verify(webEngineView.waitForLoadSucceeded())
+            compare(backButton.enabled, true)
+            compare(forwardButton.enabled, false)
+
+            const url3 = Qt.resolvedUrl("test3.html")
+            webEngineView.url = url3
+            verify(webEngineView.waitForLoadSucceeded())
+            compare(backButton.enabled, true)
+            compare(forwardButton.enabled, false)
+
+            backButton.clicked()
+            verify(webEngineView.waitForLoadSucceeded())
+            compare(backButton.enabled, true)
+            compare(forwardButton.enabled, true)
+            compare(webEngineView.url, url2)
+
+            backButton.clicked()
+            verify(webEngineView.waitForLoadSucceeded())
+            compare(backButton.enabled, false)
+            compare(forwardButton.enabled, true)
+            compare(webEngineView.url, url1)
+
+            forwardButton.clicked()
+            verify(webEngineView.waitForLoadSucceeded())
+            compare(backButton.enabled, true)
+            compare(forwardButton.enabled, true)
+            compare(webEngineView.url, url2)
+
+            webEngineView.url = url1
+            verify(webEngineView.waitForLoadSucceeded())
+            compare(backButton.enabled, true)
+            compare(forwardButton.enabled, false)
+            compare(webEngineView.url, url1)
         }
     }
 }

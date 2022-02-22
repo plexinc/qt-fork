@@ -48,9 +48,10 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import QtQuick.Window 2.2
-import QtWayland.Compositor 1.14
+import QtQuick
+import QtQuick.Window
+import QtWayland.Compositor
+import QtWayland.Compositor.XdgShell
 
 WaylandOutput {
     id: output
@@ -82,7 +83,6 @@ WaylandOutput {
                     surface: gridSurface
                     width: gridView.cellWidth
                     height: gridView.cellHeight
-                    sizeFollowsSurface: false
                     inputEventsEnabled: false
                     allowDiscardFrontBuffer: true
                     MouseArea {

@@ -6,16 +6,16 @@
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_APP_BANNER_BEFORE_INSTALL_PROMPT_EVENT_H_
 
 #include <utility>
-#include "mojo/public/cpp/bindings/receiver.h"
-#include "mojo/public/cpp/bindings/remote.h"
 #include "third_party/blink/public/mojom/app_banner/app_banner.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_property.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_app_banner_prompt_result.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
-#include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/modules/event_modules.h"
+#include "third_party/blink/renderer/platform/mojo/heap_mojo_receiver.h"
+#include "third_party/blink/renderer/platform/mojo/heap_mojo_remote.h"
+#include "third_party/blink/renderer/platform/mojo/heap_mojo_wrapper_mode.h"
 
 namespace blink {
 
@@ -32,12 +32,10 @@ class BeforeInstallPromptEvent final
       public ActiveScriptWrappable<BeforeInstallPromptEvent>,
       public ExecutionContextClient {
   DEFINE_WRAPPERTYPEINFO();
-  USING_PRE_FINALIZER(BeforeInstallPromptEvent, Dispose);
-  USING_GARBAGE_COLLECTED_MIXIN(BeforeInstallPromptEvent);
 
  public:
   BeforeInstallPromptEvent(const AtomicString& name,
-                           LocalFrame&,
+                           ExecutionContext&,
                            mojo::PendingRemote<mojom::blink::AppBannerService>,
                            mojo::PendingReceiver<mojom::blink::AppBannerEvent>,
                            const Vector<String>& platforms);
@@ -48,7 +46,7 @@ class BeforeInstallPromptEvent final
 
   static BeforeInstallPromptEvent* Create(
       const AtomicString& name,
-      LocalFrame& frame,
+      ExecutionContext& frame,
       mojo::PendingRemote<mojom::blink::AppBannerService> service_remote,
       mojo::PendingReceiver<mojom::blink::AppBannerEvent> event_receiver,
       const Vector<String>& platforms) {
@@ -65,8 +63,6 @@ class BeforeInstallPromptEvent final
                                                           name, init);
   }
 
-  void Dispose();
-
   Vector<String> platforms() const;
   ScriptPromise userChoice(ScriptState*, ExceptionState&);
   ScriptPromise prompt(ScriptState*, ExceptionState&);
@@ -77,15 +73,20 @@ class BeforeInstallPromptEvent final
   // ScriptWrappable
   bool HasPendingActivity() const override;
 
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
  private:
   // mojom::blink::AppBannerEvent methods:
   void BannerAccepted(const String& platform) override;
   void BannerDismissed() override;
 
-  mojo::Remote<mojom::blink::AppBannerService> banner_service_remote_;
-  mojo::Receiver<mojom::blink::AppBannerEvent> receiver_{this};
+  HeapMojoRemote<mojom::blink::AppBannerService,
+                 HeapMojoWrapperMode::kWithoutContextObserver>
+      banner_service_remote_;
+  HeapMojoReceiver<mojom::blink::AppBannerEvent,
+                   BeforeInstallPromptEvent,
+                   HeapMojoWrapperMode::kWithoutContextObserver>
+      receiver_;
   Vector<String> platforms_;
   Member<UserChoiceProperty> user_choice_;
 };

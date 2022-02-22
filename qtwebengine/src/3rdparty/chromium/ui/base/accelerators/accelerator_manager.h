@@ -10,16 +10,16 @@
 #include <utility>
 #include <vector>
 
+#include "base/component_export.h"
 #include "base/macros.h"
 #include "ui/base/accelerators/accelerator.h"
-#include "ui/base/ui_base_export.h"
 #include "ui/events/event_constants.h"
 
 namespace ui {
 
 // AcceleratorManger handles processing of accelerators. A delegate may be
 // supplied which is notified as unique accelerators are added and removed.
-class UI_BASE_EXPORT AcceleratorManager {
+class COMPONENT_EXPORT(UI_BASE) AcceleratorManager {
  public:
   enum HandlerPriority {
     kNormalPriority,
@@ -84,14 +84,14 @@ class UI_BASE_EXPORT AcceleratorManager {
   // This construct pairs together a |bool| (denoting whether the list contains
   // a priority_handler at the front) with the list of AcceleratorTargets.
   using AcceleratorTargets = std::pair<bool, AcceleratorTargetList>;
-  using AcceleratorMap = std::map<Accelerator, AcceleratorTargets>;
+  using AcceleratorTargetsMap = std::map<Accelerator, AcceleratorTargets>;
 
   // Implementation of Unregister(). |map_iter| points to the accelerator to
   // remove, and |target| the AcceleratorTarget to remove.
-  void UnregisterImpl(AcceleratorMap::iterator map_iter,
+  void UnregisterImpl(AcceleratorTargetsMap::iterator map_iter,
                       AcceleratorTarget* target);
 
-  AcceleratorMap accelerators_;
+  AcceleratorTargetsMap accelerators_;
 
   DISALLOW_COPY_AND_ASSIGN(AcceleratorManager);
 };

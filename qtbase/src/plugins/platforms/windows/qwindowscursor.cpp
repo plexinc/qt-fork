@@ -102,7 +102,7 @@ QWindowsPixmapCursorCacheKey::QWindowsPixmapCursorCacheKey(const QCursor &c)
 HCURSOR QWindowsCursor::createPixmapCursor(QPixmap pixmap, const QPoint &hotSpot, qreal scaleFactor)
 {
     HCURSOR cur = nullptr;
-    const qreal pixmapScaleFactor = scaleFactor / pixmap.devicePixelRatioF();
+    const qreal pixmapScaleFactor = scaleFactor / pixmap.devicePixelRatio();
     if (!qFuzzyCompare(pixmapScaleFactor, 1)) {
         pixmap = pixmap.scaled((pixmapScaleFactor * QSizeF(pixmap.size())).toSize(),
                                Qt::KeepAspectRatio, Qt::SmoothTransformation);
@@ -170,7 +170,7 @@ static HCURSOR createBitmapCursor(const QCursor &cursor, qreal scaleFactor = 1)
     Q_ASSERT(cursor.shape() == Qt::BitmapCursor && !cursor.bitmap(Qt::ReturnByValue).isNull());
     QImage bbits = cursor.bitmap(Qt::ReturnByValue).toImage();
     QImage mbits = cursor.mask(Qt::ReturnByValue).toImage();
-    scaleFactor /= bbits.devicePixelRatioF();
+    scaleFactor /= bbits.devicePixelRatio();
     if (!qFuzzyCompare(scaleFactor, 1)) {
         const QSize scaledSize = (QSizeF(bbits.size()) * scaleFactor).toSize();
         bbits = bbits.scaled(scaledSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
@@ -588,7 +588,7 @@ QWindowsCursor::QWindowsCursor(const QPlatformScreen *screen)
     : m_screen(screen)
 {
     static const bool dummy = initResources();
-    Q_UNUSED(dummy)
+    Q_UNUSED(dummy);
 }
 
 inline CursorHandlePtr QWindowsCursor::cursorHandle(const QCursor &cursor)
@@ -651,6 +651,11 @@ void QWindowsCursor::clearOverrideCursor()
     if (m_overriddenCursor) {
         SetCursor(m_overriddenCursor);
         m_overriddenCursor = m_overrideCursor = nullptr;
+    }
+    auto &windows = QWindowsContext::instance()->windows();
+    for (auto it = windows.cbegin(), end = windows.cend(); it != end; ++it) {
+        if (it.value()->screen() == m_screen)
+            it.value()->setFlag(QWindowsWindow::RestoreOverrideCursor);
     }
 }
 

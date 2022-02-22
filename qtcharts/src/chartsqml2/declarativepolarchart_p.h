@@ -39,21 +39,25 @@
 #ifndef DECLARATIVEPOLARCHART_H
 #define DECLARATIVEPOLARCHART_H
 
+#include <QtQml/qqmlregistration.h>
 #include <QtCore/QtGlobal>
 #include <QtQuick/QQuickItem>
 #include <private/declarativechartglobal_p.h>
 #include <private/declarativechart_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class Q_QMLCHARTS_PRIVATE_EXPORT DeclarativePolarChart : public DeclarativeChart
 {
     Q_OBJECT
+    QML_NAMED_ELEMENT(PolarChartView)
+    QML_ADDED_IN_VERSION(1, 3)
+    QML_EXTRA_VERSION(2, 0)
 public:
     DeclarativePolarChart(QQuickItem *parent = 0);
     ~DeclarativePolarChart();
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // DECLARATIVEPOLARCHART_H

@@ -17,6 +17,7 @@
 #include "base/scoped_observer.h"
 #include "base/timer/timer.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/net/proxy_config_monitor.h"
 #include "components/content_settings/core/browser/content_settings_observer.h"
 #include "components/content_settings/core/browser/cookie_settings.h"
@@ -25,6 +26,7 @@
 #include "components/prefs/pref_member.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "net/net_buildflags.h"
+#include "services/cert_verifier/public/mojom/cert_verifier_service_factory.mojom-forward.h"
 #include "services/network/public/mojom/network_context.mojom.h"
 
 class PrefRegistrySimple;
@@ -59,17 +61,18 @@ class ProfileNetworkContextService
   explicit ProfileNetworkContextService(Profile* profile);
   ~ProfileNetworkContextService() override;
 
-  // Creates a NetworkContext for the BrowserContext, using the specified
-  // parameters. An empty |relative_partition_path| corresponds to the main
-  // network context.
-  mojo::Remote<network::mojom::NetworkContext> CreateNetworkContext(
+  // Configures the NetworkContextParams and the CertVerifierCreationParams for
+  // the BrowserContext, using the specified parameters. An empty
+  // |relative_partition_path| corresponds to the main network context.
+  void ConfigureNetworkContextParams(
       bool in_memory,
-      const base::FilePath& relative_partition_path);
+      const base::FilePath& relative_partition_path,
+      network::mojom::NetworkContextParams* network_context_params,
+      cert_verifier::mojom::CertVerifierCreationParams*
+          cert_verifier_creation_params);
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   void UpdateAdditionalCertificates();
-
-  bool using_builtin_cert_verifier() { return using_builtin_cert_verifier_; }
 #endif
 
   static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
@@ -119,6 +122,9 @@ class ProfileNetworkContextService
 
   void UpdateReferrersEnabled();
 
+  // Gets the current CTPolicy from preferences.
+  network::mojom::CTPolicyPtr GetCTPolicy();
+
   // Update the CTPolicy for the given NetworkContexts.
   void UpdateCTPolicyForContexts(
       const std::vector<network::mojom::NetworkContext*>& contexts);
@@ -128,18 +134,18 @@ class ProfileNetworkContextService
 
   void ScheduleUpdateCTPolicy();
 
-  // Update the CORS mitigation list for the all of profiles_'s NetworkContexts.
-  void UpdateCorsMitigationList();
-
   bool ShouldSplitAuthCacheByNetworkIsolationKey() const;
   void UpdateSplitAuthCacheByNetworkIsolationKey();
 
   // Creates parameters for the NetworkContext. Use |in_memory| instead of
   // |profile_->IsOffTheRecord()| because sometimes normal profiles want off the
   // record partitions (e.g. for webview tag).
-  network::mojom::NetworkContextParamsPtr CreateNetworkContextParams(
+  void ConfigureNetworkContextParamsInternal(
       bool in_memory,
-      const base::FilePath& relative_partition_path);
+      const base::FilePath& relative_partition_path,
+      network::mojom::NetworkContextParams* network_context_params,
+      cert_verifier::mojom::CertVerifierCreationParams*
+          cert_verifier_creation_params);
 
   // Returns the path for a given storage partition.
   base::FilePath GetPartitionPath(
@@ -148,8 +154,7 @@ class ProfileNetworkContextService
   // content_settings::Observer:
   void OnContentSettingChanged(const ContentSettingsPattern& primary_pattern,
                                const ContentSettingsPattern& secondary_pattern,
-                               ContentSettingsType content_type,
-                               const std::string& resource_identifier) override;
+                               ContentSettingsType content_type) override;
 
   // content_settings::CookieSettings::Observer:
   void OnThirdPartyCookieBlockingChanged(
@@ -182,10 +187,6 @@ class ProfileNetworkContextService
   // Used for testing.
   base::RepeatingCallback<std::unique_ptr<net::ClientCertStore>()>
       client_cert_store_factory_;
-
-#if defined(OS_CHROMEOS)
-  bool using_builtin_cert_verifier_;
-#endif
 
   DISALLOW_COPY_AND_ASSIGN(ProfileNetworkContextService);
 };

@@ -1,6 +1,10 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+/**
+ * @license
+ * Copyright 2017 The Chromium Authors. All rights reserved.
+ * Use of this source code is governed by a BSD-style license that can be
+ * found in the LICENSE file.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
 'use strict';
 
@@ -31,7 +35,7 @@ function getChromeUILanguage() {
  */
 const LOG_TYPE = {
   // Activated by clicking on the fakebox icon.
-  ACTION_ACTIVATE_FAKEBOX: 13,
+  ACTION_ACTIVATE_SEARCH_BOX: 13,
   // Activated by keyboard shortcut.
   ACTION_ACTIVATE_KEYBOARD: 14,
   // Close the voice overlay by a user's explicit action.
@@ -308,7 +312,7 @@ speech.init = function(
   fakeboxMicrophoneElem.onclick = function(event) {
     // If propagated, closes the overlay (click on the background).
     event.stopPropagation();
-    speech.logEvent(LOG_TYPE.ACTION_ACTIVATE_FAKEBOX);
+    speech.logEvent(LOG_TYPE.ACTION_ACTIVATE_SEARCH_BOX);
     speech.start();
   };
   fakeboxMicrophoneElem.onkeydown = function(event) {

@@ -8,7 +8,7 @@
 #include <numeric>
 #include <sstream>
 
-#include "base/logging.h"
+#include "base/notreached.h"
 
 namespace media {
 
@@ -55,6 +55,7 @@ size_t VideoFrameLayout::NumPlanes(VideoPixelFormat format) {
     case PIXEL_FORMAT_XBGR:
     case PIXEL_FORMAT_XR30:
     case PIXEL_FORMAT_XB30:
+    case PIXEL_FORMAT_RGBAF16:
       return 1;
     case PIXEL_FORMAT_NV12:
     case PIXEL_FORMAT_NV21:
@@ -97,8 +98,11 @@ base::Optional<VideoFrameLayout> VideoFrameLayout::Create(
 base::Optional<VideoFrameLayout> VideoFrameLayout::CreateWithStrides(
     VideoPixelFormat format,
     const gfx::Size& coded_size,
-    std::vector<int32_t> strides) {
-  return CreateWithPlanes(format, coded_size, PlanesFromStrides(strides));
+    std::vector<int32_t> strides,
+    size_t buffer_addr_align,
+    uint64_t modifier) {
+  return CreateWithPlanes(format, coded_size, PlanesFromStrides(strides),
+                          buffer_addr_align, modifier);
 }
 
 // static
@@ -172,7 +176,7 @@ std::ostream& operator<<(std::ostream& ostream,
           << VectorToString(layout.planes())
           << ", is_multi_planar: " << layout.is_multi_planar()
           << ", buffer_addr_align: " << layout.buffer_addr_align()
-          << ", modifier: " << layout.modifier() << ")";
+          << ", modifier: 0x" << std::hex << layout.modifier() << ")";
   return ostream;
 }
 

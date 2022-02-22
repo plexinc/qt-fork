@@ -171,7 +171,7 @@ public:
 
     void activateLinkUnderCursor(QString href = QString());
 
-#ifndef QT_NO_TOOLTIP
+#if QT_CONFIG(tooltip)
     void showToolTip(const QPoint &globalPos, const QPointF &pos, QWidget *contextWidget);
 #endif
 
@@ -217,7 +217,7 @@ public:
     int preeditCursor;
     bool hideCursor; // used to hide the cursor in the preedit area
 
-    QVector<QAbstractTextDocumentLayout::Selection> extraSelections;
+    QList<QAbstractTextDocumentLayout::Selection> extraSelections;
 
     QPalette palette;
     bool hasFocus;

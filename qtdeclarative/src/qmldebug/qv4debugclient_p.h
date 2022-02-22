@@ -40,7 +40,7 @@
 #ifndef QV4DEBUGCLIENT_P_H
 #define QV4DEBUGCLIENT_P_H
 
-#include <QtQmlDebug/private/qqmldebugclient_p.h>
+#include "qqmldebugclient_p.h"
 #include <QtCore/qjsonvalue.h>
 
 //

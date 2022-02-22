@@ -125,7 +125,7 @@ void Technique::syncFromFrontEnd(const QNode *frontEnd, bool firstTime)
     }
 }
 
-QVector<Qt3DCore::QNodeId> Technique::parameters() const
+QList<Qt3DCore::QNodeId> Technique::parameters() const
 {
     return m_parameterPack.parameters();
 }
@@ -141,12 +141,12 @@ void Technique::removeRenderPass(Qt3DCore::QNodeId renderPassId)
     m_renderPasses.removeOne(renderPassId);
 }
 
-QVector<Qt3DCore::QNodeId> Technique::filterKeys() const
+QList<Qt3DCore::QNodeId> Technique::filterKeys() const
 {
     return m_filterKeyList;
 }
 
-QVector<Qt3DCore::QNodeId> Technique::renderPasses() const
+QList<Qt3DCore::QNodeId> Technique::renderPasses() const
 {
     return m_renderPasses;
 }
@@ -176,12 +176,12 @@ bool Technique::isCompatibleWithFilters(const QNodeIdVector &filterKeyIds)
 
     // Iterate through the filter criteria and for each one search for a criteria on the
     // technique that satisfies it
-    for (const QNodeId filterKeyId : filterKeyIds) {
+    for (const QNodeId &filterKeyId : filterKeyIds) {
         FilterKey *filterKey = m_nodeManager->filterKeyManager()->lookupResource(filterKeyId);
 
         bool foundMatch = false;
 
-        for (const QNodeId techniqueFilterKeyId : qAsConst(m_filterKeyList)) {
+        for (const QNodeId &techniqueFilterKeyId : qAsConst(m_filterKeyList)) {
             FilterKey *techniqueFilterKey = m_nodeManager->filterKeyManager()->lookupResource(techniqueFilterKeyId);
             if ((foundMatch = (*techniqueFilterKey == *filterKey)))
                 break;
@@ -222,9 +222,9 @@ TechniqueFunctor::TechniqueFunctor(AbstractRenderer *renderer, NodeManagers *man
 {
 }
 
-QBackendNode *TechniqueFunctor::create(const QNodeCreatedChangeBasePtr &change) const
+QBackendNode *TechniqueFunctor::create(Qt3DCore::QNodeId id) const
 {
-    Technique *technique = m_manager->techniqueManager()->getOrCreateResource(change->subjectId());
+    Technique *technique = m_manager->techniqueManager()->getOrCreateResource(id);
     technique->setNodeManager(m_manager);
     technique->setRenderer(m_renderer);
     return technique;

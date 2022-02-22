@@ -6,22 +6,22 @@
 
 #include <memory>
 
+#include "ash/constants/ash_switches.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/json/json_writer.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/browser/chromeos/login/saml/password_expiry_notification.h"
+#include "chrome/browser/ash/login/saml/password_expiry_notification.h"
+#include "chrome/browser/chromeos/login/login_pref_names.h"
 #include "chrome/browser/chromeos/policy/user_cloud_policy_manager_chromeos.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/chromeos/in_session_password_change/password_change_dialogs.h"
 #include "chrome/browser/ui/webui/chromeos/in_session_password_change/password_change_handler.h"
 #include "chrome/browser/ui/webui/chromeos/in_session_password_change/urgent_password_expiry_notification_handler.h"
 #include "chrome/browser/ui/webui/webui_util.h"
-#include "chrome/common/pref_names.h"
 #include "chrome/common/webui_url_constants.h"
 #include "chrome/grit/browser_resources.h"
 #include "chrome/grit/generated_resources.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/login/auth/saml_password_attributes.h"
 #include "chromeos/strings/grit/chromeos_strings.h"
 #include "components/prefs/pref_service.h"
@@ -89,6 +89,8 @@ PasswordChangeUI::PasswordChangeUI(content::WebUI* web_ui)
   web_ui->AddMessageHandler(
       std::make_unique<PasswordChangeHandler>(password_change_url));
 
+  source->DisableTrustedTypesCSP();
+
   source->AddString("hostedHeader", GetHostedHeaderText(password_change_url));
   source->UseStringsJs();
 
@@ -97,6 +99,8 @@ PasswordChangeUI::PasswordChangeUI(content::WebUI* web_ui)
   source->AddResourcePath("password_change.css", IDR_PASSWORD_CHANGE_CSS);
   source->AddResourcePath("authenticator.js",
                           IDR_PASSWORD_CHANGE_AUTHENTICATOR_JS);
+  source->AddResourcePath("webview_saml_injected.js",
+                          IDR_GAIA_AUTH_WEBVIEW_SAML_INJECTED_JS);
   source->AddResourcePath("password_change.js", IDR_PASSWORD_CHANGE_JS);
 
   content::WebUIDataSource::Add(profile, source);
@@ -111,6 +115,8 @@ ConfirmPasswordChangeUI::ConfirmPasswordChangeUI(content::WebUI* web_ui)
       prefs::kSamlInSessionPasswordChangeEnabled));
   content::WebUIDataSource* source = content::WebUIDataSource::Create(
       chrome::kChromeUIConfirmPasswordChangeHost);
+
+  source->DisableTrustedTypesCSP();
 
   static constexpr webui::LocalizedString kLocalizedStrings[] = {
       {"title", IDS_PASSWORD_CHANGE_CONFIRM_DIALOG_TITLE},
@@ -127,7 +133,7 @@ ConfirmPasswordChangeUI::ConfirmPasswordChangeUI(content::WebUI* web_ui)
       {"matchError", IDS_PASSWORD_CHANGE_PASSWORDS_DONT_MATCH},
       {"save", IDS_PASSWORD_CHANGE_CONFIRM_SAVE_BUTTON}};
 
-  AddLocalizedStringsBulk(source, kLocalizedStrings);
+  source->AddLocalizedStrings(kLocalizedStrings);
 
   AddSize(source, "", ConfirmPasswordChangeDialog::GetSize(false, false));
   AddSize(source, "Old", ConfirmPasswordChangeDialog::GetSize(true, false));
@@ -157,6 +163,8 @@ UrgentPasswordExpiryNotificationUI::UrgentPasswordExpiryNotificationUI(
   content::WebUIDataSource* source = content::WebUIDataSource::Create(
       chrome::kChromeUIUrgentPasswordExpiryNotificationHost);
 
+  source->DisableTrustedTypesCSP();
+
   SamlPasswordAttributes attrs = SamlPasswordAttributes::LoadFromPrefs(prefs);
   if (attrs.has_expiration_time()) {
     const base::Time expiration_time = attrs.expiration_time();
@@ -169,7 +177,7 @@ UrgentPasswordExpiryNotificationUI::UrgentPasswordExpiryNotificationUI(
   static constexpr webui::LocalizedString kLocalizedStrings[] = {
       {"body", IDS_PASSWORD_EXPIRY_CALL_TO_ACTION_CRITICAL},
       {"button", IDS_OK}};
-  AddLocalizedStringsBulk(source, kLocalizedStrings);
+  source->AddLocalizedStrings(kLocalizedStrings);
 
   source->UseStringsJs();
   source->SetDefaultResource(IDR_URGENT_PASSWORD_EXPIRY_NOTIFICATION_HTML);

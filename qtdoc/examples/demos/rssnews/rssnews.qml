@@ -48,9 +48,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.2
-import QtQuick.XmlListModel 2.0
-import QtQuick.Window 2.1
+import QtQuick
+import QtQuick.Window
+import QtQml.XmlListModel
 import "./content"
 
 Rectangle {
@@ -73,16 +73,13 @@ Rectangle {
     XmlListModel {
         id: feedModel
 
-        source: "http://" + window.currentFeed
-        query: "/rss/channel/item[child::media:content]"
-        namespaceDeclarations: "declare namespace media = 'http://search.yahoo.com/mrss/';"
+        source: "https://" + window.currentFeed
+        query: "/rss/channel/item"
 
-        XmlRole { name: "title"; query: "title/string()" }
-        // Remove any links from the description
-        XmlRole { name: "description"; query: "fn:replace(description/string(), '\&lt;a href=.*\/a\&gt;', '')" }
-        XmlRole { name: "image"; query: "media:content/@url/string()" }
-        XmlRole { name: "link"; query: "link/string()" }
-        XmlRole { name: "pubDate"; query: "pubDate/string()" }
+        XmlListModelRole { name: "title"; elementName: "title"; attributeName: ""}
+        XmlListModelRole { name: "content"; elementName: "content"; attributeName: "url" }
+        XmlListModelRole { name: "link"; elementName: "link"; attributeName: "" }
+        XmlListModelRole { name: "pubDate"; elementName: "pubDate"; attributeName: "" }
     }
 
     ListView {

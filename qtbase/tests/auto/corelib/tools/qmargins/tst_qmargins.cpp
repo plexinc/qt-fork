@@ -26,7 +26,7 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <qmargins.h>
 
 Q_DECLARE_METATYPE(QMargins)
@@ -36,12 +36,24 @@ class tst_QMargins : public QObject
     Q_OBJECT
 private slots:
     void getSetCheck();
+#ifndef QT_NO_DATASTREAM
     void dataStreamCheck();
+#endif
     void operators();
+#ifndef QT_NO_DEBUG_STREAM
+    void debugStreamCheck();
+#endif
 
     void getSetCheckF();
+#ifndef QT_NO_DATASTREAM
     void dataStreamCheckF();
+#endif
     void operatorsF();
+#ifndef QT_NO_DEBUG_STREAM
+    void debugStreamCheckF();
+#endif
+
+    void structuredBinding();
 };
 
 // Testing get/set functions
@@ -123,6 +135,19 @@ void tst_QMargins::operators()
     QCOMPARE(-m3, QMargins(-10, -11, -12, -13));
 }
 
+#ifndef QT_NO_DEBUG_STREAM
+// Testing QDebug operators
+void tst_QMargins::debugStreamCheck()
+{
+    QMargins m(10, 11, 12, 13);
+    const QString expected = "QMargins(10, 11, 12, 13)";
+    QString result;
+    QDebug(&result).nospace() << m;
+    QCOMPARE(result, expected);
+}
+#endif
+
+#ifndef QT_NO_DATASTREAM
 // Testing QDataStream operators
 void tst_QMargins::dataStreamCheck()
 {
@@ -147,6 +172,7 @@ void tst_QMargins::dataStreamCheck()
         QCOMPARE(marginsIn.bottom(), 6852);
     }
 }
+#endif
 
 // Testing get/set functions
 void tst_QMargins::getSetCheckF()
@@ -220,6 +246,7 @@ void tst_QMargins::operatorsF()
     QCOMPARE(-m3, QMarginsF(-10.3, -11.4, -12.5, -13.6));
 }
 
+#ifndef QT_NO_DATASTREAM
 // Testing QDataStream operators
 void tst_QMargins::dataStreamCheckF()
 {
@@ -242,6 +269,73 @@ void tst_QMargins::dataStreamCheckF()
         QCOMPARE(marginsIn.top(), 2.2);
         QCOMPARE(marginsIn.right(), 3.3);
         QCOMPARE(marginsIn.bottom(), 4.4);
+    }
+}
+#endif
+
+#ifndef QT_NO_DEBUG_STREAM
+// Testing QDebug operators
+void tst_QMargins::debugStreamCheckF()
+{
+    QMarginsF m(10.1, 11.2, 12.3, 13.4);
+    const QString expected = "QMarginsF(10.1, 11.2, 12.3, 13.4)";
+    QString result;
+    QDebug(&result).nospace() << m;
+    QCOMPARE(result, expected);
+}
+#endif
+
+void tst_QMargins::structuredBinding()
+{
+    {
+        QMargins m(1, 2, 3, 4);
+        auto [left, top, right, bottom] = m;
+        QCOMPARE(left, 1);
+        QCOMPARE(top, 2);
+        QCOMPARE(right, 3);
+        QCOMPARE(bottom, 4);
+    }
+    {
+        QMargins m(1, 2, 3, 4);
+        auto &[left, top, right, bottom] = m;
+        QCOMPARE(left, 1);
+        QCOMPARE(top, 2);
+        QCOMPARE(right, 3);
+        QCOMPARE(bottom, 4);
+
+        left = 10;
+        top = 20;
+        right = 30;
+        bottom = 40;
+        QCOMPARE(m.left(), 10);
+        QCOMPARE(m.top(), 20);
+        QCOMPARE(m.right(), 30);
+        QCOMPARE(m.bottom(), 40);
+    }
+    {
+        QMarginsF m(1.0, 2.0, 3.0, 4.0);
+        auto [left, top, right, bottom] = m;
+        QCOMPARE(left, 1.0);
+        QCOMPARE(top, 2.0);
+        QCOMPARE(right, 3.0);
+        QCOMPARE(bottom, 4.0);
+    }
+    {
+        QMarginsF m(1.0, 2.0, 3.0, 4.0);
+        auto &[left, top, right, bottom] = m;
+        QCOMPARE(left, 1.0);
+        QCOMPARE(top, 2.0);
+        QCOMPARE(right, 3.0);
+        QCOMPARE(bottom, 4.0);
+
+        left = 10.0;
+        top = 20.0;
+        right = 30.0;
+        bottom = 40.0;
+        QCOMPARE(m.left(), 10.0);
+        QCOMPARE(m.top(), 20.0);
+        QCOMPARE(m.right(), 30.0);
+        QCOMPARE(m.bottom(), 40.0);
     }
 }
 

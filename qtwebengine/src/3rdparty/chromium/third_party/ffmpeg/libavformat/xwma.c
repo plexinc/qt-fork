@@ -60,16 +60,16 @@ static int xwma_read_header(AVFormatContext *s)
     /* check RIFF header */
     tag = avio_rl32(pb);
     if (tag != MKTAG('R', 'I', 'F', 'F'))
-        return -1;
+        return AVERROR_INVALIDDATA;
     avio_rl32(pb); /* file size */
     tag = avio_rl32(pb);
     if (tag != MKTAG('X', 'W', 'M', 'A'))
-        return -1;
+        return AVERROR_INVALIDDATA;
 
     /* parse fmt header */
     tag = avio_rl32(pb);
     if (tag != MKTAG('f', 'm', 't', ' '))
-        return -1;
+        return AVERROR_INVALIDDATA;
     size = avio_rl32(pb);
     st = avformat_new_stream(s, NULL);
     if (!st)
@@ -211,6 +211,10 @@ static int xwma_read_header(AVFormatContext *s)
             }
 
             for (i = 0; i < dpds_table_size; ++i) {
+                if (avio_feof(pb)) {
+                    ret = AVERROR_INVALIDDATA;
+                    goto fail;
+                }
                 dpds_table[i] = avio_rl32(pb);
                 size -= 4;
             }

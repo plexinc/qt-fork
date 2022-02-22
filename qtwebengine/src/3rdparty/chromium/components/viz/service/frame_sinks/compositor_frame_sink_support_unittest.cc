@@ -4,13 +4,18 @@
 
 #include "components/viz/service/frame_sinks/compositor_frame_sink_support.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/stl_util.h"
 #include "base/test/simple_test_tick_clock.h"
+#include "base/time/time.h"
+#include "build/build_config.h"
 #include "components/viz/common/frame_sinks/copy_output_request.h"
 #include "components/viz/common/frame_sinks/copy_output_result.h"
 #include "components/viz/common/quads/compositor_frame.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
+#include "components/viz/common/surfaces/subtree_capture_id.h"
 #include "components/viz/common/surfaces/surface_id.h"
 #include "components/viz/common/surfaces/surface_info.h"
 #include "components/viz/service/display_embedder/server_shared_bitmap_manager.h"
@@ -22,18 +27,19 @@
 #include "components/viz/test/fake_external_begin_frame_source.h"
 #include "components/viz/test/fake_surface_observer.h"
 #include "components/viz/test/mock_compositor_frame_sink_client.h"
+#include "components/viz/test/viz_test_suite.h"
 #include "services/viz/privileged/mojom/compositing/frame_sink_manager.mojom.h"
 #include "services/viz/public/mojom/compositing/compositor_frame_sink.mojom.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/khronos/GLES2/gl2.h"
 
-using testing::UnorderedElementsAre;
-using testing::IsEmpty;
-using testing::SizeIs;
-using testing::Invoke;
 using testing::_;
 using testing::Eq;
+using testing::Invoke;
+using testing::IsEmpty;
+using testing::SizeIs;
+using testing::UnorderedElementsAre;
 
 namespace viz {
 namespace {
@@ -80,7 +86,8 @@ class MockFrameSinkManagerClient : public mojom::FrameSinkManagerClient {
 
   // mojom::FrameSinkManagerClient:
   MOCK_METHOD1(OnFirstSurfaceActivation, void(const SurfaceInfo&));
-  MOCK_METHOD2(OnFrameTokenChanged, void(const FrameSinkId&, uint32_t));
+  MOCK_METHOD3(OnFrameTokenChanged,
+               void(const FrameSinkId&, uint32_t, base::TimeTicks));
   void OnAggregatedHitTestRegionListUpdated(
       const FrameSinkId& frame_sink_id,
       const std::vector<AggregatedHitTestRegion>& hit_test_data) override {}
@@ -259,7 +266,7 @@ class CompositorFrameSinkSupportTest : public testing::Test {
 // Tests submitting a frame with resources followed by one with no resources
 // with no resource provider action in between.
 TEST_F(CompositorFrameSinkSupportTest, ResourceLifetimeSimple) {
-  ResourceId first_frame_ids[] = {1, 2, 3};
+  ResourceId first_frame_ids[] = {ResourceId(1), ResourceId(2), ResourceId(3)};
   SubmitCompositorFrameWithResources(first_frame_ids,
                                      base::size(first_frame_ids));
 
@@ -273,14 +280,15 @@ TEST_F(CompositorFrameSinkSupportTest, ResourceLifetimeSimple) {
   // make all resources of first frame available to be returned.
   SubmitCompositorFrameWithResources(nullptr, 0);
 
-  ResourceId expected_returned_ids[] = {1, 2, 3};
+  ResourceId expected_returned_ids[] = {ResourceId(1), ResourceId(2),
+                                        ResourceId(3)};
   int expected_returned_counts[] = {1, 1, 1};
   // Resources were never consumed so no sync token should be set.
   CheckReturnedResourcesMatchExpected(
       expected_returned_ids, expected_returned_counts,
       base::size(expected_returned_counts), gpu::SyncToken());
 
-  ResourceId third_frame_ids[] = {4, 5, 6};
+  ResourceId third_frame_ids[] = {ResourceId(4), ResourceId(5), ResourceId(6)};
   SubmitCompositorFrameWithResources(third_frame_ids,
                                      base::size(third_frame_ids));
 
@@ -292,11 +300,12 @@ TEST_F(CompositorFrameSinkSupportTest, ResourceLifetimeSimple) {
 
   // The forth frame references no resources of third frame and thus should
   // make all resources of third frame available to be returned.
-  ResourceId forth_frame_ids[] = {7, 8, 9};
+  ResourceId forth_frame_ids[] = {ResourceId(7), ResourceId(8), ResourceId(9)};
   SubmitCompositorFrameWithResources(forth_frame_ids,
                                      base::size(forth_frame_ids));
 
-  ResourceId forth_expected_returned_ids[] = {4, 5, 6};
+  ResourceId forth_expected_returned_ids[] = {ResourceId(4), ResourceId(5),
+                                              ResourceId(6)};
   int forth_expected_returned_counts[] = {1, 1, 1};
   // Resources were never consumed so no sync token should be set.
   CheckReturnedResourcesMatchExpected(
@@ -308,7 +317,7 @@ TEST_F(CompositorFrameSinkSupportTest, ResourceLifetimeSimple) {
 // with the resource provider holding everything alive.
 TEST_F(CompositorFrameSinkSupportTest,
        ResourceLifetimeSimpleWithProviderHoldingAlive) {
-  ResourceId first_frame_ids[] = {1, 2, 3};
+  ResourceId first_frame_ids[] = {ResourceId(1), ResourceId(2), ResourceId(3)};
   SubmitCompositorFrameWithResources(first_frame_ids,
                                      base::size(first_frame_ids));
 
@@ -338,7 +347,8 @@ TEST_F(CompositorFrameSinkSupportTest,
   // Submitting an empty frame causes previous resources referenced by the
   // previous frame to be returned to client.
   SubmitCompositorFrameWithResources(nullptr, 0);
-  ResourceId expected_returned_ids[] = {1, 2, 3};
+  ResourceId expected_returned_ids[] = {ResourceId(1), ResourceId(2),
+                                        ResourceId(3)};
   int expected_returned_counts[] = {1, 1, 1};
   CheckReturnedResourcesMatchExpected(
       expected_returned_ids, expected_returned_counts,
@@ -348,7 +358,7 @@ TEST_F(CompositorFrameSinkSupportTest,
 // Tests referencing a resource, unref'ing it to zero, then using it again
 // before returning it to the client.
 TEST_F(CompositorFrameSinkSupportTest, ResourceReusedBeforeReturn) {
-  ResourceId first_frame_ids[] = {7};
+  ResourceId first_frame_ids[] = {ResourceId(7)};
   SubmitCompositorFrameWithResources(first_frame_ids,
                                      base::size(first_frame_ids));
 
@@ -369,7 +379,7 @@ TEST_F(CompositorFrameSinkSupportTest, ResourceReusedBeforeReturn) {
       fake_support_client_.returned_resources();
   size_t return_count = 0;
   for (size_t i = 0; i < returned.size(); ++i) {
-    EXPECT_EQ(7u, returned[i].id);
+    EXPECT_EQ(ResourceId(7u), returned[i].id);
     return_count += returned[i].count;
   }
   EXPECT_EQ(2u, return_count);
@@ -378,7 +388,7 @@ TEST_F(CompositorFrameSinkSupportTest, ResourceReusedBeforeReturn) {
 // Tests having resources referenced multiple times, as if referenced by
 // multiple providers.
 TEST_F(CompositorFrameSinkSupportTest, ResourceRefMultipleTimes) {
-  ResourceId first_frame_ids[] = {3, 4};
+  ResourceId first_frame_ids[] = {ResourceId(3), ResourceId(4)};
   SubmitCompositorFrameWithResources(first_frame_ids,
                                      base::size(first_frame_ids));
 
@@ -386,7 +396,7 @@ TEST_F(CompositorFrameSinkSupportTest, ResourceRefMultipleTimes) {
   RefCurrentFrameResources();
   RefCurrentFrameResources();
 
-  ResourceId second_frame_ids[] = {4, 5};
+  ResourceId second_frame_ids[] = {ResourceId(4), ResourceId(5)};
   SubmitCompositorFrameWithResources(second_frame_ids,
                                      base::size(second_frame_ids));
 
@@ -408,7 +418,7 @@ TEST_F(CompositorFrameSinkSupportTest, ResourceRefMultipleTimes) {
   //  5 -> 3
   {
     SCOPED_TRACE("unref all 3");
-    ResourceId ids_to_unref[] = {3, 4, 5};
+    ResourceId ids_to_unref[] = {ResourceId(3), ResourceId(4), ResourceId(5)};
     int counts[] = {1, 1, 1};
     UnrefResources(ids_to_unref, counts, base::size(ids_to_unref));
 
@@ -417,7 +427,7 @@ TEST_F(CompositorFrameSinkSupportTest, ResourceRefMultipleTimes) {
 
     UnrefResources(ids_to_unref, counts, base::size(ids_to_unref));
     SubmitCompositorFrameWithResources(nullptr, 0);
-    ResourceId expected_returned_ids[] = {3};
+    ResourceId expected_returned_ids[] = {ResourceId(3)};
     int expected_returned_counts[] = {1};
     CheckReturnedResourcesMatchExpected(
         expected_returned_ids, expected_returned_counts,
@@ -429,12 +439,12 @@ TEST_F(CompositorFrameSinkSupportTest, ResourceRefMultipleTimes) {
   //  5 -> 1
   {
     SCOPED_TRACE("unref 4 and 5");
-    ResourceId ids_to_unref[] = {4, 5};
+    ResourceId ids_to_unref[] = {ResourceId(4), ResourceId(5)};
     int counts[] = {1, 1};
     UnrefResources(ids_to_unref, counts, base::size(ids_to_unref));
     SubmitCompositorFrameWithResources(nullptr, 0);
 
-    ResourceId expected_returned_ids[] = {5};
+    ResourceId expected_returned_ids[] = {ResourceId(5)};
     int expected_returned_counts[] = {1};
     CheckReturnedResourcesMatchExpected(
         expected_returned_ids, expected_returned_counts,
@@ -445,12 +455,12 @@ TEST_F(CompositorFrameSinkSupportTest, ResourceRefMultipleTimes) {
   // the returned count is correct.
   {
     SCOPED_TRACE("unref only 4");
-    ResourceId ids_to_unref[] = {4};
+    ResourceId ids_to_unref[] = {ResourceId(4)};
     int counts[] = {2};
     UnrefResources(ids_to_unref, counts, base::size(ids_to_unref));
     SubmitCompositorFrameWithResources(nullptr, 0);
 
-    ResourceId expected_returned_ids[] = {4};
+    ResourceId expected_returned_ids[] = {ResourceId(4)};
     int expected_returned_counts[] = {2};
     CheckReturnedResourcesMatchExpected(
         expected_returned_ids, expected_returned_counts,
@@ -459,7 +469,7 @@ TEST_F(CompositorFrameSinkSupportTest, ResourceRefMultipleTimes) {
 }
 
 TEST_F(CompositorFrameSinkSupportTest, ResourceLifetime) {
-  ResourceId first_frame_ids[] = {1, 2, 3};
+  ResourceId first_frame_ids[] = {ResourceId(1), ResourceId(2), ResourceId(3)};
   SubmitCompositorFrameWithResources(first_frame_ids,
                                      base::size(first_frame_ids));
 
@@ -472,12 +482,12 @@ TEST_F(CompositorFrameSinkSupportTest, ResourceLifetime) {
   // The second frame references some of the same resources, but some different
   // ones. We expect to receive back resource 1 with a count of 1 since it was
   // only referenced by the first frame.
-  ResourceId second_frame_ids[] = {2, 3, 4};
+  ResourceId second_frame_ids[] = {ResourceId(2), ResourceId(3), ResourceId(4)};
   SubmitCompositorFrameWithResources(second_frame_ids,
                                      base::size(second_frame_ids));
   {
     SCOPED_TRACE("second frame");
-    ResourceId expected_returned_ids[] = {1};
+    ResourceId expected_returned_ids[] = {ResourceId(1)};
     int expected_returned_counts[] = {1};
     CheckReturnedResourcesMatchExpected(
         expected_returned_ids, expected_returned_counts,
@@ -488,13 +498,15 @@ TEST_F(CompositorFrameSinkSupportTest, ResourceLifetime) {
   // receive back all resources from the first and second frames. Resource IDs 2
   // and 3 will have counts of 2, since they were used in both frames, and
   // resource ID 4 will have a count of 1.
-  ResourceId third_frame_ids[] = {10, 11, 12, 13};
+  ResourceId third_frame_ids[] = {ResourceId(10), ResourceId(11),
+                                  ResourceId(12), ResourceId(13)};
   SubmitCompositorFrameWithResources(third_frame_ids,
                                      base::size(third_frame_ids));
 
   {
     SCOPED_TRACE("third frame");
-    ResourceId expected_returned_ids[] = {2, 3, 4};
+    ResourceId expected_returned_ids[] = {ResourceId(2), ResourceId(3),
+                                          ResourceId(4)};
     int expected_returned_counts[] = {2, 2, 1};
     CheckReturnedResourcesMatchExpected(
         expected_returned_ids, expected_returned_counts,
@@ -504,7 +516,7 @@ TEST_F(CompositorFrameSinkSupportTest, ResourceLifetime) {
   // Simulate a ResourceProvider taking a ref on all of the resources.
   RefCurrentFrameResources();
 
-  ResourceId fourth_frame_ids[] = {12, 13};
+  ResourceId fourth_frame_ids[] = {ResourceId(12), ResourceId(13)};
   SubmitCompositorFrameWithResources(fourth_frame_ids,
                                      base::size(fourth_frame_ids));
 
@@ -519,7 +531,8 @@ TEST_F(CompositorFrameSinkSupportTest, ResourceLifetime) {
   // Release resources associated with the first RefCurrentFrameResources() call
   // first.
   {
-    ResourceId ids_to_unref[] = {10, 11, 12, 13};
+    ResourceId ids_to_unref[] = {ResourceId(10), ResourceId(11), ResourceId(12),
+                                 ResourceId(13)};
     int counts[] = {1, 1, 1, 1};
     UnrefResources(ids_to_unref, counts, base::size(ids_to_unref));
   }
@@ -533,7 +546,7 @@ TEST_F(CompositorFrameSinkSupportTest, ResourceLifetime) {
   }
 
   {
-    ResourceId ids_to_unref[] = {12, 13};
+    ResourceId ids_to_unref[] = {ResourceId(12), ResourceId(13)};
     int counts[] = {1, 1};
     UnrefResources(ids_to_unref, counts, base::size(ids_to_unref));
   }
@@ -548,7 +561,8 @@ TEST_F(CompositorFrameSinkSupportTest, ResourceLifetime) {
 
   {
     SCOPED_TRACE("fourth frame, second unref");
-    ResourceId expected_returned_ids[] = {10, 11, 12, 13};
+    ResourceId expected_returned_ids[] = {ResourceId(10), ResourceId(11),
+                                          ResourceId(12), ResourceId(13)};
     int expected_returned_counts[] = {1, 1, 2, 2};
     CheckReturnedResourcesMatchExpected(
         expected_returned_ids, expected_returned_counts,
@@ -645,21 +659,27 @@ TEST_F(CompositorFrameSinkSupportTest, ProhibitsUnprivilegedCopyRequests) {
       false /* not root frame sink */);
 
   bool did_receive_aborted_copy_result = false;
+  base::RunLoop aborted_copy_run_loop;
   auto request = std::make_unique<CopyOutputRequest>(
       CopyOutputRequest::ResultFormat::RGBA_BITMAP,
       base::BindOnce(
-          [](bool* got_nothing, std::unique_ptr<CopyOutputResult> result) {
+          [](bool* got_nothing, base::OnceClosure finished,
+             std::unique_ptr<CopyOutputResult> result) {
             *got_nothing = result->IsEmpty();
+            std::move(finished).Run();
           },
-          &did_receive_aborted_copy_result));
+          &did_receive_aborted_copy_result,
+          aborted_copy_run_loop.QuitClosure()));
 
   auto frame = MakeDefaultCompositorFrame();
-  ResourceId frame_resource_ids[] = {1, 2, 3};
+  ResourceId frame_resource_ids[] = {ResourceId(1), ResourceId(2),
+                                     ResourceId(3)};
   AddResourcesToFrame(&frame, frame_resource_ids,
                       base::size(frame_resource_ids));
 
   EXPECT_FALSE(SubmitCompositorFrameWithCopyRequest(std::move(frame),
                                                     std::move(request)));
+  aborted_copy_run_loop.Run();
   EXPECT_TRUE(did_receive_aborted_copy_result);
 
   // All the resources in the rejected frame should have been returned.
@@ -680,7 +700,7 @@ TEST_F(CompositorFrameSinkSupportTest, EvictLastActivatedSurface) {
   SurfaceId id(kAnotherArbitraryFrameSinkId, local_surface_id);
 
   TransferableResource resource;
-  resource.id = 1;
+  resource.id = ResourceId(1);
   resource.mailbox_holder.texture_target = GL_TEXTURE_2D;
   auto frame = CompositorFrameBuilder()
                    .AddDefaultRenderPass()
@@ -778,8 +798,64 @@ TEST_F(CompositorFrameSinkSupportTest, EvictOlderSurfaces) {
 }
 
 void CopyRequestTestCallback(bool* called,
+                             base::OnceClosure finished,
                              std::unique_ptr<CopyOutputResult> result) {
   *called = true;
+  std::move(finished).Run();
+}
+
+TEST_F(CompositorFrameSinkSupportTest, CopyRequestOnSubtree) {
+  const SurfaceId surface_id(support_->frame_sink_id(), local_surface_id_);
+
+  constexpr SubtreeCaptureId kSubtreeId1(22);
+  constexpr SubtreeCaptureId kSubtreeId2(44);
+
+  {
+    auto frame = CompositorFrameBuilder()
+                     .AddDefaultRenderPass()
+                     .AddDefaultRenderPass()
+                     .SetReferencedSurfaces({SurfaceRange(surface_id)})
+                     .Build();
+    frame.render_pass_list.front()->subtree_capture_id = kSubtreeId1;
+    support_->SubmitCompositorFrame(local_surface_id_, std::move(frame));
+    EXPECT_EQ(surface_observer_.last_created_surface_id().local_surface_id(),
+              local_surface_id_);
+  }
+
+  // Requesting copy of output of a render pass identifiable by a valid
+  // SubtreeCaptureId.
+  bool called1 = false;
+  base::RunLoop called1_run_loop;
+  auto request = std::make_unique<CopyOutputRequest>(
+      CopyOutputRequest::ResultFormat::RGBA_BITMAP,
+      base::BindOnce(&CopyRequestTestCallback, &called1,
+                     called1_run_loop.QuitClosure()));
+  support_->RequestCopyOfOutput(
+      {local_surface_id_, kSubtreeId1, std::move(request)});
+  GetSurfaceForId(surface_id)->TakeCopyOutputRequestsFromClient();
+  EXPECT_FALSE(called1);
+
+  // Requesting copy of output using a SubtreeCaptureId that has no associated
+  // render pass. The callback will be called immediately.
+  bool called2 = false;
+  base::RunLoop called2_run_loop;
+  request = std::make_unique<CopyOutputRequest>(
+      CopyOutputRequest::ResultFormat::RGBA_BITMAP,
+      base::BindOnce(&CopyRequestTestCallback, &called2,
+                     called2_run_loop.QuitClosure()));
+  support_->RequestCopyOfOutput(
+      {local_surface_id_, kSubtreeId2, std::move(request)});
+  GetSurfaceForId(surface_id)->TakeCopyOutputRequestsFromClient();
+  called2_run_loop.Run();
+  EXPECT_FALSE(called1);
+  EXPECT_TRUE(called2);
+
+  support_->EvictSurface(local_surface_id_);
+  ExpireAllTemporaryReferences();
+  local_surface_id_ = LocalSurfaceId();
+  manager_.surface_manager()->GarbageCollectSurfaces();
+  called1_run_loop.Run();
+  EXPECT_TRUE(called1);
 }
 
 TEST_F(CompositorFrameSinkSupportTest, DuplicateCopyRequest) {
@@ -796,36 +872,46 @@ TEST_F(CompositorFrameSinkSupportTest, DuplicateCopyRequest) {
   }
 
   bool called1 = false;
+  base::RunLoop called1_run_loop;
   auto request = std::make_unique<CopyOutputRequest>(
       CopyOutputRequest::ResultFormat::RGBA_BITMAP,
-      base::BindOnce(&CopyRequestTestCallback, &called1));
+      base::BindOnce(&CopyRequestTestCallback, &called1,
+                     called1_run_loop.QuitClosure()));
   request->set_source(kArbitrarySourceId1);
 
-  support_->RequestCopyOfOutput(local_surface_id_, std::move(request));
+  support_->RequestCopyOfOutput(
+      {local_surface_id_, SubtreeCaptureId(), std::move(request)});
   GetSurfaceForId(surface_id)->TakeCopyOutputRequestsFromClient();
   EXPECT_FALSE(called1);
 
   bool called2 = false;
+  base::RunLoop called2_run_loop;
   request = std::make_unique<CopyOutputRequest>(
       CopyOutputRequest::ResultFormat::RGBA_BITMAP,
-      base::BindOnce(&CopyRequestTestCallback, &called2));
+      base::BindOnce(&CopyRequestTestCallback, &called2,
+                     called2_run_loop.QuitClosure()));
   request->set_source(kArbitrarySourceId2);
 
-  support_->RequestCopyOfOutput(local_surface_id_, std::move(request));
+  support_->RequestCopyOfOutput(
+      {local_surface_id_, SubtreeCaptureId(), std::move(request)});
   GetSurfaceForId(surface_id)->TakeCopyOutputRequestsFromClient();
   // Callbacks have different sources so neither should be called.
   EXPECT_FALSE(called1);
   EXPECT_FALSE(called2);
 
   bool called3 = false;
+  base::RunLoop called3_run_loop;
   request = std::make_unique<CopyOutputRequest>(
       CopyOutputRequest::ResultFormat::RGBA_BITMAP,
-      base::BindOnce(&CopyRequestTestCallback, &called3));
+      base::BindOnce(&CopyRequestTestCallback, &called3,
+                     called3_run_loop.QuitClosure()));
   request->set_source(kArbitrarySourceId1);
 
-  support_->RequestCopyOfOutput(local_surface_id_, std::move(request));
+  support_->RequestCopyOfOutput(
+      {local_surface_id_, SubtreeCaptureId(), std::move(request)});
   GetSurfaceForId(surface_id)->TakeCopyOutputRequestsFromClient();
   // Two callbacks are from source1, so the first should be called.
+  called1_run_loop.Run();
   EXPECT_TRUE(called1);
   EXPECT_FALSE(called2);
   EXPECT_FALSE(called3);
@@ -834,6 +920,8 @@ TEST_F(CompositorFrameSinkSupportTest, DuplicateCopyRequest) {
   ExpireAllTemporaryReferences();
   local_surface_id_ = LocalSurfaceId();
   manager_.surface_manager()->GarbageCollectSurfaces();
+  called2_run_loop.Run();
+  called3_run_loop.Run();
   EXPECT_TRUE(called1);
   EXPECT_TRUE(called2);
   EXPECT_TRUE(called3);
@@ -876,7 +964,8 @@ TEST_F(CompositorFrameSinkSupportTest, FrameSizeMismatch) {
   frame = CompositorFrameBuilder()
               .AddRenderPass(gfx::Rect(5, 4), gfx::Rect())
               .Build();
-  ResourceId frame_resource_ids[] = {1, 2, 3};
+  ResourceId frame_resource_ids[] = {ResourceId(1), ResourceId(2),
+                                     ResourceId(3)};
   AddResourcesToFrame(&frame, frame_resource_ids,
                       base::size(frame_resource_ids));
 
@@ -1045,7 +1134,8 @@ TEST_F(CompositorFrameSinkSupportTest,
   auto request = std::make_unique<CopyOutputRequest>(
       CopyOutputRequest::ResultFormat::RGBA_BITMAP,
       base::BindOnce(StubResultCallback));
-  support_->RequestCopyOfOutput(local_surface_id1, std::move(request));
+  support_->RequestCopyOfOutput(
+      {local_surface_id1, SubtreeCaptureId(), std::move(request)});
 
   // First surface takes CopyOutputRequests from its client. Now only the first
   // surface should report having CopyOutputRequests.
@@ -1087,7 +1177,8 @@ TEST_F(CompositorFrameSinkSupportTest,
   auto request = std::make_unique<CopyOutputRequest>(
       CopyOutputRequest::ResultFormat::RGBA_BITMAP,
       base::BindOnce(StubResultCallback));
-  support_->RequestCopyOfOutput(local_surface_id2, std::move(request));
+  support_->RequestCopyOfOutput(
+      {local_surface_id2, SubtreeCaptureId(), std::move(request)});
 
   // The first surface doesn't have copy output requests, because it can't
   // satisfy the request that the client has.
@@ -1128,7 +1219,8 @@ TEST_F(CompositorFrameSinkSupportTest,
   auto request = std::make_unique<CopyOutputRequest>(
       CopyOutputRequest::ResultFormat::RGBA_BITMAP,
       base::BindOnce(StubResultCallback));
-  support_->RequestCopyOfOutput(local_surface_id1, std::move(request));
+  support_->RequestCopyOfOutput(
+      {local_surface_id1, SubtreeCaptureId(), std::move(request)});
 
   // Create the second surface.
   support_->SubmitCompositorFrame(local_surface_id2,
@@ -1168,7 +1260,8 @@ TEST_F(CompositorFrameSinkSupportTest,
 
   testing::InSequence sequence;
   EXPECT_CALL(frame_sink_manager_client_, OnFirstSurfaceActivation(_));
-  EXPECT_CALL(frame_sink_manager_client_, OnFrameTokenChanged(_, frame_token));
+  EXPECT_CALL(frame_sink_manager_client_,
+              OnFrameTokenChanged(_, frame_token, _));
   support_->SubmitCompositorFrame(local_surface_id, std::move(frame));
 }
 
@@ -1195,11 +1288,13 @@ TEST_F(CompositorFrameSinkSupportTest, OnFrameTokenUpdate) {
   EXPECT_TRUE(surface->HasPendingFrame());
 
   // Since the frame is not activated, |frame_token| is not sent to the client.
-  EXPECT_CALL(frame_sink_manager_client_, OnFrameTokenChanged(_, _)).Times(0);
+  EXPECT_CALL(frame_sink_manager_client_, OnFrameTokenChanged(_, _, _))
+      .Times(0);
   testing::Mock::VerifyAndClearExpectations(&frame_sink_manager_client_);
 
   // Since the frame is now activated, |frame_token| is sent to the client.
-  EXPECT_CALL(frame_sink_manager_client_, OnFrameTokenChanged(_, frame_token));
+  EXPECT_CALL(frame_sink_manager_client_,
+              OnFrameTokenChanged(_, frame_token, _));
   surface->ActivatePendingFrameForDeadline();
 }
 
@@ -1436,6 +1531,83 @@ TEST_F(CompositorFrameSinkSupportTest, ThrottleUnresponsiveClient) {
   testing::Mock::VerifyAndClearExpectations(&mock_client);
 
   support->SetNeedsBeginFrame(false);
+}
+
+// Verifies that when CompositorFrameSinkSupport has its |begin_frame_interval_|
+// set, any BeginFrame would be sent only after this interval has passed from
+// the time when the last BeginFrame was sent.
+TEST_F(CompositorFrameSinkSupportTest, BeginFrameInterval) {
+  FakeExternalBeginFrameSource begin_frame_source(0.f, false);
+
+  testing::NiceMock<MockCompositorFrameSinkClient> mock_client;
+  auto support = std::make_unique<CompositorFrameSinkSupport>(
+      &mock_client, &manager_, kAnotherArbitraryFrameSinkId, /*is_root=*/true);
+  SurfaceId id(kAnotherArbitraryFrameSinkId, local_surface_id_);
+  support->SetBeginFrameSource(&begin_frame_source);
+  support->SetNeedsBeginFrame(true);
+  constexpr uint8_t fps = 5;
+  constexpr base::TimeDelta throttled_interval =
+      base::TimeDelta::FromSeconds(1) / fps;
+  support->ThrottleBeginFrame(throttled_interval);
+
+  constexpr base::TimeDelta interval = BeginFrameArgs::DefaultInterval();
+  base::TimeTicks frame_time;
+  uint64_t sequence_number = 1;
+  int sent_frames = 0;
+  BeginFrameArgs args;
+
+  const base::TimeTicks end_time = frame_time + base::TimeDelta::FromSeconds(2);
+
+  base::TimeTicks next_expected_begin_frame = frame_time;
+  while (frame_time < end_time) {
+    args = CreateBeginFrameArgsForTesting(BEGINFRAME_FROM_HERE, 0,
+                                          sequence_number++, frame_time);
+    if (frame_time < next_expected_begin_frame) {
+      EXPECT_CALL(mock_client, OnBeginFrame(args, _)).Times(0);
+    } else {
+      EXPECT_CALL(mock_client, OnBeginFrame(args, _)).WillOnce([&]() {
+        support->SubmitCompositorFrame(local_surface_id_,
+                                       MakeDefaultCompositorFrame());
+        GetSurfaceForId(id)->MarkAsDrawn();
+        ++sent_frames;
+      });
+      next_expected_begin_frame = throttled_interval + frame_time;
+    }
+    begin_frame_source.TestOnBeginFrame(args);
+    testing::Mock::VerifyAndClearExpectations(&mock_client);
+
+    frame_time += interval;
+  }
+  // In total 10 frames should have been sent (5fps x 2 seconds).
+  EXPECT_EQ(sent_frames, 10);
+  support->SetNeedsBeginFrame(false);
+}
+
+TEST_F(CompositorFrameSinkSupportTest, ForceFullFrameToActivateSurface) {
+  FakeExternalBeginFrameSource begin_frame_source(0.f, false);
+  testing::NiceMock<MockCompositorFrameSinkClient> mock_client;
+  auto support = std::make_unique<CompositorFrameSinkSupport>(
+      &mock_client, &manager_, kAnotherArbitraryFrameSinkId, /*is_root=*/true);
+  SurfaceId id(kAnotherArbitraryFrameSinkId, local_surface_id_);
+  support->SetBeginFrameSource(&begin_frame_source);
+  support->SetNeedsBeginFrame(true);
+  const base::TimeTicks frame_time;
+  const int64_t sequence_number = 1;
+
+  // ComposterFrameSink hasn't had a surface activate yet.
+  EXPECT_FALSE(support->last_activated_surface_id().is_valid());
+
+  BeginFrameArgs args = CreateBeginFrameArgsForTesting(
+      BEGINFRAME_FROM_HERE, 0, sequence_number, frame_time);
+  EXPECT_FALSE(args.animate_only);
+  BeginFrameArgs args_animate_only = args;
+  args_animate_only.animate_only = true;
+  // Verify |animate_only| is toggled back to false before sending to client.
+  EXPECT_CALL(mock_client,
+              OnBeginFrame(testing::Field(&BeginFrameArgs::animate_only,
+                                          testing::IsFalse()),
+                           _));
+  begin_frame_source.TestOnBeginFrame(args_animate_only);
 }
 
 }  // namespace viz

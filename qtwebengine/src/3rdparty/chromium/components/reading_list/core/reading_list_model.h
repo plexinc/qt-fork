@@ -92,6 +92,9 @@ class ReadingListModel {
   // entries available offline.
   virtual const ReadingListEntry* GetFirstUnreadEntry(bool distilled) const = 0;
 
+  // Returns true if |url| can be added to the reading list.
+  virtual bool IsUrlSupported(const GURL& url) = 0;
+
   // Adds |url| at the top of the unread entries, and removes entries with the
   // same |url| from everywhere else if they exist. The entry title will be a
   // trimmed copy of |title|.
@@ -140,12 +143,14 @@ class ReadingListModel {
   void RemoveObserver(ReadingListModelObserver* observer);
 
   // Helper class that is used to scope batch updates.
-  class ScopedReadingListBatchUpdate {
+  class ScopedReadingListBatchUpdate : public ReadingListModelObserver {
    public:
-    explicit ScopedReadingListBatchUpdate(ReadingListModel* model)
-        : model_(model) {}
+    explicit ScopedReadingListBatchUpdate(ReadingListModel* model);
 
-    virtual ~ScopedReadingListBatchUpdate();
+    ~ScopedReadingListBatchUpdate() override;
+
+    void ReadingListModelLoaded(const ReadingListModel* model) override;
+    void ReadingListModelBeingShutdown(const ReadingListModel* model) override;
 
    private:
     ReadingListModel* model_;

@@ -5,14 +5,16 @@
 #ifndef COMPONENTS_SYNC_BOOKMARKS_BOOKMARK_MODEL_MERGER_H_
 #define COMPONENTS_SYNC_BOOKMARKS_BOOKMARK_MODEL_MERGER_H_
 
+#include <list>
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#include "base/guid.h"
 #include "base/macros.h"
 #include "components/sync/base/unique_position.h"
-#include "components/sync/engine/non_blocking_sync_common.h"
+#include "components/sync/engine/commit_and_get_updates_types.h"
 
 namespace bookmarks {
 class BookmarkModel;
@@ -55,7 +57,7 @@ class BookmarkModelMerger {
   class RemoteTreeNode final {
    private:
     using UpdatesPerParentId =
-        std::unordered_map<std::string, syncer::UpdateResponseDataList>;
+        std::unordered_map<std::string, std::list<syncer::UpdateResponseData>>;
 
    public:
     // Constructs a tree given |update| as root and recursively all descendants
@@ -63,8 +65,10 @@ class BookmarkModelMerger {
     // |updates_per_parent_id| must not be null. All updates
     // |*updates_per_parent_id| must represent valid updates. Updates
     // corresponding from descendant nodes are moved away from
-    // |*updates_per_parent_id|.
+    // |*updates_per_parent_id|. |max_depth| is the max tree depth to sync
+    // after which content is silently ignored.
     static RemoteTreeNode BuildTree(syncer::UpdateResponseData update,
+                                    size_t max_depth,
                                     UpdatesPerParentId* updates_per_parent_id);
 
     ~RemoteTreeNode();
@@ -83,7 +87,7 @@ class BookmarkModelMerger {
     // Recursively emplaces all GUIDs (this node and descendants) into
     // |*guid_to_remote_node_map|, which must not be null.
     void EmplaceSelfAndDescendantsByGUID(
-        std::unordered_map<std::string, const RemoteTreeNode*>*
+        std::unordered_map<base::GUID, const RemoteTreeNode*, base::GUIDHash>*
             guid_to_remote_node_map) const;
 
    private:
@@ -118,7 +122,7 @@ class BookmarkModelMerger {
   // Computes bookmark pairs that should be matched by GUID. Local bookmark
   // GUIDs may be regenerated for the case where they collide with a remote GUID
   // that is not compatible (e.g. folder vs non-folder).
-  static std::unordered_map<std::string, GuidMatch>
+  static std::unordered_map<base::GUID, GuidMatch, base::GUIDHash>
   FindGuidMatchesOrReassignLocal(const RemoteForest& remote_forest,
                                  bookmarks::BookmarkModel* bookmark_model);
 
@@ -195,7 +199,7 @@ class BookmarkModelMerger {
   // Preprocessed remote nodes in the form a forest where each tree's root is a
   // permanent node. Computed upon construction via BuildRemoteForest().
   const RemoteForest remote_forest_;
-  std::unordered_map<std::string, GuidMatch> guid_to_match_map_;
+  std::unordered_map<base::GUID, GuidMatch, base::GUIDHash> guid_to_match_map_;
 
   DISALLOW_COPY_AND_ASSIGN(BookmarkModelMerger);
 };

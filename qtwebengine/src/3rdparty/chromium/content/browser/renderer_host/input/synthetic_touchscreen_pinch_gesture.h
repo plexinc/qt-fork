@@ -12,7 +12,7 @@
 #include "content/browser/renderer_host/input/synthetic_pointer_driver.h"
 #include "content/common/content_export.h"
 #include "content/common/input/synthetic_pinch_gesture_params.h"
-#include "content/common/input/synthetic_web_input_event_builders.h"
+#include "third_party/blink/public/common/input/synthetic_web_input_event_builders.h"
 #include "third_party/blink/public/common/input/web_input_event.h"
 
 namespace content {
@@ -54,7 +54,7 @@ class CONTENT_EXPORT SyntheticTouchscreenPinchGesture
   float start_y_0_;
   float start_y_1_;
   float max_pointer_delta_0_;
-  SyntheticGestureParams::GestureSourceType gesture_source_type_;
+  content::mojom::GestureSourceType gesture_source_type_;
   GestureState state_;
   base::TimeTicks start_time_;
   base::TimeTicks stop_time_;

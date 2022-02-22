@@ -14,10 +14,10 @@
 #include <utility>
 #include <vector>
 
-#include "base/logging.h"
+#include "base/check_op.h"
+#include "base/containers/contains.h"
 #include "base/macros.h"
 #include "base/numerics/safe_conversions.h"
-#include "base/stl_util.h"
 #include "components/cloud_devices/common/cloud_device_description.h"
 
 namespace cloud_devices {

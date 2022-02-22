@@ -29,8 +29,7 @@
 #ifndef SCXMLCPPDUMPER_H
 #define SCXMLCPPDUMPER_H
 
-#include "qscxmlglobals.h"
-
+#include <QtScxml/qscxmlglobals.h>
 #include <QtScxml/private/qscxmlcompiler_p.h>
 #include <QtScxml/private/qscxmltabledata_p.h>
 

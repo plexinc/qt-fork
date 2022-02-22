@@ -17,6 +17,7 @@
 #include "base/time/default_clock.h"
 #include "base/time/default_tick_clock.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/network_time/network_time_test_utils.h"
 #include "components/prefs/testing_pref_service.h"
 #include "components/security_interstitials/content/cert_logger.pb.h"
@@ -30,11 +31,10 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if defined(OS_ANDROID)
-#include "base/test/scoped_feature_list.h"
 #include "net/cert/cert_verify_proc_android.h"
 #endif
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
 #include "net/cert/internal/trust_store_mac.h"
 #endif
 
@@ -287,7 +287,7 @@ TEST(ErrorReportTest, TestChromeChannelIncluded) {
   }
 }
 
-#if defined(OS_WIN) || defined(OS_CHROMEOS)
+#if defined(OS_WIN) || BUILDFLAG(IS_CHROMEOS_ASH)
 // Tests that the SetIsEnterpriseManaged() function populates
 // is_enterprise_managed correctly on Windows, and that value is correctly
 // extracted from the parsed report.
@@ -346,7 +346,7 @@ TEST(ErrorReportTest, TrialDebugInfo) {
 
   network::mojom::CertVerifierDebugInfoPtr debug_info =
       network::mojom::CertVerifierDebugInfo::New();
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   debug_info->mac_platform_debug_info =
       network::mojom::MacPlatformVerifierDebugInfo::New();
   debug_info->mac_platform_debug_info->trust_result = 1;
@@ -389,7 +389,7 @@ TEST(ErrorReportTest, TrialDebugInfo) {
   ASSERT_TRUE(trial_info.has_sct_list());
   EXPECT_EQ("sct", trial_info.sct_list());
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   ASSERT_TRUE(trial_info.has_mac_platform_debug_info());
   EXPECT_EQ(1U, trial_info.mac_platform_debug_info().trust_result());
   EXPECT_EQ(20, trial_info.mac_platform_debug_info().result_code());

@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtNfc module of the Qt Toolkit.
@@ -46,6 +46,8 @@
 
 QT_BEGIN_NAMESPACE
 
+class QNdefMessage;
+
 class QNdefFilterPrivate;
 class Q_NFC_EXPORT QNdefFilter
 {
@@ -67,26 +69,28 @@ public:
     };
 
     template<typename T>
-    void appendRecord(unsigned int min = 1, unsigned int max = 1);
-    void appendRecord(QNdefRecord::TypeNameFormat typeNameFormat, const QByteArray &type,
+    bool appendRecord(unsigned int min = 1, unsigned int max = 1);
+    bool appendRecord(QNdefRecord::TypeNameFormat typeNameFormat, const QByteArray &type,
                       unsigned int min = 1, unsigned int max = 1);
-    void appendRecord(const Record &record);
+    bool appendRecord(const Record &record);
 
-    int recordCount() const;
-    Record recordAt(int i) const;
+    qsizetype recordCount() const;
+    Record recordAt(qsizetype i) const;
 
     QNdefFilter &operator=(const QNdefFilter &other);
+
+    bool match(const QNdefMessage &message) const;
 
 private:
     QSharedDataPointer<QNdefFilterPrivate> d;
 };
 
 template <typename T>
-void QNdefFilter::appendRecord(unsigned int min, unsigned int max)
+bool QNdefFilter::appendRecord(unsigned int min, unsigned int max)
 {
     T record;
 
-    appendRecord(record.typeNameFormat(), record.type(), min, max);
+    return appendRecord(record.typeNameFormat(), record.type(), min, max);
 }
 
 QT_END_NAMESPACE

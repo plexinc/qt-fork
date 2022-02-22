@@ -1,12 +1,8 @@
 {
-    "dependencies": [
-        "sdk",
-        "test_runner"
-    ],
-    "scripts": [
-        "PageMockTestRunner.js"
-    ],
-    "skip_compilation": [
-        "PageMockTestRunner.js"
-    ]
+  "dependencies": [
+    "test_runner"
+  ],
+  "modules": [
+    "sdk_test_runner.js"
+  ]
 }

@@ -39,8 +39,8 @@ gfx::Rect TestNativeTheme::GetNinePatchAperture(Part part) const {
   return gfx::Rect();
 }
 
-bool TestNativeTheme::UsesHighContrastColors() const {
-  return high_contrast_;
+bool TestNativeTheme::UserHasContrastPreference() const {
+  return contrast_preference_;
 }
 
 bool TestNativeTheme::ShouldUseDarkColors() const {
@@ -50,6 +50,12 @@ bool TestNativeTheme::ShouldUseDarkColors() const {
 NativeTheme::PreferredColorScheme TestNativeTheme::GetPreferredColorScheme()
     const {
   return CalculatePreferredColorScheme();
+}
+
+NativeTheme::ColorScheme TestNativeTheme::GetDefaultSystemColorScheme() const {
+  if (is_platform_high_contrast_)
+    return ColorScheme::kPlatformHighContrast;
+  return NativeTheme::GetDefaultSystemColorScheme();
 }
 
 void TestNativeTheme::AddColorSchemeNativeThemeObserver(

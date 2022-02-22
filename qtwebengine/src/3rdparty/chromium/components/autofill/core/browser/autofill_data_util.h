@@ -15,6 +15,7 @@
 namespace autofill {
 
 class AutofillProfile;
+class FormStructure;
 
 namespace data_util {
 
@@ -27,15 +28,15 @@ struct NameParts {
 namespace bit_field_type_groups {
 
 // Bits for FieldTypeGroup options.
-// The form has a field associated with the NAME_HOME or NAME_BILLING
+// The form has a field associated with the kName or kNameBilling
 // FieldTypeGroups.
 constexpr uint32_t kName = 1 << 0;
-// The form has a field associated with the ADDRESS_HOME or ADDRESS_BILLING
+// The form has a field associated with the :kAddressHome or kAddressBilling
 // FieldTypeGroups.
 constexpr uint32_t kAddress = 1 << 1;
-// The form has a field associated with the EMAIL FieldTypeGroup.
+// The form has a field associated with the kEmail FieldTypeGroup.
 constexpr uint32_t kEmail = 1 << 2;
-// The form has a field associated with the PHONE_HOME or PHONE_BILLING
+// The form has a field associated with the kPhoneHome or kPhoneBilling
 // FieldTypeGroups.
 constexpr uint32_t kPhone = 1 << 3;
 
@@ -54,7 +55,9 @@ bool ContainsEmail(uint32_t groups);
 bool ContainsPhone(uint32_t groups);
 
 // Returns a bitmask indicating which of the name, address, email address, and
-// phone number FieldTypeGroups are associated with the given |types|.
+// phone number FieldTypeGroups are associated with the given |form|'s storable
+// types or |types|, respectively.
+uint32_t DetermineGroups(const FormStructure& form);
 uint32_t DetermineGroups(const std::vector<ServerFieldType>& types);
 
 // Returns true if a form has address fields or has least two supported

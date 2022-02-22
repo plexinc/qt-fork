@@ -54,27 +54,24 @@
 #include <QtCore/qmetaobject.h>
 
 #include <private/qqmljavascriptexpression_p.h>
-#include <private/qqmlboundsignalexpressionpointer_p.h>
 #include <private/qqmlnotifier_p.h>
 #include <private/qflagpointer_p.h>
 #include <private/qqmlrefcount_p.h>
 #include <private/qqmlglobal_p.h>
-#include <private/qbitfield_p.h>
 
 QT_BEGIN_NAMESPACE
 
 class Q_QML_PRIVATE_EXPORT QQmlBoundSignalExpression : public QQmlJavaScriptExpression, public QQmlRefCount
 {
 public:
-    QQmlBoundSignalExpression(QObject *target, int index,
-                              QQmlContextData *ctxt, QObject *scope, const QString &expression,
-                              const QString &fileName, quint16 line, quint16 column,
-                              const QString &handlerName = QString(),
-                              const QString &parameterString = QString());
+    QQmlBoundSignalExpression(
+            const QObject *target, int index, const QQmlRefPointer<QQmlContextData> &ctxt, QObject *scope,
+            const QString &expression, const QString &fileName, quint16 line, quint16 column,
+            const QString &handlerName = QString(), const QString &parameterString = QString());
 
-    QQmlBoundSignalExpression(QObject *target, int index,
-                              QQmlContextData *ctxt, QObject *scopeObject, QV4::Function *function,
-                              QV4::ExecutionContext *scope = nullptr);
+    QQmlBoundSignalExpression(
+            const QObject *target, int index, const QQmlRefPointer<QQmlContextData> &ctxt,
+            QObject *scopeObject, QV4::Function *function, QV4::ExecutionContext *scope = nullptr);
 
     // inherited from QQmlJavaScriptExpression.
     QString expressionIdentifier() const override;
@@ -82,22 +79,21 @@ public:
 
     // evaluation of a bound signal expression doesn't return any value
     void evaluate(void **a);
-    void evaluate(const QList<QVariant> &args);
+
+    bool mustCaptureBindableProperty() const final {return true;}
 
     QString expression() const;
-    QObject *target() const { return m_target; }
-
-    QQmlEngine *engine() const { return context() ? context()->engine : nullptr; }
+    const QObject *target() const { return m_target; }
 
 private:
     ~QQmlBoundSignalExpression() override;
 
-    void init(QQmlContextData *ctxt, QObject *scope);
+    void init(const QQmlRefPointer<QQmlContextData> &ctxt, QObject *scope);
 
     bool expressionFunctionValid() const { return function() != nullptr; }
 
     int m_index;
-    QObject *m_target;
+    const QObject *m_target;
 };
 
 class Q_QML_PRIVATE_EXPORT QQmlBoundSignal : public QQmlNotifierEndpoint
@@ -126,7 +122,16 @@ private:
 
     bool m_enabled;
 
-    QQmlBoundSignalExpressionPointer m_expression;
+    QQmlRefPointer<QQmlBoundSignalExpression> m_expression;
+};
+
+class QQmlPropertyObserver : public QPropertyObserver
+{
+public:
+    QQmlPropertyObserver(QQmlBoundSignalExpression *expr);
+
+private:
+    QQmlRefPointer<QQmlBoundSignalExpression> expression;
 };
 
 QT_END_NAMESPACE

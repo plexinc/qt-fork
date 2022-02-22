@@ -175,10 +175,12 @@ Entity {
         ambient: "red"
     }
 
-    PlaneMesh {
+    GeometryRenderer {
         id: mesh
-        width: 1
-        height: 1
+        view: PlaneMesh {
+            width: 1
+            height: 1
+        }
     }
 
     Transform {

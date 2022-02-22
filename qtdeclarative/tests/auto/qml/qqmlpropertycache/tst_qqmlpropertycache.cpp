@@ -32,14 +32,15 @@
 #include <QtQml/qqmlcontext.h>
 #include <QtQml/qqmlcomponent.h>
 #include <private/qmetaobjectbuilder_p.h>
+#include <private/qqmlcontextdata_p.h>
 #include <QCryptographicHash>
-#include "../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 
 class tst_qqmlpropertycache : public QQmlDataTest
 {
     Q_OBJECT
 public:
-    tst_qqmlpropertycache() {}
+    tst_qqmlpropertycache() : QQmlDataTest(QT_QMLTEST_DATADIR) {}
 
 private slots:
     void properties();
@@ -56,6 +57,8 @@ private slots:
     void metaObjectChecksum();
     void metaObjectsForRootElements();
     void derivedGadgetMethod();
+    void restrictRegistrationVersion();
+    void rejectOverriddenFinal();
 
 private:
     QQmlEngine engine;
@@ -69,8 +72,6 @@ public:
     Q_INVOKABLE QString stringValue() { return QLatin1String("base"); }
 };
 
-Q_DECLARE_METATYPE(BaseGadget)
-
 class DerivedGadget : public BaseGadget
 {
     Q_GADGET
@@ -78,8 +79,6 @@ class DerivedGadget : public BaseGadget
 public:
     Q_INVOKABLE QString stringValue() { return QLatin1String("derived"); }
 };
-
-Q_DECLARE_METATYPE(DerivedGadget)
 
 class GadgetUser : public QObject
 {
@@ -129,21 +128,40 @@ private:
 class BaseObject : public QObject
 {
     Q_OBJECT
+    QML_ELEMENT
     Q_PROPERTY(int propertyA READ propertyA NOTIFY propertyAChanged)
     Q_PROPERTY(QString propertyB READ propertyB NOTIFY propertyBChanged)
+    Q_PROPERTY(int highVersion READ highVersion WRITE setHighVersion NOTIFY highVersionChanged REVISION(4, 0))
+    Q_PROPERTY(int finalProp READ finalProp CONSTANT FINAL)
+
 public:
     BaseObject(QObject *parent = nullptr) : QObject(parent) {}
 
     int propertyA() const { return 0; }
     QString propertyB() const { return QString(); }
+    int highVersion() const { return m_highVersion; }
+    int finalProp() const { return 8; }
 
 public Q_SLOTS:
     void slotA() {}
+
+    void setHighVersion(int highVersion)
+    {
+        if (m_highVersion == highVersion)
+            return;
+
+        m_highVersion = highVersion;
+        emit highVersionChanged();
+    }
 
 Q_SIGNALS:
     void propertyAChanged();
     void propertyBChanged();
     void signalA();
+    void highVersionChanged();
+
+private:
+    int m_highVersion = 0;
 };
 
 class DerivedObject : public BaseObject
@@ -152,12 +170,14 @@ class DerivedObject : public BaseObject
     Q_PROPERTY(int propertyC READ propertyC NOTIFY propertyCChanged)
     Q_PROPERTY(QString propertyD READ propertyD NOTIFY propertyDChanged)
     Q_PROPERTY(int propertyE READ propertyE NOTIFY propertyEChanged REVISION 1)
+    Q_PROPERTY(int finalProp READ finalProp CONSTANT) // bad!
 public:
     DerivedObject(QObject *parent = nullptr) : BaseObject(parent) {}
 
     int propertyC() const { return 0; }
     QString propertyD() const { return QString(); }
     int propertyE() const { return 0; }
+    int finalProp() const { return 9; }
 
 public Q_SLOTS:
     void slotB() {}
@@ -180,7 +200,8 @@ void tst_qqmlpropertycache::properties()
     DerivedObject object;
     const QMetaObject *metaObject = object.metaObject();
 
-    QQmlRefPointer<QQmlPropertyCache> cache(new QQmlPropertyCache(metaObject));
+    QQmlRefPointer<QQmlPropertyCache> cache(new QQmlPropertyCache(metaObject),
+                                            QQmlRefPointer<QQmlPropertyCache>::Adopt);
     QQmlPropertyData *data;
 
     QVERIFY((data = cacheProperty(cache, "propertyA")));
@@ -202,8 +223,11 @@ void tst_qqmlpropertycache::propertiesDerived()
     DerivedObject object;
     const QMetaObject *metaObject = object.metaObject();
 
-    QQmlRefPointer<QQmlPropertyCache> parentCache(new QQmlPropertyCache(&BaseObject::staticMetaObject));
-    QQmlRefPointer<QQmlPropertyCache> cache(parentCache->copyAndAppend(object.metaObject()));
+    QQmlRefPointer<QQmlPropertyCache> parentCache(
+                new QQmlPropertyCache(&BaseObject::staticMetaObject),
+                QQmlRefPointer<QQmlPropertyCache>::Adopt);
+    QQmlRefPointer<QQmlPropertyCache> cache(parentCache->copyAndAppend(object.metaObject(), QTypeRevision()),
+                                            QQmlRefPointer<QQmlPropertyCache>::Adopt);
     QQmlPropertyData *data;
 
     QVERIFY((data = cacheProperty(cache, "propertyA")));
@@ -227,8 +251,11 @@ void tst_qqmlpropertycache::revisionedProperties()
     DerivedObject object;
     const QMetaObject *metaObject = object.metaObject();
 
-    QQmlRefPointer<QQmlPropertyCache> cacheWithoutVersion(new QQmlPropertyCache(metaObject));
-    QQmlRefPointer<QQmlPropertyCache> cacheWithVersion(new QQmlPropertyCache(metaObject, 1));
+    QQmlRefPointer<QQmlPropertyCache> cacheWithoutVersion(new QQmlPropertyCache(metaObject),
+                                                          QQmlRefPointer<QQmlPropertyCache>::Adopt);
+    QQmlRefPointer<QQmlPropertyCache> cacheWithVersion(
+                new QQmlPropertyCache(metaObject, QTypeRevision::fromMinorVersion(1)),
+                QQmlRefPointer<QQmlPropertyCache>::Adopt);
     QQmlPropertyData *data;
 
     QVERIFY((data = cacheProperty(cacheWithoutVersion, "propertyE")));
@@ -242,7 +269,8 @@ void tst_qqmlpropertycache::methods()
     DerivedObject object;
     const QMetaObject *metaObject = object.metaObject();
 
-    QQmlRefPointer<QQmlPropertyCache> cache(new QQmlPropertyCache(metaObject));
+    QQmlRefPointer<QQmlPropertyCache> cache(new QQmlPropertyCache(metaObject),
+                                            QQmlRefPointer<QQmlPropertyCache>::Adopt);
     QQmlPropertyData *data;
 
     QVERIFY((data = cacheProperty(cache, "slotA")));
@@ -276,8 +304,11 @@ void tst_qqmlpropertycache::methodsDerived()
     DerivedObject object;
     const QMetaObject *metaObject = object.metaObject();
 
-    QQmlRefPointer<QQmlPropertyCache> parentCache(new QQmlPropertyCache(&BaseObject::staticMetaObject));
-    QQmlRefPointer<QQmlPropertyCache> cache(parentCache->copyAndAppend(object.metaObject()));
+    QQmlRefPointer<QQmlPropertyCache> parentCache(
+                new QQmlPropertyCache(&BaseObject::staticMetaObject),
+                QQmlRefPointer<QQmlPropertyCache>::Adopt);
+    QQmlRefPointer<QQmlPropertyCache> cache(parentCache->copyAndAppend(object.metaObject(), QTypeRevision {}),
+                                            QQmlRefPointer<QQmlPropertyCache>::Adopt);
     QQmlPropertyData *data;
 
     QVERIFY((data = cacheProperty(cache, "slotA")));
@@ -311,7 +342,8 @@ void tst_qqmlpropertycache::signalHandlers()
     DerivedObject object;
     const QMetaObject *metaObject = object.metaObject();
 
-    QQmlRefPointer<QQmlPropertyCache> cache(new QQmlPropertyCache(metaObject));
+    QQmlRefPointer<QQmlPropertyCache> cache(new QQmlPropertyCache(metaObject),
+                                            QQmlRefPointer<QQmlPropertyCache>::Adopt);
     QQmlPropertyData *data;
 
     QVERIFY((data = cacheProperty(cache, "onSignalA")));
@@ -339,8 +371,11 @@ void tst_qqmlpropertycache::signalHandlersDerived()
     DerivedObject object;
     const QMetaObject *metaObject = object.metaObject();
 
-    QQmlRefPointer<QQmlPropertyCache> parentCache(new QQmlPropertyCache(&BaseObject::staticMetaObject));
-    QQmlRefPointer<QQmlPropertyCache> cache(parentCache->copyAndAppend(object.metaObject()));
+    QQmlRefPointer<QQmlPropertyCache> parentCache(
+                new QQmlPropertyCache(&BaseObject::staticMetaObject),
+                QQmlRefPointer<QQmlPropertyCache>::Adopt);
+    QQmlRefPointer<QQmlPropertyCache> cache(parentCache->copyAndAppend(object.metaObject(), QTypeRevision{}),
+                                            QQmlRefPointer<QQmlPropertyCache>::Adopt);
     QQmlPropertyData *data;
 
     QVERIFY((data = cacheProperty(cache, "onSignalA")));
@@ -484,7 +519,7 @@ void tst_qqmlpropertycache::passQGadget()
     QVERIFY(before.isNull());
     emit emitter.emitGadget(SimpleGadget());
     QVariant after = obj->property("result");
-    QCOMPARE(QMetaType::Type(after.type()), QMetaType::Bool);
+    QCOMPARE(after.typeId(), QMetaType::Bool);
     QVERIFY(after.toBool());
 }
 
@@ -544,7 +579,9 @@ class TestClassWithClassInfo : public QObject
     int(sizeof(arr) / sizeof(arr[0]))
 
 #define TEST_CLASS(Class) \
-    QTest::newRow(#Class) << &Class::staticMetaObject << ARRAY_SIZE(qt_meta_data_##Class) << ARRAY_SIZE(qt_meta_stringdata_##Class.data)
+    QTest::newRow(#Class) \
+            << &Class::staticMetaObject << ARRAY_SIZE(qt_meta_data_##Class) \
+            << int(sizeof(qt_meta_stringdata_##Class.offsetsAndSize) / (sizeof(uint) * 2))
 
 Q_DECLARE_METATYPE(const QMetaObject*);
 
@@ -622,6 +659,8 @@ void tst_qqmlpropertycache::metaObjectsForRootElements()
 
 void tst_qqmlpropertycache::derivedGadgetMethod()
 {
+    metaObjectsForRootElements();
+
     qmlRegisterTypesAndRevisions<BaseGadget, DerivedGadget, GadgetUser>("Test.PropertyCache", 1);
     QQmlEngine engine;
     QQmlComponent c(&engine, testFileUrl("derivedGadgetMethod.qml"));
@@ -632,6 +671,53 @@ void tst_qqmlpropertycache::derivedGadgetMethod()
     QVERIFY(gadgetUser);
     QCOMPARE(gadgetUser->baseString(), QString::fromLatin1("base"));
     QCOMPARE(gadgetUser->derivedString(), QString::fromLatin1("derived"));
+}
+
+void tst_qqmlpropertycache::restrictRegistrationVersion()
+{
+    qmlRegisterTypesAndRevisions<BaseObject>("Test.PropertyCache", 3);
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFileUrl("highVersion.qml"));
+    QVERIFY(c.isError());
+}
+
+void tst_qqmlpropertycache::rejectOverriddenFinal()
+{
+    qmlRegisterTypesAndRevisions<BaseObject>("Test.PropertyCache", 3);
+    QQmlEngine engine;
+
+    QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
+                             "Final member finalProp is overridden in class BaseObject_QML_.* "
+                             "The override won't be used."));
+
+    QQmlComponent c(&engine, testFileUrl("finalProp.qml"));
+    QVERIFY2(!c.isError(), qPrintable(c.errorString()));
+
+    QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
+                             "finalProp.qml:15: TypeError: Property 'finalProp' of object "
+                             "BaseObject_QML_.* is not a function"));
+    QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
+                             "finalProp.qml:11: TypeError: Property 'finalProp' of object "
+                             "BaseObject_QML_.* is not a function"));
+
+    QScopedPointer<QObject> o(c.create());
+    QCOMPARE(o->property("a").toInt(), 8);
+
+    DerivedObject *derived = new DerivedObject(o.data());
+    QTest::ignoreMessage(QtWarningMsg,
+                         "Final member finalProp is overridden in class DerivedObject. "
+                         "The override won't be used.");
+    o->setProperty("obj", QVariant::fromValue(derived));
+    QCOMPARE(derived->finalProp(), 9);
+
+    // rejects override of final property
+    QCOMPARE(o->property("a").toInt(), 8);
+
+    // Cannot override final property with method, either
+    QCOMPARE(o->property("b").toInt(), 8);
+
+    // Cannot call the method overridding a final property
+    QCOMPARE(o->property("c").toInt(), 0);
 }
 
 QTEST_MAIN(tst_qqmlpropertycache)

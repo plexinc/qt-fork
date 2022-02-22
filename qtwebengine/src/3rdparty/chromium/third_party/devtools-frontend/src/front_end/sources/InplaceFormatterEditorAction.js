@@ -2,18 +2,55 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import * as Common from '../common/common.js';
+import * as Common from '../common/common.js';  // eslint-disable-line no-unused-vars
 import * as Formatter from '../formatter/formatter.js';
+import * as i18n from '../i18n/i18n.js';
+import * as Persistence from '../persistence/persistence.js';
+import * as SourceFrame from '../source_frame/source_frame.js';  // eslint-disable-line no-unused-vars
 import * as UI from '../ui/ui.js';
 import * as Workspace from '../workspace/workspace.js';  // eslint-disable-line no-unused-vars
 
-import {EditorAction, Events, SourcesView} from './SourcesView.js';  // eslint-disable-line no-unused-vars
+import {EditorAction, Events, registerEditorAction, SourcesView} from './SourcesView.js';  // eslint-disable-line no-unused-vars
+
+export const UIStrings = {
+  /**
+  *@description Title of the format button in the Sources panel
+  *@example {file name} PH1
+  */
+  formatS: 'Format {PH1}',
+  /**
+  *@description Tooltip text that appears when hovering over the largeicon pretty print button in the Inplace Formatter Editor Action of the Sources panel
+  */
+  format: 'Format',
+};
+const str_ = i18n.i18n.registerUIStrings('sources/InplaceFormatterEditorAction.js', UIStrings);
+const i18nString = i18n.i18n.getLocalizedString.bind(undefined, str_);
+
+/** @type {!InplaceFormatterEditorAction}*/
+let inplaceFormatterEditorActionInstance;
 
 /**
  * @implements {EditorAction}
- * @unrestricted
  */
 export class InplaceFormatterEditorAction {
+  constructor() {
+    /** @type {!UI.Toolbar.ToolbarButton} */
+    this._button;
+    /** @type {!SourcesView} */
+    this._sourcesView;
+  }
+  /**
+   * @param {{forceNew: ?boolean}} opts
+   */
+  static instance(opts = {forceNew: null}) {
+    const {forceNew} = opts;
+    if (!inplaceFormatterEditorActionInstance || forceNew) {
+      inplaceFormatterEditorActionInstance = new InplaceFormatterEditorAction();
+    }
+
+    return inplaceFormatterEditorActionInstance;
+  }
+
   /**
    * @param {!Common.EventTarget.EventTargetEvent} event
    */
@@ -38,8 +75,8 @@ export class InplaceFormatterEditorAction {
   _updateButton(uiSourceCode) {
     const isFormattable = this._isFormattable(uiSourceCode);
     this._button.element.classList.toggle('hidden', !isFormattable);
-    if (isFormattable) {
-      this._button.setTitle(Common.UIString.UIString(`Format ${uiSourceCode.name()}`));
+    if (uiSourceCode && isFormattable) {
+      this._button.setTitle(i18nString(UIStrings.formatS, {PH1: uiSourceCode.name()}));
     }
   }
 
@@ -57,7 +94,7 @@ export class InplaceFormatterEditorAction {
     this._sourcesView.addEventListener(Events.EditorSelected, this._editorSelected.bind(this));
     this._sourcesView.addEventListener(Events.EditorClosed, this._editorClosed.bind(this));
 
-    this._button = new UI.Toolbar.ToolbarButton(Common.UIString.UIString('Format'), 'largeicon-pretty-print');
+    this._button = new UI.Toolbar.ToolbarButton(i18nString(UIStrings.format), 'largeicon-pretty-print');
     this._button.addEventListener(UI.Toolbar.ToolbarButton.Events.Click, this._formatSourceInPlace, this);
     this._updateButton(sourcesView.currentUISourceCode());
 
@@ -75,7 +112,7 @@ export class InplaceFormatterEditorAction {
     if (uiSourceCode.project().canSetFileContent()) {
       return true;
     }
-    if (self.Persistence.persistence.binding(uiSourceCode)) {
+    if (Persistence.Persistence.PersistenceImpl.instance().binding(uiSourceCode)) {
       return true;
     }
     return uiSourceCode.contentType().isStyleSheet();
@@ -86,7 +123,7 @@ export class InplaceFormatterEditorAction {
    */
   _formatSourceInPlace(event) {
     const uiSourceCode = this._sourcesView.currentUISourceCode();
-    if (!this._isFormattable(uiSourceCode)) {
+    if (!uiSourceCode || !this._isFormattable(uiSourceCode)) {
       return;
     }
 
@@ -94,34 +131,36 @@ export class InplaceFormatterEditorAction {
       this._contentLoaded(uiSourceCode, uiSourceCode.workingCopy());
     } else {
       uiSourceCode.requestContent().then(deferredContent => {
-        this._contentLoaded(uiSourceCode, deferredContent.content);
+        this._contentLoaded(
+            /** @type {!Workspace.UISourceCode.UISourceCode} */ (uiSourceCode), deferredContent.content || '');
       });
     }
   }
 
   /**
-   * @param {?Workspace.UISourceCode.UISourceCode} uiSourceCode
+   * @param {!Workspace.UISourceCode.UISourceCode} uiSourceCode
    * @param {string} content
    */
   _contentLoaded(uiSourceCode, content) {
     const highlighterType = uiSourceCode.mimeType();
     Formatter.ScriptFormatter.FormatterInterface.format(
-        uiSourceCode.contentType(), highlighterType, content, (formattedContent, formatterMapping) => {
+        uiSourceCode.contentType(), highlighterType, content, async (formattedContent, formatterMapping) => {
           this._formattingComplete(uiSourceCode, formattedContent, formatterMapping);
         });
   }
 
   /**
-     * Post-format callback
-     * @param {?Workspace.UISourceCode.UISourceCode} uiSourceCode
-     * @param {string} formattedContent
-     * @param {!Formatter.ScriptFormatter.FormatterSourceMapping} formatterMapping
-     */
+   * Post-format callback
+   * @param {!Workspace.UISourceCode.UISourceCode} uiSourceCode
+   * @param {string} formattedContent
+   * @param {!Formatter.ScriptFormatter.FormatterSourceMapping} formatterMapping
+   */
   _formattingComplete(uiSourceCode, formattedContent, formatterMapping) {
     if (uiSourceCode.workingCopy() === formattedContent) {
       return;
     }
-    const sourceFrame = this._sourcesView.viewForFile(uiSourceCode);
+    const sourceFrame =
+        /** @type {!SourceFrame.SourceFrame.SourceFrameImpl} */ (this._sourcesView.viewForFile(uiSourceCode));
     let start = [0, 0];
     if (sourceFrame) {
       const selection = sourceFrame.selection();
@@ -132,3 +171,5 @@ export class InplaceFormatterEditorAction {
     this._sourcesView.showSourceLocation(uiSourceCode, start[0], start[1]);
   }
 }
+
+registerEditorAction(InplaceFormatterEditorAction.instance);

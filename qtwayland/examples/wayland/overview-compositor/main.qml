@@ -48,9 +48,10 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.7
-import QtWayland.Compositor 1.3
-import QtQuick.Window 2.3
+import QtQuick
+import QtWayland.Compositor
+import QtWayland.Compositor.XdgShell
+import QtQuick.Window
 import QtQuick.Controls 2.0
 
 WaylandCompositor {
@@ -76,6 +77,7 @@ WaylandCompositor {
 
                 anchors.fill: parent
                 columns: Math.ceil(Math.sqrt(toplevels.count))
+                // ![zoom transform]
                 transform: [
                     Scale {
                         xScale: grid.overview ? (1.0/grid.columns) : 1
@@ -90,7 +92,9 @@ WaylandCompositor {
                         Behavior on y { PropertyAnimation { easing.type: Easing.InOutQuad; duration: 200 } }
                     }
                 ]
+                // ![zoom transform]
 
+                // ![toplevels repeater]
                 Repeater {
                     model: toplevels
                     Item {
@@ -99,8 +103,6 @@ WaylandCompositor {
                         ShellSurfaceItem {
                             anchors.fill: parent
                             shellSurface: xdgSurface
-                            autoCreatePopupItems: true
-                            sizeFollowsSurface: false
                             onSurfaceDestroyed: toplevels.remove(index)
                         }
                         MouseArea {
@@ -113,6 +115,7 @@ WaylandCompositor {
                         }
                     }
                 }
+                // ![toplevels repeater]
             }
 
             Button {
@@ -132,10 +135,12 @@ WaylandCompositor {
 
     ListModel { id: toplevels }
 
+    // ![XdgShell]
     XdgShell {
         onToplevelCreated: {
             toplevels.append({xdgSurface});
             toplevel.sendFullscreen(Qt.size(win.pixelWidth, win.pixelHeight));
         }
     }
+    // ![XdgShell]
 }

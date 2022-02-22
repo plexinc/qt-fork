@@ -62,6 +62,7 @@
 
 #include <Qt3DRender/QCamera>
 #include <Qt3DRender/QRenderCapture>
+#include <Qt3DRender/QGeometryRenderer>
 
 #include <Qt3DExtras/QPhongMaterial>
 #include <Qt3DExtras/QSphereMesh>

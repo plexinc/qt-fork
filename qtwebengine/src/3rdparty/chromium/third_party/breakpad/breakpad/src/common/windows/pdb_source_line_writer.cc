@@ -120,7 +120,7 @@ bool SymbolsMatch(IDiaSymbol* a, IDiaSymbol* b) {
   return a_section == b_section && a_offset == b_offset;
 }
 
-bool CreateDiaDataSourceInstance(CComPtr<IDiaDataSource> &data_source) {
+bool CreateDiaDataSourceInstance(CComPtr<IDiaDataSource>& data_source) {
   if (SUCCEEDED(data_source.CoCreateInstance(CLSID_DiaSource))) {
     return true;
   }
@@ -134,7 +134,7 @@ bool CreateDiaDataSourceInstance(CComPtr<IDiaDataSource> &data_source) {
   // We can try loading the DLL corresponding to the #included DIA SDK, but
   // the DIA headers don't provide a version. Lets try to figure out which DIA
   // version we're compiling against by comparing CLSIDs.
-  const wchar_t *msdia_dll = nullptr;
+  const wchar_t* msdia_dll = nullptr;
   if (CLSID_DiaSource == _uuidof(DiaSource100)) {
     msdia_dll = L"msdia100.dll";
   } else if (CLSID_DiaSource == _uuidof(DiaSource110)) {
@@ -147,11 +147,63 @@ bool CreateDiaDataSourceInstance(CComPtr<IDiaDataSource> &data_source) {
 
   if (msdia_dll &&
       SUCCEEDED(NoRegCoCreate(msdia_dll, CLSID_DiaSource, IID_IDiaDataSource,
-                              reinterpret_cast<void **>(&data_source)))) {
+                              reinterpret_cast<void**>(&data_source)))) {
     return true;
   }
 
   return false;
+}
+
+const DWORD kUndecorateOptions = UNDNAME_NO_MS_KEYWORDS |
+                                 UNDNAME_NO_FUNCTION_RETURNS |
+                                 UNDNAME_NO_ALLOCATION_MODEL |
+                                 UNDNAME_NO_ALLOCATION_LANGUAGE |
+                                 UNDNAME_NO_THISTYPE |
+                                 UNDNAME_NO_ACCESS_SPECIFIERS |
+                                 UNDNAME_NO_THROW_SIGNATURES |
+                                 UNDNAME_NO_MEMBER_TYPE |
+                                 UNDNAME_NO_RETURN_UDT_MODEL |
+                                 UNDNAME_NO_ECSU;
+
+#define arraysize(f) (sizeof(f) / sizeof(*f))
+
+void StripLlvmSuffixAndUndecorate(BSTR* name) {
+  // LLVM sometimes puts a suffix on symbols to give them a globally unique
+  // name. The suffix is either some string preceded by a period (like in the
+  // Itanium ABI; also on Windows this is safe since periods are otherwise
+  // never part of mangled names), or a dollar sign followed by a 32-char hex
+  // string (this should go away in future LLVM versions). Strip such suffixes
+  // and try demangling again.
+  //
+  //
+  // Example symbol names with such suffixes:
+  //
+  //   ?foo@@YAXXZ$5520c83448162c04f2b239db4b5a2c61
+  //   ?foo@@YAXXZ.llvm.13040715209719948753
+
+  if (**name != L'?')
+    return;  // The name is already demangled.
+
+  for (size_t i = 0, len = wcslen(*name); i < len; i++) {
+    wchar_t c = (*name)[i];
+
+    if (c == L'.' || (c == L'$' && len - i == 32 + 1)) {
+      (*name)[i] = L'\0';
+      wchar_t undecorated[1024];
+      DWORD res = UnDecorateSymbolNameW(*name, undecorated,
+                                        arraysize(undecorated),
+                                        kUndecorateOptions);
+      if (res == 0 || undecorated[0] == L'?') {
+        // Demangling failed; restore the symbol name and return.
+        (*name)[i] = c;
+        return;
+      }
+
+      SysFreeString(*name);
+      *name = SysAllocString(undecorated);
+      return;
+    }
+  }
 }
 
 }  // namespace
@@ -163,7 +215,7 @@ PDBSourceLineWriter::~PDBSourceLineWriter() {
   Close();
 }
 
-bool PDBSourceLineWriter::SetCodeFile(const wstring &exe_file) {
+bool PDBSourceLineWriter::SetCodeFile(const wstring& exe_file) {
   if (code_file_.empty()) {
     code_file_ = exe_file;
     return true;
@@ -173,7 +225,7 @@ bool PDBSourceLineWriter::SetCodeFile(const wstring &exe_file) {
   return exe_file == code_file_;
 }
 
-bool PDBSourceLineWriter::Open(const wstring &file, FileFormat format) {
+bool PDBSourceLineWriter::Open(const wstring& file, FileFormat format) {
   Close();
   code_file_.clear();
 
@@ -228,7 +280,7 @@ bool PDBSourceLineWriter::Open(const wstring &file, FileFormat format) {
   return true;
 }
 
-bool PDBSourceLineWriter::PrintLines(IDiaEnumLineNumbers *lines) {
+bool PDBSourceLineWriter::PrintLines(IDiaEnumLineNumbers* lines) {
   // The line number format is:
   // <rva> <line number> <source file id>
   CComPtr<IDiaLineNumber> line;
@@ -272,8 +324,8 @@ bool PDBSourceLineWriter::PrintLines(IDiaEnumLineNumbers *lines) {
   return true;
 }
 
-bool PDBSourceLineWriter::PrintFunction(IDiaSymbol *function,
-                                        IDiaSymbol *block,
+bool PDBSourceLineWriter::PrintFunction(IDiaSymbol* function,
+                                        IDiaSymbol* block,
                                         bool has_multiple_symbols) {
   // The function format is:
   // FUNC <address> <length> <param_stack_size> <function>
@@ -679,7 +731,7 @@ bool PDBSourceLineWriter::PrintFrameData() {
   return false;
 }
 
-bool PDBSourceLineWriter::PrintCodePublicSymbol(IDiaSymbol *symbol,
+bool PDBSourceLineWriter::PrintCodePublicSymbol(IDiaSymbol* symbol,
                                                 bool has_multiple_symbols) {
   BOOL is_code;
   if (FAILED(symbol->get_code(&is_code))) {
@@ -781,9 +833,9 @@ bool PDBSourceLineWriter::PrintPEInfo() {
 // and scanf families, which are not as strict about input and in some cases
 // don't provide a good way for the caller to determine if a conversion was
 // successful.
-static bool wcstol_positive_strict(wchar_t *string, int *result) {
+static bool wcstol_positive_strict(wchar_t* string, int* result) {
   int value = 0;
-  for (wchar_t *c = string; *c != '\0'; ++c) {
+  for (wchar_t* c = string; *c != '\0'; ++c) {
     int last_value = value;
     value *= 10;
     // Detect overflow.
@@ -821,7 +873,7 @@ bool PDBSourceLineWriter::FindPEFile() {
     wstring file(symbols_file);
 
     // Look for an EXE or DLL file.
-    const wchar_t *extensions[] = { L"exe", L"dll" };
+    const wchar_t* extensions[] = { L"exe", L"dll" };
     for (size_t i = 0; i < sizeof(extensions) / sizeof(extensions[0]); i++) {
       size_t dot_pos = file.find_last_of(L".");
       if (dot_pos != wstring::npos) {
@@ -839,23 +891,13 @@ bool PDBSourceLineWriter::FindPEFile() {
 }
 
 // static
-bool PDBSourceLineWriter::GetSymbolFunctionName(IDiaSymbol *function,
-                                                BSTR *name,
-                                                int *stack_param_size) {
+bool PDBSourceLineWriter::GetSymbolFunctionName(IDiaSymbol* function,
+                                                BSTR* name,
+                                                int* stack_param_size) {
   *stack_param_size = -1;
-  const DWORD undecorate_options = UNDNAME_NO_MS_KEYWORDS |
-                                   UNDNAME_NO_FUNCTION_RETURNS |
-                                   UNDNAME_NO_ALLOCATION_MODEL |
-                                   UNDNAME_NO_ALLOCATION_LANGUAGE |
-                                   UNDNAME_NO_THISTYPE |
-                                   UNDNAME_NO_ACCESS_SPECIFIERS |
-                                   UNDNAME_NO_THROW_SIGNATURES |
-                                   UNDNAME_NO_MEMBER_TYPE |
-                                   UNDNAME_NO_RETURN_UDT_MODEL |
-                                   UNDNAME_NO_ECSU;
 
   // Use get_undecoratedNameEx to get readable C++ names with arguments.
-  if (function->get_undecoratedNameEx(undecorate_options, name) != S_OK) {
+  if (function->get_undecoratedNameEx(kUndecorateOptions, name) != S_OK) {
     if (function->get_name(name) != S_OK) {
       fprintf(stderr, "failed to get function name\n");
       return false;
@@ -879,15 +921,17 @@ bool PDBSourceLineWriter::GetSymbolFunctionName(IDiaSymbol *function,
     // all of the parameter and return type information may not be included in
     // the name string.
   } else {
+    StripLlvmSuffixAndUndecorate(name);
+
     // C++ uses a bogus "void" argument for functions and methods that don't
     // take any parameters.  Take it out of the undecorated name because it's
     // ugly and unnecessary.
-    const wchar_t *replace_string = L"(void)";
+    const wchar_t* replace_string = L"(void)";
     const size_t replace_length = wcslen(replace_string);
-    const wchar_t *replacement_string = L"()";
+    const wchar_t* replacement_string = L"()";
     size_t length = wcslen(*name);
     if (length >= replace_length) {
-      wchar_t *name_end = *name + length - replace_length;
+      wchar_t* name_end = *name + length - replace_length;
       if (wcscmp(name_end, replace_string) == 0) {
         WindowsStringUtils::safe_wcscpy(name_end, replace_length,
                                         replacement_string);
@@ -903,7 +947,7 @@ bool PDBSourceLineWriter::GetSymbolFunctionName(IDiaSymbol *function,
     // whether the undecorated name contains any ':' or '(' characters.
     if (!wcschr(*name, ':') && !wcschr(*name, '(') &&
         (*name[0] == '_' || *name[0] == '@')) {
-      wchar_t *last_at = wcsrchr(*name + 1, '@');
+      wchar_t* last_at = wcsrchr(*name + 1, '@');
       if (last_at && wcstol_positive_strict(last_at + 1, stack_param_size)) {
         // If this function adheres to the fastcall convention, it accepts up
         // to the first 8 bytes of parameters in registers (%ecx and %edx).
@@ -935,7 +979,7 @@ bool PDBSourceLineWriter::GetSymbolFunctionName(IDiaSymbol *function,
 }
 
 // static
-int PDBSourceLineWriter::GetFunctionStackParamSize(IDiaSymbol *function) {
+int PDBSourceLineWriter::GetFunctionStackParamSize(IDiaSymbol* function) {
   // This implementation is highly x86-specific.
 
   // Gather the symbols corresponding to data.
@@ -1050,7 +1094,7 @@ next_child:
   return param_size;
 }
 
-bool PDBSourceLineWriter::WriteSymbols(FILE *symbol_file) {
+bool PDBSourceLineWriter::WriteSymbols(FILE* symbol_file) {
   output_ = symbol_file;
 
   // Load the OMAP information, and disable auto-translation of addresses in
@@ -1078,7 +1122,7 @@ void PDBSourceLineWriter::Close() {
   }
 }
 
-bool PDBSourceLineWriter::GetModuleInfo(PDBModuleInfo *info) {
+bool PDBSourceLineWriter::GetModuleInfo(PDBModuleInfo* info) {
   if (!info) {
     return false;
   }
@@ -1143,7 +1187,7 @@ bool PDBSourceLineWriter::GetModuleInfo(PDBModuleInfo *info) {
   return true;
 }
 
-bool PDBSourceLineWriter::GetPEInfo(PEModuleInfo *info) {
+bool PDBSourceLineWriter::GetPEInfo(PEModuleInfo* info) {
   if (!info) {
     return false;
   }
@@ -1156,7 +1200,7 @@ bool PDBSourceLineWriter::GetPEInfo(PEModuleInfo *info) {
   return ReadPEInfo(code_file_, info);
 }
 
-bool PDBSourceLineWriter::UsesGUID(bool *uses_guid) {
+bool PDBSourceLineWriter::UsesGUID(bool* uses_guid) {
   if (!uses_guid)
     return false;
 

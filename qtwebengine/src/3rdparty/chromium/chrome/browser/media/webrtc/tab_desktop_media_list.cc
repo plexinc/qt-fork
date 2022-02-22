@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/hash/hash.h"
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
@@ -38,7 +38,7 @@ gfx::ImageSkia CreateEnclosedFaviconImage(gfx::Size size,
   // Create a bitmap.
   SkBitmap result;
   result.allocN32Pixels(size.width(), size.height(), false);
-  SkCanvas canvas(result);
+  SkCanvas canvas(result, SkSurfaceProps{});
   canvas.clear(SK_ColorTRANSPARENT);
 
   // Draw the favicon image into the center of result image. If the favicon is
@@ -52,7 +52,8 @@ gfx::ImageSkia CreateEnclosedFaviconImage(gfx::Size size,
   SkRect dest_rect =
       SkRect::MakeLTRB(center_rect.x(), center_rect.y(), center_rect.right(),
                        center_rect.bottom());
-  canvas.drawBitmapRect(*favicon.bitmap(), dest_rect, nullptr);
+  canvas.drawImageRect(favicon.bitmap()->asImage(), dest_rect,
+                       SkSamplingOptions());
 
   return gfx::ImageSkia::CreateFrom1xBitmap(result);
 }
@@ -65,7 +66,7 @@ const int kDefaultTabDesktopMediaListUpdatePeriod = 1000;
 TabDesktopMediaList::TabDesktopMediaList()
     : DesktopMediaListBase(base::TimeDelta::FromMilliseconds(
           kDefaultTabDesktopMediaListUpdatePeriod)) {
-  type_ = DesktopMediaID::TYPE_WEB_CONTENTS;
+  type_ = DesktopMediaList::Type::kWebContents;
   thumbnail_task_runner_ = base::ThreadPool::CreateSequencedTaskRunner(
       {base::MayBlock(), base::TaskPriority::USER_VISIBLE});
 }

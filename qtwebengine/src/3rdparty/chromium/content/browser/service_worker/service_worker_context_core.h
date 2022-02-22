@@ -18,31 +18,33 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list_threadsafe.h"
+#include "components/services/storage/public/mojom/quota_client.mojom.h"
+#include "components/services/storage/public/mojom/service_worker_storage_control.mojom.h"
 #include "content/browser/service_worker/service_worker_info.h"
 #include "content/browser/service_worker/service_worker_process_manager.h"
 #include "content/browser/service_worker/service_worker_registration_status.h"
 #include "content/browser/service_worker/service_worker_registry.h"
-#include "content/browser/service_worker/service_worker_storage.h"
 #include "content/common/content_export.h"
+#include "content/public/browser/global_routing_id.h"
 #include "content/public/browser/service_worker_context.h"
+#include "mojo/public/cpp/bindings/associated_receiver_set.h"
+#include "mojo/public/cpp/bindings/receiver.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_registration.mojom.h"
 
 class GURL;
 
-namespace base {
-class FilePath;
-}
-
 namespace storage {
+class QuotaClientCallbackWrapper;
 class QuotaManagerProxy;
 class SpecialStoragePolicy;
-}
+}  // namespace storage
 
 namespace content {
 
 class ServiceWorkerContextCoreObserver;
 class ServiceWorkerContextWrapper;
 class ServiceWorkerJobCoordinator;
+class ServiceWorkerQuotaClient;
 class ServiceWorkerRegistration;
 class URLLoaderFactoryGetter;
 
@@ -97,15 +99,11 @@ class CONTENT_EXPORT ServiceWorkerContextCore
     DISALLOW_COPY_AND_ASSIGN(ContainerHostIterator);
   };
 
-  // This is owned by the StoragePartition, which will supply it with
-  // the local path on disk. Given an empty |user_data_directory|,
-  // nothing will be stored on disk. |observer_list| is created in
+  // This is owned by ServiceWorkerContextWrapper. |observer_list| is created in
   // ServiceWorkerContextWrapper. When Notify() of |observer_list| is called in
   // ServiceWorkerContextCore, the methods of ServiceWorkerContextCoreObserver
   // will be called on the thread which called AddObserver() of |observer_list|.
   ServiceWorkerContextCore(
-      const base::FilePath& user_data_directory,
-      scoped_refptr<base::SequencedTaskRunner> database_task_runner,
       storage::QuotaManagerProxy* quota_manager_proxy,
       storage::SpecialStoragePolicy* special_storage_policy,
       URLLoaderFactoryGetter* url_loader_factory_getter,
@@ -115,9 +113,8 @@ class CONTENT_EXPORT ServiceWorkerContextCore
           observer_list,
       ServiceWorkerContextWrapper* wrapper);
   // TODO(https://crbug.com/877356): Remove this copy mechanism.
-  ServiceWorkerContextCore(
-      ServiceWorkerContextCore* old_context,
-      ServiceWorkerContextWrapper* wrapper);
+  ServiceWorkerContextCore(ServiceWorkerContextCore* old_context,
+                           ServiceWorkerContextWrapper* wrapper);
   ~ServiceWorkerContextCore() override;
 
   void OnStorageWiped();
@@ -125,6 +122,32 @@ class CONTENT_EXPORT ServiceWorkerContextCore
   void OnMainScriptResponseSet(
       int64_t version_id,
       const ServiceWorkerVersion::MainScriptResponse& response);
+
+  // OnControlleeAdded/Removed are called asynchronously. It is possible the
+  // container host identified by |client_uuid| was already destroyed when they
+  // are called.
+  // Note regarding BackForwardCache integration:
+  // OnControlleeRemoved is called when a controllee enters back-forward
+  // cache, and OnControlleeAdded is called when a controllee is restored from
+  // back-forward cache.
+  void OnControlleeAdded(ServiceWorkerVersion* version,
+                         const std::string& client_uuid,
+                         const ServiceWorkerClientInfo& client_info);
+  void OnControlleeRemoved(ServiceWorkerVersion* version,
+                           const std::string& client_uuid);
+
+  // Called when the navigation for a window client commits to a render frame
+  // host. Also called asynchronously to preserve the ordering with
+  // OnControlleeAdded and OnControlleeRemoved.
+  void OnControlleeNavigationCommitted(
+      ServiceWorkerVersion* version,
+      const std::string& client_uuid,
+      GlobalFrameRoutingId render_frame_host_id);
+
+  // Called when all controllees are removed.
+  // Note regarding BackForwardCache integration:
+  // Clients in back-forward cache don't count as controllees.
+  void OnNoControllees(ServiceWorkerVersion* version);
 
   // ServiceWorkerVersion::Observer overrides.
   void OnRunningStateChanged(ServiceWorkerVersion* version) override;
@@ -141,18 +164,11 @@ class CONTENT_EXPORT ServiceWorkerContextCore
                               const base::string16& message,
                               int line_number,
                               const GURL& source_url) override;
-  void OnControlleeAdded(ServiceWorkerVersion* version,
-                         const std::string& client_uuid,
-                         const ServiceWorkerClientInfo& client_info) override;
-  void OnControlleeRemoved(ServiceWorkerVersion* version,
-                           const std::string& client_uuid) override;
-  void OnNoControllees(ServiceWorkerVersion* version) override;
 
   ServiceWorkerContextWrapper* wrapper() const { return wrapper_; }
   ServiceWorkerRegistry* registry() const { return registry_.get(); }
-  // TODO(crbug.com/1016064): Remove this accessor once some parts of
-  // ServiceWorkerStorage are moved to the Storage Service.
-  ServiceWorkerStorage* storage() const;
+  mojo::Remote<storage::mojom::ServiceWorkerStorageControl>&
+  GetStorageControl();
   ServiceWorkerProcessManager* process_manager();
   ServiceWorkerJobCoordinator* job_coordinator() {
     return job_coordinator_.get();
@@ -183,17 +199,41 @@ class CONTENT_EXPORT ServiceWorkerContextCore
   // thread is UI.
   void HasMainFrameWindowClient(const GURL& origin, BoolCallback callback);
 
-  // Maintains a map from Client UUID to ServiceWorkerContainerHost for service
-  // worker clients. |container_host| should not be for a service worker
-  // execution context.
-  void RegisterContainerHostByClientID(
-      const std::string& client_uuid,
-      std::unique_ptr<ServiceWorkerContainerHost> container_host);
-  void UnregisterContainerHostByClientID(const std::string& client_uuid);
+  // Used to create a ServiceWorkerContainerHost for a window during a
+  // navigation. |are_ancestors_secure| should be true for main frames.
+  // Otherwise it is true iff all ancestor frames of this frame have a secure
+  // origin. |frame_tree_node_id| is FrameTreeNode id.
+  base::WeakPtr<ServiceWorkerContainerHost> CreateContainerHostForWindow(
+      mojo::PendingAssociatedReceiver<blink::mojom::ServiceWorkerContainerHost>
+          host_receiver,
+      bool are_ancestors_secure,
+      mojo::PendingAssociatedRemote<blink::mojom::ServiceWorkerContainer>
+          container_remote,
+      int frame_tree_node_id);
+
+  // Used for starting a web worker (dedicated worker or shared worker). Returns
+  // a container host for the worker.
+  base::WeakPtr<ServiceWorkerContainerHost> CreateContainerHostForWorker(
+      mojo::PendingAssociatedReceiver<blink::mojom::ServiceWorkerContainerHost>
+          host_receiver,
+      int process_id,
+      mojo::PendingAssociatedRemote<blink::mojom::ServiceWorkerContainer>
+          container_remote,
+      ServiceWorkerClientInfo client_info);
+
+  // Updates the client UUID of an existing container host.
   void UpdateContainerHostClientID(const std::string& current_client_uuid,
                                    const std::string& new_client_uuid);
+
+  // Retrieves a container host given its client UUID.
   ServiceWorkerContainerHost* GetContainerHostByClientID(
       const std::string& client_uuid);
+
+  // Retrieves a container host given its window ID.
+  ServiceWorkerContainerHost* GetContainerHostByWindowId(
+      const base::UnguessableToken& window_id);
+
+  void OnContainerHostReceiverDisconnected();
 
   void RegisterServiceWorker(
       const GURL& script_url,
@@ -211,7 +251,7 @@ class CONTENT_EXPORT ServiceWorkerContextCore
   // Callback is called after all deletions occurred. The status code is
   // blink::ServiceWorkerStatusCode::kOk if all succeed, or
   // SERVICE_WORKER_FAILED if any did not succeed.
-  void DeleteForOrigin(const GURL& origin, StatusCallback callback);
+  void DeleteForOrigin(const url::Origin& origin, StatusCallback callback);
 
   // Performs internal storage cleanup. Operations to the storage in the past
   // (e.g. deletion) are usually recorded in disk for a certain period until
@@ -246,6 +286,8 @@ class CONTENT_EXPORT ServiceWorkerContextCore
   // does not own these object or influence their lifetime.
   ServiceWorkerRegistration* GetLiveRegistration(int64_t registration_id);
   void AddLiveRegistration(ServiceWorkerRegistration* registration);
+  // RemoveLiveRegistration removes registration from |live_registrations_|
+  // and notifies all observers of the id of the registration removed.
   void RemoveLiveRegistration(int64_t registration_id);
   const std::map<int64_t, ServiceWorkerRegistration*>& GetLiveRegistrations()
       const {
@@ -296,6 +338,9 @@ class CONTENT_EXPORT ServiceWorkerContextCore
 
   // Called by ServiceWorkerStorage when StoreRegistration() succeeds.
   void NotifyRegistrationStored(int64_t registration_id, const GURL& scope);
+  // Called on the core thread and notifies observers that all registrations
+  // have been deleted for a particular origin.
+  void NotifyAllRegistrationsDeletedForOrigin(const url::Origin& origin);
 
   URLLoaderFactoryGetter* loader_factory_getter() {
     return loader_factory_getter_.get();
@@ -311,6 +356,9 @@ class CONTENT_EXPORT ServiceWorkerContextCore
   }
 
   int GetNextEmbeddedWorkerId();
+
+  void NotifyClientIsExecutionReady(
+      const ServiceWorkerContainerHost& container_host);
 
  private:
   friend class ServiceWorkerContextCoreTest;
@@ -345,7 +393,7 @@ class CONTENT_EXPORT ServiceWorkerContextCore
                               std::string* out_error) const;
 
   void DidGetRegistrationsForDeleteForOrigin(
-      const GURL& origin,
+      const url::Origin& origin,
       base::OnceCallback<void(blink::ServiceWorkerStatusCode)> callback,
       blink::ServiceWorkerStatusCode status,
       const std::vector<scoped_refptr<ServiceWorkerRegistration>>&
@@ -366,8 +414,13 @@ class CONTENT_EXPORT ServiceWorkerContextCore
 
   // |container_host_by_uuid_| owns container hosts for service worker clients.
   // Container hosts for service worker execution contexts are owned by
-  // ServiceWorkerProviderHost.
-  std::unique_ptr<ContainerHostByClientUUIDMap> container_host_by_uuid_;
+  // ServiceWorkerHost.
+  ContainerHostByClientUUIDMap container_host_by_uuid_;
+
+  std::unique_ptr<
+      mojo::AssociatedReceiverSet<blink::mojom::ServiceWorkerContainerHost,
+                                  ServiceWorkerContainerHost*>>
+      container_host_receivers_;
 
   std::unique_ptr<ServiceWorkerRegistry> registry_;
   std::unique_ptr<ServiceWorkerJobCoordinator> job_coordinator_;
@@ -395,6 +448,26 @@ class CONTENT_EXPORT ServiceWorkerContextCore
   const scoped_refptr<ServiceWorkerContextObserverList> observer_list_;
 
   int next_embedded_worker_id_ = 0;
+
+  // ServiceWorkerQuotaClient assumes that this context always has an associated
+  // ServiceWorkerRegistry, so `quota_client_` must be declared after
+  // `registry_`.
+  //
+  // ServiceWorkerQuotaClient is held via a std::unique_ptr so it can be
+  // transferred (along with any state it may hold) to a different
+  // ServiceWorkerContextCore by the logic kicked off from
+  // ServiceWorkerRegistry::ScheduleDeleteAndStartOver().
+  std::unique_ptr<ServiceWorkerQuotaClient> quota_client_;
+  std::unique_ptr<storage::QuotaClientCallbackWrapper> quota_client_wrapper_;
+
+  // ServiceWorkerQuotaClient's mojo pipe to QuotaManager is disconnected when
+  // the mojo::Receiver is destroyed.
+  //
+  // This receiver is held via a std::unique_ptr so it can be transferred (along
+  // with its mojo pipe) to a different ServiceWorkerContextCore by the logic
+  // kicked off from ServiceWorkerRegistry::ScheduleDeleteAndStartOver().
+  std::unique_ptr<mojo::Receiver<storage::mojom::QuotaClient>>
+      quota_client_receiver_;
 
   base::WeakPtrFactory<ServiceWorkerContextCore> weak_factory_{this};
 

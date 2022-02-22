@@ -20,7 +20,6 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/callback_helpers.h"
 #include "base/containers/flat_set.h"
@@ -54,7 +53,6 @@
 #include "gpu/command_buffer/service/error_state.h"
 #include "gpu/command_buffer/service/feature_info.h"
 #include "gpu/command_buffer/service/framebuffer_manager.h"
-#include "gpu/command_buffer/service/gl_stream_texture_image.h"
 #include "gpu/command_buffer/service/gl_utils.h"
 #include "gpu/command_buffer/service/gles2_cmd_clear_framebuffer.h"
 #include "gpu/command_buffer/service/gles2_cmd_copy_tex_image.h"
@@ -113,11 +111,15 @@
 #include "ui/gl/init/create_gr_gl_interface.h"
 #include "ui/gl/scoped_make_current.h"
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 #include <IOSurface/IOSurface.h>
 // Note that this must be included after gl_bindings.h to avoid conflicts.
 #include <OpenGL/CGLIOSurface.h>
-#endif  // OS_MACOSX
+#endif  // OS_MAC
+
+#if defined(USE_OZONE)
+#include "ui/base/ui_base_features.h"  // nogncheck
+#endif
 
 // Note: this undefs far and near so include this after other Windows headers.
 #include "third_party/angle/src/image_util/loadimage.h"
@@ -1092,8 +1094,7 @@ class GLES2DecoderImpl : public GLES2Decoder,
 
   // Callback for async SwapBuffers.
   void FinishAsyncSwapBuffers(uint64_t swap_id,
-                              gfx::SwapResult result,
-                              std::unique_ptr<gfx::GpuFence>);
+                              gfx::SwapCompletionResult result);
   void FinishSwapBuffers(gfx::SwapResult result);
 
   void DoCommitOverlayPlanes(uint64_t swap_id, GLbitfield flags);
@@ -1703,6 +1704,9 @@ class GLES2DecoderImpl : public GLES2Decoder,
   // Wrapper for glDisable
   void DoDisable(GLenum cap);
 
+  // Wrapper for glDisableiOES
+  void DoDisableiOES(GLenum target, GLuint index);
+
   // Wrapper for glDisableVertexAttribArray.
   void DoDisableVertexAttribArray(GLuint index);
 
@@ -1736,6 +1740,9 @@ class GLES2DecoderImpl : public GLES2Decoder,
 
   // Wrapper for glEnable
   void DoEnable(GLenum cap);
+
+  // Wrapper for glEnableiOES
+  void DoEnableiOES(GLenum target, GLuint index);
 
   // Wrapper for glEnableVertexAttribArray.
   void DoEnableVertexAttribArray(GLuint index);
@@ -1809,10 +1816,16 @@ class GLES2DecoderImpl : public GLES2Decoder,
   // Wrapper for glGetIntegerv.
   void DoGetIntegerv(GLenum pname, GLint* params, GLsizei params_size);
 
-  // Helper for DoGetIntegeri_v and DoGetInteger64i_v.
+  // Helper for DoGetBooleani_v, DoGetIntegeri_v and DoGetInteger64i_v.
   template <typename TYPE>
   void GetIndexedIntegerImpl(
       const char* function_name, GLenum target, GLuint index, TYPE* data);
+
+  // Wrapper for glGetBooleani_v.
+  void DoGetBooleani_v(GLenum target,
+                       GLuint index,
+                       GLboolean* params,
+                       GLsizei params_size);
 
   // Wrapper for glGetIntegeri_v.
   void DoGetIntegeri_v(GLenum target,
@@ -1925,6 +1938,8 @@ class GLES2DecoderImpl : public GLES2Decoder,
   bool DoIsVertexArrayOES(GLuint client_id);
   bool DoIsSync(GLuint client_id);
 
+  bool DoIsEnablediOES(GLenum target, GLuint index);
+
   void DoLineWidth(GLfloat width);
 
   // Wrapper for glLinkProgram
@@ -1932,14 +1947,6 @@ class GLES2DecoderImpl : public GLES2Decoder,
 
   void DoMultiDrawBeginCHROMIUM(GLsizei drawcount);
   void DoMultiDrawEndCHROMIUM();
-
-  // Wrapper for glOverlayPromotionHintCHROMIUIM
-  void DoOverlayPromotionHintCHROMIUM(GLuint client_id,
-                                      GLboolean promotion_hint,
-                                      GLint display_x,
-                                      GLint display_y,
-                                      GLint display_width,
-                                      GLint display_height);
 
   // Wrapper for glSetDrawRectangleCHROMIUM
   void DoSetDrawRectangleCHROMIUM(GLint x, GLint y, GLint width, GLint height);
@@ -2078,10 +2085,6 @@ class GLES2DecoderImpl : public GLES2Decoder,
                           GLsizei count,
                           GLboolean transpose,
                           const volatile GLfloat* value);
-  void DoUniformMatrix4fvStreamTextureMatrixCHROMIUM(
-      GLint fake_location,
-      GLboolean transpose,
-      const volatile GLfloat* default_value);
   void DoUniformMatrix2x3fv(GLint fake_location,
                             GLsizei count,
                             GLboolean transpose,
@@ -2736,6 +2739,9 @@ class GLES2DecoderImpl : public GLES2Decoder,
   bool multi_draw_explicitly_enabled_;
   bool draw_instanced_base_vertex_base_instance_explicitly_enabled_;
   bool multi_draw_instanced_base_vertex_base_instance_explicitly_enabled_;
+  bool arb_texture_rectangle_enabled_;
+  bool oes_egl_image_external_enabled_;
+  bool nv_egl_stream_consumer_external_enabled_;
 
   bool compile_shader_always_succeeds_;
 
@@ -3216,14 +3222,14 @@ bool BackTexture::AllocateNativeGpuMemoryBuffer(const gfx::Size& size,
   bool is_cleared = false;
   gfx::BufferFormat buffer_format = gfx::BufferFormat::RGBA_8888;
   if (format == GL_RGB) {
+    buffer_format = gfx::BufferFormat::RGBX_8888;
 #if defined(USE_OZONE)
     // BGRX format is preferred for Ozone as it matches the format used by the
     // buffer queue and is as a result guaranteed to work on all devices.
     // TODO(reveman): Define this format in one place instead of having to
     // duplicate BGRX_8888.
-    buffer_format = gfx::BufferFormat::BGRX_8888;
-#else
-    buffer_format = gfx::BufferFormat::RGBX_8888;
+    if (features::IsUsingOzonePlatform())
+      buffer_format = gfx::BufferFormat::BGRX_8888;
 #endif
   }
   scoped_refptr<gl::GLImage> image =
@@ -3510,6 +3516,9 @@ GLES2DecoderImpl::GLES2DecoderImpl(
       multi_draw_explicitly_enabled_(false),
       draw_instanced_base_vertex_base_instance_explicitly_enabled_(false),
       multi_draw_instanced_base_vertex_base_instance_explicitly_enabled_(false),
+      arb_texture_rectangle_enabled_(false),
+      oes_egl_image_external_enabled_(false),
+      nv_egl_stream_consumer_external_enabled_(false),
       compile_shader_always_succeeds_(false),
       lose_context_when_out_of_memory_(false),
       should_use_native_gmb_for_backbuffer_(false),
@@ -3603,13 +3612,12 @@ gpu::ContextResult GLES2DecoderImpl::Initialize(
     return gpu::ContextResult::kFatalFailure;
   }
 
-  // Only create webgl2-compute for passthrough cmd decoder.
-  if (attrib_helper.context_type == CONTEXT_TYPE_WEBGL2_COMPUTE) {
+  // Only create ES 3.1 contexts with the passthrough cmd decoder.
+  if (attrib_helper.context_type == CONTEXT_TYPE_OPENGLES31_FOR_TESTING) {
     // Must not destroy ContextGroup if it is not initialized.
     group_ = nullptr;
-    LOG(ERROR)
-        << "ContextResult::kFatalFailure: "
-           "webgl2-compute is not supported on validating command decoder.";
+    LOG(ERROR) << "ContextResult::kFatalFailure: "
+                  "ES 3.1 is not supported on validating command decoder.";
     return gpu::ContextResult::kFatalFailure;
   }
 
@@ -3951,8 +3959,7 @@ gpu::ContextResult GLES2DecoderImpl::Initialize(
   // always enabled and there is no way to disable it.
   // Therefore, it seems OK to also always enable it on top of Desktop GL for
   // both ES2 and ES3 contexts.
-  if (!workarounds().disable_texture_cube_map_seamless &&
-      gl_version_info().IsAtLeastGL(3, 2)) {
+  if (gl_version_info().IsAtLeastGL(3, 2)) {
     api()->glEnableFn(GL_TEXTURE_CUBE_MAP_SEAMLESS);
   }
 
@@ -4116,8 +4123,7 @@ gpu::ContextResult GLES2DecoderImpl::Initialize(
     InitializeGLDebugLogging(true, GLDebugMessageCallback, &logger_);
   }
 
-  if (feature_info_->feature_flags().chromium_texture_filtering_hint &&
-      feature_info_->feature_flags().is_swiftshader) {
+  if (feature_info_->feature_flags().chromium_texture_filtering_hint) {
     api()->glHintFn(GL_TEXTURE_FILTERING_HINT_CHROMIUM, GL_NICEST);
   }
 
@@ -4278,7 +4284,7 @@ Capabilities GLES2DecoderImpl::GetCapabilities() {
   caps.sync_query = feature_info_->feature_flags().chromium_sync_query;
 
   caps.chromium_image_rgb_emulation = ChromiumImageNeedsRGBEmulation();
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   // This is unconditionally true on mac, no need to test for it at runtime.
   caps.iosurface = true;
 #endif
@@ -4436,12 +4442,26 @@ bool GLES2DecoderImpl::InitializeShaderTranslator() {
   }
 
   resources.FragmentPrecisionHigh = has_fragment_precision_high_;
+  resources.EXT_YUV_target = features().ext_yuv_target ? 1 : 0;
 
   ShShaderSpec shader_spec;
   switch (feature_info_->context_type()) {
     case CONTEXT_TYPE_WEBGL1:
       shader_spec = SH_WEBGL_SPEC;
       resources.OES_standard_derivatives = derivatives_explicitly_enabled_;
+      resources.ARB_texture_rectangle =
+          (features().arb_texture_rectangle && arb_texture_rectangle_enabled_)
+              ? 1
+              : 0;
+      resources.OES_EGL_image_external =
+          (features().oes_egl_image_external && oes_egl_image_external_enabled_)
+              ? 1
+              : 0;
+      resources.NV_EGL_stream_consumer_external =
+          (features().nv_egl_stream_consumer_external &&
+           nv_egl_stream_consumer_external_enabled_)
+              ? 1
+              : 0;
       resources.EXT_frag_depth = frag_depth_explicitly_enabled_;
       resources.EXT_draw_buffers = draw_buffers_explicitly_enabled_;
       if (!draw_buffers_explicitly_enabled_)
@@ -4452,6 +4472,19 @@ bool GLES2DecoderImpl::InitializeShaderTranslator() {
       break;
     case CONTEXT_TYPE_WEBGL2:
       shader_spec = SH_WEBGL2_SPEC;
+      resources.ARB_texture_rectangle =
+          (features().arb_texture_rectangle && arb_texture_rectangle_enabled_)
+              ? 1
+              : 0;
+      resources.OES_EGL_image_external =
+          (features().oes_egl_image_external && oes_egl_image_external_enabled_)
+              ? 1
+              : 0;
+      resources.NV_EGL_stream_consumer_external =
+          (features().nv_egl_stream_consumer_external &&
+           nv_egl_stream_consumer_external_enabled_)
+              ? 1
+              : 0;
       break;
     case CONTEXT_TYPE_OPENGLES2:
       shader_spec = SH_GLES2_SPEC;
@@ -5980,7 +6013,7 @@ error::Error GLES2DecoderImpl::DoCommandsImpl(unsigned int num_commands,
     }
   }
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   // Aggressively call glFlush on macOS. This is the only fix that has been
   // found so far to avoid crashes on Intel drivers. The workaround
   // isn't needed for WebGL contexts, though.
@@ -6400,18 +6433,12 @@ void GLES2DecoderImpl::OnUseFramebuffer() const {
                         state_.viewport_width, state_.viewport_height);
   }
 
-  if (workarounds().restore_scissor_on_fbo_change || supports_dc_layers_) {
+  if (supports_dc_layers_) {
     // The driver forgets the correct scissor when modifying the FBO binding.
     gfx::Vector2d scissor_offset = GetBoundFramebufferDrawOffset();
     api()->glScissorFn(state_.scissor_x + scissor_offset.x(),
                        state_.scissor_y + scissor_offset.y(),
                        state_.scissor_width, state_.scissor_height);
-  }
-
-  if (workarounds().restore_scissor_on_fbo_change) {
-    // crbug.com/222018 - Also on QualComm, the flush here avoids flicker,
-    // it's unclear how this bug works.
-    api()->glFlushFn();
   }
 
   if (workarounds().force_update_scissor_state_when_binding_fbo0 &&
@@ -7778,6 +7805,7 @@ void GLES2DecoderImpl::GetIndexedIntegerImpl(
     state_.GetWindowRectangle(index, data);
     return;
   }
+
   scoped_refptr<IndexedBufferBindingHost> bindings;
   switch (target) {
     case GL_TRANSFORM_FEEDBACK_BUFFER_BINDING:
@@ -7797,6 +7825,16 @@ void GLES2DecoderImpl::GetIndexedIntegerImpl(
         return;
       }
       bindings = state_.indexed_uniform_buffer_bindings.get();
+      break;
+    case GL_BLEND_SRC_RGB:
+    case GL_BLEND_SRC_ALPHA:
+    case GL_BLEND_DST_RGB:
+    case GL_BLEND_DST_ALPHA:
+    case GL_BLEND_EQUATION_RGB:
+    case GL_BLEND_EQUATION_ALPHA:
+    case GL_COLOR_WRITEMASK:
+      // Note (crbug.com/1058744): not implemented for validating command
+      // decoder
       break;
     default:
       NOTREACHED();
@@ -7819,10 +7857,27 @@ void GLES2DecoderImpl::GetIndexedIntegerImpl(
     case GL_UNIFORM_BUFFER_START:
       *data = static_cast<TYPE>(bindings->GetBufferStart(index));
       break;
+    case GL_BLEND_SRC_RGB:
+    case GL_BLEND_SRC_ALPHA:
+    case GL_BLEND_DST_RGB:
+    case GL_BLEND_DST_ALPHA:
+    case GL_BLEND_EQUATION_RGB:
+    case GL_BLEND_EQUATION_ALPHA:
+    case GL_COLOR_WRITEMASK:
+      // Note (crbug.com/1058744): not implemented for validating command
+      // decoder
+      break;
     default:
       NOTREACHED();
       break;
   }
+}
+
+void GLES2DecoderImpl::DoGetBooleani_v(GLenum target,
+                                       GLuint index,
+                                       GLboolean* params,
+                                       GLsizei params_size) {
+  GetIndexedIntegerImpl<GLboolean>("glGetBooleani_v", target, index, params);
 }
 
 void GLES2DecoderImpl::DoGetIntegeri_v(GLenum target,
@@ -8358,6 +8413,10 @@ void GLES2DecoderImpl::DoDisable(GLenum cap) {
   }
 }
 
+void GLES2DecoderImpl::DoDisableiOES(GLenum target, GLuint index) {
+  api()->glDisableiOESFn(target, index);
+}
+
 void GLES2DecoderImpl::DoEnable(GLenum cap) {
   if (SetCapabilityState(cap, true)) {
     if (cap == GL_PRIMITIVE_RESTART_FIXED_INDEX &&
@@ -8373,6 +8432,10 @@ void GLES2DecoderImpl::DoEnable(GLenum cap) {
     }
     api()->glEnableFn(cap);
   }
+}
+
+void GLES2DecoderImpl::DoEnableiOES(GLenum target, GLuint index) {
+  api()->glEnableiOESFn(target, index);
 }
 
 void GLES2DecoderImpl::DoDepthRangef(GLclampf znear, GLclampf zfar) {
@@ -9392,6 +9455,25 @@ bool GLES2DecoderImpl::ValidateRenderbufferStorageMultisample(
     GLenum internalformat,
     GLsizei width,
     GLsizei height) {
+  // Must check against the internal format's maximum number of samples
+  // first in order to generate the correct INVALID_OPERATION rather than
+  // INVALID_VALUE, below.
+  if (feature_info_->IsES3Capable() &&
+      !GLES2Util::IsIntegerFormat(internalformat)) {
+    std::vector<GLint> sample_counts;
+    GLsizei num_sample_counts = InternalFormatSampleCountsHelper(
+        GL_RENDERBUFFER, internalformat, &sample_counts);
+    // SwiftShader reports 0 samples for GL_DEPTH24_STENCIL8; be robust to this.
+    if (num_sample_counts > 0) {
+      if (samples > sample_counts[0]) {
+        LOCAL_SET_GL_ERROR(GL_INVALID_OPERATION,
+                           "glRenderbufferStorageMultisample",
+                           "samples out of range for internalformat");
+        return false;
+      }
+    }
+  }
+
   if (samples > renderbuffer_manager()->max_samples()) {
     LOCAL_SET_GL_ERROR(
         GL_INVALID_VALUE,
@@ -9758,34 +9840,6 @@ void GLES2DecoderImpl::DoLinkProgram(GLuint program_id) {
   // LinkProgram can be very slow.  Exit command processing to allow for
   // context preemption and GPU watchdog checks.
   ExitCommandProcessingEarly();
-}
-
-void GLES2DecoderImpl::DoOverlayPromotionHintCHROMIUM(GLuint client_id,
-                                                      GLboolean promotion_hint,
-                                                      GLint display_x,
-                                                      GLint display_y,
-                                                      GLint display_width,
-                                                      GLint display_height) {
-  if (client_id == 0)
-    return;
-
-  TextureRef* texture_ref = GetTexture(client_id);
-  if (!texture_ref) {
-    LOCAL_SET_GL_ERROR(GL_INVALID_VALUE, "glOverlayPromotionHintCHROMIUM",
-                       "invalid texture id");
-    return;
-  }
-  GLStreamTextureImage* image =
-      texture_ref->texture()->GetLevelStreamTextureImage(
-          GL_TEXTURE_EXTERNAL_OES, 0);
-  if (!image) {
-    LOCAL_SET_GL_ERROR(GL_INVALID_OPERATION, "glOverlayPromotionHintCHROMIUM",
-                       "texture has no StreamTextureImage");
-    return;
-  }
-
-  image->NotifyPromotionHint(promotion_hint != GL_FALSE, display_x, display_y,
-                             display_width, display_height);
 }
 
 void GLES2DecoderImpl::DoSetDrawRectangleCHROMIUM(GLint x,
@@ -10414,54 +10468,6 @@ void GLES2DecoderImpl::DoUniformMatrix4fv(GLint fake_location,
                               const_cast<const GLfloat*>(value));
 }
 
-void GLES2DecoderImpl::DoUniformMatrix4fvStreamTextureMatrixCHROMIUM(
-    GLint fake_location,
-    GLboolean transpose,
-    const volatile GLfloat* transform) {
-  float gl_matrix[16];
-
-  // This refers to the bound external texture on the active unit.
-  TextureUnit& unit = state_.texture_units[state_.active_texture_unit];
-  if (TextureRef* texture_ref = unit.bound_texture_external_oes.get()) {
-    if (GLStreamTextureImage* image =
-            texture_ref->texture()->GetLevelStreamTextureImage(
-                GL_TEXTURE_EXTERNAL_OES, 0)) {
-      gfx::Transform st_transform(gfx::Transform::kSkipInitialization);
-      gfx::Transform pre_transform(gfx::Transform::kSkipInitialization);
-      image->GetTextureMatrix(gl_matrix);
-      st_transform.matrix().setColMajorf(gl_matrix);
-      // const_cast is safe, because setColMajorf only does a memcpy.
-      // TODO(piman): can we remove this assumption without having to introduce
-      // an extra copy?
-      pre_transform.matrix().setColMajorf(
-          const_cast<const GLfloat*>(transform));
-      gfx::Transform(pre_transform, st_transform)
-          .matrix()
-          .asColMajorf(gl_matrix);
-    } else {
-      // Missing stream texture. Treat matrix as identity.
-      memcpy(gl_matrix, const_cast<const GLfloat*>(transform),
-             sizeof(gl_matrix));
-    }
-  } else {
-    LOCAL_SET_GL_ERROR(GL_INVALID_OPERATION,
-                       "DoUniformMatrix4vStreamTextureMatrix",
-                       "no texture bound");
-    return;
-  }
-
-  GLenum type = 0;
-  GLint real_location = -1;
-  GLsizei count = 1;
-  if (!PrepForSetUniformByLocation(fake_location, "glUniformMatrix4fv",
-                                   UniformApiType::kUniformMatrix4f,
-                                   &real_location, &type, &count)) {
-    return;
-  }
-
-  api()->glUniformMatrix4fvFn(real_location, count, transpose, gl_matrix);
-}
-
 void GLES2DecoderImpl::DoUniformMatrix2x3fv(GLint fake_location,
                                             GLsizei count,
                                             GLboolean transpose,
@@ -10620,9 +10626,9 @@ bool GLES2DecoderImpl::DoBindOrCopyTexImageIfNeeded(Texture* texture,
                                                     GLuint texture_unit) {
   // Image is already in use if texture is attached to a framebuffer.
   if (texture && !texture->IsAttachedToFramebuffer()) {
-    Texture::ImageState image_state;
-    gl::GLImage* image = texture->GetLevelImage(textarget, 0, &image_state);
-    if (image && image_state == Texture::UNBOUND) {
+    Texture::ImageState old_image_state;
+    gl::GLImage* image = texture->GetLevelImage(textarget, 0, &old_image_state);
+    if (image && old_image_state == Texture::UNBOUND) {
       ScopedGLErrorSuppressor suppressor(
           "GLES2DecoderImpl::DoBindOrCopyTexImageIfNeeded", error_state_.get());
       if (texture_unit)
@@ -10631,7 +10637,7 @@ bool GLES2DecoderImpl::DoBindOrCopyTexImageIfNeeded(Texture* texture,
       if (image->ShouldBindOrCopy() == gl::GLImage::BIND) {
         bool rv = image->BindTexImage(textarget);
         DCHECK(rv) << "BindTexImage() failed";
-        image_state = Texture::BOUND;
+        texture->SetLevelImageState(textarget, 0, Texture::BOUND);
       } else {
         DoCopyTexImage(texture, textarget, image);
       }
@@ -12188,6 +12194,14 @@ void GLES2DecoderImpl::DoShaderSource(
     else
       str.append(data[ii]);
   }
+  size_t len = str.size();
+  // Accommodate gles2_conform_tests
+  // where there are '\0' at the end of the shaders
+  while (len > 0 && str[len - 1] == '\0') {
+    len -= 1;
+  }
+  // Delegate validation of the incoming shader source to ANGLE's
+  // shader translator.
   Shader* shader = GetShaderInfoNotProgram(client_id, "glShaderSource");
   if (!shader) {
     return;
@@ -12380,6 +12394,11 @@ error::Error GLES2DecoderImpl::HandleGetShaderInfoLog(
 
 bool GLES2DecoderImpl::DoIsEnabled(GLenum cap) {
   return state_.GetEnabled(cap);
+}
+
+bool GLES2DecoderImpl::DoIsEnablediOES(GLenum target, GLuint index) {
+  // Note (crbug.com/1058744): not implemented for validating command decoder
+  return false;
 }
 
 bool GLES2DecoderImpl::DoIsBuffer(GLuint client_id) {
@@ -13849,16 +13868,15 @@ void GLES2DecoderImpl::DoScheduleCALayerInUseQueryCHROMIUM(
     gl::GLImage* image = nullptr;
     GLuint texture_id = textures[i];
     if (texture_id) {
+      // If a |texture_id| is invalid (due to a client error), report that it
+      // is not in use. Failing the GL call can result in compositor hangs.
+      // https://crbug.com/1120795
       TextureRef* ref = texture_manager()->GetTexture(texture_id);
-      if (!ref) {
-        LOCAL_SET_GL_ERROR(GL_INVALID_VALUE,
-                           "glScheduleCALayerInUseQueryCHROMIUM",
-                           "unknown texture");
-        return;
+      if (ref) {
+        Texture::ImageState image_state;
+        image = ref->texture()->GetLevelImage(ref->texture()->target(), 0,
+                                              &image_state);
       }
-      Texture::ImageState image_state;
-      image = ref->texture()->GetLevelImage(ref->texture()->target(), 0,
-                                            &image_state);
     }
     gl::GLSurface::CALayerInUseQuery query;
     query.image = image;
@@ -14279,7 +14297,7 @@ bool GLES2DecoderImpl::ClearLevel(Texture* texture,
   // https://crbug.com/848952 (slow uploads on macOS)
   // https://crbug.com/883276 (buggy clears on Android)
   bool prefer_use_gl_clear = false;
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   const uint32_t kMinSizeForGLClear = 4 * 1024;
   prefer_use_gl_clear = size > kMinSizeForGLClear;
 #endif
@@ -16998,14 +17016,13 @@ void GLES2DecoderImpl::DoSwapBuffers(uint64_t swap_id, GLbitfield flags) {
 
 void GLES2DecoderImpl::FinishAsyncSwapBuffers(
     uint64_t swap_id,
-    gfx::SwapResult result,
-    std::unique_ptr<gfx::GpuFence> gpu_fence) {
+    gfx::SwapCompletionResult result) {
   TRACE_EVENT_ASYNC_END0("gpu", "AsyncSwapBuffers", swap_id);
   // Handling of the out-fence should have already happened before reaching
   // this function, so we don't expect to get a valid fence here.
-  DCHECK(!gpu_fence);
+  DCHECK(!result.gpu_fence);
 
-  FinishSwapBuffers(result);
+  FinishSwapBuffers(result.swap_result);
 }
 
 void GLES2DecoderImpl::FinishSwapBuffers(gfx::SwapResult result) {
@@ -17137,6 +17154,9 @@ error::Error GLES2DecoderImpl::HandleRequestExtensionCHROMIUM(
   bool desire_multi_draw = false;
   bool desire_draw_instanced_base_vertex_base_instance = false;
   bool desire_multi_draw_instanced_base_vertex_base_instance = false;
+  bool desire_arb_texture_rectangle = false;
+  bool desire_oes_egl_image_external = false;
+  bool desire_nv_egl_stream_consumer_external = false;
   if (feature_info_->context_type() == CONTEXT_TYPE_WEBGL1) {
     desire_standard_derivatives =
         feature_str.find("GL_OES_standard_derivatives ") != std::string::npos;
@@ -17163,6 +17183,13 @@ error::Error GLES2DecoderImpl::HandleRequestExtensionCHROMIUM(
   if (feature_info_->IsWebGLContext()) {
     desire_multi_draw =
         feature_str.find("GL_WEBGL_multi_draw ") != std::string::npos;
+    desire_arb_texture_rectangle =
+        feature_str.find("GL_ANGLE_texture_rectangle ") != std::string::npos;
+    desire_oes_egl_image_external =
+        feature_str.find("GL_OES_EGL_image_external ") != std::string::npos;
+    desire_nv_egl_stream_consumer_external =
+        feature_str.find("GL_NV_EGL_stream_consumer_external ") !=
+        std::string::npos;
   }
   if (desire_standard_derivatives != derivatives_explicitly_enabled_ ||
       desire_fbo_render_mipmap != fbo_render_mipmap_explicitly_enabled_ ||
@@ -17173,7 +17200,11 @@ error::Error GLES2DecoderImpl::HandleRequestExtensionCHROMIUM(
       desire_draw_instanced_base_vertex_base_instance !=
           draw_instanced_base_vertex_base_instance_explicitly_enabled_ ||
       desire_multi_draw_instanced_base_vertex_base_instance !=
-          multi_draw_instanced_base_vertex_base_instance_explicitly_enabled_) {
+          multi_draw_instanced_base_vertex_base_instance_explicitly_enabled_ ||
+      desire_arb_texture_rectangle != arb_texture_rectangle_enabled_ ||
+      desire_oes_egl_image_external != oes_egl_image_external_enabled_ ||
+      desire_nv_egl_stream_consumer_external !=
+          nv_egl_stream_consumer_external_enabled_) {
     derivatives_explicitly_enabled_ |= desire_standard_derivatives;
     fbo_render_mipmap_explicitly_enabled_ |= desire_fbo_render_mipmap;
     frag_depth_explicitly_enabled_ |= desire_frag_depth;
@@ -17184,6 +17215,10 @@ error::Error GLES2DecoderImpl::HandleRequestExtensionCHROMIUM(
         desire_draw_instanced_base_vertex_base_instance;
     multi_draw_instanced_base_vertex_base_instance_explicitly_enabled_ |=
         desire_multi_draw_instanced_base_vertex_base_instance;
+    arb_texture_rectangle_enabled_ |= desire_arb_texture_rectangle;
+    oes_egl_image_external_enabled_ |= desire_oes_egl_image_external;
+    nv_egl_stream_consumer_external_enabled_ |=
+        desire_nv_egl_stream_consumer_external;
     DestroyShaderTranslator();
   }
 
@@ -17439,7 +17474,7 @@ error::Error GLES2DecoderImpl::HandleDescheduleUntilFinishedCHROMIUM(
   if (fence)
     deschedule_until_finished_fences_.push_back(std::move(fence));
 
-  if (deschedule_until_finished_fences_.size() == 1)
+  if (deschedule_until_finished_fences_.size() <= 1)
     return error::kNoError;
 
   DCHECK_EQ(2u, deschedule_until_finished_fences_.size());
@@ -18211,24 +18246,6 @@ void GLES2DecoderImpl::DoCopyTextureCHROMIUM(
       unpack_flip_y == GL_TRUE, unpack_premultiply_alpha == GL_TRUE,
       unpack_unmultiply_alpha == GL_TRUE, false /* dither */);
 
-  // GL_TEXTURE_EXTERNAL_OES texture requires that we apply a transform matrix
-  // before presenting.
-  if (source_target == GL_TEXTURE_EXTERNAL_OES) {
-    if (GLStreamTextureImage* texture_image =
-            source_texture->GetLevelStreamTextureImage(GL_TEXTURE_EXTERNAL_OES,
-                                                       source_level)) {
-      GLfloat transform_matrix[16];
-      texture_image->GetTextureMatrix(transform_matrix);
-      copy_texture_chromium_->DoCopyTextureWithTransform(
-          this, source_target, source_texture->service_id(), source_level,
-          source_internal_format, dest_target, dest_texture->service_id(),
-          dest_level, internal_format, source_width, source_height,
-          unpack_flip_y == GL_TRUE, unpack_premultiply_alpha == GL_TRUE,
-          unpack_unmultiply_alpha == GL_TRUE, false /* dither */,
-          transform_matrix, method, copy_tex_image_blit_.get());
-      return;
-    }
-  }
   copy_texture_chromium_->DoCopyTexture(
       this, source_target, source_texture->service_id(), source_level,
       source_internal_format, dest_target, dest_texture->service_id(),
@@ -18432,32 +18449,12 @@ void GLES2DecoderImpl::CopySubTextureHelper(const char* function_name,
 
   DoBindOrCopyTexImageIfNeeded(source_texture, source_target, 0);
 
-  // GL_TEXTURE_EXTERNAL_OES texture requires apply a transform matrix
-  // before presenting.
-  if (source_target == GL_TEXTURE_EXTERNAL_OES) {
-    if (GLStreamTextureImage* texture_image =
-            source_texture->GetLevelStreamTextureImage(GL_TEXTURE_EXTERNAL_OES,
-                                                       source_level)) {
-      GLfloat transform_matrix[16];
-      texture_image->GetTextureMatrix(transform_matrix);
-      copy_texture_chromium_->DoCopySubTextureWithTransform(
-          this, source_target, source_texture->service_id(), source_level,
-          source_internal_format, dest_target, dest_texture->service_id(),
-          dest_level, dest_internal_format, xoffset, yoffset, x, y, width,
-          height, dest_width, dest_height, source_width, source_height,
-          unpack_flip_y == GL_TRUE, unpack_premultiply_alpha == GL_TRUE,
-          unpack_unmultiply_alpha == GL_TRUE, dither == GL_TRUE,
-          transform_matrix, copy_tex_image_blit_.get());
-      return;
-    }
-  }
-
   CopyTextureMethod method = GetCopyTextureCHROMIUMMethod(
       GetFeatureInfo(), source_target, source_level, source_internal_format,
       source_type, dest_binding_target, dest_level, dest_internal_format,
       unpack_flip_y == GL_TRUE, unpack_premultiply_alpha == GL_TRUE,
       unpack_unmultiply_alpha == GL_TRUE, dither == GL_TRUE);
-#if defined(OS_CHROMEOS) && defined(ARCH_CPU_X86_FAMILY)
+#if BUILDFLAG(IS_CHROMEOS_ASH) && defined(ARCH_CPU_X86_FAMILY)
   // glDrawArrays is faster than glCopyTexSubImage2D on IA Mesa driver,
   // although opposite in Android.
   // TODO(dshwang): After Mesa fixes this issue, remove this hack.
@@ -20247,6 +20244,7 @@ error::Error GLES2DecoderImpl::HandleSetActiveURLCHROMIUM(
 // we can easily edit the non-auto generated parts right here in this file
 // instead of having to edit some template or the code generator.
 #include "base/macros.h"
+#include "build/chromeos_buildflags.h"
 #include "gpu/command_buffer/service/gles2_cmd_decoder_autogen.h"
 
 }  // namespace gles2

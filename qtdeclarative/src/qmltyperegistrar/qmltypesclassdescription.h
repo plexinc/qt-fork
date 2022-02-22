@@ -33,35 +33,53 @@
 #include <QtCore/qjsonobject.h>
 #include <QtCore/qvector.h>
 #include <QtCore/qset.h>
+#include <QtCore/qversionnumber.h>
 
 struct QmlTypesClassDescription
 {
     const QJsonObject *resolvedClass = nullptr;
     QString file;
+    QString className;
     QString elementName;
     QString defaultProp;
+    QString parentProp;
     QString superClass;
     QString attachedType;
-    QList<int> revisions;
-    int addedInRevision = -1;
-    int removedInRevision = -1;
+    QString extensionType;
+    QString sequenceValueType;
+    QString accessSemantics;
+    QList<QTypeRevision> revisions;
+    QTypeRevision addedInRevision;
+    QTypeRevision removedInRevision;
     bool isCreatable = true;
     bool isSingleton = false;
     bool isRootClass = false;
-    bool isBuiltin = false;
+    bool hasCustomParser = false;
+    QStringList implementsInterfaces;
 
     enum CollectMode {
         TopLevel,
         SuperClass,
-        AttachedType
+        RelatedType
     };
 
     void collect(const QJsonObject *classDef, const QVector<QJsonObject> &types,
-                 const QVector<QJsonObject> &foreign, CollectMode mode);
-    void collectAttached(const QString &attached, const QVector<QJsonObject> &types,
-                         const QVector<QJsonObject> &foreign);
+                 const QVector<QJsonObject> &foreign, CollectMode mode,
+                 QTypeRevision defaultRevision);
+    void collectRelated(const QString &related, const QVector<QJsonObject> &types,
+                        const QVector<QJsonObject> &foreign, QTypeRevision defaultRevision);
 
     static const QJsonObject *findType(const QVector<QJsonObject> &types, const QString &name);
+
+    void collectLocalAnonymous(const QJsonObject *classDef,const QVector<QJsonObject> &types,
+                      const QVector<QJsonObject> &foreign, QTypeRevision defaultRevision);
+
+
+private:
+    void collectSuperClasses(
+            const QJsonObject *classDef, const QVector<QJsonObject> &types,
+            const QVector<QJsonObject> &foreign, CollectMode mode, QTypeRevision defaultRevision);
+    void collectInterfaces(const QJsonObject *classDef);
 };
 
 #endif // QMLTYPESCLASSDESCRIPTION_H

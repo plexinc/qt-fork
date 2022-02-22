@@ -31,186 +31,126 @@
 #include "qssgrendercontextcore_p.h"
 #include <QtQuick3DRuntimeRender/private/qssgrendernode_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrenderbuffermanager_p.h>
-#include <QtQuick3DRuntimeRender/private/qssgrenderer_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrenderresourcemanager_p.h>
-#include <QtQuick3DRender/private/qssgrendercontext_p.h>
-#include <QtQuick3DRuntimeRender/private/qssgrenderinputstreamfactory_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrendershadercache_p.h>
-#include <QtQuick3DRender/private/qssgrenderframebuffer_p.h>
-#include <QtQuick3DRender/private/qssgrenderrenderbuffer_p.h>
-#include <QtQuick3DRender/private/qssgrendertexture2d_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrendercamera_p.h>
-#include <QtQuick3DRuntimeRender/private/qssgrenderthreadpool_p.h>
-#include <QtQuick3DRuntimeRender/private/qssgrenderimagebatchloader_p.h>
-#include <QtQuick3DRuntimeRender/private/qssgrenderdynamicobjectsystem_p.h>
-#include <QtQuick3DRuntimeRender/private/qssgrendercustommaterialsystem_p.h>
-#include <QtQuick3DRuntimeRender/private/qssgrendershadercodegeneratorv2_p.h>
+#include <QtQuick3DRuntimeRender/private/qssgrendershaderlibrarymanager_p.h>
+#include <QtQuick3DRuntimeRender/private/qssgrendershadercodegenerator_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrenderdefaultmaterialshadergenerator_p.h>
+#include <QtQuick3DRuntimeRender/private/qssgrhicustommaterialsystem_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgperframeallocator_p.h>
-#include <QtQuick3DRuntimeRender/private/qssgrendererimpl_p.h>
+#include <QtQuick3DRuntimeRender/private/qssgrenderer_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrendererutil_p.h>
+
+#include <QtGui/qwindow.h>
 
 #include <QtCore/qthread.h>
 
 QT_BEGIN_NAMESPACE
 
-static int idealThreadCount()
+using Binding = QPair<const QWindow *, QSSGRenderContextInterface *>;
+using Bindings = QVarLengthArray<Binding, 32>;
+Q_GLOBAL_STATIC(Bindings, g_windowReg)
+
+static bool loadPregenratedShaders()
 {
-    static const int threads = qEnvironmentVariableIntValue("QT_QUICK3D_THREAD_COUNT");
-    return (threads > 0) ? threads : QThread::idealThreadCount();
+    return qEnvironmentVariableIntValue("QT_QUICK3D_DISABLE_GENSHADERS") == 0;
 }
 
-QSSGRenderContextInterface::QSSGRenderContextInterface(const QSSGRef<QSSGRenderContext> &ctx, const QString &inApplicationDirectory)
-    : m_renderContext(ctx)
-    , m_inputStreamFactory(new QSSGInputStreamFactory)
-    , m_bufferManager(new QSSGBufferManager(ctx, m_inputStreamFactory, &m_perfTimer))
-    , m_resourceManager(new QSSGResourceManager(ctx))
-    , m_renderer(QSSGRendererInterface::createRenderer(this))
-    , m_dynamicObjectSystem(new QSSGDynamicObjectSystem(this))
-    , m_effectSystem(new QSSGEffectSystem(this))
-    , m_shaderCache(QSSGShaderCache::createShaderCache(ctx, m_inputStreamFactory, &m_perfTimer))
-    , m_threadPool(QSSGAbstractThreadPool::createThreadPool(idealThreadCount()))
-    , m_customMaterialSystem(new QSSGMaterialSystem(this))
-    , m_shaderProgramGenerator(QSSGShaderProgramGeneratorInterface::createProgramGenerator(this))
-    , m_defaultMaterialShaderGenerator(QSSGDefaultMaterialShaderGeneratorInterface::createDefaultMaterialShaderGenerator(this))
-    , m_customMaterialShaderGenerator(QSSGMaterialShaderGeneratorInterface::createCustomMaterialShaderGenerator(this))
+void QSSGRenderContextInterface::init()
 {
-    if (!inApplicationDirectory.isEmpty())
-        m_inputStreamFactory->addSearchDirectory(inApplicationDirectory);
+    m_renderer->setRenderContextInterface(this);
 
-    const_cast<QSSGRef<IImageBatchLoader> &>(m_imageBatchLoader) = IImageBatchLoader::createBatchLoader(m_inputStreamFactory, m_bufferManager, m_threadPool, &m_perfTimer);
     m_customMaterialSystem->setRenderContextInterface(this);
+    if (loadPregenratedShaders())
+        m_shaderLibraryManager->loadPregeneratedShaderInfo();
+}
 
-
-    const char *versionString = nullptr;
-    switch (ctx->renderContextType()) {
-    case QSSGRenderContextType::GLES2:
-        versionString = "gles2";
-        break;
-    case QSSGRenderContextType::GL2:
-        versionString = "gl2";
-        break;
-    case QSSGRenderContextType::GLES3:
-        versionString = "gles3";
-        break;
-    case QSSGRenderContextType::GL3:
-        versionString = "gl3";
-        break;
-    case QSSGRenderContextType::GLES3PLUS:
-        versionString = "gles3x";
-        break;
-    case QSSGRenderContextType::GL4:
-        versionString = "gl4";
-        break;
-    default:
-        Q_ASSERT(false);
-        break;
+QSSGRenderContextInterface *QSSGRenderContextInterface::renderContextForWindow(const QWindow &window)
+{
+    auto it = g_windowReg->cbegin();
+    const auto end = g_windowReg->cend();
+    for (; it != end; ++it) {
+        if (it->first == &window)
+            break;
     }
 
-    dynamicObjectSystem()->setShaderCodeLibraryVersion(versionString);
-#if defined(QSSG_SHADER_PLATFORM_LIBRARY_DIR)
-    const QString platformDirectory;
-#if defined(_WIN32)
-    platformDirectory = QStringLiteral("res/platform/win");
-#elif defined(_LINUX)
-    platformDirectory = QStringLiteral("res/platform/linux");
-#elif defined(_MACOSX)
-    platformDirectory = QStringLiteral("res/platform/macos");
-#endif
-    GetDynamicObjectSystem().setShaderCodeLibraryPlatformDirectory(platformDirectory);
-#endif
+    return (it != end) ? it->second : nullptr;
 }
 
-struct QSSGRenderContextInterfaceHandle
+QSSGRenderContextInterface::QSSGRenderContextInterface(const QSSGRef<QSSGRhiContext> &ctx,
+                                                       const QSSGRef<QSSGBufferManager> &bufferManager,
+                                                       const QSSGRef<QSSGResourceManager> &resourceManager,
+                                                       const QSSGRef<QSSGRenderer> &renderer,
+                                                       const QSSGRef<QSSGShaderLibraryManager> &shaderLibraryManager,
+                                                       const QSSGRef<QSSGShaderCache> &shaderCache,
+                                                       const QSSGRef<QSSGCustomMaterialSystem> &customMaterialSystem,
+                                                       const QSSGRef<QSSGProgramGenerator> &shaderProgramGenerator)
+    : m_rhiContext(ctx)
+    , m_shaderCache(shaderCache)
+    , m_bufferManager(bufferManager)
+    , m_resourceManager(resourceManager)
+    , m_renderer(renderer)
+    , m_shaderLibraryManager(shaderLibraryManager)
+    , m_customMaterialSystem(customMaterialSystem)
+    , m_shaderProgramGenerator(shaderProgramGenerator)
 {
-    QSSGRenderContextInterface *ctx;
-    quintptr m_wid;
-};
-Q_DECLARE_TYPEINFO(QSSGRenderContextInterfaceHandle, Q_PRIMITIVE_TYPE);
+    init();
+}
 
-Q_GLOBAL_STATIC(QVector<QSSGRenderContextInterfaceHandle>, g_renderContexts)
+// The shader library is a global object, not per-QQuickWindow, hence not owned
+// by the QSSGRenderContextInterface.
+static const QSSGRef<QSSGShaderLibraryManager> &q3ds_shaderLibraryManager()
+{
+    static QSSGRef<QSSGShaderLibraryManager> shaderLibraryManager;
+    if (!shaderLibraryManager)
+        shaderLibraryManager = new QSSGShaderLibraryManager;
+    return shaderLibraryManager;
+}
+
+QSSGRenderContextInterface::QSSGRenderContextInterface(QWindow *window,
+                                                       const QSSGRef<QSSGRhiContext> &ctx)
+    : m_rhiContext(ctx)
+    , m_shaderCache(new QSSGShaderCache(ctx))
+    , m_bufferManager(new QSSGBufferManager(ctx, m_shaderCache))
+    , m_resourceManager(new QSSGResourceManager(ctx))
+    , m_renderer(new QSSGRenderer)
+    , m_shaderLibraryManager(q3ds_shaderLibraryManager())
+    , m_customMaterialSystem(new QSSGCustomMaterialSystem)
+    , m_shaderProgramGenerator(new QSSGProgramGenerator)
+{
+    init();
+    if (window) {
+        g_windowReg->append({ window, this });
+        QObject::connect(window, &QWindow::destroyed, [&](QObject *o){
+            g_windowReg->removeIf([o](const Binding &b) { return (b.first == o); });
+        });
+    }
+}
 
 QSSGRenderContextInterface::~QSSGRenderContextInterface()
 {
-    m_renderContext->releaseResources();
-    static_cast<QSSGRendererImpl *>(m_renderer.data())->releaseResources();
-
-    for (int i = 0; i < g_renderContexts->size(); ++i) {
-        if (g_renderContexts->at(i).ctx == this) {
-            g_renderContexts->removeAt(i);
-            break;
-        }
-    }
+    m_renderer->releaseResources();
+    g_windowReg->removeIf([this](const Binding &b) { return (b.second == this); });
 }
 
-QSSGRef<QSSGRenderContextInterface> QSSGRenderContextInterface::getRenderContextInterface(const QSSGRef<QSSGRenderContext> &ctx, const QString &inApplicationDirectory, quintptr wid)
-{
-    auto it = g_renderContexts->cbegin();
-    const auto end = g_renderContexts->cend();
-    for (; it != end; ++it) {
-        if (it->m_wid == wid)
-            break;
-    }
-
-    if (it != end)
-        return it->ctx;
-
-    const auto rci = QSSGRef<QSSGRenderContextInterface>(new QSSGRenderContextInterface(ctx, inApplicationDirectory));
-    g_renderContexts->push_back(QSSGRenderContextInterfaceHandle { rci.data(), wid });
-
-    return rci;
-}
-
-QSSGRef<QSSGRenderContextInterface> QSSGRenderContextInterface::getRenderContextInterface(quintptr wid)
-{
-    auto it = g_renderContexts->cbegin();
-    const auto end = g_renderContexts->cend();
-    for (; it != end; ++it) {
-        if (it->m_wid == wid)
-            break;
-    }
-
-    if (it != end)
-        return it->ctx;
-
-    return QSSGRef<QSSGRenderContextInterface>();
-}
-
-const QSSGRef<QSSGRendererInterface> &QSSGRenderContextInterface::renderer() const { return m_renderer; }
+const QSSGRef<QSSGRenderer> &QSSGRenderContextInterface::renderer() const { return m_renderer; }
 
 const QSSGRef<QSSGBufferManager> &QSSGRenderContextInterface::bufferManager() const { return m_bufferManager; }
 
 const QSSGRef<QSSGResourceManager> &QSSGRenderContextInterface::resourceManager() const { return m_resourceManager; }
 
-const QSSGRef<QSSGRenderContext> &QSSGRenderContextInterface::renderContext() const { return m_renderContext; }
-
-const QSSGRef<QSSGInputStreamFactory> &QSSGRenderContextInterface::inputStreamFactory() const { return m_inputStreamFactory; }
-
-const QSSGRef<QSSGEffectSystem> &QSSGRenderContextInterface::effectSystem() const { return m_effectSystem; }
+const QSSGRef<QSSGRhiContext> &QSSGRenderContextInterface::rhiContext() const { return m_rhiContext; }
 
 const QSSGRef<QSSGShaderCache> &QSSGRenderContextInterface::shaderCache() const { return m_shaderCache; }
 
-const QSSGRef<QSSGAbstractThreadPool> &QSSGRenderContextInterface::threadPool() const { return m_threadPool; }
+const QSSGRef<QSSGShaderLibraryManager> &QSSGRenderContextInterface::shaderLibraryManager() const { return m_shaderLibraryManager; }
 
-const QSSGRef<IImageBatchLoader> &QSSGRenderContextInterface::imageBatchLoader() const { return m_imageBatchLoader; }
+const QSSGRef<QSSGCustomMaterialSystem> &QSSGRenderContextInterface::customMaterialSystem() const { return m_customMaterialSystem; }
 
-const QSSGRef<QSSGDynamicObjectSystem> &QSSGRenderContextInterface::dynamicObjectSystem() const { return m_dynamicObjectSystem; }
-
-const QSSGRef<QSSGMaterialSystem> &QSSGRenderContextInterface::customMaterialSystem() const { return m_customMaterialSystem; }
-
-const QSSGRef<QSSGShaderProgramGeneratorInterface> &QSSGRenderContextInterface::shaderProgramGenerator() const
+const QSSGRef<QSSGProgramGenerator> &QSSGRenderContextInterface::shaderProgramGenerator() const
 {
     return m_shaderProgramGenerator;
-}
-
-const QSSGRef<QSSGDefaultMaterialShaderGeneratorInterface> &QSSGRenderContextInterface::defaultMaterialShaderGenerator() const
-{
-    return m_defaultMaterialShaderGenerator;
-}
-
-const QSSGRef<QSSGMaterialShaderGeneratorInterface> &QSSGRenderContextInterface::customMaterialShaderGenerator() const
-{
-    return m_customMaterialShaderGenerator;
 }
 
 QVector2D QSSGRenderContextInterface::mousePickViewport() const
@@ -218,51 +158,53 @@ QVector2D QSSGRenderContextInterface::mousePickViewport() const
     return QVector2D((float)m_windowDimensions.width(), (float)m_windowDimensions.height());
 }
 
-QRect QSSGRenderContextInterface::contextViewport() const
-{
-    QRect retval;
-    if (!m_viewport.isNull())
-        retval = m_viewport;
-    else
-        retval = QRect(0, 0, m_windowDimensions.width(), m_windowDimensions.height());
-
-    return retval;
-}
-
 QVector2D QSSGRenderContextInterface::mousePickMouseCoords(const QVector2D &inMouseCoords) const
 {
     return inMouseCoords;
 }
 
-
-void QSSGRenderContextInterface::dumpGpuProfilerStats()
+void QSSGRenderContextInterface::cleanupResources(QList<QSSGRenderGraphObject *> &resources)
 {
-    m_renderer->dumpGpuProfilerStats();
+    m_renderer->cleanupResources(resources);
 }
 
-void QSSGRenderContextInterface::beginFrame()
+void QSSGRenderContextInterface::beginFrame(bool allowRecursion)
 {
+    if (allowRecursion) {
+        if (m_activeFrameRef++ != 0)
+            return;
+    }
+
     m_perFrameAllocator.reset();
     m_renderer->beginFrame();
-    m_imageBatchLoader->beginFrame();
 }
 
 bool QSSGRenderContextInterface::prepareLayerForRender(QSSGRenderLayer &inLayer)
 {
-    return renderer()->prepareLayerForRender(inLayer, m_windowDimensions);
+    return m_renderer->prepareLayerForRender(inLayer, m_windowDimensions);
 }
 
-void QSSGRenderContextInterface::renderLayer(QSSGRenderLayer &inLayer, bool needsClear)
+void QSSGRenderContextInterface::rhiPrepare(QSSGRenderLayer &inLayer)
 {
-    renderer()->renderLayer(inLayer, m_windowDimensions, needsClear, m_sceneColor);
+    m_renderer->rhiPrepare(inLayer);
 }
 
-void QSSGRenderContextInterface::endFrame()
+void QSSGRenderContextInterface::rhiRender(QSSGRenderLayer &inLayer)
 {
-    m_imageBatchLoader->endFrame();
+    m_renderer->rhiRender(inLayer);
+}
+
+bool QSSGRenderContextInterface::endFrame(bool allowRecursion)
+{
+    if (allowRecursion) {
+        if (--m_activeFrameRef != 0)
+            return false;
+    }
+
     m_renderer->endFrame();
-    m_customMaterialSystem->endFrame();
     ++m_frameCount;
+
+    return true;
 }
 
 QT_END_NAMESPACE

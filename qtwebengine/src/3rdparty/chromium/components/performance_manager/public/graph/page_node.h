@@ -5,10 +5,13 @@
 #ifndef COMPONENTS_PERFORMANCE_MANAGER_PUBLIC_GRAPH_PAGE_NODE_H_
 #define COMPONENTS_PERFORMANCE_MANAGER_PUBLIC_GRAPH_PAGE_NODE_H_
 
+#include <ostream>
 #include <string>
 
 #include "base/containers/flat_set.h"
 #include "base/macros.h"
+#include "base/optional.h"
+#include "components/performance_manager/public/freezing/freezing.h"
 #include "components/performance_manager/public/graph/node.h"
 #include "components/performance_manager/public/mojom/coordination_unit.mojom.h"
 #include "components/performance_manager/public/mojom/lifecycle.mojom.h"
@@ -27,16 +30,64 @@ class PageNodeObserver;
 // Extensions.
 class PageNode : public Node {
  public:
-  using InterventionPolicy = mojom::InterventionPolicy;
+  using FrameNodeVisitor = base::RepeatingCallback<bool(const FrameNode*)>;
   using LifecycleState = mojom::LifecycleState;
   using Observer = PageNodeObserver;
   class ObserverDefaultImpl;
+
+  // Reasons for which a frame can become the opener of a page.
+  enum class OpenedType {
+    // Returned if this node doesn't have an opener.
+    kInvalid,
+    // This page is a popup (the opener created it via window.open).
+    kPopup,
+    // This page is a guest view. This can be many things (<webview>, <appview>,
+    // etc) but is backed by the same inner/outer WebContents mechanism.
+    kGuestView,
+    // This page is a portal.
+    kPortal,
+  };
+
+  // Returns a string for a PageNode::OpenedType enumeration.
+  static const char* ToString(PageNode::OpenedType opened_type);
+
+  // Loading state of a page.
+  enum class LoadingState {
+    // No top-level document has started loading yet.
+    kLoadingNotStarted,
+    // A different top-level document is loading. The load started less than 5
+    // seconds ago or the initial response was received.
+    kLoading,
+    // A different top-level document is loading. The load started more than 5
+    // seconds ago and no response was received yet. Note: The state will
+    // transition back to |kLoading| if a response is received.
+    kLoadingTimedOut,
+    // A different top-level document finished loading, but the page did not
+    // reach CPU and network quiescence since then. Note: A page is considered
+    // to have reached CPU and network quiescence after 1 minute, even if the
+    // CPU and network are still busy - see page_load_tracker_decorator.h.
+    kLoadedBusy,
+    // The page reached CPU and network quiescence after loading the current
+    // top-level document, or the load failed.
+    kLoadedIdle,
+  };
+
+  // Returns a string for a PageNode::LoadingState enumeration.
+  static const char* ToString(PageNode::LoadingState loading_state);
 
   PageNode();
   ~PageNode() override;
 
   // Returns the unique ID of the browser context that this page belongs to.
   virtual const std::string& GetBrowserContextID() const = 0;
+
+  // Returns the opener frame node, if there is one. This may change over the
+  // lifetime of this page. See "OnOpenerFrameNodeChanged".
+  virtual const FrameNode* GetOpenerFrameNode() const = 0;
+
+  // Returns the type of relationship this node has with its opener, if it has
+  // an opener.
+  virtual OpenedType GetOpenedType() const = 0;
 
   // Returns true if this page is currently visible, false otherwise.
   // See PageNodeObserver::OnIsVisibleChanged.
@@ -50,13 +101,8 @@ class PageNode : public Node {
   // See PageNodeObserver::OnIsAudibleChanged.
   virtual bool IsAudible() const = 0;
 
-  // Returns true if this page is currently loading, false otherwise. The page
-  // starts loading when incoming data starts arriving for a top-level load to a
-  // different document. It stops loading when it reaches an "almost idle"
-  // state, based on CPU and network quiescence, or after an absolute timeout.
-  // Note: This is different from WebContents::IsLoading(). See
-  // PageNodeObserver::OnIsLoadingChanged.
-  virtual bool IsLoading() const = 0;
+  // Returns the page's loading state.
+  virtual LoadingState GetLoadingState() const = 0;
 
   // Returns the UKM source ID associated with the URL of the main frame of
   // this page.
@@ -67,9 +113,6 @@ class PageNode : public Node {
   // lifecycle state of each frame in the frame tree. See
   // PageNodeObserver::OnPageLifecycleStateChanged.
   virtual LifecycleState GetLifecycleState() const = 0;
-
-  // Returns the freeze policy set via origin trial.
-  virtual InterventionPolicy GetOriginTrialFreezePolicy() const = 0;
 
   // Returns true if at least one of the frame in this page is currently
   // holding a WebLock.
@@ -97,8 +140,15 @@ class PageNode : public Node {
   // are no main frames at the moment, returns nullptr.
   virtual const FrameNode* GetMainFrameNode() const = 0;
 
+  // Visits the main frame nodes associated with this page. The iteration is
+  // halted if the visitor returns false. Returns true if every call to the
+  // visitor returned true, false otherwise.
+  virtual bool VisitMainFrameNodes(const FrameNodeVisitor& visitor) const = 0;
+
   // Returns all of the main frame nodes, both current and otherwise. If there
-  // are no main frames at the moment, returns the empty set.
+  // are no main frames at the moment, returns the empty set. Note that this
+  // incurs a full container copy of all main frame nodes. Please use
+  // VisitMainFrameNodes when that makes sense.
   virtual const base::flat_set<const FrameNode*> GetMainFrameNodes() const = 0;
 
   // Returns the URL the main frame last committed a navigation to, or the
@@ -116,6 +166,16 @@ class PageNode : public Node {
   // dereferenced on the UI thread.
   virtual const WebContentsProxy& GetContentsProxy() const = 0;
 
+  // Indicates if there's a freezing vote for this page node. This has 3
+  // possible values:
+  //   - base::nullopt: There's no active freezing vote for this page.
+  //   - freezing::FreezingVoteValue::kCanFreeze: There's one or more positive
+  //     freezing vote for this page and no negative vote.
+  //   - freezing::FreezingVoteValue::kCannotFreeze: There's at least one
+  //     negative freezing vote for this page.
+  virtual const base::Optional<freezing::FreezingVote>& GetFreezingVote()
+      const = 0;
+
  private:
   DISALLOW_COPY_AND_ASSIGN(PageNode);
 };
@@ -124,6 +184,8 @@ class PageNode : public Node {
 // implement the entire interface.
 class PageNodeObserver {
  public:
+  using OpenedType = PageNode::OpenedType;
+
   PageNodeObserver();
   virtual ~PageNodeObserver();
 
@@ -137,24 +199,28 @@ class PageNodeObserver {
 
   // Notifications of property changes.
 
+  // Invoked when this page has been assigned an opener, had the opener change,
+  // or had the opener removed. This can happen if a page is opened via
+  // window.open, webviews, portals, etc, or when that relationship is
+  // subsequently severed or reparented.
+  virtual void OnOpenerFrameNodeChanged(const PageNode* page_node,
+                                        const FrameNode* previous_opener,
+                                        OpenedType previous_opened_type) = 0;
+
   // Invoked when the IsVisible property changes.
   virtual void OnIsVisibleChanged(const PageNode* page_node) = 0;
 
   // Invoked when the IsAudible property changes.
   virtual void OnIsAudibleChanged(const PageNode* page_node) = 0;
 
-  // Invoked when the IsLoading property changes.
-  virtual void OnIsLoadingChanged(const PageNode* page_node) = 0;
+  // Invoked when the GetLoadingState property changes.
+  virtual void OnLoadingStateChanged(const PageNode* page_node) = 0;
 
   // Invoked when the UkmSourceId property changes.
   virtual void OnUkmSourceIdChanged(const PageNode* page_node) = 0;
 
   // Invoked when the PageLifecycleState property changes.
   virtual void OnPageLifecycleStateChanged(const PageNode* page_node) = 0;
-
-  // Invoked when the OriginTrialFreezePolicy property changes.
-  virtual void OnPageOriginTrialFreezePolicyChanged(
-      const PageNode* page_node) = 0;
 
   // Invoked when the IsHoldingWebLock property changes.
   virtual void OnPageIsHoldingWebLockChanged(const PageNode* page_node) = 0;
@@ -184,6 +250,11 @@ class PageNodeObserver {
   // not directly reflected on the node.
   virtual void OnFaviconUpdated(const PageNode* page_node) = 0;
 
+  // Called every time the aggregated freezing vote changes or gets invalidated.
+  virtual void OnFreezingVoteChanged(
+      const PageNode* page_node,
+      base::Optional<freezing::FreezingVote> previous_vote) = 0;
+
  private:
   DISALLOW_COPY_AND_ASSIGN(PageNodeObserver);
 };
@@ -199,13 +270,14 @@ class PageNode::ObserverDefaultImpl : public PageNodeObserver {
   // PageNodeObserver implementation:
   void OnPageNodeAdded(const PageNode* page_node) override {}
   void OnBeforePageNodeRemoved(const PageNode* page_node) override {}
+  void OnOpenerFrameNodeChanged(const PageNode* page_node,
+                                const FrameNode* previous_opener,
+                                OpenedType previous_opened_type) override {}
   void OnIsVisibleChanged(const PageNode* page_node) override {}
   void OnIsAudibleChanged(const PageNode* page_node) override {}
-  void OnIsLoadingChanged(const PageNode* page_node) override {}
+  void OnLoadingStateChanged(const PageNode* page_node) override {}
   void OnUkmSourceIdChanged(const PageNode* page_node) override {}
   void OnPageLifecycleStateChanged(const PageNode* page_node) override {}
-  void OnPageOriginTrialFreezePolicyChanged(
-      const PageNode* page_node) override {}
   void OnPageIsHoldingWebLockChanged(const PageNode* page_node) override {}
   void OnPageIsHoldingIndexedDBLockChanged(const PageNode* page_node) override {
   }
@@ -214,10 +286,17 @@ class PageNode::ObserverDefaultImpl : public PageNodeObserver {
   void OnHadFormInteractionChanged(const PageNode* page_node) override {}
   void OnTitleUpdated(const PageNode* page_node) override {}
   void OnFaviconUpdated(const PageNode* page_node) override {}
+  void OnFreezingVoteChanged(
+      const PageNode* page_node,
+      base::Optional<freezing::FreezingVote> previous_vote) override {}
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ObserverDefaultImpl);
 };
+
+// std::ostream support for PageNode::OpenedType.
+std::ostream& operator<<(std::ostream& os,
+                         performance_manager::PageNode::OpenedType opened_type);
 
 }  // namespace performance_manager
 

@@ -10,6 +10,7 @@
 #include "src/common/globals.h"
 #include "src/debug/debug-frames.h"
 #include "src/debug/debug-scopes.h"
+#include "src/debug/debug-wasm-objects.h"
 #include "src/debug/debug.h"
 #include "src/execution/frames-inl.h"
 #include "src/execution/isolate-inl.h"
@@ -20,6 +21,20 @@
 
 namespace v8 {
 namespace internal {
+
+namespace {
+static MaybeHandle<SharedFunctionInfo> GetFunctionInfo(Isolate* isolate,
+                                                       Handle<String> source,
+                                                       REPLMode repl_mode) {
+  Compiler::ScriptDetails script_details(isolate->factory()->empty_string());
+  script_details.repl_mode = repl_mode;
+  ScriptOriginOptions origin_options(false, true);
+  return Compiler::GetSharedFunctionInfoForScript(
+      isolate, source, script_details, origin_options, nullptr, nullptr,
+      ScriptCompiler::kNoCompileOptions, ScriptCompiler::kNoCacheNoReason,
+      NOT_NATIVES_CODE);
+}
+}  // namespace
 
 MaybeHandle<Object> DebugEvaluate::Global(Isolate* isolate,
                                           Handle<String> source,
@@ -32,22 +47,14 @@ MaybeHandle<Object> DebugEvaluate::Global(Isolate* isolate,
           mode ==
               debug::EvaluateGlobalMode::kDisableBreaksAndThrowOnSideEffect);
 
-  Handle<Context> context = isolate->native_context();
-  Compiler::ScriptDetails script_details(isolate->factory()->empty_string());
-  script_details.repl_mode = repl_mode;
-  ScriptOriginOptions origin_options(false, true);
-  MaybeHandle<SharedFunctionInfo> maybe_function_info =
-      Compiler::GetSharedFunctionInfoForScript(
-          isolate, source, script_details, origin_options, nullptr, nullptr,
-          ScriptCompiler::kNoCompileOptions, ScriptCompiler::kNoCacheNoReason,
-          NOT_NATIVES_CODE);
-
   Handle<SharedFunctionInfo> shared_info;
-  if (!maybe_function_info.ToHandle(&shared_info)) return MaybeHandle<Object>();
+  if (!GetFunctionInfo(isolate, source, repl_mode).ToHandle(&shared_info)) {
+    return MaybeHandle<Object>();
+  }
 
+  Handle<Context> context = isolate->native_context();
   Handle<JSFunction> fun =
-      isolate->factory()->NewFunctionFromSharedFunctionInfo(shared_info,
-                                                            context);
+      Factory::JSFunctionBuilder{isolate, shared_info, context}.Build();
   if (mode == debug::EvaluateGlobalMode::kDisableBreaksAndThrowOnSideEffect) {
     isolate->debug()->StartSideEffectCheckMode();
   }
@@ -70,25 +77,37 @@ MaybeHandle<Object> DebugEvaluate::Local(Isolate* isolate,
 
   // Get the frame where the debugging is performed.
   StackTraceFrameIterator it(isolate, frame_id);
-  if (!it.is_javascript()) return isolate->factory()->undefined_value();
-  JavaScriptFrame* frame = it.javascript_frame();
+  if (it.is_javascript()) {
+    JavaScriptFrame* frame = it.javascript_frame();
+    // This is not a lot different than DebugEvaluate::Global, except that
+    // variables accessible by the function we are evaluating from are
+    // materialized and included on top of the native context. Changes to
+    // the materialized object are written back afterwards.
+    // Note that the native context is taken from the original context chain,
+    // which may not be the current native context of the isolate.
+    ContextBuilder context_builder(isolate, frame, inlined_jsframe_index);
+    if (isolate->has_pending_exception()) return {};
 
-  // This is not a lot different than DebugEvaluate::Global, except that
-  // variables accessible by the function we are evaluating from are
-  // materialized and included on top of the native context. Changes to
-  // the materialized object are written back afterwards.
-  // Note that the native context is taken from the original context chain,
-  // which may not be the current native context of the isolate.
-  ContextBuilder context_builder(isolate, frame, inlined_jsframe_index);
-  if (isolate->has_pending_exception()) return MaybeHandle<Object>();
-
-  Handle<Context> context = context_builder.evaluation_context();
-  Handle<JSObject> receiver(context->global_proxy(), isolate);
-  MaybeHandle<Object> maybe_result =
-      Evaluate(isolate, context_builder.outer_info(), context, receiver, source,
-               throw_on_side_effect);
-  if (!maybe_result.is_null()) context_builder.UpdateValues();
-  return maybe_result;
+    Handle<Context> context = context_builder.evaluation_context();
+    Handle<JSObject> receiver(context->global_proxy(), isolate);
+    MaybeHandle<Object> maybe_result =
+        Evaluate(isolate, context_builder.outer_info(), context, receiver,
+                 source, throw_on_side_effect);
+    if (!maybe_result.is_null()) context_builder.UpdateValues();
+    return maybe_result;
+  } else {
+    CHECK(it.is_wasm());
+    WasmFrame* frame = WasmFrame::cast(it.frame());
+    Handle<SharedFunctionInfo> outer_info(
+        isolate->native_context()->empty_function().shared(), isolate);
+    Handle<JSObject> context_extension = GetWasmDebugProxy(frame);
+    Handle<ScopeInfo> scope_info =
+        ScopeInfo::CreateForWithScope(isolate, Handle<ScopeInfo>::null());
+    Handle<Context> context = isolate->factory()->NewWithContext(
+        isolate->native_context(), scope_info, context_extension);
+    return Evaluate(isolate, outer_info, context, context_extension, source,
+                    throw_on_side_effect);
+  }
 }
 
 MaybeHandle<Object> DebugEvaluate::WithTopmostArguments(Isolate* isolate,
@@ -189,10 +208,10 @@ DebugEvaluate::ContextBuilder::ContextBuilder(Isolate* isolate,
   //  - Between the function scope and the native context, we only resolve
   //    variable names that are guaranteed to not be shadowed by stack-allocated
   //    variables. Contexts between the function context and the original
-  //    context have a blacklist attached to implement that.
+  //    context have a blocklist attached to implement that.
   // Context::Lookup has special handling for debug-evaluate contexts:
   //  - Look up in the materialized stack variables.
-  //  - Check the blacklist to find out whether to abort further lookup.
+  //  - Check the blocklist to find out whether to abort further lookup.
   //  - Look up in the original context.
   for (; !scope_iterator_.Done(); scope_iterator_.Next()) {
     ScopeIterator::ScopeType scope_type = scope_iterator_.Type();
@@ -208,7 +227,7 @@ DebugEvaluate::ContextBuilder::ContextBuilder(Isolate* isolate,
       context_chain_element.wrapped_context = scope_iterator_.CurrentContext();
     }
     if (!scope_iterator_.InInnerScope()) {
-      context_chain_element.blacklist = scope_iterator_.GetLocals();
+      context_chain_element.blocklist = scope_iterator_.GetLocals();
     }
     context_chain_.push_back(context_chain_element);
   }
@@ -224,7 +243,7 @@ DebugEvaluate::ContextBuilder::ContextBuilder(Isolate* isolate,
     scope_info->SetIsDebugEvaluateScope();
     evaluation_context_ = factory->NewDebugEvaluateContext(
         evaluation_context_, scope_info, element.materialized_object,
-        element.wrapped_context, element.blacklist);
+        element.wrapped_context, element.blocklist);
   }
 }
 
@@ -254,14 +273,14 @@ namespace {
 
 bool IntrinsicHasNoSideEffect(Runtime::FunctionId id) {
 // Use macro to include only the non-inlined version of an intrinsic.
-#define INTRINSIC_WHITELIST(V)                \
+#define INTRINSIC_ALLOWLIST(V)                \
   /* Conversions */                           \
-  V(NumberToString)                           \
+  V(NumberToStringSlow)                       \
   V(ToBigInt)                                 \
   V(ToLength)                                 \
   V(ToNumber)                                 \
   V(ToObject)                                 \
-  V(ToStringRT)                               \
+  V(ToString)                                 \
   /* Type checks */                           \
   V(IsArray)                                  \
   V(IsFunction)                               \
@@ -289,12 +308,9 @@ bool IntrinsicHasNoSideEffect(Runtime::FunctionId id) {
   V(ThrowReferenceError)                      \
   V(ThrowSymbolIteratorInvalid)               \
   /* Strings */                               \
-  V(StringIncludes)                           \
-  V(StringIndexOf)                            \
   V(StringReplaceOneCharWithString)           \
   V(StringSubstring)                          \
   V(StringToNumber)                           \
-  V(StringTrim)                               \
   /* BigInts */                               \
   V(BigIntEqualToBigInt)                      \
   V(BigIntToBoolean)                          \
@@ -305,6 +321,7 @@ bool IntrinsicHasNoSideEffect(Runtime::FunctionId id) {
   V(CreateObjectLiteral)                      \
   V(CreateObjectLiteralWithoutAllocationSite) \
   V(CreateRegExpLiteral)                      \
+  V(DefineClass)                              \
   /* Called from builtins */                  \
   V(AllocateInYoungGeneration)                \
   V(AllocateInOldGeneration)                  \
@@ -313,7 +330,6 @@ bool IntrinsicHasNoSideEffect(Runtime::FunctionId id) {
   V(ArrayIncludes_Slow)                       \
   V(ArrayIndexOf)                             \
   V(ArrayIsArray)                             \
-  V(ClassOf)                                  \
   V(GetFunctionName)                          \
   V(GetOwnPropertyDescriptor)                 \
   V(GlobalPrint)                              \
@@ -322,6 +338,7 @@ bool IntrinsicHasNoSideEffect(Runtime::FunctionId id) {
   V(ObjectEntries)                            \
   V(ObjectEntriesSkipFastPath)                \
   V(ObjectHasOwnProperty)                     \
+  V(ObjectKeys)                               \
   V(ObjectValues)                             \
   V(ObjectValuesSkipFastPath)                 \
   V(ObjectGetOwnPropertyNames)                \
@@ -332,7 +349,6 @@ bool IntrinsicHasNoSideEffect(Runtime::FunctionId id) {
   V(StringAdd)                                \
   V(StringCharCodeAt)                         \
   V(StringEqual)                              \
-  V(StringIndexOfUnchecked)                   \
   V(StringParseFloat)                         \
   V(StringParseInt)                           \
   V(SymbolDescriptiveString)                  \
@@ -358,8 +374,8 @@ bool IntrinsicHasNoSideEffect(Runtime::FunctionId id) {
   V(OptimizeOsr)                              \
   V(UnblockConcurrentRecompilation)
 
-// Intrinsics with inline versions have to be whitelisted here a second time.
-#define INLINE_INTRINSIC_WHITELIST(V) \
+// Intrinsics with inline versions have to be allowlisted here a second time.
+#define INLINE_INTRINSIC_ALLOWLIST(V) \
   V(Call)                             \
   V(IsJSReceiver)                     \
   V(AsyncFunctionEnter)               \
@@ -369,8 +385,8 @@ bool IntrinsicHasNoSideEffect(Runtime::FunctionId id) {
 #define CASE(Name) case Runtime::k##Name:
 #define INLINE_CASE(Name) case Runtime::kInline##Name:
   switch (id) {
-    INTRINSIC_WHITELIST(CASE)
-    INLINE_INTRINSIC_WHITELIST(INLINE_CASE)
+    INTRINSIC_ALLOWLIST(CASE)
+    INLINE_INTRINSIC_ALLOWLIST(INLINE_CASE)
     return true;
     default:
       if (FLAG_trace_side_effect_free_debug_evaluate) {
@@ -382,8 +398,8 @@ bool IntrinsicHasNoSideEffect(Runtime::FunctionId id) {
 
 #undef CASE
 #undef INLINE_CASE
-#undef INTRINSIC_WHITELIST
-#undef INLINE_INTRINSIC_WHITELIST
+#undef INTRINSIC_ALLOWLIST
+#undef INLINE_INTRINSIC_ALLOWLIST
 }
 
 bool BytecodeHasNoSideEffect(interpreter::Bytecode bytecode) {
@@ -394,7 +410,7 @@ bool BytecodeHasNoSideEffect(interpreter::Bytecode bytecode) {
   if (Bytecodes::IsJumpIfToBoolean(bytecode)) return true;
   if (Bytecodes::IsPrefixScalingBytecode(bytecode)) return true;
   switch (bytecode) {
-    // Whitelist for bytecodes.
+    // Allowlist for bytecodes.
     // Loads.
     case Bytecode::kLdaLookupSlot:
     case Bytecode::kLdaGlobal:
@@ -474,6 +490,7 @@ bool BytecodeHasNoSideEffect(interpreter::Bytecode bytecode) {
     case Bytecode::kToNumeric:
     case Bytecode::kToString:
     // Misc.
+    case Bytecode::kIncBlockCounter:  // Coverage counters.
     case Bytecode::kForInEnumerate:
     case Bytecode::kForInPrepare:
     case Bytecode::kForInContinue:
@@ -497,7 +514,7 @@ bool BytecodeHasNoSideEffect(interpreter::Bytecode bytecode) {
 
 DebugInfo::SideEffectState BuiltinGetSideEffectState(Builtins::Name id) {
   switch (id) {
-    // Whitelist for builtins.
+    // Allowlist for builtins.
     // Object builtins.
     case Builtins::kObjectConstructor:
     case Builtins::kObjectCreate:
@@ -511,6 +528,7 @@ DebugInfo::SideEffectState BuiltinGetSideEffectState(Builtins::Name id) {
     case Builtins::kObjectIsExtensible:
     case Builtins::kObjectIsFrozen:
     case Builtins::kObjectIsSealed:
+    case Builtins::kObjectKeys:
     case Builtins::kObjectPrototypeValueOf:
     case Builtins::kObjectValues:
     case Builtins::kObjectPrototypeHasOwnProperty:
@@ -524,6 +542,7 @@ DebugInfo::SideEffectState BuiltinGetSideEffectState(Builtins::Name id) {
     case Builtins::kArrayIndexOf:
     case Builtins::kArrayPrototypeValues:
     case Builtins::kArrayIncludes:
+    case Builtins::kArrayPrototypeAt:
     case Builtins::kArrayPrototypeEntries:
     case Builtins::kArrayPrototypeFill:
     case Builtins::kArrayPrototypeFind:
@@ -549,6 +568,8 @@ DebugInfo::SideEffectState BuiltinGetSideEffectState(Builtins::Name id) {
     case Builtins::kTrace:
     // TypedArray builtins.
     case Builtins::kTypedArrayConstructor:
+    case Builtins::kTypedArrayOf:
+    case Builtins::kTypedArrayPrototypeAt:
     case Builtins::kTypedArrayPrototypeBuffer:
     case Builtins::kTypedArrayPrototypeByteLength:
     case Builtins::kTypedArrayPrototypeByteOffset:
@@ -673,7 +694,6 @@ DebugInfo::SideEffectState BuiltinGetSideEffectState(Builtins::Name id) {
     case Builtins::kMathMax:
     case Builtins::kMathMin:
     case Builtins::kMathPow:
-    case Builtins::kMathRandom:
     case Builtins::kMathRound:
     case Builtins::kMathSign:
     case Builtins::kMathSin:
@@ -717,6 +737,7 @@ DebugInfo::SideEffectState BuiltinGetSideEffectState(Builtins::Name id) {
     case Builtins::kStringFromCodePoint:
     case Builtins::kStringConstructor:
     case Builtins::kStringPrototypeAnchor:
+    case Builtins::kStringPrototypeAt:
     case Builtins::kStringPrototypeBig:
     case Builtins::kStringPrototypeBlink:
     case Builtins::kStringPrototypeBold:
@@ -740,6 +761,7 @@ DebugInfo::SideEffectState BuiltinGetSideEffectState(Builtins::Name id) {
     case Builtins::kStringPrototypeSlice:
     case Builtins::kStringPrototypeSmall:
     case Builtins::kStringPrototypeStartsWith:
+    case Builtins::kStringSlowFlatten:
     case Builtins::kStringPrototypeStrike:
     case Builtins::kStringPrototypeSub:
     case Builtins::kStringPrototypeSubstr:
@@ -782,11 +804,6 @@ DebugInfo::SideEffectState BuiltinGetSideEffectState(Builtins::Name id) {
     case Builtins::kFunctionPrototypeApply:
     // Error builtins.
     case Builtins::kErrorConstructor:
-    case Builtins::kMakeError:
-    case Builtins::kMakeTypeError:
-    case Builtins::kMakeSyntaxError:
-    case Builtins::kMakeRangeError:
-    case Builtins::kMakeURIError:
     // RegExp builtins.
     case Builtins::kRegExpConstructor:
     // Internal.
@@ -817,12 +834,30 @@ DebugInfo::SideEffectState BuiltinGetSideEffectState(Builtins::Name id) {
     case Builtins::kMapPrototypeClear:
     case Builtins::kMapPrototypeDelete:
     case Builtins::kMapPrototypeSet:
+    // Date builtins.
+    case Builtins::kDatePrototypeSetDate:
+    case Builtins::kDatePrototypeSetFullYear:
+    case Builtins::kDatePrototypeSetHours:
+    case Builtins::kDatePrototypeSetMilliseconds:
+    case Builtins::kDatePrototypeSetMinutes:
+    case Builtins::kDatePrototypeSetMonth:
+    case Builtins::kDatePrototypeSetSeconds:
+    case Builtins::kDatePrototypeSetTime:
+    case Builtins::kDatePrototypeSetUTCDate:
+    case Builtins::kDatePrototypeSetUTCFullYear:
+    case Builtins::kDatePrototypeSetUTCHours:
+    case Builtins::kDatePrototypeSetUTCMilliseconds:
+    case Builtins::kDatePrototypeSetUTCMinutes:
+    case Builtins::kDatePrototypeSetUTCMonth:
+    case Builtins::kDatePrototypeSetUTCSeconds:
+    case Builtins::kDatePrototypeSetYear:
     // RegExp builtins.
     case Builtins::kRegExpPrototypeTest:
     case Builtins::kRegExpPrototypeExec:
     case Builtins::kRegExpPrototypeSplit:
     case Builtins::kRegExpPrototypeFlagsGetter:
     case Builtins::kRegExpPrototypeGlobalGetter:
+    case Builtins::kRegExpPrototypeHasIndicesGetter:
     case Builtins::kRegExpPrototypeIgnoreCaseGetter:
     case Builtins::kRegExpPrototypeMatchAll:
     case Builtins::kRegExpPrototypeMultilineGetter:
@@ -862,14 +897,15 @@ DebugInfo::SideEffectState DebugEvaluate::FunctionGetSideEffectState(
     Isolate* isolate, Handle<SharedFunctionInfo> info) {
   if (FLAG_trace_side_effect_free_debug_evaluate) {
     PrintF("[debug-evaluate] Checking function %s for side effect.\n",
-           info->DebugName().ToCString().get());
+           info->DebugNameCStr().get());
   }
 
   DCHECK(info->is_compiled());
   DCHECK(!info->needs_script_context());
   if (info->HasBytecodeArray()) {
-    // Check bytecodes against whitelist.
-    Handle<BytecodeArray> bytecode_array(info->GetBytecodeArray(), isolate);
+    // Check bytecodes against allowlist.
+    Handle<BytecodeArray> bytecode_array(info->GetBytecodeArray(isolate),
+                                         isolate);
     if (FLAG_trace_side_effect_free_debug_evaluate) {
       bytecode_array->Print();
     }
@@ -898,7 +934,7 @@ DebugInfo::SideEffectState DebugEvaluate::FunctionGetSideEffectState(
                interpreter::Bytecodes::ToString(bytecode));
       }
 
-      // Did not match whitelist.
+      // Did not match allowlist.
       return DebugInfo::kHasSideEffects;
     }
     return requires_runtime_checks ? DebugInfo::kRequiresRuntimeChecks
@@ -910,7 +946,7 @@ DebugInfo::SideEffectState DebugEvaluate::FunctionGetSideEffectState(
                  : DebugInfo::kHasSideEffects;
     }
   } else {
-    // Check built-ins against whitelist.
+    // Check built-ins against allowlist.
     int builtin_index =
         info->HasBuiltinId() ? info->builtin_id() : Builtins::kNoBuiltinId;
     if (!Builtins::IsBuiltinId(builtin_index))
@@ -1060,14 +1096,14 @@ void DebugEvaluate::VerifyTransitiveBuiltins(Isolate* isolate) {
         sanity_check = true;
         continue;
       }
-      PrintF("Whitelisted builtin %s calls non-whitelisted builtin %s\n",
+      PrintF("Allowlisted builtin %s calls non-allowlisted builtin %s\n",
              Builtins::name(caller), Builtins::name(callee));
       failed = true;
     }
   }
   CHECK(!failed);
 #if defined(V8_TARGET_ARCH_PPC) || defined(V8_TARGET_ARCH_PPC64) || \
-    defined(V8_TARGET_ARCH_MIPS64)
+    defined(V8_TARGET_ARCH_MIPS64) || defined(V8_TARGET_ARCH_RISCV64)
   // Isolate-independent builtin calls and jumps do not emit reloc infos
   // on PPC. We try to avoid using PC relative code due to performance
   // issue with especially older hardwares.

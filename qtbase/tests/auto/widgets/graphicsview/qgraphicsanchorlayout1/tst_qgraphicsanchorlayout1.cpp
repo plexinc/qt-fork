@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 #include <QtGui>
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QTest>
 #include <QMetaType>
 #include <QtWidgets/qgraphicsanchorlayout.h>
@@ -149,7 +149,7 @@ Q_DECLARE_METATYPE(AnchorItemSizeHintList)
 class TestWidget : public QGraphicsWidget
 {
 public:
-    inline TestWidget(QGraphicsItem *parent = 0, const QString &name = QString())
+    inline TestWidget(QGraphicsItem *parent = nullptr, const QString &name = QString())
         : QGraphicsWidget(parent)
         {
             setContentsMargins( 0,0,0,0 );
@@ -163,7 +163,7 @@ public:
         }
 
 protected:
-    QSizeF sizeHint(Qt::SizeHint which, const QSizeF &constraint = QSizeF()) const;
+    QSizeF sizeHint(Qt::SizeHint which, const QSizeF &constraint = QSizeF()) const override;
 };
 
 QSizeF TestWidget::sizeHint(Qt::SizeHint which, const QSizeF &constraint) const

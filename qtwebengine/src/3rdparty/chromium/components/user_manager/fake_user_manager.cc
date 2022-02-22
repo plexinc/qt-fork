@@ -7,11 +7,11 @@
 #include <algorithm>
 #include <utility>
 
+#include "ash/constants/ash_switches.h"
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/single_thread_task_runner.h"
 #include "base/system/sys_info.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "components/user_manager/user_names.h"
 #include "components/user_manager/user_type.h"
 
@@ -67,6 +67,8 @@ const User* FakeUserManager::AddUserWithAffiliation(const AccountId& account_id,
                                                     bool is_affiliated) {
   User* user = User::CreateRegularUser(account_id, USER_TYPE_REGULAR);
   user->SetAffiliation(is_affiliated);
+  // TODO: Merge with ProfileHelper::GetUserIdHashByUserIdForTesting.
+  user->set_username_hash(account_id.GetUserEmail() + "-hash");
   users_.push_back(user);
   return user;
 }
@@ -118,6 +120,11 @@ void FakeUserManager::UpdateUserAccountData(
   }
 }
 
+void FakeUserManager::LogoutAllUsers() {
+  primary_user_ = nullptr;
+  active_user_ = nullptr;
+}
+
 void FakeUserManager::UserLoggedIn(const AccountId& account_id,
                                    const std::string& username_hash,
                                    bool browser_restart,
@@ -165,7 +172,15 @@ User* FakeUserManager::GetActiveUser() {
   return GetActiveUserInternal();
 }
 
-void FakeUserManager::SwitchActiveUser(const AccountId& account_id) {}
+void FakeUserManager::SwitchActiveUser(const AccountId& account_id) {
+  for (UserList::const_iterator it = logged_in_users_.begin();
+       it != logged_in_users_.end(); ++it) {
+    if ((*it)->GetAccountId() == account_id) {
+      active_user_ = *it;
+      break;
+    }
+  }
+}
 
 void FakeUserManager::SaveUserDisplayName(const AccountId& account_id,
                                           const base::string16& display_name) {
@@ -220,11 +235,11 @@ base::string16 FakeUserManager::GetUserDisplayName(
 }
 
 bool FakeUserManager::IsCurrentUserOwner() const {
-  return false;
+  return is_current_user_owner_;
 }
 
 bool FakeUserManager::IsCurrentUserNew() const {
-  return false;
+  return is_current_user_new_;
 }
 
 bool FakeUserManager::IsCurrentUserNonCryptohomeDataEphemeral() const {
@@ -244,14 +259,11 @@ bool FakeUserManager::IsLoggedInAsUserWithGaiaAccount() const {
 }
 
 bool FakeUserManager::IsLoggedInAsPublicAccount() const {
-  return false;
+  const User* active_user = GetActiveUser();
+  return active_user && active_user->GetType() == USER_TYPE_PUBLIC_ACCOUNT;
 }
 
 bool FakeUserManager::IsLoggedInAsGuest() const {
-  return false;
-}
-
-bool FakeUserManager::IsLoggedInAsSupervisedUser() const {
   return false;
 }
 
@@ -284,10 +296,6 @@ bool FakeUserManager::IsLoggedInAsStub() const {
 bool FakeUserManager::IsUserNonCryptohomeDataEphemeral(
     const AccountId& account_id) const {
   return false;
-}
-
-bool FakeUserManager::AreSupervisedUsersAllowed() const {
-  return true;
 }
 
 bool FakeUserManager::IsGuestSessionAllowed() const {
@@ -372,7 +380,8 @@ bool FakeUserManager::IsStubAccountId(const AccountId& account_id) const {
   return account_id == StubAccountId();
 }
 
-bool FakeUserManager::IsSupervisedAccountId(const AccountId& account_id) const {
+bool FakeUserManager::IsDeprecatedSupervisedAccountId(
+    const AccountId& account_id) const {
   return false;
 }
 

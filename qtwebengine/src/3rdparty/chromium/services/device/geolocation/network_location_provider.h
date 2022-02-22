@@ -15,20 +15,27 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
+#include "base/scoped_observation.h"
 #include "base/strings/string16.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_checker.h"
+#include "build/build_config.h"
 #include "services/device/geolocation/network_location_request.h"
 #include "services/device/geolocation/wifi_data_provider_manager.h"
+#include "services/device/public/cpp/geolocation/geolocation_system_permission_mac.h"
 #include "services/device/public/cpp/geolocation/location_provider.h"
 #include "services/device/public/mojom/geoposition.mojom.h"
 
 namespace device {
 class PositionCache;
-class NetworkLocationProvider : public LocationProvider {
+class NetworkLocationProvider
+    : public LocationProvider,
+      public GeolocationSystemPermissionManager::GeolocationPermissionObserver {
  public:
   NetworkLocationProvider(
       scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
+      GeolocationSystemPermissionManager* geolocation_system_permission_manager,
+      const scoped_refptr<base::SingleThreadTaskRunner> main_task_runner,
       const std::string& api_key,
       PositionCache* position_cache);
   ~NetworkLocationProvider() override;
@@ -39,6 +46,10 @@ class NetworkLocationProvider : public LocationProvider {
   void StopProvider() override;
   const mojom::Geoposition& GetPosition() override;
   void OnPermissionGranted() override;
+
+  // GeolocationPermissionObserver implementation.
+  void OnSystemPermissionUpdate(
+      LocationSystemPermissionStatus new_status) override;
 
  private:
   // Tries to update |position_| request from cache or network.
@@ -59,6 +70,14 @@ class NetworkLocationProvider : public LocationProvider {
   WifiDataProviderManager* wifi_data_provider_manager_;
 
   WifiDataProviderManager::WifiDataUpdateCallback wifi_data_update_callback_;
+
+#if defined(OS_MAC)
+  // Used to keep track of masOS System Permission changes. Also, ensures
+  // lifetime of ObserverList as the BrowserProcess may destroy its reference
+  // on the UI Thread before we destroy this provider.
+  scoped_refptr<GeolocationSystemPermissionManager::ObserverList>
+      permission_observers_;
+#endif
 
   // The  wifi data and a flag to indicate if the data set is complete.
   WifiData wifi_data_;
@@ -81,6 +100,8 @@ class NetworkLocationProvider : public LocationProvider {
   const std::unique_ptr<NetworkLocationRequest> request_;
 
   base::ThreadChecker thread_checker_;
+
+  bool is_system_permission_granted_ = false;
 
   base::WeakPtrFactory<NetworkLocationProvider> weak_factory_{this};
 

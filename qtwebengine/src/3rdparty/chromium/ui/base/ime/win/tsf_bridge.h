@@ -36,12 +36,16 @@ class COMPONENT_EXPORT(UI_BASE_IME_WIN) TSFBridge {
 
   // Sets the thread local instance. Must be called before any calls to
   // GetInstance().
-  static void Initialize();
+  static HRESULT Initialize();
 
-  // Injects an alternative TSFBridge such as MockTSFBridge for testing. The
-  // injected object should be released by the caller. This function returns
-  // previous TSFBridge pointer with ownership.
-  static TSFBridge* ReplaceForTesting(TSFBridge* bridge);
+  // Sets the thread local instance for testing only. Must be called before
+  // any calls to GetInstance().
+  static void InitializeForTesting();
+
+  // Sets the new instance of TSFBridge in the thread-local storage (such as
+  // MockTSFBridge for testing). This function replaces previous TSFBridge
+  // instance with the newInstance and also deletes the old instance.
+  static void ReplaceThreadLocalTSFBridge(TSFBridge* new_instance);
 
   // Destroys the thread local instance.
   static void Shutdown();
@@ -90,17 +94,6 @@ class COMPONENT_EXPORT(UI_BASE_IME_WIN) TSFBridge {
 
   // Returns the focused text input client.
   virtual TextInputClient* GetFocusedTextInputClient() const = 0;
-
-  // Sets the input panel policy in TSFTextStore so that input service
-  // could invoke the software input panel (SIP) on Windows.
-  // input_panel_policy_manual equals to false would make the SIP policy
-  // to automatic meaning TSF would raise/dismiss the SIP based on TSFTextStore
-  // focus and other heuristics that input service have added on Windows to
-  // provide a consistent behavior across all apps on Windows.
-  // input_panel_policy_manual equals to true would make the SIP policy to
-  // manual meaning TSF wouldn't raise/dismiss the SIP automatically. This is
-  // used to control the SIP behavior based on user interaction with the page.
-  virtual void SetInputPanelPolicy(bool input_panel_policy_manual) = 0;
 
  protected:
   // Uses GetInstance() instead.

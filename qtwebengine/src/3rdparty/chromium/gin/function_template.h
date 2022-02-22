@@ -9,7 +9,7 @@
 #include <utility>
 
 #include "base/callback.h"
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/macros.h"
 #include "base/strings/strcat.h"
 #include "gin/arguments.h"
@@ -248,9 +248,8 @@ v8::Local<v8::FunctionTemplate> CreateFunctionTemplate(
 
   v8::Local<v8::FunctionTemplate> tmpl = v8::FunctionTemplate::New(
       isolate, &internal::Dispatcher<Sig>::DispatchToCallback,
-      ConvertToV8<v8::Local<v8::External>>(isolate,
-                                           holder->GetHandle(isolate)));
-  tmpl->RemovePrototype();
+      ConvertToV8<v8::Local<v8::External>>(isolate, holder->GetHandle(isolate)),
+      v8::Local<v8::Signature>(), 0, v8::ConstructorBehavior::kThrow);
   return tmpl;
 }
 

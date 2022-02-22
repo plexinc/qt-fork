@@ -6,6 +6,7 @@
 #define COMPONENTS_VIZ_SERVICE_DISPLAY_DISPLAY_H_
 
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "base/containers/circular_deque.h"
@@ -19,6 +20,7 @@
 #include "components/viz/common/resources/returned_resource.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
 #include "components/viz/common/surfaces/surface_id.h"
+#include "components/viz/service/display/display_compositor_memory_and_task_controller.h"
 #include "components/viz/service/display/display_resource_provider.h"
 #include "components/viz/service/display/display_scheduler.h"
 #include "components/viz/service/display/frame_rate_decider.h"
@@ -45,6 +47,8 @@ class ScopedAllowScheduleGpuTask;
 }
 
 namespace viz {
+class AggregatedFrame;
+class DelegatedInkPointRendererBase;
 class DirectRenderer;
 class DisplayClient;
 class DisplayResourceProvider;
@@ -78,13 +82,16 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
   // a MessageLoop.
   // TODO(penghuang): Remove skia_output_surface when all DirectRenderer
   // subclasses are replaced by SkiaRenderer.
-  Display(SharedBitmapManager* bitmap_manager,
-          const RendererSettings& settings,
-          const FrameSinkId& frame_sink_id,
-          std::unique_ptr<OutputSurface> output_surface,
-          std::unique_ptr<OverlayProcessorInterface> overlay_processor,
-          std::unique_ptr<DisplaySchedulerBase> scheduler,
-          scoped_refptr<base::SingleThreadTaskRunner> current_task_runner);
+  Display(
+      SharedBitmapManager* bitmap_manager,
+      const RendererSettings& settings,
+      const DebugRendererSettings* debug_settings,
+      const FrameSinkId& frame_sink_id,
+      std::unique_ptr<DisplayCompositorMemoryAndTaskController> gpu_dependency,
+      std::unique_ptr<OutputSurface> output_surface,
+      std::unique_ptr<OverlayProcessorInterface> overlay_processor,
+      std::unique_ptr<DisplaySchedulerBase> scheduler,
+      scoped_refptr<base::SingleThreadTaskRunner> current_task_runner);
 
   ~Display() override;
 
@@ -104,7 +111,7 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
   void Initialize(DisplayClient* client,
                   SurfaceManager* surface_manager,
                   bool enable_shared_images = kEnableSharedImages,
-                  bool using_synthetic_bfs = false);
+                  bool hw_support_for_multiple_refresh_rates = false);
 
   void AddObserver(DisplayObserver* observer);
   void RemoveObserver(DisplayObserver* observer);
@@ -114,6 +121,10 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
   void SetLocalSurfaceId(const LocalSurfaceId& id, float device_scale_factor);
   void SetVisible(bool visible);
   void Resize(const gfx::Size& new_size);
+
+  // This disallows resource provider to access GPU thread to unlock resources
+  // outside of Initialize, DrawAndSwap and dtor.
+  void DisableGPUAccessByDefault();
 
   // Stop drawing until Resize() is called with a new size. If the display
   // hasn't drawn a frame at the current size *and* it's possible to immediately
@@ -147,6 +158,8 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
   void DidSwapWithSize(const gfx::Size& pixel_size) override;
   void DidReceivePresentationFeedback(
       const gfx::PresentationFeedback& feedback) override;
+  void DidReceiveReleasedOverlays(
+      const std::vector<gpu::Mailbox>& released_overlays) override;
 
   // LatestLocalSurfaceIdLookupDelegate implementation.
   LocalSurfaceId GetSurfaceAtAggregation(
@@ -159,25 +172,32 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
   // FrameRateDecider::Client implementation
   void SetPreferredFrameInterval(base::TimeDelta interval) override;
   base::TimeDelta GetPreferredFrameIntervalForFrameSinkId(
-      const FrameSinkId& id) override;
+      const FrameSinkId& id,
+      mojom::CompositorFrameSinkType* type) override;
 
   bool has_scheduler() const { return !!scheduler_; }
   DirectRenderer* renderer_for_testing() const { return renderer_.get(); }
 
+  bool resize_based_on_root_surface() const {
+    return output_surface_->capabilities().resize_based_on_root_surface;
+  }
+
   void ForceImmediateDrawAndSwapIfPossible();
   void SetNeedsOneBeginFrame();
-  void RemoveOverdrawQuads(CompositorFrame* frame);
+  void RemoveOverdrawQuads(AggregatedFrame* frame);
 
   void SetSupportedFrameIntervals(std::vector<base::TimeDelta> intervals);
+  void PreserveChildSurfaceControls();
 
   base::ScopedClosureRunner GetCacheBackBufferCb();
 
-#if defined(TOOLKIT_QT)
-  FrameSinkId frame_sink_id() const { return frame_sink_id_; }
-#endif
-
   bool IsRootFrameMissing() const;
   bool HasPendingSurfaces(const BeginFrameArgs& args) const;
+
+  // Return the delegated ink point renderer from |renderer_|, creating it if
+  // one doesn't exist. Should only be used when the delegated ink trails web
+  // API has been used.
+  DelegatedInkPointRendererBase* GetDelegatedInkPointRenderer();
 
  private:
   friend class DisplayTest;
@@ -221,6 +241,9 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
   SharedBitmapManager* const bitmap_manager_;
   const RendererSettings settings_;
 
+  // Points to the viz-global singleton.
+  const DebugRendererSettings* const debug_settings_;
+
   DisplayClient* client_ = nullptr;
   base::ObserverList<DisplayObserver>::Unchecked observers_;
   SurfaceManager* surface_manager_ = nullptr;
@@ -237,12 +260,14 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
   std::unique_ptr<gpu::ScopedAllowScheduleGpuTask>
       allow_schedule_gpu_task_during_destruction_;
 #endif
+  std::unique_ptr<DisplayCompositorMemoryAndTaskController> gpu_dependency_;
   std::unique_ptr<OutputSurface> output_surface_;
   SkiaOutputSurface* const skia_output_surface_;
   std::unique_ptr<DisplayDamageTracker> damage_tracker_;
   std::unique_ptr<DisplaySchedulerBase> scheduler_;
   std::unique_ptr<DisplayResourceProvider> resource_provider_;
   std::unique_ptr<SurfaceAggregator> aggregator_;
+  bool last_wide_color_enabled_ = false;
   std::unique_ptr<FrameRateDecider> frame_rate_decider_;
   // This may be null if the Display is on a thread without a MessageLoop.
   scoped_refptr<base::SingleThreadTaskRunner> current_task_runner_;
@@ -265,8 +290,6 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
 
   bool disable_swap_until_resize_ = true;
 
-  bool enable_quad_splitting_ = true;
-
   // Callback that will be run after all pending swaps have acked.
   base::OnceClosure no_pending_swaps_callback_;
 
@@ -275,6 +298,7 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
   int64_t last_presented_trace_id_ = 0;
   int pending_swaps_ = 0;
 
+  uint64_t frame_sequence_number_ = 0;
   // The height of the top-controls in the previously drawn frame.
   float last_top_controls_visible_height_ = 0.f;
 

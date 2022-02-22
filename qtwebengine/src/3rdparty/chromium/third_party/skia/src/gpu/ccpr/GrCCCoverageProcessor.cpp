@@ -196,11 +196,10 @@ GrGLSLPrimitiveProcessor* GrCCCoverageProcessor::createGLSLInstance(const GrShad
 }
 
 void GrCCCoverageProcessor::bindPipeline(GrOpFlushState* flushState, const GrPipeline& pipeline,
-                                         const SkRect& drawBounds) const {
-    GrProgramInfo programInfo(flushState->proxy()->numSamples(),
-                              flushState->proxy()->numStencilSamples(),
-                              flushState->proxy()->backendFormat(),
-                              flushState->outputView()->origin(), &pipeline, this,
-                              this->primType());
+                                         const SkRect& drawBounds,
+                                         const GrUserStencilSettings* stencil) const {
+    GrProgramInfo programInfo(flushState->writeView(), &pipeline, stencil, this,
+                              this->primType(), 0, flushState->renderPassBarriers(),
+                              flushState->colorLoadOp());
     flushState->bindPipeline(programInfo, drawBounds);
 }

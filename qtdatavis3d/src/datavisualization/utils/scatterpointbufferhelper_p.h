@@ -44,7 +44,7 @@
 #include "abstractobjecthelper_p.h"
 #include "scatterseriesrendercache_p.h"
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 class ScatterPointBufferHelper : public AbstractObjectHelper
 {
@@ -65,15 +65,14 @@ public:
     GLuint m_pointbuffer;
 
 private:
-    void createRangeGradientUVs(ScatterSeriesRenderCache *cache,
-                                QVector<QVector2D> &buffered_uvs);
+    void createRangeGradientUVs(ScatterSeriesRenderCache *cache, QList<QVector2D> &buffered_uvs);
 
 private:
-    QVector<QVector3D> m_bufferedPoints;
+    QList<QVector3D> m_bufferedPoints;
     int m_oldRemoveIndex;
     float m_scaleY;
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

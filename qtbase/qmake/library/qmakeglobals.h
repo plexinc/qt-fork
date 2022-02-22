@@ -38,7 +38,7 @@
 
 #include <qhash.h>
 #include <qstringlist.h>
-#ifndef QT_BOOTSTRAPPED
+#if QT_CONFIG(process)
 # include <qprocess.h>
 #endif
 #ifdef PROEVALUATOR_THREAD_SAFE
@@ -62,7 +62,7 @@ public:
     bool hostBuild;
 };
 
-uint qHash(const QMakeBaseKey &key);
+size_t qHash(const QMakeBaseKey &key);
 bool operator==(const QMakeBaseKey &one, const QMakeBaseKey &two);
 
 class QMakeBaseEnv

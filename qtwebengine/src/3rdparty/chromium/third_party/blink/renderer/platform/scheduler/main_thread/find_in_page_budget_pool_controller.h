@@ -32,7 +32,7 @@ class PLATFORM_EXPORT FindInPageBudgetPoolController
   ~FindInPageBudgetPoolController() override;
 
   void OnTaskCompleted(MainThreadTaskQueue* queue,
-                       MainThreadTaskQueue::TaskTiming* task_timing);
+                       TaskQueue::TaskTiming* task_timing);
 
   QueuePriority CurrentTaskPriority() { return task_priority_; }
 
@@ -49,12 +49,6 @@ class PLATFORM_EXPORT FindInPageBudgetPoolController
   bool IsThrottled(TaskQueue* queue) const override { return false; }
 
  private:
-  // We need to call this from OnTaskCompleted, because PartitionAlloc might not
-  // be initialized yet when we got constructed.
-  // TODO(crbug.com/1058645): Initialize |find_in_page_budget_pool_| from the
-  // constructor and remove this function.
-  void EnsureBudgetPoolInitialized();
-
   MainThreadSchedulerImpl* scheduler_;  // Not owned.
   std::unique_ptr<CPUTimeBudgetPool> find_in_page_budget_pool_;
   QueuePriority task_priority_;

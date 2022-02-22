@@ -41,9 +41,13 @@
 #ifndef QWINDOWSINTEGRATION_H
 #define QWINDOWSINTEGRATION_H
 
+#include "qwindowsapplication.h"
+
 #include <qpa/qplatformintegration.h>
 #include <QtCore/qscopedpointer.h>
-#include <QtFontDatabaseSupport/private/qwindowsfontdatabase_p.h>
+#include <QtGui/private/qwindowsfontdatabase_p.h>
+#include <QtGui/private/qopenglcontext_p.h>
+#include <qpa/qplatformopenglcontext.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -53,6 +57,10 @@ class QWindowsWindow;
 class QWindowsStaticOpenGLContext;
 
 class QWindowsIntegration : public QPlatformIntegration
+#ifndef QT_NO_OPENGL
+    , public QNativeInterface::Private::QWindowsGLIntegration
+#endif
+    , public QWindowsApplication
 {
     Q_DISABLE_COPY_MOVE(QWindowsIntegration)
 public:
@@ -71,8 +79,7 @@ public:
         DontUseWMPointer = 0x400,
         DetectAltGrModifier = 0x800,
         RtlEnabled = 0x1000,
-        DarkModeWindowFrames = 0x2000,
-        DarkModeStyle = 0x4000
+        FontDatabaseDirectWrite = 0x2000
     };
 
     explicit QWindowsIntegration(const QStringList &paramList);
@@ -86,6 +93,10 @@ public:
     QPlatformOpenGLContext *createPlatformOpenGLContext(QOpenGLContext *context) const override;
     QOpenGLContext::OpenGLModuleType openGLModuleType() override;
     static QWindowsStaticOpenGLContext *staticOpenGLContext();
+
+    HMODULE openGLModuleHandle() const override;
+    QOpenGLContext *createOpenGLContext(HGLRC context, HWND window,
+                                        QOpenGLContext *shareContext) const override;
 #endif
     QAbstractEventDispatcher *createEventDispatcher() const override;
     void initialize() override;

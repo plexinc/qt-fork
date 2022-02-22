@@ -18,15 +18,8 @@
 
 namespace dawn_wire { namespace server {
 
-    void Server::ForwardFenceCompletedValue(WGPUFenceCompletionStatus status, void* userdata) {
-        auto data = static_cast<FenceCompletionUserdata*>(userdata);
-        data->server->OnFenceCompletedValueUpdated(status, data);
-    }
-
     void Server::OnFenceCompletedValueUpdated(WGPUFenceCompletionStatus status,
-                                              FenceCompletionUserdata* userdata) {
-        std::unique_ptr<FenceCompletionUserdata> data(userdata);
-
+                                              FenceCompletionUserdata* data) {
         if (status != WGPUFenceCompletionStatus_Success) {
             return;
         }
@@ -35,9 +28,40 @@ namespace dawn_wire { namespace server {
         cmd.fence = data->fence;
         cmd.value = data->value;
 
-        size_t requiredSize = cmd.GetRequiredSize();
-        char* allocatedBuffer = static_cast<char*>(GetCmdSpace(requiredSize));
-        cmd.Serialize(allocatedBuffer);
+        SerializeCommand(cmd);
+    }
+
+    bool Server::DoFenceOnCompletion(ObjectId fenceId, uint64_t value, uint64_t requestSerial) {
+        // The null object isn't valid as `self`
+        if (fenceId == 0) {
+            return false;
+        }
+
+        auto* fence = FenceObjects().Get(fenceId);
+        if (fence == nullptr) {
+            return false;
+        }
+
+        auto userdata = MakeUserdata<FenceOnCompletionUserdata>();
+        userdata->fence = ObjectHandle{fenceId, fence->generation};
+        userdata->requestSerial = requestSerial;
+
+        mProcs.fenceOnCompletion(
+            fence->handle, value,
+            ForwardToServer<decltype(
+                &Server::OnFenceOnCompletion)>::Func<&Server::OnFenceOnCompletion>(),
+            userdata.release());
+        return true;
+    }
+
+    void Server::OnFenceOnCompletion(WGPUFenceCompletionStatus status,
+                                     FenceOnCompletionUserdata* data) {
+        ReturnFenceOnCompletionCallbackCmd cmd;
+        cmd.fence = data->fence;
+        cmd.requestSerial = data->requestSerial;
+        cmd.status = status;
+
+        SerializeCommand(cmd);
     }
 
 }}  // namespace dawn_wire::server

@@ -26,16 +26,15 @@
 **
 ****************************************************************************/
 
-
-#include <QtTest/QtTest>
 #include <qdebug.h>
 #include <qapplication.h>
 #include <limits.h>
-
 #include <qspinbox.h>
 #include <qlocale.h>
 #include <qlineedit.h>
 #include <qlayout.h>
+
+#include <QTest>
 #include <QSpinBox>
 #include <QWidget>
 #include <QString>
@@ -47,7 +46,7 @@
 #include <QLocale>
 #include <QDoubleSpinBox>
 #include <QVBoxLayout>
-#include <QKeySequence>
+#include <QSignalSpy>
 #include <QStackedWidget>
 #include <QDebug>
 #include <QStyleOptionSpinBox>
@@ -55,32 +54,35 @@
 #include <QProxyStyle>
 #include <QScreen>
 
+#if QT_CONFIG(shortcut)
+#  include <QKeySequence>
+#endif
 
 class SpinBox : public QSpinBox
 {
 public:
-    SpinBox(QWidget *parent = 0)
+    SpinBox(QWidget *parent = nullptr)
         : QSpinBox(parent)
     {}
-    QString textFromValue(int v) const
+    QString textFromValue(int v) const override
     {
         return QSpinBox::textFromValue(v);
     }
-    QValidator::State validate(QString &text, int &pos) const
+    QValidator::State validate(QString &text, int &pos) const override
     {
         return QSpinBox::validate(text, pos);
     }
-    int valueFromText(const QString &text) const
+    int valueFromText(const QString &text) const override
     {
         return QSpinBox::valueFromText(text);
     }
 #if QT_CONFIG(wheelevent)
-    void wheelEvent(QWheelEvent *event)
+    void wheelEvent(QWheelEvent *event) override
     {
         QSpinBox::wheelEvent(event);
     }
 #endif
-    void initStyleOption(QStyleOptionSpinBox *option) const
+    void initStyleOption(QStyleOptionSpinBox *option) const override
     {
         QSpinBox::initStyleOption(option);
     }
@@ -173,7 +175,10 @@ private slots:
 
     void removeAll();
     void startWithDash();
+
+#if QT_CONFIG(shortcut)
     void undoRedo();
+#endif
 
     void specialValue();
     void textFromValue();
@@ -503,9 +508,10 @@ void tst_QSpinBox::valueChangedHelper(int value)
 class ReadOnlyChangeTracker: public QSpinBox
 {
 public:
-    ReadOnlyChangeTracker(QWidget *parent = 0) : QSpinBox(parent) {}
+    ReadOnlyChangeTracker(QWidget *parent = nullptr) : QSpinBox(parent) {}
 
-    void changeEvent(QEvent *ev) {
+    void changeEvent(QEvent *ev) override
+    {
         if (ev->type() == QEvent::ReadOnlyChange)
             ++readOnlyChangeEventCount;
     }
@@ -519,17 +525,13 @@ void tst_QSpinBox::setReadOnly()
     QTest::keyClick(&spin, Qt::Key_Up);
     QCOMPARE(spin.value(), 1);
     spin.setReadOnly(true);
-#ifndef Q_OS_WINRT // QTBUG-68297
     QCOMPARE(spin.readOnlyChangeEventCount, 1);
-#endif
     QTest::keyClick(&spin, Qt::Key_Up);
     QCOMPARE(spin.value(), 1);
     spin.stepBy(1);
     QCOMPARE(spin.value(), 2);
     spin.setReadOnly(false);
-#ifndef Q_OS_WINRT // QTBUG-68297
     QCOMPARE(spin.readOnlyChangeEventCount, 2);
-#endif
     QTest::keyClick(&spin, Qt::Key_Up);
     QCOMPARE(spin.value(), 3);
 }
@@ -1025,6 +1027,8 @@ void tst_QSpinBox::startWithDash()
     QCOMPARE(spin.text(), QString("0"));
 }
 
+#if QT_CONFIG(shortcut)
+
 void tst_QSpinBox::undoRedo()
 {
     //test undo/redo feature (in conjunction with the "undoRedoEnabled" property)
@@ -1043,7 +1047,7 @@ void tst_QSpinBox::undoRedo()
     QVERIFY(spin.lineEdit()->isUndoAvailable());
 
     //testing CTRL+Z (undo)
-    int val = QKeySequence(QKeySequence::Undo)[0];
+    int val = QKeySequence(QKeySequence::Undo)[0].toCombined();
     Qt::KeyboardModifiers mods = (Qt::KeyboardModifiers)(val & Qt::KeyboardModifierMask);
     QTest::keyClick(&spin, val & ~mods, mods);
 
@@ -1052,7 +1056,7 @@ void tst_QSpinBox::undoRedo()
     QVERIFY(spin.lineEdit()->isRedoAvailable());
 
     //testing CTRL+Y (redo)
-    val = QKeySequence(QKeySequence::Redo)[0];
+    val = QKeySequence(QKeySequence::Redo)[0].toCombined();
     mods = (Qt::KeyboardModifiers)(val & Qt::KeyboardModifierMask);
     QTest::keyClick(&spin, val & ~mods, mods);
     QCOMPARE(spin.value(), 1);
@@ -1076,6 +1080,8 @@ void tst_QSpinBox::undoRedo()
     QVERIFY(spin.lineEdit()->isUndoAvailable());
     QVERIFY(!spin.lineEdit()->isRedoAvailable());
 }
+
+#endif // QT_CONFIG(shortcut)
 
 void tst_QSpinBox::specialValue()
 {
@@ -1133,7 +1139,7 @@ void tst_QSpinBox::textFromValue()
 class sizeHint_SpinBox : public QSpinBox
 {
 public:
-    QSize sizeHint() const
+    QSize sizeHint() const override
     {
         ++sizeHintRequests;
         return QSpinBox::sizeHint();
@@ -1193,7 +1199,7 @@ void tst_QSpinBox::taskQTBUG_5008_textFromValueAndValidate()
         }
 
         //we use the French delimiters here
-        QString textFromValue (int value) const
+        QString textFromValue (int value) const override
         {
             return locale().toString(value);
         }
@@ -1304,7 +1310,7 @@ void tst_QSpinBox::interpretOnLosingFocus()
 void tst_QSpinBox::setGroupSeparatorShown_data()
 {
     QTest::addColumn<QLocale::Language>("lang");
-    QTest::addColumn<QLocale::Country>("country");
+    QTest::addColumn<QLocale::Territory>("country");
 
     QTest::newRow("data0") << QLocale::English << QLocale::UnitedStates;
     QTest::newRow("data1") << QLocale::Swedish << QLocale::Sweden;
@@ -1316,7 +1322,7 @@ void tst_QSpinBox::setGroupSeparatorShown_data()
 void tst_QSpinBox::setGroupSeparatorShown()
 {
     QFETCH(QLocale::Language, lang);
-    QFETCH(QLocale::Country, country);
+    QFETCH(QLocale::Territory, country);
 
     QLocale loc(lang, country);
     QLocale::setDefault(loc);
@@ -1821,9 +1827,9 @@ void tst_QSpinBox::stepModifierPressAndHold()
     stepModifierStyle->stepModifier = static_cast<Qt::KeyboardModifier>(stepModifier);
     spin.setStyle(stepModifierStyle.data());
 
-    QSignalSpy spy(&spin, QOverload<int>::of(&SpinBox::valueChanged));
+    QSignalSpy spy(&spin, &SpinBox::valueChanged);
     // TODO: remove debug output when QTBUG-69492 is fixed
-    connect(&spin, QOverload<int>::of(&SpinBox::valueChanged), [=]() {
+    connect(&spin, &SpinBox::valueChanged, [=]() {
         qDebug() << QTime::currentTime() << "valueChanged emitted";
     });
 
@@ -1845,7 +1851,7 @@ void tst_QSpinBox::stepModifierPressAndHold()
     QTest::mouseRelease(&spin, Qt::LeftButton, modifiers, buttonRect.center());
 
     const auto value = spy.last().at(0);
-    QVERIFY(value.type() == QVariant::Int);
+    QVERIFY(value.metaType().id() == QMetaType::Int);
     QCOMPARE(value.toInt(), spy.length() * expectedStepModifier);
 }
 

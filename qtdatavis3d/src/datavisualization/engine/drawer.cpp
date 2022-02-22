@@ -44,12 +44,13 @@ class StaticLibInitializer
 public:
     StaticLibInitializer()
     {
-        Q_INIT_RESOURCE(engine);
+        Q_INIT_RESOURCE(shaders);
+        Q_INIT_RESOURCE(meshes);
     }
 };
 StaticLibInitializer staticLibInitializer;
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 // Vertex array buffer for point
 const GLfloat point_data[] = {0.0f, 0.0f, 0.0f};
@@ -105,8 +106,8 @@ QFont Drawer::font() const
 void Drawer::drawObject(ShaderHelper *shader, AbstractObjectHelper *object, GLuint textureId,
                         GLuint depthTextureId, GLuint textureId3D)
 {
-#if defined(QT_OPENGL_ES_2)
-    Q_UNUSED(textureId3D)
+#if QT_CONFIG(opengles2)
+    Q_UNUSED(textureId3D);
 #endif
     if (textureId) {
         // Activate texture
@@ -121,7 +122,7 @@ void Drawer::drawObject(ShaderHelper *shader, AbstractObjectHelper *object, GLui
         glBindTexture(GL_TEXTURE_2D, depthTextureId);
         shader->setUniformValue(shader->shadow(), 1);
     }
-#if !defined(QT_OPENGL_ES_2)
+#if !QT_CONFIG(opengles2)
     if (textureId3D) {
         // Activate texture
         glActiveTexture(GL_TEXTURE2);
@@ -166,7 +167,7 @@ void Drawer::drawObject(ShaderHelper *shader, AbstractObjectHelper *object, GLui
     glDisableVertexAttribArray(shader->posAtt());
 
     // Release textures
-#if !defined(QT_OPENGL_ES_2)
+#if !QT_CONFIG(opengles2)
     if (textureId3D) {
         glActiveTexture(GL_TEXTURE2);
         glBindTexture(GL_TEXTURE_3D, 0);
@@ -451,4 +452,4 @@ void Drawer::generateLabelItem(LabelItem &item, const QString &text, int widestL
     }
 }
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE

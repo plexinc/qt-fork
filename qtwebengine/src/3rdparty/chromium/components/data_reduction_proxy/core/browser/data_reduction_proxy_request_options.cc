@@ -17,12 +17,10 @@
 #include "base/strings/string_tokenizer.h"
 #include "base/strings/string_util.h"
 #include "build/build_config.h"
-#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_config.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_features.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_headers.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_params.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_switches.h"
-#include "components/variations/variations_associated_data.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/load_flags.h"
 #include "net/base/proxy_server.h"
@@ -72,21 +70,15 @@ bool DataReductionProxyRequestOptions::IsKeySetOnCommandLine() {
 }
 
 DataReductionProxyRequestOptions::DataReductionProxyRequestOptions(
-    Client client,
-    DataReductionProxyConfig* config)
-    : DataReductionProxyRequestOptions(client,
-                                       util::ChromiumVersion(),
-                                       config) {}
+    Client client)
+    : DataReductionProxyRequestOptions(client, util::ChromiumVersion()) {}
 
 DataReductionProxyRequestOptions::DataReductionProxyRequestOptions(
     Client client,
-    const std::string& version,
-    DataReductionProxyConfig* config)
+    const std::string& version)
     : client_(util::GetStringForClient(client)),
       server_experiments_(params::GetDataSaverServerExperiments()),
-      data_reduction_proxy_config_(config),
       current_page_id_(base::RandUint64()) {
-  DCHECK(data_reduction_proxy_config_);
   util::GetChromiumBuildAndPatch(version, &build_, &patch_);
 }
 

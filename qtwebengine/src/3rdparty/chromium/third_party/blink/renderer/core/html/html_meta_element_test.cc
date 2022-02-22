@@ -4,18 +4,22 @@
 
 #include "third_party/blink/renderer/core/html/html_meta_element.h"
 
+#include "base/test/scoped_feature_list.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/renderer/core/css/css_computed_style_declaration.h"
 #include "third_party/blink/renderer/core/css/media_query_list.h"
 #include "third_party/blink/renderer/core/css/media_query_matcher.h"
 #include "third_party/blink/renderer/core/css/style_engine.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
+#include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/frame/viewport_data.h"
 #include "third_party/blink/renderer/core/html/html_head_element.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/core/testing/color_scheme_helper.h"
+#include "third_party/blink/renderer/core/testing/mock_policy_container_host.h"
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
 #include "third_party/blink/renderer/core/testing/sim/sim_compositor.h"
 #include "third_party/blink/renderer/core/testing/sim/sim_request.h"
@@ -28,14 +32,9 @@
 namespace blink {
 
 class HTMLMetaElementTest : public PageTestBase,
-                            private ScopedDisplayCutoutAPIForTest,
-                            private ScopedMetaColorSchemeForTest,
-                            private ScopedCSSColorSchemeForTest {
+                            private ScopedDisplayCutoutAPIForTest {
  public:
-  HTMLMetaElementTest()
-      : ScopedDisplayCutoutAPIForTest(true),
-        ScopedMetaColorSchemeForTest(true),
-        ScopedCSSColorSchemeForTest(true) {}
+  HTMLMetaElementTest() : ScopedDisplayCutoutAPIForTest(true) {}
   void SetUp() override {
     PageTestBase::SetUp();
     GetDocument().GetSettings()->SetViewportMetaEnabled(true);
@@ -226,7 +225,8 @@ TEST_F(HTMLMetaElementTest, ColorSchemeParsing) {
 
 TEST_F(HTMLMetaElementTest, ColorSchemeForcedDarkeningAndMQ) {
   ColorSchemeHelper color_scheme_helper(GetDocument());
-  color_scheme_helper.SetPreferredColorScheme(PreferredColorScheme::kDark);
+  color_scheme_helper.SetPreferredColorScheme(
+      mojom::blink::PreferredColorScheme::kDark);
 
   auto* media_query = GetDocument().GetMediaQueryMatcher().MatchMedia(
       "(prefers-color-scheme: dark)");
@@ -245,12 +245,46 @@ TEST_F(HTMLMetaElementTest, ColorSchemeForcedDarkeningAndMQ) {
 }
 
 TEST_F(HTMLMetaElementTest, ReferrerPolicyWithoutContent) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(features::kPolicyContainer);
+
+  MockPolicyContainerHost policy_container_host;
+  GetFrame().SetPolicyContainer(std::make_unique<PolicyContainer>(
+      policy_container_host.BindNewEndpointAndPassDedicatedRemote(),
+      mojom::blink::PolicyContainerPolicies::New()));
+  EXPECT_CALL(policy_container_host,
+              SetReferrerPolicy(network::mojom::ReferrerPolicy::kStrictOrigin));
+
   GetDocument().head()->setInnerHTML(R"HTML(
     <meta name="referrer" content="strict-origin">
     <meta name="referrer" >
   )HTML");
+  policy_container_host.FlushForTesting();
+}
+
+TEST_F(HTMLMetaElementTest, ReferrerPolicyUpdatesPolicyContainer) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(blink::features::kPolicyContainer);
+
+  MockPolicyContainerHost policy_container_host;
+  mojo::PendingAssociatedRemote<mojom::blink::PolicyContainerHost>
+      stub_policy_container_remote =
+          policy_container_host.BindNewEndpointAndPassDedicatedRemote();
+  auto policy_container = std::make_unique<PolicyContainer>(
+      std::move(stub_policy_container_remote),
+      mojom::blink::PolicyContainerPolicies::New());
+
+  GetFrame().SetPolicyContainer(std::move(policy_container));
+  EXPECT_CALL(policy_container_host,
+              SetReferrerPolicy(network::mojom::ReferrerPolicy::kStrictOrigin));
+  GetDocument().head()->setInnerHTML(R"HTML(
+    <meta name="referrer" content="strict-origin">
+  )HTML");
   EXPECT_EQ(network::mojom::ReferrerPolicy::kStrictOrigin,
-            GetDocument().GetReferrerPolicy());
+            GetFrame().GetPolicyContainer()->GetReferrerPolicy());
+
+  // Wait for mojo messages to be received.
+  policy_container_host.FlushForTesting();
 }
 
 // This tests whether Web Monetization counter is properly triggered.
@@ -283,19 +317,19 @@ TEST_F(HTMLMetaElementSimTest, WebMonetizationNotCountedInSubFrame) {
 
   LoadURL("https://example.com/");
 
-  main_resource.Complete(String::Format(
+  main_resource.Complete(
       R"HTML(
         <body onload='console.log("main body onload");'>
           <iframe src='https://example.com/subframe.html'
                   onload='console.log("child frame element onload");'></iframe>
-        </body>)HTML"));
+        </body>)HTML");
 
   Compositor().BeginFrame();
   test::RunPendingTasks();
 
-  child_frame_resource.Complete(String::Format(R"HTML(
+  child_frame_resource.Complete(R"HTML(
     <meta name="monetization" content="$payment.pointer.url">
-  )HTML"));
+  )HTML");
 
   Compositor().BeginFrame();
   test::RunPendingTasks();

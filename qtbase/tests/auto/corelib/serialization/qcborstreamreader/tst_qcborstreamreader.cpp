@@ -38,7 +38,8 @@
 ****************************************************************************/
 
 #include <QtCore/qcborstream.h>
-#include <QtTest>
+#include <QTest>
+#include <QBuffer>
 
 #include <QtCore/private/qbytearray_p.h>
 
@@ -297,7 +298,10 @@ void tst_QCborStreamReader::integers()
 
 void escapedAppendTo(QString &result, const QByteArray &data)
 {
-    result += "h'" + QString::fromLatin1(data.toHex()) + '\'';
+    QByteArray hex =
+            data.size() < 512*1024 ? data.toHex() :
+                                     "data of size " + QByteArray::number(data.size());
+    result += "h'" + QString::fromLatin1(hex) + '\'';
 }
 
 void escapedAppendTo(QString &result, const QString &data)
@@ -363,7 +367,7 @@ template <typename T> static inline bool canConvertTo(double v)
     // integrals to floating-point with loss of precision has implementation-
     // defined behavior whether the next higher or next lower is returned;
     // converting FP to integral is UB if it can't be represented.;
-    Q_STATIC_ASSERT(std::numeric_limits<T>::is_integer);
+    static_assert(std::numeric_limits<T>::is_integer);
 
     double supremum = ldexp(1, std::numeric_limits<T>::digits);
     if (v >= supremum)
@@ -955,6 +959,7 @@ void tst_QCborStreamReader::hugeDeviceValidation()
 
     QFETCH(QSharedPointer<QIODevice>, device);
     QFETCH(CborError, expectedError);
+    QFETCH(CborError, expectedValidationError);
     QCborError error = { QCborError::Code(expectedError) };
 
     device->open(QIODevice::ReadOnly | QIODevice::Unbuffered);
@@ -963,10 +968,15 @@ void tst_QCborStreamReader::hugeDeviceValidation()
     QVERIFY(parseOne(reader).isEmpty());
     QCOMPARE(reader.lastError(), error);
 
-    // next() should fail
     reader.reset();
-    QVERIFY(!reader.next());
-    QCOMPARE(reader.lastError(), error);
+    error = { QCborError::Code(expectedValidationError) };
+    if (error == QCborError{}) {
+        // this test actually succeeds, so don't do it to avoid large memory consumption
+    } else {
+        // next() should fail
+        QVERIFY(!reader.next());
+        QCOMPARE(reader.lastError(), error);
+    }
 }
 
 static const int Recursions = 3;

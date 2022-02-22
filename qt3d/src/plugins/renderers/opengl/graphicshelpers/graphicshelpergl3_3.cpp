@@ -39,9 +39,8 @@
 
 #include "graphicshelpergl3_3_p.h"
 
-#ifndef QT_OPENGL_ES_2
+#if !QT_CONFIG(opengles2)
 #include <QOpenGLFunctions_3_3_Core>
-#include <QtOpenGLExtensions/qopenglextensions.h>
 #include <private/attachmentpack_p.h>
 #include <logging_p.h>
 #include <qgraphicsutils_p.h>
@@ -73,7 +72,6 @@ namespace OpenGL {
 
 GraphicsHelperGL3_3::GraphicsHelperGL3_3()
     : m_funcs(nullptr)
-    , m_tessFuncs()
 {
 }
 
@@ -84,15 +82,11 @@ GraphicsHelperGL3_3::~GraphicsHelperGL3_3()
 void GraphicsHelperGL3_3::initializeHelper(QOpenGLContext *context,
                                             QAbstractOpenGLFunctions *functions)
 {
+    Q_UNUSED(context);
     m_funcs = static_cast<QOpenGLFunctions_3_3_Core*>(functions);
     const bool ok = m_funcs->initializeOpenGLFunctions();
     Q_ASSERT(ok);
     Q_UNUSED(ok);
-
-    if (context->hasExtension(QByteArrayLiteral("GL_ARB_tessellation_shader"))) {
-        m_tessFuncs.reset(new QOpenGLExtension_ARB_tessellation_shader);
-        m_tessFuncs->initializeOpenGLFunctions();
-    }
 }
 
 void GraphicsHelperGL3_3::drawElementsInstancedBaseVertexBaseInstance(GLenum primitiveType,
@@ -171,17 +165,8 @@ void GraphicsHelperGL3_3::drawArraysIndirect(GLenum , void *)
 
 void GraphicsHelperGL3_3::setVerticesPerPatch(GLint verticesPerPatch)
 {
-#if defined(QT_OPENGL_4)
-    if (!m_tessFuncs) {
-        qWarning() << "Tessellation not supported with OpenGL 3 without GL_ARB_tessellation_shader";
-        return;
-    }
-
-    m_tessFuncs->glPatchParameteri(GL_PATCH_VERTICES, verticesPerPatch);
-#else
     Q_UNUSED(verticesPerPatch);
     qWarning() << "Tessellation not supported";
-#endif
 }
 
 void GraphicsHelperGL3_3::useProgram(GLuint programId)
@@ -189,9 +174,9 @@ void GraphicsHelperGL3_3::useProgram(GLuint programId)
     m_funcs->glUseProgram(programId);
 }
 
-QVector<ShaderUniform> GraphicsHelperGL3_3::programUniformsAndLocations(GLuint programId)
+std::vector<ShaderUniform> GraphicsHelperGL3_3::programUniformsAndLocations(GLuint programId)
 {
-    QVector<ShaderUniform> uniforms;
+    std::vector<ShaderUniform> uniforms;
 
     GLint nbrActiveUniforms = 0;
     m_funcs->glGetProgramiv(programId, GL_ACTIVE_UNIFORMS, &nbrActiveUniforms);
@@ -215,7 +200,7 @@ QVector<ShaderUniform> GraphicsHelperGL3_3::programUniformsAndLocations(GLuint p
         m_funcs->glGetActiveUniformsiv(programId, 1, (GLuint*)&i, GL_UNIFORM_ARRAY_STRIDE, &uniform.m_arrayStride);
         m_funcs->glGetActiveUniformsiv(programId, 1, (GLuint*)&i, GL_UNIFORM_MATRIX_STRIDE, &uniform.m_matrixStride);
         uniform.m_rawByteSize = uniformByteSize(uniform);
-        uniforms.append(uniform);
+        uniforms.push_back(uniform);
         qCDebug(Rendering) << uniform.m_name << "size" << uniform.m_size
                            << " offset" << uniform.m_offset
                            << " rawSize" << uniform.m_rawByteSize;
@@ -224,9 +209,9 @@ QVector<ShaderUniform> GraphicsHelperGL3_3::programUniformsAndLocations(GLuint p
     return uniforms;
 }
 
-QVector<ShaderAttribute> GraphicsHelperGL3_3::programAttributesAndLocations(GLuint programId)
+std::vector<ShaderAttribute> GraphicsHelperGL3_3::programAttributesAndLocations(GLuint programId)
 {
-    QVector<ShaderAttribute> attributes;
+    std::vector<ShaderAttribute> attributes;
     GLint nbrActiveAttributes = 0;
     m_funcs->glGetProgramiv(programId, GL_ACTIVE_ATTRIBUTES, &nbrActiveAttributes);
     attributes.reserve(nbrActiveAttributes);
@@ -241,14 +226,14 @@ QVector<ShaderAttribute> GraphicsHelperGL3_3::programAttributesAndLocations(GLui
         attributeName[sizeof(attributeName) - 1] = '\0';
         attribute.m_location = m_funcs->glGetAttribLocation(programId, attributeName);
         attribute.m_name = QString::fromUtf8(attributeName, attributeNameLength);
-        attributes.append(attribute);
+        attributes.push_back(attribute);
     }
     return attributes;
 }
 
-QVector<ShaderUniformBlock> GraphicsHelperGL3_3::programUniformBlocks(GLuint programId)
+std::vector<ShaderUniformBlock> GraphicsHelperGL3_3::programUniformBlocks(GLuint programId)
 {
-    QVector<ShaderUniformBlock> blocks;
+    std::vector<ShaderUniformBlock> blocks;
     GLint nbrActiveUniformsBlocks = 0;
     m_funcs->glGetProgramiv(programId, GL_ACTIVE_UNIFORM_BLOCKS, &nbrActiveUniformsBlocks);
     blocks.reserve(nbrActiveUniformsBlocks);
@@ -262,17 +247,16 @@ QVector<ShaderUniformBlock> GraphicsHelperGL3_3::programUniformBlocks(GLuint pro
         m_funcs->glGetActiveUniformBlockiv(programId, i, GL_UNIFORM_BLOCK_ACTIVE_UNIFORMS, &uniformBlock.m_activeUniformsCount);
         m_funcs->glGetActiveUniformBlockiv(programId, i, GL_UNIFORM_BLOCK_BINDING, &uniformBlock.m_binding);
         m_funcs->glGetActiveUniformBlockiv(programId, i, GL_UNIFORM_BLOCK_DATA_SIZE, &uniformBlock.m_size);
-        blocks.append(uniformBlock);
+        blocks.push_back(uniformBlock);
     }
     return blocks;
 }
 
-QVector<ShaderStorageBlock> GraphicsHelperGL3_3::programShaderStorageBlocks(GLuint programId)
+std::vector<ShaderStorageBlock> GraphicsHelperGL3_3::programShaderStorageBlocks(GLuint programId)
 {
     Q_UNUSED(programId);
-    QVector<ShaderStorageBlock> blocks;
     qWarning() << "SSBO are not supported by OpenGL 3.3 (since OpenGL 4.3)";
-    return blocks;
+    return {};
 }
 
 void GraphicsHelperGL3_3::vertexAttribDivisor(GLuint index, GLuint divisor)
@@ -493,8 +477,8 @@ void GraphicsHelperGL3_3::bindFrameBufferAttachment(QOpenGLTexture *texture, con
     if (target == QOpenGLTexture::Target1DArray || target == QOpenGLTexture::Target2DArray ||
             target == QOpenGLTexture::Target2DMultisampleArray || target == QOpenGLTexture::Target3D)
         m_funcs->glFramebufferTextureLayer(GL_DRAW_FRAMEBUFFER, attr, texture->textureId(), attachment.m_mipLevel, attachment.m_layer);
-    else if (target == QOpenGLTexture::TargetCubeMapArray)
-        m_funcs->glFramebufferTexture3D(GL_DRAW_FRAMEBUFFER, attr, attachment.m_face, texture->textureId(), attachment.m_mipLevel, attachment.m_layer);
+    else if (target == QOpenGLTexture::TargetCubeMapArray && attachment.m_face != QAbstractTexture::AllFaces)
+        m_funcs->glFramebufferTextureLayer( GL_DRAW_FRAMEBUFFER, attr, texture->textureId(), attachment.m_mipLevel, attachment.m_layer * 6 + (attachment.m_face - QAbstractTexture::CubeMapPositiveX));
     else if (target == QOpenGLTexture::TargetCubeMap && attachment.m_face != QAbstractTexture::AllFaces)
         m_funcs->glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, attr, attachment.m_face, texture->textureId(), attachment.m_mipLevel);
     else
@@ -521,8 +505,6 @@ bool GraphicsHelperGL3_3::supportsFeature(GraphicsHelperInterface::Feature featu
     case BlitFramebuffer:
     case Fences:
         return true;
-    case Tessellation:
-        return !m_tessFuncs.isNull();
     default:
         return false;
     }
@@ -561,13 +543,13 @@ void GraphicsHelperGL3_3::bindImageTexture(GLuint imageUnit, GLuint texture,
                                            GLint mipLevel, GLboolean layered,
                                            GLint layer, GLenum access, GLenum format)
 {
-    Q_UNUSED(imageUnit)
-    Q_UNUSED(texture)
-    Q_UNUSED(mipLevel)
-    Q_UNUSED(layered)
-    Q_UNUSED(layer)
-    Q_UNUSED(access)
-    Q_UNUSED(format)
+    Q_UNUSED(imageUnit);
+    Q_UNUSED(texture);
+    Q_UNUSED(mipLevel);
+    Q_UNUSED(layered);
+    Q_UNUSED(layer);
+    Q_UNUSED(access);
+    Q_UNUSED(format);
     qWarning() << "Shader Images are not supported by OpenGL 3.3 (since OpenGL 4.2)";
 }
 

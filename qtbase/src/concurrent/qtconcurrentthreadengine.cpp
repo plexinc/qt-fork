@@ -160,8 +160,8 @@ bool ThreadEngineBarrier::releaseUnlessLast()
     }
 }
 
-ThreadEngineBase::ThreadEngineBase()
-:futureInterface(0), threadPool(QThreadPool::globalInstance())
+ThreadEngineBase::ThreadEngineBase(QThreadPool *pool)
+    : futureInterface(nullptr), threadPool(pool)
 {
     setAutoDelete(false);
 }
@@ -176,39 +176,6 @@ void ThreadEngineBase::startSingleThreaded()
     finish();
 }
 
-void ThreadEngineBase::startBlocking()
-{
-    start();
-    barrier.acquire();
-    startThreads();
-
-    bool throttled = false;
-#ifndef QT_NO_EXCEPTIONS
-    try {
-#endif
-        while (threadFunction() == ThrottleThread) {
-            if (threadThrottleExit()) {
-                throttled = true;
-                break;
-            }
-        }
-#ifndef QT_NO_EXCEPTIONS
-    } catch (QException &e) {
-        handleException(e);
-    } catch (...) {
-        handleException(QUnhandledException());
-    }
-#endif
-
-    if (throttled == false) {
-        barrier.release();
-    }
-
-    barrier.wait();
-    finish();
-    exceptionStore.throwPossibleException();
-}
-
 void ThreadEngineBase::startThread()
 {
     startThreadInternal();
@@ -217,6 +184,12 @@ void ThreadEngineBase::startThread()
 void ThreadEngineBase::acquireBarrierSemaphore()
 {
     barrier.acquire();
+}
+
+void ThreadEngineBase::reportIfSuspensionDone() const
+{
+    if (futureInterface && futureInterface->isSuspending())
+        futureInterface->reportSuspended();
 }
 
 bool ThreadEngineBase::isCanceled()
@@ -236,7 +209,7 @@ void ThreadEngineBase::waitForResume()
 bool ThreadEngineBase::isProgressReportingEnabled()
 {
     // If we don't have a QFuture, there is no-one to report the progress to.
-    return (futureInterface != 0);
+    return (futureInterface != nullptr);
 }
 
 void ThreadEngineBase::setProgressValue(int progress)
@@ -272,7 +245,7 @@ void ThreadEngineBase::startThreads()
 
 void ThreadEngineBase::threadExit()
 {
-    const bool asynchronous = futureInterface != 0;
+    const bool asynchronous = (futureInterface != nullptr);
     const int lastThread = (barrier.release() == 0);
 
     if (lastThread && asynchronous)
@@ -304,15 +277,22 @@ void ThreadEngineBase::run() // implements QRunnable.
             // struct wants to be throttled by making a worker thread exit.
             // Respect that request unless this is the only worker thread left
             // running, in which case it has to keep going.
-            if (threadThrottleExit())
+            if (threadThrottleExit()) {
                 return;
+            } else {
+                // If the last worker thread is throttled and the state is "suspending",
+                // it means that suspension has been requested, and it is already
+                // in effect (because all previous threads have already exited).
+                // Report the "Suspended" state.
+                reportIfSuspensionDone();
+            }
         }
 
 #ifndef QT_NO_EXCEPTIONS
     } catch (QException &e) {
         handleException(e);
     } catch (...) {
-        handleException(QUnhandledException());
+        handleException(QUnhandledException(std::current_exception()));
     }
 #endif
     threadExit();
@@ -322,10 +302,13 @@ void ThreadEngineBase::run() // implements QRunnable.
 
 void ThreadEngineBase::handleException(const QException &exception)
 {
-    if (futureInterface)
+    if (futureInterface) {
         futureInterface->reportException(exception);
-    else
-        exceptionStore.setException(exception);
+    } else {
+        QMutexLocker lock(&mutex);
+        if (!exceptionStore.hasException())
+            exceptionStore.setException(exception);
+    }
 }
 #endif
 

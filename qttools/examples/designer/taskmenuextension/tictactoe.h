@@ -78,9 +78,11 @@ protected:
     void paintEvent(QPaintEvent *event) override;
 
 private:
-    enum : char { Empty = '-', Cross = 'X', Nought = 'O' };
+    static constexpr char16_t Empty = '-';
+    static constexpr char16_t Cross = 'X';
+    static constexpr char16_t Nought = 'O';
 
-    QRect cellRect(int row, int col) const;
+    QRect cellRect(int position) const;
     int cellWidth() const { return width() / 3; }
     int cellHeight() const { return height() / 3; }
 

@@ -80,7 +80,7 @@ struct QWindowCreationContext;
 struct QWindowsContextPrivate;
 class QPoint;
 class QKeyEvent;
-class QTouchDevice;
+class QPointingDevice;
 
 struct QWindowsUser32DLL
 {
@@ -98,6 +98,7 @@ struct QWindowsUser32DLL
     typedef BOOL (WINAPI *GetPointerPenInfoHistory)(UINT32, UINT32 *, PVOID);
     typedef BOOL (WINAPI *SkipPointerFrameMessages)(UINT32);
     typedef BOOL (WINAPI *SetProcessDPIAware)();
+    typedef BOOL (WINAPI *SetProcessDpiAwarenessContext)(HANDLE);
     typedef BOOL (WINAPI *AddClipboardFormatListener)(HWND);
     typedef BOOL (WINAPI *RemoveClipboardFormatListener)(HWND);
     typedef BOOL (WINAPI *GetDisplayAutoRotationPreferences)(DWORD *);
@@ -107,6 +108,7 @@ struct QWindowsUser32DLL
     typedef int  (WINAPI *GetWindowDpiAwarenessContext)(HWND);
     typedef int  (WINAPI *GetAwarenessFromDpiAwarenessContext)(int);
     typedef BOOL (WINAPI *SystemParametersInfoForDpi)(UINT, UINT, PVOID, UINT, UINT);
+    typedef int  (WINAPI *GetDpiForWindow)(HWND);
 
     // Windows pointer functions (Windows 8 or later).
     EnableMouseInPointer enableMouseInPointer = nullptr;
@@ -122,6 +124,12 @@ struct QWindowsUser32DLL
 
     // Windows Vista onwards
     SetProcessDPIAware setProcessDPIAware = nullptr;
+
+    // Windows 10 version 1607 onwards
+    GetDpiForWindow getDpiForWindow = nullptr;
+
+    // Windows 10 version 1703 onwards
+    SetProcessDpiAwarenessContext setProcessDpiAwarenessContext = nullptr;
 
     // Clipboard listeners are present on Windows Vista onwards
     // but missing in MinGW 4.9 stub libs. Can be removed in MinGW 5.
@@ -157,6 +165,7 @@ class QWindowsContext
 {
     Q_DISABLE_COPY_MOVE(QWindowsContext)
 public:
+    using HandleBaseWindowHash = QHash<HWND, QWindowsWindow *>;
 
     enum SystemInfoFlags
     {
@@ -173,8 +182,10 @@ public:
 
     bool initTouch();
     bool initTouch(unsigned integrationOptions); // For calls from QWindowsIntegration::QWindowsIntegration() only.
-    bool initTablet(unsigned integrationOptions);
+    void registerTouchWindows();
+    bool initTablet();
     bool initPointer(unsigned integrationOptions);
+    bool disposeTablet();
 
     bool initPowerNotificationHandler();
 
@@ -222,9 +233,10 @@ public:
     QSharedPointer<QWindowCreationContext> setWindowCreationContext(const QSharedPointer<QWindowCreationContext> &ctx);
     QSharedPointer<QWindowCreationContext> windowCreationContext() const;
 
-    void setTabletAbsoluteRange(int a);
+    static void setTabletAbsoluteRange(int a);
     void setProcessDpiAwareness(QtWindows::ProcessDpiAwareness dpiAwareness);
     static int processDpiAwareness();
+    void setProcessDpiV2Awareness();
 
     static bool isDarkMode();
 
@@ -235,6 +247,8 @@ public:
 
     bool useRTLExtensions() const;
     QList<int> possibleKeys(const QKeyEvent *e) const;
+
+    HandleBaseWindowHash &windows();
 
     static bool isSessionLocked();
 
@@ -263,8 +277,6 @@ public:
                                           const QPlatformWindow *win = nullptr);
 
     static DWORD readAdvancedExplorerSettings(const wchar_t *subKey, DWORD defaultValue);
-
-    QTouchDevice *touchDevice() const;
 
     static bool filterNativeEvent(MSG *msg, LRESULT *result);
     static bool filterNativeEvent(QWindow *window, MSG *msg, LRESULT *result);

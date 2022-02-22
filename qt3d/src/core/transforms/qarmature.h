@@ -42,13 +42,13 @@
 
 #include <Qt3DCore/qcomponent.h>
 #include <Qt3DCore/qt3dcore_global.h>
+#include <Qt3DCore/qabstractskeleton.h>
 
 QT_BEGIN_NAMESPACE
 
 namespace Qt3DCore {
 
 class QArmaturePrivate;
-class QAbstractSkeleton;
 
 class Q_3DCORESHARED_EXPORT QArmature : public Qt3DCore::QComponent
 {
@@ -72,7 +72,6 @@ protected:
 
 private:
     Q_DECLARE_PRIVATE(QArmature)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DCore

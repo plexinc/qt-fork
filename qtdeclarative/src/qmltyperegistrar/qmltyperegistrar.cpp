@@ -27,18 +27,17 @@
 ****************************************************************************/
 
 #include "qmltypescreator.h"
+#include "metatypesjsonprocessor.h"
 
 #include <QCoreApplication>
 #include <QCommandLineParser>
 #include <QtDebug>
-#include <QJsonDocument>
 #include <QJsonArray>
-#include <QJsonValue>
 #include <QJsonObject>
+#include <QJsonValue>
 #include <QFile>
 #include <QScopedPointer>
 #include <QSaveFile>
-#include <QQueue>
 
 #include <cstdlib>
 
@@ -47,139 +46,33 @@ struct ScopedPointerFileCloser
     static inline void cleanup(FILE *handle) { if (handle) fclose(handle); }
 };
 
-enum RegistrationMode {
-    NoRegistration,
-    ObjectRegistration,
-    GadgetRegistration,
-    NamespaceRegistration
-};
-
-static RegistrationMode qmlTypeRegistrationMode(const QJsonObject &classDef)
+static bool argumentsFromCommandLineAndFile(QStringList &allArguments, const QStringList &arguments)
 {
-    const QJsonArray classInfos = classDef[QLatin1String("classInfos")].toArray();
-    for (const QJsonValue &info: classInfos) {
-        const QString name = info[QLatin1String("name")].toString();
-        if (name == QLatin1String("QML.Element")) {
-            if (classDef[QLatin1String("object")].toBool())
-                return ObjectRegistration;
-            if (classDef[QLatin1String("gadget")].toBool())
-                return GadgetRegistration;
-            if (classDef[QLatin1String("namespace")].toBool())
-                return NamespaceRegistration;
-            qWarning() << "Not registering classInfo which is neither an object, "
-                          "nor a gadget, nor a namespace:"
-                       << name;
-            break;
+    allArguments.reserve(arguments.size());
+    for (const QString &argument : arguments) {
+        // "@file" doesn't start with a '-' so we can't use QCommandLineParser for it
+        if (argument.startsWith(QLatin1Char('@'))) {
+            QString optionsFile = argument;
+            optionsFile.remove(0, 1);
+            if (optionsFile.isEmpty()) {
+                fprintf(stderr, "The @ option requires an input file");
+                return false;
+            }
+            QFile f(optionsFile);
+            if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                fprintf(stderr, "Cannot open options file specified with @");
+                return false;
+            }
+            while (!f.atEnd()) {
+                QString line = QString::fromLocal8Bit(f.readLine().trimmed());
+                if (!line.isEmpty())
+                    allArguments << line;
+            }
+        } else {
+            allArguments << argument;
         }
     }
-    return NoRegistration;
-}
-
-static QVector<QJsonObject> foreignRelatedTypes(const QVector<QJsonObject> &types,
-                                                const QVector<QJsonObject> &foreignTypes)
-{
-    const QLatin1String classInfosKey("classInfos");
-    const QLatin1String nameKey("name");
-    const QLatin1String qualifiedClassNameKey("qualifiedClassName");
-    const QLatin1String qmlNamePrefix("QML.");
-    const QLatin1String qmlForeignName("QML.Foreign");
-    const QLatin1String qmlAttachedName("QML.Attached");
-    const QLatin1String valueKey("value");
-    const QLatin1String superClassesKey("superClasses");
-    const QLatin1String accessKey("access");
-    const QLatin1String publicAccess("public");
-
-    QSet<QString> processedRelatedNames;
-    QQueue<QJsonObject> typeQueue;
-    typeQueue.append(types.toList());
-    QVector<QJsonObject> relatedTypes;
-
-    // First mark all classes registered from this module as already processed.
-    for (const QJsonObject &type : types) {
-        processedRelatedNames.insert(type.value(qualifiedClassNameKey).toString());
-        const auto classInfos = type.value(classInfosKey).toArray();
-        for (const QJsonValue &classInfo : classInfos) {
-            const QJsonObject obj = classInfo.toObject();
-            if (obj.value(nameKey).toString() == qmlForeignName) {
-                processedRelatedNames.insert(obj.value(valueKey).toString());
-                break;
-            }
-        }
-    }
-
-    // Then mark all classes registered from other modules as already processed.
-    // We don't want to generate them again for this module.
-    for (const QJsonObject &foreignType : foreignTypes) {
-        const auto classInfos = foreignType.value(classInfosKey).toArray();
-        bool seenQmlPrefix = false;
-        for (const QJsonValue &classInfo : classInfos) {
-            const QJsonObject obj = classInfo.toObject();
-            const QString name = obj.value(nameKey).toString();
-            if (!seenQmlPrefix && name.startsWith(qmlNamePrefix)) {
-                processedRelatedNames.insert(foreignType.value(qualifiedClassNameKey).toString());
-                seenQmlPrefix = true;
-            }
-            if (name == qmlForeignName) {
-                processedRelatedNames.insert(obj.value(valueKey).toString());
-                break;
-            }
-        }
-    }
-
-    auto addType = [&](const QString &typeName) {
-        if (processedRelatedNames.contains(typeName))
-            return;
-        processedRelatedNames.insert(typeName);
-        if (const QJsonObject *other = QmlTypesClassDescription::findType(foreignTypes, typeName)) {
-            relatedTypes.append(*other);
-            typeQueue.enqueue(*other);
-        }
-    };
-
-    // Then recursively iterate the super types and attached types, marking the
-    // ones we are interested in as related.
-    while (!typeQueue.isEmpty()) {
-        const QJsonObject classDef = typeQueue.dequeue();
-
-        const auto classInfos = classDef.value(classInfosKey).toArray();
-        for (const QJsonValue &classInfo : classInfos) {
-            const QJsonObject obj = classInfo.toObject();
-            if (obj.value(nameKey).toString() == qmlAttachedName) {
-                addType(obj.value(valueKey).toString());
-            } else if (obj.value(nameKey).toString() == qmlForeignName) {
-                const QString foreignClassName = obj.value(valueKey).toString();
-                if (const QJsonObject *other = QmlTypesClassDescription::findType(
-                            foreignTypes, foreignClassName)) {
-                    const auto otherSupers = other->value(superClassesKey).toArray();
-                    if (!otherSupers.isEmpty()) {
-                        const QJsonObject otherSuperObject = otherSupers.first().toObject();
-                        if (otherSuperObject.value(accessKey).toString() == publicAccess)
-                            addType(otherSuperObject.value(nameKey).toString());
-                    }
-
-                    const auto otherClassInfos = other->value(classInfosKey).toArray();
-                    for (const QJsonValue &otherClassInfo : otherClassInfos) {
-                        const QJsonObject obj = otherClassInfo.toObject();
-                        if (obj.value(nameKey).toString() == qmlAttachedName) {
-                            addType(obj.value(valueKey).toString());
-                            break;
-                        }
-                        // No, you cannot chain QML_FOREIGN declarations. Sorry.
-                    }
-                    break;
-                }
-            }
-        }
-
-        const auto supers = classDef.value(superClassesKey).toArray();
-        if (!supers.isEmpty()) {
-            const QJsonObject superObject = supers.first().toObject();
-            if (superObject.value(accessKey).toString() == publicAccess)
-                addType(superObject.value(nameKey).toString());
-        }
-    }
-
-    return relatedTypes;
+    return true;
 }
 
 int main(int argc, char **argv)
@@ -213,6 +106,12 @@ int main(int argc, char **argv)
     importNameOption.setValueName(QStringLiteral("module name"));
     parser.addOption(importNameOption);
 
+    QCommandLineOption pastMajorVersionOption(QStringLiteral("past-major-version"));
+    pastMajorVersionOption.setDescription(QStringLiteral("Past major version to use for type and module "
+                                                         "registrations."));
+    pastMajorVersionOption.setValueName(QStringLiteral("past major version"));
+    parser.addOption(pastMajorVersionOption);
+
     QCommandLineOption majorVersionOption(QStringLiteral("major-version"));
     majorVersionOption.setDescription(QStringLiteral("Major version to use for type and module "
                                                      "registrations."));
@@ -238,16 +137,14 @@ int main(int argc, char **argv)
     foreignTypesOption.setValueName(QStringLiteral("foreign types"));
     parser.addOption(foreignTypesOption);
 
-    QCommandLineOption dependenciesOption(QStringLiteral("dependencies"));
-    dependenciesOption.setDescription(QStringLiteral("JSON file with dependencies to be stated in "
-                                                     "qmltypes file."));
-    dependenciesOption.setValueName(QStringLiteral("dependencies.json"));
-    parser.addOption(dependenciesOption);
-
     parser.addPositionalArgument(QStringLiteral("[MOC generated json file]"),
                                  QStringLiteral("MOC generated json output."));
 
-    parser.process(app);
+    QStringList arguments;
+    if (!argumentsFromCommandLineAndFile(arguments, app.arguments()))
+        return EXIT_FAILURE;
+
+    parser.process(arguments);
 
     FILE *output = stdout;
     QScopedPointer<FILE, ScopedPointerFileCloser> outputFile;
@@ -276,105 +173,21 @@ int main(int argc, char **argv)
             "#include <QtQml/qqml.h>\n"
             "#include <QtQml/qqmlmoduleregistration.h>\n");
 
-    QStringList includes;
-    QVector<QJsonObject> types;
-    QVector<QJsonObject> foreignTypes;
-
     const QString module = parser.value(importNameOption);
-    const QStringList files = parser.positionalArguments();
-    for (const QString &source: files) {
-        QJsonDocument metaObjects;
-        {
-            QFile f(source);
-            if (!f.open(QIODevice::ReadOnly)) {
-                fprintf(stderr, "Error opening %s for reading\n", qPrintable(source));
-                return EXIT_FAILURE;
-            }
-            QJsonParseError error = {0, QJsonParseError::NoError};
-            metaObjects = QJsonDocument::fromJson(f.readAll(), &error);
-            if (error.error != QJsonParseError::NoError) {
-                fprintf(stderr, "Error parsing %s\n", qPrintable(source));
-                return EXIT_FAILURE;
-            }
-        }
 
-        const bool privateIncludes = parser.isSet(privateIncludesOption);
-        auto resolvedInclude = [&](const QString &include) {
-            return (privateIncludes && include.endsWith(QLatin1String("_p.h")))
-                    ? QLatin1String("private/") + include
-                    : include;
-        };
+    MetaTypesJsonProcessor processor(parser.isSet(privateIncludesOption));
+    if (!processor.processTypes(parser.positionalArguments()))
+        return EXIT_FAILURE;
 
-        auto processMetaObject = [&](const QJsonObject &metaObject) {
-            const QString include = resolvedInclude(metaObject[QLatin1String("inputFile")].toString());
-            const QJsonArray classes = metaObject[QLatin1String("classes")].toArray();
-            for (const auto &cls : classes) {
-                QJsonObject classDef = cls.toObject();
-                classDef.insert(QLatin1String("inputFile"), include);
+    processor.postProcessTypes();
 
-                switch (qmlTypeRegistrationMode(classDef)) {
-                case NamespaceRegistration:
-                case GadgetRegistration:
-                case ObjectRegistration: {
-                    if (!include.endsWith(QLatin1String(".h"))
-                            && !include.endsWith(QLatin1String(".hpp"))
-                            && !include.endsWith(QLatin1String(".hxx"))
-                            && include.contains(QLatin1Char('.'))) {
-                        fprintf(stderr,
-                                "Class %s is declared in %s, which appears not to be a header.\n"
-                                "The compilation of its registration to QML may fail.\n",
-                                qPrintable(classDef.value(QLatin1String("qualifiedClassName"))
-                                           .toString()),
-                                qPrintable(include));
-                    }
-                    includes.append(include);
-                    classDef.insert(QLatin1String("registerable"), true);
+    if (parser.isSet(foreignTypesOption))
+        processor.processForeignTypes(parser.value(foreignTypesOption).split(QLatin1Char(',')));
 
-                    types.append(classDef);
-                    break;
-                }
-                case NoRegistration:
-                    foreignTypes.append(classDef);
-                    break;
-                }
-            }
-        };
+    processor.postProcessForeignTypes();
 
-        if (metaObjects.isArray()) {
-            const QJsonArray metaObjectsArray = metaObjects.array();
-            for (const auto &metaObject : metaObjectsArray) {
-                if (!metaObject.isObject()) {
-                    fprintf(stderr, "Error parsing %s: JSON is not an object\n",
-                            qPrintable(source));
-                    return EXIT_FAILURE;
-                }
-
-                processMetaObject(metaObject.toObject());
-            }
-        } else if (metaObjects.isObject()) {
-            processMetaObject(metaObjects.object());
-        } else {
-            fprintf(stderr, "Error parsing %s: JSON is not an object or an array\n",
-                    qPrintable(source));
-            return EXIT_FAILURE;
-        }
-    }
-
-    const QLatin1String qualifiedClassNameKey("qualifiedClassName");
-    auto sortTypes = [&](QVector<QJsonObject> &types) {
-        std::sort(types.begin(), types.end(), [&](const QJsonObject &a, const QJsonObject &b) {
-            return a.value(qualifiedClassNameKey).toString() <
-                    b.value(qualifiedClassNameKey).toString();
-        });
-    };
-
-    sortTypes(types);
-
-    std::sort(includes.begin(), includes.end());
-    const auto newEnd = std::unique(includes.begin(), includes.end());
-    includes.erase(newEnd, includes.end());
-
-    for (const QString &include : qAsConst(includes))
+    const QStringList includes = processor.includes();
+    for (const QString &include : includes)
         fprintf(output, "\n#include <%s>", qPrintable(include));
 
     fprintf(output, "\n\n");
@@ -384,80 +197,148 @@ int main(int argc, char **argv)
 
     const QString functionName = QStringLiteral("qml_register_types_") + moduleAsSymbol;
 
-    fprintf(output, "void %s()\n{", qPrintable(functionName));
+    fprintf(output,
+            "#if !defined(QT_STATIC)\n"
+            "#define Q_QMLTYPE_EXPORT Q_DECL_EXPORT\n"
+            "#else\n"
+            "#define Q_QMLTYPE_EXPORT\n"
+            "#endif\n"
+            "\n");
+    fprintf(output, "Q_QMLTYPE_EXPORT void %s()\n{", qPrintable(functionName));
     const auto majorVersion = parser.value(majorVersionOption);
+    const auto pastMajorVersions = parser.values(pastMajorVersionOption);
+    const auto minorVersion = parser.value(minorVersionOption);
 
-    for (const QJsonObject &classDef : qAsConst(types)) {
-        if (!classDef.value(QLatin1String("registerable")).toBool())
-            continue;
+    for (const auto &version : pastMajorVersions) {
+        fprintf(output, "\n    qmlRegisterModule(\"%s\", %s, 0);\n    qmlRegisterModule(\"%s\", %s, 254);",
+                qPrintable(module), qPrintable(version), qPrintable(module), qPrintable(version));
+    }
 
+    if (minorVersion.toInt() != 0) {
+        fprintf(output, "\n    qmlRegisterModule(\"%s\", %s, 0);",
+                qPrintable(module), qPrintable(majorVersion));
+    }
+
+    auto moduleVersion = QTypeRevision::fromVersion(majorVersion.toInt(), minorVersion.toInt());
+
+    const QVector<QJsonObject> types = processor.types();
+    const QVector<QJsonObject> foreignTypes = processor.foreignTypes();
+    for (const QJsonObject &classDef : types) {
         const QString className = classDef[QLatin1String("qualifiedClassName")].toString();
 
+        QString targetName = className;
+        bool seenQmlElement = false;
+        const QJsonArray classInfos = classDef.value(QLatin1String("classInfos")).toArray();
+        for (const QJsonValue v : classInfos) {
+            const QString name = v[QStringLiteral("name")].toString();
+            if (name == QStringLiteral("QML.Element"))
+                seenQmlElement = true;
+            else if (name == QStringLiteral("QML.Foreign"))
+                targetName = v[QLatin1String("value")].toString();
+        }
+
+        // We want all related metatypes to be registered by name, so that we can look them up
+        // without including the C++ headers. That's the reason for the QMetaType(foo).id() calls.
+
         if (classDef.value(QLatin1String("namespace")).toBool()) {
-            fprintf(output, "\n    qmlRegisterNamespaceAndRevisions(&%s::staticMetaObject, \"%s\", %s);",
-                    qPrintable(className), qPrintable(module), qPrintable(majorVersion));
+            // We need to figure out if the _target_ is a namespace. If not, it already has a
+            // QMetaType and we don't need to generate one.
+
+            QString targetTypeName = targetName;
+            const auto targetIsNamespace = [&]() {
+                if (className == targetName)
+                    return true;
+
+                const QJsonObject *target = QmlTypesClassDescription::findType(types, targetName);
+                if (!target)
+                    target = QmlTypesClassDescription::findType(foreignTypes, targetName);
+
+                if (!target)
+                    return false;
+
+                if (target->value(QStringLiteral("namespace")).toBool())
+                    return true;
+
+                if (target->value(QStringLiteral("object")).toBool())
+                    targetTypeName += QStringLiteral(" *");
+
+                return false;
+            };
+
+            if (targetIsNamespace()) {
+                fprintf(output, "\n    {");
+                fprintf(output, "\n        static const auto metaType "
+                                "= QQmlPrivate::metaTypeForNamespace("
+                                "[](const QtPrivate::QMetaTypeInterface *) { "
+                                "return &%s::staticMetaObject; "
+                                "}, \"%s\");",
+                        qPrintable(targetName), qPrintable(targetTypeName));
+                fprintf(output, "\n        QMetaType(&metaType).id();");
+                fprintf(output, "\n    }");
+            } else {
+                fprintf(output, "\n    QMetaType::fromType<%s>().id();",
+                        qPrintable(targetTypeName));
+            }
+
+            if (seenQmlElement) {
+                fprintf(output, "\n    qmlRegisterNamespaceAndRevisions(&%s::staticMetaObject, "
+                                "\"%s\", %s, nullptr, &%s::staticMetaObject);",
+                        qPrintable(targetName), qPrintable(module), qPrintable(majorVersion),
+                        qPrintable(className));
+            }
         } else {
-            fprintf(output, "\n    qmlRegisterTypesAndRevisions<%s>(\"%s\", %s);",
-                    qPrintable(className), qPrintable(module), qPrintable(majorVersion));
+            if (seenQmlElement) {
+                auto checkRevisions = [&](const QJsonArray &array, const QString &type) {
+                    for (auto it = array.constBegin(); it != array.constEnd(); ++it) {
+                        auto object = it->toObject();
+                        if (!object.contains(QLatin1String("revision")))
+                            continue;
+
+                        QTypeRevision revision = QTypeRevision::fromEncodedVersion(object[QLatin1String("revision")].toInt());
+                        if (moduleVersion < revision) {
+                            qWarning().noquote()
+                                    << "Warning:" << className << "is trying to register" << type
+                                    << object[QStringLiteral("name")].toString()
+                                    << "with future version" << revision
+                                    << "when module version is only" << moduleVersion;
+                        }
+                    }
+                };
+
+                const QJsonArray methods = classDef[QLatin1String("methods")].toArray();
+                const QJsonArray properties = classDef[QLatin1String("properties")].toArray();
+
+                if (moduleVersion.isValid()) {
+                    checkRevisions(properties, QLatin1String("property"));
+                    checkRevisions(methods, QLatin1String("method"));
+                }
+
+                fprintf(output, "\n    qmlRegisterTypesAndRevisions<%s>(\"%s\", %s);",
+                        qPrintable(className), qPrintable(module), qPrintable(majorVersion));
+            } else {
+                fprintf(output, "\n    QMetaType::fromType<%s%s>().id();",
+                        qPrintable(className),
+                        classDef.value(QLatin1String("object")).toBool() ? " *" : "");
+            }
         }
     }
 
     fprintf(output, "\n    qmlRegisterModule(\"%s\", %s, %s);",
-            qPrintable(module), qPrintable(majorVersion),
-            qPrintable(parser.value(minorVersionOption)));
+            qPrintable(module), qPrintable(majorVersion), qPrintable(minorVersion));
     fprintf(output, "\n}\n");
-    fprintf(output, "\nstatic const QQmlModuleRegistration registration(\"%s\", %s, %s);\n",
-            qPrintable(module), qPrintable(majorVersion), qPrintable(functionName));
+    fprintf(output, "\nstatic const QQmlModuleRegistration registration(\"%s\", %s);\n",
+            qPrintable(module), qPrintable(functionName));
 
     if (!parser.isSet(pluginTypesOption))
         return EXIT_SUCCESS;
 
-    if (parser.isSet(foreignTypesOption)) {
-        const QStringList foreignTypesFiles = parser.value(foreignTypesOption)
-                .split(QLatin1Char(','));
-        for (const QString &types : foreignTypesFiles) {
-            QFile typesFile(types);
-            if (!typesFile.open(QIODevice::ReadOnly)) {
-                fprintf(stderr, "Cannot open foreign types file %s\n", qPrintable(types));
-                continue;
-            }
-
-            QJsonParseError error = {0, QJsonParseError::NoError};
-            QJsonDocument foreignMetaObjects = QJsonDocument::fromJson(typesFile.readAll(), &error);
-            if (error.error != QJsonParseError::NoError) {
-                fprintf(stderr, "Error parsing %s\n", qPrintable(types));
-                continue;
-            }
-
-            const QJsonArray foreignObjectsArray = foreignMetaObjects.array();
-            for (const auto &metaObject : foreignObjectsArray) {
-                if (!metaObject.isObject()) {
-                    fprintf(stderr, "Error parsing %s: JSON is not an object\n",
-                            qPrintable(types));
-                    continue;
-                }
-
-                const QString include = metaObject[QLatin1String("inputFile")].toString();
-                const QJsonArray classes = metaObject[QLatin1String("classes")].toArray();
-                for (const auto &cls : classes) {
-                    QJsonObject classDef = cls.toObject();
-                    classDef.insert(QLatin1String("inputFile"), include);
-                    foreignTypes.append(classDef);
-                }
-            }
-        }
-    }
-
-    sortTypes(foreignTypes);
-    types += foreignRelatedTypes(types, foreignTypes);
-    sortTypes(types);
-
     QmlTypesCreator creator;
-    creator.setOwnTypes(std::move(types));
-    creator.setForeignTypes(std::move(foreignTypes));
+    creator.setOwnTypes(processor.types());
+    creator.setForeignTypes(processor.foreignTypes());
+    creator.setReferencedTypes(processor.referencedTypes());
     creator.setModule(module);
-    creator.setMajorVersion(parser.value(majorVersionOption).toInt());
+    creator.setVersion(QTypeRevision::fromVersion(parser.value(majorVersionOption).toInt(), 0));
 
-    creator.generate(parser.value(pluginTypesOption), parser.value(dependenciesOption));
+    creator.generate(parser.value(pluginTypesOption));
     return EXIT_SUCCESS;
 }

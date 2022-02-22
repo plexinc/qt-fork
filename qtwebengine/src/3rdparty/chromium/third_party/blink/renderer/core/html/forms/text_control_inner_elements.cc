@@ -35,18 +35,18 @@
 #include "third_party/blink/renderer/core/html/forms/html_input_element.h"
 #include "third_party/blink/renderer/core/html/shadow/shadow_element_names.h"
 #include "third_party/blink/renderer/core/html_names.h"
-#include "third_party/blink/renderer/core/layout/layout_text_control_single_line.h"
+#include "third_party/blink/renderer/core/layout/layout_object_factory.h"
 
 namespace blink {
 
 EditingViewPortElement::EditingViewPortElement(Document& document)
     : HTMLDivElement(document) {
   SetHasCustomStyleCallbacks();
-  setAttribute(html_names::kIdAttr, shadow_element_names::EditingViewPort());
+  setAttribute(html_names::kIdAttr, shadow_element_names::kIdEditingViewPort);
 }
 
-scoped_refptr<ComputedStyle>
-EditingViewPortElement::CustomStyleForLayoutObject() {
+scoped_refptr<ComputedStyle> EditingViewPortElement::CustomStyleForLayoutObject(
+    const StyleRecalcContext&) {
   // FXIME: Move these styles to html.css.
 
   scoped_refptr<ComputedStyle> style = ComputedStyle::Create();
@@ -62,6 +62,10 @@ EditingViewPortElement::CustomStyleForLayoutObject() {
   style->SetUserModify(EUserModify::kReadOnly);
 
   return style;
+}
+
+bool EditingViewPortElement::TypeShouldForceLegacyLayout() const {
+  return !RuntimeEnabledFeatures::LayoutNGTextControlEnabled();
 }
 
 // ---------------------------
@@ -111,14 +115,27 @@ void TextControlInnerEditorElement::SetVisibility(bool is_visible) {
   }
 }
 
+void TextControlInnerEditorElement::FocusChanged() {
+  // When the focus changes for the host element, we may need to recalc style
+  // for text-overflow. See TextControlElement::ValueForTextOverflow().
+  SetNeedsStyleRecalc(kLocalStyleChange, StyleChangeReasonForTracing::Create(
+                                             style_change_reason::kControl));
+}
+
+bool TextControlInnerEditorElement::TypeShouldForceLegacyLayout() const {
+  return !RuntimeEnabledFeatures::LayoutNGTextControlEnabled();
+}
+
 LayoutObject* TextControlInnerEditorElement::CreateLayoutObject(
-    const ComputedStyle&,
-    LegacyLayout) {
-  return new LayoutTextControlInnerEditor(this);
+    const ComputedStyle& style,
+    LegacyLayout legacy) {
+  return LayoutObjectFactory::CreateTextControlInnerEditor(*this, style,
+                                                           legacy);
 }
 
 scoped_refptr<ComputedStyle>
-TextControlInnerEditorElement::CustomStyleForLayoutObject() {
+TextControlInnerEditorElement::CustomStyleForLayoutObject(
+    const StyleRecalcContext&) {
   scoped_refptr<ComputedStyle> inner_editor_style = CreateInnerEditorStyle();
   // Using StyleAdjuster::adjustComputedStyle updates unwanted style. We'd like
   // to apply only editing-related and alignment-related.
@@ -188,6 +205,10 @@ TextControlInnerEditorElement::CreateInnerEditorStyle() const {
     no_scrollbar_style->SetDisplay(EDisplay::kNone);
     text_block_style->AddCachedPseudoElementStyle(no_scrollbar_style);
     text_block_style->SetHasPseudoElementStyle(kPseudoIdScrollbar);
+
+    text_block_style->SetDisplay(EDisplay::kFlowRoot);
+    if (parentNode()->IsShadowRoot())
+      text_block_style->SetAlignSelfBlockCenter(true);
   }
 
   return text_block_style;
@@ -199,7 +220,7 @@ SearchFieldCancelButtonElement::SearchFieldCancelButtonElement(
     Document& document)
     : HTMLDivElement(document) {
   SetShadowPseudoId(AtomicString("-webkit-search-cancel-button"));
-  setAttribute(html_names::kIdAttr, shadow_element_names::SearchClearButton());
+  setAttribute(html_names::kIdAttr, shadow_element_names::kIdSearchClearButton);
 }
 
 void SearchFieldCancelButtonElement::DefaultEventHandler(Event& event) {
@@ -233,13 +254,17 @@ bool SearchFieldCancelButtonElement::WillRespondToMouseClickEvents() {
   return HTMLDivElement::WillRespondToMouseClickEvents();
 }
 
+bool SearchFieldCancelButtonElement::TypeShouldForceLegacyLayout() const {
+  return !RuntimeEnabledFeatures::LayoutNGTextControlEnabled();
+}
+
 // ----------------------------
 
 PasswordRevealButtonElement::PasswordRevealButtonElement(Document& document)
     : HTMLDivElement(document) {
   SetShadowPseudoId(AtomicString("-internal-reveal"));
   setAttribute(html_names::kIdAttr,
-               shadow_element_names::PasswordRevealButton());
+               shadow_element_names::kIdPasswordRevealButton);
 }
 
 void PasswordRevealButtonElement::DefaultEventHandler(Event& event) {

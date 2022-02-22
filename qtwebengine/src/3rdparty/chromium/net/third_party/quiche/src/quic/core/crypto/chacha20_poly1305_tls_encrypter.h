@@ -5,8 +5,8 @@
 #ifndef QUICHE_QUIC_CORE_CRYPTO_CHACHA20_POLY1305_TLS_ENCRYPTER_H_
 #define QUICHE_QUIC_CORE_CRYPTO_CHACHA20_POLY1305_TLS_ENCRYPTER_H_
 
-#include "net/third_party/quiche/src/quic/core/crypto/chacha_base_encrypter.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
+#include "quic/core/crypto/chacha_base_encrypter.h"
+#include "quic/platform/api/quic_export.h"
 
 namespace quic {
 
@@ -27,6 +27,8 @@ class QUIC_EXPORT_PRIVATE ChaCha20Poly1305TlsEncrypter
   ChaCha20Poly1305TlsEncrypter& operator=(const ChaCha20Poly1305TlsEncrypter&) =
       delete;
   ~ChaCha20Poly1305TlsEncrypter() override;
+
+  QuicPacketCount GetConfidentialityLimit() const override;
 };
 
 }  // namespace quic

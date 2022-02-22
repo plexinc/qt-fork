@@ -15,6 +15,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_testing.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_media_stream_constraints.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/testing/null_execution_context.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/testing/testing_platform_support.h"
@@ -26,11 +27,14 @@ namespace blink {
 
 const char kFakeAudioInputDeviceId1[] = "fake_audio_input 1";
 const char kFakeAudioInputDeviceId2[] = "fake_audio_input 2";
+const char kFakeAudioInputDeviceId3[] = "fake_audio_input 3";
 const char kFakeVideoInputDeviceId1[] = "fake_video_input 1";
 const char kFakeVideoInputDeviceId2[] = "fake_video_input 2";
 const char kFakeCommonGroupId1[] = "fake_group 1";
+const char kFakeCommonGroupId2[] = "fake_group 2";
 const char kFakeVideoInputGroupId2[] = "fake_video_input_group 2";
 const char kFakeAudioOutputDeviceId1[] = "fake_audio_output 1";
+const char kFakeAudioOutputDeviceId2[] = "fake_audio_output 2";
 
 class MockMediaDevicesDispatcherHost
     : public mojom::blink::MediaDevicesDispatcherHost {
@@ -59,8 +63,15 @@ class MockMediaDevicesDispatcherHost
           .push_back(device_info);
 
       device_info.device_id = kFakeAudioInputDeviceId2;
-      device_info.label = "Fake Audio Input 2";
-      device_info.group_id = "fake_group 2";
+      device_info.label = "X's AirPods";
+      device_info.group_id = kFakeCommonGroupId2;
+      enumeration[static_cast<size_t>(
+                      blink::mojom::blink::MediaDeviceType::MEDIA_AUDIO_INPUT)]
+          .push_back(device_info);
+
+      device_info.device_id = kFakeAudioInputDeviceId3;
+      device_info.label = "Fake Audio Input 3";
+      device_info.group_id = "fake_group 3";
       enumeration[static_cast<size_t>(
                       blink::mojom::blink::MediaDeviceType::MEDIA_AUDIO_INPUT)]
           .push_back(device_info);
@@ -88,13 +99,13 @@ class MockMediaDevicesDispatcherHost
             mojom::blink::VideoInputDeviceCapabilities::New();
         capabilities->device_id = kFakeVideoInputDeviceId1;
         capabilities->group_id = kFakeCommonGroupId1;
-        capabilities->facing_mode = media::MEDIA_VIDEO_FACING_NONE;
+        capabilities->facing_mode = mojom::blink::FacingMode::NONE;
         video_input_capabilities.push_back(std::move(capabilities));
 
         capabilities = mojom::blink::VideoInputDeviceCapabilities::New();
         capabilities->device_id = kFakeVideoInputDeviceId2;
         capabilities->group_id = kFakeVideoInputGroupId2;
-        capabilities->facing_mode = media::MEDIA_VIDEO_FACING_USER;
+        capabilities->facing_mode = mojom::blink::FacingMode::USER;
         video_input_capabilities.push_back(std::move(capabilities));
       }
     }
@@ -102,6 +113,13 @@ class MockMediaDevicesDispatcherHost
       device_info.device_id = kFakeAudioOutputDeviceId1;
       device_info.label = "Fake Audio Input 1";
       device_info.group_id = kFakeCommonGroupId1;
+      enumeration[static_cast<size_t>(
+                      blink::mojom::blink::MediaDeviceType::MEDIA_AUDIO_OUTPUT)]
+          .push_back(device_info);
+
+      device_info.device_id = kFakeAudioOutputDeviceId2;
+      device_info.label = "X's AirPods";
+      device_info.group_id = kFakeCommonGroupId2;
       enumeration[static_cast<size_t>(
                       blink::mojom::blink::MediaDeviceType::MEDIA_AUDIO_OUTPUT)]
           .push_back(device_info);
@@ -166,9 +184,9 @@ class MediaDevicesTest : public testing::Test {
     dispatcher_host_ = std::make_unique<MockMediaDevicesDispatcherHost>();
   }
 
-  MediaDevices* GetMediaDevices(ExecutionContext* context) {
+  MediaDevices* GetMediaDevices(LocalDOMWindow& window) {
     if (!media_devices_) {
-      media_devices_ = MakeGarbageCollected<MediaDevices>(context);
+      media_devices_ = MakeGarbageCollected<MediaDevices>(*window.navigator());
       media_devices_->SetDispatcherHostForTesting(
           dispatcher_host_->CreatePendingRemoteAndBind());
     }
@@ -179,8 +197,9 @@ class MediaDevicesTest : public testing::Test {
 
   void SimulateDeviceChange() {
     DCHECK(listener());
-    listener()->OnDevicesChanged(MEDIA_DEVICE_TYPE_AUDIO_INPUT,
-                                 Vector<WebMediaDeviceInfo>());
+    listener()->OnDevicesChanged(
+        blink::mojom::MediaDeviceType::MEDIA_AUDIO_INPUT,
+        Vector<WebMediaDeviceInfo>());
   }
 
   void DevicesEnumerated(const MediaDeviceInfoVector& device_infos) {
@@ -238,21 +257,19 @@ TEST_F(MediaDevicesTest, GetUserMediaCanBeCalled) {
   V8TestingScope scope;
   MediaStreamConstraints* constraints = MediaStreamConstraints::Create();
   ScriptPromise promise =
-      GetMediaDevices(scope.GetExecutionContext())
+      GetMediaDevices(scope.GetWindow())
           ->getUserMedia(scope.GetScriptState(), constraints,
                          scope.GetExceptionState());
   ASSERT_TRUE(promise.IsEmpty());
-  // In the default test environment, we expect a DOM rejection because
-  // the script state's execution context's document's frame doesn't
-  // have an UserMediaController.
-  DCHECK_EQ(scope.GetExceptionState().Code(),
-            ToExceptionCode(DOMExceptionCode::kNotSupportedError));
+  // We expect a type error because the given constraints are empty.
+  EXPECT_EQ(scope.GetExceptionState().Code(),
+            ToExceptionCode(ESErrorType::kTypeError));
   VLOG(1) << "Exception message is" << scope.GetExceptionState().Message();
 }
 
 TEST_F(MediaDevicesTest, EnumerateDevices) {
   V8TestingScope scope;
-  auto* media_devices = GetMediaDevices(scope.GetExecutionContext());
+  auto* media_devices = GetMediaDevices(scope.GetWindow());
   media_devices->SetEnumerateDevicesCallbackForTesting(
       WTF::Bind(&MediaDevicesTest::DevicesEnumerated, WTF::Unretained(this)));
   ScriptPromise promise = media_devices->enumerateDevices(
@@ -261,7 +278,7 @@ TEST_F(MediaDevicesTest, EnumerateDevices) {
   ASSERT_FALSE(promise.IsEmpty());
 
   EXPECT_TRUE(devices_enumerated());
-  EXPECT_EQ(5u, device_infos().size());
+  EXPECT_EQ(7u, device_infos().size());
 
   // Audio input device with matched output ID.
   Member<MediaDeviceInfo> device = device_infos()[0];
@@ -270,42 +287,64 @@ TEST_F(MediaDevicesTest, EnumerateDevices) {
   EXPECT_FALSE(device->label().IsEmpty());
   EXPECT_FALSE(device->groupId().IsEmpty());
 
-  // Audio input device without matched output ID.
+  // Audio input device with Airpods label.
   device = device_infos()[1];
   EXPECT_FALSE(device->deviceId().IsEmpty());
   EXPECT_EQ("audioinput", device->kind());
   EXPECT_FALSE(device->label().IsEmpty());
   EXPECT_FALSE(device->groupId().IsEmpty());
 
-  // Video input devices.
+  // Audio input device without matched output ID.
   device = device_infos()[2];
   EXPECT_FALSE(device->deviceId().IsEmpty());
-  EXPECT_EQ("videoinput", device->kind());
+  EXPECT_EQ("audioinput", device->kind());
   EXPECT_FALSE(device->label().IsEmpty());
   EXPECT_FALSE(device->groupId().IsEmpty());
 
+  // Video input devices.
   device = device_infos()[3];
   EXPECT_FALSE(device->deviceId().IsEmpty());
   EXPECT_EQ("videoinput", device->kind());
   EXPECT_FALSE(device->label().IsEmpty());
   EXPECT_FALSE(device->groupId().IsEmpty());
 
-  // Audio output device.
   device = device_infos()[4];
+  EXPECT_FALSE(device->deviceId().IsEmpty());
+  EXPECT_EQ("videoinput", device->kind());
+  EXPECT_FALSE(device->label().IsEmpty());
+  EXPECT_FALSE(device->groupId().IsEmpty());
+
+  // Audio output device.
+  device = device_infos()[5];
+  EXPECT_FALSE(device->deviceId().IsEmpty());
+  EXPECT_EQ("audiooutput", device->kind());
+  EXPECT_FALSE(device->label().IsEmpty());
+  EXPECT_FALSE(device->groupId().IsEmpty());
+
+  // Audio output device with Airpods label.
+  device = device_infos()[6];
   EXPECT_FALSE(device->deviceId().IsEmpty());
   EXPECT_EQ("audiooutput", device->kind());
   EXPECT_FALSE(device->label().IsEmpty());
   EXPECT_FALSE(device->groupId().IsEmpty());
 
   // Verify group IDs.
-  EXPECT_EQ(device_infos()[0]->groupId(), device_infos()[2]->groupId());
-  EXPECT_EQ(device_infos()[0]->groupId(), device_infos()[4]->groupId());
-  EXPECT_NE(device_infos()[1]->groupId(), device_infos()[4]->groupId());
+  EXPECT_EQ(device_infos()[0]->groupId(), device_infos()[3]->groupId());
+  EXPECT_EQ(device_infos()[0]->groupId(), device_infos()[5]->groupId());
+  EXPECT_NE(device_infos()[2]->groupId(), device_infos()[5]->groupId());
+
+  // Verify device labels do not expose user's information.
+  EXPECT_EQ(device_infos()[1]->label(), "AirPods");
+  EXPECT_EQ(device_infos()[6]->label(), "AirPods");
+
+  // Verify the code does not change non-sensitive device labels.
+  EXPECT_EQ(device_infos()[0]->label(), "Fake Audio Input 1");
+  EXPECT_EQ(device_infos()[3]->label(), "Fake Video Input 1");
 }
 
 TEST_F(MediaDevicesTest, EnumerateDevicesAfterConnectionError) {
   V8TestingScope scope;
-  auto* media_devices = GetMediaDevices(scope.GetExecutionContext());
+  auto* media_devices = GetMediaDevices(scope.GetWindow());
   media_devices->SetEnumerateDevicesCallbackForTesting(
       WTF::Bind(&MediaDevicesTest::DevicesEnumerated, WTF::Unretained(this)));
   media_devices->SetConnectionErrorCallbackForTesting(
@@ -327,7 +366,7 @@ TEST_F(MediaDevicesTest, EnumerateDevicesAfterConnectionError) {
 
 TEST_F(MediaDevicesTest, EnumerateDevicesBeforeConnectionError) {
   V8TestingScope scope;
-  auto* media_devices = GetMediaDevices(scope.GetExecutionContext());
+  auto* media_devices = GetMediaDevices(scope.GetWindow());
   media_devices->SetEnumerateDevicesCallbackForTesting(
       WTF::Bind(&MediaDevicesTest::DevicesEnumerated, WTF::Unretained(this)));
   media_devices->SetConnectionErrorCallbackForTesting(
@@ -349,7 +388,7 @@ TEST_F(MediaDevicesTest, EnumerateDevicesBeforeConnectionError) {
 
 TEST_F(MediaDevicesTest, ObserveDeviceChangeEvent) {
   V8TestingScope scope;
-  auto* media_devices = GetMediaDevices(scope.GetExecutionContext());
+  auto* media_devices = GetMediaDevices(scope.GetWindow());
   media_devices->SetDeviceChangeCallbackForTesting(
       WTF::Bind(&MediaDevicesTest::OnDevicesChanged, WTF::Unretained(this)));
   EXPECT_FALSE(listener());

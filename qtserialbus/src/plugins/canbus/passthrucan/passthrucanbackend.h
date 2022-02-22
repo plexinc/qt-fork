@@ -40,9 +40,9 @@
 #include <QtSerialBus/qcanbusdevice.h>
 #include <QtSerialBus/qcanbusframe.h>
 
+#include <QList>
 #include <QString>
 #include <QThread>
-#include <QVector>
 
 QT_BEGIN_NAMESPACE
 
@@ -56,11 +56,12 @@ public:
     explicit PassThruCanBackend(const QString &name, QObject *parent = nullptr);
     virtual ~PassThruCanBackend();
 
-    void setConfigurationParameter(int key, const QVariant &value) override;
+    void setConfigurationParameter(ConfigurationKey key, const QVariant &value) override;
     bool writeFrame(const QCanBusFrame &frame) override;
     QString interpretErrorFrame(const QCanBusFrame &errorFrame) override;
 
     static QList<QCanBusDeviceInfo> interfaces();
+    QCanBusDeviceInfo deviceInfo() const override;
 
 protected:
     bool open() override;
@@ -69,7 +70,7 @@ protected:
 private:
     void ackOpenFinished(bool success);
     void ackCloseFinished();
-    void applyConfig(int key, const QVariant &value);
+    void applyConfig(QCanBusDevice::ConfigurationKey key, const QVariant &value);
 
     QString         m_deviceName;
     QThread         m_ioThread;
@@ -79,6 +80,6 @@ private:
 QT_END_NAMESPACE
 
 Q_DECLARE_METATYPE(QCanBusDevice::CanBusError)
-Q_DECLARE_METATYPE(QVector<QCanBusFrame>)
+Q_DECLARE_METATYPE(QList<QCanBusFrame>)
 
 #endif // PASSTHRUCAN_PASSTHRUCANBACKEND_H

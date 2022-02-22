@@ -62,6 +62,13 @@ class QVIRTUALKEYBOARD_EXPORT VirtualKeyboardSettings : public QObject
     Q_PROPERTY(QStringList activeLocales READ activeLocales WRITE setActiveLocales NOTIFY activeLocalesChanged)
     Q_PROPERTY(WordCandidateListSettings *wordCandidateList READ wordCandidateList CONSTANT)
     Q_PROPERTY(bool fullScreenMode READ fullScreenMode WRITE setFullScreenMode NOTIFY fullScreenModeChanged)
+    Q_PROPERTY(QString userDataPath READ userDataPath WRITE setUserDataPath NOTIFY userDataPathChanged REVISION(6, 1))
+    Q_PROPERTY(int hwrTimeoutForAlphabetic READ hwrTimeoutForAlphabetic WRITE setHwrTimeoutForAlphabetic NOTIFY hwrTimeoutForAlphabeticChanged REVISION(6, 1))
+    Q_PROPERTY(int hwrTimeoutForCjk READ hwrTimeoutForCjk WRITE setHwrTimeoutForCjk NOTIFY hwrTimeoutForCjkChanged REVISION(6, 1))
+    Q_PROPERTY(Qt::InputMethodHints inputMethodHints READ inputMethodHints WRITE setInputMethodHints NOTIFY inputMethodHintsChanged REVISION(6, 1))
+    Q_PROPERTY(bool handwritingModeDisabled READ isHandwritingModeDisabled WRITE setHandwritingModeDisabled NOTIFY handwritingModeDisabledChanged REVISION(6, 1))
+    Q_PROPERTY(bool defaultInputMethodDisabled READ isDefaultInputMethodDisabled WRITE setDefaultInputMethodDisabled NOTIFY defaultInputMethodDisabledChanged REVISION(6, 1))
+    Q_PROPERTY(bool defaultDictionaryDisabled READ isDefaultDictionaryDisabled WRITE setDefaultDictionaryDisabled NOTIFY defaultDictionaryDisabledChanged REVISION(6, 1))
 
 public:
     static QObject *registerSettingsModule(QQmlEngine *engine, QJSEngine *jsEngine);
@@ -89,6 +96,27 @@ public:
     bool fullScreenMode() const;
     void setFullScreenMode(bool fullScreenMode);
 
+    QString userDataPath() const;
+    void setUserDataPath(const QString &userDataPath);
+
+    int hwrTimeoutForAlphabetic() const;
+    void setHwrTimeoutForAlphabetic(int hwrTimeoutForAlphabetic);
+
+    int hwrTimeoutForCjk() const;
+    void setHwrTimeoutForCjk(int hwrTimeoutForCjk);
+
+    Qt::InputMethodHints inputMethodHints() const;
+    void setInputMethodHints(const Qt::InputMethodHints &inputMethodHints);
+
+    bool isHandwritingModeDisabled() const;
+    void setHandwritingModeDisabled(bool handwritingModeDisabled);
+
+    bool isDefaultInputMethodDisabled() const;
+    void setDefaultInputMethodDisabled(bool defaultInputMethodDisabled);
+
+    bool isDefaultDictionaryDisabled() const;
+    void setDefaultDictionaryDisabled(bool defaultDictionaryDisabled);
+
 signals:
     void styleChanged();
     void styleNameChanged();
@@ -97,6 +125,14 @@ signals:
     void activeLocalesChanged();
     void layoutPathChanged();
     void fullScreenModeChanged();
+    Q_REVISION(6, 1) void userDataPathChanged();
+    Q_REVISION(6, 1) void userDataReset();
+    Q_REVISION(6, 1) void hwrTimeoutForAlphabeticChanged();
+    Q_REVISION(6, 1) void hwrTimeoutForCjkChanged();
+    Q_REVISION(6, 1) void inputMethodHintsChanged();
+    Q_REVISION(6, 1) void handwritingModeDisabledChanged();
+    Q_REVISION(6, 1) void defaultInputMethodDisabledChanged();
+    Q_REVISION(6, 1) void defaultDictionaryDisabledChanged();
 
 private:
     void resetStyle();

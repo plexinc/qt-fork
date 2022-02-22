@@ -55,6 +55,8 @@
 
 #undef ENABLE_ALL_ASSEMBLERS_FOR_REFACTORING_PURPOSES
 
+#if QT_CONFIG(qml_jit)
+
 QT_BEGIN_NAMESPACE
 namespace QV4 {
 namespace JIT {
@@ -888,7 +890,7 @@ void BaselineAssembler::storeReg(int reg)
 void BaselineAssembler::loadLocal(int index, int level)
 {
     Heap::CallContext ctx;
-    Q_UNUSED(ctx)
+    Q_UNUSED(ctx);
     pasm()->loadPointerFromValue(regAddr(CallData::Context), PlatformAssembler::ScratchRegister);
     while (level) {
         pasm()->loadPtr(Address(PlatformAssembler::ScratchRegister, ctx.outer.offset), PlatformAssembler::ScratchRegister);
@@ -900,7 +902,7 @@ void BaselineAssembler::loadLocal(int index, int level)
 void BaselineAssembler::storeLocal(int index, int level)
 {
     Heap::CallContext ctx;
-    Q_UNUSED(ctx)
+    Q_UNUSED(ctx);
     pasm()->loadPtr(regAddr(CallData::Context), PlatformAssembler::ScratchRegister);
     while (level) {
         pasm()->loadPtr(Address(PlatformAssembler::ScratchRegister, ctx.outer.offset), PlatformAssembler::ScratchRegister);
@@ -1413,6 +1415,23 @@ int BaselineAssembler::jumpNotUndefined(int offset)
     return offset;
 }
 
+int BaselineAssembler::jumpEqNull(int offset)
+{
+    saveAccumulatorInFrame();
+    cmpeqNull();
+
+    pasm()->toBoolean([this, offset](PlatformAssembler::RegisterID resultReg) {
+        auto isFalse = pasm()->branch32(PlatformAssembler::Equal, TrustedImm32(0), resultReg);
+        loadValue(Encode::undefined());
+        pasm()->addJumpToOffset(pasm()->jump(), offset);
+        isFalse.link(pasm());
+        loadAccumulatorFromFrame();
+    });
+
+    return offset;
+}
+
+
 void BaselineAssembler::prepareCallWithArgCount(int argc)
 {
     pasm()->prepareCallWithArgCount(argc);
@@ -1475,7 +1494,7 @@ void BaselineAssembler::loadAccumulatorFromFrame()
                                                        offsetof(CallData, accumulator)));
 }
 
-static ReturnedValue TheJitIs__Tail_Calling__ToTheRuntimeSoTheJitFrameIsMissing(CppStackFrame *frame, ExecutionEngine *engine)
+static ReturnedValue TheJitIs__Tail_Calling__ToTheRuntimeSoTheJitFrameIsMissing(JSTypesStackFrame *frame, ExecutionEngine *engine)
 {
     return Runtime::TailCall::call(frame, engine);
 }
@@ -1557,15 +1576,15 @@ void BaselineAssembler::clearUnwindHandler()
 void JIT::BaselineAssembler::unwindDispatch()
 {
     checkException();
-    pasm()->load32(Address(PlatformAssembler::CppStackFrameRegister, offsetof(CppStackFrame, unwindLevel)), PlatformAssembler::ScratchRegister);
+    pasm()->load32(Address(PlatformAssembler::CppStackFrameRegister, offsetof(JSTypesStackFrame, unwindLevel)), PlatformAssembler::ScratchRegister);
     auto noUnwind = pasm()->branch32(PlatformAssembler::Equal, PlatformAssembler::ScratchRegister, TrustedImm32(0));
     pasm()->sub32(TrustedImm32(1), PlatformAssembler::ScratchRegister);
-    pasm()->store32(PlatformAssembler::ScratchRegister, Address(PlatformAssembler::CppStackFrameRegister, offsetof(CppStackFrame, unwindLevel)));
+    pasm()->store32(PlatformAssembler::ScratchRegister, Address(PlatformAssembler::CppStackFrameRegister, offsetof(JSTypesStackFrame, unwindLevel)));
     auto jump = pasm()->branch32(PlatformAssembler::Equal, PlatformAssembler::ScratchRegister, TrustedImm32(0));
     gotoCatchException();
     jump.link(pasm());
 
-    pasm()->loadPtr(Address(PlatformAssembler::CppStackFrameRegister, offsetof(CppStackFrame, unwindLabel)), PlatformAssembler::ScratchRegister);
+    pasm()->loadPtr(Address(PlatformAssembler::CppStackFrameRegister, offsetof(JSTypesStackFrame, unwindLabel)), PlatformAssembler::ScratchRegister);
     pasm()->jump(PlatformAssembler::ScratchRegister);
 
     noUnwind.link(pasm());
@@ -1573,9 +1592,9 @@ void JIT::BaselineAssembler::unwindDispatch()
 
 int JIT::BaselineAssembler::unwindToLabel(int level, int offset)
 {
-    auto l = pasm()->storePtrWithPatch(TrustedImmPtr(nullptr), Address(PlatformAssembler::CppStackFrameRegister, offsetof(CppStackFrame, unwindLabel)));
+    auto l = pasm()->storePtrWithPatch(TrustedImmPtr(nullptr), Address(PlatformAssembler::CppStackFrameRegister, offsetof(JSTypesStackFrame, unwindLabel)));
     pasm()->addEHTarget(l, offset);
-    pasm()->store32(TrustedImm32(level), Address(PlatformAssembler::CppStackFrameRegister, offsetof(CppStackFrame, unwindLevel)));
+    pasm()->store32(TrustedImm32(level), Address(PlatformAssembler::CppStackFrameRegister, offsetof(JSTypesStackFrame, unwindLevel)));
     gotoCatchException();
     return offset;
 }
@@ -1592,7 +1611,7 @@ void BaselineAssembler::pushCatchContext(int index, int name)
 void BaselineAssembler::popContext()
 {
     Heap::CallContext ctx;
-    Q_UNUSED(ctx)
+    Q_UNUSED(ctx);
     pasm()->loadPointerFromValue(regAddr(CallData::Context), PlatformAssembler::ScratchRegister);
     pasm()->loadPtr(Address(PlatformAssembler::ScratchRegister, ctx.outer.offset), PlatformAssembler::ScratchRegister);
     pasm()->storeHeapObject(PlatformAssembler::ScratchRegister, regAddr(CallData::Context));
@@ -1619,3 +1638,5 @@ void BaselineAssembler::ret()
 } // QV4 namepsace
 
 QT_END_NAMESPACE
+
+#endif // QT_CONFIG(qml_jit)

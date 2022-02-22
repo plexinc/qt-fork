@@ -50,6 +50,7 @@ class OutputHLSL : public TIntermTraverser
                sh::WorkGroupSize workGroupSize,
                TSymbolTable *symbolTable,
                PerformanceDiagnostics *perfDiagnostics,
+               const std::map<int, const TInterfaceBlock *> &uniformBlockOptimizedMap,
                const std::vector<InterfaceBlock> &shaderStorageBlocks);
 
     ~OutputHLSL() override;
@@ -178,6 +179,8 @@ class OutputHLSL : public TIntermTraverser
 
     // Indexed by block id, not instance id.
     ReferencedInterfaceBlocks mReferencedUniformBlocks;
+
+    std::map<int, const TInterfaceBlock *> mUniformBlockOptimizedMap;
 
     ReferencedVariables mReferencedAttributes;
     ReferencedVariables mReferencedVaryings;

@@ -41,8 +41,7 @@
 #include "qpointer.h"
 #include "qapplication.h"
 #include <private/qguiapplication_p.h>
-#include "qdesktopwidget.h"
-#include <private/qdesktopwidget_p.h>
+#include "qwidget.h"
 #include "qevent.h"
 #include "qpixmap.h"
 #include "qscreen.h"
@@ -212,15 +211,15 @@ QWhatsThat::QWhatsThat(const QString& txt, QWidget* parent, QWidget *showTextFor
     }
     else
     {
-        int sw = QDesktopWidgetPrivate::width() / 3;
+        int sw = QGuiApplication::primaryScreen()->virtualGeometry().width() / 3;
         if (sw < 200)
             sw = 200;
         else if (sw > 300)
             sw = 300;
 
         r = fontMetrics().boundingRect(0, 0, sw, 1000,
-                                        Qt::AlignLeft + Qt::AlignTop
-                                        + Qt::TextWordWrap + Qt::TextExpandTabs,
+                                        Qt::AlignLeft | Qt::AlignTop
+                                        | Qt::TextWordWrap | Qt::TextExpandTabs,
                                         text);
     }
     shadowWidth = dropShadow() ? 0 : 6;
@@ -236,16 +235,15 @@ QWhatsThat::~QWhatsThat()
 
 void QWhatsThat::showEvent(QShowEvent *)
 {
-    background = QGuiApplication::primaryScreen()->grabWindow(QApplication::desktop()->internalWinId(),
-                                                              x(), y(), width(), height());
+    background = QGuiApplication::primaryScreen()->grabWindow(0, x(), y(), width(), height());
 }
 
 void QWhatsThat::mousePressEvent(QMouseEvent* e)
 {
     pressed = true;
-    if (e->button() == Qt::LeftButton && rect().contains(e->pos())) {
+    if (e->button() == Qt::LeftButton && rect().contains(e->position().toPoint())) {
         if (doc)
-            anchor = doc->documentLayout()->anchorAt(e->pos() -  QPoint(hMargin, vMargin));
+            anchor = doc->documentLayout()->anchorAt(e->position().toPoint() -  QPoint(hMargin, vMargin));
         return;
     }
     close();
@@ -255,8 +253,8 @@ void QWhatsThat::mouseReleaseEvent(QMouseEvent* e)
 {
     if (!pressed)
         return;
-    if (widget && e->button() == Qt::LeftButton && doc && rect().contains(e->pos())) {
-        QString a = doc->documentLayout()->anchorAt(e->pos() -  QPoint(hMargin, vMargin));
+    if (widget && e->button() == Qt::LeftButton && doc && rect().contains(e->position().toPoint())) {
+        QString a = doc->documentLayout()->anchorAt(e->position().toPoint() -  QPoint(hMargin, vMargin));
         QString href;
         if (anchor == a)
             href = a;
@@ -277,7 +275,7 @@ void QWhatsThat::mouseMoveEvent(QMouseEvent* e)
 #else
     if (!doc)
         return;
-    QString a = doc->documentLayout()->anchorAt(e->pos() -  QPoint(hMargin, vMargin));
+    QString a = doc->documentLayout()->anchorAt(e->position().toPoint() -  QPoint(hMargin, vMargin));
     if (!a.isEmpty())
         setCursor(Qt::PointingHandCursor);
     else
@@ -335,7 +333,7 @@ void QWhatsThat::paintEvent(QPaintEvent*)
     }
     else
     {
-        p.drawText(r, Qt::AlignLeft + Qt::AlignTop + Qt::TextWordWrap + Qt::TextExpandTabs, text);
+        p.drawText(r, Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap | Qt::TextExpandTabs, text);
     }
 }
 
@@ -438,7 +436,7 @@ bool QWhatsThisPrivate::eventFilter(QObject *o, QEvent *e)
         QMouseEvent *me = static_cast<QMouseEvent*>(e);
         if (me->button() == Qt::RightButton || customWhatsThis)
             return false;
-        QHelpEvent e(QEvent::WhatsThis, me->pos(), me->globalPos());
+        QHelpEvent e(QEvent::WhatsThis, me->position().toPoint(), me->globalPosition().toPoint());
         if (!QCoreApplication::sendEvent(w, &e) || !e.isAccepted())
             leaveOnMouseRelease = true;
 
@@ -447,7 +445,7 @@ bool QWhatsThisPrivate::eventFilter(QObject *o, QEvent *e)
     case QEvent::MouseMove:
     {
         QMouseEvent *me = static_cast<QMouseEvent*>(e);
-        QHelpEvent e(QEvent::QueryWhatsThis, me->pos(), me->globalPos());
+        QHelpEvent e(QEvent::QueryWhatsThis, me->position().toPoint(), me->globalPosition().toPoint());
         const bool sentEvent = QCoreApplication::sendEvent(w, &e);
 #ifdef QT_NO_CURSOR
         Q_UNUSED(sentEvent);
@@ -512,7 +510,7 @@ QWhatsThisAction::QWhatsThisAction(QObject *parent) : QAction(tr("What's This?")
     setCheckable(true);
     connect(this, SIGNAL(triggered()), this, SLOT(actionTriggered()));
 #ifndef QT_NO_SHORTCUT
-    setShortcut(Qt::ShiftModifier + Qt::Key_F1);
+    setShortcut(Qt::ShiftModifier | Qt::Key_F1);
 #endif
 }
 
@@ -580,16 +578,16 @@ void QWhatsThisPrivate::say(QWidget * widget, const QString &text, int x, int y)
     QWhatsThat *whatsThat = new QWhatsThat(text, nullptr, widget);
 
     // okay, now to find a suitable location
-    int scr = (widget ?
-                QDesktopWidgetPrivate::screenNumber(widget) :
-                QDesktopWidgetPrivate::screenNumber(QPoint(x,y))
-               );
-    QRect screen = QDesktopWidgetPrivate::screenGeometry(scr);
+    QScreen *screen = widget ? widget->screen()
+                             : QGuiApplication::screenAt(QPoint(x, y));
+    if (!screen)
+        screen = QGuiApplication::primaryScreen();
+    QRect screenRect = screen->geometry();
 
     int w = whatsThat->width();
     int h = whatsThat->height();
-    int sx = screen.x();
-    int sy = screen.y();
+    int sx = screenRect.x();
+    int sy = screenRect.y();
 
     // first try locating the widget immediately above/below,
     // with nice alignment if possible.
@@ -602,13 +600,13 @@ void QWhatsThisPrivate::say(QWidget * widget, const QString &text, int x, int y)
     else
         x = x - w/2;
 
-        // squeeze it in if that would result in part of what's this
-        // being only partially visible
-    if (x + w  + shadowWidth > sx+screen.width())
-        x = (widget? (qMin(screen.width(),
-                           pos.x() + widget->width())
-                     ) : screen.width())
+    // squeeze it in if that would result in part of what's this
+    // being only partially visible
+    if (x + w  + shadowWidth > sx+screenRect.width()) {
+        x = (widget ? qMin(screenRect.width(), pos.x() + widget->width())
+                    : screenRect.width())
             - w;
+    }
 
     if (x < sx)
         x = sx;
@@ -616,18 +614,18 @@ void QWhatsThisPrivate::say(QWidget * widget, const QString &text, int x, int y)
     if (widget && h > widget->height() + 16) {
         y = pos.y() + widget->height() + 2; // below, two pixels spacing
         // what's this is above or below, wherever there's most space
-        if (y + h + 10 > sy+screen.height())
+        if (y + h + 10 > sy + screenRect.height())
             y = pos.y() + 2 - shadowWidth - h; // above, overlap
     }
     y = y + 2;
 
-        // squeeze it in if that would result in part of what's this
-        // being only partially visible
-    if (y + h + shadowWidth > sy+screen.height())
-        y = (widget ? (qMin(screen.height(),
-                             pos.y() + widget->height())
-                       ) : screen.height())
+    // squeeze it in if that would result in part of what's this
+    // being only partially visible
+    if (y + h + shadowWidth > sy + screenRect.height()) {
+        y = (widget ? qMin(screenRect.height(), pos.y() + widget->height())
+                    : screenRect.height())
             - h;
+    }
     if (y < sy)
         y = sy;
 

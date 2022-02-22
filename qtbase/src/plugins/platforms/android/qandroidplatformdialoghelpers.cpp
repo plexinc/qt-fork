@@ -51,7 +51,7 @@ QT_BEGIN_NAMESPACE
 namespace QtAndroidDialogHelpers {
 static jclass g_messageDialogHelperClass = 0;
 
-static const char QtMessageHandlerHelperClassName[] = "org/qtproject/qt5/android/QtMessageDialogHelper";
+static const char QtMessageHandlerHelperClassName[] = "org/qtproject/qt/android/QtMessageDialogHelper";
 
 QAndroidPlatformMessageDialogHelper::QAndroidPlatformMessageDialogHelper()
     :m_buttonId(-1)
@@ -79,9 +79,9 @@ bool QAndroidPlatformMessageDialogHelper::show(Qt::WindowFlags windowFlags
                                          , Qt::WindowModality windowModality
                                          , QWindow *parent)
 {
-    Q_UNUSED(windowFlags)
-    Q_UNUSED(windowModality)
-    Q_UNUSED(parent)
+    Q_UNUSED(windowFlags);
+    Q_UNUSED(windowModality);
+    Q_UNUSED(parent);
     QSharedPointer<QMessageDialogOptions> opt = options();
     if (!opt.data())
         return false;
@@ -90,19 +90,19 @@ bool QAndroidPlatformMessageDialogHelper::show(Qt::WindowFlags windowFlags
 
     QString str = htmlText(opt->windowTitle());
     if (!str.isEmpty())
-        m_javaMessageDialog.callMethod<void>("setTile", "(Ljava/lang/String;)V", QJNIObjectPrivate::fromString(str).object());
+        m_javaMessageDialog.callMethod<void>("setTile", "(Ljava/lang/String;)V", QJniObject::fromString(str).object());
 
     str = htmlText(opt->text());
     if (!str.isEmpty())
-        m_javaMessageDialog.callMethod<void>("setText", "(Ljava/lang/String;)V", QJNIObjectPrivate::fromString(str).object());
+        m_javaMessageDialog.callMethod<void>("setText", "(Ljava/lang/String;)V", QJniObject::fromString(str).object());
 
     str = htmlText(opt->informativeText());
     if (!str.isEmpty())
-        m_javaMessageDialog.callMethod<void>("setInformativeText", "(Ljava/lang/String;)V", QJNIObjectPrivate::fromString(str).object());
+        m_javaMessageDialog.callMethod<void>("setInformativeText", "(Ljava/lang/String;)V", QJniObject::fromString(str).object());
 
     str = htmlText(opt->detailedText());
     if (!str.isEmpty())
-        m_javaMessageDialog.callMethod<void>("setDetailedText", "(Ljava/lang/String;)V", QJNIObjectPrivate::fromString(str).object());
+        m_javaMessageDialog.callMethod<void>("setDetailedText", "(Ljava/lang/String;)V", QJniObject::fromString(str).object());
 
     const int * currentLayout = buttonLayout(Qt::Horizontal, AndroidLayout);
     while (*currentLayout != QPlatformDialogHelper::EOL) {
@@ -123,7 +123,7 @@ void QAndroidPlatformMessageDialogHelper::addButtons(QSharedPointer<QMessageDial
             QString label = b.label;
             label.remove(QChar('&'));
             m_javaMessageDialog.callMethod<void>("addButton", "(ILjava/lang/String;)V", b.id,
-                                                 QJNIObjectPrivate::fromString(label).object());
+                                                 QJniObject::fromString(label).object());
         }
     }
 
@@ -131,7 +131,7 @@ void QAndroidPlatformMessageDialogHelper::addButtons(QSharedPointer<QMessageDial
         StandardButton b = static_cast<StandardButton>(i);
         if (buttonRole(b) == role && (opt->standardButtons() & i)) {
             const QString text = QGuiApplicationPrivate::platformTheme()->standardButtonText(b);
-            m_javaMessageDialog.callMethod<void>("addButton", "(ILjava/lang/String;)V", i, QJNIObjectPrivate::fromString(text).object());
+            m_javaMessageDialog.callMethod<void>("addButton", "(ILjava/lang/String;)V", i, QJniObject::fromString(text).object());
         }
     }
 }
@@ -183,14 +183,15 @@ static JNINativeMethod methods[] = {
 
 bool registerNatives(JNIEnv *env)
 {
-    jclass clazz = QJNIEnvironmentPrivate::findClass(QtMessageHandlerHelperClassName, env);
+    QJniEnvironment qenv;
+    jclass clazz = qenv.findClass(QtMessageHandlerHelperClassName);
     if (!clazz) {
         __android_log_print(ANDROID_LOG_FATAL, QtAndroid::qtTagText(), QtAndroid::classErrorMsgFmt()
                             , QtMessageHandlerHelperClassName);
         return false;
     }
     g_messageDialogHelperClass = static_cast<jclass>(env->NewGlobalRef(clazz));
-    FIND_AND_CHECK_CLASS("org/qtproject/qt5/android/QtNativeDialogHelper");
+    FIND_AND_CHECK_CLASS("org/qtproject/qt/android/QtNativeDialogHelper");
     jclass appClass = static_cast<jclass>(env->NewGlobalRef(clazz));
 
     if (env->RegisterNatives(appClass, methods, sizeof(methods) / sizeof(methods[0])) < 0) {

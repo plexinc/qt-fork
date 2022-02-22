@@ -70,12 +70,13 @@ angle::Result OverlayVk::init(const gl::Context *context)
 
 void OverlayVk::onDestroy(const gl::Context *context)
 {
-    VkDevice device = vk::GetImpl(context)->getDevice();
+    RendererVk *renderer = vk::GetImpl(context)->getRenderer();
+    VkDevice device      = renderer->getDevice();
 
-    mCulledWidgets.destroy(device);
+    mCulledWidgets.destroy(renderer);
     mCulledWidgetsView.destroy(device);
 
-    mFontImage.destroy(device);
+    mFontImage.destroy(renderer);
     mFontImageView.destroy(device);
 }
 
@@ -101,30 +102,32 @@ angle::Result OverlayVk::createFont(ContextVk *contextVk)
 
     mState.initFontData(fontData);
 
-    ANGLE_TRY(fontDataBuffer.get().flush(contextVk, 0, fontDataBuffer.get().getSize()));
-    fontDataBuffer.get().unmap(contextVk->getDevice());
+    ANGLE_TRY(fontDataBuffer.get().flush(renderer, 0, fontDataBuffer.get().getSize()));
+    fontDataBuffer.get().unmap(renderer);
 
-    fontDataBuffer.get().onExternalWrite(VK_ACCESS_HOST_WRITE_BIT);
+    // Don't use robust resource init for overlay widgets.
+    bool useRobustInit = false;
 
     // Create the font image.
-    ANGLE_TRY(
-        mFontImage.init(contextVk, gl::TextureType::_2D,
-                        VkExtent3D{gl::overlay::kFontImageWidth, gl::overlay::kFontImageHeight, 1},
-                        renderer->getFormat(angle::FormatID::R8_UNORM), 1,
-                        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0, 0, 1,
-                        gl::overlay::kFontCount));
+    ANGLE_TRY(mFontImage.init(
+        contextVk, gl::TextureType::_2D,
+        VkExtent3D{gl::overlay::kFontImageWidth, gl::overlay::kFontImageHeight, 1},
+        renderer->getFormat(angle::FormatID::R8_UNORM), 1,
+        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, gl::LevelIndex(0),
+        gl::LevelIndex(0), 1, gl::overlay::kFontCount, useRobustInit));
     ANGLE_TRY(mFontImage.initMemory(contextVk, renderer->getMemoryProperties(),
                                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT));
     ANGLE_TRY(mFontImage.initImageView(contextVk, gl::TextureType::_2DArray,
                                        VK_IMAGE_ASPECT_COLOR_BIT, gl::SwizzleState(),
-                                       &mFontImageView, 0, 1));
+                                       &mFontImageView, vk::LevelIndex(0), 1));
 
     // Copy font data from staging buffer.
+    vk::CommandBufferAccess access;
+    access.onBufferTransferRead(&fontDataBuffer.get());
+    access.onImageTransferWrite(gl::LevelIndex(0), 1, 0, gl::overlay::kFontCount,
+                                VK_IMAGE_ASPECT_COLOR_BIT, &mFontImage);
     vk::CommandBuffer *fontDataUpload;
-    ANGLE_TRY(contextVk->onBufferRead(VK_ACCESS_TRANSFER_READ_BIT, &fontDataBuffer.get()));
-    ANGLE_TRY(contextVk->onImageWrite(VK_IMAGE_ASPECT_COLOR_BIT, vk::ImageLayout::TransferDst,
-                                      &mFontImage));
-    ANGLE_TRY(contextVk->endRenderPassAndGetCommandBuffer(&fontDataUpload));
+    ANGLE_TRY(contextVk->getOutsideRenderPassCommandBuffer(access, &fontDataUpload));
 
     VkBufferImageCopy copy           = {};
     copy.bufferRowLength             = gl::overlay::kFontImageWidth;
@@ -147,7 +150,7 @@ angle::Result OverlayVk::cullWidgets(ContextVk *contextVk)
     RendererVk *renderer = contextVk->getRenderer();
 
     // Release old culledWidgets image
-    mCulledWidgets.releaseImage(renderer);
+    mCulledWidgets.releaseImageFromShareContexts(renderer, contextVk);
     contextVk->addGarbage(&mCulledWidgetsView);
 
     // Create a buffer to contain coordinates of enabled text and graph widgets.  This buffer will
@@ -170,25 +173,26 @@ angle::Result OverlayVk::cullWidgets(ContextVk *contextVk)
     gl::Extents presentImageExtents(mPresentImageExtent.width, mPresentImageExtent.height, 1);
     mState.fillEnabledWidgetCoordinates(presentImageExtents, enabledWidgets);
 
-    ANGLE_TRY(enabledWidgetsBuffer.get().flush(contextVk, 0, enabledWidgetsBuffer.get().getSize()));
-    enabledWidgetsBuffer.get().unmap(contextVk->getDevice());
-
-    enabledWidgetsBuffer.get().onExternalWrite(VK_ACCESS_HOST_WRITE_BIT);
+    ANGLE_TRY(enabledWidgetsBuffer.get().flush(renderer, 0, enabledWidgetsBuffer.get().getSize()));
+    enabledWidgetsBuffer.get().unmap(renderer);
 
     // Allocate mCulledWidget and its view.
     VkExtent3D culledWidgetsExtent = {
         UnsignedCeilDivide(mPresentImageExtent.width, mSubgroupSize[0]),
         UnsignedCeilDivide(mPresentImageExtent.height, mSubgroupSize[1]), 1};
 
+    // Don't use robust resource init for overlay widgets.
+    bool useRobustInit = false;
+
     ANGLE_TRY(mCulledWidgets.init(contextVk, gl::TextureType::_2D, culledWidgetsExtent,
                                   renderer->getFormat(angle::FormatID::R32G32_UINT), 1,
-                                  VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0, 0, 1,
-                                  1));
+                                  VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                                  gl::LevelIndex(0), gl::LevelIndex(0), 1, 1, useRobustInit));
     ANGLE_TRY(mCulledWidgets.initMemory(contextVk, renderer->getMemoryProperties(),
                                         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT));
     ANGLE_TRY(mCulledWidgets.initImageView(contextVk, gl::TextureType::_2D,
                                            VK_IMAGE_ASPECT_COLOR_BIT, gl::SwizzleState(),
-                                           &mCulledWidgetsView, 0, 1));
+                                           &mCulledWidgetsView, vk::LevelIndex(0), 1));
 
     UtilsVk::OverlayCullParameters params;
     params.subgroupSize[0]            = mSubgroupSize[0];
@@ -213,7 +217,7 @@ angle::Result OverlayVk::onPresent(ContextVk *contextVk,
 
     // If the swapchain image doesn't support storage image, we can't output to it.
     VkFormatFeatureFlags featureBits = renderer->getImageFormatFeatureBits(
-        imageToPresent->getFormat().vkImageFormat, VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT);
+        imageToPresent->getFormat().actualImageFormatID, VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT);
     if ((featureBits & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT) == 0)
     {
         return angle::Result::Continue;
@@ -260,10 +264,10 @@ angle::Result OverlayVk::onPresent(ContextVk *contextVk,
     gl::Extents presentImageExtents(mPresentImageExtent.width, mPresentImageExtent.height, 1);
     mState.fillWidgetData(presentImageExtents, textData, graphData);
 
-    ANGLE_TRY(textDataBuffer.get().flush(contextVk, 0, textDataBuffer.get().getSize()));
-    ANGLE_TRY(graphDataBuffer.get().flush(contextVk, 0, graphDataBuffer.get().getSize()));
-    textDataBuffer.get().unmap(contextVk->getDevice());
-    graphDataBuffer.get().unmap(contextVk->getDevice());
+    ANGLE_TRY(textDataBuffer.get().flush(renderer, 0, textDataBuffer.get().getSize()));
+    ANGLE_TRY(graphDataBuffer.get().flush(renderer, 0, graphDataBuffer.get().getSize()));
+    textDataBuffer.get().unmap(renderer);
+    graphDataBuffer.get().unmap(renderer);
 
     UtilsVk::OverlayDrawParameters params;
     params.subgroupSize[0] = mSubgroupSize[0];

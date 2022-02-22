@@ -31,7 +31,7 @@
 #include <private/chartpresenter_p.h>
 #include <private/abstractchartlayout_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 PolarChartValueAxisAngular::PolarChartValueAxisAngular(QValueAxis *axis, QGraphicsItem *item)
     : PolarChartAxisAngular(axis, item)
@@ -46,12 +46,12 @@ PolarChartValueAxisAngular::~PolarChartValueAxisAngular()
 {
 }
 
-QVector<qreal> PolarChartValueAxisAngular::calculateLayout() const
+QList<qreal> PolarChartValueAxisAngular::calculateLayout() const
 {
     int tickCount = static_cast<QValueAxis *>(axis())->tickCount();
     Q_ASSERT(tickCount >= 2);
 
-    QVector<qreal> points;
+    QList<qreal> points;
     points.resize(tickCount);
 
     const qreal d = 360.0 / qreal(tickCount - 1);
@@ -64,7 +64,7 @@ QVector<qreal> PolarChartValueAxisAngular::calculateLayout() const
     return points;
 }
 
-void PolarChartValueAxisAngular::createAxisLabels(const QVector<qreal> &layout)
+void PolarChartValueAxisAngular::createAxisLabels(const QList<qreal> &layout)
 {
     QStringList labelList = createValueLabels(min(), max(), layout.size(), 0.0, 0.0,
                                               QValueAxis::TicksFixed,
@@ -96,6 +96,6 @@ void PolarChartValueAxisAngular::handleLabelFormatChanged(const QString &format)
         presenter()->layout()->invalidate();
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_polarchartvalueaxisangular_p.cpp"

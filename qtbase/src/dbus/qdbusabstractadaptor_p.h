@@ -55,11 +55,11 @@
 #include <QtDBus/private/qtdbusglobal_p.h>
 #include <qdbusabstractadaptor.h>
 
-#include <QtCore/qobject.h>
+#include <QtCore/qlist.h>
 #include <QtCore/qmap.h>
+#include <QtCore/qobject.h>
 #include <QtCore/qreadwritelock.h>
 #include <QtCore/qvariant.h>
-#include <QtCore/qvector.h>
 #include "private/qobject_p.h"
 
 #define QCLASSINFO_DBUS_INTERFACE       "D-Bus Interface"
@@ -92,7 +92,7 @@ public:
 
 class QDBusAdaptorConnector: public QObject
 {
-    Q_OBJECT_FAKE
+    Q_OBJECT
 
 public: // typedefs
     struct AdaptorData
@@ -107,7 +107,7 @@ public: // typedefs
         inline bool operator<(const QByteArray &other) const
         { return interface < other; }
     };
-    typedef QVector<AdaptorData> AdaptorMap;
+    typedef QList<AdaptorData> AdaptorMap;
 
 public: // methods
     explicit QDBusAdaptorConnector(QObject *parent);
@@ -118,12 +118,11 @@ public: // methods
     void disconnectAllSignals(QObject *object);
     void relay(QObject *sender, int id, void **);
 
-//public slots:
-    void relaySlot(void **);
+public Q_SLOTS:
+    void relaySlot(QMethodRawArguments a);
     void polish();
 
-protected:
-//signals:
+Q_SIGNALS:
     void relaySignal(QObject *obj, const QMetaObject *metaObject, int sid, const QVariantList &args);
 
 public: // member variables

@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "authenticator_mojom_traits.h"
+#include "content/browser/webauth/authenticator_mojom_traits.h"  // nogncheck
 
 #include "url/mojom/url_gurl_mojom_traits.h"
 
@@ -24,6 +24,8 @@ EnumTraits<blink::mojom::AuthenticatorTransport,
       return blink::mojom::AuthenticatorTransport::CABLE;
     case ::device::FidoTransportProtocol::kInternal:
       return blink::mojom::AuthenticatorTransport::INTERNAL;
+    case ::device::FidoTransportProtocol::kAndroidAccessory:
+      return blink::mojom::AuthenticatorTransport::CABLE;
   }
   NOTREACHED();
   return blink::mojom::AuthenticatorTransport::USB;
@@ -149,6 +151,43 @@ bool EnumTraits<blink::mojom::AuthenticatorAttachment,
 }
 
 // static
+blink::mojom::ResidentKeyRequirement EnumTraits<
+    blink::mojom::ResidentKeyRequirement,
+    device::ResidentKeyRequirement>::ToMojom(device::ResidentKeyRequirement
+                                                 input) {
+  switch (input) {
+    case ::device::ResidentKeyRequirement::kDiscouraged:
+      return blink::mojom::ResidentKeyRequirement::DISCOURAGED;
+    case ::device::ResidentKeyRequirement::kPreferred:
+      return blink::mojom::ResidentKeyRequirement::PREFERRED;
+    case ::device::ResidentKeyRequirement::kRequired:
+      return blink::mojom::ResidentKeyRequirement::REQUIRED;
+  }
+  NOTREACHED();
+  return blink::mojom::ResidentKeyRequirement::DISCOURAGED;
+}
+
+// static
+bool EnumTraits<blink::mojom::ResidentKeyRequirement,
+                device::ResidentKeyRequirement>::
+    FromMojom(blink::mojom::ResidentKeyRequirement input,
+              device::ResidentKeyRequirement* output) {
+  switch (input) {
+    case blink::mojom::ResidentKeyRequirement::DISCOURAGED:
+      *output = ::device::ResidentKeyRequirement::kDiscouraged;
+      return true;
+    case blink::mojom::ResidentKeyRequirement::PREFERRED:
+      *output = ::device::ResidentKeyRequirement::kPreferred;
+      return true;
+    case blink::mojom::ResidentKeyRequirement::REQUIRED:
+      *output = ::device::ResidentKeyRequirement::kRequired;
+      return true;
+  }
+  NOTREACHED();
+  return false;
+}
+
+// static
 blink::mojom::UserVerificationRequirement
 EnumTraits<blink::mojom::UserVerificationRequirement,
            device::UserVerificationRequirement>::
@@ -186,21 +225,56 @@ bool EnumTraits<blink::mojom::UserVerificationRequirement,
 }
 
 // static
+blink::mojom::LargeBlobSupport
+EnumTraits<blink::mojom::LargeBlobSupport, device::LargeBlobSupport>::ToMojom(
+    device::LargeBlobSupport input) {
+  switch (input) {
+    case ::device::LargeBlobSupport::kNotRequested:
+      return blink::mojom::LargeBlobSupport::NOT_REQUESTED;
+    case ::device::LargeBlobSupport::kRequired:
+      return blink::mojom::LargeBlobSupport::REQUIRED;
+    case ::device::LargeBlobSupport::kPreferred:
+      return blink::mojom::LargeBlobSupport::PREFERRED;
+  }
+  NOTREACHED();
+  return blink::mojom::LargeBlobSupport::NOT_REQUESTED;
+}
+
+// static
+bool EnumTraits<blink::mojom::LargeBlobSupport, device::LargeBlobSupport>::
+    FromMojom(blink::mojom::LargeBlobSupport input,
+              device::LargeBlobSupport* output) {
+  switch (input) {
+    case blink::mojom::LargeBlobSupport::NOT_REQUESTED:
+      *output = ::device::LargeBlobSupport::kNotRequested;
+      return true;
+    case blink::mojom::LargeBlobSupport::REQUIRED:
+      *output = ::device::LargeBlobSupport::kRequired;
+      return true;
+    case blink::mojom::LargeBlobSupport::PREFERRED:
+      *output = ::device::LargeBlobSupport::kPreferred;
+      return true;
+  }
+  NOTREACHED();
+  return false;
+}
+
+// static
 bool StructTraits<blink::mojom::AuthenticatorSelectionCriteriaDataView,
                   device::AuthenticatorSelectionCriteria>::
     Read(blink::mojom::AuthenticatorSelectionCriteriaDataView data,
          device::AuthenticatorSelectionCriteria* out) {
   device::AuthenticatorAttachment authenticator_attachment;
-  bool require_resident_key = data.require_resident_key();
   device::UserVerificationRequirement user_verification_requirement;
+  device::ResidentKeyRequirement resident_key;
   if (!data.ReadAuthenticatorAttachment(&authenticator_attachment) ||
-      !data.ReadUserVerification(&user_verification_requirement)) {
+      !data.ReadUserVerification(&user_verification_requirement) ||
+      !data.ReadResidentKey(&resident_key)) {
     return false;
   }
 
-  *out = device::AuthenticatorSelectionCriteria(authenticator_attachment,
-                                                require_resident_key,
-                                                user_verification_requirement);
+  *out = device::AuthenticatorSelectionCriteria(
+      authenticator_attachment, resident_key, user_verification_requirement);
   return true;
 }
 
@@ -236,16 +310,41 @@ bool StructTraits<blink::mojom::CableAuthenticationDataView,
                   device::CableDiscoveryData>::
     Read(blink::mojom::CableAuthenticationDataView data,
          device::CableDiscoveryData* out) {
-  if (data.version() != 1) {
-    return false;
+  switch (data.version()) {
+    case 1: {
+      base::Optional<std::array<uint8_t, 16>> client_eid, authenticator_eid;
+      base::Optional<std::array<uint8_t, 32>> session_pre_key;
+      if (!data.ReadClientEid(&client_eid) || !client_eid ||
+          !data.ReadAuthenticatorEid(&authenticator_eid) ||
+          !authenticator_eid || !data.ReadSessionPreKey(&session_pre_key) ||
+          !session_pre_key) {
+        return false;
+      }
+
+      out->version = device::CableDiscoveryData::Version::V1;
+      out->v1.emplace();
+      out->v1->client_eid = *client_eid;
+      out->v1->authenticator_eid = *authenticator_eid;
+      out->v1->session_pre_key = *session_pre_key;
+      break;
+    }
+
+    case 2: {
+      base::Optional<std::vector<uint8_t>> server_link_data;
+      if (!data.ReadServerLinkData(&server_link_data) || !server_link_data) {
+        return false;
+      }
+
+      out->version = device::CableDiscoveryData::Version::V2;
+      out->v2.emplace(std::move(*server_link_data));
+
+      break;
+    }
+
+    default:
+      return false;
   }
-  out->version = device::CableDiscoveryData::Version::V1;
-  out->v1.emplace();
-  if (!data.ReadClientEid(&out->v1->client_eid) ||
-      !data.ReadAuthenticatorEid(&out->v1->authenticator_eid) ||
-      !data.ReadSessionPreKey(&out->v1->session_pre_key)) {
-    return false;
-  }
+
   return true;
 }
 
@@ -261,7 +360,11 @@ EnumTraits<blink::mojom::AttestationConveyancePreference,
       return blink::mojom::AttestationConveyancePreference::INDIRECT;
     case ::device::AttestationConveyancePreference::kDirect:
       return blink::mojom::AttestationConveyancePreference::DIRECT;
-    case ::device::AttestationConveyancePreference::kEnterprise:
+    case ::device::AttestationConveyancePreference::
+        kEnterpriseIfRPListedOnAuthenticator:
+      return blink::mojom::AttestationConveyancePreference::ENTERPRISE;
+    case ::device::AttestationConveyancePreference::
+        kEnterpriseApprovedByBrowser:
       return blink::mojom::AttestationConveyancePreference::ENTERPRISE;
   }
   NOTREACHED();
@@ -284,7 +387,8 @@ bool EnumTraits<blink::mojom::AttestationConveyancePreference,
       *output = ::device::AttestationConveyancePreference::kDirect;
       return true;
     case blink::mojom::AttestationConveyancePreference::ENTERPRISE:
-      *output = ::device::AttestationConveyancePreference::kEnterprise;
+      *output = ::device::AttestationConveyancePreference::
+          kEnterpriseIfRPListedOnAuthenticator;
       return true;
   }
   NOTREACHED();

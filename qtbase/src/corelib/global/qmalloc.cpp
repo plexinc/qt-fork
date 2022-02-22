@@ -49,29 +49,6 @@
 
 QT_BEGIN_NAMESPACE
 
-#if !QT_DEPRECATED_SINCE(5, 0)
-// Make sure they're defined to be exported
-Q_CORE_EXPORT void *qMalloc(size_t size) Q_ALLOC_SIZE(1);
-Q_CORE_EXPORT void qFree(void *ptr);
-Q_CORE_EXPORT void *qRealloc(void *ptr, size_t size) Q_ALLOC_SIZE(2);
-#endif
-
-
-void *qMalloc(size_t size)
-{
-    return ::malloc(size);
-}
-
-void qFree(void *ptr)
-{
-    ::free(ptr);
-}
-
-void *qRealloc(void *ptr, size_t size)
-{
-    return ::realloc(ptr, size);
-}
-
 void *qMallocAligned(size_t size, size_t alignment)
 {
     return qReallocAligned(nullptr, size, 0, alignment);
@@ -81,9 +58,9 @@ void *qReallocAligned(void *oldptr, size_t newsize, size_t oldsize, size_t align
 {
     // fake an aligned allocation
     void *actualptr = oldptr ? static_cast<void **>(oldptr)[-1] : nullptr;
-    if (alignment <= sizeof(void*)) {
+    if (alignment <= sizeof(void *)) {
         // special, fast case
-        void **newptr = static_cast<void **>(realloc(actualptr, newsize + sizeof(void*)));
+        void **newptr = static_cast<void **>(realloc(actualptr, newsize + sizeof(void *)));
         if (!newptr)
             return nullptr;
         if (newptr == actualptr) {
@@ -135,4 +112,3 @@ void qFreeAligned(void *ptr)
 }
 
 QT_END_NAMESPACE
-

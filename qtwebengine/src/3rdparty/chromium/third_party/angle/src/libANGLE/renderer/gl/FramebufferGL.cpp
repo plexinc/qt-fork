@@ -26,7 +26,7 @@
 #include "libANGLE/renderer/gl/formatutilsgl.h"
 #include "libANGLE/renderer/gl/renderergl_utils.h"
 #include "platform/FeaturesGL.h"
-#include "platform/Platform.h"
+#include "platform/PlatformMethods.h"
 
 using namespace gl;
 using angle::CheckedNumeric;
@@ -86,7 +86,8 @@ void BindFramebufferAttachment(const FunctionsGL *functions,
 
             if (texture->getType() == TextureType::_2D ||
                 texture->getType() == TextureType::_2DMultisample ||
-                texture->getType() == TextureType::Rectangle)
+                texture->getType() == TextureType::Rectangle ||
+                texture->getType() == TextureType::External)
             {
                 functions->framebufferTexture2D(GL_FRAMEBUFFER, attachmentPoint,
                                                 ToGLenum(texture->getType()),
@@ -97,7 +98,8 @@ void BindFramebufferAttachment(const FunctionsGL *functions,
                 TextureType textureType = texture->getType();
                 ASSERT(textureType == TextureType::_2DArray || textureType == TextureType::_3D ||
                        textureType == TextureType::CubeMap ||
-                       textureType == TextureType::_2DMultisampleArray);
+                       textureType == TextureType::_2DMultisampleArray ||
+                       textureType == TextureType::CubeMapArray);
                 functions->framebufferTexture(GL_FRAMEBUFFER, attachmentPoint,
                                               textureGL->getTextureID(), attachment->mipLevel());
             }
@@ -109,7 +111,8 @@ void BindFramebufferAttachment(const FunctionsGL *functions,
             }
             else if (texture->getType() == TextureType::_2DArray ||
                      texture->getType() == TextureType::_3D ||
-                     texture->getType() == TextureType::_2DMultisampleArray)
+                     texture->getType() == TextureType::_2DMultisampleArray ||
+                     texture->getType() == TextureType::CubeMapArray)
             {
                 if (attachment->isMultiview())
                 {
@@ -607,30 +610,19 @@ angle::Result FramebufferGL::clearBufferfi(const gl::Context *context,
     return angle::Result::Continue;
 }
 
-GLenum FramebufferGL::getImplementationColorReadFormat(const gl::Context *context) const
-{
-    const auto *readAttachment = mState.getReadAttachment();
-    const Format &format       = readAttachment->getFormat();
-    return format.info->getReadPixelsFormat(context->getExtensions());
-}
-
-GLenum FramebufferGL::getImplementationColorReadType(const gl::Context *context) const
-{
-    const auto *readAttachment = mState.getReadAttachment();
-    const Format &format       = readAttachment->getFormat();
-    return format.info->getReadPixelsType(context->getClientVersion());
-}
-
 angle::Result FramebufferGL::readPixels(const gl::Context *context,
                                         const gl::Rectangle &area,
                                         GLenum format,
                                         GLenum type,
+                                        const gl::PixelPackState &pack,
+                                        gl::Buffer *packBuffer,
                                         void *pixels)
 {
     ContextGL *contextGL              = GetImplAs<ContextGL>(context);
     const FunctionsGL *functions      = GetFunctionsGL(context);
     StateManagerGL *stateManager      = GetStateManagerGL(context);
     const angle::FeaturesGL &features = GetFeaturesGL(context);
+    gl::PixelPackState packState      = pack;
 
     // Clip read area to framebuffer.
     const auto *readAttachment = mState.getReadPixelsAttachment(format);
@@ -642,10 +634,6 @@ angle::Result FramebufferGL::readPixels(const gl::Context *context,
         // nothing to read
         return angle::Result::Continue;
     }
-
-    PixelPackState packState = context->getState().getPackState();
-    const gl::Buffer *packBuffer =
-        context->getState().getTargetBuffer(gl::BufferBinding::PixelPack);
 
     GLenum attachmentReadFormat =
         readAttachment->getFormat().info->getReadPixelsFormat(context->getExtensions());
@@ -694,7 +682,10 @@ angle::Result FramebufferGL::readPixels(const gl::Context *context,
     bool cannotSetDesiredRowLength =
         packState.rowLength && !GetImplAs<ContextGL>(context)->getNativeExtensions().packSubimage;
 
-    if (cannotSetDesiredRowLength || useOverlappingRowsWorkaround)
+    bool usePackSkipWorkaround = features.emulatePackSkipRowsAndPackSkipPixels.enabled &&
+                                 (packState.skipRows != 0 || packState.skipPixels != 0);
+
+    if (cannotSetDesiredRowLength || useOverlappingRowsWorkaround || usePackSkipWorkaround)
     {
         return readPixelsRowByRow(context, clippedArea, format, readFormat, readType, packState,
                                   outPtr);
@@ -781,6 +772,13 @@ angle::Result FramebufferGL::blit(const gl::Context *context,
             needManualColorBlit || (destSRGB && functions->isAtMostGL(gl::Version(4, 1)));
     }
 
+    // If the destination has an emulated alpha channel, we need to blit with a shader with alpha
+    // writes disabled.
+    if (mHasEmulatedAlphaAttachment)
+    {
+        needManualColorBlit = true;
+    }
+
     // Enable FRAMEBUFFER_SRGB if needed
     stateManager->setFramebufferSRGBEnabledForFramebuffer(context, true, this);
 
@@ -789,7 +787,8 @@ angle::Result FramebufferGL::blit(const gl::Context *context,
     {
         BlitGL *blitter = GetBlitGL(context);
         ANGLE_TRY(blitter->blitColorBufferWithShader(context, sourceFramebuffer, destFramebuffer,
-                                                     sourceArea, destArea, filter));
+                                                     sourceArea, destArea, filter,
+                                                     !mHasEmulatedAlphaAttachment));
         blitMask &= ~GL_COLOR_BUFFER_BIT;
     }
 
@@ -807,8 +806,8 @@ angle::Result FramebufferGL::blit(const gl::Context *context,
 
     if (features.adjustSrcDstRegionBlitFramebuffer.enabled)
     {
-        angle::Result result =
-            adjustSrcDstRegion(context, sourceArea, destArea, &finalSourceArea, &finalDestArea);
+        angle::Result result = adjustSrcDstRegion(context, finalSourceArea, finalDestArea,
+                                                  &finalSourceArea, &finalDestArea);
         if (result != angle::Result::Continue)
         {
             return result;
@@ -816,8 +815,8 @@ angle::Result FramebufferGL::blit(const gl::Context *context,
     }
     if (features.clipSrcRegionBlitFramebuffer.enabled)
     {
-        angle::Result result =
-            clipSrcRegion(context, sourceArea, destArea, &finalSourceArea, &finalDestArea);
+        angle::Result result = clipSrcRegion(context, finalSourceArea, finalDestArea,
+                                             &finalSourceArea, &finalDestArea);
         if (result != angle::Result::Continue)
         {
             return result;
@@ -1119,7 +1118,10 @@ angle::Result FramebufferGL::clipSrcRegion(const gl::Context *context,
         // If pixels lying outside the read framebuffer, adjust src region
         // and dst region to appropriate in-bounds regions respectively.
         gl::Rectangle realSourceRegion;
-        ClipRectangle(bounds.sourceRegion, bounds.sourceBounds, &realSourceRegion);
+        if (!ClipRectangle(bounds.sourceRegion, bounds.sourceBounds, &realSourceRegion))
+        {
+            return angle::Result::Stop;
+        }
         GLuint xOffset = realSourceRegion.x - bounds.sourceRegion.x;
         GLuint yOffset = realSourceRegion.y - bounds.sourceRegion.y;
 
@@ -1199,7 +1201,9 @@ bool FramebufferGL::checkStatus(const gl::Context *context) const
 }
 
 angle::Result FramebufferGL::syncState(const gl::Context *context,
-                                       const gl::Framebuffer::DirtyBits &dirtyBits)
+                                       GLenum binding,
+                                       const gl::Framebuffer::DirtyBits &dirtyBits,
+                                       gl::Command command)
 {
     // Don't need to sync state for the default FBO.
     if (mIsDefault)
@@ -1314,6 +1318,14 @@ angle::Result FramebufferGL::syncState(const gl::Context *context,
 GLuint FramebufferGL::getFramebufferID() const
 {
     return mFramebufferID;
+}
+
+void FramebufferGL::updateDefaultFramebufferID(GLuint framebufferID)
+{
+    // We only update framebufferID for a default frambuffer, and the framebufferID is created
+    // externally. ANGLE doesn't owne it.
+    ASSERT(isDefault());
+    mFramebufferID = framebufferID;
 }
 
 bool FramebufferGL::isDefault() const
@@ -1468,13 +1480,14 @@ angle::Result FramebufferGL::readPixelsRowByRow(const gl::Context *context,
 
     gl::PixelPackState directPack;
     directPack.alignment = 1;
-    stateManager->setPixelPackState(directPack);
+    ANGLE_TRY(stateManager->setPixelPackState(context, directPack));
 
     GLubyte *readbackPixels = workaround.Pixels();
     readbackPixels += skipBytes;
     for (GLint y = area.y; y < area.y + area.height; ++y)
     {
-        functions->readPixels(area.x, y, area.width, 1, format, type, readbackPixels);
+        ANGLE_GL_TRY(context,
+                     functions->readPixels(area.x, y, area.width, 1, format, type, readbackPixels));
         readbackPixels += rowBytes;
     }
 
@@ -1523,21 +1536,21 @@ angle::Result FramebufferGL::readPixelsAllAtOnce(const gl::Context *context,
     GLint height = area.height - readLastRowSeparately;
     if (height > 0)
     {
-        stateManager->setPixelPackState(pack);
-        functions->readPixels(area.x, area.y, area.width, height, format, type,
-                              workaround.Pixels());
+        ANGLE_TRY(stateManager->setPixelPackState(context, pack));
+        ANGLE_GL_TRY(context, functions->readPixels(area.x, area.y, area.width, height, format,
+                                                    type, workaround.Pixels()));
     }
 
     if (readLastRowSeparately)
     {
         gl::PixelPackState directPack;
         directPack.alignment = 1;
-        stateManager->setPixelPackState(directPack);
+        ANGLE_TRY(stateManager->setPixelPackState(context, directPack));
 
         GLubyte *readbackPixels = workaround.Pixels();
         readbackPixels += skipBytes + (area.height - 1) * rowBytes;
-        functions->readPixels(area.x, area.y + area.height - 1, area.width, 1, format, type,
-                              readbackPixels);
+        ANGLE_GL_TRY(context, functions->readPixels(area.x, area.y + area.height - 1, area.width, 1,
+                                                    format, type, readbackPixels));
     }
 
     if (workaround.IsEnabled())

@@ -2,11 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/qpack/qpack_decoder_stream_receiver.h"
+#include "quic/core/qpack/qpack_decoder_stream_receiver.h"
 
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_text_utils.h"
+#include "absl/strings/escaping.h"
+#include "absl/strings/string_view.h"
+#include "quic/platform/api/quic_test.h"
+#include "common/platform/api/quiche_text_utils.h"
 
 using testing::Eq;
 using testing::StrictMock;
@@ -19,10 +20,16 @@ class MockDelegate : public QpackDecoderStreamReceiver::Delegate {
  public:
   ~MockDelegate() override = default;
 
-  MOCK_METHOD1(OnInsertCountIncrement, void(uint64_t increment));
-  MOCK_METHOD1(OnHeaderAcknowledgement, void(QuicStreamId stream_id));
-  MOCK_METHOD1(OnStreamCancellation, void(QuicStreamId stream_id));
-  MOCK_METHOD1(OnErrorDetected, void(quiche::QuicheStringPiece error_message));
+  MOCK_METHOD(void, OnInsertCountIncrement, (uint64_t increment), (override));
+  MOCK_METHOD(void,
+              OnHeaderAcknowledgement,
+              (QuicStreamId stream_id),
+              (override));
+  MOCK_METHOD(void, OnStreamCancellation, (QuicStreamId stream_id), (override));
+  MOCK_METHOD(void,
+              OnErrorDetected,
+              (QuicErrorCode error_code, absl::string_view error_message),
+              (override));
 };
 
 class QpackDecoderStreamReceiverTest : public QuicTest {
@@ -36,53 +43,59 @@ class QpackDecoderStreamReceiverTest : public QuicTest {
 
 TEST_F(QpackDecoderStreamReceiverTest, InsertCountIncrement) {
   EXPECT_CALL(delegate_, OnInsertCountIncrement(0));
-  stream_.Decode(quiche::QuicheTextUtils::HexDecode("00"));
+  stream_.Decode(absl::HexStringToBytes("00"));
 
   EXPECT_CALL(delegate_, OnInsertCountIncrement(10));
-  stream_.Decode(quiche::QuicheTextUtils::HexDecode("0a"));
+  stream_.Decode(absl::HexStringToBytes("0a"));
 
   EXPECT_CALL(delegate_, OnInsertCountIncrement(63));
-  stream_.Decode(quiche::QuicheTextUtils::HexDecode("3f00"));
+  stream_.Decode(absl::HexStringToBytes("3f00"));
 
   EXPECT_CALL(delegate_, OnInsertCountIncrement(200));
-  stream_.Decode(quiche::QuicheTextUtils::HexDecode("3f8901"));
+  stream_.Decode(absl::HexStringToBytes("3f8901"));
 
-  EXPECT_CALL(delegate_, OnErrorDetected(Eq("Encoded integer too large.")));
-  stream_.Decode(quiche::QuicheTextUtils::HexDecode("3fffffffffffffffffffff"));
+  EXPECT_CALL(delegate_,
+              OnErrorDetected(QUIC_QPACK_DECODER_STREAM_INTEGER_TOO_LARGE,
+                              Eq("Encoded integer too large.")));
+  stream_.Decode(absl::HexStringToBytes("3fffffffffffffffffffff"));
 }
 
 TEST_F(QpackDecoderStreamReceiverTest, HeaderAcknowledgement) {
   EXPECT_CALL(delegate_, OnHeaderAcknowledgement(0));
-  stream_.Decode(quiche::QuicheTextUtils::HexDecode("80"));
+  stream_.Decode(absl::HexStringToBytes("80"));
 
   EXPECT_CALL(delegate_, OnHeaderAcknowledgement(37));
-  stream_.Decode(quiche::QuicheTextUtils::HexDecode("a5"));
+  stream_.Decode(absl::HexStringToBytes("a5"));
 
   EXPECT_CALL(delegate_, OnHeaderAcknowledgement(127));
-  stream_.Decode(quiche::QuicheTextUtils::HexDecode("ff00"));
+  stream_.Decode(absl::HexStringToBytes("ff00"));
 
   EXPECT_CALL(delegate_, OnHeaderAcknowledgement(503));
-  stream_.Decode(quiche::QuicheTextUtils::HexDecode("fff802"));
+  stream_.Decode(absl::HexStringToBytes("fff802"));
 
-  EXPECT_CALL(delegate_, OnErrorDetected(Eq("Encoded integer too large.")));
-  stream_.Decode(quiche::QuicheTextUtils::HexDecode("ffffffffffffffffffffff"));
+  EXPECT_CALL(delegate_,
+              OnErrorDetected(QUIC_QPACK_DECODER_STREAM_INTEGER_TOO_LARGE,
+                              Eq("Encoded integer too large.")));
+  stream_.Decode(absl::HexStringToBytes("ffffffffffffffffffffff"));
 }
 
 TEST_F(QpackDecoderStreamReceiverTest, StreamCancellation) {
   EXPECT_CALL(delegate_, OnStreamCancellation(0));
-  stream_.Decode(quiche::QuicheTextUtils::HexDecode("40"));
+  stream_.Decode(absl::HexStringToBytes("40"));
 
   EXPECT_CALL(delegate_, OnStreamCancellation(19));
-  stream_.Decode(quiche::QuicheTextUtils::HexDecode("53"));
+  stream_.Decode(absl::HexStringToBytes("53"));
 
   EXPECT_CALL(delegate_, OnStreamCancellation(63));
-  stream_.Decode(quiche::QuicheTextUtils::HexDecode("7f00"));
+  stream_.Decode(absl::HexStringToBytes("7f00"));
 
   EXPECT_CALL(delegate_, OnStreamCancellation(110));
-  stream_.Decode(quiche::QuicheTextUtils::HexDecode("7f2f"));
+  stream_.Decode(absl::HexStringToBytes("7f2f"));
 
-  EXPECT_CALL(delegate_, OnErrorDetected(Eq("Encoded integer too large.")));
-  stream_.Decode(quiche::QuicheTextUtils::HexDecode("7fffffffffffffffffffff"));
+  EXPECT_CALL(delegate_,
+              OnErrorDetected(QUIC_QPACK_DECODER_STREAM_INTEGER_TOO_LARGE,
+                              Eq("Encoded integer too large.")));
+  stream_.Decode(absl::HexStringToBytes("7fffffffffffffffffffff"));
 }
 
 }  // namespace

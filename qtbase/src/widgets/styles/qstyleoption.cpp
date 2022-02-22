@@ -58,9 +58,9 @@ QT_BEGIN_NAMESPACE
 
     For performance reasons, there are few member functions and the
     access to the member variables is direct (i.e., using the \c . or
-    \c -> operator). This low-level feel makes the structures
-    straightforward to use and emphasizes that these are simply
-    parameters used by the style functions.
+    \c -> operator). This makes the structures straightforward to use
+    and emphasizes that these are simply parameters used by the style
+    functions.
 
     The caller of a QStyle function usually creates QStyleOption
     objects on the stack. This combined with Qt's extensive use of
@@ -176,13 +176,7 @@ QStyleOption::~QStyleOption()
     \sa QWidget::layoutDirection(), QWidget::rect(),
         QWidget::palette(), QWidget::fontMetrics()
 */
-
-/*!
-    \obsolete
-
-    Use initFrom(\a widget) instead.
-*/
-void QStyleOption::init(const QWidget *widget)
+void QStyleOption::initFrom(const QWidget *widget)
 {
     QWidget *window = widget->window();
     state = QStyle::State_None;
@@ -365,10 +359,11 @@ QStyleOption &QStyleOption::operator=(const QStyleOption &other)
 
     \inmodule QtWidgets
 
-    For performance reasons, the access to the member variables is
-    direct (i.e., using the \c . or \c -> operator). This low-level feel
-    makes the structures straightforward to use and emphasizes that
-    these are simply parameters used by the style functions.
+    For performance reasons, there are few member functions and the
+    access to the member variables is direct (i.e., using the \c . or
+    \c -> operator). This makes the structures straightforward to use
+    and emphasizes that these are simply parameters used by the style
+    functions.
 
     For an example demonstrating how style options can be used, see
     the \l {widgets/styles}{Styles} example.
@@ -382,9 +377,8 @@ QStyleOption &QStyleOption::operator=(const QStyleOption &other)
 */
 
 QStyleOptionFocusRect::QStyleOptionFocusRect()
-    : QStyleOption(Version, SO_FocusRect)
+    : QStyleOptionFocusRect(Version)
 {
-    state |= QStyle::State_KeyboardFocusChange; // assume we had one, will be corrected in initFrom()
 }
 
 /*!
@@ -452,6 +446,12 @@ QStyleOptionFocusRect::QStyleOptionFocusRect(int version)
     QStyleOptionFrame is used for drawing several built-in Qt widgets,
     including QFrame, QGroupBox, QLineEdit, and QMenu.
 
+    For performance reasons, there are few member functions and the
+    access to the member variables is direct (i.e., using the \c . or
+    \c -> operator). This makes the structures straightforward to use
+    and emphasizes that these are simply parameters used by the style
+    functions.
+
     An instance of the QStyleOptionFrame class has
     \l{QStyleOption::type} {type} SO_Frame and \l{QStyleOption::version}
     {version} 3.
@@ -471,29 +471,12 @@ QStyleOptionFocusRect::QStyleOptionFocusRect(int version)
 */
 
 /*!
-    \typedef QStyleOptionFrameV2
-    \relates QStyleOptionFrame
-    \obsolete
-
-    Synonym for QStyleOptionFrame.
-*/
-
-/*!
-    \typedef QStyleOptionFrameV3
-    \relates QStyleOptionFrame
-    \obsolete
-
-    Synonym for QStyleOptionFrame.
-*/
-
-/*!
     Constructs a QStyleOptionFrame, initializing the members
     variables to their default values.
 */
 
 QStyleOptionFrame::QStyleOptionFrame()
-    : QStyleOption(Version, SO_Frame), lineWidth(0), midLineWidth(0),
-      features(None), frameShape(QFrame::NoFrame)
+    : QStyleOptionFrame(Version)
 {
 }
 
@@ -602,10 +585,11 @@ QStyleOptionFrame::QStyleOptionFrame(int version)
     the group box's \l {text}{title} and the title's \l
     {textAlignment}{alignment} and \l {textColor}{color}.
 
-    For performance reasons, the access to the member variables is
-    direct (i.e., using the \c . or \c -> operator). This low-level feel
-    makes the structures straightforward to use and emphasizes that
-    these are simply parameters used by the style functions.
+    For performance reasons, there are few member functions and the
+    access to the member variables is direct (i.e., using the \c . or
+    \c -> operator). This makes the structures straightforward to use
+    and emphasizes that these are simply parameters used by the style
+    functions.
 
     For an example demonstrating how style options can be used, see
     the \l {widgets/styles}{Styles} example.
@@ -704,8 +688,7 @@ QStyleOptionFrame::QStyleOptionFrame(int version)
     variables to their default values.
 */
 QStyleOptionGroupBox::QStyleOptionGroupBox()
-    : QStyleOptionComplex(Version, Type), features(QStyleOptionFrame::None),
-      textAlignment(Qt::AlignLeft), lineWidth(0), midLineWidth(0)
+    : QStyleOptionGroupBox(Version)
 {
 }
 
@@ -735,10 +718,11 @@ QStyleOptionGroupBox::QStyleOptionGroupBox(int version)
     functions need to draw the item views' header pane, header sort
     arrow, and header label.
 
-    For performance reasons, the access to the member variables is
-    direct (i.e., using the \c . or \c -> operator). This low-level feel
-    makes the structures straightforward to use and emphasizes that
-    these are simply parameters used by the style functions.
+    For performance reasons, there are few member functions and the
+    access to the member variables is direct (i.e., using the \c . or
+    \c -> operator). This makes the structures straightforward to use
+    and emphasizes that these are simply parameters used by the style
+    functions.
 
     For an example demonstrating how style options can be used, see
     the \l {widgets/styles}{Styles} example.
@@ -752,11 +736,7 @@ QStyleOptionGroupBox::QStyleOptionGroupBox(int version)
 */
 
 QStyleOptionHeader::QStyleOptionHeader()
-    : QStyleOption(QStyleOptionHeader::Version, SO_Header),
-      section(0), textAlignment(Qt::AlignLeft), iconAlignment(Qt::AlignLeft),
-      position(QStyleOptionHeader::Beginning),
-      selectedPosition(QStyleOptionHeader::NotAdjacent), sortIndicator(None),
-      orientation(Qt::Horizontal)
+    : QStyleOptionHeader(QStyleOptionHeader::Version)
 {
 }
 
@@ -912,6 +892,49 @@ QStyleOptionHeader::QStyleOptionHeader(int version)
 */
 
 /*!
+    \class QStyleOptionHeaderV2
+    \brief The QStyleOptionHeaderV2 class is used to describe the
+    parameters for drawing a header.
+
+    \inmodule QtWidgets
+*/
+
+/*!
+    Constructs a QStyleOptionHeaderV2, initializing the members
+    variables to their default values.
+*/
+QStyleOptionHeaderV2::QStyleOptionHeaderV2()
+    : QStyleOptionHeaderV2(QStyleOptionHeaderV2::Version)
+{
+}
+
+/*!
+    \internal
+*/
+QStyleOptionHeaderV2::QStyleOptionHeaderV2(int version)
+: QStyleOptionHeader(version), textElideMode(Qt::ElideNone), isSectionDragTarget(false), unused(0)
+{}
+
+/*!
+    \variable QStyleOptionHeaderV2::textElideMode
+    \brief where ellipsis should be added for text that is too long to fit
+    into an item
+
+    The default value is Qt::ElideNone.
+
+    \sa Qt::TextElideMode
+*/
+
+/*!
+    \variable QStyleOptionHeaderV2::isSectionDragTarget
+
+    \brief whether the section is the location at which a dragged section
+    will be inserted
+
+    \sa QHeaderView::setSectionsMovable
+*/
+
+/*!
     \class QStyleOptionButton
     \brief The QStyleOptionButton class is used to describe the
     parameters for drawing buttons.
@@ -922,10 +945,11 @@ QStyleOptionHeader::QStyleOptionHeader(int version)
     functions need to draw graphical elements like QPushButton,
     QCheckBox, and QRadioButton.
 
-    For performance reasons, the access to the member variables is
-    direct (i.e., using the \c . or \c -> operator). This low-level feel
-    makes the structures straightforward to use and emphasizes that
-    these are simply parameters used by the style functions.
+    For performance reasons, there are few member functions and the
+    access to the member variables is direct (i.e., using the \c . or
+    \c -> operator). This makes the structures straightforward to use
+    and emphasizes that these are simply parameters used by the style
+    functions.
 
     For an example demonstrating how style options can be used, see
     the \l {widgets/styles}{Styles} example.
@@ -954,7 +978,7 @@ QStyleOptionHeader::QStyleOptionHeader(int version)
 */
 
 QStyleOptionButton::QStyleOptionButton()
-    : QStyleOption(QStyleOptionButton::Version, SO_Button), features(None)
+    : QStyleOptionButton(QStyleOptionButton::Version)
 {
 }
 
@@ -1047,11 +1071,6 @@ QStyleOptionButton::QStyleOptionButton(int version)
     QStyleOptionToolBar contains all the information that QStyle
     functions need to draw QToolBar.
 
-    For performance reasons, the access to the member variables is
-    direct (i.e., using the \c . or \c -> operator). This low-level feel
-    makes the structures straightforward to use and emphasizes that
-    these are simply parameters used by the style functions.
-
     The QStyleOptionToolBar class holds the lineWidth and the
     midLineWidth for drawing the widget. It also stores information
     about which \l {toolBarArea}{area} the toolbar should be located
@@ -1065,6 +1084,12 @@ QStyleOptionButton::QStyleOptionButton(int version)
     the position of a toolbar line, as well as the toolbar's position
     within the line.
 
+    For performance reasons, there are few member functions and the
+    access to the member variables is direct (i.e., using the \c . or
+    \c -> operator). This makes the structures straightforward to use
+    and emphasizes that these are simply parameters used by the style
+    functions.
+
     For an example demonstrating how style options can be used, see
     the \l {widgets/styles}{Styles} example.
 
@@ -1077,8 +1102,7 @@ QStyleOptionButton::QStyleOptionButton(int version)
 */
 
 QStyleOptionToolBar::QStyleOptionToolBar()
-    : QStyleOption(Version, SO_ToolBar), positionOfLine(OnlyOne), positionWithinLine(OnlyOne),
-      toolBarArea(Qt::TopToolBarArea), features(None), lineWidth(0), midLineWidth(0)
+    : QStyleOptionToolBar(Version)
 {
 }
 
@@ -1244,26 +1268,16 @@ QStyleOptionToolBar::QStyleOptionToolBar(int version)
     compatibility. If you use qstyleoption_cast(), you normally do not
     need to check it.
 
+    For performance reasons, there are few member functions and the
+    access to the member variables is direct (i.e., using the \c . or
+    \c -> operator). This makes the structures straightforward to use
+    and emphasizes that these are simply parameters used by the style
+    functions.
+
     For an example demonstrating how style options can be used, see
     the \l {widgets/styles}{Styles} example.
 
     \sa QStyleOption
-*/
-
-/*!
-    \typedef QStyleOptionTabV2
-    \relates QStyleOptionTab
-    \obsolete
-
-    Synonym for QStyleOptionTab.
-*/
-
-/*!
-    \typedef QStyleOptionTabV3
-    \relates QStyleOptionTab
-    \obsolete
-
-    Synonym for QStyleOptionTab.
 */
 
 /*!
@@ -1272,13 +1286,7 @@ QStyleOptionToolBar::QStyleOptionToolBar(int version)
 */
 
 QStyleOptionTab::QStyleOptionTab()
-    : QStyleOption(QStyleOptionTab::Version, SO_Tab),
-      shape(QTabBar::RoundedNorth),
-      row(0),
-      position(Beginning),
-      selectedPosition(NotAdjacent), cornerWidgets(QStyleOptionTab::NoCornerWidgets),
-      documentMode(false),
-      features(QStyleOptionTab::None)
+    : QStyleOptionTab(QStyleOptionTab::Version)
 {
 }
 
@@ -1471,16 +1479,7 @@ QStyleOptionTab::QStyleOptionTab(int version)
 */
 
 /*!
-    Constructs a QStyleOptionTabV4 object, initializing the members
-    variables to their default values.
- */
-
-QStyleOptionTabV4::QStyleOptionTabV4() : QStyleOptionTab(QStyleOptionTabV4::Version)
-{
-}
-
-/*!
-    \variable QStyleOptionTabV4::tabIndex
+    \variable QStyleOptionTab::tabIndex
     \brief the index for the tab being represented.
 
     The default value is -1, i.e. a tab not on a tabbar;
@@ -1506,18 +1505,16 @@ QStyleOptionTabV4::QStyleOptionTabV4() : QStyleOptionTab(QStyleOptionTabV4::Vers
     without breaking compatibility. If you use qstyleoption_cast(),
     you normally do not need to check it.
 
+    For performance reasons, there are few member functions and the
+    access to the member variables is direct (i.e., using the \c . or
+    \c -> operator). This makes the structures straightforward to use
+    and emphasizes that these are simply parameters used by the style
+    functions.
+
     For an example demonstrating how style options can be used, see
     the \l {widgets/styles}{Styles} example.
 
     \sa QStyleOption
-*/
-
-/*!
-    \typedef QStyleOptionProgressBarV2
-    \relates QStyleOptionProgressBar
-    \obsolete
-
-    Synonym for QStyleOptionProgressBar.
 */
 
 /*!
@@ -1526,9 +1523,7 @@ QStyleOptionTabV4::QStyleOptionTabV4() : QStyleOptionTab(QStyleOptionTabV4::Vers
 */
 
 QStyleOptionProgressBar::QStyleOptionProgressBar()
-    : QStyleOption(QStyleOptionProgressBar::Version, SO_ProgressBar),
-      minimum(0), maximum(0), progress(0), textAlignment(Qt::AlignLeft), textVisible(false),
-      orientation(Qt::Horizontal), invertedAppearance(false), bottomToTop(false)
+    : QStyleOptionProgressBar(QStyleOptionProgressBar::Version)
 {
 }
 
@@ -1538,8 +1533,9 @@ QStyleOptionProgressBar::QStyleOptionProgressBar()
 QStyleOptionProgressBar::QStyleOptionProgressBar(int version)
     : QStyleOption(version, SO_ProgressBar),
       minimum(0), maximum(0), progress(0), textAlignment(Qt::AlignLeft), textVisible(false),
-      orientation(Qt::Horizontal), invertedAppearance(false), bottomToTop(false)
+      invertedAppearance(false), bottomToTop(false)
 {
+    state |= QStyle::State_Horizontal;
 }
 
 /*!
@@ -1641,17 +1637,6 @@ QStyleOptionProgressBar::QStyleOptionProgressBar(int version)
 */
 
 /*!
-    \variable QStyleOptionProgressBar::orientation
-    \brief the progress bar's orientation (horizontal or vertical);
-    the default orentation is Qt::Horizontal
-
-    \deprecated
-    Use the QStyle::State_Horizontal flag instead (in the QStyleOption::state member).
-
-    \sa QProgressBar::orientation
-*/
-
-/*!
     \variable QStyleOptionProgressBar::invertedAppearance
     \brief whether the progress bar's appearance is inverted
 
@@ -1681,10 +1666,11 @@ QStyleOptionProgressBar::QStyleOptionProgressBar(int version)
     functions need to draw the menu items from \l QMenu. It is also
     used for drawing other menu-related widgets.
 
-    For performance reasons, the access to the member variables is
-    direct (i.e., using the \c . or \c -> operator). This low-level feel
-    makes the structures straightforward to use and emphasizes that
-    these are simply parameters used by the style functions.
+    For performance reasons, there are few member functions and the
+    access to the member variables is direct (i.e., using the \c . or
+    \c -> operator). This makes the structures straightforward to use
+    and emphasizes that these are simply parameters used by the style
+    functions.
 
     For an example demonstrating how style options can be used, see
     the \l {widgets/styles}{Styles} example.
@@ -1698,8 +1684,7 @@ QStyleOptionProgressBar::QStyleOptionProgressBar(int version)
 */
 
 QStyleOptionMenuItem::QStyleOptionMenuItem()
-    : QStyleOption(QStyleOptionMenuItem::Version, SO_MenuItem), menuItemType(Normal),
-      checkType(NotCheckable), checked(false), menuHasCheckableItems(true), maxIconWidth(0), tabWidth(0)
+    : QStyleOptionMenuItem(QStyleOptionMenuItem::Version)
 {
 }
 
@@ -1708,7 +1693,8 @@ QStyleOptionMenuItem::QStyleOptionMenuItem()
 */
 QStyleOptionMenuItem::QStyleOptionMenuItem(int version)
     : QStyleOption(version, SO_MenuItem), menuItemType(Normal),
-      checkType(NotCheckable), checked(false), menuHasCheckableItems(true), maxIconWidth(0), tabWidth(0)
+      checkType(NotCheckable), checked(false), menuHasCheckableItems(true), maxIconWidth(0),
+      reservedShortcutWidth(0)
 {
 }
 
@@ -1852,7 +1838,7 @@ QStyleOptionMenuItem::QStyleOptionMenuItem(int version)
 */
 
 /*!
-    \variable QStyleOptionMenuItem::tabWidth
+    \variable QStyleOptionMenuItem::reservedShortcutWidth
     \brief the reserved width for the menu item's shortcut
 
     QMenu sets it to the width occupied by the widest shortcut among
@@ -1883,8 +1869,11 @@ QStyleOptionMenuItem::QStyleOptionMenuItem(int version)
     other complex control options, for example QStyleOptionSlider and
     QStyleOptionSpinBox.
 
-    For performance reasons, the access to the member variables is
-    direct (i.e., using the \c . or \c -> operator).
+    For performance reasons, there are few member functions and the
+    access to the member variables is direct (i.e., using the \c . or
+    \c -> operator). This makes the structures straightforward to use
+    and emphasizes that these are simply parameters used by the style
+    functions.
 
     For an example demonstrating how style options can be used, see
     the \l {widgets/styles}{Styles} example.
@@ -1973,10 +1962,11 @@ QStyleOptionComplex::QStyleOptionComplex(int version, int type)
     QStyleOptionSlider contains all the information that QStyle
     functions need to draw QSlider and QScrollBar.
 
-    For performance reasons, the access to the member variables is
-    direct (i.e., using the \c . or \c -> operator). This low-level feel
-    makes the structures straightforward to use and emphasizes that
-    these are simply parameters used by the style functions.
+    For performance reasons, there are few member functions and the
+    access to the member variables is direct (i.e., using the \c . or
+    \c -> operator). This makes the structures straightforward to use
+    and emphasizes that these are simply parameters used by the style
+    functions.
 
     For an example demonstrating how style options can be used, see
     the \l {widgets/styles}{Styles} example.
@@ -1990,10 +1980,7 @@ QStyleOptionComplex::QStyleOptionComplex(int version, int type)
 */
 
 QStyleOptionSlider::QStyleOptionSlider()
-    : QStyleOptionComplex(Version, SO_Slider), orientation(Qt::Horizontal), minimum(0), maximum(0),
-      tickPosition(QSlider::NoTicks), tickInterval(0), upsideDown(false),
-      sliderPosition(0), sliderValue(0), singleStep(0), pageStep(0), notchTarget(0.0),
-      dialWrapping(false)
+    : QStyleOptionSlider(Version)
 {
 }
 
@@ -2004,7 +1991,7 @@ QStyleOptionSlider::QStyleOptionSlider(int version)
     : QStyleOptionComplex(version, SO_Slider), orientation(Qt::Horizontal), minimum(0), maximum(0),
       tickPosition(QSlider::NoTicks), tickInterval(0), upsideDown(false),
       sliderPosition(0), sliderValue(0), singleStep(0), pageStep(0), notchTarget(0.0),
-      dialWrapping(false)
+      dialWrapping(false), keyboardModifiers{}
 {
 }
 
@@ -2172,10 +2159,11 @@ QStyleOptionSlider::QStyleOptionSlider(int version)
     QStyleOptionSpinBox contains all the information that QStyle
     functions need to draw QSpinBox and QDateTimeEdit.
 
-    For performance reasons, the access to the member variables is
-    direct (i.e., using the \c . or \c -> operator). This low-level feel
-    makes the structures straightforward to use and emphasizes that
-    these are simply parameters used by the style functions.
+    For performance reasons, there are few member functions and the
+    access to the member variables is direct (i.e., using the \c . or
+    \c -> operator). This makes the structures straightforward to use
+    and emphasizes that these are simply parameters used by the style
+    functions.
 
     For an example demonstrating how style options can be used, see
     the \l {widgets/styles}{Styles} example.
@@ -2189,8 +2177,7 @@ QStyleOptionSlider::QStyleOptionSlider(int version)
 */
 
 QStyleOptionSpinBox::QStyleOptionSpinBox()
-    : QStyleOptionComplex(Version, SO_SpinBox), buttonSymbols(QAbstractSpinBox::UpDownArrows),
-      stepEnabled(QAbstractSpinBox::StepNone), frame(false)
+    : QStyleOptionSpinBox(Version)
 {
 }
 
@@ -2277,10 +2264,11 @@ QStyleOptionSpinBox::QStyleOptionSpinBox(int version)
     QStyleOptionDockWidget contains all the information that QStyle
     functions need to draw graphical elements like QDockWidget.
 
-    For performance reasons, the access to the member variables is
-    direct (i.e., using the \c . or \c -> operator). This low-level feel
-    makes the structures straightforward to use and emphasizes that
-    these are simply parameters used by the style functions.
+    For performance reasons, there are few member functions and the
+    access to the member variables is direct (i.e., using the \c . or
+    \c -> operator). This makes the structures straightforward to use
+    and emphasizes that these are simply parameters used by the style
+    functions.
 
     For an example demonstrating how style options can be used, see
     the \l {widgets/styles}{Styles} example.
@@ -2289,21 +2277,12 @@ QStyleOptionSpinBox::QStyleOptionSpinBox(int version)
 */
 
 /*!
-    \typedef QStyleOptionDockWidgetV2
-    \relates QStyleOptionDockWidget
-    \obsolete
-
-    Synonym for QStyleOptionDockWidget.
-*/
-
-/*!
     Constructs a QStyleOptionDockWidget, initializing the member
     variables to their default values.
 */
 
 QStyleOptionDockWidget::QStyleOptionDockWidget()
-    : QStyleOption(Version, SO_DockWidget), closable(false),
-      movable(false), floatable(false), verticalTitleBar(false)
+    : QStyleOptionDockWidget(Version)
 {
 }
 
@@ -2391,10 +2370,11 @@ QStyleOptionDockWidget::QStyleOptionDockWidget(int version)
     QStyleOptionToolButton contains all the information that QStyle
     functions need to draw QToolButton.
 
-    For performance reasons, the access to the member variables is
-    direct (i.e., using the \c . or \c -> operator). This low-level feel
-    makes the structures straightforward to use and emphasizes that
-    these are simply parameters used by the style functions.
+    For performance reasons, there are few member functions and the
+    access to the member variables is direct (i.e., using the \c . or
+    \c -> operator). This makes the structures straightforward to use
+    and emphasizes that these are simply parameters used by the style
+    functions.
 
     For an example demonstrating how style options can be used, see
     the \l {widgets/styles}{Styles} example.
@@ -2423,8 +2403,7 @@ QStyleOptionDockWidget::QStyleOptionDockWidget(int version)
 */
 
 QStyleOptionToolButton::QStyleOptionToolButton()
-    : QStyleOptionComplex(Version, SO_ToolButton), features(None), arrowType(Qt::DownArrow)
-    , toolButtonStyle(Qt::ToolButtonIconOnly)
+    : QStyleOptionToolButton(Version)
 {
 }
 
@@ -2555,10 +2534,11 @@ QStyleOptionToolButton::QStyleOptionToolButton(int version)
     QStyleOptionButton contains all the information that QStyle
     functions need to draw QComboBox.
 
-    For performance reasons, the access to the member variables is
-    direct (i.e., using the \c . or \c -> operator). This low-level feel
-    makes the structures straightforward to use and emphasizes that
-    these are simply parameters used by the style functions.
+    For performance reasons, there are few member functions and the
+    access to the member variables is direct (i.e., using the \c . or
+    \c -> operator). This makes the structures straightforward to use
+    and emphasizes that these are simply parameters used by the style
+    functions.
 
     For an example demonstrating how style options can be used, see
     the \l {widgets/styles}{Styles} example.
@@ -2572,7 +2552,7 @@ QStyleOptionToolButton::QStyleOptionToolButton(int version)
 */
 
 QStyleOptionComboBox::QStyleOptionComboBox()
-    : QStyleOptionComplex(Version, SO_ComboBox), editable(false), frame(true)
+    : QStyleOptionComboBox(Version)
 {
 }
 
@@ -2612,7 +2592,7 @@ QStyleOptionComboBox::QStyleOptionComboBox(int version)
     This enum is used to hold information about the version of the style option, and
     is defined for each QStyleOption subclass.
 
-    \value Version 1
+    \value Version 2
 
     The version is used by QStyleOption subclasses to implement
     extensions without breaking compatibility. If you use
@@ -2674,6 +2654,13 @@ QStyleOptionComboBox::QStyleOptionComboBox(int version)
 */
 
 /*!
+    \variable QStyleOptionComboBox::textAlignment
+    \brief the alignment of the current text in the combo box
+
+    The default value is Qt::AlignLeft | Qt::AlignVCenter.
+*/
+
+/*!
     \class QStyleOptionToolBox
     \brief The QStyleOptionToolBox class is used to describe the
     parameters needed for drawing a tool box.
@@ -2683,10 +2670,11 @@ QStyleOptionComboBox::QStyleOptionComboBox(int version)
     QStyleOptionToolBox contains all the information that QStyle
     functions need to draw QToolBox.
 
-    For performance reasons, the access to the member variables is
-    direct (i.e., using the \c . or \c -> operator). This low-level feel
-    makes the structures straightforward to use and emphasizes that
-    these are simply parameters used by the style functions.
+    For performance reasons, there are few member functions and the
+    access to the member variables is direct (i.e., using the \c . or
+    \c -> operator). This makes the structures straightforward to use
+    and emphasizes that these are simply parameters used by the style
+    functions.
 
     For an example demonstrating how style options can be used, see
     the \l {widgets/styles}{Styles} example.
@@ -2695,20 +2683,12 @@ QStyleOptionComboBox::QStyleOptionComboBox(int version)
 */
 
 /*!
-    \typedef QStyleOptionToolBoxV2
-    \relates QStyleOptionToolBox
-    \obsolete
-
-    Synonym for QStyleOptionToolBox.
-*/
-
-/*!
     Creates a QStyleOptionToolBox, initializing the members variables
     to their default values.
 */
 
 QStyleOptionToolBox::QStyleOptionToolBox()
-    : QStyleOption(Version, SO_ToolBox), position(Beginning), selectedPosition(NotAdjacent)
+    : QStyleOptionToolBox(Version)
 {
 }
 
@@ -2817,10 +2797,11 @@ QStyleOptionToolBox::QStyleOptionToolBox(int version)
     QStyleOptionRubberBand contains all the information that
     QStyle functions need to draw QRubberBand.
 
-    For performance reasons, the access to the member variables is
-    direct (i.e., using the \c . or \c -> operator). This low-level feel
-    makes the structures straightforward to use and emphasizes that
-    these are simply parameters used by the style functions.
+    For performance reasons, there are few member functions and the
+    access to the member variables is direct (i.e., using the \c . or
+    \c -> operator). This makes the structures straightforward to use
+    and emphasizes that these are simply parameters used by the style
+    functions.
 
     For an example demonstrating how style options can be used, see
     the \l {widgets/styles}{Styles} example.
@@ -2834,7 +2815,7 @@ QStyleOptionToolBox::QStyleOptionToolBox(int version)
 */
 
 QStyleOptionRubberBand::QStyleOptionRubberBand()
-    : QStyleOption(Version, SO_RubberBand), shape(QRubberBand::Line), opaque(false)
+    : QStyleOptionRubberBand(Version)
 {
 }
 
@@ -2908,10 +2889,11 @@ QStyleOptionRubberBand::QStyleOptionRubberBand(int version)
     QStyleOptionTitleBar contains all the information that QStyle
     functions need to draw the title bar of a QMdiSubWindow.
 
-    For performance reasons, the access to the member variables is
-    direct (i.e., using the \c . or \c -> operator). This low-level feel
-    makes the structures straightforward to use and emphasizes that
-    these are simply parameters used by the style functions.
+    For performance reasons, there are few member functions and the
+    access to the member variables is direct (i.e., using the \c . or
+    \c -> operator). This makes the structures straightforward to use
+    and emphasizes that these are simply parameters used by the style
+    functions.
 
     For an example demonstrating how style options can be used, see
     the \l {widgets/styles}{Styles} example.
@@ -2925,7 +2907,7 @@ QStyleOptionRubberBand::QStyleOptionRubberBand(int version)
 */
 
 QStyleOptionTitleBar::QStyleOptionTitleBar()
-    : QStyleOptionComplex(Version, SO_TitleBar), titleBarState(0)
+    : QStyleOptionTitleBar(Version)
 {
 }
 
@@ -3020,40 +3002,17 @@ QStyleOptionTitleBar::QStyleOptionTitleBar(int version)
     QStyleOptionViewItem contains all the information that QStyle
     functions need to draw the items for Qt's model/view classes.
 
-    For performance reasons, the access to the member variables is
-    direct (i.e., using the \c . or \c -> operator). This low-level feel
-    makes the structures straightforward to use and emphasizes that
-    these are simply parameters used by the style functions.
+    For performance reasons, there are few member functions and the
+    access to the member variables is direct (i.e., using the \c . or
+    \c -> operator). This makes the structures straightforward to use
+    and emphasizes that these are simply parameters used by the style
+    functions.
 
     For an example demonstrating how style options can be used, see
     the \l {widgets/styles}{Styles} example.
 
     \sa QStyleOption, {model-view-programming.html}{Model/View
     Programming}
-*/
-
-/*!
-    \typedef QStyleOptionViewItemV2
-    \relates QStyleOptionViewItem
-    \obsolete
-
-    Synonym for QStyleOptionViewItem.
-*/
-
-/*!
-    \typedef QStyleOptionViewItemV3
-    \relates QStyleOptionViewItem
-    \obsolete
-
-    Synonym for QStyleOptionViewItem.
-*/
-
-/*!
-    \typedef QStyleOptionViewItemV4
-    \relates QStyleOptionViewItem
-    \obsolete
-
-    Synonym for QStyleOptionViewItem.
 */
 
 /*!
@@ -3098,11 +3057,7 @@ QStyleOptionTitleBar::QStyleOptionTitleBar(int version)
 */
 
 QStyleOptionViewItem::QStyleOptionViewItem()
-    : QStyleOption(Version, SO_ViewItem),
-      displayAlignment(Qt::AlignLeft), decorationAlignment(Qt::AlignLeft),
-      textElideMode(Qt::ElideMiddle), decorationPosition(Left),
-      showDecorationSelected(false), features(None), widget(nullptr),
-      checkState(Qt::Unchecked), viewItemPosition(QStyleOptionViewItem::Invalid)
+    : QStyleOptionViewItem(Version)
 {
 }
 
@@ -3310,10 +3265,11 @@ QStyleOptionViewItem::QStyleOptionViewItem(int version)
     QStyleOptionTabWidgetFrame contains all the information that
     QStyle functions need to draw the frame around QTabWidget.
 
-    For performance reasons, the access to the member variables is
-    direct (i.e., using the \c . or \c -> operator). This low-level feel
-    makes the structures straightforward to use and emphasizes that
-    these are simply parameters used by the style functions.
+    For performance reasons, there are few member functions and the
+    access to the member variables is direct (i.e., using the \c . or
+    \c -> operator). This makes the structures straightforward to use
+    and emphasizes that these are simply parameters used by the style
+    functions.
 
     For an example demonstrating how style options can be used, see
     the \l {widgets/styles}{Styles} example.
@@ -3322,20 +3278,11 @@ QStyleOptionViewItem::QStyleOptionViewItem(int version)
 */
 
 /*!
-    \typedef QStyleOptionTabWidgetFrameV2
-    \relates QStyleOptionTabWidgetFrame
-    \obsolete
-
-    Synonym for QStyleOptionTabWidgetFrame.
-*/
-
-/*!
     Constructs a QStyleOptionTabWidgetFrame, initializing the members
     variables to their default values.
 */
 QStyleOptionTabWidgetFrame::QStyleOptionTabWidgetFrame()
-    : QStyleOption(Version, SO_TabWidgetFrame), lineWidth(0), midLineWidth(0),
-      shape(QTabBar::RoundedNorth)
+    : QStyleOptionTabWidgetFrame(Version)
 {
 }
 
@@ -3460,10 +3407,11 @@ QStyleOptionTabWidgetFrame::QStyleOptionTabWidgetFrame(int version)
     drawn for a standalone QTabBar (one that isn't part of a
     QTabWidget).
 
-    For performance reasons, the access to the member variables is
-    direct (i.e., using the \c . or \c -> operator). This low-level feel
-    makes the structures straightforward to use and emphasizes that
-    these are simply parameters used by the style functions.
+    For performance reasons, there are few member functions and the
+    access to the member variables is direct (i.e., using the \c . or
+    \c -> operator). This makes the structures straightforward to use
+    and emphasizes that these are simply parameters used by the style
+    functions.
 
     For an example demonstrating how style options can be used, see
     the \l {widgets/styles}{Styles} example.
@@ -3472,20 +3420,11 @@ QStyleOptionTabWidgetFrame::QStyleOptionTabWidgetFrame(int version)
 */
 
 /*!
-    \typedef QStyleOptionTabBarBaseV2
-    \relates QStyleOptionTabBarBase
-    \obsolete
-
-    Synonym for QStyleOptionTabBarBase.
-*/
-
-/*!
     Construct a QStyleOptionTabBarBase, initializing the members
-    vaiables to their default values.
+    variables to their default values.
 */
 QStyleOptionTabBarBase::QStyleOptionTabBarBase()
-    : QStyleOption(Version, SO_TabBarBase), shape(QTabBar::RoundedNorth),
-      documentMode(false)
+    : QStyleOptionTabBarBase(Version)
 {
 }
 
@@ -3578,10 +3517,11 @@ QStyleOptionTabBarBase::QStyleOptionTabBarBase(int version)
     QStyleOptionButton contains all the information that QStyle
     functions need to draw QSizeGrip.
 
-    For performance reasons, the access to the member variables is
-    direct (i.e., using the \c . or \c -> operator). This low-level feel
-    makes the structures straightforward to use and emphasizes that
-    these are simply parameters used by the style functions.
+    For performance reasons, there are few member functions and the
+    access to the member variables is direct (i.e., using the \c . or
+    \c -> operator). This makes the structures straightforward to use
+    and emphasizes that these are simply parameters used by the style
+    functions.
 
     For an example demonstrating how style options can be used, see
     the \l {widgets/styles}{Styles} example.
@@ -3593,7 +3533,7 @@ QStyleOptionTabBarBase::QStyleOptionTabBarBase(int version)
     Constructs a QStyleOptionSizeGrip.
 */
 QStyleOptionSizeGrip::QStyleOptionSizeGrip()
-    : QStyleOptionComplex(Version, Type), corner(Qt::BottomRightCorner)
+    : QStyleOptionSizeGrip(Version)
 {
 }
 
@@ -3657,10 +3597,11 @@ QStyleOptionSizeGrip::QStyleOptionSizeGrip(int version)
     \ingroup graphicsview-api
     \inmodule QtWidgets
 
-    For performance reasons, the access to the member variables is
-    direct (i.e., using the \c . or \c -> operator). This low-level feel
-    makes the structures straightforward to use and emphasizes that
-    these are simply parameters.
+    For performance reasons, there are few member functions and the
+    access to the member variables is direct (i.e., using the \c . or
+    \c -> operator). This makes the structures straightforward to use
+    and emphasizes that these are simply parameters used by the style
+    functions.
 
     For an example demonstrating how style options can be used, see
     the \l {widgets/styles}{Styles} example.
@@ -3703,7 +3644,7 @@ QStyleOptionSizeGrip::QStyleOptionSizeGrip(int version)
     Constructs a QStyleOptionGraphicsItem.
 */
 QStyleOptionGraphicsItem::QStyleOptionGraphicsItem()
-    : QStyleOption(Version, Type), levelOfDetail(1)
+    : QStyleOptionGraphicsItem(Version)
 {
 }
 
@@ -3711,7 +3652,7 @@ QStyleOptionGraphicsItem::QStyleOptionGraphicsItem()
     \internal
 */
 QStyleOptionGraphicsItem::QStyleOptionGraphicsItem(int version)
-    : QStyleOption(version, Type), levelOfDetail(1)
+    : QStyleOption(version, Type)
 {
 }
 
@@ -3759,38 +3700,6 @@ qreal QStyleOptionGraphicsItem::levelOfDetailFromTransform(const QTransform &wor
 */
 
 /*!
-     \variable QStyleOptionGraphicsItem::matrix
-     \brief the complete transformation matrix for the item
-     \obsolete
-
-     The QMatrix provided through this member does include information about
-     any perspective transformations applied to the view or item. To get the
-     correct transformation matrix, use QPainter::transform() on the painter
-     passed into the QGraphicsItem::paint() implementation.
-
-     This matrix is the combination of the item's scene matrix and the matrix
-     of the painter used for drawing the item. It is provided for convenience,
-     allowing anvanced level-of-detail metrics that can be used to speed up
-     item drawing.
-
-     To find the dimensions of an item in screen coordinates (i.e., pixels),
-     you can use the mapping functions of QMatrix, such as QMatrix::map().
-
-     This member is only initialized for items that have the
-     QGraphicsItem::ItemUsesExtendedStyleOption flag set.
-
-     \sa QStyleOptionGraphicsItem::levelOfDetailFromTransform()
-*/
-
-/*!
-    \variable QStyleOptionGraphicsItem::levelOfDetail
-    \obsolete
-
-    Use QStyleOptionGraphicsItem::levelOfDetailFromTransform()
-    together with QPainter::worldTransform() instead.
-*/
-
-/*!
     \class QStyleHintReturn
     \brief The QStyleHintReturn class provides style hints that return more
     than basic data types.
@@ -3802,10 +3711,6 @@ qreal QStyleOptionGraphicsItem::levelOfDetailFromTransform(const QTransform &wor
     from a style back to the querying widget. This is most useful
     when the return value from QStyle::styleHint() does not provide enough
     detail; for example, when a mask is to be returned.
-
-    \omit
-    ### --Sam
-    \endomit
 */
 
 /*!
@@ -3895,10 +3800,6 @@ QStyleHintReturn::~QStyleHintReturn()
 
     \ingroup appearance
     \inmodule QtWidgets
-
-    \omit
-    ### --Sam
-    \endomit
 */
 
 /*!

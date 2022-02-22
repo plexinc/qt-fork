@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
@@ -22,7 +22,7 @@ namespace device {
 
 namespace {
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 const uint64_t kTestDeviceIds[] = {0, 1, 2};
 #elif defined(OS_WIN)
 const wchar_t* const kTestDeviceIds[] = {L"0", L"1", L"2"};
@@ -163,12 +163,17 @@ class HidManagerTest : public DeviceServiceTestBase {
   scoped_refptr<HidDeviceInfo> AddTestDeviceWithTopLevelCollection() {
     // Construct a HidDeviceInfo with a top-level collection. The collection has
     // a usage ID from the FIDO usage page.
+    HidDeviceInfo::PlatformDeviceIdMap platform_device_id_map;
+    platform_device_id_map.emplace_back(base::flat_set<uint8_t>{0},
+                                        kTestDeviceIds[2]);
+    std::vector<mojom::HidCollectionInfoPtr> collections;
     auto collection_info = mojom::HidCollectionInfo::New();
     collection_info->usage = mojom::HidUsageAndPage::New(1, 0xf1d0);
+    collections.push_back(std::move(collection_info));
     auto device_info = base::MakeRefCounted<HidDeviceInfo>(
-        kTestDeviceIds[2], "physical id 2", /*vendor_id=*/0, /*product_id=*/0,
-        "Hid Service Unit Test", "HidDevice-2",
-        mojom::HidBusType::kHIDBusTypeUSB, std::move(collection_info),
+        std::move(platform_device_id_map), "physical id 2", /*vendor_id=*/0,
+        /*product_id=*/0, "Hid Service Unit Test", "HidDevice-2",
+        mojom::HidBusType::kHIDBusTypeUSB, std::move(collections),
         /*max_input_report_size=*/64, /*max_output_report_size=*/64,
         /*max_feature_report_size=*/64);
     mock_hid_service_->AddDevice(device_info);
@@ -264,6 +269,7 @@ TEST_F(HidManagerTest, TestHidConnectionInterface) {
         device->device_guid(),
         /*connection_client=*/mojo::NullRemote(),
         /*watcher=*/mojo::NullRemote(),
+        /*allow_protected_reports=*/false,
         base::BindOnce(&OnConnect, run_loop.QuitClosure(), client.get()));
     run_loop.Run();
   }

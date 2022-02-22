@@ -49,6 +49,7 @@
 ****************************************************************************/
 
 #include "boxentity.h"
+#include <Qt3DRender/QGeometryRenderer>
 
 #include <qmath.h>
 

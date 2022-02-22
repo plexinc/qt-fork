@@ -11,24 +11,12 @@
 #include "content/public/common/content_switches.h"
 #include "device/base/features.h"
 #include "device/vr/buildflags/buildflags.h"
-#include "device/vr/vr_device_base.h"
-
-#if BUILDFLAG(ENABLE_OPENVR)
-#include "device/vr/openvr/openvr_device.h"
-#endif
-
-#if BUILDFLAG(ENABLE_OCULUS_VR)
-#include "device/vr/oculus/oculus_device.h"
-#endif
-
-#if BUILDFLAG(ENABLE_WINDOWS_MR)
-#include "device/vr/windows_mixed_reality/mixed_reality_device.h"
-#include "device/vr/windows_mixed_reality/mixed_reality_statics.h"
-#endif
 
 #if BUILDFLAG(ENABLE_OPENXR)
+#include "content/public/common/gpu_stream_constants.h"
 #include "device/vr/openxr/openxr_device.h"
 #include "device/vr/openxr/openxr_statics.h"
+#include "services/viz/public/cpp/gpu/context_provider_command_buffer.h"
 #endif
 
 enum class IsolatedXRRuntimeProvider::RuntimeStatus {
@@ -42,15 +30,21 @@ constexpr base::TimeDelta kTimeBetweenPollingEvents =
     base::TimeDelta::FromSecondsD(5);
 
 template <typename VrDeviceT>
+std::unique_ptr<VrDeviceT> CreateDevice() {
+  return std::make_unique<VrDeviceT>();
+}
+
+template <typename VrDeviceT>
 std::unique_ptr<VrDeviceT> EnableRuntime(
-    device::mojom::IsolatedXRRuntimeProviderClient* client) {
-  auto device = std::make_unique<VrDeviceT>();
+    device::mojom::IsolatedXRRuntimeProviderClient* client,
+    base::OnceCallback<std::unique_ptr<VrDeviceT>()> create_device) {
+  auto device = std::move(create_device).Run();
   TRACE_EVENT_INSTANT1("xr", "HardwareAdded", TRACE_EVENT_SCOPE_THREAD, "id",
                        static_cast<int>(device->GetId()));
   // "Device" here refers to a runtime + hardware pair, not necessarily
   // a physical device.
   client->OnDeviceAdded(device->BindXRRuntime(), device->BindCompositorHost(),
-                        device->GetId());
+                        device->GetDeviceData(), device->GetId());
   return device;
 }
 
@@ -65,12 +59,14 @@ void DisableRuntime(device::mojom::IsolatedXRRuntimeProviderClient* client,
 }
 
 template <typename VrHardwareT>
-void SetRuntimeStatus(device::mojom::IsolatedXRRuntimeProviderClient* client,
-                      IsolatedXRRuntimeProvider::RuntimeStatus status,
-                      std::unique_ptr<VrHardwareT>* out_device) {
+void SetRuntimeStatus(
+    device::mojom::IsolatedXRRuntimeProviderClient* client,
+    IsolatedXRRuntimeProvider::RuntimeStatus status,
+    base::OnceCallback<std::unique_ptr<VrHardwareT>()> create_device,
+    std::unique_ptr<VrHardwareT>* out_device) {
   if (status == IsolatedXRRuntimeProvider::RuntimeStatus::kEnable &&
       !*out_device) {
-    *out_device = EnableRuntime<VrHardwareT>(client);
+    *out_device = EnableRuntime<VrHardwareT>(client, std::move(create_device));
   } else if (status == IsolatedXRRuntimeProvider::RuntimeStatus::kDisable &&
              *out_device) {
     DisableRuntime(client, std::move(*out_device));
@@ -112,33 +108,6 @@ void IsolatedXRRuntimeProvider::PollForDeviceChanges() {
   }
 #endif
 
-#if BUILDFLAG(ENABLE_WINDOWS_MR)
-  if (!preferred_device_enabled && IsWMRHardwareAvailable()) {
-    SetWMRRuntimeStatus(RuntimeStatus::kEnable);
-    preferred_device_enabled = true;
-  } else {
-    SetWMRRuntimeStatus(RuntimeStatus::kDisable);
-  }
-#endif
-
-#if BUILDFLAG(ENABLE_OCULUS_VR)
-  if (!preferred_device_enabled && IsOculusVrHardwareAvailable()) {
-    SetOculusVrRuntimeStatus(RuntimeStatus::kEnable);
-    preferred_device_enabled = true;
-  } else {
-    SetOculusVrRuntimeStatus(RuntimeStatus::kDisable);
-  }
-#endif
-
-#if BUILDFLAG(ENABLE_OPENVR)
-  if (!preferred_device_enabled && IsOpenVrHardwareAvailable()) {
-    SetOpenVrRuntimeStatus(RuntimeStatus::kEnable);
-    preferred_device_enabled = true;
-  } else {
-    SetOpenVrRuntimeStatus(RuntimeStatus::kDisable);
-  }
-#endif
-
   // Schedule this function to run again later.
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE,
@@ -154,31 +123,6 @@ void IsolatedXRRuntimeProvider::SetupPollingForDeviceChanges() {
   // If none of the following runtimes are enabled,
   // we'll get an error for 'command_line' being unused.
   ALLOW_UNUSED_LOCAL(command_line);
-
-#if BUILDFLAG(ENABLE_OCULUS_VR)
-  if (IsEnabled(command_line, device::features::kOculusVR,
-                switches::kWebXrRuntimeOculus)) {
-    should_check_oculus_ = device::OculusDevice::IsApiAvailable();
-    any_runtimes_available |= should_check_oculus_;
-  }
-#endif
-
-#if BUILDFLAG(ENABLE_OPENVR)
-  if (IsEnabled(command_line, device::features::kOpenVR,
-                switches::kWebXrRuntimeOpenVr)) {
-    should_check_openvr_ = device::OpenVRDevice::IsApiAvailable();
-    any_runtimes_available |= should_check_openvr_;
-  }
-#endif
-
-#if BUILDFLAG(ENABLE_WINDOWS_MR)
-  if (IsEnabled(command_line, device::features::kWindowsMixedReality,
-                switches::kWebXrRuntimeWMR)) {
-    wmr_statics_ = device::MixedRealityDeviceStatics::CreateInstance();
-    should_check_wmr_ = wmr_statics_->IsApiAvailable();
-    any_runtimes_available |= should_check_wmr_;
-  }
-#endif
 
 #if BUILDFLAG(ENABLE_OPENXR)
   if (IsEnabled(command_line, device::features::kOpenXR,
@@ -204,56 +148,76 @@ void IsolatedXRRuntimeProvider::RequestDevices(
   client_->OnDevicesEnumerated();
 }
 
-#if BUILDFLAG(ENABLE_OCULUS_VR)
-bool IsolatedXRRuntimeProvider::IsOculusVrHardwareAvailable() {
-  return should_check_oculus_ &&
-         ((oculus_device_ && oculus_device_->IsAvailable()) ||
-          device::OculusDevice::IsHwAvailable());
-}
-
-void IsolatedXRRuntimeProvider::SetOculusVrRuntimeStatus(RuntimeStatus status) {
-  SetRuntimeStatus(client_.get(), status, &oculus_device_);
-}
-#endif  // BUILDFLAG(ENABLE_OCULUS_VR)
-
-#if BUILDFLAG(ENABLE_OPENVR)
-bool IsolatedXRRuntimeProvider::IsOpenVrHardwareAvailable() {
-  return should_check_openvr_ &&
-         ((openvr_device_ && openvr_device_->IsAvailable()) ||
-          device::OpenVRDevice::IsHwAvailable());
-}
-
-void IsolatedXRRuntimeProvider::SetOpenVrRuntimeStatus(RuntimeStatus status) {
-  SetRuntimeStatus(client_.get(), status, &openvr_device_);
-}
-#endif  // BUILDFLAG(ENABLE_OPENVR)
-
-#if BUILDFLAG(ENABLE_WINDOWS_MR)
-bool IsolatedXRRuntimeProvider::IsWMRHardwareAvailable() {
-  return should_check_wmr_ && wmr_statics_->IsHardwareAvailable();
-}
-
-void IsolatedXRRuntimeProvider::SetWMRRuntimeStatus(RuntimeStatus status) {
-  SetRuntimeStatus(client_.get(), status, &wmr_device_);
-}
-#endif  // BUILDFLAG(ENABLE_WINDOWS_MR)
-
 #if BUILDFLAG(ENABLE_OPENXR)
 bool IsolatedXRRuntimeProvider::IsOpenXrHardwareAvailable() {
   return should_check_openxr_ && openxr_statics_->IsHardwareAvailable();
 }
 
 void IsolatedXRRuntimeProvider::SetOpenXrRuntimeStatus(RuntimeStatus status) {
-  SetRuntimeStatus(client_.get(), status, &openxr_device_);
+  auto factory_async = base::BindRepeating(
+      &IsolatedXRRuntimeProvider::CreateContextProviderAsync,
+      weak_ptr_factory_.GetWeakPtr());
+  SetRuntimeStatus(client_.get(), status,
+                   base::BindOnce(
+                       [](device::OpenXrStatics* openxr_statics,
+                          VizContextProviderFactoryAsync factory_async) {
+                         // This does not give any ownership of the
+                         // OpenXrStatics object to OpenXrDevice. OpenXrStatics
+                         // is only used in the constructor and a reference is
+                         // not kept.
+                         return std::make_unique<device::OpenXrDevice>(
+                             openxr_statics, std::move(factory_async));
+                       },
+                       openxr_statics_.get(), std::move(factory_async)),
+                   &openxr_device_);
 }
+
+// A repeating callback to CreateContextProviderAsync is created in
+// SetOpenXrRuntimeStatus and passed to OpenXrDevice. OpenXrRenderLoop posts a
+// task with this callback onto the main thread's task runner while it is
+// running on the render loop thread's task runner. The context provider and its
+// supporting object, viz::Gpu, are required to be created on the main thread's
+// task runner. Upon creating the context provider, CreateContextProviderAsync
+// posts a callback back to the render loop's thread runner with the newly
+// created context provider.
+void IsolatedXRRuntimeProvider::CreateContextProviderAsync(
+    VizContextProviderCallback viz_context_provider_callback,
+    scoped_refptr<base::SingleThreadTaskRunner> task_runner) {
+  // viz_gpu_ must be kept alive so long as there are outstanding context
+  // providers attached to it, otherwise the GPU process channel gets closed out
+  // from under it.
+  if (!viz_gpu_ || !viz_gpu_->GetGpuChannel() ||
+      viz_gpu_->GetGpuChannel()->IsLost()) {
+    mojo::PendingRemote<viz::mojom::Gpu> remote_gpu;
+    device_service_host_->BindGpu(remote_gpu.InitWithNewPipeAndPassReceiver());
+
+    viz_gpu_ = viz::Gpu::Create(std::move(remote_gpu), io_task_runner_);
+
+    scoped_refptr<gpu::GpuChannelHost> gpu_channel_host =
+        viz_gpu_->EstablishGpuChannelSync();
+  }
+
+  scoped_refptr<viz::ContextProvider> context_provider =
+      base::MakeRefCounted<viz::ContextProviderCommandBuffer>(
+          viz_gpu_->GetGpuChannel(), nullptr /* gpu_memory_buffer_manager */,
+          content::kGpuStreamIdDefault, content::kGpuStreamPriorityUI,
+          gpu::kNullSurfaceHandle, GURL(std::string("chrome://gpu/XrRuntime")),
+          false /* automatic flushes */, false /* support locking */,
+          false /* support grcontext */,
+          gpu::SharedMemoryLimits::ForMailboxContext(),
+          gpu::ContextCreationAttribs(),
+          viz::command_buffer_metrics::ContextType::XR_COMPOSITING);
+  task_runner->PostTask(FROM_HERE,
+                        base::BindOnce(std::move(viz_context_provider_callback),
+                                       std::move(context_provider)));
+}
+
 #endif  // BUILDFLAG(ENABLE_OPENXR)
 
-IsolatedXRRuntimeProvider::IsolatedXRRuntimeProvider() = default;
+IsolatedXRRuntimeProvider::IsolatedXRRuntimeProvider(
+    mojo::PendingRemote<device::mojom::XRDeviceServiceHost> device_service_host,
+    scoped_refptr<base::SingleThreadTaskRunner> io_task_runner)
+    : device_service_host_(std::move(device_service_host)),
+      io_task_runner_(std::move(io_task_runner)) {}
 
-IsolatedXRRuntimeProvider::~IsolatedXRRuntimeProvider() {
-#if BUILDFLAG(ENABLE_WINDOWS_MR)
-  // Explicitly null out wmr_device_ to clean up any COM objects that depend
-  // on being RoInitialized
-  wmr_device_ = nullptr;
-#endif  // BUILDFLAG(ENABLE_WINDOWS_MR)
-}
+IsolatedXRRuntimeProvider::~IsolatedXRRuntimeProvider() = default;

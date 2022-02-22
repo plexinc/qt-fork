@@ -26,8 +26,9 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QStorageInfo>
+#include <QTemporaryFile>
 
 #include <stdarg.h>
 
@@ -40,14 +41,12 @@ private slots:
     void defaultValues();
     void dump();
     void operatorEqual();
-#ifndef Q_OS_WINRT
     void operatorNotEqual();
     void root();
     void currentStorage();
     void storageList();
     void tempFile();
     void caching();
-#endif
 };
 
 void tst_QStorageInfo::defaultValues()
@@ -111,9 +110,15 @@ void tst_QStorageInfo::operatorEqual()
         QStorageInfo storage2;
         QCOMPARE(storage1, storage2);
     }
+
+    // Test copy ctor
+    {
+        QStorageInfo storage1 = QStorageInfo::root();
+        QStorageInfo storage2(storage1);
+        QCOMPARE(storage1, storage2);
+    }
 }
 
-#ifndef Q_OS_WINRT
 void tst_QStorageInfo::operatorNotEqual()
 {
     QStorageInfo storage1 = QStorageInfo::root();
@@ -230,7 +235,6 @@ void tst_QStorageInfo::caching()
     }
     QVERIFY(free != storage2.bytesFree());
 }
-#endif
 
 QTEST_MAIN(tst_QStorageInfo)
 

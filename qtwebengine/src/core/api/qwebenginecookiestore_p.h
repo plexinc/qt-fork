@@ -53,10 +53,9 @@
 
 #include "qtwebenginecoreglobal_p.h"
 
-#include "qwebenginecallback_p.h"
 #include "qwebenginecookiestore.h"
 
-#include <QVector>
+#include <QList>
 #include <QNetworkCookie>
 #include <QUrl>
 
@@ -66,10 +65,11 @@ class CookieMonsterDelegateQt;
 
 QT_BEGIN_NAMESPACE
 
-class Q_WEBENGINECORE_PRIVATE_EXPORT QWebEngineCookieStorePrivate {
+class Q_WEBENGINECORE_PRIVATE_EXPORT QWebEngineCookieStorePrivate
+{
     Q_DECLARE_PUBLIC(QWebEngineCookieStore)
     struct CookieData {
-        quint64 callbackId;
+        bool wasDelete;
         QNetworkCookie cookie;
         QUrl origin;
     };
@@ -77,10 +77,8 @@ class Q_WEBENGINECORE_PRIVATE_EXPORT QWebEngineCookieStorePrivate {
     QWebEngineCookieStore *q_ptr;
 
 public:
-    QtWebEngineCore::CallbackDirectory callbackDirectory;
     std::function<bool(const QWebEngineCookieStore::FilterRequest &)> filterCallback;
-    QVector<CookieData> m_pendingUserCookies;
-    quint64 m_nextCallbackId;
+    QList<CookieData> m_pendingUserCookies;
     bool m_deleteSessionCookiesPending;
     bool m_deleteAllCookiesPending;
     bool m_getAllCookiesPending;
@@ -91,7 +89,7 @@ public:
 
     void processPendingUserCookies();
     void rejectPendingUserCookies();
-    void setCookie(const QWebEngineCallback<bool> &callback, const QNetworkCookie &cookie, const QUrl &origin);
+    void setCookie(const QNetworkCookie &cookie, const QUrl &origin);
     void deleteCookie(const QNetworkCookie &cookie, const QUrl &url);
     void deleteSessionCookies();
     void deleteAllCookies();
@@ -99,13 +97,10 @@ public:
 
     bool canAccessCookies(const QUrl &firstPartyUrl, const QUrl &url) const;
 
-    void onGetAllCallbackResult(qint64 callbackId, const QByteArray &cookieList);
-    void onSetCallbackResult(qint64 callbackId, bool success);
-    void onDeleteCallbackResult(qint64 callbackId, int numCookies);
     void onCookieChanged(const QNetworkCookie &cookie, bool removed);
 };
 
-Q_DECLARE_TYPEINFO(QWebEngineCookieStorePrivate::CookieData, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QWebEngineCookieStorePrivate::CookieData, Q_RELOCATABLE_TYPE);
 
 QT_END_NAMESPACE
 

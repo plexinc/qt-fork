@@ -39,7 +39,9 @@ typedef base::OnceCallback<void(const base::FilePath&,
 const char kDefaultGraphicsCardPattern[] = "/dev/dri/card%d";
 
 const char* kDisplayActionString[] = {
-    "ADD", "REMOVE", "CHANGE",
+    "ADD",
+    "REMOVE",
+    "CHANGE",
 };
 
 // Find sysfs device path for the given device path.
@@ -232,6 +234,19 @@ void DrmDisplayHostManager::UpdateDisplays(
   }
 }
 
+void DrmDisplayHostManager::ConfigureDisplays(
+    const std::vector<display::DisplayConfigurationParams>& config_requests,
+    display::ConfigureCallback callback) {
+  for (auto& config : config_requests) {
+    if (GetDisplay(config.id)->is_dummy()) {
+      std::move(callback).Run(true);
+      return;
+    }
+  }
+
+  proxy_->GpuConfigureNativeDisplays(config_requests, std::move(callback));
+}
+
 void DrmDisplayHostManager::OnDeviceEvent(const DeviceEvent& event) {
   if (event.device_type() != DeviceEvent::DISPLAY)
     return;
@@ -365,19 +380,19 @@ void DrmDisplayHostManager::OnGpuThreadReady() {
 void DrmDisplayHostManager::OnGpuThreadRetired() {}
 
 void DrmDisplayHostManager::GpuHasUpdatedNativeDisplays(
-    const std::vector<DisplaySnapshot_Params>& params_vector) {
+    MovableDisplaySnapshots displays) {
   if (delegate_)
     delegate_->OnDisplaySnapshotsInvalidated();
   std::vector<std::unique_ptr<DrmDisplayHost>> old_displays;
   displays_.swap(old_displays);
-  for (const auto& params : params_vector) {
+  for (auto& display : displays) {
     auto it = std::find_if(old_displays.begin(), old_displays.end(),
-                           FindDrmDisplayHostById(params.display_id));
+                           FindDrmDisplayHostById(display->display_id()));
     if (it == old_displays.end()) {
       displays_.push_back(std::make_unique<DrmDisplayHost>(
-          proxy_, CreateDisplaySnapshot(params), false /* is_dummy */));
+          proxy_, std::move(display), false /* is_dummy */));
     } else {
-      (*it)->UpdateDisplaySnapshot(CreateDisplaySnapshot(params));
+      (*it)->UpdateDisplaySnapshot(std::move(display));
       displays_.push_back(std::move(*it));
       old_displays.erase(it);
     }
@@ -393,22 +408,14 @@ void DrmDisplayHostManager::GpuHasUpdatedNativeDisplays(
   }
 }
 
-void DrmDisplayHostManager::GpuConfiguredDisplay(int64_t display_id,
-                                                 bool status) {
-  DrmDisplayHost* display = GetDisplay(display_id);
-  if (display) {
-    display->OnDisplayConfigured(status);
-  } else {
-    LOG(ERROR) << "Couldn't find display with id=" << display_id;
-  }
-}
-
-void DrmDisplayHostManager::GpuReceivedHDCPState(int64_t display_id,
-                                                 bool status,
-                                                 display::HDCPState state) {
+void DrmDisplayHostManager::GpuReceivedHDCPState(
+    int64_t display_id,
+    bool status,
+    display::HDCPState state,
+    display::ContentProtectionMethod protection_method) {
   DrmDisplayHost* display = GetDisplay(display_id);
   if (display)
-    display->OnHDCPStateReceived(status, state);
+    display->OnHDCPStateReceived(status, state, protection_method);
   else
     LOG(ERROR) << "Couldn't find display with id=" << display_id;
 }

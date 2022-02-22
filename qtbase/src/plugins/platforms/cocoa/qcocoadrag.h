@@ -40,7 +40,6 @@
 #ifndef QCOCOADRAG_H
 #define QCOCOADRAG_H
 
-#include <AppKit/AppKit.h>
 #include <QtGui>
 #include <qpa/qplatformdrag.h>
 #include <private/qsimpledrag_p.h>
@@ -49,6 +48,10 @@
 #include <QtGui/private/qinternalmimedata_p.h>
 
 #include <QtCore/qeventloop.h>
+
+Q_FORWARD_DECLARE_OBJC_CLASS(NSView);
+Q_FORWARD_DECLARE_OBJC_CLASS(NSEvent);
+Q_FORWARD_DECLARE_OBJC_CLASS(NSPasteboard);
 
 QT_BEGIN_NAMESPACE
 
@@ -92,7 +95,7 @@ public:
 protected:
     bool hasFormat_sys(const QString &mimeType) const;
     QStringList formats_sys() const;
-    QVariant retrieveData_sys(const QString &mimeType, QVariant::Type type) const;
+    QVariant retrieveData_sys(const QString &mimeType, QMetaType type) const;
 public:
     CFStringRef dropPasteboard;
 };

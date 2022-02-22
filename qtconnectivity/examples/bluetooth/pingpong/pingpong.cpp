@@ -50,13 +50,9 @@
 
 #include "pingpong.h"
 #include <QDebug>
-#ifdef Q_OS_ANDROID
-#include <QtAndroid>
-#endif
+#include <QCoreApplication>
 
-PingPong::PingPong():
-    m_serverInfo(0), socket(0), discoveryAgent(0), interval(5), m_resultLeft(0), m_resultRight(0),
-    m_showDialog(false), m_role(0), m_proportionX(0), m_proportionY(0), m_serviceFound(false)
+PingPong::PingPong()
 {
     m_timer = new QTimer(this);
     connect(m_timer, &QTimer::timeout, this, &PingPong::update);
@@ -72,13 +68,12 @@ PingPong::~PingPong()
 
 void PingPong::startGame()
 {
+    m_resultLeft = m_resultRight = 0;
+    emit resultChanged();
     m_showDialog = false;
     emit showDialogChanged();
     //! [Start the game]
-    if (m_role == 1)
-        updateDirection();
-
-    m_timer->start(50);
+    m_timer->start(10);
     //! [Start the game]
 }
 
@@ -89,10 +84,8 @@ void PingPong::update()
     //! [Updating coordinates]
     if (m_role == 1) {
         checkBoundaries();
-        m_ballPreviousX = m_ballX;
-        m_ballPreviousY = m_ballY;
-        m_ballY = m_direction*(m_ballX+interval) - m_direction*m_ballX + m_ballY;
-        m_ballX = m_ballX + interval;
+        m_ballY += m_speedy;
+        m_ballX += m_speedx;
 
         size.setNum(m_ballX);
         size.append(' ');
@@ -114,19 +107,6 @@ void PingPong::update()
     //! [Updating coordinates]
 }
 
-
-
-void PingPong::setSize(const float &x, const float &y)
-{
-    m_boardWidth = x;
-    m_boardHeight = y;
-    m_targetX = m_boardWidth;
-    m_targetY = m_boardHeight/2;
-    m_ballPreviousX = m_ballX = m_boardWidth/2;
-    m_ballPreviousY = m_ballY = m_boardHeight - m_boardWidth/54;
-    emit ballChanged();
-}
-
 void PingPong::updateBall(const float &bX, const float &bY)
 {
     m_ballX = bX;
@@ -145,38 +125,81 @@ void PingPong::updateRightBlock(const float &rY)
 
 void PingPong::checkBoundaries()
 {
-    float ballWidth = m_boardWidth/54;
-    float blockSize = m_boardWidth/27;
-    float blockHeight = m_boardHeight/5;
-    //! [Checking the boundaries]
-    if (((m_ballX + ballWidth) > (m_boardWidth - blockSize)) && ((m_ballY + ballWidth) < (m_rightBlockY + blockHeight))
-            && (m_ballY > m_rightBlockY)) {
-        m_targetY = 2 * m_ballY - m_ballPreviousY;
-        m_targetX = m_ballPreviousX;
-        interval = -5;
-        updateDirection();
-    }
-    else if ((m_ballX < blockSize) && ((m_ballY + ballWidth) < (m_leftBlockY + blockHeight))
-             && (m_ballY > m_leftBlockY)) {
-        m_targetY = 2 * m_ballY - m_ballPreviousY;
-        m_targetX = m_ballPreviousX;
-        interval = 5;
-        updateDirection();
-    }
-    else if (m_ballY < 0 || (m_ballY + ballWidth > m_boardHeight)) {
-        m_targetY = m_ballPreviousY;
-        m_targetX = m_ballX + interval;
-        updateDirection();
-    }
-    //! [Checking the boundaries]
-    else if ((m_ballX + ballWidth) > m_boardWidth) {
-        m_resultLeft++;
-        m_targetX = m_boardWidth;
-        m_targetY = m_boardHeight/2;
-        m_ballPreviousX = m_ballX = m_boardWidth/2;
-        m_ballPreviousY = m_ballY = m_boardHeight - m_boardWidth/54;
+    float ballWidth = 1.f / 27;
+    float blockSize = 1.f / 27;
+    float blockHeight = 1.f / 5;
 
-        updateDirection();
+    float ballCenterY = m_ballY + ballWidth / 2.;
+    //! [Checking the boundaries]
+    if (((m_ballX + ballWidth) > (1. - blockSize)) && (ballCenterY < (m_rightBlockY + blockHeight))
+        && (ballCenterY > m_rightBlockY)) {
+        // right paddle collision
+        // simulating paddle surface to be a quarter of a circle
+        float paddlecenter = m_rightBlockY + blockHeight / 2.;
+        float relpos = (ballCenterY - paddlecenter) / (blockHeight / 2.); // [-1 : 1]
+        float surfaceangle = M_PI_4 * relpos;
+
+        // calculation of surface normal
+        float normalx = -cos(surfaceangle);
+        float normaly = sin(surfaceangle);
+
+        // calculation of surface tangent
+        float tangentx = sin(surfaceangle);
+        float tangenty = cos(surfaceangle);
+
+        // calculation of tangentialspeed
+        float tangentialspeed = tangentx * m_speedx + tangenty * m_speedy;
+        // calculation of normal speed
+        float normalspeed = normalx * m_speedx + normaly * m_speedy;
+
+        // speed increase of 10%
+        normalspeed *= 1.1f;
+
+        if (normalspeed < 0) { // if we are coming from the left. To avoid double reflections
+            m_speedx = tangentialspeed * tangentx - normalspeed * normalx;
+            m_speedy = tangentialspeed * tangenty - normalspeed * normaly;
+        }
+    } else if ((m_ballX < blockSize) && (ballCenterY < (m_leftBlockY + blockHeight))
+               && (ballCenterY > m_leftBlockY)) {
+        // left paddle collision
+        // simulating paddle surface to be a quarter of a circle
+        float paddlecenter = m_leftBlockY + blockHeight / 2.;
+        float relpos = (ballCenterY - paddlecenter) / (blockHeight / 2.); // [-1 : 1]
+        float surfaceangle = M_PI_4 * relpos;
+
+        // calculation of surface normal
+        float normalx = cos(surfaceangle);
+        float normaly = sin(surfaceangle);
+
+        // calculation of surface tangent
+        float tangentx = -sin(surfaceangle);
+        float tangenty = cos(surfaceangle);
+
+        // calculation of tangentialspeed
+        float tangentialspeed = tangentx * m_speedx + tangenty * m_speedy;
+        // calculation of normal speed
+        float normalspeed = normalx * m_speedx + normaly * m_speedy;
+
+        // speed increase of 10%
+        normalspeed *= 1.1f;
+
+        if (normalspeed < 0) { // if we are coming from the left. To avoid double reflections
+            m_speedx = tangentialspeed * tangentx - normalspeed * normalx;
+            m_speedy = tangentialspeed * tangenty - normalspeed * normaly;
+        }
+    } else if (m_ballY < 0) {
+        m_speedy = std::abs(m_speedy);
+    } else if (m_ballY + ballWidth > 1.f) {
+        m_speedy = -std::abs(m_speedy);
+    }
+    //! [Checking the boundaries]
+    else if ((m_ballX + ballWidth) > 1.f) {
+        m_resultLeft++;
+        m_speedx = -0.002f;
+        m_speedy = -0.002f;
+        m_ballX = 0.5f;
+        m_ballY = 0.9f;
+
         checkResult();
         QByteArray result;
         result.append("result ");
@@ -190,14 +213,13 @@ void PingPong::checkBoundaries()
         socket->write(result);
         qDebug() << result;
         emit resultChanged();
-    }
-    else if (m_ballX < 0) {
+    } else if (m_ballX < 0) {
         m_resultRight++;
-        m_targetX = 0;
-        m_targetY = m_boardHeight/2;
-        m_ballPreviousX = m_ballX = m_boardWidth/2;
-        m_ballPreviousY = m_ballY = m_boardHeight - m_boardWidth/54;
-        updateDirection();
+        m_speedx = 0.002f;
+        m_speedy = -0.002f;
+        m_ballX = 0.5f;
+        m_ballY = 0.9f;
+
         checkResult();
         QByteArray result;
         result.append("result ");
@@ -215,38 +237,37 @@ void PingPong::checkBoundaries()
 
 void PingPong::checkResult()
 {
+    if (m_resultRight < 10 && m_resultLeft < 10)
+        return;
+
     if (m_resultRight == 10 && m_role == 2) {
-        setMessage("Game over. You win!");
-        m_timer->stop();
+        setMessage("Game over. You win! Next game starts in 10s");
     }
     else if (m_resultRight == 10 && m_role == 1) {
-        setMessage("Game over. You lose!");
-        m_timer->stop();
+        setMessage("Game over. You lose! Next game starts in 10s");
     }
     else if (m_resultLeft == 10 && m_role == 1) {
-        setMessage("Game over. You win!");
-        m_timer->stop();
+        setMessage("Game over. You win! Next game starts in 10s");
     }
     else if (m_resultLeft == 10 && m_role == 2) {
-        setMessage("Game over. You lose!");
-        m_timer->stop();
+        setMessage("Game over. You lose! Next game starts in 10s");
     }
-}
-
-void PingPong::updateDirection()
-{
-    m_direction = (m_targetY - m_ballY)/(m_targetX - m_ballX);
+    m_timer->stop();
+    QTimer::singleShot(10000, this, SLOT(startGame()));
 }
 
 void PingPong::startServer()
 {
     setMessage(QStringLiteral("Starting the server"));
+
+    // make discoverable
+    QBluetoothLocalDevice().setHostMode(QBluetoothLocalDevice::HostDiscoverable);
+
     //! [Starting the server]
     m_serverInfo = new QBluetoothServer(QBluetoothServiceInfo::RfcommProtocol, this);
     connect(m_serverInfo, &QBluetoothServer::newConnection,
             this, &PingPong::clientConnected);
-    connect(m_serverInfo, QOverload<QBluetoothServer::Error>::of(&QBluetoothServer::error),
-            this, &PingPong::serverError);
+    connect(m_serverInfo, &QBluetoothServer::errorOccurred, this, &PingPong::serverError);
     const QBluetoothUuid uuid(serviceUuid);
 
     m_serverInfo->listen(uuid, QStringLiteral("PingPong server"));
@@ -266,10 +287,10 @@ void PingPong::startClient()
             this, &PingPong::addService);
     connect(discoveryAgent, &QBluetoothServiceDiscoveryAgent::finished,
             this, &PingPong::done);
-    connect(discoveryAgent, QOverload<QBluetoothServiceDiscoveryAgent::Error>::of(&QBluetoothServiceDiscoveryAgent::error),
-            this, &PingPong::serviceScanError);
+    connect(discoveryAgent, &QBluetoothServiceDiscoveryAgent::errorOccurred, this,
+            &PingPong::serviceScanError);
 #ifdef Q_OS_ANDROID //see QTBUG-61392
-    if (QtAndroid::androidSdkVersion() >= 23)
+    if (QNativeInterface::QAndroidApplication::sdkVersion() >= 23)
         discoveryAgent->setUuidFilter(QBluetoothUuid(androidUuid));
     else
         discoveryAgent->setUuidFilter(QBluetoothUuid(serviceUuid));
@@ -300,21 +321,11 @@ void PingPong::clientConnected()
             this, &PingPong::readSocket);
     connect(socket, &QBluetoothSocket::disconnected,
             this, &PingPong::clientDisconnected);
-    connect(socket, QOverload<QBluetoothSocket::SocketError>::of(&QBluetoothSocket::error),
-            this, &PingPong::socketError);
+    connect(socket, &QBluetoothSocket::errorOccurred, this, &PingPong::socketError);
 
     //! [Initiating server socket]
-    setMessage(QStringLiteral("Client connected."));
-
-    QByteArray size;
-    size.setNum(m_boardWidth);
-    size.append(' ');
-    QByteArray size1;
-    size1.setNum(m_boardHeight);
-    size.append(size1);
-    size.append(" \n");
-    socket->write(size.constData());
-
+    setMessage(QStringLiteral("Client connected. Get ready!"));
+    QTimer::singleShot(3000, this, SLOT(startGame()));
 }
 
 void PingPong::clientDisconnected()
@@ -358,7 +369,7 @@ void PingPong::addService(const QBluetoothServiceInfo &service)
 
 void PingPong::serviceScanError(QBluetoothServiceDiscoveryAgent::Error error)
 {
-    setMessage(QStringLiteral("Scanning error") + error);
+    setMessage(QStringLiteral("Scanning error") + QVariant::fromValue(error).toString());
 }
 
 bool PingPong::showDialog() const
@@ -373,15 +384,8 @@ QString PingPong::message() const
 
 void PingPong::serverConnected()
 {
-    setMessage("Server Connected");
-    QByteArray size;
-    size.setNum(m_boardWidth);
-    size.append(' ');
-    QByteArray size1;
-    size1.setNum(m_boardHeight);
-    size.append(size1);
-    size.append(" \n");
-    socket->write(size.constData());
+    setMessage("Server Connected. Get ready!");
+    QTimer::singleShot(3000, this, SLOT(startGame()));
 }
 
 void PingPong::serverDisconnected()
@@ -411,34 +415,22 @@ void PingPong::readSocket()
             }
         }
     }
-    if ((m_proportionX == 0 || m_proportionY == 0)) {
-        QList<QByteArray> boardSize = line.split(sep);
-        if (boardSize.size() > 1) {
-            QByteArray boardWidth = boardSize.at(0);
-            QByteArray boardHeight = boardSize.at(1);
-            m_proportionX = m_boardWidth/boardWidth.toFloat();
-            m_proportionY = m_boardHeight/boardHeight.toFloat();
-            setMessage("Screen adjusted. Get ready!");
-            QTimer::singleShot(3000, this, SLOT(startGame()));
-        }
-    }
-    else if (m_role == 1) {
+    if (m_role == 1) {
         QList<QByteArray> boardSize = line.split(sep);
         if (boardSize.size() > 1) {
             QByteArray rightBlockY = boardSize.at(0);
-            m_rightBlockY = m_proportionY * rightBlockY.toFloat();
+            m_rightBlockY = rightBlockY.toFloat();
             emit rightBlockChanged();
         }
-    }
-    else if (m_role == 2) {
+    } else if (m_role == 2) {
         QList<QByteArray> boardSize = line.split(sep);
         if (boardSize.size() > 2) {
             QByteArray ballX = boardSize.at(0);
             QByteArray ballY = boardSize.at(1);
             QByteArray leftBlockY = boardSize.at(2);
-            m_ballX = m_proportionX * ballX.toFloat();
-            m_ballY = m_proportionY * ballY.toFloat();
-            m_leftBlockY = m_proportionY * leftBlockY.toFloat();
+            m_ballX = ballX.toFloat();
+            m_ballY = ballY.toFloat();
+            m_leftBlockY = leftBlockY.toFloat();
             emit leftBlockChanged();
             emit ballChanged();
         }

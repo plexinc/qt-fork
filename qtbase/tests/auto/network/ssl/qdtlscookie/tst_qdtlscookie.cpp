@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2018 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
@@ -26,7 +26,10 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QTestEventLoop>
+
+#include "../shared/tlshelpers.h"
 
 #include <QtNetwork/qhostaddress.h>
 #include <QtNetwork/qsslsocket.h>
@@ -138,6 +141,12 @@ QHostAddress tst_QDtlsCookie::toNonAny(const QHostAddress &addr)
 
 void tst_QDtlsCookie::initTestCase()
 {
+    using TlsCl = QSsl::ImplementedClass;
+    using TlsAux::classImplemented;
+
+    if (!classImplemented(TlsCl::DtlsCookie) || !classImplemented(TlsCl::Dtls))
+        QSKIP("The active TLS backend does not support DTLS");
+
     QVERIFY(noiseMaker.bind());
     spammerAddress = toNonAny(noiseMaker.localAddress());
     spammerPort = noiseMaker.localPort();
@@ -288,6 +297,20 @@ void tst_QDtlsCookie::verifyClient()
                                           clientPort), true);
     QCOMPARE(anotherListener.verifiedHello(), dgram);
     QCOMPARE(anotherListener.dtlsError(), QDtlsError::NoError);
+
+    // Now, let's test if a DTLS server is able to create a new TLS session
+    // re-using the client's 'Hello' with a cookie inside:
+    QDtls session(QSslSocket::SslServerMode);
+    auto dtlsConf = QSslConfiguration::defaultDtlsConfiguration();
+    dtlsConf.setDtlsCookieVerificationEnabled(true);
+    session.setDtlsConfiguration(dtlsConf);
+    session.setPeer(clientAddress, clientPort);
+    // Borrow a secret and hash algorithm:
+    session.setCookieGeneratorParameters(listener.cookieGeneratorParameters());
+    // Trigger TLS state machine change to think it accepted a cookie and started
+    // a handshake:
+    QVERIFY(session.doHandshake(&serverSocket, dgram));
+
     // Now let's use a wrong port:
     QCOMPARE(listener.verifyClient(&serverSocket, dgram, clientAddress, serverPort), false);
     // Invalid cookie, no verified hello message:
@@ -329,7 +352,7 @@ void tst_QDtlsCookie::verifyMultipleClients()
 
     clientsToAdd = clientsToWait = 100;
 
-    testLoop.enterLoop(handshakeTimeoutMS * clientsToWait);
+    testLoop.enterLoopMSecs(handshakeTimeoutMS * clientsToWait);
     QVERIFY(!testLoop.timeout());
     QVERIFY(clientsToWait == 0);
 }

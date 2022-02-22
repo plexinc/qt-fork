@@ -7,7 +7,8 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/logging.h"
+#include "base/check.h"
+#include "base/notreached.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -27,6 +28,7 @@ namespace media {
 
 namespace {
 
+const char kCreateSessionSessionTypeUMAName[] = "CreateSession.SessionType";
 const char kSetServerCertificateUMAName[] = "SetServerCertificate";
 const char kGetStatusForPolicyUMAName[] = "GetStatusForPolicy";
 
@@ -106,7 +108,7 @@ void WebContentDecryptionModuleImpl::Create(
   // |web_cdm_created_cb|), it will keep a reference to |adapter|. Otherwise,
   // |adapter| will be destructed.
   scoped_refptr<CdmSessionAdapter> adapter(new CdmSessionAdapter());
-  adapter->CreateCdm(cdm_factory, key_system_ascii, security_origin, cdm_config,
+  adapter->CreateCdm(cdm_factory, key_system_ascii, cdm_config,
                      std::move(web_cdm_created_cb));
 }
 
@@ -118,8 +120,12 @@ WebContentDecryptionModuleImpl::WebContentDecryptionModuleImpl(
 WebContentDecryptionModuleImpl::~WebContentDecryptionModuleImpl() = default;
 
 std::unique_ptr<blink::WebContentDecryptionModuleSession>
-WebContentDecryptionModuleImpl::CreateSession() {
-  return adapter_->CreateSession();
+WebContentDecryptionModuleImpl::CreateSession(
+    blink::WebEncryptedMediaSessionType session_type) {
+  base::UmaHistogramEnumeration(
+      adapter_->GetKeySystemUMAPrefix() + kCreateSessionSessionTypeUMAName,
+      session_type);
+  return adapter_->CreateSession(session_type);
 }
 
 void WebContentDecryptionModuleImpl::SetServerCertificate(

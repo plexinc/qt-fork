@@ -68,8 +68,8 @@ public:
         typedef QCborValueRef reference;
         typedef QCborValueRef *pointer;
 
-        Q_DECL_CONSTEXPR Iterator() = default;
-        Q_DECL_CONSTEXPR Iterator(const Iterator &) = default;
+        constexpr Iterator() = default;
+        constexpr Iterator(const Iterator &) = default;
         Iterator &operator=(const Iterator &other)
         {
             // rebind the reference
@@ -117,8 +117,8 @@ public:
         typedef const QCborValueRef reference;
         typedef const QCborValueRef *pointer;
 
-        Q_DECL_CONSTEXPR ConstIterator() = default;
-        Q_DECL_CONSTEXPR ConstIterator(const ConstIterator &) = default;
+        constexpr ConstIterator() = default;
+        constexpr ConstIterator(const ConstIterator &) = default;
         ConstIterator &operator=(const ConstIterator &other)
         {
             // rebind the reference
@@ -297,14 +297,16 @@ inline QCborArray QCborValueRef::toArray(const QCborArray &a) const
     return concrete().toArray(a);
 }
 
-Q_CORE_EXPORT uint qHash(const QCborArray &array, uint seed = 0);
+Q_CORE_EXPORT size_t qHash(const QCborArray &array, size_t seed = 0);
 
 #if !defined(QT_NO_DEBUG_STREAM)
 Q_CORE_EXPORT QDebug operator<<(QDebug, const QCborArray &a);
 #endif
 
 #ifndef QT_NO_DATASTREAM
+#if QT_CONFIG(cborstreamwriter)
 Q_CORE_EXPORT QDataStream &operator<<(QDataStream &, const QCborArray &);
+#endif
 Q_CORE_EXPORT QDataStream &operator>>(QDataStream &, QCborArray &);
 #endif
 

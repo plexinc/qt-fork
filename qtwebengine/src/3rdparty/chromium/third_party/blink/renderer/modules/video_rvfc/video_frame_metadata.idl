@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// See https://wicg.github.io/video-raf/.
+// See https://wicg.github.io/video-rvfc/.
 
 dictionary VideoFrameMetadata {
     // The time at which the user agent submitted the frame for composition.
@@ -47,6 +47,6 @@ dictionary VideoFrameMetadata {
 
     // The RTP timestamp associated with this video frame.
     //
-    // https://w3c.github.io/webrtc-pc/#dom-rtcrtpcontributingsource
+    // https://w3c.github.io/webrtc-pc/#dom-rtcrtpcontributingsource-rtptimestamp
     unsigned long rtpTimestamp;
 };

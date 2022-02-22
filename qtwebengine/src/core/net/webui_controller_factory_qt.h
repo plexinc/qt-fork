@@ -42,16 +42,8 @@
 
 #include "base/macros.h"
 #include "base/memory/singleton.h"
-#include "components/favicon_base/favicon_callback.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_controller_factory.h"
-#include "ui/base/layout.h"
-
-class Profile;
-
-namespace base {
-class RefCountedMemory;
-}
 
 namespace QtWebEngineCore {
 
@@ -60,7 +52,6 @@ class WebUIControllerFactoryQt : public content::WebUIControllerFactory
 public:
     content::WebUI::TypeID GetWebUIType(content::BrowserContext *browserContext, const GURL &url) override;
     bool UseWebUIForURL(content::BrowserContext *browserContext, const GURL &url) override;
-    bool UseWebUIBindingsForURL(content::BrowserContext *browserContext, const GURL &url) override;
     std::unique_ptr<content::WebUIController> CreateWebUIControllerForURL(content::WebUI *webUi, const GURL &url) override;
 
     static WebUIControllerFactoryQt *GetInstance();

@@ -6,7 +6,6 @@
  */
 
 #include "src/gpu/GrRenderTarget.h"
-#include "src/gpu/GrRenderTargetPriv.h"
 #include "src/gpu/GrShaderCaps.h"
 #include "src/gpu/gl/GrGLGpu.h"
 #include "src/gpu/glsl/GrGLSLFragmentShaderBuilder.h"
@@ -16,75 +15,17 @@
 
 const char* GrGLSLFragmentShaderBuilder::kDstColorName = "_dstColor";
 
-static const char* specific_layout_qualifier_name(GrBlendEquation equation) {
-    SkASSERT(GrBlendEquationIsAdvanced(equation));
-
-    static const char* kLayoutQualifierNames[] = {
-        "blend_support_screen",
-        "blend_support_overlay",
-        "blend_support_darken",
-        "blend_support_lighten",
-        "blend_support_colordodge",
-        "blend_support_colorburn",
-        "blend_support_hardlight",
-        "blend_support_softlight",
-        "blend_support_difference",
-        "blend_support_exclusion",
-        "blend_support_multiply",
-        "blend_support_hsl_hue",
-        "blend_support_hsl_saturation",
-        "blend_support_hsl_color",
-        "blend_support_hsl_luminosity"
-    };
-    return kLayoutQualifierNames[equation - kFirstAdvancedGrBlendEquation];
-
-    static_assert(0 == kScreen_GrBlendEquation - kFirstAdvancedGrBlendEquation, "");
-    static_assert(1 == kOverlay_GrBlendEquation - kFirstAdvancedGrBlendEquation, "");
-    static_assert(2 == kDarken_GrBlendEquation - kFirstAdvancedGrBlendEquation, "");
-    static_assert(3 == kLighten_GrBlendEquation - kFirstAdvancedGrBlendEquation, "");
-    static_assert(4 == kColorDodge_GrBlendEquation - kFirstAdvancedGrBlendEquation, "");
-    static_assert(5 == kColorBurn_GrBlendEquation - kFirstAdvancedGrBlendEquation, "");
-    static_assert(6 == kHardLight_GrBlendEquation - kFirstAdvancedGrBlendEquation, "");
-    static_assert(7 == kSoftLight_GrBlendEquation - kFirstAdvancedGrBlendEquation, "");
-    static_assert(8 == kDifference_GrBlendEquation - kFirstAdvancedGrBlendEquation, "");
-    static_assert(9 == kExclusion_GrBlendEquation - kFirstAdvancedGrBlendEquation, "");
-    static_assert(10 == kMultiply_GrBlendEquation - kFirstAdvancedGrBlendEquation, "");
-    static_assert(11 == kHSLHue_GrBlendEquation - kFirstAdvancedGrBlendEquation, "");
-    static_assert(12 == kHSLSaturation_GrBlendEquation - kFirstAdvancedGrBlendEquation, "");
-    static_assert(13 == kHSLColor_GrBlendEquation - kFirstAdvancedGrBlendEquation, "");
-    static_assert(14 == kHSLLuminosity_GrBlendEquation - kFirstAdvancedGrBlendEquation, "");
-    // There's an illegal GrBlendEquation at the end there, hence the -1.
-    static_assert(SK_ARRAY_COUNT(kLayoutQualifierNames) ==
-                  kGrBlendEquationCnt - kFirstAdvancedGrBlendEquation - 1, "");
-}
-
 uint8_t GrGLSLFragmentShaderBuilder::KeyForSurfaceOrigin(GrSurfaceOrigin origin) {
     SkASSERT(kTopLeft_GrSurfaceOrigin == origin || kBottomLeft_GrSurfaceOrigin == origin);
     return origin + 1;
 
-    static_assert(0 == kTopLeft_GrSurfaceOrigin, "");
-    static_assert(1 == kBottomLeft_GrSurfaceOrigin, "");
+    static_assert(0 == kTopLeft_GrSurfaceOrigin);
+    static_assert(1 == kBottomLeft_GrSurfaceOrigin);
 }
 
 GrGLSLFragmentShaderBuilder::GrGLSLFragmentShaderBuilder(GrGLSLProgramBuilder* program)
-        : GrGLSLFragmentBuilder(program) {
+        : GrGLSLShaderBuilder(program) {
     fSubstageIndices.push_back(0);
-}
-
-SkString GrGLSLFragmentShaderBuilder::ensureCoords2D(const GrShaderVar& coords) {
-    if (!coords.getName().size()) {
-        return SkString("_coords");
-    }
-    if (kFloat3_GrSLType != coords.getType() && kHalf3_GrSLType != coords.getType()) {
-        SkASSERT(kFloat2_GrSLType == coords.getType() || kHalf2_GrSLType == coords.getType());
-        return coords.getName();
-    }
-
-    SkString coords2D;
-    coords2D.printf("%s_ensure2D", coords.c_str());
-    this->codeAppendf("\tfloat2 %s = %s.xy / %s.z;", coords2D.c_str(), coords.c_str(),
-                      coords.c_str());
-    return coords2D;
 }
 
 const char* GrGLSLFragmentShaderBuilder::sampleOffsets() {
@@ -163,38 +104,55 @@ SkString GrGLSLFPFragmentBuilder::writeProcessorFunction(GrGLSLFragmentProcessor
                                                          GrGLSLFragmentProcessor::EmitArgs& args) {
     this->onBeforeChildProcEmitCode();
     this->nextStage();
-    if (args.fFp.isSampledWithExplicitCoords() && args.fTransformedCoords.count() > 0) {
-        // we currently only support overriding a single coordinate pair
-        SkASSERT(args.fTransformedCoords.count() == 1);
-        const GrShaderVar& transform = args.fTransformedCoords[0].fTransform;
-        switch (transform.getType()) {
-            case kFloat4_GrSLType:
-                this->codeAppendf("_coords = _coords * %s.xz + %s.yw;\n", transform.c_str(),
-                                  transform.c_str());
-                break;
-            case kFloat3x3_GrSLType:
-                this->codeAppendf("_coords = (%s * float3(_coords, 1)).xy;\n", transform.c_str());
-                break;
-            default:
-                SkASSERT(transform.getType() == kVoid_GrSLType);
-                break;
-        }
-    }
-    this->codeAppendf("half4 %s;\n", args.fOutputColor);
-    fp->emitCode(args);
-    this->codeAppendf("return %s;\n", args.fOutputColor);
+
+    // An FP's function signature is theoretically always main(half4 color, float2 _coords).
+    // However, if it is only sampled by a chain of uniform matrix expressions (or legacy coord
+    // transforms), the value that would have been passed to _coords is lifted to the vertex shader
+    // and stored in a unique varying. In that case it uses that variable and does not have a
+    // second actual argument for _coords.
+    // FIXME: An alternative would be to have all FP functions have a float2 argument, and the
+    // parent FP invokes it with the varying reference when it's been lifted to the vertex shader.
+    size_t paramCount = 2;
     GrShaderVar params[] = { GrShaderVar(args.fInputColor, kHalf4_GrSLType),
-                             GrShaderVar("_coords", kFloat2_GrSLType) };
-    SkString result;
-    this->emitFunction(kHalf4_GrSLType,
-                       args.fFp.name(),
-                       args.fFp.isSampledWithExplicitCoords() ? 2 : 1,
-                       params,
-                       this->code().c_str(),
-                       &result);
+                             GrShaderVar(args.fSampleCoord, kFloat2_GrSLType) };
+
+    if (!args.fFp.isSampledWithExplicitCoords()) {
+        // Sampled with a uniform matrix expression and/or a legacy coord transform. The actual
+        // transformation code is emitted in the vertex shader, so this only has to access it.
+        // Add a float2 _coords variable that maps to the associated varying and replaces the
+        // absent 2nd argument to the fp's function.
+        paramCount = 1;
+
+        if (args.fFp.referencesSampleCoords()) {
+            const GrShaderVar& varying = args.fTransformedCoords[0];
+            switch(varying.getType()) {
+                case kFloat2_GrSLType:
+                    // Just point the local coords to the varying
+                    args.fSampleCoord = varying.getName().c_str();
+                    break;
+                case kFloat3_GrSLType:
+                    // Must perform the perspective divide in the frag shader based on the varying,
+                    // and since we won't actually have a function parameter for local coords, add
+                    // it as a local variable.
+                    this->codeAppendf("float2 %s = %s.xy / %s.z;\n", args.fSampleCoord,
+                                      varying.getName().c_str(), varying.getName().c_str());
+                    break;
+                default:
+                    SkDEBUGFAILF("Unexpected varying type for coord: %s %d\n",
+                                 varying.getName().c_str(), (int) varying.getType());
+                    break;
+            }
+        }
+    } // else the function keeps its two arguments
+
+    fp->emitCode(args);
+
+    SkString funcName = this->getMangledFunctionName(args.fFp.name());
+    this->emitFunction(kHalf4_GrSLType, funcName.c_str(), {params, paramCount},
+                       this->code().c_str(), args.fForceInline);
     this->deleteStage();
     this->onAfterChildProcEmitCode();
-    return result;
+    return funcName;
 }
 
 const char* GrGLSLFragmentShaderBuilder::dstColor() {
@@ -223,16 +181,9 @@ const char* GrGLSLFragmentShaderBuilder::dstColor() {
 void GrGLSLFragmentShaderBuilder::enableAdvancedBlendEquationIfNeeded(GrBlendEquation equation) {
     SkASSERT(GrBlendEquationIsAdvanced(equation));
 
-    const GrShaderCaps& caps = *fProgramBuilder->shaderCaps();
-    if (!caps.mustEnableAdvBlendEqs()) {
-        return;
-    }
-
-    this->addFeature(1 << kBlendEquationAdvanced_GLSLPrivateFeature,
-                     "GL_KHR_blend_equation_advanced");
-    if (caps.mustEnableSpecificAdvBlendEqs()) {
-        this->addLayoutQualifier(specific_layout_qualifier_name(equation), kOut_InterfaceQualifier);
-    } else {
+    if (fProgramBuilder->shaderCaps()->mustEnableAdvBlendEqs()) {
+        this->addFeature(1 << kBlendEquationAdvanced_GLSLPrivateFeature,
+                         "GL_KHR_blend_equation_advanced");
         this->addLayoutQualifier("blend_support_all_equations", kOut_InterfaceQualifier);
     }
 }
@@ -255,7 +206,7 @@ void GrGLSLFragmentShaderBuilder::enableSecondaryOutput() {
 
     // If the primary output is declared, we must declare also the secondary output
     // and vice versa, since it is not allowed to use a built-in gl_FragColor and a custom
-    // output. The condition also co-incides with the condition in whici GLES SL 2.0
+    // output. The condition also co-incides with the condition in which GLES SL 2.0
     // requires the built-in gl_SecondaryFragColorEXT, where as 3.0 requires a custom output.
     if (caps.mustDeclareFragmentShaderOutput()) {
         fOutputs.emplace_back(DeclaredSecondaryColorOutputName(), kHalf4_GrSLType,
@@ -271,13 +222,6 @@ const char* GrGLSLFragmentShaderBuilder::getPrimaryColorOutputName() const {
 bool GrGLSLFragmentShaderBuilder::primaryColorOutputIsInOut() const {
     return fCustomColorOutput &&
            fCustomColorOutput->getTypeModifier() == GrShaderVar::TypeModifier::InOut;
-}
-
-void GrGLSLFragmentBuilder::declAppendf(const char* fmt, ...) {
-    va_list argp;
-    va_start(argp, fmt);
-    inputs().appendVAList(fmt, argp);
-    va_end(argp);
 }
 
 const char* GrGLSLFragmentShaderBuilder::getSecondaryColorOutputName() const {

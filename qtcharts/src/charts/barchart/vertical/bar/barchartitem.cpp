@@ -33,7 +33,7 @@
 #include <QtCharts/QBarSet>
 #include <private/qbarset_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 BarChartItem::BarChartItem(QAbstractBarSeries *series, QGraphicsItem* item) :
     AbstractBarChartItem(series, item)
@@ -97,9 +97,9 @@ QPointF BarChartItem::bottomRightPoint(int set, int setCount,
                         value), m_validData);
 }
 
-QVector<QRectF> BarChartItem::calculateLayout()
+QList<QRectF> BarChartItem::calculateLayout()
 {
-    QVector<QRectF> layout;
+    QList<QRectF> layout;
     layout.resize(m_layout.size());
 
     const int setCount = m_series->count();
@@ -141,6 +141,6 @@ void BarChartItem::positionLabels()
     positionLabelsVertical();
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_barchartitem_p.cpp"

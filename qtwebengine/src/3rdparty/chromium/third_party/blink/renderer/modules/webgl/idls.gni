@@ -30,6 +30,7 @@ modules_idl_files = [
   "ext_texture_filter_anisotropic.idl",
   "ext_texture_norm_16.idl",
   "khr_parallel_shader_compile.idl",
+  "oes_draw_buffers_indexed.idl",
   "oes_element_index_uint.idl",
   "oes_fbo_render_mipmap.idl",
   "oes_standard_derivatives.idl",
@@ -74,21 +75,17 @@ modules_idl_files = [
   "webgl_vertex_array_object.idl",
   "webgl_vertex_array_object_oes.idl",
   "webgl_video_texture.idl",
+  "webgl_webcodecs_video_frame.idl",
 ]
 
 modules_dictionary_idl_files = [
   "webgl_context_attributes.idl",
   "webgl_context_event_init.idl",
+  "webgl_webcodecs_texture_info.idl",
+  "webgl_webcodecs_video_frame_handle.idl",
 ]
 
 modules_dependency_idl_files = [
   "webgl2_rendering_context_base.idl",
   "webgl_rendering_context_base.idl",
 ]
-
-if (support_webgl2_compute_context) {
-  modules_idl_files += [ "webgl2_compute_rendering_context.idl" ]
-
-  modules_dependency_idl_files +=
-      [ "webgl2_compute_rendering_context_base.idl" ]
-}

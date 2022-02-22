@@ -27,9 +27,13 @@
 /*!
     \page android-platform-notes.html
     \title Android Platform Notes
+    \ingroup androidplatform
+    \previouspage android-publishing-to-googleplay.html
+    \nextpage android_runtime_licensing_notes.html
+    \brief Information particular to building and running Qt applications on Android.
 
     This page contains information particular to building and running Qt
-    applications on Android. Qt supports Android versions 5.0 (API level 21) or
+    applications on Android. Qt supports Android versions 6.0 (API level 23) or
     later.
 
     \section1 Android Development in Qt Creator
@@ -80,12 +84,6 @@
     levels, and therefore you need to target API level 21. Keep in mind also that
     using OpenGL ES 3.x features will result in the application breaking on older
     devices that only support 2.0.
-
-    \section1 Multimedia Special Considerations
-
-    The \l{Qt Multimedia Widgets} module is not supported on Android, which means
-    video display is only available using the \l [QML]{QtMultimedia::}{Video}
-    QML Type.
 
     \section1 Assets File System
 

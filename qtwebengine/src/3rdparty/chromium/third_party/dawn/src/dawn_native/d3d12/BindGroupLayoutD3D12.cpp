@@ -17,32 +17,48 @@
 #include "common/BitSetIterator.h"
 #include "dawn_native/d3d12/BindGroupD3D12.h"
 #include "dawn_native/d3d12/DeviceD3D12.h"
+#include "dawn_native/d3d12/SamplerHeapCacheD3D12.h"
+#include "dawn_native/d3d12/StagingDescriptorAllocatorD3D12.h"
 
 namespace dawn_native { namespace d3d12 {
     namespace {
-        BindGroupLayout::DescriptorType WGPUBindingTypeToDescriptorType(
-            wgpu::BindingType bindingType) {
-            switch (bindingType) {
-                case wgpu::BindingType::UniformBuffer:
-                    return BindGroupLayout::DescriptorType::CBV;
-                case wgpu::BindingType::StorageBuffer:
-                case wgpu::BindingType::WriteonlyStorageTexture:
-                    return BindGroupLayout::DescriptorType::UAV;
-                case wgpu::BindingType::SampledTexture:
-                case wgpu::BindingType::ReadonlyStorageBuffer:
-                case wgpu::BindingType::ReadonlyStorageTexture:
-                    return BindGroupLayout::DescriptorType::SRV;
-                case wgpu::BindingType::Sampler:
+        BindGroupLayout::DescriptorType WGPUBindingInfoToDescriptorType(
+            const BindingInfo& bindingInfo) {
+            switch (bindingInfo.bindingType) {
+                case BindingInfoType::Buffer:
+                    switch (bindingInfo.buffer.type) {
+                        case wgpu::BufferBindingType::Uniform:
+                            return BindGroupLayout::DescriptorType::CBV;
+                        case wgpu::BufferBindingType::Storage:
+                            return BindGroupLayout::DescriptorType::UAV;
+                        case wgpu::BufferBindingType::ReadOnlyStorage:
+                            return BindGroupLayout::DescriptorType::SRV;
+                        case wgpu::BufferBindingType::Undefined:
+                            UNREACHABLE();
+                    }
+
+                case BindingInfoType::Sampler:
                     return BindGroupLayout::DescriptorType::Sampler;
-                case wgpu::BindingType::StorageTexture:
-                    UNREACHABLE();
-                    return BindGroupLayout::DescriptorType::UAV;
+
+                case BindingInfoType::Texture:
+                    return BindGroupLayout::DescriptorType::SRV;
+
+                case BindingInfoType::StorageTexture:
+                    switch (bindingInfo.storageTexture.access) {
+                        case wgpu::StorageTextureAccess::ReadOnly:
+                            return BindGroupLayout::DescriptorType::SRV;
+                        case wgpu::StorageTextureAccess::WriteOnly:
+                            return BindGroupLayout::DescriptorType::UAV;
+                        case wgpu::StorageTextureAccess::Undefined:
+                            UNREACHABLE();
+                    }
             }
         }
     }  // anonymous namespace
 
     BindGroupLayout::BindGroupLayout(Device* device, const BindGroupLayoutDescriptor* descriptor)
         : BindGroupLayoutBase(device, descriptor),
+          mBindingOffsets(GetBindingCount()),
           mDescriptorCounts{},
           mBindGroupAllocator(MakeFrontendBindGroupAllocator<BindGroup>(4096)) {
         for (BindingIndex bindingIndex = GetDynamicBufferCount(); bindingIndex < GetBindingCount();
@@ -53,9 +69,9 @@ namespace dawn_native { namespace d3d12 {
             // So there is no need to allocate the descriptor from descriptor heap.
             // This loop starts after the dynamic buffer indices to skip counting
             // dynamic resources in calculating the size of the descriptor heap.
-            ASSERT(!bindingInfo.hasDynamicOffset);
+            ASSERT(!bindingInfo.buffer.hasDynamicOffset);
 
-            DescriptorType descriptorType = WGPUBindingTypeToDescriptorType(bindingInfo.type);
+            DescriptorType descriptorType = WGPUBindingInfoToDescriptorType(bindingInfo);
             mBindingOffsets[bindingIndex] = mDescriptorCounts[descriptorType]++;
         }
 
@@ -100,47 +116,62 @@ namespace dawn_native { namespace d3d12 {
                            D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER);
         descriptorOffsets[Sampler] = 0;
 
-        for (BindingIndex bindingIndex = 0; bindingIndex < GetBindingCount(); ++bindingIndex) {
+        for (BindingIndex bindingIndex{0}; bindingIndex < GetBindingCount(); ++bindingIndex) {
             const BindingInfo& bindingInfo = GetBindingInfo(bindingIndex);
 
-            if (bindingInfo.hasDynamicOffset) {
+            if (bindingInfo.bindingType == BindingInfoType::Buffer &&
+                bindingInfo.buffer.hasDynamicOffset) {
                 // Dawn is using values in mBindingOffsets to decide register number in HLSL.
                 // Root descriptor needs to set this value to set correct register number in
                 // generated HLSL shader.
-                switch (bindingInfo.type) {
-                    case wgpu::BindingType::UniformBuffer:
-                    case wgpu::BindingType::StorageBuffer:
-                    case wgpu::BindingType::ReadonlyStorageBuffer:
-                        mBindingOffsets[bindingIndex] = baseRegister++;
-                        break;
-                    case wgpu::BindingType::SampledTexture:
-                    case wgpu::BindingType::Sampler:
-                    case wgpu::BindingType::StorageTexture:
-                    case wgpu::BindingType::ReadonlyStorageTexture:
-                    case wgpu::BindingType::WriteonlyStorageTexture:
-                        UNREACHABLE();
-                        break;
-                }
+                mBindingOffsets[bindingIndex] = baseRegister++;
                 continue;
             }
 
             // TODO(shaobo.yan@intel.com): Implement dynamic buffer offset.
-            DescriptorType descriptorType = WGPUBindingTypeToDescriptorType(bindingInfo.type);
+            DescriptorType descriptorType = WGPUBindingInfoToDescriptorType(bindingInfo);
             mBindingOffsets[bindingIndex] += descriptorOffsets[descriptorType];
         }
+
+        mViewAllocator = device->GetViewStagingDescriptorAllocator(GetCbvUavSrvDescriptorCount());
+        mSamplerAllocator =
+            device->GetSamplerStagingDescriptorAllocator(GetSamplerDescriptorCount());
     }
 
-    BindGroup* BindGroupLayout::AllocateBindGroup(Device* device,
-                                                  const BindGroupDescriptor* descriptor) {
-        return mBindGroupAllocator.Allocate(device, descriptor);
+    ResultOrError<BindGroup*> BindGroupLayout::AllocateBindGroup(
+        Device* device,
+        const BindGroupDescriptor* descriptor) {
+        uint32_t viewSizeIncrement = 0;
+        CPUDescriptorHeapAllocation viewAllocation;
+        if (GetCbvUavSrvDescriptorCount() > 0) {
+            DAWN_TRY_ASSIGN(viewAllocation, mViewAllocator->AllocateCPUDescriptors());
+            viewSizeIncrement = mViewAllocator->GetSizeIncrement();
+        }
+
+        Ref<BindGroup> bindGroup = AcquireRef<BindGroup>(
+            mBindGroupAllocator.Allocate(device, descriptor, viewSizeIncrement, viewAllocation));
+
+        if (GetSamplerDescriptorCount() > 0) {
+            Ref<SamplerHeapCacheEntry> samplerHeapCacheEntry;
+            DAWN_TRY_ASSIGN(samplerHeapCacheEntry, device->GetSamplerHeapCache()->GetOrCreate(
+                                                       bindGroup.Get(), mSamplerAllocator));
+            bindGroup->SetSamplerAllocationEntry(std::move(samplerHeapCacheEntry));
+        }
+
+        return bindGroup.Detach();
     }
 
-    void BindGroupLayout::DeallocateBindGroup(BindGroup* bindGroup) {
+    void BindGroupLayout::DeallocateBindGroup(BindGroup* bindGroup,
+                                              CPUDescriptorHeapAllocation* viewAllocation) {
+        if (viewAllocation->IsValid()) {
+            mViewAllocator->Deallocate(viewAllocation);
+        }
+
         mBindGroupAllocator.Deallocate(bindGroup);
     }
 
-    const std::array<uint32_t, kMaxBindingsPerGroup>& BindGroupLayout::GetBindingOffsets() const {
-        return mBindingOffsets;
+    ityp::span<BindingIndex, const uint32_t> BindGroupLayout::GetBindingOffsets() const {
+        return {mBindingOffsets.data(), mBindingOffsets.size()};
     }
 
     uint32_t BindGroupLayout::GetCbvUavSrvDescriptorTableSize() const {

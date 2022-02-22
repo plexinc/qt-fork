@@ -42,7 +42,7 @@
 
 #include <QtSql/qtsqlglobal.h>
 #include <QtCore/qvariant.h>
-#include <QtCore/qvector.h>
+#include <QtCore/qcontainerfwd.h>
 
 // for testing:
 class tst_QSqlQuery;
@@ -52,7 +52,6 @@ QT_BEGIN_NAMESPACE
 
 class QString;
 class QSqlRecord;
-template <typename T> class QVector;
 class QVariant;
 class QSqlDriver;
 class QSqlError;
@@ -106,7 +105,7 @@ protected:
     QSql::ParamType bindValueType(const QString& placeholder) const;
     QSql::ParamType bindValueType(int pos) const;
     int boundValueCount() const;
-    QVector<QVariant>& boundValues() const;
+    QList<QVariant> &boundValues() const;
     QString executedQuery() const;
     QString boundValueName(int pos) const;
     void clear();

@@ -2,19 +2,19 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "components/payments/core/payment_app.h"
+#include "components/payments/content/payment_app.h"
 
 #include <vector>
 
+#include "base/memory/weak_ptr.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_feature_list.h"
 #include "components/autofill/core/browser/autofill_test_utils.h"
 #include "components/autofill/core/browser/data_model/autofill_profile.h"
 #include "components/autofill/core/browser/data_model/credit_card.h"
+#include "components/payments/content/autofill_payment_app.h"
 #include "components/payments/content/service_worker_payment_app.h"
-#include "components/payments/core/autofill_payment_app.h"
 #include "components/payments/core/features.h"
-#include "components/payments/core/mock_payment_request_delegate.h"
 #include "content/public/browser/stored_payment_app.h"
 #include "content/public/browser/supported_delegations.h"
 #include "content/public/browser/web_contents.h"
@@ -41,6 +41,12 @@ enum class RequiredPaymentOptions {
   kContactInformationAndShippingAddress,
 };
 
+static const RequiredPaymentOptions kRequiredPaymentOptionsValues[]{
+    RequiredPaymentOptions::kNone, RequiredPaymentOptions::kShippingAddress,
+    RequiredPaymentOptions::kContactInformation,
+    RequiredPaymentOptions::kPayerEmail,
+    RequiredPaymentOptions::kContactInformationAndShippingAddress};
+
 }  // namespace
 
 class PaymentAppTest : public testing::TestWithParam<RequiredPaymentOptions>,
@@ -53,6 +59,11 @@ class PaymentAppTest : public testing::TestWithParam<RequiredPaymentOptions>,
         required_options_(GetParam()) {
     local_card_.set_billing_address_id(address_.guid());
     CreateSpec();
+  }
+
+  void SetUp() override {
+    // Must be initialized after the ScopedFeatureList of the subclass test
+    // DownRankJustInTimePaymentAppTest (crbug.com/1172599)
     web_contents_ =
         test_web_contents_factory_.CreateWebContents(&browser_context_);
   }
@@ -86,12 +97,10 @@ class PaymentAppTest : public testing::TestWithParam<RequiredPaymentOptions>,
     }
 
     return std::make_unique<ServiceWorkerPaymentApp>(
-        &browser_context_, GURL("https://testmerchant.com"),
-        GURL("https://testmerchant.com/bobpay"), spec_.get(),
-        std::move(stored_app), &delegate_,
-        /*identity_callback=*/
-        base::BindRepeating([](const url::Origin&,
-                               int64_t) { /* Intentionally left blank. */ }));
+        web_contents_, GURL("https://testmerchant.com"),
+        GURL("https://testmerchant.com/bobpay"), spec_->AsWeakPtr(),
+        std::move(stored_app), /*is_incognito=*/false,
+        /*show_processing_spinner=*/base::DoNothing());
   }
 
   std::unique_ptr<ServiceWorkerPaymentApp>
@@ -118,11 +127,9 @@ class PaymentAppTest : public testing::TestWithParam<RequiredPaymentOptions>,
 
     return std::make_unique<ServiceWorkerPaymentApp>(
         web_contents_, GURL("https://merchant.example"),
-        GURL("https://merchant.example/iframe"), spec_.get(),
-        std::move(installable_app), "https://pay.example", &delegate_,
-        /*identity_callback=*/
-        base::BindRepeating([](const url::Origin&,
-                               int64_t) { /* Intentionally left blank. */ }));
+        GURL("https://merchant.example/iframe"), spec_->AsWeakPtr(),
+        std::move(installable_app), "https://pay.example",
+        /*is_incognito=*/false, /*show_processing_spinner=*/base::DoNothing());
   }
 
   static void PopulateIcon(SkBitmap* icon) {
@@ -168,7 +175,7 @@ class PaymentAppTest : public testing::TestWithParam<RequiredPaymentOptions>,
     }
     spec_ = std::make_unique<PaymentRequestSpec>(
         std::move(payment_options), mojom::PaymentDetails::New(),
-        std::move(method_data), this, "en-US");
+        std::move(method_data), weak_ptr_factory_.GetWeakPtr(), "en-US");
   }
 
   content::BrowserTaskEnvironment task_environment_;
@@ -178,22 +185,16 @@ class PaymentAppTest : public testing::TestWithParam<RequiredPaymentOptions>,
   autofill::AutofillProfile address_;
   autofill::CreditCard local_card_;
   std::vector<autofill::AutofillProfile*> billing_profiles_;
-  MockPaymentRequestDelegate delegate_;
   RequiredPaymentOptions required_options_;
   std::unique_ptr<PaymentRequestSpec> spec_;
+  base::WeakPtrFactory<PaymentAppTest> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(PaymentAppTest);
 };
 
-INSTANTIATE_TEST_SUITE_P(
-    All,
-    PaymentAppTest,
-    ::testing::Values(
-        RequiredPaymentOptions::kNone,
-        RequiredPaymentOptions::kShippingAddress,
-        RequiredPaymentOptions::kContactInformation,
-        RequiredPaymentOptions::kPayerEmail,
-        RequiredPaymentOptions::kContactInformationAndShippingAddress));
+INSTANTIATE_TEST_SUITE_P(All,
+                         PaymentAppTest,
+                         ::testing::ValuesIn(kRequiredPaymentOptionsValues));
 
 TEST_P(PaymentAppTest, SortApps) {
   std::vector<PaymentApp*> apps;
@@ -207,8 +208,8 @@ TEST_P(PaymentAppTest, SortApps) {
   // Add an expired card.
   autofill::CreditCard expired_card = local_credit_card();
   expired_card.SetExpirationYear(2016);
-  AutofillPaymentApp expired_cc_app("visa", expired_card,
-                                    billing_profiles(), "en-US", nullptr);
+  AutofillPaymentApp expired_cc_app("visa", expired_card, billing_profiles(),
+                                    "en-US", nullptr);
   apps.push_back(&expired_cc_app);
 
   // Add a non-preselectable sw based payment app.
@@ -374,10 +375,21 @@ TEST_P(PaymentAppTest, SortAppsBasedOnSupportedDelegations) {
   }
 }
 
-TEST_P(PaymentAppTest, SortApps_DownRankJustInTimePaymentApp) {
-  base::test::ScopedFeatureList feature_list;
-  feature_list.InitAndEnableFeature(features::kDownRankJustInTimePaymentApp);
+class DownRankJustInTimePaymentAppTest : public PaymentAppTest {
+ public:
+  DownRankJustInTimePaymentAppTest() {
+    scoped_feature_list_.InitAndEnableFeature(
+        features::kDownRankJustInTimePaymentApp);
+  }
 
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+INSTANTIATE_TEST_SUITE_P(All,
+                         DownRankJustInTimePaymentAppTest,
+                         ::testing::ValuesIn(kRequiredPaymentOptionsValues));
+
+TEST_P(DownRankJustInTimePaymentAppTest, SortApps) {
   std::vector<PaymentApp*> apps;
 
   // Add a card with no billing address.

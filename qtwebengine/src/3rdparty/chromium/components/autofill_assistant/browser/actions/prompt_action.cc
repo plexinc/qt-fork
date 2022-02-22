@@ -11,10 +11,11 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/containers/flat_map.h"
 #include "base/strings/string_number_conversions.h"
 #include "components/autofill_assistant/browser/actions/action_delegate.h"
-#include "components/autofill_assistant/browser/client_settings.h"
 #include "components/autofill_assistant/browser/element_precondition.h"
+#include "components/autofill_assistant/browser/web/element.h"
 #include "url/gurl.h"
 
 namespace autofill_assistant {
@@ -40,28 +41,35 @@ void PromptAction::InternalProcessAction(ProcessActionCallback callback) {
   }
 
   if (proto_.prompt().browse_mode()) {
-    delegate_->SetBrowseDomainsWhitelist(
-        {proto_.prompt().browse_domains_whitelist().begin(),
-         proto_.prompt().browse_domains_whitelist().end()});
+    delegate_->SetBrowseDomainsAllowlist(
+        {proto_.prompt().browse_domains_allowlist().begin(),
+         proto_.prompt().browse_domains_allowlist().end()});
   }
 
   SetupConditions();
   UpdateUserActions();
 
+  wait_time_stopwatch_.Start();
   if (HasNonemptyPreconditions() || auto_select_ ||
       proto_.prompt().allow_interrupt()) {
-    delegate_->WaitForDom(base::TimeDelta::Max(),
-                          proto_.prompt().allow_interrupt(),
-                          base::BindRepeating(&PromptAction::RegisterChecks,
-                                              weak_ptr_factory_.GetWeakPtr()),
-                          base::BindOnce(&PromptAction::OnDoneWaitForDom,
-                                         weak_ptr_factory_.GetWeakPtr()));
+    delegate_->WaitForDom(
+        base::TimeDelta::Max(), proto_.prompt().allow_interrupt(),
+        /* observer= */ nullptr,
+        base::BindRepeating(&PromptAction::RegisterChecks,
+                            weak_ptr_factory_.GetWeakPtr()),
+        base::BindOnce(&PromptAction::OnWaitForElementTimed,
+                       weak_ptr_factory_.GetWeakPtr(),
+                       base::BindOnce(&PromptAction::OnDoneWaitForDom,
+                                      weak_ptr_factory_.GetWeakPtr())));
   }
 }
 
 void PromptAction::RegisterChecks(
     BatchElementChecker* checker,
     base::OnceCallback<void(const ClientStatus&)> wait_for_dom_callback) {
+  last_period_stopwatch_.Stop();
+  last_checks_stopwatch_.Reset();
+  last_checks_stopwatch_.Start();
   if (!callback_) {
     // Action is done; checks aren't necessary anymore.
     std::move(wait_for_dom_callback).Run(OkClientStatus());
@@ -90,12 +98,15 @@ void PromptAction::SetupConditions() {
   int choice_count = proto_.prompt().choices_size();
   preconditions_.resize(choice_count);
   precondition_results_.resize(choice_count);
+  positive_precondition_changes_.resize(choice_count);
+  precondition_stopwatches_.resize(choice_count);
 
   for (int i = 0; i < choice_count; i++) {
     auto& choice_proto = proto_.prompt().choices(i);
     preconditions_[i] =
         std::make_unique<ElementPrecondition>(choice_proto.show_only_when());
     precondition_results_[i] = preconditions_[i]->empty();
+    positive_precondition_changes_[i] = false;
   }
 
   ElementConditionsProto auto_select;
@@ -125,12 +136,14 @@ bool PromptAction::HasNonemptyPreconditions() {
 void PromptAction::OnPreconditionResult(
     size_t choice_index,
     const ClientStatus& status,
-    const std::vector<std::string>& ignored_payloads) {
+    const std::vector<std::string>& ignored_payloads,
+    const base::flat_map<std::string, DomObjectFrameStack>& ignored_elements) {
   bool precondition_is_met = status.ok();
   if (precondition_results_[choice_index] == precondition_is_met)
     return;
 
   precondition_results_[choice_index] = precondition_is_met;
+  positive_precondition_changes_[choice_index] = precondition_is_met;
   precondition_changed_ = true;
 }
 
@@ -155,15 +168,39 @@ void PromptAction::UpdateUserActions() {
                                            weak_ptr_factory_.GetWeakPtr(), i));
     user_actions->emplace_back(std::move(user_action));
   }
-  delegate_->Prompt(std::move(user_actions),
-                    proto_.prompt().disable_force_expand_sheet(),
-                    proto_.prompt().browse_mode());
+  base::OnceCallback<void()> end_on_navigation_callback;
+  if (proto_.prompt().end_on_navigation()) {
+    end_on_navigation_callback = base::BindOnce(
+        &PromptAction::OnNavigationEnded, weak_ptr_factory_.GetWeakPtr());
+  }
+  delegate_->Prompt(
+      std::move(user_actions), proto_.prompt().disable_force_expand_sheet(),
+      std::move(end_on_navigation_callback), proto_.prompt().browse_mode(),
+      proto_.prompt().browse_mode_invisible());
   precondition_changed_ = false;
+}
+
+void PromptAction::UpdateTimings() {
+  for (int i = 0; i < proto_.prompt().choices_size(); i++) {
+    if (!precondition_results_[i]) {
+      precondition_stopwatches_[i].Reset();
+    } else if (positive_precondition_changes_[i]) {
+      positive_precondition_changes_[i] = false;
+      // The precondition now contains the duration of the wait for dom
+      // operation retry period plus the time that it took to perform the actual
+      // checks. We want to instead record only half of the period plus the
+      // checks.
+      precondition_stopwatches_[i].AddTime(last_checks_stopwatch_);
+      precondition_stopwatches_[i].AddTime(
+          last_period_stopwatch_.TotalElapsed() / 2);
+    }
+  }
 }
 
 void PromptAction::OnAutoSelectCondition(
     const ClientStatus& status,
-    const std::vector<std::string>& payloads) {
+    const std::vector<std::string>& payloads,
+    const base::flat_map<std::string, DomObjectFrameStack>& ignored_elements) {
   if (payloads.empty())
     return;
 
@@ -178,8 +215,14 @@ void PromptAction::OnAutoSelectCondition(
 
 void PromptAction::OnElementChecksDone(
     base::OnceCallback<void(const ClientStatus&)> wait_for_dom_callback) {
-  if (precondition_changed_)
+  last_checks_stopwatch_.Stop();
+  if (precondition_changed_) {
     UpdateUserActions();
+  }
+
+  UpdateTimings();
+  last_period_stopwatch_.Reset();
+  last_period_stopwatch_.Start();
 
   // Calling wait_for_dom_callback with successful status is a way of asking the
   // WaitForDom to end gracefully and call OnDoneWaitForDom with the status.
@@ -214,21 +257,40 @@ void PromptAction::OnSuggestionChosen(int choice_index) {
     NOTREACHED();
     return;
   }
+
+  if (auto_select_choice_index_ < 0) {
+    wait_time_stopwatch_.Stop();
+    action_stopwatch_.TransferToWaitTime(wait_time_stopwatch_.TotalElapsed());
+    action_stopwatch_.TransferToActiveTime(
+        precondition_stopwatches_[choice_index].TotalElapsed());
+  }
+
   DCHECK(choice_index >= 0 && choice_index <= proto_.prompt().choices_size());
 
-  PromptProto::Choice choice;
-  *processed_action_proto_->mutable_prompt_choice() =
-      proto_.prompt().choices(choice_index);
+  processed_action_proto_->mutable_prompt_choice()->set_server_payload(
+      proto_.prompt().choices(choice_index).server_payload());
+  EndAction(ClientStatus(ACTION_APPLIED));
+}
+
+void PromptAction::OnNavigationEnded() {
+  if (!callback_) {
+    NOTREACHED();
+    return;
+  }
+  action_stopwatch_.TransferToWaitTime(wait_time_stopwatch_.TotalElapsed());
+
+  processed_action_proto_->mutable_prompt_choice()->set_navigation_ended(true);
   EndAction(ClientStatus(ACTION_APPLIED));
 }
 
 void PromptAction::EndAction(const ClientStatus& status) {
   delegate_->CleanUpAfterPrompt();
-  // Clear the whitelist when a browse action is done.
+  // Clear the allowlist when a browse action is done.
   if (proto_.prompt().browse_mode()) {
-    delegate_->SetBrowseDomainsWhitelist({});
+    delegate_->SetBrowseDomainsAllowlist({});
   }
   UpdateProcessedAction(status);
   std::move(callback_).Run(std::move(processed_action_proto_));
 }
+
 }  // namespace autofill_assistant

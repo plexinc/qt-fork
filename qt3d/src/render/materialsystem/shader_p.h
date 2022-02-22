@@ -53,7 +53,6 @@
 
 #include <Qt3DRender/private/backendnode_p.h>
 #include <Qt3DRender/qshaderprogram.h>
-#include <QVector>
 
 QT_BEGIN_NAMESPACE
 
@@ -93,13 +92,15 @@ public:
     static const int timeNameId;
     static const int eyePositionNameId;
     static const int skinningPaletteNameId;
+    static const int yUpInFBOId;
+    static const int yUpInNDCId;
 
     Shader();
     ~Shader();
 
     void cleanup();
 
-    QVector<QByteArray> shaderCode() const;
+    const std::vector<QByteArray> &shaderCode() const;
     void setShaderCode(QShaderProgram::ShaderType type, const QByteArray &code);
 
     void syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firstTime) override;
@@ -123,14 +124,13 @@ public:
     void requestCacheRebuild();
 
 private:
-    QVector<QByteArray> m_shaderCode;
+    std::vector<QByteArray> m_shaderCode;
 
     QString m_log;
     bool m_requiresFrontendSync;
     QShaderProgram::Status m_status;
     QShaderProgram::Format m_format;
     bool m_dirty;
-
 };
 
 #ifndef QT_NO_DEBUG_STREAM
@@ -147,7 +147,7 @@ class Q_AUTOTEST_EXPORT ShaderFunctor : public Qt3DCore::QBackendNodeMapper
 public:
     explicit ShaderFunctor(AbstractRenderer *renderer,
                            ShaderManager *manager);
-    Qt3DCore::QBackendNode *create(const Qt3DCore::QNodeCreatedChangeBasePtr &change) const final;
+    Qt3DCore::QBackendNode *create(Qt3DCore::QNodeId id) const final;
     Qt3DCore::QBackendNode *get(Qt3DCore::QNodeId id) const final;
     void destroy(Qt3DCore::QNodeId id) const final;
 

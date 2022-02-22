@@ -51,12 +51,14 @@
 #ifndef PRINTHANDLER_H
 #define PRINTHANDLER_H
 
+#include <QEventLoop>
 #include <QObject>
+#include <QPrinter>
 
 QT_BEGIN_NAMESPACE
 class QPainter;
 class QPrinter;
-class QWebEnginePage;
+class QWebEngineView;
 QT_END_NAMESPACE
 
 class PrintHandler : public QObject
@@ -64,15 +66,18 @@ class PrintHandler : public QObject
     Q_OBJECT
 public:
     PrintHandler(QObject *parent = nullptr);
-    void setPage(QWebEnginePage *page);
+    void setView(QWebEngineView *view);
 
 public slots:
     void print();
     void printPreview();
     void printDocument(QPrinter *printer);
+    void printFinished(bool success);
 
 private:
-    QWebEnginePage *m_page = nullptr;
+    QWebEngineView *m_view = nullptr;
+    QPrinter m_printer;
+    QEventLoop m_waitForResult;
     bool m_inPrintPreview = false;
 };
 

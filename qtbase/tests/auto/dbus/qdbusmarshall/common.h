@@ -25,8 +25,18 @@
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
-#include <qmath.h>               // qIsNan
-#include <qvariant.h>
+
+#include <QtGlobal>
+#include <QMap>
+#include <QString>
+#include <QVariant>
+#include <QDateTime>
+#include <QLine>
+#include <QDBusObjectPath>
+#include <QDBusSignature>
+#include <QDBusUnixFileDescriptor>
+#include <QDBusArgument>
+#include <QDBusMetaType>
 
 #ifdef Q_OS_UNIX
 # include <private/qcore_unix_p.h>
@@ -203,7 +213,11 @@ inline QDBusIntrospection::Argument arg(const char* type, const char *name = 0)
 
 template<typename T>
 inline QMap<QString, T>& operator<<(QMap<QString, T>& map, const T& m)
-{ map.insertMulti(m.name, m); return map; }
+{ map.insert(m.name, m); return map; }
+
+template<typename T>
+inline QMultiMap<QString, T>& operator<<(QMultiMap<QString, T>& map, const T& m)
+{ map.insert(m.name, m); return map; }
 
 inline const char* mapName(const MethodMap&)
 { return "MethodMap"; }
@@ -263,11 +277,11 @@ QString printable(const QDBusIntrospection::Property& p)
     return result;
 }
 
-template<typename T>
-char* printableMap(const QMap<QString, T>& map)
+template<typename Map>
+char* printableMap(const Map& map)
 {
     QString contents = "\n";
-    typename QMap<QString, T>::const_iterator it = map.begin();
+    auto it = map.begin();
     for ( ; it != map.end(); ++it) {
         if (it.key() != it.value().name)
             contents += it.value().name + ":";
@@ -382,7 +396,7 @@ inline bool compare(const QDBusArgument &arg, const QVariant &v2, T * = 0)
 
 bool compareToArgument(const QDBusArgument &arg, const QVariant &v2)
 {
-    if (arg.currentSignature() != QDBusMetaType::typeToSignature(v2.userType()))
+    if (arg.currentSignature() != QDBusMetaType::typeToSignature(v2.metaType()))
         return false;
 
     // try to demarshall the arg according to v2
@@ -517,8 +531,8 @@ bool compareToArgument(const QDBusArgument &arg, const QVariant &v2)
     }
 
     qWarning() << "Unexpected QVariant type" << v2.userType()
-               << QByteArray(QDBusMetaType::typeToSignature(v2.userType()))
-               << QMetaType::typeName(v2.userType());
+               << QByteArray(QDBusMetaType::typeToSignature(v2.metaType()))
+               << v2.metaType().name();
     return false;
 }
 
@@ -527,7 +541,7 @@ template<> bool compare(const QVariant &v1, const QVariant &v2)
     // v1 is the one that came from the network
     // v2 is the one that we sent
 
-    if (v1.userType() == qMetaTypeId<QDBusArgument>())
+    if (v1.metaType() == QMetaType::fromType<QDBusArgument>())
         // this argument has been left un-demarshalled
         return compareToArgument(qvariant_cast<QDBusArgument>(v1), v2);
 

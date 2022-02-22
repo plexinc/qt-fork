@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the examples of the Qt Toolkit.
@@ -48,21 +48,21 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import "../../shared" as Examples
+import QtQuick
+import shared
 
 Item {
     height: 480
     width: 320
-    Examples.LauncherList {
+    LauncherList {
         id: ll
         anchors.fill: parent
         Component.onCompleted: {
-            addExample("Dynamic Comparison", "Compares with dynamically created elements",  Qt.resolvedUrl("content/dynamiccomparison.qml"));
-            addExample("StartStop", "Start and stop the simulation", Qt.resolvedUrl("content/startstop.qml"));
-            addExample("Timed group changes", "Emit into managed groups",  Qt.resolvedUrl("content/timedgroupchanges.qml"));
-            addExample("Dynamic Emitters", "Dynamically instantiated emitters with a single system",  Qt.resolvedUrl("content/dynamicemitters.qml"));
-            addExample("Multiple Painters", "Several ParticlePainters on the same logical particles",  Qt.resolvedUrl("content/multiplepainters.qml"));
+            addExample("Dynamic Comparison", "Compares with dynamically created elements",  Qt.resolvedUrl("dynamiccomparison.qml"));
+            addExample("StartStop", "Start and stop the simulation", Qt.resolvedUrl("startstop.qml"));
+            addExample("Timed group changes", "Emit into managed groups",  Qt.resolvedUrl("timedgroupchanges.qml"));
+            addExample("Dynamic Emitters", "Dynamically instantiated emitters with a single system",  Qt.resolvedUrl("dynamicemitters.qml"));
+            addExample("Multiple Painters", "Several ParticlePainters on the same logical particles",  Qt.resolvedUrl("multiplepainters.qml"));
         }
     }
 }

@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "base/containers/flat_set.h"
 #include "base/memory/shared_memory_mapping.h"
 #include "components/exo/wayland/clients/client_helper.h"
 #include "third_party/skia/include/core/SkCanvas.h"
@@ -24,6 +25,8 @@
 #include "gpu/vulkan/vulkan_implementation.h"
 #endif  // defined(USE_VULKAN)
 #endif  // defined(USE_GBM)
+
+class GrDirectContext;
 
 namespace base {
 class CommandLine;
@@ -212,7 +215,8 @@ class ClientBase {
   std::unique_ptr<ui::ScopedMakeCurrent> make_current_;
   unsigned egl_sync_type_ = 0;
   std::vector<std::unique_ptr<Buffer>> buffers_;
-  sk_sp<GrContext> gr_context_;
+  sk_sp<GrDirectContext> gr_context_;
+  base::flat_set<uint32_t> bug_fix_ids_;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ClientBase);

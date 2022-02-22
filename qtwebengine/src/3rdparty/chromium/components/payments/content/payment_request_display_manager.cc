@@ -4,7 +4,7 @@
 
 #include "components/payments/content/payment_request_display_manager.h"
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "components/payments/content/content_payment_request_delegate.h"
 
 namespace payments {
@@ -23,9 +23,10 @@ PaymentRequestDisplayManager::DisplayHandle::~DisplayHandle() {
 }
 
 void PaymentRequestDisplayManager::DisplayHandle::Show(
-    PaymentRequest* request) {
+    base::WeakPtr<PaymentRequest> request) {
   DCHECK(request);
   DCHECK(delegate_);
+  was_shown_ = true;
   delegate_->ShowDialog(request);
 }
 

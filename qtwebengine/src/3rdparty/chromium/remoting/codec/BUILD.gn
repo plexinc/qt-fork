@@ -17,6 +17,7 @@ source_set("encoder") {
     "video_encoder_verbatim.h",
     "video_encoder_vpx.cc",
     "video_encoder_vpx.h",
+    "webrtc_video_encoder.cc",
     "webrtc_video_encoder_proxy.cc",
     "webrtc_video_encoder_proxy.h",
     "webrtc_video_encoder_selector.cc",
@@ -41,7 +42,7 @@ source_set("encoder") {
 
   # Currently, building WebrtcVideoEncoderGpu is only supported on Windows and
   # Linux, and encoding with WebrtcVideoEncoderGpu is only supported on Windows.
-  if (is_win || is_linux) {
+  if (is_win || is_linux || is_chromeos) {
     public_configs = [ "//skia:skia_config" ]
     sources += [
       "webrtc_video_encoder_gpu.cc",

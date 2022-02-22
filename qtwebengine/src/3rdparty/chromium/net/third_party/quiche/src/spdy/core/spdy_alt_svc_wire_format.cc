@@ -2,23 +2,23 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/spdy/core/spdy_alt_svc_wire_format.h"
+#include "spdy/core/spdy_alt_svc_wire_format.h"
 
 #include <algorithm>
 #include <cctype>
 #include <limits>
 
-#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
-#include "net/third_party/quiche/src/spdy/platform/api/spdy_logging.h"
-#include "net/third_party/quiche/src/spdy/platform/api/spdy_string_utils.h"
+#include "absl/strings/str_cat.h"
+#include "spdy/platform/api/spdy_logging.h"
+#include "spdy/platform/api/spdy_string_utils.h"
 
 namespace spdy {
 
 namespace {
 
 template <class T>
-bool ParsePositiveIntegerImpl(quiche::QuicheStringPiece::const_iterator c,
-                              quiche::QuicheStringPiece::const_iterator end,
+bool ParsePositiveIntegerImpl(absl::string_view::const_iterator c,
+                              absl::string_view::const_iterator end,
                               T* value) {
   *value = 0;
   for (; c != end && std::isdigit(*c); ++c) {
@@ -57,20 +57,20 @@ SpdyAltSvcWireFormat::AlternativeService::AlternativeService(
 
 // static
 bool SpdyAltSvcWireFormat::ParseHeaderFieldValue(
-    quiche::QuicheStringPiece value,
+    absl::string_view value,
     AlternativeServiceVector* altsvc_vector) {
   // Empty value is invalid according to the specification.
   if (value.empty()) {
     return false;
   }
   altsvc_vector->clear();
-  if (value == quiche::QuicheStringPiece("clear")) {
+  if (value == absl::string_view("clear")) {
     return true;
   }
-  quiche::QuicheStringPiece::const_iterator c = value.begin();
+  absl::string_view::const_iterator c = value.begin();
   while (c != value.end()) {
     // Parse protocol-id.
-    quiche::QuicheStringPiece::const_iterator percent_encoded_protocol_id_end =
+    absl::string_view::const_iterator percent_encoded_protocol_id_end =
         std::find(c, value.end(), '=');
     std::string protocol_id;
     if (percent_encoded_protocol_id_end == c ||
@@ -85,13 +85,13 @@ bool SpdyAltSvcWireFormat::ParseHeaderFieldValue(
       return false;
     }
     // Parse alt-authority.
-    DCHECK_EQ('=', *c);
+    QUICHE_DCHECK_EQ('=', *c);
     ++c;
     if (c == value.end() || *c != '"') {
       return false;
     }
     ++c;
-    quiche::QuicheStringPiece::const_iterator alt_authority_begin = c;
+    absl::string_view::const_iterator alt_authority_begin = c;
     for (; c != value.end() && *c != '"'; ++c) {
       // Decode backslash encoding.
       if (*c != '\\') {
@@ -105,7 +105,7 @@ bool SpdyAltSvcWireFormat::ParseHeaderFieldValue(
     if (c == alt_authority_begin || c == value.end()) {
       return false;
     }
-    DCHECK_EQ('"', *c);
+    QUICHE_DCHECK_EQ('"', *c);
     std::string host;
     uint16_t port;
     if (!ParseAltAuthority(alt_authority_begin, c, &host, &port)) {
@@ -115,7 +115,7 @@ bool SpdyAltSvcWireFormat::ParseHeaderFieldValue(
     // Parse parameters.
     uint32_t max_age = 86400;
     VersionVector version;
-    quiche::QuicheStringPiece::const_iterator parameters_end =
+    absl::string_view::const_iterator parameters_end =
         std::find(c, value.end(), ',');
     while (c != parameters_end) {
       SkipWhiteSpace(&c, parameters_end);
@@ -140,7 +140,7 @@ bool SpdyAltSvcWireFormat::ParseHeaderFieldValue(
       }
       ++c;
       SkipWhiteSpace(&c, parameters_end);
-      quiche::QuicheStringPiece::const_iterator parameter_value_begin = c;
+      absl::string_view::const_iterator parameter_value_begin = c;
       for (; c != parameters_end && *c != ';' && *c != ' ' && *c != '\t'; ++c) {
       }
       if (c == parameter_value_begin) {
@@ -164,10 +164,9 @@ bool SpdyAltSvcWireFormat::ParseHeaderFieldValue(
         }
         ++c;
         parameters_end = std::find(c, value.end(), ',');
-        quiche::QuicheStringPiece::const_iterator v_begin =
-            parameter_value_begin + 1;
+        absl::string_view::const_iterator v_begin = parameter_value_begin + 1;
         while (v_begin < c) {
-          quiche::QuicheStringPiece::const_iterator v_end = v_begin;
+          absl::string_view::const_iterator v_end = v_begin;
           while (v_end < c - 1 && *v_end != ',') {
             ++v_end;
           }
@@ -196,10 +195,9 @@ bool SpdyAltSvcWireFormat::ParseHeaderFieldValue(
         // hq=":443";quic=51303338
         // ... will be stored in |versions| as 0x51303338.
         uint32_t quic_version;
-        if (!SpdyHexDecodeToUInt32(
-                quiche::QuicheStringPiece(parameter_value_begin,
-                                          c - parameter_value_begin),
-                &quic_version) ||
+        if (!SpdyHexDecodeToUInt32(absl::string_view(&*parameter_value_begin,
+                                                     c - parameter_value_begin),
+                                   &quic_version) ||
             quic_version == 0) {
           return false;
         }
@@ -267,9 +265,9 @@ std::string SpdyAltSvcWireFormat::SerializeHeaderFieldValue(
       }
       value.push_back(c);
     }
-    value.append(quiche::QuicheStrCat(":", altsvc.port, "\""));
+    value.append(absl::StrCat(":", altsvc.port, "\""));
     if (altsvc.max_age != 86400) {
-      value.append(quiche::QuicheStrCat("; ma=", altsvc.max_age));
+      value.append(absl::StrCat("; ma=", altsvc.max_age));
     }
     if (!altsvc.version.empty()) {
       if (is_ietf_format_quic) {
@@ -284,7 +282,7 @@ std::string SpdyAltSvcWireFormat::SerializeHeaderFieldValue(
           if (it != altsvc.version.begin()) {
             value.append(",");
           }
-          value.append(quiche::QuicheStrCat(*it));
+          value.append(absl::StrCat(*it));
         }
         value.append("\"");
       }
@@ -295,24 +293,23 @@ std::string SpdyAltSvcWireFormat::SerializeHeaderFieldValue(
 
 // static
 void SpdyAltSvcWireFormat::SkipWhiteSpace(
-    quiche::QuicheStringPiece::const_iterator* c,
-    quiche::QuicheStringPiece::const_iterator end) {
+    absl::string_view::const_iterator* c,
+    absl::string_view::const_iterator end) {
   for (; *c != end && (**c == ' ' || **c == '\t'); ++*c) {
   }
 }
 
 // static
-bool SpdyAltSvcWireFormat::PercentDecode(
-    quiche::QuicheStringPiece::const_iterator c,
-    quiche::QuicheStringPiece::const_iterator end,
-    std::string* output) {
+bool SpdyAltSvcWireFormat::PercentDecode(absl::string_view::const_iterator c,
+                                         absl::string_view::const_iterator end,
+                                         std::string* output) {
   output->clear();
   for (; c != end; ++c) {
     if (*c != '%') {
       output->push_back(*c);
       continue;
     }
-    DCHECK_EQ('%', *c);
+    QUICHE_DCHECK_EQ('%', *c);
     ++c;
     if (c == end || !std::isxdigit(*c)) {
       return false;
@@ -331,8 +328,8 @@ bool SpdyAltSvcWireFormat::PercentDecode(
 
 // static
 bool SpdyAltSvcWireFormat::ParseAltAuthority(
-    quiche::QuicheStringPiece::const_iterator c,
-    quiche::QuicheStringPiece::const_iterator end,
+    absl::string_view::const_iterator c,
+    absl::string_view::const_iterator end,
     std::string* host,
     uint16_t* port) {
   host->clear();
@@ -350,7 +347,7 @@ bool SpdyAltSvcWireFormat::ParseAltAuthority(
     if (c == end) {
       return false;
     }
-    DCHECK_EQ(']', *c);
+    QUICHE_DCHECK_EQ(']', *c);
     host->push_back(*c);
     ++c;
   } else {
@@ -371,23 +368,23 @@ bool SpdyAltSvcWireFormat::ParseAltAuthority(
   if (c == end || *c != ':') {
     return false;
   }
-  DCHECK_EQ(':', *c);
+  QUICHE_DCHECK_EQ(':', *c);
   ++c;
   return ParsePositiveInteger16(c, end, port);
 }
 
 // static
 bool SpdyAltSvcWireFormat::ParsePositiveInteger16(
-    quiche::QuicheStringPiece::const_iterator c,
-    quiche::QuicheStringPiece::const_iterator end,
+    absl::string_view::const_iterator c,
+    absl::string_view::const_iterator end,
     uint16_t* value) {
   return ParsePositiveIntegerImpl<uint16_t>(c, end, value);
 }
 
 // static
 bool SpdyAltSvcWireFormat::ParsePositiveInteger32(
-    quiche::QuicheStringPiece::const_iterator c,
-    quiche::QuicheStringPiece::const_iterator end,
+    absl::string_view::const_iterator c,
+    absl::string_view::const_iterator end,
     uint32_t* value) {
   return ParsePositiveIntegerImpl<uint32_t>(c, end, value);
 }

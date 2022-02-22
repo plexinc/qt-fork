@@ -26,6 +26,7 @@
 
 import * as Common from '../common/common.js';
 import * as DataGrid from '../data_grid/data_grid.js';
+import * as i18n from '../i18n/i18n.js';
 import * as SourceFrame from '../source_frame/source_frame.js';
 import * as TextUtils from '../text_utils/text_utils.js';
 import * as UI from '../ui/ui.js';
@@ -33,37 +34,54 @@ import * as UI from '../ui/ui.js';
 import {DOMStorage} from './DOMStorageModel.js';
 import {StorageItemsView} from './StorageItemsView.js';
 
+export const UIStrings = {
+  /**
+  *@description Text in DOMStorage Items View of the Application panel
+  */
+  domStorage: 'DOM Storage',
+  /**
+  *@description Text in DOMStorage Items View of the Application panel
+  */
+  key: 'Key',
+  /**
+  *@description Text for the value of something
+  */
+  value: 'Value',
+  /**
+  *@description Data grid name for DOM Storage Items data grids
+  */
+  domStorageItems: 'DOM Storage Items',
+  /**
+  *@description Text in DOMStorage Items View of the Application panel
+  */
+  selectAValueToPreview: 'Select a value to preview',
+};
+const str_ = i18n.i18n.registerUIStrings('resources/DOMStorageItemsView.js', UIStrings);
+const i18nString = i18n.i18n.getLocalizedString.bind(undefined, str_);
 export class DOMStorageItemsView extends StorageItemsView {
   /**
    * @param {!DOMStorage} domStorage
    */
   constructor(domStorage) {
-    super(Common.UIString.UIString('DOM Storage'), 'domStoragePanel');
+    super(i18nString(UIStrings.domStorage), 'domStoragePanel');
 
     this._domStorage = domStorage;
 
     this.element.classList.add('storage-view', 'table');
 
     const columns = /** @type {!Array<!DataGrid.DataGrid.ColumnDescriptor>} */ ([
-      {id: 'key', title: Common.UIString.UIString('Key'), sortable: false, editable: true, longText: true, weight: 50},
-      {
-        id: 'value',
-        title: Common.UIString.UIString('Value'),
-        sortable: false,
-        editable: true,
-        longText: true,
-        weight: 50
-      }
+      {id: 'key', title: i18nString(UIStrings.key), sortable: false, editable: true, longText: true, weight: 50},
+      {id: 'value', title: i18nString(UIStrings.value), sortable: false, editable: true, longText: true, weight: 50}
     ]);
     this._dataGrid = new DataGrid.DataGrid.DataGridImpl({
-      displayName: ls`DOM Storage Items`,
+      displayName: i18nString(UIStrings.domStorageItems),
       columns,
       editCallback: this._editingCallback.bind(this),
       deleteCallback: this._deleteCallback.bind(this),
       refreshCallback: this.refreshItems.bind(this)
     });
     this._dataGrid.addEventListener(DataGrid.DataGrid.Events.SelectedNode, event => {
-      this._previewEntry(/** @type {!DataGrid.DataGrid.DataGridNode} */ (event.data));
+      this._previewEntry(/** @type {!DataGrid.DataGrid.DataGridNode<?>} */ (event.data));
     });
     this._dataGrid.addEventListener(DataGrid.DataGrid.Events.DeselectedNode, event => {
       this._previewEntry(null);
@@ -91,6 +109,7 @@ export class DOMStorageItemsView extends StorageItemsView {
 
     this._showPreview(null, null);
 
+    /** @type {!Array<!Common.EventTarget.EventDescriptor>} */
     this._eventListeners = [];
     this.setStorage(domStorage);
   }
@@ -173,7 +192,8 @@ export class DOMStorageItemsView extends StorageItemsView {
     }
 
     const storageData = event.data;
-    const childNode = this._dataGrid.rootNode().children.find(child => child.data.key === storageData.key);
+    const childNode = this._dataGrid.rootNode().children.find(
+        /** @param {!DataGrid.DataGrid.DataGridNode<?>} child */ child => child.data.key === storageData.key);
     if (!childNode || childNode.data.value === storageData.value) {
       return;
     }
@@ -202,7 +222,7 @@ export class DOMStorageItemsView extends StorageItemsView {
     }
     rootNode.removeChildren();
     let selectedNode = null;
-    const filteredItems = item => `${item[0]} ${item[1]}`;
+    const filteredItems = /** @param {!Array<string>} item */ item => `${item[0]} ${item[1]}`;
     for (const item of this.filter(items, filteredItems)) {
       const key = item[0];
       const value = item[1];
@@ -217,7 +237,7 @@ export class DOMStorageItemsView extends StorageItemsView {
       selectedNode.selected = true;
     }
     this._dataGrid.addCreationNode(false);
-    this.setCanDeleteSelected(!!selectedNode);
+    this.setCanDeleteSelected(Boolean(selectedNode));
   }
 
   /**
@@ -247,6 +267,12 @@ export class DOMStorageItemsView extends StorageItemsView {
     this._domStorageItemsCleared();
   }
 
+  /**
+   * @param {!DataGrid.DataGrid.DataGridNode<?>} editingNode
+   * @param {string} columnIdentifier
+   * @param {string} oldText
+   * @param {string} newText
+   */
   _editingCallback(editingNode, columnIdentifier, oldText, newText) {
     const domStorage = this._domStorage;
     if (columnIdentifier === 'key') {
@@ -261,7 +287,7 @@ export class DOMStorageItemsView extends StorageItemsView {
   }
 
   /**
-   * @param {!DataGrid.DataGrid.DataGridNode} masterNode
+   * @param {!DataGrid.DataGrid.DataGridNode<?>} masterNode
    */
   _removeDupes(masterNode) {
     const rootNode = this._dataGrid.rootNode();
@@ -274,6 +300,9 @@ export class DOMStorageItemsView extends StorageItemsView {
     }
   }
 
+  /**
+   * @param {!DataGrid.DataGrid.DataGridNode<?>} node
+   */
   _deleteCallback(node) {
     if (!node || node.isCreationNode) {
       return;
@@ -296,7 +325,7 @@ export class DOMStorageItemsView extends StorageItemsView {
       this._preview.detach();
     }
     if (!preview) {
-      preview = new UI.EmptyWidget.EmptyWidget(Common.UIString.UIString('Select a value to preview'));
+      preview = new UI.EmptyWidget.EmptyWidget(i18nString(UIStrings.selectAValueToPreview));
     }
     this._previewValue = value;
     this._preview = preview;
@@ -304,23 +333,22 @@ export class DOMStorageItemsView extends StorageItemsView {
   }
 
   /**
-   * @param {?DataGrid.DataGrid.DataGridNode} entry
+   * @param {?DataGrid.DataGrid.DataGridNode<?>} entry
    */
   async _previewEntry(entry) {
     const value = entry && entry.data && entry.data.value;
-    if (!value) {
+    if (entry && entry.data && entry.data.value) {
+      const protocol = this._domStorage.isLocalStorage ? 'localstorage' : 'sessionstorage';
+      const url = `${protocol}://${entry.key}`;
+      const provider = TextUtils.StaticContentProvider.StaticContentProvider.fromString(
+          url, Common.ResourceType.resourceTypes.XHR, /** @type {string} */ (value));
+      const preview = await SourceFrame.PreviewFactory.PreviewFactory.createPreview(provider, 'text/plain');
+      // Selection could've changed while the preview was loaded
+      if (entry.selected) {
+        this._showPreview(preview, value);
+      }
+    } else {
       this._showPreview(null, value);
-      return;
     }
-    const protocol = this._domStorage.isLocalStorage ? 'localstorage' : 'sessionstorage';
-    const url = `${protocol}://${entry.key}`;
-    const provider = TextUtils.StaticContentProvider.StaticContentProvider.fromString(
-        url, Common.ResourceType.resourceTypes.XHR, /** @type {string} */ (value));
-    const preview = await SourceFrame.PreviewFactory.PreviewFactory.createPreview(provider, 'text/plain');
-    // Selection could've changed while the preview was loaded
-    if (!entry.selected) {
-      return;
-    }
-    this._showPreview(preview, value);
   }
 }

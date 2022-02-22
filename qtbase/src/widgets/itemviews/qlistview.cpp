@@ -41,26 +41,26 @@
 #include "qlistview.h"
 
 #include <qabstractitemdelegate.h>
-#include <qapplication.h>
-#include <qpainter.h>
-#include <qbitmap.h>
-#if QT_CONFIG(draganddrop)
-#include <qdrag.h>
-#endif
-#include <qvector.h>
-#include <qstyle.h>
-#include <qevent.h>
-#include <qscrollbar.h>
-#if QT_CONFIG(rubberband)
-#include <qrubberband.h>
-#endif
-#include <private/qapplication_p.h>
-#include <private/qlistview_p.h>
-#include <private/qscrollbar_p.h>
-#include <qdebug.h>
 #ifndef QT_NO_ACCESSIBILITY
 #include <qaccessible.h>
 #endif
+#include <qapplication.h>
+#include <qpainter.h>
+#include <qbitmap.h>
+#include <qdebug.h>
+#if QT_CONFIG(draganddrop)
+#include <qdrag.h>
+#endif
+#include <qevent.h>
+#include <qlist.h>
+#if QT_CONFIG(rubberband)
+#include <qrubberband.h>
+#endif
+#include <qscrollbar.h>
+#include <qstyle.h>
+#include <private/qapplication_p.h>
+#include <private/qlistview_p.h>
+#include <private/qscrollbar_p.h>
 
 #include <algorithm>
 
@@ -214,8 +214,8 @@ QListView::~QListView()
     grid, or cannot be moved at all.
 
     This property determines how the user can move the items in the
-    view. \l Static means that the items can't be moved the user. \l
-    Free means that the user can drag and drop the items to any
+    view. \l Static means that the items can't be moved by the user.
+    \l Free means that the user can drag and drop the items to any
     position in the view. \l Snap means that the user can drag and
     drop the items, but only to the positions in a notional grid
     signified by the gridSize property.
@@ -572,6 +572,8 @@ void QListView::scrollTo(const QModelIndex &index, ScrollHint hint)
         return;
 
     const QRect rect = visualRect(index);
+    if (!rect.isValid())
+        return;
     if (hint == EnsureVisible && d->viewport->rect().contains(rect)) {
         d->viewport->update(rect);
         return;
@@ -655,7 +657,8 @@ QItemViewPaintPairs QListViewPrivate::draggablePaintPairs(const QModelIndexList 
     QRect &rect = *r;
     const QRect viewportRect = viewport->rect();
     QItemViewPaintPairs ret;
-    QVector<QModelIndex> visibleIndexes = intersectingSet(viewportRect.translated(q->horizontalOffset(), q->verticalOffset()));
+    QList<QModelIndex> visibleIndexes =
+            intersectingSet(viewportRect.translated(q->horizontalOffset(), q->verticalOffset()));
     std::sort(visibleIndexes.begin(), visibleIndexes.end());
     for (const auto &index : indexes) {
         if (std::binary_search(visibleIndexes.cbegin(), visibleIndexes.cend(), index)) {
@@ -682,7 +685,7 @@ void QListView::reset()
 }
 
 /*!
-  \internal
+  \reimp
 */
 void QListView::setRootIndex(const QModelIndex &index)
 {
@@ -695,7 +698,7 @@ void QListView::setRootIndex(const QModelIndex &index)
 }
 
 /*!
-    \internal
+    \reimp
 
     Scroll the view contents by \a dx and \a dy.
 */
@@ -731,7 +734,8 @@ QSize QListView::contentsSize() const
 /*!
   \reimp
 */
-void QListView::dataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight, const QVector<int> &roles)
+void QListView::dataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight,
+                            const QList<int> &roles)
 {
     d_func()->commonListView->dataChanged(topLeft, bottomRight);
     QAbstractItemView::dataChanged(topLeft, bottomRight, roles);
@@ -785,7 +789,7 @@ void QListView::mouseMoveEvent(QMouseEvent *e)
         && d->showElasticBand
         && d->selectionMode != SingleSelection
         && d->selectionMode != NoSelection) {
-        QRect rect(d->pressedPosition, e->pos() + QPoint(horizontalOffset(), verticalOffset()));
+        QRect rect(d->pressedPosition, e->position().toPoint() + QPoint(horizontalOffset(), verticalOffset()));
         rect = rect.normalized();
         d->viewport->update(d->mapToViewport(rect.united(d->elasticBand)));
         d->elasticBand = rect;
@@ -919,9 +923,10 @@ void QListView::dropEvent(QDropEvent *event)
         bool topIndexDropped = false;
         int col = -1;
         int row = -1;
-        if (d->dropOn(event, &row, &col, &topIndex)) {
-            const QModelIndexList selIndexes = selectedIndexes();
-            QVector<QPersistentModelIndex> persIndexes;
+        // check whether a subclass has already accepted the event, ie. moved the data
+        if (!event->isAccepted() && d->dropOn(event, &row, &col, &topIndex)) {
+            const QList<QModelIndex> selIndexes = selectedIndexes();
+            QList<QPersistentModelIndex> persIndexes;
             persIndexes.reserve(selIndexes.count());
 
             for (const auto &index : selIndexes) {
@@ -938,23 +943,29 @@ void QListView::dropEvent(QDropEvent *event)
                 QPersistentModelIndex dropRow = model()->index(row, col, topIndex);
 
                 int r = row == -1 ? model()->rowCount() : (dropRow.row() >= 0 ? dropRow.row() : row);
+                bool dataMoved = false;
                 for (int i = 0; i < persIndexes.count(); ++i) {
                     const QPersistentModelIndex &pIndex = persIndexes.at(i);
                     if (r != pIndex.row()) {
                         // try to move (preserves selection)
-                        d->dropEventMoved |= model()->moveRow(QModelIndex(), pIndex.row(), QModelIndex(), r);
-                        if (!d->dropEventMoved) // can't move - abort and let QAbstractItemView handle this
+                        dataMoved |= model()->moveRow(QModelIndex(), pIndex.row(), QModelIndex(), r);
+                        if (!dataMoved) // can't move - abort and let QAbstractItemView handle this
                             break;
                     } else {
                         // move onto itself is blocked, don't delete anything
-                        d->dropEventMoved = true;
+                        dataMoved = true;
                     }
                     r = pIndex.row() + 1;   // Dropped items are inserted contiguously and in the right order.
                 }
-                if (d->dropEventMoved)
-                    event->accept(); // data moved, nothing to be done in QAbstractItemView::dropEvent
+                if (dataMoved)
+                    event->accept();
             }
         }
+
+        // either we or a subclass accepted the move event, so assume that the data was
+        // moved and that QAbstractItemView shouldn't remove the source when QDrag::exec returns
+        if (event->isAccepted())
+            d->dropEventMoved = true;
     }
 
     if (!d->commonListView->filterDropEvent(event) || !d->dropEventMoved) {
@@ -979,29 +990,27 @@ void QListView::startDrag(Qt::DropActions supportedActions)
 /*!
   \reimp
 */
-QStyleOptionViewItem QListView::viewOptions() const
+void QListView::initViewItemOption(QStyleOptionViewItem *option) const
 {
     Q_D(const QListView);
-    QStyleOptionViewItem option = QAbstractItemView::viewOptions();
+    QAbstractItemView::initViewItemOption(option);
     if (!d->iconSize.isValid()) { // otherwise it was already set in abstractitemview
         int pm = (d->viewMode == QListView::ListMode
                   ? style()->pixelMetric(QStyle::PM_ListViewIconSize, nullptr, this)
                   : style()->pixelMetric(QStyle::PM_IconViewIconSize, nullptr, this));
-        option.decorationSize = QSize(pm, pm);
+        option->decorationSize = QSize(pm, pm);
     }
     if (d->viewMode == QListView::IconMode) {
-        option.showDecorationSelected = false;
-        option.decorationPosition = QStyleOptionViewItem::Top;
-        option.displayAlignment = Qt::AlignCenter;
+        option->showDecorationSelected = false;
+        option->decorationPosition = QStyleOptionViewItem::Top;
+        option->displayAlignment = Qt::AlignCenter;
     } else {
-        option.decorationPosition = QStyleOptionViewItem::Left;
+        option->decorationPosition = QStyleOptionViewItem::Left;
     }
 
     if (d->gridSize().isValid()) {
-        option.rect.setSize(d->gridSize());
+        option->rect.setSize(d->gridSize());
     }
-
-    return option;
 }
 
 
@@ -1013,10 +1022,12 @@ void QListView::paintEvent(QPaintEvent *e)
     Q_D(QListView);
     if (!d->itemDelegate)
         return;
-    QStyleOptionViewItem option = d->viewOptionsV1();
+    QStyleOptionViewItem option;
+    initViewItemOption(&option);
     QPainter painter(d->viewport);
 
-    const QVector<QModelIndex> toBeRendered = d->intersectingSet(e->rect().translated(horizontalOffset(), verticalOffset()), false);
+    const QList<QModelIndex> toBeRendered =
+            d->intersectingSet(e->rect().translated(horizontalOffset(), verticalOffset()), false);
 
     const QModelIndex current = currentIndex();
     const QModelIndex hover = d->hover;
@@ -1035,8 +1046,8 @@ void QListView::paintEvent(QPaintEvent *e)
         ? qMax(viewport()->size().width(), d->contentsSize().width()) - 2 * d->spacing()
         : qMax(viewport()->size().height(), d->contentsSize().height()) - 2 * d->spacing();
 
-    QVector<QModelIndex>::const_iterator end = toBeRendered.constEnd();
-    for (QVector<QModelIndex>::const_iterator it = toBeRendered.constBegin(); it != end; ++it) {
+    QList<QModelIndex>::const_iterator end = toBeRendered.constEnd();
+    for (QList<QModelIndex>::const_iterator it = toBeRendered.constBegin(); it != end; ++it) {
         Q_ASSERT((*it).isValid());
         option.rect = visualRect(*it);
 
@@ -1091,7 +1102,7 @@ void QListView::paintEvent(QPaintEvent *e)
             previousRow = row;
         }
 
-        d->delegateForIndex(*it)->paint(&painter, option, *it);
+        itemDelegateForIndex(*it)->paint(&painter, option, *it);
     }
 
 #if QT_CONFIG(draganddrop)
@@ -1121,7 +1132,7 @@ QModelIndex QListView::indexAt(const QPoint &p) const
 {
     Q_D(const QListView);
     QRect rect(p.x() + horizontalOffset(), p.y() + verticalOffset(), 1, 1);
-    const QVector<QModelIndex> intersectVector = d->intersectingSet(rect);
+    const QList<QModelIndex> intersectVector = d->intersectingSet(rect);
     QModelIndex index = intersectVector.count() > 0
                         ? intersectVector.last() : QModelIndex();
     if (index.isValid() && visualRect(index).contains(p))
@@ -1200,7 +1211,7 @@ QModelIndex QListView::moveCursor(CursorAction cursorAction, Qt::KeyboardModifie
     if (d->gridSize().isValid()) rect.setSize(d->gridSize());
 
     QSize contents = d->contentsSize();
-    QVector<QModelIndex> intersectVector;
+    QList<QModelIndex> intersectVector;
 
     switch (cursorAction) {
     case MoveLeft:
@@ -1225,13 +1236,25 @@ QModelIndex QListView::moveCursor(CursorAction cursorAction, Qt::KeyboardModifie
             d->removeCurrentAndDisabled(&intersectVector, current);
         }
         return d->closestIndex(initialRect, intersectVector);
-    case MovePageUp:
-        // move current by (visibileRowCount - 1) items.
-        // rect.translate(0, -rect.height()); will happen in the switch fallthrough for MoveUp.
-        rect.moveTop(rect.top() - d->viewport->height() + 2 * rect.height());
-        if (rect.top() < rect.height())
-            rect.moveTop(rect.height());
-        Q_FALLTHROUGH();
+    case MovePageUp: {
+        rect.moveTop(rect.top() - d->viewport->height() + 1 );
+        if (rect.top() < rect.height()) {
+            rect.setTop(0);
+            rect.setBottom(1);
+        }
+        QModelIndex findindex = current;
+        while (intersectVector.isEmpty()
+               || rectForIndex(findindex).top() <= (rectForIndex(current).bottom() - d->viewport->rect().height())
+               || rect.top() <= 0) {
+            rect.translate(0, 1);
+            if (rect.bottom() <= 0) {
+                return current;
+            }
+            intersectVector = d->intersectingSet(rect);
+            findindex = d->closestIndex(initialRect, intersectVector);
+        }
+        return findindex;
+    }
     case MovePrevious:
     case MoveUp:
         while (intersectVector.isEmpty()) {
@@ -1254,13 +1277,26 @@ QModelIndex QListView::moveCursor(CursorAction cursorAction, Qt::KeyboardModifie
             d->removeCurrentAndDisabled(&intersectVector, current);
         }
         return d->closestIndex(initialRect, intersectVector);
-    case MovePageDown:
-        // move current by (visibileRowCount - 1) items.
-        // rect.translate(0, rect.height()); will happen in the switch fallthrough for MoveDown.
-        rect.moveTop(rect.top() + d->viewport->height() - 2 * rect.height());
-        if (rect.bottom() > contents.height() - rect.height())
-            rect.moveBottom(contents.height() - rect.height());
-        Q_FALLTHROUGH();
+    case MovePageDown: {
+        rect.moveTop(rect.top() + d->viewport->height() - 1 );
+        if (rect.bottom() > contents.height() - rect.height()){
+            rect.setTop(contents.height() - 1);
+            rect.setBottom(contents.height());
+        }
+        QModelIndex index = current;
+        // index's bottom() - current's top() always <=  (d->viewport->rect().height()
+        while (intersectVector.isEmpty()
+               || rectForIndex(index).bottom() >= (d->viewport->rect().height() + rectForIndex(current).top())
+               || rect.bottom() > contents.height()) {
+            rect.translate(0, -1);
+            if (rect.top() >= contents.height()) {
+                return current;
+            }
+            intersectVector = d->intersectingSet(rect);
+            index = d->closestIndex(initialRect, intersectVector);
+        }
+        return index;
+    }
     case MoveNext:
     case MoveDown:
         while (intersectVector.isEmpty()) {
@@ -1342,7 +1378,8 @@ void QListView::setSelection(const QRect &rect, QItemSelectionModel::SelectionFl
     QItemSelection selection;
 
     if (rect.width() == 1 && rect.height() == 1) {
-        const QVector<QModelIndex> intersectVector = d->intersectingSet(rect.translated(horizontalOffset(), verticalOffset()));
+        const QList<QModelIndex> intersectVector =
+                d->intersectingSet(rect.translated(horizontalOffset(), verticalOffset()));
         QModelIndex tl;
         if (!intersectVector.isEmpty())
             tl = intersectVector.last(); // special case for mouse press; only select the top item
@@ -1355,7 +1392,7 @@ void QListView::setSelection(const QRect &rect, QItemSelectionModel::SelectionFl
             QModelIndex tl, br;
             // get the first item
             const QRect topLeft(rect.left() + horizontalOffset(), rect.top() + verticalOffset(), 1, 1);
-            QVector<QModelIndex> intersectVector = d->intersectingSet(topLeft);
+            QList<QModelIndex> intersectVector = d->intersectingSet(topLeft);
             if (!intersectVector.isEmpty())
                 tl = intersectVector.last();
             // get the last item
@@ -1380,7 +1417,7 @@ void QListView::setSelection(const QRect &rect, QItemSelectionModel::SelectionFl
                         top = bottom;
                         bottom = tmp;
                     }
-                    // if the rect are on differnet lines, expand
+                    // if the rect are on different lines, expand
                     if (top.top() != bottom.top()) {
                         // top rectangle
                         if (isRightToLeft())
@@ -1519,8 +1556,7 @@ QModelIndexList QListView::selectedIndexes() const
     auto ignorable = [this, d](const QModelIndex &index) {
         return index.column() != d->column || index.parent() != d->root || isIndexHidden(index);
     };
-    viewSelected.erase(std::remove_if(viewSelected.begin(), viewSelected.end(), ignorable),
-                       viewSelected.end());
+    viewSelected.removeIf(ignorable);
     return viewSelected;
 }
 
@@ -1539,12 +1575,14 @@ void QListView::doItemsLayout()
     setState(ExpandingState);
     if (d->model->columnCount(d->root) > 0) { // no columns means no contents
         d->resetBatchStartRow();
-        if (layoutMode() == SinglePass)
+        if (layoutMode() == SinglePass) {
             d->doItemsLayout(d->model->rowCount(d->root)); // layout everything
-        else if (!d->batchLayoutTimer.isActive()) {
+        } else if (!d->batchLayoutTimer.isActive()) {
             if (!d->doItemsLayout(d->batchSize)) // layout is done
                 d->batchLayoutTimer.start(0, this); // do a new batch as fast as possible
         }
+    } else { // clear the QBspTree generated by the last layout
+        d->clear();
     }
     QAbstractItemView::doItemsLayout();
     setState(oldState);        // restoring the oldState
@@ -1561,7 +1599,8 @@ void QListView::updateGeometries()
         verticalScrollBar()->setRange(0, 0);
     } else {
         QModelIndex index = d->model->index(0, d->column, d->root);
-        QStyleOptionViewItem option = d->viewOptionsV1();
+        QStyleOptionViewItem option;
+        initViewItemOption(&option);
         QSize step = d->itemSize(option, index);
         d->commonListView->updateHorizontalScrollBar(step);
         d->commonListView->updateVerticalScrollBar(step);
@@ -1787,7 +1826,8 @@ void QListViewPrivate::prepareItemsLayout()
     // maximumViewportSize() already takes scrollbar into account if policy is
     // Qt::ScrollBarAlwaysOn but scrollbar extent must be deduced if policy
     // is Qt::ScrollBarAsNeeded
-    int verticalMargin = vbarpolicy==Qt::ScrollBarAsNeeded
+    int verticalMargin = (vbarpolicy == Qt::ScrollBarAsNeeded) && (flow == QListView::LeftToRight || vbar->isVisible())
+                        && !q->style()->pixelMetric(QStyle::PM_ScrollView_ScrollBarOverlap, nullptr, vbar)
         ? q->style()->pixelMetric(QStyle::PM_ScrollBarExtent, nullptr, vbar) + frameAroundContents
         : 0;
     int horizontalMargin =  hbarpolicy==Qt::ScrollBarAsNeeded
@@ -1852,12 +1892,12 @@ QRect QListViewPrivate::mapToViewport(const QRect &rect, bool extend) const
 }
 
 QModelIndex QListViewPrivate::closestIndex(const QRect &target,
-                                           const QVector<QModelIndex> &candidates) const
+                                           const QList<QModelIndex> &candidates) const
 {
     int distance = 0;
     int shortest = INT_MAX;
     QModelIndex closest;
-    QVector<QModelIndex>::const_iterator it = candidates.begin();
+    QList<QModelIndex>::const_iterator it = candidates.begin();
 
     for (; it != candidates.end(); ++it) {
         if (!(*it).isValid())
@@ -1889,14 +1929,15 @@ QModelIndex QListViewPrivate::closestIndex(const QRect &target,
 
 QSize QListViewPrivate::itemSize(const QStyleOptionViewItem &option, const QModelIndex &index) const
 {
+    Q_Q(const QListView);
     if (!uniformItemSizes) {
-        const QAbstractItemDelegate *delegate = delegateForIndex(index);
+        const QAbstractItemDelegate *delegate = q->itemDelegateForIndex(index);
         return delegate ? delegate->sizeHint(option, index) : QSize();
     }
-    if (!cachedItemSize.isValid()) { // the last item is probaly the largest, so we use its size
+    if (!cachedItemSize.isValid()) { // the last item is probably the largest, so we use its size
         int row = model->rowCount(root) - 1;
         QModelIndex sample = model->index(row, column, root);
-        const QAbstractItemDelegate *delegate = delegateForIndex(sample);
+        const QAbstractItemDelegate *delegate = q->itemDelegateForIndex(sample);
         cachedItemSize = delegate ? delegate->sizeHint(option, sample) : QSize();
     }
     return cachedItemSize;
@@ -1906,8 +1947,8 @@ QItemSelection QListViewPrivate::selection(const QRect &rect) const
 {
     QItemSelection selection;
     QModelIndex tl, br;
-    const QVector<QModelIndex> intersectVector = intersectingSet(rect);
-    QVector<QModelIndex>::const_iterator it = intersectVector.begin();
+    const QList<QModelIndex> intersectVector = intersectingSet(rect);
+    QList<QModelIndex>::const_iterator it = intersectVector.begin();
     for (; it != intersectVector.end(); ++it) {
         if (!tl.isValid() && !br.isValid()) {
             tl = br = *it;
@@ -1949,14 +1990,13 @@ bool QListViewPrivate::dropOn(QDropEvent *event, int *dropRow, int *dropCol, QMo
 }
 #endif
 
-void QListViewPrivate::removeCurrentAndDisabled(QVector<QModelIndex> *indexes, const QModelIndex &current) const
+void QListViewPrivate::removeCurrentAndDisabled(QList<QModelIndex> *indexes,
+                                                const QModelIndex &current) const
 {
     auto isCurrentOrDisabled = [this, current](const QModelIndex &index) {
         return !isIndexEnabled(index) || index == current;
     };
-    indexes->erase(std::remove_if(indexes->begin(), indexes->end(),
-                                  isCurrentOrDisabled),
-                   indexes->end());
+    indexes->removeIf(isCurrentOrDisabled);
 }
 
 /*
@@ -2145,10 +2185,10 @@ void QListModeViewBase::dragMoveEvent(QDragMoveEvent *event)
     event->ignore();
 
     // can't use indexAt, doesn't account for spacing.
-    QPoint p = event->pos();
+    QPoint p = event->position().toPoint();
     QRect rect(p.x() + horizontalOffset(), p.y() + verticalOffset(), 1, 1);
     rect.adjust(-dd->spacing(), -dd->spacing(), dd->spacing(), dd->spacing());
-    const QVector<QModelIndex> intersectVector = dd->intersectingSet(rect);
+    const QList<QModelIndex> intersectVector = dd->intersectingSet(rect);
     QModelIndex index = intersectVector.count() > 0
                         ? intersectVector.last() : QModelIndex();
     dd->hover = index;
@@ -2157,7 +2197,7 @@ void QListModeViewBase::dragMoveEvent(QDragMoveEvent *event)
 
         if (index.isValid() && dd->showDropIndicator) {
             QRect rect = qq->visualRect(index);
-            dd->dropIndicatorPosition = position(event->pos(), rect, index);
+            dd->dropIndicatorPosition = position(event->position().toPoint(), rect, index);
             // if spacing, should try to draw between items, not just next to item.
             switch (dd->dropIndicatorPosition) {
             case QAbstractItemView::AboveItem:
@@ -2201,7 +2241,7 @@ void QListModeViewBase::dragMoveEvent(QDragMoveEvent *event)
         dd->viewport->update();
     } // can drop
 
-    if (dd->shouldAutoScroll(event->pos()))
+    if (dd->shouldAutoScroll(event->position().toPoint()))
         qq->startAutoScroll();
 }
 
@@ -2222,12 +2262,12 @@ bool QListModeViewBase::dropOn(QDropEvent *event, int *dropRow, int *dropCol, QM
         return false;
 
     QModelIndex index;
-    if (dd->viewport->rect().contains(event->pos())) {
+    if (dd->viewport->rect().contains(event->position().toPoint())) {
         // can't use indexAt, doesn't account for spacing.
-        QPoint p = event->pos();
+        QPoint p = event->position().toPoint();
         QRect rect(p.x() + horizontalOffset(), p.y() + verticalOffset(), 1, 1);
         rect.adjust(-dd->spacing(), -dd->spacing(), dd->spacing(), dd->spacing());
-        const QVector<QModelIndex> intersectVector = dd->intersectingSet(rect);
+        const QList<QModelIndex> intersectVector = dd->intersectingSet(rect);
         index = intersectVector.count() > 0
             ? intersectVector.last() : QModelIndex();
         if (!index.isValid())
@@ -2239,7 +2279,7 @@ bool QListModeViewBase::dropOn(QDropEvent *event, int *dropRow, int *dropCol, QM
         int row = -1;
         int col = -1;
         if (index != dd->root) {
-            dd->dropIndicatorPosition = position(event->pos(), qq->visualRect(index), index);
+            dd->dropIndicatorPosition = position(event->position().toPoint(), qq->visualRect(index), index);
             switch (dd->dropIndicatorPosition) {
             case QAbstractItemView::AboveItem:
                 row = index.row();
@@ -2462,7 +2502,8 @@ QListViewItem QListModeViewBase::indexToListViewItem(const QModelIndex &index) c
                                            0, segmentStartRows.count() - 1);
 
 
-    QStyleOptionViewItem options = viewOptions();
+    QStyleOptionViewItem options;
+    initViewItemOption(&options);
     options.rect.setSize(contentsSize);
     QSize size = (uniformItemSizes() && cachedItemSize().isValid())
                  ? cachedItemSize() : itemSize(options, index);
@@ -2538,7 +2579,8 @@ void QListModeViewBase::doStaticLayout(const QListViewLayoutInfo &info)
 {
     const bool useItemSize = !info.grid.isValid();
     const QPoint topLeft = initStaticLayout(info);
-    QStyleOptionViewItem option = viewOptions();
+    QStyleOptionViewItem option;
+    initViewItemOption(&option);
     option.rect = info.bounds;
     option.rect.adjust(info.spacing, info.spacing, -info.spacing, -info.spacing);
 
@@ -2629,7 +2671,7 @@ void QListModeViewBase::doStaticLayout(const QListViewLayoutInfo &info)
         flowPositions.append(flowPosition);
         segmentPositions.append(info.wrap ? segPosition + deltaSegPosition : INT_MAX);
     }
-    // if the new items are visble, update the viewport
+    // if the new items are visible, update the viewport
     QRect changedRect(topLeft, rect.bottomRight());
     if (clipRect().intersects(changedRect))
         viewport()->update();
@@ -2640,9 +2682,9 @@ void QListModeViewBase::doStaticLayout(const QListViewLayoutInfo &info)
   Finds the set of items intersecting with \a area.
   In this function, itemsize is counted from topleft to the start of the next item.
 */
-QVector<QModelIndex> QListModeViewBase::intersectingSet(const QRect &area) const
+QList<QModelIndex> QListModeViewBase::intersectingSet(const QRect &area) const
 {
-    QVector<QModelIndex> ret;
+    QList<QModelIndex> ret;
     int segStartPosition;
     int segEndPosition;
     int flowStartPosition;
@@ -2719,7 +2761,7 @@ QRect QListModeViewBase::mapToViewport(const QRect &rect) const
 
 int QListModeViewBase::perItemScrollingPageSteps(int length, int bounds, bool wrap) const
 {
-    QVector<int> positions;
+    QList<int> positions;
     if (wrap)
         positions = segmentPositions;
     else if (!flowPositions.isEmpty()) {
@@ -2760,7 +2802,7 @@ int QListModeViewBase::perItemScrollToValue(int index, int scrollValue, int view
         return scrollValue;
 
     itemExtent += spacing();
-    QVector<int> hiddenRows = dd->hiddenRowIds();
+    QList<int> hiddenRows = dd->hiddenRowIds();
     std::sort(hiddenRows.begin(), hiddenRows.end());
     int hiddenRowsBefore = 0;
     for (int i = 0; i < hiddenRows.size() - 1; ++i)
@@ -2893,8 +2935,10 @@ bool QIconModeViewBase::filterStartDrag(Qt::DropActions supportedActions)
         Qt::DropAction action = drag->exec(supportedActions, dd->defaultDropAction);
         draggedItems.clear();
         // delete item, unless it has already been moved internally (see filterDropEvent)
-        if (action == Qt::MoveAction && !dd->dropEventMoved)
-            dd->clearOrRemove();
+        if (action == Qt::MoveAction && !dd->dropEventMoved) {
+            if (dd->dragDropMode != QAbstractItemView::InternalMove || drag->target() == qq->viewport())
+                dd->clearOrRemove();
+        }
         dd->dropEventMoved = false;
     }
     return true;
@@ -2907,10 +2951,10 @@ bool QIconModeViewBase::filterDropEvent(QDropEvent *e)
 
     const QSize contents = contentsSize;
     QPoint offset(horizontalOffset(), verticalOffset());
-    QPoint end = e->pos() + offset;
+    QPoint end = e->position().toPoint() + offset;
     if (qq->acceptDrops()) {
         const Qt::ItemFlags dropableFlags = Qt::ItemIsDropEnabled|Qt::ItemIsEnabled;
-        const QVector<QModelIndex> &dropIndices = intersectingSet(QRect(end, QSize(1, 1)));
+        const QList<QModelIndex> &dropIndices = intersectingSet(QRect(end, QSize(1, 1)));
         for (const QModelIndex &index : dropIndices)
             if ((index.flags() & dropableFlags) == dropableFlags)
                 return false;
@@ -2930,8 +2974,10 @@ bool QIconModeViewBase::filterDropEvent(QDropEvent *e)
     dd->stopAutoScroll();
     draggedItems.clear();
     dd->emitIndexesMoved(indexes);
+    // do not delete item on internal move, see filterStartDrag()
+    dd->dropEventMoved = true;
     e->accept(); // we have handled the event
-    // if the size has not grown, we need to check if it has shrinked
+    // if the size has not grown, we need to check if it has shrunk
     if (contentsSize != contents) {
         if ((contentsSize.width() <= contents.width()
             || contentsSize.height() <= contents.height())) {
@@ -2966,17 +3012,17 @@ bool QIconModeViewBase::filterDragMoveEvent(QDragMoveEvent *e)
     QRect itemsRect = this->itemsRect(draggedItems);
     viewport()->update(itemsRect.translated(draggedItemsDelta()));
     // update position
-    draggedItemsPos = e->pos();
+    draggedItemsPos = e->position().toPoint();
     // get new items rect
     viewport()->update(itemsRect.translated(draggedItemsDelta()));
     // set the item under the cursor to current
     QModelIndex index;
     if (movement() == QListView::Snap) {
-        QRect rect(snapToGrid(e->pos() + offset()), gridSize());
-        const QVector<QModelIndex> intersectVector = intersectingSet(rect);
+        QRect rect(snapToGrid(e->position().toPoint() + offset()), gridSize());
+        const QList<QModelIndex> intersectVector = intersectingSet(rect);
         index = intersectVector.count() > 0 ? intersectVector.last() : QModelIndex();
     } else {
-        index = qq->indexAt(e->pos());
+        index = qq->indexAt(e->position().toPoint());
     }
     // check if we allow drops here
     if (draggedItems.contains(index))
@@ -2987,7 +3033,7 @@ bool QIconModeViewBase::filterDragMoveEvent(QDragMoveEvent *e)
         e->accept(); // allow dropping in empty areas
 
     // the event was treated. do autoscrolling
-    if (dd->shouldAutoScroll(e->pos()))
+    if (dd->shouldAutoScroll(e->position().toPoint()))
         dd->startAutoScroll();
     return true;
 }
@@ -3011,7 +3057,8 @@ void QIconModeViewBase::scrollContentsBy(int dx, int dy, bool scrollElasticBand)
 void QIconModeViewBase::dataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight)
 {
     if (column() >= topLeft.column() && column() <= bottomRight.column())  {
-        const QStyleOptionViewItem option = viewOptions();
+        QStyleOptionViewItem option;
+        initViewItemOption(&option);
         const int bottom = qMin(items.count(), bottomRight.row() + 1);
         const bool useItemSize = !dd->grid.isValid();
         for (int row = topLeft.row(); row < bottom; ++row)
@@ -3031,7 +3078,8 @@ bool QIconModeViewBase::doBatchedItemLayout(const QListViewLayoutInfo &info, int
 {
     if (info.last >= items.count()) {
         //first we create the items
-        QStyleOptionViewItem option = viewOptions();
+        QStyleOptionViewItem option;
+        initViewItemOption(&option);
         for (int row = items.count(); row <= info.last; ++row) {
             QSize size = itemSize(option, modelIndex(row));
             QListViewItem item(QRect(0, 0, size.width(), size.height()), row); // default pos
@@ -3127,6 +3175,7 @@ void QIconModeViewBase::doDynamicLayout(const QListViewLayoutInfo &info)
 
     QRect rect(QPoint(), topLeft);
     QListViewItem *item = nullptr;
+    Q_ASSERT(info.first <= info.last);
     for (int row = info.first; row <= info.last; ++row) {
         item = &items[row];
         if (isHidden(row)) {
@@ -3197,6 +3246,7 @@ void QIconModeViewBase::doDynamicLayout(const QListViewLayoutInfo &info)
             flowPosition += deltaFlowPosition; // current position + item width + gap
         }
     }
+    Q_ASSERT(item);
     batchSavedDeltaSeg = deltaSegPosition;
     batchStartRow = info.last + 1;
     bool done = (info.last >= rowCount() - 1);
@@ -3219,32 +3269,28 @@ void QIconModeViewBase::doDynamicLayout(const QListViewLayoutInfo &info)
     // insert items in tree
     for (int row = insertFrom; row <= info.last; ++row)
         tree.insertLeaf(items.at(row).rect(), row);
-    // if the new items are visble, update the viewport
+    // if the new items are visible, update the viewport
     QRect changedRect(topLeft, rect.bottomRight());
     if (clipRect().intersects(changedRect))
         viewport()->update();
 }
 
-QVector<QModelIndex> QIconModeViewBase::intersectingSet(const QRect &area) const
+QList<QModelIndex> QIconModeViewBase::intersectingSet(const QRect &area) const
 {
     QIconModeViewBase *that = const_cast<QIconModeViewBase*>(this);
     QBspTree::Data data(static_cast<void*>(that));
-    QVector<QModelIndex> res;
+    QList<QModelIndex> res;
     that->interSectingVector = &res;
     that->tree.climbTree(area, &QIconModeViewBase::addLeaf, data);
     that->interSectingVector = nullptr;
     return res;
 }
 
-QRect QIconModeViewBase::itemsRect(const QVector<QModelIndex> &indexes) const
+QRect QIconModeViewBase::itemsRect(const QList<QModelIndex> &indexes) const
 {
-    QVector<QModelIndex>::const_iterator it = indexes.begin();
-    QListViewItem item = indexToListViewItem(*it);
-    QRect rect(item.x, item.y, item.w, item.h);
-    for (; it != indexes.end(); ++it) {
-        item = indexToListViewItem(*it);
-        rect |= viewItemRect(item);
-    }
+    QRect rect;
+    for (const auto &index : indexes)
+        rect |= viewItemRect(indexToListViewItem(index));
     return rect;
 }
 
@@ -3284,8 +3330,8 @@ int QIconModeViewBase::itemIndex(const QListViewItem &item) const
     return -1;
 }
 
-void QIconModeViewBase::addLeaf(QVector<int> &leaf, const QRect &area,
-                                   uint visited, QBspTree::Data data)
+void QIconModeViewBase::addLeaf(QList<int> &leaf, const QRect &area, uint visited,
+                                QBspTree::Data data)
 {
     QListViewItem *vi;
     QIconModeViewBase *_this = static_cast<QIconModeViewBase *>(data.ptr);
@@ -3443,7 +3489,47 @@ int QListView::visualIndex(const QModelIndex &index) const
 */
 QSize QListView::viewportSizeHint() const
 {
-    return QAbstractItemView::viewportSizeHint();
+    Q_D(const QListView);
+    // We don't have a nice simple size hint for invalid or wrapping list views.
+    if (!d->model)
+        return QAbstractItemView::viewportSizeHint();
+    const int rc = d->model->rowCount();
+    if (rc == 0 || isWrapping())
+        return QAbstractItemView::viewportSizeHint();
+
+    QStyleOptionViewItem option;
+    initViewItemOption(&option);
+
+    if (uniformItemSizes()) {
+        QSize sz = d->cachedItemSize;
+        if (!sz.isValid()) {
+            QModelIndex idx = d->model->index(0, d->column, d->root);
+            sz = d->itemSize(option, idx);
+        }
+        sz.setHeight(rc * sz.height());
+        return sz;
+    }
+
+    // Using AdjustToContents with a high number of rows will normally not make sense, so we limit
+    // this to default 1000 (that is btw the default for QHeaderView::resizeContentsPrecision())
+    // (By setting the property _q_resizeContentPrecision the user can however override this).
+    int maximumRows = 1000;
+    const QVariant userOverrideValue = property("_q_resizeContentPrecision");
+    if (userOverrideValue.isValid() && userOverrideValue.toInt() > 0) {
+      maximumRows = userOverrideValue.toInt();
+    }
+    const int rowCount = qMin(rc, maximumRows);
+
+    int h = 0;
+    int w = 0;
+
+    for (int row = 0; row < rowCount; ++row) {
+        QModelIndex idx = d->model->index(row, d->column, d->root);
+        QSize itemSize = d->itemSize(option, idx);
+        h += itemSize.height();
+        w = qMax(w, itemSize.width());
+    }
+    return QSize(w, h);
 }
 
 QT_END_NAMESPACE

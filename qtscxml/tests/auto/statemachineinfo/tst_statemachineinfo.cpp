@@ -55,13 +55,13 @@ public:
     }
 
 public slots:
-    void statesEntered(const QVector<QScxmlStateMachineInfo::StateId> &states)
+    void statesEntered(const QList<QScxmlStateMachineInfo::StateId> &states)
     { entered = states; ++enterCount; }
 
-    void statesExited(const QVector<QScxmlStateMachineInfo::StateId> &states)
+    void statesExited(const QList<QScxmlStateMachineInfo::StateId> &states)
     { exited = states; ++exitCount; }
 
-    void transitionsTriggered(const QVector<QScxmlStateMachineInfo::TransitionId> &transitions)
+    void transitionsTriggered(const QList<QScxmlStateMachineInfo::TransitionId> &transitions)
     { this->transitions = transitions; ++transitionTriggerCount; }
 
     void reachedStableState()
@@ -79,11 +79,11 @@ public slots:
 
 public:
     int enterCount = 0;
-    QVector<QScxmlStateMachineInfo::StateId> entered;
+    QList<QScxmlStateMachineInfo::StateId> entered;
     int exitCount = 0;
-    QVector<QScxmlStateMachineInfo::StateId> exited;
+    QList<QScxmlStateMachineInfo::StateId> exited;
     int transitionTriggerCount = 0;
-    QVector<QScxmlStateMachineInfo::TransitionId> transitions;
+    QList<QScxmlStateMachineInfo::TransitionId> transitions;
     bool macroStepDone = false;
 };
 
@@ -121,12 +121,12 @@ void tst_StateMachineInfo::checkInfo()
     QCOMPARE(info->stateType(states.at(4)), QScxmlStateMachineInfo::FinalState);
 
     QCOMPARE(info->stateChildren(QScxmlStateMachineInfo::InvalidStateId),
-             QVector<int>() << 0 << 1 << 4);
-    QCOMPARE(info->stateChildren(states.at(0)), QVector<int>());
-    QCOMPARE(info->stateChildren(states.at(1)), QVector<int>() << 2 << 3);
-    QCOMPARE(info->stateChildren(states.at(2)), QVector<int>());
-    QCOMPARE(info->stateChildren(states.at(3)), QVector<int>());
-    QCOMPARE(info->stateChildren(states.at(4)), QVector<int>());
+             QList<int>() << 0 << 1 << 4);
+    QCOMPARE(info->stateChildren(states.at(0)), QList<int>());
+    QCOMPARE(info->stateChildren(states.at(1)), QList<int>() << 2 << 3);
+    QCOMPARE(info->stateChildren(states.at(2)), QList<int>());
+    QCOMPARE(info->stateChildren(states.at(3)), QList<int>());
+    QCOMPARE(info->stateChildren(states.at(4)), QList<int>());
 
     QCOMPARE(info->initialTransition(QScxmlStateMachineInfo::InvalidStateId), 4);
     QCOMPARE(info->initialTransition(states.at(0)), static_cast<int>(QScxmlStateMachineInfo::InvalidTransitionId));
@@ -199,7 +199,7 @@ void tst_StateMachineInfo::checkInfo()
     stateMachine->start();
     QVERIFY(recorder.finishMacroStep());
     QCOMPARE(recorder.enterCount, 1);
-    QCOMPARE(recorder.entered, QVector<QScxmlStateMachineInfo::StateId>() << 0);
+    QCOMPARE(recorder.entered, QList<QScxmlStateMachineInfo::StateId>() << 0);
     QVERIFY(recorder.exited.isEmpty());
 
     recorder.clear();
@@ -209,10 +209,10 @@ void tst_StateMachineInfo::checkInfo()
     stateMachine->submitEvent("step");
     QVERIFY(recorder.finishMacroStep());
     QCOMPARE(recorder.enterCount, 1);
-    QCOMPARE(recorder.entered, QVector<QScxmlStateMachineInfo::StateId>() << 1 << 2 << 3);
-    QCOMPARE(recorder.exited, QVector<QScxmlStateMachineInfo::StateId>() << 0);
+    QCOMPARE(recorder.entered, QList<QScxmlStateMachineInfo::StateId>() << 1 << 2 << 3);
+    QCOMPARE(recorder.exited, QList<QScxmlStateMachineInfo::StateId>() << 0);
     QCOMPARE(recorder.transitionTriggerCount, 1);
-    QCOMPARE(recorder.transitions, QVector<QScxmlStateMachineInfo::TransitionId>() << 1);
+    QCOMPARE(recorder.transitions, QList<QScxmlStateMachineInfo::TransitionId>() << 1);
 
     recorder.clear();
 
@@ -221,10 +221,10 @@ void tst_StateMachineInfo::checkInfo()
     stateMachine->submitEvent("step");
     QVERIFY(recorder.finishMacroStep());
     QCOMPARE(recorder.enterCount, 1);
-    QCOMPARE(recorder.entered, QVector<QScxmlStateMachineInfo::StateId>() << 4);
-    QCOMPARE(recorder.exited, QVector<QScxmlStateMachineInfo::StateId>() << 3 << 2 << 1);
+    QCOMPARE(recorder.entered, QList<QScxmlStateMachineInfo::StateId>() << 4);
+    QCOMPARE(recorder.exited, QList<QScxmlStateMachineInfo::StateId>() << 3 << 2 << 1);
     QCOMPARE(recorder.transitionTriggerCount, 1);
-    QCOMPARE(recorder.transitions, QVector<QScxmlStateMachineInfo::TransitionId>() << 2);
+    QCOMPARE(recorder.transitions, QList<QScxmlStateMachineInfo::TransitionId>() << 2);
 }
 
 

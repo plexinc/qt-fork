@@ -1,6 +1,6 @@
 ############################################################################
 ##
-## Copyright (C) 2017 The Qt Company Ltd.
+## Copyright (C) 2021 The Qt Company Ltd.
 ## Contact: http://www.qt.io/licensing/
 ##
 ## This file is part of the provisioning scripts of the Qt Toolkit.
@@ -35,36 +35,28 @@
 
 # This script will install Java SE
 
-$installdir = "C:\Program Files\Java\jdk1.8.0_144"
-
-$version = "8u144"
 if (Is64BitWinHost) {
+    $version = "11.0.12"
     $arch = "x64"
-    $sha1 = "adb03bc3f4b40bcb3227687860798981d58e1858"
+    $sha1 = "135ffd1c350509729551876232a5354070732e92"
 } else {
+    $version = "8u144"
     $arch = "i586"
     $sha1 = "3b9ab95914514eaefd72b815c5d9dd84c8e216fc"
 }
 
+$installdir = "C:\Program Files\Java\jdk-$version"
+
 $url_cache = "\\ci-files01-hki.intra.qt.io\provisioning\windows\jdk-" + $version + "-windows-" + $arch + ".exe"
-$official_url = "http://download.oracle.com/otn-pub/java/jdk/8u144-b01/090f390dda5b47b9b721c7dfaa008135/jdk-" + $version + "-windows-" + $arch + ".exe"
+# NOTE! Official URL is behind login portal. It can't be used whit this script instead it need to be fetched to $url_cache first
+# java 11: https://www.oracle.com/java/technologies/downloads/#java11-windows
+# java 8: $official_url = "http://download.oracle.com/otn-pub/java/jdk/8u144-b01/090f390dda5b47b9b721c7dfaa008135/jdk-" + $version + "-windows-" + $arch + ".exe"
 $javaPackage = "C:\Windows\Temp\jdk-$version.exe"
 
 Write-Host "Fetching Java SE $version..."
 $ProgressPreference = 'SilentlyContinue'
-try {
-    Write-Host "...from local cache"
-    Download $url_cache $url_cache $javaPackage
-} catch {
-    Write-Host "...from oracle.com"
-    $client = new-object System.Net.WebClient
-    $cookie = "oraclelicense=accept-securebackup-cookie"
-    $client.Headers.Add("Cookie", $cookie)
-    $client.DownloadFile($official_url, $javaPackage)
-
-    Download $official_url $official_url $javaPackage
-}
-
+Write-Host "...from local cache"
+Download $url_cache $url_cache $javaPackage
 Verify-Checksum $javaPackage $sha1
 
 Run-Executable "$javaPackage" "/s SPONSORS=0"

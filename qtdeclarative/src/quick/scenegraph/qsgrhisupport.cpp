@@ -39,14 +39,20 @@
 
 #include "qsgrhisupport_p.h"
 #include "qsgcontext_p.h"
-#if QT_CONFIG(opengl)
 #  include "qsgdefaultrendercontext_p.h"
-#endif
-#include <QtGui/qwindow.h>
 
+#include <QtQuick/private/qquickitem_p.h>
+#include <QtQuick/private/qquickwindow_p.h>
+
+#include <QtGui/qwindow.h>
 #if QT_CONFIG(vulkan)
 #include <QtGui/qvulkaninstance.h>
 #endif
+
+#include <QOperatingSystemVersion>
+#include <QOffscreenSurface>
+
+#include <QtQml/private/qqmlengine_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -54,7 +60,7 @@ QT_BEGIN_NAMESPACE
 QVulkanInstance *s_vulkanInstance = nullptr;
 #endif
 
-QVulkanInstance *QSGRhiSupport::vulkanInstance()
+QVulkanInstance *QSGRhiSupport::defaultVulkanInstance()
 {
 #if QT_CONFIG(vulkan)
     QSGRhiSupport *inst = QSGRhiSupport::instance();
@@ -63,22 +69,36 @@ QVulkanInstance *QSGRhiSupport::vulkanInstance()
 
     if (!s_vulkanInstance) {
         s_vulkanInstance = new QVulkanInstance;
-        if (inst->isDebugLayerRequested()) {
-#ifndef Q_OS_ANDROID
-            s_vulkanInstance->setLayers(QByteArrayList() << "VK_LAYER_LUNARG_standard_validation");
-#else
-            s_vulkanInstance->setLayers(QByteArrayList()
-                                        << "VK_LAYER_GOOGLE_threading"
-                                        << "VK_LAYER_LUNARG_parameter_validation"
-                                        << "VK_LAYER_LUNARG_object_tracker"
-                                        << "VK_LAYER_LUNARG_core_validation"
-                                        << "VK_LAYER_LUNARG_image"
-                                        << "VK_LAYER_LUNARG_swapchain"
-                                        << "VK_LAYER_GOOGLE_unique_objects");
-#endif
-        }
-        s_vulkanInstance->setExtensions(QByteArrayList()
-                                        << "VK_KHR_get_physical_device_properties2");
+
+        // With a Vulkan implementation >= 1.1 we can check what
+        // vkEnumerateInstanceVersion() says and request 1.2 or 1.1 based on the
+        // result. To prevent future surprises, be conservative and ignore any > 1.2
+        // versions for now. For 1.0 implementations nothing will be requested, the
+        // default 0 in VkApplicationInfo means 1.0.
+        //
+        // Vulkan 1.0 is actually sufficient for 99% of Qt Quick (3D)'s
+        // functionality. In addition, Vulkan implementations tend to enable 1.1 and 1.2
+        // functionality regardless of the VkInstance API request. However, the
+        // validation layer seems to take this fairly seriously, so we should be
+        // prepared for using 1.1 and 1.2 features in a fully correct manner. This also
+        // helps custom Vulkan code in applications, which is not under out control; it
+        // is ideal if Vulkan 1.1 and 1.2 are usable without requiring such applications
+        // to create their own QVulkanInstance just to be able to make an appropriate
+        // setApiVersion() call on it.
+
+        const QVersionNumber supportedVersion = s_vulkanInstance->supportedApiVersion();
+        if (supportedVersion >= QVersionNumber(1, 2))
+            s_vulkanInstance->setApiVersion(QVersionNumber(1, 2));
+        else if (supportedVersion >= QVersionNumber(1, 1))
+            s_vulkanInstance->setApiVersion(QVersionNumber(1, 2));
+        qCDebug(QSG_LOG_INFO) << "Requesting Vulkan API" << s_vulkanInstance->apiVersion()
+                              << "Instance-level version was reported as" << supportedVersion;
+
+        if (inst->isDebugLayerRequested())
+            s_vulkanInstance->setLayers({ "VK_LAYER_KHRONOS_validation" });
+
+        s_vulkanInstance->setExtensions(QRhiVulkanInitParams::preferredInstanceExtensions());
+
         if (!s_vulkanInstance->create()) {
             qWarning("Failed to create Vulkan instance");
             delete s_vulkanInstance;
@@ -91,7 +111,7 @@ QVulkanInstance *QSGRhiSupport::vulkanInstance()
 #endif
 }
 
-void QSGRhiSupport::cleanup()
+void QSGRhiSupport::cleanupDefaultVulkanInstance()
 {
 #if QT_CONFIG(vulkan)
     delete s_vulkanInstance;
@@ -100,7 +120,7 @@ void QSGRhiSupport::cleanup()
 }
 
 QSGRhiSupport::QSGRhiSupport()
-    : m_set(false),
+    : m_settingsApplied(false),
       m_enableRhi(false),
       m_debugLayer(false),
       m_profile(false),
@@ -111,17 +131,19 @@ QSGRhiSupport::QSGRhiSupport()
 
 void QSGRhiSupport::applySettings()
 {
-    m_set = true;
+    // Multiple calls to this function are perfectly possible!
+    // Just store that it was called at least once.
+    m_settingsApplied = true;
 
     // This is also done when creating the renderloop but we may be before that
-    // in case we get here due to a setScenegraphBackend() -> configure() early
+    // in case we get here due to a setGraphicsApi() -> configure() early
     // on in main(). Avoid losing info logs since troubleshooting gets
     // confusing otherwise.
     QSGRhiSupport::checkEnvQSgInfo();
 
     if (m_requested.valid) {
         // explicit rhi backend request from C++ (e.g. via QQuickWindow)
-        m_enableRhi = m_requested.rhi;
+        m_enableRhi = true;
         switch (m_requested.api) {
         case QSGRendererInterface::OpenGLRhi:
             m_rhiBackend = QRhi::OpenGLES2;
@@ -143,8 +165,11 @@ void QSGRhiSupport::applySettings()
             break;
         }
     } else {
+
+        // There is no other way in Qt 6. The direct OpenGL rendering path of Qt 5 has been removed.
+        m_enableRhi = true;
+
         // check env.vars., fall back to platform-specific defaults when backend is not set
-        m_enableRhi = uint(qEnvironmentVariableIntValue("QSG_RHI"));
         const QByteArray rhiBackend = qgetenv("QSG_RHI_BACKEND");
         if (rhiBackend == QByteArrayLiteral("gl")
                 || rhiBackend == QByteArrayLiteral("gles2")
@@ -168,21 +193,37 @@ void QSGRhiSupport::applySettings()
             m_rhiBackend = QRhi::D3D11;
 #elif defined(Q_OS_MACOS) || defined(Q_OS_IOS)
             m_rhiBackend = QRhi::Metal;
-#else
+#elif QT_CONFIG(opengl)
             m_rhiBackend = QRhi::OpenGLES2;
+#else
+            m_rhiBackend = QRhi::Vulkan;
 #endif
-            // Vulkan has to be requested explicitly
+
+            // Now that we established our initial choice, we may want to opt
+            // for another backend under certain special circumstances.
+            if (m_enableRhi) // guard because this may do actual graphics calls on some platforms
+                adjustToPlatformQuirks();
         }
     }
 
-    if (!m_enableRhi)
-        return;
+    Q_ASSERT(m_enableRhi); // cannot be anything else in Qt 6
+
+    // At this point the RHI backend is fixed, it cannot be changed once we
+    // return from this function. This is because things like the QWindow
+    // (QQuickWindow) may depend on the graphics API as well (surfaceType
+    // f.ex.), and all that is based on what we report from here. So further
+    // adjustments are not possible (or, at minimum, not safe and portable).
 
     // validation layers (Vulkan) or debug layer (D3D)
     m_debugLayer = uint(qEnvironmentVariableIntValue("QSG_RHI_DEBUG_LAYER"));
 
     // EnableProfiling + DebugMarkers
     m_profile = uint(qEnvironmentVariableIntValue("QSG_RHI_PROFILE"));
+
+    // EnablePipelineCacheDataSave
+    m_pipelineCacheSave = qEnvironmentVariable("QSG_RHI_PIPELINE_CACHE_SAVE");
+
+    m_pipelineCacheLoad = qEnvironmentVariable("QSG_RHI_PIPELINE_CACHE_LOAD");
 
     m_shaderEffectDebug = uint(qEnvironmentVariableIntValue("QSG_RHI_SHADEREFFECT_DEBUG"));
 
@@ -194,16 +235,36 @@ void QSGRhiSupport::applySettings()
 
     const QString backendName = rhiBackendName();
     qCDebug(QSG_LOG_INFO,
-            "Using QRhi with backend %s\n  graphics API debug/validation layers: %d\n  QRhi profiling and debug markers: %d",
-            qPrintable(backendName), m_debugLayer, m_profile);
+            "Using QRhi with backend %s\n"
+            "  Graphics API debug/validation layers: %d\n"
+            "  QRhi profiling and debug markers: %d\n"
+            "  Shader/pipeline cache collection: %d",
+            qPrintable(backendName), m_debugLayer, m_profile, !m_pipelineCacheSave.isEmpty());
     if (m_preferSoftwareRenderer)
         qCDebug(QSG_LOG_INFO, "Prioritizing software renderers");
 }
 
-QSGRhiSupport *QSGRhiSupport::staticInst()
+void QSGRhiSupport::adjustToPlatformQuirks()
 {
-    static QSGRhiSupport inst;
-    return &inst;
+#if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
+
+    // ### For now just create a throwaway QRhi instance. This will be replaced
+    // by a more lightweight way, once a helper function is added gui/rhi.
+
+    // A macOS VM may not have Metal support at all. We have to decide at this
+    // point, it will be too late afterwards, and the only way is to see if
+    // MTLCreateSystemDefaultDevice succeeds.
+    if (m_rhiBackend == QRhi::Metal) {
+        QRhiMetalInitParams rhiParams;
+        QRhi *tempRhi = QRhi::create(m_rhiBackend, &rhiParams, {});
+        if (!tempRhi) {
+            m_rhiBackend = QRhi::OpenGLES2;
+            qCDebug(QSG_LOG_INFO, "Metal does not seem to be supported. Falling back to OpenGL.");
+        } else {
+            delete tempRhi;
+        }
+    }
+#endif
 }
 
 void QSGRhiSupport::checkEnvQSgInfo()
@@ -215,22 +276,28 @@ void QSGRhiSupport::checkEnvQSgInfo()
 
 void QSGRhiSupport::configure(QSGRendererInterface::GraphicsApi api)
 {
-    Q_ASSERT(QSGRendererInterface::isApiRhiBased(api));
-    QSGRhiSupport *inst = staticInst();
-    if (inst->m_set) {
-        qWarning("QRhi is already configured, request ignored");
-        return;
+    if (api == QSGRendererInterface::Unknown) {
+        // behave as if nothing was explicitly requested
+        m_requested.valid = false;
+        applySettings();
+    } else {
+        Q_ASSERT(QSGRendererInterface::isApiRhiBased(api));
+        m_requested.valid = true;
+        m_requested.api = api;
+        applySettings();
     }
-    inst->m_requested.valid = true;
-    inst->m_requested.api = api;
-    inst->m_requested.rhi = true;
-    inst->applySettings();
+}
+
+QSGRhiSupport *QSGRhiSupport::instance_internal()
+{
+    static QSGRhiSupport inst;
+    return &inst;
 }
 
 QSGRhiSupport *QSGRhiSupport::instance()
 {
-    QSGRhiSupport *inst = staticInst();
-    if (!inst->m_set)
+    QSGRhiSupport *inst = instance_internal();
+    if (!inst->m_settingsApplied)
         inst->applySettings();
     return inst;
 }
@@ -288,7 +355,7 @@ QSurface::SurfaceType QSGRhiSupport::windowSurfaceType() const
     case QRhi::OpenGLES2:
         return QSurface::OpenGLSurface;
     case QRhi::D3D11:
-        return QSurface::OpenGLSurface; // yup, OpenGLSurface
+        return QSurface::Direct3DSurface;
     case QRhi::Metal:
         return QSurface::MetalSurface;
     default:
@@ -389,17 +456,27 @@ static const void *qsgrhi_mtl_rifResource(QSGRendererInterface::Resource res, co
 #endif
 
 const void *QSGRhiSupport::rifResource(QSGRendererInterface::Resource res,
-                                       const QSGDefaultRenderContext *rc)
+                                       const QSGDefaultRenderContext *rc,
+                                       const QQuickWindow *w)
 {
-// ### This condition is a temporary workaround to allow compilation
-// with -no-opengl, but Vulkan or Metal enabled, to succeed. Full
-// support for RHI-capable -no-opengl builds will be available in
-// Qt 6 once the direct OpenGL code path gets removed.
-#if QT_CONFIG(opengl)
-
     QRhi *rhi = rc->rhi();
-    if (res == QSGRendererInterface::RhiResource || !rhi)
+    if (!rhi)
+        return nullptr;
+
+    // Accessing the underlying QRhi* objects are essential both for Qt Quick
+    // 3D and advanced solutions, such as VR engine integrations.
+    switch (res) {
+    case QSGRendererInterface::RhiResource:
         return rhi;
+    case QSGRendererInterface::RhiSwapchainResource:
+        return QQuickWindowPrivate::get(w)->swapchain;
+    case QSGRendererInterface::RhiRedirectCommandBuffer:
+        return QQuickWindowPrivate::get(w)->redirect.commandBuffer;
+    case QSGRendererInterface::RhiRedirectRenderTarget:
+        return QQuickWindowPrivate::get(w)->redirect.rt.renderTarget;
+    default:
+        break;
+    }
 
     const QRhiNativeHandles *nat = rhi->nativeHandles();
     if (!nat)
@@ -434,12 +511,6 @@ const void *QSGRhiSupport::rifResource(QSGRendererInterface::Resource res,
     default:
         return nullptr;
     }
-
-#else
-    Q_UNUSED(res);
-    Q_UNUSED(rc);
-    return nullptr;
-#endif
 }
 
 int QSGRhiSupport::chooseSampleCountForWindowWithRhi(QWindow *window, QRhi *rhi)
@@ -482,10 +553,30 @@ QOffscreenSurface *QSGRhiSupport::maybeCreateOffscreenSurface(QWindow *window)
     return offscreenSurface;
 }
 
-// must be called on the render thread
-QRhi *QSGRhiSupport::createRhi(QWindow *window, QOffscreenSurface *offscreenSurface)
+void QSGRhiSupport::prepareWindowForRhi(QQuickWindow *window)
 {
-#if !QT_CONFIG(opengl) && !QT_CONFIG(vulkan)
+#if QT_CONFIG(vulkan)
+    if (rhiBackend() == QRhi::Vulkan) {
+        QQuickWindowPrivate *wd = QQuickWindowPrivate::get(window);
+        // QQuickWindows must get a QVulkanInstance automatically (it is
+        // created when the first window is constructed and is destroyed only
+        // on exit), unless the application decided to set its own. With
+        // QQuickRenderControl, no QVulkanInstance is created, because it must
+        // always be under the application's control then (since the default
+        // instance we could create here would not be configurable by the
+        // application in any way, and that is often not acceptable).
+        if (!window->vulkanInstance() && !wd->renderControl)
+            window->setVulkanInstance(QSGRhiSupport::defaultVulkanInstance());
+    }
+#else
+    Q_UNUSED(window);
+#endif
+}
+
+// must be called on the render thread
+QRhi *QSGRhiSupport::createRhi(QQuickWindow *window, QOffscreenSurface *offscreenSurface)
+{
+#if !QT_CONFIG(opengl) && !QT_CONFIG(vulkan) && !defined(Q_OS_WIN) && !defined(Q_OS_MACOS) && !defined(Q_OS_IOS)
     Q_UNUSED(window);
 #endif
 
@@ -496,68 +587,171 @@ QRhi *QSGRhiSupport::createRhi(QWindow *window, QOffscreenSurface *offscreenSurf
         flags |= QRhi::EnableProfiling | QRhi::EnableDebugMarkers;
     if (isSoftwareRendererRequested())
         flags |= QRhi::PreferSoftwareRenderer;
+    if (!m_pipelineCacheSave.isEmpty())
+        flags |= QRhi::EnablePipelineCacheDataSave;
 
-    QRhi::Implementation backend = rhiBackend();
+    const QRhi::Implementation backend = rhiBackend();
     if (backend == QRhi::Null) {
         QRhiNullInitParams rhiParams;
         rhi = QRhi::create(backend, &rhiParams, flags);
     }
 #if QT_CONFIG(opengl)
     if (backend == QRhi::OpenGLES2) {
+        QQuickWindowPrivate *wd = QQuickWindowPrivate::get(window);
+        const QQuickGraphicsDevicePrivate *customDevD = QQuickGraphicsDevicePrivate::get(&wd->customDeviceObjects);
         const QSurfaceFormat format = window->requestedFormat();
         QRhiGles2InitParams rhiParams;
         rhiParams.format = format;
         rhiParams.fallbackSurface = offscreenSurface;
         rhiParams.window = window;
-        rhi = QRhi::create(backend, &rhiParams, flags);
+        if (customDevD->type == QQuickGraphicsDevicePrivate::Type::OpenGLContext) {
+            QRhiGles2NativeHandles importDev;
+            importDev.context = customDevD->u.context;
+            qCDebug(QSG_LOG_INFO, "Using existing QOpenGLContext %p", importDev.context);
+            rhi = QRhi::create(backend, &rhiParams, flags, &importDev);
+        } else {
+            rhi = QRhi::create(backend, &rhiParams, flags);
+        }
     }
 #else
     Q_UNUSED(offscreenSurface);
+    if (backend == QRhi::OpenGLES2)
+        qWarning("OpenGL was requested for Qt Quick, but this build of Qt has no OpenGL support.");
 #endif
 #if QT_CONFIG(vulkan)
     if (backend == QRhi::Vulkan) {
+        QQuickWindowPrivate *wd = QQuickWindowPrivate::get(window);
+        const QQuickGraphicsDevicePrivate *customDevD = QQuickGraphicsDevicePrivate::get(&wd->customDeviceObjects);
         QRhiVulkanInitParams rhiParams;
+        prepareWindowForRhi(window); // sets a vulkanInstance if not yet present
         rhiParams.inst = window->vulkanInstance();
         if (!rhiParams.inst)
             qWarning("No QVulkanInstance set for QQuickWindow, this is wrong.");
-        rhiParams.window = window;
-        rhi = QRhi::create(backend, &rhiParams, flags);
+        if (window->handle()) // only used for vkGetPhysicalDeviceSurfaceSupportKHR and that implies having a valid native window
+            rhiParams.window = window;
+        rhiParams.deviceExtensions = wd->graphicsConfig.deviceExtensions();
+        if (customDevD->type == QQuickGraphicsDevicePrivate::Type::DeviceObjects) {
+            QRhiVulkanNativeHandles importDev;
+            importDev.physDev = reinterpret_cast<VkPhysicalDevice>(customDevD->u.deviceObjects.physicalDevice);
+            importDev.dev = reinterpret_cast<VkDevice>(customDevD->u.deviceObjects.device);
+            importDev.gfxQueueFamilyIdx = customDevD->u.deviceObjects.queueFamilyIndex;
+            importDev.gfxQueueIdx = customDevD->u.deviceObjects.queueIndex;
+            qCDebug(QSG_LOG_INFO, "Using existing native Vulkan physical device %p device %p graphics queue family index %d",
+                    importDev.physDev, importDev.dev, importDev.gfxQueueFamilyIdx);
+            rhi = QRhi::create(backend, &rhiParams, flags, &importDev);
+        } else if (customDevD->type == QQuickGraphicsDevicePrivate::Type::PhysicalDevice) {
+            QRhiVulkanNativeHandles importDev;
+            importDev.physDev = reinterpret_cast<VkPhysicalDevice>(customDevD->u.physicalDevice.physicalDevice);
+            qCDebug(QSG_LOG_INFO, "Using existing native Vulkan physical device %p", importDev.physDev);
+            rhi = QRhi::create(backend, &rhiParams, flags, &importDev);
+        } else {
+            rhi = QRhi::create(backend, &rhiParams, flags);
+        }
     }
+#else
+    if (backend == QRhi::Vulkan)
+        qWarning("Vulkan was requested for Qt Quick, but this build of Qt has no Vulkan support.");
 #endif
 #ifdef Q_OS_WIN
     if (backend == QRhi::D3D11) {
+        QQuickWindowPrivate *wd = QQuickWindowPrivate::get(window);
+        const QQuickGraphicsDevicePrivate *customDevD = QQuickGraphicsDevicePrivate::get(&wd->customDeviceObjects);
         QRhiD3D11InitParams rhiParams;
         rhiParams.enableDebugLayer = isDebugLayerRequested();
         if (m_killDeviceFrameCount > 0) {
             rhiParams.framesUntilKillingDeviceViaTdr = m_killDeviceFrameCount;
             rhiParams.repeatDeviceKill = true;
         }
-        rhi = QRhi::create(backend, &rhiParams, flags);
+        if (customDevD->type == QQuickGraphicsDevicePrivate::Type::DeviceAndContext) {
+            QRhiD3D11NativeHandles importDev;
+            importDev.dev = customDevD->u.deviceAndContext.device;
+            importDev.context = customDevD->u.deviceAndContext.context;
+            qCDebug(QSG_LOG_INFO, "Using existing native D3D11 device %p and context %p",
+                    importDev.dev, importDev.context);
+            rhi = QRhi::create(backend, &rhiParams, flags, &importDev);
+        } else if (customDevD->type == QQuickGraphicsDevicePrivate::Type::Adapter) {
+            QRhiD3D11NativeHandles importDev;
+            importDev.adapterLuidLow = customDevD->u.adapter.luidLow;
+            importDev.adapterLuidHigh = customDevD->u.adapter.luidHigh;
+            importDev.featureLevel = customDevD->u.adapter.featureLevel;
+            qCDebug(QSG_LOG_INFO, "Using D3D11 adapter LUID %u, %d and feature level %d",
+                    importDev.adapterLuidLow, importDev.adapterLuidHigh, importDev.featureLevel);
+            rhi = QRhi::create(backend, &rhiParams, flags, &importDev);
+        } else {
+            rhi = QRhi::create(backend, &rhiParams, flags);
+        }
     }
 #endif
 #if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
     if (backend == QRhi::Metal) {
+        QQuickWindowPrivate *wd = QQuickWindowPrivate::get(window);
+        const QQuickGraphicsDevicePrivate *customDevD = QQuickGraphicsDevicePrivate::get(&wd->customDeviceObjects);
         QRhiMetalInitParams rhiParams;
-        rhi = QRhi::create(backend, &rhiParams, flags);
+        if (customDevD->type == QQuickGraphicsDevicePrivate::Type::DeviceAndCommandQueue) {
+            QRhiMetalNativeHandles importDev;
+            importDev.dev = (MTLDevice *) customDevD->u.deviceAndCommandQueue.device;
+            importDev.cmdQueue = (MTLCommandQueue *) customDevD->u.deviceAndCommandQueue.cmdQueue;
+            qCDebug(QSG_LOG_INFO, "Using existing native Metal device %p and command queue %p",
+                    importDev.dev, importDev.cmdQueue);
+            rhi = QRhi::create(backend, &rhiParams, flags, &importDev);
+        } else {
+            rhi = QRhi::create(backend, &rhiParams, flags);
+        }
     }
 #endif
 
-    if (!rhi)
+    if (!rhi) {
         qWarning("Failed to create RHI (backend %d)", backend);
+        return nullptr;
+    }
+
+    if (!m_pipelineCacheLoad.isEmpty()) {
+        QFile f(m_pipelineCacheLoad);
+        if (f.open(QIODevice::ReadOnly)) {
+            qCDebug(QSG_LOG_INFO, "Attempting to seed pipeline cache from '%s'",
+                    qPrintable(m_pipelineCacheLoad));
+            rhi->setPipelineCacheData(f.readAll());
+        } else {
+            qWarning("Could not open pipeline cache source file '%s'",
+                     qPrintable(m_pipelineCacheLoad));
+        }
+    }
 
     return rhi;
 }
 
-QImage QSGRhiSupport::grabAndBlockInCurrentFrame(QRhi *rhi, QRhiSwapChain *swapchain)
+void QSGRhiSupport::destroyRhi(QRhi *rhi)
+{
+    if (!rhi)
+        return;
+
+    if (!rhi->isDeviceLost()) {
+        if (!m_pipelineCacheSave.isEmpty()) {
+            QFile f(m_pipelineCacheSave);
+            if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                qCDebug(QSG_LOG_INFO, "Writing pipeline cache contents to '%s'",
+                        qPrintable(m_pipelineCacheSave));
+                f.write(rhi->pipelineCacheData());
+            } else {
+                qWarning("Could not open pipeline cache output file '%s'",
+                         qPrintable(m_pipelineCacheSave));
+            }
+        }
+    }
+
+    delete rhi;
+}
+
+QImage QSGRhiSupport::grabAndBlockInCurrentFrame(QRhi *rhi, QRhiCommandBuffer *cb, QRhiTexture *src)
 {
     Q_ASSERT(rhi->isRecordingFrame());
 
     QRhiReadbackResult result;
-    QRhiReadbackDescription readbackDesc; // read from swapchain backbuffer
+    QRhiReadbackDescription readbackDesc(src); // null src == read from swapchain backbuffer
     QRhiResourceUpdateBatch *resourceUpdates = rhi->nextResourceUpdateBatch();
     resourceUpdates->readBackTexture(readbackDesc, &result);
 
-    swapchain->currentFrameCommandBuffer()->resourceUpdate(resourceUpdates);
+    cb->resourceUpdate(resourceUpdates);
     rhi->finish(); // make sure the readback has finished, stall the pipeline if needed
 
     // May be RGBA or BGRA. Plus premultiplied alpha.
@@ -582,6 +776,192 @@ QImage QSGRhiSupport::grabAndBlockInCurrentFrame(QRhi *rhi, QRhiSwapChain *swapc
     return img.copy();
 }
 
+QImage QSGRhiSupport::grabOffscreen(QQuickWindow *window)
+{
+    // Set up and then tear down the entire rendering infrastructure. This
+    // function is called on the gui/main thread - but that's alright because
+    // there is no onscreen rendering initialized at this point (so no render
+    // thread for instance).
+
+    QQuickWindowPrivate *wd = QQuickWindowPrivate::get(window);
+    // It is expected that window is not using QQuickRenderControl, i.e. it is
+    // a normal QQuickWindow that just happens to be not exposed.
+    Q_ASSERT(!wd->renderControl);
+
+    QScopedPointer<QOffscreenSurface> offscreenSurface(maybeCreateOffscreenSurface(window));
+    QScopedPointer<QRhi> rhi(createRhi(window, offscreenSurface.data()));
+    if (!rhi) {
+        qWarning("Failed to initialize QRhi for offscreen readback");
+        return QImage();
+    }
+
+    const QSize pixelSize = window->size() * window->devicePixelRatio();
+    QScopedPointer<QRhiTexture> texture(rhi->newTexture(QRhiTexture::RGBA8, pixelSize, 1,
+                                                        QRhiTexture::RenderTarget | QRhiTexture::UsedAsTransferSource));
+    if (!texture->create()) {
+        qWarning("Failed to build texture for offscreen readback");
+        return QImage();
+    }
+    QScopedPointer<QRhiRenderBuffer> depthStencil(rhi->newRenderBuffer(QRhiRenderBuffer::DepthStencil, pixelSize, 1));
+    if (!depthStencil->create()) {
+        qWarning("Failed to create depth/stencil buffer for offscreen readback");
+        return QImage();
+    }
+    QRhiTextureRenderTargetDescription rtDesc(texture.data());
+    rtDesc.setDepthStencilBuffer(depthStencil.data());
+    QScopedPointer<QRhiTextureRenderTarget> rt(rhi->newTextureRenderTarget(rtDesc));
+    QScopedPointer<QRhiRenderPassDescriptor> rpDesc(rt->newCompatibleRenderPassDescriptor());
+    rt->setRenderPassDescriptor(rpDesc.data());
+    if (!rt->create()) {
+        qWarning("Failed to build render target for offscreen readback");
+        return QImage();
+    }
+
+    wd->rhi = rhi.data();
+
+    QSGDefaultRenderContext::InitParams params;
+    params.rhi = rhi.data();
+    params.sampleCount = 1;
+    params.initialSurfacePixelSize = pixelSize;
+    params.maybeSurface = window;
+    wd->context->initialize(&params);
+
+    // There was no rendercontrol which means a custom render target
+    // should not be set either. Set our own, temporarily.
+    window->setRenderTarget(QQuickRenderTarget::fromRhiRenderTarget(rt.data()));
+
+    QRhiCommandBuffer *cb = nullptr;
+    if (rhi->beginOffscreenFrame(&cb) != QRhi::FrameOpSuccess) {
+        qWarning("Failed to start recording the frame for offscreen readback");
+        return QImage();
+    }
+
+    wd->setCustomCommandBuffer(cb);
+    wd->polishItems();
+    wd->syncSceneGraph();
+    wd->renderSceneGraph(window->size());
+    wd->setCustomCommandBuffer(nullptr);
+
+    QImage image = grabAndBlockInCurrentFrame(rhi.data(), cb, texture.data());
+    rhi->endOffscreenFrame();
+
+    image.setDevicePixelRatio(window->devicePixelRatio());
+    wd->cleanupNodesOnShutdown();
+    wd->context->invalidate();
+
+    window->setRenderTarget(QQuickRenderTarget());
+    wd->rhi = nullptr;
+
+    return image;
+}
+
+#ifdef Q_OS_WEBOS
+QImage QSGRhiSupport::grabOffscreenForProtectedContent(QQuickWindow *window)
+{
+    // If a context is created for protected content, grabbing GPU
+    // resources are restricted. For the case, normal context
+    // and surface are needed to allow CPU access.
+    // So dummy offscreen window is used here
+    // This function is called in rendering thread.
+
+    QScopedPointer<QQuickWindow> offscreenWindow;
+    QQuickWindowPrivate *wd = QQuickWindowPrivate::get(window);
+    // It is expected that window is not using QQuickRenderControl, i.e. it is
+    // a normal QQuickWindow that just happens to be not exposed.
+    Q_ASSERT(!wd->renderControl);
+
+    // If context and surface are created for protected content,
+    // CPU can't read the frame resources. So normal context and surface are needed.
+    if (window->requestedFormat().testOption(QSurfaceFormat::ProtectedContent)) {
+        QSurfaceFormat surfaceFormat = window->requestedFormat();
+        surfaceFormat.setOption(QSurfaceFormat::ProtectedContent, false);
+        offscreenWindow.reset(new QQuickWindow());
+        offscreenWindow->setFormat(surfaceFormat);
+    }
+
+    QScopedPointer<QOffscreenSurface> offscreenSurface(maybeCreateOffscreenSurface(window));
+    QScopedPointer<QRhi> rhi(createRhi(offscreenWindow.data() ? offscreenWindow.data() : window, offscreenSurface.data()));
+    if (!rhi) {
+        qWarning("Failed to initialize QRhi for offscreen readback");
+        return QImage();
+    }
+
+    const QSize pixelSize = window->size() * window->devicePixelRatio();
+    QScopedPointer<QRhiTexture> texture(rhi->newTexture(QRhiTexture::RGBA8, pixelSize, 1,
+                                                        QRhiTexture::RenderTarget | QRhiTexture::UsedAsTransferSource));
+    if (!texture->create()) {
+        qWarning("Failed to build texture for offscreen readback");
+        return QImage();
+    }
+    QScopedPointer<QRhiRenderBuffer> depthStencil(rhi->newRenderBuffer(QRhiRenderBuffer::DepthStencil, pixelSize, 1));
+    if (!depthStencil->create()) {
+        qWarning("Failed to create depth/stencil buffer for offscreen readback");
+        return QImage();
+    }
+    QRhiTextureRenderTargetDescription rtDesc(texture.data());
+    rtDesc.setDepthStencilBuffer(depthStencil.data());
+    QScopedPointer<QRhiTextureRenderTarget> rt(rhi->newTextureRenderTarget(rtDesc));
+    QScopedPointer<QRhiRenderPassDescriptor> rpDesc(rt->newCompatibleRenderPassDescriptor());
+    rt->setRenderPassDescriptor(rpDesc.data());
+    if (!rt->create()) {
+        qWarning("Failed to build render target for offscreen readback");
+        return QImage();
+    }
+
+    // Backup the original Rhi
+    QRhi *currentRhi = wd->rhi;
+    wd->rhi = rhi.data();
+
+    QSGDefaultRenderContext::InitParams params;
+    params.rhi = rhi.data();
+    params.sampleCount = 1;
+    params.initialSurfacePixelSize = pixelSize;
+    params.maybeSurface = window;
+    wd->context->initialize(&params);
+
+    // Backup the original RenderTarget
+    QQuickRenderTarget currentRenderTarget = window->renderTarget();
+    // There was no rendercontrol which means a custom render target
+    // should not be set either. Set our own, temporarily.
+    window->setRenderTarget(QQuickRenderTarget::fromRhiRenderTarget(rt.data()));
+
+    QRhiCommandBuffer *cb = nullptr;
+    if (rhi->beginOffscreenFrame(&cb) != QRhi::FrameOpSuccess) {
+        qWarning("Failed to start recording the frame for offscreen readback");
+        return QImage();
+    }
+
+    wd->setCustomCommandBuffer(cb);
+    wd->polishItems();
+    wd->syncSceneGraph();
+    wd->renderSceneGraph(window->size());
+    wd->setCustomCommandBuffer(nullptr);
+
+    QImage image = grabAndBlockInCurrentFrame(rhi.data(), cb, texture.data());
+    rhi->endOffscreenFrame();
+
+    image.setDevicePixelRatio(window->devicePixelRatio());
+
+    // Called from gui/main thread on no onscreen rendering initialized
+    if (!currentRhi) {
+        wd->cleanupNodesOnShutdown();
+        wd->context->invalidate();
+
+        window->setRenderTarget(QQuickRenderTarget());
+        wd->rhi = nullptr;
+    } else {
+        // Called from rendering thread for protected content
+        // Restore to original Rhi, RenderTarget and Context
+        window->setRenderTarget(currentRenderTarget);
+        wd->rhi = currentRhi;
+        params.rhi = currentRhi;
+        wd->context->initialize(&params);
+    }
+
+    return image;
+}
+#endif
+
 QSGRhiProfileConnection *QSGRhiProfileConnection::instance()
 {
     static QSGRhiProfileConnection inst;
@@ -593,6 +973,11 @@ void QSGRhiProfileConnection::initialize(QRhi *rhi)
 #ifdef RHI_REMOTE_PROFILER
     const QString profHost = qEnvironmentVariable("QSG_RHI_PROFILE_HOST");
     if (!profHost.isEmpty()) {
+        if (!QQmlEnginePrivate::qml_debugging_enabled) {
+            qWarning("RHI profiling cannot be enabled without QML debugging, for security reasons. "
+                     "Set CONFIG+=qml_debug in the application project.");
+            return;
+        }
         int profPort = qEnvironmentVariableIntValue("QSG_RHI_PROFILE_PORT");
         if (!profPort)
             profPort = 30667;

@@ -26,26 +26,25 @@
 **
 ****************************************************************************/
 
-#include "../../shared/util.h"
 #include <QtCore/QObject>
 #include <QtQml/qqml.h>
 #include <QtQml/QQmlEngine>
 #include <QtQml/QQmlComponent>
 #include <private/qhashedstring_p.h>
 #include <private/qqmlmetatype_p.h>
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 
 //Separate test, because if engine cleanup attempts fail they can easily break unrelated tests
 class tst_qqmlenginecleanup : public QQmlDataTest
 {
     Q_OBJECT
 public:
-    tst_qqmlenginecleanup() {}
+    tst_qqmlenginecleanup() : QQmlDataTest(QT_QMLTEST_DATADIR) {}
 
 private slots:
     void test_qmlClearTypeRegistrations();
     void test_valueTypeProviderModule(); // QTBUG-43004
     void test_customModuleCleanup();
-    void test_qmlListCleared();
 };
 
 // A wrapper around QQmlComponent to ensure the temporary reference counts
@@ -78,7 +77,8 @@ void tst_qqmlenginecleanup::test_qmlClearTypeRegistrations()
     QUrl testFile = testFileUrl("types.qml");
 
     const auto qmlTypeForTestType = []() {
-        return QQmlMetaType::qmlType(QStringLiteral("TestTypeCpp"), QStringLiteral("Test"), 2, 0);
+        return QQmlMetaType::qmlType(QStringLiteral("TestTypeCpp"), QStringLiteral("Test"),
+                                     QTypeRevision::fromVersion(2, 0));
     };
 
     QVERIFY(!qmlTypeForTestType().isValid());
@@ -170,33 +170,29 @@ void tst_qqmlenginecleanup::test_valueTypeProviderModule()
     QVERIFY(noDangling);
 }
 
+static QByteArray msgModuleCleanupFail(int attempt, const QQmlComponent &c)
+{
+    return "Attempt #" + QByteArray::number(attempt) + " :"
+           + c.errorString().toUtf8();
+}
+
 void tst_qqmlenginecleanup::test_customModuleCleanup()
 {
     for (int i = 0; i < 5; ++i) {
         qmlClearTypeRegistrations();
 
         QQmlEngine engine;
+        engine.setOutputWarningsToStandardError(true);
         engine.addImportPath(QT_TESTCASE_BUILDDIR);
 
         QQmlComponent component(&engine);
         component.setData("import CustomModule 1.0\nModuleType {}", QUrl());
-        QCOMPARE(component.status(), QQmlComponent::Ready);
+        QVERIFY2(component.status() == QQmlComponent::Ready,
+                 msgModuleCleanupFail(i, component).constData());
 
         QScopedPointer<QObject> object(component.create());
-        QVERIFY(!object.isNull());
+        QVERIFY2(!object.isNull(), msgModuleCleanupFail(i, component).constData());
     }
-}
-
-void tst_qqmlenginecleanup::test_qmlListCleared()
-{
-    {
-        QQmlEngine engine;
-        auto url = testFileUrl("MyItem.qml");
-        QQmlComponent comp(&engine, url);
-        QScopedPointer<QObject> item {comp.create()};
-        QCOMPARE(QQmlMetaType::qmlRegisteredListTypeCount(), 1);
-    }
-    QCOMPARE(QQmlMetaType::qmlRegisteredListTypeCount(), 0);
 }
 
 QTEST_MAIN(tst_qqmlenginecleanup)

@@ -68,11 +68,11 @@ enum {
     Offset4 = 0x00010000,
     Offset5 = 0x00100000,
 
-    Size0 = Offset1  - Offset0,
-    Size1 = Offset2  - Offset1,
-    Size2 = Offset3  - Offset2,
-    Size3 = Offset4  - Offset3,
-    Size4 = Offset5  - Offset4,
+    Size0 = Offset1 - Offset0,
+    Size1 = Offset2 - Offset1,
+    Size2 = Offset3 - Offset2,
+    Size3 = Offset4 - Offset3,
+    Size4 = Offset5 - Offset4,
     Size5 = QtTimerIdFreeListConstants::MaxIndex - Offset5
 };
 
@@ -210,8 +210,6 @@ QAbstractEventDispatcher *QAbstractEventDispatcher::instance(QThread *thread)
 
     \b{Note:} This function does not process events continuously; it
     returns after all available events are processed.
-
-    \sa hasPendingEvents()
 */
 
 /*!
@@ -221,14 +219,6 @@ QAbstractEventDispatcher *QAbstractEventDispatcher::instance(QThread *thread)
     is called. Events that are posted while the function runs will be queued
     until a later round of event processing. This only applies to posted Qt
     events. For timers and system level events, the situation is unknown.
-*/
-
-/*! \fn bool QAbstractEventDispatcher::hasPendingEvents()
-    \deprecated
-
-    Returns \c true if there is an event waiting; otherwise returns false. This
-    function is an implementation detail for
-    QCoreApplication::hasPendingEvents() and must not be called directly.
 */
 
 /*!
@@ -248,28 +238,10 @@ QAbstractEventDispatcher *QAbstractEventDispatcher::instance(QThread *thread)
 */
 
 /*!
-    \obsolete
-
-    \fn int QAbstractEventDispatcher::registerTimer(int interval, QObject *object)
-
-    Registers a timer with the specified \a interval for the given \a object
-    and returns the timer id.
-*/
-
-/*!
-    \obsolete
-
-    \fn void QAbstractEventDispatcher::registerTimer(int timerId, int interval, QObject *object)
-
-    Register a timer with the specified \a timerId and \a interval for the
-    given \a object.
-*/
-
-/*!
     Registers a timer with the specified \a interval and \a timerType for the
     given \a object and returns the timer id.
 */
-int QAbstractEventDispatcher::registerTimer(int interval, Qt::TimerType timerType, QObject *object)
+int QAbstractEventDispatcher::registerTimer(qint64 interval, Qt::TimerType timerType, QObject *object)
 {
     int id = QAbstractEventDispatcherPrivate::allocateTimerId();
     registerTimer(id, interval, timerType, object);
@@ -277,7 +249,7 @@ int QAbstractEventDispatcher::registerTimer(int interval, Qt::TimerType timerTyp
 }
 
 /*!
-    \fn void QAbstractEventDispatcher::registerTimer(int timerId, int interval, Qt::TimerType timerType, QObject *object)
+    \fn void QAbstractEventDispatcher::registerTimer(int timerId, qint64 interval, Qt::TimerType timerType, QObject *object)
 
     Register a timer with the specified \a timerId, \a interval, and \a
     timerType for the given \a object.
@@ -342,13 +314,6 @@ int QAbstractEventDispatcher::registerTimer(int interval, Qt::TimerType timerTyp
 
     Interrupts event dispatching.  The event dispatcher will
     return from processEvents() as soon as possible.
-*/
-
-/*! \fn void QAbstractEventDispatcher::flush()
-    \deprecated
-
-    Depending from the event dispatcher implementation does nothing or
-    calls QApplication::sendPostedEvents().
 */
 
 // ### DOC: Are these called when the _application_ starts/stops or just
@@ -429,7 +394,7 @@ void QAbstractEventDispatcher::installNativeEventFilter(QAbstractNativeEventFilt
     Q_D(QAbstractEventDispatcher);
 
     // clean up unused items in the list
-    d->eventFilters.removeAll(0);
+    d->eventFilters.removeAll(nullptr);
     d->eventFilters.removeAll(filterObj);
     d->eventFilters.prepend(filterObj);
 }
@@ -452,7 +417,7 @@ void QAbstractEventDispatcher::removeNativeEventFilter(QAbstractNativeEventFilte
     Q_D(QAbstractEventDispatcher);
     for (int i = 0; i < d->eventFilters.count(); ++i) {
         if (d->eventFilters.at(i) == filter) {
-            d->eventFilters[i] = 0;
+            d->eventFilters[i] = nullptr;
             break;
         }
     }
@@ -477,11 +442,7 @@ void QAbstractEventDispatcher::removeNativeEventFilter(QAbstractNativeEventFilte
     \sa installNativeEventFilter(), QAbstractNativeEventFilter::nativeEventFilter()
     \since 5.0
 */
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 bool QAbstractEventDispatcher::filterNativeEvent(const QByteArray &eventType, void *message, qintptr *result)
-#else
-bool QAbstractEventDispatcher::filterNativeEvent(const QByteArray &eventType, void *message, long *result)
-#endif
 {
     Q_D(QAbstractEventDispatcher);
     if (!d->eventFilters.isEmpty()) {
@@ -498,39 +459,6 @@ bool QAbstractEventDispatcher::filterNativeEvent(const QByteArray &eventType, vo
     }
     return false;
 }
-
-/*! \fn bool QAbstractEventDispatcher::filterEvent(void *message)
-    \deprecated
-
-    Calls filterNativeEvent() with an empty eventType and \a message.
-    This function returns \c true as soon as an
-    event filter returns \c true, and false otherwise to indicate that
-    the processing of the event should continue.
-*/
-
-/*! \fn bool QAbstractEventDispatcher::registerEventNotifier(QWinEventNotifier *notifier)
-
-  This pure virtual method exists on windows only and has to be reimplemented by a Windows specific
-  event dispatcher implementation. \a notifier is the QWinEventNotifier instance to be registered.
-
-  The method should return true if the registration of \a notifier was successful, otherwise false.
-
-  QWinEventNotifier calls this method in it's constructor and there should never be a need to call this
-  method directly.
-
-  \sa QWinEventNotifier, unregisterEventNotifier()
-*/
-
-/*! \fn bool QAbstractEventDispatcher::unregisterEventNotifier(QWinEventNotifier *notifier)
-
-  This pure virtual method exists on windows only and has to be reimplemented by a Windows specific
-  event dispatcher implementation. \a notifier is the QWinEventNotifier instance to be unregistered.
-
-  QWinEventNotifier calls this method in it's destructor and there should never be a need to call this
-  method directly.
-
-  \sa QWinEventNotifier, registerEventNotifier()
-*/
 
 /*! \fn void QAbstractEventDispatcher::awake()
 

@@ -33,7 +33,7 @@
 #include <QtCore/QStringList>
 #include <QtCharts/QAbstractBarSeries>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class QPercentBarSeriesPrivate;
 
@@ -43,13 +43,13 @@ class Q_CHARTS_EXPORT QPercentBarSeries : public QAbstractBarSeries
 public:
     explicit QPercentBarSeries(QObject *parent = nullptr);
     ~QPercentBarSeries();
-    QAbstractSeries::SeriesType type() const;
+    QAbstractSeries::SeriesType type() const override;
 
 private:
     Q_DECLARE_PRIVATE(QPercentBarSeries)
     Q_DISABLE_COPY(QPercentBarSeries)
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // QPERCENTBARSERIES_H

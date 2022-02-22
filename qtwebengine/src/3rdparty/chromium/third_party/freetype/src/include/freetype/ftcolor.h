@@ -4,7 +4,7 @@
  *
  *   FreeType's glyph color management (specification).
  *
- * Copyright (C) 2018-2020 by
+ * Copyright (C) 2018-2021 by
  * David Turner, Robert Wilhelm, and Werner Lemberg.
  *
  * This file is part of the FreeType project, and may only be used,
@@ -19,8 +19,7 @@
 #ifndef FTCOLOR_H_
 #define FTCOLOR_H_
 
-#include <ft2build.h>
-#include FT_FREETYPE_H
+#include <freetype/freetype.h>
 
 #ifdef FREETYPE_H
 #error "freetype.h of FreeType 1 has been loaded!"

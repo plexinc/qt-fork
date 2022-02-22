@@ -5,13 +5,13 @@
 #include <cstdint>
 #include <string>
 
-#include "net/third_party/quiche/src/quic/core/crypto/crypto_secret_boxer.h"
+#include "quic/core/crypto/crypto_secret_boxer.h"
 
+#include "absl/strings/string_view.h"
 #include "third_party/boringssl/src/include/openssl/aead.h"
 #include "third_party/boringssl/src/include/openssl/err.h"
-#include "net/third_party/quiche/src/quic/core/crypto/quic_random.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "quic/core/crypto/quic_random.h"
+#include "quic/platform/api/quic_logging.h"
 
 namespace quic {
 
@@ -45,12 +45,12 @@ size_t CryptoSecretBoxer::GetKeySize() {
 static const EVP_AEAD* (*const kAEAD)() = EVP_aead_aes_256_gcm_siv;
 
 void CryptoSecretBoxer::SetKeys(const std::vector<std::string>& keys) {
-  DCHECK(!keys.empty());
+  QUICHE_DCHECK(!keys.empty());
   const EVP_AEAD* const aead = kAEAD();
   std::unique_ptr<State> new_state(new State);
 
   for (const std::string& key : keys) {
-    DCHECK_EQ(kBoxKeySize, key.size());
+    QUICHE_DCHECK_EQ(kBoxKeySize, key.size());
     bssl::UniquePtr<EVP_AEAD_CTX> ctx(
         EVP_AEAD_CTX_new(aead, reinterpret_cast<const uint8_t*>(key.data()),
                          key.size(), EVP_AEAD_DEFAULT_TAG_LENGTH));
@@ -68,7 +68,7 @@ void CryptoSecretBoxer::SetKeys(const std::vector<std::string>& keys) {
 }
 
 std::string CryptoSecretBoxer::Box(QuicRandom* rand,
-                                   quiche::QuicheStringPiece plaintext) const {
+                                   absl::string_view plaintext) const {
   // The box is formatted as:
   //   12 bytes of random nonce
   //   n bytes of ciphertext
@@ -100,13 +100,13 @@ std::string CryptoSecretBoxer::Box(QuicRandom* rand,
     }
   }
 
-  DCHECK_EQ(out_len, bytes_written);
+  QUICHE_DCHECK_EQ(out_len, bytes_written);
   return ret;
 }
 
-bool CryptoSecretBoxer::Unbox(quiche::QuicheStringPiece in_ciphertext,
+bool CryptoSecretBoxer::Unbox(absl::string_view in_ciphertext,
                               std::string* out_storage,
-                              quiche::QuicheStringPiece* out) const {
+                              absl::string_view* out) const {
   if (in_ciphertext.size() < kSIVNonceSize) {
     return false;
   }
@@ -130,7 +130,7 @@ bool CryptoSecretBoxer::Unbox(quiche::QuicheStringPiece in_ciphertext,
                             kSIVNonceSize, ciphertext, ciphertext_len, nullptr,
                             0)) {
         ok = true;
-        *out = quiche::QuicheStringPiece(out_storage->data(), bytes_written);
+        *out = absl::string_view(out_storage->data(), bytes_written);
         break;
       }
 

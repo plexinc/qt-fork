@@ -8,7 +8,7 @@
 #include <cmath>
 #include <string>
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/strings/stringprintf.h"
 #include "ui/gfx/geometry/point3_f.h"
 #include "ui/gfx/geometry/rect.h"
@@ -594,6 +594,78 @@ std::string DecomposedTransform::ToString() const {
       skew[0], skew[1], skew[2], perspective[0], perspective[1], perspective[2],
       perspective[3], quaternion.x(), quaternion.y(), quaternion.z(),
       quaternion.w());
+}
+
+Transform OrthoProjectionMatrix(float left,
+                                float right,
+                                float bottom,
+                                float top) {
+  // Use the standard formula to map the clipping frustum to the cube from
+  // [-1, -1, -1] to [1, 1, 1].
+  float delta_x = right - left;
+  float delta_y = top - bottom;
+  Transform proj;
+  if (!delta_x || !delta_y)
+    return proj;
+  proj.matrix().set(0, 0, 2.0f / delta_x);
+  proj.matrix().set(0, 3, -(right + left) / delta_x);
+  proj.matrix().set(1, 1, 2.0f / delta_y);
+  proj.matrix().set(1, 3, -(top + bottom) / delta_y);
+
+  // Z component of vertices is always set to zero as we don't use the depth
+  // buffer while drawing.
+  proj.matrix().set(2, 2, 0);
+
+  return proj;
+}
+
+Transform WindowMatrix(int x, int y, int width, int height) {
+  Transform canvas;
+
+  // Map to window position and scale up to pixel coordinates.
+  canvas.Translate3d(x, y, 0);
+  canvas.Scale3d(width, height, 0);
+
+  // Map from ([-1, -1] to [1, 1]) -> ([0, 0] to [1, 1])
+  canvas.Translate3d(0.5, 0.5, 0.5);
+  canvas.Scale3d(0.5, 0.5, 0.5);
+
+  return canvas;
+}
+
+static inline bool NearlyZero(double value) {
+  return std::abs(value) < std::numeric_limits<double>::epsilon();
+}
+
+static inline float ScaleOnAxis(double a, double b, double c) {
+  if (NearlyZero(b) && NearlyZero(c))
+    return std::abs(a);
+  if (NearlyZero(a) && NearlyZero(c))
+    return std::abs(b);
+  if (NearlyZero(a) && NearlyZero(b))
+    return std::abs(c);
+
+  // Do the sqrt as a double to not lose precision.
+  return static_cast<float>(std::sqrt(a * a + b * b + c * c));
+}
+
+Vector2dF ComputeTransform2dScaleComponents(const Transform& transform,
+                                            float fallback_value) {
+  if (transform.HasPerspective())
+    return Vector2dF(fallback_value, fallback_value);
+  float x_scale = ScaleOnAxis(transform.matrix().getDouble(0, 0),
+                              transform.matrix().getDouble(1, 0),
+                              transform.matrix().getDouble(2, 0));
+  float y_scale = ScaleOnAxis(transform.matrix().getDouble(0, 1),
+                              transform.matrix().getDouble(1, 1),
+                              transform.matrix().getDouble(2, 1));
+  return Vector2dF(x_scale, y_scale);
+}
+
+float ComputeApproximateMaxScale(const Transform& transform) {
+  RectF unit(0.f, 0.f, 1.f, 1.f);
+  transform.TransformRect(&unit);
+  return std::max(unit.width(), unit.height());
 }
 
 }  // namespace gfx

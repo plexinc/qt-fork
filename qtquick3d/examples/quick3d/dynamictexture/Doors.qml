@@ -48,8 +48,8 @@
 **
 ****************************************************************************/
 
-import QtQuick3D 1.15
-import QtQuick 2.15
+import QtQuick3D
+import QtQuick
 
 Node {
     id: doorRoot
@@ -62,7 +62,7 @@ Node {
         z: -100
         color: "#ffffffff"
         linearFade: 1
-        brightness: 300
+        brightness: 3
     }
 
     PerspectiveCamera {
@@ -75,31 +75,34 @@ Node {
 
         eulerRotation.y: 171.605
 
-        fieldOfViewOrientation: Camera.Horizontal
+        fieldOfViewOrientation: PerspectiveCamera.Horizontal
     }
+    //! [material]
+    DefaultMaterial {
+        id: doorMaterial
+        diffuseMap: Texture {
+            sourceItem: object2d
+        }
+    }
+    //! [material]
 
+    //! [model heading]
     Model {
         id: door1
+    //! [model heading]
+        objectName: "left door"
         pivot.x: 20
         x: 80
         y: 70
-        scale.x: 2
+        scale.x: 1.98
         scale.y: 3.5
         scale.z: 0.5
-        source: "meshes/door1.mesh"
-        pickable: true
 
-        //! [material]
-        DefaultMaterial {
-            id: material_001_material
-            diffuseMap: Texture {
-                sourceItem: object2d
-            }
-        }
-        materials: [
-            material_001_material
-        ]
-        //! [material]
+    //! [model content]
+        source: "meshes/door1.mesh"
+        materials: doorMaterial
+        pickable: true
+    //! [model content]
 
         //! [state]
         states: State {
@@ -128,27 +131,27 @@ Node {
         source: "meshes/wall.mesh"
 
         DefaultMaterial {
-            id: material_material
+            id: wallMaterial
             diffuseColor: "lightgreen"
         }
         materials: [
-            material_material
+            wallMaterial
         ]
     }
 
     Model {
         id: door2
+        objectName: "right door"
         x: -80
         y: 70
-        scale.x: 2
+        scale.x: 1.98
         scale.y: 3.5
         scale.z: 0.5
         pivot.x: -20
         source: "meshes/door2.mesh"
         pickable: true
-        materials: [
-            material_001_material
-        ]
+        materials: doorMaterial
+
         states: State {
             name: "opened"
             PropertyChanges {

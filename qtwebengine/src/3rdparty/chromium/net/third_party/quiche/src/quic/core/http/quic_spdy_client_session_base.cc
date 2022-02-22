@@ -2,15 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/http/quic_spdy_client_session_base.h"
+#include "quic/core/http/quic_spdy_client_session_base.h"
 
 #include <string>
 
-#include "net/third_party/quiche/src/quic/core/http/quic_client_promised_info.h"
-#include "net/third_party/quiche/src/quic/core/http/spdy_server_push_utils.h"
-#include "net/third_party/quiche/src/quic/core/quic_utils.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
+#include "quic/core/http/quic_client_promised_info.h"
+#include "quic/core/http/spdy_server_push_utils.h"
+#include "quic/core/quic_utils.h"
+#include "quic/platform/api/quic_flags.h"
+#include "quic/platform/api/quic_logging.h"
 
 using spdy::SpdyHeaderBlock;
 
@@ -65,7 +65,10 @@ void QuicSpdyClientSessionBase::OnPromiseHeaderList(
         ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
     return;
   }
-  if (promised_stream_id !=
+  // In HTTP3, push promises are received on individual streams, so they could
+  // be arrive out of order.
+  if (!VersionUsesHttp3(transport_version()) &&
+      promised_stream_id !=
           QuicUtils::GetInvalidStreamId(transport_version()) &&
       largest_promised_stream_id_ !=
           QuicUtils::GetInvalidStreamId(transport_version()) &&
@@ -105,6 +108,8 @@ void QuicSpdyClientSessionBase::OnPromiseHeaderList(
 bool QuicSpdyClientSessionBase::HandlePromised(QuicStreamId /* associated_id */,
                                                QuicStreamId promised_id,
                                                const SpdyHeaderBlock& headers) {
+  // TODO(b/136295430): Do not treat |promised_id| as a stream ID when using
+  // IETF QUIC.
   // Due to pathalogical packet re-ordering, it is possible that
   // frames for the promised stream have already arrived, and the
   // promised stream could be active or closed.
@@ -150,7 +155,7 @@ bool QuicSpdyClientSessionBase::HandlePromised(QuicStreamId /* associated_id */,
   promised_by_id_[promised_id] = std::move(promised_owner);
   bool result = promised->OnPromiseHeaders(headers);
   if (result) {
-    DCHECK(promised_by_id_.find(promised_id) != promised_by_id_.end());
+    QUICHE_DCHECK(promised_by_id_.find(promised_id) != promised_by_id_.end());
   }
   return result;
 }
@@ -175,9 +180,9 @@ QuicClientPromisedInfo* QuicSpdyClientSessionBase::GetPromisedById(
 
 QuicSpdyStream* QuicSpdyClientSessionBase::GetPromisedStream(
     const QuicStreamId id) {
-  StreamMap::iterator it = stream_map().find(id);
-  if (it != stream_map().end()) {
-    return static_cast<QuicSpdyStream*>(it->second.get());
+  QuicStream* stream = GetActiveStream(id);
+  if (stream != nullptr) {
+    return static_cast<QuicSpdyStream*>(stream);
   }
   return nullptr;
 }
@@ -201,16 +206,15 @@ void QuicSpdyClientSessionBase::OnPushStreamTimedOut(
 void QuicSpdyClientSessionBase::ResetPromised(
     QuicStreamId id,
     QuicRstStreamErrorCode error_code) {
-  DCHECK(QuicUtils::IsServerInitiatedStreamId(transport_version(), id));
-  SendRstStream(id, error_code, 0);
+  QUICHE_DCHECK(QuicUtils::IsServerInitiatedStreamId(transport_version(), id));
+  ResetStream(id, error_code);
   if (!IsOpenStream(id) && !IsClosedStream(id)) {
     MaybeIncreaseLargestPeerStreamId(id);
   }
 }
 
-void QuicSpdyClientSessionBase::CloseStreamInner(QuicStreamId stream_id,
-                                                 bool rst_sent) {
-  QuicSpdySession::CloseStreamInner(stream_id, rst_sent);
+void QuicSpdyClientSessionBase::OnStreamClosed(QuicStreamId stream_id) {
+  QuicSpdySession::OnStreamClosed(stream_id);
   if (!VersionUsesHttp3(transport_version())) {
     headers_stream()->MaybeReleaseSequencerBuffer();
   }
@@ -218,6 +222,57 @@ void QuicSpdyClientSessionBase::CloseStreamInner(QuicStreamId stream_id,
 
 bool QuicSpdyClientSessionBase::ShouldReleaseHeadersStreamSequencerBuffer() {
   return !HasActiveRequestStreams() && promised_by_id_.empty();
+}
+
+bool QuicSpdyClientSessionBase::ShouldKeepConnectionAlive() const {
+  return QuicSpdySession::ShouldKeepConnectionAlive() ||
+         num_outgoing_draining_streams() > 0;
+}
+
+bool QuicSpdyClientSessionBase::OnSettingsFrame(const SettingsFrame& frame) {
+  if (!was_zero_rtt_rejected()) {
+    if (max_outbound_header_list_size() != std::numeric_limits<size_t>::max() &&
+        frame.values.find(SETTINGS_MAX_FIELD_SECTION_SIZE) ==
+            frame.values.end()) {
+      CloseConnectionWithDetails(
+          QUIC_HTTP_ZERO_RTT_RESUMPTION_SETTINGS_MISMATCH,
+          "Server accepted 0-RTT but omitted non-default "
+          "SETTINGS_MAX_FIELD_SECTION_SIZE");
+      return false;
+    }
+
+    if (qpack_encoder()->maximum_blocked_streams() != 0 &&
+        frame.values.find(SETTINGS_QPACK_BLOCKED_STREAMS) ==
+            frame.values.end()) {
+      CloseConnectionWithDetails(
+          QUIC_HTTP_ZERO_RTT_RESUMPTION_SETTINGS_MISMATCH,
+          "Server accepted 0-RTT but omitted non-default "
+          "SETTINGS_QPACK_BLOCKED_STREAMS");
+      return false;
+    }
+
+    if (qpack_encoder()->MaximumDynamicTableCapacity() != 0 &&
+        frame.values.find(SETTINGS_QPACK_MAX_TABLE_CAPACITY) ==
+            frame.values.end()) {
+      CloseConnectionWithDetails(
+          QUIC_HTTP_ZERO_RTT_RESUMPTION_SETTINGS_MISMATCH,
+          "Server accepted 0-RTT but omitted non-default "
+          "SETTINGS_QPACK_MAX_TABLE_CAPACITY");
+      return false;
+    }
+  }
+
+  if (!QuicSpdySession::OnSettingsFrame(frame)) {
+    return false;
+  }
+  std::unique_ptr<char[]> buffer;
+  QuicByteCount frame_length =
+      HttpEncoder::SerializeSettingsFrame(frame, &buffer);
+  auto serialized_data = std::make_unique<ApplicationState>(
+      buffer.get(), buffer.get() + frame_length);
+  GetMutableCryptoStream()->SetServerApplicationStateForResumption(
+      std::move(serialized_data));
+  return true;
 }
 
 }  // namespace quic

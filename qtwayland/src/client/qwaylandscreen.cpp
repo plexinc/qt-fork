@@ -55,7 +55,6 @@ namespace QtWaylandClient {
 
 QWaylandXdgOutputManagerV1::QWaylandXdgOutputManagerV1(QWaylandDisplay* display, uint id, uint version)
     : QtWayland::zxdg_output_manager_v1(display->wl_registry(), id, qMin(3u, version))
-    , m_version(qMin(3u, version))
 {
 }
 
@@ -72,7 +71,7 @@ QWaylandScreen::QWaylandScreen(QWaylandDisplay *waylandDisplay, int version, uin
         qCWarning(lcQpaWayland) << "wl_output done event not supported by compositor,"
                                 << "QScreen may not work correctly";
         mWaylandDisplay->forceRoundTrip(); // Give the compositor a chance to send geometry etc.
-        mOutputDone = true; // Fake the done event
+        mProcessedEvents |= OutputDoneEvent; // Fake the done event
         maybeInitialize();
     }
 }
@@ -83,14 +82,26 @@ QWaylandScreen::~QWaylandScreen()
         zxdg_output_v1::destroy();
 }
 
+uint QWaylandScreen::requiredEvents() const
+{
+    uint ret = OutputDoneEvent;
+
+    if (mWaylandDisplay->xdgOutputManager()) {
+        if (mWaylandDisplay->xdgOutputManager()->version() >= 2)
+            ret |= XdgOutputNameEvent;
+
+        if (mWaylandDisplay->xdgOutputManager()->version() < 3)
+            ret |= XdgOutputDoneEvent;
+    }
+    return ret;
+}
+
 void QWaylandScreen::maybeInitialize()
 {
     Q_ASSERT(!mInitialized);
 
-    if (!mOutputDone)
-        return;
-
-    if (mWaylandDisplay->xdgOutputManager() && !mXdgOutputDone)
+    const uint requiredEvents = this->requiredEvents();
+    if ((mProcessedEvents & requiredEvents) != requiredEvents)
         return;
 
     mInitialized = true;
@@ -186,16 +197,6 @@ QList<QPlatformScreen *> QWaylandScreen::virtualSiblings() const
     return list;
 }
 
-void QWaylandScreen::setOrientationUpdateMask(Qt::ScreenOrientations mask)
-{
-    const auto allWindows = QGuiApplication::allWindows();
-    for (QWindow *window : allWindows) {
-        QWaylandWindow *w = static_cast<QWaylandWindow *>(window->handle());
-        if (w && w->waylandScreen() == this)
-            w->setOrientationMask(mask);
-    }
-}
-
 Qt::ScreenOrientation QWaylandScreen::orientation() const
 {
     return m_orientation;
@@ -276,9 +277,8 @@ void QWaylandScreen::output_scale(int32_t factor)
 
 void QWaylandScreen::output_done()
 {
-    mOutputDone = true;
-    if (zxdg_output_v1::isInitialized() && mWaylandDisplay->xdgOutputManager()->version() >= 3)
-        mXdgOutputDone = true;
+    mProcessedEvents |= OutputDoneEvent;
+
     if (mInitialized) {
         updateOutputProperties();
         if (zxdg_output_v1::isInitialized())
@@ -339,7 +339,7 @@ void QWaylandScreen::zxdg_output_v1_done()
     if (Q_UNLIKELY(mWaylandDisplay->xdgOutputManager()->version() >= 3))
         qWarning(lcQpaWayland) << "zxdg_output_v1.done received on version 3 or newer, this is most likely a bug in the compositor";
 
-    mXdgOutputDone = true;
+    mProcessedEvents |= XdgOutputDoneEvent;
     if (mInitialized)
         updateXdgOutputProperties();
     else
@@ -348,7 +348,11 @@ void QWaylandScreen::zxdg_output_v1_done()
 
 void QWaylandScreen::zxdg_output_v1_name(const QString &name)
 {
+    if (Q_UNLIKELY(mInitialized))
+        qWarning(lcQpaWayland) << "zxdg_output_v1.name received after output has been initialized, this is most likely a bug in the compositor";
+
     mOutputName = name;
+    mProcessedEvents |= XdgOutputNameEvent;
 }
 
 void QWaylandScreen::updateXdgOutputProperties()

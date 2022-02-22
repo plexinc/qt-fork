@@ -14,6 +14,7 @@
 #include "base/threading/thread_checker.h"
 #include "base/threading/thread_checker_impl.h"
 #include "base/time/time.h"
+#include "base/trace_event/base_tracing.h"
 
 namespace base {
 namespace sequence_manager {
@@ -184,6 +185,7 @@ void TaskQueue::ShutdownTaskQueue() {
       internal::TaskQueueImpl::OnTaskStartedHandler());
   impl_->SetOnTaskCompletedHandler(
       internal::TaskQueueImpl::OnTaskCompletedHandler());
+  impl_->SetOnTaskPostedHandler(internal::TaskQueueImpl::OnTaskPostedHandler());
   sequence_manager_->UnregisterTaskQueueImpl(TakeTaskQueueImpl());
 }
 
@@ -321,16 +323,16 @@ bool TaskQueue::BlockedByFence() const {
   return impl_->BlockedByFence();
 }
 
-EnqueueOrder TaskQueue::GetEnqueueOrderAtWhichWeBecameUnblocked() const {
-  DCHECK_CALLED_ON_VALID_THREAD(associated_thread_->thread_checker);
-  if (!impl_)
-    return EnqueueOrder();
-  return impl_->GetEnqueueOrderAtWhichWeBecameUnblocked();
-}
-
 const char* TaskQueue::GetName() const {
   return name_;
 }
+
+#if BUILDFLAG(ENABLE_BASE_TRACING)
+void TaskQueue::WriteIntoTracedValue(perfetto::TracedValue context) const {
+  auto dict = std::move(context).WriteDictionary();
+  dict.Add("name", name_);
+}
+#endif
 
 void TaskQueue::SetObserver(Observer* observer) {
   DCHECK_CALLED_ON_VALID_THREAD(associated_thread_->thread_checker);
@@ -354,6 +356,30 @@ std::unique_ptr<internal::TaskQueueImpl> TaskQueue::TakeTaskQueueImpl() {
   base::internal::CheckedAutoLock lock(impl_lock_);
   DCHECK(impl_);
   return std::move(impl_);
+}
+
+void TaskQueue::SetOnTaskStartedHandler(OnTaskStartedHandler handler) {
+  DCHECK_CALLED_ON_VALID_THREAD(associated_thread_->thread_checker);
+  if (!impl_)
+    return;
+
+  impl_->SetOnTaskStartedHandler(std::move(handler));
+}
+
+void TaskQueue::SetOnTaskCompletedHandler(OnTaskCompletedHandler handler) {
+  DCHECK_CALLED_ON_VALID_THREAD(associated_thread_->thread_checker);
+  if (!impl_)
+    return;
+
+  impl_->SetOnTaskCompletedHandler(std::move(handler));
+}
+
+void TaskQueue::SetOnTaskPostedHandler(OnTaskPostedHandler handler) {
+  DCHECK_CALLED_ON_VALID_THREAD(associated_thread_->thread_checker);
+  if (!impl_)
+    return;
+
+  impl_->SetOnTaskPostedHandler(std::move(handler));
 }
 
 }  // namespace sequence_manager

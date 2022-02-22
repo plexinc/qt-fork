@@ -82,8 +82,8 @@ public:
     QDeclarativeListProperty(QObject *o, QList<T *> &list)
         : object(o), data(&list), append(qlist_append), count(qlist_count), at(qlist_at),
           clear(qlist_clear), dummy1(nullptr), dummy2(nullptr) {}
-    QDeclarativeListProperty(QObject *o, void *d, AppendFunction a, CountFunction c = 0, AtFunction t = 0,
-                    ClearFunction r = 0)
+    QDeclarativeListProperty(QObject *o, void *d, AppendFunction a, CountFunction c = nullptr, AtFunction t = nullptr,
+                    ClearFunction r = nullptr)
         : object(o), data(d), append(a), count(c), at(t), clear(r), dummy1(nullptr), dummy2(nullptr) {}
 
     bool operator==(const QDeclarativeListProperty &o) const {
@@ -144,7 +144,7 @@ public:
     QHash<QPaintDevice *, DeviceData> deviceData;
 
     // List of logical exposed rects
-    QVector<QRectF> exposed;
+    QList<QRectF> exposed;
     bool allExposed;
 
     // Empty cache
@@ -289,7 +289,7 @@ public:
     }
 
     struct ExtraStruct {
-        ExtraStruct() {} // for QVector, don't use
+        ExtraStruct() { } // for QList, don't use
         ExtraStruct(Extra type, const QVariant &value)
             : type(type), value(value)
         { }
@@ -301,7 +301,7 @@ public:
         { return type < extra; }
     };
 
-    QVector<ExtraStruct> extras;
+    QList<ExtraStruct> extras;
 
     QGraphicsItemCache *maybeExtraItemCache() const;
     QGraphicsItemCache *extraItemCache() const;
@@ -523,7 +523,7 @@ public:
     int globalStackingOrder;
     QGraphicsItem *q_ptr;
 };
-Q_DECLARE_TYPEINFO(QGraphicsItemPrivate::ExtraStruct, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QGraphicsItemPrivate::ExtraStruct, Q_RELOCATABLE_TYPE);
 
 struct QGraphicsItemPrivate::TransformData
 {

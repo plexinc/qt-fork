@@ -296,6 +296,14 @@ scoped_refptr<SerializedScriptValue> SerializedScriptValue::NullValue() {
   return Create(reinterpret_cast<const char*>(kNullData), sizeof(kNullData));
 }
 
+scoped_refptr<SerializedScriptValue> SerializedScriptValue::UndefinedValue() {
+  // The format here may fall a bit out of date, because we support
+  // deserializing SSVs written by old browser versions.
+  static const uint8_t kUndefinedData[] = {0xFF, 17, 0xFF, 13, '_', 0x00};
+  return Create(reinterpret_cast<const char*>(kUndefinedData),
+                sizeof(kUndefinedData));
+}
+
 String SerializedScriptValue::ToWireString() const {
   // Add the padding '\0', but don't put it in |data_buffer_|.
   // This requires direct use of uninitialized strings, though.
@@ -401,6 +409,9 @@ void SerializedScriptValue::TransferReadableStream(
   readable_stream->Serialize(script_state, local_port, exception_state);
   if (exception_state.HadException())
     return;
+  // The last element is added by the above `AddStreamChannel()` call.
+  streams_.back().readable_optimizer =
+      readable_stream->TakeTransferringOptimizer();
 }
 
 void SerializedScriptValue::TransferWritableStreams(
@@ -425,6 +436,9 @@ void SerializedScriptValue::TransferWritableStream(
   writable_stream->Serialize(script_state, local_port, exception_state);
   if (exception_state.HadException())
     return;
+  // The last element is added by the above `AddStreamChannel()` call.
+  streams_.back().writable_optimizer =
+      writable_stream->TakeTransferringOptimizer();
 }
 
 void SerializedScriptValue::TransferTransformStreams(
@@ -444,14 +458,23 @@ void SerializedScriptValue::TransferTransformStreams(
   }
 }
 
-// Creates an entangled pair of channels. Adds one end to |stream_channels_| as
+// Creates an entangled pair of channels. Adds one end to |streams_| as
 // a MessagePortChannel, and returns the other end as a MessagePort.
 MessagePort* SerializedScriptValue::AddStreamChannel(
     ExecutionContext* execution_context) {
-  mojo::MessagePipe pipe;
+  // Used for both https://streams.spec.whatwg.org/#rs-transfer and
+  // https://streams.spec.whatwg.org/#ws-transfer.
+  // 2. Let port1 be a new MessagePort in the current Realm.
+  // 3. Let port2 be a new MessagePort in the current Realm.
+  MessagePortDescriptorPair pipe;
   auto* local_port = MakeGarbageCollected<MessagePort>(*execution_context);
-  local_port->Entangle(std::move(pipe.handle0));
-  stream_channels_.push_back(MessagePortChannel(std::move(pipe.handle1)));
+
+  // 4. Entangle port1 and port2.
+  local_port->Entangle(pipe.TakePort0());
+
+  // 9. Set dataHolder.[[port]] to ! StructuredSerializeWithTransfer(port2,
+  //    « port2 »).
+  streams_.push_back(Stream(pipe.TakePort1()));
   return local_port;
 }
 
@@ -773,7 +796,7 @@ static_assert(kSerializedScriptValueVersion ==
               "Update WebSerializedScriptValueVersion.h.");
 
 bool SerializedScriptValue::IsOriginCheckRequired() const {
-  return native_file_system_tokens_.size() > 0;
+  return file_system_access_tokens_.size() > 0;
 }
 
 }  // namespace blink

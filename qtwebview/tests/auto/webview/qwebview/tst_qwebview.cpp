@@ -43,12 +43,12 @@
 #include <QtQml/qqmlengine.h>
 #include <QtWebView/private/qwebviewloadrequest_p.h>
 
-#ifndef QT_NO_QQUICKWEBVIEW_TESTS
-#include <QtWebView/private/qquickwebview_p.h>
+#ifdef QT_QQUICKWEBVIEW_TESTS
+#include <QtWebViewQuick/private/qquickwebview_p.h>
 #endif // QT_NO_QQUICKWEBVIEW_TESTS
 
 #ifdef QT_WEBVIEW_WEBENGINE_BACKEND
-#include <QtWebEngine>
+#include <QtWebEngineQuick>
 #endif // QT_WEBVIEW_WEBENGINE_BACKEND
 
 #if defined(Q_OS_ANDROID) && !defined(Q_OS_ANDROID_NO_SDK)
@@ -80,7 +80,7 @@ private:
 void tst_QWebView::initTestCase()
 {
 #ifdef QT_WEBVIEW_WEBENGINE_BACKEND
-    QtWebEngine::initialize();
+    QtWebEngineQuick::initialize();
 #endif // QT_WEBVIEW_WEBENGINE_BACKEND
     if (!QFileInfo(m_cacheLocation).isDir()) {
         QDir dir;
@@ -98,7 +98,15 @@ void tst_QWebView::load()
     const QString fileName = file.fileName();
     file.close();
 
+#ifdef QT_WEBVIEW_WEBENGINE_BACKEND
+    QQmlEngine engine;
+    QQmlContext *rootContext = engine.rootContext();
+    QQuickWebView qview;
+    QQmlEngine::setContextForObject(&qview, rootContext);
+    QWebView &view = qview.webView();
+#else
     QWebView view;
+#endif
     QCOMPARE(view.loadProgress(), 0);
     const QUrl url = QUrl::fromLocalFile(fileName);
     view.setUrl(url);
@@ -112,14 +120,16 @@ void tst_QWebView::load()
 
 void tst_QWebView::runJavaScript()
 {
-#ifndef QT_NO_QQUICKWEBVIEW_TESTS
+#ifdef QT_QQUICKWEBVIEW_TESTS
+#ifndef QT_WEBVIEW_WEBENGINE_BACKEND
     ANDROID_REQUIRES_API_LEVEL(19)
+#endif
     const QString tstProperty = QString(QLatin1String("Qt.tst_data"));
     const QString title = QString(QLatin1String("WebViewTitle"));
 
-    QQuickWebView view;
     QQmlEngine engine;
     QQmlContext *rootContext = engine.rootContext();
+    QQuickWebView view;
     QQmlEngine::setContextForObject(&view, rootContext);
 
     QCOMPARE(view.loadProgress(), 0);
@@ -127,18 +137,26 @@ void tst_QWebView::runJavaScript()
     QTRY_COMPARE(view.loadProgress(), 100);
     QTRY_VERIFY(!view.isLoading());
     QCOMPARE(view.title(), title);
-    QJSValue callback = engine.evaluate(QString("function(result) { %1 = result; }").arg(tstProperty));
+    QJSValue callback = engine.evaluate(QString("(function(result) { %1 = result; })").arg(tstProperty));
     QVERIFY2(!callback.isError(), qPrintable(callback.toString()));
     QVERIFY(!callback.isUndefined());
     QVERIFY(callback.isCallable());
     view.runJavaScript(QString(QLatin1String("document.title")), callback);
     QTRY_COMPARE(engine.evaluate(tstProperty).toString(), title);
-#endif // QT_NO_QQUICKWEBVIEW_TESTS
+#endif // QT_QQUICKWEBVIEW_TESTS
 }
 
 void tst_QWebView::loadHtml()
 {
+#ifdef QT_WEBVIEW_WEBENGINE_BACKEND
+    QQmlEngine engine;
+    QQmlContext *rootContext = engine.rootContext();
+    QQuickWebView qview;
+    QQmlEngine::setContextForObject(&qview, rootContext);
+    QWebView &view = qview.webView();
+#else
     QWebView view;
+#endif
     QCOMPARE(view.loadProgress(), 0);
     view.loadHtml(QString("<html><head><title>WebViewTitle</title></head><body />"));
     QTRY_COMPARE(view.loadProgress(), 100);
@@ -157,7 +175,15 @@ void tst_QWebView::loadRequest()
         file.write("<html><head><title>FooBar</title></head><body />");
         const QString fileName = file.fileName();
         file.close();
+#ifdef QT_WEBVIEW_WEBENGINE_BACKEND
+        QQmlEngine engine;
+        QQmlContext *rootContext = engine.rootContext();
+        QQuickWebView qview;
+        QQmlEngine::setContextForObject(&qview, rootContext);
+        QWebView &view = qview.webView();
+#else
         QWebView view;
+#endif
         QCOMPARE(view.loadProgress(), 0);
         const QUrl url = QUrl::fromLocalFile(fileName);
         QSignalSpy loadChangedSingalSpy(&view, SIGNAL(loadingChanged(const QWebViewLoadRequestPrivate &)));
@@ -181,7 +207,15 @@ void tst_QWebView::loadRequest()
 
     // LoadFailed
     {
+#ifdef QT_WEBVIEW_WEBENGINE_BACKEND
+        QQmlEngine engine;
+        QQmlContext *rootContext = engine.rootContext();
+        QQuickWebView qview;
+        QQmlEngine::setContextForObject(&qview, rootContext);
+        QWebView &view = qview.webView();
+#else
         QWebView view;
+#endif
         QCOMPARE(view.loadProgress(), 0);
         QSignalSpy loadChangedSingalSpy(&view, SIGNAL(loadingChanged(const QWebViewLoadRequestPrivate &)));
         view.setUrl(QUrl(QStringLiteral("file:///file_that_does_not_exist.html")));
@@ -197,8 +231,9 @@ void tst_QWebView::loadRequest()
             const QWebViewLoadRequestPrivate &lr = loadStartedArgs.at(0).value<QWebViewLoadRequestPrivate>();
             QCOMPARE(lr.m_status, QWebView::LoadFailedStatus);
         }
-
-        QCOMPARE(view.loadProgress(), 0);
+#ifdef QT_WEBVIEW_WEBENGINE_BACKEND
+        QCOMPARE(view.loadProgress(), 0); // darwin plugin returns 100
+#endif
     }
 }
 

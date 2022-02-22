@@ -154,9 +154,9 @@ QT_BEGIN_NAMESPACE
 
     \note QVulkanFunctions and QVulkanDeviceFunctions are generated from the
     Vulkan API XML specifications when building the Qt libraries. Therefore no
-    documentation is provided for them. They contain the Vulkan 1.0 functions
+    documentation is provided for them. They contain the Vulkan 1.2 functions
     with the same signatures as described in the
-    \l{https://www.khronos.org/registry/vulkan/specs/1.0/html/}{Vulkan API
+    \l{https://www.khronos.org/registry/vulkan/specs/1.2/html/}{Vulkan API
     documentation}.
 
     \section1 Getting a Native Vulkan Surface for a Window
@@ -268,7 +268,7 @@ public:
     VkResult errorCode;
     QScopedPointer<QVulkanFunctions> funcs;
     QHash<VkDevice, QVulkanDeviceFunctions *> deviceFuncs;
-    QVector<QVulkanInstance::DebugFilter> debugFilters;
+    QList<QVulkanInstance::DebugFilter> debugFilters;
 };
 
 bool QVulkanInstancePrivate::ensureVulkan()
@@ -358,7 +358,7 @@ QVulkanInstance::~QVulkanInstance()
 */
 
 /*!
-    \fn uint qHash(const QVulkanLayer &key, uint seed)
+    \fn size_t qHash(const QVulkanLayer &key, size_t seed)
     \since 5.10
     \relates QVulkanLayer
 
@@ -401,7 +401,7 @@ QVulkanInstance::~QVulkanInstance()
 */
 
 /*!
-    \fn uint qHash(const QVulkanExtension &key, uint seed)
+    \fn size_t qHash(const QVulkanExtension &key, size_t seed)
     \since 5.10
     \relates QVulkanExtension
 
@@ -411,26 +411,31 @@ QVulkanInstance::~QVulkanInstance()
 
 /*!
     \class QVulkanInfoVector
-    \brief A specialized QVector for QVulkanLayer and QVulkanExtension.
+    \brief A specialized QList for QVulkanLayer and QVulkanExtension.
  */
 
 /*!
     \fn template<typename T> bool QVulkanInfoVector<T>::contains(const QByteArray &name) const
 
-    \return true if the vector contains a layer or extension with the given \a name.
+    \return true if the list contains a layer or extension with the given \a name.
  */
 
 /*!
     \fn template<typename T> bool QVulkanInfoVector<T>::contains(const QByteArray &name, int minVersion) const
 
-    \return true if the vector contains a layer or extension with the given
+    \return true if the list contains a layer or extension with the given
     \a name and a version same as or newer than \a minVersion.
  */
 
 /*!
+    \fn QVulkanInfoVector<QVulkanLayer> QVulkanInstance::supportedLayers() const
     \return the list of supported instance-level layers.
 
     \note This function can be called before create().
+ */
+
+/*!
+    \internal
  */
 QVulkanInfoVector<QVulkanLayer> QVulkanInstance::supportedLayers()
 {
@@ -438,13 +443,40 @@ QVulkanInfoVector<QVulkanLayer> QVulkanInstance::supportedLayers()
 }
 
 /*!
+    \fn QVulkanInfoVector<QVulkanExtension> QVulkanInstance::supportedExtensions() const
     \return the list of supported instance-level extensions.
 
     \note This function can be called before create().
  */
+
+/*!
+    \internal
+ */
 QVulkanInfoVector<QVulkanExtension> QVulkanInstance::supportedExtensions()
 {
     return d_ptr->ensureVulkan() ? d_ptr->platformInst->supportedExtensions() : QVulkanInfoVector<QVulkanExtension>();
+}
+
+/*!
+    \return the version of instance-level functionality supported by the Vulkan
+    implementation.
+
+    In practice this is either the value returned from
+    vkEnumerateInstanceVersion, if that function is available (with Vulkan 1.1
+    and newer), or 1.0.
+
+    Applications that want to branch in their Vulkan feature and API usage
+    based on what Vulkan version is available at run time, can use this function
+    to determine what version to pass in to setApiVersion() before calling
+    create().
+
+    \note This function can be called before create().
+
+    \sa setApiVersion()
+ */
+QVersionNumber QVulkanInstance::supportedApiVersion() const
+{
+    return d_ptr->ensureVulkan() ? d_ptr->platformInst->supportedApiVersion() : QVersionNumber();
 }
 
 /*!
@@ -524,13 +556,26 @@ void QVulkanInstance::setExtensions(const QByteArrayList &extensions)
 }
 
 /*!
-    Specifies the Vulkan API against which the application expects to run.
+    Specifies the highest Vulkan API version the application is designed to use.
 
-    By default no \a vulkanVersion is specified, and so no version check is performed
-    during Vulkan instance creation.
+    By default \a vulkanVersion is 0, which maps to Vulkan 1.0.
 
     \note This function can only be called before create() and has no effect if
     called afterwards.
+
+    \note Be aware that Vulkan 1.1 changes the behavior with regards to the
+    Vulkan API version field. In Vulkan 1.0 specifying an unsupported \a
+    vulkanVersion led to failing create() with \c VK_ERROR_INCOMPATIBLE_DRIVER,
+    as was mandated by the specification. Starting with Vulkan 1.1, the
+    specification disallows this, the driver must accept any version without
+    failing the instance creation.
+
+    Application developers are advised to familiarize themselves with the \c
+    apiVersion notes in
+    \l{https://www.khronos.org/registry/vulkan/specs/1.2-extensions/man/html/VkApplicationInfo.html}{the
+    Vulkan specification}.
+
+    \sa supportedApiVersion()
  */
 void QVulkanInstance::setApiVersion(const QVersionNumber &vulkanVersion)
 {
@@ -691,7 +736,17 @@ QPlatformVulkanInstance *QVulkanInstance::handle() const
     \note The returned object is owned and managed by the QVulkanInstance. Do
     not destroy or alter it.
 
-    \sa deviceFunctions()
+    The functions from the core Vulkan 1.0 API will be available always. When it
+    comes to higher Vulkan versions, such as, 1.1 and 1.2, the QVulkanFunctions
+    object will try to resolve the core API functions for those as well, but if
+    the Vulkan instance implementation at run time has no support for those,
+    calling any such unsupported function will lead to unspecified behavior. In
+    addition, to properly enable support for Vulkan versions higher than 1.0, an
+    appropriate instance API version may need to be set by calling
+    setApiVersion() before create(). To query the Vulkan implementation's
+    instance-level version, call supportedApiVersion().
+
+    \sa deviceFunctions(), supportedApiVersion()
  */
 QVulkanFunctions *QVulkanInstance::functions() const
 {
@@ -715,6 +770,16 @@ QVulkanFunctions *QVulkanInstance::functions() const
     again is a cheap operation. However, when the device gets destroyed, it is up
     to the application to notify the QVulkanInstance by calling
     resetDeviceFunctions().
+
+    The functions from the core Vulkan 1.0 API will be available always. When
+    it comes to higher Vulkan versions, such as, 1.1 and 1.2, the
+    QVulkanDeviceFunctions object will try to resolve the core API functions
+    for those as well, but if the Vulkan physical device at run time has no
+    support for those, calling any such unsupported function will lead to
+    unspecified behavior. To properly enable support for Vulkan versions higher
+    than 1.0, an appropriate instance API version may need to be set by calling
+    setApiVersion() before create(). In addition, applications are expected to
+    check the physical device's apiVersion in VkPhysicalDeviceProperties.
 
     \sa functions(), resetDeviceFunctions()
  */

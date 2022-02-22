@@ -1,6 +1,7 @@
 /****************************************************************************
 **
 ** Copyright (C) 2013 John Layt <jlayt@kde.org>
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -264,18 +265,17 @@ static QList<QByteArray> uenumToIdList(UEnumeration *uenum)
 static int ucalDaylightOffset(const QByteArray &id)
 {
     UErrorCode status = U_ZERO_ERROR;
-    const int32_t dstMSecs = ucal_getDSTSavings(reinterpret_cast<const UChar *>(id.data()), &status);
-    if (U_SUCCESS(status))
-        return (dstMSecs / 1000);
-    else
-        return 0;
+    const QString utf16 = QString::fromLatin1(id);
+    const int32_t dstMSecs = ucal_getDSTSavings(
+        reinterpret_cast<const UChar *>(utf16.data()), &status);
+    return U_SUCCESS(status) ? dstMSecs / 1000 : 0;
 }
 
 // Create the system default time zone
 QIcuTimeZonePrivate::QIcuTimeZonePrivate()
     : m_ucal(nullptr)
 {
-    // TODO No ICU C API to obtain sysem tz, assume default hasn't been changed
+    // TODO No ICU C API to obtain system tz, assume default hasn't been changed
     init(ucalDefaultTimeZoneId());
 }
 
@@ -347,9 +347,9 @@ QString QIcuTimeZonePrivate::abbreviation(qint64 atMSecsSinceEpoch) const
 {
     // TODO No ICU API, use short name instead
     if (isDaylightTime(atMSecsSinceEpoch))
-        return displayName(QTimeZone::DaylightTime, QTimeZone::ShortName, QString());
+        return displayName(QTimeZone::DaylightTime, QTimeZone::ShortName, QLocale());
     else
-        return displayName(QTimeZone::StandardTime, QTimeZone::ShortName, QString());
+        return displayName(QTimeZone::StandardTime, QTimeZone::ShortName, QLocale());
 }
 
 int QIcuTimeZonePrivate::offsetFromUtc(qint64 atMSecsSinceEpoch) const
@@ -440,7 +440,7 @@ QTimeZonePrivate::Data QIcuTimeZonePrivate::nextTransition(qint64 afterMSecsSinc
 #if U_ICU_VERSION_MAJOR_NUM == 50
     return ucalTimeZoneTransition(m_ucal, UCAL_TZ_TRANSITION_NEXT, afterMSecsSinceEpoch);
 #else
-    Q_UNUSED(afterMSecsSinceEpoch)
+    Q_UNUSED(afterMSecsSinceEpoch);
     return invalidData();
 #endif // U_ICU_VERSION_MAJOR_NUM == 50
 }
@@ -452,14 +452,14 @@ QTimeZonePrivate::Data QIcuTimeZonePrivate::previousTransition(qint64 beforeMSec
 #if U_ICU_VERSION_MAJOR_NUM == 50
     return ucalTimeZoneTransition(m_ucal, UCAL_TZ_TRANSITION_PREVIOUS, beforeMSecsSinceEpoch);
 #else
-    Q_UNUSED(beforeMSecsSinceEpoch)
+    Q_UNUSED(beforeMSecsSinceEpoch);
     return invalidData();
 #endif // U_ICU_VERSION_MAJOR_NUM == 50
 }
 
 QByteArray QIcuTimeZonePrivate::systemTimeZoneId() const
 {
-    // No ICU C API to obtain sysem tz
+    // No ICU C API to obtain system tz
     // TODO Assume default hasn't been changed and is the latests system
     return ucalDefaultTimeZoneId();
 }
@@ -475,9 +475,9 @@ QList<QByteArray> QIcuTimeZonePrivate::availableTimeZoneIds() const
     return result;
 }
 
-QList<QByteArray> QIcuTimeZonePrivate::availableTimeZoneIds(QLocale::Country country) const
+QList<QByteArray> QIcuTimeZonePrivate::availableTimeZoneIds(QLocale::Territory territory) const
 {
-    const QLatin1String regionCode = QLocalePrivate::countryToCode(country);
+    const QLatin1String regionCode = QLocalePrivate::territoryToCode(territory);
     const QByteArray regionCodeUtf8 = QString(regionCode).toUtf8();
     UErrorCode status = U_ZERO_ERROR;
     UEnumeration *uenum = ucal_openCountryTimeZones(regionCodeUtf8.data(), &status);

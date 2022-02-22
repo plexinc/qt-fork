@@ -28,27 +28,9 @@
 ****************************************************************************/
 
 #include <QtVirtualKeyboard/qvirtualkeyboardabstractinputmethod.h>
-#include <QtCore/private/qobject_p.h>
+#include <QtVirtualKeyboard/private/qvirtualkeyboardabstractinputmethod_p.h>
 
 QT_BEGIN_NAMESPACE
-
-class QVirtualKeyboardAbstractInputMethodPrivate : public QObjectPrivate
-{
-public:
-    QVirtualKeyboardAbstractInputMethodPrivate();
-
-    QVirtualKeyboardInputEngine *inputEngine;
-};
-
-/*!
-    \class AbstractInputMethodPrivate
-    \internal
-*/
-
-QVirtualKeyboardAbstractInputMethodPrivate::QVirtualKeyboardAbstractInputMethodPrivate() :
-    inputEngine(nullptr)
-{
-}
 
 /*!
     \class QVirtualKeyboardAbstractInputMethod
@@ -61,9 +43,15 @@ QVirtualKeyboardAbstractInputMethodPrivate::QVirtualKeyboardAbstractInputMethodP
     method using C/C++ language.
 */
 
+QVirtualKeyboardAbstractInputMethod::QVirtualKeyboardAbstractInputMethod(QVirtualKeyboardAbstractInputMethodPrivate &dd, QObject *parent) :
+    QObject(dd, parent)
+{
+}
+
 /*!
     Constructs an input method with \a parent.
 */
+
 QVirtualKeyboardAbstractInputMethod::QVirtualKeyboardAbstractInputMethod(QObject *parent) :
     QObject(*new QVirtualKeyboardAbstractInputMethodPrivate(), parent)
 {
@@ -116,6 +104,25 @@ void QVirtualKeyboardAbstractInputMethod::update()
 }
 
 /*!
+    Clears input mode.
+
+    This method is called by the virtual keyboard when this input method is being replaced
+    by another input method. It should clear the operations performed by setInputMode() method,
+    for example, to disconnect signal handlers from the virtual keyboard or free up resources.
+
+    The input mode may be reactivated by calling setInputMode(). However, note that the calls to
+    setInputMethod() and clearInputMethod() are not in balance. Thus, for example, setInputMethod()
+    may be called multiple times without matching calls to clearInputMethod().
+
+    The default implementation does nothing.
+
+    \since QtQuick.VirtualKeyboard 6.1
+*/
+void QVirtualKeyboardAbstractInputMethod::clearInputMode()
+{
+}
+
+/*!
     \internal
     Called by the input engine when the input method is activated and
     deactivated.
@@ -141,14 +148,14 @@ QList<QVirtualKeyboardSelectionListModel::Type> QVirtualKeyboardAbstractInputMet
 
 int QVirtualKeyboardAbstractInputMethod::selectionListItemCount(QVirtualKeyboardSelectionListModel::Type type)
 {
-    Q_UNUSED(type)
+    Q_UNUSED(type);
     return 0;
 }
 
 QVariant QVirtualKeyboardAbstractInputMethod::selectionListData(QVirtualKeyboardSelectionListModel::Type type, int index, QVirtualKeyboardSelectionListModel::Role role)
 {
-    Q_UNUSED(type)
-    Q_UNUSED(index)
+    Q_UNUSED(type);
+    Q_UNUSED(index);
     switch (role) {
     case QVirtualKeyboardSelectionListModel::Role::Display:
         return QVariant(QString());
@@ -164,14 +171,14 @@ QVariant QVirtualKeyboardAbstractInputMethod::selectionListData(QVirtualKeyboard
 
 void QVirtualKeyboardAbstractInputMethod::selectionListItemSelected(QVirtualKeyboardSelectionListModel::Type type, int index)
 {
-    Q_UNUSED(type)
-    Q_UNUSED(index)
+    Q_UNUSED(type);
+    Q_UNUSED(index);
 }
 
 bool QVirtualKeyboardAbstractInputMethod::selectionListRemoveItem(QVirtualKeyboardSelectionListModel::Type type, int index)
 {
-    Q_UNUSED(type)
-    Q_UNUSED(index)
+    Q_UNUSED(type);
+    Q_UNUSED(index);
     return false;
 }
 
@@ -204,10 +211,10 @@ QVirtualKeyboardTrace *QVirtualKeyboardAbstractInputMethod::traceBegin(
         int traceId, QVirtualKeyboardInputEngine::PatternRecognitionMode patternRecognitionMode,
         const QVariantMap &traceCaptureDeviceInfo, const QVariantMap &traceScreenInfo)
 {
-    Q_UNUSED(traceId)
-    Q_UNUSED(patternRecognitionMode)
-    Q_UNUSED(traceCaptureDeviceInfo)
-    Q_UNUSED(traceScreenInfo)
+    Q_UNUSED(traceId);
+    Q_UNUSED(patternRecognitionMode);
+    Q_UNUSED(traceCaptureDeviceInfo);
+    Q_UNUSED(traceScreenInfo);
     return nullptr;
 }
 
@@ -222,7 +229,7 @@ QVirtualKeyboardTrace *QVirtualKeyboardAbstractInputMethod::traceBegin(
 */
 bool QVirtualKeyboardAbstractInputMethod::traceEnd(QVirtualKeyboardTrace *trace)
 {
-    Q_UNUSED(trace)
+    Q_UNUSED(trace);
     return false;
 }
 
@@ -237,8 +244,8 @@ bool QVirtualKeyboardAbstractInputMethod::traceEnd(QVirtualKeyboardTrace *trace)
 */
 bool QVirtualKeyboardAbstractInputMethod::reselect(int cursorPosition, const QVirtualKeyboardInputEngine::ReselectFlags &reselectFlags)
 {
-    Q_UNUSED(cursorPosition)
-    Q_UNUSED(reselectFlags)
+    Q_UNUSED(cursorPosition);
+    Q_UNUSED(reselectFlags);
     return false;
 }
 
@@ -252,7 +259,7 @@ bool QVirtualKeyboardAbstractInputMethod::reselect(int cursorPosition, const QVi
 */
 bool QVirtualKeyboardAbstractInputMethod::clickPreeditText(int cursorPosition)
 {
-    Q_UNUSED(cursorPosition)
+    Q_UNUSED(cursorPosition);
     return false;
 }
 

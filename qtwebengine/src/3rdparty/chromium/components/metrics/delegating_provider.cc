@@ -5,6 +5,7 @@
 #include "components/metrics/delegating_provider.h"
 
 #include "base/barrier_closure.h"
+#include "base/notreached.h"
 
 namespace metrics {
 
@@ -48,6 +49,11 @@ void DelegatingProvider::OnRecordingEnabled() {
 void DelegatingProvider::OnRecordingDisabled() {
   for (auto& provider : metrics_providers_)
     provider->OnRecordingDisabled();
+}
+
+void DelegatingProvider::OnClientStateCleared() {
+  for (auto& provider : metrics_providers_)
+    provider->OnClientStateCleared();
 }
 
 void DelegatingProvider::OnAppEnterBackground() {

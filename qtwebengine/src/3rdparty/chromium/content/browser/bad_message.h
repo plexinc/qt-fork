@@ -253,7 +253,25 @@ enum BadMessageReason {
   RFH_BAD_DOCUMENT_POLICY_HEADER = 225,
   RFMF_INVALID_PLUGIN_EMBEDDER_ORIGIN = 226,
   RFH_INVALID_CALL_FROM_NOT_MAIN_FRAME = 227,
+  INPUT_ROUTER_INVALID_EVENT_SOURCE = 228,
+  RFH_INACTIVE_CHECK_FROM_SPECULATIVE_RFH = 229,
+  RFH_SUBFRAME_CAPTURE_ON_MAIN_FRAME = 230,
+  RFH_CSP_ATTRIBUTE = 231,
+  RFH_RECEIVED_ASSOCIATED_MESSAGE_WHILE_BFCACHED = 232,
+  RWH_CLOSE_PORTAL = 233,
   MSDH_INVALID_STREAM_TYPE = 234,
+  RFH_CREATE_CHILD_FRAME_TOKENS_NOT_FOUND = 235,
+  ASGH_ASSOCIATED_INTERFACE_REQUEST = 236,
+  ASGH_RECEIVED_CONTROL_MESSAGE = 237,
+  CSDH_BAD_OWNER = 238,
+  SYNC_COMPOSITOR_NO_LOCAL_SURFACE_ID = 239,
+  WCI_INVALID_FULLSCREEN_OPTIONS = 240,
+  PAYMENTS_WITHOUT_PERMISSION = 241,
+  WEB_BUNDLE_INVALID_NAVIGATION_URL = 242,
+  WCI_INVALID_DOWNLOAD_IMAGE_RESULT = 243,
+  RFH_CHILD_FRAME_UNEXPECTED_OWNER_ELEMENT_TYPE = 244,
+  RFH_CREATE_CHILD_FRAME_SANDBOX_FLAGS = 254,
+
   // Please add new elements here. The naming convention is abbreviated class
   // name (e.g. RenderFrameHost becomes RFH) plus a unique description of the
   // reason. After making changes, you MUST update histograms.xml by running:
@@ -277,8 +295,8 @@ void ReceivedBadMessage(BrowserMessageFilter* filter, BadMessageReason reason);
 
 // Site isolation. These keys help debug renderer kills such as
 // https://crbug.com/773140.
-// Retuns a key named "requested_site_url".
-base::debug::CrashKeyString* GetRequestedSiteURLKey();
+// Retuns a key for logging a requested SiteInfo.
+base::debug::CrashKeyString* GetRequestedSiteInfoKey();
 
 }  // namespace bad_message
 }  // namespace content

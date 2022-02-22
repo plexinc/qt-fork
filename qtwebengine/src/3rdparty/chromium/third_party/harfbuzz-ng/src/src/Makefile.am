@@ -14,6 +14,7 @@ check_PROGRAMS =
 
 EXTRA_DIST += harfbuzz.cc
 EXTRA_DIST += meson.build
+EXTRA_DIST += fix_get_types.py
 
 # Convenience targets:
 lib: $(BUILT_SOURCES) libharfbuzz.la
@@ -247,11 +248,15 @@ harfbuzz-deprecated-symbols.txt: $(srcdir)/hb-deprecated.h
 
 
 GENERATORS = \
+	gen-arabic-joining-list.py \
 	gen-arabic-table.py \
 	gen-def.py \
 	gen-emoji-table.py \
+	gen-harfbuzzcc.py \
+	gen-hb-version.py \
 	gen-indic-table.py \
 	gen-os2-unicode-ranges.py \
+	gen-ragel-artifacts.py \
 	gen-tag-table.py \
 	gen-ucd-table.py \
 	gen-use-table.py \
@@ -259,42 +264,9 @@ GENERATORS = \
 	$(NULL)
 EXTRA_DIST += $(GENERATORS)
 
-unicode-tables: \
-	arabic-table \
-	emoji-table \
-	indic-table \
-	tag-table \
-	ucd-table \
-	use-table \
-	emoji-table \
-	$(NULL)
-
-arabic-table: gen-arabic-table.py ArabicShaping.txt UnicodeData.txt Blocks.txt
-	$(AM_V_GEN) $(builddir)/$^ > $(srcdir)/hb-ot-shape-complex-arabic-table.hh \
-	|| ($(RM) $(srcdir)/hb-ot-shape-complex-arabic-table.hh; false)
-emoji-table: gen-emoji-table.py emoji-data.txt
-	$(AM_V_GEN) $(builddir)/$^ > $(srcdir)/hb-unicode-emoji-table.hh \
-	|| ($(RM) $(srcdir)/hb-unicode-emoji-table.hh; false)
-indic-table: gen-indic-table.py IndicSyllabicCategory.txt IndicPositionalCategory.txt Blocks.txt
-	$(AM_V_GEN) $(builddir)/$^ > $(srcdir)/hb-ot-shape-complex-indic-table.cc \
-	|| ($(RM) $(srcdir)/hb-ot-shape-complex-indic-table.cc; false)
-tag-table: gen-tag-table.py languagetags language-subtag-registry
-	$(AM_V_GEN) $(builddir)/$^ > $(srcdir)/hb-ot-tag-table.hh \
-	|| ($(RM) $(srcdir)/hb-ot-tag-table.hh; false)
-ucd-table: gen-ucd-table.py ucd.nounihan.grouped.zip hb-common.h
-	$(AM_V_GEN) $(builddir)/$^ > $(srcdir)/hb-ucd-table.hh \
-	|| ($(RM) $(srcdir)/hb-ucd-table.hh; false)
-use-table: gen-use-table.py IndicSyllabicCategory.txt IndicPositionalCategory.txt UnicodeData.txt Blocks.txt
-	$(AM_V_GEN) $(builddir)/$^ > $(srcdir)/hb-ot-shape-complex-use-table.cc \
-	|| ($(RM) $(srcdir)/hb-ot-shape-complex-use-table.cc; false)
-vowel-constraints: gen-vowel-constraints.py ms-use/IndicShapingInvalidCluster.txt Scripts.txt
-	$(AM_V_GEN) $(builddir)/$^ > $(srcdir)/hb-ot-shape-complex-vowel-constraints.cc \
-	|| ($(RM) $(srcdir)/hb-ot-shape-complex-vowel-constraints.cc; false)
-
-
 built-sources: $(BUILT_SOURCES)
 
-.PHONY: unicode-tables arabic-table indic-table tag-table use-table vowel-constraints emoji-table built-sources
+.PHONY: built-sources
 
 RAGEL_GENERATED = \
 	$(patsubst %,$(srcdir)/%,$(HB_BASE_RAGEL_GENERATED_sources)) \
@@ -369,25 +341,6 @@ test_gsub_would_substitute_SOURCES = test-gsub-would-substitute.cc
 test_gsub_would_substitute_CPPFLAGS = $(HBCFLAGS) $(FREETYPE_CFLAGS)
 test_gsub_would_substitute_LDADD = libharfbuzz.la $(HBLIBS) $(FREETYPE_LIBS)
 
-check_PROGRAMS += \
-	dump-indic-data \
-	dump-khmer-data \
-	dump-myanmar-data \
-	dump-use-data \
-	$(NULL)
-dump_indic_data_SOURCES = dump-indic-data.cc hb-ot-shape-complex-indic-table.cc
-dump_indic_data_CPPFLAGS = $(HBCFLAGS)
-dump_indic_data_LDADD = libharfbuzz.la $(HBLIBS)
-dump_khmer_data_SOURCES = dump-khmer-data.cc hb-ot-shape-complex-indic-table.cc
-dump_khmer_data_CPPFLAGS = $(HBCFLAGS)
-dump_khmer_data_LDADD = libharfbuzz.la $(HBLIBS)
-dump_myanmar_data_SOURCES = dump-myanmar-data.cc hb-ot-shape-complex-indic-table.cc
-dump_myanmar_data_CPPFLAGS = $(HBCFLAGS)
-dump_myanmar_data_LDADD = libharfbuzz.la $(HBLIBS)
-dump_use_data_SOURCES = dump-use-data.cc hb-ot-shape-complex-use-table.cc
-dump_use_data_CPPFLAGS = $(HBCFLAGS)
-dump_use_data_LDADD = libharfbuzz.la $(HBLIBS)
-
 COMPILED_TESTS = test-algs test-array test-iter test-meta test-number test-ot-tag test-unicode-ranges test-bimap
 COMPILED_TESTS_CPPFLAGS = $(HBCFLAGS) -DMAIN -UNDEBUG
 COMPILED_TESTS_LDADD = libharfbuzz.la $(HBLIBS)
@@ -427,18 +380,18 @@ test_bimap_CPPFLAGS = $(COMPILED_TESTS_CPPFLAGS)
 test_bimap_LDADD = $(COMPILED_TESTS_LDADD)
 
 dist_check_SCRIPTS = \
-	check-c-linkage-decls.sh \
-	check-externs.sh \
-	check-header-guards.sh \
-	check-includes.sh \
-	check-static-inits.sh \
-	check-symbols.sh \
+	check-c-linkage-decls.py \
+	check-externs.py \
+	check-header-guards.py \
+	check-includes.py \
+	check-static-inits.py \
+	check-symbols.py \
 	$(NULL)
 TESTS += $(dist_check_SCRIPTS)
 
 if !WITH_LIBSTDCXX
 dist_check_SCRIPTS += \
-	check-libstdc++.sh \
+	check-libstdc++.py \
 	$(NULL)
 endif
 
@@ -472,14 +425,7 @@ HarfBuzz_0_0_gir_INCLUDES = GObject-2.0
 HarfBuzz_0_0_gir_CFLAGS = \
 	$(INCLUDES) \
 	$(HBCFLAGS) \
-	-DHB_H \
-	-DHB_H_IN \
-	-DHB_OT_H \
-	-DHB_OT_H_IN \
-	-DHB_AAT_H \
-	-DHB_AAT_H_IN \
-	-DHB_GOBJECT_H \
-	-DHB_GOBJECT_H_IN \
+	-DHB_NO_SINGLE_HEADER_ERROR \
 	-DHAVE_GOBJECT \
 	-DHB_EXTERN= \
 	$(NULL)

@@ -27,16 +27,16 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QtSql/QtSql>
 
 #include "../../kernel/qsqldatabase/tst_databases.h"
 
-const QString reltest1(qTableName("reltest1", __FILE__, QSqlDatabase())),
-        reltest2(qTableName("reltest2", __FILE__, QSqlDatabase())),
-        reltest3(qTableName("reltest3", __FILE__, QSqlDatabase())),
-        reltest4(qTableName("reltest4", __FILE__, QSqlDatabase())),
-        reltest5(qTableName("reltest5", __FILE__, QSqlDatabase()));
+QString reltest1;
+QString reltest2;
+QString reltest3;
+QString reltest4;
+QString reltest5;
 
 class tst_QSqlRelationalTableModel : public QObject
 {
@@ -44,6 +44,7 @@ class tst_QSqlRelationalTableModel : public QObject
 
 public:
     void recreateTestTables(QSqlDatabase);
+    tst_QSqlRelationalTableModel();
 
     tst_Databases dbs;
 
@@ -83,6 +84,23 @@ private:
     void dropTestTables( QSqlDatabase db );
 };
 
+tst_QSqlRelationalTableModel::tst_QSqlRelationalTableModel()
+{
+    static QSqlDatabase static_qtest_db_1 = QSqlDatabase();
+    reltest1 = qTableName("reltest1", __FILE__, static_qtest_db_1);
+
+    static QSqlDatabase static_qtest_db_2 = QSqlDatabase();
+    reltest2 = qTableName("reltest2", __FILE__, static_qtest_db_2);
+
+    static QSqlDatabase static_qtest_db_3 = QSqlDatabase();
+    reltest3 = qTableName("reltest3", __FILE__, static_qtest_db_3);
+
+    static QSqlDatabase static_qtest_db_4 = QSqlDatabase();
+    reltest4 = qTableName("reltest4", __FILE__, static_qtest_db_4);
+
+    static QSqlDatabase static_qtest_db_5 = QSqlDatabase();
+    reltest5 = qTableName("reltest5", __FILE__, static_qtest_db_5);
+}
 
 void tst_QSqlRelationalTableModel::initTestCase_data()
 {
@@ -450,10 +468,10 @@ void tst_QSqlRelationalTableModel::insertRecord()
     QVERIFY_SQL(model, select());
 
     QSqlRecord rec;
-    QSqlField f1("id", QVariant::Int);
-    QSqlField f2("name", QVariant::String);
-    QSqlField f3("title_key", QVariant::Int);
-    QSqlField f4("another_title_key", QVariant::Int);
+    QSqlField f1("id", QMetaType(QMetaType::Int));
+    QSqlField f2("name", QMetaType(QMetaType::QString));
+    QSqlField f3("title_key", QMetaType(QMetaType::Int));
+    QSqlField f4("another_title_key", QMetaType(QMetaType::Int));
 
     f1.setValue(7);
     f2.setValue("test");
@@ -500,10 +518,10 @@ void tst_QSqlRelationalTableModel::setRecord()
     QVERIFY_SQL(model, select());
 
     QSqlRecord rec;
-    QSqlField f1("id", QVariant::Int);
-    QSqlField f2("name", QVariant::String);
-    QSqlField f3("title_key", QVariant::Int);
-    QSqlField f4("another_title_key", QVariant::Int);
+    QSqlField f1("id", QMetaType(QMetaType::Int));
+    QSqlField f2("name", QMetaType(QMetaType::QString));
+    QSqlField f3("title_key", QMetaType(QMetaType::Int));
+    QSqlField f4("another_title_key", QMetaType(QMetaType::Int));
 
     f1.setValue(7);
     f2.setValue("tester");
@@ -1399,9 +1417,9 @@ void tst_QSqlRelationalTableModel::whiteSpaceInIdentifiers()
     QVERIFY_SQL(model, select());
 
     QSqlRecord rec;
-    QSqlField f1("id", QVariant::Int);
-    QSqlField f2(db.driver()->escapeIdentifier("city key", QSqlDriver::FieldName), QVariant::Int);
-    QSqlField f3(db.driver()->escapeIdentifier("extra field", QSqlDriver::FieldName), QVariant::Int);
+    QSqlField f1("id", QMetaType(QMetaType::Int));
+    QSqlField f2(db.driver()->escapeIdentifier("city key", QSqlDriver::FieldName), QMetaType(QMetaType::Int));
+    QSqlField f3(db.driver()->escapeIdentifier("extra field", QSqlDriver::FieldName), QMetaType(QMetaType::Int));
 
     f1.setValue(3);
     f2.setValue(2);
@@ -1427,9 +1445,9 @@ void tst_QSqlRelationalTableModel::whiteSpaceInIdentifiers()
     model.setEditStrategy(QSqlTableModel::OnManualSubmit);
 
     QSqlRecord recNew;
-    QSqlField f1New("id", QVariant::Int);
-    QSqlField f2New(db.driver()->escapeIdentifier("city key", QSqlDriver::FieldName), QVariant::Int);
-    QSqlField f3New(db.driver()->escapeIdentifier("extra field", QSqlDriver::FieldName), QVariant::Int);
+    QSqlField f1New("id", QMetaType(QMetaType::Int));
+    QSqlField f2New(db.driver()->escapeIdentifier("city key", QSqlDriver::FieldName), QMetaType(QMetaType::Int));
+    QSqlField f3New(db.driver()->escapeIdentifier("extra field", QSqlDriver::FieldName), QMetaType(QMetaType::Int));
 
     f1New.setValue(4);
     f2New.setValue(1);

@@ -10,8 +10,11 @@
 
 #include "base/i18n/unicodestring.h"
 #include "base/logging.h"
+#include "base/notreached.h"
+#include "base/numerics/safe_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
+#include "build/chromeos_buildflags.h"
 #include "third_party/icu/source/common/unicode/utypes.h"
 #include "third_party/icu/source/i18n/unicode/datefmt.h"
 #include "third_party/icu/source/i18n/unicode/dtitvfmt.h"
@@ -152,11 +155,22 @@ string16 TimeFormatShortDateAndTimeWithTimeZone(const Time& time) {
   return TimeFormat(formatter.get(), time);
 }
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+string16 TimeFormatMonthAndYear(const Time& time,
+                                const icu::TimeZone* time_zone) {
+  icu::SimpleDateFormat formatter =
+      CreateSimpleDateFormatter(DateFormatToString(DATE_FORMAT_YEAR_MONTH));
+  if (time_zone)
+    formatter.setTimeZone(*time_zone);
+  return TimeFormat(&formatter, time);
+}
+#else
 string16 TimeFormatMonthAndYear(const Time& time) {
   icu::SimpleDateFormat formatter =
       CreateSimpleDateFormatter(DateFormatToString(DATE_FORMAT_YEAR_MONTH));
   return TimeFormat(&formatter, time);
 }
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 string16 TimeFormatFriendlyDateAndTime(const Time& time) {
   std::unique_ptr<icu::DateFormat> formatter(
@@ -180,7 +194,7 @@ bool TimeDurationFormat(const TimeDelta time,
                         string16* out) {
   DCHECK(out);
   UErrorCode status = U_ZERO_ERROR;
-  const int total_minutes = static_cast<int>(time.InSecondsF() / 60 + 0.5);
+  const int total_minutes = ClampRound(time / base::TimeDelta::FromMinutes(1));
   const int hours = total_minutes / 60;
   const int minutes = total_minutes % 60;
   UMeasureFormatWidth u_width = DurationWidthToMeasureWidth(width);
@@ -221,10 +235,12 @@ bool TimeDurationFormatWithSeconds(const TimeDelta time,
                                    string16* out) {
   DCHECK(out);
   UErrorCode status = U_ZERO_ERROR;
-  const int64_t total_seconds = static_cast<int64_t>(time.InSecondsF() + 0.5);
-  const int64_t hours = total_seconds / 3600;
-  const int64_t minutes = (total_seconds - hours * 3600) / 60;
-  const int64_t seconds = total_seconds % 60;
+  const int64_t total_seconds = ClampRound<int64_t>(time.InSecondsF());
+  const int64_t hours = total_seconds / base::Time::kSecondsPerHour;
+  const int64_t minutes =
+      (total_seconds - hours * base::Time::kSecondsPerHour) /
+      base::Time::kSecondsPerMinute;
+  const int64_t seconds = total_seconds % base::Time::kSecondsPerMinute;
   UMeasureFormatWidth u_width = DurationWidthToMeasureWidth(width);
 
   const icu::Measure measures[] = {
@@ -236,7 +252,7 @@ bool TimeDurationFormatWithSeconds(const TimeDelta time,
   icu::FieldPosition ignore(icu::FieldPosition::DONT_CARE);
   measure_format.formatMeasures(measures, 3, formatted, ignore, status);
   *out = i18n::UnicodeStringToString16(formatted);
-  return U_SUCCESS(status) == TRUE;
+  return U_SUCCESS(status);
 }
 
 string16 DateIntervalFormat(const Time& begin_time,

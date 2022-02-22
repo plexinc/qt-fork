@@ -52,7 +52,6 @@
 
 #include <qt_windows.h>
 
-#ifndef Q_OS_WINRT
 #  include <qabstractnativeeventfilter.h>
 #  include <qcoreapplication.h>
 #  include <qdir.h>
@@ -61,7 +60,6 @@
 #  include <dbt.h>
 #  include <algorithm>
 #  include <vector>
-#endif // !Q_OS_WINRT
 
 QT_BEGIN_NAMESPACE
 
@@ -85,7 +83,6 @@ static Qt::HANDLE createChangeNotification(const QString &path, uint flags)
     return result;
 }
 
-#ifndef Q_OS_WINRT
 ///////////
 // QWindowsRemovableDriveListener
 // Listen for the various WM_DEVICECHANGE message indicating drive addition/removal
@@ -110,11 +107,7 @@ public:
     // Call from QFileSystemWatcher::addPaths() to set up notifications on drives
     void addPath(const QString &path);
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     bool nativeEventFilter(const QByteArray &, void *messageIn, qintptr *) override;
-#else
-    bool nativeEventFilter(const QByteArray &, void *messageIn, long *) override;
-#endif
 
 signals:
     void driveAdded();
@@ -261,11 +254,7 @@ inline void QWindowsRemovableDriveListener::handleDbtDriveArrivalRemoval(const M
     }
 }
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 bool QWindowsRemovableDriveListener::nativeEventFilter(const QByteArray &, void *messageIn, qintptr *)
-#else
-bool QWindowsRemovableDriveListener::nativeEventFilter(const QByteArray &, void *messageIn, long *)
-#endif
 {
     const MSG *msg = reinterpret_cast<const MSG *>(messageIn);
     if (msg->message == WM_DEVICECHANGE) {
@@ -330,7 +319,6 @@ void QWindowsRemovableDriveListener::addPath(const QString &p)
 
     m_removableDrives.push_back(re);
 }
-#endif // !Q_OS_WINRT
 
 ///////////
 // QWindowsFileSystemWatcherEngine
@@ -343,7 +331,6 @@ QWindowsFileSystemWatcherEngine::Handle::Handle()
 QWindowsFileSystemWatcherEngine::QWindowsFileSystemWatcherEngine(QObject *parent)
     : QFileSystemWatcherEngine(parent)
 {
-#ifndef Q_OS_WINRT
     if (QAbstractEventDispatcher *eventDispatcher = QAbstractEventDispatcher::instance()) {
         m_driveListener = new QWindowsRemovableDriveListener(this);
         eventDispatcher->installNativeEventFilter(m_driveListener);
@@ -360,7 +347,6 @@ QWindowsFileSystemWatcherEngine::QWindowsFileSystemWatcherEngine(QObject *parent
         qWarning("QFileSystemWatcher: Removable drive notification will not work"
                  " if there is no QCoreApplication instance.");
     }
-#endif // !Q_OS_WINRT
 }
 
 QWindowsFileSystemWatcherEngine::~QWindowsFileSystemWatcherEngine()
@@ -386,6 +372,7 @@ QStringList QWindowsFileSystemWatcherEngine::addPaths(const QStringList &paths,
             normalPath.chop(1);
         }
         QFileInfo fileInfo(normalPath);
+        fileInfo.stat();
         if (!fileInfo.exists())
             continue;
 
@@ -419,7 +406,7 @@ QStringList QWindowsFileSystemWatcherEngine::addPaths(const QStringList &paths,
         pathInfo = fileInfo;
 
         // Look for a thread
-        QWindowsFileSystemWatcherEngineThread *thread = 0;
+        QWindowsFileSystemWatcherEngineThread *thread = nullptr;
         QWindowsFileSystemWatcherEngine::Handle handle;
         QList<QWindowsFileSystemWatcherEngineThread *>::const_iterator jt, end;
         end = threads.constEnd();
@@ -443,8 +430,9 @@ QStringList QWindowsFileSystemWatcherEngine::addPaths(const QStringList &paths,
                     FindCloseChangeNotification(hit.value().handle);
                     thread->handles[index] = hit.value().handle = fileHandle;
                     hit.value().flags = flags;
-                    thread->pathInfoForHandle.insert(fileHandle, pit.value());
+                    auto value = std::move(*pit);
                     thread->pathInfoForHandle.erase(pit);
+                    thread->pathInfoForHandle.insert(fileHandle, std::move(value));
                 }
             }
             // In addition, check on flags for sufficient notification attributes
@@ -524,14 +512,12 @@ QStringList QWindowsFileSystemWatcherEngine::addPaths(const QStringList &paths,
         }
     }
 
-#ifndef Q_OS_WINRT
     if (Q_LIKELY(m_driveListener)) {
         for (const QString &path : paths) {
             if (!unhandled.contains(path))
                 m_driveListener->addPath(path);
         }
     }
-#endif // !Q_OS_WINRT
     return unhandled;
 }
 
@@ -611,7 +597,7 @@ QStringList QWindowsFileSystemWatcherEngine::removePaths(const QStringList &path
         }
     }
 
-    threads.removeAll(0);
+    threads.removeAll(nullptr);
     return unhandled;
 }
 
@@ -656,7 +642,7 @@ void QWindowsFileSystemWatcherEngineThread::run()
 {
     auto locker = qt_unique_lock(mutex);
     forever {
-        QVector<HANDLE> handlesCopy = handles;
+        QList<HANDLE> handlesCopy = handles;
         locker.unlock();
         DEBUG() << "QWindowsFileSystemWatcherThread" << this << "waiting on" << handlesCopy.count() << "handles";
         DWORD r = WaitForMultipleObjects(handlesCopy.count(), handlesCopy.constData(), false, INFINITE);
@@ -697,21 +683,20 @@ void QWindowsFileSystemWatcherEngineThread::run()
 
                         qErrnoWarning(error, "%ls", qUtf16Printable(msgFindNextFailed(h)));
                     }
-                    for (auto it = h.begin(), end = h.end(); it != end; /*erasing*/ ) {
-                        auto x = it++;
-                        QString absolutePath = x.value().absolutePath;
-                        QFileInfo fileInfo(x.value().path);
-                        DEBUG() << "checking" << x.key();
+                    for (auto it = h.begin(); it != h.end(); /*erasing*/ ) {
+                        QString absolutePath = it.value().absolutePath;
+                        QFileInfo fileInfo(it.value().path);
+                        DEBUG() << "checking" << it.key();
 
                         // i'm not completely sure the fileInfo.exist() check will ever work... see QTBUG-2331
                         // ..however, I'm not completely sure enough to remove it.
                         if (fakeRemove || !fileInfo.exists()) {
-                            DEBUG() << x.key() << "removed!";
-                            if (x.value().isDir)
-                                emit directoryChanged(x.value().path, true);
+                            DEBUG() << it.key() << "removed!";
+                            if (it.value().isDir)
+                                emit directoryChanged(it.value().path, true);
                             else
-                                emit fileChanged(x.value().path, true);
-                            h.erase(x);
+                                emit fileChanged(it.value().path, true);
+                            it = h.erase(it);
 
                             // close the notification handle if the directory has been removed
                             if (h.isEmpty()) {
@@ -726,15 +711,17 @@ void QWindowsFileSystemWatcherEngineThread::run()
                                 // h is now invalid
                                 break;
                             }
-                        } else if (x.value().isDir) {
-                            DEBUG() << x.key() << "directory changed!";
-                            emit directoryChanged(x.value().path, false);
-                            x.value() = fileInfo;
-                        } else if (x.value() != fileInfo) {
-                            DEBUG() << x.key() << "file changed!";
-                            emit fileChanged(x.value().path, false);
-                            x.value() = fileInfo;
+                            continue;
+                        } else if (it.value().isDir) {
+                            DEBUG() << it.key() << "directory changed!";
+                            emit directoryChanged(it.value().path, false);
+                            it.value() = fileInfo;
+                        } else if (it.value() != fileInfo) {
+                            DEBUG() << it.key() << "file changed!";
+                            emit fileChanged(it.value().path, false);
+                            it.value() = fileInfo;
                         }
+                        ++it;
                     }
                 }
             } else {
@@ -762,6 +749,4 @@ void QWindowsFileSystemWatcherEngineThread::wakeup()
 
 QT_END_NAMESPACE
 
-#ifndef Q_OS_WINRT
 #  include "qfilesystemwatcher_win.moc"
-#endif

@@ -79,6 +79,7 @@ public:
 
 /*!
  * \qmltype WaylandClient
+ * \instantiates QWaylandClient
  * \inqmlmodule QtWayland.Compositor
  * \since 5.8
  * \brief Represents a client connecting to the WaylandCompositor.
@@ -273,3 +274,6 @@ void QWaylandClient::close()
 }
 
 QT_END_NAMESPACE
+
+#include "moc_qwaylandclient.cpp"
+

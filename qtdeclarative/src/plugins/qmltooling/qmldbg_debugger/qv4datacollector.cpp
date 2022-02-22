@@ -44,7 +44,7 @@
 #include <private/qv4script_p.h>
 #include <private/qv4string_p.h>
 #include <private/qv4objectiterator_p.h>
-#include <private/qv4identifier_p.h>
+#include <private/qv4identifierhash_p.h>
 #include <private/qv4runtime_p.h>
 #include <private/qv4identifiertable_p.h>
 
@@ -61,7 +61,7 @@ QV4::CppStackFrame *QV4DataCollector::findFrame(int frame)
     QV4::CppStackFrame *f = engine()->currentStackFrame;
     while (f && frame) {
         --frame;
-        f = f->parent;
+        f = f->parentFrame();
     }
     return f;
 }
@@ -216,7 +216,8 @@ bool QV4DataCollector::collectScope(QJsonObject *dict, int frameNr, int scopeNr)
         return false;
 
     QV4::ScopedObject scopeObject(scope, engine()->newObject());
-    if (ctxt->d()->type == QV4::Heap::ExecutionContext::Type_CallContext) {
+    if (ctxt->d()->type == QV4::Heap::ExecutionContext::Type_CallContext ||
+            ctxt->d()->type == QV4::Heap::ExecutionContext::Type_BlockContext) {
         QStringList names;
         Refs collectedRefs;
 

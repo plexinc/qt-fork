@@ -42,7 +42,7 @@
 #ifndef QEGLFSKMSVSP2DEVICE_H
 #define QEGLFSKMSVSP2DEVICE_H
 
-#include <qeglfskmsdevice.h>
+#include <qeglfskmsdevice_p.h>
 
 #include <gbm.h>
 
@@ -65,7 +65,7 @@ public:
     QPlatformScreen *createHeadlessScreen() override;
     void registerScreenCloning(QPlatformScreen *screen,
                                QPlatformScreen *screenThisScreenClones,
-                               const QVector<QPlatformScreen *> &screensCloningThisScreen) override;
+                               const QList<QPlatformScreen *> &screensCloningThisScreen) override;
 
 private:
     Q_DISABLE_COPY(QEglFSKmsVsp2Device)

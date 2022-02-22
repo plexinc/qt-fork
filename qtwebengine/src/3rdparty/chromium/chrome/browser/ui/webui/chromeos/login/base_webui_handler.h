@@ -9,8 +9,8 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/macros.h"
 #include "chrome/browser/chromeos/login/oobe_screen.h"
 #include "chrome/browser/ui/webui/chromeos/login/js_calls_container.h"
@@ -83,9 +83,18 @@ class BaseWebUIHandler : public content::WebUIMessageHandler {
     }
 
     // Make the call now if the WebUI is loaded.
-    if (js_calls_container_->is_initialized())
+    if (js_calls_container_->is_initialized() && !javascript_disallowed_)
       web_ui()->CallJavascriptFunctionUnsafe(
           function_name, ::login::MakeValue(args).Clone()...);
+  }
+
+  // TODO(crbug.com/1180291) - Remove once OOBE JS calls are fixed
+  // If the JS container hasn't been initialized yet, it is safe to call JS
+  // because the call will be postponed until we receive a message from the
+  // renderer.
+  bool IsSafeToCallJavascript() const {
+    return (js_calls_container_ && !js_calls_container_->is_initialized()) ||
+           IsJavascriptAllowed();
   }
 
   // Register WebUI callbacks. The callbacks will be recorded if recording is
@@ -114,9 +123,9 @@ class BaseWebUIHandler : public content::WebUIMessageHandler {
   // Called when the page is ready and handler can do initialization.
   virtual void Initialize() = 0;
 
-  // Show selected WebUI |screen|.
+  // Show selected WebUI `screen`.
   void ShowScreen(OobeScreenId screen);
-  // Show selected WebUI |screen|. Pass screen initialization using the |data|
+  // Show selected WebUI `screen`. Pass screen initialization using the `data`
   // parameter.
   void ShowScreenWithData(OobeScreenId screen,
                           const base::DictionaryValue* data);
@@ -129,6 +138,9 @@ class BaseWebUIHandler : public content::WebUIMessageHandler {
 
   // Whether page is ready.
   bool page_is_ready() const { return page_is_ready_; }
+
+  // content::WebUIMessageHandler
+  void OnJavascriptDisallowed() override;
 
  private:
   friend class OobeUI;
@@ -152,7 +164,7 @@ class BaseWebUIHandler : public content::WebUIMessageHandler {
   // insert. Does nothing.
   void InsertIntoList(std::vector<base::Value>*);
 
-  // Record |function_name| and |args| as an incoming event if recording is
+  // Record `function_name` and `args` as an incoming event if recording is
   // enabled.
   void MaybeRecordIncomingEvent(const std::string& function_name,
                                 const base::ListValue* args);
@@ -172,6 +184,12 @@ class BaseWebUIHandler : public content::WebUIMessageHandler {
 
   // Keeps whether page is ready.
   bool page_is_ready_ = false;
+
+  // When there isn't a RenderFrameHost, no JS calls should be made.
+  // This flag becomes true when the renderer is destroyed.
+  // TODO(crbug/1180291) - Remove this custom solution once OOBE's JS
+  // initialisation has been fixed.
+  bool javascript_disallowed_ = false;
 
   JSCallsContainer* js_calls_container_ = nullptr;  // non-owning pointers.
 

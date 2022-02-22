@@ -34,9 +34,7 @@ public:
         if (!this->sourceIsRejectBuffers()) {
             // Need to expand the buffers for first use. All other reject sets will be fewer than
             // this one.
-            auto t = fSource[index];
-            const SkGlyphID& glyphID = std::get<0>(t);
-            const SkPoint& pos = std::get<1>(t);
+            auto [glyphID, pos] = fSource[index];
             fRejectedGlyphIDs.push_back(glyphID);
             fRejectedPositions.push_back(pos);
             fRejectSize++;
@@ -145,14 +143,31 @@ class SkDrawableGlyphBuffer {
 public:
     void ensureSize(size_t size);
 
-    // Load the buffer with SkPackedGlyphIDs and positions in source space.
-    void startSource(const SkZip<const SkGlyphID, const SkPoint>& source, SkPoint origin);
-
-    // Use the original glyphIDs and positions.
-    void startPaths(const SkZip<const SkGlyphID, const SkPoint>& source);
+    // Load the buffer with SkPackedGlyphIDs and positions at (0, 0) ready to finish positioning
+    // during drawing.
+    void startSource(const SkZip<const SkGlyphID, const SkPoint>& source);
 
     // Load the buffer with SkPackedGlyphIDs and positions using the device transform.
-    void startDevice(
+    void startBitmapDevice(
+            const SkZip<const SkGlyphID, const SkPoint>& source,
+            SkPoint origin, const SkMatrix& viewMatrix,
+            const SkGlyphPositionRoundingSpec& roundingSpec);
+
+    // Load the buffer with SkPackedGlyphIDs, calculating positions so they can be constant.
+    //
+    // The positions are calculated integer positions in devices space, and the mapping of the
+    // the source origin through the initial matrix is returned. It is given that these positions
+    // are only reused when the blob is translated by an integral amount. Thus the shifted
+    // positions are given by the following equation where (ix, iy) is the integer positions of
+    // the glyph, initialMappedOrigin is (0,0) in source mapped to the device using the initial
+    // matrix, and newMappedOrigin is (0,0) in source mapped to the device using the current
+    // drawing matrix.
+    //
+    //    (ix', iy') = (ix, iy) + round(newMappedOrigin - initialMappedOrigin)
+    //
+    // In theory, newMappedOrigin - initialMappedOrigin should be integer, but the vagaries of
+    // floating point don't guarantee that, so force it to integer.
+    void startGPUDevice(
             const SkZip<const SkGlyphID, const SkPoint>& source,
             SkPoint origin, const SkMatrix& viewMatrix,
             const SkGlyphPositionRoundingSpec& roundingSpec);
@@ -191,13 +206,16 @@ public:
         return SkZip<SkGlyphVariant, SkPoint>{fDrawableSize, fMultiBuffer, fPositions};
     }
 
+    bool drawableIsEmpty() const {
+        SkASSERT(fPhase == kProcess || fPhase == kDraw);
+        return fDrawableSize == 0;
+    }
+
     void reset();
 
     template <typename Fn>
     void forEachGlyphID(Fn&& fn) {
-        for (auto t : SkMakeEnumerate(this->input())) {
-            size_t i; SkGlyphVariant packedID; SkPoint pos;
-            std::forward_as_tuple(i, std::tie(packedID, pos)) = t;
+        for (auto [i, packedID, pos] : SkMakeEnumerate(this->input())) {
             fn(i, packedID.packedID(), pos);
         }
     }

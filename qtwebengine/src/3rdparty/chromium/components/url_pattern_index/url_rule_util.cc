@@ -5,6 +5,7 @@
 #include "components/url_pattern_index/url_rule_util.h"
 
 #include "base/macros.h"
+#include "base/notreached.h"
 #include "base/strings/string_util.h"
 #include "components/url_pattern_index/flat/url_pattern_index_generated.h"
 
@@ -152,7 +153,7 @@ std::string DomainOptionsToString(
 std::string FlatUrlRuleToFilterlistString(const flat::UrlRule* flat_rule) {
   std::string out;
 
-  if (flat_rule->options() & url_pattern_index::flat::OptionFlag_IS_WHITELIST)
+  if (flat_rule->options() & url_pattern_index::flat::OptionFlag_IS_ALLOWLIST)
     out += "@@";
 
   out += AnchorToString(flat_rule->anchor_left());

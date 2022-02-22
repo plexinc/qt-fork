@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: http://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -30,16 +30,8 @@
 \title Qt Multimedia Widgets C++ Classes
 \brief Classes provided by the Qt Multimedia Widgets module.
 \qtvariable multimediawidgets
+\qtcmakepackage MultimediaWidgets
 
 These classes are part of the \l{Qt Multimedia Widgets} module.
 
-To enable Qt Multimedia Widgets in a project, add this directive into the
-C++ files:
-
-\snippet doc_src_qtmultimediawidgets.cpp 0
-
-To link against the C++ libraries, add the following to your \c qmake project
-file:
-
-\snippet doc_src_qtmultimediawidgets.pro 0
 */

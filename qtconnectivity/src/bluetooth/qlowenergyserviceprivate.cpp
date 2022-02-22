@@ -43,15 +43,7 @@
 
 QT_BEGIN_NAMESPACE
 
-QLowEnergyServicePrivate::QLowEnergyServicePrivate(QObject *parent) :
-    QObject(parent),
-    startHandle(0),
-    endHandle(0),
-    type(QLowEnergyService::PrimaryService),
-    state(QLowEnergyService::InvalidService),
-    lastError(QLowEnergyService::NoError)
-{
-}
+QLowEnergyServicePrivate::QLowEnergyServicePrivate(QObject *parent) : QObject(parent) { }
 
 QLowEnergyServicePrivate::~QLowEnergyServicePrivate()
 {
@@ -62,7 +54,7 @@ void QLowEnergyServicePrivate::setController(QLowEnergyControllerPrivate *contro
     controller = control;
 
     if (control)
-        setState(QLowEnergyService::DiscoveryRequired);
+        setState(QLowEnergyService::RemoteService);
     else
         setState(QLowEnergyService::InvalidService);
 }
@@ -70,7 +62,7 @@ void QLowEnergyServicePrivate::setController(QLowEnergyControllerPrivate *contro
 void QLowEnergyServicePrivate::setError(QLowEnergyService::ServiceError newError)
 {
     lastError = newError;
-    emit error(newError);
+    emit errorOccurred(newError);
 }
 
 void QLowEnergyServicePrivate::setState(QLowEnergyService::ServiceState newState)

@@ -1,6 +1,7 @@
 [
     {
         "Copyright": "",
+        "CopyrightFile": "",
         "Description": "Hello world!\nLine 2",
         "DownloadLocation": "",
         "Files": "",
@@ -10,7 +11,7 @@
         "LicenseFile": "",
         "LicenseId": "",
         "Name": "Test",
-        "PackageComment":"",
+        "PackageComment": "",
         "Path": "%{PWD}/chromium",
         "QDocModule": "qtwebengine",
         "QtParts": [
@@ -21,40 +22,68 @@
     },
     {
         "Copyright": "Copyright",
+        "CopyrightFile": "",
         "Description": "Multi\nLine\nDescription",
+        "DownloadLocation": "www.qt.io/1.0",
+        "Files": "",
         "Homepage": "www.qt.io",
         "Id": "complete",
         "License": "License",
         "LicenseFile": "%{PWD}/complete/LICENSE",
         "LicenseId": "xxx",
         "Name": "Complete",
-        "PackageComment":"just a test package",
+        "PackageComment": "just a test package",
         "Path": "%{PWD}/complete",
-        "Files": "",
         "QDocModule": "qtest",
-        "QtParts": [ "examples" ],
+        "QtParts": [
+            "examples"
+        ],
         "QtUsage": "Multi\nLine\nUsage",
-        "Version": "1.0",
-        "DownloadLocation": "www.qt.io/1.0"
+        "Version": "1.0"
     },
     {
         "Copyright": "Copyright",
+        "CopyrightFile": "",
         "Description": "",
+        "DownloadLocation": "",
+        "Files": "",
         "Homepage": "",
         "Id": "minimal",
         "License": "License",
         "LicenseFile": "",
         "LicenseId": "",
         "Name": "Minimal",
-        "PackageComment":"",
+        "PackageComment": "",
         "Path": "%{PWD}/minimal",
-        "Files": "",
         "QDocModule": "qtest",
         "QtParts": [
             "libs"
         ],
         "QtUsage": "Usage",
-        "Version": "",
-        "DownloadLocation": ""
+        "Version": ""
+    },
+    {
+        "Copyright": "",
+        "CopyrightFile": "%{PWD}/variants/COPYRIGHT.txt",
+        "Description": "",
+        "DownloadLocation": "",
+        "Files": "",
+        "Homepage": "",
+        "Id": "variants",
+        "License": "License",
+        "LicenseFiles": [
+            "%{PWD}/variants/LICENSE1.txt",
+            "%{PWD}/variants/LICENSE2.txt"
+        ],
+        "LicenseId": "",
+        "Name": "Variants Test",
+        "PackageComment": "",
+        "Path": "%{PWD}/variants",
+        "QDocModule": "qtest",
+        "QtParts": [
+            "libs"
+        ],
+        "QtUsage": "Usage",
+        "Version": ""
     }
 ]

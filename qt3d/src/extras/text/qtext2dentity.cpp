@@ -48,10 +48,10 @@
 #include <QtGui/private/qfont_p.h>
 #include <QtGui/private/qdistancefield_p.h>
 
+#include <Qt3DCore/qbuffer.h>
+#include <Qt3DCore/qattribute.h>
+#include <Qt3DCore/qgeometry.h>
 #include <Qt3DRender/qmaterial.h>
-#include <Qt3DRender/qbuffer.h>
-#include <Qt3DRender/qattribute.h>
-#include <Qt3DRender/qgeometry.h>
 #include <Qt3DRender/qgeometryrenderer.h>
 
 #include <Qt3DCore/private/qscene_p.h>
@@ -60,7 +60,7 @@ QT_BEGIN_NAMESPACE
 
 namespace {
 
-inline Q_DECL_CONSTEXPR QRectF scaleRectF(const QRectF &rect, float scale)
+inline constexpr QRectF scaleRectF(const QRectF &rect, qreal scale)
 {
     return QRectF(rect.left() * scale, rect.top() * scale, rect.width() * scale, rect.height() * scale);
 }
@@ -186,7 +186,7 @@ void QText2DEntityPrivate::setScene(Qt3DCore::QScene *scene)
         m_glyphCache = entry.glyphCache;
         ++entry.count;
         // Update to populate glyphCache if needed
-        update();
+        updateGlyphs();
     }
 }
 
@@ -200,7 +200,7 @@ QText2DEntity::~QText2DEntity()
 {
 }
 
-float QText2DEntityPrivate::computeActualScale() const
+qreal QText2DEntityPrivate::computeActualScale() const
 {
     // scale font based on fontScale property and given QFont
     float scale = 1.0f;
@@ -211,30 +211,30 @@ float QText2DEntityPrivate::computeActualScale() const
 
 struct RenderData {
     int vertexCount = 0;
-    QVector<float> vertex;
-    QVector<quint16> index;
+    std::vector<float> vertex;
+    std::vector<quint16> index;
 };
 
-void QText2DEntityPrivate::setCurrentGlyphRuns(const QVector<QGlyphRun> &runs)
+void QText2DEntityPrivate::setCurrentGlyphRuns(const QList<QGlyphRun> &runs)
 {
     // For each distinct texture, we need a separate DistanceFieldTextRenderer,
     // for which we need vertex and index data
     QHash<Qt3DRender::QAbstractTexture*, RenderData> renderData;
-    const float scale = computeActualScale();
+    const qreal scale = computeActualScale();
 
     // process glyph runs
     for (const QGlyphRun &run : runs) {
-        const QVector<quint32> glyphs = run.glyphIndexes();
-        const QVector<QPointF> pos = run.positions();
+        const auto glyphs = run.glyphIndexes();
+        const auto pos = run.positions();
 
         Q_ASSERT(glyphs.size() == pos.size());
 
         const bool doubleGlyphResolution = m_glyphCache->doubleGlyphResolution(run.rawFont());
 
         // faithfully copied from QSGDistanceFieldGlyphNode::updateGeometry()
-        const float pixelSize = run.rawFont().pixelSize();
-        const float fontScale = pixelSize / QT_DISTANCEFIELD_BASEFONTSIZE(doubleGlyphResolution);
-        const float margin = QT_DISTANCEFIELD_RADIUS(doubleGlyphResolution) / QT_DISTANCEFIELD_SCALE(doubleGlyphResolution) * fontScale;
+        const qreal pixelSize = run.rawFont().pixelSize();
+        const qreal fontScale = pixelSize / QT_DISTANCEFIELD_BASEFONTSIZE(doubleGlyphResolution);
+        const qreal margin = QT_DISTANCEFIELD_RADIUS(doubleGlyphResolution) / QT_DISTANCEFIELD_SCALE(doubleGlyphResolution) * fontScale;
 
         for (int i = 0; i < glyphs.size(); i++) {
             const QDistanceFieldGlyphCache::Glyph &dfield = m_glyphCache->refGlyph(run.rawFont(), glyphs[i]);
@@ -248,15 +248,15 @@ void QText2DEntityPrivate::setCurrentGlyphRuns(const QVector<QGlyphRun> &runs)
             QRectF metrics = scaleRectF(dfield.glyphPathBoundingRect, fontScale);
             metrics.adjust(-margin, margin, margin, 3*margin);
 
-            const float top = 0.0f;
-            const float left = 0.0f;
-            const float right = m_width;
-            const float bottom = m_height;
+            const qreal top = 0.0;
+            const qreal left = 0.0;
+            const qreal right = qreal(m_width);
+            const qreal bottom = qreal(m_height);
 
-            float x1 = left + scale * (pos[i].x() + metrics.left());
-            float y2 = bottom - scale * (pos[i].y() - metrics.top());
-            float x2 = x1 + scale * metrics.width();
-            float y1 = y2 - scale * metrics.height();
+            qreal x1 = left + scale * (pos[i].x() + metrics.left());
+            qreal y2 = bottom - scale * (pos[i].y() - metrics.top());
+            qreal x2 = x1 + scale * metrics.width();
+            qreal y1 = y2 - scale * metrics.height();
 
             // only draw glyphs that are at least partly visible
             if (y2 < top || x1 > right)
@@ -267,25 +267,31 @@ void QText2DEntityPrivate::setCurrentGlyphRuns(const QVector<QGlyphRun> &runs)
             // if a glyph is only partly visible within the given rectangle,
             // cut it in half and adjust tex coords
             if (y1 < top) {
-                const float insideRatio = (top - y2) / (y1 - y2);
+                const auto insideRatio = (top - y2) / (y1 - y2);
                 y1 = top;
                 texCoords.setHeight(texCoords.height() * insideRatio);
             }
 
             // do the same thing horizontally
             if (x2 > right) {
-                const float insideRatio = (right - x1) / (x2 - x1);
+                const auto insideRatio = (right - x1) / (x2 - x1);
                 x2 = right;
                 texCoords.setWidth(texCoords.width() * insideRatio);
             }
 
-            data.vertex << x1 << y1 << i << texCoords.left() << texCoords.bottom();
-            data.vertex << x1 << y2 << i << texCoords.left() << texCoords.top();
-            data.vertex << x2 << y1 << i << texCoords.right() << texCoords.bottom();
-            data.vertex << x2 << y2 << i << texCoords.right() << texCoords.top();
+            for (auto v: std::vector<qreal>{x1, y1, qreal(i), texCoords.left(), texCoords.bottom()})
+                data.vertex.push_back(float(v));
+            for (auto v: std::vector<qreal>{x1, y2, qreal(i), texCoords.left(), texCoords.top()})
+                data.vertex.push_back(float(v));
+            for (auto v: std::vector<qreal>{x2, y1, qreal(i), texCoords.right(), texCoords.bottom()})
+                data.vertex.push_back(float(v));
+            for (auto v: std::vector<qreal>{x2, y2, qreal(i), texCoords.right(), texCoords.top()})
+                data.vertex.push_back(float(v));
 
-            data.index << data.vertexCount << data.vertexCount+3 << data.vertexCount+1;
-            data.index << data.vertexCount << data.vertexCount+2 << data.vertexCount+3;
+            for (int i: std::vector<int>{data.vertexCount, data.vertexCount + 3, data.vertexCount + 1})
+                data.index.push_back(quint16(i));
+            for (int i: std::vector<int>{data.vertexCount, data.vertexCount + 2, data.vertexCount + 3})
+                data.index.push_back(quint16(i));
 
             data.vertexCount += 4;
         }
@@ -313,9 +319,8 @@ void QText2DEntityPrivate::setCurrentGlyphRuns(const QVector<QGlyphRun> &runs)
 
     // assign vertex data for all textures to the renderers
     int rendererIdx = 0;
-    for (auto it = renderData.begin(); it != renderData.end(); ++it) {
+    for (auto it = renderData.begin(); it != renderData.end(); ++it)
         m_renderers[rendererIdx++]->setGlyphData(it.key(), it.value().vertex, it.value().index);
-    }
 }
 
 void QText2DEntityPrivate::clearCurrentGlyphRuns()
@@ -325,12 +330,12 @@ void QText2DEntityPrivate::clearCurrentGlyphRuns()
     m_currentGlyphRuns.clear();
 }
 
-void QText2DEntityPrivate::update()
+void QText2DEntityPrivate::updateGlyphs()
 {
     if (m_glyphCache == nullptr)
         return;
 
-    QVector<QGlyphRun> glyphRuns;
+    QList<QGlyphRun> glyphRuns;
 
     // collect all GlyphRuns generated by the QTextLayout
     if ((m_width > 0.0f || m_height > 0.0f) && !m_text.isEmpty()) {
@@ -387,7 +392,7 @@ void QText2DEntity::setFont(const QFont &font)
         emit fontChanged(font);
 
         if (!d->m_text.isEmpty())
-            d->update();
+            d->updateGlyphs();
     }
 }
 
@@ -434,7 +439,7 @@ void QText2DEntity::setText(const QString &text)
         d->m_text = text;
         emit textChanged(text);
 
-        d->update();
+        d->updateGlyphs();
     }
 }
 
@@ -468,7 +473,7 @@ void QText2DEntity::setWidth(float width)
     if (width != d->m_width) {
         d->m_width = width;
         emit widthChanged(width);
-        d->update();
+        d->updateGlyphs();
     }
 }
 
@@ -478,7 +483,7 @@ void QText2DEntity::setHeight(float height)
     if (height != d->m_height) {
         d->m_height = height;
         emit heightChanged(height);
-        d->update();
+        d->updateGlyphs();
     }
 }
 

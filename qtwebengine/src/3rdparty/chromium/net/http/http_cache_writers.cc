@@ -9,7 +9,7 @@
 
 #include "base/auto_reset.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/logging.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "net/base/net_errors.h"
@@ -223,6 +223,11 @@ void HttpCache::Writers::UpdatePriority() {
       network_transaction_->SetPriority(current_highest);
     priority_ = current_highest;
   }
+}
+
+void HttpCache::Writers::CloseConnectionOnDestruction() {
+  if (network_transaction_)
+    network_transaction_->CloseConnectionOnDestruction();
 }
 
 bool HttpCache::Writers::ContainsOnlyIdleWriters() const {

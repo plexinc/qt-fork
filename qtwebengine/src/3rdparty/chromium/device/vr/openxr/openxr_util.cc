@@ -3,18 +3,19 @@
 // found in the LICENSE file.
 
 #include "device/vr/openxr/openxr_util.h"
-#include "device/vr/openxr/openxr_defs.h"
 
-#include <d3d11.h>
 #include <string>
-#include <vector>
 
+#include "base/check_op.h"
 #include "base/stl_util.h"
 #include "base/version.h"
 #include "base/win/scoped_handle.h"
 #include "build/build_config.h"
 #include "components/version_info/version_info.h"
-#include "third_party/openxr/src/include/openxr/openxr_platform.h"
+#include "ui/gfx/geometry/angle_conversions.h"
+#include "ui/gfx/geometry/quaternion.h"
+#include "ui/gfx/transform.h"
+#include "ui/gfx/transform_util.h"
 
 namespace device {
 
@@ -22,6 +23,32 @@ XrPosef PoseIdentity() {
   XrPosef pose{};
   pose.orientation.w = 1;
   return pose;
+}
+
+gfx::Transform XrPoseToGfxTransform(const XrPosef& pose) {
+  gfx::DecomposedTransform decomp;
+  decomp.quaternion = gfx::Quaternion(pose.orientation.x, pose.orientation.y,
+                                      pose.orientation.z, pose.orientation.w);
+  decomp.translate[0] = pose.position.x;
+  decomp.translate[1] = pose.position.y;
+  decomp.translate[2] = pose.position.z;
+
+  return gfx::ComposeTransform(decomp);
+}
+
+XrPosef GfxTransformToXrPose(const gfx::Transform& transform) {
+  gfx::DecomposedTransform decomposed_transform;
+  bool decomposition_result =
+      gfx::DecomposeTransform(&decomposed_transform, transform);
+  // This pose should always be a simple translation and rotation so this should
+  // always be true
+  DCHECK(decomposition_result);
+  return {
+      {decomposed_transform.quaternion.x(), decomposed_transform.quaternion.y(),
+       decomposed_transform.quaternion.z(),
+       decomposed_transform.quaternion.w()},
+      {decomposed_transform.translate[0], decomposed_transform.translate[1],
+       decomposed_transform.translate[2]}};
 }
 
 XrResult GetSystem(XrInstance instance, XrSystemId* system) {
@@ -55,8 +82,9 @@ bool IsRunningInWin32AppContainer() {
 }
 #endif
 
-XrResult CreateInstance(XrInstance* instance,
-                        OpenXRInstanceMetadata* metadata) {
+XrResult CreateInstance(
+    XrInstance* instance,
+    const OpenXrExtensionEnumeration& extension_enumeration) {
   XrInstanceCreateInfo instance_create_info = {XR_TYPE_INSTANCE_CREATE_INFO};
 
   std::string application_name = version_info::GetProductName() + " " +
@@ -84,14 +112,6 @@ XrResult CreateInstance(XrInstance* instance,
 
   instance_create_info.applicationInfo.apiVersion = XR_CURRENT_API_VERSION;
 
-  uint32_t extensionCount;
-  RETURN_IF_XR_FAILED(xrEnumerateInstanceExtensionProperties(
-      nullptr, 0, &extensionCount, nullptr));
-  std::vector<XrExtensionProperties> extensionProperties(
-      extensionCount, {XR_TYPE_EXTENSION_PROPERTIES});
-  RETURN_IF_XR_FAILED(xrEnumerateInstanceExtensionProperties(
-      nullptr, extensionCount, &extensionCount, extensionProperties.data()));
-
   // xrCreateInstance validates the list of extensions and returns
   // XR_ERROR_EXTENSION_NOT_PRESENT if an extension is not supported,
   // so we don't need to call xrEnumerateInstanceExtensionProperties
@@ -106,29 +126,54 @@ XrResult CreateInstance(XrInstance* instance,
     // Add the win32 app container compatible extension to our list of
     // extensions. If this runtime does not support execution in an app
     // container environment, one of xrCreateInstance or xrGetSystem will fail.
-    extensions.push_back(kWin32AppcontainerCompatibleExtensionName);
+    extensions.push_back(XR_EXT_WIN32_APPCONTAINER_COMPATIBLE_EXTENSION_NAME);
   }
 
   // XR_MSFT_UNBOUNDED_REFERENCE_SPACE_EXTENSION_NAME, is required for optional
   // functionality (unbounded reference spaces) and thus only requested if it is
   // available.
-  auto extensionSupported = [&extensionProperties](const char* extensionName) {
-    return std::find_if(
-               extensionProperties.begin(), extensionProperties.end(),
-               [&extensionName](const XrExtensionProperties& properties) {
-                 return strcmp(properties.extensionName, extensionName) == 0;
-               }) != extensionProperties.end();
-  };
-
   const bool unboundedSpaceExtensionSupported =
-      extensionSupported(XR_MSFT_UNBOUNDED_REFERENCE_SPACE_EXTENSION_NAME);
+      extension_enumeration.ExtensionSupported(
+          XR_MSFT_UNBOUNDED_REFERENCE_SPACE_EXTENSION_NAME);
   if (unboundedSpaceExtensionSupported) {
     extensions.push_back(XR_MSFT_UNBOUNDED_REFERENCE_SPACE_EXTENSION_NAME);
   }
 
-  if (metadata != nullptr) {
-    metadata->unboundedReferenceSpaceSupported =
-        unboundedSpaceExtensionSupported;
+  // Input extensions. These enable interaction profiles not defined in the core
+  // spec
+  const bool samsungInteractionProfileExtensionSupported =
+      extension_enumeration.ExtensionSupported(
+          kExtSamsungOdysseyControllerExtensionName);
+  if (samsungInteractionProfileExtensionSupported) {
+    extensions.push_back(kExtSamsungOdysseyControllerExtensionName);
+  }
+
+  const bool hpControllerExtensionSupported =
+      extension_enumeration.ExtensionSupported(
+          kExtHPMixedRealityControllerExtensionName);
+  if (hpControllerExtensionSupported) {
+    extensions.push_back(kExtHPMixedRealityControllerExtensionName);
+  }
+
+  const bool handInteractionExtensionSupported =
+      extension_enumeration.ExtensionSupported(
+          kMSFTHandInteractionExtensionName);
+  if (handInteractionExtensionSupported) {
+    extensions.push_back(kMSFTHandInteractionExtensionName);
+  }
+
+  const bool handTrackingExtensionSupported =
+      extension_enumeration.ExtensionSupported(
+          XR_EXT_HAND_TRACKING_EXTENSION_NAME);
+  if (handTrackingExtensionSupported) {
+    extensions.push_back(XR_EXT_HAND_TRACKING_EXTENSION_NAME);
+  }
+
+  const bool anchorsExtensionSupported =
+      extension_enumeration.ExtensionSupported(
+          XR_MSFT_SPATIAL_ANCHOR_EXTENSION_NAME);
+  if (anchorsExtensionSupported) {
+    extensions.push_back(XR_MSFT_SPATIAL_ANCHOR_EXTENSION_NAME);
   }
 
   instance_create_info.enabledExtensionCount =
@@ -136,6 +181,26 @@ XrResult CreateInstance(XrInstance* instance,
   instance_create_info.enabledExtensionNames = extensions.data();
 
   return xrCreateInstance(&instance_create_info, instance);
+}
+
+std::vector<XrEnvironmentBlendMode> GetSupportedBlendModes(XrInstance instance,
+                                                           XrSystemId system) {
+  // Query the list of supported environment blend modes for the current system.
+  uint32_t blend_mode_count;
+  const XrViewConfigurationType kSupportedViewConfiguration =
+      XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+  if (XR_FAILED(xrEnumerateEnvironmentBlendModes(instance, system,
+                                                 kSupportedViewConfiguration, 0,
+                                                 &blend_mode_count, nullptr)))
+    return {};  // empty vector
+
+  std::vector<XrEnvironmentBlendMode> environment_blend_modes(blend_mode_count);
+  if (XR_FAILED(xrEnumerateEnvironmentBlendModes(
+          instance, system, kSupportedViewConfiguration, blend_mode_count,
+          &blend_mode_count, environment_blend_modes.data())))
+    return {};  // empty vector
+
+  return environment_blend_modes;
 }
 
 }  // namespace device

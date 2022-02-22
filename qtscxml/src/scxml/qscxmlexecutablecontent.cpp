@@ -234,7 +234,7 @@ using namespace QScxmlExecutableContent;
 
 
 #ifndef BUILD_QSCXMLC
-static int parseTime(const QString &t, bool *ok = nullptr)
+static int parseTime(QStringView t, bool *ok = nullptr)
 {
     if (t.isEmpty()) {
         if (ok)
@@ -259,7 +259,7 @@ static int parseTime(const QString &t, bool *ok = nullptr)
         if (ok) *ok = false;
         return -1;
     }
-    int value = t.midRef(startPos, pos - startPos).toInt(ok);
+    int value = t.mid(startPos, pos - startPos).toInt(ok);
     if (ok && !*ok) return -1;
     if (t.length() == pos + 1 && t[pos] == QLatin1Char('s')) {
         value *= 1000;

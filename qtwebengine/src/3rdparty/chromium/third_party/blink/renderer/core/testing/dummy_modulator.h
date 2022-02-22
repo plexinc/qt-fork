@@ -6,7 +6,9 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_TESTING_DUMMY_MODULATOR_H_
 
 #include "base/single_thread_task_runner.h"
+#include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink-forward.h"
 #include "third_party/blink/renderer/bindings/core/v8/module_record.h"
+#include "third_party/blink/renderer/bindings/core/v8/module_request.h"
 #include "third_party/blink/renderer/core/script/modulator.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 
@@ -27,19 +29,20 @@ class DummyModulator : public Modulator {
  public:
   DummyModulator();
   ~DummyModulator() override;
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
   ModuleRecordResolver* GetModuleRecordResolver() override;
   base::SingleThreadTaskRunner* TaskRunner() override;
   ScriptState* GetScriptState() override;
-  V8CacheOptions GetV8CacheOptions() const override;
+  mojom::blink::V8CacheOptions GetV8CacheOptions() const override;
   bool IsScriptingDisabled() const override;
 
   bool ImportMapsEnabled() const override;
 
   void FetchTree(const KURL&,
+                 ModuleType,
                  ResourceFetcher*,
-                 mojom::RequestContextType context_type,
+                 mojom::blink::RequestContextType context_type,
                  network::mojom::RequestDestination destination,
                  const ScriptFetchOptions&,
                  ModuleScriptCustomFetchType,
@@ -52,13 +55,13 @@ class DummyModulator : public Modulator {
   void FetchDescendantsForInlineScript(
       ModuleScript*,
       ResourceFetcher*,
-      mojom::RequestContextType context_type,
+      mojom::blink::RequestContextType context_type,
       network::mojom::RequestDestination destination,
       ModuleTreeClient*) override;
-  ModuleScript* GetFetchedModuleScript(const KURL&) override;
+  ModuleScript* GetFetchedModuleScript(const KURL&, ModuleType) override;
   KURL ResolveModuleSpecifier(const String&, const KURL&, String*) override;
   bool HasValidContext() override;
-  void ResolveDynamically(const String& specifier,
+  void ResolveDynamically(const ModuleRequest& module_request,
                           const KURL&,
                           const ReferrerScriptInfo&,
                           ScriptPromiseResolver*) override;
@@ -66,18 +69,20 @@ class DummyModulator : public Modulator {
   ScriptValue CreateSyntaxError(const String& message) const override;
   void RegisterImportMap(const ImportMap*,
                          ScriptValue error_to_rethrow) override;
-  bool IsAcquiringImportMaps() const override;
-  void ClearIsAcquiringImportMaps() override;
+  AcquiringImportMapsState GetAcquiringImportMapsState() const override;
+  void SetAcquiringImportMapsState(AcquiringImportMapsState) override;
   ModuleImportMeta HostGetImportMetaProperties(
       v8::Local<v8::Module>) const override;
   const ImportMap* GetImportMapForTest() const override;
   ScriptValue InstantiateModule(v8::Local<v8::Module>, const KURL&) override;
   Vector<ModuleRequest> ModuleRequestsFromModuleRecord(
       v8::Local<v8::Module>) override;
-  ScriptValue ExecuteModule(ModuleScript*, CaptureEvalErrorFlag) override;
+  ModuleType ModuleTypeFromRequest(
+      const ModuleRequest& module_request) const override;
   ModuleScriptFetcher* CreateModuleScriptFetcher(
       ModuleScriptCustomFetchType,
-      util::PassKey<ModuleScriptLoader>) override;
+      base::PassKey<ModuleScriptLoader>) override;
+  void ProduceCacheModuleTreeTopLevel(ModuleScript*) override;
 
   Member<ModuleRecordResolver> resolver_;
 };

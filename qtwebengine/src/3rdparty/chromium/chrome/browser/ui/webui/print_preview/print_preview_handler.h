@@ -16,6 +16,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/timer/timer.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/common/buildflags.h"
 #include "components/prefs/pref_service.h"
 #include "components/printing/common/print.mojom.h"
@@ -24,6 +25,7 @@
 #include "mojo/public/cpp/bindings/associated_remote.h"
 #include "printing/backend/print_backend.h"
 #include "printing/buildflags/buildflags.h"
+#include "printing/mojom/print.mojom.h"
 #include "printing/print_job_constants.h"
 
 namespace base {
@@ -79,7 +81,7 @@ class PrintPreviewHandler : public content::WebUIMessageHandler,
   // Send the print preset options from the document.
   void SendPrintPresetOptions(bool disable_scaling,
                               int copies,
-                              int duplex,
+                              mojom::DuplexMode duplex,
                               int request_id);
 
   // Send the print preview page count and fit to page scaling
@@ -97,10 +99,6 @@ class PrintPreviewHandler : public content::WebUIMessageHandler,
                             int preview_uid,
                             int preview_request_id);
 
-  int regenerate_preview_request_count() const {
-    return regenerate_preview_request_count_;
-  }
-
   // Notifies PDF Printer Handler that |path| was selected. Used for tests.
   void FileSelectedForTesting(const base::FilePath& path,
                               int index,
@@ -115,9 +113,10 @@ class PrintPreviewHandler : public content::WebUIMessageHandler,
   // Fires the 'manipulate-settings-for-test' WebUI event with |settings|.
   void SendManipulateSettingsForTest(const base::DictionaryValue& settings);
 
+  virtual PrinterHandler* GetPrinterHandler(PrinterType printer_type);
+
  protected:
   // Protected so unit tests can override.
-  virtual PrinterHandler* GetPrinterHandler(PrinterType printer_type);
   virtual bool IsCloudPrintEnabled();
 
   // Shuts down the initiator renderer. Called when a bad IPC message is
@@ -149,10 +148,6 @@ class PrintPreviewHandler : public content::WebUIMessageHandler,
   FRIEND_TEST_ALL_PREFIXES(PrintPreviewHandlerFailingTest,
                            GetPrinterCapabilities);
 
-#if defined(OS_CHROMEOS)
-  class AccessTokenService;
-#endif
-
   content::WebContents* preview_web_contents() const;
 
   PrintPreviewUI* print_preview_ui() const;
@@ -179,10 +174,6 @@ class PrintPreviewHandler : public content::WebUIMessageHandler,
   // callback, second element of |args| is the printer type to fetch.
   void HandleGetPrinters(const base::ListValue* args);
 
-  // Grants an extension access to a provisional printer.  First element of
-  // |args| is the provisional printer ID.
-  void HandleGrantExtensionPrinterAccess(const base::ListValue* args);
-
   // Asks the initiator renderer to generate a preview.  First element of |args|
   // is a job settings JSON string.
   void HandleGetPreview(const base::ListValue* args);
@@ -208,26 +199,18 @@ class PrintPreviewHandler : public content::WebUIMessageHandler,
   // printer whose capabilities are requested.
   void HandleGetPrinterCapabilities(const base::ListValue* args);
 
-  // Performs printer setup. First element of |args| is the printer name.
-  void HandlePrinterSetup(const base::ListValue* args);
-
 #if BUILDFLAG(ENABLE_BASIC_PRINT_DIALOG)
   // Asks the initiator renderer to show the native print system dialog. |args|
   // is unused.
   void HandleShowSystemDialog(const base::ListValue* args);
 #endif
 
-  // Opens a new tab to allow the user to sign into cloud print. |args| holds
-  // a boolean indicating whether the user is adding an account.
+  // Opens a new tab to allow the user to add an account to sign into cloud
+  // print. |args| is unused.
   void HandleSignin(const base::ListValue* args);
 
   // Called when the tab opened by HandleSignIn() is closed.
   void OnSignInTabClosed();
-
-#if defined(OS_CHROMEOS)
-  // Generates new token and sends back to UI.
-  void HandleGetAccessToken(const base::ListValue* args);
-#endif
 
   // Gathers UMA stats when the print preview dialog is about to close.
   // |args| is unused.
@@ -237,25 +220,12 @@ class PrintPreviewHandler : public content::WebUIMessageHandler,
   // preview is displayed.
   void HandleGetInitialSettings(const base::ListValue* args);
 
-#if defined(OS_CHROMEOS)
-  // Opens printer settings in the Chrome OS Settings App.
-  void HandleOpenPrinterSettings(const base::ListValue* args);
-
-  // Gets the EULA URL.
-  void HandleGetEulaUrl(const base::ListValue* args);
-#endif
+  // Opens printer settings in the Chrome OS Settings App or OS's printer manger
+  // dialog. |args| is unused.
+  void HandleManagePrinters(const base::ListValue* args);
 
   void SendInitialSettings(const std::string& callback_id,
                            const std::string& default_printer);
-
-#if defined(OS_CHROMEOS)
-  // Send OAuth2 access token.
-  void SendAccessToken(const std::string& callback_id,
-                       const std::string& access_token);
-
-  // Send the EULA URL;
-  void SendEulaUrl(const std::string& callback_id, const std::string& eula_url);
-#endif
 
   // Sends the printer capabilities to the Web UI. |settings_info| contains
   // printer capabilities information. If |settings_info| is empty, sends
@@ -263,13 +233,8 @@ class PrintPreviewHandler : public content::WebUIMessageHandler,
   void SendPrinterCapabilities(const std::string& callback_id,
                                base::Value settings_info);
 
-  // Send the result of performing printer setup. |settings_info| contains
-  // printer capabilities.
-  void SendPrinterSetup(const std::string& callback_id,
-                        const std::string& printer_name,
-                        base::Value settings_info);
-
-  // Send the PDF data to the cloud to print.
+  // Send the PDF data to Print Preview so that it can be sent to the cloud
+  // print server to print.
   void SendCloudPrintJob(const std::string& callback_id,
                          const base::RefCountedMemory* data);
 
@@ -298,13 +263,6 @@ class PrintPreviewHandler : public content::WebUIMessageHandler,
   // |callback_id|: The javascript callback to call.
   void OnGetPrintersDone(const std::string& callback_id);
 
-  // Called when an extension reports information requested for a provisional
-  // printer.
-  // |callback_id|: The javascript callback to resolve or reject.
-  // |printer_info|: The data reported by the extension.
-  void OnGotExtensionPrinterInfo(const std::string& callback_id,
-                                 const base::DictionaryValue& printer_info);
-
   // Called when an extension or privet print job is completed.
   // |callback_id|: The javascript callback to run.
   // |error|: The returned print job error. Useful for reporting a specific
@@ -314,16 +272,13 @@ class PrintPreviewHandler : public content::WebUIMessageHandler,
 
   // A count of how many requests received to regenerate preview data.
   // Initialized to 0 then incremented and emitted to a histogram.
-  int regenerate_preview_request_count_;
-
-  // A count of how many requests received to show manage printers dialog.
-  int manage_printers_dialog_request_count_;
+  int regenerate_preview_request_count_ = 0;
 
   // Whether we have already logged a failed print preview.
-  bool reported_failed_preview_;
+  bool reported_failed_preview_ = false;
 
   // Whether we have already logged the number of printers this session.
-  bool has_logged_printers_count_;
+  bool has_logged_printers_count_ = false;
 
   // Whether Google Cloud Print is enabled for the active profile.
   bool cloud_print_enabled_ = false;
@@ -331,18 +286,9 @@ class PrintPreviewHandler : public content::WebUIMessageHandler,
   // The settings used for the most recent preview request.
   base::Value last_preview_settings_;
 
-#if defined(OS_CHROMEOS)
-  // Holds token service to get OAuth2 access tokens.
-  std::unique_ptr<AccessTokenService> token_service_;
-#endif
-
   // Pointer to the identity manager service so that print preview can listen
   // for GAIA cookie changes.
-  signin::IdentityManager* identity_manager_;
-
-  // Handles requests for cloud printers. Created lazily by calling
-  // GetPrinterHandler().
-  std::unique_ptr<PrinterHandler> cloud_printer_handler_;
+  signin::IdentityManager* identity_manager_ = nullptr;
 
   // Handles requests for extension printers. Created lazily by calling
   // GetPrinterHandler().

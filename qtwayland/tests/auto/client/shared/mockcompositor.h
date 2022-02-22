@@ -1,5 +1,6 @@
 /****************************************************************************
 **
+** Copyright (C) 2021 David Edmundson <davidedmundson@kde.org>
 ** Copyright (C) 2018 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
@@ -32,6 +33,8 @@
 #include "corecompositor.h"
 #include "coreprotocol.h"
 #include "datadevice.h"
+#include "fullscreenshellv1.h"
+#include "iviapplication.h"
 #include "xdgshell.h"
 
 #include <QtGui/QGuiApplication>
@@ -64,6 +67,8 @@ public:
     Touch *touch() { auto *seat = get<Seat>(); Q_ASSERT(seat); return seat->m_touch; }
     Surface *cursorSurface() { auto *p = pointer(); return p ? p->cursorSurface() : nullptr; }
     Keyboard *keyboard() { auto *seat = get<Seat>(); Q_ASSERT(seat); return seat->m_keyboard; }
+    FullScreenShellV1 *fullScreenShellV1() {return get<FullScreenShellV1>();};
+    IviSurface *iviSurface(int i = 0) { return get<IviApplication>()->m_iviSurfaces.value(i, nullptr); }
     uint sendXdgShellPing();
     void xdgPingAndWaitForPong();
     // Things that can be changed run-time without confusing the client (i.e. don't require separate tests)
@@ -91,6 +96,7 @@ int main(int argc, char **argv) \
     setenv("QT_QPA_PLATFORM", "wayland", 1); \
     test tc; \
     QGuiApplication app(argc, argv); \
+    QTEST_SET_MAIN_SOURCE_PATH \
     return QTest::qExec(&tc, argc, argv); \
 } \
 

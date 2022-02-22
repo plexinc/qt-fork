@@ -213,7 +213,7 @@ namespace
         case QShaderLanguage::Sampler1DArrayShadow:
             return "sampler1DArrayShadow";
         case QShaderLanguage::Sampler2DArrayShadow:
-            return "sample2DArrayShadow";
+            return "sampler2DArrayShadow";
         case QShaderLanguage::SamplerCubeShadow:
             return "samplerCubeShadow";
         case QShaderLanguage::SamplerCubeArrayShadow:
@@ -298,14 +298,14 @@ namespace
     struct ShaderGenerationState
     {
         ShaderGenerationState(const QShaderGenerator &gen,
-                              QVector<QShaderGraph::Statement> statements)
+                              QList<QShaderGraph::Statement> statements)
             : generator { gen }, statements { statements }
         {
 
         }
 
         const QShaderGenerator &generator;
-        QVector<QShaderGraph::Statement> statements;
+        QList<QShaderGraph::Statement> statements;
         QByteArrayList code;
     };
 
@@ -402,52 +402,12 @@ namespace
         void onInclude(QByteArrayList &code, const QByteArray &snippet) noexcept
         {
             const auto filepath = QString::fromUtf8(snippet.mid(strlen("#pragma include ")));
-            QString deincluded = QString::fromUtf8(QShaderProgramPrivate::deincludify(filepath));
+            const QByteArray deincluded = QShaderProgramPrivate::deincludify(filepath);
 
-            // This lambda will replace all occurrences of a string (e.g. "binding = auto") by another,
-            // with the incremented int passed as argument (e.g. "binding = 1", "binding = 2" ...)
-            const auto replaceAndIncrement = [&deincluded](const QRegularExpression &regexp,
-                                                           int &variable,
-                                                           const QString &replacement) noexcept {
-                int matchStart = 0;
-                do {
-                    matchStart = deincluded.indexOf(regexp, matchStart);
-                    if (matchStart != -1) {
-                        const auto match = regexp.match(deincluded.midRef(matchStart));
-                        const auto length = match.capturedLength(0);
-
-                        deincluded.replace(matchStart, length, replacement.arg(variable++));
-                    }
-                } while (matchStart != -1);
-            };
-
-            // 1. Handle uniforms
-            {
-                thread_local const QRegularExpression bindings(
-                        QStringLiteral("binding\\s?+=\\s?+auto"));
-
-                replaceAndIncrement(bindings, currentBinding, QStringLiteral("binding = %1"));
-            }
-
-            // 2. Handle inputs
-            {
-                thread_local const QRegularExpression inLocations(
-                        QStringLiteral("location\\s?+=\\s?+auto\\s?+\\)\\s?+in\\s+"));
-
-                replaceAndIncrement(inLocations, currentInputLocation,
-                                    QStringLiteral("location = %1) in "));
-            }
-
-            // 3. Handle outputs
-            {
-                thread_local const QRegularExpression outLocations(
-                        QStringLiteral("location\\s?+=\\s?+auto\\s?+\\)\\s?+out\\s+"));
-
-                replaceAndIncrement(outLocations, currentOutputLocation,
-                                    QStringLiteral("location = %1) out "));
-            }
-
-            code << deincluded.toUtf8();
+            code << QShaderProgramPrivate::resolveAutoBindingIndices(deincluded,
+                                                                     currentBinding,
+                                                                     currentInputLocation,
+                                                                     currentOutputLocation);
         }
 
         int currentInputLocation { 0 };
@@ -522,7 +482,7 @@ namespace
 
 QByteArray QShaderGenerator::createShaderCode(const QStringList &enabledLayers) const
 {
-    const QVector<QShaderNode> nodes = graph.nodes();
+    const QList<QShaderNode> nodes = graph.nodes();
     const auto statements = graph.createStatements(enabledLayers);
     ShaderGenerationState state(*this, statements);
     QByteArrayList &code = state.code;
@@ -553,7 +513,7 @@ QByteArray QShaderGenerator::createShaderCode(const QStringList &enabledLayers) 
     struct Assignment
     {
         QString expression;
-        QVector<Variable *> referencedVariables;
+        QList<Variable *> referencedVariables;
     };
 
     struct Variable
@@ -611,16 +571,16 @@ QByteArray QShaderGenerator::createShaderCode(const QStringList &enabledLayers) 
     // just use vertexPosition directly.
     // The added benefit is when having arrays, we don't try to create
     // mat4 v38 = skinningPalelette[100] which would be invalid
-    QVector<Variable> temporaryVariables;
+    std::vector<Variable> temporaryVariables;
     // Reserve more than enough space to ensure no reallocation will take place
     temporaryVariables.reserve(nodes.size() * 8);
 
-    QVector<LineContent> lines;
+    QList<LineContent> lines;
 
     auto createVariable = [&] () -> Variable * {
         Q_ASSERT(temporaryVariables.capacity() > 0);
         temporaryVariables.resize(temporaryVariables.size() + 1);
-        return &temporaryVariables.last();
+        return &temporaryVariables.back();
     };
 
     auto findVariable = [&] (const QString &name) -> Variable * {
@@ -655,7 +615,7 @@ QByteArray QShaderGenerator::createShaderCode(const QStringList &enabledLayers) 
     for (const QShaderGraph::Statement &statement : statements) {
         const QShaderNode node = statement.node;
         QByteArray line = node.rule(format).substitution;
-        const QVector<QShaderNodePort> ports = node.ports();
+        const QList<QShaderNodePort> ports = node.ports();
 
         struct VariableReplacement
         {
@@ -663,7 +623,7 @@ QByteArray QShaderGenerator::createShaderCode(const QStringList &enabledLayers) 
             QByteArray variable;
         };
 
-        QVector<VariableReplacement> variableReplacements;
+        QList<VariableReplacement> variableReplacements;
 
         // Generate temporary variable names vN
         for (const QShaderNodePort &port : ports) {

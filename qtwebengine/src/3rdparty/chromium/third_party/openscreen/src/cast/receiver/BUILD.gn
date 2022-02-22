@@ -9,7 +9,9 @@ source_set("channel") {
     "channel/message_util.cc",
     "channel/message_util.h",
     "channel/receiver_socket_factory.cc",
-    "channel/receiver_socket_factory.h",
+    "channel/static_credentials.cc",
+    "channel/static_credentials.h",
+    "public/receiver_socket_factory.h",
   ]
 
   public_deps = [
@@ -23,6 +25,24 @@ source_set("channel") {
   deps = [
     "../../util",
     "../common:certificate",
+  ]
+}
+
+source_set("agent") {
+  sources = [
+    "application_agent.cc",
+    "application_agent.h",
+  ]
+
+  public_deps = [
+    "../../platform",
+    "../common:channel",
+    "../common:public",
+  ]
+
+  deps = [
+    ":channel",
+    "../../util",
   ]
 }
 
@@ -47,12 +67,15 @@ source_set("test_helpers") {
 source_set("unittests") {
   testonly = true
   sources = [
+    "application_agent_unittest.cc",
     "channel/device_auth_namespace_handler_unittest.cc",
   ]
 
   deps = [
+    ":agent",
     ":channel",
     ":test_helpers",
+    "../../platform:test",
     "../../testing/util",
     "../../third_party/googletest:gmock",
     "../../third_party/googletest:gtest",
@@ -60,7 +83,5 @@ source_set("unittests") {
     "../common/channel/proto:channel_proto",
   ]
 
-  data = [
-    "../../test/data/cast/receiver/channel",
-  ]
+  data = [ "../../test/data/cast/receiver/channel/" ]
 }

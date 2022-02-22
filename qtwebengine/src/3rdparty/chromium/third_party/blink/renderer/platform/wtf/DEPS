@@ -1,6 +1,7 @@
 include_rules = [
-    # To whitelist base/ stuff Blink is allowed to include, we list up all
+    # To only allow a subset of base/ in Blink, we explicitly list all
     # directories and files instead of writing 'base/'.
+    "+base/allocator/buildflags.h",
     "+base/allocator/partition_allocator",
     "+base/atomic_ref_count.h",
     "+base/auto_reset.h",
@@ -14,6 +15,7 @@ include_rules = [
     "+base/memory/ref_counted.h",
     "+base/memory/weak_ptr.h",
     "+base/metrics/histogram_macros.h",
+    "+base/no_destructor.h",
     "+base/numerics",
     "+base/optional.h",
     "+base/process/process_metrics.h",
@@ -23,6 +25,7 @@ include_rules = [
     "+base/third_party/double_conversion",
     "+base/template_util.h",
     "+base/test/metrics/histogram_tester.h",
+    "+base/thread_annotations.h",
     "+base/threading",
     "+base/time/time.h",
     "+base/tuple.h",
@@ -31,4 +34,6 @@ include_rules = [
     "-third_party/blink/renderer/platform",
     "+third_party/blink/renderer/platform/wtf",
     "-v8",
+    # Allow pulling in cppgc for Oilpan use.
+    "+v8/include/cppgc",
 ]

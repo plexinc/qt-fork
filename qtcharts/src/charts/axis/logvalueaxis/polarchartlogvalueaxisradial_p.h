@@ -42,7 +42,7 @@
 #include <private/polarchartaxisradial_p.h>
 #include <QtCharts/private/qchartglobal_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class QLogValueAxis;
 
@@ -54,14 +54,14 @@ public:
     ~PolarChartLogValueAxisRadial();
 
 protected:
-    virtual QVector<qreal> calculateLayout() const;
-    virtual void createAxisLabels(const QVector<qreal> &layout);
+    QList<qreal> calculateLayout() const override;
+    void createAxisLabels(const QList<qreal> &layout) override;
 
 private Q_SLOTS:
     void handleBaseChanged(qreal base);
     void handleLabelFormatChanged(const QString &format);
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // POLARCHARTLOGVALUEAXISRADIAL_P_H

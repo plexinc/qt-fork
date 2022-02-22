@@ -151,8 +151,8 @@ template <typename Lambda> struct ProcessNetlinkRequest
 
     static int expectedTypeForRequest(int rtype)
     {
-        Q_STATIC_ASSERT(RTM_NEWADDR == RTM_GETADDR - 2);
-        Q_STATIC_ASSERT(RTM_NEWLINK == RTM_GETLINK - 2);
+        static_assert(RTM_NEWADDR == RTM_GETADDR - 2);
+        static_assert(RTM_NEWLINK == RTM_GETLINK - 2);
         Q_ASSERT(rtype == RTM_GETADDR || rtype == RTM_GETLINK);
         return rtype - 2;
     }
@@ -303,9 +303,9 @@ static QList<QNetworkInterfacePrivate *> getInterfaces(int sock, char *buf)
             case IFLA_OPERSTATE:    // operational state
                 if (*payloadPtr != IF_OPER_UNKNOWN) {
                     // override the flag
-                    iface->flags &= ~QNetworkInterface::IsUp;
+                    iface->flags &= ~QNetworkInterface::IsRunning;
                     if (*payloadPtr == IF_OPER_UP)
-                        iface->flags |= QNetworkInterface::IsUp;
+                        iface->flags |= QNetworkInterface::IsRunning;
                 }
                 break;
             }

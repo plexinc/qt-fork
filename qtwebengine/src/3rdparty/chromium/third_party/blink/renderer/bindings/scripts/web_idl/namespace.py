@@ -2,6 +2,8 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import itertools
+
 from .attribute import Attribute
 from .code_generator_info import CodeGeneratorInfo
 from .composition_parts import WithCodeGeneratorInfo
@@ -71,12 +73,15 @@ class Namespace(UserDefinedType, WithExtendedAttributes, WithCodeGeneratorInfo,
             self.operation_groups = []
 
         def iter_all_members(self):
-            for attribute in self.attributes:
-                yield attribute
-            for constant in self.constants:
-                yield constant
-            for operation in self.operations:
-                yield operation
+            list_of_members = [
+                self.attributes,
+                self.constants,
+                self.operations,
+            ]
+            return itertools.chain(*list_of_members)
+
+        def iter_all_overload_groups(self):
+            return iter(self.operation_groups)
 
     def __init__(self, ir):
         assert isinstance(ir, Namespace.IR)
@@ -102,17 +107,24 @@ class Namespace(UserDefinedType, WithExtendedAttributes, WithCodeGeneratorInfo,
             for operation_ir in ir.operations
         ])
         self._operation_groups = tuple([
-            OperationGroup(
-                operation_group_ir,
-                filter(lambda x: x.identifier == operation_group_ir.identifier,
-                       self._operations),
-                owner=self) for operation_group_ir in ir.operation_groups
+            OperationGroup(operation_group_ir,
+                           list(
+                               filter(
+                                   lambda x: x.identifier == operation_group_ir
+                                   .identifier, self._operations)),
+                           owner=self)
+            for operation_group_ir in ir.operation_groups
         ])
 
     @property
     def inherited(self):
         """Returns the inherited namespace or None."""
         return None
+
+    @property
+    def deriveds(self):
+        """Returns the list of the derived namespaces."""
+        return ()
 
     @property
     def attributes(self):
@@ -135,6 +147,16 @@ class Namespace(UserDefinedType, WithExtendedAttributes, WithCodeGeneratorInfo,
         return ()
 
     @property
+    def named_constructors(self):
+        """Returns named constructors."""
+        return ()
+
+    @property
+    def named_constructor_groups(self):
+        """Returns groups of overloaded named constructors."""
+        return ()
+
+    @property
     def operations(self):
         """Returns operations."""
         return self._operations
@@ -148,3 +170,8 @@ class Namespace(UserDefinedType, WithExtendedAttributes, WithCodeGeneratorInfo,
     def exposed_constructs(self):
         """Returns exposed constructs."""
         return ()
+
+    # UserDefinedType overrides
+    @property
+    def is_namespace(self):
+        return True

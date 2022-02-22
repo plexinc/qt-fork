@@ -34,14 +34,17 @@
 #include <QtGui/QFont>
 #include <QtQml/QQmlEngine>
 #include <QtQml/QQmlComponent>
-#include "../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 
 class tst_QQmlSettings : public QQmlDataTest
 {
     Q_OBJECT
 
+public:
+    tst_QQmlSettings();
+
 private slots:
-    void initTestCase();
+    void initTestCase() override;
 
     void init();
     void cleanup();
@@ -117,7 +120,7 @@ signals:
     void intListPropertyChanged(const QVariantList &arg);
     void stringListPropertyChanged(const QVariantList &arg);
     void objectListPropertyChanged(const QVariantList &arg);
-    void datePropertyChanged(const QDate &arg);
+    void datePropertyChanged(QDate arg);
     void sizePropertyChanged(const QSizeF &arg);
     void pointPropertyChanged(const QPointF &arg);
     void rectPropertyChanged(const QRectF &arg);
@@ -143,6 +146,11 @@ private:
     QColor m_colorProperty;
     QFont m_fontProperty;
 };
+
+tst_QQmlSettings::tst_QQmlSettings()
+    : QQmlDataTest(QT_QMLTEST_DATADIR)
+{
+}
 
 void tst_QQmlSettings::initTestCase()
 {
@@ -494,7 +502,7 @@ void tst_QQmlSettings::noApplicationIdentifiersSet()
 
     QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*QML Settings: Failed to initialize QSettings instance. Status code is: 1"));
     // Can't set an empty applicationName because QCoreApplication won't allow it, which is why it's not listed here.
-    QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*QML Settings: The following application identifiers have not been set: QVector\\(\"organizationName\", \"organizationDomain\"\\)"));
+    QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*QML Settings: The following application identifiers have not been set: QList\\(\"organizationName\", \"organizationDomain\"\\)"));
 
     QQmlEngine engine;
     QQmlComponent component(&engine, testFileUrl("basic.qml"));

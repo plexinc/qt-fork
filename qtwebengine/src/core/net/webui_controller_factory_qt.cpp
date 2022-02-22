@@ -44,39 +44,37 @@
 
 #include "webui_controller_factory_qt.h"
 
+#include "build_config_qt.h"
+
 #include "base/bind.h"
-#include "base/location.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "chrome/browser/accessibility/accessibility_ui.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/devtools_ui.h"
+#include "chrome/browser/ui/webui/net_internals/net_internals_ui.h"
 #include "chrome/browser/ui/webui/quota_internals/quota_internals_ui.h"
+#include "chrome/browser/ui/webui/user_actions/user_actions_ui.h"
 #include "chrome/common/url_constants.h"
-#include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
-#include "content/public/common/content_client.h"
 #include "content/public/common/url_utils.h"
 #include "extensions/buildflags/buildflags.h"
 #include "media/media_buildflags.h"
 #include "ppapi/buildflags/buildflags.h"
 #include "printing/buildflags/buildflags.h"
-#include "ui/web_dialogs/web_dialog_ui.h"
 #include "url/gurl.h"
 
 #if defined(OS_LINUX) || defined(OS_ANDROID)
 #include "chrome/browser/ui/webui/sandbox/sandbox_internals_ui.h"
 #endif
 
+#if QT_CONFIG(webengine_webrtc) && QT_CONFIG(webengine_extensions)
+#include "chrome/browser/ui/webui/media/webrtc_logs_ui.h"
+#endif
+
 // The Following WebUIs are disabled because they currently doesn't build
 // or doesn't work, but would be interesting for us if they did:
 
 // #include "chrome/browser/ui/webui/inspect_ui.h"
-// #include "chrome/browser/ui/webui/user_actions/user_actions_ui.h"
-
-// #if BUILDFLAG(ENABLE_WEBRTC)
-// #include "chrome/browser/ui/webui/media/webrtc_logs_ui.h"
-// #endif
 
 // #if BUILDFLAG(ENABLE_PRINT_PREVIEW)
 // #include "chrome/browser/ui/webui/print_preview/print_preview_ui.h"
@@ -119,6 +117,8 @@ std::unique_ptr<WebUIController> NewWebUI(WebUI *web_ui, const GURL & /*url*/)
 // with it.
 WebUIFactoryFunction GetWebUIFactoryFunction(WebUI *web_ui, Profile *profile, const GURL &url)
 {
+    Q_UNUSED(web_ui);
+    Q_UNUSED(profile);
     // This will get called a lot to check all URLs, so do a quick check of other
     // schemes to filter out most URLs.
     if (!content::HasWebUIScheme(url))
@@ -126,6 +126,9 @@ WebUIFactoryFunction GetWebUIFactoryFunction(WebUI *web_ui, Profile *profile, co
 
     // We must compare hosts only since some of the Web UIs append extra stuff
     // after the host name.
+    if (url.host() == chrome::kChromeUINetInternalsHost)
+        return &NewWebUI<NetInternalsUI>;
+
     if (url.host() == chrome::kChromeUIQuotaInternalsHost)
         return &NewWebUI<QuotaInternalsUI>;
 
@@ -137,8 +140,9 @@ WebUIFactoryFunction GetWebUIFactoryFunction(WebUI *web_ui, Profile *profile, co
     if (url.host() == chrome::kChromeUIAccessibilityHost)
         return &NewWebUI<AccessibilityUI>;
 
-//    if (url.host_piece() == chrome::kChromeUIUserActionsHost)
-//        return &NewWebUI<UserActionsUI>;
+    if (url.host_piece() == chrome::kChromeUIUserActionsHost)
+        return &NewWebUI<UserActionsUI>;
+
 //    if (url.host_piece() == chrome::kChromeUIInspectHost)
 //        return &NewWebUI<InspectUI>;
 //
@@ -150,20 +154,16 @@ WebUIFactoryFunction GetWebUIFactoryFunction(WebUI *web_ui, Profile *profile, co
 //    if (url.host_piece() == chrome::kChromeUIExtensionsFrameHost)
 //        return &NewWebUI<extensions::ExtensionsUI>;
 //#endif
-//#if BUILDFLAG(ENABLE_PLUGINS)
-//    if (url.host_piece() == chrome::kChromeUIFlashHost)
-//        return &NewWebUI<FlashUI>;
-//#endif
 //#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
 //    if (url.host_piece() == chrome::kChromeUIPrintHost &&
 //        !profile->GetPrefs()->GetBoolean(prefs::kPrintPreviewDisabled)) {
 //        return &NewWebUI<PrintPreviewUI>;
 //    }
 //#endif
-//#if BUILDFLAG(ENABLE_WEBRTC)
-//    if (url.host_piece() == chrome::kChromeUIWebRtcLogsHost)
-//        return &NewWebUI<WebRtcLogsUI>;
-//#endif
+#if QT_CONFIG(webengine_webrtc) && QT_CONFIG(webengine_extensions)
+    if (url.host_piece() == chrome::kChromeUIWebRtcLogsHost)
+        return &NewWebUI<WebRtcLogsUI>;
+#endif
 #if defined(OS_LINUX) || defined(OS_ANDROID)
     if (url.host_piece() == chrome::kChromeUISandboxHost)
         return &NewWebUI<SandboxInternalsUI>;
@@ -185,11 +185,6 @@ WebUI::TypeID WebUIControllerFactoryQt::GetWebUIType(content::BrowserContext *br
 bool WebUIControllerFactoryQt::UseWebUIForURL(content::BrowserContext *browser_context, const GURL &url)
 {
     return GetWebUIType(browser_context, url) != WebUI::kNoWebUI;
-}
-
-bool WebUIControllerFactoryQt::UseWebUIBindingsForURL(content::BrowserContext *browser_context, const GURL &url)
-{
-    return UseWebUIForURL(browser_context, url);
 }
 
 std::unique_ptr<WebUIController> WebUIControllerFactoryQt::CreateWebUIControllerForURL(WebUI *web_ui, const GURL &url)

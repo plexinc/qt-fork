@@ -5,21 +5,31 @@
 #ifndef CONTENT_BROWSER_SPEECH_TTS_UTTERANCE_IMPL_H_
 #define CONTENT_BROWSER_SPEECH_TTS_UTTERANCE_IMPL_H_
 
+#include <memory>
 #include <set>
 #include <string>
 
-#include "base/values.h"
-#include "content/public/browser/tts_controller.h"
 #include "content/public/browser/tts_utterance.h"
+#include "content/public/browser/web_contents_observer.h"
+
+namespace base {
+class Value;
+}
 
 namespace content {
 class BrowserContext;
+class WebContents;
 
 // Implementation of TtsUtterance.
-class CONTENT_EXPORT TtsUtteranceImpl : public TtsUtterance {
+class CONTENT_EXPORT TtsUtteranceImpl : public TtsUtterance,
+                                        public WebContentsObserver {
  public:
-  TtsUtteranceImpl(BrowserContext* browser_context);
+  TtsUtteranceImpl(BrowserContext* browser_context, WebContents* web_contents);
   ~TtsUtteranceImpl() override;
+
+  bool was_created_with_web_contents() const {
+    return was_created_with_web_contents_;
+  }
 
   // TtsUtterance overrides.
   void OnTtsEvent(TtsEventType event_type,
@@ -52,8 +62,8 @@ class CONTENT_EXPORT TtsUtteranceImpl : public TtsUtterance {
                                const double volume) override;
   const UtteranceContinuousParameters& GetContinuousParameters() override;
 
-  void SetCanEnqueue(bool can_enqueue) override;
-  bool GetCanEnqueue() override;
+  void SetShouldClearQueue(bool value) override;
+  bool GetShouldClearQueue() override;
 
   void SetRequiredEventTypes(const std::set<TtsEventType>& types) override;
   const std::set<TtsEventType>& GetRequiredEventTypes() override;
@@ -76,6 +86,9 @@ class CONTENT_EXPORT TtsUtteranceImpl : public TtsUtterance {
  private:
   // The BrowserContext that initiated this utterance.
   BrowserContext* browser_context_;
+
+  // True if the constructor was supplied with a WebContents.
+  const bool was_created_with_web_contents_;
 
   // The content embedder engine ID of the engine providing TTS for this
   // utterance, or empty if native TTS is being used.
@@ -110,7 +123,7 @@ class CONTENT_EXPORT TtsUtteranceImpl : public TtsUtterance {
   std::string voice_name_;
   std::string lang_;
   UtteranceContinuousParameters continuous_parameters_;
-  bool can_enqueue_;
+  bool should_clear_queue_;
   std::set<TtsEventType> required_event_types_;
   std::set<TtsEventType> desired_event_types_;
 

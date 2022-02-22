@@ -258,8 +258,9 @@ void NativeWidgetMac::OnWidgetInitDone() {
   ns_window_host_->OnWidgetInitDone();
 }
 
-NonClientFrameView* NativeWidgetMac::CreateNonClientFrameView() {
-  return new NativeFrameView(GetWidget());
+std::unique_ptr<NonClientFrameView>
+NativeWidgetMac::CreateNonClientFrameView() {
+  return std::make_unique<NativeFrameView>(GetWidget());
 }
 
 bool NativeWidgetMac::ShouldUseNativeFrame() const {
@@ -664,7 +665,7 @@ void NativeWidgetMac::SetOpacity(float opacity) {
 void NativeWidgetMac::SetAspectRatio(const gfx::SizeF& aspect_ratio) {
   if (!GetNSWindowMojo())
     return;
-  GetNSWindowMojo()->SetContentAspectRatio(aspect_ratio);
+  GetNSWindowMojo()->SetAspectRatio(aspect_ratio);
 }
 
 void NativeWidgetMac::FlashFrame(bool flash_frame) {
@@ -675,7 +676,7 @@ void NativeWidgetMac::RunShellDrag(View* view,
                                    std::unique_ptr<ui::OSExchangeData> data,
                                    const gfx::Point& location,
                                    int operation,
-                                   ui::DragDropTypes::DragEventSource source) {
+                                   ui::mojom::DragEventSource source) {
   ns_window_host_->drag_drop_client()->StartDragAndDrop(view, std::move(data),
                                                         operation, source);
 }

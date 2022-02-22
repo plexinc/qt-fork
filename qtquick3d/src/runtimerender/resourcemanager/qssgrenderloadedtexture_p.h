@@ -1,4 +1,4 @@
-/****************************************************************************
+﻿/****************************************************************************
 **
 ** Copyright (C) 2008-2012 NVIDIA Corporation.
 ** Copyright (C) 2019 The Qt Company Ltd.
@@ -42,16 +42,15 @@
 // We mean it.
 //
 
-#include <QtQuick3DRender/private/qssgrenderbasetypes_p.h>
-
-#include <QtQuick3DRuntimeRender/private/qssgrenderinputstreamfactory_p.h>
+#include <QtQuick3DUtils/private/qssgrenderbasetypes_p.h>
+#include <QtQuick3DRuntimeRender/private/qtquick3druntimerenderglobal_p.h>
 
 #include <QtGui/QImage>
 
 #include <private/qtexturefiledata_p.h>
 
 QT_BEGIN_NAMESPACE
-class QSSGInputStreamFactory;
+class QSSGRenderTextureData;
 
 struct QSSGTextureData
 {
@@ -59,34 +58,34 @@ struct QSSGTextureData
     quint32 dataSizeInBytes = 0;
     QSSGRenderTextureFormat format = QSSGRenderTextureFormat::Unknown;
 };
-enum class QSSGExtendedTextureFormats
-{
-    NoExtendedFormat = 0,
-    Palettized,
-    CustomRGB,
-};
-// Utility class used for loading image data from disk.
-// Supports jpg, png, and dds.
-struct QSSGLoadedTexture
+
+struct Q_QUICK3DRUNTIMERENDER_EXPORT QSSGInputUtil
 {
 public:
-    QAtomicInt ref;
+    enum FileType { UnknownFile, ImageFile, TextureFile, HdrFile };
+    static QSharedPointer<QIODevice> getStreamForFile(const QString &inPath,
+                                                      bool inQuiet = false,
+                                                      QString *outPath = nullptr);
+    static QSharedPointer<QIODevice> getStreamForTextureFile(const QString &inPath,
+                                                             bool inQuiet = false,
+                                                             QString *outPath = nullptr,
+                                                             FileType *outFileType = nullptr);
+};
+
+
+// Utility class used for loading image data from disk.
+struct Q_QUICK3DRUNTIMERENDER_EXPORT QSSGLoadedTexture
+{
+public:
     qint32 width = 0;
     qint32 height = 0;
     qint32 components = 0;
     void *data = nullptr;
+    bool ownsData = true;
     QTextureFileData compressedData;
     QImage image;
     quint32 dataSizeInBytes = 0;
     QSSGRenderTextureFormat format = QSSGRenderTextureFormat::RGBA8;
-    QSSGExtendedTextureFormats m_ExtendedFormat = QSSGExtendedTextureFormats::NoExtendedFormat;
-    // Used for palettized images.
-    void *m_palette = nullptr;
-    qint32 m_customMasks[3]{ 0, 0, 0 };
-    int m_bitCount = 0;
-    char m_backgroundColor[3]{ 0, 0, 0 };
-    quint8 *m_transparencyTable = nullptr;
-    qint32 m_transparentPaletteIndex = -1;
 
     ~QSSGLoadedTexture();
     void setFormatFromComponents()
@@ -111,23 +110,15 @@ public:
     }
 
     // Returns true if this image has a pixel less than 255.
-    bool scanForTransparency();
+    bool scanForTransparency() const;
 
-    static QSSGRef<QSSGLoadedTexture> load(const QString &inPath,
-                                               const QSSGRenderTextureFormat &inFormat,
-                                               QSSGInputStreamFactory &inFactory,
-                                               bool inFlipY = true,
-                                               const QSSGRenderContextType &renderContextType = QSSGRenderContextType::NullContext);
-    static QSSGRef<QSSGLoadedTexture> loadQImage(const QString &inPath,
-                                                     const QSSGRenderTextureFormat &inFormat,
-                                                     qint32 flipVertical,
-                                                     QSSGRenderContextType renderContextType);
-    static QSSGRef<QSSGLoadedTexture> loadCompressedImage(const QString &inPath,
-                                                          const QSSGRenderTextureFormat &inFormat,
-                                                          bool inFlipY = true,
-                                                          const QSSGRenderContextType &renderContextType = QSSGRenderContextType::NullContext);
-    static QSSGRef<QSSGLoadedTexture> loadHdrImage(const QSharedPointer<QIODevice> &source,
-                                                   QSSGRenderContextType renderContextType);
+    static QSSGLoadedTexture *load(const QString &inPath,
+                                   const QSSGRenderTextureFormat &inFormat,
+                                   bool inFlipY = true);
+    static QSSGLoadedTexture *loadQImage(const QString &inPath, qint32 flipVertical);
+    static QSSGLoadedTexture *loadCompressedImage(const QString &inPath);
+    static QSSGLoadedTexture *loadHdrImage(const QSharedPointer<QIODevice> &source, const QSSGRenderTextureFormat &inFormat);
+    static QSSGLoadedTexture *loadTextureData(QSSGRenderTextureData *textureData);
 };
 QT_END_NAMESPACE
 

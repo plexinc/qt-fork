@@ -44,12 +44,24 @@
 
 #include "component_extension_resource_manager_qt.h"
 
+#include "base/check.h"
 #include "base/logging.h"
 #include "base/path_service.h"
 #include "base/stl_util.h"
 #include "base/values.h"
-
 #include "chrome/grit/component_extension_resources_map.h"
+#include "content/public/browser/browser_thread.h"
+#include "extensions/common/constants.h"
+#include "pdf/buildflags.h"
+#include "ppapi/buildflags/buildflags.h"
+
+#if BUILDFLAG(ENABLE_PLUGINS)
+#include "chrome/grit/pdf_resources_map.h"
+#endif
+
+#if BUILDFLAG(ENABLE_PDF)
+#include "qtwebengine/browser/pdf/pdf_extension_util.h"
+#endif  // BUILDFLAG(ENABLE_PDF)
 
 namespace extensions {
 
@@ -57,6 +69,18 @@ ComponentExtensionResourceManagerQt::ComponentExtensionResourceManagerQt()
 {
     AddComponentResourceEntries(kComponentExtensionResources,
                                 kComponentExtensionResourcesSize);
+#if BUILDFLAG(ENABLE_PLUGINS)
+    AddComponentResourceEntries(kPdfResources, kPdfResourcesSize);
+#endif
+#if BUILDFLAG(ENABLE_PDF)
+    base::Value dict(base::Value::Type::DICTIONARY);
+    pdf_extension_util::AddStrings(pdf_extension_util::PdfViewerContext::kPdfViewer, &dict);
+    pdf_extension_util::AddAdditionalData(&dict);
+
+    ui::TemplateReplacements pdf_viewer_replacements;
+    ui::TemplateReplacementsFromDictionaryValue(base::Value::AsDictionaryValue(dict), &pdf_viewer_replacements);
+    template_replacements_[extension_misc::kPdfExtensionId] = std::move(pdf_viewer_replacements);
+#endif
 }
 
 ComponentExtensionResourceManagerQt::~ComponentExtensionResourceManagerQt() {}
@@ -85,24 +109,25 @@ bool ComponentExtensionResourceManagerQt::IsComponentExtensionResource(const bas
     return false;
 }
 
-const ui::TemplateReplacements *ComponentExtensionResourceManagerQt::GetTemplateReplacementsForExtension(const std::string &) const
+const ui::TemplateReplacements *ComponentExtensionResourceManagerQt::GetTemplateReplacementsForExtension(const std::string &extension_id) const
 {
-    return nullptr;
+    DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+    auto it = template_replacements_.find(extension_id);
+    return it != template_replacements_.end() ? &it->second : nullptr;
 }
 
-void ComponentExtensionResourceManagerQt::AddComponentResourceEntries(const GritResourceMap *entries, size_t size)
+void ComponentExtensionResourceManagerQt::AddComponentResourceEntries(const webui::ResourcePath *entries, size_t size)
 {
     base::FilePath gen_folder_path = base::FilePath().AppendASCII("@out_folder@/gen/chrome/browser/resources/");
     gen_folder_path = gen_folder_path.NormalizePathSeparators();
 
     for (size_t i = 0; i < size; ++i) {
-        base::FilePath resource_path = base::FilePath().AppendASCII(entries[i].name);
+        base::FilePath resource_path = base::FilePath().AppendASCII(entries[i].path);
         resource_path = resource_path.NormalizePathSeparators();
-
 
         if (!gen_folder_path.IsParent(resource_path)) {
             DCHECK(!base::Contains(path_to_resource_id_, resource_path));
-            path_to_resource_id_[resource_path] = entries[i].value;
+            path_to_resource_id_[resource_path] = entries[i].id;
         } else {
             // If the resource is a generated file, strip the generated folder's path,
             // so that it can be served from a normal URL (as if it were not
@@ -111,7 +136,7 @@ void ComponentExtensionResourceManagerQt::AddComponentResourceEntries(const Grit
             base::FilePath().AppendASCII(resource_path.AsUTF8Unsafe().substr(
                     gen_folder_path.value().length()));
             DCHECK(!base::Contains(path_to_resource_id_, effective_path));
-            path_to_resource_id_[effective_path] = entries[i].value;
+            path_to_resource_id_[effective_path] = entries[i].id;
         }
     }
 }

@@ -31,6 +31,7 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/modules/webaudio/audio_listener.h"
 #include "third_party/blink/renderer/modules/webaudio/deferred_task_handler.h"
 #include "third_party/blink/renderer/modules/webaudio/offline_audio_completion_event.h"
@@ -51,17 +52,17 @@ OfflineAudioContext* OfflineAudioContext::Create(
     float sample_rate,
     ExceptionState& exception_state) {
   // FIXME: add support for workers.
-  auto* document = Document::DynamicFrom(context);
-  if (!document) {
+  auto* window = DynamicTo<LocalDOMWindow>(context);
+  if (!window) {
     exception_state.ThrowDOMException(DOMExceptionCode::kNotSupportedError,
                                       "Workers are not supported.");
     return nullptr;
   }
 
-  if (document->IsDetached()) {
+  if (context->IsContextDestroyed()) {
     exception_state.ThrowDOMException(
         DOMExceptionCode::kNotSupportedError,
-        "Cannot create OfflineAudioContext on a detached document.");
+        "Cannot create OfflineAudioContext on a detached context.");
     return nullptr;
   }
 
@@ -98,30 +99,15 @@ OfflineAudioContext* OfflineAudioContext::Create(
   }
 
   OfflineAudioContext* audio_context =
-      MakeGarbageCollected<OfflineAudioContext>(document, number_of_channels,
-                                                number_of_frames, sample_rate,
-                                                exception_state);
+      MakeGarbageCollected<OfflineAudioContext>(
+          window->document(), number_of_channels, number_of_frames, sample_rate,
+          exception_state);
   audio_context->UpdateStateIfNeeded();
 
 #if DEBUG_AUDIONODE_REFERENCES
   fprintf(stderr, "[%16p]: OfflineAudioContext::OfflineAudioContext()\n",
           audio_context);
 #endif
-  base::UmaHistogramSparse("WebAudio.OfflineAudioContext.ChannelCount",
-                           number_of_channels);
-  // Arbitrarly limit the maximum length to 1 million frames (about 20 sec
-  // at 48kHz).  The number of buckets is fairly arbitrary.
-  base::UmaHistogramCounts1M("WebAudio.OfflineAudioContext.Length",
-                             number_of_frames);
-  // The limits are the min and max AudioBuffer sample rates currently
-  // supported.  We use explicit values here instead of
-  // audio_utilities::minAudioBufferSampleRate() and
-  // audio_utilities::maxAudioBufferSampleRate().  The number of buckets is
-  // fairly arbitrary.
-  base::UmaHistogramCustomCounts(
-      "WebAudio.OfflineAudioContext.SampleRate384kHz", sample_rate, 3000,
-      384000, 50);
-
   return audio_context;
 }
 
@@ -156,7 +142,7 @@ OfflineAudioContext::~OfflineAudioContext() {
 #endif
 }
 
-void OfflineAudioContext::Trace(Visitor* visitor) {
+void OfflineAudioContext::Trace(Visitor* visitor) const {
   visitor->Trace(complete_resolver_);
   visitor->Trace(scheduled_suspends_);
   BaseAudioContext::Trace(visitor);

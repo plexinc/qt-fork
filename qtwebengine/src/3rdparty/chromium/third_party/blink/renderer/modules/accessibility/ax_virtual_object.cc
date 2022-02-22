@@ -2,8 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "third_party/blink/renderer/modules/accessibility/ax_object_cache_impl.h"
 #include "third_party/blink/renderer/modules/accessibility/ax_virtual_object.h"
+#include "third_party/blink/renderer/modules/accessibility/ax_object_cache_impl.h"
+#include "third_party/blink/renderer/modules/accessibility/ax_sparse_attribute_setter.h"
 
 namespace blink {
 
@@ -20,17 +21,40 @@ void AXVirtualObject::Detach() {
   accessible_node_ = nullptr;
 }
 
+Document* AXVirtualObject::GetDocument() const {
+  return GetAccessibleNode() ? GetAccessibleNode()->GetDocument() : nullptr;
+}
+
 bool AXVirtualObject::ComputeAccessibilityIsIgnored(
     IgnoredReasons* ignoredReasons) const {
   return AccessibilityIsIgnoredByDefault(ignoredReasons);
 }
 
 void AXVirtualObject::AddChildren() {
+#if DCHECK_IS_ON()
+  DCHECK(!IsDetached());
+  DCHECK(!is_adding_children_) << " Reentering method on " << GetNode();
+  base::AutoReset<bool> reentrancy_protector(&is_adding_children_, true);
+  DCHECK_EQ(children_.size(), 0U)
+      << "Parent still has " << children_.size() << " children before adding:"
+      << "\nParent is " << ToString(true, true) << "\nFirst child is "
+      << children_[0]->ToString(true, true);
+#endif
   if (!accessible_node_)
     return;
 
-  for (const auto& child : accessible_node_->GetChildren())
-    children_.push_back(AXObjectCache().GetOrCreate(child));
+  DCHECK(children_dirty_);
+  children_dirty_ = false;
+
+  for (const auto& child : accessible_node_->GetChildren()) {
+    AXObject* ax_child = AXObjectCache().GetOrCreate(child, this);
+    if (!ax_child)
+      continue;
+    DCHECK(!ax_child->IsDetached());
+    DCHECK(ax_child->AccessibilityIsIncludedInTree());
+
+    children_.push_back(ax_child);
+  }
 }
 
 void AXVirtualObject::ChildrenChanged() {
@@ -51,9 +75,9 @@ bool AXVirtualObject::HasAOMPropertyOrARIAAttribute(AOMBooleanProperty property,
   if (!accessible_node_)
     return false;
 
-  bool is_null = true;
-  result = accessible_node_->GetProperty(property, is_null);
-  return !is_null;
+  base::Optional<bool> property_value = accessible_node_->GetProperty(property);
+  result = property_value.value_or(false);
+  return property_value.has_value();
 }
 
 AccessibleNode* AXVirtualObject::GetAccessibleNode() const {
@@ -75,9 +99,18 @@ String AXVirtualObject::TextAlternative(bool recursive,
                              &found_text_alternative);
 }
 
-void AXVirtualObject::Trace(Visitor* visitor) {
+ax::mojom::blink::Role AXVirtualObject::DetermineAccessibilityRole() {
+  aria_role_ = DetermineAriaRoleAttribute();
+
+  // If no role was assigned, fall back to role="generic".
+  if (aria_role_ == ax::mojom::blink::Role::kUnknown)
+    aria_role_ = ax::mojom::blink::Role::kGenericContainer;
+
+  return aria_role_;
+}
+
+void AXVirtualObject::Trace(Visitor* visitor) const {
   visitor->Trace(accessible_node_);
   AXObject::Trace(visitor);
 }
-
 }  // namespace blink

@@ -38,61 +38,9 @@
 ****************************************************************************/
 #include <QDebug>
 #include <qaudioformat.h>
-
+#include <qalgorithms.h>
 
 QT_BEGIN_NAMESPACE
-
-static void qRegisterAudioFormatMetaTypes()
-{
-    qRegisterMetaType<QAudioFormat>();
-    qRegisterMetaType<QAudioFormat::SampleType>();
-    qRegisterMetaType<QAudioFormat::Endian>();
-}
-
-Q_CONSTRUCTOR_FUNCTION(qRegisterAudioFormatMetaTypes)
-
-class QAudioFormatPrivate : public QSharedData
-{
-public:
-    QAudioFormatPrivate()
-    {
-        sampleRate = -1;
-        channels = -1;
-        sampleSize = -1;
-        byteOrder = QAudioFormat::Endian(QSysInfo::ByteOrder);
-        sampleType = QAudioFormat::Unknown;
-    }
-
-    QAudioFormatPrivate(const QAudioFormatPrivate &other):
-        QSharedData(other),
-        codec(other.codec),
-        byteOrder(other.byteOrder),
-        sampleType(other.sampleType),
-        sampleRate(other.sampleRate),
-        channels(other.channels),
-        sampleSize(other.sampleSize)
-    {
-    }
-
-    QAudioFormatPrivate& operator=(const QAudioFormatPrivate &other)
-    {
-        codec = other.codec;
-        byteOrder = other.byteOrder;
-        sampleType = other.sampleType;
-        sampleRate = other.sampleRate;
-        channels = other.channels;
-        sampleSize = other.sampleSize;
-
-        return *this;
-    }
-
-    QString codec;
-    QAudioFormat::Endian byteOrder;
-    QAudioFormat::SampleType sampleType;
-    int sampleRate;
-    int channels;
-    int sampleSize;
-};
 
 /*!
     \class QAudioFormat
@@ -102,15 +50,12 @@ public:
     \ingroup multimedia
     \ingroup multimedia_audio
 
-    An audio format specifies how data in an audio stream is arranged,
-    i.e, how the stream is to be interpreted. The encoding itself is
-    specified by the codec() used for the stream.
+    An audio format specifies how data in a raw audio stream is arranged. For
+    example, how the stream is to be interpreted.
 
-    In addition to the encoding, QAudioFormat contains other
-    parameters that further specify how the audio sample data is arranged.
-    These are the frequency, the number of channels, the sample size,
-    the sample type, and the byte order. The following table describes
-    these in more detail.
+    QAudioFormat contains parameters that specify how the audio sample data
+    is arranged. These are the frequency, the number of channels, and the
+    sample format. The following table describes these in more detail.
 
     \table
         \header
@@ -122,241 +67,209 @@ public:
         \row
             \li Number of channels
             \li The number of audio channels (typically one for mono
-               or two for stereo)
+               or two for stereo). These are the amount of consecutive
+               samples that together form one frame in the stream
         \row
-            \li Sample size
-            \li How much data is stored in each sample (typically 8
-               or 16 bits)
-        \row
-            \li Sample type
-            \li Numerical representation of sample (typically signed integer,
-               unsigned integer or float)
-        \row
-            \li Byte order
-            \li Byte ordering of sample (typically little endian, big endian)
+            \li Sample format
+            \li The format of the audio samples in the stream
     \endtable
 
-    This class is typically used in conjunction with QAudioInput or
-    QAudioOutput to allow you to specify the parameters of the audio
+    This class is used in conjunction with QAudioSource or
+    QAudioSink to allow you to specify the parameters of the audio
     stream being read or written, or with QAudioBuffer when dealing with
     samples in memory.
 
     You can obtain audio formats compatible with the audio device used
-    through functions in QAudioDeviceInfo. This class also lets you
+    through functions in QAudioDevice. This class also lets you
     query available parameter values for a device, so that you can set
-    the parameters yourself. See the \l QAudioDeviceInfo class
+    the parameters yourself. See the \l QAudioDevice class
     description for details. You need to know the format of the audio
     streams you wish to play or record.
 
-    In the common case of interleaved linear PCM data, the codec will
-    be "audio/pcm", and the samples for all channels will be interleaved.
+    Samples for all channels will be interleaved.
     One sample for each channel for the same instant in time is referred
     to as a frame in Qt Multimedia (and other places).
 */
 
 /*!
-    Construct a new audio format.
+    \fn QAudioFormat::QAudioFormat()
+
+    Constructs a new audio format.
 
     Values are initialized as follows:
     \list
-    \li sampleRate()  = -1
-    \li channelCount() = -1
-    \li sampleSize() = -1
-    \li byteOrder()  = QAudioFormat::Endian(QSysInfo::ByteOrder)
-    \li sampleType() = QAudioFormat::Unknown
-    \c codec()      = ""
+    \li sampleRate()  = 0
+    \li channelCount() = 0
+    \li sampleFormat() = QAudioFormat::Unknown
     \endlist
 */
-QAudioFormat::QAudioFormat():
-    d(new QAudioFormatPrivate)
-{
-}
 
 /*!
+    \fn QAudioFormat::QAudioFormat(const QAudioFormat &other)
+
     Construct a new audio format using \a other.
 */
-QAudioFormat::QAudioFormat(const QAudioFormat &other):
-    d(other.d)
-{
-}
 
 /*!
+    \fn QAudioFormat::~QAudioFormat()
+
     Destroy this audio format.
 */
-QAudioFormat::~QAudioFormat()
-{
-}
 
 /*!
+    \fn QAudioFormat& QAudioFormat::operator=(const QAudioFormat &other)
+
     Assigns \a other to this QAudioFormat implementation.
 */
-QAudioFormat& QAudioFormat::operator=(const QAudioFormat &other)
-{
-    d = other.d;
-    return *this;
-}
 
 /*!
-  Returns true if this QAudioFormat is equal to the \a other
-  QAudioFormat; otherwise returns false.
+    \fn bool QAudioFormat::isValid() const
 
-  All elements of QAudioFormat are used for the comparison.
+    Returns \c true if all of the parameters are valid.
 */
-bool QAudioFormat::operator==(const QAudioFormat &other) const
-{
-    return d->sampleRate == other.d->sampleRate &&
-            d->channels == other.d->channels &&
-            d->sampleSize == other.d->sampleSize &&
-            d->byteOrder == other.d->byteOrder &&
-            d->codec == other.d->codec &&
-            d->sampleType == other.d->sampleType;
-}
 
 /*!
-  Returns true if this QAudioFormat is not equal to the \a other
-  QAudioFormat; otherwise returns false.
+    \fn void QAudioFormat::setSampleRate(int samplerate)
 
-  All elements of QAudioFormat are used for the comparison.
+    Sets the sample rate to \a samplerate in Hertz.
 */
-bool QAudioFormat::operator!=(const QAudioFormat& other) const
-{
-    return !(*this == other);
-}
 
 /*!
-    Returns true if all of the parameters are valid.
-*/
-bool QAudioFormat::isValid() const
-{
-    return d->sampleRate != -1 && d->channels != -1 && d->sampleSize != -1 &&
-            d->sampleType != QAudioFormat::Unknown && !d->codec.isEmpty();
-}
+    \fn int QAudioFormat::sampleRate() const
 
-/*!
-   Sets the sample rate to \a samplerate Hertz.
-
-*/
-void QAudioFormat::setSampleRate(int samplerate)
-{
-    d->sampleRate = samplerate;
-}
-
-/*!
     Returns the current sample rate in Hertz.
-
 */
-int QAudioFormat::sampleRate() const
+
+/*!
+    \enum QAudioFormat::AudioChannelPosition
+
+    Describes the possible audio channel positions. These follow the standard
+    definition used in the 22.2 surround sound configuration.
+
+    \value UnknownPosition Unknown position
+    \value FrontLeft
+    \value FrontRight
+    \value FrontCenter
+    \value LFE Low Frequency Effect channel (Subwoofer)
+    \value BackLeft
+    \value BackRight
+    \value FrontLeftOfCenter
+    \value FrontRightOfCenter
+    \value BackCenter
+    \value LFE2
+    \value SideLeft
+    \value SideRight
+    \value TopFrontLeft
+    \value TopFrontRight
+    \value TopFrontCenter
+    \value TopCenter
+    \value TopBackLeft
+    \value TopBackRight
+    \value TopSideLeft
+    \value TopSideRight
+    \value TopBackCenter
+    \value BottomFrontCenter
+    \value BottomFrontLeft
+    \value BottomFrontRight
+*/
+
+
+/*!
+    \enum QAudioFormat::ChannelConfig
+
+    This enum describes a standardized audio channel layout. The most common
+    configurations are Mono, Stereo, 2.1 (stereo plus low frequency), 5.1 surround,
+    and 7.1 surround configurations.
+
+    \value ChannelConfigUnknown The channel configuration is not known.
+    \value ChannelConfigMono The audio has one Center channel
+    \value ChannelConfigStereo The audio has two channels, Left and Right
+    \value ChannelConfig2Dot1 The audio has three channels, Left, Right and LFE (low frequency effect)
+    \value ChannelConfigSurround5Dot0 The audio has five channels, Left, Right, Center, BackLeft, BackRight
+    \value ChannelConfigSurround5Dot1 The audio has 6 channels, Left, Right, Center, LFE, BackLeft and BackRight
+    \value ChannelConfigSurround7Dot0 The audio has 7 channels, Left, Right, Center, BackLeft, BackRight, SideLeft and SideRight
+    \value ChannelConfigSurround7Dot1 The audio has 8 channels, Left, Right, Center, LFE, BackLeft, BackRight, SideLeft and SideRight
+*/
+
+/*!
+    Sets the channel configuration to \a config.
+
+    Sets the channel configuration of the audio format to one of the standard
+    audio channel configurations.
+
+    \note that this will also modify the channel count.
+*/
+void QAudioFormat::setChannelConfig(ChannelConfig config) noexcept
 {
-    return d->sampleRate;
+    m_channelConfig = config;
+    if (config != ChannelConfigUnknown)
+        m_channelCount = qPopulationCount(config);
 }
 
 /*!
-   Sets the channel count to \a channels.
-
+    Returns the position of a certain audio \a channel inside an audio frame
+    for the given format.
+    Returns -1 if the channel does not exist for this format or the channel
+    configuration is unknown.
 */
-void QAudioFormat::setChannelCount(int channels)
+int QAudioFormat::channelOffset(AudioChannelPosition channel) const noexcept
 {
-    d->channels = channels;
+    if (!(m_channelConfig & (1u << channel)))
+        return -1;
+
+    uint maskedChannels = m_channelConfig & ((1u << channel) - 1);
+    return qPopulationCount(maskedChannels);
 }
 
 /*!
+    \fn void QAudioFormat::setChannelCount(int channels)
+
+    Sets the channel count to \a channels. Setting this also sets the channel
+    config to ChannelConfigUnknown.
+*/
+
+
+/*!
+    \fn QAudioFormat::ChannelConfig QAudioFormat::channelConfig() const noexcept
+
+    Returns the current channel configuration.
+*/
+
+/*!
+    \fn int QAudioFormat::channelCount() const
+
     Returns the current channel count value.
 
 */
-int QAudioFormat::channelCount() const
-{
-    return d->channels;
-}
 
 /*!
-   Sets the sample size to the \a sampleSize specified, in bits.
+    \fn void QAudioFormat::setSampleFormat(SampleFormat format)
 
-   This is typically 8 or 16, but some systems may support higher sample sizes.
+    Sets the sample format to \a format.
+
+    \sa QAudioFormat::SampleFormat
 */
-void QAudioFormat::setSampleSize(int sampleSize)
-{
-    d->sampleSize = sampleSize;
-}
 
 /*!
-    Returns the current sample size value, in bits.
+    \fn QAudioFormat::SampleFormat QAudioFormat::sampleFormat() const
+    Returns the current sample format.
 
-    \sa bytesPerFrame()
+    \sa setSampleFormat()
 */
-int QAudioFormat::sampleSize() const
-{
-    return d->sampleSize;
-}
 
 /*!
-   Sets the codec to \a codec.
-
-   The parameter to this function should be one of the types
-   reported by the QAudioDeviceInfo::supportedCodecs() function
-   for the audio device you are working with.
-
-   \sa QAudioDeviceInfo::supportedCodecs()
-*/
-void QAudioFormat::setCodec(const QString &codec)
-{
-    d->codec = codec;
-}
-
-/*!
-    Returns the current codec identifier.
-
-   \sa QAudioDeviceInfo::supportedCodecs()
-*/
-QString QAudioFormat::codec() const
-{
-    return d->codec;
-}
-
-/*!
-   Sets the byteOrder to \a byteOrder.
-*/
-void QAudioFormat::setByteOrder(QAudioFormat::Endian byteOrder)
-{
-    d->byteOrder = byteOrder;
-}
-
-/*!
-    Returns the current byteOrder value.
-*/
-QAudioFormat::Endian QAudioFormat::byteOrder() const
-{
-    return d->byteOrder;
-}
-
-/*!
-   Sets the sampleType to \a sampleType.
-*/
-void QAudioFormat::setSampleType(QAudioFormat::SampleType sampleType)
-{
-    d->sampleType = sampleType;
-}
-
-/*!
-    Returns the current SampleType value.
-*/
-QAudioFormat::SampleType QAudioFormat::sampleType() const
-{
-    return d->sampleType;
-}
-
-/*!
-    Returns the number of bytes required for this audio format for \a duration microseconds.
+    Returns the number of bytes required for this audio format for \a microseconds.
 
     Returns 0 if this format is not valid.
 
-    Note that some rounding may occur if \a duration is not an exact fraction of the
+    Note that some rounding may occur if \a microseconds is not an exact fraction of the
     sampleRate().
 
     \sa durationForBytes()
  */
-qint32 QAudioFormat::bytesForDuration(qint64 duration) const
+qint32 QAudioFormat::bytesForDuration(qint64 microseconds) const
 {
-    return bytesPerFrame() * framesForDuration(duration);
+    return bytesPerFrame() * framesForDuration(microseconds);
 }
 
 /*!
@@ -371,6 +284,10 @@ qint32 QAudioFormat::bytesForDuration(qint64 duration) const
 */
 qint64 QAudioFormat::durationForBytes(qint32 bytes) const
 {
+    // avoid compiler warnings about unused variables. [[maybe_unused]] in the header
+    // gives compiler errors on older gcc versions
+    Q_UNUSED(reserved);
+
     if (!isValid() || bytes <= 0)
         return 0;
 
@@ -409,17 +326,17 @@ qint32 QAudioFormat::framesForBytes(qint32 byteCount) const
 }
 
 /*!
-    Returns the number of frames required to represent \a duration microseconds in this format.
+    Returns the number of frames required to represent \a microseconds in this format.
 
-    Note that some rounding may occur if \a duration is not an exact fraction of the
+    Note that some rounding may occur if \a microseconds is not an exact fraction of the
     \l sampleRate().
 */
-qint32 QAudioFormat::framesForDuration(qint64 duration) const
+qint32 QAudioFormat::framesForDuration(qint64 microseconds) const
 {
     if (!isValid())
         return 0;
 
-    return qint32((duration * sampleRate()) / 1000000LL);
+    return qint32((microseconds * sampleRate()) / 1000000LL);
 }
 
 /*!
@@ -434,80 +351,88 @@ qint64 QAudioFormat::durationForFrames(qint32 frameCount) const
 }
 
 /*!
-    Returns the number of bytes required to represent one frame (a sample in each channel) in this format.
+    \fn int QAudioFormat::bytesPerFrame() const
+
+    Returns the number of bytes required to represent one frame
+    (a sample in each channel) in this format.
 
     Returns 0 if this format is invalid.
 */
-int QAudioFormat::bytesPerFrame() const
-{
-    if (!isValid())
-        return 0;
-
-    return (sampleSize() * channelCount()) / 8;
-}
 
 /*!
-    \enum QAudioFormat::SampleType
+    \fn int QAudioFormat::bytesPerSample() const
+    Returns the number of bytes required to represent one sample in this format.
 
-    \value Unknown       Not Set
-    \value SignedInt     Samples are signed integers
-    \value UnSignedInt   Samples are unsigned intergers
-    \value Float         Samples are floats
+    Returns 0 if this format is invalid.
 */
 
 /*!
-    \enum QAudioFormat::Endian
+    Normalizes the \a sample value to a number between -1 and 1.
+    The method depends on the QaudioFormat.
+*/
+float QAudioFormat::normalizedSampleValue(const void *sample) const
+{
+    switch (m_sampleFormat) {
+    case UInt8:
+        return ((float)*reinterpret_cast<const quint8 *>(sample))/(float)std::numeric_limits<qint8>::max() - 1.;
+    case Int16:
+        return ((float)*reinterpret_cast<const qint16 *>(sample))/(float)std::numeric_limits<qint16>::max();
+    case Int32:
+        return ((float)*reinterpret_cast<const qint32 *>(sample))/(float)std::numeric_limits<qint32>::max();
+    case Float:
+        return *reinterpret_cast<const float *>(sample);
+    case Unknown:
+    case NSampleFormats:
+        break;
+    }
 
-    \value BigEndian     Samples are big endian byte order
-    \value LittleEndian  Samples are little endian byte order
+    return 0.;
+}
+
+/*!
+    \enum QAudioFormat::SampleFormat
+
+    Qt will always expect and use samples in the endianness of the host platform.
+    When processing audio data from external sources yourself, ensure you convert
+    them to the correct endianness before writing them to a QAudioSink or
+    QAudioBuffer.
+
+    \value Unknown        Not Set
+    \value UInt8          Samples are unsigned 8 bit signed integers
+    \value Int16          Samples are 16 bit signed integers
+    \value Int32          Samples are 32 bit signed integers
+    \value Float          Samples are floats
+    \omitvalue NSampleFormats
 */
 
 #ifndef QT_NO_DEBUG_STREAM
-QDebug operator<<(QDebug dbg, QAudioFormat::Endian endian)
-{
-    QDebugStateSaver saver(dbg);
-    dbg.nospace();
-    switch (endian) {
-        case QAudioFormat::BigEndian:
-            dbg << "BigEndian";
-            break;
-        case QAudioFormat::LittleEndian:
-            dbg << "LittleEndian";
-            break;
-    }
-    return dbg;
-}
-
-QDebug operator<<(QDebug dbg, QAudioFormat::SampleType type)
+QDebug operator<<(QDebug dbg, QAudioFormat::SampleFormat type)
 {
     QDebugStateSaver saver(dbg);
     dbg.nospace();
     switch (type) {
-        case QAudioFormat::SignedInt:
-            dbg << "SignedInt";
-            break;
-        case QAudioFormat::UnSignedInt:
-            dbg << "UnSignedInt";
-            break;
-        case QAudioFormat::Float:
-            dbg << "Float";
-            break;
-       default:
-            dbg << "Unknown";
-            break;
+    case QAudioFormat::UInt8:
+        dbg << "UInt8";
+        break;
+    case QAudioFormat::Int16:
+        dbg << "Int16";
+        break;
+    case QAudioFormat::Int32:
+        dbg << "Int32";
+        break;
+    case QAudioFormat::Float:
+        dbg << "Float";
+        break;
+    default:
+        dbg << "Unknown";
+        break;
     }
     return dbg;
 }
 
 QDebug operator<<(QDebug dbg, const QAudioFormat &f)
 {
-    QDebugStateSaver saver(dbg);
-    dbg.nospace();
-    dbg << "QAudioFormat(" << f.sampleRate() << "Hz, "
-        << f.sampleSize() << "bit, channelCount=" << f.channelCount()
-        << ", sampleType=" << f.sampleType() << ", byteOrder=" << f.byteOrder()
-        << ", codec=" << f.codec() << ')';
-
+    dbg << "QAudioFormat(" << f.sampleRate() << "Hz, " << f.channelCount() << "Channels, " << f.sampleFormat() << "Format";
     return dbg;
 }
 #endif

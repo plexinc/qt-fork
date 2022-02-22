@@ -8,15 +8,18 @@
 #include <memory>
 #include <ostream>
 
-#include "net/third_party/quiche/src/quic/core/quic_buffer_allocator.h"
-#include "net/third_party/quiche/src/quic/core/quic_types.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/quic_buffer_allocator.h"
+#include "quic/core/quic_constants.h"
+#include "quic/core/quic_types.h"
+#include "quic/platform/api/quic_export.h"
 
 namespace quic {
 
 struct QUIC_EXPORT_PRIVATE QuicNewTokenFrame {
-  QuicNewTokenFrame();
-  QuicNewTokenFrame(QuicControlFrameId control_frame_id, std::string token);
+  QuicNewTokenFrame() = default;
+  QuicNewTokenFrame(QuicControlFrameId control_frame_id,
+                    absl::string_view token);
 
   friend QUIC_EXPORT_PRIVATE std::ostream& operator<<(
       std::ostream& os,
@@ -24,7 +27,7 @@ struct QUIC_EXPORT_PRIVATE QuicNewTokenFrame {
 
   // A unique identifier of this control frame. 0 when this frame is received,
   // and non-zero when sent.
-  QuicControlFrameId control_frame_id;
+  QuicControlFrameId control_frame_id = kInvalidControlFrameId;
 
   std::string token;
 };

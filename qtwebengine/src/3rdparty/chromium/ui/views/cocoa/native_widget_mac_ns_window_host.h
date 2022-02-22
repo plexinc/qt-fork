@@ -15,6 +15,7 @@
 #include "components/remote_cocoa/app_shim/native_widget_ns_window_host_helper.h"
 #include "components/remote_cocoa/app_shim/ns_view_ids.h"
 #include "components/remote_cocoa/browser/application_host.h"
+#include "components/remote_cocoa/browser/scoped_cg_window_id.h"
 #include "components/remote_cocoa/common/native_widget_ns_window.mojom.h"
 #include "components/remote_cocoa/common/native_widget_ns_window_host.mojom.h"
 #include "mojo/public/cpp/bindings/associated_receiver.h"
@@ -299,7 +300,7 @@ class VIEWS_EXPORT NativeWidgetMacNSWindowHost
   bool GetShouldShowWindowTitle(bool* should_show_window_title) override;
   bool GetCanWindowBecomeKey(bool* can_window_become_key) override;
   bool GetAlwaysRenderWindowAsKey(bool* always_render_as_key) override;
-  bool GetCanWindowClose(bool* can_window_close) override;
+  bool OnWindowCloseRequested(bool* can_window_close) override;
   bool GetWindowFrameTitlebarHeight(bool* override_titlebar_height,
                                     float* titlebar_height) override;
   void OnFocusWindowToolbar() override;
@@ -345,7 +346,7 @@ class VIEWS_EXPORT NativeWidgetMacNSWindowHost
   void GetCanWindowBecomeKey(GetCanWindowBecomeKeyCallback callback) override;
   void GetAlwaysRenderWindowAsKey(
       GetAlwaysRenderWindowAsKeyCallback callback) override;
-  void GetCanWindowClose(GetCanWindowCloseCallback callback) override;
+  void OnWindowCloseRequested(OnWindowCloseRequestedCallback callback) override;
   void GetWindowFrameTitlebarHeight(
       GetWindowFrameTitlebarHeightCallback callback) override;
   void GetRootViewAccessibilityToken(
@@ -456,6 +457,7 @@ class VIEWS_EXPORT NativeWidgetMacNSWindowHost
   gfx::Rect window_bounds_before_fullscreen_;
 
   std::unique_ptr<ui::RecyclableCompositorMac> compositor_;
+  std::unique_ptr<remote_cocoa::ScopedCGWindowID> scoped_cg_window_id_;
 
   // Properties used by Set/GetNativeWindowProperty.
   std::map<std::string, void*> native_window_properties_;

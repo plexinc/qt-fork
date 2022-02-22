@@ -40,7 +40,7 @@
 #ifndef DELEGATED_FRAME_HOST_CLIENT_QT_H
 #define DELEGATED_FRAME_HOST_CLIENT_QT_H
 
-#include "qtwebenginecoreglobal_p.h"
+#include <QtWebEngineCore/private/qtwebenginecoreglobal_p.h>
 
 #include "content/browser/renderer_host/delegated_frame_host.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
@@ -57,7 +57,8 @@ public:
     ui::Layer *DelegatedFrameHostGetLayer() const override;
     bool DelegatedFrameHostIsVisible() const override;
     SkColor DelegatedFrameHostGetGutterColor() const override;
-    void OnFrameTokenChanged(uint32_t frame_token) override;
+    void OnFrameTokenChanged(uint32_t frame_token,
+                             base::TimeTicks activation_time) override;
     float GetDeviceScaleFactor() const override;
     void InvalidateLocalSurfaceIdOnEviction() override;
     std::vector<viz::SurfaceId> CollectSurfaceIdsForEviction() override;

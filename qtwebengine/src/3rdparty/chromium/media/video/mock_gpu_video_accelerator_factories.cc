@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "base/atomic_sequence_num.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/unsafe_shared_memory_region.h"
 #include "ui/gfx/buffer_format_util.h"
@@ -15,7 +16,7 @@ namespace media {
 
 namespace {
 
-int g_next_gpu_memory_buffer_id = 1;
+base::AtomicSequenceNumber g_gpu_memory_buffer_id_generator;
 
 class GpuMemoryBufferImpl : public gfx::GpuMemoryBuffer {
  public:
@@ -24,10 +25,11 @@ class GpuMemoryBufferImpl : public gfx::GpuMemoryBuffer {
         format_(format),
         size_(size),
         num_planes_(gfx::NumberOfPlanesForLinearBufferFormat(format)),
-        id_(g_next_gpu_memory_buffer_id++) {
+        id_(g_gpu_memory_buffer_id_generator.GetNext() + 1) {
     DCHECK(gfx::BufferFormat::R_8 == format_ ||
            gfx::BufferFormat::RG_88 == format_ ||
            gfx::BufferFormat::YUV_420_BIPLANAR == format_ ||
+           gfx::BufferFormat::P010 == format_ ||
            gfx::BufferFormat::BGRA_1010102 == format_ ||
            gfx::BufferFormat::RGBA_1010102 == format_ ||
            gfx::BufferFormat::RGBA_8888 == format_ ||
@@ -64,7 +66,7 @@ class GpuMemoryBufferImpl : public gfx::GpuMemoryBuffer {
   }
   gfx::GpuMemoryBufferId GetId() const override { return id_; }
   gfx::GpuMemoryBufferType GetType() const override {
-    return gfx::NATIVE_PIXMAP;
+    return gfx::SHARED_MEMORY_BUFFER;
   }
   gfx::GpuMemoryBufferHandle CloneHandle() const override {
     NOTREACHED();
@@ -107,6 +109,7 @@ MockGpuVideoAcceleratorFactories::CreateGpuMemoryBuffer(
     const gfx::Size& size,
     gfx::BufferFormat format,
     gfx::BufferUsage /* usage */) {
+  base::AutoLock guard(lock_);
   if (fail_to_allocate_gpu_memory_buffer_)
     return nullptr;
   std::unique_ptr<gfx::GpuMemoryBuffer> ret(

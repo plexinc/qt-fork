@@ -1,6 +1,7 @@
 /****************************************************************************
 **
 ** Copyright (C) 2019 Thibaut Cuvelier
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -59,11 +60,16 @@ protected:
     QString refForNode(const Node *node);
     QString linkForNode(const Node *node, const Node *relative);
     QString getLink(const Atom *atom, const Node *relative, const Node **node);
-    QString getAutoLink(const Atom *atom, const Node *relative, const Node **node);
+    QString getAutoLink(const Atom *atom, const Node *relative, const Node **node,
+                        Node::Genus = Node::DontCare);
 
-    const QPair<QString, QString> anchorForNode(const Node *node);
+    QPair<QString, QString> anchorForNode(const Node *node);
 
     static QString targetType(const Node *node);
+
+protected:
+    static const QRegularExpression m_funcLeftParen;
+    const Node *m_linkNode { nullptr };
 };
 
 QT_END_NAMESPACE

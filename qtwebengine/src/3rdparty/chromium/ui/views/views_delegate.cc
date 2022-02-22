@@ -73,6 +73,10 @@ ViewsDelegate::ProcessAcceleratorWhileMenuShowing(
   return ProcessMenuAcceleratorResult::LEAVE_MENU_OPEN;
 }
 
+bool ViewsDelegate::ShouldCloseMenuIfMouseCaptureLost() const {
+  return true;
+}
+
 #if defined(OS_WIN)
 HICON ViewsDelegate::GetDefaultWindowIcon() const {
   return nullptr;
@@ -85,14 +89,15 @@ HICON ViewsDelegate::GetSmallWindowIcon() const {
 bool ViewsDelegate::IsWindowInMetro(gfx::NativeWindow window) const {
   return false;
 }
-#elif defined(OS_LINUX) && BUILDFLAG(ENABLE_DESKTOP_AURA)
+#elif BUILDFLAG(ENABLE_DESKTOP_AURA) && \
+    (defined(OS_LINUX) || defined(OS_CHROMEOS))
 gfx::ImageSkia* ViewsDelegate::GetDefaultWindowIcon() const {
   return nullptr;
 }
 #endif
 
-NonClientFrameView* ViewsDelegate::CreateDefaultNonClientFrameView(
-    Widget* widget) {
+std::unique_ptr<NonClientFrameView>
+ViewsDelegate::CreateDefaultNonClientFrameView(Widget* widget) {
   return nullptr;
 }
 
@@ -112,7 +117,7 @@ bool ViewsDelegate::WindowManagerProvidesTitleBar(bool maximized) {
   return false;
 }
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
 ui::ContextFactory* ViewsDelegate::GetContextFactory() {
   return nullptr;
 }

@@ -12,23 +12,12 @@ rtc_source_set("transient_suppressor_api") {
   sources = [ "transient_suppressor.h" ]
 }
 
-rtc_library("transient_suppressor_creator") {
-  sources = [
-    "transient_suppressor_creator.cc",
-    "transient_suppressor_creator.h",
-  ]
-  deps = [
-    ":transient_suppressor_api",
-    ":transient_suppressor_impl",
-  ]
-}
-
 rtc_library("transient_suppressor_impl") {
   visibility = [
-    ":transient_suppressor_creator",
+    ":click_annotate",
     ":transient_suppression_test",
     ":transient_suppression_unittests",
-    ":click_annotate",
+    "..:optionally_built_submodule_creators",
   ]
   sources = [
     "common.h",
@@ -52,7 +41,7 @@ rtc_library("transient_suppressor_impl") {
     "../../../common_audio:common_audio_c",
     "../../../common_audio:fir_filter",
     "../../../common_audio:fir_filter_factory",
-    "../../../common_audio/third_party/fft4g",
+    "../../../common_audio/third_party/ooura:fft_size_256",
     "../../../rtc_base:checks",
     "../../../rtc_base:gtest_prod",
     "../../../rtc_base:logging",
@@ -60,42 +49,44 @@ rtc_library("transient_suppressor_impl") {
 }
 
 if (rtc_include_tests) {
-  rtc_executable("click_annotate") {
-    testonly = true
-    sources = [
-      "click_annotate.cc",
-      "file_utils.cc",
-      "file_utils.h",
-    ]
-    deps = [
-      ":transient_suppressor_impl",
-      "..:audio_processing",
-      "../../../rtc_base/system:file_wrapper",
-      "../../../system_wrappers",
-    ]
-  }
+  if (!build_with_chromium) {
+    rtc_executable("click_annotate") {
+      testonly = true
+      sources = [
+        "click_annotate.cc",
+        "file_utils.cc",
+        "file_utils.h",
+      ]
+      deps = [
+        ":transient_suppressor_impl",
+        "..:audio_processing",
+        "../../../rtc_base/system:file_wrapper",
+        "../../../system_wrappers",
+      ]
+    }
 
-  rtc_executable("transient_suppression_test") {
-    testonly = true
-    sources = [
-      "file_utils.cc",
-      "file_utils.h",
-      "transient_suppression_test.cc",
-    ]
-    deps = [
-      ":transient_suppressor_impl",
-      "..:audio_processing",
-      "../../../common_audio",
-      "../../../rtc_base:rtc_base_approved",
-      "../../../rtc_base/system:file_wrapper",
-      "../../../system_wrappers",
-      "../../../test:fileutils",
-      "../../../test:test_support",
-      "../agc:level_estimation",
-      "//testing/gtest",
-      "//third_party/abseil-cpp/absl/flags:flag",
-      "//third_party/abseil-cpp/absl/flags:parse",
-    ]
+    rtc_executable("transient_suppression_test") {
+      testonly = true
+      sources = [
+        "file_utils.cc",
+        "file_utils.h",
+        "transient_suppression_test.cc",
+      ]
+      deps = [
+        ":transient_suppressor_impl",
+        "..:audio_processing",
+        "../../../common_audio",
+        "../../../rtc_base:rtc_base_approved",
+        "../../../rtc_base/system:file_wrapper",
+        "../../../system_wrappers",
+        "../../../test:fileutils",
+        "../../../test:test_support",
+        "../agc:level_estimation",
+        "//testing/gtest",
+        "//third_party/abseil-cpp/absl/flags:flag",
+        "//third_party/abseil-cpp/absl/flags:parse",
+      ]
+    }
   }
 
   rtc_library("transient_suppression_unittests") {

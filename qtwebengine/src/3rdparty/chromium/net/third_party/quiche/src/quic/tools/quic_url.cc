@@ -2,26 +2,24 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/tools/quic_url.h"
+#include "quic/tools/quic_url.h"
 
-#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 
 namespace quic {
 
 static constexpr size_t kMaxHostNameLength = 256;
 
-QuicUrl::QuicUrl(quiche::QuicheStringPiece url)
-    : url_(static_cast<std::string>(url)) {}
+QuicUrl::QuicUrl(absl::string_view url) : url_(static_cast<std::string>(url)) {}
 
-QuicUrl::QuicUrl(quiche::QuicheStringPiece url,
-                 quiche::QuicheStringPiece default_scheme)
+QuicUrl::QuicUrl(absl::string_view url, absl::string_view default_scheme)
     : QuicUrl(url) {
   if (url_.has_scheme()) {
     return;
   }
 
-  url_ = GURL(quiche::QuicheStrCat(default_scheme, "://", url));
+  url_ = GURL(absl::StrCat(default_scheme, "://", url));
 }
 
 std::string QuicUrl::ToString() const {
@@ -53,7 +51,7 @@ std::string QuicUrl::HostPort() const {
   if (port == url::PORT_UNSPECIFIED) {
     return host;
   }
-  return quiche::QuicheStrCat(host, ":", port);
+  return absl::StrCat(host, ":", port);
 }
 
 std::string QuicUrl::PathParamsQuery() const {

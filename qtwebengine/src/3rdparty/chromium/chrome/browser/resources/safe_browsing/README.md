@@ -16,7 +16,7 @@ Rendered version of this file: https://chromium.googlesource.com/chromium/src/+/
     * Wait 1-3 day for this to run on Canary to verify it doesn't crash Chrome.
     * In a synced checkout, run the following to generate protos for all
       platforms and push them to GCS. Replace the arg with your build directory:
-        * % `chrome/browser/resources/safe_browsing/push_file_type_proto.py -d
+        * % `components/safe_browsing/core/resources/push_file_type_proto.py -d
           out-gn/Debug`
     * It will ask you to double check its actions before proceeding.  It will
       fail if you're not a member of
@@ -42,7 +42,7 @@ versions on Canary/Dev channel). Rolling back a bad version is best achieved by:
   * **Upload** the new version of the file types.
     * In a synced checkout, run the following to generate protos for all
       platforms and push them to GCS. Replace the arg with your build directory:
-        * % `chrome/browser/resources/safe_browsing/push_file_type_proto.py -d
+        * % `components/safe_browsing/core/resources/push_file_type_proto.py -d
           out-gn/Debug`
   * Create a new cohort.
     * Under _Cohorts_, click _Manage_, then _Create Subcohort_ of Auto.
@@ -83,7 +83,7 @@ See `download_file_types.proto` for all fields.
        send a no-PII "light-ping" for a random sample of SBER users.
        This should be used for known safe types. The verdict won't be used.
 
-    * `NO_PING`:  Don’t send any pings. This file is whitelisted. All
+    * `NO_PING`:  Don’t send any pings. This file is allowlisted. All
       NOT_DANGEROUS files should normally use this.
     * `FULL_PING`: Send full pings and use the verdict. All dangerous
       file should use this.

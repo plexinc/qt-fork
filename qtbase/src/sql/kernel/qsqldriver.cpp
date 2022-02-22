@@ -46,16 +46,17 @@
 #include "private/qobject_p.h"
 #include "private/qsqldriver_p.h"
 
+#include <limits.h>
+
 QT_BEGIN_NAMESPACE
 
 static QString prepareIdentifier(const QString &identifier,
         QSqlDriver::IdentifierType type, const QSqlDriver *driver)
 {
-    Q_ASSERT( driver != nullptr );
+    Q_ASSERT(driver != nullptr);
     QString ret = identifier;
-    if (!driver->isIdentifierEscaped(identifier, type)) {
+    if (!driver->isIdentifierEscaped(identifier, type))
         ret = driver->escapeIdentifier(identifier, type);
-    }
     return ret;
 }
 
@@ -100,20 +101,6 @@ QSqlDriver::QSqlDriver(QSqlDriverPrivate &dd, QObject *parent)
 QSqlDriver::~QSqlDriver()
 {
 }
-
-/*!
-    \since 4.4
-
-    \fn QSqlDriver::notification(const QString &name)
-
-    This signal is emitted when the database posts an event notification
-    that the driver subscribes to. \a name identifies the event notification.
-
-    \sa subscribeToNotification()
-
-    \obsolete use QSqlDriver::notification(const QString &name, QSqlDriver::NotificationSource source, const QVariant &payload)
-              instead
-*/
 
 /*!
     \since 5.0
@@ -612,7 +599,7 @@ QString QSqlDriver::formatValue(const QSqlField &field, bool trimStrings) const
     if (field.isNull())
         r = nullTxt;
     else {
-        switch (+field.type()) {
+        switch (field.metaType().id()) {
         case QMetaType::Int:
         case QMetaType::UInt:
             if (field.value().userType() == QMetaType::Bool)
@@ -842,6 +829,19 @@ QSqlDriver::DbmsType QSqlDriver::dbmsType() const
 bool QSqlDriver::cancelQuery()
 {
     return false;
+}
+
+/*!
+    \since 6.0
+
+    Returns the maximum length for the identifier \a type according to the database settings. Returns
+    INT_MAX by default if the is no maximum for the database.
+*/
+
+int QSqlDriver::maximumIdentifierLength(QSqlDriver::IdentifierType type) const
+{
+    Q_UNUSED(type);
+    return INT_MAX;
 }
 
 QT_END_NAMESPACE

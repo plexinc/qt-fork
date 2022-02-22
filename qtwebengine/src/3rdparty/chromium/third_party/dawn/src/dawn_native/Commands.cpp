@@ -18,6 +18,7 @@
 #include "dawn_native/Buffer.h"
 #include "dawn_native/CommandAllocator.h"
 #include "dawn_native/ComputePipeline.h"
+#include "dawn_native/QuerySet.h"
 #include "dawn_native/RenderBundle.h"
 #include "dawn_native/RenderPipeline.h"
 #include "dawn_native/Texture.h"
@@ -33,6 +34,11 @@ namespace dawn_native {
                 case Command::BeginComputePass: {
                     BeginComputePassCmd* begin = commands->NextCommand<BeginComputePassCmd>();
                     begin->~BeginComputePassCmd();
+                    break;
+                }
+                case Command::BeginOcclusionQuery: {
+                    BeginOcclusionQueryCmd* begin = commands->NextCommand<BeginOcclusionQueryCmd>();
+                    begin->~BeginOcclusionQueryCmd();
                     break;
                 }
                 case Command::BeginRenderPass: {
@@ -96,6 +102,11 @@ namespace dawn_native {
                     cmd->~EndComputePassCmd();
                     break;
                 }
+                case Command::EndOcclusionQuery: {
+                    EndOcclusionQueryCmd* cmd = commands->NextCommand<EndOcclusionQueryCmd>();
+                    cmd->~EndOcclusionQueryCmd();
+                    break;
+                }
                 case Command::EndRenderPass: {
                     EndRenderPassCmd* cmd = commands->NextCommand<EndRenderPassCmd>();
                     cmd->~EndRenderPassCmd();
@@ -125,6 +136,11 @@ namespace dawn_native {
                     PushDebugGroupCmd* cmd = commands->NextCommand<PushDebugGroupCmd>();
                     commands->NextData<char>(cmd->length + 1);
                     cmd->~PushDebugGroupCmd();
+                    break;
+                }
+                case Command::ResolveQuerySet: {
+                    ResolveQuerySetCmd* cmd = commands->NextCommand<ResolveQuerySetCmd>();
+                    cmd->~ResolveQuerySetCmd();
                     break;
                 }
                 case Command::SetComputePipeline: {
@@ -175,15 +191,25 @@ namespace dawn_native {
                     cmd->~SetVertexBufferCmd();
                     break;
                 }
+                case Command::WriteTimestamp: {
+                    WriteTimestampCmd* cmd = commands->NextCommand<WriteTimestampCmd>();
+                    cmd->~WriteTimestampCmd();
+                    break;
+                }
             }
         }
-        commands->DataWasDestroyed();
+
+        commands->MakeEmptyAsDataWasDestroyed();
     }
 
     void SkipCommand(CommandIterator* commands, Command type) {
         switch (type) {
             case Command::BeginComputePass:
                 commands->NextCommand<BeginComputePassCmd>();
+                break;
+
+            case Command::BeginOcclusionQuery:
+                commands->NextCommand<BeginOcclusionQueryCmd>();
                 break;
 
             case Command::BeginRenderPass:
@@ -234,6 +260,10 @@ namespace dawn_native {
                 commands->NextCommand<EndComputePassCmd>();
                 break;
 
+            case Command::EndOcclusionQuery:
+                commands->NextCommand<EndOcclusionQueryCmd>();
+                break;
+
             case Command::EndRenderPass:
                 commands->NextCommand<EndRenderPassCmd>();
                 break;
@@ -257,6 +287,11 @@ namespace dawn_native {
             case Command::PushDebugGroup: {
                 PushDebugGroupCmd* cmd = commands->NextCommand<PushDebugGroupCmd>();
                 commands->NextData<char>(cmd->length + 1);
+                break;
+            }
+
+            case Command::ResolveQuerySet: {
+                commands->NextCommand<ResolveQuerySetCmd>();
                 break;
             }
 
@@ -298,6 +333,11 @@ namespace dawn_native {
 
             case Command::SetVertexBuffer: {
                 commands->NextCommand<SetVertexBufferCmd>();
+                break;
+            }
+
+            case Command::WriteTimestamp: {
+                commands->NextCommand<WriteTimestampCmd>();
                 break;
             }
         }

@@ -43,7 +43,7 @@
     Or, in QML:
 
     \qml
-    import QtScxml 5.8
+    import QtScxml
 
     Item {
         property StateMachine stateMachine: scxmlLoader.stateMachine
@@ -84,19 +84,25 @@
     }
     \endqml
 
-    To compile a state machine, the following lines have to be added to a
-    .pro file:
+    To compile a state machine, the following lines have to be added to the
+    project build file:
 
-    \badcode
-    QT += scxml
-    STATECHARTS = MyStatemachine.scxml
-    \endcode
+    When using cmake:
+
+    \include qtscxml-module-use.qdocinc cmakebuild
+    \include qtscxml-module-use.qdocinc cmakestatecharts
+
+    When using qmake:
+
+    \include qtscxml-module-use.qdocinc qmakebuild
+    \include qtscxml-module-use.qdocinc qmakestatecharts
 
     This will tell qmake to run \e qscxmlc which generates MyStatemachine.h
-    and MyStatemachine.cpp, and adds them to \l [QMake] HEADERS and
-    \l [QMake] SOURCES variables. By default, the generated files are saved in
-    the build directory. The \e QSCXMLC_DIR variable can be set to specify
-    another directory. The \e QSCXMLC_NAMESPACE variable can be set to put the
+    and MyStatemachine.cpp, and adds them to appropriately to the project
+    headers and sources. By default, the generated files are saved in
+    the build directory. The qmake \e QSCXMLC_DIR or cmake \e OUTPUT_DIRECTORY
+    variable can be set to specify another directory. The qmake
+    \e QSCXMLC_NAMESPACE or cmake \e NAMESPACE variable can be set to put the
     state machine code into a C++ namespace.
 
     After instantiating a state machine, you can connect to any state's
@@ -133,7 +139,7 @@
     And in QML:
 
     \qml
-    import QtScxml 5.8
+    import QtScxml
 
     EventConnection {
         stateMachine: stateMachine

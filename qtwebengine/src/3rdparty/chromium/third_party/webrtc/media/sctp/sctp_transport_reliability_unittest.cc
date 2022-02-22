@@ -14,10 +14,12 @@
 #include <string>
 
 #include "media/sctp/sctp_transport_internal.h"
+#include "rtc_base/async_invoker.h"
 #include "rtc_base/copy_on_write_buffer.h"
 #include "rtc_base/gunit.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/random.h"
+#include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/thread.h"
 #include "test/gtest.h"
 
@@ -218,16 +220,14 @@ class SctpDataSender final {
       case cricket::SDR_BLOCK:
         // retry after timeout
         invoker_.AsyncInvokeDelayed<void>(
-            RTC_FROM_HERE, thread_,
-            rtc::Bind(&SctpDataSender::SendNextMessage, this), 500);
+            RTC_FROM_HERE, thread_, [this] { SendNextMessage(); }, 500);
         break;
       case cricket::SDR_SUCCESS:
         // send next
         num_bytes_sent_ += payload_.size();
         ++num_messages_sent_;
-        invoker_.AsyncInvoke<void>(
-            RTC_FROM_HERE, thread_,
-            rtc::Bind(&SctpDataSender::SendNextMessage, this));
+        invoker_.AsyncInvoke<void>(RTC_FROM_HERE, thread_,
+                                   [this] { SendNextMessage(); });
         break;
       case cricket::SDR_ERROR:
         // give up
@@ -377,7 +377,7 @@ class SctpPingPong final {
     CreateTwoConnectedSctpTransportsWithAllStreams();
 
     {
-      rtc::CritScope cs(&lock_);
+      webrtc::MutexLock lock(&lock_);
       if (!errors_list_.empty()) {
         return false;
       }
@@ -397,7 +397,7 @@ class SctpPingPong final {
   std::vector<std::string> GetErrorsList() const {
     std::vector<std::string> result;
     {
-      rtc::CritScope cs(&lock_);
+      webrtc::MutexLock lock(&lock_);
       result = errors_list_;
     }
     return result;
@@ -566,7 +566,7 @@ class SctpPingPong final {
   }
 
   void ReportError(std::string error) {
-    rtc::CritScope cs(&lock_);
+    webrtc::MutexLock lock(&lock_);
     errors_list_.push_back(std::move(error));
   }
 
@@ -578,7 +578,7 @@ class SctpPingPong final {
   std::unique_ptr<cricket::SctpTransport> sctp_transport2_;
   std::unique_ptr<SctpDataSender> data_sender1_;
   std::unique_ptr<SctpDataSender> data_sender2_;
-  rtc::CriticalSection lock_;
+  mutable webrtc::Mutex lock_;
   std::vector<std::string> errors_list_ RTC_GUARDED_BY(lock_);
 
   const uint32_t id_;

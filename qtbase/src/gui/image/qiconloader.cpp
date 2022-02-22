@@ -135,7 +135,7 @@ void QIconLoader::ensureInitialized()
     created, to avoid a race condition (QTBUG-74252). When this function is
     called from there, ensureInitialized() does not succeed because there
     is no QPlatformTheme yet, so systemThemeName() is empty, and we don't want
-    m_systemTheme to get intialized to the fallback theme instead of the normal one.
+    m_systemTheme to get initialized to the fallback theme instead of the normal one.
 */
 QIconLoader *QIconLoader::instance()
 {
@@ -217,7 +217,7 @@ class QIconCacheGtkReader
 {
 public:
     explicit QIconCacheGtkReader(const QString &themeDir);
-    QVector<const char *> lookup(const QStringRef &);
+    QList<const char *> lookup(QStringView);
     bool isValid() const { return m_isValid; }
 private:
     QFile m_file;
@@ -290,9 +290,9 @@ static quint32 icon_name_hash(const char *p)
     with this name is present. The char* are pointers to the mapped data.
     For example, this would return { "32x32/apps", "24x24/apps" , ... }
  */
-QVector<const char *> QIconCacheGtkReader::lookup(const QStringRef &name)
+QList<const char *> QIconCacheGtkReader::lookup(QStringView name)
 {
-    QVector<const char *> ret;
+    QList<const char *> ret;
     if (!isValid() || name.isEmpty())
         return ret;
 
@@ -443,7 +443,7 @@ QThemeIconInfo QIconLoader::findIconHelper(const QString &themeName,
 
     const QStringList contentDirs = theme.contentDirs();
 
-    QStringRef iconNameFallback(&iconName);
+    QStringView iconNameFallback(iconName);
 
     // Iterate through all icon's fallbacks in current theme
     while (info.entries.isEmpty()) {
@@ -452,7 +452,7 @@ QThemeIconInfo QIconLoader::findIconHelper(const QString &themeName,
 
         // Add all relevant files
         for (int i = 0; i < contentDirs.size(); ++i) {
-            QVector<QIconDirInfo> subDirs = theme.keyList();
+            QList<QIconDirInfo> subDirs = theme.keyList();
 
             // Try to reduce the amount of subDirs by looking in the GTK+ cache in order to save
             // a massive amount of file stat (especially if the icon is not there)
@@ -460,7 +460,7 @@ QThemeIconInfo QIconLoader::findIconHelper(const QString &themeName,
             if (cache->isValid()) {
                 const auto result = cache->lookup(iconNameFallback);
                 if (cache->isValid()) {
-                    const QVector<QIconDirInfo> subDirsCopy = subDirs;
+                    const QList<QIconDirInfo> subDirsCopy = subDirs;
                     subDirs.clear();
                     subDirs.reserve(result.count());
                     for (const char *s : result) {
@@ -641,10 +641,7 @@ void QIconLoaderEngine::ensureLoaded()
 void QIconLoaderEngine::paint(QPainter *painter, const QRect &rect,
                              QIcon::Mode mode, QIcon::State state)
 {
-    const qreal dpr = !qApp->testAttribute(Qt::AA_UseHighDpiPixmaps) ?
-                qreal(1.0) : painter->device()->devicePixelRatioF();
-
-    QSize pixmapSize = rect.size() * dpr;
+    QSize pixmapSize = rect.size() * painter->device()->devicePixelRatio();
     painter->drawPixmap(rect, pixmap(pixmapSize, mode, state));
 }
 
@@ -834,55 +831,46 @@ QString QIconLoaderEngine::key() const
     return QLatin1String("QIconLoaderEngine");
 }
 
-void QIconLoaderEngine::virtual_hook(int id, void *data)
+QString QIconLoaderEngine::iconName()
 {
     ensureLoaded();
+    return m_info.iconName;
+}
 
-    switch (id) {
-    case QIconEngine::AvailableSizesHook:
-        {
-            QIconEngine::AvailableSizesArgument &arg
-                    = *reinterpret_cast<QIconEngine::AvailableSizesArgument*>(data);
-            const int N = m_info.entries.size();
-            QList<QSize> sizes;
-            sizes.reserve(N);
+bool QIconLoaderEngine::isNull()
+{
+    ensureLoaded();
+    return m_info.entries.isEmpty();
+}
 
-            // Gets all sizes from the DirectoryInfo entries
-            for (int i = 0; i < N; ++i) {
-                const QIconLoaderEngineEntry *entry = m_info.entries.at(i);
-                if (entry->dir.type == QIconDirInfo::Fallback) {
-                    sizes.append(QIcon(entry->filename).availableSizes());
-                } else {
-                    int size = entry->dir.size;
-                    sizes.append(QSize(size, size));
-                }
-            }
-            arg.sizes.swap(sizes); // commit
+QPixmap QIconLoaderEngine::scaledPixmap(const QSize &size, QIcon::Mode mode, QIcon::State state, qreal scale)
+{
+    ensureLoaded();
+    const int integerScale = qCeil(scale);
+    QIconLoaderEngineEntry *entry = entryForSize(m_info, size / integerScale, integerScale);
+    return entry ? entry->pixmap(size, mode, state) : QPixmap();
+}
+
+QList<QSize> QIconLoaderEngine::availableSizes(QIcon::Mode mode, QIcon::State state)
+{
+    Q_UNUSED(mode);
+    Q_UNUSED(state);
+    ensureLoaded();
+    const int N = m_info.entries.size();
+    QList<QSize> sizes;
+    sizes.reserve(N);
+
+    // Gets all sizes from the DirectoryInfo entries
+    for (int i = 0; i < N; ++i) {
+        const QIconLoaderEngineEntry *entry = m_info.entries.at(i);
+        if (entry->dir.type == QIconDirInfo::Fallback) {
+            sizes.append(QIcon(entry->filename).availableSizes());
+        } else {
+            int size = entry->dir.size;
+            sizes.append(QSize(size, size));
         }
-        break;
-    case QIconEngine::IconNameHook:
-        {
-            QString &name = *reinterpret_cast<QString*>(data);
-            name = m_info.iconName;
-        }
-        break;
-    case QIconEngine::IsNullHook:
-        {
-            *reinterpret_cast<bool*>(data) = m_info.entries.isEmpty();
-        }
-        break;
-    case QIconEngine::ScaledPixmapHook:
-        {
-            QIconEngine::ScaledPixmapArgument &arg = *reinterpret_cast<QIconEngine::ScaledPixmapArgument*>(data);
-            // QIcon::pixmap() multiplies size by the device pixel ratio.
-            const int integerScale = qCeil(arg.scale);
-            QIconLoaderEngineEntry *entry = entryForSize(m_info, arg.size / integerScale, integerScale);
-            arg.pixmap = entry ? entry->pixmap(arg.size, arg.mode, arg.state) : QPixmap();
-        }
-        break;
-    default:
-        QIconEngine::virtual_hook(id, data);
     }
+    return sizes;
 }
 
 QT_END_NAMESPACE

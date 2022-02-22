@@ -44,13 +44,9 @@
 #include <qapplication.h>
 #include <private/qapplication_p.h>
 #include <qevent.h>
-#include <qdesktopwidget.h>
 #include <qdebug.h>
 #include <qabstracttextdocumentlayout.h>
 #include "private/qtextdocumentlayout_p.h"
-#if QT_CONFIG(textcodec)
-#include <qtextcodec.h>
-#endif
 #include <qpainter.h>
 #include <qdir.h>
 #if QT_CONFIG(whatsthis)
@@ -60,6 +56,15 @@
 #include <qdesktopservices.h>
 
 QT_BEGIN_NAMESPACE
+
+static inline bool shouldEnableInputMethod(QTextBrowser *texbrowser)
+{
+#if defined (Q_OS_ANDROID)
+    return !texbrowser->isReadOnly() || (texbrowser->textInteractionFlags() & Qt::TextSelectableByMouse);
+#else
+    return !texbrowser->isReadOnly();
+#endif
+}
 
 Q_LOGGING_CATEGORY(lcBrowser, "qt.text.browser")
 
@@ -156,14 +161,9 @@ public:
     {
         Q_Q(QTextBrowser);
         emit q->highlighted(url);
-#if QT_DEPRECATED_SINCE(5, 15)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-        emit q->highlighted(url.toString());
-#endif
     }
 };
-Q_DECLARE_TYPEINFO(QTextBrowserPrivate::HistoryEntry, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QTextBrowserPrivate::HistoryEntry, Q_RELOCATABLE_TYPE);
 
 QString QTextBrowserPrivate::findFile(const QUrl &name) const
 {
@@ -319,23 +319,23 @@ void QTextBrowserPrivate::setSource(const QUrl &url, QTextDocument::ResourceType
         if (data.userType() == QMetaType::QString) {
             txt = data.toString();
         } else if (data.userType() == QMetaType::QByteArray) {
+            QByteArray ba = data.toByteArray();
             if (type == QTextDocument::HtmlResource) {
-#if QT_CONFIG(textcodec)
-                QByteArray ba = data.toByteArray();
-                QTextCodec *codec = Qt::codecForHtml(ba);
-                txt = codec->toUnicode(ba);
-#else
-                txt = data.toString();
-#endif
+                auto encoding = QStringConverter::encodingForHtml(ba);
+                if (!encoding)
+                    // fall back to utf8
+                    encoding = QStringDecoder::Utf8;
+                QStringDecoder toUtf16(*encoding);
+                txt = toUtf16(ba);
             } else {
-                txt = QString::fromUtf8(data.toByteArray());
+                txt = QString::fromUtf8(ba);
             }
         }
         if (Q_UNLIKELY(txt.isEmpty()))
             qWarning("QTextBrowser: No document for %s", url.toString().toLatin1().constData());
 
         if (q->isVisible()) {
-            const QStringRef firstTag = txt.leftRef(txt.indexOf(QLatin1Char('>')) + 1);
+            const QStringView firstTag = QStringView{txt}.left(txt.indexOf(QLatin1Char('>')) + 1);
             if (firstTag.startsWith(QLatin1String("<qt")) && firstTag.contains(QLatin1String("type")) && firstTag.contains(QLatin1String("detail"))) {
 #ifndef QT_NO_CURSOR
                 QGuiApplication::restoreOverrideCursor();
@@ -511,7 +511,7 @@ void QTextBrowserPrivate::keypadMove(bool next)
         // up e.g. 110%
         // Obviously if a link is entirely visible, we still
         // focus it.
-        if(bothViewRects.contains(desiredRect)
+        if (bothViewRects.contains(desiredRect)
                 || bothViewRects.adjusted(0, visibleLinkAmount, 0, -visibleLinkAmount).intersects(desiredRect)) {
             focusIt = true;
 
@@ -540,7 +540,7 @@ void QTextBrowserPrivate::keypadMove(bool next)
     if (!focusIt && prevFocus.hasSelection()) {
         QRectF desiredRect = control->selectionRect(prevFocus);
         // XXX this may be better off also using the visibleLinkAmount value
-        if(newViewRect.intersects(desiredRect)) {
+        if (newViewRect.intersects(desiredRect)) {
             focusedPos = scrollYOffset;
             focusIt = true;
             anchorToFocus = prevFocus;
@@ -701,7 +701,7 @@ void QTextBrowserPrivate::init()
 #ifndef QT_NO_CURSOR
     viewport->setCursor(oldCursor);
 #endif
-    q->setAttribute(Qt::WA_InputMethodEnabled, !q->isReadOnly());
+    q->setAttribute(Qt::WA_InputMethodEnabled, shouldEnableInputMethod(q));
     q->setUndoRedoEnabled(false);
     viewport->setMouseTracking(true);
     QObject::connect(q->document(), SIGNAL(contentsChanged()), q, SLOT(_q_documentModified()));
@@ -815,13 +815,6 @@ void QTextBrowser::reload()
     setSource(s, d->currentType);
 }
 
-#if QT_VERSION < QT_VERSION_CHECK(6,0,0)
-void QTextBrowser::setSource(const QUrl &url)
-{
-    setSource(url, QTextDocument::UnknownResource);
-}
-#endif
-
 /*!
     Attempts to load the document at the given \a url with the specified \a type.
 
@@ -837,14 +830,12 @@ void QTextBrowser::setSource(const QUrl &url, QTextDocument::ResourceType type)
     doSetSource(url, type);
 }
 
-#if QT_VERSION >= QT_VERSION_CHECK(6,0,0)
 /*!
     Attempts to load the document at the given \a url with the specified \a type.
 
     setSource() calls doSetSource.  In Qt 5, setSource(const QUrl &url) was virtual.
     In Qt 6, doSetSource() is virtual instead, so that it can be overridden in subclasses.
 */
-#endif
 void QTextBrowser::doSetSource(const QUrl &url, QTextDocument::ResourceType type)
 {
     Q_D(QTextBrowser);
@@ -916,7 +907,7 @@ void QTextBrowser::doSetSource(const QUrl &url, QTextDocument::ResourceType type
     being the new source.
 
     Source changes happen both programmatically when calling
-    setSource(), forward(), backword() or home() or when the user
+    setSource(), forward(), backward() or home() or when the user
     clicks on links or presses the equivalent key sequences.
 */
 
@@ -926,16 +917,6 @@ void QTextBrowser::doSetSource(const QUrl &url, QTextDocument::ResourceType type
     activated an anchor in the document. The URL referred to by the
     anchor is passed in \a link.
 */
-
-/*!  \fn void QTextBrowser::highlighted(const QString &link)
-     \overload
-     \obsolete
-
-     Convenience signal that allows connecting to a slot
-     that takes just a QString, like for example QStatusBar's
-     message().
-*/
-
 
 /*!
     \fn void QTextBrowser::anchorClicked(const QUrl &link)
@@ -1172,7 +1153,7 @@ void QTextBrowser::paintEvent(QPaintEvent *e)
     depending on the resource type:
 
     \table
-    \header \li ResourceType  \li QVariant::Type
+    \header \li ResourceType  \li QMetaType::Type
     \row    \li QTextDocument::HtmlResource  \li QString or QByteArray
     \row    \li QTextDocument::ImageResource \li QImage, QPixmap or QByteArray
     \row    \li QTextDocument::StyleSheetResource \li QString or QByteArray

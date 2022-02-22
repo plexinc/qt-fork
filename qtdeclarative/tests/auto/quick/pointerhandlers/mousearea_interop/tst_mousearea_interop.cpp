@@ -31,12 +31,14 @@
 #include <QtQml/qqmlengine.h>
 #include <QtQml/qqmlproperty.h>
 #include <QtQuick/private/qquickdraghandler_p.h>
+#include <QtQuick/private/qquickhoverhandler_p.h>
 #include <QtQuick/private/qquickmousearea_p.h>
 #include <QtQuick/qquickitem.h>
 #include <QtQuick/qquickview.h>
+#include <QtGui/private/qpointingdevice_p.h>
 
-#include "../../../shared/util.h"
-#include "../../shared/viewtestutil.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
+#include <QtQuickTestUtils/private/viewtestutils_p.h>
 
 Q_LOGGING_CATEGORY(lcPointerTests, "qt.quick.pointer.tests")
 
@@ -45,19 +47,18 @@ class tst_MouseAreaInterop : public QQmlDataTest
     Q_OBJECT
 public:
     tst_MouseAreaInterop()
-      : touchDevice(QTest::createTouchDevice())
-      , touchPointerDevice(QQuickPointerDevice::touchDevice(touchDevice))
+        : QQmlDataTest(QT_QMLTEST_DATADIR)
     {}
 
 private slots:
     void dragHandlerInSiblingStealingGrabFromMouseAreaViaMouse();
     void dragHandlerInSiblingStealingGrabFromMouseAreaViaTouch_data();
     void dragHandlerInSiblingStealingGrabFromMouseAreaViaTouch();
+    void hoverHandlerDoesntHoverOnPress();
 
 private:
     void createView(QScopedPointer<QQuickView> &window, const char *fileName);
-    QTouchDevice *touchDevice;
-    QQuickPointerDevice *touchPointerDevice;
+    QPointingDevice *touchDevice = QTest::createTouchDevice();
 };
 
 void tst_MouseAreaInterop::createView(QScopedPointer<QQuickView> &window, const char *fileName)
@@ -65,8 +66,8 @@ void tst_MouseAreaInterop::createView(QScopedPointer<QQuickView> &window, const 
     window.reset(new QQuickView);
     window->setSource(testFileUrl(fileName));
     QTRY_COMPARE(window->status(), QQuickView::Ready);
-    QQuickViewTestUtil::centerOnScreen(window.data());
-    QQuickViewTestUtil::moveMouseAway(window.data());
+    QQuickViewTestUtils::centerOnScreen(window.data());
+    QQuickViewTestUtils::moveMouseAway(window.data());
 
     window->show();
     QVERIFY(QTest::qWaitForWindowActive(window.data()));
@@ -79,7 +80,6 @@ void tst_MouseAreaInterop::dragHandlerInSiblingStealingGrabFromMouseAreaViaMouse
     QScopedPointer<QQuickView> windowPtr;
     createView(windowPtr, "dragTakeOverFromSibling.qml");
     QQuickView * window = windowPtr.data();
-    auto pointerEvent = QQuickWindowPrivate::get(window)->pointerEventInstance(QQuickPointerDevice::genericMouseDevice());
 
     QPointer<QQuickPointerHandler> handler = window->rootObject()->findChild<QQuickPointerHandler*>();
     QVERIFY(handler);
@@ -95,10 +95,12 @@ void tst_MouseAreaInterop::dragHandlerInSiblingStealingGrabFromMouseAreaViaMouse
     // DragHandler keeps monitoring, due to its passive grab,
     // and eventually steals the exclusive grab from MA
     int dragStoleGrab = 0;
+    auto devPriv = QPointingDevicePrivate::get(QPointingDevice::primaryPointingDevice());
     for (int i = 0; i < 4; ++i) {
         p1 += QPoint(dragThreshold / 2, 0);
         QTest::mouseMove(window, p1);
-        if (!dragStoleGrab && pointerEvent->point(0)->exclusiveGrabber() == handler)
+
+        if (!dragStoleGrab && devPriv->pointById(0)->exclusiveGrabber == handler)
             dragStoleGrab = i;
     }
     if (dragStoleGrab)
@@ -127,7 +129,7 @@ void tst_MouseAreaInterop::dragHandlerInSiblingStealingGrabFromMouseAreaViaTouch
     QScopedPointer<QQuickView> windowPtr;
     createView(windowPtr, "dragTakeOverFromSibling.qml");
     QQuickView * window = windowPtr.data();
-    auto pointerEvent = QQuickWindowPrivate::get(window)->pointerEventInstance(touchPointerDevice);
+    auto devPriv = QPointingDevicePrivate::get(touchDevice);
 
     QPointer<QQuickPointerHandler> handler = window->rootObject()->findChild<QQuickPointerHandler*>();
     QVERIFY(handler);
@@ -140,9 +142,12 @@ void tst_MouseAreaInterop::dragHandlerInSiblingStealingGrabFromMouseAreaViaTouch
 
     touch.press(1, p1).commit();
     QQuickTouchUtils::flush(window);
-    QTRY_VERIFY(pointerEvent->point(0)->passiveGrabbers().contains(handler));
-    QCOMPARE(pointerEvent->point(0)->grabberItem(), ma);
-    QCOMPARE(window->mouseGrabberItem(), ma);
+    QTRY_VERIFY(!devPriv->activePoints.isEmpty());
+    qCDebug(lcPointerTests) << "active point after press:" << devPriv->activePoints.values().first().eventPoint;
+    auto epd = devPriv->queryPointById(1);
+    QVERIFY(epd);
+    QVERIFY(epd->passiveGrabbers.contains(handler.data()));
+    QCOMPARE(epd->exclusiveGrabber, ma);
     QCOMPARE(ma->pressed(), true);
 
     // Start dragging
@@ -153,7 +158,7 @@ void tst_MouseAreaInterop::dragHandlerInSiblingStealingGrabFromMouseAreaViaTouch
         p1 += QPoint(dragThreshold / 2, 0);
         touch.move(1, p1).commit();
         QQuickTouchUtils::flush(window);
-        if (!dragStoleGrab && pointerEvent->point(0)->exclusiveGrabber() == handler)
+        if (!dragStoleGrab && epd->exclusiveGrabber == handler)
             dragStoleGrab = i;
     }
     if (dragStoleGrab)
@@ -171,6 +176,38 @@ void tst_MouseAreaInterop::dragHandlerInSiblingStealingGrabFromMouseAreaViaTouch
     touch.release(1, p1).commit();
     QQuickTouchUtils::flush(window);
     QCOMPARE(handler->active(), false);
+}
+
+void tst_MouseAreaInterop::hoverHandlerDoesntHoverOnPress() // QTBUG-72843
+{
+    QQuickView window;
+    QVERIFY(QQuickTest::showView(window, testFileUrl("hoverHandlerInGrandparentOfHoverableItem.qml")));
+
+    QPointer<QQuickHoverHandler> handler = window.rootObject()->findChild<QQuickHoverHandler*>();
+    QVERIFY(handler);
+    QQuickMouseArea *ma = window.rootObject()->findChild<QQuickMouseArea*>();
+    QVERIFY(ma);
+    QPoint p = ma->mapToScene(ma->boundingRect().center()).toPoint();
+
+    // move the mouse below the "button" but within HoverHandler's region of interest
+    QTest::mouseMove(&window, p + QPoint(0, 50));
+    QTRY_COMPARE(handler->isHovered(), true);
+    // move the mouse into the "button"
+    QTest::mouseMove(&window, p);
+    // current behavior: the mouse is still within the HoverHandler's region of interest, but MouseArea is obstructing.
+    QTRY_COMPARE(handler->isHovered(), false);
+    QCOMPARE(ma->hovered(), true);
+
+    // So HoverHandler is no longer hovered (unfortunately).  Clicking should not change it.
+    QSignalSpy hoveredChangedSpy(handler, SIGNAL(hoveredChanged()));
+    QTest::mousePress(&window, Qt::LeftButton, Qt::NoModifier, p);
+    QTRY_COMPARE(ma->pressed(), true);
+    QCOMPARE(handler->isHovered(), false);
+    QCOMPARE(hoveredChangedSpy.count(), 0);
+    QTest::mouseRelease(&window, Qt::LeftButton, Qt::NoModifier, p);
+    QTRY_COMPARE(ma->pressed(), false);
+    QCOMPARE(handler->isHovered(), false);
+    QCOMPARE(hoveredChangedSpy.count(), 0);
 }
 
 QTEST_MAIN(tst_MouseAreaInterop)

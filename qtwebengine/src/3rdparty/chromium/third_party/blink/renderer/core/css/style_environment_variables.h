@@ -25,6 +25,40 @@ enum class UADefinedVariable {
   kSafeAreaInsetLeft,
   kSafeAreaInsetBottom,
   kSafeAreaInsetRight,
+
+  // The keyboard area insets are six environment variables that define a
+  // virtual keyboard rectangle by its top, right, bottom, left, width and
+  // height insets
+  // from the edge of the viewport.
+  // Explainers:
+  // https://github.com/MicrosoftEdge/MSEdgeExplainers/blob/main/VirtualKeyboardAPI/explainer.md
+  kKeyboardInsetTop,
+  kKeyboardInsetLeft,
+  kKeyboardInsetBottom,
+  kKeyboardInsetRight,
+  kKeyboardInsetWidth,
+  kKeyboardInsetHeight,
+
+  // The fold environment variables define a rectangle that is splitting the
+  // layout viewport.
+  // Explainers:
+  // https://github.com/MicrosoftEdge/MSEdgeExplainers/blob/master/Foldables/explainer.md
+  kFoldTop,
+  kFoldRight,
+  kFoldBottom,
+  kFoldLeft,
+  kFoldWidth,
+  kFoldHeight,
+
+  // The title bar area inset are four environment variables that define a
+  // rectangle by its top, right, bottom, and left insets from the edge of the
+  // viewport, intended for desktop pwas with window controls overlay.
+  // Explainer:
+  // https://github.com/WICG/window-controls-overlay/blob/master/explainer.md
+  kTitlebarAreaInsetTop,
+  kTitlebarAreaInsetLeft,
+  kTitlebarAreaInsetBottom,
+  kTitlebarAreaInsetRight
 };
 
 // StyleEnvironmentVariables stores user agent and user defined CSS environment
@@ -61,6 +95,10 @@ class CORE_EXPORT StyleEnvironmentVariables
 
   // Detach |this| from |parent|.
   void DetachFromParent();
+
+  // Stringify |value| and append 'px'. Helper for setting variables that are
+  // CSS lengths.
+  static String FormatPx(int value);
 
  protected:
   friend class StyleEnvironmentVariablesTest;

@@ -4,8 +4,8 @@
 
 /**
  * @fileoverview using private properties isn't a Closure violation in tests.
- * @suppress {accessControls}
  */
+self.PerformanceTestRunner = self.PerformanceTestRunner || {};
 
 PerformanceTestRunner.timelineData = function() {
   return JSON.stringify([

@@ -12,13 +12,15 @@
 #include "base/macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/api/networking_cast_private/chrome_networking_cast_private_delegate.h"
 #include "chrome/browser/extensions/extension_apitest.h"
+#include "content/public/test/browser_test.h"
 #include "extensions/browser/api/networking_private/networking_cast_private_delegate.h"
 #include "extensions/common/switches.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/shill/shill_device_client.h"
 #include "chromeos/dbus/shill/shill_service_client.h"
@@ -36,18 +38,18 @@ class TestNetworkingCastPrivateDelegate
   ~TestNetworkingCastPrivateDelegate() override {}
 
   void VerifyDestination(std::unique_ptr<Credentials> credentials,
-                         const VerifiedCallback& success_callback,
-                         const FailureCallback& failure_callback) override {
+                         VerifiedCallback success_callback,
+                         FailureCallback failure_callback) override {
     AssertCredentials(*credentials);
-    success_callback.Run(true);
+    std::move(success_callback).Run(true);
   }
 
   void VerifyAndEncryptData(const std::string& data,
                             std::unique_ptr<Credentials> credentials,
-                            const DataCallback& success_callback,
-                            const FailureCallback& failure_callback) override {
+                            DataCallback success_callback,
+                            FailureCallback failure_callback) override {
     AssertCredentials(*credentials);
-    success_callback.Run("encrypted_data");
+    std::move(success_callback).Run("encrypted_data");
   }
 
  private:
@@ -75,14 +77,14 @@ class NetworkingCastPrivateApiTest : public ExtensionApiTest {
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
     ExtensionApiTest::SetUpCommandLine(command_line);
-    // Whitelist the extension ID of the test extension.
+    // Allowlist the extension ID of the test extension.
     command_line->AppendSwitchASCII(
-        extensions::switches::kWhitelistedExtensionID,
+        extensions::switches::kAllowlistedExtensionID,
         "epcifkihnkjgphfkloaaleeakhpmgdmn");
   }
 
   void SetUp() override {
-    networking_cast_private_delegate_factory_ = base::Bind(
+    networking_cast_private_delegate_factory_ = base::BindRepeating(
         &NetworkingCastPrivateApiTest::CreateNetworkingCastPrivateDelegate,
         base::Unretained(this));
     ChromeNetworkingCastPrivateDelegate::SetFactoryCallbackForTest(
@@ -94,7 +96,7 @@ class NetworkingCastPrivateApiTest : public ExtensionApiTest {
   void SetUpOnMainThread() override {
     ExtensionApiTest::SetUpOnMainThread();
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     chromeos::DBusThreadManager* dbus_manager =
         chromeos::DBusThreadManager::Get();
     chromeos::ShillDeviceClient::TestInterface* device_test =
@@ -102,7 +104,6 @@ class NetworkingCastPrivateApiTest : public ExtensionApiTest {
     device_test->ClearDevices();
     device_test->AddDevice("/device/stub_wifi_device1", shill::kTypeWifi,
                            "stub_wifi_device");
-    device_test->SetTDLSState(shill::kTDLSConnectedState);
 
     chromeos::ShillServiceClient::TestInterface* service_test =
         dbus_manager->GetShillServiceClient()->GetTestInterface();
@@ -110,20 +111,12 @@ class NetworkingCastPrivateApiTest : public ExtensionApiTest {
     service_test->AddService("stub_wifi", "stub_wifi_guid", "wifi",
                              shill::kTypeWifi, shill::kStateOnline,
                              true /* add_to_visible */);
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
   }
 
   void TearDown() override {
     ExtensionApiTest::TearDown();
     ChromeNetworkingCastPrivateDelegate::SetFactoryCallbackForTest(nullptr);
-  }
-
-  bool TdlsSupported() {
-#if defined(OS_CHROMEOS)
-    return true;
-#else
-    return false;
-#endif
   }
 
  private:
@@ -139,10 +132,7 @@ class NetworkingCastPrivateApiTest : public ExtensionApiTest {
 };
 
 IN_PROC_BROWSER_TEST_F(NetworkingCastPrivateApiTest, Basic) {
-  const std::string arg =
-      base::StringPrintf("{\"tdlsSupported\": %d}", TdlsSupported());
-  EXPECT_TRUE(RunPlatformAppTestWithArg("networking_cast_private", arg.c_str()))
-      << message_;
+  EXPECT_TRUE(RunPlatformAppTest("networking_cast_private")) << message_;
 }
 
 }  // namespace extensions

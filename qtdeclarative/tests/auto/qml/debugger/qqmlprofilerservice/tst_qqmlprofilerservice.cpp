@@ -28,7 +28,7 @@
 
 #include "debugutil_p.h"
 #include "qqmldebugprocess_p.h"
-#include "../../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 
 #include <private/qqmlprofilerclient_p.h>
 #include <private/qqmldebugconnection_p.h>
@@ -45,8 +45,8 @@ class QQmlProfilerTestClient : public QQmlProfilerEventReceiver
     Q_OBJECT
 
 public:
-    QQmlProfilerTestClient(QQmlDebugConnection *connection) :
-        client(new QQmlProfilerClient(connection, this))
+    QQmlProfilerTestClient(QQmlDebugConnection *connection)
+         : client(new QQmlProfilerClient(connection, this))
     {
         connect(client.data(), &QQmlProfilerClient::traceStarted,
                 this, &QQmlProfilerTestClient::startTrace);
@@ -180,6 +180,9 @@ class tst_QQmlProfilerService : public QQmlDebugTest
 {
     Q_OBJECT
 
+public:
+    tst_QQmlProfilerService();
+
 private:
     enum MessageListType {
         MessageListQML,
@@ -204,7 +207,7 @@ private:
     ConnectResult connectTo(bool block, const QString &file, bool recordFromStart = true,
                           uint flushInterval = 0, bool restrictServices = true,
                           const QString &executable
-            = QLibraryInfo::location(QLibraryInfo::BinariesPath) + "/qmlscene");
+            = QLibraryInfo::path(QLibraryInfo::BinariesPath) + "/qmlscene");
     void checkProcessTerminated();
     void checkTraceReceived();
     void checkJsHeap();
@@ -245,6 +248,11 @@ private:
 
 #define VERIFY(type, position, expected, checks, numbers) \
     QVERIFY(verify(type, position, expected, checks, numbers))
+
+tst_QQmlProfilerService::tst_QQmlProfilerService()
+    : QQmlDebugTest(QT_QMLTEST_DATADIR)
+{
+}
 
 QQmlDebugTest::ConnectResult tst_QQmlProfilerService::connectTo(
         bool block, const QString &file, bool recordFromStart, uint flushInterval,
@@ -604,52 +612,21 @@ void tst_QQmlProfilerService::scenegraphData()
     checkJsHeap();
 
     // Check that at least one frame was rendered.
-    // There should be a SGContextFrame + SGRendererFrame + SGRenderLoopFrame sequence,
+    // There should be at least a SGRendererFrame + SGRenderLoopFrame sequence,
     // but we can't be sure to get the SGRenderLoopFrame in the threaded renderer.
     //
     // Since the rendering happens in a different thread, there could be other unrelated events
     // interleaved. Also, events could carry the same time stamps and be sorted in an unexpected way
     // if the clocks are acting up.
-    qint64 contextFrameTime = -1;
     qint64 renderFrameTime = -1;
-#if QT_CONFIG(opengl) //Software renderer doesn't have context frames
-    if (QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::OpenGL)) {
-        foreach (const QQmlProfilerEvent &msg, m_client->asynchronousMessages) {
-            const QQmlProfilerEventType &type = m_client->types.at(msg.typeIndex());
-            if (type.message() == SceneGraphFrame) {
-                if (type.detailType() == SceneGraphContextFrame) {
-                    contextFrameTime = msg.timestamp();
-                    break;
-                }
-            }
-        }
-
-        QVERIFY(contextFrameTime != -1);
-    }
-#endif
     foreach (const QQmlProfilerEvent &msg, m_client->asynchronousMessages) {
         const QQmlProfilerEventType &type = m_client->types.at(msg.typeIndex());
         if (type.detailType() == SceneGraphRendererFrame) {
-            QVERIFY(msg.timestamp() >= contextFrameTime);
             renderFrameTime = msg.timestamp();
             break;
         }
     }
-
     QVERIFY(renderFrameTime != -1);
-
-    foreach (const QQmlProfilerEvent &msg, m_client->asynchronousMessages) {
-        const QQmlProfilerEventType &type = m_client->types.at(msg.typeIndex());
-        if (type.detailType() == SceneGraphRenderLoopFrame) {
-            if (msg.timestamp() >= contextFrameTime) {
-                // Make sure SceneGraphRenderLoopFrame is not between SceneGraphContextFrame and
-                // SceneGraphRendererFrame. A SceneGraphRenderLoopFrame before everything else is
-                // OK as the scene graph might decide to do an initial rendering.
-                QVERIFY(msg.timestamp() >= renderFrameTime);
-                break;
-            }
-        }
-    }
 }
 
 void tst_QQmlProfilerService::profileOnExit()
@@ -688,8 +665,8 @@ void tst_QQmlProfilerService::signalSourceLocation()
                                               column));
     };
 
-    VERIFY(MessageListQML, 4, createType(8, 28), CheckType | CheckNumbers, m_rangeStart);
-    VERIFY(MessageListQML, 6, createType(7, 21), CheckType | CheckNumbers, m_rangeEnd);
+    VERIFY(MessageListQML, 4, createType(8, 5), CheckType | CheckNumbers, m_rangeStart);
+    VERIFY(MessageListQML, 6, createType(7, 5), CheckType | CheckNumbers, m_rangeEnd);
 }
 
 void tst_QQmlProfilerService::javascript()

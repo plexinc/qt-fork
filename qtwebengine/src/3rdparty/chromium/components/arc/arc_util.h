@@ -10,7 +10,10 @@
 // users' preferences, and FeatureList.
 
 #include <stdint.h>
+#include <deque>
 #include <string>
+
+#include "chromeos/dbus/dbus_method_call_status.h"
 
 namespace aura {
 class Window;
@@ -35,6 +38,30 @@ enum class CpuRestrictionState {
   CPU_RESTRICTION_BACKGROUND = 1,
 };
 
+enum class UpstartOperation {
+  JOB_START = 0,
+  JOB_STOP,
+  // This sends STOP D-Bus message, then sends START. Unlike 'initctl restart',
+  // this starts the job even when the job hasn't been started yet (and
+  // therefore the stop operation fails.)
+  JOB_STOP_AND_START,
+};
+
+// Upstart Job Description
+struct JobDesc {
+  // Explicit ctor/dtor declaration is necessary for complex struct. See
+  // https://cs.chromium.org/chromium/src/tools/clang/plugins/FindBadConstructsConsumer.cpp
+  JobDesc(const std::string& job_name,
+          UpstartOperation operation,
+          const std::vector<std::string>& environment);
+  ~JobDesc();
+  JobDesc(const JobDesc& other);
+
+  std::string job_name;
+  UpstartOperation operation;
+  std::vector<std::string> environment;
+};
+
 // Name of the crosvm instance when ARCVM is enabled.
 constexpr char kArcVmName[] = "arcvm";
 
@@ -51,6 +78,15 @@ bool IsArcAvailable();
 
 // Returns true if ARC VM is enabled.
 bool IsArcVmEnabled();
+
+// Returns true if ARC VM realtime VCPU is enabled.
+// |cpus| is the number of logical cores that are currently online on the
+// device.
+bool IsArcVmRtVcpuEnabled(uint32_t cpus);
+
+// Returns true if all development configuration directives in the
+// vm_tools/init/arcvm_dev.conf file are ignored during ARCVM start.
+bool IsArcVmDevConfIgnored();
 
 // Returns true if ARC should always start within the primary user session
 // (opted in user or not), and other supported mode such as guest and Kiosk
@@ -114,10 +150,6 @@ bool IsArcAllowedForUser(const user_manager::User* user);
 // In most cases, it is disabled for testing purpose.
 bool IsArcOptInVerificationDisabled();
 
-// Returns true if the |window|'s aura::client::kAppType is ARC_APP. When
-// |window| is nullptr, returns false.
-bool IsArcAppWindow(const aura::Window* window);
-
 constexpr int kNoTaskId = -1;
 constexpr int kSystemWindowTaskId = 0;
 // Returns the task id given by the exo shell's application id, or |kNoTaskId|
@@ -148,6 +180,17 @@ void SetArcCpuRestriction(CpuRestrictionState cpu_restriction_state);
 // Returns the Android density that should be used for the given device scale
 // factor used on chrome.
 int32_t GetLcdDensityForDeviceScaleFactor(float device_scale_factor);
+
+// Gets a system property managed by crossystem. This function can be called
+// only with base::MayBlock().
+int GetSystemPropertyInt(const std::string& property);
+
+// Starts or stops a job in |jobs| one by one. If starting a job fails, the
+// whole operation is aborted and the |callback| is immediately called with
+// false. Errors on stopping a job is just ignored with some logs. Once all jobs
+// are successfully processed, |callback| is called with true.
+void ConfigureUpstartJobs(std::deque<JobDesc> jobs,
+                          chromeos::VoidDBusMethodCallback callback);
 
 }  // namespace arc
 

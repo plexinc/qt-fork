@@ -5,30 +5,33 @@
 **
 ** This file is part of the Qt3D module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL3$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
 ** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPLv3 included in the
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
 ** packaging of this file. Please review the following information to
 ** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl.html.
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
 ** GNU General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or later as published by the Free
-** Software Foundation and appearing in the file LICENSE.GPL included in
-** the packaging of this file. Please review the following information to
-** ensure the GNU General Public License version 2.0 requirements will be
-** met: http://www.gnu.org/licenses/gpl-2.0.html.
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -72,19 +75,6 @@ QJsonValue typeToJsonValue(const Type &t)
 }
 
 template<>
-QJsonObject typeToJsonObj<QRectF>(const QRectF &rect)
-{
-    QJsonObject obj;
-
-    obj.insert(QLatin1String("x"), rect.x());
-    obj.insert(QLatin1String("y"), rect.y());
-    obj.insert(QLatin1String("width"), rect.width());
-    obj.insert(QLatin1String("height"), rect.height());
-
-    return obj;
-}
-
-template<>
 QJsonValue typeToJsonValue<QRectF>(const QRectF &rect)
 {
     QJsonArray value;
@@ -98,17 +88,6 @@ QJsonValue typeToJsonValue<QRectF>(const QRectF &rect)
 }
 
 template<>
-QJsonObject typeToJsonObj<QSize>(const QSize &s)
-{
-    QJsonObject obj;
-
-    obj.insert(QLatin1String("width"), s.width());
-    obj.insert(QLatin1String("height"), s.height());
-
-    return obj;
-}
-
-template<>
 QJsonValue typeToJsonValue<QSize>(const QSize &s)
 {
     QJsonArray value;
@@ -117,18 +96,6 @@ QJsonValue typeToJsonValue<QSize>(const QSize &s)
     value.push_back(s.height());
 
     return value;
-}
-
-template<>
-QJsonObject typeToJsonObj<QVector3D>(const QVector3D &v)
-{
-    QJsonObject obj;
-
-    obj.insert(QLatin1String("x"), v.x());
-    obj.insert(QLatin1String("y"), v.y());
-    obj.insert(QLatin1String("z"), v.z());
-
-    return obj;
 }
 
 template<>
@@ -144,31 +111,10 @@ QJsonValue typeToJsonValue<QVector3D>(const QVector3D &v)
 }
 
 template<>
-QJsonObject typeToJsonObj<Qt3DCore::QNodeId>(const Qt3DCore::QNodeId &v)
-{
-    QJsonObject obj;
-    obj.insert(QLatin1String("id"), qint64(v.id()));
-    return obj;
-}
-
-template<>
 QJsonValue typeToJsonValue<Qt3DCore::QNodeId>(const Qt3DCore::QNodeId &v)
 {
     QJsonValue value(qint64(v.id()));
     return value;
-}
-
-template<>
-QJsonObject typeToJsonObj<QVector4D>(const QVector4D &v)
-{
-    QJsonObject obj;
-
-    obj.insert(QLatin1String("x"), v.x());
-    obj.insert(QLatin1String("y"), v.y());
-    obj.insert(QLatin1String("z"), v.z());
-    obj.insert(QLatin1String("w"), v.w());
-
-    return obj;
 }
 
 template<>
@@ -182,19 +128,6 @@ QJsonValue typeToJsonValue<QVector4D>(const QVector4D &v)
     value.push_back(v.w());
 
     return value;
-}
-
-template<>
-QJsonObject typeToJsonObj<QMatrix4x4>(const QMatrix4x4 &v)
-{
-    QJsonObject obj;
-
-    obj.insert(QLatin1String("row 0"), typeToJsonObj(v.row(0)));
-    obj.insert(QLatin1String("row 1"), typeToJsonObj(v.row(0)));
-    obj.insert(QLatin1String("row 2"), typeToJsonObj(v.row(0)));
-    obj.insert(QLatin1String("row 3"), typeToJsonObj(v.row(0)));
-
-    return obj;
 }
 
 template<>
@@ -248,7 +181,7 @@ QJsonObject parameterPackToJson(const Render::OpenGL::ShaderParameterPack &pack)
 
     const Render::OpenGL::PackUniformHash &uniforms = pack.uniforms();
     QJsonArray uniformsArray;
-    for (int i = 0, m = uniforms.keys.size(); i < m; ++i) {
+    for (qsizetype i = 0, m = uniforms.keys.size(); i < m; ++i) {
         QJsonObject uniformObj;
         uniformObj.insert(QLatin1String("name"), Render::StringToInt::lookupString(uniforms.keys.at(i)));
         const Render::UniformValue::ValueType type = uniforms.values.at(i).valueType();
@@ -302,10 +235,10 @@ CommandExecuter::CommandExecuter(Render::OpenGL::Renderer *renderer)
 }
 
 // Render thread
-void CommandExecuter::performAsynchronousCommandExecution(const QVector<Render::OpenGL::RenderView *> &views)
+void CommandExecuter::performAsynchronousCommandExecution(const std::vector<Render::OpenGL::RenderView *> &views)
 {
     QMutexLocker lock(&m_pendingCommandsMutex);
-    const QVector<Qt3DCore::Debug::AsynchronousCommandReply *> shellCommands = std::move(m_pendingCommands);
+    const QList<Qt3DCore::Debug::AsynchronousCommandReply *> shellCommands = Qt3DCore::moveAndClear(m_pendingCommands);
     lock.unlock();
 
     for (auto *reply : shellCommands) {

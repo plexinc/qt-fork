@@ -8,11 +8,14 @@
 #include "base/no_destructor.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/spellchecker/spellcheck_custom_dictionary.h"
 #include "chrome/browser/spellchecker/spellcheck_factory.h"
 #include "chrome/browser/spellchecker/spellcheck_service.h"
 #include "components/spellcheck/browser/spellcheck_host_metrics.h"
 #include "components/spellcheck/browser/spellcheck_platform.h"
+#include "components/spellcheck/common/spellcheck_features.h"
 #include "components/spellcheck/spellcheck_buildflags.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
@@ -21,6 +24,10 @@
 
 #if BUILDFLAG(USE_BROWSER_SPELLCHECKER) && BUILDFLAG(ENABLE_SPELLING_SERVICE)
 #include "chrome/browser/spellchecker/spelling_request.h"
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/constants/ash_features.h"
 #endif
 
 namespace {
@@ -133,8 +140,39 @@ void SpellCheckHostChromeImpl::CallSpellingServiceDone(
       base::UTF16ToUTF8(text), *spellcheck->GetCustomDictionary(),
       service_results);
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  if (base::FeatureList::IsEnabled(chromeos::features::kOnDeviceGrammarCheck) &&
+      results.empty()) {
+    auto* host = content::RenderProcessHost::FromID(render_process_id_);
+    if (!host) {
+      std::move(callback).Run(false, std::vector<SpellCheckResult>());
+      return;
+    }
+    grammar_client_.RequestTextCheck(
+        Profile::FromBrowserContext(host->GetBrowserContext()), text,
+        base::BindOnce(&SpellCheckHostChromeImpl::CallGrammarServiceDone,
+                       weak_factory_.GetWeakPtr(), std::move(callback)));
+    return;
+  }
+#endif
+
   std::move(callback).Run(success, results);
 }
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+void SpellCheckHostChromeImpl::CallGrammarServiceDone(
+    CallSpellingServiceCallback callback,
+    bool success,
+    const std::vector<SpellCheckResult>& results) const {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  SpellcheckService* spellcheck = GetSpellcheckService();
+  if (!spellcheck) {  // Teardown.
+    std::move(callback).Run(false, std::vector<SpellCheckResult>());
+    return;
+  }
+  std::move(callback).Run(success, results);
+}
+#endif
 
 // static
 std::vector<SpellCheckResult> SpellCheckHostChromeImpl::FilterCustomWordResults(
@@ -194,7 +232,7 @@ void SpellCheckHostChromeImpl::RequestTextCheck(
                      base::Unretained(this))));
 }
 
-#if BUILDFLAG(USE_WIN_HYBRID_SPELLCHECKER)
+#if defined(OS_WIN)
 void SpellCheckHostChromeImpl::GetPerLanguageSuggestions(
     const base::string16& word,
     GetPerLanguageSuggestionsCallback callback) {
@@ -208,7 +246,69 @@ void SpellCheckHostChromeImpl::GetPerLanguageSuggestions(
   spellcheck_platform::GetPerLanguageSuggestions(
       spellcheck->platform_spell_checker(), word, std::move(callback));
 }
-#endif  // BUILDFLAG(USE_WIN_HYBRID_SPELLCHECKER)
+
+void SpellCheckHostChromeImpl::InitializeDictionaries(
+    InitializeDictionariesCallback callback) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+  if (base::FeatureList::IsEnabled(
+          spellcheck::kWinDelaySpellcheckServiceInit)) {
+    // Initialize the spellcheck service if needed. Initialization must
+    // happen on UI thread.
+    SpellcheckService* spellcheck = GetSpellcheckService();
+
+    if (!spellcheck) {  // Teardown.
+      std::move(callback).Run(/*dictionaries=*/{}, /*custom_words=*/{},
+                              /*enable=*/false);
+      return;
+    }
+
+    dictionaries_loaded_callback_ = std::move(callback);
+
+    spellcheck->InitializeDictionaries(
+        base::BindOnce(&SpellCheckHostChromeImpl::OnDictionariesInitialized,
+                       weak_factory_.GetWeakPtr()));
+    return;
+  }
+
+  NOTREACHED();
+  std::move(callback).Run(/*dictionaries=*/{}, /*custom_words=*/{},
+                          /*enable=*/false);
+}
+
+void SpellCheckHostChromeImpl::OnDictionariesInitialized() {
+  DCHECK(dictionaries_loaded_callback_);
+  SpellcheckService* spellcheck = GetSpellcheckService();
+
+  if (!spellcheck) {  // Teardown.
+    std::move(dictionaries_loaded_callback_)
+        .Run(/*dictionaries=*/{}, /*custom_words=*/{},
+             /*enable=*/false);
+    return;
+  }
+
+  const bool enable = spellcheck->IsSpellcheckEnabled();
+
+  std::vector<spellcheck::mojom::SpellCheckBDictLanguagePtr> dictionaries;
+  std::vector<std::string> custom_words;
+  if (enable) {
+    for (const auto& hunspell_dictionary :
+         spellcheck->GetHunspellDictionaries()) {
+      dictionaries.push_back(spellcheck::mojom::SpellCheckBDictLanguage::New(
+          hunspell_dictionary->GetDictionaryFile().Duplicate(),
+          hunspell_dictionary->GetLanguage()));
+    }
+
+    SpellcheckCustomDictionary* custom_dictionary =
+        spellcheck->GetCustomDictionary();
+    custom_words.assign(custom_dictionary->GetWords().begin(),
+                        custom_dictionary->GetWords().end());
+  }
+
+  std::move(dictionaries_loaded_callback_)
+      .Run(std::move(dictionaries), custom_words, enable);
+}
+#endif  // defined(OS_WIN)
 
 void SpellCheckHostChromeImpl::OnRequestFinished(SpellingRequest* request) {
   auto iterator = requests_.find(request);
@@ -224,7 +324,7 @@ void SpellCheckHostChromeImpl::CombineResultsForTesting(
 #endif  //  BUILDFLAG(USE_BROWSER_SPELLCHECKER) &&
         //  BUILDFLAG(ENABLE_SPELLING_SERVICE)
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 int SpellCheckHostChromeImpl::ToDocumentTag(int route_id) {
   if (!tag_map_.count(route_id))
     tag_map_[route_id] = spellcheck_platform::GetDocumentTag();
@@ -238,7 +338,7 @@ void SpellCheckHostChromeImpl::RetireDocumentTag(int route_id) {
   spellcheck_platform::CloseDocumentWithTag(ToDocumentTag(route_id));
   tag_map_.erase(route_id);
 }
-#endif  // defined(OS_MACOSX)
+#endif  // defined(OS_MAC)
 
 SpellcheckService* SpellCheckHostChromeImpl::GetSpellcheckService() const {
   auto* host = content::RenderProcessHost::FromID(render_process_id_);

@@ -34,7 +34,7 @@ bool ClipboardFormatType::operator<(const ClipboardFormatType& other) const {
   return data_ < other.data_;
 }
 
-bool ClipboardFormatType::Equals(const ClipboardFormatType& other) const {
+bool ClipboardFormatType::operator==(const ClipboardFormatType& other) const {
   return data_ == other.data_;
 }
 
@@ -47,8 +47,14 @@ ClipboardFormatType ClipboardFormatType::GetType(
 }
 
 // static
-const ClipboardFormatType& ClipboardFormatType::GetUrlType() {
+const ClipboardFormatType& ClipboardFormatType::GetFilenamesType() {
   static base::NoDestructor<ClipboardFormatType> type(kMimeTypeURIList);
+  return *type;
+}
+
+// static
+const ClipboardFormatType& ClipboardFormatType::GetUrlType() {
+  static base::NoDestructor<ClipboardFormatType> type(kMimeTypeMozillaURL);
   return *type;
 }
 
@@ -72,6 +78,12 @@ const ClipboardFormatType& ClipboardFormatType::GetHtmlType() {
 }
 
 // static
+const ClipboardFormatType& ClipboardFormatType::GetSvgType() {
+  static base::NoDestructor<ClipboardFormatType> type(kMimeTypeSvg);
+  return *type;
+}
+
+// static
 const ClipboardFormatType& ClipboardFormatType::GetRtfType() {
   static base::NoDestructor<ClipboardFormatType> type(kMimeTypeRTF);
   return *type;
@@ -86,13 +98,6 @@ const ClipboardFormatType& ClipboardFormatType::GetBitmapType() {
 // static
 const ClipboardFormatType& ClipboardFormatType::GetWebCustomDataType() {
   static base::NoDestructor<ClipboardFormatType> type(kMimeTypeWebCustomData);
-  return *type;
-}
-
-// static
-const ClipboardFormatType& ClipboardFormatType::GetPepperCustomDataType() {
-  static base::NoDestructor<ClipboardFormatType> type(
-      kMimeTypePepperCustomData);
   return *type;
 }
 

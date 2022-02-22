@@ -54,16 +54,16 @@
 #include <private/qtexturefiledata_p.h>
 #include <private/qsgcontext_p.h>
 #include <private/qsgtexture_p.h>
+#include <private/qrhi_p.h>
 #include <QQuickTextureFactory>
 #include <QOpenGLFunctions>
 
 QT_BEGIN_NAMESPACE
 
-class QSGCompressedTexturePrivate;
+Q_DECLARE_LOGGING_CATEGORY(QSG_LOG_TEXTUREIO);
 
 class Q_QUICK_PRIVATE_EXPORT QSGCompressedTexture : public QSGTexture
 {
-    Q_DECLARE_PRIVATE(QSGCompressedTexture)
     Q_OBJECT
 public:
     QSGCompressedTexture(const QTextureFileData& texData);
@@ -73,17 +73,23 @@ public:
     bool hasAlphaChannel() const override;
     bool hasMipmaps() const override;
 
-    int textureId() const override;
-    void bind() override;
+    qint64 comparisonKey() const override;
+    QRhiTexture *rhiTexture() const override;
+    void commitTextureOperations(QRhi *rhi, QRhiResourceUpdateBatch *resourceUpdates) override;
 
     QTextureFileData textureData() const;
 
+    struct FormatInfo
+    {
+        QRhiTexture::Format rhiFormat;
+        bool isSRGB;
+    };
+    static FormatInfo formatInfo(quint32 glTextureFormat);
     static bool formatIsOpaque(quint32 glTextureFormat);
 
 protected:
     QTextureFileData m_textureData;
     QSize m_size;
-    mutable uint m_textureId = 0;
     QRhiTexture *m_texture = nullptr;
     bool m_hasAlpha = false;
     bool m_uploaded = false;
@@ -93,15 +99,6 @@ namespace QSGOpenGLAtlasTexture {
     class Manager;
 }
 
-class QSGCompressedTexturePrivate : public QSGTexturePrivate
-{
-    Q_DECLARE_PUBLIC(QSGCompressedTexture)
-public:
-    int comparisonKey() const override;
-    QRhiTexture *rhiTexture() const override;
-    void updateRhiTexture(QRhi *rhi, QRhiResourceUpdateBatch *resourceUpdates) override;
-};
-
 class Q_QUICK_PRIVATE_EXPORT QSGCompressedTextureFactory : public QQuickTextureFactory
 {
 public:
@@ -110,11 +107,10 @@ public:
     int textureByteCount() const override;
     QSize textureSize() const override;
 
+    const QTextureFileData *textureData() const { return &m_textureData; }
+
 protected:
     QTextureFileData m_textureData;
-
-private:
-    friend class QSGOpenGLAtlasTexture::Manager;
 };
 
 QT_END_NAMESPACE

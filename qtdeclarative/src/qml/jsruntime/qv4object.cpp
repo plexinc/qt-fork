@@ -46,7 +46,7 @@
 #include "qv4scopedvalue_p.h"
 #include "qv4memberdata_p.h"
 #include "qv4objectiterator_p.h"
-#include "qv4identifier_p.h"
+#include "qv4identifierhash_p.h"
 #include "qv4string_p.h"
 #include "qv4identifiertable_p.h"
 #include "qv4jscall_p.h"
@@ -102,9 +102,9 @@ ReturnedValue Object::getValueAccessor(const Value *thisObject, const Value &v, 
         return Encode::undefined();
 
     Scope scope(f->engine());
-    JSCallData jsCallData(scope);
+    JSCallArguments jsCallData(scope);
     if (thisObject)
-        *jsCallData->thisObject = *thisObject;
+        *jsCallData.thisObject = *thisObject;
     return checkedResult(scope.engine, f->call(jsCallData));
 }
 
@@ -119,9 +119,9 @@ bool Object::putValue(uint memberIndex, PropertyAttributes attrs, const Value &v
         if (set) {
             Scope scope(ic->engine);
             ScopedFunctionObject setter(scope, set);
-            JSCallData jsCallData(scope, 1);
-            jsCallData->args[0] = value;
-            *jsCallData->thisObject = this;
+            JSCallArguments jsCallData(scope, 1);
+            jsCallData.args[0] = value;
+            *jsCallData.thisObject = this;
             setter->call(jsCallData);
             return !ic->engine->hasException;
         }
@@ -177,7 +177,7 @@ void Object::defineAccessorProperty(StringOrSymbol *name, VTable::Call getter, V
     ScopedProperty p(scope);
     QString n = name->toQString();
     if (n.at(0) == QLatin1Char('@'))
-        n = QChar::fromLatin1('[') + n.midRef(1) + QChar::fromLatin1(']');
+        n = QChar::fromLatin1('[') + QStringView{n}.mid(1) + QChar::fromLatin1(']');
     if (getter) {
         ScopedString getName(scope, v4->newString(QString::fromLatin1("get ") + n));
         p->setGetter(ScopedFunctionObject(scope, FunctionObject::createBuiltinFunction(v4, getName, getter, 0)));
@@ -519,9 +519,9 @@ bool Object::internalPut(PropertyKey id, const Value &value, Value *receiver)
         ScopedFunctionObject setter(scope, p->setter());
         if (!setter)
             return false;
-        JSCallData jsCallData(scope, 1);
-        jsCallData->args[0] = value;
-        *jsCallData->thisObject = *receiver;
+        JSCallArguments jsCallData(scope, 1);
+        jsCallData.args[0] = value;
+        *jsCallData.thisObject = *receiver;
         setter->call(jsCallData);
         return !scope.engine->hasException;
     }
@@ -1013,6 +1013,8 @@ bool Object::setArrayLength(uint newLen)
     } else {
         if (newLen >= 0x100000)
             initSparseArray();
+        else
+            ArrayData::realloc(this, arrayType(), newLen, false);
     }
     setArrayLengthUnchecked(newLen);
     return ok;

@@ -45,26 +45,30 @@
 #include <QtDesigner/abstractwidgetdatabase.h>
 #include <QtDesigner/qextensionmanager.h>
 
-#include <QtCore/qsize.h>
-#include <QtCore/qtextstream.h>
 #include <QtWidgets/qwidget.h>
 #include <QtWidgets/qapplication.h>
-#include <QtWidgets/qaction.h>
 #include <QtWidgets/qdialog.h>
 #include <QtWidgets/qpushbutton.h>
 #include <QtWidgets/qlayout.h>
-#include <qdebug.h>
+
+#include <QtGui/qaction.h>
+
+#include <QtCore/qdebug.h>
+#include <QtCore/qsize.h>
+#include <QtCore/qtextstream.h>
 
 QT_BEGIN_NAMESPACE
 
 namespace  {
 enum { debugPropertyCommands = 0 };
 
+const unsigned QFontFamiliesResolved = (QFont::FamilyResolved | QFont::FamiliesResolved);
+
 // Debug resolve mask of font
 QString fontMask(unsigned m)
 {
     QString rc;
-    if (m & QFont::FamilyResolved)
+    if (m & QFontFamiliesResolved)
         rc += QStringLiteral("Family");
     if (m & QFont::SizeResolved)
         rc += QStringLiteral("Size ");
@@ -102,7 +106,7 @@ QString fontString(const QFont &f)
         if (f.kerning())
             str << comma << QStringLiteral("kerning");
         str <<  comma << f.styleStrategy() << QStringLiteral(" resolve: ")
-            << fontMask(f.resolve()) << QLatin1Char(')');
+            << fontMask(f.resolveMask()) << QLatin1Char(')');
     }
     return rc;
 }
@@ -244,8 +248,8 @@ void compareFontSubProperty(const QFont & f1,
                             unsigned maskBit,
                             unsigned &mask)
 {
-    const bool f1Changed = f1.resolve() & maskBit;
-    const bool f2Changed = f2.resolve() & maskBit;
+    const bool f1Changed = f1.resolveMask() & maskBit;
+    const bool f2Changed = f2.resolveMask() & maskBit;
     // Role has been set/reset in editor
     if (f1Changed != f2Changed) {
         mask |= maskBit;
@@ -259,7 +263,7 @@ void compareFontSubProperty(const QFont & f1,
 unsigned compareSubProperties(const QFont & f1, const QFont & f2)
 {
     unsigned rc = 0;
-    compareFontSubProperty(f1, f2, &QFont::family,        QFont::FamilyResolved, rc);
+    compareFontSubProperty(f1, f2, &QFont::family,        QFontFamiliesResolved, rc);
     compareFontSubProperty(f1, f2, &QFont::pointSize,     QFont::SizeResolved, rc);
     compareFontSubProperty(f1, f2, &QFont::bold,          QFont::WeightResolved, rc);
     compareFontSubProperty(f1, f2, &QFont::italic,        QFont::StyleResolved, rc);
@@ -288,8 +292,8 @@ unsigned compareSubProperties(const QPalette & p1, const QPalette & p2)
     unsigned rc = 0;
     unsigned maskBit = 1u;
     // generate a mask for each role
-    const unsigned p1Changed = p1.resolve();
-    const unsigned p2Changed = p2.resolve();
+    const unsigned p1Changed = p1.resolveMask();
+    const unsigned p2Changed = p2.resolveMask();
     for (int role = QPalette::WindowText;  role < QPalette::NColorRoles; role++, maskBit <<= 1u) {
         const bool p1RoleChanged = p1Changed & maskBit;
         const bool p2RoleChanged = p2Changed & maskBit;
@@ -326,18 +330,20 @@ unsigned compareSubProperties(const QVariant & q1, const QVariant & q2, qdesigne
 {
     // Do not clobber new value in the comparison function in
     // case someone sets a QString on a PropertySheetStringValue.
-    if (q1.type() != q2.type())
+    const int t1  = q1.metaType().id();
+    const int t2  = q2.metaType().id();
+    if (t1 != t2)
         return SubPropertyAll;
-    switch (q1.type()) {
-    case QVariant::Rect:
+    switch (t1) {
+    case QMetaType::QRect:
         return compareSubProperties(q1.toRect(), q2.toRect());
-    case QVariant::Size:
+    case QMetaType::QSize:
         return compareSubProperties(q1.toSize(), q2.toSize());
-    case QVariant::SizePolicy:
+    case QMetaType::QSizePolicy:
         return compareSubProperties(qvariant_cast<QSizePolicy>(q1), qvariant_cast<QSizePolicy>(q2));
-    case QVariant::Font:
+    case QMetaType::QFont:
         return compareSubProperties(qvariant_cast<QFont>(q1), qvariant_cast<QFont>(q2));
-    case QVariant::Palette:
+    case QMetaType::QPalette:
         return compareSubProperties(qvariant_cast<QPalette>(q1), qvariant_cast<QPalette>(q2));
     default:
         if (q1.userType() == qMetaTypeId<qdesigner_internal::PropertySheetIconValue>())
@@ -449,13 +455,13 @@ inline void setFontSubProperty(unsigned mask,
     if (mask & maskBit) {
         (value.*setter)((newValue.*getter)());
         // Set the resolve bit from NewValue in return value
-        uint r = value.resolve();
-        const bool origFlag = newValue.resolve() & maskBit;
+        uint r = value.resolveMask();
+        const bool origFlag = newValue.resolveMask() & maskBit;
         if (origFlag)
             r |= maskBit;
         else
             r &= ~maskBit;
-        value.resolve(r);
+        value.setResolveMask(r);
         if (debugPropertyCommands)
             qDebug() << "setFontSubProperty " <<  fontMask(maskBit) << " resolve=" << origFlag;
     }
@@ -464,7 +470,7 @@ inline void setFontSubProperty(unsigned mask,
 QFont applyFontSubProperty(const QFont &oldValue, const QFont &newValue, unsigned mask)
 {
     QFont  rc = oldValue;
-    setFontSubProperty(mask, newValue, QFont::FamilyResolved,        &QFont::family,        &QFont::setFamily, rc);
+    setFontSubProperty(mask, newValue, QFontFamiliesResolved,        &QFont::family,        &QFont::setFamily, rc);
     setFontSubProperty(mask, newValue, QFont::SizeResolved,          &QFont::pointSize,     &QFont::setPointSize, rc);
     setFontSubProperty(mask, newValue, QFont::WeightResolved,        &QFont::bold,          &QFont::setBold, rc);
     setFontSubProperty(mask, newValue, QFont::StyleResolved,         &QFont::italic,        &QFont::setItalic, rc);
@@ -473,7 +479,7 @@ QFont applyFontSubProperty(const QFont &oldValue, const QFont &newValue, unsigne
     setFontSubProperty(mask, newValue, QFont::KerningResolved,       &QFont::kerning,       &QFont::setKerning, rc);
     setFontSubProperty(mask, newValue, QFont::StyleStrategyResolved, &QFont::styleStrategy, &QFont::setStyleStrategy, rc);
     if (debugPropertyCommands)
-        qDebug() << "applyFontSubProperty old " <<  fontMask(oldValue.resolve()) << " new " << fontMask(newValue.resolve()) << " return: " << fontMask(rc.resolve());
+        qDebug() << "applyFontSubProperty old " <<  fontMask(oldValue.resolveMask()) << " new " << fontMask(newValue.resolveMask()) << " return: " << fontMask(rc.resolveMask());
     return rc;
 }
 
@@ -491,13 +497,13 @@ QPalette applyPaletteSubProperty(const QPalette &oldValue, const QPalette &newVa
                 rc.setColor(pgroup, prole, newValue.color(pgroup, prole));
             }
             // Set the resolve bit from NewValue in return value
-            uint r = rc.resolve();
-            const bool origFlag = newValue.resolve() & maskBit;
+            uint r = rc.resolveMask();
+            const bool origFlag = newValue.resolveMask() & maskBit;
             if (origFlag)
                 r |= maskBit;
             else
                 r &= ~maskBit;
-            rc.resolve(r);
+            rc.setResolveMask(r);
         }
     }
     return rc;
@@ -525,14 +531,14 @@ PropertyHelper::Value applySubProperty(const QVariant &oldValue, const QVariant 
     if (mask == SubPropertyAll)
         return PropertyHelper::Value(newValue, changed);
 
-    switch (oldValue.type()) {
-    case QVariant::Rect:
+    switch (oldValue.metaType().id()) {
+    case QMetaType::QRect:
         return PropertyHelper::Value(applyRectSubProperty(oldValue.toRect(), newValue.toRect(), mask), changed);
-    case QVariant::Size:
+    case QMetaType::QSize:
         return PropertyHelper::Value(applySizeSubProperty(oldValue.toSize(), newValue.toSize(), mask), changed);
-    case QVariant::SizePolicy:
+    case QMetaType::QSizePolicy:
         return PropertyHelper::Value(QVariant::fromValue(applySizePolicySubProperty(qvariant_cast<QSizePolicy>(oldValue), qvariant_cast<QSizePolicy>(newValue), mask)), changed);
-    case QVariant::Font: {
+    case QMetaType::QFont: {
         // Changed flag in case of font and palette depends on resolve mask only, not on the passed "changed" value.
 
         // The first case: the user changed bold subproperty and then pressed reset button for this subproperty (not for
@@ -550,11 +556,11 @@ PropertyHelper::Value applySubProperty(const QVariant &oldValue, const QVariant 
         // He press reset button for the whole font property. In result whole font properties for both
         // widgets should be marked as unchanged.
         QFont font = applyFontSubProperty(qvariant_cast<QFont>(oldValue), qvariant_cast<QFont>(newValue), mask);
-        return PropertyHelper::Value(QVariant::fromValue(font), font.resolve());
+        return PropertyHelper::Value(QVariant::fromValue(font), font.resolveMask());
         }
-    case QVariant::Palette: {
+    case QMetaType::QPalette: {
         QPalette palette = applyPaletteSubProperty(qvariant_cast<QPalette>(oldValue), qvariant_cast<QPalette>(newValue), mask);
-        return PropertyHelper::Value(QVariant::fromValue(palette), palette.resolve());
+        return PropertyHelper::Value(QVariant::fromValue(palette), palette.resolveMask());
         }
     default:
         if (oldValue.userType() == qMetaTypeId<qdesigner_internal::PropertySheetIconValue>()) {
@@ -885,7 +891,7 @@ QVariant PropertyHelper::findDefaultValue(QDesignerFormWindowInterface *fw) cons
     if (m_index < default_prop_values.size())
         return default_prop_values.at(m_index);
 
-    if (m_oldValue.first.type() == QVariant::Color)
+    if (m_oldValue.first.metaType().id() == QMetaType::QColor)
         return QColor();
 
     return m_oldValue.first; // Again, we just don't know
@@ -933,7 +939,7 @@ PropertyListCommand::PropertyDescription::PropertyDescription(const QString &pro
                                                               int index) :
     m_propertyName(propertyName),
     m_propertyGroup(propertySheet->propertyGroup(index)),
-    m_propertyType(propertySheet->property(index).type()),
+    m_propertyType(propertySheet->property(index).metaType().id()),
     m_specialProperty(getSpecialProperty(propertyName))
 {
 }

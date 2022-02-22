@@ -21,11 +21,11 @@
 #include "components/autofill/core/browser/test_autofill_client.h"
 #include "components/autofill/core/common/autofill_switches.h"
 #include "components/autofill/core/common/form_data_predictions.h"
+#include "components/version_info/version_info.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/ssl_status.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/frame_navigate_params.h"
 #include "content/public/test/mock_navigation_handle.h"
 #include "content/public/test/test_renderer_host.h"
 #include "mojo/public/cpp/bindings/associated_receiver_set.h"
@@ -142,6 +142,7 @@ class FakeAutofillAgent : public mojom::AutofillAgent {
 
   // Mocked mojom::AutofillAgent methods:
   MOCK_METHOD0(FirstUserGestureObservedInTab, void());
+  MOCK_METHOD0(EnableHeavyFormDataScraping, void());
 
  private:
   void CallDone() {
@@ -219,6 +220,8 @@ class FakeAutofillAgent : public mojom::AutofillAgent {
       const std::vector<std::string>& selectors,
       GetElementFormAndFieldDataCallback callback) override {}
 
+  void SetAssistantActionState(bool running) override {}
+
   mojo::AssociatedReceiverSet<mojom::AutofillAgent> receivers_;
 
   base::OnceClosure quit_closure_;
@@ -280,15 +283,15 @@ class TestContentAutofillDriver : public ContentAutofillDriver {
     return static_cast<MockAutofillManager*>(autofill_manager());
   }
 
-  using ContentAutofillDriver::DidNavigateMainFrame;
+  using ContentAutofillDriver::DidNavigateFrame;
 };
 
 class ContentAutofillDriverTest : public content::RenderViewHostTestHarness {
  public:
   void SetUp() override {
     content::RenderViewHostTestHarness::SetUp();
-    // This needed to keep the WebContentsObserverSanityChecker checks happy for
-    // when AppendChild is called.
+    // This needed to keep the WebContentsObserverConsistencyChecker checks
+    // happy for when AppendChild is called.
     NavigateAndCommit(GURL("about:blank"));
 
     test_autofill_client_.reset(new MockAutofillClient());
@@ -310,11 +313,12 @@ class ContentAutofillDriverTest : public content::RenderViewHostTestHarness {
     content::RenderViewHostTestHarness::TearDown();
   }
 
-  void Navigate(bool same_document) {
+  void Navigate(bool same_document, bool from_bfcache = false) {
     content::MockNavigationHandle navigation_handle(GURL(), main_rfh());
     navigation_handle.set_has_committed(true);
     navigation_handle.set_is_same_document(same_document);
-    driver_->DidNavigateMainFrame(&navigation_handle);
+    navigation_handle.set_is_served_from_bfcache(from_bfcache);
+    driver_->DidNavigateFrame(&navigation_handle);
   }
 
  protected:
@@ -332,6 +336,11 @@ TEST_F(ContentAutofillDriverTest, NavigatedMainFrameDifferentDocument) {
 TEST_F(ContentAutofillDriverTest, NavigatedMainFrameSameDocument) {
   EXPECT_CALL(*driver_->mock_autofill_manager(), Reset()).Times(0);
   Navigate(/*same_document=*/true);
+}
+
+TEST_F(ContentAutofillDriverTest, NavigatedMainFrameFromBackForwardCache) {
+  EXPECT_CALL(*driver_->mock_autofill_manager(), Reset()).Times(0);
+  Navigate(/*same_document=*/false, /*from_bfcache=*/true);
 }
 
 TEST_F(ContentAutofillDriverTest, FormDataSentToRenderer_FillForm) {
@@ -453,6 +462,32 @@ TEST_F(ContentAutofillDriverTest, PreviewFieldWithValue) {
 
   EXPECT_TRUE(fake_agent_.GetString16PreviewFieldWithValue(&output_value));
   EXPECT_EQ(input_value, output_value);
+}
+
+TEST_F(ContentAutofillDriverTest, EnableHeavyFormDataScraping) {
+  struct TestCase {
+    version_info::Channel channel;
+    bool heavy_scraping_enabled;
+  } kTestCases[] = {{version_info::Channel::CANARY, true},
+                    {version_info::Channel::DEV, true},
+                    {version_info::Channel::UNKNOWN, false},
+                    {version_info::Channel::BETA, false},
+                    {version_info::Channel::STABLE, false}};
+
+  for (auto test_case : kTestCases) {
+    SCOPED_TRACE(testing::Message()
+                 << "channel: "
+                 << version_info::GetChannelString(test_case.channel));
+    test_autofill_client_->set_channel_for_testing(test_case.channel);
+    EXPECT_CALL(fake_agent_, EnableHeavyFormDataScraping())
+        .Times(test_case.heavy_scraping_enabled ? 1 : 0);
+
+    std::unique_ptr<ContentAutofillDriver> driver(new TestContentAutofillDriver(
+        web_contents()->GetMainFrame(), test_autofill_client_.get()));
+
+    base::RunLoop().RunUntilIdle();
+    testing::Mock::VerifyAndClearExpectations(&fake_agent_);
+  }
 }
 
 }  // namespace autofill

@@ -51,14 +51,16 @@
 // We mean it.
 //
 
+#include <private/qtquickglobal_p.h>
 #include "qquickitem.h"
 
 QT_BEGIN_NAMESPACE
 
-class Q_AUTOTEST_EXPORT QQuickFocusScope : public QQuickItem
+class Q_QUICK_PRIVATE_EXPORT QQuickFocusScope : public QQuickItem
 {
     Q_OBJECT
     QML_NAMED_ELEMENT(FocusScope)
+    QML_ADDED_IN_VERSION(2, 0)
 public:
     QQuickFocusScope(QQuickItem *parent=nullptr);
     virtual ~QQuickFocusScope();

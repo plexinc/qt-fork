@@ -50,6 +50,7 @@
 #include <QtGui/QQuaternion>
 #include <QtGui/QMatrix3x3>
 #include <QtGui/QMatrix4x4>
+#include <QtGui/QColor>
 
 #include <QtCore/qdebug.h>
 #include <QtCore/QString>
@@ -60,7 +61,6 @@
 QT_BEGIN_NAMESPACE
 
 namespace aux {
-Q_DECL_CONSTEXPR inline float translateBrightness(float brightness) { return brightness * .01f; }
 Q_DECL_CONSTEXPR inline float translateConstantAttenuation(float attenuation) { return attenuation; }
 template<int MINATTENUATION = 0, int MAXATTENUATION = 1000>
 Q_DECL_CONSTEXPR inline float translateLinearAttenuation(float attenuation) { return qBound(float(MINATTENUATION), attenuation, float(MAXATTENUATION)) * .01f; }
@@ -123,6 +123,10 @@ bool Q_QUICK3DUTILS_EXPORT isUnit(const QQuaternion &q);
 QVector3D Q_QUICK3DUTILS_EXPORT rotated(const QQuaternion &q, const QVector3D &v);
 
 QVector3D Q_QUICK3DUTILS_EXPORT inverseRotated(const QQuaternion &q, const QVector3D &v);
+}
+
+namespace color {
+QVector4D Q_QUICK3DUTILS_EXPORT sRGBToLinear(const QColor &color);
 }
 
 template<typename TDataType>

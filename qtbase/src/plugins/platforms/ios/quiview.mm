@@ -45,12 +45,15 @@
 #include "qiostextresponder.h"
 #include "qiosscreen.h"
 #include "qioswindow.h"
+#include "qiosinputcontext.h"
 #ifndef Q_OS_TVOS
 #include "qiosmenu.h"
 #endif
 
+#include <QtGui/qpointingdevice.h>
 #include <QtGui/private/qguiapplication_p.h>
 #include <QtGui/private/qwindow_p.h>
+#include <QtGui/private/qapplekeymapper_p.h>
 #include <qpa/qwindowsysteminterface_p.h>
 
 Q_LOGGING_CATEGORY(lcQpaTablet, "qt.qpa.input.tablet")
@@ -263,7 +266,8 @@ Q_LOGGING_CATEGORY(lcQpaTablet, "qt.qpa.input.tablet")
 
 - (BOOL)canBecomeFirstResponder
 {
-    return !(self.platformWindow->window()->flags() & Qt::WindowDoesNotAcceptFocus);
+    return !(self.platformWindow->window()->flags() & (Qt::WindowDoesNotAcceptFocus
+                                                     | Qt::WindowTransparentForInput));
 }
 
 - (BOOL)becomeFirstResponder
@@ -285,7 +289,7 @@ Q_LOGGING_CATEGORY(lcQpaTablet, "qt.qpa.input.tablet")
     }
 
     if (qGuiApp->focusWindow() != self.platformWindow->window())
-        QWindowSystemInterface::handleWindowActivated(self.platformWindow->window());
+        QWindowSystemInterface::handleWindowActivated(self.platformWindow->window(), Qt::ActiveWindowFocusReason);
     else
         qImDebug() << self.platformWindow->window() << "already active, not sending window activation";
 
@@ -322,7 +326,7 @@ Q_LOGGING_CATEGORY(lcQpaTablet, "qt.qpa.input.tablet")
 
     UIResponder *newResponder = FirstResponderCandidate::currentCandidate();
     if ([self responderShouldTriggerWindowDeactivation:newResponder])
-        QWindowSystemInterface::handleWindowActivated(0);
+        QWindowSystemInterface::handleWindowActivated(nullptr, Qt::ActiveWindowFocusReason);
 
     return YES;
 }
@@ -350,13 +354,11 @@ Q_LOGGING_CATEGORY(lcQpaTablet, "qt.qpa.input.tablet")
 {
     [super traitCollectionDidChange: previousTraitCollection];
 
-    QTouchDevice *touchDevice = QIOSIntegration::instance()->touchDevice();
-    QTouchDevice::Capabilities touchCapabilities = touchDevice->capabilities();
+    QPointingDevice *touchDevice = QIOSIntegration::instance()->touchDevice();
+    QPointingDevice::Capabilities touchCapabilities = touchDevice->capabilities();
 
-    if (self.traitCollection.forceTouchCapability == UIForceTouchCapabilityAvailable)
-        touchCapabilities |= QTouchDevice::Pressure;
-    else
-        touchCapabilities &= ~QTouchDevice::Pressure;
+    touchCapabilities.setFlag(QPointingDevice::Capability::Pressure,
+                              (self.traitCollection.forceTouchCapability == UIForceTouchCapabilityAvailable));
 
     touchDevice->setCapabilities(touchCapabilities);
 }
@@ -368,10 +370,10 @@ Q_LOGGING_CATEGORY(lcQpaTablet, "qt.qpa.input.tablet")
     return [super pointInside:point withEvent:event];
 }
 
-- (void)handleTouches:(NSSet *)touches withEvent:(UIEvent *)event withState:(Qt::TouchPointState)state withTimestamp:(ulong)timeStamp
+- (void)handleTouches:(NSSet *)touches withEvent:(UIEvent *)event withState:(QEventPoint::State)state withTimestamp:(ulong)timeStamp
 {
     QIOSIntegration *iosIntegration = QIOSIntegration::instance();
-    bool supportsPressure = QIOSIntegration::instance()->touchDevice()->capabilities() & QTouchDevice::Pressure;
+    bool supportsPressure = QIOSIntegration::instance()->touchDevice()->capabilities() & QPointingDevice::Capability::Pressure;
 
 #if QT_CONFIG(tabletevent)
     if (m_activePencilTouch && [touches containsObject:m_activePencilTouch]) {
@@ -395,7 +397,7 @@ Q_LOGGING_CATEGORY(lcQpaTablet, "qt.qpa.input.tablet")
                      << "xTilt" << qBound(-60.0, altitudeAngle * azimuth.dx, 60.0) << "yTilt" << qBound(-60.0, altitudeAngle * azimuth.dy, 60.0);
             QWindowSystemInterface::handleTabletEvent(self.platformWindow->window(), timeStamp, localViewPosition, globalScreenPosition,
                     // device, pointerType, buttons
-                    QTabletEvent::RotationStylus, QTabletEvent::Pen, state == Qt::TouchPointReleased ? Qt::NoButton : Qt::LeftButton,
+                    int(QInputDevice::DeviceType::Stylus), int(QPointingDevice::PointerType::Pen), state == QEventPoint::State::Released ? Qt::NoButton : Qt::LeftButton,
                     // pressure, xTilt, yTilt
                     pressure, qBound(-60.0, altitudeAngle * azimuth.dx, 60.0), qBound(-60.0, altitudeAngle * azimuth.dy, 60.0),
                     // tangentialPressure, rotation, z, uid, modifiers
@@ -418,7 +420,7 @@ Q_LOGGING_CATEGORY(lcQpaTablet, "qt.qpa.input.tablet")
             }
         }
         if (!uiTouch) {
-            touchPoint.state = Qt::TouchPointStationary;
+            touchPoint.state = QEventPoint::State::Stationary;
         } else {
             touchPoint.state = state;
 
@@ -431,7 +433,7 @@ Q_LOGGING_CATEGORY(lcQpaTablet, "qt.qpa.input.tablet")
 
             touchPoint.area = QRectF(globalScreenPosition, QSize(0, 0));
 
-            // FIXME: Do we really need to support QTouchDevice::NormalizedPosition?
+            // FIXME: Do we really need to support QPointingDevice::Capability::NormalizedPosition?
             QSize screenSize = self.platformWindow->screen()->geometry().size();
             touchPoint.normalPosition = QPointF(globalScreenPosition.x() / screenSize.width(),
                                                 globalScreenPosition.y() / screenSize.height());
@@ -443,9 +445,9 @@ Q_LOGGING_CATEGORY(lcQpaTablet, "qt.qpa.input.tablet")
                 // sending a touch press event to Qt, just to have a valid pressure.
                 touchPoint.pressure = uiTouch.force / uiTouch.maximumPossibleForce;
             } else {
-                // We don't claim that our touch device supports QTouchDevice::Pressure,
+                // We don't claim that our touch device supports QPointingDevice::Capability::Pressure,
                 // but fill in a meaningful value in case clients use it anyway.
-                touchPoint.pressure = (state == Qt::TouchPointReleased) ? 0.0 : 1.0;
+                touchPoint.pressure = (state == QEventPoint::State::Released) ? 0.0 : 1.0;
             }
         }
     }
@@ -500,17 +502,17 @@ Q_LOGGING_CATEGORY(lcQpaTablet, "qt.qpa.input.tablet")
             topLevel->requestActivateWindow();
     }
 
-    [self handleTouches:touches withEvent:event withState:Qt::TouchPointPressed withTimestamp:ulong(event.timestamp * 1000)];
+    [self handleTouches:touches withEvent:event withState:QEventPoint::State::Pressed withTimestamp:ulong(event.timestamp * 1000)];
 }
 
 - (void)touchesMoved:(NSSet *)touches withEvent:(UIEvent *)event
 {
-    [self handleTouches:touches withEvent:event withState:Qt::TouchPointMoved withTimestamp:ulong(event.timestamp * 1000)];
+    [self handleTouches:touches withEvent:event withState:QEventPoint::State::Updated withTimestamp:ulong(event.timestamp * 1000)];
 }
 
 - (void)touchesEnded:(NSSet *)touches withEvent:(UIEvent *)event
 {
-    [self handleTouches:touches withEvent:event withState:Qt::TouchPointReleased withTimestamp:ulong(event.timestamp * 1000)];
+    [self handleTouches:touches withEvent:event withState:QEventPoint::State::Released withTimestamp:ulong(event.timestamp * 1000)];
 
     // Remove ended touch points from the active set:
 #ifndef Q_OS_TVOS
@@ -572,7 +574,7 @@ Q_LOGGING_CATEGORY(lcQpaTablet, "qt.qpa.input.tablet")
     QWindowSystemInterface::handleTouchCancelEvent(self.platformWindow->window(), ulong(timestamp * 1000), iosIntegration->touchDevice());
 }
 
-- (int)mapPressTypeToKey:(UIPress*)press
+- (int)mapPressTypeToKey:(UIPress*)press withModifiers:(Qt::KeyboardModifiers)qtModifiers text:(QString &)text
 {
     switch (press.type) {
     case UIPressTypeUpArrow: return Qt::Key_Up;
@@ -583,6 +585,16 @@ Q_LOGGING_CATEGORY(lcQpaTablet, "qt.qpa.input.tablet")
     case UIPressTypeMenu: return Qt::Key_Menu;
     case UIPressTypePlayPause: return Qt::Key_MediaTogglePlayPause;
     }
+#if QT_IOS_PLATFORM_SDK_EQUAL_OR_ABOVE(__IPHONE_13_4)
+    if (@available(ios 13.4, *)) {
+        NSString *charactersIgnoringModifiers = press.key.charactersIgnoringModifiers;
+        Qt::Key key = QAppleKeyMapper::fromUIKitKey(charactersIgnoringModifiers);
+        if (key != Qt::Key_unknown)
+            return key;
+        return QAppleKeyMapper::fromNSString(qtModifiers, press.key.characters,
+                                             charactersIgnoringModifiers, text);
+    }
+#endif
     return Qt::Key_unknown;
 }
 
@@ -594,32 +606,55 @@ Q_LOGGING_CATEGORY(lcQpaTablet, "qt.qpa.input.tablet")
 
     bool handled = false;
     for (UIPress* press in presses) {
-        int key = [self mapPressTypeToKey:press];
+        Qt::KeyboardModifiers qtModifiers = Qt::NoModifier;
+#if QT_IOS_PLATFORM_SDK_EQUAL_OR_ABOVE(__IPHONE_13_4)
+        if (@available(ios 13.4, *))
+            qtModifiers = QAppleKeyMapper::fromUIKitModifiers(press.key.modifierFlags);
+#endif
+        QString text;
+        int key = [self mapPressTypeToKey:press withModifiers:qtModifiers text:text];
         if (key == Qt::Key_unknown)
             continue;
-        if (QWindowSystemInterface::handleKeyEvent(self.platformWindow->window(), type, key, Qt::NoModifier))
+        if (QWindowSystemInterface::handleKeyEvent(self.platformWindow->window(), type, key,
+                                                   qtModifiers, text)) {
             handled = true;
+        }
     }
 
     return handled;
 }
 
+- (BOOL)handlePresses:(NSSet<UIPress *> *)presses eventType:(QEvent::Type)type
+{
+    bool handlePress = false;
+    if (qApp->focusWindow()) {
+        QInputMethodQueryEvent queryEvent(Qt::ImEnabled);
+        if (qApp->focusObject() && QCoreApplication::sendEvent(qApp->focusObject(), &queryEvent))
+            handlePress = queryEvent.value(Qt::ImEnabled).toBool();
+        if (!handlePress && [self processPresses:presses withType:type])
+            return true;
+    }
+    return false;
+}
+
 - (void)pressesBegan:(NSSet<UIPress *> *)presses withEvent:(UIPressesEvent *)event
 {
-    if (![self processPresses:presses withType:QEvent::KeyPress])
+    if (![self handlePresses:presses eventType:QEvent::KeyPress])
         [super pressesBegan:presses withEvent:event];
 }
 
 - (void)pressesChanged:(NSSet<UIPress *> *)presses withEvent:(UIPressesEvent *)event
 {
-    if (![self processPresses:presses withType:QEvent::KeyPress])
-        [super pressesChanged:presses withEvent:event];
+    if (![self handlePresses:presses eventType:QEvent::KeyPress])
+        [super pressesBegan:presses withEvent:event];
+    [super pressesChanged:presses withEvent:event];
 }
 
 - (void)pressesEnded:(NSSet<UIPress *> *)presses withEvent:(UIPressesEvent *)event
 {
-    if (![self processPresses:presses withType:QEvent::KeyRelease])
-        [super pressesEnded:presses withEvent:event];
+    if (![self handlePresses:presses eventType:QEvent::KeyRelease])
+        [super pressesBegan:presses withEvent:event];
+    [super pressesEnded:presses withEvent:event];
 }
 
 - (BOOL)canPerformAction:(SEL)action withSender:(id)sender
@@ -628,15 +663,15 @@ Q_LOGGING_CATEGORY(lcQpaTablet, "qt.qpa.input.tablet")
     // Check first if QIOSMenu should handle the action before continuing up the responder chain
     return [QIOSMenu::menuActionTarget() targetForAction:action withSender:sender] != 0;
 #else
-    Q_UNUSED(action)
-    Q_UNUSED(sender)
+    Q_UNUSED(action);
+    Q_UNUSED(sender);
     return false;
 #endif
 }
 
 - (id)forwardingTargetForSelector:(SEL)selector
 {
-    Q_UNUSED(selector)
+    Q_UNUSED(selector);
 #ifndef Q_OS_TVOS
     return QIOSMenu::menuActionTarget();
 #else
@@ -650,6 +685,18 @@ Q_LOGGING_CATEGORY(lcQpaTablet, "qt.qpa.input.tablet")
         return;
 
     [super addInteraction:interaction];
+}
+
+- (UIEditingInteractionConfiguration)editingInteractionConfiguration
+{
+    // We only want the three-finger-tap edit menu to be available when there's
+    // actually something to edit. Otherwise the OS will cause a slight delay
+    // before delivering the release of three finger touch input. Note that we
+    // do not do any hit testing here to check that the focus object is the one
+    // being tapped, as the behavior of native iOS apps is to trigger the menu
+    // regardless of where the gesture is being made.
+    return QIOSInputContext::instance()->inputMethodAccepted() ?
+        UIEditingInteractionConfigurationDefault : UIEditingInteractionConfigurationNone;
 }
 
 @end

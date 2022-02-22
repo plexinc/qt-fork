@@ -20,10 +20,6 @@ class GURL;
 struct ImportedBookmarkEntry;
 struct ImporterAutofillFormDataEntry;
 
-namespace autofill {
-struct PasswordForm;
-}
-
 namespace importer {
 struct SearchEngineInfo;
 }
@@ -48,12 +44,7 @@ class ImporterBridge : public base::RefCountedThreadSafe<ImporterBridge> {
       const std::vector<importer::SearchEngineInfo>& search_engines,
       bool unique_on_host_and_path) = 0;
 
-  // The search_engine_data vector contains XML data retrieved from the Firefox
-  // profile and its sqlite db.
-  virtual void SetFirefoxSearchEnginesXMLData(
-      const std::vector<std::string>& search_engine_data) = 0;
-
-  virtual void SetPasswordForm(const autofill::PasswordForm& form) = 0;
+  virtual void SetPasswordForm(const importer::ImportedPasswordForm& form) = 0;
 
   virtual void SetAutofillFormData(
       const std::vector<ImporterAutofillFormDataEntry>& entries) = 0;

@@ -46,7 +46,6 @@
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_registry.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
 #include "qtwebengine/browser/qtwebchannel.mojom.h"
-#include "common/qt_messages.h"
 
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -93,13 +92,11 @@ uint WebChannelIPCTransportHost::worldId() const
 void WebChannelIPCTransportHost::sendMessage(const QJsonObject &message)
 {
     QJsonDocument doc(message);
-    int size = 0;
-    const char *rawData = doc.rawData(&size);
+    QByteArray json = doc.toJson(QJsonDocument::Compact);
     content::RenderFrameHost *frame = web_contents()->GetMainFrame();
-    mojo::AssociatedRemote<qtwebchannel::mojom::WebChannelTransportRender> webChannelTransport;
-    frame->GetRemoteAssociatedInterfaces()->GetInterface(&webChannelTransport);
     qCDebug(log).nospace() << "sending webchannel message to " << frame << ": " << doc;
-    webChannelTransport->DispatchWebChannelMessage(std::vector<uint8_t>(rawData, rawData + size), m_worldId);
+    GetWebChannelIPCTransportRemote(frame)->DispatchWebChannelMessage(
+            std::vector<uint8_t>(json.begin(), json.end()), m_worldId);
 }
 
 void WebChannelIPCTransportHost::setWorldId(uint32_t worldId)
@@ -116,9 +113,7 @@ void WebChannelIPCTransportHost::setWorldId(content::RenderFrameHost *frame, uin
     if (!frame->IsRenderFrameLive())
         return;
     qCDebug(log).nospace() << "sending setWorldId(" << worldId << ") message to " << frame;
-    mojo::AssociatedRemote<qtwebchannel::mojom::WebChannelTransportRender> webChannelTransport;
-    frame->GetRemoteAssociatedInterfaces()->GetInterface(&webChannelTransport);
-    webChannelTransport->SetWorldId(worldId);
+    GetWebChannelIPCTransportRemote(frame)->SetWorldId(worldId);
 }
 
 void WebChannelIPCTransportHost::resetWorldId()
@@ -126,13 +121,11 @@ void WebChannelIPCTransportHost::resetWorldId()
     for (content::RenderFrameHost *frame : web_contents()->GetAllFrames()) {
         if (!frame->IsRenderFrameLive())
             return;
-        mojo::AssociatedRemote<qtwebchannel::mojom::WebChannelTransportRender> webChannelTransport;
-        frame->GetRemoteAssociatedInterfaces()->GetInterface(&webChannelTransport);
-        webChannelTransport->ResetWorldId();
+        GetWebChannelIPCTransportRemote(frame)->ResetWorldId();
     }
 }
 
-void WebChannelIPCTransportHost::DispatchWebChannelMessage(const std::vector<uint8_t> &binaryJson)
+void WebChannelIPCTransportHost::DispatchWebChannelMessage(const std::vector<uint8_t> &json)
 {
     content::RenderFrameHost *frame = web_contents()->GetMainFrame();
 
@@ -140,7 +133,8 @@ void WebChannelIPCTransportHost::DispatchWebChannelMessage(const std::vector<uin
         return;
     }
 
-    QJsonDocument doc = QJsonDocument::fromRawData(reinterpret_cast<const char *>(binaryJson.data()), binaryJson.size());
+    QJsonDocument doc = QJsonDocument::fromJson(
+            QByteArray(reinterpret_cast<const char *>(json.data()), json.size()));
 
     if (!doc.isObject()) {
         qCCritical(log).nospace() << "received invalid webchannel message from " << frame;
@@ -154,6 +148,27 @@ void WebChannelIPCTransportHost::DispatchWebChannelMessage(const std::vector<uin
 void WebChannelIPCTransportHost::RenderFrameCreated(content::RenderFrameHost *frame)
 {
     setWorldId(frame, m_worldId);
+}
+
+void WebChannelIPCTransportHost::RenderFrameDeleted(content::RenderFrameHost *rfh)
+{
+    m_renderFrames.erase(rfh);
+}
+
+const mojo::AssociatedRemote<qtwebchannel::mojom::WebChannelTransportRender> &
+WebChannelIPCTransportHost::GetWebChannelIPCTransportRemote(content::RenderFrameHost *rfh)
+{
+    auto it = m_renderFrames.find(rfh);
+    if (it == m_renderFrames.end()) {
+        mojo::AssociatedRemote<qtwebchannel::mojom::WebChannelTransportRender> remote;
+        rfh->GetRemoteAssociatedInterfaces()->GetInterface(remote.BindNewEndpointAndPassReceiver());
+        it = m_renderFrames.insert(std::make_pair(rfh, std::move(remote))).first;
+    } else if (it->second.is_bound() && !it->second.is_connected()) {
+        it->second.reset();
+        rfh->GetRemoteAssociatedInterfaces()->GetInterface(&it->second);
+    }
+
+    return it->second;
 }
 
 } // namespace QtWebEngineCore

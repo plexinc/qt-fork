@@ -175,8 +175,8 @@ void tst_examples::namingConvention(const QDir &d)
 void tst_examples::namingConvention()
 {
     QStringList examplesLocations;
-    examplesLocations << QLibraryInfo::location(QLibraryInfo::ExamplesPath) + QLatin1String("/qml");
-    examplesLocations << QLibraryInfo::location(QLibraryInfo::ExamplesPath) + QLatin1String("/quick");
+    examplesLocations << QLibraryInfo::path(QLibraryInfo::ExamplesPath) + QLatin1String("/qml");
+    examplesLocations << QLibraryInfo::path(QLibraryInfo::ExamplesPath) + QLatin1String("/quick");
 
     foreach (const QString &examples, examplesLocations) {
         QDir d(examples);
@@ -252,7 +252,7 @@ void tst_examples::sgexamples()
 {
     QFETCH(QString, file);
     QQuickWindow window;
-    window.setPersistentOpenGLContext(true);
+    window.setPersistentGraphics(true);
     window.setPersistentSceneGraph(true);
 
     QQmlComponent component(&engine, QUrl::fromLocalFile(file));

@@ -26,7 +26,7 @@
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include <QCoreApplication>
 #include <QDebug>
@@ -81,6 +81,9 @@ void tst_QPlugin::loadDebugPlugin()
         QObject *object = loader.instance();
         QVERIFY(object != 0);
 #else
+#  if defined(CMAKE_BUILD) && defined(QT_NO_DEBUG)
+    QSKIP("Skipping test as it is not possible to disable build targets based on configuration with CMake");
+#  endif
         // loading a plugin is dependent on which lib we are running against
 #  if defined(QT_NO_DEBUG)
         // release build, we cannot load debug plugins
@@ -111,6 +114,9 @@ void tst_QPlugin::loadReleasePlugin()
         QObject *object = loader.instance();
         QVERIFY(object != 0);
 #else
+#  if defined(CMAKE_BUILD) && !defined(QT_NO_DEBUG)
+    QSKIP("Skipping test as it is not possible to disable build targets based on configuration with CMake");
+#  endif
         // loading a plugin is dependent on which lib we are running against
 #  if defined(QT_NO_DEBUG)
         // release build, we can load debug plugins
@@ -130,43 +136,6 @@ void tst_QPlugin::scanInvalidPlugin_data()
     QTest::addColumn<QByteArray>("metadata");
     QTest::addColumn<bool>("loads");
     QTest::addColumn<QString>("errMsg");
-
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-    // Binary JSON metadata
-    QByteArray prefix = "QTMETADATA  ";
-
-    {
-        QJsonObject obj;
-        obj.insert("IID", "org.qt-project.tst_qplugin");
-        obj.insert("className", "tst");
-        obj.insert("version", int(QT_VERSION));
-#ifdef QT_NO_DEBUG
-        obj.insert("debug", false);
-#else
-        obj.insert("debug", true);
-#endif
-        obj.insert("MetaData", QJsonObject());
-        QTest::newRow("json-control") << (prefix + QJsonDocument(obj).toBinaryData()) << true << "";
-    }
-
-    QTest::newRow("json-zeroes") << prefix << false << " ";
-
-    prefix += "qbjs";
-    QTest::newRow("bad-json-version0") << prefix << false << " ";
-    QTest::newRow("bad-json-version2") << (prefix + QByteArray("\2\0\0\0", 4)) << false << " ";
-
-    // valid qbjs version 1
-    prefix += QByteArray("\1\0\0\0");
-
-    // too large for the file (100 MB)
-    QTest::newRow("bad-json-size-large1") << (prefix + QByteArray("\0\0\x40\x06")) << false << " ";
-
-    // too large for binary JSON (512 MB)
-    QTest::newRow("bad-json-size-large2") << (prefix + QByteArray("\0\0\0\x20")) << false << " ";
-
-    // could overflow
-    QTest::newRow("bad-json-size-large3") << (prefix + "\xff\xff\xff\x7f") << false << " ";
-#endif
 
     // CBOR metadata
     QByteArray cprefix = "QTMETADATA !1234";
@@ -228,6 +197,9 @@ static qsizetype locateMetadata(const uchar *data, qsizetype len)
 
 void tst_QPlugin::scanInvalidPlugin()
 {
+#if defined(Q_OS_MACOS) && defined(Q_PROCESSOR_ARM)
+    QSKIP("This test crashes on ARM macOS");
+#endif
     const auto fileNames = dir.entryList({"*invalid*"}, QDir::Files);
     QString invalidPluginName;
     if (fileNames.isEmpty())

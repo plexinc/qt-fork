@@ -41,6 +41,7 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/dom/events/event_queue.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/testing/scoped_mock_overlay_scrollbars.h"
 #include "third_party/blink/renderer/modules/indexeddb/idb_database.h"
 #include "third_party/blink/renderer/modules/indexeddb/idb_database_callbacks.h"
@@ -78,7 +79,7 @@ class IDBTransactionTest : public testing::Test,
                            public ScopedMockOverlayScrollbars {
  protected:
   void SetUp() override {
-    url_loader_mock_factory_ = platform_->GetURLLoaderMockFactory();
+    url_loader_mock_factory_ = WebURLLoaderMockFactory::GetSingletonInstance();
     WebURLResponse response;
     response.SetCurrentRequestUrl(KURL("blob:"));
     url_loader_mock_factory_->RegisterURLProtocol(WebString("blob"), response,
@@ -95,8 +96,7 @@ class IDBTransactionTest : public testing::Test,
       std::unique_ptr<MockWebIDBTransaction> transaction_backend) {
     db_ = MakeGarbageCollected<IDBDatabase>(
         scope.GetExecutionContext(), std::move(database_backend),
-        MakeGarbageCollected<FakeIDBDatabaseCallbacks>(), scope.GetIsolate(),
-        mojo::NullRemote());
+        MakeGarbageCollected<FakeIDBDatabaseCallbacks>(), mojo::NullRemote());
 
     HashSet<String> transaction_scope = {"store"};
     transaction_ = IDBTransaction::CreateNonVersionChange(
@@ -133,7 +133,6 @@ TEST_F(IDBTransactionTest, ContextDestroyedEarlyDeath) {
 
   Persistent<HeapHashSet<WeakMember<IDBTransaction>>> live_transactions =
       MakeGarbageCollected<HeapHashSet<WeakMember<IDBTransaction>>>();
-  ;
   live_transactions->insert(transaction_);
 
   ThreadState::Current()->CollectAllGarbageForTesting();
@@ -174,7 +173,6 @@ TEST_F(IDBTransactionTest, ContextDestroyedAfterDone) {
 
   Persistent<HeapHashSet<WeakMember<IDBTransaction>>> live_transactions =
       MakeGarbageCollected<HeapHashSet<WeakMember<IDBTransaction>>>();
-  ;
   live_transactions->insert(transaction_);
 
   ThreadState::Current()->CollectAllGarbageForTesting();
@@ -221,7 +219,6 @@ TEST_F(IDBTransactionTest, ContextDestroyedWithQueuedResult) {
 
   Persistent<HeapHashSet<WeakMember<IDBTransaction>>> live_transactions =
       MakeGarbageCollected<HeapHashSet<WeakMember<IDBTransaction>>>();
-  ;
   live_transactions->insert(transaction_);
 
   ThreadState::Current()->CollectAllGarbageForTesting();
@@ -265,7 +262,6 @@ TEST_F(IDBTransactionTest, ContextDestroyedWithTwoQueuedResults) {
 
   Persistent<HeapHashSet<WeakMember<IDBTransaction>>> live_transactions =
       MakeGarbageCollected<HeapHashSet<WeakMember<IDBTransaction>>>();
-  ;
   live_transactions->insert(transaction_);
 
   ThreadState::Current()->CollectAllGarbageForTesting();
@@ -316,7 +312,6 @@ TEST_F(IDBTransactionTest, DocumentShutdownWithQueuedAndBlockedResults) {
 
   Persistent<HeapHashSet<WeakMember<IDBTransaction>>> live_transactions =
       MakeGarbageCollected<HeapHashSet<WeakMember<IDBTransaction>>>();
-  ;
   live_transactions->insert(transaction_);
 
   ThreadState::Current()->CollectAllGarbageForTesting();
@@ -366,7 +361,6 @@ TEST_F(IDBTransactionTest, TransactionFinish) {
 
   Persistent<HeapHashSet<WeakMember<IDBTransaction>>> live_transactions =
       MakeGarbageCollected<HeapHashSet<WeakMember<IDBTransaction>>>();
-  ;
   live_transactions->insert(transaction_);
 
   ThreadState::Current()->CollectAllGarbageForTesting();

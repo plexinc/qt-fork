@@ -51,7 +51,6 @@
 #include <QtWidgets>
 
 #include "mainwindow.h"
-#include "xmlwriter.h"
 
 MainWindow::MainWindow()
 {
@@ -83,7 +82,7 @@ MainWindow::MainWindow()
 //! [2]
     QTextTableFormat tableFormat;
     tableFormat.setBackground(QColor("#e0e0e0"));
-    QVector<QTextLength> constraints;
+    QList<QTextLength> constraints;
     constraints << QTextLength(QTextLength::PercentageLength, 16);
     constraints << QTextLength(QTextLength::PercentageLength, 28);
     constraints << QTextLength(QTextLength::PercentageLength, 28);
@@ -132,9 +131,9 @@ MainWindow::MainWindow()
     }
 //! [8]
 
-    connect(saveAction, &QAction:triggered, this, &MainWindow::saveFile);
-    connect(quitAction, &QAction:triggered, this, &MainWindow::close);
-    connect(showTableAction, &QAction:triggered, this, &MainWindow::showTable);
+    connect(saveAction, &QAction::triggered, this, &MainWindow::saveFile);
+    connect(quitAction, &QAction::triggered, this, &MainWindow::close);
+    connect(showTableAction, &QAction::triggered, this, &MainWindow::showTable);
 
     setCentralWidget(editor);
     setWindowTitle(tr("Text Document Tables"));
@@ -194,21 +193,35 @@ void MainWindow::showTable()
     tableWidget->show();
 }
 
-bool MainWindow::writeXml(const QString &fileName)
+void MainWindow::processFrame(QTextFrame *)
 {
-    XmlWriter documentWriter(editor->document());
+}
 
-    QDomDocument *domDocument = documentWriter.toXml();
-    QFile file(fileName);
+void MainWindow::processBlock(QTextBlock)
+{
+}
 
-    if (file.open(QFile::WriteOnly)) {
-        QTextStream textStream(&file);
-        textStream.setCodec(QTextCodec::codecForName("UTF-8"));
+void MainWindow::processTable(QTextTable *table)
+{
+    QTextFrame *frame = qobject_cast<QTextFrame *>(table);
+//! [13]
+    QTextFrame::iterator it;
+    for (it = frame->begin(); !(it.atEnd()); ++it) {
 
-        textStream << domDocument->toString(1).toUtf8();
-        file.close();
-        return true;
+        QTextFrame *childFrame = it.currentFrame();
+        QTextBlock childBlock = it.currentBlock();
+
+        if (childFrame) {
+            QTextTable *childTable = qobject_cast<QTextTable*>(childFrame);
+
+            if (childTable)
+                processTable(childTable);
+            else
+                processFrame(childFrame);
+
+        } else if (childBlock.isValid()) {
+            processBlock(childBlock);
+        }
     }
-    else
-        return false;
+//! [13]
 }

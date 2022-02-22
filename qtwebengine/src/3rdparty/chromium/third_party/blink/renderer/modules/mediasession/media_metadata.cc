@@ -122,9 +122,10 @@ void MediaMetadata::SetArtworkInternal(
   artwork_.swap(processed_artwork);
 }
 
-void MediaMetadata::Trace(Visitor* visitor) {
+void MediaMetadata::Trace(Visitor* visitor) const {
   visitor->Trace(artwork_);
   visitor->Trace(session_);
+  visitor->Trace(notify_session_timer_);
   ScriptWrappable::Trace(visitor);
 }
 

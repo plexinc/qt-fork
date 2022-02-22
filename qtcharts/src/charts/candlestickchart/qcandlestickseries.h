@@ -32,7 +32,7 @@
 
 #include <QtCharts/QAbstractSeries>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class QCandlestickSeriesPrivate;
 class QCandlestickSet;
@@ -67,7 +67,7 @@ public:
     QList<QCandlestickSet *> sets() const;
     int count() const;
 
-    QAbstractSeries::SeriesType type() const;
+    QAbstractSeries::SeriesType type() const override;
 
     void setMaximumColumnWidth(qreal maximumColumnWidth);
     qreal maximumColumnWidth() const;
@@ -126,6 +126,6 @@ private:
     friend class QCandlestickLegendMarkerPrivate;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // QCANDLESTICKSERIES_H

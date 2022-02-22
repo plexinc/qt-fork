@@ -34,12 +34,15 @@
 #include <QtQmlModels/private/qqmlinstantiator_p.h>
 #include <QtQml/qqmlcontext.h>
 #include <QtQml/qqmlincubator.h>
-#include "../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 #include "stringmodel.h"
 
 class tst_qqmlinstantiator: public QQmlDataTest
 {
     Q_OBJECT
+
+public:
+    tst_qqmlinstantiator();
 
 private slots:
     void createNone();
@@ -47,12 +50,18 @@ private slots:
     void createMultiple();
     void stringModel();
     void activeProperty();
+    void activeModelChangeInteraction();
     void intModelChange();
     void createAndRemove();
 
     void asynchronous_data();
     void asynchronous();
 };
+
+tst_qqmlinstantiator::tst_qqmlinstantiator()
+    : QQmlDataTest(QT_QMLTEST_DATADIR)
+{
+}
 
 void tst_qqmlinstantiator::createNone()
 {
@@ -151,6 +160,26 @@ void tst_qqmlinstantiator::activeProperty()
     QCOMPARE(object->parent(), instantiator);
     QCOMPARE(object->property("success").toBool(), true);
     QCOMPARE(object->property("idx").toInt(), 0);
+}
+
+void tst_qqmlinstantiator::activeModelChangeInteraction()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("activeModelChangeInteraction.qml"));
+    QScopedPointer<QObject> root(component.create());
+    QVERIFY(root);
+
+    // If the instantiator is inactive, a model change does not lead to items being loaded
+    bool ok = false;
+    int count = root->property("instanceCount").toInt(&ok);
+    QVERIFY(ok);
+    QCOMPARE(count, 0);
+
+    // When turning the instantiator active, it will however reflect the model
+    root->setProperty("active", true);
+    count = root->property("instanceCount").toInt(&ok);
+    QVERIFY(ok);
+    QCOMPARE(count, 3);
 }
 
 void tst_qqmlinstantiator::intModelChange()

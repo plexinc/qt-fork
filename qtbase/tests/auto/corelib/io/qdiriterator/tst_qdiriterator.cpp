@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include <qcoreapplication.h>
 #include <qdebug.h>
@@ -37,12 +37,16 @@
 
 #include <QtCore/private/qfsfileengine_p.h>
 
-#if defined(Q_OS_VXWORKS) || defined(Q_OS_WINRT)
+#if defined(Q_OS_VXWORKS)
 #define Q_NO_SYMLINKS
 #endif
 
 #if defined(Q_OS_WIN)
 #  include "../../../network-settings.h"
+#endif
+
+#if defined(Q_OS_ANDROID) && !defined(Q_OS_ANDROID_EMBEDDED)
+#include <QStandardPaths>
 #endif
 
 Q_DECLARE_METATYPE(QDirIterator::IteratorFlags)
@@ -220,11 +224,6 @@ void tst_QDirIterator::cleanupTestCase()
 
     Q_FOREACH(QString dirName, createdDirectories)
         currentDir.rmdir(dirName);
-
-#ifdef Q_OS_WINRT
-    QDir::setCurrent(QCoreApplication::applicationDirPath());
-#endif // Q_OS_WINRT
-
 }
 
 void tst_QDirIterator::iterateRelativeDirectory_data()
@@ -482,14 +481,14 @@ public:
         : QFSFileEngine(fileName)
     { }
 
-    QAbstractFileEngineIterator *beginEntryList(QDir::Filters, const QStringList &)
+    QAbstractFileEngineIterator *beginEntryList(QDir::Filters, const QStringList &) override
     { return 0; }
 };
 
 class EngineWithNoIteratorHandler : public QAbstractFileEngineHandler
 {
 public:
-    QAbstractFileEngine *create(const QString &fileName) const
+    QAbstractFileEngine *create(const QString &fileName) const override
     {
         return new EngineWithNoIterator(fileName);
     }

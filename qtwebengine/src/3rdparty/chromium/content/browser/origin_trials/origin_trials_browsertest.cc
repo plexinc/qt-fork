@@ -3,12 +3,13 @@
 // found in the LICENSE file.
 
 #include "base/strings/strcat.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
@@ -187,8 +188,10 @@ IN_PROC_BROWSER_TEST_P(ForceEnabledOriginTrialsBrowserTest,
   EXPECT_FALSE(HasTrialEnabled(GetFrameByName("same-origin")));
   EXPECT_FALSE(HasTrialEnabled(GetFrameByName("cross-origin")));
 
-  if (disable_site_isolation_)
-    ASSERT_EQ(1, RenderProcessHost::GetCurrentRenderProcessCountForTesting());
+  // With site isolation, the cross-site iframe on |main_url_| will get its own
+  // process.  Otherwise, we'll only get one main frame process.
+  ASSERT_EQ(AreAllSitesIsolatedForTesting() ? 2 : 1,
+            RenderProcessHost::GetCurrentRenderProcessCountForTesting());
 
   // OT does not persist when we navigated away.
   NavigateViaRenderer(shell()->web_contents(),
@@ -213,11 +216,11 @@ IN_PROC_BROWSER_TEST_P(ForceEnabledOriginTrialsBrowserTest,
 
   // When Iframe navigates away, it loses origin trial.
   const GURL url("https://other.test/notrial.html");
+  TestNavigationObserver navigation_observer(url);
+  navigation_observer.WatchExistingWebContents();
   ASSERT_TRUE(content::ExecuteScript(
       GetFrameByName("same-origin"),
       content::JsReplace("location.href=$1", url.spec())));
-  TestNavigationObserver navigation_observer(url);
-  navigation_observer.WatchExistingWebContents();
   navigation_observer.WaitForNavigationFinished();
   EXPECT_FALSE(HasTrialEnabled(GetFrameByName("same-origin")));
 }
@@ -235,7 +238,9 @@ IN_PROC_BROWSER_TEST_P(ForceEnabledOriginTrialsBrowserTest,
   EXPECT_FALSE(HasTrialEnabled(GetFrameByName("same-origin")));
   EXPECT_FALSE(HasTrialEnabled(GetFrameByName("cross-origin")));
 
-  // Create an iframe with origin trial.
+  // Create an iframe with origin trial and wait for it to load
+  TestNavigationObserver navigation_observer(frame_url);
+  navigation_observer.WatchExistingWebContents();
   ASSERT_TRUE(content::ExecuteScript(
       GetFrameByName("same-origin"),
       content::JsReplace("{"
@@ -245,10 +250,6 @@ IN_PROC_BROWSER_TEST_P(ForceEnabledOriginTrialsBrowserTest,
                          "  document.body.appendChild(ifrm);"
                          "}",
                          frame_url.spec())));
-
-  // Wait for iframe to load.
-  TestNavigationObserver navigation_observer(frame_url);
-  navigation_observer.WatchExistingWebContents();
   navigation_observer.WaitForNavigationFinished();
 
   // The newly created iframe should have origin trial.

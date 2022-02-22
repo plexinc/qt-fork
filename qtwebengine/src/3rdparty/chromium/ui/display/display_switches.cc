@@ -4,6 +4,7 @@
 
 #include "ui/display/display_switches.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 
 namespace switches {
 
@@ -53,12 +54,9 @@ const char kScreenConfig[] = "screen-config";
 // This is for debugging on linux desktop.
 const char kUseFirstDisplayAsInternal[] = "use-first-display-as-internal";
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 // Enables unified desktop mode.
 const char kEnableUnifiedDesktop[] = "ash-enable-unified-desktop";
-
-// Enables using HDR transfer function if the monitor says it supports it.
-const char kEnableUseHDRTransferFunction[] = "enable-use-hdr-transfer-function";
 #endif
 
 }  // namespace switches

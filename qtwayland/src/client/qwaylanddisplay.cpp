@@ -61,12 +61,14 @@
 #endif
 #include "qwaylandhardwareintegration_p.h"
 #include "qwaylandinputcontext_p.h"
+#include "qwaylandinputmethodcontext_p.h"
 
 #include "qwaylandwindowmanagerintegration_p.h"
 #include "qwaylandshellintegration_p.h"
 #include "qwaylandclientbufferintegration_p.h"
 
 #include "qwaylandextendedsurface_p.h"
+#include "qwaylandpointergestures_p.h"
 #include "qwaylandsubsurface_p.h"
 #include "qwaylandtouch_p.h"
 #include "qwaylandtabletv2_p.h"
@@ -74,6 +76,7 @@
 
 #include <QtWaylandClient/private/qwayland-text-input-unstable-v2.h>
 #include <QtWaylandClient/private/qwayland-wp-primary-selection-unstable-v1.h>
+#include <QtWaylandClient/private/qwayland-qt-text-input-method-unstable-v1.h>
 
 #include <QtCore/private/qcore_unix_p.h>
 
@@ -84,6 +87,8 @@
 #include <QtCore/QDebug>
 
 #include <errno.h>
+
+#include <tuple> // for std::tie
 
 QT_BEGIN_NAMESPACE
 
@@ -158,13 +163,6 @@ QWaylandDisplay::QWaylandDisplay(QWaylandIntegration *waylandIntegration)
     if (!mXkbContext)
         qCWarning(lcQpaWayland, "failed to create xkb context");
 #endif
-
-    forceRoundTrip();
-
-    if (!mWaitingScreens.isEmpty()) {
-        // Give wl_output.done and zxdg_output_v1.done events a chance to arrive
-        forceRoundTrip();
-    }
 }
 
 QWaylandDisplay::~QWaylandDisplay(void)
@@ -183,10 +181,22 @@ QWaylandDisplay::~QWaylandDisplay(void)
     delete mDndSelectionHandler.take();
 #endif
 #if QT_CONFIG(cursor)
-    qDeleteAll(mCursorThemes);
+    mCursorThemes.clear();
 #endif
     if (mDisplay)
         wl_display_disconnect(mDisplay);
+}
+
+// Steps which is called just after constructor. This separates registry_global() out of the constructor
+// so that factory functions in integration can be overridden.
+void QWaylandDisplay::initialize()
+{
+    forceRoundTrip();
+
+    if (!mWaitingScreens.isEmpty()) {
+        // Give wl_output.done and zxdg_output_v1.done events a chance to arrive
+        forceRoundTrip();
+    }
 }
 
 void QWaylandDisplay::ensureScreen()
@@ -206,10 +216,11 @@ void QWaylandDisplay::checkError() const
     int ecode = wl_display_get_error(mDisplay);
     if ((ecode == EPIPE || ecode == ECONNRESET)) {
         // special case this to provide a nicer error
-        qFatal("The Wayland connection broke. Did the Wayland compositor die?");
+        qWarning("The Wayland connection broke. Did the Wayland compositor die?");
     } else {
-        qFatal("The Wayland connection experienced a fatal error: %s", strerror(ecode));
+        qWarning("The Wayland connection experienced a fatal error: %s", strerror(ecode));
     }
+    _exit(1);
 }
 
 void QWaylandDisplay::flushRequests()
@@ -318,34 +329,14 @@ void QWaylandDisplay::handleScreenInitialized(QWaylandScreen *screen)
     }
 }
 
-void QWaylandDisplay::waitForScreens()
-{
-    flushRequests();
-
-    while (true) {
-        bool screensReady = !mScreens.isEmpty();
-
-        for (int ii = 0; screensReady && ii < mScreens.count(); ++ii) {
-            if (mScreens.at(ii)->geometry() == QRect(0, 0, 0, 0))
-                screensReady = false;
-        }
-
-        if (!screensReady)
-            blockingReadEvents();
-        else
-            return;
-    }
-}
-
 void QWaylandDisplay::registry_global(uint32_t id, const QString &interface, uint32_t version)
 {
     struct ::wl_registry *registry = object();
 
     if (interface == QStringLiteral("wl_output")) {
-        mWaitingScreens << new QWaylandScreen(this, version, id);
+        mWaitingScreens << mWaylandIntegration->createPlatformScreen(this, version, id);
     } else if (interface == QStringLiteral("wl_compositor")) {
-        mCompositorVersion = qMin((int)version, 3);
-        mCompositor.init(registry, id, mCompositorVersion);
+        mCompositor.init(registry, id, qMin((int)version, 4));
     } else if (interface == QStringLiteral("wl_shm")) {
         mShm.reset(new QWaylandShm(this, version, id));
     } else if (interface == QStringLiteral("wl_seat")) {
@@ -365,10 +356,17 @@ void QWaylandDisplay::registry_global(uint32_t id, const QString &interface, uin
         mQtKeyExtension.reset(new QWaylandQtKeyExtension(this, id));
     } else if (interface == QStringLiteral("zwp_tablet_manager_v2")) {
         mTabletManager.reset(new QWaylandTabletManagerV2(this, id, qMin(1, int(version))));
+    } else if (interface == QStringLiteral("zwp_pointer_gestures_v1")) {
+        mPointerGestures.reset(new QWaylandPointerGestures(this, id, 1));
 #if QT_CONFIG(wayland_client_primary_selection)
     } else if (interface == QStringLiteral("zwp_primary_selection_device_manager_v1")) {
         mPrimarySelectionManager.reset(new QWaylandPrimarySelectionDeviceManagerV1(this, id, 1));
 #endif
+    } else if (interface == QStringLiteral("qt_text_input_method_manager_v1") && !mClientSideInputContextRequested) {
+        mTextInputMethodManager.reset(new QtWayland::qt_text_input_method_manager_v1(registry, id, 1));
+        for (QWaylandInputDevice *inputDevice : qAsConst(mInputDevices))
+            inputDevice->setTextInputMethod(new QWaylandTextInputMethod(this, mTextInputMethodManager->get_text_input_method(inputDevice->wl_seat())));
+        mWaylandIntegration->reconfigureInputContext();
     } else if (interface == QStringLiteral("zwp_text_input_manager_v2") && !mClientSideInputContextRequested) {
         mTextInputManager.reset(new QtWayland::zwp_text_input_manager_v2(registry, id, 1));
         for (QWaylandInputDevice *inputDevice : qAsConst(mInputDevices))
@@ -426,6 +424,12 @@ void QWaylandDisplay::registry_global_remove(uint32_t id)
                     inputDevice->setTextInput(nullptr);
                 mWaylandIntegration->reconfigureInputContext();
             }
+            if (global.interface == QStringLiteral("qt_text_input_method_manager_v1")) {
+                mTextInputMethodManager.reset();
+                for (QWaylandInputDevice *inputDevice : qAsConst(mInputDevices))
+                    inputDevice->setTextInputMethod(nullptr);
+                mWaylandIntegration->reconfigureInputContext();
+            }
             mGlobals.removeAt(i);
             break;
         }
@@ -451,9 +455,10 @@ void QWaylandDisplay::addRegistryListener(RegistryListener listener, void *data)
 
 void QWaylandDisplay::removeListener(RegistryListener listener, void *data)
 {
-    std::remove_if(mRegistryListeners.begin(), mRegistryListeners.end(), [=](Listener l){
+    auto iter = std::remove_if(mRegistryListeners.begin(), mRegistryListeners.end(), [=](Listener l){
         return (l.listener == listener && l.data == data);
     });
+    mRegistryListeners.erase(iter, mRegistryListeners.end());
 }
 
 uint32_t QWaylandDisplay::currentTimeMillisec()
@@ -469,7 +474,7 @@ uint32_t QWaylandDisplay::currentTimeMillisec()
 static void
 sync_callback(void *data, struct wl_callback *callback, uint32_t serial)
 {
-    Q_UNUSED(serial)
+    Q_UNUSED(serial);
     bool *done = static_cast<bool *>(data);
 
     *done = true;
@@ -630,19 +635,34 @@ QWaylandInputDevice *QWaylandDisplay::defaultInputDevice() const
 QWaylandCursor *QWaylandDisplay::waylandCursor()
 {
     if (!mCursor)
-        mCursor.reset(new QWaylandCursor(this));
+        mCursor.reset(mWaylandIntegration->createPlatformCursor(this));
     return mCursor.data();
+}
+
+auto QWaylandDisplay::findExistingCursorTheme(const QString &name, int pixelSize) const noexcept
+    -> FindExistingCursorThemeResult
+{
+    const auto byNameAndSize = [](const WaylandCursorTheme &lhs, const WaylandCursorTheme &rhs) {
+        return std::tie(lhs.pixelSize, lhs.name) < std::tie(rhs.pixelSize, rhs.name);
+    };
+
+    const WaylandCursorTheme prototype = {name, pixelSize, nullptr};
+
+    const auto it = std::lower_bound(mCursorThemes.cbegin(), mCursorThemes.cend(), prototype, byNameAndSize);
+    if (it != mCursorThemes.cend() && it->name == name && it->pixelSize == pixelSize)
+        return {it, true};
+    else
+        return {it, false};
 }
 
 QWaylandCursorTheme *QWaylandDisplay::loadCursorTheme(const QString &name, int pixelSize)
 {
-    if (auto *theme = mCursorThemes.value({name, pixelSize}, nullptr))
-        return theme;
+    const auto result = findExistingCursorTheme(name, pixelSize);
+    if (result.found)
+        return result.theme();
 
-    if (auto *theme = QWaylandCursorTheme::create(shm(), pixelSize, name)) {
-        mCursorThemes[{name, pixelSize}] = theme;
-        return theme;
-    }
+    if (auto theme = QWaylandCursorTheme::create(shm(), pixelSize, name))
+        return mCursorThemes.insert(result.position, {name, pixelSize, std::move(theme)})->theme.get();
 
     return nullptr;
 }

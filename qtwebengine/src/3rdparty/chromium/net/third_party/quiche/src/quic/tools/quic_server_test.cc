@@ -2,24 +2,24 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/tools/quic_server.h"
+#include "quic/tools/quic_server.h"
 
-#include "net/third_party/quiche/src/quic/core/crypto/quic_random.h"
-#include "net/third_party/quiche/src/quic/core/quic_epoll_alarm_factory.h"
-#include "net/third_party/quiche/src/quic/core/quic_epoll_connection_helper.h"
-#include "net/third_party/quiche/src/quic/core/quic_utils.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_port_utils.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_socket_address.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_test_loopback.h"
-#include "net/third_party/quiche/src/quic/test_tools/crypto_test_utils.h"
-#include "net/third_party/quiche/src/quic/test_tools/mock_quic_dispatcher.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_server_peer.h"
-#include "net/third_party/quiche/src/quic/tools/quic_memory_cache_backend.h"
-#include "net/third_party/quiche/src/quic/tools/quic_simple_crypto_server_stream_helper.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_arraysize.h"
+#include "absl/base/macros.h"
+#include "quic/core/crypto/quic_random.h"
+#include "quic/core/quic_epoll_alarm_factory.h"
+#include "quic/core/quic_epoll_connection_helper.h"
+#include "quic/core/quic_utils.h"
+#include "quic/platform/api/quic_flags.h"
+#include "quic/platform/api/quic_logging.h"
+#include "quic/platform/api/quic_port_utils.h"
+#include "quic/platform/api/quic_socket_address.h"
+#include "quic/platform/api/quic_test.h"
+#include "quic/platform/api/quic_test_loopback.h"
+#include "quic/test_tools/crypto_test_utils.h"
+#include "quic/test_tools/mock_quic_dispatcher.h"
+#include "quic/test_tools/quic_server_peer.h"
+#include "quic/tools/quic_memory_cache_backend.h"
+#include "quic/tools/quic_simple_crypto_server_stream_helper.h"
 
 namespace quic {
 namespace test {
@@ -48,10 +48,10 @@ class MockQuicSimpleDispatcher : public QuicSimpleDispatcher {
                              kQuicDefaultConnectionIdLength) {}
   ~MockQuicSimpleDispatcher() override = default;
 
-  MOCK_METHOD0(OnCanWrite, void());
-  MOCK_CONST_METHOD0(HasPendingWrites, bool());
-  MOCK_CONST_METHOD0(HasChlosBuffered, bool());
-  MOCK_METHOD1(ProcessBufferedChlos, void(size_t));
+  MOCK_METHOD(void, OnCanWrite, (), (override));
+  MOCK_METHOD(bool, HasPendingWrites, (), (const, override));
+  MOCK_METHOD(bool, HasChlosBuffered, (), (const, override));
+  MOCK_METHOD(void, ProcessBufferedChlos, (size_t), (override));
 };
 
 class TestQuicServer : public QuicServer {
@@ -118,7 +118,7 @@ TEST_F(QuicServerEpollInTest, ProcessBufferedCHLOsOnEpollin) {
   StartListening();
   bool more_chlos = true;
   MockQuicSimpleDispatcher* dispatcher_ = server_.mock_dispatcher();
-  DCHECK(dispatcher_ != nullptr);
+  QUICHE_DCHECK(dispatcher_ != nullptr);
   EXPECT_CALL(*dispatcher_, OnCanWrite()).Times(testing::AnyNumber());
   EXPECT_CALL(*dispatcher_, ProcessBufferedChlos(_)).Times(2);
   EXPECT_CALL(*dispatcher_, HasPendingWrites()).Times(testing::AnyNumber());
@@ -136,9 +136,9 @@ TEST_F(QuicServerEpollInTest, ProcessBufferedCHLOsOnEpollin) {
   ASSERT_LT(0, fd);
 
   char buf[1024];
-  memset(buf, 0, QUICHE_ARRAYSIZE(buf));
+  memset(buf, 0, ABSL_ARRAYSIZE(buf));
   sockaddr_storage storage = server_address_.generic_address();
-  int rc = sendto(fd, buf, QUICHE_ARRAYSIZE(buf), 0,
+  int rc = sendto(fd, buf, ABSL_ARRAYSIZE(buf), 0,
                   reinterpret_cast<sockaddr*>(&storage), sizeof(storage));
   if (rc < 0) {
     QUIC_DLOG(INFO) << errno << " " << strerror(errno);
@@ -202,7 +202,7 @@ TEST_F(QuicServerDispatchPacketTest, DispatchPacket) {
   };
   // clang-format on
   QuicReceivedPacket encrypted_valid_packet(
-      reinterpret_cast<char*>(valid_packet), QUICHE_ARRAYSIZE(valid_packet),
+      reinterpret_cast<char*>(valid_packet), ABSL_ARRAYSIZE(valid_packet),
       QuicTime::Zero(), false);
 
   EXPECT_CALL(dispatcher_, ProcessPacket(_, _, _)).Times(1);

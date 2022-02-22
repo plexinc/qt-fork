@@ -46,7 +46,7 @@
 #include <QtGui/QFont>
 #include <QtGui/private/qcoregraphics_p.h>
 
-#include <QtFontDatabaseSupport/private/qcoretextfontdatabase_p.h>
+#include <QtGui/private/qcoretextfontdatabase_p.h>
 #include <QtGui/private/qguiapplication_p.h>
 #include <qpa/qplatformintegration.h>
 
@@ -160,7 +160,7 @@ QVariant QIOSTheme::themeHint(ThemeHint hint) const
 {
     switch (hint) {
     case QPlatformTheme::StyleNames:
-        return QStringList(QStringLiteral("fusion"));
+        return QStringList(QStringLiteral("Fusion"));
     case KeyboardScheme:
         return QVariant(int(MacKeyboardScheme));
     default:

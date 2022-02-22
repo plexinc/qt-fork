@@ -36,6 +36,8 @@ class AppCacheRequest;
 class AppCacheRequestHandlerTest;
 class AppCacheHost;
 
+CONTENT_EXPORT extern const base::Feature kAppCacheAlwaysFallbackToNetwork;
+
 // An instance is created for each net::URLRequest. The instance survives all
 // http transactions involved in the processing of its net::URLRequest, and is
 // given the opportunity to hijack the request along the way. Callers
@@ -99,7 +101,8 @@ class CONTENT_EXPORT AppCacheRequestHandler
       const network::ResourceRequest& request,
       base::WeakPtr<AppCacheHost> appcache_host);
 
-  static bool IsMainResourceType(blink::mojom::ResourceType type);
+  static bool IsMainRequestDestination(
+      network::mojom::RequestDestination destination);
 
   // Called by unittests to indicate that we are in test mode.
   static void SetRunningInTests(bool in_tests);
@@ -111,7 +114,7 @@ class CONTENT_EXPORT AppCacheRequestHandler
 
   // Callers should use AppCacheHost::CreateRequestHandler.
   AppCacheRequestHandler(AppCacheHost* host,
-                         blink::mojom::ResourceType resource_type,
+                         network::mojom::RequestDestination request_destination,
                          bool should_reset_appcache,
                          std::unique_ptr<AppCacheRequest> request);
 
@@ -144,7 +147,7 @@ class CONTENT_EXPORT AppCacheRequestHandler
   AppCacheStorage* storage() const;
 
   bool is_main_resource() const {
-    return IsMainResourceType(resource_type_);
+    return IsMainRequestDestination(request_destination_);
   }
 
   // These are called on each request intercept opportunity, by the various
@@ -199,7 +202,7 @@ class CONTENT_EXPORT AppCacheRequestHandler
   AppCacheHost* host_;
 
   // Frame vs subresource vs sharedworker loads are somewhat different.
-  blink::mojom::ResourceType resource_type_;
+  network::mojom::RequestDestination request_destination_;
 
   // True if corresponding AppCache group should be resetted before load.
   bool should_reset_appcache_;

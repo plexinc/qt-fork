@@ -26,47 +26,49 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include "qbytearray.h"
-#include "qlinkedlist.h"
+#include "qdebug.h"
+#include "qhash.h"
 #include "qlist.h"
 #include "qstring.h"
 #include "qvarlengtharray.h"
-#include "qvector.h"
-#include "qhash.h"
-#include "qdebug.h"
 
 #include <algorithm>
 #include <functional>
 #include <vector> // for reference
+#include <iostream>
 #include <list>
 #include <set>
+#include <sstream>
 #include <map>
-
-// MSVC has these containers from the Standard Library, but it lacks
-// a __has_include mechanism (that we need to use for other stdlibs).
-// For the sake of increasing our test coverage, work around the issue.
-
-#ifdef Q_CC_MSVC
-#define COMPILER_HAS_STDLIB_INCLUDE(x) 1
-#else
-#define COMPILER_HAS_STDLIB_INCLUDE(x) __has_include(x)
-#endif
-
-#if COMPILER_HAS_STDLIB_INCLUDE(<forward_list>)
 #include <forward_list>
-#endif
-#if COMPILER_HAS_STDLIB_INCLUDE(<unordered_set>)
 #include <unordered_set>
-#endif
-#if COMPILER_HAS_STDLIB_INCLUDE(<unordered_map>)
 #include <unordered_map>
+
+#if __cplusplus >= 202002L && defined(__cpp_lib_erase_if)
+#  define STDLIB_HAS_UNIFORM_ERASURE
 #endif
+
+QT_BEGIN_NAMESPACE
+std::ostream &operator<<(std::ostream &os, const QChar &c)
+{
+    Q_ASSERT(c == QLatin1Char{c.toLatin1()});
+    return os << c.toLatin1();
+}
+std::istream &operator>>(std::istream &os, QChar &c)
+{
+    char cL1;
+    os >> cL1;
+    c = QLatin1Char{cL1};
+    return os;
+}
+QT_END_NAMESPACE
 
 struct Movable
 {
-    explicit Movable(int i = 0) Q_DECL_NOTHROW
+    explicit Movable(int i = 0) noexcept
         : i(i)
     {
         ++instanceCount;
@@ -85,14 +87,19 @@ struct Movable
 
     int i;
     static int instanceCount;
+
+    friend std::ostream &operator<<(std::ostream &os, const Movable &m)
+    { return os << m.i; }
+    friend std::istream &operator>>(std::istream &os, Movable &m)
+    { return os >> m.i; }
 };
 
 int Movable::instanceCount = 0;
-bool operator==(Movable lhs, Movable rhs) Q_DECL_NOTHROW { return lhs.i == rhs.i; }
-bool operator!=(Movable lhs, Movable rhs) Q_DECL_NOTHROW { return lhs.i != rhs.i; }
-bool operator<(Movable lhs, Movable rhs) Q_DECL_NOTHROW { return lhs.i < rhs.i; }
+bool operator==(Movable lhs, Movable rhs) noexcept { return lhs.i == rhs.i; }
+bool operator!=(Movable lhs, Movable rhs) noexcept { return lhs.i != rhs.i; }
+bool operator<(Movable lhs, Movable rhs) noexcept { return lhs.i < rhs.i; }
 
-uint qHash(Movable m, uint seed = 0) Q_DECL_NOTHROW { return qHash(m.i, seed); }
+size_t qHash(Movable m, size_t seed = 0) noexcept { return qHash(m.i, seed); }
 QDebug &operator<<(QDebug &d, Movable m)
 {
     const QDebugStateSaver saver(d);
@@ -100,12 +107,12 @@ QDebug &operator<<(QDebug &d, Movable m)
 }
 
 QT_BEGIN_NAMESPACE
-Q_DECLARE_TYPEINFO(Movable, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(Movable, Q_RELOCATABLE_TYPE);
 QT_END_NAMESPACE
 
 struct Complex
 {
-    explicit Complex(int i = 0) Q_DECL_NOTHROW
+    explicit Complex(int i = 0) noexcept
         : i(i)
     {
         ++instanceCount;
@@ -121,17 +128,24 @@ struct Complex
     {
         --instanceCount;
     }
+    constexpr Complex &operator=(const Complex &o) noexcept
+    { i = o.i; return *this; }
 
     int i;
     static int instanceCount;
+
+    friend std::ostream &operator<<(std::ostream &os, const Complex &c)
+    { return os << c.i; }
+    friend std::istream &operator>>(std::istream &os, Complex &c)
+    { return os >> c.i; }
 };
 
 int Complex::instanceCount = 0;
-bool operator==(Complex lhs, Complex rhs) Q_DECL_NOTHROW { return lhs.i == rhs.i; }
-bool operator!=(Complex lhs, Complex rhs) Q_DECL_NOTHROW { return lhs.i != rhs.i; }
-bool operator<(Complex lhs, Complex rhs) Q_DECL_NOTHROW { return lhs.i < rhs.i; }
+bool operator==(Complex lhs, Complex rhs) noexcept { return lhs.i == rhs.i; }
+bool operator!=(Complex lhs, Complex rhs) noexcept { return lhs.i != rhs.i; }
+bool operator<(Complex lhs, Complex rhs) noexcept { return lhs.i < rhs.i; }
 
-uint qHash(Complex c, uint seed = 0) Q_DECL_NOTHROW { return qHash(c.i, seed); }
+size_t qHash(Complex c, size_t seed = 0) noexcept { return qHash(c.i, seed); }
 QDebug &operator<<(QDebug &d, Complex c)
 {
     const QDebugStateSaver saver(d);
@@ -141,7 +155,7 @@ QDebug &operator<<(QDebug &d, Complex c)
 
 struct DuplicateStrategyTestType
 {
-    explicit DuplicateStrategyTestType(int i = 0) Q_DECL_NOTHROW
+    explicit DuplicateStrategyTestType(int i = 0) noexcept
         : i(i),
           j(++counter)
     {
@@ -157,27 +171,27 @@ int DuplicateStrategyTestType::counter = 0;
 
 // only look at the i member, not j. j allows us to identify which instance
 // gets inserted in containers that don't allow for duplicates
-bool operator==(DuplicateStrategyTestType lhs, DuplicateStrategyTestType rhs) Q_DECL_NOTHROW
+bool operator==(DuplicateStrategyTestType lhs, DuplicateStrategyTestType rhs) noexcept
 {
     return lhs.i == rhs.i;
 }
 
-bool operator!=(DuplicateStrategyTestType lhs, DuplicateStrategyTestType rhs) Q_DECL_NOTHROW
+bool operator!=(DuplicateStrategyTestType lhs, DuplicateStrategyTestType rhs) noexcept
 {
     return lhs.i != rhs.i;
 }
 
-bool operator<(DuplicateStrategyTestType lhs, DuplicateStrategyTestType rhs) Q_DECL_NOTHROW
+bool operator<(DuplicateStrategyTestType lhs, DuplicateStrategyTestType rhs) noexcept
 {
     return lhs.i < rhs.i;
 }
 
-uint qHash(DuplicateStrategyTestType c, uint seed = 0) Q_DECL_NOTHROW
+size_t qHash(DuplicateStrategyTestType c, size_t seed = 0) noexcept
 {
     return qHash(c.i, seed);
 }
 
-bool reallyEqual(DuplicateStrategyTestType lhs, DuplicateStrategyTestType rhs) Q_DECL_NOTHROW
+bool reallyEqual(DuplicateStrategyTestType lhs, DuplicateStrategyTestType rhs) noexcept
 {
     return lhs.i == rhs.i && lhs.j == rhs.j;
 }
@@ -193,7 +207,7 @@ namespace std {
 template<>
 struct hash<Movable>
 {
-    std::size_t operator()(Movable m) const Q_DECL_NOTHROW
+    std::size_t operator()(Movable m) const noexcept
     {
         return hash<int>()(m.i);
     }
@@ -202,7 +216,7 @@ struct hash<Movable>
 template<>
 struct hash<Complex>
 {
-    std::size_t operator()(Complex m) const Q_DECL_NOTHROW
+    std::size_t operator()(Complex m) const noexcept
     {
         return hash<int>()(m.i);
     }
@@ -211,7 +225,7 @@ struct hash<Complex>
 template<>
 struct hash<DuplicateStrategyTestType>
 {
-    std::size_t operator()(DuplicateStrategyTestType m) const Q_DECL_NOTHROW
+    std::size_t operator()(DuplicateStrategyTestType m) const noexcept
     {
         return hash<int>()(m.i);
     }
@@ -224,20 +238,7 @@ template<typename T>
 class VarLengthArray : public QVarLengthArray<T>
 {
 public:
-#ifdef Q_COMPILER_INHERITING_CONSTRUCTORS
     using QVarLengthArray<T>::QVarLengthArray;
-#else
-    template<typename InputIterator>
-    VarLengthArray(InputIterator first, InputIterator last)
-        : QVarLengthArray<T>(first, last)
-    {
-    }
-
-    VarLengthArray(std::initializer_list<T> args)
-        : QVarLengthArray<T>(args)
-    {
-    }
-#endif
 };
 
 class tst_ContainerApiSymmetry : public QObject
@@ -270,19 +271,14 @@ private Q_SLOTS:
     void ranged_ctor_std_vector_Complex() { ranged_ctor_non_associative_impl<std::vector<Complex>>(); }
     void ranged_ctor_std_vector_duplicates_strategy() { non_associative_container_duplicates_strategy<std::vector>(); }
 
-    void ranged_ctor_QVector_int() { ranged_ctor_non_associative_impl<QVector<int>>(); }
-    void ranged_ctor_QVector_char() { ranged_ctor_non_associative_impl<QVector<char>>(); }
-    void ranged_ctor_QVector_QChar() { ranged_ctor_non_associative_impl<QVector<QChar>>(); }
-    void ranged_ctor_QVector_Movable() { ranged_ctor_non_associative_impl<QVector<Movable>>(); }
-    void ranged_ctor_QVector_Complex() { ranged_ctor_non_associative_impl<QVector<Complex>>(); }
-    void ranged_ctor_QVector_duplicates_strategy() { non_associative_container_duplicates_strategy<QVector>(); }
-
     void ranged_ctor_QVarLengthArray_int() { ranged_ctor_non_associative_impl<QVarLengthArray<int>>(); }
     void ranged_ctor_QVarLengthArray_Movable() { ranged_ctor_non_associative_impl<QVarLengthArray<Movable>>(); }
     void ranged_ctor_QVarLengthArray_Complex() { ranged_ctor_non_associative_impl<QVarLengthArray<Complex>>(); }
     void ranged_ctor_QVarLengthArray_duplicates_strategy() { non_associative_container_duplicates_strategy<VarLengthArray>(); } // note the VarLengthArray passed
 
     void ranged_ctor_QList_int() { ranged_ctor_non_associative_impl<QList<int>>(); }
+    void ranged_ctor_QList_char() { ranged_ctor_non_associative_impl<QList<char>>(); }
+    void ranged_ctor_QList_QChar() { ranged_ctor_non_associative_impl<QList<QChar>>(); }
     void ranged_ctor_QList_Movable() { ranged_ctor_non_associative_impl<QList<Movable>>(); }
     void ranged_ctor_QList_Complex() { ranged_ctor_non_associative_impl<QList<Complex>>(); }
     void ranged_ctor_QList_duplicates_strategy() { non_associative_container_duplicates_strategy<QList>(); }
@@ -292,44 +288,11 @@ private Q_SLOTS:
     void ranged_ctor_std_list_Complex() { ranged_ctor_non_associative_impl<std::list<Complex>>(); }
     void ranged_ctor_std_list_duplicates_strategy() { non_associative_container_duplicates_strategy<std::list>(); }
 
-    void ranged_ctor_std_forward_list_int() {
-#if COMPILER_HAS_STDLIB_INCLUDE(<forward_list>)
-        ranged_ctor_non_associative_impl<std::forward_list<int>>();
-#else
-        QSKIP("<forward_list> is needed for this test");
-#endif
-    }
+    void ranged_ctor_std_forward_list_int() { ranged_ctor_non_associative_impl<std::forward_list<int>>(); }
+    void ranged_ctor_std_forward_list_Movable() {ranged_ctor_non_associative_impl<std::forward_list<Movable>>(); }
+    void ranged_ctor_std_forward_list_Complex() { ranged_ctor_non_associative_impl<std::forward_list<Complex>>(); }
+    void ranged_ctor_std_forward_list_duplicates_strategy() { non_associative_container_duplicates_strategy<std::forward_list>(); }
 
-    void ranged_ctor_std_forward_list_Movable() {
-#if COMPILER_HAS_STDLIB_INCLUDE(<forward_list>)
-        ranged_ctor_non_associative_impl<std::forward_list<Movable>>();
-#else
-        QSKIP("<forward_list> is needed for this test");
-#endif
-    }
-
-    void ranged_ctor_std_forward_list_Complex() {
-#if COMPILER_HAS_STDLIB_INCLUDE(<forward_list>)
-        ranged_ctor_non_associative_impl<std::forward_list<Complex>>();
-#else
-        QSKIP("<forward_list> is needed for this test");
-#endif
-    }
-
-    void ranged_ctor_std_forward_list_duplicates_strategy() {
-#if COMPILER_HAS_STDLIB_INCLUDE(<forward_list>)
-        non_associative_container_duplicates_strategy<std::forward_list>();
-#else
-        QSKIP("<forward_list> is needed for this test");
-#endif
-    }
-
-#if QT_DEPRECATED_SINCE(5, 15)
-    void ranged_ctor_QLinkedList_int();
-    void ranged_ctor_QLinkedList_Movable();
-    void ranged_ctor_QLinkedList_Complex();
-    void ranged_ctor_QLinkedList_duplicates_strategy();
-#endif
     void ranged_ctor_std_set_int() { ranged_ctor_non_associative_impl<std::set<int>>(); }
     void ranged_ctor_std_set_Movable() { ranged_ctor_non_associative_impl<std::set<Movable>>(); }
     void ranged_ctor_std_set_Complex() { ranged_ctor_non_associative_impl<std::set<Complex>>(); }
@@ -340,70 +303,15 @@ private Q_SLOTS:
     void ranged_ctor_std_multiset_Complex() { ranged_ctor_non_associative_impl<std::multiset<Complex>>(); }
     void ranged_ctor_std_multiset_duplicates_strategy() { non_associative_container_duplicates_strategy<std::multiset>(); }
 
-    void ranged_ctor_std_unordered_set_int() {
-#if COMPILER_HAS_STDLIB_INCLUDE(<unordered_set>)
-        ranged_ctor_non_associative_impl<std::unordered_set<int>>();
-#else
-        QSKIP("<unordered_set> is needed for this test");
-#endif
-    }
+    void ranged_ctor_std_unordered_set_int() { ranged_ctor_non_associative_impl<std::unordered_set<int>>(); }
+    void ranged_ctor_std_unordered_set_Movable() { ranged_ctor_non_associative_impl<std::unordered_set<Movable>>(); }
+    void ranged_ctor_std_unordered_set_Complex() { ranged_ctor_non_associative_impl<std::unordered_set<Complex>>(); }
+    void ranged_ctor_std_unordered_set_duplicates_strategy() { non_associative_container_duplicates_strategy<std::unordered_set>(); }
 
-    void ranged_ctor_std_unordered_set_Movable() {
-#if COMPILER_HAS_STDLIB_INCLUDE(<unordered_set>)
-        ranged_ctor_non_associative_impl<std::unordered_set<Movable>>();
-#else
-        QSKIP("<unordered_set> is needed for this test");
-#endif
-    }
-
-    void ranged_ctor_std_unordered_set_Complex() {
-#if COMPILER_HAS_STDLIB_INCLUDE(<unordered_set>)
-        ranged_ctor_non_associative_impl<std::unordered_set<Complex>>();
-#else
-        QSKIP("<unordered_set> is needed for this test");
-#endif
-    }
-
-    void ranged_ctor_unordered_set_duplicates_strategy() {
-#if COMPILER_HAS_STDLIB_INCLUDE(<unordered_set>)
-        non_associative_container_duplicates_strategy<std::unordered_set>();
-#else
-        QSKIP("<unordered_set> is needed for this test");
-#endif
-    }
-
-
-    void ranged_ctor_std_unordered_multiset_int() {
-#if COMPILER_HAS_STDLIB_INCLUDE(<unordered_set>)
-        ranged_ctor_non_associative_impl<std::unordered_multiset<int>>();
-#else
-        QSKIP("<unordered_set> is needed for this test");
-#endif
-    }
-
-    void ranged_ctor_std_unordered_multiset_Movable() {
-#if COMPILER_HAS_STDLIB_INCLUDE(<unordered_set>)
-        ranged_ctor_non_associative_impl<std::unordered_multiset<Movable>>();
-#else
-        QSKIP("<unordered_set> is needed for this test");
-#endif
-    }
-
-    void ranged_ctor_std_unordered_multiset_Complex() {
-#if COMPILER_HAS_STDLIB_INCLUDE(<unordered_set>)
-        ranged_ctor_non_associative_impl<std::unordered_multiset<Complex>>();
-#else
-        QSKIP("<unordered_set> is needed for this test");
-#endif
-    }
-
-    void ranged_ctor_std_unordered_multiset_duplicates_strategy() {
-#if COMPILER_HAS_STDLIB_INCLUDE(<unordered_set>)
-        non_associative_container_duplicates_strategy<std::unordered_multiset>();
-#else
-        QSKIP("<unordered_set> is needed for this test");
-#endif
-    }
+    void ranged_ctor_std_unordered_multiset_int() { ranged_ctor_non_associative_impl<std::unordered_multiset<int>>(); }
+    void ranged_ctor_std_unordered_multiset_Movable() { ranged_ctor_non_associative_impl<std::unordered_multiset<Movable>>(); }
+    void ranged_ctor_std_unordered_multiset_Complex() { ranged_ctor_non_associative_impl<std::unordered_multiset<Complex>>(); }
+    void ranged_ctor_std_unordered_multiset_duplicates_strategy() { non_associative_container_duplicates_strategy<std::unordered_multiset>(); }
 
     void ranged_ctor_QSet_int() { ranged_ctor_non_associative_impl<QSet<int>>(); }
     void ranged_ctor_QSet_Movable() { ranged_ctor_non_associative_impl<QSet<Movable>>(); }
@@ -419,57 +327,17 @@ private Q_SLOTS:
     void ranged_ctor_std_multimap_Movable() { ranged_ctor_associative_impl<std::multimap<Movable, int>>(); }
     void ranged_ctor_std_multimap_Complex() { ranged_ctor_associative_impl<std::multimap<Complex, int>>(); }
 
-    void ranged_ctor_unordered_map_int() {
-#if COMPILER_HAS_STDLIB_INCLUDE(<unordered_map>)
-        ranged_ctor_associative_impl<std::unordered_map<int, int>>();
-#else
-        QSKIP("<unordered_map> is needed for this test");
-#endif
-    }
-
-    void ranged_ctor_unordered_map_Movable() {
-#if COMPILER_HAS_STDLIB_INCLUDE(<unordered_map>)
-        ranged_ctor_associative_impl<std::unordered_map<Movable, Movable>>();
-#else
-        QSKIP("<unordered_map> is needed for this test");
-#endif
-    }
-
-    void ranged_ctor_unordered_map_Complex() {
-#if COMPILER_HAS_STDLIB_INCLUDE(<unordered_map>)
-        ranged_ctor_associative_impl<std::unordered_map<Complex, Complex>>();
-#else
-        QSKIP("<unordered_map> is needed for this test");
-#endif
-    }
+    void ranged_ctor_unordered_map_int() { ranged_ctor_associative_impl<std::unordered_map<int, int>>(); }
+    void ranged_ctor_unordered_map_Movable() { ranged_ctor_associative_impl<std::unordered_map<Movable, Movable>>(); }
+    void ranged_ctor_unordered_map_Complex() { ranged_ctor_associative_impl<std::unordered_map<Complex, Complex>>(); }
 
     void ranged_ctor_QHash_int() { ranged_ctor_associative_impl<QHash<int, int>>(); }
     void ranged_ctor_QHash_Movable() { ranged_ctor_associative_impl<QHash<Movable, int>>(); }
     void ranged_ctor_QHash_Complex() { ranged_ctor_associative_impl<QHash<Complex, int>>(); }
 
-    void ranged_ctor_unordered_multimap_int() {
-#if COMPILER_HAS_STDLIB_INCLUDE(<unordered_map>)
-        ranged_ctor_associative_impl<std::unordered_multimap<int, int>>();
-#else
-        QSKIP("<unordered_map> is needed for this test");
-#endif
-    }
-
-    void ranged_ctor_unordered_multimap_Movable() {
-#if COMPILER_HAS_STDLIB_INCLUDE(<unordered_map>)
-        ranged_ctor_associative_impl<std::unordered_multimap<Movable, Movable>>();
-#else
-        QSKIP("<unordered_map> is needed for this test");
-#endif
-    }
-
-    void ranged_ctor_unordered_multimap_Complex() {
-#if COMPILER_HAS_STDLIB_INCLUDE(<unordered_map>)
-        ranged_ctor_associative_impl<std::unordered_multimap<Complex, Complex>>();
-#else
-        QSKIP("<unordered_map> is needed for this test");
-#endif
-    }
+    void ranged_ctor_unordered_multimap_int() { ranged_ctor_associative_impl<std::unordered_multimap<int, int>>(); }
+    void ranged_ctor_unordered_multimap_Movable() { ranged_ctor_associative_impl<std::unordered_multimap<Movable, Movable>>(); }
+    void ranged_ctor_unordered_multimap_Complex() { ranged_ctor_associative_impl<std::unordered_multimap<Complex, Complex>>(); }
 
     void ranged_ctor_QMultiHash_int() { ranged_ctor_associative_impl<QMultiHash<int, int>>(); }
     void ranged_ctor_QMultiHash_Movable() { ranged_ctor_associative_impl<QMultiHash<Movable, int>>(); }
@@ -481,17 +349,48 @@ private:
 
 private Q_SLOTS:
     void front_back_std_vector() { front_back_impl<std::vector<int>>(); }
-    void front_back_QVector() { front_back_impl<QVector<int>>(); }
     void front_back_QList() { front_back_impl<QList<qintptr>>(); }
-#if QT_DEPRECATED_SINCE(5, 15)
-    void front_back_QLinkedList();
-#endif
     void front_back_QVarLengthArray() { front_back_impl<QVarLengthArray<int>>(); }
     void front_back_QString() { front_back_impl<QString>(); }
-    void front_back_QStringRef() { front_back_impl<QStringRef>(); }
     void front_back_QStringView() { front_back_impl<QStringView>(); }
     void front_back_QLatin1String() { front_back_impl<QLatin1String>(); }
     void front_back_QByteArray() { front_back_impl<QByteArray>(); }
+
+private:
+    template <typename Container>
+    void erase_impl() const;
+
+    template <typename Container>
+    void erase_if_impl() const;
+
+    template <typename Container>
+    void erase_if_associative_impl() const;
+
+private Q_SLOTS:
+    void erase_QList() { erase_impl<QList<int>>(); }
+    void erase_QVarLengthArray() { erase_impl<QVarLengthArray<int>>(); }
+    void erase_QString() { erase_impl<QString>(); }
+    void erase_QByteArray() { erase_impl<QByteArray>(); }
+    void erase_std_vector() {
+#ifdef STDLIB_HAS_UNIFORM_ERASURE
+        erase_impl<std::vector<int>>();
+#endif
+    }
+
+    void erase_if_QList() { erase_if_impl<QList<int>>(); }
+    void erase_if_QVarLengthArray() { erase_if_impl<QVarLengthArray<int>>(); }
+    void erase_if_QSet() { erase_if_impl<QSet<int>>(); }
+    void erase_if_QString() { erase_if_impl<QString>(); }
+    void erase_if_QByteArray() { erase_if_impl<QByteArray>(); }
+    void erase_if_std_vector() {
+#ifdef STDLIB_HAS_UNIFORM_ERASURE
+        erase_if_impl<std::vector<int>>();
+#endif
+    }
+    void erase_if_QMap() { erase_if_associative_impl<QMap<int, int>>(); }
+    void erase_if_QMultiMap() {erase_if_associative_impl<QMultiMap<int, int>>(); }
+    void erase_if_QHash() { erase_if_associative_impl<QHash<int, int>>(); }
+    void erase_if_QMultiHash() { erase_if_associative_impl<QMultiHash<int, int>>(); }
 };
 
 void tst_ContainerApiSymmetry::init()
@@ -550,12 +449,25 @@ void tst_ContainerApiSymmetry::ranged_ctor_non_associative_impl() const
     // from itself
     const Container c4(reference.begin(), reference.end());
 
+    // from stringsteam (= pure input_iterator)
+    const Container c5 = [&] {
+        {
+            std::stringstream ss;
+            for (auto &v : values1)
+                ss << v << ' ';
+            ss.seekg(0);
+            return Container(std::istream_iterator<V>{ss},
+                             std::istream_iterator<V>{});
+        }
+    }();
+
     QCOMPARE(c1,  reference);
     QCOMPARE(c2a, reference);
     QCOMPARE(c2b, reference);
     QCOMPARE(c3a, reference);
     QCOMPARE(c3b, reference);
     QCOMPARE(c4,  reference);
+    QCOMPARE(c5,  reference);
 }
 
 
@@ -574,7 +486,7 @@ template<typename ... T>
 struct ContainerDuplicatedValuesStrategy<std::vector<T...>> : ContainerAcceptsDuplicateValues {};
 
 template<typename ... T>
-struct ContainerDuplicatedValuesStrategy<QVector<T...>> : ContainerAcceptsDuplicateValues {};
+struct ContainerDuplicatedValuesStrategy<QList<T...>> : ContainerAcceptsDuplicateValues {};
 
 template<typename ... T>
 struct ContainerDuplicatedValuesStrategy<QVarLengthArray<T...>> : ContainerAcceptsDuplicateValues {};
@@ -583,23 +495,10 @@ template<typename ... T>
 struct ContainerDuplicatedValuesStrategy<VarLengthArray<T...>> : ContainerAcceptsDuplicateValues {};
 
 template<typename ... T>
-struct ContainerDuplicatedValuesStrategy<QList<T...>> : ContainerAcceptsDuplicateValues {};
-
-template<typename ... T>
 struct ContainerDuplicatedValuesStrategy<std::list<T...>> : ContainerAcceptsDuplicateValues {};
 
-#if COMPILER_HAS_STDLIB_INCLUDE(<forward_list>)
 template<typename ... T>
 struct ContainerDuplicatedValuesStrategy<std::forward_list<T...>> : ContainerAcceptsDuplicateValues {};
-#endif
-
-#if QT_DEPRECATED_SINCE(5, 15)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-template<typename ... T>
-struct ContainerDuplicatedValuesStrategy<QLinkedList<T...>> : ContainerAcceptsDuplicateValues {};
-QT_WARNING_POP
-#endif
 
 // assuming https://cplusplus.github.io/LWG/lwg-active.html#2844 resolution
 template<typename ... T>
@@ -608,14 +507,12 @@ struct ContainerDuplicatedValuesStrategy<std::set<T...>> : ContainerRejectsDupli
 template<typename ... T>
 struct ContainerDuplicatedValuesStrategy<std::multiset<T...>> : ContainerAcceptsDuplicateValues {};
 
-#if COMPILER_HAS_STDLIB_INCLUDE(<unordered_set>)
 // assuming https://cplusplus.github.io/LWG/lwg-active.html#2844 resolution
 template<typename ... T>
 struct ContainerDuplicatedValuesStrategy<std::unordered_set<T...>> : ContainerRejectsDuplicateValues {};
 
 template<typename ... T>
 struct ContainerDuplicatedValuesStrategy<std::unordered_multiset<T...>> : ContainerAcceptsDuplicateValues {};
-#endif
 
 template<typename ... T>
 struct ContainerDuplicatedValuesStrategy<QSet<T...>> : ContainerRejectsDuplicateValues {};
@@ -793,21 +690,31 @@ template <typename Container>
 Container make(int size)
 {
     Container c;
-    int i = 1;
-    while (size--)
-        c.push_back(typename Container::value_type(i++));
+    c.reserve(size);
+    using V = typename Container::value_type;
+    std::generate_n(std::inserter(c, c.end()), size, [i = 1]() mutable { return V(i++); });
+    return c;
+}
+
+template <typename Container>
+Container makeAssociative(int size)
+{
+    using K = typename Container::key_type;
+    using V = typename Container::mapped_type;
+    Container c;
+    for (int i = 1; i <= size; ++i)
+        c.insert(K(i), V(i));
     return c;
 }
 
 static QString s_string = QStringLiteral("\1\2\3\4\5\6\7");
 
-template <> QStringRef    make(int size) { return s_string.leftRef(size); }
+template <> QString       make(int size) { return s_string.left(size); }
 template <> QStringView   make(int size) { return QStringView(s_string).left(size); }
 template <> QLatin1String make(int size) { return QLatin1String("\1\2\3\4\5\6\7", size); }
+template <> QByteArray    make(int size) { return QByteArray("\1\2\3\4\5\6\7", size); }
 
 template <typename T> T clean(T &&t) { return std::forward<T>(t); }
-inline QChar clean(QCharRef ch) { return ch; }
-inline char clean(QByteRef ch) { return ch; }
 inline char clean(QLatin1Char ch) { return ch.toLatin1(); }
 
 template <typename Container>
@@ -827,35 +734,108 @@ void tst_ContainerApiSymmetry::front_back_impl() const
     QCOMPARE(clean(qAsConst(c2).back()), V(2));
 }
 
-#if QT_DEPRECATED_SINCE(5, 15)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-void tst_ContainerApiSymmetry::ranged_ctor_QLinkedList_int()
-{
-    ranged_ctor_non_associative_impl<QLinkedList<int>>();
+namespace {
+struct Conv {
+    template <typename T>
+    static int toInt(T i) { return i; }
+    static int toInt(QChar ch) { return ch.unicode(); }
+};
 }
 
-void tst_ContainerApiSymmetry::ranged_ctor_QLinkedList_Movable()
+template <typename Container>
+void tst_ContainerApiSymmetry::erase_impl() const
 {
-    ranged_ctor_non_associative_impl<QLinkedList<Movable>>();
+    using S = typename Container::size_type;
+    using V = typename Container::value_type;
+    auto c = make<Container>(7); // {1, 2, 3, 4, 5, 6, 7}
+    QCOMPARE(c.size(), S(7));
+
+    auto result = erase(c, V(1));
+    QCOMPARE(result, S(1));
+    QCOMPARE(c.size(), S(6));
+
+    result = erase(c, V(5));
+    QCOMPARE(result, S(1));
+    QCOMPARE(c.size(), S(5));
+
+    result = erase(c, V(123));
+    QCOMPARE(result, S(0));
+    QCOMPARE(c.size(), S(5));
 }
 
-void tst_ContainerApiSymmetry::ranged_ctor_QLinkedList_Complex()
+template <typename Container>
+void tst_ContainerApiSymmetry::erase_if_impl() const
 {
-    ranged_ctor_non_associative_impl<QLinkedList<Complex>>();
+    using S = typename Container::size_type;
+    using V = typename Container::value_type;
+    auto c = make<Container>(7); // {1, 2, 3, 4, 5, 6, 7}
+    QCOMPARE(c.size(), S(7));
+
+    auto result = erase_if(c, [](V i) { return Conv::toInt(i) % 2 == 0; });
+    QCOMPARE(result, S(3));
+    QCOMPARE(c.size(), S(4));
+
+    result = erase_if(c, [](V i) { return Conv::toInt(i) % 123 == 0; });
+    QCOMPARE(result, S(0));
+    QCOMPARE(c.size(), S(4));
+
+    result = erase_if(c, [](V i) { return Conv::toInt(i) % 3 == 0; });
+    QCOMPARE(result, S(1));
+    QCOMPARE(c.size(), S(3));
+
+    result = erase_if(c, [](V i) { return Conv::toInt(i) % 2 == 1; });
+    QCOMPARE(result, S(3));
+    QCOMPARE(c.size(), S(0));
 }
 
-void tst_ContainerApiSymmetry::ranged_ctor_QLinkedList_duplicates_strategy()
+template <typename Container>
+void tst_ContainerApiSymmetry::erase_if_associative_impl() const
 {
-    non_associative_container_duplicates_strategy<QLinkedList>();
-}
+    using S = typename Container::size_type;
+    using K = typename Container::key_type;
+    using V = typename Container::mapped_type;
+    using I = typename Container::iterator;
+    using P = std::pair<const K &, V &>;
 
-void tst_ContainerApiSymmetry::front_back_QLinkedList()
-{
-    front_back_impl<QLinkedList<int>>();
+    auto c = makeAssociative<Container>(20);
+    QCOMPARE(c.size(), S(20));
+
+    auto result = erase_if(c, [](const P &p) { return Conv::toInt(p.first) % 2 == 0; });
+    QCOMPARE(result, S(10));
+    QCOMPARE(c.size(), S(10));
+
+    result = erase_if(c, [](const P &p) { return Conv::toInt(p.first) % 3 == 0; });
+    QCOMPARE(result, S(3));
+    QCOMPARE(c.size(), S(7));
+
+    result = erase_if(c, [](const P &p) { return Conv::toInt(p.first) % 42 == 0; });
+    QCOMPARE(result, S(0));
+    QCOMPARE(c.size(), S(7));
+
+    result = erase_if(c, [](const P &p) { return Conv::toInt(p.first) % 2 == 1; });
+    QCOMPARE(result, S(7));
+    QCOMPARE(c.size(), S(0));
+
+    // same, but with a predicate taking a Qt iterator
+    c = makeAssociative<Container>(20);
+    QCOMPARE(c.size(), S(20));
+
+    result = erase_if(c, [](const I &it) { return Conv::toInt(it.key()) % 2 == 0; });
+    QCOMPARE(result, S(10));
+    QCOMPARE(c.size(), S(10));
+
+    result = erase_if(c, [](const I &it) { return Conv::toInt(it.key()) % 3 == 0; });
+    QCOMPARE(result, S(3));
+    QCOMPARE(c.size(), S(7));
+
+    result = erase_if(c, [](const I &it) { return Conv::toInt(it.key()) % 42 == 0; });
+    QCOMPARE(result, S(0));
+    QCOMPARE(c.size(), S(7));
+
+    result = erase_if(c, [](const I &it) { return Conv::toInt(it.key()) % 2 == 1; });
+    QCOMPARE(result, S(7));
+    QCOMPARE(c.size(), S(0));
 }
-QT_WARNING_POP
-#endif
 
 QTEST_APPLESS_MAIN(tst_ContainerApiSymmetry)
 #include "tst_containerapisymmetry.moc"

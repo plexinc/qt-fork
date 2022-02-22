@@ -41,20 +41,20 @@
 #ifndef QANDROIDPLATFORMOPENGLCONTEXT_H
 #define QANDROIDPLATFORMOPENGLCONTEXT_H
 
-#include <QtEglSupport/private/qeglplatformcontext_p.h>
+#include <QtGui/private/qeglplatformcontext_p.h>
 
 QT_BEGIN_NAMESPACE
 
 class QAndroidPlatformOpenGLContext : public QEGLPlatformContext
 {
 public:
-    QAndroidPlatformOpenGLContext(const QSurfaceFormat &format, QPlatformOpenGLContext *share, EGLDisplay display, const QVariant &nativeHandle);
+    using QEGLPlatformContext::QEGLPlatformContext;
+    QAndroidPlatformOpenGLContext(const QSurfaceFormat &format, QPlatformOpenGLContext *share, EGLDisplay display);
     void swapBuffers(QPlatformSurface *surface) override;
     bool makeCurrent(QPlatformSurface *surface) override;
 
 private:
     EGLSurface eglSurfaceForPlatformSurface(QPlatformSurface *surface) override;
-
 };
 
 QT_END_NAMESPACE

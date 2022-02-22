@@ -7,16 +7,21 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
+#include "base/containers/contains.h"
 #include "base/sequenced_task_runner.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
+#include "base/time/time.h"
 #include "components/viz/common/surfaces/surface_info.h"
+#include "components/viz/host/renderer_settings_creation.h"
 #include "mojo/public/cpp/bindings/sync_call_restrictions.h"
+#include "services/viz/privileged/mojom/compositing/renderer_settings.mojom.h"
 
 namespace viz {
 
-HostFrameSinkManager::HostFrameSinkManager() = default;
+HostFrameSinkManager::HostFrameSinkManager()
+    : debug_renderer_settings_(CreateDefaultDebugRendererSettings()) {}
 
 HostFrameSinkManager::~HostFrameSinkManager() = default;
 
@@ -171,8 +176,10 @@ void HostFrameSinkManager::CreateCompositorFrameSink(
   }
 }
 
-void HostFrameSinkManager::OnFrameTokenChanged(const FrameSinkId& frame_sink_id,
-                                               uint32_t frame_token) {
+void HostFrameSinkManager::OnFrameTokenChanged(
+    const FrameSinkId& frame_sink_id,
+    uint32_t frame_token,
+    base::TimeTicks activation_time) {
   DCHECK(frame_sink_id.is_valid());
   auto iter = frame_sink_data_map_.find(frame_sink_id);
   if (iter == frame_sink_data_map_.end())
@@ -180,7 +187,7 @@ void HostFrameSinkManager::OnFrameTokenChanged(const FrameSinkId& frame_sink_id,
 
   const FrameSinkData& data = iter->second;
   if (data.client)
-    data.client->OnFrameTokenChanged(frame_token);
+    data.client->OnFrameTokenChanged(frame_token, activation_time);
 }
 
 void HostFrameSinkManager::SetHitTestAsyncQueriedDebugRegions(
@@ -297,6 +304,22 @@ void HostFrameSinkManager::RequestCopyOfOutput(
   frame_sink_manager_->RequestCopyOfOutput(surface_id, std::move(request));
 }
 
+void HostFrameSinkManager::StartThrottling(
+    const std::vector<FrameSinkId>& frame_sink_ids,
+    base::TimeDelta interval) {
+  DCHECK_GT(interval, base::TimeDelta());
+  frame_sink_manager_->StartThrottling(frame_sink_ids, interval);
+}
+
+void HostFrameSinkManager::EndThrottling() {
+  frame_sink_manager_->EndThrottling();
+}
+
+void HostFrameSinkManager::Throttle(const std::vector<FrameSinkId>& ids,
+                                    base::TimeDelta interval) {
+  frame_sink_manager_->Throttle(ids, interval);
+}
+
 void HostFrameSinkManager::AddHitTestRegionObserver(
     HitTestRegionObserver* observer) {
   observers_.AddObserver(observer);
@@ -409,6 +432,12 @@ void HostFrameSinkManager::EvictCachedBackBuffer(uint32_t cache_id) {
   // platform window is destroyed.
   mojo::SyncCallRestrictions::ScopedAllowSyncCall allow_sync_call;
   frame_sink_manager_remote_->EvictBackBuffer(cache_id);
+}
+
+void HostFrameSinkManager::UpdateDebugRendererSettings(
+    const DebugRendererSettings& debug_settings) {
+  debug_renderer_settings_ = debug_settings;
+  frame_sink_manager_->UpdateDebugRendererSettings(debug_settings);
 }
 
 HostFrameSinkManager::FrameSinkData::FrameSinkData() = default;

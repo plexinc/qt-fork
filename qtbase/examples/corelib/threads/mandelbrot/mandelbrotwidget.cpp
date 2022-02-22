@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the examples of the Qt Toolkit.
@@ -73,6 +73,8 @@ MandelbrotWidget::MandelbrotWidget(QWidget *parent) :
     pixmapScale(DefaultScale),
     curScale(DefaultScale)
 {
+    help = tr("Use mouse wheel or the '+' and '-' keys to zoom. "
+              "Press and hold left mouse button to scroll.");
     connect(&thread, &RenderThread::renderedImage,
             this, &MandelbrotWidget::updatePixmap);
 
@@ -80,8 +82,6 @@ MandelbrotWidget::MandelbrotWidget(QWidget *parent) :
 #if QT_CONFIG(cursor)
     setCursor(Qt::CrossCursor);
 #endif
-    resize(550, 400);
-
 }
 //! [1]
 
@@ -107,9 +107,9 @@ void MandelbrotWidget::paintEvent(QPaintEvent * /* event */)
 //! [6] //! [7]
     } else {
 //! [7] //! [8]
-        auto previewPixmap = qFuzzyCompare(pixmap.devicePixelRatioF(), qreal(1))
+        auto previewPixmap = qFuzzyCompare(pixmap.devicePixelRatio(), qreal(1))
             ? pixmap
-            : pixmap.scaled(pixmap.size() / pixmap.devicePixelRatioF(), Qt::KeepAspectRatio,
+            : pixmap.scaled(pixmap.size() / pixmap.devicePixelRatio(), Qt::KeepAspectRatio,
                             Qt::SmoothTransformation);
         double scaleFactor = pixmapScale / curScale;
         int newWidth = int(previewPixmap.width() * scaleFactor);
@@ -127,8 +127,9 @@ void MandelbrotWidget::paintEvent(QPaintEvent * /* event */)
     }
 //! [8] //! [9]
 
-    QString text = tr("Use mouse wheel or the '+' and '-' keys to zoom. "
-                      "Press and hold left mouse button to scroll.");
+    QString text = help;
+    if (!info.isEmpty())
+        text += ' ' + info;
     QFontMetrics metrics = painter.fontMetrics();
     int textWidth = metrics.horizontalAdvance(text);
 
@@ -143,7 +144,7 @@ void MandelbrotWidget::paintEvent(QPaintEvent * /* event */)
 //! [10]
 void MandelbrotWidget::resizeEvent(QResizeEvent * /* event */)
 {
-    thread.render(centerX, centerY, curScale, size(), devicePixelRatioF());
+    thread.render(centerX, centerY, curScale, size(), devicePixelRatio());
 }
 //! [10]
 
@@ -169,6 +170,9 @@ void MandelbrotWidget::keyPressEvent(QKeyEvent *event)
     case Qt::Key_Up:
         scroll(0, +ScrollStep);
         break;
+    case Qt::Key_Q:
+        close();
+        break;
     default:
         QWidget::keyPressEvent(event);
     }
@@ -190,7 +194,7 @@ void MandelbrotWidget::wheelEvent(QWheelEvent *event)
 void MandelbrotWidget::mousePressEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton)
-        lastDragPos = event->pos();
+        lastDragPos = event->position().toPoint();
 }
 //! [13]
 
@@ -198,8 +202,8 @@ void MandelbrotWidget::mousePressEvent(QMouseEvent *event)
 void MandelbrotWidget::mouseMoveEvent(QMouseEvent *event)
 {
     if (event->buttons() & Qt::LeftButton) {
-        pixmapOffset += event->pos() - lastDragPos;
-        lastDragPos = event->pos();
+        pixmapOffset += event->position().toPoint() - lastDragPos;
+        lastDragPos = event->position().toPoint();
         update();
     }
 }
@@ -209,10 +213,10 @@ void MandelbrotWidget::mouseMoveEvent(QMouseEvent *event)
 void MandelbrotWidget::mouseReleaseEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton) {
-        pixmapOffset += event->pos() - lastDragPos;
+        pixmapOffset += event->position().toPoint() - lastDragPos;
         lastDragPos = QPoint();
 
-        const auto pixmapSize = pixmap.size() / pixmap.devicePixelRatioF();
+        const auto pixmapSize = pixmap.size() / pixmap.devicePixelRatio();
         int deltaX = (width() - pixmapSize.width()) / 2 - pixmapOffset.x();
         int deltaY = (height() - pixmapSize.height()) / 2 - pixmapOffset.y();
         scroll(deltaX, deltaY);
@@ -225,6 +229,8 @@ void MandelbrotWidget::updatePixmap(const QImage &image, double scaleFactor)
 {
     if (!lastDragPos.isNull())
         return;
+
+    info = image.text(RenderThread::infoKey());
 
     pixmap = QPixmap::fromImage(image);
     pixmapOffset = QPoint();
@@ -239,7 +245,7 @@ void MandelbrotWidget::zoom(double zoomFactor)
 {
     curScale *= zoomFactor;
     update();
-    thread.render(centerX, centerY, curScale, size(), devicePixelRatioF());
+    thread.render(centerX, centerY, curScale, size(), devicePixelRatio());
 }
 //! [17]
 
@@ -249,6 +255,6 @@ void MandelbrotWidget::scroll(int deltaX, int deltaY)
     centerX += deltaX * curScale;
     centerY += deltaY * curScale;
     update();
-    thread.render(centerX, centerY, curScale, size(), devicePixelRatioF());
+    thread.render(centerX, centerY, curScale, size(), devicePixelRatio());
 }
 //! [18]

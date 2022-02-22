@@ -9,15 +9,14 @@
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/content_settings/core/common/content_settings_types.h"
+#include "components/permissions/notification_permission_ui_selector.h"
 #include "components/permissions/permission_prompt.h"
 #include "components/permissions/permission_util.h"
+#include "components/permissions/request_type.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
 #include "url/origin.h"
-
-#if defined(OS_ANDROID)
-#include "base/android/scoped_java_ref.h"
-#endif
 
 class GURL;
 class HostContentSettingsMap;
@@ -27,6 +26,10 @@ class BrowserContext;
 class WebContents;
 }  // namespace content
 
+namespace content_settings {
+class CookieSettings;
+}
+
 namespace infobars {
 class InfoBar;
 class InfoBarManager;
@@ -34,7 +37,6 @@ class InfoBarManager;
 
 namespace permissions {
 class ChooserContextBase;
-class NotificationPermissionUiSelector;
 class PermissionDecisionAutoBlocker;
 class PermissionManager;
 class PermissionPromptAndroid;
@@ -56,6 +58,15 @@ class PermissionsClient {
   // has the same lifetime as |browser_context|.
   virtual HostContentSettingsMap* GetSettingsMap(
       content::BrowserContext* browser_context) = 0;
+
+  // Retrieves the CookieSettings for this context.
+  virtual scoped_refptr<content_settings::CookieSettings> GetCookieSettings(
+      content::BrowserContext* browser_context) = 0;
+
+  // Retrieves the subresource filter activation from browser website settings.
+  virtual bool IsSubresourceFilterActivated(
+      content::BrowserContext* browser_context,
+      const GURL& url) = 0;
 
   // Retrieves the PermissionDecisionAutoBlocker for this context. The returned
   // pointer has the same lifetime as |browser_context|.
@@ -86,6 +97,16 @@ class PermissionsClient {
       content::BrowserContext* browser_context,
       std::vector<std::pair<url::Origin, bool>>* origins);
 
+#if defined(OS_ANDROID) || BUILDFLAG(IS_CHROMEOS_ASH)
+  // Returns whether cookie deletion is allowed for |browser_context| and
+  // |origin|.
+  // TODO(crbug.com/1081944): Remove this method and all code depending on it
+  // when a proper fix is landed.
+  virtual bool IsCookieDeletionDisabled(
+      content::BrowserContext* browser_context,
+      const GURL& origin);
+#endif
+
   // Retrieves the ukm::SourceId (if any) associated with this |browser_context|
   // and |web_contents|. |web_contents| may be null. |callback| will be called
   // with the result, and may be run synchronously if the result is available
@@ -100,19 +121,40 @@ class PermissionsClient {
   // Returns the icon ID that should be used for permissions UI for |type|. If
   // the embedder returns an empty IconId, the default icon for |type| will be
   // used.
-  virtual PermissionRequest::IconId GetOverrideIconId(ContentSettingsType type);
+  virtual IconId GetOverrideIconId(RequestType request_type);
 
-  // Allows the embedder to provide a selector for chossing the UI to use for
-  // notification permission requests. If the embedder returns null here, the
-  // normal UI will be used.
-  virtual std::unique_ptr<NotificationPermissionUiSelector>
-  CreateNotificationPermissionUiSelector(
+  // Allows the embedder to provide a list of selectors for choosing the UI to
+  // use for notification permission requests. If the embedder returns an empty
+  // list, the normal UI will be used always. Then for each request, if none of
+  // the returned selectors prescribe the quiet UI, the normal UI will be used.
+  // Otherwise the quiet UI will be used. Selectors at lower indices have higher
+  // priority when determining the quiet UI flavor.
+  virtual std::vector<std::unique_ptr<NotificationPermissionUiSelector>>
+  CreateNotificationPermissionUiSelectors(
       content::BrowserContext* browser_context);
 
+  using QuietUiReason = NotificationPermissionUiSelector::QuietUiReason;
   // Called for each request type when a permission prompt is resolved.
   virtual void OnPromptResolved(content::BrowserContext* browser_context,
-                                PermissionRequestType request_type,
-                                PermissionAction action);
+                                RequestType request_type,
+                                PermissionAction action,
+                                const GURL& origin,
+                                base::Optional<QuietUiReason> quiet_ui_reason);
+
+  // Returns true if user has 3 consecutive notifications permission denies,
+  // returns false otherwise.
+  // Returns base::nullopt if the user is not in the adoptive activation quiet
+  // ui dry run experiment group.
+  virtual base::Optional<bool> HadThreeConsecutiveNotificationPermissionDenies(
+      content::BrowserContext* browser_context);
+
+  // Returns whether the |permission| has already been auto-revoked due to abuse
+  // at least once for the given |origin|. Returns `nullopt` if permission
+  // auto-revocation is not supported for a given permission type.
+  virtual base::Optional<bool> HasPreviouslyAutoRevokedPermission(
+      content::BrowserContext* browser_context,
+      const GURL& origin,
+      ContentSettingsType permission);
 
   // If the embedder returns an origin here, any requests matching that origin
   // will be approved. Requests that do not match the returned origin will
@@ -163,8 +205,15 @@ class PermissionsClient {
       ContentSettingsType type,
       base::WeakPtr<PermissionPromptAndroid> prompt);
 
-  // Returns a handle to the Java counterpart of this class.
-  virtual base::android::ScopedJavaLocalRef<jobject> GetJavaObject();
+  using PermissionsUpdatedCallback = base::OnceCallback<void(bool)>;
+
+  // Prompts the user to accept system permissions for |content_settings_types|,
+  // after they've already been denied. In Chrome, this shows an infobar.
+  // |callback| will be run with |true| for success and |false| otherwise.
+  virtual void RepromptForAndroidPermissions(
+      content::WebContents* web_contents,
+      const std::vector<ContentSettingsType>& content_settings_types,
+      PermissionsUpdatedCallback callback);
 
   // Converts the given chromium |resource_id| (e.g. IDR_INFOBAR_TRANSLATE) to
   // an Android drawable resource ID. Returns 0 if a mapping wasn't found.

@@ -396,9 +396,9 @@ static inline QByteArray nameForCompressedIcon(quint8 iconNumber)
     return base + QByteArray::number(iconNumber);
 }
 
-static inline QVector<QRgb> getColorTable(ICNSEntry::Depth depth)
+static inline QList<QRgb> getColorTable(ICNSEntry::Depth depth)
 {
-    QVector<QRgb> table;
+    QList<QRgb> table;
     uint n = 1 << depth;
     const QRgb *data;
     switch (depth) {
@@ -534,7 +534,9 @@ static QImage readMask(const ICNSEntry &mask, QDataStream &stream)
     const qint64 oldPos = stream.device()->pos();
     if (!stream.device()->seek(pos))
         return QImage();
-    QImage img(mask.width, mask.height, QImage::Format_RGB32);
+    QImage img;
+    if (!QImageIOHandler::allocateImage(QSize(mask.width, mask.height), QImage::Format_RGB32, &img))
+        return QImage();
     quint8 byte = 0;
     quint32 pixel = 0;
     for (quint32 y = 0; y < mask.height; y++) {
@@ -561,10 +563,12 @@ static QImage readLowDepthIcon(const ICNSEntry &icon, QDataStream &stream)
 
     const bool isMono = depth == ICNSEntry::DepthMono;
     const QImage::Format format = isMono ? QImage::Format_Mono : QImage::Format_Indexed8;
-    const QVector<QRgb> colortable = getColorTable(depth);
+    const QList<QRgb> colortable = getColorTable(depth);
     if (colortable.isEmpty())
         return QImage();
-    QImage img(icon.width, icon.height, format);
+    QImage img;
+    if (!QImageIOHandler::allocateImage(QSize(icon.width, icon.height), format, &img))
+        return QImage();
     img.setColorTable(colortable);
     quint32 pixel = 0;
     quint8 byte = 0;
@@ -595,7 +599,9 @@ static QImage readLowDepthIcon(const ICNSEntry &icon, QDataStream &stream)
 
 static QImage read32bitIcon(const ICNSEntry &icon, QDataStream &stream)
 {
-    QImage img = QImage(icon.width, icon.height, QImage::Format_RGB32);
+    QImage img;
+    if (!QImageIOHandler::allocateImage(QSize(icon.width, icon.height), QImage::Format_RGB32, &img))
+        return QImage();
     if (icon.dataFormat != ICNSEntry::RLE24) {
         for (quint32 y = 0; y < icon.height; y++) {
             QRgb *line = reinterpret_cast<QRgb *>(img.scanLine(y));

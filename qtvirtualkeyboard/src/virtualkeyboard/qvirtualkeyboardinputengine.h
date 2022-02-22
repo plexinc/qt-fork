@@ -55,6 +55,7 @@ class QVIRTUALKEYBOARD_EXPORT QVirtualKeyboardInputEngine : public QObject
     Q_PROPERTY(QList<int> patternRecognitionModes READ patternRecognitionModes NOTIFY patternRecognitionModesChanged)
     Q_PROPERTY(QVirtualKeyboardSelectionListModel *wordCandidateListModel READ wordCandidateListModel NOTIFY wordCandidateListModelChanged)
     Q_PROPERTY(bool wordCandidateListVisibleHint READ wordCandidateListVisibleHint NOTIFY wordCandidateListVisibleHintChanged)
+    Q_MOC_INCLUDE("qvirtualkeyboardabstractinputmethod.h")
 
     explicit QVirtualKeyboardInputEngine(QVirtualKeyboardInputContext *parent = nullptr);
     void init();
@@ -84,7 +85,9 @@ public:
         ChineseHandwriting,
         JapaneseHandwriting,
         KoreanHandwriting,
-        Thai
+        Thai,
+        Stroke,
+        Romaji,
     };
     Q_ENUM(InputMode)
 

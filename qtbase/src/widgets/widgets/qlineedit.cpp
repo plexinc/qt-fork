@@ -40,7 +40,9 @@
 #include "qlineedit.h"
 #include "qlineedit_p.h"
 
-#include "qaction.h"
+#if QT_CONFIG(action)
+#  include "qaction.h"
+#endif
 #include "qapplication.h"
 #include "qclipboard.h"
 #if QT_CONFIG(draganddrop)
@@ -62,7 +64,6 @@
 #include "qtimer.h"
 #include "qvalidator.h"
 #include "qvariant.h"
-#include "qvector.h"
 #include "qdebug.h"
 #if QT_CONFIG(textedit)
 #include "qtextedit.h"
@@ -78,12 +79,11 @@
 #endif
 #include "private/qstylesheetstyle_p.h"
 
-#ifndef QT_NO_SHORTCUT
+#if QT_CONFIG(shortcut)
 #include "private/qapplication_p.h"
 #include "private/qshortcutmap_p.h"
 #include "qkeysequence.h"
-#define ACCEL_KEY(k) ((!QCoreApplication::testAttribute(Qt::AA_DontShowIconsInMenus) \
-                        && QGuiApplication::styleHints()->showShortcutsInContextMenus()) \
+#define ACCEL_KEY(k) (!QCoreApplication::testAttribute(Qt::AA_DontShowShortcutsInContextMenus) \
                       && !QGuiApplicationPrivate::instance()->shortcutMap.hasShortcutForKeySequence(k) ? \
                       QLatin1Char('\t') + QKeySequence(k).toString(QKeySequence::NativeText) : QString())
 #else
@@ -166,7 +166,8 @@ void QLineEdit::initStyleOption(QStyleOptionFrame *option) const
 
     When editing is finished, either because the line edit lost focus
     or Return/Enter is pressed the editingFinished() signal is
-    emitted.
+    emitted. Note that if focus is lost without any changes done,
+    the editingFinished() signal won't be emitted.
 
     Note that if there is a validator set on the line edit, the
     returnPressed()/editingFinished() signals will only be emitted if
@@ -615,7 +616,7 @@ const QValidator * QLineEdit::validator() const
     The initial setting is to have no input validator (i.e. any input
     is accepted up to maxLength()).
 
-    \sa validator(), hasAcceptableInput(), QIntValidator, QDoubleValidator, QRegExpValidator
+    \sa validator(), hasAcceptableInput(), QIntValidator, QDoubleValidator, QRegularExpressionValidator
 */
 
 void QLineEdit::setValidator(const QValidator *v)
@@ -701,8 +702,7 @@ QSize QLineEdit::sizeHint() const
             + d->leftmargin + d->rightmargin; // "some"
     QStyleOptionFrame opt;
     initStyleOption(&opt);
-    return (style()->sizeFromContents(QStyle::CT_LineEdit, &opt, QSize(w, h).
-                                      expandedTo(QApplication::globalStrut()), this));
+    return style()->sizeFromContents(QStyle::CT_LineEdit, &opt, QSize(w, h), this);
 }
 
 
@@ -726,8 +726,7 @@ QSize QLineEdit::minimumSizeHint() const
             + d->leftmargin + d->rightmargin;
     QStyleOptionFrame opt;
     initStyleOption(&opt);
-    return (style()->sizeFromContents(QStyle::CT_LineEdit, &opt, QSize(w, h).
-                                      expandedTo(QApplication::globalStrut()), this));
+    return style()->sizeFromContents(QStyle::CT_LineEdit, &opt, QSize(w, h), this);
 }
 
 
@@ -1158,30 +1157,6 @@ void QLineEdit::setTextMargins(const QMargins &margins)
     update();
 }
 
-#if QT_DEPRECATED_SINCE(5, 14)
-/*!
-    \obsolete
-    Use textMargins()
-
-    Returns the widget's text margins for \a left, \a top, \a right, and \a bottom.
-    \since 4.5
-
-    \sa setTextMargins()
-*/
-void QLineEdit::getTextMargins(int *left, int *top, int *right, int *bottom) const
-{
-    QMargins m = textMargins();
-    if (left)
-        *left = m.left();
-    if (top)
-        *top = m.top();
-    if (right)
-        *right = m.right();
-    if (bottom)
-        *bottom = m.bottom();
-}
-#endif
-
 /*!
     \since 4.6
     Returns the widget's text margins.
@@ -1461,23 +1436,29 @@ void QLineEdit::paste()
 
 #endif // !QT_NO_CLIPBOARD
 
+/*!
+    \reimp
+*/
+void QLineEdit::timerEvent(QTimerEvent *e)
+{
+    Q_D(QLineEdit);
+    int timerId = ((QTimerEvent*)e)->timerId();
+    if (false) {
+#if QT_CONFIG(draganddrop)
+    } else if (timerId == d->dndTimer.timerId()) {
+        d->drag();
+#endif
+    }
+    else if (timerId == d->tripleClickTimer.timerId())
+        d->tripleClickTimer.stop();
+}
+
 /*! \reimp
 */
 bool QLineEdit::event(QEvent * e)
 {
     Q_D(QLineEdit);
-    if (e->type() == QEvent::Timer) {
-        // ### Qt6: move to timerEvent, is here for binary compatibility
-        int timerId = ((QTimerEvent*)e)->timerId();
-        if (false) {
-#if QT_CONFIG(draganddrop)
-        } else if (timerId == d->dndTimer.timerId()) {
-            d->drag();
-#endif
-        }
-        else if (timerId == d->tripleClickTimer.timerId())
-            d->tripleClickTimer.stop();
-    } else if (e->type() == QEvent::ContextMenu) {
+    if (e->type() == QEvent::ContextMenu) {
 #ifndef QT_NO_IM
         if (d->control->composeMode())
             return true;
@@ -1490,8 +1471,6 @@ bool QLineEdit::event(QEvent * e)
         QKeyEvent *ke = static_cast<QKeyEvent*>(e);
         d->control->processShortcutOverrideEvent(ke);
 #endif
-    } else if (e->type() == QEvent::KeyRelease) {
-        d->control->updateCursorBlinking();
     } else if (e->type() == QEvent::Show) {
         //In order to get the cursor blinking if QComboBox::setEditable is called when the combobox has focus
         if (hasFocus()) {
@@ -1537,7 +1516,7 @@ void QLineEdit::mousePressEvent(QMouseEvent* e)
 {
     Q_D(QLineEdit);
 
-    d->mousePressPos = e->pos();
+    d->mousePressPos = e->position().toPoint();
 
     if (d->sendMouseEventToInputContext(e))
         return;
@@ -1551,7 +1530,7 @@ void QLineEdit::mousePressEvent(QMouseEvent* e)
             d->control->completer()->complete();
     }
 #endif
-    if (d->tripleClickTimer.isActive() && (e->pos() - d->tripleClick).manhattanLength() <
+    if (d->tripleClickTimer.isActive() && (e->position().toPoint() - d->tripleClick).manhattanLength() <
          QApplication::startDragDistance()) {
         selectAll();
         return;
@@ -1560,10 +1539,10 @@ void QLineEdit::mousePressEvent(QMouseEvent* e)
 #ifdef Q_OS_ANDROID
     mark = mark && (d->imHints & Qt::ImhNoPredictiveText);
 #endif // Q_OS_ANDROID
-    int cursor = d->xToPos(e->pos().x());
+    int cursor = d->xToPos(e->position().toPoint().x());
 #if QT_CONFIG(draganddrop)
     if (!mark && d->dragEnabled && d->control->echoMode() == Normal &&
-         e->button() == Qt::LeftButton && d->inSelection(e->pos().x())) {
+         e->button() == Qt::LeftButton && d->inSelection(e->position().toPoint().x())) {
         if (!d->dndTimer.isActive())
             d->dndTimer.start(QApplication::startDragTime(), this);
     } else
@@ -1582,7 +1561,7 @@ void QLineEdit::mouseMoveEvent(QMouseEvent * e)
     if (e->buttons() & Qt::LeftButton) {
 #if QT_CONFIG(draganddrop)
         if (d->dndTimer.isActive()) {
-            if ((d->mousePressPos - e->pos()).manhattanLength() > QApplication::startDragDistance())
+            if ((d->mousePressPos - e->position().toPoint()).manhattanLength() > QApplication::startDragDistance())
                 d->drag();
         } else
 #endif
@@ -1593,26 +1572,26 @@ void QLineEdit::mouseMoveEvent(QMouseEvent * e)
             const bool select = (d->imHints & Qt::ImhNoPredictiveText);
 #endif
 #ifndef QT_NO_IM
-            if (d->mouseYThreshold > 0 && e->pos().y() > d->mousePressPos.y() + d->mouseYThreshold) {
+            if (d->mouseYThreshold > 0 && e->position().toPoint().y() > d->mousePressPos.y() + d->mouseYThreshold) {
                 if (layoutDirection() == Qt::RightToLeft)
                     d->control->home(select);
                 else
                     d->control->end(select);
-            } else if (d->mouseYThreshold > 0 && e->pos().y() + d->mouseYThreshold < d->mousePressPos.y()) {
+            } else if (d->mouseYThreshold > 0 && e->position().toPoint().y() + d->mouseYThreshold < d->mousePressPos.y()) {
                 if (layoutDirection() == Qt::RightToLeft)
                     d->control->end(select);
                 else
                     d->control->home(select);
             } else if (d->control->composeMode() && select) {
                 int startPos = d->xToPos(d->mousePressPos.x());
-                int currentPos = d->xToPos(e->pos().x());
+                int currentPos = d->xToPos(e->position().toPoint().x());
                 if (startPos != currentPos)
                     d->control->setSelection(startPos, currentPos - startPos);
 
             } else
 #endif
             {
-                d->control->moveCursor(d->xToPos(e->pos().x()), select);
+                d->control->moveCursor(d->xToPos(e->position().toPoint().x()), select);
             }
         }
     }
@@ -1647,7 +1626,7 @@ void QLineEdit::mouseReleaseEvent(QMouseEvent* e)
     }
 #endif
 
-    if (!isReadOnly() && rect().contains(e->pos()))
+    if (!isReadOnly() && rect().contains(e->position().toPoint()))
         d->handleSoftwareInputPanel(e->button(), d->clickCausedFocus);
     d->clickCausedFocus = 0;
 }
@@ -1659,7 +1638,7 @@ void QLineEdit::mouseDoubleClickEvent(QMouseEvent* e)
     Q_D(QLineEdit);
 
     if (e->button() == Qt::LeftButton) {
-        int position = d->xToPos(e->pos().x());
+        int position = d->xToPos(e->position().toPoint().x());
 
         // exit composition mode
 #ifndef QT_NO_IM
@@ -1693,7 +1672,7 @@ void QLineEdit::mouseDoubleClickEvent(QMouseEvent* e)
             d->control->selectWordAtPos(position);
 
         d->tripleClickTimer.start(QApplication::doubleClickInterval(), this);
-        d->tripleClick = e->pos();
+        d->tripleClick = e->position().toPoint();
     } else {
         d->sendMouseEventToInputContext(e);
     }
@@ -1712,8 +1691,11 @@ void QLineEdit::mouseDoubleClickEvent(QMouseEvent* e)
 /*!
     \fn void  QLineEdit::editingFinished()
 
-    This signal is emitted when the Return or Enter key is pressed or
-    the line edit loses focus. Note that if there is a validator() or
+    This signal is emitted when the Return or Enter key is pressed, or
+    if the line edit loses focus and its contents have changed since the
+    last time this signal was emitted.
+
+    Note that if there is a validator() or
     inputMask() set on the line edit and enter/return is pressed, the
     editingFinished() signal will only be emitted if the input follows
     the inputMask() and the validator() returns QValidator::Acceptable.
@@ -1792,11 +1774,19 @@ void QLineEdit::keyPressEvent(QKeyEvent *event)
     }
 #endif
     d->control->processKeyEvent(event);
-    if (event->isAccepted()) {
-        if (layoutDirection() != d->control->layoutDirection())
-            setLayoutDirection(d->control->layoutDirection());
+    if (event->isAccepted())
         d->control->updateCursorBlinking();
-    }
+}
+
+/*!
+    \reimp
+*/
+void QLineEdit::keyReleaseEvent(QKeyEvent *)
+{
+    Q_D(QLineEdit);
+    if (!isReadOnly())
+        d->handleSoftwareInputPanel();
+    d->control->updateCursorBlinking();
 }
 
 /*!
@@ -1815,7 +1805,7 @@ QRect QLineEdit::cursorRect() const
 void QLineEdit::inputMethodEvent(QInputMethodEvent *e)
 {
     Q_D(QLineEdit);
-    if (d->control->isReadOnly()) {
+    if (!d->shouldEnableInputMethod()) {
         e->ignore();
         return;
     }
@@ -1865,6 +1855,7 @@ QVariant QLineEdit::inputMethodQuery(Qt::InputMethodQuery property, QVariant arg
         return d->adjustedControlRect(d->control->anchorRect());
     case Qt::ImFont:
         return font();
+    case Qt::ImAbsolutePosition:
     case Qt::ImCursorPosition: {
         const QPointF pt = argument.toPointF();
         if (!pt.isNull())
@@ -1883,6 +1874,20 @@ QVariant QLineEdit::inputMethodQuery(Qt::InputMethodQuery property, QVariant arg
             return QVariant(d->control->selectionEnd());
         else
             return QVariant(d->control->selectionStart());
+    case Qt::ImReadOnly:
+        return isReadOnly();
+    case Qt::ImTextBeforeCursor: {
+        const QPointF pt = argument.toPointF();
+        if (!pt.isNull())
+            return d->textBeforeCursor(d->xToPos(pt.x(), QTextLine::CursorBetweenCharacters));
+        else
+            return d->textBeforeCursor(d->control->cursor()); }
+    case Qt::ImTextAfterCursor: {
+        const QPointF pt = argument.toPointF();
+        if (!pt.isNull())
+            return d->textAfterCursor(d->xToPos(pt.x(), QTextLine::CursorBetweenCharacters));
+        else
+            return d->textAfterCursor(d->control->cursor()); }
     default:
         return QWidget::inputMethodQuery(property);
     }
@@ -1901,8 +1906,11 @@ void QLineEdit::focusInEvent(QFocusEvent *e)
             d->control->moveCursor(d->control->nextMaskBlank(0));
         else if (!d->control->hasSelectedText())
             selectAll();
+        else
+            updateMicroFocus();
     } else if (e->reason() == Qt::MouseFocusReason) {
         d->clickCausedFocus = 1;
+        updateMicroFocus();
     }
 #ifdef QT_KEYPAD_NAVIGATION
     if (!QApplicationPrivate::keypadNavigationEnabled() || (hasEditFocus() && ( e->reason() == Qt::PopupFocusReason))) {
@@ -1910,7 +1918,7 @@ void QLineEdit::focusInEvent(QFocusEvent *e)
     d->control->setBlinkingCursorEnabled(true);
     QStyleOptionFrame opt;
     initStyleOption(&opt);
-    if((!hasSelectedText() && d->control->preeditAreaText().isEmpty())
+    if ((!hasSelectedText() && d->control->preeditAreaText().isEmpty())
        || style()->styleHint(QStyle::SH_BlinkCursorWhenTextSelected, &opt, this))
         d->setCursorVisible(true);
 #ifdef QT_KEYPAD_NAVIGATION
@@ -1985,21 +1993,28 @@ void QLineEdit::paintEvent(QPaintEvent *)
     p.setClipRect(r);
 
     QFontMetrics fm = fontMetrics();
+    int fmHeight = 0;
+    if (d->shouldShowPlaceholderText())
+        fmHeight = fm.boundingRect(d->placeholderText).height();
+    else
+        fmHeight = fm.boundingRect(d->control->text() + d->control->preeditAreaText()).height();
+    fmHeight = qMax(fmHeight, fm.height());
+
     Qt::Alignment va = QStyle::visualAlignment(d->control->layoutDirection(), QFlag(d->alignment));
     switch (va & Qt::AlignVertical_Mask) {
      case Qt::AlignBottom:
-         d->vscroll = r.y() + r.height() - fm.height() - QLineEditPrivate::verticalMargin;
+         d->vscroll = r.y() + r.height() - fmHeight - QLineEditPrivate::verticalMargin;
          break;
      case Qt::AlignTop:
          d->vscroll = r.y() + QLineEditPrivate::verticalMargin;
          break;
      default:
          //center
-         d->vscroll = r.y() + (r.height() - fm.height() + 1) / 2;
+         d->vscroll = r.y() + (r.height() - fmHeight + 1) / 2;
          break;
     }
     QRect lineRect(r.x() + QLineEditPrivate::horizontalMargin, d->vscroll,
-                   r.width() - 2 * QLineEditPrivate::horizontalMargin, fm.height());
+                   r.width() - 2 * QLineEditPrivate::horizontalMargin, fmHeight);
 
     if (d->shouldShowPlaceholderText()) {
         if (!d->placeholderText.isEmpty()) {
@@ -2082,8 +2097,10 @@ void QLineEdit::paintEvent(QPaintEvent *)
 
     // Asian users see an IM selection text as cursor on candidate
     // selection phase of input method, so the ordinary cursor should be
-    // invisible if we have a preedit string.
-    if (d->cursorVisible && !d->control->isReadOnly())
+    // invisible if we have a preedit string. another condition is when inputmask
+    // isn't empty,we don't need draw cursor,because cursor and character overlapping
+    // area is white.
+    if (d->cursorVisible && !d->control->isReadOnly() && d->control->inputMask().isEmpty())
         flags |= QWidgetLineControl::DrawCursor;
 
     d->control->setCursorWidth(style()->pixelMetric(QStyle::PM_TextCursorWidth, &panel));
@@ -2100,7 +2117,7 @@ void QLineEdit::dragMoveEvent(QDragMoveEvent *e)
     Q_D(QLineEdit);
     if (!d->control->isReadOnly() && e->mimeData()->hasFormat(QLatin1String("text/plain"))) {
         e->acceptProposedAction();
-        d->control->moveCursor(d->xToPos(e->pos().x()), false);
+        d->control->moveCursor(d->xToPos(e->position().toPoint().x()), false);
         d->cursorVisible = true;
         update();
     }
@@ -2131,7 +2148,7 @@ void QLineEdit::dropEvent(QDropEvent* e)
     if (!str.isNull() && !d->control->isReadOnly()) {
         if (e->source() == this && e->dropAction() == Qt::CopyAction)
             deselect();
-        int cursorPos = d->xToPos(e->pos().x());
+        int cursorPos = d->xToPos(e->position().toPoint().x());
         int selStart = cursorPos;
         int oldSelStart = d->control->selectionStart();
         int oldSelEnd = d->control->selectionEnd();
@@ -2284,7 +2301,7 @@ void QLineEdit::changeEvent(QEvent *ev)
         {
             QStyleOptionFrame opt;
             initStyleOption(&opt);
-            d->control->setPasswordCharacter(style()->styleHint(QStyle::SH_LineEdit_PasswordCharacter, &opt, this));
+            d->control->setPasswordCharacter(char16_t(style()->styleHint(QStyle::SH_LineEdit_PasswordCharacter, &opt, this)));
             d->control->setPasswordMaskDelay(style()->styleHint(QStyle::SH_LineEdit_PasswordMaskDelay, &opt, this));
         }
         update();

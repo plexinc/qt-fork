@@ -32,6 +32,7 @@
 #include "api/video/video_timing.h"
 #include "api/video_codecs/sdp_video_format.h"
 #include "call/rtp_config.h"
+#include "common_video/frame_counts.h"
 #include "modules/rtp_rtcp/include/rtcp_statistics.h"
 #include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
 
@@ -70,10 +71,6 @@ class VideoReceiveStream {
     ~Decoder();
     std::string ToString() const;
 
-    // Ownership stays with WebrtcVideoEngine (delegated from PeerConnection).
-    // TODO(nisse): Move one level out, to VideoReceiveStream::Config, and later
-    // to the configuration of VideoStreamDecoder.
-    VideoDecoderFactory* decoder_factory = nullptr;
     SdpVideoFormat video_format;
 
     // Received RTP packets with this payload type will be sent to this decoder
@@ -173,6 +170,9 @@ class VideoReceiveStream {
     // Decoders for every payload that we can receive.
     std::vector<Decoder> decoders;
 
+    // Ownership stays with WebrtcVideoEngine (delegated from PeerConnection).
+    VideoDecoderFactory* decoder_factory = nullptr;
+
     // Receive-stream specific RTP settings.
     struct Rtp {
       Rtp();
@@ -214,6 +214,10 @@ class VideoReceiveStream {
 
       // Set if the stream is protected using FlexFEC.
       bool protected_by_flexfec = false;
+
+      // Optional callback sink to support additional packet handlsers such as
+      // FlexFec.
+      RtpPacketSinkInterface* packet_sink_ = nullptr;
 
       // Map from rtx payload type -> media payload type.
       // For RTX to be enabled, both an SSRC and this mapping are needed.
@@ -277,13 +281,6 @@ class VideoReceiveStream {
   // TODO(pbos): Add info on currently-received codec to Stats.
   virtual Stats GetStats() const = 0;
 
-  // RtpDemuxer only forwards a given RTP packet to one sink. However, some
-  // sinks, such as FlexFEC, might wish to be informed of all of the packets
-  // a given sink receives (or any set of sinks). They may do so by registering
-  // themselves as secondary sinks.
-  virtual void AddSecondarySink(RtpPacketSinkInterface* sink) = 0;
-  virtual void RemoveSecondarySink(const RtpPacketSinkInterface* sink) = 0;
-
   virtual std::vector<RtpSource> GetSources() const = 0;
 
   // Sets a base minimum for the playout delay. Base minimum delay sets lower
@@ -322,6 +319,16 @@ class VideoReceiveStream {
 
  protected:
   virtual ~VideoReceiveStream() {}
+};
+
+class DEPRECATED_VideoReceiveStream : public VideoReceiveStream {
+ public:
+  // RtpDemuxer only forwards a given RTP packet to one sink. However, some
+  // sinks, such as FlexFEC, might wish to be informed of all of the packets
+  // a given sink receives (or any set of sinks). They may do so by registering
+  // themselves as secondary sinks.
+  virtual void AddSecondarySink(RtpPacketSinkInterface* sink) = 0;
+  virtual void RemoveSecondarySink(const RtpPacketSinkInterface* sink) = 0;
 };
 
 }  // namespace webrtc

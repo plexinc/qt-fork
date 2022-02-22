@@ -38,6 +38,8 @@
 ****************************************************************************/
 
 #include "qsslellipticcurve.h"
+#include "qtlsbackend_p.h"
+#include "qsslsocket_p.h"
 
 #ifndef QT_NO_DEBUG_STREAM
 #include <QDebug>
@@ -77,8 +79,6 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
-    \fn QSslEllipticCurve QSslEllipticCurve::fromShortName(const QString &name)
-
     Returns an QSslEllipticCurve instance representing the
     named curve \a name. The \a name is the conventional short
     name for the curve, as represented by RFC 4492 (for instance \c{secp521r1}),
@@ -91,10 +91,19 @@ QT_BEGIN_NAMESPACE
 
     \sa shortName()
 */
+QSslEllipticCurve QSslEllipticCurve::fromShortName(const QString &name)
+{
+    QSslEllipticCurve result;
+    if (name.isEmpty())
+        return result;
+
+    if (const auto *tlsBackend = QSslSocketPrivate::tlsBackendInUse())
+        result.id = tlsBackend->curveIdFromShortName(name);
+
+    return result;
+}
 
 /*!
-    \fn QSslEllipticCurve QSslEllipticCurve::fromLongName(const QString &name)
-
     Returns an QSslEllipticCurve instance representing the named curve \a name.
     The \a name is a long name for the curve, whose exact spelling depends on the
     SSL implementation.
@@ -105,24 +114,49 @@ QT_BEGIN_NAMESPACE
 
     \sa longName()
 */
+QSslEllipticCurve QSslEllipticCurve::fromLongName(const QString &name)
+{
+    QSslEllipticCurve result;
+    if (name.isEmpty())
+        return result;
+
+    if (const auto *tlsBackend = QSslSocketPrivate::tlsBackendInUse())
+        result.id = tlsBackend->curveIdFromLongName(name);
+
+    return result;
+}
 
 /*!
-    \fn QString QSslEllipticCurve::shortName() const
-
     Returns the conventional short name for this curve. If this
     curve is invalid, returns an empty string.
 
     \sa longName()
 */
+QString QSslEllipticCurve::shortName() const
+{
+    QString name;
+
+    if (const auto *tlsBackend = QSslSocketPrivate::tlsBackendInUse())
+        name = tlsBackend->shortNameForId(id);
+
+    return name;
+}
 
 /*!
-    \fn QString QSslEllipticCurve::longName() const
-
     Returns the conventional long name for this curve. If this
     curve is invalid, returns an empty string.
 
     \sa shortName()
 */
+QString QSslEllipticCurve::longName() const
+{
+    QString name;
+
+    if (const auto *tlsBackend = QSslSocketPrivate::tlsBackendInUse())
+        name = tlsBackend->longNameForId(id);
+
+    return name;
+}
 
 /*!
     \fn bool QSslEllipticCurve::isValid() const
@@ -131,32 +165,36 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
-    \fn bool QSslEllipticCurve::isTlsNamedCurve() const
-
     Returns true if this elliptic curve is one of the named curves that can be
     used in the key exchange when using an elliptic curve cipher with TLS;
     false otherwise.
 */
+bool QSslEllipticCurve::isTlsNamedCurve() const noexcept
+{
+    if (const auto *tlsBackend = QSslSocketPrivate::tlsBackendInUse())
+        return tlsBackend->isTlsNamedCurve(id);
+
+    return false;
+}
+
 
 /*!
-    \fn bool operator==(QSslEllipticCurve lhs, QSslEllipticCurve rhs)
+    \fn bool QSslEllipticCurve::operator==(QSslEllipticCurve lhs, QSslEllipticCurve rhs)
     \since 5.5
-    \relates QSslEllipticCurve
 
     Returns true if the curve \a lhs represents the same curve of \a rhs;
 */
 
 /*!
-    \fn bool operator!=(QSslEllipticCurve lhs, QSslEllipticCurve rhs)
+    \fn bool QSslEllipticCurve::operator!=(QSslEllipticCurve lhs, QSslEllipticCurve rhs)
     \since 5.5
-    \relates QSslEllipticCurve
 
     Returns true if the curve \a lhs represents a different curve than \a rhs;
     false otherwise.
 */
 
 /*!
-    \fn uint qHash(QSslEllipticCurve curve, uint seed)
+    \fn size_t qHash(QSslEllipticCurve curve, size_t seed)
     \since 5.5
     \relates QHash
 

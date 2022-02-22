@@ -29,13 +29,30 @@
  */
 
 import * as Common from '../common/common.js';
+import * as i18n from '../i18n/i18n.js';
+import * as Root from '../root/root.js';
 
 import * as ARIAUtils from './ARIAUtils.js';
+import {InspectorView} from './InspectorView.js';
+import {Tooltip} from './Tooltip.js';
 import {CheckboxLabel} from './UIUtils.js';
 
+export const UIStrings = {
+  /**
+  *@description Note when a setting change will require the user to reload DevTools
+  *@example {*} PH1
+  */
+  srequiresReload: '{PH1}Requires reload',
+  /**
+  *@description Message to display if a setting change requires a reload of DevTools
+  */
+  oneOrMoreSettingsHaveChanged: 'One or more settings have changed which requires a reload to take effect.',
+};
+const str_ = i18n.i18n.registerUIStrings('ui/SettingsUI.js', UIStrings);
+const i18nString = i18n.i18n.getLocalizedString.bind(undefined, str_);
 /**
  * @param {string} name
- * @param {!Common.Settings.Setting} setting
+ * @param {!Common.Settings.Setting<boolean>} setting
  * @param {boolean=} omitParagraphElement
  * @param {string=} tooltip
  * @return {!Element}
@@ -43,7 +60,7 @@ import {CheckboxLabel} from './UIUtils.js';
 export const createSettingCheckbox = function(name, setting, omitParagraphElement, tooltip) {
   const label = CheckboxLabel.create(name);
   if (tooltip) {
-    label.title = tooltip;
+    Tooltip.install(label, tooltip);
   }
 
   const input = label.checkboxElement;
@@ -54,22 +71,24 @@ export const createSettingCheckbox = function(name, setting, omitParagraphElemen
     return label;
   }
 
-  const p = createElement('p');
+  const p = document.createElement('p');
   p.appendChild(label);
   return p;
 };
 
 /**
  * @param {string} name
- * @param {!Array<!{text: string, value: *, raw: (boolean|undefined)}>} options
- * @param {!Common.Settings.Setting} setting
+ * @param {!Array<!Common.Settings.SimpleSettingOption>} options
+ * @param {boolean|null} requiresReload
+ * @param {!Common.Settings.Setting<*>} setting
  * @param {string=} subtitle
  * @return {!Element}
  */
-const createSettingSelect = function(name, options, setting, subtitle) {
-  const settingSelectElement = createElement('p');
+const createSettingSelect = function(name, options, requiresReload, setting, subtitle) {
+  const settingSelectElement = document.createElement('p');
   const label = settingSelectElement.createChild('label');
-  const select = settingSelectElement.createChild('select', 'chrome-select');
+  /** @type {!HTMLSelectElement} */
+  const select = /** @type {!HTMLSelectElement} */ (settingSelectElement.createChild('select', 'chrome-select'));
   label.textContent = name;
   if (subtitle) {
     settingSelectElement.classList.add('chrome-select-label');
@@ -77,11 +96,17 @@ const createSettingSelect = function(name, options, setting, subtitle) {
   }
   ARIAUtils.bindLabelToControl(label, select);
 
-  for (let i = 0; i < options.length; ++i) {
-    // The "raw" flag indicates text is non-i18n-izable.
-    const option = options[i];
-    const optionName = option.raw ? option.text : Common.UIString.UIString(option.text);
-    select.add(new Option(optionName, option.value));
+  for (const option of options) {
+    if (option.text && typeof option.value === 'string') {
+      select.add(new Option(option.text, option.value));
+    }
+  }
+
+  let reloadWarning = /** @type {?Element} */ (null);
+  if (requiresReload) {
+    reloadWarning = settingSelectElement.createChild('span', 'reload-warning hidden');
+    reloadWarning.textContent = i18nString(UIStrings.srequiresReload, {PH1: '*'});
+    ARIAUtils.markAsAlert(reloadWarning);
   }
 
   setting.addChangeListener(settingChanged);
@@ -101,14 +126,19 @@ const createSettingSelect = function(name, options, setting, subtitle) {
   function selectChanged() {
     // Don't use event.target.value to avoid conversion of the value to string.
     setting.set(options[select.selectedIndex].value);
+    if (reloadWarning) {
+      reloadWarning.classList.remove('hidden');
+      InspectorView.instance().displayReloadRequiredWarning(i18nString(UIStrings.oneOrMoreSettingsHaveChanged));
+    }
   }
 };
 
 /**
- * @param {!Element} input
- * @param {!Common.Settings.Setting} setting
+ * @param {!Element} inputElement
+ * @param {!Common.Settings.Setting<boolean>} setting
  */
-export const bindCheckbox = function(input, setting) {
+export const bindCheckbox = function(inputElement, setting) {
+  const input = /** @type {!HTMLInputElement} */ (inputElement);
   function settingChanged() {
     if (input.checked !== setting.get()) {
       input.checked = setting.get();
@@ -131,7 +161,7 @@ export const bindCheckbox = function(input, setting) {
  * @return {!Element}
  */
 export const createCustomSetting = function(name, element) {
-  const p = createElement('p');
+  const p = document.createElement('p');
   const fieldsetElement = p.createChild('fieldset');
   const label = fieldsetElement.createChild('label');
   label.textContent = name;
@@ -140,28 +170,44 @@ export const createCustomSetting = function(name, element) {
   return p;
 };
 
+class SettingsRuntimeExtensionDescriptor extends  // eslint-disable-line no-unused-vars
+    Root.Runtime.RuntimeExtensionDescriptor {
+  constructor() {
+    super();
+
+    /**
+     * @type {!Array<{
+      *   text: string,
+      *   value: *,
+      *   raw: (boolean|undefined),
+      *   title: string,
+      * }>|undefined}
+      */
+    this.options;
+
+    /** @type {boolean|undefined} */
+    this.reloadRequired;
+  }
+}
+
 /**
- * @param {!Common.Settings.Setting} setting
+ * @param {!Common.Settings.Setting<*>} setting
  * @param {string=} subtitle
  * @return {?Element}
  */
 export const createControlForSetting = function(setting, subtitle) {
-  if (!setting.extension()) {
-    return null;
-  }
-  const descriptor = setting.extension().descriptor();
-  const uiTitle = Common.UIString.UIString(setting.title() || '');
-  switch (descriptor['settingType']) {
-    case 'boolean':
-      return createSettingCheckbox(uiTitle, setting);
-    case 'enum':
-      if (Array.isArray(descriptor['options'])) {
-        return createSettingSelect(uiTitle, descriptor['options'], setting, subtitle);
+  const uiTitle = setting.title();
+  switch (setting.type()) {
+    case Common.Settings.SettingType.BOOLEAN:
+      return createSettingCheckbox(uiTitle, /** @type {!Common.Settings.Setting<boolean>} */ (setting));
+    case Common.Settings.SettingType.ENUM:
+      if (Array.isArray(setting.options())) {
+        return createSettingSelect(uiTitle, setting.options(), setting.reloadRequired(), setting, subtitle);
       }
       console.error('Enum setting defined without options');
       return null;
     default:
-      console.error('Invalid setting type: ' + descriptor['settingType']);
+      console.error('Invalid setting type: ' + setting.type());
       return null;
   }
 };
@@ -173,5 +219,7 @@ export class SettingUI {
   /**
    * @return {?Element}
    */
-  settingElement() {}
+  settingElement() {
+    throw new Error('not implemented');
+  }
 }

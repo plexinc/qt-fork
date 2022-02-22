@@ -7,9 +7,10 @@
 #include <memory>
 #include <utility>
 
+#include "ash/components/audio/sounds.h"
 #include "base/base64.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/no_destructor.h"
@@ -20,12 +21,12 @@
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/values.h"
-#include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
+#include "chrome/browser/ash/accessibility/accessibility_manager.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/camera_presence_notifier.h"
 #include "chrome/browser/chromeos/login/users/avatar/user_image_manager.h"
 #include "chrome/browser/chromeos/login/users/chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/users/default_user_image/default_user_images.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/chrome_select_file_policy.h"
@@ -34,7 +35,6 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/browser_resources.h"
 #include "chrome/grit/generated_resources.h"
-#include "chromeos/audio/chromeos_sounds.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_image/user_image.h"
 #include "components/user_manager/user_manager.h"
@@ -49,12 +49,13 @@
 #include "ui/views/widget/widget.h"
 #include "url/gurl.h"
 
-using content::BrowserThread;
-
 namespace chromeos {
 namespace settings {
-
 namespace {
+
+using ::ash::AccessibilityManager;
+using ::ash::PlaySoundOption;
+using ::content::BrowserThread;
 
 // Returns info about extensions for files we support as user images.
 ui::SelectFileDialog::FileTypeInfo GetUserImageFileTypeInfo() {
@@ -78,18 +79,15 @@ ui::SelectFileDialog::FileTypeInfo GetUserImageFileTypeInfo() {
   return file_type_info;
 }
 
-// Time histogram suffix for profile image download.
-const char kProfileDownloadReason[] = "Preferences";
-
 }  // namespace
 
 ChangePictureHandler::ChangePictureHandler()
     : previous_image_index_(user_manager::User::USER_IMAGE_INVALID) {
   ui::ResourceBundle& bundle = ui::ResourceBundle::GetSharedInstance();
   audio::SoundsManager* manager = audio::SoundsManager::Get();
-  manager->Initialize(SOUND_OBJECT_DELETE,
+  manager->Initialize(static_cast<int>(Sound::kObjectDelete),
                       bundle.GetRawDataResource(IDR_SOUND_OBJECT_DELETE_WAV));
-  manager->Initialize(SOUND_CAMERA_SNAP,
+  manager->Initialize(static_cast<int>(Sound::kCameraSnap),
                       bundle.GetRawDataResource(IDR_SOUND_CAMERA_SNAP_WAV));
 }
 
@@ -124,13 +122,18 @@ void ChangePictureHandler::RegisterMessages() {
 }
 
 void ChangePictureHandler::OnJavascriptAllowed() {
-  user_manager_observer_.Add(user_manager::UserManager::Get());
-  camera_observer_.Add(CameraPresenceNotifier::GetInstance());
+  user_manager_observation_.Observe(user_manager::UserManager::Get());
+  camera_observation_.Observe(CameraPresenceNotifier::GetInstance());
 }
 
 void ChangePictureHandler::OnJavascriptDisallowed() {
-  user_manager_observer_.Remove(user_manager::UserManager::Get());
-  camera_observer_.Remove(CameraPresenceNotifier::GetInstance());
+  DCHECK(user_manager_observation_.IsObservingSource(
+      user_manager::UserManager::Get()));
+  user_manager_observation_.Reset();
+
+  DCHECK(camera_observation_.IsObservingSource(
+      CameraPresenceNotifier::GetInstance()));
+  camera_observation_.Reset();
 }
 
 void ChangePictureHandler::SendDefaultImages() {
@@ -167,13 +170,13 @@ void ChangePictureHandler::HandleChooseFile(const base::ListValue* args) {
 void ChangePictureHandler::HandleDiscardPhoto(const base::ListValue* args) {
   DCHECK(args->empty());
   AccessibilityManager::Get()->PlayEarcon(
-      SOUND_OBJECT_DELETE, PlaySoundOption::ONLY_IF_SPOKEN_FEEDBACK_ENABLED);
+      Sound::kObjectDelete, PlaySoundOption::kOnlyIfSpokenFeedbackEnabled);
 }
 
 void ChangePictureHandler::HandlePhotoTaken(const base::ListValue* args) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   AccessibilityManager::Get()->PlayEarcon(
-      SOUND_CAMERA_SNAP, PlaySoundOption::ONLY_IF_SPOKEN_FEEDBACK_ENABLED);
+      Sound::kCameraSnap, PlaySoundOption::kOnlyIfSpokenFeedbackEnabled);
 
   std::string image_url;
   if (!args || args->GetSize() != 1 || !args->GetString(0, &image_url))
@@ -184,7 +187,7 @@ void ChangePictureHandler::HandlePhotoTaken(const base::ListValue* args) {
   base::StringPiece url(image_url);
   const char kDataUrlPrefix[] = "data:image/png;base64,";
   const size_t kDataUrlPrefixLength = base::size(kDataUrlPrefix) - 1;
-  if (!url.starts_with(kDataUrlPrefix) ||
+  if (!base::StartsWith(url, kDataUrlPrefix) ||
       !base::Base64Decode(url.substr(kDataUrlPrefixLength), &raw_data)) {
     LOG(WARNING) << "Invalid image URL";
     return;
@@ -278,7 +281,7 @@ void ChangePictureHandler::UpdateProfileImage() {
       !user_image_manager->DownloadedProfileImage().isNull()) {
     SendProfileImage(user_image_manager->DownloadedProfileImage(), false);
   }
-  user_image_manager->DownloadProfileImage(kProfileDownloadReason);
+  user_image_manager->DownloadProfileImage();
 }
 
 void ChangePictureHandler::SendOldImage(std::string&& image_url) {
@@ -323,9 +326,6 @@ void ChangePictureHandler::HandleSelectImage(const base::ListValue* args) {
     }
     user_image_manager->SaveUserImage(std::move(user_image));
 
-    UMA_HISTOGRAM_EXACT_LINEAR("UserImage.ChangeChoice",
-                               default_user_image::kHistogramImageOld,
-                               default_user_image::kHistogramImagesCount);
     VLOG(1) << "Selected old user image";
   } else if (image_type == "default") {
     int image_index = user_manager::User::USER_IMAGE_INVALID;
@@ -333,10 +333,6 @@ void ChangePictureHandler::HandleSelectImage(const base::ListValue* args) {
       // One of the default user images.
       user_image_manager->SaveUserDefaultImageIndex(image_index);
 
-      UMA_HISTOGRAM_EXACT_LINEAR(
-          "UserImage.ChangeChoice",
-          default_user_image::GetDefaultImageHistogramValue(image_index),
-          default_user_image::kHistogramImagesCount);
       VLOG(1) << "Selected default user image: " << image_index;
     } else {
       LOG(WARNING) << "Invalid image_url for default image type: " << image_url;
@@ -352,18 +348,6 @@ void ChangePictureHandler::HandleSelectImage(const base::ListValue* args) {
   } else if (image_type == "profile") {
     // Profile image selected. Could be previous (old) user image.
     user_image_manager->SaveUserImageFromProfileImage();
-
-    if (previous_image_index_ == user_manager::User::USER_IMAGE_PROFILE) {
-      UMA_HISTOGRAM_EXACT_LINEAR("UserImage.ChangeChoice",
-                                 default_user_image::kHistogramImageOld,
-                                 default_user_image::kHistogramImagesCount);
-      VLOG(1) << "Selected old (profile) user image";
-    } else {
-      UMA_HISTOGRAM_EXACT_LINEAR("UserImage.ChangeChoice",
-                                 default_user_image::kHistogramImageFromProfile,
-                                 default_user_image::kHistogramImagesCount);
-      VLOG(1) << "Selected profile image";
-    }
   } else {
     NOTREACHED() << "Unexpected image type: " << image_type;
   }
@@ -384,9 +368,6 @@ void ChangePictureHandler::FileSelected(const base::FilePath& path,
   ChromeUserManager::Get()
       ->GetUserImageManager(GetUser()->GetAccountId())
       ->SaveUserImageFromFile(path);
-  UMA_HISTOGRAM_EXACT_LINEAR("UserImage.ChangeChoice",
-                             default_user_image::kHistogramImageFromFile,
-                             default_user_image::kHistogramImagesCount);
   VLOG(1) << "Selected image from file";
 }
 
@@ -400,9 +381,6 @@ void ChangePictureHandler::SetImageFromCamera(
   ChromeUserManager::Get()
       ->GetUserImageManager(GetUser()->GetAccountId())
       ->SaveUserImage(std::move(user_image));
-  UMA_HISTOGRAM_EXACT_LINEAR("UserImage.ChangeChoice",
-                             default_user_image::kHistogramImageFromCamera,
-                             default_user_image::kHistogramImagesCount);
   VLOG(1) << "Selected camera photo";
 }
 

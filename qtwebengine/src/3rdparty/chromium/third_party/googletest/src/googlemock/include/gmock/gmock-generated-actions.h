@@ -47,6 +47,8 @@
 #include "gmock/gmock-actions.h"
 #include "gmock/internal/gmock-port.h"
 
+// Include any custom callback actions added by the local installation.
+#include "gmock/internal/custom/gmock-generated-actions.h"
 
 // Sometimes you want to give an action explicit template parameters
 // that cannot be inferred from its value parameters.  ACTION() and
@@ -435,16 +437,12 @@
       template <GMOCK_ACTION_TEMPLATE_ARGS_NAMES_>\
       return_type gmock_PerformImpl(GMOCK_ACTION_ARG_TYPES_AND_NAMES_) const;\
       GMOCK_INTERNAL_DEFN_##value_params\
-     private:\
-      GTEST_DISALLOW_ASSIGN_(gmock_Impl);\
     };\
     template <typename F> operator ::testing::Action<F>() const {\
       return ::testing::Action<F>(\
           new gmock_Impl<F>(GMOCK_INTERNAL_LIST_##value_params));\
     }\
     GMOCK_INTERNAL_DEFN_##value_params\
-   private:\
-    GTEST_DISALLOW_ASSIGN_(GMOCK_ACTION_CLASS_(name, value_params));\
   };\
   template <GMOCK_INTERNAL_DECL_##template_params\
             GMOCK_INTERNAL_DECL_TYPE_##value_params>\
@@ -515,162 +513,71 @@ namespace testing {
 ACTION_TEMPLATE(InvokeArgument,
                 HAS_1_TEMPLATE_PARAMS(int, k),
                 AND_0_VALUE_PARAMS()) {
-  using internal::invoke_argument::InvokeArgumentAdl;
-  return InvokeArgumentAdl(internal::invoke_argument::AdlTag(),
-                           ::std::get<k>(args));
+  return internal::InvokeArgument(::std::get<k>(args));
 }
 
 ACTION_TEMPLATE(InvokeArgument,
                 HAS_1_TEMPLATE_PARAMS(int, k),
                 AND_1_VALUE_PARAMS(p0)) {
-  using internal::invoke_argument::InvokeArgumentAdl;
-  return InvokeArgumentAdl(internal::invoke_argument::AdlTag(),
-                           ::std::get<k>(args), p0);
+  return internal::InvokeArgument(::std::get<k>(args), p0);
 }
 
 ACTION_TEMPLATE(InvokeArgument,
                 HAS_1_TEMPLATE_PARAMS(int, k),
                 AND_2_VALUE_PARAMS(p0, p1)) {
-  using internal::invoke_argument::InvokeArgumentAdl;
-  return InvokeArgumentAdl(internal::invoke_argument::AdlTag(),
-                           ::std::get<k>(args), p0, p1);
+  return internal::InvokeArgument(::std::get<k>(args), p0, p1);
 }
 
 ACTION_TEMPLATE(InvokeArgument,
                 HAS_1_TEMPLATE_PARAMS(int, k),
                 AND_3_VALUE_PARAMS(p0, p1, p2)) {
-  using internal::invoke_argument::InvokeArgumentAdl;
-  return InvokeArgumentAdl(internal::invoke_argument::AdlTag(),
-                           ::std::get<k>(args), p0, p1, p2);
+  return internal::InvokeArgument(::std::get<k>(args), p0, p1, p2);
 }
 
 ACTION_TEMPLATE(InvokeArgument,
                 HAS_1_TEMPLATE_PARAMS(int, k),
                 AND_4_VALUE_PARAMS(p0, p1, p2, p3)) {
-  using internal::invoke_argument::InvokeArgumentAdl;
-  return InvokeArgumentAdl(internal::invoke_argument::AdlTag(),
-                           ::std::get<k>(args), p0, p1, p2, p3);
+  return internal::InvokeArgument(::std::get<k>(args), p0, p1, p2, p3);
 }
 
 ACTION_TEMPLATE(InvokeArgument,
                 HAS_1_TEMPLATE_PARAMS(int, k),
                 AND_5_VALUE_PARAMS(p0, p1, p2, p3, p4)) {
-  using internal::invoke_argument::InvokeArgumentAdl;
-  return InvokeArgumentAdl(internal::invoke_argument::AdlTag(),
-                           ::std::get<k>(args), p0, p1, p2, p3, p4);
+  return internal::InvokeArgument(::std::get<k>(args), p0, p1, p2, p3, p4);
 }
 
 ACTION_TEMPLATE(InvokeArgument,
                 HAS_1_TEMPLATE_PARAMS(int, k),
                 AND_6_VALUE_PARAMS(p0, p1, p2, p3, p4, p5)) {
-  using internal::invoke_argument::InvokeArgumentAdl;
-  return InvokeArgumentAdl(internal::invoke_argument::AdlTag(),
-                           ::std::get<k>(args), p0, p1, p2, p3, p4, p5);
+  return internal::InvokeArgument(::std::get<k>(args), p0, p1, p2, p3, p4, p5);
 }
 
 ACTION_TEMPLATE(InvokeArgument,
                 HAS_1_TEMPLATE_PARAMS(int, k),
                 AND_7_VALUE_PARAMS(p0, p1, p2, p3, p4, p5, p6)) {
-  using internal::invoke_argument::InvokeArgumentAdl;
-  return InvokeArgumentAdl(internal::invoke_argument::AdlTag(),
-                           ::std::get<k>(args), p0, p1, p2, p3, p4, p5, p6);
+  return internal::InvokeArgument(::std::get<k>(args), p0, p1, p2, p3, p4, p5,
+                                  p6);
 }
 
 ACTION_TEMPLATE(InvokeArgument,
                 HAS_1_TEMPLATE_PARAMS(int, k),
                 AND_8_VALUE_PARAMS(p0, p1, p2, p3, p4, p5, p6, p7)) {
-  using internal::invoke_argument::InvokeArgumentAdl;
-  return InvokeArgumentAdl(internal::invoke_argument::AdlTag(),
-                           ::std::get<k>(args), p0, p1, p2, p3, p4, p5, p6, p7);
+  return internal::InvokeArgument(::std::get<k>(args), p0, p1, p2, p3, p4, p5,
+                                  p6, p7);
 }
 
 ACTION_TEMPLATE(InvokeArgument,
                 HAS_1_TEMPLATE_PARAMS(int, k),
                 AND_9_VALUE_PARAMS(p0, p1, p2, p3, p4, p5, p6, p7, p8)) {
-  using internal::invoke_argument::InvokeArgumentAdl;
-  return InvokeArgumentAdl(internal::invoke_argument::AdlTag(),
-                           ::std::get<k>(args), p0, p1, p2, p3, p4, p5, p6, p7,
-                               p8);
+  return internal::InvokeArgument(::std::get<k>(args), p0, p1, p2, p3, p4, p5,
+                                  p6, p7, p8);
 }
 
 ACTION_TEMPLATE(InvokeArgument,
                 HAS_1_TEMPLATE_PARAMS(int, k),
                 AND_10_VALUE_PARAMS(p0, p1, p2, p3, p4, p5, p6, p7, p8, p9)) {
-  using internal::invoke_argument::InvokeArgumentAdl;
-  return InvokeArgumentAdl(internal::invoke_argument::AdlTag(),
-                           ::std::get<k>(args), p0, p1, p2, p3, p4, p5, p6, p7,
-                               p8, p9);
-}
-
-// Various overloads for ReturnNew<T>().
-//
-// The ReturnNew<T>(a1, a2, ..., a_k) action returns a pointer to a new
-// instance of type T, constructed on the heap with constructor arguments
-// a1, a2, ..., and a_k. The caller assumes ownership of the returned value.
-ACTION_TEMPLATE(ReturnNew,
-                HAS_1_TEMPLATE_PARAMS(typename, T),
-                AND_0_VALUE_PARAMS()) {
-  return new T();
-}
-
-ACTION_TEMPLATE(ReturnNew,
-                HAS_1_TEMPLATE_PARAMS(typename, T),
-                AND_1_VALUE_PARAMS(p0)) {
-  return new T(p0);
-}
-
-ACTION_TEMPLATE(ReturnNew,
-                HAS_1_TEMPLATE_PARAMS(typename, T),
-                AND_2_VALUE_PARAMS(p0, p1)) {
-  return new T(p0, p1);
-}
-
-ACTION_TEMPLATE(ReturnNew,
-                HAS_1_TEMPLATE_PARAMS(typename, T),
-                AND_3_VALUE_PARAMS(p0, p1, p2)) {
-  return new T(p0, p1, p2);
-}
-
-ACTION_TEMPLATE(ReturnNew,
-                HAS_1_TEMPLATE_PARAMS(typename, T),
-                AND_4_VALUE_PARAMS(p0, p1, p2, p3)) {
-  return new T(p0, p1, p2, p3);
-}
-
-ACTION_TEMPLATE(ReturnNew,
-                HAS_1_TEMPLATE_PARAMS(typename, T),
-                AND_5_VALUE_PARAMS(p0, p1, p2, p3, p4)) {
-  return new T(p0, p1, p2, p3, p4);
-}
-
-ACTION_TEMPLATE(ReturnNew,
-                HAS_1_TEMPLATE_PARAMS(typename, T),
-                AND_6_VALUE_PARAMS(p0, p1, p2, p3, p4, p5)) {
-  return new T(p0, p1, p2, p3, p4, p5);
-}
-
-ACTION_TEMPLATE(ReturnNew,
-                HAS_1_TEMPLATE_PARAMS(typename, T),
-                AND_7_VALUE_PARAMS(p0, p1, p2, p3, p4, p5, p6)) {
-  return new T(p0, p1, p2, p3, p4, p5, p6);
-}
-
-ACTION_TEMPLATE(ReturnNew,
-                HAS_1_TEMPLATE_PARAMS(typename, T),
-                AND_8_VALUE_PARAMS(p0, p1, p2, p3, p4, p5, p6, p7)) {
-  return new T(p0, p1, p2, p3, p4, p5, p6, p7);
-}
-
-ACTION_TEMPLATE(ReturnNew,
-                HAS_1_TEMPLATE_PARAMS(typename, T),
-                AND_9_VALUE_PARAMS(p0, p1, p2, p3, p4, p5, p6, p7, p8)) {
-  return new T(p0, p1, p2, p3, p4, p5, p6, p7, p8);
-}
-
-ACTION_TEMPLATE(ReturnNew,
-                HAS_1_TEMPLATE_PARAMS(typename, T),
-                AND_10_VALUE_PARAMS(p0, p1, p2, p3, p4, p5, p6, p7, p8, p9)) {
-  return new T(p0, p1, p2, p3, p4, p5, p6, p7, p8, p9);
+  return internal::InvokeArgument(::std::get<k>(args), p0, p1, p2, p3, p4, p5,
+                                  p6, p7, p8, p9);
 }
 
 #ifdef _MSC_VER
@@ -678,10 +585,5 @@ ACTION_TEMPLATE(ReturnNew,
 #endif
 
 }  // namespace testing
-
-// Include any custom callback actions added by the local installation.
-// We must include this header at the end to make sure it can use the
-// declarations from this file.
-#include "gmock/internal/custom/gmock-generated-actions.h"
 
 #endif  // GMOCK_INCLUDE_GMOCK_GMOCK_GENERATED_ACTIONS_H_

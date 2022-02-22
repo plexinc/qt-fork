@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -14,21 +15,50 @@
 #include "base/json/json_reader.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
+#include "base/strings/string_util.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
+#include "content/browser/speech/tts_utterance_impl.h"
 #include "content/public/browser/content_browser_client.h"
+#include "content/public/browser/visibility.h"
+#include "content/public/browser/web_contents.h"
 #include "content/public/common/content_client.h"
 #include "services/data_decoder/public/cpp/safe_xml_parser.h"
 #include "services/data_decoder/public/mojom/xml_parser.mojom.h"
 #include "third_party/blink/public/mojom/speech/speech_synthesis.mojom.h"
+#include "ui/base/l10n/l10n_util.h"
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "content/public/browser/tts_controller_delegate.h"
+#endif
 
 namespace content {
-
+namespace {
 // A value to be used to indicate that there is no char index available.
 const int kInvalidCharIndex = -1;
 
 // A value to be used to indicate that there is no length available.
 const int kInvalidLength = -1;
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+bool VoiceIdMatches(
+    const base::Optional<TtsControllerDelegate::PreferredVoiceId>& id,
+    const content::VoiceData& voice) {
+  if (!id.has_value() || voice.name.empty() ||
+      (voice.engine_id.empty() && !voice.native))
+    return false;
+  if (voice.native)
+    return id->name == voice.name && id->id.empty();
+  return id->name == voice.name && id->id == voice.engine_id;
+}
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
+TtsUtteranceImpl* AsUtteranceImpl(TtsUtterance* utterance) {
+  return static_cast<TtsUtteranceImpl*>(utterance);
+}
+
+}  // namespace
 
 //
 // VoiceData
@@ -77,16 +107,16 @@ TtsControllerImpl* TtsControllerImpl::GetInstance() {
   return base::Singleton<TtsControllerImpl>::get();
 }
 
-TtsControllerImpl::TtsControllerImpl()
-    : delegate_(nullptr),
-      current_utterance_(nullptr),
-      paused_(false),
-      tts_platform_(nullptr) {}
+void TtsControllerImpl::SetStopSpeakingWhenHidden(bool value) {
+  stop_speaking_when_hidden_ = value;
+}
+
+TtsControllerImpl::TtsControllerImpl() = default;
 
 TtsControllerImpl::~TtsControllerImpl() {
   if (current_utterance_) {
     current_utterance_->Finish();
-    current_utterance_.reset();
+    SetCurrentUtterance(nullptr);
   }
 
   // Clear any queued utterances too.
@@ -95,17 +125,40 @@ TtsControllerImpl::~TtsControllerImpl() {
 
 void TtsControllerImpl::SpeakOrEnqueue(
     std::unique_ptr<TtsUtterance> utterance) {
+  if (!ShouldSpeakUtterance(utterance.get())) {
+    utterance->Finish();
+    return;
+  }
+
+  // If the TTS platform or tts engine delegate is still loading or
+  // initializing, queue or flush the utterance. The utterances can be sent to
+  // platform specific implementation or to the engine implementation. Every
+  // utterances are postponed until the platform specific implementation and
+  // built in tts engine are loaded to avoid races where the utterance gets
+  // dropped unexpectedly.
+  if (TtsPlatformLoading() ||
+      (engine_delegate_ && !engine_delegate_->IsBuiltInTtsEngineInitialized(
+                               utterance->GetBrowserContext()))) {
+    GetTtsPlatform()->LoadBuiltInTtsEngine(utterance->GetBrowserContext());
+
+    if (utterance->GetShouldClearQueue())
+      ClearUtteranceQueue(true);
+
+    utterance_list_.emplace_back(std::move(utterance));
+    return;
+  }
+
   // If we're paused and we get an utterance that can't be queued,
   // flush the queue but stay in the paused state.
-  if (paused_ && !utterance->GetCanEnqueue()) {
-    utterance_deque_.emplace_back(std::move(utterance));
+  if (paused_ && utterance->GetShouldClearQueue()) {
     Stop();
+    utterance_list_.emplace_back(std::move(utterance));
     paused_ = true;
     return;
   }
 
-  if (paused_ || (IsSpeaking() && utterance->GetCanEnqueue())) {
-    utterance_deque_.emplace_back(std::move(utterance));
+  if (paused_ || (IsSpeaking() && !utterance->GetShouldClearQueue())) {
+    utterance_list_.emplace_back(std::move(utterance));
   } else {
     Stop();
     SpeakNow(std::move(utterance));
@@ -113,27 +166,31 @@ void TtsControllerImpl::SpeakOrEnqueue(
 }
 
 void TtsControllerImpl::Stop() {
-  StopInternal(GURL());
+  StopAndClearQueue(GURL());
 }
 
 void TtsControllerImpl::Stop(const GURL& source_url) {
-  StopInternal(source_url);
+  StopAndClearQueue(source_url);
 }
 
-void TtsControllerImpl::StopInternal(const GURL& source_url) {
+void TtsControllerImpl::StopAndClearQueue(const GURL& source_url) {
+  if (StopCurrentUtteranceIfMatches(source_url))
+    ClearUtteranceQueue(true);
+}
+
+bool TtsControllerImpl::StopCurrentUtteranceIfMatches(const GURL& source_url) {
   base::RecordAction(base::UserMetricsAction("TextToSpeech.Stop"));
 
   paused_ = false;
 
   if (!source_url.is_empty() && current_utterance_ &&
       current_utterance_->GetSrcUrl().GetOrigin() != source_url.GetOrigin())
-    return;
+    return false;
 
   if (current_utterance_ && !current_utterance_->GetEngineId().empty()) {
-    if (GetTtsControllerDelegate()->GetTtsEngineDelegate())
-      GetTtsControllerDelegate()->GetTtsEngineDelegate()->Stop(
-          current_utterance_.get());
-  } else {
+    if (engine_delegate_)
+      engine_delegate_->Stop(current_utterance_.get());
+  } else if (TtsPlatformReady()) {
     GetTtsPlatform()->ClearError();
     GetTtsPlatform()->StopSpeaking();
   }
@@ -142,18 +199,20 @@ void TtsControllerImpl::StopInternal(const GURL& source_url) {
     current_utterance_->OnTtsEvent(TTS_EVENT_INTERRUPTED, kInvalidCharIndex,
                                    kInvalidLength, std::string());
   FinishCurrentUtterance();
-  ClearUtteranceQueue(true);  // Send events.
+  return true;
 }
 
 void TtsControllerImpl::Pause() {
   base::RecordAction(base::UserMetricsAction("TextToSpeech.Pause"));
+  if (paused_)
+    return;
 
   paused_ = true;
   if (current_utterance_ && !current_utterance_->GetEngineId().empty()) {
-    if (GetTtsControllerDelegate()->GetTtsEngineDelegate())
-      GetTtsControllerDelegate()->GetTtsEngineDelegate()->Pause(
-          current_utterance_.get());
+    if (engine_delegate_)
+      engine_delegate_->Pause(current_utterance_.get());
   } else if (current_utterance_) {
+    DCHECK(TtsPlatformReady());
     GetTtsPlatform()->ClearError();
     GetTtsPlatform()->Pause();
   }
@@ -161,13 +220,15 @@ void TtsControllerImpl::Pause() {
 
 void TtsControllerImpl::Resume() {
   base::RecordAction(base::UserMetricsAction("TextToSpeech.Resume"));
+  if (!paused_)
+    return;
 
   paused_ = false;
   if (current_utterance_ && !current_utterance_->GetEngineId().empty()) {
-    if (GetTtsControllerDelegate()->GetTtsEngineDelegate())
-      GetTtsControllerDelegate()->GetTtsEngineDelegate()->Resume(
-          current_utterance_.get());
+    if (engine_delegate_)
+      engine_delegate_->Resume(current_utterance_.get());
   } else if (current_utterance_) {
+    DCHECK(TtsPlatformReady());
     GetTtsPlatform()->ClearError();
     GetTtsPlatform()->Resume();
   } else {
@@ -236,31 +297,36 @@ void TtsControllerImpl::OnTtsEvent(int utterance_id,
 
 void TtsControllerImpl::GetVoices(BrowserContext* browser_context,
                                   std::vector<VoiceData>* out_voices) {
-  TtsPlatform* tts_platform = GetTtsPlatform();
-  if (tts_platform) {
-    // Ensure we have all built-in voices loaded. This is a no-op if already
-    // loaded.
-    tts_platform->LoadBuiltInTtsEngine(browser_context);
-    if (tts_platform->PlatformImplAvailable())
-      tts_platform->GetVoices(out_voices);
+  if (browser_context && engine_delegate_ &&
+      engine_delegate_->IsBuiltInTtsEngineInitialized(browser_context)) {
+    engine_delegate_->GetVoices(browser_context, out_voices);
   }
 
-  if (browser_context) {
-    TtsControllerDelegate* delegate = GetTtsControllerDelegate();
-    if (delegate && delegate->GetTtsEngineDelegate())
-      delegate->GetTtsEngineDelegate()->GetVoices(browser_context, out_voices);
-  }
+  TtsPlatform* tts_platform = GetTtsPlatform();
+  DCHECK(tts_platform);
+  // Ensure we have all built-in voices loaded. This is a no-op if already
+  // loaded.
+  tts_platform->LoadBuiltInTtsEngine(browser_context);
+  if (TtsPlatformReady())
+    tts_platform->GetVoices(out_voices);
 }
 
 bool TtsControllerImpl::IsSpeaking() {
-  return current_utterance_ != nullptr || GetTtsPlatform()->IsSpeaking();
+  return current_utterance_ != nullptr ||
+         (TtsPlatformReady() && GetTtsPlatform()->IsSpeaking());
 }
 
 void TtsControllerImpl::VoicesChanged() {
+  if (voices_changed_delegates_.empty() || TtsPlatformLoading())
+    return;
+
   // Existence of platform tts indicates explicit requests to tts. Since
   // |VoicesChanged| can occur implicitly, only send if needed.
   for (auto& delegate : voices_changed_delegates_)
     delegate.OnVoicesChanged();
+
+  if (!current_utterance_ && !utterance_list_.empty())
+    SpeakNextUtterance();
 }
 
 void TtsControllerImpl::AddVoicesChangedDelegate(
@@ -276,45 +342,43 @@ void TtsControllerImpl::RemoveVoicesChangedDelegate(
 void TtsControllerImpl::RemoveUtteranceEventDelegate(
     UtteranceEventDelegate* delegate) {
   // First clear any pending utterances with this delegate.
-  std::deque<std::unique_ptr<TtsUtterance>> old_deque;
-  utterance_deque_.swap(old_deque);
-  while (!old_deque.empty()) {
-    std::unique_ptr<TtsUtterance> utterance = std::move(old_deque.front());
-    old_deque.pop_front();
+  std::list<std::unique_ptr<TtsUtterance>> old_list;
+  utterance_list_.swap(old_list);
+  while (!old_list.empty()) {
+    std::unique_ptr<TtsUtterance> utterance = std::move(old_list.front());
+    old_list.pop_front();
     if (utterance->GetEventDelegate() != delegate)
-      utterance_deque_.emplace_back(std::move(utterance));
+      utterance_list_.emplace_back(std::move(utterance));
   }
 
   if (current_utterance_ &&
       current_utterance_->GetEventDelegate() == delegate) {
     current_utterance_->SetEventDelegate(nullptr);
     if (!current_utterance_->GetEngineId().empty()) {
-      if (GetTtsControllerDelegate()->GetTtsEngineDelegate())
-        GetTtsControllerDelegate()->GetTtsEngineDelegate()->Stop(
-            current_utterance_.get());
+      if (engine_delegate_)
+        engine_delegate_->Stop(current_utterance_.get());
     } else {
+      DCHECK(TtsPlatformReady());
       GetTtsPlatform()->ClearError();
       GetTtsPlatform()->StopSpeaking();
     }
 
     FinishCurrentUtterance();
-    if (!paused_)
-      SpeakNextUtterance();
+    SpeakNextUtterance();
   }
 }
 
 void TtsControllerImpl::SetTtsEngineDelegate(TtsEngineDelegate* delegate) {
-  if (!GetTtsControllerDelegate())
-    return;
-
-  GetTtsControllerDelegate()->SetTtsEngineDelegate(delegate);
+  engine_delegate_ = delegate;
 }
 
 TtsEngineDelegate* TtsControllerImpl::GetTtsEngineDelegate() {
-  if (!GetTtsControllerDelegate())
-    return nullptr;
+  return engine_delegate_;
+}
 
-  return GetTtsControllerDelegate()->GetTtsEngineDelegate();
+void TtsControllerImpl::Shutdown() {
+  if (tts_platform_)
+    tts_platform_->Shutdown();
 }
 
 void TtsControllerImpl::OnBrowserContextDestroyed(
@@ -322,7 +386,7 @@ void TtsControllerImpl::OnBrowserContextDestroyed(
   bool did_clear_utterances = false;
 
   // First clear the BrowserContext from any utterances.
-  for (std::unique_ptr<TtsUtterance>& utterance : utterance_deque_) {
+  for (std::unique_ptr<TtsUtterance>& utterance : utterance_list_) {
     if (utterance->GetBrowserContext() == browser_context) {
       utterance->ClearBrowserContext();
       did_clear_utterances = true;
@@ -342,7 +406,7 @@ void TtsControllerImpl::OnBrowserContextDestroyed(
   // safe to use base::Unretained because this is a singleton.
   if (did_clear_utterances) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::BindOnce(&TtsControllerImpl::StopInternal,
+        FROM_HERE, base::BindOnce(&TtsControllerImpl::StopAndClearQueue,
                                   base::Unretained(this), GURL()));
   }
 }
@@ -352,25 +416,32 @@ void TtsControllerImpl::SetTtsPlatform(TtsPlatform* tts_platform) {
 }
 
 int TtsControllerImpl::QueueSize() {
-  return static_cast<int>(utterance_deque_.size());
+  return static_cast<int>(utterance_list_.size());
 }
 
 TtsPlatform* TtsControllerImpl::GetTtsPlatform() {
   if (!tts_platform_)
     tts_platform_ = TtsPlatform::GetInstance();
+  DCHECK(tts_platform_);
   return tts_platform_;
 }
 
-void TtsControllerImpl::SpeakNow(std::unique_ptr<TtsUtterance> utterance) {
-  // Note: this would only happen if a content embedder failed to provide
-  // their own TtsControllerDelegate. Chrome provides one, and Content Shell
-  // provides a mock one for web tests.
-  if (!GetTtsControllerDelegate()) {
-    utterance->OnTtsEvent(TTS_EVENT_CANCELLED, kInvalidCharIndex,
-                          kInvalidLength, std::string());
-    return;
-  }
+bool TtsControllerImpl::TtsPlatformReady() {
+  TtsPlatform* tts_platform = GetTtsPlatform();
+  return tts_platform->PlatformImplSupported() &&
+         tts_platform->PlatformImplInitialized();
+}
 
+bool TtsControllerImpl::TtsPlatformLoading() {
+  // If the platform implementation is supported, it is considered to be in
+  // loading state until the platform is inititialized. Typically, that means
+  // the libraries are loaded and the voices are being loaded.
+  TtsPlatform* tts_platform = GetTtsPlatform();
+  return tts_platform->PlatformImplSupported() &&
+         !tts_platform->PlatformImplInitialized();
+}
+
+void TtsControllerImpl::SpeakNow(std::unique_ptr<TtsUtterance> utterance) {
   // Get all available voices and try to find a matching voice.
   std::vector<VoiceData> voices;
   GetVoices(utterance->GetBrowserContext(), &voices);
@@ -379,8 +450,7 @@ void TtsControllerImpl::SpeakNow(std::unique_ptr<TtsUtterance> utterance) {
   // to true because that might trigger deferred loading of native voices.
   // TODO(katie): Move most of the GetMatchingVoice logic into content/ and
   // use the TTS controller delegate to get chrome-specific info as needed.
-  int index =
-      GetTtsControllerDelegate()->GetMatchingVoice(utterance.get(), voices);
+  int index = GetMatchingVoice(utterance.get(), voices);
   VoiceData voice;
   if (index >= 0)
     voice = voices[index];
@@ -411,30 +481,34 @@ void TtsControllerImpl::SpeakNow(std::unique_ptr<TtsUtterance> utterance) {
   if (!voice.native) {
 #if !defined(OS_ANDROID)
     DCHECK(!voice.engine_id.empty());
-    current_utterance_ = std::move(utterance);
+    SetCurrentUtterance(std::move(utterance));
     current_utterance_->SetEngineId(voice.engine_id);
-    if (GetTtsControllerDelegate()->GetTtsEngineDelegate())
-      GetTtsControllerDelegate()->GetTtsEngineDelegate()->Speak(
-          current_utterance_.get(), voice);
+    if (engine_delegate_)
+      engine_delegate_->Speak(current_utterance_.get(), voice);
     bool sends_end_event =
         voice.events.find(TTS_EVENT_END) != voice.events.end();
     if (!sends_end_event) {
       current_utterance_->Finish();
-      current_utterance_.reset();
+      SetCurrentUtterance(nullptr);
       SpeakNextUtterance();
     }
-#endif
+#endif  // !defined(OS_ANDROID)
   } else {
     // It's possible for certain platforms to send start events immediately
     // during |speak|.
-    current_utterance_ = std::move(utterance);
-    GetTtsPlatform()->ClearError();
-    GetTtsPlatform()->Speak(
-        current_utterance_->GetId(), current_utterance_->GetText(),
-        current_utterance_->GetLang(), voice,
-        current_utterance_->GetContinuousParameters(),
-        base::BindOnce(&TtsControllerImpl::OnSpeakFinished,
-                       base::Unretained(this), current_utterance_->GetId()));
+    SetCurrentUtterance(std::move(utterance));
+    if (TtsPlatformReady()) {
+      GetTtsPlatform()->ClearError();
+      GetTtsPlatform()->Speak(
+          current_utterance_->GetId(), current_utterance_->GetText(),
+          current_utterance_->GetLang(), voice,
+          current_utterance_->GetContinuousParameters(),
+          base::BindOnce(&TtsControllerImpl::OnSpeakFinished,
+                         base::Unretained(this), current_utterance_->GetId()));
+    } else {
+      // The TTS platform is not supported.
+      OnSpeakFinished(current_utterance_->GetId(), false);
+    }
   }
 }
 
@@ -447,24 +521,25 @@ void TtsControllerImpl::OnSpeakFinished(int utterance_id, bool success) {
   if (!current_utterance_ || current_utterance_->GetId() != utterance_id)
     return;
 
-  // If the native voice wasn't able to process this speech, see if
-  // the browser has built-in TTS that isn't loaded yet.
-  if (GetTtsPlatform()->LoadBuiltInTtsEngine(
-          current_utterance_->GetBrowserContext())) {
-    utterance_deque_.emplace_back(std::move(current_utterance_));
-    return;
-  }
+  // If the native voice wasn't able to process this speech, see if the browser
+  // has built-in TTS that crashed and needs re-loading or the utterance came
+  // from a profile that no longer exists e.g. login.
+  // The controller only ends up here if we had at some point completely
+  // initialized native tts and tts engine delegate (see SpeakOrEnqueue), so
+  // drop the utterance from re-processing.
+  GetTtsPlatform()->LoadBuiltInTtsEngine(
+      current_utterance_->GetBrowserContext());
 
   current_utterance_->OnTtsEvent(TTS_EVENT_ERROR, kInvalidCharIndex,
                                  kInvalidLength, GetTtsPlatform()->GetError());
-  current_utterance_.reset();
+  SetCurrentUtterance(nullptr);
 }
 
 void TtsControllerImpl::ClearUtteranceQueue(bool send_events) {
-  while (!utterance_deque_.empty()) {
+  while (!utterance_list_.empty()) {
     std::unique_ptr<TtsUtterance> utterance =
-        std::move(utterance_deque_.front());
-    utterance_deque_.pop_front();
+        std::move(utterance_list_.front());
+    utterance_list_.pop_front();
     if (send_events) {
       utterance->OnTtsEvent(TTS_EVENT_CANCELLED, kInvalidCharIndex,
                             kInvalidLength, std::string());
@@ -475,12 +550,15 @@ void TtsControllerImpl::ClearUtteranceQueue(bool send_events) {
 }
 
 void TtsControllerImpl::FinishCurrentUtterance() {
-  if (current_utterance_) {
-    if (!current_utterance_->IsFinished())
-      current_utterance_->OnTtsEvent(TTS_EVENT_INTERRUPTED, kInvalidCharIndex,
-                                     kInvalidLength, std::string());
-    current_utterance_.reset();
+  if (!current_utterance_)
+    return;
+
+  if (!current_utterance_->IsFinished()) {
+    current_utterance_->OnTtsEvent(TTS_EVENT_INTERRUPTED, kInvalidCharIndex,
+                                   kInvalidLength, std::string());
   }
+
+  SetCurrentUtterance(nullptr);
 }
 
 void TtsControllerImpl::SpeakNextUtterance() {
@@ -489,11 +567,19 @@ void TtsControllerImpl::SpeakNextUtterance() {
 
   // Start speaking the next utterance in the queue.  Keep trying in case
   // one fails but there are still more in the queue to try.
-  while (!utterance_deque_.empty() && !current_utterance_) {
+  TtsUtterance* previous_utterance = nullptr;
+  while (!utterance_list_.empty() && !current_utterance_) {
     std::unique_ptr<TtsUtterance> utterance =
-        std::move(utterance_deque_.front());
-    utterance_deque_.pop_front();
-    SpeakNow(std::move(utterance));
+        std::move(utterance_list_.front());
+    utterance_list_.pop_front();
+    DCHECK(previous_utterance != utterance.get());
+
+    if (ShouldSpeakUtterance(utterance.get()))
+      SpeakNow(std::move(utterance));
+    else
+      utterance->Finish();
+
+    previous_utterance = utterance.get();
   }
 }
 
@@ -501,9 +587,10 @@ void TtsControllerImpl::UpdateUtteranceDefaults(TtsUtterance* utterance) {
   double rate = utterance->GetContinuousParameters().rate;
   double pitch = utterance->GetContinuousParameters().pitch;
   double volume = utterance->GetContinuousParameters().volume;
-#if defined(OS_CHROMEOS)
-  GetTtsControllerDelegate()->UpdateUtteranceDefaultsFromPrefs(utterance, &rate,
-                                                               &pitch, &volume);
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  if (GetTtsControllerDelegate())
+    GetTtsControllerDelegate()->UpdateUtteranceDefaultsFromPrefs(
+        utterance, &rate, &pitch, &volume);
 #else
   // Update pitch, rate and volume to defaults if not explicity set on
   // this utterance.
@@ -513,18 +600,8 @@ void TtsControllerImpl::UpdateUtteranceDefaults(TtsUtterance* utterance) {
     pitch = blink::mojom::kSpeechSynthesisDefaultPitch;
   if (volume == blink::mojom::kSpeechSynthesisDoublePrefNotSet)
     volume = blink::mojom::kSpeechSynthesisDefaultVolume;
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
   utterance->SetContinuousParameters(rate, pitch, volume);
-}
-
-TtsControllerDelegate* TtsControllerImpl::GetTtsControllerDelegate() {
-  if (delegate_)
-    return delegate_;
-  if (GetContentClient() && GetContentClient()->browser()) {
-    delegate_ = GetContentClient()->browser()->GetTtsControllerDelegate();
-    return delegate_;
-  }
-  return nullptr;
 }
 
 void TtsControllerImpl::StripSSML(
@@ -563,7 +640,7 @@ void TtsControllerImpl::StripSSMLHelper(
     return;
   }
 
-  std::string parsed_text = "";
+  std::string parsed_text;
   // Change from unique_ptr to base::Value* so recursion will work.
   PopulateParsedText(&parsed_text, &(*result.value));
 
@@ -594,5 +671,185 @@ void TtsControllerImpl::PopulateParsedText(std::string* parsed_text,
     PopulateParsedText(parsed_text, &children->GetList()[i]);
   }
 }
+
+int TtsControllerImpl::GetMatchingVoice(TtsUtterance* utterance,
+                                        const std::vector<VoiceData>& voices) {
+  const std::string app_lang =
+      GetContentClient()->browser()->GetApplicationLocale();
+  // Start with a best score of -1, that way even if none of the criteria
+  // match, something will be returned if there are any voices.
+  int best_score = -1;
+  int best_score_index = -1;
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  TtsControllerDelegate* delegate = GetTtsControllerDelegate();
+  std::unique_ptr<TtsControllerDelegate::PreferredVoiceIds> preferred_ids =
+      delegate ? delegate->GetPreferredVoiceIdsForUtterance(utterance)
+               : nullptr;
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+  for (size_t i = 0; i < voices.size(); ++i) {
+    const content::VoiceData& voice = voices[i];
+    int score = 0;
+
+    // If the extension ID is specified, check for an exact match.
+    if (!utterance->GetEngineId().empty() &&
+        utterance->GetEngineId() != voice.engine_id)
+      continue;
+
+    // If the voice name is specified, check for an exact match.
+    if (!utterance->GetVoiceName().empty() &&
+        voice.name != utterance->GetVoiceName())
+      continue;
+
+    // Prefer the utterance language.
+    if (!voice.lang.empty() && !utterance->GetLang().empty()) {
+      // An exact locale match is worth more than a partial match.
+      // Convert locales to lowercase to handle cases like "en-us" vs. "en-US".
+      if (base::EqualsCaseInsensitiveASCII(voice.lang, utterance->GetLang())) {
+        score += 128;
+      } else if (base::EqualsCaseInsensitiveASCII(
+                     l10n_util::GetLanguage(voice.lang),
+                     l10n_util::GetLanguage(utterance->GetLang()))) {
+        score += 64;
+      }
+    }
+
+    // Next, prefer required event types.
+    if (!utterance->GetRequiredEventTypes().empty()) {
+      bool has_all_required_event_types = true;
+      for (TtsEventType event_type : utterance->GetRequiredEventTypes()) {
+        if (voice.events.find(event_type) == voice.events.end()) {
+          has_all_required_event_types = false;
+          break;
+        }
+      }
+      if (has_all_required_event_types)
+        score += 32;
+    }
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+    if (preferred_ids) {
+      // First prefer the user's preference voice for the utterance language,
+      // if the utterance language is specified.
+      if (!utterance->GetLang().empty() &&
+          VoiceIdMatches(preferred_ids->lang_voice_id, voice)) {
+        score += 16;
+      }
+
+      // Then prefer the user's preference voice for the system language.
+      // This is a lower priority match than the utterance voice.
+      if (VoiceIdMatches(preferred_ids->locale_voice_id, voice))
+        score += 8;
+
+      // Finally, prefer the user's preference voice for any language. This will
+      // pick the default voice if there is no better match for the current
+      // system language and utterance language.
+      if (VoiceIdMatches(preferred_ids->any_locale_voice_id, voice))
+        score += 4;
+    }
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
+    // Finally, prefer system language.
+    if (!voice.lang.empty()) {
+      if (voice.lang == app_lang) {
+        score += 2;
+      } else if (base::EqualsCaseInsensitiveASCII(
+                     l10n_util::GetLanguage(voice.lang),
+                     l10n_util::GetLanguage(app_lang))) {
+        score += 1;
+      }
+    }
+
+    if (score > best_score) {
+      best_score = score;
+      best_score_index = i;
+    }
+  }
+
+  return best_score_index;
+}
+
+void TtsControllerImpl::SetCurrentUtterance(
+    std::unique_ptr<TtsUtterance> utterance) {
+  current_utterance_ = std::move(utterance);
+  Observe(current_utterance_
+              ? AsUtteranceImpl(current_utterance_.get())->web_contents()
+              : nullptr);
+}
+
+void TtsControllerImpl::StopCurrentUtteranceAndRemoveUtterancesMatching(
+    WebContents* wc) {
+  DCHECK(wc);
+  // Removes any utterances that match the WebContents from the current
+  // utterance (which our inherited WebContentsObserver starts observing every
+  // time the utterance changes).
+  //
+  // This is called when the WebContents for the current utterance is destroyed
+  // or hidden. In the case where it's destroyed, this is done to avoid
+  // attempting to start a utterance that is very likely to be destroyed right
+  // away, and there are also subtle timing issues if we didn't do this (if a
+  // queued utterance has already received WebContentsDestroyed(), and we start
+  // it, we won't get the corresponding WebContentsDestroyed()).
+  auto eraser = [wc](const std::unique_ptr<TtsUtterance>& utterance) {
+    TtsUtteranceImpl* utterance_impl = AsUtteranceImpl(utterance.get());
+    if (utterance_impl->web_contents() == wc) {
+      utterance_impl->Finish();
+      return true;
+    }
+    return false;
+  };
+  utterance_list_.erase(
+      std::remove_if(utterance_list_.begin(), utterance_list_.end(), eraser),
+      utterance_list_.end());
+  const bool stopped = StopCurrentUtteranceIfMatches(GURL());
+  DCHECK(stopped);
+  SpeakNextUtterance();
+}
+
+bool TtsControllerImpl::ShouldSpeakUtterance(TtsUtterance* utterance) {
+  TtsUtteranceImpl* utterance_impl = AsUtteranceImpl(utterance);
+  if (!utterance_impl->was_created_with_web_contents())
+    return true;
+
+  // If the WebContents that created the utterance has been destroyed, don't
+  // speak it.
+  if (!utterance_impl->web_contents())
+    return false;
+
+  // Allow speaking if either the WebContents is visible, or the WebContents
+  // isn't required to be visible before speaking.
+  return !stop_speaking_when_hidden_ ||
+         utterance_impl->web_contents()->GetVisibility() != Visibility::HIDDEN;
+}
+
+//
+// WebContentsObserver
+//
+
+void TtsControllerImpl::WebContentsDestroyed() {
+  StopCurrentUtteranceAndRemoveUtterancesMatching(web_contents());
+}
+
+void TtsControllerImpl::OnVisibilityChanged(Visibility visibility) {
+  if (visibility == Visibility::HIDDEN && stop_speaking_when_hidden_)
+    StopCurrentUtteranceAndRemoveUtterancesMatching(web_contents());
+}
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+TtsControllerDelegate* TtsControllerImpl::GetTtsControllerDelegate() {
+  if (delegate_)
+    return delegate_;
+  if (GetContentClient() && GetContentClient()->browser()) {
+    delegate_ = GetContentClient()->browser()->GetTtsControllerDelegate();
+    return delegate_;
+  }
+  return nullptr;
+}
+
+void TtsControllerImpl::SetTtsControllerDelegateForTesting(
+    TtsControllerDelegate* delegate) {
+  delegate_ = delegate;
+}
+
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 }  // namespace content

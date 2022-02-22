@@ -28,14 +28,15 @@
 ****************************************************************************/
 
 //! [0]
-import QtQuick 2.1
-import QtQuick.Layouts 1.0
-import QtDataVisualization 1.0
+import QtQuick
+import QtQuick.Layouts
+import QtQuick.Controls
+import QtDataVisualization 1.2
 import "."
 //! [0]
 
 //! [1]
-Rectangle {
+Item {
     id: mainView
     //! [1]
     width: 500
@@ -51,7 +52,6 @@ Rectangle {
     Theme3D {
         id: themeIsabelle
         type: Theme3D.ThemeIsabelle
-        font.family: "Lucida Handwriting"
         font.pointSize: 40
     }
     //! [13]
@@ -148,7 +148,7 @@ Rectangle {
         anchors.left: parent.left
         spacing: 0
         //! [7]
-        NewButton {
+        Button {
             id: shadowToggle
             Layout.fillHeight: true
             Layout.fillWidth: true
@@ -166,7 +166,7 @@ Rectangle {
         }
         //! [7]
 
-        NewButton {
+        Button {
             id: smoothToggle
             Layout.fillHeight: true
             Layout.fillWidth: true
@@ -182,7 +182,7 @@ Rectangle {
             }
         }
 
-        NewButton {
+        Button {
             id: cameraToggle
             Layout.fillHeight: true
             Layout.fillWidth: true
@@ -197,7 +197,7 @@ Rectangle {
             }
         }
 
-        NewButton {
+        Button {
             id: themeToggle
             Layout.fillHeight: true
             Layout.fillWidth: true
@@ -216,7 +216,7 @@ Rectangle {
             }
         }
 
-        NewButton {
+        Button {
             id: backgroundToggle
             Layout.fillHeight: true
             Layout.fillWidth: true
@@ -232,12 +232,12 @@ Rectangle {
             }
         }
 
-        NewButton {
+        Button {
             id: exitButton
             Layout.fillHeight: true
             Layout.fillWidth: true
             text: "Quit"
-            onClicked: Qt.quit(0);
+            onClicked: Qt.quit();
         }
     }
 }

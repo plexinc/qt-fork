@@ -27,7 +27,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
+import QtQuick
+import QtQuick.VirtualKeyboard
 
 /*!
     \qmltype FillerKey
@@ -41,5 +42,6 @@ import QtQuick 2.0
 */
 
 BaseKey {
+    keyType: QtVirtualKeyboard.FillerKey
     showPreview: false
 }

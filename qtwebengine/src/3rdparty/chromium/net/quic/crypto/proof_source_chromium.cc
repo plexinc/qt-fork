@@ -78,7 +78,7 @@ bool ProofSourceChromium::GetProofInner(
     const string& hostname,
     const string& server_config,
     quic::QuicTransportVersion quic_version,
-    quiche::QuicheStringPiece chlo_hash,
+    absl::string_view chlo_hash,
     quic::QuicReferenceCountedPointer<quic::ProofSource::Chain>* out_chain,
     quic::QuicCryptoProof* proof) {
   DCHECK(proof != nullptr);
@@ -130,10 +130,11 @@ bool ProofSourceChromium::GetProofInner(
 }
 
 void ProofSourceChromium::GetProof(const quic::QuicSocketAddress& server_addr,
+                                   const quic::QuicSocketAddress& client_addr,
                                    const std::string& hostname,
                                    const std::string& server_config,
                                    quic::QuicTransportVersion quic_version,
-                                   quiche::QuicheStringPiece chlo_hash,
+                                   absl::string_view chlo_hash,
                                    std::unique_ptr<Callback> callback) {
   // As a transitional implementation, just call the synchronous version of
   // GetProof, then invoke the callback with the results and destroy it.
@@ -149,15 +150,17 @@ void ProofSourceChromium::GetProof(const quic::QuicSocketAddress& server_addr,
 
 quic::QuicReferenceCountedPointer<quic::ProofSource::Chain>
 ProofSourceChromium::GetCertChain(const quic::QuicSocketAddress& server_address,
+                                  const quic::QuicSocketAddress& client_address,
                                   const std::string& hostname) {
   return chain_;
 }
 
 void ProofSourceChromium::ComputeTlsSignature(
     const quic::QuicSocketAddress& server_address,
+    const quic::QuicSocketAddress& client_address,
     const std::string& hostname,
     uint16_t signature_algorithm,
-    quiche::QuicheStringPiece in,
+    absl::string_view in,
     std::unique_ptr<SignatureCallback> callback) {
   crypto::OpenSSLErrStackTracer err_tracer(FROM_HERE);
   bssl::ScopedEVP_MD_CTX sign_context;
@@ -186,6 +189,15 @@ void ProofSourceChromium::ComputeTlsSignature(
   sig.resize(siglen);
 
   callback->Run(true, sig, nullptr);
+}
+
+quic::ProofSource::TicketCrypter* ProofSourceChromium::GetTicketCrypter() {
+  return ticket_crypter_.get();
+}
+
+void ProofSourceChromium::SetTicketCrypter(
+    std::unique_ptr<quic::ProofSource::TicketCrypter> ticket_crypter) {
+  ticket_crypter_ = std::move(ticket_crypter);
 }
 
 }  // namespace net

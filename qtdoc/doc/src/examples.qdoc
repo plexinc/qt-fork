@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -78,8 +78,6 @@
         \list
         \li \l{Qt for Android Examples}{Android}
         \li \l{Qt for iOS Examples}{iOS}
-        \li \l{Qt Mac Extras Examples}{Mac Extras}
-        \li \l{Qt Windows Extras Examples}{Windows Extras}
         \li \l{Active Qt#Examples}{Active Qt Examples}
         \endlist
     \enddiv
@@ -90,7 +88,6 @@
         \li \l{Qt Creator: Developing Qt Quick Applications}{Developing Qt Quick Applications}
         \li \l{Qt Quick Controls - Gallery}
         \li \l{QML Advanced Tutorial}{SameGame}
-        \li \l{Qt Quick Text Editor Guide}
         \endlist
         \list
         \li \l{Qt Quick Examples and Tutorials}{See more}
@@ -122,22 +119,26 @@
         \endlist
     \enddiv
     \div {class="doc-column"}
-        \b{Data and Networking}
+        \b{Networking, Data, and State Machines}
         \list
         \li \l{Network Examples}
         \li \l{SQL Examples}
         \li \l{XML Examples}
+        \li \l{Qt SCXML Examples}
         \li \l{JSON Save Game Example}
+        \li \l{Qt State Machine Examples}
+        \omit
         \li \l{Qt WebChannel Examples}
         \li \l{Qt WebEngine Examples}
         \li \l{Qt WebEngine Widgets Examples}
         \li \l{Qt WebSockets Examples}{WebSocket Examples}
+        \endomit
         \endlist
     \enddiv
     \div {class="doc-column"}
         \b{Applications}
         \list
-        \li \l{Application Example}
+        \li \l{Qt Widgets - Application Example}
         \li \l{Qt Quick Examples - Window and Screen}{Window and Screen Example}
         \li \l{How to Create Qt Plugins}
         \li \l{Plug & Paint Example} (Plugin Example)
@@ -163,26 +164,34 @@
         \li \l{Qt Multimedia Examples}{See more}
         \endlist
     \enddiv
+
+    \omit //! Exclude modules not in 6.0
     \div {class="doc-column"}
         \b{Peripheral Devices and Location}
         \list
         \li \l{Qt Bluetooth Examples}{Bluetooth Examples}
         \li \l{Qt Location Examples}{Location Examples}
-        \li \l{Qt NFC Examples}{NFC Examples}
         \li \l{Qt Positioning Examples}{Positioning Examples}
         \li \l{Qt Sensors Examples}{Sensor Examples}
-        \li \l{Qt Serial Port Examples}{Serial Port Examples}
         \li \l{Qt SerialBus Examples}{Serial Bus Examples}
         \endlist
     \enddiv
+    \endomit //! Exclude modules not in 6.0
+
     \div {class="doc-column"}
         \b{Tools}
         \list
-        \li \l{Qt Assistant Examples}
         \li \l{Qt Designer Examples}
         \li \l{Qt Help Examples}
         \li \l{Qt Linguist Examples}
         \li \l{Qt Creator Manual}
+        \endlist
+    \enddiv
+
+    \div {class="doc-column"}
+        \b{In-App Purchasing}
+        \list
+        \li \l{Qt Hangman (In-App Purchasing)}
         \endlist
     \enddiv
     \enddiv

@@ -20,33 +20,20 @@ config("crashpad_config") {
   include_dirs = [ "." ]
 }
 
-# TODO(fuchsia:46805): Remove this once instances of UB have been cleaned up.
-config("disable_ubsan") {
-  if (crashpad_is_in_fuchsia) {
-    cflags = [ "-fno-sanitize=undefined" ]
-  }
-  visibility = [
-    "snapshot:snapshot",
-    "minidump:minidump_test",
-    "third_party/gtest:gtest",
-    "util:util",
-  ]
-}
-
 if (crashpad_is_in_chromium || crashpad_is_in_fuchsia) {
   test("crashpad_tests") {
     deps = [
       "client:client_test",
-      "test:gmock_main",
+      "minidump:minidump_test",
+      "test:googlemock_main",
       "test:test_test",
+      "util:util_test",
     ]
     if (!crashpad_is_ios) {
-      deps += [
-        "handler:handler_test",
-        "minidump:minidump_test",
-        "snapshot:snapshot_test",
-        "util:util_test",
-      ]
+      deps += [ "snapshot:snapshot_test" ]
+    }
+    if (!crashpad_is_ios && !crashpad_is_fuchsia) {
+      deps += [ "handler:handler_test" ]
     }
     if (crashpad_is_in_fuchsia) {
       # TODO(fuchsia:46559): Fix the leaks and remove this.
@@ -63,9 +50,7 @@ if (crashpad_is_in_chromium || crashpad_is_in_fuchsia) {
           "util/net/testdata/binary_http_body.dat",
         ]
 
-        outputs = [
-          "$root_out_dir/crashpad_test_data/{{source}}",
-        ]
+        outputs = [ "$root_out_dir/crashpad_test_data/{{source}}" ]
       }
 
       deps += [ ":crashpad_test_data" ]
@@ -80,7 +65,7 @@ if (crashpad_is_in_chromium || crashpad_is_in_fuchsia) {
 
   if (crashpad_is_in_fuchsia) {
     import("//build/package.gni")
-    package("crashpad_test") {
+    package("crashpad-test") {
       testonly = true
 
       deps = [
@@ -161,7 +146,7 @@ if (crashpad_is_in_chromium || crashpad_is_in_fuchsia) {
       }
     }
 
-    package("crashpad_database_util") {
+    package("crashpad-database-util") {
       deps = [ "tools:crashpad_database_util" ]
 
       binaries = [
@@ -171,21 +156,27 @@ if (crashpad_is_in_chromium || crashpad_is_in_fuchsia) {
         },
       ]
     }
+
+    group("tests") {
+      testonly = true
+
+      deps = [ ":crashpad-test" ]
+    }
   }
-} else if (crashpad_is_standalone) {
+} else if (crashpad_is_standalone || crashpad_is_external) {
   test("crashpad_client_test") {
     deps = [
       "client:client_test",
-      "test:gmock_main",
+      "test:googlemock_main",
     ]
   }
 
   test("crashpad_handler_test") {
     deps = [
       "handler:handler_test",
-      "test:gtest_main",
+      "test:googletest_main",
     ]
-    if (crashpad_is_ios) {
+    if (crashpad_is_ios || crashpad_is_fuchsia) {
       deps -= [ "handler:handler_test" ]
     }
   }
@@ -193,17 +184,14 @@ if (crashpad_is_in_chromium || crashpad_is_in_fuchsia) {
   test("crashpad_minidump_test") {
     deps = [
       "minidump:minidump_test",
-      "test:gtest_main",
+      "test:googletest_main",
     ]
-    if (crashpad_is_ios) {
-      deps -= [ "minidump:minidump_test" ]
-    }
   }
 
   test("crashpad_snapshot_test") {
     deps = [
       "snapshot:snapshot_test",
-      "test:gtest_main",
+      "test:googletest_main",
     ]
     if (crashpad_is_ios) {
       deps -= [ "snapshot:snapshot_test" ]
@@ -212,19 +200,16 @@ if (crashpad_is_in_chromium || crashpad_is_in_fuchsia) {
 
   test("crashpad_test_test") {
     deps = [
-      "test:gmock_main",
+      "test:googlemock_main",
       "test:test_test",
     ]
   }
 
   test("crashpad_util_test") {
     deps = [
-      "test:gmock_main",
+      "test:googlemock_main",
       "util:util_test",
     ]
-    if (crashpad_is_ios) {
-      deps -= [ "util:util_test" ]
-    }
   }
 }
 

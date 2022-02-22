@@ -45,7 +45,7 @@
 #include <QtCharts/QBarSet>
 #include <QtCharts/private/qchartglobal_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class BoxPlotAnimation;
 
@@ -57,21 +57,21 @@ public:
     QBoxPlotSeriesPrivate(QBoxPlotSeries *q);
     ~QBoxPlotSeriesPrivate();
 
-    void initializeGraphics(QGraphicsItem *parent);
-    void initializeDomain();
-    void initializeAxes();
-    void initializeAnimations(QChart::AnimationOptions options, int duration, QEasingCurve &curve);
-    void initializeTheme(int index, ChartTheme *theme, bool forced = false);
+    void initializeGraphics(QGraphicsItem *parent) override;
+    void initializeDomain() override;
+    void initializeAxes() override;
+    void initializeAnimations(QChart::AnimationOptions options, int duration, QEasingCurve &curve) override;
+    void initializeTheme(int index, ChartTheme *theme, bool forced = false) override;
 
-    QList<QLegendMarker*> createLegendMarkers(QLegend *legend);
+    QList<QLegendMarker*> createLegendMarkers(QLegend *legend) override;
 
-    virtual QAbstractAxis::AxisType defaultAxisType(Qt::Orientation orientation) const;
-    QAbstractAxis *createDefaultAxis(Qt::Orientation orientation) const;
+    QAbstractAxis::AxisType defaultAxisType(Qt::Orientation orientation) const override;
+    QAbstractAxis *createDefaultAxis(Qt::Orientation orientation) const override;
 
     bool append(QBoxSet *set);
     bool remove(QBoxSet *set);
-    bool append(QList<QBoxSet *> sets);
-    bool remove(QList<QBoxSet *> sets);
+    bool append(const QList<QBoxSet *> &sets);
+    bool remove(const QList<QBoxSet *> &sets);
     bool insert(int index, QBoxSet *set);
     QBoxSet *boxSetAt(int index);
 
@@ -108,6 +108,6 @@ private:
     Q_DECLARE_PUBLIC(QBoxPlotSeries)
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif

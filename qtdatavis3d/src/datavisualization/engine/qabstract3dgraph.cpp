@@ -37,15 +37,15 @@
 
 #include <QtGui/QGuiApplication>
 #include <QtGui/QOpenGLContext>
-#include <QtGui/QOpenGLPaintDevice>
+#include <QtOpenGL/QOpenGLPaintDevice>
 #include <QtGui/QPainter>
-#include <QtGui/QOpenGLFramebufferObject>
+#include <QtOpenGL/QOpenGLFramebufferObject>
 #include <QtGui/QOffscreenSurface>
 #if defined(Q_OS_OSX)
 #include <qpa/qplatformnativeinterface.h>
 #endif
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 /*!
  * \class QAbstract3DGraph
@@ -60,7 +60,7 @@ QT_BEGIN_NAMESPACE_DATAVISUALIZATION
  * Anti-aliasing is turned on by default on C++, except in OpenGL ES2
  * environments, where anti-aliasing is not supported by Qt Data Visualization.
  * To specify non-default anti-aliasing for a graph, give a custom surface format as
- * a constructor parameter. You can use the convenience function \c QtDataVisualization::qDefaultSurfaceFormat()
+ * a constructor parameter. You can use the convenience function \c qDefaultSurfaceFormat()
  * to create the surface format object.
  *
  * \note QAbstract3DGraph sets window flag \c Qt::FramelessWindowHint on by default. If you want to display
@@ -186,7 +186,7 @@ QAbstract3DGraph::QAbstract3DGraph(QAbstract3DGraphPrivate *d, const QSurfaceFor
         // Make sure renderable type is correct
         surfaceFormat.setRenderableType(QSurfaceFormat::DefaultRenderableType);
     } else {
-        surfaceFormat = qDefaultSurfaceFormat();
+        surfaceFormat = qDefaultSurfaceFormat(true);
     }
 
     d_ptr->m_context = new QOpenGLContext(this);
@@ -656,11 +656,6 @@ qreal QAbstract3DGraph::currentFps() const
  *
  * \brief Whether orthographic projection is used for displaying the graph.
  *
- * If \c {true}, ortographic projection is used to create 2D graphs by replacing
- * the default input handler with one that does not allow rotating the graph and
- * by setting the camera to view the graph
- * directly from the side or from the top. Also, axis labels typically need to be rotated when
- * viewing the graph from the sides.
  * Defaults to \c{false}.
  * \note Shadows will be disabled when set to \c{true}.
  *
@@ -1198,4 +1193,4 @@ QImage QAbstract3DGraphPrivate::renderToImage(int msaaSamples, const QSize &imag
     return image;
 }
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE

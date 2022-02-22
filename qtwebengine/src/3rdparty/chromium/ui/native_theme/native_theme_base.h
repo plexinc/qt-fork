@@ -29,8 +29,7 @@ class NATIVE_THEME_EXPORT NativeThemeBase : public NativeTheme {
                         const ExtraParams& extra) const override;
   float GetBorderRadiusForPart(Part part,
                                float width,
-                               float height,
-                               float zoom) const override;
+                               float height) const override;
   void Paint(cc::PaintCanvas* canvas,
              Part part,
              State state,
@@ -65,7 +64,26 @@ class NATIVE_THEME_EXPORT NativeThemeBase : public NativeTheme {
     kDisabledSlider,
     kHoveredSlider,
     kPressedSlider,
-    kAutoCompleteBackground
+    kAutoCompleteBackground,
+    kScrollbarArrowBackground,
+    kScrollbarArrowBackgroundHovered,
+    kScrollbarArrowBackgroundPressed,
+    kScrollbarArrow,
+    kScrollbarArrowHovered,
+    kScrollbarArrowPressed,
+    kScrollbarTrack,
+    kScrollbarThumb,
+    kScrollbarThumbHovered,
+    kScrollbarThumbPressed,
+    kScrollbarThumbInactive,
+    kButtonBorder,
+    kButtonDisabledBorder,
+    kButtonHoveredBorder,
+    kButtonPressedBorder,
+    kButtonFill,
+    kButtonDisabledFill,
+    kButtonHoveredFill,
+    kButtonPressedFill
   };
 
   using NativeTheme::NativeTheme;
@@ -196,6 +214,9 @@ class NATIVE_THEME_EXPORT NativeThemeBase : public NativeTheme {
   // crbug.com/530746 is resolved.
   virtual void AdjustCheckboxRadioRectForPadding(SkRect* rect) const;
 
+  virtual float AdjustBorderWidthByZoom(float border_width,
+                                        float zoom_level) const;
+
   void set_scrollbar_button_length(int length) {
     scrollbar_button_length_ = length;
   }
@@ -213,6 +234,20 @@ class NATIVE_THEME_EXPORT NativeThemeBase : public NativeTheme {
 
   // Returns the color used to draw the arrow.
   SkColor GetArrowColor(State state, ColorScheme color_scheme) const;
+  SkColor GetControlColor(ControlColorId color_id,
+                          ColorScheme color_scheme) const;
+  virtual SkColor ControlsAccentColorForState(State state,
+                                              ColorScheme color_scheme) const;
+  virtual SkColor ControlsSliderColorForState(State state,
+                                              ColorScheme color_scheme) const;
+  virtual SkColor ButtonBorderColorForState(State state,
+                                            ColorScheme color_scheme) const;
+  virtual SkColor ButtonFillColorForState(State state,
+                                          ColorScheme color_scheme) const;
+  virtual SkColor ControlsBorderColorForState(State state,
+                                              ColorScheme color_scheme) const;
+  virtual SkColor ControlsFillColorForState(State state,
+                                            ColorScheme color_scheme) const;
 
   int scrollbar_width_ = 15;
 
@@ -247,21 +282,12 @@ class NATIVE_THEME_EXPORT NativeThemeBase : public NativeTheme {
                                   const SkScalar border_radius,
                                   ColorScheme color_scheme) const;
 
-  SkColor ControlsAccentColorForState(State state,
-                                      ColorScheme color_scheme) const;
-  SkColor ControlsBorderColorForState(State state,
-                                      ColorScheme color_scheme) const;
-  SkColor ControlsFillColorForState(State state,
-                                    ColorScheme color_scheme) const;
   SkColor ControlsBackgroundColorForState(State state,
                                           ColorScheme color_scheme) const;
-  SkColor ControlsSliderColorForState(State state,
-                                      ColorScheme color_scheme) const;
   SkColor GetHighContrastControlColor(ControlColorId color_id,
                                       ColorScheme color_scheme) const;
   SkColor GetDarkModeControlColor(ControlColorId color_id) const;
-  SkColor GetControlColor(ControlColorId color_id,
-                          ColorScheme color_scheme) const;
+
   SkRect AlignSliderTrack(const gfx::Rect& slider_rect,
                           const NativeTheme::SliderExtraParams& slider,
                           bool is_value,

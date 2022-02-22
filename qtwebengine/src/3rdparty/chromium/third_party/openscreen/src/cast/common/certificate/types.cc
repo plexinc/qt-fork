@@ -4,7 +4,7 @@
 
 #include "cast/common/certificate/types.h"
 
-#include "util/logging.h"
+#include "util/osp_logging.h"
 
 namespace openscreen {
 namespace cast {
@@ -52,9 +52,17 @@ bool DateTimeFromSeconds(uint64_t seconds, DateTime* time) {
   time_t sec = static_cast<time_t>(seconds);
   OSP_DCHECK_GE(sec, 0);
   OSP_DCHECK_EQ(static_cast<uint64_t>(sec), seconds);
+#if defined(_WIN32)
+  // NOTE: This is for compiling in Chromium and is not validated in any direct
+  // libcast Windows build.
+  if (!gmtime_s(&tm, &sec)) {
+    return false;
+  }
+#else
   if (!gmtime_r(&sec, &tm)) {
     return false;
   }
+#endif
 
   time->second = tm.tm_sec;
   time->minute = tm.tm_min;
@@ -80,7 +88,13 @@ std::chrono::seconds DateTimeToSeconds(const DateTime& time) {
   tm.tm_mday = time.day;
   tm.tm_mon = time.month - 1;
   tm.tm_year = time.year - 1900;
-  return std::chrono::seconds(mktime(&tm));
+  time_t sec;
+#if defined(_WIN32)
+  sec = _mkgmtime(&tm);
+#else
+  sec = timegm(&tm);
+#endif
+  return std::chrono::seconds(sec);
 }
 
 }  // namespace cast

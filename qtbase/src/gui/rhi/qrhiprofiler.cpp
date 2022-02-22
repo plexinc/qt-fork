@@ -1,34 +1,37 @@
 /****************************************************************************
 **
 ** Copyright (C) 2019 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the Qt Gui module
 **
-** $QT_BEGIN_LICENSE:LGPL3$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
 ** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPLv3 included in the
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
 ** packaging of this file. Please review the following information to
 ** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl.html.
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
 ** GNU General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or later as published by the Free
-** Software Foundation and appearing in the file LICENSE.GPL included in
-** the packaging of this file. Please review the following information to
-** ensure the GNU General Public License version 2.0 requirements will be
-** met: http://www.gnu.org/licenses/gpl-2.0.html.
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -36,6 +39,7 @@
 
 #include "qrhiprofiler_p_p.h"
 #include "qrhi_p_p.h"
+#include <QtCore/qiodevice.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -149,7 +153,7 @@ QT_BEGIN_NAMESPACE
 
     Once sufficient number of frames have been rendered, the minimum, maximum,
     and average values (in milliseconds) from various measurements are made
-    available in this struct queriable from QRhiProfiler::frameToFrameTimes()
+    available in this struct queryable from QRhiProfiler::frameToFrameTimes()
     and QRhiProfiler::frameBuildTimes().
 
     \sa QRhiProfiler::setFrameTimingWriteInterval()
@@ -163,7 +167,7 @@ QT_BEGIN_NAMESPACE
 
     Once sufficient number of frames have been rendered, the minimum, maximum,
     and average values (in milliseconds) calculated from GPU command buffer
-    timestamps are made available in this struct queriable from
+    timestamps are made available in this struct queryable from
     QRhiProfiler::gpuFrameTimes().
 
     \sa QRhiProfiler::setFrameTimingWriteInterval()
@@ -383,7 +387,7 @@ void QRhiProfilerPrivate::newRenderBuffer(QRhiRenderBuffer *rb, bool transientBa
     const QSize sz = rb->pixelSize();
     // just make up something, ds is likely D24S8 while color is RGBA8 or similar
     const QRhiTexture::Format assumedFormat = type == QRhiRenderBuffer::DepthStencil ? QRhiTexture::D32F : QRhiTexture::RGBA8;
-    quint32 byteSize = rhiDWhenEnabled->approxByteSizeForTexture(assumedFormat, sz, 1, 1);
+    quint32 byteSize = rhiDWhenEnabled->approxByteSizeForTexture(assumedFormat, sz, 1, 1, 1);
     if (sampleCount > 1)
         byteSize *= uint(sampleCount);
 
@@ -414,7 +418,8 @@ void QRhiProfilerPrivate::newTexture(QRhiTexture *tex, bool owns, int mipCount, 
 
     const QRhiTexture::Format format = tex->format();
     const QSize sz = tex->pixelSize();
-    quint32 byteSize = rhiDWhenEnabled->approxByteSizeForTexture(format, sz, mipCount, layerCount);
+    const int depth = tex->depth();
+    quint32 byteSize = rhiDWhenEnabled->approxByteSizeForTexture(format, sz, depth, mipCount, layerCount);
     if (sampleCount > 1)
         byteSize *= uint(sampleCount);
 
@@ -466,7 +471,7 @@ void QRhiProfilerPrivate::resizeSwapChain(QRhiSwapChain *sc, int bufferCount, in
         return;
 
     const QSize sz = sc->currentPixelSize();
-    quint32 byteSize = rhiDWhenEnabled->approxByteSizeForTexture(QRhiTexture::BGRA8, sz, 1, 1);
+    quint32 byteSize = rhiDWhenEnabled->approxByteSizeForTexture(QRhiTexture::BGRA8, sz, 1, 1, 1);
     byteSize = byteSize * uint(bufferCount) + byteSize * uint(msaaBufferCount) * uint(sampleCount);
 
     startEntry(QRhiProfiler::ResizeSwapChain, ts.elapsed(), sc);
@@ -489,7 +494,7 @@ void QRhiProfilerPrivate::releaseSwapChain(QRhiSwapChain *sc)
 }
 
 template<typename T>
-void calcTiming(QVector<T> *vec, T *minDelta, T *maxDelta, float *avgDelta)
+void calcTiming(QList<T> *vec, T *minDelta, T *maxDelta, float *avgDelta)
 {
     if (vec->isEmpty())
         return;

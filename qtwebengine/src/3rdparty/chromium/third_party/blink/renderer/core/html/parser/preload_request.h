@@ -31,13 +31,36 @@ class CORE_EXPORT PreloadRequest {
   USING_FAST_MALLOC(PreloadRequest);
 
  public:
+  class CORE_EXPORT ExclusionInfo : public RefCounted<ExclusionInfo> {
+    USING_FAST_MALLOC(ExclusionInfo);
+
+   public:
+    ExclusionInfo(const KURL& document_url,
+                  HashSet<KURL> scopes,
+                  HashSet<KURL> resources);
+    virtual ~ExclusionInfo();
+
+    // Disallow copy and assign.
+    ExclusionInfo(const ExclusionInfo&) = delete;
+    ExclusionInfo& operator=(const ExclusionInfo&) = delete;
+
+    const KURL& document_url() const { return document_url_; }
+    const HashSet<KURL>& scopes() const { return scopes_; }
+    const HashSet<KURL>& resources() const { return resources_; }
+
+    bool ShouldExclude(const KURL& base_url, const String& resource_url) const;
+
+   private:
+    const KURL document_url_;
+    const HashSet<KURL> scopes_;
+    const HashSet<KURL> resources_;
+  };
+
   enum RequestType {
     kRequestTypePreload,
     kRequestTypePreconnect,
     kRequestTypeLinkRelPreload
   };
-
-  enum ReferrerSource { kDocumentIsReferrer, kBaseUrlIsReferrer };
 
   static std::unique_ptr<PreloadRequest> CreateIfNeeded(
       const String& initiator_name,
@@ -46,8 +69,8 @@ class CORE_EXPORT PreloadRequest {
       const KURL& base_url,
       ResourceType resource_type,
       const network::mojom::ReferrerPolicy referrer_policy,
-      ReferrerSource referrer_source,
       ResourceFetcher::IsImageSet is_image_set,
+      const ExclusionInfo* exclusion_info,
       const FetchParameters::ResourceWidth& resource_width =
           FetchParameters::ResourceWidth(),
       const ClientHintsPreferences& client_hints_preferences =
@@ -91,7 +114,7 @@ class CORE_EXPORT PreloadRequest {
     return referrer_policy_;
   }
 
-  void SetScriptType(mojom::ScriptType script_type) {
+  void SetScriptType(mojom::blink::ScriptType script_type) {
     script_type_ = script_type;
   }
 
@@ -113,11 +136,9 @@ class CORE_EXPORT PreloadRequest {
     return is_image_set_ == ResourceFetcher::kImageIsImageSet;
   }
 
-  void SetIsLazyLoadImageEnabled(bool is_enabled) {
-    is_lazy_load_image_enabled_ = is_enabled;
-  }
-  bool IsLazyLoadImageEnabledForTesting() {
-    return is_lazy_load_image_enabled_;
+  void SetRenderBlockingBehavior(
+      RenderBlockingBehavior render_blocking_behavior) {
+    render_blocking_behavior_ = render_blocking_behavior;
   }
 
  private:
@@ -130,14 +151,13 @@ class CORE_EXPORT PreloadRequest {
                  const ClientHintsPreferences& client_hints_preferences,
                  RequestType request_type,
                  const network::mojom::ReferrerPolicy referrer_policy,
-                 ReferrerSource referrer_source,
                  ResourceFetcher::IsImageSet is_image_set)
       : initiator_name_(initiator_name),
         initiator_position_(initiator_position),
         resource_url_(resource_url),
         base_url_(base_url),
         resource_type_(resource_type),
-        script_type_(mojom::ScriptType::kClassic),
+        script_type_(mojom::blink::ScriptType::kClassic),
         cross_origin_(kCrossOriginAttributeNotSet),
         importance_(mojom::FetchImportanceMode::kImportanceAuto),
         defer_(FetchParameters::kNoDefer),
@@ -145,7 +165,6 @@ class CORE_EXPORT PreloadRequest {
         client_hints_preferences_(client_hints_preferences),
         request_type_(request_type),
         referrer_policy_(referrer_policy),
-        referrer_source_(referrer_source),
         from_insertion_scanner_(false),
         is_image_set_(is_image_set),
         is_lazy_load_image_enabled_(false) {}
@@ -158,7 +177,7 @@ class CORE_EXPORT PreloadRequest {
   const KURL base_url_;
   String charset_;
   const ResourceType resource_type_;
-  mojom::ScriptType script_type_;
+  mojom::blink::ScriptType script_type_;
   CrossOriginAttributeValue cross_origin_;
   mojom::FetchImportanceMode importance_;
   String nonce_;
@@ -167,8 +186,9 @@ class CORE_EXPORT PreloadRequest {
   const ClientHintsPreferences client_hints_preferences_;
   const RequestType request_type_;
   const network::mojom::ReferrerPolicy referrer_policy_;
-  const ReferrerSource referrer_source_;
   IntegrityMetadataSet integrity_metadata_;
+  RenderBlockingBehavior render_blocking_behavior_ =
+      RenderBlockingBehavior::kUnset;
   bool from_insertion_scanner_;
   const ResourceFetcher::IsImageSet is_image_set_;
   bool is_lazy_load_image_enabled_;

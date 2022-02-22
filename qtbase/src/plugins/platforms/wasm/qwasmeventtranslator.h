@@ -35,8 +35,9 @@
 #include <QtCore/qpoint.h>
 #include <emscripten/html5.h>
 #include "qwasmwindow.h"
-#include <QtGui/qtouchdevice.h>
+#include <QtGui/qinputdevice.h>
 #include <QHash>
+#include <QCursor>
 
 QT_BEGIN_NAMESPACE
 
@@ -73,7 +74,7 @@ private:
     QFlags<Qt::KeyboardModifier> translateMouseEventModifier(const EmscriptenMouseEvent *mouseEvent);
     Qt::MouseButton translateMouseButton(unsigned short button);
 
-    void processMouse(int eventType, const EmscriptenMouseEvent *mouseEvent);
+    bool processMouse(int eventType, const EmscriptenMouseEvent *mouseEvent);
     bool processKeyboard(int eventType, const EmscriptenKeyboardEvent *keyEvent);
 
     Qt::Key translateDeadKey(Qt::Key deadKey, Qt::Key accentBaseKey);
@@ -81,19 +82,24 @@ private:
     QMap <int, QPointF> pressedTouchIds;
 
 private:
-    QWindow *draggedWindow;
-    QWindow *pressedWindow;
-    QWindow *lastWindow;
+    QPointer<QWindow> draggedWindow;
+    QPointer<QWindow> pressedWindow;
+    QPointer<QWindow> lastWindow;
     Qt::MouseButtons pressedButtons;
 
     QWasmWindow::ResizeMode resizeMode;
     QPoint resizePoint;
     QRect resizeStartRect;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    QPointingDevice *touchDevice;
+#else
     QTouchDevice *touchDevice;
-    quint64 getTimestamp();
+#endif
+    static quint64 getTimestamp();
 
     Qt::Key m_emDeadKey = Qt::Key_unknown;
     bool m_emStickyDeadKey = false;
+    QCursor cursorForMode(QWasmWindow::ResizeMode mode);
 };
 
 QT_END_NAMESPACE

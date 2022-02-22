@@ -95,13 +95,33 @@ using IDLLongLongEnforceRange =
 using IDLUnsignedLongLongEnforceRange =
     IDLIntegerTypeBase<uint64_t, bindings::IDLIntegerConvMode::kEnforceRange>;
 
+// Floating point number types
+
+namespace bindings {
+
+enum class IDLFloatingPointNumberConvMode {
+  kDefault,
+  kUnrestricted,
+};
+
+}  // namespace bindings
+
+template <typename T,
+          bindings::IDLFloatingPointNumberConvMode mode =
+              bindings::IDLFloatingPointNumberConvMode::kDefault>
+struct IDLFloatingPointNumberTypeBase final : public IDLBaseHelper<T> {};
+
 // float
-struct IDLFloat final : public IDLBaseHelper<float> {};
-struct IDLUnrestrictedFloat final : public IDLBaseHelper<float> {};
+using IDLFloat = IDLFloatingPointNumberTypeBase<float>;
+using IDLUnrestrictedFloat = IDLFloatingPointNumberTypeBase<
+    float,
+    bindings::IDLFloatingPointNumberConvMode::kUnrestricted>;
 
 // double
-struct IDLDouble final : public IDLBaseHelper<double> {};
-struct IDLUnrestrictedDouble final : public IDLBaseHelper<double> {};
+using IDLDouble = IDLFloatingPointNumberTypeBase<double>;
+using IDLUnrestrictedDouble = IDLFloatingPointNumberTypeBase<
+    double,
+    bindings::IDLFloatingPointNumberConvMode::kUnrestricted>;
 
 // Strings
 // The "Base" classes are always templatized and require users to specify how JS
@@ -179,29 +199,32 @@ enum class IDLStringConvMode {
 
 }  // namespace bindings
 
+// Base class for IDL string types (except for enumeration types)
+struct IDLStringTypeBase : public IDLBaseHelper<String> {};
+
 // ByteString
 template <bindings::IDLStringConvMode mode>
-struct IDLByteStringBaseV2 final : public IDLBaseHelper<String> {};
+struct IDLByteStringBaseV2 final : public IDLStringTypeBase {};
 using IDLByteStringV2 =
     IDLByteStringBaseV2<bindings::IDLStringConvMode::kDefault>;
 
 // DOMString
 template <bindings::IDLStringConvMode mode>
-struct IDLStringBaseV2 final : public IDLBaseHelper<String> {};
+struct IDLStringBaseV2 final : public IDLStringTypeBase {};
 using IDLStringV2 = IDLStringBaseV2<bindings::IDLStringConvMode::kDefault>;
 using IDLStringTreatNullAsEmptyStringV2 =
     IDLStringBaseV2<bindings::IDLStringConvMode::kTreatNullAsEmptyString>;
 
 // USVString
 template <bindings::IDLStringConvMode mode>
-struct IDLUSVStringBaseV2 final : public IDLBaseHelper<String> {};
+struct IDLUSVStringBaseV2 final : public IDLStringTypeBase {};
 using IDLUSVStringV2 =
     IDLUSVStringBaseV2<bindings::IDLStringConvMode::kDefault>;
 
 // [StringContext=TrustedHTML] DOMString
 template <bindings::IDLStringConvMode mode>
 struct IDLStringStringContextTrustedHTMLBaseV2 final
-    : public IDLBaseHelper<String> {};
+    : public IDLStringTypeBase {};
 using IDLStringStringContextTrustedHTMLV2 =
     IDLStringStringContextTrustedHTMLBaseV2<
         bindings::IDLStringConvMode::kDefault>;
@@ -212,7 +235,7 @@ using IDLStringStringContextTrustedHTMLTreatNullAsEmptyStringV2 =
 // [StringContext=TrustedScript] DOMString
 template <bindings::IDLStringConvMode mode>
 struct IDLStringStringContextTrustedScriptBaseV2 final
-    : public IDLBaseHelper<String> {};
+    : public IDLStringTypeBase {};
 using IDLStringStringContextTrustedScriptV2 =
     IDLStringStringContextTrustedScriptBaseV2<
         bindings::IDLStringConvMode::kDefault>;
@@ -223,7 +246,7 @@ using IDLStringStringContextTrustedScriptTreatNullAsEmptyStringV2 =
 // [StringContext=TrustedScriptURL] USVString
 template <bindings::IDLStringConvMode mode>
 struct IDLUSVStringStringContextTrustedScriptURLBaseV2 final
-    : public IDLBaseHelper<String> {};
+    : public IDLStringTypeBase {};
 using IDLUSVStringStringContextTrustedScriptURLV2 =
     IDLUSVStringStringContextTrustedScriptURLBaseV2<
         bindings::IDLStringConvMode::kDefault>;
@@ -268,6 +291,27 @@ struct IDLNullable final : public IDLBase {
       base::Optional<typename NativeValueTraits<T>::ImplType>>;
 };
 
+// Union types
+//
+// IDL union class FooOrBar implements either of IDL types (Foo or Bar),
+// (Foo? or Bar), and (Foo or Bar?), given that neither of Foo nor Bar is a
+// nullable type.
+// IDLUnionNotINT<FooOrBar> represents (Foo or Bar) and IDLUnionINT represents
+// either of (Foo? or Bar) or (Foo or Bar?) where INT stands for
+// "includes a nullable type".
+// https://heycam.github.io/webidl/#dfn-includes-a-nullable-type
+//
+// Note that a conversion from ES null to (Foo or Bar) throws a TypeError while
+// a conversion from ES null to (Foo? or Bar) results in IDL null.
+template <typename T>
+struct IDLUnionNotINT final : public IDLBase {
+  using ImplType = T;
+};
+template <typename T>
+struct IDLUnionINT final : public IDLBase {
+  using ImplType = T;
+};
+
 // Date
 struct IDLDate final : public IDLBaseHelper<base::Time> {};
 
@@ -276,6 +320,20 @@ struct IDLEventHandler final : public IDLBaseHelper<EventListener*> {};
 struct IDLOnBeforeUnloadEventHandler final
     : public IDLBaseHelper<EventListener*> {};
 struct IDLOnErrorEventHandler final : public IDLBaseHelper<EventListener*> {};
+
+// IDL optional types
+//
+// IDLOptional represents an optional argument and supports a conversion from
+// ES undefined to "missing" special value.  The "missing" value might be
+// represented in Blink as base::nullopt, nullptr, 0, etc. depending on a Blink
+// type.
+//
+// Note that IDLOptional is not meant to represent an optional dictionary
+// member.
+template <typename T>
+struct IDLOptional final : public IDLBase {
+  using ImplType = void;
+};
 
 }  // namespace blink
 

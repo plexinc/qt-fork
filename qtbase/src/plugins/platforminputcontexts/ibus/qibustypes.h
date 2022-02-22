@@ -39,7 +39,7 @@
 #ifndef QIBUSTYPES_H
 #define QIBUSTYPES_H
 
-#include <qvector.h>
+#include <qlist.h>
 #include <qevent.h>
 #include <QDBusArgument>
 #include <QTextCharFormat>
@@ -92,7 +92,7 @@ public:
     quint32 start;
     quint32 end;
 };
-Q_DECLARE_TYPEINFO(QIBusAttribute, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QIBusAttribute, Q_RELOCATABLE_TYPE);
 
 class QIBusAttributeList : private QIBusSerializable
 {
@@ -104,9 +104,9 @@ public:
     void serializeTo(QDBusArgument &argument) const;
     void deserializeFrom(const QDBusArgument &argument);
 
-    QVector<QIBusAttribute> attributes;
+    QList<QIBusAttribute> attributes;
 };
-Q_DECLARE_TYPEINFO(QIBusAttributeList, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QIBusAttributeList, Q_RELOCATABLE_TYPE);
 
 class QIBusText : private QIBusSerializable
 {
@@ -119,7 +119,7 @@ public:
     QString text;
     QIBusAttributeList attributes;
 };
-Q_DECLARE_TYPEINFO(QIBusText, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QIBusText, Q_RELOCATABLE_TYPE);
 
 class QIBusEngineDesc : private QIBusSerializable
 {
@@ -147,7 +147,7 @@ public:
     QString textdomain;
     QString iconpropkey;
 };
-Q_DECLARE_TYPEINFO(QIBusEngineDesc, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QIBusEngineDesc, Q_RELOCATABLE_TYPE);
 
 inline QDBusArgument &operator<<(QDBusArgument &argument, const QIBusAttribute &attribute)
 { attribute.serializeTo(argument); return argument; }

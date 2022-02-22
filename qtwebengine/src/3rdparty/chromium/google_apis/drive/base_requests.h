@@ -57,11 +57,16 @@ typedef base::OnceCallback<void(DriveApiErrorCode error,
     FileResourceCallback;
 
 // Callback used for DownloadFileRequest and ResumeUploadRequestBase.
-typedef base::Callback<void(int64_t progress, int64_t total)> ProgressCallback;
+// |first_chunk| indicates if |content| is from the very beginning of
+// the file being downloaded and helps consumers detect if download
+// was restarted, for example due to re-authentication.
+typedef base::RepeatingCallback<void(int64_t progress, int64_t total)>
+    ProgressCallback;
 
 // Callback used to get the content from DownloadFileRequest.
-typedef base::Callback<void(DriveApiErrorCode error,
-                            std::unique_ptr<std::string> content)>
+typedef base::RepeatingCallback<void(DriveApiErrorCode error,
+                                     std::unique_ptr<std::string> content,
+                                     bool first_chunk)>
     GetContentCallback;
 
 // Parses JSON passed in |json|. Returns NULL on failure.
@@ -131,8 +136,8 @@ class UrlFetchRequestBase : public AuthenticatedRequestInterface,
 
  protected:
   UrlFetchRequestBase(RequestSender* sender,
-                      const ProgressCallback& upload_progress_callback,
-                      const ProgressCallback& download_progress_callback);
+                      ProgressCallback upload_progress_callback,
+                      ProgressCallback download_progress_callback);
   ~UrlFetchRequestBase() override;
 
   // Does async initialization for the request. |Start| calls this method so you
@@ -228,11 +233,10 @@ class UrlFetchRequestBase : public AuthenticatedRequestInterface,
   static bool WriteFileData(std::string file_data, DownloadData* download_data);
 
   // Called by SimpleURLLoader to report download progress.
-  void OnDownloadProgress(const ProgressCallback& progress_callback,
-                          uint64_t current);
+  void OnDownloadProgress(ProgressCallback progress_callback, uint64_t current);
 
   // Called by SimpleURLLoader to report upload progress.
-  void OnUploadProgress(const ProgressCallback& progress_callback,
+  void OnUploadProgress(ProgressCallback progress_callback,
                         uint64_t position,
                         uint64_t total);
 
@@ -323,7 +327,7 @@ class BatchableDelegate {
 //============================ EntryActionRequest ============================
 
 // Callback type for requests that return only error status, like: Delete/Move.
-typedef base::Callback<void(DriveApiErrorCode error)> EntryActionCallback;
+using EntryActionCallback = base::OnceCallback<void(DriveApiErrorCode error)>;
 
 // This class performs a simple action over a given entry (document/file).
 // It is meant to be used for requests that return no JSON blobs.
@@ -331,8 +335,7 @@ class EntryActionRequest : public UrlFetchRequestBase {
  public:
   // |callback| is called when the request is finished either by success or by
   // failure. It must not be null.
-  EntryActionRequest(RequestSender* sender,
-                     const EntryActionCallback& callback);
+  EntryActionRequest(RequestSender* sender, EntryActionCallback callback);
   ~EntryActionRequest() override;
 
  protected:
@@ -344,7 +347,7 @@ class EntryActionRequest : public UrlFetchRequestBase {
   void RunCallbackOnPrematureFailure(DriveApiErrorCode code) override;
 
  private:
-  const EntryActionCallback callback_;
+  EntryActionCallback callback_;
 
   DISALLOW_COPY_AND_ASSIGN(EntryActionRequest);
 };
@@ -352,8 +355,9 @@ class EntryActionRequest : public UrlFetchRequestBase {
 //=========================== InitiateUploadRequestBase=======================
 
 // Callback type for DriveServiceInterface::InitiateUpload.
-typedef base::Callback<void(DriveApiErrorCode error,
-                            const GURL& upload_url)> InitiateUploadCallback;
+typedef base::OnceCallback<void(DriveApiErrorCode error,
+                                const GURL& upload_url)>
+    InitiateUploadCallback;
 
 // This class provides base implementation for performing the request for
 // initiating the upload of a file.
@@ -373,7 +377,7 @@ class InitiateUploadRequestBase : public UrlFetchRequestBase {
   // |content_type| and |content_length| should be the attributes of the
   // uploading file.
   InitiateUploadRequestBase(RequestSender* sender,
-                            const InitiateUploadCallback& callback,
+                            InitiateUploadCallback callback,
                             const std::string& content_type,
                             int64_t content_length);
   ~InitiateUploadRequestBase() override;
@@ -387,7 +391,7 @@ class InitiateUploadRequestBase : public UrlFetchRequestBase {
   std::vector<std::string> GetExtraRequestHeaders() const override;
 
  private:
-  const InitiateUploadCallback callback_;
+  InitiateUploadCallback callback_;
   const std::string content_type_;
   const int64_t content_length_;
 
@@ -423,7 +427,7 @@ class UploadRangeRequestBase : public UrlFetchRequestBase {
   // |upload_url| is the URL of where to upload the file to.
   UploadRangeRequestBase(RequestSender* sender,
                          const GURL& upload_url,
-                         const ProgressCallback& upload_progress_callback);
+                         ProgressCallback upload_progress_callback);
   ~UploadRangeRequestBase() override;
 
   // UrlFetchRequestBase overrides.
@@ -494,7 +498,7 @@ class ResumeUploadRequestBase : public UploadRangeRequestBase {
                           int64_t content_length,
                           const std::string& content_type,
                           const base::FilePath& local_file_path,
-                          const ProgressCallback& progress_callback);
+                          ProgressCallback progress_callback);
   ~ResumeUploadRequestBase() override;
 
   // UrlFetchRequestBase overrides.
@@ -565,7 +569,7 @@ class MultipartUploadRequestBase : public BatchableDelegate {
                              int64_t content_length,
                              const base::FilePath& local_file_path,
                              FileResourceCallback callback,
-                             const ProgressCallback& progress_callback);
+                             ProgressCallback progress_callback);
   ~MultipartUploadRequestBase() override;
 
   // BatchableDelegate.
@@ -617,8 +621,8 @@ class MultipartUploadRequestBase : public BatchableDelegate {
 //============================ DownloadFileRequest ===========================
 
 // Callback type for receiving the completion of DownloadFileRequest.
-typedef base::Callback<void(DriveApiErrorCode error,
-                            const base::FilePath& temp_file)>
+typedef base::OnceCallback<void(DriveApiErrorCode error,
+                                const base::FilePath& temp_file)>
     DownloadActionCallback;
 
 // This is a base class for performing the request for downloading a file.
@@ -641,13 +645,12 @@ class DownloadFileRequestBase : public UrlFetchRequestBase {
   // output_file_path:
   //   Specifies the file path to save the downloaded file.
   //
-  DownloadFileRequestBase(
-      RequestSender* sender,
-      const DownloadActionCallback& download_action_callback,
-      const GetContentCallback& get_content_callback,
-      const ProgressCallback& progress_callback,
-      const GURL& download_url,
-      const base::FilePath& output_file_path);
+  DownloadFileRequestBase(RequestSender* sender,
+                          DownloadActionCallback download_action_callback,
+                          const GetContentCallback& get_content_callback,
+                          ProgressCallback progress_callback,
+                          const GURL& download_url,
+                          const base::FilePath& output_file_path);
   ~DownloadFileRequestBase() override;
 
  protected:
@@ -662,7 +665,7 @@ class DownloadFileRequestBase : public UrlFetchRequestBase {
   void RunCallbackOnPrematureFailure(DriveApiErrorCode code) override;
 
  private:
-  const DownloadActionCallback download_action_callback_;
+  DownloadActionCallback download_action_callback_;
   const GetContentCallback get_content_callback_;
   const GURL download_url_;
   const base::FilePath output_file_path_;

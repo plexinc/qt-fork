@@ -107,6 +107,7 @@ class COMPONENT_EXPORT(UI_BASE_IME_WIN) TSFTextStore
  public:
   TSFTextStore();
   virtual ~TSFTextStore();
+  HRESULT Initialize();
 
   // ITextStoreACP:
   IFACEMETHODIMP_(ULONG) AddRef() override;
@@ -250,11 +251,12 @@ class COMPONENT_EXPORT(UI_BASE_IME_WIN) TSFTextStore
   // Sends OnLayoutChange() via |text_store_acp_sink_|.
   void SendOnLayoutChange();
 
-  void SetInputPanelPolicy(bool input_panel_policy_manual);
-
  private:
   friend class TSFTextStoreTest;
   friend class TSFTextStoreTestCallback;
+
+  // Reset states tracking the composition in the text store.
+  void ResetCompositionState();
 
   // Terminate an active composition for this text store.
   bool TerminateComposition();
@@ -294,6 +296,9 @@ class COMPONENT_EXPORT(UI_BASE_IME_WIN) TSFTextStore
                             const TfEditCookie read_only_edit_cookie,
                             size_t* committed_size,
                             ImeTextSpans* spans);
+
+  // Reset all cached flags when |TSFTextStore::RequestLock| returns.
+  void ResetCacheAfterEditSession();
 
   // Gets the style information from the display attribute for the actively
   // composed text.
@@ -377,6 +382,10 @@ class COMPONENT_EXPORT(UI_BASE_IME_WIN) TSFTextStore
   // TextInputClient::GetEditableSelectionRange();
   gfx::Range selection_from_client_;
 
+  // |composition_range_from_client_| indicates the composition range returned
+  // from TextInputClient::GetCompositionTextRange();
+  gfx::Range composition_from_client_;
+
   // |wparam_keydown_cached_| and |lparam_keydown_cached_| contains key event
   // info that is used to synthesize key event during composition.
   // |wparam_keydown_fired_| indicates if a keydown event has been fired.
@@ -390,6 +399,10 @@ class COMPONENT_EXPORT(UI_BASE_IME_WIN) TSFTextStore
   //    |selection_.start()|: 1
   //    |selection_.end()|: 4
   gfx::Range selection_;
+
+  // Indicates if the selection is an interim character. Please refer to
+  // https://docs.microsoft.com/en-us/windows/win32/api/textstor/ns-textstor-ts_selectionstyle
+  bool is_selection_interim_char_ = false;
 
   //  |start_offset| and |end_offset| of |text_spans_| indicates
   //  the offsets in |string_buffer_document_|.
@@ -409,6 +422,9 @@ class COMPONENT_EXPORT(UI_BASE_IME_WIN) TSFTextStore
   // Checks for re-entrancy while notifying changes to TSF.
   bool is_notification_in_progress_ = false;
 
+  // Checks for re-entrancy while writing to text input client.
+  bool is_tic_write_in_progress_ = false;
+
   // The type of current lock.
   //   0: No lock.
   //   TS_LF_READ: read-only lock.
@@ -423,15 +439,6 @@ class COMPONENT_EXPORT(UI_BASE_IME_WIN) TSFTextStore
   Microsoft::WRL::ComPtr<ITfCategoryMgr> category_manager_;
   Microsoft::WRL::ComPtr<ITfDisplayAttributeMgr> display_attribute_manager_;
   Microsoft::WRL::ComPtr<ITfContext> context_;
-
-  // input_panel_policy_manual_ equals to false would make the SIP policy
-  // to automatic meaning TSF would raise/dismiss the SIP based on TSFTextStore
-  // focus and other heuristics that input service have added on Windows to
-  // provide a consistent behavior across all apps on Windows.
-  // input_panel_policy_manual_ equals to true would make the SIP policy to
-  // manual meaning TSF wouldn't raise/dismiss the SIP automatically. This is
-  // used to control the SIP behavior based on user interaction with the page.
-  bool input_panel_policy_manual_ = true;
 
   DISALLOW_COPY_AND_ASSIGN(TSFTextStore);
 };

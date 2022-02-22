@@ -40,7 +40,7 @@
 #include "qlayout.h"
 #include "private/qlayoutengine_p.h"
 
-#include "qvector.h"
+#include "qlist.h"
 #include "qwidget.h"
 
 #include <qvarlengtharray.h>
@@ -73,8 +73,7 @@ static inline int fRound(Fixed64 i) {
   count is the count of items in the chain; pos and space give the
   interval (relative to parentWidget topLeft).
 */
-void qGeomCalc(QVector<QLayoutStruct> &chain, int start, int count,
-               int pos, int space, int spacer)
+void qGeomCalc(QList<QLayoutStruct> &chain, int start, int count, int pos, int space, int spacer)
 {
     int cHint = 0;
     int cMin = 0;
@@ -376,11 +375,7 @@ Q_WIDGETS_EXPORT QSize qSmartMinSize(const QSize &sizeHint, const QSize &minSize
 
 Q_WIDGETS_EXPORT QSize qSmartMinSize(const QWidgetItem *i)
 {
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-    QWidget *w = const_cast<QWidgetItem *>(i)->widget();
-#else
     QWidget *w = i->widget();
-#endif
     return qSmartMinSize(w->sizeHint(), w->minimumSizeHint(),
                             w->minimumSize(), w->maximumSize(),
                             w->sizePolicy());
@@ -418,11 +413,7 @@ Q_WIDGETS_EXPORT QSize qSmartMaxSize(const QSize &sizeHint,
 
 Q_WIDGETS_EXPORT QSize qSmartMaxSize(const QWidgetItem *i, Qt::Alignment align)
 {
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-    QWidget *w = const_cast<QWidgetItem *>(i)->widget();
-#else
     QWidget *w = i->widget();
-#endif
     return qSmartMaxSize(w->sizeHint().expandedTo(w->minimumSizeHint()), w->minimumSize(), w->maximumSize(),
                             w->sizePolicy(), align);
 }

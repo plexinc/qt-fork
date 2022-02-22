@@ -13,11 +13,13 @@
 #include "base/feature_list.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/optional.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/variations/client_filterable_state.h"
 #include "components/variations/processed_study.h"
 #include "components/variations/study_filtering.h"
 #include "components/variations/variations_associated_data.h"
+#include "components/variations/variations_layers.h"
 
 namespace variations {
 
@@ -35,26 +37,60 @@ void RegisterExperimentParams(const Study& study,
     AssociateVariationParams(study.name(), experiment.name(), params);
 }
 
-// If there are variation ids associated with |experiment|, register the
-// variation ids.
+// Returns the IDCollectionKey with which |experiment| should be associated.
+// Returns nullopt when |experiment| doesn't have a Google web or Google web
+// trigger experiment ID.
+base::Optional<IDCollectionKey> GetKeyForWebExperiment(
+    const Study_Experiment& experiment) {
+  bool has_web_experiment_id = experiment.has_google_web_experiment_id();
+  bool has_web_trigger_experiment_id =
+      experiment.has_google_web_trigger_experiment_id();
+
+  if (!has_web_experiment_id && !has_web_trigger_experiment_id)
+    return base::nullopt;
+
+  // An experiment cannot have both |google_web_experiment_id| and
+  // |google_trigger_web_experiment_id|. This is enforced by the variations
+  // server before generating a variations seed.
+  DCHECK(!(has_web_experiment_id && has_web_trigger_experiment_id));
+
+  Study_GoogleWebVisibility visibility = experiment.google_web_visibility();
+  if (visibility == Study_GoogleWebVisibility_FIRST_PARTY) {
+    return has_web_trigger_experiment_id
+               ? GOOGLE_WEB_PROPERTIES_TRIGGER_FIRST_PARTY
+               : GOOGLE_WEB_PROPERTIES_FIRST_PARTY;
+  }
+  return has_web_trigger_experiment_id
+             ? GOOGLE_WEB_PROPERTIES_TRIGGER_ANY_CONTEXT
+             : GOOGLE_WEB_PROPERTIES_ANY_CONTEXT;
+}
+
+// If there are VariationIDs associated with |experiment|, register the
+// VariationIDs.
 void RegisterVariationIds(const Study_Experiment& experiment,
                           const std::string& trial_name) {
-  if (experiment.has_google_web_experiment_id()) {
+  if (experiment.has_google_app_experiment_id()) {
     const VariationID variation_id =
-        static_cast<VariationID>(experiment.google_web_experiment_id());
-    AssociateGoogleVariationIDForce(GOOGLE_WEB_PROPERTIES,
-                                    trial_name,
-                                    experiment.name(),
+        static_cast<VariationID>(experiment.google_app_experiment_id());
+    AssociateGoogleVariationIDForce(GOOGLE_APP, trial_name, experiment.name(),
                                     variation_id);
   }
-  if (experiment.has_google_web_trigger_experiment_id()) {
-    const VariationID variation_id =
-        static_cast<VariationID>(experiment.google_web_trigger_experiment_id());
-    AssociateGoogleVariationIDForce(GOOGLE_WEB_PROPERTIES_TRIGGER,
-                                    trial_name,
-                                    experiment.name(),
-                                    variation_id);
-  }
+
+  base::Optional<IDCollectionKey> key = GetKeyForWebExperiment(experiment);
+  if (!key.has_value())
+    return;
+
+  // An experiment cannot have both |google_web_experiment_id| and
+  // |google_trigger_web_experiment_id|. See GetKeyForWebExperiment() for more
+  // details.
+  const VariationID variation_id =
+      experiment.has_google_web_trigger_experiment_id()
+          ? static_cast<VariationID>(
+                experiment.google_web_trigger_experiment_id())
+          : static_cast<VariationID>(experiment.google_web_experiment_id());
+
+  AssociateGoogleVariationIDForce(key.value(), trial_name, experiment.name(),
+                                  variation_id);
 }
 
 // Executes |callback| on every override defined by |experiment|.
@@ -165,7 +201,8 @@ void VariationsSeedProcessor::CreateTrialsFromSeed(
     const base::FieldTrial::EntropyProvider* low_entropy_provider,
     base::FeatureList* feature_list) {
   std::vector<ProcessedStudy> filtered_studies;
-  FilterAndValidateStudies(seed, client_state, &filtered_studies);
+  VariationsLayers layers(seed, low_entropy_provider);
+  FilterAndValidateStudies(seed, client_state, layers, &filtered_studies);
   SetSeedVersion(seed.version());
 
   for (const ProcessedStudy& study : filtered_studies) {
@@ -176,6 +213,8 @@ void VariationsSeedProcessor::CreateTrialsFromSeed(
 
 // static
 bool VariationsSeedProcessor::ShouldStudyUseLowEntropy(const Study& study) {
+  // This should be kept in sync with the server-side layer validation
+  // code: https://go/chrome-variations-layer-validation
   for (int i = 0; i < study.experiment_size(); ++i) {
     const Study_Experiment& experiment = study.experiment(i);
     if (experiment.has_google_web_experiment_id() ||

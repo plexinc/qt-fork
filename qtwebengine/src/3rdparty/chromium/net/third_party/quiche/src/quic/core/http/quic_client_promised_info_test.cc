@@ -2,22 +2,23 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/http/quic_client_promised_info.h"
+#include "quic/core/http/quic_client_promised_info.h"
 
 #include <memory>
 #include <string>
 #include <utility>
 
-#include "net/third_party/quiche/src/quic/core/http/quic_spdy_client_session.h"
-#include "net/third_party/quiche/src/quic/core/http/spdy_server_push_utils.h"
-#include "net/third_party/quiche/src/quic/core/quic_utils.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_socket_address.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/test_tools/crypto_test_utils.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_client_promised_info_peer.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_spdy_session_peer.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
+#include "quic/core/crypto/null_encrypter.h"
+#include "quic/core/http/quic_spdy_client_session.h"
+#include "quic/core/http/spdy_server_push_utils.h"
+#include "quic/core/quic_utils.h"
+#include "quic/platform/api/quic_logging.h"
+#include "quic/platform/api/quic_socket_address.h"
+#include "quic/platform/api/quic_test.h"
+#include "quic/test_tools/crypto_test_utils.h"
+#include "quic/test_tools/quic_client_promised_info_peer.h"
+#include "quic/test_tools/quic_spdy_session_peer.h"
+#include "quic/test_tools/quic_test_utils.h"
 
 using spdy::SpdyHeaderBlock;
 using testing::_;
@@ -52,7 +53,10 @@ class MockQuicSpdyClientSession : public QuicSpdyClientSession {
 
   void set_authorized(bool authorized) { authorized_ = authorized; }
 
-  MOCK_METHOD1(CloseStream, void(QuicStreamId stream_id));
+  MOCK_METHOD(bool,
+              WriteControlFrame,
+              (const QuicFrame& frame, TransmissionType type),
+              (override));
 
  private:
   QuicCryptoClientConfig crypto_config_;
@@ -75,6 +79,9 @@ class QuicClientPromisedInfoTest : public QuicTest {
         promise_id_(
             QuicUtils::GetInvalidStreamId(connection_->transport_version())) {
     connection_->AdvanceTime(QuicTime::Delta::FromSeconds(1));
+    connection_->SetEncrypter(
+        ENCRYPTION_FORWARD_SECURE,
+        std::make_unique<NullEncrypter>(connection_->perspective()));
     session_.Initialize();
 
     headers_[":status"] = "200";
@@ -144,7 +151,7 @@ TEST_F(QuicClientPromisedInfoTest, PushPromiseCleanupAlarm) {
   ASSERT_NE(promised, nullptr);
 
   // Fire the alarm that will cancel the promised stream.
-  EXPECT_CALL(*connection_, SendControlFrame(_));
+  EXPECT_CALL(session_, WriteControlFrame(_, _));
   EXPECT_CALL(*connection_,
               OnStreamReset(promise_id_, QUIC_PUSH_STREAM_TIMED_OUT));
   alarm_factory_.FireAlarm(QuicClientPromisedInfoPeer::GetAlarm(promised));
@@ -158,7 +165,7 @@ TEST_F(QuicClientPromisedInfoTest, PushPromiseInvalidMethod) {
   // Promise with an unsafe method
   push_promise_[":method"] = "PUT";
 
-  EXPECT_CALL(*connection_, SendControlFrame(_));
+  EXPECT_CALL(session_, WriteControlFrame(_, _));
   EXPECT_CALL(*connection_,
               OnStreamReset(promise_id_, QUIC_INVALID_PROMISE_METHOD));
   ReceivePromise(promise_id_);
@@ -172,7 +179,7 @@ TEST_F(QuicClientPromisedInfoTest, PushPromiseMissingMethod) {
   // Promise with a missing method
   push_promise_.erase(":method");
 
-  EXPECT_CALL(*connection_, SendControlFrame(_));
+  EXPECT_CALL(session_, WriteControlFrame(_, _));
   EXPECT_CALL(*connection_,
               OnStreamReset(promise_id_, QUIC_INVALID_PROMISE_METHOD));
   ReceivePromise(promise_id_);
@@ -186,7 +193,7 @@ TEST_F(QuicClientPromisedInfoTest, PushPromiseInvalidUrl) {
   // Remove required header field to make URL invalid
   push_promise_.erase(":authority");
 
-  EXPECT_CALL(*connection_, SendControlFrame(_));
+  EXPECT_CALL(session_, WriteControlFrame(_, _));
   EXPECT_CALL(*connection_,
               OnStreamReset(promise_id_, QUIC_INVALID_PROMISE_URL));
   ReceivePromise(promise_id_);
@@ -199,7 +206,7 @@ TEST_F(QuicClientPromisedInfoTest, PushPromiseInvalidUrl) {
 TEST_F(QuicClientPromisedInfoTest, PushPromiseUnauthorizedUrl) {
   session_.set_authorized(false);
 
-  EXPECT_CALL(*connection_, SendControlFrame(_));
+  EXPECT_CALL(session_, WriteControlFrame(_, _));
   EXPECT_CALL(*connection_,
               OnStreamReset(promise_id_, QUIC_UNAUTHORIZED_PROMISE_URL));
 
@@ -224,10 +231,9 @@ TEST_F(QuicClientPromisedInfoTest, PushPromiseMismatch) {
                                      headers);
 
   TestPushPromiseDelegate delegate(/*match=*/false);
-  EXPECT_CALL(*connection_, SendControlFrame(_));
+  EXPECT_CALL(session_, WriteControlFrame(_, _));
   EXPECT_CALL(*connection_,
               OnStreamReset(promise_id_, QUIC_PROMISE_VARY_MISMATCH));
-  EXPECT_CALL(session_, CloseStream(promise_id_));
 
   promised->HandleClientRequest(client_request_, &delegate);
 }
@@ -303,8 +309,7 @@ TEST_F(QuicClientPromisedInfoTest, PushPromiseWaitCancels) {
   session_.GetOrCreateStream(promise_id_);
 
   // Cancel the promised stream.
-  EXPECT_CALL(session_, CloseStream(promise_id_));
-  EXPECT_CALL(*connection_, SendControlFrame(_));
+  EXPECT_CALL(session_, WriteControlFrame(_, _));
   EXPECT_CALL(*connection_, OnStreamReset(promise_id_, QUIC_STREAM_CANCELLED));
   promised->Cancel();
 
@@ -327,11 +332,10 @@ TEST_F(QuicClientPromisedInfoTest, PushPromiseDataClosed) {
   promise_stream->OnStreamHeaderList(false, headers.uncompressed_header_bytes(),
                                      headers);
 
-  EXPECT_CALL(session_, CloseStream(promise_id_));
-  EXPECT_CALL(*connection_, SendControlFrame(_));
+  EXPECT_CALL(session_, WriteControlFrame(_, _));
   EXPECT_CALL(*connection_,
               OnStreamReset(promise_id_, QUIC_STREAM_PEER_GOING_AWAY));
-  session_.SendRstStream(promise_id_, QUIC_STREAM_PEER_GOING_AWAY, 0);
+  session_.ResetStream(promise_id_, QUIC_STREAM_PEER_GOING_AWAY);
 
   // Now initiate rendezvous.
   TestPushPromiseDelegate delegate(/*match=*/true);

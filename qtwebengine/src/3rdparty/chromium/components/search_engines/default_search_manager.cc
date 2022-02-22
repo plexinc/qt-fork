@@ -11,10 +11,10 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
+#include "base/check.h"
 #include "base/compiler_specific.h"
 #include "base/i18n/case_conversion.h"
-#include "base/logging.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -87,12 +87,12 @@ DefaultSearchManager::DefaultSearchManager(
     pref_change_registrar_.Init(pref_service_);
     pref_change_registrar_.Add(
         kDefaultSearchProviderDataPrefName,
-        base::Bind(&DefaultSearchManager::OnDefaultSearchPrefChanged,
-                   base::Unretained(this)));
+        base::BindRepeating(&DefaultSearchManager::OnDefaultSearchPrefChanged,
+                            base::Unretained(this)));
     pref_change_registrar_.Add(
         prefs::kSearchProviderOverrides,
-        base::Bind(&DefaultSearchManager::OnOverridesPrefChanged,
-                   base::Unretained(this)));
+        base::BindRepeating(&DefaultSearchManager::OnOverridesPrefChanged,
+                            base::Unretained(this)));
   }
   LoadPrepopulatedDefaultSearch();
   LoadDefaultSearchEngineFromPrefs();
@@ -142,6 +142,38 @@ const TemplateURLData* DefaultSearchManager::GetDefaultSearchEngine(
   if (source)
     *source = FROM_FALLBACK;
   return GetFallbackSearchEngine();
+}
+
+std::unique_ptr<TemplateURLData>
+DefaultSearchManager::GetDefaultSearchEngineIgnoringExtensions() const {
+  if (prefs_default_search_)
+    return std::make_unique<TemplateURLData>(*prefs_default_search_);
+
+  if (default_search_controlled_by_policy_) {
+    // If a policy specified a specific engine, it would be returned above
+    // as |prefs_default_search_|. The only other scenario is that policy has
+    // disabled default search, in which case we return null.
+    return nullptr;
+  }
+
+  // |prefs_default_search_| may not be populated even if there is a user
+  // preference; check prefs directly as the source of truth.
+  const base::Value* user_value =
+      pref_service_->GetUserPrefValue(kDefaultSearchProviderDataPrefName);
+  if (user_value && user_value->is_dict()) {
+    const base::DictionaryValue* dict_value = nullptr;
+    user_value->GetAsDictionary(&dict_value);
+    DCHECK(dict_value);
+    auto turl_data = TemplateURLDataFromDictionary(*dict_value);
+    if (turl_data)
+      return turl_data;
+  }
+
+  const TemplateURLData* fallback = GetFallbackSearchEngine();
+  if (fallback)
+    return std::make_unique<TemplateURLData>(*fallback);
+
+  return nullptr;
 }
 
 DefaultSearchManager::Source

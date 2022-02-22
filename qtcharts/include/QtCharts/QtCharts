@@ -2,7 +2,6 @@
 #define QT_QTCHARTS_MODULE_H
 #include <QtCharts/QtChartsDepends>
 #include "qchartglobal.h"
-#include "chartsnamespace.h"
 #include "qabstractaxis.h"
 #include "qabstractbarseries.h"
 #include "qabstractseries.h"
@@ -24,6 +23,7 @@
 #include "qcategoryaxis.h"
 #include "qchart.h"
 #include "qchartview.h"
+#include "qcoloraxis.h"
 #include "qdatetimeaxis.h"
 #include "qhbarmodelmapper.h"
 #include "qhboxplotmodelmapper.h"

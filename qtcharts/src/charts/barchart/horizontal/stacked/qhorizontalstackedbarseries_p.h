@@ -43,18 +43,18 @@
 #include <private/abstractdomain_p.h>
 #include <QtCharts/private/qchartglobal_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class Q_CHARTS_PRIVATE_EXPORT QHorizontalStackedBarSeriesPrivate: public QAbstractBarSeriesPrivate
 {
 public:
     QHorizontalStackedBarSeriesPrivate(QHorizontalStackedBarSeries *q);
-    void initializeGraphics(QGraphicsItem* parent);
-    void initializeDomain();
+    void initializeGraphics(QGraphicsItem* parent) override;
+    void initializeDomain() override;
 private:
     Q_DECLARE_PUBLIC(QHorizontalStackedBarSeries)
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // QHORIZONTALSTACKEDBARSERIES_P_H

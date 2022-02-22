@@ -97,6 +97,7 @@ Entity {
         slices: 20
     }
 
+
     Transform {
         id: torusTransform
         scale3D: Qt.vector3d(1.5, 1, 0.5)

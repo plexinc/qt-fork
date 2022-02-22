@@ -34,7 +34,7 @@
 \section1 Overview
 
 This document describes how to deploy and use the Qt Virtual Keyboard plugin
-with Qt 5 applications.
+with Qt applications.
 
 \section1 Deployment
 
@@ -48,21 +48,32 @@ locations:
     \li Boot2Qt install path
 \row
     \li qtvirtualkeyboardplugin
-    \li \c $$[QT_INSTALL_PLUGINS]/platforminputcontexts
+    \li \c <QT_INSTALL_PLUGINS>/platforminputcontexts
     \li \c /system/plugins/platforminputcontexts
 \row
     \li qtvirtualkeyboardextensionplugin
-    \li \c $$[QT_INSTALL_PLUGINS]/virtualkeyboard
+    \li \c <QT_INSTALL_PLUGINS>/virtualkeyboard
     \li \c /system/plugins/virtualkeyboard
 \row
     \li qtvirtualkeyboardplugin QML files
-    \li \c $$[QT_INSTALL_QML]/QtQuick/VirtualKeyboard
+    \li \c <QT_INSTALL_QML>/QtQuick/VirtualKeyboard
     \li \c /system/qml/QtQuick/VirtualKeyboard
 \row
     \li qtvirtualkeyboardstylesplugin
-    \li \c $$[QT_INSTALL_QML]/QtQuick/VirtualKeyboard/Styles
+    \li \c <QT_INSTALL_QML>/QtQuick/VirtualKeyboard/Styles
     \li \c /system/qml/QtQuick/VirtualKeyboard/Styles
 \endtable
+
+\section2 Dependencies
+
+The Qt Virtual Keyboard plugin \e (qtvirtualkeyboardplugin) has a dependency
+to the \e {libQt\QtMajorVersion}\e{\VirtualKeyboard} library. In addition, the
+plugin depends on Qt Quick. Therefore, a stand-alone application based on
+\l [QtWidgets] {Qt Widgets} must deploy also the
+\e {libQt\QtMajorVersion}\e{Quick} library and its dependencies in order to
+use the virtual keyboard.
+
+Read more at \l {Deploying Qt's Libraries}.
 
 \section1 Integration Method
 
@@ -70,9 +81,8 @@ Qt Virtual Keyboard currently supports two alternative integration methods
 for using the plugin:
 
 \list
-    \li \c Desktop: requires no changes to existing applications.
-        The virtual keyboard is available to all of the Qt 5 applications
-        in the system.
+    \li \c Desktop: requires no changes to existing applications. The virtual
+        keyboard is available to all Qt applications in the system.
 
         In this integration method, the keyboard is shown in a dedicated
         top-level window.
@@ -195,7 +205,7 @@ There are several environment variables defined by the module that are listed be
         \li Overrides the location of the Hunspell data files.
 
             The default location depends on the value of
-            \c {QLibraryInfo::location(QLibraryInfo::DataPath)}.
+            \c {QLibraryInfo::path(QLibraryInfo::DataPath)}.
             For example, for Qt libraries built from source,
             it could be \c {qtbase/qtvirtualkeyboard/hunspell}.
 
@@ -208,7 +218,7 @@ There are several environment variables defined by the module that are listed be
 
             To disable resource bundling, add \c CONFIG+=no-bundle-pinyin in the
             plugin's qmake command line. In this scenario, the default location
-            depends on the value of \c {QLibraryInfo::location(QLibraryInfo::DataPath)}.
+            depends on the value of \c {QLibraryInfo::path(QLibraryInfo::DataPath)}.
             For example, for Qt libraries built from source,
             it could be \c {qtbase/qtvirtualkeyboard/pinyin/dict_pinyin.dat}.
     \row
@@ -219,7 +229,7 @@ There are several environment variables defined by the module that are listed be
 
             To disable resource bundling, add \c CONFIG+=no-bundle-tcime in the
             plugin's qmake command line. In this scenario, the default location
-            depends on the value of \c {QLibraryInfo::location(QLibraryInfo::DataPath)}.
+            depends on the value of \c {QLibraryInfo::path(QLibraryInfo::DataPath)}.
             For example, for Qt libraries built from source,
             it could be \c {qtbase/qtvirtualkeyboard/tcime/dict_cangjie.dat}.
     \row
@@ -230,7 +240,7 @@ There are several environment variables defined by the module that are listed be
 
             To disable resource bundling, add \c CONFIG+=no-bundle-tcime in the
             plugin's qmake command line. In this scenario, the default location
-            depends on the value of \c {QLibraryInfo::location(QLibraryInfo::DataPath)}.
+            depends on the value of \c {QLibraryInfo::path(QLibraryInfo::DataPath)}.
             For example, for Qt libraries built from source,
             it could be \c {qtbase/qtvirtualkeyboard/tcime/dict_zhuyin.dat}.
     \row
@@ -241,38 +251,50 @@ There are several environment variables defined by the module that are listed be
 
             To disable resource bundling, add \c CONFIG+=no-bundle-tcime in the
             plugin's qmake command line. In this scenario, the default location
-            depends on the value of \c {QLibraryInfo::location(QLibraryInfo::DataPath)}.
+            depends on the value of \c {QLibraryInfo::path(QLibraryInfo::DataPath)}.
             For example, for Qt libraries built from source,
             it could be \c {qtbase/qtvirtualkeyboard/tcime/dict_phrases.dat}.
+    \row
+        \li QT_VIRTUALKEYBOARD_CERENCE_HWR_DB_PATH
+        \li Specifies the location of Cerence Handwriting handwriting database.
+
+            The default search location for Cerence Handwriting handwriting database are:
+            \list
+            \li \c QT_VIRTUALKEYBOARD_CERENCE_HWR_DB_PATH
+            \li \c {QLibraryInfo::location(QLibraryInfo::DataPath) + "/qtvirtualkeyboard/cerence/handwriting"}
+            \li \c {":/QtQuick/VirtualKeyboard/Cerence/Handwriting"}
+            \endlist
+
+            The environment variable may contain multiple paths. Multiple paths are separated with
+            semicolon in Windows and with colon in other operating systems.
+    \row
+        \li QT_VIRTUALKEYBOARD_XT9_LDB_PATH
+        \li Specifies the location of XT9 databases.
+
+            The default search location for LDB files are:
+            \list
+            \li \c QT_VIRTUALKEYBOARD_XT9_LDB_PATH
+            \li \c {QLibraryInfo::location(QLibraryInfo::DataPath) + "/qtvirtualkeyboard/cerence/xt9"}
+            \li \c {":/QtQuick/VirtualKeyboard/Cerence/Xt9"}
+            \endlist
+
+            Additional search paths can be specified by setting this environment variable. Multiple paths are
+            separated with semicolon in Windows and with colon in other operating systems.
+
+            The LDB files are shared between XT9 and Cerence Handwriting plugins, so this environment variable
+            affects both plugins.
     \row
         \li QT_VIRTUALKEYBOARD_STYLE
         \li Specifies the location of the style to use with the virtual keyboard.
 
             This can also be specified in QML by setting \l {VirtualKeyboardSettings::styleName},
-            or at build time by using the \l {Advanced Configuration Options}{qmake configuration options}.
+            or at build time by using the \l {Advanced Usage}{qmake advanced configuration options}.
     \row
         \li QT_VIRTUALKEYBOARD_LAYOUT_PATH
         \li Specifies the location of the layouts to be used with the virtual keyboard.
     \row
         \li QT_VIRTUALKEYBOARD_DESKTOP_DISABLE
         \li Disables the desktop integration method.
-    \row
-        \li LIPI_ROOT
-        \li Specifies the location of lipi-toolkit.
-
-            The default location depends on the value of
-            \c {QLibraryInfo::location(QLibraryInfo::DataPath)}.
-            For example, for Qt libraries built from source,
-            it could be \c {qtbase/qtvirtualkeyboard/lipi_toolkit}.
-    \row
-        \li LIPI_LIB
-        \li Specifies the location of lipi-toolkit plugins.
-
-            The default location depends on \c LIPI_ROOT:
-            \list
-            \li \c {LIPI_ROOT + "/lib"} if \c LIPI_ROOT is set.
-            \li \c {QLibraryInfo::location(QLibraryInfo::PluginsPath) + "/lipi_toolkit"} if \c LIPI_ROOT is not set.
-            \endlist
     \row
         \li QT_VIRTUALKEYBOARD_FORCE_EVENTS_WITHOUT_FOCUS
         \li Enables Qt Virtual Keyboard to send key events and use Shift key without having any text input in focus.

@@ -10,6 +10,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/scriptable_document_parser.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/inspector/inspector_trace_events.h"
 #include "third_party/blink/renderer/core/loader/document_loader.h"
@@ -42,9 +43,10 @@ ClassicPendingScript* ClassicPendingScript::Fetch(
     const WTF::TextEncoding& encoding,
     ScriptElementBase* element,
     FetchParameters::DeferOption defer) {
-  FetchParameters params(
-      options.CreateFetchParameters(url, element_document.GetSecurityOrigin(),
-                                    cross_origin, encoding, defer));
+  ExecutionContext* context = element_document.GetExecutionContext();
+  FetchParameters params(options.CreateFetchParameters(
+      url, context->GetSecurityOrigin(), context->GetCurrentWorld(),
+      cross_origin, encoding, defer));
 
   ClassicPendingScript* pending_script =
       MakeGarbageCollected<ClassicPendingScript>(
@@ -120,91 +122,55 @@ ClassicPendingScript::ClassicPendingScript(
 ClassicPendingScript::~ClassicPendingScript() {}
 
 NOINLINE void ClassicPendingScript::CheckState() const {
-  // TODO(hiroshige): Turn these CHECK()s into DCHECK() before going to beta.
-  CHECK(GetElement());
-  CHECK_EQ(is_external_, !!GetResource());
+  DCHECK(GetElement());
+  DCHECK_EQ(is_external_, !!GetResource());
 }
 
-namespace {
 
-enum class StreamedBoolean {
-  // Must match BooleanStreamed in enums.xml.
-  kNotStreamed = 0,
-  kStreamed = 1,
-  kMaxValue = kStreamed
-};
+void ClassicPendingScript::RecordThirdPartyRequestWithCookieIfNeeded(
+    const ResourceResponse& response) const {
+  // Can be null in some cases where loading failed.
+  if (response.IsNull())
+    return;
 
-void RecordStartedStreamingHistogram(ScriptSchedulingType type,
-                                     bool did_use_streamer) {
-  StreamedBoolean streamed = did_use_streamer ? StreamedBoolean::kStreamed
-                                              : StreamedBoolean::kNotStreamed;
-  switch (type) {
-    case ScriptSchedulingType::kParserBlocking: {
-      UMA_HISTOGRAM_ENUMERATION(
-          "WebCore.Scripts.ParsingBlocking.StartedStreaming", streamed);
-      break;
-    }
-    case ScriptSchedulingType::kDefer: {
-      UMA_HISTOGRAM_ENUMERATION("WebCore.Scripts.Deferred.StartedStreaming",
-                                streamed);
-      break;
-    }
-    case ScriptSchedulingType::kAsync: {
-      UMA_HISTOGRAM_ENUMERATION("WebCore.Scripts.Async.StartedStreaming",
-                                streamed);
-      break;
-    }
-    default: {
-      UMA_HISTOGRAM_ENUMERATION("WebCore.Scripts.Other.StartedStreaming",
-                                streamed);
-      break;
-    }
+  scoped_refptr<SecurityOrigin> script_origin =
+      SecurityOrigin::Create(response.ResponseUrl());
+  const SecurityOrigin* doc_origin =
+      GetElement()->GetExecutionContext()->GetSecurityOrigin();
+  scoped_refptr<const SecurityOrigin> top_frame_origin =
+      GetElement()->GetDocument().TopFrameOrigin();
+
+  // The use counter is meant to gather data for prerendering: how often do
+  // pages make credentialed requests to third parties from first-party frames,
+  // that cannot be delayed during prerendering until the page is navigated to.
+  // Therefore...
+
+  // Ignore third-party frames.
+  if (!top_frame_origin || top_frame_origin->RegistrableDomain() !=
+                               doc_origin->RegistrableDomain()) {
+    return;
   }
+
+  // Ignore first-party requests.
+  if (doc_origin->RegistrableDomain() == script_origin->RegistrableDomain())
+    return;
+
+  // Ignore cookie-less requests.
+  if (!response.WasCookieInRequest())
+    return;
+
+  // Ignore scripts that can be delayed. This is only async scripts currently.
+  // kDefer and kForceDefer don't count as delayable since delaying them
+  // artificially further while prerendering would prevent the page from making
+  // progress.
+  if (GetSchedulingType() == ScriptSchedulingType::kAsync)
+    return;
+
+  GetElement()->GetExecutionContext()->CountUse(
+      mojom::blink::WebFeature::
+          kUndeferrableThirdPartySubresourceRequestWithCookie);
 }
 
-void RecordNotStreamingReasonHistogram(
-    ScriptSchedulingType type,
-    ScriptStreamer::NotStreamingReason reason) {
-  switch (type) {
-    case ScriptSchedulingType::kParserBlocking: {
-      UMA_HISTOGRAM_ENUMERATION(
-          "WebCore.Scripts.ParsingBlocking.NotStreamingReason", reason,
-          ScriptStreamer::NotStreamingReason::kCount);
-      break;
-    }
-    case ScriptSchedulingType::kDefer: {
-      UMA_HISTOGRAM_ENUMERATION("WebCore.Scripts.Deferred.NotStreamingReason",
-                                reason,
-                                ScriptStreamer::NotStreamingReason::kCount);
-      break;
-    }
-    case ScriptSchedulingType::kAsync: {
-      UMA_HISTOGRAM_ENUMERATION("WebCore.Scripts.Async.NotStreamingReason",
-                                reason,
-                                ScriptStreamer::NotStreamingReason::kCount);
-      break;
-    }
-    default: {
-      UMA_HISTOGRAM_ENUMERATION("WebCore.Scripts.Other.NotStreamingReason",
-                                reason,
-                                ScriptStreamer::NotStreamingReason::kCount);
-      break;
-    }
-  }
-}
-
-}  // namespace
-
-void ClassicPendingScript::RecordStreamingHistogram(
-    ScriptSchedulingType type,
-    bool can_use_streamer,
-    ScriptStreamer::NotStreamingReason reason) {
-  RecordStartedStreamingHistogram(type, can_use_streamer);
-  if (!can_use_streamer) {
-    DCHECK_NE(ScriptStreamer::kInvalid, reason);
-    RecordNotStreamingReasonHistogram(type, reason);
-  }
-}
 
 void ClassicPendingScript::DisposeInternal() {
   MemoryPressureListenerRegistry::Instance().UnregisterClient(this);
@@ -212,23 +178,13 @@ void ClassicPendingScript::DisposeInternal() {
   integrity_failure_ = false;
 }
 
-void ClassicPendingScript::WatchForLoad(PendingScriptClient* client) {
-  if (is_external_) {
-    // Once we are watching the ClassicPendingScript for load, we won't ever
-    // try to start streaming this resource via this ClassicPendingScript, so
-    // we mark the resource to instead get a finished notification when loading
-    // (rather than streaming) completes.
-    //
-    // Do this in a task rather than directly to make sure the IsReady state
-    // of PendingScript does not change during this call.
-    GetElement()
-        ->GetDocument()
-        .GetTaskRunner(TaskType::kNetworking)
-        ->PostTask(FROM_HERE,
-                   WTF::Bind(&ScriptResource::SetClientIsWaitingForFinished,
-                             WrapPersistent(ToScriptResource(GetResource()))));
-  }
-  PendingScript::WatchForLoad(client);
+bool ClassicPendingScript::IsEligibleForDelay() const {
+  DCHECK_EQ(GetSchedulingType(), ScriptSchedulingType::kAsync);
+  // We don't delay async scripts that have matched a resource in the preload
+  // cache, because we're using <link rel=preload> as a signal that the script
+  // is higher-than-usual priority, and therefore should be executed earlier
+  // rather than later.
+  return !GetResource()->IsLinkPreload();
 }
 
 void ClassicPendingScript::NotifyFinished(Resource* resource) {
@@ -258,9 +214,8 @@ void ClassicPendingScript::NotifyFinished(Resource* resource) {
   DCHECK(GetResource());
   ScriptElementBase* element = GetElement();
   if (element) {
-    SubresourceIntegrityHelper::DoReport(
-        *element->GetDocument().GetExecutionContext(),
-        GetResource()->IntegrityReportInfo());
+    SubresourceIntegrityHelper::DoReport(*element->GetExecutionContext(),
+                                         GetResource()->IntegrityReportInfo());
 
     // It is possible to get back a script resource with integrity metadata
     // for a request with an empty integrity attribute. In that case, the
@@ -294,7 +249,7 @@ void ClassicPendingScript::NotifyFinished(Resource* resource) {
   AdvanceReadyState(error_occurred ? kErrorOccurred : kReady);
 }
 
-void ClassicPendingScript::Trace(Visitor* visitor) {
+void ClassicPendingScript::Trace(Visitor* visitor) const {
   ResourceClient::Trace(visitor);
   MemoryPressureListener::Trace(visitor);
   PendingScript::Trace(visitor);
@@ -343,8 +298,9 @@ ClassicScript* ClassicPendingScript::GetSource(const KURL& document_url) const {
     }
 
     DCHECK(!GetResource());
-    RecordStreamingHistogram(GetSchedulingType(), false,
-                             ScriptStreamer::kInlineScript);
+    ScriptStreamer::RecordStreamingHistogram(
+        GetSchedulingType(), false,
+        ScriptStreamer::NotStreamingReason::kInlineScript);
 
     ScriptSourceCode source_code(source_text_for_inline_script_,
                                  source_location_type_, cache_handler,
@@ -355,9 +311,10 @@ ClassicScript* ClassicPendingScript::GetSource(const KURL& document_url) const {
   }
 
   DCHECK(GetResource()->IsLoaded());
-  ScriptResource* resource = ToScriptResource(GetResource());
+  auto* resource = To<ScriptResource>(GetResource());
+  RecordThirdPartyRequestWithCookieIfNeeded(resource->GetResponse());
 
-  auto* fetcher = GetElement()->GetDocument().ContextDocument()->Fetcher();
+  auto* fetcher = GetElement()->GetExecutionContext()->Fetcher();
   // If the MIME check fails, which is considered as load failure.
   if (!AllowedByNosniff::MimeTypeAsScript(
           fetcher->GetUseCounter(), &fetcher->GetConsoleLogger(),
@@ -367,33 +324,25 @@ ClassicScript* ClassicPendingScript::GetSource(const KURL& document_url) const {
   }
 
   // Check if we can use the script streamer.
-  bool streamer_ready = false;
-  ScriptStreamer::NotStreamingReason not_streamed_reason =
-      resource->NoStreamerReason();
-  ScriptStreamer* streamer = resource->TakeStreamer();
-  if (streamer) {
-    DCHECK_EQ(not_streamed_reason, ScriptStreamer::kInvalid);
-    if (streamer->StreamingSuppressed()) {
-      not_streamed_reason = streamer->StreamingSuppressedReason();
-    } else if (ready_state_ == kErrorOccurred) {
-      not_streamed_reason = ScriptStreamer::kErrorOccurred;
-    } else {
-      // Streamer can be used to compile script.
-      CHECK_EQ(ready_state_, kReady);
-      not_streamed_reason = ScriptStreamer::kInvalid;
-      streamer_ready = true;
-    }
+  ScriptStreamer* streamer;
+  ScriptStreamer::NotStreamingReason not_streamed_reason;
+  std::tie(streamer, not_streamed_reason) = ScriptStreamer::TakeFrom(resource);
+
+  if (ready_state_ == kErrorOccurred) {
+    not_streamed_reason = ScriptStreamer::NotStreamingReason::kErrorOccurred;
+    streamer = nullptr;
   }
-  RecordStreamingHistogram(GetSchedulingType(), streamer_ready,
-                           not_streamed_reason);
+  if (streamer)
+    CHECK_EQ(ready_state_, kReady);
+  ScriptStreamer::RecordStreamingHistogram(GetSchedulingType(), streamer,
+                                           not_streamed_reason);
 
   TRACE_EVENT_WITH_FLOW1(TRACE_DISABLED_BY_DEFAULT("v8.compile"),
                          "ClassicPendingScript::GetSource", this,
                          TRACE_EVENT_FLAG_FLOW_IN, "not_streamed_reason",
                          not_streamed_reason);
 
-  ScriptSourceCode source_code(streamer_ready ? streamer : nullptr, resource,
-                               not_streamed_reason);
+  ScriptSourceCode source_code(streamer, resource, not_streamed_reason);
   // The base URL for external classic script is
   //
   // <spec href="https://html.spec.whatwg.org/C/#concept-script-base-url">
@@ -438,34 +387,6 @@ void ClassicPendingScript::OnPurgeMemory() {
   // TODO(crbug.com/846951): the implementation of CancelStreaming() is
   // currently incorrect and consequently a call to this method was removed from
   // here.
-}
-
-void ClassicPendingScript::StartStreamingIfPossible() {
-  // We can start streaming in two states: While still loading
-  // (kWaitingForResource), or after having loaded (kReady).
-  if (ready_state_ != kWaitingForResource && ready_state_ != kReady)
-    return;
-
-  Document* document = &GetElement()->GetDocument();
-  if (!document || !document->GetFrame())
-    return;
-
-  // Parser blocking scripts tend to do a lot of work in the 'finished'
-  // callbacks, while async + in-order scripts all do control-like activities
-  // (like posting new tasks). Use the 'control' queue only for control tasks.
-  // (More details in discussion for cl 500147.)
-  auto task_type = GetSchedulingType() == ScriptSchedulingType::kParserBlocking
-                       ? TaskType::kNetworking
-                       : TaskType::kNetworkingControl;
-
-  ReadyState ready_state_before_stream = ready_state_;
-  ToScriptResource(GetResource())
-      ->StartStreaming(document->GetTaskRunner(task_type));
-  // We have to make sure that the ready state is not changed by starting
-  // streaming, just in case we're relying on IsReady being false.
-  CHECK_EQ(ready_state_before_stream, ready_state_);
-
-  return;
 }
 
 bool ClassicPendingScript::WasCanceled() const {

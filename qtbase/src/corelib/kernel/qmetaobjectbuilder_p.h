@@ -58,6 +58,7 @@
 #include <QtCore/qhash.h>
 #include <QtCore/qmap.h>
 
+#include <private/qmetaobject_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -93,14 +94,6 @@ public:
     };
     Q_DECLARE_FLAGS(AddMembers, AddMember)
 
-    // ### TODO Qt6: remove me and use the MetaObjectFlags enum from qmetaobject_p.h
-    enum MetaObjectFlag { // keep it in sync with enum MetaObjectFlags from qmetaobject_p.h
-        DynamicMetaObject = 0x01,
-        RequiresVariantMetaObject = 0x02,
-        PropertyAccessInStaticMetaCall = 0x04 // since Qt 5.5, property code is in the static metacall
-    };
-    Q_DECLARE_FLAGS(MetaObjectFlags, MetaObjectFlag)
-
     QMetaObjectBuilder();
     explicit QMetaObjectBuilder(const QMetaObject *prototype, QMetaObjectBuilder::AddMembers members = AllMembers);
     virtual ~QMetaObjectBuilder();
@@ -132,6 +125,7 @@ public:
     QMetaMethodBuilder addConstructor(const QMetaMethod& prototype);
 
     QMetaPropertyBuilder addProperty(const QByteArray& name, const QByteArray& type, int notifierId=-1);
+    QMetaPropertyBuilder addProperty(const QByteArray& name, const QByteArray& type, QMetaType metaType, int notifierId=-1);
     QMetaPropertyBuilder addProperty(const QMetaProperty& prototype);
 
     QMetaEnumBuilder addEnumerator(const QByteArray& name);
@@ -173,15 +167,6 @@ public:
     void setStaticMetacallFunction(QMetaObjectBuilder::StaticMetacallFunction value);
 
     QMetaObject *toMetaObject() const;
-    QByteArray toRelocatableData(bool * = nullptr) const;
-    static void fromRelocatableData(QMetaObject *, const QMetaObject *, const QByteArray &);
-
-#ifndef QT_NO_DATASTREAM
-    void serialize(QDataStream& stream) const;
-    void deserialize
-        (QDataStream& stream,
-         const QMap<QByteArray, const QMetaObject *>& references);
-#endif
 
 private:
     Q_DISABLE_COPY_MOVE(QMetaObjectBuilder)
@@ -218,6 +203,9 @@ public:
 
     int attributes() const;
     void setAttributes(int value);
+
+    int isConst() const;
+    void setConst(bool methodIsConst=true);
 
     int revision() const;
     void setRevision(int revision);
@@ -262,6 +250,8 @@ public:
     bool isEnumOrFlag() const;
     bool isConstant() const;
     bool isFinal() const;
+    bool isAlias() const;
+    bool isBindable() const;
 
     void setReadable(bool value);
     void setWritable(bool value);
@@ -269,12 +259,13 @@ public:
     void setDesignable(bool value);
     void setScriptable(bool value);
     void setStored(bool value);
-    void setEditable(bool value);
     void setUser(bool value);
     void setStdCppSet(bool value);
     void setEnumOrFlag(bool value);
     void setConstant(bool value);
     void setFinal(bool value);
+    void setAlias(bool value);
+    void setBindable(bool value);
 
     int revision() const;
     void setRevision(int revision);
@@ -347,7 +338,6 @@ private:
 };
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(QMetaObjectBuilder::AddMembers)
-Q_DECLARE_OPERATORS_FOR_FLAGS(QMetaObjectBuilder::MetaObjectFlags)
 
 QT_END_NAMESPACE
 

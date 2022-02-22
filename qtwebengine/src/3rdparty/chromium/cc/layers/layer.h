@@ -31,6 +31,7 @@
 #include "cc/trees/effect_node.h"
 #include "cc/trees/property_tree.h"
 #include "cc/trees/target_property.h"
+#include "components/viz/common/surfaces/subtree_capture_id.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/geometry/point3_f.h"
 #include "ui/gfx/geometry/rect.h"
@@ -151,22 +152,22 @@ class CC_EXPORT Layer : public base::RefCounted<Layer> {
   virtual void SetBackgroundColor(SkColor background_color);
   SkColor background_color() const { return inputs_.background_color; }
 
-  // Internal to property tree generation. Sets an opaque background color for
-  // the layer, to be used in place of the background_color() if the layer says
-  // contents_opaque() is true.
+  // For layer tree mode only. In layer list mode, client doesn't need to set
+  // it. Sets an opaque background color for the layer, to be used in place of
+  // the background_color() if the layer says contents_opaque() is true.
   void SetSafeOpaqueBackgroundColor(SkColor background_color);
-  // Returns a background color with opaque-ness equal to the value of
+
+  // Returns a background color with opaqueness equal to the value of
   // contents_opaque().
-  // If the layer says contents_opaque() is true, this returns the value set by
-  // SetSafeOpaqueBackgroundColor() which should be an opaque color. Otherwise,
-  // it returns something non-opaque. It prefers to return the
+  // If the layer says contents_opaque() is true, in layer tree mode, this
+  // returns the value set by SetSafeOpaqueBackgroundColor() which should be an
+  // opaque color, and in layer list mode, returns an opaque color calculated
+  // from background_color() and layer_tree_host()->background_clor().
+  // Otherwise, it returns something non-opaque. It prefers to return the
   // background_color(), but if the background_color() is opaque (and this layer
-  // claims to not be), then SK_ColorTRANSPARENT is returned.
+  // claims to not be), then SK_ColorTRANSPARENT is returned to avoid intrusive
+  // checkerboard where the layer is not covered by the background_color().
   SkColor SafeOpaqueBackgroundColor() const;
-  // For testing, return the actual stored value.
-  SkColor ActualSafeOpaqueBackgroundColorForTesting() const {
-    return safe_opaque_background_color_;
-  }
 
   // For layer tree mode only.
   // Set and get the position of this layer, relative to its parent. This is
@@ -333,8 +334,23 @@ class CC_EXPORT Layer : public base::RefCounted<Layer> {
   // must be opaque or visual errors can occur. This applies only to this layer
   // and not to children, and does not imply the layer should be composited
   // opaquely, as effects may be applied such as opacity() or filters().
+  // Note that this also calls SetContentsOpaqueForText(opaque) internally.
+  // To override a different contents_opaque_for_text, the client should call
+  // SetContentsOpaqueForText() after SetContentsOpaque().
   void SetContentsOpaque(bool opaque);
   bool contents_opaque() const { return inputs_.contents_opaque; }
+
+  // Whether the contents area containing text is known to be opaque.
+  // For example, blink will SetContentsOpaque(false) but
+  // SetContentsOpaqueForText(true) for the following case:
+  //   <div style="overflow: hidden; border-radius: 10px; background: white">
+  //     TEXT
+  //   </div>
+  // See also the note for SetContentsOpaque().
+  void SetContentsOpaqueForText(bool opaque);
+  bool contents_opaque_for_text() const {
+    return inputs_.contents_opaque_for_text;
+  }
 
   // Set or get whether this layer should be a hit test target
   void SetHitTestable(bool should_hit_test);
@@ -401,8 +417,7 @@ class CC_EXPORT Layer : public base::RefCounted<Layer> {
                                : gfx::Size();
   }
 
-  void SetIsScrollbar(bool is_scrollbar);
-  bool is_scrollbar() const { return inputs_.is_scrollbar; }
+  virtual bool IsScrollbarLayerForTesting() const;
 
   // For layer tree mode only.
   // Set or get if this layer is able to be scrolled along each axis. These are
@@ -437,6 +452,16 @@ class CC_EXPORT Layer : public base::RefCounted<Layer> {
     return inputs_.touch_action_region;
   }
 
+  // Set or get the set of blocking wheel rects of this layer. The
+  // |wheel_event_region| is the set of rects for which there is a non-passive
+  // wheel event listener that paints into this layer. Mouse wheel messages
+  // that intersect these rects must execute their relevant JS handler before we
+  // can start scrolling.
+  void SetWheelEventRegion(Region wheel_event_region);
+  const Region& wheel_event_region() const {
+    return inputs_.wheel_event_region;
+  }
+
   // For layer tree mode only.
   // In layer list mode, use ScrollTree::SetScrollCallbacks() instead.
   // Sets a RepeatingCallback that is run during a main frame, before layers are
@@ -447,6 +472,27 @@ class CC_EXPORT Layer : public base::RefCounted<Layer> {
   // ScrollTree::SetScrollCallbacks() in layer list mode.
   void SetDidScrollCallback(base::RepeatingCallback<
                             void(const gfx::ScrollOffset&, const ElementId&)>);
+
+  // For layer tree mode only.
+  // Sets the given |subtree_id| on this layer, so that the layer subtree rooted
+  // at this layer can be uniquely identified by a FrameSinkVideoCapturer.
+  // The existence of a valid SubtreeCaptureId on this layer will force it to be
+  // drawn into a separate CompositorRenderPass.
+  // Setting a non-valid (i.e. default-constructed SubtreeCaptureId) will clear
+  // this property.
+  // It is not allowed to change this ID from a valid ID to another valid ID,
+  // since a client might already using the existing valid ID to make this layer
+  // subtree identifiable by a capturer.
+  //
+  // Note that this is useful when it's desired to video record a layer subtree
+  // of a non-root layer using a FrameSinkVideoCapturer, since non-root layers
+  // are usually not drawn into their own CompositorRenderPass.
+  void SetSubtreeCaptureId(viz::SubtreeCaptureId subtree_id);
+  viz::SubtreeCaptureId subtree_capture_id() const {
+    if (layer_tree_inputs())
+      return layer_tree_inputs()->subtree_capture_id;
+    return viz::SubtreeCaptureId();
+  }
 
   // Set or get if the layer and its subtree should be cached as a texture in
   // the display compositor. This is used as an optimization when it is known
@@ -474,22 +520,6 @@ class CC_EXPORT Layer : public base::RefCounted<Layer> {
   bool force_render_surface_for_testing() const {
     return force_render_surface_for_testing_;
   }
-
-  // Set or get if this layer should continue to be visible when rotated such
-  // that its back face is facing toward the camera. If false, the layer will
-  // disappear when its back face is visible, but if true, the mirror image of
-  // its front face will be shown. For instance, with a 180deg rotation around
-  // the middle of the layer on the Y axis, if this is false then nothing is
-  // visible. But if true, the layer is seen with its contents flipped along the
-  // Y axis. Being single-sided applies transitively to the subtree of this
-  // layer. If it is hidden because of its back face being visible, then its
-  // subtree will be too (even if a subtree layer's front face would have been
-  // visible).
-  //
-  // Note that should_check_backface_visibility() is the final computed value
-  // for back face visibility, which is only for internal use.
-  void SetDoubleSided(bool double_sided);
-  bool double_sided() const { return inputs_.double_sided; }
 
   // When true the layer may contribute to the compositor's output. When false,
   // it does not. This property does not apply to children of the layer, they
@@ -548,20 +578,6 @@ class CC_EXPORT Layer : public base::RefCounted<Layer> {
   void SetElementId(ElementId id);
   ElementId element_id() const { return inputs_.element_id; }
 
-  // Sets or gets a hint that the transform on this layer (including its
-  // position) may be changed often in the future. The layer may change its
-  // strategy for generating content as a result. PictureLayers will not attempt
-  // to raster crisply as the transform changes, allowing the client to trade
-  // off crisp content at each scale for a smoother visual and cheaper
-  // animation.
-  void SetHasWillChangeTransformHint(bool has_will_change);
-  bool has_will_change_transform_hint() const {
-    return inputs_.has_will_change_transform_hint;
-  }
-
-  void SetFrameElementId(ElementId frame_element_id);
-  ElementId frame_element_id() const { return inputs_.frame_element_id; }
-
   // For layer tree mode only.
   // Sets or gets if trilinear filtering should be used to scaling the contents
   // of this layer and its subtree. When set the layer and its subtree will be
@@ -586,9 +602,9 @@ class CC_EXPORT Layer : public base::RefCounted<Layer> {
   void ShowScrollbars() { needs_show_scrollbars_ = true; }
 
   // Captures text content within the given |rect| and returns the associated
-  // NodeId in |content|.
+  // NodeInfo in |content|.
   virtual void CaptureContent(const gfx::Rect& rect,
-                              std::vector<NodeId>* content);
+                              std::vector<NodeInfo>* content);
 
   // For tracing. Gets a recorded rasterization of this layer's contents that
   // can be displayed inside representations of this layer. May return null, in
@@ -749,11 +765,6 @@ class CC_EXPORT Layer : public base::RefCounted<Layer> {
   // (the full tree is synced over).
   void SetNeedsFullTreeSync();
 
-  // Called when the next commit should wait until the pending tree is activated
-  // before finishing the commit and unblocking the main thread. Used to ensure
-  // unused resources on the impl thread are returned before commit completes.
-  void SetNextCommitWaitsForActivation();
-
   // Will recalculate whether the layer draws content and set draws_content_
   // appropriately.
   void UpdateDrawsContent(bool has_drawable_content);
@@ -846,23 +857,18 @@ class CC_EXPORT Layer : public base::RefCounted<Layer> {
     bool hit_testable : 1;
 
     bool contents_opaque : 1;
+    bool contents_opaque_for_text : 1;
     bool is_drawable : 1;
 
     bool double_sided : 1;
-
-    // Indicates that this layer is a scrollbar.
-    bool is_scrollbar : 1;
-
-    bool has_will_change_transform_hint : 1;
 
     SkColor background_color;
 
     Region non_fast_scrollable_region;
     TouchActionRegion touch_action_region;
+    Region wheel_event_region;
 
     ElementId element_id;
-    // ElementId of the document that this layer was created by.
-    ElementId frame_element_id;
   };
 
   // These inputs are used in layer tree mode (ui compositor) only. Most of them
@@ -878,10 +884,10 @@ class CC_EXPORT Layer : public base::RefCounted<Layer> {
 
     // If not null, points to one of child layers which is set as mask layer
     // by SetMaskLayer().
-    PictureLayer* mask_layer;
+    PictureLayer* mask_layer = nullptr;
 
-    float opacity;
-    SkBlendMode blend_mode;
+    float opacity = 1.0f;
+    SkBlendMode blend_mode = SkBlendMode::kSrcOver;
 
     bool masks_to_bounds : 1;
 
@@ -905,12 +911,20 @@ class CC_EXPORT Layer : public base::RefCounted<Layer> {
     gfx::Transform transform;
     gfx::Point3F transform_origin;
 
+    // A unique ID that identifies the layer subtree rooted at this layer, so
+    // that it can be independently captured by the FrameSinkVideoCapturer. If
+    // this ID is set (i.e. valid), it would force this subtree into a render
+    // surface that darws in a render pass.
+    viz::SubtreeCaptureId subtree_capture_id;
+
+    SkColor safe_opaque_background_color = SK_ColorTRANSPARENT;
+
     FilterOperations filters;
     FilterOperations backdrop_filters;
     base::Optional<gfx::RRectF> backdrop_filter_bounds;
-    float backdrop_filter_quality;
+    float backdrop_filter_quality = 1.0f;
 
-    int mirror_count;
+    int mirror_count = 0;
 
     gfx::ScrollOffset scroll_offset;
     // Size of the scroll container that this layer scrolls in.
@@ -941,6 +955,7 @@ class CC_EXPORT Layer : public base::RefCounted<Layer> {
   int clip_tree_index_;
   int scroll_tree_index_;
   int property_tree_sequence_number_;
+
   gfx::Vector2dF offset_to_transform_parent_;
 
   // When true, the layer is about to perform an update. Any commit requests
@@ -960,8 +975,6 @@ class CC_EXPORT Layer : public base::RefCounted<Layer> {
   bool has_clip_node_ : 1;
   // This value is valid only when LayerTreeHost::has_copy_request() is true
   bool subtree_has_copy_request_ : 1;
-
-  SkColor safe_opaque_background_color_;
 
   std::unique_ptr<LayerDebugInfo> debug_info_;
 

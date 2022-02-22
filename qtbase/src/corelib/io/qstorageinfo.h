@@ -62,7 +62,7 @@ public:
     ~QStorageInfo();
 
     QStorageInfo &operator=(const QStorageInfo &other);
-    QStorageInfo &operator=(QStorageInfo &&other) noexcept { swap(other); return *this; }
+    QT_MOVE_ASSIGNMENT_OPERATOR_IMPL_VIA_PURE_SWAP(QStorageInfo)
 
     inline void swap(QStorageInfo &other) noexcept
     { qSwap(d, other.d); }
@@ -93,22 +93,21 @@ public:
 
 private:
     friend class QStorageInfoPrivate;
-    friend bool operator==(const QStorageInfo &first, const QStorageInfo &second);
+    friend inline bool operator==(const QStorageInfo &first, const QStorageInfo &second)
+    {
+        if (first.d == second.d)
+            return true;
+        return first.device() == second.device() && first.rootPath() == second.rootPath();
+    }
+
+    friend inline bool operator!=(const QStorageInfo &first, const QStorageInfo &second)
+    {
+        return !(first == second);
+    }
+
     friend Q_CORE_EXPORT QDebug operator<<(QDebug, const QStorageInfo &);
     QExplicitlySharedDataPointer<QStorageInfoPrivate> d;
 };
-
-inline bool operator==(const QStorageInfo &first, const QStorageInfo &second)
-{
-    if (first.d == second.d)
-        return true;
-    return first.device() == second.device() && first.rootPath() == second.rootPath();
-}
-
-inline bool operator!=(const QStorageInfo &first, const QStorageInfo &second)
-{
-    return !(first == second);
-}
 
 inline bool QStorageInfo::isRoot() const
 { return *this == QStorageInfo::root(); }

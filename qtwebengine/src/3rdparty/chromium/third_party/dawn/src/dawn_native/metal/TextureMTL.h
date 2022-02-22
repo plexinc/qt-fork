@@ -17,9 +17,11 @@
 
 #include "dawn_native/Texture.h"
 
+#include "common/NSRef.h"
+#include "dawn_native/DawnNative.h"
+
 #include <IOSurface/IOSurfaceRef.h>
 #import <Metal/Metal.h>
-#include "dawn_native/DawnNative.h"
 
 namespace dawn_native { namespace metal {
 
@@ -31,44 +33,39 @@ namespace dawn_native { namespace metal {
                                              IOSurfaceRef ioSurface,
                                              uint32_t plane);
 
-    class Texture : public TextureBase {
+    class Texture final : public TextureBase {
       public:
         Texture(Device* device, const TextureDescriptor* descriptor);
-        Texture(Device* device, const TextureDescriptor* descriptor, id<MTLTexture> mtlTexture);
+        Texture(Device* device,
+                const TextureDescriptor* descriptor,
+                NSPRef<id<MTLTexture>> mtlTexture);
         Texture(Device* device,
                 const ExternalImageDescriptor* descriptor,
                 IOSurfaceRef ioSurface,
                 uint32_t plane);
-        ~Texture();
 
         id<MTLTexture> GetMTLTexture();
 
-        void EnsureSubresourceContentInitialized(uint32_t baseMipLevel,
-                                                 uint32_t levelCount,
-                                                 uint32_t baseArrayLayer,
-                                                 uint32_t layerCount);
+        void EnsureSubresourceContentInitialized(const SubresourceRange& range);
 
       private:
+        ~Texture() override;
+
         void DestroyImpl() override;
 
-        MaybeError ClearTexture(uint32_t baseMipLevel,
-                                uint32_t levelCount,
-                                uint32_t baseArrayLayer,
-                                uint32_t layerCount,
-                                TextureBase::ClearValue clearValue);
+        MaybeError ClearTexture(const SubresourceRange& range, TextureBase::ClearValue clearValue);
 
-        id<MTLTexture> mMtlTexture = nil;
+        NSPRef<id<MTLTexture>> mMtlTexture;
     };
 
-    class TextureView : public TextureViewBase {
+    class TextureView final : public TextureViewBase {
       public:
         TextureView(TextureBase* texture, const TextureViewDescriptor* descriptor);
-        ~TextureView();
 
         id<MTLTexture> GetMTLTexture();
 
       private:
-        id<MTLTexture> mMtlTextureView = nil;
+        NSPRef<id<MTLTexture>> mMtlTextureView;
     };
 
 }}  // namespace dawn_native::metal

@@ -153,6 +153,11 @@ bool QBluetoothLocalDevice::isValid() const
 
     Sets the host mode of this local Bluetooth device to \a mode.
 
+    Some transitions such as turning the device on or off may take some time. Therefore
+    subsequent calls should only be made once the \l hostModeStateChanged() signal
+    has concluded the previous request. If this is ignored the result of such a series
+    of calls is not well defined.
+
     \note Due to varying security policies on the supported platforms, this method may have
     differing behaviors on the various platforms. For example the system may ask the user for
     confirmation before turning Bluetooth on or off and not all host modes may be supported.
@@ -256,43 +261,6 @@ bool QBluetoothLocalDevice::isValid() const
 */
 
 /*!
-  \fn QBluetoothLocalDevice::pairingDisplayConfirmation(const QBluetoothAddress &address, QString pin)
-
-  Signal by some platforms to display a pairing confirmation dialog for \a address.  The user
-  is asked to confirm the \a pin is the same on both devices.  The \l pairingConfirmation() function
-  must be called to indicate if the user accepts or rejects the displayed pin.
-
-  This signal is only emitted for pairing requests issues by calling \l requestPairing().
-  On \macos, this method never gets called - there is a callback with a PIN (IOBluetooth),
-  but it expects immediate reply yes/no - and there is no time to show any dialog or compare PINs.
-
-  \sa pairingConfirmation()
-*/
-
-/*!
-  \fn QBluetoothLocalDevice::pairingConfirmation(bool confirmation)
-
-  To be called after getting a pairingDisplayConfirmation(). The \a confirmation parameter either
-  accepts the pairing or rejects it.
-
-  Accepting a pairing always refers to the last pairing request issued via \l requestPairing().
-
-  \note This function requires BLUETOOTH_PRIVILEGED permission on Android which is generally not
-  obtainable for 3rdparty. Android's default handler for pairing requests will do this on behalf
-  of the user and the application can ignore this call. Nevertheless the proper Android calls are made
-  in case the application does have the required permissions.
-*/
-
-/*!
-  \fn QBluetoothLocalDevice::pairingDisplayPinCode(const QBluetoothAddress &address, QString pin)
-
-  Signal by some platforms to display the \a pin to the user for \a address.  The pin is automatically
-  generated, and does not need to be confirmed.
-
-  This signal is only emitted for pairing requests issues by calling \l requestPairing().
-*/
-
-/*!
   \fn QBluetoothLocalDevice::requestPairing(const QBluetoothAddress &address, Pairing pairing)
 
   Set the \a pairing status with \a address.  The results are returned by the signal, pairingFinished().
@@ -306,17 +274,21 @@ bool QBluetoothLocalDevice::isValid() const
 */
 
 /*!
-  \fn QBluetoothLocalDevice::pairingFinished(const QBluetoothAddress &address, QBluetoothLocalDevice::Pairing pairing)
+  \fn QBluetoothLocalDevice::pairingFinished(const QBluetoothAddress &address,
+  QBluetoothLocalDevice::Pairing pairing)
 
   Pairing or unpairing has completed with \a address. Current pairing status is in \a pairing.
-  If the pairing request was not successful, this signal will not be emitted. The error() signal
-  is emitted if the pairing request failed. The signal is only ever emitted for pairing requests
-  which have previously requested by calling \l requestPairing() of the current object instance.
+  If the pairing request was not successful, this signal will not be emitted. The errorOccurred()
+  signal is emitted if the pairing request failed. The signal is only ever emitted for pairing
+  requests which have previously requested by calling \l requestPairing() of the current object
+  instance.
 */
 
 /*!
-  \fn QBluetoothLocalDevice::error(QBluetoothLocalDevice::Error error)
+  \fn QBluetoothLocalDevice::errorOccurred(QBluetoothLocalDevice::Error error)
   Signal emitted if there's an exceptional \a error while pairing.
+
+  \since 6.2
 */
 
 /*!

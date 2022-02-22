@@ -7,7 +7,6 @@
 
 #include <memory>
 
-#include "base/macros.h"
 #include "base/observer_list.h"
 #include "ui/base/accelerators/accelerator_manager.h"
 #include "ui/views/view_observer.h"
@@ -22,12 +21,6 @@
 //
 // - The native focus, which is the focus that a gfx::NativeView has.
 // - The view focus, which is the focus that a views::View has.
-//
-// When registering a view with the FocusManager, the caller can provide a view
-// whose focus will be kept in sync with the view the FocusManager is managing.
-//
-// (Focus registration is already done for you if you subclass the NativeControl
-// class or if you use the NativeViewHost class.)
 //
 // When a top window (derived from views::Widget) that is not a child window is
 // created, it creates and owns a FocusManager to manage the focus for itself
@@ -44,8 +37,8 @@
 // order.
 //
 // If you are embedding a native view containing a nested RootView (for example
-// by adding a NativeControl that contains a NativeWidgetWin as its native
-// component), then you need to:
+// by adding a view that contains a native widget as its native component),
+// then you need to:
 //
 // - Override the View::GetFocusTraversable method in your outer component.
 //   It should return the RootView of the inner component. This is used when
@@ -138,11 +131,14 @@ class VIEWS_EXPORT FocusManager : public ViewObserver {
   };
 
   // TODO(dmazzoni): use Direction in place of bool reverse throughout.
-  enum Direction { kForward, kBackward };
+  enum class Direction { kForward, kBackward };
 
   enum class FocusCycleWrapping { kEnabled, kDisabled };
 
   FocusManager(Widget* widget, std::unique_ptr<FocusManagerDelegate> delegate);
+
+  FocusManager(const FocusManager&) = delete;
+  FocusManager& operator=(const FocusManager&) = delete;
   ~FocusManager() override;
 
   // Processes the passed key event for accelerators and keyboard traversal.
@@ -256,6 +252,9 @@ class VIEWS_EXPORT FocusManager : public ViewObserver {
   void AddFocusChangeListener(FocusChangeListener* listener);
   void RemoveFocusChangeListener(FocusChangeListener* listener);
 
+  // Whether the given |accelerator| is registered.
+  bool IsAcceleratorRegistered(const ui::Accelerator& accelerator) const;
+
   // Whether the given |accelerator| has a priority handler associated with it.
   bool HasPriorityHandler(const ui::Accelerator& accelerator) const;
 
@@ -287,17 +286,11 @@ class VIEWS_EXPORT FocusManager : public ViewObserver {
     return arrow_key_traversal_enabled_;
   }
 
-  // Similar to above, but only for the widget that owns this FocusManager.
-  void set_arrow_key_traversal_enabled_for_widget(bool enabled) {
-    arrow_key_traversal_enabled_for_widget_ = enabled;
-  }
-
   // Returns the next focusable view. Traversal starts at |starting_view|. If
-  // |starting_view| is NULL |starting_widget| is consuled to determine which
-  // Widget to start from. See
-  // WidgetDelegate::ShouldAdvanceFocusToTopLevelWidget() for details. If both
-  // |starting_view| and |starting_widget| are NULL, traversal starts at
-  // |widget_|.
+  // |starting_view| is null, |starting_widget| is consulted to determine which
+  // Widget to start from. See WidgetDelegate::Params::focus_traverses_out for
+  // details. If both |starting_view| and |starting_widget| are null, traversal
+  // starts at |widget_|.
   View* GetNextFocusableView(View* starting_view,
                              Widget* starting_widget,
                              bool reverse,
@@ -329,12 +322,16 @@ class VIEWS_EXPORT FocusManager : public ViewObserver {
   // ViewObserver:
   void OnViewIsDeleting(View* view) override;
 
+  // Try to redirect the accelerator to bubble's anchor widget to process it if
+  // the bubble didn't.
+  bool RedirectAcceleratorToBubbleAnchorWidget(
+      const ui::Accelerator& accelerator);
+
+  // Returns true if arrow key traversal is enabled for the current widget.
+  bool IsArrowKeyTraversalEnabledForWidget() const;
+
   // Whether arrow key traversal is enabled globally.
   static bool arrow_key_traversal_enabled_;
-
-  // Whether arrow key traversal is enabled for all widgets under the top-level
-  // widget that owns the FocusManager.
-  bool arrow_key_traversal_enabled_for_widget_ = false;
 
   // The top-level Widget this FocusManager is associated with.
   Widget* widget_;
@@ -372,8 +369,6 @@ class VIEWS_EXPORT FocusManager : public ViewObserver {
 
   // Whether FocusManager is currently trying to restore a focused view.
   bool in_restoring_focused_view_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(FocusManager);
 };
 
 }  // namespace views

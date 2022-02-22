@@ -93,7 +93,7 @@
 
 - (void)resetMouseButtons
 {
-    qCDebug(lcQpaMouse) << "Reseting mouse buttons";
+    qCDebug(lcQpaMouse) << "Resetting mouse buttons";
     m_buttons = Qt::NoButton;
     m_frameStrutButtons = Qt::NoButton;
 }
@@ -103,21 +103,14 @@
     if (!m_platformWindow)
         return;
 
-    // get m_buttons in sync
-    // Don't send frme strut events if we are in the middle of a mouse drag.
-    if (m_buttons != Qt::NoButton)
-        return;
-
     switch (theEvent.type) {
     case NSEventTypeLeftMouseDown:
-    case NSEventTypeLeftMouseDragged:
         m_frameStrutButtons |= Qt::LeftButton;
         break;
     case NSEventTypeLeftMouseUp:
          m_frameStrutButtons &= ~Qt::LeftButton;
          break;
     case NSEventTypeRightMouseDown:
-    case NSEventTypeRightMouseDragged:
         m_frameStrutButtons |= Qt::RightButton;
         break;
     case NSEventTypeRightMouseUp:
@@ -130,6 +123,22 @@
         m_frameStrutButtons &= ~cocoaButton2QtButton(theEvent.buttonNumber);
     default:
         break;
+    }
+
+    // m_buttons can sometimes get out of sync with the button state in AppKit
+    // E.g if the QNSView where a drag starts is reparented to another window
+    // while the drag is ongoing, it will not get the corresponding mouseUp
+    // call. This will result in m_buttons to be stuck on Qt::LeftButton.
+    // Since we know which buttons was pressed/released directly on the frame
+    // strut, we can rectify m_buttons here so that we at least don't return early
+    // from the drag test underneath because of the faulty m_buttons state.
+    // FIXME: get m_buttons in sync with AppKit/NSEvent all over in QNSView.
+    m_buttons &= ~m_frameStrutButtons;
+
+    if (m_buttons != Qt::NoButton) {
+        // Don't send frame strut events if we are in the middle of
+        // a mouse drag that didn't start on the frame strut.
+        return;
     }
 
     NSWindow *window = [self window];
@@ -176,7 +185,69 @@
     QWindowSystemInterface::handleFrameStrutMouseEvent(m_platformWindow->window(),
         timestamp, qtWindowPoint, qtScreenPoint, m_frameStrutButtons, button, eventType);
 }
+
+- (bool)closePopups:(NSEvent *)theEvent
+{
+    QList<QCocoaWindow *> *popups = QCocoaIntegration::instance()->popupWindowStack();
+    if (!popups->isEmpty()) {
+        // Check if the click is outside all popups.
+        bool inside = false;
+        QPointF qtScreenPoint = QCocoaScreen::mapFromNative([self screenMousePoint:theEvent]);
+        for (QList<QCocoaWindow *>::const_iterator it = popups->begin(); it != popups->end(); ++it) {
+            if ((*it)->geometry().contains(qtScreenPoint.toPoint())) {
+                inside = true;
+                break;
+            }
+        }
+        // Close the popups if the click was outside.
+        if (!inside) {
+            bool selfClosed = false;
+            Qt::WindowType type = QCocoaIntegration::instance()->activePopupWindow()->window()->type();
+            while (QCocoaWindow *popup = QCocoaIntegration::instance()->popPopupWindow()) {
+                selfClosed = self == popup->view();
+                QWindowSystemInterface::handleCloseEvent<QWindowSystemInterface::SynchronousDelivery>(popup->window());
+                if (!m_platformWindow)
+                    return true; // Bail out if window was destroyed
+            }
+            // Consume the mouse event when closing the popup, except for tool tips
+            // were it's expected that the event is processed normally.
+            if (type != Qt::ToolTip || selfClosed)
+                 return true;
+        }
+    }
+    return false;
+}
 @end
+
+static const QPointingDevice *pointingDeviceFor(qint64 deviceID)
+{
+    // macOS will in many cases not report a deviceID (0 value).
+    // We can't pass this on directly, as the QInputDevicePrivate
+    // constructor will treat this as a request to assign a new Id.
+    // Instead we use the default Id of the primary pointing device.
+    static const int kDefaultPrimaryPointingDeviceId = 1;
+    if (!deviceID)
+        deviceID = kDefaultPrimaryPointingDeviceId;
+
+    if (const auto *device = QPointingDevicePrivate::pointingDeviceById(deviceID))
+        return device; // All good, already have the device registered
+
+    const auto *primaryDevice = QPointingDevice::primaryPointingDevice();
+    if (primaryDevice->systemId() == kDefaultPrimaryPointingDeviceId) {
+        // Adopt existing primary device instead of creating a new one
+        QPointingDevicePrivate::get(const_cast<QPointingDevice *>(primaryDevice))->systemId = deviceID;
+        qCDebug(lcInputDevices) << "primaryPointingDevice is now" << primaryDevice;
+        return primaryDevice;
+    } else {
+        // Register a new device. Name and capabilities may need updating later.
+        const auto *device = new QPointingDevice(QLatin1String("mouse"), deviceID,
+            QInputDevice::DeviceType::Mouse, QPointingDevice::PointerType::Generic,
+            QInputDevice::Capability::Scroll | QInputDevice::Capability::Position,
+            1, 3, QString(), QPointingDeviceUniqueId(), QCocoaIntegration::instance());
+        QWindowSystemInterface::registerInputDevice(device);
+        return device;
+    }
+}
 
 @implementation QNSView (Mouse)
 
@@ -217,7 +288,7 @@
 
 - (BOOL)acceptsFirstMouse:(NSEvent *)theEvent
 {
-    Q_UNUSED(theEvent)
+    Q_UNUSED(theEvent);
     if (!m_platformWindow)
         return NO;
     if ([self isTransparentForUserInput])
@@ -225,8 +296,6 @@
     QPointF windowPoint;
     QPointF screenPoint;
     [self convertFromScreen:[NSEvent mouseLocation] toWindowPoint: &windowPoint andScreenPoint: &screenPoint];
-    if (!qt_window_private(m_platformWindow->window())->allowClickThrough(screenPoint.toPoint()))
-        return NO;
     return YES;
 }
 
@@ -281,11 +350,14 @@
     QCocoaDrag* nativeDrag = QCocoaIntegration::instance()->drag();
     nativeDrag->setLastMouseEvent(theEvent, self);
 
-    const auto modifiers = [QNSView convertKeyModifiers:theEvent.modifierFlags];
+    const auto modifiers = QAppleKeyMapper::fromCocoaModifiers(theEvent.modifierFlags);
     auto button = cocoaButton2QtButton(theEvent);
     if (button == Qt::LeftButton && m_sendUpAsRightButton)
         button = Qt::RightButton;
     const auto eventType = cocoaEvent2QtMouseEvent(theEvent);
+
+    const QPointingDevice *device = pointingDeviceFor(theEvent.deviceID);
+    Q_ASSERT(device);
 
     if (eventType == QEvent::MouseMove)
         qCDebug(lcQpaMouse) << eventType << "at" << qtWindowPoint << "with" << m_buttons;
@@ -310,7 +382,7 @@
     Q_UNUSED(qtScreenPoint);
 
     // Maintain masked state for the button for use by MouseDragged and MouseUp.
-    QRegion mask = m_platformWindow->window()->mask();
+    QRegion mask = QHighDpi::toNativeLocalPosition(m_platformWindow->window()->mask(), m_platformWindow->window());
     const bool masked = !mask.isEmpty() && !mask.contains(qtWindowPoint.toPoint());
     if (masked)
         m_acceptedMouseDowns &= ~button;
@@ -381,41 +453,15 @@
     // that particular poup type (for example context menus). However, Qt expects
     // that plain popup QWindows will also be closed, so we implement the logic
     // here as well.
-    QList<QCocoaWindow *> *popups = QCocoaIntegration::instance()->popupWindowStack();
-    if (!popups->isEmpty()) {
-        // Check if the click is outside all popups.
-        bool inside = false;
-        QPointF qtScreenPoint = QCocoaScreen::mapFromNative([self screenMousePoint:theEvent]);
-        for (QList<QCocoaWindow *>::const_iterator it = popups->begin(); it != popups->end(); ++it) {
-            if ((*it)->geometry().contains(qtScreenPoint.toPoint())) {
-                inside = true;
-                break;
-            }
-        }
-        // Close the popups if the click was outside.
-        if (!inside) {
-            bool selfClosed = false;
-            Qt::WindowType type = QCocoaIntegration::instance()->activePopupWindow()->window()->type();
-            while (QCocoaWindow *popup = QCocoaIntegration::instance()->popPopupWindow()) {
-                selfClosed = self == popup->view();
-                QWindowSystemInterface::handleCloseEvent(popup->window());
-                QWindowSystemInterface::flushWindowSystemEvents();
-                if (!m_platformWindow)
-                    return; // Bail out if window was destroyed
-            }
-            // Consume the mouse event when closing the popup, except for tool tips
-            // were it's expected that the event is processed normally.
-            if (type != Qt::ToolTip || selfClosed)
-                 return;
-        }
-    }
+    if ([self closePopups:theEvent])
+        return;
 
     QPointF qtWindowPoint;
     QPointF qtScreenPoint;
     [self convertFromScreen:[self screenMousePoint:theEvent] toWindowPoint:&qtWindowPoint andScreenPoint:&qtScreenPoint];
     Q_UNUSED(qtScreenPoint);
 
-    QRegion mask = m_platformWindow->window()->mask();
+    QRegion mask = QHighDpi::toNativeLocalPosition(m_platformWindow->window()->mask(), m_platformWindow->window());
     const bool masked = !mask.isEmpty() && !mask.contains(qtWindowPoint.toPoint());
     // Maintain masked state for the button for use by MouseDragged and Up.
     if (masked)
@@ -429,18 +475,35 @@
         return;
     }
 
-    if ([self hasMarkedText]) {
-        [[NSTextInputContext currentInputContext] handleEvent:theEvent];
-    } else {
-        auto ctrlOrMetaModifier = qApp->testAttribute(Qt::AA_MacDontSwapCtrlAndMeta) ? Qt::ControlModifier : Qt::MetaModifier;
-        if (!m_dontOverrideCtrlLMB && [QNSView convertKeyModifiers:[theEvent modifierFlags]] & ctrlOrMetaModifier) {
-            m_buttons |= Qt::RightButton;
-            m_sendUpAsRightButton = true;
-        } else {
-            m_buttons |= Qt::LeftButton;
+    // FIXME: AppKit transfers first responder to the view before calling mouseDown,
+    // whereas we only transfer focus once the mouse press is delivered, which means
+    // on first click the focus item won't be the correct one when transferring focus.
+    auto *focusObject = m_platformWindow->window()->focusObject();
+    if (queryInputMethod(focusObject)) {
+        // Input method is enabled. Pass on to the input context if we
+        // are hitting the input item.
+        if (QPlatformInputContext::inputItemClipRectangle().contains(qtWindowPoint)) {
+            qCDebug(lcQpaInputMethods) << "Asking input context to handle mouse press"
+                << "for focus object" << focusObject;
+            if ([NSTextInputContext.currentInputContext handleEvent:theEvent]) {
+                // NSTextView bails out if the input context handled the event,
+                // which is e.g. the case for 2-Set Korean input. We follow suit,
+                // even if that means having to click twice to move the cursor
+                // for these input methods when they are composing.
+                qCDebug(lcQpaInputMethods) << "Input context handled event; bailing out.";
+                return;
+            }
         }
-        [self handleMouseEvent:theEvent];
     }
+
+    if (!m_dontOverrideCtrlLMB && (theEvent.modifierFlags & NSEventModifierFlagControl)) {
+        m_buttons |= Qt::RightButton;
+        m_sendUpAsRightButton = true;
+    } else {
+        m_buttons |= Qt::LeftButton;
+    }
+
+    [self handleMouseEvent:theEvent];
 }
 
 - (void)mouseDragged:(NSEvent *)theEvent
@@ -551,7 +614,7 @@
 
 - (void)mouseEnteredImpl:(NSEvent *)theEvent
 {
-    Q_UNUSED(theEvent)
+    Q_UNUSED(theEvent);
     if (!m_platformWindow)
         return;
 
@@ -655,14 +718,18 @@
         // had time to emit a momentum phase event.
         if ([NSApp nextEventMatchingMask:NSEventMaskScrollWheel untilDate:[NSDate distantPast]
                 inMode:@"QtMomementumEventSearchMode" dequeue:NO].momentumPhase == NSEventPhaseBegan) {
-            Q_ASSERT(pixelDelta.isNull() && angleDelta.isNull());
-            return; // Ignore this event, as it has a delta of 0,0
+            return; // Ignore, even if it has delta
+        } else {
+            phase = Qt::ScrollEnd;
+            m_scrolling = false;
         }
-        phase = Qt::ScrollEnd;
-        m_scrolling = false;
     } else if (theEvent.momentumPhase == NSEventPhaseBegan) {
         Q_ASSERT(!pixelDelta.isNull() && !angleDelta.isNull());
-        phase = Qt::ScrollUpdate; // Send as update, it has a delta
+        // If we missed finding a momentum NSEventPhaseBegan when the non-momentum
+        // phase ended we need to treat this as a scroll begin, to not confuse client
+        // code. Otherwise we treat it as a continuation of the existing scroll.
+        phase = m_scrolling ? Qt::ScrollUpdate : Qt::ScrollBegin;
+        m_scrolling = true;
     } else if (theEvent.momentumPhase == NSEventPhaseChanged) {
         phase = Qt::ScrollMomentum;
     } else if (theEvent.phase == NSEventPhaseCancelled
@@ -674,6 +741,16 @@
         Q_ASSERT(theEvent.momentumPhase != NSEventPhaseStationary);
     }
 
+    // Sanitize deltas for events that should not result in scrolling.
+    // On macOS 12.1 this phase has been observed to report deltas.
+    if (theEvent.phase == NSEventPhaseCancelled) {
+        if (!pixelDelta.isNull() || !angleDelta.isNull()) {
+            qCInfo(lcQpaMouse) << "Ignoring unexpected delta for" << theEvent;
+            pixelDelta = QPoint();
+            angleDelta = QPoint();
+        }
+    }
+
     // Prevent keyboard modifier state from changing during scroll event streams.
     // A two-finger trackpad flick generates a stream of scroll events. We want
     // the keyboard modifier state to be the state at the beginning of the
@@ -682,7 +759,7 @@
     // after scrolling in Qt Creator: not taking the phase into account causes
     // the end of the event stream to be interpreted as font size changes.
     if (theEvent.momentumPhase == NSEventPhaseNone)
-        m_currentWheelModifiers = [QNSView convertKeyModifiers:[theEvent modifierFlags]];
+        m_currentWheelModifiers = QAppleKeyMapper::fromCocoaModifiers(theEvent.modifierFlags);
 
     // "isInverted": natural OS X scrolling, inverted from the Qt/other platform/Jens perspective.
     bool isInverted  = [theEvent isDirectionInvertedFromDevice];
@@ -691,8 +768,22 @@
         << " pixelDelta=" << pixelDelta << " angleDelta=" << angleDelta
         << (isInverted ? " inverted=true" : "");
 
-    QWindowSystemInterface::handleWheelEvent(m_platformWindow->window(), qt_timestamp, qt_windowPoint,
-            qt_screenPoint, pixelDelta, angleDelta, m_currentWheelModifiers, phase, source, isInverted);
+    const QPointingDevice *device = pointingDeviceFor(theEvent.deviceID);
+    Q_ASSERT(device);
+
+    if (theEvent.hasPreciseScrollingDeltas) {
+        auto *devicePriv = QPointingDevicePrivate::get(const_cast<QPointingDevice *>(device));
+        if (!devicePriv->capabilities.testFlag(QInputDevice::Capability::PixelScroll)) {
+            devicePriv->name = QLatin1String("trackpad or magic mouse");
+            devicePriv->deviceType = QInputDevice::DeviceType::TouchPad;
+            devicePriv->capabilities |= QInputDevice::Capability::PixelScroll;
+            qCDebug(lcInputDevices) << "mouse scrolling: updated capabilities" << device;
+        }
+    }
+
+    QWindowSystemInterface::handleWheelEvent(m_platformWindow->window(), qt_timestamp,
+        device, qt_windowPoint, qt_screenPoint, pixelDelta, angleDelta,
+        m_currentWheelModifiers, phase, source, isInverted);
 }
 #endif // QT_CONFIG(wheelevent)
 

@@ -58,18 +58,17 @@ QT_BEGIN_NAMESPACE
 class QPenPrivate {
 public:
     QPenPrivate(const QBrush &brush, qreal width, Qt::PenStyle, Qt::PenCapStyle,
-                Qt::PenJoinStyle _joinStyle, bool defaultWidth = true);
+                Qt::PenJoinStyle _joinStyle);
     QAtomicInt ref;
     qreal width;
     QBrush brush;
     Qt::PenStyle style;
     Qt::PenCapStyle capStyle;
     Qt::PenJoinStyle joinStyle;
-    mutable QVector<qreal> dashPattern;
+    mutable QList<qreal> dashPattern;
     qreal dashOffset;
     qreal miterLimit;
     uint cosmetic : 1;
-    uint defaultWidth : 1; // default-constructed width? used for cosmetic pen compatibility
 };
 
 QT_END_NAMESPACE

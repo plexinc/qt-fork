@@ -109,27 +109,26 @@ static void genTemplate(QTextStream &out, const QString &filename, const Replace
         qFatal("Unable to open template '%s'", qPrintable(filename));
     }
     Q_ASSERT(file.compressionAlgorithm() == QResource::NoCompression);
-    QByteArray data;
-    data = QByteArray::fromRawData(reinterpret_cast<const char *>(file.data()),
-                                   int(file.size()));
-    const QString t = QString::fromLatin1(data);
-    data.clear();
+    const QString data = QString::fromLatin1(
+        QByteArray::fromRawData(reinterpret_cast<const char *>(file.data()), int(file.size()))
+    );
+    const QStringView t { data };
 
     int start = 0;
     for (int openIdx = t.indexOf(QStringLiteral("${"), start); openIdx >= 0; openIdx =
          t.indexOf(QStringLiteral("${"), start)) {
-        out << t.midRef(start, openIdx - start);
+        out << t.mid(start, openIdx - start);
         openIdx += 2;
         const int closeIdx = t.indexOf(QLatin1Char('}'), openIdx);
         Q_ASSERT(closeIdx >= openIdx);
-        QString key = t.mid(openIdx, closeIdx - openIdx);
+        QString key = t.mid(openIdx, closeIdx - openIdx).toString();
         if (!replacements.contains(key)) {
             qFatal("Replacing '%s' failed: no replacement found", qPrintable(key));
         }
         out << replacements.value(key);
         start = closeIdx + 1;
     }
-    out << t.midRef(start);
+    out << t.mid(start);
 }
 
 static const char *headerStart =
@@ -267,8 +266,8 @@ void generateTables(const GeneratedTableData &td, Replacements &replacements)
                 return QString();
 
             const int length = strings.at(idx).size();
-            const QString str = QStringLiteral("STR_LIT(%1, %2, %3)").arg(
-                        QString::number(idx), QString::number(ucharCount), QString::number(length));
+            const QString str = QStringLiteral("%1, %2").arg(
+                        QString::number(ucharCount), QString::number(length));
             ucharCount += length + 1;
             return str;
         });
@@ -365,8 +364,8 @@ void generateCppDataModelEvaluators(const GeneratedTableData::DataModelInfo &inf
 int createFactoryId(QStringList &factories, const QString &className,
                     const QString &namespacePrefix,
                     const QScxmlExecutableContent::InvokeInfo &invokeInfo,
-                    const QVector<QScxmlExecutableContent::StringId> &namelist,
-                    const QVector<QScxmlExecutableContent::ParameterInfo> &parameters)
+                    const QList<QScxmlExecutableContent::StringId> &namelist,
+                    const QList<QScxmlExecutableContent::ParameterInfo> &parameters)
 {
     const int idx = factories.size();
 
@@ -421,10 +420,10 @@ void CppDumper::dump(TranslationUnit *unit)
     }
 
     QStringList classNames;
-    QVector<GeneratedTableData> tables;
-    QVector<GeneratedTableData::MetaDataInfo> metaDataInfos;
-    QVector<GeneratedTableData::DataModelInfo> dataModelInfos;
-    QVector<QStringList> factories;
+    QList<GeneratedTableData> tables;
+    QList<GeneratedTableData::MetaDataInfo> metaDataInfos;
+    QList<GeneratedTableData::DataModelInfo> dataModelInfos;
+    QList<QStringList> factories;
     auto docs = m_translationUnit->allDocuments;
     tables.resize(docs.size());
     metaDataInfos.resize(tables.size());
@@ -438,8 +437,8 @@ void CppDumper::dump(TranslationUnit *unit)
         GeneratedTableData::build(doc, &tables[i], metaDataInfo, &dataModelInfos[i],
                                   [this, &factories, i, &classnameForDocument, &namespacePrefix](
                 const QScxmlExecutableContent::InvokeInfo &invokeInfo,
-                const QVector<QScxmlExecutableContent::StringId> &names,
-                const QVector<QScxmlExecutableContent::ParameterInfo> &parameters,
+                const QList<QScxmlExecutableContent::StringId> &names,
+                const QList<QScxmlExecutableContent::ParameterInfo> &parameters,
                 const QSharedPointer<DocumentModel::ScxmlDocument> &content) -> int {
             QString className;
             if (invokeInfo.expr == QScxmlExecutableContent::NoEvaluator) {
@@ -544,7 +543,7 @@ void CppDumper::writeImplStart()
             includes += l("QScxmlNullDataModel");
             break;
         case DocumentModel::Scxml::JSDataModel:
-            includes += l("QScxmlEcmaScriptDataModel");
+            includes += l("QScxmlDataModel");
             break;
         case DocumentModel::Scxml::CppDataModel:
             includes += doc->root->cppDataModelHeaderName;
@@ -585,8 +584,11 @@ void CppDumper::writeImplBody(const GeneratedTableData &table,
         dataModelInitialization = l("stateMachine.setDataModel(&dataModel);");
         break;
     case DocumentModel::Scxml::JSDataModel:
-        dataModelField = l("QScxmlEcmaScriptDataModel dataModel;");
-        dataModelInitialization = l("stateMachine.setDataModel(&dataModel);");
+        dataModelField = l("QScxmlDataModel *dataModel;");
+        dataModelInitialization = l(
+        "   dataModel = QScxmlDataModel::createScxmlDataModel(QStringLiteral(\"ecmascriptdatamodel\"));\n"
+        "   stateMachine.setDataModel(dataModel);\n"
+        );
         break;
     case DocumentModel::Scxml::CppDataModel:
         dataModelField = QStringLiteral("// Data model %1 is set from outside.").arg(
@@ -795,7 +797,6 @@ QString CppDumper::generateMetaObject(const QString &className,
         signal.arguments << arg;
         classDef.signalList << signal;
 
-        ++classDef.notifyableProperties;
         PropertyDef prop;
         prop.name = stateName.toUtf8();
         if (m_translationUnit->stateMethods)

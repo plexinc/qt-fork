@@ -54,7 +54,7 @@
 #include <QtGui/QPainter>
 #include <QtGui/QScreen>
 
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include <QtCore/QDebug>
 #include <QtCore/QMetaObject>
@@ -71,8 +71,6 @@ class tst_QStyleSheetStyle : public QObject
     Q_OBJECT
 public:
     tst_QStyleSheetStyle();
-
-    static void initMain();
 
 private slots:
     void init();
@@ -94,6 +92,7 @@ private slots:
     void layoutSpacing();
 #endif
     void qproperty();
+    void qproperty_styleSheet();
     void palettePropagation_data();
     void palettePropagation();
     void fontPropagation_data();
@@ -108,6 +107,8 @@ private slots:
 #endif
     void background();
     void tabAlignment();
+    void tabFont_data();
+    void tabFont();
     void attributesList();
     void minmaxSizes();
     void task206238_twice();
@@ -126,6 +127,7 @@ private slots:
     void QTBUG15910_crashNullWidget();
     void QTBUG36933_brokenPseudoClassLookup();
     void styleSheetChangeBeforePolish();
+    void placeholderColor();
     //at the end because it mess with the style.
     void widgetStyle();
     void appStyle();
@@ -135,6 +137,9 @@ private slots:
 
     void highdpiImages_data();
     void highdpiImages();
+
+    void iconSizes_data();
+    void iconSizes();
 
 private:
     static QColor COLOR(const QWidget &w)
@@ -172,12 +177,6 @@ private:
     const QRect m_availableGeometry = QGuiApplication::primaryScreen()->availableGeometry();
     QSize m_testSize;
 };
-
-// highdpiImages() tests HighDPI scaling; disable initially.
-void tst_QStyleSheetStyle::initMain()
-{
-    QCoreApplication::setAttribute(Qt::AA_DisableHighDpiScaling);
-}
 
 tst_QStyleSheetStyle::tst_QStyleSheetStyle()
 {
@@ -677,6 +676,23 @@ void tst_QStyleSheetStyle::qproperty()
     QCOMPARE(pb.isChecked(), false);
 }
 
+void tst_QStyleSheetStyle::qproperty_styleSheet()
+{
+    QWidget w;
+    auto checkBox = new QCheckBox("check", &w);
+    QString sheet = R"(QCheckBox { qproperty-styleSheet: "QCheckBox { qproperty-text: foobar; }"; })";
+
+    QVERIFY(w.property("styleSheet").toString().isEmpty());
+
+    w.setStyleSheet(sheet);
+    QCOMPARE(checkBox->text(), "check");
+
+    //recursion crash
+    w.ensurePolished();
+    QCOMPARE(w.property("styleSheet").toString(), sheet);
+    QCOMPARE(checkBox->text(), "foobar");
+}
+
 namespace ns {
     class PushButton1 : public QPushButton {
         Q_OBJECT
@@ -1086,7 +1102,7 @@ void tst_QStyleSheetStyle::background()
     typedef QSharedPointer<QWidget> WidgetPtr;
 
     const QString styleSheet = QStringLiteral("* { background-color: #e8ff66; }");
-    QVector<WidgetPtr> widgets;
+    QList<WidgetPtr> widgets;
     const QPoint topLeft = m_availableGeometry.topLeft();
     // Testing inheritance styling of QDialog.
     WidgetPtr toplevel(new SingleInheritanceDialog);
@@ -1184,6 +1200,71 @@ void tst_QStyleSheetStyle::tabAlignment()
     tabWidget.setStyleSheet("QTabWidget::tab-bar { alignment: center ; }");
     QVERIFY(bar->geometry().bottom() < 300);
     QVERIFY(bar->geometry().top() > 100);
+}
+
+void tst_QStyleSheetStyle::tabFont_data()
+{
+    QTest::addColumn<int>("pixelSize");
+    QTest::addColumn<QTabWidget::TabPosition>("tabPosition");
+
+    QTest::newRow("medium, horizontal") << 24 << QTabWidget::North;
+    QTest::newRow("large, vertical") << 36 << QTabWidget::West;
+}
+
+#include <QApplication>
+
+void tst_QStyleSheetStyle::tabFont()
+{
+    QFETCH(int, pixelSize);
+    QFETCH(QTabWidget::TabPosition, tabPosition);
+    const bool vertical = tabPosition == QTabWidget::West || tabPosition == QTabWidget::East;
+
+    // macOS style centers tabs and messes up the test
+    QWindowsStyle windowsStyle;
+    QWidget topLevel;
+    topLevel.setStyle(&windowsStyle);
+    topLevel.setWindowTitle(QTest::currentTestFunction());
+    QTabWidget tabWidget;
+    tabWidget.setStyle(&windowsStyle);
+    tabWidget.addTab(new QWidget,"Tab title");
+    tabWidget.setTabPosition(tabPosition);
+    QTabWidget styledWidget;
+    styledWidget.setStyle(&windowsStyle);
+    styledWidget.setTabPosition(tabPosition);
+    styledWidget.addTab(new QWidget,"Tab title");
+
+    QTabBar *bar = tabWidget.tabBar();
+    QTabBar *styledBar = styledWidget.tabBar();
+    QVERIFY(bar && styledBar);
+    bar->setStyle(&windowsStyle);
+    styledBar->setStyle(&windowsStyle);
+
+    QBoxLayout box(vertical ? QBoxLayout::LeftToRight : QBoxLayout::TopToBottom);
+    box.addWidget(&tabWidget);
+    box.addWidget(&styledWidget);
+    topLevel.setLayout(&box);
+
+    topLevel.resize(600, 600);
+    centerOnScreen(&topLevel);
+    topLevel.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&topLevel));
+
+    const QRect defaultRect = bar->tabRect(0);
+    QCOMPARE(styledBar->tabRect(0), defaultRect);
+
+    QFont font;
+    font.setPointSize(pixelSize);
+    tabWidget.setFont(font);
+
+    const QRect rectWithFont = bar->tabRect(0);
+    if (vertical)
+        QVERIFY(rectWithFont.height() > defaultRect.height());
+    else
+        QVERIFY(rectWithFont.width() > defaultRect.width());
+
+    styledWidget.setStyleSheet(QString("QTabBar { font-size: %1pt; }").arg(pixelSize));
+    const QRect rectWithStyle = styledBar->tabRect(0);
+    QCOMPARE(rectWithStyle.size(), rectWithFont.size());
 }
 
 void tst_QStyleSheetStyle::attributesList()
@@ -1602,8 +1683,8 @@ void tst_QStyleSheetStyle::toolTip()
     // including one without stylesheet (the tooltip will be reused,
     // but its color must change)
     const QWidgetList widgets{wid4, wid1, wid2, wid3, wid4};
-    const QVector<QColor> colors{normalToolTip, QColor("#ae2"), QColor("#f81"),
-                                 QColor("#0b8"), normalToolTip};
+    const QList<QColor> colors { normalToolTip, QColor("#ae2"), QColor("#f81"), QColor("#0b8"),
+                                 normalToolTip };
 
     QWidgetList topLevels;
     for (int i = 0; i < widgets.count() ; ++i) {
@@ -1918,7 +1999,7 @@ void tst_QStyleSheetStyle::QTBUG15910_crashNullWidget()
         void paintEvent(QPaintEvent *) override
         {
             QStyleOption opt;
-            opt.init(this);
+            opt.initFrom(this);
             QPainter p(this);
             style()->drawPrimitive(QStyle::PE_Widget, &opt, &p, nullptr);
             style()->drawPrimitive(QStyle::PE_Frame, &opt, &p, nullptr);
@@ -2111,13 +2192,13 @@ void tst_QStyleSheetStyle::widgetStylePropagation()
     QLabel childLabel(&parentLabel);
     childLabel.setObjectName("childLabel");
 
-    if (parentFont.resolve())
+    if (parentFont.resolveMask())
         parentLabel.setFont(parentFont);
-    if (childFont.resolve())
+    if (childFont.resolveMask())
         childLabel.setFont(childFont);
-    if (parentPalette.resolve())
+    if (parentPalette.resolveMask())
         parentLabel.setPalette(parentPalette);
-    if (childPalette.resolve())
+    if (childPalette.resolveMask())
         childLabel.setPalette(childPalette);
     if (!parentStyleSheet.isEmpty())
         parentLabel.setStyleSheet(parentStyleSheet);
@@ -2215,8 +2296,9 @@ void tst_QStyleSheetStyle::highdpiImages()
     w.setWindowTitle(QLatin1String(QTest::currentTestFunction()) + QLatin1String("::")
                      + QLatin1String(QTest::currentDataTag()));
     QScreen *screen = QGuiApplication::primaryScreen();
+    auto inverseDpr = 1 / screen->devicePixelRatio();
     w.move(screen->availableGeometry().topLeft());
-    QHighDpiScaling::setScreenFactor(screen, screenFactor);
+    QHighDpiScaling::setScreenFactor(screen, inverseDpr * screenFactor);
     w.setStyleSheet("QWidget { background-image: url(\":/images/testimage.png\"); }");
     w.show();
 
@@ -2227,6 +2309,81 @@ void tst_QStyleSheetStyle::highdpiImages()
 
     QHighDpiScaling::setScreenFactor(screen, 1.0);
     QHighDpiScaling::updateHighDpiScaling(); // reset to normal
+}
+
+void tst_QStyleSheetStyle::placeholderColor()
+{
+    const QColor red(Qt::red);
+    qApp->setStyleSheet("* { color: red; }");
+    QLineEdit le1;
+    QLineEdit le2;
+    le2.setEnabled(false);
+    le1.ensurePolished();
+    QCOMPARE(le1.palette().placeholderText(), red);
+    le2.ensurePolished();
+    QCOMPARE(le2.palette().placeholderText(), red);
+    le2.setEnabled(true);
+    QCOMPARE(le2.palette().placeholderText(), red);
+}
+
+void tst_QStyleSheetStyle::iconSizes_data()
+{
+    QTest::addColumn<QString>("styleSheet");
+    QTest::addColumn<QFont>("font");
+    QTest::addColumn<QSize>("iconSize");
+
+    const int defaultSize = QApplication::style()->pixelMetric(QStyle::PM_ButtonIconSize);
+
+    QFont smallFont;
+    smallFont.setPointSizeF(9.0);
+    QFont largeFont;
+    largeFont.setPointSizeF(24.0);
+    QFont hugeFont;
+    hugeFont.setPointSizeF(40.0);
+
+    QTest::addRow("default") << QString() << QFont() << QSize(defaultSize, defaultSize);
+    QTest::addRow("pixels") << "icon-size: 50px" << QFont() << QSize(50, 50);
+    QTest::addRow("points") << "icon-size: 20pt" << QFont() << QSize(15, 15);
+    QTest::addRow("pixels with font") << "icon-size: 50px" << smallFont << QSize(50, 50);
+    QTest::addRow("points with font") << "icon-size: 20pt" << largeFont << QSize(15, 15);
+
+    const QFontMetrics defaultMetrics{QFont()};
+    const QFontMetrics smallMetrics(smallFont);
+    const QFontMetrics largeMetrics(largeFont);
+    const QFontMetrics hugeMetrics(hugeFont);
+    QTest::addRow("1em, default font") << "icon-size: 1em"
+        << QFont() << QSize(defaultMetrics.height(), defaultMetrics.height());
+    QTest::addRow("1em, small font") << "icon-size: 1em"
+        << smallFont << QSize(smallMetrics.height(), smallMetrics.height());
+    QTest::addRow("1em, large font") << "icon-size: 1em"
+        << largeFont << QSize(largeMetrics.height(), largeMetrics.height());
+    QTest::addRow("1.5em, lage font") << "icon-size: 1.5em"
+        << largeFont << QSize(largeMetrics.height(), largeMetrics.height()) * 1.5;
+    QTest::addRow("2em with styled font") << "font-size: 40pt; icon-size: 2em"
+        << QFont() << QSize(hugeMetrics.height(), hugeMetrics.height()) * 2;
+
+    QTest::addRow("1ex, default font") << "icon-size: 1ex"
+        << QFont() << QSize(defaultMetrics.xHeight(), defaultMetrics.xHeight());
+    QTest::addRow("1ex, small font") << "icon-size: 1ex"
+        << smallFont << QSize(smallMetrics.xHeight(), smallMetrics.xHeight());
+    QTest::addRow("1ex, large font") << "icon-size: 1ex"
+        << largeFont << QSize(largeMetrics.xHeight(), largeMetrics.xHeight());
+    QTest::addRow("1.5ex, lage font") << "icon-size: 1.5ex"
+        << largeFont << QSize(largeMetrics.xHeight(), largeMetrics.xHeight()) * 1.5;
+    QTest::addRow("2ex with styled font") << "font-size: 40pt; icon-size: 2ex"
+        << QFont() << QSize(hugeMetrics.xHeight(), hugeMetrics.xHeight()) * 2;
+}
+
+void tst_QStyleSheetStyle::iconSizes()
+{
+    QFETCH(QString, styleSheet);
+    QFETCH(QFont, font);
+    QFETCH(QSize, iconSize);
+
+    QPushButton button;
+    button.setFont(font);
+    button.setStyleSheet(styleSheet);
+    QCOMPARE(button.iconSize(), iconSize);
 }
 
 QTEST_MAIN(tst_QStyleSheetStyle)

@@ -46,12 +46,12 @@ public:
     Q_PROPERTY(int secFlags READ secFlags WRITE setSecFlags
                NOTIFY secFlagsChanged)
 
-    int secFlags() const;
+    QBluetooth::SecurityFlags secFlags() const;
     void setSecFlags(int);
     QString hostMode() const;
 
 signals:
-    void error(QBluetoothLocalDevice::Error error);
+    void errorOccurred(QBluetoothLocalDevice::Error error);
     void hostModeStateChanged();
     void socketStateUpdate(int foobar);
     void secFlagsChanged();
@@ -66,9 +66,6 @@ public slots:
     void pairingFinished(const QBluetoothAddress &address, QBluetoothLocalDevice::Pairing pairing);
     void connected(const QBluetoothAddress &addr);
     void disconnected(const QBluetoothAddress &addr);
-    void pairingDisplayConfirmation(const QBluetoothAddress &address, const QString &pin);
-    void pairingDisplayPinCode(const QBluetoothAddress &address, const QString &pin);
-    void confirmPairing();
     void cycleSecurityFlags();
 
     //QBluetoothDeviceDiscoveryAgent

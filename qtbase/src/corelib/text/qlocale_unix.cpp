@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -128,17 +128,12 @@ static bool contradicts(const QString &maybe, const QString &known)
       Belarusian.  There are many more such prefixings between two- and
       three-letter codes.)
      */
-    QLocale::Language langm, langk;
-    QLocale::Script scriptm, scriptk;
-    QLocale::Country landm, landk;
-    QLocalePrivate::getLangAndCountry(maybe, langm, scriptm, landm);
-    QLocalePrivate::getLangAndCountry(known, langk, scriptk, landk);
-    return (langm != QLocale::AnyLanguage && langm != langk)
-        || (scriptm != QLocale::AnyScript && scriptm != scriptk)
-        || (landm != QLocale::AnyCountry && landm != landk);
+    QLocaleId knownId = QLocaleId::fromName(known);
+    QLocaleId maybeId = QLocaleId::fromName(maybe);
+    return !(maybeId.acceptLanguage(knownId.language_id) && maybeId.acceptScriptTerritory(knownId));
 }
 
-QLocale QSystemLocale::fallbackUiLocale() const
+QLocale QSystemLocale::fallbackLocale() const
 {
     // See man 7 locale for precedence - LC_ALL beats LC_MESSAGES beats LANG:
     QString lang = qEnvironmentVariable("LC_ALL");
@@ -199,14 +194,26 @@ QVariant QSystemLocale::query(QueryType type, QVariant in) const
         return lc_time.dayName(in.toInt(), QLocale::LongFormat);
     case DayNameShort:
         return lc_time.dayName(in.toInt(), QLocale::ShortFormat);
+    case DayNameNarrow:
+        return lc_time.dayName(in.toInt(), QLocale::NarrowFormat);
+    case StandaloneDayNameLong:
+        return lc_time.standaloneDayName(in.toInt(), QLocale::LongFormat);
+    case StandaloneDayNameShort:
+        return lc_time.standaloneDayName(in.toInt(), QLocale::ShortFormat);
+    case StandaloneDayNameNarrow:
+        return lc_time.standaloneDayName(in.toInt(), QLocale::NarrowFormat);
     case MonthNameLong:
         return lc_time.monthName(in.toInt(), QLocale::LongFormat);
     case MonthNameShort:
         return lc_time.monthName(in.toInt(), QLocale::ShortFormat);
+    case MonthNameNarrow:
+        return lc_time.monthName(in.toInt(), QLocale::NarrowFormat);
     case StandaloneMonthNameLong:
         return lc_time.standaloneMonthName(in.toInt(), QLocale::LongFormat);
     case StandaloneMonthNameShort:
         return lc_time.standaloneMonthName(in.toInt(), QLocale::ShortFormat);
+    case StandaloneMonthNameNarrow:
+        return lc_time.standaloneMonthName(in.toInt(), QLocale::NarrowFormat);
     case DateToStringLong:
         return lc_time.toString(in.toDate(), QLocale::LongFormat);
     case DateToStringShort:
@@ -270,22 +277,22 @@ QVariant QSystemLocale::query(QueryType type, QVariant in) const
         else
             lst = languages.split(QLatin1Char(':'));
 
+        // Inadequate for various cases of a language that's written in more
+        // than one script in the same country, e.g. Sindhi in India.
+        // However, can clients of the UILanguage query cope if we include script ?
         for (int i = 0; i < lst.size(); ++i) {
-            const QString &name = lst.at(i);
-            QString lang, script, cntry;
-            if (qt_splitLocaleName(name, lang, script, cntry)) {
-                if (!cntry.length())
-                    d->uiLanguages.append(lang);
-                else
-                    d->uiLanguages.append(lang % QLatin1Char('-') % cntry);
+            QStringView lang, cntry;
+            if (qt_splitLocaleName(lst.at(i), &lang, nullptr, &cntry)) {
+                d->uiLanguages.append(
+                    cntry.size() ? lang % QLatin1Char('-') % cntry : lang.toString());
             }
         }
         return d->uiLanguages.isEmpty() ? QVariant() : QVariant(d->uiLanguages);
     }
     case StringToStandardQuotation:
-        return lc_messages.quoteString(qvariant_cast<QStringRef>(in));
+        return lc_messages.quoteString(qvariant_cast<QStringView>(in));
     case StringToAlternateQuotation:
-        return lc_messages.quoteString(qvariant_cast<QStringRef>(in), QLocale::AlternateQuotation);
+        return lc_messages.quoteString(qvariant_cast<QStringView>(in), QLocale::AlternateQuotation);
     case ListToSeparatedString:
         return lc_messages.createSeparatedList(in.toStringList());
     case LocaleChanged:

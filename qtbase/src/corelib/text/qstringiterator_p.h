@@ -60,7 +60,7 @@ QT_BEGIN_NAMESPACE
 class QStringIterator
 {
     QString::const_iterator i, pos, e;
-    Q_STATIC_ASSERT((std::is_same<QString::const_iterator, const QChar *>::value));
+    static_assert((std::is_same<QString::const_iterator, const QChar *>::value));
 public:
     explicit QStringIterator(QStringView string, qsizetype idx = 0)
         : i(string.begin()),
@@ -90,7 +90,7 @@ public:
 
     inline int index() const
     {
-        return pos - i;
+        return int(pos - i);
     }
 
     inline void setPosition(QString::const_iterator position)
@@ -120,21 +120,25 @@ public:
     {
         Q_ASSERT_X(hasNext(), Q_FUNC_INFO, "iterator hasn't a next item");
 
-        if (Q_UNLIKELY((pos++)->isHighSurrogate()))
+        if (Q_UNLIKELY((pos++)->isHighSurrogate())) {
+            Q_ASSERT(pos < e && pos->isLowSurrogate());
             ++pos;
+        }
     }
 
-    inline uint peekNextUnchecked() const
+    inline char32_t peekNextUnchecked() const
     {
         Q_ASSERT_X(hasNext(), Q_FUNC_INFO, "iterator hasn't a next item");
 
-        if (Q_UNLIKELY(pos->isHighSurrogate()))
+        if (Q_UNLIKELY(pos->isHighSurrogate())) {
+            Q_ASSERT(pos + 1 < e && pos[1].isLowSurrogate());
             return QChar::surrogateToUcs4(pos[0], pos[1]);
+        }
 
         return pos->unicode();
     }
 
-    inline uint peekNext(uint invalidAs = QChar::ReplacementCharacter) const
+    inline char32_t peekNext(char32_t invalidAs = QChar::ReplacementCharacter) const
     {
         Q_ASSERT_X(hasNext(), Q_FUNC_INFO, "iterator hasn't a next item");
 
@@ -150,17 +154,19 @@ public:
         return pos->unicode();
     }
 
-    inline uint nextUnchecked()
+    inline char32_t nextUnchecked()
     {
         Q_ASSERT_X(hasNext(), Q_FUNC_INFO, "iterator hasn't a next item");
 
         const QChar cur = *pos++;
-        if (Q_UNLIKELY(cur.isHighSurrogate()))
+        if (Q_UNLIKELY(cur.isHighSurrogate())) {
+            Q_ASSERT(pos < e && pos->isLowSurrogate());
             return QChar::surrogateToUcs4(cur, *pos++);
+        }
         return cur.unicode();
     }
 
-    inline uint next(uint invalidAs = QChar::ReplacementCharacter)
+    inline char32_t next(char32_t invalidAs = QChar::ReplacementCharacter)
     {
         Q_ASSERT_X(hasNext(), Q_FUNC_INFO, "iterator hasn't a next item");
 
@@ -196,20 +202,24 @@ public:
     {
         Q_ASSERT_X(hasPrevious(), Q_FUNC_INFO, "iterator hasn't a previous item");
 
-        if (Q_UNLIKELY((--pos)->isLowSurrogate()))
+        if (Q_UNLIKELY((--pos)->isLowSurrogate())) {
+            Q_ASSERT(pos > i && pos[-1].isHighSurrogate());
             --pos;
+        }
     }
 
-    inline uint peekPreviousUnchecked() const
+    inline char32_t peekPreviousUnchecked() const
     {
         Q_ASSERT_X(hasPrevious(), Q_FUNC_INFO, "iterator hasn't a previous item");
 
-        if (Q_UNLIKELY(pos[-1].isLowSurrogate()))
+        if (Q_UNLIKELY(pos[-1].isLowSurrogate())) {
+            Q_ASSERT(pos > i + 1 && pos[-2].isHighSurrogate());
             return QChar::surrogateToUcs4(pos[-2], pos[-1]);
+        }
         return pos[-1].unicode();
     }
 
-    inline uint peekPrevious(uint invalidAs = QChar::ReplacementCharacter) const
+    inline char32_t peekPrevious(char32_t invalidAs = QChar::ReplacementCharacter) const
     {
         Q_ASSERT_X(hasPrevious(), Q_FUNC_INFO, "iterator hasn't a previous item");
 
@@ -225,17 +235,19 @@ public:
         return pos[-1].unicode();
     }
 
-    inline uint previousUnchecked()
+    inline char32_t previousUnchecked()
     {
         Q_ASSERT_X(hasPrevious(), Q_FUNC_INFO, "iterator hasn't a previous item");
 
         const QChar cur = *--pos;
-        if (Q_UNLIKELY(cur.isLowSurrogate()))
+        if (Q_UNLIKELY(cur.isLowSurrogate())) {
+            Q_ASSERT(pos > i && pos[-1].isHighSurrogate());
             return QChar::surrogateToUcs4(*--pos, cur);
+        }
         return cur.unicode();
     }
 
-    inline uint previous(uint invalidAs = QChar::ReplacementCharacter)
+    inline char32_t previous(char32_t invalidAs = QChar::ReplacementCharacter)
     {
         Q_ASSERT_X(hasPrevious(), Q_FUNC_INFO, "iterator hasn't a previous item");
 

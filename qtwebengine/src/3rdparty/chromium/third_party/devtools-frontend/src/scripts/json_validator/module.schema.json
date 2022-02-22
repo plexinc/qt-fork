@@ -25,6 +25,28 @@
           "properties": {"type": {"const": "action"}}
         },
         "then": {
+          "properties": {
+            "bindings": {
+              "type": "array",
+              "items": {
+                "required": ["shortcut"],
+                "properties": {
+                  "shortcut": {
+                    "type": "string",
+                    "pattern": "^[\\S]+(\\s[\\S]+)?$"
+                  },
+                  "platform": {"type": "string"},
+                  "keybindSets": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": ["devToolsDefault", "vsCode"]
+                    }
+                  }
+                }
+              }
+            }
+          },
           "anyOf": [
             {
               "required": ["title"]
@@ -51,12 +73,6 @@
         "type": "string"
       }
     },
-    "scripts": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
-    },
     "modules": {
       "type": "array",
       "items": {
@@ -64,12 +80,6 @@
       }
     },
     "resources": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
-    },
-    "skip_compilation": {
       "type": "array",
       "items": {
         "type": "string"

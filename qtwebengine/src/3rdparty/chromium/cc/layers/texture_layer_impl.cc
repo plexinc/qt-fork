@@ -7,8 +7,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <memory>
+#include <utility>
 #include <vector>
 
+#include "base/logging.h"
 #include "base/strings/stringprintf.h"
 #include "cc/trees/layer_tree_frame_sink.h"
 #include "cc/trees/layer_tree_impl.h"
@@ -101,10 +104,10 @@ bool TextureLayerImpl::WillDraw(
     own_resource_ = false;
   }
 
-  return resource_id_;
+  return resource_id_ != viz::kInvalidResourceId;
 }
 
-void TextureLayerImpl::AppendQuads(viz::RenderPass* render_pass,
+void TextureLayerImpl::AppendQuads(viz::CompositorRenderPass* render_pass,
                                    AppendQuadsData* append_quads_data) {
   DCHECK(resource_id_);
 
@@ -288,7 +291,7 @@ void TextureLayerImpl::FreeTransferableResource() {
     DCHECK(!own_resource_);
     auto* resource_provider = layer_tree_impl()->resource_provider();
     resource_provider->RemoveImportedResource(resource_id_);
-    resource_id_ = 0;
+    resource_id_ = viz::kInvalidResourceId;
   }
 }
 

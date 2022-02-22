@@ -51,8 +51,8 @@
 
 #include <QtWaylandCompositor/private/qwayland-server-wayland.h>
 
+#include <QtCore/QList>
 #include <QtCore/QRect>
-#include <QtCore/QVector>
 
 #include <QtCore/private/qobject_p.h>
 
@@ -78,13 +78,15 @@ struct QWaylandSurfaceViewMapper
     }
 
     QWaylandSurface *surface = nullptr;
-    QVector<QWaylandView *> views;
+    QList<QWaylandView *> views;
     bool has_entered = false;
 };
 
 class Q_WAYLAND_COMPOSITOR_EXPORT QWaylandOutputPrivate : public QObjectPrivate, public QtWaylandServer::wl_output
 {
 public:
+    Q_DECLARE_PUBLIC(QWaylandOutput)
+
     QWaylandOutputPrivate();
 
     ~QWaylandOutputPrivate() override;
@@ -115,11 +117,11 @@ private:
     QString manufacturer;
     QString model;
     QPoint position;
-    QVector<QWaylandOutputMode> modes;
+    QList<QWaylandOutputMode> modes;
     int currentMode = -1;
     int preferredMode = -1;
     QRect availableGeometry;
-    QVector<QWaylandSurfaceViewMapper> surfaceViews;
+    QList<QWaylandSurfaceViewMapper> surfaceViews;
     QSize physicalSize;
     QWaylandOutput::Subpixel subpixel = QWaylandOutput::SubpixelUnknown;
     QWaylandOutput::Transform transform = QWaylandOutput::TransformNormal;
@@ -128,7 +130,6 @@ private:
     bool initialized = false;
     QSize windowPixelSize;
 
-    Q_DECLARE_PUBLIC(QWaylandOutput)
     Q_DISABLE_COPY(QWaylandOutputPrivate)
 
     friend class QWaylandXdgOutputManagerV1Private;

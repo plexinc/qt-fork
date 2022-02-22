@@ -42,7 +42,6 @@ class PLATFORM_EXPORT CompositorThreadScheduler
   scoped_refptr<base::SingleThreadTaskRunner> V8TaskRunner() override;
   scoped_refptr<base::SingleThreadTaskRunner> DefaultTaskRunner() override;
   scoped_refptr<base::SingleThreadTaskRunner> CompositorTaskRunner() override;
-  scoped_refptr<base::SingleThreadTaskRunner> IPCTaskRunner() override;
   scoped_refptr<base::SingleThreadTaskRunner> NonWakingTaskRunner() override;
   bool ShouldYieldForHighPriorityWork() override;
   bool CanExceedIdleDeadlineIfRequired() const override;
@@ -61,10 +60,6 @@ class PLATFORM_EXPORT CompositorThreadScheduler
   base::TimeTicks WillProcessIdleTask() override;
   void DidProcessIdleTask() override;
   base::TimeTicks NowTicks() override;
-
- protected:
-  // NonMainThreadScheduler:
-  void InitImpl() override;
 
  private:
   CompositorMetricsHelper compositor_metrics_helper_;

@@ -29,8 +29,11 @@
 #ifndef MYOBJECT_H
 #define MYOBJECT_H
 
-#include <QtCore/QObject>
-#include <QtDBus/QtDBus>
+#include <QObject>
+#include <QVariant>
+#include <QUrl>
+#include <QDBusMessage>
+#include <QDBusAbstractAdaptor>
 
 extern const char *slotSpy;
 extern QString valueSpy;
@@ -198,15 +201,15 @@ public:
 
     void emitSignal(const QString &, const QVariant &value)
     {
-        switch (value.type())
+        switch (value.metaType().id())
         {
-        case QVariant::Invalid:
+        case QMetaType::UnknownType:
             emit signal();
             break;
-        case QVariant::Int:
+        case QMetaType::Int:
             emit signal(value.toInt());
             break;
-        case QVariant::String:
+        case QMetaType::QString:
             emit signal(value.toString());
             break;
         default:

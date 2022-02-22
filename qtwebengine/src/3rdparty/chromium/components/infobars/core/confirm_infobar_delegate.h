@@ -5,8 +5,8 @@
 #ifndef COMPONENTS_INFOBARS_CORE_CONFIRM_INFOBAR_DELEGATE_H_
 #define COMPONENTS_INFOBARS_CORE_CONFIRM_INFOBAR_DELEGATE_H_
 
-#include "base/macros.h"
 #include "base/strings/string16.h"
+#include "build/build_config.h"
 #include "components/infobars/core/infobar_delegate.h"
 #include "components/infobars/core/infobar_manager.h"
 #include "ui/gfx/text_constants.h"
@@ -25,10 +25,20 @@ class ConfirmInfoBarDelegate : public infobars::InfoBarDelegate {
     BUTTON_CANCEL = 1 << 1,
   };
 
+  ConfirmInfoBarDelegate(const ConfirmInfoBarDelegate&) = delete;
+  ConfirmInfoBarDelegate& operator=(const ConfirmInfoBarDelegate&) = delete;
   ~ConfirmInfoBarDelegate() override;
+
+  // InfoBarDelegate:
+  bool EqualsDelegate(infobars::InfoBarDelegate* delegate) const override;
+  ConfirmInfoBarDelegate* AsConfirmInfoBarDelegate() override;
 
   // Returns the InfoBar type to be displayed for the InfoBar.
   InfoBarAutomationType GetInfoBarAutomationType() const override;
+
+  // Returns the title string to be displayed for the InfoBar.
+  // Defaults to having not title. Currently only used on iOS.
+  virtual base::string16 GetTitleText() const;
 
   // Returns the message string to be displayed for the InfoBar.
   virtual base::string16 GetMessageText() const = 0;
@@ -48,6 +58,12 @@ class ConfirmInfoBarDelegate : public infobars::InfoBarDelegate {
   // Windows.
   virtual bool OKButtonTriggersUACPrompt() const;
 
+#if defined(OS_IOS)
+  // Returns whether or not a tint should be applied to the icon background.
+  // Defaults to true.
+  virtual bool UseIconBackgroundTint() const;
+#endif
+
   // Called when the OK button is pressed. If this function returns true, the
   // infobar is then immediately closed. Subclasses MUST NOT return true if in
   // handling this call something triggers the infobar to begin closing.
@@ -60,13 +76,6 @@ class ConfirmInfoBarDelegate : public infobars::InfoBarDelegate {
 
  protected:
   ConfirmInfoBarDelegate();
-
- private:
-  // InfoBarDelegate:
-  bool EqualsDelegate(infobars::InfoBarDelegate* delegate) const override;
-  ConfirmInfoBarDelegate* AsConfirmInfoBarDelegate() override;
-
-  DISALLOW_COPY_AND_ASSIGN(ConfirmInfoBarDelegate);
 };
 
 #endif  // COMPONENTS_INFOBARS_CORE_CONFIRM_INFOBAR_DELEGATE_H_

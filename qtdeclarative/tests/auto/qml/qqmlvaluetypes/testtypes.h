@@ -103,10 +103,10 @@ public:
         m_font.setCapitalization(QFont::AllLowercase);
         m_font.setLetterSpacing(QFont::AbsoluteSpacing, 10.2);
         m_font.setWordSpacing(19.7);
-        m_color.setRedF(0.2);
-        m_color.setGreenF(0.88);
-        m_color.setBlueF(0.6);
-        m_color.setAlphaF(0.34);
+        m_color.setRedF(0.2f);
+        m_color.setGreenF(0.88f);
+        m_color.setBlueF(0.6f);
+        m_color.setAlphaF(0.34f);
     }
 
     QPoint m_point;
@@ -196,7 +196,7 @@ class MyConstantValueSource : public QObject, public QQmlPropertyValueSource
     Q_OBJECT
     Q_INTERFACES(QQmlPropertyValueSource)
 public:
-    virtual void setTarget(const QQmlProperty &p) { p.write(3345); }
+    void setTarget(const QQmlProperty &p) override { p.write(3345); }
 };
 
 class MyOffsetValueInterceptor : public QObject, public QQmlPropertyValueInterceptor
@@ -204,8 +204,8 @@ class MyOffsetValueInterceptor : public QObject, public QQmlPropertyValueInterce
     Q_OBJECT
     Q_INTERFACES(QQmlPropertyValueInterceptor)
 public:
-    virtual void setTarget(const QQmlProperty &p) { prop = p; }
-    virtual void write(const QVariant &value) { QQmlPropertyPrivate::write(prop, value.toInt() + 13, QQmlPropertyData::BypassInterceptor); }
+    void setTarget(const QQmlProperty &p) override { prop = p; }
+    void write(const QVariant &value) override { QQmlPropertyPrivate::write(prop, value.toInt() + 13, QQmlPropertyData::BypassInterceptor); }
 
 private:
     QQmlProperty prop;
@@ -217,8 +217,8 @@ class MyColorInterceptor : public QObject, public QQmlPropertyValueInterceptor
     Q_OBJECT
     Q_INTERFACES(QQmlPropertyValueInterceptor)
 public:
-    virtual void setTarget(const QQmlProperty &p) { prop = p; }
-    virtual void write(const QVariant &v)
+    void setTarget(const QQmlProperty &p) override { prop = p; }
+    void write(const QVariant &v) override
     {
         QColor c = v.value<QColor>();
 
@@ -238,8 +238,8 @@ class MyFloatSetInterceptor : public QObject, public QQmlPropertyValueIntercepto
     Q_OBJECT
     Q_INTERFACES(QQmlPropertyValueInterceptor)
 public:
-    virtual void setTarget(const QQmlProperty &p) { prop = p; }
-    virtual void write(const QVariant &)
+    void setTarget(const QQmlProperty &p) override { prop = p; }
+    void write(const QVariant &) override
     {
         QQmlPropertyPrivate::write(prop, 0.0f, QQmlPropertyData::BypassInterceptor);
     }
@@ -253,8 +253,8 @@ class MyFloatIgnoreInterceptor : public QObject, public QQmlPropertyValueInterce
     Q_OBJECT
     Q_INTERFACES(QQmlPropertyValueInterceptor)
 public:
-    virtual void setTarget(const QQmlProperty &) {}
-    virtual void write(const QVariant &) {}
+    void setTarget(const QQmlProperty &) override {}
+    void write(const QVariant &) override {}
 };
 
 class MyColorObject : public QObject

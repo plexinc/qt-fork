@@ -37,9 +37,6 @@ import {ToolbarButton} from './Toolbar.js';
 import {Widget} from './Widget.js';
 import {Events as ZoomManagerEvents, ZoomManager} from './ZoomManager.js';
 
-/**
- * @unrestricted
- */
 export class SplitWidget extends Widget {
   /**
    * @param {boolean} isVertical
@@ -52,15 +49,15 @@ export class SplitWidget extends Widget {
   constructor(isVertical, secondIsSidebar, settingName, defaultSidebarWidth, defaultSidebarHeight, constraintsInDip) {
     super(true);
     this.element.classList.add('split-widget');
-    this.registerRequiredCSS('ui/splitWidget.css');
+    this.registerRequiredCSS('ui/splitWidget.css', {enableLegacyPatching: true});
 
     this.contentElement.classList.add('shadow-split-widget');
     this._sidebarElement =
         this.contentElement.createChild('div', 'shadow-split-widget-contents shadow-split-widget-sidebar vbox');
     this._mainElement =
         this.contentElement.createChild('div', 'shadow-split-widget-contents shadow-split-widget-main vbox');
-    this._mainElement.createChild('slot').name = 'insertion-point-main';
-    this._sidebarElement.createChild('slot').name = 'insertion-point-sidebar';
+    /** @type {!HTMLSlotElement} */ (this._mainElement.createChild('slot')).name = 'insertion-point-main';
+    /** @type {!HTMLSlotElement} */ (this._sidebarElement.createChild('slot')).name = 'insertion-point-sidebar';
     this._resizerElement = this.contentElement.createChild('div', 'shadow-split-widget-resizer');
     this._resizerElementSize = null;
 
@@ -72,9 +69,8 @@ export class SplitWidget extends Widget {
 
     this._defaultSidebarWidth = defaultSidebarWidth || 200;
     this._defaultSidebarHeight = defaultSidebarHeight || this._defaultSidebarWidth;
-    this._constraintsInDip = !!constraintsInDip;
+    this._constraintsInDip = Boolean(constraintsInDip);
     this._resizeStartSizeDIP = 0;
-    // Note: go via self.Common for globally-namespaced singletons.
     this._setting = settingName ? Common.Settings.Settings.instance().createSetting(settingName, {}) : null;
 
     this._totalSizeCSS = 0;
@@ -84,9 +80,10 @@ export class SplitWidget extends Widget {
     /** @type {?Widget} */
     this._sidebarWidget = null;
     this._animationFrameHandle = 0;
-    /** @type {?function()} */
+    /** @type {?function():void} */
     this._animationCallback = null;
-    this._showHideSidebarButtonTitle = '';
+    this._showSidebarButtonTitle = Common.UIString.LocalizedEmptyString;
+    this._hideSidebarButtonTitle = Common.UIString.LocalizedEmptyString;
     /** @type {?ToolbarButton} */
     this._showHideSidebarButton = null;
     this._isVertical = false;
@@ -166,7 +163,7 @@ export class SplitWidget extends Widget {
     this._sidebarElement.style.removeProperty('width');
     this._sidebarElement.style.removeProperty('height');
 
-    this._innerSetSidebarSizeDIP(this._preferredSidebarSizeDIP(), !!animate);
+    this._innerSetSidebarSizeDIP(this._preferredSidebarSizeDIP(), Boolean(animate));
   }
 
   /**
@@ -223,6 +220,13 @@ export class SplitWidget extends Widget {
    */
   sidebarWidget() {
     return this._sidebarWidget;
+  }
+
+  /**
+   * @return {!HTMLElement}
+   */
+  sidebarElement() {
+    return /** @type {!HTMLElement} */ (this._sidebarElement);
   }
 
   /**
@@ -353,7 +357,7 @@ export class SplitWidget extends Widget {
         // Make sure main is first in the children list.
         if (sideToShow === this._mainWidget) {
           this._mainWidget.show(this.element, this._sidebarWidget ? this._sidebarWidget.element : null);
-        } else {
+        } else if (this._sidebarWidget) {
           this._sidebarWidget.show(this.element);
         }
       }
@@ -570,12 +574,13 @@ export class SplitWidget extends Widget {
 
   /**
    * @param {boolean} reverse
-   * @param {function()=} callback
+   * @param {function():void=} callback
    */
   _animate(reverse, callback) {
     const animationTime = 50;
     this._animationCallback = callback || null;
 
+    /** @type {string} */
     let animatedMarginPropertyName;
     if (this._isVertical) {
       animatedMarginPropertyName = this._secondIsSidebar ? 'margin-right' : 'margin-left';
@@ -595,7 +600,7 @@ export class SplitWidget extends Widget {
     }
 
     // 2. Issue onresize to the sidebar element, its size won't change.
-    if (!reverse) {
+    if (!reverse && this._sidebarWidget) {
       this._sidebarWidget.doResize();
     }
 
@@ -603,7 +608,8 @@ export class SplitWidget extends Widget {
     this.contentElement.style.setProperty('transition', animatedMarginPropertyName + ' ' + animationTime + 'ms linear');
 
     const boundAnimationFrame = animationFrame.bind(this);
-    let startTime;
+    /** @type {?number} */
+    let startTime = null;
     /**
      * @this {SplitWidget}
      */
@@ -810,21 +816,21 @@ export class SplitWidget extends Widget {
    */
   hideDefaultResizer(noSplitter) {
     this.uninstallResizer(this._resizerElement);
-    this._sidebarElement.classList.toggle('no-default-splitter', !!noSplitter);
+    this._sidebarElement.classList.toggle('no-default-splitter', Boolean(noSplitter));
   }
 
   /**
    * @param {!Element} resizerElement
    */
   installResizer(resizerElement) {
-    this._resizerWidget.addElement(resizerElement);
+    this._resizerWidget.addElement(/** @type {!HTMLElement} */ (resizerElement));
   }
 
   /**
    * @param {!Element} resizerElement
    */
   uninstallResizer(resizerElement) {
-    this._resizerWidget.removeElement(resizerElement);
+    this._resizerWidget.removeElement(/** @type {!HTMLElement} */ (resizerElement));
   }
 
   /**
@@ -932,11 +938,13 @@ export class SplitWidget extends Widget {
   }
 
   /**
-   * @param {string} title
+   * @param {Common.UIString.LocalizedString} showTitle
+   * @param {Common.UIString.LocalizedString} hideTitle
    * @return {!ToolbarButton}
    */
-  createShowHideSidebarButton(title) {
-    this._showHideSidebarButtonTitle = title;
+  createShowHideSidebarButton(showTitle, hideTitle) {
+    this._showSidebarButtonTitle = showTitle;
+    this._hideSidebarButtonTitle = hideTitle;
     this._showHideSidebarButton = new ToolbarButton('', '');
     this._showHideSidebarButton.addEventListener(ToolbarButton.Events.Click, buttonClicked, this);
     this._updateShowHideSidebarButton();
@@ -972,9 +980,7 @@ export class SplitWidget extends Widget {
           (this.isSidebarSecond() ? 'largeicon-hide-bottom-sidebar' : 'largeicon-hide-top-sidebar');
     }
     this._showHideSidebarButton.setGlyph(glyph);
-    this._showHideSidebarButton.setTitle(
-        sidebarHidden ? Common.UIString.UIString('Show %s', this._showHideSidebarButtonTitle) :
-                        Common.UIString.UIString('Hide %s', this._showHideSidebarButtonTitle));
+    this._showHideSidebarButton.setTitle(sidebarHidden ? this._showSidebarButtonTitle : this._hideSidebarButtonTitle);
   }
 }
 
@@ -993,4 +999,8 @@ export const Events = {
 const MinPadding = 20;
 
 /** @typedef {{showMode: string, size: number}} */
+// @ts-ignore typedef
 export let SettingForOrientation;
+
+/** @param {*} value */
+const suppressUnused = function(value) {};

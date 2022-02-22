@@ -48,8 +48,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import QtQuick.Particles 2.0
+import QtQuick
+import QtQuick.Particles
 
 Item {
     id: container //Positioned where the 48x48 S/G should be
@@ -80,7 +80,9 @@ Item {
                     system: particleSystem
                     Connections {
                         target: container
-                        onBoomTime: emitter.pulse(100);
+                        function onBoomTime() {
+                            emitter.pulse(100);
+                        }
                     }
                 }
             }

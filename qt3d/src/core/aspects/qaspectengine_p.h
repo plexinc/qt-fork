@@ -52,11 +52,11 @@
 //
 
 #include <Qt3DCore/private/qt3dcore_global_p.h>
-#include <Qt3DCore/qnodecreatedchange.h>
 #include <QtCore/qsharedpointer.h>
 
 #include <Qt3DCore/private/qaspectfactory_p.h>
 #include <Qt3DCore/private/qaspectengine_p.h>
+#include <Qt3DCore/private/qabstractfrontendnodemanager_p.h>
 #include <QtCore/private/qobject_p.h>
 
 QT_BEGIN_NAMESPACE
@@ -66,10 +66,9 @@ namespace Qt3DCore {
 class QEntity;
 class QNode;
 class QAspectManager;
-class QPostman;
 class QScene;
 
-class Q_3DCORE_PRIVATE_EXPORT QAspectEnginePrivate : public QObjectPrivate
+class Q_3DCORE_PRIVATE_EXPORT QAspectEnginePrivate : public QObjectPrivate, public QAbstractFrontEndNodeManager
 {
 public:
     QAspectEnginePrivate();
@@ -79,10 +78,9 @@ public:
 
     QAspectFactory m_factory;
     QAspectManager *m_aspectManager;
-    QPostman *m_postman;
     QScene *m_scene;
     QSharedPointer<QEntity> m_root;
-    QVector<QAbstractAspect*> m_aspects;
+    QList<QAbstractAspect*> m_aspects;
     QHash<QString, QAbstractAspect *> m_namedAspects;
     bool m_initialized;
     QAspectEngine::RunMode m_runMode;
@@ -97,6 +95,9 @@ public:
     void initEntity(QEntity *entity);
     void addNode(QNode *node);
     void removeNode(QNode *node);
+
+    QNode *lookupNode(QNodeId id) const override;
+    QList<QNode *> lookupNodes(const QList<QNodeId> &ids) const override;
 
     static QAspectEnginePrivate *get(QAspectEngine *engine);
 };

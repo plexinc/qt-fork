@@ -45,6 +45,8 @@ namespace {
 // Import all the constants in the anonymous namespace.
 #include "src/inter_intra_masks.inc"
 
+// Precision bits when scaling reference frames.
+constexpr int kReferenceScaleShift = 14;
 constexpr int kAngleStep = 3;
 constexpr int kPredictionModeToAngle[kIntraPredictionModesUV] = {
     0, 90, 180, 45, 135, 113, 157, 203, 67, 0, 0, 0, 0};
@@ -213,7 +215,7 @@ dsp::MaskBlendFunc GetMaskBlendFunc(const dsp::Dsp& dsp, bool is_inter_intra,
                                     bool is_wedge_inter_intra,
                                     int subsampling_x, int subsampling_y) {
   return (is_inter_intra && !is_wedge_inter_intra)
-             ? dsp.mask_blend[0][is_inter_intra]
+             ? dsp.mask_blend[0][/*is_inter_intra=*/true]
              : dsp.mask_blend[subsampling_x + subsampling_y][is_inter_intra];
 }
 
@@ -277,7 +279,6 @@ void Tile::IntraPrediction(const Block& block, Plane plane, int x, int y,
                           (mode == kPredictionModeDc && has_left);
 
   const Pixel* top_row_src = buffer[y - 1];
-  int top_row_offset = 0;
 
   // Determine if we need to retrieve the top row from
   // |intra_prediction_buffer_|.
@@ -295,13 +296,8 @@ void Tile::IntraPrediction(const Block& block, Plane plane, int x, int y,
     // then we will have to retrieve the top row from the
     // |intra_prediction_buffer_|.
     if (current_superblock_index != top_row_superblock_index) {
-      top_row_src =
-          reinterpret_cast<const Pixel*>(intra_prediction_buffer_[plane].get());
-      // The |intra_prediction_buffer_| only stores the top row for this Tile.
-      // The |x| value in this function is absolute to the frame. So in order to
-      // make it relative to this Tile, all acccesses into top_row_src must be
-      // offset by negative |top_row_offset|.
-      top_row_offset = MultiplyBy4(column4x4_start_) >> subsampling_x_[plane];
+      top_row_src = reinterpret_cast<const Pixel*>(
+          (*intra_prediction_buffer_)[plane].get());
     }
   }
 
@@ -309,8 +305,7 @@ void Tile::IntraPrediction(const Block& block, Plane plane, int x, int y,
     // Compute top_row.
     if (has_top || has_left) {
       const int left_index = has_left ? x - 1 : x;
-      top_row[-1] = has_top ? top_row_src[left_index - top_row_offset]
-                            : buffer[y][left_index];
+      top_row[-1] = has_top ? top_row_src[left_index] : buffer[y][left_index];
     } else {
       top_row[-1] = 1 << (bitdepth - 1);
     }
@@ -320,14 +315,12 @@ void Tile::IntraPrediction(const Block& block, Plane plane, int x, int y,
       Memset(top_row, (1 << (bitdepth - 1)) - 1, top_size);
     } else {
       const int top_limit = std::min(max_x - x + 1, top_right_size);
-      memcpy(top_row, &top_row_src[x - top_row_offset],
-             top_limit * sizeof(Pixel));
+      memcpy(top_row, &top_row_src[x], top_limit * sizeof(Pixel));
       // Even though it is safe to call Memset with a size of 0, accessing
       // top_row_src[top_limit - x + 1] is not allowed when this condition is
       // false.
       if (top_size - top_limit > 0) {
-        Memset(top_row + top_limit,
-               top_row_src[top_limit + x - 1 - top_row_offset],
+        Memset(top_row + top_limit, top_row_src[top_limit + x - 1],
                top_size - top_limit);
       }
     }
@@ -336,13 +329,13 @@ void Tile::IntraPrediction(const Block& block, Plane plane, int x, int y,
     // Compute left_column.
     if (has_top || has_left) {
       const int left_index = has_left ? x - 1 : x;
-      left_column[-1] = has_top ? top_row_src[left_index - top_row_offset]
-                                : buffer[y][left_index];
+      left_column[-1] =
+          has_top ? top_row_src[left_index] : buffer[y][left_index];
     } else {
       left_column[-1] = 1 << (bitdepth - 1);
     }
     if (!has_left && has_top) {
-      Memset(left_column, top_row_src[x - top_row_offset], left_size);
+      Memset(left_column, top_row_src[x], left_size);
     } else if (!has_left && !has_top) {
       Memset(left_column, (1 << (bitdepth - 1)) + 1, left_size);
     } else {
@@ -413,20 +406,13 @@ int Tile::GetIntraEdgeFilterType(const Block& block, Plane plane) const {
   const int subsampling_x = subsampling_x_[plane];
   const int subsampling_y = subsampling_y_[plane];
   if (block.top_available[plane]) {
-    const int row =
-        block.row4x4 - 1 -
-        static_cast<int>(subsampling_y != 0 && (block.row4x4 & 1) != 0);
-    const int column =
-        block.column4x4 +
-        static_cast<int>(subsampling_x != 0 && (block.column4x4 & 1) == 0);
+    const int row = block.row4x4 - 1 - (block.row4x4 & subsampling_y);
+    const int column = block.column4x4 + (~block.column4x4 & subsampling_x);
     if (IsSmoothPrediction(row, column, plane)) return 1;
   }
   if (block.left_available[plane]) {
-    const int row = block.row4x4 + static_cast<int>(subsampling_y != 0 &&
-                                                    (block.row4x4 & 1) == 0);
-    const int column =
-        block.column4x4 - 1 -
-        static_cast<int>(subsampling_x != 0 && (block.column4x4 & 1) != 0);
+    const int row = block.row4x4 + (~block.row4x4 & subsampling_y);
+    const int column = block.column4x4 - 1 - (block.column4x4 & subsampling_x);
     if (IsSmoothPrediction(row, column, plane)) return 1;
   }
   return 0;
@@ -813,9 +799,7 @@ bool Tile::InterPrediction(const Block& block, const Plane plane, const int x,
                             dest, dest_stride);
   } else if (prediction_parameters.motion_mode == kMotionModeObmc) {
     // Obmc mode is allowed only for single reference (!is_compound).
-    if (!ObmcPrediction(block, plane, prediction_width, prediction_height)) {
-      return false;
-    }
+    return ObmcPrediction(block, plane, prediction_width, prediction_height);
   } else if (is_inter_intra) {
     // InterIntra and obmc must be mutually exclusive.
     InterIntraPrediction(
@@ -942,19 +926,80 @@ void Tile::DistanceWeightedPrediction(void* prediction_0, void* prediction_1,
   for (int reference = 0; reference < 2; ++reference) {
     const BlockParameters& bp =
         *block_parameters_holder_.Find(candidate_row, candidate_column);
-    const unsigned int reference_hint =
-        current_frame_.order_hint(bp.reference_frame[reference]);
     // Note: distance[0] and distance[1] correspond to relative distance
     // between current frame and reference frame [1] and [0], respectively.
-    distance[1 - reference] = Clip3(
-        std::abs(GetRelativeDistance(reference_hint, frame_header_.order_hint,
-                                     sequence_header_.order_hint_shift_bits)),
-        0, kMaxFrameDistance);
+    distance[1 - reference] = std::min(
+        std::abs(static_cast<int>(
+            current_frame_.reference_info()
+                ->relative_distance_from[bp.reference_frame[reference]])),
+        static_cast<int>(kMaxFrameDistance));
   }
   GetDistanceWeights(distance, weight);
 
   dsp_.distance_weighted_blend(prediction_0, prediction_1, weight[0], weight[1],
                                width, height, dest, dest_stride);
+}
+
+void Tile::ScaleMotionVector(const MotionVector& mv, const Plane plane,
+                             const int reference_frame_index, const int x,
+                             const int y, int* const start_x,
+                             int* const start_y, int* const step_x,
+                             int* const step_y) {
+  const int reference_upscaled_width =
+      (reference_frame_index == -1)
+          ? frame_header_.upscaled_width
+          : reference_frames_[reference_frame_index]->upscaled_width();
+  const int reference_height =
+      (reference_frame_index == -1)
+          ? frame_header_.height
+          : reference_frames_[reference_frame_index]->frame_height();
+  assert(2 * frame_header_.width >= reference_upscaled_width &&
+         2 * frame_header_.height >= reference_height &&
+         frame_header_.width <= 16 * reference_upscaled_width &&
+         frame_header_.height <= 16 * reference_height);
+  const bool is_scaled_x = reference_upscaled_width != frame_header_.width;
+  const bool is_scaled_y = reference_height != frame_header_.height;
+  const int half_sample = 1 << (kSubPixelBits - 1);
+  int orig_x = (x << kSubPixelBits) + ((2 * mv.mv[1]) >> subsampling_x_[plane]);
+  int orig_y = (y << kSubPixelBits) + ((2 * mv.mv[0]) >> subsampling_y_[plane]);
+  const int rounding_offset =
+      DivideBy2(1 << (kScaleSubPixelBits - kSubPixelBits));
+  if (is_scaled_x) {
+    const int scale_x = ((reference_upscaled_width << kReferenceScaleShift) +
+                         DivideBy2(frame_header_.width)) /
+                        frame_header_.width;
+    *step_x = RightShiftWithRoundingSigned(
+        scale_x, kReferenceScaleShift - kScaleSubPixelBits);
+    orig_x += half_sample;
+    // When frame size is 4k and above, orig_x can be above 16 bits, scale_x can
+    // be up to 15 bits. So we use int64_t to hold base_x.
+    const int64_t base_x = static_cast<int64_t>(orig_x) * scale_x -
+                           (half_sample << kReferenceScaleShift);
+    *start_x =
+        RightShiftWithRoundingSigned(
+            base_x, kReferenceScaleShift + kSubPixelBits - kScaleSubPixelBits) +
+        rounding_offset;
+  } else {
+    *step_x = 1 << kScaleSubPixelBits;
+    *start_x = LeftShift(orig_x, 6) + rounding_offset;
+  }
+  if (is_scaled_y) {
+    const int scale_y = ((reference_height << kReferenceScaleShift) +
+                         DivideBy2(frame_header_.height)) /
+                        frame_header_.height;
+    *step_y = RightShiftWithRoundingSigned(
+        scale_y, kReferenceScaleShift - kScaleSubPixelBits);
+    orig_y += half_sample;
+    const int64_t base_y = static_cast<int64_t>(orig_y) * scale_y -
+                           (half_sample << kReferenceScaleShift);
+    *start_y =
+        RightShiftWithRoundingSigned(
+            base_y, kReferenceScaleShift + kSubPixelBits - kScaleSubPixelBits) +
+        rounding_offset;
+  } else {
+    *step_y = 1 << kScaleSubPixelBits;
+    *start_y = LeftShift(orig_y, 6) + rounding_offset;
+  }
 }
 
 // static.
@@ -1019,12 +1064,9 @@ void Tile::BuildConvolveBlock(
                     kScaleSubPixelBits) +
                    kSubPixelTaps;
   }
-  const int copy_start_x =
-      std::min(std::max(ref_block_start_x, ref_start_x), ref_last_x);
-  const int copy_end_x =
-      std::max(std::min(ref_block_end_x, ref_last_x), copy_start_x);
-  const int copy_start_y =
-      std::min(std::max(ref_block_start_y, ref_start_y), ref_last_y);
+  const int copy_start_x = Clip3(ref_block_start_x, ref_start_x, ref_last_x);
+  const int copy_start_y = Clip3(ref_block_start_y, ref_start_y, ref_last_y);
+  const int copy_end_x = Clip3(ref_block_end_x, copy_start_x, ref_last_x);
   const int block_width = copy_end_x - copy_start_x + 1;
   const bool extend_left = ref_block_start_x < ref_start_x;
   const bool extend_right = ref_block_end_x > ref_last_x;
@@ -1136,7 +1178,11 @@ bool Tile::BlockInterPrediction(
       // reference_y_max by 2 since we only track the progress of Y planes.
       reference_y_max = LeftShift(reference_y_max, subsampling_y);
     }
-    if (!reference_frames_[reference_frame_index]->WaitUntil(reference_y_max)) {
+    if (reference_frame_progress_cache_[reference_frame_index] <
+            reference_y_max &&
+        !reference_frames_[reference_frame_index]->WaitUntil(
+            reference_y_max,
+            &reference_frame_progress_cache_[reference_frame_index])) {
       return false;
     }
   }
@@ -1192,10 +1238,6 @@ bool Tile::BlockInterPrediction(
                                    kConvolveBorderLeftTop * pixel_size);
   }
 
-  const int has_horizontal_filter = static_cast<int>(
-      ((mv.mv[MotionVector::kColumn] * (1 << (1 - subsampling_x))) & 15) != 0);
-  const int has_vertical_filter = static_cast<int>(
-      ((mv.mv[MotionVector::kRow] * (1 << (1 - subsampling_y))) & 15) != 0);
   void* const output =
       (is_compound || is_inter_intra) ? prediction : static_cast<void*>(dest);
   ptrdiff_t output_stride = (is_compound || is_inter_intra)
@@ -1220,14 +1262,17 @@ bool Tile::BlockInterPrediction(
                   vertical_filter_index, start_x, start_y, step_x, step_y,
                   width, height, output, output_stride);
   } else {
+    const int horizontal_filter_id = (start_x >> 6) & kSubPixelMask;
+    const int vertical_filter_id = (start_y >> 6) & kSubPixelMask;
+
     dsp::ConvolveFunc convolve_func =
         dsp_.convolve[reference_frame_index == -1][is_compound]
-                     [has_vertical_filter][has_horizontal_filter];
+                     [vertical_filter_id != 0][horizontal_filter_id != 0];
     assert(convolve_func != nullptr);
 
     convolve_func(block_start, convolve_buffer_stride, horizontal_filter_index,
-                  vertical_filter_index, start_x, start_y, width, height,
-                  output, output_stride);
+                  vertical_filter_index, horizontal_filter_id,
+                  vertical_filter_id, width, height, output, output_stride);
   }
   return true;
 }
@@ -1275,7 +1320,11 @@ bool Tile::BlockWarpProcess(const Block& block, const Plane plane,
     // For U and V planes with subsampling, we need to multiply reference_y_max
     // by 2 since we only track the progress of Y planes.
     reference_y_max = LeftShift(reference_y_max, subsampling_y_[plane]);
-    if (!reference_frames_[reference_frame_index]->WaitUntil(reference_y_max)) {
+    if (reference_frame_progress_cache_[reference_frame_index] <
+            reference_y_max &&
+        !reference_frames_[reference_frame_index]->WaitUntil(
+            reference_y_max,
+            &reference_frame_progress_cache_[reference_frame_index])) {
       return false;
     }
   }

@@ -7,6 +7,7 @@
 #include "src/api/api-inl.h"
 #include "src/debug/debug-evaluate.h"
 #include "src/debug/debug-scope-iterator.h"
+#include "src/debug/debug-wasm-objects.h"
 #include "src/debug/debug.h"
 #include "src/debug/liveedit.h"
 #include "src/execution/frames-inl.h"
@@ -95,7 +96,7 @@ v8::MaybeLocal<v8::Value> DebugStackTraceIterator::GetReceiver() const {
     if (!scope_iterator.ClosureScopeHasThisReference()) {
       return v8::MaybeLocal<v8::Value>();
     }
-    DisallowHeapAllocation no_gc;
+    DisallowGarbageCollection no_gc;
     VariableMode mode;
     InitializationFlag flag;
     MaybeAssignedFlag maybe_assigned_flag;
@@ -158,10 +159,9 @@ v8::Local<v8::Function> DebugStackTraceIterator::GetFunction() const {
 std::unique_ptr<v8::debug::ScopeIterator>
 DebugStackTraceIterator::GetScopeIterator() const {
   DCHECK(!Done());
-  StandardFrame* frame = iterator_.frame();
+  CommonFrame* frame = iterator_.frame();
   if (frame->is_wasm()) {
-    return std::make_unique<DebugWasmScopeIterator>(isolate_, iterator_.frame(),
-                                                    inlined_frame_index_);
+    return GetWasmScopeIterator(WasmFrame::cast(frame));
   }
   return std::make_unique<DebugScopeIterator>(isolate_, frame_inspector_.get());
 }
@@ -176,6 +176,7 @@ v8::MaybeLocal<v8::Value> DebugStackTraceIterator::Evaluate(
     v8::Local<v8::String> source, bool throw_on_side_effect) {
   DCHECK(!Done());
   Handle<Object> value;
+
   i::SafeForInterruptsScope safe_for_interrupt_scope(isolate_);
   if (!DebugEvaluate::Local(isolate_, iterator_.frame()->id(),
                             inlined_frame_index_, Utils::OpenHandle(*source),
@@ -186,5 +187,6 @@ v8::MaybeLocal<v8::Value> DebugStackTraceIterator::Evaluate(
   }
   return Utils::ToLocal(value);
 }
+
 }  // namespace internal
 }  // namespace v8

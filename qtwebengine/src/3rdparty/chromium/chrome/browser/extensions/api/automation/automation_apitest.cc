@@ -4,13 +4,16 @@
 
 #include "base/command_line.h"
 #include "base/files/file_path.h"
+#include "base/json/json_reader.h"
 #include "base/location.h"
 #include "base/path_service.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/test/scoped_feature_list.h"
+#include "base/test/trace_event_analyzer.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_paths.h"
@@ -21,8 +24,10 @@
 #include "content/public/browser/ax_event_notification_details.h"
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/render_widget_host_view.h"
+#include "content/public/browser/tracing_controller.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_features.h"
+#include "content/public/test/browser_test.h"
 #include "extensions/browser/api/automation_internal/automation_event_router.h"
 #include "extensions/common/api/automation_internal.h"
 #include "extensions/test/extension_test_message_listener.h"
@@ -38,7 +43,7 @@
 #include "ui/base/accelerators/accelerator.h"
 #include "ui/display/display_switches.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ash/public/cpp/accelerators.h"
 #include "chrome/browser/ui/aura/accessibility/automation_manager_aura.h"
 #endif
@@ -152,8 +157,7 @@ IN_PROC_BROWSER_TEST_F(AutomationApiTest, ImageLabels) {
   EXPECT_EQ(expected_mode, web_contents->GetAccessibilityMode());
 }
 
-// TODO(aboxhall): Fix flakiness
-IN_PROC_BROWSER_TEST_F(AutomationApiTest, DISABLED_GetTreeByTabId) {
+IN_PROC_BROWSER_TEST_F(AutomationApiTest, GetTreeByTabId) {
   StartEmbeddedTestServer();
   ASSERT_TRUE(RunExtensionSubtest("automation/tests/tabs", "tab_id.html"))
       << message_;
@@ -232,15 +236,13 @@ IN_PROC_BROWSER_TEST_F(AutomationApiTest, TabsAutomationHostsPermissions) {
 }
 
 #if defined(USE_AURA)
-// TODO(https://crbug.com/754870): Disabled due to flakiness.
-IN_PROC_BROWSER_TEST_F(AutomationApiTest, DISABLED_Desktop) {
+IN_PROC_BROWSER_TEST_F(AutomationApiTest, Desktop) {
   ASSERT_TRUE(RunExtensionSubtest("automation/tests/desktop", "desktop.html"))
       << message_;
 }
 
-#if defined(OS_CHROMEOS)
-// TODO(https://crbug.com/754870): Flaky on CrOS sanitizers.
-IN_PROC_BROWSER_TEST_F(AutomationApiTest, DISABLED_DesktopInitialFocus) {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+IN_PROC_BROWSER_TEST_F(AutomationApiTest, DesktopInitialFocus) {
   ASSERT_TRUE(
       RunExtensionSubtest("automation/tests/desktop", "initial_focus.html"))
       << message_;
@@ -252,24 +254,21 @@ IN_PROC_BROWSER_TEST_F(AutomationApiTest, DesktopFocusWeb) {
       << message_;
 }
 
-// TODO(https://crbug.com/622387): flaky.
-IN_PROC_BROWSER_TEST_F(AutomationApiTest, DISABLED_DesktopFocusIframe) {
+IN_PROC_BROWSER_TEST_F(AutomationApiTest, DesktopFocusIframe) {
   StartEmbeddedTestServer();
   ASSERT_TRUE(
       RunExtensionSubtest("automation/tests/desktop", "focus_iframe.html"))
       << message_;
 }
 
-// TODO(https://crbug.com/622387): flaky.
-IN_PROC_BROWSER_TEST_F(AutomationApiTest, DISABLED_DesktopHitTestIframe) {
+IN_PROC_BROWSER_TEST_F(AutomationApiTest, DesktopHitTestIframe) {
   StartEmbeddedTestServer();
   ASSERT_TRUE(
       RunExtensionSubtest("automation/tests/desktop", "hit_test_iframe.html"))
       << message_;
 }
 
-// TODO(https://crbug.com/892960): flaky.
-IN_PROC_BROWSER_TEST_F(AutomationApiTest, DISABLED_DesktopFocusViews) {
+IN_PROC_BROWSER_TEST_F(AutomationApiTest, DesktopFocusViews) {
   AutomationManagerAura::GetInstance()->Enable();
   // Trigger the shelf subtree to be computed.
   ash::AcceleratorController::Get()->PerformActionIfEnabled(ash::FOCUS_SHELF,
@@ -293,14 +292,19 @@ IN_PROC_BROWSER_TEST_F(AutomationApiTest, LocationInWebView) {
 }
 #endif
 
+IN_PROC_BROWSER_TEST_F(AutomationApiTest, IframeNav) {
+  StartEmbeddedTestServer();
+  ASSERT_TRUE(RunExtensionSubtest("automation/tests/desktop", "iframenav.html"))
+      << message_;
+}
+
 IN_PROC_BROWSER_TEST_F(AutomationApiTest, DesktopNotRequested) {
   ASSERT_TRUE(RunExtensionSubtest("automation/tests/tabs",
                                   "desktop_not_requested.html")) << message_;
 }
 
-#if defined(OS_CHROMEOS)
-// TODO(https://crbug.com/894016): flaky.
-IN_PROC_BROWSER_TEST_F(AutomationApiTest, DISABLED_DesktopActions) {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+IN_PROC_BROWSER_TEST_F(AutomationApiTest, DesktopActions) {
   AutomationManagerAura::GetInstance()->Enable();
   // Trigger the shelf subtree to be computed.
   ash::AcceleratorController::Get()->PerformActionIfEnabled(ash::FOCUS_SHELF,
@@ -315,12 +319,11 @@ IN_PROC_BROWSER_TEST_F(AutomationApiTest, DesktopHitTest) {
       << message_;
 }
 
-// TODO(https://crbug.com/754870): flaky.
-IN_PROC_BROWSER_TEST_F(AutomationApiTest, DISABLED_DesktopLoadTabs) {
+IN_PROC_BROWSER_TEST_F(AutomationApiTest, DesktopLoadTabs) {
   ASSERT_TRUE(RunExtensionSubtest("automation/tests/desktop", "load_tabs.html"))
       << message_;
 }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 #else  // !defined(USE_AURA)
 IN_PROC_BROWSER_TEST_F(AutomationApiTest, DesktopNotSupported) {
   ASSERT_TRUE(RunExtensionSubtest("automation/tests/desktop",
@@ -329,8 +332,7 @@ IN_PROC_BROWSER_TEST_F(AutomationApiTest, DesktopNotSupported) {
 }
 #endif  // defined(USE_AURA)
 
-// Flaky test on site_per_browser_tests: https://crbug.com/833318
-IN_PROC_BROWSER_TEST_F(AutomationApiTest, DISABLED_CloseTab) {
+IN_PROC_BROWSER_TEST_F(AutomationApiTest, CloseTab) {
   StartEmbeddedTestServer();
   ASSERT_TRUE(RunExtensionSubtest("automation/tests/tabs", "close_tab.html"))
       << message_;
@@ -395,6 +397,13 @@ IN_PROC_BROWSER_TEST_F(AutomationApiTest, WordBoundaries) {
       << message_;
 }
 
+IN_PROC_BROWSER_TEST_F(AutomationApiTest, SentenceBoundaries) {
+  StartEmbeddedTestServer();
+  ASSERT_TRUE(
+      RunExtensionSubtest("automation/tests/tabs", "sentence_boundaries.html"))
+      << message_;
+}
+
 class AutomationApiTestWithLanguageDetection : public AutomationApiTest {
  protected:
   void SetUpCommandLine(base::CommandLine* command_line) override {
@@ -425,7 +434,13 @@ IN_PROC_BROWSER_TEST_F(AutomationApiTest, ForceLayout) {
       << message_;
 }
 
-#if defined(OS_CHROMEOS)
+IN_PROC_BROWSER_TEST_F(AutomationApiTest, Intents) {
+  StartEmbeddedTestServer();
+  ASSERT_TRUE(RunExtensionSubtest("automation/tests/tabs", "intents.html"))
+      << message_;
+}
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 
 class AutomationApiTestWithDeviceScaleFactor : public AutomationApiTest {
  protected:
@@ -453,6 +468,86 @@ IN_PROC_BROWSER_TEST_F(AutomationApiTest, Position) {
       << message_;
 }
 
-#endif  // defined(OS_CHROMEOS)
+IN_PROC_BROWSER_TEST_F(AutomationApiTest, AccessibilityFocus) {
+  StartEmbeddedTestServer();
+  ASSERT_TRUE(
+      RunExtensionSubtest("automation/tests/tabs", "accessibility_focus.html"))
+      << message_;
+}
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+// TODO(http://crbug.com/1162238): flaky on ChromeOS.
+#define MAYBE_TextareaAppendPerf DISABLED_TextareaAppendPerf
+#else
+#define MAYBE_TextareaAppendPerf TextareaAppendPerf
+#endif
+IN_PROC_BROWSER_TEST_F(AutomationApiTest, MAYBE_TextareaAppendPerf) {
+  StartEmbeddedTestServer();
+
+  {
+    base::RunLoop wait_for_tracing;
+    content::TracingController::GetInstance()->StartTracing(
+        base::trace_event::TraceConfig(
+            R"({"included_categories": ["accessibility"])"),
+        wait_for_tracing.QuitClosure());
+    wait_for_tracing.Run();
+  }
+
+  ASSERT_TRUE(
+      RunExtensionSubtest("automation/tests/tabs", "textarea_append_perf.html"))
+      << message_;
+
+  std::string trace_output;
+  {
+    base::RunLoop wait_for_tracing;
+    content::TracingController::GetInstance()->StopTracing(
+        content::TracingController::CreateStringEndpoint(base::BindOnce(
+            [](base::OnceClosure quit_closure, std::string* output,
+               std::unique_ptr<std::string> trace_str) {
+              *output = *trace_str;
+              std::move(quit_closure).Run();
+            },
+            wait_for_tracing.QuitClosure(), &trace_output)));
+    wait_for_tracing.Run();
+  }
+
+  base::Optional<base::Value> trace_data = base::JSONReader::Read(trace_output);
+  ASSERT_TRUE(trace_data);
+
+  const base::Value* trace_events = trace_data->FindListKey("traceEvents");
+  ASSERT_TRUE(trace_events && trace_events->is_list());
+
+  int renderer_total_dur = 0;
+  int automation_total_dur = 0;
+  for (const base::Value& event : trace_events->GetList()) {
+    const std::string* cat = event.FindStringKey("cat");
+    if (!cat || *cat != "accessibility")
+      continue;
+
+    const std::string* name = event.FindStringKey("name");
+    if (!name)
+      continue;
+
+    base::Optional<int> dur = event.FindIntKey("dur");
+    if (!dur)
+      continue;
+
+    if (*name == "AutomationAXTreeWrapper::OnAccessibilityEvents")
+      automation_total_dur += *dur;
+    else if (*name == "RenderAccessibilityImpl::SendPendingAccessibilityEvents")
+      renderer_total_dur += *dur;
+  }
+
+  ASSERT_GT(automation_total_dur, 0);
+  ASSERT_GT(renderer_total_dur, 0);
+  LOG(INFO) << "Total duration in automation: " << automation_total_dur;
+  LOG(INFO) << "Total duration in renderer: " << renderer_total_dur;
+
+  // Assert that the time spent in automation isn't more than 2x
+  // the time spent in the renderer code.
+  ASSERT_LT(automation_total_dur, renderer_total_dur * 2);
+}
+
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 }  // namespace extensions

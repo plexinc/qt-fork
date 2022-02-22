@@ -6,7 +6,6 @@
 */
 
 #include "src/gpu/GrTexture.h"
-#include "src/gpu/GrTexturePriv.h"
 #include "src/gpu/glsl/GrGLSLProgramBuilder.h"
 #include "src/gpu/mtl/GrMtlUniformHandler.h"
 
@@ -49,6 +48,14 @@ static uint32_t grsltype_to_alignment_mask(GrSLType type) {
         case kInt_GrSLType:
         case kUint_GrSLType:
             return 0x3;
+        case kInt2_GrSLType:
+        case kUint2_GrSLType:
+            return 0x7;
+        case kInt3_GrSLType:
+        case kUint3_GrSLType:
+        case kInt4_GrSLType:
+        case kUint4_GrSLType:
+            return 0xF;
         case kHalf_GrSLType: // fall through
         case kFloat_GrSLType:
             return 0x3;
@@ -60,14 +67,6 @@ static uint32_t grsltype_to_alignment_mask(GrSLType type) {
             return 0xF;
         case kHalf4_GrSLType: // fall through
         case kFloat4_GrSLType:
-            return 0xF;
-        case kUint2_GrSLType:
-            return 0x7;
-        case kInt2_GrSLType:
-            return 0x7;
-        case kInt3_GrSLType:
-            return 0xF;
-        case kInt4_GrSLType:
             return 0xF;
         case kHalf2x2_GrSLType: // fall through
         case kFloat2x2_GrSLType:
@@ -82,11 +81,15 @@ static uint32_t grsltype_to_alignment_mask(GrSLType type) {
         // This query is only valid for certain types.
         case kVoid_GrSLType:
         case kBool_GrSLType:
+        case kBool2_GrSLType:
+        case kBool3_GrSLType:
+        case kBool4_GrSLType:
         case kTexture2DSampler_GrSLType:
         case kTextureExternalSampler_GrSLType:
         case kTexture2DRectSampler_GrSLType:
         case kSampler_GrSLType:
         case kTexture2D_GrSLType:
+        case kInput_GrSLType:
             break;
     }
     SK_ABORT("Unexpected type");
@@ -127,10 +130,6 @@ static inline uint32_t grsltype_to_mtl_size(GrSLType type) {
             return 4 * sizeof(uint16_t);
         case kUShort4_GrSLType:
             return 4 * sizeof(uint16_t);
-        case kInt_GrSLType:
-            return sizeof(int32_t);
-        case kUint_GrSLType:
-            return sizeof(int32_t);
         case kHalf_GrSLType: // fall through
         case kFloat_GrSLType:
             return sizeof(float);
@@ -139,17 +138,19 @@ static inline uint32_t grsltype_to_mtl_size(GrSLType type) {
             return 2 * sizeof(float);
         case kHalf3_GrSLType: // fall through
         case kFloat3_GrSLType:
-            return 4 * sizeof(float);
-        case kHalf4_GrSLType: // fall through
+        case kHalf4_GrSLType:
         case kFloat4_GrSLType:
             return 4 * sizeof(float);
+        case kInt_GrSLType: // fall through
+        case kUint_GrSLType:
+            return sizeof(int32_t);
+        case kInt2_GrSLType: // fall through
         case kUint2_GrSLType:
-            return 2 * sizeof(uint32_t);
-        case kInt2_GrSLType:
             return 2 * sizeof(int32_t);
-        case kInt3_GrSLType:
-            return 4 * sizeof(int32_t);
+        case kInt3_GrSLType: // fall through
+        case kUint3_GrSLType:
         case kInt4_GrSLType:
+        case kUint4_GrSLType:
             return 4 * sizeof(int32_t);
         case kHalf2x2_GrSLType: // fall through
         case kFloat2x2_GrSLType:
@@ -164,11 +165,15 @@ static inline uint32_t grsltype_to_mtl_size(GrSLType type) {
         // This query is only valid for certain types.
         case kVoid_GrSLType:
         case kBool_GrSLType:
+        case kBool2_GrSLType:
+        case kBool3_GrSLType:
+        case kBool4_GrSLType:
         case kTexture2DSampler_GrSLType:
         case kTextureExternalSampler_GrSLType:
         case kTexture2DRectSampler_GrSLType:
         case kSampler_GrSLType:
         case kTexture2D_GrSLType:
+        case kInput_GrSLType:
             break;
     }
     SK_ABORT("Unexpected type");
@@ -200,12 +205,13 @@ static uint32_t get_ubo_aligned_offset(uint32_t* currentOffset,
 }
 
 GrGLSLUniformHandler::UniformHandle GrMtlUniformHandler::internalAddUniformArray(
-                                                                            uint32_t visibility,
-                                                                            GrSLType type,
-                                                                            const char* name,
-                                                                            bool mangleName,
-                                                                            int arrayCount,
-                                                                            const char** outName) {
+                                                                   const GrFragmentProcessor* owner,
+                                                                   uint32_t visibility,
+                                                                   GrSLType type,
+                                                                   const char* name,
+                                                                   bool mangleName,
+                                                                   int arrayCount,
+                                                                   const char** outName) {
     SkASSERT(name && strlen(name));
     GrSLTypeIsFloatType(type);
 
@@ -215,12 +221,11 @@ GrGLSLUniformHandler::UniformHandle GrMtlUniformHandler::internalAddUniformArray
     // the names will mismatch.  I think the correct solution is to have all GPs which need the
     // uniform view matrix, they should upload the view matrix in their setData along with regular
     // uniforms.
-    SkString resolvedName;
     char prefix = 'u';
     if ('u' == name[0] || !strncmp(name, GR_NO_MANGLE_PREFIX, strlen(GR_NO_MANGLE_PREFIX))) {
         prefix = '\0';
     }
-    fProgramBuilder->nameVariable(&resolvedName, prefix, name, mangleName);
+    SkString resolvedName = fProgramBuilder->nameVariable(prefix, name, mangleName);
 
     uint32_t offset = get_ubo_aligned_offset(&fCurrentUBOOffset, &fCurrentUBOMaxAlignment,
                                              type, arrayCount);
@@ -229,10 +234,13 @@ GrGLSLUniformHandler::UniformHandle GrMtlUniformHandler::internalAddUniformArray
 
     // When outputing the GLSL, only the outer uniform block will get the Uniform modifier. Thus
     // we set the modifier to none for all uniforms declared inside the block.
-    UniformInfo& uni = fUniforms.push_back(GrMtlUniformHandler::UniformInfo{
-        GrShaderVar{std::move(resolvedName), type, GrShaderVar::TypeModifier::None, arrayCount,
-                    std::move(layoutQualifier), SkString()},
-        kFragment_GrShaderFlag | kVertex_GrShaderFlag, offset
+    UniformInfo& uni = fUniforms.push_back(MtlUniformInfo{
+        {
+            GrShaderVar{std::move(resolvedName), type, GrShaderVar::TypeModifier::None, arrayCount,
+                        std::move(layoutQualifier), SkString()},
+            kFragment_GrShaderFlag | kVertex_GrShaderFlag, owner, SkString(name)
+        },
+        offset
     });
 
     if (outName) {
@@ -248,23 +256,25 @@ GrGLSLUniformHandler::SamplerHandle GrMtlUniformHandler::addSampler(
     int binding = fSamplers.count();
 
     SkASSERT(name && strlen(name));
-    SkString mangleName;
-    char prefix = 'u';
-    fProgramBuilder->nameVariable(&mangleName, prefix, name, true);
+
+    constexpr char prefix = 'u';
+    SkString mangleName = fProgramBuilder->nameVariable(prefix, name, /*mangle=*/true);
 
     GrTextureType type = backendFormat.textureType();
 
     SkString layoutQualifier;
     layoutQualifier.appendf("binding=%d", binding);
 
-    fSamplers.push_back(GrMtlUniformHandler::UniformInfo{
-        GrShaderVar{std::move(mangleName), GrSLCombinedSamplerTypeForTextureType(type),
-                    GrShaderVar::TypeModifier::Uniform, GrShaderVar::kNonArray,
-                    std::move(layoutQualifier), SkString()},
-        kFragment_GrShaderFlag, 0
+    fSamplers.push_back(MtlUniformInfo{
+        {
+            GrShaderVar{std::move(mangleName), GrSLCombinedSamplerTypeForTextureType(type),
+                        GrShaderVar::TypeModifier::Uniform, GrShaderVar::kNonArray,
+                        std::move(layoutQualifier), SkString()},
+            kFragment_GrShaderFlag, nullptr, SkString(name)
+        },
+        0
     });
 
-    SkASSERT(caps->textureSwizzleAppliedInShader());
     fSamplerSwizzles.push_back(swizzle);
     SkASSERT(fSamplerSwizzles.count() == fSamplers.count());
     return GrGLSLUniformHandler::SamplerHandle(fSamplers.count() - 1);
@@ -281,7 +291,7 @@ void GrMtlUniformHandler::appendUniformDecls(GrShaderFlags visibility, SkString*
 
 #ifdef SK_DEBUG
     bool firstOffsetCheck = false;
-    for (const UniformInfo& localUniform : fUniforms.items()) {
+    for (const MtlUniformInfo& localUniform : fUniforms.items()) {
         if (!firstOffsetCheck) {
             // Check to make sure we are starting our offset at 0 so the offset qualifier we
             // set on each variable in the uniform block is valid.

@@ -52,9 +52,9 @@
 //
 
 #include <QtScxml/qscxmltabledata.h>
-#include <QtCore/qsharedpointer.h>
 #include <QtCore/qhash.h>
-#include <QtCore/qvector.h>
+#include <QtCore/qlist.h>
+#include <QtCore/qsharedpointer.h>
 
 #include <functional>
 
@@ -72,8 +72,8 @@ class Q_SCXML_EXPORT GeneratedTableData: public QScxmlTableData
 public:
     typedef std::function<
         int(const QScxmlExecutableContent::InvokeInfo &invokeInfo,
-            const QVector<QScxmlExecutableContent::StringId> &namelist,
-            const QVector<QScxmlExecutableContent::ParameterInfo> &params,
+            const QList<QScxmlExecutableContent::StringId> &namelist,
+            const QList<QScxmlExecutableContent::ParameterInfo> &params,
             QSharedPointer<DocumentModel::ScxmlDocument> content)
     > CreateFactoryId;
 
@@ -110,13 +110,13 @@ public:
     QScxmlInvokableServiceFactory *serviceFactory(int id) const override;
 
 public:
-    QVector<qint32> theStateMachineTable;
+    QList<qint32> theStateMachineTable;
     QStringList theStrings;
-    QVector<qint32> theInstructions;
-    QVector<QScxmlExecutableContent::EvaluatorInfo> theEvaluators;
-    QVector<QScxmlExecutableContent::AssignmentInfo> theAssignments;
-    QVector<QScxmlExecutableContent::ForeachInfo> theForeaches;
-    QVector<QScxmlExecutableContent::StringId> theDataNameIds;
+    QList<qint32> theInstructions;
+    QList<QScxmlExecutableContent::EvaluatorInfo> theEvaluators;
+    QList<QScxmlExecutableContent::AssignmentInfo> theAssignments;
+    QList<QScxmlExecutableContent::ForeachInfo> theForeaches;
+    QList<QScxmlExecutableContent::StringId> theDataNameIds;
     QScxmlExecutableContent::ContainerId theInitialSetup;
     int theName;
 };

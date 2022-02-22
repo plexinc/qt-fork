@@ -48,23 +48,23 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import "../../shared" as Examples
+import QtQuick
+import shared
 
 Item {
     height: 480
     width: 320
-    Examples.LauncherList {
+    LauncherList {
         id: ll
         anchors.fill: parent
         Component.onCompleted: {
-            addExample("All at once", "Uses all ImageParticle features",  Qt.resolvedUrl("content/allatonce.qml"));
-            addExample("Colored", "Colorized image particles",  Qt.resolvedUrl("content/colored.qml"));
-            addExample("Color Table", "Color-over-life rainbow particles",  Qt.resolvedUrl("content/colortable.qml"));
-            addExample("Deformation", "Deformed particles",  Qt.resolvedUrl("content/deformation.qml"));
-            addExample("Rotation", "Rotated particles",  Qt.resolvedUrl("content/rotation.qml"));
-            addExample("Sharing", "Multiple ImageParticles on the same particles",  Qt.resolvedUrl("content/sharing.qml"));
-            addExample("Sprites", "Particles rendered with sprites",  Qt.resolvedUrl("content/sprites.qml"));
+            addExample("All at once", "Uses all ImageParticle features",  Qt.resolvedUrl("allatonce.qml"));
+            addExample("Colored", "Colorized image particles",  Qt.resolvedUrl("colored.qml"));
+            addExample("Color Table", "Color-over-life rainbow particles",  Qt.resolvedUrl("colortable.qml"));
+            addExample("Deformation", "Deformed particles",  Qt.resolvedUrl("deformation.qml"));
+            addExample("Rotation", "Rotated particles",  Qt.resolvedUrl("rotation.qml"));
+            addExample("Sharing", "Multiple ImageParticles on the same particles",  Qt.resolvedUrl("sharing.qml"));
+            addExample("Sprites", "Particles rendered with sprites",  Qt.resolvedUrl("sprites.qml"));
         }
     }
 }

@@ -6,6 +6,7 @@
 
 #include "base/bind.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_util.h"
 #include "build/branding_buildflags.h"
 #include "chrome/browser/signin/account_consistency_mode_manager.h"
 #include "chrome/browser/ui/webui/webui_util.h"
@@ -32,9 +33,6 @@
 #endif
 
 namespace {
-
-constexpr char kGeneratedPath[] =
-    "@out_folder@/gen/chrome/browser/resources/welcome/";
 
 const char kPreviewBackgroundPath[] = "preview-background.jpg";
 
@@ -81,6 +79,7 @@ void AddStrings(content::WebUIDataSource* html_source) {
       {"next", IDS_WELCOME_NEXT},
       {"noThanks", IDS_NO_THANKS},
       {"skip", IDS_WELCOME_SKIP},
+      {"stepsLabel", IDS_WELCOME_STEPS},
 
       // Sign-in view strings.
       {"signInHeader", IDS_WELCOME_SIGNIN_VIEW_HEADER},
@@ -108,7 +107,7 @@ void AddStrings(content::WebUIDataSource* html_source) {
       {"landingNewUser", IDS_WELCOME_LANDING_NEW_USER},
       {"landingExistingUser", IDS_WELCOME_LANDING_EXISTING_USER},
   };
-  AddLocalizedStringsBulk(html_source, kLocalizedStrings);
+  html_source->AddLocalizedStrings(kLocalizedStrings);
 }
 
 }  // namespace
@@ -131,7 +130,7 @@ WelcomeUI::WelcomeUI(content::WebUI* web_ui, const GURL& url)
       content::WebUIDataSource::Create(url.host());
   webui::SetupWebUIDataSource(
       html_source, base::make_span(kWelcomeResources, kWelcomeResourcesSize),
-      kGeneratedPath, IDR_WELCOME_HTML);
+      IDR_WELCOME_WELCOME_HTML);
 
   // Add welcome strings.
   AddStrings(html_source);
@@ -162,7 +161,7 @@ WelcomeUI::WelcomeUI(content::WebUI* web_ui, const GURL& url)
       {"images/set_default_dark.svg", IDR_WELCOME_SET_DEFAULT_DARK},
       {"images/set_default_light.svg", IDR_WELCOME_SET_DEFAULT_LIGHT},
   };
-  webui::AddResourcePathsBulk(html_source, kPaths);
+  html_source->AddResourcePaths(kPaths);
 #endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING)
 
 #if defined(OS_WIN)

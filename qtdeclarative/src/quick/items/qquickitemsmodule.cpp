@@ -101,9 +101,6 @@
 #include "qquickspritesequence_p.h"
 #include "qquickanimatedsprite_p.h"
 #endif
-#if QT_CONFIG(opengl)
-# include "qquickopenglinfo_p.h"
-#endif
 #include "qquickgraphicsinfo_p.h"
 #if QT_CONFIG(quick_shadereffect)
 #include <QtQuick/private/qquickshadereffectsource_p.h>
@@ -181,20 +178,19 @@ static void qt_quickitems_defineModule()
     QQmlPrivate::qmlregister(QQmlPrivate::AutoParentRegistration, &autoparent);
 
     qRegisterMetaType<QQuickAnchorLine>("QQuickAnchorLine");
-    qRegisterMetaType<QPointingDeviceUniqueId>("QPointingDeviceUniqueId");
     qRegisterMetaType<QQuickHandlerPoint>();
 }
 
-static void initResources()
-{
-    Q_INIT_RESOURCE(items);
-}
+//static void initResources()
+//{
+//    Q_INIT_RESOURCE(items);
+//}
 
 QT_BEGIN_NAMESPACE
 
 void QQuickItemsModule::defineModule()
 {
-    initResources();
+//    initResources();
     qt_quickitems_defineModule();
 }
 

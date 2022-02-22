@@ -35,6 +35,7 @@
 #include <Qt3DExtras/QPhongMaterial>
 #include <Qt3DExtras/QCylinderMesh>
 #include <Qt3DRender/QRenderSettings>
+#include <Qt3DRender/QGeometryRenderer>
 #include <Qt3DRender/private/managers_p.h>
 
 #include <Qt3DCore/private/qresourcemanager_p.h>
@@ -62,7 +63,7 @@ namespace Qt3DRender {
         Q_OBJECT
     public:
         QRenderAspectTester(bool withWindow = false)
-            : Qt3DRender::QRenderAspect(QRenderAspect::Synchronous)
+            : Qt3DRender::QRenderAspect(QRenderAspect::Manual)
             , m_jobManager(new Qt3DCore::QAspectJobManager())
         {
             Qt3DCore::QAbstractAspectPrivate::get(this)->m_jobManager = m_jobManager.data();
@@ -85,43 +86,43 @@ namespace Qt3DRender {
             }
         }
 
-        QVector<Qt3DCore::QAspectJobPtr> worldTransformJob()
+        std::vector<Qt3DCore::QAspectJobPtr> worldTransformJob()
         {
             auto renderer = static_cast<Render::OpenGL::Renderer *>(d_func()->m_renderer);
             auto daspect = Qt3DRender::QRenderAspectPrivate::get(renderer->aspect());
             daspect->m_worldTransformJob->setRoot(d_func()->m_renderer->sceneRoot());
-            return QVector<Qt3DCore::QAspectJobPtr>() << daspect->m_worldTransformJob;
+            return {daspect->m_worldTransformJob};
         }
 
-        QVector<Qt3DCore::QAspectJobPtr> updateBoundingJob()
+        std::vector<Qt3DCore::QAspectJobPtr> updateBoundingJob()
         {
             auto renderer = static_cast<Render::OpenGL::Renderer *>(d_func()->m_renderer);
             auto daspect = Qt3DRender::QRenderAspectPrivate::get(renderer->aspect());
             daspect->m_updateWorldBoundingVolumeJob->setManager(d_func()->m_renderer->nodeManagers()->renderNodesManager());
-            return QVector<Qt3DCore::QAspectJobPtr>() << daspect->m_updateWorldBoundingVolumeJob;
+            return {daspect->m_updateWorldBoundingVolumeJob};
         }
 
-        QVector<Qt3DCore::QAspectJobPtr> calculateBoundingVolumeJob()
+        std::vector<Qt3DCore::QAspectJobPtr> calculateBoundingVolumeJob()
         {
             auto renderer = static_cast<Render::OpenGL::Renderer *>(d_func()->m_renderer);
             auto daspect = Qt3DRender::QRenderAspectPrivate::get(renderer->aspect());
             daspect->m_calculateBoundingVolumeJob->setRoot(d_func()->m_renderer->sceneRoot());
-            return QVector<Qt3DCore::QAspectJobPtr>() << daspect->m_calculateBoundingVolumeJob;
+            return {daspect->m_calculateBoundingVolumeJob};
         }
 
-        QVector<Qt3DCore::QAspectJobPtr> framePreparationJob()
+        std::vector<Qt3DCore::QAspectJobPtr> framePreparationJob()
         {
             static_cast<Render::OpenGL::Renderer *>(d_func()->m_renderer)->m_updateShaderDataTransformJob->setManagers(d_func()->m_renderer->nodeManagers());
-            return QVector<Qt3DCore::QAspectJobPtr>() << static_cast<Render::OpenGL::Renderer *>(d_func()->m_renderer)->m_updateShaderDataTransformJob;
+            return {static_cast<Render::OpenGL::Renderer *>(d_func()->m_renderer)->m_updateShaderDataTransformJob};
         }
 
-        QVector<Qt3DCore::QAspectJobPtr> frameCleanupJob()
+        std::vector<Qt3DCore::QAspectJobPtr> frameCleanupJob()
         {
             static_cast<Render::OpenGL::Renderer *>(d_func()->m_renderer)->m_cleanupJob->setRoot(d_func()->m_renderer->sceneRoot());
-            return QVector<Qt3DCore::QAspectJobPtr>() << static_cast<Render::OpenGL::Renderer *>(d_func()->m_renderer)->m_cleanupJob;
+            return {static_cast<Render::OpenGL::Renderer *>(d_func()->m_renderer)->m_cleanupJob};
         }
 
-        QVector<Qt3DCore::QAspectJobPtr> renderBinJobs()
+        std::vector<Qt3DCore::QAspectJobPtr> renderBinJobs()
         {
             return d_func()->m_renderer->renderBinJobs();
         }
@@ -129,7 +130,7 @@ namespace Qt3DRender {
         void onRootEntityChanged(Qt3DCore::QEntity *root)
         {
             if (!m_window) {
-                QVector<Qt3DCore::NodeTreeChange> nodes;
+                QList<Qt3DCore::NodeTreeChange> nodes;
                 Qt3DCore::QNodeVisitor v;
                 v.traverse(root, [&nodes](Qt3DCore::QNode *node) {
                     Qt3DCore::QNodePrivate *d = Qt3DCore::QNodePrivate::get(node);
@@ -260,7 +261,7 @@ private Q_SLOTS:
         Qt3DCore::QAbstractAspectPrivate::get(&aspect)->setRootAndCreateNodes(qobject_cast<Qt3DCore::QEntity *>(rootEntity), {});
 
         // WHEN
-        QVector<Qt3DCore::QAspectJobPtr> jobs = aspect.worldTransformJob();
+        std::vector<Qt3DCore::QAspectJobPtr> jobs = aspect.worldTransformJob();
 
         QBENCHMARK {
             Qt3DCore::QAbstractAspectPrivate::get(&aspect)->jobManager()->enqueueJobs(jobs);
@@ -283,7 +284,7 @@ private Q_SLOTS:
         Qt3DCore::QAbstractAspectPrivate::get(&aspect)->setRootAndCreateNodes(qobject_cast<Qt3DCore::QEntity *>(rootEntity), {});
 
         // WHEN
-        QVector<Qt3DCore::QAspectJobPtr> jobs = aspect.updateBoundingJob();
+        std::vector<Qt3DCore::QAspectJobPtr> jobs = aspect.updateBoundingJob();
 
         QBENCHMARK {
             Qt3DCore::QAbstractAspectPrivate::get(&aspect)->jobManager()->enqueueJobs(jobs);
@@ -306,7 +307,7 @@ private Q_SLOTS:
         Qt3DCore::QAbstractAspectPrivate::get(&aspect)->setRootAndCreateNodes(qobject_cast<Qt3DCore::QEntity *>(rootEntity), {});
 
         // WHEN
-        QVector<Qt3DCore::QAspectJobPtr> jobs = aspect.calculateBoundingVolumeJob();
+        std::vector<Qt3DCore::QAspectJobPtr> jobs = aspect.calculateBoundingVolumeJob();
 
         QBENCHMARK {
             Qt3DCore::QAbstractAspectPrivate::get(&aspect)->jobManager()->enqueueJobs(jobs);
@@ -329,7 +330,7 @@ private Q_SLOTS:
         Qt3DCore::QAbstractAspectPrivate::get(&aspect)->setRootAndCreateNodes(qobject_cast<Qt3DCore::QEntity *>(rootEntity), {});
 
         // WHEN
-        QVector<Qt3DCore::QAspectJobPtr> jobs = aspect.framePreparationJob();
+        std::vector<Qt3DCore::QAspectJobPtr> jobs = aspect.framePreparationJob();
 
         QBENCHMARK {
             Qt3DCore::QAbstractAspectPrivate::get(&aspect)->jobManager()->enqueueJobs(jobs);
@@ -352,7 +353,7 @@ private Q_SLOTS:
         Qt3DCore::QAbstractAspectPrivate::get(&aspect)->setRootAndCreateNodes(qobject_cast<Qt3DCore::QEntity *>(rootEntity), {});
 
         // WHEN
-        QVector<Qt3DCore::QAspectJobPtr> jobs = aspect.frameCleanupJob();
+        std::vector<Qt3DCore::QAspectJobPtr> jobs = aspect.frameCleanupJob();
         QBENCHMARK {
             Qt3DCore::QAbstractAspectPrivate::get(&aspect)->jobManager()->enqueueJobs(jobs);
             Qt3DCore::QAbstractAspectPrivate::get(&aspect)->jobManager()->waitForAllJobs();
@@ -381,7 +382,7 @@ private Q_SLOTS:
         qDebug() << 2;
 
         // WHEN
-        QVector<Qt3DCore::QAspectJobPtr> jobs = aspect.renderBinJobs();
+        QList<Qt3DCore::QAspectJobPtr> jobs = aspect.renderBinJobs();
         qDebug() << 3;
         QBENCHMARK {
             qDebug() << 4;

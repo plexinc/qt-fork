@@ -9,6 +9,7 @@
 
 #include <limits>
 
+#include "base/base_switches.h"
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/path_service.h"
@@ -16,10 +17,11 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "build/branding_buildflags.h"
+#include "build/chromeos_buildflags.h"
 #include "components/crash/core/app/crash_reporter_client.h"
 #include "components/crash/core/app/crash_switches.h"
+#include "content/public/common/content_descriptors.h"
 #include "sandbox/linux/services/namespace_sandbox.h"
-#include "services/service_manager/embedder/descriptors.h"
 #include "third_party/crashpad/crashpad/client/crashpad_client.h"
 
 namespace crash_reporter {
@@ -50,12 +52,9 @@ void SetFirstChanceExceptionHandler(bool (*handler)(int, siginfo_t*, void*)) {
       FirstChanceHandlerHelper);
 }
 
-// TODO(jperaza): Remove kEnableCrashpad and IsCrashpadEnabled() when Crashpad
-// is fully enabled on Linux.
-const char kEnableCrashpad[] = "enable-crashpad";
-
 bool IsCrashpadEnabled() {
-  return base::CommandLine::ForCurrentProcess()->HasSwitch(kEnableCrashpad);
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      ::switches::kEnableCrashpad);
 }
 
 bool GetHandlerSocket(int* fd, pid_t* pid) {
@@ -89,7 +88,7 @@ base::FilePath PlatformCrashpadInitialization(
   DCHECK(exe_path.empty());
 
   crashpad::CrashpadClient client;
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   std::string crash_loop_before =
       base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
           switches::kCrashLoopBefore);
@@ -120,9 +119,8 @@ base::FilePath PlatformCrashpadInitialization(
     // to ChromeOS's /sbin/crash_reporter which in turn passes the dump to
     // crash_sender which handles the upload.
     std::string url;
-#if BUILDFLAG(GOOGLE_CHROME_BRANDING) && defined(OFFICIAL_BUILD) && \
-    !defined(OS_CHROMEOS)
-    url = "https://clients2.google.com/cr/report";
+#if !(BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS))
+    url = crash_reporter_client->GetUploadUrl();
 #else
     url = std::string();
 #endif
@@ -157,7 +155,7 @@ base::FilePath PlatformCrashpadInitialization(
     // contain these annotations.
     arguments.push_back("--monitor-self-annotation=ptype=crashpad-handler");
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
     arguments.push_back("--use-cros-crash-reporter");
 
     if (crash_reporter_client->IsRunningUnattended()) {
@@ -176,8 +174,7 @@ base::FilePath PlatformCrashpadInitialization(
     return database_path;
   }
 
-  int fd = base::GlobalDescriptors::GetInstance()->Get(
-      service_manager::kCrashDumpSignal);
+  int fd = base::GlobalDescriptors::GetInstance()->Get(kCrashDumpSignal);
 
   pid_t pid = 0;
   if (!sandbox::NamespaceSandbox::InNewUserNamespace()) {

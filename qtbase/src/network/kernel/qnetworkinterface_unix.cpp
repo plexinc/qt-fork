@@ -45,6 +45,8 @@
 #include "qnetworkinterface_unix_p.h"
 #include "qalgorithms.h"
 
+#include <QtCore/private/qduplicatetracker_p.h>
+
 #ifndef QT_NO_NETWORKINTERFACE
 
 #if defined(QT_NO_CLOCK_MONOTONIC)
@@ -109,7 +111,11 @@ uint QNetworkInterfaceManager::interfaceIndexFromName(const QString &name)
 
     uint id = 0;
     if (qt_safe_ioctl(socket, SIOCGIFINDEX, &req) >= 0)
+#  if QT_CONFIG(ifr_index)
+        id = req.ifr_index;
+#  else
         id = req.ifr_ifindex;
+#  endif
     qt_safe_close(socket);
     return id;
 #else
@@ -128,7 +134,11 @@ QString QNetworkInterfaceManager::interfaceNameFromIndex(uint index)
     int socket = qt_safe_socket(AF_INET, SOCK_STREAM, 0);
     if (socket >= 0) {
         memset(&req, 0, sizeof(ifreq));
+#  if QT_CONFIG(ifr_index)
+        req.ifr_index = index;
+#  else
         req.ifr_ifindex = index;
+#  endif
 
         if (qt_safe_ioctl(socket, SIOCGIFNAME, &req) >= 0) {
             qt_safe_close(socket);
@@ -207,14 +217,14 @@ static QSet<QByteArray> interfaceNames(int socket)
 static QNetworkInterfacePrivate *findInterface(int socket, QList<QNetworkInterfacePrivate *> &interfaces,
                                                struct ifreq &req)
 {
-    QNetworkInterfacePrivate *iface = 0;
+    QNetworkInterfacePrivate *iface = nullptr;
     int ifindex = 0;
 
 #if !defined(QT_NO_IPV6IFNAME) || defined(SIOCGIFINDEX)
     // Get the interface index
 #  ifdef SIOCGIFINDEX
     if (qt_safe_ioctl(socket, SIOCGIFINDEX, &req) >= 0)
-#    if defined(Q_OS_HAIKU)
+#    if QT_CONFIG(ifr_index)
         ifindex = req.ifr_index;
 #    else
         ifindex = req.ifr_ifindex;
@@ -342,10 +352,10 @@ QT_END_INCLUDE_NAMESPACE
 
 static QList<QNetworkInterfacePrivate *> createInterfaces(ifaddrs *rawList)
 {
-    Q_UNUSED(getMtu)
+    Q_UNUSED(getMtu);
     QList<QNetworkInterfacePrivate *> interfaces;
-    QSet<QString> seenInterfaces;
-    QVarLengthArray<int, 16> seenIndexes;   // faster than QSet<int>
+    QDuplicateTracker<QString> seenInterfaces;
+    QDuplicateTracker<int> seenIndexes;
 
     // On Linux, glibc, uClibc and MUSL obtain the address listing via two
     // netlink calls: first an RTM_GETLINK to obtain the interface listing,
@@ -364,9 +374,9 @@ static QList<QNetworkInterfacePrivate *> createInterfaces(ifaddrs *rawList)
             iface->flags = convertFlags(ptr->ifa_flags);
             iface->hardwareAddress = iface->makeHwAddress(sll->sll_halen, (uchar*)sll->sll_addr);
 
-            Q_ASSERT(!seenIndexes.contains(iface->index));
-            seenIndexes.append(iface->index);
-            seenInterfaces.insert(iface->name);
+            const bool sawIfaceIndex = seenIndexes.hasSeen(iface->index);
+            Q_ASSERT(!sawIfaceIndex);
+            (void)seenInterfaces.hasSeen(iface->name);
         }
     }
 
@@ -376,15 +386,12 @@ static QList<QNetworkInterfacePrivate *> createInterfaces(ifaddrs *rawList)
     for (ifaddrs *ptr = rawList; ptr; ptr = ptr->ifa_next) {
         if (!ptr->ifa_addr || ptr->ifa_addr->sa_family != AF_PACKET) {
             QString name = QString::fromLatin1(ptr->ifa_name);
-            if (seenInterfaces.contains(name))
+            if (seenInterfaces.hasSeen(name))
                 continue;
 
             int ifindex = if_nametoindex(ptr->ifa_name);
-            if (seenIndexes.contains(ifindex))
+            if (seenIndexes.hasSeen(ifindex))
                 continue;
-
-            seenInterfaces.insert(name);
-            seenIndexes.append(ifindex);
 
             QNetworkInterfacePrivate *iface = new QNetworkInterfacePrivate;
             interfaces << iface;
@@ -401,7 +408,7 @@ static void getAddressExtraInfo(QNetworkAddressEntry *entry, struct sockaddr *sa
 {
     Q_UNUSED(entry);
     Q_UNUSED(sa);
-    Q_UNUSED(ifname)
+    Q_UNUSED(ifname);
 }
 
 # elif defined(Q_OS_BSD4)
@@ -488,7 +495,7 @@ static QList<QNetworkInterfacePrivate *> createInterfaces(ifaddrs *rawList)
     memset(&mediareq, 0, sizeof(mediareq));
 
     // ensure both structs start with the name field, of size IFNAMESIZ
-    Q_STATIC_ASSERT(sizeof(mediareq.ifm_name) == sizeof(req.ifr_name));
+    static_assert(sizeof(mediareq.ifm_name) == sizeof(req.ifr_name));
     Q_ASSERT(&mediareq.ifm_name == &req.ifr_name);
 
     // on NetBSD we use AF_LINK and sockaddr_dl
@@ -569,7 +576,7 @@ static void getAddressExtraInfo(QNetworkAddressEntry *entry, struct sockaddr *sa
 
 static QList<QNetworkInterfacePrivate *> createInterfaces(ifaddrs *rawList)
 {
-    Q_UNUSED(getMtu)
+    Q_UNUSED(getMtu);
     QList<QNetworkInterfacePrivate *> interfaces;
 
     // make sure there's one entry for each interface
@@ -601,7 +608,7 @@ static void getAddressExtraInfo(QNetworkAddressEntry *entry, struct sockaddr *sa
 {
     Q_UNUSED(entry);
     Q_UNUSED(sa);
-    Q_UNUSED(ifname)
+    Q_UNUSED(ifname);
 }
 # endif
 
@@ -619,7 +626,7 @@ static QList<QNetworkInterfacePrivate *> interfaceListing()
     for (ifaddrs *ptr = interfaceListing; ptr; ptr = ptr->ifa_next) {
         // Find the interface
         QLatin1String name(ptr->ifa_name);
-        QNetworkInterfacePrivate *iface = 0;
+        QNetworkInterfacePrivate *iface = nullptr;
         QList<QNetworkInterfacePrivate *>::Iterator if_it = interfaces.begin();
         for ( ; if_it != interfaces.end(); ++if_it)
             if ((*if_it)->name == name) {

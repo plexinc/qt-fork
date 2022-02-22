@@ -33,8 +33,7 @@
 #include <QtGui/qregion.h>
 #include <qpa/qplatformwindow.h>
 
-#include <QtGui/qopengltextureblitter.h>
-#include <QtGui/qopengltexture.h>
+#include <QtOpenGL/qopengltextureblitter.h>
 #include <QtGui/qpalette.h>
 #include <QtGui/qpainter.h>
 
@@ -43,7 +42,7 @@ QT_BEGIN_NAMESPACE
 class QWasmWindow;
 class QWasmScreen;
 class QOpenGLContext;
-class QOpenGLTextureBlitter;
+class QOpenGLTexture;
 
 class QWasmCompositedWindow
 {

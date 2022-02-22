@@ -16,6 +16,7 @@
 #define DAWNWIRE_WIRE_H_
 
 #include <cstdint>
+#include <limits>
 
 #include "dawn/webgpu.h"
 #include "dawn_wire/dawn_wire_export.h"
@@ -24,14 +25,28 @@ namespace dawn_wire {
 
     class DAWN_WIRE_EXPORT CommandSerializer {
       public:
-        virtual ~CommandSerializer() = default;
+        CommandSerializer();
+        virtual ~CommandSerializer();
+        CommandSerializer(const CommandSerializer& rhs) = delete;
+        CommandSerializer& operator=(const CommandSerializer& rhs) = delete;
+
+        // Get space for serializing commands.
+        // GetCmdSpace will never be called with a value larger than
+        // what GetMaximumAllocationSize returns. Return nullptr to indicate
+        // a fatal error.
         virtual void* GetCmdSpace(size_t size) = 0;
         virtual bool Flush() = 0;
+        virtual size_t GetMaximumAllocationSize() const = 0;
+        virtual void OnSerializeError();
     };
 
     class DAWN_WIRE_EXPORT CommandHandler {
       public:
-        virtual ~CommandHandler() = default;
+        CommandHandler();
+        virtual ~CommandHandler();
+        CommandHandler(const CommandHandler& rhs) = delete;
+        CommandHandler& operator=(const CommandHandler& rhs) = delete;
+
         virtual const volatile char* HandleCommands(const volatile char* commands, size_t size) = 0;
     };
 
@@ -43,7 +58,8 @@ namespace dawn_wire {
         char* serializeBuffer);
 
     DAWN_WIRE_EXPORT bool DeserializeWGPUDeviceProperties(WGPUDeviceProperties* deviceProperties,
-                                                          const volatile char* deserializeBuffer);
+                                                          const volatile char* deserializeBuffer,
+                                                          size_t deserializeBufferSize);
 
 }  // namespace dawn_wire
 

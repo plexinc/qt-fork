@@ -2,17 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/http/quic_spdy_client_stream.h"
+#include "quic/core/http/quic_spdy_client_stream.h"
 
 #include <utility>
 
-#include "net/third_party/quiche/src/quic/core/http/quic_client_promised_info.h"
-#include "net/third_party/quiche/src/quic/core/http/quic_spdy_client_session.h"
-#include "net/third_party/quiche/src/quic/core/http/spdy_utils.h"
-#include "net/third_party/quiche/src/quic/core/quic_alarm.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
-#include "net/third_party/quiche/src/spdy/core/spdy_protocol.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/http/quic_client_promised_info.h"
+#include "quic/core/http/quic_spdy_client_session.h"
+#include "quic/core/http/spdy_utils.h"
+#include "quic/core/quic_alarm.h"
+#include "quic/platform/api/quic_logging.h"
+#include "spdy/core/spdy_protocol.h"
 
 using spdy::SpdyHeaderBlock;
 
@@ -48,29 +48,46 @@ void QuicSpdyClientStream::OnInitialHeadersComplete(
     const QuicHeaderList& header_list) {
   QuicSpdyStream::OnInitialHeadersComplete(fin, frame_len, header_list);
 
-  DCHECK(headers_decompressed());
+  QUICHE_DCHECK(headers_decompressed());
   header_bytes_read_ += frame_len;
   if (!SpdyUtils::CopyAndValidateHeaders(header_list, &content_length_,
                                          &response_headers_)) {
     QUIC_DLOG(ERROR) << "Failed to parse header list: "
-                     << header_list.DebugString();
+                     << header_list.DebugString() << " on stream " << id();
     Reset(QUIC_BAD_APPLICATION_PAYLOAD);
     return;
   }
 
   if (!ParseHeaderStatusCode(response_headers_, &response_code_)) {
     QUIC_DLOG(ERROR) << "Received invalid response code: "
-                     << response_headers_[":status"].as_string();
+                     << response_headers_[":status"].as_string()
+                     << " on stream " << id();
     Reset(QUIC_BAD_APPLICATION_PAYLOAD);
     return;
   }
 
-  if (response_code_ == 100 && !has_preliminary_headers_) {
-    // These are preliminary 100 Continue headers, not the actual response
-    // headers.
+  if (response_code_ == 101) {
+    // 101 "Switching Protocols" is forbidden in HTTP/3 as per the
+    // "HTTP Upgrade" section of draft-ietf-quic-http.
+    QUIC_DLOG(ERROR) << "Received forbidden 101 response code"
+                     << " on stream " << id();
+    Reset(QUIC_BAD_APPLICATION_PAYLOAD);
+    return;
+  }
+
+  if (response_code_ >= 100 && response_code_ < 200) {
+    // These are Informational 1xx headers, not the actual response headers.
+    QUIC_DLOG(INFO) << "Received informational response code: "
+                    << response_headers_[":status"].as_string() << " on stream "
+                    << id();
     set_headers_decompressed(false);
-    has_preliminary_headers_ = true;
-    preliminary_headers_ = std::move(response_headers_);
+    if (response_code_ == 100 && !has_preliminary_headers_) {
+      // This is 100 Continue, save it to enable "Expect: 100-continue".
+      has_preliminary_headers_ = true;
+      preliminary_headers_ = std::move(response_headers_);
+    } else {
+      response_headers_.clear();
+    }
   }
 
   ConsumeHeaderList();
@@ -141,7 +158,7 @@ void QuicSpdyClientStream::OnBodyAvailable() {
 }
 
 size_t QuicSpdyClientStream::SendRequest(SpdyHeaderBlock headers,
-                                         quiche::QuicheStringPiece body,
+                                         absl::string_view body,
                                          bool fin) {
   QuicConnection::ScopedPacketFlusher flusher(session_->connection());
   bool send_fin_with_headers = fin && body.empty();

@@ -6,6 +6,7 @@
 #define V8_HEAP_SWEEPER_H_
 
 #include <deque>
+#include <map>
 #include <vector>
 
 #include "src/base/platform/semaphore.h"
@@ -15,9 +16,11 @@
 namespace v8 {
 namespace internal {
 
+class InvalidatedSlotsCleanup;
 class MajorNonAtomicMarkingState;
 class Page;
 class PagedSpace;
+class Space;
 
 enum FreeSpaceTreatmentMode { IGNORE_FREE_SPACE, ZAP_FREE_SPACE };
 
@@ -26,9 +29,10 @@ class Sweeper {
   using IterabilityList = std::vector<Page*>;
   using SweepingList = std::vector<Page*>;
   using SweptList = std::vector<Page*>;
+  using FreeRangesMap = std::map<uint32_t, uint32_t>;
 
   // Pauses the sweeper tasks or completes sweeping.
-  class PauseOrCompleteScope final {
+  class V8_NODISCARD PauseOrCompleteScope final {
    public:
     explicit PauseOrCompleteScope(Sweeper* sweeper);
     ~PauseOrCompleteScope();
@@ -41,9 +45,9 @@ class Sweeper {
   // sweeper to be paused. Allows for pages to be added to the sweeper while
   // in this scope. Note that the original list of sweeping pages is restored
   // after exiting this scope.
-  class FilterSweepingPagesScope final {
+  class V8_NODISCARD FilterSweepingPagesScope final {
    public:
-    explicit FilterSweepingPagesScope(
+    FilterSweepingPagesScope(
         Sweeper* sweeper, const PauseOrCompleteScope& pause_or_complete_scope);
     ~FilterSweepingPagesScope();
 
@@ -77,6 +81,8 @@ class Sweeper {
 
   bool sweeping_in_progress() const { return sweeping_in_progress_; }
 
+  void TearDown();
+
   void AddPage(AllocationSpace space, Page* page, AddPageMode mode);
 
   int ParallelSweepSpace(
@@ -102,7 +108,12 @@ class Sweeper {
   void StartSweeping();
   V8_EXPORT_PRIVATE void StartSweeperTasks();
   void EnsureCompleted();
+  void DrainSweepingWorklists();
+  void DrainSweepingWorklistForSpace(AllocationSpace space);
   bool AreSweeperTasksRunning();
+
+  // Support concurrent sweepers from main thread
+  void SupportConcurrentSweeping();
 
   Page* GetSweptPageSafe(PagedSpace* space);
 
@@ -114,7 +125,7 @@ class Sweeper {
  private:
   class IncrementalSweeperTask;
   class IterabilityTask;
-  class SweeperTask;
+  class SweeperJob;
 
   static const int kNumberOfSweepingSpaces =
       LAST_GROWABLE_PAGED_SPACE - FIRST_GROWABLE_PAGED_SPACE + 1;
@@ -127,6 +138,33 @@ class Sweeper {
     callback(MAP_SPACE);
   }
 
+  // Helper function for RawSweep. Depending on the FreeListRebuildingMode and
+  // FreeSpaceTreatmentMode this function may add the free memory to a free
+  // list, make the memory iterable, clear it, and return the free memory to
+  // the operating system.
+  size_t FreeAndProcessFreedMemory(Address free_start, Address free_end,
+                                   Page* page, Space* space,
+                                   bool non_empty_typed_slots,
+                                   FreeListRebuildingMode free_list_mode,
+                                   FreeSpaceTreatmentMode free_space_mode);
+
+  // Helper function for RawSweep. Handle remembered set entries in the freed
+  // memory which require clearing.
+  void CleanupRememberedSetEntriesForFreedMemory(
+      Address free_start, Address free_end, Page* page,
+      bool non_empty_typed_slots, FreeRangesMap* free_ranges_map,
+      InvalidatedSlotsCleanup* old_to_new_cleanup);
+
+  // Helper function for RawSweep. Clears invalid typed slots in the given free
+  // ranges.
+  void CleanupInvalidTypedSlotsOfFreeRanges(
+      Page* page, const FreeRangesMap& free_ranges_map);
+
+  // Helper function for RawSweep. Clears the mark bits and ensures consistency
+  // of live bytes.
+  void ClearMarkBitsAndHandleLivenessStatistics(
+      Page* page, size_t live_bytes, FreeListRebuildingMode free_list_mode);
+
   // Can only be called on the main thread when no tasks are running.
   bool IsDoneSweeping() const {
     bool is_done = true;
@@ -136,13 +174,15 @@ class Sweeper {
     return is_done;
   }
 
-  void SweepSpaceFromTask(AllocationSpace identity);
+  size_t ConcurrentSweepingPageCount();
+
+  // Concurrently sweeps many page from the given space. Returns true if there
+  // are no more pages to sweep in the given space.
+  bool ConcurrentSweepSpace(AllocationSpace identity, JobDelegate* delegate);
 
   // Sweeps incrementally one page from the given space. Returns true if
   // there are no more pages to sweep in the given space.
-  bool SweepSpaceIncrementallyFromTask(AllocationSpace identity);
-
-  void AbortAndWaitForTasks();
+  bool IncrementalSweepSpace(AllocationSpace identity);
 
   Page* GetSweepingPageSafe(AllocationSpace space);
 
@@ -166,19 +206,14 @@ class Sweeper {
 
   Heap* const heap_;
   MajorNonAtomicMarkingState* marking_state_;
-  int num_tasks_;
-  CancelableTaskManager::Id task_ids_[kNumberOfSweepingSpaces];
-  base::Semaphore pending_sweeper_tasks_semaphore_;
+  std::unique_ptr<JobHandle> job_handle_;
   base::Mutex mutex_;
   SweptList swept_list_[kNumberOfSweepingSpaces];
   SweepingList sweeping_list_[kNumberOfSweepingSpaces];
   bool incremental_sweeper_pending_;
-  bool sweeping_in_progress_;
-  // Counter is actively maintained by the concurrent tasks to avoid querying
-  // the semaphore for maintaining a task counter on the main thread.
-  std::atomic<intptr_t> num_sweeping_tasks_;
-  // Used by PauseOrCompleteScope to signal early bailout to tasks.
-  std::atomic<bool> stop_sweeper_tasks_;
+  // Main thread can finalize sweeping, while background threads allocation slow
+  // path checks this flag to see whether it could support concurrent sweeping.
+  std::atomic<bool> sweeping_in_progress_;
 
   // Pages that are only made iterable but have their free lists ignored.
   IterabilityList iterability_list_;

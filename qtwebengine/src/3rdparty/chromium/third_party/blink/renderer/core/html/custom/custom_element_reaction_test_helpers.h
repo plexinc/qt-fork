@@ -26,7 +26,7 @@ class Command : public GarbageCollected<Command> {
  public:
   Command() = default;
   virtual ~Command() = default;
-  virtual void Trace(Visitor* visitor) {}
+  virtual void Trace(Visitor* visitor) const {}
   virtual void Run(Element&) = 0;
 
   DISALLOW_COPY_AND_ASSIGN(Command);
@@ -74,7 +74,7 @@ class Recurse : public Command {
  public:
   Recurse(CustomElementReactionQueue* queue) : queue_(queue) {}
   ~Recurse() override = default;
-  void Trace(Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     Command::Trace(visitor);
     visitor->Trace(queue_);
   }
@@ -91,7 +91,7 @@ class Enqueue : public Command {
   Enqueue(CustomElementReactionQueue* queue, CustomElementReaction* reaction)
       : queue_(queue), reaction_(reaction) {}
   ~Enqueue() override = default;
-  void Trace(Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     Command::Trace(visitor);
     visitor->Trace(queue_);
     visitor->Trace(reaction_);
@@ -107,23 +107,23 @@ class Enqueue : public Command {
 
 class TestReaction : public CustomElementReaction {
  public:
-  TestReaction(HeapVector<Member<Command>>* commands)
+  explicit TestReaction(HeapVector<Member<Command>>&& commands)
       : CustomElementReaction(
             *MakeGarbageCollected<TestCustomElementDefinition>(
                 CustomElementDescriptor("mock-element", "mock-element"))),
-        commands_(commands) {}
+        commands_(std::move(commands)) {}
   ~TestReaction() override = default;
-  void Trace(Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     CustomElementReaction::Trace(visitor);
     visitor->Trace(commands_);
   }
   void Invoke(Element& element) override {
-    for (auto& command : *commands_)
+    for (auto& command : commands_)
       command->Run(element);
   }
 
  private:
-  Member<HeapVector<Member<Command>>> commands_;
+  HeapVector<Member<Command>> commands_;
 
   DISALLOW_COPY_AND_ASSIGN(TestReaction);
 };

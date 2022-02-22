@@ -45,13 +45,22 @@
   \endcode
 
   You can use the build system to register the type in the type namespace
-  \e {com.mycompany.qmlcomponents} with major version \c 1 by specifying the
-  following in your project file:
+  \e {com.mycompany.qmlcomponents} with major version \c 1.
+  For qmake, specify the following in your project file:
 
   \badcode
   CONFIG += qmltypes
   QML_IMPORT_NAME = com.mycompany.qmlcomponents
   QML_IMPORT_MAJOR_VERSION = 1
+  \endcode
+
+  With CMake, you pass the URI and version to qt_add_qml_module
+
+  \badcode
+  qt6_add_qml_module(myapp
+    URI com.mycompany.qmlcomponents
+    VERSION 1.0
+  )
   \endcode
 
   Once registered, the type can be used in QML by importing the
@@ -67,6 +76,10 @@
 
   You can also make namespaces tagged with Q_NAMESPACE available this way, in
   order to expose any enums tagged with Q_ENUM_NS they contain.
+
+  \b{NOTE:} When classes have the same name but are located in different namespaces using
+  \l QML_ELEMENT on both of them will cause a conflict.
+  Make sure to use \l QML_NAMED_ELEMENT() for one of them instead.
 
   \sa {Choosing the Correct Integration Method Between C++ and QML}, QML_NAMED_ELEMENT(),
       Q_REVISION(), QML_ADDED_IN_MINOR_VERSION()
@@ -97,8 +110,9 @@
   \relates QQmlEngine
 
   Declares the enclosing type to be available, but anonymous in QML. The type
-  cannot be created or used as property type, but when passed from C++, it is
-  recognized.
+  cannot be created or used to declare properties in QML, but when passed from
+  C++, it is recognized. In QML, you can use properties of this type if they
+  are declared in C++.
 
   \sa QML_ELEMENT, QML_NAMED_ELEMENT(), QML_UNCREATABLE(), QML_INTERFACE
 */
@@ -134,7 +148,22 @@
 
   Interface types are implicitly anonymous and uncreatable in QML.
 
-  \sa QML_ELEMENT, QML_NAMED_ELEMENT(), QML_UNCREATABLE(), QML_ANONYMOUS
+  \b{NOTE:} When inheriting from types using QML_INTERFACE, use \l QML_IMPLEMENTS_INTERFACES
+  instead of \l Q_INTERFACES.
+
+  \sa  QML_IMPLEMENTS_INTERFACES(), QML_ELEMENT, QML_NAMED_ELEMENT(), QML_UNCREATABLE(), QML_ANONYMOUS
+*/
+
+/*!
+  \macro QML_IMPLEMENTS_INTERFACES(interfaces)
+  \relates QQmlEngine
+
+  This macro tells Qt which QML \a interfaces the class implements.
+  This macro should only be used for interfacing with classes using \l QML_INTERFACE, use \l Q_INTERFACES otherwise.
+  It's required in order for declarative registration via \l QML_ELEMENT to function properly.
+
+
+  \sa QML_INTERFACE, Q_INTERFACES
 */
 
 /*!
@@ -151,6 +180,8 @@
   \l QML_NAMED_ELEMENT(). For such types, \l QML_UNCREATABLE() can be used to
   provide a custom error message.
 
+  Since Qt 6.0 you can use "" instead of a reason to use a standard message instead.
+
   \sa QML_ELEMENT, QML_NAMED_ELEMENT(), QML_ANONYMOUS
 */
 
@@ -159,14 +190,138 @@
   \relates QQmlEngine
 
   Declares the enclosing type to be a singleton in QML. This only takes effect
-  if the type is available in QML, by having a \l QML_ELEMENT or
-  \l QML_NAMED_ELEMENT() macro. By default, each QQmlEngine will try to create a
-  singleton instance using the type's default constructor when the type is first
-  accessed. If there is no default constructor the singleton is initially
-  inaccessible. This behavior can be overridden by calling
-  \l qmlRegisterSingletonType() with a specific factory function or
-  \l qmlRegisterSingletonInstance() with a specific instance for the same class
-  and the same type namespace and version.
+  if the type is a \l Q_OBJECT and is available in QML (by having a
+  \l QML_ELEMENT or \l QML_NAMED_ELEMENT() macro). By default, each QQmlEngine
+  will try to create a singleton instance using either the type's default
+  constructor or a static factory function of the signature
+  \c{T *create(QQmlEngine *, QJSEngine *)} when the type is first accessed.
+  If both do exist and are accessible, the default constructor is preferred.
+  If there is no default constructor and no factory function the singleton is
+  inaccessible.
+
+  In order to declare a default-constructible class as singleton, all you have
+  to do is add \l QML_SINGLETON:
+
+  \code
+  class MySingleton : public QObject
+  {
+      Q_OBJECT
+      QML_ELEMENT
+      QML_SINGLETON
+      // Q_PROPERTY( ... )
+  public:
+      // members, Q_INVOKABLE functions, etc.
+  };
+  \endcode
+
+  If the singleton class is not default-constructible, but you can modify it,
+  you can add a factory function to it, in order to make it accessible:
+
+  \code
+  class MySingleton : public QObject
+  {
+      Q_OBJECT
+      QML_ELEMENT
+      QML_SINGLETON
+      // Q_PROPERTY( ... )
+
+  public:
+      static MySingleton *create(QQmlEngine *qmlEngine, QJSEngine *jsEngine)
+      {
+          MySingleton *result = nullptr;
+          // Create the object using some custom constructor or factory.
+          // The QML engine will assume ownership and delete it, eventually.
+          return result;
+      }
+
+      // members, Q_INVOKABLE functions, etc
+  };
+  \endcode
+
+  If you cannot modify the class and it does not have a default constructor or a
+  suitable factory function, you can provide a \l QML_FOREIGN wrapper to define
+  the factory function:
+
+  \code
+  struct SingletonForeign
+  {
+      Q_GADGET
+      QML_FOREIGN(MySingleton)
+      QML_SINGLETON
+      QML_NAMED_ELEMENT(MySingleton)
+  public:
+
+      static MySingleton *create(QQmlEngine *, QJSEngine *engine)
+      {
+          MySingleton *result = nullptr;
+          // Create the instance using some custom constructor or factory.
+          // The QML engine will assume ownership and delete it, eventually.
+          return result;
+      }
+  };
+  \endcode
+
+  Finally, if you want to provide one specific singleton object, the creation of
+  which you cannot control, you can return that from a factory function. This is
+  a replacement for the \l qmlRegisterSingletonInstance function.
+  If you were calling
+
+  \code
+  qmlRegisterSingletonInstance("MyModule", 1, 0, "MySingleton", myObject);
+  \endcode
+
+  with myObject being of type \c{MySingleton *}, you can do the following
+  instead:
+
+  \code
+  struct SingletonForeign
+  {
+      Q_GADGET
+      QML_FOREIGN(MySingleton)
+      QML_SINGLETON
+      QML_NAMED_ELEMENT(MySingleton)
+  public:
+
+      // Initialize this using myObject where you would previously
+      // call qmlRegisterSingletonInstance().
+      static MySingleton *s_singletonInstance = nullptr;
+
+      static MySingleton *create(QQmlEngine *, QJSEngine *engine)
+      {
+          // The instance has to exist before it is used. We cannot replace it.
+          Q_ASSERT(s_singletonInstance);
+
+          // The engine has to have the same thread affinity as the singleton.
+          Q_ASSERT(engine->thread() == s_singletonInstance->thread());
+
+          // There can only be one engine accessing the singleton.
+          if (s_engine)
+              Q_ASSERT(engine == s_engine);
+          else
+              s_engine = engine;
+
+          // Explicitly specify C++ ownership so that the engine doesn't delete
+          // the instance.
+          QJSEngine::setObjectOwnership(s_singletonInstance,
+                                        QJSEngine::CppOwnership);
+          return s_singletonInstance;
+      }
+
+  private:
+      static QJSEngine *s_engine = nullptr;
+  };
+  \endcode
+
+  This way, the pre-existing class \c MySingleton is declared to be a QML
+  singleton, called \c MySingleton. You can specify an instance for it any time
+  before it is used by setting the \c s_singletonInstance member. None of this
+  requires modification of \c MySingleton itself.
+
+  \note This pattern doesn't work if either the singleton is accessed by
+  multiple QML engines, or if the QML engine accessing it has a different thread
+  affinity than the singleton object itself. As shown above, you can check the
+  parameters to the \c create() method for identity and thread affinity of the
+  engine in order to assert on that.
 
   \sa QML_ELEMENT, QML_NAMED_ELEMENT(), qmlRegisterSingletonInstance().
 */
@@ -211,6 +366,17 @@
 */
 
 /*!
+  \internal
+  \macro QML_EXTRA_VERSION(MAJOR, MINOR)
+  \relates QQmlEngine
+
+  Declare that the type should also be available in version \c MAJOR.MINOR.
+  This can be helpful if a type should be available in multiple major versions.
+
+  \sa QML_ELEMENT, QML_ADDED_IN_MINOR_VERSION
+*/
+
+/*!
   \macro QML_ATTACHED(ATTACHED_TYPE)
   \relates QQmlEngine
 
@@ -228,10 +394,55 @@
   \relates QQmlEngine
 
   Declares that the enclosing type uses \a EXTENDED_TYPE as an extension to
-  provide further properties and methods in QML. This takes effect if the type
-  is exposed to QML using a \l QML_ELEMENT or \l QML_NAMED_ELEMENT() macro.
+  provide further properties, methods, and enumerations in QML. This takes
+  effect if the type is exposed to QML using a \l QML_ELEMENT or
+  \l QML_NAMED_ELEMENT() macro.
 
-  \sa QML_ELEMENT, QML_NAMED_ELEMENT(), {Registering Extension Objects}
+  \sa QML_ELEMENT, QML_NAMED_ELEMENT(), QML_EXTENDED_NAMESPACE(),
+      {Registering Extension Objects}
+*/
+
+/*!
+  \macro QML_EXTENDED_NAMESPACE(EXTENDED_NAMESPACE)
+  \relates QQmlEngine
+
+  Declares that the enclosing type uses \a EXTENDED_NAMESPACE as an extension to
+  provide further enumerations in QML. This takes effect if the type
+  is exposed to QML using a \l QML_ELEMENT or \l QML_NAMED_ELEMENT() macro.
+  The enumerations need to be exposed to the metaobject system for this to work.
+
+  For example, give the following C++ code
+  \code
+  namespace MyNamespace {
+      Q_NAMESPACE
+      enum MyEnum { MyEnumerator = 10 };
+      Q_ENUM_NS(MyEnum)
+  }
+
+  class QmlType : public QObject
+  {
+      Q_OBJECT
+      QML_ELEMENT
+      QML_EXTENDED_NAMESPACE(MyNamespace)
+  }
+  \endcode
+
+  we can access the enum in QML:
+  \qml
+  QmlType {
+      property int i: QmlType.MyEnumerator // i will be 10
+  }
+  \endqml
+
+  \note EXTENDED_NAMESPACE can also be a QObject or QGadget; in that case - and in contrast to
+  QML_EXTENDED, which also exposes methods and properties - only its enumerations
+  are exposed.
+
+  \note \a EXTENDED_NAMESPACE must have a metaobject; i.e. it must either be a namespace which
+  contains the Q_NAMESPACE macro or a QObject/QGadget.
+
+  \sa QML_ELEMENT, QML_NAMED_ELEMENT(), QML_EXTENDED(),
+      {Registering Extension Objects}, Q_ENUM, Q_ENUM_NS
 */
 
 /*!
@@ -241,16 +452,39 @@
   Declares that any \l QML_ELEMENT, \l QML_NAMED_ELEMENT(), \l QML_ANONYMOUS,
   \l QML_INTERFACE, \l QML_UNCREATABLE(), \l QML_SINGLETON,
   \l QML_ADDED_IN_MINOR_VERSION(), \l QML_REMOVED_IN_MINOR_VERSION(),
-  \l QML_ATTACHED(), or \l QML_EXTENDED() macros in the enclosing C++ type do
-  not apply to the enclosing type but instead to \a FOREIGN_TYPE. The enclosing
-  type still needs to be registered with the
+  \l QML_ATTACHED(), \l QML_EXTENDED(), or \l  QML_EXTENDED_NAMESPACE() macros
+  in the enclosing C++ type do not apply to the enclosing type but instead to
+  \a FOREIGN_TYPE. The enclosing type still needs to be registered with the
   \l {The Meta-Object System}{meta object system} using a \l Q_GADGET or
   \l Q_OBJECT macro.
 
   This is useful for registering types that cannot be amended to add the macros,
   for example because they belong to 3rdparty libraries.
+  To register a namespace, see \l QML_FOREIGN_NAMESPACE().
 
-  \sa QML_ELEMENT, QML_NAMED_ELEMENT()
+  \b{NOTE:} You may want to use \l QML_NAMED_ELEMENT() instead of \l QML_ELEMENT due to the fact that
+  the element will be named like the struct it is contained in, not the foreign type.
+  See \l {Extending QML - Extension Objects Example} for an example.
+
+  \sa QML_ELEMENT, QML_NAMED_ELEMENT(), QML_FOREIGN_NAMESPACE()
+*/
+
+/*!
+  \macro QML_FOREIGN_NAMESPACE(FOREIGN_NAMESPACE)
+  \relates QQmlEngine
+
+  Declares that any \l QML_ELEMENT, \l QML_NAMED_ELEMENT(), \l QML_ANONYMOUS,
+  \l QML_INTERFACE, \l QML_UNCREATABLE(), \l QML_SINGLETON,
+  \l QML_ADDED_IN_MINOR_VERSION(), or \l QML_REMOVED_IN_MINOR_VERSION()
+  macros in the enclosing C++ namespace do not apply to the enclosing type but
+  instead to \a FOREIGN_NAMESPACE. The enclosing namespace still needs to be
+  registered with the \l {The Meta-Object System}{meta object system} using a
+  \l Q_NAMESPACE macro.
+
+  This is useful for registering namespaces that cannot be amended to add the macros,
+  for example because they belong to 3rdparty libraries.
+
+  \sa QML_ELEMENT, QML_NAMED_ELEMENT(), QML_FOREIGN()
 */
 
 /*!
@@ -641,16 +875,6 @@
 */
 
 /*!
-  \fn int qmlRegisterType()
-  \relates QQmlEngine
-  \overload
-  \deprecated
-
-  Do not use this function. For anonymous type registrations, use \l qmlRegisterAnonymousType(),
-  and make sure to provide a URI and a major version.
-*/
-
-/*!
     \fn int qmlRegisterInterface(const char *typeName)
     \relates QQmlEngine
 
@@ -945,6 +1169,8 @@
    \l {qmlRegisterSingletonType}.  See \l{Threads and QObjects} for more
    information about thread safety.
 
+   \b{NOTE:} qmlRegisterSingleton can only be used when all types of that module are registered procedurally.
+
     Usage:
     \code
     // First, define your QObject which provides the functionality.
@@ -1027,20 +1253,25 @@
   \fn bool qmlProtectModule(const char* uri, int majVersion);
   \relates QQmlEngine
 
-  This function protects a module from having types registered into it. This
-  can be used to prevent other plugins from injecting types into your module.
-  It can also be a performance improvement, as it allows the engine to skip
-  checking for the possibility of new types or plugins when this import is
-  reached.
+  This function protects a module from further modification. This can be used
+  to prevent other plugins from injecting types into your module. It can also
+  be a performance improvement, as it allows the engine to skip checking for
+  the possibility of new types or plugins when this import is reached.
 
-  The performance benefit is primarily seen when registering application
-  specific types from within the application instead of through a plugin.
-  Using qmlProtectModule allows the engine to skip checking for a plugin when
-  that uri is imported, which can be noticeable with slow file systems.
+  Once qmlProtectModule has been called, a QML engine will not search for a new
+  \c qmldir file to load the module anymore. It will re-use any \c qmldir files
+  it has loaded before, though. Therefore, types present at this point continue
+  to work. Mind that different QML engines may load different modules. The
+  module protection, however, is global and affects all engines. The overhead
+  of locating \c qmldir files and loading plugins may be noticeable with slow file
+  systems. Therefore, protecting a module once you are sure you won't need to
+  load it anymore can be a good optimization. Mind also that the module lock
+  not only affects plugins but also any other qmldir directives, like \c import
+  or \c prefer, as well as any composite types or scripts declared in a \c qmldir
+  file.
 
-  After this function is called, any attempt to register C++ types into this
-  uri, major version combination will lead to a runtime error. Call this after
-  you have registered all of your types with the engine.
+  In addition, after this function is called, any attempt to register C++ types
+  into this uri, major version combination will lead to a runtime error.
 
   Returns true if the module with \a uri as a \l{Identified Modules}
   {module identifier} and \a majVersion as a major version number was found

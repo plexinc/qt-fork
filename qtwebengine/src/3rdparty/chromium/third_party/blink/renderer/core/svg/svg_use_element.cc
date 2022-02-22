@@ -33,9 +33,12 @@
 #include "third_party/blink/renderer/core/dom/id_target_observer.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/dom/xml_document.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_transformable_container.h"
+#include "third_party/blink/renderer/core/svg/svg_animated_length.h"
 #include "third_party/blink/renderer/core/svg/svg_g_element.h"
 #include "third_party/blink/renderer/core/svg/svg_length_context.h"
+#include "third_party/blink/renderer/core/svg/svg_resource_document_content.h"
 #include "third_party/blink/renderer/core/svg/svg_svg_element.h"
 #include "third_party/blink/renderer/core/svg/svg_symbol_element.h"
 #include "third_party/blink/renderer/core/svg/svg_title_element.h"
@@ -90,11 +93,8 @@ SVGUseElement::SVGUseElement(Document& document)
 
 SVGUseElement::~SVGUseElement() = default;
 
-void SVGUseElement::Dispose() {
-  ClearResource();
-}
-
-void SVGUseElement::Trace(Visitor* visitor) {
+void SVGUseElement::Trace(Visitor* visitor) const {
+  visitor->Trace(document_content_);
   visitor->Trace(x_);
   visitor->Trace(y_);
   visitor->Trace(width_);
@@ -131,6 +131,11 @@ void SVGUseElement::RemovedFrom(ContainerNode& root_parent) {
     ClearResourceReference();
     CancelShadowTreeRecreation();
   }
+}
+
+void SVGUseElement::DidMoveToNewDocument(Document& old_document) {
+  SVGGraphicsElement::DidMoveToNewDocument(old_document);
+  UpdateTargetReference();
 }
 
 static void TransferUseWidthAndHeightIfNeeded(
@@ -190,36 +195,38 @@ void SVGUseElement::UpdateTargetReference() {
   const String& url_string = HrefString();
   element_url_ = GetDocument().CompleteURL(url_string);
   element_url_is_local_ = url_string.StartsWith('#');
-  if (!IsStructurallyExternal()) {
+  if (!IsStructurallyExternal() || !GetDocument().IsActive()) {
     ClearResource();
+    document_content_ = nullptr;
     return;
   }
   if (!element_url_.HasFragmentIdentifier() ||
-      (GetResource() &&
-       EqualIgnoringFragmentIdentifier(element_url_, GetResource()->Url())))
+      (document_content_ && EqualIgnoringFragmentIdentifier(
+                                element_url_, document_content_->Url()))) {
     return;
+  }
 
-  ResourceLoaderOptions options;
-  options.initiator_info.name = localName();
-  FetchParameters params(ResourceRequest(element_url_), options);
-  params.MutableResourceRequest().SetMode(
-      network::mojom::RequestMode::kSameOrigin);
   auto* context_document = &GetDocument();
   if (GetDocument().ImportsController()) {
     // For @imports from HTML imported Documents, we use the
     // context document for getting origin and ResourceFetcher to use the
     // main Document's origin, while using the element document for
     // CompleteURL() to use imported Documents' base URLs.
-    if (!GetDocument().ContextDocument()) {
-      ClearResource();
-      return;
-    }
-    context_document = GetDocument().ContextDocument();
+    context_document =
+        To<LocalDOMWindow>(GetDocument().GetExecutionContext())->document();
   }
-  DocumentResource::FetchSVGDocument(params, *context_document, this);
+
+  ExecutionContext* execution_context = context_document->GetExecutionContext();
+  ResourceLoaderOptions options(execution_context->GetCurrentWorld());
+  options.initiator_info.name = localName();
+  FetchParameters params(ResourceRequest(element_url_), options);
+  document_content_ =
+      SVGResourceDocumentContent::Fetch(params, *context_document, this);
 }
 
-void SVGUseElement::SvgAttributeChanged(const QualifiedName& attr_name) {
+void SVGUseElement::SvgAttributeChanged(
+    const SvgAttributeChangedParams& params) {
+  const QualifiedName& attr_name = params.name;
   if (attr_name == svg_names::kXAttr || attr_name == svg_names::kYAttr ||
       attr_name == svg_names::kWidthAttr ||
       attr_name == svg_names::kHeightAttr) {
@@ -251,7 +258,7 @@ void SVGUseElement::SvgAttributeChanged(const QualifiedName& attr_name) {
     return;
   }
 
-  SVGGraphicsElement::SvgAttributeChanged(attr_name);
+  SVGGraphicsElement::SvgAttributeChanged(params);
 }
 
 static bool IsDisallowedElement(const Element& element) {
@@ -314,11 +321,9 @@ Element* SVGUseElement::ResolveTargetElement() {
                              WrapWeakPersistent(this)));
     }
   }
-  if (!ResourceIsValid())
+  if (!document_content_ || !document_content_->GetDocument())
     return nullptr;
-  return To<DocumentResource>(GetResource())
-      ->GetDocument()
-      ->getElementById(element_identifier);
+  return document_content_->GetDocument()->getElementById(element_identifier);
 }
 
 SVGElement* SVGUseElement::InstanceRoot() const {
@@ -566,8 +571,8 @@ bool SVGUseElement::SelfHasRelativeLengths() const {
 
 FloatRect SVGUseElement::GetBBox() {
   DCHECK(GetLayoutObject());
-  LayoutSVGTransformableContainer& transformable_container =
-      ToLayoutSVGTransformableContainer(*GetLayoutObject());
+  auto& transformable_container =
+      To<LayoutSVGTransformableContainer>(*GetLayoutObject());
   // Don't apply the additional translation if the oBB is invalid.
   if (!transformable_container.IsObjectBoundingBoxValid())
     return FloatRect();
@@ -590,14 +595,13 @@ void SVGUseElement::DispatchPendingEvent() {
 }
 
 void SVGUseElement::NotifyFinished(Resource* resource) {
-  DCHECK_EQ(GetResource(), resource);
   if (!isConnected())
     return;
 
   InvalidateShadowTree();
-  if (!ResourceIsValid()) {
+  if (resource->ErrorOccurred() || !document_content_->GetDocument()) {
     DispatchEvent(*Event::Create(event_type_names::kError));
-  } else if (!resource->WasCanceled()) {
+  } else {
     if (have_fired_load_event_)
       return;
     if (!IsStructurallyExternal())
@@ -611,21 +615,8 @@ void SVGUseElement::NotifyFinished(Resource* resource) {
   }
 }
 
-bool SVGUseElement::ResourceIsValid() const {
-  Resource* resource = GetResource();
-  if (!resource || resource->ErrorOccurred())
-    return false;
-  // If the resource has not yet finished loading but is revalidating, consider
-  // it to be valid if it actually carries a document. <use> elements that are
-  // in the process of "loading" the revalidated resource (performing the
-  // revalidation) will get a NotifyFinished() callback and invalidate as
-  // needed. <use> elements that have already finished loading (a potentially
-  // older version of the resource) will keep showing that until its shadow
-  // tree is invalidated.
-  // TODO(fs): Handle revalidations that return a new/different resource.
-  if (!resource->IsLoaded() && !resource->IsCacheValidator())
-    return false;
-  return To<DocumentResource>(resource)->GetDocument();
+String SVGUseElement::DebugName() const {
+  return "SVGUseElement";
 }
 
 }  // namespace blink

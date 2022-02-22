@@ -9,13 +9,13 @@ namespace features {
 
 // Weblayer features in alphabetical order.
 
+// Client side phishing detection support for weblayer
+const base::Feature kWebLayerClientSidePhishingDetection{
+    "WebLayerClientSidePhishingDetection", base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Safebrowsing support for weblayer.
 const base::Feature kWebLayerSafeBrowsing{"WebLayerSafeBrowsing",
                                           base::FEATURE_ENABLED_BY_DEFAULT};
-
-// Enable auto-reload of error pages.
-const base::Feature kEnableAutoReload{"EnableAutoReload",
-                                      base::FEATURE_ENABLED_BY_DEFAULT};
 
 }  // namespace features
 }  // namespace weblayer

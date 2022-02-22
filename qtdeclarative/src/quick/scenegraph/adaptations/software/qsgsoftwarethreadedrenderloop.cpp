@@ -43,6 +43,7 @@
 
 #include <private/qsgrenderer_p.h>
 #include <private/qquickwindow_p.h>
+#include <private/qquickitem_p.h>
 #include <private/qquickprofiler_p.h>
 #include <private/qquickanimatorcontroller_p.h>
 #include <private/qquickprofiler_p.h>
@@ -423,7 +424,7 @@ void QSGSoftwareRenderThread::sync(bool inExpose)
     qCDebug(QSG_RASTER_LOG_RENDERLOOP, "RT - sync");
 
     mutex.lock();
-    Q_ASSERT_X(renderLoop->lockedForSync, "QSGD3D12RenderThread::sync()", "sync triggered with gui not locked");
+    Q_ASSERT_X(renderLoop->lockedForSync, "QSGSoftwareRenderThread::sync()", "sync triggered with gui not locked");
 
     if (exposedWindow) {
         QQuickWindowPrivate *wd = QQuickWindowPrivate::get(exposedWindow);
@@ -471,10 +472,12 @@ void QSGSoftwareRenderThread::syncAndRender()
     syncResultedInChanges = false;
     QQuickWindowPrivate *wd = QQuickWindowPrivate::get(exposedWindow);
 
-    const bool repaintRequested = (pendingUpdate & RepaintRequest) || wd->customRenderStage;
+    const bool repaintRequested = pendingUpdate & RepaintRequest;
     const bool syncRequested = pendingUpdate & SyncRequest;
     const bool exposeRequested = (pendingUpdate & ExposeRequest) == ExposeRequest;
     pendingUpdate = 0;
+
+    emit exposedWindow->beforeFrameBegin();
 
     if (syncRequested)
         sync(exposeRequested);
@@ -513,7 +516,7 @@ void QSGSoftwareRenderThread::syncAndRender()
                                   QQuickProfiler::SceneGraphRenderLoopRender);
         Q_TRACE(QSG_swap_entry);
 
-        if (softwareRenderer && (!wd->customRenderStage || !wd->customRenderStage->swap()))
+        if (softwareRenderer)
             backingStore->flush(softwareRenderer->flushRegion());
 
         // Since there is no V-Sync with QBackingStore, throttle rendering the refresh
@@ -535,6 +538,8 @@ void QSGSoftwareRenderThread::syncAndRender()
     }
 
     qCDebug(QSG_RASTER_LOG_RENDERLOOP, "RT - rendering done");
+
+    emit exposedWindow->afterFrameEnd();
 
     if (exposeRequested) {
         qCDebug(QSG_RASTER_LOG_RENDERLOOP, "RT - wake gui after initial expose");

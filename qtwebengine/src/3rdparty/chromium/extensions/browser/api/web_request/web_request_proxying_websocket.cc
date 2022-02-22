@@ -13,6 +13,7 @@
 #include "extensions/browser/extension_navigation_ui_data.h"
 #include "net/base/ip_endpoint.h"
 #include "net/http/http_util.h"
+#include "services/metrics/public/cpp/ukm_source_id.h"
 
 namespace extensions {
 namespace {
@@ -51,6 +52,7 @@ WebRequestProxyingWebSocket::WebRequestProxyingWebSocket(
     bool has_extra_headers,
     int process_id,
     int render_frame_id,
+    ukm::SourceIdObj ukm_source_id,
     content::BrowserContext* browser_context,
     WebRequestAPI::RequestIDGenerator* request_id_generator,
     WebRequestAPI::ProxySet* proxies)
@@ -70,11 +72,12 @@ WebRequestProxyingWebSocket::WebRequestProxyingWebSocket(
           /*is_download=*/false,
           /*is_async=*/true,
           /*is_service_worker_script=*/false,
-          /*navigation_id=*/base::nullopt)),
+          /*navigation_id=*/base::nullopt,
+          ukm_source_id)),
       proxies_(proxies) {
   // base::Unretained is safe here because the callback will be canceled when
-  // |shutdown_notifier_| is destroyed, and |proxies_| owns this.
-  shutdown_notifier_ =
+  // |shutdown_notifier_subscription_| is destroyed, and |proxies_| owns this.
+  shutdown_notifier_subscription_ =
       ShutdownNotifierFactory::GetInstance()
           ->Get(browser_context)
           ->Subscribe(base::BindRepeating(&WebRequestAPI::ProxySet::RemoveProxy,
@@ -141,6 +144,10 @@ void WebRequestProxyingWebSocket::OnOpeningHandshakeStarted(
   forwarding_handshake_client_->OnOpeningHandshakeStarted(std::move(request));
 }
 
+void WebRequestProxyingWebSocket::OnFailure(const std::string&,
+                                            int net_error,
+                                            int response_code) {}
+
 void WebRequestProxyingWebSocket::ContinueToHeadersReceived() {
   auto continuation = base::BindRepeating(
       &WebRequestProxyingWebSocket::OnHeadersReceivedComplete,
@@ -193,7 +200,7 @@ void WebRequestProxyingWebSocket::OnConnectionEstablished(
           handshake_response_->status_code,
           handshake_response_->status_text.c_str()));
   for (const auto& header : handshake_response_->headers)
-    response_->headers->AddHeader(header->name + ": " + header->value);
+    response_->headers->AddHeader(header->name, header->value);
 
   ContinueToHeadersReceived();
 }
@@ -278,6 +285,7 @@ void WebRequestProxyingWebSocket::StartProxying(
     bool has_extra_headers,
     int process_id,
     int render_frame_id,
+    ukm::SourceIdObj ukm_source_id,
     WebRequestAPI::RequestIDGenerator* request_id_generator,
     const url::Origin& origin,
     content::BrowserContext* browser_context,
@@ -293,8 +301,8 @@ void WebRequestProxyingWebSocket::StartProxying(
 
   auto proxy = std::make_unique<WebRequestProxyingWebSocket>(
       std::move(factory), request, std::move(handshake_client),
-      has_extra_headers, process_id, render_frame_id, browser_context,
-      request_id_generator, proxies);
+      has_extra_headers, process_id, render_frame_id, ukm_source_id,
+      browser_context, request_id_generator, proxies);
 
   auto* raw_proxy = proxy.get();
   proxies->AddProxy(std::move(proxy));

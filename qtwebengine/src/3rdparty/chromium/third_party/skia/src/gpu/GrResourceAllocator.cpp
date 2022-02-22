@@ -11,7 +11,6 @@
 #include "src/gpu/GrOpsTask.h"
 #include "src/gpu/GrRenderTargetProxy.h"
 #include "src/gpu/GrResourceProvider.h"
-#include "src/gpu/GrSurfacePriv.h"
 #include "src/gpu/GrSurfaceProxy.h"
 #include "src/gpu/GrSurfaceProxyPriv.h"
 #include "src/gpu/GrTextureProxy.h"
@@ -23,7 +22,7 @@
         static std::atomic<uint32_t> nextID{1};
         uint32_t id;
         do {
-            id = nextID++;
+            id = nextID.fetch_add(1, std::memory_order_relaxed);
         } while (id == SK_InvalidUniqueID);
         return id;
     }
@@ -48,19 +47,6 @@ void GrResourceAllocator::determineRecyclability() {
             cur->markAsRecyclable();
         }
     }
-}
-
-void GrResourceAllocator::markEndOfOpsTask(int opsTaskIndex) {
-    SkASSERT(!fAssigned);      // We shouldn't be adding any opsTasks after (or during) assignment
-
-    SkASSERT(fEndOfOpsTaskOpIndices.count() == opsTaskIndex);
-    if (!fEndOfOpsTaskOpIndices.empty()) {
-        SkASSERT(fEndOfOpsTaskOpIndices.back() < this->curOp());
-    }
-
-    // This is the first op index of the next opsTask
-    fEndOfOpsTaskOpIndices.push_back(this->curOp());
-    SkASSERT(fEndOfOpsTaskOpIndices.count() <= fNumOpsTasks);
 }
 
 GrResourceAllocator::~GrResourceAllocator() {
@@ -307,88 +293,32 @@ void GrResourceAllocator::expire(unsigned int curIndex) {
     }
 }
 
-bool GrResourceAllocator::onOpsTaskBoundary() const {
-    if (fIntvlList.empty()) {
-        SkASSERT(fCurOpsTaskIndex+1 <= fNumOpsTasks);
-        // Although technically on an opsTask boundary there is no need to force an
-        // intermediate flush here
-        return false;
-    }
-
-    const Interval* tmp = fIntvlList.peekHead();
-    return fEndOfOpsTaskOpIndices[fCurOpsTaskIndex] <= tmp->start();
-}
-
-void GrResourceAllocator::forceIntermediateFlush(int* stopIndex) {
-    *stopIndex = fCurOpsTaskIndex+1;
-
-    // This is interrupting the allocation of resources for this flush. We need to
-    // proactively clear the active interval list of any intervals that aren't
-    // guaranteed to survive the partial flush lest they become zombies (i.e.,
-    // holding a deleted surface proxy).
-    const Interval* tmp = fIntvlList.peekHead();
-    SkASSERT(fEndOfOpsTaskOpIndices[fCurOpsTaskIndex] <= tmp->start());
-
-    fCurOpsTaskIndex++;
-    SkASSERT(fCurOpsTaskIndex < fNumOpsTasks);
-
-    this->expire(tmp->start());
-}
-
-bool GrResourceAllocator::assign(int* startIndex, int* stopIndex, AssignError* outError) {
+void GrResourceAllocator::assign(AssignError* outError) {
     SkASSERT(outError);
     *outError = fLazyInstantiationError ? AssignError::kFailedProxyInstantiation
                                         : AssignError::kNoError;
 
-    SkASSERT(fNumOpsTasks == fEndOfOpsTaskOpIndices.count());
-
     fIntvlHash.reset(); // we don't need the interval hash anymore
-
-    if (fCurOpsTaskIndex >= fEndOfOpsTaskOpIndices.count()) {
-        return false; // nothing to render
-    }
-
-    *startIndex = fCurOpsTaskIndex;
-    *stopIndex = fEndOfOpsTaskOpIndices.count();
-
-    if (fIntvlList.empty()) {
-        fCurOpsTaskIndex = fEndOfOpsTaskOpIndices.count();
-        return true;          // no resources to assign
-    }
-
-#if GR_ALLOCATION_SPEW
-    SkDebugf("assigning opsTasks %d through %d out of %d numOpsTasks\n",
-             *startIndex, *stopIndex, fNumOpsTasks);
-    SkDebugf("EndOfOpsTaskIndices: ");
-    for (int i = 0; i < fEndOfOpsTaskOpIndices.count(); ++i) {
-        SkDebugf("%d ", fEndOfOpsTaskOpIndices[i]);
-    }
-    SkDebugf("\n");
-#endif
 
     SkDEBUGCODE(fAssigned = true;)
 
+    if (fIntvlList.empty()) {
+        return;          // no resources to assign
+    }
+
 #if GR_ALLOCATION_SPEW
+    SkDebugf("assigning %d ops\n", fNumOps);
     this->dumpIntervals();
 #endif
-    while (Interval* cur = fIntvlList.popHead()) {
-        while (fEndOfOpsTaskOpIndices[fCurOpsTaskIndex] <= cur->start()) {
-            fCurOpsTaskIndex++;
-            SkASSERT(fCurOpsTaskIndex < fNumOpsTasks);
-        }
 
+    // TODO: Can this be done inline during the main iteration?
+    this->determineRecyclability();
+
+    while (Interval* cur = fIntvlList.popHead()) {
         this->expire(cur->start());
 
         if (cur->proxy()->isInstantiated()) {
             fActiveIntvls.insertByIncreasingEnd(cur);
-
-            if (fResourceProvider->overBudget()) {
-                // Only force intermediate draws on opsTask boundaries
-                if (this->onOpsTaskBoundary()) {
-                    this->forceIntermediateFlush(stopIndex);
-                    return true;
-                }
-            }
 
             continue;
         }
@@ -422,19 +352,10 @@ bool GrResourceAllocator::assign(int* startIndex, int* stopIndex, AssignError* o
         }
 
         fActiveIntvls.insertByIncreasingEnd(cur);
-
-        if (fResourceProvider->overBudget()) {
-            // Only force intermediate draws on opsTask boundaries
-            if (this->onOpsTaskBoundary()) {
-                this->forceIntermediateFlush(stopIndex);
-                return true;
-            }
-        }
     }
 
     // expire all the remaining intervals to drain the active interval list
     this->expire(std::numeric_limits<unsigned int>::max());
-    return true;
 }
 
 #if GR_ALLOCATION_SPEW

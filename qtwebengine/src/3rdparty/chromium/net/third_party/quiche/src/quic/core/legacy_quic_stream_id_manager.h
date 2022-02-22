@@ -4,9 +4,10 @@
 #ifndef QUICHE_QUIC_CORE_LEGACY_QUIC_STREAM_ID_MANAGER_H_
 #define QUICHE_QUIC_CORE_LEGACY_QUIC_STREAM_ID_MANAGER_H_
 
-#include "net/third_party/quiche/src/quic/core/quic_stream_id_manager.h"
-#include "net/third_party/quiche/src/quic/core/quic_types.h"
-#include "net/third_party/quiche/src/quic/core/quic_versions.h"
+#include "absl/container/flat_hash_set.h"
+#include "quic/core/quic_stream_id_manager.h"
+#include "quic/core/quic_types.h"
+#include "quic/core/quic_versions.h"
 
 namespace quic {
 
@@ -29,11 +30,10 @@ class QUIC_EXPORT_PRIVATE LegacyQuicStreamIdManager {
   ~LegacyQuicStreamIdManager();
 
   // Returns true if the next outgoing stream ID can be allocated.
-  bool CanOpenNextOutgoingStream(
-      size_t current_num_open_outgoing_streams) const;
+  bool CanOpenNextOutgoingStream() const;
 
   // Returns true if a new incoming stream can be opened.
-  bool CanOpenIncomingStream(size_t current_num_open_incoming_streams) const;
+  bool CanOpenIncomingStream() const;
 
   // Returns false when increasing the largest created stream id to |id| would
   // violate the limit, so the connection should be closed.
@@ -45,6 +45,12 @@ class QUIC_EXPORT_PRIVATE LegacyQuicStreamIdManager {
   // Returns the stream ID for a new outgoing stream, and increments the
   // underlying counter.
   QuicStreamId GetNextOutgoingStreamId();
+
+  // Called when a new stream is open.
+  void ActivateStream(bool is_incoming);
+
+  // Called when a stream ID is closed.
+  void OnStreamClosed(bool is_incoming);
 
   // Return true if |id| is peer initiated.
   bool IsIncomingStream(QuicStreamId id) const;
@@ -82,6 +88,13 @@ class QUIC_EXPORT_PRIVATE LegacyQuicStreamIdManager {
 
   size_t GetNumAvailableStreams() const;
 
+  size_t num_open_incoming_streams() const {
+    return num_open_incoming_streams_;
+  }
+  size_t num_open_outgoing_streams() const {
+    return num_open_outgoing_streams_;
+  }
+
  private:
   friend class test::QuicSessionPeer;
 
@@ -99,9 +112,15 @@ class QUIC_EXPORT_PRIVATE LegacyQuicStreamIdManager {
 
   // Set of stream ids that are less than the largest stream id that has been
   // received, but are nonetheless available to be created.
-  QuicUnorderedSet<QuicStreamId> available_streams_;
+  absl::flat_hash_set<QuicStreamId> available_streams_;
 
   QuicStreamId largest_peer_created_stream_id_;
+
+  // A counter for peer initiated open streams.
+  size_t num_open_incoming_streams_;
+
+  // A counter for self initiated open streams.
+  size_t num_open_outgoing_streams_;
 };
 
 }  // namespace quic

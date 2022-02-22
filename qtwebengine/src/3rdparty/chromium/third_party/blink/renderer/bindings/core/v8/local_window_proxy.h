@@ -50,7 +50,7 @@ class SecurityOrigin;
 class LocalWindowProxy final : public WindowProxy {
  public:
   LocalWindowProxy(v8::Isolate*, LocalFrame&, scoped_refptr<DOMWrapperWorld>);
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
   v8::Local<v8::Context> ContextIfInitialized() const {
     return script_state_ ? script_state_->GetContext()
@@ -67,7 +67,11 @@ class LocalWindowProxy final : public WindowProxy {
   // (e.g., after setting docoument.domain).
   void UpdateSecurityOrigin(const SecurityOrigin*);
 
+  void SetAbortScriptExecution(
+      v8::Context::AbortScriptExecutionCallback callback);
+
  private:
+  // LocalWindowProxy overrides:
   bool IsLocal() const override { return true; }
   void Initialize() override;
   void DisposeContext(Lifecycle next_status, FrameReuseStatus) override;
@@ -89,9 +93,10 @@ class LocalWindowProxy final : public WindowProxy {
 
   // Triggers updates of objects that are associated with a Document:
   // - the activity logger
-  // - the document DOM wrapper
+  // - the document DOM wrapper (performance optimization for accessing
+  //   window.document in the main world)
   // - the security origin
-  void UpdateDocumentInternal();
+  void UpdateDocumentForMainWorld();
 
   // The JavaScript wrapper for the document object is cached on the global
   // object for fast access. UpdateDocumentProperty sets the wrapper
@@ -106,6 +111,7 @@ class LocalWindowProxy final : public WindowProxy {
   }
 
   Member<ScriptState> script_state_;
+  bool context_was_created_from_snapshot_ = false;
 };
 
 template <>

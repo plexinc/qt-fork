@@ -26,11 +26,10 @@
 **
 ****************************************************************************/
 
-#include <QtTest>
-#include <qlinkedlist.h>
+#include <QTest>
+#include <qlist.h>
 #include <qobject.h>
 #include <qrandom.h>
-#include <qvector.h>
 #include <private/qrandom_p.h>
 
 #include <algorithm>
@@ -103,6 +102,10 @@ private slots:
     void bounded();
     void boundedQuality_data() { generate32_data(); }
     void boundedQuality();
+    void bounded64_data();
+    void bounded64();
+    void bounded64Quality_data() { generate32_data(); }
+    void bounded64Quality();
 
     void generateReal_data() { generate32_data(); }
     void generateReal();
@@ -148,6 +151,9 @@ void tst_QRandomGenerator::basics()
     // default constructible
     QRandomGenerator rng;
 
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_CLANG("-Wself-move")
+QT_WARNING_DISABLE_CLANG("-Wself-assign-overloaded")
     // copyable && movable
     rng = rng;
     rng = std::move(rng);
@@ -156,6 +162,7 @@ void tst_QRandomGenerator::basics()
     QRandomGenerator64 rng64;
     rng64 = rng64;
     rng64 = std::move(rng64);
+QT_WARNING_POP
 
     // 32- and 64-bit should be interchangeable:
     rng = rng64;
@@ -183,8 +190,8 @@ void tst_QRandomGenerator::basics()
     QRandomGenerator64 systemRng64 = *system64;
     systemRng64 = *system64;
 
-    Q_STATIC_ASSERT(std::is_same<decltype(rng64.generate()) COMMA quint64>::value);
-    Q_STATIC_ASSERT(std::is_same<decltype(system64->generate()) COMMA quint64>::value);
+    static_assert(std::is_same<decltype(rng64.generate()) COMMA quint64>::value);
+    static_assert(std::is_same<decltype(system64->generate()) COMMA quint64>::value);
 }
 
 void tst_QRandomGenerator::knownSequence()
@@ -391,7 +398,7 @@ void tst_QRandomGenerator::quality()
         AcceptableThreshold = 4 * PerfectDistribution,
         FailureThreshold = 16 * PerfectDistribution
     };
-    Q_STATIC_ASSERT(FailureThreshold > AcceptableThreshold);
+    static_assert(FailureThreshold > AcceptableThreshold);
 
     QFETCH(uint, control);
     if (control & RandomDataMask)
@@ -564,7 +571,7 @@ void tst_QRandomGenerator::bounded()
     QVERIFY(value < sup);
     QCOMPARE(value, expected);
 
-    int ivalue = rng.bounded(sup);
+    int ivalue = rng.bounded(int(sup));
     QVERIFY(ivalue < int(sup));
     QCOMPARE(ivalue, int(expected));
 
@@ -587,10 +594,11 @@ void tst_QRandomGenerator::bounded()
     QVERIFY(ivalue < 0);
 }
 
-void tst_QRandomGenerator::boundedQuality()
+template <typename UInt> static void boundedQuality_template()
 {
-    enum { Bound = 283 };       // a prime number
-    enum {
+    using Int = std::make_signed_t<UInt>;
+    constexpr Int Bound = 283;       // a prime number
+    enum : Int {
         BufferCount = Bound * 32,
 
         // if the distribution were perfect, each byte in the buffer would
@@ -610,7 +618,7 @@ void tst_QRandomGenerator::boundedQuality()
         AcceptableThreshold = 4 * PerfectDistribution,
         FailureThreshold = 16 * PerfectDistribution
     };
-    Q_STATIC_ASSERT(FailureThreshold > AcceptableThreshold);
+    static_assert(FailureThreshold > AcceptableThreshold);
 
     QFETCH(uint, control);
     if (control & RandomDataMask)
@@ -622,10 +630,13 @@ void tst_QRandomGenerator::boundedQuality()
 
     {
         // test the quality of the generator
-        QVector<quint32> buffer(BufferCount, 0xcdcdcdcd);
+        UInt filler = 0xcdcdcdcd;
+        if (sizeof(filler) > sizeof(quint32))
+            filler |= filler << (std::numeric_limits<UInt>::digits / 2);
+        QVector<UInt> buffer(BufferCount, filler);
         generate(buffer.begin(), buffer.end(), [&] { return rng.bounded(Bound); });
 
-        for (quint32 value : qAsConst(buffer)) {
+        for (UInt value : qAsConst(buffer)) {
             QVERIFY(value < Bound);
             histogram[value]++;
         }
@@ -644,6 +655,75 @@ void tst_QRandomGenerator::boundedQuality()
              << "at" << std::max_element(begin(histogram), end(histogram)) - histogram
              << "Min:" << *std::min_element(begin(histogram), end(histogram))
              << "at" << std::min_element(begin(histogram), end(histogram)) - histogram;
+}
+
+void tst_QRandomGenerator::boundedQuality()
+{
+    boundedQuality_template<quint32>();
+}
+
+void tst_QRandomGenerator::bounded64Quality()
+{
+    boundedQuality_template<quint64>();
+}
+
+void tst_QRandomGenerator::bounded64_data()
+{
+#ifndef QT_BUILD_INTERNAL
+    QSKIP("Test only possible in developer builds");
+#endif
+
+    QTest::addColumn<uint>("control");
+    QTest::addColumn<quint64>("sup");
+    QTest::addColumn<quint64>("expected");
+
+    auto newRow = [&](unsigned val, unsigned sup) {
+        Q_ASSERT((val & ~RandomDataMask) == 0);
+
+        unsigned control = SetRandomData | val;
+        QTest::addRow("%u,%u", val, sup) << control << quint64(sup) << quint64(val);
+    };
+
+    // useless: we can only generate zeroes:
+    newRow(0, 1);
+
+    newRow(0x10, 200);
+    newRow(0x20, 200);
+    newRow(0x80, 200);
+}
+
+void tst_QRandomGenerator::bounded64()
+{
+    QFETCH(uint, control);
+    QFETCH(quint64, sup);
+    QFETCH(quint64, expected);
+    RandomGenerator rng(control);
+
+    quint64 value = rng.bounded(sup);
+    QVERIFY(value < sup);
+    QCOMPARE(value, expected);
+
+    qint64 ivalue = rng.bounded(qint64(sup));
+    QVERIFY(ivalue < int(sup));
+    QCOMPARE(ivalue, int(expected));
+
+    // confirm only the bound now
+    setRNGControl(control & (SkipHWRNG|SkipSystemRNG|UseSystemRNG));
+    value = rng.bounded(sup);
+    QVERIFY(value < sup);
+
+    value = rng.bounded(sup / 2, 3 * sup / 2);
+    QVERIFY(value >= sup / 2);
+    QVERIFY(value < 3 * sup / 2);
+
+    ivalue = rng.bounded(-qint64(sup), qint64(sup));
+    QVERIFY(ivalue >= -qint64(sup));
+    QVERIFY(ivalue < qint64(sup));
+
+    // wholly negative range
+    ivalue = rng.bounded(-qint64(sup), qint64(0));
+    QVERIFY(ivalue >= -qint64(sup));
+    QVERIFY(ivalue < 0);
 }
 
 void tst_QRandomGenerator::generateReal()
@@ -882,7 +962,7 @@ void tst_QRandomGenerator::stdUniformRealDistribution_data()
     newRow(0, 1);   // canonical
     newRow(0, 200);
     newRow(0, numeric_limits<quint32>::max() + 1.);
-    newRow(0, numeric_limits<quint64>::max() + 1.);
+    newRow(0, double(numeric_limits<quint64>::max()) + 1.);
     newRow(-1, 1.6);
 }
 
@@ -920,18 +1000,18 @@ template <typename Generator> void stdRandomDistributions_template()
 {
     Generator rd;
 
-    std::bernoulli_distribution()(rd);
+    (void)std::bernoulli_distribution()(rd);
 
-    std::binomial_distribution<quint32>()(rd);
-    std::binomial_distribution<quint64>()(rd);
+    (void)std::binomial_distribution<quint32>()(rd);
+    (void)std::binomial_distribution<quint64>()(rd);
 
-    std::negative_binomial_distribution<quint32>()(rd);
-    std::negative_binomial_distribution<quint64>()(rd);
+    (void)std::negative_binomial_distribution<quint32>()(rd);
+    (void)std::negative_binomial_distribution<quint64>()(rd);
 
-    std::poisson_distribution<int>()(rd);
-    std::poisson_distribution<qint64>()(rd);
+    (void)std::poisson_distribution<int>()(rd);
+    (void)std::poisson_distribution<qint64>()(rd);
 
-    std::normal_distribution<qreal>()(rd);
+    (void)std::normal_distribution<qreal>()(rd);
 
     {
         std::discrete_distribution<int> discrete{0, 1, 1, 10000, 2};

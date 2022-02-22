@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -62,31 +62,14 @@ enum StrayCharacterMode {
     WhitespacesAllowed
 };
 
-double qt_asciiToDouble(const char *num, int numLen, bool &ok, int &processed,
+// API note: this function can't process a number with more than 2.1 billion digits
+double qt_asciiToDouble(const char *num, qsizetype numLen, bool &ok, int &processed,
                         StrayCharacterMode strayCharMode = TrailingJunkProhibited);
 void qt_doubleToAscii(double d, QLocaleData::DoubleForm form, int precision, char *buf, int bufSize,
                       bool &sign, int &length, int &decpt);
 
-QString qulltoa(qulonglong l, int base, const QChar _zero);
+QString qulltoa(qulonglong l, int base, const QStringView zero);
 Q_CORE_EXPORT QString qdtoa(qreal d, int *decpt, int *sign);
-
-enum PrecisionMode {
-    PMDecimalDigits =             0x01,
-    PMSignificantDigits =   0x02,
-    PMChopTrailingZeros =   0x03
-};
-
-QString &decimalForm(QChar zero, QChar decimal, QChar group,
-                     QString &digits, int decpt, int precision,
-                     PrecisionMode pm,
-                     bool always_show_decpt,
-                     bool thousands_group);
-QString &exponentForm(QChar zero, QChar decimal, QChar exponential,
-                      QChar group, QChar plus, QChar minus,
-                      QString &digits, int decpt, int precision,
-                      PrecisionMode pm,
-                      bool always_show_decpt,
-                      bool leading_zero_in_exponent);
 
 inline bool isZero(double d)
 {
@@ -98,8 +81,39 @@ inline bool isZero(double d)
     }
 }
 
-Q_CORE_EXPORT double qstrtod(const char *s00, char const **se, bool *ok);
-Q_CORE_EXPORT double qstrntod(const char *s00, int len, char const **se, bool *ok);
+// Enough space for the digits before the decimal separator:
+inline int wholePartSpace(double d)
+{
+    Q_ASSERT(d >= 0); // caller should call qAbs() if needed
+    // Optimize for numbers between -512k and 512k - otherwise, use the
+    // maximum number of digits in the whole number part of a double:
+    return d > (1 << 19) ? std::numeric_limits<double>::max_exponent10 + 1 : 6;
+}
+
+// Returns code-point of same kind (UCS2 or UCS4) as zero; digit is 0 through 9
+template <typename UcsInt>
+inline UcsInt unicodeForDigit(uint digit, UcsInt zero)
+{
+    // Must match QLocaleData::numericToCLocale()'s digit-digestion.
+    Q_ASSERT(digit < 10);
+    if (!digit)
+        return zero;
+
+    // See QTBUG-85409: Suzhou's digits are U+3007, U+2021, ..., U+3029
+    if (zero == u'\u3007')
+        return u'\u3020' + digit;
+    // At CLDR 36.1, no other number system's digits were discontinuous.
+
+    return zero + digit;
+}
+
+Q_CORE_EXPORT double qstrntod(const char *s00, qsizetype len, char const **se, bool *ok);
+inline double qstrtod(const char *s00, char const **se, bool *ok)
+{
+    qsizetype len = qsizetype(strlen(s00));
+    return qstrntod(s00, len, se, ok);
+}
+
 qlonglong qstrtoll(const char *nptr, const char **endptr, int base, bool *ok);
 qulonglong qstrtoull(const char *nptr, const char **endptr, int base, bool *ok);
 

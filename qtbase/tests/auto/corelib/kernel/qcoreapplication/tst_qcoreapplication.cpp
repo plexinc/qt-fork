@@ -30,11 +30,15 @@
 #include "tst_qcoreapplication.h"
 
 #include <QtCore/QtCore>
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include <private/qcoreapplication_p.h>
 #include <private/qeventloop_p.h>
 #include <private/qthread_p.h>
+
+#ifdef Q_OS_WIN
+#include <QtCore/qt_windows.h>
+#endif
 
 typedef QCoreApplication TestApplication;
 
@@ -44,7 +48,7 @@ class EventSpy : public QObject
 
 public:
     QList<int> recordedEvents;
-    bool eventFilter(QObject *, QEvent *event)
+    bool eventFilter(QObject *, QEvent *event) override
     {
         recordedEvents.append(event->type());
         return false;
@@ -155,9 +159,7 @@ void tst_QCoreApplication::qAppName()
 
 void tst_QCoreApplication::qAppVersion()
 {
-#if defined(Q_OS_WINRT)
-    const char appVersion[] = "1.0.0.0";
-#elif defined(Q_OS_WIN)
+#if defined(Q_OS_WIN)
     const char appVersion[] = "1.2.3.4";
 #elif defined(Q_OS_DARWIN) || defined(Q_OS_ANDROID)
     const char appVersion[] = "1.2.3";
@@ -192,9 +194,6 @@ void tst_QCoreApplication::qAppVersion()
 
 void tst_QCoreApplication::argc()
 {
-#if defined(Q_OS_WINRT)
-    QSKIP("QCoreApplication::arguments() parses arguments from actual command line on this platform.");
-#endif
     {
         int argc = 1;
         char *argv[] = { const_cast<char*>(QTest::currentAppName()) };
@@ -239,7 +238,7 @@ class EventGenerator : public QObject
 public:
     QObject *other;
 
-    bool event(QEvent *e)
+    bool event(QEvent *e) override
     {
         if (e->type() == QEvent::MaxUser) {
             QCoreApplication::sendPostedEvents(other, 0);
@@ -429,7 +428,7 @@ signals:
     void progress(int);
 
 protected:
-    void run()
+    void run() override
     {
         emit progress(1);
         emit progress(2);
@@ -497,7 +496,7 @@ public slots:
     }
 
 public:
-    bool event(QEvent *event)
+    bool event(QEvent *event) override
     {
         switch (event->type()) {
         case QEvent::User:
@@ -550,7 +549,7 @@ class GlobalPostedEventsCountObject : public QObject
 public:
     QList<int> globalPostedEventsCount;
 
-    bool event(QEvent *event)
+    bool event(QEvent *event) override
     {
         if (event->type() == QEvent::User)
             globalPostedEventsCount.append(qGlobalPostedEventsCount());
@@ -596,7 +595,7 @@ public:
         : counter(0)
     { }
 
-    bool event(QEvent *event)
+    bool event(QEvent *event) override
     {
         if (event->type() == QEvent::User)
             ++counter;
@@ -620,6 +619,108 @@ void tst_QCoreApplication::processEventsAlwaysSendsPostedEvents()
         QCOMPARE(object.counter, i);
         ++i;
     } while (t.elapsed() < 1000);
+}
+
+#ifdef Q_OS_WIN
+void tst_QCoreApplication::sendPostedEventsInNativeLoop()
+{
+    int argc = 1;
+    char *argv[] = { const_cast<char*>(QTest::currentAppName()) };
+    TestApplication app(argc, argv);
+
+    bool signalReceived = false;
+
+    // Post a message to the queue
+    QMetaObject::invokeMethod(this, [&signalReceived]() {
+        signalReceived = true;
+    }, Qt::QueuedConnection);
+
+    QElapsedTimer elapsedTimer;
+    elapsedTimer.start();
+
+    // Exec own message loop
+    MSG msg;
+    forever {
+        if (elapsedTimer.hasExpired(3000) || signalReceived)
+            break;
+
+        if (!::PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
+            QThread::msleep(100);
+            continue;
+        }
+
+        ::TranslateMessage(&msg);
+        ::DispatchMessage(&msg);
+    }
+
+    QVERIFY(signalReceived);
+}
+#endif // Q_OS_WIN
+
+class QuitBlocker : public QObject
+{
+   Q_OBJECT
+
+public:
+    bool eventFilter(QObject *, QEvent *event) override
+    {
+        if (event->type() == QEvent::Quit) {
+            event->ignore();
+            return true;
+        }
+
+        return false;
+    }
+};
+
+void tst_QCoreApplication::quit()
+{
+    TestApplication::quit(); // Should not do anything
+
+    {
+        int argc = 1;
+        char *argv[] = { const_cast<char*>(QTest::currentAppName()) };
+        TestApplication app(argc, argv);
+
+        EventSpy spy;
+        app.installEventFilter(&spy);
+
+        {
+            QTimer::singleShot(0, &app, SLOT(quit()));
+            app.exec();
+            QVERIFY(spy.recordedEvents.contains(QEvent::Quit));
+        }
+
+        spy.recordedEvents.clear();
+
+        {
+            QTimer::singleShot(0, qApp, SLOT(quit()));
+            app.exec();
+            QVERIFY(spy.recordedEvents.contains(QEvent::Quit));
+        }
+
+        spy.recordedEvents.clear();
+
+        {
+            QTimer::singleShot(0, [&]{ TestApplication::quit(); });
+            app.exec();
+            QVERIFY(spy.recordedEvents.contains(QEvent::Quit));
+        }
+
+        spy.recordedEvents.clear();
+
+        {
+            QuitBlocker quitBlocker;
+            app.installEventFilter(&quitBlocker);
+
+            QTimer::singleShot(0, [&]{ TestApplication::quit(); });
+            QTimer::singleShot(200, [&]{ TestApplication::exit(); });
+            app.exec();
+            QVERIFY(!spy.recordedEvents.contains(QEvent::Quit));
+        }
+    }
+
+    TestApplication::quit(); // Should not do anything
 }
 
 void tst_QCoreApplication::reexec()
@@ -667,25 +768,21 @@ void tst_QCoreApplication::eventLoopExecAfterExit()
 class DummyEventDispatcher : public QAbstractEventDispatcher {
 public:
     DummyEventDispatcher() : QAbstractEventDispatcher(), visited(false) {}
-    bool processEvents(QEventLoop::ProcessEventsFlags) {
+    bool processEvents(QEventLoop::ProcessEventsFlags) override {
         visited = true;
         emit awake();
         QCoreApplication::sendPostedEvents();
         return false;
     }
-    bool hasPendingEvents() {
-        return qGlobalPostedEventsCount();
-    }
-    void registerSocketNotifier(QSocketNotifier *) {}
-    void unregisterSocketNotifier(QSocketNotifier *) {}
-    void registerTimer(int , int , Qt::TimerType, QObject *) {}
-    bool unregisterTimer(int ) { return false; }
-    bool unregisterTimers(QObject *) { return false; }
-    QList<TimerInfo> registeredTimers(QObject *) const { return QList<TimerInfo>(); }
-    int remainingTime(int) { return 0; }
-    void wakeUp() {}
-    void interrupt() {}
-    void flush() {}
+    void registerSocketNotifier(QSocketNotifier *) override {}
+    void unregisterSocketNotifier(QSocketNotifier *) override {}
+    void registerTimer(int , qint64 , Qt::TimerType, QObject *) override {}
+    bool unregisterTimer(int ) override { return false; }
+    bool unregisterTimers(QObject *) override { return false; }
+    QList<TimerInfo> registeredTimers(QObject *) const override { return QList<TimerInfo>(); }
+    int remainingTime(int) override { return 0; }
+    void wakeUp() override {}
+    void interrupt() override {}
 
 #ifdef Q_OS_WIN
     bool registerEventNotifier(QWinEventNotifier *) { return false; }
@@ -727,13 +824,13 @@ class JobObject : public QObject
     Q_OBJECT
 public:
 
-    explicit JobObject(QEventLoop *loop, QObject *parent = 0)
+    explicit JobObject(QEventLoop *loop, QObject *parent = nullptr)
         : QObject(parent), locker(loop)
     {
         QTimer::singleShot(1000, this, SLOT(timeout()));
     }
 
-    explicit JobObject(QObject *parent = 0)
+    explicit JobObject(QObject *parent = nullptr)
         : QObject(parent)
     {
         QTimer::singleShot(1000, this, SLOT(timeout()));
@@ -763,7 +860,7 @@ class QuitTester : public QObject
 {
     Q_OBJECT
 public:
-    QuitTester(QObject *parent = 0)
+    QuitTester(QObject *parent = nullptr)
       : QObject(parent)
     {
         QTimer::singleShot(0, this, SLOT(doTest()));

@@ -9,22 +9,30 @@
 
 #include "base/bind.h"
 #include "base/sequence_checker.h"
+#include "build/build_config.h"
 #include "content/browser/native_io/native_io_host.h"
+#include "content/browser/native_io/native_io_manager.h"
 #include "third_party/blink/public/mojom/native_io/native_io.mojom.h"
 
 namespace content {
 
 NativeIOFileHost::NativeIOFileHost(
-    mojo::PendingReceiver<blink::mojom::NativeIOFileHost> file_host_receiver,
     NativeIOHost* origin_host,
-    std::string file_name)
+    std::string file_name,
+#if defined(OS_MAC)
+    bool allow_set_length_ipc,
+#endif  // defined(OS_MAC)
+    mojo::PendingReceiver<blink::mojom::NativeIOFileHost> file_host_receiver)
     : origin_host_(origin_host),
-      receiver_(this, std::move(file_host_receiver)),
-      file_name_(std::move(file_name)) {
+      file_name_(std::move(file_name)),
+#if defined(OS_MAC)
+      allow_set_length_ipc_(allow_set_length_ipc),
+#endif  // defined(OS_MAC)
+      receiver_(this, std::move(file_host_receiver)) {
   // base::Unretained is safe here because this NativeIOFileHost owns
   // |receiver_|. So, the unretained NativeIOFileHost is guaranteed to outlive
   // |receiver_| and the closure that it uses.
-  receiver_.set_disconnect_handler(base::BindRepeating(
+  receiver_.set_disconnect_handler(base::BindOnce(
       &NativeIOFileHost::OnReceiverDisconnect, base::Unretained(this)));
 }
 

@@ -37,7 +37,7 @@ class SetMediaKeysHandler : public ScriptPromiseResolver {
   SetMediaKeysHandler(ScriptState*, HTMLMediaElement&, MediaKeys*);
   ~SetMediaKeysHandler() override;
 
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
  private:
   void TimerFired(TimerBase*);
@@ -55,7 +55,7 @@ class SetMediaKeysHandler : public ScriptPromiseResolver {
   Member<HTMLMediaElement> element_;
   Member<MediaKeys> new_media_keys_;
   bool made_reservation_;
-  TaskRunnerTimer<SetMediaKeysHandler> timer_;
+  HeapTaskRunnerTimer<SetMediaKeysHandler> timer_;
 
   DISALLOW_COPY_AND_ASSIGN(SetMediaKeysHandler);
 };
@@ -320,9 +320,10 @@ void SetMediaKeysHandler::SetFailed(ExceptionCode code,
   Fail(code, error_message);
 }
 
-void SetMediaKeysHandler::Trace(Visitor* visitor) {
+void SetMediaKeysHandler::Trace(Visitor* visitor) const {
   visitor->Trace(element_);
   visitor->Trace(new_media_keys_);
+  visitor->Trace(timer_);
   ScriptPromiseResolver::Trace(visitor);
 }
 
@@ -473,7 +474,7 @@ HTMLMediaElementEncryptedMedia::ContentDecryptionModule() {
   return media_keys_ ? media_keys_->ContentDecryptionModule() : nullptr;
 }
 
-void HTMLMediaElementEncryptedMedia::Trace(Visitor* visitor) {
+void HTMLMediaElementEncryptedMedia::Trace(Visitor* visitor) const {
   visitor->Trace(media_element_);
   visitor->Trace(media_keys_);
   Supplement<HTMLMediaElement>::Trace(visitor);

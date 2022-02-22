@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// @ts-nocheck
+
 import * as HostModule from './host.js';
 
 self.Host = self.Host || {};
@@ -32,6 +34,7 @@ Host.ResourceLoader = HostModule.ResourceLoader.ResourceLoader;
 Host.ResourceLoader.load = HostModule.ResourceLoader.load;
 
 Host.ResourceLoader.loadAsStream = HostModule.ResourceLoader.loadAsStream;
+Host.ResourceLoader.setLoadForTest = HostModule.ResourceLoader.setLoadForTest;
 
 /** @constructor */
 Host.UserMetrics = HostModule.UserMetrics.UserMetrics;

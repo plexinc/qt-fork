@@ -46,12 +46,17 @@
 #include <QtCore/QObject>
 #include <QtGui/QQuaternion>
 #include <QtGui/QVector3D>
+#include <QtQml/qqml.h>
 
 QT_BEGIN_NAMESPACE
 
 class Q_QUICK3D_EXPORT QQuick3DQuaternionUtils : public QObject
 {
     Q_OBJECT
+
+    QML_NAMED_ELEMENT(Quaternion)
+    QML_SINGLETON
+
 public:
     explicit QQuick3DQuaternionUtils(QObject *parent = nullptr);
 
@@ -70,12 +75,10 @@ public:
     Q_INVOKABLE static QQuaternion fromEulerAngles(float x, float y, float z);
     Q_INVOKABLE static QQuaternion fromEulerAngles(const QVector3D &eulerAngles);
 
-    Q_REVISION(1) Q_INVOKABLE static QQuaternion lookAt(const QVector3D &sourcePosition,
-                                                        const QVector3D &targetPosition,
-                                                        const QVector3D &forwardDirection
-                                                        = QVector3D(0, 0, -1),
-                                                        const QVector3D &upDirection
-                                                        = QVector3D(0, 1, 0));
+    Q_INVOKABLE static QQuaternion lookAt(const QVector3D &sourcePosition,
+                                          const QVector3D &targetPosition,
+                                          const QVector3D &forwardDirection = QVector3D(0, 0, -1),
+                                          const QVector3D &upDirection = QVector3D(0, 1, 0));
 
 };
 

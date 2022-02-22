@@ -26,10 +26,8 @@
 **
 ****************************************************************************/
 
-
-
-#include <QtTest/QtTest>
-
+#include <QTest>
+#include <QSignalSpy>
 
 #include <qaction.h>
 #include <qdockwidget.h>
@@ -103,8 +101,6 @@ void tst_QDockWidget::getSetCheck()
     QCOMPARE(QDockWidget::DockWidgetFeatures(QDockWidget::DockWidgetMovable), obj1.features());
     obj1.setFeatures(QDockWidget::DockWidgetFeatures(QDockWidget::DockWidgetFloatable));
     QCOMPARE(QDockWidget::DockWidgetFeatures(QDockWidget::DockWidgetFloatable), obj1.features());
-    obj1.setFeatures(QDockWidget::DockWidgetFeatures(QDockWidget::AllDockWidgetFeatures));
-    QCOMPARE(QDockWidget::DockWidgetFeatures(QDockWidget::AllDockWidgetFeatures), obj1.features());
     obj1.setFeatures(QDockWidget::DockWidgetFeatures(QDockWidget::NoDockWidgetFeatures));
     QCOMPARE(QDockWidget::DockWidgetFeatures(QDockWidget::NoDockWidgetFeatures), obj1.features());
 }
@@ -207,9 +203,9 @@ void tst_QDockWidget::features()
     QSignalSpy spy(&dw, SIGNAL(featuresChanged(QDockWidget::DockWidgetFeatures)));
 
     // default features for dock widgets
-    int allDockWidgetFeatures = QDockWidget::DockWidgetClosable |
-                                QDockWidget::DockWidgetMovable  |
-                                QDockWidget::DockWidgetFloatable;
+    const auto allDockWidgetFeatures = QDockWidget::DockWidgetClosable |
+                                       QDockWidget::DockWidgetMovable  |
+                                       QDockWidget::DockWidgetFloatable;
 
     // defaults
     QCOMPARE(dw.features(), allDockWidgetFeatures);
@@ -323,8 +319,8 @@ void tst_QDockWidget::features()
     QCOMPARE(spy.count(), 0);
     spy.clear();
 
-    dw.setFeatures(QDockWidget::AllDockWidgetFeatures);
-    QCOMPARE(dw.features(), QDockWidget::AllDockWidgetFeatures);
+    dw.setFeatures(allDockWidgetFeatures);
+    QCOMPARE(dw.features(), allDockWidgetFeatures);
     QVERIFY(hasFeature(&dw, QDockWidget::DockWidgetClosable));
     QVERIFY(hasFeature(&dw, QDockWidget::DockWidgetMovable));
     QVERIFY(hasFeature(&dw, QDockWidget::DockWidgetFloatable));
@@ -783,6 +779,9 @@ void tst_QDockWidget::restoreStateWhileStillFloating()
 
 void tst_QDockWidget::restoreDockWidget()
 {
+    if (QGuiApplication::platformName().startsWith(QLatin1String("wayland"), Qt::CaseInsensitive))
+        QSKIP("Fails on Wayland: QTBUG-91483");
+
     QByteArray geometry;
     QByteArray state;
 
@@ -866,18 +865,18 @@ void tst_QDockWidget::task169808_setFloating()
     class MyWidget : public QWidget
     {
     public:
-        QSize sizeHint() const
+        QSize sizeHint() const override
         {
             const QRect& deskRect = QGuiApplication::primaryScreen()->availableGeometry();
             return QSize(qMin(300, deskRect.width() / 2), qMin(300, deskRect.height() / 2));
         }
 
-        QSize minimumSizeHint() const
+        QSize minimumSizeHint() const override
         {
             return QSize(20,20);
         }
 
-        void paintEvent(QPaintEvent *)
+        void paintEvent(QPaintEvent *) override
         {
             QPainter p(this);
             p.fillRect(rect(), Qt::red);
@@ -892,9 +891,6 @@ void tst_QDockWidget::task169808_setFloating()
     mw.show();
     QVERIFY(QTest::qWaitForWindowExposed(&mw));
 
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("", "Widgets are maximized on WinRT by default", Abort);
-#endif
     QCOMPARE(dw->widget()->size(), dw->widget()->sizeHint());
 
     //and now we try to test if the contents margin is taken into account
@@ -937,9 +933,6 @@ void tst_QDockWidget::task248604_infiniteResize()
     d.setContentsMargins(2, 2, 2, 2);
     d.setMinimumSize(320, 240);
     d.showNormal();
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("", "Widgets are maximized on WinRT by default", Abort);
-#endif
     QTRY_COMPARE(d.size(), QSize(320, 240));
 }
 
@@ -983,6 +976,9 @@ void tst_QDockWidget::taskQTBUG_1665_closableChanged()
 
 void tst_QDockWidget::taskQTBUG_9758_undockedGeometry()
 {
+    if (QGuiApplication::platformName().startsWith(QLatin1String("wayland"), Qt::CaseInsensitive))
+        QSKIP("Fails on Wayland: QTBUG-91483");
+
     QMainWindow window;
     QDockWidget dock1(&window);
     QDockWidget dock2(&window);

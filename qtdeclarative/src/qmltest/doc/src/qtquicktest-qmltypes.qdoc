@@ -26,15 +26,15 @@
 ****************************************************************************/
 
 /*!
-    \qmlmodule QtTest 1.\QtMinorVersion
+    \qmlmodule QtTest
     \title Qt Quick Test QML Types
     \brief Provides QML types to unit test your QML application.
     \ingroup qmlmodules
 
     You can import this module using the following statement:
 
-    \qml \QtMinorVersion
-    import QtTest 1.\1
+    \qml
+    import QtTest
     \endqml
 
     \section1 QML Types

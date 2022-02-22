@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
@@ -36,13 +36,14 @@
 #include <QtQuick/private/qquickanimation_p.h>
 #include <QtQuick/private/qquicksmoothedanimation_p.h>
 #include <private/qquickitem_p.h>
-#include "../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
+#include "bindable.h"
 
 class tst_qquickbehaviors : public QQmlDataTest
 {
     Q_OBJECT
 public:
-    tst_qquickbehaviors() {}
+    tst_qquickbehaviors() : QQmlDataTest(QT_QMLTEST_DATADIR) {}
 
 private slots:
     void init() { qApp->processEvents(); }  //work around animation timer bug (QTBUG-22865)
@@ -76,6 +77,7 @@ private slots:
     void oneWay();
     void safeToDelete();
     void targetProperty();
+    void bindableProperty();
 };
 
 void tst_qquickbehaviors::simpleBehavior()
@@ -676,6 +678,29 @@ void tst_qquickbehaviors::targetProperty()
     QCOMPARE(emptyBehavior->property("targetProperty").value<QQmlProperty>().isValid(), false);
     QCOMPARE(item->property("emptyBehaviorObject").value<QObject*>(), nullptr);
     QCOMPARE(item->property("emptyBehaviorName").toString(), "");
+}
+
+void tst_qquickbehaviors::bindableProperty()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFileUrl("bindableProperty.qml"));
+    QScopedPointer<QObject> root(c.create());
+    QVERIFY2(root, qPrintable(c.errorString()));
+    auto testBindable = qobject_cast<TestBindable *>(root.get());
+    QVERIFY(testBindable);
+
+    testBindable->setProperty("targetValue", 100);
+    QVERIFY(testBindable->prop() != 100);
+    QTRY_COMPARE(testBindable->prop(), 100);
+
+    testBindable->setProperty("enableBehavior", false);
+    testBindable->setProperty("targetValue", 200);
+    QCOMPARE(testBindable->prop(), 200);
+
+    testBindable->setProperty("enableBehavior", true);
+    testBindable->setProperty("prop", 300); // write through metaobject system gets intercepted
+    QVERIFY(testBindable->prop() != 300);
+    QTRY_COMPARE(testBindable->prop(), 300);
 }
 
 

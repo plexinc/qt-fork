@@ -10,6 +10,7 @@
 #include "third_party/blink/renderer/core/editing/frame_selection.h"
 #include "third_party/blink/renderer/core/editing/selection_template.h"
 #include "third_party/blink/renderer/core/editing/testing/editing_test_base.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 
@@ -91,16 +92,46 @@ TEST_F(ApplyStyleCommandTest, FontSizeDeltaWithSpanElement) {
           "<div contenteditable>^<div></div>a<span></span>|</div>"),
       SetSelectionOptions());
 
-  auto* style =
-      MakeGarbageCollected<MutableCSSPropertyValueSet>(kHTMLQuirksMode);
-  style->SetProperty(CSSPropertyID::kWebkitFontSizeDelta, "3",
+  auto* style = MakeGarbageCollected<MutableCSSPropertyValueSet>(kUASheetMode);
+  style->SetProperty(CSSPropertyID::kInternalFontSizeDelta, "3px",
                      /* important */ false,
-                     GetDocument().GetSecureContextMode());
+                     GetFrame().DomWindow()->GetSecureContextMode());
   MakeGarbageCollected<ApplyStyleCommand>(
       GetDocument(), MakeGarbageCollected<EditingStyle>(style),
       InputEvent::InputType::kNone)
       ->Apply();
   EXPECT_EQ("<div contenteditable><div></div><span>^a|</span></div>",
             GetSelectionTextFromBody());
+}
+
+// This is a regression test for https://crbug.com/1172007
+TEST_F(ApplyStyleCommandTest, JustifyRightWithSVGForeignObject) {
+  GetDocument().setDesignMode("on");
+  Selection().SetSelection(
+      SetSelectionTextToBody("<svg>"
+                             "<foreignObject>1</foreignObject>"
+                             "<foreignObject>&#x20;2^<b></b>|</foreignObject>"
+                             "</svg>"),
+      SetSelectionOptions());
+
+  auto* style = MakeGarbageCollected<MutableCSSPropertyValueSet>(kUASheetMode);
+  style->SetProperty(CSSPropertyID::kTextAlign, "right",
+                     /* important */ false,
+                     GetFrame().DomWindow()->GetSecureContextMode());
+  MakeGarbageCollected<ApplyStyleCommand>(
+      GetDocument(), MakeGarbageCollected<EditingStyle>(style),
+      InputEvent::InputType::kFormatJustifyRight,
+      ApplyStyleCommand::kForceBlockProperties)
+      ->Apply();
+  EXPECT_EQ(
+      "<svg>"
+      "<foreignObject>"
+      "<div style=\"text-align: right;\">|1</div>"
+      "</foreignObject>"
+      "<foreignObject>"
+      "<div style=\"text-align: right;\">2</div><b></b>"
+      "</foreignObject>"
+      "</svg>",
+      GetSelectionTextFromBody());
 }
 }  // namespace blink

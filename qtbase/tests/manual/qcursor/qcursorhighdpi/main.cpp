@@ -28,7 +28,6 @@
 
 #include <QAction>
 #include <QApplication>
-#include <QDesktopWidget>
 #include <QGridLayout>
 #include <QLabel>
 #include <QMainWindow>
@@ -83,8 +82,7 @@ static QString screenInfo(const QWidget *w)
 {
     QString result;
     QTextStream str(&result);
-#if QT_VERSION > 0x050000
-    QScreen *screen = Q_NULLPTR;
+    QScreen *screen = nullptr;
     if (const QWindow *window = w->windowHandle())
         screen = window->screen();
     if (screen) {
@@ -98,12 +96,6 @@ static QString screenInfo(const QWidget *w)
     } else {
         str << "<null>";
     }
-#else
-    QDesktopWidget *desktop = QApplication::desktop();
-    int screenNumber = desktop->screenNumber(w);
-    str << "Screen #" <<screenNumber << ' ' << desktop->screenGeometry(screenNumber).width()
-        << 'x' << desktop->screenGeometry(screenNumber).height() << " PD: " << w->logicalDpiX() << "DPI";
-#endif
 #ifdef Q_OS_WIN
     str << ", SM_C_CURSOR: " << GetSystemMetrics(SM_CXCURSOR) << 'x' << GetSystemMetrics(SM_CYCURSOR);
 #endif
@@ -295,7 +287,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     QMenu *fileMenu = menuBar()->addMenu("File");
     QAction *quitAction = fileMenu->addAction("Quit");
-    quitAction->setShortcut(Qt::CTRL + Qt::Key_Q);
+    quitAction->setShortcut(Qt::CTRL | Qt::Key_Q);
     connect(quitAction, SIGNAL(triggered()), qApp, SLOT(quit()));
 
     QToolBar *fileToolBar = addToolBar("File");
@@ -345,13 +337,6 @@ int main(int argc, char *argv[])
 {
     QStringList arguments;
     std::copy(argv + 1, argv + argc, std::back_inserter(arguments));
-
-#if QT_VERSION > 0x050000
-    if (arguments.contains("-s"))
-        QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
-    else if (arguments.contains("-n"))
-        QCoreApplication::setAttribute(Qt::AA_DisableHighDpiScaling);
-#endif // Qt 5
 
     QApplication app(argc, argv);
 

@@ -7,18 +7,17 @@
 
 #include "src/gpu/ccpr/GrCCPerFlushResources.h"
 
-#include "include/private/GrRecordingContext.h"
-#include "src/gpu/GrClip.h"
+#include "include/gpu/GrRecordingContext.h"
 #include "src/gpu/GrMemoryPool.h"
 #include "src/gpu/GrOnFlushResourceProvider.h"
 #include "src/gpu/GrRecordingContextPriv.h"
-#include "src/gpu/GrRenderTargetContext.h"
-#include "src/gpu/GrSurfaceContextPriv.h"
+#include "src/gpu/GrSurfaceDrawContext.h"
 #include "src/gpu/ccpr/GrCCPathCache.h"
 #include "src/gpu/ccpr/GrGSCoverageProcessor.h"
 #include "src/gpu/ccpr/GrSampleMaskProcessor.h"
 #include "src/gpu/ccpr/GrVSCoverageProcessor.h"
-#include "src/gpu/geometry/GrShape.h"
+#include "src/gpu/geometry/GrStyledShape.h"
+
 #include <algorithm>
 
 using CoverageType = GrCCAtlas::CoverageType;
@@ -39,8 +38,7 @@ public:
                                       bool hasMixedSampledCoverage, GrClampType) override {
         return GrProcessorSet::EmptySetAnalysis();
     }
-    CombineResult onCombineIfPossible(GrOp* other, GrRecordingContext::Arenas*,
-                                      const GrCaps&) override {
+    CombineResult onCombineIfPossible(GrOp* other, SkArenaAlloc*, const GrCaps&) override {
         // We will only make multiple copy ops if they have different source proxies.
         // TODO: make use of texture chaining.
         return CombineResult::kCannotCombine;
@@ -59,9 +57,11 @@ protected:
 
 private:
     void onPrePrepare(GrRecordingContext*,
-                      const GrSurfaceProxyView* outputView,
+                      const GrSurfaceProxyView& writeView,
                       GrAppliedClip*,
-                      const GrXferProcessor::DstProxyView&) final {}
+                      const GrXferProcessor::DstProxyView&,
+                      GrXferBarrierFlags renderPassXferBarriers,
+                      GrLoadOp colorLoadOp) final {}
     void onPrepare(GrOpFlushState*) final {}
 };
 
@@ -70,20 +70,19 @@ class CopyAtlasOp : public AtlasOp {
 public:
     DEFINE_OP_CLASS_ID
 
-    static std::unique_ptr<GrDrawOp> Make(
+    static GrOp::Owner Make(
             GrRecordingContext* context, sk_sp<const GrCCPerFlushResources> resources,
             sk_sp<GrTextureProxy> copyProxy, int baseInstance, int endInstance,
             const SkISize& drawBounds) {
-        GrOpMemoryPool* pool = context->priv().opMemoryPool();
-
-        return pool->allocate<CopyAtlasOp>(std::move(resources), std::move(copyProxy), baseInstance,
-                                           endInstance, drawBounds);
+        return GrOp::Make<CopyAtlasOp>(
+                context, std::move(resources), std::move(copyProxy), baseInstance,
+                endInstance, drawBounds);
     }
 
     const char* name() const override { return "CopyAtlasOp (CCPR)"; }
 
     void visitProxies(const VisitProxyFunc& fn) const override {
-        fn(fSrcProxy.get(), GrMipMapped::kNo);
+        fn(fSrcProxy.get(), GrMipmapped::kNo);
     }
 
     void onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) override {
@@ -97,15 +96,17 @@ public:
         GrCCPathProcessor pathProc(coverageMode, fSrcProxy->peekTexture(), swizzle,
                                    GrCCAtlas::kTextureOrigin);
 
-        GrPipeline pipeline(GrScissorTest::kDisabled, SkBlendMode::kSrc,
-                            flushState->drawOpArgs().writeSwizzle());
+        bool hasScissor = flushState->appliedClip() &&
+                          flushState->appliedClip()->scissorState().enabled();
+        GrPipeline pipeline(hasScissor ? GrScissorTest::kEnabled : GrScissorTest::kDisabled,
+                            SkBlendMode::kSrc, flushState->drawOpArgs().writeView().swizzle());
 
         pathProc.drawPaths(flushState, pipeline, *fSrcProxy, *fResources, fBaseInstance,
                            fEndInstance, this->bounds());
     }
 
 private:
-    friend class ::GrOpMemoryPool; // for ctor
+    friend class ::GrOp; // for ctor
 
     CopyAtlasOp(sk_sp<const GrCCPerFlushResources> resources, sk_sp<GrTextureProxy> srcProxy,
                 int baseInstance, int endInstance, const SkISize& drawBounds)
@@ -124,12 +125,10 @@ template<typename ProcessorType> class RenderAtlasOp : public AtlasOp {
 public:
     DEFINE_OP_CLASS_ID
 
-    static std::unique_ptr<GrDrawOp> Make(
+    static GrOp::Owner Make(
             GrRecordingContext* context, sk_sp<const GrCCPerFlushResources> resources,
             FillBatchID fillBatchID, StrokeBatchID strokeBatchID, const SkISize& drawBounds) {
-        GrOpMemoryPool* pool = context->priv().opMemoryPool();
-
-        return pool->allocate<RenderAtlasOp>(
+        return GrOp::Make<RenderAtlasOp>(context,
                 std::move(resources), fillBatchID, strokeBatchID, drawBounds);
     }
 
@@ -139,13 +138,13 @@ public:
     void onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) override {
         ProcessorType proc;
         GrPipeline pipeline(GrScissorTest::kEnabled, SkBlendMode::kPlus,
-                            flushState->drawOpArgs().writeSwizzle());
+                            flushState->drawOpArgs().writeView().swizzle());
         fResources->filler().drawFills(flushState, &proc, pipeline, fFillBatchID, fDrawBounds);
         fResources->stroker().drawStrokes(flushState, &proc, fStrokeBatchID, fDrawBounds);
     }
 
 private:
-    friend class ::GrOpMemoryPool; // for ctor
+    friend class ::GrOp; // for ctor
 
     RenderAtlasOp(sk_sp<const GrCCPerFlushResources> resources, FillBatchID fillBatchID,
                   StrokeBatchID strokeBatchID, const SkISize& drawBounds)
@@ -160,7 +159,7 @@ private:
     const SkIRect fDrawBounds;
 };
 
-}
+}  // namespace
 
 static int inst_buffer_count(const GrCCPerFlushResourceSpecs& specs) {
     return specs.fNumCachedPaths +
@@ -206,7 +205,7 @@ GrCCPerFlushResources::GrCCPerFlushResources(
     }
     fPathInstanceBuffer.resetAndMapBuffer(onFlushRP,
                                           inst_buffer_count(specs) * sizeof(PathInstance));
-    if (!fPathInstanceBuffer.gpuBuffer()) {
+    if (!fPathInstanceBuffer.hasGpuBuffer()) {
         SkDebugf("WARNING: failed to allocate CCPR instance buffer. No paths will be drawn.\n");
         return;
     }
@@ -217,7 +216,7 @@ GrCCPerFlushResources::GrCCPerFlushResources(
                 specs.fNumClipPaths;
         fStencilResolveBuffer.resetAndMapBuffer(
                 onFlushRP, numRenderedPaths * sizeof(GrStencilAtlasOp::ResolveRectInstance));
-        if (!fStencilResolveBuffer.gpuBuffer()) {
+        if (!fStencilResolveBuffer.hasGpuBuffer()) {
             SkDebugf("WARNING: failed to allocate CCPR stencil resolve buffer. "
                      "No paths will be drawn.\n");
             return;
@@ -279,11 +278,7 @@ void GrCCPerFlushResources::recordCopyPathInstance(
 
     // Write the instance at the back of the array.
     int currentInstanceIdx = fNextCopyInstanceIdx++;
-    constexpr uint64_t kWhite = (((uint64_t) SK_Half1) <<  0) |
-                                (((uint64_t) SK_Half1) << 16) |
-                                (((uint64_t) SK_Half1) << 32) |
-                                (((uint64_t) SK_Half1) << 48);
-    fPathInstanceBuffer[currentInstanceIdx].set(entry, newAtlasOffset, kWhite, fillRule);
+    fPathInstanceBuffer[currentInstanceIdx].set(entry, newAtlasOffset, SK_PMColor4fWHITE, fillRule);
 
     // Percolate the instance forward until it's contiguous with other instances that share the same
     // proxy.
@@ -367,8 +362,9 @@ static bool transform_path_pts(
 }
 
 GrCCAtlas* GrCCPerFlushResources::renderShapeInAtlas(
-        const SkIRect& clipIBounds, const SkMatrix& m, const GrShape& shape, float strokeDevWidth,
-        GrOctoBounds* octoBounds, SkIRect* devIBounds, SkIVector* devToAtlasOffset) {
+        const SkIRect& clipIBounds, const SkMatrix& m, const GrStyledShape& shape,
+        float strokeDevWidth, GrOctoBounds* octoBounds, SkIRect* devIBounds,
+        SkIVector* devToAtlasOffset) {
     SkASSERT(this->isMapped());
     SkASSERT(fNextPathInstanceIdx < fEndPathInstance);
 
@@ -506,7 +502,7 @@ bool GrCCPerFlushResources::finalize(GrOnFlushResourceProvider* onFlushRP) {
 
     fPathInstanceBuffer.unmapBuffer();
 
-    if (fStencilResolveBuffer.gpuBuffer()) {
+    if (fStencilResolveBuffer.hasGpuBuffer()) {
         fStencilResolveBuffer.unmapBuffer();
     }
 
@@ -541,10 +537,10 @@ bool GrCCPerFlushResources::finalize(GrOnFlushResourceProvider* onFlushRP) {
             const CopyPathRange& copyRange = fCopyPathRanges[copyRangeIdx];
             int endCopyInstance = baseCopyInstance + copyRange.fCount;
             if (rtc) {
-                auto op = CopyAtlasOp::Make(
-                        rtc->surfPriv().getContext(), sk_ref_sp(this), copyRange.fSrcProxy,
-                        baseCopyInstance, endCopyInstance, atlas.drawBounds());
-                rtc->addDrawOp(GrNoClip(), std::move(op));
+                auto op = CopyAtlasOp::Make(rtc->recordingContext(), sk_ref_sp(this),
+                                            copyRange.fSrcProxy, baseCopyInstance, endCopyInstance,
+                                            atlas.drawBounds());
+                rtc->addDrawOp(nullptr, std::move(op));
             }
             baseCopyInstance = endCopyInstance;
         }
@@ -562,28 +558,28 @@ bool GrCCPerFlushResources::finalize(GrOnFlushResourceProvider* onFlushRP) {
         for (sk_sp<GrTexture>& texture : fRecyclableAtlasTextures) {
             if (texture && atlas.currentHeight() == texture->height() &&
                     atlas.currentWidth() == texture->width()) {
-                backingTexture = skstd::exchange(texture, nullptr);
+                backingTexture = std::exchange(texture, nullptr);
                 break;
             }
         }
 
         if (auto rtc = atlas.instantiate(onFlushRP, std::move(backingTexture))) {
-            std::unique_ptr<GrDrawOp> op;
+            GrOp::Owner op;
             if (CoverageType::kA8_Multisample == fRenderedAtlasStack.coverageType()) {
                 op = GrStencilAtlasOp::Make(
-                        rtc->surfPriv().getContext(), sk_ref_sp(this), atlas.getFillBatchID(),
+                        rtc->recordingContext(), sk_ref_sp(this), atlas.getFillBatchID(),
                         atlas.getStrokeBatchID(), baseStencilResolveInstance,
                         atlas.getEndStencilResolveInstance(), atlas.drawBounds());
             } else if (onFlushRP->caps()->shaderCaps()->geometryShaderSupport()) {
                 op = RenderAtlasOp<GrGSCoverageProcessor>::Make(
-                        rtc->surfPriv().getContext(), sk_ref_sp(this), atlas.getFillBatchID(),
+                        rtc->recordingContext(), sk_ref_sp(this), atlas.getFillBatchID(),
                         atlas.getStrokeBatchID(), atlas.drawBounds());
             } else {
                 op = RenderAtlasOp<GrVSCoverageProcessor>::Make(
-                        rtc->surfPriv().getContext(), sk_ref_sp(this), atlas.getFillBatchID(),
+                        rtc->recordingContext(), sk_ref_sp(this), atlas.getFillBatchID(),
                         atlas.getStrokeBatchID(), atlas.drawBounds());
             }
-            rtc->addDrawOp(GrNoClip(), std::move(op));
+            rtc->addDrawOp(nullptr, std::move(op));
             if (rtc->asSurfaceProxy()->requiresManualMSAAResolve()) {
                 onFlushRP->addTextureResolveTask(sk_ref_sp(rtc->asTextureProxy()),
                                                  GrSurfaceProxy::ResolveFlags::kMSAA);

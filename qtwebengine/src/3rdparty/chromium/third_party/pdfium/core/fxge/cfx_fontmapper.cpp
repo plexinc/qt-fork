@@ -21,6 +21,7 @@
 #include "core/fxge/cfx_substfont.h"
 #include "core/fxge/fx_font.h"
 #include "core/fxge/systemfontinfo_iface.h"
+#include "third_party/base/check.h"
 #include "third_party/base/stl_util.h"
 
 namespace {
@@ -154,13 +155,13 @@ const AltFontFamily g_AltFontFamilies[] = {
     {"ForteMT", "Forte"},
 };
 
-#if _FX_PLATFORM_ == _FX_PLATFORM_LINUX_
+#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_ASMJS)
 const char kNarrowFamily[] = "LiberationSansNarrow";
 #elif defined(OS_ANDROID)
 const char kNarrowFamily[] = "RobotoCondensed";
 #else
 const char kNarrowFamily[] = "ArialNarrow";
-#endif  // _FX_PLATFORM_ == _FX_PLATFORM_LINUX_
+#endif  // defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_ASMJS)
 
 ByteString TT_NormalizeName(const char* family) {
   ByteString norm(family);
@@ -225,7 +226,7 @@ std::tuple<bool, uint32_t, size_t> GetStyleType(const ByteString& bsStyle,
   if (bsStyle.IsEmpty())
     return std::make_tuple(false, FXFONT_NORMAL, 0);
 
-  for (int i = FX_ArraySize(g_FontStyles) - 1; i >= 0; --i) {
+  for (int i = pdfium::size(g_FontStyles) - 1; i >= 0; --i) {
     const FX_FontStyle* pStyle = g_FontStyles + i;
     if (!pStyle || pStyle->len > bsStyle.GetLength())
       continue;
@@ -306,7 +307,7 @@ ByteString CFX_FontMapper::GetPSNameFromTT(void* hFont) {
   if (!size)
     return ByteString();
 
-  std::vector<uint8_t> buffer(size);
+  std::vector<uint8_t, FxAllocAllocator<uint8_t>> buffer(size);
   uint32_t bytes_read = m_pFontInfo->GetFontData(hFont, kTableNAME, buffer);
   return bytes_read == size ? GetNameFromTT(buffer, 6) : ByteString();
 }
@@ -385,8 +386,7 @@ RetainPtr<CFX_Face> CFX_FontMapper::UseInternalSubst(CFX_SubstFont* pSubstFont,
   if (weight)
     pSubstFont->m_Weight = weight;
   if (FontFamilyIsRoman(pitch_family)) {
-    pSubstFont->m_Weight = pSubstFont->m_Weight * 4 / 5;
-    pSubstFont->m_Family = "Chrome Serif";
+    pSubstFont->UseChromeSerif();
     if (!m_MMFaces[1]) {
       m_MMFaces[1] = m_pFontMgr->NewFixedFace(
           nullptr, m_pFontMgr->GetBuiltinFont(14).value(), 0);
@@ -614,7 +614,7 @@ RetainPtr<CFX_Face> CFX_FontMapper::FindSubstFont(const ByteString& name,
       }
     } else {
       if (Charset == FX_CHARSET_Symbol) {
-#if defined(OS_MACOSX) || defined(OS_ANDROID)
+#if defined(OS_APPLE) || defined(OS_ANDROID)
         if (SubstName == "Symbol") {
           pSubstFont->m_Family = "Chrome Symbol";
           pSubstFont->m_Charset = FX_CHARSET_Symbol;
@@ -736,7 +736,7 @@ RetainPtr<CFX_Face> CFX_FontMapper::GetCachedTTCFace(void* hFont,
     pFontDesc = m_pFontMgr->AddCachedTTCFontDesc(
         ttc_size, checksum, std::move(pFontData), ttc_size);
   }
-  ASSERT(ttc_size >= font_size);
+  DCHECK(ttc_size >= font_size);
   uint32_t font_offset = ttc_size - font_size;
   int face_index =
       GetTTCIndex(pFontDesc->FontData().first(ttc_size), font_offset);
@@ -772,8 +772,7 @@ RetainPtr<CFX_Face> CFX_FontMapper::GetCachedFace(void* hFont,
     return pFace;
 
   pFace = m_pFontMgr->NewFixedFace(pFontDesc,
-                                   pFontDesc->FontData().first(font_size),
-                                   m_pFontInfo->GetFaceIndex(hFont));
+                                   pFontDesc->FontData().first(font_size), 0);
   if (!pFace)
     return nullptr;
 

@@ -26,9 +26,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import QtTest 1.0
-import QtWebEngine 1.2
+import QtQuick
+import QtTest
+import QtWebEngine
 
 TestWebEngineView {
     id: webEngineView
@@ -36,6 +36,7 @@ TestWebEngineView {
     height: 300
 
     TestCase {
+        id: testCase
         name: "WebEngineViewSettings"
 
         function test_javascriptEnabled() {
@@ -75,7 +76,7 @@ TestWebEngineView {
         }
 
         function test_settingsAffectCurrentViewOnly()  {
-            var webEngineView2 = Qt.createQmlObject('TestWebEngineView {width: 400; height: 300;}', webEngineView);
+            var webEngineView2 = Qt.createQmlObject('TestWebEngineView {width: 400; height: 300;}', testCase);
 
             webEngineView.settings.javascriptEnabled = true;
             webEngineView2.settings.javascriptEnabled = true;

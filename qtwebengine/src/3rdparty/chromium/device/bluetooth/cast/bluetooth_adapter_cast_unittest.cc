@@ -4,7 +4,7 @@
 
 #include "device/bluetooth/cast/bluetooth_adapter_cast.h"
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/test/gtest_util.h"
 #include "base/test/mock_callback.h"
 #include "base/test/task_environment.h"
@@ -32,11 +32,11 @@ TEST_F(BluetoothAdapterCastTest, TestSetFactory) {
 
   // Call the method once.
   EXPECT_CALL(callback, Run());
-  BluetoothAdapterCast::Create(base::DoNothing());
+  BluetoothAdapterCast::Create();
 
   // Call it again.
   EXPECT_CALL(callback, Run());
-  BluetoothAdapterCast::Create(base::DoNothing());
+  BluetoothAdapterCast::Create();
 }
 
 #if DCHECK_IS_ON()
@@ -52,7 +52,7 @@ TEST_F(BluetoothAdapterCastTest, TestSetFactoryTwiceCrashes) {
 TEST_F(BluetoothAdapterCastTest, TestNoSetFactoryCrashes) {
   // Test that calling BluetoothAdapterCast::Create() without calling
   // SetFactory() causes a crash.
-  EXPECT_DCHECK_DEATH(BluetoothAdapterCast::Create(base::DoNothing()));
+  EXPECT_DCHECK_DEATH(BluetoothAdapterCast::Create());
 }
 #endif  // DCHECK_IS_ON()
 

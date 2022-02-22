@@ -46,18 +46,13 @@
 
 #include <QtQuick3DRuntimeRender/private/qssgrenderimage_p.h>
 
+#include <QtCore/QVariant>
+
 QT_BEGIN_NAMESPACE
+
 struct QSSGRenderLayer;
-struct QSSGEffectContext;
-class QSSGEffectSystem;
-
-namespace dynamic
-{
 struct QSSGCommand;
-}
 
-// Effects are post-render effect applied to the layer.  There can be more than one of
-// them and they have completely variable properties.
 struct Q_QUICK3DRUNTIMERENDER_EXPORT QSSGRenderEffect : public QSSGRenderGraphObject
 {
     QSSGRenderEffect();
@@ -68,9 +63,11 @@ struct Q_QUICK3DRUNTIMERENDER_EXPORT QSSGRenderEffect : public QSSGRenderGraphOb
         QSSGRenderImage *texImage = nullptr;
         QByteArray name;
         QSSGRenderShaderDataType shaderDataType;
-        QSSGRenderTextureMagnifyingOp magFilterType = QSSGRenderTextureMagnifyingOp::Linear;
-        QSSGRenderTextureMinifyingOp minFilterType = QSSGRenderTextureMinifyingOp::Linear;
-        QSSGRenderTextureCoordOp clampType = QSSGRenderTextureCoordOp::ClampToEdge;
+        QSSGRenderTextureFilterOp minFilterType = QSSGRenderTextureFilterOp::Linear;
+        QSSGRenderTextureFilterOp magFilterType = QSSGRenderTextureFilterOp::Linear;
+        QSSGRenderTextureFilterOp mipFilterType = QSSGRenderTextureFilterOp::Linear;
+        QSSGRenderTextureCoordOp horizontalClampType = QSSGRenderTextureCoordOp::ClampToEdge;
+        QSSGRenderTextureCoordOp verticalClampType = QSSGRenderTextureCoordOp::ClampToEdge;
         QSSGRenderTextureTypeValue usageType;
     };
 
@@ -79,10 +76,11 @@ struct Q_QUICK3DRUNTIMERENDER_EXPORT QSSGRenderEffect : public QSSGRenderGraphOb
     struct Property
     {
         Property() = default;
-        Property(const QByteArray &name, const QVariant &value, QSSGRenderShaderDataType shaderDataType, int pid = -1)
-            : name(name), value(value), shaderDataType(shaderDataType), pid(pid)
+        Property(const QByteArray &name, const QByteArray &typeName, const QVariant &value, QSSGRenderShaderDataType shaderDataType, int pid = -1)
+            : name(name), typeName(typeName), value(value), shaderDataType(shaderDataType), pid(pid)
         { }
         QByteArray name;
+        QByteArray typeName;
         mutable QVariant value;
         QSSGRenderShaderDataType shaderDataType;
         int pid;
@@ -90,30 +88,27 @@ struct Q_QUICK3DRUNTIMERENDER_EXPORT QSSGRenderEffect : public QSSGRenderGraphOb
 
     QVector<Property> properties;
 
-    QSSGRenderLayer *m_layer;
-    QSSGRenderEffect *m_nextEffect;
-    // Opaque pointer to context type implemented by the effect system.
-    // May be null in which case the effect system will generate a new context
-    // the first time it needs to render this effect.
-    QSSGEffectContext *m_context = nullptr;
+    QSSGRenderLayer *m_layer = nullptr;
+    QSSGRenderEffect *m_nextEffect = nullptr;
 
     void initialize();
 
     // If our active flag value changes, then we ask the effect manager
     // to reset our context.
-    void setActive(bool inActive, QSSGEffectSystem &inSystem);
+    void setActive(bool inActive);
 
-    void reset(QSSGEffectSystem &inSystem);
+    void reset();
 
     using Flag = QSSGRenderNode::Flag;
     Q_DECLARE_FLAGS(Flags, Flag)
 
-    QVector<dynamic::QSSGCommand *> commands;
+    QVector<QSSGCommand *> commands;
 
     Flags flags;
     const char *className = nullptr;
     bool requiresDepthTexture = false;
     bool requiresCompilation = true;
+    bool incompleteBuildTimeObject = false; // Used by the shadergen tool
     QSSGRenderTextureFormat::Format outputFormat = QSSGRenderTextureFormat::Unknown;
 };
 

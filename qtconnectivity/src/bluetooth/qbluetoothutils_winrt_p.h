@@ -51,6 +51,15 @@
 // We mean it.
 //
 
+// Workaround for Windows SDK bug.
+// See https://github.com/microsoft/Windows.UI.Composition-Win32-Samples/issues/47
+ #include <winrt/base.h>
+namespace winrt::impl
+{
+    template <typename Async>
+    auto wait_for(Async const& async, Windows::Foundation::TimeSpan const& timeout);
+}
+
 #include <QtCore/QtGlobal>
 
 #include <wrl/client.h>
@@ -66,8 +75,6 @@ namespace ABI {
 }
 
 QT_BEGIN_NAMESPACE
-
-bool supportsNewLEApi();
 
 using NativeBuffer = ABI::Windows::Storage::Streams::IBuffer;
 QByteArray byteArrayFromBuffer(const Microsoft::WRL::ComPtr<NativeBuffer> &buffer,

@@ -2,23 +2,41 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {Provider} from './FilteredListWidget.js';
+import * as UI from '../ui/ui.js';
+
+import {getRegisteredProviders, Provider, registerProvider} from './FilteredListWidget.js';
 import {QuickOpenImpl} from './QuickOpen.js';
 
+
+/** @type {!HelpQuickOpen} */
+let helpQuickOpenInstance;
+
 export class HelpQuickOpen extends Provider {
+  /** @private */
   constructor() {
     super();
     /** @type {!Array<{prefix: string, title: string}>} */
     this._providers = [];
-    self.runtime.extensions(Provider).forEach(this._addProvider.bind(this));
+    getRegisteredProviders().forEach(this._addProvider.bind(this));
   }
 
   /**
-   * @param {!Root.Runtime.Extension} extension
+   * @param {{forceNew: ?boolean}} opts
+   */
+  static instance(opts = {forceNew: null}) {
+    const {forceNew} = opts;
+    if (!helpQuickOpenInstance || forceNew) {
+      helpQuickOpenInstance = new HelpQuickOpen();
+    }
+    return helpQuickOpenInstance;
+  }
+
+  /**
+   * @param {!{prefix: string, title: (undefined|function():string)}} extension
    */
   _addProvider(extension) {
-    if (extension.title()) {
-      this._providers.push({prefix: extension.descriptor()['prefix'], title: extension.title()});
+    if (extension.title) {
+      this._providers.push({prefix: extension.prefix || '', title: extension.title()});
     }
   }
 
@@ -60,7 +78,7 @@ export class HelpQuickOpen extends Provider {
     const provider = this._providers[itemIndex];
     const prefixElement = titleElement.createChild('span', 'monospace');
     prefixElement.textContent = (provider.prefix || '…') + ' ';
-    titleElement.createTextChild(provider.title);
+    UI.UIUtils.createTextChild(titleElement, provider.title);
   }
 
   /**
@@ -82,3 +100,9 @@ export class HelpQuickOpen extends Provider {
     return false;
   }
 }
+
+registerProvider({
+  prefix: '?',
+  title: undefined,
+  provider: HelpQuickOpen.instance,
+});

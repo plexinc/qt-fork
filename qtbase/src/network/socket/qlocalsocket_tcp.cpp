@@ -68,7 +68,6 @@ void QLocalSocketPrivate::setSocket(QLocalUnixSocket* socket)
 
     Q_Q(QLocalSocket);
     // QIODevice signals
-    q->connect(tcpSocket, SIGNAL(aboutToClose()), q, SIGNAL(aboutToClose()));
     q->connect(tcpSocket, SIGNAL(bytesWritten(qint64)),
                q, SIGNAL(bytesWritten(qint64)));
     q->connect(tcpSocket, SIGNAL(readyRead()), q, SIGNAL(readyRead()));
@@ -81,11 +80,6 @@ void QLocalSocketPrivate::setSocket(QLocalUnixSocket* socket)
                q, SLOT(_q_errorOccurred(QAbstractSocket::SocketError)));
     q->connect(tcpSocket, SIGNAL(readChannelFinished()), q, SIGNAL(readChannelFinished()));
     tcpSocket->setParent(q);
-}
-
-qint64 QLocalSocketPrivate::skip(qint64 maxSize)
-{
-    return tcpSocket->skip(maxSize);
 }
 
 void QLocalSocketPrivate::_q_errorOccurred(QAbstractSocket::SocketError socketError)
@@ -306,6 +300,11 @@ qint64 QLocalSocket::readData(char *data, qint64 c)
     return d->tcpSocket->read(data, c);
 }
 
+qint64 QLocalSocket::skipData(qint64 maxSize)
+{
+    return d_func()->tcpSocket->skip(maxSize);
+}
+
 qint64 QLocalSocket::writeData(const char *data, qint64 c)
 {
     Q_D(QLocalSocket);
@@ -316,6 +315,7 @@ void QLocalSocket::abort()
 {
     Q_D(QLocalSocket);
     d->tcpSocket->abort();
+    close();
 }
 
 qint64 QLocalSocket::bytesAvailable() const
@@ -339,10 +339,11 @@ bool QLocalSocket::canReadLine() const
 void QLocalSocket::close()
 {
     Q_D(QLocalSocket);
+
+    QIODevice::close();
     d->tcpSocket->close();
     d->serverName.clear();
     d->fullServerName.clear();
-    QIODevice::close();
 }
 
 bool QLocalSocket::waitForBytesWritten(int msecs)

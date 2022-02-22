@@ -259,7 +259,7 @@ static bool ssl_write_client_cipher_list(SSL_HANDSHAKE *hs, CBB *out) {
         continue;
       }
       any_enabled = true;
-      if (!CBB_add_u16(&child, ssl_cipher_get_value(cipher))) {
+      if (!CBB_add_u16(&child, SSL_CIPHER_get_protocol_id(cipher))) {
         return false;
       }
     }
@@ -358,8 +358,7 @@ static bool parse_supported_versions(SSL_HANDSHAKE *hs, uint16_t *version,
 
   uint8_t alert = SSL_AD_DECODE_ERROR;
   if (!ssl_parse_extensions(&extensions, &alert, ext_types,
-                            OPENSSL_ARRAY_SIZE(ext_types),
-                            1 /* ignore unknown */)) {
+                            /*ignore_unknown=*/true)) {
     ssl_send_alert(ssl, SSL3_AL_FATAL, alert);
     return false;
   }
@@ -406,7 +405,8 @@ static enum ssl_hs_wait_t do_start_connect(SSL_HANDSHAKE *hs) {
         (ssl->session->session_id_length == 0 &&
          ssl->session->ticket.empty()) ||
         ssl->session->not_resumable ||
-        !ssl_session_is_time_valid(ssl, ssl->session.get())) {
+        !ssl_session_is_time_valid(ssl, ssl->session.get()) ||
+        (ssl->quic_method != nullptr) != ssl->session->is_quic) {
       ssl_set_session(ssl, NULL);
     }
   }
@@ -415,17 +415,20 @@ static enum ssl_hs_wait_t do_start_connect(SSL_HANDSHAKE *hs) {
     return ssl_hs_error;
   }
 
-  if (ssl->session != nullptr &&
-      !ssl->s3->initial_handshake_complete &&
-      ssl->session->session_id_length > 0) {
-    hs->session_id_len = ssl->session->session_id_length;
-    OPENSSL_memcpy(hs->session_id, ssl->session->session_id,
-                   hs->session_id_len);
-  } else if (hs->max_version >= TLS1_3_VERSION) {
-    // Initialize a random session ID.
-    hs->session_id_len = sizeof(hs->session_id);
-    if (!RAND_bytes(hs->session_id, hs->session_id_len)) {
-      return ssl_hs_error;
+  // Never send a session ID in QUIC. QUIC uses TLS 1.3 at a minimum and
+  // disables TLS 1.3 middlebox compatibility mode.
+  if (ssl->quic_method == nullptr) {
+    if (ssl->session != nullptr && !ssl->s3->initial_handshake_complete &&
+        ssl->session->session_id_length > 0) {
+      hs->session_id_len = ssl->session->session_id_length;
+      OPENSSL_memcpy(hs->session_id, ssl->session->session_id,
+                     hs->session_id_len);
+    } else if (hs->max_version >= TLS1_3_VERSION) {
+      // Initialize a random session ID.
+      hs->session_id_len = sizeof(hs->session_id);
+      if (!RAND_bytes(hs->session_id, hs->session_id_len)) {
+        return ssl_hs_error;
+      }
     }
   }
 
@@ -456,8 +459,8 @@ static enum ssl_hs_wait_t do_enter_early_data(SSL_HANDSHAKE *hs) {
   }
 
   if (!tls13_init_early_key_schedule(
-          hs, MakeConstSpan(ssl->session->master_key,
-                            ssl->session->master_key_length)) ||
+          hs,
+          MakeConstSpan(ssl->session->secret, ssl->session->secret_length)) ||
       !tls13_derive_early_secret(hs)) {
     return ssl_hs_error;
   }
@@ -633,12 +636,9 @@ static enum ssl_hs_wait_t do_read_server_hello(SSL_HANDSHAKE *hs) {
             .subspan(SSL3_RANDOM_SIZE - sizeof(kTLS13DowngradeRandom));
     if (suffix == kTLS12DowngradeRandom || suffix == kTLS13DowngradeRandom ||
         suffix == kJDK11DowngradeRandom) {
-      ssl->s3->tls13_downgrade = true;
-      if (!hs->config->ignore_tls13_downgrade) {
-        OPENSSL_PUT_ERROR(SSL, SSL_R_TLS13_DOWNGRADE);
-        ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_ILLEGAL_PARAMETER);
-        return ssl_hs_error;
-      }
+      OPENSSL_PUT_ERROR(SSL, SSL_R_TLS13_DOWNGRADE);
+      ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_ILLEGAL_PARAMETER);
+      return ssl_hs_error;
     }
   }
 
@@ -1264,10 +1264,10 @@ static enum ssl_hs_wait_t do_send_client_key_exchange(SSL_HANDSHAKE *hs) {
   uint32_t alg_k = hs->new_cipher->algorithm_mkey;
   uint32_t alg_a = hs->new_cipher->algorithm_auth;
   if (ssl_cipher_uses_certificate_auth(hs->new_cipher)) {
-    CRYPTO_BUFFER *leaf =
+    const CRYPTO_BUFFER *leaf =
         sk_CRYPTO_BUFFER_value(hs->new_session->certs.get(), 0);
     CBS leaf_cbs;
-    CBS_init(&leaf_cbs, CRYPTO_BUFFER_data(leaf), CRYPTO_BUFFER_len(leaf));
+    CRYPTO_BUFFER_init_CBS(leaf, &leaf_cbs);
 
     // Check the key usage matches the cipher suite. We do this unconditionally
     // for non-RSA certificates. In particular, it's needed to distinguish ECDH
@@ -1407,9 +1407,9 @@ static enum ssl_hs_wait_t do_send_client_key_exchange(SSL_HANDSHAKE *hs) {
     return ssl_hs_error;
   }
 
-  hs->new_session->master_key_length =
-      tls1_generate_master_secret(hs, hs->new_session->master_key, pms);
-  if (hs->new_session->master_key_length == 0) {
+  hs->new_session->secret_length =
+      tls1_generate_master_secret(hs, hs->new_session->secret, pms);
+  if (hs->new_session->secret_length == 0) {
     return ssl_hs_error;
   }
   hs->new_session->extended_master_secret = hs->extended_master_secret;
@@ -1547,18 +1547,12 @@ static bool can_false_start(const SSL_HANDSHAKE *hs) {
   //
   // Now that TLS 1.3 exists, we would like to avoid similar attacks between
   // TLS 1.2 and TLS 1.3, but there are too many TLS 1.2 deployments to
-  // sacrifice False Start on them. TLS 1.3's downgrade signal fixes this, but
-  // |SSL_CTX_set_ignore_tls13_downgrade| can disable it due to compatibility
-  // issues.
-  //
-  // |SSL_CTX_set_ignore_tls13_downgrade| normally still retains Finished-based
-  // downgrade protection, but False Start bypasses that. Thus, we disable False
-  // Start based on the TLS 1.3 downgrade signal, even if otherwise unenforced.
+  // sacrifice False Start on them. Instead, we rely on the ServerHello.random
+  // downgrade signal, which we unconditionally enforce.
   if (SSL_is_dtls(ssl) ||
       SSL_version(ssl) != TLS1_2_VERSION ||
       hs->new_cipher->algorithm_mkey != SSL_kECDHE ||
-      hs->new_cipher->algorithm_mac != SSL_AEAD ||
-      ssl->s3->tls13_downgrade) {
+      hs->new_cipher->algorithm_mac != SSL_AEAD) {
     return false;
   }
 

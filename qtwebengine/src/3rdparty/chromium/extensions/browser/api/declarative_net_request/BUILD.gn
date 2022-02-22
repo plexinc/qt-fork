@@ -14,12 +14,16 @@ source_set("declarative_net_request") {
     "extension_url_pattern_index_matcher.h",
     "file_sequence_helper.cc",
     "file_sequence_helper.h",
+    "global_rules_tracker.cc",
+    "global_rules_tracker.h",
     "regex_rules_matcher.cc",
     "regex_rules_matcher.h",
     "request_action.cc",
     "request_action.h",
     "request_params.cc",
     "request_params.h",
+    "rules_count_pair.cc",
+    "rules_count_pair.h",
     "rules_monitor_service.cc",
     "rules_monitor_service.h",
     "ruleset_manager.cc",
@@ -36,8 +40,6 @@ source_set("declarative_net_request") {
     "//components/url_matcher",
     "//components/url_pattern_index",
     "//extensions/browser/api/declarative_net_request:core",
-    "//extensions/browser/api/declarative_net_request/flat:extension_ruleset",
-    "//third_party/re2",
   ]
 
   deps = [
@@ -65,6 +67,8 @@ source_set("core") {
   sources = [
     "constants.cc",
     "constants.h",
+    "file_backed_ruleset_source.cc",
+    "file_backed_ruleset_source.h",
     "flat_ruleset_indexer.cc",
     "flat_ruleset_indexer.h",
     "index_helper.cc",
@@ -73,25 +77,30 @@ source_set("core") {
     "indexed_rule.h",
     "parse_info.cc",
     "parse_info.h",
-    "ruleset_checksum.h",
+    "ruleset_install_pref.cc",
+    "ruleset_install_pref.h",
     "ruleset_source.cc",
     "ruleset_source.h",
     "utils.cc",
     "utils.h",
   ]
 
+  public_deps = [
+    "//extensions/browser/api/declarative_net_request/flat:extension_ruleset",
+    "//third_party/re2",
+  ]
+
   deps = [
     "//base",
+    "//build:chromeos_buildflags",
     "//components/url_pattern_index",
     "//components/web_cache/browser:browser",
     "//content/public/browser:browser",
-    "//extensions/browser/api/declarative_net_request/flat:extension_ruleset",
     "//extensions/common",
     "//extensions/common/api",
     "//net",
     "//services/data_decoder/public/cpp:cpp",
     "//third_party/flatbuffers:flatbuffers",
-    "//third_party/re2",
     "//tools/json_schema_compiler:generated_api_util",
     "//url",
   ]

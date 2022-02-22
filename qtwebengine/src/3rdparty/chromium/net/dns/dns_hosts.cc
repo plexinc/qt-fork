@@ -4,10 +4,10 @@
 
 #include "net/dns/dns_hosts.h"
 
+#include "base/check.h"
 #include "base/files/file_util.h"
-#include "base/logging.h"
 #include "base/macros.h"
-#include "base/metrics/histogram_macros.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "net/dns/dns_util.h"
 
@@ -156,7 +156,7 @@ void ParseHostsWithCommaMode(const std::string& contents,
         }
       }
     } else {
-      DnsHostsKey key(parser.token().as_string(), family);
+      DnsHostsKey key(std::string(parser.token()), family);
       if (!IsValidDNSDomain(key.first))
         continue;
       key.first = base::ToLowerASCII(key.first);
@@ -178,7 +178,7 @@ void ParseHostsWithCommaModeForTesting(const std::string& contents,
 
 void ParseHosts(const std::string& contents, DnsHosts* dns_hosts) {
   ParseHostsCommaMode comma_mode;
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   // Mac OS X allows commas to separate hostnames.
   comma_mode = PARSE_HOSTS_COMMA_IS_WHITESPACE;
 #else
@@ -198,9 +198,6 @@ bool ParseHostsFile(const base::FilePath& path, DnsHosts* dns_hosts) {
   int64_t size;
   if (!base::GetFileSize(path, &size))
     return false;
-
-  UMA_HISTOGRAM_COUNTS_1M("AsyncDNS.HostsSize",
-                          static_cast<base::HistogramBase::Sample>(size));
 
   // Reject HOSTS files larger than |kMaxHostsSize| bytes.
   const int64_t kMaxHostsSize = 1 << 25;  // 32MB

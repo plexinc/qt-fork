@@ -61,30 +61,19 @@
 
 QT_BEGIN_NAMESPACE
 
-class QOpenGLFramebufferObject;
-class QOpenGLPaintDevice;
 class QSGDefaultRenderContext;
-class QSGPainterTexturePrivate;
 
 class Q_QUICK_PRIVATE_EXPORT QSGPainterTexture : public QSGPlainTexture
 {
-    Q_DECLARE_PRIVATE(QSGPainterTexture)
 public:
     QSGPainterTexture();
 
     void setDirtyRect(const QRect &rect) { m_dirty_rect = rect; }
 
-    void bind() override;
+    void commitTextureOperations(QRhi *rhi, QRhiResourceUpdateBatch *resourceUpdates) override;
 
 private:
     QRect m_dirty_rect;
-};
-
-class QSGPainterTexturePrivate : public QSGPlainTexturePrivate
-{
-    Q_DECLARE_PUBLIC(QSGPainterTexture)
-public:
-    void updateRhiTexture(QRhi *rhi, QRhiResourceUpdateBatch *resourceUpdates) override;
 };
 
 class Q_QUICK_PRIVATE_EXPORT QSGDefaultPainterNode : public QSGPainterNode
@@ -135,7 +124,6 @@ private:
     void updateTexture();
     void updateGeometry();
     void updateRenderTarget();
-    void updateFBOSize();
 
     QSGDefaultRenderContext *m_context;
 
@@ -144,24 +132,17 @@ private:
 
     QQuickPaintedItem *m_item;
 
-    QOpenGLFramebufferObject *m_fbo;
-    QOpenGLFramebufferObject *m_multisampledFbo;
     QImage m_image;
 
     QSGOpaqueTextureMaterial m_material;
     QSGTextureMaterial m_materialO;
     QSGGeometry m_geometry;
     QSGPainterTexture *m_texture;
-    QOpenGLPaintDevice *m_gl_device;
 
     QSize m_size;
-    QSize m_fboSize;
     QSize m_textureSize;
     QRect m_dirtyRect;
     QColor m_fillColor;
-#if QT_VERSION >= 0x060000
-#warning "Remove m_contentsScale and assume 1 everywhere"
-#endif
     qreal m_contentsScale;
 
     bool m_dirtyContents : 1;
@@ -169,7 +150,6 @@ private:
     bool m_linear_filtering : 1;
     bool m_mipmapping : 1;
     bool m_smoothPainting : 1;
-    bool m_extensionsChecked : 1;
     bool m_multisamplingSupported : 1;
     bool m_fastFBOResizing : 1;
     bool m_dirtyGeometry : 1;

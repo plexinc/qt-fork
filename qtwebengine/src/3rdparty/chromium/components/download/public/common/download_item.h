@@ -32,6 +32,7 @@
 #include "components/download/public/common/download_danger_type.h"
 #include "components/download/public/common/download_export.h"
 #include "components/download/public/common/download_interrupt_reasons.h"
+#include "components/download/public/common/download_schedule.h"
 #include "components/download/public/common/download_source.h"
 #include "ui/base/page_transition_types.h"
 #include "url/origin.h"
@@ -50,6 +51,7 @@ class HttpResponseHeaders;
 
 namespace download {
 class DownloadFile;
+class DownloadItemRenameHandler;
 
 // One DownloadItem per download. This is the model class that stores all the
 // state for a download.
@@ -106,7 +108,7 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItem : public base::SupportsUserData {
     UNKNOWN = 0,
     // Download is not mixed content.
     SAFE = 1,
-    // Download has been explicitly OK'd by the user.
+    // Download has been explicitly OK'd by the user. Only used on Desktop.
     VALIDATED = 2,
     // Download is mixed content, and the user should be warned.
     WARN = 3,
@@ -431,6 +433,12 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItem : public base::SupportsUserData {
   // Gets the pointer to the DownloadFile owned by this object.
   virtual DownloadFile* GetDownloadFile() = 0;
 
+  // Gets a handler to perform the rename for a download item.  If no special
+  // rename handling is required, this function returns null and the default
+  // rename handling is performed.  The caller does not own the returned
+  // pointer.
+  virtual DownloadItemRenameHandler* GetRenameHandler() = 0;
+
   //    Progress State accessors -----------------------------------------------
 
   // Simple calculation of the amount of time remaining to completion. Fills
@@ -483,6 +491,9 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItem : public base::SupportsUserData {
   // Tests if a file type should be opened automatically.
   virtual bool ShouldOpenFileBasedOnExtension() = 0;
 
+  // Tests if a file type should be opened automatically by policy.
+  virtual bool ShouldOpenFileByPolicyBasedOnExtension() = 0;
+
   // Returns true if the download will be auto-opened when complete.
   virtual bool GetOpenWhenComplete() const = 0;
 
@@ -509,6 +520,10 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItem : public base::SupportsUserData {
   // Gets the DownloadCreationType of this item.
   virtual DownloadCreationType GetDownloadCreationType() const = 0;
 
+  // Gets the download schedule to start the time at particular time.
+  virtual const base::Optional<DownloadSchedule>& GetDownloadSchedule()
+      const = 0;
+
   // External state transitions/setters ----------------------------------------
 
   // TODO(rdsmith): These should all be removed; the download item should
@@ -526,6 +541,10 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItem : public base::SupportsUserData {
 
   // Called when async scanning completes with the given |danger_type|.
   virtual void OnAsyncScanningCompleted(DownloadDangerType danger_type) = 0;
+
+  // Called when the user changes the download schedule options.
+  virtual void OnDownloadScheduleChanged(
+      base::Optional<DownloadSchedule> schedule) = 0;
 
   // Mark the download to be auto-opened when completed.
   virtual void SetOpenWhenComplete(bool open) = 0;

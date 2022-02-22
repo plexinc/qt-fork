@@ -30,9 +30,12 @@
 
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
+#include "base/metrics/histogram_macros.h"
+#include "base/optional.h"
 #include "third_party/blink/renderer/platform/graphics/decoding_image_generator.h"
 #include "third_party/blink/renderer/platform/graphics/image_decoding_store.h"
 #include "third_party/blink/renderer/platform/graphics/image_frame_generator.h"
+#include "third_party/blink/renderer/platform/graphics/parkable_image_manager.h"
 #include "third_party/blink/renderer/platform/graphics/skia/skia_utils.h"
 #include "third_party/blink/renderer/platform/image-decoders/segment_reader.h"
 #include "third_party/blink/renderer/platform/instrumentation/histogram.h"
@@ -45,30 +48,30 @@ namespace {
 
 // Do not rename entries or reuse numeric values to ensure the histogram is
 // consistent over time.
-enum IncrementalDecodePerImageType {
+enum class IncrementalDecodePerImageType {
   kJpegIncrementalNeeded = 0,
   kJpegAllDataReceivedInitially = 1,
   kWebPIncrementalNeeded = 2,
   kWebPAllDataReceivedInitially = 3,
-  kBoundaryValue
+  kMaxValue = kWebPAllDataReceivedInitially,
 };
 
 void ReportIncrementalDecodeNeeded(bool all_data_received,
                                    const String& image_type) {
   DCHECK(IsMainThread());
-  DEFINE_STATIC_LOCAL(EnumerationHistogram, incremental_decode_needed_histogram,
-                      ("Blink.ImageDecoders.IncrementalDecodeNeeded",
-                       IncrementalDecodePerImageType::kBoundaryValue));
+  base::Optional<IncrementalDecodePerImageType> status;
   if (image_type == "jpg") {
-    incremental_decode_needed_histogram.Count(
-        all_data_received
-            ? IncrementalDecodePerImageType::kJpegAllDataReceivedInitially
-            : IncrementalDecodePerImageType::kJpegIncrementalNeeded);
+    status = all_data_received
+                 ? IncrementalDecodePerImageType::kJpegAllDataReceivedInitially
+                 : IncrementalDecodePerImageType::kJpegIncrementalNeeded;
   } else if (image_type == "webp") {
-    incremental_decode_needed_histogram.Count(
-        all_data_received
-            ? IncrementalDecodePerImageType::kWebPAllDataReceivedInitially
-            : IncrementalDecodePerImageType::kWebPIncrementalNeeded);
+    status = all_data_received
+                 ? IncrementalDecodePerImageType::kWebPAllDataReceivedInitially
+                 : IncrementalDecodePerImageType::kWebPIncrementalNeeded;
+  }
+  if (status) {
+    UMA_HISTOGRAM_ENUMERATION("Blink.ImageDecoders.IncrementalDecodeNeeded",
+                              *status);
   }
 }
 
@@ -120,9 +123,10 @@ struct DeferredFrameData {
 
  public:
   DeferredFrameData()
-      : orientation_(kDefaultImageOrientation), is_received_(false) {}
+      : orientation_(ImageOrientationEnum::kDefault), is_received_(false) {}
 
   ImageOrientation orientation_;
+  IntSize density_corrected_size_;
   base::TimeDelta duration_;
   bool is_received_;
 
@@ -166,9 +170,11 @@ DeferredImageDecoder::DeferredImageDecoder(
       can_yuv_decode_(false),
       has_hot_spot_(false),
       image_is_high_bit_depth_(false),
-      complete_frame_content_id_(PaintImage::GetNextContentId()) {}
+      complete_frame_content_id_(PaintImage::GetNextContentId()) {
+}
 
-DeferredImageDecoder::~DeferredImageDecoder() = default;
+DeferredImageDecoder::~DeferredImageDecoder() {
+}
 
 String DeferredImageDecoder::FilenameExtension() const {
   return metadata_decoder_ ? metadata_decoder_->FilenameExtension()
@@ -187,24 +193,12 @@ sk_sp<PaintImageGenerator> DeferredImageDecoder::CreateGenerator() {
   DCHECK_GT(decoded_size.width(), 0);
   DCHECK_GT(decoded_size.height(), 0);
 
-  sk_sp<SkROBuffer> ro_buffer(rw_buffer_->makeROBufferSnapshot());
   scoped_refptr<SegmentReader> segment_reader =
-      SegmentReader::CreateFromSkROBuffer(std::move(ro_buffer));
-
-  // ImageFrameGenerator has the latest known alpha state. There will be a
-  // performance boost if the image is opaque since we can avoid painting
-  // the background in this case.
-  // For multi-frame images, these maybe animated on the compositor thread.
-  // So we can not mark them as opaque unless all frames are opaque.
-  // TODO(khushalsagar): Check whether all frames being added to the
-  // generator are opaque when populating FrameMetadata below.
-  SkAlphaType alpha_type = kPremul_SkAlphaType;
-  if (frame_data_.size() == 1u && !frame_generator_->HasAlpha(0u))
-    alpha_type = kOpaque_SkAlphaType;
+      parkable_image_->MakeROSnapshot();
 
   SkImageInfo info =
       SkImageInfo::MakeN32(decoded_size.width(), decoded_size.height(),
-                           alpha_type, color_space_for_sk_images_);
+                           AlphaType(), color_space_for_sk_images_);
   if (image_is_high_bit_depth_)
     info = info.makeColorType(kRGBA_F16_SkColorType);
 
@@ -257,15 +251,7 @@ sk_sp<PaintImageGenerator> DeferredImageDecoder::CreateGenerator() {
 }
 
 scoped_refptr<SharedBuffer> DeferredImageDecoder::Data() {
-  if (!rw_buffer_)
-    return nullptr;
-  sk_sp<SkROBuffer> ro_buffer(rw_buffer_->makeROBufferSnapshot());
-  scoped_refptr<SharedBuffer> shared_buffer = SharedBuffer::Create();
-  SkROBuffer::Iter it(ro_buffer.get());
-  do {
-    shared_buffer->Append(static_cast<const char*>(it.data()), it.size());
-  } while (it.next());
-  return shared_buffer;
+  return parkable_image_ ? parkable_image_->Data() : nullptr;
 }
 
 void DeferredImageDecoder::SetData(scoped_refptr<SharedBuffer> data,
@@ -276,6 +262,8 @@ void DeferredImageDecoder::SetData(scoped_refptr<SharedBuffer> data,
 void DeferredImageDecoder::SetDataInternal(scoped_refptr<SharedBuffer> data,
                                            bool all_data_received,
                                            bool push_data_to_decoder) {
+  // Once all the data has been received, the image should not change.
+  DCHECK(!all_data_received_);
   if (metadata_decoder_) {
     all_data_received_ = all_data_received;
     if (push_data_to_decoder)
@@ -284,16 +272,14 @@ void DeferredImageDecoder::SetDataInternal(scoped_refptr<SharedBuffer> data,
   }
 
   if (frame_generator_) {
-    if (!rw_buffer_)
-      rw_buffer_ = std::make_unique<SkRWBuffer>(data->size());
+    if (!parkable_image_)
+      parkable_image_ = ParkableImage::Create(data->size());
 
-    for (auto it = data->GetIteratorAt(rw_buffer_->size()); it != data->cend();
-         ++it) {
-      DCHECK_GE(data->size(), rw_buffer_->size() + it->size());
-      const size_t remaining = data->size() - rw_buffer_->size() - it->size();
-      rw_buffer_->append(it->data(), it->size(), remaining);
-    }
+    parkable_image_->Append(data.get(), parkable_image_->size());
   }
+
+  if (all_data_received && parkable_image_)
+    parkable_image_->Freeze();
 }
 
 bool DeferredImageDecoder::IsSizeAvailable() {
@@ -327,12 +313,18 @@ int DeferredImageDecoder::RepetitionCount() const {
                            : repetition_count_;
 }
 
-bool DeferredImageDecoder::FrameHasAlphaAtIndex(size_t index) const {
-  if (metadata_decoder_)
-    return metadata_decoder_->FrameHasAlphaAtIndex(index);
-  if (!frame_generator_->IsMultiFrame())
-    return frame_generator_->HasAlpha(index);
-  return true;
+SkAlphaType DeferredImageDecoder::AlphaType() const {
+  // ImageFrameGenerator has the latest known alpha state. There will be a
+  // performance boost if the image is opaque since we can avoid painting
+  // the background in this case.
+  // For multi-frame images, these maybe animated on the compositor thread.
+  // So we can not mark them as opaque unless all frames are opaque.
+  // TODO(khushalsagar): Check whether all frames being added to the
+  // generator are opaque when populating FrameMetadata below.
+  SkAlphaType alpha_type = kPremul_SkAlphaType;
+  if (frame_data_.size() == 1u && !frame_generator_->HasAlpha(0u))
+    alpha_type = kOpaque_SkAlphaType;
+  return alpha_type;
 }
 
 bool DeferredImageDecoder::FrameIsReceivedAtIndex(size_t index) const {
@@ -365,11 +357,20 @@ ImageOrientation DeferredImageDecoder::OrientationAtIndex(size_t index) const {
     return metadata_decoder_->Orientation();
   if (index < frame_data_.size())
     return frame_data_[index].orientation_;
-  return kDefaultImageOrientation;
+  return ImageOrientationEnum::kDefault;
 }
 
+IntSize DeferredImageDecoder::DensityCorrectedSizeAtIndex(size_t index) const {
+  if (metadata_decoder_)
+    return metadata_decoder_->DensityCorrectedSize();
+  if (index < frame_data_.size())
+    return frame_data_[index].density_corrected_size_;
+  return Size();
+}
+
+
 size_t DeferredImageDecoder::ByteSize() const {
-  return rw_buffer_ ? rw_buffer_->size() : 0u;
+  return parkable_image_ ? parkable_image_->size() : 0u;
 }
 
 void DeferredImageDecoder::ActivateLazyDecoding() {
@@ -432,15 +433,13 @@ void DeferredImageDecoder::PrepareLazyDecodedFrames() {
   for (size_t i = previous_size; i < frame_data_.size(); ++i) {
     frame_data_[i].duration_ = metadata_decoder_->FrameDurationAtIndex(i);
     frame_data_[i].orientation_ = metadata_decoder_->Orientation();
-    frame_data_[i].is_received_ = metadata_decoder_->FrameIsReceivedAtIndex(i);
+    frame_data_[i].density_corrected_size_ = metadata_decoder_->DensityCorrectedSize();
   }
 
-  // The last lazy decoded frame created from previous call might be
-  // incomplete so update its state.
-  if (previous_size) {
-    const size_t last_frame = previous_size - 1;
-    frame_data_[last_frame].is_received_ =
-        metadata_decoder_->FrameIsReceivedAtIndex(last_frame);
+  // Update the is_received_ state of incomplete frames.
+  while (received_frame_count_ < frame_data_.size() &&
+         metadata_decoder_->FrameIsReceivedAtIndex(received_frame_count_)) {
+    frame_data_[received_frame_count_++].is_received_ = true;
   }
 
   can_yuv_decode_ =

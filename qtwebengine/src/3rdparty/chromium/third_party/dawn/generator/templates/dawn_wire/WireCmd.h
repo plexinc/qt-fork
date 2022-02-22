@@ -17,17 +17,21 @@
 
 #include <dawn/webgpu.h>
 
+#include "dawn_wire/ObjectType_autogen.h"
+
 namespace dawn_wire {
 
     using ObjectId = uint32_t;
-    using ObjectSerial = uint32_t;
+    using ObjectGeneration = uint32_t;
     struct ObjectHandle {
       ObjectId id;
-      ObjectSerial serial;
+      ObjectGeneration generation;
 
       ObjectHandle();
-      ObjectHandle(ObjectId id, ObjectSerial serial);
+      ObjectHandle(ObjectId id, ObjectGeneration generation);
+
       ObjectHandle(const volatile ObjectHandle& rhs);
+      ObjectHandle& operator=(const volatile ObjectHandle& rhs);
 
       // MSVC has a bug where it thinks the volatile copy assignment is a duplicate.
       // Workaround this by forwarding to a different function AssignFrom.
@@ -42,6 +46,62 @@ namespace dawn_wire {
     enum class DeserializeResult {
         Success,
         FatalError,
+    };
+
+    template <typename BufferT>
+    class BufferConsumer {
+      public:
+        BufferConsumer(BufferT* buffer, size_t size) : mBuffer(buffer), mSize(size) {}
+
+        BufferT* Buffer() const { return mBuffer; }
+        size_t AvailableSize() const { return mSize; }
+
+      protected:
+        template <typename T, typename N>
+        DAWN_NO_DISCARD bool NextN(N count, T** data);
+
+        template <typename T>
+        DAWN_NO_DISCARD bool Next(T** data);
+
+        template <typename T>
+        DAWN_NO_DISCARD bool Peek(T** data);
+
+      private:
+        BufferT* mBuffer;
+        size_t mSize;
+    };
+
+    class SerializeBuffer : public BufferConsumer<char> {
+      public:
+        using BufferConsumer::BufferConsumer;
+        using BufferConsumer::NextN;
+        using BufferConsumer::Next;
+    };
+
+    class DeserializeBuffer : public BufferConsumer<const volatile char> {
+      public:
+        using BufferConsumer::BufferConsumer;
+
+        template <typename T, typename N>
+        DAWN_NO_DISCARD DeserializeResult ReadN(N count, const volatile T** data) {
+            return NextN(count, data)
+                ? DeserializeResult::Success
+                : DeserializeResult::FatalError;
+        }
+
+        template <typename T>
+        DAWN_NO_DISCARD DeserializeResult Read(const volatile T** data) {
+            return Next(data)
+                ? DeserializeResult::Success
+                : DeserializeResult::FatalError;
+        }
+
+        template <typename T>
+        DAWN_NO_DISCARD DeserializeResult Peek(const volatile T** data) {
+            return BufferConsumer::Peek(data)
+                ? DeserializeResult::Success
+                : DeserializeResult::FatalError;
+        }
     };
 
     // Interface to allocate more space to deserialize pointed-to data.
@@ -70,12 +130,6 @@ namespace dawn_wire {
             {% endfor %}
     };
 
-    enum class ObjectType : uint32_t {
-        {% for type in by_category["object"] %}
-            {{type.name.CamelCase()}},
-        {% endfor %}
-    };
-
     //* Enum used as a prefix to each command on the wire format.
     enum class WireCmd : uint32_t {
         {% for command in cmd_records["command"] %}
@@ -90,6 +144,10 @@ namespace dawn_wire {
         {% endfor %}
     };
 
+    struct CmdHeader {
+        uint64_t commandSize;
+    };
+
 {% macro write_command_struct(command, is_return_command) %}
     {% set Return = "Return" if is_return_command else "" %}
     {% set Cmd = command.name.CamelCase() + "Cmd" %}
@@ -99,8 +157,8 @@ namespace dawn_wire {
 
         //* Serialize the structure and everything it points to into serializeBuffer which must be
         //* big enough to contain all the data (as queried from GetRequiredSize).
-        void Serialize(char* serializeBuffer
-            {%- if command.has_dawn_object -%}
+        DAWN_NO_DISCARD bool Serialize(size_t commandSize, SerializeBuffer* serializeBuffer
+            {%- if not is_return_command -%}
                 , const ObjectIdProvider& objectIdProvider
             {%- endif -%}
         ) const;
@@ -112,8 +170,8 @@ namespace dawn_wire {
         //* Deserialize returns:
         //*  - Success if everything went well (yay!)
         //*  - FatalError is something bad happened (buffer too small for example)
-        DeserializeResult Deserialize(const volatile char** buffer, size_t* size, DeserializeAllocator* allocator
-            {%- if command.has_dawn_object -%}
+        DeserializeResult Deserialize(DeserializeBuffer* deserializeBuffer, DeserializeAllocator* allocator
+            {%- if command.may_have_dawn_object -%}
                 , const ObjectIdResolver& resolver
             {%- endif -%}
         );

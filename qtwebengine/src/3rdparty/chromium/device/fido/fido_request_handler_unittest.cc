@@ -70,13 +70,9 @@ class TestObserver : public FidoRequestHandlerBase::Observer {
  public:
   using TransportAvailabilityNotificationReceiver = test::TestCallbackReceiver<
       FidoRequestHandlerBase::TransportAvailabilityInfo>;
-  using AuthenticatorIdChangeNotificationReceiver =
-      test::TestCallbackReceiver<std::string>;
-  using AuthenticatorPairingModeReceiver =
-      test::TestCallbackReceiver<std::string, bool, base::string16>;
 
-  TestObserver() {}
-  ~TestObserver() override {}
+  TestObserver() = default;
+  ~TestObserver() override = default;
 
   FidoRequestHandlerBase::TransportAvailabilityInfo
   WaitForTransportAvailabilityInfo() {
@@ -86,38 +82,12 @@ class TestObserver : public FidoRequestHandlerBase::Observer {
 
   void WaitForAndExpectAvailableTransportsAre(
       base::flat_set<FidoTransportProtocol> expected_transports,
-      base::Optional<bool> has_recognized_mac_touch_id_credential =
-          base::nullopt) {
+      base::Optional<bool> has_platform_credential = base::nullopt) {
     auto result = WaitForTransportAvailabilityInfo();
     EXPECT_THAT(result.available_transports,
                 ::testing::UnorderedElementsAreArray(expected_transports));
-    if (has_recognized_mac_touch_id_credential) {
-      EXPECT_EQ(*has_recognized_mac_touch_id_credential,
-                result.has_recognized_mac_touch_id_credential);
-    }
-  }
-
-  void WaitForAuthenticatorIdChangeNotification(
-      base::StringPiece expected_new_authenticator_id) {
-    authenticator_id_change_notification_receiver_.WaitForCallback();
-    auto result =
-        std::get<0>(*authenticator_id_change_notification_receiver_.result());
-    EXPECT_EQ(expected_new_authenticator_id, result);
-  }
-
-  void WaitForAuthenticatorPairingModeChanged(std::string authenticator_id,
-                                              bool is_in_pairing_mode,
-                                              base::string16 display_name) {
-    authenticator_pairing_mode_changed_receiver_.WaitForCallback();
-    auto id =
-        std::get<0>(*authenticator_pairing_mode_changed_receiver_.result());
-    EXPECT_EQ(authenticator_id, id);
-    bool pairing_mode =
-        std::get<1>(*authenticator_pairing_mode_changed_receiver_.result());
-    EXPECT_EQ(is_in_pairing_mode, pairing_mode);
-    auto name =
-        std::get<2>(*authenticator_pairing_mode_changed_receiver_.result());
-    EXPECT_EQ(display_name, name);
+    EXPECT_EQ(result.has_recognized_platform_authenticator_credential,
+              has_platform_credential);
   }
 
  protected:
@@ -136,41 +106,26 @@ class TestObserver : public FidoRequestHandlerBase::Observer {
   void FidoAuthenticatorAdded(const FidoAuthenticator& authenticator) override {
   }
   void FidoAuthenticatorRemoved(base::StringPiece device_id) override {}
-  void FidoAuthenticatorIdChanged(base::StringPiece old_authenticator_id,
-                                  std::string new_authenticator_id) override {
-    authenticator_id_change_notification_receiver_.callback().Run(
-        std::move(new_authenticator_id));
-  }
-  void FidoAuthenticatorPairingModeChanged(
-      base::StringPiece authenticator_id,
-      bool is_in_pairing_mode,
-      base::string16 display_name) override {
-    authenticator_pairing_mode_changed_receiver_.callback().Run(
-        authenticator_id.as_string(), is_in_pairing_mode, display_name);
-  }
 
   bool SupportsPIN() const override { return false; }
 
   void CollectPIN(
-      base::Optional<int> attempts,
-      base::OnceCallback<void(std::string)> provide_pin_cb) override {
+      CollectPINOptions options,
+      base::OnceCallback<void(base::string16)> provide_pin_cb) override {
     NOTREACHED();
   }
 
-  void SetMightCreateResidentCredential(bool v) override {}
-
   void OnRetryUserVerification(int attempts) override {}
 
-  void OnInternalUserVerificationLocked() override {}
+  void StartBioEnrollment(base::OnceClosure next_callback) override {}
+
+  void OnSampleCollected(int remaining_samples) override {}
 
   void FinishCollectToken() override { NOTREACHED(); }
 
  private:
   TransportAvailabilityNotificationReceiver
       transport_availability_notification_receiver_;
-  AuthenticatorIdChangeNotificationReceiver
-      authenticator_id_change_notification_receiver_;
-  AuthenticatorPairingModeReceiver authenticator_pairing_mode_changed_receiver_;
 
   DISALLOW_COPY_AND_ASSIGN(TestObserver);
 };
@@ -245,6 +200,11 @@ class FakeFidoRequestHandler : public FidoRequestHandlerBase {
   }
   ~FakeFidoRequestHandler() override = default;
 
+  void set_has_platform_credential(bool has_platform_credential) {
+    has_platform_credential_ = has_platform_credential;
+  }
+
+ private:
   void DispatchRequest(FidoAuthenticator* authenticator) override {
     // FidoRequestHandlerTest uses FakeDiscovery to inject mock devices
     // that get wrapped in a FidoDeviceAuthenticator, so we can safely cast
@@ -260,7 +220,18 @@ class FakeFidoRequestHandler : public FidoRequestHandlerBase {
                        weak_factory_.GetWeakPtr(), authenticator)));
   }
 
- private:
+  void AuthenticatorAdded(FidoDiscoveryBase* discovery,
+                          FidoAuthenticator* authenticator) override {
+    if (authenticator->AuthenticatorTransport() ==
+        FidoTransportProtocol::kInternal) {
+      transport_availability_info()
+          .has_recognized_platform_authenticator_credential =
+          has_platform_credential_;
+    }
+
+    FidoRequestHandlerBase::AuthenticatorAdded(discovery, authenticator);
+  }
+
   void HandleResponse(FidoAuthenticator* authenticator,
                       CtapDeviceResponseCode status,
                       base::Optional<std::vector<uint8_t>> response) {
@@ -286,6 +257,8 @@ class FakeFidoRequestHandler : public FidoRequestHandlerBase {
   }
 
   CompletionCallback completion_callback_;
+  bool has_platform_credential_ = false;
+
   base::WeakPtrFactory<FakeFidoRequestHandler> weak_factory_{this};
 };
 
@@ -318,7 +291,6 @@ class FidoRequestHandlerTest : public ::testing::Test {
 
   void ForgeNextHidDiscovery() {
     discovery_ = fake_discovery_factory_.ForgeNextHidDiscovery();
-    ble_discovery_ = fake_discovery_factory_.ForgeNextBleDiscovery();
   }
 
   std::unique_ptr<FakeFidoRequestHandler> CreateFakeHandler() {
@@ -326,28 +298,12 @@ class FidoRequestHandlerTest : public ::testing::Test {
     auto handler = std::make_unique<FakeFidoRequestHandler>(
         &fake_discovery_factory_,
         base::flat_set<FidoTransportProtocol>(
-            {FidoTransportProtocol::kUsbHumanInterfaceDevice,
-             FidoTransportProtocol::kBluetoothLowEnergy}),
+            {FidoTransportProtocol::kUsbHumanInterfaceDevice}),
         cb_.callback());
     return handler;
   }
 
-  void ChangeAuthenticatorId(FakeFidoRequestHandler* request_handler,
-                             FidoDevice* device,
-                             std::string new_authenticator_id) {
-    request_handler->AuthenticatorIdChanged(ble_discovery_, device->GetId(),
-                                            std::move(new_authenticator_id));
-  }
-
-  void AuthenticatorPairingModeChanged(FakeFidoRequestHandler* request_handler,
-                                       std::string authenticator_id,
-                                       bool in_pairing_mode) {
-    request_handler->AuthenticatorPairingModeChanged(
-        ble_discovery_, authenticator_id, in_pairing_mode);
-  }
-
   test::FakeFidoDiscovery* discovery() const { return discovery_; }
-  test::FakeFidoDiscovery* ble_discovery() const { return ble_discovery_; }
   scoped_refptr<::testing::NiceMock<MockBluetoothAdapter>> adapter() {
     return mock_adapter_;
   }
@@ -359,7 +315,6 @@ class FidoRequestHandlerTest : public ::testing::Test {
   test::FakeFidoDiscoveryFactory fake_discovery_factory_;
   scoped_refptr<::testing::NiceMock<MockBluetoothAdapter>> mock_adapter_;
   test::FakeFidoDiscovery* discovery_;
-  test::FakeFidoDiscovery* ble_discovery_;
   FakeHandlerCallbackReceiver cb_;
 };
 
@@ -498,7 +453,7 @@ TEST_F(FidoRequestHandlerTest, TestRequestWithMultipleFailureResponses) {
       test_data::kTestAuthenticatorGetInfoResponse);
   EXPECT_CALL(*device0, GetId()).WillRepeatedly(testing::Return("device0"));
   EXPECT_CALL(*device0, GetDisplayName())
-      .WillRepeatedly(testing::Return(base::string16()));
+      .WillRepeatedly(testing::Return(std::string()));
   device0->ExpectRequestAndRespondWith(std::vector<uint8_t>(),
                                        CreateFakeDeviceProcesssingError());
 
@@ -510,7 +465,7 @@ TEST_F(FidoRequestHandlerTest, TestRequestWithMultipleFailureResponses) {
       test_data::kTestAuthenticatorGetInfoResponse);
   EXPECT_CALL(*device1, GetId()).WillRepeatedly(testing::Return("device1"));
   EXPECT_CALL(*device1, GetDisplayName())
-      .WillRepeatedly(testing::Return(base::string16()));
+      .WillRepeatedly(testing::Return(std::string()));
   device1->ExpectRequestAndRespondWith(std::vector<uint8_t>(),
                                        CreateFakeUserPresenceVerifiedError(),
                                        base::TimeDelta::FromMicroseconds(1));
@@ -523,7 +478,7 @@ TEST_F(FidoRequestHandlerTest, TestRequestWithMultipleFailureResponses) {
       test_data::kTestAuthenticatorGetInfoResponse);
   EXPECT_CALL(*device2, GetId()).WillRepeatedly(testing::Return("device2"));
   EXPECT_CALL(*device2, GetDisplayName())
-      .WillRepeatedly(testing::Return(base::string16()));
+      .WillRepeatedly(testing::Return(std::string()));
   device2->ExpectRequestAndRespondWith(std::vector<uint8_t>(),
                                        CreateFakeDeviceProcesssingError(),
                                        base::TimeDelta::FromMicroseconds(10));
@@ -625,12 +580,13 @@ TEST_F(FidoRequestHandlerTest, TestWithPlatformAuthenticator) {
       &fake_discovery_factory_,
       base::flat_set<FidoTransportProtocol>({FidoTransportProtocol::kInternal}),
       callback().callback());
+  request_handler->set_has_platform_credential(true);
   request_handler->set_observer(&observer);
   fake_discovery->AddDevice(std::move(device));
 
   observer.WaitForAndExpectAvailableTransportsAre(
       {FidoTransportProtocol::kInternal},
-      false /* has_recognized_mac_touch_id_credential */);
+      /*has_platform_credential=*/true);
 
   callback().WaitForCallback();
   EXPECT_TRUE(callback().status());
@@ -647,65 +603,16 @@ TEST_F(FidoRequestHandlerTest, InternalTransportDisallowedIfMarkedUnavailable) {
   observer.WaitForAndExpectAvailableTransportsAre({});
 }
 
-TEST_F(FidoRequestHandlerTest, BleTransportAllowedIfBluetoothAdapterPresent) {
-  EXPECT_CALL(*adapter(), IsPresent()).WillOnce(::testing::Return(true));
-
-  TestObserver observer;
-  auto request_handler = CreateFakeHandler();
-  ble_discovery()->WaitForCallToStartAndSimulateSuccess();
-  discovery()->WaitForCallToStartAndSimulateSuccess();
-  request_handler->set_observer(&observer);
-
-  observer.WaitForAndExpectAvailableTransportsAre(
-      {FidoTransportProtocol::kUsbHumanInterfaceDevice,
-       FidoTransportProtocol::kBluetoothLowEnergy});
-}
-
-TEST_F(FidoRequestHandlerTest,
-       BleTransportDisallowedBluetoothAdapterNotPresent) {
-  EXPECT_CALL(*adapter(), IsPresent()).WillOnce(::testing::Return(false));
-
-  TestObserver observer;
-  auto request_handler = CreateFakeHandler();
-  ble_discovery()->WaitForCallToStartAndSimulateSuccess();
-  discovery()->WaitForCallToStartAndSimulateSuccess();
-  request_handler->set_observer(&observer);
-
-  observer.WaitForAndExpectAvailableTransportsAre(
-      {FidoTransportProtocol::kUsbHumanInterfaceDevice});
-}
-
 TEST_F(FidoRequestHandlerTest,
        TransportAvailabilityNotificationOnObserverSetLate) {
-  EXPECT_CALL(*adapter(), IsPresent()).WillOnce(::testing::Return(true));
-
   TestObserver observer;
   auto request_handler = CreateFakeHandler();
-  ble_discovery()->WaitForCallToStartAndSimulateSuccess();
   discovery()->WaitForCallToStartAndSimulateSuccess();
   task_environment_.FastForwardUntilNoTasksRemain();
 
   request_handler->set_observer(&observer);
   observer.WaitForAndExpectAvailableTransportsAre(
-      {FidoTransportProtocol::kUsbHumanInterfaceDevice,
-       FidoTransportProtocol::kBluetoothLowEnergy});
-}
-
-TEST_F(FidoRequestHandlerTest, EmbedderNotifiedWhenAuthenticatorIdChanges) {
-  static constexpr char kNewAuthenticatorId[] = "new_authenticator_id";
-  TestObserver observer;
-  auto request_handler = CreateFakeHandler();
-  request_handler->set_observer(&observer);
-  discovery()->WaitForCallToStartAndSimulateSuccess();
-  ble_discovery()->WaitForCallToStartAndSimulateSuccess();
-
-  auto device = std::make_unique<MockFidoDevice>();
-  auto* device_ptr = device.get();
-  EXPECT_CALL(*device, GetId()).WillRepeatedly(testing::Return("device0"));
-  discovery()->AddDevice(std::move(device));
-
-  ChangeAuthenticatorId(request_handler.get(), device_ptr, kNewAuthenticatorId);
-  observer.WaitForAuthenticatorIdChangeNotification(kNewAuthenticatorId);
+      {FidoTransportProtocol::kUsbHumanInterfaceDevice});
 }
 
 #if defined(OS_WIN)
@@ -741,28 +648,5 @@ TEST_F(FidoRequestHandlerTest, TransportAvailabilityOfWindowsAuthenticator) {
   }
 }
 #endif  // defined(OS_WIN)
-
-// Verify that a BLE device's display name propagates to the UI layer
-// when its pairing mode changes.
-TEST_F(FidoRequestHandlerTest, DisplayNameUpdatesWhenPairingModeChanges) {
-  constexpr char kDeviceId[] = "device0";
-  const base::string16 kDisplayName(base::ASCIIToUTF16("new_display_name"));
-  EXPECT_CALL(*adapter(), IsPresent()).WillOnce(::testing::Return(true));
-
-  TestObserver observer;
-  auto request_handler = CreateFakeHandler();
-  request_handler->set_observer(&observer);
-  ble_discovery()->WaitForCallToStartAndSimulateSuccess();
-
-  auto device = std::make_unique<MockFidoDevice>();
-  EXPECT_CALL(*device, GetId()).WillRepeatedly(testing::Return(kDeviceId));
-  EXPECT_CALL(*device, GetDisplayName())
-      .WillRepeatedly(testing::Return(kDisplayName));
-  ble_discovery()->AddDevice(std::move(device));
-
-  AuthenticatorPairingModeChanged(request_handler.get(), kDeviceId, true);
-  observer.WaitForAuthenticatorPairingModeChanged(kDeviceId, true,
-                                                  kDisplayName);
-}
 
 }  // namespace device

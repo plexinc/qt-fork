@@ -43,7 +43,6 @@
 #include "qfilesystemengine_p.h"
 #include "qfile.h"
 #include "qstorageinfo.h"
-#include "qtextstream.h"
 
 #include <QtCore/qoperatingsystemversion.h>
 #include <QtCore/private/qcore_unix_p.h>
@@ -195,7 +194,7 @@ namespace {
 namespace GetFileTimes {
 #if !QT_CONFIG(futimens) && (QT_CONFIG(futimes))
 template <typename T>
-static inline typename QtPrivate::QEnableIf<(&T::st_atim, &T::st_mtim, true)>::Type get(const T *p, struct timeval *access, struct timeval *modification)
+static inline typename std::enable_if_t<(&T::st_atim, &T::st_mtim, true)> get(const T *p, struct timeval *access, struct timeval *modification)
 {
     access->tv_sec = p->st_atim.tv_sec;
     access->tv_usec = p->st_atim.tv_nsec / 1000;
@@ -205,7 +204,7 @@ static inline typename QtPrivate::QEnableIf<(&T::st_atim, &T::st_mtim, true)>::T
 }
 
 template <typename T>
-static inline typename QtPrivate::QEnableIf<(&T::st_atimespec, &T::st_mtimespec, true)>::Type get(const T *p, struct timeval *access, struct timeval *modification)
+static inline typename std::enable_if_t<(&T::st_atimespec, &T::st_mtimespec, true)> get(const T *p, struct timeval *access, struct timeval *modification)
 {
     access->tv_sec = p->st_atimespec.tv_sec;
     access->tv_usec = p->st_atimespec.tv_nsec / 1000;
@@ -217,7 +216,7 @@ static inline typename QtPrivate::QEnableIf<(&T::st_atimespec, &T::st_mtimespec,
 #  ifndef st_atimensec
 // if "st_atimensec" is defined, this would expand to invalid C++
 template <typename T>
-static inline typename QtPrivate::QEnableIf<(&T::st_atimensec, &T::st_mtimensec, true)>::Type get(const T *p, struct timeval *access, struct timeval *modification)
+static inline typename std::enable_if_t<(&T::st_atimensec, &T::st_mtimensec, true)> get(const T *p, struct timeval *access, struct timeval *modification)
 {
     access->tv_sec = p->st_atime;
     access->tv_usec = p->st_atimensec / 1000;
@@ -234,51 +233,51 @@ qint64 timespecToMSecs(const timespec &spec)
 }
 
 // fallback set
-Q_DECL_UNUSED qint64 atime(const QT_STATBUF &statBuffer, ulong) { return qint64(statBuffer.st_atime) * 1000; }
-Q_DECL_UNUSED qint64 birthtime(const QT_STATBUF &, ulong)       { return Q_INT64_C(0); }
-Q_DECL_UNUSED qint64 ctime(const QT_STATBUF &statBuffer, ulong) { return qint64(statBuffer.st_ctime) * 1000; }
-Q_DECL_UNUSED qint64 mtime(const QT_STATBUF &statBuffer, ulong) { return qint64(statBuffer.st_mtime) * 1000; }
+[[maybe_unused]] qint64 atime(const QT_STATBUF &statBuffer, ulong) { return qint64(statBuffer.st_atime) * 1000; }
+[[maybe_unused]] qint64 birthtime(const QT_STATBUF &, ulong)       { return Q_INT64_C(0); }
+[[maybe_unused]] qint64 ctime(const QT_STATBUF &statBuffer, ulong) { return qint64(statBuffer.st_ctime) * 1000; }
+[[maybe_unused]] qint64 mtime(const QT_STATBUF &statBuffer, ulong) { return qint64(statBuffer.st_mtime) * 1000; }
 
 // Xtim, POSIX.1-2008
 template <typename T>
-Q_DECL_UNUSED static typename std::enable_if<(&T::st_atim, true), qint64>::type
+[[maybe_unused]] static typename std::enable_if<(&T::st_atim, true), qint64>::type
 atime(const T &statBuffer, int)
 { return timespecToMSecs(statBuffer.st_atim); }
 
 template <typename T>
-Q_DECL_UNUSED static typename std::enable_if<(&T::st_birthtim, true), qint64>::type
+[[maybe_unused]] static typename std::enable_if<(&T::st_birthtim, true), qint64>::type
 birthtime(const T &statBuffer, int)
 { return timespecToMSecs(statBuffer.st_birthtim); }
 
 template <typename T>
-Q_DECL_UNUSED static typename std::enable_if<(&T::st_ctim, true), qint64>::type
+[[maybe_unused]] static typename std::enable_if<(&T::st_ctim, true), qint64>::type
 ctime(const T &statBuffer, int)
 { return timespecToMSecs(statBuffer.st_ctim); }
 
 template <typename T>
-Q_DECL_UNUSED static typename std::enable_if<(&T::st_mtim, true), qint64>::type
+[[maybe_unused]] static typename std::enable_if<(&T::st_mtim, true), qint64>::type
 mtime(const T &statBuffer, int)
 { return timespecToMSecs(statBuffer.st_mtim); }
 
 #ifndef st_mtimespec
 // Xtimespec
 template <typename T>
-Q_DECL_UNUSED static typename std::enable_if<(&T::st_atimespec, true), qint64>::type
+[[maybe_unused]] static typename std::enable_if<(&T::st_atimespec, true), qint64>::type
 atime(const T &statBuffer, int)
 { return timespecToMSecs(statBuffer.st_atimespec); }
 
 template <typename T>
-Q_DECL_UNUSED static typename std::enable_if<(&T::st_birthtimespec, true), qint64>::type
+[[maybe_unused]] static typename std::enable_if<(&T::st_birthtimespec, true), qint64>::type
 birthtime(const T &statBuffer, int)
 { return timespecToMSecs(statBuffer.st_birthtimespec); }
 
 template <typename T>
-Q_DECL_UNUSED static typename std::enable_if<(&T::st_ctimespec, true), qint64>::type
+[[maybe_unused]] static typename std::enable_if<(&T::st_ctimespec, true), qint64>::type
 ctime(const T &statBuffer, int)
 { return timespecToMSecs(statBuffer.st_ctimespec); }
 
 template <typename T>
-Q_DECL_UNUSED static typename std::enable_if<(&T::st_mtimespec, true), qint64>::type
+[[maybe_unused]] static typename std::enable_if<(&T::st_mtimespec, true), qint64>::type
 mtime(const T &statBuffer, int)
 { return timespecToMSecs(statBuffer.st_mtimespec); }
 #endif
@@ -286,22 +285,22 @@ mtime(const T &statBuffer, int)
 #if !defined(st_mtimensec) && !defined(__alpha__)
 // Xtimensec
 template <typename T>
-Q_DECL_UNUSED static typename std::enable_if<(&T::st_atimensec, true), qint64>::type
+[[maybe_unused]] static typename std::enable_if<(&T::st_atimensec, true), qint64>::type
 atime(const T &statBuffer, int)
 { return statBuffer.st_atime * Q_INT64_C(1000) + statBuffer.st_atimensec / 1000000; }
 
 template <typename T>
-Q_DECL_UNUSED static typename std::enable_if<(&T::st_birthtimensec, true), qint64>::type
+[[maybe_unused]] static typename std::enable_if<(&T::st_birthtimensec, true), qint64>::type
 birthtime(const T &statBuffer, int)
 { return statBuffer.st_birthtime * Q_INT64_C(1000) + statBuffer.st_birthtimensec / 1000000; }
 
 template <typename T>
-Q_DECL_UNUSED static typename std::enable_if<(&T::st_ctimensec, true), qint64>::type
+[[maybe_unused]] static typename std::enable_if<(&T::st_ctimensec, true), qint64>::type
 ctime(const T &statBuffer, int)
 { return statBuffer.st_ctime * Q_INT64_C(1000) + statBuffer.st_ctimensec / 1000000; }
 
 template <typename T>
-Q_DECL_UNUSED static typename std::enable_if<(&T::st_mtimensec, true), qint64>::type
+[[maybe_unused]] static typename std::enable_if<(&T::st_mtimensec, true), qint64>::type
 mtime(const T &statBuffer, int)
 { return statBuffer.st_mtime * Q_INT64_C(1000) + statBuffer.st_mtimensec / 1000000; }
 #endif
@@ -312,7 +311,7 @@ mtime(const T &statBuffer, int)
 static int qt_real_statx(int fd, const char *pathname, int flags, struct statx *statxBuffer)
 {
     unsigned mask = STATX_BASIC_STATS | STATX_BTIME;
-    int ret = statx(fd, pathname, flags, mask, statxBuffer);
+    int ret = statx(fd, pathname, flags | AT_NO_AUTOMOUNT, mask, statxBuffer);
     return ret == -1 ? -errno : 0;
 }
 
@@ -616,7 +615,7 @@ void QFileSystemMetaData::fillFromDirEnt(const QT_DIRENT &entry)
         clear();
     }
 #else
-    Q_UNUSED(entry)
+    Q_UNUSED(entry);
 #endif
 }
 
@@ -1125,6 +1124,8 @@ static bool createDirectoryWithParents(const QByteArray &nativeName, bool should
 
     if (shouldMkdirFirst && QT_MKDIR(nativeName, 0777) == 0)
         return true;
+    if (errno == EISDIR)
+        return true;
     if (errno == EEXIST)
         return isDir(nativeName);
     if (errno != ENOENT)
@@ -1401,14 +1402,12 @@ bool QFileSystemEngine::moveFileToTrash(const QFileSystemEntry &source,
         return false;
     }
 
-    QTextStream out(&infoFile);
-#if QT_CONFIG(textcodec)
-    out.setCodec("UTF-8");
-#endif
-    out << "[Trash Info]" << Qt::endl;
-    out << "Path=" << sourcePath << Qt::endl;
-    out << "DeletionDate="
-        << QDateTime::currentDateTime().toString(QLatin1String("yyyy-MM-ddThh:mm:ss")) << Qt::endl;
+    QByteArray info =
+            "[Trash Info]\n"
+            "Path=" + sourcePath.toUtf8() + "\n"
+            "DeletionDate=" + QDateTime::currentDateTime().toString(QLatin1String("yyyy-MM-ddThh:mm:ss")).toUtf8()
+            + "\n";
+    infoFile.write(info);
     infoFile.close();
 
     newLocation = QFileSystemEntry(targetPath);

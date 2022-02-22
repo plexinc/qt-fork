@@ -8,17 +8,23 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/logging.h"
+#include "base/check_op.h"
+#include "base/notreached.h"
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/trace_event/trace_event.h"
 #include "ui/gfx/gpu_fence.h"
 #include "ui/gfx/presentation_feedback.h"
+#include "ui/gl/gl_bindings.h"
 #include "ui/ozone/common/egl_util.h"
 #include "ui/ozone/platform/drm/gpu/drm_device.h"
 #include "ui/ozone/platform/drm/gpu/drm_framebuffer.h"
 #include "ui/ozone/platform/drm/gpu/drm_window_proxy.h"
 #include "ui/ozone/platform/drm/gpu/gbm_surface_factory.h"
+
+#if BUILDFLAG(USE_OPENGL_APITRACE)
+#include "ui/gl/gl_implementation.h"
+#endif
 
 namespace ui {
 
@@ -78,6 +84,16 @@ bool GbmSurfaceless::ScheduleOverlayPlane(
   return true;
 }
 
+bool GbmSurfaceless::Resize(const gfx::Size& size,
+                            float scale_factor,
+                            const gfx::ColorSpace& color_space,
+                            bool has_alpha) {
+  if (window_)
+    window_->SetColorSpace(color_space);
+
+  return SurfacelessEGL::Resize(size, scale_factor, color_space, has_alpha);
+}
+
 bool GbmSurfaceless::IsOffscreen() {
   return false;
 }
@@ -110,7 +126,8 @@ void GbmSurfaceless::SwapBuffersAsync(
   TRACE_EVENT0("drm", "GbmSurfaceless::SwapBuffersAsync");
   // If last swap failed, don't try to schedule new ones.
   if (!last_swap_buffers_result_) {
-    std::move(completion_callback).Run(gfx::SwapResult::SWAP_FAILED, nullptr);
+    std::move(completion_callback)
+        .Run(gfx::SwapCompletionResult(gfx::SwapResult::SWAP_FAILED));
     // Notify the caller, the buffer is never presented on a screen.
     std::move(presentation_callback).Run(gfx::PresentationFeedback::Failure());
     return;
@@ -120,6 +137,10 @@ void GbmSurfaceless::SwapBuffersAsync(
       requires_gl_flush_on_swap_buffers_) {
     glFlush();
   }
+
+#if BUILDFLAG(USE_OPENGL_APITRACE)
+  gl::TerminateFrame();  // Notify end of frame at buffer swap request.
+#endif
 
   unsubmitted_frames_.back()->Flush();
 
@@ -203,6 +224,10 @@ void GbmSurfaceless::SetForceGlFlushOnSwapBuffers() {
   requires_gl_flush_on_swap_buffers_ = true;
 }
 
+gfx::SurfaceOrigin GbmSurfaceless::GetOrigin() const {
+  return gfx::SurfaceOrigin::kTopLeft;
+}
+
 GbmSurfaceless::~GbmSurfaceless() {
   Destroy();  // The EGL surface must be destroyed before SurfaceOzone.
   surface_factory_->UnregisterSurface(window_->widget());
@@ -229,6 +254,13 @@ void GbmSurfaceless::SubmitFrame() {
   DCHECK(!unsubmitted_frames_.empty());
 
   if (unsubmitted_frames_.front()->ready && !submitted_frame_) {
+    for (auto& overlay : unsubmitted_frames_.front()->overlays) {
+      if (overlay.z_order() == 0 && overlay.gpu_fence()) {
+        submitted_frame_gpu_fence_ = std::make_unique<gfx::GpuFence>(
+            overlay.gpu_fence()->GetGpuFenceHandle().Clone());
+        break;
+      }
+    }
     submitted_frame_ = std::move(unsubmitted_frames_.front());
     unsubmitted_frames_.erase(unsubmitted_frames_.begin());
 
@@ -269,12 +301,19 @@ void GbmSurfaceless::OnSubmission(gfx::SwapResult result,
 }
 
 void GbmSurfaceless::OnPresentation(const gfx::PresentationFeedback& feedback) {
-  // Explicitly destroy overlays to free resources (e.g., fences) early.
+  gfx::PresentationFeedback feedback_copy = feedback;
+
+  if (submitted_frame_gpu_fence_ && !feedback.failed()) {
+    feedback_copy.ready_timestamp =
+        submitted_frame_gpu_fence_->GetMaxTimestamp();
+  }
+  submitted_frame_gpu_fence_.reset();
   submitted_frame_->overlays.clear();
 
   gfx::SwapResult result = submitted_frame_->swap_result;
-  std::move(submitted_frame_->completion_callback).Run(result, nullptr);
-  std::move(submitted_frame_->presentation_callback).Run(feedback);
+  std::move(submitted_frame_->completion_callback)
+      .Run(gfx::SwapCompletionResult(result));
+  std::move(submitted_frame_->presentation_callback).Run(feedback_copy);
   submitted_frame_.reset();
 
   if (result == gfx::SwapResult::SWAP_FAILED) {

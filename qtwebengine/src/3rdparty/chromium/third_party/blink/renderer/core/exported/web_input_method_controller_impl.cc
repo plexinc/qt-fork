@@ -4,7 +4,6 @@
 
 #include "third_party/blink/renderer/core/exported/web_input_method_controller_impl.h"
 
-#include "third_party/blink/public/platform/web_rect.h"
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/public/platform/web_vector.h"
 #include "third_party/blink/public/web/web_plugin.h"
@@ -33,7 +32,7 @@ WebInputMethodControllerImpl::WebInputMethodControllerImpl(
 
 WebInputMethodControllerImpl::~WebInputMethodControllerImpl() = default;
 
-void WebInputMethodControllerImpl::Trace(Visitor* visitor) {
+void WebInputMethodControllerImpl::Trace(Visitor* visitor) const {
   visitor->Trace(web_frame_);
 }
 
@@ -41,9 +40,20 @@ bool WebInputMethodControllerImpl::IsEditContextActive() const {
   return GetInputMethodController().GetActiveEditContext();
 }
 
+ui::mojom::VirtualKeyboardVisibilityRequest
+WebInputMethodControllerImpl::GetLastVirtualKeyboardVisibilityRequest() const {
+  return GetInputMethodController().GetLastVirtualKeyboardVisibilityRequest();
+}
+
+void WebInputMethodControllerImpl::SetVirtualKeyboardVisibilityRequest(
+    ui::mojom::VirtualKeyboardVisibilityRequest vk_visibility_request) {
+  GetInputMethodController().SetVirtualKeyboardVisibilityRequest(
+      vk_visibility_request);
+}
+
 bool WebInputMethodControllerImpl::SetComposition(
     const WebString& text,
-    const WebVector<WebImeTextSpan>& ime_text_spans,
+    const WebVector<ui::ImeTextSpan>& ime_text_spans,
     const WebRange& replacement_range,
     int selection_start,
     int selection_end) {
@@ -84,7 +94,8 @@ bool WebInputMethodControllerImpl::SetComposition(
       return false;
   }
 
-  LocalFrame::NotifyUserActivation(GetFrame());
+  LocalFrame::NotifyUserActivation(
+      GetFrame(), mojom::blink::UserActivationNotificationType::kInteraction);
 
   GetInputMethodController().SetComposition(
       String(text), ImeTextSpanVectorBuilder::Build(ime_text_spans),
@@ -124,10 +135,11 @@ bool WebInputMethodControllerImpl::FinishComposingText(
 
 bool WebInputMethodControllerImpl::CommitText(
     const WebString& text,
-    const WebVector<WebImeTextSpan>& ime_text_spans,
+    const WebVector<ui::ImeTextSpan>& ime_text_spans,
     const WebRange& replacement_range,
     int relative_caret_position) {
-  LocalFrame::NotifyUserActivation(GetFrame());
+  LocalFrame::NotifyUserActivation(
+      GetFrame(), mojom::blink::UserActivationNotificationType::kInteraction);
 
   if (IsEditContextActive()) {
     return GetInputMethodController().GetActiveEditContext()->CommitText(
@@ -174,16 +186,17 @@ WebTextInputType WebInputMethodControllerImpl::TextInputType() {
   return GetFrame()->GetInputMethodController().TextInputType();
 }
 
-void WebInputMethodControllerImpl::GetLayoutBounds(WebRect* control_bounds,
-                                                   WebRect* selection_bounds) {
+void WebInputMethodControllerImpl::GetLayoutBounds(
+    gfx::Rect* control_bounds,
+    gfx::Rect* selection_bounds) {
   GetInputMethodController().GetLayoutBounds(control_bounds, selection_bounds);
 }
 
-bool WebInputMethodControllerImpl::IsInputPanelPolicyManual() const {
+bool WebInputMethodControllerImpl::IsVirtualKeyboardPolicyManual() const {
   if (IsEditContextActive()) {
     return GetInputMethodController()
         .GetActiveEditContext()
-        ->IsInputPanelPolicyManual();
+        ->IsVirtualKeyboardPolicyManual();
   }
   return false;  // Default should always be automatic.
 }
@@ -210,7 +223,7 @@ WebRange WebInputMethodControllerImpl::CompositionRange() {
 }
 
 bool WebInputMethodControllerImpl::GetCompositionCharacterBounds(
-    WebVector<WebRect>& bounds) {
+    WebVector<gfx::Rect>& bounds) {
   if (IsEditContextActive())
     return false;
 
@@ -220,14 +233,14 @@ bool WebInputMethodControllerImpl::GetCompositionCharacterBounds(
 
   size_t character_count = range.length();
   size_t offset = range.StartOffset();
-  WebVector<WebRect> result(character_count);
-  WebRect webrect;
+  WebVector<gfx::Rect> result(character_count);
+  gfx::Rect rect;
   for (size_t i = 0; i < character_count; ++i) {
-    if (!web_frame_->FirstRectForCharacterRange(offset + i, 1, webrect)) {
+    if (!web_frame_->FirstRectForCharacterRange(offset + i, 1, rect)) {
       DLOG(ERROR) << "Could not retrieve character rectangle at " << i;
       return false;
     }
-    result[i] = webrect;
+    result[i] = rect;
   }
 
   bounds.Swap(result);

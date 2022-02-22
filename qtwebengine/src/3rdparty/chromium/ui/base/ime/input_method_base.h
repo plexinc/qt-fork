@@ -14,7 +14,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "build/build_config.h"
-#include "ui/base/ime/ime_input_context_handler_interface.h"
+#include "ui/base/ime/composition_text.h"
 #include "ui/base/ime/input_method.h"
 #include "ui/events/event_dispatcher.h"
 
@@ -33,8 +33,7 @@ class TextInputClient;
 // implementations.
 class COMPONENT_EXPORT(UI_BASE_IME) InputMethodBase
     : public InputMethod,
-      public base::SupportsWeakPtr<InputMethodBase>,
-      public IMEInputContextHandlerInterface {
+      public base::SupportsWeakPtr<InputMethodBase> {
  public:
   ~InputMethodBase() override;
 
@@ -69,38 +68,17 @@ class COMPONENT_EXPORT(UI_BASE_IME) InputMethodBase
   void AddObserver(InputMethodObserver* observer) override;
   void RemoveObserver(InputMethodObserver* observer) override;
 
-  InputMethodKeyboardController* GetInputMethodKeyboardController() override;
+  VirtualKeyboardController* GetVirtualKeyboardController() override;
 
  protected:
   explicit InputMethodBase(internal::InputMethodDelegate* delegate);
   InputMethodBase(internal::InputMethodDelegate* delegate,
-                  std::unique_ptr<InputMethodKeyboardController> controller);
+                  std::unique_ptr<VirtualKeyboardController> controller);
 
   virtual void OnWillChangeFocusedClient(TextInputClient* focused_before,
                                          TextInputClient* focused) {}
   virtual void OnDidChangeFocusedClient(TextInputClient* focused_before,
                                         TextInputClient* focused) {}
-
-  // IMEInputContextHandlerInterface:
-  void CommitText(const std::string& text) override;
-  void UpdateCompositionText(const CompositionText& text,
-                             uint32_t cursor_pos,
-                             bool visible) override;
-
-#if defined(OS_CHROMEOS)
-  bool SetCompositionRange(
-      uint32_t before,
-      uint32_t after,
-      const std::vector<ui::ImeTextSpan>& text_spans) override;
-  bool SetSelectionRange(uint32_t start, uint32_t end) override;
-#endif
-
-  void DeleteSurroundingText(int32_t offset, uint32_t length) override;
-  SurroundingTextInfo GetSurroundingTextInfo() override;
-  void SendKeyEvent(KeyEvent* event) override;
-  InputMethod* GetInputMethod() override;
-  void ConfirmCompositionText(bool reset_engine, bool keep_selection) override;
-  bool HasCompositionText() override;
 
   // Sends a fake key event for IME composing without physical key events.
   // Returns true if the faked key event is stopped propagation.
@@ -134,14 +112,8 @@ class COMPONENT_EXPORT(UI_BASE_IME) InputMethodBase
 
   internal::InputMethodDelegate* delegate() const { return delegate_; }
 
-  static IMEEngineHandlerInterface* GetEngine();
-
  private:
   internal::InputMethodDelegate* delegate_;
-
-  // InputMethod:
-  const std::vector<std::unique_ptr<ui::KeyEvent>>& GetKeyEventsForTesting()
-      override;
 
   void SetFocusedTextInputClientInternal(TextInputClient* client);
 
@@ -149,12 +121,10 @@ class COMPONENT_EXPORT(UI_BASE_IME) InputMethodBase
 
   base::ObserverList<InputMethodObserver>::Unchecked observer_list_;
 
-  std::vector<std::unique_ptr<ui::KeyEvent>> key_events_for_testing_;
-
   // Screen bounds of a on-screen keyboard.
   gfx::Rect keyboard_bounds_;
 
-  std::unique_ptr<InputMethodKeyboardController> const keyboard_controller_;
+  std::unique_ptr<VirtualKeyboardController> const keyboard_controller_;
 
   DISALLOW_COPY_AND_ASSIGN(InputMethodBase);
 };

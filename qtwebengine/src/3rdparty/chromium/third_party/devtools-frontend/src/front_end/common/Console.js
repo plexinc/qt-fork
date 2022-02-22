@@ -10,9 +10,6 @@ import {reveal} from './Revealer.js';
  */
 let consoleInstance;
 
-/**
- * @unrestricted
- */
 export class Console extends ObjectWrapper {
   /**
    * Instantiable via the instance() factory below.
@@ -80,7 +77,7 @@ export class Console extends ObjectWrapper {
   }
 
   /**
-   * @return {!Promise.<undefined>}
+   * @return {!Promise.<void>}
    */
   showPromise() {
     return reveal(this);
@@ -101,9 +98,6 @@ export const MessageLevel = {
   Error: 'error'
 };
 
-/**
- * @unrestricted
- */
 export class Message {
   /**
    * @param {string} text

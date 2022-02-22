@@ -5,30 +5,33 @@
 **
 ** This file is part of the Qt3D module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL3$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
 ** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPLv3 included in the
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
 ** packaging of this file. Please review the following information to
 ** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl.html.
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
 ** GNU General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or later as published by the Free
-** Software Foundation and appearing in the file LICENSE.GPL included in
-** the packaging of this file. Please review the following information to
-** ensure the GNU General Public License version 2.0 requirements will be
-** met: http://www.gnu.org/licenses/gpl-2.0.html.
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -157,23 +160,16 @@ ComponentIndices channelComponentsToIndices(const Channel &channel,
                                             int expectedComponentCount,
                                             int offset)
 {
-#if defined Q_COMPILER_UNIFORM_INIT
-    static const QVector<char> standardSuffixes = { 'X', 'Y', 'Z', 'W' };
-    static const QVector<char> quaternionSuffixes = { 'W', 'X', 'Y', 'Z' };
-    static const QVector<char> colorSuffixesRGB = { 'R', 'G', 'B' };
-    static const QVector<char> colorSuffixesRGBA = { 'R', 'G', 'B', 'A' };
-#else
-    static const QVector<char> standardSuffixes = (QVector<char>() << 'X' << 'Y' << 'Z' << 'W');
-    static const QVector<char> quaternionSuffixes = (QVector<char>() << 'W' << 'X' << 'Y' << 'Z');
-    static const QVector<char> colorSuffixesRGB = (QVector<char>() << 'R' << 'G' << 'B');
-    static const QVector<char> colorSuffixesRGBA = (QVector<char>() << 'R' << 'G' << 'B' << 'A');
-#endif
+    static const QList<char> standardSuffixes = { 'X', 'Y', 'Z', 'W' };
+    static const QList<char> quaternionSuffixes = { 'W', 'X', 'Y', 'Z' };
+    static const QList<char> colorSuffixesRGB = { 'R', 'G', 'B' };
+    static const QList<char> colorSuffixesRGBA = { 'R', 'G', 'B', 'A' };
 
     switch (dataType) {
-    case QVariant::Quaternion:
+    case QMetaType::QQuaternion:
         return channelComponentsToIndicesHelper(channel, expectedComponentCount,
                                                 offset, quaternionSuffixes);
-    case QVariant::Color:
+    case QMetaType::QColor:
         if (expectedComponentCount == 3)
             return channelComponentsToIndicesHelper(channel, expectedComponentCount,
                                                     offset, colorSuffixesRGB);
@@ -189,9 +185,9 @@ ComponentIndices channelComponentsToIndices(const Channel &channel,
 ComponentIndices channelComponentsToIndicesHelper(const Channel &channel,
                                                   int expectedComponentCount,
                                                   int offset,
-                                                  const QVector<char> &suffixes)
+                                                  const QList<char> &suffixes)
 {
-    const int actualComponentCount = channel.channelComponents.size();
+    const int actualComponentCount = int(channel.channelComponents.size());
     if (actualComponentCount != expectedComponentCount) {
         qWarning() << "Data type expects" << expectedComponentCount
                    << "but found" << actualComponentCount << "components in the animation clip";
@@ -200,7 +196,7 @@ ComponentIndices channelComponentsToIndicesHelper(const Channel &channel,
     ComponentIndices indices(expectedComponentCount);
 
     // Generate the set of channel suffixes
-    QVector<char> channelSuffixes;
+    QList<char> channelSuffixes;
     channelSuffixes.reserve(expectedComponentCount);
     for (int i = 0; i < expectedComponentCount; ++i) {
         const QString &componentName = channel.channelComponents[i].name;
@@ -241,7 +237,7 @@ ClipResults evaluateClipAtLocalTime(AnimationClip *clip, float localTime)
     channelResults.resize(clip->channelCount());
 
     // Iterate over channels and evaluate the fcurves
-    const QVector<Channel> &channels = clip->channels();
+    const auto &channels = clip->channels();
     int i = 0;
     for (const Channel &channel : channels) {
         if (channel.name.contains(QStringLiteral("Rotation")) &&
@@ -351,31 +347,31 @@ Container mapChannelResultsToContainer(const MappingData &mappingData,
 
 QVariant buildPropertyValue(const MappingData &mappingData, const QVector<float> &channelResults)
 {
-    const int vectorOfFloatType = qMetaTypeId<QVector<float>>();
+    const int vectorOfFloatType = qMetaTypeId<QList<float>>();
 
     if (mappingData.type == vectorOfFloatType)
         return QVariant::fromValue(channelResults);
 
     switch (mappingData.type) {
     case QMetaType::Float:
-    case QVariant::Double: {
+    case QMetaType::Double: {
         return QVariant::fromValue(channelResults[mappingData.channelIndices[0]]);
     }
 
-    case QVariant::Vector2D: {
+    case QMetaType::QVector2D: {
         const QVector2D vector(channelResults[mappingData.channelIndices[0]],
                 channelResults[mappingData.channelIndices[1]]);
         return QVariant::fromValue(vector);
     }
 
-    case QVariant::Vector3D: {
+    case QMetaType::QVector3D: {
         const QVector3D vector(channelResults[mappingData.channelIndices[0]],
                 channelResults[mappingData.channelIndices[1]],
                 channelResults[mappingData.channelIndices[2]]);
         return QVariant::fromValue(vector);
     }
 
-    case QVariant::Vector4D: {
+    case QMetaType::QVector4D: {
         const QVector4D vector(channelResults[mappingData.channelIndices[0]],
                 channelResults[mappingData.channelIndices[1]],
                 channelResults[mappingData.channelIndices[2]],
@@ -383,7 +379,7 @@ QVariant buildPropertyValue(const MappingData &mappingData, const QVector<float>
         return QVariant::fromValue(vector);
     }
 
-    case QVariant::Quaternion: {
+    case QMetaType::QQuaternion: {
         QQuaternion q(channelResults[mappingData.channelIndices[0]],
                 channelResults[mappingData.channelIndices[1]],
                 channelResults[mappingData.channelIndices[2]],
@@ -392,7 +388,7 @@ QVariant buildPropertyValue(const MappingData &mappingData, const QVector<float>
         return QVariant::fromValue(q);
     }
 
-    case QVariant::Color: {
+    case QMetaType::QColor: {
         // A color can either be a vec3 or a vec4
         const QColor color =
                 QColor::fromRgbF(channelResults[mappingData.channelIndices[0]],
@@ -402,11 +398,12 @@ QVariant buildPropertyValue(const MappingData &mappingData, const QVector<float>
         return QVariant::fromValue(color);
     }
 
-    case QVariant::List: {
+    case QMetaType::QVariantList: {
         const QVariantList results = mapChannelResultsToContainer<QVariantList>(
                     mappingData, channelResults);
         return QVariant::fromValue(results);
     }
+
     default:
         qWarning() << "Unhandled animation type" << mappingData.type;
         break;
@@ -498,7 +495,7 @@ QVector<AnimationCallbackAndValue> prepareCallbacks(const QVector<MappingData> &
 // buildRequiredChannelsAndTypes() and assignChannelComponentIndices(). We are
 // currently repeating the iteration over mappings and extracting/generating
 // channel names, types and joint indices.
-QVector<MappingData> buildPropertyMappings(const QVector<ChannelMapping*> &channelMappings,
+QVector<MappingData> buildPropertyMappings(const QVector<ChannelMapping *> &channelMappings,
                                            const QVector<ChannelNameAndType> &channelNamesAndTypes,
                                            const QVector<ComponentIndices> &channelComponentIndices,
                                            const QVector<QBitArray> &sourceClipMask)
@@ -535,7 +532,7 @@ QVector<MappingData> buildPropertyMappings(const QVector<ChannelMapping*> &chann
             mappingData.callback = mapping->callback();
             mappingData.callbackFlags = mapping->callbackFlags();
 
-            if (mappingData.type == static_cast<int>(QVariant::Invalid)) {
+            if (mappingData.type == static_cast<int>(QMetaType::UnknownType)) {
                 qWarning() << "Unknown type for node id =" << mappingData.targetId
                            << "and property =" << mapping->propertyName()
                            << "and callback =" << mapping->callback();
@@ -564,10 +561,10 @@ QVector<MappingData> buildPropertyMappings(const QVector<ChannelMapping*> &chann
         }
 
         case ChannelMapping::SkeletonMappingType: {
-            const QVector<ChannelNameAndType> jointProperties
-                    = { { QLatin1String("Location"), static_cast<int>(QVariant::Vector3D), Translation },
-                        { QLatin1String("Rotation"), static_cast<int>(QVariant::Quaternion), Rotation },
-                        { QLatin1String("Scale"), static_cast<int>(QVariant::Vector3D), Scale } };
+            const QList<ChannelNameAndType> jointProperties
+                    = { { QLatin1String("Location"), static_cast<int>(QMetaType::QVector3D), Translation },
+                        { QLatin1String("Rotation"), static_cast<int>(QMetaType::QQuaternion), Rotation },
+                        { QLatin1String("Scale"), static_cast<int>(QMetaType::QVector3D), Scale } };
             const QHash<QString, const char *> channelNameToPropertyName
                     = { { QLatin1String("Location"), "translation" },
                         { QLatin1String("Rotation"), "rotation" },
@@ -632,7 +629,7 @@ QVector<ChannelNameAndType> buildRequiredChannelsAndTypes(Handler *handler,
                                                           const ChannelMapper *mapper)
 {
     ChannelMappingManager *mappingManager = handler->channelMappingManager();
-    const QVector<Qt3DCore::QNodeId> mappingIds = mapper->mappingIds();
+    const auto mappingIds = mapper->mappingIds();
 
     // Reserve enough storage assuming each mapping is for a different channel.
     // May be overkill but avoids potential for multiple allocations
@@ -643,7 +640,7 @@ QVector<ChannelNameAndType> buildRequiredChannelsAndTypes(Handler *handler,
     // We could add them all then sort and remove duplicates. However, our approach has the
     // advantage of keeping the blend tree format more consistent with the mapping
     // orderings which will have better cache locality when generating events.
-    for (const Qt3DCore::QNodeId mappingId : mappingIds) {
+    for (const Qt3DCore::QNodeId &mappingId : mappingIds) {
         // Get the mapping object
         ChannelMapping *mapping = mappingManager->lookupResource(mappingId);
         Q_ASSERT(mapping);
@@ -667,10 +664,10 @@ QVector<ChannelNameAndType> buildRequiredChannelsAndTypes(Handler *handler,
         case ChannelMapping::SkeletonMappingType: {
             // Add an entry for each scale/rotation/translation property of each joint index
             // of the target skeleton.
-            const QVector<ChannelNameAndType> jointProperties
-                    = { { QLatin1String("Location"), static_cast<int>(QVariant::Vector3D), Translation },
-                        { QLatin1String("Rotation"), static_cast<int>(QVariant::Quaternion), Rotation },
-                        { QLatin1String("Scale"), static_cast<int>(QVariant::Vector3D), Scale } };
+            const QList<ChannelNameAndType> jointProperties
+                    = { { QLatin1String("Location"), static_cast<int>(QMetaType::QVector3D), Translation },
+                        { QLatin1String("Rotation"), static_cast<int>(QMetaType::QQuaternion), Rotation },
+                        { QLatin1String("Scale"), static_cast<int>(QMetaType::QVector3D), Scale } };
             Skeleton *skeleton = handler->skeletonManager()->lookupResource(mapping->skeletonId());
             const int jointCount = skeleton->jointCount();
             for (int jointIndex = 0; jointIndex < jointCount; ++jointIndex) {
@@ -739,7 +736,7 @@ QVector<Qt3DCore::QNodeId> gatherValueNodesToEvaluate(Handler *handler,
             clipIds.append(blendNode->peerId());
 
         const auto dependencyIds = blendNode->currentDependencyIds();
-        for (const auto dependencyId : dependencyIds) {
+        for (const auto &dependencyId : dependencyIds) {
             // Look up the blend node and if it's a value type (clip),
             // add it to the set of value node ids that need to be evaluated
             ClipBlendNode *node = nodeManager->lookupNode(dependencyId);

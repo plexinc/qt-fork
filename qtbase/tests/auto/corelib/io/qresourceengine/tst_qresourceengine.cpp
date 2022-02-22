@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2018 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Copyright (C) 2019 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
@@ -27,7 +27,9 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QResource>
+#include <QtPlugin>
 #include <QtCore/QCoreApplication>
 #include <QtCore/QScopeGuard>
 #include <QtCore/private/qglobal_p.h>
@@ -57,10 +59,6 @@ private slots:
     void checkStructure();
     void searchPath_data();
     void searchPath();
-#if QT_DEPRECATED_SINCE(5, 13)
-    void searchPath_deprecated_data();
-    void searchPath_deprecated();
-#endif
     void doubleSlashInRoot();
     void setLocale();
     void lastModified();
@@ -492,7 +490,7 @@ void tst_QResourceEngine::checkStructure()
 
 void tst_QResourceEngine::searchPath_data()
 {
-    auto searchPath = QFileInfo(QFINDTESTDATA("testqrc")).canonicalFilePath();
+    auto searchPath = QFileInfo(QT_TESTCASE_SOURCEDIR "/testqrc").canonicalFilePath();
 
     QTest::addColumn<QString>("searchPathPrefix");
     QTest::addColumn<QString>("searchPath");
@@ -539,48 +537,6 @@ void tst_QResourceEngine::searchPath()
     QCOMPARE(actual, expected);
     qf.close();
 }
-
-#if QT_DEPRECATED_SINCE(5, 13)
-
-void tst_QResourceEngine::searchPath_deprecated_data()
-{
-    QTest::addColumn<QString>("searchPath");
-    QTest::addColumn<QString>("file");
-    QTest::addColumn<QByteArray>("expected");
-
-    QTest::newRow("no_search_path")  << QString()
-                                  << ":search_file.txt"
-                                  << QByteArray("root\n");
-    QTest::newRow("path1")  << "/searchpath1"
-                         << ":search_file.txt"
-                         << QByteArray("path1\n");
-    QTest::newRow("no_search_path2")  << QString()
-                                  << ":/search_file.txt"
-                                  << QByteArray("root\n");
-    QTest::newRow("path2")  << "/searchpath2"
-                         << ":search_file.txt"
-                         << QByteArray("path2\n");
-}
-
-void tst_QResourceEngine::searchPath_deprecated()
-{
-    QFETCH(QString, searchPath);
-    QFETCH(QString, file);
-    QFETCH(QByteArray, expected);
-
-    if(!searchPath.isEmpty())
-        QDir::addResourceSearchPath(searchPath);
-    QFile qf(file);
-    QVERIFY(qf.open(QFile::ReadOnly));
-    QByteArray actual = qf.readAll();
-
-    actual.replace('\r', "");
-
-    QCOMPARE(actual, expected);
-    qf.close();
-}
-
-#endif
 
 void tst_QResourceEngine::checkUnregisterResource_data()
 {

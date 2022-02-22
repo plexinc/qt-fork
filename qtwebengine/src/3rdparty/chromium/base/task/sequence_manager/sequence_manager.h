@@ -6,9 +6,9 @@
 #define BASE_TASK_SEQUENCE_MANAGER_SEQUENCE_MANAGER_H_
 
 #include <memory>
+#include <string>
 #include <utility>
 
-#include "base/macros.h"
 #include "base/message_loop/message_pump_type.h"
 #include "base/message_loop/timer_slack.h"
 #include "base/sequenced_task_runner.h"
@@ -56,7 +56,8 @@ class BASE_EXPORT SequenceManager {
   struct MetricRecordingSettings {
     // This parameter will be updated for consistency on creation (setting
     // value to 0 when ThreadTicks are not supported).
-    MetricRecordingSettings(double task_sampling_rate_for_recording_cpu_time);
+    explicit MetricRecordingSettings(
+        double task_sampling_rate_for_recording_cpu_time);
 
     // The proportion of the tasks for which the cpu time will be
     // sampled or 0 if this is not enabled.
@@ -81,6 +82,8 @@ class BASE_EXPORT SequenceManager {
     class Builder;
 
     Settings();
+    Settings(const Settings&) = delete;
+    Settings& operator=(const Settings&) = delete;
     // In the future MessagePump (which is move-only) will also be a setting,
     // so we are making Settings move-only in preparation.
     Settings(Settings&& move_from) noexcept;
@@ -113,9 +116,6 @@ class BASE_EXPORT SequenceManager {
     // to run.
     bool log_task_delay_expiry = false;
 
-    // If true usages of the RunLoop API will be logged.
-    bool log_runloop_quit_and_quit_when_idle = false;
-
     // Scheduler policy induced raciness is an area of concern. This lets us
     // apply an extra delay per priority for cross thread posting.
     std::array<TimeDelta, TaskQueue::kQueuePriorityCount>
@@ -131,8 +131,6 @@ class BASE_EXPORT SequenceManager {
     int random_task_selection_seed = 0;
 
 #endif  // DCHECK_IS_ON()
-
-    DISALLOW_COPY_AND_ASSIGN(Settings);
   };
 
   virtual ~SequenceManager() = default;
@@ -282,10 +280,6 @@ class BASE_EXPORT SequenceManager::Settings::Builder {
   // Whether or not debug logs will be emitted when a delayed task becomes
   // eligible to run.
   Builder& SetLogTaskDelayExpiry(bool log_task_delay_expiry);
-
-  // Whether or not usages of the RunLoop API will be logged.
-  Builder& SetLogRunloopQuitAndQuitWhenIdle(
-      bool log_runloop_quit_and_quit_when_idle);
 
   // Scheduler policy induced raciness is an area of concern. This lets us
   // apply an extra delay per priority for cross thread posting.

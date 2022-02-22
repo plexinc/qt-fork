@@ -30,14 +30,16 @@
 
 import * as ARIAUtils from './ARIAUtils.js';
 import {GlassPane, PointerEventsBehavior} from './GlassPane.js';
+import {InspectorView} from './InspectorView.js';
 import {KeyboardShortcut, Keys} from './KeyboardShortcut.js';
-import {SplitWidget} from './SplitWidget.js';  // eslint-disable-line no-unused-vars
+import {SplitWidget} from './SplitWidget.js';      // eslint-disable-line no-unused-vars
+import {DevToolsCloseButton} from './UIUtils.js';  // eslint-disable-line no-unused-vars
 import {WidgetFocusRestorer} from './Widget.js';
 
 export class Dialog extends GlassPane {
   constructor() {
     super();
-    this.registerRequiredCSS('ui/dialog.css');
+    this.registerRequiredCSS('ui/dialog.css', {enableLegacyPatching: false});
     this.contentElement.tabIndex = 0;
     this.contentElement.addEventListener('focus', () => this.widget().focus(), false);
     this.widget().setDefaultFocusedElement(this.contentElement);
@@ -57,22 +59,24 @@ export class Dialog extends GlassPane {
     /** @type {?Document} */
     this._targetDocument;
     this._targetDocumentKeyDownHandler = this._onKeyDown.bind(this);
+    /** @type {?function(!Event):void} */
+    this._escapeKeyCallback = null;
   }
 
   /**
    * @return {boolean}
    */
   static hasInstance() {
-    return !!Dialog._instance;
+    return Boolean(Dialog._instance);
   }
 
   /**
    * @override
-   * @param {!Document|!Element=} where
+   * @param {(!Document|!Element)=} where
    */
   show(where) {
     const document = /** @type {!Document} */ (
-        where instanceof Document ? where : (where || self.UI.inspectorView.element).ownerDocument);
+        where instanceof Document ? where : (where || InspectorView.instance().element).ownerDocument);
     this._targetDocument = document;
     this._targetDocument.addEventListener('keydown', this._targetDocumentKeyDownHandler, true);
 
@@ -89,14 +93,17 @@ export class Dialog extends GlassPane {
    * @override
    */
   hide() {
-    this._focusRestorer.restore();
+    if (this._focusRestorer) {
+      this._focusRestorer.restore();
+    }
     super.hide();
 
     if (this._targetDocument) {
       this._targetDocument.removeEventListener('keydown', this._targetDocumentKeyDownHandler, true);
     }
     this._restoreTabIndexOnElements();
-    delete Dialog._instance;
+    this.dispatchEventToListeners('hidden');
+    Dialog._instance = null;
   }
 
   /**
@@ -106,8 +113,16 @@ export class Dialog extends GlassPane {
     this._closeOnEscape = close;
   }
 
+  /**
+   * @param {function(!Event):void} callback
+   */
+  setEscapeKeyCallback(callback) {
+    this._escapeKeyCallback = callback;
+  }
+
   addCloseButton() {
-    const closeButton = this.contentElement.createChild('div', 'dialog-close-button', 'dt-close-button');
+    const closeButton = /** @type {!DevToolsCloseButton} */ (
+        this.contentElement.createChild('div', 'dialog-close-button', 'dt-close-button'));
     closeButton.gray = true;
     closeButton.addEventListener('click', () => this.hide(), false);
   }
@@ -129,11 +144,13 @@ export class Dialog extends GlassPane {
 
     let exclusionSet = /** @type {?Set.<!HTMLElement>} */ (null);
     if (this._tabIndexBehavior === OutsideTabIndexBehavior.PreserveMainViewTabIndex) {
-      exclusionSet = this._getMainWidgetTabIndexElements(self.UI.inspectorView.ownerSplit());
+      exclusionSet = this._getMainWidgetTabIndexElements(InspectorView.instance().ownerSplit());
     }
 
     this._tabIndexMap.clear();
-    for (let node = document; node; node = node.traverseNextNode(document)) {
+    /** @type {?Node} */
+    let node = document;
+    for (; node; node = node.traverseNextNode(document)) {
       if (node instanceof HTMLElement) {
         const element = /** @type {!HTMLElement} */ (node);
         const tabIndex = element.tabIndex;
@@ -160,7 +177,9 @@ export class Dialog extends GlassPane {
       return elementSet;
     }
 
-    for (let node = mainWidget.element; node; node = node.traverseNextNode(mainWidget.element)) {
+    /** @type {?Node} */
+    let node = mainWidget.element;
+    for (; node; node = node.traverseNextNode(mainWidget.element)) {
       if (!(node instanceof HTMLElement)) {
         continue;
       }
@@ -188,12 +207,26 @@ export class Dialog extends GlassPane {
    * @param {!Event} event
    */
   _onKeyDown(event) {
-    if (this._closeOnEscape && event.keyCode === Keys.Esc.code && KeyboardShortcut.hasNoModifiers(event)) {
-      event.consume(true);
-      this.hide();
+    const keyboardEvent = /** @type {!KeyboardEvent} */ (event);
+    if (keyboardEvent.keyCode === Keys.Esc.code && KeyboardShortcut.hasNoModifiers(event)) {
+      if (this._escapeKeyCallback) {
+        this._escapeKeyCallback(event);
+      }
+
+      if (event.handled) {
+        return;
+      }
+
+      if (this._closeOnEscape) {
+        event.consume(true);
+        this.hide();
+      }
     }
   }
 }
+
+/** @type {?Dialog} */
+Dialog._instance = null;
 
 /** @enum {symbol} */
 export const OutsideTabIndexBehavior = {

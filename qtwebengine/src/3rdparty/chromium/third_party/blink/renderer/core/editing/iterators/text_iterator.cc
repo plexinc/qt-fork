@@ -342,8 +342,7 @@ void TextIteratorAlgorithm<Strategy>::Advance() {
         if (std::is_same<Strategy, EditingStrategy>::value &&
             EntersOpenShadowRoots() && element && element->OpenShadowRoot()) {
           ShadowRoot* youngest_shadow_root = element->OpenShadowRoot();
-          DCHECK(youngest_shadow_root->GetType() == ShadowRootType::V0 ||
-                 youngest_shadow_root->GetType() == ShadowRootType::kOpen);
+          DCHECK(youngest_shadow_root->IsOpen());
           node_ = youngest_shadow_root;
           iteration_progress_ = kHandledNone;
           ++shadow_depth_;
@@ -357,7 +356,7 @@ void TextIteratorAlgorithm<Strategy>::Advance() {
       // Enter user-agent shadow root, if necessary.
       if (iteration_progress_ < kHandledUserAgentShadowRoot) {
         if (std::is_same<Strategy, EditingStrategy>::value &&
-            EntersTextControls() && layout_object->IsTextControl()) {
+            EntersTextControls() && layout_object->IsTextControlIncludingNG()) {
           ShadowRoot* user_agent_shadow_root =
               To<Element>(node_)->UserAgentShadowRoot();
           DCHECK(user_agent_shadow_root->IsUserAgent());
@@ -442,8 +441,7 @@ void TextIteratorAlgorithm<Strategy>::Advance() {
             should_stop_ = true;
             return;
           }
-          if (shadow_root->GetType() == ShadowRootType::V0 ||
-              shadow_root->GetType() == ShadowRootType::kOpen) {
+          if (shadow_root->IsOpen()) {
             // We are the shadow root; exit from here and go back to
             // where we were.
             node_ = &shadow_root->host();
@@ -554,7 +552,7 @@ void TextIteratorAlgorithm<Strategy>::HandleReplacedElement() {
     }
   }
 
-  if (EntersTextControls() && layout_object->IsTextControl()) {
+  if (EntersTextControls() && layout_object->IsTextControlIncludingNG()) {
     // The shadow tree should be already visited.
     return;
   }
@@ -1053,7 +1051,7 @@ static String CreatePlainText(const EphemeralRangeTemplate<Strategy>& range,
   builder.ReserveCapacity(kInitialCapacity);
 
   for (; !it.AtEnd(); it.Advance())
-    it.GetText().AppendTextToStringBuilder(builder);
+    it.GetTextState().AppendTextToStringBuilder(builder);
 
   if (builder.IsEmpty())
     return g_empty_string;

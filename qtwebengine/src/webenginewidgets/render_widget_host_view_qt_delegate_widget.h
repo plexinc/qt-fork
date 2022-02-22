@@ -51,7 +51,7 @@ QT_BEGIN_NAMESPACE
 class QWebEnginePage;
 class QWebEngineView;
 class QWebEngineViewAccessible;
-class QWebEnginePagePrivate;
+class QWebEngineViewPrivate;
 QT_END_NAMESPACE
 
 namespace QtWebEngineCore {
@@ -65,7 +65,7 @@ namespace QtWebEngineCore {
 class RenderWidgetHostViewQtDelegateWidget : public QQuickWidget, public RenderWidgetHostViewQtDelegate {
     Q_OBJECT
 public:
-    RenderWidgetHostViewQtDelegateWidget(RenderWidgetHostViewQtDelegateClient *client, QWidget *parent = 0);
+    RenderWidgetHostViewQtDelegateWidget(RenderWidgetHostViewQtDelegateClient *client, QWidget *parent = nullptr);
     ~RenderWidgetHostViewQtDelegateWidget();
 
     void initAsPopup(const QRect&) override;
@@ -79,18 +79,12 @@ public:
     void hide() override;
     bool isVisible() const override;
     QWindow* window() const override;
-    QSGTexture *createTextureFromImage(const QImage &) override;
-    QSGLayer *createLayer() override;
-    QSGImageNode *createImageNode() override;
-    QSGRectangleNode *createRectangleNode() override;
-    void update() override;
     void updateCursor(const QCursor &) override;
     void resize(int width, int height) override;
     void move(const QPoint &screenPos) override;
     void inputMethodStateChanged(bool editorVisible, bool passwordInput) override;
     void setInputMethodHints(Qt::InputMethodHints) override;
     void setClearColor(const QColor &color) override;
-    bool copySurface(const QRect &, const QSize &, QImage &) override;
     void unhandledWheelEvent(QWheelEvent *ev) override;
 
 protected:
@@ -101,14 +95,15 @@ protected:
     void closeEvent(QCloseEvent *event) override;
 
     QVariant inputMethodQuery(Qt::InputMethodQuery query) const override;
+    void adapterClientChanged(WebContentsAdapterClient *client) override;
 
-private slots:
+private Q_SLOTS:
     void onWindowPosChanged();
     void connectRemoveParentBeforeParentDelete();
     void removeParentBeforeParentDelete();
 
 private:
-    friend QWebEnginePagePrivate;
+    friend QWebEngineViewPrivate;
 
     RenderWidgetHostViewQtDelegateClient *m_client;
     QScopedPointer<QQuickItem> m_rootItem;
@@ -117,6 +112,7 @@ private:
     QList<QMetaObject::Connection> m_windowConnections;
     QWebEnginePage *m_page = nullptr;
     QMetaObject::Connection m_parentDestroyedConnection;
+    QMetaObject::Connection m_pageDestroyedConnection;
 };
 
 #if QT_CONFIG(accessibility)

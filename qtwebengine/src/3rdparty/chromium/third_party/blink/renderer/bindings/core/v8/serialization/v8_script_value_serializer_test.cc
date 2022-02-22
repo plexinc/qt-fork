@@ -9,7 +9,6 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/platform/web_blob_info.h"
-#include "third_party/blink/renderer/bindings/core/v8/script_controller.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_source_code.h"
 #include "third_party/blink/renderer/bindings/core/v8/serialization/unpacked_serialized_script_value.h"
 #include "third_party/blink/renderer/bindings/core/v8/serialization/v8_script_value_deserializer.h"
@@ -49,12 +48,13 @@
 #include "third_party/blink/renderer/core/messaging/message_port.h"
 #include "third_party/blink/renderer/core/mojo/mojo_handle.h"
 #include "third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.h"
+#include "third_party/blink/renderer/core/script/classic_script.h"
 #include "third_party/blink/renderer/core/streams/readable_stream.h"
+#include "third_party/blink/renderer/core/streams/transform_stream.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/file_metadata.h"
 #include "third_party/blink/renderer/platform/graphics/unaccelerated_static_bitmap_image.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
-#include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 #include "third_party/blink/renderer/platform/wtf/date_math.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkImage.h"
@@ -108,10 +108,8 @@ v8::Local<v8::Value> RoundTrip(
 }
 
 v8::Local<v8::Value> Eval(const String& source, V8TestingScope& scope) {
-  return scope.GetFrame()
-      .GetScriptController()
-      .ExecuteScriptInMainWorldAndReturnValue(source, KURL(),
-                                              SanitizeScriptErrors::kSanitize);
+  return ClassicScript::CreateUnspecifiedScript(ScriptSourceCode(source))
+      ->RunScriptAndReturnValue(&scope.GetWindow());
 }
 
 String ToJSON(v8::Local<v8::Object> object, const V8TestingScope& scope) {
@@ -761,8 +759,11 @@ TEST(V8ScriptValueSerializerTest, DecodeDOMMatrixReadOnly) {
 TEST(V8ScriptValueSerializerTest, RoundTripImageData) {
   // ImageData objects should serialize and deserialize correctly.
   V8TestingScope scope;
-  ImageData* image_data = ImageData::Create(2, 1, ASSERT_NO_EXCEPTION);
-  image_data->data()->Data()[0] = 200;
+  ImageData* image_data = ImageData::ValidateAndCreate(
+      2, 1, base::nullopt, nullptr, ASSERT_NO_EXCEPTION);
+  SkPixmap pm = image_data->GetSkPixmap();
+  pm.writable_addr32(0, 0)[0] = 200u;
+  pm.writable_addr32(1, 0)[0] = 100u;
   v8::Local<v8::Value> wrapper =
       ToV8(image_data, scope.GetContext()->Global(), scope.GetIsolate());
   v8::Local<v8::Value> result = RoundTrip(wrapper, scope);
@@ -770,21 +771,40 @@ TEST(V8ScriptValueSerializerTest, RoundTripImageData) {
   ImageData* new_image_data = V8ImageData::ToImpl(result.As<v8::Object>());
   EXPECT_NE(image_data, new_image_data);
   EXPECT_EQ(image_data->Size(), new_image_data->Size());
-  EXPECT_EQ(image_data->data()->lengthAsSizeT(),
-            new_image_data->data()->lengthAsSizeT());
-  EXPECT_EQ(200, new_image_data->data()->Data()[0]);
+  SkPixmap new_pm = new_image_data->GetSkPixmap();
+  EXPECT_EQ(200u, new_pm.addr32(0, 0)[0]);
+  EXPECT_EQ(100u, new_pm.addr32(1, 0)[0]);
+}
+
+TEST(V8ScriptValueSerializerTest, RoundTripDetachedImageData) {
+  // If an ImageData is detached, it can be serialized, but will fail when being
+  // deserialized.
+  V8TestingScope scope;
+  ImageData* image_data = ImageData::ValidateAndCreate(
+      2, 1, base::nullopt, nullptr, ASSERT_NO_EXCEPTION);
+  SkPixmap pm = image_data->GetSkPixmap();
+  pm.writable_addr32(0, 0)[0] = 200u;
+  image_data->data().GetAsUint8ClampedArray()->BufferBase()->Detach();
+
+  v8::Local<v8::Value> wrapper =
+      ToV8(image_data, scope.GetContext()->Global(), scope.GetIsolate());
+  v8::Local<v8::Value> result = RoundTrip(wrapper, scope);
+  EXPECT_FALSE(V8ImageData::HasInstance(result, scope.GetIsolate()));
 }
 
 TEST(V8ScriptValueSerializerTest, RoundTripImageDataWithColorSpaceInfo) {
   // ImageData objects with color space information should serialize and
   // deserialize correctly.
   V8TestingScope scope;
-  ImageDataColorSettings* color_settings = ImageDataColorSettings::Create();
-  color_settings->setColorSpace("p3");
-  color_settings->setStorageFormat("float32");
-  ImageData* image_data =
-      ImageData::CreateImageData(2, 1, color_settings, ASSERT_NO_EXCEPTION);
-  static_cast<unsigned char*>(image_data->BufferBase()->Data())[0] = 200;
+  ImageDataSettings* image_data_settings = ImageDataSettings::Create();
+  image_data_settings->setColorSpace("display-p3");
+  image_data_settings->setStorageFormat("float32");
+  ImageData* image_data = ImageData::ValidateAndCreate(
+      2, 1, base::nullopt, image_data_settings, ASSERT_NO_EXCEPTION);
+  SkPixmap pm = image_data->GetSkPixmap();
+  EXPECT_EQ(kRGBA_F32_SkColorType, pm.info().colorType());
+  static_cast<float*>(pm.writable_addr(0, 0))[0] = 200.f;
+
   v8::Local<v8::Value> wrapper =
       ToV8(image_data, scope.GetContext()->Global(), scope.GetIsolate());
   v8::Local<v8::Value> result = RoundTrip(wrapper, scope);
@@ -792,14 +812,12 @@ TEST(V8ScriptValueSerializerTest, RoundTripImageDataWithColorSpaceInfo) {
   ImageData* new_image_data = V8ImageData::ToImpl(result.As<v8::Object>());
   EXPECT_NE(image_data, new_image_data);
   EXPECT_EQ(image_data->Size(), new_image_data->Size());
-  ImageDataColorSettings* new_color_settings =
-      new_image_data->getColorSettings();
-  EXPECT_EQ("p3", new_color_settings->colorSpace());
-  EXPECT_EQ("float32", new_color_settings->storageFormat());
-  EXPECT_EQ(image_data->BufferBase()->ByteLengthAsSizeT(),
-            new_image_data->BufferBase()->ByteLengthAsSizeT());
-  EXPECT_EQ(200, static_cast<unsigned char*>(
-                     new_image_data->BufferBase()->Data())[0]);
+  ImageDataSettings* new_image_data_settings = new_image_data->getSettings();
+  EXPECT_EQ("display-p3", new_image_data_settings->colorSpace());
+  EXPECT_EQ("float32", new_image_data_settings->storageFormat());
+  SkPixmap new_pm = new_image_data->GetSkPixmap();
+  EXPECT_EQ(kRGBA_F32_SkColorType, new_pm.info().colorType());
+  EXPECT_EQ(200.f, reinterpret_cast<const float*>(new_pm.addr(0, 0))[0]);
 }
 
 TEST(V8ScriptValueSerializerTest, DecodeImageDataV9) {
@@ -816,8 +834,9 @@ TEST(V8ScriptValueSerializerTest, DecodeImageDataV9) {
   ASSERT_TRUE(V8ImageData::HasInstance(result, scope.GetIsolate()));
   ImageData* new_image_data = V8ImageData::ToImpl(result.As<v8::Object>());
   EXPECT_EQ(IntSize(2, 1), new_image_data->Size());
-  EXPECT_EQ(8u, new_image_data->data()->lengthAsSizeT());
-  EXPECT_EQ(200, new_image_data->data()->Data()[0]);
+  SkPixmap new_pm = new_image_data->GetSkPixmap();
+  EXPECT_EQ(8u, new_pm.computeByteSize());
+  EXPECT_EQ(200u, new_pm.addr32()[0]);
 }
 
 TEST(V8ScriptValueSerializerTest, DecodeImageDataV16) {
@@ -831,8 +850,10 @@ TEST(V8ScriptValueSerializerTest, DecodeImageDataV16) {
   ASSERT_TRUE(V8ImageData::HasInstance(result, scope.GetIsolate()));
   ImageData* new_image_data = V8ImageData::ToImpl(result.As<v8::Object>());
   EXPECT_EQ(IntSize(2, 1), new_image_data->Size());
-  EXPECT_EQ(8u, new_image_data->data()->lengthAsSizeT());
-  EXPECT_EQ(200, new_image_data->data()->Data()[0]);
+  SkPixmap new_pm = new_image_data->GetSkPixmap();
+  EXPECT_EQ(kRGBA_8888_SkColorType, new_pm.info().colorType());
+  EXPECT_EQ(8u, new_pm.computeByteSize());
+  EXPECT_EQ(200u, new_pm.addr32()[0]);
 }
 
 TEST(V8ScriptValueSerializerTest, DecodeImageDataV18) {
@@ -848,13 +869,12 @@ TEST(V8ScriptValueSerializerTest, DecodeImageDataV18) {
   ASSERT_TRUE(V8ImageData::HasInstance(result, scope.GetIsolate()));
   ImageData* new_image_data = V8ImageData::ToImpl(result.As<v8::Object>());
   EXPECT_EQ(IntSize(2, 1), new_image_data->Size());
-  ImageDataColorSettings* new_color_settings =
-      new_image_data->getColorSettings();
-  EXPECT_EQ("p3", new_color_settings->colorSpace());
-  EXPECT_EQ("float32", new_color_settings->storageFormat());
-  EXPECT_EQ(32u, new_image_data->BufferBase()->ByteLengthAsSizeT());
-  EXPECT_EQ(200, static_cast<unsigned char*>(
-                     new_image_data->BufferBase()->Data())[0]);
+  ImageDataSettings* new_image_data_settings = new_image_data->getSettings();
+  EXPECT_EQ("display-p3", new_image_data_settings->colorSpace());
+  EXPECT_EQ("float32", new_image_data_settings->storageFormat());
+  SkPixmap new_pm = new_image_data->GetSkPixmap();
+  EXPECT_EQ(kRGBA_F32_SkColorType, new_pm.info().colorType());
+  EXPECT_EQ(200u, static_cast<const uint8_t*>(new_pm.addr(0, 0))[0]);
 }
 
 TEST(V8ScriptValueSerializerTest, InvalidImageDataDecodeV18) {
@@ -873,9 +893,9 @@ TEST(V8ScriptValueSerializerTest, InvalidImageDataDecodeV18) {
 MessagePort* MakeMessagePort(ExecutionContext* execution_context,
                              ::MojoHandle* unowned_handle_out = nullptr) {
   auto* port = MakeGarbageCollected<MessagePort>(*execution_context);
-  mojo::MessagePipe pipe;
-  ::MojoHandle unowned_handle = pipe.handle0.get().value();
-  port->Entangle(std::move(pipe.handle0));
+  blink::MessagePortDescriptorPair pipe;
+  ::MojoHandle unowned_handle = pipe.port0().handle().get().value();
+  port->Entangle(pipe.TakePort0());
   EXPECT_TRUE(port->IsEntangled());
   EXPECT_EQ(unowned_handle, port->EntangledHandleForTesting());
   if (unowned_handle_out)
@@ -1031,21 +1051,20 @@ TEST(V8ScriptValueSerializerTest, RoundTripImageBitmap) {
 
   // Check that the pixel at (3, 3) is red.
   uint8_t pixel[4] = {};
-  ASSERT_TRUE(new_image_bitmap->BitmapImage()
-                  ->PaintImageForCurrentFrame()
-                  .GetSkImage()
-                  ->readPixels(SkImageInfo::Make(1, 1, kRGBA_8888_SkColorType,
-                                                 kPremul_SkAlphaType),
-                               &pixel, 4, 3, 3));
+  ASSERT_TRUE(
+      new_image_bitmap->BitmapImage()->PaintImageForCurrentFrame().readPixels(
+          SkImageInfo::Make(1, 1, kRGBA_8888_SkColorType, kPremul_SkAlphaType),
+          &pixel, 4, 3, 3));
   ASSERT_THAT(pixel, testing::ElementsAre(255, 0, 0, 255));
 }
 
 TEST(V8ScriptValueSerializerTest, RoundTripImageBitmapWithColorSpaceInfo) {
+  sk_sp<SkColorSpace> p3 =
+      SkColorSpace::MakeRGB(SkNamedTransferFn::kSRGB, SkNamedGamut::kDisplayP3);
   V8TestingScope scope;
   // Make a 10x7 red ImageBitmap in P3 color space.
-  SkImageInfo info = SkImageInfo::Make(
-      10, 7, kRGBA_F16_SkColorType, kPremul_SkAlphaType,
-      SkColorSpace::MakeRGB(SkNamedTransferFn::kLinear, SkNamedGamut::kDCIP3));
+  SkImageInfo info =
+      SkImageInfo::Make(10, 7, kRGBA_F16_SkColorType, kPremul_SkAlphaType, p3);
   sk_sp<SkSurface> surface = SkSurface::MakeRaster(info);
   surface->getCanvas()->clear(SK_ColorRED);
   auto* image_bitmap = MakeGarbageCollected<ImageBitmap>(
@@ -1062,21 +1081,20 @@ TEST(V8ScriptValueSerializerTest, RoundTripImageBitmapWithColorSpaceInfo) {
   ASSERT_EQ(IntSize(10, 7), new_image_bitmap->Size());
 
   // Check the color settings.
-  CanvasColorParams color_params = new_image_bitmap->GetCanvasColorParams();
-  EXPECT_EQ(CanvasColorSpace::kP3, color_params.ColorSpace());
-  EXPECT_EQ(CanvasPixelFormat::kF16, color_params.PixelFormat());
+  SkImageInfo bitmap_info = new_image_bitmap->GetBitmapSkImageInfo();
+  EXPECT_EQ(kRGBA_F16_SkColorType, bitmap_info.colorType());
+  EXPECT_TRUE(SkColorSpace::Equals(p3.get(), bitmap_info.colorSpace()));
 
   // Check that the pixel at (3, 3) is red. We expect red in P3 to be
-  // {0x94, 0x3A, 0x3F, 0x28, 0x5F, 0x24, 0x00, 0x3C} when each color
+  // {0x57, 0x3B, 0x68, 0x32, 0x6E, 0x30, 0x00, 0x3C} when each color
   // component is presented as a half float in Skia. However, difference in
   // GPU hardware may result in small differences in lower significant byte in
   // Skia color conversion pipeline. Hence, we use a tolerance of 2 here.
   uint8_t pixel[8] = {};
-  ASSERT_TRUE(new_image_bitmap->BitmapImage()
-                  ->PaintImageForCurrentFrame()
-                  .GetSkImage()
-                  ->readPixels(info.makeWH(1, 1), &pixel, 8, 3, 3));
-  uint8_t p3_red[8] = {0x94, 0x3A, 0x3F, 0x28, 0x5F, 0x24, 0x00, 0x3C};
+  ASSERT_TRUE(
+      new_image_bitmap->BitmapImage()->PaintImageForCurrentFrame().readPixels(
+          info.makeWH(1, 1), &pixel, 8, 3, 3));
+  uint8_t p3_red[8] = {0x57, 0x3B, 0x68, 0x32, 0x6E, 0x30, 0x00, 0x3C};
   bool approximate_match = true;
   uint8_t tolerance = 2;
   for (int i = 0; i < 8; i++) {
@@ -1118,12 +1136,10 @@ TEST(V8ScriptValueSerializerTest, DecodeImageBitmap) {
 
   // Check that the pixels are opaque red and green, respectively.
   uint8_t pixels[8] = {};
-  ASSERT_TRUE(new_image_bitmap->BitmapImage()
-                  ->PaintImageForCurrentFrame()
-                  .GetSkImage()
-                  ->readPixels(SkImageInfo::Make(2, 1, kRGBA_8888_SkColorType,
-                                                 kPremul_SkAlphaType),
-                               &pixels, 8, 0, 0));
+  ASSERT_TRUE(
+      new_image_bitmap->BitmapImage()->PaintImageForCurrentFrame().readPixels(
+          SkImageInfo::Make(2, 1, kRGBA_8888_SkColorType, kPremul_SkAlphaType),
+          &pixels, 8, 0, 0));
   ASSERT_THAT(pixels, testing::ElementsAre(255, 0, 0, 255, 0, 255, 0, 255));
 }
 
@@ -1134,6 +1150,8 @@ TEST(V8ScriptValueSerializerTest, DecodeImageBitmapV18) {
       {0xff, 0x12, 0xff, 0x0d, 0x5c, 0x67, 0x01, 0x03, 0x02, 0x01, 0x04, 0x01,
        0x05, 0x01, 0x00, 0x02, 0x01, 0x10, 0x94, 0x3a, 0x3f, 0x28, 0x5f, 0x24,
        0x00, 0x3c, 0x94, 0x3a, 0x3f, 0x28, 0x5f, 0x24, 0x00, 0x3c});
+  sk_sp<SkColorSpace> p3 =
+      SkColorSpace::MakeRGB(SkNamedTransferFn::kSRGB, SkNamedGamut::kDisplayP3);
 
   v8::Local<v8::Value> result =
       V8ScriptValueDeserializer(script_state, input).Deserialize();
@@ -1143,19 +1161,17 @@ TEST(V8ScriptValueSerializerTest, DecodeImageBitmapV18) {
   ASSERT_EQ(IntSize(2, 1), new_image_bitmap->Size());
 
   // Check the color settings.
-  CanvasColorParams color_params = new_image_bitmap->GetCanvasColorParams();
-  EXPECT_EQ(CanvasColorSpace::kP3, color_params.ColorSpace());
-  EXPECT_EQ(CanvasPixelFormat::kF16, color_params.PixelFormat());
+  SkImageInfo bitmap_info = new_image_bitmap->GetBitmapSkImageInfo();
+  EXPECT_EQ(kRGBA_F16_SkColorType, bitmap_info.colorType());
+  EXPECT_TRUE(SkColorSpace::Equals(p3.get(), bitmap_info.colorSpace()));
 
   // Check that the pixel at (1, 0) is red.
   uint8_t pixel[8] = {};
-  SkImageInfo info = SkImageInfo::Make(
-      1, 1, kRGBA_F16_SkColorType, kPremul_SkAlphaType,
-      SkColorSpace::MakeRGB(SkNamedTransferFn::kLinear, SkNamedGamut::kDCIP3));
-  ASSERT_TRUE(new_image_bitmap->BitmapImage()
-                  ->PaintImageForCurrentFrame()
-                  .GetSkImage()
-                  ->readPixels(info, &pixel, 8, 1, 0));
+  SkImageInfo info =
+      SkImageInfo::Make(1, 1, kRGBA_F16_SkColorType, kPremul_SkAlphaType, p3);
+  ASSERT_TRUE(
+      new_image_bitmap->BitmapImage()->PaintImageForCurrentFrame().readPixels(
+          info, &pixel, 8, 1, 0));
   // The reference values are the hex representation of red in P3 (as stored
   // in half floats by Skia).
   ASSERT_THAT(pixel, testing::ElementsAre(0x94, 0x3A, 0x3F, 0x28, 0x5F, 0x24,
@@ -1301,8 +1317,9 @@ TEST(V8ScriptValueSerializerTest, TransferImageBitmap) {
 
   // Check that the pixel at (3, 3) is red.
   uint8_t pixel[4] = {};
-  sk_sp<SkImage> new_image =
-      new_image_bitmap->BitmapImage()->PaintImageForCurrentFrame().GetSkImage();
+  sk_sp<SkImage> new_image = new_image_bitmap->BitmapImage()
+                                 ->PaintImageForCurrentFrame()
+                                 .GetSwSkImage();
   ASSERT_TRUE(new_image->readPixels(
       SkImageInfo::Make(1, 1, kRGBA_8888_SkColorType, kPremul_SkAlphaType),
       &pixel, 4, 3, 3));
@@ -1881,8 +1898,6 @@ TEST(V8ScriptValueSerializerTest, DecodeWithInefficientVersionEnvelope) {
 // Sanity check for transferring ReadableStreams. This is mostly tested via
 // web tests.
 TEST(V8ScriptValueSerializerTest, RoundTripReadableStream) {
-  ScopedTransferableStreamsForTest enable_transferable_streams(true);
-
   V8TestingScope scope;
   auto* isolate = scope.GetIsolate();
   auto* script_state = scope.GetScriptState();
@@ -1900,8 +1915,63 @@ TEST(V8ScriptValueSerializerTest, RoundTripReadableStream) {
   ReadableStream* transferred =
       V8ReadableStream::ToImpl(result.As<v8::Object>());
   EXPECT_NE(rs, transferred);
-  EXPECT_TRUE(rs->locked(script_state, ASSERT_NO_EXCEPTION));
-  EXPECT_FALSE(transferred->locked(script_state, ASSERT_NO_EXCEPTION));
+  EXPECT_TRUE(rs->locked());
+  EXPECT_FALSE(transferred->locked());
+}
+
+TEST(V8ScriptValueSerializerTest, TransformStreamIntegerOverflow) {
+  V8TestingScope scope;
+  auto* isolate = scope.GetIsolate();
+  auto* script_state = scope.GetScriptState();
+
+  // Create a real SerializedScriptValue so that the MessagePorts are set up
+  // properly.
+  auto* ts = TransformStream::Create(script_state, ASSERT_NO_EXCEPTION);
+  v8::Local<v8::Value> wrapper = ToV8(ts, script_state);
+  HeapVector<ScriptValue> transferable_array = {ScriptValue(isolate, wrapper)};
+  Transferables transferables;
+  ASSERT_TRUE(SerializedScriptValue::ExtractTransferables(
+      isolate, transferable_array, transferables, ASSERT_NO_EXCEPTION));
+
+  // Extract message ports and disentangle them.
+  Vector<MessagePortChannel> channels = MessagePort::DisentanglePorts(
+      scope.GetExecutionContext(), transferables.message_ports,
+      ASSERT_NO_EXCEPTION);
+
+  V8ScriptValueSerializer::Options serialize_options;
+  serialize_options.transferables = &transferables;
+  V8ScriptValueSerializer serializer(script_state, serialize_options);
+  scoped_refptr<SerializedScriptValue> serialized_script_value =
+      serializer.Serialize(wrapper, ASSERT_NO_EXCEPTION);
+  ASSERT_TRUE(serialized_script_value);
+
+  // Now create a corrupted SerializedScriptValue using the same message ports.
+  // The final 5 bytes is the offset of the two message ports inside the
+  // transferred message port array. In order to trigger integer overflow this
+  // is set to 0xffffffff, encoded as a varint.
+  char serialized_value[] = {0xff, 0x14, 0xff, 0x0d, 0x5c, 0x6d,
+                             0xff, 0xff, 0xff, 0xff, 0x0f};
+
+  auto corrupted_serialized_script_value =
+      SerializedScriptValue::Create(serialized_value, sizeof(serialized_value));
+  corrupted_serialized_script_value->GetStreams() =
+      std::move(serialized_script_value->GetStreams());
+
+  // Entangle the message ports.
+  MessagePortArray* transferred_message_ports = MessagePort::EntanglePorts(
+      *scope.GetExecutionContext(), std::move(channels));
+
+  UnpackedSerializedScriptValue* unpacked = SerializedScriptValue::Unpack(
+      std::move(corrupted_serialized_script_value));
+  V8ScriptValueDeserializer::Options deserialize_options;
+  deserialize_options.message_ports = transferred_message_ports;
+  V8ScriptValueDeserializer deserializer(script_state, unpacked,
+                                         deserialize_options);
+  // If this doesn't crash then the test succeeded.
+  v8::Local<v8::Value> result = deserializer.Deserialize();
+
+  // Deserialization should have failed.
+  EXPECT_TRUE(result->IsNull());
 }
 
 TEST(V8ScriptValueSerializerTest, RoundTripDOMException) {

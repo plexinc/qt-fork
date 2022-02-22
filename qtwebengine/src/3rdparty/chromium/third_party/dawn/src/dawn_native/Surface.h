@@ -15,9 +15,9 @@
 #ifndef DAWNNATIVE_SURFACE_H_
 #define DAWNNATIVE_SURFACE_H_
 
+#include "common/RefCounted.h"
 #include "dawn_native/Error.h"
 #include "dawn_native/Forward.h"
-#include "dawn_native/RefCounted.h"
 
 #include "dawn_native/dawn_platform.h"
 
@@ -34,10 +34,9 @@ namespace dawn_native {
     class Surface final : public RefCounted {
       public:
         Surface(InstanceBase* instance, const SurfaceDescriptor* descriptor);
-        ~Surface();
 
         void SetAttachedSwapChain(NewSwapChainBase* swapChain);
-        NewSwapChainBase* GetAttachedSwapChain() const;
+        NewSwapChainBase* GetAttachedSwapChain();
 
         // These are valid to call on all Surfaces.
         enum class Type { MetalLayer, WindowsHWND, Xlib };
@@ -56,11 +55,13 @@ namespace dawn_native {
         uint32_t GetXWindow() const;
 
       private:
+        ~Surface() override;
+
         Ref<InstanceBase> mInstance;
         Type mType;
 
         // The swapchain will set this to null when it is destroyed.
-        NewSwapChainBase* mSwapChain = nullptr;
+        Ref<NewSwapChainBase> mSwapChain;
 
         // MetalLayer
         void* mMetalLayer = nullptr;

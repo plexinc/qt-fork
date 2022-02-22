@@ -32,7 +32,7 @@
 
 #include <QtDataVisualization/q3dobject.h>
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 class Q3DCameraPrivate;
 
@@ -93,7 +93,7 @@ public:
     bool wrapYRotation() const;
     void setWrapYRotation(bool isEnabled);
 
-    virtual void copyValuesFrom(const Q3DObject &source);
+    void copyValuesFrom(const Q3DObject &source) override;
 
     CameraPreset cameraPreset() const;
     void setCameraPreset(CameraPreset preset);
@@ -137,6 +137,6 @@ private:
     friend class QTouch3DInputHandlerPrivate;
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

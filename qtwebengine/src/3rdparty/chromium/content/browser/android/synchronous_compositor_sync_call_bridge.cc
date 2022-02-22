@@ -5,7 +5,6 @@
 #include "content/browser/android/synchronous_compositor_sync_call_bridge.h"
 
 #include "base/bind.h"
-#include "base/task/post_task.h"
 #include "content/browser/android/synchronous_compositor_host.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -41,6 +40,7 @@ void SynchronousCompositorSyncCallBridge::RemoteClosedOnIOThread() {
 bool SynchronousCompositorSyncCallBridge::ReceiveFrameOnIOThread(
     int layer_tree_frame_sink_id,
     uint32_t metadata_version,
+    base::Optional<viz::LocalSurfaceId> local_surface_id,
     base::Optional<viz::CompositorFrame> compositor_frame,
     base::Optional<viz::HitTestRegionList> hit_test_region_list) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
@@ -55,13 +55,15 @@ bool SynchronousCompositorSyncCallBridge::ReceiveFrameOnIOThread(
   frame_futures_.pop_front();
 
   if (compositor_frame) {
-    base::PostTask(FROM_HERE, {BrowserThread::UI},
-                   base::BindOnce(&SynchronousCompositorSyncCallBridge::
+    DCHECK(local_surface_id);
+    GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE, base::BindOnce(&SynchronousCompositorSyncCallBridge::
                                       ProcessFrameMetadataOnUIThread,
                                   this, metadata_version,
                                   compositor_frame->metadata.Clone()));
     frame_ptr->frame.reset(new viz::CompositorFrame);
     *frame_ptr->frame = std::move(*compositor_frame);
+    frame_ptr->local_surface_id = local_surface_id.value();
     frame_ptr->hit_test_region_list = std::move(hit_test_region_list);
   }
   future->SetFrame(std::move(frame_ptr));
@@ -69,13 +71,13 @@ bool SynchronousCompositorSyncCallBridge::ReceiveFrameOnIOThread(
 }
 
 bool SynchronousCompositorSyncCallBridge::BeginFrameResponseOnIOThread(
-    const SyncCompositorCommonRendererParams& render_params) {
+    blink::mojom::SyncCompositorCommonRendererParamsPtr render_params) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   base::AutoLock lock(lock_);
   if (begin_frame_response_valid_)
     return false;
   begin_frame_response_valid_ = true;
-  last_render_params_ = render_params;
+  last_render_params_ = *render_params;
   begin_frame_condition_.Signal();
   return true;
 }
@@ -114,6 +116,11 @@ void SynchronousCompositorSyncCallBridge::HostDestroyedOnUIThread() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(host_);
   host_ = nullptr;
+  GetIOThreadTaskRunner({})->PostTask(
+      FROM_HERE,
+      base::BindOnce(
+          &SynchronousCompositorSyncCallBridge::CloseHostControlOnIOThread,
+          this));
 }
 
 bool SynchronousCompositorSyncCallBridge::IsRemoteReadyOnUIThread() {
@@ -125,8 +132,7 @@ bool SynchronousCompositorSyncCallBridge::IsRemoteReadyOnUIThread() {
 void SynchronousCompositorSyncCallBridge::BeginFrameCompleteOnUIThread() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  bool update_state = false;
-  SyncCompositorCommonRendererParams render_params;
+  blink::mojom::SyncCompositorCommonRendererParamsPtr render_params;
   {
     base::AutoLock lock(lock_);
     if (remote_state_ != RemoteState::READY)
@@ -136,17 +142,19 @@ void SynchronousCompositorSyncCallBridge::BeginFrameCompleteOnUIThread() {
     if (!begin_frame_response_valid_) {
       base::ScopedAllowBaseSyncPrimitivesOutsideBlockingScope
           allow_base_sync_primitives;
-      begin_frame_condition_.Wait();
+      while (!begin_frame_response_valid_ &&
+             remote_state_ == RemoteState::READY) {
+        begin_frame_condition_.Wait();
+      }
     }
     DCHECK(begin_frame_response_valid_ || remote_state_ != RemoteState::READY);
     begin_frame_response_valid_ = false;
     if (remote_state_ == RemoteState::READY) {
-      update_state = true;
-      render_params = last_render_params_;
+      render_params = last_render_params_.Clone();
     }
   }
-  if (update_state)
-    host_->UpdateState(render_params);
+  if (render_params)
+    host_->UpdateState(std::move(render_params));
 }
 
 void SynchronousCompositorSyncCallBridge::ProcessFrameMetadataOnUIThread(
@@ -167,6 +175,21 @@ void SynchronousCompositorSyncCallBridge::
   }
   frame_futures_.clear();
   begin_frame_condition_.Signal();
+}
+
+void SynchronousCompositorSyncCallBridge::SetHostControlReceiverOnIOThread(
+    mojo::SelfOwnedReceiverRef<blink::mojom::SynchronousCompositorControlHost>
+        host_control_receiver) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  host_control_receiver_ = host_control_receiver;
+}
+
+void SynchronousCompositorSyncCallBridge::CloseHostControlOnIOThread() {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  if (host_control_receiver_) {
+    host_control_receiver_->Close();
+    host_control_receiver_.reset();
+  }
 }
 
 }  // namespace content

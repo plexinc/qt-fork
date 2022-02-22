@@ -4,12 +4,13 @@
 
 #include "third_party/blink/renderer/core/scroll/scroll_animator.h"
 
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/web/web_script_source.h"
 #include "third_party/blink/renderer/core/css/css_style_declaration.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/element.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/frame/root_frame_viewport.h"
@@ -28,7 +29,9 @@
 namespace blink {
 
 namespace {
-constexpr double kBeginFrameDelaySeconds = 0.5;
+const double kBeginFrameDelaySeconds =
+    (base::FeatureList::IsEnabled(features::kImpulseScrollAnimations) ? 1.5
+                                                                      : 0.5);
 }
 
 class FractionalScrollSimTest : public SimTest {
@@ -40,7 +43,7 @@ class FractionalScrollSimTest : public SimTest {
 };
 
 TEST_F(FractionalScrollSimTest, GetBoundingClientRectAtFractional) {
-  WebView().MainFrameWidget()->Resize(WebSize(800, 600));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 600));
   SimRequest request("https://example.com/test.html", "text/html");
   LoadURL("https://example.com/test.html");
   request.Complete(R"HTML(
@@ -80,7 +83,7 @@ TEST_F(FractionalScrollSimTest, GetBoundingClientRectAtFractional) {
 }
 
 TEST_F(FractionalScrollSimTest, NoRepaintOnScrollFromSubpixel) {
-  WebView().MainFrameWidget()->Resize(WebSize(800, 600));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 600));
   SimRequest request("https://example.com/test.html", "text/html");
   LoadURL("https://example.com/test.html");
   request.Complete(R"HTML(
@@ -121,7 +124,7 @@ TEST_F(FractionalScrollSimTest, NoRepaintOnScrollFromSubpixel) {
   Compositor().BeginFrame();
 
   auto* container_layer =
-      ToLayoutBoxModelObject(
+      To<LayoutBoxModelObject>(
           GetDocument().getElementById("container")->GetLayoutObject())
           ->Layer()
           ->GraphicsLayerBacking();
@@ -140,6 +143,64 @@ TEST_F(FractionalScrollSimTest, NoRepaintOnScrollFromSubpixel) {
   GetDocument().View()->SetTracksRasterInvalidations(false);
 }
 
+// Verifies that the sticky constraints are correctly computed when the scroll
+// offset is fractional. Ensures any kind of layout unit snapping is
+// consistent.
+TEST_F(FractionalScrollSimTest, StickyDoesntOscillate) {
+  WebView().MainFrameWidget()->Resize(gfx::Size(800, 600));
+  SimRequest request("https://example.com/test.html", "text/html");
+  LoadURL("https://example.com/test.html");
+  request.Complete(R"HTML(
+    <!DOCTYPE html>
+    <style>
+      #sticky {
+        position: sticky; top: 0; width: 100px; height: 100px;
+      }
+      body {
+        margin: 0;
+        height: 300vh;
+      }
+      #padding {
+        height: 8px;
+        width: 100%;
+      }
+    </style>
+    <div id='padding'></div>
+    <div id='sticky'></div>
+  )HTML");
+  Compositor().BeginFrame();
+
+  const float kOneLayoutUnitF = LayoutUnit::Epsilon();
+  Element* sticky = GetDocument().getElementById("sticky");
+
+  // Try sub-layout-unit scroll offsets. The sticky box shouldn't move.
+  for (int i = 0; i < 3; ++i) {
+    GetDocument().View()->GetScrollableArea()->ScrollBy(
+        ScrollOffset(0.f, kOneLayoutUnitF / 4.f),
+        mojom::blink::ScrollType::kProgrammatic);
+    Compositor().BeginFrame();
+    EXPECT_EQ(8, sticky->getBoundingClientRect()->top());
+  }
+
+  // This offset is specifically chosen since it doesn't land on a LayoutUnit
+  // boundary and reproduced https://crbug.com/1010961.
+  GetDocument().View()->GetScrollableArea()->SetScrollOffset(
+      FloatSize(0.f, 98.8675308f), mojom::blink::ScrollType::kProgrammatic,
+      mojom::blink::ScrollBehavior::kInstant);
+  Compositor().BeginFrame();
+  EXPECT_EQ(0, sticky->getBoundingClientRect()->top());
+
+  // Incrementally scroll from here, making sure the sticky position remains
+  // fixed.
+  for (int i = 0; i < 4; ++i) {
+    GetDocument().View()->GetScrollableArea()->ScrollBy(
+        ScrollOffset(0.f, kOneLayoutUnitF / 3.f),
+        mojom::blink::ScrollType::kProgrammatic);
+    Compositor().BeginFrame();
+    EXPECT_EQ(0, sticky->getBoundingClientRect()->top());
+  }
+}
+
 class ScrollAnimatorSimTest : public SimTest {};
 
 // Test that the callback of user scroll will be executed when the animation
@@ -147,7 +208,7 @@ class ScrollAnimatorSimTest : public SimTest {};
 // layout viewport.
 TEST_F(ScrollAnimatorSimTest, TestRootFrameLayoutViewportUserScrollCallBack) {
   GetDocument().GetFrame()->GetSettings()->SetScrollAnimatorEnabled(true);
-  WebView().MainFrameWidget()->Resize(WebSize(800, 500));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 500));
   SimRequest request("https://example.com/test.html", "text/html");
   LoadURL("https://example.com/test.html");
   request.Complete(R"HTML(
@@ -188,7 +249,7 @@ TEST_F(ScrollAnimatorSimTest, TestRootFrameLayoutViewportUserScrollCallBack) {
 // visual viewport.
 TEST_F(ScrollAnimatorSimTest, TestRootFrameVisualViewporUserScrollCallBack) {
   GetDocument().GetFrame()->GetSettings()->SetScrollAnimatorEnabled(true);
-  WebView().MainFrameWidget()->Resize(WebSize(800, 500));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 500));
   SimRequest request("https://example.com/test.html", "text/html");
   LoadURL("https://example.com/test.html");
   request.Complete(R"HTML(
@@ -230,7 +291,7 @@ TEST_F(ScrollAnimatorSimTest, TestRootFrameVisualViewporUserScrollCallBack) {
 // the layout and visual viewport.
 TEST_F(ScrollAnimatorSimTest, TestRootFrameBothViewportsUserScrollCallBack) {
   GetDocument().GetFrame()->GetSettings()->SetScrollAnimatorEnabled(true);
-  WebView().MainFrameWidget()->Resize(WebSize(800, 500));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 500));
   SimRequest request("https://example.com/test.html", "text/html");
   LoadURL("https://example.com/test.html");
   request.Complete(R"HTML(
@@ -269,9 +330,15 @@ TEST_F(ScrollAnimatorSimTest, TestRootFrameBothViewportsUserScrollCallBack) {
 
 // Test that the callback of user scroll will be executed when the animation
 // finishes at ScrollAnimator::TickAnimation for div user scroll.
-TEST_F(ScrollAnimatorSimTest, TestDivUserScrollCallBack) {
+#if defined(ADDRESS_SANITIZER) || defined(THREAD_SANITIZER)
+// Flaky under sanitizers, see http://crbug.com/1092550
+#define MAYBE_TestDivUserScrollCallBack DISABLED_TestDivUserScrollCallBack
+#else
+#define MAYBE_TestDivUserScrollCallBack TestDivUserScrollCallBack
+#endif
+TEST_F(ScrollAnimatorSimTest, MAYBE_TestDivUserScrollCallBack) {
   GetDocument().GetSettings()->SetScrollAnimatorEnabled(true);
-  WebView().MainFrameWidget()->Resize(WebSize(800, 500));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 500));
   SimRequest request("https://example.com/test.html", "text/html");
   LoadURL("https://example.com/test.html");
   request.Complete(R"HTML(
@@ -300,7 +367,7 @@ TEST_F(ScrollAnimatorSimTest, TestDivUserScrollCallBack) {
 
   bool finished = false;
   PaintLayerScrollableArea* scrollable_area =
-      ToLayoutBox(scroller->GetLayoutObject())->GetScrollableArea();
+      To<LayoutBox>(scroller->GetLayoutObject())->GetScrollableArea();
   scrollable_area->UserScroll(
       ScrollGranularity::kScrollByLine, FloatSize(0, 100),
       ScrollableArea::ScrollCallback(
@@ -319,7 +386,7 @@ TEST_F(ScrollAnimatorSimTest, TestDivUserScrollCallBack) {
 // ScrollAnimatorBase::UserScroll when animation is disabled.
 TEST_F(ScrollAnimatorSimTest, TestUserScrollCallBackAnimatorDisabled) {
   GetDocument().GetFrame()->GetSettings()->SetScrollAnimatorEnabled(false);
-  WebView().MainFrameWidget()->Resize(WebSize(800, 500));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 500));
   SimRequest request("https://example.com/test.html", "text/html");
   LoadURL("https://example.com/test.html");
   request.Complete(R"HTML(
@@ -352,7 +419,7 @@ TEST_F(ScrollAnimatorSimTest, TestUserScrollCallBackAnimatorDisabled) {
 // scroll will cancel the animation.
 TEST_F(ScrollAnimatorSimTest, TestRootFrameUserScrollCallBackCancelAnimation) {
   GetDocument().GetFrame()->GetSettings()->SetScrollAnimatorEnabled(true);
-  WebView().MainFrameWidget()->Resize(WebSize(800, 500));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 500));
   SimRequest request("https://example.com/test.html", "text/html");
   LoadURL("https://example.com/test.html");
   request.Complete(R"HTML(
@@ -414,10 +481,10 @@ class ScrollInfacesUseCounterSimTest : public SimTest {
         )HTML");
     auto& document = GetDocument();
     auto* style = document.getElementById("scroller")->style();
-    style->setProperty(document.ToExecutionContext(), "direction", direction,
-                       String(), ASSERT_NO_EXCEPTION);
-    style->setProperty(document.ToExecutionContext(), "writing-mode",
-                       writing_mode, String(), ASSERT_NO_EXCEPTION);
+    style->setProperty(&Window(), "direction", direction, String(),
+                       ASSERT_NO_EXCEPTION);
+    style->setProperty(&Window(), "writing-mode", writing_mode, String(),
+                       ASSERT_NO_EXCEPTION);
     Compositor().BeginFrame();
     EXPECT_FALSE(document.IsUseCounted(
         WebFeature::
@@ -501,7 +568,7 @@ struct TestCase {
 
 TEST_F(ScrollInfacesUseCounterSimTest, ScrollTestAll) {
   v8::HandleScope handle_scope(v8::Isolate::GetCurrent());
-  WebView().MainFrameWidget()->Resize(WebSize(800, 600));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 600));
   const Vector<TestCase> test_cases = {
       {"ltr", "horizontal-tb", false, false},
       {"rtl", "horizontal-tb", true, false},

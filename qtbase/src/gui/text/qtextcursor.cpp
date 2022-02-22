@@ -612,7 +612,7 @@ bool QTextCursorPrivate::movePosition(QTextCursor::MoveOperation op, QTextCursor
                     ++row;
                 }
                 cell = table->cellAt(row, column);
-                // note we also continue while we have not reached a cell thats not merged with one above us
+                // note we also continue while we have not reached a cell that's not merged with one above us
             } while (cell.isValid()
                     && ((op == QTextCursor::NextRow && currentRow == cell.row())
                         || cell.row() < row));
@@ -625,7 +625,7 @@ bool QTextCursorPrivate::movePosition(QTextCursor::MoveOperation op, QTextCursor
                     --row;
                 }
                 cell = table->cellAt(row, column);
-                // note we also continue while we have not reached a cell thats not merged with one above us
+                // note we also continue while we have not reached a cell that's not merged with one above us
             } while (cell.isValid()
                     && ((op == QTextCursor::PreviousRow && currentRow == cell.row())
                         || cell.row() < row));
@@ -1052,7 +1052,7 @@ QTextCursor::QTextCursor()
     Constructs a cursor pointing to the beginning of the \a document.
  */
 QTextCursor::QTextCursor(QTextDocument *document)
-    : d(new QTextCursorPrivate(document->docHandle()))
+    : d(new QTextCursorPrivate(QTextDocumentPrivate::get(document)))
 {
 }
 
@@ -1060,7 +1060,7 @@ QTextCursor::QTextCursor(QTextDocument *document)
     Constructs a cursor pointing to the beginning of the \a frame.
 */
 QTextCursor::QTextCursor(QTextFrame *frame)
-    : d(new QTextCursorPrivate(frame->document()->docHandle()))
+    : d(new QTextCursorPrivate(QTextDocumentPrivate::get(frame->document())))
 {
     d->adjusted_anchor = d->anchor = d->position = frame->firstPosition();
 }
@@ -1070,7 +1070,7 @@ QTextCursor::QTextCursor(QTextFrame *frame)
     Constructs a cursor pointing to the beginning of the \a block.
 */
 QTextCursor::QTextCursor(const QTextBlock &block)
-    : d(new QTextCursorPrivate(block.docHandle()))
+    : d(new QTextCursorPrivate(const_cast<QTextDocumentPrivate *>(QTextDocumentPrivate::get(block))))
 {
     d->adjusted_anchor = d->anchor = d->position = block.position();
 }
@@ -2185,7 +2185,7 @@ QTextTable *QTextCursor::insertTable(int rows, int cols)
 */
 QTextTable *QTextCursor::insertTable(int rows, int cols, const QTextTableFormat &format)
 {
-    if(!d || !d->priv || rows == 0 || cols == 0)
+    if (!d || !d->priv || rows == 0 || cols == 0)
         return nullptr;
 
     int pos = d->position;
@@ -2205,7 +2205,7 @@ QTextTable *QTextCursor::insertTable(int rows, int cols, const QTextTableFormat 
 */
 QTextTable *QTextCursor::currentTable() const
 {
-    if(!d || !d->priv)
+    if (!d || !d->priv)
         return nullptr;
 
     QTextFrame *frame = d->priv->frameAt(d->position);
@@ -2242,7 +2242,7 @@ QTextFrame *QTextCursor::insertFrame(const QTextFrameFormat &format)
 */
 QTextFrame *QTextCursor::currentFrame() const
 {
-    if(!d || !d->priv)
+    if (!d || !d->priv)
         return nullptr;
 
     return d->priv->frameAt(d->position);
@@ -2264,7 +2264,7 @@ void QTextCursor::insertFragment(const QTextDocumentFragment &fragment)
     d->setX();
 
     if (fragment.d && fragment.d->doc)
-        d->priv->mergeCachedResources(fragment.d->doc->docHandle());
+        d->priv->mergeCachedResources(QTextDocumentPrivate::get(fragment.d->doc));
 }
 
 /*!

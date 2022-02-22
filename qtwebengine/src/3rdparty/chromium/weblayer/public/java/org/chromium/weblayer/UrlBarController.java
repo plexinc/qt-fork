@@ -31,17 +31,16 @@ public class UrlBarController {
     /**
      * Creates a URL bar view based on the options provided.
      * @param options The options provided to tweak the URL bar display.
-     * @since 82
      */
     @NonNull
     public View createUrlBarView(@NonNull UrlBarOptions options) {
         ThreadCheck.ensureOnUiThread();
-        if (WebLayer.getSupportedMajorVersionInternal() < 82) {
-            throw new UnsupportedOperationException();
-        }
-
         try {
-            return ObjectWrapper.unwrap(mImpl.createUrlBarView(options.getBundle()), View.class);
+            return ObjectWrapper.unwrap(
+                    mImpl.createUrlBarView(options.getBundle(),
+                            ObjectWrapper.wrap(options.getTextClickListener()),
+                            ObjectWrapper.wrap(options.getTextLongClickListener())),
+                    View.class);
         } catch (RemoteException exception) {
             throw new APICallException(exception);
         }

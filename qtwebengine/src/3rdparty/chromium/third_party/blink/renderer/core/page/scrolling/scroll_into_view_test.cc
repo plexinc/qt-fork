@@ -32,7 +32,7 @@ class ScrollIntoViewTest : public SimTest {};
 
 TEST_F(ScrollIntoViewTest, InstantScroll) {
   v8::HandleScope HandleScope(v8::Isolate::GetCurrent());
-  WebView().MainFrameWidget()->Resize(WebSize(800, 600));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 600));
   SimRequest request("https://example.com/test.html", "text/html");
   LoadURL("https://example.com/test.html");
   request.Complete(
@@ -53,7 +53,7 @@ TEST_F(ScrollIntoViewTest, InstantScroll) {
 
 TEST_F(ScrollIntoViewTest, ScrollPaddingOnDocumentElWhenBodyDefinesViewport) {
   v8::HandleScope HandleScope(v8::Isolate::GetCurrent());
-  WebView().MainFrameWidget()->Resize(WebSize(300, 300));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(300, 300));
   SimRequest request("https://example.com/test.html", "text/html");
   LoadURL("https://example.com/test.html");
   request.Complete(R"HTML(
@@ -85,7 +85,7 @@ TEST_F(ScrollIntoViewTest, ScrollPaddingOnDocumentElWhenBodyDefinesViewport) {
 TEST_F(ScrollIntoViewTest,
        ScrollPaddingOnDocumentElWhenDocumentElDefinesViewport) {
   v8::HandleScope HandleScope(v8::Isolate::GetCurrent());
-  WebView().MainFrameWidget()->Resize(WebSize(300, 300));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(300, 300));
   SimRequest request("https://example.com/test.html", "text/html");
   LoadURL("https://example.com/test.html");
   request.Complete(R"HTML(
@@ -114,7 +114,7 @@ TEST_F(ScrollIntoViewTest,
 
 TEST_F(ScrollIntoViewTest, ScrollPaddingOnBodyWhenDocumentElDefinesViewport) {
   v8::HandleScope HandleScope(v8::Isolate::GetCurrent());
-  WebView().MainFrameWidget()->Resize(WebSize(300, 300));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(300, 300));
   SimRequest request("https://example.com/test.html", "text/html");
   LoadURL("https://example.com/test.html");
   request.Complete(R"HTML(
@@ -154,7 +154,7 @@ TEST_F(ScrollIntoViewTest, ScrollPaddingOnBodyWhenDocumentElDefinesViewport) {
 
 TEST_F(ScrollIntoViewTest, SmoothScroll) {
   v8::HandleScope HandleScope(v8::Isolate::GetCurrent());
-  WebView().MainFrameWidget()->Resize(WebSize(800, 600));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 600));
   SimRequest request("https://example.com/test.html", "text/html");
   LoadURL("https://example.com/test.html");
   request.Complete(
@@ -175,7 +175,11 @@ TEST_F(ScrollIntoViewTest, SmoothScroll) {
   Compositor().BeginFrame();  // update run_state_.
   Compositor().BeginFrame();  // Set start_time = now.
   Compositor().BeginFrame(0.2);
-  ASSERT_NEAR(Window().scrollY(), 299, 1);
+  ASSERT_NEAR(
+      Window().scrollY(),
+      (base::FeatureList::IsEnabled(features::kImpulseScrollAnimations) ? 800
+                                                                        : 299),
+      1);
 
   // Finish scrolling the container
   Compositor().BeginFrame(1);
@@ -184,7 +188,7 @@ TEST_F(ScrollIntoViewTest, SmoothScroll) {
 
 TEST_F(ScrollIntoViewTest, NestedContainer) {
   v8::HandleScope HandleScope(v8::Isolate::GetCurrent());
-  WebView().MainFrameWidget()->Resize(WebSize(800, 600));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 600));
   SimRequest request("https://example.com/test.html", "text/html");
   LoadURL("https://example.com/test.html");
   request.Complete(R"HTML(
@@ -211,7 +215,11 @@ TEST_F(ScrollIntoViewTest, NestedContainer) {
   Compositor().BeginFrame();  // update run_state_.
   Compositor().BeginFrame();  // Set start_time = now.
   Compositor().BeginFrame(0.2);
-  ASSERT_NEAR(Window().scrollY(), 299, 1);
+  ASSERT_NEAR(
+      Window().scrollY(),
+      (base::FeatureList::IsEnabled(features::kImpulseScrollAnimations) ? 800
+                                                                        : 299),
+      1);
   ASSERT_EQ(container->scrollTop(), 0);
 
   // Finish scrolling the outer container
@@ -222,7 +230,11 @@ TEST_F(ScrollIntoViewTest, NestedContainer) {
   // Scrolling the inner container
   Compositor().BeginFrame();  // Set start_time = now.
   Compositor().BeginFrame(0.2);
-  ASSERT_NEAR(container->scrollTop(), 299, 1);
+  ASSERT_NEAR(
+      container->scrollTop(),
+      (base::FeatureList::IsEnabled(features::kImpulseScrollAnimations) ? 794
+                                                                        : 299),
+      1);
 
   // Finish scrolling the inner container
   Compositor().BeginFrame(1);
@@ -232,7 +244,7 @@ TEST_F(ScrollIntoViewTest, NestedContainer) {
 
 TEST_F(ScrollIntoViewTest, NewScrollIntoViewAbortsCurrentAnimation) {
   v8::HandleScope HandleScope(v8::Isolate::GetCurrent());
-  WebView().MainFrameWidget()->Resize(WebSize(800, 600));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 600));
   SimRequest request("https://example.com/test.html", "text/html");
   LoadURL("https://example.com/test.html");
   request.Complete(R"HTML(
@@ -265,14 +277,22 @@ TEST_F(ScrollIntoViewTest, NewScrollIntoViewAbortsCurrentAnimation) {
   Compositor().BeginFrame();  // update run_state_.
   Compositor().BeginFrame();  // Set start_time = now.
   Compositor().BeginFrame(0.2);
-  ASSERT_NEAR(Window().scrollY(), 299, 1);
+  ASSERT_NEAR(
+      Window().scrollY(),
+      (base::FeatureList::IsEnabled(features::kImpulseScrollAnimations) ? 800
+                                                                        : 299),
+      1);
   ASSERT_EQ(container1->scrollTop(), 0);
 
   content2->scrollIntoView(arg);
   Compositor().BeginFrame();  // update run_state_.
   Compositor().BeginFrame();  // Set start_time = now.
   Compositor().BeginFrame(0.2);
-  ASSERT_NEAR(Window().scrollY(), 61, 1);
+  ASSERT_NEAR(
+      Window().scrollY(),
+      (base::FeatureList::IsEnabled(features::kImpulseScrollAnimations) ? 171
+                                                                        : 61),
+      1);
   ASSERT_EQ(container1->scrollTop(), 0);  // container1 should not scroll.
 
   Compositor().BeginFrame(1);
@@ -282,7 +302,11 @@ TEST_F(ScrollIntoViewTest, NewScrollIntoViewAbortsCurrentAnimation) {
   // Scrolling content2 in container2
   Compositor().BeginFrame();  // Set start_time = now.
   Compositor().BeginFrame(0.2);
-  ASSERT_NEAR(container2->scrollTop(), 300, 1);
+  ASSERT_NEAR(
+      container2->scrollTop(),
+      (base::FeatureList::IsEnabled(features::kImpulseScrollAnimations) ? 952
+                                                                        : 300),
+      1);
 
   // Finish all the animation to make sure there is no another animation queued
   // on container1.
@@ -297,7 +321,7 @@ TEST_F(ScrollIntoViewTest, NewScrollIntoViewAbortsCurrentAnimation) {
 
 TEST_F(ScrollIntoViewTest, ScrollWindowAbortsCurrentAnimation) {
   v8::HandleScope HandleScope(v8::Isolate::GetCurrent());
-  WebView().MainFrameWidget()->Resize(WebSize(800, 600));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 600));
   SimRequest request("https://example.com/test.html", "text/html");
   LoadURL("https://example.com/test.html");
   request.Complete(R"HTML(
@@ -324,7 +348,11 @@ TEST_F(ScrollIntoViewTest, ScrollWindowAbortsCurrentAnimation) {
   Compositor().BeginFrame();  // update run_state_.
   Compositor().BeginFrame();  // Set start_time = now.
   Compositor().BeginFrame(0.2);
-  ASSERT_NEAR(Window().scrollY(), 299, 1);
+  ASSERT_NEAR(
+      Window().scrollY(),
+      (base::FeatureList::IsEnabled(features::kImpulseScrollAnimations) ? 800
+                                                                        : 299),
+      1);
   ASSERT_EQ(container->scrollTop(), 0);
 
   ScrollToOptions* window_option = ScrollToOptions::Create();
@@ -335,7 +363,11 @@ TEST_F(ScrollIntoViewTest, ScrollWindowAbortsCurrentAnimation) {
   Compositor().BeginFrame();  // update run_state_.
   Compositor().BeginFrame();  // Set start_time = now.
   Compositor().BeginFrame(0.2);
-  ASSERT_NEAR(Window().scrollY(), 58, 1);
+  ASSERT_NEAR(
+      Window().scrollY(),
+      (base::FeatureList::IsEnabled(features::kImpulseScrollAnimations) ? 165
+                                                                        : 58),
+      1);
 
   Compositor().BeginFrame(1);
   ASSERT_EQ(Window().scrollY(), 0);
@@ -344,7 +376,7 @@ TEST_F(ScrollIntoViewTest, ScrollWindowAbortsCurrentAnimation) {
 
 TEST_F(ScrollIntoViewTest, BlockAndInlineSettings) {
   v8::HandleScope HandleScope(v8::Isolate::GetCurrent());
-  WebView().MainFrameWidget()->Resize(WebSize(800, 600));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 600));
   SimRequest request("https://example.com/test.html", "text/html");
   LoadURL("https://example.com/test.html");
   request.Complete(R"HTML(
@@ -401,7 +433,7 @@ TEST_F(ScrollIntoViewTest, BlockAndInlineSettings) {
 
 TEST_F(ScrollIntoViewTest, SmoothAndInstantInChain) {
   v8::HandleScope HandleScope(v8::Isolate::GetCurrent());
-  WebView().MainFrameWidget()->Resize(WebSize(800, 600));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 600));
   SimRequest request("https://example.com/test.html", "text/html");
   LoadURL("https://example.com/test.html");
   request.Complete(R"HTML(
@@ -439,7 +471,11 @@ TEST_F(ScrollIntoViewTest, SmoothAndInstantInChain) {
   Compositor().BeginFrame();  // update run_state_.
   Compositor().BeginFrame();  // Set start_time = now.
   Compositor().BeginFrame(0.2);
-  ASSERT_NEAR(container->scrollTop(), 299, 1);
+  ASSERT_NEAR(
+      container->scrollTop(),
+      (base::FeatureList::IsEnabled(features::kImpulseScrollAnimations) ? 794
+                                                                        : 299),
+      1);
 
   // Finish scrolling the container
   Compositor().BeginFrame(1);
@@ -452,7 +488,7 @@ TEST_F(ScrollIntoViewTest, SmoothAndInstantInChain) {
 
 TEST_F(ScrollIntoViewTest, SmoothScrollAnchor) {
   v8::HandleScope HandleScope(v8::Isolate::GetCurrent());
-  WebView().MainFrameWidget()->Resize(WebSize(800, 600));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 600));
   SimRequest request("https://example.com/test.html#link", "text/html");
   LoadURL("https://example.com/test.html#link");
   request.Complete(R"HTML(
@@ -472,7 +508,11 @@ TEST_F(ScrollIntoViewTest, SmoothScrollAnchor) {
   Compositor().BeginFrame();  // update run_state_.
   Compositor().BeginFrame();  // Set start_time = now.
   Compositor().BeginFrame(0.2);
-  ASSERT_NEAR(container->scrollTop(), 299, 1);
+  ASSERT_NEAR(
+      container->scrollTop(),
+      (base::FeatureList::IsEnabled(features::kImpulseScrollAnimations) ? 794
+                                                                        : 299),
+      1);
 
   // Finish scrolling the container
   Compositor().BeginFrame(1);
@@ -482,7 +522,7 @@ TEST_F(ScrollIntoViewTest, SmoothScrollAnchor) {
 
 TEST_F(ScrollIntoViewTest, FindDoesNotScrollOverflowHidden) {
   v8::HandleScope HandleScope(v8::Isolate::GetCurrent());
-  WebView().MainFrameWidget()->Resize(WebSize(800, 600));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 600));
   SimRequest request("https://example.com/test.html", "text/html");
   LoadURL("https://example.com/test.html");
   request.Complete(R"HTML(
@@ -504,7 +544,7 @@ TEST_F(ScrollIntoViewTest, FindDoesNotScrollOverflowHidden) {
 
 TEST_F(ScrollIntoViewTest, ApplyRootElementScrollBehaviorToViewport) {
   v8::HandleScope HandleScope(v8::Isolate::GetCurrent());
-  WebView().MainFrameWidget()->Resize(WebSize(800, 600));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 600));
   SimRequest request("https://example.com/test.html", "text/html");
   LoadURL("https://example.com/test.html");
   request.Complete(
@@ -525,7 +565,11 @@ TEST_F(ScrollIntoViewTest, ApplyRootElementScrollBehaviorToViewport) {
   Compositor().BeginFrame();  // update run_state_.
   Compositor().BeginFrame();  // Set start_time = now.
   Compositor().BeginFrame(0.2);
-  ASSERT_NEAR(Window().scrollY(), 299, 1);
+  ASSERT_NEAR(
+      Window().scrollY(),
+      (base::FeatureList::IsEnabled(features::kImpulseScrollAnimations) ? 800
+                                                                        : 299),
+      1);
 
   // Finish scrolling the container
   Compositor().BeginFrame(1);
@@ -535,8 +579,10 @@ TEST_F(ScrollIntoViewTest, ApplyRootElementScrollBehaviorToViewport) {
 // This test ensures the stop-at-layout viewport option works correctly when a
 // non-default root scroller is set as the layout viewport.
 TEST_F(ScrollIntoViewTest, StopAtLayoutViewportOption) {
+  ScopedImplicitRootScrollerForTest implicit_root_scroller(true);
+
   v8::HandleScope HandleScope(v8::Isolate::GetCurrent());
-  WebView().MainFrameWidget()->Resize(WebSize(800, 600));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 600));
   SimRequest request("https://example.com/test.html", "text/html");
   LoadURL("https://example.com/test.html");
   request.Complete(R"HTML(
@@ -598,9 +644,9 @@ TEST_F(ScrollIntoViewTest, StopAtLayoutViewportOption) {
                               std::move(params));
 
   ScrollableArea* root_scroller =
-      ToLayoutBox(root->GetLayoutObject())->GetScrollableArea();
+      To<LayoutBox>(root->GetLayoutObject())->GetScrollableArea();
   ScrollableArea* inner_scroller =
-      ToLayoutBox(inner->GetLayoutObject())->GetScrollableArea();
+      To<LayoutBox>(inner->GetLayoutObject())->GetScrollableArea();
 
   // Only the inner scroller should have scrolled. The root_scroller shouldn't
   // scroll because it is the layout viewport.
@@ -613,7 +659,7 @@ TEST_F(ScrollIntoViewTest, StopAtLayoutViewportOption) {
 // This test passes if it doesn't crash/hit an ASAN check.
 TEST_F(ScrollIntoViewTest, RemoveSequencedScrollableArea) {
   v8::HandleScope HandleScope(v8::Isolate::GetCurrent());
-  WebView().MainFrameWidget()->Resize(WebSize(800, 600));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 600));
   SimRequest request("https://example.com/test.html", "text/html");
   LoadURL("https://example.com/test.html");
   request.Complete(R"HTML(
@@ -671,7 +717,7 @@ TEST_F(ScrollIntoViewTest, RemoveSequencedScrollableArea) {
 
 TEST_F(ScrollIntoViewTest, SmoothUserScrollNotAbortedByProgrammaticScrolls) {
   v8::HandleScope HandleScope(v8::Isolate::GetCurrent());
-  WebView().MainFrameWidget()->Resize(WebSize(800, 600));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 600));
   SimRequest request("https://example.com/test.html", "text/html");
   LoadURL("https://example.com/test.html");
   request.Complete(
@@ -694,7 +740,11 @@ TEST_F(ScrollIntoViewTest, SmoothUserScrollNotAbortedByProgrammaticScrolls) {
   Compositor().BeginFrame();  // update run_state_.
   Compositor().BeginFrame();  // Set start_time = now.
   Compositor().BeginFrame(0.2);
-  ASSERT_NEAR(Window().scrollY(), 299, 1);
+  ASSERT_NEAR(
+      Window().scrollY(),
+      (base::FeatureList::IsEnabled(features::kImpulseScrollAnimations) ? 800
+                                                                        : 299),
+      1);
 
   // ProgrammaticScroll that could interrupt the current smooth scroll.
   Window().scrollTo(0, 0);
@@ -707,7 +757,7 @@ TEST_F(ScrollIntoViewTest, SmoothUserScrollNotAbortedByProgrammaticScrolls) {
 
 TEST_F(ScrollIntoViewTest, LongDistanceSmoothScrollFinishedInThreeSeconds) {
   v8::HandleScope HandleScope(v8::Isolate::GetCurrent());
-  WebView().MainFrameWidget()->Resize(WebSize(800, 600));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 600));
   SimRequest request("https://example.com/test.html", "text/html");
   LoadURL("https://example.com/test.html");
   request.Complete(
@@ -729,7 +779,11 @@ TEST_F(ScrollIntoViewTest, LongDistanceSmoothScrollFinishedInThreeSeconds) {
   Compositor().BeginFrame();  // update run_state_.
   Compositor().BeginFrame();  // Set start_time = now.
   Compositor().BeginFrame(0.2);
-  ASSERT_NEAR(Window().scrollY(), 16971, 1);
+  ASSERT_NEAR(Window().scrollY(),
+              (base::FeatureList::IsEnabled(features::kImpulseScrollAnimations)
+                   ? 79389
+                   : 16971),
+              1);
 
   // Finish scrolling the container
   Compositor().BeginFrame(0.5);

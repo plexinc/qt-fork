@@ -56,6 +56,7 @@
 
 #include "qssldiffiehellmanparameters.h"
 #include "qssldiffiehellmanparameters_p.h"
+#include "qtlsbackend_p.h"
 #include "qsslsocket.h"
 #include "qsslsocket_p.h"
 
@@ -117,12 +118,15 @@ QSslDiffieHellmanParameters::QSslDiffieHellmanParameters()
 QSslDiffieHellmanParameters QSslDiffieHellmanParameters::fromEncoded(const QByteArray &encoded, QSsl::EncodingFormat encoding)
 {
     QSslDiffieHellmanParameters result;
+    const auto *tlsBackend = QSslSocketPrivate::tlsBackendInUse();
+    if (!tlsBackend)
+        return result;
     switch (encoding) {
     case QSsl::Der:
-        result.d->decodeDer(encoded);
+        result.d->initFromDer(encoded);
         break;
     case QSsl::Pem:
-        result.d->decodePem(encoded);
+        result.d->initFromPem(encoded);
         break;
     }
     return result;
@@ -278,14 +282,43 @@ QString QSslDiffieHellmanParameters::errorString() const noexcept
 }
 
 /*!
+    \fn bool QSslDiffieHellmanParameters::operator==(const QSslDiffieHellmanParameters &lhs, const QSslDiffieHellmanParameters &rhs) noexcept
     \since 5.8
-    \relates QSslDiffieHellmanParameters
 
     Returns \c true if \a lhs is equal to \a rhs; otherwise returns \c false.
 */
-bool operator==(const QSslDiffieHellmanParameters &lhs, const QSslDiffieHellmanParameters &rhs) noexcept
+
+/*!
+    \fn bool QSslDiffieHellmanParameters::operator!=(const QSslDiffieHellmanParameters &lhs, const QSslDiffieHellmanParameters &rhs) noexcept
+    \since 5.8
+
+    Returns \c true if \a lhs is not equal to \a rhs; otherwise returns \c false.
+*/
+
+/*!
+    \internal
+*/
+bool QSslDiffieHellmanParameters::isEqual(const QSslDiffieHellmanParameters &other) const noexcept
 {
-    return lhs.d->derData == rhs.d->derData;
+    return d->derData == other.d->derData;
+}
+
+/*!
+    \internal
+*/
+void QSslDiffieHellmanParametersPrivate::initFromDer(const QByteArray &der)
+{
+    if (const auto *tlsBackend = QSslSocketPrivate::tlsBackendInUse())
+        error = QSslDiffieHellmanParameters::Error(tlsBackend->dhParametersFromDer(der, &derData));
+}
+
+/*!
+    \internal
+*/
+void QSslDiffieHellmanParametersPrivate::initFromPem(const QByteArray &pem)
+{
+    if (const auto *tlsBackend = QSslSocketPrivate::tlsBackendInUse())
+        error = QSslDiffieHellmanParameters::Error(tlsBackend->dhParametersFromPem(pem, &derData));
 }
 
 #ifndef QT_NO_DEBUG_STREAM
@@ -316,7 +349,7 @@ QDebug operator<<(QDebug debug, const QSslDiffieHellmanParameters &dhparam)
     Returns an hash value for \a dhparam, using \a seed to seed
     the calculation.
 */
-uint qHash(const QSslDiffieHellmanParameters &dhparam, uint seed) noexcept
+size_t qHash(const QSslDiffieHellmanParameters &dhparam, size_t seed) noexcept
 {
     return qHash(dhparam.d->derData, seed);
 }

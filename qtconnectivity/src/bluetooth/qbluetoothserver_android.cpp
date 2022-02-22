@@ -55,8 +55,7 @@ QHash<QBluetoothServerPrivate*, int> __fakeServerPorts;
 
 QBluetoothServerPrivate::QBluetoothServerPrivate(QBluetoothServiceInfo::Protocol sType,
                                                  QBluetoothServer *parent)
-    : socket(0),maxPendingConnections(1), securityFlags(QBluetooth::NoSecurity), serverType(sType),
-      m_lastError(QBluetoothServer::NoError), q_ptr(parent)
+    : serverType(sType), q_ptr(parent)
 {
     thread = new ServerAcceptanceThread();
     thread->setMaxPendingConnections(maxPendingConnections);
@@ -129,7 +128,7 @@ bool QBluetoothServer::listen(const QBluetoothAddress &localAdapter, quint16 por
     Q_D(QBluetoothServer);
     if (serverType() != QBluetoothServiceInfo::RfcommProtocol) {
         d->m_lastError = UnsupportedProtocolError;
-        emit error(d->m_lastError);
+        emit errorOccurred(d->m_lastError);
         return false;
     }
 
@@ -137,7 +136,7 @@ bool QBluetoothServer::listen(const QBluetoothAddress &localAdapter, quint16 por
     if (!localDevices.count()) {
         qCWarning(QT_BT_ANDROID) << "Device does not support Bluetooth";
         d->m_lastError = QBluetoothServer::UnknownError;
-        emit error(d->m_lastError);
+        emit errorOccurred(d->m_lastError);
         return false; //no Bluetooth device
     }
 
@@ -160,21 +159,21 @@ bool QBluetoothServer::listen(const QBluetoothAddress &localAdapter, quint16 por
         return false;
 
     //check Bluetooth is available and online
-    QAndroidJniObject btAdapter = QAndroidJniObject::callStaticObjectMethod(
+    QJniObject btAdapter = QJniObject::callStaticObjectMethod(
                                         "android/bluetooth/BluetoothAdapter",
                                         "getDefaultAdapter",
                                         "()Landroid/bluetooth/BluetoothAdapter;");
     if (!btAdapter.isValid()) {
         qCWarning(QT_BT_ANDROID) << "Device does not support Bluetooth";
         d->m_lastError = QBluetoothServer::UnknownError;
-        emit error(d->m_lastError);
+        emit errorOccurred(d->m_lastError);
         return false;
     }
 
     const int state = btAdapter.callMethod<jint>("getState");
     if (state != 12 ) { //BluetoothAdapter.STATE_ON
         d->m_lastError = QBluetoothServer::PoweredOffError;
-        emit error(d->m_lastError);
+        emit errorOccurred(d->m_lastError);
         qCWarning(QT_BT_ANDROID) << "Bluetooth device is powered off";
         return false;
     }
@@ -197,14 +196,14 @@ bool QBluetoothServer::listen(const QBluetoothAddress &localAdapter, quint16 por
     } else {
         qCWarning(QT_BT_ANDROID) << "server with port" << port << "already registered or port invalid";
         d->m_lastError = ServiceAlreadyRegisteredError;
-        emit error(d->m_lastError);
+        emit errorOccurred(d->m_lastError);
         return false;
     }
 
     connect(d->thread, SIGNAL(newConnection()),
             this, SIGNAL(newConnection()));
-    connect(d->thread, SIGNAL(error(QBluetoothServer::Error)),
-            this, SIGNAL(error(QBluetoothServer::Error)), Qt::QueuedConnection);
+    connect(d->thread, SIGNAL(errorOccurred(QBluetoothServer::Error)), this,
+            SIGNAL(errorOccurred(QBluetoothServer::Error)), Qt::QueuedConnection);
 
     return true;
 }
@@ -246,7 +245,7 @@ QBluetoothSocket *QBluetoothServer::nextPendingConnection()
 {
     Q_D(const QBluetoothServer);
 
-    QAndroidJniObject socket = d->thread->nextPendingConnection();
+    QJniObject socket = d->thread->nextPendingConnection();
     if (!socket.isValid())
         return 0;
 

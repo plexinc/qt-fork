@@ -22,10 +22,11 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_DOM_NODE_RARE_DATA_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_DOM_NODE_RARE_DATA_H_
 
-#include "base/macros.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
+#include "third_party/blink/renderer/platform/heap/thread_state.h"
 #include "third_party/blink/renderer/platform/wtf/bit_field.h"
+#include "third_party/blink/renderer/platform/wtf/buildflags.h"
 #include "third_party/blink/renderer/platform/wtf/hash_set.h"
 
 namespace blink {
@@ -37,11 +38,14 @@ class FlatTreeNodeData;
 class LayoutObject;
 class MutationObserverRegistration;
 class NodeListsNodeData;
+class ScrollTimeline;
 
 class NodeMutationObserverData final
     : public GarbageCollected<NodeMutationObserverData> {
  public:
   NodeMutationObserverData() = default;
+  NodeMutationObserverData(const NodeMutationObserverData&) = delete;
+  NodeMutationObserverData& operator=(const NodeMutationObserverData&) = delete;
 
   const HeapVector<Member<MutationObserverRegistration>>& Registry() {
     return registry_;
@@ -56,12 +60,11 @@ class NodeMutationObserverData final
   void AddRegistration(MutationObserverRegistration* registration);
   void RemoveRegistration(MutationObserverRegistration* registration);
 
-  void Trace(Visitor* visitor);
+  void Trace(Visitor* visitor) const;
 
  private:
   HeapVector<Member<MutationObserverRegistration>> registry_;
   HeapHashSet<Member<MutationObserverRegistration>> transient_registry_;
-  DISALLOW_COPY_AND_ASSIGN(NodeMutationObserverData);
 };
 
 class GC_PLUGIN_IGNORE(
@@ -78,7 +81,7 @@ class GC_PLUGIN_IGNORE(
                    IsRareData::encode(is_rare_data)) {
     DCHECK(!is_element_rare_data || is_rare_data);
   }
-  void Trace(Visitor*);
+  void Trace(Visitor*) const;
   void TraceAfterDispatch(blink::Visitor*) const {}
 
   enum {
@@ -106,6 +109,8 @@ class GC_PLUGIN_IGNORE("Manual dispatch implemented in NodeData.")
  public:
   NodeRenderingData(LayoutObject*,
                     scoped_refptr<const ComputedStyle> computed_style);
+  NodeRenderingData(const NodeRenderingData&) = delete;
+  NodeRenderingData& operator=(const NodeRenderingData&) = delete;
 
   LayoutObject* GetLayoutObject() const { return layout_object_; }
   void SetLayoutObject(LayoutObject* layout_object) {
@@ -128,7 +133,6 @@ class GC_PLUGIN_IGNORE("Manual dispatch implemented in NodeData.")
  private:
   LayoutObject* layout_object_;
   scoped_refptr<const ComputedStyle> computed_style_;
-  DISALLOW_COPY_AND_ASSIGN(NodeRenderingData);
 };
 
 class GC_PLUGIN_IGNORE("Manual dispatch implemented in NodeData.") NodeRareData
@@ -136,6 +140,8 @@ class GC_PLUGIN_IGNORE("Manual dispatch implemented in NodeData.") NodeRareData
  public:
   explicit NodeRareData(NodeRenderingData* node_layout_data)
       : NodeRareData(node_layout_data, false) {}
+  NodeRareData(const NodeRareData&) = delete;
+  NodeRareData& operator=(const NodeRareData&) = delete;
 
   NodeRenderingData* GetNodeRenderingData() const { return node_layout_data_; }
   void SetNodeRenderingData(NodeRenderingData* node_layout_data) {
@@ -200,6 +206,8 @@ class GC_PLUGIN_IGNORE("Manual dispatch implemented in NodeData.") NodeRareData
 
   void TraceAfterDispatch(blink::Visitor*) const;
   void FinalizeGarbageCollectedObject();
+  void RegisterScrollTimeline(ScrollTimeline*);
+  void UnregisterScrollTimeline(ScrollTimeline*);
 
  protected:
   explicit NodeRareData(NodeRenderingData* node_layout_data,
@@ -217,9 +225,19 @@ class GC_PLUGIN_IGNORE("Manual dispatch implemented in NodeData.") NodeRareData
   Member<NodeListsNodeData> node_lists_;
   Member<NodeMutationObserverData> mutation_observer_data_;
   Member<FlatTreeNodeData> flat_tree_node_data_;
-
-  DISALLOW_COPY_AND_ASSIGN(NodeRareData);
+  // Keeps strong scroll timeline pointers linked to this node to ensure
+  // the timelines are alive as long as the node is alive.
+  Member<HeapHashSet<Member<ScrollTimeline>>> scroll_timelines_;
 };
+
+#if BUILDFLAG(USE_V8_OILPAN)
+template <typename T>
+struct ThreadingTrait<
+    T,
+    std::enable_if_t<std::is_base_of<blink::NodeRareData, T>::value>> {
+  static constexpr ThreadAffinity kAffinity = kMainThreadOnly;
+};
+#endif  // USE_V8_OILPAN
 
 }  // namespace blink
 

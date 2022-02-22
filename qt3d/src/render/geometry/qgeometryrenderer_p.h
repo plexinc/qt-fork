@@ -51,24 +51,25 @@
 // We mean it.
 //
 
-#include <Qt3DCore/private/qcomponent_p.h>
+#include <Qt3DCore/private/qgeometryfactory_p.h>
+#include <Qt3DCore/private/qboundingvolume_p.h>
 #include <Qt3DRender/qgeometryrenderer.h>
-#include <Qt3DRender/qgeometryfactory.h>
 #include <Qt3DRender/private/qt3drender_global_p.h>
-#include <Qt3DCore/private/qtypedpropertyupdatechange_p.h>
 #include <memory>
 
 QT_BEGIN_NAMESPACE
 
 namespace Qt3DRender {
 
-class Q_3DRENDERSHARED_PRIVATE_EXPORT QGeometryRendererPrivate : public Qt3DCore::QComponentPrivate
+class Q_3DRENDERSHARED_PRIVATE_EXPORT QGeometryRendererPrivate : public Qt3DCore::QBoundingVolumePrivate
 {
 public:
     QGeometryRendererPrivate();
     ~QGeometryRendererPrivate();
 
     Q_DECLARE_PUBLIC(QGeometryRenderer)
+
+    void setView(Qt3DCore::QGeometryView *view) override;
 
     int m_instanceCount;
     int m_vertexCount;
@@ -79,30 +80,11 @@ public:
     int m_restartIndexValue;
     int m_verticesPerPatch;
     bool m_primitiveRestart;
-    QGeometry *m_geometry;
+    Qt3DCore::QGeometry *m_geometry;
     QGeometryRenderer::PrimitiveType m_primitiveType;
-    QGeometryFactoryPtr m_geometryFactory;
+    Qt3DCore::QGeometryFactoryPtr m_geometryFactory;
+    float m_sortIndex;
 };
-
-struct QGeometryRendererData
-{
-    int instanceCount;
-    int vertexCount;
-    int indexOffset;
-    int firstInstance;
-    int firstVertex;
-    int indexBufferByteOffset;
-    int restartIndexValue;
-    int verticesPerPatch;
-    bool primitiveRestart;
-    Qt3DCore::QNodeId geometryId;
-    QGeometryRenderer::PrimitiveType primitiveType;
-    QGeometryFactoryPtr geometryFactory;
-};
-
-class QGeometry;
-typedef Qt3DCore::QTypedPropertyUpdatedChange<std::unique_ptr<QGeometry>> QGeometryChange;
-typedef Qt3DCore::QTypedPropertyUpdatedChangePtr<std::unique_ptr<QGeometry>> QGeometryChangePtr;
 
 } // namespace Qt3DRender
 

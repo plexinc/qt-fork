@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "base/memory/ptr_util.h"
+#include "third_party/blink/public/common/tokens/tokens.h"
 #include "third_party/blink/public/resources/grit/blink_resources.h"
 #include "third_party/blink/renderer/core/dom/dom_token_list.h"
 #include "third_party/blink/renderer/core/dom/element.h"
@@ -34,7 +35,7 @@ class ValidationMessageChromeClient : public EmptyChromeClient {
                                          LocalFrameView* anchor_view)
       : main_chrome_client_(main_chrome_client), anchor_view_(anchor_view) {}
 
-  void Trace(Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(main_chrome_client_);
     visitor->Trace(anchor_view_);
     EmptyChromeClient::Trace(visitor);
@@ -99,7 +100,8 @@ void ValidationMessageOverlayDelegate::PaintFrameOverlay(
   if (DrawingRecorder::UseCachedDrawingIfPossible(context, overlay,
                                                   DisplayItem::kFrameOverlay))
     return;
-  DrawingRecorder recorder(context, overlay, DisplayItem::kFrameOverlay);
+  DrawingRecorder recorder(context, overlay, DisplayItem::kFrameOverlay,
+                           IntRect(IntPoint(), view_size));
 
   const_cast<ValidationMessageOverlayDelegate*>(this)->UpdateFrameViewState(
       overlay, view_size);
@@ -110,7 +112,7 @@ void ValidationMessageOverlayDelegate::PaintFrameOverlay(
     // The overlay frame is has a standalone paint property tree. Paint it in
     // its root space into a paint record, then draw the record into the proper
     // target space in the overlaid frame.
-    PaintRecordBuilder paint_record_builder(nullptr, &context);
+    PaintRecordBuilder paint_record_builder(context);
     FrameView().PaintOutsideOfLifecycle(paint_record_builder.Context(),
                                         kGlobalPaintNormalPhase);
     context.DrawRecord(paint_record_builder.EndRecording());
@@ -152,16 +154,19 @@ void ValidationMessageOverlayDelegate::CreatePage(const FrameOverlay& overlay) {
       main_page_->GetChromeClient(), anchor_->GetDocument().View());
   page_clients.chrome_client = chrome_client_;
   Settings& main_settings = main_page_->GetSettings();
-  page_ = Page::CreateNonOrdinary(page_clients);
+  page_ = Page::CreateNonOrdinary(
+      page_clients, main_page_->GetPageScheduler()->GetAgentGroupScheduler());
   page_->GetSettings().SetMinimumFontSize(main_settings.GetMinimumFontSize());
   page_->GetSettings().SetMinimumLogicalFontSize(
       main_settings.GetMinimumLogicalFontSize());
 
   auto* frame = MakeGarbageCollected<LocalFrame>(
       MakeGarbageCollected<EmptyLocalFrameClient>(), *page_, nullptr, nullptr,
-      nullptr);
+      nullptr, FrameInsertType::kInsertInConstructor, LocalFrameToken(),
+      nullptr, nullptr,
+      /* policy_container */ nullptr);
   frame->SetView(MakeGarbageCollected<LocalFrameView>(*frame, view_size));
-  frame->Init();
+  frame->Init(nullptr);
   frame->View()->SetCanHaveScrollbars(false);
   frame->View()->SetBaseBackgroundColor(Color::kTransparent);
   page_->GetVisualViewport().SetSize(view_size);

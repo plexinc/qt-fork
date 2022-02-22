@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -65,6 +65,10 @@ public:
     ~ThreadPoolThreadReleaser()
     { if (m_pool) m_pool->reserveThread(); }
 };
+
+const auto suspendingOrSuspended =
+        QFutureInterfaceBase::Suspending | QFutureInterfaceBase::Suspended;
+
 } // unnamed namespace
 
 
@@ -80,7 +84,7 @@ QFutureInterfaceBase::QFutureInterfaceBase(const QFutureInterfaceBase &other)
 
 QFutureInterfaceBase::~QFutureInterfaceBase()
 {
-    if (!d->refCount.deref())
+    if (d && !d->refCount.deref())
         delete d;
 }
 
@@ -110,36 +114,51 @@ void QFutureInterfaceBase::cancel()
     if (d->state.loadRelaxed() & Canceled)
         return;
 
-    switch_from_to(d->state, Paused, Canceled);
+    switch_from_to(d->state, suspendingOrSuspended, Canceled);
     d->waitCondition.wakeAll();
     d->pausedWaitCondition.wakeAll();
     d->sendCallOut(QFutureCallOutEvent(QFutureCallOutEvent::Canceled));
+    d->isValid = false;
 }
 
-void QFutureInterfaceBase::setPaused(bool paused)
+void QFutureInterfaceBase::setSuspended(bool suspend)
 {
     QMutexLocker locker(&d->m_mutex);
-    if (paused) {
-        switch_on(d->state, Paused);
-        d->sendCallOut(QFutureCallOutEvent(QFutureCallOutEvent::Paused));
+    if (suspend) {
+        switch_on(d->state, Suspending);
+        d->sendCallOut(QFutureCallOutEvent(QFutureCallOutEvent::Suspending));
     } else {
-        switch_off(d->state, Paused);
+        switch_off(d->state, suspendingOrSuspended);
         d->pausedWaitCondition.wakeAll();
         d->sendCallOut(QFutureCallOutEvent(QFutureCallOutEvent::Resumed));
     }
 }
 
-void QFutureInterfaceBase::togglePaused()
+void QFutureInterfaceBase::toggleSuspended()
 {
     QMutexLocker locker(&d->m_mutex);
-    if (d->state.loadRelaxed() & Paused) {
-        switch_off(d->state, Paused);
+    if (d->state.loadRelaxed() & suspendingOrSuspended) {
+        switch_off(d->state, suspendingOrSuspended);
         d->pausedWaitCondition.wakeAll();
         d->sendCallOut(QFutureCallOutEvent(QFutureCallOutEvent::Resumed));
     } else {
-        switch_on(d->state, Paused);
-        d->sendCallOut(QFutureCallOutEvent(QFutureCallOutEvent::Paused));
+        switch_on(d->state, Suspending);
+        d->sendCallOut(QFutureCallOutEvent(QFutureCallOutEvent::Suspending));
     }
+}
+
+void QFutureInterfaceBase::reportSuspended() const
+{
+    // Needs to be called when pause is in effect,
+    // i.e. no more events will be reported.
+
+    QMutexLocker locker(&d->m_mutex);
+    const int state = d->state;
+    if (!(state & Suspending) || (state & Suspended))
+        return;
+
+    switch_from_to(d->state, Suspending, Suspended);
+    d->sendCallOut(QFutureCallOutEvent(QFutureCallOutEvent::Suspended));
 }
 
 void QFutureInterfaceBase::setThrottled(bool enable)
@@ -149,7 +168,7 @@ void QFutureInterfaceBase::setThrottled(bool enable)
         switch_on(d->state, Throttled);
     } else {
         switch_off(d->state, Throttled);
-        if (!(d->state.loadRelaxed() & Paused))
+        if (!(d->state.loadRelaxed() & suspendingOrSuspended))
             d->pausedWaitCondition.wakeAll();
     }
 }
@@ -175,9 +194,21 @@ bool QFutureInterfaceBase::isFinished() const
     return queryState(Finished);
 }
 
+bool QFutureInterfaceBase::isSuspending() const
+{
+    return queryState(Suspending);
+}
+
+#if QT_DEPRECATED_SINCE(6, 0)
 bool QFutureInterfaceBase::isPaused() const
 {
-    return queryState(Paused);
+    return queryState(static_cast<State>(suspendingOrSuspended));
+}
+#endif
+
+bool QFutureInterfaceBase::isSuspended() const
+{
+    return queryState(Suspended);
 }
 
 bool QFutureInterfaceBase::isThrottled() const
@@ -191,6 +222,17 @@ bool QFutureInterfaceBase::isResultReadyAt(int index) const
     return d->internal_isResultReadyAt(index);
 }
 
+bool QFutureInterfaceBase::isValid() const
+{
+    const QMutexLocker lock(&d->m_mutex);
+    return d->isValid;
+}
+
+bool QFutureInterfaceBase::isRunningOrPending() const
+{
+    return queryState(static_cast<State>(Running | Pending));
+}
+
 bool QFutureInterfaceBase::waitForNextResult()
 {
     QMutexLocker lock(&d->m_mutex);
@@ -202,18 +244,49 @@ void QFutureInterfaceBase::waitForResume()
     // return early if possible to avoid taking the mutex lock.
     {
         const int state = d->state.loadRelaxed();
-        if (!(state & Paused) || (state & Canceled))
+        if (!(state & suspendingOrSuspended) || (state & Canceled))
             return;
     }
 
     QMutexLocker lock(&d->m_mutex);
     const int state = d->state.loadRelaxed();
-    if (!(state & Paused) || (state & Canceled))
+    if (!(state & suspendingOrSuspended) || (state & Canceled))
         return;
 
     // decrease active thread count since this thread will wait.
     const ThreadPoolThreadReleaser releaser(d->pool());
 
+    d->pausedWaitCondition.wait(&d->m_mutex);
+}
+
+void QFutureInterfaceBase::suspendIfRequested()
+{
+    const auto canSuspend = [] (int state) {
+        // can suspend only if 1) in any suspend-related state; 2) not canceled
+        return (state & suspendingOrSuspended) && !(state & Canceled);
+    };
+
+    // return early if possible to avoid taking the mutex lock.
+    {
+        const int state = d->state.loadRelaxed();
+        if (!canSuspend(state))
+            return;
+    }
+
+    QMutexLocker lock(&d->m_mutex);
+    const int state = d->state.loadRelaxed();
+    if (!canSuspend(state))
+        return;
+
+    // Note: expecting that Suspending and Suspended are mutually exclusive
+    if (!(state & Suspended)) {
+        // switch state in case this is the first invocation
+        switch_from_to(d->state, Suspending, Suspended);
+        d->sendCallOut(QFutureCallOutEvent(QFutureCallOutEvent::Suspended));
+    }
+
+    // decrease active thread count since this thread will wait.
+    const ThreadPoolThreadReleaser releaser(d->pool());
     d->pausedWaitCondition.wait(&d->m_mutex);
 }
 
@@ -258,9 +331,9 @@ void QFutureInterfaceBase::reportStarted()
     QMutexLocker locker(&d->m_mutex);
     if (d->state.loadRelaxed() & (Started|Canceled|Finished))
         return;
-
     d->setState(State(Started | Running));
     d->sendCallOut(QFutureCallOutEvent(QFutureCallOutEvent::Started));
+    d->isValid = true;
 }
 
 void QFutureInterfaceBase::reportCanceled()
@@ -270,6 +343,19 @@ void QFutureInterfaceBase::reportCanceled()
 
 #ifndef QT_NO_EXCEPTIONS
 void QFutureInterfaceBase::reportException(const QException &exception)
+{
+    try {
+        exception.raise();
+    } catch (...) {
+        reportException(std::current_exception());
+    }
+}
+
+#if QT_VERSION < QT_VERSION_CHECK(7, 0, 0)
+void QFutureInterfaceBase::reportException(std::exception_ptr exception)
+#else
+void QFutureInterfaceBase::reportException(const std::exception_ptr &exception)
+#endif
 {
     QMutexLocker locker(&d->m_mutex);
     if (d->state.loadRelaxed() & (Canceled|Finished))
@@ -310,12 +396,20 @@ bool QFutureInterfaceBase::queryState(State state) const
     return d->state.loadRelaxed() & state;
 }
 
+int QFutureInterfaceBase::loadState() const
+{
+    // Used from ~QPromise, so this check is needed
+    if (!d)
+        return QFutureInterfaceBase::State::NoState;
+    return d->state.loadRelaxed();
+}
+
 void QFutureInterfaceBase::waitForResult(int resultIndex)
 {
     d->m_exceptionStore.throwPossibleException();
 
     QMutexLocker lock(&d->m_mutex);
-    if (!isRunning())
+    if (!isRunningOrPending())
         return;
     lock.unlock();
 
@@ -326,7 +420,7 @@ void QFutureInterfaceBase::waitForResult(int resultIndex)
     lock.relock();
 
     const int waitIndex = (resultIndex == -1) ? INT_MAX : resultIndex;
-    while (isRunning() && !d->internal_isResultReadyAt(waitIndex))
+    while (isRunningOrPending() && !d->internal_isResultReadyAt(waitIndex))
         d->waitCondition.wait(&d->m_mutex);
 
     d->m_exceptionStore.throwPossibleException();
@@ -335,7 +429,7 @@ void QFutureInterfaceBase::waitForResult(int resultIndex)
 void QFutureInterfaceBase::waitForFinished()
 {
     QMutexLocker lock(&d->m_mutex);
-    const bool alreadyFinished = !isRunning();
+    const bool alreadyFinished = isFinished();
     lock.unlock();
 
     if (!alreadyFinished) {
@@ -343,7 +437,7 @@ void QFutureInterfaceBase::waitForFinished()
 
         lock.relock();
 
-        while (isRunning())
+        while (!isFinished())
             d->waitCondition.wait(&d->m_mutex);
     }
 
@@ -386,18 +480,40 @@ void QFutureInterfaceBase::setThreadPool(QThreadPool *pool)
     d->m_pool = pool;
 }
 
+QThreadPool *QFutureInterfaceBase::threadPool() const
+{
+    return d->m_pool;
+}
+
 void QFutureInterfaceBase::setFilterMode(bool enable)
 {
     QMutexLocker locker(&d->m_mutex);
     resultStoreBase().setFilterMode(enable);
 }
 
+/*!
+    \internal
+    Sets the progress range's minimum and maximum values to \a minimum and
+    \a maximum respectively.
+
+    If \a maximum is smaller than \a minimum, \a minimum becomes the only
+    legal value.
+
+    The progress value is reset to be \a minimum.
+
+    The progress range usage can be disabled by using setProgressRange(0, 0).
+    In this case progress value is also reset to 0.
+
+    The behavior of this method is mostly inspired by
+    \l QProgressBar::setRange.
+*/
 void QFutureInterfaceBase::setProgressRange(int minimum, int maximum)
 {
     QMutexLocker locker(&d->m_mutex);
     d->m_progressMinimum = minimum;
-    d->m_progressMaximum = maximum;
+    d->m_progressMaximum = qMax(minimum, maximum);
     d->sendCallOut(QFutureCallOutEvent(QFutureCallOutEvent::ProgressRange, minimum, maximum));
+    d->m_progressValue = minimum;
 }
 
 void QFutureInterfaceBase::setProgressValue(int progressValue)
@@ -405,12 +521,25 @@ void QFutureInterfaceBase::setProgressValue(int progressValue)
     setProgressValueAndText(progressValue, QString());
 }
 
+/*!
+    \internal
+    In case of the \a progressValue falling out of the progress range,
+    this method has no effect.
+    Such behavior is inspired by \l QProgressBar::setValue.
+*/
 void QFutureInterfaceBase::setProgressValueAndText(int progressValue,
                                                    const QString &progressText)
 {
     QMutexLocker locker(&d->m_mutex);
     if (d->manualProgress == false)
         d->manualProgress = true;
+
+    const bool useProgressRange = (d->m_progressMaximum != 0) || (d->m_progressMinimum != 0);
+    if (useProgressRange
+        && ((progressValue < d->m_progressMinimum) || (progressValue > d->m_progressMaximum))) {
+        return;
+    }
+
     if (d->m_progressValue >= progressValue)
         return;
 
@@ -424,12 +553,7 @@ void QFutureInterfaceBase::setProgressValueAndText(int progressValue,
     }
 }
 
-QMutex *QFutureInterfaceBase::mutex() const
-{
-    return &d->m_mutex;
-}
-
-QMutex &QFutureInterfaceBase::mutex(int) const
+QMutex &QFutureInterfaceBase::mutex() const
 {
     return d->m_mutex;
 }
@@ -451,27 +575,45 @@ const QtPrivate::ResultStoreBase &QFutureInterfaceBase::resultStoreBase() const
 
 QFutureInterfaceBase &QFutureInterfaceBase::operator=(const QFutureInterfaceBase &other)
 {
-    other.d->refCount.ref();
-    if (!d->refCount.deref())
-        delete d;
-    d = other.d;
+    QFutureInterfaceBase copy(other);
+    swap(copy);
     return *this;
 }
 
-bool QFutureInterfaceBase::refT() const
+// ### Qt 7: inline
+void QFutureInterfaceBase::swap(QFutureInterfaceBase &other) noexcept
+{
+    qSwap(d, other.d);
+}
+
+bool QFutureInterfaceBase::refT() const noexcept
 {
     return d->refCount.refT();
 }
 
-bool QFutureInterfaceBase::derefT() const
+bool QFutureInterfaceBase::derefT() const noexcept
 {
-    return d->refCount.derefT();
+    // Called from ~QFutureInterface
+    return !d || d->refCount.derefT();
+}
+
+void QFutureInterfaceBase::reset()
+{
+    d->m_progressValue = 0;
+    d->m_progressMinimum = 0;
+    d->m_progressMaximum = 0;
+    d->setState(QFutureInterfaceBase::NoState);
+    d->progressTime.invalidate();
+    d->isValid = false;
+}
+
+void QFutureInterfaceBase::rethrowPossibleException()
+{
+    exceptionStore().throwPossibleException();
 }
 
 QFutureInterfaceBasePrivate::QFutureInterfaceBasePrivate(QFutureInterfaceBase::State initialState)
-    : refCount(1), m_progressValue(0), m_progressMinimum(0), m_progressMaximum(0),
-      state(initialState),
-      manualProgress(false), m_expectedResultCount(0), runnable(nullptr), m_pool(nullptr)
+    : state(initialState)
 {
     progressTime.invalidate();
 }
@@ -526,7 +668,7 @@ void QFutureInterfaceBasePrivate::internal_setThrottled(bool enable)
         switch_on(state, QFutureInterfaceBase::Throttled);
     } else {
         switch_off(state, QFutureInterfaceBase::Throttled);
-        if (!(state.loadRelaxed() & QFutureInterfaceBase::Paused))
+        if (!(state.loadRelaxed() & suspendingOrSuspended))
             pausedWaitCondition.wakeAll();
     }
 }
@@ -561,7 +703,8 @@ void QFutureInterfaceBasePrivate::connectOutputInterface(QFutureCallOutInterface
 {
     QMutexLocker locker(&m_mutex);
 
-    if (state.loadRelaxed() & QFutureInterfaceBase::Started) {
+    const auto currentState = state.loadRelaxed();
+    if (currentState & QFutureInterfaceBase::Started) {
         interface->postCallOutEvent(QFutureCallOutEvent(QFutureCallOutEvent::Started));
         interface->postCallOutEvent(QFutureCallOutEvent(QFutureCallOutEvent::ProgressRange,
                                                         m_progressMinimum,
@@ -581,13 +724,15 @@ void QFutureInterfaceBasePrivate::connectOutputInterface(QFutureCallOutInterface
         it.batchedAdvance();
     }
 
-    if (state.loadRelaxed() & QFutureInterfaceBase::Paused)
-        interface->postCallOutEvent(QFutureCallOutEvent(QFutureCallOutEvent::Paused));
+    if (currentState & QFutureInterfaceBase::Suspended)
+        interface->postCallOutEvent(QFutureCallOutEvent(QFutureCallOutEvent::Suspended));
+    else if (currentState & QFutureInterfaceBase::Suspending)
+        interface->postCallOutEvent(QFutureCallOutEvent(QFutureCallOutEvent::Suspending));
 
-    if (state.loadRelaxed() & QFutureInterfaceBase::Canceled)
+    if (currentState & QFutureInterfaceBase::Canceled)
         interface->postCallOutEvent(QFutureCallOutEvent(QFutureCallOutEvent::Canceled));
 
-    if (state.loadRelaxed() & QFutureInterfaceBase::Finished)
+    if (currentState & QFutureInterfaceBase::Finished)
         interface->postCallOutEvent(QFutureCallOutEvent(QFutureCallOutEvent::Finished));
 
     outputConnections.append(interface);
@@ -607,6 +752,66 @@ void QFutureInterfaceBasePrivate::disconnectOutputInterface(QFutureCallOutInterf
 void QFutureInterfaceBasePrivate::setState(QFutureInterfaceBase::State newState)
 {
     state.storeRelaxed(newState);
+}
+
+void QFutureInterfaceBase::setContinuation(std::function<void(const QFutureInterfaceBase &)> func)
+{
+    setContinuation(func, nullptr);
+}
+
+void QFutureInterfaceBase::setContinuation(std::function<void(const QFutureInterfaceBase &)> func,
+                                           QFutureInterfaceBasePrivate *continuationFutureData)
+{
+    QMutexLocker lock(&d->continuationMutex);
+
+    if (continuationFutureData)
+        continuationFutureData->parentData = d;
+
+    // If the state is ready, run continuation immediately,
+    // otherwise save it for later.
+    if (isFinished()) {
+        lock.unlock();
+        func(*this);
+    } else {
+        d->continuation = std::move(func);
+    }
+}
+
+void QFutureInterfaceBase::runContinuation() const
+{
+    QMutexLocker lock(&d->continuationMutex);
+    if (d->continuation) {
+        lock.unlock();
+        d->continuation(*this);
+    }
+}
+
+bool QFutureInterfaceBase::isChainCanceled() const
+{
+    if (isCanceled())
+        return true;
+
+    auto parent = d->parentData;
+    while (parent) {
+        // If the future is in Canceled state because it had an exception, we want to
+        // continue checking the chain of parents for cancellation, otherwise if the exception
+        // is handeled inside the chain, it won't be interrupted even though cancellation has
+        // been requested.
+        if ((parent->state.loadRelaxed() & Canceled) && !parent->m_exceptionStore.hasException())
+            return true;
+        parent = parent->parentData;
+    }
+    return false;
+}
+
+void QFutureInterfaceBase::setLaunchAsync(bool value)
+{
+    d->launchAsync = value;
+}
+
+bool QFutureInterfaceBase::launchAsync() const
+{
+    return d->launchAsync;
 }
 
 QT_END_NAMESPACE

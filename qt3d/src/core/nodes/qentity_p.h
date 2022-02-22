@@ -55,6 +55,7 @@
 
 #include <Qt3DCore/private/qnode_p.h>
 #include <Qt3DCore/private/qt3dcore_global_p.h>
+#include <Qt3DCore/private/qchangearbiter_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -67,13 +68,15 @@ public :
     ~QEntityPrivate();
 
     Q_DECLARE_PUBLIC(QEntity)
+    static QEntityPrivate *get(QEntity *q);
 
     QNodeId parentEntityId() const;
+    void updateComponentRelationShip(QComponent *component, ComponentRelationshipChange::RelationShip change);
 
     template<class T>
-    QVector<T*> componentsOfType() const
+    QList<T*> componentsOfType() const
     {
-        QVector<T*> typedComponents;
+        QList<T*> typedComponents;
         for (QComponent *comp : m_components) {
             T *typedComponent = qobject_cast<T*>(comp);
             if (typedComponent != nullptr)
@@ -87,13 +90,7 @@ public :
 
     QComponentVector m_components;
     mutable QNodeId m_parentEntityId;
-};
-
-struct QEntityData
-{
-    Qt3DCore::QNodeId parentEntityId;
-    QVector<QNodeIdTypePair> componentIdsAndTypes;
-    Qt3DCore::QNodeIdVector childEntityIds;
+    bool m_dirty;
 };
 
 }

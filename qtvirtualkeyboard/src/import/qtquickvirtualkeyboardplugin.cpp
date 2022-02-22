@@ -40,6 +40,10 @@
 #include <QtVirtualKeyboard/qvirtualkeyboardtrace.h>
 #include <QtVirtualKeyboard/private/shadowinputcontext_p.h>
 #include <QtVirtualKeyboard/private/qvirtualkeyboard_staticplugin_p.h>
+#include <QtVirtualKeyboard/qvirtualkeyboardobserver.h>
+#include <QtVirtualKeyboard/qvirtualkeyboard_namespace.h>
+#include <QtVirtualKeyboard/private/virtualkeyboard_p.h>
+#include <QtVirtualKeyboard/private/virtualkeyboardattachedtype_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -47,8 +51,8 @@ using namespace QtVirtualKeyboard;
 
 static QObject *createInputContextModule(QQmlEngine *engine, QJSEngine *scriptEngine)
 {
-    Q_UNUSED(engine)
-    Q_UNUSED(scriptEngine)
+    Q_UNUSED(engine);
+    Q_UNUSED(scriptEngine);
     return new QVirtualKeyboardInputContext();
 }
 
@@ -56,7 +60,7 @@ void QtQuickVirtualKeyboardPlugin::registerTypes(const char *uri)
 {
 #if defined(QT_STATICPLUGIN)
     Q_VKB_IMPORT_PLUGIN(QtQuick2Plugin)
-    Q_VKB_IMPORT_PLUGIN(QtQuick2WindowPlugin)
+    Q_VKB_IMPORT_PLUGIN(QtQuick_WindowPlugin)
     Q_VKB_IMPORT_PLUGIN(QtQuickLayoutsPlugin)
     Q_VKB_IMPORT_PLUGIN(QmlFolderListModelPlugin)
     Q_VKB_IMPORT_PLUGIN(QtQuickVirtualKeyboardSettingsPlugin)
@@ -85,6 +89,10 @@ void QtQuickVirtualKeyboardPlugin::registerTypes(const char *uri)
     qmlRegisterType<QVirtualKeyboardTrace>(uri, 2, 4, "Trace");
     qRegisterMetaType<ShadowInputContext *>("ShadowInputContext*");
     qmlRegisterUncreatableType<ShadowInputContext>(uri, 2, 2, "ShadowInputContext", QLatin1String("Cannot create shadow input context"));
+    qmlRegisterType<QVirtualKeyboardObserver>(uri, 6, 1, "KeyboardObserver");
+    qmlRegisterUncreatableMetaObject(QtVirtualKeyboard::staticMetaObject, uri, 6, 1, "QtVirtualKeyboard", "Cannot create namespace");
+    qmlRegisterAnonymousType<VirtualKeyboardAttachedType>(uri, 6);
+    qmlRegisterType<VirtualKeyboard>(uri, 6, 1, "VirtualKeyboard");
 
     const QString path(QStringLiteral("qrc:///QtQuick/VirtualKeyboard/content/"));
     qmlRegisterType(QUrl(path + QLatin1String("InputPanel.qml")), uri, 1, 0, "InputPanel");
@@ -144,10 +152,12 @@ void QtQuickVirtualKeyboardPlugin::registerTypes(const char *uri)
     qmlRegisterType(QUrl(componentsPath + QLatin1String("WordCandidatePopupList.qml")), uri, 2, 0, "WordCandidatePopupList");
     qmlRegisterType(QUrl(componentsPath + QLatin1String("PopupList.qml")), uri, 2, 3, "PopupList");
     qmlRegisterType(QUrl(componentsPath + QLatin1String("SelectionControl.qml")), uri, 2, 1, "SelectionControl");
+    qmlRegisterType(QUrl(componentsPath + QLatin1String("FlickKey.qml")), uri, 6, 1, "FlickKey");
     qmlRegisterType(QUrl(componentsPath + QLatin1String("InputModeKey.qml")), uri, 2, 3, "InputModeKey");
 
-    // Auto-increment the import to stay in sync with ALL future QtQuick minor versions
-    qmlRegisterModule(uri, 2, QT_VERSION_MINOR);
+    // The minor version used to be the current Qt 5 minor. For compatibility it is the last
+    // Qt 5 release.
+    qmlRegisterModule(uri, 2, 15);
 }
 
 QT_END_NAMESPACE

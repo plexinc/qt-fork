@@ -50,14 +50,9 @@ mojom::blink::CookieChangeSubscriptionPtr ToBackendSubscription(
     backend_subscription->url = default_cookie_url;
   }
 
-  if (subscription->matchType() == "starts-with") {
-    backend_subscription->match_type =
-        network::mojom::blink::CookieMatchType::STARTS_WITH;
-  } else {
-    DCHECK_EQ(subscription->matchType(), WTF::String("equals"));
-    backend_subscription->match_type =
-        network::mojom::blink::CookieMatchType::EQUALS;
-  }
+  // TODO(crbug.com/1124499): Cleanup matchType after re-evaluation.
+  backend_subscription->match_type =
+      network::mojom::blink::CookieMatchType::EQUALS;
 
   if (subscription->hasName()) {
     backend_subscription->name = subscription->name();
@@ -77,20 +72,8 @@ CookieStoreGetOptions* ToCookieChangeSubscription(
   CookieStoreGetOptions* subscription = CookieStoreGetOptions::Create();
   subscription->setUrl(backend_subscription.url);
 
-  if (backend_subscription.match_type !=
-          network::mojom::blink::CookieMatchType::STARTS_WITH ||
-      !backend_subscription.name.IsEmpty()) {
+  if (!backend_subscription.name.IsEmpty())
     subscription->setName(backend_subscription.name);
-  }
-
-  switch (backend_subscription.match_type) {
-    case network::mojom::blink::CookieMatchType::STARTS_WITH:
-      subscription->setMatchType(WTF::String("starts-with"));
-      break;
-    case network::mojom::blink::CookieMatchType::EQUALS:
-      subscription->setMatchType(WTF::String("equals"));
-      break;
-  }
 
   return subscription;
 }
@@ -102,17 +85,32 @@ KURL DefaultCookieURL(ServiceWorkerRegistration* registration) {
 
 }  // namespace
 
-CookieStoreManager::CookieStoreManager(
-    ServiceWorkerRegistration* registration,
-    mojo::Remote<mojom::blink::CookieStore> backend)
-    : registration_(registration),
-      backend_(std::move(backend)),
-      default_cookie_url_(DefaultCookieURL(registration)) {
-  DCHECK(registration_);
-  DCHECK(backend_);
+// static
+const char CookieStoreManager::kSupplementName[] = "CookieStoreManager";
+
+// static
+CookieStoreManager* CookieStoreManager::cookies(
+    ServiceWorkerRegistration& registration) {
+  auto* supplement =
+      Supplement<ServiceWorkerRegistration>::From<CookieStoreManager>(
+          registration);
+  if (!supplement) {
+    supplement = MakeGarbageCollected<CookieStoreManager>(registration);
+    ProvideTo(registration, supplement);
+  }
+  return supplement;
 }
 
-CookieStoreManager::~CookieStoreManager() = default;
+CookieStoreManager::CookieStoreManager(ServiceWorkerRegistration& registration)
+    : Supplement<ServiceWorkerRegistration>(registration),
+      registration_(&registration),
+      backend_(registration.GetExecutionContext()),
+      default_cookie_url_(DefaultCookieURL(&registration)) {
+  auto* execution_context = registration.GetExecutionContext();
+  execution_context->GetBrowserInterfaceBroker().GetInterface(
+      backend_.BindNewPipeAndPassReceiver(
+          execution_context->GetTaskRunner(TaskType::kDOMManipulation)));
+}
 
 ScriptPromise CookieStoreManager::subscribe(
     ScriptState* script_state,
@@ -181,8 +179,10 @@ ScriptPromise CookieStoreManager::getSubscriptions(
   return resolver->Promise();
 }
 
-void CookieStoreManager::Trace(Visitor* visitor) {
+void CookieStoreManager::Trace(Visitor* visitor) const {
   visitor->Trace(registration_);
+  visitor->Trace(backend_);
+  Supplement<ServiceWorkerRegistration>::Trace(visitor);
   ScriptWrappable::Trace(visitor);
 }
 

@@ -2,16 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/spdy/core/spdy_protocol.h"
+#include "spdy/core/spdy_protocol.h"
 
 #include <iostream>
 #include <limits>
 #include <memory>
 
-#include "net/third_party/quiche/src/common/platform/api/quiche_test.h"
-#include "net/third_party/quiche/src/spdy/core/spdy_bitmasks.h"
-#include "net/third_party/quiche/src/spdy/core/spdy_test_utils.h"
-#include "net/third_party/quiche/src/spdy/platform/api/spdy_test_helpers.h"
+#include "common/platform/api/quiche_test.h"
+#include "spdy/core/spdy_bitmasks.h"
+#include "spdy/core/spdy_test_utils.h"
+#include "spdy/platform/api/spdy_test_helpers.h"
 
 namespace spdy {
 
@@ -121,7 +121,9 @@ TEST(SpdyProtocolTest, ParseSettingsId) {
   EXPECT_FALSE(ParseSettingsId(7, &setting_id));
   EXPECT_TRUE(ParseSettingsId(8, &setting_id));
   EXPECT_EQ(SETTINGS_ENABLE_CONNECT_PROTOCOL, setting_id);
-  EXPECT_FALSE(ParseSettingsId(9, &setting_id));
+  EXPECT_TRUE(ParseSettingsId(9, &setting_id));
+  EXPECT_EQ(SETTINGS_DEPRECATE_HTTP2_PRIORITIES, setting_id);
+  EXPECT_FALSE(ParseSettingsId(10, &setting_id));
   EXPECT_FALSE(ParseSettingsId(0xFF44, &setting_id));
   EXPECT_TRUE(ParseSettingsId(0xFF45, &setting_id));
   EXPECT_EQ(SETTINGS_EXPERIMENT_SCHEDULER, setting_id);
@@ -142,7 +144,9 @@ TEST(SpdyProtocolTest, SettingsIdToString) {
       {SETTINGS_MAX_HEADER_LIST_SIZE, "SETTINGS_MAX_HEADER_LIST_SIZE"},
       {7, "SETTINGS_UNKNOWN_7"},
       {SETTINGS_ENABLE_CONNECT_PROTOCOL, "SETTINGS_ENABLE_CONNECT_PROTOCOL"},
-      {9, "SETTINGS_UNKNOWN_9"},
+      {SETTINGS_DEPRECATE_HTTP2_PRIORITIES,
+       "SETTINGS_DEPRECATE_HTTP2_PRIORITIES"},
+      {0xa, "SETTINGS_UNKNOWN_a"},
       {0xFF44, "SETTINGS_UNKNOWN_ff44"},
       {0xFF45, "SETTINGS_EXPERIMENT_SCHEDULER"},
       {0xFF46, "SETTINGS_UNKNOWN_ff46"}};
@@ -226,8 +230,8 @@ TEST(SpdyStreamPrecedenceTest, Equals) {
 
 TEST(SpdyDataIRTest, Construct) {
   // Confirm that it makes a string of zero length from a
-  // QuicheStringPiece(nullptr).
-  quiche::QuicheStringPiece s1;
+  // absl::string_view(nullptr).
+  absl::string_view s1;
   SpdyDataIR d1(/* stream_id = */ 1, s1);
   EXPECT_EQ(0u, d1.data_len());
   EXPECT_NE(nullptr, d1.data());
@@ -235,8 +239,8 @@ TEST(SpdyDataIRTest, Construct) {
   // Confirms makes a copy of char array.
   const char s2[] = "something";
   SpdyDataIR d2(/* stream_id = */ 2, s2);
-  EXPECT_EQ(quiche::QuicheStringPiece(d2.data(), d2.data_len()), s2);
-  EXPECT_NE(quiche::QuicheStringPiece(d1.data(), d1.data_len()), s2);
+  EXPECT_EQ(absl::string_view(d2.data(), d2.data_len()), s2);
+  EXPECT_NE(absl::string_view(d1.data(), d1.data_len()), s2);
   EXPECT_EQ((int)d1.data_len(), d1.flow_control_window_consumed());
 
   // Confirm copies a const string.
@@ -249,20 +253,18 @@ TEST(SpdyDataIRTest, Construct) {
   std::string bar = "bar";
   SpdyDataIR d4(/* stream_id = */ 4, bar);
   EXPECT_EQ("bar", bar);
-  EXPECT_EQ("bar", quiche::QuicheStringPiece(d4.data(), d4.data_len()));
+  EXPECT_EQ("bar", absl::string_view(d4.data(), d4.data_len()));
 
   // Confirm moves an rvalue reference. Note that the test string "baz" is too
   // short to trigger the move optimization, and instead a copy occurs.
   std::string baz = "the quick brown fox";
   SpdyDataIR d5(/* stream_id = */ 5, std::move(baz));
   EXPECT_EQ("", baz);
-  EXPECT_EQ(quiche::QuicheStringPiece(d5.data(), d5.data_len()),
-            "the quick brown fox");
+  EXPECT_EQ(absl::string_view(d5.data(), d5.data_len()), "the quick brown fox");
 
   // Confirms makes a copy of string literal.
   SpdyDataIR d7(/* stream_id = */ 7, "something else");
-  EXPECT_EQ(quiche::QuicheStringPiece(d7.data(), d7.data_len()),
-            "something else");
+  EXPECT_EQ(absl::string_view(d7.data(), d7.data_len()), "something else");
 
   SpdyDataIR d8(/* stream_id = */ 8, "shawarma");
   d8.set_padding_len(20);

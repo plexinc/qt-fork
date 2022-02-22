@@ -29,19 +29,20 @@
  */
 
 import * as Host from '../host/host.js';
+import * as ThemeSupport from '../theme_support/theme_support.js';
 import * as UI from '../ui/ui.js';
 
-/**
- * @unrestricted
- */
+/** @type {!Map<!Element, !Element>} */
+const labelMap = new Map();
+
 export class TimelineGrid {
   constructor() {
-    this.element = createElement('div');
-    UI.Utils.appendStyle(this.element, 'perf_ui/timelineGrid.css');
+    this.element = document.createElement('div');
+    UI.Utils.appendStyle(this.element, 'perf_ui/timelineGrid.css', {enableLegacyPatching: true});
 
     this._dividersElement = this.element.createChild('div', 'resources-dividers');
 
-    this._gridHeaderElement = createElement('div');
+    this._gridHeaderElement = document.createElement('div');
     this._gridHeaderElement.classList.add('timeline-grid-header');
     this._eventDividersElement = this._gridHeaderElement.createChild('div', 'resources-event-dividers');
     this._dividersLabelBarElement = this._gridHeaderElement.createChild('div', 'resources-dividers-label-bar');
@@ -91,7 +92,7 @@ export class TimelineGrid {
     const offsets = [];
     for (let i = 0; i < dividersCount; ++i) {
       const time = firstDividerTime + gridSliceTime * i;
-      if (calculator.computePosition(time) < freeZoneAtLeft) {
+      if (calculator.computePosition(time) < (freeZoneAtLeft || 0)) {
         continue;
       }
       offsets.push({position: Math.floor(calculator.computePosition(time)), time: time});
@@ -108,8 +109,8 @@ export class TimelineGrid {
     context.save();
     context.scale(window.devicePixelRatio, window.devicePixelRatio);
     const height = Math.floor(context.canvas.height / window.devicePixelRatio);
-    context.strokeStyle =
-        self.UI.themeSupport.patchColorText('rgba(0, 0, 0, 0.1)', UI.UIUtils.ThemeSupport.ColorUsage.Foreground);
+    context.strokeStyle = ThemeSupport.ThemeSupport.instance().patchColorText(
+        'rgba(0, 0, 0, 0.1)', ThemeSupport.ThemeSupport.ColorUsage.Foreground);
     context.lineWidth = 1;
 
     context.translate(0.5, 0.5);
@@ -136,11 +137,12 @@ export class TimelineGrid {
     const width = Math.ceil(context.canvas.width / window.devicePixelRatio);
 
     context.beginPath();
-    context.fillStyle =
-        self.UI.themeSupport.patchColorText('rgba(255, 255, 255, 0.5)', UI.UIUtils.ThemeSupport.ColorUsage.Background);
+    context.fillStyle = ThemeSupport.ThemeSupport.instance().patchColorText(
+        'rgba(255, 255, 255, 0.5)', ThemeSupport.ThemeSupport.ColorUsage.Background);
     context.fillRect(0, 0, width, headerHeight);
 
-    context.fillStyle = self.UI.themeSupport.patchColorText('#333', UI.UIUtils.ThemeSupport.ColorUsage.Foreground);
+    context.fillStyle =
+        ThemeSupport.ThemeSupport.instance().patchColorText('#333', ThemeSupport.ThemeSupport.ColorUsage.Foreground);
     context.textBaseline = 'hanging';
     context.font = '11px ' + Host.Platform.fontFamily();
 
@@ -182,46 +184,63 @@ export class TimelineGrid {
     const dividersElementClientWidth = this._dividersElement.clientWidth;
 
     // Reuse divider elements and labels.
-    let divider = /** @type {?Element} */ (this._dividersElement.firstChild);
-    let dividerLabelBar = /** @type {?Element} */ (this._dividersLabelBarElement.firstChild);
+    let divider = /** @type {?HTMLElement} */ (this._dividersElement.firstChild);
+    let dividerLabelBar = /** @type {?HTMLElement} */ (this._dividersLabelBarElement.firstChild);
 
     for (let i = 0; i < dividerOffsets.length; ++i) {
       if (!divider) {
-        divider = createElement('div');
+        divider = document.createElement('div');
         divider.className = 'resources-divider';
         this._dividersElement.appendChild(divider);
 
-        dividerLabelBar = createElement('div');
+        dividerLabelBar = document.createElement('div');
         dividerLabelBar.className = 'resources-divider';
-        const label = createElement('div');
+        const label = document.createElement('div');
         label.className = 'resources-divider-label';
-        dividerLabelBar._labelElement = label;
+        labelMap.set(dividerLabelBar, label);
         dividerLabelBar.appendChild(label);
         this._dividersLabelBarElement.appendChild(dividerLabelBar);
       }
 
       const time = dividerOffsets[i].time;
       const position = dividerOffsets[i].position;
-      dividerLabelBar._labelElement.textContent = calculator.formatValue(time, precision);
+      if (dividerLabelBar) {
+        const label = labelMap.get(dividerLabelBar);
+        if (label) {
+          label.textContent = calculator.formatValue(time, precision);
+        }
+      }
 
       const percentLeft = 100 * position / dividersElementClientWidth;
       divider.style.left = percentLeft + '%';
-      dividerLabelBar.style.left = percentLeft + '%';
+      if (dividerLabelBar) {
+        dividerLabelBar.style.left = percentLeft + '%';
+      }
 
-      divider = /** @type {?Element} */ (divider.nextSibling);
-      dividerLabelBar = /** @type {?Element} */ (dividerLabelBar.nextSibling);
+      divider = /** @type {?HTMLElement} */ (divider.nextSibling);
+      if (dividerLabelBar) {
+        dividerLabelBar = /** @type {?HTMLElement} */ (dividerLabelBar.nextSibling);
+      }
     }
 
     // Remove extras.
     while (divider) {
       const nextDivider = divider.nextSibling;
       this._dividersElement.removeChild(divider);
-      divider = nextDivider;
+      if (nextDivider) {
+        divider = /** @type {!HTMLElement} */ (nextDivider);
+      } else {
+        break;
+      }
     }
     while (dividerLabelBar) {
       const nextDivider = dividerLabelBar.nextSibling;
       this._dividersLabelBarElement.removeChild(dividerLabelBar);
-      dividerLabelBar = nextDivider;
+      if (nextDivider) {
+        dividerLabelBar = /** @type {!HTMLElement} */ (nextDivider);
+      } else {
+        break;
+      }
     }
     return true;
   }
@@ -282,6 +301,7 @@ export class Calculator {
    * @return {number}
    */
   computePosition(time) {
+    throw new Error('Not implemented');
   }
 
   /**
@@ -290,23 +310,30 @@ export class Calculator {
    * @return {string}
    */
   formatValue(time, precision) {
+    throw new Error('Not implemented');
   }
 
   /** @return {number} */
   minimumBoundary() {
+    throw new Error('Not implemented');
   }
 
   /** @return {number} */
   zeroTime() {
+    throw new Error('Not implemented');
   }
 
   /** @return {number} */
   maximumBoundary() {
+    throw new Error('Not implemented');
   }
 
   /** @return {number} */
-  boundarySpan() {}
+  boundarySpan() {
+    throw new Error('Not implemented');
+  }
 }
 
 /** @typedef {!{offsets: !Array<!{position: number, time: number}>, precision: number}} */
+// @ts-ignore Typedef.
 export let DividersData;

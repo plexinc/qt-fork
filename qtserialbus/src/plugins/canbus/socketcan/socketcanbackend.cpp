@@ -127,6 +127,18 @@ static int deviceChannel(const QString &canDevice)
     return content.toInt(nullptr, 0);
 }
 
+QCanBusDeviceInfo SocketCanBackend::socketCanDeviceInfo(const QString &deviceName)
+{
+    const QString serial; // exists for code readability purposes only
+    const QString alias;  // exists for code readability purposes only
+    const QString description = deviceDescription(deviceName);
+    const int channel = deviceChannel(deviceName);
+    return createDeviceInfo(QStringLiteral("socketcan"), deviceName,
+                            serial, description,
+                            alias, channel, isVirtual(deviceName),
+                            isFlexibleDataRateCapable(deviceName));
+}
+
 QList<QCanBusDeviceInfo> SocketCanBackend::interfaces()
 {
     QList<QCanBusDeviceInfo> result;
@@ -143,12 +155,7 @@ QList<QCanBusDeviceInfo> SocketCanBackend::interfaces()
         if (!(flags(deviceName) & DeviceIsActive))
             continue;
 
-        const QString serial;
-        const QString description = deviceDescription(deviceName);
-        const int channel = deviceChannel(deviceName);
-        result.append(std::move(createDeviceInfo(deviceName, serial, description,
-                                                 channel, isVirtual(deviceName),
-                                                 isFlexibleDataRateCapable(deviceName))));
+        result.append(socketCanDeviceInfo(deviceName));
     }
 
     std::sort(result.begin(), result.end(),
@@ -157,6 +164,11 @@ QList<QCanBusDeviceInfo> SocketCanBackend::interfaces()
     });
 
     return result;
+}
+
+QCanBusDeviceInfo SocketCanBackend::deviceInfo() const
+{
+    return socketCanDeviceInfo(canSocketName);
 }
 
 SocketCanBackend::SocketCanBackend(const QString &name) :
@@ -171,16 +183,6 @@ SocketCanBackend::SocketCanBackend(const QString &name) :
     }
 
     resetConfigurations();
-
-    std::function<void()> f = std::bind(&SocketCanBackend::resetController, this);
-    setResetControllerFunction(f);
-
-    if (hasBusStatus()) {
-        // Only register busStatus when libsocketcan is available
-        // QCanBusDevice::hasBusStatus() will return false otherwise
-        std::function<CanBusStatus()> g = std::bind(&SocketCanBackend::busStatus, this);
-        setCanBusStatusGetter(g);
-    }
 }
 
 SocketCanBackend::~SocketCanBackend()
@@ -224,7 +226,7 @@ void SocketCanBackend::close()
     setState(QCanBusDevice::UnconnectedState);
 }
 
-bool SocketCanBackend::applyConfigurationParameter(int key, const QVariant &value)
+bool SocketCanBackend::applyConfigurationParameter(ConfigurationKey key, const QVariant &value)
 {
     bool success = false;
 
@@ -284,7 +286,7 @@ bool SocketCanBackend::applyConfigurationParameter(int key, const QVariant &valu
             break;
         }
 
-        QVector<can_filter> filters;
+        QList<can_filter> filters;
         filters.resize(filterList.size());
         for (int i = 0; i < filterList.size(); i++) {
             const QCanBusDevice::Filter f = filterList.at(i);
@@ -349,11 +351,11 @@ bool SocketCanBackend::applyConfigurationParameter(int key, const QVariant &valu
     case QCanBusDevice::BitRateKey:
     {
         const quint32 bitRate = value.toUInt();
-        libSocketCan->setBitrate(canSocketName, bitRate);
+        success = libSocketCan->setBitrate(canSocketName, bitRate);
         break;
     }
     default:
-        setError(tr("SocketCanBackend: No such configuration as %1 in SocketCanBackend").arg(key),
+        setError(tr("Unsupported configuration key: %1").arg(key),
                  QCanBusDevice::CanBusError::ConfigurationError);
         break;
     }
@@ -401,7 +403,7 @@ bool SocketCanBackend::connectSocket()
 
     //apply all stored configurations
     const auto keys = configurationKeys();
-    for (int key : keys) {
+    for (ConfigurationKey key : keys) {
         const QVariant param = configurationParameter(key);
         bool success = applyConfigurationParameter(key, param);
         if (Q_UNLIKELY(!success)) {
@@ -413,7 +415,7 @@ bool SocketCanBackend::connectSocket()
     return true;
 }
 
-void SocketCanBackend::setConfigurationParameter(int key, const QVariant &value)
+void SocketCanBackend::setConfigurationParameter(ConfigurationKey key, const QVariant &value)
 {
     if (key == QCanBusDevice::RawFilterKey) {
         //verify valid/supported filters
@@ -457,7 +459,7 @@ void SocketCanBackend::setConfigurationParameter(int key, const QVariant &value)
 
     QCanBusDevice::setConfigurationParameter(key, value);
 
-    // we need to check CAN FD option a lot -> cache it and avoid QVector lookup
+    // we need to check CAN FD option a lot -> cache it and avoid QList lookup
     if (key == QCanBusDevice::CanFdKey)
         canFdOptionEnabled = value.toBool();
 }
@@ -530,7 +532,7 @@ QString SocketCanBackend::interpretErrorFrame(const QCanBusFrame &errorFrame)
     QString errorMsg;
 
     if (errorFrame.error() & QCanBusFrame::TransmissionTimeoutError)
-        errorMsg += QStringLiteral("TX timout\n");
+        errorMsg += QStringLiteral("TX timeout\n");
 
     if (errorFrame.error() & QCanBusFrame::MissingAcknowledgmentError)
         errorMsg += QStringLiteral("Received no ACK on transmission\n");
@@ -685,7 +687,7 @@ QString SocketCanBackend::interpretErrorFrame(const QCanBusFrame &errorFrame)
 
 void SocketCanBackend::readSocket()
 {
-    QVector<QCanBusFrame> newFrames;
+    QList<QCanBusFrame> newFrames;
 
     for (;;) {
         m_frame = {};
@@ -758,7 +760,7 @@ bool SocketCanBackend::hasBusStatus() const
     return libSocketCan->hasBusStatus();
 }
 
-QCanBusDevice::CanBusStatus SocketCanBackend::busStatus() const
+QCanBusDevice::CanBusStatus SocketCanBackend::busStatus()
 {
     return libSocketCan->busStatus(canSocketName);
 }

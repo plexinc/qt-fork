@@ -9,7 +9,7 @@
 }
 
 .perfmon-pane.suspended {
-  opacity: 0.4;
+  opacity: 40%;
   pointer-events: none;
 }
 
@@ -35,7 +35,8 @@
 .perfmon-chart-container {
   display: flex;
   flex: 1 1;
-  border-left: 1px solid #ccc;
+  border-left: 1px solid #ccc; /* stylelint-disable-line plugin/use_theme_colors */
+  /* See: crbug.com/1152736 for color variable migration. */
   overflow-y: auto;
 }
 
@@ -52,11 +53,13 @@
 }
 
 .perfmon-indicator:hover {
-  background-color: #f8f8f8;
+  background-color: #f8f8f8; /* stylelint-disable-line plugin/use_theme_colors */
+  /* See: crbug.com/1152736 for color variable migration. */
 }
 
-.perfmon-indicator[data-keyboard-focus="true"]:focus {
-  background-color: #f8f8f8;
+.perfmon-indicator:focus-visible {
+  background-color: #f8f8f8; /* stylelint-disable-line plugin/use_theme_colors */
+  /* See: crbug.com/1152736 for color variable migration. */
 }
 
 .perfmon-indicator-swatch {
@@ -64,7 +67,8 @@
 }
 
 .perfmon-indicator:not(.active) .perfmon-indicator-swatch {
-  background-color: #eee !important;
+  background-color: #eee !important; /* stylelint-disable-line plugin/use_theme_colors */
+  /* See: crbug.com/1152736 for color variable migration. */
 }
 
 .perfmon-indicator-title {
@@ -72,7 +76,8 @@
 }
 
 .perfmon-indicator:not(.active) .perfmon-indicator-title {
-  color: #aaa;
+  color: #aaa; /* stylelint-disable-line plugin/use_theme_colors */
+  /* See: crbug.com/1152736 for color variable migration. */
 }
 
 .perfmon-indicator-value {
@@ -82,5 +87,5 @@
 }
 
 .perfmon-indicator:not(.active) .perfmon-indicator-value {
-  opacity: 0;
+  opacity: 0%;
 }

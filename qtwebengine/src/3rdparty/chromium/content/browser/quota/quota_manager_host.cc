@@ -10,9 +10,11 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/task/post_task.h"
+#include "content/browser/quota/quota_change_dispatcher.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
@@ -22,30 +24,41 @@
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "net/base/url_util.h"
 #include "storage/browser/quota/quota_manager.h"
+#include "third_party/blink/public/mojom/quota/quota_types.mojom.h"
 #include "url/origin.h"
-
-using blink::mojom::StorageType;
-using storage::QuotaClient;
 
 namespace content {
 
-QuotaManagerHost::QuotaManagerHost(int process_id,
-                                   int render_frame_id,
-                                   const url::Origin& origin,
-                                   storage::QuotaManager* quota_manager,
-                                   QuotaPermissionContext* permission_context)
+QuotaManagerHost::QuotaManagerHost(
+    int process_id,
+    int render_frame_id,
+    const url::Origin& origin,
+    storage::QuotaManager* quota_manager,
+    QuotaPermissionContext* permission_context,
+    scoped_refptr<QuotaChangeDispatcher> quota_change_dispatcher)
     : process_id_(process_id),
       render_frame_id_(render_frame_id),
       origin_(origin),
       quota_manager_(quota_manager),
-      permission_context_(permission_context) {
+      permission_context_(permission_context),
+      quota_change_dispatcher_(std::move(quota_change_dispatcher)) {
   DCHECK(quota_manager);
   // TODO(sashab): Work out the conditions for permission_context to be set and
   // add a DCHECK for it here.
 }
 
+void QuotaManagerHost::AddChangeListener(
+    mojo::PendingRemote<blink::mojom::QuotaChangeListener> mojo_listener,
+    AddChangeListenerCallback callback) {
+  if (quota_change_dispatcher_) {
+    quota_change_dispatcher_->AddChangeListener(origin_,
+                                                std::move(mojo_listener));
+  }
+  std::move(callback).Run();
+}
+
 void QuotaManagerHost::QueryStorageUsageAndQuota(
-    StorageType storage_type,
+    blink::mojom::StorageType storage_type,
     QueryStorageUsageAndQuotaCallback callback) {
   quota_manager_->GetUsageAndQuotaWithBreakdown(
       origin_, storage_type,
@@ -54,11 +67,11 @@ void QuotaManagerHost::QueryStorageUsageAndQuota(
 }
 
 void QuotaManagerHost::RequestStorageQuota(
-    StorageType storage_type,
+    blink::mojom::StorageType storage_type,
     uint64_t requested_size,
     blink::mojom::QuotaManagerHost::RequestStorageQuotaCallback callback) {
-  if (storage_type != StorageType::kTemporary &&
-      storage_type != StorageType::kPersistent) {
+  if (storage_type != blink::mojom::StorageType::kTemporary &&
+      storage_type != blink::mojom::StorageType::kPersistent) {
     mojo::ReportBadMessage("Unsupported storage type specified.");
     return;
   }
@@ -74,9 +87,9 @@ void QuotaManagerHost::RequestStorageQuota(
     return;
   }
 
-  DCHECK(storage_type == StorageType::kTemporary ||
-         storage_type == StorageType::kPersistent);
-  if (storage_type == StorageType::kPersistent) {
+  DCHECK(storage_type == blink::mojom::StorageType::kTemporary ||
+         storage_type == blink::mojom::StorageType::kPersistent);
+  if (storage_type == blink::mojom::StorageType::kPersistent) {
     quota_manager_->GetUsageAndQuotaForWebApps(
         origin_, storage_type,
         base::BindOnce(&QuotaManagerHost::DidGetPersistentUsageAndQuota,
@@ -101,7 +114,7 @@ void QuotaManagerHost::DidQueryStorageUsageAndQuota(
 }
 
 void QuotaManagerHost::DidGetPersistentUsageAndQuota(
-    StorageType storage_type,
+    blink::mojom::StorageType storage_type,
     uint64_t requested_quota,
     RequestStorageQuotaCallback callback,
     blink::mojom::QuotaStatusCode status,
@@ -155,9 +168,6 @@ void QuotaManagerHost::DidGetPermissionResponse(
   }
 
   // Otherwise, return the new quota.
-  // TODO(sashab): net::GetHostOrSpecFromURL(origin.GetURL()) potentially does
-  // wasted work, e.g. if the origin has a host it can return that early. Maybe
-  // rewrite to just convert the host to a string directly.
   quota_manager_->SetPersistentHostQuota(
       net::GetHostOrSpecFromURL(origin_.GetURL()), requested_quota,
       base::BindOnce(&QuotaManagerHost::DidSetHostQuota,

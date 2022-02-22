@@ -45,13 +45,28 @@
 
 QT_BEGIN_NAMESPACE
 
-Q_CORE_EXPORT void QTestPrivate::qSleep(int ms)
+/*!
+    Sleeps for \a ms milliseconds, blocking execution of the
+    test. qSleep() will not do any event processing and leave your test
+    unresponsive. Network communication might time out while
+    sleeping. Use \l {QTest::qWait()} to do non-blocking sleeping.
+
+    \a ms must be greater than 0.
+
+    \b {Note:} The qSleep() function calls either \c nanosleep() on
+    unix or \c Sleep() on windows, so the accuracy of time spent in
+    qSleep() depends on the operating system.
+
+    Example:
+    \snippet code/src_qtestlib_qtestcase.cpp 23
+
+    \sa {QTest::qWait()}
+*/
+Q_CORE_EXPORT void QTest::qSleep(int ms)
 {
     Q_ASSERT(ms > 0);
 
-#if defined(Q_OS_WINRT)
-    WaitForSingleObjectEx(GetCurrentThread(), ms, true);
-#elif defined(Q_OS_WIN)
+#if defined(Q_OS_WIN)
     Sleep(uint(ms));
 #else
     struct timespec ts = { time_t(ms / 1000), (ms % 1000) * 1000 * 1000 };
@@ -106,7 +121,7 @@ Q_CORE_EXPORT void QTest::qWait(int ms)
         remaining = timer.remainingTime();
         if (remaining <= 0)
             break;
-        QTestPrivate::qSleep(qMin(10, remaining));
+        QTest::qSleep(qMin(10, remaining));
         remaining = timer.remainingTime();
     } while (remaining > 0);
 }

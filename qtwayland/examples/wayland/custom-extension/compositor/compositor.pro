@@ -10,7 +10,7 @@ SOURCES += \
 
 OTHER_FILES = \
     qml/main.qml \
-    qml/Screen.qml \
+    qml/CompositorScreen.qml \
     images/background.jpg
 
 WAYLANDSERVERSOURCES += \
@@ -18,7 +18,7 @@ WAYLANDSERVERSOURCES += \
 
 RESOURCES += compositor.qrc
 
-TARGET = custom-compositor
+TARGET = custom-extension-compositor
 
 HEADERS += \
     customextension.h

@@ -43,19 +43,24 @@
 
 #include <QtQuick3DRuntimeRender/private/qssgrendergraphobject_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrendernode_p.h>
-#include <QtQuick3DRuntimeRender/private/qssgrenderer_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrenderimage_p.h>
 
 QT_BEGIN_NAMESPACE
 
+class QSGNode;
+class QSGRenderer;
 struct Q_QUICK3DRUNTIMERENDER_EXPORT QSSGRenderItem2D : public QSSGRenderNode
 {
     Q_DISABLE_COPY(QSSGRenderItem2D)
 
-    QSGTexture *qsgTexture = nullptr;
     QMatrix4x4 MVP;
     float combinedOpacity = 1.0;
     float zOrder = 0;
+
+    QSGRenderer *m_renderer = nullptr;
+    QRhiRenderPassDescriptor *m_rp = nullptr;
+    QSSGRenderContextInterface *m_rci = nullptr;
+    bool m_contextWarningShown = false;
 
     QSSGRenderItem2D();
     ~QSSGRenderItem2D();

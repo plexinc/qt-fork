@@ -41,19 +41,18 @@
 #define QT3DRENDER_QABSTRACTTEXTURE_H
 
 #include <Qt3DRender/qtextureimagedata.h>
+#include <Qt3DRender/qtexturewrapmode.h>
 #include <Qt3DRender/qt3drender_global.h>
 #include <Qt3DCore/qnode.h>
+#include <QtCore/QVariant>
 
 QT_BEGIN_NAMESPACE
 
 namespace Qt3DRender {
 
 class QAbstractTexturePrivate;
-class QTextureWrapMode;
 class QAbstractTextureImage;
-class QTextureGenerator;
 class QTextureDataUpdate;
-typedef QSharedPointer<QTextureGenerator> QTextureGeneratorPtr;
 
 class Q_3DRENDERSHARED_EXPORT QAbstractTexture : public Qt3DCore::QNode
 {
@@ -66,6 +65,7 @@ class Q_3DRENDERSHARED_EXPORT QAbstractTexture : public Qt3DCore::QNode
     Q_PROPERTY(int width READ width WRITE setWidth NOTIFY widthChanged)
     Q_PROPERTY(int height READ height WRITE setHeight NOTIFY heightChanged)
     Q_PROPERTY(int depth READ depth WRITE setDepth NOTIFY depthChanged)
+    Q_PROPERTY(int mipLevels READ mipLevels WRITE setMipLevels NOTIFY mipLevelsChanged)
     Q_PROPERTY(Filter magnificationFilter READ magnificationFilter WRITE setMagnificationFilter NOTIFY magnificationFilterChanged)
     Q_PROPERTY(Filter minificationFilter READ minificationFilter WRITE setMinificationFilter NOTIFY minificationFilterChanged)
     Q_PROPERTY(float maximumAnisotropy READ maximumAnisotropy WRITE setMaximumAnisotropy NOTIFY maximumAnisotropyChanged)
@@ -288,7 +288,7 @@ public:
 
     void addTextureImage(QAbstractTextureImage *textureImage);
     void removeTextureImage(QAbstractTextureImage *textureImage);
-    QVector<QAbstractTextureImage *> textureImages() const;
+    QList<QAbstractTextureImage *> textureImages() const;
 
     // sampler data - in the future proxy to a Sampler helper
     void setWrapMode(const QTextureWrapMode &wrapMode);
@@ -306,7 +306,7 @@ public:
     int depth() const;
     int layers() const;
     int samples() const;
-    Q3D_DECL_DEPRECATED QTextureGeneratorPtr dataGenerator() const;
+    int mipLevels() const;
     HandleType handleType() const;
     QVariant handle() const;
 
@@ -326,6 +326,7 @@ public Q_SLOTS:
     void setComparisonMode(ComparisonMode mode);
     void setLayers(int layers);
     void setSamples(int samples);
+    void setMipLevels(int mipLevels);
 
 Q_SIGNALS:
     void formatChanged(TextureFormat format);
@@ -343,12 +344,12 @@ Q_SIGNALS:
     void samplesChanged(int samples);
     Q_REVISION(13) void handleTypeChanged(HandleType handleType);
     Q_REVISION(13) void handleChanged(QVariant handle);
+    void mipLevelsChanged(int mipLevels);
 
 protected:
     explicit QAbstractTexture(Qt3DCore::QNode *parent = nullptr);
     explicit QAbstractTexture(Target target, Qt3DCore::QNode *parent = nullptr);
     explicit QAbstractTexture(QAbstractTexturePrivate &dd, Qt3DCore::QNode *parent = nullptr);
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) override;
 
     // TO DO Qt6, should be on private class
     void setStatus(Status status);
@@ -357,7 +358,6 @@ protected:
 
 private:
     Q_DECLARE_PRIVATE(QAbstractTexture)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DRender

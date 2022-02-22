@@ -33,8 +33,6 @@
 
 #include <QtQuick3DRuntimeRender/private/qssgrendererutil_p.h>
 
-#include <QtQuick3DRender/private/qssgrendertexture2d_p.h>
-#include <QtQuick3DRender/private/qssgrendercontext_p.h>
 #include <QtQuick3DUtils/private/qssgutils_p.h>
 
 #include <QtGui/QVector2D>
@@ -52,17 +50,15 @@ float getAspectRatio(const QRectF &inViewport)
 
 }
 
-QSSGRenderCamera::QSSGRenderCamera()
-    : QSSGRenderNode(QSSGRenderGraphObject::Type::Camera)
+QSSGRenderCamera::QSSGRenderCamera(QSSGRenderGraphObject::Type type)
+    : QSSGRenderNode(type)
     , clipNear(10)
     , clipFar(10000)
     , fov(qDegreesToRadians(60.0f))
     , fovHorizontal(false)
     , enableFrustumClipping(true)
 {
-    projection = QMatrix4x4();
-    position = QVector3D(0, 0, 600);
-
+    Q_ASSERT(QSSGRenderCamera::isCamera(type));
     flags.setFlag(Flag::CameraDirty, true);
 }
 
@@ -83,14 +79,23 @@ bool QSSGRenderCamera::calculateProjection(const QRectF &inViewport)
     previousInViewport = inViewport;
     flags.setFlag(Flag::CameraDirty, false);
 
-    if (flags.testFlag(Flag::CameraCustomProjection))
-        retval = true; // AKA, do nothing
-    else if (flags.testFlag(Flag::CameraFrustumProjection))
-        retval = computeCustomFrustum(inViewport);
-    else if (flags.testFlag(Flag::Orthographic))
+    switch (type) {
+    case QSSGRenderGraphObject::Type::OrthographicCamera:
         retval = computeFrustumOrtho(inViewport);
-    else
+        break;
+    case QSSGRenderGraphObject::Type::PerspectiveCamera:
         retval = computeFrustumPerspective(inViewport);
+        break;
+    case QSSGRenderGraphObject::Type::CustomCamera:
+        retval = true; // Do nothing
+        break;
+    case QSSGRenderGraphObject::Type::CustomFrustumCamera:
+        retval = computeCustomFrustum(inViewport);
+        break;
+    default:
+        Q_UNREACHABLE();
+    }
+
     if (retval) {
         float *writePtr(projection.data());
         frustumScale.setX(writePtr[0]);
@@ -113,7 +118,7 @@ bool QSSGRenderCamera::computeFrustumPerspective(const QRectF &inViewport)
 
 bool QSSGRenderCamera::computeCustomFrustum(const QRectF &inViewport)
 {
-    Q_UNUSED(inViewport)
+    Q_UNUSED(inViewport);
     projection.setToIdentity();
     projection.frustum(left, right, bottom, top, clipNear, clipFar);
     return true;
@@ -127,8 +132,8 @@ bool QSSGRenderCamera::computeCustomFrustum(const QRectF &inViewport)
 bool QSSGRenderCamera::computeFrustumOrtho(const QRectF &inViewport)
 {
     projection = QMatrix4x4();
-    float halfWidth = inViewport.width() / 2.0f;
-    float halfHeight = inViewport.height() / 2.0f;
+    float halfWidth = inViewport.width() / 2.0f / horizontalMagnification / dpr;
+    float halfHeight = inViewport.height() / 2.0f / verticalMagnification / dpr;
     projection.ortho(-halfWidth, halfWidth, -halfHeight, halfHeight, clipNear, clipFar);
     return true;
 }
@@ -136,7 +141,7 @@ bool QSSGRenderCamera::computeFrustumOrtho(const QRectF &inViewport)
 float QSSGRenderCamera::getOrthographicScaleFactor(const QRectF &inViewport) const
 {
     Q_UNUSED(inViewport);
-    return 1.0f;
+    return qMax(horizontalMagnification, verticalMagnification);
 }
 
 static QQuaternion rotationQuaternionForLookAt(const QVector3D &sourcePosition,
@@ -171,23 +176,6 @@ void QSSGRenderCamera::calculateViewProjectionMatrix(QMatrix4x4 &outMatrix) cons
     outMatrix = projection * globalTransform.inverted();
 }
 
-QSSGCuboidRect QSSGRenderCamera::getCameraBounds(const QRectF &inViewport) const
-{
-    Q_UNUSED(inViewport)
-    QSSGCuboidRect normalizedCuboid(-1, 1, 1, -1);
-    return normalizedCuboid;
-}
-
-void QSSGRenderCamera::setupOrthographicCameraForOffscreenRender(QSSGRenderTexture2D &inTexture, QMatrix4x4 &outVP)
-{
-    QSSGTextureDetails theDetails(inTexture.textureDetails());
-    QSSGRenderCamera theTempCamera;
-    theTempCamera.flags.setFlag(Flag::Orthographic);
-    theTempCamera.markDirty(TransformDirtyFlag::TransformIsDirty);
-    theTempCamera.calculateGlobalVariables(QRect(0, 0, theDetails.width, theDetails.height));
-    theTempCamera.calculateViewProjectionMatrix(outVP);
-}
-
 QSSGRenderRay QSSGRenderCamera::unproject(const QVector2D &inViewportRelativeCoords,
                                               const QRectF &inViewport) const
 {
@@ -199,7 +187,7 @@ QSSGRenderRay QSSGRenderCamera::unproject(const QVector2D &inViewportRelativeCoo
     QVector2D inverseFrustumScale(1.0f / frustumScale.x(), 1.0f / frustumScale.y());
     QVector2D scaledCoords(inverseFrustumScale.x() * normalizedCoords.x(), inverseFrustumScale.y() * normalizedCoords.y());
 
-    if (flags.testFlag(Flag::Orthographic)) {
+    if (type == QSSGRenderCamera::Type::OrthographicCamera) {
         outOrigin.setX(scaledCoords.x());
         outOrigin.setY(scaledCoords.y());
         outOrigin.setZ(0.0f);

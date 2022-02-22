@@ -32,7 +32,6 @@
 #if SCENARIO == 1
 // this is the "no harm done" version. Only operator% is active,
 // with NO_CAST * defined
-#define P %
 #undef QT_USE_FAST_OPERATOR_PLUS
 #undef QT_USE_FAST_CONCATENATION
 #define QT_NO_CAST_FROM_ASCII
@@ -44,7 +43,6 @@
 // this is the "full" version. Operator+ is replaced by a QStringBuilder
 // based version
 // with NO_CAST * defined
-#define P +
 #define QT_USE_FAST_OPERATOR_PLUS
 #define QT_USE_FAST_CONCATENATION
 #define QT_NO_CAST_FROM_ASCII
@@ -54,7 +52,6 @@
 #if SCENARIO == 3
 // this is the "no harm done" version. Only operator% is active,
 // with NO_CAST * _not_ defined
-#define P %
 #undef QT_USE_FAST_OPERATOR_PLUS
 #undef QT_USE_FAST_CONCATENATION
 #undef QT_NO_CAST_FROM_ASCII
@@ -65,7 +62,6 @@
 // this is the "full" version. Operator+ is replaced by a QStringBuilder
 // based version
 // with NO_CAST * _not_ defined
-#define P +
 #define QT_USE_FAST_OPERATOR_PLUS
 #define QT_USE_FAST_CONCATENATION
 #undef QT_NO_CAST_FROM_ASCII
@@ -81,6 +77,17 @@
 #include <qtest.h>
 
 #include <string>
+
+// Select one of the scenarios below
+#if SCENARIO == 1
+#define P %
+#elif SCENARIO == 2
+#define P +
+#elif SCENARIO == 3
+#define P %
+#elif SCENARIO == 4
+#define P +
+#endif
 
 #define COMPARE(a, b) QCOMPARE(a, b)
 //#define COMPARE(a, b)
@@ -100,7 +107,6 @@ public:
         ba(LITERAL),
         string(l1string),
         stdstring(LITERAL),
-        stringref(&string, 2, 10),
         achar('c'),
         r2(QLatin1String(LITERAL LITERAL)),
         r3(QLatin1String(LITERAL LITERAL LITERAL)),
@@ -181,18 +187,6 @@ private slots:
     void s_2_string() {
         QBENCHMARK { stdr = stdstring + stdstring; }
         COMPARE(stdr, stdstring + stdstring);
-    }
-
-
-    void separator_2c() { SEP("2 string refs"); }
-
-    void b_2_stringref() {
-        QBENCHMARK { r = stringref % stringref; }
-        COMPARE(r, QString(stringref.toString() + stringref.toString()));
-    }
-    void q_2_stringref() {
-        QBENCHMARK { r = stringref.toString() + stringref.toString(); }
-        COMPARE(r, QString(stringref % stringref));
     }
 
 
@@ -406,7 +400,6 @@ private:
     const QByteArray ba;
     const QString string;
     const std::string stdstring;
-    const QStringRef stringref;
     const QLatin1Char achar;
     const QString r2, r3, r4, r5;
 
@@ -416,5 +409,7 @@ private:
 };
 
 QTEST_MAIN(tst_qstringbuilder)
+
+#undef P
 
 #include "main.moc"

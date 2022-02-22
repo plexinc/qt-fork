@@ -31,7 +31,7 @@
 
 #include <QtGui/QFontMetrics>
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 AxisRenderCache::AxisRenderCache()
     : m_type(QAbstract3DAxis::AxisTypeNone),
@@ -131,7 +131,7 @@ void AxisRenderCache::setLabels(const QStringList &labels)
 void AxisRenderCache::updateAllPositions()
 {
     // As long as grid and subgrid lines are drawn identically, we can further optimize
-    // by caching all grid and subgrid positions into a single vector.
+    // by caching all grid and subgrid positions into a single list.
     // If subgrid lines are ever themed separately, this array will probably become obsolete.
     if (m_formatter) {
         int gridCount = m_formatter->gridPositions().size();
@@ -208,4 +208,4 @@ int AxisRenderCache::maxLabelWidth(const QStringList &labels) const
     return labelWidth;
 }
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE

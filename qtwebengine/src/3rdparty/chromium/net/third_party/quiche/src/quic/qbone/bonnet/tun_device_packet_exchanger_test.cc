@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/qbone/bonnet/tun_device_packet_exchanger.h"
+#include "quic/qbone/bonnet/tun_device_packet_exchanger.h"
 
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/qbone/bonnet/mock_packet_exchanger_stats_interface.h"
-#include "net/third_party/quiche/src/quic/qbone/mock_qbone_client.h"
-#include "net/third_party/quiche/src/quic/qbone/platform/mock_kernel.h"
+#include "quic/platform/api/quic_test.h"
+#include "quic/qbone/bonnet/mock_packet_exchanger_stats_interface.h"
+#include "quic/qbone/mock_qbone_client.h"
+#include "quic/qbone/platform/mock_kernel.h"
 
 namespace quic {
 namespace {
@@ -23,8 +23,8 @@ using ::testing::StrictMock;
 
 class MockVisitor : public QbonePacketExchanger::Visitor {
  public:
-  MOCK_METHOD1(OnReadError, void(const std::string&));
-  MOCK_METHOD1(OnWriteError, void(const std::string&));
+  MOCK_METHOD(void, OnReadError, (const std::string&), (override));
+  MOCK_METHOD(void, OnWriteError, (const std::string&), (override));
 };
 
 class TunDevicePacketExchangerTest : public QuicTest {

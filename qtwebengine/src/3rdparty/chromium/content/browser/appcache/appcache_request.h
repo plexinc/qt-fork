@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/memory/weak_ptr.h"
+#include "base/optional.h"
 #include "base/sequence_checker.h"
 #include "content/common/content_export.h"
 #include "services/network/public/cpp/resource_request.h"
@@ -21,6 +22,10 @@ class HttpRequestHeaders;
 
 namespace network {
 struct ResourceRequest;
+}
+
+namespace url {
+class Origin;
 }
 
 namespace content {
@@ -44,14 +49,19 @@ class CONTENT_EXPORT AppCacheRequest {
     return request_.site_for_cookies;
   }
 
+  // Used for cookie policy.
+  base::Optional<url::Origin> GetTopFrameOrigin() const;
+
   // The referrer for this request.
   const GURL GetReferrer() const { return request_.referrer; }
 
   // The HTTP headers of this request.
   const net::HttpRequestHeaders& GetHeaders() const { return request_.headers; }
 
-  // The resource type of this request.
-  int GetResourceType() const { return request_.resource_type; }
+  // The request destination of this request.
+  network::mojom::RequestDestination GetRequestDestination() const {
+    return request_.destination;
+  }
 
   // Returns true if the request was successful.
   bool IsSuccess() const;

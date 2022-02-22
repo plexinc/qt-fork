@@ -7,16 +7,21 @@
 #include <vector>
 
 #include "base/debug/dump_without_crashing.h"
-#include "base/logging.h"
+#include "base/metrics/histogram_macros.h"
+#include "base/notreached.h"
 #include "mojo/public/cpp/base/file_mojom_traits.h"
 #include "mojo/public/cpp/base/file_path_mojom_traits.h"
 #include "mojo/public/cpp/base/time_mojom_traits.h"
 #include "mojo/public/cpp/base/unguessable_token_mojom_traits.h"
+#include "services/network/public/cpp/crash_keys.h"
 #include "services/network/public/cpp/http_request_headers_mojom_traits.h"
+#include "services/network/public/cpp/isolation_info_mojom_traits.h"
 #include "services/network/public/cpp/network_ipc_param_traits.h"
 #include "services/network/public/cpp/resource_request_body.h"
+#include "services/network/public/mojom/cookie_access_observer.mojom.h"
 #include "services/network/public/mojom/trust_tokens.mojom.h"
 #include "services/network/public/mojom/url_loader.mojom-shared.h"
+#include "services/network/public/mojom/web_bundle_handle.mojom.h"
 #include "url/mojom/origin_mojom_traits.h"
 #include "url/mojom/url_gurl_mojom_traits.h"
 
@@ -71,80 +76,70 @@ bool EnumTraits<network::mojom::RequestPriority, net::RequestPriority>::
   return true;
 }
 
-network::mojom::URLRequestReferrerPolicy EnumTraits<
-    network::mojom::URLRequestReferrerPolicy,
-    net::URLRequest::ReferrerPolicy>::ToMojom(net::URLRequest::ReferrerPolicy
-                                                  policy) {
+network::mojom::URLRequestReferrerPolicy
+EnumTraits<network::mojom::URLRequestReferrerPolicy,
+           net::ReferrerPolicy>::ToMojom(net::ReferrerPolicy policy) {
   switch (policy) {
-    case net::URLRequest::ReferrerPolicy::
-        CLEAR_REFERRER_ON_TRANSITION_FROM_SECURE_TO_INSECURE:
+    case net::ReferrerPolicy::CLEAR_ON_TRANSITION_FROM_SECURE_TO_INSECURE:
       return network::mojom::URLRequestReferrerPolicy::
           kClearReferrerOnTransitionFromSecureToInsecure;
-    case net::URLRequest::ReferrerPolicy::
-        REDUCE_REFERRER_GRANULARITY_ON_TRANSITION_CROSS_ORIGIN:
+    case net::ReferrerPolicy::REDUCE_GRANULARITY_ON_TRANSITION_CROSS_ORIGIN:
       return network::mojom::URLRequestReferrerPolicy::
           kReduceReferrerGranularityOnTransitionCrossOrigin;
-    case net::URLRequest::ReferrerPolicy::
-        ORIGIN_ONLY_ON_TRANSITION_CROSS_ORIGIN:
+    case net::ReferrerPolicy::ORIGIN_ONLY_ON_TRANSITION_CROSS_ORIGIN:
       return network::mojom::URLRequestReferrerPolicy::
           kOriginOnlyOnTransitionCrossOrigin;
-    case net::URLRequest::ReferrerPolicy::NEVER_CLEAR_REFERRER:
+    case net::ReferrerPolicy::NEVER_CLEAR:
       return network::mojom::URLRequestReferrerPolicy::kNeverClearReferrer;
-    case net::URLRequest::ReferrerPolicy::ORIGIN:
+    case net::ReferrerPolicy::ORIGIN:
       return network::mojom::URLRequestReferrerPolicy::kOrigin;
-    case net::URLRequest::ReferrerPolicy::
-        CLEAR_REFERRER_ON_TRANSITION_CROSS_ORIGIN:
+    case net::ReferrerPolicy::CLEAR_ON_TRANSITION_CROSS_ORIGIN:
       return network::mojom::URLRequestReferrerPolicy::
           kClearReferrerOnTransitionCrossOrigin;
-    case net::URLRequest::ReferrerPolicy::
+    case net::ReferrerPolicy::
         ORIGIN_CLEAR_ON_TRANSITION_FROM_SECURE_TO_INSECURE:
       return network::mojom::URLRequestReferrerPolicy::
           kOriginClearOnTransitionFromSecureToInsecure;
-    case net::URLRequest::ReferrerPolicy::NO_REFERRER:
+    case net::ReferrerPolicy::NO_REFERRER:
       return network::mojom::URLRequestReferrerPolicy::kNoReferrer;
   }
   NOTREACHED();
   return static_cast<network::mojom::URLRequestReferrerPolicy>(policy);
 }
 
-bool EnumTraits<network::mojom::URLRequestReferrerPolicy,
-                net::URLRequest::ReferrerPolicy>::
+bool EnumTraits<network::mojom::URLRequestReferrerPolicy, net::ReferrerPolicy>::
     FromMojom(network::mojom::URLRequestReferrerPolicy in,
-              net::URLRequest::ReferrerPolicy* out) {
+              net::ReferrerPolicy* out) {
   switch (in) {
     case network::mojom::URLRequestReferrerPolicy::
         kClearReferrerOnTransitionFromSecureToInsecure:
-      *out = net::URLRequest::ReferrerPolicy::
-          CLEAR_REFERRER_ON_TRANSITION_FROM_SECURE_TO_INSECURE;
+      *out = net::ReferrerPolicy::CLEAR_ON_TRANSITION_FROM_SECURE_TO_INSECURE;
       return true;
     case network::mojom::URLRequestReferrerPolicy::
         kReduceReferrerGranularityOnTransitionCrossOrigin:
-      *out = net::URLRequest::ReferrerPolicy::
-          REDUCE_REFERRER_GRANULARITY_ON_TRANSITION_CROSS_ORIGIN;
+      *out = net::ReferrerPolicy::REDUCE_GRANULARITY_ON_TRANSITION_CROSS_ORIGIN;
       return true;
     case network::mojom::URLRequestReferrerPolicy::
         kOriginOnlyOnTransitionCrossOrigin:
-      *out = net::URLRequest::ReferrerPolicy::
-          ORIGIN_ONLY_ON_TRANSITION_CROSS_ORIGIN;
+      *out = net::ReferrerPolicy::ORIGIN_ONLY_ON_TRANSITION_CROSS_ORIGIN;
       return true;
     case network::mojom::URLRequestReferrerPolicy::kNeverClearReferrer:
-      *out = net::URLRequest::ReferrerPolicy::NEVER_CLEAR_REFERRER;
+      *out = net::ReferrerPolicy::NEVER_CLEAR;
       return true;
     case network::mojom::URLRequestReferrerPolicy::kOrigin:
-      *out = net::URLRequest::ReferrerPolicy::ORIGIN;
+      *out = net::ReferrerPolicy::ORIGIN;
       return true;
     case network::mojom::URLRequestReferrerPolicy::
         kClearReferrerOnTransitionCrossOrigin:
-      *out = net::URLRequest::ReferrerPolicy::
-          CLEAR_REFERRER_ON_TRANSITION_CROSS_ORIGIN;
+      *out = net::ReferrerPolicy::CLEAR_ON_TRANSITION_CROSS_ORIGIN;
       return true;
     case network::mojom::URLRequestReferrerPolicy::
         kOriginClearOnTransitionFromSecureToInsecure:
-      *out = net::URLRequest::ReferrerPolicy::
+      *out = net::ReferrerPolicy::
           ORIGIN_CLEAR_ON_TRANSITION_FROM_SECURE_TO_INSECURE;
       return true;
     case network::mojom::URLRequestReferrerPolicy::kNoReferrer:
-      *out = net::URLRequest::ReferrerPolicy::NO_REFERRER;
+      *out = net::ReferrerPolicy::NO_REFERRER;
       return true;
   }
 
@@ -156,12 +151,34 @@ bool StructTraits<network::mojom::TrustedUrlRequestParamsDataView,
                   network::ResourceRequest::TrustedParams>::
     Read(network::mojom::TrustedUrlRequestParamsDataView data,
          network::ResourceRequest::TrustedParams* out) {
-  if (!data.ReadNetworkIsolationKey(&out->network_isolation_key))
+  if (!data.ReadIsolationInfo(&out->isolation_info)) {
     return false;
-  out->update_network_isolation_key_on_redirect =
-      data.update_network_isolation_key_on_redirect();
+  }
   out->disable_secure_dns = data.disable_secure_dns();
   out->has_user_activation = data.has_user_activation();
+  out->cookie_observer = data.TakeCookieObserver<
+      mojo::PendingRemote<network::mojom::CookieAccessObserver>>();
+  out->auth_cert_observer = data.TakeAuthCertObserver<mojo::PendingRemote<
+      network::mojom::AuthenticationAndCertificateObserver>>();
+  if (!data.ReadClientSecurityState(&out->client_security_state)) {
+    return false;
+  }
+  return true;
+}
+
+bool StructTraits<network::mojom::WebBundleTokenParamsDataView,
+                  network::ResourceRequest::WebBundleTokenParams>::
+    Read(network::mojom::WebBundleTokenParamsDataView data,
+         network::ResourceRequest::WebBundleTokenParams* out) {
+  if (!data.ReadBundleUrl(&out->bundle_url)) {
+    return false;
+  }
+  if (!data.ReadToken(&out->token)) {
+    return false;
+  }
+  out->handle = data.TakeWebBundleHandle<
+      mojo::PendingRemote<network::mojom::WebBundleHandle>>();
+  out->render_process_id = data.render_process_id();
   return true;
 }
 
@@ -169,13 +186,30 @@ bool StructTraits<
     network::mojom::URLRequestDataView,
     network::ResourceRequest>::Read(network::mojom::URLRequestDataView data,
                                     network::ResourceRequest* out) {
-  if (!data.ReadMethod(&out->method) || !data.ReadUrl(&out->url) ||
-      !data.ReadSiteForCookies(&out->site_for_cookies) ||
-      !data.ReadTrustedParams(&out->trusted_params) ||
-      !data.ReadRequestInitiator(&out->request_initiator) ||
-      !data.ReadIsolatedWorldOrigin(&out->isolated_world_origin) ||
-      !data.ReadReferrer(&out->referrer) ||
-      !data.ReadReferrerPolicy(&out->referrer_policy) ||
+  if (!data.ReadMethod(&out->method)) {
+    return false;
+  }
+  if (!data.ReadUrl(&out->url)) {
+    network::debug::SetDeserializationCrashKeyString("url");
+    return false;
+  }
+  if (!data.ReadSiteForCookies(&out->site_for_cookies) ||
+      !data.ReadTrustedParams(&out->trusted_params)) {
+    return false;
+  }
+  if (!data.ReadRequestInitiator(&out->request_initiator)) {
+    network::debug::SetDeserializationCrashKeyString("request_initiator");
+    return false;
+  }
+  if (!data.ReadIsolatedWorldOrigin(&out->isolated_world_origin)) {
+    network::debug::SetDeserializationCrashKeyString("isolated_world_origin");
+    return false;
+  }
+  if (!data.ReadReferrer(&out->referrer)) {
+    network::debug::SetDeserializationCrashKeyString("referrer");
+    return false;
+  }
+  if (!data.ReadReferrerPolicy(&out->referrer_policy) ||
       !data.ReadHeaders(&out->headers) ||
       !data.ReadCorsExemptHeaders(&out->cors_exempt_headers) ||
       !data.ReadPriority(&out->priority) ||
@@ -188,7 +222,10 @@ bool StructTraits<
       !data.ReadThrottlingProfileId(&out->throttling_profile_id) ||
       !data.ReadFetchWindowId(&out->fetch_window_id) ||
       !data.ReadDevtoolsRequestId(&out->devtools_request_id) ||
-      !data.ReadRecursivePrefetchToken(&out->recursive_prefetch_token)) {
+      !data.ReadDevtoolsStackId(&out->devtools_stack_id) ||
+      !data.ReadRecursivePrefetchToken(&out->recursive_prefetch_token) ||
+      !data.ReadWebBundleTokenParams(&out->web_bundle_token_params) ||
+      !data.ReadNavigationRedirectChain(&out->navigation_redirect_chain)) {
     // Note that data.ReadTrustTokenParams is temporarily handled below.
     return false;
   }
@@ -201,7 +238,6 @@ bool StructTraits<
     base::debug::DumpWithoutCrashing();
   }
 
-  out->attach_same_site_cookies = data.attach_same_site_cookies();
   out->update_first_party_url_on_redirect =
       data.update_first_party_url_on_redirect();
   out->load_flags = data.load_flags();
@@ -211,8 +247,6 @@ bool StructTraits<
   out->originated_from_service_worker = data.originated_from_service_worker();
   out->skip_service_worker = data.skip_service_worker();
   out->corb_detachable = data.corb_detachable();
-  out->corb_excluded = data.corb_excluded();
-  out->fetch_request_context_type = data.fetch_request_context_type();
   out->destination = data.destination();
   out->keepalive = data.keepalive();
   out->has_user_gesture = data.has_user_gesture();
@@ -228,7 +262,10 @@ bool StructTraits<
   out->is_revalidating = data.is_revalidating();
   out->is_signed_exchange_prefetch_cache_enabled =
       data.is_signed_exchange_prefetch_cache_enabled();
+  out->is_fetch_like_api = data.is_fetch_like_api();
+  out->is_favicon = data.is_favicon();
   out->obey_origin_policy = data.obey_origin_policy();
+  out->original_destination = data.original_destination();
   return true;
 }
 
@@ -241,29 +278,106 @@ bool StructTraits<network::mojom::URLRequestBodyDataView,
     return false;
   body->set_identifier(data.identifier());
   body->set_contains_sensitive_info(data.contains_sensitive_info());
+  body->SetAllowHTTP1ForStreamingUpload(
+      data.allow_http1_for_streaming_upload());
   *out = std::move(body);
   return true;
 }
 
-bool StructTraits<network::mojom::DataElementDataView, network::DataElement>::
-    Read(network::mojom::DataElementDataView data, network::DataElement* out) {
-  if (!data.ReadPath(&out->path_) || !data.ReadFile(&out->file_) ||
-      !data.ReadBlobUuid(&out->blob_uuid_) ||
-      !data.ReadExpectedModificationTime(&out->expected_modification_time_)) {
+bool StructTraits<network::mojom::DataElementBytesDataView,
+                  network::DataElementBytes>::
+    Read(network::mojom::DataElementBytesDataView data,
+         network::DataElementBytes* out) {
+  mojo_base::BigBufferView big_buffer_view;
+  if (!data.ReadData(&big_buffer_view)) {
     return false;
   }
-  if (data.type() == network::mojom::DataElementType::kBytes) {
-    if (!data.ReadBuf(&out->buf_))
-      return false;
-  }
-  out->type_ = data.type();
-  out->data_pipe_getter_ = data.TakeDataPipeGetter<
-      mojo::PendingRemote<network::mojom::DataPipeGetter>>();
-  out->chunked_data_pipe_getter_ = data.TakeChunkedDataPipeGetter<
-      mojo::PendingRemote<network::mojom::ChunkedDataPipeGetter>>();
-  out->offset_ = data.offset();
-  out->length_ = data.length();
+  *out = network::DataElementBytes(std::vector<uint8_t>(
+      big_buffer_view.data().begin(), big_buffer_view.data().end()));
   return true;
+}
+
+bool StructTraits<network::mojom::DataElementDataPipeDataView,
+                  network::DataElementDataPipe>::
+    Read(network::mojom::DataElementDataPipeDataView data,
+         network::DataElementDataPipe* out) {
+  auto data_pipe_getter = data.TakeDataPipeGetter<
+      mojo::PendingRemote<network::mojom::DataPipeGetter>>();
+  *out = network::DataElementDataPipe(std::move(data_pipe_getter));
+  return true;
+}
+
+bool StructTraits<network::mojom::DataElementChunkedDataPipeDataView,
+                  network::DataElementChunkedDataPipe>::
+    Read(network::mojom::DataElementChunkedDataPipeDataView data,
+         network::DataElementChunkedDataPipe* out) {
+  auto data_pipe_getter = data.TakeDataPipeGetter<
+      mojo::PendingRemote<network::mojom::ChunkedDataPipeGetter>>();
+  UMA_HISTOGRAM_BOOLEAN("NetworkService.StreamingUploadDataPipeGetterValidity",
+                        data_pipe_getter.is_valid());
+  *out = network::DataElementChunkedDataPipe(
+      std::move(data_pipe_getter),
+      network::DataElementChunkedDataPipe::ReadOnlyOnce(data.read_only_once()));
+  return true;
+}
+
+bool StructTraits<network::mojom::DataElementFileDataView,
+                  network::DataElementFile>::
+    Read(network::mojom::DataElementFileDataView data,
+         network::DataElementFile* out) {
+  base::FilePath path;
+  if (!data.ReadPath(&path)) {
+    return false;
+  }
+  base::Time expected_modification_time;
+  if (!data.ReadExpectedModificationTime(&expected_modification_time)) {
+    return false;
+  }
+  *out = network::DataElementFile(path, data.offset(), data.length(),
+                                  expected_modification_time);
+  return true;
+}
+
+bool UnionTraits<network::mojom::DataElementDataView, network::DataElement>::
+    Read(network::mojom::DataElementDataView data, network::DataElement* out) {
+  using Tag = network::mojom::DataElementDataView::Tag;
+  DCHECK(!data.is_null());
+
+  switch (data.tag()) {
+    case Tag::kBytes: {
+      network::DataElementBytes bytes;
+      if (!data.ReadBytes(&bytes)) {
+        return false;
+      }
+      *out = network::DataElement(std::move(bytes));
+      return true;
+    }
+    case Tag::kDataPipe: {
+      network::DataElementDataPipe data_pipe;
+      if (!data.ReadDataPipe(&data_pipe)) {
+        return false;
+      }
+      *out = network::DataElement(std::move(data_pipe));
+      return true;
+    }
+    case Tag::kChunkedDataPipe: {
+      network::DataElementChunkedDataPipe chunked_data_pipe;
+      if (!data.ReadChunkedDataPipe(&chunked_data_pipe)) {
+        return false;
+      }
+      *out = network::DataElement(std::move(chunked_data_pipe));
+      return true;
+    }
+    case Tag::kFile: {
+      network::DataElementFile file;
+      if (!data.ReadFile(&file)) {
+        return false;
+      }
+      *out = network::DataElement(std::move(file));
+      return true;
+    }
+  }
+  return false;
 }
 
 }  // namespace mojo

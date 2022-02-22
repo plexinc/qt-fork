@@ -4,6 +4,8 @@
 
 #include "third_party/blink/renderer/modules/credentialmanager/public_key_credential.h"
 
+#include <utility>
+
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
@@ -31,8 +33,9 @@ PublicKeyCredential::PublicKeyCredential(
     const String& id,
     DOMArrayBuffer* raw_id,
     AuthenticatorResponse* response,
-    const AuthenticationExtensionsClientOutputs* extension_outputs)
-    : Credential(id, kPublicKeyCredentialType),
+    const AuthenticationExtensionsClientOutputs* extension_outputs,
+    const String& type)
+    : Credential(id, type.IsEmpty() ? kPublicKeyCredentialType : type),
       raw_id_(raw_id),
       response_(response),
       extension_outputs_(extension_outputs) {}
@@ -58,9 +61,9 @@ PublicKeyCredential::isUserVerifyingPlatformAuthenticatorAvailable(
 
   auto* authenticator =
       CredentialManagerProxy::From(script_state)->Authenticator();
-  authenticator->IsUserVerifyingPlatformAuthenticatorAvailable(WTF::Bind(
-      &OnIsUserVerifyingComplete,
-      WTF::Passed(std::make_unique<ScopedPromiseResolver>(resolver))));
+  authenticator->IsUserVerifyingPlatformAuthenticatorAvailable(
+      WTF::Bind(&OnIsUserVerifyingComplete,
+                std::make_unique<ScopedPromiseResolver>(resolver)));
   return promise;
 }
 
@@ -70,7 +73,7 @@ PublicKeyCredential::getClientExtensionResults() const {
       extension_outputs_.Get());
 }
 
-void PublicKeyCredential::Trace(Visitor* visitor) {
+void PublicKeyCredential::Trace(Visitor* visitor) const {
   visitor->Trace(raw_id_);
   visitor->Trace(response_);
   visitor->Trace(extension_outputs_);

@@ -34,7 +34,7 @@
 #include "qscatter3dseries_p.h"
 #include <QtCore/QMutexLocker>
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 static const int insertRemoveRecordReserveSize = 31;
 
@@ -154,8 +154,8 @@ void Scatter3DController::handleArrayReset()
 
 void Scatter3DController::handleItemsAdded(int startIndex, int count)
 {
-    Q_UNUSED(startIndex)
-    Q_UNUSED(count)
+    Q_UNUSED(startIndex);
+    Q_UNUSED(count);
     QScatter3DSeries *series = static_cast<QScatterDataProxy *>(sender())->series();
     if (series->isVisible()) {
         adjustAxisRanges();
@@ -201,8 +201,8 @@ void Scatter3DController::handleItemsChanged(int startIndex, int count)
 
 void Scatter3DController::handleItemsRemoved(int startIndex, int count)
 {
-    Q_UNUSED(startIndex)
-    Q_UNUSED(count)
+    Q_UNUSED(startIndex);
+    Q_UNUSED(count);
     QScatter3DSeries *series = static_cast<QScatterDataProxy *>(sender())->series();
     if (series == m_selectedItemSeries) {
         // If items removed from selected series before the selection, adjust the selection
@@ -234,8 +234,8 @@ void Scatter3DController::handleItemsRemoved(int startIndex, int count)
 
 void Scatter3DController::handleItemsInserted(int startIndex, int count)
 {
-    Q_UNUSED(startIndex)
-    Q_UNUSED(count)
+    Q_UNUSED(startIndex);
+    Q_UNUSED(count);
     QScatter3DSeries *series = static_cast<QScatterDataProxy *>(sender())->series();
     if (series == m_selectedItemSeries) {
         // If items inserted to selected series before the selection, adjust the selection
@@ -278,8 +278,8 @@ void Scatter3DController::startRecordingRemovesAndInserts()
 void Scatter3DController::handleAxisAutoAdjustRangeChangedInOrientation(
         QAbstract3DAxis::AxisOrientation orientation, bool autoAdjust)
 {
-    Q_UNUSED(orientation)
-    Q_UNUSED(autoAdjust)
+    Q_UNUSED(orientation);
+    Q_UNUSED(autoAdjust);
     adjustAxisRanges();
 }
 
@@ -485,4 +485,4 @@ void Scatter3DController::adjustAxisRanges()
     }
 }
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE

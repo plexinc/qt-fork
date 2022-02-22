@@ -36,7 +36,7 @@
 #include <Qt3DCore/private/qbackendnode_p.h>
 #include "qbackendnodetester.h"
 #include "testdeviceproxy.h"
-#include "testpostmanarbiter.h"
+#include "testarbiter.h"
 
 class FakeInputDeviceIntegration : public Qt3DInput::QInputDeviceIntegration
 {
@@ -46,9 +46,9 @@ public:
         , m_name(name)
     {}
 
-    QVector<Qt3DCore::QAspectJobPtr> jobsToExecute(qint64) override
+    std::vector<Qt3DCore::QAspectJobPtr> jobsToExecute(qint64) override
     {
-        return QVector<Qt3DCore::QAspectJobPtr>();
+        return std::vector<Qt3DCore::QAspectJobPtr>();
     }
 
     Qt3DInput::QAbstractPhysicalDevice *createPhysicalDevice(const QString &name) override
@@ -63,9 +63,9 @@ public:
         return nullptr;
     }
 
-    QVector<Qt3DCore::QNodeId> physicalDevices() const override
+    QList<Qt3DCore::QNodeId> physicalDevices() const override
     {
-        return QVector<Qt3DCore::QNodeId>();
+        return {};
     }
 
     QStringList deviceNames() const override
@@ -118,7 +118,6 @@ private Q_SLOTS:
                 backendProxy->setManager(manager);
                 Qt3DCore::QBackendNodeTester backendNodeCreator;
                 backendNodeCreator.simulateInitializationSync(&proxy, backendProxy);
-                Qt3DCore::QBackendNodePrivate::get(backendProxy)->setArbiter(&arbiter);
             }
 
             // THEN
@@ -126,7 +125,7 @@ private Q_SLOTS:
             QCOMPARE(backendProxy->deviceName(), QStringLiteral("TestProxy"));
             QVERIFY(backendProxy->physicalDeviceId().isNull());
 
-            const QVector<Qt3DCore::QNodeId> pendingProxies = manager->takePendingProxiesToLoad();
+            const QList<Qt3DCore::QNodeId> pendingProxies = manager->takePendingProxiesToLoad();
             QCOMPARE(pendingProxies.size(), 1);
             QCOMPARE(pendingProxies.first(), backendProxy->peerId());
 
@@ -152,14 +151,13 @@ private Q_SLOTS:
                 backendProxy->setManager(manager);
                 Qt3DCore::QBackendNodeTester backendNodeCreator;
                 backendNodeCreator.simulateInitializationSync(&proxy, backendProxy);
-                Qt3DCore::QBackendNodePrivate::get(backendProxy)->setArbiter(&arbiter);
             }
 
             // THEN
             QCOMPARE(manager->lookupResource(proxy.id()), backendProxy);
             QCOMPARE(backendProxy->deviceName(), QStringLiteral("NonExisting"));
 
-            const QVector<Qt3DCore::QNodeId> pendingProxies = manager->takePendingProxiesToLoad();
+            const QList<Qt3DCore::QNodeId> pendingProxies = manager->takePendingProxiesToLoad();
             QCOMPARE(pendingProxies.size(), 1);
             QCOMPARE(pendingProxies.first(), backendProxy->peerId());
 
@@ -171,7 +169,7 @@ private Q_SLOTS:
             job.run();
 
             // THEN -> PhysicalDeviceWrapper::setDevice should not have been called
-            QCOMPARE(arbiter.events.count(), 0);
+            QCOMPARE(arbiter.dirtyNodes().count(), 0);
         }
     }
 

@@ -1906,11 +1906,10 @@ L(\type\()_8tap_hv):
         bl              L(\type\()_8tap_filter_2)
 
         ext             v18.8b, v17.8b, v28.8b, #4
-        mov             v19.8b, v28.8b
         smull           v2.4s,  v16.4h, v1.h[0]
         smlal           v2.4s,  v17.4h, v1.h[1]
         smlal           v2.4s,  v18.4h, v1.h[2]
-        smlal           v2.4s,  v19.4h, v1.h[3]
+        smlal           v2.4s,  v28.4h, v1.h[3]
 
         sqrshrn         v2.4h,  v2.4s,  #\shift_hv
         sqxtun          v2.8b,  v2.8h
@@ -1919,7 +1918,7 @@ L(\type\()_8tap_hv):
         st1             {v2.h}[1], [\ds2], \d_strd
         b.le            0f
         mov             v16.8b, v18.8b
-        mov             v17.8b, v19.8b
+        mov             v17.8b, v28.8b
         b               2b
 
 280:    // 2x8, 2x16, 2x32 hv
@@ -1956,7 +1955,6 @@ L(\type\()_8tap_hv):
 28:
         bl              L(\type\()_8tap_filter_2)
         ext             v22.8b, v21.8b, v28.8b, #4
-        mov             v23.8b, v28.8b
         smull           v2.4s,  v16.4h, v1.h[0]
         smlal           v2.4s,  v17.4h, v1.h[1]
         smlal           v2.4s,  v18.4h, v1.h[2]
@@ -1964,7 +1962,7 @@ L(\type\()_8tap_hv):
         smlal           v2.4s,  v20.4h, v1.h[4]
         smlal           v2.4s,  v21.4h, v1.h[5]
         smlal           v2.4s,  v22.4h, v1.h[6]
-        smlal           v2.4s,  v23.4h, v1.h[7]
+        smlal           v2.4s,  v28.4h, v1.h[7]
 
         sqrshrn         v2.4h,  v2.4s,  #\shift_hv
         sqxtun          v2.8b,  v2.8h
@@ -1977,7 +1975,7 @@ L(\type\()_8tap_hv):
         mov             v18.8b, v20.8b
         mov             v19.8b, v21.8b
         mov             v20.8b, v22.8b
-        mov             v21.8b, v23.8b
+        mov             v21.8b, v28.8b
         b               28b
 
 0:
@@ -2182,16 +2180,7 @@ L(\type\()_8tap_filter_4):
         lsl             \d_strd, \d_strd, #1
         lsl             \s_strd, \s_strd, #1
 
-        ld1             {v28.8b, v29.8b},  [\src], \s_strd
-        uxtl            v28.8h,  v28.8b
-        uxtl            v29.8h,  v29.8b
-        mul             v24.8h,  v28.8h,  v0.h[0]
-.irpc i, 1234567
-        ext             v26.16b, v28.16b, v29.16b, #(2*\i)
-        mla             v24.8h,  v26.8h,  v0.h[\i]
-.endr
-        srshr           v16.8h,  v24.8h, #2
-
+        bl              L(\type\()_8tap_filter_8_first)
         bl              L(\type\()_8tap_filter_8)
         mov             v17.16b, v24.16b
         mov             v18.16b, v25.16b
@@ -2269,16 +2258,7 @@ L(\type\()_8tap_filter_4):
         lsl             \d_strd, \d_strd, #1
         lsl             \s_strd, \s_strd, #1
 
-        ld1             {v28.8b, v29.8b},  [\src], \s_strd
-        uxtl            v28.8h,  v28.8b
-        uxtl            v29.8h,  v29.8b
-        mul             v24.8h,  v28.8h,  v0.h[0]
-.irpc i, 1234567
-        ext             v26.16b, v28.16b, v29.16b, #(2*\i)
-        mla             v24.8h,  v26.8h,  v0.h[\i]
-.endr
-        srshr           v16.8h,  v24.8h, #2
-
+        bl              L(\type\()_8tap_filter_8_first)
         bl              L(\type\()_8tap_filter_8)
         mov             v17.16b, v24.16b
         mov             v18.16b, v25.16b
@@ -2364,6 +2344,28 @@ L(\type\()_8tap_filter_4):
         b               168b
 0:
         br              x15
+
+L(\type\()_8tap_filter_8_first):
+        ld1             {v28.8b, v29.8b},  [\src], \s_strd
+        uxtl            v28.8h,  v28.8b
+        uxtl            v29.8h,  v29.8b
+        mul             v16.8h,  v28.8h,  v0.h[0]
+        ext             v24.16b, v28.16b, v29.16b, #(2*1)
+        ext             v25.16b, v28.16b, v29.16b, #(2*2)
+        ext             v26.16b, v28.16b, v29.16b, #(2*3)
+        ext             v27.16b, v28.16b, v29.16b, #(2*4)
+        mla             v16.8h,  v24.8h,  v0.h[1]
+        mla             v16.8h,  v25.8h,  v0.h[2]
+        mla             v16.8h,  v26.8h,  v0.h[3]
+        mla             v16.8h,  v27.8h,  v0.h[4]
+        ext             v24.16b, v28.16b, v29.16b, #(2*5)
+        ext             v25.16b, v28.16b, v29.16b, #(2*6)
+        ext             v26.16b, v28.16b, v29.16b, #(2*7)
+        mla             v16.8h,  v24.8h,  v0.h[5]
+        mla             v16.8h,  v25.8h,  v0.h[6]
+        mla             v16.8h,  v26.8h,  v0.h[7]
+        srshr           v16.8h,  v16.8h,  #2
+        ret
 
 L(\type\()_8tap_filter_8):
         ld1             {v28.8b, v29.8b},  [\sr2], \s_strd
@@ -2918,8 +2920,8 @@ filter_fn prep, x0, x7, x1, x2, w3, w4, w5, x5, w6, x6, x8, x9, 6
 
 .macro load_filter_row dst, src, inc
         asr             w13, \src, #10
-        ldr             \dst, [x11, w13, sxtw #3]
         add             \src, \src, \inc
+        ldr             \dst, [x11, w13, sxtw #3]
 .endm
 
 function warp_filter_horz_neon
@@ -2928,57 +2930,44 @@ function warp_filter_horz_neon
         ld1             {v16.8b, v17.8b}, [x2], x3
 
         load_filter_row d0, w12, w7
-        uxtl            v16.8h,  v16.8b
         load_filter_row d1, w12, w7
-        uxtl            v17.8h,  v17.8b
         load_filter_row d2, w12, w7
-        sxtl            v0.8h,   v0.8b
         load_filter_row d3, w12, w7
-        sxtl            v1.8h,   v1.8b
         load_filter_row d4, w12, w7
-        sxtl            v2.8h,   v2.8b
         load_filter_row d5, w12, w7
-        sxtl            v3.8h,   v3.8b
         load_filter_row d6, w12, w7
-        sxtl            v4.8h,   v4.8b
+        // subtract by 128 to allow using smull
+        eor             v16.8b,  v16.8b,  v22.8b
+        eor             v17.8b,  v17.8b,  v22.8b
         load_filter_row d7, w12, w7
-        sxtl            v5.8h,   v5.8b
-        ext             v18.16b, v16.16b, v17.16b, #2*1
-        mul             v23.8h,  v16.8h,  v0.8h
-        sxtl            v6.8h,   v6.8b
-        ext             v19.16b, v16.16b, v17.16b, #2*2
-        mul             v18.8h,  v18.8h,  v1.8h
-        sxtl            v7.8h,   v7.8b
-        ext             v20.16b, v16.16b, v17.16b, #2*3
-        mul             v19.8h,  v19.8h,  v2.8h
-        ext             v21.16b, v16.16b, v17.16b, #2*4
-        saddlp          v23.4s,  v23.8h
-        mul             v20.8h,  v20.8h,  v3.8h
-        ext             v22.16b, v16.16b, v17.16b, #2*5
-        saddlp          v18.4s,  v18.8h
-        mul             v21.8h,  v21.8h,  v4.8h
-        saddlp          v19.4s,  v19.8h
-        mul             v22.8h,  v22.8h,  v5.8h
-        saddlp          v20.4s,  v20.8h
-        saddlp          v21.4s,  v21.8h
-        saddlp          v22.4s,  v22.8h
-        addp            v18.4s,  v23.4s,  v18.4s
-        ext             v23.16b, v16.16b, v17.16b, #2*6
-        addp            v19.4s,  v19.4s,  v20.4s
-        mul             v23.8h,  v23.8h,  v6.8h
-        ext             v20.16b, v16.16b, v17.16b, #2*7
-        mul             v20.8h,  v20.8h,  v7.8h
-        saddlp          v23.4s,  v23.8h
-        addp            v21.4s,  v21.4s,  v22.4s
-        saddlp          v20.4s,  v20.8h
-        addp            v20.4s,  v23.4s,  v20.4s
-        addp            v18.4s,  v18.4s,  v19.4s
-        addp            v20.4s,  v21.4s,  v20.4s
+
+        ext             v18.8b,  v16.8b,  v17.8b,  #1
+        ext             v19.8b,  v16.8b,  v17.8b,  #2
+        smull           v0.8h,   v0.8b,   v16.8b
+        smull           v1.8h,   v1.8b,   v18.8b
+        ext             v18.8b,  v16.8b,  v17.8b,  #3
+        ext             v20.8b,  v16.8b,  v17.8b,  #4
+        smull           v2.8h,   v2.8b,   v19.8b
+        smull           v3.8h,   v3.8b,   v18.8b
+        ext             v18.8b,  v16.8b,  v17.8b,  #5
+        ext             v19.8b,  v16.8b,  v17.8b,  #6
+        smull           v4.8h,   v4.8b,   v20.8b
+        smull           v5.8h,   v5.8b,   v18.8b
+        ext             v18.8b,  v16.8b,  v17.8b,  #7
+        smull           v6.8h,   v6.8b,   v19.8b
+        smull           v7.8h,   v7.8b,   v18.8b
+
+        addp            v0.8h,   v0.8h,   v1.8h
+        addp            v2.8h,   v2.8h,   v3.8h
+        addp            v4.8h,   v4.8h,   v5.8h
+        addp            v6.8h,   v6.8h,   v7.8h
+
+        addp            v0.8h,   v0.8h,   v2.8h
+        addp            v4.8h,   v4.8h,   v6.8h
+
+        addp            v0.8h,   v0.8h,   v4.8h
 
         add             w5,  w5,  w8
-
-        rshrn           v16.4h,  v18.4s,  #3
-        rshrn2          v16.8h,  v20.4s,  #3
 
         ret
 endfunc
@@ -3004,25 +2993,32 @@ function warp_affine_8x8\t\()_8bpc_neon, export=1
         lsl             x1,  x1,  #1
 .endif
 
+        movi            v22.8b,  #128
+.ifb \t
+        movi            v23.8h,  #128
+.else
+        movi            v23.8h,  #8, lsl #8
+.endif
+
         bl              warp_filter_horz_neon
-        mov             v24.16b, v16.16b
+        srshr           v24.8h,  v0.8h,  #3
         bl              warp_filter_horz_neon
-        mov             v25.16b, v16.16b
+        srshr           v25.8h,  v0.8h,  #3
         bl              warp_filter_horz_neon
-        mov             v26.16b, v16.16b
+        srshr           v26.8h,  v0.8h,  #3
         bl              warp_filter_horz_neon
-        mov             v27.16b, v16.16b
+        srshr           v27.8h,  v0.8h,  #3
         bl              warp_filter_horz_neon
-        mov             v28.16b, v16.16b
+        srshr           v28.8h,  v0.8h,  #3
         bl              warp_filter_horz_neon
-        mov             v29.16b, v16.16b
+        srshr           v29.8h,  v0.8h,  #3
         bl              warp_filter_horz_neon
-        mov             v30.16b, v16.16b
+        srshr           v30.8h,  v0.8h,  #3
 
 1:
         add             w14, w6,  #512
         bl              warp_filter_horz_neon
-        mov             v31.16b, v16.16b
+        srshr           v31.8h,  v0.8h,  #3
 
         load_filter_row d0, w14, w9
         load_filter_row d1, w14, w9
@@ -3032,15 +3028,7 @@ function warp_affine_8x8\t\()_8bpc_neon, export=1
         load_filter_row d5, w14, w9
         load_filter_row d6, w14, w9
         load_filter_row d7, w14, w9
-        transpose_8x8b  v0, v1, v2, v3, v4, v5, v6, v7, v16, v17
-        sxtl            v0.8h,   v0.8b
-        sxtl            v1.8h,   v1.8b
-        sxtl            v2.8h,   v2.8b
-        sxtl            v3.8h,   v3.8b
-        sxtl            v4.8h,   v4.8b
-        sxtl            v5.8h,   v5.8b
-        sxtl            v6.8h,   v6.8b
-        sxtl            v7.8h,   v7.8b
+        transpose_8x8b_xtl v0, v1, v2, v3, v4, v5, v6, v7, sxtl
 
         // This ordering of smull/smlal/smull2/smlal2 is highly
         // beneficial for Cortex A53 here.
@@ -3068,6 +3056,7 @@ function warp_affine_8x8\t\()_8bpc_neon, export=1
         sqrshrn2        v16.8h,  v17.4s,  #\shift
         mov             v27.16b, v28.16b
         mov             v28.16b, v29.16b
+        add             v16.8h,  v16.8h,  v23.8h
 .ifb \t
         sqxtun          v16.8b,  v16.8h
 .endif
@@ -3089,3 +3078,161 @@ endfunc
 
 warp  , 11
 warp t, 7
+
+// void dav1d_emu_edge_8bpc_neon(
+//         const intptr_t bw, const intptr_t bh,
+//         const intptr_t iw, const intptr_t ih,
+//         const intptr_t x, const intptr_t y,
+//         pixel *dst, const ptrdiff_t dst_stride,
+//         const pixel *ref, const ptrdiff_t ref_stride)
+function emu_edge_8bpc_neon, export=1
+        ldp             x8,  x9,  [sp]
+
+        // ref += iclip(y, 0, ih - 1) * PXSTRIDE(ref_stride)
+        // ref += iclip(x, 0, iw - 1)
+        sub             x12, x3,  #1           // ih - 1
+        cmp             x5,  x3
+        sub             x13, x2,  #1           // iw - 1
+        csel            x12, x12, x5,  ge      // min(y, ih - 1)
+        cmp             x4,  x2
+        bic             x12, x12, x12, asr #63 // max(min(y, ih - 1), 0)
+        csel            x13, x13, x4,  ge      // min(x, iw - 1)
+        bic             x13, x13, x13, asr #63 // max(min(x, iw - 1), 0)
+        madd            x8,  x12, x9,  x8      // ref += iclip() * stride
+        add             x8,  x8,  x13          // ref += iclip()
+
+        // bottom_ext = iclip(y + bh - ih, 0, bh - 1)
+        // top_ext = iclip(-y, 0, bh - 1)
+        add             x10, x5,  x1           // y + bh
+        neg             x5,  x5                // -y
+        sub             x10, x10, x3           // y + bh - ih
+        sub             x12, x1,  #1           // bh - 1
+        cmp             x10, x1
+        bic             x5,  x5,  x5,  asr #63 // max(-y, 0)
+        csel            x10, x10, x12, lt      // min(y + bh - ih, bh-1)
+        cmp             x5,  x1
+        bic             x10, x10, x10, asr #63 // max(min(y + bh - ih, bh-1), 0)
+        csel            x5,  x5,  x12, lt      // min(max(-y, 0), bh-1)
+
+        // right_ext = iclip(x + bw - iw, 0, bw - 1)
+        // left_ext = iclip(-x, 0, bw - 1)
+        add             x11, x4,  x0           // x + bw
+        neg             x4,  x4                // -x
+        sub             x11, x11, x2           // x + bw - iw
+        sub             x13, x0,  #1           // bw - 1
+        cmp             x11, x0
+        bic             x4,  x4,  x4,  asr #63 // max(-x, 0)
+        csel            x11, x11, x13, lt      // min(x + bw - iw, bw-1)
+        cmp             x4,  x0
+        bic             x11, x11, x11, asr #63 // max(min(x + bw - iw, bw-1), 0)
+        csel            x4,  x4,  x13, lt      // min(max(-x, 0), bw - 1)
+
+        // center_h = bh - top_ext - bottom_ext
+        // dst += top_ext * PXSTRIDE(dst_stride)
+        // center_w = bw - left_ext - right_ext
+        sub             x1,  x1,  x5           // bh - top_ext
+        madd            x6,  x5,  x7,  x6
+        sub             x2,  x0,  x4           // bw - left_ext
+        sub             x1,  x1,  x10          // center_h = bh - top_ext - bottom_ext
+        sub             x2,  x2,  x11          // center_w = bw - left_ext - right_ext
+
+        mov             x14, x6                // backup of dst
+
+.macro v_loop need_left, need_right
+0:
+.if \need_left
+        ld1r            {v0.16b}, [x8]
+        mov             x12, x6                // out = dst
+        mov             x3,  x4
+1:
+        subs            x3,  x3,  #16
+        st1             {v0.16b}, [x12], #16
+        b.gt            1b
+.endif
+        mov             x13, x8
+        add             x12, x6,  x4           // out = dst + left_ext
+        mov             x3,  x2
+1:
+        ld1             {v0.16b, v1.16b}, [x13], #32
+        subs            x3,  x3,  #32
+        st1             {v0.16b, v1.16b}, [x12], #32
+        b.gt            1b
+.if \need_right
+        add             x3,  x8,  x2           // in + center_w
+        sub             x3,  x3,  #1           // in + center_w - 1
+        add             x12, x6,  x4           // dst + left_ext
+        ld1r            {v0.16b}, [x3]
+        add             x12, x12, x2           // out = dst + left_ext + center_w
+        mov             x3,  x11
+1:
+        subs            x3,  x3,  #16
+        st1             {v0.16b}, [x12], #16
+        b.gt            1b
+.endif
+
+        subs            x1,  x1,  #1           // center_h--
+        add             x6,  x6,  x7
+        add             x8,  x8,  x9
+        b.gt            0b
+.endm
+
+        cbz             x4,  2f
+        // need_left
+        cbz             x11, 3f
+        // need_left + need_right
+        v_loop          1,   1
+        b               5f
+
+2:
+        // !need_left
+        cbz             x11, 4f
+        // !need_left + need_right
+        v_loop          0,   1
+        b               5f
+
+3:
+        // need_left + !need_right
+        v_loop          1,   0
+        b               5f
+
+4:
+        // !need_left + !need_right
+        v_loop          0,   0
+
+5:
+
+        cbz             x10, 3f
+        // need_bottom
+        sub             x8,  x6,  x7           // ref = dst - stride
+        mov             x4,  x0
+1:
+        ld1             {v0.16b, v1.16b}, [x8], #32
+        mov             x3,  x10
+2:
+        subs            x3,  x3,  #1
+        st1             {v0.16b, v1.16b}, [x6], x7
+        b.gt            2b
+        msub            x6,  x7,  x10,  x6     // dst -= bottom_ext * stride
+        subs            x4,  x4,  #32          // bw -= 32
+        add             x6,  x6,  #32          // dst += 32
+        b.gt            1b
+
+3:
+        cbz             x5,  3f
+        // need_top
+        msub            x6,  x7,  x5,  x14     // dst = stored_dst - top_ext * stride
+1:
+        ld1             {v0.16b, v1.16b}, [x14], #32
+        mov             x3,  x5
+2:
+        subs            x3,  x3,  #1
+        st1             {v0.16b, v1.16b}, [x6], x7
+        b.gt            2b
+        msub            x6,  x7,  x5,  x6      // dst -= top_ext * stride
+        subs            x0,  x0,  #32          // bw -= 32
+        add             x6,  x6,  #32          // dst += 32
+        b.gt            1b
+
+3:
+        ret
+endfunc

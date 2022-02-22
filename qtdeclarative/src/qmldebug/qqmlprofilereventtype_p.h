@@ -97,7 +97,7 @@ private:
 QDataStream &operator>>(QDataStream &stream, QQmlProfilerEventType &type);
 QDataStream &operator<<(QDataStream &stream, const QQmlProfilerEventType &type);
 
-inline uint qHash(const QQmlProfilerEventType &type)
+inline size_t qHash(const QQmlProfilerEventType &type)
 {
     return qHash(type.location())
             ^ (((type.message() << 12) & 0xf000)                               // 4 bits message
@@ -116,7 +116,7 @@ inline bool operator!=(const QQmlProfilerEventType &type1, const QQmlProfilerEve
     return !(type1 == type2);
 }
 
-Q_DECLARE_TYPEINFO(QQmlProfilerEventType, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QQmlProfilerEventType, Q_RELOCATABLE_TYPE);
 
 QT_END_NAMESPACE
 

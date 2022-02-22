@@ -46,11 +46,11 @@
 #include <QtCore/QFileInfo>
 #include <QtCore/QDir>
 #include <QtCore/QDebug>
-#include <QtCore/QRegExp>
+#include <QtCore/QRegularExpression>
 #include <QtCore/QSet>
 #include <QtCore/QVariant>
 #include <QtCore/QDateTime>
-#include <QtCore/QTextCodec>
+#include <QtCore/QStringConverter>
 #include <QtCore/QDataStream>
 #include <QtSql/QSqlQuery>
 
@@ -484,10 +484,10 @@ bool HelpGeneratorPrivate::insertFiles(const QStringList &files, const QString &
         QByteArray data = fi.readAll();
         if (fileName.endsWith(QLatin1String(".html"))
             || fileName.endsWith(QLatin1String(".htm"))) {
-                charSet = QHelpGlobal::codecFromData(data);
-                QTextStream stream(&data);
-                stream.setCodec(QTextCodec::codecForName(charSet.toLatin1().constData()));
-                title = QHelpGlobal::documentTitle(stream.readAll());
+            auto encoding = QStringDecoder::encodingForHtml(data);
+            if (!encoding)
+                encoding = QStringDecoder::Utf8;
+            title = QHelpGlobal::documentTitle(QStringDecoder(*encoding)(data));
         } else {
             title = fileName.mid(fileName.lastIndexOf(QLatin1Char('/')) + 1);
         }
@@ -807,15 +807,17 @@ bool HelpGeneratorPrivate::checkLinks(const QHelpProjectData &helpData)
             emit warning(tr("File \"%1\" cannot be opened.").arg(fileName));
             continue;
         }
-        const QRegExp linkPattern(QLatin1String("<(?:a href|img src)=\"?([^#\">]+)[#\">]"));
-        QTextStream stream(&htmlFile);
-        const QString codec = QHelpGlobal::codecFromData(htmlFile.read(1000));
-        stream.setCodec(QTextCodec::codecForName(codec.toLatin1().constData()));
-        const QString &content = stream.readAll();
+        const QRegularExpression linkPattern(QLatin1String("<(?:a href|img src)=\"?([^#\">]+)[#\">]"));
+        QByteArray data = htmlFile.readAll();
+        auto encoding = QStringDecoder::encodingForHtml(data);
+        if (!encoding)
+            encoding = QStringDecoder::Utf8;
+        const QString &content = QStringDecoder(*encoding)(data);
         QStringList invalidLinks;
-        for (int pos = linkPattern.indexIn(content); pos != -1;
-             pos = linkPattern.indexIn(content, pos + 1)) {
-            const QString &linkedFileName = linkPattern.cap(1);
+        QRegularExpressionMatch match;
+        int pos = 0;
+        while ((match = linkPattern.match(content, pos)).hasMatch()) {
+            const QString &linkedFileName = match.captured(1);
             if (linkedFileName.contains(QLatin1String("://")))
                 continue;
             const QString &curDir = QFileInfo(fileName).dir().path();
@@ -828,6 +830,7 @@ bool HelpGeneratorPrivate::checkLinks(const QHelpProjectData &helpData)
                 allLinksOk = false;
                 invalidLinks.append(canonicalLinkedFileName);
             }
+            pos = match.capturedEnd();
         }
     }
 

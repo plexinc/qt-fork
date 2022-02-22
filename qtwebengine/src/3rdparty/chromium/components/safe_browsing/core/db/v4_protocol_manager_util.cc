@@ -116,11 +116,11 @@ std::ostream& operator<<(std::ostream& os, const ListIdentifier& id) {
 PlatformType GetCurrentPlatformType() {
 #if defined(OS_WIN)
   return WINDOWS_PLATFORM;
-#elif defined(OS_LINUX)
+#elif defined(OS_LINUX) || defined(OS_CHROMEOS)
   return LINUX_PLATFORM;
 #elif defined(OS_IOS)
   return IOS_PLATFORM;
-#elif defined(OS_MACOSX)
+#elif defined(OS_APPLE)
   return OSX_PLATFORM;
 #else
   // TODO(crbug.com/1030487): This file is, in fact, intended to be compiled on
@@ -136,7 +136,7 @@ PlatformType GetCurrentPlatformType() {
 #endif
 }
 
-ListIdentifier GetCertCsdDownloadWhitelistId() {
+ListIdentifier GetCertCsdDownloadAllowlistId() {
   return ListIdentifier(GetCurrentPlatformType(), CERT, CSD_DOWNLOAD_WHITELIST);
 }
 
@@ -166,11 +166,11 @@ ListIdentifier GetUrlBillingId() {
   return ListIdentifier(GetCurrentPlatformType(), URL, BILLING);
 }
 
-ListIdentifier GetUrlCsdDownloadWhitelistId() {
+ListIdentifier GetUrlCsdDownloadAllowlistId() {
   return ListIdentifier(GetCurrentPlatformType(), URL, CSD_DOWNLOAD_WHITELIST);
 }
 
-ListIdentifier GetUrlCsdWhitelistId() {
+ListIdentifier GetUrlCsdAllowlistId() {
   return ListIdentifier(GetCurrentPlatformType(), URL, CSD_WHITELIST);
 }
 
@@ -585,11 +585,11 @@ void V4ProtocolManagerUtil::GenerateHostVariantsToCheck(
   //
   // Note that we don't need to be clever about stopping at the "real" eTLD --
   // the data on the server side has been filtered to ensure it will not
-  // blacklist a whole TLD, and it's not significantly slower on our side to
+  // blocklist a whole TLD, and it's not significantly slower on our side to
   // just check too much.
   //
-  // Also note that because we have a simple blacklist, not some sort of complex
-  // whitelist-in-blacklist or vice versa, it doesn't matter what order we check
+  // Also note that because we have a simple blocklist, not some sort of complex
+  // allowlist-in-blocklist or vice versa, it doesn't matter what order we check
   // these in.
   const size_t kMaxHostsToCheck = 4;
   bool skipped_last_component = false;

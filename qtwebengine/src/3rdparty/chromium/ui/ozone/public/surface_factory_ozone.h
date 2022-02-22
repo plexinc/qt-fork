@@ -78,11 +78,14 @@ class COMPONENT_EXPORT(OZONE_BASE) SurfaceFactoryOzone {
 #if BUILDFLAG(ENABLE_VULKAN)
   // Creates the vulkan implementation. This object should be capable of
   // creating surfaces that swap to a platform window.
+  // |use_swiftshader| suggests using Swiftshader.  The actual support depends
+  // on the platform.
   // |allow_protected_memory| suggests that the vulkan implementation should
   // create protected-capable resources, such as VkQueue.
   // |enforce_protected_memory| suggests that the vulkan implementation should
   // always use protected memory and resources, such as CommandBuffers.
   virtual std::unique_ptr<gpu::VulkanImplementation> CreateVulkanImplementation(
+      bool use_swiftshader,
       bool allow_protected_memory,
       bool enforce_protected_memory);
 
@@ -108,14 +111,12 @@ class COMPONENT_EXPORT(OZONE_BASE) SurfaceFactoryOzone {
   virtual std::unique_ptr<OverlaySurface> CreateOverlaySurface(
       gfx::AcceleratedWidget window);
 
-  // Create SurfaceOzoneCanvas for the specified gfx::AcceleratedWidget. The
-  // |task_runner| may be null if the gpu service runs in a host process.
+  // Create SurfaceOzoneCanvas for the specified gfx::AcceleratedWidget.
   //
   // Note: The platform must support creation of SurfaceOzoneCanvas from the
   // Browser Process using only the handle contained in gfx::AcceleratedWidget.
   virtual std::unique_ptr<SurfaceOzoneCanvas> CreateCanvasForWidget(
-      gfx::AcceleratedWidget widget,
-      scoped_refptr<base::SequencedTaskRunner> task_runner);
+      gfx::AcceleratedWidget widget);
 
   // Create a single native buffer to be used for overlay planes or zero copy
   // for |widget| representing a particular display controller or default

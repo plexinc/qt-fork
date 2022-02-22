@@ -147,7 +147,7 @@ void QShaderGraphLoader::load()
     }
 
     const QJsonArray nodes = nodesValue.toArray();
-    for (const QJsonValue &nodeValue : nodes) {
+    for (const QJsonValue nodeValue : nodes) {
         if (!nodeValue.isObject()) {
             qWarning() << "Invalid node found";
             hasError = true;
@@ -173,9 +173,8 @@ void QShaderGraphLoader::load()
 
         const QJsonArray layersArray = nodeObject.value(QStringLiteral("layers")).toArray();
         auto layers = QStringList();
-        for (const QJsonValue &layerValue : layersArray) {
+        for (const QJsonValue layerValue : layersArray)
             layers.append(layerValue.toString());
-        }
 
         QShaderNode node = m_prototypes.value(type);
         node.setUuid(uuid);
@@ -189,21 +188,33 @@ void QShaderGraphLoader::load()
                 if (parameterValue.isObject()) {
                     const QJsonObject parameterObject = parameterValue.toObject();
                     const QString type = parameterObject.value(QStringLiteral("type")).toString();
-                    const int typeId = QMetaType::type(type.toUtf8());
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+                    const QMetaType typeId = QMetaType::fromName(type.toUtf8());
+#else
+                    const QMetaType typeId(QMetaType::type(type.toUtf8()));
+#endif
 
                     const QString value = parameterObject.value(QStringLiteral("value")).toString();
                     auto variant = QVariant(value);
 
-                    if (QMetaType::typeFlags(typeId) & QMetaType::IsEnumeration) {
-                        const QMetaObject *metaObject = QMetaType::metaObjectForType(typeId);
+                    if (typeId.flags() & QMetaType::IsEnumeration) {
+                        const QMetaObject *metaObject = typeId.metaObject();
                         const char *className = metaObject->className();
                         const QByteArray enumName = type.mid(static_cast<int>(qstrlen(className)) + 2).toUtf8();
                         const QMetaEnum metaEnum = metaObject->enumerator(metaObject->indexOfEnumerator(enumName));
                         const int enumValue = metaEnum.keyToValue(value.toUtf8());
                         variant = QVariant(enumValue);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
                         variant.convert(typeId);
+#else
+                        variant.convert(typeId.id());
+#endif
                     } else {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
                         variant.convert(typeId);
+#else
+                        variant.convert(typeId.id());
+#endif
                     }
                     node.setParameter(parameterName, variant);
                 } else {
@@ -216,7 +227,7 @@ void QShaderGraphLoader::load()
     }
 
     const QJsonArray edges = edgesValue.toArray();
-    for (const QJsonValue &edgeValue : edges) {
+    for (const QJsonValue edgeValue : edges) {
         if (!edgeValue.isObject()) {
             qWarning() << "Invalid edge found";
             hasError = true;
@@ -247,9 +258,8 @@ void QShaderGraphLoader::load()
 
         const QJsonArray layersArray = edgeObject.value(QStringLiteral("layers")).toArray();
         auto layers = QStringList();
-        for (const QJsonValue &layerValue : layersArray) {
+        for (const QJsonValue layerValue : layersArray)
             layers.append(layerValue.toString());
-        }
 
         auto edge = QShaderGraph::Edge();
         edge.sourceNodeUuid = sourceUuid;

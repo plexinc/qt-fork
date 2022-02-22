@@ -97,6 +97,9 @@ public:
     void setMipmapFiltering(QSGTexture::Filtering) override { }
     QSGTexture::Filtering mipmapFiltering() const override { return QSGTexture::None; }
 
+    void setAnisotropyLevel(QSGTexture::AnisotropyLevel) override { }
+    QSGTexture::AnisotropyLevel anisotropyLevel() const override { return QSGTexture::AnisotropyNone; }
+
     void setTextureCoordinatesTransform(TextureCoordinatesTransformMode transformNode) override;
     TextureCoordinatesTransformMode textureCoordinatesTransform() const override { return m_transformMode; }
 
@@ -138,7 +141,7 @@ public:
 private:
     QPixmap m_pixmap;
     QRectF m_bounds;
-    qreal m_pixelRatio;
+    qreal m_pixelRatio = 1.0;
     QMargins m_margins;
 };
 

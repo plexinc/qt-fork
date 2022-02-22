@@ -52,7 +52,7 @@
     QString foo;
     QString type = "long";
 
-    foo->setText(QLatin1String("vector<") + type + QLatin1String(">::iterator"));
+    foo = QLatin1String("vector<") + type + QLatin1String(">::iterator");
 
     if (foo.startsWith("(" + type + ") 0x"))
         ...
@@ -66,7 +66,7 @@
     #include <QStringBuilder>
 
     QString hello("hello");
-    QStringRef el(&hello, 2, 3);
+    QStringView el = QStringView{ hello }.mid(2, 3);
     QLatin1String world("world");
     QString message =  hello % el % world % QChar('!');
 //! [5]

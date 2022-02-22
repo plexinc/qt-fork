@@ -1,7 +1,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'wateringconfigdialog.ui'
 **
-** Created by: Qt User Interface Compiler version 5.12.0
+** Created by: Qt User Interface Compiler version 6.0.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -10,6 +10,7 @@
 #define WATERINGCONFIGDIALOG_H
 
 #include <QtCore/QVariant>
+#include <QtWidgets/QAbstractButton>
 #include <QtWidgets/QApplication>
 #include <QtWidgets/QCheckBox>
 #include <QtWidgets/QComboBox>
@@ -240,10 +241,10 @@ public:
 
 
         retranslateUi(WateringConfigDialog);
-        QObject::connect(buttonBox, SIGNAL(accepted()), WateringConfigDialog, SLOT(accept()));
-        QObject::connect(buttonBox, SIGNAL(rejected()), WateringConfigDialog, SLOT(reject()));
-        QObject::connect(temperatureCheckBox, SIGNAL(toggled(bool)), temperatureSpinBox, SLOT(setEnabled(bool)));
-        QObject::connect(rainCheckBox, SIGNAL(toggled(bool)), rainSpinBox, SLOT(setEnabled(bool)));
+        QObject::connect(buttonBox, &QDialogButtonBox::accepted, WateringConfigDialog, qOverload<>(&QDialog::accept));
+        QObject::connect(buttonBox, &QDialogButtonBox::rejected, WateringConfigDialog, qOverload<>(&QDialog::reject));
+        QObject::connect(temperatureCheckBox, &QCheckBox::toggled, temperatureSpinBox, &QSpinBox::setEnabled);
+        QObject::connect(rainCheckBox, &QCheckBox::toggled, rainSpinBox, &QSpinBox::setEnabled);
 
         QMetaObject::connectSlotsByName(WateringConfigDialog);
     } // setupUi

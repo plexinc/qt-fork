@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
@@ -48,9 +48,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import QtQml.Models 2.1
-import "content"
+import QtQuick
+import QtQml.Models
+import QtQuick.Controls
 
 Rectangle {
     id: root
@@ -128,13 +128,15 @@ Rectangle {
             property real time: 0
             NumberAnimation on time { loops: Animation.Infinite; from: 0; to: Math.PI * 2; duration: 600 }
             //! [fragment]
-            fragmentShader: "qrc:shadereffects/content/shaders/wobble.frag"
+            fragmentShader: "content/shaders/wobble.frag.qsb"
             //! [fragment]
             Slider {
                 id: wobbleSlider
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
+                anchors.leftMargin: 4
+                anchors.rightMargin: 4
                 height: 40
             }
         }
@@ -153,10 +155,10 @@ Rectangle {
                             height: theItem.height
                             property variant delta: Qt.size(1.0 / width, 0.0)
                             property variant source: theSource
-                            fragmentShader: "qrc:shadereffects/content/shaders/blur.frag"
+                            fragmentShader: "content/shaders/blur.frag.qsb"
                         }
                     }
-                    fragmentShader: "qrc:shadereffects/content/shaders/blur.frag"
+                    fragmentShader: "content/shaders/blur.frag.qsb"
                 }
             }
             property real angle: 0
@@ -164,12 +166,14 @@ Rectangle {
             NumberAnimation on angle { loops: Animation.Infinite; from: 0; to: Math.PI * 2; duration: 6000 }
             property variant delta: Qt.size(offset.x / width, offset.y / height)
             property real darkness: shadowSlider.value
-            fragmentShader: "qrc:shadereffects/content/shaders/shadow.frag"
+            fragmentShader: "content/shaders/shadow.frag.qsb"
             Slider {
                 id: shadowSlider
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
+                anchors.leftMargin: 4
+                anchors.rightMargin: 4
                 height: 40
             }
         }
@@ -178,19 +182,21 @@ Rectangle {
             height: 160
             property variant source: theSource
             property variant delta: Qt.size(0.5 / width, 0.5 / height)
-            fragmentShader: "qrc:shadereffects/content/shaders/outline.frag"
+            fragmentShader: "content/shaders/outline.frag.qsb"
         }
         ShaderEffect {
             width: 160
             height: 160
             property variant source: theSource
             property color tint: root.sliderToColor(colorizeSlider.value)
-            fragmentShader: "qrc:shadereffects/content/shaders/colorize.frag"
+            fragmentShader: "content/shaders/colorize.frag.qsb"
             Slider {
                 id: colorizeSlider
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
+                anchors.leftMargin: 4
+                anchors.rightMargin: 4
                 height: 40
             }
         }
@@ -220,13 +226,15 @@ Rectangle {
             //! [properties]
             //! [vertex]
             mesh: Qt.size(10, 10)
-            vertexShader: "qrc:shadereffects/content/shaders/genie.vert"
+            vertexShader: "content/shaders/genie.vert.qsb"
             //! [vertex]
             Slider {
                 id: genieSlider
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
+                anchors.leftMargin: 4
+                anchors.rightMargin: 4
                 height: 40
             }
         }

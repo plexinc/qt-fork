@@ -2,15 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/quic_transport/quic_transport_stream.h"
+#include "quic/quic_transport/quic_transport_stream.h"
 
 #include <sys/types.h>
 
-#include "net/third_party/quiche/src/quic/core/quic_buffer_allocator.h"
-#include "net/third_party/quiche/src/quic/core/quic_error_codes.h"
-#include "net/third_party/quiche/src/quic/core/quic_types.h"
-#include "net/third_party/quiche/src/quic/core/quic_utils.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/quic_buffer_allocator.h"
+#include "quic/core/quic_error_codes.h"
+#include "quic/core/quic_types.h"
+#include "quic/core/quic_utils.h"
 
 namespace quic {
 
@@ -23,7 +23,8 @@ QuicTransportStream::QuicTransportStream(
                  /*is_static=*/false,
                  QuicUtils::GetStreamType(id,
                                           session->connection()->perspective(),
-                                          session->IsIncomingStream(id))),
+                                          session->IsIncomingStream(id),
+                                          session->version())),
       session_interface_(session_interface) {}
 
 size_t QuicTransportStream::Read(char* buffer, size_t buffer_size) {
@@ -46,12 +47,12 @@ size_t QuicTransportStream::Read(std::string* output) {
   const size_t bytes_to_read = ReadableBytes();
   output->resize(old_size + bytes_to_read);
   size_t bytes_read = Read(&(*output)[old_size], bytes_to_read);
-  DCHECK_EQ(bytes_to_read, bytes_read);
+  QUICHE_DCHECK_EQ(bytes_to_read, bytes_read);
   output->resize(old_size + bytes_read);
   return bytes_read;
 }
 
-bool QuicTransportStream::Write(quiche::QuicheStringPiece data) {
+bool QuicTransportStream::Write(absl::string_view data) {
   if (!CanWrite()) {
     return false;
   }
@@ -92,7 +93,7 @@ bool QuicTransportStream::SendFin() {
   QuicMemSlice empty;
   QuicConsumedData consumed =
       WriteMemSlices(QuicMemSliceSpan(&empty), /*fin=*/true);
-  DCHECK_EQ(consumed.bytes_consumed, 0u);
+  QUICHE_DCHECK_EQ(consumed.bytes_consumed, 0u);
   return consumed.fin_consumed;
 }
 

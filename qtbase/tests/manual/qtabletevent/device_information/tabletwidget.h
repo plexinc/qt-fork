@@ -31,6 +31,8 @@
 
 #include <QWidget>
 #include <QTabletEvent>
+#include <QPointer>
+#include <QPointingDevice>
 #include <QShortcut>
 
 // a widget showing the information of the last tablet event
@@ -42,26 +44,27 @@ protected:
     bool eventFilter(QObject *obj, QEvent *ev);
     void tabletEvent(QTabletEvent *event);
     void paintEvent(QPaintEvent *event);
+    const char *deviceTypeToString(QInputDevice::DeviceType t);
+    const char *pointerTypeToString(QPointingDevice::PointerType t);
+    QString pointerCapabilitiesToString(QPointingDevice::Capabilities c);
     const char *buttonToString(Qt::MouseButton b);
     QString buttonsToString(Qt::MouseButtons bs);
     QString modifiersToString(Qt::KeyboardModifiers m);
 private:
     void resetAttributes() {
-        mType = mDev = mPointerType = mXT = mYT = mZ = 0;
+        mDev.clear();
+        mType = mXT = mYT = mZ = 0;
         mPress = mTangential = mRot = 0.0;
         mPos = mGPos = QPoint();
-        mHiResGlobalPos = QPointF();
-        mUnique = 0;
     }
+    QPointer<const QPointingDevice> mDev;
     int mType;
-    QPoint mPos, mGPos;
-    QPointF mHiResGlobalPos;
-    int mDev, mPointerType, mXT, mYT, mZ;
+    QPointF mPos, mGPos;
+    int mXT, mYT, mZ;
     Qt::MouseButton mButton;
     Qt::MouseButtons mButtons;
     Qt::KeyboardModifiers mModifiers;
     qreal mPress, mTangential, mRot;
-    qint64 mUnique;
     bool mMouseToo;
     ulong mTimestamp;
     int mWheelEventCount;

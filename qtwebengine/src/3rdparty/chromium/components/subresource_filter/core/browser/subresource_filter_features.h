@@ -110,7 +110,7 @@ struct Configuration {
   // Returns the mojom::ActivationState that page loads that match this
   // configuration should activate with. |effective_activation_level| can be
   // different from this config's activation level due to things like warning
-  // mode or client whitelisting.
+  // mode or client allowlisting.
   mojom::ActivationState GetActivationState(
       mojom::ActivationLevel effective_activation_level) const;
 
@@ -180,11 +180,22 @@ scoped_refptr<ConfigurationList> GetAndSetActivateConfigurations(
 
 // Feature and variation parameter definitions -------------------------------
 
-// The master toggle to enable/disable the Safe Browsing Subresource Filter.
+// The primary toggle to enable/disable the Safe Browsing Subresource Filter.
 extern const base::Feature kSafeBrowsingSubresourceFilter;
 
 // Enables the blocking of ads on sites that are abusive.
 extern const base::Feature kFilterAdsOnAbusiveSites;
+
+// Enables the blocking of ads on sites that have ads violations.
+extern const base::Feature kAdsInterventionsEnforced;
+
+// The maximum duration that an ads intervention is active for.
+// TODO(crbug.com/1131971): This currently is the default delay.
+// We should move to an approach where each intervention has a duration that is
+// attainable separately as a parameter for that intervention. Right now this is
+// overridden explicitly in a switch for interventions that require a different
+// default duration.
+extern const base::FeatureParam<base::TimeDelta> kAdsInterventionDuration;
 
 // Name/values of the variation parameter controlling maximum activation level.
 extern const char kActivationLevelParameterName[];
@@ -209,7 +220,7 @@ extern const char kPerformanceMeasurementRateParameterName[];
 
 extern const char kSuppressNotificationsParameterName[];
 
-extern const char kWhitelistSiteOnReloadParameterName[];
+extern const char kAllowlistSiteOnReloadParameterName[];
 
 extern const char kRulesetFlavorParameterName[];
 

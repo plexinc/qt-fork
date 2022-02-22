@@ -1,7 +1,8 @@
 bsazonov@chromium.org
 droger@chromium.org
+msalama@chromium.org
 msarda@chromium.org
 sdefresne@chromium.org
 
-# TEAM: chrome-signin@chromium.org
-# COMPONENT: Services>SignIn
+# For android related change
+per-file *android*=aliceywang@chromium.org

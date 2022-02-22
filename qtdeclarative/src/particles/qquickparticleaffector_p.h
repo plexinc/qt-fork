@@ -55,7 +55,6 @@
 #include "qquickparticlesystem_p.h"
 #include "qquickparticleextruder_p.h"
 #include "qtquickparticlesglobal_p.h"
-#include "qquickparticleflatset_p.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -70,6 +69,7 @@ class Q_QUICKPARTICLES_PRIVATE_EXPORT QQuickParticleAffector : public QQuickItem
     Q_PROPERTY(QQuickParticleExtruder* shape READ shape WRITE setShape NOTIFY shapeChanged)
 
     QML_NAMED_ELEMENT(ParticleAffector)
+    QML_ADDED_IN_VERSION(2, 0)
     QML_UNCREATABLE("Abstract type. Use one of the inheriting types instead.")
 
 public:
@@ -127,7 +127,8 @@ void setSystem(QQuickParticleSystem* arg)
 {
     if (m_system != arg) {
         m_system = arg;
-        m_system->registerParticleAffector(this);
+        if (m_system)
+            m_system->registerParticleAffector(this);
         Q_EMIT systemChanged(arg);
     }
 }
@@ -195,7 +196,7 @@ protected:
     static const qreal simulationCutoff;
 
     QPointF m_offset;
-    QtQuickParticlesPrivate::QFlatSet<QPair<int, int>> m_onceOffed;
+    QSet<QPair<int, int>> m_onceOffed;
 private:
     QSet<int> m_groupIds;
     bool m_updateIntSet;

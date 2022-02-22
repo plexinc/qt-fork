@@ -1,11 +1,11 @@
-#The online onfiguration for a Qt 5 module, including Add-Ons and Tools.
-#Include this file for a standard Qt 5 module; builds with the online style.
+#The online onfiguration for a Qt module, including Add-Ons and Tools.
+#Include this file for a standard Qt module; builds with the online style.
 
 # Start of footer - the rest is defined in qt-html-templates-online.qdocconf
 HTML.footer = \
     "   </div>\n" \
     "   <p class=\"copy-notice\">\n" \
-    "   <acronym title=\"Copyright\">&copy;</acronym> 2020 The Qt Company Ltd.\n" \
+    "   <acronym title=\"Copyright\">&copy;</acronym> 2022 The Qt Company Ltd.\n" \
     "   Documentation contributions included herein are the copyrights of\n" \
     "   their respective owners. " \
     "   The documentation provided herein is licensed under the terms of the" \
@@ -22,6 +22,9 @@ include(compat.qdocconf)
 include(manifest-meta.qdocconf)
 include(fileextensions.qdocconf)
 include(qt-html-templates-online.qdocconf)
+
+#override macros for online use
+include(macros-online.qdocconf)
 
 #extra configuration data DITA information
 include(config.qdocconf)

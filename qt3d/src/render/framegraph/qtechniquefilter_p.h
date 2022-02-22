@@ -66,14 +66,8 @@ public :
     QTechniqueFilterPrivate();
 
     Q_DECLARE_PUBLIC(QTechniqueFilter)
-    QVector<QFilterKey *> m_matchList;
-    QVector<QParameter *> m_parameters;
-};
-
-struct QTechniqueFilterData
-{
-    Qt3DCore::QNodeIdVector matchIds;
-    Qt3DCore::QNodeIdVector parameterIds;
+    QList<QFilterKey *> m_matchList;
+    QList<QParameter *> m_parameters;
 };
 
 } // namespace Qt3DRender

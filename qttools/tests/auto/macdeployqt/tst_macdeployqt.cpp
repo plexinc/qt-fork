@@ -130,7 +130,8 @@ bool qmake(const QString &source, const QString &destination, QString *errorMess
 bool make(const QString &destination, QString *errorMessage)
 {
     QStringList args;
-    return runProcess(g_makeBinary, args, errorMessage, destination);
+    return runProcess(g_makeBinary, args, errorMessage, destination,
+                      {}, 60000);
 }
 
 void build(const QString &name)
@@ -219,7 +220,7 @@ void runVerifyDeployment(const QString &name)
     QByteArray libraries;
     QVERIFY2(runPrintLibraries(name, &errorMessage, &libraries), qPrintable(errorMessage));
     const QList<QString> parts = QString::fromLocal8Bit(libraries).split("dyld: loaded:");
-    const QString qtPath = QLibraryInfo::location(QLibraryInfo::PrefixPath);
+    const QString qtPath = QLibraryInfo::path(QLibraryInfo::PrefixPath);
     // Let assume Qt is not installed in system
     foreach (QString part, parts) {
         part = part.trimmed();
@@ -249,9 +250,9 @@ void tst_macdeployqt::initTestCase()
     QVERIFY(g_temporaryDirectory->isValid());
 
     // Locate build and deployment tools
-    g_macdeployqtBinary = QLibraryInfo::location(QLibraryInfo::BinariesPath) + "/macdeployqt";
+    g_macdeployqtBinary = QLibraryInfo::path(QLibraryInfo::BinariesPath) + "/macdeployqt";
     QVERIFY(!g_macdeployqtBinary.isEmpty());
-    g_qmakeBinary = QLibraryInfo::location(QLibraryInfo::BinariesPath) + "/qmake";
+    g_qmakeBinary = QLibraryInfo::path(QLibraryInfo::BinariesPath) + "/qmake";
     QVERIFY(!g_qmakeBinary.isEmpty());
     g_makeBinary = QStandardPaths::findExecutable("make");
     QVERIFY(!g_makeBinary.isEmpty());

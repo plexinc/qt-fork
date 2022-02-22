@@ -43,7 +43,7 @@
 #include <private/polarchartaxis_p.h>
 #include <QtCharts/private/qchartglobal_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class Q_CHARTS_PRIVATE_EXPORT PolarChartAxisRadial : public PolarChartAxis
 {
@@ -54,26 +54,26 @@ public:
     ~PolarChartAxisRadial();
 
     Qt::Orientation orientation() const;
-    QSizeF sizeHint(Qt::SizeHint which, const QSizeF &constraint = QSizeF()) const;
+    QSizeF sizeHint(Qt::SizeHint which, const QSizeF &constraint = QSizeF()) const override;
 
-    virtual void updateGeometry();
-    virtual void createItems(int count);
-    virtual void updateMinorTickItems();
+    void updateGeometry() override;
+    void createItems(int count) override;
+    void updateMinorTickItems() override;
 
-    qreal preferredAxisRadius(const QSizeF &maxSize);
+    qreal preferredAxisRadius(const QSizeF &maxSize) override;
 
 public Q_SLOTS:
-    virtual void handleArrowPenChanged(const QPen &pen);
-    virtual void handleGridPenChanged(const QPen &pen);
-    virtual void handleMinorArrowPenChanged(const QPen &pen);
-    virtual void handleMinorGridPenChanged(const QPen &pen);
-    virtual void handleGridLineColorChanged(const QColor &color);
-    virtual void handleMinorGridLineColorChanged(const QColor &color);
+    void handleArrowPenChanged(const QPen &pen) override;
+    void handleGridPenChanged(const QPen &pen) override;
+    void handleMinorArrowPenChanged(const QPen &pen) override;
+    void handleMinorGridPenChanged(const QPen &pen) override;
+    void handleGridLineColorChanged(const QColor &color) override;
+    void handleMinorGridLineColorChanged(const QColor &color) override;
 
 private:
     void updateMinorTickGeometry();
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // POLARCHARTAXISRADIAL_P_H

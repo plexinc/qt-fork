@@ -5,6 +5,7 @@
 #include <windows.h>
 
 #include "base/base64.h"
+#include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/no_destructor.h"
 #include "base/strings/string_util.h"
@@ -242,6 +243,11 @@ void OSCrypt::SetRawEncryptionKey(const std::string& raw_key) {
 // static
 std::string OSCrypt::GetRawEncryptionKey() {
   return GetEncryptionKeyInternal();
+}
+
+// static
+bool OSCrypt::IsEncryptionAvailable() {
+  return !GetEncryptionKeyFactory().empty();
 }
 
 // static

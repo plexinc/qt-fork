@@ -27,7 +27,7 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <qcoreapplication.h>
 #include <qstring.h>
 #include <qtemporarydir.h>
@@ -36,11 +36,11 @@
 #include <qdatetime.h>
 #include <qdir.h>
 #include <qset.h>
-#include <qtextcodec.h>
 
 #include <QtTest/private/qtesthelpers_p.h>
 
 #if defined(Q_OS_WIN)
+# include <shlwapi.h>
 # include <windows.h>
 #endif
 #if defined(Q_OS_UNIX)
@@ -49,6 +49,15 @@
 # include <errno.h>
 # include <fcntl.h>             // open(2)
 # include <unistd.h>            // close(2)
+#endif
+
+#if defined(Q_OS_ANDROID) && !defined(Q_OS_ANDROID_EMBEDDED)
+#include <QDirIterator>
+#include <QStandardPaths>
+#endif
+
+#ifdef Q_OS_INTEGRITY
+#include "qplatformdefs.h"
 #endif
 
 class tst_QTemporaryFile : public QObject
@@ -202,6 +211,32 @@ void tst_QTemporaryFile::fileTemplate_data()
         prefix = "qt_" + hanTestText();
         QTest::newRow("Chinese characters") << (prefix + "XXXXXX") << prefix << QString() << QString();
     }
+
+#ifdef Q_OS_WIN
+    auto tmp = QDir::toNativeSeparators(QDir::tempPath());
+    if (PathGetDriveNumber((const wchar_t *) tmp.utf16()) < 0)
+        return; // skip if we have no drive letter
+
+    tmp.data()[1] = u'$';
+    const auto tmpPath = tmp + uR"(\QTBUG-74291.XXXXXX.tmpFile)"_qs;
+
+    QTest::newRow("UNC-backslash")
+            << uR"(\\localhost\)"_qs + tmpPath << "QTBUG-74291."
+            << ".tmpFile"
+            << "";
+    QTest::newRow("UNC-prefix")
+            << uR"(\\?\UNC\localhost\)"_qs + tmpPath << "QTBUG-74291."
+            << ".tmpFile"
+            << "";
+    QTest::newRow("UNC-slash")
+            << u"//localhost/"_qs + QDir::fromNativeSeparators(tmpPath) << "QTBUG-74291."
+            << ".tmpFile"
+            << "";
+    QTest::newRow("UNC-prefix-slash")
+            << uR"(//?/UNC/localhost/)"_qs + QDir::fromNativeSeparators(tmpPath) << "QTBUG-74291."
+            << ".tmpFile"
+            << "";
+#endif
 }
 
 void tst_QTemporaryFile::fileTemplate()
@@ -505,7 +540,7 @@ void tst_QTemporaryFile::resize()
 
 void tst_QTemporaryFile::openOnRootDrives()
 {
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
     unsigned int lastErrorMode = SetErrorMode(SEM_FAILCRITICALERRORS);
 #endif
     // If it's possible to create a file in the root directory, it
@@ -522,7 +557,7 @@ void tst_QTemporaryFile::openOnRootDrives()
             QCOMPARE(fi.absoluteDir(), driveInfo.filePath());
         }
     }
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
     SetErrorMode(lastErrorMode);
 #endif
 }
@@ -573,7 +608,7 @@ void tst_QTemporaryFile::rename()
 void tst_QTemporaryFile::renameFdLeak()
 {
 #if defined(Q_OS_UNIX) && !defined(Q_OS_ANDROID)
-    const QByteArray sourceFile = QFile::encodeName(QFINDTESTDATA(__FILE__));
+    const QByteArray sourceFile = QFile::encodeName(QFINDTESTDATA("CMakeLists.txt"));
     QVERIFY(!sourceFile.isEmpty());
     // Test this on Unix only
 

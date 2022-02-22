@@ -37,6 +37,8 @@
 **
 ****************************************************************************/
 
+#include <AppKit/AppKit.h>
+
 #include "qcocoawindowmanager.h"
 #include "qcocoawindow.h"
 
@@ -113,9 +115,6 @@ void QCocoaWindowManager::modalSessionChanged()
         }
     }
 }
-
-static void initializeWindowManager() { Q_UNUSED(QCocoaWindowManager::instance()); }
-Q_CONSTRUCTOR_FUNCTION(initializeWindowManager)
 
 QT_END_NAMESPACE
 

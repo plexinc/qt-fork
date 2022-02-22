@@ -219,6 +219,47 @@
 */
 
 /*!
+    \fn void QWebSocketServer::alertSent(QSsl::AlertLevel level, QSsl::AlertType type, const QString &description)
+    \since 6.2
+
+    QWebSocketServer emits this signal if an alert message was sent to a peer. \a level
+    describes if it was a warning or a fatal error. \a type gives the code
+    of the alert message. When a textual description of the alert message is
+    available, it is supplied in \a description.
+
+    \note This signal is mostly informational and can be used for debugging
+    purposes, normally it does not require any actions from the application.
+    \note Not all backends support this functionality.
+
+    \sa alertReceived(), QSsl::AlertLevel, QSsl::AlertType
+*/
+/*!
+    \fn void QWebSocketServer::alertReceived(QSsl::AlertLevel level, QSsl::AlertType type, const QString &description)
+    \since 6.2
+
+    QWebSocketServer emits this signal if an alert message was received from a peer.
+    \a level tells if the alert was fatal or it was a warning. \a type is the
+    code explaining why the alert was sent. When a textual description of
+    the alert message is available, it is supplied in \a description.
+
+    \note The signal is mostly for informational and debugging purposes and does not
+    require any handling in the application. If the alert was fatal, underlying
+    backend will handle it and close the connection.
+    \note Not all backends support this functionality.
+
+    \sa alertSent(), QSsl::AlertLevel, QSsl::AlertType
+*/
+/*!
+    \fn void QWebSocketServer::handshakeInterruptedOnError(const QSslError &error)
+    \since 6.2
+
+    QWebSocketServer emits this signal if a certificate verification \a error was
+    found and if early error reporting was enabled in QSslConfiguration.
+
+    \sa sslErrors(), QSslConfiguration::setHandshakeMustInterruptOnError()
+*/
+
+/*!
   \enum QWebSocketServer::SslMode
   Indicates whether the server operates over wss (SecureMode) or ws (NonSecureMode)
 
@@ -263,7 +304,7 @@ QWebSocketServer::QWebSocketServer(const QString &serverName, SslMode secureMode
                                       )), parent)
 {
 #ifdef QT_NO_SSL
-    Q_UNUSED(secureMode)
+    Q_UNUSED(secureMode);
 #endif
     Q_D(QWebSocketServer);
     d->init();
@@ -624,7 +665,6 @@ void QWebSocketServer::setHandshakeTimeout(int msec)
     d->setHandshakeTimeout(msec);
 }
 
-#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
 /*!
     Sets the socket descriptor this server should use when listening for incoming connections to
     \a socketDescriptor.
@@ -656,71 +696,34 @@ qintptr QWebSocketServer::socketDescriptor() const
     return d->socketDescriptor();
 }
 
-#else // ### Qt 6: Remove leftovers
+#if QT_DEPRECATED_SINCE(6, 2)
 /*!
-    \deprecated
+    \fn bool QWebSocketServer::setNativeDescriptor(qintptr socketDescriptor)
 
+    \deprecated
     Sets the socket descriptor this server should use when listening for incoming connections to
     \a socketDescriptor.
 
     Returns true if the socket is set successfully; otherwise returns false.
     The socket is assumed to be in listening state.
 
-    \sa socketDescriptor(), setSocketDescriptor(), nativeDescriptor(), isListening()
-    \since 5.3
+    \sa nativeDescriptor(), setSocketDescriptor(), isListening()
+    \since 5.12
  */
-bool QWebSocketServer::setSocketDescriptor(int socketDescriptor)
-{
-    return setNativeDescriptor(socketDescriptor);
-}
 
 /*!
+    \fn qintptr QWebSocketServer::nativeDescriptor() const
+
     \deprecated
-
     Returns the native socket descriptor the server uses to listen for incoming instructions,
     or -1 if the server is not listening.
     If the server is using QNetworkProxy, the returned descriptor may not be usable with
     native socket functions.
 
-    \sa nativeDescriptor(), setNativeDescriptor(), setSocketDescriptor(), isListening()
-    \since 5.3
- */
-int QWebSocketServer::socketDescriptor() const
-{
-    return int(nativeDescriptor());
-}
-
-/*!
-    Sets the socket descriptor this server should use when listening for incoming connections to
-    \a socketDescriptor.
-
-    Returns true if the socket is set successfully; otherwise returns false.
-    The socket is assumed to be in listening state.
-
-    \sa nativeDescriptor(), isListening()
+    \sa setNativeDescriptor(), socketDescriptor(), isListening()
     \since 5.12
  */
-bool QWebSocketServer::setNativeDescriptor(qintptr socketDescriptor)
-{
-    Q_D(QWebSocketServer);
-    return d->setSocketDescriptor(socketDescriptor);
-}
-
-/*!
-    Returns the native socket descriptor the server uses to listen for incoming instructions,
-    or -1 if the server is not listening.
-    If the server is using QNetworkProxy, the returned descriptor may not be usable with
-    native socket functions.
-
-    \sa setNativeDescriptor(), isListening()
-    \since 5.12
- */
-qintptr QWebSocketServer::nativeDescriptor() const
-{
-    Q_D(const QWebSocketServer);
-    return d->socketDescriptor();
-}
-#endif // (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
+#endif
 
 /*!
   Returns a list of WebSocket versions that this server is supporting.

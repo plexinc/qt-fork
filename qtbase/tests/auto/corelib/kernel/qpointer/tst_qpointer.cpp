@@ -26,7 +26,9 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QRunnable>
+#include <QThreadPool>
 
 #include <QPointer>
 #ifndef QT_NO_WIDGETS
@@ -98,7 +100,7 @@ void tst_QPointer::assignment_operators()
     QCOMPARE(p1, QPointer<QObject>(p2));
 
     // Test assignment with a null pointer
-    p1 = 0;
+    p1 = nullptr;
     p2 = p1;
     QCOMPARE(p1, QPointer<QObject>(0));
     QCOMPARE(p2, QPointer<QObject>(0));
@@ -131,9 +133,9 @@ void tst_QPointer::equality_operators()
 
     QVERIFY(p1 == p2);
 
-    QObject *object = 0;
+    QObject *object = nullptr;
 #ifndef QT_NO_WIDGETS
-    QWidget *widget = 0;
+    QWidget *widget = nullptr;
 #endif
 
     p1 = object;
@@ -149,11 +151,15 @@ void tst_QPointer::equality_operators()
     QVERIFY(p1 == p2);
 
     // compare to zero
-    p1 = 0;
+    p1 = nullptr;
     QVERIFY(p1 == 0);
     QVERIFY(0 == p1);
     QVERIFY(p2 != 0);
     QVERIFY(0 != p2);
+    QVERIFY(p1 == nullptr);
+    QVERIFY(nullptr == p1);
+    QVERIFY(p2 != nullptr);
+    QVERIFY(nullptr != p2);
     QVERIFY(p1 == object);
     QVERIFY(object == p1);
     QVERIFY(p2 != object);
@@ -188,7 +194,7 @@ void tst_QPointer::isNull()
     QVERIFY(p1.isNull());
     p1 = this;
     QVERIFY(!p1.isNull());
-    p1 = 0;
+    p1 = nullptr;
     QVERIFY(p1.isNull());
 }
 
@@ -327,7 +333,8 @@ void tst_QPointer::castDuringDestruction()
 }
 
 class TestRunnable : public QObject, public QRunnable {
-    void run() {
+    void run() override
+    {
         QPointer<QObject> obj1 = new QObject;
         QPointer<QObject> obj2 = new QObject;
         obj1->moveToThread(thread()); // this is the owner thread

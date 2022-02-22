@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include "qprogressbar.h"
 #include <qlocale.h>
 #include <qapplication.h>
@@ -145,7 +145,7 @@ void tst_QProgressBar::text()
 
 class ProgressBar : public QProgressBar
 {
-    void paintEvent(QPaintEvent *event)
+    void paintEvent(QPaintEvent *event) override
     {
         repainted = true;
         QProgressBar::paintEvent(event);
@@ -255,9 +255,6 @@ void tst_QProgressBar::setMinMaxRepaint()
     pbar.repainted = false;
     pbar.setMinimum(0);
     QTest::qWait(50);
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("", "Broken on WinRT - QTBUG-68297", Abort);
-#endif
     QTRY_VERIFY(!pbar.repainted);
 
     // No repaint when setting maximum to the current maximum

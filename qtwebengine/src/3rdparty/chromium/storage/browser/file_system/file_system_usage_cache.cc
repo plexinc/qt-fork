@@ -11,9 +11,9 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/containers/contains.h"
 #include "base/files/file_util.h"
 #include "base/pickle.h"
-#include "base/stl_util.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
 
@@ -162,7 +162,7 @@ bool FileSystemUsageCache::Delete(const base::FilePath& usage_file_path) {
     incognito_usages_.erase(incognito_usages_.find(usage_file_path));
     return true;
   }
-  return base::DeleteFile(usage_file_path, false);
+  return base::DeleteFile(usage_file_path);
 }
 
 void FileSystemUsageCache::CloseCacheFiles() {

@@ -69,16 +69,16 @@ QVariant ListModel::data(const QModelIndex &index, int role) const
 bool ListModel::setData(const QModelIndex &index, const QVariant &value, int role)
 {
     // TODO implement if we like to edit list items
-    Q_UNUSED(index)
-    Q_UNUSED(value)
-    Q_UNUSED(role)
+    Q_UNUSED(index);
+    Q_UNUSED(value);
+    Q_UNUSED(role);
     return false;
 }
 
 void ListModel::clear()
 {
     m_items.clear();
-    reset();
+    clear();
 }
 
 QModelIndex ListModel::index(int row, int column, const QModelIndex &parent) const

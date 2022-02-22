@@ -52,6 +52,7 @@
 #define TABWIDGET_H
 
 #include <QTabWidget>
+#include <QWebEngineFindTextResult>
 #include <QWebEnginePage>
 
 QT_BEGIN_NAMESPACE
@@ -78,9 +79,7 @@ signals:
     void favIconChanged(const QIcon &icon);
     void webActionEnabledChanged(QWebEnginePage::WebAction action, bool enabled);
     void devToolsRequested(QWebEnginePage *source);
-#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
     void findTextFinished(const QWebEngineFindTextResult &result);
-#endif
 
 public slots:
     // current tab/page slots

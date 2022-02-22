@@ -7,6 +7,7 @@
 
 #include "include/core/SkStream.h"
 #include "include/core/SkTypeface.h"
+#include "src/core/SkMatrixPriv.h"
 #include "src/gpu/GrProgramInfo.h"
 #include "src/gpu/GrRenderTargetProxy.h"
 #include "src/gpu/gl/GrGLGpu.h"
@@ -21,12 +22,12 @@
 // implementation. The call has a result value, and thus waiting for the call completion is needed.
 static const GrGLsizei kPathIDPreallocationAmount = 65536;
 
-static_assert(0 == GrPathRendering::kNone_PathTransformType, "");
-static_assert(1 == GrPathRendering::kTranslateX_PathTransformType, "");
-static_assert(2 == GrPathRendering::kTranslateY_PathTransformType, "");
-static_assert(3 == GrPathRendering::kTranslate_PathTransformType, "");
-static_assert(4 == GrPathRendering::kAffine_PathTransformType, "");
-static_assert(GrPathRendering::kAffine_PathTransformType == GrPathRendering::kLast_PathTransformType, "");
+static_assert(0 == GrPathRendering::kNone_PathTransformType);
+static_assert(1 == GrPathRendering::kTranslateX_PathTransformType);
+static_assert(2 == GrPathRendering::kTranslateY_PathTransformType);
+static_assert(3 == GrPathRendering::kTranslate_PathTransformType);
+static_assert(4 == GrPathRendering::kAffine_PathTransformType);
+static_assert(GrPathRendering::kAffine_PathTransformType == GrPathRendering::kLast_PathTransformType);
 
 #ifdef SK_DEBUG
 
@@ -89,7 +90,7 @@ void GrGLPathRendering::onStencilPath(const StencilPathArgs& args, const GrPath*
     GrGLRenderTarget* rt = static_cast<GrGLRenderTarget*>(args.fProxy->peekRenderTarget());
     SkISize dimensions = rt->dimensions();
     this->setProjectionMatrix(*args.fViewMatrix, dimensions, args.fOrigin);
-    gpu->flushScissor(*args.fScissor, rt->width(), rt->height(), args.fOrigin);
+    gpu->flushScissor(*args.fScissor, rt->height(), args.fOrigin);
     gpu->flushHWAAState(rt, args.fUseHWAA);
     gpu->flushRenderTarget(rt);
 

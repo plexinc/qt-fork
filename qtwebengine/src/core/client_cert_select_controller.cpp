@@ -50,9 +50,7 @@
 
 #include <QDebug>
 
-QT_BEGIN_NAMESPACE
-
-using namespace QtWebEngineCore;
+namespace QtWebEngineCore {
 
 ClientCertSelectController::ClientCertSelectController(net::SSLCertRequestInfo *certRequestInfo,
                                                        std::vector<std::unique_ptr<net::ClientCertIdentity>> clientCerts,
@@ -72,8 +70,6 @@ ClientCertSelectController::~ClientCertSelectController()
     if (!m_selected)
         m_delegate->ContinueWithCertificate(nullptr, nullptr);
 }
-
-#if !defined(QT_NO_SSL) || QT_VERSION >= QT_VERSION_CHECK(5, 12, 0)
 
 void ClientCertSelectController::selectNone()
 {
@@ -132,7 +128,7 @@ void ClientCertSelectController::select(const QSslCertificate &certificate)
                  << "    Selected certificate needs to be one of the offered";
 }
 
-QVector<QSslCertificate> ClientCertSelectController::certificates() const
+QList<QSslCertificate> ClientCertSelectController::certificates() const
 {
     if (!m_certificates.isEmpty())
         return m_certificates;
@@ -144,6 +140,4 @@ QVector<QSslCertificate> ClientCertSelectController::certificates() const
     return m_certificates;
 }
 
-#endif // !defined(QT_NO_SSL) || QT_VERSION >= QT_VERSION_CHECK(5, 12, 0)
-
-QT_END_NAMESPACE
+}

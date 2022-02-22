@@ -28,8 +28,14 @@
 
 
 #include <QtCore/QCoreApplication>
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QScopeGuard>
+#include <QCryptographicHash>
 #include <QtCore/QMetaEnum>
+
+#if QT_CONFIG(cxx11_future)
+#  include <thread>
+#endif
 
 Q_DECLARE_METATYPE(QCryptographicHash::Algorithm)
 
@@ -44,9 +50,17 @@ private slots:
     void sha1();
     void sha3_data();
     void sha3();
+    void blake2_data();
+    void blake2();
     void files_data();
     void files();
+    void hashLength_data();
     void hashLength();
+    // keep last
+    void moreThan4GiBOfData_data();
+    void moreThan4GiBOfData();
+private:
+    std::vector<char> large;
 };
 
 void tst_QCryptographicHash::repeated_result_data()
@@ -264,6 +278,110 @@ void tst_QCryptographicHash::sha3()
     QCOMPARE(result, expectedResult);
 }
 
+void tst_QCryptographicHash::blake2_data()
+{
+    QTest::addColumn<QCryptographicHash::Algorithm>("algorithm");
+    QTest::addColumn<QByteArray>("data");
+    QTest::addColumn<QByteArray>("expectedResult");
+
+#define ROW(Tag, Algorithm, Input, Result) \
+    QTest::newRow(Tag) << Algorithm << QByteArrayLiteral(Input) << QByteArray::fromHex(Result)
+
+    // BLAKE2b
+    ROW("blake2b_160_pangram",
+        QCryptographicHash::Blake2b_160,
+        "The quick brown fox jumps over the lazy dog",
+        "3c523ed102ab45a37d54f5610d5a983162fde84f");
+
+    ROW("blake2b_160_pangram_dot",
+        QCryptographicHash::Blake2b_160,
+        "The quick brown fox jumps over the lazy dog.",
+        "d0c8bb0bdd830296d1d4f4348176699ccccc16bb");
+
+    ROW("blake2b_256_pangram",
+        QCryptographicHash::Blake2b_256,
+        "The quick brown fox jumps over the lazy dog",
+        "01718cec35cd3d796dd00020e0bfecb473ad23457d063b75eff29c0ffa2e58a9");
+
+    ROW("blake2b_256_pangram_dot",
+        QCryptographicHash::Blake2b_256,
+        "The quick brown fox jumps over the lazy dog.",
+        "69d7d3b0afba81826d27024c17f7f183659ed0812cf27b382eaef9fdc29b5712");
+
+    ROW("blake2b_384_pangram",
+        QCryptographicHash::Blake2b_384,
+        "The quick brown fox jumps over the lazy dog",
+        "b7c81b228b6bd912930e8f0b5387989691c1cee1e65aade4da3b86a3c9f678fc8018f6ed9e2906720c8d2a3aeda9c03d");
+
+    ROW("blake2b_384_pangram_dot",
+        QCryptographicHash::Blake2b_384,
+        "The quick brown fox jumps over the lazy dog.",
+        "16d65de1a3caf1c26247234c39af636284c7e19ca448c0de788272081410778852c94d9cef6b939968d4f872c7f78337");
+
+    ROW("blake2b_512_pangram",
+        QCryptographicHash::Blake2b_512,
+        "The quick brown fox jumps over the lazy dog",
+        "a8add4bdddfd93e4877d2746e62817b116364a1fa7bc148d95090bc7333b3673f82401cf7aa2e4cb1ecd90296e3f14cb5413f8ed77be73045b13914cdcd6a918");
+
+    ROW("blake2b_512_pangram_dot",
+        QCryptographicHash::Blake2b_512,
+        "The quick brown fox jumps over the lazy dog.",
+        "87af9dc4afe5651b7aa89124b905fd214bf17c79af58610db86a0fb1e0194622a4e9d8e395b352223a8183b0d421c0994b98286cbf8c68a495902e0fe6e2bda2");
+
+    // BLAKE2s
+    ROW("blake2s_128_pangram",
+        QCryptographicHash::Blake2s_128,
+        "The quick brown fox jumps over the lazy dog",
+        "96fd07258925748a0d2fb1c8a1167a73");
+
+    ROW("blake2s_128_pangram_dot",
+        QCryptographicHash::Blake2s_128,
+        "The quick brown fox jumps over the lazy dog.",
+        "1f298f2e1f9c2490e506c2308f64e7c0");
+
+    ROW("blake2s_160_pangram",
+        QCryptographicHash::Blake2s_160,
+        "The quick brown fox jumps over the lazy dog",
+        "5a604fec9713c369e84b0ed68daed7d7504ef240");
+
+    ROW("blake2s_160_pangram_dot",
+        QCryptographicHash::Blake2s_160,
+        "The quick brown fox jumps over the lazy dog.",
+        "cd4a863226463aac852662d16275d399966e3ffe");
+
+    ROW("blake2s_224_pangram",
+        QCryptographicHash::Blake2s_224,
+        "The quick brown fox jumps over the lazy dog",
+        "e4e5cb6c7cae41982b397bf7b7d2d9d1949823ae78435326e8db4912");
+
+    ROW("blake2s_224_pangram_dot",
+        QCryptographicHash::Blake2s_224,
+        "The quick brown fox jumps over the lazy dog.",
+        "fd1557500ef49f308882969507acd18a13e155c26f8fcd82f9bf2ff7");
+
+    ROW("blake2s_256_pangram",
+        QCryptographicHash::Blake2s_256,
+        "The quick brown fox jumps over the lazy dog",
+        "606beeec743ccbeff6cbcdf5d5302aa855c256c29b88c8ed331ea1a6bf3c8812");
+
+    ROW("blake2s_256_pangram_dot",
+        QCryptographicHash::Blake2s_256,
+        "The quick brown fox jumps over the lazy dog.",
+        "95bca6e1b761dca1323505cc629949a0e03edf11633cc7935bd8b56f393afcf2");
+
+#undef ROW
+}
+
+void tst_QCryptographicHash::blake2()
+{
+    QFETCH(QCryptographicHash::Algorithm, algorithm);
+    QFETCH(QByteArray, data);
+    QFETCH(QByteArray, expectedResult);
+
+    const auto result = QCryptographicHash::hash(data, algorithm);
+    QCOMPARE(result, expectedResult);
+}
+
 void tst_QCryptographicHash::files_data() {
     QTest::addColumn<QString>("filename");
     QTest::addColumn<QCryptographicHash::Algorithm>("algorithm");
@@ -293,14 +411,99 @@ void tst_QCryptographicHash::files()
     }
 }
 
-void tst_QCryptographicHash::hashLength()
+void tst_QCryptographicHash::hashLength_data()
 {
+    QTest::addColumn<QCryptographicHash::Algorithm>("algorithm");
     auto metaEnum = QMetaEnum::fromType<QCryptographicHash::Algorithm>();
     for (int i = 0, value = metaEnum.value(i); value != -1; value = metaEnum.value(++i)) {
         auto algorithm = QCryptographicHash::Algorithm(value);
-        QByteArray output = QCryptographicHash::hash(QByteArrayLiteral("test"), algorithm);
-        QCOMPARE(QCryptographicHash::hashLength(algorithm), output.length());
+        QTest::addRow("%s", metaEnum.valueToKey(value)) << algorithm;
     }
+}
+
+void tst_QCryptographicHash::hashLength()
+{
+    QFETCH(const QCryptographicHash::Algorithm, algorithm);
+
+    QByteArray output = QCryptographicHash::hash(QByteArrayLiteral("test"), algorithm);
+    QCOMPARE(QCryptographicHash::hashLength(algorithm), output.length());
+}
+
+void tst_QCryptographicHash::moreThan4GiBOfData_data()
+{
+#if QT_POINTER_SIZE > 4
+    QElapsedTimer timer;
+    timer.start();
+    const size_t GiB = 1024 * 1024 * 1024;
+    try {
+        large.resize(4 * GiB + 1, '\0');
+    } catch (const std::bad_alloc &) {
+        QSKIP("Could not allocate 4GiB plus one byte of RAM.");
+    }
+    QCOMPARE(large.size(), 4 * GiB + 1);
+    large.back() = '\1';
+    qDebug("created dataset in %lld ms", timer.elapsed());
+
+    QTest::addColumn<QCryptographicHash::Algorithm>("algorithm");
+    auto me = QMetaEnum::fromType<QCryptographicHash::Algorithm>();
+    auto row = [me] (QCryptographicHash::Algorithm algo) {
+        QTest::addRow("%s", me.valueToKey(int(algo))) << algo;
+    };
+    // these are reasonably fast (O(secs))
+    row(QCryptographicHash::Md4);
+    row(QCryptographicHash::Md5);
+    row(QCryptographicHash::Sha1);
+    if (!qgetenv("QTEST_ENVIRONMENT").split(' ').contains("ci")) {
+        // This is important but so slow (O(minute)) that, on CI, it tends to time out.
+        // Retain it for manual runs, all the same, as most dev machines will be fast enough.
+        row(QCryptographicHash::Sha512);
+    }
+    // the rest is just too slow
+#else
+    QSKIP("This test is 64-bit only.");
+#endif
+}
+
+void tst_QCryptographicHash::moreThan4GiBOfData()
+{
+    QFETCH(const QCryptographicHash::Algorithm, algorithm);
+
+# if QT_CONFIG(cxx11_future)
+    using MaybeThread = std::thread;
+# else
+    struct MaybeThread {
+        std::function<void()> func;
+        void join() { func(); }
+    };
+# endif
+
+    QElapsedTimer timer;
+    timer.start();
+    const auto sg = qScopeGuard([&] {
+        qDebug() << algorithm << "test finished in" << timer.restart() << "ms";
+    });
+
+    const auto begin = large.data();
+    const auto mid = begin + large.size() / 2;
+    const auto end = begin + large.size();
+
+    QByteArray single;
+    QByteArray chunked;
+
+    auto t = MaybeThread{[&] {
+        QCryptographicHash h(algorithm);
+        h.addData(begin, end - begin);
+        single = h.result();
+    }};
+    {
+        QCryptographicHash h(algorithm);
+        h.addData(begin, mid - begin);
+        h.addData(mid, end - mid);
+        chunked = h.result();
+    }
+    t.join();
+
+    QCOMPARE(single, chunked);
 }
 
 QTEST_MAIN(tst_QCryptographicHash)

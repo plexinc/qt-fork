@@ -15,6 +15,7 @@
 #ifndef DAWNNATIVE_PROGRAMMABLEPASSENCODER_H_
 #define DAWNNATIVE_PROGRAMMABLEPASSENCODER_H_
 
+#include "dawn_native/CommandBufferStateTracker.h"
 #include "dawn_native/CommandEncoder.h"
 #include "dawn_native/Error.h"
 #include "dawn_native/ObjectBase.h"
@@ -24,13 +25,14 @@
 
 namespace dawn_native {
 
-    class CommandAllocator;
     class DeviceBase;
 
     // Base class for shared functionality between ComputePassEncoder and RenderPassEncoder.
     class ProgrammablePassEncoder : public ObjectBase {
       public:
-        ProgrammablePassEncoder(DeviceBase* device, EncodingContext* encodingContext);
+        ProgrammablePassEncoder(DeviceBase* device,
+                                EncodingContext* encodingContext,
+                                PassType passType);
 
         void InsertDebugMarker(const char* groupLabel);
         void PopDebugGroup();
@@ -38,17 +40,27 @@ namespace dawn_native {
 
         void SetBindGroup(uint32_t groupIndex,
                           BindGroupBase* group,
-                          uint32_t dynamicOffsetCount,
-                          const uint32_t* dynamicOffsets);
+                          uint32_t dynamicOffsetCount = 0,
+                          const uint32_t* dynamicOffsets = nullptr);
 
       protected:
+        bool IsValidationEnabled() const;
+        MaybeError ValidateProgrammableEncoderEnd() const;
+
         // Construct an "error" programmable pass encoder.
         ProgrammablePassEncoder(DeviceBase* device,
                                 EncodingContext* encodingContext,
-                                ErrorTag errorTag);
+                                ErrorTag errorTag,
+                                PassType passType);
 
         EncodingContext* mEncodingContext = nullptr;
         PassResourceUsageTracker mUsageTracker;
+
+        uint64_t mDebugGroupStackSize = 0;
+        CommandBufferStateTracker mCommandBufferState;
+
+      private:
+        const bool mValidationEnabled;
     };
 
 }  // namespace dawn_native

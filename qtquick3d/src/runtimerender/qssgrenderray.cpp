@@ -94,7 +94,8 @@ QSSGRenderRay::IntersectionResult QSSGRenderRay::createIntersectionResult(const 
     const float yRange = boundsMax.y() - boundsMin.y();
     const QVector2D uvCoords{((localPosition[0] - boundsMin.x()) / xRange), ((localPosition[1] - boundsMin.y()) / yRange)};
 
-    return IntersectionResult(rayLenSquared, uvCoords, globalPosition);
+    // Since we just intersected with a bounding box, there is no face normal
+    return IntersectionResult(rayLenSquared, uvCoords, globalPosition, localPosition, QVector3D());
 }
 
 QSSGRenderRay::HitResult QSSGRenderRay::intersectWithAABBv2(const QSSGRenderRay::RayData &data,
@@ -137,12 +138,13 @@ bool QSSGRenderRay::triangleIntersect(const QSSGRenderRay &ray,
                                       const QVector3D &v1,
                                       const QVector3D &v2,
                                       float &u,
-                                      float &v)
+                                      float &v,
+                                      QVector3D &normal)
 {
     // Compute the Triangle's Normal (N)
     const QVector3D v0v1 = v1 - v0;
     const QVector3D v0v2 = v2 - v0;
-    const QVector3D normal = QVector3D::crossProduct(v0v1, v0v2);
+    normal = QVector3D::crossProduct(v0v1, v0v2);
     const float denominator = QVector3D::dotProduct(normal, normal);
 
     // Find the Intersection point (P)
@@ -194,82 +196,6 @@ bool QSSGRenderRay::triangleIntersect(const QSSGRenderRay &ray,
     return true;
 }
 
-QSSGRenderRay::IntersectionResult QSSGRenderRay::intersectWithAABB(const QMatrix4x4 &inGlobalTransform,
-                                                                   const QSSGBounds3 &inBounds,
-                                                                   const QSSGRenderRay &ray,
-                                                                   bool inForceIntersect)
-{
-    // Intersect the origin with the AABB described by bounds.
-
-    // Scan each axis separately.  This code basically finds the distance
-    // distance from the origin to the near and far bbox planes for a given
-    // axis.  It then divides this distance by the direction for that axis to
-    // get a range of t [near,far] that the ray intersects assuming the ray is
-    // described via origin + t*(direction).  Running through all three axis means
-    // that you need to min/max those ranges together to find a global min/max
-    // that the pick could possibly be in.
-
-    // Transform pick origin and direction into the subset's space.
-    QMatrix4x4 theOriginTransform = inGlobalTransform.inverted();
-
-    QVector3D theTransformedOrigin = mat44::transform(theOriginTransform, ray.origin);
-    float *outOriginTransformPtr(theOriginTransform.data());
-    outOriginTransformPtr[12] = outOriginTransformPtr[13] = outOriginTransformPtr[14] = 0.0f;
-
-    QVector3D theTransformedDirection = mat44::rotate(theOriginTransform, ray.direction);
-
-    static const float KD_FLT_MAX = 3.40282346638528860e+38;
-    static const float kEpsilon = 1e-5f;
-
-    float theMinWinner = -KD_FLT_MAX;
-    float theMaxWinner = KD_FLT_MAX;
-
-    for (quint32 theAxis = 0; theAxis < 3; ++theAxis) {
-        // Extract the ranges and direction for this axis
-        float theMinBox = inBounds.minimum[theAxis];
-        float theMaxBox = inBounds.maximum[theAxis];
-        float theDirectionAxis = theTransformedDirection[theAxis];
-        float theOriginAxis = theTransformedOrigin[theAxis];
-
-        float theMinAxis = -KD_FLT_MAX;
-        float theMaxAxis = KD_FLT_MAX;
-        if (theDirectionAxis > kEpsilon) {
-            theMinAxis = (theMinBox - theOriginAxis) / theDirectionAxis;
-            theMaxAxis = (theMaxBox - theOriginAxis) / theDirectionAxis;
-        } else if (theDirectionAxis < -kEpsilon) {
-            theMinAxis = (theMaxBox - theOriginAxis) / theDirectionAxis;
-            theMaxAxis = (theMinBox - theOriginAxis) / theDirectionAxis;
-        } else if ((theOriginAxis < theMinBox || theOriginAxis > theMaxBox) && !inForceIntersect) {
-            // Pickray is roughly parallel to the plane of the slab
-            // so, if the origin is not in the range, we have no intersection
-            return IntersectionResult();
-        }
-
-        // Shrink the intersections to find the closest hit
-        theMinWinner = qMax(theMinWinner, theMinAxis);
-        theMaxWinner = qMin(theMaxWinner, theMaxAxis);
-
-        if ((theMinWinner > theMaxWinner || theMaxWinner < 0) && !inForceIntersect)
-            return IntersectionResult();
-    }
-
-    QVector3D scaledDir = theTransformedDirection * theMinWinner;
-    QVector3D newPosInLocal = theTransformedOrigin + scaledDir;
-    QVector3D newPosInGlobal = mat44::transform(inGlobalTransform, newPosInLocal);
-    QVector3D cameraToLocal = ray.origin - newPosInGlobal;
-
-    float rayLengthSquared = vec3::magnitudeSquared(cameraToLocal);
-
-    float xRange = inBounds.maximum.x() - inBounds.minimum.x();
-    float yRange = inBounds.maximum.y() - inBounds.minimum.y();
-
-    QVector2D relXY;
-    relXY.setX((newPosInLocal[0] - inBounds.minimum.x()) / xRange);
-    relXY.setY((newPosInLocal[1] - inBounds.minimum.y()) / yRange);
-
-    return IntersectionResult(rayLengthSquared, relXY, newPosInGlobal);
-}
-
 void QSSGRenderRay::intersectWithBVH(const RayData &data,
                                      const QSSGMeshBVHNode *bvh,
                                      const QSSGRenderMesh *mesh,
@@ -316,12 +242,14 @@ QVector<QSSGRenderRay::IntersectionResult> QSSGRenderRay::intersectWithBVHTriang
         // Use Barycentric Coordinates to get the intersection values
         float u = 0.f;
         float v = 0.f;
+        QVector3D normal;
         const bool intersects = triangleIntersect(relativeRay,
                                                   triangle->vertex1,
                                                   triangle->vertex2,
                                                   triangle->vertex3,
                                                   u,
-                                                  v);
+                                                  v,
+                                                  normal);
         if (intersects) {
             const float w = 1.0f - u - v;
             const QVector3D localIntersectionPoint = u * triangle->vertex1 +
@@ -337,7 +265,11 @@ QVector<QSSGRenderRay::IntersectionResult> QSSGRenderRay::intersectWithBVHTriang
             const QVector3D hitVector = data.ray.origin - sceneIntersectionPos;
             // Get the magnitude of the hit vector
             const float rayLengthSquared = vec3::magnitudeSquared(hitVector);
-            results.append(IntersectionResult(rayLengthSquared, uvCoordinate, sceneIntersectionPos));
+            results.append(IntersectionResult(rayLengthSquared,
+                                              uvCoordinate,
+                                              sceneIntersectionPos,
+                                              localIntersectionPoint,
+                                              normal));
         }
     }
 

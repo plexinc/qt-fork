@@ -582,7 +582,7 @@ class MachineRepresentationChecker {
               case MachineRepresentation::kTaggedSigned:
                 if (COMPRESS_POINTERS_BOOL &&
                     node->opcode() == IrOpcode::kStore &&
-                    CanBeTaggedPointer(
+                    IsAnyTagged(
                         StoreRepresentationOf(node->op()).representation())) {
                   CheckValueInputIsCompressedOrTagged(node, 2);
                 } else {
@@ -733,23 +733,6 @@ class MachineRepresentationChecker {
       PrintDebugHelp(str, node);
       FATAL("%s", str.str().c_str());
     }
-  }
-
-  void CheckValueInputIsCompressed(Node const* node, int index) {
-    Node const* input = node->InputAt(index);
-    switch (inferrer_->GetRepresentation(input)) {
-      case MachineRepresentation::kCompressed:
-      case MachineRepresentation::kCompressedPointer:
-        return;
-      default:
-        break;
-    }
-    std::ostringstream str;
-    str << "TypeError: node #" << node->id() << ":" << *node->op()
-        << " uses node #" << input->id() << ":" << *input->op()
-        << " which doesn't have a compressed representation.";
-    PrintDebugHelp(str, node);
-    FATAL("%s", str.str().c_str());
   }
 
   void CheckValueInputIsTagged(Node const* node, int index) {
@@ -985,35 +968,6 @@ class MachineRepresentationChecker {
     }
   }
 
-  bool Intersect(MachineRepresentation lhs, MachineRepresentation rhs) {
-    return (GetRepresentationProperties(lhs) &
-            GetRepresentationProperties(rhs)) != 0;
-  }
-
-  enum RepresentationProperties { kIsPointer = 1, kIsTagged = 2 };
-
-  int GetRepresentationProperties(MachineRepresentation representation) {
-    switch (representation) {
-      case MachineRepresentation::kTagged:
-      case MachineRepresentation::kTaggedPointer:
-        return kIsPointer | kIsTagged;
-      case MachineRepresentation::kTaggedSigned:
-        return kIsTagged;
-      case MachineRepresentation::kWord32:
-        return MachineRepresentation::kWord32 ==
-                       MachineType::PointerRepresentation()
-                   ? kIsPointer
-                   : 0;
-      case MachineRepresentation::kWord64:
-        return MachineRepresentation::kWord64 ==
-                       MachineType::PointerRepresentation()
-                   ? kIsPointer
-                   : 0;
-      default:
-        return 0;
-    }
-  }
-
   bool IsCompatible(MachineRepresentation expected,
                     MachineRepresentation actual) {
     switch (expected) {
@@ -1023,7 +977,7 @@ class MachineRepresentationChecker {
         return IsAnyCompressed(actual);
       case MachineRepresentation::kTaggedSigned:
       case MachineRepresentation::kTaggedPointer:
-        // TODO(tebbi): At the moment, the machine graph doesn't contain
+        // TODO(turbofan): At the moment, the machine graph doesn't contain
         // reliable information if a node is kTaggedSigned, kTaggedPointer or
         // kTagged, and often this is context-dependent. We should at least
         // check for obvious violations: kTaggedSigned where we expect

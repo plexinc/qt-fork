@@ -47,7 +47,7 @@ QT_BEGIN_NAMESPACE
 class QModelIndex;
 QT_END_NAMESPACE
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class Q_CHARTS_PRIVATE_EXPORT QBoxSet;
 
@@ -68,8 +68,8 @@ public Q_SLOTS:
     void handleModelDestroyed();
 
     // for the series
-    void boxSetsAdded(QList<QBoxSet *> sets);
-    void boxSetsRemoved(QList<QBoxSet *> sets);
+    void boxSetsAdded(const QList<QBoxSet *> &sets);
+    void boxSetsRemoved(const QList<QBoxSet *> &sets);
     void boxValueChanged(int index);
     void handleSeriesDestroyed();
 
@@ -100,6 +100,6 @@ private:
     Q_DECLARE_PUBLIC(QBoxPlotModelMapper)
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // QBOXPLOTMODELMAPPER_P_H

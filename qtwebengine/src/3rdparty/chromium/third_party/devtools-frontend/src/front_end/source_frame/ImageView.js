@@ -28,22 +28,64 @@
 
 import * as Common from '../common/common.js';
 import * as Host from '../host/host.js';
+import * as i18n from '../i18n/i18n.js';
+import * as Platform from '../platform/platform.js';
 import * as TextUtils from '../text_utils/text_utils.js';
 import * as UI from '../ui/ui.js';
 import * as Workspace from '../workspace/workspace.js';
 
-/**
- * @unrestricted
- */
+export const UIStrings = {
+  /**
+  *@description Text in Image View of the Sources panel
+  */
+  image: 'Image',
+  /**
+  *@description Text that appears when user drag and drop something (for example, a file) in Image View of the Sources panel
+  */
+  dropImageFileHere: 'Drop image file here',
+  /**
+  *@description Text to indicate the source of an image
+  *@example {example.com} PH1
+  */
+  imageFromS: 'Image from {PH1}',
+  /**
+  *@description Text in Image View of the Sources panel
+  *@example {2} PH1
+  *@example {2} PH2
+  */
+  dD: '{PH1} × {PH2}',
+  /**
+  *@description A context menu item in the Image View of the Sources panel
+  */
+  copyImageUrl: 'Copy image URL',
+  /**
+  *@description A context menu item in the Image View of the Sources panel
+  */
+  copyImageAsDataUri: 'Copy image as data URI',
+  /**
+  *@description A context menu item in the Image View of the Sources panel
+  */
+  openImageInNewTab: 'Open image in new tab',
+  /**
+  *@description A context menu item in the Image Preview
+  */
+  saveImageAs: 'Save image as...',
+  /**
+  *@description The default file name when downloading a file
+  */
+  download: 'download',
+};
+const str_ = i18n.i18n.registerUIStrings('source_frame/ImageView.js', UIStrings);
+const i18nString = i18n.i18n.getLocalizedString.bind(undefined, str_);
 export class ImageView extends UI.View.SimpleView {
   /**
    * @param {string} mimeType
    * @param {!TextUtils.ContentProvider.ContentProvider} contentProvider
    */
   constructor(mimeType, contentProvider) {
-    super(Common.UIString.UIString('Image'));
-    this.registerRequiredCSS('source_frame/imageView.css');
-    this.element.tabIndex = 0;
+    super(i18nString(UIStrings.image));
+    this.registerRequiredCSS('source_frame/imageView.css', {enableLegacyPatching: false});
+    this.element.tabIndex = -1;
     this.element.classList.add('image-view');
     this._url = contentProvider.contentURL();
     this._parsedURL = new Common.ParsedURL.ParsedURL(this._url);
@@ -56,16 +98,17 @@ export class ImageView extends UI.View.SimpleView {
       this._uiSourceCode.addEventListener(
           Workspace.UISourceCode.Events.WorkingCopyCommitted, this._workingCopyCommitted, this);
       new UI.DropTarget.DropTarget(
-          this.element, [UI.DropTarget.Type.ImageFile, UI.DropTarget.Type.URI],
-          Common.UIString.UIString('Drop image file here'), this._handleDrop.bind(this));
+          this.element, [UI.DropTarget.Type.ImageFile, UI.DropTarget.Type.URI], i18nString(UIStrings.dropImageFileHere),
+          this._handleDrop.bind(this));
     }
     this._sizeLabel = new UI.Toolbar.ToolbarText();
     this._dimensionsLabel = new UI.Toolbar.ToolbarText();
     this._mimeTypeLabel = new UI.Toolbar.ToolbarText(mimeType);
     this._container = this.element.createChild('div', 'image');
-    this._imagePreviewElement = this._container.createChild('img', 'resource-image-view');
+    /** @type {!HTMLImageElement} */
+    this._imagePreviewElement =
+        /** @type {!HTMLImageElement} */ (this._container.createChild('img', 'resource-image-view'));
     this._imagePreviewElement.addEventListener('contextmenu', this._contextMenu.bind(this), true);
-    this._imagePreviewElement.alt = ls`Image from ${this._url}`;
   }
 
   /**
@@ -73,6 +116,7 @@ export class ImageView extends UI.View.SimpleView {
    * @return {!Promise<!Array<!UI.Toolbar.ToolbarItem>>}
    */
   async toolbarItems() {
+    await this._updateContentIfNeeded();
     return [
       this._sizeLabel, new UI.Toolbar.ToolbarSeparator(), this._dimensionsLabel, new UI.Toolbar.ToolbarSeparator(),
       this._mimeTypeLabel
@@ -107,34 +151,40 @@ export class ImageView extends UI.View.SimpleView {
     }
 
     const contentEncoded = await this._contentProvider.contentEncoded();
+    /** @type {?string} */
     this._cachedContent = content;
-    let imageSrc = TextUtils.ContentProvider.contentAsDataURL(content, this._mimeType, contentEncoded);
-    if (content === null) {
-      imageSrc = this._url;
-    }
-    const loadPromise = new Promise(x => this._imagePreviewElement.onload = x);
+    const imageSrc = TextUtils.ContentProvider.contentAsDataURL(content, this._mimeType, contentEncoded) || this._url;
+    const loadPromise = new Promise(x => {
+      this._imagePreviewElement.onload = x;
+    });
     this._imagePreviewElement.src = imageSrc;
+    this._imagePreviewElement.alt = i18nString(UIStrings.imageFromS, {PH1: this._url});
     const size = content && !contentEncoded ? content.length : base64ToSize(content);
-    this._sizeLabel.setText(Number.bytesToString(size));
+    this._sizeLabel.setText(Platform.NumberUtilities.bytesToString(size));
     await loadPromise;
-    this._dimensionsLabel.setText(Common.UIString.UIString(
-        '%d × %d', this._imagePreviewElement.naturalWidth, this._imagePreviewElement.naturalHeight));
+    this._dimensionsLabel.setText(i18nString(
+        UIStrings.dD, {PH1: this._imagePreviewElement.naturalWidth, PH2: this._imagePreviewElement.naturalHeight}));
   }
 
+  /**
+   * @param {!Event} event
+   */
   _contextMenu(event) {
     const contextMenu = new UI.ContextMenu.ContextMenu(event);
+    const parsedSrc = new Common.ParsedURL.ParsedURL(this._imagePreviewElement.src);
     if (!this._parsedURL.isDataURL()) {
-      contextMenu.clipboardSection().appendItem(
-          Common.UIString.UIString('Copy image URL'), this._copyImageURL.bind(this));
+      contextMenu.clipboardSection().appendItem(i18nString(UIStrings.copyImageUrl), this._copyImageURL.bind(this));
     }
-    if (this._imagePreviewElement.src) {
+    if (parsedSrc.isDataURL()) {
       contextMenu.clipboardSection().appendItem(
-          Common.UIString.UIString('Copy image as data URI'), this._copyImageAsDataURL.bind(this));
+          i18nString(UIStrings.copyImageAsDataUri), this._copyImageAsDataURL.bind(this));
     }
 
-    contextMenu.clipboardSection().appendItem(
-        Common.UIString.UIString('Open image in new tab'), this._openInNewTab.bind(this));
-    contextMenu.clipboardSection().appendItem(Common.UIString.UIString('Save…'), this._saveImage.bind(this));
+    contextMenu.clipboardSection().appendItem(i18nString(UIStrings.openImageInNewTab), this._openInNewTab.bind(this));
+    contextMenu.clipboardSection().appendItem(i18nString(UIStrings.saveImageAs), async () => {
+      await this._saveImage();
+    });
+
     contextMenu.show();
   }
 
@@ -146,11 +196,30 @@ export class ImageView extends UI.View.SimpleView {
     Host.InspectorFrontendHost.InspectorFrontendHostInstance.copyText(this._url);
   }
 
-  _saveImage() {
-    const link = createElement('a');
-    link.download = this._parsedURL.displayName;
-    link.href = this._url;
+  async _saveImage() {
+    const contentEncoded = await this._contentProvider.contentEncoded();
+    if (!this._cachedContent) {
+      return;
+    }
+    const cachedContent = this._cachedContent;
+    const imageDataURL =
+        TextUtils.ContentProvider.contentAsDataURL(cachedContent, this._mimeType, contentEncoded, '', false);
+
+    if (!imageDataURL) {
+      return;
+    }
+
+    const link = document.createElement('a');
+    link.href = imageDataURL;
+
+    // If it is a Base64 image, set a default file name.
+    // When chrome saves a file, the file name characters that are not supported
+    // by the OS will be replaced automatically. For example, in the Mac,
+    // `:` it will be replaced with `_`.
+    link.download =
+        this._parsedURL.isDataURL() ? i18nString(UIStrings.download) : decodeURIComponent(this._parsedURL.displayName);
     link.click();
+    link.remove();
   }
 
   _openInNewTab() {
@@ -168,7 +237,10 @@ export class ImageView extends UI.View.SimpleView {
 
     const entry = items[0].webkitGetAsEntry();
     const encoded = !entry.name.endsWith('.svg');
-    entry.file(file => {
+    /**
+     * @param {!Blob} file
+     */
+    const fileCallback = file => {
       const reader = new FileReader();
       reader.onloadend = () => {
         let result;
@@ -178,7 +250,7 @@ export class ImageView extends UI.View.SimpleView {
           result = null;
           console.error('Can\'t read file: ' + e);
         }
-        if (typeof result !== 'string') {
+        if (typeof result !== 'string' || !this._uiSourceCode) {
           return;
         }
         this._uiSourceCode.setContent(encoded ? btoa(result) : result, encoded);
@@ -188,6 +260,7 @@ export class ImageView extends UI.View.SimpleView {
       } else {
         reader.readAsText(file);
       }
-    });
+    };
+    entry.file(fileCallback);
   }
 }

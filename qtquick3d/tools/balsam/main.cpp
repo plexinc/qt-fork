@@ -27,17 +27,19 @@
 **
 ****************************************************************************/
 
-#include <QtCore/QCoreApplication>
+#include <QtGui/QGuiApplication>
 #include <QtCore/QCommandLineParser>
 #include <QtCore/QStandardPaths>
 #include <QtCore/QDir>
-#include <QtCore/QDebug>
 #include <QtCore/QVariant>
 #include <QtCore/QHash>
 
 #include <QtCore/QJsonObject>
 
 #include <QtQuick3DAssetImport/private/qssgassetimportmanager_p.h>
+#include <QtQuick3DIblBaker/private/qssgiblbaker_p.h>
+
+#include <iostream>
 
 class OptionsManager {
 public:
@@ -45,7 +47,7 @@ public:
 
     }
     ~OptionsManager() {
-        qDeleteAll(m_optionsMap.values());
+        qDeleteAll(m_optionsMap);
         m_optionsMap.clear();
     }
     void generateCommandLineOptions(const QVariantMap &optionsMap)
@@ -104,7 +106,7 @@ public:
         return optionsObject.toVariantMap();
     }
     void registerOptions(QCommandLineParser &parser) {
-        for (const auto &cmdLineOption : m_optionsMap.values())
+        for (const auto &cmdLineOption : qAsConst(m_optionsMap))
             parser.addOption(*cmdLineOption);
     }
 
@@ -118,7 +120,7 @@ public:
             if (opt[QStringLiteral("value")] == true) {
                 opt[QStringLiteral("value")] = false;
                 options[QStringLiteral("generateSmoothNormals")] = opt;
-                qWarning() << "\"--generateSmoothNormals\" disabled due to \"--generateNormals\".";
+                std::cerr << "\"--generateSmoothNormals\" disabled due to \"--generateNormals\".\n";
             }
 
         } else if (cmdLineParser.isSet(*m_optionsMap[QStringLiteral("generateSmoothNormals")])) {
@@ -126,7 +128,7 @@ public:
             if (opt[QStringLiteral("value")] == true) {
                 opt[QStringLiteral("value")] = false;
                 options[QStringLiteral("generateNormals")] = opt;
-                qWarning() << "\"--generateNormals\" disabled due to \"--generateSmoothNormals\".";
+                std::cerr << "\"--generateNormals\" disabled due to \"--generateSmoothNormals\".\n";
             }
         }
 
@@ -136,14 +138,14 @@ public:
             if (opt[QStringLiteral("value")] == true) {
                 opt[QStringLiteral("value")] = false;
                 options[QStringLiteral("preTransformVertices")] = opt;
-                qWarning() << "\"--preTransformVertices\" disabled due to \"--optimizeGraph\".";
+                std::cerr << "\"--preTransformVertices\" disabled due to \"--optimizeGraph\".\n";
             }
         } else if (cmdLineParser.isSet(*m_optionsMap[QStringLiteral("preTransformVertices")])) {
             opt = options.value(QStringLiteral("optimizeGraph")).toObject();
             if (opt[QStringLiteral("value")] == true) {
                 opt[QStringLiteral("value")] = false;
                 options[QStringLiteral("optimizeGraph")] = opt;
-                qWarning() << "\"--optimizeGraph\" disabled due to \"--preTransformVertices\".";
+                std::cerr << "\"--optimizeGraph\" disabled due to \"--preTransformVertices\".\n";
             }
         }
     }
@@ -152,29 +154,78 @@ private:
     QHash<QString, QCommandLineOption *> m_optionsMap;
 };
 
+struct BuiltinConditioners
+{
+    QSSGAssetImportManager::ImportState run(const QString &filename,
+                                            const QDir &outputPath,
+                                            QString *error);
+
+    QSSGIblBaker iblBaker;
+};
+
+QSSGAssetImportManager::ImportState BuiltinConditioners::run(const QString &filename,
+                                                             const QDir &outputPath,
+                                                             QString *error)
+{
+    QFileInfo fileInfo(filename);
+    if (!fileInfo.exists()) {
+        if (error)
+            *error = QStringLiteral("File does not exist");
+        return QSSGAssetImportManager::ImportState::IoError;
+    }
+
+    const QString extension = fileInfo.suffix().toLower();
+    QStringList generatedFiles;
+    QSSGAssetImportManager::ImportState result = QSSGAssetImportManager::ImportState::Unsupported;
+
+    if (iblBaker.inputExtensions().contains(extension)) {
+        QString errorMsg = iblBaker.import(fileInfo.absoluteFilePath(), outputPath, &generatedFiles);
+        if (errorMsg.isEmpty()) {
+            result = QSSGAssetImportManager::ImportState::Success;
+        } else {
+            *error = errorMsg;
+            result = QSSGAssetImportManager::ImportState::IoError;
+        }
+    } else {
+        if (error)
+            *error = QStringLiteral("unsupported file extension %1").arg(extension);
+    }
+
+    for (const auto &file : generatedFiles)
+        qDebug() << "generated file:" << file;
+
+    return result;
+}
 
 int main(int argc, char *argv[])
 {
-    QCoreApplication app(argc, argv);
+    QGuiApplication app(argc, argv);
 
-    QSSGAssetImportManager assetImporter;
+    const bool canUsePlugins = !QCoreApplication::arguments().contains(QStringLiteral("--no-plugins"));
+    if (!canUsePlugins)
+        qDebug("balsam: Not loading assetimporter plugins");
+
+    QScopedPointer<QSSGAssetImportManager> assetImporter;
     OptionsManager optionsManager;
+    BuiltinConditioners builtins;
 
     // Setup command line arguments
     QCommandLineParser cmdLineParser;
     cmdLineParser.addHelpOption();
-    cmdLineParser.addPositionalArgument(QLatin1String("sourceFilename"), QObject::tr("Asset file to be imported"));
-    QCommandLineOption outputPathOption({"outputPath", "o"},
-                                        QObject::tr("Sets the location to place the generated file(s). Default is the current directory"),
-                                        QObject::tr("outputPath"), QDir::currentPath());
+    cmdLineParser.addPositionalArgument(QStringLiteral("sourceFilename"), QStringLiteral("Asset file to be imported"));
+    QCommandLineOption outputPathOption({ "outputPath", "o" }, QStringLiteral("Sets the location to place the generated file(s). Default is the current directory"), QStringLiteral("outputPath"), QDir::currentPath());
     cmdLineParser.addOption(outputPathOption);
+    QCommandLineOption noPluginsOption(QStringLiteral("no-plugins"), QStringLiteral("Disable assetimporter plugin loading, only considers built-ins"));
+    cmdLineParser.addOption(noPluginsOption);
 
     // Get Plugin options
-    auto pluginOptions = assetImporter.getAllOptions();
-    for (const auto &options : pluginOptions.values())
-        optionsManager.generateCommandLineOptions(options);
-
-    optionsManager.registerOptions(cmdLineParser);
+    if (canUsePlugins) {
+        assetImporter.reset(new QSSGAssetImportManager);
+        auto pluginOptions = assetImporter->getAllOptions();
+        for (const auto &options : qAsConst(pluginOptions))
+            optionsManager.generateCommandLineOptions(options);
+        optionsManager.registerOptions(cmdLineParser);
+    }
 
     cmdLineParser.process(app);
 
@@ -184,22 +235,33 @@ int main(int argc, char *argv[])
         outputDirectory = QDir(cmdLineParser.value(outputPathOption));
         if (!outputDirectory.exists()) {
             if (!outputDirectory.mkpath(QStringLiteral("."))) {
-                qWarning() << "Failed to create export directory: " << outputDirectory;
+                std::cerr << "Failed to create export directory: " << qPrintable(outputDirectory.path()) << "\n";
+                return 2;
             }
         }
     }
 
-    // if there is nothing to do return early
+    // if there is nothing to do show help
     if (assetFileNames.isEmpty())
-        return 0;
+        cmdLineParser.showHelp(1);
 
     // Convert each assetFile is possible
     for (const auto &assetFileName : assetFileNames) {
         QString errorString;
-        QVariantMap options = assetImporter.getOptionsForFile(assetFileName);
-        options = optionsManager.processCommandLineOptions(cmdLineParser, options);
-        if (assetImporter.importFile(assetFileName, outputDirectory, options, &errorString) != QSSGAssetImportManager::ImportState::Success)
-            qWarning() << "Failed to import file with error: " << errorString;
+        QSSGAssetImportManager::ImportState result = QSSGAssetImportManager::ImportState::Unsupported;
+        if (canUsePlugins) {
+            QVariantMap options = assetImporter->getOptionsForFile(assetFileName);
+            options = optionsManager.processCommandLineOptions(cmdLineParser, options);
+            // first try the plugin-based asset importer system
+            result = assetImporter->importFile(assetFileName, outputDirectory, options, &errorString);
+        }
+        // if the file extension is unsupported, try the builtins
+        if (result == QSSGAssetImportManager::ImportState::Unsupported)
+            result = builtins.run(assetFileName, outputDirectory, &errorString);
+        if (result != QSSGAssetImportManager::ImportState::Success) {
+            std::cerr << "Failed to import file with error: " << qPrintable(errorString) << "\n";
+            return 2;
+        }
     }
 
     return 0;

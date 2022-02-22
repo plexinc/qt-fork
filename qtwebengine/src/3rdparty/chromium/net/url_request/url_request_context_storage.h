@@ -18,7 +18,6 @@ namespace net {
 class CertVerifier;
 class CookieStore;
 class CTPolicyEnforcer;
-class CTVerifier;
 class FtpAuthCache;
 class HostResolver;
 class HttpAuthHandlerFactory;
@@ -30,6 +29,7 @@ class NetworkDelegate;
 class ProxyDelegate;
 class ProxyResolutionService;
 class QuicContext;
+class SCTAuditingDelegate;
 class SSLConfigService;
 class TransportSecurityState;
 class URLRequestContext;
@@ -70,10 +70,10 @@ class NET_EXPORT URLRequestContextStorage {
   void set_cookie_store(std::unique_ptr<CookieStore> cookie_store);
   void set_transport_security_state(
       std::unique_ptr<TransportSecurityState> transport_security_state);
-  void set_cert_transparency_verifier(
-      std::unique_ptr<CTVerifier> cert_transparency_verifier);
   void set_ct_policy_enforcer(
       std::unique_ptr<CTPolicyEnforcer> ct_policy_enforcer);
+  void set_sct_auditing_delegate(
+      std::unique_ptr<SCTAuditingDelegate> sct_auditing_delegate);
   void set_http_network_session(
       std::unique_ptr<HttpNetworkSession> http_network_session);
   void set_http_transaction_factory(
@@ -121,8 +121,8 @@ class NET_EXPORT URLRequestContextStorage {
   std::unique_ptr<HttpUserAgentSettings> http_user_agent_settings_;
   std::unique_ptr<CookieStore> cookie_store_;
   std::unique_ptr<TransportSecurityState> transport_security_state_;
-  std::unique_ptr<CTVerifier> cert_transparency_verifier_;
   std::unique_ptr<CTPolicyEnforcer> ct_policy_enforcer_;
+  std::unique_ptr<SCTAuditingDelegate> sct_auditing_delegate_;
   std::unique_ptr<QuicContext> quic_context_;
 #if !BUILDFLAG(DISABLE_FTP_SUPPORT)
   std::unique_ptr<FtpAuthCache> ftp_auth_cache_;

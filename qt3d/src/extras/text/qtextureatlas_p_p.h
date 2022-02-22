@@ -53,7 +53,7 @@
 
 #include <QtCore/qscopedpointer.h>
 #include <Qt3DRender/private/qabstracttexture_p.h>
-#include <Qt3DRender/qtexturegenerator.h>
+#include <Qt3DRender/private/qtexturegenerator_p.h>
 #include <Qt3DExtras/private/areaallocator_p.h>
 #include <Qt3DExtras/private/qtextureatlas_p.h>
 
@@ -91,7 +91,7 @@ private:
 
     QMutex m_mutex;
     QImage m_image;
-    QVector<Update> m_updates;
+    QList<Update> m_updates;
 };
 
 typedef QSharedPointer<QTextureAtlasData> QTextureAtlasDataPtr;

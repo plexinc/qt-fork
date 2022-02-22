@@ -20,7 +20,6 @@ class ActiveDirectoryAccountReconcilorDelegate
   ~ActiveDirectoryAccountReconcilorDelegate() override;
 
   // AccountReconcilorDelegate:
-  bool IsAccountConsistencyEnforced() const override;
   gaia::GaiaSource GetGaiaApiSource() const override;
   bool IsReconcileEnabled() const override;
   CoreAccountId GetFirstGaiaAccountForReconcile(
@@ -34,6 +33,8 @@ class ActiveDirectoryAccountReconcilorDelegate
       const std::vector<CoreAccountId>& chrome_accounts,
       const CoreAccountId& primary_account,
       const std::vector<gaia::ListedAccount>& gaia_accounts,
+      bool first_execution,
+      bool primary_has_error,
       const gaia::MultiloginMode mode) const override;
   bool ShouldAbortReconcileIfPrimaryHasError() const override;
   bool ShouldRevokeTokensIfNoPrimaryAccount() const override;

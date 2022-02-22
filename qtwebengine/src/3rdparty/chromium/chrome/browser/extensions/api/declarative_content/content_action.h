@@ -9,7 +9,6 @@
 #include <string>
 
 #include "base/macros.h"
-#include "extensions/browser/declarative_user_script_master.h"
 #include "extensions/common/user_script.h"
 
 namespace base {
@@ -25,6 +24,7 @@ class WebContents;
 namespace extensions {
 
 class Extension;
+class ExtensionUserScriptLoader;
 
 // Base class for all ContentActions of the Declarative Content API.
 //
@@ -74,9 +74,6 @@ class RequestContentScript : public ContentAction {
   RequestContentScript(content::BrowserContext* browser_context,
                        const Extension* extension,
                        const ScriptData& script_data);
-  RequestContentScript(DeclarativeUserScriptMaster* master,
-                       const Extension* extension,
-                       const ScriptData& script_data);
 
   ~RequestContentScript() override;
 
@@ -84,12 +81,6 @@ class RequestContentScript : public ContentAction {
       content::BrowserContext* browser_context,
       const Extension* extension,
       const base::DictionaryValue* dict,
-      std::string* error);
-
-  static std::unique_ptr<ContentAction> CreateForTest(
-      DeclarativeUserScriptMaster* master,
-      const Extension* extension,
-      const base::Value& json_action,
       std::string* error);
 
   static bool InitScriptData(const base::DictionaryValue* dict,
@@ -112,7 +103,7 @@ class RequestContentScript : public ContentAction {
                                      const Extension* extension) const;
 
   UserScript script_;
-  DeclarativeUserScriptMaster* master_;
+  ExtensionUserScriptLoader* script_loader_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(RequestContentScript);
 };

@@ -36,7 +36,7 @@ There are two ways to install Qt:
 \li through the \e{Qt sources}.
 \endlist
 
-You can download the Qt 5 installers and sources from the \l Downloads page.
+You can download the Qt installers and sources from the \l Downloads page.
 For more information, visit the \l{Getting Started with Qt} page.
 
 This page lists the relevant information for installing Qt by building the Qt
@@ -57,7 +57,6 @@ visit the following page:
 \section1 Windows
 
 \list
-\li \l{Qt for Windows - Requirements}
 \li \l{Qt for Windows - Building from Source}
 \endlist
 
@@ -93,17 +92,11 @@ visit the following page:
 \li \l {Qt for iOS - Building from Source}
 \endlist
 
-\section1 Universal Windows Platform (UWP)
-
-\list
-\li \l {Qt for UWP#Building from source}{Qt for UWP - Building from Source}
-\endlist
-
 \section1 Additional Information
 
 The top-level qt5 Git repository contains a set of build instructions in the
 form of \e {provisioning scripts}, used by Qt's continuous integration (CI)
-system to build and test the supported \l {Reference Configurations}. These
+system to build and test the \l {Supported Platforms}. These
 scripts are useful for anyone building Qt from source, as they provide
 information on the tools and components that are required for each
 configuration.

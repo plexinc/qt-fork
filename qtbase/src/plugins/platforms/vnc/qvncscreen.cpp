@@ -86,14 +86,13 @@ bool QVncScreen::initialize()
         }
     }
 
-    QFbScreen::initializeCompositor();
-
     switch (depth()) {
     case 32:
         dirty = new QVncDirtyMapOptimized<quint32>(this);
         break;
     case 16:
         dirty = new QVncDirtyMapOptimized<quint16>(this);
+        mFormat = QImage::Format_RGB16;
         break;
     case 8:
         dirty = new QVncDirtyMapOptimized<quint8>(this);
@@ -104,6 +103,8 @@ bool QVncScreen::initialize()
         dirty = nullptr;
         return false;
     }
+
+    QFbScreen::initializeCompositor();
 
     setPowerState(PowerStateOff);
 
@@ -132,7 +133,7 @@ void QVncScreen::enableClientCursor(QVncClient *client)
         clientCursor = new QVncClientCursor();
     clientCursor->addClient(client);
 #else
-    Q_UNUSED(client)
+    Q_UNUSED(client);
 #endif
 }
 
@@ -150,7 +151,7 @@ void QVncScreen::disableClientCursor(QVncClient *client)
 
     mCursor = new QFbCursor(this);
 #else
-    Q_UNUSED(client)
+    Q_UNUSED(client);
 #endif
 }
 

@@ -50,7 +50,7 @@
 // We mean it.
 //
 
-#include "qv4identifier_p.h"
+#include "qv4identifierhash_p.h"
 #include "qv4string_p.h"
 #include "qv4engine_p.h"
 #include <qset.h>
@@ -109,6 +109,9 @@ public:
     void removeIdentifierHash(IdentifierHashData *h) {
         idHashes.remove(h);
     }
+
+private:
+    Heap::String *resolveStringEntry(const QString &s, uint hash, uint subtype);
 };
 
 }

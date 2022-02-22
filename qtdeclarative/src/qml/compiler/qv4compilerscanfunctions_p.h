@@ -83,21 +83,38 @@ public:
     ScanFunctions(Codegen *cg, const QString &sourceCode, ContextType defaultProgramType);
     void operator()(QQmlJS::AST::Node *node);
 
+    // see comment at its call site in generateJSCodeForFunctionsAndBindings
+    // for why this function is necessary
+    void handleTopLevelFunctionFormals(QQmlJS::AST::FunctionExpression *node) {
+        if (node && node->formals)
+            node->formals->accept(this);
+    }
+
     void enterGlobalEnvironment(ContextType compilationMode);
     void enterEnvironment(QQmlJS::AST::Node *node, ContextType compilationMode,
                           const QString &name);
     void leaveEnvironment();
 
     void enterQmlFunction(QQmlJS::AST::FunctionExpression *ast)
-    { enterFunction(ast, false); }
+    { enterFunction(ast, FunctionNameContext::None); }
 
 protected:
+    // Function declarations add their name to the outer scope, but not the
+    // inner scope. Function expressions add their name to the inner scope,
+    // unless the name is actually picked from the outer scope rather than
+    // given after the function token. QML functions don't add their name
+    // anywhere because the name is already recorded in the QML element.
+    // This enum is used to control the behavior of enterFunction().
+    enum class FunctionNameContext {
+        None, Inner, Outer
+    };
+
     using Visitor::visit;
     using Visitor::endVisit;
 
     void checkDirectivePrologue(QQmlJS::AST::StatementList *ast);
 
-    void checkName(const QStringRef &name, const QQmlJS::SourceLocation &loc);
+    void checkName(QStringView name, const QQmlJS::SourceLocation &loc);
 
     bool visit(QQmlJS::AST::Program *ast) override;
     void endVisit(QQmlJS::AST::Program *) override;
@@ -118,7 +135,8 @@ protected:
     bool visit(QQmlJS::AST::FieldMemberExpression *) override;
     bool visit(QQmlJS::AST::ArrayPattern *) override;
 
-    bool enterFunction(QQmlJS::AST::FunctionExpression *ast, bool enterName);
+    bool enterFunction(QQmlJS::AST::FunctionExpression *ast,
+                       FunctionNameContext nameContext);
 
     void endVisit(QQmlJS::AST::FunctionExpression *) override;
 
@@ -161,7 +179,7 @@ protected:
 protected:
     bool enterFunction(QQmlJS::AST::Node *ast, const QString &name,
                        QQmlJS::AST::FormalParameterList *formals,
-                       QQmlJS::AST::StatementList *body, bool enterName);
+                       QQmlJS::AST::StatementList *body, FunctionNameContext nameContext);
 
     void calcEscapingVariables();
 // fields:

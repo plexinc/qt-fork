@@ -51,6 +51,7 @@
 // We mean it.
 //
 
+#include <private/qtquickglobal_p.h>
 #include <qqml.h>
 
 #include <QtGui/QFontMetricsF>
@@ -60,7 +61,7 @@ QT_BEGIN_NAMESPACE
 
 class QFont;
 
-class Q_AUTOTEST_EXPORT QQuickFontMetrics : public QObject
+class Q_QUICK_PRIVATE_EXPORT QQuickFontMetrics : public QObject
 {
     Q_OBJECT
 
@@ -80,7 +81,7 @@ class Q_AUTOTEST_EXPORT QQuickFontMetrics : public QObject
     Q_PROPERTY(qreal strikeOutPosition READ strikeOutPosition NOTIFY fontChanged)
     Q_PROPERTY(qreal lineWidth READ lineWidth NOTIFY fontChanged)
     QML_NAMED_ELEMENT(FontMetrics)
-    QML_ADDED_IN_MINOR_VERSION(4)
+    QML_ADDED_IN_VERSION(2, 4)
 public:
     explicit QQuickFontMetrics(QObject *parent = nullptr);
     ~QQuickFontMetrics();

@@ -56,7 +56,7 @@
 
 QT_REQUIRE_CONFIG(library);
 
-#if defined (Q_OF_ELF) && defined(Q_CC_GNU)
+#if defined(Q_OF_ELF) && defined(Q_CC_GNU)
 
 QT_BEGIN_NAMESPACE
 
@@ -71,8 +71,8 @@ typedef quintptr qelfaddr_t;
 class QElfParser
 {
 public:
-    enum { QtMetaDataSection, NoQtSection, NotElf, Corrupt };
-    enum {ElfLittleEndian = 0, ElfBigEndian = 1};
+    enum ScanResult { QtMetaDataSection, NoQtSection, NotElf, Corrupt };
+    enum { ElfLittleEndian = 0, ElfBigEndian = 1 };
 
     struct ElfSectionHeader
     {
@@ -82,21 +82,10 @@ public:
         qelfoff_t  size;
     };
 
-    int m_endian;
-    int m_bits;
     qelfoff_t m_stringTableFileOffset;
 
-    template <typename T>
-    T read(const char *s)
-    {
-        if (m_endian == ElfBigEndian)
-            return qFromBigEndian<T>(s);
-        else
-            return qFromLittleEndian<T>(s);
-    }
-
     const char *parseSectionHeader(const char* s, ElfSectionHeader *sh);
-    int parse(const char *m_s, ulong fdlen, const QString &library, QLibraryPrivate *lib, qsizetype *pos, qsizetype *sectionlen);
+    ScanResult parse(const char *m_s, ulong fdlen, const QString &library, QLibraryPrivate *lib, qsizetype *pos, qsizetype *sectionlen);
 };
 
 QT_END_NAMESPACE

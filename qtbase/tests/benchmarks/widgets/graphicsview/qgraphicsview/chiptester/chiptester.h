@@ -47,16 +47,15 @@ public:
         ZoomInOut,
         Translate
     };
-    ChipTester(QWidget *parent = 0);
+    ChipTester(QWidget *parent = nullptr);
 
     void setAntialias(bool enabled);
-    void setOpenGL(bool enabled);
     void runBenchmark();
     void setOperation(Operation operation);
 
 protected:
-    void paintEvent(QPaintEvent *event);
-    void timerEvent(QTimerEvent *event);
+    void paintEvent(QPaintEvent *event) override;
+    void timerEvent(QTimerEvent *event) override;
 
 private:
     void populateScene();

@@ -74,10 +74,9 @@ QByteArray QDBusArgumentPrivate::createSignature(int id)
     marshaller->ba = &signature;
 
     // run it
-    void *null = nullptr;
-    QVariant v(id, null);
+    QVariant v{QMetaType(id)};
     QDBusArgument arg(marshaller);
-    QDBusMetaType::marshall(arg, v.userType(), v.constData());
+    QDBusMetaType::marshall(arg, v.metaType(), v.constData());
     arg.d = nullptr;
 
     // delete it
@@ -87,7 +86,7 @@ QByteArray QDBusArgumentPrivate::createSignature(int id)
     if (signature.isEmpty() || !ok || !QDBusUtil::isValidSingleSignature(QString::fromLatin1(signature))) {
         qWarning("QDBusMarshaller: type `%s' produces invalid D-BUS signature `%s' "
                  "(Did you forget to call beginStructure() ?)",
-                 QMetaType::typeName(id),
+                 QMetaType(id).name(),
                  signature.isEmpty() ? "<empty>" : signature.constData());
         return "";
     } else if ((signature.at(0) != DBUS_TYPE_ARRAY && signature.at(0) != DBUS_STRUCT_BEGIN_CHAR) ||
@@ -95,9 +94,9 @@ QByteArray QDBusArgumentPrivate::createSignature(int id)
                                                        signature.at(1) == DBUS_TYPE_STRING))) {
         qWarning("QDBusMarshaller: type `%s' attempts to redefine basic D-BUS type '%s' (%s) "
                  "(Did you forget to call beginStructure() ?)",
-                 QMetaType::typeName(id),
+                 QMetaType(id).name(),
                  signature.constData(),
-                 QMetaType::typeName(QDBusMetaType::signatureToType(signature)));
+                 QDBusMetaType::signatureToMetaType(signature).name());
         return "";
     }
     return signature;
@@ -188,7 +187,9 @@ bool QDBusArgumentPrivate::checkReadAndDetach(QDBusArgumentPrivate *&d)
     integer and a string can be constructed using the \l
     {qdbustypesystem.html}{Qt D-Bus type system}:
 
-    \snippet code/src_qdbus_qdbusargument.cpp 0
+    \snippet code/src_qdbus_qdbusargument.cpp 0-0
+    \codeline
+    \snippet code/src_qdbus_qdbusargument.cpp 0-1
 
     The type has to be registered with qDBusRegisterMetaType() before
     it can be used with QDBusArgument. Therefore, somewhere in your
@@ -247,8 +248,8 @@ bool QDBusArgumentPrivate::checkReadAndDetach(QDBusArgumentPrivate *&d)
 
     \value VariantType The variant element (QDBusVariant)
 
-    \value ArrayType An array element, usually represented by QList<T>
-    or QVector<T>. Note: QByteArray and associative maps are not
+    \value ArrayType An array element, usually represented by QList<T>.
+    Note: QByteArray and associative maps are not
     considered arrays, even if the D-Bus protocol transports them as such.
 
     \value StructureType A custom type represented by a structure,
@@ -267,7 +268,7 @@ bool QDBusArgumentPrivate::checkReadAndDetach(QDBusArgumentPrivate *&d)
 */
 
 /*!
-    \fn template<typename T> T qdbus_cast(const QDBusArgument &arg, T*)
+    \fn template<typename T> T qdbus_cast(const QDBusArgument &arg)
     \relates QDBusArgument
     \since 4.2
 
@@ -709,7 +710,7 @@ const QDBusArgument &QDBusArgument::operator>>(qulonglong &arg) const
 /*!
     \overload
     Extracts one D-Bus primitive argument of type \c{DOUBLE}
-    (double-precision floating pount) from the D-Bus stream.
+    (double-precision floating point) from the D-Bus stream.
 */
 const QDBusArgument &QDBusArgument::operator>>(double &arg) const
 {
@@ -869,7 +870,7 @@ void QDBusArgument::endStructure()
 
     \snippet code/src_qdbus_qdbusargument.cpp 6
 
-    If the type you want to marshall is a QList, QVector or any of the
+    If the type you want to marshall is a QList or any of the
     Qt's \l {Container Classes} that take one template parameter,
     you need not declare an \c{operator<<} function for it, since
     Qt D-Bus provides generic templates to do the job of marshalling
@@ -878,7 +879,7 @@ void QDBusArgument::endStructure()
 
     \sa endArray(), beginStructure(), beginMap()
 */
-void QDBusArgument::beginArray(int id)
+void QDBusArgument::beginArray(QMetaType id)
 {
     if (QDBusArgumentPrivate::checkWrite(d))
         d = d->marshaller()->beginArray(id);
@@ -900,24 +901,25 @@ void QDBusArgument::endArray()
     Opens a new D-Bus map suitable for
     appending elements. Maps are containers that associate one entry
     (the key) to another (the value), such as Qt's QMap or QHash. The
-    ids of the map's key and value meta types must be passed in \a kid
-    and \a vid respectively.
+    ids of the map's key and value meta types must be passed in \a keyMetaType
+    and \a valueMetaType respectively.
 
     This function is used usually in \c{operator<<} streaming
     operators, as in the following example:
 
     \snippet code/src_qdbus_qdbusargument.cpp 7
 
-    If the type you want to marshall is a QMap or QHash, you need not
-    declare an \c{operator<<} function for it, since Qt D-Bus provides
-    generic templates to do the job of marshalling the data.
+    You usually don't need to provide an \c{operator<<} or \c{operator>>}
+    function for associative containers such as QHash or std::map,
+    since Qt D-Bus provides generic templates to do the job of marshalling
+    the data.
 
     \sa endMap(), beginStructure(), beginArray(), beginMapEntry()
 */
-void QDBusArgument::beginMap(int kid, int vid)
+void QDBusArgument::beginMap(QMetaType keyMetaType, QMetaType valueMetaType)
 {
     if (QDBusArgumentPrivate::checkWrite(d))
-        d = d->marshaller()->beginMap(kid, vid);
+        d = d->marshaller()->beginMap(keyMetaType, valueMetaType);
 }
 
 /*!
@@ -996,7 +998,7 @@ void QDBusArgument::endStructure() const
 
     \snippet code/src_qdbus_qdbusargument.cpp 9
 
-    If the type you want to demarshall is a QList, QVector or any of the
+    If the type you want to demarshall is a QList or any of the
     Qt's \l {Container Classes} that take one template parameter, you
     need not declare an \c{operator>>} function for it, since Qt D-Bus
     provides generic templates to do the job of demarshalling the data.
@@ -1105,7 +1107,7 @@ bool QDBusArgument::atEnd() const
     argument (for example, by calling asVariant() in it).
 
     For example, if the current argument is an INT32, this function
-    will return a QVariant with an argument of type QVariant::Int. For
+    will return a QVariant with an argument of type QMetaType::Int. For
     an array of INT32, it will return a QVariant containing a
     QDBusArgument.
 

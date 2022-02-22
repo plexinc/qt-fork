@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2020 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -26,29 +26,124 @@
 ****************************************************************************/
 
 /*!
-\page qtremoteobjects-cmake-qt5-generate-repc.html
+\page qtremoteobjects-cmake-qt-add-repc-replicas.html
 \ingroup cmake-macros-qtremoteobjects
 
-\title qt5_generate_repc
+\title qt_add_repc_replicas
+\target qt6_add_repc_replicas
 
-\brief Creates a C++ type from a Qt Remote Objects .rep file.
+\brief Creates C++ header files for replica types from the Qt Remote Objects .rep files.
 
 \section1 Synopsis
 
 \badcode
-qt5_generate_repc(<VAR> rep_file output_type)
+qt_add_repc_replicas(<TARGET> rep_files)
+
+qt6_add_repc_replicas(<TARGET> rep_files)
 \endcode
 
 \section1 Description
 
-Creates rules for calling \l{repc} on \c{rep_file}.
-\c{output_type} must be either \c{SOURCE} or \c{REPLICA}.
-The paths of the generated files are added to \c{<VAR>}.
-
-Depending on the \c{output_type} argument, the generated code will either implement
-a \l{Qt Remote Objects Source} or a \l{Qt Remote Objects Replica} type in C++.
+Runs \l repc and generates \l {Qt Remote Objects Replica} header files based
+on the given \c rep_files. Adds the generated files to \c{<TARGET>}.
 
 \section1 Examples
 
-\snippet cmake-macros/CMakeLists.txt qt5_generate_repc
+\snippet cmake-macros/CMakeLists.txt simpleSwitch_cmake_add_repc_replica
+
+The generated file(s) will be of the form \c {rep_<replica file name>_replica.h},
+in this case \c rep_simpleswitch_replica.h
+*/
+
+/*!
+\page qtremoteobjects-cmake-qt-add-repc-sources.html
+\ingroup cmake-macros-qtremoteobjects
+
+\title qt_add_repc_sources
+\target qt6_add_repc_sources
+
+\brief Creates C++ header files for source types from the Qt Remote Objects .rep files.
+
+\section1 Synopsis
+
+\badcode
+qt_add_repc_sources(<TARGET> rep_files)
+
+qt6_add_repc_sources(<TARGET> rep_files)
+\endcode
+
+\section1 Description
+
+Runs \l repc and generates \l {Qt Remote Objects Source} header files based
+on the given \c rep_files. Adds the generated files to \c{<TARGET>}.
+
+\section1 Examples
+
+\snippet cmake-macros/CMakeLists.txt simpleSwitch_cmake_add_repc_source
+
+The generated file(s) will be of the form \c {rep_<replica file name>_source.h},
+in this case \c rep_simpleswitch_source.h
+*/
+
+/*!
+\page qtremoteobjects-cmake-qt-add-repc-merged.html
+\ingroup cmake-macros-qtremoteobjects
+
+\title qt_add_repc_merged
+\target qt6_add_repc_merged
+
+\brief Creates C++ header files for source and replica types from the Qt Remote Objects .rep files.
+
+\section1 Synopsis
+
+\badcode
+qt_add_repc_merged(<TARGET> rep_files)
+
+qt6_add_repc_merged(<TARGET> rep_files)
+\endcode
+
+\section1 Description
+
+Runs \l repc and generates \l {Qt Remote Objects Replica} and \l {Qt Remote Objects Source}
+header files based on the given \c rep_files combined in a single header. Adds the
+generated files to \c{<TARGET>}.
+
+\section1 Examples
+
+\snippet cmake-macros/CMakeLists.txt simpleSwitch_cmake_add_repc_merged
+
+The generated file(s) will be of the form \c {rep_<replica file name>_merged.h},
+in this case \c rep_simpleswitch_merged.h
+
+\note Typically sources and replicas live in separate processes or devices, so
+this function is not commonly used.
+*/
+
+/*!
+\page qtremoteobjects-cmake-qt-rep-from-headers.html
+\ingroup cmake-macros-qtremoteobjects
+
+\title qt_reps_from_headers
+\target qt6_reps_from_headers
+
+\brief Creates .rep files from the QObject header files.
+
+\section1 Synopsis
+
+\badcode
+qt_reps_from_headers(<TARGET> header_files)
+
+qt6_reps_from_headers(<TARGET> header_files)
+\endcode
+
+\section1 Description
+
+Generates corresponding \c .rep files from the existing QObject \c header_files.
+
+\section1 Examples
+
+\snippet cmake-macros/CMakeLists.txt simpleSwitch_cmake_rep_from_header
+
+This will generate an interface file called \c simpleswitch.rep in the build
+directory.
 */

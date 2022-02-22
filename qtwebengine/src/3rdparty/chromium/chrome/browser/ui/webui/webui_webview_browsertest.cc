@@ -7,6 +7,7 @@
 #include "base/path_service.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/renderer_context_menu/render_view_context_menu_test_util.h"
 #include "chrome/browser/signin/signin_promo.h"
@@ -21,6 +22,7 @@
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/drop_data.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "extensions/test/extension_test_message_listener.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
@@ -28,9 +30,9 @@
 // Turn these tests off on Mac while we collect data on windows server crashes
 // on mac chromium builders.
 // http://crbug.com/653353
-#if !defined(OS_MACOSX)
+#if !defined(OS_MAC)
 
-#if !defined(OS_CHROMEOS) && defined(USE_AURA)
+#if !BUILDFLAG(IS_CHROMEOS_ASH) && defined(USE_AURA)
 #include "ui/aura/window.h"
 
 namespace {
@@ -121,7 +123,7 @@ class WebUIWebViewBrowserTest : public WebUIBrowserTest {
   }
 
   GURL GetWebViewEnabledWebUIURL() const {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     return GURL(chrome::kChromeUIOobeURL).Resolve("/login");
 #else
     return GURL(signin::GetEmbeddedPromoURL(
@@ -145,7 +147,7 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, DisplayNone) {
 }
 
 // TODO(crbug.com/861600) Flaky on CrOS trybots.
-#if defined(OS_CHROMEOS) && !defined(NDEBUG)
+#if BUILDFLAG(IS_CHROMEOS_ASH) && !defined(NDEBUG)
 #define MAYBE_ExecuteScriptCode DISABLED_ExecuteScriptCode
 #else
 #define MAYBE_ExecuteScriptCode ExecuteScriptCode
@@ -166,7 +168,7 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, ExecuteScriptCodeFromFile) {
 }
 
 // TODO(crbug.com/751907) Flaky on CrOS trybots.
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #define MAYBE_AddContentScript DISABLED_AddContentScript
 #else
 #define MAYBE_AddContentScript AddContentScript
@@ -179,7 +181,7 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, MAYBE_AddContentScript) {
 }
 
 // TODO(crbug.com/751907) Flaky on CrOS trybots.
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #define MAYBE_AddMultiContentScripts DISABLED_AddMultiContentScripts
 #else
 #define MAYBE_AddMultiContentScripts AddMultiContentScripts
@@ -193,7 +195,7 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, MAYBE_AddMultiContentScripts) {
 }
 
 // TODO(crbug.com/751907) Flaky on CrOS trybots.
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #define MAYBE_AddContentScriptWithSameNameShouldOverwriteTheExistingOne \
   DISABLED_AddContentScriptWithSameNameShouldOverwriteTheExistingOne
 #else
@@ -210,7 +212,7 @@ IN_PROC_BROWSER_TEST_F(
       base::Value(GetTestUrl("empty.html").spec())));
 }
 
-#if defined(OS_CHROMEOS) && !defined(NDEBUG)
+#if BUILDFLAG(IS_CHROMEOS_ASH) && !defined(NDEBUG)
 // TODO(crbug.com/859320) Fails on CrOS dbg with --enable-features=Mash.
 #define MAYBE_AddContentScriptToOneWebViewShouldNotInjectToTheOtherWebView \
   DISABLED_AddContentScriptToOneWebViewShouldNotInjectToTheOtherWebView
@@ -229,7 +231,7 @@ IN_PROC_BROWSER_TEST_F(
 }
 
 // TODO(crbug.com/751907) Flaky on CrOS trybots.
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #define MAYBE_AddAndRemoveContentScripts DISABLED_AddAndRemoveContentScripts
 #else
 #define MAYBE_AddAndRemoveContentScripts AddAndRemoveContentScripts
@@ -243,7 +245,8 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest,
       base::Value(GetTestUrl("empty.html").spec())));
 }
 
-#if defined(OS_CHROMEOS) && (!defined(NDEBUG) || defined(ADDRESS_SANITIZER))
+#if BUILDFLAG(IS_CHROMEOS_ASH) && \
+    (!defined(NDEBUG) || defined(ADDRESS_SANITIZER))
 // TODO(crbug.com/859320) Fails on CrOS dbg with --enable-features=Mash.
 // TODO(crbug.com/893472) Flaky on CrOS ASan LSan
 #define MAYBE_AddContentScriptsWithNewWindowAPI \
@@ -273,7 +276,7 @@ IN_PROC_BROWSER_TEST_F(
 }
 
 // TODO(crbug.com/662673) Flaky on CrOS trybots.
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #define MAYBE_ContentScriptExistsAsLongAsWebViewTagExists \
   DISABLED_ContentScriptExistsAsLongAsWebViewTagExists
 #else
@@ -297,7 +300,7 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, AddContentScriptWithCode) {
       base::Value(GetTestUrl("empty.html").spec())));
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 // TODO(crbug.com/662673) Flaky on CrOS trybots.
 #define MAYBE_AddContentScriptIncognito DISABLED_AddContentScriptIncognito
 // Right now we only have incognito WebUI on CrOS, but this should
@@ -324,7 +327,7 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, ContextMenuInspectElement) {
   EXPECT_FALSE(menu.IsItemPresent(IDC_CONTENT_CONTEXT_INSPECTELEMENT));
 }
 
-#if !defined(OS_CHROMEOS) && defined(USE_AURA)
+#if !BUILDFLAG(IS_CHROMEOS_ASH) && defined(USE_AURA)
 IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, DISABLED_DragAndDropToInput) {
   ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL());
   ASSERT_TRUE(
@@ -336,7 +339,7 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, DISABLED_DragAndDropToInput) {
   // Flush any pending events to make sure we start with a clean slate.
   content::RunAllPendingInMessageLoop();
   content::RenderViewHost* const render_view_host =
-      embedder_web_contents->GetRenderViewHost();
+      embedder_web_contents->GetMainFrame()->GetRenderViewHost();
 
   gfx::NativeView view = embedder_web_contents->GetNativeView();
   view->SetBounds(gfx::Rect(0, 0, 400, 400));
@@ -365,10 +368,10 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, DISABLED_DragAndDropToInput) {
       guest_dest_rect.y() + guest_dest_rect.height() / 2.0 + webview_rect.y());
   gfx::Rect container_bounds = embedder_web_contents->GetContainerBounds();
   const gfx::PointF screen_pt(container_bounds.x(), container_bounds.y());
-  const blink::WebDragOperationsMask drag_operation_mask =
-      static_cast<blink::WebDragOperationsMask>(blink::kWebDragOperationCopy |
-                                                blink::kWebDragOperationLink |
-                                                blink::kWebDragOperationMove);
+  const blink::DragOperationsMask drag_operation_mask =
+      static_cast<blink::DragOperationsMask>(blink::kDragOperationCopy |
+                                             blink::kDragOperationLink |
+                                             blink::kDragOperationMove);
   content::DropData dropdata;
   dropdata.did_originate_from_renderer = true;
   dropdata.url = GURL(url::kAboutBlankURL);
@@ -422,4 +425,4 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, DISABLED_DragAndDropToInput) {
 }
 #endif
 
-#endif  // !defined(OS_MACOSX)
+#endif  // !defined(OS_MAC)

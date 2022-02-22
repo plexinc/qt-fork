@@ -79,13 +79,15 @@ namespace dawn_native {
 
     RenderBundleEncoder::RenderBundleEncoder(DeviceBase* device,
                                              const RenderBundleEncoderDescriptor* descriptor)
-        : RenderEncoderBase(device, &mEncodingContext),
-          mEncodingContext(device, this),
-          mAttachmentState(device->GetOrCreateAttachmentState(descriptor)) {
+        : RenderEncoderBase(device,
+                            &mBundleEncodingContext,
+                            device->GetOrCreateAttachmentState(descriptor)),
+          mBundleEncodingContext(device, this) {
     }
 
     RenderBundleEncoder::RenderBundleEncoder(DeviceBase* device, ErrorTag errorTag)
-        : RenderEncoderBase(device, &mEncodingContext, errorTag), mEncodingContext(device, this) {
+        : RenderEncoderBase(device, &mBundleEncodingContext, errorTag),
+          mBundleEncodingContext(device, this) {
     }
 
     // static
@@ -93,28 +95,35 @@ namespace dawn_native {
         return new RenderBundleEncoder(device, ObjectBase::kError);
     }
 
-    const AttachmentState* RenderBundleEncoder::GetAttachmentState() const {
-        return mAttachmentState.Get();
-    }
-
     CommandIterator RenderBundleEncoder::AcquireCommands() {
-        return mEncodingContext.AcquireCommands();
+        return mBundleEncodingContext.AcquireCommands();
     }
 
     RenderBundleBase* RenderBundleEncoder::Finish(const RenderBundleDescriptor* descriptor) {
-        PassResourceUsage usages = mUsageTracker.AcquireResourceUsage();
+        RenderBundleBase* result = nullptr;
 
-        DeviceBase* device = GetDevice();
-        // Even if mEncodingContext.Finish() validation fails, calling it will mutate the internal
-        // state of the encoding context. Subsequent calls to encode commands will generate errors.
-        if (device->ConsumedError(mEncodingContext.Finish()) ||
-            (device->IsValidationEnabled() &&
-             device->ConsumedError(ValidateFinish(mEncodingContext.GetIterator(), usages)))) {
-            return RenderBundleBase::MakeError(device);
+        if (GetDevice()->ConsumedError(FinishImpl(descriptor), &result)) {
+            return RenderBundleBase::MakeError(GetDevice());
         }
 
-        ASSERT(!IsError());
-        return new RenderBundleBase(this, descriptor, mAttachmentState.Get(), std::move(usages));
+        return result;
+    }
+
+    ResultOrError<RenderBundleBase*> RenderBundleEncoder::FinishImpl(
+        const RenderBundleDescriptor* descriptor) {
+        // Even if mBundleEncodingContext.Finish() validation fails, calling it will mutate the
+        // internal state of the encoding context. Subsequent calls to encode commands will generate
+        // errors.
+        DAWN_TRY(mBundleEncodingContext.Finish());
+
+        PassResourceUsage usages = mUsageTracker.AcquireResourceUsage();
+        if (IsValidationEnabled()) {
+            DAWN_TRY(GetDevice()->ValidateObject(this));
+            DAWN_TRY(ValidateProgrammableEncoderEnd());
+            DAWN_TRY(ValidateFinish(mBundleEncodingContext.GetIterator(), usages));
+        }
+
+        return new RenderBundleBase(this, descriptor, AcquireAttachmentState(), std::move(usages));
     }
 
     MaybeError RenderBundleEncoder::ValidateFinish(CommandIterator* commands,
@@ -122,7 +131,6 @@ namespace dawn_native {
         TRACE_EVENT0(GetDevice()->GetPlatform(), Validation, "RenderBundleEncoder::ValidateFinish");
         DAWN_TRY(GetDevice()->ValidateObject(this));
         DAWN_TRY(ValidatePassResourceUsage(usages));
-        DAWN_TRY(ValidateRenderBundle(commands, mAttachmentState.Get()));
         return {};
     }
 

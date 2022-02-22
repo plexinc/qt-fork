@@ -54,14 +54,15 @@
 QT_BEGIN_NAMESPACE
 
 QSvgExtraStates::QSvgExtraStates()
-    : fillOpacity(1.0)
-    , strokeOpacity(1.0)
-    , svgFont(0)
-    , textAnchor(Qt::AlignLeft)
-    , fontWeight(400)
-    , fillRule(Qt::WindingFill)
-    , strokeDashOffset(0)
-    , vectorEffect(false)
+    : fillOpacity(1.0),
+      strokeOpacity(1.0),
+      svgFont(0),
+      textAnchor(Qt::AlignLeft),
+      fontWeight(QFont::Normal),
+      fillRule(Qt::WindingFill),
+      strokeDashOffset(0),
+      vectorEffect(false),
+      imageRendering(QSvgQualityStyle::ImageRenderingAuto)
 {
 }
 
@@ -81,16 +82,46 @@ void QSvgFillStyleProperty::revert(QPainter *, QSvgExtraStates &)
 
 
 QSvgQualityStyle::QSvgQualityStyle(int color)
+    : m_imageRendering(QSvgQualityStyle::ImageRenderingAuto)
+    , m_oldImageRendering(QSvgQualityStyle::ImageRenderingAuto)
+    , m_imageRenderingSet(0)
 {
     Q_UNUSED(color);
 }
-void QSvgQualityStyle::apply(QPainter *, const QSvgNode *, QSvgExtraStates &)
-{
 
+void QSvgQualityStyle::setImageRendering(ImageRendering hint) {
+    m_imageRendering = hint;
+    m_imageRenderingSet = 1;
 }
-void QSvgQualityStyle::revert(QPainter *, QSvgExtraStates &)
-{
 
+void QSvgQualityStyle::apply(QPainter *p, const QSvgNode *, QSvgExtraStates &states)
+{
+   m_oldImageRendering = states.imageRendering;
+   if (m_imageRenderingSet) {
+       states.imageRendering = m_imageRendering;
+   }
+   if (m_imageRenderingSet) {
+       bool smooth = false;
+       if (m_imageRendering == ImageRenderingAuto)
+           // auto (the spec says to prefer quality)
+           smooth = true;
+       else
+           smooth = (m_imageRendering == ImageRenderingOptimizeQuality);
+       p->setRenderHint(QPainter::SmoothPixmapTransform, smooth);
+   }
+}
+
+void QSvgQualityStyle::revert(QPainter *p, QSvgExtraStates &states)
+{
+    if (m_imageRenderingSet) {
+        states.imageRendering = m_oldImageRendering;
+        bool smooth = false;
+        if (m_oldImageRendering == ImageRenderingAuto)
+            smooth = true;
+        else
+            smooth = (m_oldImageRendering == ImageRenderingOptimizeQuality);
+        p->setRenderHint(QPainter::SmoothPixmapTransform, smooth);
+    }
 }
 
 QSvgFillStyle::QSvgFillStyle()
@@ -199,26 +230,6 @@ QSvgFontStyle::QSvgFontStyle()
 {
 }
 
-int QSvgFontStyle::SVGToQtWeight(int weight) {
-    switch (weight) {
-    case 100:
-    case 200:
-        return QFont::Light;
-    case 300:
-    case 400:
-        return QFont::Normal;
-    case 500:
-    case 600:
-        return QFont::DemiBold;
-    case 700:
-    case 800:
-        return QFont::Bold;
-    case 900:
-        return QFont::Black;
-    }
-    return QFont::Normal;
-}
-
 void QSvgFontStyle::apply(QPainter *p, const QSvgNode *, QSvgExtraStates &states)
 {
     m_oldQFont = p->font();
@@ -246,13 +257,15 @@ void QSvgFontStyle::apply(QPainter *p, const QSvgNode *, QSvgExtraStates &states
 
     if (m_weightSet) {
         if (m_weight == BOLDER) {
-            states.fontWeight = qMin(states.fontWeight + 100, 900);
+            states.fontWeight = qMin(states.fontWeight + 100, static_cast<int>(QFont::Black));
         } else if (m_weight == LIGHTER) {
-            states.fontWeight = qMax(states.fontWeight - 100, 100);
+            states.fontWeight = qMax(states.fontWeight - 100, static_cast<int>(QFont::Thin));
         } else {
             states.fontWeight = m_weight;
         }
-        font.setWeight(SVGToQtWeight(states.fontWeight));
+        font.setWeight(QFont::Weight(qBound(static_cast<int>(QFont::Weight::Thin),
+                                            states.fontWeight,
+                                            static_cast<int>(QFont::Weight::Black))));
     }
 
     p->setFont(font);
@@ -336,7 +349,7 @@ void QSvgStrokeStyle::apply(QPainter *p, const QSvgNode *, QSvgExtraStates &stat
             setDashOffsetNeeded = true;
         } else {
             // If dash array was set, but not the width, the dash array has to be scaled with respect to the old width.
-            QVector<qreal> dashes = m_stroke.dashPattern();
+            QList<qreal> dashes = m_stroke.dashPattern();
             for (int i = 0; i < dashes.size(); ++i)
                 dashes[i] /= oldWidth;
             pen.setDashPattern(dashes);
@@ -344,7 +357,7 @@ void QSvgStrokeStyle::apply(QPainter *p, const QSvgNode *, QSvgExtraStates &stat
         }
     } else if (m_strokeWidthSet && pen.style() != Qt::SolidLine && scale != 1) {
         // If the width was set, but not the dash array, the old dash array must be scaled with respect to the new width.
-        QVector<qreal> dashes = pen.dashPattern();
+        QList<qreal> dashes = pen.dashPattern();
         for (int i = 0; i < dashes.size(); ++i)
             dashes[i] *= scale;
         pen.setDashPattern(dashes);
@@ -381,10 +394,10 @@ void QSvgStrokeStyle::revert(QPainter *p, QSvgExtraStates &states)
     states.vectorEffect = m_oldVectorEffect;
 }
 
-void QSvgStrokeStyle::setDashArray(const QVector<qreal> &dashes)
+void QSvgStrokeStyle::setDashArray(const QList<qreal> &dashes)
 {
     if (m_strokeWidthSet) {
-        QVector<qreal> d = dashes;
+        QList<qreal> d = dashes;
         qreal w = m_stroke.widthF();
         if (w != 0 && w != 1) {
             for (int i = 0; i < d.size(); ++i)
@@ -648,7 +661,7 @@ QSvgAnimateTransform::QSvgAnimateTransform(int startMs, int endMs, int byMs )
     Q_UNUSED(byMs);
 }
 
-void QSvgAnimateTransform::setArgs(TransformType type, Additive additive, const QVector<qreal> &args)
+void QSvgAnimateTransform::setArgs(TransformType type, Additive additive, const QList<qreal> &args)
 {
     m_type = type;
     m_args = args;

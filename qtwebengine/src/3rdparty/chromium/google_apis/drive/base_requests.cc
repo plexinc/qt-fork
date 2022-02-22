@@ -175,13 +175,9 @@ void CloseFile(base::File file) {}
 namespace google_apis {
 
 std::unique_ptr<base::Value> ParseJson(const std::string& json) {
-  int error_code = -1;
-  std::string error_message;
-  std::unique_ptr<base::Value> value =
-      base::JSONReader::ReadAndReturnErrorDeprecated(
-          json, base::JSON_PARSE_RFC, &error_code, &error_message);
-
-  if (!value.get()) {
+  base::JSONReader::ValueWithError parsed_json =
+      base::JSONReader::ReadAndReturnValueWithError(json);
+  if (!parsed_json.value) {
     std::string trimmed_json;
     if (json.size() < 80) {
       trimmed_json  = json;
@@ -192,10 +188,12 @@ std::unique_ptr<base::Value> ParseJson(const std::string& json) {
                              base::NumberToString(json.size() - 60).c_str(),
                              json.substr(json.size() - 10).c_str());
     }
-    LOG(WARNING) << "Error while parsing entry response: " << error_message
-                 << ", code: " << error_code << ", json:\n" << trimmed_json;
+    LOG(WARNING) << "Error while parsing entry response: "
+                 << parsed_json.error_message << ", json:\n"
+                 << trimmed_json;
+    return nullptr;
   }
-  return value;
+  return base::Value::ToUniquePtrValue(std::move(*parsed_json.value));
 }
 
 void GenerateMultipartBody(MultipartType multipart_type,
@@ -250,8 +248,8 @@ void GenerateMultipartBody(MultipartType multipart_type,
 
 UrlFetchRequestBase::UrlFetchRequestBase(
     RequestSender* sender,
-    const ProgressCallback& upload_progress_callback,
-    const ProgressCallback& download_progress_callback)
+    ProgressCallback upload_progress_callback,
+    ProgressCallback download_progress_callback)
     : re_authenticate_count_(0),
       sender_(sender),
       upload_progress_callback_(upload_progress_callback),
@@ -378,17 +376,15 @@ void UrlFetchRequestBase::StartAfterPrepare(
   url_loader_->DownloadAsStream(sender_->url_loader_factory(), this);
 }
 
-void UrlFetchRequestBase::OnDownloadProgress(
-    const ProgressCallback& progress_callback,
-    uint64_t current) {
+void UrlFetchRequestBase::OnDownloadProgress(ProgressCallback progress_callback,
+                                             uint64_t current) {
   progress_callback.Run(static_cast<int64_t>(current),
                         response_content_length_);
 }
 
-void UrlFetchRequestBase::OnUploadProgress(
-    const ProgressCallback& progress_callback,
-    uint64_t position,
-    uint64_t total) {
+void UrlFetchRequestBase::OnUploadProgress(ProgressCallback progress_callback,
+                                           uint64_t position,
+                                           uint64_t total) {
   progress_callback.Run(static_cast<int64_t>(position),
                         static_cast<int64_t>(total));
 }
@@ -450,7 +446,8 @@ void UrlFetchRequestBase::OnDataReceived(base::StringPiece string_piece,
                                          base::OnceClosure resume) {
   if (!download_data_->get_content_callback.is_null()) {
     download_data_->get_content_callback.Run(
-        HTTP_SUCCESS, std::make_unique<std::string>(string_piece));
+        HTTP_SUCCESS, std::make_unique<std::string>(string_piece),
+        download_data_->response_body.empty());
   }
 
   if (!download_data_->output_file_path.empty()) {
@@ -592,10 +589,10 @@ UrlFetchRequestBase::GetWeakPtr() {
 //============================ EntryActionRequest ============================
 
 EntryActionRequest::EntryActionRequest(RequestSender* sender,
-                                       const EntryActionCallback& callback)
+                                       EntryActionCallback callback)
     : UrlFetchRequestBase(sender, ProgressCallback(), ProgressCallback()),
-      callback_(callback) {
-  DCHECK(!callback_.is_null());
+      callback_(std::move(callback)) {
+  DCHECK(callback_);
 }
 
 EntryActionRequest::~EntryActionRequest() {}
@@ -604,23 +601,23 @@ void EntryActionRequest::ProcessURLFetchResults(
     const network::mojom::URLResponseHead* response_head,
     base::FilePath response_file,
     std::string response_body) {
-  callback_.Run(GetErrorCode());
+  std::move(callback_).Run(GetErrorCode());
   OnProcessURLFetchResultsComplete();
 }
 
 void EntryActionRequest::RunCallbackOnPrematureFailure(DriveApiErrorCode code) {
-  callback_.Run(code);
+  std::move(callback_).Run(code);
 }
 
 //========================= InitiateUploadRequestBase ========================
 
 InitiateUploadRequestBase::InitiateUploadRequestBase(
     RequestSender* sender,
-    const InitiateUploadCallback& callback,
+    InitiateUploadCallback callback,
     const std::string& content_type,
     int64_t content_length)
     : UrlFetchRequestBase(sender, ProgressCallback(), ProgressCallback()),
-      callback_(callback),
+      callback_(std::move(callback)),
       content_type_(content_type),
       content_length_(content_length) {
   DCHECK(!callback_.is_null());
@@ -641,13 +638,13 @@ void InitiateUploadRequestBase::ProcessURLFetchResults(
                                             &upload_location);
   }
 
-  callback_.Run(GetErrorCode(), GURL(upload_location));
+  std::move(callback_).Run(GetErrorCode(), GURL(upload_location));
   OnProcessURLFetchResultsComplete();
 }
 
 void InitiateUploadRequestBase::RunCallbackOnPrematureFailure(
     DriveApiErrorCode code) {
-  callback_.Run(code, GURL());
+  std::move(callback_).Run(code, GURL());
 }
 
 std::vector<std::string>
@@ -682,7 +679,7 @@ UploadRangeResponse::~UploadRangeResponse() {
 UploadRangeRequestBase::UploadRangeRequestBase(
     RequestSender* sender,
     const GURL& upload_url,
-    const ProgressCallback& progress_callback)
+    ProgressCallback progress_callback)
     : UrlFetchRequestBase(sender, progress_callback, ProgressCallback()),
       upload_url_(upload_url) {}
 
@@ -786,7 +783,7 @@ ResumeUploadRequestBase::ResumeUploadRequestBase(
     int64_t content_length,
     const std::string& content_type,
     const base::FilePath& local_file_path,
-    const ProgressCallback& progress_callback)
+    ProgressCallback progress_callback)
     : UploadRangeRequestBase(sender, upload_location, progress_callback),
       start_position_(start_position),
       end_position_(end_position),
@@ -873,7 +870,7 @@ MultipartUploadRequestBase::MultipartUploadRequestBase(
     int64_t content_length,
     const base::FilePath& local_file_path,
     FileResourceCallback callback,
-    const ProgressCallback& progress_callback)
+    ProgressCallback progress_callback)
     : blocking_task_runner_(blocking_task_runner),
       metadata_json_(metadata_json),
       content_type_(content_type),
@@ -984,13 +981,13 @@ void MultipartUploadRequestBase::OnDataParsed(
 
 DownloadFileRequestBase::DownloadFileRequestBase(
     RequestSender* sender,
-    const DownloadActionCallback& download_action_callback,
+    DownloadActionCallback download_action_callback,
     const GetContentCallback& get_content_callback,
-    const ProgressCallback& progress_callback,
+    ProgressCallback progress_callback,
     const GURL& download_url,
     const base::FilePath& output_file_path)
     : UrlFetchRequestBase(sender, ProgressCallback(), progress_callback),
-      download_action_callback_(download_action_callback),
+      download_action_callback_(std::move(download_action_callback)),
       get_content_callback_(get_content_callback),
       download_url_(download_url),
       output_file_path_(output_file_path) {
@@ -1018,13 +1015,13 @@ void DownloadFileRequestBase::ProcessURLFetchResults(
     const network::mojom::URLResponseHead* response_head,
     base::FilePath response_file,
     std::string response_body) {
-  download_action_callback_.Run(GetErrorCode(), response_file);
+  std::move(download_action_callback_).Run(GetErrorCode(), response_file);
   OnProcessURLFetchResultsComplete();
 }
 
 void DownloadFileRequestBase::RunCallbackOnPrematureFailure(
     DriveApiErrorCode code) {
-  download_action_callback_.Run(code, base::FilePath());
+  std::move(download_action_callback_).Run(code, base::FilePath());
 }
 
 }  // namespace google_apis

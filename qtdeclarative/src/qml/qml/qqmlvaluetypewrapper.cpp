@@ -54,42 +54,16 @@
 #include <private/qv4identifiertable_p.h>
 #include <private/qv4lookup_p.h>
 #include <QtCore/qloggingcategory.h>
+#include <QtCore/QLine>
+#include <QtCore/QLineF>
+#include <QtCore/QSize>
+#include <QtCore/QSizeF>
 
 QT_BEGIN_NAMESPACE
 
 Q_DECLARE_LOGGING_CATEGORY(lcBindingRemoval)
 
 DEFINE_OBJECT_VTABLE(QV4::QQmlValueTypeWrapper);
-
-namespace QV4 {
-namespace Heap {
-
-struct QQmlValueTypeReference : QQmlValueTypeWrapper
-{
-    void init() {
-        QQmlValueTypeWrapper::init();
-        object.init();
-    }
-    void destroy() {
-        object.destroy();
-        QQmlValueTypeWrapper::destroy();
-    }
-    QQmlQPointer<QObject> object;
-    int property;
-};
-
-}
-
-struct QQmlValueTypeReference : public QQmlValueTypeWrapper
-{
-    V4_OBJECT2(QQmlValueTypeReference, QQmlValueTypeWrapper)
-    V4_NEEDS_DESTROY
-
-    bool readReferenceValue() const;
-};
-
-}
-
 DEFINE_OBJECT_VTABLE(QV4::QQmlValueTypeReference);
 
 using namespace QV4;
@@ -100,25 +74,28 @@ void Heap::QQmlValueTypeWrapper::destroy()
         m_valueType->metaType.destruct(m_gadgetPtr);
         ::operator delete(m_gadgetPtr);
     }
-    if (m_propertyCache)
-        m_propertyCache->release();
     Object::destroy();
+}
+
+void Heap::QQmlValueTypeWrapper::setData(const void *data) const
+{
+    if (auto *gadget = gadgetPtr())
+        valueType()->metaType.destruct(gadget);
+    if (!gadgetPtr())
+        setGadgetPtr(::operator new(valueType()->metaType.sizeOf()));
+    valueType()->metaType.construct(gadgetPtr(), data);
 }
 
 void Heap::QQmlValueTypeWrapper::setValue(const QVariant &value) const
 {
     Q_ASSERT(valueType()->metaType.id() == value.userType());
-    if (auto *gadget = gadgetPtr())
-        valueType()->metaType.destruct(gadget);
-    if (!gadgetPtr())
-        setGadgetPtr(::operator new(valueType()->metaType.sizeOf()));
-    valueType()->metaType.construct(gadgetPtr(), value.constData());
+    setData(value.constData());
 }
 
 QVariant Heap::QQmlValueTypeWrapper::toVariant() const
 {
     Q_ASSERT(gadgetPtr());
-    return QVariant(valueType()->metaType.id(), gadgetPtr());
+    return QVariant(valueType()->metaType, gadgetPtr());
 }
 
 
@@ -136,24 +113,22 @@ bool QQmlValueTypeReference::readReferenceValue() const
         void *a[] = { &variantReferenceValue, nullptr };
         QMetaObject::metacall(d()->object, QMetaObject::ReadProperty, d()->property, a);
 
-        int variantReferenceType = variantReferenceValue.userType();
-        if (variantReferenceType != typeId()) {
+        const QMetaType variantReferenceType = variantReferenceValue.metaType();
+        if (variantReferenceType != type()) {
             // This is a stale VariantReference.  That is, the variant has been
             // overwritten with a different type in the meantime.
             // We need to modify this reference to the updated value type, if
             // possible, or return false if it is not a value type.
-            if (QQmlValueTypeFactory::isValueType(variantReferenceType)) {
-                QQmlPropertyCache *cache = nullptr;
-                if (const QMetaObject *mo = QQmlValueTypeFactory::metaObjectForMetaType(variantReferenceType))
-                    cache = QJSEnginePrivate::get(engine())->cache(mo);
+            if (QQmlMetaType::isValueType(variantReferenceType)) {
+                const QMetaObject *mo = QQmlMetaType::metaObjectForValueType(variantReferenceType);
                 if (d()->gadgetPtr()) {
                     d()->valueType()->metaType.destruct(d()->gadgetPtr());
                     ::operator delete(d()->gadgetPtr());
                 }
                 d()->setGadgetPtr(nullptr);
-                d()->setPropertyCache(cache);
-                d()->setValueType(QQmlValueTypeFactory::valueType(variantReferenceType));
-                if (!cache)
+                d()->setMetaObject(mo);
+                d()->setValueType(QQmlMetaType::valueType(variantReferenceType));
+                if (!mo)
                     return false;
             } else {
                 return false;
@@ -183,7 +158,7 @@ void QQmlValueTypeWrapper::initProto(ExecutionEngine *v4)
     v4->jsObjects[QV4::ExecutionEngine::ValueTypeProto] = o->d();
 }
 
-ReturnedValue QQmlValueTypeWrapper::create(ExecutionEngine *engine, QObject *object, int property, const QMetaObject *metaObject, int typeId)
+ReturnedValue QQmlValueTypeWrapper::create(ExecutionEngine *engine, QObject *object, int property, const QMetaObject *metaObject, QMetaType type)
 {
     Scope scope(engine);
     initProto(engine);
@@ -191,32 +166,41 @@ ReturnedValue QQmlValueTypeWrapper::create(ExecutionEngine *engine, QObject *obj
     Scoped<QQmlValueTypeReference> r(scope, engine->memoryManager->allocate<QQmlValueTypeReference>());
     r->d()->object = object;
     r->d()->property = property;
-    r->d()->setPropertyCache(QJSEnginePrivate::get(engine)->cache(metaObject));
-    auto valueType = QQmlValueTypeFactory::valueType(typeId);
+    r->d()->setMetaObject(metaObject);
+    auto valueType = QQmlMetaType::valueType(type);
     if (!valueType) {
         return engine->throwTypeError(QLatin1String("Type %1 is not a value type")
-                                      .arg(QString::fromUtf8(QMetaType(typeId).name())));
+                                      .arg(QString::fromUtf8(type.name())));
     }
     r->d()->setValueType(valueType);
     r->d()->setGadgetPtr(nullptr);
     return r->asReturnedValue();
 }
 
-ReturnedValue QQmlValueTypeWrapper::create(ExecutionEngine *engine, const QVariant &value,  const QMetaObject *metaObject, int typeId)
+ReturnedValue QQmlValueTypeWrapper::create(
+        ExecutionEngine *engine, const QVariant &value, const QMetaObject *metaObject,
+        QMetaType type)
+{
+    Q_ASSERT(value.metaType() == QQmlMetaType::valueType(type)->metaType);
+    return create(engine, value.constData(), metaObject, type);
+}
+
+ReturnedValue QQmlValueTypeWrapper::create(
+        ExecutionEngine *engine, const void *data, const QMetaObject *metaObject, QMetaType type)
 {
     Scope scope(engine);
     initProto(engine);
 
     Scoped<QQmlValueTypeWrapper> r(scope, engine->memoryManager->allocate<QQmlValueTypeWrapper>());
-    r->d()->setPropertyCache(QJSEnginePrivate::get(engine)->cache(metaObject));
-    auto valueType = QQmlValueTypeFactory::valueType(typeId);
+    r->d()->setMetaObject(metaObject);
+    auto valueType = QQmlMetaType::valueType(type);
     if (!valueType) {
         return engine->throwTypeError(QLatin1String("Type %1 is not a value type")
-                                      .arg(QString::fromUtf8(QMetaType(typeId).name())));
+                                      .arg(QString::fromUtf8(type.name())));
     }
     r->d()->setValueType(valueType);
     r->d()->setGadgetPtr(nullptr);
-    r->d()->setValue(value);
+    r->d()->setData(data);
     return r->asReturnedValue();
 }
 
@@ -233,9 +217,9 @@ bool QQmlValueTypeWrapper::toGadget(void *data) const
     if (const QQmlValueTypeReference *ref = as<const QQmlValueTypeReference>())
         if (!ref->readReferenceValue())
             return false;
-    const int typeId = d()->valueType()->metaType.id();
-    QMetaType::destruct(typeId, data);
-    QMetaType::construct(typeId, data, d()->gadgetPtr());
+    const QMetaType type = d()->valueType()->metaType;
+    type.destruct(data);
+    type.construct(data, d()->gadgetPtr());
     return true;
 }
 
@@ -253,14 +237,54 @@ bool QQmlValueTypeWrapper::virtualIsEqualTo(Managed *m, Managed *other)
     return false;
 }
 
+static ReturnedValue getGadgetProperty(ExecutionEngine *engine,
+                                       Heap::QQmlValueTypeWrapper *valueTypeWrapper,
+                                       QMetaType metaType, quint16 coreIndex, bool isFunction, bool isEnum)
+{
+    if (isFunction) {
+        // calling a Q_INVOKABLE function of a value type
+        return QV4::QObjectMethod::create(engine->rootContext(), valueTypeWrapper, coreIndex);
+    }
+#define VALUE_TYPE_LOAD(metatype, cpptype, constructor) \
+    if (metaTypeId == metatype) { \
+        cpptype v; \
+        void *args[] = { &v, nullptr }; \
+        metaObject->d.static_metacall(reinterpret_cast<QObject*>(valueTypeWrapper->gadgetPtr()), \
+                                      QMetaObject::ReadProperty, index, args); \
+        return QV4::Encode(constructor(v)); \
+    }
+    const QMetaObject *metaObject = valueTypeWrapper->metaObject();
+    int index = coreIndex;
+    QQmlMetaObject::resolveGadgetMethodOrPropertyIndex(QMetaObject::ReadProperty, &metaObject, &index);
+    // These four types are the most common used by the value type wrappers
+    int metaTypeId = metaType.id();
+    VALUE_TYPE_LOAD(QMetaType::Double, double, double);
+    VALUE_TYPE_LOAD(QMetaType::Float, float, float);
+    VALUE_TYPE_LOAD(QMetaType::Int || isEnum, int, int);
+    VALUE_TYPE_LOAD(QMetaType::QString, QString, engine->newString);
+    VALUE_TYPE_LOAD(QMetaType::Bool, bool, bool);
+    QVariant v;
+    void *args[] = { nullptr, nullptr };
+    if (metaType == QMetaType::fromType<QVariant>()) {
+        args[0] = &v;
+    } else {
+        v = QVariant(metaType, static_cast<void *>(nullptr));
+        args[0] = v.data();
+    }
+    metaObject->d.static_metacall(reinterpret_cast<QObject*>(valueTypeWrapper->gadgetPtr()), QMetaObject::ReadProperty,
+                                  index, args);
+    return engine->fromVariant(v);
+#undef VALUE_TYPE_LOAD
+}
+
 PropertyAttributes QQmlValueTypeWrapper::virtualGetOwnProperty(const Managed *m, PropertyKey id, Property *p)
 {
     if (id.isString()) {
-        Scope scope(m);
-        ScopedString n(scope, id.asStringOrSymbol());
         const QQmlValueTypeWrapper *r = static_cast<const QQmlValueTypeWrapper *>(m);
-        QQmlPropertyData *result = r->d()->propertyCache()->property(n.getPointer(), nullptr, nullptr);
-        return result ? Attr_Data : Attr_Invalid;
+        QQmlPropertyData result = r->dataForPropertyKey(id);
+        if (p && result.isValid())
+            p->value = getGadgetProperty(r->engine(), r->d(), result.propType(), result.coreIndex(), result.isFunction(), result.isEnum());
+        return result.isValid() ? Attr_Data : Attr_Invalid;
     }
 
     return QV4::Object::virtualGetOwnProperty(m, id, p);
@@ -282,19 +306,22 @@ PropertyKey QQmlValueTypeWrapperOwnPropertyKeyIterator::next(const Object *o, Pr
             return PropertyKey::invalid();
     }
 
-    if (that->d()->propertyCache()) {
-        const QMetaObject *mo = that->d()->propertyCache()->createMetaObject();
-        const int propertyCount = mo->propertyCount();
-        if (propertyIndex < propertyCount) {
-            Scope scope(that->engine());
-            ScopedString propName(scope, that->engine()->newString(QString::fromUtf8(mo->property(propertyIndex).name())));
-            ++propertyIndex;
-            if (attrs)
-                *attrs = QV4::Attr_Data;
-            if (pd)
-                pd->value = that->QV4::Object::get(propName);
-            return propName->toPropertyKey();
+    const QMetaObject *mo = that->d()->metaObject();
+    // We don't return methods, ie. they are not visible when iterating
+    const int propertyCount = mo->propertyCount();
+    if (propertyIndex < propertyCount) {
+        Scope scope(that->engine());
+        QMetaProperty p = mo->property(propertyIndex); // TODO: Implement and use QBasicMetaProperty
+        ScopedString propName(scope, that->engine()->newString(QString::fromUtf8(p.name())));
+        ++propertyIndex;
+        if (attrs)
+            *attrs = QV4::Attr_Data;
+        if (pd) {
+            QQmlPropertyData data;
+            data.load(p);
+            pd->value = getGadgetProperty(that->engine(), that->d(), data.propType(), data.coreIndex(), data.isFunction(), data.isEnum());
         }
+        return propName->toPropertyKey();
     }
 
     return ObjectOwnPropertyKeyIterator::next(o, pd, attrs);
@@ -312,12 +339,59 @@ bool QQmlValueTypeWrapper::isEqual(const QVariant& value) const
     if (const QQmlValueTypeReference *ref = as<const QQmlValueTypeReference>())
         if (!ref->readReferenceValue())
             return false;
-    return (value == d()->toVariant());
+    int id1 = value.metaType().id();
+    QVariant v = d()->toVariant();
+    int id2 = v.metaType().id();
+    if (id1 != id2) {
+        // conversions for weak comparison
+        switch (id1) {
+        case QMetaType::QPoint:
+            if (id2 == QMetaType::QPointF)
+                return value.value<QPointF>() == v.value<QPointF>();
+            break;
+        case QMetaType::QPointF:
+            if (id2 == QMetaType::QPoint)
+                return value.value<QPointF>() == v.value<QPointF>();
+            break;
+        case QMetaType::QRect:
+            if (id2 == QMetaType::QRectF)
+                return value.value<QRectF>() == v.value<QRectF>();
+            break;
+        case QMetaType::QRectF:
+            if (id2 == QMetaType::QRect)
+                return value.value<QRectF>() == v.value<QRectF>();
+            break;
+        case QMetaType::QLine:
+            if (id2 == QMetaType::QLineF)
+                return value.value<QLineF>() == v.value<QLineF>();
+            break;
+        case QMetaType::QLineF:
+            if (id2 == QMetaType::QLine)
+                return value.value<QLineF>() == v.value<QLineF>();
+            break;
+        case QMetaType::QSize:
+            if (id2 == QMetaType::QSizeF)
+                return value.value<QSizeF>() == v.value<QSizeF>();
+            break;
+        case QMetaType::QSizeF:
+            if (id2 == QMetaType::QSize)
+                return value.value<QSizeF>() == v.value<QSizeF>();
+            break;
+        default:
+            break;
+        }
+    }
+    return (value == v);
 }
 
 int QQmlValueTypeWrapper::typeId() const
 {
     return d()->valueType()->metaType.id();
+}
+
+QMetaType QQmlValueTypeWrapper::type() const
+{
+    return d()->valueType()->metaType;
 }
 
 bool QQmlValueTypeWrapper::write(QObject *target, int propertyIndex) const
@@ -347,6 +421,24 @@ bool QQmlValueTypeWrapper::write(QObject *target, int propertyIndex) const
     return true;
 }
 
+QQmlPropertyData QQmlValueTypeWrapper::dataForPropertyKey(PropertyKey id) const
+{
+    if (!id.isStringOrSymbol())
+        return QQmlPropertyData {};
+    QByteArray name = id.asStringOrSymbol()->toQString().toUtf8();
+    const QMetaObject *mo = d()->metaObject();
+    QQmlPropertyData result;
+    QMetaMethod metaMethod = QMetaObjectPrivate::firstMethod(mo, name);
+    if (metaMethod.isValid()) {
+        result.load(metaMethod);
+    } else {
+        int propertyIndex = d()->metaObject()->indexOfProperty(name.constData());
+        if (propertyIndex >= 0)
+            result.load(mo->property(propertyIndex));
+    }
+    return result;
+}
+
 ReturnedValue QQmlValueTypeWrapper::method_toString(const FunctionObject *b, const Value *thisObject, const Value *, int)
 {
     const Object *o = thisObject->as<Object>();
@@ -361,15 +453,10 @@ ReturnedValue QQmlValueTypeWrapper::method_toString(const FunctionObject *b, con
             RETURN_UNDEFINED();
 
     QString result;
-    // Prepare a buffer to pass to QMetaType::convert()
-    QString convertResult;
-    convertResult.~QString();
-    if (QMetaType::convert(w->d()->gadgetPtr(), w->d()->valueType()->metaType.id(), &convertResult, QMetaType::QString)) {
-        result = convertResult;
-    } else {
-        result += QString::fromUtf8(QMetaType::typeName(w->d()->valueType()->metaType.id()))
-                + QLatin1Char('(');
-        const QMetaObject *mo = w->d()->propertyCache()->metaObject();
+    if (!QMetaType::convert(w->d()->valueType()->metaType, w->d()->gadgetPtr(),
+                            QMetaType(QMetaType::QString), &result)) {
+        result = QString::fromUtf8(w->d()->valueType()->metaType.name()) + QLatin1Char('(');
+        const QMetaObject *mo = w->d()->metaObject();
         const int propCount = mo->propertyCount();
         for (int i = 0; i < propCount; ++i) {
             if (mo->property(i).isDesignable()) {
@@ -382,50 +469,6 @@ ReturnedValue QQmlValueTypeWrapper::method_toString(const FunctionObject *b, con
         result += QLatin1Char(')');
     }
     return Encode(b->engine()->newString(result));
-}
-
-Q_ALWAYS_INLINE static ReturnedValue getGadgetProperty(ExecutionEngine *engine,
-                                                       Heap::QQmlValueTypeWrapper *valueTypeWrapper,
-                                                       QQmlPropertyData *property)
-{
-    if (property->isFunction()) {
-        // calling a Q_INVOKABLE function of a value type
-        return QV4::QObjectMethod::create(engine->rootContext(), valueTypeWrapper, property->coreIndex());
-    }
-
-#define VALUE_TYPE_LOAD(metatype, cpptype, constructor) \
-    if (property->propType() == metatype) { \
-        cpptype v; \
-        void *args[] = { &v, nullptr }; \
-        metaObject->d.static_metacall(reinterpret_cast<QObject*>(valueTypeWrapper->gadgetPtr()), \
-                                      QMetaObject::ReadProperty, index, args); \
-        return QV4::Encode(constructor(v)); \
-    }
-
-    const QMetaObject *metaObject = valueTypeWrapper->propertyCache()->metaObject();
-
-    int index = property->coreIndex();
-    QQmlMetaObject::resolveGadgetMethodOrPropertyIndex(QMetaObject::ReadProperty, &metaObject, &index);
-
-    // These four types are the most common used by the value type wrappers
-    VALUE_TYPE_LOAD(QMetaType::QReal, qreal, qreal);
-    VALUE_TYPE_LOAD(QMetaType::Int || property->isEnum(), int, int);
-    VALUE_TYPE_LOAD(QMetaType::Int, int, int);
-    VALUE_TYPE_LOAD(QMetaType::QString, QString, engine->newString);
-    VALUE_TYPE_LOAD(QMetaType::Bool, bool, bool);
-
-    QVariant v;
-    void *args[] = { nullptr, nullptr };
-    if (property->propType() == QMetaType::QVariant) {
-        args[0] = &v;
-    } else {
-        v = QVariant(property->propType(), static_cast<void *>(nullptr));
-        args[0] = v.data();
-    }
-    metaObject->d.static_metacall(reinterpret_cast<QObject*>(valueTypeWrapper->gadgetPtr()), QMetaObject::ReadProperty,
-                                  index, args);
-    return engine->fromVariant(v);
-#undef VALUE_TYPE_LOAD
 }
 
 ReturnedValue QQmlValueTypeWrapper::virtualResolveLookupGetter(const Object *object, ExecutionEngine *engine,
@@ -447,14 +490,17 @@ ReturnedValue QQmlValueTypeWrapper::virtualResolveLookupGetter(const Object *obj
             return Value::undefinedValue().asReturnedValue();
     }
 
-    QQmlPropertyData *result = r->d()->propertyCache()->property(name.getPointer(), nullptr, nullptr);
-    if (!result)
+    QQmlPropertyData result = r->dataForPropertyKey(id);
+    if (!result.isValid())
         return QV4::Object::virtualResolveLookupGetter(object, engine, lookup);
 
     lookup->qgadgetLookup.ic = r->internalClass();
-    lookup->qgadgetLookup.propertyCache = r->d()->propertyCache();
-    lookup->qgadgetLookup.propertyCache->addref();
-    lookup->qgadgetLookup.propertyData = result;
+    // & 1 to tell the gc that this is not heap allocated; see markObjects in qv4lookup_p.h
+    lookup->qgadgetLookup.metaObject = quintptr(r->d()->metaObject()) + 1;
+    lookup->qgadgetLookup.metaType = result.propType().iface();
+    lookup->qgadgetLookup.coreIndex = result.coreIndex();
+    lookup->qgadgetLookup.isFunction = result.isFunction();
+    lookup->qgadgetLookup.isEnum = result.isEnum();
     lookup->getter = QQmlValueTypeWrapper::lookupGetter;
     return lookup->getter(lookup, engine, *object);
 }
@@ -462,8 +508,7 @@ ReturnedValue QQmlValueTypeWrapper::virtualResolveLookupGetter(const Object *obj
 ReturnedValue QQmlValueTypeWrapper::lookupGetter(Lookup *lookup, ExecutionEngine *engine, const Value &object)
 {
     const auto revertLookup = [lookup, engine, &object]() {
-        lookup->qgadgetLookup.propertyCache->release();
-        lookup->qgadgetLookup.propertyCache = nullptr;
+        lookup->qgadgetLookup.metaObject = quintptr(0);
         lookup->getter = Lookup::getterGeneric;
         return Lookup::getterGeneric(lookup, engine, object);
     };
@@ -476,7 +521,7 @@ ReturnedValue QQmlValueTypeWrapper::lookupGetter(Lookup *lookup, ExecutionEngine
 
     Heap::QQmlValueTypeWrapper *valueTypeWrapper =
             const_cast<Heap::QQmlValueTypeWrapper*>(static_cast<const Heap::QQmlValueTypeWrapper *>(o));
-    if (valueTypeWrapper->propertyCache() != lookup->qgadgetLookup.propertyCache)
+    if (valueTypeWrapper->metaObject() != reinterpret_cast<const QMetaObject *>(lookup->qgadgetLookup.metaObject - 1))
         return revertLookup();
 
     if (lookup->qgadgetLookup.ic->vtable == QQmlValueTypeReference::staticVTable()) {
@@ -485,8 +530,13 @@ ReturnedValue QQmlValueTypeWrapper::lookupGetter(Lookup *lookup, ExecutionEngine
         referenceWrapper->readReferenceValue();
     }
 
-    QQmlPropertyData *property = lookup->qgadgetLookup.propertyData;
-    return getGadgetProperty(engine, valueTypeWrapper, property);
+    return getGadgetProperty(engine, valueTypeWrapper, QMetaType(lookup->qgadgetLookup.metaType), lookup->qgadgetLookup.coreIndex, lookup->qgadgetLookup.isFunction, lookup->qgadgetLookup.isEnum);
+}
+
+bool QQmlValueTypeWrapper::lookupSetter(
+        Lookup *l, ExecutionEngine *engine, Value &object, const Value &value)
+{
+    return QV4::Lookup::setterFallback(l, engine, object, value);
 }
 
 bool QQmlValueTypeWrapper::virtualResolveLookupSetter(Object *object, ExecutionEngine *engine, Lookup *lookup,
@@ -504,8 +554,6 @@ ReturnedValue QQmlValueTypeWrapper::virtualGet(const Managed *m, PropertyKey id,
 
     const QQmlValueTypeWrapper *r = static_cast<const QQmlValueTypeWrapper *>(m);
     QV4::ExecutionEngine *v4 = r->engine();
-    Scope scope(v4);
-    ScopedString name(scope, id.asStringOrSymbol());
 
     // Note: readReferenceValue() can change the reference->type.
     if (const QQmlValueTypeReference *reference = r->as<QQmlValueTypeReference>()) {
@@ -513,14 +561,14 @@ ReturnedValue QQmlValueTypeWrapper::virtualGet(const Managed *m, PropertyKey id,
             return Value::undefinedValue().asReturnedValue();
     }
 
-    QQmlPropertyData *result = r->d()->propertyCache()->property(name.getPointer(), nullptr, nullptr);
-    if (!result)
+    QQmlPropertyData result = r->dataForPropertyKey(id);
+    if (!result.isValid())
         return Object::virtualGet(m, id, receiver, hasProperty);
 
     if (hasProperty)
         *hasProperty = true;
 
-    return getGadgetProperty(v4, r->d(), result);
+    return getGadgetProperty(v4, r->d(), result.propType(), result.coreIndex(), result.isFunction(), result.isEnum());
 }
 
 bool QQmlValueTypeWrapper::virtualPut(Managed *m, PropertyKey id, const Value &value, Value *receiver)
@@ -537,7 +585,7 @@ bool QQmlValueTypeWrapper::virtualPut(Managed *m, PropertyKey id, const Value &v
     Scoped<QQmlValueTypeWrapper> r(scope, static_cast<QQmlValueTypeWrapper *>(m));
     Scoped<QQmlValueTypeReference> reference(scope, m->d());
 
-    int writeBackPropertyType = -1;
+    QMetaType writeBackPropertyType;
 
     if (reference) {
         QMetaProperty writebackProperty = reference->d()->object->metaObject()->property(reference->d()->property);
@@ -545,19 +593,17 @@ bool QQmlValueTypeWrapper::virtualPut(Managed *m, PropertyKey id, const Value &v
         if (!writebackProperty.isWritable() || !reference->readReferenceValue())
             return false;
 
-        writeBackPropertyType = writebackProperty.userType();
+        writeBackPropertyType = writebackProperty.metaType();
     }
 
-    ScopedString name(scope, id.asStringOrSymbol());
-
-    const QMetaObject *metaObject = r->d()->propertyCache()->metaObject();
-    const QQmlPropertyData *pd = r->d()->propertyCache()->property(name.getPointer(), nullptr, nullptr);
-    if (!pd)
+    const QMetaObject *metaObject = r->d()->metaObject();
+    const QQmlPropertyData pd = r->dataForPropertyKey(id);
+    if (!pd.isValid())
         return false;
 
     if (reference) {
         QV4::ScopedFunctionObject f(scope, value);
-        const QQmlQPointer<QObject> &referenceObject = reference->d()->object;
+        const QV4QPointer<QObject> &referenceObject = reference->d()->object;
         const int referencePropertyIndex = reference->d()->property;
 
         if (f) {
@@ -569,7 +615,7 @@ bool QQmlValueTypeWrapper::virtualPut(Managed *m, PropertyKey id, const Value &v
                 return false;
             }
 
-            QQmlContextData *context = v4->callingQmlContext();
+            QQmlRefPointer<QQmlContextData> context = v4->callingQmlContext();
 
             QQmlPropertyData cacheData;
             cacheData.setWritable(true);
@@ -585,12 +631,12 @@ bool QQmlValueTypeWrapper::virtualPut(Managed *m, PropertyKey id, const Value &v
             if (f->isBoundFunction())
                 newBinding->setBoundFunction(static_cast<QV4::BoundFunction *>(f.getPointer()));
             newBinding->setSourceLocation(bindingFunction->currentLocation());
-            newBinding->setTarget(referenceObject, cacheData, pd);
+            newBinding->setTarget(referenceObject, cacheData, &pd);
             QQmlPropertyPrivate::setBinding(newBinding);
             return true;
         } else {
             if (Q_UNLIKELY(lcBindingRemoval().isInfoEnabled())) {
-                if (auto binding = QQmlPropertyPrivate::binding(referenceObject, QQmlPropertyIndex(referencePropertyIndex, pd->coreIndex()))) {
+                if (auto binding = QQmlPropertyPrivate::binding(referenceObject, QQmlPropertyIndex(referencePropertyIndex, pd.coreIndex()))) {
                     Q_ASSERT(!binding->isValueTypeProxy());
                     const auto qmlBinding = static_cast<const QQmlBinding*>(binding);
                     const auto stackFrame = v4->currentStackFrame;
@@ -598,18 +644,18 @@ bool QQmlValueTypeWrapper::virtualPut(Managed *m, PropertyKey id, const Value &v
                            "Overwriting binding on %s::%s which was initially bound at %s by setting \"%s\" at %s:%d",
                            referenceObject->metaObject()->className(), referenceObject->metaObject()->property(referencePropertyIndex).name(),
                            qPrintable(qmlBinding->expressionIdentifier()),
-                           metaObject->property(pd->coreIndex()).name(),
+                           metaObject->property(pd.coreIndex()).name(),
                            qPrintable(stackFrame->source()), stackFrame->lineNumber());
                 }
             }
-            QQmlPropertyPrivate::removeBinding(referenceObject, QQmlPropertyIndex(referencePropertyIndex, pd->coreIndex()));
+            QQmlPropertyPrivate::removeBinding(referenceObject, QQmlPropertyIndex(referencePropertyIndex, pd.coreIndex()));
         }
     }
 
-    QMetaProperty property = metaObject->property(pd->coreIndex());
+    QMetaProperty property = metaObject->property(pd.coreIndex());
     Q_ASSERT(property.isValid());
 
-    QVariant v = v4->toVariant(value, property.userType());
+    QVariant v = v4->toVariant(value, property.metaType());
 
     if (property.isEnumType() && (QMetaType::Type)v.userType() == QMetaType::Double)
         v = v.toInt();
@@ -617,23 +663,8 @@ bool QQmlValueTypeWrapper::virtualPut(Managed *m, PropertyKey id, const Value &v
     void *gadget = r->d()->gadgetPtr();
     property.writeOnGadget(gadget, v);
 
-
-    if (reference) {
-        if (writeBackPropertyType == QMetaType::QVariant) {
-            QVariant variantReferenceValue = r->d()->toVariant();
-
-            int flags = 0;
-            int status = -1;
-            void *a[] = { &variantReferenceValue, nullptr, &status, &flags };
-            QMetaObject::metacall(reference->d()->object, QMetaObject::WriteProperty, reference->d()->property, a);
-
-        } else {
-            int flags = 0;
-            int status = -1;
-            void *a[] = { r->d()->gadgetPtr(), nullptr, &status, &flags };
-            QMetaObject::metacall(reference->d()->object, QMetaObject::WriteProperty, reference->d()->property, a);
-        }
-    }
+    if (reference)
+        reference->d()->writeBack();
 
     return true;
 }

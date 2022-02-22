@@ -25,7 +25,7 @@ class MojoDecoderBufferWriter;
 // This class is single threaded. The |remote_decryptor| is connected before
 // being passed to MojoDecryptor, but it is bound to the thread MojoDecryptor
 // lives on the first time it is used in this class.
-class MojoDecryptor : public Decryptor {
+class MojoDecryptor final : public Decryptor {
  public:
   // |writer_capacity| can be used for testing. If 0, default writer capacity
   // will be used.
@@ -34,7 +34,6 @@ class MojoDecryptor : public Decryptor {
   ~MojoDecryptor() final;
 
   // Decryptor implementation.
-  void RegisterNewKeyCB(StreamType stream_type, NewKeyCB key_added_cb) final;
   void Decrypt(StreamType stream_type,
                scoped_refptr<DecoderBuffer> encrypted,
                DecryptCB decrypt_cb) final;
@@ -44,26 +43,13 @@ class MojoDecryptor : public Decryptor {
   void InitializeVideoDecoder(const VideoDecoderConfig& config,
                               DecoderInitCB init_cb) final;
   void DecryptAndDecodeAudio(scoped_refptr<DecoderBuffer> encrypted,
-                             const AudioDecodeCB& audio_decode_cb) final;
+                             AudioDecodeCB audio_decode_cb) final;
   void DecryptAndDecodeVideo(scoped_refptr<DecoderBuffer> encrypted,
-                             const VideoDecodeCB& video_decode_cb) final;
+                             VideoDecodeCB video_decode_cb) final;
   void ResetDecoder(StreamType stream_type) final;
   void DeinitializeDecoder(StreamType stream_type) final;
 
-  // Called when keys have changed and an additional key is available.
-  void OnKeyAdded();
-
  private:
-  // These are once callbacks corresponding to repeating callbacks DecryptCB,
-  // DecoderInitCB, AudioDecodeCB and VideoDecodeCB. They are needed so that we
-  // can use WrapCallbackWithDefaultInvokeIfNotRun to make sure callbacks always
-  // run.
-  // TODO(xhwang): Update Decryptor to use OnceCallback. The change is easy,
-  // but updating tests is hard given gmock doesn't support move-only types.
-  // See http://crbug.com/751838
-  using AudioDecodeOnceCB = base::OnceCallback<AudioDecodeCB::RunType>;
-  using VideoDecodeOnceCB = base::OnceCallback<VideoDecodeCB::RunType>;
-
   // Called when a buffer is decrypted.
   void OnBufferDecrypted(DecryptCB decrypt_cb,
                          Status status,
@@ -71,11 +57,11 @@ class MojoDecryptor : public Decryptor {
   void OnBufferRead(DecryptCB decrypt_cb,
                     Status status,
                     scoped_refptr<DecoderBuffer> buffer);
-  void OnAudioDecoded(AudioDecodeOnceCB audio_decode_cb,
+  void OnAudioDecoded(AudioDecodeCB audio_decode_cb,
                       Status status,
                       std::vector<mojom::AudioBufferPtr> audio_buffers);
   void OnVideoDecoded(
-      VideoDecodeOnceCB video_decode_cb,
+      VideoDecodeCB video_decode_cb,
       Status status,
       const scoped_refptr<VideoFrame>& video_frame,
       mojo::PendingRemote<mojom::FrameResourceReleaser> releaser);
@@ -99,9 +85,6 @@ class MojoDecryptor : public Decryptor {
   // Helper class to receive decrypted DecoderBuffer from the
   // |remote_decryptor_|, shared by audio and video.
   std::unique_ptr<MojoDecoderBufferReader> decrypted_buffer_reader_;
-
-  NewKeyCB new_audio_key_cb_;
-  NewKeyCB new_video_key_cb_;
 
   base::WeakPtrFactory<MojoDecryptor> weak_factory_{this};
 

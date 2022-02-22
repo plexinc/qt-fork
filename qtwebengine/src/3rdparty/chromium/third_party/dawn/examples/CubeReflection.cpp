@@ -18,10 +18,10 @@
 #include "utils/SystemUtils.h"
 #include "utils/WGPUHelpers.h"
 
-#include <vector>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <vector>
 
 wgpu::Device device;
 
@@ -43,67 +43,44 @@ wgpu::RenderPipeline planePipeline;
 wgpu::RenderPipeline reflectionPipeline;
 
 void initBuffers() {
-    static const uint32_t indexData[6*6] = {
-        0, 1, 2,
-        0, 2, 3,
+    static const uint32_t indexData[6 * 6] = {0,  1,  2,  0,  2,  3,
 
-        4, 5, 6,
-        4, 6, 7,
+                                              4,  5,  6,  4,  6,  7,
 
-        8, 9, 10,
-        8, 10, 11,
+                                              8,  9,  10, 8,  10, 11,
 
-        12, 13, 14,
-        12, 14, 15,
+                                              12, 13, 14, 12, 14, 15,
 
-        16, 17, 18,
-        16, 18, 19,
+                                              16, 17, 18, 16, 18, 19,
 
-        20, 21, 22,
-        20, 22, 23
-    };
+                                              20, 21, 22, 20, 22, 23};
     indexBuffer =
         utils::CreateBufferFromData(device, indexData, sizeof(indexData), wgpu::BufferUsage::Index);
 
     static const float vertexData[6 * 4 * 6] = {
-        -1.0, -1.0,  1.0,    1.0, 0.0, 0.0,
-        1.0, -1.0,  1.0,    1.0, 0.0, 0.0,
-        1.0,  1.0,  1.0,    1.0, 0.0, 0.0,
-        -1.0,  1.0,  1.0,    1.0, 0.0, 0.0,
+        -1.0, -1.0, 1.0,  1.0, 0.0, 0.0, 1.0,  -1.0, 1.0,  1.0, 0.0, 0.0,
+        1.0,  1.0,  1.0,  1.0, 0.0, 0.0, -1.0, 1.0,  1.0,  1.0, 0.0, 0.0,
 
-        -1.0, -1.0, -1.0,    1.0, 1.0, 0.0,
-        -1.0,  1.0, -1.0,    1.0, 1.0, 0.0,
-        1.0,  1.0, -1.0,    1.0, 1.0, 0.0,
-        1.0, -1.0, -1.0,    1.0, 1.0, 0.0,
+        -1.0, -1.0, -1.0, 1.0, 1.0, 0.0, -1.0, 1.0,  -1.0, 1.0, 1.0, 0.0,
+        1.0,  1.0,  -1.0, 1.0, 1.0, 0.0, 1.0,  -1.0, -1.0, 1.0, 1.0, 0.0,
 
-        -1.0,  1.0, -1.0,    1.0, 0.0, 1.0,
-        -1.0,  1.0,  1.0,    1.0, 0.0, 1.0,
-        1.0,  1.0,  1.0,    1.0, 0.0, 1.0,
-        1.0,  1.0, -1.0,    1.0, 0.0, 1.0,
+        -1.0, 1.0,  -1.0, 1.0, 0.0, 1.0, -1.0, 1.0,  1.0,  1.0, 0.0, 1.0,
+        1.0,  1.0,  1.0,  1.0, 0.0, 1.0, 1.0,  1.0,  -1.0, 1.0, 0.0, 1.0,
 
-        -1.0, -1.0, -1.0,    0.0, 1.0, 0.0,
-        1.0, -1.0, -1.0,    0.0, 1.0, 0.0,
-        1.0, -1.0,  1.0,    0.0, 1.0, 0.0,
-        -1.0, -1.0,  1.0,    0.0, 1.0, 0.0,
+        -1.0, -1.0, -1.0, 0.0, 1.0, 0.0, 1.0,  -1.0, -1.0, 0.0, 1.0, 0.0,
+        1.0,  -1.0, 1.0,  0.0, 1.0, 0.0, -1.0, -1.0, 1.0,  0.0, 1.0, 0.0,
 
-        1.0, -1.0, -1.0,    0.0, 1.0, 1.0,
-        1.0,  1.0, -1.0,    0.0, 1.0, 1.0,
-        1.0,  1.0,  1.0,    0.0, 1.0, 1.0,
-        1.0, -1.0,  1.0,    0.0, 1.0, 1.0,
+        1.0,  -1.0, -1.0, 0.0, 1.0, 1.0, 1.0,  1.0,  -1.0, 0.0, 1.0, 1.0,
+        1.0,  1.0,  1.0,  0.0, 1.0, 1.0, 1.0,  -1.0, 1.0,  0.0, 1.0, 1.0,
 
-        -1.0, -1.0, -1.0,    1.0, 1.0, 1.0,
-        -1.0, -1.0,  1.0,    1.0, 1.0, 1.0,
-        -1.0,  1.0,  1.0,    1.0, 1.0, 1.0,
-        -1.0,  1.0, -1.0,    1.0, 1.0, 1.0
-    };
+        -1.0, -1.0, -1.0, 1.0, 1.0, 1.0, -1.0, -1.0, 1.0,  1.0, 1.0, 1.0,
+        -1.0, 1.0,  1.0,  1.0, 1.0, 1.0, -1.0, 1.0,  -1.0, 1.0, 1.0, 1.0};
     vertexBuffer = utils::CreateBufferFromData(device, vertexData, sizeof(vertexData),
                                                wgpu::BufferUsage::Vertex);
 
     static const float planeData[6 * 4] = {
-        -2.0, -1.0, -2.0,    0.5, 0.5, 0.5,
-        2.0, -1.0, -2.0,    0.5, 0.5, 0.5,
-        2.0, -1.0,  2.0,    0.5, 0.5, 0.5,
-        -2.0, -1.0,  2.0,    0.5, 0.5, 0.5,
+        -2.0, -1.0, -2.0, 0.5, 0.5, 0.5, 2.0,  -1.0, -2.0, 0.5, 0.5, 0.5,
+        2.0,  -1.0, 2.0,  0.5, 0.5, 0.5, -2.0, -1.0, 2.0,  0.5, 0.5, 0.5,
     };
     planeBuffer = utils::CreateBufferFromData(device, planeData, sizeof(planeData),
                                               wgpu::BufferUsage::Vertex);
@@ -117,47 +94,53 @@ struct CameraData {
 void init() {
     device = CreateCppDawnDevice();
 
-    queue = device.CreateQueue();
+    queue = device.GetQueue();
     swapchain = GetSwapChain(device);
-    swapchain.Configure(GetPreferredSwapChainTextureFormat(), wgpu::TextureUsage::OutputAttachment,
+    swapchain.Configure(GetPreferredSwapChainTextureFormat(), wgpu::TextureUsage::RenderAttachment,
                         640, 480);
 
     initBuffers();
 
-    wgpu::ShaderModule vsModule =
-        utils::CreateShaderModule(device, utils::SingleShaderStage::Vertex, R"(
-        #version 450
-        layout(set = 0, binding = 0) uniform cameraData {
-            mat4 view;
-            mat4 proj;
-        } camera;
-        layout(set = 0, binding = 1) uniform modelData {
-            mat4 modelMatrix;
+    wgpu::ShaderModule vsModule = utils::CreateShaderModuleFromWGSL(device, R"(
+        [[block]] struct Camera {
+            [[offset(0)]] view : mat4x4<f32>;
+            [[offset(64)]] proj : mat4x4<f32>;
         };
-        layout(location = 0) in vec3 pos;
-        layout(location = 1) in vec3 col;
-        layout(location = 2) out vec3 f_col;
-        void main() {
+        [[group(0), binding(0)]] var<uniform> camera : Camera;
+
+        [[block]] struct Model {
+            [[offset(0)]] matrix : mat4x4<f32>;
+        };
+        [[group(0), binding(1)]] var<uniform> model : Model;
+
+        [[location(0)]] var<in> pos : vec3<f32>;
+        [[location(1)]] var<in> col : vec3<f32>;
+
+        [[location(2)]] var<out> f_col : vec3<f32>;
+        [[builtin(position)]] var<out> Position : vec4<f32>;
+
+        [[stage(vertex)]] fn main() -> void {
             f_col = col;
-            gl_Position = camera.proj * camera.view * modelMatrix * vec4(pos, 1.0);
+            Position = camera.proj * camera.view * model.matrix * vec4<f32>(pos, 1.0);
+            return;
         })");
 
-    wgpu::ShaderModule fsModule =
-        utils::CreateShaderModule(device, utils::SingleShaderStage::Fragment, R"(
-        #version 450
-        layout(location = 2) in vec3 f_col;
-        layout(location = 0) out vec4 fragColor;
-        void main() {
-            fragColor = vec4(f_col, 1.0);
+    wgpu::ShaderModule fsModule = utils::CreateShaderModuleFromWGSL(device, R"(
+        [[location(0)]] var<out> FragColor : vec4<f32>;
+        [[location(2)]] var<in> f_col : vec3<f32>;
+
+        [[stage(fragment)]] fn main() -> void {
+            FragColor = vec4<f32>(f_col, 1.0);
+            return;
         })");
 
-    wgpu::ShaderModule fsReflectionModule =
-        utils::CreateShaderModule(device, utils::SingleShaderStage::Fragment, R"(
-        #version 450
-        layout(location = 2) in vec3 f_col;
-        layout(location = 0) out vec4 fragColor;
-        void main() {
-            fragColor = vec4(mix(f_col, vec3(0.5, 0.5, 0.5), 0.5), 1.0);
+    wgpu::ShaderModule fsReflectionModule = utils::CreateShaderModuleFromWGSL(device, R"(
+        [[location(0)]] var<out> FragColor : vec4<f32>;
+        [[location(2)]] var<in> f_col : vec3<f32>;
+
+        [[stage(fragment)]] fn main() -> void {
+            FragColor = vec4<f32>(mix(f_col, vec3<f32>(0.5, 0.5, 0.5), vec3<f32>(0.5, 0.5, 0.5)), 1.0);
+            return;
         })");
 
     utils::ComboVertexStateDescriptor vertexState;
@@ -191,15 +174,13 @@ void init() {
     transformBuffer[1] = utils::CreateBufferFromData(device, &transform, sizeof(glm::mat4),
                                                      wgpu::BufferUsage::Uniform);
 
-    bindGroup[0] = utils::MakeBindGroup(device, bgl, {
-        {0, cameraBuffer, 0, sizeof(CameraData)},
-        {1, transformBuffer[0], 0, sizeof(glm::mat4)}
-    });
+    bindGroup[0] = utils::MakeBindGroup(
+        device, bgl,
+        {{0, cameraBuffer, 0, sizeof(CameraData)}, {1, transformBuffer[0], 0, sizeof(glm::mat4)}});
 
-    bindGroup[1] = utils::MakeBindGroup(device, bgl, {
-        {0, cameraBuffer, 0, sizeof(CameraData)},
-        {1, transformBuffer[1], 0, sizeof(glm::mat4)}
-    });
+    bindGroup[1] = utils::MakeBindGroup(
+        device, bgl,
+        {{0, cameraBuffer, 0, sizeof(CameraData)}, {1, transformBuffer[1], 0, sizeof(glm::mat4)}});
 
     depthStencilView = CreateDefaultDepthStencilView(device);
 
@@ -250,19 +231,22 @@ void init() {
     cameraData.proj = glm::perspective(glm::radians(45.0f), 1.f, 1.0f, 100.0f);
 }
 
-struct {uint32_t a; float b;} s;
+struct {
+    uint32_t a;
+    float b;
+} s;
 void frame() {
     s.a = (s.a + 1) % 256;
     s.b += 0.01f;
-    if (s.b >= 1.0f) {s.b = 0.0f;}
+    if (s.b >= 1.0f) {
+        s.b = 0.0f;
+    }
 
-    cameraData.view = glm::lookAt(
-        glm::vec3(8.f * std::sin(glm::radians(s.b * 360.f)), 2.f, 8.f * std::cos(glm::radians(s.b * 360.f))),
-        glm::vec3(0.0f, 0.0f, 0.0f),
-        glm::vec3(0.0f, 1.0f, 0.0f)
-    );
+    cameraData.view = glm::lookAt(glm::vec3(8.f * std::sin(glm::radians(s.b * 360.f)), 2.f,
+                                            8.f * std::cos(glm::radians(s.b * 360.f))),
+                                  glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 
-    cameraBuffer.SetSubData(0, sizeof(CameraData), &cameraData);
+    queue.WriteBuffer(cameraBuffer, 0, &cameraData, sizeof(CameraData));
 
     wgpu::TextureView backbufferView = swapchain.GetCurrentTextureView();
     utils::ComboRenderPassDescriptor renderPass({backbufferView}, depthStencilView);
@@ -273,7 +257,7 @@ void frame() {
         pass.SetPipeline(pipeline);
         pass.SetBindGroup(0, bindGroup[0]);
         pass.SetVertexBuffer(0, vertexBuffer);
-        pass.SetIndexBuffer(indexBuffer);
+        pass.SetIndexBuffer(indexBuffer, wgpu::IndexFormat::Uint32);
         pass.DrawIndexed(36);
 
         pass.SetStencilReference(0x1);

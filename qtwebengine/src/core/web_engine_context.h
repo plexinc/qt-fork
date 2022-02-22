@@ -47,7 +47,7 @@
 #include "base/values.h"
 
 #include <QtGui/qtgui-config.h>
-#include <QVector>
+#include <QList>
 
 namespace base {
 class RunLoop;
@@ -60,7 +60,7 @@ class ContentMainRunner;
 class GpuProcess;
 class GpuThreadController;
 class InProcessChildThreadParams;
-class ServiceManagerEnvironment;
+class MojoIpcSupport;
 struct StartupData;
 }
 
@@ -86,6 +86,7 @@ struct SandboxInterfaceInfo;
 #endif
 
 QT_FORWARD_DECLARE_CLASS(QObject)
+class WebRtcLogUploader;
 
 namespace QtWebEngineCore {
 
@@ -96,10 +97,6 @@ class ProfileAdapter;
 
 bool usingSoftwareDynamicGL();
 
-#ifdef Q_OS_WIN
-Q_WEBENGINECORE_PRIVATE_EXPORT sandbox::SandboxInterfaceInfo *staticSandboxInterfaceInfo(sandbox::SandboxInterfaceInfo *info = nullptr);
-#endif
-
 typedef std::tuple<bool, QString, QString> ProxyAuthentication;
 
 class WebEngineContext : public base::RefCounted<WebEngineContext> {
@@ -107,13 +104,17 @@ public:
     static WebEngineContext *current();
     static void destroyContextPostRoutine();
     static ProxyAuthentication qProxyNetworkAuthentication(QString host, int port);
-
+    static void flushMessages();
+    static bool closingDown();
     ProfileAdapter *createDefaultProfileAdapter();
     ProfileAdapter *defaultProfileAdapter();
 
     QObject *globalQObject();
 #if QT_CONFIG(webengine_printing_and_pdf)
     printing::PrintJobManager* getPrintJobManager();
+#endif
+#if QT_CONFIG(webengine_webrtc) && QT_CONFIG(webengine_extensions)
+    WebRtcLogUploader *webRtcLogUploader();
 #endif
     void destroyProfileAdapter();
     void addProfileAdapter(ProfileAdapter *profileAdapter);
@@ -140,11 +141,11 @@ private:
     std::unique_ptr<content::BrowserMainRunner> m_browserRunner;
     std::unique_ptr<discardable_memory::DiscardableSharedMemoryManager> m_discardableSharedMemoryManager;
     std::unique_ptr<content::StartupData> m_startupData;
-    std::unique_ptr<content::ServiceManagerEnvironment> m_serviceManagerEnvironment;
+    std::unique_ptr<content::MojoIpcSupport> m_mojoIpcSupport;
     std::unique_ptr<QObject> m_globalQObject;
     std::unique_ptr<ProfileAdapter> m_defaultProfileAdapter;
     std::unique_ptr<DevToolsServerQt> m_devtoolsServer;
-    QVector<ProfileAdapter*> m_profileAdapters;
+    QList<ProfileAdapter*> m_profileAdapters;
 #if QT_CONFIG(accessibility)
     std::unique_ptr<AccessibilityActivationObserver> m_accessibilityActivationObserver;
 #endif
@@ -152,8 +153,12 @@ private:
 #if QT_CONFIG(webengine_printing_and_pdf)
     std::unique_ptr<printing::PrintJobManager> m_printJobManager;
 #endif
+#if QT_CONFIG(webengine_webrtc) && QT_CONFIG(webengine_extensions)
+    std::unique_ptr<WebRtcLogUploader> m_webrtcLogUploader;
+#endif
     static scoped_refptr<QtWebEngineCore::WebEngineContext> m_handle;
     static bool m_destroyed;
+    static bool m_closingDown;
     static QAtomicPointer<gpu::SyncPointManager> s_syncPointManager;
 };
 

@@ -38,7 +38,6 @@
 ****************************************************************************/
 
 #include "qlibinputkeyboard_p.h"
-#include <QtCore/QTextCodec>
 #include <QtCore/QLoggingCategory>
 #include <QtGui/private/qguiapplication_p.h>
 #include <QtGui/private/qinputdevicemanager_p.h>
@@ -47,7 +46,7 @@
 #if QT_CONFIG(xkbcommon)
 #include <xkbcommon/xkbcommon-keysyms.h>
 #include <xkbcommon/xkbcommon-names.h>
-#include <QtXkbCommonSupport/private/qxkbcommon_p.h>
+#include <QtGui/private/qxkbcommon_p.h>
 #endif
 
 QT_BEGIN_NAMESPACE

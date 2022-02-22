@@ -28,7 +28,7 @@
 
 #include "debugutil_p.h"
 #include "qqmldebugprocess_p.h"
-#include "../../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 
 #include <private/qqmlenginedebugclient_p.h>
 #include <private/qv4debugclient_p.h>
@@ -65,6 +65,8 @@ const char *STEPACTION_QMLFILE = "stepAction.qml";
 const char *BREAKPOINTRELOCATION_QMLFILE = "breakpointRelocation.qml";
 const char *ENCODEQMLSCOPE_QMLFILE = "encodeQmlScope.qml";
 const char *BREAKONANCHOR_QMLFILE = "breakOnAnchor.qml";
+const char *BREAKPOINTIDS_QMLFILE = "breakPointIds.qml";
+const char *LETCONSTLOCALS_QMLFILE = "letConstLocals.qml";
 
 #undef QVERIFY
 #define QVERIFY(statement) \
@@ -79,6 +81,9 @@ do {\
 class tst_QQmlDebugJS : public QQmlDebugTest
 {
     Q_OBJECT
+
+public:
+    tst_QQmlDebugJS();
 
 private slots:
     void initTestCase() override;
@@ -156,6 +161,9 @@ private slots:
     void encodeQmlScope();
     void breakOnAnchor();
 
+    void breakPointIds();
+    void letConstLocals();
+
 private:
     ConnectResult init(bool qmlscene, const QString &qmlFile = QString(TEST_QMLFILE),
                     bool blockMode = true, bool restrictServices = false);
@@ -165,9 +173,15 @@ private:
     void targetData();
     bool waitForClientSignal(const char *signal, int timeout = 30000);
     void checkVersionParameters();
+    int setBreakPoint(const QString &file, int sourceLine, bool enabled);
+    void clearBreakPoint(int id);
 };
 
 
+tst_QQmlDebugJS::tst_QQmlDebugJS()
+    : QQmlDebugTest(QT_QMLTEST_DATADIR)
+{
+}
 
 void tst_QQmlDebugJS::initTestCase()
 {
@@ -178,7 +192,7 @@ QQmlDebugTest::ConnectResult tst_QQmlDebugJS::init(bool qmlscene, const QString 
                                                    bool blockMode, bool restrictServices)
 {
     const QString executable = qmlscene
-            ? QLibraryInfo::location(QLibraryInfo::BinariesPath) + "/qmlscene"
+            ? QLibraryInfo::path(QLibraryInfo::BinariesPath) + "/qmlscene"
             : debugJsServerPath("qqmldebugjs");
     return QQmlDebugTest::connectTo(
                 executable, restrictServices ? QStringLiteral("V8Debugger") : QString(),
@@ -471,7 +485,7 @@ void tst_QQmlDebugJS::setBreakpointInJavaScript()
 
     if (seedCache) { // Make sure there is a qmlc file that the engine should _not_ laod.
         QProcess process;
-        process.start(QLibraryInfo::location(QLibraryInfo::BinariesPath) + "/qmlscene",
+        process.start(QLibraryInfo::path(QLibraryInfo::BinariesPath) + "/qmlscene",
                       { testFile(QUITINJS_QMLFILE) });
         QTRY_COMPARE(process.state(), QProcess::NotRunning);
     }
@@ -566,7 +580,8 @@ void tst_QQmlDebugJS::changeBreakpoint()
 
     int sourceLine2 = 37;
     int sourceLine1 = 38;
-    QCOMPARE(init(qmlscene, CHANGEBREAKPOINT_QMLFILE), ConnectSuccess);
+    const QString file = QLatin1String(CHANGEBREAKPOINT_QMLFILE);
+    QCOMPARE(init(qmlscene, file), ConnectSuccess);
 
     bool isStopped = false;
     QObject::connect(m_client.data(), &QV4DebugClient::stopped, this, [&]() { isStopped = true; });
@@ -589,27 +604,13 @@ void tst_QQmlDebugJS::changeBreakpoint()
         return breakpointsHit[0].toInt();
     };
 
-    auto setBreakPoint = [&](int sourceLine, bool enabled) {
-        int id = -1;
-        auto connection = QObject::connect(m_client.data(), &QV4DebugClient::result, [&]() {
-            id = extractBody().value("breakpoint").toInt();
-        });
-
-        m_client->setBreakpoint(QLatin1String(CHANGEBREAKPOINT_QMLFILE), sourceLine, -1, enabled);
-        bool success = QTest::qWaitFor([&]() { return id >= 0; });
-        Q_UNUSED(success);
-
-        QObject::disconnect(connection);
-        return id;
-    };
-
     //The breakpoints are in a timer loop so we can set them after connect().
     //Furthermore the breakpoints should be hit in the right order because setting of breakpoints
     //can only occur in the QML event loop. (see QCOMPARE for sourceLine2 below)
-    const int breakpoint1 = setBreakPoint(sourceLine1, false);
+    const int breakpoint1 = setBreakPoint(file, sourceLine1, false);
     QVERIFY(breakpoint1 >= 0);
 
-    const int breakpoint2 = setBreakPoint(sourceLine2, true);
+    const int breakpoint2 = setBreakPoint(file, sourceLine2, true);
     QVERIFY(breakpoint2 >= 0);
 
     auto verifyBreakpoint = [&](int sourceLine, int breakpointId) {
@@ -854,7 +855,7 @@ void tst_QQmlDebugJS::evaluateInContext()
 {
     m_connection = new QQmlDebugConnection();
     m_process = new QQmlDebugProcess(
-                QLibraryInfo::location(QLibraryInfo::BinariesPath) + "/qmlscene", this);
+                QLibraryInfo::path(QLibraryInfo::BinariesPath) + "/qmlscene", this);
     m_client = new QV4DebugClient(m_connection);
     QScopedPointer<QQmlEngineDebugClient> engineClient(new QQmlEngineDebugClient(m_connection));
     m_process->start(QStringList() << QLatin1String(BLOCKMODE) << testFile(ONCOMPLETED_QMLFILE));
@@ -969,7 +970,7 @@ void tst_QQmlDebugJS::encodeQmlScope()
             if (scopes.count() < 2)
                 scopesFailed = true;
 
-            for (const QJsonValue &scope : scopes) {
+            for (const QJsonValue scope : scopes) {
                 ++numExpectedScopes;
                 m_client->scope(scope.toObject().value("index").toInt());
             }
@@ -1026,6 +1027,94 @@ void tst_QQmlDebugJS::breakOnAnchor()
     QCOMPARE(breaks, 2);
 }
 
+void tst_QQmlDebugJS::breakPointIds()
+{
+    QString file(BREAKPOINTIDS_QMLFILE);
+    QCOMPARE(init(true, file), ConnectSuccess);
+
+    int breaks = 0;
+    int breakPointIds[] = { -1, -1, -1, -1, -1, -1};
+
+    QObject::connect(m_client.data(), &QV4DebugClient::stopped, this, [&]() {
+        const QJsonObject body = m_client->response().body.toObject();
+        QCOMPARE(body.value("sourceLine").toInt(), breaks + 4);
+        const QJsonArray breakpointsHit = body.value("breakpoints").toArray();
+        QVERIFY(breakpointsHit.size() > 0);
+        QCOMPARE(breakpointsHit[0].toInt(), breakPointIds[breaks]);
+        ++breaks;
+        m_client->continueDebugging(QV4DebugClient::Continue);
+    });
+
+    for (int i = 0; i < 6; ++i)
+        breakPointIds[i] = setBreakPoint(file, i + 4, true);
+
+    clearBreakPoint(breakPointIds[2]);
+    breakPointIds[2] = setBreakPoint(file, 6, true);
+
+    QTRY_COMPARE(m_process->state(), QProcess::Running);
+    m_client->connect();
+
+    QTRY_COMPARE(m_process->state(), QProcess::NotRunning);
+    QCOMPARE(m_process->exitStatus(), QProcess::NormalExit);
+
+    QCOMPARE(breaks, 6);
+}
+
+void tst_QQmlDebugJS::letConstLocals()
+{
+    QString file(LETCONSTLOCALS_QMLFILE);
+    QCOMPARE(init(true, file), ConnectSuccess);
+
+    QObject::connect(m_client.data(), &QV4DebugClient::stopped, this, [&]() {
+        m_client->frame();
+    });
+
+    int numScopes = 0;
+    QString expectedMembers = QStringLiteral("abcde");
+    QObject::connect(m_client.data(), &QV4DebugClient::result, this, [&]() {
+        const auto value = m_client->response();
+        if (value.command == QStringLiteral("frame")) {
+            const auto scopes = value.body.toObject().value(QStringLiteral("scopes")).toArray();
+            for (const auto &scope : scopes) {
+                const auto scopeObject = scope.toObject();
+                const int type = scopeObject.value("type").toInt();
+                if (type == 1 || type == 4) {
+                    m_client->scope(scopeObject.value("index").toInt());
+                    ++numScopes;
+                }
+            }
+            QVERIFY(numScopes > 0);
+        } else if (value.command == QStringLiteral("scope")) {
+            const auto props = value.body.toObject().value(QStringLiteral("object")).toObject()
+                    .value(QStringLiteral("properties")).toArray();
+            for (const auto &prop : props) {
+                const auto propObj = prop.toObject();
+                QString name = propObj.value(QStringLiteral("name")).toString();
+                QVERIFY(name.length() == 1);
+                auto i = expectedMembers.indexOf(name.at(0));
+                QVERIFY(i != -1);
+                expectedMembers.remove(i, 1);
+                QCOMPARE(propObj.value(QStringLiteral("type")).toString(),
+                         QStringLiteral("number"));
+                QCOMPARE(propObj.value(QStringLiteral("value")).toInt(),
+                         int(name.at(0).toLatin1()));
+            }
+            if (--numScopes == 0) {
+                QVERIFY(expectedMembers.isEmpty());
+                m_client->continueDebugging(QV4DebugClient::Continue);
+            }
+        }
+    });
+
+    setBreakPoint(file, 10, true);
+
+    QTRY_COMPARE(m_process->state(), QProcess::Running);
+    m_client->connect();
+
+    QTRY_COMPARE(m_process->state(), QProcess::NotRunning);
+    QCOMPARE(m_process->exitStatus(), QProcess::NormalExit);
+}
+
 QList<QQmlDebugClient *> tst_QQmlDebugJS::createClients()
 {
     m_client = new QV4DebugClient(m_connection);
@@ -1052,6 +1141,35 @@ void tst_QQmlDebugJS::checkVersionParameters()
     QCOMPARE(body.value("UnpausedEvaluate").toBool(), true);
     QCOMPARE(body.value("ContextEvaluate").toBool(), true);
     QCOMPARE(body.value("ChangeBreakpoint").toBool(), true);
+}
+
+int tst_QQmlDebugJS::setBreakPoint(const QString &file, int sourceLine, bool enabled)
+{
+    int id = -1;
+    auto connection = QObject::connect(m_client.data(), &QV4DebugClient::result, [&]() {
+        id = m_client->response().body.toObject().value("breakpoint").toInt();
+    });
+
+    m_client->setBreakpoint(file, sourceLine, -1, enabled);
+    bool success = QTest::qWaitFor([&]() { return id >= 0; });
+    Q_UNUSED(success);
+
+    QObject::disconnect(connection);
+    return id;
+}
+
+void tst_QQmlDebugJS::clearBreakPoint(int id)
+{
+    bool ok = false;
+    auto connection = QObject::connect(m_client.data(), &QV4DebugClient::result, [&]() {
+        ok = true;
+    });
+
+    m_client->clearBreakpoint(id);
+    bool success = QTest::qWaitFor([&]() { return ok; });
+    Q_UNUSED(success);
+
+    QObject::disconnect(connection);
 }
 
 QTEST_MAIN(tst_QQmlDebugJS)

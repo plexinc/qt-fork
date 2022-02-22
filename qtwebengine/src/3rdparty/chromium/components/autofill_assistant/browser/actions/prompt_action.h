@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "base/containers/flat_map.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "components/autofill_assistant/browser/actions/action.h"
@@ -17,6 +18,7 @@
 #include "components/autofill_assistant/browser/chip.h"
 #include "components/autofill_assistant/browser/element_precondition.h"
 #include "components/autofill_assistant/browser/user_action.h"
+#include "components/autofill_assistant/browser/web/element.h"
 
 namespace autofill_assistant {
 
@@ -35,17 +37,23 @@ class PromptAction : public Action {
       base::OnceCallback<void(const ClientStatus&)> wait_for_dom_callback);
   void SetupConditions();
   bool HasNonemptyPreconditions();
-  void OnPreconditionResult(size_t choice_index,
-                            const ClientStatus& status,
-                            const std::vector<std::string>& ignored_payloads);
+  void OnPreconditionResult(
+      size_t choice_index,
+      const ClientStatus& status,
+      const std::vector<std::string>& ignored_payloads,
+      const base::flat_map<std::string, DomObjectFrameStack>& ignored_elements);
   void UpdateUserActions();
-  void OnAutoSelectCondition(const ClientStatus& status,
-                             const std::vector<std::string>& payloads);
+  void OnAutoSelectCondition(
+      const ClientStatus& status,
+      const std::vector<std::string>& payloads,
+      const base::flat_map<std::string, DomObjectFrameStack>& ignored_elements);
   void OnElementChecksDone(
       base::OnceCallback<void(const ClientStatus&)> wait_for_dom_callback);
   void OnDoneWaitForDom(const ClientStatus& status);
   void OnSuggestionChosen(int choice_index);
+  void OnNavigationEnded();
   void EndAction(const ClientStatus& status);
+  void UpdateTimings();
 
   ProcessActionCallback callback_;
 
@@ -56,6 +64,14 @@ class PromptAction : public Action {
   // precondition_results_[i] contains the last result reported by
   // preconditions_[i].
   std::vector<bool> precondition_results_;
+  // positive_precondition_changes_[i] contains true only when the corresponding
+  // preconditions_[i] changed from false to true in the last periodic checks.
+  std::vector<bool> positive_precondition_changes_;
+  // precondition_stopwatches_[i] contains a stopwatch with the active time for
+  // preconditions_[i]. This will be 0 as long as preconditions_[i] is false
+  // and will contain the sum of the time that the precondition checks required
+  // to complete plus half the duration of the retry period.
+  std::vector<Stopwatch> precondition_stopwatches_;
 
   // true if something in precondition_results_ has changed, which means that
   // the set of user actions must be updated.
@@ -71,6 +87,14 @@ class PromptAction : public Action {
 
   // Batch element checker for preconditions and auto-selection.
   std::unique_ptr<BatchElementChecker> element_checker_;
+
+  // This stopwatch contains the total wait time, needed all exit criteria
+  // except the autoselect one.
+  Stopwatch wait_time_stopwatch_;
+  // Contains the duration of the last retry period.
+  Stopwatch last_period_stopwatch_;
+  // Contains the duration of the last precondition checks.
+  Stopwatch last_checks_stopwatch_;
 
   base::WeakPtrFactory<PromptAction> weak_ptr_factory_{this};
 

@@ -8,6 +8,7 @@
 #include "cc/metrics/begin_main_frame_metrics.h"
 #include "components/ukm/test_ukm_recorder.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/metrics/document_update_reason.h"
 
 namespace blink {
 
@@ -18,9 +19,7 @@ class LocalFrameUkmAggregatorTest : public testing::Test {
 
   void SetUp() override {
     test_task_runner_ = base::MakeRefCounted<base::TestMockTimeTaskRunner>();
-    aggregator_ = base::MakeRefCounted<LocalFrameUkmAggregator>(
-        ukm::UkmRecorder::GetNewSourceID(), &recorder_);
-    aggregator_->SetTickClockForTesting(test_task_runner_->GetMockTickClock());
+    RestartAggregator();
   }
 
   void TearDown() override {
@@ -35,18 +34,22 @@ class LocalFrameUkmAggregatorTest : public testing::Test {
   ukm::TestUkmRecorder& recorder() { return recorder_; }
 
   void ResetAggregator() { aggregator_.reset(); }
+  void RestartAggregator() {
+    aggregator_ = base::MakeRefCounted<LocalFrameUkmAggregator>(
+        ukm::UkmRecorder::GetNewSourceID(), &recorder_);
+    aggregator_->SetTickClockForTesting(test_task_runner_->GetMockTickClock());
+  }
 
   std::string GetPrimaryMetricName() {
-    return LocalFrameUkmAggregator::primary_metric_name().Utf8();
+    return LocalFrameUkmAggregator::primary_metric_name();
   }
 
   std::string GetMetricName(int index) {
-    return LocalFrameUkmAggregator::metrics_data()[index].name.Utf8();
+    return LocalFrameUkmAggregator::metrics_data()[index].name;
   }
 
-  std::string GetPercentageMetricName(int index) {
-    return LocalFrameUkmAggregator::metrics_data()[index].name.Utf8() +
-           "Percentage";
+  std::string GetBeginMainFrameMetricName(int index) {
+    return GetMetricName(index) + "BeginMainFrame";
   }
 
   void ChooseNextFrameForTest() { aggregator().ChooseNextFrameForTest(); }
@@ -62,7 +65,7 @@ class LocalFrameUkmAggregatorTest : public testing::Test {
   void VerifyUpdateEntry(unsigned index,
                          unsigned expected_primary_metric,
                          unsigned expected_sub_metric,
-                         unsigned expected_percentage,
+                         unsigned expected_begin_main_frame,
                          unsigned expected_reasons,
                          bool expected_before_fcp) {
     auto entries = recorder().GetEntriesByName("Blink.UpdateTime");
@@ -74,7 +77,10 @@ class LocalFrameUkmAggregatorTest : public testing::Test {
     const int64_t* primary_metric_value =
         ukm::TestUkmRecorder::GetEntryMetric(entry, GetPrimaryMetricName());
     EXPECT_NEAR(*primary_metric_value / 1e3, expected_primary_metric, 0.001);
-    for (int i = 0; i < LocalFrameUkmAggregator::kCount; ++i) {
+    // All tests using this method check through kForcedStyleAndLayout because
+    // kForcedStyleAndLayout and subsequent metrics report and record
+    // differently.
+    for (int i = 0; i < LocalFrameUkmAggregator::kForcedStyleAndLayout; ++i) {
       EXPECT_TRUE(
           ukm::TestUkmRecorder::EntryHasMetric(entry, GetMetricName(i)));
       const int64_t* metric_value =
@@ -82,10 +88,12 @@ class LocalFrameUkmAggregatorTest : public testing::Test {
       EXPECT_NEAR(*metric_value / 1e3, expected_sub_metric, 0.001);
 
       EXPECT_TRUE(ukm::TestUkmRecorder::EntryHasMetric(
-          entry, GetPercentageMetricName(i)));
-      const int64_t* metric_percentage = ukm::TestUkmRecorder::GetEntryMetric(
-          entry, GetPercentageMetricName(i));
-      EXPECT_NEAR(*metric_percentage, expected_percentage, 0.001);
+          entry, GetBeginMainFrameMetricName(i)));
+      const int64_t* metric_begin_main_frame =
+          ukm::TestUkmRecorder::GetEntryMetric(entry,
+                                               GetBeginMainFrameMetricName(i));
+      EXPECT_NEAR(*metric_begin_main_frame / 1e3, expected_begin_main_frame,
+                  0.001);
     }
     EXPECT_TRUE(
         ukm::TestUkmRecorder::EntryHasMetric(entry, "MainFrameIsBeforeFCP"));
@@ -101,15 +109,18 @@ class LocalFrameUkmAggregatorTest : public testing::Test {
                                unsigned expected_primary_metric,
                                unsigned expected_sub_metric) {
     auto entries = recorder().GetEntriesByName("Blink.PageLoad");
-    EXPECT_EQ(entries.size(), expected_num_entries);
 
+    EXPECT_EQ(entries.size(), expected_num_entries);
     for (auto* entry : entries) {
       EXPECT_TRUE(
           ukm::TestUkmRecorder::EntryHasMetric(entry, GetPrimaryMetricName()));
       const int64_t* primary_metric_value =
           ukm::TestUkmRecorder::GetEntryMetric(entry, GetPrimaryMetricName());
       EXPECT_NEAR(*primary_metric_value / 1e3, expected_primary_metric, 0.001);
-      for (int i = 0; i < LocalFrameUkmAggregator::kCount; ++i) {
+      // All tests using this method check through kForcedStyleAndLayout because
+      // kForcedStyleAndLayout and subsequent metrics report and record
+      // differently.
+      for (int i = 0; i < LocalFrameUkmAggregator::kForcedStyleAndLayout; ++i) {
         EXPECT_TRUE(
             ukm::TestUkmRecorder::EntryHasMetric(entry, GetMetricName(i)));
         const int64_t* metric_value =
@@ -124,7 +135,10 @@ class LocalFrameUkmAggregatorTest : public testing::Test {
                      cc::ActiveFrameSequenceTrackers trackers,
                      bool mark_fcp = false) {
     aggregator().BeginMainFrame();
-    for (int i = 0; i < LocalFrameUkmAggregator::kCount; ++i) {
+    // All tests using this method run through kForcedStyleAndLayout because
+    // kForcedStyleAndLayout is not reported using a ScopedTimer and the
+    // subsequent metrics are reported as part of kForcedStyleAndLayout.
+    for (int i = 0; i < LocalFrameUkmAggregator::kForcedStyleAndLayout; ++i) {
       auto timer = aggregator().GetScopedTimer(i);
       if (mark_fcp && i == static_cast<int>(LocalFrameUkmAggregator::kPaint))
         aggregator().DidReachFirstContentfulPaint(true);
@@ -132,6 +146,61 @@ class LocalFrameUkmAggregatorTest : public testing::Test {
           base::TimeDelta::FromMilliseconds(millisecond_per_step));
     }
     aggregator().RecordEndOfFrameMetrics(start_time, Now(), trackers);
+  }
+
+  void SimulatePreFrame(unsigned millisecond_per_step) {
+    // All tests using this method run through kForcedStyleAndLayout because
+    // kForcedStyleAndLayout is not reported using a ScopedTimer and the
+    // subsequent metrics are reported as part of kForcedStyleAndLayout.
+    for (int i = 0; i < LocalFrameUkmAggregator::kForcedStyleAndLayout; ++i) {
+      auto timer = aggregator().GetScopedTimer(i);
+      test_task_runner_->FastForwardBy(
+          base::TimeDelta::FromMilliseconds(millisecond_per_step));
+    }
+  }
+
+  void SimulateAndVerifyForcedLayoutReason(
+      DocumentUpdateReason reason,
+      LocalFrameUkmAggregator::MetricId target_metric,
+      unsigned expected_num_entries) {
+    base::TimeTicks start_time = Now();
+    test_task_runner_->FastForwardBy(base::TimeDelta::FromMilliseconds(10));
+    base::TimeTicks end_time = Now();
+
+    aggregator().BeginMainFrame();
+    aggregator().RecordForcedLayoutSample(reason, start_time, end_time);
+    aggregator().RecordEndOfFrameMetrics(start_time, end_time, 0);
+    ResetAggregator();
+
+    EXPECT_EQ(recorder().entries_count(), expected_num_entries);
+    auto entries = recorder().GetEntriesByName("Blink.UpdateTime");
+    EXPECT_GT(entries.size(), expected_num_entries - 1);
+    auto* entry = entries[expected_num_entries - 1];
+
+    EXPECT_TRUE(ukm::TestUkmRecorder::EntryHasMetric(
+        entry, GetMetricName(LocalFrameUkmAggregator::kForcedStyleAndLayout)));
+    const int64_t* metric_value = ukm::TestUkmRecorder::GetEntryMetric(
+        entry, GetMetricName(LocalFrameUkmAggregator::kForcedStyleAndLayout));
+    EXPECT_NEAR(*metric_value / 1e3, 10, 0.001);
+
+    if (target_metric != LocalFrameUkmAggregator::kCount) {
+      EXPECT_TRUE(ukm::TestUkmRecorder::EntryHasMetric(
+          entry, GetMetricName(target_metric)));
+      metric_value = ukm::TestUkmRecorder::GetEntryMetric(
+          entry, GetMetricName(target_metric));
+      EXPECT_NEAR(*metric_value / 1e3, 10, 0.001);
+    }
+    for (int i = LocalFrameUkmAggregator::kForcedStyleAndLayout + 1;
+         i < LocalFrameUkmAggregator::kCount; ++i) {
+      if (i != target_metric) {
+        EXPECT_TRUE(
+            ukm::TestUkmRecorder::EntryHasMetric(entry, GetMetricName(i)));
+        metric_value =
+            ukm::TestUkmRecorder::GetEntryMetric(entry, GetMetricName(i));
+        EXPECT_EQ(*metric_value, 0);
+      }
+    }
+    RestartAggregator();
   }
 
   bool SampleMatchesIteration(int64_t iteration_count) {
@@ -183,13 +252,47 @@ TEST_F(LocalFrameUkmAggregatorTest, FirstFrameIsRecorded) {
   EXPECT_EQ(recorder().entries_count(), 1u);
 
   float expected_primary_metric =
-      millisecond_for_step * LocalFrameUkmAggregator::kCount;
+      millisecond_for_step * LocalFrameUkmAggregator::kForcedStyleAndLayout;
   float expected_sub_metric = millisecond_for_step;
-  float expected_percentage =
-      floor(100.0 / static_cast<float>(LocalFrameUkmAggregator::kCount));
+  float expected_begin_main_frame = millisecond_for_step;
 
   VerifyUpdateEntry(0u, expected_primary_metric, expected_sub_metric,
-                    expected_percentage, 12, true);
+                    expected_begin_main_frame, 12, true);
+}
+
+TEST_F(LocalFrameUkmAggregatorTest, PreFrameWorkIsRecorded) {
+  // Verifies that we correctly account for work done before the begin
+  // main frame, and then within the begin main frame.
+
+  // Although the tests use a mock clock, the UKM aggregator checks if the
+  // system has a high resolution clock before recording results. As a result,
+  // the tests will fail if the system does not have a high resolution clock.
+  if (!base::TimeTicks::IsHighResolution())
+    return;
+
+  // The initial interval is always zero, so we should see one set of metrics
+  // for the initial frame, regardless of the initial interval.
+  unsigned millisecond_for_step = 1;
+  base::TimeTicks start_time =
+      Now() + base::TimeDelta::FromMilliseconds(millisecond_for_step) *
+                  LocalFrameUkmAggregator::kForcedStyleAndLayout;
+  SimulatePreFrame(millisecond_for_step);
+  SimulateFrame(start_time, millisecond_for_step, 12);
+
+  // Metrics are not reported until destruction.
+  EXPECT_EQ(recorder().entries_count(), 0u);
+
+  // Reset the aggregator. Should record one pre-FCP metric.
+  ResetAggregator();
+  EXPECT_EQ(recorder().entries_count(), 1u);
+
+  float expected_primary_metric =
+      millisecond_for_step * LocalFrameUkmAggregator::kForcedStyleAndLayout;
+  float expected_sub_metric = millisecond_for_step * 2;
+  float expected_begin_main_frame = millisecond_for_step;
+
+  VerifyUpdateEntry(0u, expected_primary_metric, expected_sub_metric,
+                    expected_begin_main_frame, 12, true);
 }
 
 TEST_F(LocalFrameUkmAggregatorTest, PreAndPostFCPAreRecorded) {
@@ -204,7 +307,8 @@ TEST_F(LocalFrameUkmAggregatorTest, PreAndPostFCPAreRecorded) {
   // The initial interval is always zero, so we should see one set of metrics
   // for the initial frame, regardless of the initial interval.
   base::TimeTicks start_time = Now();
-  unsigned millisecond_per_step = 50 / (LocalFrameUkmAggregator::kCount + 1);
+  unsigned millisecond_per_step =
+      50 / (LocalFrameUkmAggregator::kForcedStyleAndLayout + 1);
   SimulateFrame(start_time, millisecond_per_step, 4, true);
 
   // We marked FCP when we simulated, so we should report something. There
@@ -212,19 +316,18 @@ TEST_F(LocalFrameUkmAggregatorTest, PreAndPostFCPAreRecorded) {
   EXPECT_EQ(recorder().entries_count(), 2u);
 
   float expected_primary_metric =
-      millisecond_per_step * LocalFrameUkmAggregator::kCount;
+      millisecond_per_step * LocalFrameUkmAggregator::kForcedStyleAndLayout;
   float expected_sub_metric = millisecond_per_step;
-  float expected_percentage =
-      floor(100.0 / static_cast<float>(LocalFrameUkmAggregator::kCount));
+  float expected_begin_main_frame = millisecond_per_step;
 
   VerifyUpdateEntry(0u, expected_primary_metric, expected_sub_metric,
-                    expected_percentage, 4, true);
+                    expected_begin_main_frame, 4, true);
 
   // Take another step. Should reset the frame count and report the first post-
   // fcp frame. A failure here iundicates that we did not reset the frame,
   // or that we are incorrectly tracking pre/post fcp.
   unsigned millisecond_per_frame =
-      millisecond_per_step * LocalFrameUkmAggregator::kCount;
+      millisecond_per_step * LocalFrameUkmAggregator::kForcedStyleAndLayout;
 
   start_time = Now();
   SimulateFrame(start_time, millisecond_per_step, 4);
@@ -238,10 +341,8 @@ TEST_F(LocalFrameUkmAggregatorTest, PreAndPostFCPAreRecorded) {
   // been recorded.
   EXPECT_EQ(recorder().entries_count(), 3u);
 
-  expected_percentage = floor(millisecond_per_step * 100.0 /
-                              static_cast<float>(millisecond_per_frame));
   VerifyUpdateEntry(1u, millisecond_per_frame, millisecond_per_step,
-                    expected_percentage, 4, false);
+                    expected_begin_main_frame, 4, false);
 }
 
 TEST_F(LocalFrameUkmAggregatorTest, AggregatedPreFCPEventRecorded) {
@@ -254,9 +355,10 @@ TEST_F(LocalFrameUkmAggregatorTest, AggregatedPreFCPEventRecorded) {
   // Be sure to not choose the next frame. We shouldn't need to record an
   // UpdateTime metric in order to record an aggregated metric.
   DoNotChooseNextFrameForTest();
-  unsigned millisecond_per_step = 50 / (LocalFrameUkmAggregator::kCount + 1);
+  unsigned millisecond_per_step =
+      50 / (LocalFrameUkmAggregator::kForcedStyleAndLayout + 1);
   unsigned millisecond_per_frame =
-      millisecond_per_step * (LocalFrameUkmAggregator::kCount);
+      millisecond_per_step * (LocalFrameUkmAggregator::kForcedStyleAndLayout);
 
   base::TimeTicks start_time = Now();
   SimulateFrame(start_time, millisecond_per_step, 3);
@@ -277,6 +379,106 @@ TEST_F(LocalFrameUkmAggregatorTest, AggregatedPreFCPEventRecorded) {
   ResetAggregator();
 }
 
+TEST_F(LocalFrameUkmAggregatorTest, ForcedLayoutReasonsReportOnlyMetric) {
+  // Although the tests use a mock clock, the UKM aggregator checks if the
+  // system has a high resolution clock before recording results. As a result,
+  // the tests will fail if the system does not have a high resolution clock.
+  if (!base::TimeTicks::IsHighResolution())
+    return;
+
+  // Test that every layout reason reports the expected UKM metric.
+  SimulateAndVerifyForcedLayoutReason(
+      DocumentUpdateReason::kContextMenu,
+      LocalFrameUkmAggregator::kUserDrivenDocumentUpdate, 1u);
+  SimulateAndVerifyForcedLayoutReason(
+      DocumentUpdateReason::kEditing,
+      LocalFrameUkmAggregator::kUserDrivenDocumentUpdate, 2u);
+  SimulateAndVerifyForcedLayoutReason(
+      DocumentUpdateReason::kEditing,
+      LocalFrameUkmAggregator::kUserDrivenDocumentUpdate, 3u);
+  SimulateAndVerifyForcedLayoutReason(
+      DocumentUpdateReason::kFindInPage,
+      LocalFrameUkmAggregator::kUserDrivenDocumentUpdate, 4u);
+  SimulateAndVerifyForcedLayoutReason(
+      DocumentUpdateReason::kFocus,
+      LocalFrameUkmAggregator::kUserDrivenDocumentUpdate, 5u);
+  SimulateAndVerifyForcedLayoutReason(
+      DocumentUpdateReason::kForm,
+      LocalFrameUkmAggregator::kUserDrivenDocumentUpdate, 6u);
+  SimulateAndVerifyForcedLayoutReason(
+      DocumentUpdateReason::kInput,
+      LocalFrameUkmAggregator::kUserDrivenDocumentUpdate, 7u);
+  SimulateAndVerifyForcedLayoutReason(
+      DocumentUpdateReason::kInspector,
+      LocalFrameUkmAggregator::kUserDrivenDocumentUpdate, 8u);
+  SimulateAndVerifyForcedLayoutReason(
+      DocumentUpdateReason::kPrinting,
+      LocalFrameUkmAggregator::kUserDrivenDocumentUpdate, 9u);
+  SimulateAndVerifyForcedLayoutReason(
+      DocumentUpdateReason::kSelection,
+      LocalFrameUkmAggregator::kUserDrivenDocumentUpdate, 10u);
+  SimulateAndVerifyForcedLayoutReason(
+      DocumentUpdateReason::kSpatialNavigation,
+      LocalFrameUkmAggregator::kUserDrivenDocumentUpdate, 11u);
+  SimulateAndVerifyForcedLayoutReason(
+      DocumentUpdateReason::kTapHighlight,
+      LocalFrameUkmAggregator::kUserDrivenDocumentUpdate, 12u);
+
+  SimulateAndVerifyForcedLayoutReason(
+      DocumentUpdateReason::kAccessibility,
+      LocalFrameUkmAggregator::kServiceDocumentUpdate, 13u);
+  SimulateAndVerifyForcedLayoutReason(
+      DocumentUpdateReason::kBaseColor,
+      LocalFrameUkmAggregator::kServiceDocumentUpdate, 14u);
+  SimulateAndVerifyForcedLayoutReason(
+      DocumentUpdateReason::kDisplayLock,
+      LocalFrameUkmAggregator::kServiceDocumentUpdate, 15u);
+  SimulateAndVerifyForcedLayoutReason(
+      DocumentUpdateReason::kIntersectionObservation,
+      LocalFrameUkmAggregator::kServiceDocumentUpdate, 16u);
+  SimulateAndVerifyForcedLayoutReason(
+      DocumentUpdateReason::kOverlay,
+      LocalFrameUkmAggregator::kServiceDocumentUpdate, 17u);
+  SimulateAndVerifyForcedLayoutReason(
+      DocumentUpdateReason::kPagePopup,
+      LocalFrameUkmAggregator::kServiceDocumentUpdate, 18u);
+  SimulateAndVerifyForcedLayoutReason(
+      DocumentUpdateReason::kSizeChange,
+      LocalFrameUkmAggregator::kServiceDocumentUpdate, 19u);
+  SimulateAndVerifyForcedLayoutReason(
+      DocumentUpdateReason::kSpellCheck,
+      LocalFrameUkmAggregator::kServiceDocumentUpdate, 20u);
+
+  SimulateAndVerifyForcedLayoutReason(
+      DocumentUpdateReason::kCanvas,
+      LocalFrameUkmAggregator::kContentDocumentUpdate, 21u);
+  SimulateAndVerifyForcedLayoutReason(
+      DocumentUpdateReason::kPlugin,
+      LocalFrameUkmAggregator::kContentDocumentUpdate, 22u);
+  SimulateAndVerifyForcedLayoutReason(
+      DocumentUpdateReason::kSVGImage,
+      LocalFrameUkmAggregator::kContentDocumentUpdate, 23u);
+
+  SimulateAndVerifyForcedLayoutReason(
+      DocumentUpdateReason::kScroll,
+      LocalFrameUkmAggregator::kScrollDocumentUpdate, 24u);
+
+  SimulateAndVerifyForcedLayoutReason(
+      DocumentUpdateReason::kHitTest,
+      LocalFrameUkmAggregator::kHitTestDocumentUpdate, 25u);
+
+  SimulateAndVerifyForcedLayoutReason(
+      DocumentUpdateReason::kJavaScript,
+      LocalFrameUkmAggregator::kJavascriptDocumentUpdate, 26u);
+
+  SimulateAndVerifyForcedLayoutReason(DocumentUpdateReason::kBeginMainFrame,
+                                      LocalFrameUkmAggregator::kCount, 27u);
+  SimulateAndVerifyForcedLayoutReason(DocumentUpdateReason::kTest,
+                                      LocalFrameUkmAggregator::kCount, 28u);
+  SimulateAndVerifyForcedLayoutReason(DocumentUpdateReason::kUnknown,
+                                      LocalFrameUkmAggregator::kCount, 29u);
+}
+
 TEST_F(LocalFrameUkmAggregatorTest, LatencyDataIsPopulated) {
   // Although the tests use a mock clock, the UKM aggregator checks if the
   // system has a high resolution clock before recording results. As a result,
@@ -288,9 +490,9 @@ TEST_F(LocalFrameUkmAggregatorTest, LatencyDataIsPopulated) {
   // because we need to populate before the end of the frame.
   unsigned millisecond_for_step = 1;
   aggregator().BeginMainFrame();
-  for (int i = 0; i < LocalFrameUkmAggregator::kCount; ++i) {
-    auto timer =
-        aggregator().GetScopedTimer(i % LocalFrameUkmAggregator::kCount);
+  for (int i = 0; i < LocalFrameUkmAggregator::kForcedStyleAndLayout; ++i) {
+    auto timer = aggregator().GetScopedTimer(
+        i % LocalFrameUkmAggregator::kForcedStyleAndLayout);
     test_task_runner_->FastForwardBy(
         base::TimeDelta::FromMilliseconds(millisecond_for_step));
   }
@@ -303,11 +505,12 @@ TEST_F(LocalFrameUkmAggregatorTest, LatencyDataIsPopulated) {
   EXPECT_EQ(metrics_data->style_update.InMillisecondsF(), millisecond_for_step);
   EXPECT_EQ(metrics_data->layout_update.InMillisecondsF(),
             millisecond_for_step);
-  EXPECT_EQ(metrics_data->prepaint.InMillisecondsF(), millisecond_for_step);
-  EXPECT_EQ(metrics_data->composite.InMillisecondsF(), millisecond_for_step);
-  EXPECT_EQ(metrics_data->paint.InMillisecondsF(), millisecond_for_step);
-  EXPECT_EQ(metrics_data->scrolling_coordinator.InMillisecondsF(),
+  EXPECT_EQ(metrics_data->compositing_inputs.InMillisecondsF(),
             millisecond_for_step);
+  EXPECT_EQ(metrics_data->prepaint.InMillisecondsF(), millisecond_for_step);
+  EXPECT_EQ(metrics_data->compositing_assignments.InMillisecondsF(),
+            millisecond_for_step);
+  EXPECT_EQ(metrics_data->paint.InMillisecondsF(), millisecond_for_step);
   EXPECT_EQ(metrics_data->composite_commit.InMillisecondsF(),
             millisecond_for_step);
   // Do not check the value in metrics_data.update_layers because it

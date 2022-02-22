@@ -45,9 +45,6 @@
 #include <QtDBus/qtdbusglobal.h>
 #include <QtCore/qvariant.h>
 #include <QtCore/qstring.h>
-#if QT_DEPRECATED_SINCE(5, 6)
-#include <QtCore/qhash.h>
-#endif
 #include <QtCore/qhashfunctions.h>
 
 #ifndef QT_NO_DBUS
@@ -79,7 +76,7 @@ public:
 private:
     void doCheck();
 };
-Q_DECLARE_SHARED_NOT_MOVABLE_UNTIL_QT6(QDBusObjectPath)
+Q_DECLARE_SHARED(QDBusObjectPath)
 
 inline QDBusObjectPath::QDBusObjectPath(const char *objectPath)
     : m_path(QString::fromLatin1(objectPath))
@@ -105,7 +102,7 @@ inline bool operator!=(const QDBusObjectPath &lhs, const QDBusObjectPath &rhs)
 inline bool operator<(const QDBusObjectPath &lhs, const QDBusObjectPath &rhs)
 { return lhs.path() < rhs.path(); }
 
-inline uint qHash(const QDBusObjectPath &objectPath, uint seed = 0)
+inline size_t qHash(const QDBusObjectPath &objectPath, size_t seed = 0)
 { return qHash(objectPath.path(), seed); }
 
 
@@ -132,7 +129,7 @@ public:
 private:
     void doCheck();
 };
-Q_DECLARE_SHARED_NOT_MOVABLE_UNTIL_QT6(QDBusSignature)
+Q_DECLARE_SHARED(QDBusSignature)
 
 inline QDBusSignature::QDBusSignature(const char *dBusSignature)
     : m_signature(QString::fromLatin1(dBusSignature))
@@ -158,7 +155,7 @@ inline bool operator!=(const QDBusSignature &lhs, const QDBusSignature &rhs)
 inline bool operator<(const QDBusSignature &lhs, const QDBusSignature &rhs)
 { return lhs.signature() < rhs.signature(); }
 
-inline uint qHash(const QDBusSignature &signature, uint seed = 0)
+inline size_t qHash(const QDBusSignature &signature, size_t seed = 0)
 { return qHash(signature.signature(), seed); }
 
 class QDBusVariant
@@ -179,7 +176,7 @@ public:
     inline QVariant variant() const
     { return m_variant; }
 };
-Q_DECLARE_SHARED_NOT_MOVABLE_UNTIL_QT6(QDBusVariant)
+Q_DECLARE_SHARED(QDBusVariant)
 
 inline  QDBusVariant::QDBusVariant(const QVariant &dBusVariant)
     : m_variant(dBusVariant) { }

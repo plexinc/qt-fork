@@ -2,12 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/qpack/qpack_encoder_stream_receiver.h"
+#include "quic/core/qpack/qpack_encoder_stream_receiver.h"
 
-#include "net/third_party/quiche/src/http2/decoder/decode_buffer.h"
-#include "net/third_party/quiche/src/http2/decoder/decode_status.h"
-#include "net/third_party/quiche/src/quic/core/qpack/qpack_instructions.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/string_view.h"
+#include "http2/decoder/decode_buffer.h"
+#include "http2/decoder/decode_status.h"
+#include "quic/core/qpack/qpack_instructions.h"
+#include "quic/platform/api/quic_logging.h"
 
 namespace quic {
 
@@ -15,10 +16,10 @@ QpackEncoderStreamReceiver::QpackEncoderStreamReceiver(Delegate* delegate)
     : instruction_decoder_(QpackEncoderStreamLanguage(), this),
       delegate_(delegate),
       error_detected_(false) {
-  DCHECK(delegate_);
+  QUICHE_DCHECK(delegate_);
 }
 
-void QpackEncoderStreamReceiver::Decode(quiche::QuicheStringPiece data) {
+void QpackEncoderStreamReceiver::Decode(absl::string_view data) {
   if (data.empty() || error_detected_) {
     return;
   }
@@ -46,17 +47,34 @@ bool QpackEncoderStreamReceiver::OnInstructionDecoded(
     return true;
   }
 
-  DCHECK_EQ(instruction, SetDynamicTableCapacityInstruction());
+  QUICHE_DCHECK_EQ(instruction, SetDynamicTableCapacityInstruction());
   delegate_->OnSetDynamicTableCapacity(instruction_decoder_.varint());
   return true;
 }
 
-void QpackEncoderStreamReceiver::OnError(
-    quiche::QuicheStringPiece error_message) {
-  DCHECK(!error_detected_);
+void QpackEncoderStreamReceiver::OnInstructionDecodingError(
+    QpackInstructionDecoder::ErrorCode error_code,
+    absl::string_view error_message) {
+  QUICHE_DCHECK(!error_detected_);
 
   error_detected_ = true;
-  delegate_->OnErrorDetected(error_message);
+
+  QuicErrorCode quic_error_code;
+  switch (error_code) {
+    case QpackInstructionDecoder::ErrorCode::INTEGER_TOO_LARGE:
+      quic_error_code = QUIC_QPACK_ENCODER_STREAM_INTEGER_TOO_LARGE;
+      break;
+    case QpackInstructionDecoder::ErrorCode::STRING_LITERAL_TOO_LONG:
+      quic_error_code = QUIC_QPACK_ENCODER_STREAM_STRING_LITERAL_TOO_LONG;
+      break;
+    case QpackInstructionDecoder::ErrorCode::HUFFMAN_ENCODING_ERROR:
+      quic_error_code = QUIC_QPACK_ENCODER_STREAM_HUFFMAN_ENCODING_ERROR;
+      break;
+    default:
+      quic_error_code = QUIC_INTERNAL_ERROR;
+  }
+
+  delegate_->OnErrorDetected(quic_error_code, error_message);
 }
 
 }  // namespace quic

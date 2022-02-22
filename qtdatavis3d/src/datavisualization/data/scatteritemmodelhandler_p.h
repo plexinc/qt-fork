@@ -43,7 +43,7 @@
 #include "abstractitemmodelhandler_p.h"
 #include "qitemmodelscatterdataproxy_p.h"
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 class ScatterItemModelHandler : public AbstractItemModelHandler
 {
@@ -53,13 +53,13 @@ public:
     virtual ~ScatterItemModelHandler();
 
 public Q_SLOTS:
-    virtual void handleDataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight,
-                                   const QVector<int> &roles = QVector<int> ());
-    virtual void handleRowsInserted(const QModelIndex &parent, int start, int end);
-    virtual void handleRowsRemoved(const QModelIndex &parent, int start, int end);
+    void handleDataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight,
+                           const QList<int> &roles = QList<int>()) override;
+    void handleRowsInserted(const QModelIndex &parent, int start, int end) override;
+    void handleRowsRemoved(const QModelIndex &parent, int start, int end) override;
 
 protected:
-    void virtual resolveModel();
+    void resolveModel() override;
 
 private:
     void modelPosToScatterItem(int modelRow, int modelColumn, QScatterDataItem &item);
@@ -70,10 +70,10 @@ private:
     int m_yPosRole;
     int m_zPosRole;
     int m_rotationRole;
-    QRegExp m_xPosPattern;
-    QRegExp m_yPosPattern;
-    QRegExp m_zPosPattern;
-    QRegExp m_rotationPattern;
+    QRegularExpression m_xPosPattern;
+    QRegularExpression m_yPosPattern;
+    QRegularExpression m_zPosPattern;
+    QRegularExpression m_rotationPattern;
     QString m_xPosReplace;
     QString m_yPosReplace;
     QString m_zPosReplace;
@@ -84,6 +84,6 @@ private:
     bool m_haveRotationPattern;
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

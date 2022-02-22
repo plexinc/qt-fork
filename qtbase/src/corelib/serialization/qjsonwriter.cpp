@@ -42,7 +42,7 @@
 #include <qlocale.h>
 #include "qjsonwriter_p.h"
 #include "qjson_p.h"
-#include "private/qutfcodec_p.h"
+#include "private/qstringconverter_p.h"
 #include <private/qnumeric_p.h>
 #include <private/qcborvalue_p.h>
 
@@ -60,7 +60,8 @@ static inline uchar hexdig(uint u)
 
 static QByteArray escapedString(const QString &s)
 {
-    QByteArray ba(s.length(), Qt::Uninitialized);
+    // give it a minimum size to ensure the resize() below always adds enough space
+    QByteArray ba(qMax(s.length(), 16), Qt::Uninitialized);
 
     uchar *cursor = reinterpret_cast<uchar *>(const_cast<char *>(ba.constData()));
     const uchar *ba_end = cursor + ba.length();
@@ -138,15 +139,14 @@ static void valueToJson(const QCborValue &v, QByteArray &json, int indent, bool 
         json += "false";
         break;
     case QCborValue::Integer:
+        json += QByteArray::number(v.toInteger());
+        break;
     case QCborValue::Double: {
         const double d = v.toDouble();
-        if (qIsFinite(d)) {
-            quint64 absInt;
-            json += QByteArray::number(d, convertDoubleTo(std::abs(d), &absInt) ? 'f' : 'g',
-                                       QLocale::FloatingPointShortest);
-        } else {
+        if (qIsFinite(d))
+            json += QByteArray::number(d, 'g', QLocale::FloatingPointShortest);
+        else
             json += "null"; // +INF || -INF || NaN (see RFC4627#section2.4)
-        }
         break;
     }
     case QCborValue::String:

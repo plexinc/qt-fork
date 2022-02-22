@@ -44,6 +44,7 @@
 #include <QtCore/QStringList>
 #include <QtCore/QStack>
 #include <QtCore/qurl.h>
+#include <QtCore/qloggingcategory.h>
 #include <QScopeGuard>
 #include <private/qqmljsast_p.h>
 #include <private/qqmljslexer_p.h>
@@ -65,7 +66,10 @@ static const bool disable_lookups = false;
 #undef CONST
 #endif
 
-QT_USE_NAMESPACE
+QT_BEGIN_NAMESPACE
+
+Q_LOGGING_CATEGORY(lcQmlCompiler, "qt.qml.compiler");
+
 using namespace QV4;
 using namespace QV4::Compiler;
 using namespace QQmlJS;
@@ -1249,11 +1253,30 @@ bool Codegen::visit(ArrayPattern *ast)
 
 bool Codegen::visit(ArrayMemberExpression *ast)
 {
+    auto label = traverseOptionalChain(ast);
+    auto targetLabel = label.has_value() ? label.value() : Moth::BytecodeGenerator::Label();
+
     if (hasError())
         return false;
 
+    if (ast->isOptional)
+        Q_ASSERT(m_optionalChainLabels.contains(ast));
+
+
     TailCallBlocker blockTailCalls(this);
     Reference base = expression(ast->base);
+
+    auto writeSkip = [&]() {
+            auto acc = Reference::fromAccumulator(this).storeOnStack();
+            base.loadInAccumulator();
+            bytecodeGenerator->addInstruction(Instruction::CmpEqNull());
+            auto jumpFalse = bytecodeGenerator->jumpFalse();
+            bytecodeGenerator->addInstruction(Instruction::LoadUndefined());
+            bytecodeGenerator->jump().link(m_optionalChainLabels.take(ast));
+            jumpFalse.link();
+            acc.loadInAccumulator();
+    };
+
     if (hasError())
         return false;
     if (base.isSuper()) {
@@ -1268,17 +1291,31 @@ bool Codegen::visit(ArrayMemberExpression *ast)
         QString s = str->value.toString();
         uint arrayIndex = stringToArrayIndex(s);
         if (arrayIndex == UINT_MAX) {
-            setExprResult(Reference::fromMember(base, str->value.toString()));
+            auto jumpLabel = ast->isOptional ? m_optionalChainLabels.take(ast) : Moth::BytecodeGenerator::Label();
+
+            setExprResult(Reference::fromMember(base, str->value.toString(), jumpLabel, targetLabel));
             return false;
         }
+
+        if (ast->isOptional)
+            writeSkip();
+
         Reference index = Reference::fromConst(this, QV4::Encode(arrayIndex));
-        setExprResult(Reference::fromSubscript(base, index));
+        setExprResult(Reference::fromSubscript(base, index, targetLabel));
         return false;
     }
+
+
+    if (ast->isOptional)
+        writeSkip();
+
     Reference index = expression(ast->expression);
+
     if (hasError())
         return false;
-    setExprResult(Reference::fromSubscript(base, index));
+
+    setExprResult(Reference::fromSubscript(base, index, targetLabel));
+
     return false;
 }
 
@@ -1499,6 +1536,7 @@ bool Codegen::visit(BinaryExpression *ast)
         // intentional fall-through!
     case QSOperator::In:
     case QSOperator::InstanceOf:
+    case QSOperator::As:
     case QSOperator::Equal:
     case QSOperator::NotEqual:
     case QSOperator::Ge:
@@ -1531,9 +1569,6 @@ bool Codegen::visit(BinaryExpression *ast)
 
         break;
     }
-    case QSOperator::As:
-        setExprResult(left);
-        break;
     } // switch
 
     return false;
@@ -1695,6 +1730,14 @@ Codegen::Reference Codegen::binopHelper(QSOperator::Op oper, Reference &left, Re
         right.loadInAccumulator();
         binop.lhs = left.stackSlot();
         bytecodeGenerator->addInstruction(binop);
+        break;
+    }
+    case QSOperator::As: {
+        Instruction::As as;
+        left = left.storeOnStack();
+        right.loadInAccumulator();
+        as.lhs = left.stackSlot();
+        bytecodeGenerator->addInstruction(as);
         break;
     }
     case QSOperator::In: {
@@ -1913,6 +1956,8 @@ bool Codegen::visit(CallExpression *ast)
     if (hasError())
         return false;
 
+    auto label = traverseOptionalChain(ast);
+
     RegisterScope scope(this);
     TailCallBlocker blockTailCalls(this);
 
@@ -1939,6 +1984,22 @@ bool Codegen::visit(CallExpression *ast)
 
     int thisObject = bytecodeGenerator->newRegister();
     int functionObject = bytecodeGenerator->newRegister();
+
+    if (ast->isOptional || (!base.optionalChainJumpLabel.isNull() && base.optionalChainJumpLabel->isValid())) {
+        if (ast->isOptional)
+            Q_ASSERT(m_optionalChainLabels.contains(ast));
+
+        auto jumpLabel = ast->isOptional ? m_optionalChainLabels.take(ast) : *base.optionalChainJumpLabel.get();
+
+        auto acc = Reference::fromAccumulator(this).storeOnStack();
+        base.loadInAccumulator();
+        bytecodeGenerator->addInstruction(Instruction::CmpEqNull());
+        auto jumpFalse = bytecodeGenerator->jumpFalse();
+        bytecodeGenerator->addInstruction(Instruction::LoadUndefined());
+        bytecodeGenerator->jump().link(jumpLabel);
+        jumpFalse.link();
+        acc.loadInAccumulator();
+    }
 
     auto calldata = pushArgs(ast->arguments);
     if (hasError())
@@ -1973,15 +2034,28 @@ bool Codegen::visit(CallExpression *ast)
         }
 
         setExprResult(Reference::fromAccumulator(this));
+
+        if (label.has_value())
+            label->link();
+
         return false;
 
     }
 
-    handleCall(base, calldata, functionObject, thisObject);
+    handleCall(base, calldata, functionObject, thisObject, ast->isOptional);
+
+    if (label.has_value())
+        label->link();
+
     return false;
 }
 
-void Codegen::handleCall(Reference &base, Arguments calldata, int slotForFunction, int slotForThisObject)
+void Codegen::endVisit(CallExpression *ast)
+{
+    m_seenOptionalChainNodes.remove(ast);
+}
+
+void Codegen::handleCall(Reference &base, Arguments calldata, int slotForFunction, int slotForThisObject, bool optional)
 {
     //### Do we really need all these call instructions? can's we load the callee in a temp?
     if (base.type == Reference::Member) {
@@ -2008,7 +2082,7 @@ void Codegen::handleCall(Reference &base, Arguments calldata, int slotForFunctio
         call.argv = calldata.argv;
         bytecodeGenerator->addInstruction(call);
     } else if (base.type == Reference::Name) {
-        if (base.name == QStringLiteral("eval")) {
+        if (base.name == QStringLiteral("eval") && !optional) {
             Instruction::CallPossiblyDirectEval call;
             call.argc = calldata.argc;
             call.argv = calldata.argv;
@@ -2167,11 +2241,17 @@ bool Codegen::visit(DeleteExpression *ast)
     if (hasError())
         return false;
 
+    auto label = traverseOptionalChain(ast);
+
     RegisterScope scope(this);
     TailCallBlocker blockTailCalls(this);
     Reference expr = expression(ast->expression);
     if (hasError())
         return false;
+
+    // If there is a label, there is a chain and that should only be possible with those two kinds of references
+    if (label.has_value())
+        Q_ASSERT(expr.type == Reference::Member || expr.type == Reference::Subscript);
 
     switch (expr.type) {
     case Reference::SuperProperty:
@@ -2203,6 +2283,13 @@ bool Codegen::visit(DeleteExpression *ast)
     case Reference::Member: {
         //### maybe add a variant where the base can be in the accumulator?
         expr = expr.asLValue();
+
+        if (!expr.optionalChainJumpLabel.isNull() && expr.optionalChainJumpLabel->isValid()) {
+            expr.loadInAccumulator();
+            bytecodeGenerator->addInstruction(Instruction::CmpEqNull());
+            bytecodeGenerator->jumpTrue().link(*expr.optionalChainJumpLabel.get());
+        }
+
         Instruction::LoadRuntimeString instr;
         instr.stringId = expr.propertyNameIndex;
         bytecodeGenerator->addInstruction(instr);
@@ -2213,16 +2300,41 @@ bool Codegen::visit(DeleteExpression *ast)
         del.index = index.stackSlot();
         bytecodeGenerator->addInstruction(del);
         setExprResult(Reference::fromAccumulator(this));
+
+        if (label.has_value()) {
+            auto jump = bytecodeGenerator->jump();
+            label->link();
+            Instruction::LoadTrue loadTrue;
+            bytecodeGenerator->addInstruction(loadTrue);
+            jump.link();
+        }
+
         return false;
     }
     case Reference::Subscript: {
         //### maybe add a variant where the index can be in the accumulator?
         expr = expr.asLValue();
+
+        if (!expr.optionalChainJumpLabel.isNull() && expr.optionalChainJumpLabel->isValid()) {
+            expr.loadInAccumulator();
+            bytecodeGenerator->addInstruction(Instruction::CmpEqNull());
+            bytecodeGenerator->jumpTrue().link(*expr.optionalChainJumpLabel.get());
+        }
+
         Instruction::DeleteProperty del;
         del.base = expr.elementBase;
         del.index = expr.elementSubscript.stackSlot();
         bytecodeGenerator->addInstruction(del);
         setExprResult(Reference::fromAccumulator(this));
+
+        if (label.has_value()) {
+            auto jump = bytecodeGenerator->jump();
+            label->link();
+            Instruction::LoadTrue loadTrue;
+            bytecodeGenerator->addInstruction(loadTrue);
+            jump.link();
+        }
+
         return false;
     }
     default:
@@ -2231,6 +2343,10 @@ bool Codegen::visit(DeleteExpression *ast)
     // [[11.4.1]] Return true if it's not a reference
     setExprResult(Reference::fromConst(this, QV4::Encode(true)));
     return false;
+}
+
+void Codegen::endVisit(DeleteExpression *ast) {
+    m_seenOptionalChainNodes.remove(ast);
 }
 
 bool Codegen::visit(FalseLiteral *)
@@ -2251,10 +2367,80 @@ bool Codegen::visit(SuperLiteral *)
     return false;
 }
 
+std::optional<Moth::BytecodeGenerator::Label> Codegen::traverseOptionalChain(Node *node) {
+    if (m_seenOptionalChainNodes.contains(node))
+        return {};
+
+    auto label = bytecodeGenerator->newLabel();
+
+    auto isOptionalChainNode = [](const Node *node) {
+        return node->kind == Node::Kind_FieldMemberExpression ||
+               node->kind == Node::Kind_CallExpression ||
+               node->kind == Node::Kind_ArrayMemberExpression ||
+               node->kind == Node::Kind_DeleteExpression;
+    };
+
+    bool labelUsed = false;
+
+    while (isOptionalChainNode(node)) {
+        m_seenOptionalChainNodes.insert(node);
+
+        switch (node->kind) {
+        case Node::Kind_FieldMemberExpression: {
+            auto *fme = AST::cast<FieldMemberExpression*>(node);
+
+            if (fme->isOptional) {
+                m_optionalChainLabels.insert(fme, label);
+                labelUsed = true;
+            }
+
+            node = fme->base;
+            break;
+        }
+        case Node::Kind_CallExpression: {
+            auto *ce = AST::cast<CallExpression*>(node);
+
+            if (ce->isOptional) {
+                m_optionalChainLabels.insert(ce, label);
+                labelUsed = true;
+            }
+
+            node = ce->base;
+            break;
+        }
+        case Node::Kind_ArrayMemberExpression: {
+            auto *ame = AST::cast<ArrayMemberExpression*>(node);
+
+            if (ame->isOptional) {
+                m_optionalChainLabels.insert(ame, label);
+                labelUsed = true;
+            }
+
+            node = ame->base;
+            break;
+        }
+        case Node::Kind_DeleteExpression: {
+            auto *de = AST::cast<DeleteExpression*>(node);
+            node = de->expression;
+            break;
+        }
+        }
+    }
+
+    if (!labelUsed) {
+        label.link(); // If we don't link the unused label here, we would hit an assert later.
+        return {};
+    }
+
+    return label;
+}
+
 bool Codegen::visit(FieldMemberExpression *ast)
 {
     if (hasError())
         return false;
+
+    auto label = traverseOptionalChain(ast);
 
     TailCallBlocker blockTailCalls(this);
     if (AST::IdentifierExpression *id = AST::cast<AST::IdentifierExpression *>(ast->base)) {
@@ -2266,16 +2452,28 @@ bool Codegen::visit(FieldMemberExpression *ast)
                 Reference r = referenceForName(QStringLiteral("new.target"), false);
                 r.isReadonly = true;
                 setExprResult(r);
+
+                if (label.has_value())
+                    label->link();
+
                 return false;
             }
 
             Reference r = Reference::fromStackSlot(this, CallData::NewTarget);
             setExprResult(r);
+
+            if (label.has_value())
+                label->link();
+
             return false;
         }
     }
 
     Reference base = expression(ast->base);
+
+    if (ast->isOptional)
+        Q_ASSERT(m_optionalChainLabels.contains(ast));
+
     if (hasError())
         return false;
     if (base.isSuper()) {
@@ -2284,10 +2482,23 @@ bool Codegen::visit(FieldMemberExpression *ast)
         bytecodeGenerator->addInstruction(load);
         Reference property = Reference::fromAccumulator(this).storeOnStack();
         setExprResult(Reference::fromSuperProperty(property));
+
+        if (label.has_value())
+            label->link();
+
         return false;
     }
-    setExprResult(Reference::fromMember(base, ast->name.toString()));
+
+    setExprResult(Reference::fromMember(base, ast->name.toString(),
+                                        ast->isOptional ? m_optionalChainLabels.take(ast) : Moth::BytecodeGenerator::Label(),
+                                        label.has_value() ? label.value() : Moth::BytecodeGenerator::Label()));
+
     return false;
+}
+
+void Codegen::endVisit(FieldMemberExpression *ast)
+{
+    m_seenOptionalChainNodes.remove(ast);
 }
 
 bool Codegen::visit(TaggedTemplate *ast)
@@ -2378,6 +2589,26 @@ Codegen::Reference Codegen::referenceForName(const QString &name, bool isLhs, co
         if (resolved.isArgOrEval && isLhs)
             // ### add correct source location
             throwSyntaxError(SourceLocation(), QStringLiteral("Variable name may not be eval or arguments in strict mode"));
+
+        if (resolved.declarationLocation.isValid() && accessLocation.isValid()
+                && resolved.declarationLocation.begin() > accessLocation.end()) {
+            qCWarning(lcQmlCompiler).nospace().noquote()
+                    << url().toString() << ":" << accessLocation.startLine
+                    << ":" << accessLocation.startColumn << " Variable \"" << name
+                    << "\" is used before its declaration at "
+                    << resolved.declarationLocation.startLine << ":"
+                    << resolved.declarationLocation.startColumn << ".";
+        }
+
+        if (resolved.isInjected && accessLocation.isValid()) {
+            qCWarning(lcQmlCompiler).nospace().noquote()
+                    << url().toString() << ":" << accessLocation.startLine
+                    << ":" << accessLocation.startColumn << " Parameter \"" << name
+                    << "\" is not declared."
+                    << " Injection of parameters into signal handlers is deprecated."
+                    << " Use JavaScript functions with formal parameters instead.";
+        }
+
         Reference r;
         switch (resolved.type) {
         case Context::ResolvedName::Local:
@@ -2924,6 +3155,17 @@ bool Codegen::visit(YieldExpression *ast)
 {
     if (inFormalParameterList) {
         throwSyntaxError(ast->firstSourceLocation(), QLatin1String("yield is not allowed inside parameter lists"));
+        return false;
+    }
+
+    auto innerMostCurentFunctionContext = _context;
+    while (innerMostCurentFunctionContext && innerMostCurentFunctionContext->contextType != ContextType::Function)
+        innerMostCurentFunctionContext = innerMostCurentFunctionContext->parent;
+
+    Q_ASSERT(innerMostCurentFunctionContext); // yield outside function would have been rejected by parser
+
+    if (!innerMostCurentFunctionContext->isGenerator) {
+        throwSyntaxError(ast->firstSourceLocation(), u"Yield is only valid in generator functions"_qs);
         return false;
     }
 
@@ -3969,14 +4211,14 @@ public:
     }
 
 private:
-    void collectIdentifiers(QVector<QStringView> &ids, AST::Node *node) {
+    void collectIdentifiers(QList<QStringView> &ids, AST::Node *node) {
         class Collector: public QQmlJS::AST::Visitor {
         private:
-            QVector<QStringView> &ids;
+            QList<QStringView> &ids;
             VolatileMemoryLocationScanner *parent;
 
         public:
-            Collector(QVector<QStringView> &ids, VolatileMemoryLocationScanner *parent) :
+            Collector(QList<QStringView> &ids, VolatileMemoryLocationScanner *parent) :
                 QQmlJS::AST::Visitor(parent->recursionDepth()), ids(ids), parent(parent)
             {}
 
@@ -4430,13 +4672,26 @@ QT_WARNING_POP
         propertyBase.loadInAccumulator();
         tdzCheck(requiresTDZCheck);
         if (!disable_lookups && codegen->useFastLookups) {
-            Instruction::GetLookup load;
-            load.index = codegen->registerGetterLookup(propertyNameIndex);
-            codegen->bytecodeGenerator->addInstruction(load);
+            if (optionalChainJumpLabel->isValid()) { // If we got a valid jump label, this means it's an optional lookup
+                auto jump = codegen->bytecodeGenerator->jumpOptionalLookup(codegen->registerGetterLookup(propertyNameIndex));
+                jump.link(*optionalChainJumpLabel.get());
+            } else {
+                Instruction::GetLookup load;
+                load.index = codegen->registerGetterLookup(propertyNameIndex);
+                codegen->bytecodeGenerator->addInstruction(load);
+            }
         } else {
-            Instruction::LoadProperty load;
-            load.name = propertyNameIndex;
-            codegen->bytecodeGenerator->addInstruction(load);
+            if (optionalChainJumpLabel->isValid()) {
+                auto jump = codegen->bytecodeGenerator->jumpOptionalProperty(propertyNameIndex);
+                jump.link(*optionalChainJumpLabel.get());
+            } else {
+                Instruction::LoadProperty load;
+                load.name = propertyNameIndex;
+                codegen->bytecodeGenerator->addInstruction(load);
+            }
+        }
+        if (optionalChainTargetLabel->isValid()) {
+            optionalChainTargetLabel->link();
         }
         return;
     case Import: {
@@ -4452,9 +4707,15 @@ QT_WARNING_POP
         Instruction::LoadElement load;
         load.base = elementBase;
         codegen->bytecodeGenerator->addInstruction(load);
+
+        if (optionalChainTargetLabel->isValid()) {
+            optionalChainTargetLabel->link();
+        }
     } return;
     case Invalid:
         break;
     }
     Q_UNREACHABLE();
 }
+
+QT_END_NAMESPACE

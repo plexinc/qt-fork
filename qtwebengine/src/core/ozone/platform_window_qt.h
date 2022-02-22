@@ -56,12 +56,12 @@ public:
     PlatformWindowQt(PlatformWindowDelegate* delegate, const gfx::Rect& bounds);
     ~PlatformWindowQt() override;
     // PlatformWindow:
-    gfx::Rect GetBounds() override;
+    gfx::Rect GetBounds() const override;
     void SetBounds(const gfx::Rect& bounds) override;
     void Show(bool inactive = false) override { }
     void Hide() override { }
     void Close() override { }
-    bool IsVisible() const { return true; }
+    bool IsVisible() const override { return true; }
     void SetTitle(const base::string16&) override { }
     void SetCapture() override { }
     void ReleaseCapture() override { }

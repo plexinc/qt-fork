@@ -100,7 +100,9 @@ int ffio_realloc_buf(AVIOContext *s, int buf_size);
  *
  * Will ensure that when reading sequentially up to buf_size, seeking
  * within the current pos and pos+buf_size is possible.
- * Once the stream position moves outside this window this guarantee is lost.
+ * Once the stream position moves outside this window or another
+ * ffio_ensure_seekback call requests a buffer outside this window this
+ * guarantee is lost.
  */
 int ffio_ensure_seekback(AVIOContext *s, int64_t buf_size);
 
@@ -170,6 +172,13 @@ int ffio_open_whitelist(AVIOContext **s, const char *url, int flags,
  * @return the number of bytes written to the null buffer
  */
 int ffio_close_null_buf(AVIOContext *s);
+
+/**
+ * Reset a dynamic buffer.
+ *
+ * Resets everything, but keeps the allocated buffer for later use.
+ */
+void ffio_reset_dyn_buf(AVIOContext *s);
 
 /**
  * Free a dynamic buffer.

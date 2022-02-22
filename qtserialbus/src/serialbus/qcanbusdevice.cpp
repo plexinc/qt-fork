@@ -150,19 +150,17 @@ Q_LOGGING_CATEGORY(QT_CANBUS, "qt.canbus")
 */
 
 /*!
-    \fn bool operator==(const QCanBusDevice::Filter &a, const QCanBusDevice::Filter &b)
-    \relates QCanBusDevice::Filter
+    \fn bool QCanBusDevice::Filter::operator==(const QCanBusDevice::Filter &a, const QCanBusDevice::Filter &b)
 
-    Returns true, if the filter \a a is equal to the filter \a b,
-    otherwise returns false.
+    Returns \c true, if the filter \a a is equal to the filter \a b,
+    otherwise returns \c false.
 */
 
 /*!
-    \fn bool operator!=(const QCanBusDevice::Filter &a, const QCanBusDevice::Filter &b)
-    \relates QCanBusDevice::Filter
+    \fn bool QCanBusDevice::Filter::operator!=(const QCanBusDevice::Filter &a, const QCanBusDevice::Filter &b)
 
-    Returns true, if the filter \a a is not equal to the filter \a b,
-    otherwise returns false.
+    Returns \c true, if the filter \a a is not equal to the filter \a b,
+    otherwise returns \c false.
 */
 
 /*!
@@ -293,7 +291,7 @@ void QCanBusDevice::clearError()
     Subclasses must call this function when they receive frames.
 
 */
-void QCanBusDevice::enqueueReceivedFrames(const QVector<QCanBusFrame> &newFrames)
+void QCanBusDevice::enqueueReceivedFrames(const QList<QCanBusFrame> &newFrames)
 {
     Q_D(QCanBusDevice);
 
@@ -345,30 +343,6 @@ bool QCanBusDevice::hasOutgoingFrames() const
 }
 
 /*!
- * \since 5.14
- * Called from the derived plugin to register a function \a resetter which performs the
- * CAN controller hardware reset when resetController() is called.
- */
-void QCanBusDevice::setResetControllerFunction(std::function<void()> resetter)
-{
-    Q_D(QCanBusDevice);
-
-    d->m_resetControllerFunction = std::move(resetter);
-}
-
-/*!
- * \since 5.14
- * Called from the derived plugin to register a function \a busStatusGetter
- * which returns the CAN controller bus status when busStatus() is called.
- */
-void QCanBusDevice::setCanBusStatusGetter(std::function<CanBusStatus()> busStatusGetter)
-{
-    Q_D(QCanBusDevice);
-
-    d->m_busStatusGetter = std::move(busStatusGetter);
-}
-
-/*!
     Sets the configuration parameter \a key for the CAN bus connection
     to \a value. The potential keys are represented by \l ConfigurationKey.
 
@@ -381,7 +355,7 @@ void QCanBusDevice::setCanBusStatusGetter(std::function<CanBusStatus()> busStatu
 
     \sa configurationParameter()
 */
-void QCanBusDevice::setConfigurationParameter(int key, const QVariant &value)
+void QCanBusDevice::setConfigurationParameter(ConfigurationKey key, const QVariant &value)
 {
     Q_D(QCanBusDevice);
 
@@ -411,7 +385,7 @@ void QCanBusDevice::setConfigurationParameter(int key, const QVariant &value)
 
     \sa setConfigurationParameter(), configurationKeys()
 */
-QVariant QCanBusDevice::configurationParameter(int key) const
+QVariant QCanBusDevice::configurationParameter(ConfigurationKey key) const
 {
     Q_D(const QCanBusDevice);
 
@@ -430,11 +404,11 @@ QVariant QCanBusDevice::configurationParameter(int key) const
     If a key is not explicitly mentioned the platform's
     default setting for the relevant key is used.
 */
-QVector<int> QCanBusDevice::configurationKeys() const
+QList<QCanBusDevice::ConfigurationKey> QCanBusDevice::configurationKeys() const
 {
     Q_D(const QCanBusDevice);
 
-    QVector<int> result;
+    QList<ConfigurationKey> result;
     for (const ConfigEntry &e : d->configOptions)
         result.append(e.first);
 
@@ -510,14 +484,10 @@ qint64 QCanBusDevice::framesToWrite() const
 */
 void QCanBusDevice::resetController()
 {
-    if (d_func()->m_resetControllerFunction) {
-        d_func()->m_resetControllerFunction();
-    } else {
-        const char error[] = QT_TRANSLATE_NOOP("QCanBusDevice",
-                "This CAN bus plugin does not support hardware controller reset.");
-        qCWarning(QT_CANBUS, error);
-        setError(tr(error), QCanBusDevice::CanBusError::ConfigurationError);
-    }
+    const char error[] = QT_TRANSLATE_NOOP("QCanBusDevice",
+            "This CAN bus plugin does not support hardware controller reset.");
+    qCWarning(QT_CANBUS, error);
+    setError(tr(error), QCanBusDevice::CanBusError::ConfigurationError);
 }
 
 /*!
@@ -529,7 +499,7 @@ void QCanBusDevice::resetController()
  */
 bool QCanBusDevice::hasBusStatus() const
 {
-    return d_func()->m_busStatusGetter != nullptr;
+    return false;
 }
 
 /*!
@@ -561,11 +531,8 @@ bool QCanBusDevice::hasBusStatus() const
 
     \sa hasBusStatus(), resetController()
 */
-QCanBusDevice::CanBusStatus QCanBusDevice::busStatus() const
+QCanBusDevice::CanBusStatus QCanBusDevice::busStatus()
 {
-    if (d_func()->m_busStatusGetter)
-        return d_func()->m_busStatusGetter();
-
     return QCanBusDevice::CanBusStatus::Unknown;
 }
 
@@ -606,7 +573,7 @@ void QCanBusDevice::clear(QCanBusDevice::Directions direction)
     clearError();
 
     if (direction & Direction::Input) {
-        QMutexLocker(&d->incomingFramesGuard);
+        QMutexLocker locker(&d->incomingFramesGuard);
         d->incomingFrames.clear();
     }
 
@@ -816,13 +783,13 @@ QCanBusFrame QCanBusDevice::readFrame()
 /*!
     \since 5.12
     Returns all \l{QCanBusFrame}s from the queue; otherwise returns
-    an empty QVector. The returned frames are removed from the queue.
+    an empty QList. The returned frames are removed from the queue.
 
     The queue operates according to the FIFO principle.
 
     \sa clear(), framesAvailable(), readFrame()
 */
-QVector<QCanBusFrame> QCanBusDevice::readAllFrames()
+QList<QCanBusFrame> QCanBusDevice::readAllFrames()
 {
     Q_D(QCanBusDevice);
 
@@ -830,14 +797,14 @@ QVector<QCanBusFrame> QCanBusDevice::readAllFrames()
         const QString error = tr("Cannot read frame as device is not connected.");
         qCWarning(QT_CANBUS, "%ls", qUtf16Printable(error));
         setError(error, CanBusError::OperationError);
-        return QVector<QCanBusFrame>();
+        return QList<QCanBusFrame>();
     }
 
     clearError();
 
     QMutexLocker locker(&d->incomingFramesGuard);
 
-    QVector<QCanBusFrame> result;
+    QList<QCanBusFrame> result;
     result.swap(d->incomingFrames);
     return result;
 }
@@ -977,35 +944,57 @@ void QCanBusDevice::setState(QCanBusDevice::CanBusDeviceState newState)
 }
 
 /*!
- * Returns a QCanBusDeviceInfo created from the given parameters \a name,
- * \a isVirtual, and \a isFlexibleDataRateCapable.
+ * \since 6.2
+ * Returns a QCanBusDeviceInfo created from the given parameters \a plugin,
+ * \a name, \a isVirtual, and \a isFlexibleDataRateCapable.
  * \internal
  */
-QCanBusDeviceInfo QCanBusDevice::createDeviceInfo(const QString &name, bool isVirtual,
+QCanBusDeviceInfo QCanBusDevice::createDeviceInfo(const QString &plugin, const QString &name,
+                                                  bool isVirtual,
                                                   bool isFlexibleDataRateCapable)
 {
-    return createDeviceInfo(name, QString(), QString(), 0, isVirtual, isFlexibleDataRateCapable);
+    return createDeviceInfo(plugin, name, QString(), QString(), QString(),
+                            0, isVirtual, isFlexibleDataRateCapable);
 }
 
 /*!
-    \since 5.11
-    Returns a QCanBusDeviceInfo created from the given parameters \a name,
-    \a serialNumber, \a description, \a channel, \a isVirtual, and \a
-    isFlexibleDataRateCapable.
+    \since 6.2
+    Returns a QCanBusDeviceInfo created from the given parameters \a plugin,
+    \a name, \a serialNumber, \a description, \a alias, \a channel, \a isVirtual,
+    and \a isFlexibleDataRateCapable.
     \internal
  */
-QCanBusDeviceInfo QCanBusDevice::createDeviceInfo(const QString &name, const QString &serialNumber,
-                                                  const QString &description, int channel,
-                                                  bool isVirtual, bool isFlexibleDataRateCapable)
+QCanBusDeviceInfo QCanBusDevice::createDeviceInfo(const QString &plugin,
+                                                  const QString &name,
+                                                  const QString &serialNumber,
+                                                  const QString &description,
+                                                  const QString &alias,
+                                                  int channel,
+                                                  bool isVirtual,
+                                                  bool isFlexibleDataRateCapable)
 {
-    QScopedPointer<QCanBusDeviceInfoPrivate> info(new QCanBusDeviceInfoPrivate);
+    std::unique_ptr<QCanBusDeviceInfoPrivate> info(new QCanBusDeviceInfoPrivate);
+    info->plugin = plugin;
     info->name = name;
     info->serialNumber = serialNumber;
     info->description = description;
+    info->alias = alias;
     info->channel = channel;
     info->hasFlexibleDataRate = isFlexibleDataRateCapable;
     info->isVirtual = isVirtual;
-    return QCanBusDeviceInfo(*info.take());
+    return QCanBusDeviceInfo(*info.release());
+}
+
+/*!
+    \since 6.2
+
+    Returns a QCanBusDeviceInfo for the current QCanBusDevice. If the function
+    is not implemented by a sub-class of QCanBusDevice, a default constructed
+    object is returned.
+ */
+QCanBusDeviceInfo QCanBusDevice::deviceInfo() const
+{
+    return QCanBusDeviceInfo(*(new QCanBusDeviceInfoPrivate));
 }
 
 QT_END_NAMESPACE

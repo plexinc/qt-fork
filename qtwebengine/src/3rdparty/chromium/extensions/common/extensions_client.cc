@@ -4,8 +4,9 @@
 
 #include "extensions/common/extensions_client.h"
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/notreached.h"
 #include "base/timer/elapsed_timer.h"
 #include "extensions/common/extension_icon_set.h"
 #include "extensions/common/extensions_api_provider.h"
@@ -99,10 +100,6 @@ std::set<base::FilePath> ExtensionsClient::GetBrowserImagePaths(
   std::set<base::FilePath> paths;
   IconsInfo::GetIcons(extension).GetPaths(&paths);
   return paths;
-}
-
-bool ExtensionsClient::ExtensionAPIEnabledInExtensionServiceWorkers() const {
-  return false;
 }
 
 void ExtensionsClient::AddOriginAccessPermissions(

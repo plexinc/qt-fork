@@ -20,11 +20,18 @@ import mojom.generate.generator as generator
 import mojom.generate.module as mojom
 from mojom.generate.template_expander import UseJinja
 
-sys.path.append(os.path.join(os.path.dirname(__file__), os.pardir,
-                             os.pardir, os.pardir, os.pardir, os.pardir,
-                             'build', 'android', 'gyp'))
+# Item 0 of sys.path is the directory of the main file; item 1 is PYTHONPATH
+# (if set); item 2 is system libraries.
+sys.path.insert(
+    1,
+    os.path.join(os.path.dirname(__file__), os.pardir, os.pardir, os.pardir,
+                 os.pardir, os.pardir, 'build', 'android', 'gyp'))
 from util import build_utils
 
+# TODO(crbug.com/1174969): Remove this once Python2 is obsoleted.
+if sys.version_info.major != 2:
+  basestring = str
+  long = int
 
 GENERATOR_PREFIX = 'java'
 

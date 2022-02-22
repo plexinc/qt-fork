@@ -52,13 +52,16 @@ static_library("multidevice_setup") {
     "privileged_host_device_setter_base.h",
     "privileged_host_device_setter_impl.cc",
     "privileged_host_device_setter_impl.h",
+    "wifi_sync_feature_manager.h",
+    "wifi_sync_feature_manager_impl.cc",
+    "wifi_sync_feature_manager_impl.h",
   ]
 
   deps = [
+    "//ash/constants",
     "//base",
     "//chromeos/components/multidevice",
     "//chromeos/components/multidevice/logging",
-    "//chromeos/constants:constants",
     "//chromeos/services/device_sync/proto:util",
     "//chromeos/services/device_sync/public/cpp",
     "//chromeos/services/device_sync/public/mojom",
@@ -72,6 +75,7 @@ static_library("multidevice_setup") {
     "//chromeos/services/secure_channel/public/mojom",
     "//components/pref_registry",
     "//components/prefs:prefs",
+    "//components/session_manager/core",
     "//url",
   ]
 
@@ -110,6 +114,8 @@ static_library("test_support") {
     "fake_host_status_provider.h",
     "fake_host_verifier.cc",
     "fake_host_verifier.h",
+    "fake_wifi_sync_feature_manager.cc",
+    "fake_wifi_sync_feature_manager.h",
   ]
 
   deps = [
@@ -139,16 +145,17 @@ source_set("unit_tests") {
     "multidevice_setup_impl_unittest.cc",
     "multidevice_setup_service_unittest.cc",
     "privileged_host_device_setter_impl_unittest.cc",
+    "wifi_sync_feature_manager_impl_unittest.cc",
   ]
 
   deps = [
     ":multidevice_setup",
     ":test_support",
+    "//ash/constants",
     "//base",
     "//base/test:test_support",
     "//chromeos/components/multidevice",
     "//chromeos/components/multidevice:test_support",
-    "//chromeos/constants:constants",
     "//chromeos/services/device_sync/public/cpp:test_support",
     "//chromeos/services/multidevice_setup/public/cpp:oobe_completion_tracker",
     "//chromeos/services/multidevice_setup/public/cpp:prefs",
@@ -156,6 +163,7 @@ source_set("unit_tests") {
     "//chromeos/services/multidevice_setup/public/cpp:unit_tests",
     "//chromeos/services/multidevice_setup/public/mojom",
     "//chromeos/services/secure_channel/public/cpp/client:test_support",
+    "//components/session_manager/core",
     "//components/sync_preferences:test_support",
     "//testing/gmock",
     "//testing/gtest",

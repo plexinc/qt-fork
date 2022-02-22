@@ -66,11 +66,11 @@ class APIPermission {
     kBrowser = 22,
     kBrowsingData = 23,
     kCast = 24,
-    kCastStreaming = 25,
+    kDeleted_kCastStreaming = 25,
     kChromeosInfoPrivate = 26,
     kClipboardRead = 27,
     kClipboardWrite = 28,
-    kCloudPrintPrivate = 29,
+    kDeleted_CloudPrintPrivate = 29,  // API removed.
     kCommandLinePrivate = 30,
     kCommandsAccessibility = 31,
     kContentSettings = 32,
@@ -79,7 +79,7 @@ class APIPermission {
     kDeleted_Copresence = 35,
     kDeleted_CopresencePrivate = 36,
     kCryptotokenPrivate = 37,
-    kDataReductionProxy = 38,
+    kDeleted_DataReductionProxy = 38,  // API removed.
     kDiagnostics = 39,
     kDeleted_Dial = 40,  // API removed.
     kDebugger = 41,
@@ -147,7 +147,7 @@ class APIPermission {
     kMDns = 103,
     kMusicManagerPrivate = 104,
     kNativeMessaging = 105,
-    kNetworkingConfig = 106,
+    kDeleted_NetworkingConfig = 106,
     kNetworkingPrivate = 107,
     kDeleted_NotificationProvider = 108,
     kNotifications = 109,
@@ -197,7 +197,7 @@ class APIPermission {
     kWallpaper = 153,
     kWallpaperPrivate = 154,
     kWebcamPrivate = 155,
-    kWebConnectable = 156,  // for externally_connectable manifest key
+    kDeleted_kWebConnectable = 156,  // for externally_connectable manifest key
     kWebNavigation = 157,
     kWebRequest = 158,
     kWebRequestBlocking = 159,
@@ -240,7 +240,7 @@ class APIPermission {
     kEnterpriseDeviceAttributes = 196,
     kCertificateProvider = 197,
     kResourcesPrivate = 198,
-    kDisplaySource = 199,
+    kDeleted_DisplaySource = 199,
     kClipboard = 200,
     kNetworkingOnc = 201,
     kVirtualKeyboard = 202,
@@ -255,7 +255,7 @@ class APIPermission {
     kCecPrivate = 211,
     kSafeBrowsingPrivate = 212,
     kFileSystemRequestDownloads = 213,
-    kSystemPowerSource = 214,
+    kDeleted_SystemPowerSource = 214,
     kArcAppsPrivate = 215,
     kEnterpriseHardwarePlatform = 216,
     kLoginScreenUi = 217,
@@ -268,6 +268,10 @@ class APIPermission {
     kPrinting = 224,
     kCrashReportPrivate = 225,
     kAutofillAssistantPrivate = 226,
+    kEnterpriseNetworkingAttributes = 227,
+    kSearch = 228,
+    kTabGroups = 229,
+    kScripting = 230,
     // Last entry: Add new entries above and ensure to update the
     // "ExtensionPermission3" enum in tools/metrics/histograms/enums.xml
     // (by running update_extension_permission.py).

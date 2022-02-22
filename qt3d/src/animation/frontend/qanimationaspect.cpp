@@ -69,12 +69,6 @@ QAnimationAspectPrivate::QAnimationAspectPrivate()
 {
 }
 
-void QAnimationAspectPrivate::syncDirtyFrontEndNode(QNode *node, QBackendNode *backend, bool firstTime) const
-{
-    Animation::BackendNode *renderBackend = static_cast<Animation::BackendNode *>(backend);
-    renderBackend->syncFromFrontEnd(node, firstTime);
-}
-
 /*!
     \class Qt3DAnimation::QAnimationAspect
     \inherits Qt3DCore::QAbstractAspect
@@ -101,37 +95,37 @@ QAnimationAspect::QAnimationAspect(QAnimationAspectPrivate &dd, QObject *parent)
     Q_D(QAnimationAspect);
     qRegisterMetaType<Qt3DAnimation::QAnimationClipLoader*>();
     qRegisterMetaType<Qt3DAnimation::QChannelMapper*>();
-    qRegisterMetaType<QVector<Qt3DCore::Sqt>>();
+    qRegisterMetaType<QList<Qt3DCore::Sqt>>();
     qRegisterMetaType<Qt3DAnimation::QAbstractAnimationClip*>();
 
-    registerBackendType<QAbstractAnimationClip, true>(
+    registerBackendType<QAbstractAnimationClip>(
         QSharedPointer<Animation::NodeFunctor<Animation::AnimationClip, Animation::AnimationClipLoaderManager>>::create(d->m_handler.data(),
                                                                                                                         d->m_handler->animationClipLoaderManager()));
-    registerBackendType<QClock, true>(
+    registerBackendType<QClock>(
         QSharedPointer<Animation::NodeFunctor<Animation::Clock, Animation::ClockManager>>::create(d->m_handler.data(),
                                                                                                   d->m_handler->clockManager()));
-    registerBackendType<QClipAnimator, true>(
+    registerBackendType<QClipAnimator>(
         QSharedPointer<Animation::NodeFunctor<Animation::ClipAnimator, Animation::ClipAnimatorManager>>::create(d->m_handler.data(),
                                                                                                                 d->m_handler->clipAnimatorManager()));
-    registerBackendType<QBlendedClipAnimator, true>(
+    registerBackendType<QBlendedClipAnimator>(
         QSharedPointer<Animation::NodeFunctor<Animation::BlendedClipAnimator, Animation::BlendedClipAnimatorManager>>::create(d->m_handler.data(),
                                                                                                                               d->m_handler->blendedClipAnimatorManager()));
-    registerBackendType<QAbstractChannelMapping, true>(
+    registerBackendType<QAbstractChannelMapping>(
         QSharedPointer<Animation::NodeFunctor<Animation::ChannelMapping, Animation::ChannelMappingManager>>::create(d->m_handler.data(),
                                                                                                                     d->m_handler->channelMappingManager()));
-    registerBackendType<QChannelMapper, true>(
+    registerBackendType<QChannelMapper>(
         QSharedPointer<Animation::NodeFunctor<Animation::ChannelMapper, Animation::ChannelMapperManager>>::create(d->m_handler.data(),
                                                                                                                   d->m_handler->channelMapperManager()));
-    registerBackendType<QLerpClipBlend, true>(
+    registerBackendType<QLerpClipBlend>(
                 QSharedPointer<Animation::ClipBlendNodeFunctor<Animation::LerpClipBlend, Animation::ClipAnimatorManager>>::create(d->m_handler.data(),
                                                                                                                                   d->m_handler->clipBlendNodeManager()));
-    registerBackendType<QAdditiveClipBlend, true>(
+    registerBackendType<QAdditiveClipBlend>(
                 QSharedPointer<Animation::ClipBlendNodeFunctor<Animation::AdditiveClipBlend, Animation::ClipAnimatorManager>>::create(d->m_handler.data(),
                                                                                                                                       d->m_handler->clipBlendNodeManager()));
-    registerBackendType<QClipBlendValue, true>(
+    registerBackendType<QClipBlendValue>(
                 QSharedPointer<Animation::ClipBlendNodeFunctor<Animation::ClipBlendValue, Animation::ClipAnimatorManager>>::create(d->m_handler.data(),
                                                                                                                                    d->m_handler->clipBlendNodeManager()));
-    registerBackendType<Qt3DCore::QAbstractSkeleton, true>(
+    registerBackendType<Qt3DCore::QAbstractSkeleton>(
         QSharedPointer<Animation::NodeFunctor<Animation::Skeleton, Animation::SkeletonManager>>::create(d->m_handler.data(),
                                                                                                         d->m_handler->skeletonManager()));
 }
@@ -144,7 +138,7 @@ QAnimationAspect::~QAnimationAspect()
 /*!
     \internal
  */
-QVector<QAspectJobPtr> QAnimationAspect::jobsToExecute(qint64 time)
+std::vector<QAspectJobPtr> QAnimationAspect::jobsToExecute(qint64 time)
 {
     Q_D(QAnimationAspect);
     Q_ASSERT(d->m_handler);

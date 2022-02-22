@@ -39,6 +39,7 @@
 #ifndef DECLARATIVEBOXPLOT_H
 #define DECLARATIVEBOXPLOT_H
 
+#include <QtQml/qqmlregistration.h>
 #include <QtCharts/QBoxSet>
 #include <private/declarativeaxes_p.h>
 #include <QtCharts/QBoxPlotSeries>
@@ -47,7 +48,7 @@
 #include <QtQuick/QQuickItem>
 #include <QtQml/QQmlParserStatus>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class Q_QMLCHARTS_PRIVATE_EXPORT DeclarativeBoxSet : public QBoxSet
 {
@@ -55,8 +56,11 @@ class Q_QMLCHARTS_PRIVATE_EXPORT DeclarativeBoxSet : public QBoxSet
     Q_PROPERTY(QVariantList values READ values WRITE setValues)
     Q_PROPERTY(QString label READ label WRITE setLabel)
     Q_PROPERTY(int count READ count)
-    Q_PROPERTY(QString brushFilename READ brushFilename WRITE setBrushFilename NOTIFY brushFilenameChanged REVISION 1)
+    Q_PROPERTY(QString brushFilename READ brushFilename WRITE setBrushFilename NOTIFY brushFilenameChanged REVISION(1, 4))
     Q_ENUMS(ValuePositions)
+    QML_NAMED_ELEMENT(BoxSet)
+    QML_ADDED_IN_VERSION(1, 3)
+    QML_EXTRA_VERSION(2, 0)
 
 public: // duplicate from QBoxSet
     enum ValuePositions {
@@ -68,7 +72,7 @@ public: // duplicate from QBoxSet
     };
 
 public:
-    explicit DeclarativeBoxSet(const QString label = "", QObject *parent = 0);
+    explicit DeclarativeBoxSet(const QString label = QString(), QObject *parent = 0);
     QVariantList values();
     void setValues(QVariantList values);
     QString brushFilename() const;
@@ -83,7 +87,7 @@ public: // From QBoxSet
 Q_SIGNALS:
     void changedValues();
     void changedValue(int index);
-    Q_REVISION(1) void brushFilenameChanged(const QString &brushFilename);
+    Q_REVISION(1, 4) void brushFilenameChanged(const QString &brushFilename);
 
 private Q_SLOTS:
     void handleBrushChanged();
@@ -97,13 +101,16 @@ class Q_QMLCHARTS_PRIVATE_EXPORT DeclarativeBoxPlotSeries : public QBoxPlotSerie
 {
     Q_OBJECT
     Q_INTERFACES(QQmlParserStatus)
-    Q_PROPERTY(QtCharts::QAbstractAxis *axisX READ axisX WRITE setAxisX NOTIFY axisXChanged)
-    Q_PROPERTY(QtCharts::QAbstractAxis *axisY READ axisY WRITE setAxisY NOTIFY axisYChanged)
-    Q_PROPERTY(QtCharts::QAbstractAxis *axisXTop READ axisXTop WRITE setAxisXTop NOTIFY axisXTopChanged)
-    Q_PROPERTY(QtCharts::QAbstractAxis *axisYRight READ axisYRight WRITE setAxisYRight NOTIFY axisYRightChanged)
+    Q_PROPERTY(QAbstractAxis *axisX READ axisX WRITE setAxisX NOTIFY axisXChanged)
+    Q_PROPERTY(QAbstractAxis *axisY READ axisY WRITE setAxisY NOTIFY axisYChanged)
+    Q_PROPERTY(QAbstractAxis *axisXTop READ axisXTop WRITE setAxisXTop NOTIFY axisXTopChanged)
+    Q_PROPERTY(QAbstractAxis *axisYRight READ axisYRight WRITE setAxisYRight NOTIFY axisYRightChanged)
     Q_PROPERTY(QQmlListProperty<QObject> seriesChildren READ seriesChildren)
-    Q_PROPERTY(QString brushFilename READ brushFilename WRITE setBrushFilename NOTIFY brushFilenameChanged REVISION 1)
+    Q_PROPERTY(QString brushFilename READ brushFilename WRITE setBrushFilename NOTIFY brushFilenameChanged REVISION(1, 4))
     Q_CLASSINFO("DefaultProperty", "seriesChildren")
+    QML_NAMED_ELEMENT(BoxPlotSeries)
+    QML_ADDED_IN_VERSION(1, 3)
+    QML_EXTRA_VERSION(2, 0)
 
 public:
     explicit DeclarativeBoxPlotSeries(QQuickItem *parent = 0);
@@ -128,8 +135,8 @@ public:
     Q_INVOKABLE void clear() { return QBoxPlotSeries::clear(); }
 
 public: // from QDeclarativeParserStatus
-    void classBegin();
-    void componentComplete();
+    void classBegin() override;
+    void componentComplete() override;
 
 Q_SIGNALS:
     void axisXChanged(QAbstractAxis *axis);
@@ -141,7 +148,7 @@ Q_SIGNALS:
     void pressed(DeclarativeBoxSet *boxset);
     void released(DeclarativeBoxSet *boxset);
     void doubleClicked(DeclarativeBoxSet *boxset);
-    Q_REVISION(1) void brushFilenameChanged(const QString &brushFilename);
+    Q_REVISION(1, 4) void brushFilenameChanged(const QString &brushFilename);
 
 public Q_SLOTS:
     static void appendSeriesChildren(QQmlListProperty<QObject> *list, QObject *element);
@@ -162,6 +169,6 @@ private:
     QImage m_brushImage;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // DECLARATIVEBOXPLOT_H

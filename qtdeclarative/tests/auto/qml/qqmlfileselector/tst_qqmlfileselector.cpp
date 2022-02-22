@@ -35,13 +35,13 @@
 #include <QQmlContext>
 #include <QLoggingCategory>
 #include <qqmlinfo.h>
-#include "../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 
 class tst_qqmlfileselector : public QQmlDataTest
 {
     Q_OBJECT
 public:
-    tst_qqmlfileselector() {}
+    tst_qqmlfileselector() : QQmlDataTest(QT_QMLTEST_DATADIR) {}
 
 private slots:
     void basicTest();
@@ -86,7 +86,10 @@ void tst_qqmlfileselector::basicTestCached()
 void tst_qqmlfileselector::applicationEngineTest()
 {
     QQmlApplicationEngine engine;
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
     QQmlFileSelector* selector = QQmlFileSelector::get(&engine);
+QT_WARNING_POP
     QVERIFY(selector != nullptr);
     selector->setExtraSelectors(QStringList() << "basic");
 

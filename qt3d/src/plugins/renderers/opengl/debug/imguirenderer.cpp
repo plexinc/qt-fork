@@ -46,6 +46,7 @@
 
 #include "imguirenderer_p.h"
 #include <renderview_p.h>
+#include <rendercommand_p.h>
 #include <renderer_p.h>
 #include <submissioncontext_p.h>
 #include <Qt3DRender/private/geometryrenderermanager_p.h>
@@ -147,11 +148,11 @@ ImGuiRenderer::ImGuiRenderer(Qt3DRender::Render::OpenGL::Renderer *renderer)
 
 #ifndef QT_NO_CLIPBOARD
     io.SetClipboardTextFn = [](void *user_data, const char *text) {
-        Q_UNUSED(user_data)
+        Q_UNUSED(user_data);
         QGuiApplication::clipboard()->setText(QString::fromLatin1(text));
     };
     io.GetClipboardTextFn = [](void *user_data) {
-        Q_UNUSED(user_data)
+        Q_UNUSED(user_data);
         g_currentClipboardText = QGuiApplication::clipboard()->text().toUtf8();
         return static_cast<const char *>(g_currentClipboardText.data());
     };
@@ -163,12 +164,14 @@ ImGuiRenderer::ImGuiRenderer(Qt3DRender::Render::OpenGL::Renderer *renderer)
     m_jobsRange.first = m_jobsRange.second = 0.f;
 }
 
-void ImGuiRenderer::renderDebugOverlay(const QVector<RenderView *> &renderViews, const RenderView *renderView, int jobsInLastFrame)
+ImGuiRenderer::~ImGuiRenderer() = default;
+
+void ImGuiRenderer::renderDebugOverlay(const std::vector<RenderView *> &renderViews, const RenderView *renderView, int jobsInLastFrame)
 {
     if (!newFrame(renderView))
         return;
 
-    const int renderViewsCount = renderViews.size();
+    const int renderViewsCount = int(renderViews.size());
 
     int logIndex = qMin(IMGUI_PERF_LOG_SIZE - 1, ImGui::GetFrameCount());
     if (logIndex == IMGUI_PERF_LOG_SIZE - 1) {
@@ -321,7 +324,7 @@ void ImGuiRenderer::showGLInfo()
     ImGui::End();
 }
 
-void ImGuiRenderer::showRenderDetails(const QVector<RenderView *> &renderViews)
+void ImGuiRenderer::showRenderDetails(const std::vector<RenderView *> &renderViews)
 {
     ImGui::Begin("Render Views", &m_showRenderDetailsWindow);
 
@@ -552,18 +555,6 @@ bool ImGuiRenderer::createDeviceObjects()
         "{\n"
         "  Out_Color = Frag_Color * texture(Texture, Frag_UV.st);\n"
         "}\n";
-
-//    m_shaderHandle = m_funcs->glCreateProgram();
-//    m_vertHandle = m_funcs->glCreateShader(GL_VERTEX_SHADER);
-//    m_fragHandle = m_funcs->glCreateShader(GL_FRAGMENT_SHADER);
-//    auto *glContext = m_renderer->submissionContext()->openGLContext();
-//    m_funcs->glShaderSource(m_vertHandle, 1, &vertex_shader, nullptr);
-//    m_funcs->glShaderSource(m_fragHandle, 1, &fragment_shader, nullptr);
-//    m_funcs->glCompileShader(m_vertHandle);
-//    m_funcs->glCompileShader(m_fragHandle);
-//    m_funcs->glAttachShader(m_shaderHandle, m_vertHandle);
-//    m_funcs->glAttachShader(m_shaderHandle, m_fragHandle);
-//    m_funcs->glLinkProgram(m_shaderHandle);
 
     QString logs;
     m_shader = new QOpenGLShaderProgram(this);

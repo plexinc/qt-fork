@@ -10,6 +10,8 @@
 #include "services/metrics/public/cpp/ukm_recorder.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_media_key_system_media_capability.h"
 #include "third_party/blink/renderer/core/dom/document.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
+#include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/modules/encryptedmedia/encrypted_media_utils.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
@@ -63,7 +65,8 @@ static WebVector<WebMediaKeySystemMediaCapability> ConvertCapabilities(
 
     result[i].robustness = capabilities[i]->robustness();
     result[i].encryption_scheme =
-        capabilities[i]->hasEncryptionScheme()
+        (capabilities[i]->hasEncryptionScheme() &&
+         !capabilities[i]->encryptionScheme().IsNull())
             ? ConvertEncryptionScheme(capabilities[i]->encryptionScheme())
             : WebMediaKeySystemMediaCapability::EncryptionScheme::kNotSpecified;
   }
@@ -133,7 +136,7 @@ MediaKeySystemAccessInitializerBase::MediaKeySystemAccessInitializerBase(
     supported_configurations_[i] = web_config;
   }
 
-  CheckVideoCapabilityRobustness();
+  GenerateWarningAndReportMetrics();
 }
 
 const SecurityOrigin* MediaKeySystemAccessInitializerBase::GetSecurityOrigin()
@@ -146,7 +149,7 @@ ScriptPromise MediaKeySystemAccessInitializerBase::Promise() {
   return resolver_->Promise();
 }
 
-void MediaKeySystemAccessInitializerBase::Trace(Visitor* visitor) {
+void MediaKeySystemAccessInitializerBase::Trace(Visitor* visitor) const {
   visitor->Trace(resolver_);
   EncryptedMediaRequest::Trace(visitor);
   ExecutionContextClient::Trace(visitor);
@@ -160,17 +163,10 @@ bool MediaKeySystemAccessInitializerBase::IsExecutionContextValid() const {
   return context && !context->IsContextDestroyed();
 }
 
-void MediaKeySystemAccessInitializerBase::CheckVideoCapabilityRobustness()
+void MediaKeySystemAccessInitializerBase::GenerateWarningAndReportMetrics()
     const {
   const char kWidevineKeySystem[] = "com.widevine.alpha";
   const char kWidevineHwSecureAllRobustness[] = "HW_SECURE_ALL";
-
-  // Reported to UKM. Existing values must not change and new values must be
-  // added at the end of the list.
-  enum KeySystemForUkm {
-    kClearKey = 0,
-    kWidevine = 1,
-  };
 
   // Only check for widevine key system for now.
   if (KeySystem() != kWidevineKeySystem)
@@ -216,22 +212,22 @@ void MediaKeySystemAccessInitializerBase::CheckVideoCapabilityRobustness()
             "behavior."));
   }
 
-  if (!IsExecutionContextValid())
+  if (!DomWindow())
     return;
 
-  Document* document = Document::From(GetExecutionContext());
-  if (!document)
-    return;
-
+  LocalFrame* frame = DomWindow()->GetFrame();
   ukm::builders::Media_EME_RequestMediaKeySystemAccess builder(
-      document->UkmSourceID());
+      DomWindow()->UkmSourceID());
   builder.SetKeySystem(KeySystemForUkm::kWidevine);
+  builder.SetIsAdFrame(static_cast<int>(frame->IsAdSubframe()));
+  builder.SetIsCrossOrigin(static_cast<int>(frame->IsCrossOriginToMainFrame()));
+  builder.SetIsTopFrame(static_cast<int>(frame->IsMainFrame()));
   builder.SetVideoCapabilities(static_cast<int>(has_video_capabilities));
   builder.SetVideoCapabilities_HasEmptyRobustness(
       static_cast<int>(has_empty_robustness));
   builder.SetVideoCapabilities_HasHwSecureAllRobustness(
       static_cast<int>(has_hw_secure_all));
-  builder.Record(document->UkmRecorder());
+  builder.Record(DomWindow()->UkmRecorder());
 }
 
 }  // namespace blink

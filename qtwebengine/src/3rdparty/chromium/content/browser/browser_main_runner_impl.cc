@@ -5,11 +5,11 @@
 #include "content/browser/browser_main_runner_impl.h"
 
 #include "base/base_switches.h"
+#include "base/check.h"
 #include "base/command_line.h"
 #include "base/debug/debugger.h"
 #include "base/debug/leak_annotations.h"
 #include "base/lazy_instance.h"
-#include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/run_loop.h"
 #include "base/synchronization/atomic_flag.h"
@@ -21,7 +21,7 @@
 #include "components/tracing/common/tracing_switches.h"
 #include "content/browser/browser_main_loop.h"
 #include "content/browser/notification_service_impl.h"
-#include "content/browser/tracing/tracing_controller_impl.h"
+#include "content/browser/tracing/startup_tracing_controller.h"
 #include "content/common/content_switches_internal.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/main_function_params.h"
@@ -169,8 +169,7 @@ void BrowserMainRunnerImpl::Shutdown() {
   main_loop_->PreShutdown();
 
   // Finalize the startup tracing session if it is still active.
-  if (TracingControllerImpl::GetInstance())
-    TracingControllerImpl::GetInstance()->FinalizeStartupTracingIfNeeded();
+  StartupTracingController::GetInstance().WaitUntilStopped();
 
   {
     // The trace event has to stay between profiler creation and destruction.

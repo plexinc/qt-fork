@@ -187,7 +187,7 @@ protected:
 
         QString m_propertyName;
         QString m_propertyGroup;
-        QVariant::Type m_propertyType = QVariant::Invalid;
+        int m_propertyType = QMetaType::UnknownType;
         SpecialProperty m_specialProperty = SP_None;
     };
     const PropertyDescription &propertyDescription() const { return  m_propertyDescription; }
@@ -242,10 +242,10 @@ public:
     bool init(QObject *object, const QString &propertyName);
     bool init(const QObjectList &list, const QString &propertyName, QObject *referenceObject = nullptr);
 
-    virtual void redo();
+    void redo() override;
 
 protected:
-    virtual bool mergeWith(const QUndoCommand *) { return false; }
+    bool mergeWith(const QUndoCommand *) override { return false; }
 
 private:
     void setDescription();
@@ -261,8 +261,8 @@ public:
 
     bool init(const QList<QObject *> &selection, QObject *current, const QString &propertyName, const QVariant &value);
 
-    virtual void redo();
-    virtual void undo();
+    void redo() override;
+    void undo() override;
 private:
     void setDescription();
     QString m_propertyName;
@@ -278,8 +278,8 @@ public:
 
     bool init(const QList<QObject *> &selection, QObject *current, const QString &propertyName);
 
-    virtual void redo();
-    virtual void undo();
+    void redo() override;
+    void undo() override;
 private:
     void setDescription();
     QString m_propertyName;

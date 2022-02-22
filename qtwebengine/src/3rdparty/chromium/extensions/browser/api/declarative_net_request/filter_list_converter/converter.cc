@@ -33,8 +33,6 @@ namespace dnr_api = extensions::api::declarative_net_request;
 using ElementTypeMap =
     base::flat_map<proto::ElementType, dnr_api::ResourceType>;
 
-constexpr char kJSONRulesFilename[] = "rules.json";
-
 // Utility class to convert the proto::UrlRule format to the JSON format
 // supported by Declarative Net Request.
 class ProtoToJSONRuleConverter {
@@ -409,13 +407,13 @@ class ProtoToJSONRuleConverter {
     dnr_api::RuleActionType action_type = dnr_api::RULE_ACTION_TYPE_NONE;
 
     CHECK(!is_allow_all_requests_rule_ ||
-          input_rule_.semantics() == proto::RULE_SEMANTICS_WHITELIST);
+          input_rule_.semantics() == proto::RULE_SEMANTICS_ALLOWLIST);
 
     switch (input_rule_.semantics()) {
-      case proto::RULE_SEMANTICS_BLACKLIST:
+      case proto::RULE_SEMANTICS_BLOCKLIST:
         action_type = dnr_api::RULE_ACTION_TYPE_BLOCK;
         break;
-      case proto::RULE_SEMANTICS_WHITELIST:
+      case proto::RULE_SEMANTICS_ALLOWLIST:
         if (is_allow_all_requests_rule_)
           action_type = dnr_api::RULE_ACTION_TYPE_ALLOWALLREQUESTS;
         else
@@ -490,10 +488,13 @@ class DNRJsonRuleOutputStream : public subresource_filter::RuleOutputStream {
   }
 
   bool Finish() override {
+    constexpr char kJSONRulesFilename[] = "rules.json";
+    constexpr char kRulesetID[] = "filter_list";
+
     switch (write_type_) {
       case filter_list_converter::kExtension: {
-        TestRulesetInfo info = {kJSONRulesFilename,
-                                std::move(output_rules_list_)};
+        TestRulesetInfo info(kRulesetID, kJSONRulesFilename,
+                             output_rules_list_);
         WriteManifestAndRuleset(output_path_, info, {} /* hosts */);
         break;
       }

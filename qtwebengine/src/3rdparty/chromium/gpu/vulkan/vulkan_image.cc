@@ -8,16 +8,14 @@
 
 #include <algorithm>
 
+#include "base/logging.h"
 #include "base/macros.h"
 #include "base/optional.h"
 #include "base/stl_util.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "gpu/vulkan/vulkan_device_queue.h"
 #include "gpu/vulkan/vulkan_function_pointers.h"
-
-#if defined(OS_FUCHSIA)
-#include "gpu/vulkan/fuchsia/vulkan_fuchsia_ext.h"
-#endif
 
 namespace gpu {
 
@@ -53,7 +51,7 @@ std::unique_ptr<VulkanImage> VulkanImage::Create(
     VkImageTiling image_tiling,
     void* vk_image_create_info_next,
     void* vk_memory_allocation_info_next) {
-  auto image = std::make_unique<VulkanImage>(util::PassKey<VulkanImage>());
+  auto image = std::make_unique<VulkanImage>(base::PassKey<VulkanImage>());
   if (!image->Initialize(device_queue, size, format, usage, flags, image_tiling,
                          vk_image_create_info_next,
                          vk_memory_allocation_info_next,
@@ -70,10 +68,13 @@ std::unique_ptr<VulkanImage> VulkanImage::CreateWithExternalMemory(
     VkFormat format,
     VkImageUsageFlags usage,
     VkImageCreateFlags flags,
-    VkImageTiling image_tiling) {
-  auto image = std::make_unique<VulkanImage>(util::PassKey<VulkanImage>());
-  if (!image->InitializeWithExternalMemory(device_queue, size, format, usage,
-                                           flags, image_tiling)) {
+    VkImageTiling image_tiling,
+    void* image_create_info_next,
+    void* memory_allocation_info_next) {
+  auto image = std::make_unique<VulkanImage>(base::PassKey<VulkanImage>());
+  if (!image->InitializeWithExternalMemory(
+          device_queue, size, format, usage, flags, image_tiling,
+          image_create_info_next, memory_allocation_info_next)) {
     return nullptr;
   }
   return image;
@@ -88,7 +89,7 @@ std::unique_ptr<VulkanImage> VulkanImage::CreateFromGpuMemoryBufferHandle(
     VkImageUsageFlags usage,
     VkImageCreateFlags flags,
     VkImageTiling image_tiling) {
-  auto image = std::make_unique<VulkanImage>(util::PassKey<VulkanImage>());
+  auto image = std::make_unique<VulkanImage>(base::PassKey<VulkanImage>());
   if (!image->InitializeFromGpuMemoryBufferHandle(
           device_queue, std::move(gmb_handle), size, format, usage, flags,
           image_tiling)) {
@@ -107,8 +108,10 @@ std::unique_ptr<VulkanImage> VulkanImage::Create(
     VkImageTiling image_tiling,
     VkDeviceSize device_size,
     uint32_t memory_type_index,
-    base::Optional<VulkanYCbCrInfo>& ycbcr_info) {
-  auto image = std::make_unique<VulkanImage>(util::PassKey<VulkanImage>());
+    base::Optional<VulkanYCbCrInfo>& ycbcr_info,
+    VkImageUsageFlags usage,
+    VkImageCreateFlags flags) {
+  auto image = std::make_unique<VulkanImage>(base::PassKey<VulkanImage>());
   image->device_queue_ = device_queue;
   image->image_ = vk_image;
   image->device_memory_ = vk_device_memory;
@@ -118,10 +121,12 @@ std::unique_ptr<VulkanImage> VulkanImage::Create(
   image->device_size_ = device_size;
   image->memory_type_index_ = memory_type_index;
   image->ycbcr_info_ = ycbcr_info;
+  image->usage_ = usage;
+  image->flags_ = flags;
   return image;
 }
 
-VulkanImage::VulkanImage(util::PassKey<VulkanImage> pass_key) {}
+VulkanImage::VulkanImage(base::PassKey<VulkanImage> pass_key) {}
 
 VulkanImage::~VulkanImage() {
   DCHECK(!device_queue_);
@@ -165,30 +170,7 @@ base::ScopedFD VulkanImage::GetMemoryFd(
 
   return base::ScopedFD(memory_fd);
 }
-#endif
-
-#if defined(OS_FUCHSIA)
-zx::vmo VulkanImage::GetMemoryZirconHandle() {
-  DCHECK(handle_types_ &
-         VK_EXTERNAL_MEMORY_HANDLE_TYPE_TEMP_ZIRCON_VMO_BIT_FUCHSIA);
-  VkMemoryGetZirconHandleInfoFUCHSIA get_handle_info = {
-      .sType = VK_STRUCTURE_TYPE_TEMP_MEMORY_GET_ZIRCON_HANDLE_INFO_FUCHSIA,
-      .memory = device_memory_,
-      .handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_TEMP_ZIRCON_VMO_BIT_FUCHSIA,
-  };
-
-  VkDevice device = device_queue_->GetVulkanDevice();
-  zx::vmo vmo;
-  VkResult result = vkGetMemoryZirconHandleFUCHSIA(device, &get_handle_info,
-                                                   vmo.reset_and_get_address());
-  if (result != VK_SUCCESS) {
-    DLOG(ERROR) << "vkGetMemoryFuchsiaHandleKHR failed: " << result;
-    vmo.reset();
-  }
-
-  return vmo;
-}
-#endif
+#endif  // defined(OS_POSIX)
 
 bool VulkanImage::Initialize(VulkanDeviceQueue* device_queue,
                              const gfx::Size& size,
@@ -206,6 +188,7 @@ bool VulkanImage::Initialize(VulkanDeviceQueue* device_queue,
   device_queue_ = device_queue;
   size_ = size;
   format_ = format;
+  usage_ = usage;
   flags_ = flags;
   image_tiling_ = image_tiling;
 
@@ -231,7 +214,7 @@ bool VulkanImage::Initialize(VulkanDeviceQueue* device_queue,
       vkCreateImage(vk_device, &create_info, nullptr /* pAllocator */, &image_);
   if (result != VK_SUCCESS) {
     DLOG(ERROR) << "vkCreateImage failed result:" << result;
-    device_queue_ = VK_NULL_HANDLE;
+    device_queue_ = nullptr;
     return false;
   }
 
@@ -289,18 +272,39 @@ bool VulkanImage::Initialize(VulkanDeviceQueue* device_queue,
     return false;
   }
 
+  // Get subresource layout for images with VK_IMAGE_TILING_LINEAR.
+  // For images with VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT, the layout is
+  // initialized in InitializeWithExternalMemoryAndModifiers(). For
+  // VK_IMAGE_TILING_OPTIMAL the layout is not usable and
+  // vkGetImageSubresourceLayout() is illegal.
+  if (image_tiling_ != VK_IMAGE_TILING_LINEAR)
+    return true;
+
+  VkImageSubresource image_subresource;
+      image_subresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      image_subresource.mipLevel = 0;
+      image_subresource.arrayLayer = 0;
+
+  vkGetImageSubresourceLayout(device_queue_->GetVulkanDevice(), image_,
+                              &image_subresource, &layouts_[0]);
+
   return true;
 }
 
-bool VulkanImage::InitializeWithExternalMemory(VulkanDeviceQueue* device_queue,
-                                               const gfx::Size& size,
-                                               VkFormat format,
-                                               VkImageUsageFlags usage,
-                                               VkImageCreateFlags flags,
-                                               VkImageTiling image_tiling) {
+bool VulkanImage::InitializeWithExternalMemory(
+    VulkanDeviceQueue* device_queue,
+    const gfx::Size& size,
+    VkFormat format,
+    VkImageUsageFlags usage,
+    VkImageCreateFlags flags,
+    VkImageTiling image_tiling,
+    void* image_create_info_next,
+    void* memory_allocation_info_next) {
 #if defined(OS_FUCHSIA)
   constexpr auto kHandleType =
       VK_EXTERNAL_MEMORY_HANDLE_TYPE_TEMP_ZIRCON_VMO_BIT_FUCHSIA;
+#elif defined(OS_WIN)
+  constexpr auto kHandleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
 #else
   constexpr auto kHandleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
 #endif
@@ -314,12 +318,27 @@ bool VulkanImage::InitializeWithExternalMemory(VulkanDeviceQueue* device_queue,
       usage,
       flags,
   };
+
   VkPhysicalDeviceExternalImageFormatInfo external_info = {
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO,
       nullptr,
       kHandleType,
   };
   format_info_2.pNext = &external_info;
+
+// TODO(crbug.com/1052397): Revisit once build flag switch of lacros-chrome is
+// complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+  VkPhysicalDeviceImageDrmFormatModifierInfoEXT modifier_info = {
+      .sType =
+          VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_DRM_FORMAT_MODIFIER_INFO_EXT,
+      .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+  };
+  // If image_tiling is VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT, a modifier_info
+  // struct has to be appended.
+  if (image_tiling == VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT)
+    external_info.pNext = &modifier_info;
+#endif
 
   VkImageFormatProperties2 image_format_properties_2 = {
       VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2,
@@ -354,13 +373,13 @@ bool VulkanImage::InitializeWithExternalMemory(VulkanDeviceQueue* device_queue,
 
   VkExternalMemoryImageCreateInfoKHR external_image_create_info = {
       VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO_KHR,
-      nullptr,
+      image_create_info_next,
       handle_types_,
   };
 
   VkExportMemoryAllocateInfoKHR external_memory_allocate_info = {
       VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR,
-      nullptr,
+      memory_allocation_info_next,
       handle_types_,
   };
 

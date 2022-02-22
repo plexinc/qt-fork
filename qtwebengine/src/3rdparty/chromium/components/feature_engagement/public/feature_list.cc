@@ -5,7 +5,6 @@
 #include "components/feature_engagement/public/feature_list.h"
 
 #include "base/stl_util.h"
-#include "components/feature_engagement/buildflags.h"
 #include "components/feature_engagement/public/feature_constants.h"
 
 namespace feature_engagement {
@@ -21,34 +20,55 @@ const base::Feature* const kAllFeatures[] = {
     &kIPHDataSaverMilestonePromoFeature,
     &kIPHDataSaverPreviewFeature,
     &kIPHDownloadHomeFeature,
+    &kIPHDownloadIndicatorFeature,
     &kIPHDownloadPageFeature,
     &kIPHDownloadPageScreenshotFeature,
-    &kIPHChromeDuetHomeButtonFeature,
-    &kIPHChromeDuetSearchFeature,
-    &kIPHChromeDuetTabSwitcherFeature,
     &kIPHChromeHomeExpandFeature,
     &kIPHChromeHomePullToRefreshFeature,
+    &kIPHChromeReengagementNotification1Feature,
+    &kIPHChromeReengagementNotification2Feature,
+    &kIPHChromeReengagementNotification3Feature,
+    &kIPHContextualSearchTranslationEnableFeature,
     &kIPHContextualSearchWebSearchFeature,
     &kIPHContextualSearchPromoteTapFeature,
     &kIPHContextualSearchPromotePanelOpenFeature,
     &kIPHContextualSearchOptInFeature,
+    &kIPHContextualSearchTappedButShouldLongpressFeature,
     &kIPHDownloadSettingsFeature,
     &kIPHDownloadInfoBarDownloadContinuingFeature,
     &kIPHDownloadInfoBarDownloadsAreFasterFeature,
     &kIPHEphemeralTabFeature,
     &kIPHFeedCardMenuFeature,
+    &kIPHHomepagePromoCardFeature,
     &kIPHIdentityDiscFeature,
     &kIPHKeyboardAccessoryAddressFillingFeature,
+    &kIPHKeyboardAccessoryBarSwipingFeature,
     &kIPHKeyboardAccessoryPasswordFillingFeature,
     &kIPHKeyboardAccessoryPaymentFillingFeature,
+    &kIPHKeyboardAccessoryPaymentOfferFeature,
+    &kIPHNewTabPageHomeButtonFeature,
+    &kIPHPageInfoFeature,
     &kIPHPreviewsOmniboxUIFeature,
+    &kIPHPwaInstallAvailableFeature,
     &kIPHQuietNotificationPromptsFeature,
+    &kIPHReadLaterContextMenuFeature,
+    &kIPHReadLaterAppMenuBookmarkThisPageFeature,
+    &kIPHReadLaterAppMenuBookmarksFeature,
+    &kIPHReadLaterBottomSheetFeature,
     &kIPHTabGroupsQuicklyComparePagesFeature,
     &kIPHTabGroupsTapToSeeAnotherTabFeature,
     &kIPHTabGroupsYourTabsAreTogetherFeature,
     &kIPHTabGroupsDragAndDropFeature,
+    &kIPHTabSwitcherButtonFeature,
     &kIPHTranslateMenuButtonFeature,
+    &kIPHVideoTutorialNTPChromeIntroFeature,
+    &kIPHVideoTutorialNTPDownloadFeature,
+    &kIPHVideoTutorialNTPSearchFeature,
+    &kIPHVideoTutorialNTPVoiceSearchFeature,
+    &kIPHVideoTutorialNTPSummaryFeature,
     &kIPHExploreSitesTileFeature,
+    &kIPHFeedHeaderMenuFeature,
+    &kIPHShareScreenshotFeature,
 #endif  // defined(OS_ANDROID)
 #if defined(OS_IOS)
     &kIPHBottomToolbarTipFeature,
@@ -57,19 +77,20 @@ const base::Feature* const kAllFeatures[] = {
     &kIPHNewIncognitoTabTipFeature,
     &kIPHBadgedReadingListFeature,
     &kIPHBadgedTranslateManualTriggerFeature,
+    &kIPHDiscoverFeedHeaderFeature,
 #endif  // defined(OS_IOS)
-#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX) || \
+#if defined(OS_WIN) || defined(OS_APPLE) || defined(OS_LINUX) || \
     defined(OS_CHROMEOS)
+    &kIPHDesktopTabGroupsNewGroupFeature,
     &kIPHFocusModeFeature,
     &kIPHGlobalMediaControlsFeature,
+    &kIPHLiveCaptionFeature,
+    &kIPHPasswordsAccountStorageFeature,
+    &kIPHReadingListDiscoveryFeature,
     &kIPHReopenTabFeature,
     &kIPHWebUITabStripFeature,
-#if BUILDFLAG(ENABLE_LEGACY_DESKTOP_IN_PRODUCT_HELP)
-    &kIPHBookmarkFeature,
-    &kIPHIncognitoWindowFeature,
-    &kIPHNewTabFeature,
-#endif  // BUILDFLAG(ENABLE_LEGACY_DESKTOP_IN_PRODUCT_HELP)
-#endif  // defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX) ||
+    &kIPHDesktopPwaInstallFeature,
+#endif  // defined(OS_WIN) || defined(OS_APPLE) || defined(OS_LINUX) ||
         // defined(OS_CHROMEOS)
 };
 }  // namespace

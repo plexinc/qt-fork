@@ -24,6 +24,10 @@ if (!defined(dawn_standalone)) {
   dawn_standalone = false
 }
 
+if (!defined(dawn_has_build)) {
+  dawn_has_build = true
+}
+
 if (!defined(dawn_root)) {
   dawn_root = get_path_info("..", "abspath")
 }
@@ -37,6 +41,10 @@ if (!defined(dawn_glfw_dir)) {
   dawn_glfw_dir = "//third_party/glfw"
 }
 
+if (!defined(dawn_glm_dir)) {
+  dawn_glm_dir = "//third_party/glm"
+}
+
 if (!defined(dawn_googletest_dir)) {
   dawn_googletest_dir = "//third_party/googletest"
 }
@@ -46,11 +54,11 @@ if (!defined(dawn_shaderc_dir)) {
 }
 
 if (!defined(dawn_spirv_cross_dir)) {
-  dawn_spirv_cross_dir = "//third_party/spirv-cross"
+  dawn_spirv_cross_dir = "//third_party/vulkan-deps/spirv-cross/src"
 }
 
 if (!defined(dawn_spirv_tools_dir)) {
-  dawn_spirv_tools_dir = "//third_party/SPIRV-Tools"
+  dawn_spirv_tools_dir = "//third_party/vulkan-deps/spirv-tools/src"
 }
 
 if (!defined(dawn_swiftshader_dir)) {
@@ -58,6 +66,17 @@ if (!defined(dawn_swiftshader_dir)) {
   dawn_swiftshader_dir = ""
 }
 
-if (!defined(dawn_vulkan_validaion_layers_dir)) {
-  dawn_vulkan_validaion_layers_dir = "//third_party/vulkan-validation-layers"
+if (!defined(dawn_vulkan_loader_dir)) {
+  # Default to the Vulkan loader not being available.
+  dawn_vulkan_loader_dir = ""
+}
+
+if (!defined(dawn_vulkan_validation_layers_dir)) {
+  # Default to VVLs not being available.
+  dawn_vulkan_validation_layers_dir = ""
+}
+
+if (!defined(dawn_tint_dir)) {
+  # Default to Tint not being available.
+  dawn_tint_dir = ""
 }

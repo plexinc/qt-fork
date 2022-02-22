@@ -42,6 +42,8 @@
 #include "qquickrendercontrol.h"
 #include "qquickscreen_p.h"
 #include "qquickview_p.h"
+#include "qquickwindowmodule_p_p.h"
+#include "qquickitem_p.h"
 #include <QtQuick/QQuickWindow>
 #include <QtCore/QCoreApplication>
 #include <QtQml/QQmlEngine>
@@ -56,28 +58,11 @@ QT_BEGIN_NAMESPACE
 
 Q_DECLARE_LOGGING_CATEGORY(lcTransient)
 
-class QQuickWindowQmlImplPrivate : public QQuickWindowPrivate
-{
-public:
-    QQuickWindowQmlImplPrivate()
-        : complete(false)
-        , visible(false)
-        , visibility(QQuickWindow::AutomaticVisibility)
-    {
-    }
-
-    bool complete;
-    bool visible;
-    QQuickWindow::Visibility visibility;
-    QV4::PersistentValue rootItemMarker;
-};
+QQuickWindowQmlImplPrivate::QQuickWindowQmlImplPrivate() = default;
 
 QQuickWindowQmlImpl::QQuickWindowQmlImpl(QWindow *parent)
-    : QQuickWindow(*(new QQuickWindowQmlImplPrivate), parent)
+    : QQuickWindowQmlImpl(*(new QQuickWindowQmlImplPrivate), parent)
 {
-    connect(this, &QWindow::visibleChanged, this, &QQuickWindowQmlImpl::visibleChanged);
-    connect(this, &QWindow::visibilityChanged, this, &QQuickWindowQmlImpl::visibilityChanged);
-    connect(this, &QWindow::screenChanged, this, &QQuickWindowQmlImpl::screenChanged);
 }
 
 void QQuickWindowQmlImpl::setVisible(bool visible)
@@ -140,6 +125,14 @@ void QQuickWindowQmlImpl::componentComplete()
     }
 }
 
+QQuickWindowQmlImpl::QQuickWindowQmlImpl(QQuickWindowQmlImplPrivate &dd, QWindow *parent)
+    : QQuickWindow(dd, parent)
+{
+    connect(this, &QWindow::visibleChanged, this, &QQuickWindowQmlImpl::visibleChanged);
+    connect(this, &QWindow::visibilityChanged, this, &QQuickWindowQmlImpl::visibilityChanged);
+    connect(this, &QWindow::screenChanged, this, &QQuickWindowQmlImpl::screenChanged);
+}
+
 void QQuickWindowQmlImpl::setWindowVisibility()
 {
     Q_D(QQuickWindowQmlImpl);
@@ -162,9 +155,9 @@ void QQuickWindowQmlImpl::setWindowVisibility()
         QQmlError error;
         error.setObject(this);
 
-        const QQmlContextData* urlContext = data->context;
+        QQmlRefPointer<QQmlContextData> urlContext = data->context;
         while (urlContext && urlContext->url().isEmpty())
-            urlContext = urlContext->parent;
+            urlContext = urlContext->parent();
         error.setUrl(urlContext ? urlContext->url() : QUrl());
 
         QString objectId = data->context->findObjectId(this);
@@ -175,7 +168,7 @@ void QQuickWindowQmlImpl::setWindowVisibility()
             error.setDescription(QCoreApplication::translate("QQuickWindowQmlImpl",
                 "Conflicting properties 'visible' and 'visibility'"));
 
-        QQmlEnginePrivate::get(data->context->engine)->warning(error);
+        QQmlEnginePrivate::get(data->context->engine())->warning(error);
     }
 
     if (d->visibility == AutomaticVisibility) {

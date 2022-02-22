@@ -40,7 +40,7 @@ class SignalWaiter : public QThread
 
 public:
     SignalWaiter();
-    void run();
+    void run() override;
 
 public slots:
     void stopWaiting();
@@ -76,7 +76,6 @@ private slots:
 
     void setupIndex();
     void filter();
-    void linksForIndex();
 
 private:
     QString m_colFile;
@@ -98,6 +97,7 @@ void tst_QHelpIndexModel::init()
 void tst_QHelpIndexModel::setupIndex()
 {
     QHelpEngine h(m_colFile, 0);
+    h.setReadOnly(false);
     QHelpIndexModel *m = h.indexModel();
     SignalWaiter w;
     connect(m, SIGNAL(indexCreated()),
@@ -129,6 +129,7 @@ void tst_QHelpIndexModel::setupIndex()
 void tst_QHelpIndexModel::filter()
 {
     QHelpEngine h(m_colFile, 0);
+    h.setReadOnly(false);
     QHelpIndexModel *m = h.indexModel();
     SignalWaiter w;
     connect(m, SIGNAL(indexCreated()),
@@ -150,51 +151,6 @@ void tst_QHelpIndexModel::filter()
 
     m->filter("qmake");
     QCOMPARE(m->stringList().count(), 11);
-}
-
-void tst_QHelpIndexModel::linksForIndex()
-{
-    QHelpEngine h(m_colFile, 0);
-    QHelpIndexModel *m = h.indexModel();
-    SignalWaiter w;
-    connect(m, SIGNAL(indexCreated()),
-        &w, SLOT(stopWaiting()));
-    w.start();
-    h.setupData();
-    int i = 0;
-    while (w.isRunning() && i++ < 10)
-        QTest::qWait(500);
-
-    QCOMPARE(h.currentFilter(), QString("unfiltered"));
-    QMap<QString, QUrl> map;
-    map = m->linksForKeyword("foo");
-    QCOMPARE(map.count(), 2);
-    QCOMPARE(map.contains("Test Manual"), true);
-    QCOMPARE(map.value("Test Manual"),
-        QUrl("qthelp://trolltech.com.1-0-0.test/testFolder/test.html#foo"));
-
-    QCOMPARE(map.contains("Fancy"), true);
-    QCOMPARE(map.value("Fancy"),
-        QUrl("qthelp://trolltech.com.1-0-0.test/testFolder/fancy.html#foo"));
-
-    map = m->linksForKeyword("foobar");
-    QCOMPARE(map.count(), 1);
-    QCOMPARE(map.contains("Fancy"), true);
-
-    map = m->linksForKeyword("notexisting");
-    QCOMPARE(map.count(), 0);
-
-    w.start();
-    h.setCurrentFilter("Custom Filter 1");
-    i = 0;
-    while (w.isRunning() && i++ < 10)
-        QTest::qWait(500);
-
-    map = m->linksForKeyword("foo");
-    QCOMPARE(map.count(), 1);
-    QCOMPARE(map.contains("Test Manual"), true);
-    QCOMPARE(map.value("Test Manual"),
-        QUrl("qthelp://trolltech.com.1-0-0.test/testFolder/test.html#foo"));
 }
 
 QTEST_MAIN(tst_QHelpIndexModel)

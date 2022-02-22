@@ -39,13 +39,10 @@
 #include "test_sensor.h"
 #include "test_sensor2.h"
 #include "test_sensorimpl.h"
-#include "test_backends.h"
+#include "../common/test_backends.h"
 
 QT_BEGIN_NAMESPACE
 
-// The unit test needs to change the behaviour of the library. It does this
-// through an exported but undocumented function.
-Q_SENSORS_EXPORT void sensors_unit_test_hook(int index);
 bool operator==(const qoutputrange &orl1, const qoutputrange &orl2)
 {
     return (orl1.minimum == orl2.minimum &&
@@ -54,26 +51,15 @@ bool operator==(const qoutputrange &orl1, const qoutputrange &orl2)
 }
 
 namespace QTest {
-    template<> char *toString(const qoutputrangelist &orl)
+    // QCOMPARE calls this upon failure (and if a list of these elements is compared,
+    // it will call this individually for each element)
+    template<> char* toString(const qoutputrange& range)
     {
-        QStringList list;
-        foreach (const qoutputrange &item, orl) {
-            list << QString("%1-%2%3%4").arg(item.minimum).arg(item.maximum).arg(QString::fromWCharArray(L"\u00B1")).arg(item.accuracy);
-        }
-        QString ret = QString("qoutputrangelist: (%1)").arg(list.join("), ("));
-        return qstrdup(ret.toLatin1().data());
-    }
-    template<> char *toString(const QList<QByteArray> &data)
-    {
-        QStringList list;
-        foreach (const QByteArray &str, data) {
-            list << QString::fromLatin1(str);
-        }
-        QString ret = QString("QList<QByteArray>: (%1)").arg(list.join("), ("));
+        QString ret =  QString("%1-%2%3%4").arg(range.minimum).arg(range.maximum)
+                .arg(QString::fromWCharArray(L"\u00B1")).arg(range.accuracy);
         return qstrdup(ret.toLatin1().data());
     }
 }
-
 
 class MyFilter : public TestSensorFilter { bool filter(TestSensorReading *) override { return false; } };
 
@@ -136,18 +122,16 @@ private slots:
 
     void testTypeRegistered()
     {
-        QList<QByteArray> expected;
-        expected << TestSensor::type << TestSensor2::type;
-        QList<QByteArray> actual = QSensor::sensorTypes();
-        std::sort(actual.begin(), actual.end()); // The actual list is not in a defined order
-        QCOMPARE(actual, expected);
+        // Verify type registrations done by the test_sensorplugin
+        QVERIFY(QSensor::sensorTypes().contains(TestSensor::sensorType));
+        QVERIFY(QSensor::sensorTypes().contains(TestSensor2::sensorType));
     }
 
     void testSensorRegistered()
     {
         QList<QByteArray> expected;
         expected << "test sensor 2" << "test sensor 3" << testsensorimpl::id;
-        QList<QByteArray> actual = QSensor::sensorsForType(TestSensor::type);
+        QList<QByteArray> actual = QSensor::sensorsForType(TestSensor::sensorType);
         std::sort(actual.begin(), actual.end()); // The actual list is not in a defined order
         QCOMPARE(actual, expected);
     }
@@ -155,23 +139,23 @@ private slots:
     void testSensorDefault()
     {
         QByteArray expected = testsensorimpl::id;
-        QByteArray actual = QSensor::defaultSensorForType(TestSensor::type);
+        QByteArray actual = QSensor::defaultSensorForType(TestSensor::sensorType);
         QCOMPARE(actual, expected);
     }
 
     void testBadDefaultFromConfig()
     {
-        QSensorManager::setDefaultBackend(QByteArray(TestSensor::type), QByteArray("bogus id"));
+        QSensorManager::setDefaultBackend(QByteArray(TestSensor::sensorType), QByteArray("bogus id"));
         QByteArray expected = testsensorimpl::id;
-        QByteArray actual = QSensor::defaultSensorForType(TestSensor::type);
+        QByteArray actual = QSensor::defaultSensorForType(TestSensor::sensorType);
         QCOMPARE(actual, expected);
     }
 
     void testGoodDefaultFromConfig()
     {
-        QSensorManager::setDefaultBackend(QByteArray(TestSensor::type), QByteArray(testsensorimpl::id));
+        QSensorManager::setDefaultBackend(QByteArray(TestSensor::sensorType), QByteArray(testsensorimpl::id));
         QByteArray expected = testsensorimpl::id;
-        QByteArray actual = QSensor::defaultSensorForType(TestSensor::type);
+        QByteArray actual = QSensor::defaultSensorForType(TestSensor::sensorType);
         QCOMPARE(actual, expected);
     }
 
@@ -217,7 +201,7 @@ private slots:
 
     void testBadDefaultCreation()
     {
-        QSensorManager::setDefaultBackend(QByteArray(TestSensor::type), QByteArray("test sensor 2"));
+        QSensorManager::setDefaultBackend(QByteArray(TestSensor::sensorType), QByteArray("test sensor 2"));
         TestSensor sensor;
         QTest::ignoreMessage(QtWarningMsg, "Can't create backend \"test sensor 2\"");
         sensor.connectToBackend();
@@ -241,9 +225,9 @@ private slots:
         sensor.connectToBackend();
         QVERIFY(sensor.reading() != 0);
         quint64 timestamp = sensor.reading()->timestamp();
-        qtimestamp timestamp2 = sensor.reading()->timestamp();
+        quint64 timestamp2 = sensor.reading()->timestamp();
         QVERIFY(timestamp == quint64());
-        QVERIFY(timestamp2 == qtimestamp());
+        QVERIFY(timestamp2 == quint64());
         sensor.setProperty("doThis", "setOne");
         sensor.start();
         timestamp = sensor.reading()->timestamp();
@@ -763,7 +747,7 @@ private slots:
         // Unregister an unknown identifier
         sensor.sensorsChangedEmitted = 0;
         QTest::ignoreMessage(QtWarningMsg, "Identifier \"a random id\" is not registered");
-        QSensorManager::unregisterBackend(TestSensor::type, "a random id");
+        QSensorManager::unregisterBackend(TestSensor::sensorType, "a random id");
         QCOMPARE(sensor.sensorsChangedEmitted, 0);
 
         // Unregister for an unknown type
@@ -773,11 +757,9 @@ private slots:
         QCOMPARE(sensor.sensorsChangedEmitted, 0);
 
         // Make sure we've cleaned up the list of available types
-        QList<QByteArray> expected;
-        expected << TestSensor::type << TestSensor2::type;
-        QList<QByteArray> actual = QSensor::sensorTypes();
-        std::sort(actual.begin(), actual.end()); // The actual list is not in a defined order
-        QCOMPARE(actual, expected);
+        QVERIFY(!QSensor::sensorTypes().contains("a random type"));
+        QVERIFY(QSensor::sensorTypes().contains(TestSensor::sensorType));
+        QVERIFY(QSensor::sensorTypes().contains(TestSensor2::sensorType));
     }
 
     void testSetActive()
@@ -812,11 +794,11 @@ private slots:
         bool actual;
 
         expected = true;
-        actual = QSensorManager::isBackendRegistered(TestSensor::type, testsensorimpl::id);
+        actual = QSensorManager::isBackendRegistered(TestSensor::sensorType, testsensorimpl::id);
         QCOMPARE(expected, actual);
 
         expected = false;
-        actual = QSensorManager::isBackendRegistered(TestSensor::type, "random");
+        actual = QSensorManager::isBackendRegistered(TestSensor::sensorType, "random");
         QCOMPARE(expected, actual);
 
         expected = false;
@@ -832,10 +814,6 @@ private slots:
             QCOMPARE(reading->x(), 1.0);
             QCOMPARE(reading->y(), 1.0);
             QCOMPARE(reading->z(), 1.0);
-        })
-
-        TEST_SENSORINTERFACE(QAltimeter, QAltimeterReading, {
-            QCOMPARE(reading->altitude(), 8848.0);
         })
 
         TEST_SENSORINTERFACE(QAmbientLightSensor, QAmbientLightReading, {
@@ -855,10 +833,6 @@ private slots:
             QCOMPARE(reading->x(), 1.0);
             QCOMPARE(reading->y(), 1.0);
             QCOMPARE(reading->z(), 1.0);
-        })
-
-        TEST_SENSORINTERFACE(QHolsterSensor, QHolsterReading, {
-            QCOMPARE(reading->holstered(), true);
         })
 
         TEST_SENSORINTERFACE(QLightSensor, QLightReading, {
@@ -951,6 +925,52 @@ private slots:
         // Now we can start the second instance
         sensor2.start();
         QVERIFY(sensor2.isActive());
+
+        // test 'busy' going back and forth and verify indication to frontend
+        register_test_backends();
+        QAccelerometer accelerometer;
+        accelerometer.setIdentifier("QAccelerometer");
+        QSignalSpy busySpy(&accelerometer, SIGNAL(busyChanged()));
+        QVERIFY(accelerometer.connectToBackend());
+        QVERIFY(!accelerometer.isBusy());
+        QCOMPARE(busySpy.count(), 0);
+
+        set_test_backend_busy(&accelerometer, true);
+        QCOMPARE(busySpy.count(), 1);
+        QVERIFY(accelerometer.isBusy());
+
+        set_test_backend_busy(&accelerometer, false);
+        QCOMPARE(busySpy.count(), 2);
+        QVERIFY(!accelerometer.isBusy());
+        unregister_test_backends();
+    }
+
+    void testIdenfifierChanged()
+    {
+      TestSensor sensor;
+      QSignalSpy spy(&sensor, SIGNAL(identifierChanged()));
+      QCOMPARE(sensor.identifier(), "");
+
+      // Change id and verify change
+      sensor.setIdentifier("a");
+      QCOMPARE(sensor.identifier(), "a");
+      QCOMPARE(spy.count(), 1);
+
+      // Set same id and verify that no changes
+      sensor.setIdentifier("a");
+      QCOMPARE(sensor.identifier(), "a");
+      QCOMPARE(spy.count(), 1);
+
+      // Change id and verify change
+      sensor.setIdentifier(testsensorimpl::id);
+      QCOMPARE(sensor.identifier(), testsensorimpl::id);
+      QCOMPARE(spy.count(), 2);
+
+      // Identifier cant be changed after connected to backend
+      QVERIFY(sensor.connectToBackend());
+      sensor.setIdentifier("c");
+      QCOMPARE(sensor.identifier(), testsensorimpl::id);
+      QCOMPARE(spy.count(), 2);
     }
 
     void testSupportedFeatures()
@@ -959,21 +979,21 @@ private slots:
 
         // Not connected to backend - should report false for any feature
         QVERIFY(!sensor.isConnectedToBackend());
-        QVERIFY(!sensor.isFeatureSupported(QSensor::AlwaysOn));
-        QVERIFY(!sensor.isFeatureSupported(QSensor::Buffering));
-        QVERIFY(!sensor.isFeatureSupported(QSensor::GeoValues));
-        QVERIFY(!sensor.isFeatureSupported(QSensor::FieldOfView));
-        QVERIFY(!sensor.isFeatureSupported(QSensor::AccelerationMode));
+        QVERIFY(!sensor.isFeatureSupported(QSensor::Feature::AlwaysOn));
+        QVERIFY(!sensor.isFeatureSupported(QSensor::Feature::Buffering));
+        QVERIFY(!sensor.isFeatureSupported(QSensor::Feature::GeoValues));
+        QVERIFY(!sensor.isFeatureSupported(QSensor::Feature::FieldOfView));
+        QVERIFY(!sensor.isFeatureSupported(QSensor::Feature::AccelerationMode));
 
         // Connect to backend - according to the testsensorimpl implementation, AlwaysOn and
         // GeoValues should be supported afterwards
         QVERIFY(sensor.connectToBackend());
 
-        QVERIFY(sensor.isFeatureSupported(QSensor::AlwaysOn));
-        QVERIFY(!sensor.isFeatureSupported(QSensor::Buffering));
-        QVERIFY(sensor.isFeatureSupported(QSensor::GeoValues));
-        QVERIFY(!sensor.isFeatureSupported(QSensor::FieldOfView));
-        QVERIFY(!sensor.isFeatureSupported(QSensor::AccelerationMode));
+        QVERIFY(sensor.isFeatureSupported(QSensor::Feature::AlwaysOn));
+        QVERIFY(!sensor.isFeatureSupported(QSensor::Feature::Buffering));
+        QVERIFY(sensor.isFeatureSupported(QSensor::Feature::GeoValues));
+        QVERIFY(!sensor.isFeatureSupported(QSensor::Feature::FieldOfView));
+        QVERIFY(!sensor.isFeatureSupported(QSensor::Feature::AccelerationMode));
     }
 };
 

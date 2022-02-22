@@ -37,7 +37,11 @@
 #include <QOpenGLVertexArrayObject>
 #include <QSurfaceFormat>
 
-#if !defined(QT_OPENGL_ES_2) && defined(QT_OPENGL_4_3)
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+#include <QtOpenGL/QOpenGLVersionFunctionsFactory>
+#endif
+
+#if !QT_CONFIG(opengles2) && defined(QT_OPENGL_4_3)
 
 #define TEST_SHOULD_BE_PERFORMED 1
 
@@ -255,7 +259,11 @@ private Q_SLOTS:
             return;
         }
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        if ((m_func = QOpenGLVersionFunctionsFactory::get<QOpenGLFunctions_4_3_Core>()) != nullptr) {
+#else
         if ((m_func = m_glContext.versionFunctions<QOpenGLFunctions_4_3_Core>()) != nullptr) {
+#endif
             m_glHelper.initializeHelper(&m_glContext, m_func);
             m_initializationSuccessful = true;
         }
@@ -463,6 +471,113 @@ private Q_SLOTS:
                                                               GL_FRAMEBUFFER_ATTACHMENT_LAYERED,
                                                               &textureIsLayered);
                 QCOMPARE(textureIsLayered, GL_FALSE);
+
+                // Restore state
+                m_func->glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+                m_func->glDeleteFramebuffers(1, &fboId);
+            }
+        }
+
+        // TargetCubeMapArray
+        {
+            // GIVEN
+            QOpenGLTexture texture(QOpenGLTexture::TargetCubeMapArray);
+            texture.setSize(512, 512);
+            texture.setFormat(QOpenGLTexture::RGBA32F);
+            texture.setMinificationFilter(QOpenGLTexture::Linear);
+            texture.setMagnificationFilter(QOpenGLTexture::Linear);
+            texture.setWrapMode(QOpenGLTexture::ClampToEdge);
+            texture.setLayers(4);
+            if (!texture.create())
+                qWarning() << "Texture creation failed";
+            texture.allocateStorage();
+            QVERIFY(texture.isStorageAllocated());
+            GLint error = m_func->glGetError();
+            QVERIFY(error == 0);
+
+            { // Check All Faces
+
+                // GIVEN
+                GLuint fboId;
+                m_func->glGenFramebuffers(1, &fboId);
+
+                // THEN
+                QVERIFY(fboId != 0);
+
+                // WHEN
+                m_func->glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboId);
+
+                Attachment attachment;
+                attachment.m_point = QRenderTargetOutput::Color0;
+                attachment.m_face = Qt3DRender::QAbstractTexture::AllFaces;
+
+                m_glHelper.bindFrameBufferAttachment(&texture, attachment);
+
+                // THEN
+                GLenum status = m_func->glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER);
+                QVERIFY(status == GL_FRAMEBUFFER_COMPLETE);
+
+                error = m_func->glGetError();
+                QVERIFY(error == 0);
+
+                // Texture should be layered and attached to layer 0 since CubeMapArray textures
+                // are bound to entire texture, not a specific layer
+                GLint textureIsLayered = 0;
+                m_func->glGetFramebufferAttachmentParameteriv(
+                        GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                        GL_FRAMEBUFFER_ATTACHMENT_LAYERED, &textureIsLayered);
+                QCOMPARE(textureIsLayered, GL_TRUE);
+
+                GLint textureLayer = 0;
+                m_func->glGetFramebufferAttachmentParameteriv(
+                        GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                        GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_LAYER, &textureLayer);
+                QCOMPARE(textureLayer, 0);
+
+                // Restore state
+                m_func->glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+                m_func->glDeleteFramebuffers(1, &fboId);
+            }
+            { // Check Specific Faces
+
+                // GIVEN
+                GLuint fboId;
+                m_func->glGenFramebuffers(1, &fboId);
+
+                // THEN
+                QVERIFY(fboId != 0);
+
+                // WHEN
+                m_func->glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboId);
+
+                Attachment attachment;
+                attachment.m_point = QRenderTargetOutput::Color0;
+                attachment.m_face = Qt3DRender::QAbstractTexture::CubeMapNegativeZ;
+                attachment.m_layer = 1;
+
+                m_glHelper.bindFrameBufferAttachment(&texture, attachment);
+
+                // THEN
+                GLenum status = m_func->glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER);
+                QVERIFY(status == GL_FRAMEBUFFER_COMPLETE);
+
+                error = m_func->glGetError();
+                QVERIFY(error == 0);
+
+                GLint textureIsLayered = 0;
+                m_func->glGetFramebufferAttachmentParameteriv(
+                        GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                        GL_FRAMEBUFFER_ATTACHMENT_LAYERED, &textureIsLayered);
+                QCOMPARE(textureIsLayered, GL_FALSE);
+
+                GLint textureLayer = 0;
+                m_func->glGetFramebufferAttachmentParameteriv(
+                        GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                        GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_LAYER, &textureLayer);
+                // actual layer should be 6 * layer + face
+                const auto faceNo =
+                        attachment.m_face - Qt3DRender::QAbstractTexture::CubeMapPositiveX;
+                QCOMPARE(textureLayer, 6 * attachment.m_layer + faceNo);
 
                 // Restore state
                 m_func->glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
@@ -816,7 +931,11 @@ private Q_SLOTS:
         QVERIFY(error == 0);
 
         // THEN
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        QList<QVector4D> colors(512 * 512);
+#else
         QVector<QVector4D> colors(512 * 512);
+#endif
         textures[3]->bind();
         m_func->glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, colors.data());
         textures[3]->release();
@@ -1238,11 +1357,11 @@ private Q_SLOTS:
         QVERIFY(shaderProgram.link());
 
         // WHEN
-        const QVector<ShaderUniformBlock> activeUniformBlocks = m_glHelper.programUniformBlocks(shaderProgram.programId());
+        const std::vector<ShaderUniformBlock> activeUniformBlocks = m_glHelper.programUniformBlocks(shaderProgram.programId());
 
         // THEN
         QCOMPARE(activeUniformBlocks.size(), 1);
-        const ShaderUniformBlock uniformBlock = activeUniformBlocks.first();
+        const ShaderUniformBlock uniformBlock = activeUniformBlocks.front();
 
         QCOMPARE(uniformBlock.m_activeUniformsCount, 1);
         QCOMPARE(uniformBlock.m_name, QStringLiteral("ColorArray"));
@@ -1261,7 +1380,7 @@ private Q_SLOTS:
         QVERIFY(shaderProgram.link());
 
         // WHEN
-        QVector<ShaderAttribute> activeAttributes = m_glHelper.programAttributesAndLocations(shaderProgram.programId());
+        std::vector<ShaderAttribute> activeAttributes = m_glHelper.programAttributesAndLocations(shaderProgram.programId());
 
         // THEN
         QCOMPARE(activeAttributes.size(), 2);
@@ -1292,7 +1411,7 @@ private Q_SLOTS:
         QVERIFY(shaderProgram.link());
 
         // WHEN
-        QVector<ShaderUniform> activeUniforms = m_glHelper.programUniformsAndLocations(shaderProgram.programId());
+        std::vector<ShaderUniform> activeUniforms = m_glHelper.programUniformsAndLocations(shaderProgram.programId());
 
         // THEN
         QCOMPARE(activeUniforms.size(), 4);
@@ -1350,11 +1469,11 @@ private Q_SLOTS:
         QVERIFY(shaderProgram.link());
 
         // WHEN
-        const QVector<ShaderStorageBlock> activeShaderStorageBlocks = m_glHelper.programShaderStorageBlocks(shaderProgram.programId());
+        const std::vector<ShaderStorageBlock> activeShaderStorageBlocks = m_glHelper.programShaderStorageBlocks(shaderProgram.programId());
 
         // THEN
         QVERIFY(activeShaderStorageBlocks.size() == 1);
-        ShaderStorageBlock block = activeShaderStorageBlocks.first();
+        ShaderStorageBlock block = activeShaderStorageBlocks.front();
         QCOMPARE(block.m_name, QStringLiteral("Particles"));
         QCOMPARE(block.m_activeVariablesCount, 3);
         QCOMPARE(block.m_index, 0);
@@ -1558,7 +1677,7 @@ private Q_SLOTS:
         QVERIFY(shaderProgram.link());
 
         // WHEN
-        const QVector<ShaderUniform> activeUniforms = m_glHelper.programUniformsAndLocations(shaderProgram.programId());
+        const std::vector<ShaderUniform> activeUniforms = m_glHelper.programUniformsAndLocations(shaderProgram.programId());
         ShaderUniform matchingUniform;
         for (const ShaderUniform &u : activeUniforms) {
             if (u.m_location == location) {

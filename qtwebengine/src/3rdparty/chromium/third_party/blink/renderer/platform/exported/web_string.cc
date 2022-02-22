@@ -30,6 +30,7 @@
 
 #include "third_party/blink/public/platform/web_string.h"
 
+#include "base/i18n/uchar.h"
 #include "base/strings/string_util.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/text/ascii_fast_path.h"
@@ -56,7 +57,8 @@ WebString& WebString::operator=(const WebString&) = default;
 WebString& WebString::operator=(WebString&&) = default;
 
 WebString::WebString(const WebUChar* data, size_t len)
-    : impl_(StringImpl::Create8BitIfPossible(data, len)) {}
+    : impl_(StringImpl::Create8BitIfPossible(base::i18n::ToUCharPtr(data),
+                                             len)) {}
 
 void WebString::Reset() {
   impl_ = nullptr;
@@ -75,11 +77,16 @@ const WebLChar* WebString::Data8() const {
 }
 
 const WebUChar* WebString::Data16() const {
-  return impl_ && !Is8Bit() ? impl_->Characters16() : nullptr;
+  return impl_ && !Is8Bit() ? base::i18n::ToChar16Ptr(impl_->Characters16())
+                            : nullptr;
 }
 
 std::string WebString::Utf8(UTF8ConversionMode mode) const {
   return String(impl_).Utf8(static_cast<WTF::UTF8ConversionMode>(mode));
+}
+
+WebString WebString::Substring(size_t pos, size_t len) const {
+  return String(impl_->Substring(pos, len));
 }
 
 WebString WebString::FromUTF8(const char* data, size_t length) {
@@ -88,12 +95,6 @@ WebString WebString::FromUTF8(const char* data, size_t length) {
 
 WebString WebString::FromUTF16(const base::string16& s) {
   return WebString(s.data(), s.length());
-}
-
-WebString WebString::FromUTF16(const base::NullableString16& s) {
-  if (s.is_null())
-    return WebString();
-  return WebString(s.string().data(), s.string().length());
 }
 
 WebString WebString::FromUTF16(const base::Optional<base::string16>& s) {
@@ -132,6 +133,12 @@ bool WebString::ContainsOnlyASCII() const {
 WebString WebString::FromASCII(const std::string& s) {
   DCHECK(base::IsStringASCII(s));
   return FromLatin1(s);
+}
+
+WebString WebString::IsolatedCopy() const {
+  if (!impl_)
+    return WebString();
+  return String(impl_).IsolatedCopy();
 }
 
 bool WebString::Equals(const WebString& s) const {

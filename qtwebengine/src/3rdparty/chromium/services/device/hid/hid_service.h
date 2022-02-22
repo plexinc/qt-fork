@@ -10,8 +10,8 @@
 #include <string>
 #include <vector>
 
-#include "base/bind_helpers.h"
-#include "base/logging.h"
+#include "base/callback_helpers.h"
+#include "base/check.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
@@ -68,6 +68,7 @@ class HidService {
   // Opens a connection to a device. The callback will be run with null on
   // failure.
   virtual void Connect(const std::string& device_guid,
+                       bool allow_protected_reports,
                        ConnectCallback callback) = 0;
 
  protected:
@@ -88,7 +89,7 @@ class HidService {
 
  private:
   void RunPendingEnumerations();
-  std::string FindDeviceIdByPlatformDeviceId(
+  base::Optional<std::string> FindDeviceGuidInDeviceMap(
       const HidPlatformDeviceId& platform_device_id);
 
   DeviceMap devices_;

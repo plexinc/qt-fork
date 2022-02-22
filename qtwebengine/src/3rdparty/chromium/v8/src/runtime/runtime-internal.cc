@@ -7,6 +7,7 @@
 #include "src/api/api.h"
 #include "src/ast/ast-traversal-visitor.h"
 #include "src/ast/prettyprinter.h"
+#include "src/baseline/baseline.h"
 #include "src/builtins/builtins.h"
 #include "src/common/message-template.h"
 #include "src/debug/debug.h"
@@ -209,11 +210,29 @@ RUNTIME_FUNCTION(Runtime_NewError) {
 
 RUNTIME_FUNCTION(Runtime_NewTypeError) {
   HandleScope scope(isolate);
-  DCHECK_EQ(2, args.length());
+  DCHECK_LE(args.length(), 4);
+  DCHECK_GE(args.length(), 1);
   CONVERT_INT32_ARG_CHECKED(template_index, 0);
-  CONVERT_ARG_HANDLE_CHECKED(Object, arg0, 1);
   MessageTemplate message_template = MessageTemplateFromInt(template_index);
-  return *isolate->factory()->NewTypeError(message_template, arg0);
+
+  Handle<Object> arg0;
+  if (args.length() >= 2) {
+    CHECK(args[1].IsObject());
+    arg0 = args.at<Object>(1);
+  }
+
+  Handle<Object> arg1;
+  if (args.length() >= 3) {
+    CHECK(args[2].IsObject());
+    arg1 = args.at<Object>(2);
+  }
+  Handle<Object> arg2;
+  if (args.length() >= 4) {
+    CHECK(args[3].IsObject());
+    arg2 = args.at<Object>(3);
+  }
+
+  return *isolate->factory()->NewTypeError(message_template, arg0, arg1, arg2);
 }
 
 RUNTIME_FUNCTION(Runtime_NewReferenceError) {
@@ -308,13 +327,20 @@ RUNTIME_FUNCTION(Runtime_StackGuardWithGap) {
   return isolate->stack_guard()->HandleInterrupts();
 }
 
-RUNTIME_FUNCTION(Runtime_BytecodeBudgetInterrupt) {
+RUNTIME_FUNCTION(Runtime_BytecodeBudgetInterruptFromBytecode) {
   HandleScope scope(isolate);
   DCHECK_EQ(1, args.length());
   CONVERT_ARG_HANDLE_CHECKED(JSFunction, function, 0);
-  function->raw_feedback_cell().set_interrupt_budget(FLAG_interrupt_budget);
+  function->SetInterruptBudget();
   if (!function->has_feedback_vector()) {
-    JSFunction::EnsureFeedbackVector(function);
+    IsCompiledScope is_compiled_scope(
+        function->shared().is_compiled_scope(isolate));
+    JSFunction::EnsureFeedbackVector(function, &is_compiled_scope);
+    DCHECK(is_compiled_scope.is_compiled());
+    if (FLAG_sparkplug) {
+      Compiler::CompileBaseline(isolate, function, Compiler::CLEAR_EXCEPTION,
+                                &is_compiled_scope);
+    }
     // Also initialize the invocation count here. This is only really needed for
     // OSR. When we OSR functions with lazy feedback allocation we want to have
     // a non zero invocation count so we can inline functions.
@@ -324,9 +350,24 @@ RUNTIME_FUNCTION(Runtime_BytecodeBudgetInterrupt) {
   {
     SealHandleScope shs(isolate);
     isolate->counters()->runtime_profiler_ticks()->Increment();
-    isolate->runtime_profiler()->MarkCandidatesForOptimization();
+    isolate->runtime_profiler()->MarkCandidatesForOptimizationFromBytecode();
     return ReadOnlyRoots(isolate).undefined_value();
   }
+}
+
+RUNTIME_FUNCTION(Runtime_BytecodeBudgetInterruptFromCode) {
+  HandleScope scope(isolate);
+  DCHECK_EQ(1, args.length());
+  CONVERT_ARG_HANDLE_CHECKED(FeedbackCell, feedback_cell, 0);
+
+  DCHECK(feedback_cell->value().IsFeedbackVector());
+
+  FeedbackVector::SetInterruptBudget(*feedback_cell);
+
+  SealHandleScope shs(isolate);
+  isolate->counters()->runtime_profiler_ticks()->Increment();
+  isolate->runtime_profiler()->MarkCandidatesForOptimizationFromCode();
+  return ReadOnlyRoots(isolate).undefined_value();
 }
 
 RUNTIME_FUNCTION(Runtime_AllocateInYoungGeneration) {
@@ -409,11 +450,13 @@ RUNTIME_FUNCTION(Runtime_ThrowIteratorError) {
   return isolate->Throw(*ErrorUtils::NewIteratorError(isolate, object));
 }
 
-RUNTIME_FUNCTION(Runtime_ThrowSpreadArgIsNullOrUndefined) {
+RUNTIME_FUNCTION(Runtime_ThrowSpreadArgError) {
   HandleScope scope(isolate);
-  DCHECK_EQ(1, args.length());
-  CONVERT_ARG_HANDLE_CHECKED(Object, object, 0);
-  return ErrorUtils::ThrowSpreadArgIsNullOrUndefinedError(isolate, object);
+  DCHECK_EQ(2, args.length());
+  CONVERT_SMI_ARG_CHECKED(message_id_smi, 0);
+  MessageTemplate message_id = MessageTemplateFromInt(message_id_smi);
+  CONVERT_ARG_HANDLE_CHECKED(Object, object, 1);
+  return ErrorUtils::ThrowSpreadArgError(isolate, message_id, object);
 }
 
 RUNTIME_FUNCTION(Runtime_ThrowCalledNonCallable) {
@@ -468,7 +511,7 @@ RUNTIME_FUNCTION(Runtime_IncrementUseCounter) {
 
 RUNTIME_FUNCTION(Runtime_GetAndResetRuntimeCallStats) {
   HandleScope scope(isolate);
-
+  DCHECK_LE(args.length(), 2);
   // Append any worker thread runtime call stats to the main table before
   // printing.
   isolate->counters()->worker_thread_runtime_call_stats()->AddToMainTable(
@@ -476,47 +519,42 @@ RUNTIME_FUNCTION(Runtime_GetAndResetRuntimeCallStats) {
 
   if (args.length() == 0) {
     // Without arguments, the result is returned as a string.
-    DCHECK_EQ(0, args.length());
     std::stringstream stats_stream;
     isolate->counters()->runtime_call_stats()->Print(stats_stream);
     Handle<String> result = isolate->factory()->NewStringFromAsciiChecked(
         stats_stream.str().c_str());
     isolate->counters()->runtime_call_stats()->Reset();
     return *result;
-  } else {
-    DCHECK_LE(args.length(), 2);
-    std::FILE* f;
-    if (args[0].IsString()) {
-      // With a string argument, the results are appended to that file.
-      CONVERT_ARG_HANDLE_CHECKED(String, arg0, 0);
-      DisallowHeapAllocation no_gc;
-      String::FlatContent flat = arg0->GetFlatContent(no_gc);
-      const char* filename =
-          reinterpret_cast<const char*>(&(flat.ToOneByteVector()[0]));
-      f = std::fopen(filename, "a");
-      DCHECK_NOT_NULL(f);
-    } else {
-      // With an integer argument, the results are written to stdout/stderr.
-      CONVERT_SMI_ARG_CHECKED(fd, 0);
-      DCHECK(fd == 1 || fd == 2);
-      f = fd == 1 ? stdout : stderr;
-    }
-    // The second argument (if any) is a message header to be printed.
-    if (args.length() >= 2) {
-      CONVERT_ARG_HANDLE_CHECKED(String, arg1, 1);
-      arg1->PrintOn(f);
-      std::fputc('\n', f);
-      std::fflush(f);
-    }
-    OFStream stats_stream(f);
-    isolate->counters()->runtime_call_stats()->Print(stats_stream);
-    isolate->counters()->runtime_call_stats()->Reset();
-    if (args[0].IsString())
-      std::fclose(f);
-    else
-      std::fflush(f);
-    return ReadOnlyRoots(isolate).undefined_value();
   }
+
+  std::FILE* f;
+  if (args[0].IsString()) {
+    // With a string argument, the results are appended to that file.
+    CONVERT_ARG_HANDLE_CHECKED(String, filename, 0);
+    f = std::fopen(filename->ToCString().get(), "a");
+    DCHECK_NOT_NULL(f);
+  } else {
+    // With an integer argument, the results are written to stdout/stderr.
+    CONVERT_SMI_ARG_CHECKED(fd, 0);
+    DCHECK(fd == 1 || fd == 2);
+    f = fd == 1 ? stdout : stderr;
+  }
+  // The second argument (if any) is a message header to be printed.
+  if (args.length() >= 2) {
+    CONVERT_ARG_HANDLE_CHECKED(String, message, 1);
+    message->PrintOn(f);
+    std::fputc('\n', f);
+    std::fflush(f);
+  }
+  OFStream stats_stream(f);
+  isolate->counters()->runtime_call_stats()->Print(stats_stream);
+  isolate->counters()->runtime_call_stats()->Reset();
+  if (args[0].IsString()) {
+    std::fclose(f);
+  } else {
+    std::fflush(f);
+  }
+  return ReadOnlyRoots(isolate).undefined_value();
 }
 
 RUNTIME_FUNCTION(Runtime_OrdinaryHasInstance) {
@@ -578,19 +616,21 @@ RUNTIME_FUNCTION(Runtime_GetTemplateObject) {
       isolate, native_context, description, shared_info, slot_id);
 }
 
-RUNTIME_FUNCTION(Runtime_ReportMessage) {
+RUNTIME_FUNCTION(Runtime_ReportMessageFromMicrotask) {
   // Helper to report messages and continue JS execution. This is intended to
-  // behave similarly to reporting exceptions which reach the top-level in
-  // Execution.cc, but allow the JS code to continue. This is useful for
-  // implementing algorithms such as RunMicrotasks in JS.
+  // behave similarly to reporting exceptions which reach the top-level, but
+  // allow the JS code to continue.
   HandleScope scope(isolate);
   DCHECK_EQ(1, args.length());
 
-  CONVERT_ARG_HANDLE_CHECKED(Object, message_obj, 0);
+  CONVERT_ARG_HANDLE_CHECKED(Object, exception, 0);
 
   DCHECK(!isolate->has_pending_exception());
-  isolate->set_pending_exception(*message_obj);
-  isolate->ReportPendingMessagesFromJavaScript();
+  isolate->set_pending_exception(*exception);
+  MessageLocation* no_location = nullptr;
+  Handle<JSMessageObject> message =
+      isolate->CreateMessageOrAbort(exception, no_location);
+  MessageHandler::ReportMessage(isolate, no_location, message);
   isolate->clear_pending_exception();
   return ReadOnlyRoots(isolate).undefined_value();
 }

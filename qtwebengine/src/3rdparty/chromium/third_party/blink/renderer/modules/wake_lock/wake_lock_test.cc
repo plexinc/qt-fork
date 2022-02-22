@@ -10,6 +10,7 @@
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
+#include "third_party/blink/renderer/core/frame/navigator.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/modules/wake_lock/wake_lock_test_utils.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
@@ -28,7 +29,7 @@ TEST(WakeLockTest, RequestWakeLockGranted) {
       MakeGarbageCollected<ScriptPromiseResolver>(context.GetScriptState());
   ScriptPromise screen_promise = screen_resolver->Promise();
 
-  auto* wake_lock = MakeGarbageCollected<WakeLock>(*context.GetDocument());
+  auto* wake_lock = WakeLock::wakeLock(*context.DomWindow()->navigator());
   wake_lock->DoRequest(WakeLockType::kScreen, screen_resolver);
 
   MockWakeLock& screen_lock =
@@ -55,7 +56,7 @@ TEST(WakeLockTest, RequestWakeLockDenied) {
       MakeGarbageCollected<ScriptPromiseResolver>(context.GetScriptState());
   ScriptPromise system_promise = system_resolver->Promise();
 
-  auto* wake_lock = MakeGarbageCollected<WakeLock>(*context.GetDocument());
+  auto* wake_lock = WakeLock::wakeLock(*context.DomWindow()->navigator());
   wake_lock->DoRequest(WakeLockType::kSystem, system_resolver);
 
   MockWakeLock& system_lock =
@@ -77,7 +78,7 @@ TEST(WakeLockTest, RequestWakeLockDenied) {
   EXPECT_EQ("NotAllowedError", dom_exception->name());
 }
 
-// https://w3c.github.io/wake-lock/#handling-document-loss-of-full-activity
+// https://w3c.github.io/screen-wake-lock/#handling-document-loss-of-full-activity
 TEST(WakeLockTest, LossOfDocumentActivity) {
   MockWakeLockService wake_lock_service;
   WakeLockTestingContext context(&wake_lock_service);
@@ -102,7 +103,7 @@ TEST(WakeLockTest, LossOfDocumentActivity) {
       MakeGarbageCollected<ScriptPromiseResolver>(context.GetScriptState());
   system_resolver1->Promise();
 
-  auto* wake_lock = MakeGarbageCollected<WakeLock>(*context.GetDocument());
+  auto* wake_lock = WakeLock::wakeLock(*context.DomWindow()->navigator());
   wake_lock->DoRequest(WakeLockType::kScreen, screen_resolver1);
   wake_lock->DoRequest(WakeLockType::kScreen, screen_resolver2);
   screen_lock.WaitForRequest();
@@ -121,7 +122,7 @@ TEST(WakeLockTest, LossOfDocumentActivity) {
   EXPECT_FALSE(system_lock.is_acquired());
 }
 
-// https://w3c.github.io/wake-lock/#handling-document-loss-of-visibility
+// https://w3c.github.io/screen-wake-lock/#handling-document-loss-of-visibility
 TEST(WakeLockTest, PageVisibilityHidden) {
   MockWakeLockService wake_lock_service;
   WakeLockTestingContext context(&wake_lock_service);
@@ -143,7 +144,7 @@ TEST(WakeLockTest, PageVisibilityHidden) {
       MakeGarbageCollected<ScriptPromiseResolver>(context.GetScriptState());
   ScriptPromise system_promise = system_resolver->Promise();
 
-  auto* wake_lock = MakeGarbageCollected<WakeLock>(*context.GetDocument());
+  auto* wake_lock = WakeLock::wakeLock(*context.DomWindow()->navigator());
   wake_lock->DoRequest(WakeLockType::kScreen, screen_resolver);
   screen_lock.WaitForRequest();
   wake_lock->DoRequest(WakeLockType::kSystem, system_resolver);
@@ -152,16 +153,16 @@ TEST(WakeLockTest, PageVisibilityHidden) {
   context.WaitForPromiseFulfillment(screen_promise);
   context.WaitForPromiseFulfillment(system_promise);
 
-  context.GetDocument()->GetPage()->SetVisibilityState(
-      PageVisibilityState::kHidden, false);
+  context.Frame()->GetPage()->SetVisibilityState(
+      mojom::blink::PageVisibilityState::kHidden, false);
 
   screen_lock.WaitForCancelation();
 
   EXPECT_FALSE(screen_lock.is_acquired());
   EXPECT_TRUE(system_lock.is_acquired());
 
-  context.GetDocument()->GetPage()->SetVisibilityState(
-      PageVisibilityState::kVisible, false);
+  context.Frame()->GetPage()->SetVisibilityState(
+      mojom::blink::PageVisibilityState::kVisible, false);
 
   auto* other_resolver =
       MakeGarbageCollected<ScriptPromiseResolver>(context.GetScriptState());
@@ -172,7 +173,7 @@ TEST(WakeLockTest, PageVisibilityHidden) {
   EXPECT_TRUE(screen_lock.is_acquired());
 }
 
-// https://w3c.github.io/wake-lock/#handling-document-loss-of-visibility
+// https://w3c.github.io/screen-wake-lock/#handling-document-loss-of-visibility
 TEST(WakeLockTest, PageVisibilityHiddenBeforeLockAcquisition) {
   MockWakeLockService wake_lock_service;
   WakeLockTestingContext context(&wake_lock_service);
@@ -194,11 +195,11 @@ TEST(WakeLockTest, PageVisibilityHiddenBeforeLockAcquisition) {
       MakeGarbageCollected<ScriptPromiseResolver>(context.GetScriptState());
   ScriptPromise system_promise = system_resolver->Promise();
 
-  auto* wake_lock = MakeGarbageCollected<WakeLock>(*context.GetDocument());
+  auto* wake_lock = WakeLock::wakeLock(*context.DomWindow()->navigator());
   wake_lock->DoRequest(WakeLockType::kScreen, screen_resolver);
   wake_lock->DoRequest(WakeLockType::kSystem, system_resolver);
-  context.GetDocument()->GetPage()->SetVisibilityState(
-      PageVisibilityState::kHidden, false);
+  context.Frame()->GetPage()->SetVisibilityState(
+      mojom::blink::PageVisibilityState::kHidden, false);
 
   context.WaitForPromiseRejection(screen_promise);
   system_lock.WaitForRequest();

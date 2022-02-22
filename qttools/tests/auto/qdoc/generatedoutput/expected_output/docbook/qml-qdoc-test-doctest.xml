@@ -33,7 +33,7 @@
 <db:section xml:id="property-documentation">
 <db:title>Property Documentation</db:title>
 <db:section xml:id="active-prop">
-<db:title>active : bool</db:title>
+<db:title>[default: true] active : bool</db:title>
 <db:fieldsynopsis>
 <db:type>bool</db:type>
 <db:varname>active</db:varname>
@@ -48,11 +48,12 @@
 </db:simplelist>
 </db:para></db:section>
 <db:section xml:id="name-prop">
-<db:title>name : string</db:title>
+<db:title>[required] name : string</db:title>
 <db:fieldsynopsis>
 <db:type>string</db:type>
 <db:varname>name</db:varname>
 <db:modifier>writable</db:modifier>
+<db:modifier>required</db:modifier>
 <db:synopsisinfo db:role="access">public</db:synopsisinfo>
 <db:synopsisinfo db:role="status">active</db:synopsisinfo>
 <db:synopsisinfo db:role="threadsafeness">unspecified</db:synopsisinfo>
@@ -80,11 +81,18 @@
 <db:para>The corresponding handler is <db:code>onFoo</db:code>.</db:para>
 </db:note>
 </db:section>
+<db:section xml:id="itsHappening-signal">
+<db:title>itsHappening(bool <db:emphasis>really</db:emphasis>)</db:title>
+<db:para>Signals that something is <db:code role="parameter">really</db:code> happening.</db:para>
+<db:note>
+<db:para>The corresponding handler is <db:code>onItsHappening</db:code>.</db:para>
+</db:note>
+</db:section>
 </db:section>
 <db:section xml:id="method-documentation">
 <db:title>Method Documentation</db:title>
 <db:section xml:id="fail-method">
-<db:title>fail(<db:emphasis>message</db:emphasis> = &quot;oops&quot;)</db:title>
+<db:title>[since QDoc.Test 1.0] fail(<db:emphasis>message</db:emphasis> = &quot;oops&quot;)</db:title>
 <db:para>Fails the current test case, with the optional <db:code role="parameter">message</db:code>.</db:para>
 <db:para>This method was introduced in QDoc.Test 1.0.</db:para>
 </db:section>

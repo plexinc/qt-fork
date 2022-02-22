@@ -257,13 +257,7 @@ static QUrl constructUrl(const QString &namespaceName,
 
 void QHelpContentProvider::run()
 {
-    QString title;
-    QString link;
-    int depth = 0;
-    QHelpContentItem *item = nullptr;
-
     m_mutex.lock();
-    QHelpContentItem * const rootItem = new QHelpContentItem(QString(), QString(), nullptr);
     const QString currentFilter = m_currentFilter;
     const QStringList attributes = m_filterAttributes;
     const QString collectionFile = m_collectionFile;
@@ -276,9 +270,14 @@ void QHelpContentProvider::run()
         return;
 
     QHelpCollectionHandler collectionHandler(collectionFile);
-    collectionHandler.setReadOnly(true);
     if (!collectionHandler.openCollectionFile())
         return;
+
+    QString title;
+    QString link;
+    int depth = 0;
+    QHelpContentItem *item = nullptr;
+    QHelpContentItem * const rootItem = new QHelpContentItem(QString(), QString(), nullptr);
 
     const QList<QHelpCollectionHandler::ContentsData> result = usesFilterEngine
             ? collectionHandler.contentsForFilter(currentFilter)

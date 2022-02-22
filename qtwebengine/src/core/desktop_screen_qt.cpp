@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtWebEngine module of the Qt Toolkit.
@@ -40,74 +40,101 @@
 #include "desktop_screen_qt.h"
 
 #include "ui/display/display.h"
-#include "ui/gfx/geometry/point.h"
 
-#include <QtGlobal>
+#include "type_conversion.h"
+
+#include <QGuiApplication>
+#include <QScreen>
+
+#include <cmath>
 
 namespace QtWebEngineCore {
 
-gfx::Point DesktopScreenQt::GetCursorScreenPoint()
+static display::Display::Rotation toDisplayRotation(Qt::ScreenOrientation orientation)
 {
-    Q_UNREACHABLE();
-    return gfx::Point();
+    switch (orientation) {
+    case Qt::PrimaryOrientation:
+    case Qt::LandscapeOrientation:
+        return display::Display::ROTATE_0;
+    case Qt::PortraitOrientation:
+        return display::Display::ROTATE_90;
+    case Qt::InvertedLandscapeOrientation:
+        return display::Display::ROTATE_180;
+    case Qt::InvertedPortraitOrientation:
+        return display::Display::ROTATE_270;
+    }
 }
 
-bool DesktopScreenQt::IsWindowUnderCursor(gfx::NativeWindow)
+display::Display toDisplayDisplay(int id, const QScreen *screen)
 {
-    Q_UNREACHABLE();
-    return false;
+    auto display = display::Display(id, toGfx(screen->geometry()));
+    display.set_work_area(toGfx(screen->availableGeometry()));
+    display.set_device_scale_factor(screen->devicePixelRatio());
+    display.set_is_monochrome(screen->depth() == 1);
+    display.set_color_depth(screen->depth());
+    display.set_depth_per_component(8); // FIXME: find the real value
+    display.set_display_frequency(std::ceil(screen->refreshRate()));
+    display.set_rotation(toDisplayRotation(screen->orientation()));
+    if (screen->nativeOrientation() != Qt::PrimaryOrientation)
+        display.set_panel_rotation(toDisplayRotation(screen->nativeOrientation()));
+    return display;
 }
 
-gfx::NativeWindow DesktopScreenQt::GetWindowAtScreenPoint(const gfx::Point& point)
+DesktopScreenQt::DesktopScreenQt()
 {
-    Q_UNREACHABLE();
-    return gfx::NativeWindow();
+    initializeScreens();
 }
 
-int DesktopScreenQt::GetNumDisplays() const
+DesktopScreenQt::~DesktopScreenQt()
 {
-    Q_UNREACHABLE();
-    return 0;
+    for (auto conn : qAsConst(m_connections))
+        QObject::disconnect(conn);
 }
 
-std::vector<display::Display>& DesktopScreenQt::GetAllDisplays() const
+void DesktopScreenQt::initializeScreens()
 {
-    static std::vector<display::Display> empty;
-    return empty;
+    if (updateAllScreens()) {
+        m_connections[0] =
+            QObject::connect(qApp, &QGuiApplication::primaryScreenChanged, [this] (QScreen *screen) {
+                ProcessDisplayChanged(toDisplayDisplay(0, screen), true /* is_primary */);
+            });
+        // no guarantees how these will affect ids:
+        m_connections[1] =
+            QObject::connect(qApp, &QGuiApplication::screenAdded, [this] (QScreen *) {
+                updateAllScreens();
+            });
+        m_connections[2] =
+            QObject::connect(qApp, &QGuiApplication::screenRemoved, [this] (QScreen *) {
+                updateAllScreens();
+            });
+    } else {
+        // Running headless
+        ProcessDisplayChanged(display::Display::GetDefaultDisplay(), true /* is_primary */);
+        m_connections[0] =
+            QObject::connect(qApp, &QGuiApplication::screenAdded, [this] (QScreen *) {
+                display_list().RemoveDisplay(display::kDefaultDisplayId);
+                QObject::disconnect(m_connections[0]);
+                initializeScreens();
+            });
+    }
 }
 
-display::Display DesktopScreenQt::GetDisplayNearestWindow(gfx::NativeWindow window) const
+bool DesktopScreenQt::updateAllScreens()
 {
-    // RenderViewHostImpl::OnStartDragging uses this to determine
-    // the scale factor for the view.
-    return display::Display(0);
+    Q_ASSERT(qApp->primaryScreen() == qApp->screens().first());
+    const auto screens = qApp->screens();
+    const int oldLen = GetNumDisplays();
+    for (int i = screens.length(); i < oldLen; ++i)
+        display_list().RemoveDisplay(i);
+    for (int i = 0; i < screens.length(); ++i)
+        ProcessDisplayChanged(toDisplayDisplay(i, screens.at(i)), i == 0 /* is_primary */);
+
+    return screens.length() > 0;
 }
 
-display::Display DesktopScreenQt::GetDisplayNearestPoint(const gfx::Point& point) const
+display::Display DesktopScreenQt::GetDisplayNearestWindow(gfx::NativeWindow /*window*/) const
 {
-    Q_UNREACHABLE();
-    return display::Display();
-}
-
-display::Display DesktopScreenQt::GetDisplayMatching(const gfx::Rect& match_rect) const
-{
-    Q_UNREACHABLE();
-    return display::Display();
-}
-
-display::Display DesktopScreenQt::GetPrimaryDisplay() const
-{
-    return display::Display(0);
-}
-
-void DesktopScreenQt::AddObserver(display::DisplayObserver* observer)
-{
-    Q_UNREACHABLE();
-}
-
-void DesktopScreenQt::RemoveObserver(display::DisplayObserver* observer)
-{
-    Q_UNREACHABLE();
+    return GetPrimaryDisplay();
 }
 
 } // namespace QtWebEngineCore

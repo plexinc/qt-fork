@@ -542,7 +542,7 @@ void QWindowsVistaStyle::drawPrimitive(PrimitiveElement element, const QStyleOpt
                 }
                 int bgType;
                 GetThemeEnumValue(theme.handle(), partId, stateId, TMT_BGTYPE, &bgType);
-                if( bgType == BT_IMAGEFILE ) {
+                if ( bgType == BT_IMAGEFILE ) {
                     d->drawBackground(theme);
                 } else {
                     QBrush fillColor = option->palette.brush(QPalette::Base);
@@ -1007,7 +1007,7 @@ void QWindowsVistaStyle::drawControl(ControlElement element, const QStyleOption 
         if (const QStyleOptionProgressBar *bar
                 = qstyleoption_cast<const QStyleOptionProgressBar *>(option)) {
             bool isIndeterminate = (bar->minimum == 0 && bar->maximum == 0);
-            const bool vertical = bar->orientation == Qt::Vertical;
+            const bool vertical = !(bar->state & QStyle::State_Horizontal);
             const bool inverted = bar->invertedAppearance;
 
             if (isIndeterminate || (bar->progress > 0 && (bar->progress < bar->maximum) && d->transitionsEnabled())) {
@@ -1199,7 +1199,7 @@ void QWindowsVistaStyle::drawControl(ControlElement element, const QStyleOption 
 
             int x, y, w, h;
             menuitem->rect.getRect(&x, &y, &w, &h);
-            int tab = menuitem->tabWidth;
+            int tab = menuitem->reservedShortcutWidth;
             bool dis = !(menuitem->state & State_Enabled);
             bool checked = menuitem->checkType != QStyleOptionMenuItem::NotCheckable
                             ? menuitem->checked : false;
@@ -1773,21 +1773,6 @@ void QWindowsVistaStyle::drawComplexControl(ComplexControl control, const QStyle
                     theme.partId = flags & State_Horizontal ? SBP_THUMBBTNHORZ : SBP_THUMBBTNVERT;
                     theme.stateId = stateId;
                     d->drawBackground(theme);
-
-                    if (QOperatingSystemVersion::current() < QOperatingSystemVersion::Windows8) {
-                        const QRect gripperBounds = QWindowsXPStylePrivate::scrollBarGripperBounds(flags, widget, &theme);
-                        // Draw gripper if there is enough space
-                        if (!gripperBounds.isEmpty() && flags & State_Enabled) {
-                            painter->save();
-                            XPThemeData grippBackground = theme;
-                            grippBackground.partId = flags & State_Horizontal ? SBP_LOWERTRACKHORZ : SBP_LOWERTRACKVERT;
-                            theme.rect = gripperBounds;
-                            painter->setClipRegion(d->region(theme));// Only change inside the region of the gripper
-                            d->drawBackground(grippBackground);// The gutter is the grippers background
-                            d->drawBackground(theme);          // Transparent gripper ontop of background
-                            painter->restore();
-                        }
-                    }
                 }
             }
         }
@@ -2288,22 +2273,6 @@ int QWindowsVistaStyle::pixelMetric(PixelMetric metric, const QStyleOption *opti
 /*!
  \internal
  */
-QPalette QWindowsVistaStyle::standardPalette() const
-{
-    return QWindowsXPStyle::standardPalette();
-}
-
-/*!
- \internal
- */
-void QWindowsVistaStyle::polish(QApplication *app)
-{
-    QWindowsXPStyle::polish(app);
-}
-
-/*!
- \internal
- */
 void QWindowsVistaStyle::polish(QWidget *widget)
 {
     QWindowsXPStyle::polish(widget);
@@ -2317,7 +2286,7 @@ void QWindowsVistaStyle::polish(QWidget *widget)
 #if QT_CONFIG(commandlinkbutton)
     else if (qobject_cast<QCommandLinkButton*>(widget)) {
         QFont buttonFont = widget->font();
-        buttonFont.setFamily(QLatin1String("Segoe UI"));
+        buttonFont.setFamilies(QStringList{QLatin1String("Segoe UI")});
         widget->setFont(buttonFont);
     }
 #endif // QT_CONFIG(commandlinkbutton)
@@ -2402,19 +2371,10 @@ void QWindowsVistaStyle::unpolish(QWidget *widget)
     else if (qobject_cast<QCommandLinkButton*>(widget)) {
         QFont font = QApplication::font("QCommandLinkButton");
         QFont widgetFont = widget->font();
-        widgetFont.setFamily(font.family()); //Only family set by polish
+        widgetFont.setFamilies(font.families()); //Only family set by polish
         widget->setFont(widgetFont);
     }
 #endif // QT_CONFIG(commandlinkbutton)
-}
-
-
-/*!
- \internal
- */
-void QWindowsVistaStyle::unpolish(QApplication *app)
-{
-    QWindowsXPStyle::unpolish(app);
 }
 
 /*!
@@ -2436,11 +2396,6 @@ QPixmap QWindowsVistaStyle::standardPixmap(StandardPixmap standardPixmap, const 
         return QWindowsStyle::standardPixmap(standardPixmap, option, widget);
     }
     return QWindowsXPStyle::standardPixmap(standardPixmap, option, widget);
-}
-
-QWindowsVistaStylePrivate::QWindowsVistaStylePrivate() :
-    QWindowsXPStylePrivate()
-{
 }
 
 bool QWindowsVistaStylePrivate::transitionsEnabled() const

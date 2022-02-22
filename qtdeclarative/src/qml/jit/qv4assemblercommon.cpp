@@ -51,6 +51,8 @@
 #include <assembler/LinkBuffer.h>
 #include <WTFStubs.h>
 
+#if QT_CONFIG(qml_jit)
+
 #undef ENABLE_ALL_ASSEMBLERS_FOR_REFACTORING_PURPOSES
 
 QT_BEGIN_NAMESPACE
@@ -76,7 +78,7 @@ public:
     ~QIODevicePrintStream()
     {}
 
-    void vprintf(const char* format, va_list argList) WTF_ATTRIBUTE_PRINTF(2, 0)
+    void vprintf(const char* format, va_list argList) override WTF_ATTRIBUTE_PRINTF(2, 0)
     {
         const int written = qvsnprintf(buf.data(), buf.size(), format, argList);
         if (written > 0)
@@ -84,7 +86,7 @@ public:
         memset(buf.data(), 0, qMin(written, buf.size()));
     }
 
-    void flush()
+    void flush() override
     {}
 
 private:
@@ -110,7 +112,8 @@ static void printDisassembledOutputWithCalls(QByteArray processedOutput,
                 break;
             const char *functionName = it.value();
             processedOutput = processedOutput.insert(
-                    idx, padding + QByteArray(functionName ? functionName : symbols[it.key()]));
+                    idx, QByteArray(padding + QByteArray(
+                                        functionName ? functionName : symbols[it.key()])));
         }
     }
 
@@ -159,7 +162,8 @@ void PlatformAssemblerCommon::link(Function *function, const char *jitKind)
 
     generateFunctionTable(function, &codeRef);
 
-    linkBuffer.makeExecutable();
+    if (Q_UNLIKELY(!linkBuffer.makeExecutable()))
+        function->jittedCode = nullptr; // The function is not executable, but the coderef exists.
 }
 
 void PlatformAssemblerCommon::prepareCallWithArgCount(int argc)
@@ -177,7 +181,7 @@ void PlatformAssemblerCommon::prepareCallWithArgCount(int argc)
 
 void PlatformAssemblerCommon::storeInstructionPointer(int instructionOffset)
 {
-    Address addr(CppStackFrameRegister, offsetof(QV4::CppStackFrame, instructionPointer));
+    Address addr(CppStackFrameRegister, offsetof(QV4::JSTypesStackFrame, instructionPointer));
     store32(TrustedImm32(instructionOffset), addr);
 }
 
@@ -369,3 +373,5 @@ void PlatformAssemblerCommon::storeInt32AsValue(int srcInt, Address destAddr)
 } // QV4 namepsace
 
 QT_END_NAMESPACE
+
+#endif // QT_CONFIG(qml_jit)

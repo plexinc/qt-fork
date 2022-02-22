@@ -44,7 +44,8 @@
 #include <QtCore/QPointer>
 #include <QtCore/QAbstractItemModel>
 #include <QtCore/QStack>
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QLoggingCategory>
 
 QT_BEGIN_NAMESPACE
 
@@ -183,8 +184,7 @@ private:
     This enumeration specifies how QAbstractItemModelTester should report
     a failure when it tests a QAbstractItemModel subclass.
 
-    \value QtTest The failures will be reported through
-    QtTest's logging mechanism.
+    \value QtTest The failures will be reported as QtTest test failures.
 
     \value Warning The failures will be reported as
     warning messages in the \c{qt.modeltest} logging category.
@@ -438,7 +438,7 @@ void QAbstractItemModelTesterPrivate::parent()
     // when asked for the parent of an invalid index.
     MODELTESTER_VERIFY(!model->parent(QModelIndex()).isValid());
 
-    if (!model->hasChildren())
+    if (model->rowCount() == 0 || model->columnCount() == 0)
         return;
 
     // Column 0                | Column 1    |
@@ -449,11 +449,12 @@ void QAbstractItemModelTesterPrivate::parent()
     // Common error test #1, make sure that a top level index has a parent
     // that is a invalid QModelIndex.
     QModelIndex topIndex = model->index(0, 0, QModelIndex());
+    MODELTESTER_VERIFY(topIndex.isValid());
     MODELTESTER_VERIFY(!model->parent(topIndex).isValid());
 
     // Common error test #2, make sure that a second level index has a parent
     // that is the first level index.
-    if (model->hasChildren(topIndex)) {
+    if (model->rowCount(topIndex) > 0 && model->columnCount(topIndex) > 0) {
         QModelIndex childIndex = model->index(0, 0, topIndex);
         MODELTESTER_VERIFY(childIndex.isValid());
         MODELTESTER_COMPARE(model->parent(childIndex), topIndex);
@@ -465,7 +466,7 @@ void QAbstractItemModelTesterPrivate::parent()
     if (model->hasIndex(0, 1)) {
         QModelIndex topIndex1 = model->index(0, 1, QModelIndex());
         MODELTESTER_VERIFY(topIndex1.isValid());
-        if (model->hasChildren(topIndex) && model->hasChildren(topIndex1)) {
+        if (model->rowCount(topIndex) > 0 && model->rowCount(topIndex1) > 0) {
             QModelIndex childIndex = model->index(0, 0, topIndex);
             MODELTESTER_VERIFY(childIndex.isValid());
             QModelIndex childIndex1 = model->index(0, 0, topIndex1);
@@ -569,7 +570,7 @@ void QAbstractItemModelTesterPrivate::checkChildren(const QModelIndex &parent, i
 
             // recursively go down the children
             if (model->hasChildren(index) && currentDepth < 10)
-                checkChildren(index, ++currentDepth);
+                checkChildren(index, currentDepth + 1);
 
             // make sure that after testing the children that the index doesn't change.
             QModelIndex newerIndex = model->index(r, c, parent);
@@ -583,7 +584,7 @@ void QAbstractItemModelTesterPrivate::checkChildren(const QModelIndex &parent, i
  */
 void QAbstractItemModelTesterPrivate::data()
 {
-    if (!model->hasChildren())
+    if (model->rowCount() == 0 || model->columnCount() == 0)
         return;
 
     MODELTESTER_VERIFY(model->index(0, 0).isValid());
@@ -719,12 +720,12 @@ void QAbstractItemModelTesterPrivate::rowsAboutToBeRemoved(const QModelIndex &pa
     Changing c;
     c.parent = parent;
     c.oldSize = model->rowCount(parent);
-    if (start > 0) {
+    if (start > 0 && model->columnCount(parent) > 0) {
         const QModelIndex startIndex = model->index(start - 1, 0, parent);
         MODELTESTER_VERIFY(startIndex.isValid());
         c.last = model->data(startIndex);
     }
-    if (end < c.oldSize - 1) {
+    if (end < c.oldSize - 1 && model->columnCount(parent) > 0) {
         const QModelIndex endIndex = model->index(end + 1, 0, parent);
         MODELTESTER_VERIFY(endIndex.isValid());
         c.next = model->data(endIndex);
@@ -822,7 +823,9 @@ bool QAbstractItemModelTesterPrivate::compare(const T1 &t1, const T2 &t2,
         if (!result) {
             auto t1string = QTest::toString(t1);
             auto t2string = QTest::toString(t2);
-            qCWarning(lcModelTest, formatString, actual, t1string, expected, t2string, file, line);
+            qCWarning(lcModelTest, formatString, actual, t1string ? t1string : "(nullptr)",
+                                                 expected, t2string ? t2string : "(nullptr)",
+                                                 file, line);
             delete [] t1string;
             delete [] t2string;
         }
@@ -832,7 +835,9 @@ bool QAbstractItemModelTesterPrivate::compare(const T1 &t1, const T2 &t2,
         if (!result) {
             auto t1string = QTest::toString(t1);
             auto t2string = QTest::toString(t2);
-            qFatal(formatString, actual, t1string, expected, t2string, file, line);
+            qFatal(formatString, actual, t1string ? t1string : "(nullptr)",
+                                 expected, t2string ? t2string : "(nullptr)",
+                                 file, line);
             delete [] t1string;
             delete [] t2string;
         }

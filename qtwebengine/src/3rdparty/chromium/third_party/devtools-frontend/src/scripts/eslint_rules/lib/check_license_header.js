@@ -12,8 +12,9 @@ const path = require('path');
 
 const FRONT_END_FOLDER = path.join(__filename, '..', '..', '..', '..', 'front_end');
 
+const CURRENT_YEAR = new Date().getFullYear();
 const LINE_LICENSE_HEADER = [
-  'Copyright 2020 The Chromium Authors. All rights reserved.',
+  `Copyright ${CURRENT_YEAR} The Chromium Authors. All rights reserved.`,
   'Use of this source code is governed by a BSD-style license that can be',
   'found in the LICENSE file.',
 ];
@@ -48,50 +49,17 @@ const BLOCK_LICENSE_HEADER = [
   'OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.',
 ];
 
-const LINE_REGEXES = LINE_LICENSE_HEADER.map(line => new RegExp('[ ]?' + line.replace('2020', '(\\(c\\) )?\\d{4}')));
+const LINE_REGEXES =
+    LINE_LICENSE_HEADER.map(line => new RegExp('[ ]?' + line.replace(CURRENT_YEAR, '(\\(c\\) )?\\d{4}')));
 const BLOCK_REGEX = new RegExp('[\\s\\\\n\\*]*' + BLOCK_LICENSE_HEADER.join('[\\s\\\\n\\*]*'), 'm');
 
 const LICENSE_HEADER_ADDITION = LINE_LICENSE_HEADER.map(line => `// ${line}`).join('\n') + '\n\n';
 
 const EXCLUDED_FILES = [
-  // FIXME: CodeMirror bundles must be moved to third_party
-  'cm/active-line.js',
-  'cm/brace-fold.js',
-  'cm/closebrackets.js',
-  'cm/codemirror.js',
-  'cm/comment.js',
-  'cm/foldcode.js',
-  'cm/foldgutter.js',
-  'cm/mark-selection.js',
-  'cm/matchbrackets.js',
-  'cm/multiplex.js',
-  'cm/overlay.js',
-  'cm_headless/headlesscodemirror.js',
-  'cm_modes/clike.js',
-  'cm_modes/clojure.js',
-  'cm_modes/coffeescript.js',
-  'cm_modes/jsx.js',
-  'cm_modes/livescript.js',
-  'cm_modes/markdown.js',
-  'cm_modes/php.js',
-  'cm_modes/python.js',
-  'cm_modes/shell.js',
-  'cm_web_modes/css.js',
-  'cm_web_modes/htmlembedded.js',
-  'cm_web_modes/htmlmixed.js',
-  'cm_web_modes/javascript.js',
-  'cm_web_modes/xml.js',
   // FIXME: Dagre bundles must be moved to third_party
   'dagre_layout/dagre.js',
   // FIXME: Diff bundles must be moved to third_party
   'diff/diff_match_patch.js',
-  // FIXME: Acorn bundles must be moved to third_party
-  'formatter_worker/acorn/acorn.js',
-  'formatter_worker/acorn/acorn_loose.js',
-  // Breaks esprima
-  'components/Linkifier.js',
-  'coverage/CoverageView.js',
-  'network/NetworkLogView.js',
 ];
 
 const OTHER_LICENSE_HEADERS = [
@@ -130,7 +98,6 @@ const OTHER_LICENSE_HEADERS = [
   // IBM Corp
   'sources/WatchExpressionsSidebarPane.js',
   // Multiple authors
-  'common/UIString.js',
   'components/JSPresentationUtils.js',
   'console/ConsoleView.js',
   'console/ConsoleViewMessage.js',
@@ -145,12 +112,14 @@ const OTHER_LICENSE_HEADERS = [
   'main/MainImpl.js',
   'network/HARWriter.js',
   'network/NetworkDataGridNode.js',
+  'network/NetworkLogView.js',
   'network/NetworkPanel.js',
   'network/NetworkTimeCalculator.js',
   'network/RequestHeadersView.js',
   'object_ui/ObjectPropertiesSection.js',
   'perf_ui/TimelineGrid.js',
   'platform/utilities.js',
+  'platform/UIString.ts',
   'resources/ApplicationPanelSidebar.js',
   'resources/CookieItemsView.js',
   'resources/DOMStorageItemsView.js',
@@ -159,6 +128,7 @@ const OTHER_LICENSE_HEADERS = [
   'source_frame/ResourceSourceFrame.js',
   'sources/ScopeChainSidebarPane.js',
   'sources/SourcesPanel.js',
+  'theme_support/theme_support_impl.js',
   'timeline/TimelinePanel.js',
   'timeline/TimelineUIUtils.js',
   'ui/KeyboardShortcut.js',
@@ -219,7 +189,7 @@ module.exports = {
           return;
         }
 
-        const {leading: comments} = context.getComments(node.body[0]);
+        const comments = context.getSourceCode().getCommentsBefore(node.body[0]);
 
         if (!comments || comments.length === 0) {
           context.report({

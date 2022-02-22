@@ -74,9 +74,9 @@ def run_script(argv, funcs):
 
 
 def run_command(argv, env=None, cwd=None):
-  print 'Running %r in %r (env: %r)' % (argv, cwd, env)
+  print('Running %r in %r (env: %r)' % (argv, cwd, env))
   rc = test_env.run_command(argv, env=env, cwd=cwd)
-  print 'Command %r returned exit code %d' % (argv, rc)
+  print('Command %r returned exit code %d' % (argv, rc))
   return rc
 
 
@@ -209,8 +209,13 @@ class BaseIsolatedScriptArgsAdapter(object):
     self._options = None
     self._rest_args = None
     self._parser.add_argument(
+        '--isolated-outdir', type=str,
+        required=False,
+        help='value of $ISOLATED_OUTDIR from swarming task')
+    self._parser.add_argument(
         '--isolated-script-test-output', type=str,
-        required=True)
+        required=False,
+        help='path to write test results JSON object to')
     self._parser.add_argument(
         '--isolated-script-test-filter', type=str,
         required=False)
@@ -319,9 +324,17 @@ class BaseIsolatedScriptArgsAdapter(object):
   def clean_up_after_test_run(self):
     pass
 
+  def do_pre_test_run_tasks(self):
+    pass
+
+  def do_post_test_run_tasks(self):
+    pass
+
   def run_test(self):
     self.parse_args()
     cmd = self.generate_isolated_script_cmd()
+
+    self.do_pre_test_run_tasks()
 
     env = os.environ.copy()
 
@@ -332,13 +345,14 @@ class BaseIsolatedScriptArgsAdapter(object):
     valid = True
     try:
       env['CHROME_HEADLESS'] = '1'
-      print 'Running command: %s\nwith env: %r' % (
-          ' '.join(cmd), env)
+      print('Running command: %s\nwith env: %r' % (
+          ' '.join(cmd), env))
       if self.options.xvfb:
         exit_code = xvfb.run_executable(cmd, env)
       else:
         exit_code = test_env.run_command(cmd, env=env)
-      print 'Command returned exit code %d' % exit_code
+      print('Command returned exit code %d' % exit_code)
+      self.do_post_test_run_tasks()
       return exit_code
     except Exception:
       traceback.print_exc()

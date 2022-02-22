@@ -69,6 +69,7 @@
     <output filename="values-sl/javascript_dialogs_android_strings.xml" lang="sl" type="android" />
     <output filename="values-sq/javascript_dialogs_android_strings.xml" lang="sq" type="android" />
     <output filename="values-sr/javascript_dialogs_android_strings.xml" lang="sr" type="android" />
+    <output filename="values-b+sr+Latn/javascript_dialogs_android_strings.xml" lang="sr-Latn" type="android" />
     <output filename="values-sv/javascript_dialogs_android_strings.xml" lang="sv" type="android" />
     <output filename="values-sw/javascript_dialogs_android_strings.xml" lang="sw" type="android" />
     <output filename="values-ta/javascript_dialogs_android_strings.xml" lang="ta" type="android" />
@@ -166,7 +167,7 @@
     <file lang="zh-TW" path="translations/javascript_dialogs_android_strings_zh-TW.xtb" />
     <file lang="zu" path="translations/javascript_dialogs_android_strings_zu.xtb" />
   </translations>
-  <release allow_pseudo="false" seq="1">
+  <release seq="1">
     <messages fallback_to_english="true">
       <!-- These are copied from javascript_dialogs_strings.grdp. It would be better to share, but javascript_dialogs_strings.grdp are part of the monolithic components_strings_grd target, and depending on that pulls in lots of unnecessary strings, causing UnusedResource errors. -->
       <message name="IDS_LEAVE" desc="Dialog button to leave the current page and navigate to a new page. [CHAR-LIMIT=20]">

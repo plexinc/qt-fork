@@ -7,6 +7,7 @@
 
 #include "src/execution/isolate.h"
 #include "src/objects/cell-inl.h"
+#include "src/objects/js-function.h"
 #include "src/objects/objects-inl.h"
 #include "src/objects/oddball.h"
 #include "src/objects/property-cell.h"
@@ -15,10 +16,6 @@
 
 namespace v8 {
 namespace internal {
-
-IsolateAllocationMode Isolate::isolate_allocation_mode() {
-  return isolate_allocator_->mode();
-}
 
 void Isolate::set_context(Context context) {
   DCHECK(context.is_null() || context.IsContext());
@@ -36,7 +33,7 @@ NativeContext Isolate::raw_native_context() {
 }
 
 Object Isolate::pending_exception() {
-  DCHECK(has_pending_exception());
+  CHECK(has_pending_exception());
   DCHECK(!thread_local_top()->pending_exception_.IsException(this));
   return thread_local_top()->pending_exception_;
 }
@@ -87,7 +84,7 @@ bool Isolate::is_catchable_by_wasm(Object exception) {
   if (!is_catchable_by_javascript(exception)) return false;
   if (!exception.IsJSObject()) return true;
   // We don't allocate, but the LookupIterator interface expects a handle.
-  DisallowHeapAllocation no_gc;
+  DisallowGarbageCollection no_gc;
   HandleScope handle_scope(this);
   LookupIterator it(this, handle(JSReceiver::cast(exception), this),
                     factory()->wasm_uncatchable_symbol(),
@@ -115,6 +112,11 @@ Isolate::ExceptionScope::ExceptionScope(Isolate* isolate)
 
 Isolate::ExceptionScope::~ExceptionScope() {
   isolate_->set_pending_exception(*pending_exception_);
+}
+
+bool Isolate::IsAnyInitialArrayPrototype(JSArray array) {
+  DisallowGarbageCollection no_gc;
+  return IsInAnyContext(array, Context::INITIAL_ARRAY_PROTOTYPE_INDEX);
 }
 
 #define NATIVE_CONTEXT_FIELD_ACCESSOR(index, type, name)    \

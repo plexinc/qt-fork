@@ -24,4 +24,11 @@ jumbo_component("ipc") {
     "//ui/gfx/ipc/geometry",
     "//ui/gfx/range",
   ]
+
+  if (is_mac) {
+    frameworks = [
+      "CoreFoundation.framework",
+      "IOSurface.framework",
+    ]
+  }
 }

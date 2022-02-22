@@ -1,6 +1,10 @@
 include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
 include($QT_INSTALL_DOCS/config/exampleurl-qtbase.qdocconf)
 
+# Use a custom module header that pulls in also QtOpenGLWidgets
+includepaths += .
+moduleheader = QtOpenGLDoc
+
 # Name of the project which must match the outputdir. Determines the .index file
 project = QtOpenGL
 
@@ -11,16 +15,20 @@ project = QtOpenGL
 # <rootdir>/examples.
 # Paths are relative to the  location of this file.
 
-headerdirs += ..
+headerdirs += .. \
+              ../../openglwidgets
 sourcedirs  += .. \
+               ../../openglwidgets \
                ../../../examples/opengl/doc/src
 exampledirs += ../../../examples/opengl \
-               ../ \
-               snippets
+               . \
+               snippets \
+               .. \
+               ../../gui/doc/snippets
 imagedirs   += images \
                ../../../examples/opengl/doc/images
 
-depends += qtdoc qtcore qtgui qtwidgets qmake
+depends += qtcore qtgui qtwidgets qtdoc qmake qtcmake qtquick
 
 examplesinstallpath     = opengl
 

@@ -57,7 +57,6 @@ protected:
     QVariant propertyWriteValue(int, const QVariant &) override;
     void propertyWritten(int index) override;
     void propertyCreated(int, QMetaPropertyBuilder &) override;
-    int createProperty(const char *, const char *) override;
 
     const QString &propertyName(int index);
 
@@ -130,13 +129,6 @@ void QQmlPropertyMapMetaObject::propertyCreated(int, QMetaPropertyBuilder &b)
     priv->keys.append(QString::fromUtf8(b.name()));
 }
 
-int QQmlPropertyMapMetaObject::createProperty(const char *name, const char *value)
-{
-    if (!priv->validKeyName(QString::fromUtf8(name)))
-        return -1;
-    return QQmlOpenMetaObject::createProperty(name, value);
-}
-
 /*!
     \class QQmlPropertyMap
     \brief The QQmlPropertyMap class allows you to set key-value pairs that can be used in QML bindings.
@@ -207,7 +199,24 @@ QQmlPropertyMap::~QQmlPropertyMap()
 void QQmlPropertyMap::clear(const QString &key)
 {
     Q_D(QQmlPropertyMap);
-    d->mo->setValue(key.toUtf8(), QVariant());
+    if (d->validKeyName(key))
+        d->mo->setValue(key.toUtf8(), QVariant());
+}
+
+/*!
+    \since 6.1
+
+    Disallows any further properties to be added to this property map.
+    Existing properties can be modified or cleared.
+
+    In turn, an internal cache is turned on for the existing properties, which
+    may result in faster access from QML.
+ */
+void QQmlPropertyMap::freeze()
+{
+    Q_D(QQmlPropertyMap);
+    d->mo->setAutoCreatesProperties(false);
+    d->mo->setCached(true);
 }
 
 /*!
@@ -238,6 +247,36 @@ void QQmlPropertyMap::insert(const QString &key, const QVariant &value)
                    << key
                    << "is not permitted, conflicts with internal symbols.";
     }
+}
+
+/*!
+    \since 6.1
+
+    Inserts the \a values into the QQmlPropertyMap.
+
+    Keys that don't exist are automatically created.
+
+    This method is substantially faster than calling \c{insert(key, value)}
+    many times in a row.
+*/
+void QQmlPropertyMap::insert(const QVariantHash &values)
+{
+    Q_D(QQmlPropertyMap);
+
+    QHash<QByteArray, QVariant> checkedValues;
+    for (auto it = values.begin(), end = values.end(); it != end; ++it) {
+        const QString &key = it.key();
+        if (!d->validKeyName(key)) {
+            qWarning() << "Creating property with name"
+                       << key
+                       << "is not permitted, conflicts with internal symbols.";
+            return;
+        }
+
+        checkedValues.insert(key.toUtf8(), it.value());
+    }
+    d->mo->setValues(checkedValues);
+
 }
 
 /*!
@@ -337,7 +376,7 @@ QVariant QQmlPropertyMap::operator[](const QString &key) const
 */
 QVariant QQmlPropertyMap::updateValue(const QString &key, const QVariant &input)
 {
-    Q_UNUSED(key)
+    Q_UNUSED(key);
     return input;
 }
 

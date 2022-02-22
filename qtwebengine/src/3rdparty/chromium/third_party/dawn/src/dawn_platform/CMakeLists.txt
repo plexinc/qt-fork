@@ -12,11 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-add_library(dawn_platform STATIC ${DAWN_DUMMY_FILE})
+add_library(dawn_platform ${DAWN_DUMMY_FILE})
+
+target_compile_definitions(dawn_platform PRIVATE "DAWN_PLATFORM_IMPLEMENTATION")
+if(BUILD_SHARED_LIBS)
+    target_compile_definitions(dawn_platform PRIVATE "DAWN_PLATFORM_SHARED_LIBRARY")
+endif()
+
 target_sources(dawn_platform PRIVATE
     "${DAWN_INCLUDE_DIR}/dawn_platform/DawnPlatform.h"
+    "${DAWN_INCLUDE_DIR}/dawn_platform/dawn_platform_export.h"
+    "DawnPlatform.cpp"
+    "WorkerThread.cpp"
+    "WorkerThread.h"
     "tracing/EventTracer.cpp"
     "tracing/EventTracer.h"
     "tracing/TraceEvent.h"
 )
-target_link_libraries(dawn_platform PRIVATE dawn_internal_config dawn_common)
+target_link_libraries(dawn_platform PUBLIC dawn_headers PRIVATE dawn_internal_config dawn_common)

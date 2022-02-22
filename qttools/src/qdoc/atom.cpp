@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2019 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -31,10 +31,9 @@
 #include "location.h"
 #include "qdocdatabase.h"
 
-#include <QtCore/qdebug.h>
-#include <QtCore/qregexp.h>
+#include <QtCore/qregularexpression.h>
 
-#include <stdio.h>
+#include <cstdio>
 
 QT_BEGIN_NAMESPACE
 
@@ -143,7 +142,7 @@ QT_BEGIN_NAMESPACE
   \value UnknownCommand
 */
 
-QString Atom::noError_ = QString();
+QString Atom::s_noError = QString();
 
 static const struct
 {
@@ -234,6 +233,8 @@ static const struct
              { "TableOfContents", Atom::TableOfContents },
              { "Target", Atom::Target },
              { "UnhandledFormat", Atom::UnhandledFormat },
+             { "WarningLeft", Atom::WarningLeft },
+             { "WarningRight", Atom::WarningRight },
              { "UnknownCommand", Atom::UnknownCommand },
              { nullptr, 0 } };
 
@@ -294,7 +295,7 @@ static const struct
  */
 const Atom *Atom::next(AtomType t) const
 {
-    return (next_ && (next_->type() == t)) ? next_ : nullptr;
+    return (m_next && (m_next->type() == t)) ? m_next : nullptr;
 }
 
 /*!
@@ -303,7 +304,7 @@ const Atom *Atom::next(AtomType t) const
  */
 const Atom *Atom::next(AtomType t, const QString &s) const
 {
-    return (next_ && (next_->type() == t) && (next_->string() == s)) ? next_ : nullptr;
+    return (m_next && (m_next->type() == t) && (m_next->string() == s)) ? m_next : nullptr;
 }
 
 /*! \fn const Atom *Atom::next() const
@@ -362,10 +363,31 @@ void Atom::dump() const
     str.replace(QLatin1String("\\"), QLatin1String("\\\\"));
     str.replace(QLatin1String("\""), QLatin1String("\\\""));
     str.replace(QLatin1String("\n"), QLatin1String("\\n"));
-    str.replace(QRegExp(QLatin1String("[^\x20-\x7e]")), QLatin1String("?"));
+    str.replace(QRegularExpression(QLatin1String(R"([^ -~])")), QLatin1String("?"));
     if (!str.isEmpty())
         str = QLatin1String(" \"") + str + QLatin1Char('"');
     fprintf(stderr, "    %-15s%s\n", typeString().toLatin1().data(), str.toLatin1().data());
+}
+
+/*!
+    For a link atom, returns the string representing the link text
+    if one exist in the list of atoms.
+*/
+QString Atom::linkText() const
+{
+    Q_ASSERT(m_type == Atom::Link);
+    QString result;
+
+    if (next() &&  next()->string() == ATOM_FORMATTING_LINK) {
+        auto *atom = next()->next();
+        while (atom && atom->type() != Atom::FormattingRight) {
+            result += atom->string();
+            atom = atom->next();
+        }
+        return result;
+    }
+
+    return string();
 }
 
 /*!
@@ -378,11 +400,11 @@ void Atom::dump() const
  */
 LinkAtom::LinkAtom(const QString &p1, const QString &p2)
     : Atom(Atom::Link, p1),
-      resolved_(false),
-      genus_(Node::DontCare),
-      goal_(Node::NoType),
-      domain_(nullptr),
-      squareBracketParams_(p2)
+      m_resolved(false),
+      m_genus(Node::DontCare),
+      m_goal(Node::NoType),
+      m_domain(nullptr),
+      m_squareBracketParams(p2)
 {
     // nada.
 }
@@ -394,37 +416,41 @@ LinkAtom::LinkAtom(const QString &p1, const QString &p2)
  */
 void LinkAtom::resolveSquareBracketParams()
 {
-    if (resolved_)
+    if (m_resolved)
         return;
-    const QStringList params = squareBracketParams_.toLower().split(QLatin1Char(' '));
+    const QStringList params = m_squareBracketParams.toLower().split(QLatin1Char(' '));
     for (const auto &param : params) {
-        if (!domain_) {
-            domain_ = QDocDatabase::qdocDB()->findTree(param);
-            if (domain_) {
+        if (!m_domain) {
+            m_domain = QDocDatabase::qdocDB()->findTree(param);
+            if (m_domain) {
                 continue;
             }
         }
-        if (goal_ == Node::NoType) {
-            goal_ = Node::goal(param);
-            if (goal_ != Node::NoType)
+        if (m_goal == Node::NoType) {
+            m_goal = Node::goal(param);
+            if (m_goal != Node::NoType)
                 continue;
         }
         if (param == "qml") {
-            genus_ = Node::QML;
+            m_genus = Node::QML;
             continue;
         }
         if (param == "cpp") {
-            genus_ = Node::CPP;
+            m_genus = Node::CPP;
             continue;
         }
         if (param == "doc") {
-            genus_ = Node::DOC;
+            m_genus = Node::DOC;
             continue;
         }
-        error_ = squareBracketParams_;
+        if (param == "api") {
+            m_genus = Node::API;
+            continue;
+        }
+        m_error = m_squareBracketParams;
         break;
     }
-    resolved_ = true;
+    m_resolved = true;
 }
 
 /*!
@@ -432,12 +458,12 @@ void LinkAtom::resolveSquareBracketParams()
  */
 LinkAtom::LinkAtom(const LinkAtom &t)
     : Atom(Link, t.string()),
-      resolved_(t.resolved_),
-      genus_(t.genus_),
-      goal_(t.goal_),
-      domain_(t.domain_),
-      error_(t.error_),
-      squareBracketParams_(t.squareBracketParams_)
+      m_resolved(t.m_resolved),
+      m_genus(t.m_genus),
+      m_goal(t.m_goal),
+      m_domain(t.m_domain),
+      m_error(t.m_error),
+      m_squareBracketParams(t.m_squareBracketParams)
 {
     // nothing
 }
@@ -449,14 +475,14 @@ LinkAtom::LinkAtom(const LinkAtom &t)
  */
 LinkAtom::LinkAtom(Atom *previous, const LinkAtom &t)
     : Atom(previous, Link, t.string()),
-      resolved_(t.resolved_),
-      genus_(t.genus_),
-      goal_(t.goal_),
-      domain_(t.domain_),
-      error_(t.error_),
-      squareBracketParams_(t.squareBracketParams_)
+      m_resolved(t.m_resolved),
+      m_genus(t.m_genus),
+      m_goal(t.m_goal),
+      m_domain(t.m_domain),
+      m_error(t.m_error),
+      m_squareBracketParams(t.m_squareBracketParams)
 {
-    previous->next_ = this;
+    previous->m_next = this;
 }
 
 QT_END_NAMESPACE

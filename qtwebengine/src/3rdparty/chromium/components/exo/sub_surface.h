@@ -55,10 +55,19 @@ class SubSurface : public SurfaceDelegate, public SurfaceObserver {
   void OnSetFrame(SurfaceFrameType type) override {}
   void OnSetFrameColors(SkColor active_color, SkColor inactive_color) override {
   }
-  void OnSetParent(Surface* parent, const gfx::Point& position) override {}
+  void OnSetParent(Surface* parent, const gfx::Point& position) override;
   void OnSetStartupId(const char* startup_id) override {}
   void OnSetApplicationId(const char* application_id) override {}
+  void SetUseImmersiveForFullscreen(bool value) override {}
   void OnActivationRequested() override {}
+  void OnNewOutputAdded() override {}
+  void OnSetServerStartResize() override {}
+  void ShowSnapPreviewToLeft() override {}
+  void ShowSnapPreviewToRight() override {}
+  void HideSnapPreview() override {}
+  void SetSnappedToLeft() override {}
+  void SetSnappedToRight() override {}
+  void UnsetSnap() override {}
 
   // Overridden from SurfaceObserver:
   void OnSurfaceDestroying(Surface* surface) override;

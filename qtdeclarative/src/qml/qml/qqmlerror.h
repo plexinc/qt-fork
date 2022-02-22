@@ -76,13 +76,14 @@ public:
     void setMessageType(QtMsgType messageType);
 
     QString toString() const;
+    friend bool Q_QML_EXPORT operator==(const QQmlError &a, const QQmlError &b);
 private:
     QQmlErrorPrivate *d;
 };
 
 QDebug Q_QML_EXPORT operator<<(QDebug debug, const QQmlError &error);
 
-Q_DECLARE_TYPEINFO(QQmlError, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QQmlError, Q_RELOCATABLE_TYPE);
 
 QT_END_NAMESPACE
 

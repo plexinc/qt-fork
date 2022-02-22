@@ -7,20 +7,20 @@
 
 #include <cstdint>
 
-#include "net/third_party/quiche/src/quic/core/congestion_control/bandwidth_sampler.h"
-#include "net/third_party/quiche/src/quic/core/congestion_control/bbr2_drain.h"
-#include "net/third_party/quiche/src/quic/core/congestion_control/bbr2_misc.h"
-#include "net/third_party/quiche/src/quic/core/congestion_control/bbr2_probe_bw.h"
-#include "net/third_party/quiche/src/quic/core/congestion_control/bbr2_probe_rtt.h"
-#include "net/third_party/quiche/src/quic/core/congestion_control/bbr2_startup.h"
-#include "net/third_party/quiche/src/quic/core/congestion_control/bbr_sender.h"
-#include "net/third_party/quiche/src/quic/core/congestion_control/rtt_stats.h"
-#include "net/third_party/quiche/src/quic/core/congestion_control/send_algorithm_interface.h"
-#include "net/third_party/quiche/src/quic/core/congestion_control/windowed_filter.h"
-#include "net/third_party/quiche/src/quic/core/quic_bandwidth.h"
-#include "net/third_party/quiche/src/quic/core/quic_types.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
+#include "quic/core/congestion_control/bandwidth_sampler.h"
+#include "quic/core/congestion_control/bbr2_drain.h"
+#include "quic/core/congestion_control/bbr2_misc.h"
+#include "quic/core/congestion_control/bbr2_probe_bw.h"
+#include "quic/core/congestion_control/bbr2_probe_rtt.h"
+#include "quic/core/congestion_control/bbr2_startup.h"
+#include "quic/core/congestion_control/bbr_sender.h"
+#include "quic/core/congestion_control/rtt_stats.h"
+#include "quic/core/congestion_control/send_algorithm_interface.h"
+#include "quic/core/congestion_control/windowed_filter.h"
+#include "quic/core/quic_bandwidth.h"
+#include "quic/core/quic_types.h"
+#include "quic/platform/api/quic_export.h"
+#include "quic/platform/api/quic_flags.h"
 
 namespace quic {
 
@@ -49,6 +49,8 @@ class QUIC_EXPORT_PRIVATE Bbr2Sender final : public SendAlgorithmInterface {
 
   void SetFromConfig(const QuicConfig& config,
                      Perspective perspective) override;
+
+  void ApplyConnectionOptions(const QuicTagVector& connection_options) override;
 
   void AdjustNetworkParameters(const NetworkParams& params) override;
 
@@ -105,6 +107,10 @@ class QUIC_EXPORT_PRIVATE Bbr2Sender final : public SendAlgorithmInterface {
   // Returns the min of BDP and congestion window.
   QuicByteCount GetTargetBytesInflight() const;
 
+  bool IsBandwidthOverestimateAvoidanceEnabled() const {
+    return model_.IsBandwidthOverestimateAvoidanceEnabled();
+  }
+
   struct QUIC_EXPORT_PRIVATE DebugState {
     Bbr2Mode mode;
 
@@ -141,22 +147,18 @@ class QUIC_EXPORT_PRIVATE Bbr2Sender final : public SendAlgorithmInterface {
 
   // Helper function for BBR2_MODE_DISPATCH.
   Bbr2ProbeRttMode& probe_rtt_or_die() {
-    DCHECK_EQ(mode_, Bbr2Mode::PROBE_RTT);
+    QUICHE_DCHECK_EQ(mode_, Bbr2Mode::PROBE_RTT);
     return probe_rtt_;
   }
 
   const Bbr2ProbeRttMode& probe_rtt_or_die() const {
-    DCHECK_EQ(mode_, Bbr2Mode::PROBE_RTT);
+    QUICHE_DCHECK_EQ(mode_, Bbr2Mode::PROBE_RTT);
     return probe_rtt_;
   }
 
   uint64_t RandomUint64(uint64_t max) const {
     return random_->RandUint64() % max;
   }
-
-  // Returns true if there are enough bytes in flight to ensure more bandwidth
-  // will be observed if present.
-  bool IsPipeSufficientlyFull() const;
 
   // Cwnd limits imposed by the current Bbr2 mode.
   Limits<QuicByteCount> GetCwndLimitsByMode() const;
@@ -173,9 +175,13 @@ class QUIC_EXPORT_PRIVATE Bbr2Sender final : public SendAlgorithmInterface {
   QuicRandom* random_;
   QuicConnectionStats* connection_stats_;
 
-  // Don't use it directly outside of SetFromConfig. Instead, use params() to
-  // get read-only access.
+  // Don't use it directly outside of SetFromConfig and ApplyConnectionOptions.
+  // Instead, use params() to get read-only access.
   Bbr2Params params_;
+
+  // Max congestion window when adjusting network parameters.
+  QuicByteCount max_cwnd_when_network_parameters_adjusted_ =
+      kMaxInitialCongestionWindow * kDefaultTCPMSS;
 
   Bbr2NetworkModel model_;
 

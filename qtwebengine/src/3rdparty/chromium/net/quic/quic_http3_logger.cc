@@ -11,6 +11,7 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_piece.h"
 #include "net/http/http_log_util.h"
 #include "net/log/net_log_capture_mode.h"
 #include "net/log/net_log_event_type.h"
@@ -25,7 +26,7 @@ base::Value NetLogSettingsParams(const quic::SettingsFrame& frame) {
   base::Value dict(base::Value::Type::DICTIONARY);
   for (auto setting : frame.values) {
     dict.SetIntKey(
-        quic::SpdyUtils::H3SettingsToString(
+        quic::H3SettingsToString(
             static_cast<quic::Http3AndQpackSettingsIdentifiers>(setting.first)),
         setting.second);
   }
@@ -75,12 +76,13 @@ base::ListValue ElideQuicHeaderListForNetLog(
     base::StringPiece key = header.first;
     base::StringPiece value = header.second;
     headers_list.Append(NetLogStringValue(
-         base::StrCat({key, ": ",
-                      ElideHeaderValueForNetLog(capture_mode, key.as_string(),
-                                                value.as_string())})));
+        base::StrCat({key, ": ",
+                      ElideHeaderValueForNetLog(capture_mode, std::string(key),
+                                                std::string(value))})));
   }
   return headers_list;
 }
+
 }  // namespace
 
 QuicHttp3Logger::QuicHttp3Logger(const NetLogWithSource& net_log)
@@ -159,18 +161,31 @@ void QuicHttp3Logger::OnSettingsFrameReceived(
   UMA_HISTOGRAM_CUSTOM_COUNTS("Net.QuicSession.ReceivedSettings.CountPlusOne",
                               frame.values.size() + 1, /* min = */ 1,
                               /* max = */ 10, /* buckets = */ 10);
+  int reserved_identifier_count = 0;
   for (const auto& value : frame.values) {
     if (value.first == quic::SETTINGS_QPACK_MAX_TABLE_CAPACITY) {
-      UMA_HISTOGRAM_COUNTS_10000(
-          "Net.QuicSession.ReceivedSettings.MaxTableCapacity", value.second);
-    } else if (value.first == quic::SETTINGS_MAX_HEADER_LIST_SIZE) {
-      UMA_HISTOGRAM_COUNTS_10000(
-          "Net.QuicSession.ReceivedSettings.MaxHeaderListSize", value.second);
+      UMA_HISTOGRAM_COUNTS_1M(
+          "Net.QuicSession.ReceivedSettings.MaxTableCapacity2", value.second);
+    } else if (value.first == quic::SETTINGS_MAX_FIELD_SECTION_SIZE) {
+      UMA_HISTOGRAM_COUNTS_1M(
+          "Net.QuicSession.ReceivedSettings.MaxHeaderListSize2", value.second);
     } else if (value.first == quic::SETTINGS_QPACK_BLOCKED_STREAMS) {
       UMA_HISTOGRAM_COUNTS_1000(
           "Net.QuicSession.ReceivedSettings.BlockedStreams", value.second);
+    } else if (value.first >= 0x21 && value.first % 0x1f == 2) {
+      // Reserved setting identifiers are defined at
+      // https://quicwg.org/base-drafts/draft-ietf-quic-http.html#name-defined-settings-parameters.
+      // These should not be treated specially on the receive side, because they
+      // are sent to exercise the requirement that unknown identifiers are
+      // ignored.  Here an exception is made for logging only, to understand
+      // what kind of identifiers are received.
+      reserved_identifier_count++;
     }
   }
+  UMA_HISTOGRAM_CUSTOM_COUNTS(
+      "Net.QuicSession.ReceivedSettings.ReservedCountPlusOne",
+      reserved_identifier_count + 1, /* min = */ 1,
+      /* max = */ 5, /* buckets = */ 5);
 
   if (!net_log_.IsCapturing())
     return;
@@ -183,7 +198,7 @@ void QuicHttp3Logger::OnGoAwayFrameReceived(const quic::GoAwayFrame& frame) {
     return;
   }
   net_log_.AddEventWithIntParams(NetLogEventType::HTTP3_GOAWAY_RECEIVED,
-                                 "stream_id", frame.stream_id);
+                                 "stream_id", frame.id);
 }
 
 void QuicHttp3Logger::OnMaxPushIdFrameReceived(
@@ -237,7 +252,7 @@ void QuicHttp3Logger::OnHeadersDecoded(quic::QuicStreamId stream_id,
   }
   net_log_.AddEvent(
       NetLogEventType::HTTP3_HEADERS_DECODED,
-        [stream_id, &headers](NetLogCaptureMode capture_mode) {
+      [stream_id, &headers](NetLogCaptureMode capture_mode) {
         base::Value dict(base::Value::Type::DICTIONARY);
         dict.SetKey("stream_id",
                     NetLogNumberValue(static_cast<uint64_t>(stream_id)));
@@ -305,6 +320,13 @@ void QuicHttp3Logger::OnSettingsFrameSent(const quic::SettingsFrame& frame) {
                     [&frame] { return NetLogSettingsParams(frame); });
 }
 
+void QuicHttp3Logger::OnSettingsFrameResumed(const quic::SettingsFrame& frame) {
+  if (!net_log_.IsCapturing())
+    return;
+  net_log_.AddEvent(NetLogEventType::HTTP3_SETTINGS_RESUMED,
+                    [&frame] { return NetLogSettingsParams(frame); });
+}
+
 void QuicHttp3Logger::OnGoAwayFrameSent(quic::QuicStreamId stream_id) {
   if (!net_log_.IsCapturing()) {
     return;
@@ -344,7 +366,7 @@ void QuicHttp3Logger::OnDataFrameSent(quic::QuicStreamId stream_id,
 
 void QuicHttp3Logger::OnHeadersFrameSent(
     quic::QuicStreamId stream_id,
-    const spdy::SpdyHeaderBlock& header_block) {
+    const spdy::Http2HeaderBlock& header_block) {
   if (!net_log_.IsCapturing()) {
     return;
   }
@@ -355,7 +377,7 @@ void QuicHttp3Logger::OnHeadersFrameSent(
         dict.SetKey("stream_id",
                     NetLogNumberValue(static_cast<uint64_t>(stream_id)));
         dict.SetKey("headers",
-                    ElideSpdyHeaderBlockForNetLog(header_block, capture_mode));
+                    ElideHttp2HeaderBlockForNetLog(header_block, capture_mode));
         return dict;
       });
 }
@@ -363,7 +385,7 @@ void QuicHttp3Logger::OnHeadersFrameSent(
 void QuicHttp3Logger::OnPushPromiseFrameSent(
     quic::QuicStreamId stream_id,
     quic::QuicStreamId push_id,
-    const spdy::SpdyHeaderBlock& header_block) {
+    const spdy::Http2HeaderBlock& header_block) {
   if (!net_log_.IsCapturing()) {
     return;
   }
@@ -374,9 +396,9 @@ void QuicHttp3Logger::OnPushPromiseFrameSent(
         dict.SetKey("stream_id",
                     NetLogNumberValue(static_cast<uint64_t>(stream_id)));
         dict.SetKey("push_id",
-                     NetLogNumberValue(static_cast<uint64_t>(push_id)));
+                    NetLogNumberValue(static_cast<uint64_t>(push_id)));
         dict.SetKey("headers",
-                     ElideSpdyHeaderBlockForNetLog(header_block, capture_mode));
+                    ElideHttp2HeaderBlockForNetLog(header_block, capture_mode));
         return dict;
       });
 }

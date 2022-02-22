@@ -41,14 +41,14 @@
 // We mean it.
 //
 
-#include <QtGui/QOpenGLFramebufferObject>
 #include <QtQuick/QQuickItem>
 #include <QtCore/qurl.h>
 
 #include <QtQuick3D/qtquick3dglobal.h>
 #include <QtQuick3D/private/qquick3dpickresult_p.h>
 
-#include <QtQuick3DRender/private/qssgrenderframebuffer_p.h>
+#include "qquick3dsceneenvironment_p.h"
+#include "qquick3drenderstats_p.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -59,6 +59,7 @@ class QQuick3DNode;
 class QQuick3DSceneRootNode;
 class QQuick3DSceneRenderer;
 class QQuick3DRenderStats;
+class QQuick3DSceneManager;
 
 class SGFramebufferObjectNode;
 class QQuick3DSGRenderNode;
@@ -75,6 +76,9 @@ class Q_QUICK3D_EXPORT QQuick3DViewport : public QQuickItem
     Q_PROPERTY(RenderMode renderMode READ renderMode WRITE setRenderMode NOTIFY renderModeChanged FINAL)
     Q_PROPERTY(QQuick3DRenderStats *renderStats READ renderStats CONSTANT)
     Q_CLASSINFO("DefaultProperty", "data")
+
+    QML_NAMED_ELEMENT(View3D)
+
 public:
     enum RenderMode {
         Offscreen,
@@ -106,25 +110,33 @@ public:
     Q_INVOKABLE QVector3D mapTo3DScene(const QVector3D &viewPos) const;
 
     Q_INVOKABLE QQuick3DPickResult pick(float x, float y) const;
+    Q_REVISION(6, 2) Q_INVOKABLE QList<QQuick3DPickResult> pickAll(float x, float y) const;
+    Q_REVISION(6, 2) Q_INVOKABLE QQuick3DPickResult rayPick(const QVector3D &origin, const QVector3D &direction) const;
+    Q_REVISION(6, 2) Q_INVOKABLE QList<QQuick3DPickResult> rayPickAll(const QVector3D &origin, const QVector3D &direction) const;
 
-    void setShaderCacheFile(const QUrl &shaderCacheFile);
-    QUrl shaderCacheFile();
-    void exportShaderCache(const QUrl &shaderCacheFile, bool binaryShaders, int compressionLevel = -1);
+    void processPointerEventFromRay(const QVector3D &origin, const QVector3D &direction, QPointerEvent *event);
 
 protected:
-    void geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry) override;
+    void geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry) override;
     QSGNode *updatePaintNode(QSGNode *, UpdatePaintNodeData *) override;
     void itemChange(QQuickItem::ItemChange change, const QQuickItem::ItemChangeData &value) override;
+
+    bool event(QEvent *) override;
 
 public Q_SLOTS:
     void setCamera(QQuick3DCamera *camera);
     void setEnvironment(QQuick3DSceneEnvironment * environment);
     void setImportScene(QQuick3DNode *inScene);
-    void setRenderMode(RenderMode renderMode);
+    void setRenderMode(QQuick3DViewport::RenderMode renderMode);
     void cleanupDirectRenderer();
+
+    // Setting this true enables picking for all the models, regardless of
+    // the models pickable property.
+    void setGlobalPickingEnabled(bool isEnabled);
 
 private Q_SLOTS:
     void invalidateSceneGraph();
+    void cleanupResources();
 
 Q_SIGNALS:
     void cameraChanged();
@@ -132,21 +144,16 @@ Q_SIGNALS:
     void sceneChanged();
     void importSceneChanged();
     void renderModeChanged();
-    void shaderCacheLoadErrors(const QByteArray &errors);
-    void shaderCacheExported(bool success);
 
 private:
     Q_DISABLE_COPY(QQuick3DViewport)
     QQuick3DSceneRenderer *getRenderer() const;
     void updateDynamicTextures();
     void setupDirectRenderer(RenderMode mode);
-    void updateClearBeforeRendering();
     bool checkIsVisible() const;
-
-    void readShaderCache();
-    void writeShaderCache(const QUrl &shaderCacheFile);
-    void doExportShaderCache();
-    void doImportShaderCache();
+    bool internalPick(QPointerEvent *event, const QVector3D &origin = QVector3D(), const QVector3D &direction = QVector3D()) const;
+    QQuick3DPickResult processPickResult(const QSSGRenderPickResult &pickResult) const;
+    QQuick3DSceneManager *findChildSceneManager(QQuick3DObject *inObject, QQuick3DSceneManager *manager = nullptr);
 
     QQuick3DCamera *m_camera = nullptr;
     QQuick3DSceneEnvironment *m_environment = nullptr;
@@ -158,14 +165,8 @@ private:
     bool m_renderModeDirty = false;
     RenderMode m_renderMode = Offscreen;
     QQuick3DRenderStats *m_renderStats = nullptr;
-    QUrl m_shaderCacheFile;
-    QByteArray m_shaderCacheData;
-    QByteArray m_shaderCacheImport;
-    QUrl m_exportShaderCacheFile;
-    bool m_exportShaderCacheRequested = false;
-    bool m_binaryShaders = false;
-    int m_compressionLevel = -1;
     QHash<QObject*, QMetaObject::Connection> m_connections;
+    bool m_enableInputProcessing = true;
 };
 
 QT_END_NAMESPACE

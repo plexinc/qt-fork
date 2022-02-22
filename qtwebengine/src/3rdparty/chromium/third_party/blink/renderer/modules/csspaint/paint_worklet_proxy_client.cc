@@ -5,14 +5,15 @@
 #include "third_party/blink/renderer/modules/csspaint/paint_worklet_proxy_client.h"
 
 #include <memory>
+#include <utility>
 
 #include "base/single_thread_task_runner.h"
 #include "third_party/blink/renderer/core/css/cssom/cross_thread_color_value.h"
 #include "third_party/blink/renderer/core/css/cssom/cross_thread_unit_value.h"
+#include "third_party/blink/renderer/core/css/cssom/css_paint_worklet_input.h"
 #include "third_party/blink/renderer/core/css/cssom/css_style_value.h"
-#include "third_party/blink/renderer/core/css/cssom/paint_worklet_input.h"
-#include "third_party/blink/renderer/core/dom/document.h"
-#include "third_party/blink/renderer/core/frame/web_frame_widget_base.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
+#include "third_party/blink/renderer/core/frame/web_frame_widget_impl.h"
 #include "third_party/blink/renderer/core/frame/web_local_frame_impl.h"
 #include "third_party/blink/renderer/core/workers/worker_thread.h"
 #include "third_party/blink/renderer/modules/csspaint/css_paint_definition.h"
@@ -33,11 +34,11 @@ PaintWorkletProxyClient* PaintWorkletProxyClient::From(WorkerClients* clients) {
 }
 
 // static
-PaintWorkletProxyClient* PaintWorkletProxyClient::Create(Document* document,
+PaintWorkletProxyClient* PaintWorkletProxyClient::Create(LocalDOMWindow* window,
                                                          int worklet_id) {
   WebLocalFrameImpl* local_frame =
-      WebLocalFrameImpl::FromFrame(document->GetFrame());
-  PaintWorklet* paint_worklet = PaintWorklet::From(*document->domWindow());
+      WebLocalFrameImpl::FromFrame(window->GetFrame());
+  PaintWorklet* paint_worklet = PaintWorklet::From(*window);
   scoped_refptr<base::SingleThreadTaskRunner> compositor_host_queue;
   base::WeakPtr<PaintWorkletPaintDispatcher> compositor_paint_dispatcher =
       local_frame->LocalRootFrameWidget()->EnsureCompositorPaintDispatcher(
@@ -135,7 +136,7 @@ void PaintWorkletProxyClient::RegisterCSSPaintDefinition(
         CrossThreadBindOnce(
             &PaintWorklet::RegisterMainThreadDocumentPaintDefinition,
             paint_worklet_, name, definition->NativeInvalidationProperties(),
-            WTF::Passed(std::move(passed_custom_properties)),
+            std::move(passed_custom_properties),
             definition->InputArgumentTypes(),
             definition->GetPaintRenderingContext2DSettings()->alpha()));
   }
@@ -158,7 +159,7 @@ void PaintWorkletProxyClient::Dispose() {
   global_scopes_.clear();
 }
 
-void PaintWorkletProxyClient::Trace(Visitor* visitor) {
+void PaintWorkletProxyClient::Trace(Visitor* visitor) const {
   Supplement<WorkerClients>::Trace(visitor);
   PaintWorkletPainter::Trace(visitor);
 }
@@ -184,8 +185,8 @@ sk_sp<PaintRecord> PaintWorkletProxyClient::Paint(
   PaintWorkletGlobalScope* global_scope = global_scopes_[base::RandInt(
       0, (PaintWorklet::kNumGlobalScopesPerThread)-1)];
 
-  const PaintWorkletInput* input =
-      static_cast<const PaintWorkletInput*>(compositor_input);
+  const CSSPaintWorkletInput* input =
+      static_cast<const CSSPaintWorkletInput*>(compositor_input);
   CSSPaintDefinition* definition =
       global_scope->FindDefinition(input->NameCopy());
   PaintWorkletStylePropertyMap* style_map =
@@ -220,7 +221,8 @@ void PaintWorkletProxyClient::ApplyAnimatedPropertyOverrides(
         animated_property_values) {
   for (const auto& property_value : animated_property_values) {
     DCHECK(property_value.second.has_value());
-    String property_name(property_value.first.c_str());
+    String property_name(
+        property_value.first.custom_property_name.value().c_str());
     DCHECK(style_map->StyleMapData().Contains(property_name));
     CrossThreadStyleValue* old_value =
         style_map->StyleMapData().at(property_name);

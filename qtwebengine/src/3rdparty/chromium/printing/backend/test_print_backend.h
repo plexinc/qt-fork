@@ -5,11 +5,10 @@
 #ifndef PRINTING_BACKEND_TEST_PRINT_BACKEND_H_
 #define PRINTING_BACKEND_TEST_PRINT_BACKEND_H_
 
-#include <map>
 #include <memory>
 #include <string>
-#include <vector>
 
+#include "base/containers/flat_map.h"
 #include "printing/backend/print_backend.h"
 
 namespace printing {
@@ -33,26 +32,43 @@ class TestPrintBackend : public PrintBackend {
   std::string GetPrinterDriverInfo(const std::string& printer_name) override;
   bool IsValidPrinter(const std::string& printer_name) override;
 
-  // Methods for test setup.
-  // Add printers to the list returned by EnumeratePrinters.
-  void PopulatePrinterList(const PrinterList& printer_list);
+  // Methods for test setup:
 
-  // Set a default printer.  The default is the empty string.
+  // Sets a default printer.  The default is the empty string.
   void SetDefaultPrinterName(const std::string& printer_name);
 
-  // Add a printer to satisfy IsValidPrinter and
-  // GetPrinterSemanticCapsAndDefualts.
+  // Adds a printer to satisfy IsValidPrinter(), EnumeratePrinters(),
+  // GetPrinterBasicInfo(), and GetPrinterSemanticCapsAndDefaults().
+  // While `caps` can be null, it will cause queries for the capabilities to
+  // fail, and thus is likely not of interest for most tests.  IsValidPrinter()
+  // will still show true even if `caps` is null, which provides the benefit of
+  // simulating a printer that exists in the system but cannot be queried.
+  // `info` can be null, which will result in queries for basic info to fail.
+  // Calling EnumeratePrinters() will include the identified `printer_name`
+  // even if either parameter is null.
   void AddValidPrinter(const std::string& printer_name,
-                       std::unique_ptr<PrinterSemanticCapsAndDefaults> caps);
+                       std::unique_ptr<PrinterSemanticCapsAndDefaults> caps,
+                       std::unique_ptr<PrinterBasicInfo> info);
 
  protected:
   ~TestPrintBackend() override;
 
  private:
+  struct PrinterData {
+    PrinterData(std::unique_ptr<PrinterSemanticCapsAndDefaults> caps,
+                std::unique_ptr<PrinterBasicInfo> info);
+    ~PrinterData();
+
+    std::unique_ptr<PrinterSemanticCapsAndDefaults> caps;
+    std::unique_ptr<PrinterBasicInfo> info;
+  };
+
   std::string default_printer_name_;
-  PrinterList printer_list_;
-  std::map<std::string, std::unique_ptr<PrinterSemanticCapsAndDefaults>>
-      valid_printers_;
+  // The values in `printer_map_` will not be null.  The use of a pointer to
+  // PrinterData is just a workaround for the deleted copy assignment operator
+  // for the `caps` field, as that prevents the PrinterData container from
+  // being copied into the map.
+  base::flat_map<std::string, std::unique_ptr<PrinterData>> printer_map_;
 };
 
 }  // namespace printing

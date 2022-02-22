@@ -42,8 +42,6 @@
 
 #include "renderer/web_channel_ipc_transport.h"
 
-#include "common/qt_messages.h"
-
 #include "content/public/renderer/render_frame.h"
 #include "gin/arguments.h"
 #include "gin/handle.h"
@@ -74,7 +72,8 @@ private:
 
     // gin::WrappableBase
     gin::ObjectTemplateBuilder GetObjectTemplateBuilder(v8::Isolate *isolate) override;
-
+    mojo::AssociatedRemote<qtwebchannel::mojom::WebChannelTransportHost> m_remote;
+    content::RenderFrame *m_renderFrame = nullptr;
     DISALLOW_COPY_AND_ASSIGN(WebChannelTransport);
 };
 
@@ -94,18 +93,15 @@ void WebChannelTransport::Install(blink::WebLocalFrame *frame, uint worldId)
     gin::Handle<WebChannelTransport> transport = gin::CreateHandle(isolate, new WebChannelTransport);
 
     v8::Local<v8::Object> global = context->Global();
-    v8::MaybeLocal<v8::Value> qtObjectValue = global->Get(context, gin::StringToV8(isolate, "qt"));
+    v8::Local<v8::Value> qtObjectValue;
     v8::Local<v8::Object> qtObject;
-    if (qtObjectValue.IsEmpty() || !qtObjectValue.ToLocalChecked()->IsObject()) {
+    if (!global->Get(context, gin::StringToV8(isolate, "qt")).ToLocal(&qtObjectValue) || !qtObjectValue->IsObject()) {
         qtObject = v8::Object::New(isolate);
-        auto whocares = global->Set(context, gin::StringToV8(isolate, "qt"), qtObject);
-        // FIXME: Perhaps error out, but the return value is V8 internal...
-        Q_UNUSED(whocares);
+        global->Set(context, gin::StringToV8(isolate, "qt"), qtObject).Check();
     } else {
-        qtObject = v8::Local<v8::Object>::Cast(qtObjectValue.ToLocalChecked());
+        qtObject = v8::Local<v8::Object>::Cast(qtObjectValue);
     }
-    auto whocares = qtObject->Set(context, gin::StringToV8(isolate, "webChannelTransport"), transport.ToV8());
-    Q_UNUSED(whocares);
+    qtObject->Set(context, gin::StringToV8(isolate, "webChannelTransport"), transport.ToV8()).Check();
 }
 
 void WebChannelTransport::Uninstall(blink::WebLocalFrame *frame, uint worldId)
@@ -120,13 +116,11 @@ void WebChannelTransport::Uninstall(blink::WebLocalFrame *frame, uint worldId)
     v8::Context::Scope contextScope(context);
 
     v8::Local<v8::Object> global(context->Global());
-    v8::MaybeLocal<v8::Value> qtObjectValue = global->Get(context, gin::StringToV8(isolate, "qt"));
-    if (qtObjectValue.IsEmpty() || !qtObjectValue.ToLocalChecked()->IsObject())
+    v8::Local<v8::Value> qtObjectValue;
+    if (!global->Get(context, gin::StringToV8(isolate, "qt")).ToLocal(&qtObjectValue) || !qtObjectValue->IsObject())
         return;
-    v8::Local<v8::Object> qtObject = v8::Local<v8::Object>::Cast(qtObjectValue.ToLocalChecked());
-    // FIXME: We can't do anything about a failure, so why the .. is it nodiscard?
-    auto whocares = qtObject->Delete(context, gin::StringToV8(isolate, "webChannelTransport"));
-    Q_UNUSED(whocares);
+    v8::Local<v8::Object> qtObject = v8::Local<v8::Object>::Cast(qtObjectValue);
+    qtObject->Delete(context, gin::StringToV8(isolate, "webChannelTransport")).Check();
 }
 
 void WebChannelTransport::NativeQtSendMessage(gin::Arguments *args)
@@ -152,22 +146,17 @@ void WebChannelTransport::NativeQtSendMessage(gin::Arguments *args)
         return;
     }
     v8::Local<v8::String> jsonString = v8::Local<v8::String>::Cast(jsonValue);
+    std::vector<uint8_t> json(jsonString->Utf8Length(isolate), 0);
+    jsonString->WriteUtf8(isolate, reinterpret_cast<char *>(json.data()), json.size(), nullptr,
+                          v8::String::REPLACE_INVALID_UTF8);
 
-    QByteArray json(jsonString->Utf8Length(isolate), 0);
-    jsonString->WriteUtf8(isolate, json.data(), json.size(), nullptr, v8::String::REPLACE_INVALID_UTF8);
-
-    QJsonParseError error;
-    QJsonDocument doc = QJsonDocument::fromJson(json, &error);
-    if (error.error != QJsonParseError::NoError) {
-        args->ThrowTypeError("Invalid JSON");
-        return;
+    if (!m_remote) {
+        renderFrame->GetRemoteAssociatedInterfaces()->GetInterface(&m_remote);
+        m_renderFrame = renderFrame;
     }
+    DCHECK(renderFrame == m_renderFrame);
 
-    int size = 0;
-    const char *rawData = doc.rawData(&size);
-    mojo::AssociatedRemote<qtwebchannel::mojom::WebChannelTransportHost> webChannelTransport;
-    renderFrame->GetRemoteAssociatedInterfaces()->GetInterface(&webChannelTransport);
-    webChannelTransport->DispatchWebChannelMessage(std::vector<uint8_t>(rawData, rawData + size));
+    m_remote->DispatchWebChannelMessage(json);
 }
 
 gin::ObjectTemplateBuilder WebChannelTransport::GetObjectTemplateBuilder(v8::Isolate *isolate)
@@ -177,7 +166,10 @@ gin::ObjectTemplateBuilder WebChannelTransport::GetObjectTemplateBuilder(v8::Iso
 }
 
 WebChannelIPCTransport::WebChannelIPCTransport(content::RenderFrame *renderFrame)
-    : content::RenderFrameObserver(renderFrame), m_worldId(0), m_worldInitialized(false)
+    : content::RenderFrameObserver(renderFrame)
+    , m_worldId(0)
+    , m_worldInitialized(false)
+    , m_binding(this)
 {
     renderFrame->GetAssociatedInterfaceRegistry()->AddInterface(
             base::BindRepeating(&WebChannelIPCTransport::BindReceiver, base::Unretained(this)));
@@ -186,7 +178,7 @@ WebChannelIPCTransport::WebChannelIPCTransport(content::RenderFrame *renderFrame
 void WebChannelIPCTransport::BindReceiver(
         mojo::PendingAssociatedReceiver<qtwebchannel::mojom::WebChannelTransportRender> receiver)
 {
-    m_receivers.Add(this, std::move(receiver));
+    m_binding.Bind(std::move(receiver));
 }
 
 void WebChannelIPCTransport::SetWorldId(uint32_t worldId)
@@ -213,17 +205,13 @@ void WebChannelIPCTransport::ResetWorldId()
     m_worldId = 0;
 }
 
-void WebChannelIPCTransport::DispatchWebChannelMessage(const std::vector<uint8_t> &binaryJson, uint32_t worldId)
+void WebChannelIPCTransport::DispatchWebChannelMessage(const std::vector<uint8_t> &json,
+                                                       uint32_t worldId)
 {
     DCHECK(m_worldId == worldId);
 
     if (!m_canUseContext)
         return;
-
-    QJsonDocument doc = QJsonDocument::fromRawData(reinterpret_cast<const char *>(binaryJson.data()), binaryJson.size(),
-                                                   QJsonDocument::BypassValidation);
-    DCHECK(doc.isObject());
-    QByteArray json = doc.toJson(QJsonDocument::Compact);
 
     blink::WebLocalFrame *frame = render_frame()->GetWebFrame();
     v8::Isolate *isolate = blink::MainThreadIsolate();
@@ -255,7 +243,9 @@ void WebChannelIPCTransport::DispatchWebChannelMessage(const std::vector<uint8_t
     v8::Local<v8::Object> messageObject(v8::Object::New(isolate));
     v8::Maybe<bool> wasSet = messageObject->DefineOwnProperty(
             context, v8::String::NewFromUtf8(isolate, "data").ToLocalChecked(),
-            v8::String::NewFromUtf8(isolate, json.constData(), v8::NewStringType::kNormal, json.size()).ToLocalChecked(),
+            v8::String::NewFromUtf8(isolate, reinterpret_cast<const char *>(json.data()),
+                                    v8::NewStringType::kNormal, json.size())
+                    .ToLocalChecked(),
             v8::PropertyAttribute(v8::ReadOnly | v8::DontDelete));
     DCHECK(!wasSet.IsNothing() && wasSet.FromJust());
 
@@ -264,19 +254,19 @@ void WebChannelIPCTransport::DispatchWebChannelMessage(const std::vector<uint8_t
     frame->CallFunctionEvenIfScriptDisabled(callback, webChannelObject, 1, argv);
 }
 
-void WebChannelIPCTransport::WillReleaseScriptContext(v8::Local<v8::Context> context, int worldId)
+void WebChannelIPCTransport::DidCreateScriptContext(v8::Local<v8::Context> context, int32_t worldId)
 {
-    if (static_cast<uint>(worldId) == m_worldId)
-        m_canUseContext = false;
-}
-
-void WebChannelIPCTransport::DidClearWindowObject()
-{
-    if (!m_canUseContext) {
+    if (static_cast<uint>(worldId) == m_worldId && !m_canUseContext) {
         m_canUseContext = true;
         if (m_worldInitialized)
             WebChannelTransport::Install(render_frame()->GetWebFrame(), m_worldId);
     }
+}
+
+void WebChannelIPCTransport::WillReleaseScriptContext(v8::Local<v8::Context> context, int worldId)
+{
+    if (static_cast<uint>(worldId) == m_worldId)
+        m_canUseContext = false;
 }
 
 void WebChannelIPCTransport::OnDestruct()

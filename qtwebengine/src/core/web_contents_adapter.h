@@ -51,22 +51,27 @@
 #ifndef WEB_CONTENTS_ADAPTER_H
 #define WEB_CONTENTS_ADAPTER_H
 
-#include "qtwebenginecoreglobal_p.h"
-#include "web_contents_adapter_client.h"
-#include <memory>
+#include <QtCore/QSharedPointer>
+#include <QtCore/QString>
+#include <QtCore/QUrl>
+#include <QtCore/QPointer>
 #include <QtGui/qtgui-config.h>
+#include <QtWebEngineCore/private/qtwebenginecoreglobal_p.h>
+#include <QtWebEngineCore/qwebenginecontextmenurequest.h>
 #include <QtWebEngineCore/qwebenginehttprequest.h>
 
-#include <QScopedPointer>
-#include <QSharedPointer>
-#include <QString>
-#include <QUrl>
-#include <QPointer>
+#include "web_contents_adapter_client.h"
+
+#include <memory>
+
+namespace blink {
+namespace web_pref {
+struct WebPreferences;
+}
+}
 
 namespace content {
 class WebContents;
-struct WebPreferences;
-struct OpenURLParams;
 class SiteInstance;
 }
 
@@ -77,7 +82,7 @@ class QDragMoveEvent;
 class QDropEvent;
 class QMimeData;
 class QPageLayout;
-class QString;
+class QPageRanges;
 class QTemporaryDir;
 class QWebChannel;
 class QWebEngineUrlRequestInterceptor;
@@ -86,13 +91,10 @@ QT_END_NAMESPACE
 namespace QtWebEngineCore {
 
 class DevToolsFrontendQt;
-class FaviconManager;
 class FindTextHelper;
-class MessagePassingInterface;
 class ProfileQt;
-class RenderViewObserverHostQt;
+class WebEnginePageHost;
 class WebChannelIPCTransportHost;
-class WebEngineContext;
 
 class Q_WEBENGINECORE_PRIVATE_EXPORT WebContentsAdapter : public QEnableSharedFromThis<WebContentsAdapter> {
 public:
@@ -132,6 +134,7 @@ public:
     QString pageTitle() const;
     QString selectedText() const;
     QUrl iconUrl() const;
+    QIcon icon() const;
 
     void undo();
     void redo();
@@ -161,7 +164,7 @@ public:
     quint64 runJavaScriptCallbackResult(const QString &javaScript, quint32 worldId);
     quint64 fetchDocumentMarkup();
     quint64 fetchDocumentInnerText();
-    void updateWebPreferences(const content::WebPreferences &webPreferences);
+    void updateWebPreferences(const blink::web_pref::WebPreferences &webPreferences);
     void download(const QUrl &url, const QString &suggestedFileName,
                   const QUrl &referrerUrl = QUrl(),
                   ReferrerPolicy referrerPolicy = ReferrerPolicy::Default);
@@ -206,7 +209,6 @@ public:
     QWebChannel *webChannel() const;
     void setWebChannel(QWebChannel *, uint worldId);
 #endif
-    FaviconManager *faviconManager();
     FindTextHelper *findTextHelper();
 
     QPointF lastScrollOffset() const;
@@ -221,8 +223,8 @@ public:
     void endDragging(QDropEvent *e, const QPointF &screenPos);
     void leaveDrag();
 #endif // QT_CONFIG(draganddrop)
-    void printToPDF(const QPageLayout&, const QString&);
-    quint64 printToPDFCallbackResult(const QPageLayout &,
+    void printToPDF(const QPageLayout&, const QPageRanges &, const QString&);
+    quint64 printToPDFCallbackResult(const QPageLayout &, const QPageRanges &,
                                      bool colorMode = true,
                                      bool useCustomMargins = true);
 
@@ -237,6 +239,7 @@ public:
     // meant to be used within WebEngineCore only
     void initialize(content::SiteInstance *site);
     content::WebContents *webContents() const;
+    content::WebContents *guestWebContents() const;
     void updateRecommendedState();
     void setRequestInterceptor(QWebEngineUrlRequestInterceptor *interceptor);
     QWebEngineUrlRequestInterceptor* requestInterceptor() const;
@@ -261,7 +264,7 @@ private:
     ProfileAdapter *m_profileAdapter;
     std::unique_ptr<content::WebContents> m_webContents;
     std::unique_ptr<WebContentsDelegateQt> m_webContentsDelegate;
-    std::unique_ptr<RenderViewObserverHostQt> m_renderViewObserverHost;
+    std::unique_ptr<WebEnginePageHost> m_pageHost;
 #if QT_CONFIG(webengine_webchannel)
     std::unique_ptr<WebChannelIPCTransportHost> m_webChannelTransport;
     QWebChannel *m_webChannel;

@@ -66,15 +66,15 @@ public:
         NativeError
     };
 
-    Q_DECL_CONSTEXPR explicit QSystemError(int error, ErrorScope scope)
+    constexpr explicit QSystemError(int error, ErrorScope scope)
         : errorCode(error), errorScope(scope)
     {
     }
-    Q_DECL_CONSTEXPR QSystemError() = default;
+    constexpr QSystemError() = default;
 
     QString toString() const { return string(errorScope, errorCode); }
-    Q_DECL_CONSTEXPR ErrorScope scope() const { return errorScope; }
-    Q_DECL_CONSTEXPR int error() const { return errorCode; }
+    constexpr ErrorScope scope() const { return errorScope; }
+    constexpr int error() const { return errorCode; }
 
     static Q_CORE_EXPORT QString string(ErrorScope errorScope, int errorCode);
     static Q_CORE_EXPORT QString stdString(int errorCode = -1);
@@ -82,7 +82,7 @@ public:
     static Q_CORE_EXPORT QString windowsString(int errorCode = -1);
 #endif
 
-    //data members
+    // data members
     int errorCode = 0;
     ErrorScope errorScope = NoError;
 };

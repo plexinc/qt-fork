@@ -13,7 +13,7 @@
 #include "base/optional.h"
 #include "content/browser/loader/navigation_loader_interceptor.h"
 #include "content/common/content_export.h"
-#include "content/public/common/previews_state.h"
+#include "third_party/blink/public/common/loader/previews_state.h"
 
 namespace net {
 class HttpRequestHeaders;
@@ -37,12 +37,20 @@ struct NavigationRequestInfo;
 // called, the request is aborted.
 class CONTENT_EXPORT NavigationURLLoader {
  public:
+  enum class LoaderType {
+    // Creates a regular NavigationURLLoader.
+    kRegular,
+
+    // Creates a noop NavigationURLLoader for BackForwardCache and Prerender.
+    kNoop,
+  };
+
   // Creates a NavigationURLLoader. The caller is responsible for ensuring that
   // |delegate| outlives the loader. |request_body| must not be accessed on the
   // UI thread after this point.
   //
-  // If |is_served_from_back_forward_cache| is true, a dummy
-  // CachedNavigationURLLoader will be returned.
+  // If |loader_type| is LoaderType::kNoop, a noop CachedNavigationURLLoader
+  // will be returned.
   //
   // TODO(davidben): When navigation is disentangled from the loader, the
   // request parameters should not come in as a navigation-specific
@@ -58,7 +66,10 @@ class CONTENT_EXPORT NavigationURLLoader {
       scoped_refptr<PrefetchedSignedExchangeCache>
           prefetched_signed_exchange_cache,
       NavigationURLLoaderDelegate* delegate,
-      bool is_served_from_back_forward_cache,
+      LoaderType loader_type,
+      mojo::PendingRemote<network::mojom::CookieAccessObserver> cookie_observer,
+      mojo::PendingRemote<network::mojom::AuthenticationAndCertificateObserver>
+          auth_cert_observer,
       std::vector<std::unique_ptr<NavigationLoaderInterceptor>>
           initial_interceptors = {});
 
@@ -71,9 +82,11 @@ class CONTENT_EXPORT NavigationURLLoader {
   // request. |new_previews_state| will be updated for newly created URLLoaders,
   // but the existing default URLLoader will not see |new_previews_state| unless
   // the URLLoader happens to be reset.
-  virtual void FollowRedirect(const std::vector<std::string>& removed_headers,
-                              const net::HttpRequestHeaders& modified_headers,
-                              PreviewsState new_previews_state) = 0;
+  virtual void FollowRedirect(
+      const std::vector<std::string>& removed_headers,
+      const net::HttpRequestHeaders& modified_headers,
+      const net::HttpRequestHeaders& modified_cors_exempt_headers,
+      blink::PreviewsState new_previews_state) = 0;
 
  protected:
   NavigationURLLoader() {}

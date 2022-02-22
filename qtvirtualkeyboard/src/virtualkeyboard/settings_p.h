@@ -91,6 +91,27 @@ public:
     bool fullScreenMode() const;
     void setFullScreenMode(bool fullScreenMode);
 
+    QString userDataPath() const;
+    void setUserDataPath(const QString &userDataPath);
+
+    int hwrTimeoutForAlphabetic() const;
+    void setHwrTimeoutForAlphabetic(int hwrTimeoutForAlphabetic);
+
+    int hwrTimeoutForCjk() const;
+    void setHwrTimeoutForCjk(int hwrTimeoutForCjk);
+
+    Qt::InputMethodHints inputMethodHints() const;
+    void setInputMethodHints(const Qt::InputMethodHints &inputMethodHints);
+
+    bool isHandwritingModeDisabled() const;
+    void setHandwritingModeDisabled(bool handwritingModeDisabled);
+
+    bool isDefaultInputMethodDisabled() const;
+    void setDefaultInputMethodDisabled(bool defaultInputMethodDisabled);
+
+    bool isDefaultDictionaryDisabled() const;
+    void setDefaultDictionaryDisabled(bool defaultDictionaryDisabled);
+
 signals:
     void styleChanged();
     void styleNameChanged();
@@ -102,6 +123,14 @@ signals:
     void wclAlwaysVisibleChanged();
     void wclAutoCommitWordChanged();
     void fullScreenModeChanged();
+    void userDataPathChanged();
+    void userDataReset();
+    void hwrTimeoutForAlphabeticChanged();
+    void hwrTimeoutForCjkChanged();
+    void inputMethodHintsChanged();
+    void handwritingModeDisabledChanged();
+    void defaultInputMethodDisabledChanged();
+    void defaultDictionaryDisabledChanged();
 };
 
 } // namespace QtVirtualKeyboard

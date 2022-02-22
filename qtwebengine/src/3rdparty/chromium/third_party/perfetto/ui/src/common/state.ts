@@ -29,10 +29,20 @@ export type OmniboxState =
 export type VisibleState =
     Timestamped<{startSec: number; endSec: number; resolution: number;}>;
 
-export type TimestampedAreaSelection = Timestamped<AreaSelection>;
 export interface AreaSelection {
-  area?: Area;
+  kind: 'AREA';
+  areaId: string;
+  // When an area is marked it will be assigned a unique note id and saved as
+  // an AreaNote for the user to return to later. id = 0 is the special id that
+  // is overwritten when a new area is marked. Any other id is a persistent
+  // marking that will not be overwritten.
+  // When not set, the area selection will be replaced with any
+  // new area selection (i.e. not saved anywhere).
+  noteId?: string;
 }
+
+export type AreaById = Area&{id: string};
+
 export interface Area {
   startSec: number;
   endSec: number;
@@ -41,8 +51,9 @@ export interface Area {
 
 export const MAX_TIME = 180;
 
-export const SCROLLING_TRACK_GROUP = 'ScrollingTracks';
+export const STATE_VERSION = 2;
 
+export const SCROLLING_TRACK_GROUP = 'ScrollingTracks';
 
 export type EngineMode = 'WASM'|'HTTP_RPC';
 
@@ -60,6 +71,7 @@ export interface CallsiteInfo {
   selfSize: number;
   mapping: string;
   merged: boolean;
+  highlighted: boolean;
 }
 
 export interface TraceFileSource {
@@ -69,6 +81,8 @@ export interface TraceFileSource {
 
 export interface TraceArrayBufferSource {
   type: 'ARRAY_BUFFER';
+  title: string;
+  url?: string;
   buffer: ArrayBuffer;
 }
 
@@ -89,6 +103,7 @@ export interface TrackState {
   engineId: string;
   kind: string;
   name: string;
+  isMainThread: boolean;
   trackGroup?: string;
   config: {};
 }
@@ -99,7 +114,6 @@ export interface TrackGroupState {
   name: string;
   collapsed: boolean;
   tracks: string[];  // Child track ids.
-  summaryTrackId: string;
 }
 
 export interface EngineConfig {
@@ -119,6 +133,8 @@ export interface QueryConfig {
 export interface PermalinkConfig {
   requestId?: string;  // Set by the frontend to request a new permalink.
   hash?: string;       // Set by the controller when the link has been created.
+  isRecordingConfig?:
+      boolean;  // this permalink request is for a recording config only
 }
 
 export interface TraceTime {
@@ -129,7 +145,6 @@ export interface TraceTime {
 export interface FrontendLocalState {
   omniboxState: OmniboxState;
   visibleState: VisibleState;
-  selectedArea: TimestampedAreaSelection;
 }
 
 export interface Status {
@@ -148,8 +163,7 @@ export interface Note {
 export interface AreaNote {
   noteType: 'AREA';
   id: string;
-  timestamp: number;
-  area: Area;
+  areaId: string;
   color: string;
   text: string;
 }
@@ -190,23 +204,28 @@ export interface HeapProfileFlamegraph {
   expandedCallsite?: CallsiteInfo;
 }
 
+export interface CpuProfileSampleSelection {
+  kind: 'CPU_PROFILE_SAMPLE';
+  id: number;
+  utid: number;
+  ts: number;
+}
+
 export interface ChromeSliceSelection {
   kind: 'CHROME_SLICE';
   id: number;
+  table: string;
 }
 
 export interface ThreadStateSelection {
   kind: 'THREAD_STATE';
-  utid: number;
-  ts: number;
-  dur: number;
-  state: string;
-  cpu: number;
+  id: number;
 }
 
 type Selection =
     (NoteSelection|SliceSelection|CounterSelection|HeapProfileSelection|
-     ChromeSliceSelection|ThreadStateSelection)&{trackId?: string};
+     CpuProfileSampleSelection|ChromeSliceSelection|ThreadStateSelection|
+     AreaSelection)&{trackId?: string};
 
 export interface LogsPagination {
   offset: number;
@@ -232,11 +251,20 @@ export interface AggregationState {
   sorting?: Sorting;
 }
 
+export interface MetricsState {
+  availableMetrics?: string[];  // Undefined until list is loaded.
+  selectedIndex?: number;
+  requestedMetric?: string;  // Unset after metric request is handled.
+}
+
 export interface State {
   // tslint:disable-next-line:no-any
   [key: string]: any;
+  version: number;
   route: string|null;
   nextId: number;
+  nextNoteId: number;
+  nextAreaId: number;
 
   /**
    * State of the ConfigEditor.
@@ -252,17 +280,22 @@ export interface State {
   traceTime: TraceTime;
   trackGroups: ObjectById<TrackGroupState>;
   tracks: ObjectById<TrackState>;
+  areas: ObjectById<AreaById>;
   aggregatePreferences: ObjectById<AggregationState>;
   visibleTracks: string[];
   scrollingTracks: string[];
   pinnedTracks: string[];
+  debugTrackId?: string;
+  lastTrackReloadRequest?: number;
   queries: ObjectById<QueryConfig>;
+  metrics: MetricsState;
   permalink: PermalinkConfig;
   notes: ObjectById<Note|AreaNote>;
   status: Status;
   currentSelection: Selection|null;
   currentHeapProfileFlamegraph: HeapProfileFlamegraph|null;
   logsPagination: LogsPagination;
+  traceConversionInProgress: boolean;
 
   /**
    * This state is updated on the frontend at 60Hz and eventually syncronised to
@@ -290,7 +323,9 @@ export interface State {
   lastRecordingError?: string;
   recordingStatus?: string;
 
+  updateChromeCategories: boolean;
   chromeCategories: string[]|undefined;
+  analyzePageQuery?: string;
 }
 
 export const defaultTraceTime = {
@@ -302,14 +337,22 @@ export declare type RecordMode =
     'STOP_WHEN_FULL' | 'RING_BUFFER' | 'LONG_TRACE';
 
 // 'Q','P','O' for Android, 'L' for Linux, 'C' for Chrome.
-export declare type TargetOs = 'Q' | 'P' | 'O' | 'C' | 'L';
+export declare type TargetOs = 'Q' | 'P' | 'O' | 'C' | 'L' | 'CrOS';
+
+export function isAndroidP(target: RecordingTarget) {
+  return target.os === 'P';
+}
 
 export function isAndroidTarget(target: RecordingTarget) {
   return ['Q', 'P', 'O'].includes(target.os);
 }
 
 export function isChromeTarget(target: RecordingTarget) {
-  return target.os === 'C';
+  return ['C', 'CrOS'].includes(target.os);
+}
+
+export function isCrOSTarget(target: RecordingTarget) {
+  return target.os === 'CrOS';
 }
 
 export function isLinuxTarget(target: RecordingTarget) {
@@ -333,7 +376,6 @@ export interface RecordConfig {
   fileWritePeriodMs: number;  // Only for mode == 'LONG_TRACE'.
 
   cpuSched: boolean;
-  cpuLatency: boolean;
   cpuFreq: boolean;
   cpuCoarse: boolean;
   cpuCoarsePollMs: number;
@@ -342,6 +384,7 @@ export interface RecordConfig {
   screenRecord: boolean;
 
   gpuFreq: boolean;
+  gpuMemTotal: boolean;
 
   ftrace: boolean;
   atrace: boolean;
@@ -374,6 +417,8 @@ export interface RecordConfig {
   hpContinuousDumpsPhase: number;
   hpContinuousDumpsInterval: number;
   hpSharedMemoryBuffer: number;
+  hpBlockClient: boolean;
+  hpAllHeaps: boolean;
 
   javaHeapDump: boolean;
   jpProcesses: string;
@@ -392,16 +437,16 @@ export function createEmptyRecordConfig(): RecordConfig {
     durationMs: 10000.0,
     maxFileSizeMb: 100,
     fileWritePeriodMs: 2500,
-    bufferSizeMb: 10.0,
+    bufferSizeMb: 64.0,
 
     cpuSched: false,
-    cpuLatency: false,
     cpuFreq: false,
     cpuSyscall: false,
 
     screenRecord: false,
 
     gpuFreq: false,
+    gpuMemTotal: false,
 
     ftrace: false,
     atrace: false,
@@ -437,6 +482,8 @@ export function createEmptyRecordConfig(): RecordConfig {
     hpContinuousDumpsPhase: 0,
     hpContinuousDumpsInterval: 0,
     hpSharedMemoryBuffer: 8 * 1048576,
+    hpBlockClient: true,
+    hpAllHeaps: false,
 
     javaHeapDump: false,
     jpProcesses: '',
@@ -457,6 +504,7 @@ export function getDefaultRecordingTargets(): RecordingTarget[] {
     {os: 'P', name: 'Android P'},
     {os: 'O', name: 'Android O-'},
     {os: 'C', name: 'Chrome'},
+    {os: 'CrOS', name: 'Chrome OS (system trace)'},
     {os: 'L', name: 'Linux desktop'}
   ];
 }
@@ -496,7 +544,6 @@ export function getBuiltinChromeCategoryList(): string[] {
     'content_capture',
     'devtools',
     'devtools.timeline',
-    'devtools.timeline.async',
     'download',
     'download_service',
     'drm',
@@ -671,8 +718,11 @@ export function getBuiltinChromeCategoryList(): string[] {
 
 export function createEmptyState(): State {
   return {
+    version: STATE_VERSION,
     route: null,
     nextId: 0,
+    nextNoteId: 1,  // 0 is reserved for ephemeral area marking.
+    nextAreaId: 0,
     newEngineMode: 'USE_HTTP_RPC_IF_AVAILABLE',
     engines: {},
     traceTime: {...defaultTraceTime},
@@ -682,7 +732,9 @@ export function createEmptyState(): State {
     visibleTracks: [],
     pinnedTracks: [],
     scrollingTracks: [],
+    areas: {},
     queries: {},
+    metrics: {},
     permalink: {},
     notes: {},
 
@@ -701,9 +753,6 @@ export function createEmptyState(): State {
         lastUpdate: 0,
         resolution: 0,
       },
-      selectedArea: {
-        lastUpdate: 0,
-      }
     },
 
     logsPagination: {
@@ -714,6 +763,7 @@ export function createEmptyState(): State {
     status: {msg: '', timestamp: 0},
     currentSelection: null,
     currentHeapProfileFlamegraph: null,
+    traceConversionInProgress: false,
 
     video: null,
     videoEnabled: false,
@@ -727,6 +777,7 @@ export function createEmptyState(): State {
     recordingTarget: getDefaultRecordingTargets()[0],
     availableAdbDevices: [],
 
+    updateChromeCategories: false,
     chromeCategories: undefined,
   };
 }

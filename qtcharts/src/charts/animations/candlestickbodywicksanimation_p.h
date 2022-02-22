@@ -43,7 +43,7 @@
 #include <private/chartanimation_p.h>
 #include <QtCharts/private/qchartglobal_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class Candlestick;
 class CandlestickAnimation;
@@ -62,8 +62,8 @@ public:
     void setEndData(const CandlestickData &endData);
 
     // from QVariantAnimation
-    virtual void updateCurrentValue(const QVariant &value);
-    virtual QVariant interpolated(const QVariant &from, const QVariant &to, qreal progress) const;
+    void updateCurrentValue(const QVariant &value) override;
+    QVariant interpolated(const QVariant &from, const QVariant &to, qreal progress) const override;
 
 protected:
     Candlestick *m_candlestick;
@@ -73,6 +73,6 @@ protected:
     friend class CandlestickAnimation;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // CANDLESTICKBODYWICKSANIMATION_P_H

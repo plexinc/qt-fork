@@ -110,7 +110,7 @@ class IdlDefinitions(object):
         children = node.GetChildren()
         for child in children:
             child_class = child.GetClass()
-            if child_class == 'Interface':
+            if child_class == 'Interface' or child_class == 'Namespace':
                 interface = IdlInterface(child)
                 self.interfaces[interface.name] = interface
                 if not self.first_name:
@@ -331,7 +331,7 @@ class IdlInterface(object):
         custom_constructor_operations = []
         constructor_operations_extended_attributes = {}
 
-        def is_blacklisted_attribute_type(idl_type):
+        def is_invalid_attribute_type(idl_type):
             return idl_type.is_callback_function or \
                 idl_type.is_dictionary or \
                 idl_type.is_record_type or \
@@ -342,7 +342,7 @@ class IdlInterface(object):
             child_class = child.GetClass()
             if child_class == 'Attribute':
                 attr = IdlAttribute(child)
-                if is_blacklisted_attribute_type(attr.idl_type):
+                if is_invalid_attribute_type(attr.idl_type):
                     raise ValueError(
                         'Type "%s" cannot be used as an attribute.' %
                         attr.idl_type)
@@ -394,7 +394,8 @@ class IdlInterface(object):
             else:
                 raise ValueError('Unrecognized node class: %s' % child_class)
 
-        if len(filter(None, [self.iterable, self.maplike, self.setlike])) > 1:
+        if len(list(filter(None,
+                           [self.iterable, self.maplike, self.setlike]))) > 1:
             raise ValueError(
                 'Interface can only have one of iterable<>, maplike<> and setlike<>.'
             )
@@ -417,8 +418,9 @@ class IdlInterface(object):
                     'Value iterators (iterable<V>) must be accompanied by an indexed '
                     'property getter and an integer-typed length attribute.')
 
-        if 'Unforgeable' in self.extended_attributes:
-            raise ValueError('[Unforgeable] cannot appear on interfaces.')
+        if 'LegacyUnforgeable' in self.extended_attributes:
+            raise ValueError(
+                '[LegacyUnforgeable] cannot appear on interfaces.')
 
         if constructor_operations or custom_constructor_operations:
             if self.constructors or self.custom_constructors:
@@ -504,12 +506,15 @@ class IdlAttribute(TypedObject):
                     raise ValueError(
                         'Unrecognized node class: %s' % child_class)
 
-        if 'Unforgeable' in self.extended_attributes and self.is_static:
+        if 'LegacyUnforgeable' in self.extended_attributes and self.is_static:
             raise ValueError(
-                '[Unforgeable] cannot appear on static attributes.')
+                '[LegacyUnforgeable] cannot appear on static attributes.')
 
     def accept(self, visitor):
         visitor.visit_attribute(self)
+
+    def __lt__(self, other):
+        return self.name < other.name
 
 
 ################################################################################
@@ -648,9 +653,9 @@ class IdlOperation(TypedObject):
             else:
                 raise ValueError('Unrecognized node class: %s' % child_class)
 
-        if 'Unforgeable' in self.extended_attributes and self.is_static:
+        if 'LegacyUnforgeable' in self.extended_attributes and self.is_static:
             raise ValueError(
-                '[Unforgeable] cannot appear on static operations.')
+                '[LegacyUnforgeable] cannot appear on static operations.')
 
     @classmethod
     def constructor_from_arguments_node(cls, name, arguments_node):
@@ -851,7 +856,7 @@ class IdlIncludes(object):
 ################################################################################
 
 
-class Exposure:
+class Exposure(object):
     """An Exposure holds one Exposed or RuntimeEnabled condition.
     Each exposure has two properties: exposed and runtime_enabled.
     Exposure(e, r) corresponds to [Exposed(e r)]. Exposure(e) corresponds to

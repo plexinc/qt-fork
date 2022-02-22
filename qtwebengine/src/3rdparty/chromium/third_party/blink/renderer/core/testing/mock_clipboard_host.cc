@@ -20,6 +20,7 @@ void MockClipboardHost::Bind(
 void MockClipboardHost::Reset() {
   plain_text_ = g_empty_string;
   html_text_ = g_empty_string;
+  svg_text_ = g_empty_string;
   url_ = KURL();
   image_.reset();
   custom_data_.clear();
@@ -41,13 +42,15 @@ void MockClipboardHost::ReadAvailableTypes(
     types.push_back("text/plain");
   if (!html_text_.IsEmpty())
     types.push_back("text/html");
+  if (!svg_text_.IsEmpty())
+    types.push_back("image/svg+xml");
   if (!image_.isNull())
     types.push_back("image/png");
   for (auto& it : custom_data_) {
     CHECK(!base::Contains(types, it.key));
     types.push_back(it.key);
   }
-  std::move(callback).Run(types, false);
+  std::move(callback).Run(types);
 }
 
 void MockClipboardHost::IsFormatAvailable(
@@ -82,6 +85,11 @@ void MockClipboardHost::ReadHtml(mojom::ClipboardBuffer clipboard_buffer,
   std::move(callback).Run(html_text_, url_, 0, html_text_.length());
 }
 
+void MockClipboardHost::ReadSvg(mojom::ClipboardBuffer clipboard_buffer,
+                                ReadSvgCallback callback) {
+  std::move(callback).Run(svg_text_);
+}
+
 void MockClipboardHost::ReadRtf(mojom::ClipboardBuffer clipboard_buffer,
                                 ReadRtfCallback callback) {
   std::move(callback).Run(g_empty_string);
@@ -90,6 +98,11 @@ void MockClipboardHost::ReadRtf(mojom::ClipboardBuffer clipboard_buffer,
 void MockClipboardHost::ReadImage(mojom::ClipboardBuffer clipboard_buffer,
                                   ReadImageCallback callback) {
   std::move(callback).Run(image_);
+}
+
+void MockClipboardHost::ReadFiles(mojom::ClipboardBuffer clipboard_buffer,
+                                  ReadFilesCallback callback) {
+  std::move(callback).Run(mojom::blink::ClipboardFiles::New());
 }
 
 void MockClipboardHost::ReadCustomData(mojom::ClipboardBuffer clipboard_buffer,
@@ -111,6 +124,12 @@ void MockClipboardHost::WriteHtml(const String& markup, const KURL& url) {
     Reset();
   html_text_ = markup;
   url_ = url;
+}
+
+void MockClipboardHost::WriteSvg(const String& markup) {
+  if (needs_reset_)
+    Reset();
+  svg_text_ = markup;
 }
 
 void MockClipboardHost::WriteSmartPasteMarker() {
@@ -139,7 +158,7 @@ void MockClipboardHost::CommitWrite() {
   needs_reset_ = true;
 }
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 void MockClipboardHost::WriteStringToFindPboard(const String& text) {}
 #endif
 

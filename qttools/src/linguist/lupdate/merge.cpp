@@ -33,9 +33,9 @@
 
 #include <QtCore/QCoreApplication>
 #include <QtCore/QDebug>
+#include <QtCore/QList>
 #include <QtCore/QMap>
 #include <QtCore/QStringList>
-#include <QtCore/QVector>
 
 QT_BEGIN_NAMESPACE
 
@@ -93,8 +93,8 @@ static QString translationAttempt(const QString &oldTranslation,
     QString attempt;
     QStringList oldNumbers;
     QStringList newNumbers;
-    QVector<bool> met(p);
-    QVector<int> matchedYet(p);
+    QList<bool> met(p);
+    QList<int> matchedYet(p);
     int i, j;
     int k = 0, ell, best;
     int m, n;
@@ -209,7 +209,7 @@ static QString translationAttempt(const QString &oldTranslation,
 int applyNumberHeuristic(Translator &tor)
 {
     QMap<QString, QPair<QString, QString> > translated;
-    QVector<bool> untranslated(tor.messageCount());
+    QList<bool> untranslated(tor.messageCount());
     int inserted = 0;
 
     for (int i = 0; i < tor.messageCount(); ++i) {
@@ -230,8 +230,7 @@ int applyNumberHeuristic(Translator &tor)
             TranslatorMessage &msg = tor.message(i);
             const QString &key = zeroKey(msg.sourceText());
             if (!key.isEmpty()) {
-                QMap<QString, QPair<QString, QString> >::ConstIterator t =
-                        translated.constFind(key);
+                const auto t = translated.constFind(key);
                 if (t != translated.constEnd() && t->first != msg.sourceText()) {
                     msg.setTranslation(translationAttempt(t->second, t->first,
                                                           msg.sourceText()));
@@ -258,7 +257,7 @@ int applySameTextHeuristic(Translator &tor)
 {
     QMap<QString, QStringList> translated;
     QMap<QString, bool> avoid; // Want a QTreeSet, in fact
-    QVector<bool> untranslated(tor.messageCount());
+    QList<bool> untranslated(tor.messageCount());
     int inserted = 0;
 
     for (int i = 0; i < tor.messageCount(); ++i) {
@@ -268,7 +267,7 @@ int applySameTextHeuristic(Translator &tor)
                 untranslated[i] = true;
         } else {
             const QString &key = msg.sourceText();
-            QMap<QString, QStringList>::ConstIterator t = translated.constFind(key);
+            const auto t = translated.constFind(key);
             if (t != translated.constEnd()) {
                 /*
                   The same source text is translated at least two
@@ -287,7 +286,7 @@ int applySameTextHeuristic(Translator &tor)
     for (int i = 0; i < tor.messageCount(); ++i) {
         if (untranslated[i]) {
             TranslatorMessage &msg = tor.message(i);
-            QMap<QString, QStringList>::ConstIterator t = translated.constFind(msg.sourceText());
+            const auto t = translated.constFind(msg.sourceText());
             if (t != translated.constEnd()) {
                 msg.setTranslations(*t);
                 ++inserted;
@@ -325,7 +324,7 @@ Translator merge(
       The types of all the messages from the vernacular translator
       are updated according to the virgin translator.
     */
-    foreach (TranslatorMessage m, tor.messages()) {
+    for (TranslatorMessage m : tor.messages()) {
         TranslatorMessage::Type newType = TranslatorMessage::Finished;
 
         if (m.sourceText().isEmpty() && m.id().isEmpty()) {
@@ -446,7 +445,7 @@ Translator merge(
       Messages found only in the virgin translator are added to the
       vernacular translator.
     */
-    foreach (const TranslatorMessage &mv, virginTor.messages()) {
+    for (const TranslatorMessage &mv : virginTor.messages()) {
         if (mv.sourceText().isEmpty() && mv.id().isEmpty()) {
             if (tor.find(mv.context()) >= 0)
                 continue;
@@ -477,8 +476,8 @@ Translator merge(
     /*
       "Alien" translators can be used to augment the vernacular translator.
     */
-    foreach (const Translator &alf, aliens) {
-        foreach (TranslatorMessage mv, alf.messages()) {
+    for (const Translator &alf : aliens) {
+        for (TranslatorMessage mv : alf.messages()) {
             if (mv.sourceText().isEmpty() || !mv.isTranslated())
                 continue;
             int mvi = outTor.find(mv);
@@ -526,25 +525,26 @@ Translator merge(
 
     if (options & Verbose) {
         int totalFound = neww + known;
-        err += LU::tr("    Found %n source text(s) (%1 new and %2 already existing)\n", 0, totalFound).arg(neww).arg(known);
+        err += QStringLiteral("    Found %1 source text(s) (%2 new and %3 already existing)\n")
+            .arg(totalFound).arg(neww).arg(known);
 
         if (obsoleted) {
             if (options & NoObsolete) {
-                err += LU::tr("    Removed %n obsolete entries\n", 0, obsoleted);
+                err += QStringLiteral("    Removed %1 obsolete entries\n").arg(obsoleted);
             } else {
-                err += LU::tr("    Kept %n obsolete entries\n", 0, obsoleted);
+                err += QStringLiteral("    Kept %1 obsolete entries\n").arg(obsoleted);
             }
         }
 
         if (sameNumberHeuristicCount)
-            err += LU::tr("    Number heuristic provided %n translation(s)\n",
-                      0, sameNumberHeuristicCount);
+            err += QStringLiteral("    Number heuristic provided %1 translation(s)\n")
+                .arg(sameNumberHeuristicCount);
         if (sameTextHeuristicCount)
-            err += LU::tr("    Same-text heuristic provided %n translation(s)\n",
-                      0, sameTextHeuristicCount);
+            err += QStringLiteral("    Same-text heuristic provided %1 translation(s)\n")
+                .arg(sameTextHeuristicCount);
         if (similarTextHeuristicCount)
-            err += LU::tr("    Similar-text heuristic provided %n translation(s)\n",
-                      0, similarTextHeuristicCount);
+            err += QStringLiteral("    Similar-text heuristic provided %1 translation(s)\n")
+                .arg(similarTextHeuristicCount);
     }
     return outTor;
 }

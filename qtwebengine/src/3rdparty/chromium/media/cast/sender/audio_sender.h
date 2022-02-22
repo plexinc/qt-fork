@@ -29,11 +29,11 @@ class AudioEncoder;
 // RTCP packets.
 // Additionally it posts a bunch of delayed tasks to the main thread for various
 // timeouts.
-class AudioSender : public FrameSender {
+class AudioSender final : public FrameSender {
  public:
   AudioSender(scoped_refptr<CastEnvironment> cast_environment,
               const FrameSenderConfig& audio_config,
-              StatusChangeCallback status_change_cb,
+              StatusChangeOnceCallback status_change_cb,
               CastTransport* const transport_sender);
 
   ~AudioSender() final;

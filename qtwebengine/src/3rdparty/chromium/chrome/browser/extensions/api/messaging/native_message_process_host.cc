@@ -13,7 +13,6 @@
 #include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/process/kill.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/api/messaging/native_messaging_host_manifest.h"
@@ -60,7 +59,7 @@ NativeMessageProcessHost::NativeMessageProcessHost(
     const std::string& source_extension_id,
     const std::string& native_host_name,
     std::unique_ptr<NativeProcessLauncher> launcher)
-    : client_(NULL),
+    : client_(nullptr),
       source_extension_id_(source_extension_id),
       native_host_name_(native_host_name),
       launcher_(std::move(launcher)),
@@ -72,8 +71,7 @@ NativeMessageProcessHost::NativeMessageProcessHost(
       write_pending_(false) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
-  task_runner_ =
-      base::CreateSingleThreadTaskRunner({content::BrowserThread::IO});
+  task_runner_ = content::GetIOThreadTaskRunner({});
 }
 
 NativeMessageProcessHost::~NativeMessageProcessHost() {
@@ -83,7 +81,7 @@ NativeMessageProcessHost::~NativeMessageProcessHost() {
 // Kill the host process if necessary to make sure we don't leave zombies.
 // TODO(https://crbug.com/806451): On OSX EnsureProcessTerminated() may
 // block, so we have to post a task on the blocking pool.
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
     base::ThreadPool::PostTask(
         FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
         base::BindOnce(&base::EnsureProcessTerminated, Passed(&process_)));
@@ -128,9 +126,10 @@ void NativeMessageProcessHost::LaunchHostProcess() {
   DCHECK(task_runner_->BelongsToCurrentThread());
 
   GURL origin(std::string(kExtensionScheme) + "://" + source_extension_id_);
-  launcher_->Launch(origin, native_host_name_,
-                    base::Bind(&NativeMessageProcessHost::OnHostProcessLaunched,
-                               weak_factory_.GetWeakPtr()));
+  launcher_->Launch(
+      origin, native_host_name_,
+      base::BindOnce(&NativeMessageProcessHost::OnHostProcessLaunched,
+                     weak_factory_.GetWeakPtr()));
 }
 
 void NativeMessageProcessHost::OnHostProcessLaunched(
@@ -232,8 +231,8 @@ void NativeMessageProcessHost::WaitRead() {
 #if defined(OS_POSIX)
   if (!read_controller_) {
     read_controller_ = base::FileDescriptorWatcher::WatchReadable(
-        read_file_,
-        base::Bind(&NativeMessageProcessHost::DoRead, base::Unretained(this)));
+        read_file_, base::BindRepeating(&NativeMessageProcessHost::DoRead,
+                                        base::Unretained(this)));
   }
 #else  // defined(OS_POSIX)
   DoRead();

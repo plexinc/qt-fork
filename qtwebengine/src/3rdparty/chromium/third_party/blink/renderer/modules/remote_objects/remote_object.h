@@ -25,7 +25,7 @@ class RemoteObject : public gin::Wrappable<RemoteObject>,
   // Not copyable or movable
   RemoteObject(const RemoteObject&) = delete;
   RemoteObject& operator=(const RemoteObject&) = delete;
-  ~RemoteObject() override = default;
+  ~RemoteObject() override;
 
   // gin::Wrappable.
   gin::ObjectTemplateBuilder GetObjectTemplateBuilder(
@@ -36,6 +36,8 @@ class RemoteObject : public gin::Wrappable<RemoteObject>,
                                         const std::string& property) override;
   std::vector<std::string> EnumerateNamedProperties(
       v8::Isolate* isolate) override;
+
+  int32_t object_id() const { return object_id_; }
 
  private:
   static void RemoteObjectInvokeCallback(

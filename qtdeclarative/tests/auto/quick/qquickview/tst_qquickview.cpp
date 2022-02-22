@@ -31,12 +31,12 @@
 #include <QtQml/qqmlcontext.h>
 #include <QtQuick/qquickview.h>
 #include <QtQuick/qquickitem.h>
-#include "../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 #include <QtGui/QWindow>
 #include <QtCore/QDebug>
 #include <QtQml/qqmlengine.h>
 
-#include "../shared/geometrytestutil.h"
+#include <QtQuickTestUtils/private/geometrytestutils_p.h>
 
 class tst_QQuickView : public QQmlDataTest
 {
@@ -54,6 +54,7 @@ private slots:
 
 
 tst_QQuickView::tst_QQuickView()
+    : QQmlDataTest(QT_QMLTEST_DATADIR)
 {
 }
 
@@ -210,31 +211,31 @@ void tst_QQuickView::errors()
 
 void tst_QQuickView::engine()
 {
-    QQmlEngine *engine = new QQmlEngine;
+    QScopedPointer<QQmlEngine> engine(new QQmlEngine);
     QVERIFY(!engine->incubationController());
 
-    QQuickView *view = new QQuickView(engine, nullptr);
+    QScopedPointer<QQuickView> view(new QQuickView(engine.get(), nullptr));
     QVERIFY(view);
     QCOMPARE(engine->incubationController(), view->incubationController());
 
-    QQuickView *view2 = new QQuickView(engine, nullptr);
+    QScopedPointer<QQuickView> view2(new QQuickView(engine.get(), nullptr));
     QVERIFY(view);
     QCOMPARE(engine->incubationController(), view->incubationController());
-    delete view;
+    view.reset();
     QVERIFY(!engine->incubationController());
 
     engine->setIncubationController(view2->incubationController());
     QCOMPARE(engine->incubationController(), view2->incubationController());
-    delete view2;
+    view2.reset();
     QVERIFY(!engine->incubationController());
 
-    QQuickView *view3 = new QQuickView;
-    QQuickView *view4 = new QQuickView(view3->engine(), nullptr);
+    QScopedPointer<QQuickView> view3(new QQuickView);
+    QScopedPointer<QQuickView> view4(new QQuickView(view3->engine(), nullptr));
 
     QVERIFY(view3->engine());
     QVERIFY(view4->engine());
     QCOMPARE(view3->engine(), view4->engine());
-    delete view3;
+    view3.reset();
     QVERIFY(!view4->engine());
     QTest::ignoreMessage(QtWarningMsg, "QQuickView: invalid qml engine.");
     view4->setSource(QUrl());
@@ -242,7 +243,6 @@ void tst_QQuickView::engine()
     QCOMPARE(view4->status(), QQuickView::Error);
     QVERIFY(!view4->errors().isEmpty());
     QCOMPARE(view4->errors().back().description(), QLatin1String("QQuickView: invalid qml engine."));
-    delete view4;
 }
 
 void tst_QQuickView::findChild()

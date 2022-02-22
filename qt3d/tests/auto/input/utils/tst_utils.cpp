@@ -43,8 +43,8 @@ public:
     FakeBackendDevice()
         : Qt3DInput::QAbstractPhysicalDeviceBackendNode(Qt3DCore::QBackendNode::ReadOnly)
     {}
-    float axisValue(int) const { return 0.0f; }
-    bool isButtonPressed(int) const { return false; }
+    float axisValue(int) const override { return 0.0f; }
+    bool isButtonPressed(int) const  override { return false; }
 };
 
 class FakeInputDeviceIntegration : public Qt3DInput::QInputDeviceIntegration
@@ -55,9 +55,9 @@ public:
         , m_device(device)
     {}
 
-    QVector<Qt3DCore::QAspectJobPtr> jobsToExecute(qint64) override { return QVector<Qt3DCore::QAspectJobPtr>(); }
+    std::vector<Qt3DCore::QAspectJobPtr> jobsToExecute(qint64) override { return std::vector<Qt3DCore::QAspectJobPtr>(); }
     Qt3DInput::QAbstractPhysicalDevice *createPhysicalDevice(const QString &) override { return nullptr; }
-    QVector<Qt3DCore::QNodeId> physicalDevices() const override { return QVector<Qt3DCore::QNodeId>(); }
+    QList<Qt3DCore::QNodeId> physicalDevices() const override { return {}; }
     QStringList deviceNames() const override { return QStringList(); }
 
     Qt3DInput::QAbstractPhysicalDeviceBackendNode *physicalDevice(Qt3DCore::QNodeId deviceId) const override
@@ -133,7 +133,7 @@ private Q_SLOTS:
         // WHEN -> Create backend PhysicalProxiDevice
         Qt3DInput::Input::PhysicalDeviceProxy *backendProxyDevice = handler.physicalDeviceProxyManager()->getOrCreateResource(testProxyPhysicalDevice.id());
         backendProxyDevice->setManager(handler.physicalDeviceProxyManager());
-        simulateInitialization(&testProxyPhysicalDevice, backendProxyDevice);
+        simulateInitializationSync(&testProxyPhysicalDevice, backendProxyDevice);
         backendProxyDevice->setDevice(&testPhysicalDevice);
 
         // THEN
@@ -204,7 +204,7 @@ private Q_SLOTS:
         // WHEN -> Create backend PhysicalProxiDevice
         Qt3DInput::Input::PhysicalDeviceProxy *backendProxyDevice = handler.physicalDeviceProxyManager()->getOrCreateResource(testProxyPhysicalDevice.id());
         backendProxyDevice->setManager(handler.physicalDeviceProxyManager());
-        simulateInitialization(&testProxyPhysicalDevice, backendProxyDevice);
+        simulateInitializationSync(&testProxyPhysicalDevice, backendProxyDevice);
         backendProxyDevice->setDevice(&testPhysicalDevice2);
 
         // THEN

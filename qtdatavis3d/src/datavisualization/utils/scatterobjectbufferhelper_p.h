@@ -44,7 +44,7 @@
 #include "abstractobjecthelper_p.h"
 #include "scatterseriesrendercache_p.h"
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 class ScatterObjectBufferHelper : public AbstractObjectHelper
 {
@@ -58,15 +58,13 @@ public:
     void setScaleY(float scale) { m_scaleY = scale; }
 
 private:
-    uint createRangeGradientUVs(ScatterSeriesRenderCache *cache,
-                                QVector<QVector2D> &buffered_uvs);
-    uint createObjectGradientUVs(ScatterSeriesRenderCache *cache,
-                                 QVector<QVector2D> &buffered_uvs,
-                                 const QVector<QVector3D> &indexed_vertices);
+    uint createRangeGradientUVs(ScatterSeriesRenderCache *cache, QList<QVector2D> &buffered_uvs);
+    uint createObjectGradientUVs(ScatterSeriesRenderCache *cache, QList<QVector2D> &buffered_uvs,
+                                 const QList<QVector3D> &indexed_vertices);
 
     float m_scaleY;
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

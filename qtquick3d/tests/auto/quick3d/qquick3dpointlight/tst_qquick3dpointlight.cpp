@@ -34,6 +34,7 @@
 
 #include <QtQuick3DRuntimeRender/private/qssgrenderlight_p.h>
 #include <QtQuick3D/private/qquick3dobject_p.h>
+#include <QtQuick3DUtils/private/qssgutils_p.h>
 
 class tst_QQuick3DPointLight : public QObject
 {
@@ -59,9 +60,9 @@ void tst_QQuick3DPointLight::testProperties()
     QVERIFY(node);
 
     // lightType
-    QCOMPARE(QSSGRenderLight::Type::Point, node->m_lightType);
+    QCOMPARE(QSSGRenderLight::Type::PointLight, node->type);
 
-    const float brightness = 50.0f;
+    const float brightness = 0.5f;
     light.setBrightness(brightness);
     node = static_cast<QSSGRenderLight *>(light.updateSpatialNode(node));
     QCOMPARE(originalNode, node);
@@ -116,7 +117,7 @@ void tst_QQuick3DPointLight::testProperties()
         QQuick3DAbstractLight::QSSGShadowMapQuality::ShadowMapQualityHigh,
         QQuick3DAbstractLight::QSSGShadowMapQuality::ShadowMapQualityVeryHigh
     };
-    const int mappedResolutions[] = {8, 9, 10, 11};
+    const unsigned int mappedResolutions[] = {8, 9, 10, 11};
 
     for (int i = 0; i < 4; ++i) {
         const auto shadowMapQuality = qualities[i];
@@ -135,11 +136,9 @@ void tst_QQuick3DPointLight::testProperties()
     QVERIFY(!node->m_castShadow);
 
     QColor color1("#12345678");
-    QVector3D color1Vec3(float(color1.redF()), float(color1.greenF()),
-                         float(color1.blueF()));
+    QVector3D color1Vec3 = color::sRGBToLinear(color1).toVector3D();
     QColor color2("#cccccccc");
-    QVector3D color2Vec3(float(color2.redF()), float(color2.greenF()),
-                         float(color2.blueF()));
+    QVector3D color2Vec3 = color::sRGBToLinear(color2).toVector3D();
     light.setColor(color1);
     light.setAmbientColor(color2);
     node = static_cast<QSSGRenderLight *>(light.updateSpatialNode(node));

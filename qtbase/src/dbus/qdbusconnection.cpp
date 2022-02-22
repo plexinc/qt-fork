@@ -44,7 +44,6 @@
 #include <qdebug.h>
 #include <qcoreapplication.h>
 #include <qstringlist.h>
-#include <qvector.h>
 #include <qtimer.h>
 #include <qthread.h>
 #include <QtCore/private/qlocking_p.h>
@@ -76,28 +75,9 @@ static void preventDllUnload();
 
 Q_GLOBAL_STATIC(QDBusConnectionManager, _q_manager)
 
-struct QDBusConnectionManager::ConnectionRequestData
-{
-    enum RequestType {
-        ConnectToStandardBus,
-        ConnectToBusByAddress,
-        ConnectToPeerByAddress
-    } type;
-
-    union {
-        QDBusConnection::BusType busType;
-        const QString *busAddress;
-    };
-    const QString *name;
-
-    QDBusConnectionPrivate *result;
-
-    bool suspendedDelivery;
-};
-
 QDBusConnectionPrivate *QDBusConnectionManager::busConnection(QDBusConnection::BusType type)
 {
-    Q_STATIC_ASSERT(int(QDBusConnection::SessionBus) + int(QDBusConnection::SystemBus) == 1);
+    static_assert(int(QDBusConnection::SessionBus) + int(QDBusConnection::SystemBus) == 1);
     Q_ASSERT(type == QDBusConnection::SessionBus || type == QDBusConnection::SystemBus);
 
     if (!qdbus_loadLibDBus())
@@ -119,7 +99,7 @@ QDBusConnectionPrivate *QDBusConnectionManager::busConnection(QDBusConnection::B
 
 QDBusConnectionPrivate *QDBusConnectionManager::connection(const QString &name) const
 {
-    return connectionHash.value(name, 0);
+    return connectionHash.value(name, nullptr);
 }
 
 void QDBusConnectionManager::removeConnection(const QString &name)
@@ -909,7 +889,7 @@ bool QDBusConnection::registerObject(const QString &path, const QString &interfa
     if (!d || !d->connection || !object || !options || !QDBusUtil::isValidObjectPath(path))
         return false;
 
-    auto pathComponents = path.splitRef(QLatin1Char('/'));
+    auto pathComponents = QStringView{path}.split(QLatin1Char('/'));
     if (pathComponents.constLast().isEmpty())
         pathComponents.removeLast();
     QDBusWriteLocker locker(RegisterObjectAction, d);
@@ -1017,7 +997,7 @@ QObject *QDBusConnection::objectRegisteredAt(const QString &path) const
     if (!d || !d->connection || !QDBusUtil::isValidObjectPath(path))
         return nullptr;
 
-    auto pathComponents = path.splitRef(QLatin1Char('/'));
+    auto pathComponents = QStringView{path}.split(QLatin1Char('/'));
     if (pathComponents.constLast().isEmpty())
         pathComponents.removeLast();
 
@@ -1201,21 +1181,6 @@ QDBusConnection QDBusConnection::systemBus()
         return QDBusConnection(nullptr);
     return QDBusConnection(_q_manager()->busConnection(SystemBus));
 }
-
-#if QT_DEPRECATED_SINCE(5,5)
-/*!
-  \deprecated
-
-  Always returns a disconnected, invalid QDBusConnection object. For the old
-  functionality of determining the sender connection, please use QDBusContext.
-
-  \sa QDBusContext
-*/
-QDBusConnection QDBusConnection::sender()
-{
-    return QDBusConnection(QString());
-}
-#endif
 
 /*!
   \internal

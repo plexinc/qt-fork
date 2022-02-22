@@ -43,7 +43,6 @@
 #include "qtwindowsglobal.h"
 
 #include <QtCore/qlist.h>
-#include <QtCore/qvector.h>
 #include <QtCore/qpair.h>
 #include <QtCore/qscopedpointer.h>
 #include <qpa/qplatformscreen.h>
@@ -87,7 +86,7 @@ public:
     QImage::Format format() const override { return m_data.format; }
     QSizeF physicalSize() const override { return m_data.physicalSizeMM; }
     QDpi logicalDpi() const override { return m_data.dpi; }
-    QDpi logicalBaseDpi() const override { return QDpi(96, 96); };
+    QDpi logicalBaseDpi() const override { return QDpi(baseDpi, baseDpi); }
     qreal devicePixelRatio() const override { return 1.0; }
     qreal refreshRate() const override { return m_data.refreshRateHz; }
     QString name() const override { return m_data.name; }
@@ -116,6 +115,7 @@ public:
     const QWindowsScreenData &data() const  { return m_data; }
 
     static QRect virtualGeometry(const QPlatformScreen *screen);
+    static inline int baseDpi = 96;
 
 private:
     QWindowsScreenData m_data;
@@ -127,14 +127,13 @@ private:
 class QWindowsScreenManager
 {
 public:
-    using WindowsScreenList = QVector<QWindowsScreen *>;
+    using WindowsScreenList = QList<QWindowsScreen *>;
 
     QWindowsScreenManager();
 
     void clearScreens();
 
     bool handleScreenChanges();
-    bool handleDisplayChange(WPARAM wParam, LPARAM lParam);
     const WindowsScreenList &screens() const { return m_screens; }
 
     const QWindowsScreen *screenAtDp(const QPoint &p) const;
@@ -146,9 +145,6 @@ private:
     void removeScreen(int index);
 
     WindowsScreenList m_screens;
-    int m_lastDepth = -1;
-    WORD m_lastHorizontalResolution = 0;
-    WORD m_lastVerticalResolution = 0;
 };
 
 QT_END_NAMESPACE

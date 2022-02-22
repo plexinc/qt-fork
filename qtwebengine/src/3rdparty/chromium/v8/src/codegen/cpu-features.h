@@ -20,6 +20,7 @@ enum CpuFeature {
   SSE3,
   SAHF,
   AVX,
+  AVX2,
   FMA3,
   BMI1,
   BMI2,
@@ -27,7 +28,7 @@ enum CpuFeature {
   POPCNT,
   ATOM,
 
-#elif V8_TARGET_ARCH_ARM || V8_TARGET_ARCH_ARM64
+#elif V8_TARGET_ARCH_ARM
   // - Standard configurations. The baseline is ARMv6+VFPv2.
   ARMv7,        // ARMv7-A + VFPv3-D32 + NEON
   ARMv7_SUDIV,  // ARMv7-A + VFPv4-D32 + NEON + SUDIV
@@ -38,6 +39,9 @@ enum CpuFeature {
   NEON = ARMv7,
   VFP32DREGS = ARMv7,
   SUDIV = ARMv7_SUDIV,
+
+#elif V8_TARGET_ARCH_ARM64
+  JSCVT,
 
 #elif V8_TARGET_ARCH_MIPS || V8_TARGET_ARCH_MIPS64
   FPU,
@@ -64,6 +68,11 @@ enum CpuFeature {
   VECTOR_ENHANCE_FACILITY_1,
   VECTOR_ENHANCE_FACILITY_2,
   MISC_INSTR_EXT2,
+
+#elif V8_TARGET_ARCH_RISCV64
+  FPU,
+  FP64FPU,
+  RISCV_SIMD,
 #endif
 
   NUMBER_OF_CPU_FEATURES
@@ -80,6 +89,9 @@ enum CpuFeature {
 //   }
 class V8_EXPORT_PRIVATE CpuFeatures : public AllStatic {
  public:
+  CpuFeatures(const CpuFeatures&) = delete;
+  CpuFeatures& operator=(const CpuFeatures&) = delete;
+
   static void Probe(bool cross_compile) {
     STATIC_ASSERT(NUMBER_OF_CPU_FEATURES <= kBitsPerInt);
     if (initialized_) return;
@@ -126,7 +138,10 @@ class V8_EXPORT_PRIVATE CpuFeatures : public AllStatic {
   static unsigned icache_line_size_;
   static unsigned dcache_line_size_;
   static bool initialized_;
-  DISALLOW_COPY_AND_ASSIGN(CpuFeatures);
+  // This variable is only used for certain archs to query SupportWasmSimd128()
+  // at runtime in builtins using an extern ref. Other callers should use
+  // CpuFeatures::SupportWasmSimd128().
+  static bool supports_wasm_simd_128_;
 };
 
 }  // namespace internal

@@ -130,7 +130,7 @@ PassThruCanBackend::~PassThruCanBackend()
     m_canIO->deleteLater();
 }
 
-void PassThruCanBackend::setConfigurationParameter(int key, const QVariant &value)
+void PassThruCanBackend::setConfigurationParameter(ConfigurationKey key, const QVariant &value)
 {
     QCanBusDevice::setConfigurationParameter(key, value);
 
@@ -177,12 +177,16 @@ QList<QCanBusDeviceInfo> PassThruCanBackend::interfaces()
 
         const QString name = canAdapterName(entries);
         if (!name.isEmpty())
-            list.append(createDeviceInfo(name));
-
+            list.append(createDeviceInfo(QStringLiteral("passthrucan"), name, false, false));
         entries.endGroup();
     }
 #endif
     return list;
+}
+
+QCanBusDeviceInfo PassThruCanBackend::deviceInfo() const
+{
+    return createDeviceInfo(QStringLiteral("passthrucan"), m_deviceName, false, false);
 }
 
 bool PassThruCanBackend::open()
@@ -200,7 +204,7 @@ bool PassThruCanBackend::open()
     QByteArray subDev;
 
     if (splitPos >= 0)
-      subDev = m_deviceName.midRef(splitPos + 1).toLatin1();
+      subDev = QStringView{m_deviceName}.mid(splitPos + 1).toLatin1();
 
     const QString library = libraryForAdapter(adapter);
     if (library.isEmpty()) {
@@ -215,10 +219,9 @@ bool PassThruCanBackend::open()
     }
     m_ioThread.start();
 
-    return QMetaObject::invokeMethod(m_canIO, "open", Qt::QueuedConnection,
-                                     Q_ARG(QString, library),
-                                     Q_ARG(QByteArray, subDev),
-                                     Q_ARG(uint, bitRate));
+    return QMetaObject::invokeMethod(m_canIO, [this, library, subDev, bitRate] {
+                                        m_canIO->open(library, subDev, bitRate);
+                                     }, Qt::QueuedConnection);
 }
 
 void PassThruCanBackend::close()
@@ -227,7 +230,7 @@ void PassThruCanBackend::close()
         qCCritical(QT_CANBUS_PLUGINS_PASSTHRU, "Unexpected state on close");
         return;
     }
-    QMetaObject::invokeMethod(m_canIO, "close", Qt::QueuedConnection);
+    QMetaObject::invokeMethod(m_canIO, &PassThruCanIO::close, Qt::QueuedConnection);
 }
 
 void PassThruCanBackend::ackOpenFinished(bool success)
@@ -250,7 +253,7 @@ void PassThruCanBackend::ackOpenFinished(bool success)
         }
         applyConfig(RawFilterKey, filters);
 
-        QMetaObject::invokeMethod(m_canIO, "listen", Qt::QueuedConnection);
+        QMetaObject::invokeMethod(m_canIO, &PassThruCanIO::listen, Qt::QueuedConnection);
 
         setState(ConnectedState);
     } else {
@@ -266,8 +269,9 @@ void PassThruCanBackend::ackCloseFinished()
     setState(UnconnectedState);
 }
 
-void PassThruCanBackend::applyConfig(int key, const QVariant &value)
+void PassThruCanBackend::applyConfig(QCanBusDevice::ConfigurationKey key, const QVariant &value)
 {
-    QMetaObject::invokeMethod(m_canIO, "applyConfig", Qt::QueuedConnection,
-                              Q_ARG(int, key), Q_ARG(QVariant, value));
+    QMetaObject::invokeMethod(m_canIO,
+                              [this, key, value] { m_canIO->applyConfig(key, value); },
+                              Qt::QueuedConnection);
 }

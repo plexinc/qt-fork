@@ -40,20 +40,20 @@
 
 #include "qandroidplatformopenglwindow.h"
 
-#include "qandroidplatformscreen.h"
+#include "androiddeadlockprotector.h"
 #include "androidjnimain.h"
 #include "qandroideventdispatcher.h"
-#include "androiddeadlockprotector.h"
+#include "qandroidplatformscreen.h"
 
 #include <QSurfaceFormat>
 #include <QtGui/private/qwindow_p.h>
 #include <QtGui/qguiapplication.h>
 
-#include <qpa/qwindowsysteminterface.h>
-#include <qpa/qplatformscreen.h>
-#include <QtEglSupport/private/qeglconvenience_p.h>
+#include <QtGui/private/qeglconvenience_p.h>
 #include <android/native_window.h>
 #include <android/native_window_jni.h>
+#include <qpa/qplatformscreen.h>
+#include <qpa/qwindowsysteminterface.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -175,9 +175,9 @@ void QAndroidPlatformOpenGLWindow::applicationStateChanged(Qt::ApplicationState 
 void QAndroidPlatformOpenGLWindow::createEgl(EGLConfig config)
 {
     clearEgl();
-    QJNIEnvironmentPrivate env;
-    m_nativeWindow = ANativeWindow_fromSurface(env, m_androidSurfaceObject.object());
-    m_androidSurfaceObject = QJNIObjectPrivate();
+    QJniEnvironment env;
+    m_nativeWindow = ANativeWindow_fromSurface(env.jniEnv(), m_androidSurfaceObject.object());
+    m_androidSurfaceObject = QJniObject();
     m_eglSurface = eglCreateWindowSurface(m_eglDisplay, config, m_nativeWindow, NULL);
     m_format = q_glFormatFromConfig(m_eglDisplay, config, window()->requestedFormat());
     if (Q_UNLIKELY(m_eglSurface == EGL_NO_SURFACE)) {
@@ -191,8 +191,8 @@ QSurfaceFormat QAndroidPlatformOpenGLWindow::format() const
 {
     if (m_nativeWindow == 0)
         return window()->requestedFormat();
-    else
-        return m_format;
+
+    return m_format;
 }
 
 void QAndroidPlatformOpenGLWindow::clearEgl()

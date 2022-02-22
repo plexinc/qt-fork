@@ -40,8 +40,9 @@
 #include <QtDesigner/abstractmetadatabase.h>
 
 #include <QtWidgets/qapplication.h>
-#include <QtWidgets/qundostack.h>
 #include <QtWidgets/qmenu.h>
+
+#include <QtGui/qundostack.h>
 
 #include <QtCore/qcoreapplication.h>
 #include <QtCore/qdebug.h>
@@ -69,7 +70,7 @@ DomConnection *SignalSlotConnection::toUi() const
     result->setElementSlot(slot());
 
     DomConnectionHints *hints = new DomConnectionHints;
-    QVector<DomConnectionHint *> list;
+    QList<DomConnectionHint *> list;
 
     QPoint sp = endPointPos(EndPoint::Source);
     QPoint tp = endPointPos(EndPoint::Target);
@@ -321,7 +322,7 @@ Connection *SignalSlotEditor::createConnection(QWidget *source, QWidget *destina
 DomConnections *SignalSlotEditor::toUi() const
 {
     DomConnections *result = new DomConnections;
-    QVector<DomConnection *> list;
+    QList<DomConnection *> list;
 
     const int count = connectionCount();
     list.reserve(count);

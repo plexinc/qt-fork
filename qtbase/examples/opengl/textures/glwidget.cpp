@@ -164,20 +164,20 @@ void GLWidget::resizeGL(int width, int height)
 
 void GLWidget::mousePressEvent(QMouseEvent *event)
 {
-    lastPos = event->pos();
+    lastPos = event->position().toPoint();
 }
 
 void GLWidget::mouseMoveEvent(QMouseEvent *event)
 {
-    int dx = event->x() - lastPos.x();
-    int dy = event->y() - lastPos.y();
+    int dx = event->position().toPoint().x() - lastPos.x();
+    int dy = event->position().toPoint().y() - lastPos.y();
 
     if (event->buttons() & Qt::LeftButton) {
         rotateBy(8 * dy, 8 * dx, 0);
     } else if (event->buttons() & Qt::RightButton) {
         rotateBy(8 * dy, 0, 8 * dx);
     }
-    lastPos = event->pos();
+    lastPos = event->position().toPoint();
 }
 
 void GLWidget::mouseReleaseEvent(QMouseEvent * /* event */)
@@ -199,7 +199,7 @@ void GLWidget::makeObject()
     for (int j = 0; j < 6; ++j)
         textures[j] = new QOpenGLTexture(QImage(QString(":/images/side%1.png").arg(j + 1)).mirrored());
 
-    QVector<GLfloat> vertData;
+    QList<GLfloat> vertData;
     for (int i = 0; i < 6; ++i) {
         for (int j = 0; j < 4; ++j) {
             // vertex position

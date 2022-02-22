@@ -22,6 +22,8 @@ String IgnoredReasonName(AXIgnoredReason reason) {
   switch (reason) {
     case kAXActiveModalDialog:
       return "activeModalDialog";
+    case kAXAriaModalDialog:
+      return "activeAriaModalDialog";
     case kAXAncestorIsLeafNode:
       return "ancestorIsLeafNode";
     case kAXAriaHiddenElement:
@@ -198,6 +200,8 @@ String NativeSourceType(AXTextFromNativeHTML native_source) {
       return SourceType::Labelfor;
     case kAXTextFromNativeHTMLLabelWrapped:
       return SourceType::Labelwrapped;
+    case kAXTextFromNativeHTMLRubyAnnotation:
+      return SourceType::Rubyannotation;
     case kAXTextFromNativeHTMLTableCaption:
       return SourceType::Tablecaption;
     case kAXTextFromNativeHTMLLegend:

@@ -46,7 +46,6 @@
 
 #include <QtCore/QList>
 #include <QtCore/QMap>
-#include <QtCore/QVector>
 
 #include <QtCore/qmetatype.h>
 
@@ -58,7 +57,7 @@ class Q_SENSORS_EXPORT QSensorGesture : public QObject
 {
     //Do not use Q_OBJECT here
 public:
-    explicit QSensorGesture(const QStringList &ids, QObject *parent = Q_NULLPTR);
+    explicit QSensorGesture(const QStringList &ids, QObject *parent = nullptr);
     ~QSensorGesture();
 
     bool isActive();
@@ -71,14 +70,12 @@ public:
     void startDetection();
     void stopDetection();
 
-private:
-    QSensorGesturePrivate * d_ptr;
-
-    // ### fixme: Qt 6: Make public to enable Qt for Python bindings
-private:
     // Pretend to be a Q_OBJECT
     const QMetaObject *metaObject() const override;
     int qt_metacall(QMetaObject::Call, int, void **) override;
+
+private:
+    QSensorGesturePrivate * d_ptr;
 
 Q_SIGNALS:
     // these signals are created at runtime, along with

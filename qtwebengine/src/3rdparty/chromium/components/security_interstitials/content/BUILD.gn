@@ -13,9 +13,6 @@ static_library("security_interstitial_page") {
     "captive_portal_blocking_page.cc",
     "captive_portal_blocking_page.h",
     "captive_portal_helper.h",
-    "captive_portal_helper_android.cc",
-    "captive_portal_helper_android.h",
-    "captive_portal_helper_win.cc",
     "cert_report_helper.cc",
     "cert_report_helper.h",
     "certificate_error_report.cc",
@@ -26,6 +23,12 @@ static_library("security_interstitial_page") {
     "connection_help_ui.h",
     "content_metrics_helper.cc",
     "content_metrics_helper.h",
+    "insecure_form_blocking_page.cc",
+    "insecure_form_blocking_page.h",
+    "insecure_form_navigation_throttle.cc",
+    "insecure_form_navigation_throttle.h",
+    "insecure_form_tab_storage.cc",
+    "insecure_form_tab_storage.h",
     "known_interception_disclosure_ui.cc",
     "known_interception_disclosure_ui.h",
     "legacy_tls_blocking_page.cc",
@@ -43,6 +46,7 @@ static_library("security_interstitial_page") {
     "security_interstitial_page.h",
     "security_interstitial_tab_helper.cc",
     "security_interstitial_tab_helper.h",
+    "settings_page_helper.h",
     "ssl_blocking_page.cc",
     "ssl_blocking_page.h",
     "ssl_blocking_page_base.cc",
@@ -73,12 +77,14 @@ static_library("security_interstitial_page") {
     ":proto",
     "//base",
     "//build:branding_buildflags",
+    "//build:chromeos_buildflags",
     "//components/captive_portal/core",
     "//components/content_settings/core/browser",
     "//components/content_settings/core/common",
     "//components/history/core/browser",
     "//components/keyed_service/core",
     "//components/network_time",
+    "//components/omnibox/common:common",
     "//components/pref_registry",
     "//components/prefs:prefs",
     "//components/resources",
@@ -111,7 +117,15 @@ static_library("security_interstitial_page") {
     deps += [ "//components/wifi" ]
   }
 
+  if (is_win) {
+    sources += [ "captive_portal_helper_win.cc" ]
+  }
+
   if (is_android) {
+    sources += [
+      "captive_portal_helper_android.cc",
+      "captive_portal_helper_android.h",
+    ]
     deps +=
         [ "//components/security_interstitials/content/android:jni_headers" ]
   }
@@ -139,6 +153,7 @@ source_set("unit_tests") {
     ":security_interstitial_page",
     "//base",
     "//base/test:test_support",
+    "//build:chromeos_buildflags",
     "//components/captive_portal/content",
     "//components/captive_portal/core:test_support",
     "//components/embedder_support",

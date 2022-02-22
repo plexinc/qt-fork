@@ -61,7 +61,6 @@ class PLATFORM_EXPORT TransformOperation
     kMatrix3D,
     kPerspective,
     kInterpolated,
-    kIdentity,
     kRotateAroundOrigin,
   };
 
@@ -93,9 +92,12 @@ class PLATFORM_EXPORT TransformOperation
   bool IsSameType(const TransformOperation& other) const {
     return other.GetType() == GetType();
   }
-  virtual bool CanBlendWith(const TransformOperation& other) const = 0;
+  bool CanBlendWith(const TransformOperation& other) const {
+    return PrimitiveType() == other.PrimitiveType();
+  }
 
   virtual bool PreservesAxisAlignment() const { return false; }
+  virtual bool IsIdentityOrTranslation() const { return false; }
 
   bool Is3DOperation() const {
     OperationType op_type = GetType();
@@ -108,7 +110,18 @@ class PLATFORM_EXPORT TransformOperation
 
   virtual bool HasNonTrivial3DComponent() const { return Is3DOperation(); }
 
-  virtual bool DependsOnBoxSize() const { return false; }
+  enum BoxSizeDependency {
+    kDependsNone = 0,
+    kDependsWidth = 0x01,
+    kDependsHeight = 0x02,
+    kDependsBoth = kDependsWidth | kDependsHeight
+  };
+  virtual BoxSizeDependency BoxSizeDependencies() const { return kDependsNone; }
+
+  static inline BoxSizeDependency CombineDependencies(BoxSizeDependency a,
+                                                      BoxSizeDependency b) {
+    return static_cast<BoxSizeDependency>(a | b);
+  }
 
  private:
   DISALLOW_COPY_AND_ASSIGN(TransformOperation);

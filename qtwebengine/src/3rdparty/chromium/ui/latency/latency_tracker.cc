@@ -50,24 +50,6 @@ bool IsInertialScroll(const LatencyInfo& latency) {
   return latency.source_event_type() == ui::SourceEventType::INERTIAL;
 }
 
-// This UMA metric tracks the time from when the original wheel event is created
-// to when the scroll gesture results in final frame swap. All scroll events are
-// included in this metric.
-void RecordUmaEventLatencyScrollWheelTimeToScrollUpdateSwapBegin2Histogram(
-    base::TimeTicks start,
-    base::TimeTicks end) {
-  CONFIRM_EVENT_TIMES_EXIST(start, end);
-  UMA_HISTOGRAM_CUSTOM_COUNTS(
-      "Event.Latency.Scroll.Wheel.TimeToScrollUpdateSwapBegin2",
-      std::max(static_cast<int64_t>(0), (end - start).InMicroseconds()), 1,
-      1000000, 100);
-}
-
-LatencyTracker::LatencyInfoProcessor& GetLatencyInfoProcessor() {
-  static base::NoDestructor<LatencyTracker::LatencyInfoProcessor> processor;
-  return *processor;
-}
-
 bool LatencyTraceIdCompare(const LatencyInfo& i, const LatencyInfo& j) {
   return i.trace_id() < j.trace_id();
 }
@@ -80,9 +62,6 @@ LatencyTracker::~LatencyTracker() = default;
 void LatencyTracker::OnGpuSwapBuffersCompleted(
     const std::vector<ui::LatencyInfo>& latency_info,
     bool top_controls_visible_height_changed) {
-  auto& callback = GetLatencyInfoProcessor();
-  if (!callback.is_null())
-    callback.Run(latency_info);
   // Sort latency_info as they can be in incorrect order.
   std::vector<ui::LatencyInfo> latency_infos(latency_info);
   std::sort(latency_infos.begin(), latency_infos.end(), LatencyTraceIdCompare);
@@ -219,11 +198,6 @@ void LatencyTracker::ComputeEndToEndLatencyHistograms(
     UMA_HISTOGRAM_INPUT_LATENCY_5_SECONDS_MAX_MICROSECONDS(
         metric_name, original_timestamp, gpu_swap_begin_timestamp);
 
-    if (input_modality == "Wheel") {
-      RecordUmaEventLatencyScrollWheelTimeToScrollUpdateSwapBegin2Histogram(
-          original_timestamp, gpu_swap_begin_timestamp);
-    }
-
   } else if (latency.FindLatency(
                  ui::INPUT_EVENT_LATENCY_SCROLL_UPDATE_ORIGINAL_COMPONENT,
                  &original_timestamp)) {
@@ -262,10 +236,6 @@ void LatencyTracker::ComputeEndToEndLatencyHistograms(
     UMA_HISTOGRAM_INPUT_LATENCY_5_SECONDS_MAX_MICROSECONDS(
         metric_name, original_timestamp, gpu_swap_begin_timestamp);
 
-    if (input_modality == "Wheel") {
-      RecordUmaEventLatencyScrollWheelTimeToScrollUpdateSwapBegin2Histogram(
-          original_timestamp, gpu_swap_begin_timestamp);
-    }
   } else if (latency.FindLatency(ui::INPUT_EVENT_LATENCY_ORIGINAL_COMPONENT,
                                  &original_timestamp)) {
     if (latency.source_event_type() == SourceEventType::KEY_PRESS) {
@@ -314,11 +284,6 @@ void LatencyTracker::ComputeEndToEndLatencyHistograms(
         ui::INPUT_EVENT_LATENCY_RENDERING_SCHEDULED_IMPL_COMPONENT,
         &rendering_scheduled_timestamp);
     DCHECK_AND_RETURN_ON_FAIL(found_component);
-  }
-
-  if (!IsInertialScroll(latency) && input_modality == "Touch") {
-    average_lag_tracker_.AddLatencyInFrame(latency, gpu_swap_begin_timestamp,
-                                           scroll_name);
   }
 
   // Inertial and scrollbar scrolls are excluded from Ukm metrics.
@@ -389,12 +354,6 @@ void LatencyTracker::ComputeEndToEndLatencyHistograms(
   UMA_HISTOGRAM_SCROLL_LATENCY_SHORT_2(
       "Event.Latency." + scroll_name + "." + input_modality + ".GpuSwap2",
       gpu_swap_begin_timestamp, gpu_swap_end_timestamp);
-}
-
-// static
-void LatencyTracker::SetLatencyInfoProcessorForTesting(
-    const LatencyInfoProcessor& processor) {
-  GetLatencyInfoProcessor() = processor;
 }
 
 }  // namespace ui

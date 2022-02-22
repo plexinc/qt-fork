@@ -20,9 +20,10 @@
 // Functions for recording UMA histograms. These can be used for cases
 // when the histogram name is generated at runtime. The functionality is
 // equivalent to macros defined in histogram_macros.h but allowing non-constant
-// histogram names. These functions are slower compared to their macro
-// equivalent because the histogram objects are not cached between calls.
-// So, these shouldn't be used in performance critical code.
+// histogram names. These functions are slower but result in smaller code size
+// compared to their macro equivalent because the histogram objects are not
+// cached between calls. So, these should be used in non-performance-critical
+// code that is called rarely (not more than once per second).
 //
 // Every function is duplicated to take both std::string and char* for the
 // name. This avoids ctor/dtor instantiation for constant strigs to std::string
@@ -125,12 +126,18 @@ void UmaHistogramEnumeration(const char* name, T sample, T enum_size) {
 BASE_EXPORT void UmaHistogramBoolean(const std::string& name, bool sample);
 BASE_EXPORT void UmaHistogramBoolean(const char* name, bool sample);
 
-// For adding histogram with percent.
-// Percents are integer between 1 and 100.
+// For adding histogram sample denoting a percentage.
+// Percents are integers between 1 and 100, inclusively.
 // Sample usage:
 //   base::UmaHistogramPercentage("My.Percent", 69)
 BASE_EXPORT void UmaHistogramPercentage(const std::string& name, int percent);
 BASE_EXPORT void UmaHistogramPercentage(const char* name, int percent);
+
+// Obsolete. Use |UmaHistogramPercentage| instead. See crbug/1121318.
+BASE_EXPORT void UmaHistogramPercentageObsoleteDoNotUse(const std::string& name,
+                                                        int percent);
+BASE_EXPORT void UmaHistogramPercentageObsoleteDoNotUse(const char* name,
+                                                        int percent);
 
 // For adding counts histogram.
 // Sample usage:

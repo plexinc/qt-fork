@@ -2,15 +2,12 @@ include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
 include($QT_INSTALL_DOCS/config/exampleurl-qtscxml.qdocconf)
 
 project                 = QtScxml
-description             = Qt Scxml Reference Documentation
+description             = Qt SCXML Reference Documentation
 version                 = $QT_VERSION
 
-# Install path for the examples. For Qt 5.6, the convention
-# is to use the repository name as the install location
-# under QT_INSTALL_EXAMPLES.
+# Install path for the examples
 examplesinstallpath     = scxml
 exampledirs             = ../../../examples/scxml
-imagedirs               = ../../../examples/doc/images
 
 examples.fileextensions += "*.scxml"
 
@@ -35,20 +32,22 @@ qhp.QtScxml.virtualFolder       = qtscxml
 qhp.QtScxml.indexTitle          = Qt SCXML
 qhp.QtScxml.indexRoot           =
 
-depends += qtcore qtdoc qmake qtquick qtwidgets
+depends += qtcore qtdoc qmake qtquick qtwidgets qtstatemachine
 
-headerdirs = .. ../../imports/scxmlstatemachine
+headerdirs = .. \
+             ../../scxmlqml \
+             ../../plugins/ecmascriptdatamodel
+
 sourcedirs += .. \
-              ../../imports/scxmlstatemachine \
+              ../../scxmlqml \
               ../../../tools/qscxmlc/doc \
-              ../../../examples/scxml
+              ../../plugins/ecmascriptdatamodel
 
 excludefiles += "../qscxmlexecutablecontent_p.h"
 
 tagfile = qtscxml.tags
 
-manifestmeta.highlighted.names = "QtScxml/Qt SCXML Calculator QML Example" \
-                                 "QtScxml/Qt SCXML Traffic Light QML Example (Dynamic)"
+manifestmeta.highlighted.names = "QtScxml/Qt SCXML Traffic Light QML Example (Dynamic)"
 
 navigation.landingpage = "Qt SCXML"
 navigation.cppclassespage = "Qt SCXML C++ Classes"

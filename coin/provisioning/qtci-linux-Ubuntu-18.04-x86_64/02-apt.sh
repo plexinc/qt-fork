@@ -174,6 +174,12 @@ installPackages+=(gawk)
 installPackages+=(texinfo)
 # Needed for Poppler test in QtWebEngine
 installPackages+=(libpoppler-cpp-dev)
+# Needed for QtCore
+installPackages+=(libdouble-conversion-dev)
+installPackages+=(libpcre2-dev)
+# Needed for qtgampepad
+installPackages+=(libsdl2-2.0)
+installPackages+=(libsdl2-dev)
 # Needed for qtwebkit
 installPackages+=(ruby)
 installPackages+=(libxslt1-dev)
@@ -192,3 +198,7 @@ pip3 wheel --wheel-dir "$HOME/python3-wheels" -r "${BASH_SOURCE%/*}/../common/sh
 
 source "${BASH_SOURCE%/*}/../common/unix/SetEnvVar.sh"
 SetEnvVar "PYTHON3_WHEEL_CACHE" "$HOME/python3-wheels"
+
+OpenSSLVersion="$(openssl version |cut -b 9-14)"
+echo "OpenSSL = $OpenSSLVersion" >> ~/versions.txt
+

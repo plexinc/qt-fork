@@ -52,7 +52,7 @@
 #include <QtQml/qqmlpropertymap.h>
 #include <QtQuick/private/qquickitem_p.h>
 #include <QtQuick/qquickitem.h>
-#include <QtGui/qopengl.h>
+#include <qopengl.h>
 #include <QtCore/qurl.h>
 #include <QtCore/qfileinfo.h>
 #include <QtCore/qdir.h>
@@ -70,11 +70,7 @@
 #include <QtQml/QQmlFileSelector>
 
 #include <private/qqmlcomponent_p.h>
-#include <private/qv4executablecompilationunit_p.h>
-
-#ifdef QT_QMLTEST_WITH_WIDGETS
-#include <QtWidgets/QApplication>
-#endif
+#include <private/qv4resolvedtypereference_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -131,13 +127,6 @@ bool QQuickTest::qIsPolishScheduled(const QQuickItem *item)
 bool QQuickTest::qWaitForItemPolished(const QQuickItem *item, int timeout)
 {
     return QTest::qWaitFor([&]() { return !QQuickItemPrivate::get(item)->polishScheduled; }, timeout);
-}
-
-static QObject *testRootObject(QQmlEngine *engine, QJSEngine *jsEngine)
-{
-    Q_UNUSED(engine);
-    Q_UNUSED(jsEngine);
-    return QTestRootObject::instance();
 }
 
 static inline QString stripQuotes(const QString &s)
@@ -309,14 +298,17 @@ private:
 
         if (!object) // Start at root of compilation unit if not enumerating a specific child
             object = compilationUnit->objectAt(0);
+        if (object->flags & Object::IsInlineComponentRoot)
+            return result;
 
         if (const auto superTypeUnit = compilationUnit->resolvedTypes.value(
                     object->inheritedTypeNameIndex)->compilationUnit()) {
             // We have a non-C++ super type, which could indicate we're a subtype of a TestCase
             if (testCaseType.isValid() && superTypeUnit->url() == testCaseType.sourceUrl())
                 result.isTestCase = true;
-            else
+            else if (superTypeUnit->url() != compilationUnit->url()) { // urls are the same for inline component, avoid infinite recursion
                 result = enumerateTestCases(superTypeUnit);
+            }
 
             if (result.isTestCase) {
                 // Look for override of name in this type
@@ -369,28 +361,9 @@ int quick_test_main(int argc, char **argv, const char *name, const char *sourceD
 
 int quick_test_main_with_setup(int argc, char **argv, const char *name, const char *sourceDir, QObject *setup)
 {
-    // Peek at arguments to check for '-widgets' argument
-#ifdef QT_QMLTEST_WITH_WIDGETS
-    bool withWidgets = false;
-    for (int index = 1; index < argc; ++index) {
-        if (strcmp(argv[index], "-widgets") == 0) {
-            withWidgets = true;
-            break;
-        }
-    }
-#endif
-
     QCoreApplication *app = nullptr;
-    if (!QCoreApplication::instance()) {
-#ifdef QT_QMLTEST_WITH_WIDGETS
-        if (withWidgets)
-            app = new QApplication(argc, argv);
-        else
-#endif
-        {
-            app = new QGuiApplication(argc, argv);
-        }
-    }
+    if (!QCoreApplication::instance())
+        app = new QGuiApplication(argc, argv);
 
     if (setup)
         maybeInvokeSetupMethod(setup, "applicationAvailable()");
@@ -422,11 +395,6 @@ int quick_test_main_with_setup(int argc, char **argv, const char *name, const ch
             index += 2;
         } else if (strcmp(argv[index], "-opengl") == 0) {
             ++index;
-#ifdef QT_QMLTEST_WITH_WIDGETS
-        } else if (strcmp(argv[index], "-widgets") == 0) {
-            withWidgets = true;
-            ++index;
-#endif
         } else if (strcmp(argv[index], "-translation") == 0 && (index + 1) < argc) {
             translationFile = stripQuotes(QString::fromLocal8Bit(argv[index + 1]));
             index += 2;
@@ -457,11 +425,6 @@ int quick_test_main_with_setup(int argc, char **argv, const char *name, const ch
     }
 #endif
 
-#if defined(Q_OS_WINRT)
-    if (testPath.isEmpty())
-        testPath = QLatin1String(":/");
-#endif
-
     // Determine where to look for the test data.
     if (testPath.isEmpty() && sourceDir) {
         const QString s = QString::fromLocal8Bit(sourceDir);
@@ -488,11 +451,35 @@ int quick_test_main_with_setup(int argc, char **argv, const char *name, const ch
 
     const QFileInfo testPathInfo(testPath);
     if (testPathInfo.isFile()) {
-        if (!testPath.endsWith(QLatin1String(".qml"))) {
-            qWarning("'%s' does not have the suffix '.qml'.", qPrintable(testPath));
+        if (testPath.endsWith(QLatin1String(".qml"))) {
+            files << testPath;
+        } else if (testPath.endsWith(QLatin1String(".qmltests"))) {
+            QFile file(testPath);
+            if (file.open(QIODevice::ReadOnly)) {
+                while (!file.atEnd()) {
+                    const QString filePath = testPathInfo.dir()
+                                                     .filePath(QString::fromUtf8(file.readLine()))
+                                                     .trimmed();
+                    const QFileInfo f(filePath);
+                    if (f.exists())
+                        files.append(filePath);
+                    else
+                        qWarning("The test file '%s' does not exists", qPrintable(filePath));
+                }
+                file.close();
+                files.sort();
+                if (files.isEmpty()) {
+                    qWarning("The file '%s' does not contain any tests files",
+                             qPrintable(testPath));
+                    return 1;
+                }
+            } else {
+                qWarning("Could not read '%s'", qPrintable(testPath));
+            }
+        } else {
+            qWarning("'%s' does not have the suffix '.qml' or '.qmltests'.", qPrintable(testPath));
             return 1;
         }
-        files << testPath;
     } else if (testPathInfo.isDir()) {
         // Scan the test data directory recursively, looking for "tst_*.qml" files.
         const QStringList filters(QStringLiteral("tst_*.qml"));
@@ -514,9 +501,6 @@ int quick_test_main_with_setup(int argc, char **argv, const char *name, const ch
     }
 
     qputenv("QT_QTESTLIB_RUNNING", "1");
-
-    // Register the custom factory function
-    qmlRegisterSingletonType<QTestRootObject>("Qt.test.qtestroot", 1, 0, "QTestRootObject", testRootObject);
 
     QSet<QString> commandLineTestFunctions(QTest::testFunctions.cbegin(), QTest::testFunctions.cend());
     const bool filteringTestFunctions = !commandLineTestFunctions.isEmpty();
@@ -575,14 +559,14 @@ int quick_test_main_with_setup(int argc, char **argv, const char *name, const ch
         QObject::connect(view.engine(), SIGNAL(quit()),
                          &eventLoop, SLOT(quit()));
         view.rootContext()->setContextProperty
-            (QLatin1String("qtest"), QTestRootObject::instance()); // Deprecated. Use QTestRootObject from Qt.test.qtestroot instead
+            (QLatin1String("qtest"), QTestRootObject::instance()); // Deprecated. Use QTestRootObject from QtTest instead
 
         view.setObjectName(fi.baseName());
         view.setTitle(view.objectName());
         QTestRootObject::instance()->init();
         QString path = fi.absoluteFilePath();
         if (path.startsWith(QLatin1String(":/")))
-            view.setSource(QUrl(QLatin1String("qrc:") + path.midRef(1)));
+            view.setSource(QUrl(QLatin1String("qrc:") + QStringView{path}.mid(1)));
         else
             view.setSource(QUrl::fromLocalFile(path));
 

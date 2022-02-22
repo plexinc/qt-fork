@@ -50,26 +50,27 @@ QT_BEGIN_NAMESPACE
 
 const char *QElfParser::parseSectionHeader(const char *data, ElfSectionHeader *sh)
 {
-    sh->name = read<qelfword_t>(data);
+    sh->name = qFromUnaligned<qelfword_t>(data);
     data += sizeof(qelfword_t); // sh_name
-    sh->type = read<qelfword_t>(data);
+    sh->type = qFromUnaligned<qelfword_t>(data);
     data += sizeof(qelfword_t)  // sh_type
          + sizeof(qelfaddr_t)   // sh_flags
          + sizeof(qelfaddr_t);  // sh_addr
-    sh->offset = read<qelfoff_t>(data);
+    sh->offset = qFromUnaligned<qelfoff_t>(data);
     data += sizeof(qelfoff_t);  // sh_offset
-    sh->size = read<qelfoff_t>(data);
+    sh->size = qFromUnaligned<qelfoff_t>(data);
     data += sizeof(qelfoff_t);  // sh_size
     return data;
 }
 
-int QElfParser::parse(const char *dataStart, ulong fdlen, const QString &library, QLibraryPrivate *lib, qsizetype *pos, qsizetype *sectionlen)
+auto QElfParser::parse(const char *dataStart, ulong fdlen, const QString &library,
+                       QLibraryPrivate *lib, qsizetype *pos, qsizetype *sectionlen) -> ScanResult
 {
 #if defined(QELFPARSER_DEBUG)
     qDebug() << "QElfParser::parse " << library;
 #endif
 
-    if (fdlen < 64){
+    if (fdlen < 64) {
         if (lib)
             lib->errorString = QLibrary::tr("'%1' is not an ELF object (%2)").arg(library, QLibrary::tr("file too small"));
         return NotElf;
@@ -86,23 +87,24 @@ int QElfParser::parse(const char *dataStart, ulong fdlen, const QString &library
             lib->errorString = QLibrary::tr("'%1' is an invalid ELF object (%2)").arg(library, QLibrary::tr("odd cpu architecture"));
         return Corrupt;
     }
-    m_bits = (data[4] << 5);
 
     /*  If you remove this check, to read ELF objects of a different arch, please make sure you modify the typedefs
         to match the _plugin_ architecture.
     */
-    if ((sizeof(void*) == 4 && m_bits != 32) || (sizeof(void*) == 8 && m_bits != 64)) {
+    constexpr int ExpectedClass = (sizeof(void *) == 4) ? 1 : 2;
+    if (data[4] != ExpectedClass) {
         if (lib)
             lib->errorString = QLibrary::tr("'%1' is an invalid ELF object (%2)").arg(library, QLibrary::tr("wrong cpu architecture"));
         return Corrupt;
     }
+
     // endian
-    if (data[5] == 0) {
+    constexpr int ExpectedEndianness = (Q_BYTE_ORDER == Q_LITTLE_ENDIAN) ? 1 : 2;
+    if (data[5] != ExpectedEndianness) {
         if (lib)
             lib->errorString = QLibrary::tr("'%1' is an invalid ELF object (%2)").arg(library, QLibrary::tr("odd endianness"));
         return Corrupt;
     }
-    m_endian = (data[5] == 1 ? ElfLittleEndian : ElfBigEndian);
 
     data += 16                  // e_ident
          +  sizeof(qelfhalf_t)  // e_type
@@ -111,11 +113,11 @@ int QElfParser::parse(const char *dataStart, ulong fdlen, const QString &library
          +  sizeof(qelfaddr_t)  // e_entry
          +  sizeof(qelfoff_t);  // e_phoff
 
-    qelfoff_t e_shoff = read<qelfoff_t> (data);
+    qelfoff_t e_shoff = qFromUnaligned<qelfoff_t> (data);
     data += sizeof(qelfoff_t)    // e_shoff
          +  sizeof(qelfword_t);  // e_flags
 
-    qelfhalf_t e_shsize = read<qelfhalf_t> (data);
+    qelfhalf_t e_shsize = qFromUnaligned<qelfhalf_t> (data);
 
     if (e_shsize > fdlen) {
         if (lib)
@@ -127,17 +129,17 @@ int QElfParser::parse(const char *dataStart, ulong fdlen, const QString &library
          +  sizeof(qelfhalf_t)  // e_phentsize
          +  sizeof(qelfhalf_t); // e_phnum
 
-    qelfhalf_t e_shentsize = read<qelfhalf_t> (data);
+    qelfhalf_t e_shentsize = qFromUnaligned<qelfhalf_t> (data);
 
-    if (e_shentsize % 4){
+    if (e_shentsize % 4) {
         if (lib)
             lib->errorString = QLibrary::tr("'%1' is an invalid ELF object (%2)").arg(library, QLibrary::tr("unexpected e_shentsize"));
         return Corrupt;
     }
     data += sizeof(qelfhalf_t); // e_shentsize
-    qelfhalf_t e_shnum     = read<qelfhalf_t> (data);
+    qelfhalf_t e_shnum     = qFromUnaligned<qelfhalf_t> (data);
     data += sizeof(qelfhalf_t); // e_shnum
-    qelfhalf_t e_shtrndx   = read<qelfhalf_t> (data);
+    qelfhalf_t e_shtrndx   = qFromUnaligned<qelfhalf_t> (data);
     data += sizeof(qelfhalf_t); // e_shtrndx
 
     if ((quint32)(e_shnum * e_shentsize) > fdlen) {

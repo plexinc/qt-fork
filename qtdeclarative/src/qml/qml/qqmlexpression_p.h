@@ -70,12 +70,13 @@ public:
     QQmlExpressionPrivate();
     ~QQmlExpressionPrivate() override;
 
-    void init(QQmlContextData *, const QString &, QObject *);
-    void init(QQmlContextData *, QV4::Function *runtimeFunction, QObject *);
+    void init(const QQmlRefPointer<QQmlContextData> &, const QString &, QObject *);
+    void init(const QQmlRefPointer<QQmlContextData> &, QV4::Function *runtimeFunction, QObject *);
 
     QVariant value(bool *isUndefined = nullptr);
 
     QV4::ReturnedValue v4value(bool *isUndefined = nullptr);
+    bool mustCaptureBindableProperty() const final {return true;}
 
     static inline QQmlExpressionPrivate *get(QQmlExpression *expr);
     static inline QQmlExpression *get(QQmlExpressionPrivate *expr);

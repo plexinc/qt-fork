@@ -7,8 +7,11 @@
 #include <string>
 
 #include "base/command_line.h"
+#include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_split.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "gpu/command_buffer/common/gles2_cmd_utils.h"
 #include "gpu/command_buffer/service/context_group.h"
 #include "gpu/command_buffer/service/gpu_switches.h"
@@ -54,18 +57,16 @@ gl::GLContextAttribs GenerateGLContextAttribs(
     attribs.webgl_compatibility_context =
         IsWebGLContextType(attribs_helper.context_type);
 
-    // Always use the global texture share group for the passthrough command
-    // decoder
+    // Always use the global texture and semaphore share group for the
+    // passthrough command decoder
     attribs.global_texture_share_group = true;
+    attribs.global_semaphore_share_group = true;
 
     attribs.robust_resource_initialization = true;
     attribs.robust_buffer_access = true;
 
     // Request a specific context version instead of always 3.0
-    if (IsWebGL2ComputeContextType(attribs_helper.context_type)) {
-      attribs.client_major_es_version = 3;
-      attribs.client_minor_es_version = 1;
-    } else if (IsWebGL2OrES3ContextType(attribs_helper.context_type)) {
+    if (IsWebGL2OrES3ContextType(attribs_helper.context_type)) {
       attribs.client_major_es_version = 3;
       attribs.client_minor_es_version = 0;
     } else {
@@ -85,6 +86,13 @@ gl::GLContextAttribs GenerateGLContextAttribs(
     attribs.client_minor_es_version = 0;
   }
 
+  if (IsES31ForTestingContextType(attribs_helper.context_type)) {
+    // Forcefully disable ES 3.1 contexts. Tests create contexts by initializing
+    // the attributes directly.
+    attribs.client_major_es_version = 2;
+    attribs.client_minor_es_version = 0;
+  }
+
   return attribs;
 }
 
@@ -93,18 +101,7 @@ bool UsePassthroughCommandDecoder(const base::CommandLine* command_line) {
 }
 
 bool PassthroughCommandDecoderSupported() {
-#if defined(USE_EGL)
-  // Using the passthrough command buffer requires that specific ANGLE
-  // extensions are exposed
-  return gl::GLSurfaceEGL::IsCreateContextBindGeneratesResourceSupported() &&
-         gl::GLSurfaceEGL::IsCreateContextWebGLCompatabilitySupported() &&
-         gl::GLSurfaceEGL::IsRobustResourceInitSupported() &&
-         gl::GLSurfaceEGL::IsDisplayTextureShareGroupSupported() &&
-         gl::GLSurfaceEGL::IsCreateContextClientArraysSupported();
-#else
-  // The passthrough command buffer is only supported on top of ANGLE/EGL
-  return false;
-#endif  // defined(USE_EGL)
+  return gl::PassthroughCommandDecoderSupported();
 }
 
 GpuPreferences ParseGpuPreferences(const base::CommandLine* command_line) {
@@ -158,13 +155,24 @@ GpuPreferences ParseGpuPreferences(const base::CommandLine* command_line) {
       command_line->HasSwitch(switches::kEnableGPUServiceTracing);
   gpu_preferences.use_passthrough_cmd_decoder =
       gpu::gles2::UsePassthroughCommandDecoder(command_line);
-  gpu_preferences.ignore_gpu_blacklist =
-      command_line->HasSwitch(switches::kIgnoreGpuBlacklist);
+  gpu_preferences.ignore_gpu_blocklist =
+      command_line->HasSwitch(switches::kIgnoreGpuBlocklist);
   gpu_preferences.enable_webgpu =
       command_line->HasSwitch(switches::kEnableUnsafeWebGPU);
+  gpu_preferences.enable_dawn_backend_validation =
+      command_line->HasSwitch(switches::kEnableDawnBackendValidation);
+  if (command_line->HasSwitch(switches::kEnableDawnFeatures)) {
+    gpu_preferences.enabled_dawn_features_list = base::SplitString(
+        command_line->GetSwitchValueASCII(switches::kEnableDawnFeatures), ",",
+        base::KEEP_WHITESPACE, base::SPLIT_WANT_ALL);
+  }
+  if (command_line->HasSwitch(switches::kDisableDawnFeatures)) {
+    gpu_preferences.disabled_dawn_features_list = base::SplitString(
+        command_line->GetSwitchValueASCII(switches::kDisableDawnFeatures), ",",
+        base::KEEP_WHITESPACE, base::SPLIT_WANT_ALL);
+  }
   gpu_preferences.gr_context_type = ParseGrContextType();
-  gpu_preferences.use_vulkan = ParseVulkanImplementationName(
-      command_line, gpu_preferences.gr_context_type);
+  gpu_preferences.use_vulkan = ParseVulkanImplementationName(command_line);
   gpu_preferences.disable_vulkan_surface =
       command_line->HasSwitch(switches::kDisableVulkanSurface);
 
@@ -179,19 +187,31 @@ GrContextType ParseGrContextType() {
   if (base::FeatureList::IsEnabled(features::kSkiaDawn))
     return GrContextType::kDawn;
 #endif
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   return base::FeatureList::IsEnabled(features::kMetal) ? GrContextType::kMetal
                                                         : GrContextType::kGL;
 #else
-  return base::FeatureList::IsEnabled(features::kVulkan)
-             ? GrContextType::kVulkan
-             : GrContextType::kGL;
+  return features::IsUsingVulkan() ? GrContextType::kVulkan
+                                   : GrContextType::kGL;
 #endif
 }
 
 VulkanImplementationName ParseVulkanImplementationName(
-    const base::CommandLine* command_line,
-    GrContextType gr_context_type) {
+    const base::CommandLine* command_line) {
+#if defined(OS_ANDROID)
+  if (command_line->HasSwitch(switches::kWebViewDrawFunctorUsesVulkan) &&
+      base::FeatureList::IsEnabled(features::kWebViewVulkan)) {
+    return VulkanImplementationName::kForcedNative;
+  }
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  // LACROS doesn't support Vulkan right now, to avoid LACROS picking up Linux
+  // finch, kNone is returned for LACROS.
+  // TODO(https://crbug.com/1155622): When LACROS is separated from Linux finch
+  // config.
+  return VulkanImplementationName::kNone;
+#else
   if (command_line->HasSwitch(switches::kUseVulkan)) {
     auto value = command_line->GetSwitchValueASCII(switches::kUseVulkan);
     if (value.empty() || value == switches::kVulkanImplementationNameNative) {
@@ -200,11 +220,20 @@ VulkanImplementationName ParseVulkanImplementationName(
       return VulkanImplementationName::kSwiftshader;
     }
   }
-  // If the vulkan implementation is not set from --use-vulkan, the native
-  // vulkan implementation will be used by default.
-  return gr_context_type == GrContextType::kVulkan
-             ? VulkanImplementationName::kNative
-             : VulkanImplementationName::kNone;
+
+  if (features::IsUsingVulkan()) {
+    // If the vulkan feature is enabled from command line, we will force to use
+    // vulkan even if it is blocklisted.
+    return base::FeatureList::GetInstance()->IsFeatureOverriddenFromCommandLine(
+               features::kVulkan.name,
+               base::FeatureList::OVERRIDE_ENABLE_FEATURE)
+               ? VulkanImplementationName::kForcedNative
+               : VulkanImplementationName::kNative;
+  }
+
+  // GrContext is not going to use Vulkan.
+  return VulkanImplementationName::kNone;
+#endif
 }
 
 }  // namespace gles2

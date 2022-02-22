@@ -23,6 +23,7 @@ struct CONTENT_EXPORT ConversionReport {
   // The conversion_id may not be set for a conversion report.
   ConversionReport(const StorableImpression& impression,
                    const std::string& conversion_data,
+                   base::Time conversion_time,
                    base::Time report_time,
                    const base::Optional<int64_t>& conversion_id);
   ConversionReport(const ConversionReport& other);
@@ -35,8 +36,15 @@ struct CONTENT_EXPORT ConversionReport {
   // representing a valid hexadecimal number.
   const std::string conversion_data;
 
+  // The time the conversion occurred.
+  const base::Time conversion_time;
+
   // The time this conversion report should be sent.
   base::Time report_time;
+
+  // Tracks ephemeral increases to |report_time| for this conversion report, for
+  // the purposes of logging metrics.
+  base::TimeDelta extra_delay;
 
   // The attribution credit assigned to this conversion report. This is derived
   // from the set of all impressions that matched a singular conversion event.

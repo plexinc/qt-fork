@@ -183,10 +183,9 @@ void BluetoothSocketEventDispatcher::StartReceive(const SocketParams& params) {
     buffer_size = kDefaultBufferSize;
   socket->Receive(
       buffer_size,
-      base::Bind(
-          &BluetoothSocketEventDispatcher::ReceiveCallback, params),
-      base::Bind(
-          &BluetoothSocketEventDispatcher::ReceiveErrorCallback, params));
+      base::BindOnce(&BluetoothSocketEventDispatcher::ReceiveCallback, params),
+      base::BindOnce(&BluetoothSocketEventDispatcher::ReceiveErrorCallback,
+                     params));
 }
 
 // static
@@ -268,10 +267,9 @@ void BluetoothSocketEventDispatcher::StartAccept(const SocketParams& params) {
     return;
 
   socket->Accept(
-      base::Bind(
-          &BluetoothSocketEventDispatcher::AcceptCallback, params),
-      base::Bind(
-          &BluetoothSocketEventDispatcher::AcceptErrorCallback, params));
+      base::BindOnce(&BluetoothSocketEventDispatcher::AcceptCallback, params),
+      base::BindOnce(&BluetoothSocketEventDispatcher::AcceptErrorCallback,
+                     params));
 }
 
 // static
@@ -351,8 +349,8 @@ void BluetoothSocketEventDispatcher::PostEvent(const SocketParams& params,
                                                std::unique_ptr<Event> event) {
   DCHECK_CURRENTLY_ON(params.thread_id);
 
-  base::PostTask(FROM_HERE, {BrowserThread::UI},
-                 base::BindOnce(&DispatchEvent, params.browser_context_id,
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&DispatchEvent, params.browser_context_id,
                                 params.extension_id, std::move(event)));
 }
 

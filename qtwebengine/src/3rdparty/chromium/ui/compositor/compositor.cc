@@ -11,14 +11,15 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/containers/contains.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/system/sys_info.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "cc/animation/animation_host.h"
 #include "cc/animation/animation_id_provider.h"
 #include "cc/animation/animation_timeline.h"
@@ -27,6 +28,8 @@
 #include "cc/input/input_handler.h"
 #include "cc/layers/layer.h"
 #include "cc/metrics/begin_main_frame_metrics.h"
+#include "cc/metrics/frame_sequence_tracker.h"
+#include "cc/metrics/web_vital_metrics.h"
 #include "cc/trees/layer_tree_host.h"
 #include "cc/trees/layer_tree_settings.h"
 #include "components/viz/common/features.h"
@@ -46,7 +49,6 @@
 #include "ui/base/ui_base_switches.h"
 #include "ui/compositor/compositor_observer.h"
 #include "ui/compositor/compositor_switches.h"
-#include "ui/compositor/dip_util.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animator_collection.h"
 #include "ui/compositor/overscroll/scroll_input_handler.h"
@@ -81,7 +83,8 @@ Compositor::Compositor(const viz::FrameSinkId& frame_sink_id,
                        scoped_refptr<base::SingleThreadTaskRunner> task_runner,
                        bool enable_pixel_canvas,
                        bool use_external_begin_frame_control,
-                       bool force_software_compositor)
+                       bool force_software_compositor,
+                       bool enable_compositing_based_throttling)
     : context_factory_(context_factory),
       frame_sink_id_(frame_sink_id),
       task_runner_(task_runner),
@@ -171,7 +174,7 @@ Compositor::Compositor(const viz::FrameSinkId& frame_sink_id,
   settings.use_rgba_4444 =
       command_line->HasSwitch(switches::kUIEnableRGBA4444Textures);
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   // Using CoreAnimation to composite requires using GpuMemoryBuffers, which
   // require zero copy.
   settings.resource_settings.use_gpu_memory_buffer_resources =
@@ -220,6 +223,9 @@ Compositor::Compositor(const viz::FrameSinkId& frame_sink_id,
     settings.percent_based_scrolling = true;
   }
 
+  settings.enable_compositing_based_throttling =
+      enable_compositing_based_throttling;
+
 #if DCHECK_IS_ON()
   if (command_line->HasSwitch(cc::switches::kLogOnUIDoubleBackgroundBlur))
     settings.log_on_ui_double_background_blur = true;
@@ -235,10 +241,12 @@ Compositor::Compositor(const viz::FrameSinkId& frame_sink_id,
   params.mutator_host = animation_host_.get();
   host_ = cc::LayerTreeHost::CreateSingleThreaded(this, std::move(params));
 
+  const base::WeakPtr<cc::CompositorDelegateForInput>& compositor_delegate =
+      host_->GetDelegateForInput();
   if (base::FeatureList::IsEnabled(features::kUiCompositorScrollWithLayers) &&
-      host_->GetInputHandler()) {
-    scroll_input_handler_.reset(
-        new ScrollInputHandler(host_->GetInputHandler()));
+      compositor_delegate) {
+    input_handler_weak_ = cc::InputHandler::Create(*compositor_delegate);
+    scroll_input_handler_.reset(new ScrollInputHandler(input_handler_weak_));
   }
 
   animation_timeline_ =
@@ -258,7 +266,7 @@ Compositor::Compositor(const viz::FrameSinkId& frame_sink_id,
 }
 
 Compositor::~Compositor() {
-  TRACE_EVENT0("shutdown", "Compositor::destructor");
+  TRACE_EVENT0("shutdown,viz", "Compositor::destructor");
 
   for (auto& observer : observer_list_)
     observer.OnCompositingShuttingDown(this);
@@ -311,6 +319,7 @@ void Compositor::SetLayerTreeFrameSink(
   // Display properties are reset when the output surface is lost, so update it
   // to match the Compositor's.
   if (display_private_) {
+    disabled_swap_until_resize_ = false;
     display_private_->Resize(size());
     display_private_->SetDisplayVisible(host_->IsVisible());
     display_private_->SetDisplayColorSpaces(display_color_spaces_);
@@ -381,8 +390,12 @@ void Compositor::ScheduleRedrawRect(const gfx::Rect& damage_rect) {
 }
 
 #if defined(OS_WIN)
+void Compositor::SetShouldDisableSwapUntilResize(bool should) {
+  should_disable_swap_until_resize_ = should;
+}
+
 void Compositor::DisableSwapUntilResize() {
-  if (display_private_) {
+  if (should_disable_swap_until_resize_ && display_private_) {
     // Browser needs to block for Viz to receive and process this message.
     // Otherwise when we return from WM_WINDOWPOSCHANGING message handler and
     // receive a WM_WINDOWPOSCHANGED the resize is finalized and any swaps of
@@ -396,27 +409,23 @@ void Compositor::DisableSwapUntilResize() {
 }
 
 void Compositor::ReenableSwap() {
-  if (display_private_)
+  if (should_disable_swap_until_resize_ && display_private_)
     display_private_->Resize(size_);
 }
 #endif
 
-void Compositor::SetScaleAndSize(
-    float scale,
-    const gfx::Size& size_in_pixel,
-    const viz::LocalSurfaceIdAllocation& local_surface_id_allocation) {
+void Compositor::SetScaleAndSize(float scale,
+                                 const gfx::Size& size_in_pixel,
+                                 const viz::LocalSurfaceId& local_surface_id) {
   DCHECK_GT(scale, 0);
   bool device_scale_factor_changed = device_scale_factor_ != scale;
   device_scale_factor_ = scale;
 
 #if DCHECK_IS_ON()
-  if (size_ != size_in_pixel && local_surface_id_allocation.IsValid()) {
+  if (size_ != size_in_pixel && local_surface_id.is_valid()) {
     // A new LocalSurfaceId must be set when the compositor size changes.
-    DCHECK_NE(
-        local_surface_id_allocation.local_surface_id(),
-        host_->local_surface_id_allocation_from_parent().local_surface_id());
-    DCHECK_NE(local_surface_id_allocation,
-              host_->local_surface_id_allocation_from_parent());
+    DCHECK_NE(local_surface_id, host_->local_surface_id_from_parent());
+    DCHECK_NE(local_surface_id, host_->local_surface_id_from_parent());
   }
 #endif  // DECHECK_IS_ON()
 
@@ -424,7 +433,7 @@ void Compositor::SetScaleAndSize(
     bool size_changed = size_ != size_in_pixel;
     size_ = size_in_pixel;
     host_->SetViewportRectAndScale(gfx::Rect(size_in_pixel), scale,
-                                   local_surface_id_allocation);
+                                   local_surface_id);
     root_web_layer_->SetBounds(size_in_pixel);
     if (display_private_ && (size_changed || disabled_swap_until_resize_)) {
       display_private_->Resize(size_in_pixel);
@@ -444,18 +453,9 @@ void Compositor::SetDisplayColorSpaces(
   if (display_color_spaces_ == display_color_spaces)
     return;
   display_color_spaces_ = display_color_spaces;
-  // TODO(crbug.com/1012846): Remove this flag and provision when HDR is fully
-  // supported on ChromeOS.
-#if defined(OS_CHROMEOS)
-  if (display_color_spaces_.SupportsHDR() &&
-      !base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableUseHDRTransferFunction)) {
-    display_color_spaces_ =
-        gfx::DisplayColorSpaces(gfx::ColorSpace::CreateSRGB());
-  }
-#endif
 
-  host_->SetRasterColorSpace(display_color_spaces_.GetRasterColorSpace());
+  host_->SetDisplayColorSpaces(display_color_spaces_);
+
   // Always force the ui::Compositor to re-draw all layers, because damage
   // tracking bugs result in black flashes.
   // https://crbug.com/804430
@@ -489,17 +489,19 @@ bool Compositor::IsVisible() {
   return host_->IsVisible();
 }
 
+// TODO(bokan): These calls should be delegated through the
+// scroll_input_handler_ so that we don't have to keep a pointer to the
+// cc::InputHandler in this class.
 bool Compositor::ScrollLayerTo(cc::ElementId element_id,
                                const gfx::ScrollOffset& offset) {
-  auto input_handler = host_->GetInputHandler();
-  return input_handler && input_handler->ScrollLayerTo(element_id, offset);
+  return input_handler_weak_ &&
+         input_handler_weak_->ScrollLayerTo(element_id, offset);
 }
 
 bool Compositor::GetScrollOffsetForLayer(cc::ElementId element_id,
                                          gfx::ScrollOffset* offset) const {
-  auto input_handler = host_->GetInputHandler();
-  return input_handler &&
-         input_handler->GetScrollOffsetForLayer(element_id, offset);
+  return input_handler_weak_ &&
+         input_handler_weak_->GetScrollOffsetForLayer(element_id, offset);
 }
 
 void Compositor::SetDisplayVSyncParameters(base::TimeTicks timebase,
@@ -578,13 +580,23 @@ bool Compositor::HasObserver(const CompositorObserver* observer) const {
 }
 
 void Compositor::AddAnimationObserver(CompositorAnimationObserver* observer) {
+  if (animation_observer_list_.empty()) {
+    for (auto& obs : observer_list_)
+      obs.OnFirstAnimationStarted(this);
+  }
   animation_observer_list_.AddObserver(observer);
   host_->SetNeedsAnimate();
 }
 
 void Compositor::RemoveAnimationObserver(
     CompositorAnimationObserver* observer) {
+  if (!animation_observer_list_.HasObserver(observer))
+    return;
   animation_observer_list_.RemoveObserver(observer);
+  if (animation_observer_list_.empty()) {
+    for (auto& obs : observer_list_)
+      obs.OnLastAnimationEnded(this);
+  }
 }
 
 bool Compositor::HasAnimationObserver(
@@ -608,6 +620,11 @@ void Compositor::IssueExternalBeginFrame(
       args, force, std::move(callback));
 }
 
+ThroughputTracker Compositor::RequestNewThroughputTracker() {
+  return ThroughputTracker(next_throughput_tracker_id_++,
+                           weak_ptr_factory_.GetWeakPtr());
+}
+
 void Compositor::DidUpdateLayers() {
   // Dump property trees and layers if run with:
   //   --vmodule=*ui/compositor*=3
@@ -622,7 +639,7 @@ void Compositor::BeginMainFrame(const viz::BeginFrameArgs& args) {
   DCHECK(!IsLocked());
   for (auto& observer : animation_observer_list_)
     observer.OnAnimationStep(args.frame_time);
-  if (animation_observer_list_.might_have_observers())
+  if (!animation_observer_list_.empty())
     host_->SetNeedsAnimate();
 }
 
@@ -633,8 +650,10 @@ void Compositor::BeginMainFrameNotExpectedUntil(base::TimeTicks time) {}
 
 static void SendDamagedRectsRecursive(ui::Layer* layer) {
   layer->SendDamagedRects();
-  for (auto* child : layer->children())
-    SendDamagedRectsRecursive(child);
+  // Iterate using the size for the case of mutation during sending damaged
+  // regions. https://crbug.com/1242257.
+  for (size_t i = 0; i < layer->children().size(); ++i)
+    SendDamagedRectsRecursive(layer->children()[i]);
 }
 
 void Compositor::UpdateLayerTreeHost() {
@@ -670,6 +689,16 @@ Compositor::GetBeginMainFrameMetrics() {
   return nullptr;
 }
 
+std::unique_ptr<cc::WebVitalMetrics> Compositor::GetWebVitalMetrics() {
+  return nullptr;
+}
+
+void Compositor::NotifyThroughputTrackerResults(
+    cc::CustomTrackerResults results) {
+  for (auto& pair : results)
+    ReportMetricsForTracker(pair.first, std::move(pair.second));
+}
+
 void Compositor::DidReceiveCompositorFrameAck() {
   ++activated_frame_count_;
   for (auto& observer : observer_list_)
@@ -682,6 +711,8 @@ void Compositor::DidPresentCompositorFrame(
   TRACE_EVENT_MARK_WITH_TIMESTAMP1("cc,benchmark", "FramePresented",
                                    feedback.timestamp, "environment",
                                    "browser");
+  for (auto& observer : observer_list_)
+    observer.OnDidPresentCompositorFrame(frame_token, feedback);
 }
 
 void Compositor::DidSubmitCompositorFrame() {
@@ -691,8 +722,14 @@ void Compositor::DidSubmitCompositorFrame() {
 }
 
 void Compositor::FrameIntervalUpdated(base::TimeDelta interval) {
-  refresh_rate_ =
-      base::Time::kMicrosecondsPerSecond / interval.InMicrosecondsF();
+  refresh_rate_ = interval.ToHz();
+}
+
+void Compositor::FrameSinksToThrottleUpdated(
+    const base::flat_set<viz::FrameSinkId>& ids) {
+  for (auto& observer : observer_list_) {
+    observer.OnFrameSinksToThrottleUpdated(ids);
+  }
 }
 
 void Compositor::OnFirstSurfaceActivation(
@@ -700,12 +737,34 @@ void Compositor::OnFirstSurfaceActivation(
   NOTREACHED();
 }
 
-void Compositor::OnFrameTokenChanged(uint32_t frame_token) {
+void Compositor::OnFrameTokenChanged(uint32_t frame_token,
+                                     base::TimeTicks activation_time) {
   // TODO(yiyix, fsamuel): Implement frame token propagation for Compositor.
   NOTREACHED();
 }
 
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+void Compositor::StartThroughputTracker(
+    TrackerId tracker_id,
+    ThroughputTrackerHost::ReportCallback callback) {
+  DCHECK(!base::Contains(throughput_tracker_map_, tracker_id));
+  throughput_tracker_map_[tracker_id] = std::move(callback);
+  animation_host_->StartThroughputTracking(tracker_id);
+}
+
+void Compositor::StopThroughtputTracker(TrackerId tracker_id) {
+  DCHECK(base::Contains(throughput_tracker_map_, tracker_id));
+  animation_host_->StopThroughputTracking(tracker_id);
+}
+
+void Compositor::CancelThroughtputTracker(TrackerId tracker_id) {
+  DCHECK(base::Contains(throughput_tracker_map_, tracker_id));
+  StopThroughtputTracker(tracker_id);
+  throughput_tracker_map_.erase(tracker_id);
+}
+
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
 void Compositor::OnCompleteSwapWithNewSize(const gfx::Size& size) {
   for (auto& observer : observer_list_)
     observer.OnCompositingCompleteSwapWithNewSize(this, size);
@@ -730,6 +789,26 @@ void Compositor::SetLayerTreeDebugState(
 void Compositor::RequestPresentationTimeForNextFrame(
     PresentationTimeCallback callback) {
   host_->RequestPresentationTimeForNextFrame(std::move(callback));
+}
+
+void Compositor::ReportMetricsForTracker(
+    int tracker_id,
+    const cc::FrameSequenceMetrics::CustomReportData& data) {
+  auto it = throughput_tracker_map_.find(tracker_id);
+  if (it == throughput_tracker_map_.end())
+    return;
+
+  // Callback may modify `throughput_tracker_map_` so update the map first.
+  // See https://crbug.com/1193382.
+  auto callback = std::move(it->second);
+  throughput_tracker_map_.erase(it);
+  std::move(callback).Run(data);
+}
+
+void Compositor::SetDelegatedInkPointRenderer(
+    mojo::PendingReceiver<viz::mojom::DelegatedInkPointRenderer> receiver) {
+  if (display_private_)
+    display_private_->SetDelegatedInkPointRenderer(std::move(receiver));
 }
 
 }  // namespace ui

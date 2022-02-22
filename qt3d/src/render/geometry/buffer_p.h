@@ -53,15 +53,15 @@
 
 #include <QtCore>
 #include <Qt3DRender/private/backendnode_p.h>
-#include <Qt3DRender/qbuffer.h>
-#include <Qt3DRender/qbufferdatagenerator.h>
+#include <Qt3DCore/qbuffer.h>
 
 QT_BEGIN_NAMESPACE
 
+namespace Qt3DCore {
+    struct QBufferUpdate;
+}
+
 namespace Qt3DRender {
-
-struct QBufferUpdate;
-
 namespace Render {
 
 class BufferManager;
@@ -76,27 +76,22 @@ public:
     void syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firstTime) override;
 
     void setManager(BufferManager *manager);
-    void executeFunctor();
     void updateDataFromGPUToCPU(QByteArray data);
-    inline QBuffer::UsageType usage() const { return m_usage; }
+    inline Qt3DCore::QBuffer::UsageType usage() const { return m_usage; }
     inline QByteArray data() const { return m_data; }
-    inline QVector<Qt3DRender::QBufferUpdate> &pendingBufferUpdates() { return m_bufferUpdates; }
+    inline std::vector<Qt3DCore::QBufferUpdate> &pendingBufferUpdates() { return m_bufferUpdates; }
     inline bool isDirty() const { return m_bufferDirty; }
-    inline QBufferDataGeneratorPtr dataGenerator() const { return m_functor; }
-    inline bool isSyncData() const { return m_syncData; }
-    inline QBuffer::AccessType access() const { return m_access; }
+    inline Qt3DCore::QBuffer::AccessType access() const { return m_access; }
     void unsetDirty();
 
 private:
     void forceDataUpload();
 
-    QBuffer::UsageType m_usage;
+    Qt3DCore::QBuffer::UsageType m_usage;
     QByteArray m_data;
-    QVector<Qt3DRender::QBufferUpdate> m_bufferUpdates;
+    std::vector<Qt3DCore::QBufferUpdate> m_bufferUpdates;
     bool m_bufferDirty;
-    bool m_syncData;
-    QBuffer::AccessType m_access;
-    QBufferDataGeneratorPtr m_functor;
+    Qt3DCore::QBuffer::AccessType m_access;
     BufferManager *m_manager;
 };
 
@@ -104,7 +99,7 @@ class BufferFunctor : public Qt3DCore::QBackendNodeMapper
 {
 public:
     explicit BufferFunctor(AbstractRenderer *renderer, BufferManager *manager);
-    Qt3DCore::QBackendNode *create(const Qt3DCore::QNodeCreatedChangeBasePtr &change) const override;
+    Qt3DCore::QBackendNode *create(Qt3DCore::QNodeId id) const override;
     Qt3DCore::QBackendNode *get(Qt3DCore::QNodeId id) const override;
     void destroy(Qt3DCore::QNodeId id) const override;
 private:
@@ -113,7 +108,6 @@ private:
 };
 
 } // namespace Render
-
 } // namespace Qt3DRender
 
 QT_END_NAMESPACE

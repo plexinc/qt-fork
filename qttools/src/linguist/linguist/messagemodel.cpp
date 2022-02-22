@@ -27,6 +27,7 @@
 ****************************************************************************/
 
 #include "messagemodel.h"
+#include "statistics.h"
 
 #include <QtCore/QCoreApplication>
 #include <QtCore/QDebug>
@@ -202,18 +203,18 @@ bool DataModel::load(const QString &fileName, bool *langGuessed, QWidget *parent
         return false;
     }
 
-    Translator::Duplicates dupes = tor.resolveDuplicates();
+    const Translator::Duplicates dupes = tor.resolveDuplicates();
     if (!dupes.byId.isEmpty() || !dupes.byContents.isEmpty()) {
         QString err = tr("<qt>Duplicate messages found in '%1':").arg(fileName.toHtmlEscaped());
         int numdups = 0;
-        foreach (int i, dupes.byId) {
+        for (int i : dupes.byId) {
             if (++numdups >= 5) {
                 err += tr("<p>[more duplicates omitted]");
                 goto doWarn;
             }
             err += tr("<p>* ID: %1").arg(tor.message(i).id().toHtmlEscaped());
         }
-        foreach (int j, dupes.byContents) {
+        for (int j : dupes.byContents) {
             const TranslatorMessage &msg = tor.message(j);
             if (++numdups >= 5) {
                 err += tr("<p>[more duplicates omitted]");
@@ -240,7 +241,7 @@ bool DataModel::load(const QString &fileName, bool *langGuessed, QWidget *parent
     m_srcChars = 0;
     m_srcCharsSpc = 0;
 
-    foreach (const TranslatorMessage &msg, tor.messages()) {
+    for (const TranslatorMessage &msg : tor.messages()) {
         if (!contexts.contains(msg.context())) {
             contexts.insert(msg.context(), m_contextList.size());
             m_contextList.append(ContextItem(msg.context()));
@@ -426,20 +427,37 @@ void DataModel::setSourceLanguageAndCountry(QLocale::Language lang, QLocale::Cou
 
 void DataModel::updateStatistics()
 {
-    int trW = 0;
-    int trC = 0;
-    int trCS = 0;
-
+    StatisticalData stats {};
     for (DataModelIterator it(this); it.isValid(); ++it) {
         const MessageItem *mi = it.current();
-        if (mi->isFinished()) {
-            const QStringList translations = mi->translations();
-            for (const QString &trnsl : translations)
-                doCharCounting(trnsl, trW, trC, trCS);
+        if (mi->isObsolete()) {
+            stats.obsoleteMsg++;
+        } else if (mi->isFinished()) {
+            bool hasDanger = false;
+            for (const QString &trnsl : mi->translations()) {
+                doCharCounting(trnsl, stats.wordsFinished, stats.charsFinished, stats.charsSpacesFinished);
+                hasDanger |= mi->danger();
+            }
+            if (hasDanger)
+                stats.translatedMsgDanger++;
+            else
+                stats.translatedMsgNoDanger++;
+        } else if (mi->isUnfinished()) {
+            bool hasDanger = false;
+            for (const QString &trnsl : mi->translations()) {
+                doCharCounting(trnsl, stats.wordsUnfinished, stats.charsUnfinished, stats.charsSpacesUnfinished);
+                hasDanger |= mi->danger();
+            }
+            if (hasDanger)
+                stats.unfinishedMsgDanger++;
+            else
+                stats.unfinishedMsgNoDanger++;
         }
     }
-
-    emit statsChanged(m_srcWords, m_srcChars, m_srcCharsSpc, trW, trC, trCS);
+    stats.wordsSource = m_srcWords;
+    stats.charsSource = m_srcChars;
+    stats.charsSpacesSource = m_srcCharsSpc;
+    emit statsChanged(stats);
 }
 
 void DataModel::setModified(bool isModified)
@@ -591,7 +609,7 @@ void MultiContextItem::appendMessageItems(const QList<MessageItem *> &m)
     for (int i = 0; i < m_messageLists.count() - 1; ++i)
         m_messageLists[i] += nullItems;
     m_messageLists.last() += m;
-    foreach (MessageItem *mi, m)
+    for (MessageItem *mi : m)
         m_multiMessageList.append(MultiMessageItem(mi));
 }
 
@@ -769,9 +787,12 @@ void MultiDataModel::append(DataModel *dm, bool readWrite)
     }
     dm->setWritable(readWrite);
     updateCountsOnAdd(modelCount() - 1, readWrite);
-    connect(dm, SIGNAL(modifiedChanged()), SLOT(onModifiedChanged()));
-    connect(dm, SIGNAL(languageChanged()), SLOT(onLanguageChanged()));
-    connect(dm, SIGNAL(statsChanged(int,int,int,int,int,int)), SIGNAL(statsChanged(int,int,int,int,int,int)));
+    connect(dm, &DataModel::modifiedChanged,
+            this, &MultiDataModel::onModifiedChanged);
+    connect(dm, &DataModel::languageChanged,
+            this, &MultiDataModel::onLanguageChanged);
+    connect(dm, &DataModel::statsChanged,
+            this, &MultiDataModel::statsChanged);
     emit modelAppended();
 }
 
@@ -839,7 +860,7 @@ QStringList MultiDataModel::prettifyFileNames(const QStringList &names)
 {
     QStringList out;
 
-    foreach (const QString &name, names)
+    for (const QString &name : names)
         out << DataModel::prettifyFileName(name);
     return out;
 }
@@ -904,7 +925,7 @@ QString MultiDataModel::condenseFileNames(const QStringList &names)
 QStringList MultiDataModel::srcFileNames(bool pretty) const
 {
     QStringList names;
-    foreach (DataModel *dm, m_dataModels)
+    for (DataModel *dm : m_dataModels)
         names << (dm->isWritable() ? QString() : QString::fromLatin1("=")) + dm->srcFileName(pretty);
     return names;
 }
@@ -916,7 +937,7 @@ QString MultiDataModel::condensedSrcFileNames(bool pretty) const
 
 bool MultiDataModel::isModified() const
 {
-    foreach (const DataModel *mdl, m_dataModels)
+    for (const DataModel *mdl : m_dataModels)
         if (mdl->isModified())
             return true;
     return false;
@@ -1182,12 +1203,12 @@ MessageModel::MessageModel(QObject *parent, MultiDataModel *data)
   : QAbstractItemModel(parent), m_data(data)
 {
     data->m_msgModel = this;
-    connect(m_data, SIGNAL(multiContextDataChanged(MultiDataIndex)),
-                    SLOT(multiContextItemChanged(MultiDataIndex)));
-    connect(m_data, SIGNAL(contextDataChanged(MultiDataIndex)),
-                    SLOT(contextItemChanged(MultiDataIndex)));
-    connect(m_data, SIGNAL(messageDataChanged(MultiDataIndex)),
-                    SLOT(messageItemChanged(MultiDataIndex)));
+    connect(m_data, &MultiDataModel::multiContextDataChanged,
+            this, &MessageModel::multiContextItemChanged);
+    connect(m_data, &MultiDataModel::contextDataChanged,
+            this, &MessageModel::contextItemChanged);
+    connect(m_data, &MultiDataModel::messageDataChanged,
+            this, &MessageModel::messageItemChanged);
 }
 
 QModelIndex MessageModel::index(int row, int column, const QModelIndex &parent) const

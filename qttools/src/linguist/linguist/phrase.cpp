@@ -34,8 +34,6 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QMessageBox>
-#include <QRegExp>
-#include <QTextCodec>
 #include <QTextStream>
 #include <QXmlStreamReader>
 
@@ -116,11 +114,11 @@ public:
     QString sourceLanguage() const { return m_sourceLanguage; }
 
 private:
-    bool startElement(const QStringRef &namespaceURI, const QStringRef &localName,
-                      const QStringRef &qName, const QXmlStreamAttributes &atts) override;
-    bool endElement(const QStringRef &namespaceURI, const QStringRef &localName,
-                    const QStringRef &qName) override;
-    bool characters(const QStringRef &ch) override;
+    bool startElement(QStringView namespaceURI, QStringView localName,
+                      QStringView qName, const QXmlStreamAttributes &atts) override;
+    bool endElement(QStringView namespaceURI, QStringView localName,
+                    QStringView qName) override;
+    bool characters(QStringView ch) override;
     bool fatalError(qint64 line, qint64 column, const QString &message) override;
 
     PhraseBook *pb;
@@ -134,11 +132,11 @@ private:
     int ferrorCount;
 };
 
-bool QphHandler::startElement(const QStringRef &namespaceURI, const QStringRef &localName,
-                              const QStringRef &qName, const QXmlStreamAttributes &atts)
+bool QphHandler::startElement(QStringView namespaceURI, QStringView localName,
+                              QStringView qName, const QXmlStreamAttributes &atts)
 {
-    Q_UNUSED(namespaceURI)
-    Q_UNUSED(localName)
+    Q_UNUSED(namespaceURI);
+    Q_UNUSED(localName);
 
     if (qName == QLatin1String("QPH")) {
         m_language = atts.value(QLatin1String("language")).toString();
@@ -152,11 +150,11 @@ bool QphHandler::startElement(const QStringRef &namespaceURI, const QStringRef &
     return true;
 }
 
-bool QphHandler::endElement(const QStringRef &namespaceURI, const QStringRef &localName,
-                            const QStringRef &qName)
+bool QphHandler::endElement(QStringView namespaceURI, QStringView localName,
+                            QStringView qName)
 {
-    Q_UNUSED(namespaceURI)
-    Q_UNUSED(localName)
+    Q_UNUSED(namespaceURI);
+    Q_UNUSED(localName);
 
     if (qName == QLatin1String("source"))
         source = accum;
@@ -169,7 +167,7 @@ bool QphHandler::endElement(const QStringRef &namespaceURI, const QStringRef &lo
     return true;
 }
 
-bool QphHandler::characters(const QStringRef &ch)
+bool QphHandler::characters(QStringView ch)
 {
     accum += ch;
     return true;
@@ -270,7 +268,6 @@ bool PhraseBook::save(const QString &fileName)
     m_fileName = fileName;
 
     QTextStream t(&f);
-    t.setCodec( QTextCodec::codecForName("UTF-8") );
 
     t << "<!DOCTYPE QPH>\n<QPH";
     if (sourceLanguage() != QLocale::C)
@@ -279,7 +276,7 @@ bool PhraseBook::save(const QString &fileName)
     if (language() != QLocale::C)
         t << " language=\"" << Translator::makeLanguageCode(language(), country()) << '"';
     t << ">\n";
-    foreach (Phrase *p, m_phrases) {
+    for (Phrase *p : qAsConst(m_phrases)) {
         t << "<phrase>\n";
         t << "    <source>" << protect( p->source() ) << "</source>\n";
         t << "    <target>" << protect( p->target() ) << "</target>\n";

@@ -8,7 +8,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "base/logging.h"
+#include <ostream>
+
+#include "base/check_op.h"
+#include "base/i18n/uchar.h"
 #include "base/no_destructor.h"
 #include "third_party/icu/source/common/unicode/uidna.h"
 #include "third_party/icu/source/common/unicode/utypes.h"
@@ -52,7 +55,7 @@ struct UIDNAWrapper {
                    << ". If you see this error message in a test environment "
                    << "your test environment likely lacks the required data "
                    << "tables for libicu. See https://crbug.com/778929.";
-      value = NULL;
+      value = nullptr;
     }
   }
 
@@ -84,12 +87,14 @@ bool IDNToASCII(const base::char16* src, int src_len, CanonOutputW* output) {
   DCHECK(output->length() == 0);  // Output buffer is assumed empty.
 
   UIDNA* uidna = GetUIDNA();
-  DCHECK(uidna != NULL);
+  DCHECK(uidna != nullptr);
   while (true) {
     UErrorCode err = U_ZERO_ERROR;
     UIDNAInfo info = UIDNA_INFO_INITIALIZER;
-    int output_length = uidna_nameToASCII(uidna, src, src_len, output->data(),
-                                          output->capacity(), &info, &err);
+    int output_length =
+        uidna_nameToASCII(uidna, base::i18n::ToUCharPtr(src), src_len,
+                          base::i18n::ToUCharPtr(output->data()),
+                          output->capacity(), &info, &err);
     if (U_SUCCESS(err) && info.errors == 0) {
       output->set_length(output_length);
       return true;

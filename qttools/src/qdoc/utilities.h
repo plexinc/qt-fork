@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2019 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -30,11 +30,22 @@
 #define UTILITIES_H
 
 #include <QtCore/qstring.h>
+#include <QtCore/qloggingcategory.h>
+
+QT_BEGIN_NAMESPACE
+
+Q_DECLARE_LOGGING_CATEGORY(lcQdoc)
+Q_DECLARE_LOGGING_CATEGORY(lcQdocClang)
 
 namespace Utilities {
 void startDebugging(const QString &message);
 void stopDebugging(const QString &message);
 bool debugging();
-};
+
+QString separator(qsizetype wordPosition, qsizetype numberOfWords);
+QString comma(qsizetype wordPosition, qsizetype numberOfWords);
+}
+
+QT_END_NAMESPACE
 
 #endif // UTILITIES_H

@@ -1,22 +1,12 @@
 {
-  "extensions": [
-    {
-        "type": "view",
-        "location": "drawer-view",
-        "id": "protocol-monitor",
-        "title": "Protocol monitor",
-        "order": 100,
-        "persistence": "closeable",
-        "className": "ProtocolMonitor.ProtocolMonitor",
-        "experiment": "protocolMonitor"
-    }
+  "dependencies": [
+    "ui",
+    "components",
+    "data_grid",
+    "source_frame"
   ],
-  "dependencies": ["platform", "ui", "host", "components", "data_grid", "source_frame"],
-  "scripts": [],
   "modules": [
-    "protocol_monitor.js",
-    "protocol_monitor-legacy.js",
-    "ProtocolMonitor.js"
+    "protocol_monitor-legacy.js"
   ],
   "resources": [
     "protocolMonitor.css"

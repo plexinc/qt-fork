@@ -6,15 +6,14 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_EDITING_IME_EDIT_CONTEXT_H_
 
 #include "base/macros.h"
-#include "third_party/blink/public/platform/web_rect.h"
 #include "third_party/blink/public/platform/web_text_input_mode.h"
 #include "third_party/blink/public/platform/web_text_input_type.h"
-#include "third_party/blink/public/web/web_ime_text_span.h"
 #include "third_party/blink/public/web/web_input_method_controller.h"
 #include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
+#include "ui/base/ime/ime_text_span.h"
 
 namespace blink {
 
@@ -36,7 +35,6 @@ class CORE_EXPORT EditContext final : public EventTargetWithInlineData,
                                       public ExecutionContextClient,
                                       public WebInputMethodController {
   DEFINE_WRAPPERTYPEINFO();
-  USING_GARBAGE_COLLECTED_MIXIN(EditContext);
 
  public:
   EditContext(ScriptState* script_state, const EditContextInit* dict);
@@ -141,16 +139,16 @@ class CORE_EXPORT EditContext final : public EventTargetWithInlineData,
   // ActiveScriptWrappable overrides.
   bool HasPendingActivity() const override;
 
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
   // WebInputMethodController overrides.
   bool SetComposition(const WebString& text,
-                      const WebVector<WebImeTextSpan>& ime_text_spans,
+                      const WebVector<ui::ImeTextSpan>& ime_text_spans,
                       const WebRange& replacement_range,
                       int selection_start,
                       int selection_end) override;
   bool CommitText(const WebString& text,
-                  const WebVector<WebImeTextSpan>& ime_text_spans,
+                  const WebVector<ui::ImeTextSpan>& ime_text_spans,
                   const WebRange& replacement_range,
                   int relative_caret_position) override;
   bool FinishComposingText(
@@ -160,23 +158,33 @@ class CORE_EXPORT EditContext final : public EventTargetWithInlineData,
   WebTextInputType TextInputType() override;
   int TextInputFlags() const;
   WebRange CompositionRange() override;
-  bool GetCompositionCharacterBounds(WebVector<WebRect>& bounds) override;
+  bool GetCompositionCharacterBounds(WebVector<gfx::Rect>& bounds) override;
   WebRange GetSelectionOffsets() const override;
 
   // Populate |control_bounds| and |selection_bounds| with the bounds fetched
   // from the active EditContext.
-  void GetLayoutBounds(WebRect* web_control_bounds,
-                       WebRect* web_selection_bounds) override;
+  void GetLayoutBounds(gfx::Rect* control_bounds,
+                       gfx::Rect* selection_bounds) override;
 
   // Sets the composition range from the already existing text
   // This is used for reconversion scenarios in JPN IME.
   bool SetCompositionFromExistingText(
       int composition_start,
       int composition_end,
-      const WebVector<WebImeTextSpan>& ime_text_spans);
+      const WebVector<ui::ImeTextSpan>& ime_text_spans);
 
-  bool IsInputPanelPolicyManual() const override;
+  // For English typing.
+  bool InsertText(const WebString& text);
+
+  bool IsVirtualKeyboardPolicyManual() const override;
   bool IsEditContextActive() const override;
+  // Returns whether show()/hide() API is called from virtualkeyboard or not.
+  ui::mojom::VirtualKeyboardVisibilityRequest
+  GetLastVirtualKeyboardVisibilityRequest() const override;
+  // Sets the VirtualKeyboard visibility request(show/hide/none).
+  void SetVirtualKeyboardVisibilityRequest(
+      ui::mojom::VirtualKeyboardVisibilityRequest vk_visibility_request)
+      override;
   // Called from WebLocalFrame for English compositions
   // such as shape-writing, handwriting panels etc.
   // Extends the current selection range and removes the
@@ -206,7 +214,8 @@ class CORE_EXPORT EditContext final : public EventTargetWithInlineData,
   // TextFormatUpdateEvent (e.g. backgroundColor, textDecoration, etc.). The
   // consumer of the EditContext should update their view accordingly to provide
   // the user with visual feedback as prescribed by the software keyboard.
-  void DispatchTextFormatEvent(const WebVector<WebImeTextSpan>& ime_text_spans);
+  void DispatchTextFormatEvent(
+      const WebVector<ui::ImeTextSpan>& ime_text_spans);
 
   // The textupdate event will be fired on the EditContext when user input has
   // resulted in characters being applied to the editable region. The event
@@ -237,8 +246,8 @@ class CORE_EXPORT EditContext final : public EventTargetWithInlineData,
   ui::TextInputAction enter_key_hint_ = ui::TextInputAction::kEnter;
   EditContextInputPanelPolicy input_panel_policy_ =
       EditContextInputPanelPolicy::kManual;
-  WebRect control_bounds_;
-  WebRect selection_bounds_;
+  gfx::Rect control_bounds_;
+  gfx::Rect selection_bounds_;
   // This flag is set when the input method controller receives a
   // composition event from the IME. It keeps track of the start and
   // end composition events and fires JS events accordingly.

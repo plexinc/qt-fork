@@ -29,17 +29,13 @@
     \module QtGui
     \title Qt GUI C++ Classes
     \ingroup modules
+    \qtcmakepackage Gui
     \qtvariable gui
 
     \brief The Qt GUI module provides the basic enablers for graphical
     applications written with Qt.
 
-    The Qt GUI module provides classes for windowing system
-    integration, event handling, OpenGL and OpenGL ES integration,
-    Vulkan integration, 2D graphics, imaging, fonts and typography.
-    These classes are used internally by Qt's user interface technologies
-    and can also be used directly, for instance to write applications using
-    low-level OpenGL ES graphics APIs.
+    The \l{Qt GUI} page contains information about how to use the module.
 */
 
 /*!
@@ -62,7 +58,7 @@
     \include module-use.qdocinc using qt module
     \quotefile overview/using-qt-gui.cmake
 
-    See also the \l{Build with CMake} overview.
+    See also the \l {Build with CMake} overview.
 
     \section2 Building with qmake
 
@@ -112,8 +108,6 @@
     and font handling, classes like QRawFont and QGlyphRun can be
     used.
 
-
-
     \section1 OpenGL and OpenGL ES Integration
 
     QWindow supports rendering using OpenGL and OpenGL ES, depending
@@ -152,7 +146,7 @@
     For more information, see the \l {OpenGL Window Example}.
 
     The Qt GUI module also contains a few math classes to aid with the
-    most common mathmatical operations related to 3D graphics. These
+    most common mathematical operations related to 3D graphics. These
     classes include \l {QMatrix4x4}, \l {QVector4D} and \l {QQuaternion}
 
     A \l {QWindow} created with the \l {QSurface::OpenGLSurface} can
@@ -164,8 +158,8 @@
 
     \section1 Vulkan Integration
 
-    Qt 5.10 added support for \l {Vulkan}. This requires
-    the presence of the \l{LunarG Vulkan SDK}.
+    Qt GUI has support for the \l {Vulkan} API. Qt applications require the
+    presence of the \l{LunarG Vulkan SDK}.
 
     On Windows, the SDK sets the environment variable \c {VULKAN_SDK},
     which will be detected by the \c {configure} script.
@@ -189,14 +183,18 @@
 
     \section1 Drag and Drop
 
-    More info in \l{Drag and Drop}
+    Qt GUI includes support for drag and drop. The \l{Drag and Drop} overview
+    has more information.
+
+    \section1 Module Evolution
+    \l{Changes to Qt GUI} lists important changes in the module API
+    and functionality that were done for the Qt 6 series of Qt.
 
     \section1 Licenses and Attributions
 
     Qt GUI is available under commercial licenses from \l{The Qt Company}.
-    In addition, it is available under free software licenses. Since Qt 5.4,
-    these free software licenses are
-    \l{GNU Lesser General Public License, version 3}, or
+    In addition, it is available under free software licenses:
+    The \l{GNU Lesser General Public License, version 3}, or
     the \l{GNU General Public License, version 2}.
     See \l{Qt Licensing} for further details.
 

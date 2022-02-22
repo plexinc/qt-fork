@@ -23,7 +23,8 @@ typedef base::OnceCallback<void(DriveApiErrorCode error,
 // this type of closure. If it is called during the request is in-flight, the
 // callback passed with the request is invoked with DRIVE_CANCELLED. If the
 // request is already finished, nothing happens.
-typedef base::Closure CancelCallback;
+typedef base::OnceClosure CancelCallbackOnce;
+typedef base::RepeatingClosure CancelCallbackRepeating;
 
 }  // namespace google_apis
 

@@ -8,29 +8,30 @@
 #include <memory>
 #include <vector>
 
+#include "absl/strings/string_view.h"
 #include "url/gurl.h"
 #include "url/origin.h"
-#include "net/third_party/quiche/src/quic/core/crypto/quic_crypto_client_config.h"
-#include "net/third_party/quiche/src/quic/core/crypto/quic_crypto_server_config.h"
-#include "net/third_party/quiche/src/quic/core/quic_buffer_allocator.h"
-#include "net/third_party/quiche/src/quic/core/quic_connection.h"
-#include "net/third_party/quiche/src/quic/core/quic_error_codes.h"
-#include "net/third_party/quiche/src/quic/core/quic_types.h"
-#include "net/third_party/quiche/src/quic/core/quic_versions.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/quic_transport/quic_transport_client_session.h"
-#include "net/third_party/quiche/src/quic/quic_transport/quic_transport_server_session.h"
-#include "net/third_party/quiche/src/quic/quic_transport/quic_transport_stream.h"
-#include "net/third_party/quiche/src/quic/test_tools/crypto_test_utils.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_transport_test_tools.h"
-#include "net/third_party/quiche/src/quic/test_tools/simulator/link.h"
-#include "net/third_party/quiche/src/quic/test_tools/simulator/quic_endpoint_base.h"
-#include "net/third_party/quiche/src/quic/test_tools/simulator/simulator.h"
-#include "net/third_party/quiche/src/quic/test_tools/simulator/switch.h"
-#include "net/third_party/quiche/src/quic/tools/quic_transport_simple_server_session.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "quic/core/crypto/quic_crypto_client_config.h"
+#include "quic/core/crypto/quic_crypto_server_config.h"
+#include "quic/core/quic_buffer_allocator.h"
+#include "quic/core/quic_connection.h"
+#include "quic/core/quic_error_codes.h"
+#include "quic/core/quic_types.h"
+#include "quic/core/quic_versions.h"
+#include "quic/platform/api/quic_flags.h"
+#include "quic/platform/api/quic_test.h"
+#include "quic/quic_transport/quic_transport_client_session.h"
+#include "quic/quic_transport/quic_transport_server_session.h"
+#include "quic/quic_transport/quic_transport_stream.h"
+#include "quic/test_tools/crypto_test_utils.h"
+#include "quic/test_tools/quic_session_peer.h"
+#include "quic/test_tools/quic_test_utils.h"
+#include "quic/test_tools/quic_transport_test_tools.h"
+#include "quic/test_tools/simulator/link.h"
+#include "quic/test_tools/simulator/quic_endpoint_base.h"
+#include "quic/test_tools/simulator/simulator.h"
+#include "quic/test_tools/simulator/switch.h"
+#include "quic/tools/quic_transport_simple_server_session.h"
 
 namespace quic {
 namespace test {
@@ -61,8 +62,9 @@ class QuicTransportEndpointBase : public QuicEndpointBase {
       : QuicEndpointBase(simulator, name, peer_name) {
     QuicEnableVersion(DefaultVersionForQuicTransport());
     connection_ = std::make_unique<QuicConnection>(
-        TestConnectionId(0x10), simulator::GetAddressFromName(peer_name),
-        simulator, simulator->GetAlarmFactory(), &writer_,
+        TestConnectionId(0x10), simulator::GetAddressFromName(name),
+        simulator::GetAddressFromName(peer_name), simulator,
+        simulator->GetAlarmFactory(), &writer_,
         /*owns_writer=*/false, perspective, GetVersions());
     connection_->SetSelfAddress(simulator::GetAddressFromName(name));
   }
@@ -88,7 +90,8 @@ class QuicTransportClientEndpoint : public QuicTransportEndpointBase {
                  GURL("quic-transport://test.example.com:50000" + path),
                  &crypto_config_,
                  origin,
-                 &visitor_) {
+                 &visitor_,
+                 /*datagram_observer=*/nullptr) {
     session_.Initialize();
   }
 
@@ -254,7 +257,8 @@ TEST_F(QuicTransportIntegrationTest, SendOutgoingStreams) {
   }
   ASSERT_TRUE(simulator_.RunUntilOrTimeout(
       [this]() {
-        return server_->session()->GetNumOpenIncomingStreams() == 10;
+        return QuicSessionPeer::GetNumOpenDynamicStreams(server_->session()) ==
+               10;
       },
       kDefaultTimeout));
 
@@ -262,7 +266,10 @@ TEST_F(QuicTransportIntegrationTest, SendOutgoingStreams) {
     ASSERT_TRUE(stream->SendFin());
   }
   ASSERT_TRUE(simulator_.RunUntilOrTimeout(
-      [this]() { return server_->session()->GetNumOpenIncomingStreams() == 0; },
+      [this]() {
+        return QuicSessionPeer::GetNumOpenDynamicStreams(server_->session()) ==
+               0;
+      },
       kDefaultTimeout));
 }
 
@@ -284,7 +291,10 @@ TEST_F(QuicTransportIntegrationTest, EchoBidirectionalStreams) {
 
   EXPECT_TRUE(stream->SendFin());
   ASSERT_TRUE(simulator_.RunUntilOrTimeout(
-      [this]() { return server_->session()->GetNumOpenIncomingStreams() == 0; },
+      [this]() {
+        return QuicSessionPeer::GetNumOpenDynamicStreams(server_->session()) ==
+               0;
+      },
       kDefaultTimeout));
 }
 
@@ -368,7 +378,7 @@ TEST_F(QuicTransportIntegrationTest, EchoALotOfDatagrams) {
   size_t received = 0;
   EXPECT_CALL(*client_->visitor(), OnDatagramReceived(_))
       .WillRepeatedly(
-          [&received](quiche::QuicheStringPiece /*datagram*/) { received++; });
+          [&received](absl::string_view /*datagram*/) { received++; });
   ASSERT_TRUE(simulator_.RunUntilOrTimeout(
       [this]() { return client_->session()->datagram_queue()->empty(); },
       3 * kServerBandwidth.TransferTime(1000 * kMaxOutgoingPacketSize)));

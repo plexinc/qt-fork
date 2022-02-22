@@ -44,8 +44,9 @@
 #include "gl_context_qt.h"
 #include "ozone/gl_surface_egl_qt.h"
 
-#if !defined(OS_MACOSX)
+#if !defined(OS_MAC)
 #include "ui/gl/egl_util.h"
+#include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_surface_egl.h"
 #include "ui/gl/init/gl_factory.h"
 
@@ -57,7 +58,7 @@
 
 using ui::GetLastEGLErrorString;
 
-namespace gl{
+namespace gl {
 
 bool GLSurfaceEGLQt::g_egl_surfaceless_context_supported = false;
 bool GLSurfaceEGLQt::s_initialized = false;
@@ -92,6 +93,7 @@ bool GLSurfaceEGLQt::InitializeOneOff()
         return false;
     }
 
+    g_client_extensions = eglQueryString(EGL_NO_DISPLAY, EGL_EXTENSIONS);
     g_extensions = eglQueryString(g_display, EGL_EXTENSIONS);
     g_egl_surfaceless_context_supported = ExtensionsContain(g_extensions, "EGL_KHR_surfaceless_context");
     if (g_egl_surfaceless_context_supported) {
@@ -181,19 +183,50 @@ bool GLSurfaceEGL::IsANGLEFeatureControlSupported()
     return false;
 }
 
+bool GLSurfaceEGL::IsANGLEPowerPreferenceSupported()
+{
+    return false;
+}
+
+bool GLSurfaceEGL::IsANGLEExternalContextAndSurfaceSupported()
+{
+    return false;
+}
+
+bool GLSurfaceEGL::IsDisplaySemaphoreShareGroupSupported()
+{
+    return false;
+}
+
+bool GLSurfaceEGL::IsRobustnessVideoMemoryPurgeSupported()
+{
+    return false;
+}
+
 void GLSurfaceEGL::ShutdownOneOff()
 {
 }
 
-const char* GLSurfaceEGL::GetEGLExtensions()
+const char *GLSurfaceEGL::GetEGLClientExtensions()
+{
+    return GLSurfaceQt::g_client_extensions;
+}
+
+const char *GLSurfaceEGL::GetEGLExtensions()
 {
     return GLSurfaceQt::g_extensions;
 }
 
-bool GLSurfaceEGL::HasEGLExtension(const char* name)
+bool GLSurfaceEGL::HasEGLClientExtension(const char *name)
+{
+    return ExtensionsContain(GetEGLClientExtensions(), name);
+}
+
+bool GLSurfaceEGL::HasEGLExtension(const char *name)
 {
     return ExtensionsContain(GetEGLExtensions(), name);
 }
+
 bool GLSurfaceEGL::InitializeOneOff(gl::EGLDisplayPlatform /*native_display*/)
 {
     return GLSurfaceEGLQt::InitializeOneOff();
@@ -340,4 +373,4 @@ std::string DriverEGL::GetPlatformExtensions()
     return "";
 }
 } // namespace gl
-#endif // !defined(OS_MACOSX)
+#endif // !defined(OS_MAC)

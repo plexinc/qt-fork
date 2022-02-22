@@ -18,8 +18,8 @@
 #include "utils/SystemUtils.h"
 #include "utils/WGPUHelpers.h"
 
-#include <cstdlib>
 #include <cstdio>
+#include <cstdlib>
 #include <vector>
 
 wgpu::Device device;
@@ -50,9 +50,9 @@ static std::vector<ShaderData> shaderData;
 void init() {
     device = CreateCppDawnDevice();
 
-    queue = device.CreateQueue();
+    queue = device.GetQueue();
     swapchain = GetSwapChain(device);
-    swapchain.Configure(GetPreferredSwapChainTextureFormat(), wgpu::TextureUsage::OutputAttachment,
+    swapchain.Configure(GetPreferredSwapChainTextureFormat(), wgpu::TextureUsage::RenderAttachment,
                         640, 480);
 
     wgpu::ShaderModule vsModule =
@@ -103,13 +103,13 @@ void init() {
             gl_Position = vec4(xpos, ypos, 0.0, 1.0);
         })");
 
-    wgpu::ShaderModule fsModule =
-        utils::CreateShaderModule(device, utils::SingleShaderStage::Fragment, R"(
-        #version 450
-        layout(location = 0) out vec4 fragColor;
-        layout(location = 0) in vec4 v_color;
-        void main() {
-            fragColor = v_color;
+    wgpu::ShaderModule fsModule = utils::CreateShaderModuleFromWGSL(device, R"(
+        [[location(0)]] var<out> FragColor : vec4<f32>;
+        [[location(0)]] var<in> v_color : vec4<f32>;
+
+        [[stage(fragment)]] fn main() -> void {
+            FragColor = v_color;
+            return;
         })");
 
     wgpu::BindGroupLayout bgl = utils::MakeBindGroupLayout(
@@ -138,8 +138,7 @@ void init() {
     bufferDesc.usage = wgpu::BufferUsage::CopyDst | wgpu::BufferUsage::Uniform;
     ubo = device.CreateBuffer(&bufferDesc);
 
-    bindGroup =
-        utils::MakeBindGroup(device, bgl, {{0, ubo, 0, sizeof(ShaderData)}});
+    bindGroup = utils::MakeBindGroup(device, bgl, {{0, ubo, 0, sizeof(ShaderData)}});
 }
 
 void frame() {
@@ -150,7 +149,7 @@ void frame() {
     for (auto& data : shaderData) {
         data.time = f / 60.0f;
     }
-    ubo.SetSubData(0, kNumTriangles * sizeof(ShaderData), shaderData.data());
+    queue.WriteBuffer(ubo, 0, shaderData.data(), kNumTriangles * sizeof(ShaderData));
 
     utils::ComboRenderPassDescriptor renderPass({backbufferView});
     wgpu::CommandEncoder encoder = device.CreateCommandEncoder();

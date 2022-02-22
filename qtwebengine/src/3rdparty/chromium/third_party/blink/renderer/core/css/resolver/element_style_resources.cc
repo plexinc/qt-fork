@@ -24,7 +24,9 @@
 #include "third_party/blink/renderer/core/css/resolver/element_style_resources.h"
 
 #include "third_party/blink/renderer/core/css/css_gradient_value.h"
+#include "third_party/blink/renderer/core/css/css_image_set_value.h"
 #include "third_party/blink/renderer/core/css/css_image_value.h"
+#include "third_party/blink/renderer/core/css/css_paint_value.h"
 #include "third_party/blink/renderer/core/css/css_property_names.h"
 #include "third_party/blink/renderer/core/css/css_uri_value.h"
 #include "third_party/blink/renderer/core/dom/document.h"
@@ -55,7 +57,7 @@ namespace blink {
 ElementStyleResources::ElementStyleResources(Element& element,
                                              float device_scale_factor,
                                              PseudoElement* pseudo_element)
-    : element_(&element),
+    : element_(element),
       device_scale_factor_(device_scale_factor),
       pseudo_element_(pseudo_element) {}
 
@@ -100,39 +102,59 @@ StyleImage* ElementStyleResources::CachedOrPendingFromValue(
     pending_image_properties_.insert(property);
     return MakeGarbageCollected<StylePendingImage>(value);
   }
-  value.RestoreCachedResourceIfNeeded(element_->GetDocument());
+  value.RestoreCachedResourceIfNeeded(element_.GetDocument());
   return value.CachedImage();
 }
 
+static bool AllowExternalResources(CSSPropertyID property) {
+  return property == CSSPropertyID::kBackdropFilter ||
+         property == CSSPropertyID::kFilter;
+}
+
 SVGResource* ElementStyleResources::GetSVGResourceFromValue(
-    TreeScope& tree_scope,
-    const cssvalue::CSSURIValue& value,
-    AllowExternal allow_external) const {
-  if (value.IsLocal(element_->GetDocument())) {
+    CSSPropertyID property,
+    const cssvalue::CSSURIValue& value) {
+  if (value.IsLocal(element_.GetDocument())) {
     SVGTreeScopeResources& tree_scope_resources =
-        tree_scope.EnsureSVGTreeScopedResources();
+        element_.OriginatingTreeScope().EnsureSVGTreeScopedResources();
     AtomicString decoded_fragment(DecodeURLEscapeSequences(
         value.FragmentIdentifier(), DecodeURLMode::kUTF8OrIsomorphic));
     return tree_scope_resources.ResourceForId(decoded_fragment);
   }
-  if (allow_external == kAllowExternalResource)
+  if (AllowExternalResources(property)) {
+    pending_svg_resource_properties_.insert(property);
     return value.EnsureResourceReference();
+  }
   return nullptr;
 }
 
-void ElementStyleResources::LoadPendingSVGResources(
-    ComputedStyle* computed_style) {
-  if (!computed_style->HasFilter())
-    return;
-  FilterOperations::FilterOperationVector& filter_operations =
-      computed_style->MutableFilter().Operations();
+static void LoadResourcesForFilter(
+    FilterOperations::FilterOperationVector& filter_operations,
+    Document& document) {
   for (const auto& filter_operation : filter_operations) {
     auto* reference_operation =
         DynamicTo<ReferenceFilterOperation>(filter_operation.Get());
     if (!reference_operation)
       continue;
     if (SVGResource* resource = reference_operation->Resource())
-      resource->Load(element_->GetDocument());
+      resource->Load(document);
+  }
+}
+
+void ElementStyleResources::LoadPendingSVGResources(ComputedStyle& style) {
+  Document& document = element_.GetDocument();
+  for (CSSPropertyID property : pending_svg_resource_properties_) {
+    switch (property) {
+      case CSSPropertyID::kBackdropFilter:
+        LoadResourcesForFilter(style.MutableBackdropFilter().Operations(),
+                               document);
+        break;
+      case CSSPropertyID::kFilter:
+        LoadResourcesForFilter(style.MutableFilter().Operations(), document);
+        break;
+      default:
+        NOTREACHED();
+    }
   }
 }
 
@@ -147,38 +169,43 @@ static bool BackgroundLayerMayBeSprite(const FillLayer& background_layer) {
 }
 
 StyleImage* ElementStyleResources::LoadPendingImage(
-    ComputedStyle* style,
-    StylePendingImage* pending_image,
-    FetchParameters::ImageRequestOptimization image_request_optimization,
+    ComputedStyle& style,
+    CSSValue& value,
+    FetchParameters::ImageRequestBehavior image_request_behavior,
     CrossOriginAttributeValue cross_origin) {
-  if (CSSImageValue* image_value = pending_image->CssImageValue()) {
-    return image_value->CacheImage(element_->GetDocument(),
-                                   image_request_optimization, cross_origin);
+  if (auto* image_value = DynamicTo<CSSImageValue>(value)) {
+    return image_value->CacheImage(element_.GetDocument(),
+                                   image_request_behavior, cross_origin);
   }
 
-  if (CSSPaintValue* paint_value = pending_image->CssPaintValue()) {
+  if (auto* paint_value = DynamicTo<CSSPaintValue>(value)) {
     auto* image = MakeGarbageCollected<StyleGeneratedImage>(*paint_value);
-    style->AddPaintImage(image);
+    style.AddPaintImage(image);
     return image;
   }
 
-  if (CSSImageGeneratorValue* image_generator_value =
-          pending_image->CssImageGeneratorValue()) {
-    image_generator_value->LoadSubimages(element_->GetDocument());
+  if (auto* image_generator_value = DynamicTo<CSSImageGeneratorValue>(value)) {
+    image_generator_value->LoadSubimages(element_.GetDocument());
     return MakeGarbageCollected<StyleGeneratedImage>(*image_generator_value);
   }
 
-  if (CSSImageSetValue* image_set_value = pending_image->CssImageSetValue()) {
-    return image_set_value->CacheImage(
-        element_->GetDocument(), device_scale_factor_,
-        image_request_optimization, cross_origin);
+  if (auto* image_set_value = DynamicTo<CSSImageSetValue>(value)) {
+    return image_set_value->CacheImage(element_.GetDocument(),
+                                       device_scale_factor_,
+                                       image_request_behavior, cross_origin);
   }
 
   NOTREACHED();
   return nullptr;
 }
 
-void ElementStyleResources::LoadPendingImages(ComputedStyle* style) {
+static CSSValue* PendingCssValue(StyleImage* style_image) {
+  if (auto* pending_image = DynamicTo<StylePendingImage>(style_image))
+    return pending_image->CssValue();
+  return nullptr;
+}
+
+void ElementStyleResources::LoadPendingImages(ComputedStyle& style) {
   // We must loop over the properties and then look at the style to see if
   // a pending image exists, and only load that image. For example:
   //
@@ -200,28 +227,25 @@ void ElementStyleResources::LoadPendingImages(ComputedStyle* style) {
   for (CSSPropertyID property : pending_image_properties_) {
     switch (property) {
       case CSSPropertyID::kBackgroundImage: {
-        for (FillLayer* background_layer = &style->AccessBackgroundLayers();
+        for (FillLayer* background_layer = &style.AccessBackgroundLayers();
              background_layer; background_layer = background_layer->Next()) {
-          StyleImage* background_image = background_layer->GetImage();
-          if (background_image && background_image->IsPendingImage()) {
-            FetchParameters::ImageRequestOptimization
-                image_request_optimization = FetchParameters::kNone;
+          if (auto* pending_value =
+                  PendingCssValue(background_layer->GetImage())) {
+            FetchParameters::ImageRequestBehavior image_request_behavior =
+                FetchParameters::kNone;
             if (!BackgroundLayerMayBeSprite(*background_layer)) {
-              if (element_->GetDocument()
+              if (element_.GetDocument()
                       .GetFrame()
                       ->GetLazyLoadImageSetting() ==
                   LocalFrame::LazyLoadImageSetting::kEnabledAutomatic) {
-                image_request_optimization = FetchParameters::kDeferImageLoad;
-              } else {
-                image_request_optimization = FetchParameters::kAllowPlaceholder;
+                image_request_behavior = FetchParameters::kDeferImageLoad;
               }
             }
             StyleImage* new_image =
-                LoadPendingImage(style, To<StylePendingImage>(background_image),
-                                 image_request_optimization);
+                LoadPendingImage(style, *pending_value, image_request_behavior);
             if (new_image && new_image->IsLazyloadPossiblyDeferred()) {
               LazyImageHelper::StartMonitoring(pseudo_element_ ? pseudo_element_
-                                                               : element_);
+                                                               : &element_);
             }
             background_layer->SetImage(new_image);
           }
@@ -230,64 +254,42 @@ void ElementStyleResources::LoadPendingImages(ComputedStyle* style) {
       }
       case CSSPropertyID::kContent: {
         for (ContentData* content_data =
-                 const_cast<ContentData*>(style->GetContentData());
+                 const_cast<ContentData*>(style.GetContentData());
              content_data; content_data = content_data->Next()) {
-          if (content_data->IsImage()) {
-            StyleImage* image = To<ImageContentData>(content_data)->GetImage();
-            if (image->IsPendingImage()) {
-              To<ImageContentData>(content_data)
-                  ->SetImage(
-                      LoadPendingImage(style, To<StylePendingImage>(image),
-                                       FetchParameters::kAllowPlaceholder));
+          if (auto* image_content =
+                  DynamicTo<ImageContentData>(*content_data)) {
+            if (auto* pending_value =
+                    PendingCssValue(image_content->GetImage())) {
+              image_content->SetImage(LoadPendingImage(style, *pending_value));
             }
           }
         }
         break;
       }
       case CSSPropertyID::kCursor: {
-        if (CursorList* cursor_list = style->Cursors()) {
-          for (wtf_size_t i = 0; i < cursor_list->size(); ++i) {
-            CursorData& current_cursor = cursor_list->at(i);
-            if (StyleImage* image = current_cursor.GetImage()) {
-              if (image->IsPendingImage()) {
-                // cursor images shouldn't be replaced with placeholders
-                current_cursor.SetImage(
-                    LoadPendingImage(style, To<StylePendingImage>(image),
-                                     FetchParameters::kNone));
-              }
-            }
+        if (CursorList* cursor_list = style.Cursors()) {
+          for (CursorData& cursor : *cursor_list) {
+            if (auto* pending_value = PendingCssValue(cursor.GetImage()))
+              cursor.SetImage(LoadPendingImage(style, *pending_value));
           }
         }
         break;
       }
       case CSSPropertyID::kListStyleImage: {
-        if (style->ListStyleImage() &&
-            style->ListStyleImage()->IsPendingImage()) {
-          // List style images shouldn't be replaced with placeholders
-          style->SetListStyleImage(LoadPendingImage(
-              style, To<StylePendingImage>(style->ListStyleImage()),
-              FetchParameters::kNone));
-        }
+        if (auto* pending_value = PendingCssValue(style.ListStyleImage()))
+          style.SetListStyleImage(LoadPendingImage(style, *pending_value));
         break;
       }
       case CSSPropertyID::kBorderImageSource: {
-        if (style->BorderImageSource() &&
-            style->BorderImageSource()->IsPendingImage()) {
-          // Border images shouldn't be replaced with placeholders
-          style->SetBorderImageSource(LoadPendingImage(
-              style, To<StylePendingImage>(style->BorderImageSource()),
-              FetchParameters::kNone));
-        }
+        if (auto* pending_value = PendingCssValue(style.BorderImageSource()))
+          style.SetBorderImageSource(LoadPendingImage(style, *pending_value));
         break;
       }
       case CSSPropertyID::kWebkitBoxReflect: {
-        if (StyleReflection* reflection = style->BoxReflect()) {
+        if (StyleReflection* reflection = style.BoxReflect()) {
           const NinePieceImage& mask_image = reflection->Mask();
-          if (mask_image.GetImage() &&
-              mask_image.GetImage()->IsPendingImage()) {
-            StyleImage* loaded_image = LoadPendingImage(
-                style, To<StylePendingImage>(mask_image.GetImage()),
-                FetchParameters::kAllowPlaceholder);
+          if (auto* pending_value = PendingCssValue(mask_image.GetImage())) {
+            StyleImage* loaded_image = LoadPendingImage(style, *pending_value);
             reflection->SetMask(NinePieceImage(
                 loaded_image, mask_image.ImageSlices(), mask_image.Fill(),
                 mask_image.BorderSlices(), mask_image.Outset(),
@@ -297,34 +299,28 @@ void ElementStyleResources::LoadPendingImages(ComputedStyle* style) {
         break;
       }
       case CSSPropertyID::kWebkitMaskBoxImageSource: {
-        if (style->MaskBoxImageSource() &&
-            style->MaskBoxImageSource()->IsPendingImage()) {
-          style->SetMaskBoxImageSource(LoadPendingImage(
-              style, To<StylePendingImage>(style->MaskBoxImageSource()),
-              FetchParameters::kAllowPlaceholder));
-        }
+        if (auto* pending_value = PendingCssValue(style.MaskBoxImageSource()))
+          style.SetMaskBoxImageSource(LoadPendingImage(style, *pending_value));
         break;
       }
       case CSSPropertyID::kWebkitMaskImage: {
-        for (FillLayer* mask_layer = &style->AccessMaskLayers(); mask_layer;
+        for (FillLayer* mask_layer = &style.AccessMaskLayers(); mask_layer;
              mask_layer = mask_layer->Next()) {
-          if (mask_layer->GetImage() &&
-              mask_layer->GetImage()->IsPendingImage()) {
-            mask_layer->SetImage(LoadPendingImage(
-                style, To<StylePendingImage>(mask_layer->GetImage()),
-                FetchParameters::kAllowPlaceholder,
-                kCrossOriginAttributeAnonymous));
+          if (auto* pending_value = PendingCssValue(mask_layer->GetImage())) {
+            mask_layer->SetImage(
+                LoadPendingImage(style, *pending_value, FetchParameters::kNone,
+                                 kCrossOriginAttributeAnonymous));
           }
         }
         break;
       }
       case CSSPropertyID::kShapeOutside:
-        if (style->ShapeOutside() && style->ShapeOutside()->GetImage() &&
-            style->ShapeOutside()->GetImage()->IsPendingImage()) {
-          style->ShapeOutside()->SetImage(LoadPendingImage(
-              style, To<StylePendingImage>(style->ShapeOutside()->GetImage()),
-              FetchParameters::kAllowPlaceholder,
-              kCrossOriginAttributeAnonymous));
+        if (ShapeValue* shape_value = style.ShapeOutside()) {
+          if (auto* pending_value = PendingCssValue(shape_value->GetImage())) {
+            shape_value->SetImage(
+                LoadPendingImage(style, *pending_value, FetchParameters::kNone,
+                                 kCrossOriginAttributeAnonymous));
+          }
         }
         break;
       default:
@@ -334,7 +330,7 @@ void ElementStyleResources::LoadPendingImages(ComputedStyle* style) {
 }
 
 void ElementStyleResources::LoadPendingResources(
-    ComputedStyle* computed_style) {
+    ComputedStyle& computed_style) {
   LoadPendingImages(computed_style);
   LoadPendingSVGResources(computed_style);
 }

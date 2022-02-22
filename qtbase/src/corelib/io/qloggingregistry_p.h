@@ -53,11 +53,11 @@
 
 #include <QtCore/private/qglobal_p.h>
 #include <QtCore/qloggingcategory.h>
+#include <QtCore/qlist.h>
 #include <QtCore/qmap.h>
 #include <QtCore/qmutex.h>
 #include <QtCore/qstring.h>
 #include <QtCore/qtextstream.h>
-#include <QtCore/qvector.h>
 
 class tst_QLoggingRegistry;
 
@@ -74,7 +74,7 @@ public:
         FullText = 0x1,
         LeftFilter = 0x2,
         RightFilter = 0x4,
-        MidFilter = LeftFilter |  RightFilter
+        MidFilter = LeftFilter | RightFilter
     };
     Q_DECLARE_FLAGS(PatternFlags, PatternFlag)
 
@@ -88,7 +88,7 @@ private:
 };
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(QLoggingRule::PatternFlags)
-Q_DECLARE_TYPEINFO(QLoggingRule, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QLoggingRule, Q_RELOCATABLE_TYPE);
 
 class Q_AUTOTEST_EXPORT QLoggingSettingsParser
 {
@@ -98,14 +98,14 @@ public:
     void setContent(const QString &content);
     void setContent(QTextStream &stream);
 
-    QVector<QLoggingRule> rules() const { return _rules; }
+    QList<QLoggingRule> rules() const { return _rules; }
 
 private:
     void parseNextLine(QStringView line);
 
 private:
     bool m_inRulesSection = false;
-    QVector<QLoggingRule> _rules;
+    QList<QLoggingRule> _rules;
 };
 
 class Q_AUTOTEST_EXPORT QLoggingRegistry
@@ -143,8 +143,8 @@ private:
     QMutex registryMutex;
 
     // protected by mutex:
-    QVector<QLoggingRule> ruleSets[NumRuleSets];
-    QHash<QLoggingCategory*,QtMsgType> categories;
+    QList<QLoggingRule> ruleSets[NumRuleSets];
+    QHash<QLoggingCategory *, QtMsgType> categories;
     QLoggingCategory::CategoryFilter categoryFilter;
 
     friend class ::tst_QLoggingRegistry;

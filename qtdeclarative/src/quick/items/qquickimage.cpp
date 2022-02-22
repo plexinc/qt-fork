@@ -115,19 +115,33 @@ QQuickImagePrivate::QQuickImagePrivate()
 
     \clearfloat
 
-    \section1 OpenGL Texture Files
+    \section1 Compressed Texture Files
 
-    When the default OpenGL \l{Qt Quick Scene Graph}{scene graph} backend is in
-    use, images can also be supplied in compressed texture files. The content
-    must be a simple RGB(A) format 2D texture. Supported compression schemes
-    are only limited by the underlying OpenGL driver and GPU. The following
-    container file formats are supported:
+    When supported by the implementation of the underlying graphics API at run
+    time, images can also be supplied in compressed texture files. The content
+    must be a simple RGB(A) format 2D texture. Supported compression schemes are
+    only limited by the underlying driver and GPU. The following container file
+    formats are supported:
 
     \list
     \li \c PKM (since Qt 5.10)
     \li \c KTX (since Qt 5.11)
     \li \c ASTC (since Qt 5.13)
     \endlist
+
+    \note The intended vertical orientation of an image in a texture file is not generally well
+    defined. Different texture compression tools have different defaults and options of when to
+    perform vertical flipping of the input image. If an image from a texture file appears upside
+    down, flipping may need to be toggled in the asset conditioning process. Alternatively, the
+    Image element itself can be flipped by either applying a suitable transformation via the
+    transform property or, more conveniently, by setting the mirrorVertically property:
+    \badcode
+    transform: [ Translate { y: -myImage.height }, Scale { yScale: -1 } ]
+    \endcode
+    or
+    \badcode
+    mirrorVertically: true
+    \endcode
 
     \note Semi-transparent original images require alpha pre-multiplication
     prior to texture compression in order to be correctly displayed in Qt
@@ -144,10 +158,10 @@ QQuickImagePrivate::QQuickImagePrivate()
     file can be found by appending any of the supported image file extensions
     to the \l source URL, then that file will be loaded.
 
-    If the OpenGL \l{Qt Quick Scene Graph}{scene graph} backend is in use, the
-    file search the attempts the OpenGL texture file extensions first. If the
-    search is unsuccessful, it attempts to search with the file extensions for
-    the \l{QImageReader::supportedImageFormats()}{conventional image file
+    The file search attempts to look for compressed texture container file
+    extensions first. If the search is unsuccessful, it attempts to search with
+    the file extensions for the
+    \l{QImageReader::supportedImageFormats()}{conventional image file
     types}. For example:
 
     \snippet qml/image-ext.qml ext
@@ -343,9 +357,9 @@ void QQuickImage::setFillMode(FillMode mode)
 }
 
 /*!
-
     \qmlproperty real QtQuick::Image::paintedWidth
     \qmlproperty real QtQuick::Image::paintedHeight
+    \readonly
 
     These properties hold the size of the image that is actually painted.
     In most cases it is the same as \c width and \c height, but when using an
@@ -367,6 +381,7 @@ qreal QQuickImage::paintedHeight() const
 
 /*!
     \qmlproperty enumeration QtQuick::Image::status
+    \readonly
 
     This property holds the status of image loading.  It can be one of:
     \list
@@ -404,6 +419,7 @@ qreal QQuickImage::paintedHeight() const
 
 /*!
     \qmlproperty real QtQuick::Image::progress
+    \readonly
 
     This property holds the progress of image loading, from 0.0 (nothing loaded)
     to 1.0 (finished).
@@ -425,7 +441,7 @@ qreal QQuickImage::paintedHeight() const
 */
 
 /*!
-    \qmlproperty QSize QtQuick::Image::sourceSize
+    \qmlproperty size QtQuick::Image::sourceSize
 
     This property holds the scaled width and height of the full-frame image.
 
@@ -532,7 +548,7 @@ qreal QQuickImage::paintedHeight() const
 
     The URL may be absolute, or relative to the URL of the component.
 
-    \sa QQuickImageProvider {OpenGL Texture Files} {Automatic Detection of File Extension}
+    \sa QQuickImageProvider, {Compressed Texture Files}, {Automatic Detection of File Extension}
 */
 
 /*!
@@ -565,6 +581,17 @@ qreal QQuickImage::paintedHeight() const
     (effectively displaying a mirrored image).
 
     The default value is false.
+*/
+
+/*!
+    \qmlproperty bool QtQuick::Image::mirrorVertically
+
+    This property holds whether the image should be vertically inverted
+    (effectively displaying a mirrored image).
+
+    The default value is false.
+
+    \since 6.2
 */
 
 /*!
@@ -628,9 +655,9 @@ void QQuickImage::updatePaintedGeometry()
     emit paintedGeometryChanged();
 }
 
-void QQuickImage::geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry)
+void QQuickImage::geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry)
 {
-    QQuickImageBase::geometryChanged(newGeometry, oldGeometry);
+    QQuickImageBase::geometryChange(newGeometry, oldGeometry);
     if (newGeometry.size() != oldGeometry.size())
         updatePaintedGeometry();
 }
@@ -827,7 +854,7 @@ QSGNode *QQuickImage::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     node->setTargetRect(targetRect);
     node->setInnerTargetRect(targetRect);
     node->setSubSourceRect(nsrect);
-    node->setMirror(d->mirror);
+    node->setMirror(d->mirrorHorizontally, d->mirrorVertically);
     node->setAntialiasing(d->antialiasing);
     node->update();
 

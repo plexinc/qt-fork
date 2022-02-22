@@ -27,14 +27,16 @@
 **
 ****************************************************************************/
 
+
 #ifndef QAREALEGENDMARKER_H
 #define QAREALEGENDMARKER_H
 
 #include <QtCharts/QChartGlobal>
+#if QT_CONFIG(charts_area_chart)
 #include <QtCharts/QLegendMarker>
 #include <QtCharts/QAreaSeries>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class QAreaLegendMarkerPrivate;
 
@@ -46,10 +48,10 @@ public:
     explicit QAreaLegendMarker(QAreaSeries *series, QLegend *legend, QObject *parent = nullptr);
     virtual ~QAreaLegendMarker();
 
-    virtual LegendMarkerType type() { return LegendMarkerTypeArea; }
+    LegendMarkerType type() override { return LegendMarkerTypeArea; }
 
     // Related series
-    virtual QAreaSeries* series();
+    QAreaSeries* series() override;
 
 protected:
     QAreaLegendMarker(QAreaLegendMarkerPrivate &d, QObject *parent = nullptr);
@@ -60,6 +62,7 @@ private:
 
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
+#endif // QT_CONFIG(charts_area_chart)
 #endif // QAREALEGENDMARKER_H

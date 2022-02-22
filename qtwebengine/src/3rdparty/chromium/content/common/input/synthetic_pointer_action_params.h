@@ -5,20 +5,19 @@
 #ifndef CONTENT_COMMON_INPUT_SYNTHETIC_POINTER_ACTION_PARAMS_H_
 #define CONTENT_COMMON_INPUT_SYNTHETIC_POINTER_ACTION_PARAMS_H_
 
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "content/common/content_export.h"
 #include "content/common/content_param_traits_macros.h"
 #include "content/common/input/synthetic_gesture_params.h"
-#include "content/common/input/synthetic_web_input_event_builders.h"
+#include "third_party/blink/public/common/input/web_mouse_event.h"
 #include "third_party/blink/public/common/input/web_touch_event.h"
 #include "ui/gfx/geometry/point_f.h"
 
-namespace ipc_fuzzer {
-template <class T>
-struct FuzzTraits;
-}  // namespace ipc_fuzzer
-
 namespace content {
+
+namespace mojom {
+class SyntheticPointerActionParamsDataView;
+}  // namespace mojom
 
 // It contains all the parameters to create the synthetic events of touch,
 // mouse and pen inputs in SyntheticPointerAction::ForwardInputEvents function.
@@ -168,8 +167,9 @@ struct CONTENT_EXPORT SyntheticPointerActionParams {
       unsigned modifiers);
 
  private:
-  friend struct IPC::ParamTraits<content::SyntheticPointerActionParams>;
-  friend struct ipc_fuzzer::FuzzTraits<content::SyntheticPointerActionParams>;
+  friend struct mojo::StructTraits<
+      content::mojom::SyntheticPointerActionParamsDataView,
+      content::SyntheticPointerActionParams>;
 
   PointerActionType pointer_action_type_ = PointerActionType::NOT_INITIALIZED;
   // The position of the pointer, where it presses or moves to.

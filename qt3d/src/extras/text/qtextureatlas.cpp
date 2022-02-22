@@ -71,7 +71,7 @@ void QTextureAtlasData::addImage(const AtlasTexture &texture, const QImage &imag
 QByteArray QTextureAtlasData::createUpdatedImageData()
 {
     m_mutex.lock();
-    const QVector<Update> updates = std::move(m_updates);
+    const QList<Update> updates = std::move(m_updates);
     m_mutex.unlock();
 
     // copy sub-images into the actual texture image
@@ -175,7 +175,7 @@ Qt3DRender::QTextureDataPtr QTextureAtlasGenerator::operator()()
 
 bool QTextureAtlasGenerator::operator==(const QTextureGenerator &other) const
 {
-    const QTextureAtlasGenerator *otherFunctor = Qt3DRender::functor_cast<QTextureAtlasGenerator>(&other);
+    const QTextureAtlasGenerator *otherFunctor = Qt3DCore::functor_cast<QTextureAtlasGenerator>(&other);
     return (otherFunctor != nullptr
             && otherFunctor->m_data == m_data
             && otherFunctor->m_atlasId == m_atlasId

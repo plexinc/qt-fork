@@ -4,6 +4,7 @@
 
 #include <string>
 
+#include "base/files/file_util.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_restrictions.h"
@@ -26,6 +27,7 @@
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
 #include "components/sync_preferences/pref_service_syncable.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/download_test_observer.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
@@ -242,7 +244,7 @@ IN_PROC_BROWSER_TEST_F(PrefsFunctionalTest, TestPrivacySecurityPrefs) {
 
 // Verify that we have some Local State prefs.
 IN_PROC_BROWSER_TEST_F(PrefsFunctionalTest, TestHaveLocalStatePrefs) {
-  EXPECT_TRUE(g_browser_process->local_state()
-                  ->GetPreferenceValues(PrefService::INCLUDE_DEFAULTS)
-                  .get());
+  base::Value prefs = g_browser_process->local_state()->GetPreferenceValues(
+      PrefService::INCLUDE_DEFAULTS);
+  EXPECT_TRUE(prefs.is_dict());
 }

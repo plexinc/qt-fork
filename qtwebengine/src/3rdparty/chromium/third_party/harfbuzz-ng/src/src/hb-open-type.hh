@@ -80,14 +80,21 @@ struct IntType
 
     return pb->cmp (*pa);
   }
-  template <typename Type2>
+  template <typename Type2,
+	    hb_enable_if (hb_is_integral (Type2) &&
+			  sizeof (Type2) < sizeof (int) &&
+			  sizeof (Type) < sizeof (int))>
   int cmp (Type2 a) const
   {
     Type b = v;
-    if (sizeof (Type) < sizeof (int) && sizeof (Type2) < sizeof (int))
-      return (int) a - (int) b;
-    else
-      return a < b ? -1 : a == b ? 0 : +1;
+    return (int) a - (int) b;
+  }
+  template <typename Type2,
+	    hb_enable_if (hb_is_convertible (Type2, Type))>
+  int cmp (Type2 a) const
+  {
+    Type b = v;
+    return a < b ? -1 : a == b ? 0 : +1;
   }
   bool sanitize (hb_sanitize_context_t *c) const
   {
@@ -433,8 +440,6 @@ struct UnsizedArrayOf
   { return hb_array (arrayZ, len); }
   hb_array_t<const Type> as_array (unsigned int len) const
   { return hb_array (arrayZ, len); }
-  operator hb_array_t<      Type> ()       { return as_array (); }
-  operator hb_array_t<const Type> () const { return as_array (); }
 
   template <typename T>
   Type &lsearch (unsigned int len, const T &x, Type &not_found = Crap (Type))
@@ -442,6 +447,9 @@ struct UnsizedArrayOf
   template <typename T>
   const Type &lsearch (unsigned int len, const T &x, const Type &not_found = Null (Type)) const
   { return *as_array (len).lsearch (x, &not_found); }
+  template <typename T>
+  bool lfind (unsigned int len, const T &x, unsigned *pos = nullptr) const
+  { return as_array (len).lfind (x, pos); }
 
   void qsort (unsigned int len, unsigned int start = 0, unsigned int end = (unsigned int) -1)
   { as_array (len).qsort (start, end); }
@@ -549,8 +557,8 @@ struct SortedUnsizedArrayOf : UnsizedArrayOf<Type>
   { return *as_array (len).bsearch (x, &not_found); }
   template <typename T>
   bool bfind (unsigned int len, const T &x, unsigned int *i = nullptr,
-		     hb_bfind_not_found_t not_found = HB_BFIND_NOT_FOUND_DONT_STORE,
-		     unsigned int to_store = (unsigned int) -1) const
+	      hb_bfind_not_found_t not_found = HB_BFIND_NOT_FOUND_DONT_STORE,
+	      unsigned int to_store = (unsigned int) -1) const
   { return as_array (len).bfind (x, i, not_found, to_store); }
 };
 
@@ -604,7 +612,7 @@ struct ArrayOf
   hb_array_t<Type> sub_array (unsigned int start_offset, unsigned int *count = nullptr /* IN/OUT */)
   { return as_array ().sub_array (start_offset, count); }
 
-  bool serialize (hb_serialize_context_t *c, unsigned int items_len)
+  hb_success_t serialize (hb_serialize_context_t *c, unsigned items_len)
   {
     TRACE_SERIALIZE (this);
     if (unlikely (!c->extend_min (*this))) return_trace (false);
@@ -614,7 +622,7 @@ struct ArrayOf
   }
   template <typename Iterator,
 	    hb_requires (hb_is_source_of (Iterator, Type))>
-  bool serialize (hb_serialize_context_t *c, Iterator items)
+  hb_success_t serialize (hb_serialize_context_t *c, Iterator items)
   {
     TRACE_SERIALIZE (this);
     unsigned count = items.len ();
@@ -667,6 +675,9 @@ struct ArrayOf
   template <typename T>
   const Type &lsearch (const T &x, const Type &not_found = Null (Type)) const
   { return *as_array ().lsearch (x, &not_found); }
+  template <typename T>
+  bool lfind (const T &x, unsigned *pos = nullptr) const
+  { return as_array ().lfind (x, pos); }
 
   void qsort (unsigned int start = 0, unsigned int end = (unsigned int) -1)
   { as_array ().qsort (start, end); }

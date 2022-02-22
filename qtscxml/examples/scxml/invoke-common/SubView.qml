@@ -48,7 +48,7 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.5
+import QtQuick
 
 Item {
     // "anywhere" is a context property, so we always have to check if it's null

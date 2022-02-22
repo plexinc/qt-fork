@@ -352,43 +352,6 @@ TEST(STLUtilTest, ConstCastIterator) {
   RunConstCastIteratorTest<std::unordered_multiset<int>>();
 }
 
-TEST(STLUtilTest, STLIsSorted) {
-  {
-    std::set<int> set;
-    set.insert(24);
-    set.insert(1);
-    set.insert(12);
-    EXPECT_TRUE(STLIsSorted(set));
-  }
-
-  {
-    std::set<ComparableValue> set;
-    set.insert(ComparableValue(24));
-    set.insert(ComparableValue(1));
-    set.insert(ComparableValue(12));
-    EXPECT_TRUE(STLIsSorted(set));
-  }
-
-  {
-    std::vector<int> vector;
-    vector.push_back(1);
-    vector.push_back(1);
-    vector.push_back(4);
-    vector.push_back(64);
-    vector.push_back(12432);
-    EXPECT_TRUE(STLIsSorted(vector));
-    vector.back() = 1;
-    EXPECT_FALSE(STLIsSorted(vector));
-  }
-
-  {
-    int array[] = {1, 1, 4, 64, 12432};
-    EXPECT_TRUE(STLIsSorted(array));
-    array[4] = 1;
-    EXPECT_FALSE(STLIsSorted(array));
-  }
-}
-
 TEST(STLUtilTest, STLSetDifference) {
   std::set<int> a1;
   a1.insert(1);
@@ -540,30 +503,6 @@ TEST(STLUtilTest, STLSetIntersection) {
   }
 }
 
-TEST(STLUtilTest, STLIncludes) {
-  std::set<int> a1;
-  a1.insert(1);
-  a1.insert(2);
-  a1.insert(3);
-  a1.insert(4);
-
-  std::set<int> a2;
-  a2.insert(3);
-  a2.insert(4);
-
-  std::set<int> a3;
-  a3.insert(3);
-  a3.insert(4);
-  a3.insert(5);
-
-  EXPECT_TRUE(STLIncludes<std::set<int> >(a1, a2));
-  EXPECT_FALSE(STLIncludes<std::set<int> >(a1, a3));
-  EXPECT_FALSE(STLIncludes<std::set<int> >(a2, a1));
-  EXPECT_FALSE(STLIncludes<std::set<int> >(a2, a3));
-  EXPECT_FALSE(STLIncludes<std::set<int> >(a3, a1));
-  EXPECT_TRUE(STLIncludes<std::set<int> >(a3, a2));
-}
-
 TEST(Erase, String) {
   const std::pair<std::string, std::string> test_data[] = {
       {"", ""}, {"abc", "bc"}, {"abca", "bc"},
@@ -664,41 +603,6 @@ TEST(Erase, IsNotIn) {
   std::vector<int> expected = {2, 2, 4, 6};
   EXPECT_EQ(5u, EraseIf(lhs, IsNotIn<std::vector<int>>(rhs)));
   EXPECT_EQ(expected, lhs);
-}
-
-TEST(STLUtilTest, GenericContains) {
-  const char allowed_chars[] = {'a', 'b', 'c', 'd'};
-
-  EXPECT_TRUE(Contains(allowed_chars, 'a'));
-  EXPECT_FALSE(Contains(allowed_chars, 'z'));
-  EXPECT_FALSE(Contains(allowed_chars, 0));
-
-  const char allowed_chars_including_nul[] = "abcd";
-  EXPECT_TRUE(Contains(allowed_chars_including_nul, 0));
-}
-
-TEST(STLUtilTest, ContainsWithFindAndNpos) {
-  std::string str = "abcd";
-
-  EXPECT_TRUE(Contains(str, 'a'));
-  EXPECT_FALSE(Contains(str, 'z'));
-  EXPECT_FALSE(Contains(str, 0));
-}
-
-TEST(STLUtilTest, ContainsWithFindAndEnd) {
-  std::set<int> set = {1, 2, 3, 4};
-
-  EXPECT_TRUE(Contains(set, 1));
-  EXPECT_FALSE(Contains(set, 5));
-  EXPECT_FALSE(Contains(set, 0));
-}
-
-TEST(STLUtilTest, ContainsWithContains) {
-  flat_set<int> set = {1, 2, 3, 4};
-
-  EXPECT_TRUE(Contains(set, 1));
-  EXPECT_FALSE(Contains(set, 5));
-  EXPECT_FALSE(Contains(set, 0));
 }
 
 TEST(STLUtilTest, InsertOrAssign) {

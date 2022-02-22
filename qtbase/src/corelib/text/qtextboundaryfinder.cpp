@@ -43,33 +43,10 @@
 
 QT_BEGIN_NAMESPACE
 
-class QTextBoundaryFinderPrivate
+static void init(QTextBoundaryFinder::BoundaryType type, QStringView str, QCharAttributes *attributes)
 {
-public:
-    QCharAttributes attributes[1];
-};
-
-static void init(QTextBoundaryFinder::BoundaryType type, const QChar *chars, int length, QCharAttributes *attributes)
-{
-    const ushort *string = reinterpret_cast<const ushort *>(chars);
-
-    QVarLengthArray<QUnicodeTools::ScriptItem> scriptItems;
-    {
-        QVarLengthArray<uchar> scripts(length);
-
-        QUnicodeTools::initScripts(string, length, scripts.data());
-
-        int start = 0;
-        for (int i = start + 1; i <= length; ++i) {
-            if (i == length || scripts[i] != scripts[start]) {
-                QUnicodeTools::ScriptItem item;
-                item.position = start;
-                item.script = scripts[start];
-                scriptItems.append(item);
-                start = i;
-            }
-        }
-    }
+    QUnicodeTools::ScriptItemArray scriptItems;
+    QUnicodeTools::initScripts(str, &scriptItems);
 
     QUnicodeTools::CharAttributeOptions options;
     switch (type) {
@@ -79,7 +56,7 @@ static void init(QTextBoundaryFinder::BoundaryType type, const QChar *chars, int
     case QTextBoundaryFinder::Line: options |= QUnicodeTools::LineBreaks; break;
     default: break;
     }
-    QUnicodeTools::initCharAttributes(string, length, scriptItems.data(), scriptItems.count(), attributes, options);
+    QUnicodeTools::initCharAttributes(str, scriptItems.data(), scriptItems.count(), attributes, options);
 }
 
 /*!
@@ -96,8 +73,8 @@ static void init(QTextBoundaryFinder::BoundaryType type, const QChar *chars, int
 
     QTextBoundaryFinder allows to find Unicode text boundaries in a
     string, accordingly to the Unicode text boundary specification (see
-    \l{http://www.unicode.org/reports/tr14/}{Unicode Standard Annex #14} and
-    \l{http://www.unicode.org/reports/tr29/}{Unicode Standard Annex #29}).
+    \l{https://www.unicode.org/reports/tr14/}{Unicode Standard Annex #14} and
+    \l{https://www.unicode.org/reports/tr29/}{Unicode Standard Annex #29}).
 
     QTextBoundaryFinder can operate on a QString in four possible
     modes depending on the value of \a BoundaryType.
@@ -108,17 +85,17 @@ static void init(QTextBoundaryFinder::BoundaryType type, const QChar *chars, int
     for example form one grapheme cluster as the user thinks of them
     as one character, yet it is in this case represented by two
     unicode code points
-    (see \l{http://www.unicode.org/reports/tr29/#Grapheme_Cluster_Boundaries}).
+    (see \l{https://www.unicode.org/reports/tr29/#Grapheme_Cluster_Boundaries}).
 
     Word boundaries are there to locate the start and end of what a
     language considers to be a word
-    (see \l{http://www.unicode.org/reports/tr29/#Word_Boundaries}).
+    (see \l{https://www.unicode.org/reports/tr29/#Word_Boundaries}).
 
     Line break boundaries give possible places where a line break
     might happen and sentence boundaries will show the beginning and
     end of whole sentences
-    (see \l{http://www.unicode.org/reports/tr29/#Sentence_Boundaries} and
-    \l{http://www.unicode.org/reports/tr14/}).
+    (see \l{https://www.unicode.org/reports/tr29/#Sentence_Boundaries} and
+    \l{https://www.unicode.org/reports/tr14/}).
 
     The first position in a string is always a valid boundary and
     refers to the position before the first character. The last
@@ -160,11 +137,7 @@ static void init(QTextBoundaryFinder::BoundaryType type, const QChar *chars, int
   Constructs an invalid QTextBoundaryFinder object.
 */
 QTextBoundaryFinder::QTextBoundaryFinder()
-    : t(Grapheme)
-    , chars(nullptr)
-    , length(0)
-    , freePrivate(true)
-    , d(nullptr)
+    : freeBuffer(true)
 {
 }
 
@@ -174,17 +147,15 @@ QTextBoundaryFinder::QTextBoundaryFinder()
 QTextBoundaryFinder::QTextBoundaryFinder(const QTextBoundaryFinder &other)
     : t(other.t)
     , s(other.s)
-    , chars(other.chars)
-    , length(other.length)
+    , sv(other.sv)
     , pos(other.pos)
-    , freePrivate(true)
-    , d(nullptr)
+    , freeBuffer(true)
 {
-    if (other.d) {
-        Q_ASSERT(length > 0);
-        d = (QTextBoundaryFinderPrivate *) malloc((length + 1) * sizeof(QCharAttributes));
-        Q_CHECK_PTR(d);
-        memcpy(d, other.d, (length + 1) * sizeof(QCharAttributes));
+    if (other.attributes) {
+        Q_ASSERT(sv.size() > 0);
+        attributes = (QCharAttributes *) malloc((sv.size() + 1) * sizeof(QCharAttributes));
+        Q_CHECK_PTR(attributes);
+        memcpy(attributes, other.attributes, (sv.size() + 1) * sizeof(QCharAttributes));
     }
 }
 
@@ -196,27 +167,26 @@ QTextBoundaryFinder &QTextBoundaryFinder::operator=(const QTextBoundaryFinder &o
     if (&other == this)
         return *this;
 
-    if (other.d) {
-        Q_ASSERT(other.length > 0);
-        uint newCapacity = (other.length + 1) * sizeof(QCharAttributes);
-        QTextBoundaryFinderPrivate *newD = (QTextBoundaryFinderPrivate *) realloc(freePrivate ? d : nullptr, newCapacity);
+    if (other.attributes) {
+        Q_ASSERT(other.sv.size() > 0);
+        size_t newCapacity = (size_t(other.sv.size()) + 1) * sizeof(QCharAttributes);
+        QCharAttributes *newD = (QCharAttributes *) realloc(freeBuffer ? attributes : nullptr, newCapacity);
         Q_CHECK_PTR(newD);
-        freePrivate = true;
-        d = newD;
+        freeBuffer = true;
+        attributes = newD;
     }
 
     t = other.t;
     s = other.s;
-    chars = other.chars;
-    length = other.length;
+    sv = other.sv;
     pos = other.pos;
 
-    if (other.d) {
-        memcpy(d, other.d, (length + 1) * sizeof(QCharAttributes));
+    if (other.attributes) {
+        memcpy(attributes, other.attributes, (sv.size() + 1) * sizeof(QCharAttributes));
     } else {
-        if (freePrivate)
-            free(d);
-        d = nullptr;
+        if (freeBuffer)
+            free(attributes);
+        attributes = nullptr;
     }
 
     return *this;
@@ -228,8 +198,8 @@ QTextBoundaryFinder &QTextBoundaryFinder::operator=(const QTextBoundaryFinder &o
 QTextBoundaryFinder::~QTextBoundaryFinder()
 {
     Q_UNUSED(unused);
-    if (freePrivate)
-        free(d);
+    if (freeBuffer)
+        free(attributes);
 }
 
 /*!
@@ -238,52 +208,55 @@ QTextBoundaryFinder::~QTextBoundaryFinder()
 QTextBoundaryFinder::QTextBoundaryFinder(BoundaryType type, const QString &string)
     : t(type)
     , s(string)
-    , chars(string.unicode())
-    , length(string.length())
+    , sv(s)
     , pos(0)
-    , freePrivate(true)
-    , d(nullptr)
+    , freeBuffer(true)
+    , attributes(nullptr)
 {
-    if (length > 0) {
-        d = (QTextBoundaryFinderPrivate *) malloc((length + 1) * sizeof(QCharAttributes));
-        Q_CHECK_PTR(d);
-        init(t, chars, length, d->attributes);
+    if (sv.size() > 0) {
+        attributes = (QCharAttributes *) malloc((sv.size() + 1) * sizeof(QCharAttributes));
+        Q_CHECK_PTR(attributes);
+        init(t, sv, attributes);
     }
 }
 
 /*!
-  Creates a QTextBoundaryFinder object of \a type operating on \a chars
-  with \a length.
+  \fn QTextBoundaryFinder::QTextBoundaryFinder(BoundaryType type, const QChar *chars, qsizetype length, unsigned char *buffer, qsizetype bufferSize)
+  \overload
+
+  The same as QTextBoundaryFinder(type, QStringView(chars, length), buffer, bufferSize).
+*/
+
+/*!
+  Creates a QTextBoundaryFinder object of \a type operating on \a string.
+  \since 6.0
 
   \a buffer is an optional working buffer of size \a bufferSize you can pass to
   the QTextBoundaryFinder. If the buffer is large enough to hold the working
   data required (bufferSize >= length + 1), it will use this
   instead of allocating its own buffer.
 
-  \warning QTextBoundaryFinder does not create a copy of \a chars. It is the
+  \warning QTextBoundaryFinder does not create a copy of \a string. It is the
   application programmer's responsibility to ensure the array is allocated for
   as long as the QTextBoundaryFinder object stays alive. The same applies to
   \a buffer.
 */
-QTextBoundaryFinder::QTextBoundaryFinder(BoundaryType type, const QChar *chars, int length, unsigned char *buffer, int bufferSize)
+QTextBoundaryFinder::QTextBoundaryFinder(BoundaryType type, QStringView string, unsigned char *buffer, qsizetype bufferSize)
     : t(type)
-    , chars(chars)
-    , length(length)
+    , sv(string)
     , pos(0)
-    , freePrivate(true)
-    , d(nullptr)
+    , freeBuffer(true)
+    , attributes(nullptr)
 {
-    if (!chars) {
-        length = 0;
-    } else if (length > 0) {
-        if (buffer && (uint)bufferSize >= (length + 1) * sizeof(QCharAttributes)) {
-            d = (QTextBoundaryFinderPrivate *)buffer;
-            freePrivate = false;
+    if (!sv.isEmpty()) {
+        if (buffer && (uint)bufferSize >= (sv.size() + 1) * sizeof(QCharAttributes)) {
+            attributes = reinterpret_cast<QCharAttributes *>(buffer);
+            freeBuffer = false;
         } else {
-            d = (QTextBoundaryFinderPrivate *) malloc((length + 1) * sizeof(QCharAttributes));
-            Q_CHECK_PTR(d);
+            attributes = (QCharAttributes *) malloc((sv.size() + 1) * sizeof(QCharAttributes));
+            Q_CHECK_PTR(attributes);
         }
-        init(t, chars, length, d->attributes);
+        init(t, sv, attributes);
     }
 }
 
@@ -304,7 +277,7 @@ void QTextBoundaryFinder::toStart()
 */
 void QTextBoundaryFinder::toEnd()
 {
-    pos = length;
+    pos = sv.size();
 }
 
 /*!
@@ -315,7 +288,7 @@ void QTextBoundaryFinder::toEnd()
 
   \sa setPosition()
 */
-int QTextBoundaryFinder::position() const
+qsizetype QTextBoundaryFinder::position() const
 {
     return pos;
 }
@@ -329,9 +302,9 @@ int QTextBoundaryFinder::position() const
 
   \sa position()
 */
-void QTextBoundaryFinder::setPosition(int position)
+void QTextBoundaryFinder::setPosition(qsizetype position)
 {
-    pos = qBound(0, position, length);
+    pos = qBound(0, position, sv.size());
 }
 
 /*! \fn QTextBoundaryFinder::BoundaryType QTextBoundaryFinder::type() const
@@ -350,9 +323,9 @@ void QTextBoundaryFinder::setPosition(int position)
 */
 QString QTextBoundaryFinder::string() const
 {
-    if (chars == s.unicode() && length == s.length())
+    if (sv.data() == s.unicode() && sv.size() == s.size())
         return s;
-    return QString(chars, length);
+    return sv.toString();
 }
 
 
@@ -361,9 +334,9 @@ QString QTextBoundaryFinder::string() const
 
   Returns -1 if there is no next boundary.
 */
-int QTextBoundaryFinder::toNextBoundary()
+qsizetype QTextBoundaryFinder::toNextBoundary()
 {
-    if (!d || pos < 0 || pos >= length) {
+    if (!attributes || pos < 0 || pos >= sv.size()) {
         pos = -1;
         return pos;
     }
@@ -371,19 +344,19 @@ int QTextBoundaryFinder::toNextBoundary()
     ++pos;
     switch(t) {
     case Grapheme:
-        while (pos < length && !d->attributes[pos].graphemeBoundary)
+        while (pos < sv.size() && !attributes[pos].graphemeBoundary)
             ++pos;
         break;
     case Word:
-        while (pos < length && !d->attributes[pos].wordBreak)
+        while (pos < sv.size() && !attributes[pos].wordBreak)
             ++pos;
         break;
     case Sentence:
-        while (pos < length && !d->attributes[pos].sentenceBoundary)
+        while (pos < sv.size() && !attributes[pos].sentenceBoundary)
             ++pos;
         break;
     case Line:
-        while (pos < length && !d->attributes[pos].lineBreak)
+        while (pos < sv.size() && !attributes[pos].lineBreak)
             ++pos;
         break;
     }
@@ -396,9 +369,9 @@ int QTextBoundaryFinder::toNextBoundary()
 
   Returns -1 if there is no previous boundary.
 */
-int QTextBoundaryFinder::toPreviousBoundary()
+qsizetype QTextBoundaryFinder::toPreviousBoundary()
 {
-    if (!d || pos <= 0 || pos > length) {
+    if (!attributes || pos <= 0 || pos > sv.size()) {
         pos = -1;
         return pos;
     }
@@ -406,19 +379,19 @@ int QTextBoundaryFinder::toPreviousBoundary()
     --pos;
     switch(t) {
     case Grapheme:
-        while (pos > 0 && !d->attributes[pos].graphemeBoundary)
+        while (pos > 0 && !attributes[pos].graphemeBoundary)
             --pos;
         break;
     case Word:
-        while (pos > 0 && !d->attributes[pos].wordBreak)
+        while (pos > 0 && !attributes[pos].wordBreak)
             --pos;
         break;
     case Sentence:
-        while (pos > 0 && !d->attributes[pos].sentenceBoundary)
+        while (pos > 0 && !attributes[pos].sentenceBoundary)
             --pos;
         break;
     case Line:
-        while (pos > 0 && !d->attributes[pos].lineBreak)
+        while (pos > 0 && !attributes[pos].lineBreak)
             --pos;
         break;
     }
@@ -431,19 +404,19 @@ int QTextBoundaryFinder::toPreviousBoundary()
 */
 bool QTextBoundaryFinder::isAtBoundary() const
 {
-    if (!d || pos < 0 || pos > length)
+    if (!attributes || pos < 0 || pos > sv.size())
         return false;
 
     switch(t) {
     case Grapheme:
-        return d->attributes[pos].graphemeBoundary;
+        return attributes[pos].graphemeBoundary;
     case Word:
-        return d->attributes[pos].wordBreak;
+        return attributes[pos].wordBreak;
     case Sentence:
-        return d->attributes[pos].sentenceBoundary;
+        return attributes[pos].sentenceBoundary;
     case Line:
         // ### TR#14 LB2 prohibits break at sot
-        return d->attributes[pos].lineBreak || pos == 0;
+        return attributes[pos].lineBreak || pos == 0;
     }
     return false;
 }
@@ -454,17 +427,17 @@ bool QTextBoundaryFinder::isAtBoundary() const
 QTextBoundaryFinder::BoundaryReasons QTextBoundaryFinder::boundaryReasons() const
 {
     BoundaryReasons reasons = NotAtBoundary;
-    if (!d || pos < 0 || pos > length)
+    if (!attributes || pos < 0 || pos > sv.size())
         return reasons;
 
-    const QCharAttributes attr = d->attributes[pos];
+    const QCharAttributes attr = attributes[pos];
     switch (t) {
     case Grapheme:
         if (attr.graphemeBoundary) {
             reasons |= BreakOpportunity | StartOfItem | EndOfItem;
             if (pos == 0)
                 reasons &= (~EndOfItem);
-            else if (pos == length)
+            else if (pos == sv.size())
                 reasons &= (~StartOfItem);
         }
         break;
@@ -482,7 +455,7 @@ QTextBoundaryFinder::BoundaryReasons QTextBoundaryFinder::boundaryReasons() cons
             reasons |= BreakOpportunity | StartOfItem | EndOfItem;
             if (pos == 0)
                 reasons &= (~EndOfItem);
-            else if (pos == length)
+            else if (pos == sv.size())
                 reasons &= (~StartOfItem);
         }
         break;
@@ -494,9 +467,9 @@ QTextBoundaryFinder::BoundaryReasons QTextBoundaryFinder::boundaryReasons() cons
                 reasons |= MandatoryBreak | StartOfItem | EndOfItem;
                 if (pos == 0)
                     reasons &= (~EndOfItem);
-                else if (pos == length)
+                else if (pos == sv.size())
                     reasons &= (~StartOfItem);
-            } else if (pos > 0 && chars[pos - 1].unicode() == QChar::SoftHyphen) {
+            } else if (pos > 0 && sv[pos - 1].unicode() == QChar::SoftHyphen) {
                 reasons |= SoftHyphen;
             }
         }

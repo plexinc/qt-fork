@@ -360,11 +360,7 @@ QSpacerItem * QSpacerItem::spacerItem()
 
     \sa layout(), spacerItem()
 */
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-QWidget *QLayoutItem::widget()
-#else
 QWidget *QLayoutItem::widget() const
-#endif
 {
     return nullptr;
 }
@@ -372,11 +368,7 @@ QWidget *QLayoutItem::widget() const
 /*!
     Returns the widget managed by this item.
 */
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-QWidget *QWidgetItem::widget()
-#else
 QWidget *QWidgetItem::widget() const
-#endif
 {
     return wid;
 }
@@ -581,6 +573,36 @@ int QWidgetItem::heightForWidth(int w) const
     if (hfw < 0)
         hfw = 0;
     return hfw;
+}
+
+int QWidgetItem::minimumHeightForWidth(int w) const
+{
+    if (isEmpty())
+        return -1;
+
+    w = !wid->testAttribute(Qt::WA_LayoutUsesWidgetRect)
+      ? fromLayoutItemSize(wid->d_func(), QSize(w, 0)).width()
+      : w;
+
+    int hfw;
+    if (wid->layout())
+        hfw = wid->layout()->totalMinimumHeightForWidth(w);
+    else
+        hfw = wid->heightForWidth(w);   // QWidget doesn't have minimumHeightForWidth()
+
+    if (hfw > wid->maximumHeight())
+        hfw = wid->maximumHeight();
+    if (hfw < wid->minimumHeight())
+        hfw = wid->minimumHeight();
+
+    hfw = !wid->testAttribute(Qt::WA_LayoutUsesWidgetRect)
+        ? toLayoutItemSize(wid->d_func(), QSize(0, hfw)).height()
+        : hfw;
+
+    if (hfw < 0)
+        hfw = 0;
+    return hfw;
+
 }
 
 /*!

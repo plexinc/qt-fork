@@ -55,11 +55,11 @@ public:
     ~UiReader() override = default;
 
 private:
-    bool startElement(const QStringRef &namespaceURI, const QStringRef &localName,
-                      const QStringRef &qName, const QXmlStreamAttributes &atts) override;
-    bool endElement(const QStringRef &namespaceURI, const QStringRef &localName,
-                    const QStringRef &qName) override;
-    bool characters(const QStringRef &ch) override;
+    bool startElement(QStringView namespaceURI, QStringView localName,
+                      QStringView qName, const QXmlStreamAttributes &atts) override;
+    bool endElement(QStringView namespaceURI, QStringView localName,
+                    QStringView qName) override;
+    bool characters(QStringView ch) override;
     bool fatalError(qint64 line, qint64 column, const QString &message) override;
 
     void flush();
@@ -80,8 +80,8 @@ private:
     bool m_idBasedTranslations;
 };
 
-bool UiReader::startElement(const QStringRef &namespaceURI, const QStringRef &localName,
-                            const QStringRef &qName, const QXmlStreamAttributes &atts)
+bool UiReader::startElement(QStringView namespaceURI, QStringView localName,
+                            QStringView qName, const QXmlStreamAttributes &atts)
 {
     Q_UNUSED(namespaceURI);
     Q_UNUSED(localName);
@@ -103,8 +103,8 @@ bool UiReader::startElement(const QStringRef &namespaceURI, const QStringRef &lo
     return true;
 }
 
-bool UiReader::endElement(const QStringRef &namespaceURI, const QStringRef &localName,
-                          const QStringRef &qName)
+bool UiReader::endElement(QStringView namespaceURI, QStringView localName,
+                          QStringView qName)
 {
     Q_UNUSED(namespaceURI);
     Q_UNUSED(localName);
@@ -127,7 +127,7 @@ bool UiReader::endElement(const QStringRef &namespaceURI, const QStringRef &loca
     return true;
 }
 
-bool UiReader::characters(const QStringRef &ch)
+bool UiReader::characters(QStringView ch)
 {
     m_accum += ch.toString();
     return true;
@@ -135,7 +135,7 @@ bool UiReader::characters(const QStringRef &ch)
 
 bool UiReader::fatalError(qint64 line, qint64 column, const QString &message)
 {
-    QString msg = LU::tr("XML error: Parse error at line %1, column %2 (%3).")
+    QString msg = QStringLiteral("XML error: Parse error at line %1, column %2 (%3).")
                           .arg(line)
                           .arg(column)
                           .arg(message);
@@ -182,7 +182,7 @@ bool loadUI(Translator &translator, const QString &filename, ConversionData &cd)
     cd.m_sourceFileName = filename;
     QFile file(filename);
     if (!file.open(QIODevice::ReadOnly)) {
-        cd.appendError(LU::tr("Cannot open %1: %2").arg(filename, file.errorString()));
+        cd.appendError(QStringLiteral("Cannot open %1: %2").arg(filename, file.errorString()));
         return false;
     }
 
@@ -192,7 +192,7 @@ bool loadUI(Translator &translator, const QString &filename, ConversionData &cd)
     UiReader uiReader(translator, cd, reader);
     bool result = uiReader.parse();
     if (!result)
-        cd.appendError(LU::tr("Parse error in UI file"));
+        cd.appendError(u"Parse error in UI file"_qs);
     return result;
 }
 

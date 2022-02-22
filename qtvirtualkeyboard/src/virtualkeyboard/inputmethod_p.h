@@ -51,6 +51,7 @@ class QVIRTUALKEYBOARD_EXPORT InputMethod : public QVirtualKeyboardAbstractInput
     Q_OBJECT
     Q_PROPERTY(QVirtualKeyboardInputContext *inputContext READ inputContext CONSTANT)
     Q_PROPERTY(QVirtualKeyboardInputEngine *inputEngine READ inputEngine CONSTANT)
+    Q_MOC_INCLUDE("qvirtualkeyboardinputcontext.h")
 
 public:
     explicit InputMethod(QObject *parent = nullptr);
@@ -79,6 +80,7 @@ public:
 
     void reset() override;
     void update() override;
+    void clearInputMode() override;
 };
 
 } // namespace QtVirtualKeyboard

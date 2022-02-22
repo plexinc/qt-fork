@@ -32,6 +32,8 @@
 
 #include <QtCore/qglobal.h>
 
+QT_BEGIN_NAMESPACE
+
 #define QT_DATAVISUALIZATION_VERSION_STR QT_VERSION_STR
 /*
    QT_DATAVISUALIZATION_VERSION is (major << 16) + (minor << 8) + patch.
@@ -52,12 +54,6 @@
 #  define QT_DATAVISUALIZATION_EXPORT
 #endif
 
-#ifndef Q_CLANG_QDOC
-#define QT_BEGIN_NAMESPACE_DATAVISUALIZATION namespace QtDataVisualization {
-#define QT_END_NAMESPACE_DATAVISUALIZATION }
-#else /* Let documentation be generated with the standard Qt namespace */
-#define QT_BEGIN_NAMESPACE_DATAVISUALIZATION QT_BEGIN_NAMESPACE
-#define QT_END_NAMESPACE_DATAVISUALIZATION QT_END_NAMESPACE
-#endif // Q_CLANG_QDOC
+QT_END_NAMESPACE
 
 #endif

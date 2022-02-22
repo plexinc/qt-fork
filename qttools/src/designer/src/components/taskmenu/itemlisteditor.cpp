@@ -116,12 +116,17 @@ static QStringList c2qStringList(const char * const in[])
     return out;
 }
 
-void AbstractItemEditor::setupProperties(PropertyDefinition *propList)
+void AbstractItemEditor::setupProperties(const PropertyDefinition *propList,
+                                         Qt::Alignment alignDefault)
 {
     for (int i = 0; propList[i].name; i++) {
         int type = propList[i].typeFunc ? propList[i].typeFunc() : propList[i].type;
         int role = propList[i].role;
         QtVariantProperty *prop = m_propertyManager->addProperty(type, QLatin1String(propList[i].name));
+        if (role == Qt::TextAlignmentRole) {
+            prop->setAttribute(DesignerPropertyManager::alignDefaultAttribute(),
+                               QVariant(uint(alignDefault)));
+        }
         Q_ASSERT(prop);
         if (role == Qt::ToolTipPropertyRole || role == Qt::WhatsThisPropertyRole)
             prop->setAttribute(QStringLiteral("validationMode"), ValidationRichText);
@@ -148,9 +153,11 @@ void AbstractItemEditor::setupObject(QWidget *object)
     m_editorFactory->setFormWindowBase(fwb);
 }
 
-void AbstractItemEditor::setupEditor(QWidget *object, PropertyDefinition *propList)
+void AbstractItemEditor::setupEditor(QWidget *object,
+                                     const PropertyDefinition *propList,
+                                     Qt::Alignment alignDefault)
 {
-    setupProperties(propList);
+    setupProperties(propList, alignDefault);
     setupObject(object);
 }
 
@@ -169,7 +176,7 @@ void AbstractItemEditor::propertyChanged(QtProperty *property)
 
     if ((role == ItemFlagsShadowRole && prop->value().toInt() == defaultItemFlags())
         || (role == Qt::DecorationPropertyRole && !qvariant_cast<PropertySheetIconValue>(prop->value()).mask())
-        || (role == Qt::FontRole && !qvariant_cast<QFont>(prop->value()).resolve())) {
+        || (role == Qt::FontRole && !qvariant_cast<QFont>(prop->value()).resolveMask())) {
         prop->setModified(false);
         setItemData(role, QVariant());
     } else {
@@ -208,6 +215,9 @@ void AbstractItemEditor::resetProperty(QtProperty *property)
     if (m_propertyManager->resetIconSubProperty(property))
         return;
 
+    if (m_propertyManager->resetTextAlignmentProperty(property))
+        return;
+
     BoolBlocker block(m_updatingBrowser);
 
     QtVariantProperty *prop = m_propertyManager->variantProperty(property);
@@ -215,7 +225,7 @@ void AbstractItemEditor::resetProperty(QtProperty *property)
     if (role == ItemFlagsShadowRole)
         prop->setValue(QVariant::fromValue(defaultItemFlags()));
     else
-        prop->setValue(QVariant(prop->valueType(), nullptr));
+        prop->setValue(QVariant(QMetaType(prop->valueType()), nullptr));
     prop->setModified(false);
 
     setItemData(role, QVariant());
@@ -243,15 +253,18 @@ void AbstractItemEditor::updateBrowser()
     for (QtVariantProperty *prop : qAsConst(m_properties)) {
         int role = m_propertyToRole.value(prop);
         QVariant val = getItemData(role);
+
+        bool modified = false;
         if (!val.isValid()) {
             if (role == ItemFlagsShadowRole)
                 val = QVariant::fromValue(defaultItemFlags());
             else
-                val = QVariant(int(prop->value().userType()), nullptr);
-            prop->setModified(false);
+                val = QVariant(QMetaType(prop->value().userType()), nullptr);
         } else {
-            prop->setModified(true);
+            modified = role != Qt::TextAlignmentRole
+                || val.toUInt() != DesignerPropertyManager::alignDefault(prop);
         }
+        prop->setModified(modified);
         prop->setValue(val);
     }
 
@@ -296,9 +309,11 @@ ItemListEditor::ItemListEditor(QDesignerFormWindowInterface *form, QWidget *pare
     connect(iconCache(), &DesignerIconCache::reloaded, this, &AbstractItemEditor::cacheReloaded);
 }
 
-void ItemListEditor::setupEditor(QWidget *object, PropertyDefinition *propList)
+void ItemListEditor::setupEditor(QWidget *object,
+                                 const PropertyDefinition *propList,
+                                 Qt::Alignment alignDefault)
 {
-    AbstractItemEditor::setupEditor(object, propList);
+    AbstractItemEditor::setupEditor(object, propList, alignDefault);
 
     if (ui.listWidget->count() > 0)
         ui.listWidget->setCurrentRow(0);
@@ -319,6 +334,8 @@ void ItemListEditor::on_newListItemButton_clicked()
 
     QListWidgetItem *item = new QListWidgetItem(m_newItemText);
     item->setData(Qt::DisplayPropertyRole, QVariant::fromValue(PropertySheetStringValue(m_newItemText)));
+    if (m_alignDefault != 0)
+        item->setTextAlignment(Qt::Alignment(m_alignDefault));
     item->setFlags(item->flags() | Qt::ItemIsEditable);
     if (row < ui.listWidget->count())
         ui.listWidget->insertItem(row, item);
@@ -412,7 +429,7 @@ void ItemListEditor::setItemData(int role, const QVariant &v)
         || role == Qt::FontRole)
             reLayout = true;
     QVariant newValue = v;
-    if (role == Qt::FontRole && newValue.type() == QVariant::Font) {
+    if (role == Qt::FontRole && newValue.metaType().id() == QMetaType::QFont) {
         QFont oldFont = ui.listWidget->font();
         QFont newFont = qvariant_cast<QFont>(newValue).resolve(oldFont);
         newValue = QVariant::fromValue(newFont);
@@ -465,6 +482,16 @@ void ItemListEditor::updateEditor()
         updateBrowser();
     else
         m_propertyBrowser->clear();
+}
+
+uint ItemListEditor::alignDefault() const
+{
+    return m_alignDefault;
+}
+
+void ItemListEditor::setAlignDefault(uint newAlignDefault)
+{
+    m_alignDefault = newAlignDefault;
 }
 } // namespace qdesigner_internal
 

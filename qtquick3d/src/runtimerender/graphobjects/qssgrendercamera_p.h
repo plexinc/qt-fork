@@ -47,7 +47,7 @@
 #include <QtQuick3DRuntimeRender/private/qssgrendernode_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrenderray_p.h>
 
-#include <QtQuick3DRender/private/qssgrenderbasetypes_p.h>
+#include <QtQuick3DUtils/private/qssgrenderbasetypes_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -55,25 +55,6 @@ struct QSSGCameraGlobalCalculationResult
 {
     bool m_wasDirty;
     bool m_computeFrustumSucceeded /* = true */;
-};
-
-struct QSSGCuboidRect
-{
-    float left;
-    float top;
-    float right;
-    float bottom;
-    constexpr QSSGCuboidRect(float l = 0.0f, float t = 0.0f, float r = 0.0f, float b = 0.0f)
-        : left(l), top(t), right(r), bottom(b)
-    {
-    }
-    void translate(QVector2D inTranslation)
-    {
-        left += inTranslation.x();
-        right += inTranslation.x();
-        top += inTranslation.y();
-        bottom += inTranslation.y();
-    }
 };
 
 struct Q_QUICK3DRUNTIMERENDER_EXPORT QSSGRenderCamera : public QSSGRenderNode
@@ -90,6 +71,11 @@ struct Q_QUICK3DRUNTIMERENDER_EXPORT QSSGRenderCamera : public QSSGRenderNode
     float left = 0.0f;
     float right = 0.0f;
 
+    float horizontalMagnification = 1.0f;
+    float verticalMagnification = 1.0f;
+
+    float dpr = 1.0f;
+
     QMatrix4x4 projection;
     // Record some values from creating the projection matrix
     // to use during mouse picking.
@@ -98,7 +84,7 @@ struct Q_QUICK3DRUNTIMERENDER_EXPORT QSSGRenderCamera : public QSSGRenderNode
 
     QRectF previousInViewport;
 
-    QSSGRenderCamera();
+    explicit QSSGRenderCamera(QSSGRenderGraphObject::Type type);
 
     QMatrix3x3 getLookAtMatrix(const QVector3D &inUpDir, const QVector3D &inDirection) const;
     // Set our position, rotation member variables based on the lookat target
@@ -120,20 +106,6 @@ struct Q_QUICK3DRUNTIMERENDER_EXPORT QSSGRenderCamera : public QSSGRenderNode
     bool computeCustomFrustum(const QRectF &inViewport);
 
     void calculateViewProjectionMatrix(QMatrix4x4 &outMatrix) const;
-
-    // If this is an orthographic camera, the cuboid properties are the distance from the center
-    // point
-    // to the left, top, right, and bottom edges of the view frustum in world units.
-    // If this is a perspective camera, the cuboid properties are the FOV angles
-    // (left,top,right,bottom)
-    // of the view frustum.
-
-    // Return a normalized rect that describes the area the camera is rendering to.
-    // This takes into account the various camera properties (scale mode, scale anchor).
-    QSSGCuboidRect getCameraBounds(const QRectF &inViewport) const;
-
-    // Setup a camera VP projection for rendering offscreen.
-    static void setupOrthographicCameraForOffscreenRender(QSSGRenderTexture2D &inTexture, QMatrix4x4 &outVP);
 
     // Unproject a point (x,y) in viewport relative coordinates meaning
     // left, bottom is 0,0 and values are increasing right,up respectively.

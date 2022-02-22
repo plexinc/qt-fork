@@ -51,8 +51,7 @@
 // We mean it.
 //
 
-#include <QtAndroidExtras/QAndroidJniEnvironment>
-#include <QtAndroidExtras/QAndroidJniObject>
+#include <QtCore/QJniObject>
 
 QT_BEGIN_NAMESPACE
 
@@ -65,7 +64,6 @@ enum JavaNames {
     ActionDiscoveryStarted,
     ActionDiscoveryFinished,
     ActionFound,
-    ActionPairingRequest,
     ActionScanModeChanged,
     ActionUuid,
     ExtraBondState,
@@ -77,7 +75,7 @@ enum JavaNames {
     ExtraUuid
 };
 
-QAndroidJniObject valueForStaticField(JavaNames javaName, JavaNames javaFieldName);
+QJniObject valueForStaticField(JavaNames javaName, JavaNames javaFieldName);
 
 QT_END_NAMESPACE
 

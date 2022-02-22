@@ -23,11 +23,16 @@ void ShellAppDelegate::InitWebContents(content::WebContents* web_contents) {
   ShellExtensionWebContentsObserver::CreateForWebContents(web_contents);
 }
 
-void ShellAppDelegate::RenderViewCreated(
-    content::RenderViewHost* render_view_host) {
-  // The views implementation of AppWindow takes focus via SetInitialFocus()
-  // and views::WebView but app_shell is aura-only and must do it manually.
-  content::WebContents::FromRenderViewHost(render_view_host)->Focus();
+void ShellAppDelegate::RenderFrameCreated(
+    content::RenderFrameHost* frame_host) {
+  content::WebContents* contents =
+      content::WebContents::FromRenderFrameHost(frame_host);
+  // Only do this for the initial main frame.
+  if (frame_host == contents->GetMainFrame()) {
+    // The views implementation of AppWindow takes focus via SetInitialFocus()
+    // and views::WebView but app_shell is aura-only and must do it manually.
+    contents->Focus();
+  }
 }
 
 void ShellAppDelegate::ResizeWebContents(content::WebContents* web_contents,
@@ -46,6 +51,7 @@ content::WebContents* ShellAppDelegate::OpenURLFromTab(
 void ShellAppDelegate::AddNewContents(
     content::BrowserContext* context,
     std::unique_ptr<content::WebContents> new_contents,
+    const GURL& target_url,
     WindowOpenDisposition disposition,
     const gfx::Rect& initial_rect,
     bool user_gesture) {
@@ -61,7 +67,7 @@ content::ColorChooser* ShellAppDelegate::ShowColorChooser(
 
 void ShellAppDelegate::RunFileChooser(
     content::RenderFrameHost* render_frame_host,
-    std::unique_ptr<content::FileSelectListener> listener,
+    scoped_refptr<content::FileSelectListener> listener,
     const blink::mojom::FileChooserParams& params) {
   NOTIMPLEMENTED();
   listener->FileSelectionCanceled();

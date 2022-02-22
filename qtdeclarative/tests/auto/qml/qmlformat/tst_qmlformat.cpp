@@ -32,38 +32,23 @@
 #include <QProcess>
 #include <QString>
 #include <QTemporaryDir>
-
-#include <util.h>
+#include <QtTest/private/qemulationdetector_p.h>
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 
 class TestQmlformat: public QQmlDataTest
 {
     Q_OBJECT
 
+public:
+    TestQmlformat();
+
 private Q_SLOTS:
     void initTestCase() override;
 
     void testFormat();
-    void testFormatNoSort();
-    void testAnnotations();
-    void testAnnotationsNoSort();
+    void testFormat_data();
+
     void testLineEndings();
-    void testFrontInline();
-    void testIfBlocks();
-    void testMultilineComments();
-
-    void testReadOnlyProps();
-    void testVerbatimStrings();
-    void testLargeBindings();
-    void testInlineComponents();
-
-    void testQtbug85003();
-
-    void testNestedIf();
-
-    void testNestedFunctions();
-    void testForOf();
-    void testPropertyNames();
-
 #if !defined(QTEST_CROSS_COMPILED) // sources not available when cross compiled
     void testExample();
     void testExample_data();
@@ -71,7 +56,7 @@ private Q_SLOTS:
 
 private:
     QString readTestFile(const QString &path);
-    QString runQmlformat(const QString &fileToFormat, bool sortImports, bool shouldSucceed, const QString &newlineFormat = "native");
+    QString runQmlformat(const QString &fileToFormat, QStringList args, bool shouldSucceed = true);
 
     QString m_qmlformatPath;
     QStringList m_excludedDirs;
@@ -81,10 +66,15 @@ private:
     bool isInvalidFile(const QFileInfo &fileName) const;
 };
 
+TestQmlformat::TestQmlformat()
+    : QQmlDataTest(QT_QMLTEST_DATADIR)
+{
+}
+
 void TestQmlformat::initTestCase()
 {
     QQmlDataTest::initTestCase();
-    m_qmlformatPath = QLibraryInfo::location(QLibraryInfo::BinariesPath) + QLatin1String("/qmlformat");
+    m_qmlformatPath = QLibraryInfo::path(QLibraryInfo::BinariesPath) + QLatin1String("/qmlformat");
 #ifdef Q_OS_WIN
     m_qmlformatPath += QLatin1String(".exe");
 #endif
@@ -119,6 +109,7 @@ void TestQmlformat::initTestCase()
     m_invalidFiles << "tests/auto/qml/qqmllanguage/data/invalidRoot.1.qml";
     m_invalidFiles << "tests/auto/qml/qqmllanguage/data/invalidQmlEnumValue.1.qml";
     m_invalidFiles << "tests/auto/qml/qqmllanguage/data/invalidQmlEnumValue.2.qml";
+    m_invalidFiles << "tests/auto/qml/qqmllanguage/data/questionDotEOF.qml";
     m_invalidFiles << "tests/auto/qml/qquickfolderlistmodel/data/dummy.qml";
     m_invalidFiles << "tests/auto/qml/qqmlecmascript/data/stringParsing_error.1.qml";
     m_invalidFiles << "tests/auto/qml/qqmlecmascript/data/stringParsing_error.2.qml";
@@ -194,115 +185,89 @@ QString TestQmlformat::readTestFile(const QString &path)
     return QString::fromUtf8(file.readAll());
 }
 
-void TestQmlformat::testFormat()
-{
-    QCOMPARE(runQmlformat(testFile("Example1.qml"), true, true), readTestFile("Example1.formatted.qml"));
-}
-
-void TestQmlformat::testFormatNoSort()
-{
-    QCOMPARE(runQmlformat(testFile("Example1.qml"), false, true), readTestFile("Example1.formatted.nosort.qml"));
-}
-
-void TestQmlformat::testAnnotations()
-{
-    QCOMPARE(runQmlformat(testFile("Annotations.qml"), true, true), readTestFile("Annotations.formatted.qml"));
-}
-
-void TestQmlformat::testAnnotationsNoSort()
-{
-    QCOMPARE(runQmlformat(testFile("Annotations.qml"), false, true), readTestFile("Annotations.formatted.nosort.qml"));
-}
-
-void TestQmlformat::testFrontInline()
-{
-    QCOMPARE(runQmlformat(testFile("FrontInline.qml"), false, true), readTestFile("FrontInline.formatted.qml"));
-}
-
-void TestQmlformat::testIfBlocks()
-{
-    QCOMPARE(runQmlformat(testFile("IfBlocks.qml"), false, true), readTestFile("IfBlocks.formatted.qml"));
-}
-
-void TestQmlformat::testMultilineComments()
-{
-    QCOMPARE(runQmlformat(testFile("multilineComment.qml"), false, true), readTestFile("multilineComment.formatted.qml"));
-}
-
-
-void TestQmlformat::testReadOnlyProps()
-{
-    QCOMPARE(runQmlformat(testFile("readOnlyProps.qml"), false, true), readTestFile("readOnlyProps.formatted.qml"));
-}
-
-void TestQmlformat::testVerbatimStrings()
-{
-    QCOMPARE(runQmlformat(testFile("verbatimString.qml"), false, true),
-             readTestFile("verbatimString.formatted.qml"));
-}
-
-void TestQmlformat::testInlineComponents()
-{
-    QCOMPARE(runQmlformat(testFile("inlineComponents.qml"), false, true),
-             readTestFile("inlineComponents.formatted.qml"));
-}
-
-void TestQmlformat::testLargeBindings()
-{
-    QCOMPARE(runQmlformat(testFile("largeBindings.qml"), false, true),
-             readTestFile("largeBindings.formatted.qml"));
-}
-
-void TestQmlformat::testNestedIf()
-{
-    QCOMPARE(runQmlformat(testFile("nestedIf.qml"), false, true),
-             readTestFile("nestedIf.formatted.qml"));
-}
-
 void TestQmlformat::testLineEndings()
 {
     // macos
-    const QString macosContents = runQmlformat(testFile("Example1.formatted.qml"), false, true, "macos");
+    const QString macosContents =
+            runQmlformat(testFile("Example1.formatted.qml"), { "-l", "macos" });
     QVERIFY(!macosContents.contains("\n"));
     QVERIFY(macosContents.contains("\r"));
 
     // windows
-    const QString windowsContents = runQmlformat(testFile("Example1.formatted.qml"), false, true, "windows");
+    const QString windowsContents =
+            runQmlformat(testFile("Example1.formatted.qml"), { "-l", "windows" });
     QVERIFY(windowsContents.contains("\r\n"));
 
     // unix
-    const QString unixContents = runQmlformat(testFile("Example1.formatted.qml"), false, true, "unix");
+    const QString unixContents = runQmlformat(testFile("Example1.formatted.qml"), { "-l", "unix" });
     QVERIFY(unixContents.contains("\n"));
     QVERIFY(!unixContents.contains("\r"));
 }
 
-void TestQmlformat::testQtbug85003()
+void TestQmlformat::testFormat_data()
 {
-    QCOMPARE(runQmlformat(testFile("QtBug85003.qml"), false, true),
-             readTestFile("QtBug85003.formatted.qml"));
+    QTest::addColumn<QString>("file");
+    QTest::addColumn<QString>("fileFormatted");
+    QTest::addColumn<QStringList>("args");
+
+    QTest::newRow("example1")
+            << "Example1.qml"
+            << "Example1.formatted.qml" << QStringList {};
+    QTest::newRow("example1 (tabs)") << "Example1.qml"
+                                     << "Example1.formatted.tabs.qml" << QStringList { "-t" };
+    QTest::newRow("example1 (two spaces)")
+            << "Example1.qml"
+            << "Example1.formatted.2spaces.qml" << QStringList { "-w", "2" };
+    QTest::newRow("annotation")
+            << "Annotations.qml"
+            << "Annotations.formatted.qml" << QStringList {};
+    QTest::newRow("front inline") << "FrontInline.qml"
+                                  << "FrontInline.formatted.qml" << QStringList {};
+    QTest::newRow("if blocks") << "IfBlocks.qml"
+                               << "IfBlocks.formatted.qml" << QStringList {};
+    QTest::newRow("read-only properties") << "readOnlyProps.qml"
+                                          << "readOnlyProps.formatted.qml" << QStringList {};
+    QTest::newRow("states and transitions")
+            << "statesAndTransitions.qml"
+            << "statesAndTransitions.formatted.qml" << QStringList {};
+    QTest::newRow("large bindings") << "largeBindings.qml"
+                                    << "largeBindings.formatted.qml" << QStringList {};
+    QTest::newRow("verbatim strings") << "verbatimString.qml"
+                                      << "verbatimString.formatted.qml" << QStringList {};
+    QTest::newRow("inline components") << "inlineComponents.qml"
+                                       << "inlineComponents.formatted.qml" << QStringList {};
+    QTest::newRow("nested ifs") << "nestedIf.qml"
+                                << "nestedIf.formatted.qml" << QStringList {};
+    QTest::newRow("QTBUG-85003") << "QtBug85003.qml"
+                                 << "QtBug85003.formatted.qml" << QStringList {};
+    QTest::newRow("nested functions") << "nestedFunctions.qml"
+                                      << "nestedFunctions.formatted.qml" << QStringList {};
+    QTest::newRow("multiline comments") << "multilineComment.qml"
+                                        << "multilineComment.formatted.qml" << QStringList {};
+    QTest::newRow("for of") << "forOf.qml"
+                            << "forOf.formatted.qml" << QStringList {};
+    QTest::newRow("property names") << "propertyNames.qml"
+                                    << "propertyNames.formatted.qml" << QStringList {};
+    QTest::newRow("empty object") << "emptyObject.qml"
+                                  << "emptyObject.formatted.qml" << QStringList {};
+    QTest::newRow("arrow functions") << "arrowFunctions.qml"
+                                     << "arrowFunctions.formatted.qml" << QStringList {};
 }
 
-void TestQmlformat::testNestedFunctions()
+void TestQmlformat::testFormat()
 {
-    QCOMPARE(runQmlformat(testFile("nestedFunctions.qml"), false, true),
-             readTestFile("nestedFunctions.formatted.qml"));
-}
+    QFETCH(QString, file);
+    QFETCH(QString, fileFormatted);
+    QFETCH(QStringList, args);
 
-void TestQmlformat::testForOf()
-{
-    QCOMPARE(runQmlformat(testFile("forOf.qml"), false, true),
-             readTestFile("forOf.formatted.qml"));
-}
-
-void TestQmlformat::testPropertyNames()
-{
-    QCOMPARE(runQmlformat(testFile("propertyNames.qml"), false, true),
-             readTestFile("propertyNames.formatted.qml"));
+    QCOMPARE(runQmlformat(testFile(file), args), readTestFile(fileFormatted));
 }
 
 #if !defined(QTEST_CROSS_COMPILED) // sources not available when cross compiled
 void TestQmlformat::testExample_data()
 {
+    if (QTestPrivate::isRunningArmOnX86())
+        QSKIP("Crashes in QEMU. (timeout)");
     QTest::addColumn<QString>("file");
 
     QString examples = QLatin1String(SRCDIR) + "/../../../../examples/";
@@ -321,28 +286,24 @@ void TestQmlformat::testExample_data()
 void TestQmlformat::testExample()
 {
     QFETCH(QString, file);
-    QString output = runQmlformat(file, true, !isInvalidFile(file));
+    const bool isInvalid = isInvalidFile(QFileInfo(file));
+    QString output = runQmlformat(file, {}, !isInvalid);
 
-    if (!isInvalidFile(file))
+    if (!isInvalid)
         QVERIFY(!output.isEmpty());
 }
 #endif
 
-QString TestQmlformat::runQmlformat(const QString &fileToFormat, bool sortImports, bool shouldSucceed, const QString &newlineFormat)
+QString TestQmlformat::runQmlformat(const QString &fileToFormat, QStringList args,
+                                    bool shouldSucceed)
 {
     // Copy test file to temporary location
     QTemporaryDir tempDir;
     const QString tempFile = tempDir.path() + QDir::separator() + "to_format.qml";
     QFile::copy(fileToFormat, tempFile);
 
-    QStringList args;
-    args << "-i";
+    args << QLatin1String("-i");
     args << tempFile;
-
-    if (!sortImports)
-        args << "-n";
-
-    args << "-l" << newlineFormat;
 
     auto verify = [&]() {
         QProcess process;

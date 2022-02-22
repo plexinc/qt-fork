@@ -7,6 +7,9 @@
 
 #include <stdint.h>
 
+#include <memory>
+#include <vector>
+
 #include "base/values.h"
 #include "cc/raster/raster_buffer_provider.h"
 
@@ -48,7 +51,6 @@ class CC_EXPORT BitmapRasterBufferProvider : public RasterBufferProvider {
       base::OnceClosure callback,
       uint64_t pending_callback_id) const override;
   void Shutdown() override;
-  bool CheckRasterFinishedQueries() override;
 
  private:
   std::unique_ptr<base::trace_event::ConvertableToTraceFormat> StateAsValue()

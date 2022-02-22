@@ -64,7 +64,7 @@ QT_REQUIRE_CONFIG(quick_flipable);
 QT_BEGIN_NAMESPACE
 
 class QQuickFlipablePrivate;
-class Q_AUTOTEST_EXPORT QQuickFlipable : public QQuickItem
+class Q_QUICK_PRIVATE_EXPORT QQuickFlipable : public QQuickItem
 {
     Q_OBJECT
 
@@ -72,6 +72,7 @@ class Q_AUTOTEST_EXPORT QQuickFlipable : public QQuickItem
     Q_PROPERTY(QQuickItem *back READ back WRITE setBack NOTIFY backChanged)
     Q_PROPERTY(Side side READ side NOTIFY sideChanged)
     QML_NAMED_ELEMENT(Flipable)
+    QML_ADDED_IN_VERSION(2, 0)
     //### flipAxis
     //### flipRotation
 public:

@@ -1,42 +1,42 @@
 /****************************************************************************
 **
 ** Copyright (C) 2017 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the Qt3D module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL3$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
 ** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPLv3 included in the
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
 ** packaging of this file. Please review the following information to
 ** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl.html.
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
 ** GNU General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or later as published by the Free
-** Software Foundation and appearing in the file LICENSE.GPL included in
-** the packaging of this file. Please review the following information to
-** ensure the GNU General Public License version 2.0 requirements will be
-** met: http://www.gnu.org/licenses/gpl-2.0.html.
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
 
-#include <Qt3DCore/qpropertyupdatedchange.h>
-#include <Qt3DCore/qpropertynodeaddedchange.h>
-#include <Qt3DCore/qpropertynoderemovedchange.h>
 #include <Qt3DCore/private/qscene_p.h>
 #include <Qt3DQuickScene2D/qscene2d.h>
 #include <Qt3DRender/qpicktriangleevent.h>
@@ -46,6 +46,9 @@
 #include <QtCore/qatomic.h>
 #include <QtGui/qevent.h>
 #include <QtGui/QOpenGLFunctions>
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+#include <QQuickRenderTarget>
+#endif
 
 #include <private/qscene2d_p.h>
 #include <private/scene2d_p.h>
@@ -61,7 +64,6 @@
 #include <private/qpickevent_p.h>
 #include <private/qpicktriangleevent_p.h>
 #include <private/entity_p.h>
-#include <private/platformsurfacefilter_p.h>
 #include <private/trianglesvisitor_p.h>
 
 
@@ -193,31 +195,33 @@ void Scene2D::syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firstTime)
     if (id != m_outputId)
         setOutput(id);
 
-    auto ids = Qt3DCore::qIdsForNodes(node->entities());
-    std::sort(std::begin(ids), std::end(ids));
-    Qt3DCore::QNodeIdVector addedEntities;
-    Qt3DCore::QNodeIdVector removedEntities;
-    std::set_difference(std::begin(ids), std::end(ids),
-                        std::begin(m_entities), std::end(m_entities),
-                        std::inserter(addedEntities, addedEntities.end()));
-    std::set_difference(std::begin(m_entities), std::end(m_entities),
-                        std::begin(ids), std::end(ids),
-                        std::inserter(removedEntities, removedEntities.end()));
-    for (const auto &id: addedEntities) {
-        Qt3DCore::QEntity *entity = qobject_cast<Qt3DCore::QEntity *>(dnode->m_scene->lookupNode(id));
-        if (!entity)
-            return;
+    if (m_mouseEnabled) {
+        auto ids = Qt3DCore::qIdsForNodes(node->entities());
+        std::sort(std::begin(ids), std::end(ids));
+        Qt3DCore::QNodeIdVector addedEntities;
+        Qt3DCore::QNodeIdVector removedEntities;
+        std::set_difference(std::begin(ids), std::end(ids),
+                            std::begin(m_entities), std::end(m_entities),
+                            std::inserter(addedEntities, addedEntities.end()));
+        std::set_difference(std::begin(m_entities), std::end(m_entities),
+                            std::begin(ids), std::end(ids),
+                            std::inserter(removedEntities, removedEntities.end()));
+        for (const auto &id: addedEntities) {
+            Qt3DCore::QEntity *entity = qobject_cast<Qt3DCore::QEntity *>(dnode->m_scene->lookupNode(id));
+            if (!entity)
+                return;
 
-        if (registerObjectPickerEvents(entity))
-            m_entities.push_back(id);
-        else
-            Qt3DCore::QNodePrivate::get(const_cast<Qt3DCore::QNode *>(frontEnd))->update();
+            if (registerObjectPickerEvents(entity))
+                m_entities.push_back(id);
+            else
+                Qt3DCore::QNodePrivate::get(const_cast<Qt3DCore::QNode *>(frontEnd))->update();
+        }
+        for (const auto &id: removedEntities) {
+            m_entities.removeOne(id);
+            unregisterObjectPickerEvents(id);
+        }
+        std::sort(std::begin(m_entities), std::end(m_entities));
     }
-    for (const auto &id: removedEntities) {
-        m_entities.removeOne(id);
-        unregisterObjectPickerEvents(id);
-    }
-    std::sort(std::begin(m_entities), std::end(m_entities));
 
     if (firstTime)
         setSharedObject(dnode->m_renderManager->m_sharedObject);
@@ -246,15 +250,10 @@ void Scene2D::initializeRender()
         m_context->create();
 
         m_context->makeCurrent(m_sharedObject->m_surface);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        m_sharedObject->m_renderControl->initialize();
+#else
         m_sharedObject->m_renderControl->initialize(m_context);
-#ifdef QT_OPENGL_ES_2_ANGLE
-        m_usingAngle = false;
-        if (m_context->isOpenGLES()) {
-            const char *versionStr = reinterpret_cast<const char *>(
-                                                m_context->functions()->glGetString(GL_VERSION));
-            if (strstr(versionStr, "ANGLE"))
-                m_usingAngle = true;
-        }
 #endif
         m_context->doneCurrent();
 
@@ -312,11 +311,6 @@ void Scene2D::render()
         const Qt3DRender::Render::Attachment *attachmentData = nullptr;
         QMutex *textureLock = nullptr;
 
-#ifdef QT_OPENGL_ES_2_ANGLE
-        QScopedPointer<SurfaceLocker> surfaceLocker;
-        if (m_usingAngle)
-            surfaceLocker.reset(new SurfaceLocker(m_sharedObject->m_surface));
-#endif
         m_context->makeCurrent(m_sharedObject->m_surface);
 
         if (resourceAccessor()->accessResource(RenderBackendResourceAccessor::OutputAttachment,
@@ -332,12 +326,7 @@ void Scene2D::render()
                                             new Scene2DEvent(Scene2DEvent::Render));
                 return;
             }
-#ifdef QT_OPENGL_ES_2_ANGLE
-            if (m_usingAngle == false)
-                textureLock->lock();
-#else
             textureLock->lock();
-#endif
             const QSize textureSize = QSize(texture->width(), texture->height());
             if (m_attachmentData.m_textureUuid != attachmentData->m_textureUuid
                 || m_attachmentData.m_point != attachmentData->m_point
@@ -358,8 +347,9 @@ void Scene2D::render()
             }
         }
 
-        if (m_fbo != m_sharedObject->m_quickWindow->renderTargetId())
-            m_sharedObject->m_quickWindow->setRenderTarget(m_fbo, m_textureSize);
+        // TODO QT6 FIXME
+//        if (m_fbo != m_sharedObject->m_quickWindow->renderTargetId())
+//            m_sharedObject->m_quickWindow->setRenderTarget(QQuickRenderTarget::fromNativeTexture({m_fbo, 0}, m_textureSize));
 
         // Call disallow rendering while mutex is locked
         if (m_renderPolicy == QScene2D::SingleShot)
@@ -381,16 +371,12 @@ void Scene2D::render()
             QCoreApplication::postEvent(m_sharedObject->m_renderManager,
                                         new Scene2DEvent(Scene2DEvent::Rendered));
 
-        m_sharedObject->m_quickWindow->resetOpenGLState();
+        // TODOQT6 Restore functionality
+//        m_sharedObject->m_quickWindow->resetOpenGLState();
         m_context->functions()->glFlush();
         if (texture->isAutoMipMapGenerationEnabled())
             texture->generateMipMaps();
-#ifdef QT_OPENGL_ES_2_ANGLE
-        if (m_usingAngle == false)
-            textureLock->unlock();
-#else
         textureLock->unlock();
-#endif
         m_context->doneCurrent();
 
         // gui thread can now continue
@@ -457,9 +443,6 @@ bool Scene2D::registerObjectPickerEvents(Qt3DCore::QEntity *qentity)
         handlePickEvent(QEvent::MouseMove, pick);
     });
 
-    Qt3DCore::QBackendNodePrivate *priv = Qt3DCore::QBackendNodePrivate::get(this);
-    Qt3DCore::QChangeArbiter *arbiter = static_cast<Qt3DCore::QChangeArbiter*>(priv->m_arbiter);
-    arbiter->registerObserver(d_ptr, entity->componentUuid<ObjectPicker>());
     return true;
 }
 
@@ -469,10 +452,6 @@ void Scene2D::unregisterObjectPickerEvents(Qt3DCore::QNodeId entityId)
     if (!resourceAccessor()->accessResource(RenderBackendResourceAccessor::EntityHandle,
                                             entityId, (void**)&entity, nullptr))
         return;
-
-    Qt3DCore::QBackendNodePrivate *priv = Qt3DCore::QBackendNodePrivate::get(this);
-    Qt3DCore::QChangeArbiter *arbiter = static_cast<Qt3DCore::QChangeArbiter*>(priv->m_arbiter);
-    arbiter->unregisterObserver(d_ptr, entity->componentUuid<ObjectPicker>());
 }
 
 void Scene2D::handlePickEvent(int type, const Qt3DRender::QPickEvent *ev)
@@ -490,7 +469,7 @@ void Scene2D::handlePickEvent(int type, const Qt3DRender::QPickEvent *ev)
 
         CoordinateReader reader(renderer()->nodeManagers());
         if (reader.setGeometry(entity->renderComponent<GeometryRenderer>(),
-                               QAttribute::defaultTextureCoordinateAttributeName())) {
+                               Qt3DCore::QAttribute::defaultTextureCoordinateAttributeName())) {
             Vector4D c0 = reader.getCoordinate(pickTriangle->vertex1Index());
             Vector4D c1 = reader.getCoordinate(pickTriangle->vertex2Index());
             Vector4D c2 = reader.getCoordinate(pickTriangle->vertex3Index());

@@ -9,8 +9,8 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.os.Build;
+import android.os.StrictMode;
 import android.text.TextUtils;
-import android.util.Pair;
 
 import dalvik.system.BaseDexClassLoader;
 import dalvik.system.PathClassLoader;
@@ -22,17 +22,13 @@ import java.util.List;
 /** Helper class which performs initialization needed for WebView compatibility. */
 final class WebViewCompatibilityHelper {
     /** Creates a the ClassLoader to use for WebView compatibility. */
-    static Pair<ClassLoader, WebLayer.WebViewCompatibilityResult> initialize(
-            Context appContext, Context remoteContext)
+    static ClassLoader initialize(Context appContext)
             throws PackageManager.NameNotFoundException, ReflectiveOperationException {
+        Context remoteContext = WebLayer.getOrCreateRemoteContext(appContext);
         PackageInfo info =
                 appContext.getPackageManager().getPackageInfo(remoteContext.getPackageName(),
                         PackageManager.GET_SHARED_LIBRARY_FILES
                                 | PackageManager.MATCH_UNINSTALLED_PACKAGES);
-        if (!isSupportedVersion(info.versionName)) {
-            return Pair.create(
-                    null, WebLayer.WebViewCompatibilityResult.FAILURE_UNSUPPORTED_VERSION);
-        }
         String[] libraryPaths = getLibraryPaths(remoteContext.getClassLoader());
         // Prepend "/." to all library paths. This changes the library path while still pointing to
         // the same directory, allowing us to get around a check in the JVM. This is only necessary
@@ -43,36 +39,21 @@ final class WebViewCompatibilityHelper {
                 libraryPaths[i] = "/." + libraryPaths[i];
             }
         }
-        ClassLoader classLoader = new PathClassLoader(getAllApkPaths(info.applicationInfo),
-                TextUtils.join(File.pathSeparator, libraryPaths),
-                ClassLoader.getSystemClassLoader());
-        return Pair.create(classLoader, WebLayer.WebViewCompatibilityResult.SUCCESS);
-    }
 
-    /**
-     * Returns if the version of the WebLayer implementation supports WebView compatibility. We
-     * can't use WebLayer.getSupportedMajorVersion() here because the loader depends on
-     * WebView compatibility already being set up.
-     */
-    static boolean isSupportedVersion(String versionName) {
-        if (versionName == null) {
-            return false;
-        }
-        String[] parts = versionName.split("\\.", -1);
-        if (parts.length < 4) {
-            return false;
-        }
-        int majorVersion = 0;
+        String dexPath = getAllApkPaths(info.applicationInfo);
+        String librarySearchPath = TextUtils.join(File.pathSeparator, libraryPaths);
+        // TODO(cduvall): PathClassLoader may call stat on the library paths, consider moving
+        // this to a background thread.
+        StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskReads();
         try {
-            majorVersion = Integer.parseInt(parts[0]);
-        } catch (NumberFormatException e) {
-            return false;
+            // Use the system class loader's parent here, since it is much more efficient. This
+            // matches what Android does when constructing class loaders, see
+            // android.app.ApplicationLoaders.
+            return new PathClassLoader(
+                    dexPath, librarySearchPath, ClassLoader.getSystemClassLoader().getParent());
+        } finally {
+            StrictMode.setThreadPolicy(oldPolicy);
         }
-        // M- only supports WebView compat via copying the libraries on 81, so only support 82+.
-        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.M) {
-            return majorVersion >= 82;
-        }
-        return majorVersion >= 81;
     }
 
     /** Returns the library paths the given class loader will search. */
@@ -88,17 +69,31 @@ final class WebViewCompatibilityHelper {
     private static String getAllApkPaths(ApplicationInfo info) {
         // The OS version of this method also includes resourceDirs, but this is not available in
         // the SDK.
-        final String[][] inputLists = {info.sharedLibraryFiles, info.splitSourceDirs};
         final List<String> output = new ArrayList<>(10);
-        for (String[] inputList : inputLists) {
-            if (inputList != null) {
-                for (String input : inputList) {
-                    output.add(input);
-                }
-            }
-        }
+        // First add the base APK path, since this is always needed.
         if (info.sourceDir != null) {
             output.add(info.sourceDir);
+        }
+        // Next add split paths that are used by WebLayer.
+        if (info.splitSourceDirs != null) {
+            String[] splitNames = null;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                splitNames = WebLayer.ApiHelperForO.getSplitNames(info);
+            }
+            for (int i = 0; i < info.splitSourceDirs.length; i++) {
+                // WebLayer only uses the "chrome" and "weblayer" splits.
+                if (splitNames != null && !splitNames[i].equals("chrome")
+                        && !splitNames[i].equals("weblayer")) {
+                    continue;
+                }
+                output.add(info.splitSourceDirs[i]);
+            }
+        }
+        // Last, add shared library paths.
+        if (info.sharedLibraryFiles != null) {
+            for (String input : info.sharedLibraryFiles) {
+                output.add(input);
+            }
         }
         return TextUtils.join(File.pathSeparator, output);
     }

@@ -57,7 +57,7 @@ QT       += remoteobjects
 #ifndef SIMPLESWITCH_H
 #define SIMPLESWITCH_H
 
-#include "rep_SimpleSwitch_source.h"
+#include "rep_simpleswitch_source.h"
 
 class SimpleSwitch : public SimpleSwitchSimpleSource
 {
@@ -82,7 +82,7 @@ private:
 SimpleSwitch::SimpleSwitch(QObject *parent) : SimpleSwitchSimpleSource(parent)
 {
     stateChangeTimer = new QTimer(this); // Initialize timer
-    QObject::connect(stateChangeTimer, SIGNAL(timeout()), this, SLOT(timeout_slot())); // connect timeout() signal from stateChangeTimer to timeout_slot() of simpleSwitch
+    QObject::connect(stateChangeTimer, &SimpleSwitch::timeout, this, &SimpleSwitch::timeout_slot); // connect timeout() signal from stateChangeTimer to timeout_slot() of simpleSwitch
     stateChangeTimer->start(2000); // Start timer and set timout to 2 seconds
     qDebug() << "Source Node Started";
 }
@@ -101,7 +101,7 @@ void SimpleSwitch::server_slot(bool clientState)
 void SimpleSwitch::timeout_slot()
 {
     // slot called on timer timeout
-    if (currState()) // check if current state is true, currState() is defined in repc generated rep_SimpleSwitch_source.h
+    if (currState()) // check if current state is true, currState() is defined in repc generated rep_simpleswitch_source.h
         setCurrState(false); // set state to false
     else
         setCurrState(true); // set state to true
@@ -157,7 +157,7 @@ ptr.reset(repNode.acquire<SimpleSwitchReplica>()); // acquire replica of source 
 #include <QObject>
 #include <QSharedPointer>
 
-#include "rep_SimpleSwitch_replica.h"
+#include "rep_simpleswitch_replica.h"
 
 class Client : public QObject
 {
@@ -200,17 +200,17 @@ Client::~Client()
 
 void Client::initConnections()
 {
-        // initialize connections between signals and slots
+    // initialize connections between signals and slots
 
-       // connect source replica signal currStateChanged() with client's recSwitchState() slot to receive source's current state
-        QObject::connect(reptr.data(), SIGNAL(currStateChanged()), this, SLOT(recSwitchState_slot()));
-       // connect client's echoSwitchState(..) signal with replica's server_slot(..) to echo back received state
-        QObject::connect(this, SIGNAL(echoSwitchState(bool)),reptr.data(), SLOT(server_slot(bool)));
+    // connect source replica signal currStateChanged() with client's recSwitchState() slot to receive source's current state
+    QObject::connect(reptr.data(), &SimpleSwitchReplica::currStateChanged, this, &Client::recSwitchState_slot);
+    // connect client's echoSwitchState(..) signal with replica's server_slot(..) to echo back received state
+    QObject::connect(this, &Client::echoSwitchState, reptr.data(), &SimpleSwitchReplica::server_slot);
 }
 
-void Client::recSwitchState_slot()
+void Client::recSwitchState_slot(bool value)
 {
-    qDebug() << "Received source state "<<reptr.data()->currState();
+    qDebug() << "Received source state "<< value << reptr.data()->currState();
     clientSwitchState = reptr.data()->currState();
     Q_EMIT echoSwitchState(clientSwitchState); // Emit signal to echo received state back to server
 }
@@ -289,7 +289,8 @@ DynamicClient::DynamicClient(QSharedPointer<QRemoteObjectDynamicReplica> ptr) :
 {
 
     //connect signal for replica valid changed with signal slot initialization
-    QObject::connect(reptr.data(), SIGNAL(initialized()), this, SLOT(initConnection_slot()));
+    QObject::connect(reptr.data(), &QRemoteObjectDynamicReplica::initialized, this,
+                     &DynamicClient::initConnection_slot);
 }
 
 //destructor

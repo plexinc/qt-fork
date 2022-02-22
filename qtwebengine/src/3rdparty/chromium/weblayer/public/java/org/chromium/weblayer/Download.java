@@ -16,8 +16,6 @@ import java.io.File;
 
 /**
  * Contains information about a single download that's in progress.
- *
- * @since 81
  */
 public class Download extends IClientDownload.Stub {
     private final IDownload mDownloadImpl;
@@ -123,6 +121,19 @@ public class Download extends IClientDownload.Stub {
         ThreadCheck.ensureOnUiThread();
         try {
             return new File(mDownloadImpl.getLocation());
+        } catch (RemoteException e) {
+            throw new APICallException(e);
+        }
+    }
+
+    /**
+     * Returns the file name for the download that should be displayed to the user.
+     */
+    @NonNull
+    public File getFileNameToReportToUser() {
+        ThreadCheck.ensureOnUiThread();
+        try {
+            return new File(mDownloadImpl.getFileNameToReportToUser());
         } catch (RemoteException e) {
             throw new APICallException(e);
         }

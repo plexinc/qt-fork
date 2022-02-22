@@ -34,6 +34,7 @@
 #include <QVector>
 #include <QSet>
 #include <QHash>
+#include <QVariant>
 #include <QVector2D>
 #include <QVector3D>
 #include <QMatrix4x4>
@@ -79,15 +80,15 @@ enum PropertyType {     // value format
     Matrix4x4           // Matrix4x4
 };
 
-bool convertToPropertyType(const QStringRef &value, Q3DS::PropertyType *type, int *componentCount, const char *desc = nullptr, QXmlStreamReader *reader = nullptr);
-bool convertToFloat(const QStringRef &value, float *v, const char *desc = nullptr, QXmlStreamReader *reader = nullptr);
-bool convertToInt(const QStringRef &value, int *v, const char *desc = nullptr, QXmlStreamReader *reader = nullptr);
-bool convertToInt32(const QStringRef &value, qint32 *v, const char *desc = nullptr, QXmlStreamReader *reader = nullptr);
-bool convertToBool(const QStringRef &value, bool *v, const char *desc = nullptr, QXmlStreamReader *reader = nullptr);
-bool convertToVector2D(const QStringRef &value, QVector2D *v, const char *desc = nullptr, QXmlStreamReader *reader = nullptr);
-bool convertToVector3D(const QStringRef &value, QVector3D *v, const char *desc = nullptr, QXmlStreamReader *reader = nullptr);
-bool convertToVector4D(const QStringRef &value, QVector4D *v, const char *desc = nullptr, QXmlStreamReader *reader = nullptr);
-bool convertToMatrix4x4(const QStringRef &value, QMatrix4x4 *v, const char *desc = nullptr, QXmlStreamReader *reader = nullptr);
+bool convertToPropertyType(QStringView value, Q3DS::PropertyType *type, int *componentCount, const char *desc = nullptr, QXmlStreamReader *reader = nullptr);
+bool convertToFloat(QStringView value, float *v, const char *desc = nullptr, QXmlStreamReader *reader = nullptr);
+bool convertToInt(QStringView value, int *v, const char *desc = nullptr, QXmlStreamReader *reader = nullptr);
+bool convertToInt32(QStringView value, qint32 *v, const char *desc = nullptr, QXmlStreamReader *reader = nullptr);
+bool convertToBool(QStringView value, bool *v, const char *desc = nullptr, QXmlStreamReader *reader = nullptr);
+bool convertToVector2D(QStringView value, QVector2D *v, const char *desc = nullptr, QXmlStreamReader *reader = nullptr);
+bool convertToVector3D(QStringView value, QVector3D *v, const char *desc = nullptr, QXmlStreamReader *reader = nullptr);
+bool convertToVector4D(QStringView value, QVector4D *v, const char *desc = nullptr, QXmlStreamReader *reader = nullptr);
+bool convertToMatrix4x4(QStringView value, QMatrix4x4 *v, const char *desc = nullptr, QXmlStreamReader *reader = nullptr);
 int animatablePropertyTypeToMetaType(Q3DS::PropertyType type);
 QVariant convertToVariant(const QString &value, Q3DS::PropertyType type);
 QString convertFromVariant(const QVariant &value);
@@ -115,8 +116,8 @@ public:
     static PropertyChange fromVariant(const QString &name, const QVariant &value);
 
     // name() and value() must be source compatible with QXmlStreamAttribute
-    QStringRef name() const { return QStringRef(&m_name); }
-    QStringRef value() const { Q_ASSERT(m_hasValue); return QStringRef(&m_value); }
+    QStringView name() const { return QStringView(m_name); }
+    QStringView value() const { Q_ASSERT(m_hasValue); return QStringView(m_value); }
 
     QString nameStr() const { return m_name; }
     QString valueStr() const { Q_ASSERT(m_hasValue); return m_value; }
@@ -135,7 +136,7 @@ private:
     bool m_hasValue = false;
 };
 
-Q_DECLARE_TYPEINFO(PropertyChange, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(PropertyChange, Q_RELOCATABLE_TYPE);
 
 class PropertyChangeList
 {
@@ -341,8 +342,8 @@ public:
     KeyFrameList m_keyFrames;
 };
 
-Q_DECLARE_TYPEINFO(AnimationTrack::KeyFrame, Q_MOVABLE_TYPE);
-Q_DECLARE_TYPEINFO(AnimationTrack, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(AnimationTrack::KeyFrame, Q_RELOCATABLE_TYPE);
+Q_DECLARE_TYPEINFO(AnimationTrack, Q_RELOCATABLE_TYPE);
 
 inline bool operator==(const AnimationTrack::KeyFrame &a, const AnimationTrack::KeyFrame &b)
 {
@@ -711,8 +712,6 @@ public:
     float m_constantFade = 1;
     float m_linearFade = 0;
     float m_expFade = 0;
-    float m_areaWidth = 100;
-    float m_areaHeight = 100;
     bool m_castShadow = false;
     float m_shadowFactor = 10;
     float m_shadowFilter = 35;
@@ -731,13 +730,6 @@ public:
 class  ModelNode : public Node
 {
 public:
-    enum Tessellation {
-        None = 0,
-        Linear,
-        Phong,
-        NPatch
-    };
-
     enum ModelPropertyChanges {
         MeshChanges = 1 << Node::FIRST_FREE_PROPERTY_CHANGE_BIT
     };
@@ -751,9 +743,6 @@ public:
     template<typename V> void setProps(const V &attrs, PropSetFlags flags);
 
     QString m_mesh_unresolved;
-    Tessellation m_tessellation = None;
-    float m_edgeTess = 4;
-    float m_innerTess = 4;
 
     // GraphObject interface
 public:
@@ -889,8 +878,7 @@ public:
 
     enum SpecularModel {
         DefaultSpecularModel = 0,
-        KGGX,
-        KWard
+        KGGX
     };
 
     enum DefaultMaterialPropertyChanges {
@@ -927,12 +915,10 @@ public:
     QString m_bumpMap_unresolved;
     QString m_normalMap_unresolved;
     float m_bumpAmount = 0.5f;
-    QString m_displacementMap_unresolved;
-    float m_displaceAmount = 20;
     float m_opacity = 100;
     QString m_opacityMap_unresolved;
     QColor m_emissiveColor = Qt::white;
-    float m_emissiveFactor = 0;
+    float m_emissiveFactor = 0.0f;
     QString m_emissiveMap_unresolved;
     QString m_translucencyMap_unresolved;
     float m_translucentFalloff = 1;
@@ -1149,7 +1135,13 @@ public:
     template<typename T> T *newObject(const QByteArray &id)
     {
         T *obj = new T;
-        return registerObject(id, obj) ? obj : nullptr; // also sets obj->id
+        // also sets obj->id
+        if (registerObject(id, obj))
+            return obj;
+
+        // Object already exists with id, clean up
+        delete obj;
+        return nullptr;
     }
 
     GraphObject *newObject(const char *type, const QByteArray &id);

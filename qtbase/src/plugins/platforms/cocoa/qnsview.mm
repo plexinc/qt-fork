@@ -39,6 +39,9 @@
 
 #include <QtGui/qtguiglobal.h>
 
+#include <AppKit/AppKit.h>
+#include <MetalKit/MetalKit.h>
+
 #include "qnsview.h"
 #include "qcocoawindow.h"
 #include "qcocoahelpers.h"
@@ -59,6 +62,8 @@
 #include <private/qguiapplication_p.h>
 #include <private/qcoregraphics_p.h>
 #include <private/qwindow_p.h>
+#include <private/qpointingdevice_p.h>
+#include <private/qhighdpiscaling_p.h>
 #include "qcocoabackingstore.h"
 #ifndef QT_NO_OPENGL
 #include "qcocoaglcontext.h"
@@ -112,38 +117,37 @@ QT_NAMESPACE_ALIAS_OBJC_CLASS(QNSViewMouseMoveHelper);
 @end
 
 @interface QNSView (ComplexText) <NSTextInputClient>
-- (void)textInputContextKeyboardSelectionDidChangeNotification:(NSNotification *)textInputContextKeyboardSelectionDidChangeNotification;
 @end
 
 @implementation QNSView {
     QPointer<QCocoaWindow> m_platformWindow;
+
+    // Mouse
+    QNSViewMouseMoveHelper *m_mouseMoveHelper;
     Qt::MouseButtons m_buttons;
     Qt::MouseButtons m_acceptedMouseDowns;
     Qt::MouseButtons m_frameStrutButtons;
-    QString m_composingText;
-    QPointer<QObject> m_composingFocusObject;
-    bool m_sendKeyEvent;
+    Qt::KeyboardModifiers m_currentWheelModifiers;
     bool m_dontOverrideCtrlLMB;
     bool m_sendUpAsRightButton;
-    Qt::KeyboardModifiers m_currentWheelModifiers;
-    NSString *m_inputSource;
-    QNSViewMouseMoveHelper *m_mouseMoveHelper;
-    bool m_resendKeyEvent;
     bool m_scrolling;
     bool m_updatingDrag;
+
+    // Keys
+    bool m_lastKeyDead;
+    bool m_sendKeyEvent;
     NSEvent *m_currentlyInterpretedKeyEvent;
     QSet<quint32> m_acceptedKeyDowns;
+
+    // Text
+    QString m_composingText;
+    QPointer<QObject> m_composingFocusObject;
 }
 
 - (instancetype)initWithCocoaWindow:(QCocoaWindow *)platformWindow
 {
     if ((self = [super initWithFrame:NSZeroRect])) {
         m_platformWindow = platformWindow;
-        m_sendKeyEvent = false;
-        m_inputSource = nil;
-        m_resendKeyEvent = false;
-        m_updatingDrag = false;
-        m_currentlyInterpretedKeyEvent = nil;
 
         self.focusRingType = NSFocusRingTypeNone;
 
@@ -154,10 +158,11 @@ QT_NAMESPACE_ALIAS_OBJC_CLASS(QNSViewMouseMoveHelper);
         [self initMouse];
         [self registerDragTypes];
 
-        [[NSNotificationCenter defaultCenter] addObserver:self
-                                              selector:@selector(textInputContextKeyboardSelectionDidChangeNotification:)
-                                              name:NSTextInputContextKeyboardSelectionDidChangeNotification
-                                              object:nil];
+        m_updatingDrag = false;
+
+        m_lastKeyDead = false;
+        m_sendKeyEvent = false;
+        m_currentlyInterpretedKeyEvent = nil;
     }
     return self;
 }
@@ -166,7 +171,6 @@ QT_NAMESPACE_ALIAS_OBJC_CLASS(QNSViewMouseMoveHelper);
 {
     qCDebug(lcQpaWindow) << "Deallocating" << self;
 
-    [m_inputSource release];
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [m_mouseMoveHelper release];
 
@@ -307,8 +311,28 @@ QT_NAMESPACE_ALIAS_OBJC_CLASS(QNSViewMouseMoveHelper);
         return NO;
     if ([self isTransparentForUserInput])
         return NO;
-    if (!m_platformWindow->windowIsPopupType())
-        QWindowSystemInterface::handleWindowActivated([self topLevelWindow]);
+
+    if (!m_platformWindow->windowIsPopupType()
+            && (!self.window.canBecomeKeyWindow || self.window.keyWindow)) {
+        // Calling handleWindowActivated for a QWindow has two effects: first, it
+        // will set the QWindow (and all other QWindows in the same hierarchy)
+        // as Active. Being Active means that the window should appear active from
+        // a style perspective (according to QWindow::isActive()). The second
+        // effect is that it will set QQuiApplication::focusWindow() to point to
+        // the QWindow. The latter means that the QWindow should have keyboard
+        // focus. But those two are not necessarily the same; A tool window could e.g be
+        // rendered as Active while the parent window, which is also Active, has
+        // input focus. But we currently don't distinguish between that cleanly in Qt.
+        // Since we don't want a QWindow to be rendered as Active when the NSWindow
+        // it belongs to is not key, we skip calling handleWindowActivated when
+        // that is the case. Instead, we wait for the window to become key, and handle
+        // QWindow activation from QCocoaWindow::windowDidBecomeKey instead. The only
+        // exception is if the window can never become key, in which case we naturally
+        // cannot wait for that to happen.
+        QWindowSystemInterface::handleWindowActivated<QWindowSystemInterface::SynchronousDelivery>(
+            [self topLevelWindow], Qt::ActiveWindowFocusReason);
+    }
+
     return YES;
 }
 

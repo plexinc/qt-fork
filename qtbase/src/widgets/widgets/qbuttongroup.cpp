@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtWidgets module of the Qt Toolkit.
@@ -163,16 +163,6 @@ void QButtonGroup::setExclusive(bool exclusive)
 */
 
 /*!
-    \fn void QButtonGroup::buttonClicked(int id)
-    \obsolete
-
-    This signal is emitted when a button with the given \a id is
-    clicked.
-
-    \sa checkedButton(), QAbstractButton::clicked()
-*/
-
-/*!
     \fn void QButtonGroup::idClicked(int id)
     \since 5.15
 
@@ -187,17 +177,6 @@ void QButtonGroup::setExclusive(bool exclusive)
     \since 4.2
 
     This signal is emitted when the given \a button is pressed down.
-
-    \sa QAbstractButton::pressed()
-*/
-
-/*!
-    \fn void QButtonGroup::buttonPressed(int id)
-    \since 4.2
-    \obsolete
-
-    This signal is emitted when a button with the given \a id is
-    pressed down.
 
     \sa QAbstractButton::pressed()
 */
@@ -222,17 +201,6 @@ void QButtonGroup::setExclusive(bool exclusive)
 */
 
 /*!
-    \fn void QButtonGroup::buttonReleased(int id)
-    \since 4.2
-    \obsolete
-
-    This signal is emitted when a button with the given \a id is
-    released.
-
-    \sa QAbstractButton::released()
-*/
-
-/*!
     \fn void QButtonGroup::idReleased(int id)
     \since 5.15
 
@@ -247,17 +215,6 @@ void QButtonGroup::setExclusive(bool exclusive)
     \since 5.2
 
     This signal is emitted when the given \a button is toggled.
-    \a checked is true if the button is checked, or false if the button is unchecked.
-
-    \sa QAbstractButton::toggled()
-*/
-
-/*!
-    \fn void QButtonGroup::buttonToggled(int id, bool checked)
-    \since 5.2
-    \obsolete
-
-    This signal is emitted when a button with the given \a id is toggled.
     \a checked is true if the button is checked, or false if the button is unchecked.
 
     \sa QAbstractButton::toggled()

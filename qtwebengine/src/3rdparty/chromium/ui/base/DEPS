@@ -1,5 +1,6 @@
 include_rules = [
   "+components/system_media_controls",
+  "+media/media_buildflags.h",
   "+net",
   "+skia/ext",
   "+third_party/brotli",
@@ -12,7 +13,9 @@ include_rules = [
   "+ui/gfx",
   "+ui/resources/grit/ui_resources.h",
   "+ui/resources/grit/ui_unscaled_resources.h",
+  "+ui/resources/grit/webui_generated_resources.h",
   "+ui/resources/grit/webui_resources.h",
   "+ui/strings/grit/app_locale_settings.h",
   "+ui/strings/grit/ui_strings.h",
+  "+url"
 ]

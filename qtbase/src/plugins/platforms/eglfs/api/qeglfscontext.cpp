@@ -39,8 +39,8 @@
 
 #include "qeglfsglobal_p.h"
 #include <QtGui/QSurface>
-#include <QtEglSupport/private/qeglconvenience_p.h>
-#include <QtEglSupport/private/qeglpbuffer_p.h>
+#include <QtGui/private/qeglconvenience_p.h>
+#include <QtGui/private/qeglpbuffer_p.h>
 
 #include "qeglfscontext_p.h"
 #include "qeglfswindow_p.h"
@@ -50,10 +50,9 @@
 QT_BEGIN_NAMESPACE
 
 QEglFSContext::QEglFSContext(const QSurfaceFormat &format, QPlatformOpenGLContext *share, EGLDisplay display,
-                             EGLConfig *config, const QVariant &nativeHandle)
-    : QEGLPlatformContext(format, share, display, config, nativeHandle,
-                          qt_egl_device_integration()->supportsSurfacelessContexts() ? Flags() : QEGLPlatformContext::NoSurfaceless),
-      m_tempWindow(0)
+                             EGLConfig *config)
+    : QEGLPlatformContext(format, share, display, config,
+                          qt_egl_device_integration()->supportsSurfacelessContexts() ? Flags() : QEGLPlatformContext::NoSurfaceless)
 {
 }
 

@@ -36,28 +36,30 @@
 #include <QtDesigner/abstractformeditor.h>
 #include <QtDesigner/abstractsettings.h>
 
-#include <QtCore/qlist.h>
-#include <QtCore/qmap.h>
-#include <QtCore/qpointer.h>
-#include <QtCore/qxmlstream.h>
-
-#include <QtWidgets/qaction.h>
 #include <QtWidgets/qcolordialog.h>
 #include <QtWidgets/qcombobox.h>
-#include <QtGui/qfontdatabase.h>
-#include <QtGui/qtextcursor.h>
-#include <QtGui/qpainter.h>
-#include <QtGui/qicon.h>
 #include <QtWidgets/qmenu.h>
-#include <QtGui/qevent.h>
 #include <QtWidgets/qtabwidget.h>
-#include <QtGui/qtextobject.h>
-#include <QtGui/qtextdocument.h>
 #include <QtWidgets/qtoolbar.h>
 #include <QtWidgets/qtoolbutton.h>
 #include <QtWidgets/qboxlayout.h>
 #include <QtWidgets/qpushbutton.h>
 #include <QtWidgets/qdialogbuttonbox.h>
+
+#include <QtGui/qaction.h>
+#include <QtGui/qactiongroup.h>
+#include <QtGui/qevent.h>
+#include <QtGui/qfontdatabase.h>
+#include <QtGui/qicon.h>
+#include <QtGui/qpainter.h>
+#include <QtGui/qtextcursor.h>
+#include <QtGui/qtextdocument.h>
+#include <QtGui/qtextobject.h>
+
+#include <QtCore/qlist.h>
+#include <QtCore/qmap.h>
+#include <QtCore/qpointer.h>
+#include <QtCore/qxmlstream.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -70,13 +72,13 @@ const bool simplifyRichTextDefault = true;
 namespace qdesigner_internal {
 
 // Richtext simplification filter helpers: Elements to be discarded
-static inline bool filterElement(const QStringRef &name)
+static inline bool filterElement(QStringView name)
 {
     return name != QStringLiteral("meta") && name != QStringLiteral("style");
 }
 
 // Richtext simplification filter helpers: Filter attributes of elements
-static inline void filterAttributes(const QStringRef &name,
+static inline void filterAttributes(QStringView name,
                                     QXmlStreamAttributes *atts,
                                     bool *paragraphAlignmentFound)
 {
@@ -103,8 +105,8 @@ static inline void filterAttributes(const QStringRef &name,
     }
 }
 
-// Richtext simplification filter helpers: Check for blank QStringRef.
-static inline bool isWhiteSpace(const QStringRef &in)
+// Richtext simplification filter helpers: Check for blank QStringView.
+static inline bool isWhiteSpace(QStringView in)
 {
     const int count = in.size();
     for (int i = 0; i < count; i++)

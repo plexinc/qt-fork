@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 
 
 #include <qtextdocument.h>
@@ -142,6 +142,7 @@ private slots:
     void html_doNotInheritBackground();
     void html_inheritBackgroundToInlineElements();
     void html_doNotInheritBackgroundFromBlockElements();
+    void html_inheritBackgroundFromBlockElements();
     void html_nobr();
     void fromPlainText();
     void fromPlainText2();
@@ -1176,7 +1177,7 @@ void tst_QTextDocumentFragment::copySubTable()
     QTextDocumentFragment frag;
     {
         QTextTableFormat fmt;
-        QVector<QTextLength> constraints;
+        QList<QTextLength> constraints;
         constraints << QTextLength(QTextLength::PercentageLength, 16);
         constraints << QTextLength(QTextLength::PercentageLength, 28);
         constraints << QTextLength(QTextLength::PercentageLength, 28);
@@ -1661,19 +1662,22 @@ void tst_QTextDocumentFragment::html_cssShorthandFont()
         const char html[] = "<span style=\"font: 50px sans-serif\">Foo</span>";
         setHtml(html);
         QCOMPARE(cursor.charFormat().property(QTextFormat::FontPixelSize).toInt(), 50);
-        QCOMPARE(cursor.charFormat().property(QTextFormat::FontFamily).toString(), QString("sans-serif"));
+        QCOMPARE(cursor.charFormat().property(QTextFormat::FontFamilies).toStringList(),
+                 QStringList{"sans-serif"});
     }
     {
         const char html[] = "<span style=\"font: 50pt sans-serif\">Foo</span>";
         setHtml(html);
         QCOMPARE(cursor.charFormat().property(QTextFormat::FontPointSize).toInt(), 50);
-        QCOMPARE(cursor.charFormat().property(QTextFormat::FontFamily).toString(), QString("sans-serif"));
+        QCOMPARE(cursor.charFormat().property(QTextFormat::FontFamilies).toStringList(),
+                 QStringList{"sans-serif"});
     }
     {
         const char html[] = "<span style='font:7.0pt \"Times New Roman\"'>Foo</span>";
         setHtml(html);
         QCOMPARE(cursor.charFormat().property(QTextFormat::FontPointSize).toInt(), 7);
-        QCOMPARE(cursor.charFormat().property(QTextFormat::FontFamily).toString(), QString("Times New Roman"));
+        QCOMPARE(cursor.charFormat().property(QTextFormat::FontFamilies).toStringList(),
+                 QStringList{"Times New Roman"});
     }
     {
         const char html[] = "<span style='font:bold 7.0pt'>Foo</span>";
@@ -1710,9 +1714,6 @@ void tst_QTextDocumentFragment::html_bodyBackground()
     const char html[] = "<body background=\"foo.png\">Foo</body>";
     doc->setHtml(html);
 
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("", "Fails on winrt. Investigate - QTBUG-68297", Continue);
-#endif
     QCOMPARE(doc->rootFrame()->frameFormat().background().style(), Qt::TexturePattern);
 }
 
@@ -1727,9 +1728,6 @@ void tst_QTextDocumentFragment::html_tableCellBackground()
     QVERIFY(table);
 
     QTextTableCell cell = table->cellAt(0, 0);
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("", "Fails on winrt. Investigate - QTBUG-68297", Continue);
-#endif
     QCOMPARE(cell.format().background().style(), Qt::TexturePattern);
 }
 
@@ -1738,9 +1736,6 @@ void tst_QTextDocumentFragment::css_bodyBackground()
     const char html[] = "<body style=\"background-image:url('foo.png')\">Foo</body>";
     doc->setHtml(html);
 
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("", "Fails on winrt. Investigate - QTBUG-68297", Continue);
-#endif
     QCOMPARE(doc->rootFrame()->frameFormat().background().style(), Qt::TexturePattern);
 }
 
@@ -1755,9 +1750,6 @@ void tst_QTextDocumentFragment::css_tableCellBackground()
     QVERIFY(table);
 
     QTextTableCell cell = table->cellAt(0, 0);
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("", "Fails on winrt. Investigate - QTBUG-68297", Continue);
-#endif
     QCOMPARE(cell.format().background().style(), Qt::TexturePattern);
 }
 
@@ -2079,7 +2071,7 @@ void tst_QTextDocumentFragment::html_inheritBackgroundToInlineElements()
 
 void tst_QTextDocumentFragment::html_doNotInheritBackgroundFromBlockElements()
 {
-    const char html[] = "<p style=\"background: blue\"><span>Foo</span></span>";
+    const char html[] = "<p style=\"background: blue\"><span>Foo</span></p>";
     doc->setHtml(html);
 
     int fragmentCount = 0;
@@ -2097,6 +2089,31 @@ void tst_QTextDocumentFragment::html_doNotInheritBackgroundFromBlockElements()
 
     QCOMPARE(fragmentCount, 1);
 }
+
+void tst_QTextDocumentFragment::html_inheritBackgroundFromBlockElements()
+{
+    const char html[] = "<div style=\"background: blue\"><p>Foo</p><p>Bar</p></div>";
+    doc->setHtml(html);
+
+    int fragmentCount = 0;
+
+    QTextBlock block = doc->begin();
+    for (QTextBlock::Iterator it = block.begin();
+         !it.atEnd(); ++it, ++fragmentCount) {
+
+        const QTextFragment fragment = it.fragment();
+        if (fragmentCount == 0) {
+            QCOMPARE(fragment.text(), QString("Foo"));
+            QVERIFY(fragment.charFormat().hasProperty(QTextFormat::BackgroundBrush));
+        } else {
+            QCOMPARE(fragment.text(), QString("Bar"));
+            QVERIFY(fragment.charFormat().hasProperty(QTextFormat::BackgroundBrush));
+        }
+    }
+
+    QCOMPARE(fragmentCount, 1);
+}
+
 void tst_QTextDocumentFragment::html_nobr()
 {
     const QString input = "Blah Foo    Bar";
@@ -2424,8 +2441,9 @@ void tst_QTextDocumentFragment::html_quotedFontFamily()
     QFETCH(QStringList, fontFamilies);
 
     setHtml(html);
-    QCOMPARE(doc->begin().begin().fragment().charFormat().fontFamily(), fontFamily);
-    QCOMPARE(doc->begin().begin().fragment().charFormat().font().families(), fontFamilies);
+    const auto charFormat = doc->begin().begin().fragment().charFormat();
+    QCOMPARE(charFormat.fontFamilies().toStringList().value(0, QString()), fontFamily);
+    QCOMPARE(charFormat.font().families(), fontFamilies);
 }
 
 void tst_QTextDocumentFragment::defaultFont()
@@ -2434,12 +2452,12 @@ void tst_QTextDocumentFragment::defaultFont()
     f.setFamily("Courier New");
     f.setBold(true);
     f.setItalic(true);
-    f.setStrikeOut(true); // set here but deliberately ignored for the html export
+    f.setStrikeOut(true);
     f.setPointSize(100);
     doc->setDefaultFont(f);
     doc->setPlainText("Hello World");
     const QString html = doc->toHtml();
-    QLatin1String str("<body style=\" font-family:'Courier New'; font-size:100pt; font-weight:600; font-style:italic;\">");
+    QLatin1String str("<body style=\" font-family:'Courier New'; font-size:100pt; font-weight:700; font-style:italic; text-decoration: line-through;\">");
     QVERIFY(html.contains(str));
 }
 
@@ -2757,7 +2775,7 @@ void tst_QTextDocumentFragment::html_columnWidths()
     QCOMPARE(table->rows(), 2);
     QTextTableFormat fmt = table->format();
 
-    const QVector<QTextLength> columnWidths = fmt.columnWidthConstraints();
+    const QList<QTextLength> columnWidths = fmt.columnWidthConstraints();
     QCOMPARE(columnWidths.count(), 2);
     QCOMPARE(columnWidths.at(0).type(), QTextLength::VariableLength);
     QCOMPARE(columnWidths.at(1).type(), QTextLength::PercentageLength);
@@ -2768,7 +2786,7 @@ void tst_QTextDocumentFragment::css_fontWeight()
 {
     setHtml("<p style=\"font-weight:bold\">blah</p>");
     QCOMPARE(doc->begin().charFormat().fontWeight(), int(QFont::Bold));
-    setHtml("<p style=\"font-weight:600\">blah</p>");
+    setHtml("<p style=\"font-weight:700\">blah</p>");
     QCOMPARE(doc->begin().charFormat().fontWeight(), int(QFont::Bold));
 
 }
@@ -3146,7 +3164,8 @@ public:
 
     QPixmap testPixmap;
 
-    virtual QVariant loadResource(int type, const QUrl &name) {
+    virtual QVariant loadResource(int type, const QUrl &name) override
+    {
         if (name.toString() == QLatin1String("testPixmap")) {
             return testPixmap;
         }

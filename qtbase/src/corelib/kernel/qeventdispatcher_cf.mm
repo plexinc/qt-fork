@@ -89,7 +89,7 @@ QT_USE_NAMESPACE
 
 QT_NAMESPACE_ALIAS_OBJC_CLASS(RunLoopModeTracker);
 
-@implementation RunLoopModeTracker {
+@implementation QT_MANGLE_NAMESPACE(RunLoopModeTracker) {
     QStack<CFStringRef> m_runLoopModes;
 }
 
@@ -259,8 +259,7 @@ QEventLoop *QEventDispatcherCoreFoundation::currentEventLoop() const
         function should wait only if there were no events ready,
         and _then_ process all newly queued/available events.
 
-    These notes apply to other function in this class as well, such as
-    hasPendingEvents().
+    These notes apply to other function in this class as well.
 */
 bool QEventDispatcherCoreFoundation::processEvents(QEventLoop::ProcessEventsFlags flags)
 {
@@ -282,7 +281,7 @@ bool QEventDispatcherCoreFoundation::processEvents(QEventLoop::ProcessEventsFlag
     }
 
     if (m_processEvents.deferredWakeUp) {
-        // We may be processing events recursivly as a result of processing a posted event,
+        // We may be processing events recursively as a result of processing a posted event,
         // in which case we need to signal the run-loop source so that this iteration of
         // processEvents will take care of the newly posted events.
         m_postedEventsRunLoopSource.signal();
@@ -367,7 +366,7 @@ bool QEventDispatcherCoreFoundation::processEvents(QEventLoop::ProcessEventsFlag
                 // to do another pass.
 
                 // But we should only wait for more events the first time
-                m_processEvents.flags &= ~QEventLoop::WaitForMoreEvents;
+                m_processEvents.flags &= ~int(QEventLoop::WaitForMoreEvents);
                 continue;
 
             } else if (m_overdueTimerScheduled && !m_processEvents.processedTimers) {
@@ -499,21 +498,6 @@ void QEventDispatcherCoreFoundation::handleRunLoopActivity(CFRunLoopActivity act
     }
 }
 
-bool QEventDispatcherCoreFoundation::hasPendingEvents()
-{
-    // There doesn't seem to be any API on iOS to peek into the other sources
-    // to figure out if there are pending non-Qt events. As a workaround, we
-    // assume that if the run-loop is currently blocking and waiting for a
-    // source to signal then there are no system-events pending. If this
-    // function is called from the main thread then the second clause
-    // of the condition will always be true, as the run loop is
-    // never waiting in that case. The function would be more aptly named
-    // 'maybeHasPendingEvents' in our case.
-
-    extern uint qGlobalPostedEventsCount();
-    return qGlobalPostedEventsCount() || !CFRunLoopIsWaiting(m_runLoop);
-}
-
 void QEventDispatcherCoreFoundation::wakeUp()
 {
     if (m_processEvents.processedPostedEvents && !(m_processEvents.flags & QEventLoop::EventLoopExec)) {
@@ -544,11 +528,6 @@ void QEventDispatcherCoreFoundation::interrupt()
     CFRunLoopStop(m_runLoop);
 }
 
-void QEventDispatcherCoreFoundation::flush()
-{
-    // X11 only.
-}
-
 #pragma mark - Socket notifiers
 
 void QEventDispatcherCoreFoundation::registerSocketNotifier(QSocketNotifier *notifier)
@@ -563,7 +542,7 @@ void QEventDispatcherCoreFoundation::unregisterSocketNotifier(QSocketNotifier *n
 
 #pragma mark - Timers
 
-void QEventDispatcherCoreFoundation::registerTimer(int timerId, int interval, Qt::TimerType timerType, QObject *object)
+void QEventDispatcherCoreFoundation::registerTimer(int timerId, qint64 interval, Qt::TimerType timerType, QObject *object)
 {
     qCDebug(lcEventDispatcherTimers) << "Registering timer with id =" << timerId << "interval =" << interval
         << "type =" << timerType << "object =" << object;

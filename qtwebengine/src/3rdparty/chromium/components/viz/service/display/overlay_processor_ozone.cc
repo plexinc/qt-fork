@@ -4,6 +4,12 @@
 
 #include "components/viz/service/display/overlay_processor_ozone.h"
 
+#include <memory>
+#include <utility>
+#include <vector>
+
+#include "base/logging.h"
+#include "build/build_config.h"
 #include "components/viz/common/features.h"
 #include "components/viz/service/display/overlay_strategy_fullscreen.h"
 #include "components/viz/service/display/overlay_strategy_single_on_top.h"
@@ -45,6 +51,7 @@ void ConvertToOzoneOverlaySurface(
   ozone_candidate->is_opaque = overlay_candidate.is_opaque;
   ozone_candidate->plane_z_order = overlay_candidate.plane_z_order;
   ozone_candidate->buffer_size = overlay_candidate.resource_size_in_pixels;
+  ozone_candidate->requires_overlay = overlay_candidate.requires_overlay;
 }
 
 uint32_t MailboxToUInt32(const gpu::Mailbox& mailbox) {
@@ -66,37 +73,32 @@ void ReportSharedImageExists(bool exists) {
 // |available_strategies| is a list of overlay strategies that should be
 // initialized by InitializeStrategies.
 OverlayProcessorOzone::OverlayProcessorOzone(
-    bool overlay_enabled,
     std::unique_ptr<ui::OverlayCandidatesOzone> overlay_candidates,
     std::vector<OverlayStrategy> available_strategies,
     gpu::SharedImageInterface* shared_image_interface)
     : OverlayProcessorUsingStrategy(),
-      overlay_enabled_(overlay_enabled),
       overlay_candidates_(std::move(overlay_candidates)),
       available_strategies_(std::move(available_strategies)),
       shared_image_interface_(shared_image_interface) {
-  if (overlay_enabled_) {
-    for (OverlayStrategy strategy : available_strategies_) {
-      switch (strategy) {
-        case OverlayStrategy::kFullscreen:
-          strategies_.push_back(
-              std::make_unique<OverlayStrategyFullscreen>(this));
-          break;
-        case OverlayStrategy::kSingleOnTop:
-          strategies_.push_back(
-              std::make_unique<OverlayStrategySingleOnTop>(this));
-          break;
-        case OverlayStrategy::kUnderlay:
-          strategies_.push_back(
-              std::make_unique<OverlayStrategyUnderlay>(this));
-          break;
-        case OverlayStrategy::kUnderlayCast:
-          strategies_.push_back(
-              std::make_unique<OverlayStrategyUnderlayCast>(this));
-          break;
-        default:
-          NOTREACHED();
-      }
+  for (OverlayStrategy strategy : available_strategies_) {
+    switch (strategy) {
+      case OverlayStrategy::kFullscreen:
+        strategies_.push_back(
+            std::make_unique<OverlayStrategyFullscreen>(this));
+        break;
+      case OverlayStrategy::kSingleOnTop:
+        strategies_.push_back(
+            std::make_unique<OverlayStrategySingleOnTop>(this));
+        break;
+      case OverlayStrategy::kUnderlay:
+        strategies_.push_back(std::make_unique<OverlayStrategyUnderlay>(this));
+        break;
+      case OverlayStrategy::kUnderlayCast:
+        strategies_.push_back(
+            std::make_unique<OverlayStrategyUnderlayCast>(this));
+        break;
+      default:
+        NOTREACHED();
     }
   }
 }
@@ -104,10 +106,10 @@ OverlayProcessorOzone::OverlayProcessorOzone(
 OverlayProcessorOzone::~OverlayProcessorOzone() = default;
 
 bool OverlayProcessorOzone::IsOverlaySupported() const {
-  return overlay_enabled_;
+  return true;
 }
 
-bool OverlayProcessorOzone::NeedsSurfaceOccludingDamageRect() const {
+bool OverlayProcessorOzone::NeedsSurfaceDamageRectList() const {
   return true;
 }
 
@@ -131,9 +133,13 @@ void OverlayProcessorOzone::CheckOverlaySupport(
     // For ozone-cast, there will not be a primary_plane.
     if (primary_plane) {
       ConvertToOzoneOverlaySurface(*primary_plane, &(*ozone_surface_iterator));
+      // TODO(crbug.com/1138568): Fuchsia claims support for presenting primary
+      // plane as overlay, but does not provide a mailbox. Handle this case.
+#if !defined(OS_FUCHSIA)
       if (shared_image_interface_) {
         bool result = SetNativePixmapForCandidate(&(*ozone_surface_iterator),
-                                                  primary_plane->mailbox);
+                                                  primary_plane->mailbox,
+                                                  /*is_primary=*/true);
         // We cannot validate an overlay configuration without the buffer for
         // primary plane present.
         if (!result) {
@@ -143,6 +149,7 @@ void OverlayProcessorOzone::CheckOverlaySupport(
           return;
         }
       }
+#endif
       ozone_surface_iterator++;
     }
 
@@ -154,10 +161,13 @@ void OverlayProcessorOzone::CheckOverlaySupport(
                                    &(*ozone_surface_iterator));
       if (shared_image_interface_) {
         bool result = SetNativePixmapForCandidate(&(*ozone_surface_iterator),
-                                                  surface_iterator->mailbox);
+                                                  surface_iterator->mailbox,
+                                                  /*is_primary=*/false);
         // Skip the candidate if the corresponding NativePixmap is not found.
         if (!result) {
           *ozone_surface_iterator = ui::OverlaySurfaceCandidate();
+          ozone_surface_iterator->plane_z_order =
+              surface_iterator->plane_z_order;
         }
       }
     }
@@ -191,7 +201,8 @@ gfx::Rect OverlayProcessorOzone::GetOverlayDamageRectForOutputSurface(
 
 bool OverlayProcessorOzone::SetNativePixmapForCandidate(
     ui::OverlaySurfaceCandidate* candidate,
-    const gpu::Mailbox& mailbox) {
+    const gpu::Mailbox& mailbox,
+    bool is_primary) {
   DCHECK(shared_image_interface_);
 
   UMA_HISTOGRAM_BOOLEAN(
@@ -202,9 +213,10 @@ bool OverlayProcessorOzone::SetNativePixmapForCandidate(
   if (!mailbox.IsSharedImage())
     return false;
 
-  candidate->native_pixmap = shared_image_interface_->GetNativePixmap(mailbox);
+  scoped_refptr<gfx::NativePixmap> native_pixmap =
+      shared_image_interface_->GetNativePixmap(mailbox);
 
-  if (!candidate->native_pixmap) {
+  if (!native_pixmap) {
     // SharedImage creation and destruction happens on a different
     // thread so there is no guarantee that we can always look them up
     // successfully. If a SharedImage doesn't exist, ignore the
@@ -214,9 +226,19 @@ bool OverlayProcessorOzone::SetNativePixmapForCandidate(
     ReportSharedImageExists(false);
     return false;
   }
-
-  candidate->native_pixmap_unique_id = MailboxToUInt32(mailbox);
   ReportSharedImageExists(true);
+
+  if (is_primary && (candidate->buffer_size != native_pixmap->GetBufferSize() ||
+                     candidate->format != native_pixmap->GetBufferFormat())) {
+    // If |mailbox| corresponds to the last submitted primary plane, its
+    // parameters may not match those of the current candidate due to a
+    // reshape. If the size and format don't match, skip this candidate for
+    // now, and try again next frame.
+    return false;
+  }
+
+  candidate->native_pixmap = std::move(native_pixmap);
+  candidate->native_pixmap_unique_id = MailboxToUInt32(mailbox);
   return true;
 }
 

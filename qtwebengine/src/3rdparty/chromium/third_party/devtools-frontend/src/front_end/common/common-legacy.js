@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// @ts-nocheck
+
 import * as CommonModule from './common.js';
 
 self.Common = self.Common || {};
@@ -76,7 +78,7 @@ Common.CompositeProgress = CommonModule.Progress.CompositeProgress;
 Common.QueryParamHandler = CommonModule.QueryParamHandler.QueryParamHandler;
 
 /**
- * @enum {!ResourceType}
+ * @enum {!CommonModule.ResourceType.ResourceType}
  */
 Common.resourceTypes = CommonModule.ResourceType.resourceTypes;
 
@@ -104,9 +106,6 @@ Common.Settings = CommonModule.Settings.Settings;
 
 Common.Settings.detectColorFormat = CommonModule.Settings.detectColorFormat;
 
-/**
- * @constructor
- */
 Common.Setting = CommonModule.Settings.Setting;
 
 Common.settingForTest = CommonModule.Settings.settingForTest;
@@ -132,7 +131,7 @@ Common.localize = CommonModule.UIString.localize;
 Common.settings;
 
 /**
- * @param {!ITemplateArray|string} strings
+ * @param {!TemplateStringsArray|string} strings
  * @param {...*} vararg
  * @return {string}
  */

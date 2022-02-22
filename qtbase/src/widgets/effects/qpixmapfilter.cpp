@@ -353,17 +353,17 @@ static void convolute(
             int kernely = -kernelHeight/2;
             int starty = 0;
             int endy = kernelHeight;
-            if(yk+kernely+endy >= srcImage.height())
+            if (yk+kernely+endy >= srcImage.height())
                 endy = kernelHeight-((yk+kernely+endy)-srcImage.height())-1;
-            if(yk+kernely < 0)
+            if (yk+kernely < 0)
                 starty = -(yk+kernely);
 
             int kernelx = -kernelWidth/2;
             int startx = 0;
             int endx = kernelWidth;
-            if(xk+kernelx+endx >= srcImage.width())
+            if (xk+kernelx+endx >= srcImage.width())
                 endx = kernelWidth-((xk+kernelx+endx)-srcImage.width())-1;
-            if(xk+kernelx < 0)
+            if (xk+kernelx < 0)
                 startx = -(xk+kernelx);
 
             for (int ys = starty; ys < endy; ys ++) {
@@ -385,7 +385,7 @@ static void convolute(
             b = qBound((int)0, b >> 16, (int)255);
             a = qBound((int)0, a >> 16, (int)255);
             // composition mode checking could be moved outside of loop
-            if(mode == QPainter::CompositionMode_Source) {
+            if (mode == QPainter::CompositionMode_Source) {
                 uint color = (a<<24)+(r<<16)+(g<<8)+b;
                 *output++ = color;
             } else {
@@ -416,7 +416,7 @@ void QPixmapConvolutionFilter::draw(QPainter *painter, const QPointF &p, const Q
     if (!painter->isActive())
         return;
 
-    if(d->kernelWidth<=0 || d->kernelHeight <= 0)
+    if (d->kernelWidth<=0 || d->kernelHeight <= 0)
         return;
 
     if (src.isNull())
@@ -719,7 +719,7 @@ void expblur(QImage &img, qreal radius, bool improvedQuality = false, int transp
     }
 
     QImage temp(img.height(), img.width(), img.format());
-    temp.setDevicePixelRatio(img.devicePixelRatioF());
+    temp.setDevicePixelRatio(img.devicePixelRatio());
     if (transposed >= 0) {
         if (img.depth() == 8) {
             qt_memrotate270(reinterpret_cast<const quint8*>(img.bits()),
@@ -781,14 +781,14 @@ Q_WIDGETS_EXPORT QImage qt_halfScaled(const QImage &source)
     if (source.format() == QImage::Format_Indexed8 || source.format() == QImage::Format_Grayscale8) {
         // assumes grayscale
         QImage dest(source.width() / 2, source.height() / 2, srcImage.format());
-        dest.setDevicePixelRatio(source.devicePixelRatioF());
+        dest.setDevicePixelRatio(source.devicePixelRatio());
 
         const uchar *src = reinterpret_cast<const uchar*>(const_cast<const QImage &>(srcImage).bits());
-        int sx = srcImage.bytesPerLine();
-        int sx2 = sx << 1;
+        qsizetype sx = srcImage.bytesPerLine();
+        qsizetype sx2 = sx << 1;
 
         uchar *dst = reinterpret_cast<uchar*>(dest.bits());
-        int dx = dest.bytesPerLine();
+        qsizetype dx = dest.bytesPerLine();
         int ww = dest.width();
         int hh = dest.height();
 
@@ -803,14 +803,14 @@ Q_WIDGETS_EXPORT QImage qt_halfScaled(const QImage &source)
         return dest;
     } else if (source.format() == QImage::Format_ARGB8565_Premultiplied) {
         QImage dest(source.width() / 2, source.height() / 2, srcImage.format());
-        dest.setDevicePixelRatio(source.devicePixelRatioF());
+        dest.setDevicePixelRatio(source.devicePixelRatio());
 
         const uchar *src = reinterpret_cast<const uchar*>(const_cast<const QImage &>(srcImage).bits());
-        int sx = srcImage.bytesPerLine();
-        int sx2 = sx << 1;
+        qsizetype sx = srcImage.bytesPerLine();
+        qsizetype sx2 = sx << 1;
 
         uchar *dst = reinterpret_cast<uchar*>(dest.bits());
-        int dx = dest.bytesPerLine();
+        qsizetype dx = dest.bytesPerLine();
         int ww = dest.width();
         int hh = dest.height();
 
@@ -840,14 +840,14 @@ Q_WIDGETS_EXPORT QImage qt_halfScaled(const QImage &source)
     }
 
     QImage dest(source.width() / 2, source.height() / 2, srcImage.format());
-    dest.setDevicePixelRatio(source.devicePixelRatioF());
+    dest.setDevicePixelRatio(source.devicePixelRatio());
 
     const quint32 *src = reinterpret_cast<const quint32*>(const_cast<const QImage &>(srcImage).bits());
-    int sx = srcImage.bytesPerLine() >> 2;
-    int sx2 = sx << 1;
+    qsizetype sx = srcImage.bytesPerLine() >> 2;
+    qsizetype sx2 = sx << 1;
 
     quint32 *dst = reinterpret_cast<quint32*>(dest.bits());
-    int dx = dest.bytesPerLine() >> 2;
+    qsizetype dx = dest.bytesPerLine() >> 2;
     int ww = dest.width();
     int hh = dest.height();
 
@@ -885,7 +885,7 @@ Q_WIDGETS_EXPORT void qt_blurImage(QPainter *p, QImage &blurImage, qreal radius,
     if (p) {
         p->scale(scale, scale);
         p->setRenderHint(QPainter::SmoothPixmapTransform);
-        p->drawImage(QRect(QPoint(0, 0), blurImage.size() / blurImage.devicePixelRatioF()), blurImage);
+        p->drawImage(QRect(QPoint(0, 0), blurImage.size() / blurImage.devicePixelRatio()), blurImage);
     }
 }
 
@@ -1032,8 +1032,6 @@ QPixmapColorizeFilter::QPixmapColorizeFilter(QObject *parent)
 */
 QPixmapColorizeFilter::~QPixmapColorizeFilter()
 {
-    // was inline until Qt 5.6, so essentially
-    // must stay empty until ### Qt 6
 }
 
 /*!
@@ -1116,7 +1114,7 @@ void QPixmapColorizeFilter::draw(QPainter *painter, const QPointF &dest, const Q
         srcImage = std::move(srcImage).convertToFormat(format);
         destImage = QImage(rect.size(), srcImage.format());
     }
-    destImage.setDevicePixelRatio(src.devicePixelRatioF());
+    destImage.setDevicePixelRatio(src.devicePixelRatio());
 
     // do colorizing
     QPainter destPainter(&destImage);
@@ -1325,7 +1323,7 @@ void QPixmapDropShadowFilter::draw(QPainter *p,
         return;
 
     QImage tmp(px.size(), QImage::Format_ARGB32_Premultiplied);
-    tmp.setDevicePixelRatio(px.devicePixelRatioF());
+    tmp.setDevicePixelRatio(px.devicePixelRatio());
     tmp.fill(0);
     QPainter tmpPainter(&tmp);
     tmpPainter.setCompositionMode(QPainter::CompositionMode_Source);
@@ -1334,7 +1332,7 @@ void QPixmapDropShadowFilter::draw(QPainter *p,
 
     // blur the alpha channel
     QImage blurred(tmp.size(), QImage::Format_ARGB32_Premultiplied);
-    blurred.setDevicePixelRatio(px.devicePixelRatioF());
+    blurred.setDevicePixelRatio(px.devicePixelRatio());
     blurred.fill(0);
     QPainter blurPainter(&blurred);
     qt_blurImage(&blurPainter, tmp, d->radius, false, true);

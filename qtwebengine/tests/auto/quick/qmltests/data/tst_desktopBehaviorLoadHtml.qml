@@ -26,9 +26,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import QtTest 1.0
-import QtWebEngine 1.2
+import QtQuick
+import QtTest
+import QtWebEngine
 
 TestWebEngineView {
     id: webEngineView
@@ -44,7 +44,7 @@ TestWebEngineView {
         signalName: "linkHovered"
     }
 
-    onLinkHovered: {
+    onLinkHovered: function(hoveredUrl) {
         webEngineView.lastUrl = hoveredUrl
     }
 

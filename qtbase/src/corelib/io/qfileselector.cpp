@@ -278,7 +278,10 @@ QString QFileSelectorPrivate::select(const QString &filePath) const
     Q_Q(const QFileSelector);
     QFileInfo fi(filePath);
 
-    QString ret = selectionHelper(fi.path().isEmpty() ? QString() : fi.path() + QLatin1Char('/'),
+    QString pathString;
+    if (auto path = fi.path(); !path.isEmpty())
+        pathString = path.endsWith(u'/') ? path : path + u'/';
+    QString ret = selectionHelper(pathString,
             fi.fileName(), q->allSelectors());
 
     if (!ret.isEmpty())
@@ -342,29 +345,19 @@ void QFileSelectorPrivate::updateSelectors()
 QStringList QFileSelectorPrivate::platformSelectors()
 {
     // similar, but not identical to QSysInfo::osType
-    // ### Qt6: remove macOS fallbacks to "mac" and the future compatibility
     QStringList ret;
 #if defined(Q_OS_WIN)
     ret << QStringLiteral("windows");
     ret << QSysInfo::kernelType();  // "winnt"
-#  if defined(Q_OS_WINRT)
-    ret << QStringLiteral("winrt");
-#  endif
 #elif defined(Q_OS_UNIX)
     ret << QStringLiteral("unix");
 #  if !defined(Q_OS_ANDROID) && !defined(Q_OS_QNX)
     // we don't want "linux" for Android or two instances of "qnx" for QNX
     ret << QSysInfo::kernelType();
-#     ifdef Q_OS_MAC
-    ret << QStringLiteral("mac"); // compatibility, since kernelType() is "darwin"
-#     endif
 #  endif
     QString productName = QSysInfo::productType();
     if (productName != QLatin1String("unknown"))
         ret << productName; // "opensuse", "fedora", "osx", "ios", "android"
-#  if defined(Q_OS_MACOS)
-    ret << QStringLiteral("macos"); // future compatibility
-#  endif
 #endif
     return ret;
 }

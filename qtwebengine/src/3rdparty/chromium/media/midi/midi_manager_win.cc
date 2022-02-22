@@ -18,8 +18,8 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/logging.h"
 #include "base/optional.h"
 #include "base/single_thread_task_runner.h"
@@ -352,8 +352,7 @@ class MidiManagerWin::InPort final : public Port {
              caps.wMid,
              caps.wPid,
              caps.vDriverVersion,
-             base::WideToUTF8(
-                 base::string16(caps.szPname, wcslen(caps.szPname))),
+             base::WideToUTF8(std::wstring(caps.szPname, wcslen(caps.szPname))),
              caps.ManufacturerGuid),
         manager_(manager),
         in_handle_(kInvalidInHandle),
@@ -471,8 +470,7 @@ class MidiManagerWin::OutPort final : public Port {
              caps.wMid,
              caps.wPid,
              caps.vDriverVersion,
-             base::WideToUTF8(
-                 base::string16(caps.szPname, wcslen(caps.szPname))),
+             base::WideToUTF8(std::wstring(caps.szPname, wcslen(caps.szPname))),
              caps.ManufacturerGuid),
         software_(caps.wTechnology == MOD_SWSYNTH),
         out_handle_(kInvalidOutHandle) {}

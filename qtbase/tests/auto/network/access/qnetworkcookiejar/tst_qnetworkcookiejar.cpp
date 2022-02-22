@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QtCore/QJsonArray>
 #include <QtCore/QJsonDocument>
 #include <QtCore/QJsonObject>
@@ -37,6 +37,7 @@
 #include <QtNetwork/QNetworkRequest>
 #if QT_CONFIG(topleveldomain)
 #include "private/qtldurl_p.h"
+#include "private/qurltlds_p.h"
 #endif
 
 class tst_QNetworkCookieJar: public QObject
@@ -435,16 +436,16 @@ void tst_QNetworkCookieJar::effectiveTLDs_data()
     QTest::newRow("no10") << "bla.bla" << false;
     QTest::newRow("no11") << "mosreg.ru" << false;
 
-    const ushort s1[] = {0x74, 0x72, 0x61, 0x6e, 0xf8, 0x79, 0x2e, 0x6e, 0x6f, 0x00}; // xn--trany-yua.no
-    const ushort s2[] = {0x5d9, 0x5e8, 0x5d5, 0x5e9, 0x5dc, 0x5d9, 0x5dd, 0x2e, 0x6d, 0x75, 0x73, 0x65, 0x75, 0x6d, 0x00}; // xn--9dbhblg6di.museum
-    const ushort s3[] = {0x7ec4, 0x7e54, 0x2e, 0x68, 0x6b, 0x00}; // xn--mk0axi.hk
-    const ushort s4[] = {0x7f51, 0x7edc, 0x2e, 0x63, 0x6e, 0x00}; // xn--io0a7i.cn
-    const ushort s5[] = {0x72, 0xe1, 0x68, 0x6b, 0x6b, 0x65, 0x72, 0xe1, 0x76, 0x6a, 0x75, 0x2e, 0x6e, 0x6f, 0x00}; // xn--rhkkervju-01af.no
-    const ushort s6[] = {0xb9a, 0xbbf, 0xb99, 0xbcd, 0xb95, 0xbaa, 0xbcd, 0xbaa, 0xbc2, 0xbb0, 0xbcd, 0x00}; // xn--clchc0ea0b2g2a9gcd
-    const ushort s7[] = {0x627, 0x644, 0x627, 0x631, 0x62f, 0x646, 0x00}; // xn--mgbayh7gpa
-    const ushort s8[] = {0x63, 0x6f, 0x72, 0x72, 0x65, 0x69, 0x6f, 0x73, 0x2d, 0x65, 0x2d, 0x74, 0x65, 0x6c, 0x65,
-                         0x63, 0x6f, 0x6d, 0x75, 0x6e, 0x69, 0x63, 0x61, 0xe7, 0xf5, 0x65, 0x73, 0x2e, 0x6d, 0x75,
-                         0x73, 0x65, 0x75, 0x6d, 0x00}; // xn--correios-e-telecomunicaes-ghc29a.museum
+    const char16_t s1[] = {0x74, 0x72, 0x61, 0x6e, 0xf8, 0x79, 0x2e, 0x6e, 0x6f, 0x00}; // xn--trany-yua.no
+    const char16_t s2[] = {0x5d9, 0x5e8, 0x5d5, 0x5e9, 0x5dc, 0x5d9, 0x5dd, 0x2e, 0x6d, 0x75, 0x73, 0x65, 0x75, 0x6d, 0x00}; // xn--9dbhblg6di.museum
+    const char16_t s3[] = {0x7ec4, 0x7e54, 0x2e, 0x68, 0x6b, 0x00}; // xn--mk0axi.hk
+    const char16_t s4[] = {0x7f51, 0x7edc, 0x2e, 0x63, 0x6e, 0x00}; // xn--io0a7i.cn
+    const char16_t s5[] = {0x72, 0xe1, 0x68, 0x6b, 0x6b, 0x65, 0x72, 0xe1, 0x76, 0x6a, 0x75, 0x2e, 0x6e, 0x6f, 0x00}; // xn--rhkkervju-01af.no
+    const char16_t s6[] = {0xb9a, 0xbbf, 0xb99, 0xbcd, 0xb95, 0xbaa, 0xbcd, 0xbaa, 0xbc2, 0xbb0, 0xbcd, 0x00}; // xn--clchc0ea0b2g2a9gcd
+    const char16_t s7[] = {0x627, 0x644, 0x627, 0x631, 0x62f, 0x646, 0x00}; // xn--mgbayh7gpa
+    const char16_t s8[] = {0x63, 0x6f, 0x72, 0x72, 0x65, 0x69, 0x6f, 0x73, 0x2d, 0x65, 0x2d, 0x74, 0x65, 0x6c, 0x65,
+                           0x63, 0x6f, 0x6d, 0x75, 0x6e, 0x69, 0x63, 0x61, 0xe7, 0xf5, 0x65, 0x73, 0x2e, 0x6d, 0x75,
+                           0x73, 0x65, 0x75, 0x6d, 0x00}; // xn--correios-e-telecomunicaes-ghc29a.museum
     QTest::newRow("yes-specialchars1") << QString::fromUtf16(s1) << true;
     QTest::newRow("yes-specialchars2") << QString::fromUtf16(s2) << true;
     QTest::newRow("yes-specialchars3") << QString::fromUtf16(s3) << true;
@@ -476,7 +477,30 @@ void tst_QNetworkCookieJar::effectiveTLDs_data()
     QTest::newRow("no-wildcard3") << "whatever.uk" << false; // was changed at some point
     QTest::newRow("yes-wildcard4") << "anything.sendai.jp" << true;
     QTest::newRow("yes-wildcard5") << "foo.sch.uk" << true;
-    QTest::newRow("yes-wildcard6") << "something.platform.sh" << true;
+    QTest::newRow("yes-platform.sh") << "eu.platform.sh" << true;
+    QTest::newRow("no-platform.sh") << "something.platform.sh" << false;
+
+    int inFirst = 0; // First group is guaranteed to be in first chunk.
+    while (tldIndices[inFirst] < tldChunks[0])
+        ++inFirst;
+    Q_ASSERT(inFirst < tldCount);
+    const char *lastGroupFromFirstChunk = &tldData[0][tldIndices[inFirst - 1]];
+    const char *cut = &tldData[0][tldChunks[0]];
+    for (const char *entry = lastGroupFromFirstChunk; entry < cut; entry += strlen(entry) + 1)
+        QTest::addRow("lastGroupFromFirstChunk: %s", entry) << entry << true;
+
+    Q_ASSERT(tldChunkCount > 1);    // There are enough TLDs to fill 64K bytes
+    // The tldCount + 1 entries in tldIndices are indexed by hash value and some
+    // hash cells may be empty: we need to find the last non-empty hash cell.
+    int tail = tldCount;
+    while (tldIndices[tail - 1] == tldIndices[tail])
+        --tail;
+    Q_ASSERT(tldIndices[tail] == tldChunks[tldChunkCount - 1]);
+    const char *lastGroupFromLastChunk =
+        &tldData[tldChunkCount-1][tldIndices[tail - 1] - tldChunks[tldChunkCount - 2]];
+    const char *end = &tldData[tldChunkCount-1][tldIndices[tail] - tldChunks[tldChunkCount - 2]];
+    for (const char *entry = lastGroupFromLastChunk; entry < end; entry += strlen(entry) + 1)
+        QTest::addRow("lastGroupFromLastChunk: %s", entry) << entry << true;
 }
 
 void tst_QNetworkCookieJar::effectiveTLDs()
@@ -500,7 +524,7 @@ void tst_QNetworkCookieJar::rfc6265_data()
     QVERIFY(!document.isNull());
     QVERIFY(document.isArray());
 
-    foreach (const QJsonValue& testCase, document.array()) {
+    for (const QJsonValue testCase : document.array()) {
         QJsonObject testObject = testCase.toObject();
 
         //"test" - the test case name
@@ -509,15 +533,15 @@ void tst_QNetworkCookieJar::rfc6265_data()
             continue;
 
         //"received" - the cookies received from the server
-        QJsonArray received = testObject.value("received").toArray();
+        const QJsonArray received = testObject.value("received").toArray();
         QStringList receivedList;
-        foreach (const QJsonValue& receivedCookie, received)
+        for (const QJsonValue receivedCookie : received)
             receivedList.append(receivedCookie.toString());
 
         //"sent" - the cookies sent back to the server
-        QJsonArray sent = testObject.value("sent").toArray();
+        const QJsonArray sent = testObject.value("sent").toArray();
         QList<QNetworkCookie> sentList;
-        foreach (const QJsonValue& sentCookie, sent) {
+        for (const QJsonValue sentCookie : sent) {
             QJsonObject sentCookieObject = sentCookie.toObject();
             QNetworkCookie cookie;
             cookie.setName(sentCookieObject.value("name").toString().toUtf8());

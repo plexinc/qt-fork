@@ -47,6 +47,8 @@
 
 #include "qquick3dobjectchangelistener_p.h"
 
+#include "qquick3dscenemanager_p.h"
+
 #include <private/qobject_p.h>
 #include <private/qquickstate_p.h>
 #include <private/qqmlnotifier_p.h>
@@ -56,35 +58,26 @@
 QT_BEGIN_NAMESPACE
 
 class QSSGRenderContextInterface;
-class QSSGRenderContext;
+class QQuick3DItem2D;
 
 class Q_QUICK3D_PRIVATE_EXPORT QQuick3DObjectPrivate : public QObjectPrivate
 {
     Q_DECLARE_PUBLIC(QQuick3DObject)
 public:
-    enum class Type {
-        Unknown = 0,
-        Node, // Node
-        Layer, // Node
-        Light, // Node
-        Camera, // Node
-        Model, // Node
-        Text, // Node
-        Item2D, // Renderable? Node
-        SceneEnvironment, // Resource
-        DefaultMaterial, // Resource
-        PrincipledMaterial, // Resource
-        Image, // Resource
-        Effect, // Resource
-        CustomMaterial, // Resource
-        Lightmaps, // Resource
-        Geometry, // Resource
-        RenderPlugin, // Not used
-        LastKnownGraphObjectType,
-    };
+    using Type = QSSGRenderGraphObject::Type;
+
+    using ConnectionMap = QHash<QByteArray, QMetaObject::Connection>;
 
     static QQuick3DObjectPrivate *get(QQuick3DObject *item) { return item->d_func(); }
     static const QQuick3DObjectPrivate *get(const QQuick3DObject *item) { return item->d_func(); }
+    static QSSGRenderGraphObject *updateSpatialNode(QQuick3DObject *o, QSSGRenderGraphObject *n) { return o->updateSpatialNode(n); }
+
+    static void updatePropertyListener(QQuick3DObject *newO,
+                                       QQuick3DObject *oldO,
+                                       QQuick3DSceneManager *sceneManager,
+                                       const QByteArray &propertyKey,
+                                       ConnectionMap &connections,
+                                       const std::function<void(QQuick3DObject *o)> &callFn);
 
     explicit QQuick3DObjectPrivate(Type t);
     ~QQuick3DObjectPrivate() override;
@@ -102,23 +95,24 @@ public:
 
     // data property
     static void data_append(QQmlListProperty<QObject> *, QObject *);
-    static int data_count(QQmlListProperty<QObject> *);
-    static QObject *data_at(QQmlListProperty<QObject> *, int);
+    static qsizetype data_count(QQmlListProperty<QObject> *);
+    static QObject *data_at(QQmlListProperty<QObject> *, qsizetype);
     static void data_clear(QQmlListProperty<QObject> *);
 
     // resources property
-    static QObject *resources_at(QQmlListProperty<QObject> *, int);
+    static QObject *resources_at(QQmlListProperty<QObject> *, qsizetype);
     static void resources_append(QQmlListProperty<QObject> *, QObject *);
-    static int resources_count(QQmlListProperty<QObject> *);
+    static qsizetype resources_count(QQmlListProperty<QObject> *);
     static void resources_clear(QQmlListProperty<QObject> *);
 
     // children property
     static void children_append(QQmlListProperty<QQuick3DObject> *, QQuick3DObject *);
-    static int children_count(QQmlListProperty<QQuick3DObject> *);
-    static QQuick3DObject *children_at(QQmlListProperty<QQuick3DObject> *, int);
+    static qsizetype children_count(QQmlListProperty<QQuick3DObject> *);
+    static QQuick3DObject *children_at(QQmlListProperty<QQuick3DObject> *, qsizetype);
     static void children_clear(QQmlListProperty<QQuick3DObject> *);
 
     void _q_resourceObjectDeleted(QObject *);
+    void _q_cleanupContentItem2D();
     quint64 _q_createJSWrapper(QV4::ExecutionEngine *engine);
 
     enum ChangeType {
@@ -214,13 +208,10 @@ public:
     QQuick3DObject *nextDirtyItem;
     QQuick3DObject **prevDirtyItem;
 
-    bool isResourceNode() const;
-    bool isSpatialNode() const;
-
     void setCulled(bool);
 
-    QSharedPointer<QQuick3DSceneManager> sceneManager;
-    int windowRefCount;
+    QPointer<QQuick3DSceneManager> sceneManager;
+    int sceneRefCount;
 
     QQuick3DObject *parentItem;
 
@@ -233,10 +224,10 @@ public:
 
     void markSortedChildrenDirty(QQuick3DObject *child);
 
-    void refSceneManager(const QSharedPointer<QQuick3DSceneManager> &);
+    void refSceneManager(QQuick3DSceneManager &);
     void derefSceneManager();
 
-    static void refSceneManager(QQuick3DObject *obj,const QSharedPointer<QQuick3DSceneManager> &mgr)
+    static void refSceneManager(QQuick3DObject *obj, QQuick3DSceneManager &mgr)
     {
         if (obj)
             QQuick3DObjectPrivate::get(obj)->refSceneManager(mgr);
@@ -258,7 +249,9 @@ public:
 
     Type type = Type::Unknown;
     bool componentComplete = true;
+    bool preSyncNeeded = false;
     bool culled;
+    QQuick3DItem2D *contentItem2d = nullptr;
 };
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(QQuick3DObjectPrivate::ChangeTypes)

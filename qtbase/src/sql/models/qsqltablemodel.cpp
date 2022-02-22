@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtSql module of the Qt Toolkit.
@@ -63,7 +63,7 @@ QSqlTableModelPrivate::~QSqlTableModelPrivate()
 /*! \internal
     Populates our record with values.
 */
-QSqlRecord QSqlTableModelPrivate::record(const QVector<QVariant> &values) const
+QSqlRecord QSqlTableModelPrivate::record(const QList<QVariant> &values) const
 {
     QSqlRecord r = rec;
     for (int i = 0; i < r.count() && i < values.count(); ++i)
@@ -291,7 +291,7 @@ bool QSqlTableModelPrivate::exec(const QString &stmt, bool prepStatement,
 
     The default edit strategy is \l OnRowChange.
 */
-QSqlTableModel::QSqlTableModel(QObject *parent, QSqlDatabase db)
+QSqlTableModel::QSqlTableModel(QObject *parent, const QSqlDatabase &db)
     : QSqlQueryModel(*new QSqlTableModelPrivate, parent)
 {
     Q_D(QSqlTableModel);
@@ -300,7 +300,7 @@ QSqlTableModel::QSqlTableModel(QObject *parent, QSqlDatabase db)
 
 /*!  \internal
 */
-QSqlTableModel::QSqlTableModel(QSqlTableModelPrivate &dd, QObject *parent, QSqlDatabase db)
+QSqlTableModel::QSqlTableModel(QSqlTableModelPrivate &dd, QObject *parent, const QSqlDatabase &db)
     : QSqlQueryModel(dd, parent)
 {
     Q_D(QSqlTableModel);
@@ -607,7 +607,6 @@ bool QSqlTableModel::setData(const QModelIndex &index, const QVariant &value, in
     return true;
 }
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 /*!
     \reimp
  */
@@ -615,7 +614,6 @@ bool QSqlTableModel::clearItemData(const QModelIndex &index)
 {
     return setData(index, QVariant(), Qt::EditRole);
 }
-#endif
 
 /*!
     This function simply calls QSqlQueryModel::setQuery(\a query).
@@ -1003,7 +1001,8 @@ QString QSqlTableModel::orderByClause() const
 
     //we can safely escape the field because it would have been obtained from the database
     //and have the correct case
-    QString field = d->tableName + QLatin1Char('.')
+    QString field = d->db.driver()->escapeIdentifier(d->tableName, QSqlDriver::TableName)
+            + QLatin1Char('.')
             + d->db.driver()->escapeIdentifier(f.name(), QSqlDriver::FieldName);
     field = d->sortOrder == Qt::AscendingOrder ? Sql::asc(field) : Sql::desc(field);
     return Sql::orderBy(field);
@@ -1105,12 +1104,8 @@ bool QSqlTableModel::removeColumns(int column, int count, const QModelIndex &par
 bool QSqlTableModel::removeRows(int row, int count, const QModelIndex &parent)
 {
     Q_D(QSqlTableModel);
-    if (parent.isValid() || row < 0 || count <= 0)
+    if (parent.isValid() || row < 0 || count <= 0 || row + count > rowCount())
         return false;
-    else if (row + count > rowCount())
-        return false;
-    else if (!count)
-        return true;
 
     if (d->strategy != OnManualSubmit)
         if (count > 1 || (d->cache.value(row).submitted() && isDirty()))

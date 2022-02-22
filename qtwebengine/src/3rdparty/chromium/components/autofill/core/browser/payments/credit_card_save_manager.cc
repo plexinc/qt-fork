@@ -15,7 +15,7 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/feature_list.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/string16.h"
@@ -43,7 +43,6 @@
 #include "components/autofill/core/common/autofill_payments_features.h"
 #include "components/autofill/core/common/autofill_prefs.h"
 #include "components/autofill/core/common/autofill_util.h"
-#include "components/infobars/core/infobar_feature.h"
 #include "components/prefs/pref_service.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "url/gurl.h"
@@ -86,9 +85,6 @@ CreditCardSaveManager::CreditCardSaveManager(
       payments_client_(payments_client),
       app_locale_(app_locale),
       personal_data_manager_(personal_data_manager) {
-  // This is to initialize StrikeDatabase is if it hasn't been already, so that
-  // its cache would be loaded and ready to use when the first CCSM is created.
-  client_->GetStrikeDatabase();
 }
 
 CreditCardSaveManager::~CreditCardSaveManager() {}
@@ -219,9 +215,8 @@ void CreditCardSaveManager::AttemptToOfferCardUploadSave(
     // iOS should always provide a valid expiration date when attempting to
     // upload a Saved Card. Calling LogSaveCardRequestExpirationDateReasonMetric
     // would trigger a DCHECK.
-    if (!(base::FeatureList::IsEnabled(
-              features::kAutofillSaveCardInfobarEditSupport) &&
-          base::FeatureList::IsEnabled(kIOSInfobarUIReboot))) {
+    if (!base::FeatureList::IsEnabled(
+            features::kAutofillSaveCardInfobarEditSupport)) {
       // Remove once both flags are deleted.
       LogSaveCardRequestExpirationDateReasonMetric();
     }
@@ -232,9 +227,8 @@ void CreditCardSaveManager::AttemptToOfferCardUploadSave(
   }
 
 #if defined(OS_IOS)
-  if ((base::FeatureList::IsEnabled(
-           features::kAutofillSaveCardInfobarEditSupport) &&
-       base::FeatureList::IsEnabled(kIOSInfobarUIReboot))) {
+  if (base::FeatureList::IsEnabled(
+          features::kAutofillSaveCardInfobarEditSupport)) {
     // iOS's new credit card save dialog requires the user to enter both
     // cardholder name and expiration date before saving.  Regardless of what
     // Chrome thought it needed to do before, disable both of the previous
@@ -255,8 +249,6 @@ void CreditCardSaveManager::AttemptToOfferCardUploadSave(
       (should_request_expiration_date_from_user_ &&
        personal_data_manager_->GetSyncSigninState() ==
            AutofillSyncSigninState::kSignedInAndWalletSyncTransportEnabled)) {
-    DCHECK(base::FeatureList::IsEnabled(
-        features::kAutofillUpstreamEditableExpirationDate));
     LogCardUploadDecisions(upload_decision_metrics_);
     pending_upload_request_origin_ = url::Origin();
     return;
@@ -318,18 +310,6 @@ void CreditCardSaveManager::OnDidUploadCard(
   }
 
   if (result == AutofillClient::SUCCESS) {
-    // If the upload succeeds and we can store unmasked cards on this OS, we
-    // will keep a copy of the card as a full server card on the device.
-    if (!server_id.empty() &&
-        OfferStoreUnmaskedCards(payments_client_->is_off_the_record()) &&
-        !IsAutofillNoLocalSaveOnUploadSuccessExperimentEnabled()) {
-      upload_request_.card.set_record_type(CreditCard::FULL_SERVER_CARD);
-      upload_request_.card.SetServerStatus(CreditCard::OK);
-      upload_request_.card.set_server_id(server_id);
-      DCHECK(personal_data_manager_);
-      if (personal_data_manager_)
-        personal_data_manager_->AddFullServerCreditCard(upload_request_.card);
-    }
     // Log how many strikes the card had when it was saved.
     LogStrikesPresentWhenCardSaved(
         /*is_local=*/false,
@@ -371,6 +351,7 @@ CreditCardSaveManager::GetCreditCardSaveStrikeDatabase() {
   return credit_card_save_strike_database_.get();
 }
 
+#if !defined(OS_ANDROID) && !defined(OS_IOS)
 LocalCardMigrationStrikeDatabase*
 CreditCardSaveManager::GetLocalCardMigrationStrikeDatabase() {
   if (local_card_migration_strike_database_.get() == nullptr) {
@@ -380,6 +361,7 @@ CreditCardSaveManager::GetLocalCardMigrationStrikeDatabase() {
   }
   return local_card_migration_strike_database_.get();
 }
+#endif  // !defined(OS_ANDROID) && !defined(OS_IOS)
 
 void CreditCardSaveManager::OnDidGetUploadDetails(
     AutofillClient::PaymentsRpcResult result,
@@ -501,6 +483,8 @@ void CreditCardSaveManager::OfferCardUploadSave() {
   // should not display the offer-to-save infobar at all.
   if (!is_mobile_build || show_save_prompt_.value_or(true)) {
     user_did_accept_upload_prompt_ = false;
+    if (observer_for_testing_)
+      observer_for_testing_->OnOfferUploadSave();
     client_->ConfirmSaveCreditCardToCloud(
         upload_request_.card, legal_message_lines_,
         AutofillClient::SaveCreditCardOptions()
@@ -555,10 +539,13 @@ void CreditCardSaveManager::OnUserDidDecideOnLocalSave(
       // removed.
       GetCreditCardSaveStrikeDatabase()->ClearStrikes(
           base::UTF16ToUTF8(local_card_save_candidate_.LastFourDigits()));
+
+#if !defined(OS_ANDROID) && !defined(OS_IOS)
       // Clear some local card migration strikes, as there is now a new card
       // eligible for migration.
       GetLocalCardMigrationStrikeDatabase()->RemoveStrikes(
           LocalCardMigrationStrikeDatabase::kStrikesToRemoveWhenLocalCardAdded);
+#endif  // !defined(OS_ANDROID) && !defined(OS_IOS)
 
       personal_data_manager_->OnAcceptedLocalCreditCardSave(
           local_card_save_candidate_);
@@ -738,43 +725,39 @@ int CreditCardSaveManager::GetDetectedValues() const {
     detected_values |= DetectedValue::HAS_GOOGLE_PAYMENTS_ACCOUNT;
   }
 
-  if (base::FeatureList::IsEnabled(
-          features::kAutofillUpstreamEditableExpirationDate)) {
-    // If expiration date month or expiration year are missing, signal that
-    // expiration date will be explicitly requested in the offer-to-save bubble.
-    if (!upload_request_.card
-             .GetInfo(AutofillType(CREDIT_CARD_EXP_MONTH), app_locale_)
-             .empty()) {
-      detected_values |= DetectedValue::CARD_EXPIRATION_MONTH;
-    }
-    if (!(upload_request_.card
-              .GetInfo(AutofillType(CREDIT_CARD_EXP_4_DIGIT_YEAR), app_locale_)
-              .empty())) {
-      detected_values |= DetectedValue::CARD_EXPIRATION_YEAR;
-    }
+  // If expiration date month or expiration year are missing, signal that
+  // expiration date will be explicitly requested in the offer-to-save bubble.
+  if (!upload_request_.card
+           .GetInfo(AutofillType(CREDIT_CARD_EXP_MONTH), app_locale_)
+           .empty()) {
+    detected_values |= DetectedValue::CARD_EXPIRATION_MONTH;
+  }
+  if (!(upload_request_.card
+            .GetInfo(AutofillType(CREDIT_CARD_EXP_4_DIGIT_YEAR), app_locale_)
+            .empty())) {
+    detected_values |= DetectedValue::CARD_EXPIRATION_YEAR;
+  }
 
-    // Set |USER_PROVIDED_EXPIRATION_DATE| if expiration date is detected as
-    // expired or missing.
-    if (detected_values & DetectedValue::CARD_EXPIRATION_MONTH &&
-        detected_values & DetectedValue::CARD_EXPIRATION_YEAR) {
-      int month_value = 0, year_value = 0;
-      bool parsable =
-          base::StringToInt(
-              upload_request_.card.GetInfo(AutofillType(CREDIT_CARD_EXP_MONTH),
-                                           app_locale_),
-              &month_value) &&
-          base::StringToInt(
-              upload_request_.card.GetInfo(
-                  AutofillType(CREDIT_CARD_EXP_4_DIGIT_YEAR), app_locale_),
-              &year_value);
-      DCHECK(parsable);
-      if (!IsValidCreditCardExpirationDate(year_value, month_value,
-                                           AutofillClock::Now())) {
-        detected_values |= DetectedValue::USER_PROVIDED_EXPIRATION_DATE;
-      }
-    } else {
+  // Set |USER_PROVIDED_EXPIRATION_DATE| if expiration date is detected as
+  // expired or missing.
+  if (detected_values & DetectedValue::CARD_EXPIRATION_MONTH &&
+      detected_values & DetectedValue::CARD_EXPIRATION_YEAR) {
+    int month_value = 0, year_value = 0;
+    bool parsable =
+        base::StringToInt(upload_request_.card.GetInfo(
+                              AutofillType(CREDIT_CARD_EXP_MONTH), app_locale_),
+                          &month_value) &&
+        base::StringToInt(
+            upload_request_.card.GetInfo(
+                AutofillType(CREDIT_CARD_EXP_4_DIGIT_YEAR), app_locale_),
+            &year_value);
+    DCHECK(parsable);
+    if (!IsValidCreditCardExpirationDate(year_value, month_value,
+                                         AutofillClock::Now())) {
       detected_values |= DetectedValue::USER_PROVIDED_EXPIRATION_DATE;
     }
+  } else {
+    detected_values |= DetectedValue::USER_PROVIDED_EXPIRATION_DATE;
   }
 
   // If cardholder name is conflicting/missing and the user does NOT have a
@@ -790,9 +773,8 @@ int CreditCardSaveManager::GetDetectedValues() const {
 // card unless the user provides both a valid cardholder name and expiration
 // date.
 #if defined(OS_IOS)
-  if ((base::FeatureList::IsEnabled(
-           features::kAutofillSaveCardInfobarEditSupport) &&
-       base::FeatureList::IsEnabled(kIOSInfobarUIReboot))) {
+  if (base::FeatureList::IsEnabled(
+          features::kAutofillSaveCardInfobarEditSupport)) {
     detected_values |= DetectedValue::USER_PROVIDED_NAME;
     detected_values |= DetectedValue::USER_PROVIDED_EXPIRATION_DATE;
   }
@@ -866,9 +848,8 @@ void CreditCardSaveManager::OnUserDidAcceptUploadHelper(
     // the user, but not through the fix flow triggered via
     // |should_request_name_from_user_|.
     DCHECK(should_request_name_from_user_ ||
-           (base::FeatureList::IsEnabled(
-                autofill::features::kAutofillSaveCardInfobarEditSupport) &&
-            base::FeatureList::IsEnabled(kIOSInfobarUIReboot)));
+           base::FeatureList::IsEnabled(
+               autofill::features::kAutofillSaveCardInfobarEditSupport));
 #else
     DCHECK(should_request_name_from_user_);
 #endif
@@ -887,9 +868,8 @@ void CreditCardSaveManager::OnUserDidAcceptUploadHelper(
     // the user, but not through the fix flow triggered via
     // |should_request_expiration_date_from_user_|.
     DCHECK(should_request_expiration_date_from_user_ ||
-           (base::FeatureList::IsEnabled(
-                autofill::features::kAutofillSaveCardInfobarEditSupport) &&
-            base::FeatureList::IsEnabled(kIOSInfobarUIReboot)));
+           base::FeatureList::IsEnabled(
+               autofill::features::kAutofillSaveCardInfobarEditSupport));
 #else
     DCHECK(should_request_expiration_date_from_user_);
 #endif

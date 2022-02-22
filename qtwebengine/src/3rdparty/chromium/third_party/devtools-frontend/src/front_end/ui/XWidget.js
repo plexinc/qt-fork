@@ -5,6 +5,12 @@
 import {appendStyle} from './utils/append-style.js';
 import {XElement} from './XElement.js';
 
+/** @type {?ResizeObserver} */
+let _observer = null;
+
+/** @type {!WeakMap<!Element, !{scrollLeft: number, scrollTop: number}>} */
+const _storedScrollPositions = new WeakMap();
+
 /**
  * @extends {XElement}
  */
@@ -24,42 +30,27 @@ export class XWidget extends XElement {
     this._defaultFocusedElement = null;
     /** @type {!Array<!Element>} */
     this._elementsToRestoreScrollPositionsFor = [];
-    /** @type {?function()} */
+    /** @type {?function():void} */
     this._onShownCallback;
-    /** @type {?function()} */
+    /** @type {?function():void} */
     this._onHiddenCallback;
-    /** @type {?function()} */
+    /** @type {?function():void} */
     this._onResizedCallback;
 
-    if (!XWidget._observer) {
-      XWidget._observer = new ResizeObserver(entries => {
+    if (!_observer) {
+      _observer = new ResizeObserver(entries => {
         for (const entry of entries) {
-          if (entry.target._visible && entry.target._onResizedCallback) {
-            entry.target._onResizedCallback.call(null);
+          const widget = /** @type {!XWidget} */ (entry.target);
+          if (widget._visible && widget._onResizedCallback) {
+            widget._onResizedCallback.call(null);
           }
         }
       });
     }
-    XWidget._observer.observe(this);
+
+    _observer.observe(this);
 
     this.setElementsToRestoreScrollPositionsFor([this]);
-  }
-
-  /**
-   * @param {?Node} node
-   */
-  static focusWidgetForNode(node) {
-    node = node && node.parentNodeOrShadowHost();
-    let widget = null;
-    while (node) {
-      if (node instanceof XWidget) {
-        if (widget) {
-          node._defaultFocusedElement = widget;
-        }
-        widget = node;
-      }
-      node = node.parentNodeOrShadowHost();
-    }
   }
 
   /**
@@ -71,27 +62,28 @@ export class XWidget extends XElement {
 
   /**
    * @param {string} cssFile
+   * @param {!{enableLegacyPatching:boolean}} options
    */
-  registerRequiredCSS(cssFile) {
-    appendStyle(this._shadowRoot || this, cssFile);
+  registerRequiredCSS(cssFile, options) {
+    appendStyle(this._shadowRoot || this, cssFile, options);
   }
 
   /**
-   * @param {?function()} callback
+   * @param {?function():void} callback
    */
   setOnShown(callback) {
     this._onShownCallback = callback;
   }
 
   /**
-   * @param {?function()} callback
+   * @param {?function():void} callback
    */
   setOnHidden(callback) {
     this._onHiddenCallback = callback;
   }
 
   /**
-   * @param {?function()} callback
+   * @param {?function():void} callback
    */
   setOnResized(callback) {
     this._onResizedCallback = callback;
@@ -102,7 +94,7 @@ export class XWidget extends XElement {
    */
   setElementsToRestoreScrollPositionsFor(elements) {
     for (const element of this._elementsToRestoreScrollPositionsFor) {
-      element.removeEventListener('scroll', XWidget._storeScrollPosition, {passive: true, capture: false});
+      element.removeEventListener('scroll', XWidget._storeScrollPosition, {capture: false});
     }
     this._elementsToRestoreScrollPositionsFor = elements;
     for (const element of this._elementsToRestoreScrollPositionsFor) {
@@ -112,11 +104,10 @@ export class XWidget extends XElement {
 
   restoreScrollPositions() {
     for (const element of this._elementsToRestoreScrollPositionsFor) {
-      if (element._scrollTop) {
-        element.scrollTop = element._scrollTop;
-      }
-      if (element._scrollLeft) {
-        element.scrollLeft = element._scrollLeft;
+      const storedPositions = _storedScrollPositions.get(element);
+      if (storedPositions) {
+        element.scrollTop = storedPositions.scrollTop;
+        element.scrollLeft = storedPositions.scrollLeft;
       }
     }
   }
@@ -125,9 +116,8 @@ export class XWidget extends XElement {
    * @param {!Event} event
    */
   static _storeScrollPosition(event) {
-    const element = event.currentTarget;
-    element._scrollTop = element.scrollTop;
-    element._scrollLeft = element.scrollLeft;
+    const element = /** @type {!Element} */ (event.currentTarget);
+    _storedScrollPositions.set(element, {scrollLeft: element.scrollLeft, scrollTop: element.scrollTop});
   }
 
   /**
@@ -170,7 +160,7 @@ export class XWidget extends XElement {
     if (element === this) {
       HTMLElement.prototype.focus.call(this);
     } else {
-      element.focus();
+      /** @type {!HTMLElement} */ (element).focus();
     }
   }
 

@@ -43,7 +43,7 @@
 #include "qandroidplatformintegration.h"
 #include "qandroidplatformoffscreensurface.h"
 
-#include <QtEglSupport/private/qeglpbuffer_p.h>
+#include <QtGui/private/qeglpbuffer_p.h>
 
 #include <QSurface>
 #include <QtGui/private/qopenglcontext_p.h>
@@ -51,9 +51,8 @@
 
 QT_BEGIN_NAMESPACE
 
-QAndroidPlatformOpenGLContext::QAndroidPlatformOpenGLContext(const QSurfaceFormat &format, QPlatformOpenGLContext *share, EGLDisplay display,
-                                                             const QVariant &nativeHandle)
-    :QEGLPlatformContext(format, share, display, nullptr, nativeHandle)
+QAndroidPlatformOpenGLContext::QAndroidPlatformOpenGLContext(const QSurfaceFormat &format, QPlatformOpenGLContext *share, EGLDisplay display)
+    : QEGLPlatformContext(format, share, display, nullptr)
 {
 }
 
@@ -77,9 +76,8 @@ EGLSurface QAndroidPlatformOpenGLContext::eglSurfaceForPlatformSurface(QPlatform
     if (surface->surface()->surfaceClass() == QSurface::Window) {
         return static_cast<QAndroidPlatformOpenGLWindow *>(surface)->eglSurface(eglConfig());
     } else {
-        auto platformOffscreenSurface = static_cast<QPlatformOffscreenSurface*>(surface);
-        if (platformOffscreenSurface->offscreenSurface()->nativeHandle())
-            return static_cast<QAndroidPlatformOffscreenSurface *>(surface)->surface();
+        if (auto *platformOffscreenSurface = dynamic_cast<QAndroidPlatformOffscreenSurface *>(surface))
+            return platformOffscreenSurface->surface();
         else
             return static_cast<QEGLPbuffer *>(surface)->pbuffer();
     }

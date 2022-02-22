@@ -61,7 +61,7 @@ QT_REQUIRE_CONFIG(quick_path);
 QT_BEGIN_NAMESPACE
 
 class QQuickPath;
-class Q_AUTOTEST_EXPORT QQuickPathInterpolator : public QObject
+class Q_QUICK_PRIVATE_EXPORT QQuickPathInterpolator : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QQuickPath *path READ path WRITE setPath NOTIFY pathChanged)
@@ -70,6 +70,7 @@ class Q_AUTOTEST_EXPORT QQuickPathInterpolator : public QObject
     Q_PROPERTY(qreal y READ y NOTIFY yChanged)
     Q_PROPERTY(qreal angle READ angle NOTIFY angleChanged)
     QML_NAMED_ELEMENT(PathInterpolator)
+    QML_ADDED_IN_VERSION(2, 0)
 public:
     explicit QQuickPathInterpolator(QObject *parent = nullptr);
 

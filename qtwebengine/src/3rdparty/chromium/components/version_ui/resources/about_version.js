@@ -12,8 +12,10 @@
  */
 function handleVariationInfo({variationsList, variationsCmd}) {
   $('variations-section').hidden = !variationsList.length;
-  $('variations-list').appendChild(
-      parseHtmlSubset(variationsList.join('<br>'), ['BR']));
+  for (const item of variationsList) {
+    $('variations-list').appendChild(document.createTextNode(item));
+    $('variations-list').appendChild(document.createElement('br'));
+  }
 
   if (variationsCmd) {
     $('variations-cmd-section').hidden = !variationsCmd;
@@ -29,14 +31,6 @@ function handleVariationInfo({variationsList, variationsCmd}) {
 function handlePathInfo({execPath, profilePath}) {
   $('executable_path').textContent = execPath;
   $('profile_path').textContent = profilePath;
-}
-
-/**
- * Promise resolution handler for the Flash version to display.
- * @param {string} flashVersion The Flash version to display.
- */
-function handlePluginInfo(flashVersion) {
-  $('flash_version').textContent = flashVersion;
 }
 
 /**
@@ -82,7 +76,6 @@ function onLoadWork() {
   const includeVariationsCmd = location.search.includes("show-variations-cmd");
   cr.sendWithPromise('requestVariationInfo', includeVariationsCmd)
       .then(handleVariationInfo);
-  cr.sendWithPromise('requestPluginInfo').then(handlePluginInfo);
   cr.sendWithPromise('requestPathInfo').then(handlePathInfo);
 
   if (cr.isChromeOS) {

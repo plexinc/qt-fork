@@ -41,8 +41,9 @@
 #define QSGTEXTURE_H
 
 #include <QtQuick/qtquickglobal.h>
-#include <QtCore/QObject>
-#include <QtGui/QImage>
+#include <QtCore/qobject.h>
+#include <QtGui/qimage.h>
+#include <QtQuick/qsgtexture_platform.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -80,13 +81,8 @@ public:
         Anisotropy16x
     };
 
-    struct NativeTexture {
-        const void *object;
-        int layout;
-    };
-
-    virtual int textureId() const = 0; // ### Qt 6: remove
-    NativeTexture nativeTexture() const;
+    virtual qint64 comparisonKey() const = 0;
+    virtual QRhiTexture *rhiTexture() const;
     virtual QSize textureSize() const = 0;
     virtual bool hasAlphaChannel() const = 0;
     virtual bool hasMipmaps() const = 0;
@@ -95,10 +91,9 @@ public:
 
     virtual bool isAtlasTexture() const;
 
-    virtual QSGTexture *removedFromAtlas() const;
+    virtual QSGTexture *removedFromAtlas(QRhiResourceUpdateBatch *resourceUpdates = nullptr) const;
 
-    virtual void bind() = 0;
-    void updateBindOptions(bool force = false);
+    virtual void commitTextureOperations(QRhi *rhi, QRhiResourceUpdateBatch *resourceUpdates);
 
     void setMipmapFiltering(Filtering filter);
     QSGTexture::Filtering mipmapFiltering() const;
@@ -117,12 +112,7 @@ public:
 
     inline QRectF convertToNormalizedSourceRect(const QRectF &rect) const;
 
-    // ### Qt 6: make these virtual
-    int comparisonKey() const;
-    void updateRhiTexture(QRhi *rhi, QRhiResourceUpdateBatch *resourceUpdates);
-
-    // ### Qt 6: make this an argument for removedFromAtlas()
-    void setWorkResourceUpdateBatch(QRhiResourceUpdateBatch *resourceUpdates);
+    QT_DECLARE_NATIVE_INTERFACE_ACCESSOR(QSGTexture)
 
 protected:
     QSGTexture(QSGTexturePrivate &dd);

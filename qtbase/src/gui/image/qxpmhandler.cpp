@@ -41,17 +41,22 @@
 
 #ifndef QT_NO_IMAGEFORMAT_XPM
 
-#include <private/qcolor_p.h>
 #include <qbytearraymatcher.h>
+#include <qdebug.h>
 #include <qimage.h>
+#include <qloggingcategory.h>
 #include <qmap.h>
-#include <qregexp.h>
 #include <qtextstream.h>
 #include <qvariant.h>
 
+#include <private/qcolor_p.h>
+
 #include <algorithm>
+#include <array>
 
 QT_BEGIN_NAMESPACE
+
+Q_DECLARE_LOGGING_CATEGORY(lcImageIo)
 
 static quint64 xpmHash(const QString &str)
 {
@@ -766,17 +771,26 @@ static QString fbname(const QString &fileName) // get file basename (sort of)
 {
     QString s = fileName;
     if (!s.isEmpty()) {
-        int i;
-        if ((i = s.lastIndexOf(QLatin1Char('/'))) >= 0)
-            s = s.mid(i);
-        if ((i = s.lastIndexOf(QLatin1Char('\\'))) >= 0)
-            s = s.mid(i);
-        QRegExp r(QLatin1String("[a-zA-Z][a-zA-Z0-9_]*"));
-        int p = r.indexIn(s);
-        if (p == -1)
+        int i = qMax(s.lastIndexOf(QLatin1Char('/')), s.lastIndexOf(QLatin1Char('\\')));
+        if (i < 0)
+            i = 0;
+        auto isAsciiLetterOrNumber = [](QChar ch) -> bool {
+            return (ch.unicode() >= '0' && ch.unicode() <= '9') ||
+                    (ch.unicode() >= 'A' && ch.unicode() <= 'Z') ||
+                    (ch.unicode() >= 'a' && ch.unicode() <= 'z') ||
+                    ch.unicode() == '_';
+        };
+        int start = -1;
+        for (; i < s.length(); ++i) {
+            if (isAsciiLetterOrNumber(s.at(i))) {
+                start = i;
+            } else if (start > 0)
+                break;
+        }
+        if (start < 0)
             s.clear();
         else
-            s = s.mid(p, r.matchedLength());
+            s = s.mid(start, i - start);
     }
     if (s.isEmpty())
         s = QString::fromLatin1("dummy");
@@ -873,11 +887,8 @@ static bool read_xpm_body(
     // create it in correct format (Format_RGB32 vs Format_ARGB32,
     // depending on absence or presence of "c none", respectively)
     if (ncols <= 256) {
-        if (image.size() != QSize(w, h) || image.format() != QImage::Format_Indexed8) {
-            image = QImage(w, h, QImage::Format_Indexed8);
-            if (image.isNull())
-                return false;
-        }
+        if (!QImageIOHandler::allocateImage(QSize(w, h), QImage::Format_Indexed8, &image))
+            return false;
         image.setColorCount(ncols);
     }
 
@@ -887,7 +898,7 @@ static bool read_xpm_body(
 
     for(currentColor=0; currentColor < ncols; ++currentColor) {
         if (!read_xpm_string(buf, device, source, index, state)) {
-            qWarning("QImage: XPM color specification missing");
+            qCWarning(lcImageIo, "XPM color specification missing");
             return false;
         }
         QByteArray index;
@@ -902,7 +913,7 @@ static bool read_xpm_body(
         if (i < 0)
             i = tokens.indexOf("m");
         if (i < 0) {
-            qWarning("QImage: XPM color specification is missing: %s", buf.constData());
+            qCWarning(lcImageIo, "XPM color specification is missing: %s", buf.constData());
             return false;        // no c/g/g4/m specification at all
         }
         QByteArray color;
@@ -910,7 +921,7 @@ static bool read_xpm_body(
             color.append(tokens.at(i));
         }
         if (color.isEmpty()) {
-            qWarning("QImage: XPM color value is missing from specification: %s", buf.constData());
+            qCWarning(lcImageIo, "XPM color value is missing from specification: %s", buf.constData());
             return false;        // no color value
         }
         buf = color;
@@ -924,7 +935,7 @@ static bool read_xpm_body(
                 colorMap.insert(xpmHash(QLatin1String(index.constData())), 0);
             }
         } else {
-            QRgb c_rgb;
+            QRgb c_rgb = 0;
             if (((buf.length()-1) % 3) && (buf[0] == '#')) {
                 buf.truncate(((buf.length()-1) / 4 * 3) + 1); // remove alpha channel left by imagemagick
             }
@@ -946,17 +957,14 @@ static bool read_xpm_body(
         // Now we can create 32-bit image of appropriate format
         QImage::Format format = hasTransparency ?
                                 QImage::Format_ARGB32 : QImage::Format_RGB32;
-        if (image.size() != QSize(w, h) || image.format() != format) {
-            image = QImage(w, h, format);
-            if (image.isNull())
-                return false;
-        }
+        if (!QImageIOHandler::allocateImage(QSize(w, h), format, &image))
+            return false;
     }
 
     // Read pixels
     for(int y=0; y<h; y++) {
         if (!read_xpm_string(buf, device, source, index, state)) {
-            qWarning("QImage: XPM pixels missing on image line %d", y);
+            qCWarning(lcImageIo, "XPM pixels missing on image line %d", y);
             return false;
         }
         if (image.depth() == 8) {
@@ -982,7 +990,7 @@ static bool read_xpm_body(
             }
             // avoid uninitialized memory for malformed xpms
             if (x < w) {
-                qWarning("QImage: XPM pixels missing on image line %d (possibly a C++ trigraph).", y);
+                qCWarning(lcImageIo, "XPM pixels missing on image line %d (possibly a C++ trigraph).", y);
                 memset(p, 0, w - x);
             }
         } else {
@@ -999,7 +1007,7 @@ static bool read_xpm_body(
             }
             // avoid uninitialized memory for malformed xpms
             if (x < w) {
-                qWarning("QImage: XPM pixels missing on image line %d (possibly a C++ trigraph).", y);
+                qCWarning(lcImageIo, "XPM pixels missing on image line %d (possibly a C++ trigraph).", y);
                 memset(p, 0, (w - x)*4);
             }
         }
@@ -1039,7 +1047,7 @@ bool qt_read_xpm_image_or_array(QIODevice *device, const char * const * source, 
         if ((readBytes = device->readLine(buf.data(), buf.size())) < 0)
             return false;
 
-        static Q_RELAXED_CONSTEXPR auto matcher = qMakeStaticByteArrayMatcher("/* XPM");
+        static constexpr auto matcher = qMakeStaticByteArrayMatcher("/* XPM");
 
         if (matcher.indexIn(buf) != 0) {
             while (readBytes > 0) {
@@ -1056,15 +1064,23 @@ bool qt_read_xpm_image_or_array(QIODevice *device, const char * const * source, 
     return read_xpm_body(device, source, index, state, cpp, ncols, w, h, image);
 }
 
-static const char* xpm_color_name(int cpp, int index)
+namespace {
+template <size_t N>
+struct CharBuffer : std::array<char, N>
 {
-    static char returnable[5];
+    CharBuffer() {} // avoid value-initializing the whole array
+};
+}
+
+static const char* xpm_color_name(int cpp, int index, CharBuffer<5> && returnable = {})
+{
     static const char code[] = ".#abcdefghijklmnopqrstuvwxyzABCD"
                                "EFGHIJKLMNOPQRSTUVWXYZ0123456789";
     // cpp is limited to 4 and index is limited to 64^cpp
     if (cpp > 1) {
         if (cpp > 2) {
             if (cpp > 3) {
+                returnable[4] = '\0';
                 returnable[3] = code[index % 64];
                 index /= 64;
             } else
@@ -1084,7 +1100,7 @@ static const char* xpm_color_name(int cpp, int index)
         returnable[1] = '\0';
     returnable[0] = code[index];
 
-    return returnable;
+    return returnable.data();
 }
 
 
@@ -1121,8 +1137,11 @@ static bool write_xpm_image(const QImage &sourceImage, QIODevice *device, const 
         ++cpp;
         // limit to 4 characters per pixel
         // 64^4 colors is enough for a 4096x4096 image
-         if (cpp > 4)
-            break;
+         if (cpp > 4) {
+             qCWarning(lcImageIo, "Qt does not support writing XPM images with more than "
+                       "64^4 colors (requested: %d colors).", ncolors);
+             return false;
+         }
     }
 
     // write header
@@ -1150,16 +1169,7 @@ static bool write_xpm_image(const QImage &sourceImage, QIODevice *device, const 
         const QRgb *yp = reinterpret_cast<const QRgb *>(image.constScanLine(y));
         for(x=0; x<w; x++) {
             int color = (int)(*(yp + x));
-            const QByteArray chars(xpm_color_name(cpp, colorMap[color]));
-            line.append(chars[0]);
-            if (cpp > 1) {
-                line.append(chars[1]);
-                if (cpp > 2) {
-                    line.append(chars[2]);
-                    if (cpp > 3)
-                        line.append(chars[3]);
-                }
-            }
+            line.append(xpm_color_name(cpp, colorMap[color]));
         }
         s << ',' << Qt::endl << '\"' << line << '\"';
     }
@@ -1216,7 +1226,7 @@ bool QXpmHandler::canRead() const
 bool QXpmHandler::canRead(QIODevice *device)
 {
     if (!device) {
-        qWarning("QXpmHandler::canRead() called with no device");
+        qCWarning(lcImageIo, "QXpmHandler::canRead() called with no device");
         return false;
     }
 

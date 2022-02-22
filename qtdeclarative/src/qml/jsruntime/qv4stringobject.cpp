@@ -208,7 +208,6 @@ ReturnedValue StringCtor::method_fromCharCode(const FunctionObject *b, const Val
         *ch = QChar(argv[i].toUInt16());
         ++ch;
     }
-    *ch = 0;
     return Encode(b->engine()->newString(str));
 }
 
@@ -231,11 +230,10 @@ ReturnedValue StringCtor::method_fromCodePoint(const FunctionObject *f, const Va
             ++ch;
             *ch = QChar::lowSurrogate(cp);
         } else {
-            *ch = cp;
+            *ch = QChar(cp);
         }
         ++ch;
     }
-    *ch = 0;
     result.truncate(ch - result.constData());
     return e->newString(result)->asReturnedValue();
 }
@@ -464,7 +462,7 @@ ReturnedValue StringPrototype::method_endsWith(const FunctionObject *b, const Va
     if (pos == value.length())
         RETURN_RESULT(Encode(value.endsWith(searchString)));
 
-    QStringRef stringToSearch = value.leftRef(pos);
+    QStringView stringToSearch = QStringView{value}.left(pos);
     return Encode(stringToSearch.endsWith(searchString));
 }
 
@@ -514,7 +512,7 @@ ReturnedValue StringPrototype::method_includes(const FunctionObject *b, const Va
     if (pos == 0)
         RETURN_RESULT(Encode(value.contains(searchString)));
 
-    QStringRef stringToSearch = value.midRef(pos);
+    QStringView stringToSearch = QStringView{value}.mid(pos);
     return Encode(stringToSearch.contains(searchString));
 }
 
@@ -533,9 +531,9 @@ ReturnedValue StringPrototype::method_lastIndexOf(const FunctionObject *b, const
     if (std::isnan(position))
         position = +qInf();
     else
-        position = trunc(position);
+        position = std::trunc(position);
 
-    int pos = trunc(qMin(qMax(position, 0.0), double(value.length())));
+    int pos = std::trunc(qMin(qMax(position, 0.0), double(value.length())));
     if (!searchString.isEmpty() && pos == value.length())
         --pos;
     if (searchString.isNull() && pos == 0)
@@ -655,7 +653,7 @@ ReturnedValue StringPrototype::method_padEnd(const FunctionObject *f, const Valu
         toFill -= copy;
         ch += copy;
     }
-    *ch = 0;
+    *ch = QChar::Null;
 
     return v4->newString(padded)->asReturnedValue();
 }
@@ -697,7 +695,7 @@ ReturnedValue StringPrototype::method_padStart(const FunctionObject *f, const Va
     }
     memcpy(ch, original.constData(), oldLength*sizeof(QChar));
     ch += oldLength;
-    *ch = 0;
+    *ch = QChar::Null;
 
     return v4->newString(padded)->asReturnedValue();
 }
@@ -765,7 +763,7 @@ static void appendReplacementString(QString *result, const QString &input, const
             }
             i += skip;
             if (substStart != JSC::Yarr::offsetNoMatch && substEnd != JSC::Yarr::offsetNoMatch)
-                *result += input.midRef(substStart, substEnd - substStart);
+                *result += QStringView{input}.mid(substStart, substEnd - substStart);
             else if (skip == 0) // invalid capture reference. Taken as literal value
                 *result += replaceValue.at(i);
         } else {
@@ -863,11 +861,11 @@ ReturnedValue StringPrototype::method_replace(const FunctionObject *b, const Val
             Value that = Value::undefinedValue();
             replacement = searchCallback->call(&that, arguments, numCaptures + 2);
             CHECK_EXCEPTION();
-            result += string.midRef(lastEnd, matchStart - lastEnd);
+            result += QStringView{string}.mid(lastEnd, matchStart - lastEnd);
             result += replacement->toQString();
             lastEnd = matchEnd;
         }
-        result += string.midRef(lastEnd);
+        result += QStringView{string}.mid(lastEnd);
     } else {
         QString newString = replaceValue->toQString();
         result.reserve(string.length() + numStringMatches*newString.size());
@@ -880,11 +878,11 @@ ReturnedValue StringPrototype::method_replace(const FunctionObject *b, const Val
             if (matchStart == JSC::Yarr::offsetNoMatch)
                 continue;
 
-            result += string.midRef(lastEnd, matchStart - lastEnd);
+            result += QStringView{string}.mid(lastEnd, matchStart - lastEnd);
             appendReplacementString(&result, string, newString, matchOffsets + baseIndex, numCaptures);
             lastEnd = matchEnd;
         }
-        result += string.midRef(lastEnd);
+        result += QStringView{string}.mid(lastEnd);
     }
 
     if (matchOffsets != _matchOffsets)
@@ -1052,7 +1050,7 @@ ReturnedValue StringPrototype::method_startsWith(const FunctionObject *b, const 
     if (pos == 0)
         return Encode(value.startsWith(searchString));
 
-    QStringRef stringToSearch = value.midRef(pos);
+    QStringView stringToSearch = QStringView{value}.mid(pos);
     RETURN_RESULT(Encode(stringToSearch.startsWith(searchString)));
 }
 

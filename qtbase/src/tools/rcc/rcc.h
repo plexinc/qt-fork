@@ -58,7 +58,7 @@ public:
 
     bool readFiles(bool listMode, QIODevice &errorDevice);
 
-    enum Format { Binary, C_Code, Pass1, Pass2, Python3_Code, Python2_Code };
+    enum Format { Binary, C_Code, Pass1, Pass2, Python_Code };
     void setFormat(Format f) { m_format = f; }
     Format format() const { return m_format; }
 
@@ -108,6 +108,9 @@ public:
     QStringList failedResources() const { return m_failedResources; }
 
     int formatVersion() const { return m_formatVersion; }
+
+    void setNoZstd(bool v) { m_noZstd = v; }
+    bool noZstd() const { return m_noZstd; }
 
 private:
     struct Strings {
@@ -170,6 +173,7 @@ private:
     QIODevice *m_outDevice;
     QByteArray m_out;
     quint8 m_formatVersion;
+    bool m_noZstd;
 };
 
 QT_END_NAMESPACE

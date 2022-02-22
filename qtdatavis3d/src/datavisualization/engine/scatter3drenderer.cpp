@@ -42,7 +42,7 @@
 // You should see the scene from  where the light is
 //#define SHOW_DEPTH_TEXTURE_SCENE
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 const GLfloat defaultMinSize = 0.01f;
 const GLfloat defaultMaxSize = 0.1f;
@@ -353,7 +353,7 @@ SeriesRenderCache *Scatter3DRenderer::createNewCache(QAbstract3DSeries *series)
     return new ScatterSeriesRenderCache(series, this);
 }
 
-void Scatter3DRenderer::updateItems(const QVector<Scatter3DController::ChangeItem> &items)
+void Scatter3DRenderer::updateItems(const QList<Scatter3DController::ChangeItem> &items)
 {
     ScatterSeriesRenderCache *cache = 0;
     const QScatter3DSeries *prevSeries = 0;
@@ -554,7 +554,7 @@ void Scatter3DRenderer::drawScene(const GLuint defaultFboHandle)
 
     ShaderHelper *pointSelectionShader;
     if (!m_isOpenGLES) {
-#if !defined(QT_OPENGL_ES_2)
+#if !QT_CONFIG(opengles2)
         if (m_havePointSeries) {
             glEnable(GL_POINT_SMOOTH);
             glEnable(GL_PROGRAM_POINT_SIZE);
@@ -751,7 +751,7 @@ void Scatter3DRenderer::drawScene(const GLuint defaultFboHandle)
                 float itemSize = cache->itemSize() / itemScaler;
                 if (itemSize == 0.0f)
                     itemSize = m_dotSizeScale;
-#if !defined(QT_OPENGL_ES_2)
+#if !QT_CONFIG(opengles2)
                 if (drawingPoints && !m_isOpenGLES)
                     m_funcs_2_1->glPointSize(itemSize * activeCamera->zoomLevel());
 #endif
@@ -884,7 +884,7 @@ void Scatter3DRenderer::drawScene(const GLuint defaultFboHandle)
             float itemSize = cache->itemSize() / itemScaler;
             if (itemSize == 0.0f)
                 itemSize = m_dotSizeScale;
-#if !defined(QT_OPENGL_ES_2)
+#if !QT_CONFIG(opengles2)
             if (drawingPoints && !m_isOpenGLES)
                 m_funcs_2_1->glPointSize(itemSize * activeCamera->zoomLevel());
 #endif
@@ -1195,7 +1195,7 @@ void Scatter3DRenderer::drawScene(const GLuint defaultFboHandle)
         }
     }
 
-#if !defined(QT_OPENGL_ES_2)
+#if !QT_CONFIG(opengles2)
     if (m_havePointSeries) {
         glDisable(GL_POINT_SMOOTH);
         glDisable(GL_PROGRAM_POINT_SIZE);
@@ -1932,7 +1932,7 @@ void Scatter3DRenderer::drawLabels(bool drawSelection, const Q3DCamera *activeCa
         }
         float offsetValue = 0.0f;
         bool showLastLabel = false;
-        QVector<float> &labelPositions = m_axisCacheX.formatter()->labelPositions();
+        QList<float> &labelPositions = m_axisCacheX.formatter()->labelPositions();
         int lastLabelPosIndex = labelPositions.size() - 1;
         if (labelPositions.size()
                 && (labelPositions.at(lastLabelPosIndex) != 1.0f || labelPositions.at(0) != 0.0f)) {
@@ -2528,4 +2528,4 @@ QVector3D Scatter3DRenderer::convertPositionToTranslation(const QVector3D &posit
     return QVector3D(xTrans, yTrans, zTrans);
 }
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE

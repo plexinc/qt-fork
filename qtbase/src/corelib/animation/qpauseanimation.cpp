@@ -63,18 +63,22 @@
 
 #include "qpauseanimation.h"
 #include "qabstractanimation_p.h"
+#include "private/qproperty_p.h"
 
 QT_BEGIN_NAMESPACE
 
 class QPauseAnimationPrivate : public QAbstractAnimationPrivate
 {
+    Q_DECLARE_PUBLIC(QPauseAnimation)
 public:
     QPauseAnimationPrivate() : QAbstractAnimationPrivate(), duration(250)
     {
         isPause = true;
     }
 
-    int duration;
+    void setDuration(int msecs) { q_func()->setDuration(msecs); }
+    Q_OBJECT_COMPAT_PROPERTY(QPauseAnimationPrivate, int, duration,
+                             &QPauseAnimationPrivate::setDuration)
 };
 
 /*!
@@ -125,7 +129,19 @@ void QPauseAnimation::setDuration(int msecs)
         return;
     }
     Q_D(QPauseAnimation);
-    d->duration = msecs;
+
+    if (msecs != d->duration) {
+        d->duration = msecs;
+        d->duration.notify();
+    } else {
+        d->duration.removeBindingUnlessInWrapper();
+    }
+}
+
+QBindable<int> QPauseAnimation::bindableDuration()
+{
+    Q_D(QPauseAnimation);
+    return &d->duration;
 }
 
 /*!

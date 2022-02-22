@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
@@ -31,7 +31,7 @@
 #include <QFontDatabase>
 #include <QPainter>
 #include <QRandomGenerator>
-#include <QTime>
+#include <QElapsedTimer>
 #include <QTimer>
 
 static const int lastMeasurementsCount = 50;
@@ -41,7 +41,7 @@ class FontBlaster: public QWidget
     Q_OBJECT
 
 public:
-    FontBlaster(QWidget *parent = 0)
+    FontBlaster(QWidget *parent = nullptr)
         : QWidget(parent)
         , m_currentMode(0)
     {
@@ -53,7 +53,7 @@ public:
         Q_UNUSED(event);
         QPainter p(this);
 
-        if (!m_timer.isNull())
+        if (m_timer.isValid())
             m_lastMeasurements.append(m_timer.elapsed());
         m_timer.start();
 
@@ -152,7 +152,7 @@ public:
     {
         static QStringList samples;
         if (samples.isEmpty()) {
-            foreach (const QFontDatabase::WritingSystem system, QFontDatabase().writingSystems())
+            foreach (const QFontDatabase::WritingSystem system, QFontDatabase::writingSystems())
                 if (system != QFontDatabase::Ogham && system != QFontDatabase::Runic)
                     samples.append(QFontDatabase::writingSystemSample(system));
         }
@@ -195,7 +195,7 @@ private:
 
     int m_currentMode;
     QList<int> m_lastMeasurements;
-    QTime m_timer;
+    QElapsedTimer m_timer;
 };
 
 const struct FontBlaster::mode FontBlaster::m_modes[] = {

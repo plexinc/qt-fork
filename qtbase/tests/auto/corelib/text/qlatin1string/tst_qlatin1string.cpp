@@ -26,7 +26,7 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include <QString>
 
@@ -35,7 +35,7 @@ struct QLatin1StringContainer {
     QLatin1String l1;
 };
 QT_BEGIN_NAMESPACE
-Q_DECLARE_TYPEINFO(QLatin1StringContainer, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QLatin1StringContainer, Q_RELOCATABLE_TYPE);
 QT_END_NAMESPACE
 Q_DECLARE_METATYPE(QLatin1StringContainer)
 
@@ -177,7 +177,7 @@ void tst_QLatin1String::emptyString()
 
     {
         const char *notEmpty = "foo";
-        QLatin1String l1(notEmpty, 0);
+        QLatin1String l1(notEmpty, qsizetype(0));
         QCOMPARE(static_cast<const void*>(l1.data()), static_cast<const void*>(notEmpty));
         QCOMPARE(l1.size(), 0);
 

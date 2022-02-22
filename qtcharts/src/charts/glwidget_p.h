@@ -41,12 +41,12 @@
 
 #ifndef QT_NO_OPENGL
 
-#include <QtWidgets/QOpenGLWidget>
+#include <QtOpenGLWidgets/QOpenGLWidget>
 #include <QtWidgets/QGraphicsView>
 #include <QtGui/QOpenGLFunctions>
-#include <QtGui/QOpenGLVertexArrayObject>
-#include <QtGui/QOpenGLBuffer>
-#include <QtGui/QOpenGLFramebufferObject>
+#include <QtOpenGL/QOpenGLVertexArrayObject>
+#include <QtOpenGL/QOpenGLBuffer>
+#include <QtOpenGL/QOpenGLFramebufferObject>
 #include <QtCore/QHash>
 #include <QtCharts/QAbstractSeries>
 #include <QtCharts/QXYSeries>
@@ -54,7 +54,7 @@
 
 QT_FORWARD_DECLARE_CLASS(QOpenGLShaderProgram)
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class GLXYSeriesDataManager;
 
@@ -102,7 +102,7 @@ private:
     QGraphicsView *m_view;
     QOpenGLFramebufferObject *m_selectionFbo;
     QSize m_fboSize;
-    QVector<const QXYSeries *> m_selectionVector;
+    QList<const QXYSeries *> m_selectionList;
     QChart *m_chart;
     bool m_recreateSelectionFbo;
     bool m_selectionRenderNeeded;
@@ -112,6 +112,6 @@ private:
     QXYSeries *m_lastHoverSeries;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 #endif
 #endif

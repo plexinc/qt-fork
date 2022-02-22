@@ -40,7 +40,7 @@
 #ifndef PROVIDER_H
 #define PROVIDER_H
 
-#include <qvector.h>
+#include <qlist.h>
 #include <qstring.h>
 #include <qstringlist.h>
 #include <qtypeinfo.h>
@@ -79,21 +79,21 @@ struct Tracepoint
     };
 
     QString name;
-    QVector<Argument> args;
-    QVector<Field> fields;
+    QList<Argument> args;
+    QList<Field> fields;
 };
 
 struct Provider
 {
     QString name;
-    QVector<Tracepoint> tracepoints;
+    QList<Tracepoint> tracepoints;
     QStringList prefixText;
 };
 
 Provider parseProvider(const QString &filename);
 
-Q_DECLARE_TYPEINFO(Tracepoint::Argument, Q_MOVABLE_TYPE);
-Q_DECLARE_TYPEINFO(Tracepoint::Field, Q_MOVABLE_TYPE);
-Q_DECLARE_TYPEINFO(Tracepoint, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(Tracepoint::Argument, Q_RELOCATABLE_TYPE);
+Q_DECLARE_TYPEINFO(Tracepoint::Field, Q_RELOCATABLE_TYPE);
+Q_DECLARE_TYPEINFO(Tracepoint, Q_RELOCATABLE_TYPE);
 
 #endif // PROVIDER_H

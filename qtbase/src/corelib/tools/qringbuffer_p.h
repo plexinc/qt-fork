@@ -53,7 +53,7 @@
 
 #include <QtCore/private/qglobal_p.h>
 #include <QtCore/qbytearray.h>
-#include <QtCore/qvector.h>
+#include <QtCore/qlist.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -94,11 +94,7 @@ public:
     {
         other.headOffset = other.tailOffset = 0;
     }
-    inline QRingChunk &operator=(QRingChunk &&other) noexcept
-    {
-        swap(other);
-        return *this;
-    }
+    QT_MOVE_ASSIGNMENT_OPERATOR_IMPL_VIA_PURE_SWAP(QRingChunk)
 
     inline void swap(QRingChunk &other) noexcept
     {
@@ -178,6 +174,7 @@ private:
     QByteArray chunk;
     int headOffset, tailOffset;
 };
+Q_DECLARE_SHARED(QRingChunk)
 
 class QRingBuffer
 {
@@ -265,13 +262,12 @@ public:
     }
 
 private:
-    QVector<QRingChunk> buffers;
+    QList<QRingChunk> buffers;
     qint64 bufferSize;
     int basicBlockSize;
 };
 
-Q_DECLARE_SHARED(QRingChunk)
-Q_DECLARE_TYPEINFO(QRingBuffer, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QRingBuffer, Q_RELOCATABLE_TYPE);
 
 QT_END_NAMESPACE
 

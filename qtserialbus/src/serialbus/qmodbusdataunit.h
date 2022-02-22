@@ -37,9 +37,9 @@
 #ifndef QMODBUSDATAUNIT_H
 #define QMODBUSDATAUNIT_H
 
+#include <QtCore/qlist.h>
 #include <QtCore/qmap.h>
 #include <QtCore/qmetatype.h>
-#include <QtCore/qvector.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -56,15 +56,16 @@ public:
 
     QModbusDataUnit() = default;
 
-    explicit QModbusDataUnit(RegisterType type)
-        : QModbusDataUnit(type, 0, 0)
+    constexpr explicit QModbusDataUnit(RegisterType type) noexcept
+        : m_type(type)
+        , m_startAddress(0)
     {}
 
     QModbusDataUnit(RegisterType type, int newStartAddress, quint16 newValueCount)
-        : QModbusDataUnit(type, newStartAddress, QVector<quint16>(newValueCount))
+        : QModbusDataUnit(type, newStartAddress, QList<quint16>(newValueCount))
     {}
 
-    QModbusDataUnit(RegisterType type, int newStartAddress, const QVector<quint16> &newValues)
+    QModbusDataUnit(RegisterType type, int newStartAddress, const QList<quint16> &newValues)
         : m_type(type)
         , m_startAddress(newStartAddress)
         , m_values(newValues)
@@ -77,35 +78,35 @@ public:
     inline int startAddress() const { return m_startAddress; }
     inline void setStartAddress(int newAddress) { m_startAddress = newAddress; }
 
-    inline QVector<quint16> values() const { return m_values; }
-    inline void setValues(const QVector<quint16> &newValues)
+    inline QList<quint16> values() const { return m_values; }
+    inline void setValues(const QList<quint16> &newValues)
     {
         m_values = newValues;
         m_valueCount = newValues.size();
     }
 
-    inline uint valueCount() const { return m_valueCount; }
-    inline void setValueCount(uint newCount) { m_valueCount = newCount; }
+    inline qsizetype valueCount() const { return m_valueCount; }
+    inline void setValueCount(qsizetype newCount) { m_valueCount = newCount; }
 
-    inline void setValue(int index, quint16 newValue)
+    inline void setValue(qsizetype index, quint16 newValue)
     {
         if (m_values.isEmpty() || index >= m_values.size())
             return;
         m_values[index] = newValue;
     }
-    inline quint16 value(int index) const { return m_values.value(index); }
+    inline quint16 value(qsizetype index) const { return m_values.value(index); }
 
     bool isValid() const { return m_type != Invalid && m_startAddress != -1; }
 
 private:
     RegisterType m_type = Invalid;
     int m_startAddress = -1;
-    QVector<quint16> m_values;
-    uint m_valueCount = 0;
+    QList<quint16> m_values;
+    qsizetype m_valueCount = 0;
 };
 typedef QMap<QModbusDataUnit::RegisterType, QModbusDataUnit> QModbusDataUnitMap;
 
-Q_DECLARE_TYPEINFO(QModbusDataUnit, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QModbusDataUnit, Q_RELOCATABLE_TYPE);
 Q_DECLARE_TYPEINFO(QModbusDataUnit::RegisterType, Q_PRIMITIVE_TYPE);
 
 QT_END_NAMESPACE

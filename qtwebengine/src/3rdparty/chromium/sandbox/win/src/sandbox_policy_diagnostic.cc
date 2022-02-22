@@ -12,10 +12,12 @@
 #include <utility>
 #include <vector>
 
+#include "base/check.h"
 #include "base/json/json_string_value_serializer.h"
-#include "base/logging.h"
 #include "base/numerics/safe_conversions.h"
+#include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "sandbox/win/src/ipc_tags.h"
 #include "sandbox/win/src/policy_engine_opcodes.h"
@@ -98,8 +100,8 @@ std::string GetIntegrityLevelInEnglish(IntegrityLevel integrity) {
   }
 }
 
-base::string16 GetSidAsString(const Sid* sid) {
-  base::string16 result;
+std::wstring GetSidAsString(const Sid* sid) {
+  std::wstring result;
   if (!sid->ToSddlString(&result))
     DCHECK(false) << "Failed to make sddl string";
   return result;
@@ -170,30 +172,6 @@ std::string GetIpcTagAsString(IpcTag service) {
       return "RegisterClassW";
     case IpcTag::CREATETHREAD:
       return "CreateThread";
-    case IpcTag::USER_ENUMDISPLAYMONITORS:
-      return "EnumDisplayMonitors";
-    case IpcTag::USER_ENUMDISPLAYDEVICES:
-      return "EnumDisplayDevices";
-    case IpcTag::USER_GETMONITORINFO:
-      return "GetMonitorInfo";
-    case IpcTag::GDI_CREATEOPMPROTECTEDOUTPUTS:
-      return "CreateOPMProtectedOutputs";
-    case IpcTag::GDI_GETCERTIFICATE:
-      return "GetCertificate";
-    case IpcTag::GDI_GETCERTIFICATESIZE:
-      return "GetCertificateSize";
-    case IpcTag::GDI_DESTROYOPMPROTECTEDOUTPUT:
-      return "DestroyOPMProtectedOutput";
-    case IpcTag::GDI_CONFIGUREOPMPROTECTEDOUTPUT:
-      return "ConfigureOPMProtectedOutput";
-    case IpcTag::GDI_GETOPMINFORMATION:
-      return "GetOPMInformation";
-    case IpcTag::GDI_GETOPMRANDOMNUMBER:
-      return "GetOPMRandomNumber";
-    case IpcTag::GDI_GETSUGGESTEDOPMPROTECTEDOUTPUTARRAYSIZE:
-      return "GetSuggestedOPMProtectedOutputArraySize";
-    case IpcTag::GDI_SETOPMSIGNINGKEYANDSEQUENCENUMBERS:
-      return "SetOPMSigningKeyAndSequenceNumbers";
     case IpcTag::NTCREATESECTION:
       return "NtCreateSection";
     case IpcTag::LAST:
@@ -432,11 +410,14 @@ const char* PolicyDiagnostic::JsonString() {
                base::Value(GetPlatformMitigationsAsHex(desired_mitigations_)));
 
   if (app_container_sid_)
-    value.SetKey(kAppContainerSid,
-                 base::Value(GetSidAsString(app_container_sid_.get())));
+    value.SetStringKey(
+        kAppContainerSid,
+        base::AsStringPiece16(GetSidAsString(app_container_sid_.get())));
 
-  if (lowbox_sid_)
-    value.SetKey(kLowboxSid, base::Value(GetSidAsString(lowbox_sid_.get())));
+  if (lowbox_sid_) {
+    value.SetStringKey(
+        kLowboxSid, base::AsStringPiece16(GetSidAsString(lowbox_sid_.get())));
+  }
 
   if (policy_rules_)
     value.SetKey(kPolicyRules, GetPolicyRules(policy_rules_.get()));

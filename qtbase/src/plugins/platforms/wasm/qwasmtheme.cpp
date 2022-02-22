@@ -35,9 +35,8 @@ QT_BEGIN_NAMESPACE
 
 QWasmTheme::QWasmTheme()
 {
-    QFontDatabase fdb;
-    for (auto family : fdb.families())
-        if (fdb.isFixedPitch(family))
+    for (auto family : QFontDatabase::families())
+        if (QFontDatabase::isFixedPitch(family))
             fixedFont = new QFont(family);
 }
 
@@ -50,7 +49,7 @@ QWasmTheme::~QWasmTheme()
 QVariant QWasmTheme::themeHint(ThemeHint hint) const
 {
     if (hint == QPlatformTheme::StyleNames)
-        return QVariant(QStringList() << QLatin1String("fusion"));
+        return QVariant(QStringList() << QLatin1String("Fusion"));
     return QPlatformTheme::themeHint(hint);
 }
 

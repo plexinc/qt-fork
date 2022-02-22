@@ -31,13 +31,13 @@
 #define QVALUE3DAXISFORMATTER_H
 
 #include <QtDataVisualization/qdatavisualizationglobal.h>
+#include <QtCore/QList>
+#include <QtCore/QLocale>
 #include <QtCore/QObject>
 #include <QtCore/QScopedPointer>
-#include <QtCore/QVector>
 #include <QtCore/QStringList>
-#include <QtCore/QLocale>
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 class QValue3DAxisFormatterPrivate;
 class QValue3DAxis;
@@ -67,9 +67,9 @@ protected:
     void markDirty(bool labelsChange = false);
     QValue3DAxis *axis() const;
 
-    QVector<float> &gridPositions() const;
-    QVector<float> &subGridPositions() const;
-    QVector<float> &labelPositions() const;
+    QList<float> &gridPositions() const;
+    QList<float> &subGridPositions() const;
+    QList<float> &labelPositions() const;
     QStringList &labelStrings() const;
 
     void setLocale(const QLocale &locale);
@@ -96,6 +96,6 @@ private:
     friend class QSurface3DSeriesPrivate;
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

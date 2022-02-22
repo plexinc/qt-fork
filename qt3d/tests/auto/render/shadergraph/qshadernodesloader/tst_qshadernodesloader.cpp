@@ -27,11 +27,12 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QtTest/QTest>
 
 #include <QtCore/qbuffer.h>
 
 #include <Qt3DRender/private/qshadernodesloader_p.h>
+#include <Qt3DRender/private/qshadergraphloader_p.h>
 #include <Qt3DRender/private/qshaderlanguage_p.h>
 
 using namespace Qt3DRender;
@@ -73,7 +74,7 @@ namespace
         return port;
     }
 
-    QShaderNode createNode(const QVector<QShaderNodePort> &ports)
+    QShaderNode createNode(const QList<QShaderNodePort> &ports)
     {
         auto node = QShaderNode();
         for (const auto &port : ports)
@@ -86,10 +87,20 @@ class tst_QShaderNodesLoader : public QObject
 {
     Q_OBJECT
 private slots:
+    void initTestCase();
     void shouldManipulateLoaderMembers();
     void shouldLoadFromJsonStream_data();
     void shouldLoadFromJsonStream();
 };
+
+void tst_QShaderNodesLoader::initTestCase()
+{
+    // Make sure we register the meta types. This is done by the
+    // QShaderGraphLoader ctor usually but in this test, no QShaderGraphLoader
+    // is used so we need to to it ourselves
+    QShaderGraphLoader l;
+    Q_UNUSED(l);
+}
 
 void tst_QShaderNodesLoader::shouldManipulateLoaderMembers()
 {
@@ -227,7 +238,7 @@ void tst_QShaderNodesLoader::shouldLoadFromJsonStream_data()
                            "    }"
                            "}";
 
-    const auto smallProtos = [this]{
+    const auto smallProtos = []{
         const auto openGLES2 = createFormat(QShaderFormat::OpenGLES, 2, 0);
         const auto openGLES2Extended = createFormat(QShaderFormat::OpenGLES, 2, 0, {"ext1", "ext2"}, "kdab");
         const auto openGL2 = createFormat(QShaderFormat::OpenGLCompatibilityProfile, 2, 1);

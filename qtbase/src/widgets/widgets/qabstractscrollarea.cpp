@@ -202,7 +202,7 @@ void QAbstractScrollAreaScrollBarContainer::addWidget(QWidget *widget, LogicalPo
 }
 
 /*! \internal
-    Retuns a list of scroll bar widgets for the given position. The scroll bar
+    Returns a list of scroll-bar widgets for the given position. The scroll bar
     itself is not returned.
 */
 QWidgetList QAbstractScrollAreaScrollBarContainer::widgets(LogicalPosition position)
@@ -340,7 +340,7 @@ void QAbstractScrollAreaPrivate::layoutChildren_helper(bool *needHorizontalScrol
                             && vbar->minimum() < vbar->maximum() && !vbar->sizeHint().isEmpty())));
 
     QStyleOption opt(0);
-    opt.init(q);
+    opt.initFrom(q);
 
     const int hscrollOverlap = hbar->style()->pixelMetric(QStyle::PM_ScrollView_ScrollBarOverlap, &opt, hbar);
     const int vscrollOverlap = vbar->style()->pixelMetric(QStyle::PM_ScrollView_ScrollBarOverlap, &opt, vbar);
@@ -442,8 +442,10 @@ void QAbstractScrollAreaPrivate::layoutChildren_helper(bool *needHorizontalScrol
         viewportRect.adjust(right, top, -left, -bottom);
     else
         viewportRect.adjust(left, top, -right, -bottom);
+    viewportRect = QStyle::visualRect(opt.direction, opt.rect, viewportRect);
+    viewportRect.translate(-overshoot);
+    viewport->setGeometry(viewportRect); // resize the viewport last
 
-    viewport->setGeometry(QStyle::visualRect(opt.direction, opt.rect, viewportRect)); // resize the viewport last
     *needHorizontalScrollbar = needh;
     *needVerticalScrollbar = needv;
 }
@@ -836,7 +838,7 @@ QWidgetList QAbstractScrollArea::scrollBarWidgets(Qt::Alignment alignment)
 /*!
     Sets the margins around the scrolling area to \a left, \a top, \a
     right and \a bottom. This is useful for applications such as
-    spreadsheets with "locked" rows and columns. The marginal space is
+    spreadsheets with "locked" rows and columns. The marginal space
     is left blank; put widgets in the unused area.
 
     Note that this function is frequently called by QTreeView and
@@ -1361,28 +1363,13 @@ void QAbstractScrollArea::scrollContentsBy(int, int)
     viewport()->update();
 }
 
-bool QAbstractScrollAreaPrivate::canStartScrollingAt( const QPoint &startPos )
+bool QAbstractScrollAreaPrivate::canStartScrollingAt(const QPoint &startPos) const
 {
-    Q_Q(QAbstractScrollArea);
-
-#if QT_CONFIG(graphicsview)
-    // don't start scrolling when a drag mode has been set.
-    // don't start scrolling on a movable item.
-    if (QGraphicsView *view = qobject_cast<QGraphicsView *>(q)) {
-        if (view->dragMode() != QGraphicsView::NoDrag)
-            return false;
-
-        QGraphicsItem *childItem = view->itemAt(startPos);
-
-        if (childItem && (childItem->flags() & QGraphicsItem::ItemIsMovable))
-            return false;
-    }
-#endif
+    Q_Q(const QAbstractScrollArea);
 
     // don't start scrolling on a QAbstractSlider
-    if (qobject_cast<QAbstractSlider *>(q->viewport()->childAt(startPos))) {
+    if (qobject_cast<QAbstractSlider *>(q->viewport()->childAt(startPos)))
         return false;
-    }
 
     return true;
 }
@@ -1505,7 +1492,7 @@ QSize QAbstractScrollArea::viewportSizeHint() const
 /*!
     \since 5.2
     \property QAbstractScrollArea::sizeAdjustPolicy
-    This property holds the policy describing how the size of the scroll area changes when the
+    \brief the policy describing how the size of the scroll area changes when the
     size of the viewport changes.
 
     The default policy is QAbstractScrollArea::AdjustIgnored.

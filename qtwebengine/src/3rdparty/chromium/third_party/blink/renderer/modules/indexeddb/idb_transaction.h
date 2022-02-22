@@ -44,6 +44,7 @@
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/scheduler/public/frame_scheduler.h"
 #include "third_party/blink/renderer/platform/wtf/deque.h"
+#include "third_party/blink/renderer/platform/wtf/hash_map.h"
 #include "third_party/blink/renderer/platform/wtf/hash_set.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
@@ -65,7 +66,6 @@ class MODULES_EXPORT IDBTransaction final
     : public EventTargetWithInlineData,
       public ActiveScriptWrappable<IDBTransaction>,
       public ExecutionContextLifecycleObserver {
-  USING_GARBAGE_COLLECTED_MIXIN(IDBTransaction);
   DEFINE_WRAPPERTYPEINFO();
 
  public:
@@ -102,7 +102,7 @@ class MODULES_EXPORT IDBTransaction final
                  const IDBDatabaseMetadata&);
   ~IDBTransaction() override;
 
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
   static mojom::IDBTransactionMode StringToMode(const String&);
 

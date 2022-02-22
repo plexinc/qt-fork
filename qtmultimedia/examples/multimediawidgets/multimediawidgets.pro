@@ -6,6 +6,5 @@ qtHaveModule(widgets) {
         camera \
         videographicsitem \
         videowidget \
-        player \
-        customvideosurface
+        player
 }

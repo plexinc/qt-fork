@@ -71,6 +71,8 @@
 **
 ****************************************************************************/
 
+#include <AppKit/AppKit.h>
+
 #include "qcocoaeventdispatcher.h"
 #include "qcocoawindow.h"
 #include "qcocoahelpers.h"
@@ -88,8 +90,6 @@
 #include <qpa/qplatformnativeinterface.h>
 
 #include <QtCore/qdebug.h>
-
-#include <AppKit/AppKit.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -196,7 +196,7 @@ void QCocoaEventDispatcherPrivate::maybeStopCFRunLoopTimer()
     runLoopTimerRef = nullptr;
 }
 
-void QCocoaEventDispatcher::registerTimer(int timerId, int interval, Qt::TimerType timerType, QObject *obj)
+void QCocoaEventDispatcher::registerTimer(int timerId, qint64 interval, Qt::TimerType timerType, QObject *obj)
 {
 #ifndef QT_NO_DEBUG
     if (timerId < 1 || interval < 0 || !obj) {
@@ -286,13 +286,6 @@ void QCocoaEventDispatcher::unregisterSocketNotifier(QSocketNotifier *notifier)
 {
     Q_D(QCocoaEventDispatcher);
     d->cfSocketNotifier.unregisterSocketNotifier(notifier);
-}
-
-bool QCocoaEventDispatcher::hasPendingEvents()
-{
-    extern uint qGlobalPostedEventsCount();
-    extern bool qt_is_gui_used; //qapplication.cpp
-    return qGlobalPostedEventsCount() || (qt_is_gui_used && !CFRunLoopIsWaiting(CFRunLoopGetMain()));
 }
 
 static bool isUserInputEvent(NSEvent* event)
@@ -504,6 +497,11 @@ bool QCocoaEventDispatcher::processEvents(QEventLoop::ProcessEventsFlags flags)
                         retVal = true;
                     }
                 }
+
+                // Clean up the modal session list, call endModalSession.
+                if (d->cleanupModalSessionsNeeded)
+                    d->cleanupModalSessions();
+
             } while (!d->interrupt && event);
 
             if ((d->processEventsFlags & QEventLoop::EventLoopExec) == 0) {
@@ -690,7 +688,7 @@ bool QCocoaEventDispatcherPrivate::hasModalSession() const
 void QCocoaEventDispatcherPrivate::cleanupModalSessions()
 {
     // Go through the list of modal sessions, and end those
-    // that no longer has a window assosiated; no window means
+    // that no longer has a window associated; no window means
     // the session has logically ended. The reason we wait like
     // this to actually end the sessions for real (rather than at the
     // point they were marked as stopped), is that ending a session
@@ -963,9 +961,6 @@ void QCocoaEventDispatcher::interrupt()
     // events on the floor before we get a chance to reestablish a new session.
     d->cancelWaitForMoreEvents();
 }
-
-void QCocoaEventDispatcher::flush()
-{ }
 
 // QTBUG-56746: The behavior of processEvents() has been changed to not clear
 // the interrupt flag. Use this function to clear it.

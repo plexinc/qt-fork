@@ -178,7 +178,7 @@ void VWindow::init()
 
     uint32_t queueCount = 0;
     f->vkGetPhysicalDeviceQueueFamilyProperties(m_vkPhysDev, &queueCount, nullptr);
-    QVector<VkQueueFamilyProperties> queueFamilyProps(queueCount);
+    QList<VkQueueFamilyProperties> queueFamilyProps(queueCount);
     f->vkGetPhysicalDeviceQueueFamilyProperties(m_vkPhysDev, &queueCount, queueFamilyProps.data());
     int gfxQueueFamilyIdx = -1;
     int presQueueFamilyIdx = -1;
@@ -221,11 +221,11 @@ void VWindow::init()
         queueInfo[1].pQueuePriorities = prio;
     }
 
-    QVector<const char *> devLayers;
-    if (inst->layers().contains("VK_LAYER_LUNARG_standard_validation"))
-        devLayers.append("VK_LAYER_LUNARG_standard_validation");
+    QList<const char *> devLayers;
+    if (inst->layers().contains("VK_LAYER_KHRONOS_validation"))
+        devLayers.append("VK_LAYER_KHRONOS_validation");
 
-    QVector<const char *> devExts;
+    QList<const char *> devExts;
     devExts.append("VK_KHR_swapchain");
 
     VkDeviceCreateInfo devInfo;
@@ -314,7 +314,7 @@ void VWindow::recreateSwapChain()
     uint32_t formatCount = 0;
     m_vkGetPhysicalDeviceSurfaceFormatsKHR(m_vkPhysDev, m_vkSurface, &formatCount, nullptr);
     if (formatCount) {
-        QVector<VkSurfaceFormatKHR> formats(formatCount);
+        QList<VkSurfaceFormatKHR> formats(formatCount);
         m_vkGetPhysicalDeviceSurfaceFormatsKHR(m_vkPhysDev, m_vkSurface, &formatCount, formats.data());
         if (formats[0].format != VK_FORMAT_UNDEFINED) {
             m_colorFormat = formats[0].format;
@@ -697,7 +697,7 @@ int main(int argc, char *argv[])
     qDebug() << inst.supportedLayers() << inst.supportedExtensions();
 
     // Enable validation layer, if supported.
-    inst.setLayers(QByteArrayList() << "VK_LAYER_LUNARG_standard_validation");
+    inst.setLayers(QByteArrayList() << "VK_LAYER_KHRONOS_validation");
 
     bool ok = inst.create();
     qDebug("QVulkanInstance::create() returned %d", ok);

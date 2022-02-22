@@ -33,8 +33,8 @@
 #define THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_PLUGIN_H_
 
 #include "cc/paint/paint_canvas.h"
+#include "third_party/blink/public/common/page/drag_operation.h"
 #include "third_party/blink/public/mojom/input/focus_type.mojom-shared.h"
-#include "third_party/blink/public/platform/web_drag_operation.h"
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/public/platform/web_url.h"
 #include "third_party/blink/public/web/web_drag_status.h"
@@ -43,10 +43,12 @@
 
 namespace gfx {
 class PointF;
+class Rect;
 }  // namespace gfx
 
 namespace ui {
 class Cursor;
+struct ImeTextSpan;
 }
 
 namespace blink {
@@ -55,10 +57,8 @@ class WebCoalescedInputEvent;
 class WebDragData;
 class WebPluginContainer;
 class WebURLResponse;
-struct WebImeTextSpan;
 struct WebPrintParams;
 struct WebPrintPresetOptions;
-struct WebRect;
 struct WebURLError;
 template <typename T>
 class WebVector;
@@ -103,7 +103,6 @@ class WebPlugin {
   }
 
   virtual bool SupportsKeyboardFocus() const { return false; }
-  virtual bool SupportsEditCommands() const { return false; }
   // Returns true if this plugin supports input method, which implements
   // setComposition(), commitText() and finishComposingText() below.
   virtual bool SupportsInputMethod() const { return false; }
@@ -111,12 +110,12 @@ class WebPlugin {
   virtual bool CanProcessDrag() const { return false; }
 
   virtual void UpdateAllLifecyclePhases(blink::DocumentUpdateReason) = 0;
-  virtual void Paint(cc::PaintCanvas*, const WebRect&) = 0;
+  virtual void Paint(cc::PaintCanvas*, const gfx::Rect&) = 0;
 
   // Coordinates are relative to the containing window.
-  virtual void UpdateGeometry(const WebRect& window_rect,
-                              const WebRect& clip_rect,
-                              const WebRect& unobscured_rect,
+  virtual void UpdateGeometry(const gfx::Rect& window_rect,
+                              const gfx::Rect& clip_rect,
+                              const gfx::Rect& unobscured_rect,
                               bool is_visible) = 0;
 
   virtual void UpdateFocus(bool focused, mojom::FocusType) = 0;
@@ -128,7 +127,7 @@ class WebPlugin {
 
   virtual bool HandleDragStatusUpdate(WebDragStatus,
                                       const WebDragData&,
-                                      WebDragOperationsMask,
+                                      DragOperationsMask,
                                       const gfx::PointF& position,
                                       const gfx::PointF& screen_position) {
     return false;
@@ -180,7 +179,7 @@ class WebPlugin {
   // composition is set successfully. If |replacementRange| is not null, the
   // text inside |replacementRange| will be replaced by |text|
   virtual bool SetComposition(const WebString& text,
-                              const WebVector<WebImeTextSpan>& ime_text_spans,
+                              const WebVector<ui::ImeTextSpan>& ime_text_spans,
                               const WebRange& replacement_range,
                               int selection_start,
                               int selection_end) {
@@ -191,7 +190,7 @@ class WebPlugin {
   // moves the caret according to relativeCaretPosition. If |replacementRange|
   // is not null, the text inside |replacementRange| will be replaced by |text|.
   virtual bool CommitText(const WebString& text,
-                          const WebVector<WebImeTextSpan>& ime_text_spans,
+                          const WebVector<ui::ImeTextSpan>& ime_text_spans,
                           const WebRange& replacement_range,
                           int relative_caret_position) {
     return false;
@@ -255,6 +254,46 @@ class WebPlugin {
   // Check whether a plugin failed to load, with there being no possibility of
   // it loading later.
   virtual bool IsErrorPlaceholder() { return false; }
+
+  // Indication that a current mouse lock has been lost.
+  virtual void DidLoseMouseLock() {}
+
+  // A response has been received from a previous WebPluginContainer::LockMouse
+  // call.
+  virtual void DidReceiveMouseLockResult(bool success) {}
+
+  // Determines whether composition can happen inline.
+  virtual bool CanComposeInline() { return false; }
+
+  // Determines if IME events should be sent to plugin instead of processed to
+  // the currently focused frame.
+  virtual bool ShouldDispatchImeEventsToPlugin() { return false; }
+
+  // Returns the current plugin text input type.
+  virtual WebTextInputType GetPluginTextInputType() {
+    return WebTextInputType::kWebTextInputTypeNone;
+  }
+
+  // Returns the current plugin caret bounds in blink/viewport coordinates.
+  virtual gfx::Rect GetPluginCaretBounds() { return gfx::Rect(); }
+
+  // Set the composition in plugin.
+  virtual void ImeSetCompositionForPlugin(
+      const WebString& text,
+      const std::vector<ui::ImeTextSpan>& ime_text_spans,
+      const gfx::Range& replacement_range,
+      int selection_start,
+      int selection_end) {}
+
+  // Commit the text to plugin.
+  virtual void ImeCommitTextForPlugin(
+      const WebString& text,
+      const std::vector<ui::ImeTextSpan>& ime_text_spans,
+      const gfx::Range& replacement_range,
+      int relative_cursor_pos) {}
+
+  // Indicate composition is complete to plugin.
+  virtual void ImeFinishComposingTextForPlugin(bool keep_selection) {}
 
  protected:
   virtual ~WebPlugin() = default;

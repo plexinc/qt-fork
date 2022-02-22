@@ -28,6 +28,7 @@
  * SMPTE 381M Mapping MPEG Streams into the MXF Generic Container
  * SMPTE 382M Mapping AES3 and Broadcast Wave Audio into the MXF Generic Container
  * SMPTE 383M Mapping DV-DIF Data to the MXF Generic Container
+ * SMPTE 2067-21 Interoperable Master Format — Application #2E
  *
  * Principle
  * Search for Track numbers which will identify essence element KLV packets.
@@ -47,6 +48,7 @@
 
 #include "libavutil/aes.h"
 #include "libavutil/avassert.h"
+#include "libavutil/mastering_display_metadata.h"
 #include "libavutil/mathematics.h"
 #include "libavcodec/bytestream.h"
 #include "libavutil/intreadwrite.h"
@@ -131,7 +133,7 @@ typedef struct MXFSequence {
     uint8_t origin;
 } MXFSequence;
 
-typedef struct MXFTrack {
+typedef struct MXFTimecodeComponent {
     UID uid;
     enum MXFMetadataSetType type;
     int drop_frame;
@@ -199,6 +201,9 @@ typedef struct MXFDescriptor {
     int bits_per_sample;
     int64_t duration; /* ContainerDuration optional property */
     unsigned int component_depth;
+    unsigned int black_ref_level;
+    unsigned int white_ref_level;
+    unsigned int color_range;
     unsigned int horiz_subsampling;
     unsigned int vert_subsampling;
     UID *sub_descriptors_refs;
@@ -207,6 +212,12 @@ typedef struct MXFDescriptor {
     uint8_t *extradata;
     int extradata_size;
     enum AVPixelFormat pix_fmt;
+    UID color_primaries_ul;
+    UID color_trc_ul;
+    UID color_space_ul;
+    AVMasteringDisplayMetadata *mastering;
+    AVContentLightMetadata *coll;
+    size_t coll_size;
 } MXFDescriptor;
 
 typedef struct MXFIndexTableSegment {
@@ -312,6 +323,7 @@ static const uint8_t mxf_canopus_essence_element_key[]     = { 0x06,0x0e,0x2b,0x
 static const uint8_t mxf_system_item_key_cp[]              = { 0x06,0x0e,0x2b,0x34,0x02,0x05,0x01,0x01,0x0d,0x01,0x03,0x01,0x04 };
 static const uint8_t mxf_system_item_key_gc[]              = { 0x06,0x0e,0x2b,0x34,0x02,0x53,0x01,0x01,0x0d,0x01,0x03,0x01,0x14 };
 static const uint8_t mxf_klv_key[]                         = { 0x06,0x0e,0x2b,0x34 };
+static const uint8_t mxf_apple_coll_prefix[]               = { 0x06,0x0e,0x2b,0x34,0x01,0x01,0x01,0x0e,0x0e,0x20,0x04,0x01,0x05,0x03,0x01 };
 /* complete keys to match */
 static const uint8_t mxf_crypto_source_container_ul[]      = { 0x06,0x0e,0x2b,0x34,0x01,0x01,0x01,0x09,0x06,0x01,0x01,0x02,0x02,0x00,0x00,0x00 };
 static const uint8_t mxf_encrypted_triplet_key[]           = { 0x06,0x0e,0x2b,0x34,0x02,0x04,0x01,0x07,0x0d,0x01,0x03,0x01,0x02,0x7e,0x01,0x00 };
@@ -322,6 +334,8 @@ static const uint8_t mxf_avid_project_name[]               = { 0xa5,0xfb,0x7b,0x
 static const uint8_t mxf_jp2k_rsiz[]                       = { 0x06,0x0e,0x2b,0x34,0x02,0x05,0x01,0x01,0x0d,0x01,0x02,0x01,0x01,0x02,0x01,0x00 };
 static const uint8_t mxf_indirect_value_utf16le[]          = { 0x4c,0x00,0x02,0x10,0x01,0x00,0x00,0x00,0x00,0x06,0x0e,0x2b,0x34,0x01,0x04,0x01,0x01 };
 static const uint8_t mxf_indirect_value_utf16be[]          = { 0x42,0x01,0x10,0x02,0x00,0x00,0x00,0x00,0x00,0x06,0x0e,0x2b,0x34,0x01,0x04,0x01,0x01 };
+static const uint8_t mxf_apple_coll_max_cll[]              = { 0x06,0x0e,0x2b,0x34,0x01,0x01,0x01,0x0e,0x0e,0x20,0x04,0x01,0x05,0x03,0x01,0x01 };
+static const uint8_t mxf_apple_coll_max_fall[]             = { 0x06,0x0e,0x2b,0x34,0x01,0x01,0x01,0x0e,0x0e,0x20,0x04,0x01,0x05,0x03,0x01,0x02 };
 
 #define IS_KLV_KEY(x, y) (!memcmp(x, y, sizeof(y)))
 
@@ -331,6 +345,8 @@ static void mxf_free_metadataset(MXFMetadataSet **ctx, int freectx)
     switch ((*ctx)->type) {
     case Descriptor:
         av_freep(&((MXFDescriptor *)*ctx)->extradata);
+        av_freep(&((MXFDescriptor *)*ctx)->mastering);
+        av_freep(&((MXFDescriptor *)*ctx)->coll);
         break;
     case MultipleDescriptor:
         av_freep(&((MXFDescriptor *)*ctx)->sub_descriptors_refs);
@@ -362,8 +378,9 @@ static void mxf_free_metadataset(MXFMetadataSet **ctx, int freectx)
     default:
         break;
     }
-    if (freectx)
-    av_freep(ctx);
+    if (freectx) {
+        av_freep(ctx);
+    }
 }
 
 static int64_t klv_decode_ber_length(AVIOContext *pb)
@@ -821,15 +838,17 @@ static int mxf_read_partition_pack(void *arg, AVIOContext *pb, int tag, int size
     return 0;
 }
 
-static int mxf_add_metadata_set(MXFContext *mxf, void *metadata_set)
+static int mxf_add_metadata_set(MXFContext *mxf, MXFMetadataSet **metadata_set)
 {
     MXFMetadataSet **tmp;
 
     tmp = av_realloc_array(mxf->metadata_sets, mxf->metadata_sets_count + 1, sizeof(*mxf->metadata_sets));
-    if (!tmp)
+    if (!tmp) {
+        mxf_free_metadataset(metadata_set, 1);
         return AVERROR(ENOMEM);
+    }
     mxf->metadata_sets = tmp;
-    mxf->metadata_sets[mxf->metadata_sets_count] = metadata_set;
+    mxf->metadata_sets[mxf->metadata_sets_count] = *metadata_set;
     mxf->metadata_sets_count++;
     return 0;
 }
@@ -847,6 +866,7 @@ static int mxf_read_cryptographic_context(void *arg, AVIOContext *pb, int tag, i
 static int mxf_read_strong_ref_array(AVIOContext *pb, UID **refs, int *count)
 {
     *count = avio_rb32(pb);
+    av_free(*refs);
     *refs = av_calloc(*count, sizeof(UID));
     if (!*refs) {
         *count = 0;
@@ -866,6 +886,7 @@ static inline int mxf_read_utf16_string(AVIOContext *pb, int size, char** str, i
         return AVERROR(EINVAL);
 
     buf_size = size + size / 2 + 1;
+    av_free(*str);
     *str = av_malloc(buf_size);
     if (!*str)
         return AVERROR(ENOMEM);
@@ -899,10 +920,8 @@ static int mxf_read_content_storage(void *arg, AVIOContext *pb, int tag, int siz
     case 0x1901:
         if (mxf->packages_refs)
             av_log(mxf->fc, AV_LOG_VERBOSE, "Multiple packages_refs\n");
-        av_free(mxf->packages_refs);
         return mxf_read_strong_ref_array(pb, &mxf->packages_refs, &mxf->packages_count);
     case 0x1902:
-        av_free(mxf->essence_container_data_refs);
         return mxf_read_strong_ref_array(pb, &mxf->essence_container_data_refs, &mxf->essence_container_data_count);
     }
     return 0;
@@ -1198,14 +1217,32 @@ static int mxf_read_generic_descriptor(void *arg, AVIOContext *pb, int tag, int 
         descriptor->aspect_ratio.num = avio_rb32(pb);
         descriptor->aspect_ratio.den = avio_rb32(pb);
         break;
+    case 0x3210:
+        avio_read(pb, descriptor->color_trc_ul, 16);
+        break;
     case 0x3212:
         descriptor->field_dominance = avio_r8(pb);
+        break;
+    case 0x3219:
+        avio_read(pb, descriptor->color_primaries_ul, 16);
+        break;
+    case 0x321A:
+        avio_read(pb, descriptor->color_space_ul, 16);
         break;
     case 0x3301:
         descriptor->component_depth = avio_rb32(pb);
         break;
     case 0x3302:
         descriptor->horiz_subsampling = avio_rb32(pb);
+        break;
+    case 0x3304:
+        descriptor->black_ref_level = avio_rb32(pb);
+        break;
+    case 0x3305:
+        descriptor->white_ref_level = avio_rb32(pb);
+        break;
+    case 0x3306:
+        descriptor->color_range = avio_rb32(pb);
         break;
     case 0x3308:
         descriptor->vert_subsampling = avio_rb32(pb);
@@ -1244,6 +1281,55 @@ static int mxf_read_generic_descriptor(void *arg, AVIOContext *pb, int tag, int 
             if (rsiz == FF_PROFILE_JPEG2000_DCINEMA_2K ||
                 rsiz == FF_PROFILE_JPEG2000_DCINEMA_4K)
                 descriptor->pix_fmt = AV_PIX_FMT_XYZ12;
+        }
+        if (IS_KLV_KEY(uid, ff_mxf_mastering_display_prefix)) {
+            if (!descriptor->mastering) {
+                descriptor->mastering = av_mastering_display_metadata_alloc();
+                if (!descriptor->mastering)
+                    return AVERROR(ENOMEM);
+            }
+            if (IS_KLV_KEY(uid, ff_mxf_mastering_display_local_tags[0].uid)) {
+                for (int i = 0; i < 3; i++) {
+                    /* Order: large x, large y, other (i.e. RGB) */
+                    descriptor->mastering->display_primaries[i][0] = av_make_q(avio_rb16(pb), FF_MXF_MASTERING_CHROMA_DEN);
+                    descriptor->mastering->display_primaries[i][1] = av_make_q(avio_rb16(pb), FF_MXF_MASTERING_CHROMA_DEN);
+                }
+                /* Check we have seen mxf_mastering_display_white_point_chromaticity */
+                if (descriptor->mastering->white_point[0].den != 0)
+                    descriptor->mastering->has_primaries = 1;
+            }
+            if (IS_KLV_KEY(uid, ff_mxf_mastering_display_local_tags[1].uid)) {
+                descriptor->mastering->white_point[0] = av_make_q(avio_rb16(pb), FF_MXF_MASTERING_CHROMA_DEN);
+                descriptor->mastering->white_point[1] = av_make_q(avio_rb16(pb), FF_MXF_MASTERING_CHROMA_DEN);
+                /* Check we have seen mxf_mastering_display_primaries */
+                if (descriptor->mastering->display_primaries[0][0].den != 0)
+                    descriptor->mastering->has_primaries = 1;
+            }
+            if (IS_KLV_KEY(uid, ff_mxf_mastering_display_local_tags[2].uid)) {
+                descriptor->mastering->max_luminance = av_make_q(avio_rb32(pb), FF_MXF_MASTERING_LUMA_DEN);
+                /* Check we have seen mxf_mastering_display_minimum_luminance */
+                if (descriptor->mastering->min_luminance.den != 0)
+                    descriptor->mastering->has_luminance = 1;
+            }
+            if (IS_KLV_KEY(uid, ff_mxf_mastering_display_local_tags[3].uid)) {
+                descriptor->mastering->min_luminance = av_make_q(avio_rb32(pb), FF_MXF_MASTERING_LUMA_DEN);
+                /* Check we have seen mxf_mastering_display_maximum_luminance */
+                if (descriptor->mastering->max_luminance.den != 0)
+                    descriptor->mastering->has_luminance = 1;
+            }
+        }
+        if (IS_KLV_KEY(uid, mxf_apple_coll_prefix)) {
+            if (!descriptor->coll) {
+                descriptor->coll = av_content_light_metadata_alloc(&descriptor->coll_size);
+                if (!descriptor->coll)
+                    return AVERROR(ENOMEM);
+            }
+            if (IS_KLV_KEY(uid, mxf_apple_coll_max_cll)) {
+                descriptor->coll->MaxCLL = avio_rb16(pb);
+            }
+            if (IS_KLV_KEY(uid, mxf_apple_coll_max_fall)) {
+                descriptor->coll->MaxFALL = avio_rb16(pb);
+            }
         }
         break;
     }
@@ -2017,7 +2103,7 @@ static MXFStructuralComponent* mxf_resolve_sourceclip(MXFContext *mxf, UID *stro
 static int mxf_parse_package_comments(MXFContext *mxf, AVDictionary **pm, MXFPackage *package)
 {
     MXFTaggedValue *tag;
-    int size, i;
+    int i;
     char *key = NULL;
 
     for (i = 0; i < package->comment_count; i++) {
@@ -2025,12 +2111,10 @@ static int mxf_parse_package_comments(MXFContext *mxf, AVDictionary **pm, MXFPac
         if (!tag || !tag->name || !tag->value)
             continue;
 
-        size = strlen(tag->name) + 8 + 1;
-        key = av_mallocz(size);
+        key = av_asprintf("comment_%s", tag->name);
         if (!key)
             return AVERROR(ENOMEM);
 
-        snprintf(key, size, "comment_%s", tag->name);
         av_dict_set(pm, key, tag->value, AV_DICT_DONT_STRDUP_KEY);
     }
     return 0;
@@ -2142,6 +2226,30 @@ static int mxf_add_metadata_stream(MXFContext *mxf, MXFTrack *track)
     codec_ul = mxf_get_codec_ul(ff_mxf_data_definition_uls, &track->sequence->data_definition_ul);
     av_dict_set(&st->metadata, "data_type", av_get_media_type_string(codec_ul->id), 0);
     return 0;
+}
+
+static enum AVColorRange mxf_get_color_range(MXFContext *mxf, MXFDescriptor *descriptor)
+{
+    if (descriptor->black_ref_level || descriptor->white_ref_level || descriptor->color_range) {
+        /* CDCI range metadata */
+        if (!descriptor->component_depth)
+            return AVCOL_RANGE_UNSPECIFIED;
+        if (descriptor->black_ref_level == 0 &&
+            descriptor->white_ref_level == ((1<<descriptor->component_depth) - 1) &&
+            (descriptor->color_range    == (1<<descriptor->component_depth) ||
+             descriptor->color_range    == ((1<<descriptor->component_depth) - 1)))
+            return AVCOL_RANGE_JPEG;
+        if (descriptor->component_depth >= 8 &&
+            descriptor->black_ref_level == (1  <<(descriptor->component_depth - 4)) &&
+            descriptor->white_ref_level == (235<<(descriptor->component_depth - 8)) &&
+            descriptor->color_range     == ((14<<(descriptor->component_depth - 4)) + 1))
+            return AVCOL_RANGE_MPEG;
+        avpriv_request_sample(mxf->fc, "Unrecognized CDCI color range (color diff range %d, b %d, w %d, depth %d)",
+                              descriptor->color_range, descriptor->black_ref_level,
+                              descriptor->white_ref_level, descriptor->component_depth);
+    }
+
+    return AVCOL_RANGE_UNSPECIFIED;
 }
 
 static int mxf_parse_structural_metadata(MXFContext *mxf)
@@ -2478,7 +2586,27 @@ static int mxf_parse_structural_metadata(MXFContext *mxf)
                 av_dict_set_int(&st->metadata, "source_track_origin", source_track->sequence->origin, 0);
             }
             if (descriptor->aspect_ratio.num && descriptor->aspect_ratio.den)
-                st->display_aspect_ratio = descriptor->aspect_ratio;
+                st->internal->display_aspect_ratio = descriptor->aspect_ratio;
+            st->codecpar->color_range     = mxf_get_color_range(mxf, descriptor);
+            st->codecpar->color_primaries = mxf_get_codec_ul(ff_mxf_color_primaries_uls, &descriptor->color_primaries_ul)->id;
+            st->codecpar->color_trc       = mxf_get_codec_ul(ff_mxf_color_trc_uls, &descriptor->color_trc_ul)->id;
+            st->codecpar->color_space     = mxf_get_codec_ul(ff_mxf_color_space_uls, &descriptor->color_space_ul)->id;
+            if (descriptor->mastering) {
+                ret = av_stream_add_side_data(st, AV_PKT_DATA_MASTERING_DISPLAY_METADATA,
+                                              (uint8_t *)descriptor->mastering,
+                                              sizeof(*descriptor->mastering));
+                if (ret < 0)
+                    goto fail_and_free;
+                descriptor->mastering = NULL;
+            }
+            if (descriptor->coll) {
+                ret = av_stream_add_side_data(st, AV_PKT_DATA_CONTENT_LIGHT_LEVEL,
+                                              (uint8_t *)descriptor->coll,
+                                              descriptor->coll_size);
+                if (ret < 0)
+                    goto fail_and_free;
+                descriptor->coll = NULL;
+            }
         } else if (st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
             container_ul = mxf_get_codec_ul(mxf_sound_essence_container_uls, essence_container_ul);
             /* Only overwrite existing codec ID if it is unset or A-law, which is the default according to SMPTE RP 224. */
@@ -2712,6 +2840,7 @@ static const MXFMetadataReadTableEntry mxf_metadata_read_table[] = {
 
 static int mxf_metadataset_init(MXFMetadataSet *ctx, enum MXFMetadataSetType type)
 {
+    ctx->type = type;
     switch (type){
     case MultipleDescriptor:
     case Descriptor:
@@ -2732,7 +2861,8 @@ static int mxf_read_local_tags(MXFContext *mxf, KLVPacket *klv, MXFMetadataReadF
 
     if (!ctx)
         return AVERROR(ENOMEM);
-    mxf_metadataset_init(ctx, type);
+    if (ctx_size)
+        mxf_metadataset_init(ctx, type);
     while (avio_tell(pb) + 4 < klv_end && !avio_feof(pb)) {
         int ret;
         int tag = avio_rb16(pb);
@@ -2768,7 +2898,6 @@ static int mxf_read_local_tags(MXFContext *mxf, KLVPacket *klv, MXFMetadataReadF
          * it extending past the end of the KLV though (zzuf5.mxf). */
         if (avio_tell(pb) > klv_end) {
             if (ctx_size) {
-                ctx->type = type;
                 mxf_free_metadataset(&ctx, 1);
             }
 
@@ -2779,8 +2908,7 @@ static int mxf_read_local_tags(MXFContext *mxf, KLVPacket *klv, MXFMetadataReadF
         } else if (avio_tell(pb) <= next)   /* only seek forward, else this can loop for a long time */
             avio_seek(pb, next, SEEK_SET);
     }
-    if (ctx_size) ctx->type = type;
-    return ctx_size ? mxf_add_metadata_set(mxf, ctx) : 0;
+    return ctx_size ? mxf_add_metadata_set(mxf, &ctx) : 0;
 }
 
 /**
@@ -3083,10 +3211,8 @@ static int mxf_handle_missing_index_segment(MXFContext *mxf, AVStream *st)
     if (!(segment = av_mallocz(sizeof(*segment))))
         return AVERROR(ENOMEM);
 
-    if ((ret = mxf_add_metadata_set(mxf, segment))) {
-        mxf_free_metadataset((MXFMetadataSet**)&segment, 1);
+    if ((ret = mxf_add_metadata_set(mxf, (MXFMetadataSet**)&segment)))
         return ret;
-    }
 
     /* Make sure we have nonzero unique index_sid, body_sid will be ok, because
      * using the same SID for index is forbidden in MXF. */
@@ -3307,20 +3433,17 @@ static int mxf_get_next_track_edit_unit(MXFContext *mxf, MXFTrack *track, int64_
 static int64_t mxf_compute_sample_count(MXFContext *mxf, AVStream *st,
                                         int64_t edit_unit)
 {
-    int i, total = 0, size = 0;
     MXFTrack *track = st->priv_data;
     AVRational time_base = av_inv_q(track->edit_rate);
     AVRational sample_rate = av_inv_q(st->time_base);
-    const MXFSamplesPerFrame *spf = NULL;
-    int64_t sample_count;
 
     // For non-audio sample_count equals current edit unit
     if (st->codecpar->codec_type != AVMEDIA_TYPE_AUDIO)
         return edit_unit;
 
-    if ((sample_rate.num / sample_rate.den) == 48000)
-        spf = ff_mxf_get_samples_per_frame(mxf->fc, time_base);
-    if (!spf) {
+    if ((sample_rate.num / sample_rate.den) == 48000) {
+        return av_rescale_q(edit_unit, sample_rate, track->edit_rate);
+    } else {
         int remainder = (sample_rate.num * time_base.num) %
                         (time_base.den * sample_rate.den);
         if (remainder)
@@ -3331,20 +3454,6 @@ static int64_t mxf_compute_sample_count(MXFContext *mxf, AVStream *st,
                    sample_rate.num, sample_rate.den);
         return av_rescale_q(edit_unit, sample_rate, track->edit_rate);
     }
-
-    while (spf->samples_per_frame[size]) {
-        total += spf->samples_per_frame[size];
-        size++;
-    }
-
-    av_assert2(size);
-
-    sample_count = (edit_unit / size) * (uint64_t)total;
-    for (i = 0; i < edit_unit % size; i++) {
-        sample_count += spf->samples_per_frame[i];
-    }
-
-    return sample_count;
 }
 
 /**
@@ -3618,7 +3727,7 @@ static int mxf_probe(const AVProbeData *p) {
                 AV_RN32(bufp+ 4) == AV_RN32(mxf_header_partition_pack_key+ 4) &&
                 AV_RN32(bufp+ 8) == AV_RN32(mxf_header_partition_pack_key+ 8) &&
                 AV_RN16(bufp+12) == AV_RN16(mxf_header_partition_pack_key+12))
-                return AVPROBE_SCORE_MAX;
+                return bufp == p->buf ? AVPROBE_SCORE_MAX : AVPROBE_SCORE_MAX - 1;
             bufp ++;
         } else
             bufp += 10;

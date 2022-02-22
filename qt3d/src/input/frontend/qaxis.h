@@ -59,20 +59,15 @@ public:
 
     void addInput(QAbstractAxisInput *input);
     void removeInput(QAbstractAxisInput *input);
-    QVector<QAbstractAxisInput *> inputs() const;
+    QList<QAbstractAxisInput *> inputs() const;
 
     float value() const;
 
 Q_SIGNALS:
     void valueChanged(float value);
 
-protected:
-    // TODO Unused remove in Qt6
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) override;
-
 private:
     Q_DECLARE_PRIVATE(QAxis)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // Qt3DInput

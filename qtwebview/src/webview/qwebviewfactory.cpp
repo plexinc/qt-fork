@@ -65,7 +65,7 @@ public:
     void setVisible(bool visible) override { Q_UNUSED(visible); }
 
     QString httpUserAgent() const override { return QString(); }
-    void setHttpUserAgent(const QString &userAgent) override { Q_UNUSED(userAgent) }
+    void setHttpUserAgent(const QString &userAgent) override { Q_UNUSED(userAgent); }
     QUrl url() const override { return QUrl(); }
     void setUrl(const QUrl &url) override { Q_UNUSED(url); }
     bool canGoBack() const override { return false; }
@@ -100,10 +100,6 @@ QAbstractWebView *QWebViewFactory::createWebView()
 
 bool QWebViewFactory::requiresExtraInitializationSteps()
 {
-    // The call to loader->indexOf(pluginName) will mess up winrt's main thread.
-#ifdef Q_OS_WINRT
-    return false;
-#endif
     const QString pluginName = getPluginName();
     const int index = pluginName.isEmpty() ? 0 : qMax<int>(0, loader->indexOf(pluginName));
 

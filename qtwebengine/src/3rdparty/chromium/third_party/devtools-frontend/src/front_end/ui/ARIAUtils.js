@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import * as Platform from '../platform/platform.js';
+
 let _id = 0;
 
 /**
@@ -85,7 +87,7 @@ export function markAsLink(element) {
  */
 export function markAsMenuButton(element) {
   markAsButton(element);
-  element.setAttribute('aria-haspopup', true);
+  element.setAttribute('aria-haspopup', 'true');
 }
 
 /**
@@ -95,8 +97,8 @@ export function markAsMenuButton(element) {
  */
 export function markAsProgressBar(element, min = 0, max = 100) {
   element.setAttribute('role', 'progressbar');
-  element.setAttribute('aria-valuemin', min);
-  element.setAttribute('aria-valuemax', max);
+  element.setAttribute('aria-valuemin', min.toString());
+  element.setAttribute('aria-valuemax', max.toString());
 }
 
 /**
@@ -160,7 +162,7 @@ export function markAsMenuItem(element) {
  */
 export function markAsMenuItemSubMenu(element) {
   markAsMenuItem(element);
-  element.setAttribute('aria-haspopup', true);
+  element.setAttribute('aria-haspopup', 'true');
 }
 
 /**
@@ -231,7 +233,7 @@ export function markAsSlider(element, min = 0, max = 100) {
  */
 export function markAsHeading(element, level) {
   element.setAttribute('role', 'heading');
-  element.setAttribute('aria-level', level);
+  element.setAttribute('aria-level', level.toString());
 }
 
 /**
@@ -341,7 +343,7 @@ export function setControls(element, controlledElement) {
  * @param {boolean} value
  */
 export function setChecked(element, value) {
-  element.setAttribute('aria-checked', !!value);
+  element.setAttribute('aria-checked', (Boolean(value)).toString());
 }
 
 /**
@@ -356,7 +358,7 @@ export function setCheckboxAsIndeterminate(element) {
  * @param {boolean} value
  */
 export function setDisabled(element, value) {
-  element.setAttribute('aria-disabled', !!value);
+  element.setAttribute('aria-disabled', (Boolean(value)).toString());
 }
 
 /**
@@ -364,7 +366,7 @@ export function setDisabled(element, value) {
  * @param {boolean} value
  */
 export function setExpanded(element, value) {
-  element.setAttribute('aria-expanded', !!value);
+  element.setAttribute('aria-expanded', (Boolean(value)).toString());
 }
 
 /**
@@ -379,7 +381,15 @@ export function unsetExpandable(element) {
  * @param {boolean} value
  */
 export function setHidden(element, value) {
-  element.setAttribute('aria-hidden', !!value);
+  element.setAttribute('aria-hidden', (Boolean(value)).toString());
+}
+
+/**
+ * @param {!Element} element
+ * @param {number} level
+ */
+export function setLevel(element, level) {
+  element.setAttribute('aria-level', level.toString());
 }
 
 /**
@@ -408,9 +418,12 @@ export function setSelected(element, value) {
   // aria-selected behaves differently for false and undefined.
   // Often times undefined values are unintentionally typed as booleans.
   // Use !! to make sure this is true or false.
-  element.setAttribute('aria-selected', !!value);
+  element.setAttribute('aria-selected', (Boolean(value)).toString());
 }
 
+/**
+ * @param {!Element} element
+ */
 export function clearSelected(element) {
   element.removeAttribute('aria-selected');
 }
@@ -421,7 +434,7 @@ export function clearSelected(element) {
  */
 export function setInvalid(element, value) {
   if (value) {
-    element.setAttribute('aria-invalid', value);
+    element.setAttribute('aria-invalid', value.toString());
   } else {
     element.removeAttribute('aria-invalid');
   }
@@ -435,7 +448,7 @@ export function setPressed(element, value) {
   // aria-pressed behaves differently for false and undefined.
   // Often times undefined values are unintentionally typed as booleans.
   // Use !! to make sure this is true or false.
-  element.setAttribute('aria-pressed', !!value);
+  element.setAttribute('aria-pressed', (Boolean(value)).toString());
 }
 
 /**
@@ -443,11 +456,15 @@ export function setPressed(element, value) {
  * @param {number} value
  */
 export function setValueNow(element, value) {
-  element.setAttribute('aria-valuenow', value);
+  element.setAttribute('aria-valuenow', value.toString());
 }
 
+/**
+ * @param {!Element} element
+ * @param {number} value
+ */
 export function setValueText(element, value) {
-  element.setAttribute('aria-valuetext', value);
+  element.setAttribute('aria-valuetext', value.toString());
 }
 
 /**
@@ -456,7 +473,7 @@ export function setValueText(element, value) {
  * @param {string=} valueText
  */
 export function setProgressBarValue(element, valueNow, valueText) {
-  element.setAttribute('aria-valuenow', valueNow);
+  element.setAttribute('aria-valuenow', valueNow.toString());
 
   if (valueText) {
     element.setAttribute('aria-valuetext', valueText);
@@ -500,8 +517,9 @@ export function setDescription(element, description) {
   // The rest of DevTools shouldn't have to worry about this,
   // so there is some unfortunate code below.
 
-  if (_descriptionMap.has(element)) {
-    _descriptionMap.get(element).remove();
+  const oldDescription = _descriptionMap.get(element);
+  if (oldDescription) {
+    oldDescription.remove();
   }
   element.removeAttribute('data-aria-utils-animation-hack');
 
@@ -513,7 +531,7 @@ export function setDescription(element, description) {
 
   // We make a hidden element that contains the decsription
   // and will be pointed to by aria-describedby.
-  const descriptionElement = createElement('span');
+  const descriptionElement = document.createElement('span');
   descriptionElement.textContent = description;
   descriptionElement.style.display = 'none';
   ensureId(descriptionElement);
@@ -572,7 +590,11 @@ export function setActiveDescendant(element, activedescendant) {
     return;
   }
 
-  console.assert(element.hasSameShadowRoot(activedescendant), 'elements are not in the same shadow dom');
+  if (activedescendant.isConnected && element.isConnected) {
+    console.assert(element.hasSameShadowRoot(activedescendant), 'elements are not in the same shadow dom');
+  } else {
+    console.warn('One or more elements in an active-descendant relationship are not yet attached to the DOM tree.');
+  }
 
   ensureId(activedescendant);
   element.setAttribute('aria-activedescendant', activedescendant.id);
@@ -580,6 +602,22 @@ export function setActiveDescendant(element, activedescendant) {
 
 /**
  * @param {!Element} element
+ * @param {number} size
+ */
+export function setSetSize(element, size) {
+  element.setAttribute('aria-setsize', size.toString());
+}
+
+/**
+ * @param {!Element} element
+ * @param {number} position
+ */
+export function setPositionInSet(element, position) {
+  element.setAttribute('aria-posinset', position.toString());
+}
+
+/**
+ * @param {!HTMLElement} element
  */
 function hideFromLayout(element) {
   element.style.position = 'absolute';
@@ -588,35 +626,30 @@ function hideFromLayout(element) {
   element.style.overflow = 'hidden';
 }
 
-const AlertElementSymbol = Symbol('AlertElementSybmol');
-const MessageElementSymbol = Symbol('MessageElementSymbol');
+/**
+ * @type {!WeakMap<!Document, !HTMLElement>}>}
+ */
+const alertsMap = new WeakMap();
 
 /**
  * This function is used to announce a message with the screen reader.
  * Setting the textContent would allow the SR to access the offscreen element via browse mode
- * Due to existing NVDA bugs (https://github.com/nvaccess/nvda/issues/10140), setting the
- * aria-label of the alert element results in the message being read twice.
- * The current workaround is to set the aria-describedby of the alert element
- * to a description element where the aria-label is set to the message.
  * @param {string} message
  * @param {!Element} element
  */
 export function alert(message, element) {
-  const document = element.ownerDocument;
-  const messageElementId = 'ariaLiveMessageElement';
-  if (!document[MessageElementSymbol]) {
-    const messageElement = document.body.createChild('div');
-    messageElement.id = messageElementId;
-    hideFromLayout(messageElement);
-    document[MessageElementSymbol] = messageElement;
-  }
-  if (!document[AlertElementSymbol]) {
-    const alertElement = document.body.createChild('div');
+  const document = /** @type {!Document} */ (element.ownerDocument);
+
+  let alertElement = alertsMap.get(document);
+  if (!alertElement) {
+    alertElement = /** @type {!HTMLElement} */ (document.body.createChild('div'));
     hideFromLayout(alertElement);
     alertElement.setAttribute('role', 'alert');
     alertElement.setAttribute('aria-atomic', 'true');
-    alertElement.setAttribute('aria-describedby', messageElementId);
-    document[AlertElementSymbol] = alertElement;
+    alertsMap.set(document, alertElement);
   }
-  setAccessibleName(document[MessageElementSymbol], message.trimEndWithMaxLength(10000));
+  // We first set the textContent to blank so that the string will announce even if it is replaced
+  // with the same string.
+  alertElement.textContent = '';
+  alertElement.textContent = Platform.StringUtilities.trimEndWithMaxLength(message, 10000);
 }

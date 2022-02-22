@@ -12,11 +12,15 @@ qtHaveModule(quick) {
 
     qtHaveModule(quickcontrols2) {
         SUBDIRS += coffee
+
+        android|ios: SUBDIRS += hangman
     }
 
-    qtHaveModule(xmlpatterns) {
-        SUBDIRS += rssnews
-        qtHaveModule(quickcontrols) {
+    qtHaveModule(network) {
+        qtHaveModule(xml) {
+            SUBDIRS += rssnews
+        }
+        qtHaveModule(quickcontrols2) {
             SUBDIRS += photoviewer
         }
     }

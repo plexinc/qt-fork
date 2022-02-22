@@ -50,16 +50,9 @@ class Q_QUICK3D_EXPORT QQuick3DCamera : public QQuick3DNode
 {
     Q_OBJECT
     Q_PROPERTY(bool frustumCullingEnabled READ frustumCullingEnabled WRITE setFrustumCullingEnabled NOTIFY frustumCullingEnabledChanged)
+    QML_NAMED_ELEMENT(Camera)
+    QML_UNCREATABLE("Camera is Abstract")
 public:
-
-    enum FieldOfViewOrientation {
-        Vertical,
-        Horizontal
-    };
-    Q_ENUM(FieldOfViewOrientation)
-
-    explicit QQuick3DCamera(QQuick3DNode *parent = nullptr);
-
     Q_INVOKABLE QVector3D mapToViewport(const QVector3D &scenePos) const;
     Q_INVOKABLE QVector3D mapFromViewport(const QVector3D &viewportPos) const;
     QVector3D mapToViewport(const QVector3D &scenePos,
@@ -69,11 +62,8 @@ public:
                               qreal width,
                               qreal height);
 
-    Q_REVISION(1) Q_INVOKABLE void lookAt(const QVector3D &scenePos);
-    Q_REVISION(1) Q_INVOKABLE void lookAt(QQuick3DNode *node);
-
-    QSSGRenderCamera *cameraNode() const;
-    void setCameraNode(QSSGRenderCamera *camera) { m_cameraNode = camera; }
+    Q_INVOKABLE void lookAt(const QVector3D &scenePos);
+    Q_INVOKABLE void lookAt(QQuick3DNode *node);
 
     // It will be used only after the scene was drawn.
     // It means that the spatialNode of this camera already was created.
@@ -88,11 +78,11 @@ Q_SIGNALS:
     void frustumCullingEnabledChanged();
 
 protected:
+    explicit QQuick3DCamera(QQuick3DNodePrivate &dd, QQuick3DNode *parent = nullptr);
+
     QSSGRenderGraphObject *updateSpatialNode(QSSGRenderGraphObject *node) override;
-    virtual bool checkSpatialNode(QSSGRenderCamera *camera) = 0;
 
 private:
-    QSSGRenderCamera *m_cameraNode = nullptr;
     bool m_frustumCullingEnabled = false;
 };
 

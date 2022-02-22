@@ -52,15 +52,6 @@ class GuestViewBase : public content::BrowserPluginGuestDelegate,
                       public content::WebContentsObserver,
                       public zoom::ZoomObserver {
  public:
-  // Returns a *ViewGuest if this GuestView is of the given view type.
-  template <typename T>
-  T* As() {
-    if (IsViewType(T::Type))
-      return static_cast<T*>(this);
-
-    return nullptr;
-  }
-
   // Cleans up state when this GuestView is being destroyed.
   // Note that this cannot be done in the destructor since a GuestView could
   // potentially be created and destroyed in JavaScript before getting a
@@ -127,10 +118,6 @@ class GuestViewBase : public content::BrowserPluginGuestDelegate,
   void InitWithWebContents(const base::DictionaryValue& create_params,
                            content::WebContents* guest_web_contents);
 
-  bool IsViewType(const char* const view_type) const {
-    return !strcmp(GetViewType(), view_type);
-  }
-
   // Used to toggle autosize mode for this GuestView, and set both the automatic
   // and normal sizes.
   void SetSize(const SetSizeParams& params);
@@ -143,10 +130,6 @@ class GuestViewBase : public content::BrowserPluginGuestDelegate,
 
   content::WebContents* owner_web_contents() const {
     return owner_web_contents_;
-  }
-
-  content::GuestHost* host() const {
-    return guest_host_;
   }
 
   // Returns the parameters associated with the element hosting this GuestView
@@ -178,10 +161,6 @@ class GuestViewBase : public content::BrowserPluginGuestDelegate,
   // Returns the user browser context of the embedder.
   content::BrowserContext* browser_context() const { return browser_context_; }
 
-  GuestViewBase* GetOpener() const {
-    return opener_.get();
-  }
-
   // Returns the URL of the owner WebContents.
   const GURL& GetOwnerSiteURL() const;
 
@@ -191,10 +170,6 @@ class GuestViewBase : public content::BrowserPluginGuestDelegate,
 
   // Whether the guest view is inside a plugin document.
   bool is_full_page_plugin() const { return is_full_page_plugin_; }
-
-  // Returns the routing ID of the guest proxy in the owner's renderer process.
-  // This value is only valid after attachment or first navigation.
-  int proxy_routing_id() const { return guest_proxy_routing_id_; }
 
   // Destroy this guest.
   void Destroy(bool also_delete);
@@ -206,11 +181,12 @@ class GuestViewBase : public content::BrowserPluginGuestDelegate,
 
   // Saves the attach state of the custom element hosting this GuestView.
   void SetAttachParams(const base::DictionaryValue& params);
-  void SetOpener(GuestViewBase* opener);
 
-  // BrowserPluginGuestDelegate implementation.
-  content::RenderWidgetHost* GetOwnerRenderWidgetHost() override;
-  content::SiteInstance* GetOwnerSiteInstance() override;
+  // Returns the RenderWidgetHost corresponding to the owner frame.
+  virtual content::RenderWidgetHost* GetOwnerRenderWidgetHost();
+
+  // The SiteInstance of the owner frame.
+  virtual content::SiteInstance* GetOwnerSiteInstance();
 
   // Starts the attaching process for a (frame-based) GuestView.
   // |embedder_frame| is a frame in the embedder WebContents (owned by a
@@ -220,10 +196,18 @@ class GuestViewBase : public content::BrowserPluginGuestDelegate,
                                      int32_t element_instance_id,
                                      bool is_full_page_plugin);
 
+  // Returns true if the corresponding guest is allowed to be embedded inside an
+  // <iframe> which is cross process.
+  virtual bool CanBeEmbeddedInsideCrossProcessFrames();
+
  protected:
   explicit GuestViewBase(content::WebContents* owner_web_contents);
 
   ~GuestViewBase() override;
+
+  GuestViewBase* GetOpener() const { return opener_.get(); }
+
+  void SetOpener(GuestViewBase* opener);
 
   // TODO(ekaramad): If a guest is based on BrowserPlugin and is embedded inside
   // a cross-process frame, we need to notify the destruction of the frame so
@@ -319,9 +303,6 @@ class GuestViewBase : public content::BrowserPluginGuestDelegate,
   // to destruction.
   virtual void WillDestroy() {}
 
-  void LoadURLWithParams(
-      const content::NavigationController::LoadURLParams& load_params);
-
   // Convert sizes in pixels from logical to physical numbers of pixels.
   // Note that a size can consist of a fractional number of logical pixels
   // (hence |logical_pixels| is represented as a double), but will always
@@ -342,17 +323,18 @@ class GuestViewBase : public content::BrowserPluginGuestDelegate,
   class OwnerContentsObserver;
   class OpenerLifetimeObserver;
 
-  // BrowserPluginGuestDelegate implementation.
-  content::WebContents* CreateNewGuestWindow(
-      const content::WebContents::CreateParams& create_params) final;
-  void DidAttach(int guest_proxy_routing_id) final;
-  void DidDetach() final;
-  content::WebContents* GetOwnerWebContents() final;
-  void SetGuestHost(content::GuestHost* guest_host) final;
+  // TODO(533069): Remove since BrowserPlugin has been removed.
+  void DidAttach();
   void WillAttach(content::WebContents* embedder_web_contents,
                   int browser_plugin_instance_id,
                   bool is_full_page_plugin,
-                  base::OnceClosure completion_callback) final;
+                  base::OnceClosure completion_callback);
+
+  // BrowserPluginGuestDelegate implementation.
+  content::WebContents* CreateNewGuestWindow(
+      const content::WebContents::CreateParams& create_params) final;
+  content::WebContents* GetOwnerWebContents() final;
+  void SetGuestHost(content::GuestHost* guest_host) final;
 
   // WebContentsDelegate implementation.
   void ActivateContents(content::WebContents* contents) final;
@@ -369,7 +351,7 @@ class GuestViewBase : public content::BrowserPluginGuestDelegate,
   void ResizeDueToAutoResize(content::WebContents* web_contents,
                              const gfx::Size& new_size) final;
   void RunFileChooser(content::RenderFrameHost* render_frame_host,
-                      std::unique_ptr<content::FileSelectListener> listener,
+                      scoped_refptr<content::FileSelectListener> listener,
                       const blink::mojom::FileChooserParams& params) final;
   bool ShouldFocusPageAfterCrash() final;
   void UpdatePreferredSize(content::WebContents* web_contents,
@@ -496,9 +478,6 @@ class GuestViewBase : public content::BrowserPluginGuestDelegate,
 
   // Whether the guest view is inside a plugin document.
   bool is_full_page_plugin_;
-
-  // The routing ID of the proxy to the guest in the owner's renderer process.
-  int guest_proxy_routing_id_;
 
   // This is used to ensure pending tasks will not fire after this object is
   // destroyed.

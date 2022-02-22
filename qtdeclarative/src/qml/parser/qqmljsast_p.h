@@ -57,6 +57,7 @@
 #include <private/qqmljsmemorypool_p.h>
 
 #include <QtCore/qstring.h>
+#include <QtCore/qversionnumber.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -216,6 +217,7 @@ public:
         Kind_SwitchStatement,
         Kind_TemplateLiteral,
         Kind_TaggedTemplate,
+        Kind_TypeExpression,
         Kind_ThisExpression,
         Kind_ThrowStatement,
         Kind_TildeExpression,
@@ -333,11 +335,11 @@ class QML_PARSER_EXPORT UiQualifiedId: public Node
 public:
     QQMLJS_DECLARE_AST_NODE(UiQualifiedId)
 
-    UiQualifiedId(const QStringRef &name)
+    UiQualifiedId(QStringView name)
         : next(this), name(name)
     { kind = K; }
 
-    UiQualifiedId(UiQualifiedId *previous, const QStringRef &name)
+    UiQualifiedId(UiQualifiedId *previous, QStringView name)
         : name(name)
     {
         kind = K;
@@ -362,7 +364,7 @@ public:
 
 // attributes
     UiQualifiedId *next;
-    QStringRef name;
+    QStringView name;
     SourceLocation identifierToken;
 };
 
@@ -458,6 +460,7 @@ public:
     ExpressionNode() {}
 
     ExpressionNode *expressionCast() override;
+    bool containsOptionalChain() const;
 
     AST::FormalParameterList *reparseAsFormalParameterList(MemoryPool *pool);
 
@@ -503,6 +506,26 @@ public:
     SourceLocation rparenToken;
 };
 
+
+class QML_PARSER_EXPORT TypeExpression : public ExpressionNode
+{
+public:
+    QQMLJS_DECLARE_AST_NODE(TypeExpression)
+    TypeExpression(Type *t) : m_type(t) { kind = K; }
+
+    void accept0(BaseVisitor *visitor) override;
+
+    SourceLocation firstSourceLocation() const override {
+        return m_type->firstSourceLocation();
+    }
+
+    SourceLocation lastSourceLocation() const override {
+        return m_type->lastSourceLocation();
+    }
+
+    Type *m_type;
+};
+
 class QML_PARSER_EXPORT ThisExpression: public LeftHandSideExpression
 {
 public:
@@ -527,7 +550,7 @@ class QML_PARSER_EXPORT IdentifierExpression: public LeftHandSideExpression
 public:
     QQMLJS_DECLARE_AST_NODE(IdentifierExpression)
 
-    IdentifierExpression(const QStringRef &n):
+    IdentifierExpression(QStringView n):
         name (n) { kind = K; }
 
     void accept0(BaseVisitor *visitor) override;
@@ -539,7 +562,7 @@ public:
     { return identifierToken; }
 
 // attributes
-    QStringRef name;
+    QStringView name;
     SourceLocation identifierToken;
 };
 
@@ -646,7 +669,15 @@ class QML_PARSER_EXPORT UiVersionSpecifier : public Node
 public:
     QQMLJS_DECLARE_AST_NODE(UiVersionSpecifier)
 
-    UiVersionSpecifier(int majorum, int minorum) : majorVersion(majorum), minorVersion(minorum) { kind = K; }
+    UiVersionSpecifier(int majorum) : version(QTypeRevision::fromMajorVersion(majorum))
+    {
+        kind = K;
+    }
+
+    UiVersionSpecifier(int majorum, int minorum) : version(QTypeRevision::fromVersion(majorum, minorum))
+    {
+        kind = K;
+    }
 
     void accept0(BaseVisitor *visitor) override;
 
@@ -658,8 +689,7 @@ public:
     }
 
     // attributes:
-    int majorVersion;
-    int minorVersion;
+    QTypeRevision version;
     SourceLocation majorToken;
     SourceLocation minorToken;
 };
@@ -669,7 +699,7 @@ class QML_PARSER_EXPORT StringLiteral : public LeftHandSideExpression
 public:
     QQMLJS_DECLARE_AST_NODE(StringLiteral)
 
-    StringLiteral(const QStringRef &v):
+    StringLiteral(QStringView v):
         value (v) { kind = K; }
 
     void accept0(BaseVisitor *visitor) override;
@@ -681,7 +711,7 @@ public:
     { return literalToken; }
 
 // attributes:
-    QStringRef value;
+    QStringView value;
     SourceLocation literalToken;
 };
 
@@ -690,7 +720,7 @@ class QML_PARSER_EXPORT TemplateLiteral : public LeftHandSideExpression
 public:
     QQMLJS_DECLARE_AST_NODE(TemplateLiteral)
 
-    TemplateLiteral(const QStringRef &str, const QStringRef &raw, ExpressionNode *e)
+    TemplateLiteral(QStringView str, QStringView raw, ExpressionNode *e)
         : value(str), rawValue(raw), expression(e), next(nullptr)
     { kind = K; }
 
@@ -705,8 +735,9 @@ public:
 
     void accept0(BaseVisitor *visitor) override;
 
-    QStringRef value;
-    QStringRef rawValue;
+    bool hasNoSubstitution = false;
+    QStringView value;
+    QStringView rawValue;
     ExpressionNode *expression;
     TemplateLiteral *next;
     SourceLocation literalToken;
@@ -717,7 +748,7 @@ class QML_PARSER_EXPORT RegExpLiteral: public LeftHandSideExpression
 public:
     QQMLJS_DECLARE_AST_NODE(RegExpLiteral)
 
-    RegExpLiteral(const QStringRef &p, int f):
+    RegExpLiteral(QStringView p, int f):
         pattern (p), flags (f) { kind = K; }
 
     void accept0(BaseVisitor *visitor) override;
@@ -729,7 +760,7 @@ public:
     { return literalToken; }
 
 // attributes:
-    QStringRef pattern;
+    QStringView pattern;
     int flags;
     SourceLocation literalToken;
 };
@@ -858,13 +889,19 @@ public:
 
 struct QML_PARSER_EXPORT BoundName
 {
+    enum Type {
+        Declared,
+        Injected,
+    };
+
     QString id;
-    TypeAnnotation *typeAnnotation = nullptr;
-    BoundName(const QString &id, TypeAnnotation *typeAnnotation)
-        : id(id), typeAnnotation(typeAnnotation)
+    QTaggedPointer<TypeAnnotation, Type> typeAnnotation;
+    BoundName(const QString &id, TypeAnnotation *typeAnnotation, Type type = Declared)
+        : id(id), typeAnnotation(typeAnnotation, type)
     {}
     BoundName() = default;
     QString typeName() const { return typeAnnotation ? typeAnnotation->type->toString() : QString(); }
+    bool isInjected() const { return typeAnnotation.tag() == Injected; }
 };
 
 struct BoundNames : public QVector<BoundName>
@@ -908,7 +945,7 @@ public:
         : initializer(i), type(t)
     { kind = K; }
 
-    PatternElement(const QStringRef &n, TypeAnnotation *typeAnnotation = nullptr, ExpressionNode *i = nullptr, Type t = Binding)
+    PatternElement(QStringView n, TypeAnnotation *typeAnnotation = nullptr, ExpressionNode *i = nullptr, Type t = Binding)
         : bindingIdentifier(n), initializer(i), type(t)
         , typeAnnotation(typeAnnotation)
     {
@@ -944,7 +981,7 @@ public:
 
 // attributes
     SourceLocation identifierToken;
-    QStringRef bindingIdentifier;
+    QStringView bindingIdentifier;
     ExpressionNode *bindingTarget = nullptr;
     ExpressionNode *initializer = nullptr;
     Type type = Literal;
@@ -952,6 +989,7 @@ public:
     // when used in a VariableDeclarationList
     VariableScope scope = VariableScope::NoScope;
     bool isForDeclaration = false;
+    bool isInjectedSignalParameter = false;
 };
 
 class QML_PARSER_EXPORT PatternElementList : public Node
@@ -1003,7 +1041,7 @@ public:
         : PatternElement(i, t), name(name)
     { kind = K; }
 
-    PatternProperty(PropertyName *name, const QStringRef &n, ExpressionNode *i = nullptr)
+    PatternProperty(PropertyName *name, QStringView n, ExpressionNode *i = nullptr)
         : PatternElement(n, /*type annotation*/nullptr, i), name(name)
     { kind = K; }
 
@@ -1073,7 +1111,7 @@ class QML_PARSER_EXPORT IdentifierPropertyName: public PropertyName
 public:
     QQMLJS_DECLARE_AST_NODE(IdentifierPropertyName)
 
-    IdentifierPropertyName(const QStringRef &n):
+    IdentifierPropertyName(QStringView n):
         id (n) { kind = K; }
 
     void accept0(BaseVisitor *visitor) override;
@@ -1081,7 +1119,7 @@ public:
     QString asString() const override { return id.toString(); }
 
 // attributes
-    QStringRef id;
+    QStringView id;
 };
 
 class QML_PARSER_EXPORT StringLiteralPropertyName: public PropertyName
@@ -1089,7 +1127,7 @@ class QML_PARSER_EXPORT StringLiteralPropertyName: public PropertyName
 public:
     QQMLJS_DECLARE_AST_NODE(StringLiteralPropertyName)
 
-    StringLiteralPropertyName(const QStringRef &n):
+    StringLiteralPropertyName(QStringView n):
         id (n) { kind = K; }
 
     void accept0(BaseVisitor *visitor) override;
@@ -1097,7 +1135,7 @@ public:
     QString asString() const override { return id.toString(); }
 
 // attributes
-    QStringRef id;
+    QStringView id;
 };
 
 class QML_PARSER_EXPORT NumericLiteralPropertyName: public PropertyName
@@ -1162,6 +1200,7 @@ public:
     ExpressionNode *expression;
     SourceLocation lbracketToken;
     SourceLocation rbracketToken;
+    bool isOptional = false;
 };
 
 class QML_PARSER_EXPORT FieldMemberExpression: public LeftHandSideExpression
@@ -1169,7 +1208,7 @@ class QML_PARSER_EXPORT FieldMemberExpression: public LeftHandSideExpression
 public:
     QQMLJS_DECLARE_AST_NODE(FieldMemberExpression)
 
-    FieldMemberExpression(ExpressionNode *b, const QStringRef &n):
+    FieldMemberExpression(ExpressionNode *b, QStringView n):
         base (b), name (n)
         { kind = K; }
 
@@ -1183,9 +1222,10 @@ public:
 
     // attributes
     ExpressionNode *base;
-    QStringRef name;
+    QStringView name;
     SourceLocation dotToken;
     SourceLocation identifierToken;
+    bool isOptional = false;
 };
 
 class QML_PARSER_EXPORT TaggedTemplate : public LeftHandSideExpression
@@ -1278,6 +1318,7 @@ public:
     ArgumentList *arguments;
     SourceLocation lparenToken;
     SourceLocation rparenToken;
+    bool isOptional = false;
 };
 
 class QML_PARSER_EXPORT ArgumentList: public Node
@@ -1959,7 +2000,7 @@ class QML_PARSER_EXPORT ContinueStatement: public Statement
 public:
     QQMLJS_DECLARE_AST_NODE(ContinueStatement)
 
-    ContinueStatement(const QStringRef &l = QStringRef()):
+    ContinueStatement(QStringView l = QStringView()):
         label (l) { kind = K; }
 
     void accept0(BaseVisitor *visitor) override;
@@ -1971,7 +2012,7 @@ public:
     { return semicolonToken; }
 
 // attributes
-    QStringRef label;
+    QStringView label;
     SourceLocation continueToken;
     SourceLocation identifierToken;
     SourceLocation semicolonToken;
@@ -1982,7 +2023,7 @@ class QML_PARSER_EXPORT BreakStatement: public Statement
 public:
     QQMLJS_DECLARE_AST_NODE(BreakStatement)
 
-    BreakStatement(const QStringRef &l):
+    BreakStatement(QStringView l):
         label (l) { kind = K; }
 
     void accept0(BaseVisitor *visitor) override;
@@ -1994,7 +2035,7 @@ public:
     { return semicolonToken; }
 
     // attributes
-    QStringRef label;
+    QStringView label;
     SourceLocation breakToken;
     SourceLocation identifierToken;
     SourceLocation semicolonToken;
@@ -2210,7 +2251,7 @@ class QML_PARSER_EXPORT LabelledStatement: public Statement
 public:
     QQMLJS_DECLARE_AST_NODE(LabelledStatement)
 
-    LabelledStatement(const QStringRef &l, Statement *stmt):
+    LabelledStatement(QStringView l, Statement *stmt):
         label (l), statement (stmt)
         { kind = K; }
 
@@ -2223,7 +2264,7 @@ public:
     { return statement->lastSourceLocation(); }
 
 // attributes
-    QStringRef label;
+    QStringView label;
     Statement *statement;
     SourceLocation identifierToken;
     SourceLocation colonToken;
@@ -2343,7 +2384,7 @@ class QML_PARSER_EXPORT FunctionExpression: public ExpressionNode
 public:
     QQMLJS_DECLARE_AST_NODE(FunctionExpression)
 
-    FunctionExpression(const QStringRef &n, FormalParameterList *f, StatementList *b, TypeAnnotation *typeAnnotation = nullptr):
+    FunctionExpression(QStringView n, FormalParameterList *f, StatementList *b, TypeAnnotation *typeAnnotation = nullptr):
         name (n), formals (f), body (b),
         typeAnnotation(typeAnnotation)
         { kind = K; }
@@ -2359,7 +2400,7 @@ public:
     FunctionExpression *asFunctionDefinition() override;
 
 // attributes
-    QStringRef name;
+    QStringView name;
     bool isArrowFunction = false;
     bool isGenerator = false;
     FormalParameterList *formals;
@@ -2378,7 +2419,7 @@ class QML_PARSER_EXPORT FunctionDeclaration: public FunctionExpression
 public:
     QQMLJS_DECLARE_AST_NODE(FunctionDeclaration)
 
-    FunctionDeclaration(const QStringRef &n, FormalParameterList *f, StatementList *b, TypeAnnotation *typeAnnotation = nullptr):
+    FunctionDeclaration(QStringView n, FormalParameterList *f, StatementList *b, TypeAnnotation *typeAnnotation = nullptr):
         FunctionExpression(n, f, b, typeAnnotation)
         { kind = K; }
 
@@ -2475,7 +2516,7 @@ class QML_PARSER_EXPORT ClassExpression : public ExpressionNode
 public:
     QQMLJS_DECLARE_AST_NODE(ClassExpression)
 
-    ClassExpression(const QStringRef &n, ExpressionNode *heritage, ClassElementList *elements)
+    ClassExpression(QStringView n, ExpressionNode *heritage, ClassElementList *elements)
         : name(n), heritage(heritage), elements(elements)
         { kind = K; }
 
@@ -2490,7 +2531,7 @@ public:
     ClassExpression *asClassDefinition() override;
 
 // attributes
-    QStringRef name;
+    QStringView name;
     ExpressionNode *heritage;
     ClassElementList *elements;
     SourceLocation classToken;
@@ -2504,7 +2545,7 @@ class QML_PARSER_EXPORT ClassDeclaration: public ClassExpression
 public:
     QQMLJS_DECLARE_AST_NODE(ClassDeclaration)
 
-    ClassDeclaration(const QStringRef &n, ExpressionNode *heritage, ClassElementList *elements)
+    ClassDeclaration(QStringView n, ExpressionNode *heritage, ClassElementList *elements)
         : ClassExpression(n, heritage, elements)
         { kind = K; }
 
@@ -2575,13 +2616,13 @@ class QML_PARSER_EXPORT ImportSpecifier: public Node
 public:
     QQMLJS_DECLARE_AST_NODE(ImportSpecifier)
 
-    ImportSpecifier(const QStringRef &importedBinding)
+    ImportSpecifier(QStringView importedBinding)
         : importedBinding(importedBinding)
     {
         kind = K;
     }
 
-    ImportSpecifier(const QStringRef &identifier, const QStringRef &importedBinding)
+    ImportSpecifier(QStringView identifier, QStringView importedBinding)
         : identifier(identifier), importedBinding(importedBinding)
     {
         kind = K;
@@ -2597,8 +2638,8 @@ public:
 // attributes
     SourceLocation identifierToken;
     SourceLocation importedBindingToken;
-    QStringRef identifier;
-    QStringRef importedBinding;
+    QStringView identifier;
+    QStringView importedBinding;
 };
 
 class QML_PARSER_EXPORT ImportsList: public Node
@@ -2682,7 +2723,7 @@ class QML_PARSER_EXPORT NameSpaceImport: public Node
 public:
     QQMLJS_DECLARE_AST_NODE(NameSpaceImport)
 
-    NameSpaceImport(const QStringRef &importedBinding)
+    NameSpaceImport(QStringView importedBinding)
         : importedBinding(importedBinding)
     {
         kind = K;
@@ -2698,7 +2739,7 @@ public:
 // attributes
     SourceLocation starToken;
     SourceLocation importedBindingToken;
-    QStringRef importedBinding;
+    QStringView importedBinding;
 };
 
 class QML_PARSER_EXPORT ImportClause: public Node
@@ -2706,7 +2747,7 @@ class QML_PARSER_EXPORT ImportClause: public Node
 public:
     QQMLJS_DECLARE_AST_NODE(ImportClause)
 
-    ImportClause(const QStringRef &importedDefaultBinding)
+    ImportClause(QStringView importedDefaultBinding)
         : importedDefaultBinding(importedDefaultBinding)
     {
         kind = K;
@@ -2724,14 +2765,14 @@ public:
         kind = K;
     }
 
-    ImportClause(const QStringRef &importedDefaultBinding, NameSpaceImport *nameSpaceImport)
+    ImportClause(QStringView importedDefaultBinding, NameSpaceImport *nameSpaceImport)
         : importedDefaultBinding(importedDefaultBinding)
         , nameSpaceImport(nameSpaceImport)
     {
         kind = K;
     }
 
-    ImportClause(const QStringRef &importedDefaultBinding, NamedImports *namedImports)
+    ImportClause(QStringView importedDefaultBinding, NamedImports *namedImports)
         : importedDefaultBinding(importedDefaultBinding)
         , namedImports(namedImports)
     {
@@ -2747,7 +2788,7 @@ public:
 
 // attributes
     SourceLocation importedDefaultBindingToken;
-    QStringRef importedDefaultBinding;
+    QStringView importedDefaultBinding;
     NameSpaceImport *nameSpaceImport = nullptr;
     NamedImports *namedImports = nullptr;
 };
@@ -2757,7 +2798,7 @@ class QML_PARSER_EXPORT FromClause: public Node
 public:
     QQMLJS_DECLARE_AST_NODE(FromClause)
 
-    FromClause(const QStringRef &moduleSpecifier)
+    FromClause(QStringView moduleSpecifier)
         : moduleSpecifier(moduleSpecifier)
     {
         kind = K;
@@ -2774,7 +2815,7 @@ public:
 // attributes
     SourceLocation fromToken;
     SourceLocation moduleSpecifierToken;
-    QStringRef moduleSpecifier;
+    QStringView moduleSpecifier;
 };
 
 class QML_PARSER_EXPORT ImportDeclaration: public Statement
@@ -2788,7 +2829,7 @@ public:
         kind = K;
     }
 
-    ImportDeclaration(const QStringRef &moduleSpecifier)
+    ImportDeclaration(QStringView moduleSpecifier)
         : moduleSpecifier(moduleSpecifier)
     {
         kind = K;
@@ -2805,7 +2846,7 @@ public:
 // attributes
     SourceLocation importToken;
     SourceLocation moduleSpecifierToken;
-    QStringRef moduleSpecifier;
+    QStringView moduleSpecifier;
     ImportClause *importClause = nullptr;
     FromClause *fromClause = nullptr;
 };
@@ -2815,13 +2856,13 @@ class QML_PARSER_EXPORT ExportSpecifier: public Node
 public:
     QQMLJS_DECLARE_AST_NODE(ExportSpecifier)
 
-    ExportSpecifier(const QStringRef &identifier)
+    ExportSpecifier(QStringView identifier)
         : identifier(identifier), exportedIdentifier(identifier)
     {
         kind = K;
     }
 
-    ExportSpecifier(const QStringRef &identifier, const QStringRef &exportedIdentifier)
+    ExportSpecifier(QStringView identifier, QStringView exportedIdentifier)
         : identifier(identifier), exportedIdentifier(exportedIdentifier)
     {
         kind = K;
@@ -2837,8 +2878,8 @@ public:
 // attributes
     SourceLocation identifierToken;
     SourceLocation exportedIdentifierToken;
-    QStringRef identifier;
-    QStringRef exportedIdentifier;
+    QStringView identifier;
+    QStringView exportedIdentifier;
 };
 
 class QML_PARSER_EXPORT ExportsList: public Node
@@ -2921,7 +2962,6 @@ public:
     ExportDeclaration(FromClause *fromClause)
         : fromClause(fromClause)
     {
-        exportAll = true;
         kind = K;
     }
 
@@ -2944,6 +2984,11 @@ public:
         kind = K;
     }
 
+    bool exportsAll() const
+    {
+        return fromClause && !exportClause;
+    }
+
     void accept0(BaseVisitor *visitor) override;
 
     SourceLocation firstSourceLocation() const override
@@ -2953,7 +2998,6 @@ public:
 
 // attributes
     SourceLocation exportToken;
-    bool exportAll = false;
     ExportClause *exportClause = nullptr;
     FromClause *fromClause = nullptr;
     Node *variableStatementOrDeclaration = nullptr;
@@ -3009,7 +3053,7 @@ class QML_PARSER_EXPORT UiImport: public Node
 public:
     QQMLJS_DECLARE_AST_NODE(UiImport)
 
-    UiImport(const QStringRef &fileName)
+    UiImport(QStringView fileName)
         : fileName(fileName), importUri(nullptr)
     { kind = K; }
 
@@ -3026,9 +3070,9 @@ public:
     { return semicolonToken; }
 
 // attributes
-    QStringRef fileName;
+    QStringView fileName;
     UiQualifiedId *importUri;
-    QStringRef importId;
+    QStringView importId;
     SourceLocation importToken;
     SourceLocation fileNameToken;
     SourceLocation asToken;
@@ -3091,7 +3135,7 @@ class QML_PARSER_EXPORT UiPragma: public Node
 public:
     QQMLJS_DECLARE_AST_NODE(UiPragma)
 
-    UiPragma(QStringRef name)
+    UiPragma(QStringView name)
         : name(name)
     { kind = K; }
 
@@ -3104,7 +3148,7 @@ public:
     { return semicolonToken; }
 
 // attributes
-    QStringRef name;
+    QStringView name;
     SourceLocation pragmaToken;
     SourceLocation semicolonToken;
 };
@@ -3114,7 +3158,7 @@ class QML_PARSER_EXPORT UiRequired: public Node
 public:
     QQMLJS_DECLARE_AST_NODE(UiRequired)
 
-    UiRequired(QStringRef name)
+    UiRequired(QStringView name)
         :name(name)
     { kind = K; }
 
@@ -3126,7 +3170,7 @@ public:
     SourceLocation lastSourceLocation() const override
     { return semicolonToken; }
 
-    QStringRef name;
+    QStringView name;
     SourceLocation requiredToken;
     SourceLocation semicolonToken;
 };
@@ -3280,11 +3324,11 @@ class QML_PARSER_EXPORT UiParameterList: public Node
 public:
     QQMLJS_DECLARE_AST_NODE(UiParameterList)
 
-    UiParameterList(UiQualifiedId *t, const QStringRef &n):
+    UiParameterList(UiQualifiedId *t, QStringView n):
         type (t), name (n), next (this)
         { kind = K; }
 
-    UiParameterList(UiParameterList *previous, UiQualifiedId *t, const QStringRef &n):
+    UiParameterList(UiParameterList *previous, UiQualifiedId *t, QStringView n):
         type (t), name (n)
     {
         kind = K;
@@ -3312,7 +3356,7 @@ public:
 
 // attributes
     UiQualifiedId *type;
-    QStringRef name;
+    QStringView name;
     UiParameterList *next;
     SourceLocation commaToken;
     SourceLocation propertyTypeToken;
@@ -3326,12 +3370,12 @@ public:
     QQMLJS_DECLARE_AST_NODE(UiPublicMember)
 
     UiPublicMember(UiQualifiedId *memberType,
-                   const QStringRef &name)
+                   QStringView name)
         : type(Property), memberType(memberType), name(name), statement(nullptr), binding(nullptr), isDefaultMember(false), isReadonlyMember(false), parameters(nullptr)
     { kind = K; }
 
     UiPublicMember(UiQualifiedId *memberType,
-                   const QStringRef &name,
+                   QStringView name,
                    Statement *statement)
         : type(Property), memberType(memberType), name(name), statement(statement), binding(nullptr), isDefaultMember(false), isReadonlyMember(false), parameters(nullptr)
     { kind = K; }
@@ -3362,9 +3406,9 @@ public:
 
 // attributes
     enum { Signal, Property } type;
-    QStringRef typeModifier;
+    QStringView typeModifier;
     UiQualifiedId *memberType;
-    QStringRef name;
+    QStringView name;
     Statement *statement; // initialized with a JS expression
     UiObjectMember *binding; // initialized with a QML object or array.
     bool isDefaultMember;
@@ -3411,7 +3455,7 @@ class QML_PARSER_EXPORT UiInlineComponent: public UiObjectMember
 public:
     QQMLJS_DECLARE_AST_NODE(UiInlineComponent)
 
-    UiInlineComponent(const QStringRef& inlineComponentName, UiObjectDefinition* inlineComponent)
+    UiInlineComponent(QStringView inlineComponentName, UiObjectDefinition* inlineComponent)
         : name(inlineComponentName), component(inlineComponent)
     { kind = K; }
 
@@ -3424,7 +3468,7 @@ public:
     void accept0(BaseVisitor *visitor) override;
 
     // attributes
-    QStringRef name;
+    QStringView name;
     UiObjectDefinition* component;
     SourceLocation componentToken;
 };
@@ -3538,7 +3582,7 @@ public:
     { kind = K; }
 
     SourceLocation firstSourceLocation() const override
-    { return qualifiedId->identifierToken; }
+    { Q_ASSERT(qualifiedId); return qualifiedId->identifierToken; }
 
     SourceLocation lastSourceLocation() const override
     { return rbracketToken; }
@@ -3557,11 +3601,11 @@ class QML_PARSER_EXPORT UiEnumMemberList: public Node
 {
     QQMLJS_DECLARE_AST_NODE(UiEnumMemberList)
 public:
-    UiEnumMemberList(const QStringRef &member, double v = 0.0)
+    UiEnumMemberList(QStringView member, double v = 0.0)
         : next(this), member(member), value(v)
     { kind = K; }
 
-    UiEnumMemberList(UiEnumMemberList *previous, const QStringRef &member)
+    UiEnumMemberList(UiEnumMemberList *previous, QStringView member)
         : member(member)
     {
         kind = K;
@@ -3570,7 +3614,7 @@ public:
         value = previous->value + 1;
     }
 
-    UiEnumMemberList(UiEnumMemberList *previous, const QStringRef &member, double v)
+    UiEnumMemberList(UiEnumMemberList *previous, QStringView member, double v)
         : member(member), value(v)
     {
         kind = K;
@@ -3598,7 +3642,7 @@ public:
 
 // attributes
     UiEnumMemberList *next;
-    QStringRef member;
+    QStringView member;
     double value;
     SourceLocation memberToken;
     SourceLocation valueToken;
@@ -3609,7 +3653,7 @@ class QML_PARSER_EXPORT UiEnumDeclaration: public UiObjectMember
 public:
     QQMLJS_DECLARE_AST_NODE(UiEnumDeclaration)
 
-    UiEnumDeclaration(const QStringRef &name,
+    UiEnumDeclaration(QStringView name,
                       UiEnumMemberList *members)
         : name(name)
         , members(members)
@@ -3626,7 +3670,7 @@ public:
 // attributes
     SourceLocation enumToken;
     SourceLocation rbraceToken;
-    QStringRef name;
+    QStringView name;
     UiEnumMemberList *members;
 };
 

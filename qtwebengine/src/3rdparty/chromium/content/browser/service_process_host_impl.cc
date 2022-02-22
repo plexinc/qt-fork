@@ -6,12 +6,12 @@
 #include <string>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/no_destructor.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/lock.h"
-#include "base/task/post_task.h"
 #include "content/browser/utility_process_host.h"
 #include "content/common/child_process.mojom.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -28,9 +28,7 @@ namespace {
 // split across the IO thread and UI thread.
 class ServiceProcessTracker {
  public:
-  ServiceProcessTracker()
-      : ui_task_runner_(
-            base::CreateSingleThreadTaskRunner({BrowserThread::UI})) {}
+  ServiceProcessTracker() : ui_task_runner_(GetUIThreadTaskRunner({})) {}
   ~ServiceProcessTracker() = default;
 
   ServiceProcessInfo AddProcess(const base::Process& process,
@@ -208,10 +206,30 @@ void ServiceProcessHost::RemoveObserver(Observer* observer) {
 void ServiceProcessHost::Launch(mojo::GenericPendingReceiver receiver,
                                 Options options) {
   DCHECK(receiver.interface_name().has_value());
-  base::CreateSingleThreadTaskRunner({BrowserThread::IO})
-      ->PostTask(FROM_HERE,
-                 base::BindOnce(&LaunchServiceProcessOnIOThread,
+  GetIOThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&LaunchServiceProcessOnIOThread,
                                 std::move(receiver), std::move(options)));
+}
+
+void LaunchUtilityProcessServiceDeprecated(
+    const std::string& service_name,
+    const base::string16& display_name,
+    sandbox::policy::SandboxType sandbox_type,
+    mojo::ScopedMessagePipeHandle service_pipe,
+    base::OnceCallback<void(base::ProcessId)> callback) {
+  UtilityProcessHost* host = new UtilityProcessHost();
+  host->SetName(display_name);
+  host->SetMetricsName(service_name);
+  host->SetSandboxType(sandbox_type);
+  host->Start();
+  host->RunServiceDeprecated(
+      service_name, std::move(service_pipe),
+      base::BindOnce(
+          [](base::OnceCallback<void(base::ProcessId)> callback,
+             const base::Optional<base::ProcessId> pid) {
+            std::move(callback).Run(pid.value_or(base::kNullProcessId));
+          },
+          std::move(callback)));
 }
 
 }  // namespace content

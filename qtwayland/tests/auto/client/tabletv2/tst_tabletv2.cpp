@@ -208,12 +208,12 @@ public:
 
     TabletManagerV2 *m_manager = nullptr;
     Seat *m_seat = nullptr;
-    QVector<TabletV2 *> m_tablets;
-    QVector<TabletV2 *> m_tabletsWaitingForDestroy;
-    QVector<TabletToolV2 *> m_tools;
-    QVector<TabletToolV2 *> m_toolsWaitingForDestroy;
-    QVector<TabletPadV2 *> m_pads;
-    QVector<TabletPadV2 *> m_padsWaitingForDestroy;
+    QList<TabletV2 *> m_tablets;
+    QList<TabletV2 *> m_tabletsWaitingForDestroy;
+    QList<TabletToolV2 *> m_tools;
+    QList<TabletToolV2 *> m_toolsWaitingForDestroy;
+    QList<TabletPadV2 *> m_pads;
+    QList<TabletPadV2 *> m_padsWaitingForDestroy;
 
 protected:
     void zwp_tablet_seat_v2_bind_resource(Resource *resource)
@@ -289,7 +289,7 @@ void TabletV2::sendRemoved()
 
 void TabletV2::zwp_tablet_v2_destroy(QtWaylandServer::zwp_tablet_v2::Resource *resource)
 {
-    Q_UNUSED(resource)
+    Q_UNUSED(resource);
     if (m_tabletSeat) {
         bool removed = m_tabletSeat->m_tabletsWaitingForDestroy.removeOne(this);
         QVERIFY(removed);
@@ -416,7 +416,7 @@ public:
 };
 
 Q_DECLARE_METATYPE(QtWaylandServer::zwp_tablet_tool_v2::type);
-Q_DECLARE_METATYPE(QTabletEvent::PointerType);
+Q_DECLARE_METATYPE(QPointingDevice::PointerType);
 Q_DECLARE_METATYPE(Qt::MouseButton);
 
 class tst_tabletv2 : public QObject, private TabletCompositor
@@ -445,7 +445,7 @@ class ProximityFilter : public QObject {
 public:
     ProximityFilter() { qApp->installEventFilter(this); }
     ~ProximityFilter() override { qDeleteAll(m_events); }
-    QVector<QTabletEvent *> m_events;
+    QList<QTabletEvent *> m_events;
 
     int nextEventIndex = 0;
     int numEvents() const { return m_events.size() - nextEventIndex; }
@@ -465,11 +465,11 @@ protected:
         case QEvent::TabletEnterProximity:
         case QEvent::TabletLeaveProximity: {
             auto *e = static_cast<QTabletEvent *>(event);
-            auto *ev = new QTabletEvent(e->type(), e->posF(), e->globalPosF(), e->device(),
-                                        e->pointerType(), e->pressure(), e->xTilt(), e->yTilt(),
-                                        e->tangentialPressure(), e->rotation(), e->z(),
-                                        Qt::KeyboardModifier::NoModifier, e->uniqueId(),
-                                        e->button(), e->buttons());
+            auto *ev = new QTabletEvent(e->type(), e->pointingDevice(), e->position(), e->globalPosition(),
+                                     e->pressure(), e->xTilt(), e->yTilt(),
+                                     e->tangentialPressure(), e->rotation(), e->z(),
+                                     Qt::KeyboardModifier::NoModifier,
+                                     e->button(), e->buttons());
             m_events << ev;
             break;
         }
@@ -600,11 +600,11 @@ public:
 
     void tabletEvent(QTabletEvent *e) override
     {
-        m_events << new QTabletEvent(e->type(), e->posF(), e->globalPosF(), e->device(),
-                                     e->pointerType(), e->pressure(), e->xTilt(), e->yTilt(),
+        m_events << new QTabletEvent(e->type(), e->pointingDevice(), e->position(), e->globalPosition(),
+                                     e->pressure(), e->xTilt(), e->yTilt(),
                                      e->tangentialPressure(), e->rotation(), e->z(),
-                                     Qt::KeyboardModifier::NoModifier, e->uniqueId(), e->button(),
-                                     e->buttons());
+                                     Qt::KeyboardModifier::NoModifier,
+                                     e->button(), e->buttons());
         emit tabletEventReceived(m_events.last());
     }
     int nextEventIndex = 0;
@@ -621,7 +621,7 @@ signals:
     void tabletEventReceived(QTabletEvent *event);
 
 private:
-    QVector<QTabletEvent *> m_events;
+    QList<QTabletEvent *> m_events;
 };
 
 void tst_tabletv2::moveEvent()
@@ -650,34 +650,34 @@ void tst_tabletv2::moveEvent()
     QTabletEvent *event = window.popEvent();
     QCOMPARE(event->type(), QEvent::TabletMove);
     QCOMPARE(event->pressure(), 0);
-    QCOMPARE(event->posF(), QPointF(12, 34));
+    QCOMPARE(event->position(), QPointF(12, 34));
 }
 
 void tst_tabletv2::pointerType_data()
 {
     QTest::addColumn<ToolType>("toolType");
-    QTest::addColumn<QTabletEvent::PointerType>("pointerType");
-    QTest::addColumn<QTabletEvent::TabletDevice>("tabletDevice");
+    QTest::addColumn<QPointingDevice::PointerType>("pointerType");
+    QTest::addColumn<QInputDevice::DeviceType>("tabletDevice");
 
-    QTest::newRow("pen") << ToolType::type_pen << QTabletEvent::PointerType::Pen << QTabletEvent::TabletDevice::Stylus;
-    QTest::newRow("eraser") << ToolType::type_eraser << QTabletEvent::PointerType::Eraser << QTabletEvent::TabletDevice::Stylus;
-    QTest::newRow("pencil") << ToolType::type_pencil << QTabletEvent::PointerType::Pen << QTabletEvent::TabletDevice::Stylus;
-    QTest::newRow("airbrush") << ToolType::type_airbrush << QTabletEvent::PointerType::Pen << QTabletEvent::TabletDevice::Airbrush;
-    QTest::newRow("brush") << ToolType::type_brush << QTabletEvent::PointerType::Pen << QTabletEvent::TabletDevice::Stylus; // TODO: is TabletDevice::Stylus the right thing?
-    QTest::newRow("lens") << ToolType::type_lens << QTabletEvent::PointerType::Cursor << QTabletEvent::TabletDevice::Puck;
+    QTest::newRow("pen") << ToolType::type_pen << QPointingDevice::PointerType::Pen << QInputDevice::DeviceType::Stylus;
+    QTest::newRow("eraser") << ToolType::type_eraser << QPointingDevice::PointerType::Eraser << QInputDevice::DeviceType::Stylus;
+    QTest::newRow("pencil") << ToolType::type_pencil << QPointingDevice::PointerType::Pen << QInputDevice::DeviceType::Stylus;
+    QTest::newRow("airbrush") << ToolType::type_airbrush << QPointingDevice::PointerType::Pen << QInputDevice::DeviceType::Airbrush;
+    QTest::newRow("brush") << ToolType::type_brush << QPointingDevice::PointerType::Pen << QInputDevice::DeviceType::Stylus; // TODO: is TabletDevice::Stylus the right thing?
+    QTest::newRow("lens") << ToolType::type_lens << QPointingDevice::PointerType::Cursor << QInputDevice::DeviceType::Puck;
     // TODO: also add tests for FourDMouse and RotationStylus (also need to send capabilities)
 
     // TODO: should these rather be mapped to touch/mouse events?
-    QTest::newRow("finger") << ToolType::type_finger << QTabletEvent::PointerType::UnknownPointer << QTabletEvent::TabletDevice::NoDevice;
-    QTest::newRow("mouse") << ToolType::type_mouse << QTabletEvent::PointerType::Cursor << QTabletEvent::TabletDevice::NoDevice;
+    QTest::newRow("finger") << ToolType::type_finger << QPointingDevice::PointerType::Unknown << QInputDevice::DeviceType::Unknown;
+    QTest::newRow("mouse") << ToolType::type_mouse << QPointingDevice::PointerType::Cursor << QInputDevice::DeviceType::Unknown;
 }
 
 void tst_tabletv2::pointerType()
 {
     using ToolType = QtWaylandServer::zwp_tablet_tool_v2::type;
     QFETCH(ToolType, toolType);
-    QFETCH(QTabletEvent::PointerType, pointerType);
-    QFETCH(QTabletEvent::TabletDevice, tabletDevice);
+    QFETCH(QPointingDevice::PointerType, pointerType);
+    QFETCH(QInputDevice::DeviceType, tabletDevice);
 
     ProximityFilter filter;
 
@@ -705,12 +705,12 @@ void tst_tabletv2::pointerType()
     QTRY_COMPARE(filter.numEvents(), 1);
     QTabletEvent *event = filter.popEvent();
     QCOMPARE(event->pointerType(), pointerType);
-    QCOMPARE(event->device(), tabletDevice);
+    QCOMPARE(event->deviceType(), tabletDevice);
 
     QTRY_VERIFY(window.numEvents());
     event = window.popEvent();
     QCOMPARE(event->pointerType(), pointerType);
-    QCOMPARE(event->device(), tabletDevice);
+    QCOMPARE(event->deviceType(), tabletDevice);
 
     exec([&] {
         tabletTool()->sendProximityOut();
@@ -720,13 +720,13 @@ void tst_tabletv2::pointerType()
     QTRY_VERIFY(filter.numEvents());
     event = filter.popEvent();
     QCOMPARE(event->pointerType(), pointerType);
-    QCOMPARE(event->device(), tabletDevice);
+    QCOMPARE(event->deviceType(), tabletDevice);
 }
 
 void tst_tabletv2::hardwareSerial()
 {
     ProximityFilter filter;
-    const quint64 uid = 0xbaba15dead15f00d;
+    const qint64 uid = 0xbaba15dead15f00d;
 
     QCOMPOSITOR_TRY_VERIFY(tabletSeat());
     exec([&] {
@@ -860,7 +860,7 @@ void tst_tabletv2::tabletEvents()
     QTabletEvent *event = window.popEvent();
     QCOMPARE(event->type(), QEvent::TabletPress);
     QCOMPARE(event->pressure(), 1.0);
-    QCOMPARE(event->posF(), QPointF(12, 34));
+    QCOMPARE(event->position(), QPointF(12, 34));
 
     // Values we didn't send should be 0
     QCOMPARE(event->rotation(), 0);
@@ -882,7 +882,7 @@ void tst_tabletv2::tabletEvents()
     QVERIFY(qAbs(event->rotation() - 90) < 0.01);
     QVERIFY(qAbs(event->xTilt() - 13) < 0.01);
     QVERIFY(qAbs(event->yTilt() - 37) < 0.01);
-    QCOMPARE(event->posF(), QPointF(45, 56));
+    QCOMPARE(event->position(), QPointF(45, 56));
 
     // Verify that the values stay the same if we don't update them
     exec([&] {
@@ -896,7 +896,7 @@ void tst_tabletv2::tabletEvents()
     QVERIFY(qAbs(event->rotation() - 90) < 0.01);
     QVERIFY(qAbs(event->xTilt() - 13) < 0.01);
     QVERIFY(qAbs(event->yTilt() - 37) < 0.01);
-    QCOMPARE(event->posF(), QPointF(10, 11));
+    QCOMPARE(event->position(), QPointF(10, 11));
 
     exec([&] {
         tabletTool()->sendPressure(0);
@@ -911,7 +911,7 @@ void tst_tabletv2::tabletEvents()
     event = window.popEvent();
     QCOMPARE(event->type(), QEvent::TabletRelease);
     QCOMPARE(event->pressure(), 0);
-    QCOMPARE(event->posF(), QPointF(10, 11));
+    QCOMPARE(event->position(), QPointF(10, 11));
 }
 
 QCOMPOSITOR_TEST_MAIN(tst_tabletv2)

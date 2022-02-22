@@ -7,13 +7,13 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/memory/ref_counted.h"
 #include "base/optional.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/threading/platform_thread.h"
 #include "build/build_config.h"
@@ -25,10 +25,12 @@
 #include "net/base/net_errors.h"
 #include "net/base/privacy_mode.h"
 #include "net/base/proxy_server.h"
+#include "net/base/schemeful_site.h"
 #include "net/base/test_completion_callback.h"
 #include "net/cert/ct_policy_enforcer.h"
 #include "net/cert/mock_cert_verifier.h"
 #include "net/dns/mock_host_resolver.h"
+#include "net/dns/public/secure_dns_mode.h"
 #include "net/http/http_network_session.h"
 #include "net/http/http_proxy_connect_job.h"
 #include "net/http/transport_security_state.h"
@@ -54,7 +56,6 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
-#include "url/origin.h"
 
 using net::test::IsError;
 using net::test::IsOk;
@@ -275,7 +276,7 @@ TEST_F(TransportClientSocketPoolTest, SetDisableSecureDns) {
                   .has_value());
     if (disable_secure_dns) {
       EXPECT_EQ(
-          net::DnsConfig::SecureDnsMode::OFF,
+          net::SecureDnsMode::kOff,
           session_deps_.host_resolver->last_secure_dns_mode_override().value());
     }
   }
@@ -1615,8 +1616,8 @@ TEST_F(TransportClientSocketPoolTest, HttpTunnelSetupRedirect) {
 }
 
 TEST_F(TransportClientSocketPoolTest, NetworkIsolationKey) {
-  const auto kOrigin = url::Origin::Create(GURL("https://foo.test/"));
-  const NetworkIsolationKey kNetworkIsolationKey(kOrigin, kOrigin);
+  const SchemefulSite kSite(GURL("https://foo.test/"));
+  const NetworkIsolationKey kNetworkIsolationKey(kSite, kSite);
   const char kHost[] = "bar.test";
 
   base::test::ScopedFeatureList scoped_feature_list;
@@ -1653,8 +1654,8 @@ TEST_F(TransportClientSocketPoolTest, NetworkIsolationKey) {
 }
 
 TEST_F(TransportClientSocketPoolTest, NetworkIsolationKeySsl) {
-  const auto kOrigin = url::Origin::Create(GURL("https://foo.test/"));
-  const NetworkIsolationKey kNetworkIsolationKey(kOrigin, kOrigin);
+  const SchemefulSite kSite(GURL("https://foo.test/"));
+  const NetworkIsolationKey kNetworkIsolationKey(kSite, kSite);
   const char kHost[] = "bar.test";
 
   base::test::ScopedFeatureList scoped_feature_list;
@@ -1692,8 +1693,8 @@ TEST_F(TransportClientSocketPoolTest, NetworkIsolationKeySsl) {
 
 // Test that, in the case of an HTTP proxy, the NetworkIsolationKey is not used.
 TEST_F(TransportClientSocketPoolTest, NetworkIsolationKeyHttpProxy) {
-  const auto kOrigin = url::Origin::Create(GURL("https://foo.test/"));
-  const NetworkIsolationKey kNetworkIsolationKey(kOrigin, kOrigin);
+  const SchemefulSite kSite(GURL("https://foo.test/"));
+  const NetworkIsolationKey kNetworkIsolationKey(kSite, kSite);
   const char kHost[] = "bar.test";
   const ProxyServer kProxyServer = ProxyServer::FromURI(
       "http://proxy.test", ProxyServer::SCHEME_HTTP /* default_scheme */);
@@ -1739,8 +1740,8 @@ TEST_F(TransportClientSocketPoolTest, NetworkIsolationKeyHttpProxy) {
 // Test that, in the case of an HTTPS proxy, the NetworkIsolationKey is not
 // used.
 TEST_F(TransportClientSocketPoolTest, NetworkIsolationKeyHttpsProxy) {
-  const auto kOrigin = url::Origin::Create(GURL("https://foo.test/"));
-  const NetworkIsolationKey kNetworkIsolationKey(kOrigin, kOrigin);
+  const SchemefulSite kSite(GURL("https://foo.test/"));
+  const NetworkIsolationKey kNetworkIsolationKey(kSite, kSite);
   const char kHost[] = "bar.test";
   const ProxyServer kProxyServer = ProxyServer::FromURI(
       "https://proxy.test", ProxyServer::SCHEME_HTTP /* default_scheme */);
@@ -1786,8 +1787,8 @@ TEST_F(TransportClientSocketPoolTest, NetworkIsolationKeyHttpsProxy) {
 // Test that, in the case of a SOCKS5 proxy, the NetworkIsolationKey is only
 // used for the destination DNS lookup, not the proxy DNS lookup.
 TEST_F(TransportClientSocketPoolTest, NetworkIsolationKeySocks4Proxy) {
-  const auto kOrigin = url::Origin::Create(GURL("https://foo.test/"));
-  const NetworkIsolationKey kNetworkIsolationKey(kOrigin, kOrigin);
+  const SchemefulSite kSite(GURL("https://foo.test/"));
+  const NetworkIsolationKey kNetworkIsolationKey(kSite, kSite);
   const char kHost[] = "bar.test";
   const ProxyServer kProxyServer = ProxyServer::FromURI(
       "socks4://proxy.test", ProxyServer::SCHEME_HTTP /* default_scheme */);
@@ -1848,8 +1849,8 @@ TEST_F(TransportClientSocketPoolTest, NetworkIsolationKeySocks4Proxy) {
 // Test that, in the case of a SOCKS5 proxy, the NetworkIsolationKey is not
 // used.
 TEST_F(TransportClientSocketPoolTest, NetworkIsolationKeySocks5Proxy) {
-  const auto kOrigin = url::Origin::Create(GURL("https://foo.test/"));
-  const NetworkIsolationKey kNetworkIsolationKey(kOrigin, kOrigin);
+  const SchemefulSite kSite(GURL("https://foo.test/"));
+  const NetworkIsolationKey kNetworkIsolationKey(kSite, kSite);
   const char kHost[] = "bar.test";
   const ProxyServer kProxyServer = ProxyServer::FromURI(
       "socks5://proxy.test", ProxyServer::SCHEME_HTTP /* default_scheme */);

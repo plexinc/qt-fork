@@ -77,7 +77,7 @@ class MockFidoDevice : public ::testing::StrictMock<FidoDevice> {
                              DeviceCallback cb) override;
   MOCK_METHOD1(Cancel, void(FidoDevice::CancelToken));
   MOCK_CONST_METHOD0(GetId, std::string(void));
-  MOCK_CONST_METHOD0(GetDisplayName, base::string16(void));
+  MOCK_CONST_METHOD0(GetDisplayName, std::string(void));
   FidoTransportProtocol DeviceTransport() const override;
   base::WeakPtr<FidoDevice> GetWeakPtr() override;
 
@@ -85,7 +85,9 @@ class MockFidoDevice : public ::testing::StrictMock<FidoDevice> {
   void ExpectCtap2CommandAndRespondWith(
       CtapRequestCommand command,
       base::Optional<base::span<const uint8_t>> response,
-      base::TimeDelta delay = base::TimeDelta());
+      base::TimeDelta delay = base::TimeDelta(),
+      testing::Matcher<base::span<const uint8_t>> request_matcher =
+          testing::A<base::span<const uint8_t>>());
   void ExpectCtap2CommandAndRespondWithError(
       CtapRequestCommand command,
       CtapDeviceResponseCode response_code,

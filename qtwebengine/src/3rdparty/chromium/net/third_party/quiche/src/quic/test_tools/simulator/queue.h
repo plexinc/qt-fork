@@ -5,8 +5,8 @@
 #ifndef QUICHE_QUIC_TEST_TOOLS_SIMULATOR_QUEUE_H_
 #define QUICHE_QUIC_TEST_TOOLS_SIMULATOR_QUEUE_H_
 
-#include "net/third_party/quiche/src/quic/core/quic_alarm.h"
-#include "net/third_party/quiche/src/quic/test_tools/simulator/link.h"
+#include "quic/core/quic_alarm.h"
+#include "quic/test_tools/simulator/link.h"
 
 namespace quic {
 namespace simulator {
@@ -55,7 +55,7 @@ class Queue : public Actor, public UnconstrainedPortInterface {
                          QuicTime::Delta aggregation_timeout);
 
  private:
-  typedef uint64_t AggregationBundleNumber;
+  using AggregationBundleNumber = uint64_t;
 
   // In order to implement packet aggregation, each packet is tagged with a
   // bundle number.  The queue keeps a bundle counter, and whenever a bundle is

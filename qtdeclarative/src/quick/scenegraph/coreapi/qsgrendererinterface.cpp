@@ -75,14 +75,17 @@ QT_BEGIN_NAMESPACE
     \enum QSGRendererInterface::GraphicsApi
     \value Unknown An unknown graphics API is in use
     \value Software The Qt Quick 2D Renderer is in use
-    \value OpenGL OpenGL ES 2.0 or higher
-    \value Direct3D12 Direct3D 12
     \value OpenVG OpenVG via EGL
-    \value OpenGLRhi OpenGL ES 2.0 or higher via a graphics abstraction layer. This value was introduced in Qt 5.14.
-    \value Direct3D11Rhi Direct3D 11 via a graphics abstraction layer. This value was introduced in Qt 5.14.
-    \value VulkanRhi Vulkan 1.0 via a graphics abstraction layer. This value was introduced in Qt 5.14.
-    \value MetalRhi Metal via a graphics abstraction layer. This value was introduced in Qt 5.14.
-    \value NullRhi Null (no output) via a graphics abstraction layer. This value was introduced in Qt 5.14.
+    \value OpenGL OpenGL ES 2.0 or higher via a graphics abstraction layer. This value was introduced in Qt 5.14.
+    \value Direct3D11 Direct3D 11 via a graphics abstraction layer. This value was introduced in Qt 5.14.
+    \value Vulkan Vulkan 1.0 via a graphics abstraction layer. This value was introduced in Qt 5.14.
+    \value Metal Metal via a graphics abstraction layer. This value was introduced in Qt 5.14.
+    \value Null Null (no output) via a graphics abstraction layer. This value was introduced in Qt 5.14.
+    \omitvalue OpenGLRhi
+    \omitvalue Direct3D11Rhi
+    \omitvalue VulkanRhi
+    \omitvalue MetalRhi
+    \omitvalue NullRhi
   */
 
 /*!
@@ -112,6 +115,21 @@ QT_BEGIN_NAMESPACE
 
     \value RhiResource The resource is a pointer to the QRhi instance used by
     the scenegraph, when applicable. This value was introduced in Qt 5.14.
+
+    \value RhiSwapchainResource The resource is a pointer to a QRhiSwapchain
+    instance that is associated with the window. The value is null when the
+    window is used in combination with QQuickRenderControl. This value was
+    introduced in Qt 6.0.
+
+    \value RhiRedirectCommandBuffer The resource is a pointer to a
+    QRhiCommandBuffer instance that is associated with the window and its
+    QQuickRenderControl. The value is null when the window is not associated
+    with a QQuickRenderControl. This value was introduced in Qt 6.0.
+
+    \value RhiRedirectRenderTarget The resource is a pointer to a
+    QRhiTextureRenderTarget instance that is associated with the window and its
+    QQuickRenderControl. The value is null when the window is not associated
+    with a QQuickRenderControl. This value was introduced in Qt 6.0.
 
     \value PhysicalDeviceResource The resource is a pointer to the pysical
     device object used by the scenegraph, when applicable. For example, a
@@ -172,6 +190,13 @@ QT_BEGIN_NAMESPACE
     supported
  */
 
+/*!
+    \enum QSGRendererInterface::RenderMode
+
+    \value RenderMode2D Normal 2D rendering
+    \value RenderMode2DNoDepthBuffer Normal 2D rendering with depth buffer disabled
+    \value RenderMode3D Scene is rendered as part of a 3D graph
+ */
 QSGRendererInterface::~QSGRendererInterface()
 {
 }
@@ -189,10 +214,10 @@ QSGRendererInterface::~QSGRendererInterface()
     not supported or not available.
 
     When successful, the returned pointer is either a direct pointer to an
-    interface (and can be cast, for example, to \c{ID3D12Device *}) or a
-    pointer to an opaque handle that needs to be dereferenced first (for
-    example, \c{VkDevice dev = *static_cast<VkDevice *>(result)}). The latter
-    is necessary since such handles may have sizes different from a pointer.
+    interface, or a pointer to an opaque handle that needs to be dereferenced
+    first (for example, \c{VkDevice dev = *static_cast<VkDevice
+    *>(result)}). The latter is necessary since such handles may have sizes
+    different from a pointer.
 
     \note The ownership of the returned pointer is never transferred to the caller.
 

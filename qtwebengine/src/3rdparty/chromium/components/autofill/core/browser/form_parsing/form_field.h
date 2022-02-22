@@ -12,7 +12,9 @@
 #include "base/macros.h"
 #include "base/strings/string16.h"
 #include "components/autofill/core/browser/field_types.h"
+#include "components/autofill/core/browser/form_parsing/autofill_parsing_utils.h"
 #include "components/autofill/core/browser/form_parsing/field_candidates.h"
+#include "components/autofill/core/common/language_code.h"
 
 namespace autofill {
 
@@ -34,40 +36,26 @@ struct RegExLogging {
 // name, phone number, or address field.
 class FormField {
  public:
-  virtual ~FormField() {}
+  virtual ~FormField() = default;
 
   // Classifies each field in |fields| with its heuristically detected type.
   // Each field has a derived unique name that is used as the key into the
   // returned FieldCandidatesMap.
   static FieldCandidatesMap ParseFormFields(
       const std::vector<std::unique_ptr<AutofillField>>& fields,
+      const LanguageCode& page_language,
       bool is_form_tag,
       LogManager* log_manager = nullptr);
 
+#if defined(UNIT_TEST)
+  // Assign types to the fields for the testing purposes.
+  void AddClassificationsForTesting(
+      FieldCandidatesMap* field_candidates_for_testing) const {
+    AddClassifications(field_candidates_for_testing);
+  }
+#endif
+
  protected:
-  // A bit-field used for matching specific parts of a field in question.
-  enum MatchType {
-    // Attributes.
-    MATCH_LABEL = 1 << 0,
-    MATCH_NAME = 1 << 1,
-
-    // Input types.
-    MATCH_TEXT = 1 << 2,
-    MATCH_EMAIL = 1 << 3,
-    MATCH_TELEPHONE = 1 << 4,
-    MATCH_SELECT = 1 << 5,
-    MATCH_TEXT_AREA = 1 << 6,
-    MATCH_PASSWORD = 1 << 7,
-    MATCH_NUMBER = 1 << 8,
-    MATCH_SEARCH = 1 << 9,
-    MATCH_ALL_INPUTS = MATCH_TEXT | MATCH_EMAIL | MATCH_TELEPHONE |
-                       MATCH_SELECT | MATCH_TEXT_AREA | MATCH_PASSWORD |
-                       MATCH_NUMBER | MATCH_SEARCH,
-
-    // By default match label and name for input/text types.
-    MATCH_DEFAULT = MATCH_LABEL | MATCH_NAME | MATCH_TEXT,
-  };
-
   // Initial values assigned to FieldCandidates by their corresponding parsers.
   static const float kBaseEmailParserScore;
   static const float kBasePhoneParserScore;
@@ -88,6 +76,17 @@ class FormField {
                          AutofillField** match,
                          const RegExLogging& logging = {});
 
+  static bool ParseField(AutofillScanner* scanner,
+                         const std::vector<MatchingPattern>& patterns,
+                         AutofillField** match,
+                         const RegExLogging& logging = {});
+
+  static bool ParseField(AutofillScanner* scanner,
+                         const base::string16& pattern,
+                         const std::vector<MatchingPattern>& patterns,
+                         AutofillField** match,
+                         const RegExLogging& logging = {});
+
   // Parses the stream of fields in |scanner| with regular expression |pattern|
   // as specified in the |match_type| bit field (see |MatchType|).  If |match|
   // is non-NULL and the pattern matches, |match| will be set to the matched
@@ -98,6 +97,35 @@ class FormField {
                                   int match_type,
                                   AutofillField** match,
                                   const RegExLogging& logging = {});
+
+  static bool ParseFieldSpecifics(AutofillScanner* scanner,
+                                  const std::vector<MatchingPattern>& patterns,
+                                  AutofillField** match,
+                                  const RegExLogging& logging = {});
+
+  // The same as ParseFieldSpecifics but with splitted match_types into
+  // MatchAttributes and MatchFieldTypes.
+  static bool ParseFieldSpecifics(AutofillScanner* scanner,
+                                  const base::string16& pattern,
+                                  int match_field_attributes,
+                                  int match_field_input_types,
+                                  AutofillField** match,
+                                  const RegExLogging& logging = {});
+
+  struct MatchFieldBitmasks {
+    int restrict_attributes = ~0;
+    int augment_types = 0;
+  };
+
+  static bool ParseFieldSpecifics(AutofillScanner* scanner,
+                                  const base::string16& pattern,
+                                  int match_type,
+                                  const std::vector<MatchingPattern>& patterns,
+                                  AutofillField** match,
+                                  const RegExLogging& logging,
+                                  MatchFieldBitmasks match_field_bitmasks = {
+                                      .restrict_attributes = ~0,
+                                      .augment_types = 0});
 
   // Attempts to parse a field with an empty label.  Returns true
   // on success and fills |match| with a pointer to the field.
@@ -123,11 +151,14 @@ class FormField {
 
  private:
   FRIEND_TEST_ALL_PREFIXES(FormFieldTest, Match);
+  FRIEND_TEST_ALL_PREFIXES(FormFieldTest, TestParseableLabels);
 
   // Function pointer type for the parsing function that should be passed to the
   // ParseFormFieldsPass() helper function.
-  typedef std::unique_ptr<FormField> ParseFunction(AutofillScanner* scanner,
-                                                   LogManager* log_manager);
+  typedef std::unique_ptr<FormField> ParseFunction(
+      AutofillScanner* scanner,
+      const LanguageCode& page_language,
+      LogManager* log_manager);
 
   // Matches |pattern| to the contents of the field at the head of the
   // |scanner|.
@@ -139,11 +170,28 @@ class FormField {
                               AutofillField** match,
                               const RegExLogging& logging = {});
 
-  // Matches the regular expression |pattern| against the components of |field|
-  // as specified in the |match_type| bit field (see |MatchType|).
+  // The same as MatchAndAdvance but with splitted match_types into
+  // MatchAttributes and MatchFieldTypes.
+  static bool MatchAndAdvance(AutofillScanner* scanner,
+                              const base::string16& pattern,
+                              int match_field_attributes,
+                              int match_field_input_types,
+                              AutofillField** match,
+                              const RegExLogging& logging = {});
+
+  // Matches the regular expression |pattern| against the components of
+  // |field| as specified in the |match_type| bit field (see |MatchType|).
   static bool Match(const AutofillField* field,
                     const base::string16& pattern,
                     int match_type,
+                    const RegExLogging& logging = {});
+
+  // The same as Match but with splitted match_types into MatchAttributes
+  // and MatchFieldTypes.
+  static bool Match(const AutofillField* field,
+                    const base::string16& pattern,
+                    int match_field_attributes,
+                    int match_field_input_types,
                     const RegExLogging& logging = {});
 
   // Perform a "pass" over the |fields| where each pass uses the supplied
@@ -155,6 +203,7 @@ class FormField {
   static void ParseFormFieldsPass(ParseFunction parse,
                                   const std::vector<AutofillField*>& fields,
                                   FieldCandidatesMap* field_candidates,
+                                  const LanguageCode& page_language,
                                   LogManager* log_manager = nullptr);
 
   DISALLOW_COPY_AND_ASSIGN(FormField);

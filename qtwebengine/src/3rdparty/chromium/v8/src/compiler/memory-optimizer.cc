@@ -4,6 +4,7 @@
 
 #include "src/compiler/memory-optimizer.h"
 
+#include "src/base/logging.h"
 #include "src/codegen/interface-descriptors.h"
 #include "src/codegen/tick-counter.h"
 #include "src/compiler/js-graph.h"
@@ -40,7 +41,7 @@ bool CanAllocate(const Node* node) {
     case IrOpcode::kRetain:
     case IrOpcode::kStackPointerGreaterThan:
     case IrOpcode::kStaticAssert:
-    // TODO(tebbi): Store nodes might do a bump-pointer allocation.
+    // TODO(turbofan): Store nodes might do a bump-pointer allocation.
     //              We should introduce a special bump-pointer store node to
     //              differentiate that.
     case IrOpcode::kStore:
@@ -202,7 +203,7 @@ void MemoryOptimizer::Optimize() {
 }
 
 void MemoryOptimizer::VisitNode(Node* node, AllocationState const* state) {
-  tick_counter_->DoTick();
+  tick_counter_->TickAndMaybeEnterSafepoint();
   DCHECK(!node->IsDead());
   DCHECK_LT(0, node->op()->EffectInputCount());
   switch (node->opcode()) {
@@ -321,8 +322,23 @@ void MemoryOptimizer::VisitLoadElement(Node* node,
 
 void MemoryOptimizer::VisitLoadField(Node* node, AllocationState const* state) {
   DCHECK_EQ(IrOpcode::kLoadField, node->opcode());
-  memory_lowering()->ReduceLoadField(node);
+  Reduction reduction = memory_lowering()->ReduceLoadField(node);
+  DCHECK(reduction.Changed());
+  // In case of replacement, the replacement graph should not require futher
+  // lowering, so we can proceed iterating the graph from the node uses.
   EnqueueUses(node, state);
+
+  // Node can be replaced only when V8_HEAP_SANDBOX_BOOL is enabled and
+  // when loading an external pointer value.
+  DCHECK_IMPLIES(!V8_HEAP_SANDBOX_BOOL, reduction.replacement() == node);
+  if (V8_HEAP_SANDBOX_BOOL && reduction.replacement() != node) {
+    // Replace all uses of node and kill the node to make sure we don't leave
+    // dangling dead uses.
+    NodeProperties::ReplaceUses(node, reduction.replacement(),
+                                graph_assembler_.effect(),
+                                graph_assembler_.control());
+    node->Kill();
+  }
 }
 
 void MemoryOptimizer::VisitStoreElement(Node* node,

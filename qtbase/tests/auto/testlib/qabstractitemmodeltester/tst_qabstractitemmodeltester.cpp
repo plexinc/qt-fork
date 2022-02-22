@@ -26,7 +26,8 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QAbstractItemModelTester>
 #include <QtGui/QtGui>
 #include <QtWidgets/QtWidgets>
 
@@ -40,6 +41,7 @@ private slots:
     void stringListModel();
     void treeWidgetModel();
     void standardItemModel();
+    void standardItemModelZeroColumns();
     void testInsertThroughProxy();
     void moveSourceItems();
     void testResetThroughProxy();
@@ -104,6 +106,22 @@ void tst_QAbstractItemModelTester::standardItemModel()
     model.insertColumns(0, 5, model.index(1, 3));
 }
 
+void tst_QAbstractItemModelTester::standardItemModelZeroColumns()
+{
+    QStandardItemModel model;
+    QAbstractItemModelTester t1(&model);
+    // QTBUG-92220
+    model.insertRows(0, 5);
+    model.removeRows(0, 5);
+    // QTBUG-92886
+    model.insertRows(0, 5);
+    model.removeRows(1, 2);
+
+    const QModelIndex parentIndex = model.index(0, 0);
+    model.insertRows(0, 5, parentIndex);
+    model.removeRows(1, 2, parentIndex);
+}
+
 void tst_QAbstractItemModelTester::testInsertThroughProxy()
 {
     DynamicTreeModel *model = new DynamicTreeModel(this);
@@ -143,7 +161,7 @@ class AccessibleProxyModel : public QSortFilterProxyModel
 {
     Q_OBJECT
 public:
-    AccessibleProxyModel(QObject *parent = 0) : QSortFilterProxyModel(parent)
+    AccessibleProxyModel(QObject *parent = nullptr) : QSortFilterProxyModel(parent)
     {
     }
 
@@ -157,7 +175,7 @@ class ObservingObject : public QObject
 {
     Q_OBJECT
 public:
-    ObservingObject(AccessibleProxyModel *proxy, QObject *parent = 0) :
+    ObservingObject(AccessibleProxyModel *proxy, QObject *parent = nullptr) :
         QObject(parent),
         m_proxy(proxy),
         storePersistentFailureCount(0),

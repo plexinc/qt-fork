@@ -62,10 +62,12 @@ public:
     QStringList availablePhysicalDevices() const;
 
 private:
-    QVector<Qt3DCore::QAspectJobPtr> jobsToExecute(qint64 time) override;
+    std::vector<Qt3DCore::QAspectJobPtr> jobsToExecute(qint64 time) override;
 
     void onRegistered() override;
     void onUnregistered() override;
+    void onEngineStartup() override;
+    void jobsDone() override;
 
     Q_DECLARE_PRIVATE(QInputAspect)
     explicit QInputAspect(QInputAspectPrivate &dd, QObject *parent);

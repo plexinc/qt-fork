@@ -1,6 +1,6 @@
 ----------------------------------------------------------------------------
 --
--- Copyright (C) 2014-2015 Ford Motor Company.
+-- Copyright (C) 2014-2020 Ford Motor Company.
 -- Contact: https://www.qt.io/licensing/
 --
 -- This file is part of the QtRemoteObjects module of the Qt Toolkit.
@@ -45,20 +45,29 @@
 %token semicolon "[semicolon];"
 %token class "[class]class[ \\t]+(?<name>[A-Za-z_][A-Za-z0-9_]+)[ \\t]*"
 %token pod "[pod]POD[ \\t]*(?<name>[A-Za-z_][A-Za-z0-9_]+)[ \\t]*\\((?<types>[^\\)]*)\\);?[ \\t]*"
-%token enum "[enum][ \\t]*ENUM[ \\t]+(?<name>[A-Za-z_][A-Za-z0-9_]*)[ \\t]*"
-%token enum_param "[enum_param][ \\t]*(?<name>[A-Za-z_][A-Za-z0-9_]*)[ \\t]*(=[ \\t]*(?<value>-\\d+|0[xX][0-9A-Fa-f]+|\\d+))?[ \\t]*"
+%token pod2 "[pod2]POD[ \\t]*(?<name>[A-Za-z_][A-Za-z0-9_]+)[ \\t]*"
+%token flag "[flag][ \\t]*FLAG[ \t]*\\([ \t]*(?<name>[A-Za-z_][A-Za-z0-9_]*)[ \t]+(?<enum>[A-Za-z_][A-Za-z0-9_]*)[ \t]*\\)[ \t]*"
+%token enum "[enum][ \\t]*ENUM[ \t]+(?:(?<class>class[ \t]+))?(?<name>[A-Za-z_][A-Za-z0-9_]*)[ \t]*(?::[ \t]*(?<type>[a-zA-Z0-9 _:]*[a-zA-Z0-9_])[ \t]*)?"
 %token prop "[prop][ \\t]*PROP[ \\t]*\\((?<args>[^\\)]+)\\);?[ \\t]*"
 %token use_enum "[use_enum]USE_ENUM[ \\t]*\\((?<name>[^\\)]*)\\);?[ \\t]*"
 %token signal "[signal][ \\t]*SIGNAL[ \\t]*\\([ \\t]*(?<name>\\S+)[ \\t]*\\((?<args>[^\\)]*)\\)[ \\t]*\\);?[ \\t]*"
 %token slot "[slot][ \\t]*SLOT[ \\t]*\\((?<type>[^\\(]*)\\((?<args>[^\\)]*)\\)[ \\t]*\\);?[ \\t]*"
 %token model "[model][ \\t]*MODEL[ \\t]+(?<name>[A-Za-z_][A-Za-z0-9_]+)\\((?<args>[^\\)]+)\\)[ \\t]*;?[ \\t]*"
 %token childrep "[childrep][ \\t]*CLASS[ \\t]+(?<name>[A-Za-z_][A-Za-z0-9_]+)\\((?<type>[^\\)]+)\\)[ \\t]*;?[ \\t]*"
+%token qualifier "[qualifier][ \\t]*(?<value>const|unsigned|signed)[ \\t]*"
+%token passbyqual "[passbyqual][ \\t]*(?<value>&)[ \\t]*"
+%token symbol "[symbol][ \\t]*(?<symbol>[A-Za-z_][A-Za-z0-9_]*)[ \\t]*"
+%token value "[value][ \\t]*(?<value>-\\d+|0[xX][0-9A-Fa-f]+|\\d+)[ \\t]*"
 %token start "[start][ \\t]*\\{[ \\t]*"
 %token stop "[stop][ \\t]*\\};?[ \\t]*"
 %token comma "[comma],"
+%token equals "[equals]="
 %token comment "[comment](?<comment>[ \\t]*//[^\\n]*\\n)"
+%token mcomment "[mcomment,M](?<comment>/\\*(.*?)\\*/)"
 %token preprocessor_directive "[preprocessor_directive](?<preprocessor_directive>#[ \\t]*[^\\n]*\\n)"
 %token newline "[newline](\\r)?\\n"
+%token tstart "[tstart]<"
+%token tstop "[tstop]>[ \\t]*"
 
 %start TopLevel
 
@@ -69,11 +78,24 @@
 #include <rep_grammar_p.h>
 #include <qregexparser.h>
 #include <QStringList>
-#include <QVector>
-#include <QRegExp>
+#include <QList>
+#include <QRegularExpression>
 
 QT_BEGIN_NAMESPACE
 class QIODevice;
+class QCryptographicHash;
+
+struct AST;
+
+struct SignedType
+{
+    SignedType(const QString &name = QString());
+    virtual ~SignedType() {}
+    void generateSignature(AST &ast);
+    virtual QString typeName() const;
+    virtual void signature_impl(const AST &ast, QCryptographicHash &checksum) = 0;
+    QString name;
+};
 
 /// A property of a Class declaration
 struct ASTProperty
@@ -98,7 +120,7 @@ struct ASTProperty
     bool persisted;
     bool isPointer;
 };
-Q_DECLARE_TYPEINFO(ASTProperty, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(ASTProperty, Q_RELOCATABLE_TYPE);
 
 struct ASTDeclaration
 {
@@ -122,7 +144,7 @@ struct ASTDeclaration
     QString name;
     VariableTypes variableType;
 };
-Q_DECLARE_TYPEINFO(ASTDeclaration, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(ASTDeclaration, Q_RELOCATABLE_TYPE);
 
 struct ASTFunction
 {
@@ -138,9 +160,9 @@ struct ASTFunction
 
     QString returnType;
     QString name;
-    QVector<ASTDeclaration> params;
+    QList<ASTDeclaration> params;
 };
-Q_DECLARE_TYPEINFO(ASTFunction, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(ASTFunction, Q_RELOCATABLE_TYPE);
 
 struct ASTEnumParam
 {
@@ -155,18 +177,35 @@ struct ASTEnumParam
     QString name;
     int value;
 };
-Q_DECLARE_TYPEINFO(ASTEnumParam, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(ASTEnumParam, Q_RELOCATABLE_TYPE);
 
-struct ASTEnum
+struct ASTEnum : public SignedType
 {
     explicit ASTEnum(const QString &name = QString());
+    void signature_impl(const AST &ast, QCryptographicHash &checksum) override;
+    QString typeName() const override;
 
-    QString name;
-    QVector<ASTEnumParam> params;
+    QString type;
+    QString scope;
+    QList<ASTEnumParam> params;
     bool isSigned;
+    bool isScoped;
     int max;
+    int flagIndex = -1;
 };
-Q_DECLARE_TYPEINFO(ASTEnum, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(ASTEnum, Q_RELOCATABLE_TYPE);
+
+struct ASTFlag : public SignedType
+{
+    explicit ASTFlag(const QString &name = {}, const QString &_enum = {});
+    void signature_impl(const AST &ast, QCryptographicHash &checksum) override;
+    QString typeName() const override;
+
+    bool isValid() const;
+    QString _enum;
+    QString scope;
+};
+Q_DECLARE_TYPEINFO(ASTFlag, Q_RELOCATABLE_TYPE);
 
 struct ASTModelRole
 {
@@ -177,35 +216,40 @@ struct ASTModelRole
 
     QString name;
 };
-Q_DECLARE_TYPEINFO(ASTModelRole, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(ASTModelRole, Q_RELOCATABLE_TYPE);
 
-struct ASTModel
+struct ASTModel : public SignedType
 {
-    ASTModel(int index = -1) : propertyIndex(index) {}
+    ASTModel(const QString &name, const QString &scope, int index = -1)
+        : SignedType(name), scope(scope), propertyIndex(index) {}
+    void signature_impl(const AST &ast, QCryptographicHash &checksum) override;
+    QString typeName() const override;
 
-    QVector<ASTModelRole> roles;
+    QList<ASTModelRole> roles;
+    QString scope;
     int propertyIndex;
 };
-Q_DECLARE_TYPEINFO(ASTModel, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(ASTModel, Q_RELOCATABLE_TYPE);
 
 /// A Class declaration
-struct ASTClass
+struct ASTClass : public SignedType
 {
     explicit ASTClass(const QString& name = QString());
+    void signature_impl(const AST &ast, QCryptographicHash &checksum) override;
 
     bool isValid() const;
     bool hasPointerObjects() const;
 
-    QString name;
-    QVector<ASTProperty> properties;
-    QVector<ASTFunction> signalsList;
-    QVector<ASTFunction> slotsList;
-    QVector<ASTEnum> enums;
+    QList<ASTProperty> properties;
+    QList<ASTFunction> signalsList;
+    QList<ASTFunction> slotsList;
+    QList<ASTEnum> enums;
+    QList<ASTFlag> flags;
     bool hasPersisted;
-    QVector<ASTModel> modelMetadata;
-    QVector<int> subClassPropertyIndices;
+    QList<ASTModel> modelMetadata;
+    QList<int> subClassPropertyIndices;
 };
-Q_DECLARE_TYPEINFO(ASTClass, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(ASTClass, Q_RELOCATABLE_TYPE);
 
 // The attribute of a POD
 struct PODAttribute
@@ -217,26 +261,33 @@ struct PODAttribute
     QString type;
     QString name;
 };
-Q_DECLARE_TYPEINFO(PODAttribute, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(PODAttribute, Q_RELOCATABLE_TYPE);
 
 // A POD declaration
-struct POD
+struct POD : public SignedType
 {
-    QString name;
-    QVector<PODAttribute> attributes;
+    void signature_impl(const AST &ast, QCryptographicHash &checksum) override;
+
+    QList<PODAttribute> attributes;
+    QList<ASTEnum> enums;
+    QList<ASTFlag> flags;
 };
-Q_DECLARE_TYPEINFO(POD, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(POD, Q_RELOCATABLE_TYPE);
 
 // The AST representation of a .rep file
 struct AST
 {
-    QVector<ASTClass> classes;
-    QVector<POD> pods;
-    QVector<ASTEnum> enums;
-    QVector<QString> enumUses;
+    QList<ASTClass> classes;
+    QList<POD> pods;
+    QList<ASTEnum> enums;
+    QList<ASTFlag> flags;
+    QList<QString> enumUses;
     QStringList preprocessorDirectives;
+    QHash<QString, QByteArray> typeSignatures;
+    QByteArray typeData(const QString &type, const QString &className) const;
+    QByteArray functionsData(const QList<ASTFunction> &functions, const QString &className) const;
 };
-Q_DECLARE_TYPEINFO(AST, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(AST, Q_RELOCATABLE_TYPE);
 
 class RepParser: public QRegexParser<RepParser, $table>
 {
@@ -272,6 +323,9 @@ private:
     AST m_ast;
 
     ASTClass m_astClass;
+    POD m_astPod;
+    QString m_symbol;
+    QString m_argString;
     ASTEnum m_astEnum;
     int m_astEnumValue;
 };
@@ -283,6 +337,7 @@ QT_END_NAMESPACE
 /.
 #include "repparser.h"
 
+#include <QCryptographicHash>
 #include <QDebug>
 #include <QTextStream>
 
@@ -294,7 +349,7 @@ QT_END_NAMESPACE
 // We cannot depend on QMetaObject::normalizedSignature,
 // since repc is linked against Qt5Bootstrap (which doesn't offer QMetaObject) when cross-compiling
 // Thus, just use internal API which is exported in private headers, as moc does
-static QByteArray normalizeType(const QByteArray &ba, bool fixScope = false)
+static QByteArray normalizeType(const QByteArray &ba)
 {
     const char *s = ba.constData();
     int len = ba.size();
@@ -315,10 +370,26 @@ static QByteArray normalizeType(const QByteArray &ba, bool fixScope = false)
         }
     }
     *d = '\0';
-    QByteArray result = normalizeTypeInternal(buf, d, fixScope);
+    QByteArray result = normalizeTypeInternal(buf, d);
     if (buf != stackbuf)
         delete [] buf;
     return result;
+}
+
+SignedType::SignedType(const QString &name) : name(name)
+{
+}
+
+void SignedType::generateSignature(AST &ast)
+{
+    QCryptographicHash checksum(QCryptographicHash::Sha1);
+    signature_impl(ast, checksum);
+    ast.typeSignatures[typeName()] = checksum.result().toHex();
+}
+
+QString SignedType::typeName() const
+{
+    return name;
 }
 
 ASTProperty::ASTProperty()
@@ -377,13 +448,115 @@ QStringList ASTFunction::paramNames() const
 }
 
 ASTEnum::ASTEnum(const QString &name)
-    : name(name), isSigned(false), max(0)
+    : SignedType(name), isSigned(false), isScoped(false), max(0)
 {
 }
 
-ASTClass::ASTClass(const QString &name)
-    : name(name), hasPersisted(false)
+void ASTEnum::signature_impl(const AST &ast, QCryptographicHash &checksum)
 {
+    Q_UNUSED(ast)
+    checksum.addData(name.toLatin1());
+    if (isScoped)
+        checksum.addData("class", qstrlen("class"));
+    if (!type.isEmpty())
+        checksum.addData(type.toLatin1());
+    for (const ASTEnumParam &param : params) {
+        checksum.addData(param.name.toLatin1());
+        checksum.addData(QByteArray::number(param.value));
+    }
+}
+
+QString ASTEnum::typeName() const
+{
+    if (scope.isEmpty())
+        return name;
+
+    return QLatin1String("%1::%2").arg(scope, name);
+}
+
+ASTFlag::ASTFlag(const QString &name, const QString &_enum)
+    : SignedType(name), _enum(_enum)
+{
+}
+
+void ASTFlag::signature_impl(const AST &ast, QCryptographicHash &checksum)
+{
+    checksum.addData(name.toLatin1());
+    checksum.addData(ast.typeData(_enum, scope));
+}
+
+QString ASTFlag::typeName() const
+{
+    if (scope.isEmpty())
+        return name;
+
+    return QLatin1String("%1::%2").arg(scope, name);
+}
+
+bool ASTFlag::isValid() const
+{
+    return !name.isEmpty();
+}
+
+void ASTModel::signature_impl(const AST &ast, QCryptographicHash &checksum)
+{
+    Q_UNUSED(ast)
+    QByteArrayList _roles;
+    for (const auto &role : roles)
+        _roles << role.name.toLatin1();
+    std::sort(_roles.begin(), _roles.end());
+    checksum.addData(_roles.join('_'));
+}
+
+QString ASTModel::typeName() const
+{
+    return QLatin1String("%1::%2").arg(scope, name);
+}
+
+ASTClass::ASTClass(const QString &name)
+    : SignedType(name), hasPersisted(false)
+{
+}
+
+void ASTClass::signature_impl(const AST &ast, QCryptographicHash &checksum)
+{
+    checksum.addData(name.toLatin1());
+
+    // Checksum properties
+    QSet<int> classIndices{ subClassPropertyIndices.begin(),
+                            subClassPropertyIndices.end() };
+    int propertyIndex = -1;
+    int modelIndex = 0;
+    for (const ASTProperty &p : properties) {
+        propertyIndex++;
+        checksum.addData(p.name.toLatin1());
+        if (p.type == QLatin1String("QAbstractItemModel"))
+            checksum.addData(ast.typeSignatures[modelMetadata[modelIndex++].typeName()]);
+        else if (classIndices.contains(propertyIndex))
+            checksum.addData(ast.typeSignatures[p.type]);
+        else
+            checksum.addData(ast.typeData(p.type, name));
+        ASTProperty::Modifier m = p.modifier;
+        // Treat ReadOnly and SourceOnlySetter the same (interface-wise they are)
+        if (m == ASTProperty::SourceOnlySetter)
+            m = ASTProperty::ReadOnly;
+        checksum.addData(reinterpret_cast<const char *>(&m), sizeof(m));
+    }
+
+    // Checksum signals
+    checksum.addData(ast.functionsData(signalsList, name));
+
+    // Checksum slots
+    checksum.addData(ast.functionsData(slotsList, name));
+}
+
+void POD::signature_impl(const AST &ast, QCryptographicHash &checksum)
+{
+    checksum.addData(name.toLatin1());
+    for (const PODAttribute &attr : attributes) {
+        checksum.addData(attr.name.toLatin1());
+        checksum.addData(ast.typeData(attr.type, name));
+    }
 }
 
 bool ASTClass::isValid() const
@@ -397,6 +570,47 @@ bool ASTClass::hasPointerObjects() const
     return count > 0;
 }
 
+QByteArray AST::typeData(const QString &type, const QString &className) const
+{
+    static const QRegularExpression re = QRegularExpression(QLatin1String("([^<>,\\s]+)"));
+    if (type.contains(QLatin1Char('<'))) { // templated type
+        QByteArray result;
+        for (const QRegularExpressionMatch &match : re.globalMatch(type))
+            result += typeData(match.captured(1), className);
+        return result;
+    }
+    // Try enum/flags within the class first
+    if (!className.isEmpty()) {
+        auto classType = QLatin1String("%1::%2").arg(className, type);
+        auto it = typeSignatures.find(classType);
+        if (it != typeSignatures.end())
+            return it.value();
+    }
+    auto it = typeSignatures.find(type);
+    if (it != typeSignatures.end())
+        return it.value();
+    const auto pos = type.lastIndexOf(QLatin1String("::"));
+    if (pos > 0)
+        return typeData(type.mid(pos + 2), className);
+    return type.toLatin1();
+}
+
+QByteArray AST::functionsData(const QList<ASTFunction> &functions, const QString &className) const
+{
+    QByteArray ret;
+    for (const ASTFunction &func : functions) {
+        ret += func.name.toLatin1();
+        for (const ASTDeclaration &param : func.params) {
+            ret += param.name.toLatin1();
+            ret += typeData(param.type, className);
+            ret += QByteArray(reinterpret_cast<const char *>(&param.variableType),
+                              sizeof(param.variableType));
+        }
+        ret += typeData(func.returnType, className);
+    }
+    return ret;
+}
+
 RepParser::RepParser(QIODevice &outputDevice)
     : QRegexParser(), m_astEnumValue(-1)
 {
@@ -407,13 +621,15 @@ void RepParser::reset()
 {
     m_ast = AST();
     m_astClass = ASTClass();
+    m_astPod = POD();
+    m_argString.clear();
     m_astEnum = ASTEnum();
     //setDebug();
 }
 
 bool RepParser::parseModifierFlag(const QString &flag, ASTProperty::Modifier &modifier, bool &persisted)
 {
-    QRegExp regex(QStringLiteral("\\s*,\\s*"));
+    QRegularExpression regex(QStringLiteral("\\s*,\\s*"));
     QStringList flags = flag.split(regex);
     persisted = flags.removeAll(QStringLiteral("PERSISTED")) > 0;
     if (flags.length() == 0)
@@ -454,16 +670,16 @@ QString stripArgs(const QString &arguments)
     // This repc parser searches for the longest possible matches, which can be multiline.
     // This method "cleans" the string input, removing comments and converting to a single
     // line for subsequent parsing.
-    QStringList lines = arguments.split(QRegExp(QStringLiteral("\r?\n")));
+    QStringList lines = arguments.split(QRegularExpression(QStringLiteral("\r?\n")));
     for (auto & line : lines)
-        line.replace(QRegExp(QStringLiteral("//.*")),QString());
+        line.replace(QRegularExpression(QStringLiteral("//.*")),QString());
     return lines.join(QString());
 }
 
 bool RepParser::parseProperty(ASTClass &astClass, const QString &propertyDeclaration)
 {
     QString input = stripArgs(propertyDeclaration).trimmed();
-    const QRegExp whitespace(QStringLiteral("\\s"));
+    const QRegularExpression whitespace(QStringLiteral("\\s"));
 
     QString propertyType;
     QString propertyName;
@@ -665,9 +881,10 @@ Types: Type | Type Types;
 
 Newlines: newline | newline Newlines;
 Comments: Comment | Comment Comments;
-Comment: comment | comment Newlines;
+Comment: comment | comment Newlines | mcomment | mcomment Newlines;
 Type: PreprocessorDirective | PreprocessorDirective Newlines;
 Type: Pod | Pod Newlines;
+Type: Pod2;
 Type: Class;
 Type: UseEnum | UseEnum Newlines;
 Type: Comments | Comments Newlines;
@@ -675,12 +892,16 @@ Type: Enum;
 /.
     case $rule_number:
     {
+        m_astEnum.generateSignature(m_ast);
         m_ast.enums.append(m_astEnum);
     }
     break;
 ./
+Type: Flag | Flag Newlines;
 
 Comma: comma | comma Newlines;
+
+Equals: equals;
 
 PreprocessorDirective: preprocessor_directive;
 /.
@@ -703,10 +924,15 @@ Pod: pod;
             qWarning() << "[repc] - Ignoring POD with no data members.  POD name: " << qPrintable(pod.name);
             return true;
         }
+        if (argString.contains(QLatin1String("ENUM"))) {
+            setErrorString(QLatin1String("ENUMs are only available in PODs using bracket syntax ('{'), not parentheses"));
+            return false;
+        }
 
         RepParser::TypeParser parseType;
         parseType.parseArguments(argString);
         parseType.appendPods(pod);
+        pod.generateSignature(m_ast);
         m_ast.pods.append(pod);
     }
     break;
@@ -724,18 +950,141 @@ Class: ClassStart Start Stop;
 /.
     case $rule_number:
     {
+        m_astClass.generateSignature(m_ast);
         m_ast.classes.append(m_astClass);
     }
     break;
 ./
 
 ClassTypes: ClassType | ClassType ClassTypes;
-ClassType: DecoratedProp | DecoratedSignal | DecoratedSlot | DecoratedModel | DecoratedClass | Comments;
+ClassType: DecoratedProp | DecoratedSignal | DecoratedSlot | DecoratedModel | DecoratedClass | DecoratedClassFlag | Comments;
 ClassType: Enum;
 /.
     case $rule_number:
     {
+        m_astEnum.scope = m_astClass.name;
+        m_astEnum.generateSignature(m_ast);
         m_astClass.enums.append(m_astEnum);
+    }
+    break;
+./
+
+Pod2: PodStart Start PodTypes Stop;
+/.
+    case $rule_number:
+./
+Pod2: PodStart Start Comments Stop;
+/.
+    case $rule_number:
+./
+Pod2: PodStart Start Stop;
+/.
+    case $rule_number:
+    {
+        RepParser::TypeParser parseType;
+        parseType.parseArguments(m_argString);
+        parseType.appendPods(m_astPod);
+        m_astPod.generateSignature(m_ast);
+        m_ast.pods.append(m_astPod);
+    }
+    break;
+./
+
+PodTypes: PodType | PodType Newlines | PodType CaptureComma PodTypes | PodType PodTypes | PodType Newlines PodTypes;
+PodType: DecoratedPODFlag | Comments;
+PodType: Enum;
+/.
+    case $rule_number:
+    {
+        m_astEnum.generateSignature(m_ast);
+        m_astPod.enums.append(m_astEnum);
+    }
+    break;
+./
+
+PodType: Parameter;
+Parameter: DecoratedParameterType ParameterName;
+
+DecoratedParameterType: ParameterType | Qualified ParameterType | ParameterType PassByReference | Qualified ParameterType PassByReference;
+
+ParameterType: SimpleType | TemplateType;
+
+TemplateType: TemplateTypename TStart ParameterTypes TStop;
+
+TemplateTypename: Symbol;
+/.
+    case $rule_number:
+    {
+        m_argString += m_symbol;
+    }
+    break;
+./
+
+TStart: tstart;
+/.
+    case $rule_number:
+    {
+        m_argString += QLatin1Char('<');
+    }
+    break;
+./
+
+TStop: tstop;
+/.
+    case $rule_number:
+    {
+        m_argString += QLatin1Char('>');
+    }
+    break;
+./
+
+Qualified: qualifier;
+/.
+    case $rule_number:
+    {
+        m_argString += captured().value(QLatin1String("value")).trimmed() + QLatin1Char(' ');
+    }
+    break;
+./
+
+PassByReference: passbyqual;
+/.
+    case $rule_number:
+    {
+        m_argString += QLatin1Char(' ') + captured().value(QLatin1String("value")).trimmed();
+    }
+    break;
+./
+
+ParameterTypes: DecoratedParameterType | DecoratedParameterType CaptureComma ParameterTypes;
+
+CaptureComma: comma;
+/.
+    case $rule_number:
+./
+CaptureComma: comma Newlines;
+/.
+    case $rule_number:
+    {
+        m_argString += QLatin1Char(',');
+    }
+    break;
+./
+
+SimpleType: Symbol;
+/.
+    case $rule_number:
+    {
+        m_argString += m_symbol;
+    }
+    break;
+./
+
+ParameterName: Symbol;
+/.
+    case $rule_number:
+    {
+        m_argString += QLatin1Char(' ') + m_symbol;
     }
     break;
 ./
@@ -746,6 +1095,9 @@ DecoratedProp: Prop | Comments Prop | Prop Newlines | Comments Prop Newlines;
 DecoratedModel: Model | Comments Model | Model Newlines | Comments Model Newlines;
 DecoratedClass: ChildRep | Comments ChildRep | ChildRep Newlines | Comments ChildRep Newlines;
 DecoratedEnumParam: EnumParam | Comments EnumParam | EnumParam Newlines | Comments EnumParam Newlines;
+DecoratedClassFlag: ClassFlag | Comments ClassFlag | ClassFlag Newlines | Comments ClassFlag Newlines;
+
+DecoratedPODFlag: PODFlag | Comments PODFlag | PODFlag Newlines | Comments PODFlag Newlines;
 
 Start: start | Comments start | start Newlines | Comments start Newlines;
 Stop: stop | stop Newlines;
@@ -758,9 +1110,15 @@ EnumStart: enum;
     case $rule_number:
     {
         const QString name = captured().value(QLatin1String("name"));
+        const QString type = captured().value(QLatin1String("type"));
+        const QString _class = captured().value(QLatin1String("class"));
 
         // new Class declaration
         m_astEnum = ASTEnum(name);
+        if (!_class.isEmpty())
+            m_astEnum.isScoped = true;
+        if (!type.isEmpty())
+            m_astEnum.type = type;
         m_astEnumValue = -1;
     }
     break;
@@ -768,21 +1126,27 @@ EnumStart: enum;
 
 EnumParams: DecoratedEnumParam | DecoratedEnumParam Comma EnumParams;
 
-EnumParam: enum_param;
+EnumParam: Symbol;
 /.
     case $rule_number:
     {
         ASTEnumParam param;
-        param.name = captured().value(QStringLiteral("name")).trimmed();
-        QString value = captured().value(QStringLiteral("value"));
-        value.remove(QLatin1Char('='));
-        value = value.trimmed();
-        if (value.isEmpty())
-            param.value = ++m_astEnumValue;
-        else if (value.startsWith(QLatin1String("0x"), Qt::CaseInsensitive))
-            param.value = m_astEnumValue = value.toInt(0,16);
-        else
-            param.value = m_astEnumValue = value.toInt();
+        param.name = m_symbol;
+        param.value = ++m_astEnumValue;
+        if (m_astEnum.max < param.value)
+            m_astEnum.max = param.value;
+        m_astEnum.params << param;
+    }
+    break;
+./
+
+EnumParam: Symbol Equals Value;
+/.
+    case $rule_number:
+    {
+        ASTEnumParam param;
+        param.name = m_symbol;
+        param.value = m_astEnumValue;
         if (param.value < 0) {
             m_astEnum.isSigned = true;
             if (m_astEnum.max < -param.value)
@@ -790,6 +1154,80 @@ EnumParam: enum_param;
         } else if (m_astEnum.max < param.value)
             m_astEnum.max = param.value;
         m_astEnum.params << param;
+    }
+    break;
+./
+
+Symbol: symbol;
+/.
+    case $rule_number:
+    {
+        m_symbol = captured().value(QStringLiteral("symbol")).trimmed();
+    }
+    break;
+./
+
+Value: value;
+/.
+    case $rule_number:
+    {
+        QString value = captured().value(QStringLiteral("value")).trimmed();
+        if (value.startsWith(QLatin1String("0x"), Qt::CaseInsensitive))
+            m_astEnumValue = value.toInt(0,16);
+        else
+            m_astEnumValue = value.toInt();
+    }
+    break;
+./
+
+ClassFlag: flag;
+/.
+    case $rule_number:
+    {
+        const QString name = captured().value(QLatin1String("name"));
+        const QString _enum = captured().value(QLatin1String("enum"));
+        int enumIndex = 0;
+        for (auto &en : m_astClass.enums) {
+            if (en.name == _enum) {
+                en.flagIndex = m_astClass.flags.count();
+                break;
+            }
+            enumIndex++;
+        }
+        if (enumIndex == m_astClass.enums.count()) {
+            setErrorString(QLatin1String("FLAG: Unknown (class) enum: %1").arg(_enum));
+            return false;
+        }
+        auto flag = ASTFlag(name, _enum);
+        flag.scope = m_astClass.name;
+        flag.generateSignature(m_ast);
+        m_astClass.flags.append(flag);
+    }
+    break;
+./
+
+PODFlag: flag;
+/.
+    case $rule_number:
+    {
+        const QString name = captured().value(QLatin1String("name"));
+        const QString _enum = captured().value(QLatin1String("enum"));
+        int enumIndex = 0;
+        for (auto &en : m_astPod.enums) {
+            if (en.name == _enum) {
+                en.flagIndex = m_astPod.flags.count();
+                break;
+            }
+            enumIndex++;
+        }
+        if (enumIndex == m_astPod.enums.count()) {
+            setErrorString(QLatin1String("FLAG: Unknown (pod) enum: %1").arg(_enum));
+            return false;
+        }
+        auto flag = ASTFlag(name, _enum);
+        flag.scope = m_astPod.name;
+        flag.generateSignature(m_ast);
+        m_astPod.flags.append(flag);
     }
     break;
 ./
@@ -853,13 +1291,14 @@ Model: model;
 /.
     case $rule_number:
     {
-        ASTModel model(m_astClass.properties.size());
         const QString name = captured().value(QLatin1String("name")).trimmed();
         const QString argString = captured().value(QLatin1String("args")).trimmed();
 
+        ASTModel model(name, m_astClass.name, m_astClass.properties.size());
         if (!parseRoles(model, argString))
             return false;
 
+        model.generateSignature(m_ast);
         m_astClass.modelMetadata << model;
         m_astClass.properties << ASTProperty(QStringLiteral("QAbstractItemModel"), name, QStringLiteral("nullptr"), ASTProperty::SourceOnlySetter, false, true);
     }
@@ -895,6 +1334,22 @@ ClassStart: class;
     break;
 ./
 
+PodStart: pod2;
+/.
+    case $rule_number:
+./
+PodStart: pod2 Newlines;
+/.
+    case $rule_number:
+    {
+        // new POD declaration
+        m_astPod = POD();
+        m_astPod.name = captured().value(QLatin1String("name")).trimmed();
+        m_argString.clear();
+    }
+    break;
+./
+
 UseEnum: use_enum;
 /.
     case $rule_number:
@@ -902,6 +1357,33 @@ UseEnum: use_enum;
         const QString name = captured().value(QLatin1String("name"));
 
         m_ast.enumUses.append(name);
+    }
+    break;
+./
+
+Flag: flag;
+/.
+    case $rule_number:
+    {
+        const QString name = captured().value(QLatin1String("name"));
+        const QString _enum = captured().value(QLatin1String("enum"));
+        int enumIndex = 0;
+        for (auto &en : m_ast.enums) {
+            if (en.name == _enum) {
+                en.flagIndex = m_ast.flags.count();
+                break;
+            }
+            if (en.name == _enum)
+                break;
+            enumIndex++;
+        }
+        if (enumIndex == m_ast.enums.count()) {
+            setErrorString(QLatin1String("FLAG: Unknown (global) enum: %1").arg(_enum));
+            return false;
+        }
+        auto flag = ASTFlag(name, _enum);
+        flag.generateSignature(m_ast);
+        m_ast.flags.append(flag);
     }
     break;
 ./

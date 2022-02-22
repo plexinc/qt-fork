@@ -4,9 +4,10 @@
 
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
 
+#include "base/check_op.h"
 #include "base/command_line.h"
-#include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/notreached.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
@@ -18,16 +19,6 @@
 
 namespace {
 
-// The Extended Reporting pref that is currently active, used for UMA metrics.
-// These values are written to logs.  New enum values can be added, but
-// existing enums must never be renumbered or deleted and reused.
-enum ActiveExtendedReportingPref {
-  SBER1_PREF = 0,
-  SBER2_PREF = 1,
-  // New prefs must be added before MAX_SBER_PREF
-  MAX_SBER_PREF
-};
-
 // Update the correct UMA metric based on which pref was changed and which UI
 // the change was made on.
 void RecordExtendedReportingPrefChanged(
@@ -37,24 +28,20 @@ void RecordExtendedReportingPrefChanged(
 
   switch (location) {
     case safe_browsing::SBER_OPTIN_SITE_CHROME_SETTINGS:
-      UMA_HISTOGRAM_BOOLEAN(
-          "SafeBrowsing.Pref.Scout.SetPref.SBER2Pref.ChromeSettings",
-          pref_value);
+      UMA_HISTOGRAM_BOOLEAN("SafeBrowsing.Pref.Extended.ChromeSettings",
+                            pref_value);
       break;
     case safe_browsing::SBER_OPTIN_SITE_ANDROID_SETTINGS:
-      UMA_HISTOGRAM_BOOLEAN(
-          "SafeBrowsing.Pref.Scout.SetPref.SBER2Pref.AndroidSettings",
-          pref_value);
+      UMA_HISTOGRAM_BOOLEAN("SafeBrowsing.Pref.Extended.AndroidSettings",
+                            pref_value);
       break;
     case safe_browsing::SBER_OPTIN_SITE_DOWNLOAD_FEEDBACK_POPUP:
-      UMA_HISTOGRAM_BOOLEAN(
-          "SafeBrowsing.Pref.Scout.SetPref.SBER2Pref.DownloadPopup",
-          pref_value);
+      UMA_HISTOGRAM_BOOLEAN("SafeBrowsing.Pref.Extended.DownloadPopup",
+                            pref_value);
       break;
     case safe_browsing::SBER_OPTIN_SITE_SECURITY_INTERSTITIAL:
-      UMA_HISTOGRAM_BOOLEAN(
-          "SafeBrowsing.Pref.Scout.SetPref.SBER2Pref.SecurityInterstitial",
-          pref_value);
+      UMA_HISTOGRAM_BOOLEAN("SafeBrowsing.Pref.Extended.SecurityInterstitial",
+                            pref_value);
       break;
     default:
       NOTREACHED();
@@ -80,8 +67,14 @@ GURL GetSimplifiedURL(const GURL& url) {
 }  // namespace
 
 namespace prefs {
+const char kSafeBrowsingCsdPingTimestamps[] =
+    "safebrowsing.csd_ping_timestamps";
 const char kSafeBrowsingEnabled[] = "safebrowsing.enabled";
 const char kSafeBrowsingEnhanced[] = "safebrowsing.enhanced";
+const char kSafeBrowsingEnterpriseRealTimeUrlCheckMode[] =
+    "safebrowsing.enterprise_real_time_url_check_mode";
+const char kSafeBrowsingEnterpriseRealTimeUrlCheckScope[] =
+    "safebrowsing.enterprise_real_time_url_check_scope";
 const char kSafeBrowsingExtendedReportingOptInAllowed[] =
     "safebrowsing.extended_reporting_opt_in_allowed";
 const char kSafeBrowsingIncidentsSent[] = "safebrowsing.incidents_sent";
@@ -97,7 +90,7 @@ const char kSafeBrowsingUnhandledGaiaPasswordReuses[] =
     "safebrowsing.unhandled_sync_password_reuses";
 const char kSafeBrowsingNextPasswordCaptureEventLogTime[] =
     "safebrowsing.next_password_capture_event_log_time";
-const char kSafeBrowsingWhitelistDomains[] =
+const char kSafeBrowsingAllowlistDomains[] =
     "safebrowsing.safe_browsing_whitelist_domains";
 const char kPasswordProtectionChangePasswordURL[] =
     "safebrowsing.password_protection_change_password_url";
@@ -107,30 +100,11 @@ const char kPasswordProtectionWarningTrigger[] =
     "safebrowsing.password_protection_warning_trigger";
 const char kAdvancedProtectionLastRefreshInUs[] =
     "safebrowsing.advanced_protection_last_refresh";
-const char kSafeBrowsingSendFilesForMalwareCheck[] =
-    "safebrowsing.send_files_for_malware_check";
-const char kUnsafeEventsReportingEnabled[] =
-    "safebrowsing.unsafe_events_reporting";
-const char kBlockLargeFileTransfer[] =
-    "safebrowsing.block_large_file_transfers";
-const char kDelayDeliveryUntilVerdict[] =
-    "safebrowsing.delay_delivery_until_verdict";
-const char kAllowPasswordProtectedFiles[] =
-    "safebrowsing.allow_password_protected_files";
-const char kCheckContentCompliance[] = "safebrowsing.check_content_compliance";
-const char kBlockUnsupportedFiletypes[] =
-    "safebrowsing.block_unsupported_filetypes";
-const char kURLsToCheckComplianceOfDownloadedContent[] =
-    "safebrowsing.urls_to_check_compliance_of_downloaded_content";
-const char kURLsToCheckForMalwareOfUploadedContent[] =
-    "safebrowsing.urls_to_check_for_malware_of_uploaded_content";
-const char kURLsToNotCheckForMalwareOfDownloadedContent[] =
-    "safebrowsing.urls_to_not_check_for_malware_of_downloaded_content";
-const char kURLsToNotCheckComplianceOfUploadedContent[] =
-    "policy.urls_to_not_check_compliance_of_uploaded_content";
 const char kAdvancedProtectionAllowed[] =
     "safebrowsing.advanced_protection_allowed";
-
+const char kSafeBrowsingMetricsLastLogTime[] =
+    "safebrowsing.metrics_last_log_time";
+const char kSafeBrowsingEventTimestamps[] = "safebrowsing.event_timestamps";
 }  // namespace prefs
 
 namespace safe_browsing {
@@ -145,6 +119,19 @@ SafeBrowsingState GetSafeBrowsingState(const PrefService& prefs) {
   }
 }
 
+void SetSafeBrowsingState(PrefService* prefs, SafeBrowsingState state) {
+  if (state == ENHANCED_PROTECTION) {
+    SetEnhancedProtectionPref(prefs, true);
+    SetStandardProtectionPref(prefs, true);
+  } else if (state == STANDARD_PROTECTION) {
+    SetEnhancedProtectionPref(prefs, false);
+    SetStandardProtectionPref(prefs, true);
+  } else {
+    SetEnhancedProtectionPref(prefs, false);
+    SetStandardProtectionPref(prefs, false);
+  }
+}
+
 bool IsSafeBrowsingEnabled(const PrefService& prefs) {
   return prefs.GetBoolean(prefs::kSafeBrowsingEnabled);
 }
@@ -152,9 +139,9 @@ bool IsSafeBrowsingEnabled(const PrefService& prefs) {
 bool IsEnhancedProtectionEnabled(const PrefService& prefs) {
   // SafeBrowsingEnabled is checked too due to devices being out
   // of sync or not on a version that includes SafeBrowsingEnhanced pref.
-  return prefs.GetBoolean(prefs::kSafeBrowsingEnhanced) &&
-         IsSafeBrowsingEnabled(prefs) &&
-         base::FeatureList::IsEnabled(kEnhancedProtection);
+  return base::FeatureList::IsEnabled(kEnhancedProtection) &&
+         prefs.GetBoolean(prefs::kSafeBrowsingEnhanced) &&
+         IsSafeBrowsingEnabled(prefs);
 }
 
 bool ExtendedReportingPrefExists(const PrefService& prefs) {
@@ -179,6 +166,16 @@ bool IsExtendedReportingPolicyManaged(const PrefService& prefs) {
   return prefs.IsManagedPreference(prefs::kSafeBrowsingScoutReportingEnabled);
 }
 
+bool IsSafeBrowsingPolicyManaged(const PrefService& prefs) {
+  return prefs.IsManagedPreference(prefs::kSafeBrowsingEnabled) ||
+         prefs.IsManagedPreference(prefs::kSafeBrowsingEnhanced);
+}
+
+bool IsEnhancedProtectionMessageInInterstitialsEnabled() {
+  return base::FeatureList::IsEnabled(
+      kEnhancedProtectionMessageInInterstitials);
+}
+
 void RecordExtendedReportingMetrics(const PrefService& prefs) {
   // This metric tracks the extended browsing opt-in based on whichever setting
   // the user is currently seeing. It tells us whether extended reporting is
@@ -188,11 +185,12 @@ void RecordExtendedReportingMetrics(const PrefService& prefs) {
 
   // Track whether this user has ever seen a security interstitial.
   UMA_HISTOGRAM_BOOLEAN(
-      "SafeBrowsing.Pref.SawInterstitial.SBER2Pref",
+      "SafeBrowsing.Pref.SawInterstitial",
       prefs.GetBoolean(prefs::kSafeBrowsingSawInterstitialScoutReporting));
 }
 
 void RegisterProfilePrefs(PrefRegistrySimple* registry) {
+  registry->RegisterListPref(prefs::kSafeBrowsingCsdPingTimestamps);
   registry->RegisterBooleanPref(prefs::kSafeBrowsingScoutReportingEnabled,
                                 false);
   registry->RegisterBooleanPref(
@@ -211,33 +209,24 @@ void RegisterProfilePrefs(PrefRegistrySimple* registry) {
   registry->RegisterStringPref(
       prefs::kSafeBrowsingNextPasswordCaptureEventLogTime,
       "0");  // int64 as string
-  registry->RegisterListPref(prefs::kSafeBrowsingWhitelistDomains);
+  registry->RegisterListPref(prefs::kSafeBrowsingAllowlistDomains);
   registry->RegisterStringPref(prefs::kPasswordProtectionChangePasswordURL, "");
   registry->RegisterListPref(prefs::kPasswordProtectionLoginURLs);
   registry->RegisterIntegerPref(prefs::kPasswordProtectionWarningTrigger,
                                 PASSWORD_PROTECTION_OFF);
   registry->RegisterInt64Pref(prefs::kAdvancedProtectionLastRefreshInUs, 0);
-  registry->RegisterIntegerPref(prefs::kSafeBrowsingSendFilesForMalwareCheck,
-                                DO_NOT_SCAN);
   registry->RegisterBooleanPref(prefs::kAdvancedProtectionAllowed, true);
+  registry->RegisterIntegerPref(
+      prefs::kSafeBrowsingEnterpriseRealTimeUrlCheckMode,
+      REAL_TIME_CHECK_DISABLED);
+  registry->RegisterIntegerPref(
+      prefs::kSafeBrowsingEnterpriseRealTimeUrlCheckScope, 0);
+  registry->RegisterInt64Pref(prefs::kSafeBrowsingMetricsLastLogTime, 0);
+  registry->RegisterDictionaryPref(prefs::kSafeBrowsingEventTimestamps);
 }
 
 void RegisterLocalStatePrefs(PrefRegistrySimple* registry) {
   registry->RegisterDictionaryPref(prefs::kSafeBrowsingTriggerEventTimestamps);
-  registry->RegisterBooleanPref(prefs::kUnsafeEventsReportingEnabled, false);
-  registry->RegisterIntegerPref(prefs::kBlockLargeFileTransfer, 0);
-  registry->RegisterIntegerPref(prefs::kDelayDeliveryUntilVerdict, DELAY_NONE);
-  registry->RegisterIntegerPref(
-      prefs::kAllowPasswordProtectedFiles,
-      AllowPasswordProtectedFilesValues::ALLOW_UPLOADS_AND_DOWNLOADS);
-  registry->RegisterIntegerPref(prefs::kCheckContentCompliance, CHECK_NONE);
-  registry->RegisterIntegerPref(prefs::kBlockUnsupportedFiletypes,
-                                BLOCK_UNSUPPORTED_FILETYPES_NONE);
-  registry->RegisterListPref(prefs::kURLsToCheckComplianceOfDownloadedContent);
-  registry->RegisterListPref(prefs::kURLsToNotCheckComplianceOfUploadedContent);
-  registry->RegisterListPref(prefs::kURLsToCheckForMalwareOfUploadedContent);
-  registry->RegisterListPref(
-      prefs::kURLsToNotCheckForMalwareOfDownloadedContent);
 }
 
 void SetExtendedReportingPrefAndMetric(
@@ -248,76 +237,23 @@ void SetExtendedReportingPrefAndMetric(
   RecordExtendedReportingPrefChanged(*prefs, location);
 }
 
-void SetExtendedReportingPref(PrefService* prefs, bool value) {
+void SetExtendedReportingPrefForTests(PrefService* prefs, bool value) {
   prefs->SetBoolean(prefs::kSafeBrowsingScoutReportingEnabled, value);
 }
 
-void SetEnhancedProtectionPref(PrefService* prefs, bool value) {
+void SetEnhancedProtectionPrefForTests(PrefService* prefs, bool value) {
   // SafeBrowsingEnabled pref needs to be turned on in order for enhanced
   // protection pref to be turned on. This method is only used for tests.
   prefs->SetBoolean(prefs::kSafeBrowsingEnabled, value);
   prefs->SetBoolean(prefs::kSafeBrowsingEnhanced, value);
 }
 
-void UpdateMetricsAfterSecurityInterstitial(const PrefService& prefs,
-                                            bool on_show_pref_existed,
-                                            bool on_show_pref_value) {
-  const bool cur_pref_value = IsExtendedReportingEnabled(prefs);
+void SetEnhancedProtectionPref(PrefService* prefs, bool value) {
+  prefs->SetBoolean(prefs::kSafeBrowsingEnhanced, value);
+}
 
-  if (!on_show_pref_existed) {
-    if (!ExtendedReportingPrefExists(prefs)) {
-      // User seeing pref for the first time, didn't touch the checkbox (left it
-      // unchecked).
-      UMA_HISTOGRAM_ENUMERATION(
-          "SafeBrowsing.Pref.Scout.Decision.First_LeftUnchecked", SBER2_PREF,
-          MAX_SBER_PREF);
-      return;
-    }
-
-    // Pref currently exists so user did something to the checkbox
-    if (cur_pref_value) {
-      // User turned the pref on.
-      UMA_HISTOGRAM_ENUMERATION(
-          "SafeBrowsing.Pref.Scout.Decision.First_Enabled", SBER2_PREF,
-          MAX_SBER_PREF);
-      return;
-    }
-
-    // Otherwise, user turned the pref off, but because it didn't exist when
-    // the interstitial was first shown, they must have turned it on and then
-    // off before the interstitial was closed.
-    UMA_HISTOGRAM_ENUMERATION("SafeBrowsing.Pref.Scout.Decision.First_Disabled",
-                              SBER2_PREF, MAX_SBER_PREF);
-    return;
-  }
-
-  // At this point, the pref existed when the interstitial was shown so this is
-  // a repeat appearance of the opt-in. Existence can't be removed during an
-  // interstitial so no need to check whether the pref currently exists.
-  if (on_show_pref_value && cur_pref_value) {
-    // User left the pref on.
-    UMA_HISTOGRAM_ENUMERATION(
-        "SafeBrowsing.Pref.Scout.Decision.Repeat_LeftEnabled", SBER2_PREF,
-        MAX_SBER_PREF);
-    return;
-  } else if (on_show_pref_value && !cur_pref_value) {
-    // User turned the pref off.
-    UMA_HISTOGRAM_ENUMERATION(
-        "SafeBrowsing.Pref.Scout.Decision.Repeat_Disabled", SBER2_PREF,
-        MAX_SBER_PREF);
-    return;
-  } else if (!on_show_pref_value && cur_pref_value) {
-    // User turned the pref on.
-    UMA_HISTOGRAM_ENUMERATION("SafeBrowsing.Pref.Scout.Decision.Repeat_Enabled",
-                              SBER2_PREF, MAX_SBER_PREF);
-    return;
-  } else {
-    // Both on_show and cur values are false - user left the pref off.
-    UMA_HISTOGRAM_ENUMERATION(
-        "SafeBrowsing.Pref.Scout.Decision.Repeat_LeftDisabled", SBER2_PREF,
-        MAX_SBER_PREF);
-    return;
-  }
+void SetStandardProtectionPref(PrefService* prefs, bool value) {
+  prefs->SetBoolean(prefs::kSafeBrowsingEnabled, value);
 }
 
 void UpdatePrefsBeforeSecurityInterstitial(PrefService* prefs) {
@@ -343,11 +279,11 @@ base::ListValue GetSafeBrowsingPreferencesList(PrefService* prefs) {
   return preferences_list;
 }
 
-void GetSafeBrowsingWhitelistDomainsPref(
+void GetSafeBrowsingAllowlistDomainsPref(
     const PrefService& prefs,
     std::vector<std::string>* out_canonicalized_domain_list) {
   const base::ListValue* pref_value =
-      prefs.GetList(prefs::kSafeBrowsingWhitelistDomains);
+      prefs.GetList(prefs::kSafeBrowsingAllowlistDomains);
   CanonicalizeDomainList(*pref_value, out_canonicalized_domain_list);
 }
 
@@ -366,27 +302,46 @@ void CanonicalizeDomainList(
   }
 }
 
-bool IsURLWhitelistedByPolicy(const GURL& url,
+bool IsURLAllowlistedByPolicy(const GURL& url,
                               StringListPrefMember* pref_member) {
   DCHECK(CurrentlyOnThread(ThreadID::IO));
   if (!pref_member)
     return false;
 
-  std::vector<std::string> sb_whitelist_domains = pref_member->GetValue();
-  return std::find_if(sb_whitelist_domains.begin(), sb_whitelist_domains.end(),
+  std::vector<std::string> sb_allowlist_domains = pref_member->GetValue();
+  return std::find_if(sb_allowlist_domains.begin(), sb_allowlist_domains.end(),
                       [&url](const std::string& domain) {
                         return url.DomainIs(domain);
-                      }) != sb_whitelist_domains.end();
+                      }) != sb_allowlist_domains.end();
 }
 
-bool IsURLWhitelistedByPolicy(const GURL& url, const PrefService& pref) {
+bool IsURLAllowlistedByPolicy(const GURL& url, const PrefService& pref) {
   DCHECK(CurrentlyOnThread(ThreadID::UI));
-  if (!pref.HasPrefPath(prefs::kSafeBrowsingWhitelistDomains))
+  if (!pref.HasPrefPath(prefs::kSafeBrowsingAllowlistDomains))
     return false;
-  const base::ListValue* whitelist =
-      pref.GetList(prefs::kSafeBrowsingWhitelistDomains);
-  for (const base::Value& value : whitelist->GetList()) {
+  const base::ListValue* allowlist =
+      pref.GetList(prefs::kSafeBrowsingAllowlistDomains);
+  for (const base::Value& value : allowlist->GetList()) {
     if (url.DomainIs(value.GetString()))
+      return true;
+  }
+  return false;
+}
+
+std::vector<std::string> GetURLAllowlistByPolicy(PrefService* pref_service) {
+  std::vector<std::string> allowlist_domains;
+  const base::ListValue* allowlist =
+      pref_service->GetList(prefs::kSafeBrowsingAllowlistDomains);
+  for (const base::Value& value : allowlist->GetList()) {
+    allowlist_domains.push_back(value.GetString());
+  }
+  return allowlist_domains;
+}
+
+bool MatchesEnterpriseAllowlist(const PrefService& pref,
+                                const std::vector<GURL>& url_chain) {
+  for (const GURL& url : url_chain) {
+    if (IsURLAllowlistedByPolicy(url, pref))
       return true;
   }
   return false;

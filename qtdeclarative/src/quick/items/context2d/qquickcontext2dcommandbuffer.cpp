@@ -43,10 +43,6 @@
 #include <QtCore/QMutex>
 #include <QtQuick/qsgtexture.h>
 #include <QtGui/QPaintEngine>
-#if QT_CONFIG(opengl)
-# include <QtGui/QOpenGLContext>
-# include <QtGui/private/qopenglpaintengine_p.h>
-#endif
 
 #define HAS_SHADOW(offsetX, offsetY, blur, color) (color.isValid() && color.alpha() && (blur || offsetX || offsetY))
 
@@ -375,7 +371,10 @@ void QQuickContext2DCommandBuffer::replay(QPainter* p, QQuickContext2D::State& s
             }
             state.lineDash = pattern;
             QPen nPen = p->pen();
-            nPen.setDashPattern(pattern);
+            if (count > 0)
+                nPen.setDashPattern(pattern);
+            else
+                nPen.setStyle(Qt::SolidLine);
             p->setPen(nPen);
             break;
         }

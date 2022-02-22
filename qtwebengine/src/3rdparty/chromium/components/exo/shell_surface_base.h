@@ -58,7 +58,6 @@ class ShellSurfaceBase : public SurfaceTreeHost,
   // specified as part of the geometry is relative to the shell surface.
   ShellSurfaceBase(Surface* surface,
                    const gfx::Point& origin,
-                   bool activatable,
                    bool can_minimize,
                    int container);
   ~ShellSurfaceBase() override;
@@ -144,28 +143,31 @@ class ShellSurfaceBase : public SurfaceTreeHost,
   void OnSetFrameColors(SkColor active_color, SkColor inactive_color) override;
   void OnSetStartupId(const char* startup_id) override;
   void OnSetApplicationId(const char* application_id) override;
+  void SetUseImmersiveForFullscreen(bool value) override;
+  void ShowSnapPreviewToLeft() override;
+  void ShowSnapPreviewToRight() override;
+  void HideSnapPreview() override;
+  void SetSnappedToLeft() override;
+  void SetSnappedToRight() override;
+  void UnsetSnap() override;
   void OnActivationRequested() override;
+  void OnSetServerStartResize() override;
 
   // SurfaceObserver:
   void OnSurfaceDestroying(Surface* surface) override;
+  void OnContentSizeChanged(Surface*) override {}
 
   // CaptureClientObserver:
   void OnCaptureChanged(aura::Window* lost_capture,
                         aura::Window* gained_capture) override;
 
   // views::WidgetDelegate:
-  bool CanResize() const override;
-  bool CanMaximize() const override;
-  bool CanMinimize() const override;
-  base::string16 GetWindowTitle() const override;
-  bool ShouldShowWindowTitle() const override;
-  gfx::ImageSkia GetWindowIcon() override;
   bool OnCloseRequested(views::Widget::ClosedReason close_reason) override;
   void WindowClosing() override;
   views::Widget* GetWidget() override;
   const views::Widget* GetWidget() const override;
   views::View* GetContentsView() override;
-  views::NonClientFrameView* CreateNonClientFrameView(
+  std::unique_ptr<views::NonClientFrameView> CreateNonClientFrameView(
       views::Widget* widget) override;
   bool WidgetHasHitTestMask() const override;
   void GetWidgetHitTestMask(SkPath* mask) const override;
@@ -181,6 +183,10 @@ class ShellSurfaceBase : public SurfaceTreeHost,
 
   // aura::WindowObserver:
   void OnWindowDestroying(aura::Window* window) override;
+  void OnWindowPropertyChanged(aura::Window* window,
+                               const void* key,
+                               intptr_t old_value) override;
+  void OnWindowAddedToRootWindow(aura::Window* window) override;
 
   // wm::ActivationChangeObserver:
   void OnWindowActivated(ActivationReason reason,
@@ -196,11 +202,20 @@ class ShellSurfaceBase : public SurfaceTreeHost,
   }
 
   Surface* surface_for_testing() { return root_surface(); }
+  bool get_shadow_bounds_changed_for_testing() {
+    return shadow_bounds_changed_;
+  }
+
+  bool server_side_resize() const { return server_side_resize_; }
 
  protected:
   // Creates the |widget_| for |surface_|. |show_state| is the initial state
   // of the widget (e.g. maximized).
   void CreateShellSurfaceWidget(ui::WindowShowState show_state);
+
+  // Lets subclasses modify Widget parameters immediately before widget
+  // creation.
+  virtual void OverrideInitParams(views::Widget::InitParams* params) {}
 
   // Returns true if surface is currently being resized.
   bool IsResizing() const;
@@ -218,6 +233,8 @@ class ShellSurfaceBase : public SurfaceTreeHost,
   // |shadow_bounds_|.
   void UpdateShadow();
 
+  virtual void UpdateFrameType();
+
   // Applies |system_modal_| to |widget_|.
   void UpdateSystemModal();
 
@@ -234,17 +251,21 @@ class ShellSurfaceBase : public SurfaceTreeHost,
   void StartCapture();
 
   const gfx::Rect& geometry() const { return geometry_; }
+  aura::Window* parent() const { return parent_; }
 
   // Install custom window targeter. Used to restore window targeter.
   void InstallCustomWindowTargeter();
 
   // Creates a NonClientFrameView for shell surface.
-  views::NonClientFrameView* CreateNonClientFrameViewInternal(
-      views::Widget* widget,
-      bool client_controlled);
+  std::unique_ptr<views::NonClientFrameView> CreateNonClientFrameViewInternal(
+      views::Widget* widget);
+
+  virtual void OnPostWidgetCommit();
+
+  void SetParentInternal(aura::Window* window);
+  void SetContainerInternal(int container);
 
   views::Widget* widget_ = nullptr;
-  aura::Window* parent_ = nullptr;
   bool movement_disabled_ = false;
   gfx::Point origin_;
 
@@ -256,10 +277,10 @@ class ShellSurfaceBase : public SurfaceTreeHost,
   int64_t pending_display_id_ = display::kInvalidDisplayId;
   base::Optional<gfx::Rect> shadow_bounds_;
   bool shadow_bounds_changed_ = false;
-  base::string16 title_;
   SurfaceFrameType frame_type_ = SurfaceFrameType::NONE;
   bool is_popup_ = false;
   bool has_grab_ = false;
+  bool server_side_resize_ = false;
 
  private:
   FRIEND_TEST_ALL_PREFIXES(ShellSurfaceTest,
@@ -279,10 +300,12 @@ class ShellSurfaceBase : public SurfaceTreeHost,
 
   // Commit is deferred if this returns false.
   virtual bool OnPreWidgetCommit() = 0;
-  virtual void OnPostWidgetCommit() = 0;
 
   void CommitWidget();
 
+  bool IsFrameDecorationSupported(SurfaceFrameType frame_type);
+
+  aura::Window* parent_ = nullptr;
   bool activatable_ = true;
   bool can_minimize_ = true;
   bool has_frame_colors_ = false;
@@ -291,12 +314,12 @@ class ShellSurfaceBase : public SurfaceTreeHost,
   bool pending_show_widget_ = false;
   base::Optional<std::string> application_id_;
   base::Optional<std::string> startup_id_;
+  bool immersive_implied_by_fullscreen_ = true;
   base::RepeatingClosure close_callback_;
   base::RepeatingClosure pre_close_callback_;
   base::OnceClosure surface_destroyed_callback_;
   bool system_modal_ = false;
   bool non_system_modal_window_was_active_ = false;
-  gfx::ImageSkia icon_;
   gfx::Size minimum_size_;
   gfx::Size pending_minimum_size_;
   gfx::Size maximum_size_;

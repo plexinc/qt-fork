@@ -8,7 +8,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/files/file.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
@@ -188,9 +188,9 @@ class QuotaReservationManagerTest : public testing::Test {
     file_path_ = work_dir_.GetPath().Append(FILE_PATH_LITERAL("hoge"));
     SetFileSize(file_path_, kInitialFileSize);
 
-    std::unique_ptr<QuotaReservationManager::QuotaBackend> backend(
-        new FakeBackend);
-    reservation_manager_.reset(new QuotaReservationManager(std::move(backend)));
+    auto backend = std::make_unique<FakeBackend>();
+    reservation_manager_ =
+        std::make_unique<QuotaReservationManager>(std::move(backend));
   }
 
   void TearDown() override { reservation_manager_.reset(); }

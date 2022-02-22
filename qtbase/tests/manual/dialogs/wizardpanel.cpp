@@ -73,7 +73,7 @@ class WizardStyleControl : public QGroupBox
 {
     Q_OBJECT
 public:
-    WizardStyleControl(QWidget *parent = 0);
+    WizardStyleControl(QWidget *parent = nullptr);
 
     void setWizardStyle(int style);
     QWizard::WizardStyle wizardStyle() const;
@@ -90,7 +90,7 @@ WizardStyleControl::WizardStyleControl(QWidget *parent)
     , m_group(new QButtonGroup(this))
 {
     m_group->setExclusive(true);
-    connect(m_group, SIGNAL(buttonClicked(int)), this, SIGNAL(wizardStyleChanged(int)));
+    connect(m_group, &QButtonGroup::idClicked, this, &WizardStyleControl::wizardStyleChanged);
     QVBoxLayout *vLayout = new QVBoxLayout(this);
     QRadioButton *radioButton = new QRadioButton(tr("None/OS Default"), this);
     m_group->addButton(radioButton, QWizard::NStyles);
@@ -132,7 +132,7 @@ void WizardStyleControl::setWizardStyle(int wizardStyle)
 class WizardOptionsControl : public QGroupBox
 {
 public:
-    explicit WizardOptionsControl(QWidget *parent = 0);
+    explicit WizardOptionsControl(QWidget *parent = nullptr);
 
     QWizard::WizardOption wizardOptions() const;
     void setWizardOptions(int options);
@@ -214,7 +214,7 @@ void Wizard::changeWizardStyle(int newStyle)
 class WizardPage : public QWizardPage
 {
 public:
-    explicit WizardPage(const QString &title, QWidget *parent = 0);
+    explicit WizardPage(const QString &title, QWidget *parent = nullptr);
 
     void initializePage();
 
@@ -257,7 +257,7 @@ Wizard::Wizard(QWidget *parent, Qt::WindowFlags flags)
 // A dialog using a Wizard as child widget (emulating Qt Designer).
 class WizardEmbeddingDialog : public QDialog {
 public:
-    explicit WizardEmbeddingDialog(QWidget *parent = 0);
+    explicit WizardEmbeddingDialog(QWidget *parent = nullptr);
 
     Wizard *wizard() const { return m_wizard; }
 

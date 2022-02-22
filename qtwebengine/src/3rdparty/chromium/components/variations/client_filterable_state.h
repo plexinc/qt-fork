@@ -34,6 +34,9 @@ using IsEnterpriseFunction = base::OnceCallback<bool()>;
 struct ClientFilterableState {
   static Study::Platform GetCurrentPlatform();
 
+  // base::Version used in {min,max}_os_version filtering.
+  static base::Version GetOSVersion();
+
   explicit ClientFilterableState(IsEnterpriseFunction is_enterprise_function);
   ~ClientFilterableState();
 
@@ -60,6 +63,9 @@ struct ClientFilterableState {
 
   // The hardware form factor that Chrome is running on.
   Study::FormFactor form_factor;
+
+  // The CPU architecture on which Chrome is running.
+  Study::CpuArchitecture cpu_architecture;
 
   // The OS on which Chrome is running.
   Study::Platform platform;

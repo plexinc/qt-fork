@@ -30,7 +30,7 @@
 #include "declarativebars_p.h"
 #include <QtCore/QMutexLocker>
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 DeclarativeBars::DeclarativeBars(QQuickItem *parent)
     : AbstractDeclarative(parent),
@@ -112,7 +112,7 @@ float DeclarativeBars::barThickness() const
     return m_barsController->barThickness();
 }
 
-void DeclarativeBars::setBarSpacing(QSizeF spacing)
+void DeclarativeBars::setBarSpacing(const QSizeF &spacing)
 {
     if (spacing != barSpacing()) {
         m_barsController->setBarSpecs(GLfloat(barThickness()), spacing, isBarSpacingRelative());
@@ -170,12 +170,12 @@ void DeclarativeBars::appendSeriesFunc(QQmlListProperty<QBar3DSeries> *list, QBa
     reinterpret_cast<DeclarativeBars *>(list->data)->addSeries(series);
 }
 
-int DeclarativeBars::countSeriesFunc(QQmlListProperty<QBar3DSeries> *list)
+qsizetype DeclarativeBars::countSeriesFunc(QQmlListProperty<QBar3DSeries> *list)
 {
     return reinterpret_cast<DeclarativeBars *>(list->data)->m_barsController->barSeriesList().size();
 }
 
-QBar3DSeries *DeclarativeBars::atSeriesFunc(QQmlListProperty<QBar3DSeries> *list, int index)
+QBar3DSeries *DeclarativeBars::atSeriesFunc(QQmlListProperty<QBar3DSeries> *list, qsizetype index)
 {
     return reinterpret_cast<DeclarativeBars *>(list->data)->m_barsController->barSeriesList().at(index);
 }
@@ -230,4 +230,4 @@ void DeclarativeBars::handleAxisZChanged(QAbstract3DAxis *axis)
     emit rowAxisChanged(static_cast<QCategory3DAxis *>(axis));
 }
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE

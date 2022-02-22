@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/core/testing/sim/sim_test.h"
 
+#include "base/run_loop.h"
 #include "content/test/test_blink_web_unit_test_support.h"
 #include "third_party/blink/public/platform/web_cache.h"
 #include "third_party/blink/public/web/web_navigation_params.h"
@@ -46,17 +47,28 @@ void SimTest::SetUp() {
       std::make_unique<frame_test_helpers::TestWebFrameClient>();
   web_view_client_ = std::make_unique<frame_test_helpers::TestWebViewClient>();
   page_ = std::make_unique<SimPage>();
-  web_view_helper_ = std::make_unique<frame_test_helpers::WebViewHelper>();
+  web_view_helper_ =
+      std::make_unique<frame_test_helpers::WebViewHelper>(base::BindRepeating(
+          &SimTest::CreateTestWebFrameWidget, base::Unretained(this)));
 
-  web_view_helper_->Initialize(web_frame_client_.get(), web_view_client_.get(),
-                               compositor_.get());
+  web_view_helper_->Initialize(web_frame_client_.get(), web_view_client_.get());
   compositor_->SetWebView(WebView(), *web_view_client_);
   page_->SetPage(WebView().GetPage());
+  local_frame_root_ = WebView().MainFrameImpl();
+  compositor_->SetLayerTreeHost(
+      local_frame_root_->FrameWidgetImpl()->LayerTreeHostForTesting());
+
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(300, 200));
 }
 
 void SimTest::TearDown() {
   // Pump the message loop to process the load event.
-  test::RunPendingTasks();
+  //
+  // Use RunUntilIdle() instead of blink::test::RunPendingTask(), because
+  // blink::test::RunPendingTask() posts directly to
+  // Thread::Current()->GetTaskRunner(), which makes it incompatible with a
+  // TestingPlatformSupportWithMockScheduler.
+  base::RunLoop().RunUntilIdle();
 
   // Shut down this stuff before settings change to keep the world
   // consistent, and before the subclass tears down.
@@ -66,16 +78,31 @@ void SimTest::TearDown() {
   web_frame_client_.reset();
   compositor_.reset();
   network_.reset();
+  local_frame_root_ = nullptr;
+  base::RunLoop().RunUntilIdle();
+}
+
+void SimTest::InitializeRemote() {
+  web_view_helper_->InitializeRemote();
+  compositor_->SetWebView(WebView(), *web_view_client_);
+  page_->SetPage(WebView().GetPage());
+  web_frame_client_ =
+      std::make_unique<frame_test_helpers::TestWebFrameClient>();
+  local_frame_root_ = web_view_helper_->CreateLocalChild(
+      *WebView().MainFrame()->ToWebRemoteFrame(), "local_frame_root",
+      WebFrameOwnerProperties(), nullptr, web_frame_client_.get());
+  compositor_->SetLayerTreeHost(
+      local_frame_root_->FrameWidgetImpl()->LayerTreeHostForTesting());
 }
 
 void SimTest::LoadURL(const String& url_string) {
   KURL url(url_string);
-  frame_test_helpers::LoadFrameDontWait(WebView().MainFrameImpl(), url);
+  frame_test_helpers::LoadFrameDontWait(local_frame_root_.Get(), url);
   if (DocumentLoader::WillLoadUrlAsEmpty(url) || url.ProtocolIsData()) {
     // Empty documents and data urls are not using mocked out SimRequests,
     // but instead load data directly.
     frame_test_helpers::PumpPendingRequestsForFrameToLoad(
-        WebView().MainFrameImpl());
+        local_frame_root_.Get());
   }
 }
 
@@ -99,16 +126,20 @@ WebLocalFrameImpl& SimTest::MainFrame() {
   return *WebView().MainFrameImpl();
 }
 
+WebLocalFrameImpl& SimTest::LocalFrameRoot() {
+  return *local_frame_root_;
+}
+
 frame_test_helpers::TestWebViewClient& SimTest::WebViewClient() {
   return *web_view_client_;
 }
 
-frame_test_helpers::TestWebWidgetClient& SimTest::WebWidgetClient() {
-  return *compositor_;
-}
-
 frame_test_helpers::TestWebFrameClient& SimTest::WebFrameClient() {
   return *web_frame_client_;
+}
+
+SimWebFrameWidget& SimTest::GetWebFrameWidget() {
+  return *static_cast<SimWebFrameWidget*>(local_frame_root_->FrameWidgetImpl());
 }
 
 SimCompositor& SimTest::Compositor() {
@@ -117,6 +148,53 @@ SimCompositor& SimTest::Compositor() {
 
 Vector<String>& SimTest::ConsoleMessages() {
   return web_frame_client_->ConsoleMessages();
+}
+
+SimWebFrameWidget* SimTest::CreateSimWebFrameWidget(
+    base::PassKey<WebLocalFrame> pass_key,
+    CrossVariantMojoAssociatedRemote<mojom::blink::FrameWidgetHostInterfaceBase>
+        frame_widget_host,
+    CrossVariantMojoAssociatedReceiver<mojom::blink::FrameWidgetInterfaceBase>
+        frame_widget,
+    CrossVariantMojoAssociatedRemote<mojom::blink::WidgetHostInterfaceBase>
+        widget_host,
+    CrossVariantMojoAssociatedReceiver<mojom::blink::WidgetInterfaceBase>
+        widget,
+    scoped_refptr<base::SingleThreadTaskRunner> task_runner,
+    const viz::FrameSinkId& frame_sink_id,
+    bool hidden,
+    bool never_composited,
+    bool is_for_child_local_root,
+    bool is_for_nested_main_frame,
+    SimCompositor* compositor) {
+  return MakeGarbageCollected<SimWebFrameWidget>(
+      compositor, std::move(pass_key), std::move(frame_widget_host),
+      std::move(frame_widget), std::move(widget_host), std::move(widget),
+      std::move(task_runner), frame_sink_id, hidden, never_composited,
+      is_for_child_local_root, is_for_nested_main_frame);
+}
+
+frame_test_helpers::TestWebFrameWidget* SimTest::CreateTestWebFrameWidget(
+    base::PassKey<WebLocalFrame> pass_key,
+    CrossVariantMojoAssociatedRemote<mojom::blink::FrameWidgetHostInterfaceBase>
+        frame_widget_host,
+    CrossVariantMojoAssociatedReceiver<mojom::blink::FrameWidgetInterfaceBase>
+        frame_widget,
+    CrossVariantMojoAssociatedRemote<mojom::blink::WidgetHostInterfaceBase>
+        widget_host,
+    CrossVariantMojoAssociatedReceiver<mojom::blink::WidgetInterfaceBase>
+        widget,
+    scoped_refptr<base::SingleThreadTaskRunner> task_runner,
+    const viz::FrameSinkId& frame_sink_id,
+    bool hidden,
+    bool never_composited,
+    bool is_for_child_local_root,
+    bool is_for_nested_main_frame) {
+  return CreateSimWebFrameWidget(
+      std::move(pass_key), std::move(frame_widget_host),
+      std::move(frame_widget), std::move(widget_host), std::move(widget),
+      std::move(task_runner), frame_sink_id, hidden, never_composited,
+      is_for_child_local_root, is_for_nested_main_frame, compositor_.get());
 }
 
 }  // namespace blink

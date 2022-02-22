@@ -27,8 +27,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import QtQuick.Layouts 1.0
+import QtQuick
+import QtQuick.Layouts
 
 /*!
     \qmltype TraceInputKey
@@ -105,7 +105,7 @@ Item {
         id: traceInputKeyPanel
         sourceComponent: keyboard.style.traceInputKeyPanelDelegate
         anchors.fill: parent
-        onStatusChanged: if (status == Loader.Ready) traceInputKeyPanel.item.control = traceInputKey
+        onLoaded: traceInputKeyPanel.item.control = traceInputKey
     }
 
     TraceInputArea {

@@ -58,8 +58,8 @@
 #include <QPaintEvent>
 #include <qmath.h>
 
-#ifndef QT_NO_OPENGL
-#include <QGLWidget>
+#ifdef USE_OPENGLWIDGETS
+#include <QtOpenGLWidgets/qopenglwidget.h>
 #endif
 
 SvgView::SvgView(QWidget *parent)
@@ -145,8 +145,8 @@ void SvgView::setRenderer(RendererType type)
     m_renderer = type;
 
     if (m_renderer == OpenGL) {
-#ifndef QT_NO_OPENGL
-        setViewport(new QGLWidget(QGLFormat(QGL::SampleBuffers)));
+#ifdef USE_OPENGLWIDGETS
+        setViewport(new QOpenGLWidget);
 #endif
     } else {
         setViewport(new QWidget);

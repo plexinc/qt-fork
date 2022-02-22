@@ -86,6 +86,9 @@ bool IsElementInInvisibleSubTree(const Element& element) {
     auto* ancestor_element = DynamicTo<Element>(ancestor);
     if (!ancestor_element)
       continue;
+    // Return true if the whole frame is not rendered.
+    if (ancestor.IsHTMLElement() && !ancestor.GetLayoutObject())
+      return true;
     const ComputedStyle* style = ancestor_element->EnsureComputedStyle();
     if (style && (style->Visibility() != EVisibility::kVisible ||
                   style->Display() == EDisplay::kNone)) {
@@ -182,7 +185,8 @@ void LazyLoadImageObserver::StartMonitoringNearViewport(
             GetLazyImageLoadingViewportDistanceThresholdPx(*root_document))},
         {std::numeric_limits<float>::min()}, root_document,
         WTF::BindRepeating(&LazyLoadImageObserver::LoadIfNearViewport,
-                           WrapWeakPersistent(this)));
+                           WrapWeakPersistent(this)),
+        LocalFrameUkmAggregator::kLazyLoadIntersectionObserver);
   }
   lazy_load_intersection_observer_->observe(element);
 
@@ -195,15 +199,7 @@ void LazyLoadImageObserver::StartMonitoringNearViewport(
         "Images loaded lazily and replaced with placeholders. Load events are "
         "deferred. See https://crbug.com/954323"));
   }
-  if (deferral_message == DeferralMessage::kMissingDimensionForLazy &&
-      !is_missing_dimension_intervention_shown_) {
-    is_missing_dimension_intervention_shown_ = true;
-    root_document->AddConsoleMessage(MakeGarbageCollected<ConsoleMessage>(
-        mojom::ConsoleMessageSource::kIntervention,
-        mojom::ConsoleMessageLevel::kInfo,
-        "An <img> element was lazyloaded with loading=lazy, but had no "
-        "dimensions specified. Specifying dimensions improves performance. See "
-        "https://crbug.com/954323"));
+  if (deferral_message == DeferralMessage::kMissingDimensionForLazy) {
     UseCounter::Count(root_document,
                       WebFeature::kLazyLoadImageMissingDimensionsForLazy);
   }
@@ -267,7 +263,8 @@ void LazyLoadImageObserver::StartMonitoringVisibility(
     visibility_metrics_observer_ = IntersectionObserver::Create(
         {}, {std::numeric_limits<float>::min()}, root_document,
         WTF::BindRepeating(&LazyLoadImageObserver::OnVisibilityChanged,
-                           WrapWeakPersistent(this)));
+                           WrapWeakPersistent(this)),
+        LocalFrameUkmAggregator::kLazyLoadIntersectionObserver);
   }
   visibility_metrics_observer_->observe(image_element);
 }
@@ -314,9 +311,9 @@ void LazyLoadImageObserver::OnVisibilityChanged(
     visible_load_time_metrics.time_when_first_visible = base::TimeTicks::Now();
     if (visible_load_time_metrics.time_when_first_load_finished.is_null()) {
       // Note: If the WebEffectiveConnectionType enum ever gets out of sync
-      // with net::EffectiveConnectionType, then both the AboveTheFold and
-      // BelowTheFold histograms here will have to be updated to record the
-      // sample in terms of net::EffectiveConnectionType instead of
+      // with mojom::blink::EffectiveConnectionType, then both the AboveTheFold
+      // and BelowTheFold histograms here will have to be updated to record the
+      // sample in terms of mojom::blink::EffectiveConnectionType instead of
       // WebEffectiveConnectionType.
       if (visible_load_time_metrics.is_initially_intersecting) {
         UMA_HISTOGRAM_ENUMERATION(
@@ -343,7 +340,7 @@ bool LazyLoadImageObserver::IsFullyLoadableFirstKImageAndDecrementCount() {
   return false;
 }
 
-void LazyLoadImageObserver::Trace(Visitor* visitor) {
+void LazyLoadImageObserver::Trace(Visitor* visitor) const {
   visitor->Trace(lazy_load_intersection_observer_);
   visitor->Trace(visibility_metrics_observer_);
 }

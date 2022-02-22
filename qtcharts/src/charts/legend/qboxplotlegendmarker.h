@@ -34,7 +34,7 @@
 #include <QtCharts/QLegendMarker>
 #include <QtCharts/QBoxPlotSeries>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class QBoxPlotLegendMarkerPrivate;
 
@@ -46,10 +46,10 @@ public:
     explicit QBoxPlotLegendMarker(QBoxPlotSeries *series, QLegend *legend, QObject *parent = nullptr);
     virtual ~QBoxPlotLegendMarker();
 
-    virtual LegendMarkerType type() { return LegendMarkerTypeBoxPlot; }
+    LegendMarkerType type() override { return LegendMarkerTypeBoxPlot; }
 
     // Related series
-    virtual QBoxPlotSeries* series();
+    QBoxPlotSeries* series() override;
 
 protected:
     QBoxPlotLegendMarker(QBoxPlotLegendMarkerPrivate &d, QObject *parent = nullptr);
@@ -59,6 +59,6 @@ private:
     Q_DISABLE_COPY(QBoxPlotLegendMarker)
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // QBOXPLOTLEGENDMARKER_H

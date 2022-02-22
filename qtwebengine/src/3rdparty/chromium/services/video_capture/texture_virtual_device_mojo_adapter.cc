@@ -5,11 +5,10 @@
 #include "services/video_capture/texture_virtual_device_mojo_adapter.h"
 
 #include "base/bind.h"
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/memory/ptr_util.h"
 #include "media/base/bind_to_current_loop.h"
 #include "mojo/public/cpp/bindings/callback_helpers.h"
-#include "mojo/public/cpp/bindings/strong_binding.h"
 #include "services/video_capture/public/mojom/constants.mojom.h"
 #include "services/video_capture/public/mojom/scoped_access_permission.mojom.h"
 
@@ -52,8 +51,10 @@ void TextureVirtualDeviceMojoAdapter::OnFrameReadyInBuffer(
   if (!video_frame_handler_.is_bound())
     return;
   video_frame_handler_->OnFrameReadyInBuffer(
-      buffer_id, 0 /* frame_feedback_id */, std::move(access_permission),
-      std::move(frame_info));
+      mojom::ReadyFrameInBuffer::New(buffer_id, 0 /* frame_feedback_id */,
+                                     std::move(access_permission),
+                                     std::move(frame_info)),
+      {});
 }
 
 void TextureVirtualDeviceMojoAdapter::OnBufferRetired(int buffer_id) {
@@ -104,6 +105,11 @@ void TextureVirtualDeviceMojoAdapter::SetPhotoOptions(
 }
 
 void TextureVirtualDeviceMojoAdapter::TakePhoto(TakePhotoCallback callback) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+}
+
+void TextureVirtualDeviceMojoAdapter::ProcessFeedback(
+    const media::VideoFrameFeedback& feedback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 }
 

@@ -53,12 +53,12 @@
 
 #include <QtGui/private/qtguiglobal_p.h>
 #include "QtGui/qkeysequence.h"
-#include "QtCore/qvector.h"
+#include "QtCore/qlist.h"
 #include "QtCore/qscopedpointer.h"
 
-QT_BEGIN_NAMESPACE
+QT_REQUIRE_CONFIG(shortcut);
 
-#ifndef QT_NO_SHORTCUT
+QT_BEGIN_NAMESPACE
 
 // To enable dump output uncomment below
 //#define Dump_QShortcutMap
@@ -86,6 +86,7 @@ public:
 
     bool tryShortcut(QKeyEvent *e);
     bool hasShortcutForKeySequence(const QKeySequence &seq) const;
+    QList<QKeySequence> keySequences(bool getAll = false) const;
 
 #ifdef Dump_QShortcutMap
     void dumpMap() const;
@@ -98,15 +99,13 @@ private:
 
     QKeySequence::SequenceMatch find(QKeyEvent *e, int ignoredModifiers = 0);
     QKeySequence::SequenceMatch matches(const QKeySequence &seq1, const QKeySequence &seq2) const;
-    QVector<const QShortcutEntry *> matches() const;
-    void createNewSequences(QKeyEvent *e, QVector<QKeySequence> &ksl, int ignoredModifiers);
-    void clearSequence(QVector<QKeySequence> &ksl);
+    QList<const QShortcutEntry *> matches() const;
+    void createNewSequences(QKeyEvent *e, QList<QKeySequence> &ksl, int ignoredModifiers);
+    void clearSequence(QList<QKeySequence> &ksl);
     int translateModifiers(Qt::KeyboardModifiers modifiers);
 
     QScopedPointer<QShortcutMapPrivate> d_ptr;
 };
-
-#endif // QT_NO_SHORTCUT
 
 QT_END_NAMESPACE
 

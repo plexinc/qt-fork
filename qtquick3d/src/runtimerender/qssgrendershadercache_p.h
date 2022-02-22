@@ -44,42 +44,41 @@
 
 #include <QtQuick3DRuntimeRender/private/qtquick3druntimerenderglobal_p.h>
 #include <QtQuick3DUtils/private/qssgdataref_p.h>
-#include <QtQuick3DRender/private/qssgrendercontext_p.h>
-#include <QtQuick3DRender/private/qssgrendershaderprogram_p.h>
+#include <QtQuick3DUtils/private/qqsbcollection_p.h>
 
-#include <QtQuick3DRuntimeRender/private/qssgrenderinputstreamfactory_p.h>
+#include <QtQuick3DRuntimeRender/private/qssgrhicontext_p.h>
 
 #include <QtCore/QString>
-
+#include <QtCore/qcryptographichash.h>
 #include <QtCore/QSharedPointer>
 #include <QtCore/QVector>
 
 QT_BEGIN_NAMESPACE
-class QSSGPerfTimer;
 
-enum class ShaderCacheProgramFlagValues : quint32
-{
-    TessellationEnabled = 1 << 0, // tessellation enabled
-    GeometryShaderEnabled = 1 << 1, // geometry shader enabled
-};
-
-Q_DECLARE_FLAGS(QSSGShaderCacheProgramFlags, ShaderCacheProgramFlagValues)
+class QSSGRhiShaderPipeline;
+class QShaderBaker;
 
 namespace QSSGShaderDefines
 {
 enum Define : quint8
 {
     LightProbe = 0,
-    LightProbe2,
-    IblFov,
+    IblOrientation,
     Ssm,
     Ssao,
-    Ssdo,
-    CgLighting,
+    DepthPass,
+    OrthoShadowPass,
+    CubeShadowPass,
+    LinearTonemapping,
+    AcesTonemapping,
+    HejlDawsonTonemapping,
+    FilmicTonemapping,
+    RGBELightProbe,
+    OpaqueDepthPrePass,
     Count /* New defines are added before this one! */
 };
 
-const char *asString(QSSGShaderDefines::Define def);
+Q_QUICK3DRUNTIMERENDER_EXPORT const char *asString(QSSGShaderDefines::Define def);
 }
 
 // There are a number of macros used to turn on or off various features.  This allows those
@@ -88,45 +87,46 @@ const char *asString(QSSGShaderDefines::Define def);
 //#define name value where value is 1 or zero depending on if the feature is enabled or not.
 struct QSSGShaderPreprocessorFeature
 {
-    QByteArray name;
-    uint key = 0;
+    QSSGShaderDefines::Define feature;
+    const char *name;
     mutable bool enabled = false;
     QSSGShaderPreprocessorFeature() = default;
-    QSSGShaderPreprocessorFeature(const QByteArray &inName, bool val) : name(inName), enabled(val)
-    {
-        static const uint qhashSeed = 0xfee383a1;
-        Q_ASSERT(inName != nullptr);
-        key = qHash(inName, qhashSeed);
-    }
-    inline bool operator<(const QSSGShaderPreprocessorFeature &other) const Q_DECL_NOTHROW { return name < other.name; }
-    inline bool operator==(const QSSGShaderPreprocessorFeature &other) const Q_DECL_NOTHROW { return name == other.name && enabled == other.enabled; }
+    QSSGShaderPreprocessorFeature(QSSGShaderDefines::Define inFeature, bool val)
+        : feature(inFeature), name(QSSGShaderDefines::asString(inFeature)), enabled(val)
+    { }
+    inline bool operator<(const QSSGShaderPreprocessorFeature &other) const Q_DECL_NOTHROW { return strcmp(name, other.name) < 0; }
+    inline bool operator==(const QSSGShaderPreprocessorFeature &other) const Q_DECL_NOTHROW { return feature == other.feature && enabled == other.enabled; }
 };
 
-using ShaderFeatureSetList = QVarLengthArray<QSSGShaderPreprocessorFeature, QSSGShaderDefines::Count>;
-
-inline const ShaderFeatureSetList shaderCacheNoFeatures()
-{
-    return ShaderFeatureSetList();
-}
+using ShaderFeatureSetList = QVarLengthArray<QSSGShaderPreprocessorFeature, 4>;
 
 // Hash is dependent on the order of the keys; so make sure their order is consistent!!
-uint hashShaderFeatureSet(const ShaderFeatureSetList &inFeatureSet);
+Q_QUICK3DRUNTIMERENDER_EXPORT size_t hashShaderFeatureSet(const ShaderFeatureSetList &inFeatureSet);
 
 struct QSSGShaderCacheKey
 {
     QByteArray m_key;
     ShaderFeatureSetList m_features;
-    uint m_hashCode = 0;
+    size_t m_hashCode = 0;
 
     explicit QSSGShaderCacheKey(const QByteArray &key = QByteArray()) : m_key(key), m_hashCode(0) {}
 
     QSSGShaderCacheKey(const QSSGShaderCacheKey &other) = default;
     QSSGShaderCacheKey &operator=(const QSSGShaderCacheKey &other) = default;
 
-    void generateHashCode()
+    static inline size_t generateHashCode(const QByteArray &key, const ShaderFeatureSetList &features)
     {
-        m_hashCode = qHash(m_key);
-        m_hashCode = m_hashCode ^ hashShaderFeatureSet(m_features);
+        return qHash(key) ^ hashShaderFeatureSet(features);
+    }
+
+    static QByteArray hashString(const QByteArray &key, const ShaderFeatureSetList &features)
+    {
+        return  QCryptographicHash::hash(QByteArray::number(generateHashCode(key, features)), QCryptographicHash::Algorithm::Sha1).toHex();
+    }
+
+    void updateHashCode()
+    {
+        m_hashCode = generateHashCode(m_key, m_features);
     }
 
     bool operator==(const QSSGShaderCacheKey &inOther) const
@@ -135,52 +135,30 @@ struct QSSGShaderCacheKey
     }
 };
 
-
 class Q_QUICK3DRUNTIMERENDER_EXPORT QSSGShaderCache
 {
+public:
     enum class ShaderType
     {
-        Vertex, TessControl, TessEval, Fragment, Geometry, Compute
+        Vertex = 0,
+        Fragment = 1
     };
 
-public:
     QAtomicInt ref;
+
+    using InitBakerFunc = void (*)(QShaderBaker *baker, QRhi::Implementation target);
 private:
-    typedef QHash<QSSGShaderCacheKey, QSSGRef<QSSGRenderShaderProgram>> TShaderMap;
-    QSSGRef<QSSGRenderContext> m_renderContext;
-    //QSSGPerfTimer *m_perfTimer;
-    TShaderMap m_shaders;
+    typedef QHash<QSSGShaderCacheKey, QSSGRef<QSSGRhiShaderPipeline>> TRhiShaderMap;
+    QSSGRef<QSSGRhiContext> m_rhiContext;
+    TRhiShaderMap m_rhiShaders;
     QString m_cacheFilePath;
     QByteArray m_vertexCode;
-    QByteArray m_tessCtrlCode;
-    QByteArray m_tessEvalCode;
-    QByteArray m_geometryCode;
     QByteArray m_fragmentCode;
     QByteArray m_insertStr;
     QString m_flagString;
     QString m_contextTypeString;
     QSSGShaderCacheKey m_tempKey;
-
-    QSSGRef<QSSGInputStreamFactory> m_inputStreamFactory;
-    bool m_shaderCompilationEnabled;
-    bool m_shadersInitializedFromCache = false;
-
-    struct QSSGShaderSource
-    {
-        ShaderFeatureSetList features;
-        QByteArray key;
-        QSSGShaderCacheProgramFlags flags;
-        QByteArray vertexCode;
-        QByteArray tessCtrlCode;
-        QByteArray tessEvalCode;
-        QByteArray geometryCode;
-        QByteArray fragmentCode;
-    };
-    QVector<QSSGShaderSource> m_shaderSourceCache;
-
-    void addBackwardCompatibilityDefines(ShaderType shaderType);
-
-    void addShaderExtensionStrings(ShaderType shaderType, bool isGLES);
+    const InitBakerFunc m_initBaker;
 
     void addShaderPreprocessor(QByteArray &str,
                                const QByteArray &inKey,
@@ -188,75 +166,24 @@ private:
                                const ShaderFeatureSetList &inFeatures);
 
 public:
-    QSSGShaderCache(const QSSGRef<QSSGRenderContext> &ctx,
-                const QSSGRef<QSSGInputStreamFactory> &inInputStreamFactory,
-                QSSGPerfTimer *inPerfTimer);
+    QSSGShaderCache(const QSSGRef<QSSGRhiContext> &ctx,
+                    const InitBakerFunc initBakeFn = nullptr);
     ~QSSGShaderCache();
-    // If directory is nonnull, then we attempt to load any shaders from shadercache.xml in
-    // inDirectory
-    // and save any new ones out to the same file.  The shaders are marked by the gl version
-    // used when saving.
-    // If we can't open shadercache.xml from inDirectory for writing (at least), then we still
-    // consider the
-    // shadercache to be disabled.
-    // This call immediately blocks and attempts to load all applicable shaders from the
-    // shadercache.xml file in
-    // the given directory.
-    void setShaderCachePersistenceEnabled(const QString &inDirectory);
-    bool isShaderCachePersistenceEnabled() const;
-    // It is up to the caller to ensure that inFeatures contains unique keys.
-    // It is also up the the caller to ensure the keys are ordered in some way.
-    QSSGRef<QSSGRenderShaderProgram> getProgram(const QByteArray &inKey,
-                                                    const ShaderFeatureSetList &inFeatures);
 
-    // Replace an existing program in the cache for the same key with this program.
-    // The shaders returned by *CompileProgram functions can be released by this object
-    // due to ForceCompileProgram or SetProjectDirectory, so clients need to either not
-    // hold on to them or they need to addref/release them to ensure they still have
-    // access to them.
-    // The flags just tell us under what gl state to compile the program in order to hopefully
-    // reduce program compilations.
-    // It is up to the caller to ensure that inFeatures contains unique keys.
-    // It is also up the the caller to ensure the keys are ordered in some way.
-    QSSGRef<QSSGRenderShaderProgram> forceCompileProgram(const QByteArray &inKey,
-                                                                     const QByteArray &inVert,
-                                                                     const QByteArray &inFrag,
-                                                                     const QByteArray &inTessCtrl,
-                                                                     const QByteArray &inTessEval,
-                                                                     const QByteArray &inGeom,
-                                                                     const QSSGShaderCacheProgramFlags &inFlags,
-                                                                     const ShaderFeatureSetList &inFeatures,
-                                                                     bool separableProgram,
-                                                                     bool fromDisk = false);
+    QSSGRef<QSSGRhiShaderPipeline> getRhiShaderPipeline(const QByteArray &inKey,
+                                                        const ShaderFeatureSetList &inFeatures);
 
-    // It is up to the caller to ensure that inFeatures contains unique keys.
-    // It is also up the the caller to ensure the keys are ordered in some way.
-    QSSGRef<QSSGRenderShaderProgram> compileProgram(const QByteArray &inKey,
-                                                                const QByteArray &inVert,
-                                                                const QByteArray &inFrag,
-                                                                const QByteArray &inTessCtrl,
-                                                                const QByteArray &inTessEval,
-                                                                const QByteArray &inGeom,
-                                                                const QSSGShaderCacheProgramFlags &inFlags,
-                                                                const ShaderFeatureSetList &inFeatures,
-                                                                bool separableProgram = false);
+    QSSGRef<QSSGRhiShaderPipeline> compileForRhi(const QByteArray &inKey,
+                                               const QByteArray &inVert,
+                                               const QByteArray &inFrag,
+                                               const ShaderFeatureSetList &inFeatures,
+                                               QSSGRhiShaderPipeline::StageFlags stageFlags);
 
-    // Used to disable any shader compilation during loading.  This is used when we are just
-    // interested in going from uia->binary
-    // and we expect to run on a headless server of sorts.  See the UICCompiler project for its
-    // only current use case.
-    void setShaderCompilationEnabled(bool inEnableShaderCompilation);
+    QSSGRef<QSSGRhiShaderPipeline> loadGeneratedShader(const QByteArray &inKey, QQsbCollection::Entry entry);
+    QSSGRef<QSSGRhiShaderPipeline> loadBuiltinForRhi(const QByteArray &inKey);
 
-    void importShaderCache(const QByteArray &shaderCache, QByteArray &errors);
-    QByteArray exportShaderCache(bool binaryShaders);
-
-    // Upping the shader version invalidates all previous cache files.
-    quint32 shaderCacheVersion() const;
-    quint32 shaderCacheFileId() const;
-
-    static QSSGRef<QSSGShaderCache> createShaderCache(const QSSGRef<QSSGRenderContext> &inContext,
-                                                          const QSSGRef<QSSGInputStreamFactory> &inInputStreamFactory,
-                                                          QSSGPerfTimer *inPerfTimer);
+    static QByteArray resourceFolder();
+    static QByteArray shaderCollectionFile();
 };
 
 QT_END_NAMESPACE

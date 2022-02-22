@@ -7,15 +7,12 @@
 #include "build/build_config.h"
 #include "content/child/webthemeengine_impl_conversions.h"
 #include "skia/ext/platform_canvas.h"
-#include "third_party/blink/public/platform/web_rect.h"
-#include "third_party/blink/public/platform/web_size.h"
 #include "ui/native_theme/native_theme.h"
 #include "ui/native_theme/overlay_scrollbar_constants_aura.h"
 
-using blink::WebColorScheme;
-using blink::WebRect;
 using blink::WebScrollbarOverlayColorTheme;
 using blink::WebThemeEngine;
+using blink::mojom::ColorScheme;
 
 namespace content {
 namespace {
@@ -74,6 +71,7 @@ static void GetNativeThemeExtraParams(
       native_theme_extra_params->button.is_focused = false;
       native_theme_extra_params->button.background_color =
           extra_params->button.background_color;
+      native_theme_extra_params->button.zoom = extra_params->button.zoom;
       break;
     case WebThemeEngine::kPartTextField:
       native_theme_extra_params->text_field.is_text_area =
@@ -86,6 +84,8 @@ static void GetNativeThemeExtraParams(
           extra_params->text_field.has_border;
       native_theme_extra_params->text_field.auto_complete_active =
           extra_params->text_field.auto_complete_active;
+      native_theme_extra_params->text_field.zoom =
+          extra_params->text_field.zoom;
       break;
     case WebThemeEngine::kPartMenuList:
       native_theme_extra_params->menu_list.has_border =
@@ -102,11 +102,14 @@ static void GetNativeThemeExtraParams(
           extra_params->menu_list.arrow_color;
       native_theme_extra_params->menu_list.background_color =
           extra_params->menu_list.background_color;
+      native_theme_extra_params->menu_list.zoom = extra_params->menu_list.zoom;
       break;
     case WebThemeEngine::kPartSliderTrack:
       native_theme_extra_params->slider.thumb_x = extra_params->slider.thumb_x;
       native_theme_extra_params->slider.thumb_y = extra_params->slider.thumb_y;
       native_theme_extra_params->slider.zoom = extra_params->slider.zoom;
+      native_theme_extra_params->slider.right_to_left =
+          extra_params->slider.right_to_left;
       FALLTHROUGH;
       // vertical and in_drag properties are used by both slider track and
       // slider thumb.
@@ -132,6 +135,8 @@ static void GetNativeThemeExtraParams(
           extra_params->progress_bar.value_rect_width;
       native_theme_extra_params->progress_bar.value_rect_height =
           extra_params->progress_bar.value_rect_height;
+      native_theme_extra_params->progress_bar.zoom =
+          extra_params->progress_bar.zoom;
       break;
     case WebThemeEngine::kPartScrollbarHorizontalThumb:
     case WebThemeEngine::kPartScrollbarVerticalThumb:
@@ -155,7 +160,7 @@ static void GetNativeThemeExtraParams(
 
 WebThemeEngineDefault::~WebThemeEngineDefault() = default;
 
-blink::WebSize WebThemeEngineDefault::GetSize(WebThemeEngine::Part part) {
+gfx::Size WebThemeEngineDefault::GetSize(WebThemeEngine::Part part) {
   ui::NativeTheme::ExtraParams extra;
   ui::NativeTheme::Part native_theme_part = NativeThemePart(part);
 #if defined(OS_WIN)
@@ -184,14 +189,14 @@ void WebThemeEngineDefault::Paint(
     cc::PaintCanvas* canvas,
     WebThemeEngine::Part part,
     WebThemeEngine::State state,
-    const blink::WebRect& rect,
+    const gfx::Rect& rect,
     const WebThemeEngine::ExtraParams* extra_params,
-    blink::WebColorScheme color_scheme) {
+    blink::mojom::ColorScheme color_scheme) {
   ui::NativeTheme::ExtraParams native_theme_extra_params;
   GetNativeThemeExtraParams(
       part, state, extra_params, &native_theme_extra_params);
   ui::NativeTheme::GetInstanceForWeb()->Paint(
-      canvas, NativeThemePart(part), NativeThemeState(state), gfx::Rect(rect),
+      canvas, NativeThemePart(part), NativeThemeState(state), rect,
       native_theme_extra_params, NativeColorScheme(color_scheme));
 }
 
@@ -208,12 +213,12 @@ bool WebThemeEngineDefault::SupportsNinePatch(Part part) const {
       NativeThemePart(part));
 }
 
-blink::WebSize WebThemeEngineDefault::NinePatchCanvasSize(Part part) const {
+gfx::Size WebThemeEngineDefault::NinePatchCanvasSize(Part part) const {
   return ui::NativeTheme::GetInstanceForWeb()->GetNinePatchCanvasSize(
       NativeThemePart(part));
 }
 
-blink::WebRect WebThemeEngineDefault::NinePatchAperture(Part part) const {
+gfx::Rect WebThemeEngineDefault::NinePatchAperture(Part part) const {
   return ui::NativeTheme::GetInstanceForWeb()->GetNinePatchAperture(
       NativeThemePart(part));
 }
@@ -239,14 +244,14 @@ void WebThemeEngineDefault::cacheScrollBarMetrics(
 #endif
 
 blink::ForcedColors WebThemeEngineDefault::GetForcedColors() const {
-  return ui::NativeTheme::GetInstanceForWeb()->UsesHighContrastColors()
+  return ui::NativeTheme::GetInstanceForWeb()->InForcedColorsMode()
              ? blink::ForcedColors::kActive
              : blink::ForcedColors::kNone;
 }
 
 void WebThemeEngineDefault::SetForcedColors(
     const blink::ForcedColors forced_colors) {
-  ui::NativeTheme::GetInstanceForWeb()->set_high_contrast(
+  ui::NativeTheme::GetInstanceForWeb()->set_forced_colors(
       forced_colors == blink::ForcedColors::kActive);
 }
 

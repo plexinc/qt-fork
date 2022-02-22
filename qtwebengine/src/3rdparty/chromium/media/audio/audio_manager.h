@@ -44,7 +44,7 @@ class MEDIA_EXPORT AudioManager {
   // AudioLogFactory; as such |audio_log_factory| must outlive the AudioManager.
   //
   // The manager will use |audio_thread->GetTaskRunner()| for audio IO.
-  // On OS_MACOSX, CoreAudio requires that |audio_thread->GetTaskRunner()|
+  // On OS_MAC, CoreAudio requires that |audio_thread->GetTaskRunner()|
   // must belong to the main thread of the process, which in our case is sadly
   // the browser UI thread. Failure to execute calls on the right thread leads
   // to crashes and odd behavior. See http://crbug.com/158170.
@@ -60,14 +60,11 @@ class MEDIA_EXPORT AudioManager {
   static std::unique_ptr<AudioManager> CreateForTesting(
       std::unique_ptr<AudioThread> audio_thread);
 
-#if defined(OS_LINUX)
-  // Sets the name of the audio source as seen by external apps. Only actually
-  // used with PulseAudio and MPRIS as of this writing.
+  // Sets the name of the audio source as seen by external apps.
   static void SetGlobalAppName(const std::string& app_name);
 
   // Returns the app name or an empty string if it is not set.
   static const std::string& GetGlobalAppName();
-#endif
 
   // Returns the pointer to the last created instance, or NULL if not yet
   // created. This is a utility method for the code outside of media directory,

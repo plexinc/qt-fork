@@ -12,12 +12,15 @@ namespace prefs {
 // component. Document each in the .cc file.
 extern const char kInstallDate[];
 extern const char kMetricsClientID[];
+extern const char kMetricsFileMetricsMetadata[];
 extern const char kMetricsDefaultOptIn[];
 extern const char kMetricsInitialLogs[];
+extern const char kMetricsInitialLogsMetadata[];
 extern const char kMetricsLowEntropySource[];
 extern const char kMetricsOldLowEntropySource[];
 extern const char kMetricsMachineId[];
 extern const char kMetricsOngoingLogs[];
+extern const char kMetricsOngoingLogsMetadata[];
 extern const char kMetricsResetIds[];
 
 // For finding out whether metrics and crash reporting is enabled use the
@@ -31,22 +34,16 @@ extern const char kMetricsSessionID[];
 extern const char kMetricsLastSeenPrefix[];
 
 // Preferences for recording stability logs.
-extern const char kStabilityBreakpadRegistrationFail[];
-extern const char kStabilityBreakpadRegistrationSuccess[];
 extern const char kStabilityBrowserLastLiveTimeStamp[];
 extern const char kStabilityChildProcessCrashCount[];
 extern const char kStabilityCrashCount[];
 extern const char kStabilityCrashCountDueToGmsCoreUpdate[];
-extern const char kStabilityCrashCountWithoutGmsCoreUpdateObsolete[];
-extern const char kStabilityDebuggerNotPresent[];
-extern const char kStabilityDebuggerPresent[];
-extern const char kStabilityDeferredCount[];
-extern const char kStabilityDiscardCount[];
-extern const char kStabilityExecutionPhase[];
 extern const char kStabilityExitedCleanly[];
 extern const char kStabilityExtensionRendererCrashCount[];
 extern const char kStabilityExtensionRendererFailedLaunchCount[];
 extern const char kStabilityExtensionRendererLaunchCount[];
+extern const char kStabilityFileMetricsUnsentSamplesCount[];
+extern const char kStabilityFileMetricsUnsentFilesCount[];
 extern const char kStabilityGmsCoreVersion[];
 extern const char kStabilityGpuCrashCount[];
 extern const char kStabilityIncompleteSessionEndCount[];
@@ -62,12 +59,6 @@ extern const char kStabilitySessionEndCompleted[];
 extern const char kStabilityStatsBuildTime[];
 extern const char kStabilityStatsVersion[];
 extern const char kStabilitySystemCrashCount[];
-extern const char kStabilityVersionMismatchCount[];
-
-// Preferences for generating metrics at uninstall time.
-extern const char kUninstallLaunchCount[];
-extern const char kUninstallMetricsPageLoadCount[];
-extern const char kUninstallMetricsUptimeSec[];
 
 // For measuring data use for throttling UMA log uploads on cellular.
 extern const char kUkmCellDataUse[];

@@ -2,6 +2,10 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/chromeos/ui_mode.gni")
+import("//printing/buildflags/buildflags.gni")
+import("//testing/test.gni")
+
 source_set("lib") {
   sources = [
     "pdf_nup_converter.cc",
@@ -13,9 +17,17 @@ source_set("lib") {
   ]
 
   deps = [
+    "//build:chromeos_buildflags",
     "//components/crash/core/common:crash_key",
-    "//components/pwg_encoder",
+    "//pdf",
+    "//printing",
+    "//printing/mojom",
+    "//ui/gfx",
   ]
+
+  if (enable_print_preview) {
+    deps += [ "//components/pwg_encoder" ]
+  }
 
   public_deps = [
     "//base",
@@ -23,10 +35,18 @@ source_set("lib") {
     "//mojo/public/cpp/bindings",
   ]
 
-  if (is_chromeos) {
+  if (is_chromeos_ash) {
     sources += [
       "pdf_flattener.cc",
       "pdf_flattener.h",
+      "pdf_thumbnailer.cc",
+      "pdf_thumbnailer.h",
+    ]
+
+    deps += [
+      "//build:chromeos_buildflags",
+      "//pdf",
+      "//ui/gfx/codec",
     ]
   }
 
@@ -39,5 +59,28 @@ source_set("lib") {
     ]
 
     deps += [ "//skia" ]
+  }
+
+  if (is_win || is_mac || is_linux || is_chromeos) {
+    sources += [
+      "print_backend_service_impl.cc",
+      "print_backend_service_impl.h",
+    ]
+    deps += [ "//chrome/common/printing" ]
+  }
+}
+
+if (is_chromeos_ash) {
+  source_set("pdf_thumbnailer_test") {
+    testonly = true
+    sources = [ "pdf_thumbnailer_unittest.cc" ]
+
+    deps = [
+      ":lib",
+      "//base/test:test_support",
+      "//build:chromeos_buildflags",
+      "//skia",
+      "//testing/gtest",
+    ]
   }
 }

@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// eslint-disable-next-line rulesdir/es_modules_import
 import {MemberExpressionKind} from 'ast-types/gen/kinds';
 import child_process from 'child_process';
 import fs from 'fs';
@@ -12,9 +13,13 @@ import {promisify} from 'util';
 const readFile = promisify(fs.readFile);
 const writeFile = promisify(fs.writeFile);
 
-const FRONT_END_FOLDER = path.join(process.env.PWD!, '..', '..', 'front_end');
+if (!process.env.PWD) {
+  throw new Error('Could not find required PWD environment variable.');
+}
+
+const FRONT_END_FOLDER = path.join(process.env.PWD, '..', '..', 'front_end');
 const TEST_FOLDER =
-    path.join(process.env.PWD!, '..', '..', '..', '..', 'blink', 'web_tests', 'http', 'tests', 'devtools');
+    path.join(process.env.PWD, '..', '..', '..', '..', 'blink', 'web_tests', 'http', 'tests', 'devtools');
 
 function capitalizeFirstLetter(string: string) {
   return string.charAt(0).toUpperCase() + string.slice(1);
@@ -30,14 +35,17 @@ function computeNamespaceName(folderName: string): string {
 }
 
 // Transform an expression of UI.ARIAUtils.Foo to its string representation
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function getFullTypeName(expression: MemberExpressionKind): any {
   let name = '';
 
   while (expression.object.type === 'MemberExpression') {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     name = `${(expression.property as any).name}${name && `.${name}` || ''}`;
     expression = expression.object;
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return `${(expression.property as any).name}${name && `.${name}` || ''}`;
 }
 
@@ -49,6 +57,7 @@ function rewriteSource(refactoringNamespace: string, source: string) {
   const removedExports: string[] = [];
 
   // Remove global exports
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ast.program.body = ast.program.body.map((statement: any) => {
     // UI.ARIAUtils.Foo = 5;
     if (statement.type === 'ExpressionStatement') {
@@ -64,12 +73,12 @@ function rewriteSource(refactoringNamespace: string, source: string) {
           const fullName = `${computeNamespaceName(refactoringNamespace)}.${getFullTypeName(topLevelAssignment)}`;
 
           try {
-            const usedInModuleJson = !!child_process.execSync(
-                `grep --include=\*module.json -r ${fullName} ${FRONT_END_FOLDER} || true`, {encoding: 'utf8'});
+            const usedInModuleJson = Boolean(child_process.execSync(
+                `grep --include=\*module.json -r ${fullName} ${FRONT_END_FOLDER} || true`, {encoding: 'utf8'}));
             const usedInLayoutTests =
-                !!child_process.execSync(`grep -r ${fullName} ${TEST_FOLDER} || true`, {encoding: 'utf8'});
-            const usedInLayoutTestRunners = !!child_process.execSync(
-                `grep --include=\*test_runner\*.js -r ${fullName} ${FRONT_END_FOLDER} || true`, {encoding: 'utf8'});
+                Boolean(child_process.execSync(`grep -r ${fullName} ${TEST_FOLDER} || true`, {encoding: 'utf8'}));
+            const usedInLayoutTestRunners = Boolean(child_process.execSync(
+                `grep --include=\*test_runner\*.js -r ${fullName} ${FRONT_END_FOLDER} || true`, {encoding: 'utf8'}));
 
             if (!usedInModuleJson && !usedInLayoutTests && !usedInLayoutTestRunners) {
               removedExports.push(assignment.right.name);
@@ -87,6 +96,7 @@ function rewriteSource(refactoringNamespace: string, source: string) {
   });
 
   // Remove ES exports
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ast.program.body = ast.program.body.map((statement: any) => {
     if (statement.type === 'ExportNamedDeclaration') {
       if (statement.declaration) {

@@ -45,14 +45,14 @@
     You can create a QStringIterator that iterates over a given
     QStringView by passing the string to the QStringIterator's constructor:
 
-    \snippet code/src_corelib_tools_qstringiterator.cpp 0
+    \snippet code/src_corelib_text_qstringiterator.cpp 0
 
     A newly created QStringIterator will point before the first position in the
     string. It is possible to check whether the iterator can be advanced by
     calling hasNext(), and actually advance it (and obtain the next code point)
     by calling next():
 
-    \snippet code/src_corelib_tools_qstringiterator.cpp 1
+    \snippet code/src_corelib_text_qstringiterator.cpp 1
 
     Similarly, the hasPrevious() and previous() functions can be used to iterate backwards.
 
@@ -76,7 +76,7 @@
 
     For instance:
 
-    \snippet code/src_corelib_tools_qstringiterator.cpp 2
+    \snippet code/src_corelib_text_qstringiterator.cpp 2
 
     If the iterator is not able to decode the next code point (or the previous
     one, when iterating backwards), then it will return \c{0xFFFD}, that is,
@@ -170,7 +170,7 @@
 */
 
 /*!
-    \fn uint QStringIterator::peekNextUnchecked() const
+    \fn QStringIterator::peekNextUnchecked() const
 
     Returns the Unicode code point that is immediately after the iterator's current
     position. The current position is not changed.
@@ -182,7 +182,7 @@
 */
 
 /*!
-    \fn uint QStringIterator::peekNext(uint invalidAs = QChar::ReplacementCharacter) const
+    \fn QStringIterator::peekNext(char32_t invalidAs = QChar::ReplacementCharacter) const
 
     Returns the Unicode code point that is immediately after the iterator's current
     position. The current position is not changed.
@@ -198,7 +198,7 @@
 */
 
 /*!
-    \fn uint QStringIterator::nextUnchecked()
+    \fn QStringIterator::nextUnchecked()
 
     Advances the iterator's current position by one Unicode code point,
     and returns the Unicode code point that gets pointed by the iterator.
@@ -210,7 +210,7 @@
 */
 
 /*!
-    \fn uint QStringIterator::next(uint invalidAs = QChar::ReplacementCharacter)
+    \fn QStringIterator::next(char32_t invalidAs = QChar::ReplacementCharacter)
 
     Advances the iterator's current position by one Unicode code point,
     and returns the Unicode code point that gets pointed by the iterator.
@@ -258,7 +258,7 @@
 */
 
 /*!
-    \fn uint QStringIterator::peekPreviousUnchecked() const
+    \fn QStringIterator::peekPreviousUnchecked() const
 
     Returns the Unicode code point that is immediately before the iterator's current
     position. The current position is not changed.
@@ -270,7 +270,7 @@
 */
 
 /*!
-    \fn uint QStringIterator::peekPrevious(uint invalidAs = QChar::ReplacementCharacter) const
+    \fn QStringIterator::peekPrevious(char32_t invalidAs = QChar::ReplacementCharacter) const
 
     Returns the Unicode code point that is immediately before the iterator's current
     position. The current position is not changed.
@@ -286,7 +286,7 @@
 */
 
 /*!
-    \fn uint QStringIterator::previousUnchecked()
+    \fn QStringIterator::previousUnchecked()
 
     Moves the iterator's current position back by one Unicode code point,
     and returns the Unicode code point that gets pointed by the iterator.
@@ -298,7 +298,7 @@
 */
 
 /*!
-    \fn uint QStringIterator::previous(uint invalidAs = QChar::ReplacementCharacter)
+    \fn QStringIterator::previous(char32_t invalidAs = QChar::ReplacementCharacter)
 
     Moves the iterator's current position back by one Unicode code point,
     and returns the Unicode code point that gets pointed by the iterator.

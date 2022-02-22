@@ -98,8 +98,8 @@ public:
     Q_3DRENDERSHARED_PRIVATE_EXPORT bool isValid() const noexcept;
     Q_3DRENDERSHARED_PRIVATE_EXPORT bool supports(const QShaderFormat &other) const noexcept;
 
-    Q_3DRENDERSHARED_PRIVATE_EXPORT ShaderType shaderType() const Q_DECL_NOTHROW;
-    Q_3DRENDERSHARED_PRIVATE_EXPORT void setShaderType(ShaderType shaderType) Q_DECL_NOTHROW;
+    Q_3DRENDERSHARED_PRIVATE_EXPORT ShaderType shaderType() const noexcept;
+    Q_3DRENDERSHARED_PRIVATE_EXPORT void setShaderType(ShaderType shaderType) noexcept;
 
 private:
     Api m_api;
@@ -118,7 +118,7 @@ inline bool operator!=(const QShaderFormat &lhs, const QShaderFormat &rhs) noexc
 
 
 }
-Q_DECLARE_TYPEINFO(Qt3DRender::QShaderFormat, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(Qt3DRender::QShaderFormat, Q_RELOCATABLE_TYPE);
 QT_END_NAMESPACE
 
 Q_DECLARE_METATYPE(Qt3DRender::QShaderFormat)

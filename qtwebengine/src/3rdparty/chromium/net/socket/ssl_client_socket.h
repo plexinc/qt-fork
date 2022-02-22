@@ -23,8 +23,8 @@ namespace net {
 
 class CTPolicyEnforcer;
 class CertVerifier;
-class CTVerifier;
 class HostPortPair;
+class SCTAuditingDelegate;
 class SSLClientSessionCache;
 struct SSLConfig;
 class SSLKeyLogger;
@@ -68,12 +68,8 @@ class NET_EXPORT SSLClientSocket : public SSLSocket {
   // For signed_cert_timestamps_received_ and stapled_ocsp_response_received_.
   FRIEND_TEST_ALL_PREFIXES(SSLClientSocketTest,
                            ConnectSignedCertTimestampsTLSExtension);
-  FRIEND_TEST_ALL_PREFIXES(SSLClientSocketTest,
+  FRIEND_TEST_ALL_PREFIXES(SSLClientSocketVersionTest,
                            ConnectSignedCertTimestampsEnablesOCSP);
-  FRIEND_TEST_ALL_PREFIXES(SSLClientSocketTest,
-                           ConnectSignedCertTimestampsDisabled);
-  FRIEND_TEST_ALL_PREFIXES(SSLClientSocketTest,
-                           VerifyServerChainProperlyOrdered);
 
   // True if SCTs were received via a TLS extension.
   bool signed_cert_timestamps_received_;
@@ -102,13 +98,13 @@ class NET_EXPORT SSLClientContext : public SSLConfigService::Observer,
   //
   // |ssl_config_service| may be null to always use the default
   // SSLContextConfig. |ssl_client_session_cache| may be null to disable session
-  // caching.
+  // caching. |sct_auditing_delegate| may be null to disable SCT auditing.
   SSLClientContext(SSLConfigService* ssl_config_service,
                    CertVerifier* cert_verifier,
                    TransportSecurityState* transport_security_state,
-                   CTVerifier* cert_transparency_verifier,
                    CTPolicyEnforcer* ct_policy_enforcer,
-                   SSLClientSessionCache* ssl_client_session_cache);
+                   SSLClientSessionCache* ssl_client_session_cache,
+                   SCTAuditingDelegate* sct_auditing_delegate);
   ~SSLClientContext() override;
 
   const SSLContextConfig& config() { return config_; }
@@ -118,12 +114,12 @@ class NET_EXPORT SSLClientContext : public SSLConfigService::Observer,
   TransportSecurityState* transport_security_state() {
     return transport_security_state_;
   }
-  CTVerifier* cert_transparency_verifier() {
-    return cert_transparency_verifier_;
-  }
   CTPolicyEnforcer* ct_policy_enforcer() { return ct_policy_enforcer_; }
   SSLClientSessionCache* ssl_client_session_cache() {
     return ssl_client_session_cache_;
+  }
+  SCTAuditingDelegate* sct_auditing_delegate() {
+    return sct_auditing_delegate_;
   }
 
   // Creates a new SSLClientSocket which can then be used to establish an SSL
@@ -185,9 +181,9 @@ class NET_EXPORT SSLClientContext : public SSLConfigService::Observer,
   SSLConfigService* ssl_config_service_;
   CertVerifier* cert_verifier_;
   TransportSecurityState* transport_security_state_;
-  CTVerifier* cert_transparency_verifier_;
   CTPolicyEnforcer* ct_policy_enforcer_;
   SSLClientSessionCache* ssl_client_session_cache_;
+  SCTAuditingDelegate* sct_auditing_delegate_;
 
   SSLClientAuthCache ssl_client_auth_cache_;
 

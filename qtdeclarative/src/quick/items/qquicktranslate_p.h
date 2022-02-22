@@ -51,6 +51,7 @@
 // We mean it.
 //
 
+#include <private/qtquickglobal_p.h>
 #include "qquickitem.h"
 
 #include <QtGui/qmatrix4x4.h>
@@ -58,13 +59,14 @@
 QT_BEGIN_NAMESPACE
 
 class QQuickTranslatePrivate;
-class Q_AUTOTEST_EXPORT QQuickTranslate : public QQuickTransform
+class Q_QUICK_PRIVATE_EXPORT QQuickTranslate : public QQuickTransform
 {
     Q_OBJECT
 
     Q_PROPERTY(qreal x READ x WRITE setX NOTIFY xChanged)
     Q_PROPERTY(qreal y READ y WRITE setY NOTIFY yChanged)
     QML_NAMED_ELEMENT(Translate)
+    QML_ADDED_IN_VERSION(2, 0)
 
 public:
     QQuickTranslate(QObject *parent = nullptr);
@@ -88,7 +90,7 @@ private:
 };
 
 class QQuickScalePrivate;
-class Q_AUTOTEST_EXPORT QQuickScale : public QQuickTransform
+class Q_QUICK_PRIVATE_EXPORT QQuickScale : public QQuickTransform
 {
     Q_OBJECT
 
@@ -97,6 +99,7 @@ class Q_AUTOTEST_EXPORT QQuickScale : public QQuickTransform
     Q_PROPERTY(qreal yScale READ yScale WRITE setYScale NOTIFY yScaleChanged)
     Q_PROPERTY(qreal zScale READ zScale WRITE setZScale NOTIFY zScaleChanged)
     QML_NAMED_ELEMENT(Scale)
+    QML_ADDED_IN_VERSION(2, 0)
 public:
     QQuickScale(QObject *parent = nullptr);
     ~QQuickScale();
@@ -127,7 +130,7 @@ private:
 };
 
 class QQuickRotationPrivate;
-class Q_AUTOTEST_EXPORT QQuickRotation : public QQuickTransform
+class Q_QUICK_PRIVATE_EXPORT QQuickRotation : public QQuickTransform
 {
     Q_OBJECT
 
@@ -135,6 +138,7 @@ class Q_AUTOTEST_EXPORT QQuickRotation : public QQuickTransform
     Q_PROPERTY(qreal angle READ angle WRITE setAngle NOTIFY angleChanged)
     Q_PROPERTY(QVector3D axis READ axis WRITE setAxis NOTIFY axisChanged)
     QML_NAMED_ELEMENT(Rotation)
+    QML_ADDED_IN_VERSION(2, 0)
 public:
     QQuickRotation(QObject *parent = nullptr);
     ~QQuickRotation();
@@ -161,13 +165,13 @@ private:
 };
 
 class QQuickMatrix4x4Private;
-class Q_AUTOTEST_EXPORT QQuickMatrix4x4 : public QQuickTransform
+class Q_QUICK_PRIVATE_EXPORT QQuickMatrix4x4 : public QQuickTransform
 {
     Q_OBJECT
 
     Q_PROPERTY(QMatrix4x4 matrix READ matrix WRITE setMatrix NOTIFY matrixChanged)
     QML_NAMED_ELEMENT(Matrix4x4)
-    QML_ADDED_IN_MINOR_VERSION(3)
+    QML_ADDED_IN_VERSION(2, 3)
 public:
     QQuickMatrix4x4(QObject *parent = nullptr);
     ~QQuickMatrix4x4();

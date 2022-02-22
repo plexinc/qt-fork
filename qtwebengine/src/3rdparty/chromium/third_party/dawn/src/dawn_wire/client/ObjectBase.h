@@ -17,22 +17,33 @@
 
 #include <dawn/webgpu.h>
 
+#include "common/LinkedList.h"
+#include "dawn_wire/ObjectType_autogen.h"
+
 namespace dawn_wire { namespace client {
 
-    class Device;
+    class Client;
 
-    // All non-Device objects of the client side have:
-    //  - A pointer to the device to get where to serialize commands
+    // All objects on the client side have:
+    //  - A pointer to the Client to get where to serialize commands
     //  - The external reference count
     //  - An ID that is used to refer to this object when talking with the server side
-    struct ObjectBase {
-        ObjectBase(Device* device, uint32_t refcount, uint32_t id)
-            : device(device), refcount(refcount), id(id) {
+    //  - A next/prev pointer. They are part of a linked list of objects of the same type.
+    struct ObjectBase : public LinkNode<ObjectBase> {
+        ObjectBase(Client* client, uint32_t refcount, uint32_t id)
+            : client(client), refcount(refcount), id(id) {
         }
 
-        Device* device;
+        ~ObjectBase() {
+            RemoveFromList();
+        }
+
+        virtual void CancelCallbacksForDisconnect() {
+        }
+
+        Client* const client;
         uint32_t refcount;
-        uint32_t id;
+        const uint32_t id;
     };
 
 }}  // namespace dawn_wire::client

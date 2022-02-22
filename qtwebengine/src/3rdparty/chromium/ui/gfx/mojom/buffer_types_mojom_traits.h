@@ -129,11 +129,14 @@ struct COMPONENT_EXPORT(GFX_SHARED_MOJOM_TRAITS)
         return gfx::mojom::BufferUsage::SCANOUT_CPU_READ_WRITE;
       case gfx::BufferUsage::SCANOUT_VDA_WRITE:
         return gfx::mojom::BufferUsage::SCANOUT_VDA_WRITE;
+      case gfx::BufferUsage::PROTECTED_SCANOUT_VDA_WRITE:
+        return gfx::mojom::BufferUsage::PROTECTED_SCANOUT_VDA_WRITE;
       case gfx::BufferUsage::GPU_READ_CPU_READ_WRITE:
         return gfx::mojom::BufferUsage::GPU_READ_CPU_READ_WRITE;
-      case gfx::BufferUsage::SCANOUT_VEA_READ_CAMERA_AND_CPU_READ_WRITE:
-        return gfx::mojom::BufferUsage::
-            SCANOUT_VEA_READ_CAMERA_AND_CPU_READ_WRITE;
+      case gfx::BufferUsage::SCANOUT_VEA_CPU_READ:
+        return gfx::mojom::BufferUsage::SCANOUT_VEA_CPU_READ;
+      case gfx::BufferUsage::VEA_READ_CAMERA_AND_CPU_READ_WRITE:
+        return gfx::mojom::BufferUsage::VEA_READ_CAMERA_AND_CPU_READ_WRITE;
     }
     NOTREACHED();
     return gfx::mojom::BufferUsage::kMinValue;
@@ -159,11 +162,17 @@ struct COMPONENT_EXPORT(GFX_SHARED_MOJOM_TRAITS)
       case gfx::mojom::BufferUsage::SCANOUT_VDA_WRITE:
         *out = gfx::BufferUsage::SCANOUT_VDA_WRITE;
         return true;
+      case gfx::mojom::BufferUsage::PROTECTED_SCANOUT_VDA_WRITE:
+        *out = gfx::BufferUsage::PROTECTED_SCANOUT_VDA_WRITE;
+        return true;
       case gfx::mojom::BufferUsage::GPU_READ_CPU_READ_WRITE:
         *out = gfx::BufferUsage::GPU_READ_CPU_READ_WRITE;
         return true;
-      case gfx::mojom::BufferUsage::SCANOUT_VEA_READ_CAMERA_AND_CPU_READ_WRITE:
-        *out = gfx::BufferUsage::SCANOUT_VEA_READ_CAMERA_AND_CPU_READ_WRITE;
+      case gfx::mojom::BufferUsage::SCANOUT_VEA_CPU_READ:
+        *out = gfx::BufferUsage::SCANOUT_VEA_CPU_READ;
+        return true;
+      case gfx::mojom::BufferUsage::VEA_READ_CAMERA_AND_CPU_READ_WRITE:
+        *out = gfx::BufferUsage::VEA_READ_CAMERA_AND_CPU_READ_WRITE;
         return true;
     }
     NOTREACHED();

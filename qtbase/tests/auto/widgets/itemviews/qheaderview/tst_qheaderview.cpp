@@ -27,7 +27,6 @@
 **
 ****************************************************************************/
 
-#include <QDesktopWidget>
 #include <QHeaderView>
 #include <QProxyStyle>
 #include <QSignalSpy>
@@ -39,9 +38,9 @@
 #include <QTreeWidget>
 #include <QtWidgets/private/qheaderview_p.h>
 
-using BoolList = QVector<bool>;
-using IntList = QVector<int>;
-using ResizeVec = QVector<QHeaderView::ResizeMode>;
+using BoolList = QList<bool>;
+using IntList = QList<int>;
+using ResizeVec = QList<QHeaderView::ResizeMode>;
 
 class TestStyle : public QProxyStyle
 {
@@ -105,7 +104,6 @@ class tst_QHeaderView : public QObject
 
 public:
     tst_QHeaderView();
-    static void initMain();
 
 private slots:
     void initTestCase();
@@ -158,6 +156,7 @@ private slots:
     void moveAndInsertSection();
     void highlightSections();
     void showSortIndicator();
+    void clearSectionSorting();
     void sortIndicatorTracking();
     void removeAndInsertRow();
     void unhideSection();
@@ -218,6 +217,7 @@ private slots:
     void QTBUG75615_sizeHintWithStylesheet();
     void ensureNoIndexAtLength();
     void offsetConsistent();
+    void sectionsDontSortWhenNotClickingInThem();
 
     void initialSortOrderRole();
 
@@ -265,14 +265,6 @@ protected:
     bool m_special_prepare = false;
     QElapsedTimer timer;
 };
-
-void tst_QHeaderView::initMain()
-{
-#ifdef Q_OS_WIN
-    // Ensure minimum size constraints of framed windows on High DPI screens
-    QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
-#endif
-}
 
 class QtTestModel: public QAbstractTableModel
 {
@@ -706,8 +698,6 @@ void tst_QHeaderView::sectionSize()
 {
 #if defined Q_OS_QNX
     QSKIP("The section size is dpi dependent on QNX");
-#elif defined Q_OS_WINRT
-    QSKIP("Fails on WinRT - QTBUG-68297");
 #endif
     QFETCH(const IntList, boundsCheck);
     QFETCH(const IntList, defaultSizes);
@@ -809,8 +799,6 @@ void tst_QHeaderView::visualIndexAt()
 {
 #if defined Q_OS_QNX
     QSKIP("The section size is dpi dependent on QNX");
-#elif defined Q_OS_WINRT
-    QSKIP("Fails on WinRT - QTBUG-68297");
 #endif
     QFETCH(const IntList, hidden);
     QFETCH(const IntList, from);
@@ -1347,6 +1335,75 @@ void tst_QHeaderView::showSortIndicator()
     // Don't assert baby :)
 }
 
+void tst_QHeaderView::clearSectionSorting()
+{
+    QStandardItemModel m(4, 4);
+    QHeaderView h(Qt::Horizontal);
+
+    QCOMPARE(h.sortIndicatorSection(), 0);
+    QCOMPARE(h.sortIndicatorOrder(), Qt::DescendingOrder);
+
+    h.setModel(&m);
+    h.setSectionsClickable(true);
+    h.setSortIndicatorShown(true);
+    h.setSortIndicator(-1, Qt::DescendingOrder);
+    h.show();
+
+    QVERIFY(QTest::qWaitForWindowExposed(&h));
+
+    QCOMPARE(h.sortIndicatorSection(), -1);
+    QCOMPARE(h.sortIndicatorOrder(), Qt::DescendingOrder);
+
+    QSignalSpy sectionClickedSpy(&h, &QHeaderView::sectionClicked);
+    QVERIFY(sectionClickedSpy.isValid());
+    QCOMPARE(sectionClickedSpy.count(), 0);
+
+    QSignalSpy sortIndicatorChangedSpy(&h, &QHeaderView::sortIndicatorChanged);
+    QVERIFY(sortIndicatorChangedSpy.isValid());
+    QCOMPARE(sortIndicatorChangedSpy.count(), 0);
+
+    enum { Count = 30 };
+
+    // normal behavior: clicking multiple times will just toggle the sort indicator
+    for (int i = 0; i < Count; ++i) {
+        QTest::mouseClick(h.viewport(), Qt::LeftButton, Qt::NoModifier, QPoint(5, 5));
+        QCOMPARE(sectionClickedSpy.count(), i + 1);
+        QCOMPARE(sortIndicatorChangedSpy.count(), i + 1);
+        QCOMPARE(h.sortIndicatorSection(), 0);
+        const auto expectedOrder = (i % 2) == 0 ? Qt::AscendingOrder : Qt::DescendingOrder;
+        QCOMPARE(h.sortIndicatorOrder(), expectedOrder);
+    }
+
+    h.setSortIndicator(-1, Qt::DescendingOrder);
+    h.setSortIndicatorClearable(true);
+    QCOMPARE(h.sortIndicatorSection(), -1);
+    QCOMPARE(h.sortIndicatorOrder(), Qt::DescendingOrder);
+
+    sectionClickedSpy.clear();
+    sortIndicatorChangedSpy.clear();
+
+    // clearing behavior: clicking multiple times will be tristate (asc, desc, nothing)
+    for (int i = 0; i < Count; ++i) {
+        QTest::mouseClick(h.viewport(), Qt::LeftButton, Qt::NoModifier, QPoint(5, 5));
+        QCOMPARE(sectionClickedSpy.count(), i + 1);
+        QCOMPARE(sortIndicatorChangedSpy.count(), i + 1);
+        switch (i % 3) {
+        case 0:
+            QCOMPARE(h.sortIndicatorSection(), 0);
+            QCOMPARE(h.sortIndicatorOrder(), Qt::AscendingOrder);
+            break;
+        case 1:
+            QCOMPARE(h.sortIndicatorSection(), 0);
+            QCOMPARE(h.sortIndicatorOrder(), Qt::DescendingOrder);
+            break;
+        case 2:
+            QCOMPARE(h.sortIndicatorSection(), -1);
+            QCOMPARE(h.sortIndicatorOrder(), Qt::AscendingOrder);
+            break;
+        }
+    }
+}
+
 void tst_QHeaderView::sortIndicatorTracking()
 {
     QtTestModel model(10, 10);
@@ -1744,7 +1801,7 @@ void tst_QHeaderView::restoreQt4State()
     QCOMPARE(h2.length(), old_length);
     QCOMPARE(h2.saveState(), old_state);
 #else
-    QSKIP("Qt4 compatibility no longer needed in Qt6")
+    QSKIP("Qt4 compatibility no longer needed in Qt6");
 #endif
 }
 
@@ -1843,10 +1900,6 @@ void tst_QHeaderView::restoreBeforeSetModel()
 
 void tst_QHeaderView::defaultSectionSizeTest()
 {
-#if defined Q_OS_WINRT
-    QSKIP("Fails on WinRT - QTBUG-73309");
-#endif
-
     // Setup
     QTableView qtv;
     QHeaderView *hv = qtv.verticalHeader();
@@ -2169,9 +2222,6 @@ void tst_QHeaderView::preserveHiddenSectionWidth()
 
 void tst_QHeaderView::invisibleStretchLastSection()
 {
-#ifdef Q_OS_WINRT
-    QSKIP("Fails on WinRT - QTBUG-68297");
-#endif
     int count = 6;
     QStandardItemModel model(1, count);
     QHeaderView view(Qt::Horizontal);
@@ -2628,6 +2678,140 @@ void tst_QHeaderView::offsetConsistent()
     QVERIFY(offset2 > offset1);
 }
 
+void tst_QHeaderView::sectionsDontSortWhenNotClickingInThem()
+{
+    QTableView qtv;
+    QStandardItemModel amodel(1000, 4);
+    qtv.setModel(&amodel);
+    QHeaderView *hv = qtv.horizontalHeader();
+    hv->setSectionsClickable(true);
+    hv->setFirstSectionMovable(true);
+    hv->setSectionsMovable(false);
+
+    enum { DefaultYOffset = 5, OutOfRangeYOffset = 10000 };
+
+    const auto pressOnSection = [&](int section, int yOffset = DefaultYOffset)
+    {
+        QTest::mousePress(hv->viewport(), Qt::LeftButton, Qt::NoModifier,
+                          QPoint(hv->sectionViewportPosition(section) + hv->sectionSize(section) / 2, yOffset));
+    };
+    const auto moveOntoSection = [&](int section, int yOffset = DefaultYOffset)
+    {
+        QTest::mouseMove(hv->viewport(),
+                         QPoint(hv->sectionViewportPosition(section) + hv->sectionSize(section) / 2, yOffset));
+    };
+    const auto releaseOnSection = [&](int section, int yOffset = DefaultYOffset)
+    {
+        QTest::mouseRelease(hv->viewport(), Qt::LeftButton, Qt::NoModifier,
+                            QPoint(hv->sectionViewportPosition(section) + hv->sectionSize(section) / 2, yOffset));
+    };
+
+    hv->setSortIndicator(-1, Qt::AscendingOrder);
+    QCOMPARE(hv->sortIndicatorSection(), -1);
+
+    pressOnSection(0);
+    releaseOnSection(0);
+    // RESULT: sorting
+    QCOMPARE(hv->sortIndicatorSection(), 0);
+
+    hv->setSortIndicator(-1, Qt::AscendingOrder);
+    QCOMPARE(hv->sortIndicatorSection(), -1);
+
+    pressOnSection(0);
+    moveOntoSection(1);
+    releaseOnSection(1);
+    // RESULT: no sorting
+    QCOMPARE(hv->sortIndicatorSection(), -1);
+
+    pressOnSection(0);
+    moveOntoSection(1);
+    moveOntoSection(2);
+    releaseOnSection(2);
+    // RESULT: no sorting
+    QCOMPARE(hv->sortIndicatorSection(), -1);
+
+    pressOnSection(0);
+    moveOntoSection(1);
+    moveOntoSection(0);
+    releaseOnSection(0);
+    // RESULT: sorting by 0
+    QCOMPARE(hv->sortIndicatorSection(), 0);
+
+    pressOnSection(0);
+    moveOntoSection(1);
+    releaseOnSection(1);
+    // RESULT: no change, still sorting by 0
+    QCOMPARE(hv->sortIndicatorSection(), 0);
+
+    auto sortOrder = hv->sortIndicatorOrder();
+    pressOnSection(1);
+    moveOntoSection(0);
+    releaseOnSection(0);
+    // RESULT: no change, still sorting by 0
+    QCOMPARE(hv->sortIndicatorSection(), 0);
+    QCOMPARE(hv->sortIndicatorOrder(), sortOrder);
+
+    pressOnSection(1);
+    moveOntoSection(0);
+    moveOntoSection(1);
+    releaseOnSection(1);
+    // RESULT: sorting by 1
+    QCOMPARE(hv->sortIndicatorSection(), 1);
+
+    pressOnSection(1);
+    moveOntoSection(0);
+    releaseOnSection(0);
+    // RESULT: no change, still sorting by 1
+    QCOMPARE(hv->sortIndicatorSection(), 1);
+
+    hv->setSortIndicator(-1, Qt::AscendingOrder);
+    QCOMPARE(hv->sortIndicatorSection(), -1);
+
+    pressOnSection(0);
+    releaseOnSection(0, OutOfRangeYOffset);
+    // RESULT: no sorting
+    QCOMPARE(hv->sortIndicatorSection(), -1);
+
+    pressOnSection(0);
+    moveOntoSection(0, OutOfRangeYOffset);
+    releaseOnSection(0, OutOfRangeYOffset);
+    // RESULT: no sorting
+    QCOMPARE(hv->sortIndicatorSection(), -1);
+
+    pressOnSection(0);
+    moveOntoSection(0, OutOfRangeYOffset);
+    moveOntoSection(0);
+    releaseOnSection(0);
+    // RESULT: sorting by 0
+    QCOMPARE(hv->sortIndicatorSection(), 0);
+
+    pressOnSection(1);
+    releaseOnSection(1, OutOfRangeYOffset);
+    // RESULT: no change, still sorting by 0
+    QCOMPARE(hv->sortIndicatorSection(), 0);
+
+    pressOnSection(1);
+    moveOntoSection(1, OutOfRangeYOffset);
+    releaseOnSection(1, OutOfRangeYOffset);
+    // RESULT: no change, still sorting by 0
+    QCOMPARE(hv->sortIndicatorSection(), 0);
+
+    pressOnSection(1);
+    moveOntoSection(1, OutOfRangeYOffset);
+    moveOntoSection(1);
+    releaseOnSection(1);
+    // RESULT: sorting by 1
+    QCOMPARE(hv->sortIndicatorSection(), 1);
+
+    pressOnSection(2);
+    moveOntoSection(1);
+    moveOntoSection(2);
+    moveOntoSection(2, OutOfRangeYOffset);
+    releaseOnSection(2, OutOfRangeYOffset);
+    // RESULT: no change, still sorting by 1
+    QCOMPARE(hv->sortIndicatorSection(), 1);
+}
+
 void tst_QHeaderView::initialSortOrderRole()
 {
     QTableView view; // ### Shadowing member view (of type QHeaderView)
@@ -2882,7 +3066,7 @@ void tst_QHeaderView::additionalInit()
         model->setData(model->index(i, 0), QVariant(i));
         s.setNum(i);
         s += QLatin1Char('.');
-        s += 'a' + (i % 25);
+        s += QChar('a' + (i % 25));
         model->setData(model->index(i, 1), QVariant(s));
     }
     m_tableview->setUpdatesEnabled(updates_enabled);
@@ -3454,14 +3638,14 @@ void tst_QHeaderView::statusTips()
     QtTestModel model(5, 5);
     headerView.setModel(&model);
     headerView.viewport()->setMouseTracking(true);
-    headerView.setGeometry(QRect(QPoint(QApplication::desktop()->geometry().center() - QPoint(250, 250)),
+    headerView.setGeometry(QRect(QPoint(QGuiApplication::primaryScreen()->geometry().center() - QPoint(250, 250)),
                            QSize(500, 500)));
     headerView.show();
     QApplication::setActiveWindow(&headerView);
     QVERIFY(QTest::qWaitForWindowActive(&headerView));
 
     // Ensure it is moved away first and then moved to the relevant section
-    QTest::mouseMove(QApplication::desktop(),
+    QTest::mouseMove(&headerView,
                      headerView.rect().bottomLeft() + QPoint(20, 20));
     QPoint centerPoint = QRect(headerView.sectionPosition(0), 0,
                                headerView.sectionSize(0), headerView.height()).center();

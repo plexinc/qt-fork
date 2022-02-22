@@ -72,7 +72,7 @@ QTestData::~QTestData()
 {
     for (int i = 0; i < d->dataCount; ++i) {
         if (d->data[i])
-            QMetaType::destroy(d->parent->elementTypeId(i), d->data[i]);
+            QMetaType(d->parent->elementTypeId(i)).destroy(d->data[i]);
     }
     delete [] d->data;
     delete [] d->tag;
@@ -82,14 +82,29 @@ QTestData::~QTestData()
 void QTestData::append(int type, const void *data)
 {
     QTEST_ASSERT(d->dataCount < d->parent->elementCount());
-    if (d->parent->elementTypeId(d->dataCount) != type) {
+    int expectedType = d->parent->elementTypeId(d->dataCount);
+    int dd = 0;
+    if constexpr (sizeof(qsizetype) == 8) {
+        // Compatibility with Qt 5. Passing a qsizetype to a test function expecting
+        // an int will work. This is required, as methods returning a qsizetype in Qt 6
+        // used to return an int in Qt 5.
+        if (type == QMetaType::LongLong && expectedType == QMetaType::Int) {
+            qlonglong d = *static_cast<const qlonglong *>(data);
+            if (d >= std::numeric_limits<int>::min() && d <= std::numeric_limits<int>::max()) {
+                dd = d;
+                data = &dd;
+                type = QMetaType::Int;
+            }
+        }
+    }
+    if (expectedType != type) {
         qDebug("expected data of type '%s', got '%s' for element %d of data with tag '%s'",
-                QMetaType::typeName(d->parent->elementTypeId(d->dataCount)),
-                QMetaType::typeName(type),
+                QMetaType(expectedType).name(),
+                QMetaType(type).name(),
                 d->dataCount, d->tag);
         QTEST_ASSERT(false);
     }
-    d->data[d->dataCount] = QMetaType::create(type, data);
+    d->data[d->dataCount] = QMetaType(type).create(data);
     ++d->dataCount;
 }
 

@@ -56,11 +56,6 @@ single base module, which enables language-based splits:
     # be 'foo_bundle' otherwise.
     bundle_name = "FooBundle"
 
-    # Signing your bundle is required to upload it to the Play Store
-    # but since signing is very slow, avoid doing it for non official
-    # builds. Signing the bundle is not required for local testing.
-    sign_bundle = is_official_build
-
     # Enable language-based splits for this bundle. Which means that
     # resources and assets specific to a given language will be placed
     # into their own split APK in the final .apks archive.
@@ -167,8 +162,8 @@ performed, which consists of the following steps:
 This synchronized proguarding step is added by the `android_app_bundle()` GN
 template. In practice this means the following:
 
-  - If `proguard_enabled` and `proguard_jar_path` must be passed to
-    `android_app_bundle` targets, but not to `android_app_bundle_module` ones.
+  - `proguard_enabled` must be passed to `android_app_bundle` targets, but not
+    to `android_app_bundle_module` ones.
 
   - `proguard_configs` can be still passed to individual modules, just
     like regular APKs. All proguard configs will be merged during the

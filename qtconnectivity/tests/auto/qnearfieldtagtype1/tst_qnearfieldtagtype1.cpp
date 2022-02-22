@@ -28,11 +28,11 @@
 
 #include <QtTest/QtTest>
 
-#include <private/qnearfieldmanager_emulator_p.h>
-#include <qnearfieldmanager.h>
-#include <qndefmessage.h>
-#include <private/qnearfieldtagtype1_p.h>
-#include <qndefnfctextrecord.h>
+#include <qnearfieldtarget_emulator_p.h>
+#include <qnearfieldtagtype1_p.h>
+
+#include <QtNfc/qndefmessage.h>
+#include <QtNfc/qndefnfctextrecord.h>
 
 QT_USE_NAMESPACE
 
@@ -57,48 +57,45 @@ private slots:
 private:
     void waitForMatchingTarget();
 
-    QNearFieldManagerPrivateImpl *emulatorBackend;
-    QNearFieldManager *manager;
+    QObject *targetParent;
     QNearFieldTagType1 *target;
 };
 
 tst_QNearFieldTagType1::tst_QNearFieldTagType1()
-:   emulatorBackend(0), manager(0), target(0)
+:   targetParent(0), target(0)
 {
     QDir::setCurrent(QLatin1String(SRCDIR));
 
     qRegisterMetaType<QNdefMessage>();
+    qRegisterMetaType<TagBase *>();
     qRegisterMetaType<QNearFieldTarget *>();
 }
 
 void tst_QNearFieldTagType1::init()
 {
-    emulatorBackend = new QNearFieldManagerPrivateImpl;
-    manager = new QNearFieldManager(emulatorBackend, 0);
+    targetParent = new QObject();
+
+    TagActivator::instance()->initialize();
+    TagActivator::instance()->start();
 }
 
 void tst_QNearFieldTagType1::cleanup()
 {
-    emulatorBackend->reset();
+    TagActivator::instance()->reset();
 
-    delete manager;
-    manager = 0;
-    emulatorBackend = 0;
+    delete targetParent;
+    targetParent = 0;
     target = 0;
 }
 
 void tst_QNearFieldTagType1::waitForMatchingTarget()
 {
-    QSignalSpy targetDetectedSpy(manager, SIGNAL(targetDetected(QNearFieldTarget*)));
-
-    manager->startTargetDetection();
+    TagActivator *activator = TagActivator::instance();
+    QSignalSpy targetDetectedSpy(activator, SIGNAL(tagActivated(TagBase*)));
 
     QTRY_VERIFY(!targetDetectedSpy.isEmpty());
 
-    target =
-        qobject_cast<QNearFieldTagType1 *>(targetDetectedSpy.first().at(0).value<QNearFieldTarget *>());
-
-    manager->stopTargetDetection();
+    target = new TagType1(targetDetectedSpy.first().at(0).value<TagBase *>(), targetParent);
 
     QVERIFY(target);
 
@@ -108,6 +105,8 @@ void tst_QNearFieldTagType1::waitForMatchingTarget()
 void tst_QNearFieldTagType1::staticMemoryModel()
 {
     waitForMatchingTarget();
+    if (QTest::currentTestFailed())
+        return;
 
     QVERIFY(target->accessMethods() & QNearFieldTarget::TagTypeSpecificAccess);
 
@@ -243,6 +242,8 @@ void tst_QNearFieldTagType1::dynamicMemoryModel()
     QList<QByteArray> seenIds;
     forever {
         waitForMatchingTarget();
+        if (QTest::currentTestFailed())
+            return;
 
         QNearFieldTarget::RequestId id = target->readIdentification();
         QVERIFY(target->waitForRequestCompleted(id));
@@ -372,6 +373,8 @@ void tst_QNearFieldTagType1::ndefMessages()
     QByteArray firstId;
     forever {
         waitForMatchingTarget();
+        if (QTest::currentTestFailed())
+            return;
 
         QNearFieldTarget::RequestId id = target->readIdentification();
         QVERIFY(target->waitForRequestCompleted(id));
@@ -427,7 +430,6 @@ void tst_QNearFieldTagType1::ndefMessages()
         requestCompletedSpy.clear();
         errorSpy.clear();
 
-        QSignalSpy ndefMessageWriteSpy(target, SIGNAL(ndefMessagesWritten()));
         QNearFieldTarget::RequestId writeId = target->writeNdefMessages(messages);
 
         QVERIFY(writeId.isValid());
@@ -440,8 +442,6 @@ void tst_QNearFieldTagType1::ndefMessages()
             completedId =
                 requestCompletedSpy.takeFirst().first().value<QNearFieldTarget::RequestId>();
         }
-
-        QVERIFY(!ndefMessageWriteSpy.isEmpty());
 
         QVERIFY(target->hasNdefMessage());
 

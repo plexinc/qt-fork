@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtWidgets module of the Qt Toolkit.
@@ -52,7 +52,6 @@
 #include "qpainter.h"
 #include "qapplication.h"
 #include "qstyle.h"
-#include "qaction.h"
 #ifndef QT_NO_ACCESSIBILITY
 #include "qaccessible.h"
 #endif
@@ -191,7 +190,9 @@ QList<QAbstractButton *>QAbstractButtonPrivate::queryButtonList() const
         return group->d_func()->buttonList;
 #endif
 
-    QList<QAbstractButton*>candidates = parent->findChildren<QAbstractButton *>();
+    if (!parent)
+        return {};
+    QList<QAbstractButton *> candidates = parent->findChildren<QAbstractButton *>();
     if (autoExclusive) {
         auto isNoMemberOfMyAutoExclusiveGroup = [](QAbstractButton *candidate) {
             return !candidate->autoExclusive()
@@ -200,9 +201,7 @@ QList<QAbstractButton *>QAbstractButtonPrivate::queryButtonList() const
 #endif
                 ;
         };
-        candidates.erase(std::remove_if(candidates.begin(), candidates.end(),
-                                        isNoMemberOfMyAutoExclusiveGroup),
-                         candidates.end());
+        candidates.removeIf(isNoMemberOfMyAutoExclusiveGroup);
     }
     return candidates;
 }
@@ -415,15 +414,7 @@ void QAbstractButtonPrivate::emitClicked()
     emit q->clicked(checked);
 #if QT_CONFIG(buttongroup)
     if (guard && group) {
-        const int id = group->id(q);
-        emit group->idClicked(id);
-#if QT_DEPRECATED_SINCE(5, 15)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-        if (guard && group)
-            emit group->buttonClicked(id);
-QT_WARNING_POP
-#endif
+        emit group->idClicked(group->id(q));
         if (guard && group)
             emit group->buttonClicked(q);
     }
@@ -437,15 +428,7 @@ void QAbstractButtonPrivate::emitPressed()
     emit q->pressed();
 #if QT_CONFIG(buttongroup)
     if (guard && group) {
-        const int id = group->id(q);
-        emit group->idPressed(id);
-#if QT_DEPRECATED_SINCE(5, 15)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-        if (guard && group)
-            emit group->buttonPressed(id);
-QT_WARNING_POP
-#endif
+        emit group->idPressed(group->id(q));
         if (guard && group)
             emit group->buttonPressed(q);
     }
@@ -459,15 +442,7 @@ void QAbstractButtonPrivate::emitReleased()
     emit q->released();
 #if QT_CONFIG(buttongroup)
     if (guard && group) {
-        const int id = group->id(q);
-        emit group->idReleased(id);
-#if QT_DEPRECATED_SINCE(5, 15)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-        if (guard && group)
-            emit group->buttonReleased(id);
-QT_WARNING_POP
-#endif
+        emit group->idReleased(group->id(q));
         if (guard && group)
             emit group->buttonReleased(q);
     }
@@ -481,15 +456,7 @@ void QAbstractButtonPrivate::emitToggled(bool checked)
     emit q->toggled(checked);
 #if QT_CONFIG(buttongroup)
     if (guard && group) {
-        const int id = group->id(q);
-        emit group->idToggled(id, checked);
-#if QT_DEPRECATED_SINCE(5, 15)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-        if (guard && group)
-            emit group->buttonToggled(id, checked);
-QT_WARNING_POP
-#endif
+        emit group->idToggled(group->id(q), checked);
         if (guard && group)
             emit group->buttonToggled(q, checked);
     }
@@ -851,7 +818,7 @@ QButtonGroup *QAbstractButton::group() const
 
 /*!
 Performs an animated click: the button is pressed immediately, and
-released \a msec milliseconds later (the default is 100 ms).
+released 100ms later.
 
 Calling this function again before the button is released resets
 the release timer.
@@ -862,7 +829,7 @@ This function does nothing if the button is \l{setEnabled()}{disabled.}
 
 \sa click()
 */
-void QAbstractButton::animateClick(int msec)
+void QAbstractButton::animateClick()
 {
     if (!isEnabled())
         return;
@@ -873,7 +840,7 @@ void QAbstractButton::animateClick(int msec)
     repaint();
     if (!d->animateTimer.isActive())
         d->emitPressed();
-    d->animateTimer.start(msec, this);
+    d->animateTimer.start(100, this);
 }
 
 /*!
@@ -1009,7 +976,7 @@ void QAbstractButton::mousePressEvent(QMouseEvent *e)
         e->ignore();
         return;
     }
-    if (hitButton(e->pos())) {
+    if (hitButton(e->position().toPoint())) {
         setDown(true);
         d->pressed = true;
         repaint();
@@ -1039,7 +1006,7 @@ void QAbstractButton::mouseReleaseEvent(QMouseEvent *e)
         return;
     }
 
-    if (hitButton(e->pos())) {
+    if (hitButton(e->position().toPoint())) {
         d->repeatTimer.stop();
         d->click();
         e->accept();
@@ -1058,7 +1025,7 @@ void QAbstractButton::mouseMoveEvent(QMouseEvent *e)
         return;
     }
 
-    if (hitButton(e->pos()) != d->down) {
+    if (hitButton(e->position().toPoint()) != d->down) {
         setDown(!d->down);
         repaint();
         if (d->down)
@@ -1066,7 +1033,7 @@ void QAbstractButton::mouseMoveEvent(QMouseEvent *e)
         else
             d->emitReleased();
         e->accept();
-    } else if (!hitButton(e->pos())) {
+    } else if (!hitButton(e->position().toPoint())) {
         e->ignore();
     }
 }

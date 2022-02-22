@@ -295,7 +295,7 @@ static int open_slave(AVFormatContext *avf, char *slave, TeeSlave *tee_slave)
             goto end;
     }
 
-    ret = ff_format_output_open(avf2, filename, NULL);
+    ret = ff_format_output_open(avf2, filename, &options);
     if (ret < 0) {
         av_log(avf, AV_LOG_ERROR, "Slave '%s': error opening: %s\n", slave,
                av_err2str(ret));
@@ -564,7 +564,6 @@ static int tee_write_packet(AVFormatContext *avf, AVPacket *pkt)
         if (s2 < 0)
             continue;
 
-        memset(&pkt2, 0, sizeof(AVPacket));
         if ((ret = av_packet_ref(&pkt2, pkt)) < 0)
             if (!ret_all) {
                 ret_all = ret;
@@ -615,5 +614,5 @@ AVOutputFormat ff_tee_muxer = {
     .write_trailer     = tee_write_trailer,
     .write_packet      = tee_write_packet,
     .priv_class        = &tee_muxer_class,
-    .flags             = AVFMT_NOFILE | AVFMT_ALLOW_FLUSH,
+    .flags             = AVFMT_NOFILE | AVFMT_ALLOW_FLUSH | AVFMT_TS_NEGATIVE,
 };

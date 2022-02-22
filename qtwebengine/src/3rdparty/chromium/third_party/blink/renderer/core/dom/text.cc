@@ -124,8 +124,13 @@ Text* Text::splitText(unsigned offset, ExceptionState& exception_state) {
   if (exception_state.HadException())
     return nullptr;
 
-  if (GetLayoutObject())
+  if (GetLayoutObject()) {
     GetLayoutObject()->SetTextWithOffset(DataImpl(), 0, old_str.length());
+    if (data().IsEmpty()) {
+      // To avoid |LayoutText| has empty text, we rebuild layout tree.
+      SetForceReattachLayoutTree();
+    }
+  }
 
   if (parentNode())
     GetDocument().DidSplitTextNode(*this);
@@ -254,12 +259,12 @@ static inline bool CanHaveWhitespaceChildren(
   const LayoutObject& parent = *context.parent;
   // <button> and <fieldset> should allow whitespace even though
   // LayoutFlexibleBox doesn't.
-  if (parent.IsLayoutButton() || parent.IsFieldset())
+  if (parent.IsButtonIncludingNG() || parent.IsFieldset())
     return true;
 
   if (parent.IsTable() || parent.IsTableRow() || parent.IsTableSection() ||
       parent.IsLayoutTableCol() || parent.IsFrameSet() ||
-      parent.IsFlexibleBoxIncludingNG() || parent.IsLayoutGrid() ||
+      parent.IsFlexibleBoxIncludingNG() || parent.IsLayoutGridIncludingNG() ||
       parent.IsSVGRoot() || parent.IsSVGContainer() || parent.IsSVGImage() ||
       parent.IsSVGShape()) {
     if (!context.use_previous_in_flow || !context.previous_in_flow ||
@@ -268,15 +273,13 @@ static inline bool CanHaveWhitespaceChildren(
 
     return style.PreserveNewline() ||
            !EndsWithWhitespace(
-               ToLayoutText(context.previous_in_flow)->GetText());
+               To<LayoutText>(context.previous_in_flow)->GetText());
   }
   return true;
 }
 
 bool Text::TextLayoutObjectIsNeeded(const AttachContext& context,
                                     const ComputedStyle& style) const {
-  DCHECK(!GetDocument().ChildNeedsDistributionRecalc());
-
   const LayoutObject& parent = *context.parent;
   if (!parent.CanHaveChildren())
     return false;
@@ -312,7 +315,7 @@ bool Text::TextLayoutObjectIsNeeded(const AttachContext& context,
 
   if (context.previous_in_flow->IsText()) {
     return !EndsWithWhitespace(
-        ToLayoutText(context.previous_in_flow)->GetText());
+        To<LayoutText>(context.previous_in_flow)->GetText());
   }
 
   return context.previous_in_flow->IsInline() &&
@@ -387,7 +390,7 @@ bool NeedsWhitespaceLayoutObject(const ComputedStyle& style) {
 
 void Text::RecalcTextStyle(const StyleRecalcChange change) {
   scoped_refptr<const ComputedStyle> new_style =
-      GetDocument().EnsureStyleResolver().StyleForText(this);
+      GetDocument().GetStyleResolver().StyleForText(this);
   if (LayoutText* layout_text = GetLayoutObject()) {
     const ComputedStyle* layout_parent_style =
         GetLayoutObject()->Parent()->Style();
@@ -429,13 +432,9 @@ static bool ShouldUpdateLayoutByReattaching(const Text& text_node,
   DCHECK_EQ(text_node.GetLayoutObject(), text_layout_object);
   if (!text_layout_object)
     return true;
-  // In general we do not want to branch on lifecycle states such as
-  // |ChildNeedsDistributionRecalc|, but this code tries to figure out if we can
-  // use an optimized code path that avoids reattach.
   Node::AttachContext context;
   context.parent = text_layout_object->Parent();
-  if (!text_node.GetDocument().ChildNeedsDistributionRecalc() &&
-      !text_node.TextLayoutObjectIsNeeded(context,
+  if (!text_node.TextLayoutObjectIsNeeded(context,
                                           *text_layout_object->Style())) {
     return true;
   }
@@ -445,7 +444,7 @@ static bool ShouldUpdateLayoutByReattaching(const Text& text_node,
     // |text_fragment_layout_object| represents first-letter part but it isn't
     // inside first-letter-pseudo element. See http://crbug.com/978947
     const auto& text_fragment_layout_object =
-        *ToLayoutTextFragment(text_layout_object);
+        *To<LayoutTextFragment>(text_layout_object);
     return text_fragment_layout_object.GetFirstLetterPseudoElement() ||
            !text_fragment_layout_object.IsRemainingTextLayoutObject();
   }
@@ -470,7 +469,7 @@ Text* Text::CloneWithData(Document& factory, const String& data) const {
   return Create(factory, data);
 }
 
-void Text::Trace(Visitor* visitor) {
+void Text::Trace(Visitor* visitor) const {
   CharacterData::Trace(visitor);
 }
 

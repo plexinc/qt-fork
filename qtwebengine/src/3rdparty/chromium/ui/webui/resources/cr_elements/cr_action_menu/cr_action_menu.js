@@ -14,6 +14,7 @@
  *   minY: (number|undefined),
  *   maxX: (number|undefined),
  *   maxY: (number|undefined),
+ *   noOffset: (boolean|undefined),
  * }}
  */
 let ShowAtConfig;
@@ -32,7 +33,7 @@ let ShowAtConfig;
  *   maxY: (number|undefined),
  * }}
  */
-let ShowAtPositionConfig;
+/* #export */ let ShowAtPositionConfig;
 
 /**
  * @enum {number}
@@ -48,6 +49,10 @@ let ShowAtPositionConfig;
 
 /** @const {string} */
 const DROPDOWN_ITEM_CLASS = 'dropdown-item';
+
+/** @const {string} */
+const SELECTABLE_DROPDOWN_ITEM_QUERY =
+    `.${DROPDOWN_ITEM_CLASS}:not([hidden]):not([disabled])`;
 
 (function() {
 
@@ -161,6 +166,7 @@ Polymer({
 
     open: {
       type: Boolean,
+      notify: true,
       value: false,
     },
 
@@ -252,8 +258,8 @@ Polymer({
       return;
     }
 
-    const query = '.dropdown-item:not([disabled]):not([hidden])';
-    const options = Array.from(this.querySelectorAll(query));
+    const options =
+        Array.from(this.querySelectorAll(SELECTABLE_DROPDOWN_ITEM_QUERY));
     if (options.length === 0) {
       return;
     }
@@ -292,8 +298,8 @@ Polymer({
    * @private
    */
   onMouseover_(e) {
-    const query = '.dropdown-item:not([disabled])';
-    const item = e.composedPath().find(el => el.matches && el.matches(query));
+    const item = e.composedPath().find(
+        el => el.matches && el.matches(SELECTABLE_DROPDOWN_ITEM_QUERY));
     (item || this.$.wrapper).focus();
   },
 
@@ -344,7 +350,7 @@ Polymer({
     const rect = this.anchorElement_.getBoundingClientRect();
 
     let height = rect.height;
-    if (opt_config &&
+    if (opt_config && !opt_config.noOffset &&
         opt_config.anchorAlignmentY === AnchorAlignment.AFTER_END) {
       // When an action menu is positioned after the end of an element, the
       // action menu can appear too far away from the anchor element, typically
@@ -422,6 +428,19 @@ Polymer({
     doc.scrollTop = scrollTop;
     doc.scrollLeft = scrollLeft;
     this.addListeners_();
+
+    // Focus the first selectable item.
+    const openedByKey = cr.ui.FocusOutlineManager.forDocument(document).visible;
+    if (openedByKey) {
+      const firstSelectableItem =
+          this.querySelector(SELECTABLE_DROPDOWN_ITEM_QUERY);
+      if (firstSelectableItem) {
+        requestAnimationFrame(() => {
+          // Wait for the next animation frame for the dialog to become visible.
+          firstSelectableItem.focus();
+        });
+      }
+    }
   },
 
   /** @private */
@@ -505,4 +524,5 @@ Polymer({
     }
   },
 });
+/* #ignore */ console.warn('crbug/1173575, non-JS module files deprecated.');
 })();

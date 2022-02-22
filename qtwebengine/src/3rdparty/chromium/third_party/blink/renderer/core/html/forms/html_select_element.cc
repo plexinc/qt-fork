@@ -40,17 +40,16 @@
 #include "third_party/blink/renderer/core/dom/attribute.h"
 #include "third_party/blink/renderer/core/dom/element_traversal.h"
 #include "third_party/blink/renderer/core/dom/events/scoped_event_queue.h"
+#include "third_party/blink/renderer/core/dom/events/simulated_click_options.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/dom/node_lists_node_data.h"
 #include "third_party/blink/renderer/core/dom/node_traversal.h"
 #include "third_party/blink/renderer/core/events/keyboard_event.h"
-#include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/html/forms/form_controller.h"
 #include "third_party/blink/renderer/core/html/forms/form_data.h"
 #include "third_party/blink/renderer/core/html/forms/html_form_element.h"
 #include "third_party/blink/renderer/core/html/forms/html_opt_group_element.h"
 #include "third_party/blink/renderer/core/html/forms/html_option_element.h"
-#include "third_party/blink/renderer/core/html/forms/menu_list_inner_element.h"
 #include "third_party/blink/renderer/core/html/forms/select_type.h"
 #include "third_party/blink/renderer/core/html/html_hr_element.h"
 #include "third_party/blink/renderer/core/html/html_slot_element.h"
@@ -65,8 +64,6 @@
 #include "third_party/blink/renderer/core/page/chrome_client.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/page/spatial_navigation.h"
-#include "third_party/blink/renderer/core/paint/paint_layer.h"
-#include "third_party/blink/renderer/core/paint/paint_layer_scrollable_area.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
@@ -203,6 +200,7 @@ void HTMLSelectElement::SelectMultipleOptionsByPopup(
     }
   }
 
+  select_type_->UpdateTextStyleAndContent();
   SetNeedsValidityCheck();
   if (has_new_selection || !old_selection.IsEmpty()) {
     DispatchInputEvent();
@@ -231,9 +229,7 @@ int HTMLSelectElement::ActiveSelectionEndListIndex() const {
 }
 
 HTMLOptionElement* HTMLSelectElement::ActiveSelectionEnd() const {
-  if (active_selection_end_)
-    return active_selection_end_.Get();
-  return LastSelectedOption();
+  return select_type_->ActiveSelectionEnd();
 }
 
 void HTMLSelectElement::add(
@@ -367,10 +363,6 @@ bool HTMLSelectElement::CanSelectAll() const {
   return !UsesMenuList();
 }
 
-bool HTMLSelectElement::TypeShouldForceLegacyLayout() const {
-  return UsesMenuList();
-}
-
 LayoutObject* HTMLSelectElement::CreateLayoutObject(
     const ComputedStyle& style,
     LegacyLayout legacy_layout) {
@@ -400,10 +392,10 @@ void HTMLSelectElement::OptionElementChildrenChanged(
   }
 }
 
-void HTMLSelectElement::AccessKeyAction(bool send_mouse_events) {
+void HTMLSelectElement::AccessKeyAction(
+    SimulatedClickCreationScope creation_scope) {
   focus();
-  DispatchSimulatedClick(
-      nullptr, send_mouse_events ? kSendMouseUpDownEvents : kSendNoEvents);
+  DispatchSimulatedClick(nullptr, creation_scope);
 }
 
 Element* HTMLSelectElement::namedItem(const AtomicString& name) {
@@ -445,6 +437,8 @@ void HTMLSelectElement::SetOption(unsigned index,
   // Finally add the new element.
   EventQueueScope scope;
   add(element, before, exception_state);
+  if (exception_state.HadException())
+    return;
   if (diff >= 0 && option->Selected())
     OptionSelectionStateChanged(option, true);
 }
@@ -507,25 +501,6 @@ HTMLOptionElement* HTMLSelectElement::OptionAtListIndex(int list_index) const {
 
 void HTMLSelectElement::SelectAll() {
   select_type_->SelectAll();
-}
-
-void HTMLSelectElement::SetActiveSelectionAnchor(HTMLOptionElement* option) {
-  active_selection_anchor_ = option;
-  select_type_->SaveListboxActiveSelection();
-}
-
-void HTMLSelectElement::SetActiveSelectionEnd(HTMLOptionElement* option) {
-  active_selection_end_ = option;
-}
-
-void HTMLSelectElement::ScrollToSelection() {
-  if (!IsFinishedParsingChildren())
-    return;
-  if (UsesMenuList())
-    return;
-  ScrollToOption(ActiveSelectionEnd());
-  if (AXObjectCache* cache = GetDocument().ExistingAXObjectCache())
-    cache->ListboxActiveIndexChanged(this);
 }
 
 const HTMLSelectElement::ListItems& HTMLSelectElement::GetListItems() const {
@@ -705,50 +680,6 @@ void HTMLSelectElement::SetSuggestedOption(HTMLOptionElement* option) {
   select_type_->DidSetSuggestedOption(option);
 }
 
-void HTMLSelectElement::ScrollToOption(HTMLOptionElement* option) {
-  if (!option)
-    return;
-  if (UsesMenuList())
-    return;
-  bool has_pending_task = option_to_scroll_to_;
-  // We'd like to keep an HTMLOptionElement reference rather than the index of
-  // the option because the task should work even if unselected option is
-  // inserted before executing scrollToOptionTask().
-  option_to_scroll_to_ = option;
-  if (!has_pending_task) {
-    GetDocument()
-        .GetTaskRunner(TaskType::kUserInteraction)
-        ->PostTask(FROM_HERE, WTF::Bind(&HTMLSelectElement::ScrollToOptionTask,
-                                        WrapPersistent(this)));
-  }
-}
-
-void HTMLSelectElement::ScrollToOptionTask() {
-  HTMLOptionElement* option = option_to_scroll_to_.Release();
-  if (!option || !isConnected())
-    return;
-  // OptionRemoved() makes sure option_to_scroll_to_ doesn't have an option with
-  // another owner.
-  DCHECK_EQ(option->OwnerSelectElement(), this);
-  GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kScroll);
-  if (!GetLayoutObject() || UsesMenuList())
-    return;
-  PhysicalRect bounds = option->BoundingBoxForScrollIntoView();
-
-  // The following code will not scroll parent boxes unlike ScrollRectToVisible.
-  auto* box = GetLayoutBox();
-  if (!box->HasOverflowClip())
-    return;
-  DCHECK(box->Layer());
-  DCHECK(box->Layer()->GetScrollableArea());
-  box->Layer()->GetScrollableArea()->ScrollIntoView(
-      bounds,
-      ScrollAlignment::CreateScrollIntoViewParams(
-          ScrollAlignment::ToEdgeIfNeeded(), ScrollAlignment::ToEdgeIfNeeded(),
-          mojom::blink::ScrollType::kProgrammatic, false,
-          mojom::blink::ScrollBehavior::kInstant));
-}
-
 void HTMLSelectElement::OptionSelectionStateChanged(HTMLOptionElement* option,
                                                     bool option_is_selected) {
   DCHECK_EQ(option->OwnerSelectElement(), this);
@@ -767,25 +698,27 @@ void HTMLSelectElement::ChildrenChanged(const ChildrenChange& change) {
       OptionInserted(*option, option->Selected());
     } else if (auto* optgroup =
                    DynamicTo<HTMLOptGroupElement>(change.sibling_changed)) {
-      for (auto& option : Traversal<HTMLOptionElement>::ChildrenOf(*optgroup))
-        OptionInserted(option, option.Selected());
+      for (auto& child_option :
+           Traversal<HTMLOptionElement>::ChildrenOf(*optgroup))
+        OptionInserted(child_option, child_option.Selected());
     }
   } else if (change.type == ChildrenChangeType::kElementRemoved) {
     if (auto* option = DynamicTo<HTMLOptionElement>(change.sibling_changed)) {
       OptionRemoved(*option);
     } else if (auto* optgroup =
                    DynamicTo<HTMLOptGroupElement>(change.sibling_changed)) {
-      for (auto& option : Traversal<HTMLOptionElement>::ChildrenOf(*optgroup))
-        OptionRemoved(option);
+      for (auto& child_option :
+           Traversal<HTMLOptionElement>::ChildrenOf(*optgroup))
+        OptionRemoved(child_option);
     }
   } else if (change.type == ChildrenChangeType::kAllChildrenRemoved) {
-    DCHECK(change.removed_nodes);
-    for (Node* node : *change.removed_nodes) {
+    for (Node* node : change.removed_nodes) {
       if (auto* option = DynamicTo<HTMLOptionElement>(node)) {
         OptionRemoved(*option);
       } else if (auto* optgroup = DynamicTo<HTMLOptGroupElement>(node)) {
-        for (auto& option : Traversal<HTMLOptionElement>::ChildrenOf(*optgroup))
-          OptionRemoved(option);
+        for (auto& child_option :
+             Traversal<HTMLOptionElement>::ChildrenOf(*optgroup))
+          OptionRemoved(child_option);
       }
     }
   }
@@ -798,6 +731,7 @@ bool HTMLSelectElement::ChildrenChangedAllChildrenRemovedNeedsList() const {
 void HTMLSelectElement::OptionInserted(HTMLOptionElement& option,
                                        bool option_is_selected) {
   DCHECK_EQ(option.OwnerSelectElement(), this);
+  option.SetWasOptionInsertedCalled(true);
   SetRecalcListItems();
   if (option_is_selected) {
     SelectOption(&option, IsMultiple() ? 0 : kDeselectOtherOptionsFlag);
@@ -820,6 +754,7 @@ void HTMLSelectElement::OptionInserted(HTMLOptionElement& option,
 }
 
 void HTMLSelectElement::OptionRemoved(HTMLOptionElement& option) {
+  option.SetWasOptionInsertedCalled(false);
   SetRecalcListItems();
   if (option.Selected())
     ResetToDefaultSelection(kResetReasonSelectedOptionRemoved);
@@ -827,12 +762,7 @@ void HTMLSelectElement::OptionRemoved(HTMLOptionElement& option) {
     ResetToDefaultSelection();
   if (last_on_change_option_ == &option)
     last_on_change_option_.Clear();
-  if (option_to_scroll_to_ == &option)
-    option_to_scroll_to_.Clear();
-  if (active_selection_anchor_ == &option)
-    active_selection_anchor_.Clear();
-  if (active_selection_end_ == &option)
-    active_selection_end_.Clear();
+  select_type_->OptionRemoved(option);
   if (suggested_option_ == &option)
     SetSuggestedOption(nullptr);
   if (option.Selected())
@@ -886,18 +816,6 @@ void HTMLSelectElement::SelectOption(HTMLOptionElement* element,
   if (flags & kDeselectOtherOptionsFlag)
     should_update_popup |= DeselectItemsWithoutValidation(element);
 
-  // We should update active selection after finishing OPTION state change
-  // because setActiveSelectionAnchorIndex() stores OPTION's selection state.
-  if (element) {
-    // setActiveSelectionAnchor is O(N).
-    if (!active_selection_anchor_ || !IsMultiple() ||
-        flags & kDeselectOtherOptionsFlag)
-      SetActiveSelectionAnchor(element);
-    if (!active_selection_end_ || !IsMultiple() ||
-        flags & kDeselectOtherOptionsFlag)
-      SetActiveSelectionEnd(element);
-  }
-
   select_type_->DidSelectOption(element, flags, should_update_popup);
   NotifyFormStateChanged();
 
@@ -942,11 +860,13 @@ bool HTMLSelectElement::DeselectItemsWithoutValidation(
   }
   bool did_update_selection = false;
   for (auto* const option : GetOptionList()) {
-    if (option != exclude_element) {
-      if (option->Selected())
-        did_update_selection = true;
-      option->SetSelectedState(false);
-    }
+    if (option == exclude_element)
+      continue;
+    if (!option->WasOptionInsertedCalled())
+      continue;
+    if (option->Selected())
+      did_update_selection = true;
+    option->SetSelectedState(false);
   }
   return did_update_selection;
 }
@@ -1007,10 +927,11 @@ void HTMLSelectElement::RestoreFormControlState(const FormControlState& state) {
     } else {
       wtf_size_t found_index = SearchOptionsForValue(state[0], 0, items_size);
       if (found_index != kNotFound) {
-        auto* option_element = To<HTMLOptionElement>(items[found_index].Get());
-        option_element->SetSelectedState(true);
-        option_element->SetDirty(true);
-        last_on_change_option_ = option_element;
+        auto* found_option_element =
+            To<HTMLOptionElement>(items[found_index].Get());
+        found_option_element->SetSelectedState(true);
+        found_option_element->SetDirty(true);
+        last_on_change_option_ = found_option_element;
       }
     }
   } else {
@@ -1032,9 +953,10 @@ void HTMLSelectElement::RestoreFormControlState(const FormControlState& state) {
           found_index = SearchOptionsForValue(value, 0, start_index);
         if (found_index == kNotFound)
           continue;
-        auto* option_element = To<HTMLOptionElement>(items[found_index].Get());
-        option_element->SetSelectedState(true);
-        option_element->SetDirty(true);
+        auto* found_option_element =
+            To<HTMLOptionElement>(items[found_index].Get());
+        found_option_element->SetSelectedState(true);
+        found_option_element->SetDirty(true);
         start_index = found_index + 1;
       }
     }
@@ -1189,7 +1111,7 @@ void HTMLSelectElement::TypeAheadFind(const KeyboardEvent& event) {
 void HTMLSelectElement::SelectOptionByAccessKey(HTMLOptionElement* option) {
   // First bring into focus the list box.
   if (!IsFocused())
-    AccessKeyAction(false);
+    AccessKeyAction(SimulatedClickCreationScope::kFromUserAgent);
 
   if (!option || option->OwnerSelectElement() != this)
     return;
@@ -1207,10 +1129,8 @@ void HTMLSelectElement::SelectOptionByAccessKey(HTMLOptionElement* option) {
     SelectOption(option, flags);
   }
   option->SetDirty(true);
-  if (UsesMenuList())
-    return;
   select_type_->ListBoxOnChange();
-  ScrollToSelection();
+  select_type_->ScrollToSelection();
 }
 
 unsigned HTMLSelectElement::length() const {
@@ -1226,7 +1146,7 @@ void HTMLSelectElement::FinishParsingChildren() {
   HTMLFormControlElementWithState::FinishParsingChildren();
   if (UsesMenuList())
     return;
-  ScrollToOption(SelectedOption());
+  select_type_->ScrollToOption(SelectedOption());
   if (AXObjectCache* cache = GetDocument().ExistingAXObjectCache())
     cache->ListboxActiveIndexChanged(this);
 }
@@ -1247,12 +1167,9 @@ bool HTMLSelectElement::IsInteractiveContent() const {
   return true;
 }
 
-void HTMLSelectElement::Trace(Visitor* visitor) {
+void HTMLSelectElement::Trace(Visitor* visitor) const {
   visitor->Trace(list_items_);
   visitor->Trace(last_on_change_option_);
-  visitor->Trace(active_selection_anchor_);
-  visitor->Trace(active_selection_end_);
-  visitor->Trace(option_to_scroll_to_);
   visitor->Trace(suggested_option_);
   visitor->Trace(select_type_);
   HTMLFormControlElementWithState::Trace(visitor);
@@ -1280,30 +1197,19 @@ void HTMLSelectElement::UpdateUserAgentShadowTree(ShadowRoot& root) {
       will_be_removed->remove();
     }
   }
-  if (UsesMenuList()) {
-    Element* inner_element =
-        MakeGarbageCollected<MenuListInnerElement>(GetDocument());
-    inner_element->setAttribute(html_names::kAriaHiddenAttr, "true");
-    // Make sure InnerElement() always has a Text node.
-    inner_element->appendChild(Text::Create(GetDocument(), g_empty_string));
-    root.insertBefore(inner_element, root.firstChild());
-  }
+  select_type_->CreateShadowSubtree(root);
 }
 
 Element& HTMLSelectElement::InnerElement() const {
-  DCHECK(UsesMenuList());
-  auto* inner_element = DynamicTo<Element>(UserAgentShadowRoot()->firstChild());
-  DCHECK(inner_element);
-  return *inner_element;
+  return select_type_->InnerElement();
+}
+
+AXObject* HTMLSelectElement::PopupRootAXObject() const {
+  return select_type_->PopupRootAXObject();
 }
 
 HTMLOptionElement* HTMLSelectElement::SpatialNavigationFocusedOption() {
-  if (!IsSpatialNavigationEnabled(GetDocument().GetFrame()))
-    return nullptr;
-  HTMLOptionElement* focused_option = ActiveSelectionEnd();
-  if (!focused_option)
-    focused_option = select_type_->FirstSelectableOption();
-  return focused_option;
+  return select_type_->SpatialNavigationFocusedOption();
 }
 
 String HTMLSelectElement::ItemText(const Element& element) const {
@@ -1457,9 +1363,12 @@ void HTMLSelectElement::CloneNonAttributePropertiesFrom(
 
 void HTMLSelectElement::ChangeRendering() {
   select_type_->DidDetachLayoutTree();
+  bool old_uses_menu_list = UsesMenuList();
   UpdateUsesMenuList();
-  select_type_->WillBeDestroyed();
-  select_type_ = SelectType::Create(*this);
+  if (UsesMenuList() != old_uses_menu_list) {
+    select_type_->WillBeDestroyed();
+    select_type_ = SelectType::Create(*this);
+  }
   if (!InActiveDocument())
     return;
   // TODO(futhark): SetForceReattachLayoutTree() should be the correct way to

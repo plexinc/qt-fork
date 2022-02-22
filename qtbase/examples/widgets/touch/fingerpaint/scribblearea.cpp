@@ -196,11 +196,11 @@ bool ScribbleArea::event(QEvent *event)
     case QEvent::TouchEnd:
     {
         const QTouchEvent *touch = static_cast<QTouchEvent *>(event);
-        const QList<QTouchEvent::TouchPoint> touchPoints = static_cast<QTouchEvent *>(event)->touchPoints();
+        const auto touchPoints = static_cast<QTouchEvent *>(event)->points();
         for (const QTouchEvent::TouchPoint &touchPoint : touchPoints) {
             switch (touchPoint.state()) {
-            case Qt::TouchPointStationary:
-            case Qt::TouchPointReleased:
+            case QEventPoint::Stationary:
+            case QEventPoint::Released:
                 // don't do anything if this touch point hasn't moved or has been released
                 continue;
             default:
@@ -208,7 +208,7 @@ bool ScribbleArea::event(QEvent *event)
                     QSizeF diams = touchPoint.ellipseDiameters();
                     if (diams.isEmpty()) {
                         qreal diameter = MaximumDiameter;
-                        if (touch->device()->capabilities() & QTouchDevice::Pressure)
+                        if (touch->pointingDevice()->capabilities().testFlag(QPointingDevice::Capability::Pressure))
                             diameter = MinimumDiameter + (MaximumDiameter - MinimumDiameter) * touchPoint.pressure();
                         diams = QSizeF(diameter, diameter);
                     }
@@ -216,13 +216,13 @@ bool ScribbleArea::event(QEvent *event)
                     QPainter painter(&image);
                     painter.setPen(Qt::NoPen);
                     painter.setBrush(myPenColors.at(touchPoint.id() % myPenColors.count()));
-                    painter.drawEllipse(touchPoint.pos(), diams.width() / 2, diams.height() / 2);
+                    painter.drawEllipse(touchPoint.position(), diams.width() / 2, diams.height() / 2);
                     painter.end();
 
                     modified = true;
                     const int rad = 2;
                     QRectF rect(QPointF(), diams);
-                    rect.moveCenter(touchPoint.pos());
+                    rect.moveCenter(touchPoint.position());
                     update(rect.toRect().adjusted(-rad,-rad, +rad, +rad));
                 }
                 break;

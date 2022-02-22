@@ -35,7 +35,7 @@ void DestroyOnThread(scoped_refptr<base::SingleThreadTaskRunner> task_runner,
 InProcessGpuMemoryBufferManager::InProcessGpuMemoryBufferManager(
     gpu::GpuMemoryBufferFactory* gpu_memory_buffer_factory,
     gpu::SyncPointManager* sync_point_manager)
-    : client_id_(gpu::kInProcessCommandBufferClientId),
+    : client_id_(gpu::kDisplayCompositorClientId),
       gpu_memory_buffer_factory_(gpu_memory_buffer_factory),
       sync_point_manager_(sync_point_manager),
       task_runner_(base::ThreadTaskRunnerHandle::Get()) {
@@ -60,7 +60,8 @@ InProcessGpuMemoryBufferManager::CreateGpuMemoryBuffer(
   gfx::GpuMemoryBufferId id(next_gpu_memory_id_++);
   gfx::GpuMemoryBufferHandle buffer_handle =
       gpu_memory_buffer_factory_->CreateGpuMemoryBuffer(
-          id, size, format, usage, client_id_, surface_handle);
+          id, size, /*framebuffer_size=*/size, format, usage, client_id_,
+          surface_handle);
 
   AllocatedBufferInfo buffer_info(buffer_handle, size, format);
 
@@ -82,6 +83,19 @@ void InProcessGpuMemoryBufferManager::SetDestructionSyncToken(
     const gpu::SyncToken& sync_token) {
   static_cast<gpu::GpuMemoryBufferImpl*>(buffer)->set_destruction_sync_token(
       sync_token);
+}
+
+void InProcessGpuMemoryBufferManager::CopyGpuMemoryBufferAsync(
+    gfx::GpuMemoryBufferHandle buffer_handle,
+    base::UnsafeSharedMemoryRegion memory_region,
+    base::OnceCallback<void(bool)> callback) {
+  std::move(callback).Run(false);
+}
+
+bool InProcessGpuMemoryBufferManager::CopyGpuMemoryBufferSync(
+    gfx::GpuMemoryBufferHandle buffer_handle,
+    base::UnsafeSharedMemoryRegion memory_region) {
+  return false;
 }
 
 bool InProcessGpuMemoryBufferManager::OnMemoryDump(

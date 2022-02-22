@@ -31,45 +31,54 @@
 #include <bitset>
 #include <memory>
 
-#include "base/location.h"
 #include "base/macros.h"
 #include "base/optional.h"
-#include "base/unguessable_token.h"
+#include "services/metrics/public/cpp/ukm_source_id.h"
+#include "services/network/public/mojom/ip_address_space.mojom-blink-forward.h"
 #include "services/network/public/mojom/referrer_policy.mojom-blink-forward.h"
+#include "third_party/blink/public/common/tokens/tokens.h"
+#include "third_party/blink/public/common/user_agent/user_agent_metadata.h"
+#include "third_party/blink/public/mojom/devtools/inspector_issue.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/feature_policy/feature_policy_feature.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/feature_policy/policy_disposition.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/frame/lifecycle.mojom-blink-forward.h"
+#include "third_party/blink/public/mojom/v8_cache_options.mojom-blink.h"
+#include "third_party/blink/public/platform/web_url_loader.h"
 #include "third_party/blink/renderer/bindings/core/v8/sanitize_script_errors.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/core/execution_context/security_context.h"
-#include "third_party/blink/renderer/core/feature_policy/feature_policy_parser_delegate.h"
 #include "third_party/blink/renderer/core/frame/dom_timer_coordinator.h"
 #include "third_party/blink/renderer/platform/context_lifecycle_notifier.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
-#include "third_party/blink/renderer/platform/heap_observer_list.h"
+#include "third_party/blink/renderer/platform/heap_observer_set.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/loader/fetch/console_logger.h"
 #include "third_party/blink/renderer/platform/loader/fetch/https_state.h"
+#include "third_party/blink/renderer/platform/mojo/mojo_binding_context.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/supplementable.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "v8/include/v8.h"
 
 namespace base {
-class SingleThreadTaskRunner;
-}
+class UnguessableToken;
+}  // namespace base
+
+namespace ukm {
+class UkmRecorder;
+}  // namespace ukm
 
 namespace blink {
 
 class Agent;
-class BrowserInterfaceBrokerProxy;
 class ConsoleMessage;
 class ContentSecurityPolicy;
 class ContentSecurityPolicyDelegate;
 class CoreProbeSink;
 class DOMTimerCoordinator;
+class DOMWrapperWorld;
 class ErrorEvent;
 class EventTarget;
 class FrameOrWorkerScheduler;
@@ -80,14 +89,15 @@ class PublicURLManager;
 class ResourceFetcher;
 class SecurityOrigin;
 class ScriptState;
+class ScriptWrappable;
 class TrustedTypePolicyFactory;
-
-enum class TaskType : unsigned char;
 
 enum ReasonForCallingCanExecuteScripts {
   kAboutToExecuteScript,
   kNotAboutToExecuteScript
 };
+
+enum ReferrerPolicySource { kPolicySourceHttpHeader, kPolicySourceMetaTag };
 
 // An environment in which script can execute. This class exposes the common
 // properties of script execution environments on the web (i.e, common between
@@ -112,14 +122,12 @@ enum ReasonForCallingCanExecuteScripts {
 // by an extension developer, but these share an ExecutionContext (the window)
 // in common.
 class CORE_EXPORT ExecutionContext : public Supplementable<ExecutionContext>,
-                                     public ContextLifecycleNotifier,
+                                     public MojoBindingContext,
                                      public ConsoleLogger,
                                      public UseCounter,
-                                     public FeaturePolicyParserDelegate {
-  MERGE_GARBAGE_COLLECTED_MIXINS();
-
+                                     public FeatureContext {
  public:
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
   static ExecutionContext* From(const ScriptState*);
   static ExecutionContext* From(v8::Local<v8::Context>);
@@ -127,11 +135,15 @@ class CORE_EXPORT ExecutionContext : public Supplementable<ExecutionContext>,
   // Returns the ExecutionContext of the current realm.
   static ExecutionContext* ForCurrentRealm(
       const v8::FunctionCallbackInfo<v8::Value>&);
+  static ExecutionContext* ForCurrentRealm(
+      const v8::PropertyCallbackInfo<v8::Value>&);
   // Returns the ExecutionContext of the relevant realm for the receiver object.
   static ExecutionContext* ForRelevantRealm(
       const v8::FunctionCallbackInfo<v8::Value>&);
+  static ExecutionContext* ForRelevantRealm(
+      const v8::PropertyCallbackInfo<v8::Value>&);
 
-  virtual bool IsDocument() const { return false; }
+  virtual bool IsWindow() const { return false; }
   virtual bool IsWorkerOrWorkletGlobalScope() const { return false; }
   virtual bool IsWorkerGlobalScope() const { return false; }
   virtual bool IsWorkletGlobalScope() const { return false; }
@@ -155,24 +167,29 @@ class CORE_EXPORT ExecutionContext : public Supplementable<ExecutionContext>,
 
   ContentSecurityPolicy* GetContentSecurityPolicy() const;
 
-  mojom::blink::WebSandboxFlags GetSandboxFlags() const;
-  bool IsSandboxed(mojom::blink::WebSandboxFlags mask) const;
+  network::mojom::blink::WebSandboxFlags GetSandboxFlags() const;
+  bool IsSandboxed(network::mojom::blink::WebSandboxFlags mask) const;
+
+  // Returns a reference to the current world we are in. If the current v8
+  // context is empty, returns null.
+  scoped_refptr<const DOMWrapperWorld> GetCurrentWorld() const;
 
   // Returns the content security policy to be used based on the current
   // JavaScript world we are in.
-  // Note: As part of crbug.com/896041, existing usages of
-  // ContentSecurityPolicy::ShouldBypassMainWorld should eventually be replaced
-  // by GetContentSecurityPolicyForWorld. However this is under active
-  // development, hence new callers should still use
-  // ContentSecurityPolicy::ShouldBypassMainWorld for now.
-  virtual ContentSecurityPolicy* GetContentSecurityPolicyForWorld();
+  ContentSecurityPolicy* GetContentSecurityPolicyForCurrentWorld();
+
+  // Returns the content security policy to be used for the given |world|.
+  virtual ContentSecurityPolicy* GetContentSecurityPolicyForWorld(
+      const DOMWrapperWorld* world);
 
   virtual const KURL& Url() const = 0;
   virtual const KURL& BaseURL() const = 0;
   virtual KURL CompleteURL(const String& url) const = 0;
   virtual void DisableEval(const String& error_message) = 0;
-  virtual LocalDOMWindow* ExecutingWindow() const { return nullptr; }
   virtual String UserAgent() const = 0;
+  virtual UserAgentMetadata GetUserAgentMetadata() const {
+    return UserAgentMetadata();
+  }
 
   virtual HttpsState GetHttpsState() const = 0;
 
@@ -187,19 +204,21 @@ class CORE_EXPORT ExecutionContext : public Supplementable<ExecutionContext>,
 
   virtual ResourceFetcher* Fetcher() const = 0;
 
-  virtual SecurityContext& GetSecurityContext() = 0;
-  virtual const SecurityContext& GetSecurityContext() const = 0;
+  SecurityContext& GetSecurityContext() { return security_context_; }
+  const SecurityContext& GetSecurityContext() const {
+    return security_context_;
+  }
 
   // https://tc39.github.io/ecma262/#sec-agent-clusters
-  // TODO(dtapuska): Remove this virtual once all execution_contexts
-  // always have an agent. Worklets currently override this because
-  // they don't have agents.
-  virtual const base::UnguessableToken& GetAgentClusterID() const;
+  const base::UnguessableToken& GetAgentClusterID() const;
 
   bool IsSameAgentCluster(const base::UnguessableToken&) const;
 
   virtual bool CanExecuteScripts(ReasonForCallingCanExecuteScripts) {
     return false;
+  }
+  virtual mojom::blink::V8CacheOptions GetV8CacheOptions() const {
+    return mojom::blink::V8CacheOptions::kDefault;
   }
 
   void DispatchErrorEvent(ErrorEvent*, SanitizeScriptErrors);
@@ -212,6 +231,7 @@ class CORE_EXPORT ExecutionContext : public Supplementable<ExecutionContext>,
 
   virtual void RemoveURLFromMemoryCache(const KURL&);
 
+  void SetIsInBackForwardCache(bool);
   void SetLifecycleState(mojom::FrameLifecycleState);
   void NotifyContextDestroyed();
 
@@ -221,12 +241,15 @@ class CORE_EXPORT ExecutionContext : public Supplementable<ExecutionContext>,
                          bool discard_duplicates = false) {
     AddConsoleMessageImpl(message, discard_duplicates);
   }
+  virtual void AddInspectorIssue(mojom::blink::InspectorIssueInfoPtr) = 0;
 
   bool IsContextPaused() const;
+  WebURLLoader::DeferType DeferType() const;
   bool IsContextDestroyed() const { return is_context_destroyed_; }
   mojom::FrameLifecycleState ContextPauseState() const {
     return lifecycle_state_;
   }
+  bool IsLoadDeferred() const;
 
   // Gets the next id in a circular sequence from 1 to 2^31-1.
   int CircularSequentialID();
@@ -242,28 +265,30 @@ class CORE_EXPORT ExecutionContext : public Supplementable<ExecutionContext>,
   // Decides whether this context is privileged, as described in
   // https://w3c.github.io/webappsec-secure-contexts/#is-settings-object-contextually-secure.
   SecureContextMode GetSecureContextMode() const {
-    return GetSecurityContext().GetSecureContextMode();
+    return security_context_.GetSecureContextMode();
   }
   bool IsSecureContext() const {
     return GetSecureContextMode() == SecureContextMode::kSecureContext;
   }
   bool IsSecureContext(String& error_message) const;
 
+  virtual bool HasInsecureContextInAncestors() { return false; }
+
   // Returns a referrer to be used in the "Determine request's Referrer"
   // algorithm defined in the Referrer Policy spec.
   // https://w3c.github.io/webappsec-referrer-policy/#determine-requests-referrer
   virtual String OutgoingReferrer() const;
 
-  // Parses a comma-separated list of referrer policy tokens, and sets
-  // the context's referrer policy to the last one that is a valid
-  // policy. Logs a message to the console if none of the policy
-  // tokens are valid policies.
+  // Parses a referrer policy directive using either Header or Meta rules and
+  // sets the context to use that policy. If the supplied policy is invalid,
+  // the context's policy is unchanged and a message is logged to the console.
   //
-  // If |supportLegacyKeywords| is true, then the legacy keywords
-  // "never", "default", "always", and "origin-when-crossorigin" are
-  // parsed as valid policies.
-  void ParseAndSetReferrerPolicy(const String& policies,
-                                 bool support_legacy_keywords = false);
+  // For a header-set policy, parses a comma-delimited list of tokens, and sets
+  // the context's policy to the last one that is a valid policy. For a meta-set
+  // policy, accepts only a single token, and allows the legacy tokens defined
+  // in the HTML specification.
+  void ParseAndSetReferrerPolicy(const String& policy,
+                                 ReferrerPolicySource source);
   void SetReferrerPolicy(network::mojom::ReferrerPolicy);
   virtual network::mojom::ReferrerPolicy GetReferrerPolicy() const {
     return referrer_policy_;
@@ -271,29 +296,22 @@ class CORE_EXPORT ExecutionContext : public Supplementable<ExecutionContext>,
 
   virtual CoreProbeSink* GetProbeSink() { return nullptr; }
 
-  virtual BrowserInterfaceBrokerProxy& GetBrowserInterfaceBroker() = 0;
-
   virtual FrameOrWorkerScheduler* GetScheduler() = 0;
-  virtual scoped_refptr<base::SingleThreadTaskRunner> GetTaskRunner(
-      TaskType) = 0;
 
   v8::Isolate* GetIsolate() const { return isolate_; }
-  Agent* GetAgent() const { return GetSecurityContext().GetAgent(); }
+  Agent* GetAgent() const { return agent_; }
 
   v8::MicrotaskQueue* GetMicrotaskQueue() const;
 
   OriginTrialContext* GetOriginTrialContext() const {
-    return GetSecurityContext().GetOriginTrialContext();
+    return origin_trial_context_;
   }
 
   virtual TrustedTypePolicyFactory* GetTrustedTypes() const { return nullptr; }
   virtual bool RequireTrustedTypes() const;
 
-  // FeaturePolicyParserDelegate override
+  // FeatureContext override
   bool FeatureEnabled(OriginTrialFeature) const override;
-  void CountFeaturePolicyUsage(mojom::WebFeature feature) override;
-  bool FeaturePolicyFeatureObserved(
-      mojom::blink::FeaturePolicyFeature feature) override;
 
   // Tests whether the policy-controlled feature is enabled in this frame.
   // Optionally sends a report to any registered reporting observers or
@@ -303,14 +321,7 @@ class CORE_EXPORT ExecutionContext : public Supplementable<ExecutionContext>,
   bool IsFeatureEnabled(
       mojom::blink::FeaturePolicyFeature,
       ReportOptions report_on_failure = ReportOptions::kDoNotReport,
-      const String& message = g_empty_string,
-      const String& source_file = g_empty_string) const;
-  bool IsFeatureEnabled(
-      mojom::blink::FeaturePolicyFeature,
-      PolicyValue threshold_value,
-      ReportOptions report_on_failure = ReportOptions::kDoNotReport,
-      const String& message = g_empty_string,
-      const String& source_file = g_empty_string) const;
+      const String& message = g_empty_string) const;
   bool IsFeatureEnabled(
       mojom::blink::DocumentPolicyFeature,
       ReportOptions report_option = ReportOptions::kDoNotReport,
@@ -332,8 +343,7 @@ class CORE_EXPORT ExecutionContext : public Supplementable<ExecutionContext>,
   virtual void ReportFeaturePolicyViolation(
       mojom::blink::FeaturePolicyFeature,
       mojom::blink::PolicyDisposition,
-      const String& message = g_empty_string,
-      const String& source_file = g_empty_string) const {}
+      const String& message = g_empty_string) const {}
   virtual void ReportDocumentPolicyViolation(
       mojom::blink::DocumentPolicyFeature,
       mojom::blink::PolicyDisposition,
@@ -341,17 +351,70 @@ class CORE_EXPORT ExecutionContext : public Supplementable<ExecutionContext>,
       const String& source_file = g_empty_string) const {}
 
   String addressSpaceForBindings() const;
+  void SetAddressSpace(network::mojom::IPAddressSpace space) {
+    address_space_ = space;
+  }
+  network::mojom::IPAddressSpace AddressSpace() const { return address_space_; }
 
-  void AddContextLifecycleObserver(ContextLifecycleObserver*) override;
-  void RemoveContextLifecycleObserver(ContextLifecycleObserver*) override;
-  HeapObserverList<ContextLifecycleObserver>& ContextLifecycleObserverList() {
-    return context_lifecycle_observer_list_;
+  HeapObserverSet<ContextLifecycleObserver>& ContextLifecycleObserverSet() {
+    return ContextLifecycleNotifier::observers();
   }
   unsigned ContextLifecycleStateObserverCountForTesting() const;
 
+  // Implementation of WindowOrWorkerGlobalScope.crossOriginIsolated.
+  // https://html.spec.whatwg.org/C/webappapis.html#concept-settings-object-cross-origin-isolated-capability
+  virtual bool CrossOriginIsolatedCapability() const = 0;
+
+  // Returns true if SharedArrayBuffers can be transferred via PostMessage,
+  // false otherwise. SharedArrayBuffer allows pages to craft high-precision
+  // timers useful for Spectre-style side channel attacks, so are restricted
+  // to cross-origin isolated contexts.
+  bool SharedArrayBufferTransferAllowed() const;
+  // Returns SharedArrayBufferTransferAllowed() but potentially reports an
+  // inspector issue if the transfer was disallowed, or will be disallowed in
+  // the future.
+  bool CheckSharedArrayBufferTransferAllowedAndReport();
+
+  virtual ukm::UkmRecorder* UkmRecorder() { return nullptr; }
+  virtual ukm::SourceId UkmSourceID() const { return ukm::kInvalidSourceId; }
+
+  // Returns the token that uniquely identifies this ExecutionContext.
+  virtual ExecutionContextToken GetExecutionContextToken() const = 0;
+
+  // Returns the token that uniquely identifies the parent ExecutionContext of
+  // this context. If an ExecutionContext has a parent context, it means that it
+  // was created from that context, and the lifetime of this context is tied to
+  // the lifetime of its parent. This is used for resource usage attribution,
+  // where the resource usage of a child context will be charged to its parent
+  // (and so on up the tree).
+  virtual base::Optional<ExecutionContextToken> GetParentExecutionContextToken()
+      const {
+    return base::nullopt;
+  }
+
+  // ExecutionContext subclasses are usually the V8 global object, which means
+  // they are also a ScriptWrappable. This casts the ExecutionContext to a
+  // ScriptWrappable if possible.
+  virtual ScriptWrappable* ToScriptWrappable() {
+    NOTREACHED();
+    return nullptr;
+  }
+
+  bool has_filed_shared_array_buffer_creation_issue() const {
+    return has_filed_shared_array_buffer_creation_issue_;
+  }
+
+  void FileSharedArrayBufferCreationIssue();
+
  protected:
-  explicit ExecutionContext(v8::Isolate* isolate);
+  explicit ExecutionContext(v8::Isolate* isolate, Agent*);
+  ExecutionContext(const ExecutionContext&) = delete;
+  ExecutionContext& operator=(const ExecutionContext&) = delete;
   ~ExecutionContext() override;
+
+  // Resetting the Agent is only necessary for a special case related to the
+  // GetShouldReuseGlobalForUnownedMainFrame() Setting.
+  void ResetAgent(Agent* agent) { agent_ = agent; }
 
  private:
   // ConsoleLogger implementation.
@@ -362,12 +425,11 @@ class CORE_EXPORT ExecutionContext : public Supplementable<ExecutionContext>,
   virtual void AddConsoleMessageImpl(ConsoleMessage*,
                                      bool discard_duplicates) = 0;
 
-  // Temporary method to record when the result of calling IsFeatureEnabled
-  // would change under the proposal in https://crbug.com/937131.
-  void FeaturePolicyPotentialBehaviourChangeObserved(
-      mojom::blink::FeaturePolicyFeature feature) const;
-
   v8::Isolate* const isolate_;
+
+  SecurityContext security_context_;
+
+  Member<Agent> agent_;
 
   bool DispatchErrorEventInternal(ErrorEvent*, SanitizeScriptErrors);
 
@@ -379,13 +441,16 @@ class CORE_EXPORT ExecutionContext : public Supplementable<ExecutionContext>,
   mojom::FrameLifecycleState lifecycle_state_;
   bool is_context_destroyed_;
 
+  bool is_in_back_forward_cache_ = false;
+
+  bool has_filed_shared_array_buffer_transfer_issue_ = false;
+  bool has_filed_shared_array_buffer_creation_issue_ = false;
+
   Member<PublicURLManager> public_url_manager_;
 
   const Member<ContentSecurityPolicyDelegate> csp_delegate_;
 
   DOMTimerCoordinator timers_;
-
-  HeapObserverList<ContextLifecycleObserver> context_lifecycle_observer_list_;
 
   // Counter that keeps track of how many window interaction calls are allowed
   // for this ExecutionContext. Callers are expected to call
@@ -395,17 +460,9 @@ class CORE_EXPORT ExecutionContext : public Supplementable<ExecutionContext>,
 
   network::mojom::ReferrerPolicy referrer_policy_;
 
-  // Tracks which feature policies have already been parsed, so as not to count
-  // them multiple times.
-  // The size of this vector is 0 until FeaturePolicyFeatureObserved is called.
-  Vector<bool> parsed_feature_policies_;
+  network::mojom::blink::IPAddressSpace address_space_;
 
-  // Tracks which feature policy features have been logged in this execution
-  // context as to the FeaturePolicyProposalWouldChangeBehaviour
-  // histogram, in order not to overcount.
-  mutable Vector<bool> feature_policy_behaviour_change_counted_;
-
-  DISALLOW_COPY_AND_ASSIGN(ExecutionContext);
+  Member<OriginTrialContext> origin_trial_context_;
 };
 
 }  // namespace blink

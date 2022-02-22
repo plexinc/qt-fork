@@ -7,9 +7,9 @@
 
 #include <string>
 
-#include "net/third_party/quiche/src/quic/core/http/quic_client_promised_info.h"
-#include "net/third_party/quiche/src/quic/core/quic_packets.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
+#include "quic/core/http/quic_client_promised_info.h"
+#include "quic/core/quic_packets.h"
+#include "quic/platform/api/quic_test.h"
 
 namespace quic {
 namespace test {
@@ -21,9 +21,11 @@ class MockQuicClientPromisedInfo : public QuicClientPromisedInfo {
                              std::string url);
   ~MockQuicClientPromisedInfo() override;
 
-  MOCK_METHOD2(HandleClientRequest,
-               QuicAsyncStatus(const spdy::SpdyHeaderBlock& headers,
-                               QuicClientPushPromiseIndex::Delegate* delegate));
+  MOCK_METHOD(QuicAsyncStatus,
+              HandleClientRequest,
+              (const spdy::SpdyHeaderBlock& headers,
+               QuicClientPushPromiseIndex::Delegate*),
+              (override));
 };
 
 }  // namespace test

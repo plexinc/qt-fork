@@ -10,8 +10,9 @@
 #include "base/run_loop.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/net/proxy_test_utils.h"
 #include "chrome/browser/profiles/profile.h"
@@ -29,6 +30,7 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/url_loader_interceptor.h"
 #include "google_apis/gaia/gaia_urls.h"
@@ -41,9 +43,9 @@
 #include "services/network/public/cpp/simple_url_loader.h"
 #include "url/gurl.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/chromeos/net/dhcp_wpad_url_client.h"
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace {
 
@@ -174,7 +176,7 @@ IN_PROC_BROWSER_TEST_F(HttpProxyScriptBrowserTest, Verify) {
   VerifyProxyScript(browser());
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 // Tests the use of a PAC script set via Web Proxy Autodiscovery Protocol.
 // TODO(crbug.com/991867): Add a test case for when DhcpWpadUrlClient
 // returns an empty PAC URL.
@@ -207,7 +209,7 @@ class WPADHttpProxyScriptBrowserTest : public HttpProxyScriptBrowserTest {
 IN_PROC_BROWSER_TEST_F(WPADHttpProxyScriptBrowserTest, Verify) {
   VerifyProxyScript(browser());
 }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 // Tests the use of a PAC script that rejects requests to http://www.google.com/
 // when myIpAddress() and myIpAddressEx() appear to be working.

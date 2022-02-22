@@ -1315,8 +1315,8 @@ void QQuickGridView::setHighlightFollowsCurrentItem(bool autoHighlight)
 
     The model provides the set of data that is used to create the items
     in the view. Models can be created directly in QML using \l ListModel,
-    \l XmlListModel, \l DelegateModel, or \l ObjectModel, or provided by C++
-    model classes. If a C++ model class is used, it must be a subclass of
+    \l DelegateModel, \l ObjectModel, or provided by C++ model classes.
+    If a C++ model class is used, it must be a subclass of
     \l QAbstractItemModel or a simple list.
 
   \sa {qml-data-models}{Data Models}
@@ -1758,7 +1758,8 @@ void QQuickGridView::setSnapMode(SnapMode mode)
     \list
     \li The view is first created
     \li The view's \l model changes in such a way that the visible delegates are completely replaced
-    \li The view's \l model is \l {QAbstractItemModel::reset()}{reset}, if the model is a QAbstractItemModel subclass
+    \li The view's \l model is \l {QAbstractItemModel::beginResetModel()}{reset},
+        if the model is a QAbstractItemModel subclass
     \endlist
 
     For example, here is a view that specifies such a transition:
@@ -2153,7 +2154,7 @@ void QQuickGridView::keyPressEvent(QKeyEvent *event)
     QQuickItemView::keyPressEvent(event);
 }
 
-void QQuickGridView::geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry)
+void QQuickGridView::geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry)
 {
     Q_D(QQuickGridView);
     d->resetColumns();
@@ -2167,7 +2168,7 @@ void QQuickGridView::geometryChanged(const QRectF &newGeometry, const QRectF &ol
         QQuickFlickable::setContentY(d->contentYForPosition(d->position()));
     }
 
-    QQuickItemView::geometryChanged(newGeometry, oldGeometry);
+    QQuickItemView::geometryChange(newGeometry, oldGeometry);
 }
 
 void QQuickGridView::initItem(int index, QObject *obj)

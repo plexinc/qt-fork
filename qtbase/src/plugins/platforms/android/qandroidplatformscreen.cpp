@@ -90,8 +90,8 @@ private:
 QAndroidPlatformScreen::QAndroidPlatformScreen()
     : QObject(), QPlatformScreen()
 {
-    m_availableGeometry = QRect(0, 0, QAndroidPlatformIntegration::m_defaultGeometryWidth, QAndroidPlatformIntegration::m_defaultGeometryHeight);
-    m_size = QSize(QAndroidPlatformIntegration::m_defaultScreenWidth, QAndroidPlatformIntegration::m_defaultScreenHeight);
+    m_availableGeometry = QAndroidPlatformIntegration::m_defaultAvailableGeometry;
+    m_size = QAndroidPlatformIntegration::m_defaultScreenSize;
     // Raster only apps should set QT_ANDROID_RASTER_IMAGE_DEPTH to 16
     // is way much faster than 32
     if (qEnvironmentVariableIntValue("QT_ANDROID_RASTER_IMAGE_DEPTH") == 16) {
@@ -101,8 +101,7 @@ QAndroidPlatformScreen::QAndroidPlatformScreen()
         m_format = QImage::Format_ARGB32_Premultiplied;
         m_depth = 32;
     }
-    m_physicalSize.setHeight(QAndroidPlatformIntegration::m_defaultPhysicalSizeHeight);
-    m_physicalSize.setWidth(QAndroidPlatformIntegration::m_defaultPhysicalSizeWidth);
+    m_physicalSize = QAndroidPlatformIntegration::m_defaultPhysicalSize;
     connect(qGuiApp, &QGuiApplication::applicationStateChanged, this, &QAndroidPlatformScreen::applicationStateChanged);
 }
 
@@ -159,7 +158,7 @@ void QAndroidPlatformScreen::addWindow(QAndroidPlatformWindow *window)
     }
 
     QWindow *w = topWindow();
-    QWindowSystemInterface::handleWindowActivated(w);
+    QWindowSystemInterface::handleWindowActivated(w, Qt::ActiveWindowFocusReason);
     topWindowChanged(w);
 }
 
@@ -179,7 +178,7 @@ void QAndroidPlatformScreen::removeWindow(QAndroidPlatformWindow *window)
     }
 
     QWindow *w = topWindow();
-    QWindowSystemInterface::handleWindowActivated(w);
+    QWindowSystemInterface::handleWindowActivated(w, Qt::ActiveWindowFocusReason);
     topWindowChanged(w);
 }
 
@@ -196,7 +195,7 @@ void QAndroidPlatformScreen::raise(QAndroidPlatformWindow *window)
         setDirty(window->geometry());
     }
     QWindow *w = topWindow();
-    QWindowSystemInterface::handleWindowActivated(w);
+    QWindowSystemInterface::handleWindowActivated(w, Qt::ActiveWindowFocusReason);
     topWindowChanged(w);
 }
 
@@ -213,7 +212,7 @@ void QAndroidPlatformScreen::lower(QAndroidPlatformWindow *window)
         setDirty(window->geometry());
     }
     QWindow *w = topWindow();
-    QWindowSystemInterface::handleWindowActivated(w);
+    QWindowSystemInterface::handleWindowActivated(w, Qt::ActiveWindowFocusReason);
     topWindowChanged(w);
 }
 
@@ -294,7 +293,7 @@ void QAndroidPlatformScreen::topWindowChanged(QWindow *w)
     if (w != 0) {
         QAndroidPlatformWindow *platformWindow = static_cast<QAndroidPlatformWindow *>(w->handle());
         if (platformWindow != 0)
-            platformWindow->updateStatusBarVisibility();
+            platformWindow->updateSystemUiVisibility();
     }
 }
 
@@ -303,7 +302,7 @@ int QAndroidPlatformScreen::rasterSurfaces()
     return m_rasterSurfaces;
 }
 
-void QAndroidPlatformScreen::doRedraw()
+void QAndroidPlatformScreen::doRedraw(QImage* screenGrabImage)
 {
     PROFILE_SCOPE;
     if (!QtAndroid::activity())
@@ -334,7 +333,7 @@ void QAndroidPlatformScreen::doRedraw()
     }
     QMutexLocker lock(&m_surfaceMutex);
     if (m_id == -1 && m_rasterSurfaces) {
-        m_id = QtAndroid::createSurface(this, m_availableGeometry, true, m_depth);
+        m_id = QtAndroid::createSurface(this, geometry(), true, m_depth);
         AndroidDeadlockProtector protector;
         if (!protector.acquire())
             return;
@@ -358,15 +357,14 @@ void QAndroidPlatformScreen::doRedraw()
     }
 
     int bpp = 4;
-    QImage::Format format = QImage::Format_RGBA8888_Premultiplied;
     if (nativeWindowBuffer.format == WINDOW_FORMAT_RGB_565) {
         bpp = 2;
-        format = QImage::Format_RGB16;
+        m_pixelFormat = QImage::Format_RGB16;
     }
 
     QImage screenImage(reinterpret_cast<uchar *>(nativeWindowBuffer.bits)
                        , nativeWindowBuffer.width, nativeWindowBuffer.height
-                       , nativeWindowBuffer.stride * bpp , format);
+                       , nativeWindowBuffer.stride * bpp , m_pixelFormat);
 
     QPainter compositePainter(&screenImage);
     compositePainter.setCompositionMode(QPainter::CompositionMode_Source);
@@ -399,6 +397,31 @@ void QAndroidPlatformScreen::doRedraw()
     ret = ANativeWindow_unlockAndPost(m_nativeSurface);
     if (ret >= 0)
         m_dirtyRect = QRect();
+
+    if (screenGrabImage) {
+        if (screenGrabImage->size() != screenImage.size()) {
+            uchar* bytes = static_cast<uchar*>(malloc(screenImage.height() * screenImage.bytesPerLine()));
+            *screenGrabImage = QImage(bytes, screenImage.width(), screenImage.height(),
+                                      screenImage.bytesPerLine(), m_pixelFormat,
+                                      [](void* ptr){ if (ptr) free (ptr);});
+        }
+        memcpy(screenGrabImage->bits(),
+               screenImage.bits(),
+               screenImage.bytesPerLine() * screenImage.height());
+    }
+    m_repaintOccurred = true;
+}
+
+QPixmap QAndroidPlatformScreen::doScreenShot(QRect grabRect)
+{
+    if (!m_repaintOccurred)
+       return QPixmap::fromImage(m_lastScreenshot.copy(grabRect));
+    QRect tmp = m_dirtyRect;
+    m_dirtyRect = geometry();
+    doRedraw(&m_lastScreenshot);
+    m_dirtyRect = tmp;
+    m_repaintOccurred = false;
+    return QPixmap::fromImage(m_lastScreenshot.copy(grabRect));
 }
 
 static const int androidLogicalDpi = 72;
@@ -444,6 +467,46 @@ void QAndroidPlatformScreen::releaseSurface()
         ANativeWindow_release(m_nativeSurface);
         m_nativeSurface = 0;
     }
+}
+
+/*!
+    This function is called when Qt needs to be able to grab the content of a window.
+
+    Returns the content of the window specified with the WId handle within the boundaries of
+    QRect(x, y, width, height).
+*/
+QPixmap QAndroidPlatformScreen::grabWindow(WId window, int x, int y, int width, int height) const
+{
+    QRectF screenshotRect(x, y, width,  height);
+    QWindow* wnd = 0;
+    if (window)
+    {
+        const auto windowList = qApp->allWindows();
+        for (QWindow *w : windowList)
+            if (w->winId() == window) {
+                wnd = w;
+                break;
+            }
+    }
+    if (wnd) {
+        const qreal factor = logicalDpi().first / androidLogicalDpi; //HighDPI factor;
+        QRectF wndRect = wnd->geometry();
+        if (wnd->parent())
+            wndRect.moveTopLeft(wnd->parent()->mapToGlobal(wndRect.topLeft().toPoint()));
+        if (!qFuzzyCompare(factor, 1))
+            wndRect = QRectF(wndRect.left() * factor, wndRect.top() * factor,
+                            wndRect.width() * factor, wndRect.height() * factor);
+
+        if (!screenshotRect.isEmpty()) {
+            screenshotRect.moveTopLeft(wndRect.topLeft() + screenshotRect.topLeft());
+            screenshotRect = screenshotRect.intersected(wndRect);
+        } else {
+            screenshotRect = wndRect;
+        }
+    } else {
+        screenshotRect = screenshotRect.isValid() ? screenshotRect : geometry();
+    }
+    return const_cast<QAndroidPlatformScreen *>(this)->doScreenShot(screenshotRect.toRect());
 }
 
 QT_END_NAMESPACE

@@ -4,7 +4,9 @@
 
 #include "third_party/blink/renderer/core/testing/dummy_modulator.h"
 
+#include "third_party/blink/renderer/bindings/core/v8/module_record.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
+#include "third_party/blink/renderer/core/loader/modulescript/module_script_creation_params.h"
 #include "third_party/blink/renderer/core/script/module_record_resolver.h"
 
 namespace blink {
@@ -26,7 +28,7 @@ class EmptyModuleRecordResolver final : public ModuleRecordResolver {
     return nullptr;
   }
 
-  v8::Local<v8::Module> Resolve(const String& specifier,
+  v8::Local<v8::Module> Resolve(const ModuleRequest& module_request,
                                 v8::Local<v8::Module> referrer,
                                 ExceptionState&) override {
     NOTREACHED();
@@ -41,7 +43,7 @@ DummyModulator::DummyModulator()
 
 DummyModulator::~DummyModulator() = default;
 
-void DummyModulator::Trace(Visitor* visitor) {
+void DummyModulator::Trace(Visitor* visitor) const {
   visitor->Trace(resolver_);
   Modulator::Trace(visitor);
 }
@@ -51,8 +53,8 @@ ScriptState* DummyModulator::GetScriptState() {
   return nullptr;
 }
 
-V8CacheOptions DummyModulator::GetV8CacheOptions() const {
-  return kV8CacheOptionsDefault;
+mojom::blink::V8CacheOptions DummyModulator::GetV8CacheOptions() const {
+  return mojom::blink::V8CacheOptions::kDefault;
 }
 
 bool DummyModulator::IsScriptingDisabled() const {
@@ -73,8 +75,9 @@ base::SingleThreadTaskRunner* DummyModulator::TaskRunner() {
 }
 
 void DummyModulator::FetchTree(const KURL&,
+                               ModuleType,
                                ResourceFetcher*,
-                               mojom::RequestContextType,
+                               mojom::blink::RequestContextType,
                                network::mojom::RequestDestination,
                                const ScriptFetchOptions&,
                                ModuleScriptCustomFetchType,
@@ -93,13 +96,13 @@ void DummyModulator::FetchSingle(const ModuleScriptFetchRequest&,
 void DummyModulator::FetchDescendantsForInlineScript(
     ModuleScript*,
     ResourceFetcher*,
-    mojom::RequestContextType,
+    mojom::blink::RequestContextType,
     network::mojom::RequestDestination,
     ModuleTreeClient*) {
   NOTREACHED();
 }
 
-ModuleScript* DummyModulator::GetFetchedModuleScript(const KURL&) {
+ModuleScript* DummyModulator::GetFetchedModuleScript(const KURL&, ModuleType) {
   NOTREACHED();
   return nullptr;
 }
@@ -115,7 +118,7 @@ bool DummyModulator::HasValidContext() {
   return true;
 }
 
-void DummyModulator::ResolveDynamically(const String&,
+void DummyModulator::ResolveDynamically(const ModuleRequest& module_request,
                                         const KURL&,
                                         const ReferrerScriptInfo&,
                                         ScriptPromiseResolver*) {
@@ -136,12 +139,13 @@ void DummyModulator::RegisterImportMap(const ImportMap*,
   NOTREACHED();
 }
 
-bool DummyModulator::IsAcquiringImportMaps() const {
+Modulator::AcquiringImportMapsState
+DummyModulator::GetAcquiringImportMapsState() const {
   NOTREACHED();
-  return true;
+  return AcquiringImportMapsState::kAcquiring;
 }
 
-void DummyModulator::ClearIsAcquiringImportMaps() {
+void DummyModulator::SetAcquiringImportMapsState(AcquiringImportMapsState) {
   NOTREACHED();
 }
 
@@ -162,22 +166,42 @@ ScriptValue DummyModulator::InstantiateModule(v8::Local<v8::Module>,
   return ScriptValue();
 }
 
-Vector<Modulator::ModuleRequest> DummyModulator::ModuleRequestsFromModuleRecord(
+Vector<ModuleRequest> DummyModulator::ModuleRequestsFromModuleRecord(
     v8::Local<v8::Module>) {
   NOTREACHED();
   return Vector<ModuleRequest>();
 }
 
-ScriptValue DummyModulator::ExecuteModule(ModuleScript*, CaptureEvalErrorFlag) {
-  NOTREACHED();
-  return ScriptValue();
+ModuleType DummyModulator::ModuleTypeFromRequest(
+    const ModuleRequest& module_request) const {
+  String module_type_string = module_request.GetModuleTypeString();
+  if (module_type_string.IsNull()) {
+    // Per https://github.com/whatwg/html/pull/5883, if no type assertion is
+    // provided then the import should be treated as a JavaScript module.
+    return ModuleType::kJavaScript;
+  } else if (module_type_string == "json") {
+    // Per https://github.com/whatwg/html/pull/5658, a "json" type assertion
+    // indicates that the import should be treated as a JSON module script.
+    return ModuleType::kJSON;
+  } else if (module_type_string == "css") {
+    // Per https://github.com/whatwg/html/pull/4898, a "css" type assertion
+    // indicates that the import should be treated as a CSS module script.
+    return ModuleType::kCSS;
+  } else {
+    // Per https://github.com/whatwg/html/pull/5883, if an unsupported type
+    // assertion is provided then the import should be treated as an error
+    // similar to an invalid module specifier.
+    return ModuleType::kInvalid;
+  }
 }
 
 ModuleScriptFetcher* DummyModulator::CreateModuleScriptFetcher(
     ModuleScriptCustomFetchType,
-    util::PassKey<ModuleScriptLoader> pass_key) {
+    base::PassKey<ModuleScriptLoader> pass_key) {
   NOTREACHED();
   return nullptr;
 }
+
+void DummyModulator::ProduceCacheModuleTreeTopLevel(ModuleScript*) {}
 
 }  // namespace blink

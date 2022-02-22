@@ -11,13 +11,15 @@
 #include <cstddef>
 #include <memory>
 
-#include "net/third_party/quiche/src/quic/core/quic_blocked_writer_interface.h"
-#include "net/third_party/quiche/src/quic/core/quic_framer.h"
-#include "net/third_party/quiche/src/quic/core/quic_packet_writer.h"
-#include "net/third_party/quiche/src/quic/core/quic_packets.h"
-#include "net/third_party/quiche/src/quic/core/quic_session.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_containers.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
+#include "absl/container/flat_hash_map.h"
+#include "quic/core/quic_blocked_writer_interface.h"
+#include "quic/core/quic_connection_id.h"
+#include "quic/core/quic_framer.h"
+#include "quic/core/quic_packet_writer.h"
+#include "quic/core/quic_packets.h"
+#include "quic/core/quic_session.h"
+#include "quic/platform/api/quic_containers.h"
+#include "quic/platform/api/quic_flags.h"
 
 namespace quic {
 
@@ -25,6 +27,30 @@ namespace test {
 class QuicDispatcherPeer;
 class QuicTimeWaitListManagerPeer;
 }  // namespace test
+
+// TimeWaitConnectionInfo comprises information of a connection which is in the
+// time wait list.
+struct QUIC_NO_EXPORT TimeWaitConnectionInfo {
+  TimeWaitConnectionInfo(
+      bool ietf_quic,
+      std::vector<std::unique_ptr<QuicEncryptedPacket>>* termination_packets,
+      std::vector<QuicConnectionId> active_connection_ids);
+  TimeWaitConnectionInfo(
+      bool ietf_quic,
+      std::vector<std::unique_ptr<QuicEncryptedPacket>>* termination_packets,
+      std::vector<QuicConnectionId> active_connection_ids,
+      QuicTime::Delta srtt);
+
+  TimeWaitConnectionInfo(const TimeWaitConnectionInfo& other) = delete;
+  TimeWaitConnectionInfo(TimeWaitConnectionInfo&& other) = default;
+
+  ~TimeWaitConnectionInfo() = default;
+
+  bool ietf_quic;
+  std::vector<std::unique_ptr<QuicEncryptedPacket>> termination_packets;
+  std::vector<QuicConnectionId> active_connection_ids;
+  QuicTime::Delta srtt;
+};
 
 // Maintains a list of all connection_ids that have been recently closed. A
 // connection_id lives in this state for time_wait_period_. All packets received
@@ -44,6 +70,9 @@ class QUIC_NO_EXPORT QuicTimeWaitListManager
     // Send specified termination packets, error if termination packet is
     // unavailable.
     SEND_TERMINATION_PACKETS,
+    // The same as SEND_TERMINATION_PACKETS except that the corresponding
+    // termination packets are provided by the connection.
+    SEND_CONNECTION_CLOSE_PACKETS,
     // Send stateless reset (public reset for GQUIC).
     SEND_STATELESS_RESET,
 
@@ -75,12 +104,9 @@ class QUIC_NO_EXPORT QuicTimeWaitListManager
   // will be move from |termination_packets| and will become owned by the
   // manager. |action| specifies what the time wait list manager should do when
   // processing packets of the connection.
-  virtual void AddConnectionIdToTimeWait(
-      QuicConnectionId connection_id,
-      bool ietf_quic,
-      TimeWaitAction action,
-      EncryptionLevel encryption_level,
-      std::vector<std::unique_ptr<QuicEncryptedPacket>>* termination_packets);
+  virtual void AddConnectionIdToTimeWait(QuicConnectionId connection_id,
+                                         TimeWaitAction action,
+                                         TimeWaitConnectionInfo info);
 
   // Returns true if the connection_id is in time wait state, false otherwise.
   // Packets received for this connection_id should not lead to creation of new
@@ -90,8 +116,8 @@ class QUIC_NO_EXPORT QuicTimeWaitListManager
   // Called when a packet is received for a connection_id that is in time wait
   // state. Sends a public reset packet to the peer which sent this
   // connection_id. Sending of the public reset packet is throttled by using
-  // exponential back off. DCHECKs for the connection_id to be in time wait
-  // state. virtual to override in tests.
+  // exponential back off. QUICHE_DCHECKs for the connection_id to be in time
+  // wait state. virtual to override in tests.
   virtual void ProcessPacket(
       const QuicSocketAddress& self_address,
       const QuicSocketAddress& peer_address,
@@ -224,6 +250,12 @@ class QUIC_NO_EXPORT QuicTimeWaitListManager
   // false if the map is empty or the oldest connection has not expired.
   bool MaybeExpireOldestConnection(QuicTime expiration_time);
 
+  // Called when a packet is received for a connection in this time wait list.
+  virtual void OnPacketReceivedForKnownConnection(
+      int /*num_packets*/,
+      QuicTime::Delta /*delta*/,
+      QuicTime::Delta /*srtt*/) const {}
+
   std::unique_ptr<QuicEncryptedPacket> BuildIetfStatelessResetPacket(
       QuicConnectionId connection_id);
 
@@ -232,9 +264,9 @@ class QUIC_NO_EXPORT QuicTimeWaitListManager
   // connection_id.
   struct QUIC_NO_EXPORT ConnectionIdData {
     ConnectionIdData(int num_packets,
-                     bool ietf_quic,
                      QuicTime time_added,
-                     TimeWaitAction action);
+                     TimeWaitAction action,
+                     TimeWaitConnectionInfo info);
 
     ConnectionIdData(const ConnectionIdData& other) = delete;
     ConnectionIdData(ConnectionIdData&& other);
@@ -242,21 +274,41 @@ class QUIC_NO_EXPORT QuicTimeWaitListManager
     ~ConnectionIdData();
 
     int num_packets;
-    bool ietf_quic;
     QuicTime time_added;
-    // Encryption level of termination_packets.
-    EncryptionLevel encryption_level;
-    // These packets may contain CONNECTION_CLOSE frames, or SREJ messages.
-    std::vector<std::unique_ptr<QuicEncryptedPacket>> termination_packets;
     TimeWaitAction action;
+    TimeWaitConnectionInfo info;
   };
 
   // QuicLinkedHashMap allows lookup by ConnectionId and traversal in add order.
-  typedef QuicLinkedHashMap<QuicConnectionId,
-                            ConnectionIdData,
-                            QuicConnectionIdHash>
-      ConnectionIdMap;
+  using ConnectionIdMap = QuicLinkedHashMap<QuicConnectionId,
+                                            ConnectionIdData,
+                                            QuicConnectionIdHash>;
+  // Do not use find/emplace/erase on this map directly. Use
+  // FindConnectionIdDataInMap, AddConnectionIdDateToMap,
+  // RemoveConnectionDataFromMap instead.
   ConnectionIdMap connection_id_map_;
+
+  // TODO(haoyuewang) Consider making connection_id_map_ a map of shared pointer
+  // and remove the indirect map.
+  // A connection can have multiple unretired ConnectionIds when it is closed.
+  // These Ids have the same ConnectionIdData entry in connection_id_map_. To
+  // find the entry, look up the cannoical ConnectionId in
+  // indirect_connection_id_map_ first, and look up connection_id_map_ with the
+  // cannoical ConnectionId.
+  absl::flat_hash_map<QuicConnectionId, QuicConnectionId, QuicConnectionIdHash>
+      indirect_connection_id_map_;
+
+  // Find an iterator for the given connection_id. Returns
+  // connection_id_map_.end() if none found.
+  ConnectionIdMap::iterator FindConnectionIdDataInMap(
+      const QuicConnectionId& connection_id);
+  // Inserts a ConnectionIdData entry to connection_id_map_.
+  void AddConnectionIdDataToMap(const QuicConnectionId& canonical_connection_id,
+                                int num_packets,
+                                TimeWaitAction action,
+                                TimeWaitConnectionInfo info);
+  // Removes a ConnectionIdData entry in connection_id_map_.
+  void RemoveConnectionDataFromMap(ConnectionIdMap::iterator it);
 
   // Pending termination packets that need to be sent out to the peer when we
   // are given a chance to write by the dispatcher.
@@ -277,6 +329,11 @@ class QUIC_NO_EXPORT QuicTimeWaitListManager
 
   // Interface that manages blocked writers.
   Visitor* visitor_;
+
+  // When this is default true, remove the connection_id argument of
+  // AddConnectionIdToTimeWait.
+  bool use_indirect_connection_id_map_ =
+      GetQuicRestartFlag(quic_time_wait_list_support_multiple_cid_v2);
 };
 
 }  // namespace quic

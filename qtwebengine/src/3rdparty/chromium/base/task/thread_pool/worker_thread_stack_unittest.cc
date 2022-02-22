@@ -4,7 +4,7 @@
 
 #include "base/task/thread_pool/worker_thread_stack.h"
 
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/memory/ref_counted.h"
 #include "base/task/thread_pool/task_source.h"
 #include "base/task/thread_pool/task_tracker.h"
@@ -52,7 +52,7 @@ class ThreadPoolWorkerStackTest : public testing::Test {
   }
 
  private:
-  TaskTracker task_tracker_{"Test"};
+  TaskTracker task_tracker_;
 
  protected:
   scoped_refptr<WorkerThread> worker_a_;

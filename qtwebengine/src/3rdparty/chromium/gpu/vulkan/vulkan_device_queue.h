@@ -10,10 +10,11 @@
 #include <memory>
 
 #include "base/callback.h"
-#include "base/logging.h"
+#include "base/check_op.h"
+#include "base/component_export.h"
 #include "base/macros.h"
 #include "build/build_config.h"
-#include "gpu/vulkan/vulkan_export.h"
+#include "gpu/vulkan/vma_wrapper.h"
 #include "ui/gfx/extension_set.h"
 
 namespace gpu {
@@ -21,8 +22,9 @@ namespace gpu {
 class VulkanCommandPool;
 class VulkanFenceHelper;
 class VulkanInfo;
+struct GPUInfo;
 
-class VULKAN_EXPORT VulkanDeviceQueue {
+class COMPONENT_EXPORT(VULKAN) VulkanDeviceQueue {
  public:
   enum DeviceQueueOption {
     GRAPHICS_QUEUE_FLAG = 0x01,
@@ -39,11 +41,13 @@ class VULKAN_EXPORT VulkanDeviceQueue {
                                    uint32_t queue_family_index)>;
   bool Initialize(
       uint32_t options,
+      const GPUInfo* gpu_info,
       const VulkanInfo& info,
       const std::vector<const char*>& required_extensions,
       const std::vector<const char*>& optional_extensions,
       bool allow_protected_memory,
-      const GetPresentationSupportCallback& get_presentation_support);
+      const GetPresentationSupportCallback& get_presentation_support,
+      uint32_t heap_memory_limit);
 
   bool InitializeForWebView(VkPhysicalDevice vk_physical_device,
                             VkDevice vk_device,
@@ -67,6 +71,11 @@ class VULKAN_EXPORT VulkanDeviceQueue {
     return vk_physical_device_properties_;
   }
 
+  const VkPhysicalDeviceDriverProperties& vk_physical_device_driver_properties()
+      const {
+    return vk_physical_device_driver_properties_;
+  }
+
   VkDevice GetVulkanDevice() const {
     DCHECK_NE(static_cast<VkDevice>(VK_NULL_HANDLE), vk_device_);
     return vk_device_;
@@ -82,6 +91,8 @@ class VULKAN_EXPORT VulkanDeviceQueue {
   uint32_t GetVulkanQueueIndex() const { return vk_queue_index_; }
 
   std::unique_ptr<gpu::VulkanCommandPool> CreateCommandPool();
+
+  VmaAllocator vma_allocator() const { return vma_allocator_; }
 
   VulkanFenceHelper* GetFenceHelper() const { return cleanup_helper_.get(); }
 
@@ -99,11 +110,13 @@ class VULKAN_EXPORT VulkanDeviceQueue {
   gfx::ExtensionSet enabled_extensions_;
   VkPhysicalDevice vk_physical_device_ = VK_NULL_HANDLE;
   VkPhysicalDeviceProperties vk_physical_device_properties_;
+  VkPhysicalDeviceDriverProperties vk_physical_device_driver_properties_;
   VkDevice owned_vk_device_ = VK_NULL_HANDLE;
   VkDevice vk_device_ = VK_NULL_HANDLE;
   VkQueue vk_queue_ = VK_NULL_HANDLE;
   uint32_t vk_queue_index_ = 0;
   const VkInstance vk_instance_;
+  VmaAllocator vma_allocator_ = VK_NULL_HANDLE;
   std::unique_ptr<VulkanFenceHelper> cleanup_helper_;
   VkPhysicalDeviceFeatures2 enabled_device_features_2_;
 

@@ -19,6 +19,7 @@ source_set("cc") {
     "//content/public/browser",
     "//media",
     "//mojo/public/cpp/bindings",
+    "//net",
     "//skia",
     "//ui/gfx",
   ]
@@ -30,6 +31,13 @@ source_set("cc") {
     "thumbnail_cache.cc",
     "thumbnail_cache.h",
   ]
+
+  if (is_android) {
+    deps += [
+      "//third_party/android_opengl/etc1",
+      "//ui/android",
+    ]
+  }
 }
 
 source_set("unit_tests") {
@@ -38,6 +46,7 @@ source_set("unit_tests") {
   deps = [
     ":cc",
     "//base",
+    "//net",
     "//testing/gmock",
     "//testing/gtest",
   ]

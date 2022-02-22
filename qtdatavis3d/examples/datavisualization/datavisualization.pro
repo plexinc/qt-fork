@@ -6,7 +6,7 @@ qtHaveModule(quick) {
                qmlcustominput \
                qmllegend \
                qmlmultigraph \
-               qmloscilloscope \
+               qml3doscilloscope \
                qmlsurfacelayers \
                qmlaxisformatter \
                qmlaxisdrag \
@@ -25,7 +25,5 @@ qtHaveModule(quick) {
                customitems \
                texturesurface \
                volumetric
-
-    qtHaveModule(multimedia): SUBDIRS += audiolevels
 }
 

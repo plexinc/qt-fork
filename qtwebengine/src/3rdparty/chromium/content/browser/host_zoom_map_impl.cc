@@ -13,11 +13,10 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/default_clock.h"
 #include "base/values.h"
-#include "content/browser/frame_host/navigation_entry_impl.h"
+#include "content/browser/renderer_host/navigation_entry_impl.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
-#include "content/common/view_messages.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_frame_host.h"
@@ -332,8 +331,7 @@ void HostZoomMapImpl::SetDefaultZoomLevel(double level) {
   }
 }
 
-std::unique_ptr<HostZoomMap::Subscription>
-HostZoomMapImpl::AddZoomLevelChangedCallback(
+base::CallbackListSubscription HostZoomMapImpl::AddZoomLevelChangedCallback(
     ZoomLevelChangedCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   return zoom_level_changed_callbacks_.Add(std::move(callback));

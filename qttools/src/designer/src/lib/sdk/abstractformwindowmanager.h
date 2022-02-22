@@ -82,11 +82,13 @@ public:
 
         FormWindowSettingsDialogAction = 600
     };
+    Q_ENUM(Action)
 
     enum ActionGroup
     {
         StyledPreviewActionGroup = 100
     };
+    Q_ENUM(ActionGroup)
 
     virtual QAction *action(Action action) const = 0;
     virtual QActionGroup *actionGroup(ActionGroup actionGroup) const = 0;
@@ -139,9 +141,6 @@ public Q_SLOTS:
     virtual void showPreview() = 0;
     virtual void closeAllPreviews() = 0;
     virtual void showPluginDialog() = 0;
-
-private:
-    QScopedPointer<int> d;
 };
 
 QT_END_NAMESPACE

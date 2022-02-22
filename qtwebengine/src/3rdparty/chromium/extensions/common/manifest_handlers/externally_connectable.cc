@@ -10,7 +10,7 @@
 #include <memory>
 
 #include "base/memory/ptr_util.h"
-#include "base/stl_util.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/crx_file/id_util.h"
 #include "extensions/common/api/extensions_manifest_types.h"
@@ -75,10 +75,7 @@ bool ExternallyConnectableHandler::Parse(Extension* extension,
           *externally_connectable, allow_all_urls, &install_warnings, error);
   if (!info)
     return false;
-  if (!info->matches.is_empty()) {
-    PermissionsParser::AddAPIPermission(extension,
-                                        APIPermission::kWebConnectable);
-  }
+
   extension->AddInstallWarnings(std::move(install_warnings));
   extension->SetManifestData(keys::kExternallyConnectable, std::move(info));
   return true;
@@ -86,11 +83,7 @@ bool ExternallyConnectableHandler::Parse(Extension* extension,
 
 base::span<const char* const> ExternallyConnectableHandler::Keys() const {
   static constexpr const char* kKeys[] = {keys::kExternallyConnectable};
-#if !defined(__GNUC__) || __GNUC__ > 5
   return kKeys;
-#else
-  return base::make_span(kKeys, 1);
-#endif
 }
 
 // static
@@ -211,7 +204,7 @@ ExternallyConnectableInfo::ExternallyConnectableInfo(
 bool ExternallyConnectableInfo::IdCanConnect(const std::string& id) {
   if (all_ids)
     return true;
-  DCHECK(base::STLIsSorted(ids));
+  DCHECK(base::ranges::is_sorted(ids));
   return std::binary_search(ids.begin(), ids.end(), id);
 }
 

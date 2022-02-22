@@ -5,13 +5,15 @@
 #include "ui/views/examples/combobox_example.h"
 
 #include <memory>
+#include <utility>
 
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/views/controls/combobox/combobox.h"
 #include "ui/views/examples/examples_window.h"
-#include "ui/views/layout/box_layout.h"
+#include "ui/views/layout/box_layout_view.h"
+#include "ui/views/layout/fill_layout.h"
 
 namespace views {
 namespace examples {
@@ -22,16 +24,16 @@ namespace {
 class ComboboxModelExample : public ui::ComboboxModel {
  public:
   ComboboxModelExample() = default;
+  ComboboxModelExample(const ComboboxModelExample&) = delete;
+  ComboboxModelExample& operator=(const ComboboxModelExample&) = delete;
   ~ComboboxModelExample() override = default;
 
  private:
   // ui::ComboboxModel:
   int GetItemCount() const override { return 10; }
-  base::string16 GetItemAt(int index) override {
+  base::string16 GetItemAt(int index) const override {
     return base::UTF8ToUTF16(base::StringPrintf("%c item", 'A' + index));
   }
-
-  DISALLOW_COPY_AND_ASSIGN(ComboboxModelExample);
 };
 
 }  // namespace
@@ -41,27 +43,36 @@ ComboboxExample::ComboboxExample() : ExampleBase("Combo Box") {}
 ComboboxExample::~ComboboxExample() = default;
 
 void ComboboxExample::CreateExampleView(View* container) {
-  combobox_ = new Combobox(std::make_unique<ComboboxModelExample>());
-  combobox_->set_listener(this);
-  combobox_->SetSelectedIndex(3);
+  container->SetLayoutManager(std::make_unique<FillLayout>());
 
-  auto* disabled_combobox =
-      new Combobox(std::make_unique<ComboboxModelExample>());
-  disabled_combobox->set_listener(this);
-  disabled_combobox->SetSelectedIndex(4);
-  disabled_combobox->SetEnabled(false);
+  auto view =
+      Builder<BoxLayoutView>()
+          .SetOrientation(BoxLayout::Orientation::kVertical)
+          .SetInsideBorderInsets(gfx::Insets(10, 0))
+          .SetBetweenChildSpacing(5)
+          .AddChildren(
+              {Builder<Combobox>()
+                   .CopyAddressTo(&combobox_)
+                   .SetOwnedModel(std::make_unique<ComboboxModelExample>())
+                   .SetSelectedIndex(3)
+                   .SetCallback(base::BindRepeating(
+                       &ComboboxExample::ValueChanged, base::Unretained(this))),
+               Builder<Combobox>()
+                   .SetOwnedModel(std::make_unique<ComboboxModelExample>())
+                   .SetEnabled(false)
+                   .SetSelectedIndex(4)
+                   .SetCallback(
+                       base::BindRepeating(&ComboboxExample::ValueChanged,
+                                           base::Unretained(this)))})
+          .Build();
 
-  container->SetLayoutManager(std::make_unique<BoxLayout>(
-      BoxLayout::Orientation::kVertical, gfx::Insets(10, 0), 5));
-  container->AddChildView(combobox_);
-  container->AddChildView(disabled_combobox);
+  container->AddChildView(std::move(view));
 }
 
-void ComboboxExample::OnPerformAction(Combobox* combobox) {
-  DCHECK_EQ(combobox, combobox_);
+void ComboboxExample::ValueChanged() {
   PrintStatus("Selected: %s",
-              base::UTF16ToUTF8(
-                  combobox->model()->GetItemAt(combobox->GetSelectedIndex()))
+              base::UTF16ToUTF8(combobox_->GetModel()->GetItemAt(
+                                    combobox_->GetSelectedIndex()))
                   .c_str());
 }
 

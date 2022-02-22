@@ -89,7 +89,7 @@ public:
     QQmlTableInstanceModel(QQmlContext *qmlContext, QObject *parent = nullptr);
     ~QQmlTableInstanceModel() override;
 
-    void useImportVersion(int minorVersion);
+    void useImportVersion(QTypeRevision version);
 
     int count() const override { return m_adaptorModel.count(); }
     int rows() const { return m_adaptorModel.rowCount(); }
@@ -118,6 +118,8 @@ public:
     void reuseItem(QQmlDelegateModelItem *item, int newModelIndex);
 
     QQmlIncubator::Status incubationStatus(int index) override;
+
+    bool setRequiredProperty(int index, const QString &name, const QVariant &value) final;
 
     QVariant variantValue(int, const QString &) override { Q_UNREACHABLE(); return QVariant(); }
     void setWatchedRoles(const QList<QByteArray> &) override { Q_UNREACHABLE(); }

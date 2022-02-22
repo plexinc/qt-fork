@@ -43,9 +43,10 @@
 
 namespace blink {
 
+class ExceptionState;
 class HTMLFormElement;
 class ImageCandidate;
-class ExceptionState;
+class LayoutSize;
 class ShadowRoot;
 
 class CORE_EXPORT HTMLImageElement final
@@ -54,7 +55,6 @@ class CORE_EXPORT HTMLImageElement final
       public ActiveScriptWrappable<HTMLImageElement>,
       public FormAssociated {
   DEFINE_WRAPPERTYPEINFO();
-  USING_GARBAGE_COLLECTED_MIXIN(HTMLImageElement);
 
  public:
   class ViewportChangeListener;
@@ -81,7 +81,7 @@ class CORE_EXPORT HTMLImageElement final
   HTMLImageElement(Document&, const CreateElementFlags);
   explicit HTMLImageElement(Document&, bool created_by_parser = false);
   ~HTMLImageElement() override;
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
   unsigned width();
   unsigned height();
@@ -181,6 +181,11 @@ class CORE_EXPORT HTMLImageElement final
   void SetIsAdRelated() { is_ad_related_ = true; }
   bool IsAdRelated() const override { return is_ad_related_; }
 
+  void InvalidateAttributeMapping();
+
+  static bool SupportedImageType(const String& type,
+                                 const HashSet<String>* disabled_image_types);
+
  protected:
   // Controls how an image element appears in the layout. See:
   // https://html.spec.whatwg.org/C/#image-request
@@ -201,7 +206,8 @@ class CORE_EXPORT HTMLImageElement final
   void DidMoveToNewDocument(Document& old_document) override;
 
   void DidAddUserAgentShadowRoot(ShadowRoot&) override;
-  scoped_refptr<ComputedStyle> CustomStyleForLayoutObject() override;
+  scoped_refptr<ComputedStyle> CustomStyleForLayoutObject(
+      const StyleRecalcContext&) override;
 
  private:
   bool AreAuthorShadowsAllowed() const override { return false; }
@@ -211,6 +217,12 @@ class CORE_EXPORT HTMLImageElement final
   void CollectStyleForPresentationAttribute(
       const QualifiedName&,
       const AtomicString&,
+      MutableCSSPropertyValueSet*) override;
+  // For mapping attributes from the <source> element, if any.
+  bool HasExtraStyleForPresentationAttribute() const override {
+    return source_;
+  }
+  void CollectExtraStyleForPresentationAttribute(
       MutableCSSPropertyValueSet*) override;
   void SetLayoutDisposition(LayoutDisposition, bool force_reattach = false);
 
@@ -256,13 +268,12 @@ class CORE_EXPORT HTMLImageElement final
   // policies. When any policy is violated, the image should be rendered as a
   // placeholder image.
   bool is_legacy_format_or_unoptimized_image_ : 1;
+  bool is_ad_related_ : 1;
 
   network::mojom::ReferrerPolicy referrer_policy_;
 
   std::unique_ptr<LazyLoadImageObserver::VisibleLoadTimeMetrics>
       visible_load_time_metrics_;
-
-  bool is_ad_related_ = false;
 };
 
 }  // namespace blink

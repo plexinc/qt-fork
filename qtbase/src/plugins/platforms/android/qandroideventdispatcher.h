@@ -42,13 +42,13 @@
 
 #include <QtCore/QMutex>
 #include <QtCore/QSemaphore>
-#include <QtEventDispatcherSupport/private/qunixeventdispatcher_qpa_p.h>
+#include <QtGui/private/qunixeventdispatcher_qpa_p.h>
 
 class QAndroidEventDispatcher : public QUnixEventDispatcherQPA
 {
     Q_OBJECT
 public:
-    explicit QAndroidEventDispatcher(QObject *parent = 0);
+    explicit QAndroidEventDispatcher(QObject *parent = nullptr);
     ~QAndroidEventDispatcher();
     void start();
     void stop();
@@ -78,7 +78,7 @@ public:
 private:
     QMutex m_mutex;
     QAtomicInt m_started = 1;
-    QVector<QAndroidEventDispatcher *> m_dispatchers;
+    QList<QAndroidEventDispatcher *> m_dispatchers;
 };
 
 

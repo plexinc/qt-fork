@@ -8,9 +8,9 @@
 #include <unordered_set>
 
 #include "base/lazy_instance.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "build/build_config.h"
+#include "media/media_buildflags.h"
 #include "net/base/mime_util.h"
 
 #if !defined(OS_IOS)
@@ -24,18 +24,23 @@ namespace {
 
 // From WebKit's WebCore/platform/MIMETypeRegistry.cpp:
 
-const char* const kSupportedImageTypes[] = {"image/jpeg",
-                                            "image/pjpeg",
-                                            "image/jpg",
-                                            "image/webp",
-                                            "image/png",
-                                            "image/apng",
-                                            "image/gif",
-                                            "image/bmp",
-                                            "image/vnd.microsoft.icon",  // ico
-                                            "image/x-icon",              // ico
-                                            "image/x-xbitmap",           // xbm
-                                            "image/x-png"};
+const char* const kSupportedImageTypes[] = {
+    "image/jpeg",
+    "image/pjpeg",
+    "image/jpg",
+    "image/webp",
+    "image/png",
+    "image/apng",
+    "image/gif",
+    "image/bmp",
+    "image/vnd.microsoft.icon",  // ico
+    "image/x-icon",              // ico
+    "image/x-xbitmap",           // xbm
+    "image/x-png",
+#if BUILDFLAG(ENABLE_AV1_DECODER)
+    "image/avif",
+#endif
+};
 
 //  Support every script type mentioned in the spec, as it notes that "User
 //  agents must recognize all JavaScript MIME types." See
@@ -131,15 +136,15 @@ class MimeUtil {
 };
 
 MimeUtil::MimeUtil() {
-  for (size_t i = 0; i < base::size(kSupportedNonImageTypes); ++i)
-    non_image_types_.insert(kSupportedNonImageTypes[i]);
-  for (size_t i = 0; i < base::size(kSupportedImageTypes); ++i)
-    image_types_.insert(kSupportedImageTypes[i]);
-  for (size_t i = 0; i < base::size(kUnsupportedTextTypes); ++i)
-    unsupported_text_types_.insert(kUnsupportedTextTypes[i]);
-  for (size_t i = 0; i < base::size(kSupportedJavascriptTypes); ++i) {
-    javascript_types_.insert(kSupportedJavascriptTypes[i]);
-    non_image_types_.insert(kSupportedJavascriptTypes[i]);
+  for (const char* type : kSupportedNonImageTypes)
+    non_image_types_.insert(type);
+  for (const char* type : kSupportedImageTypes)
+    image_types_.insert(type);
+  for (const char* type : kUnsupportedTextTypes)
+    unsupported_text_types_.insert(type);
+  for (const char* type : kSupportedJavascriptTypes) {
+    javascript_types_.insert(type);
+    non_image_types_.insert(type);
   }
 }
 

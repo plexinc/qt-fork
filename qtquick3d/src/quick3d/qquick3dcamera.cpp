@@ -47,61 +47,65 @@ QT_BEGIN_NAMESPACE
     \inqmlmodule QtQuick3D
     \brief Defines an abstract base for Cameras.
 
-    A Camera is always necessary to view the content of a 3D scene. A camera
-    defines how to project the content of a 3D scene into a 2D coordinate space,
-    which can then be used on a 2D surface. When a camera is present in the scene
-    it can be used to direct what is displayed in a View3D.
+    A Camera defines how the content of the 3D scene is projected onto a 2D surface,
+    such as a View3D. A scene needs at least one Camera in order to visualize its
+    contents.
 
-    To determine the projection of this camera a high level API is provided.
-    First it is possible to position this Camera like any other spatial Node in
-    the scene. This determines where the Camera is in the scene, and what
-    direction it is facing. The default direction of the camera is such that the
-    forward vector is looking up the -Z axis, and the up direction vector is up
-    the +Y axis. With this in mind any transformation applied to the camera as
-    well as the transformations inherited from it's parent Nodes you can define
-    exactly where and in what direction your camera is facing.
+    It is possible to position and rotate the Camera like any other spatial \l{QtQuick3D::Node}{Node} in
+    the scene. The \l{QtQuick3D::Node}{Node}'s location and orientation determines where the Camera is in
+    the scene, and what direction it is facing. The default orientation of the camera
+    has its forward vector pointing along the negative Z axis and its up vector along
+    the positive Y axis.
 
-    The second part of determining the projection of the camera is defining the
-    frustum that defines the what parts of the scenes are visible, as well as
-    how they are visible. The Camera subtypes provide multiple options
-    to determine the shape of the Camera's frustum.
+    Together with the position and orientation, the frustum defines which parts of
+    a scene are visible to the Camera and how they are projected onto the 2D surface.
+    The different Camera subtypes provide multiple options to determine the shape of the
+    Camera's frustum.
 
-    \sa PerspectiveCamera, OrthographicCamera, FrustumCamera, CustomCamera
+    \list
+    \li PerspectiveCamera provides a camera with a pyramid-shaped frustum, where objects are
+    projected so that those further away from the camera appear to be smaller. This is the
+    most commonly used camera type, and corresponds to how most real world cameras work.
+    \li OrthographicCamera provides a camera where the lines of the frustum are parallel,
+    making the perceived scale of an object unaffected by its distance to the camera. Typical
+    use cases for this type of camera are CAD (Computer-Assisted Design) applications and
+    cartography.
+    \li FrustumCamera is a perspective camera type where the frustum can be freely customized
+    by the coordinates of its intersection with the near plane. It can be useful if an
+    asymmetrical camera frustum is needed.
+    \li CustomCamera is a camera type where the projection matrix can be freely customized,
+    and can be useful for advanced users who wish to calculate their own projection matrix.
+    \endlist
+
+    To illustrate the difference, these screenshots show the same scene as projected by a
+    PerspectiveCamera and an OrthographicCamera. Notice how the red box is smaller than the
+    green box in the image rendered using the perspective projection.
+    \table
+    \header
+    \li Perspective camera
+    \li Orthographic camera
+    \row
+    \li \image perspectivecamera.png
+    \li \image orthographiccamera.png
+    \endtable
+
+    \sa {Qt Quick 3D - View3D Example}
 */
-
-/*!
-   \qmlproperty enumeration Camera::FieldOfViewOrientation
-
-   This enum type specifies the orientation in which camera field of view is given:
-
-   \value Camera.Vertical
-          Camera field of view is vertical, i.e. aspect ratio is adjusted vertically.
-          This is the default orientation.
-   \value Camera.Horizontal
-          Camera field of view is horizontal, i.e. aspect ratio is adjusted horizontally.
-  */
 
 /*!
     \internal
 */
-QQuick3DCamera::QQuick3DCamera(QQuick3DNode *parent)
-    : QQuick3DNode(*(new QQuick3DNodePrivate(QQuick3DNodePrivate::Type::Camera)), parent) {}
-
-/*!
-    \internal
-*/
-QSSGRenderCamera *QQuick3DCamera::cameraNode() const
-{
-    return m_cameraNode;
-}
+QQuick3DCamera::QQuick3DCamera(QQuick3DNodePrivate &dd, QQuick3DNode *parent)
+    : QQuick3DNode(dd, parent) {}
 
 /*!
     \qmlproperty bool Camera::frustumCullingEnabled
 
-    When this property is \c true object outside the frustum will be culled, meaning they will
-    not be rendered. By default this property is set to \c false, but for complex scene where
-    a lot of the objects are outside the camera frustum it might be beneficial to enable
-    frustum culling.
+    When this property is \c true, objects outside the camera frustum will be culled, meaning they will
+    not be passed to the renderer. By default this property is set to \c false. For scenes where all or
+    most objects are inside the camera frustum, frustum culling is an unnecessary performance overhead.
+    But for complex scenes where large parts are located outside the camera's view, enabling frustum
+    culling may improve performance.
 */
 bool QQuick3DCamera::frustumCullingEnabled() const
 {
@@ -122,25 +126,28 @@ void QQuick3DCamera::setFrustumCullingEnabled(bool frustumCullingEnabled)
     \qmlmethod vector3d Camera::mapToViewport(vector3d scenePos)
 
     Transforms \a scenePos from global scene space (3D) into viewport space (2D).
+
     The returned position is normalized, with the top-left of the viewport
-    being [0,0] and the bottom-right being [1,1]. The returned z-value will contain
-    the distance from the near side of the frustum (clipNear) to \a scenePos in view
-    coordinates. If the distance is negative, the point is behind camera.
-    If \a scenePos cannot be mapped to a position in the viewport, a
+    at [0, 0] and the bottom-right at [1, 1]. The returned z-value will contain
+    the distance from the near clip plane of the frustum (clipNear) to \a scenePos in
+    scene coordinates. If the distance is negative, the point is behind camera.
+
+    If \a scenePos cannot successfully be mapped to a position in the viewport, a
     position of [0, 0, 0] is returned.
 
     \sa mapFromViewport(), {View3D::mapFrom3DScene()}{View3D.mapFrom3DScene()}
 */
 QVector3D QQuick3DCamera::mapToViewport(const QVector3D &scenePos) const
 {
-    if (!m_cameraNode)
+    QSSGRenderCamera *cameraNode = static_cast<QSSGRenderCamera *>(QQuick3DObjectPrivate::get(this)->spatialNode);
+    if (!cameraNode)
         return QVector3D(0, 0, 0);
 
     QVector4D scenePosRightHand(scenePos, 1);
 
     // Transform position
     const QMatrix4x4 sceneToCamera = sceneTransform().inverted();
-    const QMatrix4x4 projectionViewMatrix = m_cameraNode->projection * sceneToCamera;
+    const QMatrix4x4 projectionViewMatrix = cameraNode->projection * sceneToCamera;
     const QVector4D transformedScenePos = mat44::transform(projectionViewMatrix, scenePosRightHand);
 
     if (qFuzzyIsNull(transformedScenePos.w()))
@@ -179,17 +186,20 @@ QVector3D QQuick3DCamera::mapToViewport(const QVector3D &scenePos) const
     \qmlmethod vector3d Camera::mapFromViewport(vector3d viewportPos)
 
     Transforms \a viewportPos from viewport space (2D) into global scene space (3D).
+
     The x- and y-values of \a viewportPos must be normalized, with the top-left
-    of the viewport being [0,0] and the bottom-right being [1,1]. The z-value should be
-    the distance from the near side of the frustum (clipNear) into the scene in scene coordinates.
-    If \a viewportPos cannot be mapped to a position in the scene, a position of
-    [0, 0, 0] is returned.
+    of the viewport at [0, 0] and the bottom-right at [1, 1]. The z-value is interpreted
+    as the distance from the near clip plane of the frustum (clipNear).
+
+    If \a viewportPos cannot successfully be mapped to a position in the scene, a position
+    of [0, 0, 0] is returned.
 
     \sa mapToViewport, {View3D::mapTo3DScene()}{View3D.mapTo3DScene()}
 */
 QVector3D QQuick3DCamera::mapFromViewport(const QVector3D &viewportPos) const
 {
-    if (!m_cameraNode)
+    QSSGRenderCamera *cameraNode = static_cast<QSSGRenderCamera *>(QQuick3DObjectPrivate::get(this)->spatialNode);
+    if (!cameraNode)
         return QVector3D(0, 0, 0);
 
     // Pick two positions in the frustum
@@ -207,8 +217,7 @@ QVector3D QQuick3DCamera::mapFromViewport(const QVector3D &viewportPos) const
 
     // Transform position to scene
     const QMatrix4x4 sceneToCamera = sceneTransform().inverted();
-    const QMatrix4x4 projectionViewMatrixInv
-            = (m_cameraNode->projection * sceneToCamera).inverted();
+    const QMatrix4x4 projectionViewMatrixInv = (cameraNode->projection * sceneToCamera).inverted();
     const QVector4D transformedClipNearPos = mat44::transform(projectionViewMatrixInv, clipNearPos);
     const QVector4D transformedClipFarPos = mat44::transform(projectionViewMatrixInv, clipFarPos);
 
@@ -236,11 +245,10 @@ QVector3D QQuick3DCamera::mapToViewport(const QVector3D &scenePos,
                                         qreal width,
                                         qreal height)
 {
-    if (!m_cameraNode) {
-        m_cameraNode = new QSSGRenderCamera();
-        // Ignore the returned dirty because of forcing to call calculateGlobalVariables.
-        checkSpatialNode(m_cameraNode);
-        m_cameraNode->calculateGlobalVariables(QRect(0, 0, width, height));
+    // We can be called before a spatial node is created, if that is the case, create the node now.
+    if (QSSGRenderCamera *cameraNode = static_cast<QSSGRenderCamera *>(updateSpatialNode(QQuick3DObjectPrivate::get(this)->spatialNode))) {
+        QQuick3DObjectPrivate::get(this)->spatialNode = cameraNode;
+        cameraNode->calculateGlobalVariables(QRect(0, 0, width * cameraNode->dpr, height * cameraNode->dpr));
     }
 
     return QQuick3DCamera::mapToViewport(scenePos);
@@ -253,11 +261,10 @@ QVector3D QQuick3DCamera::mapFromViewport(const QVector3D &viewportPos,
                                           qreal width,
                                           qreal height)
 {
-    if (!m_cameraNode) {
-        m_cameraNode = new QSSGRenderCamera();
-        // Ignore the returned dirty because of forcing to call calculateGlobalVariables.
-        checkSpatialNode(m_cameraNode);
-        m_cameraNode->calculateGlobalVariables(QRect(0, 0, width, height));
+    // We can be called before a spatial node is created, if that is the case, create the node now.
+    if (QSSGRenderCamera *cameraNode = static_cast<QSSGRenderCamera *>(updateSpatialNode(QQuick3DObjectPrivate::get(this)->spatialNode))) {
+        QQuick3DObjectPrivate::get(this)->spatialNode = cameraNode;
+        cameraNode->calculateGlobalVariables(QRect(0, 0, width * cameraNode->dpr, height * cameraNode->dpr));
     }
 
     return QQuick3DCamera::mapFromViewport(viewportPos);
@@ -267,7 +274,7 @@ QVector3D QQuick3DCamera::mapFromViewport(const QVector3D &viewportPos,
     \qmlmethod vector3d Camera::lookAt(vector3d scenePos)
     \since 5.15
 
-    Sets the rotation value of a camera to be directed at \a scenePos.
+    Sets the rotation value of the Camera so that it is pointing at \a scenePos.
 */
 
 void QQuick3DCamera::lookAt(const QVector3D &scenePos)
@@ -293,7 +300,7 @@ void QQuick3DCamera::lookAt(const QVector3D &scenePos)
     \qmlmethod vector3d Camera::lookAt(QtQuick3D::Node node)
     \since 5.15
 
-    Sets the rotation value of a camera to be directed at \a node.
+    Sets the rotation value of the Camera so that it is pointing at \a node.
 */
 
 void QQuick3DCamera::lookAt(QQuick3DNode *node)
@@ -305,7 +312,7 @@ void QQuick3DCamera::lookAt(QQuick3DNode *node)
 
 void QQuick3DCamera::updateGlobalVariables(const QRectF &inViewport)
 {
-    QSSGRenderCamera *node = cameraNode();
+    QSSGRenderCamera *node = static_cast<QSSGRenderCamera *>(QQuick3DObjectPrivate::get(this)->spatialNode);
     if (node)
         node->calculateGlobalVariables(inViewport);
 }
@@ -317,18 +324,15 @@ QSSGRenderGraphObject *QQuick3DCamera::updateSpatialNode(QSSGRenderGraphObject *
 {
     if (!node) {
         markAllDirty();
-        node = new QSSGRenderCamera();
+        node = new QSSGRenderCamera(QQuick3DObjectPrivate::get(this)->type);
     }
 
     QQuick3DNode::updateSpatialNode(node);
 
     QSSGRenderCamera *camera = static_cast<QSSGRenderCamera *>(node);
-
-    bool changed = checkSpatialNode(camera);
-    setCameraNode(camera);
-
-    if (changed)
+    if (qUpdateIfNeeded(camera->enableFrustumClipping, m_frustumCullingEnabled))
         camera->flags.setFlag(QSSGRenderNode::Flag::CameraDirty);
+
     return node;
 }
 QT_END_NAMESPACE

@@ -25,10 +25,11 @@
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_controller.h"
 #include "content/public/browser/web_ui_data_source.h"
-#include "content/public/common/web_preferences.h"
 #include "media/base/media_switches.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/receiver.h"
+#include "third_party/blink/public/common/web_preferences/web_preferences.h"
+#include "third_party/blink/public/mojom/webpreferences/web_preferences.mojom.h"
 
 #if !defined(OS_ANDROID)
 #include "chrome/common/pref_names.h"
@@ -83,7 +84,6 @@ class MediaEngagementScoreDetailsProviderImpl
         base::FeatureList::IsEnabled(media::kPreloadMediaEngagementData),
         base::FeatureList::IsEnabled(media::kMediaEngagementHTTPSOnly),
         base::FeatureList::IsEnabled(media::kAutoplayDisableSettings),
-        base::FeatureList::IsEnabled(media::kAutoplayWhitelistSettings),
         GetBlockAutoplayPref(),
         base::CommandLine::ForCurrentProcess()->HasSwitch(
             switches::kAutoplayPolicy),
@@ -93,14 +93,13 @@ class MediaEngagementScoreDetailsProviderImpl
  private:
   const std::string GetAppliedAutoplayPolicy() {
     switch (web_ui_->GetWebContents()
-                ->GetRenderViewHost()
-                ->GetWebkitPreferences()
+                ->GetOrCreateWebPreferences()
                 .autoplay_policy) {
-      case content::AutoplayPolicy::kNoUserGestureRequired:
+      case blink::mojom::AutoplayPolicy::kNoUserGestureRequired:
         return "no-user-gesture-required";
-      case content::AutoplayPolicy::kUserGestureRequired:
+      case blink::mojom::AutoplayPolicy::kUserGestureRequired:
         return "user-gesture-required";
-      case content::AutoplayPolicy::kDocumentUserActivationRequired:
+      case blink::mojom::AutoplayPolicy::kDocumentUserActivationRequired:
         return "document-user-activation-required";
     }
   }
@@ -145,10 +144,9 @@ MediaEngagementUI::MediaEngagementUI(content::WebUI* web_ui)
   // Setup the data source behind chrome://media-engagement.
   std::unique_ptr<content::WebUIDataSource> source(
       content::WebUIDataSource::Create(chrome::kChromeUIMediaEngagementHost));
-  source->AddResourcePath("media-engagement.js", IDR_MEDIA_ENGAGEMENT_JS);
-  source->AddResourcePath(
-      "chrome/browser/media/media_engagement_score_details.mojom-lite.js",
-      IDR_MEDIA_ENGAGEMENT_SCORE_DETAILS_MOJOM_LITE_JS);
+  source->AddResourcePath("media_engagement.js", IDR_MEDIA_ENGAGEMENT_JS);
+  source->AddResourcePath("media_engagement_score_details.mojom-lite.js",
+                          IDR_MEDIA_ENGAGEMENT_SCORE_DETAILS_MOJOM_LITE_JS);
   source->SetDefaultResource(IDR_MEDIA_ENGAGEMENT_HTML);
   content::WebUIDataSource::Add(Profile::FromWebUI(web_ui), source.release());
 }

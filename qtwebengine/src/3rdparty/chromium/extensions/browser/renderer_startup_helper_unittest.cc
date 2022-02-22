@@ -15,8 +15,75 @@
 #include "extensions/browser/test_extensions_browser_client.h"
 #include "extensions/common/extension_builder.h"
 #include "extensions/common/extension_messages.h"
+#include "extensions/common/permissions/permissions_data.h"
+#include "mojo/public/cpp/bindings/associated_receiver_set.h"
 
 namespace extensions {
+
+// Class that implements the binding of a new Renderer mojom interface and
+// can receive callbacks on it for testing validation.
+class InterceptingRendererStartupHelper : public RendererStartupHelper,
+                                          public mojom::Renderer {
+ public:
+  explicit InterceptingRendererStartupHelper(
+      content::BrowserContext* browser_context)
+      : RendererStartupHelper(browser_context) {}
+
+  size_t num_activated_extensions() { return activated_extensions_.size(); }
+
+  size_t num_unloaded_extensions() { return unloaded_extensions_.size(); }
+
+  const URLPatternSet& default_policy_blocked_hosts() const {
+    return default_blocked_hosts_;
+  }
+
+  const URLPatternSet& default_policy_allowed_hosts() const {
+    return default_allowed_hosts_;
+  }
+
+ protected:
+  mojo::PendingAssociatedRemote<mojom::Renderer> BindNewRendererRemote(
+      content::RenderProcessHost* process) override {
+    mojo::AssociatedRemote<mojom::Renderer> remote;
+    receivers_.Add(this, remote.BindNewEndpointAndPassDedicatedReceiver());
+    return remote.Unbind();
+  }
+
+ private:
+  // mojom::Renderer implementation:
+  void ActivateExtension(const std::string& extension_id) override {
+    activated_extensions_.push_back(extension_id);
+  }
+  void SetActivityLoggingEnabled(bool enabled) override {}
+
+  void UnloadExtension(const std::string& extension_id) override {
+    unloaded_extensions_.push_back(extension_id);
+  }
+
+  void SetSessionInfo(version_info::Channel channel,
+                      mojom::FeatureSessionType session,
+                      bool is_lock_screen_context) override {}
+  void SetSystemFont(const std::string& font_family,
+                     const std::string& font_size) override {}
+
+  void SetWebViewPartitionID(const std::string& partition_id) override {}
+
+  void SetScriptingAllowlist(
+      const std::vector<std::string>& extension_ids) override {}
+
+  void UpdateDefaultPolicyHostRestrictions(
+      const URLPatternSet& default_policy_blocked_hosts,
+      const URLPatternSet& default_policy_allowed_hosts) override {
+    default_blocked_hosts_.AddPatterns(default_policy_blocked_hosts);
+    default_allowed_hosts_.AddPatterns(default_policy_allowed_hosts);
+  }
+
+  URLPatternSet default_blocked_hosts_;
+  URLPatternSet default_allowed_hosts_;
+  std::vector<std::string> activated_extensions_;
+  std::vector<std::string> unloaded_extensions_;
+  mojo::AssociatedReceiverSet<mojom::Renderer> receivers_;
+};
 
 class RendererStartupHelperTest : public ExtensionsTest {
  public:
@@ -25,7 +92,8 @@ class RendererStartupHelperTest : public ExtensionsTest {
 
   void SetUp() override {
     ExtensionsTest::SetUp();
-    helper_ = std::make_unique<RendererStartupHelper>(browser_context());
+    helper_ =
+        std::make_unique<InterceptingRendererStartupHelper>(browser_context());
     registry_ =
         ExtensionRegistryFactory::GetForBrowserContext(browser_context());
     render_process_host_ =
@@ -102,7 +170,7 @@ class RendererStartupHelperTest : public ExtensionsTest {
   }
 
   bool IsProcessInitialized(content::RenderProcessHost* rph) {
-    return base::Contains(helper_->initialized_processes_, rph);
+    return base::Contains(helper_->process_mojo_map_, rph);
   }
 
   bool IsExtensionLoaded(const Extension& extension) {
@@ -122,7 +190,7 @@ class RendererStartupHelperTest : public ExtensionsTest {
                           extension.id());
   }
 
-  std::unique_ptr<RendererStartupHelper> helper_;
+  std::unique_ptr<InterceptingRendererStartupHelper> helper_;
   ExtensionRegistry* registry_;  // Weak.
   std::unique_ptr<content::MockRenderProcessHost> render_process_host_;
   std::unique_ptr<content::MockRenderProcessHost>
@@ -170,18 +238,16 @@ TEST_F(RendererStartupHelperTest, NormalExtensionLifecycle) {
   helper_->ActivateExtensionInProcess(*extension_, render_process_host_.get());
   EXPECT_FALSE(IsExtensionPendingActivationInProcess(
       *extension_, render_process_host_.get()));
-  ASSERT_EQ(1u, sink.message_count());
-  EXPECT_EQ(static_cast<uint32_t>(ExtensionMsg_ActivateExtension::ID),
-            sink.GetMessageAt(0)->type());
+  base::RunLoop().RunUntilIdle();
+  ASSERT_EQ(1u, helper_->num_activated_extensions());
 
   // Disable extension.
   sink.ClearMessages();
   RemoveExtensionFromRegistry(extension_);
   helper_->OnExtensionUnloaded(*extension_);
   EXPECT_FALSE(IsExtensionLoaded(*extension_));
-  ASSERT_EQ(1u, sink.message_count());
-  EXPECT_EQ(static_cast<uint32_t>(ExtensionMsg_Unloaded::ID),
-            sink.GetMessageAt(0)->type());
+  base::RunLoop().RunUntilIdle();
+  ASSERT_EQ(1u, helper_->num_unloaded_extensions());
 
   // Extension enabled again.
   sink.ClearMessages();
@@ -224,11 +290,32 @@ TEST_F(RendererStartupHelperTest, EnabledBeforeProcessInitialized) {
   EXPECT_TRUE(IsExtensionPendingActivationInProcess(
       *extension_, render_process_host_.get()));
 
+  // Initialize PermissionsData default policy hosts restrictions.
+  // During the process initialization, UpdateDefaultPolicyHostRestrictions
+  // will be called with the default policy values returned by PermissionsData.
+  URLPatternSet default_blocked_hosts;
+  URLPatternSet default_allowed_hosts;
+  default_blocked_hosts.AddPattern(
+      URLPattern(URLPattern::SCHEME_ALL, "*://*.example.com/*"));
+  default_allowed_hosts.AddPattern(
+      URLPattern(URLPattern::SCHEME_ALL, "*://test.example2.com/*"));
+  PermissionsData::SetDefaultPolicyHostRestrictions(
+      util::GetBrowserContextId(browser_context()), default_blocked_hosts,
+      default_allowed_hosts);
+
   // Initialize the render process.
   SimulateRenderProcessCreated(render_process_host_.get());
   // The renderer would have been sent multiple initialization messages
   // including the loading and activation messages for the extension.
-  EXPECT_LE(2u, sink.message_count());
+  EXPECT_LE(1u, sink.message_count());
+
+  // Method UpdateDefaultPolicyHostRestrictions() from mojom::Renderer should
+  // have been called with the default policy for blocked/allowed hosts given by
+  // PermissionsData, which was initialized above.
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(default_blocked_hosts, helper_->default_policy_blocked_hosts());
+  EXPECT_EQ(default_allowed_hosts, helper_->default_policy_allowed_hosts());
+
   EXPECT_TRUE(IsProcessInitialized(render_process_host_.get()));
   EXPECT_TRUE(
       IsExtensionLoadedInProcess(*extension_, render_process_host_.get()));
@@ -328,11 +415,10 @@ TEST_F(RendererStartupHelperTest, ExtensionInIncognitoRenderer) {
             incognito_sink.GetMessageAt(0)->type());
   // The extension would be first unloaded and then loaded from the normal
   // renderer.
-  ASSERT_EQ(2u, sink.message_count());
-  EXPECT_EQ(static_cast<uint32_t>(ExtensionMsg_Unloaded::ID),
-            sink.GetMessageAt(0)->type());
+  base::RunLoop().RunUntilIdle();
+  ASSERT_EQ(1u, helper_->num_unloaded_extensions());
   EXPECT_EQ(static_cast<uint32_t>(ExtensionMsg_Loaded::ID),
-            sink.GetMessageAt(1)->type());
+            sink.GetMessageAt(0)->type());
 }
 
 // Tests that platform apps are always loaded in an incognito renderer.

@@ -58,7 +58,7 @@
 
 #include <Qt3DCore/private/propertychangehandler_p.h>
 #include <Qt3DCore/private/qchangearbiter_p.h>
-#include <Qt3DCore/private/qobservableinterface_p.h>
+#include <Qt3DCore/private/qscene_p.h>
 #include <Qt3DCore/private/qt3dcore_global_p.h>
 #include <QtCore/private/qobject_p.h>
 #include <QQueue>
@@ -70,7 +70,7 @@ namespace Qt3DCore {
 class QNode;
 class QAspectEngine;
 
-class Q_3DCORE_PRIVATE_EXPORT QNodePrivate : public QObjectPrivate, public QObservableInterface
+class Q_3DCORE_PRIVATE_EXPORT QNodePrivate : public QObjectPrivate
 {
 public:
     QNodePrivate();
@@ -81,26 +81,22 @@ public:
     virtual void setScene(QScene *scene);
     QScene *scene() const;
 
-    void setArbiter(QLockableObserverInterface *arbiter) override;
+    void setArbiter(QChangeArbiter *arbiter);
 
     void notifyPropertyChange(const char *name, const QVariant &value);
     void notifyDynamicPropertyChange(const QByteArray &name, const QVariant &value);
-    void notifyObservers(const QSceneChangePtr &change) override;
 
     void insertTree(QNode *treeRoot, int depth = 0);
     void updatePropertyTrackMode();
 
-    void update();
-    QT_WARNING_PUSH
-    QT_WARNING_DISABLE_DEPRECATED
-    void updateNode(QNode *node, const char* property, ChangeFlag change);
-    QT_WARNING_POP
+    virtual void update();
+    void markDirty(QScene::DirtyNodeSet changes);
 
     Q_DECLARE_PUBLIC(QNode)
 
     // For now this just protects access to the m_changeArbiter.
     // Later on we may decide to extend support for multiple observers.
-    QAbstractArbiter *m_changeArbiter;
+    QChangeArbiter *m_changeArbiter;
     QMetaObject *m_typeInfo;
     QScene *m_scene;
     mutable QNodeId m_id;
@@ -109,8 +105,6 @@ public:
     bool m_hasBackendNode;
     bool m_enabled;
     bool m_notifiedParent;
-    QNode::PropertyTrackingMode m_defaultPropertyTrackMode;
-    QHash<QString, QNode::PropertyTrackingMode> m_trackedPropertiesOverrides;
 
     static QNodePrivate *get(QNode *q);
     static const QNodePrivate *get(const QNode *q);
@@ -128,15 +122,6 @@ public:
         // If the node is destoyed, we make sure not to keep a dangling pointer to it
         Q_Q(QNode);
         auto f = [q, func]() { (static_cast<Caller *>(q)->*func)(nullptr); };
-        m_destructionConnections.push_back({node, QObject::connect(node, &QNode::nodeDestroyed, f)});
-    }
-
-    template<typename Caller, typename NodeType>
-    void registerDestructionHelper(NodeType *node, DestructionFunctionPointer<Caller, NodeType> func, QVector<NodeType*> &)
-    {
-        // If the node is destoyed, we make sure not to keep a dangling pointer to it
-        Q_Q(QNode);
-        auto f = [q, func, node]() { (static_cast<Caller *>(q)->*func)(node); };
         m_destructionConnections.push_back({node, QObject::connect(node, &QNode::nodeDestroyed, f)});
     }
 
@@ -215,7 +200,7 @@ private:
     friend class PropertyChangeHandler<QNodePrivate>;
     bool m_propertyChangesSetup;
     PropertyChangeHandler<QNodePrivate> m_signals;
-    QVector<QPair<QNode *, QMetaObject::Connection>> m_destructionConnections;
+    QList<QPair<QNode *, QMetaObject::Connection>> m_destructionConnections;
 };
 
 class NodePostConstructorInit : public QObject

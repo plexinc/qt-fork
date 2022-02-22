@@ -39,7 +39,6 @@
 
 #include "computecommand_p.h"
 #include <Qt3DCore/qnode.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include <Qt3DRender/private/qcomputecommand_p.h>
 #include <Qt3DRender/private/abstractrenderer_p.h>
 
@@ -81,7 +80,10 @@ void ComputeCommand::syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firs
     if (!node)
         return;
 
+    const bool wasEnabled = isEnabled();
     BackendNode::syncFromFrontEnd(frontEnd, firstTime);
+    if (wasEnabled != isEnabled())
+        markDirty(AbstractRenderer::ComputeDirty);
 
     if (m_workGroups[0] != node->workGroupX()) {
         m_workGroups[0] = node->workGroupX();

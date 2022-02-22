@@ -48,25 +48,26 @@
 #include <iconselector_p.h>
 #include <abstractdialoggui_p.h>
 
+#include <QtWidgets/qapplication.h>
 #include <QtWidgets/qlabel.h>
 #include <QtWidgets/qtoolbutton.h>
 #include <QtWidgets/qboxlayout.h>
-#include <QtCore/qfileinfo.h>
-#if QT_CONFIG(clipboard)
-#include <QtGui/qclipboard.h>
-#endif
 #include <QtWidgets/qlineedit.h>
 #include <QtWidgets/qdialogbuttonbox.h>
 #include <QtWidgets/qpushbutton.h>
 #include <QtWidgets/qfiledialog.h>
-#include <QtWidgets/qaction.h>
 #include <QtWidgets/qmenu.h>
 #include <QtWidgets/qkeysequenceedit.h>
+
+#include <QtGui/qaction.h>
+#if QT_CONFIG(clipboard)
+#include <QtGui/qclipboard.h>
+#endif
 #include <QtGui/qevent.h>
-#include <QtWidgets/qapplication.h>
-#include <QtCore/qurl.h>
 
 #include <QtCore/qdebug.h>
+#include <QtCore/qfileinfo.h>
+#include <QtCore/qurl.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -103,28 +104,29 @@ void TranslatablePropertyManager<PropertySheetValue>::initialize(QtVariantProper
 {
     m_values.insert(property, value);
 
-    QtVariantProperty *translatable = m->addProperty(QVariant::Bool, DesignerPropertyManager::tr("translatable"));
+    QtVariantProperty *translatable = m->addProperty(QMetaType::Bool, DesignerPropertyManager::tr("translatable"));
     translatable->setValue(value.translatable());
     m_valueToTranslatable.insert(property, translatable);
     m_translatableToValue.insert(translatable, property);
     property->addSubProperty(translatable);
 
     if (!DesignerPropertyManager::useIdBasedTranslations()) {
-        QtVariantProperty *disambiguation = m->addProperty(QVariant::String, DesignerPropertyManager::tr("disambiguation"));
+        QtVariantProperty *disambiguation =
+            m->addProperty(QMetaType::QString, DesignerPropertyManager::tr("disambiguation"));
         disambiguation->setValue(value.disambiguation());
         m_valueToDisambiguation.insert(property, disambiguation);
         m_disambiguationToValue.insert(disambiguation, property);
         property->addSubProperty(disambiguation);
     }
 
-    QtVariantProperty *comment = m->addProperty(QVariant::String, DesignerPropertyManager::tr("comment"));
+    QtVariantProperty *comment = m->addProperty(QMetaType::QString, DesignerPropertyManager::tr("comment"));
     comment->setValue(value.comment());
     m_valueToComment.insert(property, comment);
     m_commentToValue.insert(comment, property);
     property->addSubProperty(comment);
 
     if (DesignerPropertyManager::useIdBasedTranslations()) {
-        QtVariantProperty *id = m->addProperty(QVariant::String, DesignerPropertyManager::tr("id"));
+        QtVariantProperty *id = m->addProperty(QMetaType::QString, DesignerPropertyManager::tr("id"));
         id->setValue(value.id());
         m_valueToId.insert(property, id);
         m_idToValue.insert(id, property);
@@ -1151,6 +1153,7 @@ void DesignerPropertyManager::slotPropertyDestroyed(QtProperty *property)
         m_fontManager.slotPropertyDestroyed(property);
         m_brushManager.slotPropertyDestroyed(property);
     }
+    m_alignDefault.remove(property);
 }
 
 QStringList DesignerPropertyManager::attributes(int propertyType) const
@@ -1165,11 +1168,11 @@ QStringList DesignerPropertyManager::attributes(int propertyType) const
         list.append(QLatin1String(defaultResourceAttributeC));
     } else if (propertyType == designerIconTypeId()) {
         list.append(QLatin1String(defaultResourceAttributeC));
-    } else if (propertyType == designerStringTypeId() || propertyType == QVariant::String) {
+    } else if (propertyType == designerStringTypeId() || propertyType == QMetaType::QString) {
         list.append(QLatin1String(validationModesAttributeC));
         list.append(QLatin1String(fontAttributeC));
         list.append(QLatin1String(themeAttributeC));
-    } else if (propertyType == QVariant::Palette) {
+    } else if (propertyType == QMetaType::QPalette) {
         list.append(QLatin1String(superPaletteAttributeC));
     }
     list.append(QLatin1String(resettableAttributeC));
@@ -1184,21 +1187,21 @@ int DesignerPropertyManager::attributeType(int propertyType, const QString &attr
     if (propertyType == designerFlagTypeId() && attribute == QLatin1String(flagsAttributeC))
         return designerFlagListTypeId();
     if (propertyType == designerPixmapTypeId() && attribute == QLatin1String(defaultResourceAttributeC))
-        return QVariant::Pixmap;
+        return QMetaType::QPixmap;
     if (propertyType == designerIconTypeId() && attribute == QLatin1String(defaultResourceAttributeC))
-        return QVariant::Icon;
+        return QMetaType::QIcon;
     if (attribute == QLatin1String(resettableAttributeC))
-        return QVariant::Bool;
-    if (propertyType == designerStringTypeId() || propertyType == QVariant::String) {
+        return QMetaType::Bool;
+    if (propertyType == designerStringTypeId() || propertyType == QMetaType::QString) {
         if (attribute == QLatin1String(validationModesAttributeC))
-            return QVariant::Int;
+            return QMetaType::Int;
         if (attribute == QLatin1String(fontAttributeC))
-            return QVariant::Font;
+            return QMetaType::QFont;
         if (attribute == QLatin1String(themeAttributeC))
-            return QVariant::Bool;
+            return QMetaType::Bool;
     }
-    if (propertyType == QVariant::Palette && attribute == QLatin1String(superPaletteAttributeC))
-        return QVariant::Palette;
+    if (propertyType == QMetaType::QPalette && attribute == QLatin1String(superPaletteAttributeC))
+        return QMetaType::QPalette;
 
     return QtVariantPropertyManager::attributeType(propertyType, attribute);
 }
@@ -1255,6 +1258,12 @@ QVariant DesignerPropertyManager::attributeValue(const QtProperty *property, con
             return itIcon.value();
     }
 
+    if (attribute == alignDefaultAttribute()) {
+        Qt::Alignment v = m_alignDefault.value(property,
+                                               Qt::Alignment(Qt::AlignLeading | Qt::AlignHCenter));
+        return QVariant(uint(v));
+    }
+
     return QtVariantPropertyManager::attributeValue(property, attribute);
 }
 
@@ -1262,7 +1271,7 @@ void DesignerPropertyManager::setAttribute(QtProperty *property,
             const QString &attribute, const QVariant &value)
 {
     if (attribute == QLatin1String(resettableAttributeC) && m_resetMap.contains(property)) {
-        if (value.userType() != QVariant::Bool)
+        if (value.userType() != QMetaType::Bool)
             return;
         const bool val = value.toBool();
         const PropertyBoolMap::iterator it = m_resetMap.find(property);
@@ -1295,7 +1304,7 @@ void DesignerPropertyManager::setAttribute(QtProperty *property,
 
         for (const QPair<QString, uint> &pair : flags) {
             const QString flagName = pair.first;
-            QtProperty *prop = addProperty(QVariant::Bool);
+            QtProperty *prop = addProperty(QMetaType::Bool);
             prop->setPropertyName(flagName);
             property->addSubProperty(prop);
             m_propertyToFlags[property].append(prop);
@@ -1316,7 +1325,7 @@ void DesignerPropertyManager::setAttribute(QtProperty *property,
         emit propertyChanged(property);
         emit QtVariantPropertyManager::valueChanged(property, data.val);
     } else if (attribute == QLatin1String(validationModesAttributeC) && m_stringAttributes.contains(property)) {
-        if (value.userType() != QVariant::Int)
+        if (value.userType() != QMetaType::Int)
             return;
 
         const PropertyIntMap::iterator it = m_stringAttributes.find(property);
@@ -1331,7 +1340,7 @@ void DesignerPropertyManager::setAttribute(QtProperty *property,
 
         emit attributeChanged(property, attribute, newValue);
     } else if (attribute == QLatin1String(fontAttributeC) && m_stringFontAttributes.contains(property)) {
-        if (value.userType() != QVariant::Font)
+        if (value.userType() != QMetaType::QFont)
             return;
 
         const PropertyFontMap::iterator it = m_stringFontAttributes.find(property);
@@ -1346,7 +1355,7 @@ void DesignerPropertyManager::setAttribute(QtProperty *property,
 
         emit attributeChanged(property, attribute, newValue);
     } else if (attribute == QLatin1String(themeAttributeC) && m_stringThemeAttributes.contains(property)) {
-        if (value.userType() != QVariant::Bool)
+        if (value.userType() != QMetaType::Bool)
             return;
 
         const PropertyBoolMap::iterator it = m_stringThemeAttributes.find(property);
@@ -1361,7 +1370,7 @@ void DesignerPropertyManager::setAttribute(QtProperty *property,
 
         emit attributeChanged(property, attribute, newValue);
     } else if (attribute == QLatin1String(superPaletteAttributeC) && m_paletteValues.contains(property)) {
-        if (value.userType() != QVariant::Palette)
+        if (value.userType() != QMetaType::QPalette)
             return;
 
         QPalette superPalette = qvariant_cast<QPalette>(value);
@@ -1373,9 +1382,9 @@ void DesignerPropertyManager::setAttribute(QtProperty *property,
 
         data.superPalette = superPalette;
         // resolve here
-        const uint mask = data.val.resolve();
+        const uint mask = data.val.resolveMask();
         data.val = data.val.resolve(superPalette);
-        data.val.resolve(mask);
+        data.val.setResolveMask(mask);
 
         it.value() = data;
 
@@ -1386,7 +1395,7 @@ void DesignerPropertyManager::setAttribute(QtProperty *property,
         emit propertyChanged(property);
         emit QtVariantPropertyManager::valueChanged(property, data.val); // if resolve was done, this is also for consistency
     } else if (attribute == QLatin1String(defaultResourceAttributeC) && m_defaultPixmaps.contains(property)) {
-        if (value.userType() != QVariant::Pixmap)
+        if (value.userType() != QMetaType::QPixmap)
             return;
 
         QPixmap defaultPixmap = qvariant_cast<QPixmap>(value);
@@ -1403,7 +1412,7 @@ void DesignerPropertyManager::setAttribute(QtProperty *property,
 
         emit propertyChanged(property);
     } else if (attribute == QLatin1String(defaultResourceAttributeC) && m_defaultIcons.contains(property)) {
-        if (value.userType() != QVariant::Icon)
+        if (value.userType() != QMetaType::QIcon)
             return;
 
         QIcon defaultIcon = qvariant_cast<QIcon>(value);
@@ -1430,6 +1439,8 @@ void DesignerPropertyManager::setAttribute(QtProperty *property,
         emit attributeChanged(property, attribute, v);
 
         emit propertyChanged(property);
+    } else if (attribute == alignDefaultAttribute()) {
+        m_alignDefault[property] = Qt::Alignment(value.toUInt());
     }
     QtVariantPropertyManager::setAttribute(property, attribute, value);
 }
@@ -1477,17 +1488,27 @@ int DesignerPropertyManager::designerKeySequenceTypeId()
     return qMetaTypeId<PropertySheetKeySequenceValue>();
 }
 
+QString DesignerPropertyManager::alignDefaultAttribute()
+{
+    return QStringLiteral("alignDefault");
+}
+
+uint DesignerPropertyManager::alignDefault(const QtVariantProperty *prop)
+{
+    return prop->attributeValue(DesignerPropertyManager::alignDefaultAttribute()).toUInt();
+}
+
 bool DesignerPropertyManager::isPropertyTypeSupported(int propertyType) const
 {
     switch (propertyType) {
-    case QVariant::Palette:
-    case QVariant::UInt:
-    case QVariant::LongLong:
-    case QVariant::ULongLong:
-    case QVariant::Url:
-    case QVariant::ByteArray:
-    case QVariant::StringList:
-    case QVariant::Brush:
+    case QMetaType::QPalette:
+    case QMetaType::UInt:
+    case QMetaType::LongLong:
+    case QMetaType::ULongLong:
+    case QMetaType::QUrl:
+    case QMetaType::QByteArray:
+    case QMetaType::QStringList:
+    case QMetaType::QBrush:
         return true;
     default:
         break;
@@ -1534,7 +1555,7 @@ QString DesignerPropertyManager::valueText(const QtProperty *property) const
     }
     if (m_paletteValues.contains(const_cast<QtProperty *>(property))) {
         const PaletteData data = m_paletteValues.value(const_cast<QtProperty *>(property));
-        const uint mask = data.val.resolve();
+        const uint mask = data.val.resolveMask();
         if (mask)
             return tr("Customized (%n roles)", nullptr, bitCount(mask));
         static const QString inherited = tr("Inherited");
@@ -1573,20 +1594,22 @@ QString DesignerPropertyManager::valueText(const QtProperty *property) const
         return QString::fromUtf8(m_byteArrayValues.value(const_cast<QtProperty *>(property)));
     }
     const int vType = QtVariantPropertyManager::valueType(property);
-    if (vType == QVariant::String || vType == designerStringTypeId()) {
-        const QString str = (QtVariantPropertyManager::valueType(property) == QVariant::String) ? value(property).toString() : qvariant_cast<PropertySheetStringValue>(value(property)).value();
+    if (vType == QMetaType::QString || vType == designerStringTypeId()) {
+        const QString str = (QtVariantPropertyManager::valueType(property) == QMetaType::QString)
+            ? value(property).toString() : qvariant_cast<PropertySheetStringValue>(value(property)).value();
         const int validationMode = attributeValue(property, QLatin1String(validationModesAttributeC)).toInt();
         return TextPropertyEditor::stringToEditorString(str, static_cast<TextPropertyValidationMode>(validationMode));
     }
-    if (vType == QVariant::StringList || vType == designerStringListTypeId()) {
+    if (vType == QMetaType::QStringList || vType == designerStringListTypeId()) {
         QVariant v = value(property);
-        const QStringList list = v.type() == QVariant::StringList ? v.toStringList() : qvariant_cast<PropertySheetStringListValue>(v).value();
+        const QStringList list = v.metaType().id() == QMetaType::QStringList
+            ? v.toStringList() : qvariant_cast<PropertySheetStringListValue>(v).value();
         return list.join(QLatin1String("; "));
     }
     if (vType == designerKeySequenceTypeId()) {
         return qvariant_cast<PropertySheetKeySequenceValue>(value(property)).value().toString(QKeySequence::NativeText);
     }
-    if (vType == QVariant::Bool) {
+    if (vType == QMetaType::Bool) {
         return QString();
     }
 
@@ -1694,22 +1717,22 @@ QVariant DesignerPropertyManager::value(const QtProperty *property) const
 int DesignerPropertyManager::valueType(int propertyType) const
 {
     switch (propertyType) {
-    case QVariant::Palette:
-    case QVariant::UInt:
-    case QVariant::LongLong:
-    case QVariant::ULongLong:
-    case QVariant::Url:
-    case QVariant::ByteArray:
-    case QVariant::StringList:
-    case QVariant::Brush:
+    case QMetaType::QPalette:
+    case QMetaType::UInt:
+    case QMetaType::LongLong:
+    case QMetaType::ULongLong:
+    case QMetaType::QUrl:
+    case QMetaType::QByteArray:
+    case QMetaType::QStringList:
+    case QMetaType::QBrush:
         return propertyType;
     default:
         break;
     }
     if (propertyType == designerFlagTypeId())
-        return QVariant::UInt;
+        return QMetaType::UInt;
     if (propertyType == designerAlignmentTypeId())
-        return QVariant::UInt;
+        return QMetaType::UInt;
     if (propertyType == designerPixmapTypeId())
         return propertyType;
     if (propertyType == designerIconTypeId())
@@ -1741,7 +1764,7 @@ void DesignerPropertyManager::setValue(QtProperty *property, const QVariant &val
     const PropertyFlagDataMap::iterator fit = m_flagValues.find(property);
 
     if (fit !=  m_flagValues.end()) {
-        if (value.type() != QVariant::UInt && !value.canConvert(QVariant::UInt))
+        if (value.metaType().id() != QMetaType::UInt && !value.canConvert<uint>())
             return;
 
         const uint v = value.toUInt();
@@ -1793,7 +1816,7 @@ void DesignerPropertyManager::setValue(QtProperty *property, const QVariant &val
         return;
     }
     if (m_alignValues.contains(property)) {
-        if (value.type() != QVariant::UInt && !value.canConvert(QVariant::UInt))
+        if (value.metaType().id() != QMetaType::UInt && !value.canConvert<uint>())
             return;
 
         const uint v = value.toUInt();
@@ -1819,18 +1842,18 @@ void DesignerPropertyManager::setValue(QtProperty *property, const QVariant &val
         return;
     }
     if (m_paletteValues.contains(property)) {
-        if (value.type() != QVariant::Palette && !value.canConvert(QVariant::Palette))
+        if (value.metaType().id() != QMetaType::QPalette && !value.canConvert<QPalette>())
             return;
 
         QPalette p = qvariant_cast<QPalette>(value);
 
         PaletteData data = m_paletteValues.value(property);
 
-        const uint mask = p.resolve();
+        const uint mask = p.resolveMask();
         p = p.resolve(data.superPalette);
-        p.resolve(mask);
+        p.setResolveMask(mask);
 
-        if (data.val == p && data.val.resolve() == p.resolve())
+        if (data.val == p && data.val.resolveMask() == p.resolveMask())
             return;
 
         data.val = p;
@@ -1914,7 +1937,7 @@ void DesignerPropertyManager::setValue(QtProperty *property, const QVariant &val
         return;
     }
     if (m_uintValues.contains(property)) {
-        if (value.type() != QVariant::UInt && !value.canConvert(QVariant::UInt))
+        if (value.metaType().id() != QMetaType::UInt && !value.canConvert<uint>())
             return;
 
         const uint v = value.toUInt(nullptr);
@@ -1931,7 +1954,7 @@ void DesignerPropertyManager::setValue(QtProperty *property, const QVariant &val
         return;
     }
     if (m_longLongValues.contains(property)) {
-        if (value.type() != QVariant::LongLong && !value.canConvert(QVariant::LongLong))
+        if (value.metaType().id() != QMetaType::LongLong && !value.canConvert<qlonglong>())
             return;
 
         const qlonglong v = value.toLongLong(nullptr);
@@ -1948,7 +1971,7 @@ void DesignerPropertyManager::setValue(QtProperty *property, const QVariant &val
         return;
     }
     if (m_uLongLongValues.contains(property)) {
-        if (value.type() != QVariant::ULongLong && !value.canConvert(QVariant::ULongLong))
+        if (value.metaType().id() != QMetaType::ULongLong && !value.canConvert<qulonglong>())
             return;
 
         qulonglong v = value.toULongLong(nullptr);
@@ -1965,7 +1988,7 @@ void DesignerPropertyManager::setValue(QtProperty *property, const QVariant &val
         return;
     }
     if (m_urlValues.contains(property)) {
-        if (value.type() != QVariant::Url && !value.canConvert(QVariant::Url))
+        if (value.metaType().id() != QMetaType::QUrl && !value.canConvert<QUrl>())
             return;
 
         const QUrl v = value.toUrl();
@@ -1982,7 +2005,7 @@ void DesignerPropertyManager::setValue(QtProperty *property, const QVariant &val
         return;
     }
     if (m_byteArrayValues.contains(property)) {
-        if (value.type() != QVariant::ByteArray && !value.canConvert(QVariant::ByteArray))
+        if (value.metaType().id() != QMetaType::QByteArray && !value.canConvert<QByteArray>())
             return;
 
         const QByteArray v = value.toByteArray();
@@ -2000,7 +2023,7 @@ void DesignerPropertyManager::setValue(QtProperty *property, const QVariant &val
     }
     m_fontManager.setValue(this, property, value);
     QtVariantPropertyManager::setValue(property, value);
-    if (QtVariantPropertyManager::valueType(property) == QVariant::Bool)
+    if (QtVariantPropertyManager::valueType(property) == QMetaType::Bool)
         property->setToolTip(QtVariantPropertyManager::valueText(property));
 }
 
@@ -2011,30 +2034,30 @@ void DesignerPropertyManager::initializeProperty(QtProperty *property)
     const int type = propertyType(property);
     m_fontManager.preInitializeProperty(property, type, m_resetMap);
     switch (type) {
-    case QVariant::Palette:
+    case QMetaType::QPalette:
         m_paletteValues[property] = PaletteData();
         break;
-    case QVariant::String:
+    case QMetaType::QString:
         m_stringAttributes[property] = ValidationSingleLine;
         m_stringFontAttributes[property] = QApplication::font();
         m_stringThemeAttributes[property] = false;
         break;
-    case QVariant::UInt:
+    case QMetaType::UInt:
         m_uintValues[property] = 0;
         break;
-    case QVariant::LongLong:
+    case QMetaType::LongLong:
         m_longLongValues[property] = 0;
         break;
-    case QVariant::ULongLong:
+    case QMetaType::ULongLong:
         m_uLongLongValues[property] = 0;
         break;
-    case QVariant::Url:
+    case QMetaType::QUrl:
         m_urlValues[property] = QUrl();
         break;
-    case QVariant::ByteArray:
-        m_byteArrayValues[property] = nullptr;
+    case QMetaType::QByteArray:
+        m_byteArrayValues[property] = QByteArray();
         break;
-    case QVariant::Brush:
+    case QMetaType::QBrush:
         m_brushManager.initializeProperty(this, property, enumTypeId());
         break;
     default:
@@ -2069,7 +2092,7 @@ void DesignerPropertyManager::initializeProperty(QtProperty *property)
             m_iconValues[property] = PropertySheetIconValue();
             m_defaultIcons[property] = QIcon();
 
-            QtVariantProperty *themeProp = addProperty(QVariant::String, tr("Theme"));
+            QtVariantProperty *themeProp = addProperty(QMetaType::QString, tr("Theme"));
             themeProp->setAttribute(QLatin1String(themeAttributeC), true);
             m_iconSubPropertyToProperty[themeProp] = property;
             m_propertyToTheme[property] = themeProp;
@@ -2098,7 +2121,7 @@ void DesignerPropertyManager::initializeProperty(QtProperty *property)
 
     QtVariantPropertyManager::initializeProperty(property);
     m_fontManager.postInitializeProperty(this, property, type, DesignerPropertyManager::enumTypeId());
-    if (type == QVariant::Double)
+    if (type == QMetaType::Double)
         setAttribute(property, QStringLiteral("decimals"), 6);
 }
 
@@ -2184,6 +2207,16 @@ void DesignerPropertyManager::uninitializeProperty(QtProperty *property)
     QtVariantPropertyManager::uninitializeProperty(property);
 }
 
+bool DesignerPropertyManager::resetTextAlignmentProperty(QtProperty *property)
+{
+    const auto it = m_alignDefault.constFind(property);
+    if (it == m_alignDefault.cend())
+        return false;
+    QtVariantProperty *alignProperty = variantProperty(property);
+    alignProperty->setValue(DesignerPropertyManager::alignDefault(alignProperty));
+    alignProperty->setModified(false);
+    return true;
+}
 
 bool DesignerPropertyManager::resetFontSubProperty(QtProperty *property)
 {
@@ -2286,7 +2319,7 @@ void DesignerEditorFactory::slotAttributeChanged(QtProperty *property, const QSt
     if (type == DesignerPropertyManager::designerPixmapTypeId() && attribute == QLatin1String(defaultResourceAttributeC)) {
         const QPixmap pixmap = qvariant_cast<QPixmap>(value);
         applyToEditors(m_pixmapPropertyToEditors.value(property), &PixmapEditor::setDefaultPixmap, pixmap);
-    } else if (type == DesignerPropertyManager::designerStringTypeId() || type == QVariant::String) {
+    } else if (type == DesignerPropertyManager::designerStringTypeId() || type == QMetaType::QString) {
         if (attribute == QLatin1String(validationModesAttributeC)) {
             const TextPropertyValidationMode validationMode = static_cast<TextPropertyValidationMode>(value.toInt());
             applyToEditors(m_stringPropertyToEditors.value(property), &TextEditor::setTextPropertyValidationMode, validationMode);
@@ -2299,7 +2332,7 @@ void DesignerEditorFactory::slotAttributeChanged(QtProperty *property, const QSt
             const bool themeEnabled = value.toBool();
             applyToEditors(m_stringPropertyToEditors.value(property), &TextEditor::setIconThemeModeEnabled, themeEnabled);
         }
-    } else if (type == QVariant::Palette && attribute == QLatin1String(superPaletteAttributeC)) {
+    } else if (type == QMetaType::QPalette && attribute == QLatin1String(superPaletteAttributeC)) {
         const QPalette palette = qvariant_cast<QPalette>(value);
         applyToEditors(m_palettePropertyToEditors.value(property), &PaletteEditorButton::setSuperPalette, palette);
     }
@@ -2329,28 +2362,28 @@ void DesignerEditorFactory::slotValueChanged(QtProperty *property, const QVarian
     QtVariantPropertyManager *manager = propertyManager(property);
     const int type = manager->propertyType(property);
     switch (type) {
-    case QVariant::String:
+    case QMetaType::QString:
         applyToEditors(m_stringPropertyToEditors.value(property), &TextEditor::setText, value.toString());
         break;
-    case QVariant::Palette:
+    case QMetaType::QPalette:
         applyToEditors(m_palettePropertyToEditors.value(property), &PaletteEditorButton::setPalette, qvariant_cast<QPalette>(value));
         break;
-    case QVariant::UInt:
+    case QMetaType::UInt:
         applyToEditors(m_uintPropertyToEditors.value(property), &QLineEdit::setText, QString::number(value.toUInt()));
         break;
-    case QVariant::LongLong:
+    case QMetaType::LongLong:
         applyToEditors(m_longLongPropertyToEditors.value(property), &QLineEdit::setText, QString::number(value.toLongLong()));
         break;
-    case QVariant::ULongLong:
+    case QMetaType::ULongLong:
         applyToEditors(m_uLongLongPropertyToEditors.value(property), &QLineEdit::setText, QString::number(value.toULongLong()));
         break;
-    case QVariant::Url:
+    case QMetaType::QUrl:
         applyToEditors(m_urlPropertyToEditors.value(property), &TextEditor::setText, value.toUrl().toString());
         break;
-    case QVariant::ByteArray:
+    case QMetaType::QByteArray:
         applyToEditors(m_byteArrayPropertyToEditors.value(property), &TextEditor::setText, QString::fromUtf8(value.toByteArray()));
         break;
-    case QVariant::StringList:
+    case QMetaType::QStringList:
         applyToEditors(m_stringListPropertyToEditors.value(property), &StringListEditorButton::setStringList, value.toStringList());
         break;
     default:
@@ -2387,18 +2420,18 @@ QWidget *DesignerEditorFactory::createEditor(QtVariantPropertyManager *manager, 
     QWidget *editor = nullptr;
     const int type = manager->propertyType(property);
     switch (type) {
-    case QVariant::Bool: {
+    case QMetaType::Bool: {
         editor = QtVariantEditorFactory::createEditor(manager, property, parent);
         QtBoolEdit *boolEdit = qobject_cast<QtBoolEdit *>(editor);
         if (boolEdit)
             boolEdit->setTextVisible(false);
     }
         break;
-    case QVariant::String: {
+    case QMetaType::QString: {
         const TextPropertyValidationMode tvm = static_cast<TextPropertyValidationMode>(manager->attributeValue(property, QLatin1String(validationModesAttributeC)).toInt());
         TextEditor *ed = createTextEditor(parent, tvm, manager->value(property).toString());
         const QVariant richTextDefaultFont = manager->attributeValue(property, QLatin1String(fontAttributeC));
-        if (richTextDefaultFont.type() == QVariant::Font)
+        if (richTextDefaultFont.metaType().id() == QMetaType::QFont)
             ed->setRichTextDefaultFont(qvariant_cast<QFont>(richTextDefaultFont));
         const bool themeEnabled = manager->attributeValue(property, QLatin1String(themeAttributeC)).toBool();
         ed->setIconThemeModeEnabled(themeEnabled);
@@ -2409,7 +2442,7 @@ QWidget *DesignerEditorFactory::createEditor(QtVariantPropertyManager *manager, 
         editor = ed;
     }
         break;
-    case QVariant::Palette: {
+    case QMetaType::QPalette: {
         PaletteEditorButton *ed = new PaletteEditorButton(m_core, qvariant_cast<QPalette>(manager->value(property)), parent);
         ed->setSuperPalette(qvariant_cast<QPalette>(manager->attributeValue(property, QLatin1String(superPaletteAttributeC))));
         m_palettePropertyToEditors[property].append(ed);
@@ -2419,7 +2452,7 @@ QWidget *DesignerEditorFactory::createEditor(QtVariantPropertyManager *manager, 
         editor = ed;
     }
         break;
-    case QVariant::UInt: {
+    case QMetaType::UInt: {
         QLineEdit *ed = new QLineEdit(parent);
         ed->setValidator(new QULongLongValidator(0, UINT_MAX, ed));
         ed->setText(QString::number(manager->value(property).toUInt()));
@@ -2430,7 +2463,7 @@ QWidget *DesignerEditorFactory::createEditor(QtVariantPropertyManager *manager, 
         editor = ed;
     }
         break;
-    case QVariant::LongLong: {
+    case QMetaType::LongLong: {
         QLineEdit *ed = new QLineEdit(parent);
         ed->setValidator(new QLongLongValidator(ed));
         ed->setText(QString::number(manager->value(property).toLongLong()));
@@ -2441,7 +2474,7 @@ QWidget *DesignerEditorFactory::createEditor(QtVariantPropertyManager *manager, 
         editor = ed;
     }
         break;
-    case QVariant::ULongLong: {
+    case QMetaType::ULongLong: {
         QLineEdit *ed = new QLineEdit(parent);
         ed->setValidator(new QULongLongValidator(ed));
         ed->setText(QString::number(manager->value(property).toULongLong()));
@@ -2452,7 +2485,7 @@ QWidget *DesignerEditorFactory::createEditor(QtVariantPropertyManager *manager, 
         editor = ed;
     }
         break;
-    case QVariant::Url: {
+    case QMetaType::QUrl: {
         TextEditor *ed = createTextEditor(parent, ValidationURL, manager->value(property).toUrl().toString());
         ed->setUpdateMode(TextPropertyEditor::UpdateOnFinished);
         m_urlPropertyToEditors[property].append(ed);
@@ -2462,7 +2495,7 @@ QWidget *DesignerEditorFactory::createEditor(QtVariantPropertyManager *manager, 
         editor = ed;
     }
         break;
-    case QVariant::ByteArray: {
+    case QMetaType::QByteArray: {
         TextEditor *ed = createTextEditor(parent, ValidationMultiLine, QString::fromUtf8(manager->value(property).toByteArray()));
         m_byteArrayPropertyToEditors[property].append(ed);
         m_editorToByteArrayProperty[ed] = property;
@@ -2507,17 +2540,17 @@ QWidget *DesignerEditorFactory::createEditor(QtVariantPropertyManager *manager, 
             const TextPropertyValidationMode tvm = static_cast<TextPropertyValidationMode>(manager->attributeValue(property, QLatin1String(validationModesAttributeC)).toInt());
             TextEditor *ed = createTextEditor(parent, tvm, qvariant_cast<PropertySheetStringValue>(manager->value(property)).value());
             const QVariant richTextDefaultFont = manager->attributeValue(property, QLatin1String(fontAttributeC));
-            if (richTextDefaultFont.type() == QVariant::Font)
+            if (richTextDefaultFont.metaType().id() == QMetaType::QFont)
                 ed->setRichTextDefaultFont(qvariant_cast<QFont>(richTextDefaultFont));
             m_stringPropertyToEditors[property].append(ed);
             m_editorToStringProperty[ed] = property;
             connect(ed, &QObject::destroyed, this, &DesignerEditorFactory::slotEditorDestroyed);
             connect(ed, &TextEditor::textChanged, this, &DesignerEditorFactory::slotStringTextChanged);
             editor = ed;
-        } else if (type == DesignerPropertyManager::designerStringListTypeId() || type == QVariant::StringList) {
+        } else if (type == DesignerPropertyManager::designerStringListTypeId() || type == QMetaType::QStringList) {
             const QVariant variantValue = manager->value(property);
-            const QStringList value = type == QVariant::StringList ? variantValue.toStringList() :
-                                      qvariant_cast<PropertySheetStringListValue>(variantValue).value();
+            const QStringList value = type == QMetaType::QStringList
+                ? variantValue.toStringList() : qvariant_cast<PropertySheetStringListValue>(variantValue).value();
             StringListEditorButton *ed = new StringListEditorButton(value, parent);
             m_stringListPropertyToEditors[property].append(ed);
             m_editorToStringListProperty.insert(ed, property);

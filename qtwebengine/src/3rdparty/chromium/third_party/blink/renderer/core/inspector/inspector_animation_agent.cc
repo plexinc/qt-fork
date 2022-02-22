@@ -185,6 +185,13 @@ InspectorAnimationAgent::BuildObjectForAnimation(blink::Animation& animation) {
   String id = String::Number(animation.SequenceNumber());
   id_to_animation_.Set(id, &animation);
 
+  double current_time = Timing::NullValue();
+  base::Optional<AnimationTimeDelta> animation_current_time =
+      animation.CurrentTimeInternal();
+  if (animation_current_time) {
+    current_time = animation_current_time.value().InMillisecondsF();
+  }
+
   std::unique_ptr<protocol::Animation::Animation> animation_object =
       protocol::Animation::Animation::create()
           .setId(id)
@@ -193,7 +200,7 @@ InspectorAnimationAgent::BuildObjectForAnimation(blink::Animation& animation) {
           .setPlayState(animation.PlayStateString())
           .setPlaybackRate(animation.playbackRate())
           .setStartTime(NormalizedStartTime(animation))
-          .setCurrentTime(animation.currentTime())
+          .setCurrentTime(current_time)
           .setType(animation_type)
           .build();
   if (animation_type != AnimationType::WebAnimation)
@@ -224,16 +231,26 @@ Response InspectorAnimationAgent::getCurrentTime(const String& id,
   if (id_to_animation_clone_.at(id))
     animation = id_to_animation_clone_.at(id);
 
+  *current_time = Timing::NullValue();
   if (animation->Paused() || !animation->timeline()->IsActive()) {
-    *current_time = animation->currentTime();
+    base::Optional<AnimationTimeDelta> animation_current_time =
+        animation->CurrentTimeInternal();
+    if (animation_current_time) {
+      *current_time = animation_current_time.value().InMillisecondsF();
+    }
   } else {
     // Use startTime where possible since currentTime is limited.
-    base::Optional<double> timeline_time = animation->timeline()->CurrentTime();
-    // TODO(crbug.com/916117): Handle NaN values for scroll linked animations.
-    *current_time =
-        timeline_time ? timeline_time.value() -
-                            animation->startTime().value_or(Timing::NullValue())
-                      : Timing::NullValue();
+    base::Optional<AnimationTimeDelta> animation_start_time =
+        animation->StartTimeInternal();
+    if (animation_start_time) {
+      base::Optional<AnimationTimeDelta> timeline_time =
+          animation->timeline()->CurrentTime();
+      // TODO(crbug.com/916117): Handle NaN values for scroll linked animations.
+      if (timeline_time) {
+        *current_time = timeline_time.value().InMillisecondsF() -
+                        animation_start_time.value().InMillisecondsF();
+      }
+    }
   }
   return Response::Success();
 }
@@ -251,19 +268,23 @@ Response InspectorAnimationAgent::setPaused(
       return Response::ServerError("Failed to clone detached animation");
     if (paused && !clone->Paused()) {
       // Ensure we restore a current time if the animation is limited.
-      double current_time = 0;
+      base::Optional<AnimationTimeDelta> current_time;
       if (!clone->timeline()->IsActive()) {
-        current_time = clone->currentTime();
+        current_time = clone->CurrentTimeInternal();
       } else {
-        base::Optional<double> timeline_time = clone->timeline()->CurrentTime();
-        // TODO(crbug.com/916117): Handle NaN values.
-        current_time =
-            timeline_time ? timeline_time.value() -
-                                clone->startTime().value_or(Timing::NullValue())
-                          : Timing::NullValue();
+        base::Optional<AnimationTimeDelta> start_time =
+            clone->StartTimeInternal();
+        if (start_time) {
+          base::Optional<AnimationTimeDelta> timeline_time =
+              clone->timeline()->CurrentTime();
+          // TODO(crbug.com/916117): Handle NaN values.
+          if (timeline_time) {
+            current_time = timeline_time.value() - start_time.value();
+          }
+        }
       }
       clone->pause();
-      clone->setCurrentTime(current_time, false);
+      clone->SetCurrentTimeInternal(current_time.value());
     } else if (!paused && clone->Paused()) {
       clone->Unpause();
     }
@@ -310,8 +331,9 @@ blink::Animation* InspectorAnimationAgent::AnimationClone(
     id_to_animation_clone_.Set(id, clone);
     id_to_animation_.Set(String::Number(clone->SequenceNumber()), clone);
     clone->play();
-    clone->setStartTime(animation->startTime().value_or(Timing::NullValue()),
-                        false);
+    CSSNumberish start_time;
+    animation->startTime(start_time);
+    clone->setStartTime(start_time);
 
     animation->SetEffectSuppressed(true);
   }
@@ -331,7 +353,8 @@ Response InspectorAnimationAgent::seekAnimations(
       return Response::ServerError("Failed to clone a detached animation.");
     if (!clone->Paused())
       clone->play();
-    clone->setCurrentTime(current_time, false);
+    clone->SetCurrentTimeInternal(
+        AnimationTimeDelta::FromMillisecondsD(current_time));
   }
   return Response::Success();
 }
@@ -407,30 +430,31 @@ Response InspectorAnimationAgent::resolveAnimation(
 }
 
 String InspectorAnimationAgent::CreateCSSId(blink::Animation& animation) {
-  static const CSSProperty* g_animation_properties[] = {
-      &GetCSSPropertyAnimationDelay(),
-      &GetCSSPropertyAnimationDirection(),
-      &GetCSSPropertyAnimationDuration(),
-      &GetCSSPropertyAnimationFillMode(),
-      &GetCSSPropertyAnimationIterationCount(),
-      &GetCSSPropertyAnimationName(),
-      &GetCSSPropertyAnimationTimingFunction(),
+  static CSSPropertyID g_animation_properties[] = {
+      CSSPropertyID::kAnimationDelay,
+      CSSPropertyID::kAnimationDirection,
+      CSSPropertyID::kAnimationDuration,
+      CSSPropertyID::kAnimationFillMode,
+      CSSPropertyID::kAnimationIterationCount,
+      CSSPropertyID::kAnimationName,
+      CSSPropertyID::kAnimationTimingFunction,
   };
-  static const CSSProperty* g_transition_properties[] = {
-      &GetCSSPropertyTransitionDelay(), &GetCSSPropertyTransitionDuration(),
-      &GetCSSPropertyTransitionProperty(),
-      &GetCSSPropertyTransitionTimingFunction(),
+  static CSSPropertyID g_transition_properties[] = {
+      CSSPropertyID::kTransitionDelay,
+      CSSPropertyID::kTransitionDuration,
+      CSSPropertyID::kTransitionProperty,
+      CSSPropertyID::kTransitionTimingFunction,
   };
 
   auto* effect = To<KeyframeEffect>(animation.effect());
-  Vector<const CSSProperty*> css_properties;
+  Vector<CSSPropertyName> css_property_names;
   if (IsA<CSSAnimation>(animation)) {
-    for (const CSSProperty* property : g_animation_properties)
-      css_properties.push_back(property);
+    for (CSSPropertyID property : g_animation_properties)
+      css_property_names.push_back(CSSPropertyName(property));
   } else if (auto* css_transition = DynamicTo<CSSTransition>(animation)) {
-    for (const CSSProperty* property : g_transition_properties)
-      css_properties.push_back(property);
-    css_properties.push_back(&css_transition->TransitionCSSProperty());
+    for (CSSPropertyID property : g_transition_properties)
+      css_property_names.push_back(CSSPropertyName(property));
+    css_property_names.push_back(css_transition->TransitionCSSPropertyName());
   } else {
     NOTREACHED();
   }
@@ -443,14 +467,14 @@ String InspectorAnimationAgent::CreateCSSId(blink::Animation& animation) {
                           ? AnimationType::CSSTransition
                           : AnimationType::CSSAnimation);
   digestor.UpdateUtf8(animation.id());
-  for (const CSSProperty* property : css_properties) {
+  for (const CSSPropertyName& name : css_property_names) {
     CSSStyleDeclaration* style =
-        css_agent_->FindEffectiveDeclaration(*property, styles);
+        css_agent_->FindEffectiveDeclaration(name, styles);
     // Ignore inline styles.
     if (!style || !style->ParentStyleSheet() || !style->parentRule() ||
-        style->parentRule()->type() != CSSRule::kStyleRule)
+        style->parentRule()->GetType() != CSSRule::kStyleRule)
       continue;
-    digestor.UpdateUtf8(property->GetPropertyNameString());
+    digestor.UpdateUtf8(name.ToAtomicString());
     digestor.UpdateUtf8(css_agent_->StyleSheetId(style->ParentStyleSheet()));
     digestor.UpdateUtf8(To<CSSStyleRule>(style->parentRule())->selectorText());
   }
@@ -510,12 +534,19 @@ DocumentTimeline& InspectorAnimationAgent::ReferenceTimeline() {
 
 double InspectorAnimationAgent::NormalizedStartTime(
     blink::Animation& animation) {
-  double time_ms = animation.startTime().value_or(Timing::NullValue());
+  double time_ms = Timing::NullValue();
+  base::Optional<AnimationTimeDelta> start_time = animation.StartTimeInternal();
+  if (start_time) {
+    time_ms = start_time.value().InMillisecondsF();
+  }
+
   auto* document_timeline = DynamicTo<DocumentTimeline>(animation.timeline());
   if (document_timeline) {
     if (ReferenceTimeline().PlaybackRate() == 0) {
-      time_ms +=
-          ReferenceTimeline().currentTime() - document_timeline->currentTime();
+      time_ms += ReferenceTimeline().CurrentTimeMilliseconds().value_or(
+                     Timing::NullValue()) -
+                 document_timeline->CurrentTimeMilliseconds().value_or(
+                     Timing::NullValue());
     } else {
       time_ms +=
           (document_timeline->ZeroTime() - ReferenceTimeline().ZeroTime())
@@ -527,7 +558,7 @@ double InspectorAnimationAgent::NormalizedStartTime(
   return std::round(time_ms * 1000) / 1000;
 }
 
-void InspectorAnimationAgent::Trace(Visitor* visitor) {
+void InspectorAnimationAgent::Trace(Visitor* visitor) const {
   visitor->Trace(inspected_frames_);
   visitor->Trace(css_agent_);
   visitor->Trace(id_to_animation_);

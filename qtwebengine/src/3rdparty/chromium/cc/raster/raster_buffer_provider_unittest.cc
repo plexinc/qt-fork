@@ -10,28 +10,32 @@
 #include <algorithm>
 #include <limits>
 #include <memory>
+#include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/cancelable_callback.h"
+#include "base/check.h"
 #include "base/location.h"
-#include "base/logging.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/metrics/histogram_base.h"
+#include "base/notreached.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "cc/base/unique_notifier.h"
 #include "cc/paint/draw_image.h"
 #include "cc/raster/bitmap_raster_buffer_provider.h"
 #include "cc/raster/gpu_raster_buffer_provider.h"
 #include "cc/raster/one_copy_raster_buffer_provider.h"
+#include "cc/raster/raster_query_queue.h"
 #include "cc/raster/synchronous_task_graph_runner.h"
 #include "cc/raster/zero_copy_raster_buffer_provider.h"
 #include "cc/resources/resource_pool.h"
@@ -79,7 +83,9 @@ class TestRasterTaskImpl : public TileTask {
                      unsigned id,
                      std::unique_ptr<RasterBuffer> raster_buffer,
                      TileTask::Vector* dependencies)
-      : TileTask(true, dependencies),
+      : TileTask(TileTask::SupportsConcurrentExecution::kYes,
+                 TileTask::SupportsBackgroundThreadPriority::kYes,
+                 dependencies),
         completion_handler_(completion_handler),
         id_(id),
         raster_buffer_(std::move(raster_buffer)),
@@ -227,13 +233,15 @@ class RasterBufferProviderTest
         Create3dResourceProvider();
         raster_buffer_provider_ = std::make_unique<GpuRasterBufferProvider>(
             context_provider_.get(), worker_context_provider_.get(), false,
-            viz::RGBA_8888, gfx::Size(), true, false, 1);
+            viz::RGBA_8888, gfx::Size(), true, false,
+            pending_raster_queries_.get(), 1);
         break;
       case RASTER_BUFFER_PROVIDER_TYPE_GPU_OOPR:
         Create3dResourceProvider();
         raster_buffer_provider_ = std::make_unique<GpuRasterBufferProvider>(
             context_provider_.get(), worker_context_provider_.get(), false,
-            viz::RGBA_8888, gfx::Size(), true, true, 1);
+            viz::RGBA_8888, gfx::Size(), true, true,
+            pending_raster_queries_.get(), 1);
         break;
       case RASTER_BUFFER_PROVIDER_TYPE_BITMAP:
         CreateSoftwareResourceProvider();
@@ -376,7 +384,9 @@ class RasterBufferProviderTest
     context_provider_ = viz::TestContextProvider::Create(std::move(gl_owned));
     context_provider_->BindToCurrentThread();
 
+    bool oop_rasterization_enabled = false;
     if (GetParam() == RASTER_BUFFER_PROVIDER_TYPE_GPU_OOPR) {
+      oop_rasterization_enabled = true;
       auto worker_gl_owned = std::make_unique<viz::TestGLES2Interface>();
       auto worker_support_owned = std::make_unique<viz::TestContextSupport>();
       auto worker_ri_owned = std::make_unique<RasterImplementationForOOPR>(
@@ -393,6 +403,9 @@ class RasterBufferProviderTest
 
     layer_tree_frame_sink_ = FakeLayerTreeFrameSink::Create3d();
     resource_provider_ = std::make_unique<viz::ClientResourceProvider>();
+
+    pending_raster_queries_ = std::make_unique<RasterQueryQueue>(
+        worker_context_provider_.get(), oop_rasterization_enabled);
   }
 
   void CreateSoftwareResourceProvider() {
@@ -422,6 +435,7 @@ class RasterBufferProviderTest
   std::vector<RasterTaskResult> completed_tasks_;
   std::vector<ResourcePool::InUsePoolResource> resources_;
   TaskGraph graph_;
+  std::unique_ptr<RasterQueryQueue> pending_raster_queries_;
 };
 
 TEST_P(RasterBufferProviderTest, Basic) {
@@ -650,7 +664,7 @@ TEST_P(RasterBufferProviderTest, MeasureGpuRasterDuration) {
   histogram_tester.ExpectTotalCount(delay_histogram_jpeg_tiles, 0);
   histogram_tester.ExpectTotalCount(delay_histogram_webp_tiles, 0);
   bool has_pending_queries =
-      raster_buffer_provider_->CheckRasterFinishedQueries();
+      pending_raster_queries_->CheckRasterFinishedQueries();
   EXPECT_FALSE(has_pending_queries);
   histogram_tester.ExpectTotalCount(duration_histogram, 9);
 
@@ -659,7 +673,7 @@ TEST_P(RasterBufferProviderTest, MeasureGpuRasterDuration) {
   base::HistogramBase::Count expected_delay_histogram_all_tiles_count = 0;
   base::HistogramBase::Count expected_delay_histogram_jpeg_tiles_count = 0;
   base::HistogramBase::Count expected_delay_histogram_webp_tiles_count = 0;
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   if (GetParam() == RASTER_BUFFER_PROVIDER_TYPE_GPU_OOPR) {
     expected_delay_histogram_all_tiles_count = 5;
     expected_delay_histogram_jpeg_tiles_count = 3;

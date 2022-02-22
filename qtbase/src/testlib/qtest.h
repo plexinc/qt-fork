@@ -1,7 +1,7 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
-** Copyright (C) 2016 Intel Corporation.
+** Copyright (C) 2019 The Qt Company Ltd.
+** Copyright (C) 2020 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtTest module of the Qt Toolkit.
@@ -48,6 +48,10 @@
 
 #include <QtCore/qbitarray.h>
 #include <QtCore/qbytearray.h>
+#include <QtCore/qcborarray.h>
+#include <QtCore/qcborcommon.h>
+#include <QtCore/qcbormap.h>
+#include <QtCore/qcborvalue.h>
 #include <QtCore/qstring.h>
 #include <QtCore/qstringlist.h>
 #include <QtCore/qcborcommon.h>
@@ -60,14 +64,18 @@
 #include <QtCore/qurl.h>
 #include <QtCore/quuid.h>
 
+#if defined(TESTCASE_LOWDPI)
+#include <QtCore/qcoreapplication.h>
+#endif
+
 #include <QtCore/qpoint.h>
 #include <QtCore/qsize.h>
 #include <QtCore/qrect.h>
 
+#include <initializer_list>
 #include <memory>
 
 QT_BEGIN_NAMESPACE
-
 
 namespace QTest
 {
@@ -218,7 +226,7 @@ template<> inline char *toString(const QVariant &v)
         vstring.append(type);
         if (!v.isNull()) {
             vstring.append(',');
-            if (v.canConvert(QMetaType::QString)) {
+            if (v.canConvert<QString>()) {
                 vstring.append(v.toString().toLocal8Bit());
             }
             else {
@@ -231,12 +239,140 @@ template<> inline char *toString(const QVariant &v)
     return qstrdup(vstring.constData());
 }
 
-template <typename T1, typename T2>
-inline char *toString(const QPair<T1, T2> &pair)
+namespace Internal {
+struct QCborValueFormatter
 {
-    const QScopedArrayPointer<char> first(toString(pair.first));
-    const QScopedArrayPointer<char> second(toString(pair.second));
-    return toString(QString::asprintf("QPair(%s,%s)", first.data(), second.data()));
+    enum { BufferLen = 256 };
+    static char *formatSimpleType(QCborSimpleType st)
+    {
+        char *buf = new char[BufferLen];
+        qsnprintf(buf, BufferLen, "QCborValue(QCborSimpleType(%d))", int(st));
+        return buf;
+    }
+
+    static char *formatTag(QCborTag tag, const QCborValue &taggedValue)
+    {
+        QScopedArrayPointer<char> hold(format(taggedValue));
+        char *buf = new char[BufferLen];
+        qsnprintf(buf, BufferLen, "QCborValue(QCborTag(%llu), %s)", tag, hold.get());
+        return buf;
+    }
+
+    static char *innerFormat(QCborValue::Type t, const char *str)
+    {
+        static const QMetaEnum typeEnum = []() {
+            int idx = QCborValue::staticMetaObject.indexOfEnumerator("Type");
+            return QCborValue::staticMetaObject.enumerator(idx);
+        }();
+
+        char *buf = new char[BufferLen];
+        const char *typeName = typeEnum.valueToKey(t);
+        if (typeName)
+            qsnprintf(buf, BufferLen, "QCborValue(%s, %s)", typeName, str);
+        else
+            qsnprintf(buf, BufferLen, "QCborValue(<unknown type 0x%02x>)", t);
+        return buf;
+    }
+
+    template<typename T> static char *format(QCborValue::Type type, const T &t)
+    {
+        QScopedArrayPointer<char> hold(QTest::toString(t));
+        return innerFormat(type, hold.get());
+    }
+
+    static char *format(const QCborValue &v)
+    {
+        switch (v.type()) {
+        case QCborValue::Integer:
+            return format(v.type(), v.toInteger());
+        case QCborValue::ByteArray:
+            return format(v.type(), v.toByteArray());
+        case QCborValue::String:
+            return format(v.type(), v.toString());
+        case QCborValue::Array:
+            return innerFormat(v.type(), QScopedArrayPointer<char>(format(v.toArray())).get());
+        case QCborValue::Map:
+            return innerFormat(v.type(), QScopedArrayPointer<char>(format(v.toMap())).get());
+        case QCborValue::Tag:
+            return formatTag(v.tag(), v.taggedValue());
+        case QCborValue::SimpleType:
+            break;
+        case QCborValue::True:
+            return qstrdup("QCborValue(true)");
+        case QCborValue::False:
+            return qstrdup("QCborValue(false)");
+        case QCborValue::Null:
+            return qstrdup("QCborValue(nullptr)");
+        case QCborValue::Undefined:
+            return qstrdup("QCborValue()");
+        case QCborValue::Double:
+            return format(v.type(), v.toDouble());
+        case QCborValue::DateTime:
+        case QCborValue::Url:
+        case QCborValue::RegularExpression:
+            return format(v.type(), v.taggedValue().toString());
+        case QCborValue::Uuid:
+            return format(v.type(), v.toUuid());
+        case QCborValue::Invalid:
+            return qstrdup("QCborValue(<invalid>)");
+        }
+
+        if (v.isSimpleType())
+            return formatSimpleType(v.toSimpleType());
+        return innerFormat(v.type(), "");
+    }
+
+    static char *format(const QCborArray &a)
+    {
+        QByteArray out(1, '[');
+        const char *comma = "";
+        for (const QCborValueRef v : a) {
+            QScopedArrayPointer<char> s(format(v));
+            out += comma;
+            out += s.get();
+            comma = ", ";
+        }
+        out += ']';
+        return qstrdup(out.constData());
+    }
+
+    static char *format(const QCborMap &m)
+    {
+        QByteArray out(1, '{');
+        const char *comma = "";
+        for (auto pair : m) {
+            QScopedArrayPointer<char> key(format(pair.first));
+            QScopedArrayPointer<char> value(format(pair.second));
+            out += comma;
+            out += key.get();
+            out += ": ";
+            out += value.get();
+            comma = ", ";
+        }
+        out += '}';
+        return qstrdup(out.constData());
+    }
+};
+}
+
+template<> inline char *toString(const QCborValue &v)
+{
+    return Internal::QCborValueFormatter::format(v);
+}
+
+template<> inline char *toString(const QCborValueRef &v)
+{
+    return toString(QCborValue(v));
+}
+
+template<> inline char *toString(const QCborArray &a)
+{
+    return Internal::QCborValueFormatter::format(a);
+}
+
+template<> inline char *toString(const QCborMap &m)
+{
+    return Internal::QCborValueFormatter::format(m);
 }
 
 template <typename T1, typename T2>
@@ -284,27 +420,34 @@ inline bool qCompare(QLatin1String const &t1, QString const &t2, const char *act
     return qCompare(QString(t1), t2, actual, expected, file, line);
 }
 
-template <typename T>
-inline bool qCompare(QList<T> const &t1, QList<T> const &t2, const char *actual, const char *expected,
-                    const char *file, int line)
+// Compare sequences of equal size
+template <typename ActualIterator, typename ExpectedIterator>
+bool _q_compareSequence(ActualIterator actualIt, ActualIterator actualEnd,
+                        ExpectedIterator expectedBegin, ExpectedIterator expectedEnd,
+                        const char *actual, const char *expected,
+                        const char *file, int line)
 {
     char msg[1024];
     msg[0] = '\0';
-    bool isOk = true;
-    const int actualSize = t1.count();
-    const int expectedSize = t2.count();
-    if (actualSize != expectedSize) {
-        qsnprintf(msg, sizeof(msg), "Compared lists have different sizes.\n"
-                  "   Actual   (%s) size: %d\n"
-                  "   Expected (%s) size: %d", actual, actualSize, expected, expectedSize);
-        isOk = false;
-    }
-    for (int i = 0; isOk && i < actualSize; ++i) {
-        if (!(t1.at(i) == t2.at(i))) {
-            char *val1 = toString(t1.at(i));
-            char *val2 = toString(t2.at(i));
 
-            qsnprintf(msg, sizeof(msg), "Compared lists differ at index %d.\n"
+    const qsizetype actualSize = actualEnd - actualIt;
+    const qsizetype expectedSize = expectedEnd - expectedBegin;
+    bool isOk = actualSize == expectedSize;
+
+    if (!isOk) {
+        qsnprintf(msg, sizeof(msg), "Compared lists have different sizes.\n"
+                  "   Actual   (%s) size: %zd\n"
+                  "   Expected (%s) size: %zd", actual, actualSize,
+                  expected, expectedSize);
+    }
+
+    for (auto expectedIt = expectedBegin; isOk && expectedIt < expectedEnd; ++actualIt, ++expectedIt) {
+        if (!(*actualIt == *expectedIt)) {
+            const qsizetype i = qsizetype(expectedIt - expectedBegin);
+            char *val1 = toString(*actualIt);
+            char *val2 = toString(*expectedIt);
+
+            qsnprintf(msg, sizeof(msg), "Compared lists differ at index %zd.\n"
                       "   Actual   (%s): %s\n"
                       "   Expected (%s): %s", i, actual, val1 ? val1 : "<null>",
                       expected, val2 ? val2 : "<null>");
@@ -317,11 +460,43 @@ inline bool qCompare(QList<T> const &t1, QList<T> const &t2, const char *actual,
     return compare_helper(isOk, msg, nullptr, nullptr, actual, expected, file, line);
 }
 
-template <>
-inline bool qCompare(QStringList const &t1, QStringList const &t2, const char *actual, const char *expected,
-                            const char *file, int line)
+namespace Internal {
+
+#if defined(TESTCASE_LOWDPI)
+void disableHighDpi()
 {
-    return qCompare<QString>(t1, t2, actual, expected, file, line);
+    qputenv("QT_ENABLE_HIGHDPI_SCALING", "0");
+}
+Q_CONSTRUCTOR_FUNCTION(disableHighDpi);
+#endif
+
+} // namespace Internal
+
+template <typename T>
+inline bool qCompare(QList<T> const &t1, QList<T> const &t2, const char *actual, const char *expected,
+                     const char *file, int line)
+{
+    return _q_compareSequence(t1.cbegin(), t1.cend(), t2.cbegin(), t2.cend(),
+                                     actual, expected, file, line);
+}
+
+template <typename T, int N>
+bool qCompare(QList<T> const &t1, std::initializer_list<T> t2,
+              const char *actual, const char *expected,
+              const char *file, int line)
+{
+    return _q_compareSequence(t1.cbegin(), t1.cend(), t2.cbegin(), t2.cend(),
+                                     actual, expected, file, line);
+}
+
+// Compare QList against array
+template <typename T, int N>
+bool qCompare(QList<T> const &t1, const T (& t2)[N],
+              const char *actual, const char *expected,
+              const char *file, int line)
+{
+    return _q_compareSequence(t1.cbegin(), t1.cend(), t2, t2 + N,
+                                     actual, expected, file, line);
 }
 
 template <typename T>
@@ -447,11 +622,6 @@ int main(int argc, char *argv[]) \
 }
 
 #include <QtTest/qtestsystem.h>
-
-// Two backwards-compatibility defines for an obsolete feature:
-#define QTEST_ADD_GPU_BLACKLIST_SUPPORT_DEFS
-#define QTEST_ADD_GPU_BLACKLIST_SUPPORT
-// ### Qt 6: fully remove these.
 
 #if defined(QT_NETWORK_LIB)
 #  include <QtTest/qtest_network.h>

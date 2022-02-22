@@ -5,7 +5,7 @@
 #include "ui/web_dialogs/web_dialog_ui.h"
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/lazy_instance.h"
 #include "base/memory/ptr_util.h"
 #include "base/values.h"
@@ -88,8 +88,10 @@ void WebDialogUIBase::HandleRenderFrameCreated(
     delegate->GetWebUIMessageHandlers(&handlers);
   }
 
-  if (0 != (web_ui_->GetBindings() & content::BINDINGS_POLICY_WEB_UI))
+  if (content::BINDINGS_POLICY_NONE !=
+      (web_ui_->GetBindings() & content::BINDINGS_POLICY_WEB_UI)) {
     render_frame_host->SetWebUIProperty("dialogArguments", dialog_args);
+  }
   for (WebUIMessageHandler* handler : handlers)
     web_ui_->AddMessageHandler(base::WrapUnique(handler));
 

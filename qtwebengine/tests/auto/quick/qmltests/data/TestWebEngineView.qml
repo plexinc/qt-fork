@@ -26,28 +26,38 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import QtTest 1.1
-import QtWebEngine 1.7
+import QtQuick
+import QtTest
+import QtWebEngine
 
 WebEngineView {
     property var loadStatus: null
     property bool windowCloseRequestedSignalEmitted: false
     settings.focusOnNavigationEnabled: true
 
-    function waitForLoadSucceeded(timeout) {
-        var success = _waitFor(function() { return loadStatus == WebEngineView.LoadSucceededStatus }, timeout)
+    function loadSucceeded() { return loadStatus == WebEngineView.LoadSucceededStatus }
+    function loadFailed() { return loadStatus == WebEngineView.LoadFailedStatus }
+    function loadStopped() { return loadStatus == WebEngineView.LoadStoppedStatus }
+
+    function waitForLoadResult(timeout) {
         loadStatus = null
+        var r = _waitFor(function() { return loadStatus != null && loadStatus != WebEngineView.LoadStartedStatus }, timeout)
+        return r
+    }
+
+    function waitForLoadSucceeded(timeout) {
+        loadStatus = null
+        var success = _waitFor(function() { return loadStatus == WebEngineView.LoadSucceededStatus }, timeout)
         return success
     }
     function waitForLoadFailed(timeout) {
-        var failure = _waitFor(function() { return loadStatus == WebEngineView.LoadFailedStatus }, timeout)
         loadStatus = null
+        var failure = _waitFor(function() { return loadStatus == WebEngineView.LoadFailedStatus }, timeout)
         return failure
     }
     function waitForLoadStopped(timeout) {
-        var stop = _waitFor(function() { return loadStatus == WebEngineView.LoadStoppedStatus }, timeout)
         loadStatus = null
+        var stop = _waitFor(function() { return loadStatus == WebEngineView.LoadStoppedStatus }, timeout)
         return stop
     }
     function waitForWindowCloseRequested() {
@@ -85,12 +95,14 @@ WebEngineView {
 
     function getElementCenter(element) {
             var center;
-            runJavaScript("(function() {" +
+            testCase.tryVerify(function() {
+                runJavaScript("(function() {" +
                           "   var elem = document.getElementById('" + element + "');" +
                           "   var rect = elem.getBoundingClientRect();" +
                           "   return { 'x': (rect.left + rect.right) / 2, 'y': (rect.top + rect.bottom) / 2 };" +
                           "})();", function(result) { center = result } );
-            testCase.tryVerify(function() { return center !== undefined; });
+                return center !== undefined;
+            });
             return center;
     }
 
@@ -102,10 +114,9 @@ WebEngineView {
     }
 
     TestResult { id: testResult }
-    TestCase { id: testCase }
 
-    onLoadingChanged: {
-        loadStatus = loadRequest.status
+    onLoadingChanged: function(load) {
+        loadStatus = load.status
     }
 
     onWindowCloseRequested: {
@@ -117,6 +128,39 @@ WebEngineView {
         runJavaScript('document.body.innerText', function(t) { text = t })
         testCase.tryVerify(function() { return text !== undefined })
         return text
+    }
+
+    function getItemPixel(item) {
+        var grabImage = Qt.createQmlObject("
+                import QtQuick\n
+                Image { }", testCase)
+        var itemCanvas = Qt.createQmlObject("
+                import QtQuick\n
+                Canvas { }", testCase)
+
+        // Mark QML images with objectName: "image" to be able to check if the image is loaded.
+        if (item.objectName === "image") {
+            testCase.tryVerify(function() { return item.status === Image.Ready });
+        }
+
+        item.grabToImage(function(result) {
+                grabImage.source = result.url
+            });
+        testCase.tryVerify(function() { return grabImage.status === Image.Ready });
+
+        itemCanvas.width = item.width;
+        itemCanvas.height = item.height;
+        var ctx = itemCanvas.getContext("2d");
+        ctx.drawImage(grabImage, 0, 0, grabImage.width, grabImage.height);
+        var imageData = ctx.getImageData(Math.round(itemCanvas.width/2),
+                                         Math.round(itemCanvas.height/2),
+                                         itemCanvas.width,
+                                         itemCanvas.height);
+
+        grabImage.destroy();
+        itemCanvas.destroy();
+
+        return imageData.data;
     }
 }
 

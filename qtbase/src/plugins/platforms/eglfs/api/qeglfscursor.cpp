@@ -50,7 +50,7 @@
 #include <QtCore/QJsonObject>
 
 #include <QtGui/private/qguiapplication_p.h>
-#include <QtGui/private/qopenglvertexarrayobject_p.h>
+#include <QtOpenGL/private/qopenglvertexarrayobject_p.h>
 
 #ifndef GL_VERTEX_ARRAY_BINDING
 #define GL_VERTEX_ARRAY_BINDING 0x85B5
@@ -323,7 +323,7 @@ void QEglFSCursor::pointerEvent(const QMouseEvent &event)
     if (event.type() != QEvent::MouseMove)
         return;
     const QRect oldCursorRect = cursorRect();
-    m_cursor.pos = event.screenPos().toPoint();
+    m_cursor.pos = event.globalPosition().toPoint();
     update(oldCursorRect | cursorRect(), false);
     for (QPlatformScreen *screen : m_screen->virtualSiblings())
         static_cast<QEglFSScreen *>(screen)->handleCursorMove(m_cursor.pos);
@@ -375,7 +375,7 @@ struct StateSaver
 {
     StateSaver() {
         f = QOpenGLContext::currentContext()->functions();
-        vaoHelper = new QOpenGLVertexArrayObjectHelper(QOpenGLContext::currentContext());
+        vaoHelper = QOpenGLVertexArrayObjectHelper::vertexArrayObjectHelperForContext(QOpenGLContext::currentContext());
 
         static bool windowsChecked = false;
         static bool shouldSave = true;
@@ -446,7 +446,6 @@ struct StateSaver
                 f->glVertexAttribPointer(i, va[i].size, va[i].type, va[i].normalized, va[i].stride, va[i].pointer);
             }
         }
-        delete vaoHelper;
     }
     QOpenGLFunctions *f;
     QOpenGLVertexArrayObjectHelper *vaoHelper;

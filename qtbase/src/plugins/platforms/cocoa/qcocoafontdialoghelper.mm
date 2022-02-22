@@ -37,6 +37,8 @@
 **
 ****************************************************************************/
 
+#include <AppKit/AppKit.h>
+
 #include <QtCore/qtimer.h>
 #include <QtGui/qfontdatabase.h>
 #include <qpa/qplatformtheme.h>
@@ -48,8 +50,6 @@
 #include "qcocoafontdialoghelper.h"
 #include "qcocoahelpers.h"
 #include "qcocoaeventdispatcher.h"
-
-#import <AppKit/AppKit.h>
 
 #if !CGFLOAT_DEFINED
 typedef float CGFloat;  // Should only not be defined on 32-bit platforms
@@ -66,7 +66,7 @@ static QFont qfontForCocoaFont(NSFont *cocoaFont, const QFont &resolveFont)
         QString family(QCFString((CFStringRef)CTFontDescriptorCopyAttribute(font, kCTFontFamilyNameAttribute)));
         QString style(QCFString(((CFStringRef)CTFontDescriptorCopyAttribute(font, kCTFontStyleNameAttribute))));
 
-        newFont = QFontDatabase().font(family, style, pSize);
+        newFont = QFontDatabase::font(family, style, pSize);
         newFont.setUnderline(resolveFont.underline());
         newFont.setStrikeOut(resolveFont.strikeOut());
     }
@@ -218,6 +218,11 @@ QT_NAMESPACE_ALIAS_OBJC_CLASS(QNSFontPanelDelegate);
 
     [NSApp runModalForWindow:mFontPanel];
     mDialogIsExecuting = false;
+
+    // Wake up the event dispatcher so it can check whether the
+    // current event loop should continue spinning or not.
+    QCoreApplication::eventDispatcher()->wakeUp();
+
     return (mResultCode == NSModalResponseOK);
 }
 
@@ -314,9 +319,9 @@ public:
     bool show(Qt::WindowModality windowModality, QWindow *parent)
     {
         Q_UNUSED(parent);
-        if (windowModality != Qt::WindowModal)
+        if (windowModality != Qt::ApplicationModal)
             [mDelegate showModelessPanel];
-        // no need to show a Qt::WindowModal dialog here, because it's necessary to call exec() in that case
+        // no need to show a Qt::ApplicationModal dialog here, because it will be shown in runApplicationModalPanel
         return true;
     }
 
@@ -380,8 +385,8 @@ void QCocoaFontDialogHelper::exec()
 
 bool QCocoaFontDialogHelper::show(Qt::WindowFlags, Qt::WindowModality windowModality, QWindow *parent)
 {
-    if (windowModality == Qt::WindowModal)
-        windowModality = Qt::ApplicationModal;
+    if (windowModality == Qt::ApplicationModal)
+        windowModality = Qt::WindowModal;
     sharedFontPanel()->init(this);
     return sharedFontPanel()->show(windowModality, parent);
 }

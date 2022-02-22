@@ -62,9 +62,9 @@ void Explorer::loadSensors()
     // Clear out anything that's in there now
     ui.sensors->clear();
 
-    foreach (const QByteArray &type, QSensor::sensorTypes()) {
+    for (const QByteArray &type : QSensor::sensorTypes()) {
         qDebug() << "Found type" << type;
-        foreach (const QByteArray &identifier, QSensor::sensorsForType(type)) {
+        for (const QByteArray &identifier : QSensor::sensorsForType(type)) {
             qDebug() << "Found identifier" << identifier;
             // Don't put in sensors we can't connect to
             QSensor sensor(type);
@@ -158,6 +158,8 @@ void Explorer::loadReading()
 {
     // Probe the reading using Qt's meta-object facilities
     QSensorReading *reading = m_sensor->reading();
+    if (!reading)
+        return;
     const QMetaObject *mo = reading->metaObject();
     int firstProperty = QSensorReading::staticMetaObject.propertyOffset();
 
@@ -173,9 +175,9 @@ void Explorer::loadReading()
             index = new QTableWidgetItem(QVariant(row - 1).toString());
         QTableWidgetItem *prop = new QTableWidgetItem(mo->property(i).name());
         QString typeName = QLatin1String(mo->property(i).typeName());
-        int crap = typeName.lastIndexOf("::");
-        if (crap != -1)
-            typeName = typeName.mid(crap + 2);
+        int delimiter = typeName.lastIndexOf("::");
+        if (delimiter != -1)
+            typeName = typeName.mid(delimiter + 2);
         QTableWidgetItem *type = new QTableWidgetItem(typeName);
         QTableWidgetItem *value = new QTableWidgetItem();
 
@@ -222,16 +224,16 @@ void Explorer::loadSensorProperties()
         }
         QTableWidgetItem *prop = new QTableWidgetItem(name);
         QString typeName = QLatin1String(mo->property(i).typeName());
-        int crap = typeName.lastIndexOf("::");
-        if (crap != -1)
-            typeName = typeName.mid(crap + 2);
+        int delimiter = typeName.lastIndexOf("::");
+        if (delimiter != -1)
+            typeName = typeName.mid(delimiter + 2);
         QTableWidgetItem *type = new QTableWidgetItem(typeName);
         QVariant v = mo->property(i).read(m_sensor);
         QString val;
         if (typeName == "qrangelist") {
             qrangelist rl = v.value<qrangelist>();
             QStringList out;
-            foreach (const qrange &r, rl) {
+            for (const qrange &r : rl) {
                 if (r.first == r.second)
                     out << QString("%1 Hz").arg(r.first);
                 else
@@ -241,9 +243,8 @@ void Explorer::loadSensorProperties()
         } else if (typeName == "qoutputrangelist") {
             qoutputrangelist rl = v.value<qoutputrangelist>();
             QStringList out;
-            foreach (const qoutputrange &r, rl) {
+            for (const qoutputrange &r : rl)
                 out << QString("(%1, %2) += %3").arg(r.minimum).arg(r.maximum).arg(r.accuracy);
-            }
             val = out.join(", ");
         } else {
             val = v.toString();
@@ -371,9 +372,9 @@ bool Explorer::filter(QSensorReading *reading)
     for (int i = firstProperty; i < mo->propertyCount(); ++i) {
         int row = i - firstProperty;
         QString typeName = QLatin1String(mo->property(i).typeName());
-        int crap = typeName.lastIndexOf("::");
-        if (crap != -1)
-            typeName = typeName.mid(crap + 2);
+        int delimiter = typeName.lastIndexOf("::");
+        if (delimiter != -1)
+            typeName = typeName.mid(delimiter + 2);
         QLatin1String name(mo->property(i).name());
         QTableWidgetItem *value = ui.reading->item(row, 3);
         QVariant val = mo->property(i).read(reading);

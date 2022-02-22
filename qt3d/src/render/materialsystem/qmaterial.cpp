@@ -65,8 +65,9 @@
     techniques, passes and shaders once while allowing to specify the material
     by adding Parameter instances.
 
-    A Parameter defined on a Material is overridden by a Parameter (of the same
-    name) defined in a TechniqueFilter or a RenderPassFilter.
+    A Parameter defined on a Material overrides parameter (of the same
+    name) defined in a Effect, Technique and RenderPass, but are overridden by parameters in
+    RenderPassFilter and TechniqueFilter.
 
     \code
     Effect {
@@ -133,8 +134,9 @@
     techniques, passes and shaders once while allowing to specify the material
     by adding QParameter instances.
 
-    A QParameter defined on a QMaterial is overridden by a QParameter (of the same
-    name) defined in a QTechniqueFilter or a QRenderPassFilter.
+    A QParameter defined on a QMaterial overrides parameter (of the same
+    name) defined in a QEffect, QTechnique and QRenderPass, but are overridden by parameter in
+    QRenderPassFilter and QTechniqueFilter.
 
     \code
     QMaterial *material1 = new QMaterial();
@@ -272,7 +274,7 @@ void QMaterial::addParameter(QParameter *parameter)
         if (!parameter->parent())
             parameter->setParent(this);
 
-        d->updateNode(parameter, "parameter", Qt3DCore::PropertyValueAdded);
+        d->update();
     }
 }
 
@@ -285,27 +287,16 @@ void QMaterial::removeParameter(QParameter *parameter)
     Q_D(QMaterial);
     if (!d->m_parameters.removeOne(parameter))
         return;
-    d->unregisterDestructionHelper(parameter);
-    d->updateNode(parameter, "parameter", Qt3DCore::PropertyValueRemoved);
+    d->update();
 }
 
 /*!
  * Returns a vector of the material's current parameters
  */
-QVector<QParameter *> QMaterial::parameters() const
+QList<QParameter *> QMaterial::parameters() const
 {
     Q_D(const QMaterial);
     return d->m_parameters;
-}
-
-Qt3DCore::QNodeCreatedChangeBasePtr QMaterial::createNodeCreationChange() const
-{
-    auto creationChange = Qt3DCore::QNodeCreatedChangePtr<QMaterialData>::create(this);
-    auto &data = creationChange->data;
-    Q_D(const QMaterial);
-    data.parameterIds = qIdsForNodes(d->m_parameters);
-    data.effectId = qIdForNode(d->m_effect);
-    return creationChange;
 }
 
 } // namespace Qt3DRender

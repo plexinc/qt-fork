@@ -6,9 +6,6 @@
 
   // DevToolsAPI ----------------------------------------------------------------
 
-  /**
-   * @unrestricted
-   */
   const DevToolsAPIImpl = class {
     constructor() {
       /**
@@ -356,8 +353,36 @@
   // InspectorFrontendHostImpl --------------------------------------------------
 
   /**
+   * Enum for recordPerformanceHistogram
+   * Warning: There is another definition of this enum in the DevTools code
+   * base, keep them in sync:
+   * front_end/host/InspectorFrontendHostAPI.js
+   * @readonly
+   * @enum {string}
+   */
+  const EnumeratedHistogram = {
+    ActionTaken: 'DevTools.ActionTaken',
+    ColorPickerFixedColor: 'DevTools.ColorPicker.FixedColor',
+    PanelClosed: 'DevTools.PanelClosed',
+    PanelShown: 'DevTools.PanelShown',
+    SidebarPaneShown: 'DevTools.SidebarPaneShown',
+    KeyboardShortcutFired: 'DevTools.KeyboardShortcutFired',
+    IssueCreated: 'DevTools.IssueCreated',
+    IssuesPanelIssueExpanded: 'DevTools.IssuesPanelIssueExpanded',
+    IssuesPanelOpenedFrom: 'DevTools.IssuesPanelOpenedFrom',
+    IssuesPanelResourceOpened: 'DevTools.IssuesPanelResourceOpened',
+    KeybindSetSettingChanged: 'DevTools.KeybindSetSettingChanged',
+    DualScreenDeviceEmulated: 'DevTools.DualScreenDeviceEmulated',
+    ExperimentEnabledAtLaunch: 'DevTools.ExperimentEnabledAtLaunch',
+    ExperimentEnabled: 'DevTools.ExperimentEnabled',
+    ExperimentDisabled: 'DevTools.ExperimentDisabled',
+    CssEditorOpened: 'DevTools.CssEditorOpened',
+    DeveloperResourceLoaded: 'DevTools.DeveloperResourceLoaded',
+    DeveloperResourceScheme: 'DevTools.DeveloperResourceScheme',
+  };
+
+  /**
    * @implements {InspectorFrontendHostAPI}
-   * @unrestricted
    */
   const InspectorFrontendHostImpl = class {
     /**
@@ -434,6 +459,24 @@
     }
 
     /**
+     * @override
+     * @param {string} trigger
+     * @param {function(!InspectorFrontendHostAPI.ShowSurveyResult): void} callback
+     */
+    showSurvey(trigger, callback) {
+      DevToolsAPI.sendMessageToEmbedder('showSurvey', [trigger], /** @type {function(?Object)} */ (callback));
+    }
+
+    /**
+     * @override
+     * @param {string} trigger
+     * @param {function(!InspectorFrontendHostAPI.CanShowSurveyResult): void} callback
+     */
+    canShowSurvey(trigger, callback) {
+      DevToolsAPI.sendMessageToEmbedder('canShowSurvey', [trigger], /** @type {function(?Object)} */ (callback));
+    }
+
+    /**
      * Requests inspected page to be placed atop of the inspector frontend with specified bounds.
      * @override
      * @param {{x: number, y: number, width: number, height: number}} bounds
@@ -454,7 +497,7 @@
      * @param {string} url
      * @param {string} headers
      * @param {number} streamId
-     * @param {function(!InspectorFrontendHostAPI.LoadNetworkResourceResult)} callback
+     * @param {function(!InspectorFrontendHostAPI.LoadNetworkResourceResult): void} callback
      */
     loadNetworkResource(url, headers, streamId, callback) {
       DevToolsAPI.sendMessageToEmbedder(
@@ -570,13 +613,12 @@
 
     /**
      * @override
-     * @param {string} actionName
+     * @param {!InspectorFrontendHostAPI.EnumeratedHistogram} actionName
      * @param {number} actionCode
      * @param {number} bucketSize
      */
     recordEnumeratedHistogram(actionName, actionCode, bucketSize) {
-      // Support for M49 frontend.
-      if (actionName === 'DevTools.DrawerShown') {
+      if (!Object.values(EnumeratedHistogram).includes(actionName)) {
         return;
       }
       DevToolsAPI.sendMessageToEmbedder('recordEnumeratedHistogram', [actionName, actionCode, bucketSize], null);
@@ -888,7 +930,7 @@
      * @param {number} actionCode
      */
     recordActionTaken(actionCode) {
-      this.recordEnumeratedHistogram('DevTools.ActionTaken', actionCode, 100);
+      // Do not record actions, as that may crash the DevTools renderer.
     }
 
     /**
@@ -896,7 +938,7 @@
      * @param {number} panelCode
      */
     recordPanelShown(panelCode) {
-      this.recordEnumeratedHistogram('DevTools.PanelShown', panelCode, 20);
+      // Do not record actions, as that may crash the DevTools renderer.
     }
   };
 
@@ -928,7 +970,6 @@
       'dataGrid-cookiesTable',
       'dataGrid-DOMStorageItemsView',
       'debuggerSidebarHidden',
-      'disableDataSaverInfobar',
       'disablePausedStateOverlay',
       'domBreakpoints',
       'domWordWrap',
@@ -960,7 +1001,6 @@
       'hideCollectedPromises',
       'hideNetworkMessages',
       'highlightNodeOnHoverInOverlay',
-      'highResolutionCpuProfiling',
       'inlineVariableValues',
       'Inspector.drawerSplitView',
       'Inspector.drawerSplitViewState',
@@ -1106,7 +1146,7 @@
           return;
         }
         scheduled = true;
-        setImmediate(callObserver);
+        queueMicrotask(callObserver);
       }
 
       function callObserver() {
@@ -1278,7 +1318,7 @@
       };
 
       Object.defineProperty(HTMLSlotElement.prototype, 'select', {
-        async set(selector) {
+        set(selector) {
           this.name = selector;
         }
       });
@@ -1351,7 +1391,7 @@
         if (arguments.length === 1) {
           force = !this.contains(token);
         }
-        return originalDOMTokenListToggle.call(this, token, !!force);
+        return originalDOMTokenListToggle.call(this, token, Boolean(force));
       };
     }
 

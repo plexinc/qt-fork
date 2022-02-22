@@ -12,8 +12,8 @@ namespace features {
 
 // Weblayer features in alphabetical order.
 
+extern const base::Feature kWebLayerClientSidePhishingDetection;
 extern const base::Feature kWebLayerSafeBrowsing;
-extern const base::Feature kEnableAutoReload;
 
 }  // namespace features
 }  // namespace weblayer

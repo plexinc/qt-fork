@@ -10,6 +10,7 @@
 #include "content/public/browser/media_device_id.h"
 #include "content/public/browser/resource_context.h"
 #include "extensions/browser/api/serial/serial_port_manager.h"
+#include "extensions/browser/api/webcam_private/ip_webcam.h"
 #include "extensions/browser/api/webcam_private/v4l2_webcam.h"
 #include "extensions/browser/api/webcam_private/visca_webcam.h"
 #include "extensions/browser/process_manager.h"
@@ -60,15 +61,22 @@ Webcam* WebcamPrivateAPI::GetWebcam(const std::string& extension_id,
 
   std::string device_id;
   GetDeviceId(extension_id, webcam_id, &device_id);
-  V4L2Webcam* v4l2_webcam(new V4L2Webcam(device_id));
-  if (!v4l2_webcam->Open()) {
-    return nullptr;
+  Webcam* webcam = nullptr;
+
+  if (device_id.compare(0, 8, "192.168.") == 0) {
+    webcam = new IpWebcam(device_id);
+  } else {
+    V4L2Webcam* v4l2_webcam = new V4L2Webcam(device_id);
+    if (!v4l2_webcam->Open()) {
+      return nullptr;
+    }
+    webcam = v4l2_webcam;
   }
 
   webcam_resource_manager_->Add(
-      new WebcamResource(extension_id, v4l2_webcam, webcam_id));
+      new WebcamResource(extension_id, webcam, webcam_id));
 
-  return v4l2_webcam;
+  return webcam;
 }
 
 bool WebcamPrivateAPI::OpenSerialWebcam(
@@ -84,10 +92,9 @@ bool WebcamPrivateAPI::OpenSerialWebcam(
   mojo::PendingRemote<device::mojom::SerialPort> port;
   auto* port_manager = api::SerialPortManager::Get(browser_context_);
   DCHECK(port_manager);
-  port_manager->GetPort(device_path, port.InitWithNewPipeAndPassReceiver());
 
   auto visca_webcam = base::MakeRefCounted<ViscaWebcam>();
-  visca_webcam->Open(extension_id, std::move(port),
+  visca_webcam->Open(extension_id, port_manager, device_path,
                      base::Bind(&WebcamPrivateAPI::OnOpenSerialWebcam,
                                 weak_ptr_factory_.GetWeakPtr(), extension_id,
                                 device_path, visca_webcam, callback));
@@ -209,7 +216,7 @@ void WebcamPrivateOpenSerialWebcamFunction::OnOpenWebcam(
     const std::string& webcam_id,
     bool success) {
   if (success) {
-    Respond(OneArgument(std::make_unique<base::Value>(webcam_id)));
+    Respond(OneArgument(base::Value(webcam_id)));
   } else {
     Respond(Error(kOpenSerialWebcamError));
   }
@@ -481,7 +488,7 @@ void WebcamPrivateGetFunction::OnGetWebcamParameters(InquiryType type,
     result.tilt = tilt_;
     result.zoom = zoom_;
     result.focus = focus_;
-    Respond(OneArgument(result.ToValue()));
+    Respond(OneArgument(base::Value::FromUniquePtrValue(result.ToValue())));
   }
 }
 

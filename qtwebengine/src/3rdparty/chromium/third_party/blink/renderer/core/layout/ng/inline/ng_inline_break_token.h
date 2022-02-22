@@ -18,7 +18,8 @@ class CORE_EXPORT NGInlineBreakToken final : public NGBreakToken {
   enum NGInlineBreakTokenFlags {
     kDefault = 0,
     kIsForcedBreak = 1 << 0,
-    kUseFirstLineStyle = 1 << 1
+    kUseFirstLineStyle = 1 << 1,
+    kHasClonedBoxDecorations = 1 << 2,
     // When adding values, ensure |flags_| has enough storage.
   };
 
@@ -35,41 +36,35 @@ class CORE_EXPORT NGInlineBreakToken final : public NGBreakToken {
         PassKey(), node, style, item_index, text_offset, flags));
   }
 
-  // Creates a break token for a node which cannot produce any more fragments.
-  static scoped_refptr<NGInlineBreakToken> Create(NGLayoutInputNode node) {
-    return base::AdoptRef(new NGInlineBreakToken(PassKey(), node));
-  }
-
   ~NGInlineBreakToken() override;
 
   // The style at the end of this break token. The next line should start with
   // this style.
-  const ComputedStyle* Style() const {
-    DCHECK(!IsFinished());
-    return style_.get();
-  }
+  const ComputedStyle* Style() const { return style_.get(); }
 
   unsigned ItemIndex() const {
-    DCHECK(!IsFinished());
     return item_index_;
   }
 
   unsigned TextOffset() const {
-    DCHECK(!IsFinished());
     return text_offset_;
   }
 
   bool UseFirstLineStyle() const {
-    DCHECK(!IsFinished());
     return flags_ & kUseFirstLineStyle;
   }
 
   bool IsForcedBreak() const {
-    DCHECK(!IsFinished());
     return flags_ & kIsForcedBreak;
   }
 
-  using PassKey = util::PassKey<NGInlineBreakToken>;
+  // True if the current position has open tags that has `box-decoration-break:
+  // clone`. They should be cloned to the start of the next line.
+  bool HasClonedBoxDecorations() const {
+    return flags_ & kHasClonedBoxDecorations;
+  }
+
+  using PassKey = base::PassKey<NGInlineBreakToken>;
   NGInlineBreakToken(PassKey,
                      NGInlineNode node,
                      const ComputedStyle*,

@@ -14,6 +14,7 @@
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/hash_set.h"
+#include "third_party/perfetto/include/perfetto/tracing/traced_value_forward.h"
 
 namespace base {
 namespace sequence_manager {
@@ -55,10 +56,9 @@ class PLATFORM_EXPORT BudgetPool {
   virtual bool CanRunTasksAt(base::TimeTicks moment, bool is_wake_up) const = 0;
 
   // Returns a point in time until which tasks are allowed to run.
-  // base::nullopt means that there are no known limits.
-  virtual base::Optional<base::TimeTicks> GetTimeTasksCanRunUntil(
-      base::TimeTicks now,
-      bool is_wake_up) const = 0;
+  // base::TimeTicks::Max() means that there are no known limits.
+  virtual base::TimeTicks GetTimeTasksCanRunUntil(base::TimeTicks now,
+                                                  bool is_wake_up) const = 0;
 
   // Notifies budget pool that queue has work with desired run time.
   virtual void OnQueueNextWakeUpChanged(
@@ -66,15 +66,18 @@ class PLATFORM_EXPORT BudgetPool {
       base::TimeTicks now,
       base::TimeTicks desired_run_time) = 0;
 
-  // Notifies budget pool that wakeup has happened.
+  // Invoked as part of a global wake up if any of the task queues associated
+  // with the budget pool has reached its next allowed run time. The next
+  // allowed run time of a queue is the maximum value returned from
+  // GetNextAllowedRunTime() among all the budget pools it is part of.
   virtual void OnWakeUp(base::TimeTicks now) = 0;
 
   // Specify how this budget pool should block affected queues.
   virtual QueueBlockType GetBlockType() const = 0;
 
-  // Returns state for tracing.
-  virtual void AsValueInto(base::trace_event::TracedValue* state,
-                           base::TimeTicks now) const = 0;
+  // Records state for tracing.
+  virtual void WriteIntoTracedValue(perfetto::TracedValue context,
+                                    base::TimeTicks now) const = 0;
 
   // Adds |queue| to given pool. If the pool restriction does not allow
   // a task to be run immediately and |queue| is throttled, |queue| becomes
@@ -104,8 +107,10 @@ class PLATFORM_EXPORT BudgetPool {
   // All queues should be removed before calling Close().
   void Close();
 
-  // Block all associated queues and schedule them to run when appropriate.
-  void BlockThrottledQueues(base::TimeTicks now);
+  // Ensures that a pump is scheduled and that a fence is installed for all
+  // queues in this pool, based on state of those queues and latest values from
+  // CanRunTasksAt/GetTimeTasksCanRunUntil/GetNextAllowedRunTime.
+  void UpdateThrottlingStateForAllQueues(base::TimeTicks now);
 
  protected:
   BudgetPool(const char* name, BudgetPoolController* budget_pool_controller);

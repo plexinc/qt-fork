@@ -33,7 +33,7 @@
 #include <QtCharts/QAbstractSeries>
 #include <QtCore/QStringList>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class QBarSet;
 class QAbstractBarSeriesPrivate;
@@ -68,7 +68,7 @@ public:
     bool append(QBarSet *set);
     bool remove(QBarSet *set);
     bool take(QBarSet *set);
-    bool append(QList<QBarSet *> sets);
+    bool append(const QList<QBarSet *> &sets);
     bool insert(int index, QBarSet *set);
     int count() const;
     QList<QBarSet *> barSets() const;
@@ -105,8 +105,8 @@ Q_SIGNALS:
     void labelsAngleChanged(qreal angle);
     void labelsPrecisionChanged(int precision);
 
-    void barsetsAdded(QList<QBarSet *> sets);
-    void barsetsRemoved(QList<QBarSet *> sets);
+    void barsetsAdded(const QList<QBarSet *> &sets);
+    void barsetsRemoved(const QList<QBarSet *> &sets);
 
 protected:
     Q_DECLARE_PRIVATE(QAbstractBarSeries)
@@ -121,6 +121,6 @@ protected:
     friend class BarSet;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // QABSTRACTBARSERIES_H

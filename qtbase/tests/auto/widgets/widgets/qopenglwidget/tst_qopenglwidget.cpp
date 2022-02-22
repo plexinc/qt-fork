@@ -26,19 +26,18 @@
 **
 ****************************************************************************/
 
-#include <QtWidgets/QOpenGLWidget>
+#include <QtOpenGLWidgets/QOpenGLWidget>
 #include <QtGui/QOpenGLFunctions>
 #include <QtGui/QPainter>
 #include <QtGui/QScreen>
 #include <QtGui/QStaticText>
-#include <QtWidgets/QDesktopWidget>
 #include <QtWidgets/QGraphicsView>
 #include <QtWidgets/QGraphicsScene>
 #include <QtWidgets/QGraphicsRectItem>
 #include <QtWidgets/QVBoxLayout>
 #include <QtWidgets/QPushButton>
 #include <QtWidgets/QStackedWidget>
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QSignalSpy>
 #include <private/qguiapplication_p.h>
 #include <private/qstatictext_p.h>
@@ -48,9 +47,6 @@
 class tst_QOpenGLWidget : public QObject
 {
     Q_OBJECT
-
-public:
-    static void initMain() { QCoreApplication::setAttribute(Qt::AA_DisableHighDpiScaling); }
 
 private slots:
     void initTestCase();
@@ -365,6 +361,16 @@ void tst_QOpenGLWidget::asViewport()
     widget.show();
     QVERIFY(QTest::qWaitForWindowExposed(&widget));
 
+    if (QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::WindowActivation)) {
+        // On some platforms (macOS), the palette will be different depending on if a
+        // window is active or not. And because of that, the whole window will be
+        // repainted when going from Inactive to Active. So wait for the window to be
+        // active before we continue, so the activation doesn't happen at a random
+        // time below. And call processEvents to have the paint events delivered right away.
+        QVERIFY(QTest::qWaitForWindowActive(&widget));
+        qApp->processEvents();
+    }
+
     QVERIFY(view->paintCount() > 0);
     view->resetPaintCount();
 
@@ -498,23 +504,19 @@ static inline QString msgRgbMismatch(unsigned actual, unsigned expected)
 
 static QPixmap grabWidgetWithoutRepaint(const QWidget *widget, QRect clipArea)
 {
-    const QWidget *targetWidget = widget;
+    const QWindow *window = widget->window()->windowHandle();
+    Q_ASSERT(window);
+    WId windowId = window->winId();
+
 #ifdef Q_OS_WIN
     // OpenGL content is not properly grabbed on Windows when passing a top level widget window,
     // because GDI functions can't grab OpenGL layer content.
     // Instead the whole screen should be captured, with an adjusted clip area, which contains
     // the final composited content.
-    QDesktopWidget *desktopWidget = QApplication::desktop();
-    const QWidget *mainScreenWidget = desktopWidget->screen();
-    targetWidget = mainScreenWidget;
+    windowId = 0;
     clipArea = QRect(widget->mapToGlobal(clipArea.topLeft()),
                      widget->mapToGlobal(clipArea.bottomRight()));
 #endif
-
-    const QWindow *window = targetWidget->window()->windowHandle();
-    Q_ASSERT(window);
-    WId windowId = window->winId();
-
     QScreen *screen = window->screen();
     Q_ASSERT(screen);
 
@@ -585,7 +587,8 @@ void tst_QOpenGLWidget::stackWidgetOpaqueChildIsVisible()
 #endif
     if (QGuiApplication::platformName().startsWith(QLatin1String("wayland"), Qt::CaseInsensitive))
         QSKIP("Wayland: This fails. Figure out why.");
-
+    if (QGuiApplication::platformName().startsWith(QLatin1String("offscreen"), Qt::CaseInsensitive))
+        QSKIP("Offscreen: This fails.");
 
     QStackedWidget stack;
 
@@ -699,7 +702,7 @@ public:
     {
     }
 
-    void paintEvent(QPaintEvent *)
+    void paintEvent(QPaintEvent *) override
     {
         QPainter p(this);
         text.setText(QStringLiteral("test"));

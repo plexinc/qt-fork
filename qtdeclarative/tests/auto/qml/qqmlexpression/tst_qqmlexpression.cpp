@@ -32,13 +32,13 @@
 #include <QtQml/qqmlcomponent.h>
 #include <QtQml/qqmlexpression.h>
 #include <QtQml/qqmlscriptstring.h>
-#include "../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 
 class tst_qqmlexpression : public QQmlDataTest
 {
     Q_OBJECT
 public:
-    tst_qqmlexpression() {}
+    tst_qqmlexpression() : QQmlDataTest(QT_QMLTEST_DATADIR) {}
 
 private slots:
     void scriptString();
@@ -142,7 +142,7 @@ void tst_qqmlexpression::expressionFromDataComponent()
 
     QQmlExpression expression(object->scriptString());
     QVariant result = expression.evaluate();
-    QCOMPARE(result.type(), QVariant::String);
+    QCOMPARE(result.typeId(), QMetaType::QString);
     QCOMPARE(result.toString(), QStringLiteral("success"));
 }
 

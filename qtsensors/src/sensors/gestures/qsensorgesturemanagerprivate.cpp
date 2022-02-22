@@ -46,10 +46,6 @@
 #include "qsensorgesturemanagerprivate_p.h"
 #include "qsensorgestureplugininterface.h"
 
-#ifdef SIMULATOR_BUILD
-#include "simulatorgesturescommon_p.h"
-#endif
-
 Q_GLOBAL_STATIC(QSensorGestureManagerPrivate, sensorGestureManagerPrivate)
 
 QT_BEGIN_NAMESPACE
@@ -57,18 +53,6 @@ QT_BEGIN_NAMESPACE
 QSensorGestureManagerPrivate::QSensorGestureManagerPrivate(QObject *parent) :
     QObject(parent)
 {
-#ifdef SIMULATOR_BUILD
-    SensorGesturesConnection *connection =  new SensorGesturesConnection(this);
-    connect(connection,SIGNAL(sensorGestureDetected()),
-            this,SLOT(sensorGestureDetected()));
-
-    connect(this,SIGNAL(newSensorGestures(QStringList)),
-            connection,SLOT(newSensorGestures(QStringList)));
-
-    connect(this,SIGNAL(removeSensorGestures(QStringList)),
-            connection,SLOT(removeSensorGestures(QStringList)));
-#endif
-
     loader = new QFactoryLoader("org.qt-project.QSensorGesturePluginInterface", QLatin1String("/sensorgestures"));
     loadPlugins();
 }
@@ -84,16 +68,11 @@ QSensorGestureManagerPrivate::~QSensorGestureManagerPrivate()
 {
     if (QSensorGesturePluginInterface *pInterface
             = qobject_cast<QSensorGesturePluginInterface *>(plugin)) {
-
-        Q_FOREACH (const QString &id, pInterface->supportedIds()) {
-
+        for (const QString& id : pInterface->supportedIds()) {
             if (!knownIds.contains(id))
                 knownIds.append(id);
             else
-                qWarning() << id <<"from the plugin"
-                           << pInterface->name()
-                           << "is already known.";
-
+                qWarning() << id <<"from the plugin" << pInterface->name() << "is already known.";
         }
         plugins << plugin;
     } else {
@@ -108,9 +87,9 @@ QSensorGestureManagerPrivate::~QSensorGestureManagerPrivate()
   */
 void QSensorGestureManagerPrivate::loadPlugins()
 {
-    Q_FOREACH (QObject *plugin, QPluginLoader::staticInstances()) {
+    for (QObject *plugin : QPluginLoader::staticInstances())
         initPlugin(plugin);
-    }
+
     QList<QJsonObject> meta = loader->metaData();
     for (int i = 0; i < meta.count(); i++) {
         QObject *plugin = loader->instance(i);
@@ -142,8 +121,7 @@ bool QSensorGestureManagerPrivate::loadRecognizer(const QString &recognizerId)
                     //create these recognizers
                     QList <QSensorGestureRecognizer *> recognizers = pInterface->createRecognizers();
 
-                    Q_FOREACH (QSensorGestureRecognizer *recognizer, recognizers) {
-
+                    for (QSensorGestureRecognizer *recognizer : recognizers) {
                         if (registeredSensorGestures.contains(recognizer->id())) {
                            qWarning() << "Ignoring recognizer " << recognizer->id() << "from plugin" << pInterface->name() << "because it is already registered";
                             delete recognizer;
@@ -188,49 +166,6 @@ QStringList QSensorGestureManagerPrivate::gestureIds()
 {
     return knownIds;
 }
-
-#ifdef SIMULATOR_BUILD
-void QSensorGestureManagerPrivate::sensorGestureDetected()
-{
-    QString str = get_qtSensorGestureData();
-
-    Q_FOREACH (const QString &id, gestureIds()) {
-        QSensorGestureRecognizer *recognizer = sensorGestureRecognizer(id);
-        if (recognizer != 0) {
-            Q_FOREACH (const QString &sig,  recognizer->gestureSignals()) {
-                if (!sig.contains(QLatin1String("detected"))) { //weed out detected signals
-                    QString tmp;
-                        tmp = sig.left(sig.length() - 2);
-                    if (str == tmp) {
-                        // named signal for c++
-                        QMetaObject::invokeMethod(recognizer, str.toLocal8Bit(), Qt::DirectConnection);
-                        // detected signal for qml and c++
-                        QMetaObject::invokeMethod(recognizer, "detected", Qt::DirectConnection,
-                                                  Q_ARG(QString, str));
-                        break;
-
-                    }
-                }
-            }
-        }
-    }
-}
-
-void QSensorGestureManagerPrivate::recognizerStarted(const QSensorGestureRecognizer *recognizer)
-{
-    QStringList list = recognizer->gestureSignals();
-    list.removeOne(QLatin1String("detected(QString)"));
-    Q_EMIT newSensorGestures(list);
-}
-
-void QSensorGestureManagerPrivate::recognizerStopped(const QSensorGestureRecognizer *recognizer)
-{
-    QStringList list = recognizer->gestureSignals();
-    list.removeOne(QLatin1String("detected(QString)"));
-    Q_EMIT removeSensorGestures(list);
-}
-
-#endif
 
 QSensorGestureManagerPrivate * QSensorGestureManagerPrivate::instance()
 {

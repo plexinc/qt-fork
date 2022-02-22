@@ -1,24 +1,9 @@
 {
-  "extensions": [
-    {
-      "type": "@UI.ToolbarItem.Provider",
-      "className": "ConsoleCounters.WarningErrorCounter",
-      "order": 1,
-      "location": "main-toolbar-right"
-    }
-  ],
   "dependencies": [
-    "common",
-    "ui",
-    "sdk"
+    "browser_sdk",
+    "ui"
   ],
-  "scripts": [],
   "modules": [
-    "console_counters.js",
-    "console_counters-legacy.js",
-    "WarningErrorCounter.js"
-  ],
-  "resources": [
-    "errorWarningCounter.css"
+    "console_counters-legacy.js"
   ]
 }

@@ -5,11 +5,12 @@
 #ifndef QUICHE_QUIC_TEST_TOOLS_SIMPLE_DATA_PRODUCER_H_
 #define QUICHE_QUIC_TEST_TOOLS_SIMPLE_DATA_PRODUCER_H_
 
-#include "net/third_party/quiche/src/quic/core/quic_simple_buffer_allocator.h"
-#include "net/third_party/quiche/src/quic/core/quic_stream_frame_data_producer.h"
-#include "net/third_party/quiche/src/quic/core/quic_stream_send_buffer.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_containers.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/container/flat_hash_map.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/quic_simple_buffer_allocator.h"
+#include "quic/core/quic_stream_frame_data_producer.h"
+#include "quic/core/quic_stream_send_buffer.h"
+#include "quic/platform/api/quic_containers.h"
 
 namespace quic {
 
@@ -36,7 +37,7 @@ class SimpleDataProducer : public QuicStreamFrameDataProducer {
 
   void SaveCryptoData(EncryptionLevel level,
                       QuicStreamOffset offset,
-                      quiche::QuicheStringPiece data);
+                      absl::string_view data);
 
   // QuicStreamFrameDataProducer
   WriteStreamDataResult WriteStreamData(QuicStreamId id,
@@ -59,12 +60,12 @@ class SimpleDataProducer : public QuicStreamFrameDataProducer {
 
  private:
   using SendBufferMap =
-      QuicUnorderedMap<QuicStreamId, std::unique_ptr<QuicStreamSendBuffer>>;
+      absl::flat_hash_map<QuicStreamId, std::unique_ptr<QuicStreamSendBuffer>>;
 
   using CryptoBufferMap =
-      QuicUnorderedMap<std::pair<EncryptionLevel, QuicStreamOffset>,
-                       quiche::QuicheStringPiece,
-                       PairHash>;
+      absl::flat_hash_map<std::pair<EncryptionLevel, QuicStreamOffset>,
+                          absl::string_view,
+                          PairHash>;
 
   SimpleBufferAllocator allocator_;
 

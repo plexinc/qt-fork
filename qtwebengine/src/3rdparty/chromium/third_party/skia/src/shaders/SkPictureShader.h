@@ -26,8 +26,16 @@ class SkPictureShader : public SkShaderBase {
 public:
     ~SkPictureShader() override;
 
-    static sk_sp<SkShader> Make(sk_sp<SkPicture>, SkTileMode, SkTileMode, const SkMatrix*,
-                                const SkRect*);
+    enum FilterEnum {
+        kNearest,           // SkFilterMode::kNearest
+        kLinear,            // SkFilterMode::kLinear
+        kInheritFromPaint,
+
+        kLastFilterEnum = kInheritFromPaint,
+    };
+
+    static sk_sp<SkShader> Make(sk_sp<SkPicture>, SkTileMode, SkTileMode, FilterEnum,
+                                const SkMatrix*, const SkRect*);
 
 #if SK_SUPPORT_GPU
     std::unique_ptr<GrFragmentProcessor> asFragmentProcessor(const GrFPArgs&) const override;
@@ -37,8 +45,8 @@ protected:
     SkPictureShader(SkReadBuffer&);
     void flatten(SkWriteBuffer&) const override;
     bool onAppendStages(const SkStageRec&) const override;
-    skvm::Color onProgram(skvm::Builder*, skvm::F32 x, skvm::F32 y, skvm::Color paint,
-                          const SkMatrix& ctm, const SkMatrix* localM,
+    skvm::Color onProgram(skvm::Builder*, skvm::Coord device, skvm::Coord local, skvm::Color paint,
+                          const SkMatrixProvider&, const SkMatrix* localM,
                           SkFilterQuality quality, const SkColorInfo& dst,
                           skvm::Uniforms* uniforms, SkArenaAlloc* alloc) const override;
 
@@ -49,10 +57,12 @@ protected:
 private:
     SK_FLATTENABLE_HOOKS(SkPictureShader)
 
-    SkPictureShader(sk_sp<SkPicture>, SkTileMode, SkTileMode, const SkMatrix*, const SkRect*);
+    SkPictureShader(sk_sp<SkPicture>, SkTileMode, SkTileMode, FilterEnum,
+                    const SkMatrix*, const SkRect*);
 
     sk_sp<SkShader> refBitmapShader(const SkMatrix&, SkTCopyOnFirstWrite<SkMatrix>* localMatrix,
                                     SkColorType dstColorType, SkColorSpace* dstColorSpace,
+                                    SkFilterMode paintFilter,
                                     const int maxTextureSize = 0) const;
 
     class PictureShaderContext : public Context {
@@ -68,17 +78,18 @@ private:
         SkShaderBase::Context*  fBitmapShaderContext;
         void*                   fBitmapShaderContextStorage;
 
-        typedef Context INHERITED;
+        using INHERITED = Context;
     };
 
     sk_sp<SkPicture>    fPicture;
     SkRect              fTile;
     SkTileMode          fTmx, fTmy;
+    FilterEnum          fFilter;
 
     const uint32_t            fUniqueID;
     mutable std::atomic<bool> fAddedToCache;
 
-    typedef SkShaderBase INHERITED;
+    using INHERITED = SkShaderBase;
 };
 
 #endif // SkPictureShader_DEFINED

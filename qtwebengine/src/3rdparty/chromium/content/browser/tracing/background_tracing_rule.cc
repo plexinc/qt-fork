@@ -13,7 +13,6 @@
 #include "base/rand_util.h"
 #include "base/strings/safe_sprintf.h"
 #include "base/strings/strcat.h"
-#include "base/task/post_task.h"
 #include "base/timer/timer.h"
 #include "base/trace_event/trace_event.h"
 #include "base/values.h"
@@ -35,6 +34,7 @@ const char kConfigRuleStopTracingOnRepeatedReactive[] =
     "stop_tracing_on_repeated_reactive";
 const char kConfigRuleArgsKey[] = "args";
 const char kConfigRuleIdKey[] = "rule_id";
+const char kConfigIsCrashKey[] = "is_crash";
 
 const char kConfigRuleHistogramNameKey[] = "histogram_name";
 const char kConfigRuleHistogramValueOldKey[] = "histogram_value";
@@ -68,19 +68,11 @@ const int kReactiveTraceRandomStartTimeMax = 120;
 
 namespace content {
 
-BackgroundTracingRule::BackgroundTracingRule()
-    : trigger_chance_(1.0),
-      trigger_delay_(-1),
-      stop_tracing_on_repeated_reactive_(false),
-      category_preset_(BackgroundTracingConfigImpl::CATEGORY_PRESET_UNSET) {}
-
+BackgroundTracingRule::BackgroundTracingRule() = default;
 BackgroundTracingRule::BackgroundTracingRule(int trigger_delay)
-    : trigger_chance_(1.0),
-      trigger_delay_(trigger_delay),
-      stop_tracing_on_repeated_reactive_(false),
-      category_preset_(BackgroundTracingConfigImpl::CATEGORY_PRESET_UNSET) {}
+    : trigger_delay_(trigger_delay) {}
 
-BackgroundTracingRule::~BackgroundTracingRule() {}
+BackgroundTracingRule::~BackgroundTracingRule() = default;
 
 bool BackgroundTracingRule::ShouldTriggerNamedEvent(
     const std::string& named_event) const {
@@ -116,6 +108,10 @@ void BackgroundTracingRule::IntoDict(base::DictionaryValue* dict) const {
         kConfigCategoryKey,
         BackgroundTracingConfigImpl::CategoryPresetToString(category_preset_));
   }
+
+  if (is_crash_) {
+    dict->SetBoolean(kConfigIsCrashKey, is_crash_);
+  }
 }
 
 void BackgroundTracingRule::GenerateMetadataProto(
@@ -131,6 +127,7 @@ void BackgroundTracingRule::Setup(const base::DictionaryValue* dict) {
   } else {
     rule_id_ = GetDefaultRuleId();
   }
+  dict->GetBoolean(kConfigIsCrashKey, &is_crash_);
 }
 
 namespace {
@@ -170,6 +167,8 @@ class NamedTriggerRule : public BackgroundTracingRule {
       named_rule->set_event_type(MetadataProto::NamedRule::NAVIGATION);
     } else if (named_event_ == "session-restore-config") {
       named_rule->set_event_type(MetadataProto::NamedRule::SESSION_RESTORE);
+    } else if (named_event_ == "reached-code-config") {
+      named_rule->set_event_type(MetadataProto::NamedRule::REACHED_CODE);
     } else if (named_event_ == "preemptive_test") {
       named_rule->set_event_type(MetadataProto::NamedRule::TEST_RULE);
     }
@@ -249,9 +248,8 @@ class HistogramRule : public BackgroundTracingRule,
     base::StatisticsRecorder::SetCallback(
         histogram_name_,
         base::BindRepeating(&HistogramRule::OnHistogramChangedCallback,
-                            base::Unretained(this), histogram_name_,
-                            histogram_lower_value_, histogram_upper_value_,
-                            repeat_));
+                            base::Unretained(this), histogram_lower_value_,
+                            histogram_upper_value_, repeat_));
 
     BackgroundTracingManagerImpl::GetInstance()->AddAgentObserver(this);
     installed_ = true;
@@ -283,8 +281,8 @@ class HistogramRule : public BackgroundTracingRule,
     if (histogram_name != histogram_name_)
       return;
 
-    base::PostTask(
-        FROM_HERE, {content::BrowserThread::UI},
+    content::GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE,
         base::BindOnce(
             &BackgroundTracingManagerImpl::OnRuleTriggered,
             base::Unretained(BackgroundTracingManagerImpl::GetInstance()), this,
@@ -292,8 +290,8 @@ class HistogramRule : public BackgroundTracingRule,
   }
 
   void AbortTracing() {
-    base::PostTask(
-        FROM_HERE, {content::BrowserThread::UI},
+    content::GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE,
         base::BindOnce(
             &BackgroundTracingManagerImpl::AbortScenario,
             base::Unretained(BackgroundTracingManagerImpl::GetInstance())));
@@ -309,10 +307,11 @@ class HistogramRule : public BackgroundTracingRule,
     agent->ClearUMACallback(histogram_name_);
   }
 
-  void OnHistogramChangedCallback(const std::string& histogram_name,
-                                  base::Histogram::Sample reference_lower_value,
+  void OnHistogramChangedCallback(base::Histogram::Sample reference_lower_value,
                                   base::Histogram::Sample reference_upper_value,
                                   bool repeat,
+                                  const char* histogram_name,
+                                  uint64_t name_hash,
                                   base::Histogram::Sample actual_value) {
     if (reference_lower_value > actual_value ||
         reference_upper_value < actual_value) {

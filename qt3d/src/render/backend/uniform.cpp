@@ -39,6 +39,7 @@
 
 #include "uniform_p.h"
 #include "qabstracttexture.h"
+#include <QVariant>
 
 QT_BEGIN_NAMESPACE
 
@@ -238,7 +239,9 @@ UniformValue UniformValue::fromVariant(const QVariant &variant)
         if (listEntryType == qNodeIdTypeId)
             v.m_valueType = NodeId;
 
-        const int stride = byteSizeForMetaType(listEntryType) / sizeof(float);
+        v.m_elementByteSize = byteSizeForMetaType(listEntryType);
+        const int stride =  v.m_elementByteSize / sizeof(float);
+
         // Resize v.m_data
         v.m_data.resize(stride * variants.size());
 

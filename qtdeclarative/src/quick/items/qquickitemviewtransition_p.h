@@ -157,6 +157,7 @@ public:
 
     bool prepareTransition(QQuickItemViewTransitioner *transitioner, int index, const QRectF &viewBounds);
     void startTransition(QQuickItemViewTransitioner *transitioner, int index);
+    void completeTransition(QQuickTransition *quickTransition);
 
     SelfDeletable m_selfDeletable;
     QPointF nextTransitionTo;
@@ -195,6 +196,7 @@ class QQuickViewTransitionAttached : public QObject
     Q_PROPERTY(QQmlListProperty<QObject> targetItems READ targetItems NOTIFY targetItemsChanged)
 
     QML_NAMED_ELEMENT(ViewTransition)
+    QML_ADDED_IN_VERSION(2, 0)
     QML_UNCREATABLE("ViewTransition is only available via attached properties.")
     QML_ATTACHED(QQuickViewTransitionAttached)
 
@@ -224,7 +226,7 @@ private:
     QList<int> m_targetIndexes;
     QList<QObject *> m_targetItems;
 
-    QQuickItem *m_item;
+    QPointer<QQuickItem> m_item;
     int m_index;
 };
 

@@ -7,6 +7,9 @@
 
 #include <string>
 
+#include "base/callback.h"
+#include "base/optional.h"
+#include "content/public/browser/browser_context.h"
 #include "extensions/common/manifest.h"
 #include "url/gurl.h"
 
@@ -17,6 +20,7 @@ class FilePath;
 namespace content {
 class BrowserContext;
 class StoragePartition;
+class StoragePartitionConfig;
 }
 
 namespace extensions {
@@ -41,14 +45,16 @@ bool IsIncognitoEnabled(const std::string& extension_id,
 bool CanCrossIncognito(const extensions::Extension* extension,
                        content::BrowserContext* context);
 
-// Returns the site of the |extension_id|, given the associated |context|.
-// Suitable for use with BrowserContext::GetStoragePartitionForSite().
-GURL GetSiteForExtensionId(const std::string& extension_id,
-                           content::BrowserContext* context);
-
 // Returns the StoragePartition domain for |extension|.
 // Note: The reference returned has the same lifetime as |extension|.
 const std::string& GetPartitionDomainForExtension(const Extension* extension);
+
+// Returns an extension specific StoragePartitionConfig if the extension
+// associated with |extension_id| has isolated storage.
+// Otherwise, return the default StoragePartitionConfig.
+content::StoragePartitionConfig GetStoragePartitionConfigForExtensionId(
+    const std::string& extension_id,
+    content::BrowserContext* browser_context);
 
 content::StoragePartition* GetStoragePartitionForExtensionId(
     const std::string& extension_id,
@@ -75,6 +81,27 @@ bool CanWithholdPermissionsFromExtension(const std::string& extension_id,
 
 // Returns a unique int id for each context.
 int GetBrowserContextId(content::BrowserContext* context);
+
+// Calculates the allowlist and blocklist for |extension| and forwards the
+// request to |browser_context| (and possibly also for related incognito
+// contexts depending on |target_mode|).
+//
+// If the optional |target_mode| is not specified, then |target_mode| is
+// calculated based on whether |extension| operates in "split" or "spanning"
+// incognito mode.
+void SetCorsOriginAccessListForExtension(
+    content::BrowserContext* browser_context,
+    const Extension& extension,
+    base::Optional<content::BrowserContext::TargetBrowserContexts> target_mode,
+    base::OnceClosure closure);
+
+// Resets the allowlist and blocklist for |extension| to empty lists for
+// |browser_context| (and possibly also for related incognito contexts depending
+// on |target_mode|).
+void ResetCorsOriginAccessListForExtension(
+    content::BrowserContext* browser_context,
+    const Extension& extension,
+    content::BrowserContext::TargetBrowserContexts target_mode);
 
 }  // namespace util
 }  // namespace extensions

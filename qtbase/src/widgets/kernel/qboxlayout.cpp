@@ -37,15 +37,14 @@
 **
 ****************************************************************************/
 
-#include "qboxlayout.h"
 #include "qapplication.h"
-#include "qwidget.h"
+#include "qboxlayout.h"
 #include "qlist.h"
 #include "qsizepolicy.h"
-#include "qvector.h"
+#include "qwidget.h"
 
-#include "qlayoutengine_p.h"
 #include "qlayout_p.h"
+#include "qlayoutengine_p.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -64,7 +63,7 @@ struct QBoxLayoutItem
     }
     int mhfw(int w) {
         if (item->hasHeightForWidth()) {
-            return item->heightForWidth(w);
+            return item->minimumHeightForWidth(w);
         } else {
             return item->minimumSize().height();
         }
@@ -104,7 +103,7 @@ public:
     }
 
     QList<QBoxLayoutItem *> list;
-    QVector<QLayoutStruct> geomArray;
+    QList<QLayoutStruct> geomArray;
     int hfwWidth;
     int hfwHeight;
     int hfwMinHeight;
@@ -150,8 +149,8 @@ void QBoxLayoutPrivate::effectiveMargins(int *left, int *top, int *right, int *b
 #ifdef Q_OS_MAC
     Q_Q(const QBoxLayout);
     if (horz(dir)) {
-        QBoxLayoutItem *leftBox = 0;
-        QBoxLayoutItem *rightBox = 0;
+        QBoxLayoutItem *leftBox = nullptr;
+        QBoxLayoutItem *rightBox = nullptr;
 
         if (left || right) {
             leftBox = list.value(0);
@@ -195,8 +194,8 @@ void QBoxLayoutPrivate::effectiveMargins(int *left, int *top, int *right, int *b
             }
         }
     } else {    // vertical layout
-        QBoxLayoutItem *topBox = 0;
-        QBoxLayoutItem *bottomBox = 0;
+        QBoxLayoutItem *topBox = nullptr;
+        QBoxLayoutItem *bottomBox = nullptr;
 
         if (top || bottom) {
             topBox = list.value(0);
@@ -271,7 +270,7 @@ void QBoxLayoutPrivate::setupGeom()
 
     int n = list.count();
     geomArray.clear();
-    QVector<QLayoutStruct> a(n);
+    QList<QLayoutStruct> a(n);
 
     QSizePolicy::ControlTypes controlTypes1;
     QSizePolicy::ControlTypes controlTypes2;
@@ -400,7 +399,7 @@ void QBoxLayoutPrivate::setupGeom()
 */
 void QBoxLayoutPrivate::calcHfw(int w)
 {
-    QVector<QLayoutStruct> &a = geomArray;
+    QList<QLayoutStruct> &a = geomArray;
     int n = a.count();
     int h = 0;
     int mh = 0;
@@ -548,7 +547,11 @@ QLayoutItem* QBoxLayoutPrivate::replaceAt(int index, QLayoutItem *item)
     Constructs a new QBoxLayout with direction \a dir and parent widget \a
     parent.
 
-    \sa direction()
+    The layout is set directly as the top-level layout for \a parent.
+    There can be only one top-level layout for a widget. It is returned
+    by QWidget::layout().
+
+    \sa direction(), QWidget::setLayout()
 */
 QBoxLayout::QBoxLayout(Direction dir, QWidget *parent)
     : QLayout(*new QBoxLayoutPrivate, nullptr, parent)
@@ -770,7 +773,7 @@ void QBoxLayout::setGeometry(const QRect &r)
                 cr.width() - (left + right),
                 cr.height() - (top + bottom));
 
-        QVector<QLayoutStruct> a = d->geomArray;
+        QList<QLayoutStruct> a = d->geomArray;
         int pos = horz(d->dir) ? s.x() : s.y();
         int space = horz(d->dir) ? s.width() : s.height();
         int n = a.count();
@@ -1232,11 +1235,16 @@ QBoxLayout::Direction QBoxLayout::direction() const
     \snippet layouts/layouts.cpp 4
     \snippet layouts/layouts.cpp 5
 
-    First, we create the widgets we want in the layout. Then, we
-    create the QHBoxLayout object and add the widgets into the
-    layout. Finally, we call QWidget::setLayout() to install the
-    QHBoxLayout object onto the widget. At that point, the widgets in
-    the layout are reparented to have \c window as their parent.
+    First, we create the widgets we want to add to the layout. Then,
+    we create the QHBoxLayout object, setting \c window as parent by
+    passing it in the constructor; next we add the widgets to the
+    layout. \c window will be the parent of the widgets that are
+    added to the layout.
+
+    If you don't pass a parent \c window to the constructor, you can
+    at a later point use QWidget::setLayout() to install the QHBoxLayout
+    object onto \c window. At that point, the widgets in the layout are
+    reparented to have \c window as their parent.
 
     \image qhboxlayout-with-5-children.png Horizontal box layout with five child widgets
 
@@ -1245,8 +1253,13 @@ QBoxLayout::Direction QBoxLayout::direction() const
 
 
 /*!
-    Constructs a new top-level horizontal box with
-    parent \a parent.
+    Constructs a new top-level horizontal box with parent \a parent.
+
+    The layout is set directly as the top-level layout for \a parent.
+    There can be only one top-level layout for a widget. It is returned
+    by QWidget::layout().
+
+    \sa QWidget::setLayout()
 */
 QHBoxLayout::QHBoxLayout(QWidget *parent)
     : QBoxLayout(LeftToRight, parent)
@@ -1295,11 +1308,16 @@ QHBoxLayout::~QHBoxLayout()
     \snippet layouts/layouts.cpp 10
     \snippet layouts/layouts.cpp 11
 
-    First, we create the widgets we want in the layout. Then, we
-    create the QVBoxLayout object and add the widgets into the
-    layout. Finally, we call QWidget::setLayout() to install the
-    QVBoxLayout object onto the widget. At that point, the widgets in
-    the layout are reparented to have \c window as their parent.
+    First, we create the widgets we want to add to the layout. Then,
+    we create the QVBoxLayout object, setting \c window as parent by
+    passing it in the constructor; next we add the widgets to the
+    layout. \c window will be the parent of the widgets that are
+    added to the layout.
+
+    If you don't pass a parent \c window to the constructor, you can
+    at a later point use QWidget::setLayout() to install the QVBoxLayout
+    object onto \c window. At that point, the widgets in the layout are
+    reparented to have \c window as their parent.
 
     \image qvboxlayout-with-5-children.png Horizontal box layout with five child widgets
 
@@ -1307,8 +1325,13 @@ QHBoxLayout::~QHBoxLayout()
 */
 
 /*!
-    Constructs a new top-level vertical box with
-    parent \a parent.
+    Constructs a new top-level vertical box with parent \a parent.
+
+    The layout is set directly as the top-level layout for \a parent.
+    There can be only one top-level layout for a widget. It is returned
+    by QWidget::layout().
+
+    \sa QWidget::setLayout()
 */
 QVBoxLayout::QVBoxLayout(QWidget *parent)
     : QBoxLayout(TopToBottom, parent)

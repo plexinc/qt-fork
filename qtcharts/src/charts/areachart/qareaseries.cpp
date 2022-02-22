@@ -38,7 +38,7 @@
 #include <QtCharts/QAreaLegendMarker>
 #include <private/qchart_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 /*!
     \class QAreaSeries
@@ -701,7 +701,7 @@ void QAreaSeriesPrivate::initializeDomain()
     QLineSeries *lowerSeries = q->lowerSeries();
 
     if (upperSeries) {
-        const QVector<QPointF> &points = upperSeries->pointsVector();
+        const auto &points = upperSeries->points();
 
         if (!points.isEmpty()) {
             minX = points[0].x();
@@ -720,7 +720,7 @@ void QAreaSeriesPrivate::initializeDomain()
         }
     }
     if (lowerSeries) {
-        const QVector<QPointF> &points = lowerSeries->pointsVector();
+        const auto &points = lowerSeries->points();
 
         if (!points.isEmpty()) {
             if (!upperSeries) {
@@ -827,7 +827,7 @@ void QAreaSeriesPrivate::initializeTheme(int index, ChartTheme* theme, bool forc
     }
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_qareaseries.cpp"
 #include "moc_qareaseries_p.cpp"

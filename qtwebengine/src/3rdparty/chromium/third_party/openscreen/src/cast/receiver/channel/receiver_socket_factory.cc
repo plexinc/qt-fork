@@ -2,9 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "cast/receiver/channel/receiver_socket_factory.h"
+#include "cast/receiver/public/receiver_socket_factory.h"
 
-#include "util/logging.h"
+#include "util/osp_logging.h"
 
 namespace openscreen {
 namespace cast {
@@ -32,7 +32,7 @@ void ReceiverSocketFactory::OnConnected(
     TlsConnectionFactory* factory,
     std::vector<uint8_t> der_x509_peer_cert,
     std::unique_ptr<TlsConnection> connection) {
-  OSP_NOTREACHED() << "This factory is accept-only.";
+  OSP_LOG_FATAL << "This factory is accept-only";
 }
 
 void ReceiverSocketFactory::OnConnectionFailed(

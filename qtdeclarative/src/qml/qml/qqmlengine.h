@@ -46,21 +46,20 @@
 #include <QtQml/qjsengine.h>
 #include <QtQml/qqml.h>
 #include <QtQml/qqmlerror.h>
+#include <QtQml/qqmlabstracturlinterceptor.h>
 
 QT_BEGIN_NAMESPACE
 
-class QQmlAbstractUrlInterceptor;
-
-class Q_QML_EXPORT QQmlImageProviderBase
+class Q_QML_EXPORT QQmlImageProviderBase : public QObject
 {
+    Q_OBJECT
 public:
-    enum ImageType {
+    enum ImageType : int {
+        Invalid = 0,
         Image,
         Pixmap,
         Texture,
-        Invalid,
-        ImageResponse
-        // ### Qt6: reorder these, and give Invalid a fixed large value
+        ImageResponse,
     };
 
     enum Flag {
@@ -112,7 +111,9 @@ public:
     void setPluginPathList(const QStringList &paths);
     void addPluginPath(const QString& dir);
 
-    bool addNamedBundle(const QString &name, const QString &fileName);
+#if QT_DEPRECATED_SINCE(6, 0)
+    QT_DEPRECATED bool addNamedBundle(const QString &, const QString &) { return false; }
+#endif
 
 #if QT_CONFIG(library)
     bool importPlugin(const QString &filePath, const QString &uri, QList<QQmlError> *errors);
@@ -125,8 +126,18 @@ public:
     QNetworkAccessManager *networkAccessManager() const;
 #endif
 
-    void setUrlInterceptor(QQmlAbstractUrlInterceptor* urlInterceptor);
-    QQmlAbstractUrlInterceptor* urlInterceptor() const;
+#if QT_DEPRECATED_SINCE(6, 0)
+    QT_DEPRECATED void setUrlInterceptor(QQmlAbstractUrlInterceptor* urlInterceptor)
+    {
+        addUrlInterceptor(urlInterceptor);
+    }
+    QT_DEPRECATED QQmlAbstractUrlInterceptor *urlInterceptor() const;
+#endif
+
+    void addUrlInterceptor(QQmlAbstractUrlInterceptor *urlInterceptor);
+    void removeUrlInterceptor(QQmlAbstractUrlInterceptor *urlInterceptor);
+    QList<QQmlAbstractUrlInterceptor *> urlInterceptors() const;
+    QUrl interceptUrl(const QUrl &url, QQmlAbstractUrlInterceptor::DataType type) const;
 
     void addImageProvider(const QString &id, QQmlImageProviderBase *);
     QQmlImageProviderBase *imageProvider(const QString &id) const;
@@ -148,6 +159,8 @@ public:
     template<typename T>
     T singletonInstance(int qmlTypeId);
 
+    void captureProperty(QObject *object, const QMetaProperty &property) const;
+
 public Q_SLOTS:
     void retranslate();
 
@@ -155,9 +168,6 @@ public:
     static QQmlContext *contextForObject(const QObject *);
     static void setContextForObject(QObject *, QQmlContext *);
 
-    enum ObjectOwnership { CppOwnership, JavaScriptOwnership };
-    static void setObjectOwnership(QObject *, ObjectOwnership);
-    static ObjectOwnership objectOwnership(QObject *);
 protected:
     QQmlEngine(QQmlEnginePrivate &dd, QObject *p);
     bool event(QEvent *) override;

@@ -27,7 +27,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
+import QtQuick
+import QtQuick.VirtualKeyboard
 
 /*!
     \qmltype ModeKey
@@ -56,8 +57,10 @@ Key {
         The default is false.
     */
     property bool mode
+    keyType: QtVirtualKeyboard.ModeKey
     noKeyEvent: true
     functionKey: true
+    highlighted: true
     onClicked: mode = !mode
     keyPanelDelegate: keyboard.style ? keyboard.style.modeKeyPanel : undefined
 }

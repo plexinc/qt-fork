@@ -13,10 +13,15 @@
 #include "base/threading/thread.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "content/public/browser/browser_thread.h"
+#include "printing/mojom/print.mojom.h"
 #include "printing/page_number.h"
-#include "printing/print_job_constants.h"
 #include "printing/printing_context.h"
+
+namespace content {
+class WebContents;
+}
 
 namespace printing {
 
@@ -47,9 +52,9 @@ class PrintJobWorker {
   // |is_scripted| should be true for calls coming straight from window.print().
   // |is_modifiable| implies HTML and not other formats like PDF.
   void GetSettings(bool ask_user_for_settings,
-                   int document_page_count,
+                   uint32_t document_page_count,
                    bool has_selection,
-                   MarginType margin_type,
+                   mojom::MarginType margin_type,
                    bool is_scripted,
                    bool is_modifiable,
                    SettingsCallback callback);
@@ -57,7 +62,7 @@ class PrintJobWorker {
   // Set the new print settings from a dictionary value.
   void SetSettings(base::Value new_settings, SettingsCallback callback);
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // Set the new print settings from a POD type.
   void SetSettingsFromPOD(std::unique_ptr<printing::PrintSettings> new_settings,
                           SettingsCallback callback);
@@ -97,6 +102,9 @@ class PrintJobWorker {
   // Starts the thread.
   bool Start();
 
+  // Returns the WebContents this work corresponds to.
+  content::WebContents* GetWebContents();
+
  protected:
   // Retrieves the context for testing only.
   PrintingContext* printing_context() { return printing_context_.get(); }
@@ -135,7 +143,7 @@ class PrintJobWorker {
   // Asks the user for print settings. Must be called on the UI thread.
   // Required on Mac and Linux. Windows can display UI from non-main threads,
   // but sticks with this for consistency.
-  void GetSettingsWithUI(int document_page_count,
+  void GetSettingsWithUI(uint32_t document_page_count,
                          bool has_selection,
                          bool is_scripted,
                          SettingsCallback callback);
@@ -143,7 +151,7 @@ class PrintJobWorker {
   // Called on the UI thread to update the print settings.
   void UpdatePrintSettings(base::Value new_settings, SettingsCallback callback);
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // Called on the UI thread to update the print settings.
   void UpdatePrintSettingsFromPOD(
       std::unique_ptr<printing::PrintSettings> new_settings,

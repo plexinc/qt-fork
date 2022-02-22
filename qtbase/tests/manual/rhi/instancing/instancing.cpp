@@ -58,7 +58,7 @@
 const int INSTANCE_COUNT = 1024;
 
 struct {
-    QVector<QRhiResource *> releasePool;
+    QList<QRhiResource *> releasePool;
 
     QRhiBuffer *vbuf = nullptr;
     QRhiBuffer *instBuf = nullptr;
@@ -78,18 +78,18 @@ void Window::customInit()
     d.initialUpdates = m_r->nextResourceUpdateBatch();
 
     d.vbuf = m_r->newBuffer(QRhiBuffer::Immutable, QRhiBuffer::VertexBuffer, sizeof(cube));
-    d.vbuf->build();
+    d.vbuf->create();
     d.releasePool << d.vbuf;
 
     d.initialUpdates->uploadStaticBuffer(d.vbuf, cube);
 
-    // translation + color (vec3 + vec3), interleaved, for each instance
-    d.instBuf = m_r->newBuffer(QRhiBuffer::Immutable, QRhiBuffer::VertexBuffer, INSTANCE_COUNT * 6 * sizeof(float));
-    d.instBuf->build();
+    // transform + color (mat4 + vec3), interleaved, for each instance
+    d.instBuf = m_r->newBuffer(QRhiBuffer::Immutable, QRhiBuffer::VertexBuffer, INSTANCE_COUNT * 19 * sizeof(float));
+    d.instBuf->create();
     d.releasePool << d.instBuf;
 
     d.ubuf = m_r->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, 64 + 12);
-    d.ubuf->build();
+    d.ubuf->create();
     d.releasePool << d.ubuf;
 
     d.srb = m_r->newShaderResourceBindings();
@@ -97,7 +97,7 @@ void Window::customInit()
     d.srb->setBindings({
         QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::VertexStage, d.ubuf)
     });
-    d.srb->build();
+    d.srb->create();
 
     d.ps = m_r->newGraphicsPipeline();
     d.releasePool << d.ps;
@@ -108,27 +108,32 @@ void Window::customInit()
     QRhiVertexInputLayout inputLayout;
     inputLayout.setBindings({
         { 3 * sizeof(float) },                                        // cube vertices
-        { 6 * sizeof(float), QRhiVertexInputBinding::PerInstance }    // per-instance translation and color
+        { 19 * sizeof(float), QRhiVertexInputBinding::PerInstance },  // per-instance transform and color
     });
     inputLayout.setAttributes({
-        { 0, 0, QRhiVertexInputAttribute::Float3, 0 },                // position
-        { 1, 1, QRhiVertexInputAttribute::Float3, 0 },                // instTranslate
-        { 1, 2, QRhiVertexInputAttribute::Float3, 3 * sizeof(float) } // instColor
+        { 0, 0, QRhiVertexInputAttribute::Float3, 0 },                     // position
+        { 1, 1, QRhiVertexInputAttribute::Float4, 0, 0 },                  // instMat
+        { 1, 2, QRhiVertexInputAttribute::Float4, 4 * sizeof(float), 1 },
+        { 1, 3, QRhiVertexInputAttribute::Float4, 8 * sizeof(float), 2 },
+        { 1, 4, QRhiVertexInputAttribute::Float4, 12 * sizeof(float), 3 },
+        { 1, 5, QRhiVertexInputAttribute::Float3, 16 * sizeof(float) },     // instColor
     });
     d.ps->setVertexInputLayout(inputLayout);
     d.ps->setShaderResourceBindings(d.srb);
     d.ps->setRenderPassDescriptor(m_rp);
-    d.ps->build();
+    d.ps->create();
 
     QByteArray instData;
-    instData.resize(INSTANCE_COUNT * 6 * sizeof(float));
+    instData.resize(INSTANCE_COUNT * 19 * sizeof(float));
     float *p = reinterpret_cast<float *>(instData.data());
     QRandomGenerator *rgen = QRandomGenerator::global();
     for (int i = 0; i < INSTANCE_COUNT; ++i) {
-        // translation
-        *p++ = rgen->bounded(8000) / 100.0f - 40.0f;
-        *p++ = rgen->bounded(8000) / 100.0f - 40.0f;
-        *p++ = 0.0f;
+        QMatrix4x4 m;
+        m.translate(rgen->bounded(8000) / 100.0f - 40.0f,
+                    rgen->bounded(8000) / 100.0f - 40.0f,
+                    0.0f);
+        memcpy(p, m.constData(), 16 * sizeof(float));
+        p += 16;
         // color
         *p++ = i / float(INSTANCE_COUNT);
         *p++ = 0.0f;

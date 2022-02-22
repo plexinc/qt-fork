@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
@@ -216,6 +216,7 @@ public:
             QObject,
             VariantMap,
             DateTime,
+            Url,
             Function,
 
             MaxDataType
@@ -252,18 +253,23 @@ private:
 
 struct StringOrTranslation
 {
-    explicit StringOrTranslation(const QString &s);
-    explicit StringOrTranslation(const QV4::CompiledData::Binding *binding);
     ~StringOrTranslation();
-    bool isSet() const { return d.flag(); }
-    bool isTranslation() const { return d.isT2(); }
+    bool isSet() const { return binding || arrayData; }
+    bool isTranslation() const { return binding && !arrayData; }
     void setString(const QString &s);
     void setTranslation(const QV4::CompiledData::Binding *binding);
     QString toString(const QQmlListModel *owner) const;
     QString asString() const;
 private:
     void clear();
-    QBiPointer<QStringData, const QV4::CompiledData::Binding> d;
+
+    union {
+        char16_t *stringData = nullptr;
+        const QV4::CompiledData::Binding *binding;
+    };
+
+    QTypedArrayData<char16_t> *arrayData = nullptr;
+    uint stringSize = 0;
 };
 
 /*!
@@ -272,17 +278,51 @@ private:
 class ListElement
 {
 public:
+    enum ObjectIndestructible { Indestructible = 1, ExplicitlySet = 2 };
+    enum { BLOCK_SIZE = 64 - sizeof(int) - sizeof(ListElement *) - sizeof(ModelNodeMetaObject *) };
+
+    // This is a basic guarded QObject pointer, with tag. It cannot be copied or moved.
+    class GuardedQObjectPointer
+    {
+        Q_DISABLE_COPY_MOVE(GuardedQObjectPointer)
+
+        using RefCountData = QtSharedPointer::ExternalRefCountData;
+        using Storage = QTaggedPointer<QObject, ObjectIndestructible>;
+
+    public:
+        GuardedQObjectPointer(QObject *o, ObjectIndestructible ownership)
+            : storage(o, ownership)
+            , refCount(o ? RefCountData::getAndRef(o) : nullptr)
+        {}
+
+        ~GuardedQObjectPointer()
+        {
+            if (refCount && !refCount->weakref.deref())
+                delete refCount;
+        }
+
+        QObject *data() const
+        {
+            return (refCount == nullptr || refCount->strongref.loadRelaxed() == 0)
+                    ? nullptr
+                    : storage.data();
+        }
+
+        ObjectIndestructible tag() const
+        {
+            return storage.tag();
+        }
+
+    private:
+        Storage storage;
+        RefCountData *refCount = nullptr;
+    };
 
     ListElement();
     ListElement(int existingUid);
     ~ListElement();
 
     static QVector<int> sync(ListElement *src, ListLayout *srcLayout, ListElement *target, ListLayout *targetLayout);
-
-    enum
-    {
-        BLOCK_SIZE = 64 - sizeof(int) - sizeof(ListElement *) - sizeof(ModelNodeMetaObject *)
-    };
 
 private:
 
@@ -300,6 +340,7 @@ private:
     int setVariantMapProperty(const ListLayout::Role &role, QV4::Object *o);
     int setVariantMapProperty(const ListLayout::Role &role, QVariantMap *m);
     int setDateTimeProperty(const ListLayout::Role &role, const QDateTime &dt);
+    int setUrlProperty(const ListLayout::Role &role, const QUrl &url);
     int setFunctionProperty(const ListLayout::Role &role, const QJSValue &f);
     int setTranslationProperty(const ListLayout::Role &role, const QV4::CompiledData::Binding *b);
 
@@ -310,6 +351,7 @@ private:
     void setListPropertyFast(const ListLayout::Role &role, ListModel *m);
     void setVariantMapFast(const ListLayout::Role &role, QV4::Object *o);
     void setDateTimePropertyFast(const ListLayout::Role &role, const QDateTime &dt);
+    void setUrlPropertyFast(const ListLayout::Role &role, const QUrl &url);
     void setFunctionPropertyFast(const ListLayout::Role &role, const QJSValue &f);
 
     void clearProperty(const ListLayout::Role &role);
@@ -318,9 +360,10 @@ private:
     ListModel *getListProperty(const ListLayout::Role &role);
     StringOrTranslation *getStringProperty(const ListLayout::Role &role);
     QObject *getQObjectProperty(const ListLayout::Role &role);
-    QPointer<QObject> *getGuardProperty(const ListLayout::Role &role);
+    GuardedQObjectPointer *getGuardProperty(const ListLayout::Role &role);
     QVariantMap *getVariantMapProperty(const ListLayout::Role &role);
     QDateTime *getDateTimeProperty(const ListLayout::Role &role);
+    QUrl *getUrlProperty(const ListLayout::Role &role);
     QJSValue *getFunctionProperty(const ListLayout::Role &role);
 
     inline char *getPropertyMemory(const ListLayout::Role &role);
@@ -355,6 +398,8 @@ public:
 
     QVariant getProperty(int elementIndex, int roleIndex, const QQmlListModel *owner, QV4::ExecutionEngine *eng);
     ListModel *getListProperty(int elementIndex, const ListLayout::Role &role);
+
+    void updateTranslations();
 
     int roleCount() const
     {

@@ -38,19 +38,19 @@
 #include <QQmlProperty>
 #include <QQmlComponent>
 #include <QQmlIncubator>
-#include "../../shared/util.h"
 #include <private/qjsvalue_p.h>
 #include <private/qqmlincubator_p.h>
 #include <private/qqmlobjectcreator_p.h>
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 
 class tst_qqmlincubator : public QQmlDataTest
 {
     Q_OBJECT
 public:
-    tst_qqmlincubator() {}
+    tst_qqmlincubator() : QQmlDataTest(QT_QMLTEST_DATADIR) {}
 
 private slots:
-    void initTestCase();
+    void initTestCase() override;
 
     void incubationMode();
     void objectDeleted();
@@ -71,6 +71,7 @@ private slots:
     void contextDelete();
     void garbageCollection();
     void requiredProperties();
+    void deleteInSetInitialState();
 
 private:
     QQmlIncubationController controller;
@@ -367,7 +368,7 @@ void tst_qqmlincubator::setInitialState()
         MyIncubator(QQmlIncubator::IncubationMode mode)
         : QQmlIncubator(mode) {}
 
-        virtual void setInitialState(QObject *o) {
+        void setInitialState(QObject *o) override {
             QQmlProperty::write(o, "test2", 19);
             QQmlProperty::write(o, "testData1", 201);
         }
@@ -441,7 +442,7 @@ void tst_qqmlincubator::objectDeletionAfterInit()
         MyIncubator(QQmlIncubator::IncubationMode mode)
         : QQmlIncubator(mode), obj(nullptr) {}
 
-        virtual void setInitialState(QObject *o) {
+        void setInitialState(QObject *o) override {
             obj = o;
         }
 
@@ -473,13 +474,20 @@ class Switcher : public QObject
     Q_OBJECT
 public:
     Switcher(QQmlEngine *e) : QObject(), engine(e) { }
+    ~Switcher()
+    {
+        if (component)
+            component->deleteLater();
+        if (incubator && incubator->object())
+            incubator->object()->deleteLater();
+    }
 
     struct MyIncubator : public QQmlIncubator
     {
         MyIncubator(QQmlIncubator::IncubationMode mode, QObject *s)
         : QQmlIncubator(mode), switcher(s) {}
 
-        virtual void setInitialState(QObject *o) {
+        void setInitialState(QObject *o) override {
             if (o->objectName() == "switchMe")
                 connect(o, SIGNAL(switchMe()), switcher, SLOT(switchIt()));
         }
@@ -489,13 +497,13 @@ public:
 
     void start()
     {
-        incubator = new MyIncubator(QQmlIncubator::Synchronous, this);
+        incubator.reset(new MyIncubator(QQmlIncubator::Synchronous, this));
         component = new QQmlComponent(engine, QQmlDataTest::instance()->testFileUrl("recursiveClear.1.qml"));
         component->create(*incubator);
     }
 
     QQmlEngine *engine;
-    MyIncubator *incubator;
+    QScopedPointer<MyIncubator> incubator;
     QQmlComponent *component;
 
 public slots:
@@ -523,8 +531,8 @@ void tst_qqmlincubator::statusChanged()
 
         QList<int> statuses;
     protected:
-        virtual void statusChanged(Status s) { statuses << s; }
-        virtual void setInitialState(QObject *) { statuses << -1; }
+        void statusChanged(Status s) override { statuses << s; }
+        void setInitialState(QObject *) override { statuses << -1; }
     };
 
     {
@@ -594,18 +602,17 @@ void tst_qqmlincubator::asynchronousIfNested()
     QQmlComponent component(&engine, testFileUrl("asynchronousIfNested.1.qml"));
     QVERIFY(component.isReady());
 
-    QObject *object = component.create();
-    QVERIFY(object != nullptr);
+    QScopedPointer<QObject> object { component.create() };
+    QVERIFY(object);
     QCOMPARE(object->property("a").toInt(), 10);
 
     QQmlIncubator incubator(QQmlIncubator::AsynchronousIfNested);
-    component.create(incubator, nullptr, qmlContext(object));
+    component.create(incubator, nullptr, qmlContext(object.get()));
 
     QVERIFY(incubator.isReady());
     QVERIFY(incubator.object());
     QCOMPARE(incubator.object()->property("a").toInt(), 10);
     delete incubator.object();
-    delete object;
     }
 
     // Asynchronous if nested within an executing context behaves asynchronously, but prevents
@@ -679,6 +686,7 @@ void tst_qqmlincubator::asynchronousIfNested()
             if (incubator.object()->property("a").toInt() != 10) return;
 
             d->pass = true;
+            incubator.object()->deleteLater();
         }
     };
 
@@ -754,7 +762,7 @@ void tst_qqmlincubator::chainedAsynchronousIfNested()
         : QQmlIncubator(AsynchronousIfNested), next(next), component(component), ctxt(ctxt) {}
 
     protected:
-        virtual void statusChanged(Status s) {
+        void statusChanged(Status s) override {
             if (s == Ready && next)
                 component->create(*next, nullptr, ctxt);
         }
@@ -806,6 +814,9 @@ void tst_qqmlincubator::chainedAsynchronousIfNested()
     QVERIFY(incubator.isReady());
     QVERIFY(incubator1.isReady());
     QVERIFY(incubator2.isReady());
+    incubator.object()->deleteLater();
+    incubator1.object()->deleteLater();
+    incubator2.object()->deleteLater();
 }
 
 // Checks that new AsynchronousIfNested incubators can be correctly chained if started in
@@ -825,7 +836,7 @@ void tst_qqmlincubator::chainedAsynchronousIfNestedOnCompleted()
         : QQmlIncubator(AsynchronousIfNested), next(next), component(component), ctxt(ctxt) {}
 
     protected:
-        virtual void statusChanged(Status s) {
+        void statusChanged(Status s) override {
             if (s == Ready && next) {
                 component->create(*next, nullptr, ctxt);
             }
@@ -934,6 +945,11 @@ void tst_qqmlincubator::chainedAsynchronousIfNestedOnCompleted()
     QVERIFY(incubator1.isReady());
     QVERIFY(incubator2.isReady());
     QVERIFY(incubator3.isReady());
+
+    incubator.object()->deleteLater();
+    incubator1.object()->deleteLater();
+    incubator2.object()->deleteLater();
+    incubator3.object()->deleteLater();
 }
 
 // Checks that new AsynchronousIfNested incubators can be correctly cleared if started in
@@ -953,7 +969,7 @@ void tst_qqmlincubator::chainedAsynchronousClear()
         : QQmlIncubator(AsynchronousIfNested), next(next), component(component), ctxt(ctxt) {}
 
     protected:
-        virtual void statusChanged(Status s) {
+        void statusChanged(Status s) override {
             if (s == Ready && next) {
                 component->create(*next, nullptr, ctxt);
             }
@@ -1050,6 +1066,10 @@ void tst_qqmlincubator::chainedAsynchronousClear()
     QVERIFY(incubator1.isReady());
     QVERIFY(incubator2.isReady());
     QVERIFY(incubator3.isNull());
+
+
+    incubator1.object()->deleteLater();
+    incubator2.object()->deleteLater();
 }
 
 void tst_qqmlincubator::selfDelete()
@@ -1059,7 +1079,7 @@ void tst_qqmlincubator::selfDelete()
         : QQmlIncubator(mode), done(done), status(status) {}
 
     protected:
-        virtual void statusChanged(Status s) {
+        void statusChanged(Status s) override {
             if (s == status) {
                 *done = true;
                 if (s == Ready) delete object();
@@ -1166,7 +1186,7 @@ void tst_qqmlincubator::garbageCollection()
 
     // turn the last strong reference to the incubator into a weak one and collect
     QV4::WeakValue weakIncubatorRef;
-    weakIncubatorRef.set(QQmlEnginePrivate::getV4Engine(&engine), *QJSValuePrivate::getValue(&strongRef));
+    weakIncubatorRef.set(QQmlEnginePrivate::getV4Engine(&engine), QJSValuePrivate::asReturnedValue(&strongRef));
     strongRef = QJSValue();
     incubatorVariant.clear();
 
@@ -1211,6 +1231,38 @@ void tst_qqmlincubator::requiredProperties()
         QVERIFY(error.description().contains(QLatin1String("Required property requiredProperty was not initialized")));
         QVERIFY(incubator.object() == nullptr);
     }
+}
+
+class DeletingIncubator : public QQmlIncubator
+{
+
+
+    // QQmlIncubator interface
+protected:
+    void statusChanged(Status) override
+    {
+
+    }
+    void setInitialState(QObject *obj) override
+    {
+        delete obj;
+        clear();
+    }
+};
+
+void tst_qqmlincubator::deleteInSetInitialState()
+{
+    QQmlComponent component(&engine, testFileUrl("requiredProperty.qml"));
+    QVERIFY(component.isReady());
+    // forceCompletion immediately after creating an asynchronous object completes it
+    DeletingIncubator incubator;
+    incubator.setInitialProperties({{"requiredProperty", 42}});
+    QVERIFY(incubator.isNull());
+    component.create(incubator);
+    QVERIFY(incubator.isLoading());
+    incubator.forceCompletion(); // no crash
+    QVERIFY(incubator.isNull());
+    QCOMPARE(incubator.object(), nullptr); // object was deleted
 }
 
 QTEST_MAIN(tst_qqmlincubator)

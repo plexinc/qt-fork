@@ -181,9 +181,16 @@ void Window::customInit()
     qDebug("isFeatureSupported(VertexShaderPointSize): %d", m_r->isFeatureSupported(QRhi::VertexShaderPointSize));
     qDebug("isFeatureSupported(BaseVertex): %d", m_r->isFeatureSupported(QRhi::BaseVertex));
     qDebug("isFeatureSupported(BaseInstance): %d", m_r->isFeatureSupported(QRhi::BaseInstance));
+    qDebug("isFeatureSupported(PipelineCacheDataLoadSave): %d", m_r->isFeatureSupported(QRhi::PipelineCacheDataLoadSave));
     qDebug("Min 2D texture width/height: %d", m_r->resourceLimit(QRhi::TextureSizeMin));
     qDebug("Max 2D texture width/height: %d", m_r->resourceLimit(QRhi::TextureSizeMax));
     qDebug("Max color attachment count: %d", m_r->resourceLimit(QRhi::MaxColorAttachments));
+    qDebug("MaxThreadGroupsPerDimension: %d", m_r->resourceLimit(QRhi::MaxThreadGroupsPerDimension));
+    qDebug("MaxThreadsPerThreadGroup: %d", m_r->resourceLimit(QRhi::MaxThreadsPerThreadGroup));
+    qDebug("MaxThreadGroupX: %d", m_r->resourceLimit(QRhi::MaxThreadGroupX));
+    qDebug("MaxThreadGroupY: %d", m_r->resourceLimit(QRhi::MaxThreadGroupY));
+    qDebug("MaxThreadGroupZ: %d", m_r->resourceLimit(QRhi::MaxThreadGroupZ));
+    qDebug("MaxUniformBufferRange: %d", m_r->resourceLimit(QRhi::MaxUniformBufferRange));
 }
 
 void Window::customRelease()

@@ -53,6 +53,7 @@
 
 #include <private/qtquickglobal_p.h>
 #include <QtGui/qevent.h>
+#include <QtGui/qpointingdevice.h>
 #include <qqml.h>
 
 QT_BEGIN_NAMESPACE
@@ -63,13 +64,30 @@ public:
     static void defineModule();
 };
 
+struct QInputDeviceForeign
+{
+    Q_GADGET
+    QML_FOREIGN(QInputDevice)
+    QML_NAMED_ELEMENT(InputDevice)
+    QML_ADDED_IN_VERSION(6, 0)
+    QML_UNCREATABLE("InputDevice is only available via read-only properties.")
+};
+
+struct QPointingDeviceForeign
+{
+    Q_GADGET
+    QML_FOREIGN(QPointingDevice)
+    QML_NAMED_ELEMENT(PointerDevice)
+    QML_ADDED_IN_VERSION(2, 12)
+    QML_UNCREATABLE("PointerDevice is only available via read-only properties.")
+};
+
 struct QPointingDeviceUniqueIdForeign
 {
     Q_GADGET
     QML_FOREIGN(QPointingDeviceUniqueId)
-    QML_NAMED_ELEMENT(PointingDeviceUniqueId)
-    QML_ADDED_IN_MINOR_VERSION(9)
-    QML_UNCREATABLE("PointingDeviceUniqueId is only available via read-only properties.")
+    QML_VALUE_TYPE(pointingDeviceUniqueId)
+    QML_ADDED_IN_VERSION(2, 9)
 };
 
 #if !QT_CONFIG(quick_animatedimage)
@@ -78,7 +96,7 @@ struct QQuickAnimatedImageNotAvailable
     Q_GADGET
     QML_UNAVAILABLE
     QML_NAMED_ELEMENT(AnimatedImage)
-    QML_ADDED_IN_MINOR_VERSION(0)
+    QML_ADDED_IN_VERSION(2, 0)
     QML_UNCREATABLE("Qt was built without support for QMovie.")
 };
 #endif

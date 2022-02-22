@@ -82,7 +82,7 @@
 #include <QMouseEvent>
 #include <QStyleHints>
 #if QT_CONFIG(tabletevent)
-#include <QTabletEvent>
+#include <QPointingDevice>
 #endif
 #include <QWheelEvent>
 
@@ -950,7 +950,6 @@ static ui::DomKey domKeyForQtKey(int qtKey)
         return ui::DomKey::ZENKAKU;
     case Qt::Key_Zenkaku_Hankaku:
         return ui::DomKey::ZENKAKU_HANKAKU;
-#if QT_VERSION >= QT_VERSION_CHECK(5, 12, 0)
     // Dead keys (ui/events/keycodes/keyboard_code_conversion_xkb.cc)
     case Qt::Key_Dead_Grave:
         return ui::DomKey::DeadKeyFromCombiningCharacter(0x0300);
@@ -1018,7 +1017,6 @@ static ui::DomKey domKeyForQtKey(int qtKey)
         return ui::DomKey::DeadKeyFromCombiningCharacter(0x00A4);
     case Qt::Key_Dead_Greek:
         return ui::DomKey::DeadKeyFromCombiningCharacter(0x037E);
-#endif
     // General-Purpose Function Keys
     case Qt::Key_F1:
         return ui::DomKey::F1;
@@ -1280,6 +1278,29 @@ static unsigned mouseButtonsModifiersForEvent(const T* event)
     return ret;
 }
 
+static WebInputEvent::Modifiers lockKeyModifiers(const quint32 nativeModifiers)
+{
+    unsigned result = 0;
+    if (keyboardDriver() == KeyboardDriver::Xkb) {
+        if (nativeModifiers & 0x42) /* Caps_Lock */
+            result |= WebInputEvent::kCapsLockOn;
+        if (nativeModifiers & 0x4d) /* Num_Lock */
+            result |= WebInputEvent::kNumLockOn;
+    } else if (keyboardDriver() == KeyboardDriver::Windows) {
+        if (nativeModifiers & 0x100) /* CapsLock */
+            result |= WebInputEvent::kCapsLockOn;
+        if (nativeModifiers & 0x200) /* NumLock */
+            result |= WebInputEvent::kNumLockOn;
+        if (nativeModifiers & 0x400) /* ScrollLock */
+            result |= WebInputEvent::kScrollLockOn;
+    } else if (keyboardDriver() == KeyboardDriver::Cocoa) {
+        if (nativeModifiers & 0x10000) /* NSEventModifierFlagCapsLock */
+            result |= WebInputEvent::kCapsLockOn;
+    }
+
+    return static_cast<WebInputEvent::Modifiers>(result);
+}
+
 // If only a modifier key is pressed, Qt only reports the key code.
 // But Chromium also expects the modifier being set.
 static inline WebInputEvent::Modifiers modifierForKeyCode(int key)
@@ -1328,13 +1349,14 @@ static inline WebInputEvent::Modifiers modifiersForEvent(const QInputEvent* even
         if (keyEvent->isAutoRepeat())
             result |= WebInputEvent::kIsAutoRepeat;
         result |= modifierForKeyCode(qtKeyForKeyEvent(keyEvent));
+        result |= lockKeyModifiers(keyEvent->nativeModifiers());
         break;
     }
     default:
         break;
     }
 
-    return (WebInputEvent::Modifiers)result;
+    return static_cast<WebInputEvent::Modifiers>(result);
 }
 
 static inline Qt::KeyboardModifiers keyboardModifiersForModifier(unsigned int modifier)
@@ -1382,36 +1404,36 @@ static WebInputEvent::Type webEventTypeForEvent(const QEvent* event)
     switch (event->type()) {
     case QEvent::MouseButtonPress:
     case QEvent::TabletPress:
-        return WebInputEvent::kMouseDown;
+        return WebInputEvent::Type::kMouseDown;
     case QEvent::MouseButtonRelease:
     case QEvent::TabletRelease:
-        return WebInputEvent::kMouseUp;
+        return WebInputEvent::Type::kMouseUp;
     case QEvent::Enter:
-        return WebInputEvent::kMouseEnter;
+        return WebInputEvent::Type::kMouseEnter;
     case QEvent::Leave:
-        return WebInputEvent::kMouseLeave;
+        return WebInputEvent::Type::kMouseLeave;
     case QEvent::MouseMove:
     case QEvent::TabletMove:
-        return WebInputEvent::kMouseMove;
+        return WebInputEvent::Type::kMouseMove;
     case QEvent::Wheel:
-        return WebInputEvent::kMouseWheel;
+        return WebInputEvent::Type::kMouseWheel;
     case QEvent::KeyPress:
-        return WebInputEvent::kRawKeyDown;
+        return WebInputEvent::Type::kRawKeyDown;
     case QEvent::KeyRelease:
-        return WebInputEvent::kKeyUp;
+        return WebInputEvent::Type::kKeyUp;
     case QEvent::HoverMove:
-        return WebInputEvent::kMouseMove;
+        return WebInputEvent::Type::kMouseMove;
     case QEvent::TouchBegin:
-        return WebInputEvent::kTouchStart;
+        return WebInputEvent::Type::kTouchStart;
     case QEvent::TouchUpdate:
-        return WebInputEvent::kTouchMove;
+        return WebInputEvent::Type::kTouchMove;
     case QEvent::TouchEnd:
-        return WebInputEvent::kTouchEnd;
+        return WebInputEvent::Type::kTouchEnd;
     case QEvent::TouchCancel:
-        return WebInputEvent::kTouchCancel;
+        return WebInputEvent::Type::kTouchCancel;
     default:
         Q_ASSERT(false);
-        return WebInputEvent::kMouseMove;
+        return WebInputEvent::Type::kMouseMove;
     }
 }
 
@@ -1419,12 +1441,14 @@ static WebInputEvent::Type webEventTypeForEvent(const QEvent* event)
 static WebPointerProperties::PointerType pointerTypeForTabletEvent(const QTabletEvent *ev)
 {
     switch (ev->pointerType()) {
-    case QTabletEvent::UnknownPointer:
+    case QPointingDevice::PointerType::Unknown:
         return WebPointerProperties::PointerType::kUnknown;
-    case QTabletEvent::Pen:
+    case QPointingDevice::PointerType::Pen:
         return WebPointerProperties::PointerType::kPen;
-    case QTabletEvent::Eraser:
+    case QPointingDevice::PointerType::Eraser:
         return WebPointerProperties::PointerType::kEraser;
+    case QPointingDevice::PointerType::Finger:
+        return WebPointerProperties::PointerType::kTouch;
     default:
         return WebPointerProperties::PointerType::kMouse;
     }
@@ -1434,8 +1458,8 @@ static WebPointerProperties::PointerType pointerTypeForTabletEvent(const QTablet
 WebMouseEvent WebEventFactory::toWebMouseEvent(QMouseEvent *ev)
 {
     WebMouseEvent webKitEvent(webEventTypeForEvent(ev),
-                              gfx::PointF(ev->x(), ev->y()),
-                              gfx::PointF(ev->globalX(), ev->globalY()),
+                              gfx::PointF(ev->position().x(), ev->position().y()),
+                              gfx::PointF(ev->globalPosition().x(), ev->globalPosition().y()),
                               mouseButtonForEvent<QMouseEvent>(ev),
                               0,
                               modifiersForEvent(ev),
@@ -1453,9 +1477,9 @@ WebMouseEvent WebEventFactory::toWebMouseEvent(QHoverEvent *ev)
     webKitEvent.SetModifiers(modifiersForEvent(ev));
     webKitEvent.SetType(webEventTypeForEvent(ev));
 
-    webKitEvent.SetPositionInWidget(ev->pos().x(), ev->pos().y());
-    webKitEvent.movement_x = ev->pos().x() - ev->oldPos().x();
-    webKitEvent.movement_y = ev->pos().y() - ev->oldPos().y();
+    webKitEvent.SetPositionInWidget(ev->position().x(), ev->position().y());
+    webKitEvent.movement_x = ev->position().x() - ev->oldPos().x();
+    webKitEvent.movement_y = ev->position().y() - ev->oldPos().y();
     webKitEvent.pointer_type = WebPointerProperties::PointerType::kMouse;
 
     return webKitEvent;
@@ -1465,8 +1489,8 @@ WebMouseEvent WebEventFactory::toWebMouseEvent(QHoverEvent *ev)
 WebMouseEvent WebEventFactory::toWebMouseEvent(QTabletEvent *ev)
 {
     WebMouseEvent webKitEvent(webEventTypeForEvent(ev),
-                              gfx::PointF(ev->x(), ev->y()),
-                              gfx::PointF(ev->globalX(), ev->globalY()),
+                              gfx::PointF(ev->position().x(), ev->position().y()),
+                              gfx::PointF(ev->globalPosition().x(), ev->globalPosition().y()),
                               mouseButtonForEvent<QTabletEvent>(ev),
                               0,
                               modifiersForEvent(ev),
@@ -1488,7 +1512,7 @@ WebMouseEvent WebEventFactory::toWebMouseEvent(QEvent *ev)
 
     WebMouseEvent webKitEvent;
     webKitEvent.SetTimeStamp(base::TimeTicks::Now());
-    webKitEvent.SetType(WebInputEvent::kMouseLeave);
+    webKitEvent.SetType(WebInputEvent::Type::kMouseLeave);
     return webKitEvent;
 }
 
@@ -1499,29 +1523,37 @@ WebGestureEvent WebEventFactory::toWebGestureEvent(QNativeGestureEvent *ev)
     webKitEvent.SetTimeStamp(base::TimeTicks::Now());
     webKitEvent.SetModifiers(modifiersForEvent(ev));
 
-    webKitEvent.SetPositionInWidget(gfx::PointF(ev->localPos().x(), ev->localPos().y()));
+    webKitEvent.SetPositionInWidget(gfx::PointF(ev->position().x(),
+                                                ev->position().y()));
 
-    webKitEvent.SetPositionInScreen(gfx::PointF(ev->screenPos().x(), ev->screenPos().y()));
+    webKitEvent.SetPositionInScreen(gfx::PointF(ev->globalPosition().x(),
+                                                ev->globalPosition().y()));
 
     webKitEvent.SetSourceDevice(blink::WebGestureDevice::kTouchpad);
 
     Qt::NativeGestureType gestureType = ev->gestureType();
     switch (gestureType) {
     case Qt::ZoomNativeGesture:
-        webKitEvent.SetType(WebInputEvent::kGesturePinchUpdate);
+        webKitEvent.SetType(WebInputEvent::Type::kGesturePinchUpdate);
         webKitEvent.data.pinch_update.scale = static_cast<float>(ev->value() + 1.0);
         break;
     case Qt::SmartZoomNativeGesture:
-        webKitEvent.SetType(WebInputEvent::kGestureDoubleTap);
+        webKitEvent.SetType(WebInputEvent::Type::kGestureDoubleTap);
         webKitEvent.data.tap.tap_count = 1;
         break;
     case Qt::BeginNativeGesture:
+        webKitEvent.SetType(WebInputEvent::Type::kGesturePinchBegin);
+        webKitEvent.SetNeedsWheelEvent(true);
+        break;
     case Qt::EndNativeGesture:
+        webKitEvent.SetType(WebInputEvent::Type::kGesturePinchEnd);
+        webKitEvent.SetNeedsWheelEvent(true);
+        break;
     case Qt::RotateNativeGesture:
     case Qt::PanNativeGesture:
     case Qt::SwipeNativeGesture:
         // Not implemented by Chromium for now.
-        webKitEvent.SetType(blink::WebInputEvent::kUndefined);
+        webKitEvent.SetType(blink::WebInputEvent::Type::kUndefined);
         break;
     }
 
@@ -1552,12 +1584,10 @@ blink::WebMouseWheelEvent::Phase toBlinkPhase(QWheelEvent *ev)
 {
     switch (ev->phase()) {
     case Qt::NoScrollPhase:
-#if (QT_VERSION >= QT_VERSION_CHECK(5, 12, 0))
     case Qt::ScrollMomentum:
-#endif
         return blink::WebMouseWheelEvent::kPhaseNone;
     case Qt::ScrollBegin:
-        return ev->angleDelta().isNull() ? blink::WebMouseWheelEvent::kPhaseMayBegin : blink::WebMouseWheelEvent::kPhaseBegan;
+        return blink::WebMouseWheelEvent::kPhaseBegan;
     case Qt::ScrollUpdate:
         return blink::WebMouseWheelEvent::kPhaseChanged;
     case Qt::ScrollEnd:
@@ -1573,15 +1603,10 @@ blink::WebMouseWheelEvent WebEventFactory::toWebWheelEvent(QWheelEvent *ev)
     webEvent.SetType(webEventTypeForEvent(ev));
     webEvent.SetModifiers(modifiersForEvent(ev));
     webEvent.SetTimeStamp(base::TimeTicks::Now());
-#if QT_VERSION < QT_VERSION_CHECK(5, 14, 0)
-    webEvent.SetPositionInWidget(ev->x(), ev->y());
-    webEvent.SetPositionInScreen(ev->globalX(), ev->globalY());
-#else
     webEvent.SetPositionInWidget(static_cast<float>(ev->position().x()),
                                  static_cast<float>(ev->position().y()));
     webEvent.SetPositionInScreen(static_cast<float>(ev->globalPosition().x()),
                                  static_cast<float>(ev->globalPosition().y()));
-#endif
 
     webEvent.wheel_ticks_x = static_cast<float>(ev->angleDelta().x()) / QWheelEvent::DefaultDeltasPerStep;
     webEvent.wheel_ticks_y = static_cast<float>(ev->angleDelta().y()) / QWheelEvent::DefaultDeltasPerStep;
@@ -1612,15 +1637,10 @@ bool WebEventFactory::coalesceWebWheelEvent(blink::WebMouseWheelEvent &webEvent,
 #endif
 
     webEvent.SetTimeStamp(base::TimeTicks::Now());
-#if QT_VERSION < QT_VERSION_CHECK(5, 14, 0)
-    webEvent.SetPositionInWidget(ev->x(), ev->y());
-    webEvent.SetPositionInScreen(ev->globalX(), ev->globalY());
-#else
     webEvent.SetPositionInWidget(static_cast<float>(ev->position().x()),
                                  static_cast<float>(ev->position().y()));
     webEvent.SetPositionInScreen(static_cast<float>(ev->globalPosition().x()),
                                  static_cast<float>(ev->globalPosition().y()));
-#endif
 
     webEvent.wheel_ticks_x += static_cast<float>(ev->angleDelta().x()) / QWheelEvent::DefaultDeltasPerStep;
     webEvent.wheel_ticks_y += static_cast<float>(ev->angleDelta().y()) / QWheelEvent::DefaultDeltasPerStep;
@@ -1637,7 +1657,7 @@ static QPointF toQt(gfx::PointF p)
 void WebEventFactory::sendUnhandledWheelEvent(const blink::WebGestureEvent &event,
                                               RenderWidgetHostViewQtDelegate *delegate)
 {
-    Q_ASSERT(event.GetType() == blink::WebInputEvent::kGestureScrollUpdate);
+    Q_ASSERT(event.GetType() == blink::WebInputEvent::Type::kGestureScrollUpdate);
 
     QWheelEvent ev(toQt(event.PositionInWidget()),
                    toQt(event.PositionInScreen()),

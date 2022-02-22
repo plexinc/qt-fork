@@ -12,9 +12,9 @@
 
 #include "base/auto_reset.h"
 #include "base/bind.h"
+#include "base/containers/contains.h"
 #include "base/files/file_util.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/stl_util.h"
 #include "sql/database.h"
 #include "sql/meta_table.h"
 #include "sql/statement.h"
@@ -38,20 +38,9 @@ const char kOriginInfoTable[] = "OriginInfoTable";
 const char kEvictionInfoTable[] = "EvictionInfoTable";
 const char kIsOriginTableBootstrapped[] = "IsOriginTableBootstrapped";
 
-bool VerifyValidQuotaConfig(const char* key) {
-  return (key != nullptr &&
-          (!strcmp(key, QuotaDatabase::kDesiredAvailableSpaceKey) ||
-           !strcmp(key, QuotaDatabase::kTemporaryQuotaOverrideKey)));
-}
-
 const int kCommitIntervalMs = 30000;
 
 }  // anonymous namespace
-
-// static
-const char QuotaDatabase::kDesiredAvailableSpaceKey[] = "DesiredAvailableSpace";
-const char QuotaDatabase::kTemporaryQuotaOverrideKey[] =
-    "TemporaryQuotaOverride";
 
 const QuotaDatabase::TableSchema QuotaDatabase::kTables[] = {
     {kHostQuotaTable,
@@ -137,12 +126,6 @@ QuotaDatabase::~QuotaDatabase() {
   if (db_) {
     db_->CommitTransaction();
   }
-}
-
-void QuotaDatabase::CloseDatabase() {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  meta_table_.reset();
-  db_.reset();
 }
 
 bool QuotaDatabase::GetHostQuota(const std::string& host,
@@ -417,22 +400,6 @@ bool QuotaDatabase::DeleteOriginInfo(const url::Origin& origin,
   return true;
 }
 
-bool QuotaDatabase::GetQuotaConfigValue(const char* key, int64_t* value) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  if (!LazyOpen(false))
-    return false;
-  DCHECK(VerifyValidQuotaConfig(key));
-  return meta_table_->GetValue(key, value);
-}
-
-bool QuotaDatabase::SetQuotaConfigValue(const char* key, int64_t value) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  if (!LazyOpen(true))
-    return false;
-  DCHECK(VerifyValidQuotaConfig(key));
-  return meta_table_->SetValue(key, value);
-}
-
 bool QuotaDatabase::GetLRUOrigin(StorageType type,
                                  const std::set<url::Origin>& exceptions,
                                  SpecialStoragePolicy* special_storage_policy,
@@ -470,20 +437,34 @@ bool QuotaDatabase::GetLRUOrigin(StorageType type,
   return statement.Succeeded();
 }
 
-bool QuotaDatabase::GetOriginsModifiedSince(StorageType type,
-                                            std::set<url::Origin>* origins,
-                                            base::Time modified_since) {
+bool QuotaDatabase::GetOriginsModifiedBetween(StorageType type,
+                                              std::set<url::Origin>* origins,
+                                              base::Time begin,
+                                              base::Time end) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(origins);
   if (!LazyOpen(false))
     return false;
 
-  const char* kSql = "SELECT origin FROM OriginInfoTable"
-                     " WHERE type = ? AND last_modified_time >= ?";
+  DCHECK(!begin.is_max() && end != base::Time());
+  static constexpr char kSqlQuerySince[] =
+      "SELECT origin FROM OriginInfoTable"
+      " WHERE type = ? AND last_modified_time >= ?";
 
-  sql::Statement statement(db_->GetCachedStatement(SQL_FROM_HERE, kSql));
+  static constexpr char kSqlQueryBetween[] =
+      "SELECT origin FROM OriginInfoTable"
+      " WHERE type = ? AND last_modified_time >= ? AND last_modified_time < ?";
+
+  sql::Statement statement;
+  if (end.is_max()) {
+    statement.Assign(db_->GetCachedStatement(SQL_FROM_HERE, kSqlQuerySince));
+  } else {
+    statement.Assign(db_->GetCachedStatement(SQL_FROM_HERE, kSqlQueryBetween));
+  }
   statement.BindInt(0, static_cast<int>(type));
-  statement.BindInt64(1, TimeToSqlValue(modified_since));
+  statement.BindInt64(1, TimeToSqlValue(begin));
+  if (!end.is_max())
+    statement.BindInt64(2, TimeToSqlValue(end));
 
   origins->clear();
   while (statement.Step())

@@ -31,11 +31,13 @@
 #ifndef VIEW_PROPERTIES_GLSLLIB
 #define VIEW_PROPERTIES_GLSLLIB
 
-uniform mat4 viewProjectionMatrix;
-uniform mat4 viewMatrix;
-uniform vec2 cameraProperties; //near clip x, far clip y
-#ifndef SSAO_CUSTOM_MATERIAL_GLSLLIB
-uniform vec3 cameraPosition; //position in world space of the camera
-#endif
+#ifdef QQ3D_SHADER_META
+/*{
+    "uniforms": [
+                  { "type": "vec2", "name": "qt_cameraProperties" },
+                  { "type": "vec3", "name": "qt_cameraPosition" }
+    ]
+}*/
+#endif // QQ3D_SHADER_META
 
 #endif

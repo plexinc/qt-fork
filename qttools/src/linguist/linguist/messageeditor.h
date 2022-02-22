@@ -64,14 +64,15 @@ class MessageEditor : public QScrollArea
 
 public:
     MessageEditor(MultiDataModel *dataModel, QMainWindow *parent = 0);
+    ~MessageEditor();
 
     void showNothing();
     void showMessage(const MultiDataIndex &index);
     void setNumerusForms(int model, const QStringList &numerusForms);
-    bool eventFilter(QObject *, QEvent *);
-    void setTranslation(int model, const QString &translation, int numerus);
+    bool eventFilter(QObject *, QEvent *) override;
+    void setNumerusTranslation(int model, const QString &translation, int numerus);
     int activeModel() const { return (m_editors.count() != 1) ? m_currentModel : 0; }
-    void setEditorFocus(int model);
+    void setEditorFocusForModel(int model);
     void setUnfinishedEditorFocus();
     bool focusNextUnfinished();
     void setVisualizeWhitespace(bool value);

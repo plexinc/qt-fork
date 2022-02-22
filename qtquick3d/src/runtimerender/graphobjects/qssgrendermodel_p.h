@@ -43,9 +43,10 @@
 //
 
 #include <QtQuick3DRuntimeRender/private/qssgrendernode_p.h>
-#include <QtQuick3DRuntimeRender/private/qssgrendertessmodevalues_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrendermesh_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrendergeometry_p.h>
+#include <QtQuick3DRuntimeRender/private/qssgrenderskeleton_p.h>
+#include <QtQuick3DRuntimeRender/private/qssgrenderinstancetable_p.h>
 
 #include <QtQuick3DUtils/private/qssgbounds3_p.h>
 #include <QtCore/QVector>
@@ -53,21 +54,34 @@
 QT_BEGIN_NAMESPACE
 
 struct QSSGRenderDefaultMaterial;
+struct QSSGParticleBuffer;
 class QSSGBufferManager;
 
 struct Q_QUICK3DRUNTIMERENDER_EXPORT QSSGRenderModel : public QSSGRenderNode
 {
-    // Complete path to the file;
-    //*not* relative to the presentation directory
     QVector<QSSGRenderGraphObject *> materials;
+    QVector<QSSGRenderGraphObject *> morphTargets;
     QSSGRenderGeometry *geometry = nullptr;
-    QSSGRenderMeshPath meshPath;
-    float edgeTessellation = 1.0f;
-    float innerTessellation = 1.0f;
-    TessellationModeValues tessellationMode = TessellationModeValues::NoTessellation;
-    bool wireframeMode = false;
+    QSSGRenderPath meshPath;
+    QSSGRenderSkeleton *skeleton = nullptr;
+    QVector<QMatrix4x4> inverseBindPoses;
+    float m_depthBias = 0.0f;
     bool castsShadows = true;
     bool receivesShadows = true;
+    bool skinningDirty = false;
+    bool skeletonContainsNonJointNodes = false;
+    QVector<QMatrix4x4> boneTransforms;
+    QVector<QMatrix3x3> boneNormalTransforms;
+    QSSGRenderInstanceTable *instanceTable = nullptr;
+    int instanceCount() const { return instanceTable ? instanceTable->count() : 0; }
+    bool instancing() const { return instanceTable;}
+
+    QSSGParticleBuffer *particleBuffer = nullptr;
+    QMatrix4x4 particleMatrix;
+    bool hasTransparency = false;
+
+    QVector<float> morphWeights;
+    QVector<quint32> morphAttributes;
 
     QSSGRenderModel();
 

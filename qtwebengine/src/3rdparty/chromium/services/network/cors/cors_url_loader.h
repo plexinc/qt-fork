@@ -51,8 +51,10 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) CorsURLLoader
       const net::MutableNetworkTrafficAnnotationTag& traffic_annotation,
       mojom::URLLoaderFactory* network_loader_factory,
       const OriginAccessList* origin_access_list,
-      const OriginAccessList* factory_bound_origin_access_list,
-      PreflightController* preflight_controller);
+      PreflightController* preflight_controller,
+      const base::flat_set<std::string>* allowed_exempt_headers,
+      bool allow_any_cors_exempt_header,
+      const net::IsolationInfo& isolation_info);
 
   ~CorsURLLoader() override;
 
@@ -61,9 +63,11 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) CorsURLLoader
   void Start();
 
   // mojom::URLLoader overrides:
-  void FollowRedirect(const std::vector<std::string>& removed_headers,
-                      const net::HttpRequestHeaders& modified_headers,
-                      const base::Optional<GURL>& new_url) override;
+  void FollowRedirect(
+      const std::vector<std::string>& removed_headers,
+      const net::HttpRequestHeaders& modified_headers,
+      const net::HttpRequestHeaders& modified_cors_exempt_headers,
+      const base::Optional<GURL>& new_url) override;
   void SetPriority(net::RequestPriority priority,
                    int intra_priority_value) override;
   void PauseReadingBodyFromNet() override;
@@ -113,8 +117,8 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) CorsURLLoader
 
   void SetCorsFlagIfNeeded();
 
-  // Returns true if request's origin has special access to the destination
-  // URL (via |origin_access_list_| and |factory_bound_origin_access_list_|).
+  // Returns true if request's origin has special access to the destination URL
+  // (via |origin_access_list_|).
   bool HasSpecialAccessToDestination() const;
 
   bool PassesTimingAllowOriginCheck(
@@ -179,11 +183,17 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) CorsURLLoader
 
   // Outlives |this|.
   const OriginAccessList* const origin_access_list_;
-  const OriginAccessList* const factory_bound_origin_access_list_;
   PreflightController* preflight_controller_;
+  const base::flat_set<std::string>* allowed_exempt_headers_;
 
   // Flag to specify if the CORS-enabled scheme check should be applied.
   const bool skip_cors_enabled_scheme_check_;
+
+  const bool allow_any_cors_exempt_header_;
+
+  net::IsolationInfo isolation_info_;
+
+  bool has_cors_been_affected_by_isolated_world_origin_ = false;
 
   // Used to run asynchronous class instance bound callbacks safely.
   base::WeakPtrFactory<CorsURLLoader> weak_factory_{this};

@@ -40,7 +40,7 @@
 // After submitting changes to this file, you will need to follow the
 // instructions at go/quic_client_binary_update
 
-#include "net/third_party/quiche/src/quic/tools/quic_toy_client.h"
+#include "quic/tools/quic_toy_client.h"
 
 #include <iostream>
 #include <memory>
@@ -48,22 +48,24 @@
 #include <utility>
 #include <vector>
 
-#include "net/third_party/quiche/src/quic/core/quic_packets.h"
-#include "net/third_party/quiche/src/quic/core/quic_server_id.h"
-#include "net/third_party/quiche/src/quic/core/quic_utils.h"
-#include "net/third_party/quiche/src/quic/core/quic_versions.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_default_proof_providers.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_socket_address.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_system_event_loop.h"
-#include "net/third_party/quiche/src/quic/tools/fake_proof_verifier.h"
-#include "net/third_party/quiche/src/quic/tools/quic_url.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_text_utils.h"
+#include "absl/strings/escaping.h"
+#include "absl/strings/str_split.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/quic_packets.h"
+#include "quic/core/quic_server_id.h"
+#include "quic/core/quic_utils.h"
+#include "quic/core/quic_versions.h"
+#include "quic/platform/api/quic_default_proof_providers.h"
+#include "quic/platform/api/quic_ip_address.h"
+#include "quic/platform/api/quic_socket_address.h"
+#include "quic/platform/api/quic_system_event_loop.h"
+#include "quic/tools/fake_proof_verifier.h"
+#include "quic/tools/quic_url.h"
+#include "common/platform/api/quiche_text_utils.h"
 
 namespace {
 
 using quic::QuicUrl;
-using quiche::QuicheStringPiece;
 using quiche::QuicheTextUtils;
 
 }  // namespace
@@ -76,6 +78,12 @@ DEFINE_QUIC_COMMAND_LINE_FLAG(
     "will be derived from the provided URL.");
 
 DEFINE_QUIC_COMMAND_LINE_FLAG(int32_t, port, 0, "The port to connect to.");
+
+DEFINE_QUIC_COMMAND_LINE_FLAG(std::string,
+                              ip_version_for_host_lookup,
+                              "",
+                              "Only used if host address lookup is needed. "
+                              "4=ipv4; 6=ipv6; otherwise=don't care.");
 
 DEFINE_QUIC_COMMAND_LINE_FLAG(std::string,
                               body,
@@ -109,6 +117,20 @@ DEFINE_QUIC_COMMAND_LINE_FLAG(
     "versions are offered in the handshake. Also supports wire versions "
     "such as Q043 or T099.");
 
+DEFINE_QUIC_COMMAND_LINE_FLAG(
+    std::string,
+    connection_options,
+    "",
+    "Connection options as ASCII tags separated by commas, "
+    "e.g. \"ABCD,EFGH\"");
+
+DEFINE_QUIC_COMMAND_LINE_FLAG(
+    std::string,
+    client_connection_options,
+    "",
+    "Client connection options as ASCII tags separated by commas, "
+    "e.g. \"ABCD,EFGH\"");
+
 DEFINE_QUIC_COMMAND_LINE_FLAG(bool,
                               quic_ietf_draft,
                               false,
@@ -129,6 +151,13 @@ DEFINE_QUIC_COMMAND_LINE_FLAG(
     false,
     "If true, start by proposing a version that is reserved for version "
     "negotiation.");
+
+DEFINE_QUIC_COMMAND_LINE_FLAG(
+    bool,
+    multi_packet_chlo,
+    false,
+    "If true, add a transport parameter to make the ClientHello span two "
+    "packets. Only works with QUIC+TLS.");
 
 DEFINE_QUIC_COMMAND_LINE_FLAG(
     bool,
@@ -164,6 +193,16 @@ DEFINE_QUIC_COMMAND_LINE_FLAG(
     disable_port_changes,
     false,
     "If true, do not change local port after each request.");
+
+DEFINE_QUIC_COMMAND_LINE_FLAG(int32_t,
+                              server_connection_id_length,
+                              -1,
+                              "Length of the server connection ID used.");
+
+DEFINE_QUIC_COMMAND_LINE_FLAG(int32_t,
+                              client_connection_id_length,
+                              -1,
+                              "Length of the client connection ID used.");
 
 namespace quic {
 
@@ -222,9 +261,39 @@ int QuicToyClient::SendRequestsAndPrintResponses(
     proof_verifier = quic::CreateDefaultProofVerifier(url.host());
   }
 
+  QuicConfig config;
+  std::string connection_options_string = GetQuicFlag(FLAGS_connection_options);
+  if (!connection_options_string.empty()) {
+    config.SetConnectionOptionsToSend(
+        ParseQuicTagVector(connection_options_string));
+  }
+  std::string client_connection_options_string =
+      GetQuicFlag(FLAGS_client_connection_options);
+  if (!client_connection_options_string.empty()) {
+    config.SetClientConnectionOptions(
+        ParseQuicTagVector(client_connection_options_string));
+  }
+  if (GetQuicFlag(FLAGS_multi_packet_chlo)) {
+    // Make the ClientHello span multiple packets by adding a custom transport
+    // parameter.
+    constexpr auto kCustomParameter =
+        static_cast<TransportParameters::TransportParameterId>(0x173E);
+    std::string custom_value(2000, '?');
+    config.custom_transport_parameters_to_send()[kCustomParameter] =
+        custom_value;
+  }
+
+  int address_family_for_lookup = AF_UNSPEC;
+  if (GetQuicFlag(FLAGS_ip_version_for_host_lookup) == "4") {
+    address_family_for_lookup = AF_INET;
+  } else if (GetQuicFlag(FLAGS_ip_version_for_host_lookup) == "6") {
+    address_family_for_lookup = AF_INET6;
+  }
+
   // Build the client, and try to connect.
   std::unique_ptr<QuicSpdyClientBase> client = client_factory_->CreateClient(
-      url.host(), host, port, versions, std::move(proof_verifier));
+      url.host(), host, address_family_for_lookup, port, versions, config,
+      std::move(proof_verifier));
 
   if (client == nullptr) {
     std::cerr << "Failed to create client." << std::endl;
@@ -235,6 +304,16 @@ int QuicToyClient::SendRequestsAndPrintResponses(
   client->set_initial_max_packet_length(
       initial_mtu != 0 ? initial_mtu : quic::kDefaultMaxPacketSize);
   client->set_drop_response_body(GetQuicFlag(FLAGS_drop_response_body));
+  const int32_t server_connection_id_length =
+      GetQuicFlag(FLAGS_server_connection_id_length);
+  if (server_connection_id_length >= 0) {
+    client->set_server_connection_id_length(server_connection_id_length);
+  }
+  const int32_t client_connection_id_length =
+      GetQuicFlag(FLAGS_client_connection_id_length);
+  if (client_connection_id_length >= 0) {
+    client->set_client_connection_id_length(client_connection_id_length);
+  }
   if (!client->Initialize()) {
     std::cerr << "Failed to initialize client." << std::endl;
     return 1;
@@ -258,13 +337,13 @@ int QuicToyClient::SendRequestsAndPrintResponses(
   // Construct the string body from flags, if provided.
   std::string body = GetQuicFlag(FLAGS_body);
   if (!GetQuicFlag(FLAGS_body_hex).empty()) {
-    DCHECK(GetQuicFlag(FLAGS_body).empty())
+    QUICHE_DCHECK(GetQuicFlag(FLAGS_body).empty())
         << "Only set one of --body and --body_hex.";
-    body = QuicheTextUtils::HexDecode(GetQuicFlag(FLAGS_body_hex));
+    body = absl::HexStringToBytes(GetQuicFlag(FLAGS_body_hex));
   }
 
   // Construct a GET or POST request for supplied URL.
-  spdy::SpdyHeaderBlock header_block;
+  spdy::Http2HeaderBlock header_block;
   header_block[":method"] = body.empty() ? "GET" : "POST";
   header_block[":scheme"] = url.scheme();
   header_block[":authority"] = url.HostPort();
@@ -272,12 +351,12 @@ int QuicToyClient::SendRequestsAndPrintResponses(
 
   // Append any additional headers supplied on the command line.
   const std::string headers = GetQuicFlag(FLAGS_headers);
-  for (QuicheStringPiece sp : QuicheTextUtils::Split(headers, ';')) {
+  for (absl::string_view sp : absl::StrSplit(headers, ';')) {
     QuicheTextUtils::RemoveLeadingAndTrailingWhitespace(&sp);
     if (sp.empty()) {
       continue;
     }
-    std::vector<QuicheStringPiece> kv = QuicheTextUtils::Split(sp, ':');
+    std::vector<absl::string_view> kv = absl::StrSplit(sp, ':');
     QuicheTextUtils::RemoveLeadingAndTrailingWhitespace(&kv[0]);
     QuicheTextUtils::RemoveLeadingAndTrailingWhitespace(&kv[1]);
     header_block[kv[0]] = kv[1];
@@ -297,8 +376,8 @@ int QuicToyClient::SendRequestsAndPrintResponses(
       if (!GetQuicFlag(FLAGS_body_hex).empty()) {
         // Print the user provided hex, rather than binary body.
         std::cout << "body:\n"
-                  << QuicheTextUtils::HexDump(QuicheTextUtils::HexDecode(
-                         GetQuicFlag(FLAGS_body_hex)))
+                  << QuicheTextUtils::HexDump(
+                         absl::HexStringToBytes(GetQuicFlag(FLAGS_body_hex)))
                   << std::endl;
       } else {
         std::cout << "body: " << body << std::endl;

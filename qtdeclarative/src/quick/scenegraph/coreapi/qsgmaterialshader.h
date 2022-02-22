@@ -41,21 +41,19 @@
 #define QSGMATERIALSHADER_H
 
 #include <QtQuick/qtquickglobal.h>
-#if QT_CONFIG(opengl)
-# include <QtGui/qopenglshaderprogram.h>
-#endif
-#include <QtGui/QMatrix4x4>
 #include <QtCore/QRect>
-#include <QtQuick/qsgmaterialtype.h> // for source compat
+#include <QtGui/QMatrix4x4>
+#include <QtGui/QColor>
+#include <QtQuick/qsgmaterialtype.h>
 
 QT_BEGIN_NAMESPACE
 
 class QSGMaterial;
 class QSGMaterialShaderPrivate;
-
-namespace QSGBatchRenderer {
-    class ShaderManager;
-}
+class QSGTexture;
+class QRhiResourceUpdateBatch;
+class QRhi;
+class QShader;
 
 class Q_QUICK_EXPORT QSGMaterialShader
 {
@@ -73,9 +71,8 @@ public:
 
         inline DirtyStates dirtyStates() const { return m_dirty; }
 
-        inline bool isMatrixDirty() const { return m_dirty & DirtyMatrix; }
-        inline bool isOpacityDirty() const { return m_dirty & DirtyOpacity; }
-        bool isCachedMaterialDataDirty() const { return m_dirty & DirtyCachedMaterialData; }
+        inline bool isMatrixDirty() const { return m_dirty & QSGMaterialShader::RenderState::DirtyMatrix; }
+        inline bool isOpacityDirty() const { return m_dirty & QSGMaterialShader::RenderState::DirtyOpacity; }
 
         float opacity() const;
         QMatrix4x4 combinedMatrix() const;
@@ -85,51 +82,106 @@ public:
         QRect deviceRect() const;
         float determinant() const;
         float devicePixelRatio() const;
-#if QT_CONFIG(opengl)
-        QOpenGLContext *context() const;
-#endif
+
+        QByteArray *uniformData();
+        QRhiResourceUpdateBatch *resourceUpdateBatch();
+        QRhi *rhi();
+
     private:
         friend class QSGRenderer;
         DirtyStates m_dirty;
         const void *m_data;
     };
 
+    struct Q_QUICK_EXPORT GraphicsPipelineState {
+        enum BlendFactor {
+            Zero,
+            One,
+            SrcColor,
+            OneMinusSrcColor,
+            DstColor,
+            OneMinusDstColor,
+            SrcAlpha,
+            OneMinusSrcAlpha,
+            DstAlpha,
+            OneMinusDstAlpha,
+            ConstantColor,
+            OneMinusConstantColor,
+            ConstantAlpha,
+            OneMinusConstantAlpha,
+            SrcAlphaSaturate,
+            Src1Color,
+            OneMinusSrc1Color,
+            Src1Alpha,
+            OneMinusSrc1Alpha
+        };
+
+        enum ColorMaskComponent {
+            R = 1 << 0,
+            G = 1 << 1,
+            B = 1 << 2,
+            A = 1 << 3
+        };
+        Q_DECLARE_FLAGS(ColorMask, ColorMaskComponent)
+
+        enum CullMode {
+            CullNone,
+            CullFront,
+            CullBack
+        };
+
+        bool blendEnable;
+        BlendFactor srcColor;
+        BlendFactor dstColor;
+        ColorMask colorWrite;
+        QColor blendConstant;
+        CullMode cullMode;
+        // This struct is extensible while keeping BC since apps only ever get
+        // a ptr to the struct, it is not created by them.
+    };
+
+    enum Flag {
+        UpdatesGraphicsPipelineState = 0x0001
+    };
+    Q_DECLARE_FLAGS(Flags, Flag)
+
+    enum Stage {
+        VertexStage,
+        FragmentStage,
+    };
+
     QSGMaterialShader();
     virtual ~QSGMaterialShader();
 
-    virtual void activate();
-    virtual void deactivate();
-    // First time a material is used, oldMaterial is null.
-    virtual void updateState(const RenderState &state, QSGMaterial *newMaterial, QSGMaterial *oldMaterial);
-    virtual char const *const *attributeNames() const = 0; // Array must end with null.
-#if QT_CONFIG(opengl)
-    inline QOpenGLShaderProgram *program() { return &m_program; }
-#endif
+    virtual bool updateUniformData(RenderState &state,
+                                   QSGMaterial *newMaterial, QSGMaterial *oldMaterial);
+
+    virtual void updateSampledImage(RenderState &state, int binding, QSGTexture **texture,
+                                    QSGMaterial *newMaterial, QSGMaterial *oldMaterial);
+
+    virtual bool updateGraphicsPipelineState(RenderState &state, GraphicsPipelineState *ps,
+                                             QSGMaterial *newMaterial, QSGMaterial *oldMaterial);
+
+    Flags flags() const;
+    void setFlag(Flags flags, bool on = true);
+    void setFlags(Flags flags);
+
 protected:
     Q_DECLARE_PRIVATE(QSGMaterialShader)
     QSGMaterialShader(QSGMaterialShaderPrivate &dd);
 
-    friend class QSGDefaultRenderContext;
-    friend class QSGBatchRenderer::ShaderManager;
-#if QT_CONFIG(opengl)
-    void setShaderSourceFile(QOpenGLShader::ShaderType type, const QString &sourceFile);
-    void setShaderSourceFiles(QOpenGLShader::ShaderType type, const QStringList &sourceFiles);
+    // filename is for a file containing a serialized QShader.
+    void setShaderFileName(Stage stage, const QString &filename);
 
-    virtual void compile();
-#endif
-    virtual void initialize() { }
-#if QT_CONFIG(opengl)
-    virtual const char *vertexShader() const;
-    virtual const char *fragmentShader() const;
-#endif
+    void setShader(Stage stage, const QShader &shader);
+
 private:
-#if QT_CONFIG(opengl)
-    QOpenGLShaderProgram m_program;
-#endif
     QScopedPointer<QSGMaterialShaderPrivate> d_ptr;
 };
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(QSGMaterialShader::RenderState::DirtyStates)
+Q_DECLARE_OPERATORS_FOR_FLAGS(QSGMaterialShader::GraphicsPipelineState::ColorMask)
+Q_DECLARE_OPERATORS_FOR_FLAGS(QSGMaterialShader::Flags)
 
 QT_END_NAMESPACE
 

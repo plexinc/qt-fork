@@ -7,7 +7,6 @@
 
 #include <memory>
 #include "base/gtest_prod_util.h"
-#include "cc/animation/animation_curve.h"
 #include "cc/animation/scroll_offset_animations.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/scroll/scroll_types.h"
@@ -16,6 +15,7 @@
 #include "third_party/blink/renderer/platform/graphics/compositor_element_id.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
+#include "ui/gfx/animation/keyframe/animation_curve.h"
 
 namespace blink {
 
@@ -34,7 +34,6 @@ class CORE_EXPORT ScrollAnimatorCompositorCoordinator
     : public GarbageCollected<ScrollAnimatorCompositorCoordinator>,
       private CompositorAnimationClient,
       CompositorAnimationDelegate {
-  DISALLOW_COPY_AND_ASSIGN(ScrollAnimatorCompositorCoordinator);
   USING_PRE_FINALIZER(ScrollAnimatorCompositorCoordinator, Dispose);
 
  public:
@@ -82,6 +81,10 @@ class CORE_EXPORT ScrollAnimatorCompositorCoordinator
     kRunningOnCompositorButNeedsAdjustment,
   };
 
+  ScrollAnimatorCompositorCoordinator(
+      const ScrollAnimatorCompositorCoordinator&) = delete;
+  ScrollAnimatorCompositorCoordinator& operator=(
+      const ScrollAnimatorCompositorCoordinator&) = delete;
   ~ScrollAnimatorCompositorCoordinator() override;
 
   bool HasAnimationThatRequiresService() const;
@@ -106,12 +109,11 @@ class CORE_EXPORT ScrollAnimatorCompositorCoordinator
   virtual void TickAnimation(double monotonic_time) = 0;
   virtual void NotifyCompositorAnimationFinished(int group_id) = 0;
   virtual void NotifyCompositorAnimationAborted(int group_id) = 0;
-  virtual void LayerForCompositedScrollingDidChange(
-      CompositorAnimationTimeline*) = 0;
+  virtual void MainThreadScrollingDidChange() = 0;
 
   RunState RunStateForTesting() { return run_state_; }
 
-  virtual void Trace(Visitor* visitor) {}
+  virtual void Trace(Visitor* visitor) const {}
 
  protected:
   explicit ScrollAnimatorCompositorCoordinator();
@@ -152,7 +154,7 @@ class CORE_EXPORT ScrollAnimatorCompositorCoordinator
   void NotifyAnimationAborted(double monotonic_time, int group) override;
   void NotifyAnimationTakeover(double monotonic_time,
                                double animation_start_time,
-                               std::unique_ptr<cc::AnimationCurve>) override {}
+                               std::unique_ptr<gfx::AnimationCurve>) override {}
 
   // CompositorAnimationClient implementation.
   CompositorAnimation* GetCompositorAnimation() const override;

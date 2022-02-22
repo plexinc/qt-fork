@@ -28,6 +28,7 @@
 #include "include/effects/SkHighContrastFilter.h"
 #include "include/effects/SkImageFilters.h"
 #include "include/effects/SkShaderMaskFilter.h"
+#include "include/gpu/GrDirectContext.h"
 #include "tools/Resources.h"
 #include "tools/ToolUtils.h"
 
@@ -70,7 +71,7 @@ DEF_SIMPLE_GM(imagefilters_xfermodes, canvas, 480, 480) {
 
         // just need an imagefilter to trigger the code-path (which creates a tmp layer)
         sk_sp<SkImageFilter> imf(SkImageFilters::MatrixTransform(SkMatrix::I(),
-                                                                 kNone_SkFilterQuality,
+                                                                 SkSamplingOptions(),
                                                                  nullptr));
 
         const SkBlendMode modes[] = {
@@ -114,7 +115,7 @@ DEF_SIMPLE_GM(fast_slow_blurimagefilter, canvas, 620, 260) {
         for (SkScalar outset = 0; outset <= 1; ++outset) {
             canvas->save();
             canvas->clipRect(r.makeOutset(outset, outset));
-            canvas->drawImage(image, 0, 0, &paint);
+            canvas->drawImage(image, 0, 0, SkSamplingOptions(), &paint);
             canvas->restore();
             canvas->translate(0, r.height() + 20);
         }
@@ -134,7 +135,7 @@ static void draw_set(SkCanvas* canvas, sk_sp<SkImageFilter> filters[], int count
         canvas->save();
         SkRRect rr = SkRRect::MakeRectXY(r.makeOffset(dx, dy), 20, 20);
         canvas->clipRRect(rr, true);
-        canvas->saveLayer({ &rr.getBounds(), nullptr, filters[i].get(), nullptr, nullptr, 0 });
+        canvas->saveLayer(SkCanvas::SaveLayerRec(&rr.getBounds(), nullptr, filters[i].get(), 0));
         canvas->drawColor(0x40FFFFFF);
         canvas->restore();
         canvas->restore();
@@ -176,8 +177,8 @@ protected:
             { 0.125f, 0.125f, 530, 420 },
         };
 
-        SkPaint paint;
-        paint.setFilterQuality(kMedium_SkFilterQuality);
+        SkSamplingOptions sampling(SkFilterMode::kLinear,
+                                   SkMipmapMode::kLinear);
         sk_sp<SkImage> image(GetResourceAsImage("images/mandrill_512.png"));
 
         canvas->translate(20, 20);
@@ -185,7 +186,7 @@ protected:
             canvas->save();
             canvas->translate(xform.fTx, xform.fTy);
             canvas->scale(xform.fSx, xform.fSy);
-            canvas->drawImage(image, 0, 0, &paint);
+            canvas->drawImage(image, 0, 0, sampling, nullptr);
             draw_set(canvas, filters, SK_ARRAY_COUNT(filters));
             canvas->restore();
         }
@@ -200,9 +201,9 @@ DEF_GM(return new SaveLayerWithBackdropGM();)
 // normally be a sprite draw that could avoid an auto-saveLayer.
 DEF_SIMPLE_GM(imagefilters_effect_order, canvas, 512, 512) {
     sk_sp<SkImage> image(GetResourceAsImage("images/mandrill_256.png"));
-    if (canvas->getGrContext()) {
-        sk_sp<SkImage> gpuImage = image->makeTextureImage(canvas->getGrContext());
-        if (gpuImage) {
+    auto direct = GrAsDirectContext(canvas->recordingContext());
+    if (direct) {
+        if (sk_sp<SkImage> gpuImage = image->makeTextureImage(direct)) {
             image = std::move(gpuImage);
         }
     }
@@ -234,13 +235,13 @@ DEF_SIMPLE_GM(imagefilters_effect_order, canvas, 512, 512) {
     SkRect crop = SkRect::Make(image->bounds());
     canvas->save();
     canvas->clipRect(crop);
-    canvas->drawImage(image, 0, 0, &expectedCFPaint); // Filter applied by draw's SkPaint
+    canvas->drawImage(image, 0, 0, SkSamplingOptions(), &expectedCFPaint); // Filter applied by draw's SkPaint
     canvas->restore();
 
     canvas->save();
     canvas->translate(image->width(), 0);
     canvas->clipRect(crop);
-    canvas->drawImage(image, 0, 0, &testCFPaint);
+    canvas->drawImage(image, 0, 0, SkSamplingOptions(), &testCFPaint);
     canvas->restore();
 
     // Now test mask filters. These should be run before the image filter, and thus have the same
@@ -256,29 +257,27 @@ DEF_SIMPLE_GM(imagefilters_effect_order, canvas, 512, 512) {
     // If edge detector sees the mask filter, it'll have alpha and then blend with the original
     // image; otherwise the mask filter will apply late (incorrectly) and none of the original
     // image will be visible.
-    sk_sp<SkImageFilter> edgeBlend = SkImageFilters::Xfermode(SkBlendMode::kSrcOver,
+    sk_sp<SkImageFilter> edgeBlend = SkImageFilters::Blend(SkBlendMode::kSrcOver,
             SkImageFilters::Image(image), edgeDetector);
 
     SkPaint testMaskPaint;
     testMaskPaint.setMaskFilter(maskFilter);
     testMaskPaint.setImageFilter(edgeBlend);
 
-    SkPaint alphaPaint;
-    alphaPaint.setShader(alphaMaskShader);
     SkPaint expectedMaskPaint;
     expectedMaskPaint.setImageFilter(SkImageFilters::Compose(edgeBlend,
-            SkImageFilters::Xfermode(SkBlendMode::kSrcIn,
-                                     SkImageFilters::Paint(alphaPaint))));
+            SkImageFilters::Blend(SkBlendMode::kSrcIn,
+                                  SkImageFilters::Shader(alphaMaskShader))));
 
     canvas->save();
     canvas->translate(0, image->height());
     canvas->clipRect(crop);
-    canvas->drawImage(image, 0, 0, &expectedMaskPaint);
+    canvas->drawImage(image, 0, 0, SkSamplingOptions(), &expectedMaskPaint);
     canvas->restore();
 
     canvas->save();
     canvas->translate(image->width(), image->height());
     canvas->clipRect(crop);
-    canvas->drawImage(image, 0, 0, &testMaskPaint);
+    canvas->drawImage(image, 0, 0, SkSamplingOptions(), &testMaskPaint);
     canvas->restore();
 }

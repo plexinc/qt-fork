@@ -67,9 +67,8 @@
 #include "qtoolbar_p.h"
 #endif
 #include "qwidgetanimator_p.h"
-#ifdef Q_OS_MACOS
-#include <qpa/qplatformnativeinterface.h>
-#endif
+#include <QtGui/qpa/qplatformwindow.h>
+#include <QtGui/qpa/qplatformwindow_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -316,9 +315,9 @@ void QMainWindowPrivate::init()
     is the position and size (relative to the size of the main window)
     of the toolbars and dock widgets that are stored.
 
-    \sa QMenuBar, QToolBar, QStatusBar, QDockWidget, {Application
-    Example}, {Dock Widgets Example}, {MDI Example}, {SDI Example},
-    {Menus Example}
+    \sa QMenuBar, QToolBar, QStatusBar, QDockWidget,
+    {Qt Widgets - Application Example}, {Dock Widgets Example},
+    {MDI Example}, {SDI Example}, {Menus Example}
 */
 
 /*!
@@ -523,10 +522,10 @@ void QMainWindow::setMenuBar(QMenuBar *menuBar)
 {
     QLayout *topLayout = layout();
 
-    if (topLayout->menuBar() && topLayout->menuBar() != menuBar) {
+    if (QWidget *existingMenuBar = topLayout->menuBar(); existingMenuBar && existingMenuBar != menuBar) {
         // Reparent corner widgets before we delete the old menu bar.
-        QMenuBar *oldMenuBar = qobject_cast<QMenuBar *>(topLayout->menuBar());
-        if (menuBar) {
+        QMenuBar *oldMenuBar = qobject_cast<QMenuBar *>(existingMenuBar);
+        if (oldMenuBar && menuBar) {
             // TopLeftCorner widget.
             QWidget *cornerWidget = oldMenuBar->cornerWidget(Qt::TopLeftCorner);
             if (cornerWidget)
@@ -536,9 +535,10 @@ void QMainWindow::setMenuBar(QMenuBar *menuBar)
             if (cornerWidget)
                 menuBar->setCornerWidget(cornerWidget, Qt::TopRightCorner);
         }
-        oldMenuBar->hide();
-        oldMenuBar->setParent(nullptr);
-        oldMenuBar->deleteLater();
+
+        existingMenuBar->hide();
+        existingMenuBar->setParent(nullptr);
+        existingMenuBar->deleteLater();
     }
     topLayout->setMenuBar(menuBar);
 }
@@ -762,7 +762,7 @@ void QMainWindow::addToolBar(Qt::ToolBarArea area, QToolBar *toolbar)
     disconnect(this, SIGNAL(toolButtonStyleChanged(Qt::ToolButtonStyle)),
                toolbar, SLOT(_q_updateToolButtonStyle(Qt::ToolButtonStyle)));
 
-    if(toolbar->d_func()->state && toolbar->d_func()->state->dragging) {
+    if (toolbar->d_func()->state && toolbar->d_func()->state->dragging) {
         //removing a toolbar which is dragging will cause crash
 #if QT_CONFIG(dockwidget)
         bool animated = isAnimated();
@@ -851,11 +851,7 @@ void QMainWindow::removeToolBar(QToolBar *toolbar)
 
     \sa addToolBar(), addToolBarBreak(), Qt::ToolBarArea
 */
-Qt::ToolBarArea QMainWindow::toolBarArea(
-#if QT_VERSION >= QT_VERSION_CHECK(6,0,0)
-    const
-#endif
-    QToolBar *toolbar) const
+Qt::ToolBarArea QMainWindow::toolBarArea(const QToolBar *toolbar) const
 { return d_func()->layout->toolBarArea(toolbar); }
 
 /*!
@@ -954,10 +950,10 @@ void QMainWindow::setDockNestingEnabled(bool enabled)
     \since 4.2
 
     If this property is set to false, dock areas containing tabbed dock widgets
-    display horizontal tabs, simmilar to Visual Studio.
+    display horizontal tabs, similar to Visual Studio.
 
     If this property is set to true, then the right and left dock areas display vertical
-    tabs, simmilar to KDevelop.
+    tabs, similar to KDevelop.
 
     This property should be set before any dock widgets are added to the main window.
 */
@@ -1223,7 +1219,7 @@ Qt::DockWidgetArea QMainWindow::dockWidgetArea(QDockWidget *dockwidget) const
     resized such that the yellowWidget is twice as big as the blueWidget
 
     If some widgets are grouped in tabs, only one widget per group should be
-    specified. Widgets not in the list might be changed to repect the constraints.
+    specified. Widgets not in the list might be changed to respect the constraints.
 */
 void QMainWindow::resizeDocks(const QList<QDockWidget *> &docks,
                               const QList<int> &sizes, Qt::Orientation orientation)
@@ -1311,6 +1307,7 @@ bool QMainWindow::event(QEvent *event)
 
 #if QT_CONFIG(toolbar)
         case QEvent::ToolBarChange: {
+            Q_ASSERT(d->layout);
             d->layout->toggleToolBarsVisible();
             return true;
         }
@@ -1319,6 +1316,7 @@ bool QMainWindow::event(QEvent *event)
 #if QT_CONFIG(statustip)
         case QEvent::StatusTip:
 #if QT_CONFIG(statusbar)
+            Q_ASSERT(d->layout);
             if (QStatusBar *sb = d->layout->statusBar())
                 sb->showMessage(static_cast<QStatusTipEvent*>(event)->tip());
             else
@@ -1329,6 +1327,7 @@ bool QMainWindow::event(QEvent *event)
 
         case QEvent::StyleChange:
 #if QT_CONFIG(dockwidget)
+            Q_ASSERT(d->layout);
             d->layout->layoutState.dockAreaLayout.styleChangedEvent();
 #endif
             if (!d->explicitIconSize)
@@ -1349,34 +1348,29 @@ bool QMainWindow::event(QEvent *event)
 
     Note that the Qt 5 implementation has several limitations compared to Qt 4:
     \list
-        \li Use in windows with OpenGL content is not supported. This includes QGLWidget and QOpenGLWidget.
+        \li Use in windows with OpenGL content is not supported. This includes QOpenGLWidget.
         \li Using dockable or movable toolbars may result in painting errors and is not recommended
     \endlist
 
     \since 5.2
 */
-void QMainWindow::setUnifiedTitleAndToolBarOnMac(bool set)
+void QMainWindow::setUnifiedTitleAndToolBarOnMac(bool enabled)
 {
 #ifdef Q_OS_MACOS
+    if (!isWindow())
+        return;
+
     Q_D(QMainWindow);
-    if (isWindow()) {
-        d->useUnifiedToolBar = set;
-        createWinId();
+    d->useUnifiedToolBar = enabled;
+    createWinId();
 
-        QPlatformNativeInterface *nativeInterface = QGuiApplication::platformNativeInterface();
-        if (!nativeInterface)
-            return; // Not Cocoa platform plugin.
-        QPlatformNativeInterface::NativeResourceForIntegrationFunction function =
-            nativeInterface->nativeResourceFunctionForIntegration("setContentBorderEnabled");
-        if (!function)
-            return; // Not Cocoa platform plugin.
+    using namespace QNativeInterface::Private;
+    if (auto *platformWindow = dynamic_cast<QCocoaWindow*>(window()->windowHandle()->handle()))
+        platformWindow->setContentBorderEnabled(enabled);
 
-        typedef void (*SetContentBorderEnabledFunction)(QWindow *window, bool enable);
-        (reinterpret_cast<SetContentBorderEnabledFunction>(function))(window()->windowHandle(), set);
-        update();
-    }
+    update();
 #else
-    Q_UNUSED(set)
+    Q_UNUSED(enabled);
 #endif
 }
 

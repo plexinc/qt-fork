@@ -18,6 +18,7 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/model/helpers/chrome_model_helper.html">
 <link rel="import" href="/tracing/model/helpers/chrome_thread_helper.html">
 <link rel="import" href="/tracing/model/timed_event.html">
+<link rel="import" href="/tracing/value/diagnostics/alert_groups.html">
 <link rel="import" href="/tracing/value/diagnostics/diagnostic_map.html">
 <link rel="import" href="/tracing/value/histogram.html">
 
@@ -264,7 +265,7 @@ tr.exportTo('tr.metrics.sh', function() {
     return samples;
   }
 
-  function findLayoutShiftSamples(rendererHelper) {
+  function findMainFrameLayoutShiftSamples(rendererHelper) {
     let sample;
     EventFinderUtils.getSortedMainThreadEventsByFrame(rendererHelper,
         'LayoutShift', 'loading').forEach((events) => {
@@ -275,6 +276,30 @@ tr.exportTo('tr.metrics.sh', function() {
       }
     });
     return sample ? [sample] : [];
+  }
+
+  function findAllLayoutShiftSamples(chromeHelper) {
+    let total = 0;
+    let foundMainFrame = false;
+    for (const pid in chromeHelper.rendererHelpers) {
+      const rendererHelper = chromeHelper.rendererHelpers[pid];
+      if (rendererHelper.isChromeTracingUI) continue;
+
+      tr.e.chrome.EventFinderUtils.getSortedMainThreadEventsByFrame(
+          rendererHelper, 'LayoutShift', 'loading').forEach((events) => {
+        // Add up the scores for main frames and weighted scores for subframes.
+        for (const event of events) {
+          const evData = event.args.data;
+          if (evData.is_main_frame) {
+            total += evData.score;
+            foundMainFrame = true;
+          } else {
+            total += evData.weighted_score_delta;
+          }
+        }
+      });
+    }
+    return foundMainFrame ? [{value: total}] : [];
   }
 
   function addFirstMeaningfulPaintSample(samples, rendererHelper,
@@ -344,13 +369,13 @@ tr.exportTo('tr.metrics.sh', function() {
    * @param {?number} eventTimestamp - Timestamp of the event for which the
    *     sample is being generated.
    * @param {tr.model.ThreadSlice} navigationStartEvent
-   * @param {number} firstMeaningfulPaintTime
+   * @param {number} firstContentfulPaintTime
    * @param {number} domContentLoadedEndTime
    * @param {string} url - URL of the current main frame document.
    * @returns {MetricSample|undefined}
    */
   function decorateInteractivitySampleWithDiagnostics_(rendererHelper,
-      eventTimestamp, navigationStartEvent, firstMeaningfulPaintTime,
+      eventTimestamp, navigationStartEvent, firstContentfulPaintTime,
       domContentLoadedEndTime, url) {
     if (eventTimestamp === undefined) return undefined;
     const navigationStartTime = navigationStartEvent.start;
@@ -371,7 +396,7 @@ tr.exportTo('tr.metrics.sh', function() {
           url,
           pid: rendererHelper.pid,
           navigationStartTime,
-          firstMeaningfulPaintTime,
+          firstContentfulPaintTime,
           domContentLoadedEndTime,
           // eventTimestamp can be derived from value and navigationStartEvent,
           // but it's useful to directly see the value in the UI.
@@ -487,7 +512,8 @@ tr.exportTo('tr.metrics.sh', function() {
     const largestTextPaintSamples = findLargestTextPaintSamples(
         rendererHelper, frameToNavStartEvents,
         navIdToNavStartEvents);
-    const layoutShiftSamples = findLayoutShiftSamples(rendererHelper);
+    const mainFrameLayoutShiftSamples = findMainFrameLayoutShiftSamples(
+        rendererHelper);
     const navigationStartSamples = timeToFCPEntries.map(entry => {
       return { value: entry.navigationStartEvent.start};
     });
@@ -502,7 +528,7 @@ tr.exportTo('tr.metrics.sh', function() {
       firstViewportReadySamples,
       largestImagePaintSamples,
       largestTextPaintSamples,
-      layoutShiftSamples,
+      mainFrameLayoutShiftSamples,
       navigationStartSamples,
     };
   }
@@ -513,6 +539,7 @@ tr.exportTo('tr.metrics.sh', function() {
     const firstCpuIdleSamples = [];
     const firstMeaningfulPaintSamples = [];
     const firstMeaningfulPaintCpuTimeSamples = [];
+    const totalBlockingTimeSamples = [];
     for (const expectation of model.userModel.expectations) {
       if (!(expectation instanceof tr.model.um.LoadExpectation)) continue;
       if (tr.e.chrome.CHROME_INTERNAL_URLS.includes(expectation.url)) {
@@ -532,15 +559,26 @@ tr.exportTo('tr.metrics.sh', function() {
         firstCpuIdleSamples.push(decorateInteractivitySampleWithDiagnostics_(
             rendererHelper, expectation.firstCpuIdleTime,
             expectation.navigationStart,
-            expectation.fmpEvent.start,
+            expectation.fcpEvent.start,
             expectation.domContentLoadedEndEvent.start, expectation.url));
       }
       if (expectation.timeToInteractive !== undefined) {
         interactiveSamples.push(decorateInteractivitySampleWithDiagnostics_(
             rendererHelper, expectation.timeToInteractive,
             expectation.navigationStart,
-            expectation.fmpEvent.start,
+            expectation.fcpEvent.start,
             expectation.domContentLoadedEndEvent.start, expectation.url));
+      }
+      if (expectation.totalBlockingTime !== undefined) {
+        totalBlockingTimeSamples.push({
+          value: expectation.totalBlockingTime,
+          diagnostics: {
+            url: new tr.v.d.GenericSet([expectation.url]),
+            navigationStart: new RelatedEventSet(expectation.navigationStart),
+            firstContentfulPaint: new RelatedEventSet(expectation.fcpEvent),
+            interactiveTime: new tr.v.d.GenericSet(
+                [expectation.timeToInteractive]),
+          }});
       }
     }
 
@@ -549,6 +587,7 @@ tr.exportTo('tr.metrics.sh', function() {
       firstMeaningfulPaintCpuTimeSamples,
       firstCpuIdleSamples,
       interactiveSamples,
+      totalBlockingTimeSamples,
     };
   }
 
@@ -598,18 +637,21 @@ tr.exportTo('tr.metrics.sh', function() {
           binBoundaries: LOADING_METRIC_BOUNDARIES,
           description: 'time to first paint',
           summaryOptions: SUMMARY_OPTIONS,
+          alertGrouping: [tr.v.d.ALERT_GROUPS.LOADING_PAINT],
         });
     const firstContentfulPaintHistogram = histograms.createHistogram(
         'timeToFirstContentfulPaint', timeDurationInMs_smallerIsBetter, [], {
           binBoundaries: LOADING_METRIC_BOUNDARIES,
           description: 'time to first contentful paint',
           summaryOptions: SUMMARY_OPTIONS,
+          alertGrouping: [tr.v.d.ALERT_GROUPS.LOADING_PAINT],
         });
     const firstContentfulPaintCpuTimeHistogram = histograms.createHistogram(
         'cpuTimeToFirstContentfulPaint', timeDurationInMs_smallerIsBetter, [], {
           binBoundaries: LOADING_METRIC_BOUNDARIES,
           description: 'CPU time to first contentful paint',
           summaryOptions: SUMMARY_OPTIONS,
+          alertGrouping: [tr.v.d.ALERT_GROUPS.LOADING_PAINT],
         });
     const onLoadHistogram = histograms.createHistogram(
         'timeToOnload', timeDurationInMs_smallerIsBetter, [], {
@@ -623,24 +665,36 @@ tr.exportTo('tr.metrics.sh', function() {
           binBoundaries: LOADING_METRIC_BOUNDARIES,
           description: 'time to first meaningful paint',
           summaryOptions: SUMMARY_OPTIONS,
+          alertGrouping: [tr.v.d.ALERT_GROUPS.LOADING_PAINT],
         });
     const firstMeaningfulPaintCpuTimeHistogram = histograms.createHistogram(
         'cpuTimeToFirstMeaningfulPaint', timeDurationInMs_smallerIsBetter, [], {
           binBoundaries: LOADING_METRIC_BOUNDARIES,
           description: 'CPU time to first meaningful paint',
           summaryOptions: SUMMARY_OPTIONS,
+          alertGrouping: [tr.v.d.ALERT_GROUPS.LOADING_PAINT],
         });
     const timeToInteractiveHistogram = histograms.createHistogram(
         'timeToInteractive', timeDurationInMs_smallerIsBetter, [], {
           binBoundaries: TIME_TO_INTERACTIVE_BOUNDARIES,
           description: 'Time to Interactive',
           summaryOptions: SUMMARY_OPTIONS,
+          alertGrouping: [tr.v.d.ALERT_GROUPS.LOADING_PAINT],
+          alertGrouping: [tr.v.d.ALERT_GROUPS.LOADING_INTERACTIVITY],
+        });
+    const totalBlockingTimeHistogram = histograms.createHistogram(
+        'totalBlockingTime', timeDurationInMs_smallerIsBetter, [], {
+          binBoundaries: TIME_TO_INTERACTIVE_BOUNDARIES,
+          description: 'Total Blocking Time',
+          summaryOptions: SUMMARY_OPTIONS,
+          alertGrouping: [tr.v.d.ALERT_GROUPS.LOADING_INTERACTIVITY],
         });
     const timeToFirstCpuIdleHistogram = histograms.createHistogram(
         'timeToFirstCpuIdle', timeDurationInMs_smallerIsBetter, [], {
           binBoundaries: TIME_TO_INTERACTIVE_BOUNDARIES,
           description: 'Time to First CPU Idle',
           summaryOptions: SUMMARY_OPTIONS,
+          alertGrouping: [tr.v.d.ALERT_GROUPS.LOADING_INTERACTIVITY],
         });
     const aboveTheFoldLoadedToVisibleHistogram = histograms.createHistogram(
         'aboveTheFoldLoadedToVisible', timeDurationInMs_smallerIsBetter, [], {
@@ -671,12 +725,21 @@ tr.exportTo('tr.metrics.sh', function() {
           binBoundaries: LOADING_METRIC_BOUNDARIES,
           description: 'Time to Largest Contentful Paint',
           summaryOptions: SUMMARY_OPTIONS,
+          alertGrouping: [tr.v.d.ALERT_GROUPS.LOADING_PAINT],
         });
-    const layoutShiftHistogram = histograms.createHistogram(
+    const mainFrameLayoutShiftHistogram = histograms.createHistogram(
         'mainFrameCumulativeLayoutShift', unitlessNumber_smallerIsBetter, [], {
           binBoundaries: LAYOUT_SHIFT_SCORE_BOUNDARIES,
           description: 'Main Frame Document Cumulative Layout Shift Score',
           summaryOptions: SUMMARY_OPTIONS,
+          alertGrouping: [tr.v.d.ALERT_GROUPS.LOADING_LAYOUT],
+        });
+    const allLayoutShiftHistogram = histograms.createHistogram(
+        'overallCumulativeLayoutShift', unitlessNumber_smallerIsBetter, [], {
+          binBoundaries: LAYOUT_SHIFT_SCORE_BOUNDARIES,
+          description: 'Document Cumulative Layout Shift Score with iframes',
+          summaryOptions: SUMMARY_OPTIONS,
+          alertGrouping: [tr.v.d.ALERT_GROUPS.LOADING_LAYOUT],
         });
     const navigationStartHistogram = histograms.createHistogram(
         'navigationStart', timeDurationInMs_smallerIsBetter, [], {
@@ -688,6 +751,13 @@ tr.exportTo('tr.metrics.sh', function() {
 
     const chromeHelper = model.getOrCreateHelper(
         tr.model.helpers.ChromeModelHelper);
+
+    const allLayoutShiftSamples = findAllLayoutShiftSamples(chromeHelper);
+    addSamplesToHistogram(
+        allLayoutShiftSamples,
+        allLayoutShiftHistogram,
+        histograms);
+
     for (const pid in chromeHelper.rendererHelpers) {
       const rendererHelper = chromeHelper.rendererHelpers[pid];
       if (rendererHelper.isChromeTracingUI) continue;
@@ -729,7 +799,9 @@ tr.exportTo('tr.metrics.sh', function() {
           largestTextPaintHistogram,
           histograms);
       addSamplesToHistogram(
-          samplesSet.layoutShiftSamples, layoutShiftHistogram, histograms);
+          samplesSet.mainFrameLayoutShiftSamples,
+          mainFrameLayoutShiftHistogram,
+          histograms);
       addSamplesToHistogram(
           samplesSet.navigationStartSamples,
           navigationStartHistogram,
@@ -752,6 +824,10 @@ tr.exportTo('tr.metrics.sh', function() {
     addSamplesToHistogram(
         samplesSet.firstCpuIdleSamples,
         timeToFirstCpuIdleHistogram,
+        histograms);
+    addSamplesToHistogram(
+        samplesSet.totalBlockingTimeSamples,
+        totalBlockingTimeHistogram,
         histograms);
   }
 

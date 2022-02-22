@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the demonstration applications of the Qt Toolkit.
@@ -52,8 +52,6 @@
 #define TEXTEDIT_H
 
 #include <QMainWindow>
-#include <QMap>
-#include <QPointer>
 
 QT_BEGIN_NAMESPACE
 class QAction;
@@ -70,7 +68,7 @@ class TextEdit : public QMainWindow
     Q_OBJECT
 
 public:
-    TextEdit(QWidget *parent = 0);
+    TextEdit(QWidget *parent = nullptr);
 
     bool load(const QString &f);
 
@@ -95,6 +93,7 @@ private slots:
     void textSize(const QString &p);
     void textStyle(int styleIndex);
     void textColor();
+    void underlineColor();
     void textAlign(QAction *a);
     void setChecked(bool checked);
     void indent();
@@ -105,7 +104,6 @@ private slots:
 
     void clipboardDataChanged();
     void about();
-    void printPreview(QPrinter *);
 
 private:
     void setupFileActions();
@@ -125,6 +123,7 @@ private:
     QAction *actionTextUnderline;
     QAction *actionTextItalic;
     QAction *actionTextColor;
+    QAction *actionUnderlineColor;
     QAction *actionAlignLeft;
     QAction *actionAlignCenter;
     QAction *actionAlignRight;
@@ -144,7 +143,6 @@ private:
     QFontComboBox *comboFont;
     QComboBox *comboSize;
 
-    QToolBar *tb;
     QString fileName;
     QTextEdit *textEdit;
 };

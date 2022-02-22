@@ -12,6 +12,7 @@
 
 #include "base/macros.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "net/base/net_export.h"
 #include "net/http/http_auth.h"
 #include "url/gurl.h"
@@ -42,7 +43,7 @@ class NET_EXPORT HttpAuthPreferences {
 #if defined(OS_ANDROID)
   virtual std::string AuthAndroidNegotiateAccountType() const;
 #endif
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   virtual bool AllowGssapiLibraryLoad() const;
 #endif
   virtual bool CanUseDefaultCredentials(const GURL& auth_origin) const;
@@ -63,13 +64,21 @@ class NET_EXPORT HttpAuthPreferences {
     negotiate_enable_port_ = negotiate_enable_port;
   }
 
+  // Return |true| if the browser should allow attempts to use HTTP Basic auth
+  // on non-secure HTTP connections.
+  bool basic_over_http_enabled() const { return basic_over_http_enabled_; }
+
+  void set_basic_over_http_enabled(bool allow_http) {
+    basic_over_http_enabled_ = allow_http;
+  }
+
 #if defined(OS_POSIX) || defined(OS_FUCHSIA)
   void set_ntlm_v2_enabled(bool ntlm_v2_enabled) {
     ntlm_v2_enabled_ = ntlm_v2_enabled;
   }
 #endif
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   void set_allow_gssapi_library_load(bool allow_gssapi_library_load) {
     allow_gssapi_library_load_ = allow_gssapi_library_load;
   }
@@ -92,6 +101,7 @@ class NET_EXPORT HttpAuthPreferences {
   bool delegate_by_kdc_policy_ = false;
   bool negotiate_disable_cname_lookup_ = false;
   bool negotiate_enable_port_ = false;
+  bool basic_over_http_enabled_ = true;
 
   DefaultCredentials allow_default_credentials_ = ALLOW_DEFAULT_CREDENTIALS;
 
@@ -103,7 +113,7 @@ class NET_EXPORT HttpAuthPreferences {
   std::string auth_android_negotiate_account_type_;
 #endif
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   bool allow_gssapi_library_load_ = true;
 #endif
 

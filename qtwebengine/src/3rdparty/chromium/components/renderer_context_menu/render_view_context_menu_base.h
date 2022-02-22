@@ -21,6 +21,7 @@
 #include "components/renderer_context_menu/render_view_context_menu_proxy.h"
 #include "content/public/browser/context_menu_params.h"
 #include "ppapi/buildflags/buildflags.h"
+#include "third_party/blink/public/common/tokens/tokens.h"
 #include "ui/base/models/simple_menu_model.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/window_open_disposition.h"
@@ -97,10 +98,7 @@ class RenderViewContextMenuBase : public ui::SimpleMenuModel::Delegate,
   void AddMenuItem(int command_id, const base::string16& title) override;
   void AddMenuItemWithIcon(int command_id,
                            const base::string16& title,
-                           const gfx::ImageSkia& image) override;
-  void AddMenuItemWithIcon(int command_id,
-                           const base::string16& title,
-                           const gfx::VectorIcon& icon) override;
+                           const ui::ImageModel& icon) override;
   void AddCheckItem(int command_id, const base::string16& title) override;
   void AddSeparator() override;
   void AddSubMenu(int command_id,
@@ -109,16 +107,12 @@ class RenderViewContextMenuBase : public ui::SimpleMenuModel::Delegate,
   void AddSubMenuWithStringIdAndIcon(int command_id,
                                      int message_id,
                                      ui::MenuModel* model,
-                                     const gfx::ImageSkia& image) override;
-  void AddSubMenuWithStringIdAndIcon(int command_id,
-                                     int message_id,
-                                     ui::MenuModel* model,
-                                     const gfx::VectorIcon& icon) override;
+                                     const ui::ImageModel& icon) override;
   void UpdateMenuItem(int command_id,
                       bool enabled,
                       bool hidden,
                       const base::string16& title) override;
-  void UpdateMenuIcon(int command_id, const gfx::Image& image) override;
+  void UpdateMenuIcon(int command_id, const ui::ImageModel& icon) override;
   void RemoveMenuItem(int command_id) override;
   void RemoveAdjacentSeparators() override;
   content::RenderViewHost* GetRenderViewHost() const override;
@@ -163,7 +157,7 @@ class RenderViewContextMenuBase : public ui::SimpleMenuModel::Delegate,
   virtual void AppendPlatformEditableItems() {}
 
   // May return nullptr if the frame was deleted while the menu was open.
-  content::RenderFrameHost* GetRenderFrameHost();
+  content::RenderFrameHost* GetRenderFrameHost() const;
 
   bool IsCustomItemChecked(int id) const;
   bool IsCustomItemEnabled(int id) const;
@@ -190,6 +184,9 @@ class RenderViewContextMenuBase : public ui::SimpleMenuModel::Delegate,
 
   // Renderer's frame id.
   const int render_frame_id_;
+
+  // Renderer's frame token.
+  const blink::LocalFrameToken render_frame_token_;
 
   // The RenderFrameHost's IDs.
   const int render_process_id_;

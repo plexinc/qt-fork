@@ -53,7 +53,7 @@
 
 #include <math.h>
 
-#include <QAudioOutput>
+#include <QAudioSink>
 #include <QByteArray>
 #include <QComboBox>
 #include <QIODevice>
@@ -64,6 +64,7 @@
 #include <QSlider>
 #include <QTimer>
 #include <QScopedPointer>
+#include <QMediaDevices>
 
 class Generator : public QIODevice
 {
@@ -78,6 +79,7 @@ public:
     qint64 readData(char *data, qint64 maxlen) override;
     qint64 writeData(const char *data, qint64 len) override;
     qint64 bytesAvailable() const override;
+    qint64 size() const override { return m_buffer.size(); }
 
 private:
     void generateData(const QAudioFormat &format, qint64 durationUs, int sampleRate);
@@ -97,9 +99,10 @@ public:
 
 private:
     void initializeWindow();
-    void initializeAudio(const QAudioDeviceInfo &deviceInfo);
+    void initializeAudio(const QAudioDevice &deviceInfo);
 
 private:
+    QMediaDevices *m_devices = nullptr;
     QTimer *m_pushTimer = nullptr;
 
     // Owned by layout
@@ -110,7 +113,7 @@ private:
     QSlider *m_volumeSlider = nullptr;
 
     QScopedPointer<Generator> m_generator;
-    QScopedPointer<QAudioOutput> m_audioOutput;
+    QScopedPointer<QAudioSink> m_audioOutput;
 
     bool m_pullMode = true;
 
@@ -119,6 +122,7 @@ private slots:
     void toggleSuspendResume();
     void deviceChanged(int index);
     void volumeChanged(int);
+    void updateAudioDevices();
 };
 
 #endif // AUDIOOUTPUT_H

@@ -195,7 +195,7 @@ bool WebAppFileHandlersParser::Parse(Extension* extension,
 
 base::span<const char* const> WebAppFileHandlersParser::Keys() const {
   static constexpr const char* kKeys[] = {keys::kWebAppFileHandlers};
-  return base::span<const char* const>(kKeys);
+  return kKeys;
 }
 
 }  // namespace extensions

@@ -56,7 +56,7 @@
 #include <QtBluetooth/qbluetoothsocket.h>
 
 #if defined(QT_ANDROID_BLUETOOTH)
-#include <QtAndroidExtras/QAndroidJniObject>
+#include <QtCore/QJniObject>
 #endif
 
 #if defined(QT_WINRT_BLUETOOTH)
@@ -118,7 +118,7 @@ public:
     virtual qint64 bytesToWrite() const = 0;
 
     virtual bool setSocketDescriptor(int socketDescriptor, QBluetoothServiceInfo::Protocol socketType,
-                             QBluetoothSocket::SocketState socketState = QBluetoothSocket::ConnectedState,
+                             QBluetoothSocket::SocketState socketState = QBluetoothSocket::SocketState::ConnectedState,
                              QBluetoothSocket::OpenMode openMode = QBluetoothSocket::ReadWrite) = 0;
 
 
@@ -137,23 +137,23 @@ public:
                                   QIODevice::OpenMode openMode) = 0;
 
 #ifdef QT_ANDROID_BLUETOOTH
-    virtual bool setSocketDescriptor(const QAndroidJniObject &socket, QBluetoothServiceInfo::Protocol socketType,
-                             QBluetoothSocket::SocketState socketState = QBluetoothSocket::ConnectedState,
+    virtual bool setSocketDescriptor(const QJniObject &socket, QBluetoothServiceInfo::Protocol socketType,
+                             QBluetoothSocket::SocketState socketState = QBluetoothSocket::SocketState::ConnectedState,
                              QBluetoothSocket::OpenMode openMode = QBluetoothSocket::ReadWrite) = 0;
 #elif defined(QT_WINRT_BLUETOOTH)
     virtual bool setSocketDescriptor(Microsoft::WRL::ComPtr<ABI::Windows::Networking::Sockets::IStreamSocket> socket,
                              QBluetoothServiceInfo::Protocol socketType,
-                             QBluetoothSocket::SocketState socketState = QBluetoothSocket::ConnectedState,
+                             QBluetoothSocket::SocketState socketState = QBluetoothSocket::SocketState::ConnectedState,
                              QBluetoothSocket::OpenMode openMode = QBluetoothSocket::ReadWrite) = 0;
 #endif
 
 public:
-    QPrivateLinearBuffer buffer;
+    QPrivateLinearBuffer rxBuffer;
     QPrivateLinearBuffer txBuffer;
     int socket = -1;
     QBluetoothServiceInfo::Protocol socketType = QBluetoothServiceInfo::UnknownProtocol;
-    QBluetoothSocket::SocketState state = QBluetoothSocket::UnconnectedState;
-    QBluetoothSocket::SocketError socketError = QBluetoothSocket::NoSocketError;
+    QBluetoothSocket::SocketState state = QBluetoothSocket::SocketState::UnconnectedState;
+    QBluetoothSocket::SocketError socketError = QBluetoothSocket::SocketError::NoSocketError;
     QSocketNotifier *readNotifier = nullptr;
     QSocketNotifier *connectWriteNotifier = nullptr;
     bool connecting = false;

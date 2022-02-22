@@ -27,14 +27,14 @@ void WMHelper::LifetimeManager::RemoveObserver(Observer* observer) {
   observers_.RemoveObserver(observer);
 }
 
-WMHelper::WMHelper() {}
+WMHelper::WMHelper() {
+  DCHECK(!g_instance);
+  g_instance = this;
+}
 
-WMHelper::~WMHelper() {}
-
-// static
-void WMHelper::SetInstance(WMHelper* helper) {
-  DCHECK_NE(!!helper, !!g_instance);
-  g_instance = helper;
+WMHelper::~WMHelper() {
+  DCHECK(g_instance);
+  g_instance = nullptr;
 }
 
 // static
@@ -46,6 +46,22 @@ WMHelper* WMHelper::GetInstance() {
 // static
 bool WMHelper::HasInstance() {
   return !!g_instance;
+}
+
+void WMHelper::RegisterAppPropertyResolver(
+    std::unique_ptr<AppPropertyResolver> resolver) {
+  resolver_list_.push_back(std::move(resolver));
+}
+
+void WMHelper::PopulateAppProperties(
+    const std::string& app_id,
+    const std::string& startup_id,
+    bool for_creation,
+    ui::PropertyHandler& out_properties_container) {
+  for (auto& resolver : resolver_list_) {
+    resolver->PopulateProperties(app_id, startup_id, for_creation,
+                                 out_properties_container);
+  }
 }
 
 }  // namespace exo

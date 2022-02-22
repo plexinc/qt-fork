@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2020 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -35,25 +35,25 @@
 //! [linux]
 \table 80%
     \header \li Distribution \li Architecture \li Compiler \li Notes
-    \row \li openSUSE 15.1
+    \row \li Red Hat 8.4
         \li \c x86_64
-        \li GCC 5 or later, \b {GCC 7.5.0}, \b {ICC 19.1}
+        \li GCC 10 (toolset)
         \li
-    \row \li SUSE Linux Enterprise Server
+    \row \li openSUSE 15.3
         \li \c x86_64
-        \li GCC 5 or later, \b {GCC 10.2.1}
+        \li GCC 9
         \li
-    \row \li Red Hat Enterprise Linux 7.6
+    \row \li SUSE Linux Enterprise Server 15 SP3
         \li \c x86_64
-        \li \b {GCC 5.3.1 via devtoolset-4}
+        \li GCC 10
         \li
-    \row \li Ubuntu 18.04
+    \row \li Ubuntu 20.04
         \li \c x86_64
-        \li GCC 5 or later, \b {GCC 9.3.0}
+        \li GCC as provided by Canonical, GCC 9.x
         \li
     \row \li Generic Linux
         \li \c x86 and \c x86_64
-        \li GCC (5 or later), ICC 18.x
+        \li GCC 9
         \li
 \endtable
 //! [linux]
@@ -62,28 +62,24 @@
 //! [macos]
 \table 80%
     \header \li Target Platform \li Architecture \li Build Environment
-    \row \li \macos 10.13, 10.14, \b 10.15
-        \li \c x86_64 and \c x86_64h
-        \li Xcode 11 or \b 12 (10.15 SDK)
+    \row \li \macos 10.14, 10.15, 11, 12
+        \li \c x86_64, \c x86_64h, and \c arm64
+        \li Xcode 12 (11 SDK), \li Xcode 13 (12 SDK)
 \endtable
 //! [macos]
 
 \section2 \l{Qt for Windows}{Windows}
 //! [windows]
 \table 80%
-    \header \li Operating System \li Architecture \li Compiler \li Notes
-    \row \li Windows 10
-        \li \c x86 and \c x86_64
-        \li \b {MSVC 2019}, MSVC 2017, MSVC 2015, MinGW 8.1
+    \header \li Operating System \li Architecture \li Compiler
+    \row \li Windows 10 (1809 or later)
+        \li \c x86_64
+        \li MSVC 2019, MinGW 11.2
         \li
-    \row \li Windows 8.1
-        \li \c x86 and \c x86_64
-        \li MSVC 2019, MSVC 2017, MinGW 8.1
-        \li
-    \row \li Windows 7
-        \li \c x86 and \c x86_64
-        \li MSVC 2019, MSVC 2017, MinGW 8.1
-        \li \l{https://sourceforge.net/projects/mingw-w64/files/Toolchains%20targetting%20Win32/Personal%20Builds/mingw-builds/8.1.0/threads-posix/dwarf/i686-8.1.0-release-posix-dwarf-rt_v6-rev0.7z/download}{MinGW-builds GCC 8.1.0 (x86)}
+    \row \li Windows on ARM
+        \li \c arm64
+        \li MSVC 2019
+        \li Technology Preview
 \endtable
 
 //! [windows]
@@ -96,74 +92,56 @@
 \section2 \l{Qt for Android}{Android}
 //! [android]
 \table 80%
-    \header \li Platform Version \li Architecture \li Compiler \li Build Environment
-    \row \li Android 5.0 or later (that is, API Level 21 and up)
-        \li \c armv7a and \c x86, \c arm64-v8 and \c x86_64
-        \li \b {Clang as provided by Google}, \b {MinGW 8.1}
-        \li \b {RHEL 7.x (x86_64)}, \b{\macos 10.15}, \b {Windows 10 (x86_64)}
+    \header \li Distribution \li Architecture \li Compiler \li Notes
+    \row \li Android 6.0 or later (API level 23 or higher)
+        \li \c armv7a, \c x86, \c arm64-v8, and \c x86_64
+        \li Clang 11.0.5 (NDK r22b) as provided by Google, MinGW 11.2
+        \li
 \endtable
 //! [android]
 
-\section2 \l{Qt for iOS}{iOS/tvOS/watchOS}
+\section2 \l{Qt for iOS}{iOS}
 //! [ios]
 \table 80%
     \header \li Target Platform \li Architecture \li Build Environment \li Notes
-    \row \li iOS 12, \b{iOS 13}
+    \row \li iOS 13, iOS 14, iOS 15
         \li \c armv8 (\c arm64)
-        \li \b {Xcode 11} (iOS 13.2 SDK)
+        \li Xcode 12 (iOS 14 SDK), \b {Xcode 13} (iOS 15 SDK)
         \li
-    \row \li tvOS 12, tvOS 13
-        \li \c armv8 (\c arm64)
-        \li Xcode 11 (tvOS 13 SDK)
-        \li Technology Preview
-    \row \li watchOS 5, watchOS 6
-        \li \c armv7k
-        \li Xcode 11 (watchOS 6 SDK)
-        \li Technology Preview. No UI.
 \endtable
 //! [ios]
 
-\section2 \l{Qt for UWP}{Universal Windows Platform (UWP)}
-//! [winrt]
-\table 80%
-    \header \li Platform Version \li Architecture \li Compiler \li Build Environment
-    \row \li Universal Windows Platform 10
-        \li \c x86, \c x86_64, and \c armv7
-        \li \b{MSVC 2019}, MSVC 2017
-        \li \b{Windows 10}
-\endtable
-
-\br
-Universal Windows Platforms include Windows 10, Windows 10 IoT devices, Xbox
-One, and HoloLens.
-//! [winrt]
-
 //! [mobile]
-
-\section2 \l{Qt for WebAssembly}{Qt for WebAssembly}
-//! [qtwasm]
-\table 80%
-    \header \li Target Browser \li Device
-    \row \li Chrome \li Desktop
-    \row \li FireFox \li Desktop
-    \row \li Safari \li Desktop, Mobile
-    \row \li Edge (Chrome) \li Desktop
-    \row \li Android Browser \li Mobile
-\endtable
-
-\br
-If the browser supports WebAssembly then Qt should run.
-\note Qt has a fixed WebGL requirement, also for apps that do not use WebGL
-directly. Browsers often blacklist WebGL for older/unsupported GPUs.
-//! [qtwasm]
 
 \section1 Embedded Platforms
 //! [embedded]
 
-For embedded platform support, including \l{Qt for Embedded Linux}{Embedded Linux},
-\l{Qt for INTEGRITY}{INTEGRITY}, \l{Qt for QNX}{QNX}, and \l{Qt for VxWorks}{VxWorks},
-please consult the \l {http://doc.qt.io/QtForDeviceCreation}{Qt for Device Creation}
-documentation.
+\section2 Android Automotive OS
+
+The \l{Qt for Android Automotive} solution is based on \l{Qt for Android},
+supporting Android 10 and 11, with the Android Automotive car API bindings.
+
+\section2 \l{Qt for Embedded Linux}{Embedded Linux}
+
+Refer to \l{Configure an Embedded Linux Device} for information on generic
+cross-compilation of Qt for Embedded Linux devices.
+
+For further embedded platform support, please consult the
+\l{http://doc.qt.io/QtForDeviceCreation}{Qt for Device Creation} documentation.
+
+\section2 Real Time Operating Systems
+
+\table 80%
+    \header \li Operating System \li Architecture \li Compiler \li Provided in
+    \row \li INTEGRITY 19.0.13
+    \li \c arm64
+    \li GHS compiler version 2020.1.4 or newer
+    \li \l{Qt for INTEGRITY}
+    \row \li QNX 7.1
+    \li
+    \li
+    \li \l{Qt for QNX}
+\endtable
 
 //! [embedded]
 

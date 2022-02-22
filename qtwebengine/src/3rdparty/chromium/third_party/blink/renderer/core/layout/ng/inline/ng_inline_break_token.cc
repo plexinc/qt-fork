@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_break_token.h"
 
+#include "third_party/blink/renderer/platform/wtf/size_assertions.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 
 namespace blink {
@@ -15,9 +16,7 @@ struct SameSizeAsNGInlineBreakToken : NGBreakToken {
   unsigned numbers[2];
 };
 
-static_assert(sizeof(NGInlineBreakToken) ==
-                  sizeof(SameSizeAsNGInlineBreakToken),
-              "NGInlineBreakToken should stay small");
+ASSERT_SIZE(NGInlineBreakToken, SameSizeAsNGInlineBreakToken);
 
 }  // namespace
 
@@ -28,17 +27,12 @@ NGInlineBreakToken::NGInlineBreakToken(
     unsigned item_index,
     unsigned text_offset,
     unsigned flags /* NGInlineBreakTokenFlags */)
-    : NGBreakToken(kInlineBreakToken, kUnfinished, node),
+    : NGBreakToken(kInlineBreakToken, node),
       style_(style),
       item_index_(item_index),
       text_offset_(text_offset) {
   flags_ = flags;
 }
-
-NGInlineBreakToken::NGInlineBreakToken(PassKey key, NGLayoutInputNode node)
-    : NGBreakToken(kInlineBreakToken, kFinished, node),
-      item_index_(0),
-      text_offset_(0) {}
 
 NGInlineBreakToken::~NGInlineBreakToken() = default;
 
@@ -47,12 +41,10 @@ NGInlineBreakToken::~NGInlineBreakToken() = default;
 String NGInlineBreakToken::ToString() const {
   StringBuilder string_builder;
   string_builder.Append(NGBreakToken::ToString());
-  if (!IsFinished()) {
-    string_builder.Append(
-        String::Format(" index:%u offset:%u", ItemIndex(), TextOffset()));
-    if (IsForcedBreak())
-      string_builder.Append(" forced");
-  }
+  string_builder.Append(
+      String::Format(" index:%u offset:%u", ItemIndex(), TextOffset()));
+  if (IsForcedBreak())
+    string_builder.Append(" forced");
   return string_builder.ToString();
 }
 

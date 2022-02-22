@@ -3,10 +3,69 @@
 // found in the LICENSE file.
 
 import * as Common from '../common/common.js';
+import * as i18n from '../i18n/i18n.js';
 
 import {InspectorFrontendHostInstance} from './InspectorFrontendHost.js';
 import {LoadNetworkResourceResult} from './InspectorFrontendHostAPI.js';  // eslint-disable-line no-unused-vars
 
+export const UIStrings = {
+  /**
+  *@description Name of an error category used in error messages
+  */
+  systemError: 'System error',
+  /**
+  *@description Name of an error category used in error messages
+  */
+  connectionError: 'Connection error',
+  /**
+  *@description Name of an error category used in error messages
+  */
+  certificateError: 'Certificate error',
+  /**
+  *@description Name of an error category used in error messages
+  */
+  httpError: 'HTTP error',
+  /**
+  *@description Name of an error category used in error messages
+  */
+  cacheError: 'Cache error',
+  /**
+  *@description Name of an error category used in error messages
+  */
+  signedExchangeError: 'Signed Exchange error',
+  /**
+  *@description Name of an error category used in error messages
+  */
+  ftpError: 'FTP error',
+  /**
+  *@description Name of an error category used in error messages
+  */
+  certificateManagerError: 'Certificate manager error',
+  /**
+  *@description Name of an error category used in error messages
+  */
+  dnsResolverError: 'DNS resolver error',
+  /**
+  *@description Name of an error category used in error messages
+  */
+  unknownError: 'Unknown error',
+  /**
+  *@description Phrase used in error messages that carry a network error name
+  *@example {404} PH1
+  *@example {net::ERR_INSUFFICIENT_RESOURCES} PH2
+  */
+  httpErrorStatusCodeSS: 'HTTP error: status code {PH1}, {PH2}',
+  /**
+  *@description Name of an error category used in error messages
+  */
+  invalidUrl: 'Invalid URL',
+  /**
+  *@description Name of an error category used in error messages
+  */
+  decodingDataUrlFailed: 'Decoding Data URL failed',
+};
+const str_ = i18n.i18n.registerUIStrings('host/ResourceLoader.js', UIStrings);
+const i18nString = i18n.i18n.getLocalizedString.bind(undefined, str_);
 export const ResourceLoader = {};
 
 let _lastStreamId = 0;
@@ -83,33 +142,33 @@ export function setLoadForTest(newLoad) {
  */
 function getNetErrorCategory(netError) {
   if (netError > -100) {
-    return ls`System error`;
+    return i18nString(UIStrings.systemError);
   }
   if (netError > -200) {
-    return ls`Connection error`;
+    return i18nString(UIStrings.connectionError);
   }
   if (netError > -300) {
-    return ls`Certificate error`;
+    return i18nString(UIStrings.certificateError);
   }
   if (netError > -400) {
-    return ls`HTTP error`;
+    return i18nString(UIStrings.httpError);
   }
   if (netError > -500) {
-    return ls`Cache error`;
+    return i18nString(UIStrings.cacheError);
   }
   if (netError > -600) {
-    return ls`Signed Exchange error`;
+    return i18nString(UIStrings.signedExchangeError);
   }
   if (netError > -700) {
-    return ls`FTP error`;
+    return i18nString(UIStrings.ftpError);
   }
   if (netError > -800) {
-    return ls`Certificate manager error`;
+    return i18nString(UIStrings.certificateManagerError);
   }
   if (netError > -900) {
-    return ls`DNS resolver error`;
+    return i18nString(UIStrings.dnsResolverError);
   }
-  return ls`Unknown error`;
+  return i18nString(UIStrings.unknownError);
 }
 
 /**
@@ -118,6 +177,28 @@ function getNetErrorCategory(netError) {
  */
 function isHTTPError(netError) {
   return netError <= -300 && netError > -400;
+}
+
+/**
+ *
+ * @param {number|undefined} netError
+ * @param {number|undefined} httpStatusCode
+ * @param {string|undefined} netErrorName
+ */
+export function netErrorToMessage(netError, httpStatusCode, netErrorName) {
+  if (netError === undefined || netErrorName === undefined) {
+    return null;
+  }
+  if (netError !== 0) {
+    if (isHTTPError(netError)) {
+      return i18nString(UIStrings.httpErrorStatusCodeSS, {PH1: httpStatusCode, PH2: netErrorName});
+    }
+    const errorCategory = getNetErrorCategory(netError);
+    // We don't localize here, as `errorCategory` is already localized,
+    // and `netErrorName` is an error code like 'net::ERR_CERT_AUTHORITY_INVALID'.
+    return `${errorCategory}: ${netErrorName}`;
+  }
+  return null;
 }
 
 /**
@@ -133,20 +214,14 @@ function createErrorMessageFromResponse(response) {
   } else if (!success) {
     if (typeof netError === 'undefined') {
       if (urlValid === false) {
-        message = ls`Invalid URL`;
+        message = i18nString(UIStrings.invalidUrl);
       } else {
-        message = ls`Unknown error`;
+        message = i18nString(UIStrings.unknownError);
       }
     } else {
-      if (netError !== 0) {
-        if (isHTTPError(netError)) {
-          message += ls`HTTP error: status code ${statusCode}, ${netErrorName}`;
-        } else {
-          const errorCategory = getNetErrorCategory(netError);
-          // We don't localize here, as `errorCategory` is already localized,
-          // and `netErrorName` is an error code like 'net::ERR_CERT_AUTHORITY_INVALID'.
-          message = `${errorCategory}: ${netErrorName}`;
-        }
+      const maybeMessage = netErrorToMessage(netError, statusCode, netErrorName);
+      if (maybeMessage) {
+        message = maybeMessage;
       }
     }
   }
@@ -185,7 +260,7 @@ const loadXHR = url => {
  * @param {string} url
  * @param {?Object.<string, string>} headers
  * @param {!Common.StringOutputStream.OutputStream} stream
- * @param {function(boolean, !Object.<string, string>, !LoadErrorDescription)=} callback
+ * @param {function(boolean, !Object.<string, string>, !LoadErrorDescription):void=} callback
  */
 export const loadAsStream = function(url, headers, stream, callback) {
   const streamId = _bindOutputStream(stream);
@@ -226,7 +301,8 @@ export const loadAsStream = function(url, headers, stream, callback) {
    * @param {*} xhrStatus
    */
   function dataURLDecodeFailed(xhrStatus) {
-    const messageOverride = ls`Decoding Data URL failed`;
+    /** @type {string} */
+    const messageOverride = i18nString(UIStrings.decodingDataUrlFailed);
     finishedCallback(
         /** @type {!LoadNetworkResourceResult} */ ({statusCode: 404, messageOverride}));
   }

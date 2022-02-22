@@ -63,6 +63,7 @@ QT_BEGIN_NAMESPACE
 
 class QQuickTableViewAttached;
 class QQuickTableViewPrivate;
+class QItemSelectionModel;
 
 class Q_QUICK_PRIVATE_EXPORT QQuickTableView : public QQuickFlickable
 {
@@ -79,11 +80,16 @@ class Q_QUICK_PRIVATE_EXPORT QQuickTableView : public QQuickFlickable
     Q_PROPERTY(bool reuseItems READ reuseItems WRITE setReuseItems NOTIFY reuseItemsChanged)
     Q_PROPERTY(qreal contentWidth READ contentWidth WRITE setContentWidth NOTIFY contentWidthChanged)
     Q_PROPERTY(qreal contentHeight READ contentHeight WRITE setContentHeight NOTIFY contentHeightChanged)
-    Q_PROPERTY(QQuickTableView *syncView READ syncView WRITE setSyncView NOTIFY syncViewChanged REVISION 14)
-    Q_PROPERTY(Qt::Orientations syncDirection READ syncDirection WRITE setSyncDirection NOTIFY syncDirectionChanged REVISION 14)
+    Q_PROPERTY(QQuickTableView *syncView READ syncView WRITE setSyncView NOTIFY syncViewChanged REVISION(2, 14))
+    Q_PROPERTY(Qt::Orientations syncDirection READ syncDirection WRITE setSyncDirection NOTIFY syncDirectionChanged REVISION(2, 14))
+    Q_PROPERTY(int leftColumn READ leftColumn NOTIFY leftColumnChanged REVISION(6, 0))
+    Q_PROPERTY(int rightColumn READ rightColumn NOTIFY rightColumnChanged REVISION(6, 0))
+    Q_PROPERTY(int topRow READ topRow NOTIFY topRowChanged REVISION(6, 0))
+    Q_PROPERTY(int bottomRow READ bottomRow NOTIFY bottomRowChanged REVISION(6, 0))
+    Q_PROPERTY(QItemSelectionModel *selectionModel READ selectionModel WRITE setSelectionModel NOTIFY selectionModelChanged REVISION(6, 2))
 
     QML_NAMED_ELEMENT(TableView)
-    QML_ADDED_IN_MINOR_VERSION(12)
+    QML_ADDED_IN_VERSION(2, 12)
     QML_ATTACHED(QQuickTableViewAttached)
 
 public:
@@ -122,7 +128,31 @@ public:
     Qt::Orientations syncDirection() const;
     void setSyncDirection(Qt::Orientations direction);
 
+    QItemSelectionModel *selectionModel() const;
+    void setSelectionModel(QItemSelectionModel *selectionModel);
+
+    int leftColumn() const;
+    int rightColumn() const;
+    int topRow() const;
+    int bottomRow() const;
+
     Q_INVOKABLE void forceLayout();
+    Q_INVOKABLE void positionViewAtCell(const QPoint &cell, Qt::Alignment alignment, const QPointF &offset = QPointF());
+    Q_INVOKABLE void positionViewAtCell(int column, int row, Qt::Alignment alignment, const QPointF &offset = QPointF());
+    Q_INVOKABLE void positionViewAtRow(int row, Qt::Alignment alignment, qreal offset = 0);
+    Q_INVOKABLE void positionViewAtColumn(int column, Qt::Alignment alignment, qreal offset = 0);
+    Q_INVOKABLE QQuickItem *itemAtCell(const QPoint &cell) const;
+    Q_INVOKABLE QQuickItem *itemAtCell(int column, int row) const;
+    Q_INVOKABLE QPoint cellAtPos(const QPointF &position, bool includeSpacing = false) const;
+    Q_INVOKABLE QPoint cellAtPos(qreal x, qreal y, bool includeSpacing = false) const;
+
+    Q_REVISION(6, 2) Q_INVOKABLE bool isColumnLoaded(int column) const;
+    Q_REVISION(6, 2) Q_INVOKABLE bool isRowLoaded(int row) const;
+
+    Q_REVISION(6, 2) Q_INVOKABLE qreal columnWidth(int column) const;
+    Q_REVISION(6, 2) Q_INVOKABLE qreal rowHeight(int row) const;
+    Q_REVISION(6, 2) Q_INVOKABLE qreal implicitColumnWidth(int column) const;
+    Q_REVISION(6, 2) Q_INVOKABLE qreal implicitRowHeight(int row) const;
 
     static QQuickTableViewAttached *qmlAttachedProperties(QObject *);
 
@@ -136,11 +166,16 @@ Q_SIGNALS:
     void modelChanged();
     void delegateChanged();
     void reuseItemsChanged();
-    Q_REVISION(14) void syncViewChanged();
-    Q_REVISION(14) void syncDirectionChanged();
+    Q_REVISION(2, 14) void syncViewChanged();
+    Q_REVISION(2, 14) void syncDirectionChanged();
+    Q_REVISION(6, 0) void leftColumnChanged();
+    Q_REVISION(6, 0) void rightColumnChanged();
+    Q_REVISION(6, 0) void topRowChanged();
+    Q_REVISION(6, 0) void bottomRowChanged();
+    Q_REVISION(6, 2) void selectionModelChanged();
 
 protected:
-    void geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry) override;
+    void geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry) override;
     void viewportMoved(Qt::Orientations orientation) override;
     void componentComplete() override;
 

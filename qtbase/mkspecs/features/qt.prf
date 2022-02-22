@@ -13,7 +13,6 @@ win32 {
    }
 }
 CONFIG(release, debug|release):DEFINES += QT_NO_DEBUG
-qtConfig(force_asserts): DEFINES += QT_FORCE_ASSERTS
 no_keywords:DEFINES += QT_NO_KEYWORDS
 plugin { #Qt plugins
    static:DEFINES += QT_STATICPLUGIN
@@ -170,7 +169,7 @@ defineTest(qtProcessModuleFlags) {
     export($$1)
 }
 
-unset(using_privates)
+unset(using_private_headers)
 var_sfx =
 for(ever) {
     # Topological resolution of modules based on their QT.<module>.depends variable
@@ -181,6 +180,7 @@ for(ever) {
         MODULE_NAME = $$eval(QT.$${QTLIB}.name)
         MODULE_MODULE = $$eval(QT.$${QTLIB}.module)
         MODULE_INCLUDES = $$eval(QT.$${QTLIB}.includes)
+        MODULE_LDFLAGS = $$eval(QT.$${QTLIB}.ldflags)
         MODULE_LIBS = $$eval(QT.$${QTLIB}.libs)
         MODULE_FRAMEWORKS = $$eval(QT.$${QTLIB}.frameworks)
         MODULE_USES = $$eval(QT.$${QTLIB}.uses)
@@ -191,8 +191,8 @@ for(ever) {
             next()
         }
 
-        contains(MODULE_CONFIG, internal_module): \
-            using_privates = true
+        contains(MODULE_CONFIG, internal_module):!isEmpty(MODULE_INCLUDES): \
+            using_private_headers = true
         contains(MODULE_CONFIG, ltcg): \
             CONFIG += link_ltcg
 
@@ -200,6 +200,9 @@ for(ever) {
         qtProcessModuleFlags(DEFINES, QT.$${QTLIB}.DEFINES)
 
         MODULE_INCLUDES -= $$QMAKE_DEFAULT_INCDIRS
+
+        # Add linker flags before lib
+        LIBS$$var_sfx += $$MODULE_LDFLAGS
 
         # Frameworks shouldn't need include paths, but much code does not use
         # module-qualified #includes, so by default we add paths which point
@@ -215,33 +218,46 @@ for(ever) {
                 # Linking frameworks by absolute path does not work.
                 LIBS$$var_sfx += -framework $$framework
             } else {
-                lib = $$MODULE_MODULE$$qtPlatformTargetSuffix()
+                lib_bases = $$MODULE_MODULE$$qtPlatformTargetSuffix()
+                darwin: lib_bases *= $$MODULE_MODULE
                 win32|contains(MODULE_CONFIG, staticlib) {
-                    lib = $$MODULE_LIBS/$$QMAKE_PREFIX_STATICLIB$${lib}.$$QMAKE_EXTENSION_STATICLIB
-                    PRE_TARGETDEPS += $$lib
+                    lib_prefix = $$MODULE_LIBS/$$QMAKE_PREFIX_STATICLIB
+                    lib_suffixes = $$QMAKE_EXTENSION_STATICLIB
+                    lib_suffixes *= $$QMAKE_LIB_EXTENSIONS
+                    add_lib_to_pretargetdeps = true
                 } else {
-                    lib = $$MODULE_LIBS/$$QMAKE_PREFIX_SHLIB$${lib}.$$QMAKE_EXTENSION_SHLIB
+                    lib_prefix = $$MODULE_LIBS/$$QMAKE_PREFIX_SHLIB
+                    lib_suffixes = $$QMAKE_EXTENSION_SHLIB
+                    add_lib_to_pretargetdeps = false
                 }
+                candidates =
+                for(lib_base, lib_bases) {
+                    for(lib_suffix, lib_suffixes) {
+                        candidates += $${lib_prefix}$${lib_base}.$${lib_suffix}
+                    }
+                }
+                lib =
+                for(candidate, candidates) {
+                    exists("$$candidate") {
+                        lib = "$$candidate"
+                        break()
+                    }
+                }
+                isEmpty(lib): \
+                    lib = $$first(candidates)
+                $$add_lib_to_pretargetdeps: \
+                    PRE_TARGETDEPS += $$lib
                 LIBS$$var_sfx += $$lib
             }
         }
         QMAKE_USE$$var_sfx += $$MODULE_USES
-        # Add capabilities as defined by modules used in the project
-        winrt {
-            MODULE_WINRT_CAPABILITIES = $$eval(QT.$${QTLIB}.winrt_capabilities)
-            !isEmpty(MODULE_WINRT_CAPABILITIES): \
-                WINRT_MANIFEST.capabilities_default += $$MODULE_WINRT_CAPABILITIES
-            MODULE_WINRT_CAPABILITIES_DEVICE = $$eval(QT.$${QTLIB}.winrt_capabilities_device)
-            !isEmpty(MODULE_WINRT_CAPABILITIES_DEVICE): \
-                WINRT_MANIFEST.capabilities_device_default += $$MODULE_WINRT_CAPABILITIES_DEVICE
-        }
     }
     !isEmpty(BAD_QT):error("Unknown module(s) in QT$$var_sfx: $$replace(BAD_QT, _private$, -private)")
 
     !isEmpty(var_sfx): break()
     var_sfx = _PRIVATE
 }
-!isEmpty(using_privates):!no_private_qt_headers_warning:!build_pass {
+!isEmpty(using_private_headers):!no_private_qt_headers_warning:!build_pass {
     message("This project is using private headers and will therefore be tied to this specific Qt module build version.")
     message("Running this project against other versions of the Qt modules may crash at any arbitrary point.")
     message("This is not a bug, but a result of using Qt internals. You have been warned!")
@@ -278,7 +294,7 @@ contains(all_qt_module_deps, qml): \
         QMLPATHS *= $$[QT_INSTALL_QML/get]
 
     # run qmlimportscanner
-    qtPrepareTool(QMLIMPORTSCANNER, qmlimportscanner, , system)
+    qtPrepareLibExecTool(QMLIMPORTSCANNER, qmlimportscanner, , system)
     for (QMLPATH, QMLPATHS): \
         IMPORTPATHS += -importPath $$system_quote($$QMLPATH)
 

@@ -81,7 +81,7 @@ Entity {
         InputSettings {}
     ]
 
-    SphereMesh {
+    SphereMesh{
         id: sphereMesh
         radius: 3
     }

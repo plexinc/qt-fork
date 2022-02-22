@@ -112,9 +112,6 @@ Polymer({
   /** @private {boolean|undefined} */
   setLockEnabled_: undefined,
 
-  /** @private {boolean} */
-  simUnlockSent_: false,
-
   /** @private {?chromeos.networkConfig.mojom.CrosNetworkConfigRemote} */
   networkConfig_: null,
 
@@ -125,13 +122,16 @@ Polymer({
   },
 
   /** @override */
-  attached() {
-    this.simUnlockSent_ = false;
-  },
-
-  /** @override */
   detached() {
     this.closeDialogs_();
+  },
+
+  /*
+   * Returns the sim lock CrToggleElement.
+   * @return {?CrToggleElement}
+   */
+  getSimLockToggle() {
+    return /** @type {?CrToggleElement} */ (this.$$('#simLockButton'));
   },
 
   /** @private */
@@ -286,7 +286,6 @@ Polymer({
   setInProgress_() {
     this.error_ = ErrorType.NONE;
     this.inProgress_ = true;
-    this.simUnlockSent_ = true;
   },
 
   /**
@@ -500,29 +499,35 @@ Polymer({
   getErrorMsg_() {
     if (this.error_ === ErrorType.NONE) {
       return '';
-    }
-    const retriesLeft = (this.simUnlockSent_ && this.deviceState &&
-                         this.deviceState.simLockStatus) ?
-        this.deviceState.simLockStatus.retriesLeft :
-        0;
-
-    if (this.error_ === ErrorType.INCORRECT_PIN) {
-      return this.i18n('networkSimErrorIncorrectPin', retriesLeft);
-    }
-    if (this.error_ === ErrorType.INCORRECT_PUK) {
-      return this.i18n('networkSimErrorIncorrectPuk', retriesLeft);
-    }
-    if (this.error_ === ErrorType.MISMATCHED_PIN) {
+    } else if (this.error_ === ErrorType.MISMATCHED_PIN) {
       return this.i18n('networkSimErrorPinMismatch');
     }
-    if (this.error_ === ErrorType.INVALID_PIN) {
-      return this.i18n('networkSimErrorInvalidPin', retriesLeft);
+
+    let errorStringId = '';
+    switch (this.error_) {
+      case ErrorType.INCORRECT_PIN:
+        errorStringId = 'networkSimErrorIncorrectPin';
+        break;
+      case ErrorType.INCORRECT_PUK:
+        errorStringId = 'networkSimErrorIncorrectPuk';
+        break;
+      case ErrorType.INVALID_PIN:
+        errorStringId = 'networkSimErrorInvalidPin';
+        break;
+      case ErrorType.INVALID_PUK:
+        errorStringId = 'networkSimErrorInvalidPuk';
+        break;
+      default:
+        assertNotReached();
     }
-    if (this.error_ === ErrorType.INVALID_PUK) {
-      return this.i18n('networkSimErrorInvalidPuk', retriesLeft);
+
+    const retriesLeft = (this.deviceState && this.deviceState.simLockStatus) ?
+        this.deviceState.simLockStatus.retriesLeft :
+        0;
+    if (retriesLeft !== 1) {
+      errorStringId += 'Plural';
     }
-    assertNotReached();
-    return '';
+    return this.i18n(errorStringId, retriesLeft);
   },
 
   /**

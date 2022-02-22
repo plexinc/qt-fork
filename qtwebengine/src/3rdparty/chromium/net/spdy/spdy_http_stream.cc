@@ -10,9 +10,10 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/check_op.h"
 #include "base/location.h"
-#include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/no_destructor.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
@@ -33,11 +34,12 @@ namespace net {
 
 namespace {
 
-bool ValidatePushedHeaders(const HttpRequestInfo& request_info,
-                           const spdy::SpdyHeaderBlock& pushed_request_headers,
-                           const spdy::SpdyHeaderBlock& pushed_response_headers,
-                           const HttpResponseInfo& pushed_response_info) {
-  spdy::SpdyHeaderBlock::const_iterator status_it =
+bool ValidatePushedHeaders(
+    const HttpRequestInfo& request_info,
+    const spdy::Http2HeaderBlock& pushed_request_headers,
+    const spdy::Http2HeaderBlock& pushed_response_headers,
+    const HttpResponseInfo& pushed_response_info) {
+  spdy::Http2HeaderBlock::const_iterator status_it =
       pushed_response_headers.find(spdy::kHttp2StatusHeader);
   DCHECK(status_it != pushed_response_headers.end());
   // 206 Partial Content and 416 Requested Range Not Satisfiable are range
@@ -51,7 +53,7 @@ bool ValidatePushedHeaders(const HttpRequestInfo& request_info,
           SpdyPushedStreamFate::kClientRequestNotRange);
       return false;
     }
-    spdy::SpdyHeaderBlock::const_iterator pushed_request_range_it =
+    spdy::Http2HeaderBlock::const_iterator pushed_request_range_it =
         pushed_request_headers.find("range");
     if (pushed_request_range_it == pushed_request_headers.end()) {
       // Pushed request is not a range request.
@@ -93,7 +95,9 @@ bool ValidatePushedHeaders(const HttpRequestInfo& request_info,
 
 }  // anonymous namespace
 
-const size_t SpdyHttpStream::kRequestBodyBufferSize = 1 << 14;  // 16KB
+// Align our request body with |kMaxSpdyFrameChunkSize| to prevent unexpected
+// buffer chunking. This is 16KB - frame header size.
+const size_t SpdyHttpStream::kRequestBodyBufferSize = kMaxSpdyFrameChunkSize;
 
 SpdyHttpStream::SpdyHttpStream(const base::WeakPtr<SpdySession>& spdy_session,
                                spdy::SpdyStreamId pushed_stream_id,
@@ -344,16 +348,17 @@ int SpdyHttpStream::SendRequest(const HttpRequestHeaders& request_headers,
     return ERR_IO_PENDING;
   }
 
-  spdy::SpdyHeaderBlock headers;
+  spdy::Http2HeaderBlock headers;
   CreateSpdyHeadersFromHttpRequest(*request_info_, request_headers, &headers);
   stream_->net_log().AddEvent(
       NetLogEventType::HTTP_TRANSACTION_HTTP2_SEND_REQUEST_HEADERS,
       [&](NetLogCaptureMode capture_mode) {
-        return SpdyHeaderBlockNetLogParams(&headers, capture_mode);
+        return Http2HeaderBlockNetLogParams(&headers, capture_mode);
       });
   DispatchRequestHeadersCallback(headers);
 
-  bool will_send_data = HasUploadData() | spdy_session_->GreasedFramesEnabled();
+  bool will_send_data =
+      HasUploadData() | spdy_session_->EndStreamWithDataFrame();
   result = stream_->SendRequestHeaders(
       std::move(headers),
       will_send_data ? MORE_DATA_TO_SEND : NO_MORE_DATA_TO_SEND);
@@ -377,7 +382,7 @@ void SpdyHttpStream::Cancel() {
 void SpdyHttpStream::OnHeadersSent() {
   if (HasUploadData()) {
     ReadAndSendRequestBodyData();
-  } else if (spdy_session_->GreasedFramesEnabled()) {
+  } else if (spdy_session_->EndStreamWithDataFrame()) {
     SendEmptyBody();
   } else {
     MaybePostRequestCallback(OK);
@@ -385,8 +390,8 @@ void SpdyHttpStream::OnHeadersSent() {
 }
 
 void SpdyHttpStream::OnHeadersReceived(
-    const spdy::SpdyHeaderBlock& response_headers,
-    const spdy::SpdyHeaderBlock* pushed_request_headers) {
+    const spdy::Http2HeaderBlock& response_headers,
+    const spdy::Http2HeaderBlock* pushed_request_headers) {
   DCHECK(!response_headers_complete_);
   response_headers_complete_ = true;
 
@@ -452,16 +457,17 @@ void SpdyHttpStream::OnDataReceived(std::unique_ptr<SpdyBuffer> buffer) {
 }
 
 void SpdyHttpStream::OnDataSent() {
-  if (HasUploadData()) {
+  if (request_info_ && HasUploadData()) {
     request_body_buf_size_ = 0;
     ReadAndSendRequestBodyData();
   } else {
-    CHECK(spdy_session_->GreasedFramesEnabled());
+    CHECK(spdy_session_->EndStreamWithDataFrame());
+    MaybePostRequestCallback(OK);
   }
 }
 
 // TODO(xunjieli): Maybe do something with the trailers. crbug.com/422958.
-void SpdyHttpStream::OnTrailers(const spdy::SpdyHeaderBlock& trailers) {}
+void SpdyHttpStream::OnTrailers(const spdy::Http2HeaderBlock& trailers) {}
 
 void SpdyHttpStream::OnClose(int status) {
   DCHECK(stream_);
@@ -553,7 +559,7 @@ void SpdyHttpStream::ReadAndSendRequestBodyData() {
 
 void SpdyHttpStream::SendEmptyBody() {
   CHECK(!HasUploadData());
-  CHECK(spdy_session_->GreasedFramesEnabled());
+  CHECK(spdy_session_->EndStreamWithDataFrame());
 
   auto buffer = base::MakeRefCounted<IOBuffer>(/* buffer_size = */ 0);
   stream_->SendData(buffer.get(), /* length = */ 0, NO_MORE_DATA_TO_SEND);
@@ -704,6 +710,11 @@ void SpdyHttpStream::SetPriority(RequestPriority priority) {
   if (stream_) {
     stream_->SetPriority(priority);
   }
+}
+
+const std::vector<std::string>& SpdyHttpStream::GetDnsAliases() const {
+  static const base::NoDestructor<std::vector<std::string>> emptyvector_result;
+  return *emptyvector_result;
 }
 
 }  // namespace net

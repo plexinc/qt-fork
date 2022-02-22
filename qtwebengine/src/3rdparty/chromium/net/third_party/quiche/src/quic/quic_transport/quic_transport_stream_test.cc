@@ -2,19 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/quic_transport/quic_transport_stream.h"
+#include "quic/quic_transport/quic_transport_stream.h"
 
 #include <memory>
 
-#include "net/third_party/quiche/src/quic/core/frames/quic_window_update_frame.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_expect_bug.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_ptr_util.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/quic_transport/quic_transport_session_interface.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_config_peer.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_transport_test_tools.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/crypto/null_encrypter.h"
+#include "quic/core/frames/quic_window_update_frame.h"
+#include "quic/platform/api/quic_expect_bug.h"
+#include "quic/platform/api/quic_ptr_util.h"
+#include "quic/platform/api/quic_test.h"
+#include "quic/quic_transport/quic_transport_session_interface.h"
+#include "quic/test_tools/quic_config_peer.h"
+#include "quic/test_tools/quic_test_utils.h"
+#include "quic/test_tools/quic_transport_test_tools.h"
 
 namespace quic {
 namespace test {
@@ -29,7 +30,7 @@ ParsedQuicVersionVector GetVersions() {
 
 class MockQuicTransportSessionInterface : public QuicTransportSessionInterface {
  public:
-  MOCK_CONST_METHOD0(IsSessionReady, bool());
+  MOCK_METHOD(bool, IsSessionReady, (), (const, override));
 };
 
 class QuicTransportStreamTest : public QuicTest {
@@ -42,7 +43,9 @@ class QuicTransportStreamTest : public QuicTest {
         session_(connection_) {
     QuicEnableVersion(DefaultVersionForQuicTransport());
     session_.Initialize();
-
+    connection_->SetEncrypter(
+        ENCRYPTION_FORWARD_SECURE,
+        std::make_unique<NullEncrypter>(connection_->perspective()));
     stream_ = new QuicTransportStream(0, &session_, &interface_);
     session_.ActivateStream(QuicWrapUnique(stream_));
 
@@ -51,8 +54,7 @@ class QuicTransportStreamTest : public QuicTest {
     stream_->set_visitor(std::move(visitor));
   }
 
-  void ReceiveStreamData(quiche::QuicheStringPiece data,
-                         QuicStreamOffset offset) {
+  void ReceiveStreamData(absl::string_view data, QuicStreamOffset offset) {
     QuicStreamFrame frame(0, false, offset, data);
     stream_->OnStreamFrame(frame);
   }

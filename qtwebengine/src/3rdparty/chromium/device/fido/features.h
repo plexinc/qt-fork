@@ -9,6 +9,7 @@
 #include "base/feature_list.h"
 #include "base/metrics/field_trial_params.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 
 namespace url {
 class Origin;
@@ -27,13 +28,23 @@ extern const base::Feature kWebAuthUseNativeWinApi;
 COMPONENT_EXPORT(DEVICE_FIDO)
 extern const base::Feature kWebAuthBiometricEnrollment;
 
+// Support a special caBLEv2 mode where the server provides the linking
+// information.
+COMPONENT_EXPORT(DEVICE_FIDO)
+extern const base::Feature kWebAuthCableServerLink;
+
 // Enable using a phone as a generic security key.
 COMPONENT_EXPORT(DEVICE_FIDO)
 extern const base::Feature kWebAuthPhoneSupport;
 
-// Enable WebAuthn calls in cross-origin iframes if allowed by Feature Policy.
+// Support the caBLE extension in assertion requests from any origin.
 COMPONENT_EXPORT(DEVICE_FIDO)
-extern const base::Feature kWebAuthFeaturePolicy;
+extern const base::Feature kWebAuthCableExtensionAnywhere;
+
+// Enable WebAuthn GetAssertion calls in cross-origin iframes if allowed by
+// Feature Policy.
+COMPONENT_EXPORT(DEVICE_FIDO)
+extern const base::Feature kWebAuthGetAssertionFeaturePolicy;
 
 #if defined(OS_CHROMEOS) || defined(OS_LINUX)
 // Use a low connection latency BLE mode when connecting to caBLE
@@ -42,22 +53,11 @@ COMPONENT_EXPORT(DEVICE_FIDO)
 extern const base::Feature kWebAuthCableLowLatency;
 #endif  // defined(OS_CHROMEOS) || defined(OS_LINUX)
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 // Enable a ChromeOS platform authenticator
 COMPONENT_EXPORT(DEVICE_FIDO)
 extern const base::Feature kWebAuthCrosPlatformAuthenticator;
-#endif  // defined(OS_CHROMEOS)
-
-COMPONENT_EXPORT(DEVICE_FIDO)
-extern const base::Feature kWebAuthAttestationBlockList;
-COMPONENT_EXPORT(DEVICE_FIDO)
-extern const base::FeatureParam<std::string> kWebAuthAttestationBlockedDomains;
-
-// DoesMatchWebAuthAttestationBlockedDomains returns true if the
-// |kWebAuthAttestationBlocked| feature is enabled and |origin| is listed
-// in |kWebAuthAttestationBlockedDomains|.
-COMPONENT_EXPORT(DEVICE_FIDO)
-bool DoesMatchWebAuthAttestationBlockedDomains(const url::Origin& origin);
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 }  // namespace device
 

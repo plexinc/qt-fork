@@ -21,7 +21,7 @@
 #include "base/timer/elapsed_timer.h"
 #include "content/public/browser/browser_thread.h"
 #include "extensions/browser/extension_function_histogram_value.h"
-#include "extensions/browser/info_map.h"
+#include "extensions/browser/quota_service.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/features/feature.h"
@@ -43,7 +43,6 @@ class WebContents;
 
 namespace extensions {
 class ExtensionFunctionDispatcher;
-class QuotaLimitHeuristic;
 }
 
 #ifdef NDEBUG
@@ -74,13 +73,21 @@ class QuotaLimitHeuristic;
 // supply a unique |histogramvalue| used for histograms of extension function
 // invocation (add new ones at the end of the enum in
 // extension_function_histogram_value.h).
-#define DECLARE_EXTENSION_FUNCTION(name, histogramvalue)                     \
- public:                                                                     \
-  static constexpr const char* function_name() { return name; }              \
-                                                                             \
- public:                                                                     \
-  static constexpr extensions::functions::HistogramValue histogram_value() { \
-    return extensions::functions::histogramvalue;                            \
+// TODO(devlin): This would be nicer if instead we defined the constructor
+// for the ExtensionFunction since the histogram value and name should never
+// change. Then, we could get rid of the set_ methods for those values on
+// ExtensionFunction, and there'd be no possibility of having them be
+// "wrong" for a given function. Unfortunately, that would require updating
+// each ExtensionFunction and construction site, which, while possible, is
+// quite costly.
+#define DECLARE_EXTENSION_FUNCTION(name, histogramvalue)               \
+ public:                                                               \
+  static constexpr const char* static_function_name() { return name; } \
+                                                                       \
+ public:                                                               \
+  static constexpr extensions::functions::HistogramValue               \
+  static_histogram_value() {                                           \
+    return extensions::functions::histogramvalue;                      \
   }
 
 // Abstract base class for extension functions the ExtensionFunctionDispatcher
@@ -113,7 +120,7 @@ class ExtensionFunction : public base::RefCountedThreadSafe<
   bool HasPermission() const;
 
   // Sends |error| as an error response.
-  void RespondWithError(const std::string& error);
+  void RespondWithError(std::string error);
 
   // The result of a function call.
   //
@@ -127,10 +134,8 @@ class ExtensionFunction : public base::RefCountedThreadSafe<
     virtual bool Apply() = 0;
 
    protected:
-    void SetFunctionResults(ExtensionFunction* function,
-                            std::unique_ptr<base::ListValue> results);
-    void SetFunctionError(ExtensionFunction* function,
-                          const std::string& error);
+    void SetFunctionResults(ExtensionFunction* function, base::Value results);
+    void SetFunctionError(ExtensionFunction* function, std::string error);
   };
   typedef std::unique_ptr<ResponseValueObject> ResponseValue;
 
@@ -212,7 +217,7 @@ class ExtensionFunction : public base::RefCountedThreadSafe<
 
   // Called when the quota limit has been exceeded. The default implementation
   // returns an error.
-  virtual void OnQuotaExceeded(const std::string& violation_error);
+  virtual void OnQuotaExceeded(std::string violation_error);
 
   // Specifies the raw arguments to the function, as a JSON value. Expects a
   // base::Value of type LIST.
@@ -351,27 +356,28 @@ class ExtensionFunction : public base::RefCountedThreadSafe<
   // Same as above, but global. Yuck. Do not add any more uses of this.
   static bool ignore_all_did_respond_for_testing_do_not_use;
 
- protected:
-  friend struct ExtensionFunctionDeleteTraits;
+  // Called when the service worker in the renderer ACKS the function's
+  // response.
+  virtual void OnServiceWorkerAck();
 
+ protected:
   // ResponseValues.
   //
   // Success, no arguments to pass to caller.
   ResponseValue NoArguments();
   // Success, a single argument |arg| to pass to caller.
-  ResponseValue OneArgument(std::unique_ptr<base::Value> arg);
+  ResponseValue OneArgument(base::Value arg);
   // Success, two arguments |arg1| and |arg2| to pass to caller.
   // Note that use of this function may imply you
   // should be using the generated Result struct and ArgumentList.
-  ResponseValue TwoArguments(std::unique_ptr<base::Value> arg1,
-                             std::unique_ptr<base::Value> arg2);
+  ResponseValue TwoArguments(base::Value arg1, base::Value arg2);
   // Success, a list of arguments |results| to pass to caller.
   // - a std::unique_ptr<> for convenience, since callers usually get this from
   //   the result of a Create(...) call on the generated Results struct. For
   //   example, alarms::Get::Results::Create(alarm).
   ResponseValue ArgumentList(std::unique_ptr<base::ListValue> results);
   // Error. chrome.runtime.lastError.message will be set to |error|.
-  ResponseValue Error(const std::string& error);
+  ResponseValue Error(std::string error);
   // Error with formatting. Args are processed using
   // ErrorUtils::FormatErrorMessage, that is, each occurrence of * is replaced
   // by the corresponding |s*|:
@@ -440,6 +446,10 @@ class ExtensionFunction : public base::RefCountedThreadSafe<
   // RespondLater(), and Respond(...) hasn't already been called.
   void Respond(ResponseValue result);
 
+  // Adds this instance to the set of targets waiting for an ACK from the
+  // renderer.
+  void AddWorkerResponseTarget();
+
   virtual ~ExtensionFunction();
 
   // Called after the response is sent, allowing the function to perform any
@@ -462,10 +472,6 @@ class ExtensionFunction : public base::RefCountedThreadSafe<
 
   // The arguments to the API. Only non-null if argument were specified.
   std::unique_ptr<base::ListValue> args_;
-
-  // The BrowserContext of this function's extension.
-  // TODO(devlin): Grr... protected members. Move this to be private.
-  content::BrowserContext* context_ = nullptr;
 
  private:
   friend struct content::BrowserThread::DeleteOnThread<
@@ -531,6 +537,9 @@ class ExtensionFunction : public base::RefCountedThreadSafe<
   // is invoked.
   extensions::functions::HistogramValue histogram_value_ =
       extensions::functions::UNKNOWN;
+
+  // The BrowserContext associated with the requesting renderer
+  content::BrowserContext* context_ = nullptr;
 
   // The type of the JavaScript context where this call originated.
   extensions::Feature::Context source_context_type_ =

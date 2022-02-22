@@ -26,7 +26,8 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QSaveFile>
 #include <qcoreapplication.h>
 #include <qstring.h>
 #include <qtemporaryfile.h>
@@ -40,6 +41,10 @@
 
 #if defined(Q_OS_WIN)
 # include <windows.h>
+#endif
+
+#ifdef Q_OS_INTEGRITY
+#include "qplatformdefs.h"
 #endif
 
 // Restore permissions so that the QTemporaryDir cleanup can happen

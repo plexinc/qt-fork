@@ -12,8 +12,9 @@
 #include "core/fpdfdoc/cba_fontmap.h"
 #include "fpdfsdk/cpdfsdk_formfillenvironment.h"
 #include "fpdfsdk/cpdfsdk_widget.h"
+#include "fpdfsdk/pwl/cpwl_edit.h"
 #include "public/fpdf_fwlevent.h"
-#include "third_party/base/ptr_util.h"
+#include "third_party/base/check.h"
 
 namespace {
 
@@ -84,7 +85,7 @@ CPWL_Wnd::CreateParams CFFL_TextField::GetCreateParam() {
 std::unique_ptr<CPWL_Wnd> CFFL_TextField::NewPWLWindow(
     const CPWL_Wnd::CreateParams& cp,
     std::unique_ptr<IPWL_SystemHandler::PerWindowData> pAttachedData) {
-  auto pWnd = pdfium::MakeUnique<CPWL_Edit>(cp, std::move(pAttachedData));
+  auto pWnd = std::make_unique<CPWL_Edit>(cp, std::move(pAttachedData));
   pWnd->AttachFFLData(this);
   pWnd->Realize();
   pWnd->SetFillerNotify(m_pFormFillEnv->GetInteractiveFormFiller());
@@ -112,7 +113,7 @@ bool CFFL_TextField::OnChar(CPDFSDK_Annot* pAnnot,
         break;
 
       CPDFSDK_PageView* pPageView = GetCurPageView();
-      ASSERT(pPageView);
+      DCHECK(pPageView);
       m_bValid = !m_bValid;
       m_pFormFillEnv->Invalidate(pAnnot->GetPage(),
                                  pAnnot->GetRect().GetOuterRect());
@@ -131,7 +132,7 @@ bool CFFL_TextField::OnChar(CPDFSDK_Annot* pAnnot,
     }
     case FWL_VKEY_Escape: {
       CPDFSDK_PageView* pPageView = GetCurPageView();
-      ASSERT(pPageView);
+      DCHECK(pPageView);
       EscapeFiller(pPageView, true);
       return true;
     }
@@ -220,7 +221,7 @@ void CFFL_TextField::SaveState(CPDFSDK_PageView* pPageView) {
   if (!pWnd)
     return;
 
-  pWnd->GetSelection(m_State.nStart, m_State.nEnd);
+  std::tie(m_State.nStart, m_State.nEnd) = pWnd->GetSelection();
   m_State.sValue = pWnd->GetText();
 }
 

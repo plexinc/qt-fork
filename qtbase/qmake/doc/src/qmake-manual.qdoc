@@ -56,7 +56,7 @@
 
     \list
         \li \l{Overview}
-        \li \l{Getting Started}
+        \li \l{Getting Started with qmake}
         \li \l{Creating Project Files}
         \li \l{Building Common Project Types}
         \li \l{Running qmake}
@@ -85,7 +85,7 @@
     \page qmake-overview.html
     \title Overview
     \previouspage qmake Manual
-    \nextpage Getting Started
+    \nextpage Getting Started with qmake
 
     The qmake tool provides you with a project-oriented system for managing the
     build process for applications, libraries, and other components.
@@ -110,7 +110,7 @@
     control structures. In most simple projects, it is only necessary
     to declare the source and header files that are used to build the
     project with some basic configuration options. For more information about
-    how to create a simple project file, see \l{Getting Started}.
+    how to create a simple project file, see \l{Getting Started with qmake}.
 
     You can create more sophisticated project files for complex projects. For an
     overview of project files, see \l{Creating Project Files}. For detailed
@@ -157,7 +157,7 @@
 /*!
     \page qmake-project-files.html
     \title Creating Project Files
-    \previouspage Getting Started
+    \previouspage Getting Started with qmake
     \nextpage Building Common Project Types
 
     Project files contain all the information required by qmake to build your
@@ -490,6 +490,9 @@
 
     \snippet code/doc_src_qmake-manual.pro 8
 
+    \note If you installed Qt via a package manager, the binary
+    may be \c{qmake6}.
+
     \section1 Operating Modes
 
     qmake supports two different modes of operation. In the default mode, qmake
@@ -723,10 +726,8 @@
 
     \section2 Creating and Moving Xcode Projects
 
-    Developers on \macos can take advantage of the qmake support for Xcode
-    project files, as described in \l{Qt for macOS#Additional Command-Line Options}{Qt for \macos} documentation.
-    by running qmake to generate an Xcode project from an existing qmake project
-    file. For example:
+    On \macos, developers can generate Xcode project files from an existing qmake
+    project file. For example:
 
     \snippet code/doc_src_qmake-manual.pro 19
 
@@ -794,7 +795,9 @@
     and \l{RC_ICONS}. The generated .rc file is automatically compiled and
     linked. Elements that are added to the .rc file are defined by the system
     variables \l{QMAKE_TARGET_COMPANY}, \l{QMAKE_TARGET_DESCRIPTION},
-    \l{QMAKE_TARGET_COPYRIGHT}, \l{QMAKE_TARGET_PRODUCT}, \l{QMAKE_MANIFEST},
+    \l{QMAKE_TARGET_COPYRIGHT}, \l{QMAKE_TARGET_PRODUCT},
+    \l{QMAKE_TARGET_ORIGINAL_FILENAME}, \l{QMAKE_TARGET_INTERNALNAME},
+    \l{QMAKE_TARGET_COMMENTS}, \l{QMAKE_TARGET_TRADEMARKS}, \l{QMAKE_MANIFEST},
     \l{RC_CODEPAGE}, \l{RC_ICONS}, \l{RC_LANG} and \l{VERSION}.
 
     If these elements are not sufficient, qmake has the two system variables
@@ -905,14 +908,6 @@
     to specify a list of libraries that each project needs to link against,
     and \c QMAKE_LIBS_X11 would be used to extend this list.
 
-    \target ANDROID_ABI
-    \section1 ANDROID_ABI
-
-    \note This variable applies only to Android targets.
-
-    Specifies the Android target ABI. Valid values are: armeabi-v7a, arm64-v8a,
-    x86, x86_64.
-
     \target ANDROID_ABIS
     \section1 ANDROID_ABIS
 
@@ -927,13 +922,9 @@
     qmake ANDROID_ABIS="armeabi-v7a arm64-v8a"
     \endcode
 
-    Or directly in the \c .pro file:
-
-    \badcode
-    ANDROID_ABIS = \
-        armeabi-v7a \
-        arm64-v8a
-    \endcode
+    \note It is possible to use this variable inside the *.pro file, however,
+    it is not recommended since it will override any ABIs specified on the
+    \c qmake command line.
 
     \target ANDROID_API_VERSION
     \section1 ANDROID_API_VERSION
@@ -942,6 +933,19 @@
 
     Specifies the Android API level number. For more information, see
     \l{Android: Build Numbers}{Android Build Numbers}.
+
+    \target ANDROID_APPLICATION_ARGUMENTS
+    \section1 ANDROID_APPLICATION_ARGUMENTS
+
+    \note This variable applies only to Android targets.
+
+    Specifies extra command-line arguments to the Android app using the
+    \c AndroidManifest.xml with the tag "android.app.arguments". This takes
+    a string of arguments:
+
+    \badcode
+    ANDROID_APPLICATION_ARGUMENTS = "arg1 arg2 arg3"
+    \endcode
 
     \target ANDROID_BUNDLED_JAR_DEPENDENCIES
     \section1 ANDROID_BUNDLED_JAR_DEPENDENCIES
@@ -952,7 +956,7 @@
     dependencies used by the module in a \c .jar format, for example:
 
     \badcode
-    ANDROID_BUNDLED_JAR_DEPENDENCIES += jar/QtAndroid.jar
+    ANDROID_BUNDLED_JAR_DEPENDENCIES += jar/Qt6Android.jar
     \endcode
 
     \target ANDROID_DEPLOYMENT_DEPENDENCIES
@@ -993,6 +997,19 @@
     \c libs folder and loaded on start-up. This can be used, for instance,
     to enable OpenSSL in your application. For more information, see
     \l{Adding OpenSSL Support for Android}.
+
+    To include external libraries for multiple ABIs, where each ABIs has its own
+    directory, use the following:
+
+    \badcode
+    for (abi, ANDROID_ABIS): ANDROID_EXTRA_LIBS += $$PWD/$${abi}/library_name.so
+    \endcode
+
+    Otherwise, if the ABI is included in the library name, use the following:
+
+    \badcode
+    for (abi, ANDROID_ABIS): ANDROID_EXTRA_LIBS += $$PWD/library_name_$${abi}.so
+    \endcode
 
     \target ANDROID_EXTRA_PLUGINS
     \section1 ANDROID_EXTRA_PLUGINS
@@ -1067,7 +1084,7 @@
     \note This variable applies only to Android targets.
 
     Specifies the minimum Android API level for the project. By default, this
-    variable is set to API level 21.
+    variable is set to API level 23.
 
     \target ANDROID_PACKAGE_SOURCE_DIR
     \section1 ANDROID_PACKAGE_SOURCE_DIR
@@ -1109,7 +1126,7 @@
     \note This variable applies only to Android targets.
 
     Specifies the target Android API level for the project. By default, this
-    variable is set to API level 28.
+    variable is set to API level 30.
 
     \target ANDROID_VERSION_CODE
     \section1 ANDROID_VERSION_CODE
@@ -1176,8 +1193,8 @@
             default is used.
     \row    \li thread \li Thread support is enabled. This is enabled when CONFIG
             includes \c qt, which is the default.
-    \row    \li utf8_source \li Specifies that the project's source files use the
-            UTF-8 encoding. By default, the compiler default is used.
+    \row    \li no_utf8_source \li Specifies that the project's source files does not use
+            the UTF-8 encoding. Instead, the compiler default is used.
     \row    \li hide_symbols \li Set the default visibility of symbols in the binary
             to hidden. By default, the compiler default is used.
     \row    \li c99 \li C99 support is enabled. This option has no effect if
@@ -1186,6 +1203,11 @@
     \row    \li c11 \li C11 support is enabled. This option has no effect if
             the compiler does not support C11, or can't select the C standard.
             By default, the compiler default is used.
+    \row    \li c17 \li C17, also known as C18, support is enabled.
+            This option has no effect if the compiler does not support C17, or
+            can't select the C standard.
+            By default, the compiler default is used.
+    \row    \li c18 \li This is an alias for the \c{c17} value.
     \row    \li strict_c \li Disables support for C compiler extensions.
             By default, they are enabled.
     \row    \li c++11 \li C++11 support is enabled. This option has no effect if
@@ -1193,14 +1215,15 @@
             By default, support is enabled.
     \row    \li c++14 \li C++14 support is enabled. This option has no effect if
             the compiler does not support C++14, or can't select the C++ standard.
-            By default, the compiler default is used.
-    \row    \li c++1z \li C++17 support is enabled. This option has no effect if
+            By default, support is enabled.
+    \row    \li c++17 \li C++17 support is enabled. This option has no effect if
             the compiler does not support C++17, or can't select the C++ standard.
+            By default, support is enabled.
+    \row    \li c++1z \li Obsolete alias for c++17.
+    \row    \li c++20 \li C++20 support is enabled. This option has no effect if
+            the compiler does not support C++20, or can't select the C++ standard.
             By default, support is disabled.
-    \row    \li c++17 \li Same as c++1z.
-    \row    \li c++2a \li C++2a support is enabled. This option has no effect if
-            the compiler does not support C++2a, or can't select the C++ standard.
-            By default, support is disabled.
+    \row    \li c++2a \li Obsolete alias for c++20.
     \row    \li c++latest \li Support for the latest C++ language standard is
             enabled that is supported by the compiler. By default, this option is
             disabled.
@@ -1232,6 +1255,9 @@
             subproject.
     \row \li no_include_pwd \li Do not add the current directory to
             INCLUDEPATHS.
+    \row \li compile_included_sources \li By default, qmake does not
+             compile source files that are included in other source files. This
+             option disables this behavior.
     \endtable
 
     When you use the \c debug_and_release option (which is the default under
@@ -2289,6 +2315,9 @@
     \row
         \li \c ${WATCHOS_DEPLOYMENT_TARGET}
         \li Expands to the value of QMAKE_WATCHOS_DEPLOYMENT_TARGET.
+    \row
+        \li \c ${IOS_LAUNCH_SCREEN}
+        \li Expands to the value of QMAKE_IOS_LAUNCH_SCREEN.
     \endtable
 
     \note When using the Xcode generator, the above \c{${var}}-style
@@ -2311,6 +2340,13 @@
     Specifies the hard minimum version of iOS that the application supports.
 
     For more information, see \l {Expressing Supported iOS Versions}.
+
+    \section1 QMAKE_IOS_LAUNCH_SCREEN
+
+    \note This variable is used on the iOS platform only.
+
+    Specifies the launch screen that is used by the application. If this is not set
+    then a default launch screen is used.
 
     \section1 QMAKE_LFLAGS
 
@@ -2644,7 +2680,7 @@
 
     Specifies the hard minimum version of \macos that the application supports.
 
-    For more information, see \l{macOS Version Dependencies}.
+    For more information, see \l{Qt for \macos#Supported Versions}{\macos Supported Versions}.
 
     \section1 QMAKE_MAKEFILE
 
@@ -2788,6 +2824,40 @@
     where applicable for putting the product in the application's properties.
     This is only utilized if the \l{VERSION} or \l{RC_ICONS} variable is set
     and the \l{RC_FILE} and \l{RES_FILE} variables are not set.
+
+    \target QMAKE_TARGET_ORIGINAL_FILENAME
+    \section1 QMAKE_TARGET_ORIGINAL_FILENAME
+
+    Windows only. Specifies the original file name for the project target;
+    this is used where applicable for putting the original file name in the
+    application's properties. This is only utilized if the \l{VERSION} or
+    \l{RC_ICONS} variable is set and the \l{RC_FILE} and \l{RES_FILE}
+    variables are not set.
+
+    \target QMAKE_TARGET_INTERNALNAME
+    \section1 QMAKE_TARGET_INTERNALNAME
+
+    Windows only. Specifies the internal name for the project target; this is
+    used where applicable for putting the internal name in the application's
+    properties. This is only utilized if the \l{VERSION} or \l{RC_ICONS}
+    variable is set and the \l{RC_FILE} and \l{RES_FILE} variables are not set.
+
+    \target QMAKE_TARGET_COMMENTS
+    \section1 QMAKE_TARGET_COMMENTS
+
+    Windows only. Specifies the comments for the project target; this is
+    used where applicable for putting the comments in the application's
+    properties. This is only utilized if the \l{VERSION} or \l{RC_ICONS}
+    variable is set and the \l{RC_FILE} and \l{RES_FILE} variables are not set.
+
+    \target QMAKE_TARGET_TRADEMARKS
+    \section1 QMAKE_TARGET_TRADEMARKS
+
+    Windows only. Specifies the trademark information for the project target;
+    this is used where applicable for putting the trademark information in the
+    application's properties. This is only utilized if the \l{VERSION} or
+    \l{RC_ICONS} variable is set and the \l{RC_FILE} and \l{RES_FILE} variables
+    are not set.
 
     \target QMAKE_MANIFEST
     \section1 QMAKE_MANIFEST
@@ -3214,9 +3284,6 @@
     On desktop Windows, the default value is the value of the environment
     variable \c{WindowsSDKVersion}.
 
-    On Universal Windows Platform (UWP), the default value is the value of the
-    environment variable \c{UCRTVERSION}.
-
     \target WINDOWS_TARGET_PLATFORM_MIN_VERSION
     \section1 WINDOWS_TARGET_PLATFORM_MIN_VERSION
 
@@ -3224,172 +3291,6 @@
     corresponds to the tag \c{WindowsTargetPlatformMinVersion} in vcxproj files.
 
     Defaults to \c{WINDOWS_TARGET_PLATFORM_VERSION}.
-
-    \target WINRT_MANIFEST
-    \section1 WINRT_MANIFEST
-
-    Specifies parameters to be passed to the application manifest on
-    \l{Qt for UWP}{UWP}. The allowed values are:
-
-    \table
-    \header
-        \li Member
-        \li Description
-    \row
-        \li architecture
-        \li The target architecture. Defaults to \c VCPROJ_ARCH.
-    \row
-        \li background
-        \li Tile background color. Defaults to \c{green}.
-    \row
-        \li capabilities
-        \li Specifies capabilities to add to the capability list.
-    \row
-        \li capabilities_device
-        \li Specifies device capabilities to add to the capability list
-            (location, webcam, and so on).
-    \row
-        \li CONFIG
-        \li Specifies additional flags for processing the input manifest file.
-            Currently, \c{verbatim} is the only available option.
-    \row
-        \li default_language
-        \li The default language code of the application. Defaults to "en".
-    \row
-        \li dependencies
-        \li Specifies dependencies required by the package.
-    \row
-        \li description
-        \li Package description. Defaults to \c{Default package description}.
-    \row
-        \li foreground
-        \li Tile foreground (text) color. Defaults to \c{light}.
-    \row
-        \li iconic_tile_icon
-        \li Image file for the \c{iconic} tile template icon. Default provided by
-            the mkspec.
-    \row
-        \li iconic_tile_small
-        \li Image file for the small \c{iconic} tile template logo. Default provided
-            by the mkspec.
-    \row
-        \li identity
-        \li The unique ID of the app. Defaults to reusing the existing generated
-            manifest's UUID, or generates a new UUID if none is present.
-    \row
-        \li logo_30x30
-        \li Logo image file of size 30x30 pixels.
-    \row
-        \li logo_41x41
-        \li Logo image file of size 41x41 pixels. This parameter is obsolete.
-    \row
-        \li logo_70x70
-        \li Logo image file of size 70x70 pixels.
-    \row
-        \li logo_71x71
-        \li Logo image file of size 71x71 pixels. This parameter is obsolete.
-    \row
-        \li logo_150x150
-        \li Logo image file of size 150x150 pixels. This is supported on all Windows
-            Store App platforms.
-    \row
-        \li logo_310x150
-        \li Logo image file of size 310x150 pixels. This is supported on all Windows
-            Store App platforms.
-    \row
-        \li logo_310x310
-        \li Logo image file of size 310x310 pixels. This is supported on all Windows
-            Store App platforms.
-    \row
-        \li logo_620x300
-        \li Splash screen image file of size 620x300 pixels.
-    \row
-        \li logo_480x800
-        \li Splash screen image file of size 480x800 pixels.
-            This parameter is obsolete.
-    \row
-        \li logo_large
-        \li Large logo image file. This has to be 150x150 pixels. Supported on all
-            Windows Store App platforms. Default provided by the mkspec.
-    \row
-        \li logo_medium
-        \li Medium logo image file. The image must have a pixel size of 70x70.
-            Default provided by the mkspec.
-    \row
-        \li logo_small
-        \li Small logo image file. The image must have a pixel size of 30x30.
-            Default provided by the mkspec.
-    \row
-        \li logo_splash
-        \li Splash screen image file. The image must have a pixel size of
-            620x300. Default provided by the mkspec.
-    \row
-        \li logo_store
-        \li Logo image file for Windows Store. Default provided by the mkspec.
-    \row
-        \li logo_wide
-        \li Wide logo image file. This has to be 310x150 pixels. Supported on all
-            Windows Store App platforms. Default provided by the mkspec.
-    \row
-        \li name
-        \li The name of the package as displayed to the user. Defaults to TARGET.
-    \row
-        \li phone_product_id
-        \li The GUID of the product.
-            This parameter is obsolete.
-    \row
-        \li phone_publisher_id
-        \li The GUID of the publisher.
-            This parameter is obsolete.
-    \row
-        \li publisher
-        \li Display name of the publisher. Defaults to \c{Default publisher display name}.
-    \row
-        \li publisher_id
-        \li The publisher's distinguished name (default: \c{CN=MyCN}).
-    \row
-        \li target
-        \li The name of the target (.exe). Defaults to TARGET.
-    \row
-        \li version
-        \li The version number of the package. Defaults to \c{1.0.0.0}.
-    \row
-        \li minVersion
-        \li The minimum required Windows version to run the package.
-            Defaults to \c{WINDOWS_TARGET_PLATFORM_VERSION}.
-    \row
-        \li maxVersionTested
-        \li The maximum Windows version the package has been tested against.
-            Defaults to \c{WINDOWS_TARGET_PLATFORM_MIN_VERSION}.
-
-    \endtable
-
-    You can use any combination of those values.
-
-    For example:
-
-    \code
-    WINRT_MANIFEST.publisher = MyCompany
-    WINRT_MANIFEST.logo_store = someImage.png
-    WINRT_MANIFEST.capabilities += internetClient
-    WINRT_MANIFEST.capabilities_device += location
-    \endcode
-
-    Additionally, an input manifest file can be specified by using WINRT_MANIFEST.
-
-    For example:
-
-    \code
-    WINRT_MANIFEST = someManifest.xml.in
-    \endcode
-
-    In case the input manifest file should not be processed and only copied to
-    the target directory, the verbatim configuration needs to be set.
-
-    \code
-    WINRT_MANIFEST = someManifest.xml.in
-    WINRT_MANIFEST.CONFIG += verbatim
-    \endcode
 
     \target YACCSOURCES
     \section1 YACCSOURCES
@@ -3699,7 +3600,8 @@
     \section2 re_escape(string)
 
     Returns the \c string with every special regular expression character
-    escaped with a backslash. This function is a wrapper around QRegExp::escape.
+    escaped with a backslash. This function is a wrapper around
+    QRegularExpression::escape.
 
     \section2 read_registry(tree, key[, flag])
 
@@ -4078,8 +3980,9 @@
 
     Tests whether a file with the given \c filename exists.
     If the file exists, the function succeeds; otherwise it fails.
-    If a regular expression is specified for the filename, this function
-    succeeds if any file matches the regular expression specified.
+
+    The \c filename argument may contain wildcards.
+    In that case, this function succeeds if any file matches.
 
     For example:
     \snippet code/doc_src_qmake-manual.pro 63
@@ -4418,6 +4321,9 @@
             and stored in the \l{QMAKESPEC} variable during a target build
         \li QT_HOST_BINS - location of host executables
         \li QT_HOST_DATA - location of data for host executables used by qmake
+        \li QT_HOST_LIBS - location of host libraries
+        \li QT_HOST_LIBEXECS - location of executables required by host
+            libraries at runtime
         \li QT_HOST_PREFIX - default prefix for all host paths
         \li QT_INSTALL_ARCHDATA - location of general architecture-dependent Qt
             data
@@ -4429,7 +4335,6 @@
         \li QT_INSTALL_DOCS - location of documentation
         \li QT_INSTALL_EXAMPLES - location of examples
         \li QT_INSTALL_HEADERS - location for all header files
-        \li QT_INSTALL_IMPORTS - location of QML 1.x extensions
         \li QT_INSTALL_LIBEXECS - location of executables required by libraries at runtime
         \li QT_INSTALL_LIBS - location of libraries
         \li QT_INSTALL_PLUGINS - location of Qt plugins
@@ -5423,7 +5328,7 @@
 /*!
     \keyword qmake-getting-started
     \page qmake-tutorial.html
-    \title Getting Started
+    \title Getting Started with qmake
     \previouspage Overview
     \nextpage Creating Project Files
 
@@ -5492,6 +5397,9 @@
     type the following:
 
     \snippet code/doc_src_qmake-manual.pro 114
+
+    \note If you installed Qt via a package manager, the binary
+    may be \c{qmake6}.
 
     Then type \c make or \c nmake depending on the compiler you use.
 
@@ -5700,11 +5608,11 @@
     on the command-line:
 
     \code
-        # Run tests through test-wrapper and use xunitxml output format.
+        # Run tests through test-wrapper and use JUnit XML output format.
         # In this example, test-wrapper is a fictional wrapper script which terminates
         # a test if it does not complete within the amount of seconds set by "--timeout".
-        # The "-o result.xml,xunitxml" options are interpreted by QTestLib.
-        make check TESTRUNNER="test-wrapper --timeout 120" TESTARGS="-o result.xml,xunitxml"
+        # The "-o result.xml,junitxml" options are interpreted by QTestLib.
+        make check TESTRUNNER="test-wrapper --timeout 120" TESTARGS="-o result.xml,junitxml"
     \endcode
 
     Testcase projects may be further customized with the following \c CONFIG options:

@@ -58,7 +58,7 @@ void CustomWidgetsInfo::acceptCustomWidget(DomCustomWidget *node)
     m_customWidgets.insert(node->elementClass(), node);
 }
 
-bool CustomWidgetsInfo::extends(const QString &classNameIn, QLatin1String baseClassName) const
+bool CustomWidgetsInfo::extends(const QString &classNameIn, QAnyStringView baseClassName) const
 {
     if (classNameIn == baseClassName)
         return true;
@@ -101,6 +101,21 @@ bool CustomWidgetsInfo::isCustomWidgetContainer(const QString &className) const
     return false;
 }
 
+// Is it ambiguous, resulting in different signals for Python
+// "QAbstractButton::clicked(checked=false)"
+bool CustomWidgetsInfo::isAmbiguousSignal(const QString &className,
+                                          const QString &signalSignature) const
+{
+    if (signalSignature.startsWith(u"triggered") && extends(className, "QAction"))
+        return true;
+    if (signalSignature.startsWith(u"clicked(")
+        && extendsOneOf(className, {u"QCommandLinkButton"_qs, u"QCheckBox"_qs,
+                                    u"QPushButton"_qs, u"QRadioButton"_qs, u"QToolButton"_qs})) {
+        return true;
+    }
+    return false;
+}
+
 QString CustomWidgetsInfo::realClassName(const QString &className) const
 {
     if (className == QLatin1String("Line"))
@@ -119,19 +134,19 @@ QString CustomWidgetsInfo::customWidgetAddPageMethod(const QString &name) const
 // add page methods for simple containers taking only the widget parameter
 QString CustomWidgetsInfo::simpleContainerAddPageMethod(const QString &name) const
 {
-    using AddPageMethod = std::pair<const char *, const char *>;
+    using AddPageMethod = std::pair<QString, QString>;
 
-    static AddPageMethod addPageMethods[] = {
-        {"QStackedWidget", "addWidget"},
-        {"QToolBar", "addWidget"},
-        {"QDockWidget", "setWidget"},
-        {"QScrollArea", "setWidget"},
-        {"QSplitter", "addWidget"},
-        {"QMdiArea", "addSubWindow"}
+    static const AddPageMethod addPageMethods[] = {
+        {u"QStackedWidget"_qs, u"addWidget"_qs},
+        {u"QToolBar"_qs, u"addWidget"_qs},
+        {u"QDockWidget"_qs, u"setWidget"_qs},
+        {u"QScrollArea"_qs, u"setWidget"_qs},
+        {u"QSplitter"_qs, u"addWidget"_qs},
+        {u"QMdiArea"_qs, u"addSubWindow"_qs}
     };
     for (const auto &m : addPageMethods) {
-        if (extends(name, QLatin1String(m.first)))
-            return QLatin1String(m.second);
+        if (extends(name, m.first))
+            return m.second;
     }
     return QString();
 }

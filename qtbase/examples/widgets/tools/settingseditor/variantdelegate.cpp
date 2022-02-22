@@ -334,7 +334,7 @@ void VariantDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
             break;
         default:
             value = text;
-            value.convert(originalValue.userType());
+            value.convert(originalValue.metaType());
         }
     }
 
@@ -370,14 +370,9 @@ bool VariantDelegate::isSupportedType(int type)
 
 QString VariantDelegate::displayText(const QVariant &value)
 {
-    static const ushort unicodeBallotBox = 0x2610;
-    static const ushort unicodeCheckmark = 0x2713;
-
     switch (value.userType()) {
     case QMetaType::Bool:
-        return value.toBool()
-            ? QString(QChar(unicodeCheckmark))
-            : QString(QChar(unicodeBallotBox));
+        return value.toBool() ? "✓" : "☐";
     case QMetaType::QByteArray:
         return byteArrayToString(value.toByteArray());
     case QMetaType::QChar:

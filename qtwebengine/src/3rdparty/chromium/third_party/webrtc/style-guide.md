@@ -31,6 +31,10 @@ WebRTC is written in C++14, but with some restrictions:
 
 [chromium-cpp]: https://chromium-cpp.appspot.com/
 
+Unlike the Chromium and Google C++ style guides, we do not allow C++20-style
+designated initializers, because we want to stay compatible with compilers that
+do not yet support them.
+
 ### Abseil
 
 You may use a subset of the utilities provided by the [Abseil][abseil]
@@ -70,6 +74,37 @@ prefer the url form, e.g.
 ```
 
 [goog-style-todo]: https://google.github.io/styleguide/cppguide.html#TODO_Comments
+
+### Deprecation
+
+Annotate the declarations of deprecated functions and classes with
+[ABSL_DEPRECATED][ABSL_DEPRECATED] to cause an error when they're used inside
+webrtc and a compiler warning when they're used by dependant projects. Like so:
+
+```
+ABSL_DEPRECATED("bugs.webrtc.org/12345")
+std::pony PonyPlz(const std::pony_spec& ps);
+```
+
+NOTE 1: The annotation goes on the declaration in the .h file, not the
+definition in the .cc file!
+
+NOTE 2: In order to have unit tests that use the deprecated function without
+getting errors, do something like this:
+
+```
+std::pony DEPRECATED_PonyPlz(const std::pony_spec& ps);
+ABSL_DEPRECATED("bugs.webrtc.org/12345")
+inline std::pony PonyPlz(const std::pony_spec& ps) {
+  return DEPRECATED_PonyPlz(ps);
+}
+```
+
+In other words, rename the existing function, and provide an inline wrapper
+using the original name that calls it. That way, callers who are willing to
+call it using the DEPRECATED_-prefixed name don't get the warning.
+
+[ABSL_DEPRECATED]: https://source.chromium.org/chromium/chromium/src/+/master:third_party/abseil-cpp/absl/base/attributes.h?q=ABSL_DEPRECATED
 
 ### ArrayView
 

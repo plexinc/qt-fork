@@ -56,7 +56,9 @@
 #include <QtNetwork/qnetworkrequest.h>
 #include <qmetatype.h>
 
+#ifndef Q_OS_WASM
 QT_REQUIRE_CONFIG(http);
+#endif
 
 QT_BEGIN_NAMESPACE
 
@@ -117,14 +119,14 @@ public:
     bool isPipeliningAllowed() const;
     void setPipeliningAllowed(bool b);
 
-    bool isSPDYAllowed() const;
-    void setSPDYAllowed(bool b);
-
     bool isHTTP2Allowed() const;
     void setHTTP2Allowed(bool b);
 
     bool isHTTP2Direct() const;
     void setHTTP2Direct(bool b);
+
+    bool isH2cAllowed() const;
+    void setH2cAllowed(bool b);
 
     bool withCredentials() const;
     void setWithCredentials(bool b);
@@ -150,6 +152,10 @@ public:
 
     QString peerVerifyName() const;
     void setPeerVerifyName(const QString &peerName);
+
+    qint64 minimumArchiveBombSize() const;
+    void setMinimumArchiveBombSize(qint64 threshold);
+
 private:
     QSharedDataPointer<QHttpNetworkRequestPrivate> d;
     friend class QHttpNetworkRequestPrivate;
@@ -175,14 +181,15 @@ public:
     QByteArray customVerb;
     QHttpNetworkRequest::Priority priority;
     mutable QNonContiguousByteDevice* uploadByteDevice;
+    qint64 minimumArchiveBombSize = 0;
     bool autoDecompress;
     bool pipeliningAllowed;
-    bool spdyAllowed;
     bool http2Allowed;
     bool http2Direct;
     bool withCredentials;
     bool ssl;
     bool preConnect;
+    bool needResendWithCredentials = false;
     int redirectCount;
     QNetworkRequest::RedirectPolicy redirectPolicy;
     QString peerVerifyName;

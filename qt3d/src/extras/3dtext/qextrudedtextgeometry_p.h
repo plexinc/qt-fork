@@ -62,39 +62,40 @@
 // We mean it.
 //
 
-#include <Qt3DRender/private/qgeometry_p.h>
+#include <Qt3DCore/private/qgeometry_p.h>
+#include <Qt3DExtras/qextrudedtextgeometry.h>
 #include <QFont>
 
 QT_BEGIN_NAMESPACE
 
-namespace Qt3DRender {
+namespace Qt3DCore {
 
 class QAttribute;
 class QBuffer;
 
-} // namespace Qt3DRender
+} // namespace Qt3DCore
 
 namespace Qt3DExtras {
 
 class QExtrudedTextGeometry;
 
-class QExtrudedTextGeometryPrivate : public Qt3DRender::QGeometryPrivate
+class QExtrudedTextGeometryPrivate : public Qt3DCore::QGeometryPrivate
 {
 public:
     QExtrudedTextGeometryPrivate();
     void init();
-    void update();
+    void update() override;
 
     QString m_text;
     QFont m_font;
     float m_depth;
     float m_edgeSplitAngle;
 
-    Qt3DRender::QAttribute *m_positionAttribute;
-    Qt3DRender::QAttribute *m_normalAttribute;
-    Qt3DRender::QAttribute *m_indexAttribute;
-    Qt3DRender::QBuffer *m_vertexBuffer;
-    Qt3DRender::QBuffer *m_indexBuffer;
+    Qt3DCore::QAttribute *m_positionAttribute;
+    Qt3DCore::QAttribute *m_normalAttribute;
+    Qt3DCore::QAttribute *m_indexAttribute;
+    Qt3DCore::QBuffer *m_vertexBuffer;
+    Qt3DCore::QBuffer *m_indexBuffer;
 
     Q_DECLARE_PUBLIC(QExtrudedTextGeometry)
 };

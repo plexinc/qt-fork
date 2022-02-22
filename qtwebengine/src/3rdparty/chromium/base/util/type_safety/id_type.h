@@ -6,8 +6,9 @@
 #define BASE_UTIL_TYPE_SAFETY_ID_TYPE_H_
 
 #include <cstdint>
+#include <type_traits>
 
-#include "base/util/type_safety/strong_alias.h"
+#include "base/types/strong_alias.h"
 
 namespace util {
 
@@ -46,21 +47,33 @@ namespace util {
 // - it restricts the set of available operations (i.e. no multiplication);
 // - it default-constructs to a null value and allows checking against the null
 //   value via is_null method.
-template <typename TypeMarker, typename WrappedType, WrappedType kInvalidValue>
-class IdType : public StrongAlias<TypeMarker, WrappedType> {
+template <typename TypeMarker,
+          typename WrappedType,
+          WrappedType kInvalidValue,
+          WrappedType kFirstGeneratedId = kInvalidValue + 1>
+class IdType : public base::StrongAlias<TypeMarker, WrappedType> {
  public:
-  static_assert(kInvalidValue <= 0,
-                "The invalid value should be negative or equal to zero to "
-                "avoid overflow issues.");
+  static_assert(
+      std::is_unsigned<WrappedType>::value || kInvalidValue <= 0,
+      "If signed, the invalid value should be negative or equal to zero to "
+      "avoid overflow issues.");
 
-  using StrongAlias<TypeMarker, WrappedType>::StrongAlias;
+  static_assert(kFirstGeneratedId != kInvalidValue,
+                "The first generated ID cannot be invalid.");
+
+  static_assert(std::is_unsigned<WrappedType>::value ||
+                    kFirstGeneratedId > kInvalidValue,
+                "If signed, the first generated ID must be greater than the "
+                "invalid value so that the monotonically increasing "
+                "GenerateNextId method will never return the invalid value.");
+
+  using base::StrongAlias<TypeMarker, WrappedType>::StrongAlias;
 
   // This class can be used to generate unique IdTypes. It keeps an internal
   // counter that is continually increased by one every time an ID is generated.
   class Generator {
    public:
     Generator() = default;
-    ~Generator() = default;
 
     // Generates the next unique ID.
     IdType GenerateNextId() { return FromUnsafeValue(next_id_++); }
@@ -70,19 +83,24 @@ class IdType : public StrongAlias<TypeMarker, WrappedType> {
     Generator& operator=(const Generator&) = delete;
 
    private:
-    WrappedType next_id_ = kInvalidValue + 1;
+    WrappedType next_id_ = kFirstGeneratedId;
   };
 
   // Default-construct in the null state.
-  IdType() : StrongAlias<TypeMarker, WrappedType>::StrongAlias(kInvalidValue) {}
+  constexpr IdType()
+      : base::StrongAlias<TypeMarker, WrappedType>::StrongAlias(kInvalidValue) {
+  }
 
-  bool is_null() const { return this->value() == kInvalidValue; }
+  constexpr bool is_null() const { return this->value() == kInvalidValue; }
+  constexpr explicit operator bool() const { return !is_null(); }
 
   // TODO(mpawlowski) Replace these with constructor/value() getter. The
   // conversions are safe as long as they're explicit (which is taken care of by
   // StrongAlias).
-  static IdType FromUnsafeValue(WrappedType value) { return IdType(value); }
-  WrappedType GetUnsafeValue() const { return this->value(); }
+  constexpr static IdType FromUnsafeValue(WrappedType value) {
+    return IdType(value);
+  }
+  constexpr WrappedType GetUnsafeValue() const { return this->value(); }
 };
 
 // Type aliases for convenience:

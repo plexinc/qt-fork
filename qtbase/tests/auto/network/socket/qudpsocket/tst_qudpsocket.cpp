@@ -28,7 +28,14 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QSignalSpy>
+#include <QtEndian>
+#if QT_CONFIG(process)
+#include <QProcess>
+#endif
+#include <QScopeGuard>
+#include <QVersionNumber>
 
 #include <qcoreapplication.h>
 #include <qfileinfo.h>
@@ -47,7 +54,7 @@
 
 #include <qstringlist.h>
 #include "../../../network-settings.h"
-#include "emulationdetector.h"
+#include <QtTest/private/qemulationdetector_p.h>
 
 #if defined(Q_OS_LINUX)
 #define SHOULD_CHECK_SYSCALL_SUPPORT
@@ -137,7 +144,7 @@ private:
     bool m_workaroundLinuxKernelBug;
     QList<QHostAddress> allAddresses;
     QHostAddress multicastGroup4, multicastGroup6;
-    QVector<QHostAddress> linklocalMulticastGroups;
+    QList<QHostAddress> linklocalMulticastGroups;
     QUdpSocket *m_asyncSender;
     QUdpSocket *m_asyncReceiver;
 };
@@ -297,7 +304,7 @@ void tst_QUdpSocket::initTestCase()
     qDebug() << "Will use multicast groups" << multicastGroup4 << multicastGroup6 << linklocalMulticastGroups;
 
     m_workaroundLinuxKernelBug = shouldWorkaroundLinuxKernelBug();
-    if (EmulationDetector::isRunningArmOnX86())
+    if (QTestPrivate::isRunningArmOnX86())
         QSKIP("This test is unreliable due to QEMU emulation shortcomings.");
 }
 
@@ -1088,7 +1095,7 @@ void tst_QUdpSocket::outOfProcessConnectedClientServerTest()
     QSKIP("No qprocess support", SkipAll);
 #else
     QProcess serverProcess;
-    serverProcess.start(QLatin1String("clientserver/clientserver server 1 1"),
+    serverProcess.start(QLatin1String("clientserver/clientserver server 1 1"), {},
                         QIODevice::ReadWrite | QIODevice::Text);
 
     const auto serverProcessCleaner = qScopeGuard([&serverProcess] {
@@ -1112,7 +1119,7 @@ void tst_QUdpSocket::outOfProcessConnectedClientServerTest()
 
     QProcess clientProcess;
     clientProcess.start(QString::fromLatin1("clientserver/clientserver connectedclient %1 %2")
-                        .arg(QLatin1String("127.0.0.1")).arg(serverPort),
+                        .arg(QLatin1String("127.0.0.1")).arg(serverPort), {},
                         QIODevice::ReadWrite | QIODevice::Text);
 
     const auto clientProcessCleaner = qScopeGuard([&clientProcess] {
@@ -1162,7 +1169,7 @@ void tst_QUdpSocket::outOfProcessUnconnectedClientServerTest()
     QSKIP("No qprocess support", SkipAll);
 #else
     QProcess serverProcess;
-    serverProcess.start(QLatin1String("clientserver/clientserver server 1 1"),
+    serverProcess.start(QLatin1String("clientserver/clientserver server 1 1"), {},
                         QIODevice::ReadWrite | QIODevice::Text);
 
     const auto serverProcessCleaner = qScopeGuard([&serverProcess] {
@@ -1186,7 +1193,7 @@ void tst_QUdpSocket::outOfProcessUnconnectedClientServerTest()
 
     QProcess clientProcess;
     clientProcess.start(QString::fromLatin1("clientserver/clientserver unconnectedclient %1 %2")
-                        .arg(QLatin1String("127.0.0.1")).arg(serverPort),
+                        .arg(QLatin1String("127.0.0.1")).arg(serverPort), {},
                         QIODevice::ReadWrite | QIODevice::Text);
 
     const auto clientProcessCleaner = qScopeGuard([&clientProcess] {
@@ -1276,9 +1283,6 @@ void tst_QUdpSocket::multicastTtlOption_data()
 
 void tst_QUdpSocket::multicastTtlOption()
 {
-#ifdef Q_OS_WINRT
-    QSKIP("WinRT does not support multicast.");
-#endif
     QFETCH_GLOBAL(bool, setProxy);
     QFETCH(QHostAddress, bindAddress);
     QFETCH(int, ttl);
@@ -1326,9 +1330,6 @@ void tst_QUdpSocket::multicastLoopbackOption_data()
 
 void tst_QUdpSocket::multicastLoopbackOption()
 {
-#ifdef Q_OS_WINRT
-    QSKIP("WinRT does not support multicast.");
-#endif
     QFETCH_GLOBAL(bool, setProxy);
     QFETCH(QHostAddress, bindAddress);
     QFETCH(int, loopback);
@@ -1365,9 +1366,6 @@ void tst_QUdpSocket::multicastJoinBeforeBind_data()
 
 void tst_QUdpSocket::multicastJoinBeforeBind()
 {
-#ifdef Q_OS_WINRT
-    QSKIP("WinRT does not support multicast.");
-#endif
     QFETCH(QHostAddress, groupAddress);
 
     QUdpSocket udpSocket;
@@ -1387,9 +1385,6 @@ void tst_QUdpSocket::multicastLeaveAfterClose_data()
 
 void tst_QUdpSocket::multicastLeaveAfterClose()
 {
-#ifdef Q_OS_WINRT
-    QSKIP("WinRT does not support multicast.");
-#endif
     QFETCH_GLOBAL(bool, setProxy);
     QFETCH(QHostAddress, groupAddress);
     if (setProxy)
@@ -1434,9 +1429,6 @@ void tst_QUdpSocket::setMulticastInterface_data()
 
 void tst_QUdpSocket::setMulticastInterface()
 {
-#ifdef Q_OS_WINRT
-    QSKIP("WinRT does not support multicast.");
-#endif
     QFETCH_GLOBAL(bool, setProxy);
     QFETCH(QNetworkInterface, iface);
     QFETCH(QHostAddress, address);
@@ -1494,9 +1486,6 @@ void tst_QUdpSocket::multicast_data()
 
 void tst_QUdpSocket::multicast()
 {
-#ifdef Q_OS_WINRT
-    QSKIP("WinRT does not support multicast.");
-#endif
     QFETCH_GLOBAL(bool, setProxy);
     QFETCH(QHostAddress, bindAddress);
     QFETCH(bool, bindResult);

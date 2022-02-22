@@ -5,6 +5,7 @@
 #include "base/i18n/icu_util.h"
 
 #include "base/files/file_util.h"
+#include "base/logging.h"
 #include "base/strings/string_util.h"
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -17,7 +18,7 @@ namespace i18n {
 namespace {
 
 // Directory path to the tzdata configuration files.
-const char kTzDataDirPath[] = "/pkg/base/test/data/tzdata/2019a/44/le";
+const char kTzDataDirPath[] = "/pkg/base/test/data/tzdata/icu/44/le";
 
 // File path to the text file containing the expected ICU library revision, for
 // example "2019c".

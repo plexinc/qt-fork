@@ -38,6 +38,7 @@
 #include "third_party/blink/renderer/core/html/rel_list.h"
 #include "third_party/blink/renderer/core/loader/link_loader_client.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_parameters.h"
+#include "third_party/blink/renderer/platform/wtf/hash_set.h"
 
 namespace blink {
 
@@ -49,7 +50,6 @@ struct LinkLoadParameters;
 class CORE_EXPORT HTMLLinkElement final : public HTMLElement,
                                           public LinkLoaderClient {
   DEFINE_WRAPPERTYPEINFO();
-  USING_GARBAGE_COLLECTED_MIXIN(HTMLLinkElement);
 
  public:
   HTMLLinkElement(Document&, const CreateElementFlags);
@@ -69,7 +69,6 @@ class CORE_EXPORT HTMLLinkElement final : public HTMLElement,
   DOMTokenList& relList() const {
     return static_cast<DOMTokenList&>(*rel_list_);
   }
-  String Scope() const { return scope_; }
 
   const AtomicString& GetType() const;
 
@@ -97,6 +96,15 @@ class CORE_EXPORT HTMLLinkElement final : public HTMLElement,
 
   DOMTokenList* sizes() const;
 
+  // IDL method.
+  DOMTokenList* resources() const;
+  DOMTokenList* scopes() const;
+
+  const HashSet<KURL>& ValidResourceUrls() const {
+    return valid_resource_urls_;
+  }
+  const HashSet<KURL>& ValidScopeUrls() const { return valid_scope_urls_; }
+
   void ScheduleEvent();
 
   // From LinkLoaderClient
@@ -108,16 +116,24 @@ class CORE_EXPORT HTMLLinkElement final : public HTMLElement,
   void LoadStylesheet(const LinkLoadParameters&,
                       const WTF::TextEncoding&,
                       FetchParameters::DeferOption,
-                      ResourceClient*);
+                      ResourceClient*,
+                      RenderBlockingBehavior render_blocking);
   bool IsAlternate() const {
-    return GetLinkStyle()->IsUnset() && rel_attribute_.IsAlternate();
+    // TODO(crbug.com/1087043): Remove this if() condition once the feature has
+    // landed and no compat issues are reported.
+    bool not_explicitly_enabled =
+        !GetLinkStyle()->IsExplicitlyEnabled() ||
+        !RuntimeEnabledFeatures::LinkDisabledNewSpecBehaviorEnabled(
+            GetExecutionContext());
+    return GetLinkStyle()->IsUnset() && rel_attribute_.IsAlternate() &&
+           not_explicitly_enabled;
   }
   bool ShouldProcessStyle() {
     return LinkResourceToProcess() && GetLinkStyle();
   }
   bool IsCreatedByParser() const { return created_by_parser_; }
 
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
  private:
   LinkStyle* GetLinkStyle() const;
@@ -148,10 +164,6 @@ class CORE_EXPORT HTMLLinkElement final : public HTMLElement,
   // From LinkLoaderClient
   void LinkLoaded() override;
   void LinkLoadingErrored() override;
-  void DidStartLinkPrerender() override;
-  void DidStopLinkPrerender() override;
-  void DidSendLoadForLinkPrerender() override;
-  void DidSendDOMContentLoadedForLinkPrerender() override;
   scoped_refptr<base::SingleThreadTaskRunner> GetLoadingTaskRunner() override;
 
   Member<LinkResource> link_;
@@ -167,7 +179,10 @@ class CORE_EXPORT HTMLLinkElement final : public HTMLElement,
   Vector<gfx::Size> icon_sizes_;
   Member<RelList> rel_list_;
   LinkRelAttribute rel_attribute_;
-  String scope_;
+  Member<DOMTokenList> resources_;
+  HashSet<KURL> valid_resource_urls_;
+  Member<DOMTokenList> scopes_;
+  HashSet<KURL> valid_scope_urls_;
 
   bool created_by_parser_;
 };

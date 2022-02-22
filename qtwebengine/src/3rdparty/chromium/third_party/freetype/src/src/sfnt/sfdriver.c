@@ -4,7 +4,7 @@
  *
  *   High-level SFNT driver interface (body).
  *
- * Copyright (C) 1996-2020 by
+ * Copyright (C) 1996-2021 by
  * David Turner, Robert Wilhelm, and Werner Lemberg.
  *
  * This file is part of the FreeType project, and may only be used,
@@ -16,11 +16,10 @@
  */
 
 
-#include <ft2build.h>
-#include FT_INTERNAL_DEBUG_H
-#include FT_INTERNAL_SFNT_H
-#include FT_INTERNAL_OBJECTS_H
-#include FT_TRUETYPE_IDS_H
+#include <freetype/internal/ftdebug.h>
+#include <freetype/internal/sfnt.h>
+#include <freetype/internal/ftobjs.h>
+#include <freetype/ttnameid.h>
 
 #include "sfdriver.h"
 #include "ttload.h"
@@ -43,21 +42,21 @@
 
 #ifdef TT_CONFIG_OPTION_BDF
 #include "ttbdf.h"
-#include FT_SERVICE_BDF_H
+#include <freetype/internal/services/svbdf.h>
 #endif
 
 #include "ttcmap.h"
 #include "ttkern.h"
 #include "ttmtx.h"
 
-#include FT_SERVICE_GLYPH_DICT_H
-#include FT_SERVICE_POSTSCRIPT_NAME_H
-#include FT_SERVICE_SFNT_H
-#include FT_SERVICE_TT_CMAP_H
+#include <freetype/internal/services/svgldict.h>
+#include <freetype/internal/services/svpostnm.h>
+#include <freetype/internal/services/svsfnt.h>
+#include <freetype/internal/services/svttcmap.h>
 
 #ifdef TT_CONFIG_OPTION_GX_VAR_SUPPORT
-#include FT_MULTIPLE_MASTERS_H
-#include FT_SERVICE_MULTIPLE_MASTERS_H
+#include <freetype/ftmm.h>
+#include <freetype/internal/services/svmm.h>
 #endif
 
 
@@ -195,7 +194,7 @@
     else if ( (FT_ULong)face->num_glyphs < FT_UINT_MAX )
       max_gid = (FT_UInt)face->num_glyphs;
     else
-      FT_TRACE0(( "Ignore glyph names for invalid GID 0x%08x - 0x%08x\n",
+      FT_TRACE0(( "Ignore glyph names for invalid GID 0x%08x - 0x%08lx\n",
                   FT_UINT_MAX, face->num_glyphs ));
 
     for ( i = 0; i < max_gid; i++ )
@@ -869,8 +868,8 @@
         result[len] = '\0';
 
         FT_TRACE0(( "sfnt_get_var_ps_name:"
-                    " Shortening variation PS name prefix\n"
-                    "                     "
+                    " Shortening variation PS name prefix\n" ));
+        FT_TRACE0(( "                     "
                     " to %d characters\n", len ));
       }
 
@@ -921,8 +920,8 @@
         if ( !subfamily_name )
         {
           FT_TRACE1(( "sfnt_get_var_ps_name:"
-                      " can't construct named instance PS name;\n"
-                      "                     "
+                      " can't construct named instance PS name;\n" ));
+          FT_TRACE1(( "                     "
                       " trying to construct normal instance PS name\n" ));
           goto construct_instance_name;
         }
@@ -1214,6 +1213,8 @@
 #define PUT_COLOR_LAYERS( a )  NULL
 #endif
 
+#define PUT_COLOR_LAYERS_V1( a )  PUT_COLOR_LAYERS( a )
+
 #ifdef TT_CONFIG_OPTION_POSTSCRIPT_NAMES
 #define PUT_PS_NAMES( a )  a
 #else
@@ -1272,9 +1273,9 @@
                             /* TT_Free_Table_Func      free_eblc       */
 
     PUT_EMBEDDED_BITMAPS( tt_face_set_sbit_strike     ),
-                   /* TT_Set_SBit_Strike_Func      set_sbit_strike     */
+                  /* TT_Set_SBit_Strike_Func      set_sbit_strike      */
     PUT_EMBEDDED_BITMAPS( tt_face_load_strike_metrics ),
-                   /* TT_Load_Strike_Metrics_Func  load_strike_metrics */
+                  /* TT_Load_Strike_Metrics_Func  load_strike_metrics  */
 
     PUT_COLOR_LAYERS( tt_face_load_cpal ),
                             /* TT_Load_Table_Func      load_cpal       */
@@ -1288,6 +1289,16 @@
                             /* TT_Set_Palette_Func     set_palette     */
     PUT_COLOR_LAYERS( tt_face_get_colr_layer ),
                             /* TT_Get_Colr_Layer_Func  get_colr_layer  */
+
+    PUT_COLOR_LAYERS_V1( tt_face_get_colr_glyph_paint ),
+                 /* TT_Get_Colr_Glyph_Paint_Func  get_colr_glyph_paint */
+    PUT_COLOR_LAYERS_V1( tt_face_get_paint_layers ),
+                 /* TT_Get_Paint_Layers_Func      get_paint_layers     */
+    PUT_COLOR_LAYERS_V1( tt_face_get_colorline_stops ),
+                 /* TT_Get_Paint                  get_paint            */
+    PUT_COLOR_LAYERS_V1( tt_face_get_paint ),
+                 /* TT_Get_Colorline_Stops_Func   get_colorline_stops  */
+
     PUT_COLOR_LAYERS( tt_face_colr_blend_layer ),
                             /* TT_Blend_Colr_Func      colr_blend      */
 

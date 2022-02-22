@@ -39,7 +39,7 @@
 #include <private/chartthemeblueicy_p.h>
 #include <private/chartthemeqt_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 ChartThemeManager::ChartThemeManager(QChart* chart) :
     m_chart(chart)
@@ -116,22 +116,18 @@ void ChartThemeManager::decorateLegend(QLegend *legend, ChartTheme *theme) const
     legend->setLabelBrush(theme->labelBrush());
 }
 
-int ChartThemeManager::createIndexKey(QList<int> keys) const
+int ChartThemeManager::createIndexKey(const QList<int> &keys) const
 {
-    std::sort(keys.begin(), keys.end());
+    auto keysCopy = keys;
+    std::sort(keysCopy.begin(), keysCopy.end());
 
-    int key = 0;
-    QList<int>::iterator i;
-    i = keys.begin();
-
-    while (i != keys.end()) {
-        if (*i != key)
+    int i = 0;
+    for (const auto key : keysCopy) {
+        if (i != key)
             break;
-        key++;
-        i++;
+        ++i;
     }
-
-    return key;
+    return i;
 }
 
 int ChartThemeManager::seriesCount(QAbstractSeries::SeriesType type) const
@@ -251,6 +247,6 @@ QColor ChartThemeManager::colorAt(const QGradient &gradient, qreal pos)
     return colorAt(prev.second, next.second, relativePos);
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_chartthememanager_p.cpp"

@@ -6,8 +6,9 @@
 
 #include <string>
 #include <utility>
+#include <vector>
 
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/no_destructor.h"
 #include "base/strings/string_piece.h"
 #include "base/time/tick_clock.h"
@@ -150,14 +151,15 @@ class ContextHostResolver::WrappedResolveHostRequest
     return inner_request_->GetHostnameResults();
   }
 
-  const base::Optional<EsniContent>& GetEsniResults() const override {
+  const base::Optional<std::vector<std::string>>& GetDnsAliasResults()
+      const override {
     if (!inner_request_) {
-      static const base::NoDestructor<base::Optional<EsniContent>>
+      static const base::NoDestructor<base::Optional<std::vector<std::string>>>
           nullopt_result;
       return *nullopt_result;
     }
 
-    return inner_request_->GetEsniResults();
+    return inner_request_->GetDnsAliasResults();
   }
 
   net::ResolveErrorInfo GetResolveErrorInfo() const override {
@@ -336,7 +338,7 @@ HostCache* ContextHostResolver::GetHostCache() {
   return resolve_context_->host_cache();
 }
 
-std::unique_ptr<base::Value> ContextHostResolver::GetDnsConfigAsValue() const {
+base::Value ContextHostResolver::GetDnsConfigAsValue() const {
   return manager_->GetDnsConfigAsValue();
 }
 

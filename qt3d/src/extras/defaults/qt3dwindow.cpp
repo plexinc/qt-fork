@@ -53,6 +53,7 @@
 
 #include <Qt3DCore/qaspectengine.h>
 #include <Qt3DCore/qentity.h>
+#include <Qt3DCore/qcoreaspect.h>
 #include <Qt3DExtras/qforwardrenderer.h>
 #include <Qt3DRender/qrendersettings.h>
 #include <Qt3DRender/qrenderaspect.h>
@@ -61,12 +62,13 @@
 #include <Qt3DLogic/qlogicaspect.h>
 #include <Qt3DRender/qcamera.h>
 #include <Qt3DRender/private/vulkaninstance_p.h>
+#include <Qt3DRender/qt3drender-config.h>
 #include <qopenglcontext.h>
 #include <private/qrendersettings_p.h>
 
 #include <QEvent>
 
-#if QT_CONFIG(vulkan)
+#if QT_CONFIG(qt3d_vulkan)
 #include <QVulkanInstance>
 #endif
 
@@ -109,6 +111,7 @@ Qt3DWindow::Qt3DWindow(QScreen *screen, Qt3DRender::API api)
     setupWindowSurface(this, api);
 
     resize(1024, 768);
+    d->m_aspectEngine->registerAspect(new Qt3DCore::QCoreAspect);
     d->m_aspectEngine->registerAspect(d->m_renderAspect);
     d->m_aspectEngine->registerAspect(d->m_inputAspect);
     d->m_aspectEngine->registerAspect(d->m_logicAspect);
@@ -248,9 +251,11 @@ bool Qt3DWindow::event(QEvent *e)
 void setupWindowSurface(QWindow *window, Qt3DRender::API api) noexcept
 {
     // If the user pass an API through the environment, we use that over the one passed as argument.
-    const auto userRequestedApi = qgetenv("QT3D_RHI_DEFAULT_API").toLower();
+    const auto userRequestedApi = qgetenv("QSG_RHI_BACKEND").toLower();
     if (!userRequestedApi.isEmpty()) {
-        if (userRequestedApi == QByteArrayLiteral("opengl")) {
+        if (userRequestedApi == QByteArrayLiteral("opengl") ||
+            userRequestedApi == QByteArrayLiteral("gl") ||
+            userRequestedApi == QByteArrayLiteral("gles2")) {
             api = Qt3DRender::API::OpenGL;
         } else if (userRequestedApi == QByteArrayLiteral("vulkan")) {
             api = Qt3DRender::API::Vulkan;
@@ -260,51 +265,90 @@ void setupWindowSurface(QWindow *window, Qt3DRender::API api) noexcept
             api = Qt3DRender::API::DirectX;
         } else if (userRequestedApi == QByteArrayLiteral("null")) {
             api = Qt3DRender::API::Null;
+        } else if (userRequestedApi == QByteArrayLiteral("auto")) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+            api = Qt3DRender::API::RHI;
+#else
+            api = Qt3DRender::API::OpenGL;
+#endif
         }
     }
 
+    // Default to using RHI backend is not specified We want to set the
+    // variable to ensure any 3rd party relying on it to detect which rendering
+    // backend is in use will get a valid value.
+    bool useRhi = false;
+    if (qEnvironmentVariableIsEmpty("QT3D_RENDERER")) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0) && QT_CONFIG(qt3d_rhi_renderer)
+        qputenv("QT3D_RENDERER", "rhi");
+#else
+        qputenv("QT3D_RENDERER", "opengl");
+#endif
+    }
+#if QT_CONFIG(qt3d_rhi_renderer)
+    useRhi = qEnvironmentVariable("QT3D_RENDERER") == QStringLiteral("rhi");
+#endif
+
+    if (!useRhi)
+        api = Qt3DRender::API::OpenGL;
+
     // We have to set the environment so that the backend is able to read it.
-    // Qt6: FIXME
-    switch (api)
-    {
+    if (api == Qt3DRender::API::RHI && useRhi) {
+#if defined(Q_OS_WIN)
+        api = Qt3DRender::API::DirectX;
+#elif defined(Q_OS_MACOS) || defined(Q_OS_IOS)
+        api = Qt3DRender::API::Metal;
+#elif QT_CONFIG(opengl)
+        api = Qt3DRender::API::OpenGL;
+#else
+        api = Qt3DRender::API::Vulkan;
+#endif
+    }
+
+    switch (api) {
     case Qt3DRender::API::OpenGL:
-        qputenv("QT3D_RHI_DEFAULT_API", "opengl");
+        qputenv("QSG_RHI_BACKEND", "opengl");
         window->setSurfaceType(QSurface::OpenGLSurface);
         break;
     case Qt3DRender::API::DirectX:
-        qputenv("QT3D_RHI_DEFAULT_API", "d3d11");
+        qputenv("QSG_RHI_BACKEND", "d3d11");
         window->setSurfaceType(QSurface::OpenGLSurface);
         break;
     case Qt3DRender::API::Null:
-        qputenv("QT3D_RHI_DEFAULT_API", "null");
+        qputenv("QSG_RHI_BACKEND", "null");
         window->setSurfaceType(QSurface::OpenGLSurface);
         break;
     case Qt3DRender::API::Metal:
-        qputenv("QT3D_RHI_DEFAULT_API", "metal");
+        qputenv("QSG_RHI_BACKEND", "metal");
         window->setSurfaceType(QSurface::MetalSurface);
         break;
-#if QT_CONFIG(vulkan)
+#if QT_CONFIG(qt3d_vulkan)
     case Qt3DRender::API::Vulkan:
     {
-        qputenv("QT3D_RHI_DEFAULT_API", "vulkan");
+        qputenv("QSG_RHI_BACKEND", "vulkan");
         window->setSurfaceType(QSurface::VulkanSurface);
         window->setVulkanInstance(&Qt3DRender::staticVulkanInstance());
         break;
     }
 #endif
+    case Qt3DRender::API::RHI:
     default:
         break;
     }
+
     QSurfaceFormat format = QSurfaceFormat::defaultFormat();
-#ifdef QT_OPENGL_ES_2
-    format.setRenderableType(QSurfaceFormat::OpenGLES);
+    const QByteArray renderingBackend = qgetenv("QT3D_RENDERER");
+    const bool usesRHI = renderingBackend.isEmpty() || renderingBackend == QByteArrayLiteral("rhi");
+    if (!usesRHI) {
+#if QT_CONFIG(opengles2)
+        format.setRenderableType(QSurfaceFormat::OpenGLES);
 #else
-    if (QOpenGLContext::openGLModuleType() == QOpenGLContext::LibGL) {
-        format.setVersion(4, 3);
-        format.setProfile(QSurfaceFormat::CoreProfile);
-    } else
+        if (QOpenGLContext::openGLModuleType() == QOpenGLContext::LibGL) {
+            format.setVersion(4, 3);
+            format.setProfile(QSurfaceFormat::CoreProfile);
+        }
 #endif
-    if (!userRequestedApi.isEmpty()) {
+    } else {
         // This is used for RHI
         format.setVersion(1, 0);
     }

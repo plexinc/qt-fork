@@ -27,13 +27,13 @@
 ****************************************************************************/
 
 #include <QObject>
-#include <QtTest>
+#include <QTest>
 
 class TestObject : public QObject
 {
     Q_OBJECT
 public:
-    TestObject(QObject *parent = 0)
+    TestObject(QObject *parent = nullptr)
       : QObject(parent)
     {
 

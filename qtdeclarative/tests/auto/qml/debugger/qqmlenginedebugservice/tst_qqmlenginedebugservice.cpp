@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 #include "debugutil_p.h"
-#include "../../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 
 #include <private/qqmlbinding_p.h>
 #include <private/qqmlboundsignal_p.h>
@@ -123,7 +123,11 @@ class tst_QQmlEngineDebugService : public QObject
 {
     Q_OBJECT
 public:
-    tst_QQmlEngineDebugService() : m_conn(nullptr), m_dbg(nullptr), m_engine(nullptr), m_rootItem(nullptr) {}
+    tst_QQmlEngineDebugService()
+         : m_conn(nullptr)
+         , m_dbg(nullptr)
+         , m_engine(nullptr)
+         , m_rootItem(nullptr) {}
 
 private:
     QQmlEngineDebugObjectReference findRootObject(int context = 0,
@@ -282,7 +286,11 @@ void tst_QQmlEngineDebugService::recursiveObjectTest(
             }
         } else if (pmeta.userType() < QMetaType::User && pmeta.userType() != QMetaType::QVariant) {
             const QVariant expected = pmeta.read(o);
-            QVERIFY2(p.value == expected, QString::fromLatin1("%1 != %2. Details: %3/%4/%5/%6")
+            QVariant value = p.value;
+            QMetaType expectedType = expected.metaType();
+            if (value != expected && p.value.canConvert(expectedType))
+               value.convert(expectedType);
+            QVERIFY2(value == expected, QString::fromLatin1("%1 != %2. Details: %3/%4/%5/%6")
                      .arg(QTest::toString(p.value)).arg(QTest::toString(expected)).arg(p.name)
                      .arg(p.valueTypeName).arg(pmeta.userType()).arg(pmeta.userType()).toUtf8());
         }
@@ -774,9 +782,9 @@ void tst_QQmlEngineDebugService::queryObject()
         // test specific property values
         QCOMPARE(findProperty(rect.properties, "width").value, QVariant::fromValue(500));
         QCOMPARE(findProperty(rect.properties, "height").value, QVariant::fromValue(600));
-        QCOMPARE(findProperty(rect.properties, "color").value, QVariant::fromValue(QColor("blue")));
-
-        QCOMPARE(findProperty(text.properties, "color").value, QVariant::fromValue(QColor("blue")));
+        QVariant expected = findProperty(rect.properties, "color").value;
+        expected.convert(QMetaType::fromType<QColor>());
+        QCOMPARE(expected , QVariant::fromValue(QColor("blue")));
     } else {
         foreach (const QQmlEngineDebugObjectReference &child, obj.children) {
             QVERIFY(!child.className.isEmpty());
@@ -853,9 +861,11 @@ void tst_QQmlEngineDebugService::queryObjectsForLocation()
         // test specific property values
         QCOMPARE(findProperty(rect.properties, "width").value, QVariant::fromValue(500));
         QCOMPARE(findProperty(rect.properties, "height").value, QVariant::fromValue(600));
-        QCOMPARE(findProperty(rect.properties, "color").value, QVariant::fromValue(QColor("blue")));
-
-        QCOMPARE(findProperty(text.properties, "color").value, QVariant::fromValue(QColor("blue")));
+        QVariant expected = findProperty(rect.properties, "color").value;
+        QMetaType colorMetatype = QMetaType::fromType<QColor>();
+        QVERIFY(expected.canConvert(colorMetatype));
+        expected.convert(colorMetatype);
+        QCOMPARE(expected , QVariant::fromValue(QColor("blue")));
     } else {
         foreach (const QQmlEngineDebugObjectReference &child, obj.children) {
             QVERIFY(!child.className.isEmpty());
@@ -1395,15 +1405,12 @@ void tst_QQmlEngineDebugService::invalidContexts()
     QQmlContext context(m_engine);
     getContexts();
     QCOMPARE(m_dbg->rootContext().contexts.count(), base + 1);
-    QQmlContextData *contextData = QQmlContextData::get(&context);
+    QQmlRefPointer<QQmlContextData> contextData = QQmlContextData::get(&context);
     contextData->invalidate();
     getContexts();
     QCOMPARE(m_dbg->rootContext().contexts.count(), base);
-    QQmlContextData *rootData = QQmlContextData::get(m_engine->rootContext());
+    QQmlRefPointer<QQmlContextData> rootData = QQmlContextData::get(m_engine->rootContext());
     rootData->invalidate();
-    getContexts();
-    QCOMPARE(m_dbg->rootContext().contexts.count(), 0);
-    contextData->setParent(rootData); // makes context valid again, but not root.
     getContexts();
     QCOMPARE(m_dbg->rootContext().contexts.count(), 0);
 }

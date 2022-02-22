@@ -15,16 +15,14 @@
 #include <utility>
 #include <vector>
 
-#include "api/media_stream_proxy.h"
 #include "api/media_stream_track_proxy.h"
+#include "api/sequence_checker.h"
 #include "pc/audio_track.h"
 #include "pc/jitter_buffer_delay.h"
 #include "pc/jitter_buffer_delay_proxy.h"
-#include "pc/media_stream.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/location.h"
 #include "rtc_base/logging.h"
-#include "rtc_base/trace_event.h"
 
 namespace webrtc {
 
@@ -42,8 +40,9 @@ AudioRtpReceiver::AudioRtpReceiver(
     : worker_thread_(worker_thread),
       id_(receiver_id),
       source_(new rtc::RefCountedObject<RemoteAudioSource>(worker_thread)),
-      track_(AudioTrackProxy::Create(rtc::Thread::Current(),
-                                     AudioTrack::Create(receiver_id, source_))),
+      track_(AudioTrackProxyWithInternal<AudioTrack>::Create(
+          rtc::Thread::Current(),
+          AudioTrack::Create(receiver_id, source_))),
       cached_track_enabled_(track_->enabled()),
       attachment_id_(GenerateUniqueId()),
       delay_(JitterBufferDelayProxy::Create(
@@ -144,6 +143,11 @@ void AudioRtpReceiver::Stop() {
     SetOutputVolume(0.0);
   }
   stopped_ = true;
+}
+
+void AudioRtpReceiver::StopAndEndTrack() {
+  Stop();
+  track_->internal()->set_ended();
 }
 
 void AudioRtpReceiver::RestartMediaChannel(absl::optional<uint32_t> ssrc) {

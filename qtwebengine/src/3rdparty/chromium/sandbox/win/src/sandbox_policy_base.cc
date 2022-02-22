@@ -29,6 +29,7 @@
 #include "sandbox/win/src/registry_policy.h"
 #include "sandbox/win/src/restricted_token_utils.h"
 #include "sandbox/win/src/sandbox_policy.h"
+#include "sandbox/win/src/sandbox_policy_diagnostic.h"
 #include "sandbox/win/src/sandbox_utils.h"
 #include "sandbox/win/src/security_capabilities.h"
 #include "sandbox/win/src/signed_policy.h"
@@ -43,7 +44,7 @@ namespace {
 constexpr size_t kOneMemPage = 4096;
 // The IPC and Policy shared memory sizes.
 constexpr size_t kIPCMemSize = kOneMemPage * 2;
-constexpr size_t kPolMemSize = kOneMemPage * 14;
+constexpr size_t kPolMemSize = kOneMemPage * 6;
 
 // Helper function to allocate space (on the heap) for policy.
 sandbox::PolicyGlobal* MakeBrokerPolicyMemory() {
@@ -110,18 +111,12 @@ PolicyBase::PolicyBase()
       lowbox_sid_(nullptr),
       lockdown_default_dacl_(false),
       add_restricting_random_sid_(false),
-      enable_opm_redirection_(false),
       effective_token_(nullptr) {
   ::InitializeCriticalSection(&lock_);
   dispatcher_.reset(new TopLevelDispatcher(this));
 }
 
 PolicyBase::~PolicyBase() {
-  TargetSet::iterator it;
-  for (it = targets_.begin(); it != targets_.end(); ++it) {
-    TargetProcess* target = (*it);
-    delete target;
-  }
   delete policy_maker_;
   delete policy_;
 
@@ -132,11 +127,14 @@ PolicyBase::~PolicyBase() {
 }
 
 void PolicyBase::AddRef() {
-  ::InterlockedIncrement(&ref_count);
+  // ref_count starts at 1 so cannot increase from 0 to 1.
+  CHECK(::InterlockedIncrement(&ref_count) > 1);
 }
 
 void PolicyBase::Release() {
-  if (0 == ::InterlockedDecrement(&ref_count))
+  LONG result = ::InterlockedDecrement(&ref_count);
+  CHECK(result >= 0);
+  if (result == 0)
     delete this;
 }
 
@@ -415,6 +413,16 @@ ResultCode PolicyBase::MakeJobObject(base::win::ScopedHandle* job) {
   return SBOX_ALL_OK;
 }
 
+ResultCode PolicyBase::DropActiveProcessLimit(base::win::ScopedHandle* job) {
+  if (job_level_ >= JOB_INTERACTIVE)
+    return SBOX_ALL_OK;
+
+  if (ERROR_SUCCESS != Job::SetActiveProcessLimit(job, 0))
+    return SBOX_ERROR_CANNOT_UPDATE_JOB_PROCESS_LIMIT;
+
+  return SBOX_ALL_OK;
+}
+
 ResultCode PolicyBase::MakeTokens(base::win::ScopedHandle* initial,
                                   base::win::ScopedHandle* lockdown,
                                   base::win::ScopedHandle* lowbox) {
@@ -507,14 +515,7 @@ PSID PolicyBase::GetLowBoxSid() const {
   return lowbox_sid_;
 }
 
-size_t PolicyBase::GetPolicyGlobalSize() const {
-  // TODO(1059129) remove when Process.Sandbox.PolicyGlobalSize expires.
-  if (policy_maker_)
-    return policy_maker_->GetPolicyGlobalSize();
-  return 0;
-}
-
-ResultCode PolicyBase::AddTarget(TargetProcess* target) {
+ResultCode PolicyBase::AddTarget(std::unique_ptr<TargetProcess> target) {
   if (policy_) {
     if (!policy_maker_->Done())
       return SBOX_ERROR_NO_SPACE;
@@ -525,12 +526,12 @@ ResultCode PolicyBase::AddTarget(TargetProcess* target) {
     return SBOX_ERROR_APPLY_ASLR_MITIGATIONS;
   }
 
-  ResultCode ret = SetupAllInterceptions(target);
+  ResultCode ret = SetupAllInterceptions(*target);
 
   if (ret != SBOX_ALL_OK)
     return ret;
 
-  if (!SetupHandleCloser(target))
+  if (!SetupHandleCloser(*target))
     return SBOX_ERROR_SETUP_HANDLE_CLOSER;
 
   DWORD win_error = ERROR_SUCCESS;
@@ -564,23 +565,26 @@ ResultCode PolicyBase::AddTarget(TargetProcess* target) {
     return ret;
 
   AutoLock lock(&lock_);
-  targets_.push_back(target);
+  targets_.push_back(std::move(target));
   return SBOX_ALL_OK;
 }
 
 bool PolicyBase::OnJobEmpty(HANDLE job) {
   AutoLock lock(&lock_);
-  TargetSet::iterator it;
-  for (it = targets_.begin(); it != targets_.end(); ++it) {
-    if ((*it)->Job() == job)
-      break;
-  }
-  if (it == targets_.end()) {
-    return false;
-  }
-  TargetProcess* target = *it;
-  targets_.erase(it);
-  delete target;
+  targets_.erase(
+      std::remove_if(targets_.begin(), targets_.end(),
+                     [&](auto&& p) -> bool { return p->Job() == job; }),
+      targets_.end());
+  return true;
+}
+
+bool PolicyBase::OnProcessFinished(DWORD process_id) {
+  AutoLock lock(&lock_);
+  targets_.erase(std::remove_if(targets_.begin(), targets_.end(),
+                                [&](auto&& p) -> bool {
+                                  return p->ProcessId() == process_id;
+                                }),
+                 targets_.end());
   return true;
 }
 
@@ -629,14 +633,6 @@ HANDLE PolicyBase::GetStdoutHandle() {
 
 HANDLE PolicyBase::GetStderrHandle() {
   return stderr_handle_;
-}
-
-void PolicyBase::SetEnableOPMRedirection() {
-  enable_opm_redirection_ = true;
-}
-
-bool PolicyBase::GetEnableOPMRedirection() {
-  return enable_opm_redirection_;
 }
 
 ResultCode PolicyBase::AddAppContainerProfile(const wchar_t* package_name,
@@ -689,7 +685,7 @@ PolicyBase::GetAppContainerProfileBase() {
   return app_container_profile_;
 }
 
-ResultCode PolicyBase::SetupAllInterceptions(TargetProcess* target) {
+ResultCode PolicyBase::SetupAllInterceptions(TargetProcess& target) {
   InterceptionManager manager(target, relaxed_interceptions_);
 
   if (policy_) {
@@ -717,7 +713,7 @@ ResultCode PolicyBase::SetupAllInterceptions(TargetProcess* target) {
   return SBOX_ALL_OK;
 }
 
-bool PolicyBase::SetupHandleCloser(TargetProcess* target) {
+bool PolicyBase::SetupHandleCloser(TargetProcess& target) {
   return handle_closer_.InitializeTargetHandles(target);
 }
 
@@ -815,6 +811,11 @@ ResultCode PolicyBase::AddRuleInternal(SubSystem subsystem,
   }
 
   return SBOX_ALL_OK;
+}
+
+std::unique_ptr<PolicyInfo> PolicyBase::GetPolicyInfo() {
+  auto diagnostic = std::make_unique<PolicyDiagnostic>(this);
+  return diagnostic;
 }
 
 }  // namespace sandbox

@@ -48,9 +48,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.15
-import QtQuick.Window 2.12
-import QtQuick3D 1.15
+import QtQuick
+import QtQuick3D
 
 Window {
     width: 800
@@ -90,13 +89,13 @@ Window {
 
         DirectionalLight {
             eulerRotation: Qt.vector3d(-135, -110, 0)
-            brightness: 100
+            brightness: 1
         }
 
         SpotLight {
             position: Qt.vector3d(0, 500, 600)
             eulerRotation.x: -45
-            brightness: 3000
+            brightness: 30
         }
 
         //! [walls models]
@@ -134,6 +133,7 @@ Window {
             Item {
                 width: 400
                 height: 400
+                anchors.centerIn: parent
                 Rectangle {
                     anchors.fill: parent
                     opacity: 0.4
@@ -185,6 +185,7 @@ Window {
             Item {
                 width: 400
                 height: 400
+                anchors.centerIn: parent
                 // This allows rendering into offscreen surface and caching it.
                 layer.enabled: true
                 Rectangle {
@@ -225,6 +226,7 @@ Window {
         Node {
             position: Qt.vector3d(0, 80, 250)
             Text {
+                anchors.centerIn: parent
                 width: 300
                 wrapMode: Text.WordWrap
                 horizontalAlignment: Text.AlignJustify

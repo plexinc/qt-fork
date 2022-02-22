@@ -15,6 +15,8 @@
 #include "base/component_export.h"
 #include "base/containers/queue.h"
 #include "base/macros.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/optional.h"
 #include "components/apdu/apdu_command.h"
 #include "components/apdu/apdu_response.h"
@@ -27,7 +29,7 @@ namespace device {
 
 class FidoHidMessage;
 
-class COMPONENT_EXPORT(DEVICE_FIDO) FidoHidDevice : public FidoDevice {
+class COMPONENT_EXPORT(DEVICE_FIDO) FidoHidDevice final : public FidoDevice {
  public:
   FidoHidDevice(device::mojom::HidDeviceInfoPtr device_info,
                 device::mojom::HidManager* hid_manager);
@@ -42,6 +44,7 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoHidDevice : public FidoDevice {
                              DeviceCallback callback) final;
   void TryWink(base::OnceClosure callback) final;
   void Cancel(CancelToken token) final;
+  std::string GetDisplayName() const final;
   std::string GetId() const final;
   FidoTransportProtocol DeviceTransport() const final;
   void DiscoverSupportedProtocolAndDeviceInfo(base::OnceClosure done) override;
@@ -90,6 +93,11 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoHidDevice : public FidoDevice {
     CancelToken token;
   };
 
+  // RefCountedHidConnection simply wraps a |mojom::HidConnection| in order to
+  // add a reference count.
+  using RefCountedHidConnection =
+      base::RefCountedData<mojo::Remote<mojom::HidConnection>>;
+
   void Transition(base::Optional<State> next_state = base::nullopt);
 
   // Open a connection to this device.
@@ -120,6 +128,9 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoHidDevice : public FidoDevice {
   void MessageReceived(FidoHidMessage message);
   void ArmTimeout();
   void OnTimeout();
+  static void WriteCancelComplete(
+      scoped_refptr<FidoHidDevice::RefCountedHidConnection> connection,
+      bool success);
   void WriteCancel();
 
   base::WeakPtr<FidoDevice> GetWeakPtr() override;
@@ -147,7 +158,7 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoHidDevice : public FidoDevice {
   // U2fRequest.
   device::mojom::HidManager* hid_manager_;
   device::mojom::HidDeviceInfoPtr device_info_;
-  mojo::Remote<device::mojom::HidConnection> connection_;
+  scoped_refptr<FidoHidDevice::RefCountedHidConnection> connection_;
   base::WeakPtrFactory<FidoHidDevice> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(FidoHidDevice);

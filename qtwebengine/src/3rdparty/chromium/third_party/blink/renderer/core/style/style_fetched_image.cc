@@ -46,7 +46,8 @@ StyleFetchedImage::StyleFetchedImage(const Document& document,
                                      bool is_lazyload_possibly_deferred)
     : document_(&document),
       url_(params.Url()),
-      origin_clean_(!params.IsFromOriginDirtyStyleSheet()) {
+      origin_clean_(!params.IsFromOriginDirtyStyleSheet()),
+      is_ad_related_(params.GetResourceRequest().IsAdResource()) {
   is_image_resource_ = true;
   is_lazyload_possibly_deferred_ = is_lazyload_possibly_deferred;
 
@@ -84,7 +85,7 @@ ImageResourceContent* StyleFetchedImage::CachedImage() const {
 CSSValue* StyleFetchedImage::CssValue() const {
   return MakeGarbageCollected<CSSImageValue>(
       AtomicString(url_.GetString()), url_, Referrer(),
-      origin_clean_ ? OriginClean::kTrue : OriginClean::kFalse,
+      origin_clean_ ? OriginClean::kTrue : OriginClean::kFalse, is_ad_related_,
       const_cast<StyleFetchedImage*>(this));
 }
 
@@ -108,7 +109,7 @@ bool StyleFetchedImage::ErrorOccurred() const {
 FloatSize StyleFetchedImage::ImageSize(
     const Document&,
     float multiplier,
-    const LayoutSize& default_object_size,
+    const FloatSize& default_object_size,
     RespectImageOrientationEnum respect_orientation) const {
   Image* image = image_->GetImage();
   if (image_->HasDevicePixelRatioHeaderValue()) {
@@ -117,7 +118,7 @@ FloatSize StyleFetchedImage::ImageSize(
   if (auto* svg_image = DynamicTo<SVGImage>(image)) {
     return ImageSizeForSVGImage(svg_image, multiplier, default_object_size);
   }
-
+  respect_orientation = ForceOrientationIfNecessary(respect_orientation);
   FloatSize size(image->Size(respect_orientation));
   return ApplyZoom(size, multiplier);
 }
@@ -135,18 +136,26 @@ void StyleFetchedImage::RemoveClient(ImageResourceObserver* observer) {
 }
 
 void StyleFetchedImage::ImageNotifyFinished(ImageResourceContent*) {
+  if (!document_)
+    return;
+
   if (image_ && image_->HasImage()) {
     Image& image = *image_->GetImage();
 
-    auto* svg_image = DynamicTo<SVGImage>(image);
-    if (document_ && svg_image)
+    if (auto* svg_image = DynamicTo<SVGImage>(image)) {
+      // SVG's document should be completely loaded before access control
+      // checks, which can occur anytime after ImageNotifyFinished()
+      // (See SVGImage::CurrentFrameHasSingleSecurityOrigin()).
+      // We check the document is loaded here to catch violation of the
+      // assumption reliably.
+      svg_image->CheckLoaded();
       svg_image->UpdateUseCounters(*document_);
+    }
+    image_->RecordDecodedImageType(document_->GetExecutionContext());
   }
 
-  if (document_) {
-    if (LocalDOMWindow* window = document_->domWindow())
-      ImageElementTiming::From(*window).NotifyBackgroundImageFinished(this);
-  }
+  if (LocalDOMWindow* window = document_->domWindow())
+    ImageElementTiming::From(*window).NotifyBackgroundImageFinished(this);
 
   // Oilpan: do not prolong the Document's lifetime.
   document_.Clear();
@@ -186,7 +195,21 @@ void StyleFetchedImage::LoadDeferredImage(const Document& document) {
   image_->LoadDeferredImage(document_->Fetcher());
 }
 
-bool StyleFetchedImage::GetImageAnimationPolicy(ImageAnimationPolicy& policy) {
+RespectImageOrientationEnum StyleFetchedImage::ForceOrientationIfNecessary(
+    RespectImageOrientationEnum default_orientation) const {
+  // SVG Images don't have orientation and assert on loading when
+  // IsAccessAllowed is called.
+  if (image_->GetImage()->IsSVGImage())
+    return default_orientation;
+  // Cross-origin images must always respect orientation to prevent
+  // potentially private data leakage.
+  if (!image_->IsAccessAllowed())
+    return kRespectImageOrientation;
+  return default_orientation;
+}
+
+bool StyleFetchedImage::GetImageAnimationPolicy(
+    mojom::blink::ImageAnimationPolicy& policy) {
   if (!document_ || !document_->GetSettings()) {
     return false;
   }
@@ -194,7 +217,7 @@ bool StyleFetchedImage::GetImageAnimationPolicy(ImageAnimationPolicy& policy) {
   return true;
 }
 
-void StyleFetchedImage::Trace(Visitor* visitor) {
+void StyleFetchedImage::Trace(Visitor* visitor) const {
   visitor->Trace(image_);
   visitor->Trace(document_);
   StyleImage::Trace(visitor);

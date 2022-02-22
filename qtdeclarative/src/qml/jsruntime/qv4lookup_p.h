@@ -56,11 +56,16 @@
 #include "qv4context_p.h"
 #include "qv4object_p.h"
 #include "qv4internalclass_p.h"
+#include "qv4qmlcontext_p.h"
+#include <private/qqmltypewrapper_p.h>
 
 QT_BEGIN_NAMESPACE
 
 namespace QV4 {
 
+// Note: We cannot hide the copy ctor and assignment operator of this class because it needs to
+//       be trivially copyable. But you should never ever copy it. There are refcounted members
+//       in there.
 struct Q_QML_PRIVATE_EXPORT Lookup {
     union {
         ReturnedValue (*getter)(Lookup *l, ExecutionEngine *engine, const Value &object);
@@ -69,6 +74,7 @@ struct Q_QML_PRIVATE_EXPORT Lookup {
         bool (*setter)(Lookup *l, ExecutionEngine *engine, Value &object, const Value &v);
     };
     // NOTE: gc assumes the first two entries in the struct are pointers to heap objects or null
+    //       or that the least significant bit is 1 (see the Lookup::markObjects function)
     union {
         struct {
             Heap::Base *h1;
@@ -126,9 +132,11 @@ struct Q_QML_PRIVATE_EXPORT Lookup {
         } qobjectLookup;
         struct {
             Heap::InternalClass *ic;
-            quintptr unused;
-            QQmlPropertyCache *propertyCache;
-            QQmlPropertyData *propertyData;
+            quintptr metaObject; // a (const QMetaObject* & 1) or nullptr
+            const QtPrivate::QMetaTypeInterface *metaType; // cannot use QMetaType; class must be trivial
+            quint16 coreIndex;
+            bool isFunction;
+            bool isEnum;
         } qgadgetLookup;
         struct {
             quintptr unused1;
@@ -136,8 +144,9 @@ struct Q_QML_PRIVATE_EXPORT Lookup {
             int scriptIndex;
         } qmlContextScriptLookup;
         struct {
-            Heap::Object *singleton;
-            quintptr unused;
+            Heap::Base *singletonObject;
+            quintptr unused2;
+            QV4::ReturnedValue singletonValue;
         } qmlContextSingletonLookup;
         struct {
             quintptr unused1;
@@ -187,6 +196,7 @@ struct Q_QML_PRIVATE_EXPORT Lookup {
     static ReturnedValue getterProtoAccessor(Lookup *l, ExecutionEngine *engine, const Value &object);
     static ReturnedValue getterProtoAccessorTwoClasses(Lookup *l, ExecutionEngine *engine, const Value &object);
     static ReturnedValue getterIndexed(Lookup *l, ExecutionEngine *engine, const Value &object);
+    static ReturnedValue getterQObject(Lookup *l, ExecutionEngine *engine, const Value &object);
 
     static ReturnedValue primitiveGetterProto(Lookup *l, ExecutionEngine *engine, const Value &object);
     static ReturnedValue primitiveGetterAccessor(Lookup *l, ExecutionEngine *engine, const Value &object);
@@ -204,6 +214,7 @@ struct Q_QML_PRIVATE_EXPORT Lookup {
     static bool setter0Inline(Lookup *l, ExecutionEngine *engine, Value &object, const Value &value);
     static bool setter0setter0(Lookup *l, ExecutionEngine *engine, Value &object, const Value &value);
     static bool setterInsert(Lookup *l, ExecutionEngine *engine, Value &object, const Value &value);
+    static bool setterQObject(Lookup *l, ExecutionEngine *engine, Value &object, const Value &value);
     static bool arrayLengthSetter(Lookup *l, ExecutionEngine *engine, Value &object, const Value &value);
 
     void markObjects(MarkStack *stack) {
@@ -216,12 +227,51 @@ struct Q_QML_PRIVATE_EXPORT Lookup {
     void clear() {
         memset(&markDef, 0, sizeof(markDef));
     }
+
+    void releasePropertyCache()
+    {
+        if (getter == getterQObject
+                || getter == QQmlTypeWrapper::lookupSingletonProperty
+                || setter == setterQObject
+                || qmlContextPropertyGetter == QQmlContextWrapper::lookupScopeObjectProperty
+                || qmlContextPropertyGetter == QQmlContextWrapper::lookupContextObjectProperty) {
+            if (QQmlPropertyCache *pc = qobjectLookup.propertyCache)
+                pc->release();
+        }
+    }
 };
 
 Q_STATIC_ASSERT(std::is_standard_layout<Lookup>::value);
 // Ensure that these offsets are always at this point to keep generated code compatible
 // across 32-bit and 64-bit (matters when cross-compiling).
 Q_STATIC_ASSERT(offsetof(Lookup, getter) == 0);
+
+inline void setupQObjectLookup(
+        Lookup *lookup, const QQmlData *ddata, QQmlPropertyData *propertyData)
+{
+    lookup->releasePropertyCache();
+    Q_ASSERT(ddata->propertyCache != nullptr);
+    lookup->qobjectLookup.propertyCache = ddata->propertyCache;
+    lookup->qobjectLookup.propertyCache->addref();
+    lookup->qobjectLookup.propertyData = propertyData;
+}
+
+inline void setupQObjectLookup(
+        Lookup *lookup, const QQmlData *ddata, QQmlPropertyData *propertyData,
+        const Object *self)
+{
+    lookup->qobjectLookup.ic = self->internalClass();
+    setupQObjectLookup(lookup, ddata, propertyData);
+}
+
+
+inline void setupQObjectLookup(
+        Lookup *lookup, const QQmlData *ddata, QQmlPropertyData *propertyData,
+        const Object *self, const Object *qmlType)
+{
+    lookup->qobjectLookup.qmlTypeIc = qmlType->internalClass();
+    setupQObjectLookup(lookup, ddata, propertyData, self);
+}
 
 }
 

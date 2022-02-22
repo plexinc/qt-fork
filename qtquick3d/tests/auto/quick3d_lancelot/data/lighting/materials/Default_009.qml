@@ -48,7 +48,7 @@
 **
 ****************************************************************************/
 
-import QtQuick3D 1.15
+import QtQuick3D
 
 DefaultMaterial {
     id: default_009
@@ -58,5 +58,4 @@ DefaultMaterial {
     specularRoughness: 0
     bumpAmount: 0.5
     translucentFalloff: 1
-    displacementAmount: 20
 }

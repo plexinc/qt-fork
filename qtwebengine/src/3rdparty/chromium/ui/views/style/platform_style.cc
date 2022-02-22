@@ -5,6 +5,7 @@
 #include "ui/views/style/platform_style.h"
 
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/range/range.h"
 #include "ui/gfx/utf16_indexing.h"
@@ -16,7 +17,7 @@
 #include "ui/views/controls/focusable_border.h"
 #include "ui/views/controls/scrollbar/scroll_bar_views.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
 #include "ui/views/controls/scrollbar/overlay_scroll_bar.h"
 #endif
 
@@ -33,7 +34,7 @@ const bool PlatformStyle::kIsOkButtonLeading = false;
 const float PlatformStyle::kFocusHaloThickness = 2.f;
 const float PlatformStyle::kFocusHaloInset = -1.f;
 
-#if !defined(OS_MACOSX)
+#if !defined(OS_APPLE)
 
 const int PlatformStyle::kMinLabelButtonWidth = 70;
 const int PlatformStyle::kMinLabelButtonHeight = 33;
@@ -48,12 +49,24 @@ const bool PlatformStyle::kTreeViewSelectionPaintsEntireRow = false;
 const bool PlatformStyle::kUseRipples = true;
 const bool PlatformStyle::kTextfieldScrollsToStartOnFocusChange = false;
 const bool PlatformStyle::kTextfieldUsesDragCursorWhenDraggable = true;
-const bool PlatformStyle::kPreferFocusRings = true;
 const bool PlatformStyle::kInactiveWidgetControlsAppearDisabled = false;
+const View::FocusBehavior PlatformStyle::kDefaultFocusBehavior =
+    View::FocusBehavior::ALWAYS;
+
+// Linux clips bubble windows that extend outside their parent window
+// bounds.
+const bool PlatformStyle::kAdjustBubbleIfOffscreen =
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+    false;
+#else
+    true;
+#endif
 
 // static
 std::unique_ptr<ScrollBar> PlatformStyle::CreateScrollBar(bool is_horizontal) {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
   return std::make_unique<OverlayScrollBar>(is_horizontal);
 #else
   return std::make_unique<ScrollBarViews>(is_horizontal);
@@ -72,9 +85,10 @@ gfx::Range PlatformStyle::RangeToDeleteBackwards(const base::string16& text,
   return gfx::Range(cursor_position, previous_grapheme_index);
 }
 
-#endif  // OS_MACOSX
+#endif  // OS_APPLE
 
-#if !BUILDFLAG(ENABLE_DESKTOP_AURA) || !defined(OS_LINUX)
+#if !BUILDFLAG(ENABLE_DESKTOP_AURA) || \
+    (!defined(OS_LINUX) && !defined(OS_CHROMEOS))
 // static
 std::unique_ptr<Border> PlatformStyle::CreateThemedLabelButtonBorder(
     LabelButton* button) {

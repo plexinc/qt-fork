@@ -20,10 +20,15 @@ import static org.mockito.Mockito.when;
 
 import android.content.ContentResolver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.pm.ActivityInfo;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.os.Build;
 import android.provider.Settings;
 import android.view.ActionMode;
+import android.view.Menu;
 import android.view.ViewGroup;
 
 import org.junit.After;
@@ -35,8 +40,10 @@ import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
+import org.robolectric.fakes.RoboMenu;
 import org.robolectric.shadows.ShadowLog;
 
+import org.chromium.base.ContextUtils;
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.Feature;
 import org.chromium.content.browser.ContentClassFactory;
@@ -52,8 +59,11 @@ import org.chromium.ui.base.MenuSourceType;
 import org.chromium.ui.base.ViewAndroidDelegate;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.ui.touch_selection.SelectionEventType;
+import org.chromium.ui.touch_selection.TouchSelectionDraggableType;
 
 import java.lang.ref.WeakReference;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Unit tests for {@link SelectionPopupController}.
@@ -484,11 +494,11 @@ public class SelectionPopupControllerTest {
         mController.onSelectionEvent(SelectionEventType.SELECTION_HANDLES_SHOWN, 0, 0, 1, 1);
 
         // Selection handles drag started.
-        mController.onDragUpdate(0.f, 0.f);
+        mController.onDragUpdate(TouchSelectionDraggableType.TOUCH_HANDLE, 0.f, 0.f);
         order.verify(handleObserver).handleDragStartedOrMoved(0.f, 0.f);
 
         // Moving.
-        mController.onDragUpdate(5.f, 5.f);
+        mController.onDragUpdate(TouchSelectionDraggableType.TOUCH_HANDLE, 5.f, 5.f);
         order.verify(handleObserver).handleDragStartedOrMoved(5.f, 5.f);
 
         // Selection handle drag stopped.
@@ -508,11 +518,11 @@ public class SelectionPopupControllerTest {
         mController.onSelectionEvent(SelectionEventType.INSERTION_HANDLE_SHOWN, 0, 0, 1, 1);
 
         // Insertion handle drag started.
-        mController.onDragUpdate(0.f, 0.f);
+        mController.onDragUpdate(TouchSelectionDraggableType.TOUCH_HANDLE, 0.f, 0.f);
         order.verify(handleObserver).handleDragStartedOrMoved(0.f, 0.f);
 
         // Moving.
-        mController.onDragUpdate(5.f, 5.f);
+        mController.onDragUpdate(TouchSelectionDraggableType.TOUCH_HANDLE, 5.f, 5.f);
         order.verify(handleObserver).handleDragStartedOrMoved(5.f, 5.f);
 
         // Insertion handle drag stopped.
@@ -605,6 +615,106 @@ public class SelectionPopupControllerTest {
 
         assertFalse(spyController.isSelectActionBarShowing());
         Mockito.verify(spyController, times(3)).finishActionMode();
+    }
+
+    @Test
+    @Feature({"TextInput"})
+    public void testSelectionWhenWindowIsNull() {
+        SelectionPopupControllerImpl spyController = Mockito.spy(mController);
+
+        when(mView.startActionMode(any(FloatingActionModeCallback.class), anyInt()))
+                .thenReturn(mActionMode);
+
+        // Long press triggered showSelectionMenu() call.
+        spyController.showSelectionMenu(0, 0, 0, 0, 0, /* isEditable = */ true,
+                /* isPasswordType = */ false, AMPHITHEATRE_FULL, /* selectionOffset = */ 0,
+                /* canSelectAll = */ true,
+                /* canRichlyEdit = */ true, /* shouldSuggest = */ true,
+                MenuSourceType.MENU_SOURCE_LONG_PRESS);
+
+        Mockito.verify(mView).startActionMode(
+                isA(FloatingActionModeCallback.class), eq(ActionMode.TYPE_FLOATING));
+        // showSelectionMenu() will invoke the first call to finishActionMode() in the
+        // showActionModeOrClearOnFailure().
+        Mockito.verify(spyController, times(1)).finishActionMode();
+        assertTrue(spyController.isSelectActionBarShowing());
+
+        // Setting the window to null should clear selections and reset the state.
+        spyController.onWindowAndroidChanged(null);
+        // Changed the focused node attribute to non-editable and non-password.
+        spyController.updateSelectionState(false, false);
+
+        // finishActionMode will be called twice for unselect.
+        Mockito.verify(spyController, times(2)).finishActionMode();
+
+        // SELECTION_HANDLES_CLEARED happens.
+        spyController.onSelectionEvent(SelectionEventType.SELECTION_HANDLES_CLEARED, 0, 0, 1, 1);
+
+        assertFalse(spyController.isSelectActionBarShowing());
+        Mockito.verify(spyController, times(3)).finishActionMode();
+    }
+
+    @Test
+    @Config(sdk = Build.VERSION_CODES.O)
+    @Feature({"TextInput"})
+    public void testProcessTextMenuItemWithActivityInfo() {
+        // TODO(ctzsm): Consider a better way to distinguish app context and |mContext|.
+        ContextUtils.initApplicationContextForTests(mContext);
+        SelectionPopupControllerImpl spyController = Mockito.spy(mController);
+
+        // test activityInfo exported=false
+        List<ResolveInfo> list1 = new ArrayList();
+        ResolveInfo resolveInfo1 = createResolveInfoWithActivityInfo("ProcessTextActivity1", false);
+        list1.add(resolveInfo1);
+        when(mPackageManager.queryIntentActivities(any(Intent.class), anyInt())).thenReturn(list1);
+
+        Menu menu1 = new RoboMenu();
+        assertEquals(0, menu1.size());
+        spyController.initializeTextProcessingMenu(menu1);
+        assertEquals(0, menu1.size());
+
+        // test activityInfo exported=true
+        List<ResolveInfo> list2 = new ArrayList();
+        ResolveInfo resolveInfo2 = createResolveInfoWithActivityInfo("ProcessTextActivity2", true);
+        list2.add(resolveInfo2);
+        when(mPackageManager.queryIntentActivities(any(Intent.class), anyInt())).thenReturn(list2);
+
+        Menu menu2 = new RoboMenu();
+        assertEquals(0, menu2.size());
+        spyController.initializeTextProcessingMenu(menu2);
+        assertEquals(1, menu2.size());
+
+        // test null activityInfo
+        List<ResolveInfo> list3 = new ArrayList();
+        ResolveInfo resolveInfo3 = new ResolveInfo();
+        resolveInfo3.activityInfo = null;
+        list3.add(resolveInfo3);
+        when(mPackageManager.queryIntentActivities(any(Intent.class), anyInt())).thenReturn(list3);
+
+        Menu menu3 = new RoboMenu();
+        assertEquals(0, menu3.size());
+        spyController.initializeTextProcessingMenu(menu3);
+        assertEquals(0, menu3.size());
+    }
+
+    private ResolveInfo createResolveInfoWithActivityInfo(String activityName, boolean exported) {
+        String packageName = "org.chromium.content.browser.selection.SelectionPopupControllerTest";
+
+        ActivityInfo activityInfo = new ActivityInfo();
+        activityInfo.packageName = packageName;
+        activityInfo.name = activityName;
+        activityInfo.exported = exported;
+        activityInfo.applicationInfo = new ApplicationInfo();
+        activityInfo.applicationInfo.flags = ApplicationInfo.FLAG_SYSTEM;
+
+        ResolveInfo resolveInfo = new ResolveInfo() {
+            @Override
+            public CharSequence loadLabel(PackageManager pm) {
+                return "TEST_LABEL";
+            }
+        };
+        resolveInfo.activityInfo = activityInfo;
+        return resolveInfo;
     }
 
     // Result generated by long press "Amphitheatre" in "1600 Amphitheatre Parkway".

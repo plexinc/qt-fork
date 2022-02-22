@@ -30,6 +30,7 @@
 #include "third_party/blink/renderer/core/editing/editing_boundary.h"
 #include "third_party/blink/renderer/core/editing/forward.h"
 #include "third_party/blink/renderer/core/events/input_event.h"
+#include "third_party/blink/renderer/core/html/html_br_element.h"
 #include "third_party/blink/renderer/platform/geometry/float_quad.h"
 #include "third_party/blink/renderer/platform/text/text_direction.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
@@ -53,6 +54,7 @@ enum class PositionMoveType {
 class Document;
 class Element;
 class HTMLElement;
+class HTMLImageElement;
 class HTMLSpanElement;
 struct LocalCaretRect;
 class Node;
@@ -123,6 +125,8 @@ HTMLSpanElement* TabSpanElement(const Node*);
 Element* TableElementJustAfter(const VisiblePosition&);
 CORE_EXPORT Element* TableElementJustBefore(const VisiblePosition&);
 CORE_EXPORT Element* TableElementJustBefore(const VisiblePositionInFlatTree&);
+Element* EnclosingTableCell(const Position&);
+Element* EnclosingTableCell(const PositionInFlatTree&);
 
 template <typename Strategy>
 ContainerNode* ParentCrossingShadowBoundaries(const Node&);
@@ -154,6 +158,7 @@ inline bool CanHaveChildrenForEditing(const Node* node) {
 }
 
 bool IsAtomicNode(const Node*);
+bool IsAtomicNodeInFlatTree(const Node*);
 CORE_EXPORT bool IsEnclosingBlock(const Node*);
 CORE_EXPORT bool IsTabHTMLSpanElement(const Node*);
 bool IsTabHTMLSpanElementTextNode(const Node*);
@@ -164,6 +169,8 @@ bool IsDisplayInsideTable(const Node*);
 bool IsTableCell(const Node*);
 bool IsHTMLListElement(const Node*);
 bool IsListItem(const Node*);
+bool IsListItemTag(const Node*);
+bool IsListElementTag(const Node*);
 bool IsPresentationalHTMLElement(const Node*);
 bool IsRenderedAsNonInlineTableImageOrHR(const Node*);
 bool IsNonTableCellHTMLBlockElement(const Node*);
@@ -255,11 +262,22 @@ CORE_EXPORT bool IsEditablePosition(const Position&);
 bool IsEditablePosition(const PositionInFlatTree&);
 bool IsRichlyEditablePosition(const Position&);
 
-PositionWithAffinity PositionRespectingEditingBoundary(
-    const Position&,
-    const PhysicalOffset& local_point,
-    Node* target_node);
-Position ComputePositionForNodeRemoval(const Position&, const Node&);
+PositionWithAffinity PositionRespectingEditingBoundary(const Position&,
+                                                       const HitTestResult&);
+
+// Move specified position to start/end of non-editable region.
+// If it can be found, we prefer a visually equivalent position that is
+// editable.
+// See also LayoutObject::CreatePositionWithAffinity()
+// Example:
+//  <editable><non-editable>|abc</non-editable></editable>
+//  =>
+//  <editable>|<non-editable>abc</non-editable></editable>
+PositionWithAffinity AdjustForEditingBoundary(const PositionWithAffinity&);
+PositionWithAffinity AdjustForEditingBoundary(const Position&);
+
+CORE_EXPORT Position ComputePositionForNodeRemoval(const Position&,
+                                                   const Node&);
 
 // TODO(editing-dev): These two functions should be eliminated.
 CORE_EXPORT Position PositionBeforeNode(const Node&);
@@ -278,6 +296,13 @@ EphemeralRange NormalizeRange(const EphemeralRange&);
 EphemeralRangeInFlatTree NormalizeRange(const EphemeralRangeInFlatTree&);
 CORE_EXPORT VisiblePosition VisiblePositionForIndex(int index,
                                                     ContainerNode* scope);
+
+bool AreSameRanges(Node* node,
+                   const Position& start_position,
+                   const Position& end_position);
+bool AreSameRanges(Node* node,
+                   const PositionInFlatTree& start_position,
+                   const PositionInFlatTree& end_position);
 
 // -------------------------------------------------------------------------
 // HTMLElement

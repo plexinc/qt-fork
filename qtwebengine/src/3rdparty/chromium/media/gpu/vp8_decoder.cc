@@ -3,6 +3,9 @@
 // found in the LICENSE file.
 
 #include "media/gpu/vp8_decoder.h"
+
+#include "base/logging.h"
+#include "base/notreached.h"
 #include "media/base/limits.h"
 
 namespace media {
@@ -175,6 +178,10 @@ gfx::Rect VP8Decoder::GetVisibleRect() const {
 
 VideoCodecProfile VP8Decoder::GetProfile() const {
   return VP8PROFILE_ANY;
+}
+
+uint8_t VP8Decoder::GetBitDepth() const {
+  return 8u;
 }
 
 size_t VP8Decoder::GetRequiredNumOfPictures() const {

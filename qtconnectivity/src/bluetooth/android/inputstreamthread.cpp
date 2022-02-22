@@ -39,7 +39,7 @@
 ****************************************************************************/
 
 #include <QtCore/QLoggingCategory>
-#include <QtAndroidExtras/QAndroidJniEnvironment>
+#include <QtCore/QJniEnvironment>
 
 #include "android/inputstreamthread_p.h"
 #include "qbluetoothsocket_android_p.h"
@@ -57,7 +57,7 @@ bool InputStreamThread::run()
 {
     QMutexLocker lock(&m_mutex);
 
-    javaInputStreamThread = QAndroidJniObject("org/qtproject/qt5/android/bluetooth/QtBluetoothInputStreamThread");
+    javaInputStreamThread = QJniObject("org/qtproject/qt/android/bluetooth/QtBluetoothInputStreamThread");
     if (!javaInputStreamThread.isValid() || !m_socket_p->inputStream.isValid())
         return false;
 
@@ -74,21 +74,21 @@ bool InputStreamThread::run()
 qint64 InputStreamThread::bytesAvailable() const
 {
     QMutexLocker locker(&m_mutex);
-    return m_socket_p->buffer.size();
+    return m_socket_p->rxBuffer.size();
 }
 
 bool InputStreamThread::canReadLine() const
 {
     QMutexLocker locker(&m_mutex);
-    return m_socket_p->buffer.canReadLine();
+    return m_socket_p->rxBuffer.canReadLine();
 }
 
 qint64 InputStreamThread::readData(char *data, qint64 maxSize)
 {
     QMutexLocker locker(&m_mutex);
 
-    if (!m_socket_p->buffer.isEmpty())
-        return m_socket_p->buffer.read(data, maxSize);
+    if (!m_socket_p->rxBuffer.isEmpty())
+        return m_socket_p->rxBuffer.read(data, maxSize);
 
     return 0;
 }
@@ -99,18 +99,18 @@ void InputStreamThread::javaThreadErrorOccurred(int errorCode)
     QMutexLocker lock(&m_mutex);
 
     if (!expectClosure)
-        emit error(errorCode);
+        emit errorOccurred(errorCode);
     else
-        emit error(-1); //magic error, -1 means error was expected due to expected close()
+        emit errorOccurred(-1); // magic error, -1 means error was expected due to expected close()
 }
 
 //inside the java thread
 void InputStreamThread::javaReadyRead(jbyteArray buffer, int bufferLength)
 {
-    QAndroidJniEnvironment env;
+    QJniEnvironment env;
 
     QMutexLocker lock(&m_mutex);
-    char *writePtr = m_socket_p->buffer.reserve(bufferLength);
+    char *writePtr = m_socket_p->rxBuffer.reserve(bufferLength);
     env->GetByteArrayRegion(buffer, 0, bufferLength, reinterpret_cast<jbyte*>(writePtr));
     emit dataAvailable();
 }

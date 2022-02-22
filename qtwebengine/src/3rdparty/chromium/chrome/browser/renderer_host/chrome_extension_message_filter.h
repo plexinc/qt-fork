@@ -22,7 +22,6 @@ struct ExtensionHostMsg_DOMAction_Params;
 
 namespace extensions {
 class ActivityLog;
-class InfoMap;
 struct Message;
 }
 
@@ -31,7 +30,7 @@ struct Message;
 class ChromeExtensionMessageFilter : public content::BrowserMessageFilter,
                                      public ProfileObserver {
  public:
-  ChromeExtensionMessageFilter(int render_process_id, Profile* profile);
+  explicit ChromeExtensionMessageFilter(Profile* profile);
 
   // content::BrowserMessageFilter methods:
   bool OnMessageReceived(const IPC::Message& message) override;
@@ -76,8 +75,6 @@ class ChromeExtensionMessageFilter : public content::BrowserMessageFilter,
   // Returns true if an action should be logged for the given extension.
   bool ShouldLogExtensionAction(const std::string& extension_id) const;
 
-  const int render_process_id_;
-
   // The Profile associated with our renderer process.  This should only be
   // accessed on the UI thread! Furthermore since this class is refcounted it
   // may outlive |profile_|, so make sure to NULL check if in doubt; async
@@ -87,8 +84,6 @@ class ChromeExtensionMessageFilter : public content::BrowserMessageFilter,
   // The ActivityLog associated with the given profile. Also only safe to
   // access on the UI thread, and may be null.
   extensions::ActivityLog* activity_log_;
-
-  scoped_refptr<extensions::InfoMap> extension_info_map_;
 
   ScopedObserver<Profile, ProfileObserver> observed_profiles_{this};
 

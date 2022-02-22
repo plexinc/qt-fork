@@ -11,6 +11,19 @@
 // #error "Only clang-cl is supported on Windows, see https://crbug.com/988071"
 // #endif
 
+// This is a wrapper around `__has_cpp_attribute`, which can be used to test for
+// the presence of an attribute. In case the compiler does not support this
+// macro it will simply evaluate to 0.
+//
+// References:
+// https://wg21.link/sd6#testing-for-the-presence-of-an-attribute-__has_cpp_attribute
+// https://wg21.link/cpp.cond#:__has_cpp_attribute
+#if defined(__has_cpp_attribute)
+#define HAS_CPP_ATTRIBUTE(x) __has_cpp_attribute(x)
+#else
+#define HAS_CPP_ATTRIBUTE(x) 0
+#endif
+
 // Annotate a variable indicating it's ok if the variable is not used.
 // (Typically used to silence a compiler warning when the assignment
 // is important for some other reason.)
@@ -45,6 +58,23 @@
 #define ALWAYS_INLINE __forceinline
 #else
 #define ALWAYS_INLINE inline
+#endif
+
+// Annotate a function indicating it should never be tail called. Useful to make
+// sure callers of the annotated function are never omitted from call-stacks.
+// To provide the complementary behavior (prevent the annotated function from
+// being omitted) look at NOINLINE. Also note that this doesn't prevent code
+// folding of multiple identical caller functions into a single signature. To
+// prevent code folding, see NO_CODE_FOLDING() in base/debug/alias.h.
+// Use like:
+//   void NOT_TAIL_CALLED FooBar();
+#if defined(__clang__)
+#if __has_attribute(not_tail_called)
+#define NOT_TAIL_CALLED __attribute__((not_tail_called))
+#endif
+#endif
+#ifndef NOT_TAIL_CALLED
+#define NOT_TAIL_CALLED
 #endif
 
 // Specify memory alignment for structs, classes, etc.
@@ -83,6 +113,20 @@
 #define WARN_UNUSED_RESULT __attribute__((warn_unused_result))
 #else
 #define WARN_UNUSED_RESULT
+#endif
+
+// In case the compiler supports it NO_UNIQUE_ADDRESS evaluates to the C++20
+// attribute [[no_unique_address]]. This allows annotating data members so that
+// they need not have an address distinct from all other non-static data members
+// of its class.
+//
+// References:
+// * https://en.cppreference.com/w/cpp/language/attributes/no_unique_address
+// * https://wg21.link/dcl.attr.nouniqueaddr
+#if HAS_CPP_ATTRIBUTE(no_unique_address)
+#define NO_UNIQUE_ADDRESS [[no_unique_address]]
+#else
+#define NO_UNIQUE_ADDRESS
 #endif
 
 // Tell the compiler a function is using a printf-style format string.
@@ -142,6 +186,19 @@
 #else
 #define DISABLE_CFI_PERF
 #endif
+#endif
+
+// DISABLE_CFI_ICALL -- Disable Control Flow Integrity indirect call checks.
+#if !defined(DISABLE_CFI_ICALL)
+#if defined(OS_WIN)
+// Windows also needs __declspec(guard(nocf)).
+#define DISABLE_CFI_ICALL NO_SANITIZE("cfi-icall") __declspec(guard(nocf))
+#else
+#define DISABLE_CFI_ICALL NO_SANITIZE("cfi-icall")
+#endif
+#endif
+#if !defined(DISABLE_CFI_ICALL)
+#define DISABLE_CFI_ICALL
 #endif
 
 // Macro useful for writing cross-platform function pointers.
@@ -249,6 +306,48 @@
 #endif
 #else
 #define STACK_UNINITIALIZED
+#endif
+
+// The ANALYZER_ASSUME_TRUE(bool arg) macro adds compiler-specific hints
+// to Clang which control what code paths are statically analyzed,
+// and is meant to be used in conjunction with assert & assert-like functions.
+// The expression is passed straight through if analysis isn't enabled.
+//
+// ANALYZER_SKIP_THIS_PATH() suppresses static analysis for the current
+// codepath and any other branching codepaths that might follow.
+#if defined(__clang_analyzer__)
+
+inline constexpr bool AnalyzerNoReturn() __attribute__((analyzer_noreturn)) {
+  return false;
+}
+
+inline constexpr bool AnalyzerAssumeTrue(bool arg) {
+  // AnalyzerNoReturn() is invoked and analysis is terminated if |arg| is
+  // false.
+  return arg || AnalyzerNoReturn();
+}
+
+#define ANALYZER_ASSUME_TRUE(arg) ::AnalyzerAssumeTrue(!!(arg))
+#define ANALYZER_SKIP_THIS_PATH() static_cast<void>(::AnalyzerNoReturn())
+#define ANALYZER_ALLOW_UNUSED(var) static_cast<void>(var);
+
+#else  // !defined(__clang_analyzer__)
+
+#define ANALYZER_ASSUME_TRUE(arg) (arg)
+#define ANALYZER_SKIP_THIS_PATH()
+#define ANALYZER_ALLOW_UNUSED(var) static_cast<void>(var);
+
+#endif  // defined(__clang_analyzer__)
+
+// Use nomerge attribute to disable optimization of merging multiple same calls.
+#if defined(__clang_major__) && (__clang_major__ >= 13)
+#if __has_attribute(nomerge) && !defined(OS_CHROMEOS)
+#define NOMERGE [[clang::nomerge]]
+#else
+#define NOMERGE
+#endif
+#else
+#define NOMERGE
 #endif
 
 #endif  // BASE_COMPILER_SPECIFIC_H_

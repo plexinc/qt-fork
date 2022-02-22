@@ -10,7 +10,6 @@
 #include <string>
 #include <vector>
 
-#include "base/observer_list.h"
 #include "base/supports_user_data.h"
 #include "components/offline_items_collection/core/offline_content_aggregator.h"
 #include "components/offline_items_collection/core/offline_content_provider.h"
@@ -27,8 +26,9 @@ using OfflineContentProvider = offline_items_collection::OfflineContentProvider;
 using OfflineContentAggregator =
     offline_items_collection::OfflineContentAggregator;
 using OfflineItem = offline_items_collection::OfflineItem;
-using UpdateDelta = offline_items_collection::UpdateDelta;
+using OfflineItemSchedule = offline_items_collection::OfflineItemSchedule;
 using OfflineItemShareInfo = offline_items_collection::OfflineItemShareInfo;
+using UpdateDelta = offline_items_collection::UpdateDelta;
 
 namespace offline_pages {
 class VisualsDecoder;
@@ -108,8 +108,8 @@ class DownloadUIAdapter : public OfflineContentProvider,
   void RenameItem(const ContentId& id,
                   const std::string& name,
                   RenameCallback callback) override;
-  void AddObserver(OfflineContentProvider::Observer* observer) override;
-  void RemoveObserver(OfflineContentProvider::Observer* observer) override;
+  void ChangeSchedule(const ContentId& id,
+                      base::Optional<OfflineItemSchedule> schedule) override;
 
   // OfflinePageModel::Observer
   void OfflinePageModelLoaded(OfflinePageModel* model) override;
@@ -195,9 +195,6 @@ class DownloadUIAdapter : public OfflineContentProvider,
 
   // A delegate, supplied at construction.
   std::unique_ptr<Delegate> delegate_;
-
-  // The observers.
-  base::ObserverList<OfflineContentProvider::Observer>::Unchecked observers_;
 
   base::WeakPtrFactory<DownloadUIAdapter> weak_ptr_factory_{this};
 

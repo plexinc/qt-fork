@@ -1,31 +1,37 @@
 // Copyright 2020 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-
 interface StringConstructor {
   sprintf(format: string, ...var_arg: any): string;
-  hashCode(id: string): number;
 }
 
-interface Array<T> {
-  peekLast(): T | undefined;
-  lowerBound(object: T, comparator?: {(a: T, b: T): number}): number;
+interface Window {
+  UI: {themeSupport: unknown}
 }
 
-// Type alias for the Closure-supported ITemplateArray which is equivalent
-// to TemplateStringsArray in TypeScript land
-type ITemplateArray = TemplateStringsArray
-
-interface String {
-  compareTo(other: string): number;
-  removeURLFragment(): string;
-  trimEndWithMaxLength(maxLength: number): string;
+declare class DOM {
+  constructor(doc: Document);
 }
 
-declare let ls: (template: ITemplateArray, ...args: any[]) => string;
+interface RegExp {
+  __fromRegExpQuery: boolean;
+}
 
-declare namespace Runtime {
-  const cachedResources: {[cachePath: string]: string};
+interface NumberConstructor {
+  withThousandsSeparator(num: number): string;
+  secondsToString(seconds: number, higherResolution?: boolean): string;
+  millisToString(ms: number, higherResolution?: boolean): string;
+  preciseMillisToString(ms: number, precision?: number): string;
+}
+
+declare class AnchorBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  constructor(x: number, y: number, width: number, height: number);
+  contains(x: number, y: number): boolean;
+  relativeToElement(element: Element): AnchorBox;
 }
 
 declare namespace Adb {
@@ -74,4 +80,74 @@ declare namespace Adb {
     networkDiscoveryConfig: NetworkDiscoveryConfig;
   }
   type NetworkDiscoveryConfig = string[];
+}
+
+interface Document {
+  createElementWithClass(elementName: string, className?: string, customElementType?: string): Element;
+  deepActiveElement(): Element|null;
+}
+
+interface HTMLElement {
+  createChild(tagName: string, className?: string, content?: string): HTMLElement;
+  totalOffset(): {left: number, top: number};
+}
+
+interface Element {
+  boxInWindow(targetWindow?: Window): AnchorBox;
+  createChild(tagName: string, className?: string, content?: string): Element;
+  hasFocus(): boolean;
+  positionAt(x: (number|undefined), y: (number|undefined), relativeTo?: Element): void;
+  removeChildren(): void;
+  scrollIntoViewIfNeeded(center?: boolean): void;
+  selectionLeftOffset(): (number|null);
+  totalOffsetTop(): number;
+  totalOffsetLeft(): number;
+}
+
+interface DocumentFragment {
+  createChild(tagName: string, className?: string, content?: string): Element;
+}
+
+interface Event {
+  consume(preventDefault?: boolean): void;
+  handled: boolean|undefined;
+  isMetaOrCtrlForTest: boolean;
+}
+
+interface Node {
+  enclosingNodeOrSelfWithClass(className: string, stayWithin?: Element): Element;
+  getComponentRoot(): Document|DocumentFragment|null;
+  getComponentSelection(): Selection|null;
+  hasSameShadowRoot(other: Node): boolean;
+  hasSelection(): boolean;
+  isAncestor(node: Node|null): boolean;
+  isDescendant(node: Node|null): boolean;
+  isSelfOrAncestor(node: Node|null): boolean;
+  isSelfOrDescendant(node: Node|null): boolean;
+  parentElementOrShadowHost(): Element|null;
+  parentNodeOrShadowHost(): Node|null;
+  setTextContentTruncatedIfNeeded(text: any, placeholder?: string): boolean;
+  traverseNextNode(stayWithin?: Node): Node|null;
+  deepTextContent(): string
+  window(): Window;
+  childTextNodes(): Node[];
+}
+
+declare function base64ToSize(content: string|null): number;
+declare function isEnterOrSpaceKey(event: Event): boolean;
+declare function isEscKey(event: Event): boolean;
+declare function createPlainTextSearchRegex(query: string, flags?: string): RegExp;
+declare function onInvokeElement(element: Element, callback: (event: Event) => void): void;
+
+interface ServicePort {
+  setHandlers(messageHandler: (arg: string) => void, closeHandler: () => void): void;
+
+  send(message: string): Promise<boolean>;
+
+  close(): Promise<boolean>;
+}
+
+declare class diff_match_patch {
+  diff_main(text1: string, text2: string): Array<{0: number, 1: string}>;
+  diff_cleanupSemantic(diff: Array<{0: number, 1: string}>): void;
 }

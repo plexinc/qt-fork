@@ -15,8 +15,10 @@
 #ifndef DAWNNATIVE_VULKAN_VULKANINFO_H_
 #define DAWNNATIVE_VULKAN_VULKANINFO_H_
 
+#include "common/ityp_array.h"
 #include "common/vulkan_platform.h"
 #include "dawn_native/Error.h"
+#include "dawn_native/vulkan/VulkanExtensions.h"
 
 #include <vector>
 
@@ -25,90 +27,46 @@ namespace dawn_native { namespace vulkan {
     class Adapter;
     class Backend;
 
-    extern const char kLayerNameLunargStandardValidation[];
-    extern const char kLayerNameLunargVKTrace[];
-    extern const char kLayerNameRenderDocCapture[];
-    extern const char kLayerNameFuchsiaImagePipeSwapchain[];
-
-    extern const char kExtensionNameExtDebugMarker[];
-    extern const char kExtensionNameExtDebugReport[];
-    extern const char kExtensionNameExtMetalSurface[];
-    extern const char kExtensionNameKhrExternalMemory[];
-    extern const char kExtensionNameKhrExternalMemoryCapabilities[];
-    extern const char kExtensionNameKhrExternalMemoryFD[];
-    extern const char kExtensionNameExtExternalMemoryDmaBuf[];
-    extern const char kExtensionNameExtImageDrmFormatModifier[];
-    extern const char kExtensionNameFuchsiaExternalMemory[];
-    extern const char kExtensionNameKhrExternalSemaphore[];
-    extern const char kExtensionNameKhrExternalSemaphoreCapabilities[];
-    extern const char kExtensionNameKhrExternalSemaphoreFD[];
-    extern const char kExtensionNameFuchsiaExternalSemaphore[];
-    extern const char kExtensionNameKhrGetPhysicalDeviceProperties2[];
-    extern const char kExtensionNameKhrSurface[];
-    extern const char kExtensionNameKhrSwapchain[];
-    extern const char kExtensionNameKhrWaylandSurface[];
-    extern const char kExtensionNameKhrWin32Surface[];
-    extern const char kExtensionNameKhrXcbSurface[];
-    extern const char kExtensionNameKhrXlibSurface[];
-    extern const char kExtensionNameFuchsiaImagePipeSurface[];
-    extern const char kExtensionNameKhrMaintenance1[];
-
     // Global information - gathered before the instance is created
     struct VulkanGlobalKnobs {
-        // Layers
-        bool standardValidation = false;
-        bool vktrace = false;
-        bool renderDocCapture = false;
-        bool fuchsiaImagePipeSwapchain = false;
+        bool HasLayer(VulkanLayer layer) const;
+        VulkanLayerSet layers;
+        ityp::array<VulkanLayer, InstanceExtSet, static_cast<uint32_t>(VulkanLayer::EnumCount)>
+            layerExtensions;
 
-        // Extensions
-        bool debugReport = false;
-        bool externalMemoryCapabilities = false;
-        bool externalSemaphoreCapabilities = false;
-        bool getPhysicalDeviceProperties2 = false;
-        bool metalSurface = false;
-        bool surface = false;
-        bool waylandSurface = false;
-        bool win32Surface = false;
-        bool xcbSurface = false;
-        bool xlibSurface = false;
-        bool fuchsiaImagePipeSurface = false;
+        // During information gathering `extensions` only contains the instance's extensions but
+        // during the instance creation logic it becomes the OR of the instance's extensions and
+        // the selected layers' extensions.
+        InstanceExtSet extensions;
+        bool HasExt(InstanceExt ext) const;
     };
 
     struct VulkanGlobalInfo : VulkanGlobalKnobs {
-        std::vector<VkLayerProperties> layers;
-        std::vector<VkExtensionProperties> extensions;
         uint32_t apiVersion;
-        // TODO(cwallez@chromium.org): layer instance extensions
     };
 
     // Device information - gathered before the device is created.
     struct VulkanDeviceKnobs {
         VkPhysicalDeviceFeatures features;
+        VkPhysicalDeviceShaderFloat16Int8FeaturesKHR shaderFloat16Int8Features;
+        VkPhysicalDevice16BitStorageFeaturesKHR _16BitStorageFeatures;
+        VkPhysicalDeviceSubgroupSizeControlFeaturesEXT subgroupSizeControlFeatures;
 
-        // Extensions, promoted extensions are set to true if their core version is supported.
-        bool debugMarker = false;
-        bool externalMemory = false;
-        bool externalMemoryFD = false;
-        bool externalMemoryDmaBuf = false;
-        bool imageDrmFormatModifier = false;
-        bool externalMemoryZirconHandle = false;
-        bool externalSemaphore = false;
-        bool externalSemaphoreFD = false;
-        bool externalSemaphoreZirconHandle = false;
-        bool swapchain = false;
-        bool maintenance1 = false;
+        bool HasExt(DeviceExt ext) const;
+        DeviceExtSet extensions;
     };
 
     struct VulkanDeviceInfo : VulkanDeviceKnobs {
         VkPhysicalDeviceProperties properties;
+        VkPhysicalDeviceDriverProperties driverProperties;
+        VkPhysicalDeviceSubgroupSizeControlPropertiesEXT subgroupSizeControlProperties;
+
         std::vector<VkQueueFamilyProperties> queueFamilies;
 
         std::vector<VkMemoryType> memoryTypes;
         std::vector<VkMemoryHeap> memoryHeaps;
 
         std::vector<VkLayerProperties> layers;
-        std::vector<VkExtensionProperties> extensions;
         // TODO(cwallez@chromium.org): layer instance extensions
     };
 

@@ -60,6 +60,8 @@
 #define Q_EXPORT_SQLDRIVER_IBASE Q_SQL_EXPORT
 #endif
 
+static_assert(FB_API_VER >= 20, "Qt requires at least the Firebird 2.0 client APIs.");
+
 QT_BEGIN_NAMESPACE
 
 class QSqlResult;
@@ -71,8 +73,8 @@ class Q_EXPORT_SQLDRIVER_IBASE QIBaseDriver : public QSqlDriver
     Q_DECLARE_PRIVATE(QIBaseDriver)
     Q_OBJECT
 public:
-    explicit QIBaseDriver(QObject *parent = 0);
-    explicit QIBaseDriver(isc_db_handle connection, QObject *parent = 0);
+    explicit QIBaseDriver(QObject *parent = nullptr);
+    explicit QIBaseDriver(isc_db_handle connection, QObject *parent = nullptr);
     virtual ~QIBaseDriver();
     bool hasFeature(DriverFeature f) const override;
     bool open(const QString &db,
@@ -104,7 +106,7 @@ public:
     bool subscribeToNotification(const QString &name) override;
     bool unsubscribeFromNotification(const QString &name) override;
     QStringList subscribedToNotifications() const override;
-
+    int maximumIdentifierLength(IdentifierType type) const override;
 private Q_SLOTS:
     void qHandleEventNotification(void* updatedResultBuffer);
 };

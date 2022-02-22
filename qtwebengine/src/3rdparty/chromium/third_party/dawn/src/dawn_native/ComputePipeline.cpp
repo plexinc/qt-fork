@@ -14,8 +14,8 @@
 
 #include "dawn_native/ComputePipeline.h"
 
-#include "common/HashUtils.h"
 #include "dawn_native/Device.h"
+#include "dawn_native/ObjectContentHasher.h"
 
 namespace dawn_native {
 
@@ -38,9 +38,9 @@ namespace dawn_native {
 
     ComputePipelineBase::ComputePipelineBase(DeviceBase* device,
                                              const ComputePipelineDescriptor* descriptor)
-        : PipelineBase(device, descriptor->layout, wgpu::ShaderStage::Compute),
-          mModule(descriptor->computeStage.module),
-          mEntryPoint(descriptor->computeStage.entryPoint) {
+        : PipelineBase(device,
+                       descriptor->layout,
+                       {{SingleShaderStage::Compute, &descriptor->computeStage}}) {
     }
 
     ComputePipelineBase::ComputePipelineBase(DeviceBase* device, ObjectBase::ErrorTag tag)
@@ -59,16 +59,9 @@ namespace dawn_native {
         return new ComputePipelineBase(device, ObjectBase::kError);
     }
 
-    size_t ComputePipelineBase::HashFunc::operator()(const ComputePipelineBase* pipeline) const {
-        size_t hash = 0;
-        HashCombine(&hash, pipeline->mModule.Get(), pipeline->mEntryPoint, pipeline->GetLayout());
-        return hash;
-    }
-
     bool ComputePipelineBase::EqualityFunc::operator()(const ComputePipelineBase* a,
                                                        const ComputePipelineBase* b) const {
-        return a->mModule.Get() == b->mModule.Get() && a->mEntryPoint == b->mEntryPoint &&
-               a->GetLayout() == b->GetLayout();
+        return PipelineBase::EqualForCache(a, b);
     }
 
 }  // namespace dawn_native

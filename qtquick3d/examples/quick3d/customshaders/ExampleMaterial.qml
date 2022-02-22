@@ -48,35 +48,37 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.15
-import QtQuick3D 1.15
-import QtQuick3D.Materials 1.15
+import QtQuick
+import QtQuick3D
 
 //! [implementation]
 CustomMaterial {
     property real time: 0.0
     property real amplitude: 5.0
+    property real alpha: 1.0
 
-    shaderInfo: ShaderInfo {
-        version: "330"
-        type: "GLSL"
+    property bool texturing: false
+    property bool textureFromItem: false
+    property Item texSrc
+    Texture {
+        id: texFromFile
+        source: "qt_logo.png"
+    }
+    Texture {
+        id: texFromItem
+        sourceItem: texSrc
+    }
+    property TextureInput tex: TextureInput {
+        enabled: texturing
+        texture: textureFromItem ? texFromItem : texFromFile
     }
 
-    Shader {
-        id: vertShader
-        stage: Shader.Vertex
-        shader: "example.vert"
-    }
+    shadingMode: CustomMaterial.Unshaded
+    sourceBlend: alpha < 1.0 ? CustomMaterial.SrcAlpha : CustomMaterial.NoBlend
+    destinationBlend: alpha < 1.0 ? CustomMaterial.OneMinusSrcAlpha : CustomMaterial.NoBlend
+    cullMode: CustomMaterial.BackFaceCulling
 
-    Shader {
-        id: fragShader
-        stage: Shader.Fragment
-        shader: "example.frag"
-    }
-
-    passes: [ Pass {
-            shaders: [ vertShader, fragShader ]
-        }
-    ]
+    vertexShader: "example.vert"
+    fragmentShader: texturing ? "example_tex.frag" : "example.frag"
 }
 //! [implementation]

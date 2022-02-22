@@ -78,7 +78,7 @@ typedef int NativeFileHandle;
 QTemporaryFileName::QTemporaryFileName(const QString &templateName)
 {
     // Ensure there is a placeholder mask
-    QString qfilename = templateName;
+    QString qfilename = QDir::fromNativeSeparators(templateName);
     uint phPos = qfilename.length();
     uint phLength = 0;
 
@@ -198,7 +198,7 @@ QFileSystemEntry::NativePath QTemporaryFileName::generateNext()
 
     Generates a unique file path from the template \a templ and creates a new
     file based based on those parameters: the \c templ.length characters in \c
-    templ.path starting at \c templ.pos will be replacd by a random sequence of
+    templ.path starting at \c templ.pos will be replaced by a random sequence of
     characters. \a mode specifies the file mode bits (not used on Windows).
 
     Returns true on success and sets the file handle on \a file. On error,
@@ -219,17 +219,10 @@ static bool createFileFromTemplate(NativeFileHandle &file, QTemporaryFileName &t
         const DWORD shareMode = (flags & QTemporaryFileEngine::Win32NonShared)
                                 ? 0u : (FILE_SHARE_READ | FILE_SHARE_WRITE);
 
-#  ifndef Q_OS_WINRT
         file = CreateFile((const wchar_t *)path.constData(),
                 GENERIC_READ | GENERIC_WRITE,
                 shareMode, NULL, CREATE_NEW,
                 FILE_ATTRIBUTE_NORMAL, NULL);
-#  else // !Q_OS_WINRT
-        file = CreateFile2((const wchar_t *)path.constData(),
-                GENERIC_READ | GENERIC_WRITE,
-                shareMode, CREATE_NEW,
-                NULL);
-#  endif // Q_OS_WINRT
 
         if (file != INVALID_HANDLE_VALUE)
             return true;
@@ -249,7 +242,7 @@ static bool createFileFromTemplate(NativeFileHandle &file, QTemporaryFileName &t
             return false;
         }
 #else // POSIX
-        Q_UNUSED(flags)
+        Q_UNUSED(flags);
         file = QT_OPEN(path.constData(),
                 QT_OPEN_CREAT | QT_OPEN_EXCL | QT_OPEN_RDWR | QT_OPEN_LARGEFILE,
                 static_cast<mode_t>(mode));
@@ -380,7 +373,7 @@ bool QTemporaryFileEngine::open(QIODevice::OpenMode openMode)
         return false;
     }
 
-#if !defined(Q_OS_WIN) || defined(Q_OS_WINRT)
+#if !defined(Q_OS_WIN)
     d->closeFileHandle = true;
 #endif
 
@@ -804,7 +797,7 @@ QString QTemporaryFile::fileName() const
     if (tef && tef->isReallyOpen())
         const_cast<QTemporaryFilePrivate *>(d)->materializeUnnamedFile();
 
-    if(d->fileName.isEmpty())
+    if (d->fileName.isEmpty())
         return QString();
     return d->engine()->fileName(QAbstractFileEngine::DefaultName);
 }
@@ -870,21 +863,6 @@ bool QTemporaryFile::rename(const QString &newName)
 }
 
 /*!
-  \fn QTemporaryFile *QTemporaryFile::createLocalFile(const QString &fileName)
-  \overload
-  \obsolete
-
-  Use QTemporaryFile::createNativeFile(const QString &fileName) instead.
-*/
-
-/*!
-  \fn QTemporaryFile *QTemporaryFile::createLocalFile(QFile &file)
-  \obsolete
-
-  Use QTemporaryFile::createNativeFile(QFile &file) instead.
-*/
-
-/*!
   \fn QTemporaryFile *QTemporaryFile::createNativeFile(const QString &fileName)
   \overload
 
@@ -909,12 +887,12 @@ bool QTemporaryFile::rename(const QString &newName)
 QTemporaryFile *QTemporaryFile::createNativeFile(QFile &file)
 {
     if (QAbstractFileEngine *engine = file.d_func()->engine()) {
-        if(engine->fileFlags(QAbstractFileEngine::FlagsMask) & QAbstractFileEngine::LocalDiskFlag)
+        if (engine->fileFlags(QAbstractFileEngine::FlagsMask) & QAbstractFileEngine::LocalDiskFlag)
             return nullptr; // native already
         //cache
         bool wasOpen = file.isOpen();
         qint64 old_off = 0;
-        if(wasOpen)
+        if (wasOpen)
             old_off = file.pos();
         else if (!file.open(QIODevice::ReadOnly))
             return nullptr;
@@ -935,7 +913,7 @@ QTemporaryFile *QTemporaryFile::createNativeFile(QFile &file)
             ret = nullptr;
         }
         //restore
-        if(wasOpen)
+        if (wasOpen)
             file.seek(old_off);
         else
             file.close();

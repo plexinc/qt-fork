@@ -31,7 +31,7 @@
 #include <QQmlComponent>
 #include <QDebug>
 #include <QStringListModel>
-#include "../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 #include "testtypes.h"
 #include "qtestmodel.h"
 
@@ -45,10 +45,10 @@ class tst_qqmlitemmodels : public QQmlDataTest
     Q_OBJECT
 
 public:
-    tst_qqmlitemmodels() {}
+    tst_qqmlitemmodels() : QQmlDataTest(QT_QMLTEST_DATADIR) {}
 
 private slots:
-    void initTestCase();
+    void initTestCase() override;
 
     void modelIndex();
     void persistentModelIndex();

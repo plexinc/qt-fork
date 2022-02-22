@@ -33,20 +33,23 @@
 #include <QtQuick/qquickview.h>
 #include <QtQuick/qsgrendererinterface.h>
 
-#include "../../shared/util.h"
-
-#if QT_CONFIG(opengl)
-#include <QtGui/qopenglcontext.h>
-#include <QtGui/qsurfaceformat.h>
-#endif
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 
 class tst_QQuickGraphicsInfo : public QQmlDataTest
 {
     Q_OBJECT
 
+public:
+    tst_QQuickGraphicsInfo();
+
 private slots:
     void testProperties();
 };
+
+tst_QQuickGraphicsInfo::tst_QQuickGraphicsInfo()
+    : QQmlDataTest(QT_QMLTEST_DATADIR)
+{
+}
 
 void tst_QQuickGraphicsInfo::testProperties()
 {
@@ -66,18 +69,6 @@ void tst_QQuickGraphicsInfo::testProperties()
     const int expectedAPI = rif ? rif->graphicsApi() : QSGRendererInterface::Unknown;
 
     QCOMPARE(obj->property("api").toInt(), expectedAPI);
-
-#if QT_CONFIG(opengl)
-    if (expectedAPI == QSGRendererInterface::OpenGL) {
-        QCOMPARE(obj->property("shaderType").toInt(), int(QSGRendererInterface::GLSL));
-        QVERIFY(view.openglContext());
-        QSurfaceFormat format = view.openglContext()->format();
-        QCOMPARE(obj->property("majorVersion").toInt(), format.majorVersion());
-        QCOMPARE(obj->property("minorVersion").toInt(), format.minorVersion());
-        QCOMPARE(obj->property("profile").toInt(), static_cast<int>(format.profile()));
-        QCOMPARE(obj->property("renderableType").toInt(), static_cast<int>(format.renderableType()));
-    }
-#endif
 }
 
 QTEST_MAIN(tst_QQuickGraphicsInfo)

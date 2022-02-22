@@ -43,7 +43,7 @@
 #include "qitemmodelscatterdataproxy.h"
 #include "qscatterdataproxy_p.h"
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 class ScatterItemModelHandler;
 
@@ -65,10 +65,10 @@ private:
     QString m_zPosRole;
     QString m_rotationRole;
 
-    QRegExp m_xPosRolePattern;
-    QRegExp m_yPosRolePattern;
-    QRegExp m_zPosRolePattern;
-    QRegExp m_rotationRolePattern;
+    QRegularExpression m_xPosRolePattern;
+    QRegularExpression m_yPosRolePattern;
+    QRegularExpression m_zPosRolePattern;
+    QRegularExpression m_rotationRolePattern;
 
     QString m_xPosRoleReplace;
     QString m_yPosRoleReplace;
@@ -79,6 +79,6 @@ private:
     friend class QItemModelScatterDataProxy;
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

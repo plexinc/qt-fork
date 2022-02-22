@@ -26,7 +26,7 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QtTest/private/qtesthelpers_p.h>
 #include <qapplication.h>
 #include <private/qguiapplication_p.h>
@@ -38,9 +38,9 @@
 #include <QStatusBar>
 #include <QListWidget>
 #include <QWidgetAction>
-#include <QDesktopWidget>
 #include <QScreen>
 #include <QSpinBox>
+#include <QSignalSpy>
 #include <qdialog.h>
 
 #include <qmenu.h>
@@ -48,7 +48,7 @@
 #include <QStyleHints>
 #include <QTimer>
 #include <qdebug.h>
-
+#include <QToolTip>
 #include <qpa/qplatformtheme.h>
 #include <qpa/qplatformintegration.h>
 
@@ -115,8 +115,10 @@ private slots:
     void QTBUG30595_rtl_submenu();
     void QTBUG20403_nested_popup_on_shortcut_trigger();
     void QTBUG47515_widgetActionEnterLeave();
+    void QTBUG_89082_actionTipsHide();
     void QTBUG8122_widgetActionCrashOnClose();
     void widgetActionTriggerClosesMenu();
+    void transientParent();
 
     void QTBUG_10735_crashWithDialog();
 #ifdef Q_OS_MAC
@@ -132,6 +134,7 @@ private slots:
     void menuSize_Scrolling();
     void tearOffMenuNotDisplayed();
     void QTBUG_61039_menu_shortcuts();
+    void screenOrientationChangedCloseMenu();
 
 protected slots:
     void onActivated(QAction*);
@@ -174,7 +177,9 @@ void tst_QMenu::getSetCheck()
 tst_QMenu::tst_QMenu()
     : m_onStatusTipTimerExecuted(false)
 {
+    QApplication::setEffectEnabled(Qt::UI_FadeTooltip, false);
     QApplication::setEffectEnabled(Qt::UI_AnimateMenu, false);
+    QApplication::setEffectEnabled(Qt::UI_AnimateTooltip, false);
 }
 
 void tst_QMenu::initTestCase()
@@ -300,7 +305,7 @@ void tst_QMenu::addActionsConnect()
     menu.addAction(icon, text, testFunction);
     menu.addAction(icon, text, &menu, testFunction);
 #ifndef QT_NO_SHORTCUT
-    const QKeySequence keySequence(Qt::CTRL + Qt::Key_C);
+    const QKeySequence keySequence(Qt::CTRL | Qt::Key_C);
     menu.addAction(text, &menu, SLOT(deleteLater()), keySequence);
     menu.addAction(text, &menu, &QMenu::deleteLater, keySequence);
     menu.addAction(text, testFunction, keySequence);
@@ -340,14 +345,14 @@ void tst_QMenu::mouseActivation()
     menubar.show();
 
 
-    QTest::mouseClick(&menubar, Qt::LeftButton, 0, menubar.actionGeometry(action).center(), 300);
+    QTest::mouseClick(&menubar, Qt::LeftButton, {}, menubar.actionGeometry(action).center(), 300);
     QVERIFY(submenu.isVisible());
-    QTest::mouseClick(&submenu, Qt::LeftButton, 0, QPoint(5, 5), 300);
+    QTest::mouseClick(&submenu, Qt::LeftButton, {}, QPoint(5, 5), 300);
     QVERIFY(!submenu.isVisible());
 
-    QTest::mouseClick(&menubar, Qt::LeftButton, 0, menubar.actionGeometry(action).center(), 300);
+    QTest::mouseClick(&menubar, Qt::LeftButton, {}, menubar.actionGeometry(action).center(), 300);
     QVERIFY(submenu.isVisible());
-    QTest::mouseClick(&submenu, Qt::RightButton, 0, QPoint(5, 5), 300);
+    QTest::mouseClick(&submenu, Qt::RightButton, {}, QPoint(5, 5), 300);
     QVERIFY(submenu.isVisible());
 #endif
 }
@@ -484,7 +489,7 @@ void tst_QMenu::overrideMenuAction()
 
     // On Mac and Windows CE, we need to create native key events to test menu
     // action activation, so skip this part of the test.
-#if !defined(Q_OS_DARWIN)
+#if QT_CONFIG(shortcut) && !defined(Q_OS_DARWIN)
     QAction *aQuit = new QAction("Quit", &w);
     aQuit->setShortcut(QKeySequence("Ctrl+X"));
     m->addAction(aQuit);
@@ -502,7 +507,7 @@ void tst_QMenu::overrideMenuAction()
     //test if the menu still pops out
     QTest::keyClick(&w, Qt::Key_F, Qt::AltModifier);
     QTRY_VERIFY(m->isVisible());
-#endif
+#endif // QT_CONFIG(shortcut) && !Q_OS_DARWIN
 
     delete aFileMenu;
 
@@ -535,7 +540,7 @@ void tst_QMenu::statusTip()
     QRect rect1 = tb.actionGeometry(&a);
     QToolButton *btn = qobject_cast<QToolButton*>(tb.childAt(rect1.center()));
 
-    QVERIFY(btn != NULL);
+    QVERIFY(btn != nullptr);
 
     //because showMenu calls QMenu::exec, we need to use a singleshot
     //to continue the test
@@ -859,9 +864,6 @@ private:
 void tst_QMenu::activeSubMenuPositionExec()
 {
 
-#ifdef Q_OS_WINRT
-    QSKIP("Broken on WinRT - QTBUG-68297");
-#endif
     SubMenuPositionExecMenu menu;
     menu.exec(QGuiApplication::primaryScreen()->availableGeometry().center());
 }
@@ -974,8 +976,7 @@ void tst_QMenu::menuSizeHint()
 
     QSize resSize = QSize(result.x(), result.y()) + result.size() + QSize(hmargin + cm.right() + panelWidth, vmargin + cm.top() + panelWidth);
 
-    resSize = menu.style()->sizeFromContents(QStyle::CT_Menu, &opt,
-                                    resSize.expandedTo(QApplication::globalStrut()), &menu);
+    resSize = menu.style()->sizeFromContents(QStyle::CT_Menu, &opt, resSize, &menu);
 
     QCOMPARE(resSize, menu.sizeHint());
 }
@@ -984,7 +985,7 @@ class Menu258920 : public QMenu
 {
     Q_OBJECT
 public slots:
-    void paintEvent(QPaintEvent *e)
+    void paintEvent(QPaintEvent *e) override
     {
         QMenu::paintEvent(e);
         painted = true;
@@ -1040,7 +1041,7 @@ void tst_QMenu::deleteActionInTriggered()
 class PopulateOnAboutToShowTestMenu : public QMenu {
     Q_OBJECT
 public:
-    explicit PopulateOnAboutToShowTestMenu(QWidget *parent = 0);
+    explicit PopulateOnAboutToShowTestMenu(QWidget *parent = nullptr);
 
 public slots:
     void populateMenu();
@@ -1100,9 +1101,6 @@ void tst_QMenu::pushButtonPopulateOnAboutToShow()
 
     QTimer::singleShot(300, buttonMenu, SLOT(hide()));
     QTest::mouseClick(&b, Qt::LeftButton, Qt::NoModifier, b.rect().center());
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("", "WinRT does not support QTest::mouseClick", Abort);
-#endif
     QVERIFY2(!buttonMenu->geometry().intersects(b.geometry()), msgGeometryIntersects(buttonMenu->geometry(), b.geometry()));
 
     // note: we're assuming that, if we previously got the desired geometry, we'll get it here too
@@ -1212,9 +1210,6 @@ void tst_QMenu::click_while_dismissing_submenu()
     //this opens the submenu, move two times to emulate user interaction (d->motions > 0 in QMenu)
     QTest::mouseMove(menuWindow, menu.rect().center() + QPoint(0,2));
     QTest::mouseMove(menuWindow, menu.rect().center() + QPoint(1,3), 60);
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("", "WinRT does not support QTest::mouseMove", Abort);
-#endif
     QVERIFY(menuShownSpy.wait());
     QVERIFY(sub.isVisible());
     QVERIFY(QTest::qWaitForWindowExposed(&sub));
@@ -1313,9 +1308,6 @@ void tst_QMenu::QTBUG47515_widgetActionEnterLeave()
         QTest::mouseMove(topLevelWindow, w1Center);
         QVERIFY(w1->isVisible());
         QTRY_COMPARE(w1->leave, 0);
-#ifdef Q_OS_WINRT
-        QEXPECT_FAIL("", "WinRT does not support QTest::mouseMove", Abort);
-#endif
         QTRY_COMPARE(w1->enter, 1);
 
         // Check whether leave event is not delivered on mouse move
@@ -1355,15 +1347,70 @@ void tst_QMenu::QTBUG47515_widgetActionEnterLeave()
     }
 }
 
+void tst_QMenu::QTBUG_89082_actionTipsHide()
+{
+    if (!QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::WindowActivation))
+        QSKIP("Window activation is not supported");
+
+    QWidget widget;
+    QMenu *menu = new QMenu(&widget);
+    menu->addAction("aaa");
+    menu->addAction("bbb");
+    menu->addAction("ccc");
+    menu->addAction("ddd");
+    menu->addAction("eee");
+    menu->addAction("fff");
+    menu->setToolTipsVisible(true);
+
+    auto menuActTip = menu->actions().first();
+    QString tipFullName = "actionTip-this-is-a-long-action-and-show-the-full-name-by-tip";
+    QFontMetrics m_fm = QFontMetrics(QAction().font());
+    const QString &&elidedName = m_fm.elidedText(tipFullName, Qt::ElideRight, 50);
+    menuActTip->setText(elidedName);
+    if (elidedName != tipFullName)
+        menuActTip->setToolTip(tipFullName);
+
+    widget.resize(300, 200);
+    centerOnScreen(&widget);
+    widget.show();
+#if QT_CONFIG(cursor)
+    QCursor::setPos(widget.screen()->availableGeometry().topLeft() + QPoint(10, 10));
+#endif
+    widget.activateWindow();
+    QVERIFY(QTest::qWaitForWindowExposed(&widget));
+    menu->popup(widget.geometry().topRight() + QPoint(50, 0));
+    QVERIFY(QTest::qWaitForWindowExposed(menu));
+    auto menuWindow = menu->windowHandle();
+    QVERIFY(menuWindow != nullptr);
+
+    auto actionZero = menu->actions().at(0);
+    auto actionOne = menu->actions().at(1);
+    auto actionFive = menu->actions().at(5);
+    const QRect submenuRect0 = menu->actionGeometry(actionZero);
+    const QPoint submenuPos0(submenuRect0.topLeft() + QPoint(3, 3));
+
+    const QRect submenuRect1 = menu->actionGeometry(actionOne);
+    const QPoint submenuPos1(submenuRect1.topLeft() + QPoint(3, 3));
+
+    const QRect submenuRect5 = menu->actionGeometry(actionFive);
+    const QPoint submenuPos5(submenuRect5.topLeft() + QPoint(10, 3));
+
+    QTest::mouseMove(menuWindow, submenuPos1);
+    QTest::mouseMove(menuWindow, submenuPos0); //show the tip
+    QTRY_COMPARE_WITH_TIMEOUT(QToolTip::text(), tipFullName, 1000);
+
+    //Move to the fifth action without prompting
+    QTest::mouseMove(menuWindow, submenuPos5);
+    //The previous tip was hidden, but now is a new tip to get text, So there should be no content
+    QTRY_COMPARE_WITH_TIMEOUT(QToolTip::text(), QString(), 1000);
+}
+
 void tst_QMenu::QTBUG8122_widgetActionCrashOnClose()
 {
     if (!QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::WindowActivation))
         QSKIP("Window activation is not supported");
     if (QGuiApplication::platformName() == QLatin1String("cocoa"))
         QSKIP("See QTBUG-63031");
-#ifdef Q_OS_WINRT
-    QSKIP("WinRT does not support QTest::mouseMove");
-#endif
 
     const QRect availableGeometry = QGuiApplication::primaryScreen()->availableGeometry();
     QRect geometry(QPoint(), availableGeometry.size() / 3);
@@ -1427,7 +1474,7 @@ void tst_QMenu::widgetActionTriggerClosesMenu()
         }
 
     protected:
-        QWidget *createWidget(QWidget *parent)
+        QWidget *createWidget(QWidget *parent) override
         {
             QPushButton *button = new QPushButton(QLatin1String("Button"), parent);
             connect(button, &QPushButton::clicked, this, &QAction::trigger);
@@ -1485,6 +1532,54 @@ void tst_QMenu::widgetActionTriggerClosesMenu()
     QCOMPARE(menuTriggeredCount, 1);
     QCOMPARE(menuAboutToHideCount, 1);
     QCOMPARE(actionTriggered, &widgetAction);
+}
+
+void tst_QMenu::transientParent()
+{
+    QMainWindow window;
+    window.resize(480, 320);
+    window.menuBar()->setNativeMenuBar(false);
+    centerOnScreen(&window);
+
+    QMenu *fileMenu = new QMenu("&File");
+    QAction *exitAct = new QAction("Exit");
+    fileMenu->addAction(exitAct);
+
+    QMenu *editMenu = new QMenu("&Edit");
+    QAction *undoAct = new QAction("Undo");
+    editMenu->addAction(undoAct);
+
+    QMenuBar *menuBar = new QMenuBar;
+    menuBar->addMenu(fileMenu);
+    menuBar->addMenu(editMenu);
+    window.setMenuBar(menuBar);
+
+    // On Mac, we need to create native key events to test menu
+    // action activation, so skip this part of the test.
+#if QT_CONFIG(shortcut) && !defined(Q_OS_DARWIN)
+    window.show();
+    QVERIFY(QTest::qWaitForWindowActive(&window));
+    QWindow *topLevel = window.windowHandle();
+    QVERIFY(topLevel);
+
+    QApplication::setActiveWindow(&window);
+    window.setFocus();
+    QVERIFY(QTest::qWaitForWindowActive(&window));
+    QVERIFY(window.hasFocus());
+
+    QTest::keyPress(&window, Qt::Key_F, Qt::AltModifier);
+    QTRY_VERIFY(QTest::qWaitForWindowExposed(fileMenu));
+    if (fileMenu->isWindow() && fileMenu->window() && fileMenu->window()->windowHandle())
+        QVERIFY(fileMenu->window()->windowHandle()->transientParent());
+    QTest::keyRelease(fileMenu, Qt::Key_F, Qt::AltModifier);
+
+    QTest::keyPress(fileMenu, Qt::Key_E, Qt::AltModifier);
+    QTRY_VERIFY(QTest::qWaitForWindowExposed(editMenu));
+    if (editMenu->isWindow() && editMenu->window() && editMenu->window()->windowHandle())
+        QVERIFY(editMenu->window()->windowHandle()->transientParent());
+    QTest::keyRelease(editMenu, Qt::Key_E, Qt::AltModifier);
+#endif // QT_CONFIG(shortcut) && !Q_OS_DARWIN
+
 }
 
 class MyMenu : public QMenu
@@ -1573,9 +1668,6 @@ void tst_QMenu::QTBUG_56917_wideMenuSize()
     menu.popup(QPoint());
     QVERIFY(QTest::qWaitForWindowExposed(&menu));
     QVERIFY(menu.isVisible());
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("", "Broken on WinRT - QTBUG-68297", Abort);
-#endif
     QVERIFY(menu.height() <= menuSizeHint.height());
 }
 
@@ -1712,12 +1804,9 @@ void tst_QMenu::menuSize_Scrolling()
             const QMargins cm = contentsMargins();
             QRect lastItem = actionGeometry(actions().at(actions().length() - 1));
             QSize s = size();
-#ifdef Q_OS_WINRT
-            QEXPECT_FAIL("", "Broken on WinRT - QTBUG-68297", Abort);
-#endif
             if (!QGuiApplication::platformName().compare(QLatin1String("minimal"), Qt::CaseInsensitive)
                 || !QGuiApplication::platformName().compare(QLatin1String("offscreen"), Qt::CaseInsensitive)) {
-                QWARN("Skipping test on minimal/offscreen platforms - QTBUG-73522");
+                qWarning("Skipping test on minimal/offscreen platforms - QTBUG-73522");
                 QMenu::showEvent(e);
                 return;
             }
@@ -1790,12 +1879,6 @@ void tst_QMenu::menuSize_Scrolling()
         return;
 
     QTest::keyClick(&menu, Qt::Key_End);
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("data8", "Broken on WinRT - QTBUG-68297", Abort);
-    QEXPECT_FAIL("data9", "Broken on WinRT - QTBUG-68297", Abort);
-    QEXPECT_FAIL("data10", "Broken on WinRT - QTBUG-68297", Abort);
-    QEXPECT_FAIL("data11", "Broken on WinRT - QTBUG-68297", Abort);
-#endif
     QTRY_COMPARE(menu.actionGeometry(actions.last()).right(),
                  menu.width() - mm.fw - mm.hmargin - leftMargin - 1);
     QCOMPARE(menu.actionGeometry(actions.last()).bottom(),
@@ -1845,10 +1928,13 @@ void tst_QMenu::QTBUG_61039_menu_shortcuts()
         QSKIP("Window activation is not supported");
 
     QAction *actionKamen = new QAction("Action Kamen");
+#if QT_CONFIG(shortcut)
     actionKamen->setShortcut(QKeySequence(QLatin1String("K")));
-
+#endif
     QAction *actionJoe = new QAction("Action Joe");
+#if QT_CONFIG(shortcut)
     actionJoe->setShortcut(QKeySequence(QLatin1String("Ctrl+J")));
+#endif
 
     QMenu menu;
     menu.addAction(actionKamen);
@@ -1867,6 +1953,21 @@ void tst_QMenu::QTBUG_61039_menu_shortcuts()
     QSignalSpy actionJoeSpy(actionJoe, &QAction::triggered);
     QTest::keyClick(&widget, Qt::Key_J, Qt::ControlModifier);
     QTRY_COMPARE(actionJoeSpy.count(), 1);
+}
+
+void tst_QMenu::screenOrientationChangedCloseMenu()
+{
+     QMenu menu;
+     menu.addAction("action1");
+     menu.show();
+
+     QTRY_COMPARE(menu.isVisible(),true);
+
+     Qt::ScreenOrientation orientation = menu.screen()->orientation() == Qt::PortraitOrientation ? Qt::LandscapeOrientation : Qt::PortraitOrientation;
+     QScreenOrientationChangeEvent event(menu.screen(), orientation);
+     QCoreApplication::sendEvent(QCoreApplication::instance(), &event);
+
+     QTRY_COMPARE(menu.isVisible(),false);
 }
 
 QTEST_MAIN(tst_QMenu)

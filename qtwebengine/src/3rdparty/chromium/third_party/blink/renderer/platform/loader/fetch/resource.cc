@@ -41,8 +41,6 @@
 #include "third_party/blink/renderer/platform/instrumentation/instance_counters.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 #include "third_party/blink/renderer/platform/loader/cors/cors.h"
-#include "third_party/blink/renderer/platform/loader/fetch/cached_metadata.h"
-#include "third_party/blink/renderer/platform/loader/fetch/cached_metadata_handler.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_initiator_type_names.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_parameters.h"
 #include "third_party/blink/renderer/platform/loader/fetch/integrity_metadata.h"
@@ -69,12 +67,6 @@ void NotifyFinishObservers(
     HeapHashSet<WeakMember<ResourceFinishObserver>>* observers) {
   for (const auto& observer : *observers)
     observer->NotifyFinished();
-}
-
-blink::mojom::CodeCacheType ToCodeCacheType(ResourceType resource_type) {
-  return resource_type == ResourceType::kRaw
-             ? blink::mojom::CodeCacheType::kWebAssembly
-             : blink::mojom::CodeCacheType::kJavascript;
 }
 
 void GetSharedBufferMemoryDump(SharedBuffer* buffer,
@@ -136,7 +128,8 @@ static inline bool ShouldUpdateHeaderAfterRevalidation(
 
 namespace {
 const base::Clock* g_clock_for_testing = nullptr;
-}
+
+}  // namespace
 
 static inline base::Time Now() {
   const base::Clock* clock = g_clock_for_testing
@@ -163,6 +156,13 @@ Resource::Resource(const ResourceRequestHead& request,
       response_timestamp_(Now()),
       resource_request_(request),
       overhead_size_(CalculateOverheadSize()) {
+  scoped_refptr<const SecurityOrigin> top_frame_origin =
+      resource_request_.TopFrameOrigin();
+  if (top_frame_origin) {
+    net::SchemefulSite site(top_frame_origin->ToUrlOrigin());
+    existing_top_frame_sites_in_cache_.insert(site);
+  }
+
   InstanceCounters::IncrementCounter(InstanceCounters::kResourceCounter);
 
   if (IsMainThread())
@@ -173,9 +173,8 @@ Resource::~Resource() {
   InstanceCounters::DecrementCounter(InstanceCounters::kResourceCounter);
 }
 
-void Resource::Trace(Visitor* visitor) {
+void Resource::Trace(Visitor* visitor) const {
   visitor->Trace(loader_);
-  visitor->Trace(cache_handler_);
   visitor->Trace(clients_);
   visitor->Trace(clients_awaiting_callback_);
   visitor->Trace(finished_clients_);
@@ -233,7 +232,7 @@ void Resource::CheckResourceIntegrity() {
 }
 
 void Resource::NotifyFinished() {
-  CHECK(IsFinishedInternal());
+  CHECK(IsLoaded());
 
   ResourceClientWalker<ResourceClient> w(clients_);
   while (ResourceClient* c = w.Next()) {
@@ -477,10 +476,14 @@ const ResourceRequestHead& Resource::LastResourceRequest() const {
   return redirect_chain_.back().request_;
 }
 
-const ResourceResponse* Resource::LastResourceResponse() const {
+const ResourceResponse& Resource::LastResourceResponse() const {
   if (!redirect_chain_.size())
-    return nullptr;
-  return &redirect_chain_.back().redirect_response_;
+    return GetResponse();
+  return redirect_chain_.back().redirect_response_;
+}
+
+size_t Resource::RedirectChainSize() const {
+  return redirect_chain_.size();
 }
 
 void Resource::SetRevalidatingRequest(const ResourceRequestHead& request) {
@@ -503,23 +506,12 @@ bool Resource::WillFollowRedirect(const ResourceRequest& new_request,
 
 void Resource::SetResponse(const ResourceResponse& response) {
   response_ = response;
-
-  // Currently we support the metadata caching only for HTTP family.
-  if (!GetResourceRequest().Url().ProtocolIsInHTTPFamily() ||
-      !GetResponse().CurrentRequestUrl().ProtocolIsInHTTPFamily()) {
-    cache_handler_.Clear();
-    return;
-  }
-
-  cache_handler_ = CreateCachedMetadataHandler(
-      CachedMetadataSender::Create(GetResponse(), ToCodeCacheType(GetType()),
-                                   GetResourceRequest().RequestorOrigin()));
 }
 
 void Resource::ResponseReceived(const ResourceResponse& response) {
   response_timestamp_ = Now();
   if (is_revalidating_) {
-    if (response.HttpStatusCode() == 304) {
+    if (IsSuccessfulRevalidationResponse(response)) {
       RevalidationSucceeded(response);
       return;
     }
@@ -534,8 +526,6 @@ void Resource::ResponseReceived(const ResourceResponse& response) {
 void Resource::SetSerializedCachedMetadata(mojo_base::BigBuffer data) {
   DCHECK(!is_revalidating_);
   DCHECK(!GetResponse().IsNull());
-  // Actual metadata transferred here will be lost.
-  DCHECK(!data.size());
 }
 
 String Resource::ReasonNotDeletable() const {
@@ -577,7 +567,7 @@ void Resource::DidAddClient(ResourceClient* client) {
   }
   if (!HasClient(client))
     return;
-  if (IsFinishedInternal()) {
+  if (IsLoaded()) {
     client->SetHasFinishedFromMemoryCache();
     client->NotifyFinished(this);
     if (clients_.Contains(client)) {
@@ -650,12 +640,6 @@ void Resource::AddFinishObserver(ResourceFinishObserver* client,
 
   WillAddClientOrObserver();
   finish_observers_.insert(client);
-  // Despite these being "Finish" observers, what they actually care about is
-  // whether the resource is "Loaded", not "Finished" (e.g. link onload). Hence
-  // we check IsLoaded directly here, rather than IsFinishedInternal.
-  //
-  // TODO(leszeks): Either rename FinishObservers to LoadedObservers, or the
-  // NotifyFinished method of ResourceClient to NotifyProcessed (or similar).
   if (IsLoaded())
     TriggerNotificationForFinishObservers(task_runner);
 }
@@ -677,11 +661,9 @@ void Resource::DidRemoveClientOrObserver() {
     // from volatile storage as promptly as possible"
     // "... History buffers MAY store such responses as part of their normal
     // operation."
-    // We allow non-secure content to be reused in history, but we do not allow
-    // secure content to be reused.
-    if (HasCacheControlNoStoreHeader() && Url().ProtocolIs("https") &&
-        IsMainThread())
+    if (HasCacheControlNoStoreHeader() && IsMainThread()) {
       GetMemoryCache()->Remove(this);
+    }
   }
 }
 
@@ -767,13 +749,16 @@ Resource::MatchStatus Resource::CanReuse(const FetchParameters& params) const {
     return MatchStatus::kUnknownFailure;
   }
 
+  // Use GetResourceRequest to get the const resource_request_.
+  const ResourceRequestHead& current_request = GetResourceRequest();
+
   // If credentials were sent with the previous request and won't be with this
   // one, or vice versa, re-fetch the resource.
   //
   // This helps with the case where the server sends back
   // "Access-Control-Allow-Origin: *" all the time, but some of the client's
   // requests are made without CORS and some with.
-  if (GetResourceRequest().AllowStoredCredentials() !=
+  if (current_request.AllowStoredCredentials() !=
       new_request.AllowStoredCredentials()) {
     return MatchStatus::kRequestCredentialsModeDoesNotMatch;
   }
@@ -820,10 +805,10 @@ Resource::MatchStatus Resource::CanReuse(const FetchParameters& params) const {
     return MatchStatus::kSynchronousFlagDoesNotMatch;
   }
 
-  if (resource_request_.GetKeepalive() || new_request.GetKeepalive())
+  if (current_request.GetKeepalive() || new_request.GetKeepalive())
     return MatchStatus::kKeepaliveSet;
 
-  if (GetResourceRequest().HttpMethod() != http_names::kGET ||
+  if (current_request.HttpMethod() != http_names::kGET ||
       new_request.HttpMethod() != http_names::kGET) {
     return MatchStatus::kRequestMethodDoesNotMatch;
   }
@@ -835,45 +820,16 @@ Resource::MatchStatus Resource::CanReuse(const FetchParameters& params) const {
   if (!existing_origin->IsSameOriginWith(new_origin.get()))
     return MatchStatus::kUnknownFailure;
 
-  // securityOrigin has more complicated checks which callers are responsible
-  // for.
-
   if (new_request.GetCredentialsMode() !=
-      resource_request_.GetCredentialsMode()) {
+      current_request.GetCredentialsMode()) {
     return MatchStatus::kRequestCredentialsModeDoesNotMatch;
   }
 
   const auto new_mode = new_request.GetMode();
-  const auto existing_mode = resource_request_.GetMode();
+  const auto existing_mode = current_request.GetMode();
 
   if (new_mode != existing_mode)
     return MatchStatus::kRequestModeDoesNotMatch;
-
-  switch (new_mode) {
-    case network::mojom::RequestMode::kNoCors:
-    case network::mojom::RequestMode::kNavigate:
-      break;
-
-    case network::mojom::RequestMode::kCors:
-    case network::mojom::RequestMode::kSameOrigin:
-    case network::mojom::RequestMode::kCorsWithForcedPreflight:
-      // We have two separate CORS handling logics in ThreadableLoader
-      // and ResourceLoader and sharing resources is difficult when they are
-      // handled differently.
-      if (options_.cors_handling_by_resource_fetcher !=
-          new_options.cors_handling_by_resource_fetcher) {
-        // If the existing one is handled in ThreadableLoader and the
-        // new one is handled in ResourceLoader, reusing the existing one will
-        // lead to CORS violations.
-        if (!options_.cors_handling_by_resource_fetcher)
-          return MatchStatus::kUnknownFailure;
-
-        // Otherwise (i.e., if the existing one is handled in ResourceLoader
-        // and the new one is handled in ThreadableLoader), reusing
-        // the existing one will lead to double check which is harmless.
-      }
-      break;
-  }
 
   return MatchStatus::kOk;
 }
@@ -884,9 +840,6 @@ void Resource::Prune() {
 
 void Resource::OnPurgeMemory() {
   Prune();
-  if (!cache_handler_)
-    return;
-  cache_handler_->ClearCachedMetadata(CachedMetadataHandler::kClearLocally);
 }
 
 void Resource::OnMemoryDump(WebMemoryDumpLevelOfDetail level_of_detail,
@@ -952,10 +905,6 @@ void Resource::OnMemoryDump(WebMemoryDumpLevelOfDetail level_of_detail,
   overhead_dump->AddScalar("size", "bytes", OverheadSize());
   memory_dump->AddSuballocation(
       overhead_dump->Guid(), String(WTF::Partitions::kAllocatedObjectPoolName));
-
-  const String cache_name = dump_name + "/code_cache";
-  if (cache_handler_)
-    cache_handler_->OnMemoryDump(memory_dump, cache_name);
 }
 
 String Resource::GetMemoryDumpName() const {
@@ -969,7 +918,7 @@ void Resource::SetCachePolicyBypassingCache() {
   resource_request_.SetCacheMode(mojom::FetchCacheMode::kBypassCache);
 }
 
-void Resource::SetPreviewsState(WebURLRequest::PreviewsState previews_state) {
+void Resource::SetPreviewsState(PreviewsState previews_state) {
   resource_request_.SetPreviewsState(previews_state);
 }
 
@@ -1005,7 +954,6 @@ void Resource::RevalidationSucceeded(
 void Resource::RevalidationFailed() {
   SECURITY_CHECK(redirect_chain_.IsEmpty());
   ClearData();
-  cache_handler_.Clear();
   integrity_disposition_ = ResourceIntegrityDisposition::kNotChecked;
   integrity_report_info_.Clear();
   DestroyDecodedDataForFailedRevalidation();
@@ -1017,11 +965,9 @@ void Resource::MarkAsPreload() {
   is_unused_preload_ = true;
 }
 
-bool Resource::MatchPreload(const FetchParameters& params,
-                            base::SingleThreadTaskRunner*) {
+void Resource::MatchPreload(const FetchParameters& params) {
   DCHECK(is_unused_preload_);
   is_unused_preload_ = false;
-  return true;
 }
 
 bool Resource::CanReuseRedirectChain() const {
@@ -1218,19 +1164,6 @@ const char* Resource::ResourceTypeToString(
   return InitiatorTypeNameToString(fetch_initiator_name);
 }
 
-// static
-blink::mojom::CodeCacheType Resource::ResourceTypeToCodeCacheType(
-    ResourceType resource_type) {
-  DCHECK(
-      // Cacheable WebAssembly modules are fetched, so raw resource type.
-      resource_type == ResourceType::kRaw ||
-      // Cacheable Javascript is a script resource.
-      resource_type == ResourceType::kScript ||
-      // Also accept mock resources for testing.
-      resource_type == ResourceType::kMock);
-  return ToCodeCacheType(resource_type);
-}
-
 bool Resource::IsLoadEventBlockingResourceType() const {
   switch (type_) {
     case ResourceType::kImage:
@@ -1259,13 +1192,14 @@ void Resource::SetClockForTesting(const base::Clock* clock) {
   g_clock_for_testing = clock;
 }
 
-size_t Resource::CodeCacheSize() const {
-  return cache_handler_ ? cache_handler_->GetCodeCacheSize() : 0;
+bool Resource::AppendTopFrameSiteForMetrics(const SecurityOrigin& origin) {
+  net::SchemefulSite site(origin.ToUrlOrigin());
+  auto result = existing_top_frame_sites_in_cache_.insert(site);
+  return !result.second;
 }
 
-CachedMetadataHandler* Resource::CreateCachedMetadataHandler(
-    std::unique_ptr<CachedMetadataSender> send_callback) {
-  return nullptr;
+void Resource::SetIsAdResource() {
+  resource_request_.SetIsAdResource();
 }
 
 }  // namespace blink

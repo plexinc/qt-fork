@@ -153,7 +153,7 @@ static QImageIOHandler *createWriteHandlerHelper(QIODevice *device,
         // if there's no format, see if \a device is a file, and if so, find
         // the file suffix and find support for that format among our plugins.
         // this allows plugins to override our built-in handlers.
-        if (QFile *file = qobject_cast<QFile *>(device)) {
+        if (QFileDevice *file = qobject_cast<QFileDevice *>(device)) {
             if (!(suffix = QFileInfo(file->fileName()).suffix().toLower().toLatin1()).isEmpty()) {
 #ifndef QT_NO_IMAGEFORMATPLUGIN
                 const int index = keyMap.key(QString::fromLatin1(suffix), -1);
@@ -428,17 +428,17 @@ void QImageWriter::setFileName(const QString &fileName)
 }
 
 /*!
-    If the currently assigned device is a QFile, or if setFileName()
+    If the currently assigned device is a file, or if setFileName()
     has been called, this function returns the name of the file
     QImageWriter writes to. Otherwise (i.e., if no device has been
-    assigned or the device is not a QFile), an empty QString is
+    assigned or the device is not a file), an empty QString is
     returned.
 
     \sa setFileName(), setDevice()
 */
 QString QImageWriter::fileName() const
 {
-    QFile *file = qobject_cast<QFile *>(d->device);
+    QFileDevice *file = qobject_cast<QFileDevice *>(d->device);
     return file ? file->fileName() : QString();
 }
 
@@ -496,37 +496,6 @@ int QImageWriter::compression() const
 {
     return d->compression;
 }
-
-#if QT_DEPRECATED_SINCE(5, 15)
-/*!
-    \obsolete Use QColorSpace conversion on the QImage instead.
-
-    This is an image format specific function that sets the gamma
-    level of the image to \a gamma. For image formats that do not
-    support setting the gamma level, this value is ignored.
-
-    The value range of \a gamma depends on the image format. For
-    example, the "png" format supports a gamma range from 0.0 to 1.0.
-
-    \sa quality()
-*/
-void QImageWriter::setGamma(float gamma)
-{
-    d->gamma = gamma;
-}
-
-/*!
-    \obsolete Use QImage::colorSpace() and QColorSpace::gamma() instead.
-
-    Returns the gamma level of the image.
-
-    \sa setGamma()
-*/
-float QImageWriter::gamma() const
-{
-    return d->gamma;
-}
-#endif
 
 /*!
     \since 5.4
@@ -653,40 +622,6 @@ QImageIOHandler::Transformations QImageWriter::transformation() const
     return d->transformation;
 }
 
-#if QT_DEPRECATED_SINCE(5, 13)
-/*!
-    \obsolete
-
-    Use setText() instead.
-
-    This is an image format specific function that sets the
-    description of the image to \a description. For image formats that
-    do not support setting the description, this value is ignored.
-
-    The contents of \a description depends on the image format.
-
-    \sa description()
-*/
-void QImageWriter::setDescription(const QString &description)
-{
-    d->description = description;
-}
-
-/*!
-    \obsolete
-
-    Use QImageReader::text() instead.
-
-    Returns the description of the image.
-
-    \sa setDescription()
-*/
-QString QImageWriter::description() const
-{
-    return d->description;
-}
-#endif
-
 /*!
     \since 4.1
 
@@ -784,7 +719,7 @@ bool QImageWriter::write(const QImage &image)
 
     if (!d->handler->write(img))
         return false;
-    if (QFile *file = qobject_cast<QFile *>(d->device))
+    if (QFileDevice *file = qobject_cast<QFileDevice *>(d->device))
         file->flush();
     return true;
 }

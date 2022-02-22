@@ -20,6 +20,8 @@
 #include "base/unguessable_token.h"
 #include "build/build_config.h"
 #include "ipc/ipc_param_traits.h"
+#include "third_party/perfetto/include/perfetto/tracing/traced_value_forward.h"
+#include "url/gurl.h"
 #include "url/scheme_host_port.h"
 #include "url/third_party/mozilla/url_parse.h"
 #include "url/url_canon.h"
@@ -56,8 +58,7 @@ struct UrlOriginAdapter;
 }  // namespace mojo
 
 namespace net {
-class NetworkIsolationKey;
-class OpaqueNonTransientNetworkIsolationKeyTest;
+class SchemefulSite;
 }  // namespace net
 
 namespace url {
@@ -172,8 +173,8 @@ class COMPONENT_EXPORT(URL) Origin {
   // Copyable and movable.
   Origin(const Origin&);
   Origin& operator=(const Origin&);
-  Origin(Origin&&);
-  Origin& operator=(Origin&&);
+  Origin(Origin&&) noexcept;
+  Origin& operator=(Origin&&) noexcept;
 
   // Creates an Origin from a |scheme|, |host|, and |port|. All the parameters
   // must be valid and canonicalized. Returns nullopt if any parameter is not
@@ -260,6 +261,9 @@ class COMPONENT_EXPORT(URL) Origin {
   // URL (e.g. with a path component).
   GURL GetURL() const;
 
+  GURL GetFullURL() const;
+  void SetFullURL(const GURL &url);
+
   // Same as GURL::DomainIs. If |this| origin is opaque, then returns false.
   bool DomainIs(base::StringPiece canonical_domain) const;
 
@@ -288,7 +292,7 @@ class COMPONENT_EXPORT(URL) Origin {
   // Creates a string representation of the object that can be used for logging
   // and debugging. It serializes the internal state, such as the nonce value
   // and precursor information.
-  std::string GetDebugString() const;
+  std::string GetDebugString(bool include_nonce = true) const;
 
 #if defined(OS_ANDROID)
   base::android::ScopedJavaLocalRef<jobject> CreateJavaObject() const;
@@ -296,10 +300,13 @@ class COMPONENT_EXPORT(URL) Origin {
       const base::android::JavaRef<jobject>& java_origin);
 #endif  // OS_ANDROID
 
+  void WriteIntoTracedValue(perfetto::TracedValue context) const;
+
  private:
   friend class blink::SecurityOrigin;
-  friend class net::NetworkIsolationKey;
-  friend class net::OpaqueNonTransientNetworkIsolationKeyTest;
+  // SchemefulSite needs access to the serialization/deserialization logic which
+  // includes the nonce.
+  friend class net::SchemefulSite;
   friend class OriginTest;
   friend struct mojo::UrlOriginAdapter;
   friend struct ipc_fuzzer::FuzzTraits<Origin>;
@@ -319,7 +326,7 @@ class COMPONENT_EXPORT(URL) Origin {
    public:
     // Creates a nonce to hold a newly-generated UnguessableToken. The actual
     // token value will be generated lazily.
-    Nonce();
+    Nonce() noexcept = default;
 
     // Creates a nonce to hold an already-generated UnguessableToken value. This
     // constructor should only be used for IPC serialization and testing --
@@ -338,8 +345,8 @@ class COMPONENT_EXPORT(URL) Origin {
     // moving it does not.
     Nonce(const Nonce&);
     Nonce& operator=(const Nonce&);
-    Nonce(Nonce&&);
-    Nonce& operator=(Nonce&&);
+    Nonce(Nonce&&) noexcept;
+    Nonce& operator=(Nonce&&) noexcept;
 
     // Note that operator<, used by maps type containers, will trigger |token_|
     // lazy-initialization. Equality comparisons do not.
@@ -395,10 +402,16 @@ class COMPONENT_EXPORT(URL) Origin {
   base::Optional<base::UnguessableToken> GetNonceForSerialization() const;
 
   // Serializes this Origin, including its nonce if it is opaque. If an opaque
-  // origin's |tuple_| is invalid or the nonce isn't initialized, nullopt is
-  // returned. Use of this method should be limited as an opaque origin will
-  // never be matchable in future browser sessions.
+  // origin's |tuple_| is invalid nullopt is returned. If the nonce is not
+  // initialized, a nonce of 0 is used. Use of this method should be limited as
+  // an opaque origin will never be matchable in future browser sessions.
   base::Optional<std::string> SerializeWithNonce() const;
+
+  // Like SerializeWithNonce(), but forces |nonce_| to be initialized prior to
+  // serializing.
+  base::Optional<std::string> SerializeWithNonceAndInitIfNeeded();
+
+  base::Optional<std::string> SerializeWithNonceImpl() const;
 
   // Deserializes an origin from |ToValueWithNonce|. Returns nullopt if the
   // value was invalid in any way.
@@ -414,6 +427,8 @@ class COMPONENT_EXPORT(URL) Origin {
   // nonce is preserved when an opaque origin is copied or moved. An Origin
   // is considered opaque if and only if |nonce_| holds a value.
   base::Optional<Nonce> nonce_;
+
+  GURL full_url_;
 };
 
 // Pretty-printers for logging. These expose the internal state of the nonce.

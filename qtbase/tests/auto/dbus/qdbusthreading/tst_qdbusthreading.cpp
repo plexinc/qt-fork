@@ -25,15 +25,21 @@
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
-#include <QtTest>
-#include <QtDBus>
-#include <QtCore/QVarLengthArray>
-#include <QtCore/QThread>
-#include <QtCore/QObject>
-#include <QtCore/QSemaphore>
-#include <QtCore/QMutex>
-#include <QtCore/QWaitCondition>
-#include <QtCore/QMap>
+
+#include <QTest>
+#include <QTestEventLoop>
+#include <QVarLengthArray>
+#include <QThread>
+#include <QObject>
+#include <QSemaphore>
+#include <QMutex>
+#include <QWaitCondition>
+#include <QMap>
+#include <QDBusAbstractAdaptor>
+#include <QDBusConnection>
+#include <QDBusReply>
+#include <QDBusConnectionInterface>
+#include <QDBusInterface>
 
 class Thread : public QThread
 {
@@ -41,7 +47,7 @@ class Thread : public QThread
     static int counter;
 public:
     Thread(bool automatic = true);
-    void run();
+    void run() override;
 
     using QThread::exec;
 };

@@ -71,22 +71,22 @@ QScxmlStateMachine *QScxmlStateMachineInfo::stateMachine() const
     return d->stateMachine();
 }
 
-QVector<QScxmlStateMachineInfo::StateId> QScxmlStateMachineInfo::allStates() const
+QList<QScxmlStateMachineInfo::StateId> QScxmlStateMachineInfo::allStates() const
 {
     Q_D(const QScxmlStateMachineInfo);
 
-    QVector<QScxmlStateMachineInfo::StateId> all;
+    QList<QScxmlStateMachineInfo::StateId> all;
     for (int i = 0, ei = d->stateTable()->stateCount; i < ei; ++i) {
         all.append(i);
     }
     return all;
 }
 
-QVector<QScxmlStateMachineInfo::TransitionId> QScxmlStateMachineInfo::allTransitions() const
+QList<QScxmlStateMachineInfo::TransitionId> QScxmlStateMachineInfo::allTransitions() const
 {
     Q_D(const QScxmlStateMachineInfo);
 
-    QVector<QScxmlStateMachineInfo::TransitionId> all;
+    QList<QScxmlStateMachineInfo::TransitionId> all;
     for (int i = 0, ei = d->stateTable()->transitionCount; i < ei; ++i) {
         all.append(i);
     }
@@ -136,7 +136,7 @@ QScxmlStateMachineInfo::StateType QScxmlStateMachineInfo::stateType(StateId stat
     }
 }
 
-QVector<QScxmlStateMachineInfo::StateId> QScxmlStateMachineInfo::stateChildren(StateId stateId) const
+QList<QScxmlStateMachineInfo::StateId> QScxmlStateMachineInfo::stateChildren(StateId stateId) const
 {
     Q_D(const QScxmlStateMachineInfo);
 
@@ -146,7 +146,7 @@ QVector<QScxmlStateMachineInfo::StateId> QScxmlStateMachineInfo::stateChildren(S
     if (stateId >= 0 && stateId < d->stateTable()->stateCount)
         childStates = d->stateTable()->state(stateId).childStates;
 
-    QVector<QScxmlStateMachineInfo::StateId> all;
+    QList<QScxmlStateMachineInfo::StateId> all;
     if (childStates == QScxmlExecutableContent::StateTable::InvalidIndex)
         return all;
 
@@ -199,11 +199,11 @@ QScxmlStateMachineInfo::StateId QScxmlStateMachineInfo::transitionSource(Transit
     return transition.source;
 }
 
-QVector<QScxmlStateMachineInfo::StateId> QScxmlStateMachineInfo::transitionTargets(TransitionId transitionId) const
+QList<QScxmlStateMachineInfo::StateId> QScxmlStateMachineInfo::transitionTargets(TransitionId transitionId) const
 {
     Q_D(const QScxmlStateMachineInfo);
 
-    QVector<QScxmlStateMachineInfo::StateId> targets;
+    QList<QScxmlStateMachineInfo::StateId> targets;
     if (transitionId < 0 || transitionId >= d->stateTable()->transitionCount)
         return targets;
 
@@ -218,11 +218,11 @@ QVector<QScxmlStateMachineInfo::StateId> QScxmlStateMachineInfo::transitionTarge
     return targets;
 }
 
-QVector<QString> QScxmlStateMachineInfo::transitionEvents(TransitionId transitionId) const
+QList<QString> QScxmlStateMachineInfo::transitionEvents(TransitionId transitionId) const
 {
     Q_D(const QScxmlStateMachineInfo);
 
-    QVector<QString> events;
+    QList<QString> events;
     if (transitionId < 0 || transitionId >= d->stateTable()->transitionCount)
         return events;
 
@@ -239,11 +239,11 @@ QVector<QString> QScxmlStateMachineInfo::transitionEvents(TransitionId transitio
     return events;
 }
 
-QVector<QScxmlStateMachineInfo::StateId> QScxmlStateMachineInfo::configuration() const
+QList<QScxmlStateMachineInfo::StateId> QScxmlStateMachineInfo::configuration() const
 {
     Q_D(const QScxmlStateMachineInfo);
     const auto &list = d->stateMachinePrivate()->configuration().list();
-    return QVector<StateId>(list.cbegin(), list.cend());
+    return QList<StateId>(list.cbegin(), list.cend());
 }
 
 QT_END_NAMESPACE

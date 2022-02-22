@@ -27,7 +27,9 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QSignalSpy>
+#include <QTimer>
 
 #include <qgraphicsitem.h>
 #include <qgraphicsscene.h>
@@ -48,8 +50,9 @@
 #include <QtWidgets/QBoxLayout>
 #include <QtWidgets/QStyle>
 #include <QtWidgets/QPushButton>
-#ifndef QT_NO_OPENGL
-#include <QtWidgets/QOpenGLWidget>
+#include <QtWidgets/QScroller>
+#if QT_CONFIG(opengl)
+#include <QtOpenGLWidgets/QOpenGLWidget>
 #endif
 #include <private/qgraphicsscene_p.h>
 #include <private/qgraphicsview_p.h>
@@ -113,7 +116,7 @@ public:
     void reset() { _count = 0; }
 
 protected:
-    bool eventFilter(QObject *watched, QEvent *event)
+    bool eventFilter(QObject *watched, QEvent *event) override
     {
         Q_UNUSED(watched);
         if (event->type() == spied)
@@ -154,7 +157,7 @@ private slots:
     void sceneRect_growing();
     void setSceneRect();
     void viewport();
-#ifndef QT_NO_OPENGL
+#if QT_CONFIG(opengl)
     void openGLViewport();
 #endif
     void dragMode_scrollHand();
@@ -223,6 +226,7 @@ private slots:
     void replayMouseMove();
     void itemsUnderMouse();
     void embeddedViews();
+    void embeddedViewsWithFocus();
     void scrollAfterResize_data();
     void scrollAfterResize();
     void moveItemWhileScrolling_data();
@@ -263,6 +267,7 @@ private slots:
     void QTBUG_5859_exposedRect();
     void hoverLeave();
     void QTBUG_16063_microFocusRect();
+    void QTBUG_70255_scrollTo();
 #ifndef QT_NO_CURSOR
     void QTBUG_7438_cursor();
 #endif
@@ -315,13 +320,13 @@ void tst_QGraphicsView::construction()
 class TestItem : public QGraphicsItem
 {
 public:
-    QRectF boundingRect() const
+    QRectF boundingRect() const override
     { return QRectF(-10, -10, 20, 20); }
 
-    void paint(QPainter *painter, const QStyleOptionGraphicsItem *, QWidget *)
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *, QWidget *) override
     { hints = painter->renderHints(); painter->drawRect(boundingRect()); }
 
-    bool sceneEvent(QEvent *event)
+    bool sceneEvent(QEvent *event) override
     {
         events << event->type();
         return QGraphicsItem::sceneEvent(event);
@@ -659,7 +664,7 @@ void tst_QGraphicsView::viewport()
     QVERIFY(QTest::qWaitForWindowExposed(&view));
 }
 
-#ifndef QT_NO_OPENGL
+#if QT_CONFIG(opengl)
 void tst_QGraphicsView::openGLViewport()
 {
     if (!QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::OpenGL))
@@ -948,7 +953,7 @@ void tst_QGraphicsView::rubberBandSelectionMode()
     sendMousePress(view.viewport(), QPoint(), Qt::LeftButton);
     sendMouseMove(view.viewport(), view.viewport()->rect().center(),
                   Qt::LeftButton, Qt::LeftButton);
-    QCOMPARE(scene.selectedItems(), QList<QGraphicsItem *>() << rect);
+    QCOMPARE(scene.selectedItems(), {rect});
     sendMouseRelease(view.viewport(), QPoint(), Qt::LeftButton);
 
     view.setRubberBandSelectionMode(Qt::ContainsItemShape);
@@ -960,7 +965,7 @@ void tst_QGraphicsView::rubberBandSelectionMode()
     QVERIFY(scene.selectedItems().isEmpty());
     sendMouseMove(view.viewport(), view.viewport()->rect().bottomRight(),
                   Qt::LeftButton, Qt::LeftButton);
-    QCOMPARE(scene.selectedItems(), QList<QGraphicsItem *>() << rect);
+    QCOMPARE(scene.selectedItems(), {rect});
 }
 
 void tst_QGraphicsView::rubberBandExtendSelection()
@@ -990,7 +995,7 @@ void tst_QGraphicsView::rubberBandExtendSelection()
 
    // select first item
    item1->setSelected(true);
-   QCOMPARE(scene.selectedItems(), QList<QGraphicsItem *>() << item1);
+   QCOMPARE(scene.selectedItems(), {item1});
 
    // first rubberband without modifier key
    sendMousePress(view.viewport(), view.mapFromScene(20, 115), Qt::LeftButton);
@@ -1593,7 +1598,7 @@ public:
         : QGraphicsRectItem(rect), numPaints(0)
     { }
 
-    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget = 0)
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget = nullptr) override
     {
         ++numPaints;
         QGraphicsRectItem::paint(painter, option, widget);
@@ -2125,8 +2130,8 @@ void tst_QGraphicsView::mapFromScenePath()
     QPainterPath path2;
     path2.addPolygon(polygon2);
 
-    QPolygonF pathPoly = view.mapFromScene(path).toFillPolygon(QTransform());
-    QPolygonF path2Poly = path2.toFillPolygon(QTransform());
+    QPolygonF pathPoly = view.mapFromScene(path).toFillPolygon();
+    QPolygonF path2Poly = path2.toFillPolygon();
 
     for (int i = 0; i < pathPoly.size(); ++i) {
         QVERIFY(qAbs(pathPoly[i].x() - path2Poly[i].x()) < 3);
@@ -2188,7 +2193,7 @@ class MouseWheelScene : public QGraphicsScene
 public:
     Qt::Orientation orientation;
 
-    void wheelEvent(QGraphicsSceneWheelEvent *event)
+    void wheelEvent(QGraphicsSceneWheelEvent *event) override
     {
         orientation = event->orientation();
         QGraphicsScene::wheelEvent(event);
@@ -2422,14 +2427,14 @@ class CustomView : public QGraphicsView
 {
     Q_OBJECT
 public:
-    CustomView(QGraphicsScene *s = 0) : QGraphicsView(s) {}
+    CustomView(QGraphicsScene *s = nullptr) : QGraphicsView(s) {}
     CustomView(QGraphicsScene *s, QWidget *parent)
         : QGraphicsView(s, parent) {}
     QList<QRegion> lastUpdateRegions;
     bool painted;
 
 protected:
-    void paintEvent(QPaintEvent *event)
+    void paintEvent(QPaintEvent *event) override
     {
         lastUpdateRegions << event->region();
         painted = true;
@@ -2634,7 +2639,7 @@ public:
     using QGraphicsRectItem::QGraphicsRectItem;
     bool dirtyPainter = false;
     bool receivedPaintEvent = false;
-    void paint(QPainter *painter, const QStyleOptionGraphicsItem *, QWidget *w)
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *, QWidget *w) override
     {
         receivedPaintEvent = true;
         dirtyPainter = (painter->pen().color() != w->palette().color(w->foregroundRole()));
@@ -2648,12 +2653,14 @@ public:
       MyGraphicsView(QGraphicsScene * scene) : QGraphicsView(scene)
       { }
 
-      void drawBackground(QPainter * painter, const QRectF & rect) {
+      void drawBackground(QPainter * painter, const QRectF & rect) override
+      {
           painter->setCompositionMode(QPainter::CompositionMode_Source);
           painter->drawRect(rect);
       }
 
-      void drawItems (QPainter * painter, int numItems, QGraphicsItem *items[], const QStyleOptionGraphicsItem options[]) {
+      void drawItems (QPainter * painter, int numItems, QGraphicsItem *items[], const QStyleOptionGraphicsItem options[]) override
+      {
            if (!(optimizationFlags() & QGraphicsView::DontSavePainterState))
                QCOMPARE(painter->compositionMode(),QPainter::CompositionMode_SourceOver);
            else
@@ -2721,10 +2728,10 @@ void tst_QGraphicsView::optimizationFlags_dontSavePainterState2()
     class MyScene : public QGraphicsScene
     {
     public:
-        void drawBackground(QPainter *p, const QRectF &)
+        void drawBackground(QPainter *p, const QRectF &) override
         { transformInDrawBackground = p->worldTransform(); opacityInDrawBackground = p->opacity(); }
 
-        void drawForeground(QPainter *p, const QRectF &)
+        void drawForeground(QPainter *p, const QRectF &) override
         { transformInDrawForeground = p->worldTransform(); opacityInDrawForeground = p->opacity(); }
 
         QTransform transformInDrawBackground;
@@ -2800,7 +2807,7 @@ public:
     LodItem(const QRectF &rect) : QGraphicsRectItem(rect), lastLod(-42)
     { }
 
-    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *viewport)
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *viewport) override
     {
         lastLod = option->levelOfDetailFromTransform(painter->worldTransform());
         QGraphicsRectItem::paint(painter, option, viewport);
@@ -2863,14 +2870,15 @@ void tst_QGraphicsView::scrollBarRanges_data()
 // Simulates motif scrollbar for range tests
 class FauxMotifStyle : public QCommonStyle {
 public:
-    int styleHint(StyleHint hint, const QStyleOption *option,
-                  const QWidget *widget, QStyleHintReturn *returnData) const {
+    int styleHint(StyleHint hint, const QStyleOption *option, const QWidget *widget, QStyleHintReturn *returnData) const override
+    {
         if (hint == QStyle::SH_ScrollView_FrameOnlyAroundContents)
             return true;
         return QCommonStyle::styleHint(hint, option, widget, returnData);
     }
 
-    int pixelMetric(PixelMetric m, const QStyleOption *opt, const QWidget *widget) const {
+    int pixelMetric(PixelMetric m, const QStyleOption *opt, const QWidget *widget) const override
+    {
         if (m == QStyle::PM_ScrollView_ScrollBarSpacing)
             return 4;
         return QCommonStyle::pixelMetric(m, opt, widget);
@@ -2892,7 +2900,7 @@ void tst_QGraphicsView::scrollBarRanges()
     QFETCH(ExpectedValueDescription, vmax);
     QFETCH(bool, useStyledPanel);
 
-    if (useStyledPanel && style == "macintosh" && platformName == QStringLiteral("cocoa"))
+    if (useStyledPanel && style == "macOS" && platformName == QStringLiteral("cocoa"))
         QSKIP("Insignificant on OSX");
 
     QScopedPointer<QStyle> stylePtr;
@@ -2959,12 +2967,12 @@ public:
     bool doubleClickAccepted;
 
 protected:
-    void mousePressEvent(QMouseEvent *event)
+    void mousePressEvent(QMouseEvent *event) override
     {
         QGraphicsView::mousePressEvent(event);
         pressAccepted = event->isAccepted();
     }
-    void mouseDoubleClickEvent(QMouseEvent *event)
+    void mouseDoubleClickEvent(QMouseEvent *event) override
     {
         QGraphicsView::mouseDoubleClickEvent(event);
         doubleClickAccepted = event->isAccepted();
@@ -3020,12 +3028,12 @@ public:
     bool doubleClickForwarded;
 
 protected:
-    void mousePressEvent(QMouseEvent *event)
+    void mousePressEvent(QMouseEvent *event) override
     {
         QWidget::mousePressEvent(event);
         pressForwarded = true;
     }
-    void mouseDoubleClickEvent(QMouseEvent *event)
+    void mouseDoubleClickEvent(QMouseEvent *event) override
     {
         QWidget::mouseDoubleClickEvent(event);
         doubleClickForwarded = true;
@@ -3149,10 +3157,10 @@ void tst_QGraphicsView::itemsUnderMouse()
 class QGraphicsTextItem_task172231 : public QGraphicsTextItem
 {
 public:
-    QGraphicsTextItem_task172231(const QString & text, QGraphicsItem * parent = 0)
+    QGraphicsTextItem_task172231(const QString & text, QGraphicsItem * parent = nullptr)
         : QGraphicsTextItem(text, parent) {}
     QRectF exposedRect;
-    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget)
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override
     {
         exposedRect = option->exposedRect;
         QGraphicsTextItem::paint(painter, option, widget);
@@ -3202,9 +3210,9 @@ public:
     int releases;
 
 protected:
-    void mousePressEvent(QGraphicsSceneMouseEvent *event)
+    void mousePressEvent(QGraphicsSceneMouseEvent *event) override
     { ++presses; QGraphicsScene::mousePressEvent(event); }
-    void mouseReleaseEvent(QGraphicsSceneMouseEvent *event)
+    void mouseReleaseEvent(QGraphicsSceneMouseEvent *event) override
     { ++releases; QGraphicsScene::mouseReleaseEvent(event); }
 };
 
@@ -3257,7 +3265,7 @@ public:
     { }
     int mouseMoves;
 protected:
-    void mouseMoveEvent(QMouseEvent *event)
+    void mouseMoveEvent(QMouseEvent *event) override
     {
         ++mouseMoves;
         QGraphicsView::mouseMoveEvent(event);
@@ -3310,7 +3318,7 @@ void tst_QGraphicsView::task207546_focusCrash()
     class _Widget : public QWidget
     {
     public:
-        bool focusNextPrevChild(bool next) { return QWidget::focusNextPrevChild(next); }
+        bool focusNextPrevChild(bool next) override { return QWidget::focusNextPrevChild(next); }
     } widget;
 
     widget.setLayout(new QVBoxLayout());
@@ -3394,7 +3402,7 @@ void tst_QGraphicsView::task239729_noViewUpdate()
     // The scene's changed signal is connected to something that isn't a view.
     QGraphicsScene scene;
     ChangedListener cl;
-    QGraphicsView *view = 0;
+    QGraphicsView *view = nullptr;
 
     if (a) {
         view = new QGraphicsView(&scene);
@@ -3487,7 +3495,7 @@ public:
     {
     }
 
-    void paint(QPainter *painter, const QStyleOptionGraphicsItem *, QWidget *)
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *, QWidget *) override
     {
         transform = painter->transform();
     }
@@ -3517,6 +3525,60 @@ void tst_QGraphicsView::embeddedViews()
 
     QCOMPARE(a, b);
     delete v1;
+}
+
+/*!
+    Verify that a nested graphics view and embedded widgets receive window
+    activation and focus correctly.
+
+    See QTBUG-94091.
+*/
+void tst_QGraphicsView::embeddedViewsWithFocus()
+{
+    class FocusWidget : public QWidget
+    {
+    public:
+        FocusWidget() { setFocusPolicy(Qt::StrongFocus); }
+        QSize sizeHint() const override { return QSize(100, 100); }
+
+        int focusCount = 0;
+    protected:
+        void mousePressEvent(QMouseEvent *) override {} // accept event to avoid warning
+        void focusInEvent(QFocusEvent *) override { ++focusCount; }
+        void focusOutEvent(QFocusEvent *) override { --focusCount; }
+    };
+
+    QGraphicsScene innerScene;
+    FocusWidget *innerWidget = new FocusWidget;
+    innerScene.addWidget(innerWidget);
+    QGraphicsView *innerView = new QGraphicsView(&innerScene);
+
+    QGraphicsScene outerScene;
+    FocusWidget *outerWidget = new FocusWidget;
+    QGraphicsProxyWidget *outerProxy = outerScene.addWidget(outerWidget);
+    QGraphicsProxyWidget *nestedProxy = outerScene.addWidget(innerView);
+    outerProxy->setPos(0, 0);
+    nestedProxy->setPos(0, outerWidget->sizeHint().height());
+    QGraphicsView outerView(&outerScene);
+    outerView.show();
+    outerView.activateWindow();
+    QVERIFY(QTest::qWaitForWindowActive(&outerView));
+    const QPoint outerCenter(QPoint(innerWidget->sizeHint().width() / 2,
+                                    innerWidget->sizeHint().height() / 2));
+    const QPoint innerCenter(outerCenter + QPoint(0, innerWidget->sizeHint().height()));
+    QCOMPARE(outerView.itemAt(outerCenter), outerProxy);
+    QCOMPARE(outerView.itemAt(innerCenter), nestedProxy);
+    QVERIFY(outerScene.isActive());
+    QVERIFY(innerScene.isActive());
+
+    QCOMPARE(outerWidget->focusCount, 0);
+    QCOMPARE(innerWidget->focusCount, 0);
+    QTest::mouseClick(outerView.viewport(), Qt::LeftButton, {}, outerCenter);
+    QCOMPARE(outerWidget->focusCount, 1);
+    QCOMPARE(innerWidget->focusCount, 0);
+    QTest::mouseClick(outerView.viewport(), Qt::LeftButton, {}, innerCenter);
+    QCOMPARE(outerWidget->focusCount, 0);
+    QCOMPARE(innerWidget->focusCount, 1);
 }
 
 void tst_QGraphicsView::scrollAfterResize_data()
@@ -3612,7 +3674,7 @@ void tst_QGraphicsView::moveItemWhileScrolling()
         }
     protected:
         QEventLoop eventLoop;
-        void paintEvent(QPaintEvent *event)
+        void paintEvent(QPaintEvent *event) override
         {
             painted = true;
             lastPaintedRegion = event->region();
@@ -3918,8 +3980,7 @@ public:
         : QGraphicsRectItem(rect), paints(0)
     { }
 
-    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option,
-               QWidget *widget)
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override
     {
         QGraphicsRectItem::paint(painter, option, widget);
         ++paints;
@@ -4306,7 +4367,7 @@ public:
         m_viewHasIMEnabledInFocusInEvent = false;
     }
 
-    void focusInEvent(QFocusEvent * /* event */)
+    void focusInEvent(QFocusEvent * /* event */) override
     {
         QGraphicsView *view = scene()->views().first();
         m_viewHasIMEnabledInFocusInEvent = view->testAttribute(Qt::WA_InputMethodEnabled);
@@ -4470,7 +4531,7 @@ void tst_QGraphicsView::indirectPainting()
     class MyScene : public QGraphicsScene
     { public:
         MyScene() : QGraphicsScene(), drawCount(0) {}
-        void drawItems(QPainter *, int, QGraphicsItem **, const QStyleOptionGraphicsItem *, QWidget *)
+        void drawItems(QPainter *, int, QGraphicsItem **, const QStyleOptionGraphicsItem *, QWidget *) override
         { ++drawCount; }
         int drawCount;
     };
@@ -4498,7 +4559,7 @@ void tst_QGraphicsView::compositionModeInDrawBackground()
         painted(false), compositionMode(QPainter::CompositionMode_SourceOver) {}
         bool painted;
         QPainter::CompositionMode compositionMode;
-        void drawBackground(QPainter *painter, const QRectF &)
+        void drawBackground(QPainter *painter, const QRectF &) override
         {
             compositionMode = painter->compositionMode();
             painted = true;
@@ -4624,7 +4685,7 @@ void tst_QGraphicsView::task259503_scrollingArtifacts()
         QRegion updateRegion;
         bool itSTimeToTest;
 
-        void paintEvent(QPaintEvent *event)
+        void paintEvent(QPaintEvent *event) override
         {
             QGraphicsView::paintEvent(event);
 
@@ -4713,7 +4774,7 @@ void tst_QGraphicsView::QTBUG_5859_exposedRect()
     {
     public:
         CustomScene(const QRectF &rect) : QGraphicsScene(rect) { }
-        void drawBackground(QPainter * /* painter */, const QRectF &rect)
+        void drawBackground(QPainter * /* painter */, const QRectF &rect) override
         { lastBackgroundExposedRect = rect; }
         QRectF lastBackgroundExposedRect;
     };
@@ -4723,7 +4784,7 @@ void tst_QGraphicsView::QTBUG_5859_exposedRect()
     public:
         CustomRectItem(const QRectF &rect) : QGraphicsRectItem(rect)
         { setFlag(QGraphicsItem::ItemUsesExtendedStyleOption); }
-        void paint(QPainter * /* painter */, const QStyleOptionGraphicsItem *option, QWidget * /* widget */ = 0)
+        void paint(QPainter * /* painter */, const QStyleOptionGraphicsItem *option, QWidget * /* widget */ = 0) override
         { lastExposedRect = option->exposedRect; }
         QRectF lastExposedRect;
     };
@@ -4778,7 +4839,7 @@ public:
         setAcceptHoverEvents(true);
     }
 
-    bool sceneEvent(QEvent *event)
+    bool sceneEvent(QEvent *event) override
     {
         if (!checkEvents) // ensures that we don't look at stray events before we are ready
             return QGraphicsRectItem::sceneEvent(event);
@@ -4833,14 +4894,15 @@ void tst_QGraphicsView::hoverLeave()
 class IMItem : public QGraphicsRectItem
 {
 public:
-    IMItem(QGraphicsItem *parent = 0):
+    IMItem(QGraphicsItem *parent = nullptr):
         QGraphicsRectItem(QRectF(0, 0, 20, 20), parent)
     {
         setFlag(QGraphicsItem::ItemIsFocusable, true);
         setFlag(QGraphicsItem::ItemAcceptsInputMethod, true);
+        setPen(Qt::NoPen); // Avoid adding a half pixel border to the rect.
     }
 
-    QVariant inputMethodQuery(Qt::InputMethodQuery) const
+    QVariant inputMethodQuery(Qt::InputMethodQuery) const override
     {
         return mf;
     }
@@ -4871,6 +4933,34 @@ void tst_QGraphicsView::QTBUG_16063_microFocusRect()
     view.setFocus();
     QRectF mfv = view.inputMethodQuery(Qt::ImCursorRectangle).toRectF();
     QCOMPARE(mfv, IMItem::mf.translated(-view.mapToScene(view.sceneRect().toRect()).boundingRect().topLeft()));
+}
+
+void tst_QGraphicsView::QTBUG_70255_scrollTo()
+{
+    QGraphicsView view;
+    QGraphicsScene scene;
+    view.setFixedSize(200, 200);
+    scene.setSceneRect(0, 0,  1000, 1000);
+    QGraphicsRectItem item;
+    item.setRect(-20, -20, 40, 40);
+    item.setFlag(QGraphicsItem::ItemIsMovable, true);
+    scene.addItem(&item);
+    view.setScene(&scene);
+    view.centerOn(0, 0);
+
+    view.show();
+    QApplication::setActiveWindow(&view);
+    if (!QTest::qWaitForWindowExposed(&view) || !QTest::qWaitForWindowActive(&view))
+        QSKIP("Failed to show and activate window");
+
+    QPoint point = view.mapFromScene(0, 0);
+    QCOMPARE(point, QPoint(0, 0));
+
+    QScroller::scroller(&view)->scrollTo(QPointF(0, 500), 100);
+    QTest::qWait(200);
+
+    point = view.mapFromScene(0, 0);
+    QCOMPARE(point, QPoint(0, -500));
 }
 
 QTEST_MAIN(tst_QGraphicsView)

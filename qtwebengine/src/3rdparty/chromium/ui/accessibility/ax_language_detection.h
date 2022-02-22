@@ -220,7 +220,7 @@ class AX_EXPORT AXLanguageInfoStats {
 class AX_EXPORT AXLanguageDetectionObserver : public ui::AXTreeObserver {
  public:
   // Observer constructor will register itself with the provided AXTree.
-  AXLanguageDetectionObserver(AXTree* tree);
+  explicit AXLanguageDetectionObserver(AXTree* tree);
 
   // Observer destructor will remove itself as an observer from the AXTree.
   ~AXLanguageDetectionObserver() override;
@@ -280,6 +280,10 @@ class AX_EXPORT AXLanguageDetectionManager {
 
   // Allow access from a fixture only used in testing.
   friend class AXLanguageDetectionTestFixture;
+
+  // Helper methods to test if language detection features are enabled.
+  static bool IsStaticLanguageDetectionEnabled();
+  static bool IsDynamicLanguageDetectionEnabled();
 
   // Perform detection for subtree rooted at subtree_root.
   void DetectLanguagesForSubtree(AXNode* subtree_root);

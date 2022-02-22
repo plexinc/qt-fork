@@ -23,7 +23,7 @@
 #include "mojo/public/cpp/bindings/enum_traits.h"
 #include "mojo/public/cpp/bindings/struct_traits.h"
 #include "third_party/blink/public/common/common_export.h"
-#include "third_party/blink/public/mojom/webauthn/authenticator.mojom.h"
+#include "third_party/blink/public/mojom/webauthn/authenticator.mojom-shared.h"
 
 namespace mojo {
 
@@ -100,12 +100,29 @@ struct BLINK_COMMON_EXPORT EnumTraits<blink::mojom::AuthenticatorAttachment,
 };
 
 template <>
+struct BLINK_COMMON_EXPORT EnumTraits<blink::mojom::ResidentKeyRequirement,
+                                      device::ResidentKeyRequirement> {
+  static blink::mojom::ResidentKeyRequirement ToMojom(
+      device::ResidentKeyRequirement input);
+  static bool FromMojom(blink::mojom::ResidentKeyRequirement input,
+                        device::ResidentKeyRequirement* output);
+};
+
+template <>
 struct BLINK_COMMON_EXPORT EnumTraits<blink::mojom::UserVerificationRequirement,
                                       device::UserVerificationRequirement> {
   static blink::mojom::UserVerificationRequirement ToMojom(
       device::UserVerificationRequirement input);
   static bool FromMojom(blink::mojom::UserVerificationRequirement input,
                         device::UserVerificationRequirement* output);
+};
+
+template <>
+struct BLINK_COMMON_EXPORT
+    EnumTraits<blink::mojom::LargeBlobSupport, device::LargeBlobSupport> {
+  static blink::mojom::LargeBlobSupport ToMojom(device::LargeBlobSupport input);
+  static bool FromMojom(blink::mojom::LargeBlobSupport input,
+                        device::LargeBlobSupport* output);
 };
 
 template <>
@@ -117,9 +134,9 @@ struct BLINK_COMMON_EXPORT
     return in.authenticator_attachment();
   }
 
-  static bool require_resident_key(
+  static device::ResidentKeyRequirement resident_key(
       const device::AuthenticatorSelectionCriteria& in) {
-    return in.require_resident_key();
+    return in.resident_key();
   }
 
   static device::UserVerificationRequirement user_verification(
@@ -186,26 +203,47 @@ struct BLINK_COMMON_EXPORT
     StructTraits<blink::mojom::CableAuthenticationDataView,
                  device::CableDiscoveryData> {
   static uint8_t version(const device::CableDiscoveryData& in) {
-    CHECK_EQ(device::CableDiscoveryData::Version::V1, in.version);
-    return 1;
+    switch (in.version) {
+      case device::CableDiscoveryData::Version::V1:
+        return 1;
+      case device::CableDiscoveryData::Version::V2:
+        return 2;
+      case device::CableDiscoveryData::Version::INVALID:
+        CHECK(false);
+        return 0;
+    }
   }
 
-  static const device::CableEidArray& client_eid(
+  static base::Optional<device::CableEidArray> client_eid(
       const device::CableDiscoveryData& in) {
-    CHECK_EQ(device::CableDiscoveryData::Version::V1, in.version);
-    return in.v1->client_eid;
+    if (in.version == device::CableDiscoveryData::Version::V1) {
+      return in.v1->client_eid;
+    }
+    return base::nullopt;
   }
 
-  static const device::CableEidArray& authenticator_eid(
+  static const base::Optional<device::CableEidArray> authenticator_eid(
       const device::CableDiscoveryData& in) {
-    CHECK_EQ(device::CableDiscoveryData::Version::V1, in.version);
-    return in.v1->authenticator_eid;
+    if (in.version == device::CableDiscoveryData::Version::V1) {
+      return in.v1->authenticator_eid;
+    }
+    return base::nullopt;
   }
 
-  static const device::CableSessionPreKeyArray& session_pre_key(
+  static const base::Optional<device::CableSessionPreKeyArray> session_pre_key(
       const device::CableDiscoveryData& in) {
-    CHECK_EQ(device::CableDiscoveryData::Version::V1, in.version);
-    return in.v1->session_pre_key;
+    if (in.version == device::CableDiscoveryData::Version::V1) {
+      return in.v1->session_pre_key;
+    }
+    return base::nullopt;
+  }
+
+  static const base::Optional<std::vector<uint8_t>> server_link_data(
+      const device::CableDiscoveryData& in) {
+    if (in.version == device::CableDiscoveryData::Version::V2) {
+      return *in.v2;
+    }
+    return base::nullopt;
   }
 
   static bool Read(blink::mojom::CableAuthenticationDataView data,

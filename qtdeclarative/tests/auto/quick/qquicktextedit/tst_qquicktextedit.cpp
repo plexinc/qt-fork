@@ -27,7 +27,7 @@
 ****************************************************************************/
 #include <qtest.h>
 #include <QtTest/QSignalSpy>
-#include "../../shared/testhttpserver.h"
+#include <QtQuickTestUtils/private/testhttpserver_p.h>
 #include <math.h>
 #include <QFile>
 #include <QTextDocument>
@@ -36,6 +36,7 @@
 #include <QtQml/qqmlexpression.h>
 #include <QtQml/qqmlcomponent.h>
 #include <QtGui/qguiapplication.h>
+#include <private/qquickflickable_p.h>
 #include <private/qquickrectangle_p.h>
 #include <private/qquicktextedit_p.h>
 #include <private/qquicktextedit_p_p.h>
@@ -44,14 +45,16 @@
 #include <QFontMetrics>
 #include <QtQuick/QQuickView>
 #include <QDir>
+#include <QRegularExpression>
 #include <QInputMethod>
 #include <QClipboard>
 #include <QMimeData>
 #include <private/qquicktextcontrol_p.h>
-#include "../../shared/util.h"
-#include "../shared/viewtestutil.h"
-#include "../../shared/platformquirks.h"
-#include "../../shared/platforminputcontext.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
+#include <QtQuickTestUtils/private/viewtestutils_p.h>
+#include <QtQuickTestUtils/private/visualtestutils_p.h>
+#include <QtQuickTestUtils/private/platformquirks_p.h>
+#include <QtQuickTestUtils/private/platforminputcontext_p.h>
 #include <private/qinputmethod_p.h>
 #include <QtGui/qstylehints.h>
 #include <qmath.h>
@@ -63,6 +66,8 @@
 Q_DECLARE_METATYPE(QQuickTextEdit::SelectionMode)
 Q_DECLARE_METATYPE(Qt::Key)
 DEFINE_BOOL_CONFIG_OPTION(qmlDisableDistanceField, QML_DISABLE_DISTANCEFIELD)
+
+Q_LOGGING_CATEGORY(lcTests, "qt.quick.tests")
 
 static bool isPlatformWayland()
 {
@@ -222,6 +227,14 @@ private slots:
     void keys_shortcutoverride();
 
     void transparentSelectionColor();
+
+    void inFlickableMouse_data();
+    void inFlickableMouse();
+    void inFlickableTouch_data();
+    void inFlickableTouch();
+
+    void keyEventPropagation();
+
 private:
     void simulateKeys(QWindow *window, const QList<Key> &keys);
 #if QT_CONFIG(shortcut)
@@ -242,6 +255,8 @@ private:
     QStringList colorStrings;
 
     QQmlEngine engine;
+
+    QPointingDevice *touchDevice = QTest::createTouchDevice();
 };
 
 typedef QList<int> IntList;
@@ -273,18 +288,14 @@ void tst_qquicktextedit::simulateKeys(QWindow *window, const QList<Key> &keys)
 
 void tst_qquicktextedit::simulateKeys(QWindow *window, const QKeySequence &sequence)
 {
-    for (int i = 0; i < sequence.count(); ++i) {
-        const int key = sequence[i];
-        const int modifiers = key & Qt::KeyboardModifierMask;
-
-        QTest::keyClick(window, Qt::Key(key & ~modifiers), Qt::KeyboardModifiers(modifiers));
-    }
+    for (int i = 0; i < sequence.count(); ++i)
+        QTest::keyClick(window, sequence[i].key(), sequence[i].keyboardModifiers());
 }
 
 QList<Key> &operator <<(QList<Key> &keys, const QKeySequence &sequence)
 {
     for (int i = 0; i < sequence.count(); ++i)
-        keys << Key(sequence[i], QChar());
+        keys << Key(sequence[i].toCombined(), QChar());
     return keys;
 }
 
@@ -307,6 +318,7 @@ QList<Key> &operator <<(QList<Key> &keys, Qt::Key key)
 }
 
 tst_qquicktextedit::tst_qquicktextedit()
+    : QQmlDataTest(QT_QMLTEST_DATADIR)
 {
     qRegisterMetaType<QQuickTextEdit::TextFormat>();
     qRegisterMetaType<QQuickTextEdit::SelectionMode>();
@@ -396,7 +408,7 @@ void tst_qquicktextedit::text()
         QVERIFY(textEditObject != nullptr);
 
         QString expected = richText.at(i);
-        expected.replace(QRegExp("\\\\(.)"),"\\1");
+        expected.replace(QRegularExpression("\\\\(.)"),"\\1");
         QCOMPARE(textEditObject->text(), expected);
         QCOMPARE(textEditObject->length(), expected.length());
     }
@@ -412,8 +424,9 @@ void tst_qquicktextedit::text()
 
         QString actual = textEditObject->text();
         QString expected = standard.at(i);
-        actual.remove(QRegExp(".*<body[^>]*>"));
-        actual.remove(QRegExp("(<[^>]*>)+"));
+        actual.remove("\n");
+        actual.remove(QRegularExpression(".*<body[^>]*>"));
+        actual.remove(QRegularExpression("(<[^>]*>)+"));
         expected.remove("\n");
         QCOMPARE(actual.simplified(), expected);
         QCOMPARE(textEditObject->length(), expected.length());
@@ -429,9 +442,10 @@ void tst_qquicktextedit::text()
         QVERIFY(textEditObject != nullptr);
         QString actual = textEditObject->text();
         QString expected = richText.at(i);
-        actual.replace(QRegExp(".*<body[^>]*>"),"");
-        actual.replace(QRegExp("(<[^>]*>)+"),"<>");
-        expected.replace(QRegExp("(<[^>]*>)+"),"<>");
+        actual.remove("\n");
+        actual.replace(QRegularExpression(".*<body[^>]*>"),"");
+        actual.replace(QRegularExpression("(<[^>]*>)+"),"<>");
+        expected.replace(QRegularExpression("(<[^>]*>)+"),"<>");
         QCOMPARE(actual.simplified(),expected.simplified());
 
         expected.replace("<>", " ");
@@ -460,9 +474,10 @@ void tst_qquicktextedit::text()
         QVERIFY(textEditObject != nullptr);
         QString actual = textEditObject->text();
         QString expected = richText.at(i);
-        actual.replace(QRegExp(".*<body[^>]*>"),"");
-        actual.replace(QRegExp("(<[^>]*>)+"),"<>");
-        expected.replace(QRegExp("(<[^>]*>)+"),"<>");
+        actual.remove("\n");
+        actual.replace(QRegularExpression(".*<body[^>]*>"),"");
+        actual.replace(QRegularExpression("(<[^>]*>)+"),"<>");
+        expected.replace(QRegularExpression("(<[^>]*>)+"),"<>");
         QCOMPARE(actual.simplified(),expected.simplified());
 
         expected.replace("<>", " ");
@@ -1350,7 +1365,7 @@ void tst_qquicktextedit::selectionOnFocusOut()
     QVERIFY(edit2->hasActiveFocus());
 
     edit2->setFocus(false, Qt::PopupFocusReason);
-    QVERIFY(edit2->hasActiveFocus());
+    QVERIFY(!edit2->hasActiveFocus());
     QCOMPARE(edit2->selectedText(), QLatin1String("text 2"));
 }
 
@@ -1602,7 +1617,7 @@ void tst_qquicktextedit::isRightToLeft_data()
     QTest::addColumn<bool>("midString");
     QTest::addColumn<bool>("endString");
 
-    const quint16 arabic_str[] = { 0x0638, 0x0643, 0x00646, 0x0647, 0x0633, 0x0638, 0x0643, 0x00646, 0x0647, 0x0633, 0x0647};
+    const char16_t arabic_str[] = { 0x0638, 0x0643, 0x0646, 0x0647, 0x0633, 0x0638, 0x0643, 0x0646, 0x0647, 0x0633, 0x0647};
     QTest::newRow("Empty") << "" << false << false << false << false << false << false << false;
     QTest::newRow("Neutral") << "23244242" << false << false << false << false << false << false << false;
     QTest::newRow("LTR") << "Hello world" << false << false << false << false << false << false << false;
@@ -2570,8 +2585,8 @@ void tst_qquicktextedit::linkHover()
     QQuickView window(testFileUrl("linkInteraction.qml"));
     window.setFlag(Qt::FramelessWindowHint);
     QVERIFY(window.rootObject() != nullptr);
-    QQuickViewTestUtil::centerOnScreen(&window);
-    QQuickViewTestUtil::moveMouseAway(&window);
+    QQuickVisualTestUtils::centerOnScreen(&window);
+    QQuickVisualTestUtils::moveMouseAway(&window);
     window.show();
     window.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&window));
@@ -2612,8 +2627,8 @@ void tst_qquicktextedit::linkInteraction()
 {
     QQuickView window(testFileUrl("linkInteraction.qml"));
     QVERIFY(window.rootObject() != nullptr);
-    QQuickViewTestUtil::centerOnScreen(&window);
-    QQuickViewTestUtil::moveMouseAway(&window);
+    QQuickVisualTestUtils::centerOnScreen(&window);
+    QQuickVisualTestUtils::moveMouseAway(&window);
     window.show();
     window.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&window));
@@ -3212,6 +3227,110 @@ void tst_qquicktextedit::readOnly()
     QCOMPARE(edit->cursorPosition(), edit->text().length());
 }
 
+void tst_qquicktextedit::inFlickableMouse_data()
+{
+    QTest::addColumn<bool>("readonly");
+    QTest::addColumn<bool>("enabled");
+    QTest::addColumn<int>("expectFlickingAfter");
+    QTest::newRow("editable") << false << true << 3;
+    QTest::newRow("readonly") << true << true << 3;
+    QTest::newRow("disabled") << false << false << 3;
+}
+
+void tst_qquicktextedit::inFlickableMouse()
+{
+    QFETCH(bool, readonly);
+    QFETCH(bool, enabled);
+    QFETCH(int, expectFlickingAfter);
+
+    const int dragThreshold = QGuiApplication::styleHints()->startDragDistance();
+    QQuickView view(testFileUrl("inFlickable.qml"));
+    view.show();
+    view.requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(&view));
+    QQuickFlickable *flick = qobject_cast<QQuickFlickable *>(view.rootObject());
+    QVERIFY(flick);
+    QQuickTextEdit *edit = flick->findChild<QQuickTextEdit*>("text");
+    QVERIFY(edit);
+    edit->setReadOnly(readonly);
+    edit->setEnabled(enabled);
+
+    // flick with mouse
+    QPoint p(10, 100);
+    QTest::mousePress(&view, Qt::LeftButton, {}, p);
+    QObject *pressGrabber = QPointingDevicePrivate::get(QPointingDevice::primaryPointingDevice())->firstPointExclusiveGrabber();
+    // even if TextEdit is readonly, it still grabs on press.  But not if it's disabled.
+    if (enabled)
+        QCOMPARE(pressGrabber, edit);
+    else
+        QCOMPARE(pressGrabber, flick);
+    int i = 0;
+    // after a couple of events, Flickable steals the grab and starts moving
+    for (; i < 4 && !flick->isMoving(); ++i) {
+        p -= QPoint(0, dragThreshold);
+        QTest::mouseMove(&view, p);
+    }
+    QCOMPARE(flick->isMoving(), bool(expectFlickingAfter));
+    if (expectFlickingAfter) {
+        qCDebug(lcTests) << "flickable started moving after" << i << "moves, when we got to" << p;
+        QCOMPARE(i, expectFlickingAfter);
+    }
+    QTest::mouseRelease(&view, Qt::LeftButton, {}, p);
+}
+
+void tst_qquicktextedit::inFlickableTouch_data()
+{
+    QTest::addColumn<bool>("readonly");
+    QTest::addColumn<bool>("enabled");
+    QTest::addColumn<int>("expectFlickingAfter");
+    QTest::newRow("editable") << false << true << 3;
+    QTest::newRow("readonly") << true << true << 3;
+    QTest::newRow("disabled") << false << false << 3;
+}
+
+void tst_qquicktextedit::inFlickableTouch()
+{
+    QFETCH(bool, readonly);
+    QFETCH(bool, enabled);
+    QFETCH(int, expectFlickingAfter);
+
+    const int dragThreshold = QGuiApplication::styleHints()->startDragDistance();
+    QQuickView view(testFileUrl("inFlickable.qml"));
+    view.show();
+    view.requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(&view));
+    QQuickFlickable *flick = qobject_cast<QQuickFlickable *>(view.rootObject());
+    QVERIFY(flick);
+    QQuickTextEdit *edit = flick->findChild<QQuickTextEdit*>("text");
+    QVERIFY(edit);
+    edit->setReadOnly(readonly);
+    edit->setEnabled(enabled);
+
+    // flick with touch
+    QPoint p(10, 100);
+    QTest::touchEvent(&view, touchDevice).press(1, p, &view);
+    QQuickTouchUtils::flush(&view);
+    QObject *pressGrabber = QPointingDevicePrivate::get(touchDevice)->firstPointExclusiveGrabber();
+    // even if TextEdit is readonly, it still grabs on press.  But not if it's disabled.
+    if (enabled)
+        QCOMPARE(pressGrabber, edit);
+    else
+        QCOMPARE(pressGrabber, flick);
+    int i = 0;
+    // after a couple of events, Flickable steals the grab and starts moving
+    for (; i < 4 && !flick->isMoving(); ++i) {
+        p -= QPoint(0, dragThreshold);
+        QTest::touchEvent(&view, touchDevice).move(1, p, &view);
+        QQuickTouchUtils::flush(&view);
+    }
+    QCOMPARE(flick->isMoving(), bool(expectFlickingAfter));
+    if (expectFlickingAfter) {
+        qCDebug(lcTests) << "flickable started moving after" << i << "moves, when we got to" << p;
+        QCOMPARE(i, expectFlickingAfter);
+    }
+    QTest::touchEvent(&view, touchDevice).release(1, p, &view);
+}
+
 void tst_qquicktextedit::simulateKey(QWindow *view, int key, Qt::KeyboardModifiers modifiers)
 {
     QKeyEvent press(QKeyEvent::KeyPress, key, modifiers);
@@ -3589,13 +3708,15 @@ void tst_qquicktextedit::signal_editingfinished()
     QTRY_VERIFY(input1->hasActiveFocus());
     QTRY_VERIFY(!input2->hasActiveFocus());
 
-    QKeyEvent key(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
-    QTRY_COMPARE(editingFinished1Spy.count(), 1);
+    {
+        QKeyEvent key(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
+        QTRY_COMPARE(editingFinished1Spy.count(), 1);
 
-    QTRY_VERIFY(!input1->hasActiveFocus());
-    QTRY_VERIFY(input2->hasActiveFocus());
+        QTRY_VERIFY(!input1->hasActiveFocus());
+        QTRY_VERIFY(input2->hasActiveFocus());
+    }
 
     QSignalSpy editingFinished2Spy(input2, SIGNAL(editingFinished()));
 
@@ -3603,13 +3724,15 @@ void tst_qquicktextedit::signal_editingfinished()
     QTRY_VERIFY(!input1->hasActiveFocus());
     QTRY_VERIFY(input2->hasActiveFocus());
 
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
-    QTRY_COMPARE(editingFinished2Spy.count(), 1);
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
+        QTRY_COMPARE(editingFinished2Spy.count(), 1);
 
-    QTRY_VERIFY(input1->hasActiveFocus());
-    QTRY_VERIFY(!input2->hasActiveFocus());
+        QTRY_VERIFY(input1->hasActiveFocus());
+        QTRY_VERIFY(!input2->hasActiveFocus());
+    }
 }
 
 void tst_qquicktextedit::clipRect()
@@ -3714,6 +3837,15 @@ void tst_qquicktextedit::boundingRect()
     QCOMPARE(edit->boundingRect().x(), qreal(0));
     QCOMPARE(edit->boundingRect().y(), qreal(0));
     QCOMPARE(edit->boundingRect().width(), line.naturalTextWidth() + edit->cursorRectangle().width() + 3);
+
+    QFontMetricsF fontMetrics(QGuiApplication::font());
+    qreal leading = fontMetrics.leading();
+    qreal ascent = fontMetrics.ascent();
+    qreal descent = fontMetrics.descent();
+
+    bool leadingOverflow = qCeil(ascent + descent) < qCeil(ascent + descent + leading);
+    if (leadingOverflow)
+        QEXPECT_FAIL("", "See QTBUG-82954", Continue);
     QCOMPARE(edit->boundingRect().height(), line.height());
 
     // the size of the bounding rect shouldn't be bounded by the size of item.
@@ -3721,12 +3853,18 @@ void tst_qquicktextedit::boundingRect()
     QCOMPARE(edit->boundingRect().x(), qreal(0));
     QCOMPARE(edit->boundingRect().y(), qreal(0));
     QCOMPARE(edit->boundingRect().width(), line.naturalTextWidth() + edit->cursorRectangle().width() + 3);
+
+    if (leadingOverflow)
+        QEXPECT_FAIL("", "See QTBUG-82954", Continue);
     QCOMPARE(edit->boundingRect().height(), line.height());
 
     edit->setHeight(edit->height() * 2);
     QCOMPARE(edit->boundingRect().x(), qreal(0));
     QCOMPARE(edit->boundingRect().y(), qreal(0));
     QCOMPARE(edit->boundingRect().width(), line.naturalTextWidth() + edit->cursorRectangle().width() + 3);
+
+    if (leadingOverflow)
+        QEXPECT_FAIL("", "See QTBUG-82954", Continue);
     QCOMPARE(edit->boundingRect().height(), line.height());
 
     QQmlComponent cursorComponent(&engine);
@@ -3739,12 +3877,18 @@ void tst_qquicktextedit::boundingRect()
     QCOMPARE(edit->boundingRect().x(), qreal(0));
     QCOMPARE(edit->boundingRect().y(), qreal(0));
     QCOMPARE(edit->boundingRect().width(), line.naturalTextWidth());
+
+    if (leadingOverflow)
+        QEXPECT_FAIL("", "See QTBUG-82954", Continue);
     QCOMPARE(edit->boundingRect().height(), line.height());
 
     edit->setHAlign(QQuickTextEdit::AlignRight);
     QCOMPARE(edit->boundingRect().x(), edit->width() - line.naturalTextWidth());
     QCOMPARE(edit->boundingRect().y(), qreal(0));
     QCOMPARE(edit->boundingRect().width(), line.naturalTextWidth());
+
+    if (leadingOverflow)
+        QEXPECT_FAIL("", "See QTBUG-82954", Continue);
     QCOMPARE(edit->boundingRect().height(), line.height());
 
     edit->setWrapMode(QQuickTextEdit::Wrap);
@@ -4223,7 +4367,7 @@ void tst_qquicktextedit::getFormattedText()
 
     if (textFormat == QQuickTextEdit::RichText
             || (textFormat == QQuickTextEdit::AutoText && Qt::mightBeRichText(text))) {
-        QVERIFY(textEdit->getFormattedText(start, end).contains(QRegExp(expectedText)));
+        QVERIFY(textEdit->getFormattedText(start, end).contains(QRegularExpression(expectedText)));
     } else {
         QCOMPARE(textEdit->getFormattedText(start, end), expectedText);
     }
@@ -5860,6 +6004,47 @@ void tst_qquicktextedit::transparentSelectionColor()
     QVERIFY(color.red() > 250);
     QVERIFY(color.blue() < 10);
     QVERIFY(color.green() < 10);
+}
+
+void tst_qquicktextedit::keyEventPropagation()
+{
+    QQuickView view;
+    view.setSource(testFileUrl("keyEventPropagation.qml"));
+    view.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
+    QObject *root = view.rootObject();
+    QVERIFY(root);
+
+    QSignalSpy downSpy(root, SIGNAL(keyDown(int)));
+    QSignalSpy upSpy(root, SIGNAL(keyUp(int)));
+
+    QQuickTextEdit *textEdit = root->findChild<QQuickTextEdit *>();
+    QVERIFY(textEdit->hasActiveFocus());
+    simulateKey(&view, Qt::Key_Back);
+    QCOMPARE(downSpy.count(), 1);
+    QCOMPARE(upSpy.count(), 1);
+    auto downKey = downSpy.takeFirst();
+    auto upKey = upSpy.takeFirst();
+    QCOMPARE(downKey.at(0).toInt(), Qt::Key_Back);
+    QCOMPARE(upKey.at(0).toInt(), Qt::Key_Back);
+
+    simulateKey(&view, Qt::Key_Shift);
+    QCOMPARE(downSpy.count(), 1);
+    QCOMPARE(upSpy.count(), 1);
+    downKey = downSpy.takeFirst();
+    upKey = upSpy.takeFirst();
+    QCOMPARE(downKey.at(0).toInt(), Qt::Key_Shift);
+    QCOMPARE(upKey.at(0).toInt(), Qt::Key_Shift);
+
+    simulateKey(&view, Qt::Key_A);
+    QCOMPARE(downSpy.count(), 0);
+    QCOMPARE(upSpy.count(), 0);
+
+    simulateKey(&view, Qt::Key_Right);
+    QCOMPARE(downSpy.count(), 0);
+    QCOMPARE(upSpy.count(), 1);
+    upKey = upSpy.takeFirst();
+    QCOMPARE(upKey.at(0).toInt(), Qt::Key_Right);
 }
 
 QTEST_MAIN(tst_qquicktextedit)

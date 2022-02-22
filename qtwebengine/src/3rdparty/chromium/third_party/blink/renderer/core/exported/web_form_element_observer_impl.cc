@@ -27,7 +27,7 @@ class WebFormElementObserverImpl::ObserverCallback
 
   void Disconnect();
 
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
  private:
   Member<HTMLElement> element_;
@@ -62,7 +62,7 @@ WebFormElementObserverImpl::ObserverCallback::ObserverCallback(
 
 ExecutionContext*
 WebFormElementObserverImpl::ObserverCallback::GetExecutionContext() const {
-  return element_ ? element_->GetDocument().ToExecutionContext() : nullptr;
+  return element_ ? element_->GetExecutionContext() : nullptr;
 }
 
 void WebFormElementObserverImpl::ObserverCallback::Deliver(
@@ -98,7 +98,7 @@ void WebFormElementObserverImpl::ObserverCallback::Disconnect() {
 }
 
 void WebFormElementObserverImpl::ObserverCallback::Trace(
-    blink::Visitor* visitor) {
+    blink::Visitor* visitor) const {
   visitor->Trace(element_);
   visitor->Trace(parents_);
   visitor->Trace(mutation_observer_);
@@ -109,7 +109,7 @@ WebFormElementObserver* WebFormElementObserver::Create(
     WebFormElement& element,
     base::OnceClosure callback) {
   return MakeGarbageCollected<WebFormElementObserverImpl>(
-      util::PassKey<WebFormElementObserver>(),
+      base::PassKey<WebFormElementObserver>(),
       *element.Unwrap<HTMLFormElement>(), std::move(callback));
 }
 
@@ -117,12 +117,12 @@ WebFormElementObserver* WebFormElementObserver::Create(
     WebFormControlElement& element,
     base::OnceClosure callback) {
   return MakeGarbageCollected<WebFormElementObserverImpl>(
-      util::PassKey<WebFormElementObserver>(), *element.Unwrap<HTMLElement>(),
+      base::PassKey<WebFormElementObserver>(), *element.Unwrap<HTMLElement>(),
       std::move(callback));
 }
 
 WebFormElementObserverImpl::WebFormElementObserverImpl(
-    util::PassKey<WebFormElementObserver>,
+    base::PassKey<WebFormElementObserver>,
     HTMLElement& element,
     base::OnceClosure callback)
     : self_keep_alive_(PERSISTENT_FROM_HERE, this) {
@@ -138,7 +138,7 @@ void WebFormElementObserverImpl::Disconnect() {
   self_keep_alive_.Clear();
 }
 
-void WebFormElementObserverImpl::Trace(Visitor* visitor) {
+void WebFormElementObserverImpl::Trace(Visitor* visitor) const {
   visitor->Trace(mutation_callback_);
 }
 

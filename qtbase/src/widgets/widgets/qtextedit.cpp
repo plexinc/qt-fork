@@ -79,7 +79,11 @@ QT_BEGIN_NAMESPACE
 
 static inline bool shouldEnableInputMethod(QTextEdit *textedit)
 {
+#if defined (Q_OS_ANDROID)
+    return !textedit->isReadOnly() || (textedit->textInteractionFlags() & Qt::TextSelectableByMouse);
+#else
     return !textedit->isReadOnly();
+#endif
 }
 
 class QTextEditControl : public QWidgetTextControl
@@ -270,7 +274,7 @@ void QTextEditPrivate::pageUpDown(QTextCursor::MoveOperation op, QTextCursor::Mo
             vbar->triggerAction(QAbstractSlider::SliderPageStepAdd);
         }
     }
-    control->setTextCursor(cursor);
+    control->setTextCursor(cursor, moveMode == QTextCursor::KeepAnchor);
 }
 
 #if QT_CONFIG(scrollbar)
@@ -572,7 +576,7 @@ void QTextEditPrivate::_q_ensureVisible(const QRectF &_rect)
     of the movement keystrokes, for example, \e{Shift+Right}
     will select the character to the right, and \e{Shift+Ctrl+Right} will select the word to the right, etc.
 
-    \sa QTextDocument, QTextCursor, {Application Example},
+    \sa QTextDocument, QTextCursor, {Qt Widgets - Application Example},
         {Syntax Highlighter Example}, {Rich Text Processing}
 */
 
@@ -580,8 +584,9 @@ void QTextEditPrivate::_q_ensureVisible(const QRectF &_rect)
     \property QTextEdit::plainText
     \since 4.3
 
-    This property gets and sets the text editor's contents as plain
-    text. Previous contents are removed and undo/redo history is reset
+    \brief the text editor's contents as plain text.
+
+    Previous contents are removed and undo/redo history is reset
     when the property is set. currentCharFormat() is also reset, unless
     textCursor() is already at the beginning of the document.
 
@@ -598,7 +603,7 @@ void QTextEditPrivate::_q_ensureVisible(const QRectF &_rect)
 
 /*!
     \property QTextEdit::undoRedoEnabled
-    \brief whether undo and redo are enabled
+    \brief whether undo and redo are enabled.
 
     Users are only able to undo or redo actions if this property is
     true, and if there is an action that can be undone (or redone).
@@ -685,7 +690,7 @@ qreal QTextEdit::fontPointSize() const
 QString QTextEdit::fontFamily() const
 {
     Q_D(const QTextEdit);
-    return d->control->textCursor().charFormat().fontFamily();
+    return d->control->textCursor().charFormat().fontFamilies().toStringList().value(0, QString());
 }
 
 /*!
@@ -877,7 +882,7 @@ QTextCursor QTextEdit::textCursor() const
 void QTextEdit::setFontFamily(const QString &fontFamily)
 {
     QTextCharFormat fmt;
-    fmt.setFontFamily(fontFamily);
+    fmt.setFontFamilies({fontFamily});
     mergeCurrentCharFormat(fmt);
 }
 
@@ -1111,7 +1116,7 @@ bool QTextEdit::event(QEvent *e)
         d->sendControlEvent(e);
     }
 #else
-    Q_UNUSED(d)
+    Q_UNUSED(d);
 #endif // QT_NO_CONTEXTMENU
 #ifdef QT_KEYPAD_NAVIGATION
     if (e->type() == QEvent::EnterEditFocus || e->type() == QEvent::LeaveEditFocus) {
@@ -1451,8 +1456,10 @@ void QTextEdit::keyPressEvent(QKeyEvent *e)
 */
 void QTextEdit::keyReleaseEvent(QKeyEvent *e)
 {
-#ifdef QT_KEYPAD_NAVIGATION
     Q_D(QTextEdit);
+    if (!isReadOnly())
+        d->handleSoftwareInputPanel();
+#ifdef QT_KEYPAD_NAVIGATION
     if (QApplicationPrivate::keypadNavigationEnabled()) {
         if (!e->isAutoRepeat() && e->key() == Qt::Key_Back
             && d->deleteAllTimer.isActive()) {
@@ -1677,7 +1684,7 @@ void QTextEdit::mouseMoveEvent(QMouseEvent *e)
 {
     Q_D(QTextEdit);
     d->inDrag = false; // paranoia
-    const QPoint pos = e->pos();
+    const QPoint pos = e->position().toPoint();
     d->sendControlEvent(e);
     if (!(e->buttons() & Qt::LeftButton))
         return;
@@ -1700,7 +1707,7 @@ void QTextEdit::mouseReleaseEvent(QMouseEvent *e)
         d->autoScrollTimer.stop();
         ensureCursorVisible();
     }
-    if (!isReadOnly() && rect().contains(e->pos()))
+    if (!isReadOnly() && rect().contains(e->position().toPoint()))
         d->handleSoftwareInputPanel(e->button(), d->clickCausedFocus);
     d->clickCausedFocus = 0;
 }
@@ -1771,7 +1778,7 @@ void QTextEdit::dragLeaveEvent(QDragLeaveEvent *e)
 void QTextEdit::dragMoveEvent(QDragMoveEvent *e)
 {
     Q_D(QTextEdit);
-    d->autoScrollDragPos = e->pos();
+    d->autoScrollDragPos = e->position().toPoint();
     if (!d->autoScrollTimer.isActive())
         d->autoScrollTimer.start(100, this);
     d->sendControlEvent(e);
@@ -1831,6 +1838,8 @@ QVariant QTextEdit::inputMethodQuery(Qt::InputMethodQuery query, QVariant argume
         case Qt::ImHints:
         case Qt::ImInputItemClipRectangle:
         return QWidget::inputMethodQuery(query);
+    case Qt::ImReadOnly:
+        return isReadOnly();
     default:
         break;
     }
@@ -1914,7 +1923,7 @@ void QTextEdit::changeEvent(QEvent *e)
     if (e->type() == QEvent::ApplicationFontChange
         || e->type() == QEvent::FontChange) {
         d->control->document()->setDefaultFont(font());
-    }  else if(e->type() == QEvent::ActivationChange) {
+    }  else if (e->type() == QEvent::ActivationChange) {
         if (!isActiveWindow())
             d->autoScrollTimer.stop();
     } else if (e->type() == QEvent::EnabledChange) {
@@ -2053,33 +2062,18 @@ void QTextEdit::setOverwriteMode(bool overwrite)
     d->control->setOverwriteMode(overwrite);
 }
 
-#if QT_DEPRECATED_SINCE(5, 10)
-/*!
-    \property QTextEdit::tabStopWidth
-    \brief the tab stop width in pixels
-    \since 4.1
-    \deprecated in Qt 5.10. Use tabStopDistance instead.
-
-    By default, this property contains a value of 80 pixels.
-*/
-
-int QTextEdit::tabStopWidth() const
-{
-    return qRound(tabStopDistance());
-}
-
-void QTextEdit::setTabStopWidth(int width)
-{
-    setTabStopDistance(width);
-}
-#endif
-
 /*!
     \property QTextEdit::tabStopDistance
     \brief the tab stop distance in pixels
     \since 5.10
 
     By default, this property contains a value of 80 pixels.
+
+    Do not set a value less than the \l {QFontMetrics::}{horizontalAdvance()}
+    of the QChar::VisualTabCharacter character, otherwise the tab-character
+    will be drawn incompletely.
+
+    \sa QTextOption::ShowTabsAndSpaces, QTextDocument::defaultTextOption
 */
 
 qreal QTextEdit::tabStopDistance() const
@@ -2608,27 +2602,6 @@ bool QTextEdit::find(const QString &exp, QTextDocument::FindFlags options)
     Q_D(QTextEdit);
     return d->control->find(exp, options);
 }
-
-/*!
-    \fn bool QTextEdit::find(const QRegExp &exp, QTextDocument::FindFlags options)
-
-    \since 5.3
-    \overload
-
-    Finds the next occurrence, matching the regular expression, \a exp, using the given
-    \a options. The QTextDocument::FindCaseSensitively option is ignored for this overload,
-    use QRegExp::caseSensitivity instead.
-
-    Returns \c true if a match was found and changes the cursor to select the match;
-    otherwise returns \c false.
-*/
-#ifndef QT_NO_REGEXP
-bool QTextEdit::find(const QRegExp &exp, QTextDocument::FindFlags options)
-{
-    Q_D(QTextEdit);
-    return d->control->find(exp, options);
-}
-#endif
 
 /*!
     \fn bool QTextEdit::find(const QRegularExpression &exp, QTextDocument::FindFlags options)

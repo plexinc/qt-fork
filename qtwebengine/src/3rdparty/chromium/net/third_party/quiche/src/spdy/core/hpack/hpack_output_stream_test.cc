@@ -2,11 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/spdy/core/hpack/hpack_output_stream.h"
+#include "spdy/core/hpack/hpack_output_stream.h"
 
 #include <cstddef>
 
-#include "net/third_party/quiche/src/common/platform/api/quiche_test.h"
+#include "common/platform/api/quiche_test.h"
 
 namespace spdy {
 
@@ -269,6 +269,20 @@ TEST(HpackOutputStreamTest, BoundedTakeString) {
 
   output_stream.BoundedTakeString(9, &str);
   EXPECT_EQ("\x10", str);
+}
+
+TEST(HpackOutputStreamTest, MutableString) {
+  HpackOutputStream output_stream;
+
+  output_stream.AppendBytes("1");
+  output_stream.MutableString()->append("2");
+
+  output_stream.AppendBytes("foo");
+  output_stream.MutableString()->append("bar");
+
+  std::string str;
+  output_stream.TakeString(&str);
+  EXPECT_EQ("12foobar", str);
 }
 
 }  // namespace

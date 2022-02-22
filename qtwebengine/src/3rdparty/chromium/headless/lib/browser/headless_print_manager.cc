@@ -12,14 +12,28 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
+#include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/printing/browser/print_manager_utils.h"
-#include "components/printing/common/print_messages.h"
+#include "components/printing/common/print.mojom.h"
 #include "content/public/browser/render_view_host.h"
+#include "printing/mojom/print.mojom.h"
 #include "printing/print_job_constants.h"
 #include "printing/units.h"
+#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
+#include "mojo/public/cpp/bindings/message.h"
+#endif
 
 namespace headless {
+
+#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
+namespace {
+
+constexpr char kInvalidPathForCheckForCancel[] =
+    "Invalid path for CheckForCancel";
+
+}  // namespace
+#endif
 
 HeadlessPrintSettings::HeadlessPrintSettings()
     : prefer_css_page_size(false),
@@ -69,34 +83,34 @@ std::string HeadlessPrintManager::PrintResultToString(PrintResult result) {
 HeadlessPrintManager::PageRangeStatus
 HeadlessPrintManager::PageRangeTextToPages(base::StringPiece page_range_text,
                                            bool ignore_invalid_page_ranges,
-                                           int pages_count,
-                                           std::vector<int>* pages) {
+                                           uint32_t pages_count,
+                                           std::vector<uint32_t>* pages) {
   printing::PageRanges page_ranges;
   for (const auto& range_string :
        base::SplitStringPiece(page_range_text, ",", base::TRIM_WHITESPACE,
                               base::SPLIT_WANT_NONEMPTY)) {
     printing::PageRange range;
     if (range_string.find("-") == base::StringPiece::npos) {
-      if (!base::StringToInt(range_string, &range.from))
+      if (!base::StringToUint(range_string, &range.from))
         return SYNTAX_ERROR;
       range.to = range.from;
     } else if (range_string == "-") {
       range.from = 1;
       range.to = pages_count;
-    } else if (range_string.starts_with("-")) {
+    } else if (base::StartsWith(range_string, "-")) {
       range.from = 1;
-      if (!base::StringToInt(range_string.substr(1), &range.to))
+      if (!base::StringToUint(range_string.substr(1), &range.to))
         return SYNTAX_ERROR;
-    } else if (range_string.ends_with("-")) {
+    } else if (base::EndsWith(range_string, "-")) {
       range.to = pages_count;
-      if (!base::StringToInt(range_string.substr(0, range_string.length() - 1),
-                             &range.from))
+      if (!base::StringToUint(range_string.substr(0, range_string.length() - 1),
+                              &range.from))
         return SYNTAX_ERROR;
     } else {
       auto tokens = base::SplitStringPiece(
           range_string, "-", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
-      if (tokens.size() != 2 || !base::StringToInt(tokens[0], &range.from) ||
-          !base::StringToInt(tokens[1], &range.to))
+      if (tokens.size() != 2 || !base::StringToUint(tokens[0], &range.from) ||
+          !base::StringToUint(tokens[1], &range.to))
         return SYNTAX_ERROR;
     }
 
@@ -142,7 +156,7 @@ void HeadlessPrintManager::GetPDFContents(content::RenderFrameHost* rfh,
   GetPrintRenderFrame(rfh)->PrintRequestedPages();
 }
 
-std::unique_ptr<PrintMsg_PrintPages_Params>
+printing::mojom::PrintPagesParamsPtr
 HeadlessPrintManager::GetPrintParamsFromSettings(
     const HeadlessPrintSettings& settings) {
   printing::PrintSettings print_settings;
@@ -163,93 +177,63 @@ HeadlessPrintManager::GetPrintParamsFromSettings(
     print_settings.set_url(base::UTF8ToUTF16(url));
   }
 
-  print_settings.set_margin_type(printing::CUSTOM_MARGINS);
+  print_settings.set_margin_type(printing::mojom::MarginType::kCustomMargins);
   print_settings.SetCustomMargins(settings.margins_in_points);
 
   gfx::Rect printable_area_device_units(settings.paper_size_in_points);
   print_settings.SetPrinterPrintableArea(settings.paper_size_in_points,
                                          printable_area_device_units, true);
 
-  auto print_params = std::make_unique<PrintMsg_PrintPages_Params>();
+  auto print_params = printing::mojom::PrintPagesParams::New();
+  print_params->params = printing::mojom::PrintParams::New();
   printing::RenderParamsFromPrintSettings(print_settings,
-                                          &print_params->params);
-  print_params->params.document_cookie = printing::PrintSettings::NewCookie();
-  print_params->params.header_template =
+                                          print_params->params.get());
+  print_params->params->document_cookie = printing::PrintSettings::NewCookie();
+  print_params->params->header_template =
       base::UTF8ToUTF16(settings.header_template);
-  print_params->params.footer_template =
+  print_params->params->footer_template =
       base::UTF8ToUTF16(settings.footer_template);
-  print_params->params.prefer_css_page_size = settings.prefer_css_page_size;
+  print_params->params->prefer_css_page_size = settings.prefer_css_page_size;
   return print_params;
 }
 
-bool HeadlessPrintManager::OnMessageReceived(
-    const IPC::Message& message,
-    content::RenderFrameHost* render_frame_host) {
-  if (!printing_rfh_ &&
-      (message.type() == PrintHostMsg_GetDefaultPrintSettings::ID ||
-       message.type() == PrintHostMsg_ScriptedPrint::ID)) {
-    std::string type;
-    switch (message.type()) {
-      case PrintHostMsg_GetDefaultPrintSettings::ID:
-        type = "GetDefaultPrintSettings";
-        break;
-      case PrintHostMsg_ScriptedPrint::ID:
-        type = "ScriptedPrint";
-        break;
-      default:
-        type = "Unknown";
-        break;
-    }
-    DLOG(ERROR)
-        << "Unexpected message received before GetPDFContents is called: "
-        << type;
-
-    // TODO: consider propagating the error back to the caller, rather than
-    // effectively dropping the request.
-    render_frame_host->Send(IPC::SyncMessage::GenerateReply(&message));
-    return true;
+void HeadlessPrintManager::GetDefaultPrintSettings(
+    GetDefaultPrintSettingsCallback callback) {
+  if (!printing_rfh_) {
+    DLOG(ERROR) << "Unexpected message received before GetPDFContents is "
+                   "called: GetDefaultPrintSettings";
+    std::move(callback).Run(printing::mojom::PrintParams::New());
+    return;
   }
-
-  bool handled = true;
-  IPC_BEGIN_MESSAGE_MAP(HeadlessPrintManager, message)
-    IPC_MESSAGE_HANDLER(PrintHostMsg_ShowInvalidPrinterSettingsError,
-                        OnShowInvalidPrinterSettingsError)
-    IPC_MESSAGE_UNHANDLED(handled = false)
-  IPC_END_MESSAGE_MAP()
-  return handled || PrintManager::OnMessageReceived(message, render_frame_host);
+  std::move(callback).Run(print_params_->params->Clone());
 }
 
-void HeadlessPrintManager::OnGetDefaultPrintSettings(
-    content::RenderFrameHost* render_frame_host,
-    IPC::Message* reply_msg) {
-  PrintHostMsg_GetDefaultPrintSettings::WriteReplyParams(reply_msg,
-                                                         print_params_->params);
-  // Intentionally using |printing_rfh_| instead of |render_frame_host|
-  // parameter.
-  printing_rfh_->Send(reply_msg);
-}
-
-void HeadlessPrintManager::OnScriptedPrint(
-    content::RenderFrameHost* render_frame_host,
-    const PrintHostMsg_ScriptedPrint_Params& params,
-    IPC::Message* reply_msg) {
+void HeadlessPrintManager::ScriptedPrint(
+    printing::mojom::ScriptedPrintParamsPtr params,
+    ScriptedPrintCallback callback) {
   PageRangeStatus status =
       PageRangeTextToPages(page_ranges_text_, ignore_invalid_page_ranges_,
-                           params.expected_pages_count, &print_params_->pages);
-  // Intentionally using |printing_rfh_| instead of |render_frame_host|
-  // parameter.
+                           params->expected_pages_count, &print_params_->pages);
+
+  auto default_param = printing::mojom::PrintPagesParams::New();
+  default_param->params = printing::mojom::PrintParams::New();
+  if (!printing_rfh_) {
+    DLOG(ERROR) << "Unexpected message received before GetPDFContents is "
+                   "called: ScriptedPrint";
+    std::move(callback).Run(std::move(default_param));
+    return;
+  }
   switch (status) {
     case SYNTAX_ERROR:
-      printing_rfh_->Send(reply_msg);
       ReleaseJob(PAGE_RANGE_SYNTAX_ERROR);
+      std::move(callback).Run(std::move(default_param));
       return;
     case LIMIT_ERROR:
-      printing_rfh_->Send(reply_msg);
       ReleaseJob(PAGE_COUNT_EXCEEDED);
+      std::move(callback).Run(std::move(default_param));
       return;
     case PRINT_NO_ERROR:
-      PrintHostMsg_ScriptedPrint::WriteReplyParams(reply_msg, *print_params_);
-      printing_rfh_->Send(reply_msg);
+      std::move(callback).Run(print_params_->Clone());
       return;
     default:
       NOTREACHED();
@@ -257,30 +241,41 @@ void HeadlessPrintManager::OnScriptedPrint(
   }
 }
 
-void HeadlessPrintManager::OnShowInvalidPrinterSettingsError() {
+void HeadlessPrintManager::ShowInvalidPrinterSettingsError() {
   ReleaseJob(INVALID_PRINTER_SETTINGS);
 }
 
-void HeadlessPrintManager::OnPrintingFailed(int cookie) {
+void HeadlessPrintManager::PrintingFailed(int32_t cookie) {
   ReleaseJob(PRINTING_FAILED);
 }
 
-void HeadlessPrintManager::OnDidPrintDocument(
-    content::RenderFrameHost* render_frame_host,
-    const PrintHostMsg_DidPrintDocument_Params& params,
-    std::unique_ptr<DelayedFrameDispatchHelper> helper) {
-  auto& content = params.content;
+#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
+void HeadlessPrintManager::CheckForCancel(int32_t preview_ui_id,
+                                          int32_t request_id,
+                                          CheckForCancelCallback callback) {
+  // CheckForCancel should never be called on HeadlessPrintManager, since this
+  // is only triggered by Print Preview.
+  mojo::ReportBadMessage(kInvalidPathForCheckForCancel);
+}
+#endif
+
+void HeadlessPrintManager::DidPrintDocument(
+    printing::mojom::DidPrintDocumentParamsPtr params,
+    DidPrintDocumentCallback callback) {
+  auto& content = *params->content;
   if (!content.metafile_data_region.IsValid()) {
     ReleaseJob(INVALID_MEMORY_HANDLE);
+    std::move(callback).Run(false);
     return;
   }
   base::ReadOnlySharedMemoryMapping map = content.metafile_data_region.Map();
   if (!map.IsValid()) {
     ReleaseJob(METAFILE_MAP_ERROR);
+    std::move(callback).Run(false);
     return;
   }
   data_ = std::string(static_cast<const char*>(map.memory()), map.size());
-  helper->SendCompleted();
+  std::move(callback).Run(true);
   ReleaseJob(PRINT_SUCCESS);
 }
 

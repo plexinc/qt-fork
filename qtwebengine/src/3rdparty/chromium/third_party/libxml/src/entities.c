@@ -71,7 +71,7 @@ static xmlEntity xmlEntityApos = {
 
 /**
  * xmlEntitiesErrMemory:
- * @extra:  extra informations
+ * @extra:  extra information
  *
  * Handle an out of memory condition
  */
@@ -148,7 +148,7 @@ xmlFreeEntity(xmlEntityPtr entity)
 /*
  * xmlCreateEntity:
  *
- * internal routine doing the entity node strutures allocations
+ * internal routine doing the entity node structures allocations
  */
 static xmlEntityPtr
 xmlCreateEntity(xmlDictPtr dict, const xmlChar *name, int type,
@@ -399,7 +399,7 @@ xmlAddDocEntity(xmlDocPtr doc, const xmlChar *name, int type,
  *
  * Create a new entity, this differs from xmlAddDocEntity() that if
  * the document is NULL or has no internal subset defined, then an
- * unlinked entity structure will be returned, it is then the responsability
+ * unlinked entity structure will be returned, it is then the responsibility
  * of the caller to link it to the document later or free it when not needed
  * anymore.
  *
@@ -549,7 +549,7 @@ xmlGetDocEntity(const xmlDoc *doc, const xmlChar *name) {
  * xmlEncodeEntitiesInternal:
  * @doc:  the document containing the string
  * @input:  A string to convert to XML.
- * @attr: are we handling an atrbute value
+ * @attr: are we handling an attribute value
  *
  * Do a global encoding of a string, replacing the predefined entities
  * and non ASCII values with their entities and CharRef counterparts.
@@ -667,11 +667,25 @@ xmlEncodeEntitiesInternal(xmlDocPtr doc, const xmlChar *input, int attr) {
 	    } else {
 		/*
 		 * We assume we have UTF-8 input.
+		 * It must match either:
+		 *   110xxxxx 10xxxxxx
+		 *   1110xxxx 10xxxxxx 10xxxxxx
+		 *   11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
+		 * That is:
+		 *   cur[0] is 11xxxxxx
+		 *   cur[1] is 10xxxxxx
+		 *   cur[2] is 10xxxxxx if cur[0] is 111xxxxx
+		 *   cur[3] is 10xxxxxx if cur[0] is 1111xxxx
+		 *   cur[0] is not 11111xxx
 		 */
 		char buf[11], *ptr;
 		int val = 0, l = 1;
 
-		if (*cur < 0xC0) {
+		if (((cur[0] & 0xC0) != 0xC0) ||
+		    ((cur[1] & 0xC0) != 0x80) ||
+		    (((cur[0] & 0xE0) == 0xE0) && ((cur[2] & 0xC0) != 0x80)) ||
+		    (((cur[0] & 0xF0) == 0xF0) && ((cur[3] & 0xC0) != 0x80)) ||
+		    (((cur[0] & 0xF8) == 0xF8))) {
 		    xmlEntitiesErr(XML_CHECK_NOT_UTF8,
 			    "xmlEncodeEntities: input not UTF-8");
 		    if (doc != NULL)

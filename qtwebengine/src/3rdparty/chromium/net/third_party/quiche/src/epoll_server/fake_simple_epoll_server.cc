@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/epoll_server/fake_simple_epoll_server.h"
+#include "epoll_server/fake_simple_epoll_server.h"
 
 namespace epoll_server {
 namespace test {
@@ -17,7 +17,8 @@ FakeSimpleEpollServer::FakeSimpleEpollServer() : until_in_usec_(-1) {}
 
 FakeSimpleEpollServer::~FakeSimpleEpollServer() = default;
 
-int FakeSimpleEpollServer::epoll_wait_impl(int epfd, struct epoll_event* events,
+int FakeSimpleEpollServer::epoll_wait_impl(int /*epfd*/,
+                                           struct epoll_event* events,
                                            int max_events, int timeout_in_ms) {
   int num_events = 0;
   while (!event_queue_.empty() && num_events < max_events &&

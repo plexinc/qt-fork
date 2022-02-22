@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the examples of the Qt Toolkit.
@@ -48,12 +48,12 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
+import QtQuick
 
 Rectangle {
     id: root
     property bool mirror
-    property int direction: Qt.application.layoutDirection
+    property int direction: (Qt.application as Application).layoutDirection
     LayoutMirroring.enabled: mirror
     LayoutMirroring.childrenInherit: true
     width: 320

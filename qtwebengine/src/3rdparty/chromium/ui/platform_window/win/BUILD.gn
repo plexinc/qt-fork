@@ -11,6 +11,7 @@ jumbo_component("win") {
     "//base",
     "//skia",
     "//ui/base",
+    "//ui/base/cursor",
     "//ui/events",
     "//ui/gfx",
     "//ui/gfx/geometry",

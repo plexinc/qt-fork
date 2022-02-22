@@ -8,6 +8,7 @@
 #include "content/browser/renderer_host/render_widget_host_view_child_frame.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/test/accessibility_notification_waiter.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
@@ -46,7 +47,7 @@ class TouchAccessibilityBrowserTest : public ContentBrowserTest {
 
   void SendTouchExplorationEvent(int x, int y) {
     aura::Window* window = shell()->web_contents()->GetContentNativeView();
-    ui::EventSink* sink = window->GetHost()->event_sink();
+    ui::EventSink* sink = window->GetHost()->GetEventSink();
     gfx::Rect bounds = window->GetBoundsInRootWindow();
     gfx::Point location(bounds.x() + x, bounds.y() + y);
     int flags = ui::EF_TOUCH_ACCESSIBILITY;

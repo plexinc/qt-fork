@@ -70,37 +70,36 @@ public:
     RHIBuffer();
 
     enum Type {
-        ArrayBuffer = 0,
-        UniformBuffer,
-        IndexBuffer,
-        ShaderStorageBuffer,
-        PixelPackBuffer,
-        PixelUnpackBuffer,
-        DrawIndirectBuffer
+        ArrayBuffer         = 1 << 0,
+        UniformBuffer       = 1 << 1,
+        IndexBuffer         = 1 << 2,
+        ShaderStorageBuffer = 1 << 3,
+        PixelPackBuffer     = 1 << 4,
+        PixelUnpackBuffer   = 1 << 5,
+        DrawIndirectBuffer  = 1 << 6
     };
 
     bool bind(SubmissionContext *ctx, Type t);
-    bool release(SubmissionContext *ctx);
-    bool create(SubmissionContext *ctx);
-    void destroy(SubmissionContext *ctx);
-    void orphan(SubmissionContext *ctx);
-    void allocate(SubmissionContext *ctx, const QByteArray &data, bool dynamic = true);
-    void update(SubmissionContext *ctx, const QByteArray &data, int offset = 0);
+    void destroy();
+    void destroyOrphaned();
+    void allocate(const QByteArray &data, bool dynamic = true);
+    void update(const QByteArray &data, int offset = 0);
     QByteArray download(SubmissionContext *ctx, uint size);
-    void bindBufferBase(SubmissionContext *ctx, int bindingPoint, Type t);
-    void bindBufferBase(SubmissionContext *ctx, int bindingPoint);
-
     void cleanup();
 
+    qsizetype size() const { return m_allocSize; }
     QRhiBuffer *rhiBuffer() const noexcept { return m_rhiBuffer; }
 
 private:
+    void orphan();
+
     uint m_bufferId;
     bool m_dynamic;
-    int m_allocSize {};
-    int m_lastTarget;
+    qsizetype m_allocSize {};
 
     QRhiBuffer *m_rhiBuffer {};
+
+    std::vector<QRhiBuffer *> m_buffersToCleanup;
 
     std::vector<std::pair<QByteArray /*data*/, int /*offset*/>> m_datasToUpload;
 };

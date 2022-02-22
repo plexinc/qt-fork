@@ -27,10 +27,10 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
+import QtQuick
 // Deliberately imported after QtQuick to avoid missing restoreMode property in Binding. Fix in Qt 6.
-import QtQml 2.14
-import QtQuick.VirtualKeyboard 2.3
+import QtQml
+import QtQuick.VirtualKeyboard
 
 PopupList {
     id: wordCandidatePopupList
@@ -79,7 +79,7 @@ PopupList {
 
     Connections {
         target: wordCandidatePopupList.model ? wordCandidatePopupList.model : null
-        onActiveItemChanged: wordCandidatePopupList.currentIndex = index
-        onItemSelected: if (wordCandidatePopupList.currentItem) keyboard.soundEffect.play(wordCandidatePopupList.currentItem.soundEffect)
+        function onActiveItemChanged(index) { wordCandidatePopupList.currentIndex = index }
+        function onItemSelected() { if (wordCandidatePopupList.currentItem) keyboard.soundEffect.play(wordCandidatePopupList.currentItem.soundEffect) }
     }
 }

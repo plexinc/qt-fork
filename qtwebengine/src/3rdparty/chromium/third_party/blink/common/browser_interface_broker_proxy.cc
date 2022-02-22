@@ -9,15 +9,19 @@
 namespace blink {
 
 void BrowserInterfaceBrokerProxy::Bind(
-    mojo::PendingRemote<blink::mojom::BrowserInterfaceBroker> broker) {
-  broker_ =
-      mojo::Remote<blink::mojom::BrowserInterfaceBroker>(std::move(broker));
+    mojo::PendingRemote<blink::mojom::BrowserInterfaceBroker> broker,
+    scoped_refptr<base::SingleThreadTaskRunner> task_runner) {
+  DCHECK(task_runner);
+  broker_ = mojo::Remote<blink::mojom::BrowserInterfaceBroker>(
+      std::move(broker), std::move(task_runner));
 }
 
 mojo::PendingReceiver<blink::mojom::BrowserInterfaceBroker>
-BrowserInterfaceBrokerProxy::Reset() {
+BrowserInterfaceBrokerProxy::Reset(
+    scoped_refptr<base::SingleThreadTaskRunner> task_runner) {
+  DCHECK(task_runner);
   broker_.reset();
-  return broker_.BindNewPipeAndPassReceiver();
+  return broker_.BindNewPipeAndPassReceiver(std::move(task_runner));
 }
 
 void BrowserInterfaceBrokerProxy::GetInterface(
@@ -39,9 +43,13 @@ void BrowserInterfaceBrokerProxy::GetInterface(
   GetInterface(mojo::GenericPendingReceiver(name, std::move(pipe)));
 }
 
+bool BrowserInterfaceBrokerProxy::is_bound() const {
+  return broker_.is_bound();
+}
+
 bool BrowserInterfaceBrokerProxy::SetBinderForTesting(
     const std::string& name,
-    base::RepeatingCallback<void(mojo::ScopedMessagePipeHandle)> binder) {
+    base::RepeatingCallback<void(mojo::ScopedMessagePipeHandle)> binder) const {
   if (!binder) {
     binder_map_for_testing_.erase(name);
     return true;
@@ -59,7 +67,7 @@ BrowserInterfaceBrokerProxy& GetEmptyBrowserInterfaceBroker() {
     auto& proxy = proxy_slot->GetOrCreateValue();
     mojo::PendingRemote<blink::mojom::BrowserInterfaceBroker> remote;
     ignore_result(remote.InitWithNewPipeAndPassReceiver());
-    proxy.Bind(std::move(remote));
+    proxy.Bind(std::move(remote), base::ThreadTaskRunnerHandle::Get());
   }
 
   return proxy_slot->GetOrCreateValue();

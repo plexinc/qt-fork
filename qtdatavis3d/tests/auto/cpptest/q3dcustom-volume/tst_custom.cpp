@@ -31,8 +31,6 @@
 
 #include <QtDataVisualization/QCustom3DVolume>
 
-using namespace QtDataVisualization;
-
 class tst_custom: public QObject
 {
     Q_OBJECT
@@ -77,13 +75,13 @@ void tst_custom::construct()
     QVERIFY(custom);
     delete custom;
 
-    QVector<uchar> *tdata = new QVector<uchar>(1000);
+    QList<uchar> *tdata = new QList<uchar>(1000);
 
-    QVector<QRgb> table;
+    QList<QRgb> table;
     table << QRgb(0xff00ff) << QRgb(0x00ff00);
 
-    custom = new QCustom3DVolume(QVector3D(1.0, 1.0, 1.0), QVector3D(1.0, 1.0, 1.0),
-                                 QQuaternion(1.0, 1.0, 10.0, 100.0), 10, 10, 10,
+    custom = new QCustom3DVolume(QVector3D(1.0f, 1.0f, 1.0f), QVector3D(1.0f, 1.0f, 1.0f),
+                                 QQuaternion(1.0f, 1.0f, 10.0f, 100.0f), 10, 10, 10,
                                  tdata, QImage::Format_ARGB32, table);
     QVERIFY(custom);
     QCOMPARE(custom->alphaMultiplier(), 1.0f);
@@ -105,10 +103,10 @@ void tst_custom::construct()
     QCOMPARE(custom->textureWidth(), 10);
     QCOMPARE(custom->textureDepth(), 10);
     QCOMPARE(custom->meshFile(), QString(":/defaultMeshes/barFull"));
-    QCOMPARE(custom->position(), QVector3D(1.0, 1.0, 1.0));
+    QCOMPARE(custom->position(), QVector3D(1.0f, 1.0f, 1.0f));
     QCOMPARE(custom->isPositionAbsolute(), false);
-    QCOMPARE(custom->rotation(), QQuaternion(1.0, 1.0, 10.0, 100.0));
-    QCOMPARE(custom->scaling(), QVector3D(1.0, 1.0, 1.0));
+    QCOMPARE(custom->rotation(), QQuaternion(1.0f, 1.0f, 10.0f, 100.0f));
+    QCOMPARE(custom->scaling(), QVector3D(1.0f, 1.0f, 1.0f));
     QCOMPARE(custom->isScalingAbsolute(), true);
     QCOMPARE(custom->isShadowCasting(), false);
     QCOMPARE(custom->textureFile(), QString());
@@ -176,18 +174,18 @@ void tst_custom::initializeProperties()
     QCOMPARE(m_custom->useHighDefShader(), false);
 
     // Common (from QCustom3DVolume)
-    m_custom->setPosition(QVector3D(1.0, 1.0, 1.0));
+    m_custom->setPosition(QVector3D(1.0f, 1.0f, 1.0f));
     m_custom->setPositionAbsolute(true);
-    m_custom->setRotation(QQuaternion(1.0, 1.0, 10.0, 100.0));
-    m_custom->setScaling(QVector3D(1.0, 1.0, 1.0));
+    m_custom->setRotation(QQuaternion(1.0f, 1.0f, 10.0f, 100.0f));
+    m_custom->setScaling(QVector3D(1.0f, 1.0f, 1.0f));
     m_custom->setScalingAbsolute(false);
     m_custom->setShadowCasting(false);
     m_custom->setVisible(false);
 
-    QCOMPARE(m_custom->position(), QVector3D(1.0, 1.0, 1.0));
+    QCOMPARE(m_custom->position(), QVector3D(1.0f, 1.0f, 1.0f));
     QCOMPARE(m_custom->isPositionAbsolute(), true);
-    QCOMPARE(m_custom->rotation(), QQuaternion(1.0, 1.0, 10.0, 100.0));
-    QCOMPARE(m_custom->scaling(), QVector3D(1.0, 1.0, 1.0));
+    QCOMPARE(m_custom->rotation(), QQuaternion(1.0f, 1.0f, 10.0f, 100.0f));
+    QCOMPARE(m_custom->scaling(), QVector3D(1.0f, 1.0f, 1.0f));
     QCOMPARE(m_custom->isScalingAbsolute(), false);
     QCOMPARE(m_custom->isShadowCasting(), false);
     QCOMPARE(m_custom->isVisible(), false);

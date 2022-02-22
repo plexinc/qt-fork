@@ -27,7 +27,9 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QSignalSpy>
+
 #include <qapplication.h>
 #include <limits.h>
 
@@ -49,28 +51,28 @@ class DoubleSpinBox : public QDoubleSpinBox
 {
     Q_OBJECT
 public:
-    DoubleSpinBox(QWidget *parent = 0)
+    DoubleSpinBox(QWidget *parent = nullptr)
         : QDoubleSpinBox(parent)
     { /*connect(this, SIGNAL(valueChanged(double)), this, SLOT(foo(double)));*/ }
-    QString textFromValue(double v) const
+    QString textFromValue(double v) const override
     {
         return QDoubleSpinBox::textFromValue(v);
     }
-    QValidator::State validate(QString &text, int &pos) const
+    QValidator::State validate(QString &text, int &pos) const override
     {
         return QDoubleSpinBox::validate(text, pos);
     }
-    double valueFromText(const QString &text) const
+    double valueFromText(const QString &text) const override
     {
         return QDoubleSpinBox::valueFromText(text);
     }
 #if QT_CONFIG(wheelevent)
-    void wheelEvent(QWheelEvent *event)
+    void wheelEvent(QWheelEvent *event) override
     {
         QDoubleSpinBox::wheelEvent(event);
     }
 #endif
-    void initStyleOption(QStyleOptionSpinBox *option) const
+    void initStyleOption(QStyleOptionSpinBox *option) const override
     {
         QDoubleSpinBox::initStyleOption(option);
     }
@@ -132,8 +134,8 @@ public:
     virtual ~tst_QDoubleSpinBox();
 public slots:
     void initTestCase();
-    void cleanupTestCase();
     void init();
+    void cleanup();
 
 private slots:
     void germanTest();
@@ -166,7 +168,9 @@ private slots:
 
     void doubleDot();
 
+#if QT_CONFIG(shortcut)
     void undoRedo();
+#endif
 
     void valueFromTextAndValidate_data();
     void valueFromTextAndValidate();
@@ -209,7 +213,6 @@ public slots:
 private:
     QStringList actualTexts;
     QList<double> actualValues;
-    QWidget *testFocusWidget;
 };
 
 typedef QList<double> DoubleList;
@@ -253,25 +256,18 @@ tst_QDoubleSpinBox::~tst_QDoubleSpinBox()
 
 void tst_QDoubleSpinBox::initTestCase()
 {
-    testFocusWidget = new QWidget(0);
-    testFocusWidget->resize(200, 100);
-    testFocusWidget->show();
-
     if (QGuiApplication::platformName().startsWith(QLatin1String("wayland"), Qt::CaseInsensitive))
         QSKIP("Wayland: This fails. Figure out why.");
-
-    QVERIFY(QTest::qWaitForWindowActive(testFocusWidget));
-}
-
-void tst_QDoubleSpinBox::cleanupTestCase()
-{
-    delete testFocusWidget;
-    testFocusWidget = 0;
 }
 
 void tst_QDoubleSpinBox::init()
 {
     QLocale::setDefault(QLocale(QLocale::C));
+}
+
+void tst_QDoubleSpinBox::cleanup()
+{
+    QTRY_VERIFY(QApplication::topLevelWidgets().isEmpty());
 }
 
 void tst_QDoubleSpinBox::setValue_data()
@@ -417,7 +413,7 @@ void tst_QDoubleSpinBox::setTracking()
     spin.setDecimals(decimals);
     spin.show();
 
-    connect(&spin, SIGNAL(valueChanged(QString)), this, SLOT(valueChangedHelper(QString)));
+    connect(&spin, SIGNAL(textChanged(QString)), this, SLOT(valueChangedHelper(QString)));
 
     keys.simulate(&spin);
     QCOMPARE(actualTexts, texts);
@@ -874,15 +870,16 @@ void tst_QDoubleSpinBox::setReadOnly()
 
 void tst_QDoubleSpinBox::editingFinished()
 {
-    QVBoxLayout *layout = new QVBoxLayout(testFocusWidget);
-    QDoubleSpinBox *box = new QDoubleSpinBox(testFocusWidget);
+    QWidget testFocusWidget(nullptr);
+    QVBoxLayout *layout = new QVBoxLayout(&testFocusWidget);
+    QDoubleSpinBox *box = new QDoubleSpinBox(&testFocusWidget);
     layout->addWidget(box);
-    QDoubleSpinBox *box2 = new QDoubleSpinBox(testFocusWidget);
+    QDoubleSpinBox *box2 = new QDoubleSpinBox(&testFocusWidget);
     layout->addWidget(box2);
 
-    testFocusWidget->show();
-    testFocusWidget->activateWindow();
-    QVERIFY(QTest::qWaitForWindowActive(testFocusWidget));
+    testFocusWidget.show();
+    testFocusWidget.activateWindow();
+    QVERIFY(QTest::qWaitForWindowActive(&testFocusWidget));
     box->setFocus();
     QTRY_VERIFY(box->hasFocus());
 
@@ -921,14 +918,9 @@ void tst_QDoubleSpinBox::editingFinished()
     QTest::keyClick(box2, Qt::Key_Return);
     QCOMPARE(editingFinishedSpy1.count(), 4);
     QCOMPARE(editingFinishedSpy2.count(), 3);
-    testFocusWidget->hide();
+    testFocusWidget.hide();
     QCOMPARE(editingFinishedSpy1.count(), 4);
     QCOMPARE(editingFinishedSpy2.count(), 4);
-
-    // On some platforms this is our root window
-    // we need to show it again otherwise subsequent
-    // tests will fail
-    testFocusWidget->show();
 }
 
 void tst_QDoubleSpinBox::removeAll()
@@ -1025,6 +1017,8 @@ void tst_QDoubleSpinBox::doubleDot()
     QCOMPARE(spin.lineEdit()->cursorPosition(), 2);
 }
 
+#if QT_CONFIG(shortcut)
+
 void tst_QDoubleSpinBox::undoRedo()
 {
     //test undo/redo feature (in conjunction with the "undoRedoEnabled" property)
@@ -1043,7 +1037,7 @@ void tst_QDoubleSpinBox::undoRedo()
     QVERIFY(spin.lineEdit()->isUndoAvailable());
 
     //testing CTRL+Z (undo)
-    int val = QKeySequence(QKeySequence::Undo)[0];
+    int val = QKeySequence(QKeySequence::Undo)[0].toCombined();
     if (val != 0) {
         Qt::KeyboardModifiers mods = (Qt::KeyboardModifiers)(val & Qt::KeyboardModifierMask);
         QTest::keyClick(&spin, val & ~mods, mods);
@@ -1051,12 +1045,12 @@ void tst_QDoubleSpinBox::undoRedo()
         QVERIFY(!spin.lineEdit()->isUndoAvailable());
         QVERIFY(spin.lineEdit()->isRedoAvailable());
     } else {
-        QWARN("Undo not tested because no key sequence associated to QKeySequence::Redo");
+        qWarning("Undo not tested because no key sequence associated to QKeySequence::Redo");
     }
 
 
     //testing CTRL+Y (redo)
-    val = QKeySequence(QKeySequence::Redo)[0];
+    val = QKeySequence(QKeySequence::Redo)[0].toCombined();
     if (val != 0) {
         Qt::KeyboardModifiers mods = (Qt::KeyboardModifiers)(val & Qt::KeyboardModifierMask);
         QTest::keyClick(&spin, val & ~mods, mods);
@@ -1064,7 +1058,7 @@ void tst_QDoubleSpinBox::undoRedo()
         QVERIFY(!spin.lineEdit()->isRedoAvailable());
         QVERIFY(spin.lineEdit()->isUndoAvailable());
     } else {
-        QWARN("Redo not tested because no key sequence associated to QKeySequence::Redo");
+        qWarning("Redo not tested because no key sequence associated to QKeySequence::Redo");
     }
 
 
@@ -1073,9 +1067,11 @@ void tst_QDoubleSpinBox::undoRedo()
     QVERIFY(!spin.lineEdit()->isRedoAvailable());
 }
 
+#endif // QT_CONFIG(shortcut)
+
 struct task199226_DoubleSpinBox : public QDoubleSpinBox
 {
-    task199226_DoubleSpinBox(QWidget *parent = 0) : QDoubleSpinBox(parent) {}
+    task199226_DoubleSpinBox(QWidget *parent = nullptr) : QDoubleSpinBox(parent) {}
     QLineEdit *lineEdit() { return QAbstractSpinBox::lineEdit(); }
 };
 
@@ -1103,15 +1099,15 @@ public:
 
 void tst_QDoubleSpinBox::task224497_fltMax()
 {
-    task224497_fltMax_DoubleSpinBox *dspin = new task224497_fltMax_DoubleSpinBox;
-    dspin->setMinimum(3);
-    dspin->setMaximum(FLT_MAX);
-    dspin->show();
-    QVERIFY(QTest::qWaitForWindowActive(dspin));
-    dspin->lineEdit()->selectAll();
-    QTest::keyClick(dspin->lineEdit(), Qt::Key_Delete);
-    QTest::keyClick(dspin->lineEdit(), Qt::Key_1);
-    QCOMPARE(dspin->cleanText(), QLatin1String("1"));
+    task224497_fltMax_DoubleSpinBox dspin;
+    dspin.setMinimum(3);
+    dspin.setMaximum(FLT_MAX);
+    dspin.show();
+    QVERIFY(QTest::qWaitForWindowActive(&dspin));
+    dspin.lineEdit()->selectAll();
+    QTest::keyClick(dspin.lineEdit(), Qt::Key_Delete);
+    QTest::keyClick(dspin.lineEdit(), Qt::Key_1);
+    QCOMPARE(dspin.cleanText(), QLatin1String("1"));
 }
 
 void tst_QDoubleSpinBox::task221221()
@@ -1166,7 +1162,7 @@ void tst_QDoubleSpinBox::taskQTBUG_5008_textFromValueAndValidate()
         }
 
         //we use the French delimiters here
-        QString textFromValue (double value) const
+        QString textFromValue (double value) const override
         {
             return locale().toString(value);
         }
@@ -1212,7 +1208,7 @@ void tst_QDoubleSpinBox::taskQTBUG_6496_fiddlingWithPrecision()
 void tst_QDoubleSpinBox::setGroupSeparatorShown_data()
 {
     QTest::addColumn<QLocale::Language>("lang");
-    QTest::addColumn<QLocale::Country>("country");
+    QTest::addColumn<QLocale::Territory>("country");
 
     QTest::newRow("data0") << QLocale::English << QLocale::UnitedStates;
     QTest::newRow("data1") << QLocale::Swedish << QLocale::Sweden;
@@ -1224,7 +1220,7 @@ void tst_QDoubleSpinBox::setGroupSeparatorShown_data()
 void tst_QDoubleSpinBox::setGroupSeparatorShown()
 {
     QFETCH(QLocale::Language, lang);
-    QFETCH(QLocale::Country, country);
+    QFETCH(QLocale::Territory, country);
 
     QLocale loc(lang, country);
     QLocale::setDefault(loc);
@@ -1768,7 +1764,7 @@ void tst_QDoubleSpinBox::stepModifierPressAndHold()
     stepModifierStyle->stepModifier = static_cast<Qt::KeyboardModifier>(stepModifier);
     spin.setStyle(stepModifierStyle.data());
 
-    QSignalSpy spy(&spin, QOverload<double>::of(&DoubleSpinBox::valueChanged));
+    QSignalSpy spy(&spin, &DoubleSpinBox::valueChanged);
 
     spin.show();
     QVERIFY(QTest::qWaitForWindowExposed(&spin));
@@ -1784,7 +1780,7 @@ void tst_QDoubleSpinBox::stepModifierPressAndHold()
     QTest::mouseRelease(&spin, Qt::LeftButton, modifiers, buttonRect.center());
 
     const auto value = spy.last().at(0);
-    QVERIFY(value.type() == QVariant::Double);
+    QVERIFY(value.userType() == QMetaType::Double);
     QCOMPARE(value.toDouble(), spy.length() * expectedStepModifier);
 }
 

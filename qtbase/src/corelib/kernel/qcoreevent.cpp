@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Copyright (C) 2016 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
@@ -153,6 +153,7 @@ QT_BEGIN_NAMESPACE
     \value GraphicsSceneMove                Widget was moved (QGraphicsSceneMoveEvent).
     \value GraphicsSceneResize              Widget was resized (QGraphicsSceneResizeEvent).
     \value GraphicsSceneWheel               Mouse wheel rolled in a graphics scene (QGraphicsSceneWheelEvent).
+    \value GraphicsSceneLeave               The cursor leaves a graphics scene (QGraphicsSceneWheelEvent).
     \value Hide                             Widget was hidden (QHideEvent).
     \value HideToParent                     A child widget has been hidden.
     \value HoverEnter                       The mouse cursor enters a hover widget (QHoverEvent).
@@ -250,7 +251,7 @@ QT_BEGIN_NAMESPACE
     \value WindowStateChange                The \l{QWindow::windowState()}{window's state} (minimized, maximized or full-screen) has changed (QWindowStateChangeEvent).
     \value WindowTitleChange                The window title has changed.
     \value WindowUnblocked                  The window is unblocked after a modal dialog exited.
-    \value WinIdChange                      The window system identifer for this native widget has changed.
+    \value WinIdChange                      The window system identifier for this native widget has changed.
     \value ZOrderChange                     The widget's z-order has changed. This event is never sent to top level windows.
 
     User events should have values between \c User and \c{MaxUser}:
@@ -283,7 +284,6 @@ QT_BEGIN_NAMESPACE
     \omitvalue ApplicationDeactivate
     \omitvalue ApplicationDeactivated
     \omitvalue MacGLWindowChange
-    \omitvalue MacGLClearDrawable
     \omitvalue NetworkReplyUpdated
     \omitvalue FutureCallOut
     \omitvalue NativeGesture
@@ -292,50 +292,55 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
-    Contructs an event object of type \a type.
+    Constructs an event object of type \a type.
 */
 QEvent::QEvent(Type type)
-    : d(nullptr), t(type), posted(false), spont(false), m_accept(true)
+    : t(type), m_reserved(0),
+      m_inputEvent(false), m_pointerEvent(false), m_singlePointEvent(false)
 {
     Q_TRACE(QEvent_ctor, this, t);
 }
 
 /*!
+    \fn QEvent::QEvent(const QEvent &other)
+    \internal
+    Copies the \a other event.
+*/
+
+/*!
+    \internal
+    \since 6.0
+    \fn QEvent::QEvent(Type type, QEvent::InputEventTag)
+
+    Constructs an event object of type \a type, setting the inputEvent flag to \c true.
+*/
+
+/*!
+    \internal
+    \since 6.0
+    \fn QEvent::QEvent(Type type, QEvent::PointerEventTag)
+
+    Constructs an event object of type \a type, setting the pointerEvent and
+    inputEvent flags to \c true.
+*/
+
+/*!
+    \internal
+    \since 6.0
+    \fn QEvent::QEvent(Type type, QEvent::SinglePointEventTag)
+
+    Constructs an event object of type \a type, setting the singlePointEvent,
+    pointerEvent and inputEvent flags to \c true.
+*/
+
+/*!
+    \fn QEvent &QEvent::operator=(const QEvent &other)
     \internal
     Attempts to copy the \a other event.
 
     Copying events is a bad idea, yet some Qt 4 code does it (notably,
     QApplication and the state machine).
  */
-QEvent::QEvent(const QEvent &other)
-    : d(other.d), t(other.t), posted(other.posted), spont(other.spont),
-      m_accept(other.m_accept)
-{
-    Q_TRACE(QEvent_ctor, this, t);
-    // if QEventPrivate becomes available, make sure to implement a
-    // virtual QEventPrivate *clone() const; function so we can copy here
-    Q_ASSERT_X(!d, "QEvent", "Impossible, this can't happen: QEventPrivate isn't defined anywhere");
-}
-
-/*!
-    \internal
-    Attempts to copy the \a other event.
-
-    Copying events is a bad idea, yet some Qt 4 code does it (notably,
-    QApplication and the state machine).
- */
-QEvent &QEvent::operator=(const QEvent &other)
-{
-    // if QEventPrivate becomes available, make sure to implement a
-    // virtual QEventPrivate *clone() const; function so we can copy here
-    Q_ASSERT_X(!other.d, "QEvent", "Impossible, this can't happen: QEventPrivate isn't defined anywhere");
-
-    t = other.t;
-    posted = other.posted;
-    spont = other.spont;
-    m_accept = other.m_accept;
-    return *this;
-}
 
 /*!
     Destroys the event. If it was \l{QCoreApplication::postEvent()}{posted},
@@ -344,16 +349,20 @@ QEvent &QEvent::operator=(const QEvent &other)
 
 QEvent::~QEvent()
 {
-    Q_TRACE(QEvent_dtor, this, t);
-    if (posted && QCoreApplication::instance())
+    if (m_posted && QCoreApplication::instance())
         QCoreApplicationPrivate::removePostedEvent(this);
-    Q_ASSERT_X(!d, "QEvent", "Impossible, this can't happen: QEventPrivate isn't defined anywhere");
 }
 
+/*!
+    Creates and returns an identical copy of this event.
+    \since 6.0
+*/
+QEvent *QEvent::clone() const
+{ return new QEvent(*this); }
 
 /*!
     \property  QEvent::accepted
-    the accept flag of the event object
+    \brief the accept flag of the event object.
 
     Setting the accept parameter indicates that the event receiver
     wants the event. Unwanted events might be propagated to the parent
@@ -362,6 +371,10 @@ QEvent::~QEvent()
 
     For convenience, the accept flag can also be set with accept(),
     and cleared with ignore().
+
+    \note Accepting a QPointerEvent implicitly
+    \l {QEventPoint::setAccepted()}{accepts} all the
+    \l {QPointerEvent::points()}{points} that the event carries.
 */
 
 /*!
@@ -403,8 +416,29 @@ QEvent::~QEvent()
 
     Returns \c true if the event originated outside the application (a
     system event); otherwise returns \c false.
+*/
 
-    The return value of this function is not defined for paint events.
+/*!
+    \fn bool QEvent::isInputEvent() const
+    \since 6.0
+
+    Returns \c true if the event object is a QInputEvent or one of its
+    subclasses.
+*/
+
+/*!
+    \fn bool QEvent::isPointerEvent() const
+    \since 6.0
+
+    Returns \c true if the event object is a QPointerEvent or one of its
+    subclasses.
+*/
+
+/*!
+    \fn bool QEvent::isSinglePointEvent() const
+    \since 6.0
+
+    Returns \c true if the event object is a subclass of QSinglePointEvent.
 */
 
 namespace {

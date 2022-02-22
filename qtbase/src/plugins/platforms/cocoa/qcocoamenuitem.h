@@ -100,7 +100,7 @@ public:
 #ifndef QT_NO_SHORTCUT
     void setShortcut(const QKeySequence& shortcut) override;
 #endif
-    void setCheckable(bool checkable) override { Q_UNUSED(checkable) }
+    void setCheckable(bool) override {}
     void setChecked(bool isChecked) override;
     void setEnabled(bool isEnabled) override;
     void setIconSize(int size) override;
@@ -117,6 +117,7 @@ public:
     inline bool isMerged() const { return m_merged; }
     inline bool isEnabled() const { return m_enabled && m_parentEnabled; }
     inline bool isSeparator() const { return m_isSeparator; }
+    inline bool isVisible() const { return m_isVisible; }
 
     QCocoaMenu *menu() const { return m_menu; }
     MenuRole effectiveRole() const;

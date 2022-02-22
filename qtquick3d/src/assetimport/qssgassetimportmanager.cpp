@@ -43,10 +43,14 @@ QSSGAssetImportManager::QSSGAssetImportManager(QObject *parent) : QObject(parent
     const QStringList keys = QSSGAssetImporterFactory::keys();
     for (const auto &key : keys) {
         auto importer = QSSGAssetImporterFactory::create(key, QStringList());
-        m_assetImporters.append(importer);
-        // Add to extension map
-        for (const auto &extension : importer->inputExtensions()) {
-            m_extensionsMap.insert(extension, importer);
+        if (importer) {
+            m_assetImporters.append(importer);
+            // Add to extension map
+            for (const auto &extension : importer->inputExtensions()) {
+                m_extensionsMap.insert(extension, importer);
+            }
+        } else {
+            qWarning() << "Failed to load asset import plugin with key: " << key;
         }
     }
 }
@@ -107,6 +111,30 @@ QSSGAssetImportManager::ImportState QSSGAssetImportManager::importFile(const QSt
     return ImportState::Success;
 }
 
+QSSGAssetImportManager::ImportState QSSGAssetImportManager::importFile(const QUrl &url,
+                                                                       QSSGSceneDesc::Scene &scene,
+                                                                       QString *error)
+{
+    auto it = m_assetImporters.cbegin();
+    const auto end = m_assetImporters.cend();
+    for (; it != end; ++it) {
+        if ((*it)->name() == QLatin1String("assimp"))
+            break;
+    }
+
+    if (it != end) {
+        const auto &importer = *it;
+        const auto ret = importer->import(url, QVariantMap(), scene);
+        if (!ret.isEmpty()) {
+            if (error)
+                *error = ret;
+            return ImportState::IoError;
+        }
+    }
+
+    return ImportState::Success;
+}
+
 QVariantMap QSSGAssetImportManager::getOptionsForFile(const QString &filename)
 {
     QFileInfo fileInfo(filename);
@@ -129,7 +157,7 @@ QHash<QString, QVariantMap> QSSGAssetImportManager::getAllOptions() const
 {
     QHash<QString, QVariantMap> options;
     for (const auto importer : m_assetImporters)
-        options.insert(importer->inputExtensions().join(':'), importer->importOptions());
+        options.insert(importer->inputExtensions().join(QChar::fromLatin1(':')), importer->importOptions());
     return options;
 }
 
@@ -139,6 +167,24 @@ QHash<QString, QStringList> QSSGAssetImportManager::getSupportedExtensions() con
     for (const auto importer : qAsConst(m_assetImporters))
         extensionMap.insert(importer->typeDescription(), importer->inputExtensions());
     return extensionMap;
+}
+
+QList<QSSGAssetImporterPluginInfo> QSSGAssetImportManager::getImporterPluginInfos() const
+{
+    QList<QSSGAssetImporterPluginInfo> output;
+
+    for (const QSSGAssetImporter *importer : m_assetImporters) {
+        QSSGAssetImporterPluginInfo plugin;
+        plugin.name = importer->name();
+        plugin.inputExtensions = importer->inputExtensions();
+        plugin.outputExtension = importer->outputExtension();
+        plugin.type = importer->type();
+        plugin.importOptions = importer->importOptions();
+        plugin.typeDescription = importer->typeDescription();
+        output.push_back(plugin);
+    }
+
+    return output;
 }
 
 QT_END_NAMESPACE

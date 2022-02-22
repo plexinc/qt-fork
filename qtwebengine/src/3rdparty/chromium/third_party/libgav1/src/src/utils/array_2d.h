@@ -113,13 +113,14 @@ class Array2D {
   int columns() const { return data_view_.columns(); }
   size_t size() const { return size_; }
   T* data() { return data_.get(); }
+  const T* data() const { return data_.get(); }
 
   T* operator[](int row) { return data_view_[row]; }
 
   const T* operator[](int row) const { return data_view_[row]; }
 
  private:
-  std::unique_ptr<T[]> data_ = nullptr;
+  std::unique_ptr<T[]> data_;
   size_t allocated_size_ = 0;
   size_t size_ = 0;
   Array2DView<T> data_view_;

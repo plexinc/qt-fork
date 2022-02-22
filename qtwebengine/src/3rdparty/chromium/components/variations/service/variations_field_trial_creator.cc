@@ -26,6 +26,7 @@
 #include "base/trace_event/trace_event.h"
 #include "base/version.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/language/core/browser/locale_util.h"
 #include "components/prefs/pref_service.h"
 #include "components/variations/field_trial_config/field_trial_util.h"
@@ -36,7 +37,7 @@
 #include "components/variations/service/safe_seed_manager.h"
 #include "components/variations/service/variations_service.h"
 #include "components/variations/service/variations_service_client.h"
-#include "components/variations/variations_http_header_provider.h"
+#include "components/variations/variations_ids_provider.h"
 #include "components/variations/variations_seed_processor.h"
 #include "components/variations/variations_switches.h"
 #include "ui/base/device_form_factor.h"
@@ -56,21 +57,6 @@ enum VariationsSeedExpiry {
   VARIATIONS_SEED_EXPIRY_ENUM_SIZE,
 };
 
-// Gets current form factor and converts it from enum DeviceFormFactor to enum
-// Study_FormFactor.
-Study::FormFactor GetCurrentFormFactor() {
-  switch (ui::GetDeviceFormFactor()) {
-    case ui::DEVICE_FORM_FACTOR_PHONE:
-      return Study::PHONE;
-    case ui::DEVICE_FORM_FACTOR_TABLET:
-      return Study::TABLET;
-    case ui::DEVICE_FORM_FACTOR_DESKTOP:
-      return Study::DESKTOP;
-  }
-  NOTREACHED();
-  return Study::DESKTOP;
-}
-
 // Returns the date that should be used by the VariationsSeedProcessor to do
 // expiry and start date checks.
 base::Time GetReferenceDateForExpiryChecks(PrefService* local_state) {
@@ -82,28 +68,6 @@ base::Time GetReferenceDateForExpiryChecks(PrefService* local_state) {
   if (seed_date.is_null() || seed_date < build_time)
     reference_date = build_time;
   return reference_date;
-}
-
-// TODO(b/957197): Improve how we handle OS versions.
-// Add os_version.h and os_version_<platform>.cc that handle retrieving and
-// parsing OS versions. Then get rid of all the platform-dependent code here.
-base::Version GetOSVersion() {
-  base::Version ret;
-
-#if defined(OS_WIN)
-  std::string win_version = base::SysInfo::OperatingSystemVersion();
-  base::ReplaceSubstringsAfterOffset(&win_version, 0, " SP", ".");
-  ret = base::Version(win_version);
-  DCHECK(ret.IsValid()) << win_version;
-#else
-  // Every other OS is supported by OperatingSystemVersionNumbers
-  int major, minor, build;
-  base::SysInfo::OperatingSystemVersionNumbers(&major, &minor, &build);
-  ret = base::Version(base::StringPrintf("%d.%d.%d", major, minor, build));
-  DCHECK(ret.IsValid());
-#endif
-
-  return ret;
 }
 
 // Just maps one set of enum values to another. Nothing to see here.
@@ -157,6 +121,29 @@ RestrictionPolicy GetVariationPolicyRestriction(PrefService* local_state) {
   return static_cast<RestrictionPolicy>(value);
 }
 
+Study::CpuArchitecture GetCurrentCpuArchitecture() {
+  std::string process_arch = base::SysInfo::ProcessCPUArchitecture();
+  if (process_arch == "ARM_64")
+    return Study::ARM64;
+  if (process_arch == "ARM")
+    return Study::ARM32;
+  if (process_arch == "x86")
+    return Study::X86_32;
+  if (process_arch == "x86_64") {
+    std::string os_arch = base::SysInfo::OperatingSystemArchitecture();
+    if (base::StartsWith(os_arch, "arm",
+                         base::CompareCase::INSENSITIVE_ASCII) ||
+        base::EqualsCaseInsensitiveASCII(os_arch, "aarch64")) {
+      // x86-64 binary running on an arm64 host via the Rosetta 2 binary
+      // translator.
+      return Study::TRANSLATED_X86_64;
+    }
+    return Study::X86_64;
+  }
+  NOTREACHED();
+  return Study::X86_64;
+}
+
 }  // namespace
 
 VariationsFieldTrialCreator::VariationsFieldTrialCreator(
@@ -185,8 +172,7 @@ std::string VariationsFieldTrialCreator::GetLatestCountry() const {
 }
 
 bool VariationsFieldTrialCreator::CreateTrialsFromSeed(
-    std::unique_ptr<const base::FieldTrial::EntropyProvider>
-        low_entropy_provider,
+    const base::FieldTrial::EntropyProvider* low_entropy_provider,
     base::FeatureList* feature_list,
     SafeSeedManager* safe_seed_manager) {
   TRACE_EVENT0("startup", "VariationsFieldTrialCreator::CreateTrialsFromSeed");
@@ -228,7 +214,7 @@ bool VariationsFieldTrialCreator::CreateTrialsFromSeed(
       seed, *client_filterable_state,
       base::BindRepeating(&VariationsFieldTrialCreator::OverrideUIString,
                           base::Unretained(this)),
-      low_entropy_provider.get(), feature_list);
+      low_entropy_provider, feature_list);
 
   // Store into the |safe_seed_manager| the combined server and client data used
   // to create the field trials. But, as an optimization, skip this step when
@@ -257,12 +243,16 @@ VariationsFieldTrialCreator::GetClientFilterableStateForVersion(
   state->locale = application_locale_;
   state->reference_date = GetReferenceDateForExpiryChecks(local_state());
   state->version = version;
-  state->os_version = GetOSVersion();
+  state->os_version = ClientFilterableState::GetOSVersion();
   state->channel =
       ConvertProductChannelToStudyChannel(client_->GetChannelForVariations());
-  state->form_factor = GetCurrentFormFactor();
+  state->form_factor = client_->GetCurrentFormFactor();
+  state->cpu_architecture = GetCurrentCpuArchitecture();
   state->platform = GetPlatform();
-  state->hardware_class = GetShortHardwareClass();
+  // TODO(crbug/1111131): Expand to other platforms.
+#if BUILDFLAG(IS_CHROMEOS_ASH) || defined(OS_ANDROID)
+  state->hardware_class = base::SysInfo::HardwareModelName();
+#endif
 #if defined(OS_ANDROID)
   // This is set on Android only currently, because the IsLowEndDevice() API
   // on other platforms has no intrinsic meaning outside of a field trial that
@@ -396,24 +386,6 @@ void VariationsFieldTrialCreator::OverrideCachedUIStrings() {
   overridden_strings_map_.clear();
 }
 
-// static
-std::string VariationsFieldTrialCreator::GetShortHardwareClass() {
-#if defined(OS_CHROMEOS)
-  std::string board = base::SysInfo::GetLsbReleaseBoard();
-  // GetLsbReleaseBoard() may be suffixed with a "-signed-" and other extra
-  // info. Strip it.
-  const size_t index = board.find("-signed-");
-  if (index != std::string::npos)
-    board.resize(index);
-
-  return base::ToUpperASCII(board);
-#elif defined(OS_ANDROID)
-  return base::SysInfo::HardwareModelName();
-#else
-  return std::string();
-#endif
-}
-
 bool VariationsFieldTrialCreator::LoadSeed(VariationsSeed* seed,
                                            std::string* seed_data,
                                            std::string* base64_signature) {
@@ -463,14 +435,14 @@ bool VariationsFieldTrialCreator::SetupFieldTrials(
     const char* kEnableGpuBenchmarking,
     const char* kEnableFeatures,
     const char* kDisableFeatures,
-    const std::set<std::string>& unforceable_field_trials,
     const std::vector<std::string>& variation_ids,
     const std::vector<base::FeatureList::FeatureOverrideInfo>& extra_overrides,
     std::unique_ptr<const base::FieldTrial::EntropyProvider>
         low_entropy_provider,
     std::unique_ptr<base::FeatureList> feature_list,
     PlatformFieldTrials* platform_field_trials,
-    SafeSeedManager* safe_seed_manager) {
+    SafeSeedManager* safe_seed_manager,
+    base::Optional<int> low_entropy_source_value) {
   const base::CommandLine* command_line =
       base::CommandLine::ForCurrentProcess();
   if (command_line->HasSwitch(switches::kEnableBenchmarking) ||
@@ -497,32 +469,33 @@ bool VariationsFieldTrialCreator::SetupFieldTrials(
     // Create field trials without activating them, so that this behaves in a
     // consistent manner with field trials created from the server.
     bool result = base::FieldTrialList::CreateTrialsFromString(
-        command_line->GetSwitchValueASCII(::switches::kForceFieldTrials),
-        unforceable_field_trials);
+        command_line->GetSwitchValueASCII(::switches::kForceFieldTrials));
     if (!result) {
       ExitWithMessage(base::StringPrintf("Invalid --%s list specified.",
                                          ::switches::kForceFieldTrials));
     }
   }
 
-  VariationsHttpHeaderProvider* http_header_provider =
-      VariationsHttpHeaderProvider::GetInstance();
+  VariationsIdsProvider* http_header_provider =
+      VariationsIdsProvider::GetInstance();
+  http_header_provider->SetLowEntropySourceValue(low_entropy_source_value);
   // Force the variation ids selected in chrome://flags and/or specified using
   // the command-line flag.
   auto result = http_header_provider->ForceVariationIds(
       variation_ids,
       command_line->GetSwitchValueASCII(switches::kForceVariationIds));
+
   switch (result) {
-    case VariationsHttpHeaderProvider::ForceIdsResult::INVALID_SWITCH_ENTRY:
+    case VariationsIdsProvider::ForceIdsResult::INVALID_SWITCH_ENTRY:
       ExitWithMessage(base::StringPrintf("Invalid --%s list specified.",
                                          switches::kForceVariationIds));
       break;
-    case VariationsHttpHeaderProvider::ForceIdsResult::INVALID_VECTOR_ENTRY:
+    case VariationsIdsProvider::ForceIdsResult::INVALID_VECTOR_ENTRY:
       // It should not be possible to have invalid variation ids from the
       // vector param (which corresponds to chrome://flags).
       NOTREACHED();
       break;
-    case VariationsHttpHeaderProvider::ForceIdsResult::SUCCESS:
+    case VariationsIdsProvider::ForceIdsResult::SUCCESS:
       break;
   }
 
@@ -554,18 +527,18 @@ bool VariationsFieldTrialCreator::SetupFieldTrials(
     AssociateDefaultFieldTrialConfig(
         base::BindRepeating(&VariationsFieldTrialCreator::OverrideUIString,
                             base::Unretained(this)),
-        GetPlatform(), feature_list.get());
+        GetPlatform(), client_->GetCurrentFormFactor(), feature_list.get());
     used_testing_config = true;
   }
 #endif  // BUILDFLAG(FIELDTRIAL_TESTING_ENABLED)
   bool used_seed = false;
   if (!used_testing_config) {
-    used_seed = CreateTrialsFromSeed(std::move(low_entropy_provider),
+    used_seed = CreateTrialsFromSeed(low_entropy_provider.get(),
                                      feature_list.get(), safe_seed_manager);
   }
 
-  platform_field_trials->SetupFeatureControllingFieldTrials(used_seed,
-                                                            feature_list.get());
+  platform_field_trials->SetupFeatureControllingFieldTrials(
+      used_seed, low_entropy_provider.get(), feature_list.get());
 
   base::FeatureList::SetInstance(std::move(feature_list));
 

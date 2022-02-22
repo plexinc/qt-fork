@@ -25,31 +25,64 @@
 
 import * as Common from '../common/common.js';
 import * as DataGrid from '../data_grid/data_grid.js';
+import * as i18n from '../i18n/i18n.js';
 import * as UI from '../ui/ui.js';
 
-/**
- * @unrestricted
- */
+import {Database, DatabaseModel, Events as DatabaseModelEvents} from './DatabaseModel.js';  // eslint-disable-line no-unused-vars
+
+export const UIStrings = {
+  /**
+  *@description Text in Database Table View of the Application panel
+  */
+  database: 'Database',
+  /**
+  *@description Text to refresh the page
+  */
+  refresh: 'Refresh',
+  /**
+  *@description Text in Database Table View of the Application panel
+  */
+  visibleColumns: 'Visible columns',
+  /**
+  *@description Text in Database Table View of the Application panel
+  *@example {database} PH1
+  */
+  theStableIsEmpty: 'The "{PH1}" table is empty.',
+  /**
+  *@description Error msg element text content in Database Table View of the Application panel
+  *@example {database} PH1
+  */
+  anErrorOccurredTryingToreadTheS: 'An error occurred trying to read the "{PH1}" table.',
+};
+const str_ = i18n.i18n.registerUIStrings('resources/DatabaseTableView.js', UIStrings);
+const i18nString = i18n.i18n.getLocalizedString.bind(undefined, str_);
 export class DatabaseTableView extends UI.View.SimpleView {
+  /**
+   * @param {!Database} database
+   * @param {string} tableName
+   */
   constructor(database, tableName) {
-    super(Common.UIString.UIString('Database'));
+    super(i18nString(UIStrings.database));
 
     this.database = database;
     this.tableName = tableName;
+    this._lastVisibleColumns = '';
+    /** @type {!Map<string, string>} */
+    this._columnsMap = new Map();
 
     this.element.classList.add('storage-view', 'table');
 
     this._visibleColumnsSetting =
         Common.Settings.Settings.instance().createSetting('databaseTableViewVisibleColumns', {});
 
-    this.refreshButton = new UI.Toolbar.ToolbarButton(Common.UIString.UIString('Refresh'), 'largeicon-refresh');
+    this.refreshButton = new UI.Toolbar.ToolbarButton(i18nString(UIStrings.refresh), 'largeicon-refresh');
     this.refreshButton.addEventListener(UI.Toolbar.ToolbarButton.Events.Click, this._refreshButtonClicked, this);
-    this._visibleColumnsInput = new UI.Toolbar.ToolbarInput(Common.UIString.UIString('Visible columns'), '', 1);
+    this._visibleColumnsInput = new UI.Toolbar.ToolbarInput(i18nString(UIStrings.visibleColumns), '', 1);
     this._visibleColumnsInput.addEventListener(
         UI.Toolbar.ToolbarInput.Event.TextChanged, this._onVisibleColumnsChanged, this);
 
-    /** @type {?DataGrid.DataGrid.DataGridImpl} */
-    this._dataGrid;
+    /** @type {?DataGrid.SortableDataGrid.SortableDataGrid<!DataGrid.SortableDataGrid.SortableDataGridNode<*>>} */
+    this._dataGrid = null;
   }
 
   /**
@@ -81,14 +114,20 @@ export class DatabaseTableView extends UI.View.SimpleView {
         this._queryError.bind(this));
   }
 
+  /**
+   *
+   * @param {!Array<string>} columnNames
+   * @param {!Array<*>} values
+   */
   _queryFinished(columnNames, values) {
     this.detachChildWidgets();
     this.element.removeChildren();
 
-    this._dataGrid = DataGrid.SortableDataGrid.SortableDataGrid.create(columnNames, values, ls`Database`);
-    this._visibleColumnsInput.setVisible(!!this._dataGrid);
+    this._dataGrid =
+        DataGrid.SortableDataGrid.SortableDataGrid.create(columnNames, values, i18nString(UIStrings.database));
+    this._visibleColumnsInput.setVisible(Boolean(this._dataGrid));
     if (!this._dataGrid) {
-      this._emptyWidget = new UI.EmptyWidget.EmptyWidget(ls`The "${this.tableName}"\ntable is empty.`);
+      this._emptyWidget = new UI.EmptyWidget.EmptyWidget(i18nString(UIStrings.theStableIsEmpty, {PH1: this.tableName}));
       this._emptyWidget.show(this.element);
       return;
     }
@@ -96,7 +135,7 @@ export class DatabaseTableView extends UI.View.SimpleView {
     this._dataGrid.asWidget().show(this.element);
     this._dataGrid.autoSizeColumns(5);
 
-    this._columnsMap = new Map();
+    this._columnsMap.clear();
     for (let i = 1; i < columnNames.length; ++i) {
       this._columnsMap.set(columnNames[i], String(i));
     }
@@ -113,19 +152,19 @@ export class DatabaseTableView extends UI.View.SimpleView {
     const text = this._visibleColumnsInput.value();
     const parts = text.split(/[\s,]+/);
     const matches = new Set();
-    const columnsVisibility = {};
-    columnsVisibility['0'] = true;
-    for (let i = 0; i < parts.length; ++i) {
-      const part = parts[i];
-      if (this._columnsMap.has(part)) {
+    const columnsVisibility = new Set();
+    columnsVisibility.add('0');
+    for (const part of parts) {
+      const mappedColumn = this._columnsMap.get(part);
+      if (mappedColumn !== undefined) {
         matches.add(part);
-        columnsVisibility[this._columnsMap.get(part)] = true;
+        columnsVisibility.add(mappedColumn);
       }
     }
     const newVisibleColumns = [...matches].sort().join(', ');
     if (newVisibleColumns.length === 0) {
       for (const v of this._columnsMap.values()) {
-        columnsVisibility[v] = true;
+        columnsVisibility.add(v);
       }
     }
     if (newVisibleColumns === this._lastVisibleColumns) {
@@ -138,13 +177,13 @@ export class DatabaseTableView extends UI.View.SimpleView {
     this._lastVisibleColumns = newVisibleColumns;
   }
 
-  _queryError(error) {
+  _queryError() {
     this.detachChildWidgets();
     this.element.removeChildren();
 
-    const errorMsgElement = createElement('div');
+    const errorMsgElement = document.createElement('div');
     errorMsgElement.className = 'storage-table-error';
-    errorMsgElement.textContent = ls`An error occurred trying to\nread the "${this.tableName}" table.`;
+    errorMsgElement.textContent = i18nString(UIStrings.anErrorOccurredTryingToreadTheS, {PH1: this.tableName});
     this.element.appendChild(errorMsgElement);
   }
 

@@ -43,17 +43,15 @@
 #include "datavisualizationglobal_p.h"
 #include <QtGui/QVector2D>
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 class MeshLoader
 {
     public:
-    static bool loadOBJ(const QString &path,
-                        QVector<QVector3D> &out_vertices,
-                        QVector<QVector2D> &out_uvs,
-                        QVector<QVector3D> &out_normals);
+        static bool loadOBJ(const QString &path, QList<QVector3D> &out_vertices,
+                            QList<QVector2D> &out_uvs, QList<QVector3D> &out_normals);
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

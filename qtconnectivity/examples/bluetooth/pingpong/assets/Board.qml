@@ -52,9 +52,102 @@ import QtQuick 2.0
 import QtQuick.Window 2.1
 
 Rectangle {
-    id: board
-    width: 600
-    height: 300
+    id: fullWindow
+    anchors.fill: parent
+    color: "black"
+
+    property double scaleFactor: Math.min(width, height)
+
+    Rectangle {
+        id: board
+        width: scaleFactor
+        height: scaleFactor
+        anchors.centerIn: parent
+
+        // Left pedal - server role
+        Rectangle {
+            id: leftblock
+            y: (parent.height/2)
+            width: (parent.width/27)
+            height: (parent.height/5)
+            anchors.left: parent.left
+            color: "#363636"
+            radius: width/2
+
+            MouseArea {
+                id: leftMouse
+                width: (board.width/2)
+                height: parent.height
+                anchors.horizontalCenter: parent.horizontalCenter
+                acceptedButtons: Qt.LeftButton
+                drag.target: leftblock
+                drag.axis: Drag.YAxis
+                drag.minimumY: 0
+                drag.maximumY: (board.height - leftblock.height)
+            }
+        }
+
+        // Right pedal - client role
+        Rectangle {
+            id: rightblock
+            y: (parent.height/2)
+            width: (parent.width/27)
+            height: (parent.height/5)
+            anchors.right: parent.right
+            color: "#363636"
+            radius: width/2
+
+            MouseArea {
+                id: rightMouse
+                width: (board.width/2)
+                height: parent.height
+                anchors.horizontalCenter: parent.horizontalCenter
+                acceptedButtons: Qt.LeftButton
+                drag.target: rightblock
+                drag.axis: Drag.YAxis
+                drag.minimumY: 0
+                drag.maximumY: (board.height - rightblock.height)
+            }
+        }
+
+        Rectangle {
+            id: splitter
+            color: "#363636"
+            anchors.horizontalCenter: parent.horizontalCenter
+            height: parent.height
+            width: parent.width/100
+        }
+
+        Text {
+            id: leftResult
+            text: pingPong.leftResult
+            font.bold: true
+            font.pixelSize: 30
+            anchors.right: splitter.left
+            anchors.top: parent.top
+            anchors.margins: 15
+        }
+
+        Text {
+            id: rightResult
+            text: pingPong.rightResult
+            font.bold: true
+            font.pixelSize: 30
+            anchors.left: splitter.right
+            anchors.top: parent.top
+            anchors.margins: 15
+        }
+
+        Rectangle {
+            id: ball
+            width: leftblock.width
+            height: leftblock.width
+            radius: width/2
+            color: "#363636"
+            x: pingPong.ballX * scaleFactor
+            y: pingPong.ballY * scaleFactor
+        }
+    }
 
     // 1 - server role; left pedal
     // 2 - client role; right pedal
@@ -81,110 +174,21 @@ Rectangle {
         }
     }
 
-    // Left pedal - server role
-    Rectangle {
-        id: leftblock
-        y: (parent.height/2)
-        width: (parent.width/27)
-        height: (parent.height/5)
-        anchors.left: parent.left
-        color: "#363636"
-        radius: 10
-
-        MouseArea {
-            id: leftMouse
-            anchors.fill: parent
-            acceptedButtons: Qt.LeftButton
-            drag.target: leftblock
-            drag.axis: Drag.YAxis
-            drag.minimumY: 0
-            drag.maximumY: (board.height - leftblock.height)
-        }
-    }
-
-    // Right pedal - client role
-    Rectangle {
-        id: rightblock
-        y: (parent.height/2)
-        width: (parent.width/27)
-        height: (parent.height/5)
-        anchors.right: parent.right
-        color: "#363636"
-        radius: 10
-
-        MouseArea {
-            id: rightMouse
-            anchors.fill: parent
-            acceptedButtons: Qt.LeftButton
-            drag.target: rightblock
-            drag.axis: Drag.YAxis
-            drag.minimumY: 0
-            drag.maximumY: (board.height - rightblock.height)
-        }
-    }
-
     property double leftBlockY: leftblock.y
-    onLeftBlockYChanged: pingPong.updateLeftBlock(leftblock.y)
+    onLeftBlockYChanged: pingPong.updateLeftBlock(leftblock.y / scaleFactor)
 
     property double leftBlockUpdate: pingPong.leftBlockY
-    onLeftBlockUpdateChanged: leftblock.y = pingPong.leftBlockY
+    onLeftBlockUpdateChanged: leftblock.y = pingPong.leftBlockY * scaleFactor
 
     property double rightBlockY: rightblock.y
-    onRightBlockYChanged: pingPong.updateRightBlock(rightblock.y)
+    onRightBlockYChanged: pingPong.updateRightBlock(rightblock.y / scaleFactor)
 
     property double rightBlockUpdate: pingPong.rightBlockY
-    onRightBlockUpdateChanged: rightblock.y = pingPong.rightBlockY
+    onRightBlockUpdateChanged: rightblock.y = pingPong.rightBlockY * scaleFactor
 
-    Rectangle {
-        id: splitter
-        color: "#363636"
-        anchors.horizontalCenter: parent.horizontalCenter
-        height: parent.height
-        width: parent.width/100
-    }
-
-    Text {
-        id: leftResult
-        text: pingPong.leftResult
-        font.bold: true
-        font.pixelSize: 30
-        anchors.right: splitter.left
-        anchors.top: parent.top
-        anchors.margins: 15
-    }
-
-    Text {
-        id: rightResult
-        text: pingPong.rightResult
-        font.bold: true
-        font.pixelSize: 30
-        anchors.left: splitter.right
-        anchors.top: parent.top
-        anchors.margins: 15
-    }
-
-    Rectangle {
-        id: ball
-        width: leftblock.width/2
-        height: leftblock.width/2
-        radius: width
-        color: "#363636"
-        x: pingPong.ballX
-        y: pingPong.ballY
-
-        SequentialAnimation {
-            running: true
-            NumberAnimation { target: ball; property: "x"; duration: 50 }
-            NumberAnimation { target: ball; property: "y"; duration: 50 }
-        }
-    }
 
     Component.onCompleted: {
-        if (menulist.height == Screen.height && menulist.width == Screen.width)
-            pingPong.setSize(Screen.width, Screen.height)
-        else
-            pingPong.setSize(board.width, board.height)
-        pingPong.updateLeftBlock(leftblock.y)
-        pingPong.updateRightBlock(rightblock.y)
+        pingPong.updateLeftBlock(leftblock.y / scaleFactor)
+        pingPong.updateRightBlock(rightblock.y / scaleFactor)
     }
 }

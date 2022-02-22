@@ -64,6 +64,9 @@
 #include <QKeyEvent>
 #include <QSharedPointer>
 
+#include <vector>
+#include <memory>
+
 QT_BEGIN_NAMESPACE
 
 namespace Qt3DRender {
@@ -74,7 +77,7 @@ namespace Render {
 class PickBoundingVolumeJobPrivate;
 
 namespace PickingUtils {
-typedef QVector<RayCasting::QCollisionQueryResult::Hit> HitList;
+typedef std::vector<RayCasting::QCollisionQueryResult::Hit> HitList;
 }
 
 class Q_3DRENDERSHARED_PRIVATE_EXPORT PickBoundingVolumeJob : public AbstractPickingJob
@@ -83,18 +86,18 @@ public:
     PickBoundingVolumeJob();
 
     void setRoot(Entity *root);
-    void setMouseEvents(const QList<QPair<QObject*, QMouseEvent>> &pendingEvents);
-    void setKeyEvents(const QList<QKeyEvent> &pendingEvents);
+    bool processMouseEvent(QObject* object, QMouseEvent *event);
     void markPickersDirty();
     bool pickersDirty() const { return m_pickersDirty; }
 
     // For unit tests
     inline HObjectPicker currentPicker() const { return m_currentPicker; }
-    inline QVector<HObjectPicker> hoveredPickers() const { return m_hoveredPickers; }
+    inline QList<HObjectPicker> hoveredPickers() const { return m_hoveredPickers; }
     bool runHelper() override;
 
 protected:
-    void dispatchPickEvents(const QMouseEvent &event,
+    void processPickEvent(const PickingUtils::PickConfiguration &pickConfiguration, QObject *object, const QMouseEvent *event);
+    void dispatchPickEvents(const QMouseEvent *event,
                             const PickingUtils::HitList &sphereHits,
                             QPickEvent::Buttons eventButton,
                             int eventButtons,
@@ -107,13 +110,13 @@ private:
 
     void clearPreviouslyHoveredPickers();
 
-    QList<QPair<QObject*, QMouseEvent>> m_pendingMouseEvents;
-    QList<QKeyEvent> m_pendingKeyEvents;
+    std::vector<std::pair<QObject*, std::unique_ptr<QMouseEvent>>> m_pendingMouseEvents;
     bool m_pickersDirty;
     bool m_oneHoverAtLeast;
     HObjectPicker m_currentPicker;
-    QVector<HObjectPicker> m_hoveredPickers;
-    QVector<HObjectPicker> m_hoveredPickersToClear;
+    Qt3DCore::QNodeId m_currentViewport;
+    QList<HObjectPicker> m_hoveredPickers;
+    QList<HObjectPicker> m_hoveredPickersToClear;
 };
 
 typedef QSharedPointer<PickBoundingVolumeJob> PickBoundingVolumeJobPtr;

@@ -42,7 +42,10 @@
 #include "qwidget.h"
 
 #include <QtGui/qwindow.h>
+#include <QtCore/qtestsupport_core.h>
+#include <QtCore/qthread.h>
 #include <QtGui/qtestsupport_gui.h>
+#include <QtGui/private/qevent_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -55,7 +58,7 @@ QT_BEGIN_NAMESPACE
 
     \sa qWaitForWindowExposed(), QWidget::isActiveWindow()
 */
-Q_WIDGETS_EXPORT Q_REQUIRED_RESULT bool QTest::qWaitForWindowActive(QWidget *widget, int timeout)
+Q_WIDGETS_EXPORT bool QTest::qWaitForWindowActive(QWidget *widget, int timeout)
 {
     if (QWindow *window = widget->window()->windowHandle())
         return QTest::qWaitForWindowActive(window, timeout);
@@ -80,33 +83,78 @@ Q_WIDGETS_EXPORT Q_REQUIRED_RESULT bool QTest::qWaitForWindowActive(QWidget *wid
 
     \sa qWaitForWindowActive()
 */
-Q_WIDGETS_EXPORT Q_REQUIRED_RESULT bool QTest::qWaitForWindowExposed(QWidget *widget, int timeout)
+Q_WIDGETS_EXPORT bool QTest::qWaitForWindowExposed(QWidget *widget, int timeout)
 {
     if (QWindow *window = widget->window()->windowHandle())
         return QTest::qWaitForWindowExposed(window, timeout);
     return false;
 }
 
-/*! \fn bool QTest::qWaitForWindowShown(QWidget *widget, int timeout)
-    \since 5.0
-    \deprecated
+namespace QTest {
 
-    Use qWaitForWindowExposed() instead.
+QTouchEventWidgetSequence::~QTouchEventWidgetSequence()
+{
+    if (commitWhenDestroyed)
+        commit();
+}
 
-    Waits for \a timeout milliseconds or until the \a widget's window is exposed.
-    Returns \c true if \c widget's window is exposed within \a timeout milliseconds, otherwise returns \c false.
+QTouchEventWidgetSequence& QTouchEventWidgetSequence::press(int touchId, const QPoint &pt, QWidget *widget)
+{
+    auto &p = QMutableEventPoint::from(point(touchId));
+    p.setGlobalPosition(mapToScreen(widget, pt));
+    p.setState(QEventPoint::State::Pressed);
+    return *this;
+}
+QTouchEventWidgetSequence& QTouchEventWidgetSequence::move(int touchId, const QPoint &pt, QWidget *widget)
+{
+    auto &p = QMutableEventPoint::from(point(touchId));
+    p.setGlobalPosition(mapToScreen(widget, pt));
+    p.setState(QEventPoint::State::Updated);
+    return *this;
+}
+QTouchEventWidgetSequence& QTouchEventWidgetSequence::release(int touchId, const QPoint &pt, QWidget *widget)
+{
+    auto &p = QMutableEventPoint::from(point(touchId));
+    p.setGlobalPosition(mapToScreen(widget, pt));
+    p.setState(QEventPoint::State::Released);
+    return *this;
+}
 
-    This function does the same as qWaitForWindowExposed().
+QTouchEventWidgetSequence& QTouchEventWidgetSequence::stationary(int touchId)
+{
+    auto &p = QMutableEventPoint::from(pointOrPreviousPoint(touchId));
+    p.setState(QEventPoint::State::Stationary);
+    return *this;
+}
 
-    Example:
+void QTouchEventWidgetSequence::commit(bool processEvents)
+{
+    if (points.isEmpty())
+        return;
+    QThread::msleep(1);
+    if (targetWindow) {
+        qt_handleTouchEvent(targetWindow, device, points.values());
+    } else if (targetWidget) {
+        qt_handleTouchEvent(targetWidget->windowHandle(), device, points.values());
+    }
+    if (processEvents)
+        QCoreApplication::processEvents();
+    previousPoints = points;
+    points.clear();
+}
 
-    \code
-        QWidget widget;
-        widget.show();
-        QTest::qWaitForWindowShown(&widget);
-    \endcode
+QTest::QTouchEventWidgetSequence::QTouchEventWidgetSequence(QWidget *widget, QPointingDevice *aDevice, bool autoCommit)
+    : QTouchEventSequence(nullptr, aDevice, autoCommit), targetWidget(widget)
+{
+}
 
-    \sa qWaitForWindowActive(), qWaitForWindowExposed()
-*/
+QPoint QTouchEventWidgetSequence::mapToScreen(QWidget *widget, const QPoint &pt)
+{
+    if (widget)
+        return widget->mapToGlobal(pt);
+    return targetWidget ? targetWidget->mapToGlobal(pt) : pt;
+}
+
+} // namespace QTest
 
 QT_END_NAMESPACE

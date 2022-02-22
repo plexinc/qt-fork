@@ -4,15 +4,15 @@
 #include "components/viz/common/skia_helper.h"
 #include "base/trace_event/trace_event.h"
 #include "cc/base/math_util.h"
-#include "third_party/skia/include/effects/SkColorFilterImageFilter.h"
 #include "third_party/skia/include/effects/SkColorMatrix.h"
+#include "third_party/skia/include/effects/SkImageFilters.h"
 #include "third_party/skia/include/effects/SkOverdrawColorFilter.h"
 #include "third_party/skia/include/gpu/GrBackendSurface.h"
-#include "third_party/skia/include/gpu/GrContext.h"
+#include "third_party/skia/include/gpu/GrRecordingContext.h"
 #include "ui/gfx/skia_util.h"
 
 namespace viz {
-sk_sp<SkImage> SkiaHelper::ApplyImageFilter(GrContext* context,
+sk_sp<SkImage> SkiaHelper::ApplyImageFilter(GrRecordingContext* context,
                                             sk_sp<SkImage> src_image,
                                             const gfx::RectF& src_rect,
                                             const gfx::RectF& dst_rect,
@@ -69,8 +69,7 @@ sk_sp<SkColorFilter> SkiaHelper::MakeOverdrawColorFilter() {
 sk_sp<SkImageFilter> SkiaHelper::BuildOpacityFilter(float opacity) {
   SkColorMatrix matrix;
   matrix.setScale(1.f, 1.f, 1.f, opacity);
-  return SkColorFilterImageFilter::Make(SkColorFilters::Matrix(matrix),
-                                        nullptr);
+  return SkImageFilters::ColorFilter(SkColorFilters::Matrix(matrix), nullptr);
 }
 
 }  // namespace viz

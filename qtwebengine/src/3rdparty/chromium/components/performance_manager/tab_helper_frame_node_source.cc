@@ -12,11 +12,11 @@
 namespace performance_manager {
 
 TabHelperFrameNodeSource::TabHelperFrameNodeSource()
-    : performance_manager_tab_helper_observers_(this) {}
+    : performance_manager_tab_helper_observations_(this) {}
 
 TabHelperFrameNodeSource::~TabHelperFrameNodeSource() {
   DCHECK(observed_frame_nodes_.empty());
-  DCHECK(!performance_manager_tab_helper_observers_.IsObservingSources());
+  DCHECK(!performance_manager_tab_helper_observations_.IsObservingAnySource());
 }
 
 FrameNodeImpl* TabHelperFrameNodeSource::GetFrameNode(
@@ -31,7 +31,8 @@ FrameNodeImpl* TabHelperFrameNodeSource::GetFrameNode(
   PerformanceManagerTabHelper* performance_manager_tab_helper =
       PerformanceManagerTabHelper::FromWebContents(
           content::WebContents::FromRenderFrameHost(render_frame_host));
-  DCHECK(performance_manager_tab_helper);
+  if (!performance_manager_tab_helper)
+    return nullptr;
 
   return performance_manager_tab_helper->GetFrameNode(render_frame_host);
 }
@@ -56,7 +57,7 @@ void TabHelperFrameNodeSource::SubscribeToFrameNode(
   if (AddObservedFrameNode(performance_manager_tab_helper, frame_node)) {
     // Start observing the tab helper only if this is the first observed frame
     // that is associated with it.
-    performance_manager_tab_helper_observers_.Add(
+    performance_manager_tab_helper_observations_.AddObservation(
         performance_manager_tab_helper);
   }
 
@@ -92,7 +93,7 @@ void TabHelperFrameNodeSource::UnsubscribeFromFrameNode(
   if (RemoveObservedFrameNode(performance_manager_tab_helper, frame_node)) {
     // Stop observing that tab helper if there no longer are any observed
     // frames that are associated with it.
-    performance_manager_tab_helper_observers_.Remove(
+    performance_manager_tab_helper_observations_.RemoveObservation(
         performance_manager_tab_helper);
   }
 }
@@ -115,7 +116,7 @@ void TabHelperFrameNodeSource::OnBeforeFrameNodeRemoved(
   if (RemoveObservedFrameNode(performance_manager_tab_helper, frame_node)) {
     // Stop observing that tab helper if there no longer are any observed
     // frames that are associated with it.
-    performance_manager_tab_helper_observers_.Remove(
+    performance_manager_tab_helper_observations_.RemoveObservation(
         performance_manager_tab_helper);
   }
 }

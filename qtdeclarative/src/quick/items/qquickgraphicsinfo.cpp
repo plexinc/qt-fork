@@ -38,9 +38,8 @@
 ****************************************************************************/
 
 #include "qquickgraphicsinfo_p.h"
-#include "qquickwindow.h"
-#include "qquickitem.h"
-#include <QtGui/qopenglcontext.h>
+#include <private/qquickitem_p.h>
+#include <qopenglcontext.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -51,10 +50,10 @@ QT_BEGIN_NAMESPACE
     \ingroup qtquick-visual
     \since 5.8
     \since QtQuick 2.8
-    \brief Provides information about the used Qt Quick backend.
+    \brief Provides information about the scenegraph backend and the graphics API used by Qt Quick.
 
     The GraphicsInfo attached type provides information about the scenegraph
-    backend used to render the contents of the associated window.
+    backend and the graphics API used to render the contents of the associated window.
 
     If the item to which the properties are attached is not currently
     associated with any window, the properties are set to default values. When
@@ -73,8 +72,10 @@ QQuickGraphicsInfo::QQuickGraphicsInfo(QQuickItem *item)
     , m_profile(OpenGLNoProfile)
     , m_renderableType(SurfaceFormatUnspecified)
 {
-    connect(item, SIGNAL(windowChanged(QQuickWindow*)), this, SLOT(setWindow(QQuickWindow*)));
-    setWindow(item->window());
+    if (Q_LIKELY(item)) {
+        connect(item, &QQuickItem::windowChanged, this, &QQuickGraphicsInfo::setWindow);
+        setWindow(item->window());
+    }
 }
 
 QQuickGraphicsInfo *QQuickGraphicsInfo::qmlAttachedProperties(QObject *object)
@@ -94,14 +95,12 @@ QQuickGraphicsInfo *QQuickGraphicsInfo::qmlAttachedProperties(QObject *object)
     \list
     \li GraphicsInfo.Unknown - the default value when no active scenegraph is associated with the item
     \li GraphicsInfo.Software - Qt Quick's software renderer based on QPainter with the raster paint engine
-    \li GraphicsInfo.OpenGL - OpenGL or OpenGL ES
-    \li GraphicsInfo.Direct3D12 - Direct3D 12
     \li GraphicsInfo.OpenVG - OpenVG
-    \li GraphicsInfo.OpenGLRhi - OpenGL on top of QRhi, a graphics abstraction layer
-    \li GraphicsInfo.Direct3D11Rhi - Direct3D 11 on top of QRhi, a graphics abstraction layer
-    \li GraphicsInfo.VulkanRhi - Vulkan on top of QRhi, a graphics abstraction layer
-    \li GraphicsInfo.MetalRhi - Metal on top of QRhi, a graphics abstraction layer
-    \li GraphicsInfo.NullRhi - Null (no output) on top of QRhi, a graphics abstraction layer
+    \li GraphicsInfo.OpenGL - OpenGL or OpenGL ES on top of QRhi, a graphics abstraction layer
+    \li GraphicsInfo.Direct3D11 - Direct3D 11 on top of QRhi, a graphics abstraction layer
+    \li GraphicsInfo.Vulkan - Vulkan on top of QRhi, a graphics abstraction layer
+    \li GraphicsInfo.Metal - Metal on top of QRhi, a graphics abstraction layer
+    \li GraphicsInfo.Null - Null (no output) on top of QRhi, a graphics abstraction layer
     \endlist
  */
 
@@ -196,6 +195,8 @@ QQuickGraphicsInfo *QQuickGraphicsInfo::qmlAttachedProperties(QObject *object)
 
     With OpenGL the default version is \c 2.0.
 
+    \note This is applicable only to OpenGL.
+
     \sa minorVersion, profile
  */
 
@@ -205,6 +206,8 @@ QQuickGraphicsInfo *QQuickGraphicsInfo::qmlAttachedProperties(QObject *object)
     This property holds the minor version of the graphics API in use.
 
     With OpenGL the default version is \c 2.0.
+
+    \note This is applicable only to OpenGL.
 
     \sa majorVersion, profile
  */
@@ -224,6 +227,8 @@ QQuickGraphicsInfo *QQuickGraphicsInfo::qmlAttachedProperties(QObject *object)
     Reusable QML components will typically use this property in bindings in order to
     choose between core and non core profile compatible shader sources.
 
+    \note This is applicable only to OpenGL.
+
     \sa majorVersion, minorVersion, QSurfaceFormat
  */
 
@@ -239,6 +244,8 @@ QQuickGraphicsInfo *QQuickGraphicsInfo::qmlAttachedProperties(QObject *object)
     \li GraphicsInfo.SurfaceFormatOpenGL - Desktop OpenGL or other graphics API
     \li GraphicsInfo.SurfaceFormatOpenGLES - OpenGL ES
     \endlist
+
+    \note This is applicable only to OpenGL.
 
     \sa QSurfaceFormat
  */
@@ -266,7 +273,7 @@ void QQuickGraphicsInfo::updateInfo()
     QSurfaceFormat format = QSurfaceFormat::defaultFormat();
 #if QT_CONFIG(opengl)
     if (m_window && m_window->isSceneGraphInitialized()) {
-        QOpenGLContext *context = m_window->openglContext();
+        QOpenGLContext *context = QQuickWindowPrivate::get(m_window)->openglContext();
         if (context)
             format = context->format();
     }

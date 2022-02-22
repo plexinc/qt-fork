@@ -46,6 +46,7 @@ const char kIPConfigs[] = "IPConfigs";
 const char kIPConfigTypeDHCP[] = "DHCP";
 const char kIPConfigTypeStatic[] = "Static";
 const char kMacAddress[] = "MacAddress";
+const char kMetered[] = "Metered";
 const char kNameServersConfigType[] = "NameServersConfigType";
 const char kName[] = "Name";
 const char kPriority[] = "Priority";
@@ -105,13 +106,13 @@ const char kActivationType[] = "ActivationType";
 const char kAllowRoaming[] = "AllowRoaming";
 const char kAPN[] = "APN";
 const char kAPNList[] = "APNList";
-const char kCarrier[] = "Carrier";
 const char kESN[] = "ESN";
 const char kFamily[] = "Family";
 const char kFirmwareRevision[] = "FirmwareRevision";
 const char kFoundNetworks[] = "FoundNetworks";
 const char kHardwareRevision[] = "HardwareRevision";
 const char kHomeProvider[] = "HomeProvider";
+const char kEID[] = "EID";
 const char kICCID[] = "ICCID";
 const char kIMEI[] = "IMEI";
 const char kIMSI[] = "IMSI";
@@ -222,7 +223,6 @@ const char kBSSID[] = "BSSID";
 const char kEAP[] = "EAP";
 const char kFrequency[] = "Frequency";
 const char kFrequencyList[] = "FrequencyList";
-const char kFTEnabled[] = "FTEnabled";
 const char kHexSSID[] = "HexSSID";
 const char kHiddenSSID[] = "HiddenSSID";
 const char kPassphrase[] = "Passphrase";
@@ -230,7 +230,6 @@ const char kSSID[] = "SSID";
 const char kSecurity[] = "Security";
 const char kSecurityNone[] = "None";
 const char kSignalStrength[] = "SignalStrength";
-const char kTetheringState[] = "TetheringState";
 const char kWEP_8021X[] = "WEP-8021X";
 const char kWEP_PSK[] = "WEP-PSK";
 const char kWPA_EAP[] = "WPA-EAP";
@@ -488,7 +487,8 @@ const char kAllowOnlyPolicyNetworksToConnect[] =
     "AllowOnlyPolicyNetworksToConnect";
 const char kAllowOnlyPolicyNetworksToConnectIfAvailable[] =
     "AllowOnlyPolicyNetworksToConnectIfAvailable";
-const char kBlacklistedHexSSIDs[] = "BlacklistedHexSSIDs";
+const char kBlacklistedHexSSIDs[] = "BlacklistedHexSSIDs";  // Deprecated
+const char kBlockedHexSSIDs[] = "BlockedHexSSIDs";
 const char kDisableNetworkTypes[] = "DisableNetworkTypes";
 }  // global_network_config
 
@@ -498,11 +498,5 @@ const char kDisabled[] = "Disabled";
 const char kEnabling[] = "Enabling";
 const char kEnabled[] = "Enabled";
 }  // device_state
-
-namespace tethering_state {
-const char kTetheringConfirmedState[] = "Confirmed";
-const char kTetheringNotDetectedState[] = "NotDetected";
-const char kTetheringSuspectedState[] = "Suspected";
-}  // namespace tethering_state
 
 }  // namespace onc

@@ -35,7 +35,7 @@
 #include <private/linearrowitem_p.h>
 #include <private/polarchartaxisradial_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 PolarChartAxisRadial::PolarChartAxisRadial(QAbstractAxis *axis, QGraphicsItem *item,
                                            bool intervalAxis)
@@ -49,7 +49,7 @@ PolarChartAxisRadial::~PolarChartAxisRadial()
 
 void PolarChartAxisRadial::updateGeometry()
 {
-    const QVector<qreal> &layout = this->layout();
+    const QList<qreal> &layout = this->layout();
     if (layout.isEmpty() && axis()->type() != QAbstractAxis::AxisTypeLogValue)
         return;
 
@@ -355,10 +355,10 @@ void PolarChartAxisRadial::updateMinorTickGeometry()
     if (!axis())
         return;
 
-    QVector<qreal> layout = ChartAxisElement::layout();
+    QList<qreal> layout = ChartAxisElement::layout();
     int minorTickCount = 0;
     qreal tickRadius = 0.0;
-    QVector<qreal> minorTickRadiuses;
+    QList<qreal> minorTickRadiuses;
     switch (axis()->type()) {
     case QAbstractAxis::AxisTypeValue: {
         const QValueAxis *valueAxis = qobject_cast<QValueAxis *>(axis());
@@ -381,7 +381,7 @@ void PolarChartAxisRadial::updateMinorTickGeometry()
 
         minorTickCount = logValueAxis->minorTickCount();
         if (minorTickCount < 0)
-            minorTickCount = qMax(int(qFloor(base) - 2.0), 0);
+            minorTickCount = qMax(qFloor(base) - 2, 0);
 
         // Two "virtual" ticks are required to make sure that all minor ticks
         // are displayed properly (even for the partially visible segments of
@@ -472,7 +472,7 @@ void PolarChartAxisRadial::updateMinorTickItems()
 
         int minorTickCount = logValueAxis->minorTickCount();
         if (minorTickCount < 0)
-            minorTickCount = qMax(int(qFloor(logValueAxis->base()) - 2.0), 0);
+            minorTickCount = qMax(qFloor(logValueAxis->base()) - 2, 0);
 
         expectedCount = minorTickCount * (logValueAxis->tickCount() + 1);
         expectedCount = qMax(expectedCount, logValueAxis->minorTickCount());
@@ -505,6 +505,6 @@ void PolarChartAxisRadial::updateMinorTickItems()
     }
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_polarchartaxisradial_p.cpp"

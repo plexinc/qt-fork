@@ -8,9 +8,6 @@ import * as UI from '../ui/ui.js';
 
 import {ComputedStyleModel, Events} from './ComputedStyleModel.js';
 
-/**
- * @unrestricted
- */
 export class ElementsSidebarPane extends UI.Widget.VBox {
   /**
    * @param {boolean=} delegatesFocus
@@ -40,11 +37,18 @@ export class ElementsSidebarPane extends UI.Widget.VBox {
   }
 
   /**
+   * @return {!ComputedStyleModel}
+   */
+  computedStyleModel() {
+    return this._computedStyleModel;
+  }
+
+  /**
    * @protected
    * @return {!Promise.<?>}
    */
-  doUpdate() {
-    return Promise.resolve();
+  async doUpdate() {
+    return;
   }
 
   update() {

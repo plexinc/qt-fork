@@ -59,6 +59,7 @@
 #include <private/qv4scopedvalue_p.h>
 #include <private/qv4jscall_p.h>
 #include <private/qv4qobjectwrapper_p.h>
+#include <private/qjsvalue_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -245,21 +246,12 @@ QQuickCanvasItemPrivate::~QQuickCanvasItemPrivate()
 
     \section1 Threaded Rendering and Render Target
 
-    The Canvas item supports two render targets: \c Canvas.Image and
-    \c Canvas.FramebufferObject.
+    In Qt 6.0 the Canvas item supports one render target: \c Canvas.Image.
 
     The \c Canvas.Image render target is a \a QImage object. This render target
     supports background thread rendering, allowing complex or long running
     painting to be executed without blocking the UI. This is the only render
     target that is supported by all Qt Quick backends.
-
-    The Canvas.FramebufferObject render target utilizes OpenGL hardware
-    acceleration rather than rendering into system memory, which in many cases
-    results in faster rendering. Canvas.FramebufferObject relies on the OpenGL
-    extensions \c GL_EXT_framebuffer_multisample and \c GL_EXT_framebuffer_blit
-    for antialiasing. It will also use more graphics memory when rendering
-    strategy is anything other than Canvas.Cooperative. Framebuffer objects may
-    not be available with Qt Quick backends other than OpenGL.
 
     The default render target is Canvas.Image and the default renderStrategy is
     Canvas.Immediate.
@@ -267,12 +259,7 @@ QQuickCanvasItemPrivate::~QQuickCanvasItemPrivate()
     \section1 Pixel Operations
     All HTML5 2D context pixel operations are supported. In order to ensure
     improved pixel reading/writing performance the \a Canvas.Image render
-    target should be chosen. The \a Canvas.FramebufferObject render target
-    requires the pixel data to be exchanged between the system memory and the
-    graphic card, which is significantly more expensive.  Rendering may also be
-    synchronized with the V-sync signal (to avoid
-    \l{http://en.wikipedia.org/wiki/Screen_tearing}{screen tearing}) which will further
-    impact pixel operations with \c Canvas.FrambufferObject render target.
+    target should be chosen.
 
     \section1 Tips for Porting Existing HTML5 Canvas Applications
 
@@ -381,7 +368,7 @@ void QQuickCanvasItem::setContextType(const QString &contextType)
 QJSValue QQuickCanvasItem::context() const
 {
     Q_D(const QQuickCanvasItem);
-    return d->context ? QJSValue(d->context->v4Engine(), d->context->v4value()) : QJSValue();
+    return d->context ? QJSValuePrivate::fromReturnedValue(d->context->v4value()) : QJSValue();
 }
 
 /*!
@@ -430,7 +417,7 @@ void QQuickCanvasItem::setCanvasSize(const QSizeF & size)
 
     By default the tileSize is the same as the canvasSize.
 
-    \obsolete This feature is incomplete. For details, see QTBUG-33129.
+    \deprecated This feature is incomplete. For details, see QTBUG-33129.
 
     \sa canvasSize, canvasWindow
 */
@@ -465,7 +452,7 @@ void QQuickCanvasItem::setTileSize(const QSize & size)
      can display different visible areas by changing the canvas windowSize
      and/or position.
 
-    \obsolete This feature is incomplete. For details, see QTBUG-33129
+    \deprecated This feature is incomplete. For details, see QTBUG-33129.
 
     \sa canvasSize, tileSize
 */
@@ -495,7 +482,6 @@ void QQuickCanvasItem::setCanvasWindow(const QRectF& rect)
 
     \list
     \li Canvas.Image  - render to an in memory image buffer.
-    \li Canvas.FramebufferObject - render to an OpenGL frame buffer
     \endlist
 
     This hint is supplied along with renderStrategy to the graphics context to
@@ -593,11 +579,11 @@ void QQuickCanvasItem::sceneGraphInitialized()
         QMetaObject::invokeMethod(this, "requestPaint", Qt::QueuedConnection);
 }
 
-void QQuickCanvasItem::geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry)
+void QQuickCanvasItem::geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry)
 {
     Q_D(QQuickCanvasItem);
 
-    QQuickItem::geometryChanged(newGeometry, oldGeometry);
+    QQuickItem::geometryChange(newGeometry, oldGeometry);
 
     // Due to indirect recursion, newGeometry may be outdated
     // after this call, so we use width and height instead.
@@ -727,12 +713,12 @@ void QQuickCanvasItem::updatePolish()
         QV4::ExecutionEngine *v4 = qmlEngine(this)->handle();
         QV4::Scope scope(v4);
         QV4::ScopedFunctionObject function(scope);
-        QV4::JSCallData jsCall(scope, 1);
-        *jsCall->thisObject = QV4::QObjectWrapper::wrap(v4, this);
+        QV4::JSCallArguments jsCall(scope, 1);
+        *jsCall.thisObject = QV4::QObjectWrapper::wrap(v4, this);
 
         for (auto it = animationCallbacks.cbegin(), end = animationCallbacks.cend(); it != end; ++it) {
             function = it.value().value();
-            jsCall->args[0] = QV4::Value::fromUInt32(QDateTime::currentMSecsSinceEpoch());
+            jsCall.args[0] = QV4::Value::fromUInt32(QDateTime::currentMSecsSinceEpoch());
             function->call(jsCall);
         }
     }
@@ -826,14 +812,14 @@ QSGTextureProvider *QQuickCanvasItem::textureProvider() const
         return QQuickItem::textureProvider();
 
     Q_D(const QQuickCanvasItem);
-#if QT_CONFIG(opengl)
+
     QQuickWindow *w = window();
     if (!w || !w->isSceneGraphInitialized()
             || QThread::currentThread() != QQuickWindowPrivate::get(w)->context->thread()) {
         qWarning("QQuickCanvasItem::textureProvider: can only be queried on the rendering thread of an exposed window");
         return nullptr;
     }
-#endif
+
     if (!d->textureProvider)
         d->textureProvider = new QQuickCanvasTextureProvider;
     d->textureProvider->tex = d->nodeTexture;
@@ -1132,7 +1118,7 @@ static const char* mimeToType(const QString &mime)
     const QLatin1String imagePrefix("image/");
     if (!mime.startsWith(imagePrefix))
         return nullptr;
-    const QStringRef mimeExt = mime.midRef(imagePrefix.size());
+    const QStringView mimeExt = QStringView{mime}.mid(imagePrefix.size());
     if (mimeExt == QLatin1String("png"))
         return "png";
     else if (mimeExt == QLatin1String("bmp"))

@@ -15,10 +15,10 @@ namespace viz {
 // issue begin frames and doesn't need to do any drawing work. This class is
 // essentially a stub implementation.
 //
-// OutputSurfaceUnified will end up with a corresponding SoftwareRenderer. While
+// OutputSurfaceUnified will end up with a corresponding NullRenderer. While
 // Chrome OS uses GL rendering to draw it doesn't matter what renderer is
 // created for the unified display because it's never used to draw. Using
-// SoftwareRenderer avoids the need to allocate a GL context and command buffer,
+// NullRenderer avoids the need to allocate a GL context and command buffer,
 // which have significant memory overhead.
 class OutputSurfaceUnified : public OutputSurface {
  public:
@@ -31,7 +31,6 @@ class OutputSurfaceUnified : public OutputSurface {
   void EnsureBackbuffer() override {}
   void DiscardBackbuffer() override {}
   void BindFramebuffer() override {}
-  void SetDrawRectangle(const gfx::Rect& draw_rectangle) override {}
   void Reshape(const gfx::Size& size,
                float scale_factor,
                const gfx::ColorSpace& color_space,
@@ -48,9 +47,6 @@ class OutputSurfaceUnified : public OutputSurface {
       UpdateVSyncParametersCallback callback) override {}
   void SetDisplayTransformHint(gfx::OverlayTransform transform) override {}
   gfx::OverlayTransform GetDisplayTransform() override;
-  scoped_refptr<gpu::GpuTaskSchedulerHelper> GetGpuTaskSchedulerHelper()
-      override;
-  gpu::MemoryTracker* GetMemoryTracker() override;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(OutputSurfaceUnified);

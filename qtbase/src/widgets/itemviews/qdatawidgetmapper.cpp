@@ -43,6 +43,7 @@
 #include "qitemdelegate.h"
 #include "qmetaobject.h"
 #include "qwidget.h"
+#include "qstyleditemdelegate.h"
 #include "private/qobject_p.h"
 #include "private/qabstractitemmodel_p.h"
 
@@ -102,7 +103,8 @@ public:
     void populate();
 
     // private slots
-    void _q_dataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight, const QVector<int> &);
+    void _q_dataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight,
+                        const QList<int> &);
     void _q_commitData(QWidget *);
     void _q_closeEditor(QWidget *, QAbstractItemDelegate::EndEditHint);
     void _q_modelDestroyed();
@@ -122,7 +124,7 @@ public:
 
     std::vector<WidgetMapper> widgetMap;
 };
-Q_DECLARE_TYPEINFO(QDataWidgetMapperPrivate::WidgetMapper, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QDataWidgetMapperPrivate::WidgetMapper, Q_RELOCATABLE_TYPE);
 
 int QDataWidgetMapperPrivate::findWidget(QWidget *w) const
 {
@@ -176,7 +178,8 @@ static bool qContainsIndex(const QModelIndex &idx, const QModelIndex &topLeft,
            && idx.column() >= topLeft.column() && idx.column() <= bottomRight.column();
 }
 
-void QDataWidgetMapperPrivate::_q_dataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight, const QVector<int> &)
+void QDataWidgetMapperPrivate::_q_dataChanged(const QModelIndex &topLeft,
+                                              const QModelIndex &bottomRight, const QList<int> &)
 {
     if (topLeft.parent() != rootIndex)
         return; // not in our hierarchy
@@ -324,8 +327,7 @@ void QDataWidgetMapperPrivate::_q_modelDestroyed()
 QDataWidgetMapper::QDataWidgetMapper(QObject *parent)
     : QObject(*new QDataWidgetMapperPrivate, parent)
 {
-    // ### Qt6: QStyledItemDelegate
-    setItemDelegate(new QItemDelegate(this));
+    setItemDelegate(new QStyledItemDelegate(this));
 }
 
 /*!
@@ -349,8 +351,8 @@ void QDataWidgetMapper::setModel(QAbstractItemModel *model)
         return;
 
     if (d->model) {
-        disconnect(d->model, SIGNAL(dataChanged(QModelIndex,QModelIndex,QVector<int>)), this,
-                   SLOT(_q_dataChanged(QModelIndex,QModelIndex,QVector<int>)));
+        disconnect(d->model, SIGNAL(dataChanged(QModelIndex, QModelIndex, QList<int>)), this,
+                   SLOT(_q_dataChanged(QModelIndex, QModelIndex, QList<int>)));
         disconnect(d->model, SIGNAL(destroyed()), this,
                    SLOT(_q_modelDestroyed()));
     }
@@ -360,8 +362,8 @@ void QDataWidgetMapper::setModel(QAbstractItemModel *model)
 
     d->model = model;
 
-    connect(model, SIGNAL(dataChanged(QModelIndex,QModelIndex,QVector<int>)),
-            SLOT(_q_dataChanged(QModelIndex,QModelIndex,QVector<int>)));
+    connect(model, SIGNAL(dataChanged(QModelIndex, QModelIndex, QList<int>)),
+            SLOT(_q_dataChanged(QModelIndex, QModelIndex, QList<int>)));
     connect(model, SIGNAL(destroyed()), SLOT(_q_modelDestroyed()));
 }
 
@@ -382,6 +384,9 @@ QAbstractItemModel *QDataWidgetMapper::model() const
     Sets the item delegate to \a delegate. The delegate will be used to write
     data from the model into the widget and from the widget to the model,
     using QAbstractItemDelegate::setEditorData() and QAbstractItemDelegate::setModelData().
+
+    Any existing delegate will be removed, but not deleted. QDataWidgetMapper
+    does not take ownership of \a delegate.
 
     The delegate also decides when to apply data and when to change the editor,
     using QAbstractItemDelegate::commitData() and QAbstractItemDelegate::closeEditor().

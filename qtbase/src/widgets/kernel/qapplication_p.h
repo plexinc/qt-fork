@@ -81,7 +81,7 @@ class QGraphicsScene;
 class QObject;
 class QWidget;
 class QSocketNotifier;
-class QTouchDevice;
+class QPointingDevice;
 #ifndef QT_NO_GESTURES
 class QGestureManager;
 #endif
@@ -107,15 +107,21 @@ public:
     virtual void notifyActiveWindowChange(QWindow *) override;
 
     virtual bool shouldQuit() override;
-    bool tryCloseAllWindows() override;
 
     static bool autoSipEnabled;
     static QString desktopStyleKey();
 
     void createEventDispatcher() override;
     static void dispatchEnterLeave(QWidget *enter, QWidget *leave, const QPointF &globalPosF);
-
+    static QWidget *desktop();
     void notifyWindowIconChanged() override;
+
+#ifndef QT_NO_ACTION
+    QActionPrivate *createActionPrivate() const override;
+#endif
+#ifndef QT_NO_SHORTCUT
+    QShortcutPrivate *createShortcutPrivate() const override;
+#endif
 
     //modality
     bool isWindowBlocked(QWindow *window, QWindow **blockingWindow = nullptr) const override;
@@ -240,17 +246,17 @@ public:
     void initializeMultitouch_sys();
     void cleanupMultitouch();
     void cleanupMultitouch_sys();
-    QWidget *findClosestTouchPointTarget(QTouchDevice *device, const QTouchEvent::TouchPoint &touchPoint);
-    void appendTouchPoint(const QTouchEvent::TouchPoint &touchPoint);
+    QWidget *findClosestTouchPointTarget(const QPointingDevice *device, const QEventPoint &touchPoint);
+    void appendTouchPoint(const QEventPoint &touchPoint);
     void removeTouchPoint(int touchPointId);
-    void activateImplicitTouchGrab(QWidget *widget, QTouchEvent *touchBeginEvent);
-    static bool translateRawTouchEvent(QWidget *widget,
-                                       QTouchDevice *device,
-                                       const QList<QTouchEvent::TouchPoint> &touchPoints,
-                                       ulong timestamp);
-    static void translateTouchCancel(QTouchDevice *device, ulong timestamp);
+    enum ImplicitTouchGrabMode { GrabAcceptedPoints, GrabAllPoints };
+    void activateImplicitTouchGrab(QWidget *widget, QTouchEvent *touchBeginEvent,
+                                   ImplicitTouchGrabMode grabMode = GrabAcceptedPoints);
+    static bool translateRawTouchEvent(QWidget *widget, const QTouchEvent *touchEvent);
+    static void translateTouchCancel(const QPointingDevice *device, ulong timestamp);
 
     QPixmap applyQIconStyleHelper(QIcon::Mode mode, const QPixmap& base) const override;
+
 private:
     static QApplicationPrivate *self;
     static bool tryCloseAllWidgetWindows(QWindowList *processedWindows);

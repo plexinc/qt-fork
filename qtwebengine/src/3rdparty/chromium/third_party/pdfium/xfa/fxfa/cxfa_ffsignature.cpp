@@ -6,6 +6,7 @@
 
 #include "xfa/fxfa/cxfa_ffsignature.h"
 
+#include "third_party/base/check.h"
 #include "xfa/fxfa/cxfa_ffdoc.h"
 #include "xfa/fxfa/cxfa_fffield.h"
 #include "xfa/fxfa/cxfa_ffpageview.h"
@@ -17,15 +18,11 @@ CXFA_FFSignature::CXFA_FFSignature(CXFA_Node* pNode) : CXFA_FFField(pNode) {}
 CXFA_FFSignature::~CXFA_FFSignature() = default;
 
 bool CXFA_FFSignature::LoadWidget() {
-  ASSERT(!IsLoaded());
-
-  // Prevents destruction of the CXFA_ContentLayoutItem that owns |this|.
-  RetainPtr<CXFA_ContentLayoutItem> retain_layout(m_pLayoutItem.Get());
-
+  DCHECK(!IsLoaded());
   return CXFA_FFField::LoadWidget();
 }
 
-void CXFA_FFSignature::RenderWidget(CXFA_Graphics* pGS,
+void CXFA_FFSignature::RenderWidget(CFGAS_GEGraphics* pGS,
                                     const CFX_Matrix& matrix,
                                     HighlightOption highlight) {
   if (!HasVisibleStatus())
@@ -36,7 +33,7 @@ void CXFA_FFSignature::RenderWidget(CXFA_Graphics* pGS,
 
   CXFA_FFWidget::RenderWidget(pGS, mtRotate, highlight);
 
-  DrawBorder(pGS, m_pNode->GetUIBorder(), m_rtUI, mtRotate);
+  DrawBorder(pGS, m_pNode->GetUIBorder(), m_UIRect, mtRotate);
   RenderCaption(pGS, &mtRotate);
   DrawHighlight(pGS, &mtRotate, highlight, kSquareShape);
 }
@@ -74,8 +71,8 @@ bool CXFA_FFSignature::OnMouseMove(uint32_t dwFlags, const CFX_PointF& point) {
 }
 
 bool CXFA_FFSignature::OnMouseWheel(uint32_t dwFlags,
-                                    int16_t zDelta,
-                                    const CFX_PointF& point) {
+                                    const CFX_PointF& point,
+                                    const CFX_Vector& delta) {
   return false;
 }
 
@@ -111,7 +108,7 @@ FWL_WidgetHit CXFA_FFSignature::HitTest(const CFX_PointF& point) {
     return FWL_WidgetHit::Client;
   if (!GetRectWithoutRotate().Contains(point))
     return FWL_WidgetHit::Unknown;
-  if (m_rtCaption.Contains(point))
+  if (m_CaptionRect.Contains(point))
     return FWL_WidgetHit::Titlebar;
   return FWL_WidgetHit::Client;
 }

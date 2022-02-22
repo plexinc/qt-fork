@@ -10,6 +10,7 @@
 #include "mojo/public/cpp/bindings/remote.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_media_position_state.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 
@@ -56,7 +57,7 @@ class MediaSessionTest : public PageTestBase {
     mock_service_ = std::make_unique<MockMediaSessionService>();
 
     media_session_ =
-        MakeGarbageCollected<MediaSession>(GetDocument().ToExecutionContext());
+        MediaSession::mediaSession(*GetFrame().DomWindow()->navigator());
     media_session_->service_ = mock_service_->CreateRemoteAndBind();
     media_session_->clock_ = &test_clock_;
   }

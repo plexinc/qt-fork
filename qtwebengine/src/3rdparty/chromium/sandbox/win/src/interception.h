@@ -69,8 +69,8 @@ class InterceptionManager {
   // An interception manager performs interceptions on a given child process.
   // If we are allowed to intercept functions that have been patched by somebody
   // else, relaxed should be set to true.
-  // Note: We increase the child's reference count internally.
-  InterceptionManager(TargetProcess* child_process, bool relaxed);
+  // |child_process| should outlive the manager.
+  InterceptionManager(TargetProcess& child_process, bool relaxed);
   ~InterceptionManager();
 
   // Patches function_name inside dll_name to point to replacement_code_address.
@@ -151,13 +151,6 @@ class InterceptionManager {
   // Calculates the size of the required configuration buffer.
   size_t GetBufferSize() const;
 
-  // Rounds up the size of a given buffer, considering alignment (padding).
-  // value is the current size of the buffer, and alignment is specified in
-  // bytes.
-  static inline size_t RoundUpToMultiple(size_t value, size_t alignment) {
-    return ((value + alignment - 1) / alignment) * alignment;
-  }
-
   // Sets up a given buffer with all the information that has to be transfered
   // to the child.
   // Returns true on success.
@@ -215,7 +208,7 @@ class InterceptionManager {
                                   DllInterceptionData* dll_data);
 
   // The process to intercept.
-  TargetProcess* child_;
+  TargetProcess& child_;
   // Holds all interception info until the call to initialize (perform the
   // actual patch).
   std::list<InterceptionData> interceptions_;

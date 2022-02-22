@@ -53,6 +53,7 @@
 
 #include <Qt3DRender/qt3drender_global.h>
 #include <Qt3DCore/qbackendnode.h>
+#include <Qt3DCore/qnode.h>
 #include <Qt3DRender/private/abstractrenderer_p.h>
 #include <private/qt3drender_global_p.h>
 
@@ -76,7 +77,7 @@ public:
     BackendNode(Qt3DCore::QBackendNode::Mode mode = ReadOnly);
     ~BackendNode();
 
-    virtual void syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firstTime);
+    void syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firstTime) override;
 
     void setRenderer(AbstractRenderer *renderer);
     AbstractRenderer *renderer() const;

@@ -65,6 +65,7 @@ private Q_SLOTS:
     void watcherInQml();
     void hostInQml();
     void twoReplicas();
+    void remoteCompositeType();
 };
 
 tst_usertypes::tst_usertypes()
@@ -85,7 +86,7 @@ void tst_usertypes::extraPropertyInQml()
     QObject *obj = c.create();
     QVERIFY(obj);
 
-    QTRY_COMPARE_WITH_TIMEOUT(obj->property("result").value<int>(), 10, 300);
+    QTRY_COMPARE_WITH_TIMEOUT(obj->property("result").value<int>(), 10, 1000);
 }
 
 void tst_usertypes::extraPropertyInQml2()
@@ -102,7 +103,7 @@ void tst_usertypes::extraPropertyInQml2()
     QObject *obj = c.create();
     QVERIFY(obj);
 
-    QTRY_COMPARE_WITH_TIMEOUT(obj->property("hour").value<int>(), 10, 300);
+    QTRY_COMPARE_WITH_TIMEOUT(obj->property("hour").value<int>(), 10, 1000);
     QCOMPARE(obj->property("result").value<int>(), 10);
 }
 
@@ -127,7 +128,7 @@ void tst_usertypes::extraPropertyInQmlComplex()
     QVERIFY(rep);
 
     // don't crash
-    QTRY_VERIFY_WITH_TIMEOUT(rep->isInitialized(), 300);
+    QTRY_VERIFY_WITH_TIMEOUT(rep->isInitialized(), 1000);
 }
 
 void tst_usertypes::modelInQml()
@@ -147,9 +148,9 @@ void tst_usertypes::modelInQml()
     QObject *obj = c.create();
     QVERIFY(obj);
 
-    QTRY_VERIFY_WITH_TIMEOUT(obj->property("tracks").value<QAbstractItemModelReplica*>() != nullptr, 300);
+    QTRY_VERIFY_WITH_TIMEOUT(obj->property("tracks").value<QAbstractItemModelReplica*>() != nullptr, 1000);
     auto tracks = obj->property("tracks").value<QAbstractItemModelReplica*>();
-    QTRY_VERIFY_WITH_TIMEOUT(tracks->isInitialized(), 300);
+    QTRY_VERIFY_WITH_TIMEOUT(tracks->isInitialized(), 1000);
 
     TypeWithModelReplica *rep = qobject_cast<TypeWithModelReplica *>(obj);
     QVERIFY(rep->isInitialized());
@@ -174,8 +175,8 @@ void tst_usertypes::subObjectInQml()
     TypeWithSubObjectReplica *replica = obj->property("replica").value<TypeWithSubObjectReplica*>();
     QVERIFY(replica);
 
-    QTRY_VERIFY_WITH_TIMEOUT(replica->property("clock").value<SimpleClockReplica*>() != nullptr, 300);
-    QTRY_COMPARE_WITH_TIMEOUT(obj->property("result").toInt(), 7, 300);
+    QTRY_VERIFY_WITH_TIMEOUT(replica->property("clock").value<SimpleClockReplica*>() != nullptr, 1000);
+    QTRY_COMPARE_WITH_TIMEOUT(obj->property("result").toInt(), 7, 1000);
 }
 
 void tst_usertypes::complexInQml_data()
@@ -213,9 +214,9 @@ void tst_usertypes::complexInQml()
     QObject *obj = c.create();
     QVERIFY(obj);
 
-    QTRY_VERIFY_WITH_TIMEOUT(obj->property("tracks").value<QAbstractItemModelReplica*>() != nullptr, 300);
+    QTRY_VERIFY_WITH_TIMEOUT(obj->property("tracks").value<QAbstractItemModelReplica*>() != nullptr, 1000);
     auto tracks = obj->property("tracks").value<QAbstractItemModelReplica*>();
-    QTRY_VERIFY_WITH_TIMEOUT(tracks->isInitialized(), 300);
+    QTRY_VERIFY_WITH_TIMEOUT(tracks->isInitialized(), 1000);
     ComplexTypeReplica *rep = qobject_cast<ComplexTypeReplica *>(obj);
     QVERIFY(rep->waitForSource(300));
     QCOMPARE(rep->property("before").value<int>(), 0);
@@ -242,7 +243,7 @@ void tst_usertypes::watcherInQml()
     QObject *obj = c.create();
     QVERIFY(obj);
 
-    QTRY_COMPARE_WITH_TIMEOUT(obj->property("result").value<QString>(), QString::fromLatin1("HELLO"), 300);
+    QTRY_COMPARE_WITH_TIMEOUT(obj->property("result").value<QString>(), QString::fromLatin1("HELLO"), 1000);
     QCOMPARE(obj->property("hasError").value<bool>(), false);
 
     QMetaObject::invokeMethod(obj, "callSlowFunction");
@@ -250,7 +251,7 @@ void tst_usertypes::watcherInQml()
     QVERIFY(obj->property("result").value<int>() != 10);
 
     QMetaObject::invokeMethod(obj, "callComplexFunction");
-    QTRY_VERIFY_WITH_TIMEOUT(!obj->property("result").isNull(), 300);
+    QTRY_VERIFY_WITH_TIMEOUT(!obj->property("result").isNull(), 1000);
     auto map = obj->property("result").value<QMap<QString,QString>>();
     QCOMPARE(map.value("one"), QString::fromLatin1("1"));
     QCOMPARE(obj->property("hasError").value<bool>(), false);
@@ -268,7 +269,7 @@ void tst_usertypes::hostInQml()
     QRemoteObjectNode node;
     node.connectToNode(QUrl("local:testHost"));
     SimpleClockReplica *replica = node.acquire<SimpleClockReplica>();
-    QTRY_COMPARE_WITH_TIMEOUT(replica->state(), QRemoteObjectReplica::Valid, 300);
+    QTRY_COMPARE_WITH_TIMEOUT(replica->state(), QRemoteObjectReplica::Valid, 1000);
 
     QSignalSpy spy(replica, &SimpleClockReplica::timeUpdated);
     spy.wait();
@@ -289,8 +290,19 @@ void tst_usertypes::twoReplicas()
     QObject *obj = c.create();
     QVERIFY(obj);
 
-    QTRY_COMPARE_WITH_TIMEOUT(obj->property("result").value<int>(), 7, 300);
-    QTRY_COMPARE_WITH_TIMEOUT(obj->property("result2").value<int>(), 7, 500);
+    QTRY_COMPARE_WITH_TIMEOUT(obj->property("result").value<int>(), 7, 1000);
+    QTRY_COMPARE_WITH_TIMEOUT(obj->property("result2").value<int>(), 7, 1000);
+}
+
+void tst_usertypes::remoteCompositeType()
+{
+    QQmlEngine e;
+    QQmlComponent c(&e, SRCDIR "data/composite.qml");
+    QScopedPointer<QObject> obj(c.create());
+    QVERIFY(obj);
+
+    QRemoteObjectRegistryHost host(QUrl("local:remoteCompositeType"));
+    host.enableRemoting(obj.data(), "composite");
 }
 
 QTEST_MAIN(tst_usertypes)

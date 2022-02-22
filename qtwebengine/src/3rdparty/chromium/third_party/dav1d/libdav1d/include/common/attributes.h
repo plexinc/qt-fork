@@ -116,8 +116,8 @@
 #    define dav1d_uninit(x) x
 #endif
 
- #ifdef _MSC_VER
- #include <intrin.h>
+#if defined(_MSC_VER) && !defined(__clang__)
+#include <intrin.h>
 
 static inline int ctz(const unsigned int mask) {
     unsigned long idx;
@@ -158,5 +158,9 @@ static inline int clzll(const unsigned long long mask) {
     return __builtin_clzll(mask);
 }
 #endif /* !_MSC_VER */
+
+#ifndef __has_feature
+#define __has_feature(x) 0
+#endif
 
 #endif /* DAV1D_COMMON_ATTRIBUTES_H */

@@ -27,19 +27,21 @@
  * Google Author(s): Behdad Esfahbod
  */
 
-#include "hb-buffer-private.hh"
-#include "hb-utf-private.hh"
+#include "hb-buffer.hh"
+#include "hb-utf.hh"
 
 
 /**
  * SECTION: hb-buffer
- * @title: Buffers
+ * @title: hb-buffer
  * @short_description: Input and output buffers
  * @include: hb.h
  *
- * Buffers serve dual role in HarfBuzz; they hold the input characters that are
- * passed hb_shape(), and after shaping they hold the output glyphs.
+ * Buffers serve a dual role in HarfBuzz; before shaping, they hold
+ * the input characters that are passed to hb_shape(), and after
+ * shaping they hold the output glyphs.
  **/
+
 
 /**
  * hb_segment_properties_equal:
@@ -49,7 +51,7 @@
  * Checks the equality of two #hb_segment_properties_t's.
  *
  * Return value:
- * %true if all properties of @a equal those of @b, false otherwise.
+ * %true if all properties of @a equal those of @b, %false otherwise.
  *
  * Since: 0.9.7
  **/
@@ -94,14 +96,15 @@ hb_segment_properties_hash (const hb_segment_properties_t *p)
  * As an optimization, both info and out_info may point to the
  * same piece of memory, which is owned by info.  This remains the
  * case as long as out_len doesn't exceed i at any time.
- * In that case, swap_buffers() is no-op and the glyph operations operate
- * mostly in-place.
+ * In that case, swap_buffers() is mostly no-op and the glyph operations
+ * operate mostly in-place.
  *
  * As soon as out_info gets longer than info, out_info is moved over
- * to an alternate buffer (which we reuse the pos buffer for!), and its
+ * to an alternate buffer (which we reuse the pos buffer for), and its
  * current contents (out_len entries) are copied to the new place.
+ *
  * This should all remain transparent to the user.  swap_buffers() then
- * switches info and out_info.
+ * switches info over to out_info and does housekeeping.
  */
 
 
@@ -111,11 +114,11 @@ hb_segment_properties_hash (const hb_segment_properties_t *p)
 bool
 hb_buffer_t::enlarge (unsigned int size)
 {
-  if (unlikely (in_error))
+  if (unlikely (!successful))
     return false;
   if (unlikely (size > max_len))
   {
-    in_error = true;
+    successful = false;
     return false;
   }
 
@@ -124,22 +127,22 @@ hb_buffer_t::enlarge (unsigned int size)
   hb_glyph_info_t *new_info = nullptr;
   bool separate_out = out_info != info;
 
-  if (unlikely (_hb_unsigned_int_mul_overflows (size, sizeof (info[0]))))
+  if (unlikely (hb_unsigned_mul_overflows (size, sizeof (info[0]))))
     goto done;
 
   while (size >= new_allocated)
     new_allocated += (new_allocated >> 1) + 32;
 
   static_assert ((sizeof (info[0]) == sizeof (pos[0])), "");
-  if (unlikely (_hb_unsigned_int_mul_overflows (new_allocated, sizeof (info[0]))))
+  if (unlikely (hb_unsigned_mul_overflows (new_allocated, sizeof (info[0]))))
     goto done;
 
-  new_pos = (hb_glyph_position_t *) realloc (pos, new_allocated * sizeof (pos[0]));
-  new_info = (hb_glyph_info_t *) realloc (info, new_allocated * sizeof (info[0]));
+  new_pos = (hb_glyph_position_t *) hb_realloc (pos, new_allocated * sizeof (pos[0]));
+  new_info = (hb_glyph_info_t *) hb_realloc (info, new_allocated * sizeof (info[0]));
 
 done:
   if (unlikely (!new_pos || !new_info))
-    in_error = true;
+    successful = false;
 
   if (likely (new_pos))
     pos = new_pos;
@@ -148,10 +151,10 @@ done:
     info = new_info;
 
   out_info = separate_out ? (hb_glyph_info_t *) pos : info;
-  if (likely (!in_error))
+  if (likely (successful))
     allocated = new_allocated;
 
-  return likely (!in_error);
+  return likely (successful);
 }
 
 bool
@@ -182,7 +185,11 @@ hb_buffer_t::shift_forward (unsigned int count)
   if (idx + count > len)
   {
     /* Under memory failure we might expose this area.  At least
-     * clean it up.  Oh well... */
+     * clean it up.  Oh well...
+     *
+     * Ideally, we should at least set Default_Ignorable bits on
+     * these, as well as consistent cluster values.  But the former
+     * is layering violation... */
     memset (info + len, 0, (idx + count - len) * sizeof (info[0]));
   }
   len += count;
@@ -210,31 +217,26 @@ hb_buffer_t::get_scratch_buffer (unsigned int *size)
 /* HarfBuzz-Internal API */
 
 void
-hb_buffer_t::reset (void)
+hb_buffer_t::reset ()
 {
-  if (unlikely (hb_object_is_inert (this)))
-    return;
-
   hb_unicode_funcs_destroy (unicode);
-  unicode = hb_unicode_funcs_get_default ();
+  unicode = hb_unicode_funcs_reference (hb_unicode_funcs_get_default ());
   flags = HB_BUFFER_FLAG_DEFAULT;
   replacement = HB_BUFFER_REPLACEMENT_CODEPOINT_DEFAULT;
+  invisible = 0;
 
   clear ();
 }
 
 void
-hb_buffer_t::clear (void)
+hb_buffer_t::clear ()
 {
-  if (unlikely (hb_object_is_inert (this)))
-    return;
-
   hb_segment_properties_t default_props = HB_SEGMENT_PROPERTIES_DEFAULT;
   props = default_props;
   scratch_flags = HB_BUFFER_SCRATCH_FLAG_DEFAULT;
 
   content_type = HB_BUFFER_CONTENT_TYPE_INVALID;
-  in_error = false;
+  successful = true;
   have_output = false;
   have_positions = false;
 
@@ -281,123 +283,49 @@ hb_buffer_t::add_info (const hb_glyph_info_t &glyph_info)
 
 
 void
-hb_buffer_t::remove_output (void)
+hb_buffer_t::clear_output ()
 {
-  if (unlikely (hb_object_is_inert (this)))
-    return;
-
-  have_output = false;
-  have_positions = false;
-
-  out_len = 0;
-  out_info = info;
-}
-
-void
-hb_buffer_t::clear_output (void)
-{
-  if (unlikely (hb_object_is_inert (this)))
-    return;
-
   have_output = true;
   have_positions = false;
 
+  idx = 0;
   out_len = 0;
   out_info = info;
 }
 
 void
-hb_buffer_t::clear_positions (void)
+hb_buffer_t::clear_positions ()
 {
-  if (unlikely (hb_object_is_inert (this)))
-    return;
-
   have_output = false;
   have_positions = true;
 
   out_len = 0;
   out_info = info;
 
-  memset (pos, 0, sizeof (pos[0]) * len);
+  hb_memset (pos, 0, sizeof (pos[0]) * len);
 }
 
 void
-hb_buffer_t::swap_buffers (void)
+hb_buffer_t::swap_buffers ()
 {
-  if (unlikely (in_error)) return;
-
   assert (have_output);
-  have_output = false;
+
+  assert (idx <= len);
+
+  if (unlikely (!successful || !next_glyphs (len - idx)))
+    goto reset;
 
   if (out_info != info)
   {
-    hb_glyph_info_t *tmp_string;
-    tmp_string = info;
+    pos = (hb_glyph_position_t *) info;
     info = out_info;
-    out_info = tmp_string;
-    pos = (hb_glyph_position_t *) out_info;
   }
-
-  unsigned int tmp;
-  tmp = len;
   len = out_len;
-  out_len = tmp;
 
+reset:
+  have_output = false;
+  out_len = 0;
   idx = 0;
-}
-
-
-void
-hb_buffer_t::replace_glyphs (unsigned int num_in,
-			     unsigned int num_out,
-			     const uint32_t *glyph_data)
-{
-  if (unlikely (!make_room_for (num_in, num_out))) return;
-
-  merge_clusters (idx, idx + num_in);
-
-  hb_glyph_info_t orig_info = info[idx];
-  hb_glyph_info_t *pinfo = &out_info[out_len];
-  for (unsigned int i = 0; i < num_out; i++)
-  {
-    *pinfo = orig_info;
-    pinfo->codepoint = glyph_data[i];
-    pinfo++;
-  }
-
-  idx  += num_in;
-  out_len += num_out;
-}
-
-void
-hb_buffer_t::output_glyph (hb_codepoint_t glyph_index)
-{
-  if (unlikely (!make_room_for (0, 1))) return;
-
-  out_info[out_len] = info[idx];
-  out_info[out_len].codepoint = glyph_index;
-
-  out_len++;
-}
-
-void
-hb_buffer_t::output_info (const hb_glyph_info_t &glyph_info)
-{
-  if (unlikely (!make_room_for (0, 1))) return;
-
-  out_info[out_len] = glyph_info;
-
-  out_len++;
-}
-
-void
-hb_buffer_t::copy_glyph (void)
-{
-  if (unlikely (!make_room_for (0, 1))) return;
-
-  out_info[out_len] = info[idx];
-
-  out_len++;
 }
 
 bool
@@ -409,7 +337,7 @@ hb_buffer_t::move_to (unsigned int i)
     idx = i;
     return true;
   }
-  if (unlikely (in_error))
+  if (unlikely (!successful))
     return false;
 
   assert (i <= out_len + (len - idx));
@@ -429,8 +357,13 @@ hb_buffer_t::move_to (unsigned int i)
     unsigned int count = out_len - i;
 
     /* This will blow in our face if memory allocation fails later
-     * in this same lookup... */
-    if (unlikely (idx < count && !shift_forward (count + 32))) return false;
+     * in this same lookup...
+     *
+     * We used to shift with extra 32 items.
+     * But that would leave empty slots in the buffer in case of allocation
+     * failures.  See comments in shift_forward().  This can cause O(N^2)
+     * behavior more severely than adding 32 empty slots can... */
+    if (unlikely (idx < count && !shift_forward (count - idx))) return false;
 
     assert (idx >= count);
 
@@ -440,19 +373,6 @@ hb_buffer_t::move_to (unsigned int i)
   }
 
   return true;
-}
-
-void
-hb_buffer_t::replace_glyph (hb_codepoint_t glyph_index)
-{
-  if (unlikely (out_info != info || out_len != idx)) {
-    if (unlikely (!make_room_for (1, 1))) return;
-    out_info[out_len] = info[idx];
-  }
-  out_info[out_len].codepoint = glyph_index;
-
-  idx++;
-  out_len++;
 }
 
 
@@ -468,13 +388,6 @@ hb_buffer_t::set_masks (hb_mask_t    value,
   if (!mask)
     return;
 
-  if (cluster_start == 0 && cluster_end == (unsigned int)-1) {
-    unsigned int count = len;
-    for (unsigned int i = 0; i < count; i++)
-      info[i].mask = (info[i].mask & not_mask) | value;
-    return;
-  }
-
   unsigned int count = len;
   for (unsigned int i = 0; i < count; i++)
     if (cluster_start <= info[i].cluster && info[i].cluster < cluster_end)
@@ -485,32 +398,18 @@ void
 hb_buffer_t::reverse_range (unsigned int start,
 			    unsigned int end)
 {
-  unsigned int i, j;
-
   if (end - start < 2)
     return;
 
-  for (i = start, j = end - 1; i < j; i++, j--) {
-    hb_glyph_info_t t;
-
-    t = info[i];
-    info[i] = info[j];
-    info[j] = t;
-  }
+  hb_array_t<hb_glyph_info_t> (info, len).reverse (start, end);
 
   if (have_positions) {
-    for (i = start, j = end - 1; i < j; i++, j--) {
-      hb_glyph_position_t t;
-
-      t = pos[i];
-      pos[i] = pos[j];
-      pos[j] = t;
-    }
+    hb_array_t<hb_glyph_position_t> (pos, len).reverse (start, end);
   }
 }
 
 void
-hb_buffer_t::reverse (void)
+hb_buffer_t::reverse ()
 {
   if (unlikely (!len))
     return;
@@ -519,7 +418,7 @@ hb_buffer_t::reverse (void)
 }
 
 void
-hb_buffer_t::reverse_clusters (void)
+hb_buffer_t::reverse_clusters ()
 {
   unsigned int i, start, count, last_cluster;
 
@@ -554,7 +453,7 @@ hb_buffer_t::merge_clusters_impl (unsigned int start,
   unsigned int cluster = info[start].cluster;
 
   for (unsigned int i = start + 1; i < end; i++)
-    cluster = MIN<unsigned int> (cluster, info[i].cluster);
+    cluster = hb_min (cluster, info[i].cluster);
 
   /* Extend end */
   while (end < len && info[end - 1].cluster == info[end].cluster)
@@ -585,7 +484,7 @@ hb_buffer_t::merge_out_clusters (unsigned int start,
   unsigned int cluster = out_info[start].cluster;
 
   for (unsigned int i = start + 1; i < end; i++)
-    cluster = MIN<unsigned int> (cluster, out_info[i].cluster);
+    cluster = hb_min (cluster, out_info[i].cluster);
 
   /* Extend start */
   while (start && out_info[start - 1].cluster == out_info[start].cluster)
@@ -642,7 +541,7 @@ done:
 void
 hb_buffer_t::unsafe_to_break_impl (unsigned int start, unsigned int end)
 {
-  unsigned int cluster = (unsigned int) -1;
+  unsigned int cluster = UINT_MAX;
   cluster = _unsafe_to_break_find_min_cluster (info, start, end, cluster);
   _unsafe_to_break_set_mask (info, start, end, cluster);
 }
@@ -658,7 +557,7 @@ hb_buffer_t::unsafe_to_break_from_outbuffer (unsigned int start, unsigned int en
   assert (start <= out_len);
   assert (idx <= end);
 
-  unsigned int cluster = (unsigned int) -1;
+  unsigned int cluster = UINT_MAX;
   cluster = _unsafe_to_break_find_min_cluster (out_info, start, out_len, cluster);
   cluster = _unsafe_to_break_find_min_cluster (info, idx, end, cluster);
   _unsafe_to_break_set_mask (out_info, start, out_len, cluster);
@@ -666,10 +565,9 @@ hb_buffer_t::unsafe_to_break_from_outbuffer (unsigned int start, unsigned int en
 }
 
 void
-hb_buffer_t::guess_segment_properties (void)
+hb_buffer_t::guess_segment_properties ()
 {
-  assert (content_type == HB_BUFFER_CONTENT_TYPE_UNICODE ||
-	  (!len && content_type == HB_BUFFER_CONTENT_TYPE_INVALID));
+  assert_unicode ();
 
   /* If script is set to INVALID, guess from buffer contents */
   if (props.script == HB_SCRIPT_INVALID) {
@@ -678,8 +576,8 @@ hb_buffer_t::guess_segment_properties (void)
       if (likely (script != HB_SCRIPT_COMMON &&
 		  script != HB_SCRIPT_INHERITED &&
 		  script != HB_SCRIPT_UNKNOWN)) {
-        props.script = script;
-        break;
+	props.script = script;
+	break;
       }
     }
   }
@@ -687,6 +585,8 @@ hb_buffer_t::guess_segment_properties (void)
   /* If direction is set to INVALID, guess from script */
   if (props.direction == HB_DIRECTION_INVALID) {
     props.direction = hb_script_get_horizontal_direction (props.script);
+    if (props.direction == HB_DIRECTION_INVALID)
+      props.direction = HB_DIRECTION_LTR;
   }
 
   /* If language is not set, use default language from locale */
@@ -698,6 +598,29 @@ hb_buffer_t::guess_segment_properties (void)
 
 
 /* Public API */
+
+DEFINE_NULL_INSTANCE (hb_buffer_t) =
+{
+  HB_OBJECT_HEADER_STATIC,
+
+  const_cast<hb_unicode_funcs_t *> (&_hb_Null_hb_unicode_funcs_t),
+  HB_BUFFER_FLAG_DEFAULT,
+  HB_BUFFER_CLUSTER_LEVEL_DEFAULT,
+  HB_BUFFER_REPLACEMENT_CODEPOINT_DEFAULT,
+  0, /* invisible */
+  HB_BUFFER_SCRATCH_FLAG_DEFAULT,
+  HB_BUFFER_MAX_LEN_DEFAULT,
+  HB_BUFFER_MAX_OPS_DEFAULT,
+
+  HB_BUFFER_CONTENT_TYPE_INVALID,
+  HB_SEGMENT_PROPERTIES_DEFAULT,
+  false, /* successful */
+  false, /* have_output */
+  true  /* have_positions */
+
+  /* Zero is good enough for everything else. */
+};
+
 
 /**
  * hb_buffer_create: (Xconstructor)
@@ -714,7 +637,7 @@ hb_buffer_t::guess_segment_properties (void)
  * Since: 0.9.2
  **/
 hb_buffer_t *
-hb_buffer_create (void)
+hb_buffer_create ()
 {
   hb_buffer_t *buffer;
 
@@ -732,41 +655,21 @@ hb_buffer_create (void)
 /**
  * hb_buffer_get_empty:
  *
- * 
+ * Fetches an empty #hb_buffer_t.
  *
- * Return value: (transfer full):
+ * Return value: (transfer full): The empty buffer
  *
  * Since: 0.9.2
  **/
 hb_buffer_t *
-hb_buffer_get_empty (void)
+hb_buffer_get_empty ()
 {
-  static const hb_buffer_t _hb_buffer_nil = {
-    HB_OBJECT_HEADER_STATIC,
-
-    const_cast<hb_unicode_funcs_t *> (&_hb_unicode_funcs_nil),
-    HB_BUFFER_FLAG_DEFAULT,
-    HB_BUFFER_CLUSTER_LEVEL_DEFAULT,
-    HB_BUFFER_REPLACEMENT_CODEPOINT_DEFAULT,
-    HB_BUFFER_SCRATCH_FLAG_DEFAULT,
-    HB_BUFFER_MAX_LEN_DEFAULT,
-    HB_BUFFER_MAX_OPS_DEFAULT,
-
-    HB_BUFFER_CONTENT_TYPE_INVALID,
-    HB_SEGMENT_PROPERTIES_DEFAULT,
-    true, /* in_error */
-    true, /* have_output */
-    true  /* have_positions */
-
-    /* Zero is good enough for everything else. */
-  };
-
-  return const_cast<hb_buffer_t *> (&_hb_buffer_nil);
+  return const_cast<hb_buffer_t *> (&Null (hb_buffer_t));
 }
 
 /**
  * hb_buffer_reference: (skip)
- * @buffer: an #hb_buffer_t.
+ * @buffer: An #hb_buffer_t
  *
  * Increases the reference count on @buffer by one. This prevents @buffer from
  * being destroyed until a matching call to hb_buffer_destroy() is made.
@@ -784,7 +687,7 @@ hb_buffer_reference (hb_buffer_t *buffer)
 
 /**
  * hb_buffer_destroy: (skip)
- * @buffer: an #hb_buffer_t.
+ * @buffer: An #hb_buffer_t
  *
  * Deallocate the @buffer.
  * Decreases the reference count on @buffer by one. If the result is zero, then
@@ -799,25 +702,27 @@ hb_buffer_destroy (hb_buffer_t *buffer)
 
   hb_unicode_funcs_destroy (buffer->unicode);
 
-  free (buffer->info);
-  free (buffer->pos);
+  hb_free (buffer->info);
+  hb_free (buffer->pos);
+#ifndef HB_NO_BUFFER_MESSAGE
   if (buffer->message_destroy)
     buffer->message_destroy (buffer->message_data);
+#endif
 
-  free (buffer);
+  hb_free (buffer);
 }
 
 /**
  * hb_buffer_set_user_data: (skip)
- * @buffer: an #hb_buffer_t.
- * @key: 
- * @data: 
- * @destroy: 
- * @replace: 
+ * @buffer: An #hb_buffer_t
+ * @key: The user-data key
+ * @data: A pointer to the user data
+ * @destroy: (nullable): A callback to call when @data is not needed anymore
+ * @replace: Whether to replace an existing data with the same key
  *
- * 
+ * Attaches a user-data key/data pair to the specified buffer. 
  *
- * Return value: 
+ * Return value: %true if success, %false otherwise
  *
  * Since: 0.9.2
  **/
@@ -833,12 +738,13 @@ hb_buffer_set_user_data (hb_buffer_t        *buffer,
 
 /**
  * hb_buffer_get_user_data: (skip)
- * @buffer: an #hb_buffer_t.
- * @key: 
+ * @buffer: An #hb_buffer_t
+ * @key: The user-data key to query
  *
- * 
+ * Fetches the user data associated with the specified key,
+ * attached to the specified buffer.
  *
- * Return value: 
+ * Return value: (transfer none): A pointer to the user data
  *
  * Since: 0.9.2
  **/
@@ -852,11 +758,11 @@ hb_buffer_get_user_data (hb_buffer_t        *buffer,
 
 /**
  * hb_buffer_set_content_type:
- * @buffer: an #hb_buffer_t.
- * @content_type: the type of buffer contents to set
+ * @buffer: An #hb_buffer_t
+ * @content_type: The type of buffer contents to set
  *
- * Sets the type of @buffer contents, buffers are either empty, contain
- * characters (before shaping) or glyphs (the result of shaping).
+ * Sets the type of @buffer contents. Buffers are either empty, contain
+ * characters (before shaping), or contain glyphs (the result of shaping).
  *
  * Since: 0.9.5
  **/
@@ -869,12 +775,13 @@ hb_buffer_set_content_type (hb_buffer_t              *buffer,
 
 /**
  * hb_buffer_get_content_type:
- * @buffer: an #hb_buffer_t.
+ * @buffer: An #hb_buffer_t
  *
- * see hb_buffer_set_content_type().
+ * Fetches the type of @buffer contents. Buffers are either empty, contain
+ * characters (before shaping), or contain glyphs (the result of shaping).
  *
  * Return value:
- * The type of @buffer contents.
+ * The type of @buffer contents
  *
  * Since: 0.9.5
  **/
@@ -887,10 +794,11 @@ hb_buffer_get_content_type (hb_buffer_t *buffer)
 
 /**
  * hb_buffer_set_unicode_funcs:
- * @buffer: an #hb_buffer_t.
- * @unicode_funcs: 
+ * @buffer: An #hb_buffer_t
+ * @unicode_funcs: The Unicode-functions structure
  *
- * 
+ * Sets the Unicode-functions structure of a buffer to
+ * @unicode_funcs.
  *
  * Since: 0.9.2
  **/
@@ -898,12 +806,11 @@ void
 hb_buffer_set_unicode_funcs (hb_buffer_t        *buffer,
 			     hb_unicode_funcs_t *unicode_funcs)
 {
-  if (unlikely (hb_object_is_inert (buffer)))
+  if (unlikely (hb_object_is_immutable (buffer)))
     return;
 
   if (!unicode_funcs)
     unicode_funcs = hb_unicode_funcs_get_default ();
-
 
   hb_unicode_funcs_reference (unicode_funcs);
   hb_unicode_funcs_destroy (buffer->unicode);
@@ -912,11 +819,11 @@ hb_buffer_set_unicode_funcs (hb_buffer_t        *buffer,
 
 /**
  * hb_buffer_get_unicode_funcs:
- * @buffer: an #hb_buffer_t.
+ * @buffer: An #hb_buffer_t
  *
- * 
+ * Fetches the Unicode-functions structure of a buffer.
  *
- * Return value: 
+ * Return value: The Unicode-functions structure
  *
  * Since: 0.9.2
  **/
@@ -928,7 +835,7 @@ hb_buffer_get_unicode_funcs (hb_buffer_t        *buffer)
 
 /**
  * hb_buffer_set_direction:
- * @buffer: an #hb_buffer_t.
+ * @buffer: An #hb_buffer_t
  * @direction: the #hb_direction_t of the @buffer
  *
  * Set the text flow direction of the buffer. No shaping can happen without
@@ -946,7 +853,7 @@ hb_buffer_set_direction (hb_buffer_t    *buffer,
 			 hb_direction_t  direction)
 
 {
-  if (unlikely (hb_object_is_inert (buffer)))
+  if (unlikely (hb_object_is_immutable (buffer)))
     return;
 
   buffer->props.direction = direction;
@@ -954,7 +861,7 @@ hb_buffer_set_direction (hb_buffer_t    *buffer,
 
 /**
  * hb_buffer_get_direction:
- * @buffer: an #hb_buffer_t.
+ * @buffer: An #hb_buffer_t
  *
  * See hb_buffer_set_direction()
  *
@@ -971,8 +878,8 @@ hb_buffer_get_direction (hb_buffer_t    *buffer)
 
 /**
  * hb_buffer_set_script:
- * @buffer: an #hb_buffer_t.
- * @script: an #hb_script_t to set.
+ * @buffer: An #hb_buffer_t
+ * @script: An #hb_script_t to set.
  *
  * Sets the script of @buffer to @script.
  *
@@ -982,7 +889,7 @@ hb_buffer_get_direction (hb_buffer_t    *buffer)
  *
  * You can pass one of the predefined #hb_script_t values, or use
  * hb_script_from_string() or hb_script_from_iso15924_tag() to get the
- * corresponding script from an ISO 15924 script tag.
+ * corresponding script from an ISO 15924 script tag.
  *
  * Since: 0.9.2
  **/
@@ -990,7 +897,7 @@ void
 hb_buffer_set_script (hb_buffer_t *buffer,
 		      hb_script_t  script)
 {
-  if (unlikely (hb_object_is_inert (buffer)))
+  if (unlikely (hb_object_is_immutable (buffer)))
     return;
 
   buffer->props.script = script;
@@ -998,12 +905,12 @@ hb_buffer_set_script (hb_buffer_t *buffer,
 
 /**
  * hb_buffer_get_script:
- * @buffer: an #hb_buffer_t.
+ * @buffer: An #hb_buffer_t
  *
- * See hb_buffer_set_script().
+ * Fetches the script of @buffer.
  *
  * Return value:
- * The #hb_script_t of the @buffer.
+ * The #hb_script_t of the @buffer
  *
  * Since: 0.9.2
  **/
@@ -1015,8 +922,8 @@ hb_buffer_get_script (hb_buffer_t *buffer)
 
 /**
  * hb_buffer_set_language:
- * @buffer: an #hb_buffer_t.
- * @language: an hb_language_t to set.
+ * @buffer: An #hb_buffer_t
+ * @language: An hb_language_t to set
  *
  * Sets the language of @buffer to @language.
  *
@@ -1025,7 +932,7 @@ hb_buffer_get_script (hb_buffer_t *buffer)
  * are orthogonal to the scripts, and though they are related, they are
  * different concepts and should not be confused with each other.
  *
- * Use hb_language_from_string() to convert from ISO 639 language codes to
+ * Use hb_language_from_string() to convert from BCP 47 language tags to
  * #hb_language_t.
  *
  * Since: 0.9.2
@@ -1034,7 +941,7 @@ void
 hb_buffer_set_language (hb_buffer_t   *buffer,
 			hb_language_t  language)
 {
-  if (unlikely (hb_object_is_inert (buffer)))
+  if (unlikely (hb_object_is_immutable (buffer)))
     return;
 
   buffer->props.language = language;
@@ -1042,7 +949,7 @@ hb_buffer_set_language (hb_buffer_t   *buffer,
 
 /**
  * hb_buffer_get_language:
- * @buffer: an #hb_buffer_t.
+ * @buffer: An #hb_buffer_t
  *
  * See hb_buffer_set_language().
  *
@@ -1059,8 +966,8 @@ hb_buffer_get_language (hb_buffer_t *buffer)
 
 /**
  * hb_buffer_set_segment_properties:
- * @buffer: an #hb_buffer_t.
- * @props: an #hb_segment_properties_t to use.
+ * @buffer: An #hb_buffer_t
+ * @props: An #hb_segment_properties_t to use
  *
  * Sets the segment properties of the buffer, a shortcut for calling
  * hb_buffer_set_direction(), hb_buffer_set_script() and
@@ -1072,7 +979,7 @@ void
 hb_buffer_set_segment_properties (hb_buffer_t *buffer,
 				  const hb_segment_properties_t *props)
 {
-  if (unlikely (hb_object_is_inert (buffer)))
+  if (unlikely (hb_object_is_immutable (buffer)))
     return;
 
   buffer->props = *props;
@@ -1080,8 +987,8 @@ hb_buffer_set_segment_properties (hb_buffer_t *buffer,
 
 /**
  * hb_buffer_get_segment_properties:
- * @buffer: an #hb_buffer_t.
- * @props: (out): the output #hb_segment_properties_t.
+ * @buffer: An #hb_buffer_t
+ * @props: (out): The output #hb_segment_properties_t
  *
  * Sets @props to the #hb_segment_properties_t of @buffer.
  *
@@ -1097,8 +1004,8 @@ hb_buffer_get_segment_properties (hb_buffer_t *buffer,
 
 /**
  * hb_buffer_set_flags:
- * @buffer: an #hb_buffer_t.
- * @flags: the buffer flags to set.
+ * @buffer: An #hb_buffer_t
+ * @flags: The buffer flags to set
  *
  * Sets @buffer flags to @flags. See #hb_buffer_flags_t.
  *
@@ -1108,7 +1015,7 @@ void
 hb_buffer_set_flags (hb_buffer_t       *buffer,
 		     hb_buffer_flags_t  flags)
 {
-  if (unlikely (hb_object_is_inert (buffer)))
+  if (unlikely (hb_object_is_immutable (buffer)))
     return;
 
   buffer->flags = flags;
@@ -1116,12 +1023,12 @@ hb_buffer_set_flags (hb_buffer_t       *buffer,
 
 /**
  * hb_buffer_get_flags:
- * @buffer: an #hb_buffer_t.
+ * @buffer: An #hb_buffer_t
  *
- * See hb_buffer_set_flags().
+ * Fetches the #hb_buffer_flags_t of @buffer.
  *
- * Return value: 
- * The @buffer flags.
+ * Return value:
+ * The @buffer flags
  *
  * Since: 0.9.7
  **/
@@ -1133,18 +1040,20 @@ hb_buffer_get_flags (hb_buffer_t *buffer)
 
 /**
  * hb_buffer_set_cluster_level:
- * @buffer: an #hb_buffer_t.
- * @cluster_level: 
+ * @buffer: An #hb_buffer_t
+ * @cluster_level: The cluster level to set on the buffer
  *
- * 
+ * Sets the cluster level of a buffer. The #hb_buffer_cluster_level_t
+ * dictates one aspect of how HarfBuzz will treat non-base characters 
+ * during shaping.
  *
  * Since: 0.9.42
  **/
 void
-hb_buffer_set_cluster_level (hb_buffer_t       *buffer,
-		     hb_buffer_cluster_level_t  cluster_level)
+hb_buffer_set_cluster_level (hb_buffer_t               *buffer,
+			     hb_buffer_cluster_level_t  cluster_level)
 {
-  if (unlikely (hb_object_is_inert (buffer)))
+  if (unlikely (hb_object_is_immutable (buffer)))
     return;
 
   buffer->cluster_level = cluster_level;
@@ -1152,11 +1061,13 @@ hb_buffer_set_cluster_level (hb_buffer_t       *buffer,
 
 /**
  * hb_buffer_get_cluster_level:
- * @buffer: an #hb_buffer_t.
+ * @buffer: An #hb_buffer_t
  *
- * 
+ * Fetches the cluster level of a buffer. The #hb_buffer_cluster_level_t
+ * dictates one aspect of how HarfBuzz will treat non-base characters 
+ * during shaping.
  *
- * Return value: 
+ * Return value: The cluster level of @buffer
  *
  * Since: 0.9.42
  **/
@@ -1169,13 +1080,13 @@ hb_buffer_get_cluster_level (hb_buffer_t *buffer)
 
 /**
  * hb_buffer_set_replacement_codepoint:
- * @buffer: an #hb_buffer_t.
+ * @buffer: An #hb_buffer_t
  * @replacement: the replacement #hb_codepoint_t
  *
  * Sets the #hb_codepoint_t that replaces invalid entries for a given encoding
  * when adding text to @buffer.
  *
- * Default is %HB_BUFFER_REPLACEMENT_CODEPOINT_DEFAULT.
+ * Default is #HB_BUFFER_REPLACEMENT_CODEPOINT_DEFAULT.
  *
  * Since: 0.9.31
  **/
@@ -1183,7 +1094,7 @@ void
 hb_buffer_set_replacement_codepoint (hb_buffer_t    *buffer,
 				     hb_codepoint_t  replacement)
 {
-  if (unlikely (hb_object_is_inert (buffer)))
+  if (unlikely (hb_object_is_immutable (buffer)))
     return;
 
   buffer->replacement = replacement;
@@ -1191,12 +1102,13 @@ hb_buffer_set_replacement_codepoint (hb_buffer_t    *buffer,
 
 /**
  * hb_buffer_get_replacement_codepoint:
- * @buffer: an #hb_buffer_t.
+ * @buffer: An #hb_buffer_t
  *
- * See hb_buffer_set_replacement_codepoint().
+ * Fetches the #hb_codepoint_t that replaces invalid entries for a given encoding
+ * when adding text to @buffer.
  *
- * Return value: 
- * The @buffer replacement #hb_codepoint_t.
+ * Return value:
+ * The @buffer replacement #hb_codepoint_t
  *
  * Since: 0.9.31
  **/
@@ -1208,8 +1120,48 @@ hb_buffer_get_replacement_codepoint (hb_buffer_t    *buffer)
 
 
 /**
+ * hb_buffer_set_invisible_glyph:
+ * @buffer: An #hb_buffer_t
+ * @invisible: the invisible #hb_codepoint_t
+ *
+ * Sets the #hb_codepoint_t that replaces invisible characters in
+ * the shaping result.  If set to zero (default), the glyph for the
+ * U+0020 SPACE character is used.  Otherwise, this value is used
+ * verbatim.
+ *
+ * Since: 2.0.0
+ **/
+void
+hb_buffer_set_invisible_glyph (hb_buffer_t    *buffer,
+			       hb_codepoint_t  invisible)
+{
+  if (unlikely (hb_object_is_immutable (buffer)))
+    return;
+
+  buffer->invisible = invisible;
+}
+
+/**
+ * hb_buffer_get_invisible_glyph:
+ * @buffer: An #hb_buffer_t
+ *
+ * See hb_buffer_set_invisible_glyph().
+ *
+ * Return value:
+ * The @buffer invisible #hb_codepoint_t
+ *
+ * Since: 2.0.0
+ **/
+hb_codepoint_t
+hb_buffer_get_invisible_glyph (hb_buffer_t    *buffer)
+{
+  return buffer->invisible;
+}
+
+
+/**
  * hb_buffer_reset:
- * @buffer: an #hb_buffer_t.
+ * @buffer: An #hb_buffer_t
  *
  * Resets the buffer to its initial status, as if it was just newly created
  * with hb_buffer_create().
@@ -1219,12 +1171,15 @@ hb_buffer_get_replacement_codepoint (hb_buffer_t    *buffer)
 void
 hb_buffer_reset (hb_buffer_t *buffer)
 {
+  if (unlikely (hb_object_is_immutable (buffer)))
+    return;
+
   buffer->reset ();
 }
 
 /**
  * hb_buffer_clear_contents:
- * @buffer: an #hb_buffer_t.
+ * @buffer: An #hb_buffer_t
  *
  * Similar to hb_buffer_reset(), but does not clear the Unicode functions and
  * the replacement code point.
@@ -1234,18 +1189,21 @@ hb_buffer_reset (hb_buffer_t *buffer)
 void
 hb_buffer_clear_contents (hb_buffer_t *buffer)
 {
+  if (unlikely (hb_object_is_immutable (buffer)))
+    return;
+
   buffer->clear ();
 }
 
 /**
  * hb_buffer_pre_allocate:
- * @buffer: an #hb_buffer_t.
- * @size: number of items to pre allocate.
+ * @buffer: An #hb_buffer_t
+ * @size: Number of items to pre allocate.
  *
  * Pre allocates memory for @buffer to fit at least @size number of items.
  *
  * Return value:
- * %true if @buffer memory allocation succeeded, %false otherwise.
+ * %true if @buffer memory allocation succeeded, %false otherwise
  *
  * Since: 0.9.2
  **/
@@ -1257,7 +1215,7 @@ hb_buffer_pre_allocate (hb_buffer_t *buffer, unsigned int size)
 
 /**
  * hb_buffer_allocation_successful:
- * @buffer: an #hb_buffer_t.
+ * @buffer: An #hb_buffer_t
  *
  * Check if allocating memory for the buffer succeeded.
  *
@@ -1269,14 +1227,14 @@ hb_buffer_pre_allocate (hb_buffer_t *buffer, unsigned int size)
 hb_bool_t
 hb_buffer_allocation_successful (hb_buffer_t  *buffer)
 {
-  return !buffer->in_error;
+  return buffer->successful;
 }
 
 /**
  * hb_buffer_add:
- * @buffer: an #hb_buffer_t.
- * @codepoint: a Unicode code point.
- * @cluster: the cluster value of @codepoint.
+ * @buffer: An #hb_buffer_t
+ * @codepoint: A Unicode code point.
+ * @cluster: The cluster value of @codepoint.
  *
  * Appends a character with the Unicode value of @codepoint to @buffer, and
  * gives it the initial cluster value of @cluster. Clusters can be any thing
@@ -1300,13 +1258,13 @@ hb_buffer_add (hb_buffer_t    *buffer,
 
 /**
  * hb_buffer_set_length:
- * @buffer: an #hb_buffer_t.
- * @length: the new length of @buffer.
+ * @buffer: An #hb_buffer_t
+ * @length: The new length of @buffer
  *
  * Similar to hb_buffer_pre_allocate(), but clears any new items added at the
  * end.
  *
- * Return value: 
+ * Return value:
  * %true if @buffer memory allocation succeeded, %false otherwise.
  *
  * Since: 0.9.2
@@ -1315,10 +1273,10 @@ hb_bool_t
 hb_buffer_set_length (hb_buffer_t  *buffer,
 		      unsigned int  length)
 {
-  if (unlikely (hb_object_is_inert (buffer)))
+  if (unlikely (hb_object_is_immutable (buffer)))
     return length == 0;
 
-  if (!buffer->ensure (length))
+  if (unlikely (!buffer->ensure (length)))
     return false;
 
   /* Wipe the new space */
@@ -1342,7 +1300,7 @@ hb_buffer_set_length (hb_buffer_t  *buffer,
 
 /**
  * hb_buffer_get_length:
- * @buffer: an #hb_buffer_t.
+ * @buffer: An #hb_buffer_t
  *
  * Returns the number of items in the buffer.
  *
@@ -1360,8 +1318,8 @@ hb_buffer_get_length (hb_buffer_t *buffer)
 
 /**
  * hb_buffer_get_glyph_infos:
- * @buffer: an #hb_buffer_t.
- * @length: (out): output array length.
+ * @buffer: An #hb_buffer_t
+ * @length: (out): The output-array length.
  *
  * Returns @buffer glyph information array.  Returned pointer
  * is valid as long as @buffer contents are not modified.
@@ -1374,7 +1332,7 @@ hb_buffer_get_length (hb_buffer_t *buffer)
  **/
 hb_glyph_info_t *
 hb_buffer_get_glyph_infos (hb_buffer_t  *buffer,
-                           unsigned int *length)
+			   unsigned int *length)
 {
   if (length)
     *length = buffer->len;
@@ -1384,11 +1342,16 @@ hb_buffer_get_glyph_infos (hb_buffer_t  *buffer,
 
 /**
  * hb_buffer_get_glyph_positions:
- * @buffer: an #hb_buffer_t.
- * @length: (out): output length.
+ * @buffer: An #hb_buffer_t
+ * @length: (out): The output length
  *
  * Returns @buffer glyph position array.  Returned pointer
  * is valid as long as @buffer contents are not modified.
+ *
+ * If buffer did not have positions before, the positions will be
+ * initialized to zeros, unless this function is called from
+ * within a buffer message callback (see hb_buffer_set_message_func()),
+ * in which case %NULL is returned.
  *
  * Return value: (transfer none) (array length=length):
  * The @buffer glyph position array.
@@ -1398,25 +1361,49 @@ hb_buffer_get_glyph_infos (hb_buffer_t  *buffer,
  **/
 hb_glyph_position_t *
 hb_buffer_get_glyph_positions (hb_buffer_t  *buffer,
-                               unsigned int *length)
+			       unsigned int *length)
 {
-  if (!buffer->have_positions)
-    buffer->clear_positions ();
-
   if (length)
     *length = buffer->len;
+
+  if (!buffer->have_positions)
+  {
+    if (unlikely (buffer->message_depth))
+      return nullptr;
+
+    buffer->clear_positions ();
+  }
 
   return (hb_glyph_position_t *) buffer->pos;
 }
 
 /**
+ * hb_buffer_has_positions:
+ * @buffer: an #hb_buffer_t.
+ *
+ * Returns whether @buffer has glyph position data.
+ * A buffer gains position data when hb_buffer_get_glyph_positions() is called on it,
+ * and cleared of position data when hb_buffer_clear_contents() is called.
+ *
+ * Return value:
+ * %true if the @buffer has position array, %false otherwise.
+ *
+ * Since: 2.7.3
+ **/
+HB_EXTERN hb_bool_t
+hb_buffer_has_positions (hb_buffer_t  *buffer)
+{
+  return buffer->have_positions;
+}
+
+/**
  * hb_glyph_info_get_glyph_flags:
- * @info: a #hb_glyph_info_t.
+ * @info: a #hb_glyph_info_t
  *
  * Returns glyph flags encoded within a #hb_glyph_info_t.
  *
  * Return value:
- * The #hb_glyph_flags_t encoded within @info.
+ * The #hb_glyph_flags_t encoded within @info
  *
  * Since: 1.5.0
  **/
@@ -1428,7 +1415,7 @@ hb_glyph_flags_t
 
 /**
  * hb_buffer_reverse:
- * @buffer: an #hb_buffer_t.
+ * @buffer: An #hb_buffer_t
  *
  * Reverses buffer contents.
  *
@@ -1442,11 +1429,11 @@ hb_buffer_reverse (hb_buffer_t *buffer)
 
 /**
  * hb_buffer_reverse_range:
- * @buffer: an #hb_buffer_t.
- * @start: start index.
- * @end: end index.
+ * @buffer: An #hb_buffer_t
+ * @start: start index
+ * @end: end index
  *
- * Reverses buffer contents between start to end.
+ * Reverses buffer contents between @start and @end.
  *
  * Since: 0.9.41
  **/
@@ -1459,7 +1446,7 @@ hb_buffer_reverse_range (hb_buffer_t *buffer,
 
 /**
  * hb_buffer_reverse_clusters:
- * @buffer: an #hb_buffer_t.
+ * @buffer: An #hb_buffer_t
  *
  * Reverses buffer clusters.  That is, the buffer contents are
  * reversed, then each cluster (consecutive items having the
@@ -1475,25 +1462,29 @@ hb_buffer_reverse_clusters (hb_buffer_t *buffer)
 
 /**
  * hb_buffer_guess_segment_properties:
- * @buffer: an #hb_buffer_t.
+ * @buffer: An #hb_buffer_t
  *
  * Sets unset buffer segment properties based on buffer Unicode
  * contents.  If buffer is not empty, it must have content type
- * %HB_BUFFER_CONTENT_TYPE_UNICODE.
+ * #HB_BUFFER_CONTENT_TYPE_UNICODE.
  *
- * If buffer script is not set (ie. is %HB_SCRIPT_INVALID), it
+ * If buffer script is not set (ie. is #HB_SCRIPT_INVALID), it
  * will be set to the Unicode script of the first character in
- * the buffer that has a script other than %HB_SCRIPT_COMMON,
- * %HB_SCRIPT_INHERITED, and %HB_SCRIPT_UNKNOWN.
+ * the buffer that has a script other than #HB_SCRIPT_COMMON,
+ * #HB_SCRIPT_INHERITED, and #HB_SCRIPT_UNKNOWN.
  *
- * Next, if buffer direction is not set (ie. is %HB_DIRECTION_INVALID),
+ * Next, if buffer direction is not set (ie. is #HB_DIRECTION_INVALID),
  * it will be set to the natural horizontal direction of the
  * buffer script as returned by hb_script_get_horizontal_direction().
+ * If hb_script_get_horizontal_direction() returns #HB_DIRECTION_INVALID,
+ * then #HB_DIRECTION_LTR is used.
  *
- * Finally, if buffer language is not set (ie. is %HB_LANGUAGE_INVALID),
+ * Finally, if buffer language is not set (ie. is #HB_LANGUAGE_INVALID),
  * it will be set to the process's default language as returned by
  * hb_language_get_default().  This may change in the future by
  * taking buffer script into consideration when choosing a language.
+ * Note that hb_language_get_default() is NOT threadsafe the first time
+ * it is called.  See documentation for that function for details.
  *
  * Since: 0.9.7
  **/
@@ -1514,10 +1505,9 @@ hb_buffer_add_utf (hb_buffer_t  *buffer,
   typedef typename utf_t::codepoint_t T;
   const hb_codepoint_t replacement = buffer->replacement;
 
-  assert (buffer->content_type == HB_BUFFER_CONTENT_TYPE_UNICODE ||
-	  (!buffer->len && buffer->content_type == HB_BUFFER_CONTENT_TYPE_INVALID));
+  buffer->assert_unicode ();
 
-  if (unlikely (hb_object_is_inert (buffer)))
+  if (unlikely (hb_object_is_immutable (buffer)))
     return;
 
   if (text_length == -1)
@@ -1526,7 +1516,10 @@ hb_buffer_add_utf (hb_buffer_t  *buffer,
   if (item_length == -1)
     item_length = text_length - item_offset;
 
-  buffer->ensure (buffer->len + item_length * sizeof (T) / 4);
+  if (unlikely (item_length < 0 ||
+		item_length > INT_MAX / 8 ||
+		!buffer->ensure (buffer->len + item_length * sizeof (T) / 4)))
+    return;
 
   /* If buffer is empty and pre-context provided, install it.
    * This check is written this way, to make sure people can
@@ -1574,12 +1567,12 @@ hb_buffer_add_utf (hb_buffer_t  *buffer,
 
 /**
  * hb_buffer_add_utf8:
- * @buffer: an #hb_buffer_t.
- * @text: (array length=text_length) (element-type uint8_t): an array of UTF-8
+ * @buffer: An #hb_buffer_t
+ * @text: (array length=text_length) (element-type uint8_t): An array of UTF-8
  *               characters to append.
- * @text_length: the length of the @text, or -1 if it is %NULL terminated.
- * @item_offset: the offset of the first character to add to the @buffer.
- * @item_length: the number of characters to add to the @buffer, or -1 for the
+ * @text_length: The length of the @text, or -1 if it is %NULL terminated.
+ * @item_offset: The offset of the first character to add to the @buffer.
+ * @item_length: The number of characters to add to the @buffer, or -1 for the
  *               end of @text (assuming it is %NULL terminated).
  *
  * See hb_buffer_add_codepoints().
@@ -1601,12 +1594,12 @@ hb_buffer_add_utf8 (hb_buffer_t  *buffer,
 
 /**
  * hb_buffer_add_utf16:
- * @buffer: an #hb_buffer_t.
- * @text: (array length=text_length): an array of UTF-16 characters to append.
- * @text_length: the length of the @text, or -1 if it is %NULL terminated.
- * @item_offset: the offset of the first character to add to the @buffer.
- * @item_length: the number of characters to add to the @buffer, or -1 for the
- *               end of @text (assuming it is %NULL terminated).
+ * @buffer: An #hb_buffer_t
+ * @text: (array length=text_length): An array of UTF-16 characters to append
+ * @text_length: The length of the @text, or -1 if it is %NULL terminated
+ * @item_offset: The offset of the first character to add to the @buffer
+ * @item_length: The number of characters to add to the @buffer, or -1 for the
+ *               end of @text (assuming it is %NULL terminated)
  *
  * See hb_buffer_add_codepoints().
  *
@@ -1627,12 +1620,12 @@ hb_buffer_add_utf16 (hb_buffer_t    *buffer,
 
 /**
  * hb_buffer_add_utf32:
- * @buffer: an #hb_buffer_t.
- * @text: (array length=text_length): an array of UTF-32 characters to append.
- * @text_length: the length of the @text, or -1 if it is %NULL terminated.
- * @item_offset: the offset of the first character to add to the @buffer.
- * @item_length: the number of characters to add to the @buffer, or -1 for the
- *               end of @text (assuming it is %NULL terminated).
+ * @buffer: An #hb_buffer_t
+ * @text: (array length=text_length): An array of UTF-32 characters to append
+ * @text_length: The length of the @text, or -1 if it is %NULL terminated
+ * @item_offset: The offset of the first character to add to the @buffer
+ * @item_length: The number of characters to add to the @buffer, or -1 for the
+ *               end of @text (assuming it is %NULL terminated)
  *
  * See hb_buffer_add_codepoints().
  *
@@ -1648,18 +1641,18 @@ hb_buffer_add_utf32 (hb_buffer_t    *buffer,
 		     unsigned int    item_offset,
 		     int             item_length)
 {
-  hb_buffer_add_utf<hb_utf32_t<> > (buffer, text, text_length, item_offset, item_length);
+  hb_buffer_add_utf<hb_utf32_t> (buffer, text, text_length, item_offset, item_length);
 }
 
 /**
  * hb_buffer_add_latin1:
- * @buffer: an #hb_buffer_t.
+ * @buffer: An #hb_buffer_t
  * @text: (array length=text_length) (element-type uint8_t): an array of UTF-8
- *               characters to append.
- * @text_length: the length of the @text, or -1 if it is %NULL terminated.
- * @item_offset: the offset of the first character to add to the @buffer.
+ *               characters to append
+ * @text_length: the length of the @text, or -1 if it is %NULL terminated
+ * @item_offset: the offset of the first character to add to the @buffer
  * @item_length: the number of characters to add to the @buffer, or -1 for the
- *               end of @text (assuming it is %NULL terminated).
+ *               end of @text (assuming it is %NULL terminated)
  *
  * Similar to hb_buffer_add_codepoints(), but allows only access to first 256
  * Unicode code points that can fit in 8-bit strings.
@@ -1709,16 +1702,16 @@ hb_buffer_add_codepoints (hb_buffer_t          *buffer,
 			  unsigned int          item_offset,
 			  int                   item_length)
 {
-  hb_buffer_add_utf<hb_utf32_t<false> > (buffer, text, text_length, item_offset, item_length);
+  hb_buffer_add_utf<hb_utf32_novalidate_t> (buffer, text, text_length, item_offset, item_length);
 }
 
 
 /**
  * hb_buffer_append:
- * @buffer: an #hb_buffer_t.
- * @source: source #hb_buffer_t.
+ * @buffer: An #hb_buffer_t
+ * @source: source #hb_buffer_t
  * @start: start index into source buffer to copy.  Use 0 to copy from start of buffer.
- * @end: end index into source buffer to copy.  Use (unsigned int) -1 to copy to end of buffer.
+ * @end: end index into source buffer to copy.  Use @HB_FEATURE_GLOBAL_END to copy to end of buffer.
  *
  * Append (part of) contents of another buffer to this buffer.
  *
@@ -1743,21 +1736,21 @@ hb_buffer_append (hb_buffer_t *buffer,
   if (start == end)
     return;
 
-  if (!buffer->len)
-    buffer->content_type = source->content_type;
-  if (!buffer->have_positions && source->have_positions)
-    buffer->clear_positions ();
-
   if (buffer->len + (end - start) < buffer->len) /* Overflows. */
   {
-    buffer->in_error = true;
+    buffer->successful = false;
     return;
   }
 
   unsigned int orig_len = buffer->len;
   hb_buffer_set_length (buffer, buffer->len + (end - start));
-  if (buffer->in_error)
+  if (unlikely (!buffer->successful))
     return;
+
+  if (!orig_len)
+    buffer->content_type = source->content_type;
+  if (!buffer->have_positions && source->have_positions)
+    buffer->clear_positions ();
 
   memcpy (buffer->info + orig_len, source->info + start, (end - start) * sizeof (buffer->info[0]));
   if (buffer->have_positions)
@@ -1822,7 +1815,7 @@ normalize_glyphs_cluster (hb_buffer_t *buffer,
 
 /**
  * hb_buffer_normalize_glyphs:
- * @buffer: an #hb_buffer_t.
+ * @buffer: An #hb_buffer_t
  *
  * Reorders a glyph buffer to have canonical in-cluster glyph order / position.
  * The resulting clusters should behave identical to pre-reordering clusters.
@@ -1835,23 +1828,13 @@ void
 hb_buffer_normalize_glyphs (hb_buffer_t *buffer)
 {
   assert (buffer->have_positions);
-  assert (buffer->content_type == HB_BUFFER_CONTENT_TYPE_GLYPHS ||
-	  (!buffer->len && buffer->content_type == HB_BUFFER_CONTENT_TYPE_INVALID));
+
+  buffer->assert_glyphs ();
 
   bool backward = HB_DIRECTION_IS_BACKWARD (buffer->props.direction);
 
-  unsigned int count = buffer->len;
-  if (unlikely (!count)) return;
-  hb_glyph_info_t *info = buffer->info;
-
-  unsigned int start = 0;
-  unsigned int end;
-  for (end = start + 1; end < count; end++)
-    if (info[start].cluster != info[end].cluster) {
-      normalize_glyphs_cluster (buffer, start, end, backward);
-      start = end;
-    }
-  normalize_glyphs_cluster (buffer, start, end, backward);
+  foreach_cluster (buffer, start, end)
+    normalize_glyphs_cluster (buffer, start, end, backward);
 }
 
 void
@@ -1882,9 +1865,13 @@ hb_buffer_t::sort (unsigned int start, unsigned int end, int(*compar)(const hb_g
 
 /**
  * hb_buffer_diff:
+ * @buffer: a buffer.
+ * @reference: other buffer to compare to.
+ * @dottedcircle_glyph: glyph id of U+25CC DOTTED CIRCLE, or (hb_codepont_t) -1.
+ * @position_fuzz: allowed absolute difference in position values.
  *
- * If dottedcircle_glyph is (hb_codepoint_t) -1 then %HB_BUFFER_DIFF_FLAG_DOTTED_CIRCLE_PRESENT
- * and %HB_BUFFER_DIFF_FLAG_NOTDEF_PRESENT are never returned.  This should be used by most
+ * If dottedcircle_glyph is (hb_codepoint_t) -1 then #HB_BUFFER_DIFF_FLAG_DOTTED_CIRCLE_PRESENT
+ * and #HB_BUFFER_DIFF_FLAG_NOTDEF_PRESENT are never returned.  This should be used by most
  * callers if just comparing two buffers is needed.
  *
  * Since: 1.5.0
@@ -1914,9 +1901,9 @@ hb_buffer_diff (hb_buffer_t *buffer,
     for (i = 0; i < count; i++)
     {
       if (contains && info[i].codepoint == dottedcircle_glyph)
-        result |= HB_BUFFER_DIFF_FLAG_DOTTED_CIRCLE_PRESENT;
+	result |= HB_BUFFER_DIFF_FLAG_DOTTED_CIRCLE_PRESENT;
       if (contains && info[i].codepoint == 0)
-        result |= HB_BUFFER_DIFF_FLAG_NOTDEF_PRESENT;
+	result |= HB_BUFFER_DIFF_FLAG_NOTDEF_PRESENT;
     }
     result |= HB_BUFFER_DIFF_FLAG_LENGTH_MISMATCH;
     return hb_buffer_diff_flags_t (result);
@@ -1933,7 +1920,7 @@ hb_buffer_diff (hb_buffer_t *buffer,
       result |= HB_BUFFER_DIFF_FLAG_CODEPOINT_MISMATCH;
     if (buf_info->cluster != ref_info->cluster)
       result |= HB_BUFFER_DIFF_FLAG_CLUSTER_MISMATCH;
-    if ((buf_info->mask & HB_GLYPH_FLAG_DEFINED) != (ref_info->mask & HB_GLYPH_FLAG_DEFINED))
+    if ((buf_info->mask & ~ref_info->mask & HB_GLYPH_FLAG_DEFINED))
       result |= HB_BUFFER_DIFF_FLAG_GLYPH_FLAGS_MISMATCH;
     if (contains && ref_info->codepoint == dottedcircle_glyph)
       result |= HB_BUFFER_DIFF_FLAG_DOTTED_CIRCLE_PRESENT;
@@ -1951,12 +1938,12 @@ hb_buffer_diff (hb_buffer_t *buffer,
     for (unsigned int i = 0; i < count; i++)
     {
       if ((unsigned int) abs (buf_pos->x_advance - ref_pos->x_advance) > position_fuzz ||
-          (unsigned int) abs (buf_pos->y_advance - ref_pos->y_advance) > position_fuzz ||
-          (unsigned int) abs (buf_pos->x_offset - ref_pos->x_offset) > position_fuzz ||
-          (unsigned int) abs (buf_pos->y_offset - ref_pos->y_offset) > position_fuzz)
+	  (unsigned int) abs (buf_pos->y_advance - ref_pos->y_advance) > position_fuzz ||
+	  (unsigned int) abs (buf_pos->x_offset - ref_pos->x_offset) > position_fuzz ||
+	  (unsigned int) abs (buf_pos->y_offset - ref_pos->y_offset) > position_fuzz)
       {
-        result |= HB_BUFFER_DIFF_FLAG_POSITION_MISMATCH;
-        break;
+	result |= HB_BUFFER_DIFF_FLAG_POSITION_MISMATCH;
+	break;
       }
       buf_pos++;
       ref_pos++;
@@ -1971,14 +1958,15 @@ hb_buffer_diff (hb_buffer_t *buffer,
  * Debugging.
  */
 
+#ifndef HB_NO_BUFFER_MESSAGE
 /**
  * hb_buffer_set_message_func:
- * @buffer: an #hb_buffer_t.
- * @func: (closure user_data) (destroy destroy) (scope notified):
- * @user_data:
- * @destroy:
+ * @buffer: An #hb_buffer_t
+ * @func: (closure user_data) (destroy destroy) (scope notified): Callback function
+ * @user_data: (nullable): Data to pass to @func
+ * @destroy: (nullable): The function to call when @user_data is not needed anymore
  *
- * 
+ * Sets the implementation function for #hb_buffer_message_func_t.
  *
  * Since: 1.1.3
  **/
@@ -2000,11 +1988,11 @@ hb_buffer_set_message_func (hb_buffer_t *buffer,
     buffer->message_destroy = nullptr;
   }
 }
-
 bool
 hb_buffer_t::message_impl (hb_font_t *font, const char *fmt, va_list ap)
 {
   char buf[100];
-  vsnprintf (buf, sizeof (buf),  fmt, ap);
+  vsnprintf (buf, sizeof (buf), fmt, ap);
   return (bool) this->message_func (this, font, buf, this->message_data);
 }
+#endif

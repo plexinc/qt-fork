@@ -19,7 +19,7 @@
 class GrProgramDesc;
 class GrVkGpu;
 class GrVkRenderPass;
-class SkReader32;
+class SkReadBuffer;
 
 class GrVkPipelineStateBuilder : public GrGLSLProgramBuilder {
 public:
@@ -33,11 +33,14 @@ public:
                                                   GrRenderTarget*,
                                                   const GrProgramDesc&,
                                                   const GrProgramInfo&,
-                                                  VkRenderPass compatibleRenderPass);
+                                                  VkRenderPass compatibleRenderPass,
+                                                  bool overrideSubpassForResolveLoad);
 
     const GrCaps* caps() const override;
 
     GrVkGpu* gpu() const { return fGpu; }
+
+    SkSL::Compiler* shaderCompiler() const override;
 
     void finalizeFragmentOutputColor(GrShaderVar& outputColor) override;
     void finalizeFragmentSecondaryColor(GrShaderVar& outputColor) override;
@@ -45,10 +48,11 @@ public:
 private:
     GrVkPipelineStateBuilder(GrVkGpu*, GrRenderTarget*, const GrProgramDesc&, const GrProgramInfo&);
 
-    GrVkPipelineState* finalize(const GrProgramDesc&, VkRenderPass compatibleRenderPass);
+    GrVkPipelineState* finalize(const GrProgramDesc&, VkRenderPass compatibleRenderPass,
+                                bool overrideSupbassForResolveLoad);
 
     // returns number of shader stages
-    int loadShadersFromCache(SkReader32* cached, VkShaderModule outShaderModules[],
+    int loadShadersFromCache(SkReadBuffer* cached, VkShaderModule outShaderModules[],
                              VkPipelineShaderStageCreateInfo* outStageInfo);
 
     void storeShadersInCache(const SkSL::String shaders[], const SkSL::Program::Inputs inputs[],
@@ -77,7 +81,7 @@ private:
     GrVkVaryingHandler fVaryingHandler;
     GrVkUniformHandler fUniformHandler;
 
-    typedef GrGLSLProgramBuilder INHERITED;
+    using INHERITED = GrGLSLProgramBuilder;
 };
 
 #endif

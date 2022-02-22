@@ -9,8 +9,10 @@
 #include "base/strings/utf_string_conversions.h"
 #include "components/autofill/core/browser/autofill_data_util.h"
 #include "components/autofill/core/browser/geo/address_i18n.h"
+#include "components/autofill_assistant/browser/field_formatter.h"
 #include "third_party/libaddressinput/chromium/addressinput_util.h"
 #include "third_party/libaddressinput/src/cpp/include/libaddressinput/address_data.h"
+#include "third_party/re2/src/re2/re2.h"
 
 namespace autofill_assistant {
 namespace {
@@ -133,7 +135,74 @@ bool CompletenessComparePaymentInstruments(
   return complete_fields_a > complete_fields_b;
 }
 
+bool IsCompleteAddress(const autofill::AutofillProfile* profile,
+                       bool require_postal_code) {
+  if (!profile) {
+    return false;
+  }
+  // We use a hard coded locale here since we are only interested in whether
+  // fields are empty or not.
+  auto address_data =
+      autofill::i18n::CreateAddressDataFromAutofillProfile(*profile, "en-US");
+  if (!autofill::addressinput::HasAllRequiredFields(*address_data)) {
+    return false;
+  }
+
+  if (require_postal_code && address_data->postal_code.empty()) {
+    return false;
+  }
+
+  return true;
+}
+
+template <typename T>
+ClientStatus ExtractProfileAndFormatAutofillValue(
+    const T& profile,
+    const std::string& value_expression,
+    const UserData* user_data,
+    bool quote_meta,
+    std::string* out_value) {
+  if (profile.identifier().empty() || value_expression.empty()) {
+    VLOG(1) << "|autofill_value| with empty "
+               "|profile.identifier| or |value_expression|";
+    return ClientStatus(INVALID_ACTION);
+  }
+
+  const autofill::AutofillProfile* address =
+      user_data->selected_address(profile.identifier());
+  if (address == nullptr) {
+    VLOG(1) << "Requested unknown address '" << profile.identifier() << "'";
+    return ClientStatus(PRECONDITION_FAILED);
+  }
+
+  auto mappings =
+      field_formatter::CreateAutofillMappings(*address,
+                                              /* locale= */ "en-US");
+  if (quote_meta) {
+    for (const auto& it : mappings) {
+      mappings[it.first] = re2::RE2::QuoteMeta(it.second);
+    }
+  }
+  auto value = field_formatter::FormatString(value_expression, mappings,
+                                             /* strict= */ true);
+  if (!value.has_value()) {
+    return ClientStatus(AUTOFILL_INFO_NOT_AVAILABLE);
+  }
+
+  out_value->assign(*value);
+  return OkClientStatus();
+}
+
 }  // namespace
+
+std::unique_ptr<autofill::AutofillProfile> MakeUniqueFromProfile(
+    const autofill::AutofillProfile& profile) {
+  auto unique_profile = std::make_unique<autofill::AutofillProfile>(profile);
+  // Temporary workaround so that fields like first/last name a properly
+  // populated.
+  unique_profile->FinalizeAfterImport();
+  return unique_profile;
+}
 
 std::vector<int> SortContactsByCompleteness(
     const CollectUserDataOptions& collect_user_data_options,
@@ -250,6 +319,104 @@ bool CompareContactDetails(
   }
 
   return true;
+}
+
+bool IsCompleteContact(
+    const autofill::AutofillProfile* profile,
+    const CollectUserDataOptions& collect_user_data_options) {
+  if (!collect_user_data_options.request_payer_name &&
+      !collect_user_data_options.request_payer_email &&
+      !collect_user_data_options.request_payer_phone) {
+    return true;
+  }
+
+  if (!profile) {
+    return false;
+  }
+
+  if (collect_user_data_options.request_payer_name &&
+      !profile->HasInfo(autofill::NAME_FULL)) {
+    return false;
+  }
+
+  if (collect_user_data_options.request_payer_email &&
+      !profile->HasInfo(autofill::EMAIL_ADDRESS)) {
+    return false;
+  }
+
+  if (collect_user_data_options.request_payer_phone &&
+      !profile->HasInfo(autofill::PHONE_HOME_WHOLE_NUMBER)) {
+    return false;
+  }
+  return true;
+}
+
+bool IsCompleteShippingAddress(
+    const autofill::AutofillProfile* profile,
+    const CollectUserDataOptions& collect_user_data_options) {
+  return !collect_user_data_options.request_shipping ||
+         IsCompleteAddress(profile, /* require_postal_code = */ false);
+}
+
+bool IsCompleteCreditCard(
+    const autofill::CreditCard* credit_card,
+    const autofill::AutofillProfile* billing_profile,
+    const CollectUserDataOptions& collect_user_data_options) {
+  if (!collect_user_data_options.request_payment_method) {
+    return true;
+  }
+
+  if (!credit_card || !billing_profile ||
+      credit_card->billing_address_id().empty()) {
+    return false;
+  }
+
+  if (!IsCompleteAddress(
+          billing_profile,
+          collect_user_data_options.require_billing_postal_code)) {
+    return false;
+  }
+
+  if (credit_card->record_type() != autofill::CreditCard::MASKED_SERVER_CARD &&
+      !credit_card->HasValidCardNumber()) {
+    // Can't check validity of masked server card numbers because they are
+    // incomplete until decrypted.
+    return false;
+  }
+
+  if (!credit_card->HasValidExpirationDate()) {
+    return false;
+  }
+
+  std::string basic_card_network =
+      autofill::data_util::GetPaymentRequestData(credit_card->network())
+          .basic_card_issuer_network;
+  if (!collect_user_data_options.supported_basic_card_networks.empty() &&
+      std::find(collect_user_data_options.supported_basic_card_networks.begin(),
+                collect_user_data_options.supported_basic_card_networks.end(),
+                basic_card_network) ==
+          collect_user_data_options.supported_basic_card_networks.end()) {
+    return false;
+  }
+
+  return true;
+}
+
+ClientStatus GetFormattedAutofillValue(const AutofillValue& autofill_value,
+                                       const UserData* user_data,
+                                       std::string* out_value) {
+  return ExtractProfileAndFormatAutofillValue<AutofillValue::Profile>(
+      autofill_value.profile(), autofill_value.value_expression(), user_data,
+      /* quote_meta= */ false, out_value);
+}
+
+ClientStatus GetFormattedAutofillValue(
+    const AutofillValueRegexp& autofill_value,
+    const UserData* user_data,
+    std::string* out_value) {
+  return ExtractProfileAndFormatAutofillValue<AutofillValueRegexp::Profile>(
+      autofill_value.profile(), autofill_value.value_expression().re2(),
+      user_data, /* quote_meta= */ true, out_value);
 }
 
 }  // namespace autofill_assistant

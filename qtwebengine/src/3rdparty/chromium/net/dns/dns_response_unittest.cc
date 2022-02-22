@@ -4,19 +4,21 @@
 
 #include "net/dns/dns_response.h"
 
+#include <algorithm>
 #include <memory>
+#include <vector>
 
 #include "base/big_endian.h"
 #include "base/optional.h"
 #include "base/stl_util.h"
 #include "base/time/time.h"
-#include "net/base/address_list.h"
 #include "net/base/io_buffer.h"
 #include "net/dns/dns_query.h"
 #include "net/dns/dns_test_util.h"
 #include "net/dns/dns_util.h"
 #include "net/dns/public/dns_protocol.h"
 #include "net/dns/record_rdata.h"
+#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace net {
@@ -297,26 +299,32 @@ TEST(DnsResponseTest, InitParse) {
   DnsResponse resp;
   memcpy(resp.io_buffer()->data(), response_data, sizeof(response_data));
 
+  EXPECT_FALSE(resp.id());
+
   // Reject too short.
   EXPECT_FALSE(resp.InitParse(query->io_buffer()->size() - 1, *query));
   EXPECT_FALSE(resp.IsValid());
+  EXPECT_FALSE(resp.id());
 
   // Reject wrong id.
   std::unique_ptr<DnsQuery> other_query = query->CloneWithNewId(0xbeef);
   EXPECT_FALSE(resp.InitParse(sizeof(response_data), *other_query));
   EXPECT_FALSE(resp.IsValid());
+  EXPECT_THAT(resp.id(), testing::Optional(0xcafe));
 
   // Reject wrong question.
   std::unique_ptr<DnsQuery> wrong_query(
       new DnsQuery(0xcafe, qname, dns_protocol::kTypeCNAME));
   EXPECT_FALSE(resp.InitParse(sizeof(response_data), *wrong_query));
   EXPECT_FALSE(resp.IsValid());
+  EXPECT_THAT(resp.id(), testing::Optional(0xcafe));
 
   // Accept matching question.
   EXPECT_TRUE(resp.InitParse(sizeof(response_data), *query));
   EXPECT_TRUE(resp.IsValid());
 
   // Check header access.
+  EXPECT_THAT(resp.id(), testing::Optional(0xcafe));
   EXPECT_EQ(0x8180, resp.flags());
   EXPECT_EQ(0x0, resp.rcode());
   EXPECT_EQ(2u, resp.answer_count());
@@ -384,6 +392,7 @@ TEST(DnsResponseTest, InitParseInvalidFlags) {
 
   EXPECT_FALSE(resp.InitParse(sizeof(response_data), *query));
   EXPECT_FALSE(resp.IsValid());
+  EXPECT_THAT(resp.id(), testing::Optional(0xcafe));
 }
 
 TEST(DnsResponseTest, InitParseWithoutQuery) {
@@ -441,6 +450,7 @@ TEST(DnsResponseTest, InitParseWithoutQueryNoQuestions) {
   EXPECT_TRUE(resp.InitParseWithoutQuery(sizeof(response_data)));
 
   // Check header access.
+  EXPECT_THAT(resp.id(), testing::Optional(0xcafe));
   EXPECT_EQ(0x8180, resp.flags());
   EXPECT_EQ(0x0, resp.rcode());
   EXPECT_EQ(0x1u, resp.answer_count());
@@ -483,6 +493,7 @@ TEST(DnsResponseTest, InitParseWithoutQueryInvalidFlags) {
   memcpy(resp.io_buffer()->data(), response_data, sizeof(response_data));
 
   EXPECT_FALSE(resp.InitParseWithoutQuery(sizeof(response_data)));
+  EXPECT_THAT(resp.id(), testing::Optional(0xcafe));
 }
 
 TEST(DnsResponseTest, InitParseWithoutQueryTwoQuestions) {
@@ -552,198 +563,6 @@ TEST(DnsResponseTest, InitParseWithoutQueryPacketTooShort) {
   memcpy(resp.io_buffer()->data(), response_data, sizeof(response_data));
 
   EXPECT_FALSE(resp.InitParseWithoutQuery(sizeof(response_data)));
-}
-
-void VerifyAddressList(const std::vector<const char*>& ip_addresses,
-                       const AddressList& addrlist) {
-  ASSERT_EQ(ip_addresses.size(), addrlist.size());
-
-  for (size_t i = 0; i < addrlist.size(); ++i) {
-    EXPECT_EQ(ip_addresses[i], addrlist[i].ToStringWithoutPort());
-  }
-}
-
-TEST(DnsResponseTest, ParseToAddressList) {
-  const struct TestCase {
-    size_t query_size;
-    const uint8_t* response_data;
-    size_t response_size;
-    const char* const* expected_addresses;
-    size_t num_expected_addresses;
-    const char* expected_cname;
-    int expected_ttl_sec;
-  } cases[] = {
-      {
-          kT0QuerySize,
-          kT0ResponseDatagram,
-          base::size(kT0ResponseDatagram),
-          kT0IpAddresses,
-          base::size(kT0IpAddresses),
-          kT0CanonName,
-          kT0TTL,
-      },
-      {
-          kT1QuerySize,
-          kT1ResponseDatagram,
-          base::size(kT1ResponseDatagram),
-          kT1IpAddresses,
-          base::size(kT1IpAddresses),
-          kT1CanonName,
-          kT1TTL,
-      },
-      {
-          kT2QuerySize,
-          kT2ResponseDatagram,
-          base::size(kT2ResponseDatagram),
-          kT2IpAddresses,
-          base::size(kT2IpAddresses),
-          kT2CanonName,
-          kT2TTL,
-      },
-      {
-          kT3QuerySize,
-          kT3ResponseDatagram,
-          base::size(kT3ResponseDatagram),
-          kT3IpAddresses,
-          base::size(kT3IpAddresses),
-          kT3CanonName,
-          kT3TTL,
-      },
-  };
-
-  for (size_t i = 0; i < base::size(cases); ++i) {
-    const TestCase& t = cases[i];
-    DnsResponse response(t.response_data, t.response_size, t.query_size);
-    AddressList addr_list;
-    base::TimeDelta ttl;
-    EXPECT_EQ(DnsResponse::DNS_PARSE_OK,
-              response.ParseToAddressList(&addr_list, &ttl));
-    std::vector<const char*> expected_addresses(
-        t.expected_addresses,
-        t.expected_addresses + t.num_expected_addresses);
-    VerifyAddressList(expected_addresses, addr_list);
-    EXPECT_EQ(t.expected_cname, addr_list.canonical_name());
-    EXPECT_EQ(base::TimeDelta::FromSeconds(t.expected_ttl_sec), ttl);
-  }
-}
-
-const uint8_t kResponseTruncatedRecord[] = {
-    // Header: 1 question, 1 answer RR
-    0x00, 0x00, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
-    // Question: name = 'a', type = A (0x1)
-    0x01, 'a', 0x00, 0x00, 0x01, 0x00, 0x01,
-    // Answer: name = 'a', type = A, TTL = 0xFF, RDATA = 10.10.10.10
-    0x01, 'a', 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x04,
-    0x0A, 0x0A, 0x0A,  // Truncated RDATA.
-};
-
-const uint8_t kResponseTruncatedCNAME[] = {
-    // Header: 1 question, 1 answer RR
-    0x00, 0x00, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
-    // Question: name = 'a', type = A (0x1)
-    0x01, 'a', 0x00, 0x00, 0x01, 0x00, 0x01,
-    // Answer: name = 'a', type = CNAME, TTL = 0xFF, RDATA = 'foo' (truncated)
-    0x01, 'a', 0x00, 0x00, 0x05, 0x00, 0x01, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x03,
-    0x03, 'f', 'o',  // Truncated name.
-};
-
-const uint8_t kResponseNameMismatch[] = {
-    // Header: 1 question, 1 answer RR
-    0x00, 0x00, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
-    // Question: name = 'a', type = A (0x1)
-    0x01, 'a', 0x00, 0x00, 0x01, 0x00, 0x01,
-    // Answer: name = 'b', type = A, TTL = 0xFF, RDATA = 10.10.10.10
-    0x01, 'b', 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x04,
-    0x0A, 0x0A, 0x0A, 0x0A,
-};
-
-const uint8_t kResponseNameMismatchInChain[] = {
-    // Header: 1 question, 3 answer RR
-    0x00, 0x00, 0x81, 0x80, 0x00, 0x01, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00,
-    // Question: name = 'a', type = A (0x1)
-    0x01, 'a', 0x00, 0x00, 0x01, 0x00, 0x01,
-    // Answer: name = 'a', type = CNAME, TTL = 0xFF, RDATA = 'b'
-    0x01, 'a', 0x00, 0x00, 0x05, 0x00, 0x01, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x03,
-    0x01, 'b', 0x00,
-    // Answer: name = 'b', type = A, TTL = 0xFF, RDATA = 10.10.10.10
-    0x01, 'b', 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x04,
-    0x0A, 0x0A, 0x0A, 0x0A,
-    // Answer: name = 'c', type = A, TTL = 0xFF, RDATA = 10.10.10.11
-    0x01, 'c', 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x04,
-    0x0A, 0x0A, 0x0A, 0x0B,
-};
-
-const uint8_t kResponseSizeMismatch[] = {
-    // Header: 1 answer RR
-    0x00, 0x00, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
-    // Question: name = 'a', type = AAAA (0x1c)
-    0x01, 'a', 0x00, 0x00, 0x1c, 0x00, 0x01,
-    // Answer: name = 'a', type = AAAA, TTL = 0xFF, RDATA = 10.10.10.10
-    0x01, 'a', 0x00, 0x00, 0x1c, 0x00, 0x01, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x04,
-    0x0A, 0x0A, 0x0A, 0x0A,
-};
-
-const uint8_t kResponseCNAMEAfterAddress[] = {
-    // Header: 2 answer RR
-    0x00, 0x00, 0x81, 0x80, 0x00, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00,
-    // Question: name = 'a', type = A (0x1)
-    0x01, 'a', 0x00, 0x00, 0x01, 0x00, 0x01,
-    // Answer: name = 'a', type = A, TTL = 0xFF, RDATA = 10.10.10.10.
-    0x01, 'a', 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x04,
-    0x0A, 0x0A, 0x0A, 0x0A,
-    // Answer: name = 'a', type = CNAME, TTL = 0xFF, RDATA = 'b'
-    0x01, 'a', 0x00, 0x00, 0x05, 0x00, 0x01, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x03,
-    0x01, 'b', 0x00,
-};
-
-const uint8_t kResponseNoAddresses[] = {
-    // Header: 1 question, 1 answer RR, 1 authority RR
-    0x00, 0x00, 0x81, 0x80, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
-    // Question: name = 'a', type = A (0x1)
-    0x01, 'a', 0x00, 0x00, 0x01, 0x00, 0x01,
-    // Answer: name = 'a', type = CNAME, TTL = 0xFF, RDATA = 'b'
-    0x01, 'a', 0x00, 0x00, 0x05, 0x00, 0x01, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x03,
-    0x01, 'b', 0x00,
-    // Authority section
-    // Answer: name = 'b', type = A, TTL = 0xFF, RDATA = 10.10.10.10
-    0x01, 'b', 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x04,
-    0x0A, 0x0A, 0x0A, 0x0A,
-};
-
-TEST(DnsResponseTest, ParseToAddressListFail) {
-  const struct TestCase {
-    const uint8_t* data;
-    size_t size;
-    DnsResponse::Result expected_result;
-  } cases[] = {
-      {kResponseTruncatedRecord, base::size(kResponseTruncatedRecord),
-       DnsResponse::DNS_MALFORMED_RESPONSE},
-      {kResponseTruncatedCNAME, base::size(kResponseTruncatedCNAME),
-       DnsResponse::DNS_MALFORMED_CNAME},
-      {kResponseNameMismatch, base::size(kResponseNameMismatch),
-       DnsResponse::DNS_NAME_MISMATCH},
-      {kResponseNameMismatchInChain, base::size(kResponseNameMismatchInChain),
-       DnsResponse::DNS_NAME_MISMATCH},
-      {kResponseSizeMismatch, base::size(kResponseSizeMismatch),
-       DnsResponse::DNS_SIZE_MISMATCH},
-      {kResponseCNAMEAfterAddress, base::size(kResponseCNAMEAfterAddress),
-       DnsResponse::DNS_CNAME_AFTER_ADDRESS},
-      // Not actually a failure, just an empty result.
-      {kResponseNoAddresses, base::size(kResponseNoAddresses),
-       DnsResponse::DNS_PARSE_OK},
-  };
-
-  const size_t kQuerySize = 12 + 7;
-
-  for (size_t i = 0; i < base::size(cases); ++i) {
-    const TestCase& t = cases[i];
-
-    DnsResponse response(t.data, t.size, kQuerySize);
-    AddressList addr_list;
-    base::TimeDelta ttl;
-    EXPECT_EQ(t.expected_result,
-              response.ParseToAddressList(&addr_list, &ttl));
-  }
 }
 
 TEST(DnsResponseWriteTest, SingleARecordAnswer) {
@@ -1181,6 +1000,7 @@ TEST(DnsResponseWriteTest, WrittenResponseCanBeParsed) {
                        base::nullopt);
   ASSERT_NE(nullptr, response.io_buffer());
   EXPECT_TRUE(response.IsValid());
+  EXPECT_THAT(response.id(), testing::Optional(0x1234));
   EXPECT_EQ(1u, response.answer_count());
   EXPECT_EQ(1u, response.additional_answer_count());
   auto parser = response.Parser();

@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2019 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the examples of the Qt Toolkit.
@@ -48,7 +48,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.14
+import QtQuick
+import QtQuick.Controls
 
 Rectangle {
     width: 480
@@ -57,7 +58,7 @@ Rectangle {
         id: img
         anchors.centerIn: parent
         cache: true
-        source: "content/multi.ico"
+        source: "pics/multi.ico"
 
         Shortcut {
             sequence: StandardKey.MoveToNextPage
@@ -71,7 +72,7 @@ Rectangle {
         }
     }
 
-    Text {
+    Label {
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.margins: 6

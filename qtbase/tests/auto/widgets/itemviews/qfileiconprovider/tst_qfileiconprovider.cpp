@@ -47,7 +47,7 @@ private slots:
     void type_data();
     void type();
 
-    void taskQTBUG_46755_QFileIconEngine_crash();
+    void iconPixmaps();
 };
 
 void tst_QFileIconProvider::qfileiconprovider()
@@ -126,17 +126,17 @@ void tst_QFileIconProvider::type()
 static QIcon getIcon()
 {
     QFileIconProvider fip;
-    return fip.icon(QDir::currentPath());
+    return fip.icon(QFileInfo(QDir::currentPath()));
 }
 
-void tst_QFileIconProvider::taskQTBUG_46755_QFileIconEngine_crash()
+void tst_QFileIconProvider::iconPixmaps()
 {
     const QIcon &icon = getIcon();
     const auto sizes = icon.availableSizes();
-    for (const QSize &size : sizes)
-        icon.pixmap(size);
-
-    // No crash, all good.
+    for (const QSize &size : sizes) {
+        QPixmap pixmap = icon.pixmap(size);
+        QVERIFY(!pixmap.isNull());
+    }
 }
 
 QTEST_MAIN(tst_QFileIconProvider)

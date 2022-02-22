@@ -120,7 +120,7 @@ void WindowAndroid::AttachCompositor(WindowAndroidCompositor* compositor) {
 }
 
 void WindowAndroid::DetachCompositor() {
-  compositor_ = NULL;
+  compositor_ = nullptr;
   for (WindowAndroidObserver& observer : observer_list_)
     observer.OnDetachCompositor();
   observer_list_.Clear();
@@ -147,9 +147,6 @@ std::vector<float> WindowAndroid::GetSupportedRefreshRates() {
 }
 
 void WindowAndroid::SetPreferredRefreshRate(float refresh_rate) {
-  if (force_60hz_refresh_rate_)
-    return;
-
   if (test_hooks_) {
     test_hooks_->SetPreferredRate(refresh_rate);
     return;
@@ -198,29 +195,12 @@ void WindowAndroid::SetVSyncPaused(JNIEnv* env,
     compositor_->SetVSyncPaused(paused);
 }
 
-void WindowAndroid::OnCursorVisibilityChanged(
-    JNIEnv* env,
-    const base::android::JavaParamRef<jobject>& obj,
-    bool visible) {
-  for (WindowAndroidObserver& observer : observer_list_)
-    observer.OnCursorVisibilityChanged(visible);
-}
-
-void WindowAndroid::OnFallbackCursorModeToggled(
-    JNIEnv* env,
-    const base::android::JavaParamRef<jobject>& obj,
-    bool is_on) {
-  for (WindowAndroidObserver& observer : observer_list_)
-    observer.OnFallbackCursorModeToggled(is_on);
-}
-
 void WindowAndroid::OnUpdateRefreshRate(
     JNIEnv* env,
     const base::android::JavaParamRef<jobject>& obj,
     float refresh_rate) {
   if (compositor_)
     compositor_->OnUpdateRefreshRate(refresh_rate);
-  Force60HzRefreshRateIfNeeded();
 }
 
 void WindowAndroid::OnSupportedRefreshRatesUpdated(
@@ -234,30 +214,11 @@ void WindowAndroid::OnSupportedRefreshRatesUpdated(
   }
   if (compositor_)
     compositor_->OnUpdateSupportedRefreshRates(supported_refresh_rates);
-
-  Force60HzRefreshRateIfNeeded();
 }
 
-void WindowAndroid::SetForce60HzRefreshRate() {
-  if (force_60hz_refresh_rate_)
-    return;
-
-  force_60hz_refresh_rate_ = true;
-  Force60HzRefreshRateIfNeeded();
-}
-
-void WindowAndroid::Force60HzRefreshRateIfNeeded() {
-  if (!force_60hz_refresh_rate_)
-    return;
-
+void WindowAndroid::SetWideColorEnabled(bool enabled) {
   JNIEnv* env = AttachCurrentThread();
-  Java_WindowAndroid_setPreferredRefreshRate(env, GetJavaObject(), 60.f);
-}
-
-bool WindowAndroid::ApplyDisableSurfaceControlWorkaround() {
-  JNIEnv* env = AttachCurrentThread();
-  return Java_WindowAndroid_applyDisableSurfaceControlWorkaround(
-      env, GetJavaObject());
+  Java_WindowAndroid_setWideColorEnabled(env, GetJavaObject(), enabled);
 }
 
 bool WindowAndroid::HasPermission(const std::string& permission) {

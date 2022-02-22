@@ -65,6 +65,8 @@ class Q_QUICK3D_EXPORT QQuick3DQuaternionAnimation : public QQuickPropertyAnimat
     Q_PROPERTY(float toYRotation READ toYRotation WRITE setToYRotation NOTIFY toYRotationChanged)
     Q_PROPERTY(float toZRotation READ toZRotation WRITE setToZRotation NOTIFY toZRotationChanged)
 
+    QML_NAMED_ELEMENT(QuaternionAnimation)
+
 public:
     enum Type {
         Slerp = 0,
@@ -102,7 +104,7 @@ public:
     void setToZRotation(float f);
 
 Q_SIGNALS:
-    void typeChanged(Type type);
+    void typeChanged(QQuick3DQuaternionAnimation::Type type);
     void fromXRotationChanged(float value);
     void fromYRotationChanged(float value);
     void fromZRotationChanged(float value);

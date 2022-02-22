@@ -19,9 +19,7 @@
 #include <memory>
 #include <string>
 
-#include "base/macros.h"
 #include "base/memory/free_deleter.h"
-#include "base/strings/string16.h"
 #include "base/win/scoped_handle.h"
 #include "printing/printing_export.h"
 
@@ -32,6 +30,10 @@ struct PRINTING_EXPORT PrinterBasicInfo;
 
 class PRINTING_EXPORT PrinterHandleTraits {
  public:
+  PrinterHandleTraits() = delete;
+  PrinterHandleTraits(const PrinterHandleTraits&) = delete;
+  PrinterHandleTraits& operator=(const PrinterHandleTraits&) = delete;
+
   using Handle = HANDLE;
 
   static bool CloseHandle(HANDLE handle);
@@ -39,9 +41,6 @@ class PRINTING_EXPORT PrinterHandleTraits {
   static bool IsHandleValid(HANDLE handle) { return !!handle; }
 
   static HANDLE NullHandle() { return nullptr; }
-
- private:
-  DISALLOW_IMPLICIT_CONSTRUCTORS(PrinterHandleTraits);
 };
 
 class PRINTING_EXPORT ScopedPrinterHandle
@@ -53,6 +52,11 @@ class PRINTING_EXPORT ScopedPrinterHandle
 
 class PRINTING_EXPORT PrinterChangeHandleTraits {
  public:
+  PrinterChangeHandleTraits() = delete;
+  PrinterChangeHandleTraits(const PrinterChangeHandleTraits&) = delete;
+  PrinterChangeHandleTraits& operator=(const PrinterChangeHandleTraits&) =
+      delete;
+
   using Handle = HANDLE;
 
   static bool CloseHandle(HANDLE handle);
@@ -60,9 +64,6 @@ class PRINTING_EXPORT PrinterChangeHandleTraits {
   static bool IsHandleValid(HANDLE handle) { return !!handle; }
 
   static HANDLE NullHandle() { return nullptr; }
-
- private:
-  DISALLOW_IMPLICIT_CONSTRUCTORS(PrinterChangeHandleTraits);
 };
 
 using ScopedPrinterChangeHandle =
@@ -79,7 +80,7 @@ class PRINTING_EXPORT XPSModule {
   // All the other methods can ONLY be called after a successful call to Init.
   // Init can be called many times and by multiple threads.
   static bool Init();
-  static HRESULT OpenProvider(const base::string16& printer_name,
+  static HRESULT OpenProvider(const std::wstring& printer_name,
                               DWORD version,
                               HPTPROVIDER* provider);
   static HRESULT GetPrintCapabilities(HPTPROVIDER provider,
@@ -117,14 +118,14 @@ class PRINTING_EXPORT XPSModule {
 class PRINTING_EXPORT ScopedXPSInitializer {
  public:
   ScopedXPSInitializer();
+  ScopedXPSInitializer(const ScopedXPSInitializer&) = delete;
+  ScopedXPSInitializer& operator=(const ScopedXPSInitializer&) = delete;
   ~ScopedXPSInitializer();
 
   bool initialized() const { return initialized_; }
 
  private:
   bool initialized_;
-
-  DISALLOW_COPY_AND_ASSIGN(ScopedXPSInitializer);
 };
 
 // Wrapper class to wrap the XPS Print APIs (these are different from the PTxxx
@@ -161,7 +162,7 @@ PRINTING_EXPORT bool InitBasicPrinterInfo(HANDLE printer,
 PRINTING_EXPORT std::string GetDriverInfo(HANDLE printer);
 
 PRINTING_EXPORT std::unique_ptr<DEVMODE, base::FreeDeleter> XpsTicketToDevMode(
-    const base::string16& printer_name,
+    const std::wstring& printer_name,
     const std::string& print_ticket);
 
 PRINTING_EXPORT bool IsDevModeWithColor(const DEVMODE* devmode);
@@ -170,7 +171,7 @@ PRINTING_EXPORT bool IsDevModeWithColor(const DEVMODE* devmode);
 // workaround for color.
 PRINTING_EXPORT std::unique_ptr<DEVMODE, base::FreeDeleter>
 CreateDevModeWithColor(HANDLE printer,
-                       const base::string16& printer_name,
+                       const std::wstring& printer_name,
                        bool color);
 
 // Creates new DEVMODE. If |in| is not NULL copy settings from there.
@@ -181,7 +182,7 @@ PRINTING_EXPORT std::unique_ptr<DEVMODE, base::FreeDeleter> CreateDevMode(
 // Prompts for new DEVMODE. If |in| is not NULL copy settings from there.
 PRINTING_EXPORT std::unique_ptr<DEVMODE, base::FreeDeleter> PromptDevMode(
     HANDLE printer,
-    const base::string16& printer_name,
+    const std::wstring& printer_name,
     DEVMODE* in,
     HWND window,
     bool* canceled);

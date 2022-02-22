@@ -52,8 +52,6 @@ QT_BEGIN_NAMESPACE
 
 #ifndef QT_NO_SSL
 
-template <typename A, typename B> struct QPair;
-
 class QIODevice;
 
 class QSslKeyPrivate;
@@ -86,6 +84,7 @@ public:
     QSsl::KeyAlgorithm algorithm() const;
 
     QByteArray toPem(const QByteArray &passPhrase = QByteArray()) const;
+    // ### Qt 7: drop passPhrase
     QByteArray toDer(const QByteArray &passPhrase = QByteArray()) const;
 
     Qt::HANDLE handle() const;
@@ -95,8 +94,7 @@ public:
 
 private:
     QExplicitlySharedDataPointer<QSslKeyPrivate> d;
-    friend class QSslCertificate;
-    friend class QSslSocketBackendPrivate;
+    friend class QTlsBackend;
 };
 
 Q_DECLARE_SHARED(QSslKey)

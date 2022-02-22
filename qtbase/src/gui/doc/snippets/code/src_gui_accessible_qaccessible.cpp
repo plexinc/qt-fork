@@ -47,9 +47,17 @@
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
+#include <QAccessible>
+
+namespace src_gui_accessible_qaccessible {
+class MyWidget
+{
+    void setFocus(Qt::FocusReason reason);
+};
+QAccessibleInterface *f = nullptr;
 
 //! [1]
-typedef QAccessibleInterface* myFactoryFunction(const QString &key, QObject *);
+typedef QAccessibleInterface *myFactoryFunction(const QString &key, QObject *);
 //! [1]
 
 //! [2]
@@ -61,11 +69,4 @@ void MyWidget::setFocus(Qt::FocusReason reason)
 }
 //! [2]
 
-//! [3]
-void *QAccessibleLineEdit::interface_cast(QAccessible::InterfaceType t)
-{
-    if (t == QAccessible::TextInterface)
-        return static_cast<QAccessibleTextInterface*>(this);
-    return QAccessibleWidget::interface_cast(t);
-}
-//! [3]
+} // src_gui_accessible_qaccessible

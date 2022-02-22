@@ -38,8 +38,8 @@ import json
 import urllib2
 import git_submodule as GitSubmodule
 
-chromium_version = '83.0.4103.122'
-chromium_branch = '4103'
+chromium_version = '90.0.4430.228'
+chromium_branch = '4430'
 ninja_version = 'v1.8.2'
 
 json_url = 'http://omahaproxy.appspot.com/all.json'
@@ -54,6 +54,14 @@ submodule_blacklist = [
     , 'chrome/tools/test/reference_build/chrome_mac'
     , 'chrome/tools/test/reference_build/chrome_linux'
     , 'chrome/tools/test/reference_build/chrome_win'
+   # buildtools duplicates:
+    , 'buildtools/clang_format/script'
+    , 'buildtools/linux64'
+    , 'buildtools/mac'
+    , 'buildtools/win'
+    , 'buildtools/third_party/libc++/trunk'
+    , 'buildtools/third_party/libc++abi/trunk'
+    , 'buildtools/third_party/libunwind/trunk'
     ]
 
 sys.path.append(os.path.join(qtwebengine_root, 'tools', 'scripts'))
@@ -89,8 +97,6 @@ def readSubmodules():
         submodule_dict[sub.path] = sub
 
     extradeps_dirs = parser.get_recursedeps()
-    # Add buildtools submodules
-    extradeps_dirs.append('buildtools')
 
     for extradeps_dir in extradeps_dirs:
         if extradeps_dir.startswith('src/'):

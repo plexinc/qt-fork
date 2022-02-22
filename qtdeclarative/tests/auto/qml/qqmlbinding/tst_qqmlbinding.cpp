@@ -30,7 +30,8 @@
 #include <QtQml/qqmlcomponent.h>
 #include <private/qqmlbind_p.h>
 #include <QtQuick/private/qquickrectangle_p.h>
-#include "../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
+#include "WithBindableProperties.h"
 
 class tst_qqmlbinding : public QQmlDataTest
 {
@@ -42,6 +43,7 @@ private slots:
     void binding();
     void whenAfterValue();
     void restoreBinding();
+    void restoreBindingBindablePorperty();
     void restoreBindingValue();
     void restoreBindingVarValue();
     void restoreBindingJSValue();
@@ -57,12 +59,14 @@ private slots:
     void bindToQmlComponent();
     void bindingDoesNoWeirdConversion();
     void bindNaNToInt();
+    void intOverflow();
 
 private:
     QQmlEngine engine;
 };
 
 tst_qqmlbinding::tst_qqmlbinding()
+    : QQmlDataTest(QT_QMLTEST_DATADIR)
 {
 }
 
@@ -132,6 +136,34 @@ void tst_qqmlbinding::restoreBinding()
     //original binding restored
     myItem->setY(49);
     QCOMPARE(myItem->x(), qreal(100-49));
+}
+
+void tst_qqmlbinding::restoreBindingBindablePorperty()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFileUrl("restoreBinding5.qml"));
+    QScopedPointer<QQuickRectangle> rect { qobject_cast<QQuickRectangle*>(c.create()) };
+    QVERIFY2(rect, qPrintable(c.errorString()));
+
+    auto *myItem = rect->findChild<WithBindableProperties*>("myItem");
+    QVERIFY(myItem != nullptr);
+
+    myItem->setB(25);
+    QCOMPARE(myItem->a(), qreal(100-25));
+
+    myItem->setB(13);
+    QCOMPARE(myItem->a(), qreal(100-13));
+
+    //Binding takes effect
+    myItem->setB(51);
+    QCOMPARE(myItem->a(), qreal(51));
+
+    myItem->setB(88);
+    QCOMPARE(myItem->a(), qreal(88));
+
+    //original binding restored
+    myItem->setB(49);
+    QCOMPARE(myItem->a(), qreal(100-49));
 }
 
 void tst_qqmlbinding::restoreBindingValue()
@@ -231,8 +263,8 @@ void tst_qqmlbinding::restoreBindingWithLoop()
     QCOMPARE(myItem->x(), qreal(88));
 
     //original binding restored
-    QString warning = c.url().toString() + QLatin1String(":9:5: QML Rectangle: Binding loop detected for property \"x\"");
-    QTest::ignoreMessage(QtWarningMsg, qPrintable(warning));
+    QString warning = c.url().toString() + QLatin1String(R"(:\d+:\d+: QML Rectangle: Binding loop detected for property "x")");
+    QTest::ignoreMessage(QtWarningMsg, QRegularExpression(warning));
     rect->setProperty("activateBinding", false);
     QCOMPARE(myItem->x(), qreal(88 + 100)); //if loop handling changes this could be 90 + 100
 
@@ -358,9 +390,8 @@ void tst_qqmlbinding::delayed()
     // doesn't update immediately
     QCOMPARE(item->property("changeCount").toInt(), 1);
 
-    QCoreApplication::processEvents();
     // only updates once (non-delayed would update twice)
-    QCOMPARE(item->property("changeCount").toInt(), 2);
+    QTRY_COMPARE(item->property("changeCount").toInt(), 2);
 }
 
 void tst_qqmlbinding::bindingOverwriting()
@@ -381,7 +412,8 @@ void tst_qqmlbinding::bindToQmlComponent()
 {
     QQmlEngine engine;
     QQmlComponent c(&engine, testFileUrl("bindToQMLComponent.qml"));
-    QVERIFY(c.create());
+    QScopedPointer<QObject> root {c.create()};
+    QVERIFY(root);
 }
 
 // QTBUG-78943
@@ -408,6 +440,17 @@ void tst_qqmlbinding::bindNaNToInt()
 
     QVERIFY(item != nullptr);
     QCOMPARE(item->property("val").toInt(), 0);
+}
+
+void tst_qqmlbinding::intOverflow()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFileUrl("intOverflow.qml"));
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> obj(c.create());
+    QVERIFY(!obj.isNull());
+    QCOMPARE(obj->property("b"), 5);
+    QCOMPARE(obj->property("a").toDouble(), 1.09951162778e+12);
 }
 QTEST_MAIN(tst_qqmlbinding)
 

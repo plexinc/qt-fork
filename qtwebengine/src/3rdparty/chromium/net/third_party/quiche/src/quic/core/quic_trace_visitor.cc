@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/quic_trace_visitor.h"
+#include "quic/core/quic_trace_visitor.h"
 
 #include <string>
 
-#include "net/third_party/quiche/src/quic/core/quic_types.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_endian.h"
+#include "quic/core/quic_types.h"
+#include "common/quiche_endian.h"
 
 namespace quic {
 
@@ -44,18 +44,23 @@ QuicTraceVisitor::QuicTraceVisitor(const QuicConnection* connection)
   }
 }
 
-void QuicTraceVisitor::OnPacketSent(const SerializedPacket& serialized_packet,
-                                    TransmissionType /*transmission_type*/,
-                                    QuicTime sent_time) {
+void QuicTraceVisitor::OnPacketSent(
+    QuicPacketNumber packet_number,
+    QuicPacketLength packet_length,
+    bool /*has_crypto_handshake*/,
+    TransmissionType /*transmission_type*/,
+    EncryptionLevel encryption_level,
+    const QuicFrames& retransmittable_frames,
+    const QuicFrames& /*nonretransmittable_frames*/,
+    QuicTime sent_time) {
   quic_trace::Event* event = trace_.add_events();
   event->set_event_type(quic_trace::PACKET_SENT);
   event->set_time_us(ConvertTimestampToRecordedFormat(sent_time));
-  event->set_packet_number(serialized_packet.packet_number.ToUint64());
-  event->set_packet_size(serialized_packet.encrypted_length);
-  event->set_encryption_level(
-      EncryptionLevelToProto(serialized_packet.encryption_level));
+  event->set_packet_number(packet_number.ToUint64());
+  event->set_packet_size(packet_length);
+  event->set_encryption_level(EncryptionLevelToProto(encryption_level));
 
-  for (const QuicFrame& frame : serialized_packet.retransmittable_frames) {
+  for (const QuicFrame& frame : retransmittable_frames) {
     switch (frame.type) {
       case STREAM_FRAME:
       case RST_STREAM_FRAME:
@@ -64,6 +69,7 @@ void QuicTraceVisitor::OnPacketSent(const SerializedPacket& serialized_packet,
       case BLOCKED_FRAME:
       case PING_FRAME:
       case HANDSHAKE_DONE_FRAME:
+      case ACK_FREQUENCY_FRAME:
         PopulateFrameInfo(frame, event->add_frames());
         break;
 
@@ -218,6 +224,7 @@ void QuicTraceVisitor::PopulateFrameInfo(const QuicFrame& frame,
     case MESSAGE_FRAME:
     case CRYPTO_FRAME:
     case NEW_TOKEN_FRAME:
+    case ACK_FREQUENCY_FRAME:
       break;
 
     case NUM_FRAME_TYPES:

@@ -31,6 +31,7 @@
 #include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/html/html_div_element.h"
 #include "third_party/blink/renderer/core/html/html_slot_element.h"
+#include "third_party/blink/renderer/core/html/html_style_element.h"
 #include "third_party/blink/renderer/core/html/html_summary_element.h"
 #include "third_party/blink/renderer/core/html/shadow/details_marker_control.h"
 #include "third_party/blink/renderer/core/html/shadow/shadow_element_names.h"
@@ -85,16 +86,32 @@ void HTMLDetailsElement::DidAddUserAgentShadowRoot(ShadowRoot& root) {
 
   HTMLSlotElement* summary_slot =
       HTMLSlotElement::CreateUserAgentCustomAssignSlot(GetDocument());
-  summary_slot->SetIdAttribute(shadow_element_names::DetailsSummary());
+  summary_slot->SetIdAttribute(shadow_element_names::kIdDetailsSummary);
   summary_slot->AppendChild(default_summary);
   root.AppendChild(summary_slot);
 
-  auto* content = MakeGarbageCollected<HTMLDivElement>(GetDocument());
-  content->SetIdAttribute(shadow_element_names::DetailsContent());
-  content->AppendChild(
-      HTMLSlotElement::CreateUserAgentDefaultSlot(GetDocument()));
-  content->SetInlineStyleProperty(CSSPropertyID::kDisplay, CSSValueID::kNone);
-  root.AppendChild(content);
+  HTMLSlotElement* content_slot =
+      HTMLSlotElement::CreateUserAgentDefaultSlot(GetDocument());
+  content_slot->SetIdAttribute(shadow_element_names::kIdDetailsContent);
+  content_slot->SetInlineStyleProperty(CSSPropertyID::kDisplay,
+                                       CSSValueID::kNone);
+  root.AppendChild(content_slot);
+
+  if (RuntimeEnabledFeatures::SummaryListItemEnabled()) {
+    auto* default_summary_style = MakeGarbageCollected<HTMLStyleElement>(
+        GetDocument(), CreateElementFlags::ByCreateElement());
+    default_summary_style->setTextContent(R"CSS(
+:host summary {
+  display: list-item;
+  counter-increment: list-item 0;
+  list-style: disclosure-closed inside;
+}
+:host([open]) summary {
+  list-style-type: disclosure-open;
+}
+)CSS");
+    root.AppendChild(default_summary_style);
+  }
 }
 
 Element* HTMLDetailsElement::FindMainSummary() const {
@@ -125,7 +142,7 @@ void HTMLDetailsElement::ParseAttribute(
                   WrapPersistent(this), params.reason));
 
     Element* content = EnsureUserAgentShadowRoot().getElementById(
-        shadow_element_names::DetailsContent());
+        shadow_element_names::kIdDetailsContent);
     DCHECK(content);
     if (is_open_) {
       content->RemoveInlineStyleProperty(CSSPropertyID::kDisplay);
@@ -134,6 +151,8 @@ void HTMLDetailsElement::ParseAttribute(
                                       CSSValueID::kNone);
     }
 
+    if (RuntimeEnabledFeatures::SummaryListItemEnabled())
+      return;
     // Invalidate the LayoutDetailsMarker in order to turn the arrow signifying
     // if the details element is open or closed.
     Element* summary = FindMainSummary();

@@ -38,7 +38,6 @@
 ****************************************************************************/
 
 #include <QtCore/QLoggingCategory>
-#include <QtCore/private/qjnihelpers_p.h>
 #include <QtCore/qrandom.h>
 #include "localdevicebroadcastreceiver_p.h"
 #include "android/jni_android_p.h"
@@ -57,32 +56,19 @@ LocalDeviceBroadcastReceiver::LocalDeviceBroadcastReceiver(QObject *parent) :
     addAction(valueForStaticField(JavaNames::BluetoothAdapter, JavaNames::ActionScanModeChanged));
     addAction(valueForStaticField(JavaNames::BluetoothDevice, JavaNames::ActionAclConnected));
     addAction(valueForStaticField(JavaNames::BluetoothDevice, JavaNames::ActionAclDisconnected));
-    if (QtAndroidPrivate::androidSdkVersion() >= 15)
-        addAction(valueForStaticField(JavaNames::BluetoothDevice, JavaNames::ActionPairingRequest)); //API 15
 
     //cache integer values for host & bonding mode
     //don't use the java fields directly but refer to them by name
-    QAndroidJniEnvironment env;
     for (uint i = 0; i < (sizeof(hostModePreset)/sizeof(hostModePreset[0])); i++) {
-        hostModePreset[i] = QAndroidJniObject::getStaticField<jint>(
+        hostModePreset[i] = QJniObject::getStaticField<jint>(
                                                 "android/bluetooth/BluetoothAdapter",
                                                 scanModes[i]);
-        if (env->ExceptionCheck()) {
-            env->ExceptionDescribe();
-            env->ExceptionClear();
-            hostModePreset[i] = 0;
-        }
     }
 
     for (uint i = 0; i < (sizeof(bondingModePreset)/sizeof(bondingModePreset[0])); i++) {
-        bondingModePreset[i] = QAndroidJniObject::getStaticField<jint>(
+        bondingModePreset[i] = QJniObject::getStaticField<jint>(
                                                 "android/bluetooth/BluetoothDevice",
                                                 bondModes[i]);
-        if (env->ExceptionCheck()) {
-            env->ExceptionDescribe();
-            env->ExceptionClear();
-            bondingModePreset[i] = 0;
-        }
     }
 }
 
@@ -91,16 +77,16 @@ void LocalDeviceBroadcastReceiver::onReceive(JNIEnv *env, jobject context, jobje
     Q_UNUSED(context);
     Q_UNUSED(env);
 
-    QAndroidJniObject intentObject(intent);
+    QJniObject intentObject(intent);
     const QString action = intentObject.callObjectMethod("getAction", "()Ljava/lang/String;").toString();
     qCDebug(QT_BT_ANDROID) << QStringLiteral("LocalDeviceBroadcastReceiver::onReceive() - event: %1").arg(action);
 
     if (action == valueForStaticField(JavaNames::BluetoothAdapter,
                                       JavaNames::ActionScanModeChanged).toString()) {
 
-        const QAndroidJniObject extrasBundle =
+        const QJniObject extrasBundle =
                 intentObject.callObjectMethod("getExtras","()Landroid/os/Bundle;");
-        const QAndroidJniObject keyExtra = valueForStaticField(JavaNames::BluetoothAdapter,
+        const QJniObject keyExtra = valueForStaticField(JavaNames::BluetoothAdapter,
                                                                JavaNames::ExtraScanMode);
 
         int extra = extrasBundle.callMethod<jint>("getInt",
@@ -122,16 +108,16 @@ void LocalDeviceBroadcastReceiver::onReceive(JNIEnv *env, jobject context, jobje
     } else if (action == valueForStaticField(JavaNames::BluetoothDevice,
                                              JavaNames::ActionBondStateChanged).toString()) {
         //get BluetoothDevice
-        QAndroidJniObject keyExtra = valueForStaticField(JavaNames::BluetoothDevice,
+        QJniObject keyExtra = valueForStaticField(JavaNames::BluetoothDevice,
                                                          JavaNames::ExtraDevice);
-        const QAndroidJniObject bluetoothDevice =
+        const QJniObject bluetoothDevice =
                 intentObject.callObjectMethod("getParcelableExtra",
                                               "(Ljava/lang/String;)Landroid/os/Parcelable;",
                                               keyExtra.object<jstring>());
 
         //get new bond state
         keyExtra = valueForStaticField(JavaNames::BluetoothDevice, JavaNames::ExtraBondState);
-        const QAndroidJniObject extrasBundle =
+        const QJniObject extrasBundle =
                 intentObject.callObjectMethod("getExtras","()Landroid/os/Bundle;");
         int bondState = extrasBundle.callMethod<jint>("getInt",
                                                       "(Ljava/lang/String;)I",
@@ -161,9 +147,9 @@ void LocalDeviceBroadcastReceiver::onReceive(JNIEnv *env, jobject context, jobje
                 action == connectEvent ? true : false;
 
         //get BluetoothDevice
-        const QAndroidJniObject keyExtra = valueForStaticField(JavaNames::BluetoothDevice,
+        const QJniObject keyExtra = valueForStaticField(JavaNames::BluetoothDevice,
                                                                JavaNames::ExtraDevice);
-        QAndroidJniObject bluetoothDevice =
+        QJniObject bluetoothDevice =
                 intentObject.callObjectMethod("getParcelableExtra",
                                               "(Ljava/lang/String;)Landroid/os/Parcelable;",
                                               keyExtra.object<jstring>());
@@ -173,126 +159,7 @@ void LocalDeviceBroadcastReceiver::onReceive(JNIEnv *env, jobject context, jobje
             return;
 
         emit connectDeviceChanges(address, isConnectEvent);
-    } else if (action == valueForStaticField(JavaNames::BluetoothDevice,
-                                             JavaNames::ActionPairingRequest).toString()) {
-
-        QAndroidJniObject keyExtra = valueForStaticField(JavaNames::BluetoothDevice,
-                                                         JavaNames::ExtraPairingVariant);
-        int variant = intentObject.callMethod<jint>("getIntExtra",
-                                                    "(Ljava/lang/String;I)I",
-                                                    keyExtra.object<jstring>(),
-                                                    -1);
-
-        int key = -1;
-        switch (variant) {
-        case -1: //ignore -> no pairing variant set
-            return;
-        case 0: //BluetoothDevice.PAIRING_VARIANT_PIN
-        {
-            qCDebug(QT_BT_ANDROID) << "Pairing : PAIRING_VARIANT_PIN -> use Android default handling";
-
-            // The section below is disabled because this Android pairing variant
-            // requires the user to enter a pin. Since QBluetoothLocalDevice does
-            // not have a setPin() equivalent which might be used to return the user's value.
-            // For now we ignore this request. If an app ignores such requests,
-            // Android shows a "fall-back" pin code entry form.
-            /*
-            //generate a random key
-            const QString pin = QStringLiteral("%1").arg(QRandomGenerator::global()->bounded(1000000),
-                                                         6, 10, QLatin1Char('0'));
-            const QAndroidJniObject javaPin = QAndroidJniObject::fromString(pin);
-
-            //get BluetoothDevice
-            keyExtra = valueForStaticField(JavaNames::BluetoothDevice, JavaNames::ExtraDevice);
-            QAndroidJniObject bluetoothDevice =
-                    intentObject.callObjectMethod("getParcelableExtra",
-                                                  "(Ljava/lang/String;)Landroid/os/Parcelable;",
-                                                  keyExtra.object<jstring>());
-            if (!bluetoothDevice.isValid())
-                return;
-
-            QAndroidJniObject bytePin = QAndroidJniObject::callStaticObjectMethod("android/bluetooth/BluetoothDevice",
-                                                                                  "convertPinToBytes",
-                                                                                  "(Ljava/lang/String;)[B",
-                                                                                  javaPin.object<jstring>());
-            if (!bytePin.isValid()) {
-                if (env->ExceptionCheck()) {
-                    env->ExceptionDescribe();
-                    env->ExceptionClear();
-                }
-                return;
-            }
-
-            jboolean result = bluetoothDevice.callMethod<jboolean>("setPin", "([B)Z", bytePin.object<jbyteArray>());
-            if (!result) {
-                if (env->ExceptionCheck()) {
-                    env->ExceptionDescribe();
-                    env->ExceptionClear();
-                }
-                return;
-            }
-
-            const QBluetoothAddress address(bluetoothDevice.callObjectMethod<jstring>("getAddress").toString());
-            emit pairingDisplayPinCode(address, pin);*/
-            break;
-        }
-        case 2: //BluetoothDevice.PAIRING_VARIANT_PASSKEY_CONFIRMATION
-        {
-            qCDebug(QT_BT_ANDROID) << "Pairing : PAIRING_VARIANT_PASSKEY_CONFIRMATION";
-            keyExtra = valueForStaticField(JavaNames::BluetoothDevice,
-                                           JavaNames::ExtraPairingKey);
-            key = intentObject.callMethod<jint>("getIntExtra",
-                                                    "(Ljava/lang/String;I)I",
-                                                    keyExtra.object<jstring>(),
-                                                    -1);
-            if (key == -1)
-                return;
-
-            keyExtra = valueForStaticField(JavaNames::BluetoothDevice, JavaNames::ExtraDevice);
-            QAndroidJniObject bluetoothDevice =
-                    intentObject.callObjectMethod("getParcelableExtra",
-                                                  "(Ljava/lang/String;)Landroid/os/Parcelable;",
-                                                  keyExtra.object<jstring>());
-
-            if (!bluetoothDevice.isValid())
-                return;
-
-            //we need to keep a reference around in case the user confirms later on
-            pairingDevice = bluetoothDevice;
-
-            QBluetoothAddress address(bluetoothDevice.callObjectMethod<jstring>("getAddress").toString());
-
-            //User has choice to confirm or not. If no confirmation is happening
-            //the OS default pairing dialog can be used or timeout occurs.
-            emit pairingDisplayConfirmation(address, QString::number(key));
-            break;
-        }
-        default:
-            qCWarning(QT_BT_ANDROID) << "Unknown pairing variant: " << variant;
-            return;
-        }
     }
-}
-
-bool LocalDeviceBroadcastReceiver::pairingConfirmation(bool accept)
-{
-    if (!pairingDevice.isValid())
-        return false;
-
-    // setPairingConfirmation() is likely to throw SecurityException for BLUETOOTH_PRIVILEGED
-    // as this permission is not obtainable for 3rdparties
-    // Note: Normally it would not have been added to Qt API but it used to be BLUETOOTH_ADMIN
-    QAndroidJniEnvironment env;
-    bool success = pairingDevice.callMethod<jboolean>("setPairingConfirmation",
-                                              "(Z)Z", accept);
-    if (success) {
-        if (env->ExceptionCheck()) {
-            env->ExceptionDescribe();
-            env->ExceptionClear();
-        }
-    }
-    pairingDevice = QAndroidJniObject();
-    return success;
 }
 
 QT_END_NAMESPACE

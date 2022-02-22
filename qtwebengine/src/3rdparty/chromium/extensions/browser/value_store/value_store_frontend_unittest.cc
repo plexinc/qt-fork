@@ -13,9 +13,12 @@
 #include "base/path_service.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/test_utils.h"
+#include "extensions/browser/extension_file_task_runner.h"
 #include "extensions/browser/value_store/test_value_store_factory.h"
 #include "extensions/common/extension_paths.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+namespace extensions {
 
 class ValueStoreFrontendTest : public testing::Test {
  public:
@@ -43,13 +46,14 @@ class ValueStoreFrontendTest : public testing::Test {
 
   // Reset the value store, reloading the DB from disk.
   void ResetStorage() {
-    storage_.reset(new ValueStoreFrontend(
-        factory_, ValueStoreFrontend::BackendType::RULES));
+    storage_ = std::make_unique<ValueStoreFrontend>(
+        factory_, ValueStoreFrontend::BackendType::RULES,
+        GetExtensionFileTaskRunner());
   }
 
   bool Get(const std::string& key, std::unique_ptr<base::Value>* output) {
-    storage_->Get(key, base::Bind(&ValueStoreFrontendTest::GetAndWait,
-                                  base::Unretained(this), output));
+    storage_->Get(key, base::BindOnce(&ValueStoreFrontendTest::GetAndWait,
+                                      base::Unretained(this), output));
     content::RunAllTasksUntilIdle();
     return !!output->get();
   }
@@ -112,3 +116,5 @@ TEST_F(ValueStoreFrontendTest, ChangesPersistAfterReload) {
 
   ASSERT_FALSE(Get("key2", &value));
 }
+
+}  // namespace extensions

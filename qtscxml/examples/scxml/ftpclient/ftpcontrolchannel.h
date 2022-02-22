@@ -67,6 +67,9 @@ public:
     // Send a command to the server
     void command(const QByteArray &command, const QByteArray &params);
 
+public slots:
+    void error(QAbstractSocket::SocketError);
+
 signals:
 
     // Connection established. Local address and port are known.

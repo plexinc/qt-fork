@@ -16,6 +16,10 @@ class Arguments;
 namespace extensions {
 
 // A class that wraps an ui::AXPosition to make available in javascript.
+//
+// For new additions, consider whether it should be public to the
+// chrome.automation extension api. If so, please update
+// extensions/common/api/automation.idl.
 class AutomationPosition final : public gin::Wrappable<AutomationPosition> {
  public:
   AutomationPosition(const ui::AXNode& node, int offset, bool is_upstream);
@@ -49,15 +53,15 @@ class AutomationPosition final : public gin::Wrappable<AutomationPosition> {
   bool AtEndOfPage(gin::Arguments* arguments);
   bool AtStartOfFormat(gin::Arguments* arguments);
   bool AtEndOfFormat(gin::Arguments* arguments);
-  bool AtStartOfDocument(gin::Arguments* arguments);
-  bool AtEndOfDocument(gin::Arguments* arguments);
+  bool AtStartOfContent(gin::Arguments* arguments);
+  bool AtEndOfContent(gin::Arguments* arguments);
   void AsTreePosition(gin::Arguments* arguments);
   void AsTextPosition(gin::Arguments* arguments);
   void AsLeafTextPosition(gin::Arguments* arguments);
   void MoveToPositionAtStartOfAnchor(gin::Arguments* arguments);
   void MoveToPositionAtEndOfAnchor(gin::Arguments* arguments);
-  void MoveToPositionAtStartOfDocument(gin::Arguments* arguments);
-  void MoveToPositionAtEndOfDocument(gin::Arguments* arguments);
+  void MoveToPositionAtStartOfContent(gin::Arguments* arguments);
+  void MoveToPositionAtEndOfContent(gin::Arguments* arguments);
   void MoveToParentPosition(gin::Arguments* arguments);
   void MoveToNextLeafTreePosition(gin::Arguments* arguments);
   void MoveToPreviousLeafTreePosition(gin::Arguments* arguments);

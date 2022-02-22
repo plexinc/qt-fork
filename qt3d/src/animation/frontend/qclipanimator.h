@@ -42,13 +42,12 @@
 
 #include <Qt3DAnimation/qt3danimation_global.h>
 #include <Qt3DAnimation/qabstractclipanimator.h>
+#include <Qt3DAnimation/qabstractanimationclip.h>
 
 QT_BEGIN_NAMESPACE
 
 namespace Qt3DAnimation {
 
-class QAbstractAnimationClip;
-class QChannelMapper;
 class QClipAnimatorPrivate;
 
 class Q_3DANIMATIONSHARED_EXPORT QClipAnimator : public Qt3DAnimation::QAbstractClipAnimator
@@ -73,7 +72,6 @@ protected:
 
 private:
     Q_DECLARE_PRIVATE(QClipAnimator)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DAnimation

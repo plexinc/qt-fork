@@ -41,6 +41,7 @@
 #include "qquickworkerscript_p.h"
 #include <private/qqmlengine_p.h>
 #include <private/qqmlexpression_p.h>
+#include <private/qjsvalue_p.h>
 
 #include <QtCore/qcoreevent.h>
 #include <QtCore/qcoreapplication.h>
@@ -239,9 +240,9 @@ void QQuickWorkerScriptEnginePrivate::processMessage(int id, const QByteArray &d
 
     QV4::ScopedValue value(scope, QV4::Serialize::deserialize(data, engine));
 
-    QV4::JSCallData jsCallData(scope, 1);
-    *jsCallData->thisObject = engine->global();
-    jsCallData->args[0] = value;
+    QV4::JSCallArguments jsCallData(scope, 1);
+    *jsCallData.thisObject = engine->global();
+    jsCallData.args[0] = value;
     onmessage->call(jsCallData);
     if (scope.hasException()) {
         QQmlError error = scope.engine->catchExceptionAsQmlError();
@@ -552,8 +553,10 @@ void QQuickWorkerScript::setSource(const QUrl &source)
 
     m_source = source;
 
-    if (engine())
-        m_engine->executeUrl(m_scriptId, m_source);
+    if (engine()) {
+        const QQmlContext *context = qmlContext(this);
+        m_engine->executeUrl(m_scriptId, context ? context->resolvedUrl(m_source) : m_source);
+    }
 
     emit sourceChanged();
 }
@@ -613,7 +616,8 @@ QQuickWorkerScriptEngine *QQuickWorkerScript::engine()
 {
     if (m_engine) return m_engine;
     if (m_componentComplete) {
-        QQmlEngine *engine = qmlEngine(this);
+        const QQmlContext *context = qmlContext(this);
+        QQmlEngine *engine = context ? context->engine() : nullptr;
         if (!engine) {
             qWarning("QQuickWorkerScript: engine() called without qmlEngine() set");
             return nullptr;
@@ -627,7 +631,7 @@ QQuickWorkerScriptEngine *QQuickWorkerScript::engine()
         m_scriptId = m_engine->registerWorkerScript(this);
 
         if (m_source.isValid())
-            m_engine->executeUrl(m_scriptId, m_source);
+            m_engine->executeUrl(m_scriptId, context->resolvedUrl(m_source));
 
         emit readyChanged();
 
@@ -655,7 +659,8 @@ bool QQuickWorkerScript::event(QEvent *event)
         if (QQmlEngine *engine = qmlEngine(this)) {
             QV4::ExecutionEngine *v4 = engine->handle();
             WorkerDataEvent *workerEvent = static_cast<WorkerDataEvent *>(event);
-            emit message(QJSValue(v4, QV4::Serialize::deserialize(workerEvent->data(), v4)));
+            emit message(QJSValuePrivate::fromReturnedValue(
+                             QV4::Serialize::deserialize(workerEvent->data(), v4)));
         }
         return true;
     } else if (event->type() == (QEvent::Type)WorkerErrorEvent::WorkerError) {

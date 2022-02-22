@@ -46,13 +46,6 @@ unsigned ConvertDeltaMode(const WebMouseWheelEvent& event) {
              : WheelEvent::kDomDeltaPixel;
 }
 
-// Negate a long value without integer overflow.
-int32_t NegateIfPossible(int32_t value) {
-  if (value == std::numeric_limits<int32_t>::min())
-    return value;
-  return -value;
-}
-
 MouseEventInit* GetMouseEventInitForWheel(const WebMouseWheelEvent& event,
                                           AbstractView* view) {
   MouseEventInit* initializer = MouseEventInit::Create();
@@ -93,21 +86,22 @@ WheelEvent* WheelEvent::Create(const WebMouseWheelEvent& event,
 WheelEvent::WheelEvent()
     : delta_x_(0), delta_y_(0), delta_z_(0), delta_mode_(kDomDeltaPixel) {}
 
+// crbug.com/1173525: tweak the initialization behavior.
 WheelEvent::WheelEvent(const AtomicString& type,
                        const WheelEventInit* initializer)
     : MouseEvent(type, initializer),
       wheel_delta_(initializer->wheelDeltaX()
                        ? initializer->wheelDeltaX()
-                       : NegateIfPossible(-initializer->deltaX()),
+                       : static_cast<int32_t>(initializer->deltaX()),
                    initializer->wheelDeltaY()
                        ? initializer->wheelDeltaY()
-                       : NegateIfPossible(-initializer->deltaY())),
-      delta_x_(initializer->deltaX()
-                   ? initializer->deltaX()
-                   : NegateIfPossible(initializer->wheelDeltaX())),
-      delta_y_(initializer->deltaY()
-                   ? initializer->deltaY()
-                   : NegateIfPossible(initializer->wheelDeltaY())),
+                       : static_cast<int32_t>(initializer->deltaY())),
+      delta_x_(initializer->deltaX() ? initializer->deltaX()
+                                     : clampTo<int32_t>(-static_cast<double>(
+                                           initializer->wheelDeltaX()))),
+      delta_y_(initializer->deltaY() ? initializer->deltaY()
+                                     : clampTo<int32_t>(-static_cast<double>(
+                                           initializer->wheelDeltaY()))),
       delta_z_(initializer->deltaZ()),
       delta_mode_(initializer->deltaMode()) {}
 
@@ -182,7 +176,7 @@ DispatchEventResult WheelEvent::DispatchEvent(EventDispatcher& dispatcher) {
   return dispatcher.Dispatch();
 }
 
-void WheelEvent::Trace(Visitor* visitor) {
+void WheelEvent::Trace(Visitor* visitor) const {
   MouseEvent::Trace(visitor);
 }
 

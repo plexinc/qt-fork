@@ -27,14 +27,20 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+import * as i18n from '../i18n/i18n.js';
 import * as TextUtils from '../text_utils/text_utils.js';  // eslint-disable-line no-unused-vars
 import * as UI from '../ui/ui.js';
 
 import {SourceFrameImpl} from './SourceFrame.js';
 
-/**
- * @unrestricted
- */
+export const UIStrings = {
+  /**
+  *@description Text to find an item
+  */
+  find: 'Find',
+};
+const str_ = i18n.i18n.registerUIStrings('source_frame/ResourceSourceFrame.js', UIStrings);
+const i18nString = i18n.i18n.getLocalizedString.bind(undefined, str_);
 export class ResourceSourceFrame extends SourceFrameImpl {
   /**
    * @param {!TextUtils.ContentProvider.ContentProvider} resource
@@ -72,7 +78,7 @@ export class ResourceSourceFrame extends SourceFrameImpl {
    * @param {!UI.ContextMenu.ContextMenu} contextMenu
    * @param {number} lineNumber
    * @param {number} columnNumber
-   * @return {!Promise}
+   * @return {!Promise<void>}
    */
   populateTextAreaContextMenu(contextMenu, lineNumber, columnNumber) {
     contextMenu.appendApplicableItems(this._resource);
@@ -85,17 +91,16 @@ export class SearchableContainer extends UI.Widget.VBox {
    * @param {!TextUtils.ContentProvider.ContentProvider} resource
    * @param {string} highlighterType
    * @param {boolean=} autoPrettyPrint
-   * @return {!UI.Widget.Widget}
    */
   constructor(resource, highlighterType, autoPrettyPrint) {
     super(true);
-    this.registerRequiredCSS('source_frame/resourceSourceFrame.css');
+    this.registerRequiredCSS('source_frame/resourceSourceFrame.css', {enableLegacyPatching: true});
     const sourceFrame = new ResourceSourceFrame(resource, autoPrettyPrint);
     this._sourceFrame = sourceFrame;
     sourceFrame.setHighlighterType(highlighterType);
-    const searchableView = new UI.SearchableView.SearchableView(sourceFrame);
+    const searchableView = new UI.SearchableView.SearchableView(sourceFrame, sourceFrame);
     searchableView.element.classList.add('searchable-view');
-    searchableView.setPlaceholder(ls`Find`);
+    searchableView.setPlaceholder(i18nString(UIStrings.find));
     sourceFrame.show(searchableView.element);
     sourceFrame.setSearchableView(searchableView);
     searchableView.show(this.contentElement);

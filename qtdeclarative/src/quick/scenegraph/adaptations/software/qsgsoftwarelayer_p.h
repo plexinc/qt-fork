@@ -58,11 +58,9 @@
 QT_BEGIN_NAMESPACE
 
 class QSGSoftwarePixmapRenderer;
-class QSGSoftwareLayerPrivate;
 
 class QSGSoftwareLayer : public QSGLayer
 {
-    Q_DECLARE_PRIVATE(QSGSoftwareLayer)
     Q_OBJECT
 public:
     QSGSoftwareLayer(QSGRenderContext *renderContext);
@@ -72,11 +70,10 @@ public:
 
     // QSGTexture interface
 public:
-    int textureId() const override;
+    qint64 comparisonKey() const override;
     QSize textureSize() const override;
     bool hasAlphaChannel() const override;
     bool hasMipmaps() const override;
-    void bind() override;
 
     // QSGDynamicTexture interface
 public:
@@ -118,13 +115,6 @@ private:
     bool m_grab;
     bool m_recursive;
     bool m_dirtyTexture;
-};
-
-class QSGSoftwareLayerPrivate : public QSGTexturePrivate
-{
-    Q_DECLARE_PUBLIC(QSGSoftwareLayer)
-public:
-    int comparisonKey() const override;
 };
 
 QT_END_NAMESPACE

@@ -29,44 +29,57 @@
 
 #include "declarativechart_p.h"
 #include <QtGui/QPainter>
+#if QT_CONFIG(charts_line_chart)
 #include "declarativelineseries_p.h"
+#endif
+#if QT_CONFIG(charts_area_chart)
 #include "declarativeareaseries_p.h"
+#endif
 #include "declarativebarseries_p.h"
+#if QT_CONFIG(charts_pie_chart)
 #include "declarativepieseries_p.h"
+#endif
+#if QT_CONFIG(charts_spline_chart)
 #include "declarativesplineseries_p.h"
+#endif
+#if QT_CONFIG(charts_boxplot_chart)
 #include "declarativeboxplotseries_p.h"
+#endif
+#if QT_CONFIG(charts_candlestick_chart)
 #include "declarativecandlestickseries_p.h"
+#endif
+#if QT_CONFIG(charts_scatter_chart)
 #include "declarativescatterseries_p.h"
+#endif
 #include "declarativechartnode_p.h"
 #include "declarativeabstractrendernode_p.h"
+#include "declarativemargins_p.h"
+#include "declarativeaxes_p.h"
+#include <QtCharts/private/qabstractseries_p.h>
+#include <QtCharts/private/chartdataset_p.h>
+#include <QtCharts/private/qchart_p.h>
+#include <QtCharts/private/chartpresenter_p.h>
 #include <QtCharts/QBarCategoryAxis>
 #include <QtCharts/QValueAxis>
 #include <QtCharts/QLogValueAxis>
 #include <QtCharts/QCategoryAxis>
-#include <private/qabstractseries_p.h>
-#include "declarativemargins_p.h"
-#include <private/chartdataset_p.h>
-#include "declarativeaxes_p.h"
-#include <private/qchart_p.h>
-#include <private/chartpresenter_p.h>
 #include <QtCharts/QPolarChart>
-
-#ifndef QT_QREAL_IS_FLOAT
-    #include <QtCharts/QDateTimeAxis>
-#endif
-
 #include <QtWidgets/QGraphicsSceneMouseEvent>
 #include <QtWidgets/QGraphicsSceneHoverEvent>
 #include <QtWidgets/QApplication>
 #include <QtCore/QTimer>
 #include <QtCore/QThread>
 #include <QtQuick/QQuickWindow>
+#include <QtWidgets/QGraphicsLayout>
 
-QT_CHARTS_BEGIN_NAMESPACE
+#if QT_CONFIG(charts_datetime_axis)
+#include <QtCharts/QDateTimeAxis>
+#endif
+
+QT_BEGIN_NAMESPACE
 
 /*!
     \qmltype ChartView
-    \instantiates DeclarativeChart
     \inqmlmodule QtCharts
 
     \brief Manages the graphical representation of the chart's series, legends,
@@ -442,6 +455,7 @@ DeclarativeChart::DeclarativeChart(QChart::ChartType type, QQuickItem *parent)
     initChart(type);
 }
 
+#if QT_CONFIG(charts_bar_chart)
 // QTBUG-71013
 // The symbol resides in qbarmodelmapper.cpp#548 in the C++ module.
 // Here, it gets imported and reset to the DeclarativeBarSet allocator
@@ -458,6 +472,7 @@ QBarSet *qt_allocate_bar_set_qml(const QString &label)
     bar->setLabel(label);
     return bar;
 }
+#endif
 
 void DeclarativeChart::initChart(QChart::ChartType type)
 {
@@ -470,9 +485,11 @@ void DeclarativeChart::initChart(QChart::ChartType type)
 
     setFlag(ItemHasContents, true);
 
+#if QT_CONFIG(charts_bar_chart)
     // Reset allocator for QBarSet to create
     // Declarative BarSets by default
     qt_allocate_bar_set = &qt_allocate_bar_set_qml;
+#endif
 
     if (type == QChart::ChartTypePolar)
         m_chart = new QPolarChart();
@@ -612,7 +629,10 @@ void DeclarativeChart::componentComplete()
             m_chart->addSeries(series);
 
             // Connect to axis changed signals (unless this is a pie series)
-            if (!qobject_cast<DeclarativePieSeries *>(series)) {
+#if QT_CONFIG(charts_pie_chart)
+            if (!qobject_cast<DeclarativePieSeries *>(series))
+#endif
+            {
                 connect(series, SIGNAL(axisXChanged(QAbstractAxis*)), this, SLOT(handleAxisXSet(QAbstractAxis*)));
                 connect(series, SIGNAL(axisXTopChanged(QAbstractAxis*)), this, SLOT(handleAxisXTopSet(QAbstractAxis*)));
                 connect(series, SIGNAL(axisYChanged(QAbstractAxis*)), this, SLOT(handleAxisYSet(QAbstractAxis*)));
@@ -632,9 +652,12 @@ void DeclarativeChart::seriesAxisAttachHelper(QAbstractSeries *series, QAbstract
 {
     if (!series->attachedAxes().contains(axis)) {
         // Remove & delete old axes that are not attached to any other series
+        // Detach old axis from series so that if it is shared with other series
+        // It can be deleted.
         foreach (QAbstractAxis* oldAxis, m_chart->axes(orientation, series)) {
             bool otherAttachments = false;
             if (oldAxis != axis) {
+                series->detachAxis(oldAxis);
                 foreach (QAbstractSeries *oldSeries, m_chart->series()) {
                     if (oldSeries != series && oldSeries->attachedAxes().contains(oldAxis)) {
                         otherAttachments = true;
@@ -694,14 +717,14 @@ void DeclarativeChart::handleAxisYRightSet(QAbstractAxis *axis)
     }
 }
 
-void DeclarativeChart::geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry)
+void DeclarativeChart::geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry)
 {
     if (newGeometry.isValid()) {
         if (newGeometry.width() > 0 && newGeometry.height() > 0) {
             m_chart->resize(newGeometry.width(), newGeometry.height());
         }
     }
-    QQuickItem::geometryChanged(newGeometry, oldGeometry);
+    QQuickItem::geometryChange(newGeometry, oldGeometry);
 }
 
 QSGNode *DeclarativeChart::updatePaintNode(QSGNode *oldNode, QQuickItem::UpdatePaintNodeData *)
@@ -772,7 +795,7 @@ QSGNode *DeclarativeChart::updatePaintNode(QSGNode *oldNode, QQuickItem::UpdateP
     return node;
 }
 
-void DeclarativeChart::sceneChanged(QList<QRectF> region)
+void DeclarativeChart::sceneChanged(const QList<QRectF> &region)
 {
     const int count = region.size();
     const qreal limitSize = 0.01;
@@ -829,8 +852,8 @@ void DeclarativeChart::renderScene()
 
 void DeclarativeChart::mousePressEvent(QMouseEvent *event)
 {
-    m_mousePressScenePoint = event->pos();
-    m_mousePressScreenPoint = event->globalPos();
+    m_mousePressScenePoint = event->position();
+    m_mousePressScreenPoint = event->globalPosition().toPoint();
     m_lastMouseMoveScenePoint = m_mousePressScenePoint;
     m_lastMouseMoveScreenPoint = m_mousePressScreenPoint;
     m_mousePressButton = event->button();
@@ -860,8 +883,8 @@ void DeclarativeChart::mouseReleaseEvent(QMouseEvent *event)
     mouseEvent.setWidget(0);
     mouseEvent.setButtonDownScenePos(m_mousePressButton, m_mousePressScenePoint);
     mouseEvent.setButtonDownScreenPos(m_mousePressButton, m_mousePressScreenPoint);
-    mouseEvent.setScenePos(event->pos());
-    mouseEvent.setScreenPos(event->globalPos());
+    mouseEvent.setScenePos(event->position());
+    mouseEvent.setScreenPos(event->globalPosition().toPoint());
     mouseEvent.setLastScenePos(m_lastMouseMoveScenePoint);
     mouseEvent.setLastScreenPos(m_lastMouseMoveScreenPoint);
     mouseEvent.setButtons(event->buttons());
@@ -888,11 +911,11 @@ void DeclarativeChart::hoverMoveEvent(QHoverEvent *event)
     mouseEvent.setWidget(0);
     mouseEvent.setButtonDownScenePos(m_mousePressButton, m_mousePressScenePoint);
     mouseEvent.setButtonDownScreenPos(m_mousePressButton, m_mousePressScreenPoint);
-    mouseEvent.setScenePos(event->pos());
+    mouseEvent.setScenePos(event->position());
     // Hover events do not have global pos in them, and the screen position doesn't seem to
     // matter anyway in this use case, so just pass event pos instead of trying to
     // calculate the real screen position.
-    mouseEvent.setScreenPos(event->pos());
+    mouseEvent.setScreenPos(event->position().toPoint());
     mouseEvent.setLastScenePos(m_lastMouseMoveScenePoint);
     mouseEvent.setLastScreenPos(m_lastMouseMoveScreenPoint);
     mouseEvent.setButtons(m_mousePressButtons);
@@ -908,7 +931,7 @@ void DeclarativeChart::hoverMoveEvent(QHoverEvent *event)
     // position to avoid infinite loop.
     if (m_glXYDataManager->dataMap().size() && previousLastScenePoint != m_lastMouseMoveScenePoint) {
         QMouseEvent *newEvent = new QMouseEvent(QEvent::MouseMove,
-                                                event->pos() - m_adjustedPlotArea.topLeft(),
+                                                event->position() - m_adjustedPlotArea.topLeft(),
                                                 m_mousePressButton,
                                                 m_mousePressButtons,
                                                 event->modifiers());
@@ -919,8 +942,8 @@ void DeclarativeChart::hoverMoveEvent(QHoverEvent *event)
 
 void DeclarativeChart::mouseDoubleClickEvent(QMouseEvent *event)
 {
-    m_mousePressScenePoint = event->pos();
-    m_mousePressScreenPoint = event->globalPos();
+    m_mousePressScenePoint = event->position();
+    m_mousePressScreenPoint = event->globalPosition().toPoint();
     m_lastMouseMoveScenePoint = m_mousePressScenePoint;
     m_lastMouseMoveScreenPoint = m_mousePressScreenPoint;
     m_mousePressButton = event->button();
@@ -1081,7 +1104,7 @@ QColor DeclarativeChart::backgroundColor()
     return m_chart->backgroundBrush().color();
 }
 
-void QtCharts::DeclarativeChart::setPlotAreaColor(QColor color)
+void DeclarativeChart::setPlotAreaColor(QColor color)
 {
     QBrush b = m_chart->plotAreaBackgroundBrush();
     if (b.style() != Qt::SolidPattern || color != b.color()) {
@@ -1093,7 +1116,7 @@ void QtCharts::DeclarativeChart::setPlotAreaColor(QColor color)
     }
 }
 
-QColor QtCharts::DeclarativeChart::plotAreaColor()
+QColor DeclarativeChart::plotAreaColor()
 {
     return m_chart->plotAreaBackgroundBrush().color();
 }
@@ -1111,7 +1134,7 @@ bool DeclarativeChart::localizeNumbers() const
     return m_chart->localizeNumbers();
 }
 
-void QtCharts::DeclarativeChart::setLocale(const QLocale &locale)
+void DeclarativeChart::setLocale(const QLocale &locale)
 {
     if (m_chart->locale() != locale) {
         m_chart->setLocale(locale);
@@ -1119,7 +1142,7 @@ void QtCharts::DeclarativeChart::setLocale(const QLocale &locale)
     }
 }
 
-QLocale QtCharts::DeclarativeChart::locale() const
+QLocale DeclarativeChart::locale() const
 {
     return m_chart->locale();
 }
@@ -1223,7 +1246,7 @@ void DeclarativeChart::axesAppendFunc(QQmlListProperty<QAbstractAxis> *list, QAb
     Q_UNUSED(element);
 }
 
-int DeclarativeChart::axesCountFunc(QQmlListProperty<QAbstractAxis> *list)
+qsizetype DeclarativeChart::axesCountFunc(QQmlListProperty<QAbstractAxis> *list)
 {
     if (qobject_cast<DeclarativeChart *>(list->object)) {
         DeclarativeChart *chart = qobject_cast<DeclarativeChart *>(list->object);
@@ -1232,7 +1255,7 @@ int DeclarativeChart::axesCountFunc(QQmlListProperty<QAbstractAxis> *list)
     return 0;
 }
 
-QAbstractAxis *DeclarativeChart::axesAtFunc(QQmlListProperty<QAbstractAxis> *list, int index)
+QAbstractAxis *DeclarativeChart::axesAtFunc(QQmlListProperty<QAbstractAxis> *list, qsizetype index)
 {
     if (qobject_cast<DeclarativeChart *>(list->object)) {
         DeclarativeChart *chart = qobject_cast<DeclarativeChart *>(list->object);
@@ -1271,9 +1294,12 @@ QAbstractSeries *DeclarativeChart::createSeries(int type, QString name, QAbstrac
     QAbstractSeries *series = 0;
 
     switch (type) {
+#if QT_CONFIG(charts_line_chart)
     case DeclarativeChart::SeriesTypeLine:
         series = new DeclarativeLineSeries();
         break;
+#endif
+#if QT_CONFIG(charts_area_chart)
     case DeclarativeChart::SeriesTypeArea: {
         DeclarativeAreaSeries *area = new DeclarativeAreaSeries();
         DeclarativeLineSeries *line = new DeclarativeLineSeries();
@@ -1282,6 +1308,8 @@ QAbstractSeries *DeclarativeChart::createSeries(int type, QString name, QAbstrac
         series = area;
         break;
     }
+#endif
+#if QT_CONFIG(charts_bar_chart)
     case DeclarativeChart::SeriesTypeStackedBar:
         series = new DeclarativeStackedBarSeries();
         break;
@@ -1300,28 +1328,42 @@ QAbstractSeries *DeclarativeChart::createSeries(int type, QString name, QAbstrac
     case DeclarativeChart::SeriesTypeHorizontalStackedBar:
         series = new DeclarativeHorizontalStackedBarSeries();
         break;
+#endif
+#if QT_CONFIG(charts_boxplot_chart)
     case DeclarativeChart::SeriesTypeBoxPlot:
         series = new DeclarativeBoxPlotSeries();
         break;
+#endif
+#if QT_CONFIG(charts_candlestick_chart)
     case DeclarativeChart::SeriesTypeCandlestick:
         series = new DeclarativeCandlestickSeries();
         break;
+#endif
+#if QT_CONFIG(charts_pie_chart)
     case DeclarativeChart::SeriesTypePie:
         series = new DeclarativePieSeries();
         break;
+#endif
+#if QT_CONFIG(charts_scatter_chart)
     case DeclarativeChart::SeriesTypeScatter:
         series = new DeclarativeScatterSeries();
         break;
+#endif
+#if QT_CONFIG(charts_spline_chart)
     case DeclarativeChart::SeriesTypeSpline:
         series = new DeclarativeSplineSeries();
         break;
+#endif
     default:
         qWarning() << "Illegal series type";
     }
 
     if (series) {
         // Connect to axis changed signals (unless this is a pie series)
-        if (!qobject_cast<DeclarativePieSeries *>(series)) {
+#if QT_CONFIG(charts_pie_chart)
+        if (!qobject_cast<DeclarativePieSeries *>(series))
+#endif
+        {
             connect(series, SIGNAL(axisXChanged(QAbstractAxis*)), this, SLOT(handleAxisXSet(QAbstractAxis*)));
             connect(series, SIGNAL(axisXTopChanged(QAbstractAxis*)), this, SLOT(handleAxisXSet(QAbstractAxis*)));
             connect(series, SIGNAL(axisYChanged(QAbstractAxis*)), this, SLOT(handleAxisYSet(QAbstractAxis*)));
@@ -1382,7 +1424,7 @@ QAbstractAxis *DeclarativeChart::defaultAxis(Qt::Orientation orientation, QAbstr
         return new QBarCategoryAxis(this);
     case QAbstractAxis::AxisTypeCategory:
         return new QCategoryAxis(this);
-#ifndef QT_QREAL_IS_FLOAT
+#if QT_CONFIG(charts_datetime_axis)
     case QAbstractAxis::AxisTypeDateTime:
         return new QDateTimeAxis(this);
 #endif
@@ -1396,14 +1438,25 @@ QAbstractAxis *DeclarativeChart::defaultAxis(Qt::Orientation orientation, QAbstr
 
 void DeclarativeChart::initializeAxes(QAbstractSeries *series)
 {
-    if (qobject_cast<DeclarativeLineSeries *>(series))
+    if (false) {
+    }
+#if QT_CONFIG(charts_line_chart)
+    else if (qobject_cast<DeclarativeLineSeries *>(series))
         doInitializeAxes(series, qobject_cast<DeclarativeLineSeries *>(series)->m_axes);
+#endif
+#if QT_CONFIG(charts_scatter_chart)
     else if (qobject_cast<DeclarativeScatterSeries *>(series))
         doInitializeAxes(series, qobject_cast<DeclarativeScatterSeries *>(series)->m_axes);
+#endif
+#if QT_CONFIG(charts_spline_chart)
     else if (qobject_cast<DeclarativeSplineSeries *>(series))
         doInitializeAxes(series, qobject_cast<DeclarativeSplineSeries *>(series)->m_axes);
+#endif
+#if QT_CONFIG(charts_area_chart)
     else if (qobject_cast<DeclarativeAreaSeries *>(series))
         doInitializeAxes(series, qobject_cast<DeclarativeAreaSeries *>(series)->m_axes);
+#endif
+#if QT_CONFIG(charts_bar_chart)
     else if (qobject_cast<DeclarativeBarSeries *>(series))
         doInitializeAxes(series, qobject_cast<DeclarativeBarSeries *>(series)->m_axes);
     else if (qobject_cast<DeclarativeStackedBarSeries *>(series))
@@ -1416,10 +1469,15 @@ void DeclarativeChart::initializeAxes(QAbstractSeries *series)
         doInitializeAxes(series, qobject_cast<DeclarativeHorizontalStackedBarSeries *>(series)->m_axes);
     else if (qobject_cast<DeclarativeHorizontalPercentBarSeries *>(series))
         doInitializeAxes(series, qobject_cast<DeclarativeHorizontalPercentBarSeries *>(series)->m_axes);
+#endif
+#if QT_CONFIG(charts_boxplot_chart)
     else if (qobject_cast<DeclarativeBoxPlotSeries *>(series))
         doInitializeAxes(series, qobject_cast<DeclarativeBoxPlotSeries *>(series)->m_axes);
+#endif
+#if QT_CONFIG(charts_candlestick_chart)
     else if (qobject_cast<DeclarativeCandlestickSeries *>(series))
         doInitializeAxes(series, qobject_cast<DeclarativeCandlestickSeries *>(series)->m_axes);
+#endif
     // else: do nothing
 }
 
@@ -1472,7 +1530,7 @@ void DeclarativeChart::queueRendererMouseEvent(QMouseEvent *event)
 {
     if (m_glXYDataManager->dataMap().size()) {
         QMouseEvent *newEvent = new QMouseEvent(event->type(),
-                                                event->pos() - m_adjustedPlotArea.topLeft(),
+                                                event->position() - m_adjustedPlotArea.topLeft(),
                                                 event->button(),
                                                 event->buttons(),
                                                 event->modifiers());
@@ -1496,8 +1554,12 @@ QPointF DeclarativeChart::mapToPosition(const QPointF &value, QAbstractSeries *s
 void DeclarativeChart::setPlotArea(const QRectF &rect)
 {
     m_chart->setPlotArea(rect);
+
+    // If plotArea is set inside ChartView, contentGeometry is updated too early and we end up
+    // with incorrect plotArea. Invalidate the layout to correct the geometry.
+    m_chart->layout()->invalidate();
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_declarativechart_p.cpp"

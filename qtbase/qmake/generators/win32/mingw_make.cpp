@@ -31,7 +31,7 @@
 
 #include <proitems.h>
 
-#include <qregexp.h>
+#include <qregularexpression.h>
 #include <qdir.h>
 #include <stdlib.h>
 #include <time.h>
@@ -64,13 +64,13 @@ MingwMakefileGenerator::parseLibFlag(const ProString &flag, ProString *arg)
     return MakefileGenerator::parseLibFlag(flag, arg);
 }
 
-bool MingwMakefileGenerator::processPrlFileBase(QString &origFile, const QStringRef &origName,
-                                                const QStringRef &fixedBase, int slashOff)
+bool MingwMakefileGenerator::processPrlFileBase(QString &origFile, QStringView origName,
+                                                QStringView fixedBase, int slashOff)
 {
-    if (origName.startsWith("lib")) {
+    if (origName.startsWith(u"lib")) {
         QString newFixedBase = fixedBase.left(slashOff) + fixedBase.mid(slashOff + 3);
         if (Win32MakefileGenerator::processPrlFileBase(origFile, origName,
-                                                       QStringRef(&newFixedBase), slashOff)) {
+                                                       QStringView(newFixedBase), slashOff)) {
             return true;
         }
     }
@@ -201,11 +201,26 @@ void MingwMakefileGenerator::writeIncPart(QTextStream &t)
     t << "INCPATH       = ";
 
     const ProStringList &incs = project->values("INCLUDEPATH");
-    for (ProStringList::ConstIterator incit = incs.begin(); incit != incs.end(); ++incit) {
-        QString inc = (*incit).toQString();
-        inc.replace(QRegExp("\\\\$"), "");
-
-        t << "-I" << escapeFilePath(inc) << ' ';
+    QFile responseFile;
+    QTextStream responseStream;
+    QChar sep(' ');
+    int totalLength = std::accumulate(incs.constBegin(), incs.constEnd(), 0,
+                                      [](int total, const ProString &inc) {
+        return total + inc.size() + 2;
+    });
+    if (totalLength > project->intValue("QMAKE_RESPONSEFILE_THRESHOLD", 8000)) {
+        const QString fileName = createResponseFile("incpath", incs, "-I");
+        if (!fileName.isEmpty()) {
+            t << '@' + fileName;
+            t << Qt::endl;
+            return;
+        }
+    }
+    for (const ProString &incit: qAsConst(incs)) {
+        QString inc = incit.toQString();
+        inc.replace(QRegularExpression("\\\\$"), "");
+        inc.replace('\\', '/');
+        t << "-I" << escapeFilePath(inc) << sep;
     }
     t << Qt::endl;
 }
@@ -231,25 +246,16 @@ void MingwMakefileGenerator::writeObjectsPart(QTextStream &t)
     if (objmax.isEmpty() || project->values("OBJECTS").count() < objmax.toInt()) {
         objectsLinkLine = "$(OBJECTS)";
     } else if (project->isActiveConfig("staticlib") && project->first("TEMPLATE") == "lib") {
-        QString ar_response_file = var("QMAKE_LINK_OBJECT_SCRIPT") + "." + var("TARGET");
-        if (!var("BUILD_NAME").isEmpty()) {
-            ar_response_file += "." + var("BUILD_NAME");
-        }
-        if (!var("MAKEFILE").isEmpty())
-            ar_response_file += "." + var("MAKEFILE");
         // QMAKE_LIB is used for win32, including mingw, whereas QMAKE_AR is used on Unix.
         QString ar_cmd = var("QMAKE_LIB");
         if (ar_cmd.isEmpty())
             ar_cmd = "ar -rc";
-        createResponseFile(ar_response_file, project->values("OBJECTS"));
+        const QString ar_response_file =
+                createResponseFile(var("QMAKE_LINK_OBJECT_SCRIPT"), project->values("OBJECTS"));
         objectsLinkLine = ar_cmd + ' ' + var("DEST_TARGET") + " @" + escapeFilePath(ar_response_file);
     } else {
-        QString ld_response_file = var("QMAKE_LINK_OBJECT_SCRIPT") + "." + var("TARGET");
-        if (!var("BUILD_NAME").isEmpty())
-            ld_response_file += "." + var("BUILD_NAME");
-        if (!var("MAKEFILE").isEmpty())
-            ld_response_file += "." + var("MAKEFILE");
-        createResponseFile(ld_response_file, project->values("OBJECTS"));
+        const QString ld_response_file =
+                createResponseFile(var("QMAKE_LINK_OBJECT_SCRIPT"), project->values("OBJECTS"));
         objectsLinkLine = "@" + escapeFilePath(ld_response_file);
     }
     Win32MakefileGenerator::writeObjectsPart(t);

@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the Qt Charts module of the Qt Toolkit.
@@ -42,23 +42,22 @@
 #include <private/qxyseries_p.h>
 #include <QtCharts/private/qchartglobal_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class Q_CHARTS_PRIVATE_EXPORT QScatterSeriesPrivate: public QXYSeriesPrivate
 {
 public:
     QScatterSeriesPrivate(QScatterSeries *q);
-    void initializeGraphics(QGraphicsItem* parent);
-    void initializeTheme(int index, ChartTheme* theme, bool forced = false);
-    void initializeAnimations(QtCharts::QChart::AnimationOptions options, int duration,
-                              QEasingCurve &curve);
+    void initializeGraphics(QGraphicsItem* parent) override;
+    void initializeTheme(int index, ChartTheme* theme, bool forced = false) override;
+    void initializeAnimations(QChart::AnimationOptions options, int duration,
+                              QEasingCurve &curve) override;
 
 private:
     QScatterSeries::MarkerShape m_shape;
-    qreal m_size;
     Q_DECLARE_PUBLIC(QScatterSeries)
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif

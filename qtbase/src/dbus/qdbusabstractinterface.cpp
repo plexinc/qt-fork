@@ -154,10 +154,10 @@ bool QDBusAbstractInterfacePrivate::property(const QMetaProperty &mp, void *retu
     if (!isValid || !canMakeCalls())   // can't make calls
         return false;
 
-    const int type = mp.userType();
+    QMetaType type = mp.metaType();
     // is this metatype registered?
     const char *expectedSignature = "";
-    if (int(mp.userType()) != QMetaType::QVariant) {
+    if (type.id() != QMetaType::QVariant) {
         expectedSignature = QDBusMetaType::typeToSignature(type);
         if (expectedSignature == nullptr) {
             qWarning("QDBusAbstractInterface: type %s must be registered with Qt D-Bus before it can be "
@@ -193,30 +193,30 @@ bool QDBusAbstractInterfacePrivate::property(const QMetaProperty &mp, void *retu
     const char *foundType = nullptr;
     QVariant value = qvariant_cast<QDBusVariant>(reply.arguments().at(0)).variant();
 
-    if (value.userType() == type || type == QMetaType::QVariant
+    if (value.metaType() == type || type.id() == QMetaType::QVariant
         || (expectedSignature[0] == 'v' && expectedSignature[1] == '\0')) {
         // simple match
-        if (type == QMetaType::QVariant) {
+        if (type.id() == QMetaType::QVariant) {
             *reinterpret_cast<QVariant*>(returnValuePtr) = value;
         } else {
-            QMetaType::destruct(type, returnValuePtr);
-            QMetaType::construct(type, returnValuePtr, value.constData());
+            QMetaType(type).destruct(returnValuePtr);
+            QMetaType(type).construct(returnValuePtr, value.constData());
         }
         return true;
     }
 
-    if (value.userType() == qMetaTypeId<QDBusArgument>()) {
+    if (value.metaType() == QMetaType::fromType<QDBusArgument>()) {
         QDBusArgument arg = qvariant_cast<QDBusArgument>(value);
 
         foundType = "user type";
         foundSignature = arg.currentSignature().toLatin1();
         if (foundSignature == expectedSignature) {
             // signatures match, we can demarshall
-            return QDBusMetaType::demarshall(arg, type, returnValuePtr);
+            return QDBusMetaType::demarshall(arg, QMetaType(type), returnValuePtr);
         }
     } else {
         foundType = value.typeName();
-        foundSignature = QDBusMetaType::typeToSignature(value.userType());
+        foundSignature = QDBusMetaType::typeToSignature(value.metaType());
     }
 
     // there was an error...
@@ -281,10 +281,10 @@ int QDBusAbstractInterfaceBase::qt_metacall(QMetaObject::Call _c, int _id, void 
 
         if (_c == QMetaObject::WriteProperty) {
             QVariant value;
-            if (mp.userType() == qMetaTypeId<QDBusVariant>())
+            if (mp.metaType() == QMetaType::fromType<QDBusVariant>())
                 value = reinterpret_cast<const QDBusVariant*>(_a[0])->variant();
             else
-                value = QVariant(mp.userType(), _a[0]);
+                value = QVariant(mp.metaType(), _a[0]);
             status = d_func()->setProperty(mp, value) ? 1 : 0;
         } else {
             bool readStatus = d_func()->property(mp, _a[0]);
@@ -718,27 +718,6 @@ void QDBusAbstractInterface::internalPropSet(const char *propname, const QVarian
     \sa callWithArgumentList()
 */
 
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-/*!
-    \internal
-
-    This function exists for binary compatibility with Qt versions < 5.14.
-    Programs recompiled against Qt 5.14 will use the variadic template function
-    instead.
-*/
-QDBusMessage QDBusAbstractInterface::call(const QString &method, const QVariant &arg1,
-                                          const QVariant &arg2,
-                                          const QVariant &arg3,
-                                          const QVariant &arg4,
-                                          const QVariant &arg5,
-                                          const QVariant &arg6,
-                                          const QVariant &arg7,
-                                          const QVariant &arg8)
-{
-    return call(QDBus::AutoDetect, method, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
-}
-#endif
-
 /*!
     \fn QDBusAbstractInterface::call(QDBus::CallMode mode, const QString &message)
     \internal
@@ -768,59 +747,6 @@ QDBusMessage QDBusAbstractInterface::call(const QString &method, const QVariant 
     \sa callWithArgumentList()
 */
 
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-/*!
-    \internal
-
-    This function exists for binary compatibility with Qt versions < 5.14.
-    Programs recompiled against Qt 5.14 will use the variadic template function
-    instead.
-*/
-QDBusMessage QDBusAbstractInterface::call(QDBus::CallMode mode, const QString &method,
-                                          const QVariant &arg1,
-                                          const QVariant &arg2,
-                                          const QVariant &arg3,
-                                          const QVariant &arg4,
-                                          const QVariant &arg5,
-                                          const QVariant &arg6,
-                                          const QVariant &arg7,
-                                          const QVariant &arg8)
-{
-    QList<QVariant> argList;
-    int count = 0 + arg1.isValid() + arg2.isValid() + arg3.isValid() + arg4.isValid() +
-                arg5.isValid() + arg6.isValid() + arg7.isValid() + arg8.isValid();
-
-    switch (count) {
-    case 8:
-        argList.prepend(arg8);
-        Q_FALLTHROUGH();
-    case 7:
-        argList.prepend(arg7);
-        Q_FALLTHROUGH();
-    case 6:
-        argList.prepend(arg6);
-        Q_FALLTHROUGH();
-    case 5:
-        argList.prepend(arg5);
-        Q_FALLTHROUGH();
-    case 4:
-        argList.prepend(arg4);
-        Q_FALLTHROUGH();
-    case 3:
-        argList.prepend(arg3);
-        Q_FALLTHROUGH();
-    case 2:
-        argList.prepend(arg2);
-        Q_FALLTHROUGH();
-    case 1:
-        argList.prepend(arg1);
-        break;
-    }
-
-    return callWithArgumentList(mode, method, argList);
-}
-#endif // Qt 5
-
 /*!
     \fn QDBusAbstractInterface::asyncCall(const QString &message)
     \internal
@@ -849,57 +775,6 @@ QDBusMessage QDBusAbstractInterface::call(QDBus::CallMode mode, const QString &m
     \sa asyncCallWithArgumentList()
 */
 
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-/*!
-    \internal
-
-    This function exists for binary compatibility with Qt versions < 5.14.
-    Programs recompiled against Qt 5.14 will use the variadic template function
-    instead.
-*/
-QDBusPendingCall QDBusAbstractInterface::asyncCall(const QString &method, const QVariant &arg1,
-                                                   const QVariant &arg2,
-                                                   const QVariant &arg3,
-                                                   const QVariant &arg4,
-                                                   const QVariant &arg5,
-                                                   const QVariant &arg6,
-                                                   const QVariant &arg7,
-                                                   const QVariant &arg8)
-{
-    QList<QVariant> argList;
-    int count = 0 + arg1.isValid() + arg2.isValid() + arg3.isValid() + arg4.isValid() +
-                arg5.isValid() + arg6.isValid() + arg7.isValid() + arg8.isValid();
-
-    switch (count) {
-    case 8:
-        argList.prepend(arg8);
-        Q_FALLTHROUGH();
-    case 7:
-        argList.prepend(arg7);
-        Q_FALLTHROUGH();
-    case 6:
-        argList.prepend(arg6);
-        Q_FALLTHROUGH();
-    case 5:
-        argList.prepend(arg5);
-        Q_FALLTHROUGH();
-    case 4:
-        argList.prepend(arg4);
-        Q_FALLTHROUGH();
-    case 3:
-        argList.prepend(arg3);
-        Q_FALLTHROUGH();
-    case 2:
-        argList.prepend(arg2);
-        Q_FALLTHROUGH();
-    case 1:
-        argList.prepend(arg1);
-        break;
-    }
-
-    return asyncCallWithArgumentList(method, argList);
-}
-#endif // Qt 5
 
 /*!
     \internal

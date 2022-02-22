@@ -34,7 +34,7 @@
 #include <QtCharts/QAbstractBarSeries>
 #include <QtCharts/QBarSet>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class QLegend;
 class QBarLegendMarkerPrivate;
@@ -46,10 +46,10 @@ public:
     explicit QBarLegendMarker(QAbstractBarSeries *series, QBarSet *barset, QLegend *legend, QObject *parent = nullptr);
     virtual ~QBarLegendMarker();
 
-    virtual LegendMarkerType type() { return LegendMarkerTypeBar; }
+    LegendMarkerType type() override { return LegendMarkerTypeBar; }
 
     // Related series and barset
-    virtual QAbstractBarSeries* series();
+    QAbstractBarSeries* series() override;
     QBarSet* barset();
 
 protected:
@@ -61,6 +61,6 @@ private:
 
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // QBARLEGENDMARKER_H

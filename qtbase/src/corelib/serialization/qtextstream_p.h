@@ -53,10 +53,9 @@
 //
 
 #include <QtCore/private/qglobal_p.h>
+#include "qiodevice.h"
+#include "qlocale.h"
 #include "qtextstream.h"
-#if QT_CONFIG(textcodec)
-#include "qtextcodec.h"
-#endif
 
 QT_BEGIN_NAMESPACE
 
@@ -118,13 +117,10 @@ public:
     int stringOffset;
     QIODevice::OpenMode stringOpenMode;
 
-#if QT_CONFIG(textcodec)
-    // codec
-    QTextCodec *codec;
-    QTextCodec::ConverterState readConverterState;
-    QTextCodec::ConverterState writeConverterState;
-    QTextCodec::ConverterState *readConverterSavedState;
-#endif
+    QStringConverter::Encoding encoding = QStringConverter::Utf8;
+    QStringEncoder fromUtf16;
+    QStringDecoder toUtf16;
+    QStringDecoder savedToUtf16;
 
     QString writeBuffer;
     QString readBuffer;
@@ -141,9 +137,9 @@ public:
 
     int lastTokenSize;
     bool deleteDevice;
-#if QT_CONFIG(textcodec)
     bool autoDetectUnicode;
-#endif
+    bool hasWrittenData = false;
+    bool generateBOM = false;
 
     // i/o
     enum TokenDelimiter {
@@ -181,6 +177,7 @@ public:
     inline void putString(const QString &ch, bool number = false) { putString(ch.constData(), ch.length(), number); }
     void putString(const QChar *data, int len, bool number = false);
     void putString(QLatin1String data, bool number = false);
+    void putString(QUtf8StringView data, bool number = false);
     inline void putChar(QChar ch);
     void putNumber(qulonglong number, bool negative);
 

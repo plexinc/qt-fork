@@ -10,7 +10,7 @@
 #include "base/memory/ref_counted_delete_on_sequence.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/single_thread_task_runner.h"
-#include "base/task/post_task.h"
+#include "content/browser/quota/quota_change_dispatcher.h"
 #include "content/browser/quota/quota_manager_host.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -29,13 +29,16 @@ QuotaContext::QuotaContext(
     const base::FilePath& profile_path,
     scoped_refptr<storage::SpecialStoragePolicy> special_storage_policy,
     storage::GetQuotaSettingsFunc get_settings_function)
-    : base::RefCountedDeleteOnSequence<QuotaContext>(
-          base::CreateSingleThreadTaskRunner({BrowserThread::IO})),
-      io_thread_(base::CreateSingleThreadTaskRunner({BrowserThread::IO})),
+    : base::RefCountedDeleteOnSequence<QuotaContext>(GetIOThreadTaskRunner({})),
+      io_thread_(GetIOThreadTaskRunner({})),
+      quota_change_dispatcher_(
+          base::MakeRefCounted<QuotaChangeDispatcher>(io_thread_)),
       quota_manager_(base::MakeRefCounted<storage::QuotaManager>(
           is_incognito,
           profile_path,
           io_thread_,
+          base::BindRepeating(&QuotaChangeDispatcher::MaybeDispatchEvents,
+                              quota_change_dispatcher_),
           std::move(special_storage_policy),
           std::move(get_settings_function))),
       permission_context_(
@@ -66,9 +69,9 @@ void QuotaContext::BindQuotaManagerHostOnIOThread(
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   // The quota manager currently runs on the I/O thread.
-  auto host = std::make_unique<QuotaManagerHost>(process_id, render_frame_id,
-                                                 origin, quota_manager_.get(),
-                                                 permission_context_.get());
+  auto host = std::make_unique<QuotaManagerHost>(
+      process_id, render_frame_id, origin, quota_manager_.get(),
+      permission_context_.get(), quota_change_dispatcher_);
   auto* host_ptr = host.get();
   receivers_.Add(host_ptr, std::move(receiver), std::move(host));
 }

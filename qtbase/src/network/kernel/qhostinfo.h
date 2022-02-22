@@ -106,18 +106,18 @@ public:
         typedef QtPrivate::FunctionPointer<Func> SlotType;
 
         typedef QtPrivate::FunctionPointer<void (*)(QHostInfo)> SignalType;
-        Q_STATIC_ASSERT_X(int(SignalType::ArgumentCount) >= int(SlotType::ArgumentCount),
+        static_assert(int(SignalType::ArgumentCount) >= int(SlotType::ArgumentCount),
                           "The slot requires more arguments than the signal provides.");
-        Q_STATIC_ASSERT_X((QtPrivate::CheckCompatibleArguments<typename SignalType::Arguments,
+        static_assert((QtPrivate::CheckCompatibleArguments<typename SignalType::Arguments,
                            typename SlotType::Arguments>::value),
                           "Signal and slot arguments are not compatible.");
-        Q_STATIC_ASSERT_X((QtPrivate::AreArgumentsCompatible<typename SlotType::ReturnType,
+        static_assert((QtPrivate::AreArgumentsCompatible<typename SlotType::ReturnType,
                            typename SignalType::ReturnType>::value),
                           "Return type of the slot is not compatible "
                           "with the return type of the signal.");
 
         auto slotObj = new QtPrivate::QSlotObject<Func, typename SlotType::Arguments, void>(slot);
-        return lookupHostImpl(name, receiver, slotObj);
+        return lookupHostImpl(name, receiver, slotObj, nullptr);
     }
 
     // lookupHost to a callable (without context)
@@ -137,13 +137,13 @@ public:
     {
         typedef QtPrivate::FunctionPointer<Func1> SlotType;
 
-        Q_STATIC_ASSERT_X(int(SlotType::ArgumentCount) <= 1,
+        static_assert(int(SlotType::ArgumentCount) <= 1,
                           "The slot must not require more than one argument");
 
         auto slotObj = new QtPrivate::QFunctorSlotObject<Func1, 1,
                                                          typename QtPrivate::List<QHostInfo>,
                                                          void>(std::move(slot));
-        return lookupHostImpl(name, context, slotObj);
+        return lookupHostImpl(name, context, slotObj, nullptr);
     }
 #endif // Q_QDOC
 
@@ -153,10 +153,14 @@ private:
 
     static int lookupHostImpl(const QString &name,
                               const QObject *receiver,
-                              QtPrivate::QSlotObjectBase *slotObj);
+                              QtPrivate::QSlotObjectBase *slotObj,
+                              const char *member);
+
+    friend QHostInfo Q_NETWORK_EXPORT qt_qhostinfo_lookup(const QString &name, QObject *receiver,
+                                                          const char *member, bool *valid, int *id);
 };
 
-Q_DECLARE_SHARED_NOT_MOVABLE_UNTIL_QT6(QHostInfo)
+Q_DECLARE_SHARED(QHostInfo)
 
 QT_END_NAMESPACE
 

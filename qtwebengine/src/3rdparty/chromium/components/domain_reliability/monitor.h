@@ -28,6 +28,7 @@
 #include "net/base/load_timing_info.h"
 #include "net/base/net_error_details.h"
 #include "net/base/network_change_notifier.h"
+#include "net/base/network_isolation_key.h"
 #include "net/http/http_response_info.h"
 #include "net/socket/connection_attempts.h"
 
@@ -38,15 +39,14 @@ class Value;
 namespace net {
 class URLRequest;
 class URLRequestContext;
-class URLRequestContextGetter;
 }  // namespace net
 
 namespace domain_reliability {
 
 // The top-level object that measures requests and hands off the measurements
 // to the proper |DomainReliabilityContext|.
-// To initialize this object fully, you need to call InitURLRequestContext(),
-// AddBakedInConfigs(), and SetDiscardUploads() before using this.
+// To initialize this object fully, you need to call AddBakedInConfigs() and
+// SetDiscardUploads() before using this.
 class DOMAIN_RELIABILITY_EXPORT DomainReliabilityMonitor
     : public net::NetworkChangeNotifier::NetworkChangeObserver {
  public:
@@ -59,9 +59,10 @@ class DOMAIN_RELIABILITY_EXPORT DomainReliabilityMonitor
     static bool ShouldReportRequest(const RequestInfo& request);
 
     GURL url;
+    net::NetworkIsolationKey network_isolation_key;
     int net_error;
     net::HttpResponseInfo response_info;
-    int load_flags;
+    bool allow_credentials;
     net::LoadTimingInfo load_timing_info;
     net::ConnectionAttempts connection_attempts;
     net::IPEndPoint remote_endpoint;
@@ -71,26 +72,20 @@ class DOMAIN_RELIABILITY_EXPORT DomainReliabilityMonitor
 
   // Creates a Monitor.
   DomainReliabilityMonitor(
+      net::URLRequestContext* url_request_context,
       const std::string& upload_reporter_string,
       const DomainReliabilityContext::UploadAllowedCallback&
           upload_allowed_callback);
 
   // Same, but specifies a mock interface for time functions for testing.
   DomainReliabilityMonitor(
+      net::URLRequestContext* url_request_context,
       const std::string& upload_reporter_string,
       const DomainReliabilityContext::UploadAllowedCallback&
           upload_allowed_callback,
       std::unique_ptr<MockableTime> time);
 
   ~DomainReliabilityMonitor() override;
-
-  // Initializes the Monitor's URLRequestContextGetter.
-  void InitURLRequestContext(net::URLRequestContext* url_request_context);
-
-  // Same, but for unittests where the Getter is readily available.
-  void InitURLRequestContext(
-      const scoped_refptr<net::URLRequestContextGetter>&
-          url_request_context_getter);
 
   // Shuts down the monitor prior to destruction. Currently, ensures that there
   // are no pending uploads, to avoid hairy lifetime issues at destruction.
@@ -101,8 +96,7 @@ class DOMAIN_RELIABILITY_EXPORT DomainReliabilityMonitor
   // on demand at runtime.
   void AddBakedInConfigs();
 
-  // Sets whether the uploader will discard uploads. Must be called after
-  // |InitURLRequestContext|.
+  // Sets whether the uploader will discard uploads.
   void SetDiscardUploads(bool discard_uploads);
 
   // Should be called when |request| is about to follow a redirect. Will

@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include <qpolygon.h>
 #include <qpainterpath.h>
@@ -39,10 +39,8 @@ class tst_QPolygon : public QObject
 {
     Q_OBJECT
 
-public:
-    tst_QPolygon();
-
 private slots:
+    void constructors();
     void boundingRect_data();
     void boundingRect();
     void boundingRectF_data();
@@ -53,8 +51,33 @@ private slots:
     void intersections();
 };
 
-tst_QPolygon::tst_QPolygon()
+void constructors_helper(QPolygon) {}
+void constructors_helperF(QPolygonF) {}
+
+void tst_QPolygon::constructors()
 {
+    constructors_helper(QPolygon());
+    constructors_helper({});
+    constructors_helper({ QPoint(1, 2), QPoint(3, 4)});
+    constructors_helper({ {1, 2}, {3, 4} });
+    constructors_helper(QPolygon(12));
+    QList<QPoint> pointList;
+    constructors_helper(pointList);
+    constructors_helper(std::move(pointList));
+    constructors_helper(QRect(1, 2, 3, 4));
+    const int points[2] = { 10, 20 };
+    constructors_helper(QPolygon(1, points));
+
+    constructors_helperF(QPolygonF());
+    constructors_helperF({});
+    constructors_helperF({ QPointF(1, 2), QPointF(3, 4)});
+    constructors_helperF({ {1, 2}, {3, 4} });
+    constructors_helperF(QPolygonF(12));
+    constructors_helperF(QPolygon());
+    QList<QPointF> pointFList;
+    constructors_helperF(pointFList);
+    constructors_helperF(std::move(pointFList));
+    constructors_helperF(QRectF(1, 2, 3, 4));
 }
 
 void tst_QPolygon::boundingRect_data()
@@ -154,8 +177,9 @@ void tst_QPolygon::makeEllipse()
 
 void tst_QPolygon::swap()
 {
-    QPolygon p1(QVector<QPoint>() << QPoint(0,0) << QPoint(10,10) << QPoint(-10,10));
-    QPolygon p2(QVector<QPoint>() << QPoint(0,0) << QPoint( 0,10) << QPoint( 10,10) << QPoint(10,0));
+    QPolygon p1(QList<QPoint>() << QPoint(0, 0) << QPoint(10, 10) << QPoint(-10, 10));
+    QPolygon p2(QList<QPoint>() << QPoint(0, 0) << QPoint(0, 10) << QPoint(10, 10)
+                                << QPoint(10, 0));
     p1.swap(p2);
     QCOMPARE(p1.count(),4);
     QCOMPARE(p2.count(),3);
@@ -169,23 +193,27 @@ void tst_QPolygon::intersections_data()
 
     QTest::newRow("empty intersects nothing")
             << QPolygon()
-            << QPolygon(QVector<QPoint>() << QPoint(0,0) << QPoint(10,10) << QPoint(-10,10))
+            << QPolygon(QList<QPoint>() << QPoint(0, 0) << QPoint(10, 10) << QPoint(-10, 10))
             << false;
     QTest::newRow("identical triangles")
-            << QPolygon(QVector<QPoint>() << QPoint(0,0) << QPoint(10,10) << QPoint(-10,10))
-            << QPolygon(QVector<QPoint>() << QPoint(0,0) << QPoint(10,10) << QPoint(-10,10))
+            << QPolygon(QList<QPoint>() << QPoint(0, 0) << QPoint(10, 10) << QPoint(-10, 10))
+            << QPolygon(QList<QPoint>() << QPoint(0, 0) << QPoint(10, 10) << QPoint(-10, 10))
             << true;
     QTest::newRow("not intersecting")
-            << QPolygon(QVector<QPoint>() << QPoint(0,0) << QPoint(10,10) << QPoint(-10,10))
-            << QPolygon(QVector<QPoint>() << QPoint(0,20) << QPoint(10,12) << QPoint(-10,12))
+            << QPolygon(QList<QPoint>() << QPoint(0, 0) << QPoint(10, 10) << QPoint(-10, 10))
+            << QPolygon(QList<QPoint>() << QPoint(0, 20) << QPoint(10, 12) << QPoint(-10, 12))
             << false;
     QTest::newRow("clean intersection of squares")
-            << QPolygon(QVector<QPoint>() << QPoint(0,0) << QPoint(0,10) << QPoint(10,10) << QPoint(10,0))
-            << QPolygon(QVector<QPoint>() << QPoint(5,5) << QPoint(5,15) << QPoint(15,15) << QPoint(15,5))
+            << QPolygon(QList<QPoint>()
+                        << QPoint(0, 0) << QPoint(0, 10) << QPoint(10, 10) << QPoint(10, 0))
+            << QPolygon(QList<QPoint>()
+                        << QPoint(5, 5) << QPoint(5, 15) << QPoint(15, 15) << QPoint(15, 5))
             << true;
     QTest::newRow("clean contains of squares")
-            << QPolygon(QVector<QPoint>() << QPoint(0,0) << QPoint(0,10) << QPoint(10,10) << QPoint(10,0))
-            << QPolygon(QVector<QPoint>() << QPoint(5,5) << QPoint(5,8) << QPoint(8,8) << QPoint(8,5))
+            << QPolygon(QList<QPoint>()
+                        << QPoint(0, 0) << QPoint(0, 10) << QPoint(10, 10) << QPoint(10, 0))
+            << QPolygon(QList<QPoint>()
+                        << QPoint(5, 5) << QPoint(5, 8) << QPoint(8, 8) << QPoint(8, 5))
             << true;
 }
 

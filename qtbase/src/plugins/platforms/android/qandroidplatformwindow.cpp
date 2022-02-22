@@ -46,6 +46,7 @@
 
 #include <qguiapplication.h>
 #include <qpa/qwindowsysteminterface.h>
+#include <private/qhighdpiscaling_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -58,6 +59,22 @@ QAndroidPlatformWindow::QAndroidPlatformWindow(QWindow *window)
     m_windowState = Qt::WindowNoState;
     m_windowId = winIdGenerator.fetchAndAddRelaxed(1) + 1;
     setWindowState(window->windowStates());
+
+    // the following is in relation to the virtual geometry
+    const bool forceMaximize = m_windowState & (Qt::WindowMaximized | Qt::WindowFullScreen);
+    const QRect requestedNativeGeometry =
+            forceMaximize ? QRect() : QHighDpi::toNativePixels(window->geometry(), window);
+    const QRect availableDeviceIndependentGeometry = (window->parent())
+            ? window->parent()->geometry()
+            : QHighDpi::fromNativePixels(platformScreen()->availableGeometry(), window);
+
+    // initialGeometry returns in native pixels
+    const QRect finalNativeGeometry = QPlatformWindow::initialGeometry(
+            window, requestedNativeGeometry, availableDeviceIndependentGeometry.width(),
+            availableDeviceIndependentGeometry.height());
+
+    if (requestedNativeGeometry != finalNativeGeometry)
+        setGeometry(finalNativeGeometry);
 }
 
 void QAndroidPlatformWindow::lower()
@@ -67,25 +84,39 @@ void QAndroidPlatformWindow::lower()
 
 void QAndroidPlatformWindow::raise()
 {
-    updateStatusBarVisibility();
+    updateSystemUiVisibility();
     platformScreen()->raise(this);
+}
+
+QMargins QAndroidPlatformWindow::safeAreaMargins() const
+{
+    if ((m_windowState & Qt::WindowMaximized) && (window()->flags() & Qt::MaximizeUsingFullscreenGeometryHint)) {
+        QRect availableGeometry = platformScreen()->availableGeometry();
+        return QMargins(availableGeometry.left(), availableGeometry.top(),
+                        availableGeometry.right(), availableGeometry.bottom());
+    } else {
+        return QPlatformWindow::safeAreaMargins();
+    }
 }
 
 void QAndroidPlatformWindow::setGeometry(const QRect &rect)
 {
+    QPlatformWindow::setGeometry(rect);
     QWindowSystemInterface::handleGeometryChange(window(), rect);
 }
 
 void QAndroidPlatformWindow::setVisible(bool visible)
 {
     if (visible)
-        updateStatusBarVisibility();
+        updateSystemUiVisibility();
 
     if (visible) {
-        if (m_windowState & Qt::WindowFullScreen)
+        if ((m_windowState & Qt::WindowFullScreen)
+                || ((m_windowState & Qt::WindowMaximized) && (window()->flags() & Qt::MaximizeUsingFullscreenGeometryHint))) {
             setGeometry(platformScreen()->geometry());
-        else if (m_windowState & Qt::WindowMaximized)
+        } else if (m_windowState & Qt::WindowMaximized) {
             setGeometry(platformScreen()->availableGeometry());
+        }
     }
 
     if (visible)
@@ -107,7 +138,7 @@ void QAndroidPlatformWindow::setWindowState(Qt::WindowStates state)
     m_windowState = state;
 
     if (window()->isVisible())
-        updateStatusBarVisibility();
+        updateSystemUiVisibility();
 }
 
 void QAndroidPlatformWindow::setWindowFlags(Qt::WindowFlags flags)
@@ -143,15 +174,17 @@ void QAndroidPlatformWindow::requestActivateWindow()
     platformScreen()->topWindowChanged(window());
 }
 
-void QAndroidPlatformWindow::updateStatusBarVisibility()
+void QAndroidPlatformWindow::updateSystemUiVisibility()
 {
     Qt::WindowFlags flags = window()->flags();
     bool isNonRegularWindow = flags & (Qt::Popup | Qt::Dialog | Qt::Sheet) & ~Qt::Window;
     if (!isNonRegularWindow) {
         if (m_windowState & Qt::WindowFullScreen)
-            QtAndroid::hideStatusBar();
+            QtAndroid::setSystemUiVisibility(QtAndroid::SYSTEM_UI_VISIBILITY_FULLSCREEN);
+        else if (flags & Qt::MaximizeUsingFullscreenGeometryHint)
+            QtAndroid::setSystemUiVisibility(QtAndroid::SYSTEM_UI_VISIBILITY_TRANSLUCENT);
         else
-            QtAndroid::showStatusBar();
+            QtAndroid::setSystemUiVisibility(QtAndroid::SYSTEM_UI_VISIBILITY_NORMAL);
     }
 }
 

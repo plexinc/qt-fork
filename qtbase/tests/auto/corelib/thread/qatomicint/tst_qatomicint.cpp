@@ -27,7 +27,7 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include <QAtomicInt>
 #include <QCoreApplication>
@@ -85,7 +85,7 @@ private:
 };
 
 template <int I>
-static inline void assemblyMarker(void *ptr = 0)
+static inline void assemblyMarker(void *ptr = nullptr)
 {
     puts((char *)ptr + I);
 }
@@ -154,17 +154,11 @@ template <bool> inline void booleanHelper()
 template <typename Atomic>
 static void constexprFunctionsHelperTemplate()
 {
-#ifdef Q_COMPILER_CONSTEXPR
     // this is a compile-time test only
-    booleanHelper<Atomic::isReferenceCountingNative()>();
     booleanHelper<Atomic::isReferenceCountingWaitFree()>();
-    booleanHelper<Atomic::isTestAndSetNative()>();
     booleanHelper<Atomic::isTestAndSetWaitFree()>();
-    booleanHelper<Atomic::isFetchAndStoreNative()>();
     booleanHelper<Atomic::isFetchAndStoreWaitFree()>();
-    booleanHelper<Atomic::isFetchAndAddNative()>();
     booleanHelper<Atomic::isFetchAndAddWaitFree()>();
-#endif
 }
 
 void tst_QAtomicInt::warningFreeHelper()
@@ -177,10 +171,8 @@ void tst_QAtomicInt::warningFreeHelper()
     warningFreeHelperTemplate<unsigned int, QBasicAtomicInteger<unsigned int> >();
     constexprFunctionsHelperTemplate<QBasicAtomicInteger<int> >();
     constexprFunctionsHelperTemplate<QBasicAtomicInteger<unsigned int> >();
-# ifdef Q_COMPILER_UNICODE_STRINGS
     warningFreeHelperTemplate<qint16, QBasicAtomicInteger<char32_t> >();
     constexprFunctionsHelperTemplate<QBasicAtomicInteger<char32_t> >();
-# endif
 
     // pointer-sized integers are always supported:
     warningFreeHelperTemplate<int, QBasicAtomicInteger<qptrdiff> >();
@@ -199,10 +191,8 @@ void tst_QAtomicInt::warningFreeHelper()
     warningFreeHelperTemplate<quint16, QBasicAtomicInteger<quint16> >();
     constexprFunctionsHelperTemplate<QBasicAtomicInteger<qint16> >();
     constexprFunctionsHelperTemplate<QBasicAtomicInteger<quint16> >();
-# ifdef Q_COMPILER_UNICODE_STRINGS
     warningFreeHelperTemplate<qint16, QBasicAtomicInteger<char16_t> >();
     constexprFunctionsHelperTemplate<QBasicAtomicInteger<char16_t> >();
-# endif
 #endif
 
 #ifdef Q_ATOMIC_INT8_IS_SUPPORTED
@@ -237,28 +227,23 @@ template <typename T> struct TypeInStruct { T type; };
 
 void tst_QAtomicInt::alignment()
 {
-#ifdef Q_ALIGNOF
-    // this will cause a build error if the alignment isn't the same
-    char dummy1[Q_ALIGNOF(QBasicAtomicInt) == Q_ALIGNOF(TypeInStruct<int>) ? 1 : -1];
-    char dummy2[Q_ALIGNOF(QAtomicInt) == Q_ALIGNOF(TypeInStruct<int>) ? 1 : -1];
-    (void)dummy1; (void)dummy2;
+    static_assert(alignof(QBasicAtomicInt) == alignof(TypeInStruct<int>));
+    static_assert(alignof(QBasicAtomicInt) == alignof(TypeInStruct<int>));
 
 #ifdef Q_ATOMIC_INT32_IS_SUPPORTED
-    QCOMPARE(Q_ALIGNOF(QBasicAtomicInteger<int>), Q_ALIGNOF(TypeInStruct<int>));
+    QCOMPARE(alignof(QBasicAtomicInteger<int>), alignof(TypeInStruct<int>));
 #endif
 
 #ifdef Q_ATOMIC_INT16_IS_SUPPORTED
-    QCOMPARE(Q_ALIGNOF(QBasicAtomicInteger<short>), Q_ALIGNOF(TypeInStruct<short>));
+    QCOMPARE(alignof(QBasicAtomicInteger<short>), alignof(TypeInStruct<short>));
 #endif
 
 #ifdef Q_ATOMIC_INT8_IS_SUPPORTED
-    QCOMPARE(Q_ALIGNOF(QBasicAtomicInteger<char>), Q_ALIGNOF(TypeInStruct<char>));
+    QCOMPARE(alignof(QBasicAtomicInteger<char>), alignof(TypeInStruct<char>));
 #endif
 
 #ifdef Q_ATOMIC_INT64_IS_SUPPORTED
-    QCOMPARE(Q_ALIGNOF(QBasicAtomicInteger<qlonglong>), Q_ALIGNOF(TypeInStruct<qlonglong>));
-#endif
-
+    QCOMPARE(alignof(QBasicAtomicInteger<qlonglong>), alignof(TypeInStruct<qlonglong>));
 #endif
 }
 
@@ -845,9 +830,12 @@ void tst_QAtomicInt::operators()
     QCOMPARE(int(atomic), x);
     QCOMPARE(int(atomic), 0x13);
 
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_CLANG("-Wself-assign-overloaded")
     x = (atomic ^= atomic);
     QCOMPARE(int(atomic), x);
     QCOMPARE(int(atomic), 0);
+QT_WARNING_POP
 }
 
 void tst_QAtomicInt::testAndSet_loop()
@@ -889,7 +877,7 @@ void tst_QAtomicInt::fetchAndAdd_loop()
 class FetchAndAddThread : public QThread
 {
 public:
-    void run()
+    void run() override
     {
 
         for (int i = 0; i < iterations; ++i)

@@ -21,7 +21,6 @@
 
 namespace blink {
 
-class Document;
 class PresentationConnectionList;
 class ReceiverPresentationConnection;
 
@@ -38,10 +37,8 @@ class MODULES_EXPORT PresentationReceiver final
                             Member<DOMException>>;
 
  public:
-  explicit PresentationReceiver(LocalFrame*);
+  explicit PresentationReceiver(LocalDOMWindow*);
   ~PresentationReceiver() override = default;
-
-  static PresentationReceiver* From(Document&);
 
   // PresentationReceiver.idl implementation
   ScriptPromise connectionList(ScriptState*);
@@ -56,9 +53,9 @@ class MODULES_EXPORT PresentationReceiver final
   void RemoveConnection(ReceiverPresentationConnection*);
   void Terminate();
 
-  LocalFrame* GetFrame() const { return frame_; }
+  LocalDOMWindow* GetWindow() const { return window_; }
 
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
  private:
   friend class PresentationReceiverTest;
@@ -68,11 +65,11 @@ class MODULES_EXPORT PresentationReceiver final
   Member<ConnectionListProperty> connection_list_property_;
   Member<PresentationConnectionList> connection_list_;
 
-  HeapMojoReceiver<mojom::blink::PresentationReceiver>
+  HeapMojoReceiver<mojom::blink::PresentationReceiver, PresentationReceiver>
       presentation_receiver_receiver_;
   HeapMojoRemote<mojom::blink::PresentationService>
       presentation_service_remote_;
-  Member<LocalFrame> frame_;
+  Member<LocalDOMWindow> window_;
 };
 
 }  // namespace blink

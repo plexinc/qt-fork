@@ -60,7 +60,7 @@
 
     \quotefromfile calculator-qml/calculator-qml.qml
     \skipto CalculatorStateMachine
-    \printline 1.0
+    \printline CalculatorStateMachine
 
     We instantiate a CalculatorStateMachine and listen to the \c updateDisplay
     event. When it occurs, we change the text on the calculator display:

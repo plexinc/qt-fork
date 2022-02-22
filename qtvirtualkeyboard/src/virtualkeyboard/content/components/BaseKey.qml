@@ -27,9 +27,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import QtQuick.Layouts 1.0
-import QtQuick.VirtualKeyboard 2.1
+import QtQuick
+import QtQuick.Layouts
+import QtQuick.VirtualKeyboard
 
 /*!
     \qmltype BaseKey
@@ -47,6 +47,30 @@ import QtQuick.VirtualKeyboard 2.1
 
 Item {
     id: keyItem
+
+    /*! \since QtQuick.VirtualKeyboard 6.1
+
+        Type of the key.
+
+        \list
+            \li \c QtVirtualKeyboard.BaseKey
+            \li \c QtVirtualKeyboard.BackspaceKey
+            \li \c QtVirtualKeyboard.ChangeLanguageKey
+            \li \c QtVirtualKeyboard.EnterKey
+            \li \c QtVirtualKeyboard.FillerKey
+            \li \c QtVirtualKeyboard.HandwritingModeKey
+            \li \c QtVirtualKeyboard.HideKeyboardKey
+            \li \c QtVirtualKeyboard.InputModeKey
+            \li \c QtVirtualKeyboard.Key
+            \li \c QtVirtualKeyboard.ModeKey
+            \li \c QtVirtualKeyboard.NumberKey
+            \li \c QtVirtualKeyboard.ShiftKey
+            \li \c QtVirtualKeyboard.SpaceKey
+            \li \c QtVirtualKeyboard.SymbolModeKey
+            \li \c QtVirtualKeyboard.FlickKey
+        \endlist
+    */
+    property int keyType: QtVirtualKeyboard.BaseKey
 
     /*! Sets the key weight value which determines the relative size of the key.
 
@@ -132,8 +156,15 @@ Item {
     */
     readonly property int effectiveAlternativeKeysHighlightIndex: {
         var index = alternativeKeys.indexOf(text)
-        return index > 1 && (index + 1) == alternativeKeys.length ? alternativeKeys.length - 2 : index
+        return index > 0 && (index + 1) == alternativeKeys.length ? index - 1 : index
     }
+
+    /*! \since QtQuick.VirtualKeyboard 6.2
+
+        This property allows overriding the list of key strings presented to the user in the
+        alternative keys view.
+    */
+    property var displayAlternativeKeys: effectiveAlternativeKeys
 
     /*! Sets the key code for input method processing.
 
@@ -240,7 +271,7 @@ Item {
     Loader {
         id: keyPanel
         anchors.fill: parent
-        onStatusChanged: if (status == Loader.Ready) keyPanel.item.control = keyItem
+        onLoaded: keyPanel.item.control = keyItem
     }
 
     /*! This signal is triggered when the key is pressed, allowing custom processing

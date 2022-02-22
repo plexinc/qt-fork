@@ -26,7 +26,6 @@ struct WebPrintParams;
 namespace content {
 
 class PepperPluginInstanceImpl;
-class PluginInstanceThrottlerImpl;
 class PluginModule;
 class RenderFrameImpl;
 
@@ -34,8 +33,7 @@ class PepperWebPluginImpl : public blink::WebPlugin {
  public:
   PepperWebPluginImpl(PluginModule* module,
                       const blink::WebPluginParams& params,
-                      RenderFrameImpl* render_frame,
-                      std::unique_ptr<PluginInstanceThrottlerImpl> throttler);
+                      RenderFrameImpl* render_frame);
 
   PepperPluginInstanceImpl* instance() { return instance_.get(); }
 
@@ -44,11 +42,12 @@ class PepperWebPluginImpl : public blink::WebPlugin {
   bool Initialize(blink::WebPluginContainer* container) override;
   void Destroy() override;
   v8::Local<v8::Object> V8ScriptableObject(v8::Isolate* isolate) override;
+  bool SupportsKeyboardFocus() const override;
   void UpdateAllLifecyclePhases(blink::DocumentUpdateReason) override {}
-  void Paint(cc::PaintCanvas* canvas, const blink::WebRect& rect) override;
-  void UpdateGeometry(const blink::WebRect& window_rect,
-                      const blink::WebRect& clip_rect,
-                      const blink::WebRect& unobscured_rect,
+  void Paint(cc::PaintCanvas* canvas, const gfx::Rect& rect) override;
+  void UpdateGeometry(const gfx::Rect& window_rect,
+                      const gfx::Rect& clip_rect,
+                      const gfx::Rect& unobscured_rect,
                       bool is_visible) override;
   void UpdateFocus(bool focused, blink::mojom::FocusType focus_type) override;
   void UpdateVisibility(bool visible) override;
@@ -87,6 +86,25 @@ class PepperWebPluginImpl : public blink::WebPlugin {
   bool CanRotateView() override;
   void RotateView(RotationType type) override;
   bool IsPlaceholder() override;
+  void DidLoseMouseLock() override;
+  void DidReceiveMouseLockResult(bool success) override;
+
+  bool CanComposeInline() override;
+  bool ShouldDispatchImeEventsToPlugin() override;
+  blink::WebTextInputType GetPluginTextInputType() override;
+  gfx::Rect GetPluginCaretBounds() override;
+  void ImeSetCompositionForPlugin(
+      const blink::WebString& text,
+      const std::vector<ui::ImeTextSpan>& ime_text_spans,
+      const gfx::Range& replacement_range,
+      int selection_start,
+      int selection_end) override;
+  void ImeCommitTextForPlugin(
+      const blink::WebString& text,
+      const std::vector<ui::ImeTextSpan>& ime_text_spans,
+      const gfx::Range& replacement_range,
+      int relative_cursor_pos) override;
+  void ImeFinishComposingTextForPlugin(bool keep_selection) override;
 
  private:
   friend class base::DeleteHelper<PepperWebPluginImpl>;
@@ -101,7 +119,6 @@ class PepperWebPluginImpl : public blink::WebPlugin {
   // being an embedded resource.
   const bool full_frame_;
 
-  std::unique_ptr<PluginInstanceThrottlerImpl> throttler_;
   scoped_refptr<PepperPluginInstanceImpl> instance_;
   gfx::Rect plugin_rect_;
   PP_Var instance_object_;

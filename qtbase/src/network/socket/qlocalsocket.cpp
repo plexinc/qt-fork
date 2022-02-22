@@ -66,6 +66,21 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
+    \enum QLocalSocket::SocketOption
+    \since 6.2
+    This enum describes the possible options that can be used to connect to
+    a server. Currently, on Linux and Android it is used for specifying
+    connection to a server listening to a socket bound to an abstract address.
+
+    \value NoOptions No options have been set.
+    \value AbstractNamespaceOption
+    The socket will try to connect to an abstract address. This flag is specific
+    to Linux and Android. On other platforms is ignored.
+
+    \sa socketOptions
+*/
+
+/*!
     \fn void QLocalSocket::connectToServer(OpenMode openMode)
     \since 5.1
 
@@ -90,7 +105,7 @@ QT_BEGIN_NAMESPACE
     Note that unlike in most other QIODevice subclasses, open() may not open the device directly.
     The function return false if the socket was already connected or if the server to connect
     to was not defined and true in any other case. The connected() or errorOccurred() signals will be
-    emitted once the device is actualy open (or the connection failed).
+    emitted once the device is actually open (or the connection failed).
 
     See connectToServer() for more details.
 */
@@ -132,10 +147,9 @@ QT_BEGIN_NAMESPACE
 
     \list
         \li On Windows, the returned value is a
-        \l{https://msdn.microsoft.com/en-us/library/windows/desktop/ms740522(v=vs.85).aspx}
-        {Winsock 2 Socket Handle}.
+        \l{Winsock 2 Socket Handle}.
 
-        \li With WinRT and on INTEGRITY, the returned value is the
+        \li On INTEGRITY, the returned value is the
         QTcpSocket socket descriptor and the type is defined by
         \l{QTcpSocket::socketDescriptor}{socketDescriptor}.
 
@@ -148,6 +162,11 @@ QT_BEGIN_NAMESPACE
 
 /*!
     \fn qint64 QLocalSocket::readData(char *data, qint64 c)
+    \reimp
+*/
+
+/*!
+    \fn qint64 QLocalSocket::skipData(qint64 maxSize)
     \reimp
 */
 
@@ -214,7 +233,7 @@ QT_BEGIN_NAMESPACE
     Attempts to close the socket. If there is pending data waiting to be
     written, QLocalSocket will enter ClosingState and wait until all data
     has been written. Eventually, it will enter UnconnectedState and emit
-    the disconnectedFromServer() signal.
+    the disconnected() signal.
 
     \sa connectToServer()
 */
@@ -330,13 +349,6 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
-    \fn void QLocalSocket::error(QLocalSocket::LocalSocketError socketError)
-    \obsolete
-
-    Use errorOccurred() instead.
-*/
-
-/*!
     \fn void QLocalSocket::errorOccurred(QLocalSocket::LocalSocketError socketError)
     \since 5.15
 
@@ -372,9 +384,6 @@ QLocalSocket::QLocalSocket(QObject * parent)
 {
     Q_D(QLocalSocket);
     d->init();
-
-    // Support the deprecated error() signal:
-    connect(this, &QLocalSocket::errorOccurred, this, QOverload<QLocalSocket::LocalSocketError>::of(&QLocalSocket::error));
 }
 
 /*!
@@ -441,6 +450,37 @@ QString QLocalSocket::serverName() const
 {
     Q_D(const QLocalSocket);
     return d->serverName;
+}
+
+/*!
+    \property QLocalSocket::socketOptions
+    \since 6.2
+    \brief the socket options.
+
+    Options must be set while the socket is in \l{UnconnectedState} state.
+
+    \sa connectToServer()
+ */
+QLocalSocket::SocketOptions QLocalSocket::socketOptions() const
+{
+    Q_D(const QLocalSocket);
+    return d->socketOptions;
+}
+
+void QLocalSocket::setSocketOptions(QLocalSocket::SocketOptions option)
+{
+    Q_D(QLocalSocket);
+    if (d->state != UnconnectedState) {
+        qWarning("QLocalSocket::setSocketOptions() called while not in unconnected state");
+        return;
+    }
+    d->socketOptions = option;
+}
+
+QBindable<QLocalSocket::SocketOptions> QLocalSocket::bindableSocketOptions()
+{
+    Q_D(QLocalSocket);
+    return &d->socketOptions;
 }
 
 /*!

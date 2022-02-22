@@ -45,6 +45,9 @@
 #include <private/qopengltexturehelper_p.h>
 #include <QDebug>
 #include <QOpenGLFunctions>
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+#include <QtOpenGL/QOpenGLVersionFunctionsFactory>
+#endif
 #include <QOpenGLTexture>
 #include <QOpenGLPixelTransferOptions>
 #include <Qt3DRender/qtexture.h>
@@ -54,8 +57,9 @@
 #include <Qt3DRender/private/qabstracttexture_p.h>
 #include <Qt3DRender/private/qtextureimagedata_p.h>
 #include <renderbuffer_p.h>
+#include <Qt3DCore/private/vector_helper_p.h>
 
-#if !defined(QT_OPENGL_ES_2)
+#if !QT_CONFIG(opengles2)
 #include <QOpenGLFunctions_3_1>
 #include <QOpenGLFunctions_4_5_Core>
 #endif
@@ -76,11 +80,11 @@ void uploadGLData(QOpenGLTexture *glTex,
                   int level, int layer, QOpenGLTexture::CubeMapFace face,
                   const QByteArray &bytes, const QTextureImageDataPtr &data)
 {
-    const auto alignment = QTextureImageDataPrivate::get(data.get())->m_alignment;
+    const auto alignment = data->alignment();
     QOpenGLPixelTransferOptions uploadOptions;
     uploadOptions.setAlignment(alignment);
     if (data->isCompressed())
-        glTex->setCompressedData(level, layer, face, bytes.size(), bytes.constData(), &uploadOptions);
+        glTex->setCompressedData(level, layer, face, bytes.size(), bytes.constData());
     else
         glTex->setData(level, layer, face, data->pixelFormat(), data->pixelType(), bytes.constData(), &uploadOptions);
 }
@@ -92,9 +96,9 @@ void uploadGLData(QOpenGLTexture *glTex,
                   const QByteArray &bytes, const QTextureImageDataPtr &data)
 {
     if (data->isCompressed()) {
-        qWarning() << Q_FUNC_INFO << "Uploading non full sized Compressed Data not supported yet";
+        Q_UNREACHABLE();
     } else {
-        const auto alignment = QTextureImageDataPrivate::get(data.get())->m_alignment;
+        const auto alignment = data->alignment();
         QOpenGLPixelTransferOptions uploadOptions;
         uploadOptions.setAlignment(alignment);
         glTex->setData(xOffset, yOffset, zOffset,
@@ -179,7 +183,7 @@ bool GLTexture::loadTextureDataFromGenerator()
         m_properties.layers = m_textureData->layers();
         m_properties.format = m_textureData->format();
 
-        const QVector<QTextureImageDataPtr> imageData = m_textureData->imageData();
+        const QList<QTextureImageDataPtr> imageData = m_textureData->imageData();
 
         if (imageData.size() > 0) {
             // Set the mips level based on the first image if autoMipMapGeneration is disabled
@@ -404,19 +408,10 @@ void GLTexture::setProperties(const TextureProperties &props)
     }
 }
 
-void GLTexture::setImages(const QVector<Image> &images)
+void GLTexture::setImages(const std::vector<Image> &images)
 {
     // check if something has changed at all
-    bool same = (images.size() == m_images.size());
-    if (same) {
-        for (int i = 0; i < images.size(); i++) {
-            if (images[i] != m_images[i]) {
-                same = false;
-                break;
-            }
-        }
-    }
-
+    const bool same = (images == m_images);
 
     if (!same) {
         m_images = images;
@@ -440,9 +435,9 @@ void GLTexture::setSharedTextureId(int textureId)
     }
 }
 
-void GLTexture::addTextureDataUpdates(const QVector<QTextureDataUpdate> &updates)
+void GLTexture::addTextureDataUpdates(const std::vector<QTextureDataUpdate> &updates)
 {
-    m_pendingTextureDataUpdates += updates;
+    Qt3DCore::append(m_pendingTextureDataUpdates, updates);
     requestUpload();
 }
 
@@ -540,7 +535,7 @@ void GLTexture::uploadGLTextureData()
 {
     // Upload all QTexImageData set by the QTextureGenerator
     if (m_textureData) {
-        const QVector<QTextureImageDataPtr> imgData = m_textureData->imageData();
+        const QList<QTextureImageDataPtr> imgData = m_textureData->imageData();
 
         for (const QTextureImageDataPtr &data : imgData) {
             const int mipLevels = m_properties.generateMipMaps ? 1 : data->mipLevels();
@@ -560,7 +555,7 @@ void GLTexture::uploadGLTextureData()
     }
 
     // Upload all QTexImageData references by the TextureImages
-    for (int i = 0; i < std::min(m_images.size(), m_imageData.size()); i++) {
+    for (size_t i = 0; i < std::min(m_images.size(), m_imageData.size()); i++) {
         const QTextureImageDataPtr &imgData = m_imageData.at(i);
         // Here the bytes in the QTextureImageData contain data for a single
         // layer, face or mip level, unlike the QTextureGenerator case where
@@ -575,7 +570,7 @@ void GLTexture::uploadGLTextureData()
     m_imageData.clear();
 
     // Update data from TextureUpdates
-    const QVector<QTextureDataUpdate> textureDataUpdates = std::move(m_pendingTextureDataUpdates);
+    const std::vector<QTextureDataUpdate> textureDataUpdates = Qt3DCore::moveAndClear(m_pendingTextureDataUpdates);
     for (const QTextureDataUpdate &update : textureDataUpdates) {
         const QTextureImageDataPtr imgData = update.data();
 
@@ -609,11 +604,28 @@ void GLTexture::uploadGLTextureData()
         // layer, face or mip level, unlike the QTextureGenerator case where
         // they are in a single blob. Hence QTextureImageData::data() is not suitable.
 
-        uploadGLData(m_gl,
-                     update.mipLevel(), update.layer(),
-                     static_cast<QOpenGLTexture::CubeMapFace>(update.face()),
-                     xOffset, yOffset, zOffset,
-                     bytes, imgData);
+        // Check if this is a full sized update
+        if (xOffset == 0 &&
+            yOffset == 0 &&
+            zOffset == 0 &&
+            xExtent == m_gl->width() &&
+            yExtent == m_gl->height() &&
+            zExtent == m_gl->depth()) {
+            uploadGLData(m_gl, update.mipLevel(), update.layer(),
+                         static_cast<QOpenGLTexture::CubeMapFace>(update.face()),
+                         bytes, imgData);
+        } else {
+            if (imgData->isCompressed()) {
+                qWarning() << Q_FUNC_INFO << "Uploading non full sized Compressed Data not supported yet";
+            } else {
+
+                uploadGLData(m_gl,
+                             update.mipLevel(), update.layer(),
+                             static_cast<QOpenGLTexture::CubeMapFace>(update.face()),
+                             xOffset, yOffset, zOffset,
+                             bytes, imgData);
+            }
+        }
     }
 }
 
@@ -661,7 +673,7 @@ void GLTexture::introspectPropertiesFromSharedTextureId()
     const QAbstractTexture::Target targets[] = {
         QAbstractTexture::Target2D,
         QAbstractTexture::TargetCubeMap,
-#ifndef QT_OPENGL_ES_2
+#if !QT_CONFIG(opengles2)
         QAbstractTexture::Target1D,
         QAbstractTexture::Target1DArray,
         QAbstractTexture::Target3D,
@@ -674,13 +686,17 @@ void GLTexture::introspectPropertiesFromSharedTextureId()
 #endif
     };
 
-#ifndef QT_OPENGL_ES_2
+#if !QT_CONFIG(opengles2)
     // Try to find texture target with GL 4.5 functions
     const QPair<int, int> ctxGLVersion = ctx->format().version();
     if (ctxGLVersion.first > 4 || (ctxGLVersion.first == 4 && ctxGLVersion.second >= 5)) {
         // Only for GL 4.5+
 #ifdef GL_TEXTURE_TARGET
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        QOpenGLFunctions_4_5_Core *gl5 = QOpenGLVersionFunctionsFactory::get<QOpenGLFunctions_4_5_Core>();
+#else
         QOpenGLFunctions_4_5_Core *gl5 = ctx->versionFunctions<QOpenGLFunctions_4_5_Core>();
+#endif
         if (gl5 != nullptr)
             gl5->glGetTextureParameteriv(m_sharedTextureId, GL_TEXTURE_TARGET, reinterpret_cast<int *>(&m_properties.target));
 #endif
@@ -695,7 +711,7 @@ void GLTexture::introspectPropertiesFromSharedTextureId()
         const GLenum targetBindings[] = {
             GL_TEXTURE_BINDING_2D,
             GL_TEXTURE_BINDING_CUBE_MAP,
-#ifndef QT_OPENGL_ES_2
+#if !QT_CONFIG(opengles2)
             GL_TEXTURE_BINDING_1D,
             GL_TEXTURE_BINDING_1D_ARRAY,
             GL_TEXTURE_BINDING_3D,
@@ -749,10 +765,14 @@ void GLTexture::introspectPropertiesFromSharedTextureId()
     gl->glGetTexParameteriv(int(m_properties.target), GL_TEXTURE_WRAP_S, reinterpret_cast<int *>(&m_parameters.wrapModeY));
     gl->glGetTexParameteriv(int(m_properties.target), GL_TEXTURE_WRAP_T, reinterpret_cast<int *>(&m_parameters.wrapModeZ));
 
-#ifndef QT_OPENGL_ES_2
+#if !QT_CONFIG(opengles2)
     // Try to retrieve dimensions (not available on ES 2.0)
     if (!ctx->isOpenGLES()) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        QOpenGLFunctions_3_1 *gl3 = QOpenGLVersionFunctionsFactory::get<QOpenGLFunctions_3_1>();
+#else
         QOpenGLFunctions_3_1 *gl3 = ctx->versionFunctions<QOpenGLFunctions_3_1>();
+#endif
         if (!gl3) {
             qWarning() << "Failed to retrieve shared texture dimensions";
             return;

@@ -2,13 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/frames/quic_handshake_done_frame.h"
+#include "quic/core/frames/quic_handshake_done_frame.h"
 
 namespace quic {
 
 QuicHandshakeDoneFrame::QuicHandshakeDoneFrame()
-    : QuicInlinedFrame(HANDSHAKE_DONE_FRAME),
-      control_frame_id(kInvalidControlFrameId) {}
+    : QuicInlinedFrame(HANDSHAKE_DONE_FRAME) {}
 
 QuicHandshakeDoneFrame::QuicHandshakeDoneFrame(
     QuicControlFrameId control_frame_id)

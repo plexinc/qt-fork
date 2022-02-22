@@ -31,11 +31,9 @@
 #include <Qt3DRender/qsceneloader.h>
 #include <Qt3DRender/private/scene_p.h>
 #include <Qt3DRender/private/scenemanager_p.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include <Qt3DCore/private/qbackendnode_p.h>
 #include <Qt3DCore/private/qentity_p.h>
-#include <Qt3DCore/private/qpropertyupdatedchangebase_p.h>
-#include "testpostmanarbiter.h"
+#include "testarbiter.h"
 #include "testrenderer.h"
 
 class tst_SceneLoader : public Qt3DCore::QBackendNodeTester
@@ -53,7 +51,7 @@ private Q_SLOTS:
         // THEN
         QVERIFY(sceneLoader.source().isEmpty());
         QVERIFY(sceneLoader.peerId().isNull());
-        QVERIFY(sceneManager.takePendingSceneLoaderJobs().isEmpty());
+        QVERIFY(sceneManager.takePendingSceneLoaderJobs().empty());
 
 
         // GIVEN
@@ -95,7 +93,7 @@ private Q_SLOTS:
         // THEN
         QCOMPARE(sceneLoader.peerId(), frontendSceneLoader.id());
         QCOMPARE(sceneLoader.source(), frontendSceneLoader.source());
-        QVERIFY(!sceneManager.takePendingSceneLoaderJobs().isEmpty());
+        QVERIFY(!sceneManager.takePendingSceneLoaderJobs().empty());
     }
 
     void checkPropertyChanges()
@@ -111,7 +109,7 @@ private Q_SLOTS:
         simulateInitializationSync(&frontendSceneLoader, &sceneLoader);
 
         // THEN
-        QVERIFY(sceneManager.takePendingSceneLoaderJobs().isEmpty());
+        QVERIFY(sceneManager.takePendingSceneLoaderJobs().empty());
 
         // WHEN
         const QUrl newUrl(QStringLiteral("file:///Bownling_Green_KY"));
@@ -120,7 +118,7 @@ private Q_SLOTS:
 
         // THEN
         QCOMPARE(sceneLoader.source(), newUrl);
-        QVERIFY(!sceneManager.takePendingSceneLoaderJobs().isEmpty());
+        QVERIFY(!sceneManager.takePendingSceneLoaderJobs().empty());
 
         // WHEN
         frontendSceneLoader.setEnabled(false);
@@ -143,7 +141,7 @@ private Q_SLOTS:
         simulateInitializationSync(&frontendSceneLoader, &sceneLoader);
 
         // THEN
-        QVERIFY(sceneManager.takePendingSceneLoaderJobs().isEmpty());
+        QVERIFY(sceneManager.takePendingSceneLoaderJobs().empty());
 
         // WHEN
         const QUrl newUrl(QStringLiteral("file:///Bownling_Green_KY"));
@@ -152,7 +150,7 @@ private Q_SLOTS:
 
         // THEN
         QCOMPARE(sceneLoader.source(), newUrl);
-        QVERIFY(!sceneManager.takePendingSceneLoaderJobs().isEmpty());
+        QVERIFY(!sceneManager.takePendingSceneLoaderJobs().empty());
 
         // WHEN
         frontendSceneLoader.setSource(QUrl());
@@ -160,7 +158,7 @@ private Q_SLOTS:
 
         // THEN -> we should still have generated a job to reset the scene (immediately)
         QCOMPARE(sceneLoader.source(), QUrl());
-        QVERIFY(!sceneManager.takePendingSceneLoaderJobs().isEmpty());
+        QVERIFY(!sceneManager.takePendingSceneLoaderJobs().empty());
     }
 };
 

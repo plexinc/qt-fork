@@ -63,9 +63,10 @@
 #include <qpa/qwindowsysteminterface.h>
 
 #include <QtWaylandClient/private/qwayland-wayland.h>
+#include <QtWaylandClient/private/qwayland-pointer-gestures-unstable-v1.h>
 
 #if QT_CONFIG(xkbcommon)
-#include <QtXkbCommonSupport/private/qxkbcommon_p.h>
+#include <QtGui/private/qxkbcommon_p.h>
 #endif
 
 #include <QtCore/QDebug>
@@ -90,11 +91,17 @@ class QWaylandDisplay;
 class QWaylandPrimarySelectionDeviceV1;
 #endif
 class QWaylandTabletSeatV2;
+class QWaylandPointerGestures;
+class QWaylandPointerGestureSwipe;
+class QWaylandPointerGesturePinch;
 class QWaylandTextInput;
+class QWaylandTextInputMethod;
 #if QT_CONFIG(cursor)
 class QWaylandCursorTheme;
 class CursorSurface;
 #endif
+
+Q_DECLARE_LOGGING_CATEGORY(lcQpaWaylandInput);
 
 class Q_WAYLAND_CLIENT_EXPORT QWaylandInputDevice
                             : public QObject
@@ -134,6 +141,9 @@ public:
     void setTextInput(QWaylandTextInput *textInput);
     QWaylandTextInput *textInput() const;
 
+    void setTextInputMethod(QWaylandTextInputMethod *textInputMethod);
+    QWaylandTextInputMethod *textInputMethod() const;
+
     void removeMouseButtonFromState(Qt::MouseButton button);
 
     QWaylandWindow *pointerFocus() const;
@@ -154,13 +164,14 @@ public:
 
     Keyboard *keyboard() const;
     Pointer *pointer() const;
+    QWaylandPointerGestureSwipe *pointerGestureSwipe() const;
+    QWaylandPointerGesturePinch *pointerGesturePinch() const;
     Touch *touch() const;
 
-private:
+protected:
     QWaylandDisplay *mQDisplay = nullptr;
     struct wl_display *mDisplay = nullptr;
 
-    int mVersion;
     uint32_t mCaps = 0;
 
 #if QT_CONFIG(cursor)
@@ -184,21 +195,28 @@ private:
 
     Keyboard *mKeyboard = nullptr;
     Pointer *mPointer = nullptr;
+    QWaylandPointerGestureSwipe *mPointerGestureSwipe = nullptr;
+    QWaylandPointerGesturePinch *mPointerGesturePinch = nullptr;
     Touch *mTouch = nullptr;
 
     QScopedPointer<QWaylandTextInput> mTextInput;
+    QScopedPointer<QWaylandTextInputMethod> mTextInputMethod;
     QScopedPointer<QWaylandTabletSeatV2> mTabletSeat;
 
     uint32_t mTime = 0;
     uint32_t mSerial = 0;
 
     void seat_capabilities(uint32_t caps) override;
-    void handleTouchPoint(int id, Qt::TouchPointState state, const QPointF &surfacePosition = QPoint());
+    void handleTouchPoint(int id, QEventPoint::State state, const QPointF &surfacePosition = QPoint());
 
-    QTouchDevice *mTouchDevice = nullptr;
+    QPointingDevice *mTouchDevice = nullptr;
+    QPointingDevice *mTouchPadDevice = nullptr;
 
     friend class QWaylandTouchExtension;
     friend class QWaylandQtKeyExtension;
+    friend class QWaylandPointerGestureSwipe;
+    friend class QWaylandPointerGesturePinch;
+    friend class QWaylandWindow;
 };
 
 inline uint32_t QWaylandInputDevice::serial() const
@@ -258,6 +276,12 @@ public:
     Qt::KeyboardModifiers modifiers() const;
 
     struct ::wl_keyboard *wl_keyboard() { return QtWayland::wl_keyboard::object(); }
+
+#if QT_CONFIG(xkbcommon)
+    virtual int keysymToQtKey(xkb_keysym_t keysym, Qt::KeyboardModifiers modifiers, xkb_state *state, xkb_keycode_t code) {
+        return QXkbCommon::keysymToQtKey(keysym, modifiers, state, code);
+    }
+#endif
 
 private slots:
     void handleFocusDestroyed();
@@ -450,6 +474,63 @@ public:
     Qt::MouseEventSource source = Qt::MouseEventNotSynthesized;
     QPointer<QWaylandWindow> surface;
 };
+
+#ifndef QT_NO_GESTURES
+class QWaylandPointerGestureSwipeEvent
+{
+    Q_GADGET
+public:
+    inline QWaylandPointerGestureSwipeEvent(QWaylandWindow *surface, Qt::GestureState state,
+                                            ulong timestamp, const QPointF &local,
+                                            const QPointF &global, uint fingers, const QPointF& delta)
+        : surface(surface)
+        , state(state)
+        , timestamp(timestamp)
+        , local(local)
+        , global(global)
+        , fingers(fingers)
+        , delta(delta)
+    {}
+
+    QPointer<QWaylandWindow> surface;
+    Qt::GestureState state = Qt::GestureState::NoGesture;
+    ulong timestamp = 0;
+    QPointF local;
+    QPointF global;
+    uint fingers = 0;
+    QPointF delta;
+};
+
+class QWaylandPointerGesturePinchEvent
+{
+    Q_GADGET
+public:
+    inline QWaylandPointerGesturePinchEvent(QWaylandWindow *surface, Qt::GestureState state,
+                                            ulong timestamp, const QPointF &local,
+                                            const QPointF &global, uint fingers, const QPointF& delta,
+                                            qreal scale_delta, qreal rotation_delta)
+        : surface(surface)
+        , state(state)
+        , timestamp(timestamp)
+        , local(local)
+        , global(global)
+        , fingers(fingers)
+        , delta(delta)
+        , scale_delta(scale_delta)
+        , rotation_delta(rotation_delta)
+    {}
+
+    QPointer<QWaylandWindow> surface;
+    Qt::GestureState state = Qt::GestureState::NoGesture;
+    ulong timestamp = 0;
+    QPointF local;
+    QPointF global;
+    uint fingers = 0;
+    QPointF delta;
+    qreal scale_delta = 0;
+    qreal rotation_delta = 0;
+};
+#endif // #ifndef QT_NO_GESTURES
 
 }
 

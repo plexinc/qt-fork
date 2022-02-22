@@ -16,9 +16,8 @@ namespace blink {
 // A break token is a continuation token for layout. A single layout input node
 // can have multiple fragments asssociated with it.
 //
-// Each fragment has a break token which can be used to determine if a layout
-// input node has finished producing fragments (aka. is "exhausted" of
-// fragments), and optionally used to produce the next fragment in the chain.
+// Each fragment whose node needs to resume layout in a future fragmentainer
+// (column, line, etc.) will have a break token associated with it.
 //
 // See CSS Fragmentation (https://drafts.csswg.org/css-break/) for a detailed
 // description of different types of breaks which can occur in CSS.
@@ -28,7 +27,6 @@ namespace blink {
 //
 // NGLayoutInputNode* node = ...;
 // NGPhysicalFragment* fragment = node->Layout(space);
-// DCHECK(!fragment->BreakToken()->IsFinished());
 // NGPhysicalFragment* fragment2 = node->Layout(space, fragment->BreakToken());
 //
 // The break token should encapsulate enough information to "resume" the layout.
@@ -46,11 +44,6 @@ class CORE_EXPORT NGBreakToken : public RefCounted<NGBreakToken> {
 
   bool IsBlockType() const { return Type() == kBlockBreakToken; }
   bool IsInlineType() const { return Type() == kInlineBreakToken; }
-
-  enum NGBreakTokenStatus { kUnfinished, kFinished };
-
-  // Whether the layout node cannot produce any more fragments.
-  bool IsFinished() const { return status_ == kFinished; }
 
   // Returns the node associated with this break token. A break token cannot be
   // used with any other node.
@@ -70,14 +63,14 @@ class CORE_EXPORT NGBreakToken : public RefCounted<NGBreakToken> {
 
  protected:
   NGBreakToken(NGBreakTokenType type,
-               NGBreakTokenStatus status,
                NGLayoutInputNode node)
       : box_(node.GetLayoutBox()),
         type_(type),
-        status_(status),
         flags_(0),
         is_break_before_(false),
         is_forced_break_(false),
+        is_caused_by_column_spanner_(false),
+        is_at_block_end_(false),
         break_appeal_(kBreakAppealPerfect),
         has_seen_all_children_(false) {
     DCHECK_EQ(type, static_cast<NGBreakTokenType>(node.Type()));
@@ -95,7 +88,7 @@ class CORE_EXPORT NGBreakToken : public RefCounted<NGBreakToken> {
   // The following bitfields are only to be used by NGInlineBreakToken (it's
   // defined here to save memory, since that class has no bitfields).
 
-  unsigned flags_ : 2;  // NGInlineBreakTokenFlags
+  unsigned flags_ : 3;  // NGInlineBreakTokenFlags
 
   // The following bitfields are only to be used by NGBlockBreakToken (it's
   // defined here to save memory, since that class has no bitfields).
@@ -103,6 +96,13 @@ class CORE_EXPORT NGBreakToken : public RefCounted<NGBreakToken> {
   unsigned is_break_before_ : 1;
 
   unsigned is_forced_break_ : 1;
+
+  unsigned is_caused_by_column_spanner_ : 1;
+
+  // Set when layout is past the block-end border edge. If we break when we're
+  // in this state, it means that something is overflowing, and thus establishes
+  // a parallel flow.
+  unsigned is_at_block_end_ : 1;
 
   // If the break is unforced, this is the appeal of the break. Higher is
   // better. Violating breaking rules decreases appeal. Forced breaks always

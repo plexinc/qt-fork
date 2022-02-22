@@ -51,220 +51,71 @@
 // We mean it.
 //
 
-#include <QtNetwork/qabstractsocket.h>
 #include <QtCore/qdatastream.h>
 #include <QtCore/qiodevice.h>
 #include <QtCore/qpointer.h>
+#include <QtCore/private/qobject_p.h>
 
 #include <QtRemoteObjects/qtremoteobjectglobal.h>
+#include <QtRemoteObjects/qconnectionfactories.h>
+#include "qremoteobjectpacket_p.h"
 
 QT_BEGIN_NAMESPACE
 
 namespace QtRemoteObjects {
 
-static const int dataStreamVersion = QDataStream::Qt_5_12;
-static const QLatin1String protocolVersion("QtRO 1.3");
+static const int dataStreamVersion = QDataStream::Qt_6_2;
+static const QLatin1String protocolVersion("QtRO 2.0");
 
 }
 
-class Q_REMOTEOBJECTS_EXPORT IoDeviceBase : public QObject
-{
-    Q_OBJECT
-    Q_DISABLE_COPY(IoDeviceBase)
-
-public:
-    explicit IoDeviceBase(QObject *parent = nullptr);
-    ~IoDeviceBase() override;
-
-    bool read(QtRemoteObjects::QRemoteObjectPacketTypeEnum &, QString &);
-
-    virtual void write(const QByteArray &data);
-    virtual void write(const QByteArray &data, qint64);
-    virtual bool isOpen() const { return !isClosing(); }
-    virtual void close();
-    virtual qint64 bytesAvailable() const;
-    virtual QIODevice *connection() const = 0;
-    void initializeDataStream();
-    QDataStream& stream() { return m_dataStream; }
-    inline bool isClosing() const { return m_isClosing; }
-    void addSource(const QString &);
-    void removeSource(const QString &);
-    QSet<QString> remoteObjects() const;
-
-Q_SIGNALS:
-    void readyRead();
-    void disconnected();
-
-protected:
-    virtual QString deviceType() const = 0;
-    virtual void doClose() = 0;
-    bool m_isClosing;
-
-private:
-    quint32 m_curReadSize;
-    QDataStream m_dataStream;
-    QSet<QString> m_remoteObjects;
-};
-
-class Q_REMOTEOBJECTS_EXPORT ServerIoDevice : public IoDeviceBase
-{
-    Q_OBJECT
-    Q_DISABLE_COPY(ServerIoDevice)
-
-public:
-    explicit ServerIoDevice(QObject *parent = nullptr);
-
-protected:
-    QString deviceType() const override;
-};
-
-class Q_REMOTEOBJECTS_EXPORT QConnectionAbstractServer : public QObject
-{
-    Q_OBJECT
-    Q_DISABLE_COPY(QConnectionAbstractServer)
-
-public:
-    explicit QConnectionAbstractServer(QObject *parent = nullptr);
-    ~QConnectionAbstractServer() override;
-
-    virtual bool hasPendingConnections() const = 0;
-    ServerIoDevice* nextPendingConnection();
-    virtual QUrl address() const = 0;
-    virtual bool listen(const QUrl &address) = 0;
-    virtual QAbstractSocket::SocketError serverError() const = 0;
-    virtual void close() = 0;
-
-protected:
-    virtual ServerIoDevice* configureNewConnection() = 0;
-
-Q_SIGNALS:
-    void newConnection();
-};
-
-class Q_REMOTEOBJECTS_EXPORT ClientIoDevice : public IoDeviceBase
-{
-    Q_OBJECT
-    Q_DISABLE_COPY(ClientIoDevice)
-
-public:
-    explicit ClientIoDevice(QObject *parent = nullptr);
-    ~ClientIoDevice() override;
-
-    void disconnectFromServer();
-    virtual void connectToServer() = 0;
-
-    QUrl url() const;
-
-Q_SIGNALS:
-    void shouldReconnect(ClientIoDevice*);
-
-protected:
-    virtual void doDisconnectFromServer() = 0;
-    QString deviceType() const override;
-
-private:
-    friend class QtROClientFactory;
-
-    QUrl m_url;
-};
-
-class ExternalIoDevice : public IoDeviceBase
+class QtROExternalIoDevice : public QtROIoDeviceBase
 {
     Q_OBJECT
 
 public:
-    explicit ExternalIoDevice(QIODevice *device, QObject *parent=nullptr);
+    explicit QtROExternalIoDevice(QIODevice *device, QObject *parent=nullptr);
     QIODevice *connection() const override;
     bool isOpen() const override;
 
 protected:
     void doClose() override;
     QString deviceType() const override;
+private:
+    Q_DECLARE_PRIVATE(QtROExternalIoDevice)
+};
+
+class QtROIoDeviceBasePrivate : public QObjectPrivate
+{
+public:
+    QtROIoDeviceBasePrivate();
+
+    // TODO Remove stream()
+    QDataStream &stream() { return m_dataStream; }
+
+    bool m_isClosing = false;
+    quint32 m_curReadSize = 0;
+    QDataStream m_dataStream;
+    QSet<QString> m_remoteObjects;
+    QRemoteObjectPackets::CodecBase *m_codec { nullptr };
+    Q_DECLARE_PUBLIC(QtROIoDeviceBase)
+};
+
+class QtROClientIoDevicePrivate : public QtROIoDeviceBasePrivate
+{
+public:
+    QtROClientIoDevicePrivate() : QtROIoDeviceBasePrivate() { }
+    QUrl m_url;
+    Q_DECLARE_PUBLIC(QtROClientIoDevice)
+};
+
+class QtROExternalIoDevicePrivate : public QtROIoDeviceBasePrivate
+{
+public:
+    QtROExternalIoDevicePrivate(QIODevice *device) : QtROIoDeviceBasePrivate(), m_device(device) { }
     QPointer<QIODevice> m_device;
+    Q_DECLARE_PUBLIC(QtROExternalIoDevice)
 };
-
-class QtROServerFactory
-{
-public:
-    Q_REMOTEOBJECTS_EXPORT static QtROServerFactory *instance();
-
-    QConnectionAbstractServer *create(const QUrl &url, QObject *parent = nullptr)
-    {
-        auto creatorFunc = m_creatorFuncs.value(url.scheme());
-        return creatorFunc ? (*creatorFunc)(parent) : nullptr;
-    }
-
-    template<typename T>
-    void registerType(const QString &id)
-    {
-        m_creatorFuncs[id] = [](QObject *parent) -> QConnectionAbstractServer * {
-            return new T(parent);
-        };
-    }
-
-    bool isValid(const QUrl &url)
-    {
-        return m_creatorFuncs.contains(url.scheme());
-    }
-
-private:
-    friend class QtROFactoryLoader;
-    QtROServerFactory();
-
-    using CreatorFunc = QConnectionAbstractServer * (*)(QObject *);
-    QHash<QString, CreatorFunc> m_creatorFuncs;
-};
-
-class QtROClientFactory
-{
-public:
-    Q_REMOTEOBJECTS_EXPORT static QtROClientFactory *instance();
-
-    /// creates an object from a string
-    ClientIoDevice *create(const QUrl &url, QObject *parent = nullptr)
-    {
-        auto creatorFunc = m_creatorFuncs.value(url.scheme());
-        if (!creatorFunc)
-            return nullptr;
-
-        ClientIoDevice *res = (*creatorFunc)(parent);
-        if (res)
-            res->m_url = url;
-        return res;
-    }
-
-    template<typename T>
-    void registerType(const QString &id)
-    {
-        m_creatorFuncs[id] = [](QObject *parent) -> ClientIoDevice * {
-            return new T(parent);
-        };
-    }
-
-    bool isValid(const QUrl &url)
-    {
-        return m_creatorFuncs.contains(url.scheme());
-    }
-
-private:
-    friend class QtROFactoryLoader;
-    QtROClientFactory();
-
-    using CreatorFunc = ClientIoDevice * (*)(QObject *);
-    QHash<QString, CreatorFunc> m_creatorFuncs;
-};
-
-template <typename T>
-inline void qRegisterRemoteObjectsClient(const QString &id)
-{
-    QtROClientFactory::instance()->registerType<T>(id);
-}
-
-template <typename T>
-inline void qRegisterRemoteObjectsServer(const QString &id)
-{
-    QtROServerFactory::instance()->registerType<T>(id);
-}
 
 QT_END_NAMESPACE
 

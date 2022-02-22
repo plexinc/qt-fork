@@ -45,9 +45,7 @@
 
 // Built-in adaptations
 #include <QtQuick/private/qsgsoftwareadaptation_p.h>
-#if QT_CONFIG(opengl)
 #include <QtQuick/private/qsgdefaultcontext_p.h>
-#endif
 
 #include <QtGui/private/qguiapplication_p.h>
 #include <QtGui/qpa/qplatformintegration.h>
@@ -117,7 +115,7 @@ QSGAdaptationBackendData *contextFactory()
         backendData->tried = true;
 
         const QStringList args = QGuiApplication::arguments();
-        QString requestedBackend = backendData->quickWindowBackendRequest; // empty or set via QQuickWindow::setBackend()
+        QString requestedBackend = backendData->quickWindowBackendRequest; // empty or set via QQuickWindow::setSceneGraphBackend()
 
         for (int index = 0; index < args.count(); ++index) {
             if (args.at(index).startsWith(QLatin1String("--device="))) {
@@ -135,12 +133,33 @@ QSGAdaptationBackendData *contextFactory()
         if (requestedBackend.isEmpty())
             requestedBackend = qEnvironmentVariable("QT_QUICK_BACKEND");
 
-        // If this platform does not support OpenGL, and no backend has been set
-        // default to the software renderer
-        if (requestedBackend.isEmpty()
-            && !QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::OpenGL)) {
-            requestedBackend = QString::fromLocal8Bit("software");
+        // If this platform does not support OpenGL, Vulkan, D3D11, or Metal, and no
+        // backend has been set, default to the software renderer. We rely on the
+        // static, build time flags only. This is to prevent the inevitable confusion
+        // caused by run time hocus pocus. If one wants to use the software backend
+        // in a GL or Vulkan capable Qt build (or on Windows or Apple platforms), it
+        // has to be requested explicitly.
+#if !QT_CONFIG(opengl) && !QT_CONFIG(vulkan) && !defined(Q_OS_WIN) && !defined(Q_OS_MACOS) && !defined(Q_OS_IOS)
+        if (requestedBackend.isEmpty())
+            requestedBackend = QLatin1String("software");
+#endif
+
+        // As an exception to the above, play nice with platform plugins like
+        // vnc or linuxfb: Trying to initialize a QRhi is futile on these, and
+        // Qt 5 had an explicit fallback to the software backend, based on the
+        // OpenGL capability. Replicate that behavior using the new
+        // RhiBasedRendering capability flag, which, on certain platforms,
+        // indicates that we should not even bother trying to initialize a QRhi
+        // as no 3D API can be expected work.
+        if (!QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::RhiBasedRendering)) {
+            if (requestedBackend.isEmpty())
+                requestedBackend = QLatin1String("software");
         }
+
+        // This is handy if some of the logic above goes wrong and we select
+        // e.g. the software backend when it is not desired.
+        if (requestedBackend == QLatin1String("rhi"))
+            requestedBackend.clear(); // empty = no custom backend to load
 
         if (!requestedBackend.isEmpty()) {
             qCDebug(QSG_LOG_INFO, "Loading backend %s", qUtf8Printable(requestedBackend));
@@ -169,7 +188,7 @@ QSGAdaptationBackendData *contextFactory()
                     qWarning("Could not create scene graph context for backend '%s'"
                              " - check that plugins are installed correctly in %s",
                              qPrintable(requestedBackend),
-                             qPrintable(QLibraryInfo::location(QLibraryInfo::PluginsPath)));
+                             qPrintable(QLibraryInfo::path(QLibraryInfo::PluginsPath)));
                 }
             }
 #endif // library
@@ -192,11 +211,7 @@ QSGContext *QSGContext::createDefaultContext()
     QSGAdaptationBackendData *backendData = contextFactory();
     if (backendData->factory)
         return backendData->factory->create(backendData->name);
-#if QT_CONFIG(opengl)
     return new QSGDefaultContext();
-#else
-    return nullptr;
-#endif
 }
 
 

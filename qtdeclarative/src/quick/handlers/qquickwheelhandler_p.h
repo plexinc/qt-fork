@@ -73,7 +73,7 @@ class Q_QUICK_PRIVATE_EXPORT QQuickWheelHandler : public QQuickSinglePointHandle
     Q_PROPERTY(bool targetTransformAroundCursor READ isTargetTransformAroundCursor WRITE setTargetTransformAroundCursor NOTIFY targetTransformAroundCursorChanged)
 
     QML_NAMED_ELEMENT(WheelHandler)
-    QML_ADDED_IN_MINOR_VERSION(14)
+    QML_ADDED_IN_VERSION(2, 14)
 
 public:
     explicit QQuickWheelHandler(QQuickItem *parent = nullptr);
@@ -103,7 +103,7 @@ public:
     void setTargetTransformAroundCursor(bool ttac);
 
 Q_SIGNALS:
-    void wheel(QQuickPointerScrollEvent *event);
+    void wheel(QQuickWheelEvent *event);
 
     void orientationChanged();
     void invertibleChanged();
@@ -115,8 +115,8 @@ Q_SIGNALS:
     void targetTransformAroundCursorChanged();
 
 protected:
-    bool wantsPointerEvent(QQuickPointerEvent *event) override;
-    void handleEventPoint(QQuickEventPoint *point) override;
+    bool wantsPointerEvent(QPointerEvent *event) override;
+    void handleEventPoint(QPointerEvent *event, QEventPoint &point) override;
     void onTargetChanged(QQuickItem *oldTarget) override;
     void onActiveChanged() override;
     void timerEvent(QTimerEvent *event) override;

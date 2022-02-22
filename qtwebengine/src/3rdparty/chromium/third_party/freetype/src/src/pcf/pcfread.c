@@ -25,11 +25,10 @@ THE SOFTWARE.
 */
 
 
-#include <ft2build.h>
 
-#include FT_INTERNAL_DEBUG_H
-#include FT_INTERNAL_STREAM_H
-#include FT_INTERNAL_OBJECTS_H
+#include <freetype/internal/ftdebug.h>
+#include <freetype/internal/ftstream.h>
+#include <freetype/internal/ftobjs.h>
 
 #include "pcf.h"
 #include "pcfread.h"
@@ -122,7 +121,7 @@ THE SOFTWARE.
          toc->count > 9                     )
     {
       FT_TRACE0(( "pcf_read_TOC: adjusting number of tables"
-                  " (from %d to %d)\n",
+                  " (from %ld to %ld)\n",
                   toc->count,
                   FT_MIN( stream->size >> 4, 9 ) ));
       toc->count = FT_MIN( stream->size >> 4, 9 );
@@ -242,7 +241,7 @@ THE SOFTWARE.
           if ( tables[i].type == (FT_UInt)( 1 << j ) )
             name = tableNames[j];
 
-        FT_TRACE4(( "  %d: type=%s, format=0x%X,"
+        FT_TRACE4(( "  %d: type=%s, format=0x%lX,"
                     " size=%ld (0x%lX), offset=%ld (0x%lX)\n",
                     i, name,
                     tables[i].format,
@@ -502,8 +501,8 @@ THE SOFTWARE.
     if ( FT_READ_ULONG_LE( format ) )
       goto Bail;
 
-    FT_TRACE4(( "pcf_get_properties:\n"
-                "  format: 0x%lX (%s)\n",
+    FT_TRACE4(( "pcf_get_properties:\n" ));
+    FT_TRACE4(( "  format: 0x%lX (%s)\n",
                 format,
                 PCF_BYTE_ORDER( format ) == MSBFirst ? "MSB" : "LSB" ));
 
@@ -661,7 +660,7 @@ THE SOFTWARE.
       {
         properties[i].value.l = props[i].value;
 
-        FT_TRACE4(( " %d\n", properties[i].value.l ));
+        FT_TRACE4(( " %ld\n", properties[i].value.l ));
       }
     }
 
@@ -698,8 +697,8 @@ THE SOFTWARE.
     if ( FT_READ_ULONG_LE( format ) )
       goto Bail;
 
-    FT_TRACE4(( "pcf_get_metrics:\n"
-                "  format: 0x%lX (%s, %s)\n",
+    FT_TRACE4(( "pcf_get_metrics:\n" ));
+    FT_TRACE4(( "  format: 0x%lX (%s, %s)\n",
                 format,
                 PCF_BYTE_ORDER( format ) == MSBFirst ? "MSB" : "LSB",
                 PCF_FORMAT_MATCH( format, PCF_COMPRESSED_METRICS ) ?
@@ -798,7 +797,7 @@ THE SOFTWARE.
         metrics->descent          = 0;
 
         FT_TRACE0(( "pcf_get_metrics:"
-                    " invalid metrics for glyph %d\n", i ));
+                    " invalid metrics for glyph %ld\n", i ));
       }
     }
 
@@ -841,17 +840,16 @@ THE SOFTWARE.
 
     FT_Stream_ExitFrame( stream );
 
-    FT_TRACE4(( "pcf_get_bitmaps:\n"
-                "  format: 0x%lX\n"
-                "          (%s, %s,\n"
-                "           padding=%d bit%s, scanning=%d bit%s)\n",
-                format,
+    FT_TRACE4(( "pcf_get_bitmaps:\n" ));
+    FT_TRACE4(( "  format: 0x%lX\n", format ));
+    FT_TRACE4(( "          (%s, %s,\n",
                 PCF_BYTE_ORDER( format ) == MSBFirst
                   ? "most significant byte first"
                   : "least significant byte first",
                 PCF_BIT_ORDER( format ) == MSBFirst
                   ? "most significant bit first"
-                  : "least significant bit first",
+                  : "least significant bit first" ));
+    FT_TRACE4(( "           padding=%d bit%s, scanning=%d bit%s)\n",
                 8 << PCF_GLYPH_PAD_INDEX( format ),
                 ( 8 << PCF_GLYPH_PAD_INDEX( format ) ) == 1 ? "" : "s",
                 8 << PCF_SCAN_UNIT_INDEX( format ),
@@ -918,11 +916,11 @@ THE SOFTWARE.
 
       sizebitmaps = bitmapSizes[PCF_GLYPH_PAD_INDEX( format )];
 
-      FT_TRACE4(( "  %ld-bit padding implies a size of %lu\n",
+      FT_TRACE4(( "  %d-bit padding implies a size of %lu\n",
                   8 << i, bitmapSizes[i] ));
     }
 
-    FT_TRACE4(( "  %lu bitmaps, using %ld-bit padding\n",
+    FT_TRACE4(( "  %lu bitmaps, using %d-bit padding\n",
                 nbitmaps,
                 8 << PCF_GLYPH_PAD_INDEX( format ) ));
     FT_TRACE4(( "  bitmap size: %lu\n", sizebitmaps ));
@@ -1002,8 +1000,8 @@ THE SOFTWARE.
     if ( FT_READ_ULONG_LE( format ) )
       goto Bail;
 
-    FT_TRACE4(( "pcf_get_encodings:\n"
-                "  format: 0x%lX (%s)\n",
+    FT_TRACE4(( "pcf_get_encodings:\n" ));
+    FT_TRACE4(( "  format: 0x%lX (%s)\n",
                 format,
                 PCF_BYTE_ORDER( format ) == MSBFirst ? "MSB" : "LSB" ));
 
@@ -1022,11 +1020,11 @@ THE SOFTWARE.
         goto Bail;
     }
 
-    FT_TRACE4(( "  firstCol 0x%X, lastCol 0x%X\n"
-                "  firstRow 0x%X, lastRow 0x%X\n"
-                "  defaultChar 0x%X\n",
-                enc->firstCol, enc->lastCol,
-                enc->firstRow, enc->lastRow,
+    FT_TRACE4(( "  firstCol 0x%X, lastCol 0x%X\n",
+                enc->firstCol, enc->lastCol ));
+    FT_TRACE4(( "  firstRow 0x%X, lastRow 0x%X\n",
+                enc->firstRow, enc->lastRow ));
+    FT_TRACE4(( "  defaultChar 0x%X\n",
                 enc->defaultChar ));
 
     /* sanity checks; we limit numbers of rows and columns to 256 */
@@ -1089,8 +1087,8 @@ THE SOFTWARE.
     if ( defaultCharEncodingOffset == 0xFFFF )
     {
       FT_TRACE0(( "pcf_get_encodings:"
-                  " No glyph for default character,\n"
-                  "                  "
+                  " No glyph for default character,\n" ));
+      FT_TRACE0(( "                  "
                   " setting it to the first glyph of the font\n" ));
       defaultCharEncodingOffset = 1;
     }
@@ -1101,8 +1099,8 @@ THE SOFTWARE.
       if ( defaultCharEncodingOffset >= face->nmetrics )
       {
         FT_TRACE0(( "pcf_get_encodings:"
-                    " Invalid glyph index for default character,\n"
-                    "                  "
+                    " Invalid glyph index for default character,\n" ));
+        FT_TRACE0(( "                  "
                     " setting it to the first glyph of the font\n" ));
         defaultCharEncodingOffset = 1;
       }
@@ -1209,10 +1207,10 @@ THE SOFTWARE.
     if ( FT_READ_ULONG_LE( format ) )
       goto Bail;
 
-    FT_TRACE4(( "pcf_get_accel%s:\n"
-                "  format: 0x%lX (%s, %s)\n",
+    FT_TRACE4(( "pcf_get_accel%s:\n",
                 type == PCF_BDF_ACCELERATORS ? " (getting BDF accelerators)"
-                                             : "",
+                                             : "" ));
+    FT_TRACE4(( "  format: 0x%lX (%s, %s)\n",
                 format,
                 PCF_BYTE_ORDER( format ) == MSBFirst ? "MSB" : "LSB",
                 PCF_FORMAT_MATCH( format, PCF_ACCEL_W_INKBOUNDS ) ?
@@ -1234,16 +1232,16 @@ THE SOFTWARE.
     }
 
     FT_TRACE5(( "  noOverlap=%s, constantMetrics=%s,"
-                " terminalFont=%s, constantWidth=%s\n"
-                "  inkInside=%s, inkMetrics=%s, drawDirection=%s\n"
-                "  fontAscent=%ld, fontDescent=%ld, maxOverlap=%ld\n",
+                " terminalFont=%s, constantWidth=%s\n",
                 accel->noOverlap ? "yes" : "no",
                 accel->constantMetrics ? "yes" : "no",
                 accel->terminalFont ? "yes" : "no",
-                accel->constantWidth ? "yes" : "no",
+                accel->constantWidth ? "yes" : "no" ));
+    FT_TRACE5(( "  inkInside=%s, inkMetrics=%s, drawDirection=%s\n",
                 accel->inkInside ? "yes" : "no",
                 accel->inkMetrics ? "yes" : "no",
-                accel->drawDirection ? "RTL" : "LTR",
+                accel->drawDirection ? "RTL" : "LTR" ));
+    FT_TRACE5(( "  fontAscent=%ld, fontDescent=%ld, maxOverlap=%ld\n",
                 accel->fontAscent,
                 accel->fontDescent,
                 accel->maxOverlap ));
@@ -1252,13 +1250,13 @@ THE SOFTWARE.
     if ( FT_ABS( accel->fontAscent ) > 0x7FFF )
     {
       accel->fontAscent = accel->fontAscent < 0 ? -0x7FFF : 0x7FFF;
-      FT_TRACE0(( "pfc_get_accel: clamping font ascent to value %d\n",
+      FT_TRACE0(( "pfc_get_accel: clamping font ascent to value %ld\n",
                   accel->fontAscent ));
     }
     if ( FT_ABS( accel->fontDescent ) > 0x7FFF )
     {
       accel->fontDescent = accel->fontDescent < 0 ? -0x7FFF : 0x7FFF;
-      FT_TRACE0(( "pfc_get_accel: clamping font descent to value %d\n",
+      FT_TRACE0(( "pfc_get_accel: clamping font descent to value %ld\n",
                   accel->fontDescent ));
     }
 
@@ -1631,7 +1629,7 @@ THE SOFTWARE.
           if ( FT_ABS( prop->value.l ) > 0x504C2L ) /* 0x7FFF * 72270/7200 */
           {
             bsize->size = 0x7FFF;
-            FT_TRACE0(( "pcf_load_font: clamping point size to value %d\n",
+            FT_TRACE0(( "pcf_load_font: clamping point size to value %ld\n",
                         bsize->size ));
           }
           else
@@ -1650,7 +1648,7 @@ THE SOFTWARE.
           if ( FT_ABS( prop->value.l ) > 0x7FFF )
           {
             bsize->y_ppem = 0x7FFF << 6;
-            FT_TRACE0(( "pcf_load_font: clamping pixel size to value %d\n",
+            FT_TRACE0(( "pcf_load_font: clamping pixel size to value %ld\n",
                         bsize->y_ppem ));
           }
           else

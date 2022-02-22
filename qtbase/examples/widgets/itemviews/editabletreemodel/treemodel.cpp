@@ -57,7 +57,7 @@
 TreeModel::TreeModel(const QStringList &headers, const QString &data, QObject *parent)
     : QAbstractItemModel(parent)
 {
-    QVector<QVariant> rootData;
+    QList<QVariant> rootData;
     for (const QString &header : headers)
         rootData << header;
 
@@ -212,6 +212,9 @@ bool TreeModel::removeRows(int position, int rows, const QModelIndex &parent)
 //! [8]
 int TreeModel::rowCount(const QModelIndex &parent) const
 {
+    if (parent.isValid() && parent.column() > 0)
+        return 0;
+
     const TreeItem *parentItem = getItem(parent);
 
     return parentItem ? parentItem->childCount() : 0;
@@ -248,8 +251,8 @@ bool TreeModel::setHeaderData(int section, Qt::Orientation orientation,
 
 void TreeModel::setupModelData(const QStringList &lines, TreeItem *parent)
 {
-    QVector<TreeItem*> parents;
-    QVector<int> indentations;
+    QList<TreeItem *> parents;
+    QList<int> indentations;
     parents << parent;
     indentations << 0;
 
@@ -269,7 +272,7 @@ void TreeModel::setupModelData(const QStringList &lines, TreeItem *parent)
             // Read the column data from the rest of the line.
             const QStringList columnStrings =
                 lineData.split(QLatin1Char('\t'), Qt::SkipEmptyParts);
-            QVector<QVariant> columnData;
+            QList<QVariant> columnData;
             columnData.reserve(columnStrings.size());
             for (const QString &columnString : columnStrings)
                 columnData << columnString;

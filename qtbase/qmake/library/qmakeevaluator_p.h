@@ -41,7 +41,7 @@
      r == ReturnNext ? "next" : \
      r == ReturnReturn ? "return" : \
      "<invalid>")
-#  define dbgKey(s) s.toString().toQStringRef().toLocal8Bit().constData()
+#  define dbgKey(s) s.toString().toQStringView().toLocal8Bit().constData()
 #  define dbgStr(s) qPrintable(formatValue(s, true))
 #  define dbgStrList(s) qPrintable(formatValueList(s))
 #  define dbgSepStrList(s) qPrintable(formatValueList(s, true))
@@ -107,7 +107,7 @@ extern QMakeStatics statics;
 
 }
 
-Q_DECLARE_TYPEINFO(QMakeInternal::QMakeBuiltin, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QMakeInternal::QMakeBuiltin, Q_RELOCATABLE_TYPE);
 
 QT_END_NAMESPACE
 

@@ -32,17 +32,25 @@
 #include <QtQuick/QQuickItem>
 #include <QtQuick/QQuickView>
 #include <QtGui/QScreen>
-#include "../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 #include <QtQuick/private/qquickscreen_p.h>
 #include <QDebug>
 class tst_qquickscreen : public QQmlDataTest
 {
     Q_OBJECT
+public:
+    tst_qquickscreen();
+
 private slots:
     void basicProperties();
     void screenOnStartup();
     void fullScreenList();
 };
+
+tst_qquickscreen::tst_qquickscreen()
+    : QQmlDataTest(QT_QMLTEST_DATADIR)
+{
+}
 
 void tst_qquickscreen::basicProperties()
 {
@@ -61,7 +69,6 @@ void tst_qquickscreen::basicProperties()
     QCOMPARE(screen->size().height(), root->property("h").toInt());
     QCOMPARE(int(screen->orientation()), root->property("curOrientation").toInt());
     QCOMPARE(int(screen->primaryOrientation()), root->property("priOrientation").toInt());
-    QCOMPARE(int(screen->orientationUpdateMask()), root->property("updateMask").toInt());
     QCOMPARE(screen->devicePixelRatio(), root->property("devicePixelRatio").toReal());
     QVERIFY(screen->devicePixelRatio() >= 1.0);
     QCOMPARE(screen->geometry().x(), root->property("vx").toInt());
@@ -86,7 +93,6 @@ void tst_qquickscreen::screenOnStartup()
     QCOMPARE(screen->size().height(), root->property("h").toInt());
     QCOMPARE(int(screen->orientation()), root->property("curOrientation").toInt());
     QCOMPARE(int(screen->primaryOrientation()), root->property("priOrientation").toInt());
-    QCOMPARE(int(screen->orientationUpdateMask()), root->property("updateMask").toInt());
     QCOMPARE(screen->devicePixelRatio(), root->property("devicePixelRatio").toReal());
     QVERIFY(screen->devicePixelRatio() >= 1.0);
     QCOMPARE(screen->geometry().x(), root->property("vx").toInt());

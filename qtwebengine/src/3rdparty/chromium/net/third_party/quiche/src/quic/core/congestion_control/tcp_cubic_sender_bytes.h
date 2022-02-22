@@ -10,15 +10,15 @@
 #include <cstdint>
 #include <string>
 
-#include "net/third_party/quiche/src/quic/core/congestion_control/cubic_bytes.h"
-#include "net/third_party/quiche/src/quic/core/congestion_control/hybrid_slow_start.h"
-#include "net/third_party/quiche/src/quic/core/congestion_control/prr_sender.h"
-#include "net/third_party/quiche/src/quic/core/congestion_control/send_algorithm_interface.h"
-#include "net/third_party/quiche/src/quic/core/quic_bandwidth.h"
-#include "net/third_party/quiche/src/quic/core/quic_connection_stats.h"
-#include "net/third_party/quiche/src/quic/core/quic_packets.h"
-#include "net/third_party/quiche/src/quic/core/quic_time.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
+#include "quic/core/congestion_control/cubic_bytes.h"
+#include "quic/core/congestion_control/hybrid_slow_start.h"
+#include "quic/core/congestion_control/prr_sender.h"
+#include "quic/core/congestion_control/send_algorithm_interface.h"
+#include "quic/core/quic_bandwidth.h"
+#include "quic/core/quic_connection_stats.h"
+#include "quic/core/quic_packets.h"
+#include "quic/core/quic_time.h"
+#include "quic/platform/api/quic_export.h"
 
 namespace quic {
 
@@ -46,6 +46,8 @@ class QUIC_EXPORT_PRIVATE TcpCubicSenderBytes : public SendAlgorithmInterface {
   // Start implementation of SendAlgorithmInterface.
   void SetFromConfig(const QuicConfig& config,
                      Perspective perspective) override;
+  void ApplyConnectionOptions(
+      const QuicTagVector& /*connection_options*/) override {}
   void AdjustNetworkParameters(const NetworkParams& params) override;
   void SetNumEmulatedConnections(int num_connections);
   void SetInitialCongestionWindowInPackets(

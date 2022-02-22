@@ -35,6 +35,7 @@
 #include <QtCharts/QBarCategoryAxis>
 #include <private/qvalueaxis_p.h>
 #include <QtCharts/QCategoryAxis>
+#include <QtCharts/QColorAxis>
 #include <private/qabstractseries_p.h>
 #include <QtCharts/QAbstractBarSeries>
 #include <QtCharts/QStackedBarSeries>
@@ -51,11 +52,11 @@
 #include <private/logxlogypolardomain_p.h>
 #include <private/glxyseriesdata_p.h>
 
-#ifndef QT_QREAL_IS_FLOAT
+#if QT_CONFIG(charts_datetime_axis)
 #include <QtCharts/QDateTimeAxis>
 #endif
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 ChartDataSet::ChartDataSet(QChart *chart)
     : QObject(chart),
@@ -365,7 +366,10 @@ void ChartDataSet::createAxes(QAbstractAxis::AxisTypes type, Qt::Orientation ori
         case QAbstractAxis::AxisTypeCategory:
         axis = new QCategoryAxis(this);
         break;
-#ifndef QT_QREAL_IS_FLOAT
+        case QAbstractAxis::AxisTypeColor:
+        axis = new QColorAxis(this);
+        break;
+#if QT_CONFIG(charts_datetime_axis)
         case QAbstractAxis::AxisTypeDateTime:
         axis = new QDateTimeAxis(this);
         break;
@@ -398,7 +402,8 @@ void ChartDataSet::createAxes(QAbstractAxis::AxisTypes type, Qt::Orientation ori
     }
 }
 
-void ChartDataSet::findMinMaxForSeries(QList<QAbstractSeries *> series,Qt::Orientations orientation, qreal &min, qreal &max)
+void ChartDataSet::findMinMaxForSeries(const QList<QAbstractSeries *> &series,
+                                       Qt::Orientations orientation, qreal &min, qreal &max)
 {
     Q_ASSERT(!series.isEmpty());
 
@@ -407,7 +412,7 @@ void ChartDataSet::findMinMaxForSeries(QList<QAbstractSeries *> series,Qt::Orien
     max = (orientation == Qt::Vertical) ? domain->maxY() : domain->maxX();
 
     for (int i = 1; i< series.size(); i++) {
-        AbstractDomain *domain = series[i]->d_ptr->domain();
+        AbstractDomain *domain = series.at(i)->d_ptr->domain();
         min = qMin((orientation == Qt::Vertical) ? domain->minY() : domain->minX(), min);
         max = qMax((orientation == Qt::Vertical) ? domain->maxY() : domain->maxX(), max);
     }
@@ -547,7 +552,7 @@ QList<QAbstractSeries *> ChartDataSet::series() const
     return m_seriesList;
 }
 
-AbstractDomain::DomainType ChartDataSet::selectDomain(QList<QAbstractAxis *> axes)
+AbstractDomain::DomainType ChartDataSet::selectDomain(const QList<QAbstractAxis *> &axes)
 {
     enum Type {
         Undefined = 0,
@@ -563,8 +568,7 @@ AbstractDomain::DomainType ChartDataSet::selectDomain(QList<QAbstractAxis *> axe
     if (m_chart)
         chartType = m_chart->chartType();
 
-    foreach (QAbstractAxis *axis, axes)
-    {
+    for (auto *axis : axes) {
         switch (axis->type()) {
         case QAbstractAxis::AxisTypeLogValue:
             if (axis->orientation() == Qt::Horizontal)
@@ -575,6 +579,7 @@ AbstractDomain::DomainType ChartDataSet::selectDomain(QList<QAbstractAxis *> axe
         case QAbstractAxis::AxisTypeValue:
         case QAbstractAxis::AxisTypeBarCategory:
         case QAbstractAxis::AxisTypeCategory:
+        case QAbstractAxis::AxisTypeColor:
         case QAbstractAxis::AxisTypeDateTime:
             if (axis->orientation() == Qt::Horizontal)
                 horizontal |= ValueType;
@@ -661,6 +666,6 @@ void ChartDataSet::reverseChanged()
         m_glXYSeriesDataManager->handleAxisReverseChanged(axis->d_ptr->m_series);
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_chartdataset_p.cpp"

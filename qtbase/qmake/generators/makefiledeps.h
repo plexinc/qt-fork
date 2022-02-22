@@ -31,9 +31,9 @@
 
 #include <proitems.h>
 
-#include <qstringlist.h>
 #include <qfileinfo.h>
-#include <qvector.h>
+#include <qlist.h>
+#include <qstringlist.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -41,14 +41,14 @@ struct SourceFile;
 struct SourceDependChildren;
 class SourceFiles;
 
-class QMakeLocalFileName {
-    bool is_null;
+class QMakeLocalFileName
+{
     QString real_name;
     mutable QString local_name;
 public:
-    QMakeLocalFileName() : is_null(true) {}
+    QMakeLocalFileName() = default;
     QMakeLocalFileName(const QString &);
-    bool isNull() const { return is_null; }
+    bool isNull() const { return real_name.isNull(); }
     inline const QString &real() const { return real_name; }
     const QString &local() const;
 
@@ -66,7 +66,7 @@ private:
     //quick project lookups
     SourceFiles *files, *includes;
     bool files_changed;
-    QVector<QMakeLocalFileName> depdirs;
+    QList<QMakeLocalFileName> depdirs;
     QStringList systemIncludes;
 
     //sleezy buffer code
@@ -86,11 +86,11 @@ protected:
 
 public:
 
-    QMakeSourceFileInfo(const QString &cachefile="");
+    QMakeSourceFileInfo();
     virtual ~QMakeSourceFileInfo();
 
-    QVector<QMakeLocalFileName> dependencyPaths() const { return depdirs; }
-    void setDependencyPaths(const QVector<QMakeLocalFileName> &);
+    QList<QMakeLocalFileName> dependencyPaths() const { return depdirs; }
+    void setDependencyPaths(const QList<QMakeLocalFileName> &);
 
     enum DependencyMode { Recursive, NonRecursive };
     inline void setDependencyMode(DependencyMode mode) { dep_mode = mode; }

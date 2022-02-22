@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/spdy/core/lifo_write_scheduler.h"
+#include "spdy/core/lifo_write_scheduler.h"
 
-#include "net/third_party/quiche/src/common/platform/api/quiche_test.h"
-#include "net/third_party/quiche/src/spdy/core/spdy_protocol.h"
-#include "net/third_party/quiche/src/spdy/core/spdy_test_utils.h"
-#include "net/third_party/quiche/src/spdy/platform/api/spdy_test_helpers.h"
+#include "common/platform/api/quiche_test.h"
+#include "spdy/core/spdy_protocol.h"
+#include "spdy/core/spdy_test_utils.h"
+#include "spdy/platform/api/spdy_test_helpers.h"
 
 namespace spdy {
 
@@ -149,6 +149,24 @@ TEST(LifoWriteSchedulerTest, GetLatestEventTest) {
   EXPECT_EQ(8, lifo.GetLatestEventWithPrecedence(1));
   EXPECT_SPDY_BUG(lifo.GetLatestEventWithPrecedence(11),
                   "Stream 11 is not registered");
+}
+
+TEST(LifoWriteSchedulerTest, GetStreamPrecedence) {
+  LifoWriteScheduler<SpdyStreamId> lifo;
+  // Return lowest priority for unknown stream.
+  EXPECT_EQ(kV3LowestPriority, lifo.GetStreamPrecedence(1).spdy3_priority());
+
+  lifo.RegisterStream(1, SpdyStreamPrecedence(3));
+  EXPECT_TRUE(lifo.GetStreamPrecedence(1).is_spdy3_priority());
+  EXPECT_EQ(3, lifo.GetStreamPrecedence(1).spdy3_priority());
+
+  // Redundant registration shouldn't change stream priority.
+  EXPECT_SPDY_BUG(lifo.RegisterStream(1, SpdyStreamPrecedence(4)),
+                  "Stream 1 already registered");
+  EXPECT_EQ(3, lifo.GetStreamPrecedence(1).spdy3_priority());
+
+  lifo.UpdateStreamPrecedence(1, SpdyStreamPrecedence(5));
+  EXPECT_EQ(5, lifo.GetStreamPrecedence(1).spdy3_priority());
 }
 
 }  // namespace test

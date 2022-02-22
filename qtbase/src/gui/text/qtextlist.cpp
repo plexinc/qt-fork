@@ -100,20 +100,6 @@ public:
     \sa QTextBlock, QTextListFormat, QTextCursor
 */
 
-#if QT_DEPRECATED_SINCE(5, 13)
-/*!
-    \fn bool QTextList::isEmpty() const
-    \obsolete
-
-    Returns \c true if the list has no items; otherwise returns \c false.
-
-    \b{Note:} Empty lists are automatically deleted by the QTextDocument that owns
-    them.
-
-    \sa count()
-*/
-#endif
-
 /*! \internal
  */
 QTextList::QTextList(QTextDocument *doc)
@@ -213,7 +199,7 @@ QString QTextList::itemText(const QTextBlock &blockIt) const
                 int c = item;
                 while (c > 0) {
                     c--;
-                    result.prepend(QChar(baseChar + (c % 26)));
+                    result.prepend(QChar::fromUcs2(baseChar + (c % 26)));
                     c /= 26;
                 }
             }
@@ -304,7 +290,7 @@ void QTextList::remove(const QTextBlock &block)
     QTextBlockFormat fmt = block.blockFormat();
     fmt.setIndent(fmt.indent() + format().indent());
     fmt.setObjectIndex(-1);
-    block.docHandle()->setBlockFormat(block, block, fmt, QTextDocumentPrivate::SetFormat);
+    const_cast<QTextDocumentPrivate *>(QTextDocumentPrivate::get(block))->setBlockFormat(block, block, fmt, QTextDocumentPrivate::SetFormat);
 }
 
 /*!
@@ -316,7 +302,7 @@ void QTextList::add(const QTextBlock &block)
 {
     QTextBlockFormat fmt = block.blockFormat();
     fmt.setObjectIndex(objectIndex());
-    block.docHandle()->setBlockFormat(block, block, fmt, QTextDocumentPrivate::SetFormat);
+    const_cast<QTextDocumentPrivate *>(QTextDocumentPrivate::get(block))->setBlockFormat(block, block, fmt, QTextDocumentPrivate::SetFormat);
 }
 
 QT_END_NAMESPACE

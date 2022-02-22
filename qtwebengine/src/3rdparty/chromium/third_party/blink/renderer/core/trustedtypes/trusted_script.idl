@@ -7,9 +7,10 @@
 typedef [StringContext=TrustedScript] DOMString ScriptString;
 
 [
+    IsCodeLike,
     Exposed=Window,
-    RuntimeEnabled=TrustedDOMTypes,
-    SecureContext
+    RuntimeEnabled=TrustedDOMTypes
 ] interface TrustedScript {
     stringifier;
+    DOMString toJSON();
 };

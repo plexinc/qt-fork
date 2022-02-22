@@ -12,7 +12,6 @@ namespace device {
 
 static void SetPinAuth(BioEnrollmentRequest* request,
                        const pin::TokenResponse& token) {
-  request->pin_protocol = 1;
   request->modality = BioEnrollmentModality::kFingerprint;
 
   std::vector<uint8_t> pin_auth;
@@ -24,7 +23,8 @@ static void SetPinAuth(BioEnrollmentRequest* request,
 
   pin_auth.insert(pin_auth.begin(), static_cast<int>(*request->modality));
 
-  request->pin_auth = token.PinAuth(std::move(pin_auth));
+  std::tie(request->pin_protocol, request->pin_auth) =
+      token.PinAuth(std::move(pin_auth));
 }
 
 // static
@@ -96,10 +96,10 @@ BioEnrollmentRequest BioEnrollmentRequest::ForRename(
   request.params = cbor::Value::MapValue();
   request.params->emplace(
       static_cast<int>(BioEnrollmentSubCommandParam::kTemplateId),
-      cbor::Value(std::move(id)));
+      std::move(id));
   request.params->emplace(
       static_cast<int>(BioEnrollmentSubCommandParam::kTemplateFriendlyName),
-      cbor::Value(std::move(name)));
+      std::move(name));
   SetPinAuth(&request, token);
   return request;
 }
@@ -114,7 +114,7 @@ BioEnrollmentRequest BioEnrollmentRequest::ForDelete(
   request.params = cbor::Value::MapValue();
   request.params->emplace(
       static_cast<int>(BioEnrollmentSubCommandParam::kTemplateId),
-      cbor::Value(std::move(id)));
+      std::move(id));
   SetPinAuth(&request, token);
   return request;
 }
@@ -131,7 +131,7 @@ base::Optional<BioEnrollmentResponse> BioEnrollmentResponse::Parse(
   BioEnrollmentResponse response;
 
   if (!cbor_response || !cbor_response->is_map()) {
-    return base::make_optional<BioEnrollmentResponse>(std::move(response));
+    return response;
   }
 
   const auto& response_map = cbor_response->GetMap();
@@ -252,7 +252,7 @@ base::Optional<BioEnrollmentResponse> BioEnrollmentResponse::Parse(
     response.template_infos = std::move(template_infos);
   }
 
-  return base::make_optional<BioEnrollmentResponse>(std::move(response));
+  return std::move(response);
 }
 
 BioEnrollmentResponse::BioEnrollmentResponse() = default;
@@ -275,28 +275,29 @@ AsCTAPRequestValuePair(const BioEnrollmentRequest& request) {
 
   if (request.modality) {
     map.emplace(static_cast<int>(Key::kModality),
-                cbor::Value(static_cast<int>(*request.modality)));
+                static_cast<int>(*request.modality));
   }
 
   if (request.subcommand) {
     map.emplace(static_cast<int>(Key::kSubCommand),
-                cbor::Value(static_cast<int>(*request.subcommand)));
+                static_cast<int>(*request.subcommand));
   }
 
   if (request.params) {
-    map.emplace(static_cast<int>(Key::kSubCommandParams), cbor::Value(*request.params));
+    map.emplace(static_cast<int>(Key::kSubCommandParams), *request.params);
   }
 
   if (request.pin_protocol) {
-    map.emplace(static_cast<int>(Key::kPinProtocol), cbor::Value(*request.pin_protocol));
+    map.emplace(static_cast<int>(Key::kPinProtocol),
+                static_cast<uint8_t>(*request.pin_protocol));
   }
 
   if (request.pin_auth) {
-    map.emplace(static_cast<int>(Key::kPinAuth), cbor::Value(*request.pin_auth));
+    map.emplace(static_cast<int>(Key::kPinAuth), *request.pin_auth);
   }
 
   if (request.get_modality) {
-    map.emplace(static_cast<int>(Key::kGetModality), cbor::Value(*request.get_modality));
+    map.emplace(static_cast<int>(Key::kGetModality), *request.get_modality);
   }
 
   return {request.version == BioEnrollmentRequest::Version::kDefault

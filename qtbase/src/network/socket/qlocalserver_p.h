@@ -99,15 +99,18 @@ public:
     QMap<quintptr, QTcpSocket*> socketMap;
 #elif defined(Q_OS_WIN)
     struct Listener {
-        HANDLE handle;
+        Listener() = default;
+        HANDLE handle = nullptr;
         OVERLAPPED overlapped;
-        bool connected;
+        bool connected = false;
+    private:
+        Q_DISABLE_COPY(Listener)
     };
 
     void setError(const QString &function);
     bool addListener();
 
-    QList<Listener> listeners;
+    std::vector<std::unique_ptr<Listener>> listeners;
     HANDLE eventHandle;
     QWinEventNotifier *connectionEventNotifier;
 #else
@@ -123,7 +126,8 @@ public:
     QQueue<QLocalSocket*> pendingConnections;
     QString errorString;
     QAbstractSocket::SocketError error;
-    QLocalServer::SocketOptions socketOptions;
+
+    Q_OBJECT_BINDABLE_PROPERTY(QLocalServerPrivate, QLocalServer::SocketOptions, socketOptions)
 };
 
 QT_END_NAMESPACE

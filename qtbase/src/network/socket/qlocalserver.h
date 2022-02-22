@@ -43,6 +43,8 @@
 #include <QtNetwork/qtnetworkglobal.h>
 #include <QtNetwork/qabstractsocket.h>
 
+#include <QtCore/qproperty.h>
+
 QT_REQUIRE_CONFIG(localserver);
 
 QT_BEGIN_NAMESPACE
@@ -54,7 +56,8 @@ class Q_NETWORK_EXPORT QLocalServer : public QObject
 {
     Q_OBJECT
     Q_DECLARE_PRIVATE(QLocalServer)
-    Q_PROPERTY(SocketOptions socketOptions READ socketOptions WRITE setSocketOptions)
+    Q_PROPERTY(SocketOptions socketOptions READ socketOptions WRITE setSocketOptions
+               BINDABLE bindableSocketOptions)
 
 Q_SIGNALS:
     void newConnection();
@@ -65,7 +68,8 @@ public:
         UserAccessOption = 0x01,
         GroupAccessOption = 0x2,
         OtherAccessOption = 0x4,
-        WorldAccessOption = 0x7
+        WorldAccessOption = 0x7,
+        AbstractNamespaceOption = 0x8
     };
     Q_FLAG(SocketOption)
     Q_DECLARE_FLAGS(SocketOptions, SocketOption)
@@ -91,6 +95,7 @@ public:
 
     void setSocketOptions(SocketOptions options);
     SocketOptions socketOptions() const;
+    QBindable<SocketOptions> bindableSocketOptions();
 
     qintptr socketDescriptor() const;
 

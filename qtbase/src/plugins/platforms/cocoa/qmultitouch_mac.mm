@@ -37,17 +37,17 @@
 **
 ****************************************************************************/
 
+#include <AppKit/AppKit.h>
+
 #include "qmultitouch_mac_p.h"
 #include "qcocoahelpers.h"
 #include "qcocoascreen.h"
-#include <private/qtouchdevice_p.h>
+#include <private/qpointingdevice_p.h>
 
 QT_BEGIN_NAMESPACE
 
-Q_LOGGING_CATEGORY(lcInputDevices, "qt.qpa.input.devices")
-
 QHash<qint64, QCocoaTouch*> QCocoaTouch::_currentTouches;
-QHash<quint64, QTouchDevice*> QCocoaTouch::_touchDevices;
+QHash<quint64, QPointingDevice*> QCocoaTouch::_touchDevices;
 QPointF QCocoaTouch::_screenReferencePos;
 QPointF QCocoaTouch::_trackpadReferencePos;
 int QCocoaTouch::_idAssignmentCount = 0;
@@ -110,22 +110,22 @@ QCocoaTouch *QCocoaTouch::findQCocoaTouch(NSTouch *nstouch)
     return nullptr;
 }
 
-Qt::TouchPointState QCocoaTouch::toTouchPointState(NSTouchPhase nsState)
+QEventPoint::State QCocoaTouch::toTouchPointState(NSTouchPhase nsState)
 {
-    Qt::TouchPointState qtState = Qt::TouchPointReleased;
+    QEventPoint::State qtState = QEventPoint::State::Released;
     switch (nsState) {
         case NSTouchPhaseBegan:
-            qtState = Qt::TouchPointPressed;
+            qtState = QEventPoint::State::Pressed;
             break;
         case NSTouchPhaseMoved:
-            qtState = Qt::TouchPointMoved;
+            qtState = QEventPoint::State::Updated;
             break;
         case NSTouchPhaseStationary:
-            qtState = Qt::TouchPointStationary;
+            qtState = QEventPoint::State::Stationary;
             break;
         case NSTouchPhaseEnded:
         case NSTouchPhaseCancelled:
-            qtState = Qt::TouchPointReleased;
+            qtState = QEventPoint::State::Released;
             break;
         default:
             break;
@@ -189,7 +189,7 @@ QCocoaTouch::getCurrentTouchPointList(NSEvent *event, bool acceptSingleTouch)
         const auto currentTouchesSnapshot = _currentTouches;
         for (QCocoaTouch *qcocoaTouch : currentTouchesSnapshot) {
             if (!_updateInternalStateOnly) {
-                qcocoaTouch->_touchPoint.state = Qt::TouchPointReleased;
+                qcocoaTouch->_touchPoint.state = QEventPoint::State::Released;
                 touchPoints.insert(qcocoaTouch->_touchPoint.id, qcocoaTouch->_touchPoint);
             }
             delete qcocoaTouch;
@@ -205,7 +205,7 @@ QCocoaTouch::getCurrentTouchPointList(NSEvent *event, bool acceptSingleTouch)
 
     if (_updateInternalStateOnly && !wasUpdateInternalStateOnly && !_currentTouches.isEmpty()) {
         QCocoaTouch *qcocoaTouch = _currentTouches.cbegin().value();
-        qcocoaTouch->_touchPoint.state = Qt::TouchPointReleased;
+        qcocoaTouch->_touchPoint.state = QEventPoint::State::Released;
         touchPoints.insert(qcocoaTouch->_touchPoint.id, qcocoaTouch->_touchPoint);
         // Since this last touch also will end up being the first
         // touch (if the user adds a second finger without lifting
@@ -217,17 +217,18 @@ QCocoaTouch::getCurrentTouchPointList(NSEvent *event, bool acceptSingleTouch)
     return touchPoints.values();
 }
 
-QTouchDevice *QCocoaTouch::getTouchDevice(QTouchDevice::DeviceType type, quint64 id)
+QPointingDevice *QCocoaTouch::getTouchDevice(QInputDevice::DeviceType type, quint64 id)
 {
-    QTouchDevice *ret = _touchDevices.value(id);
+    QPointingDevice *ret = _touchDevices.value(id);
     if (!ret) {
-        ret = new QTouchDevice;
-        ret->setType(type);
-        ret->setCapabilities(QTouchDevice::Position | QTouchDevice::NormalizedPosition | QTouchDevice::MouseEmulation);
-        QWindowSystemInterface::registerTouchDevice(ret);
+        ret = new QPointingDevice(type == QInputDevice::DeviceType::TouchScreen ? QLatin1String("touchscreen") : QLatin1String("trackpad"),
+                                  id, type, QPointingDevice::PointerType::Finger,
+                                  QInputDevice::Capability::Position |
+                                  QInputDevice::Capability::NormalizedPosition |
+                                  QInputDevice::Capability::MouseEmulation,
+                                  10, 0);
+        QWindowSystemInterface::registerInputDevice(ret);
         _touchDevices.insert(id, ret);
-        qCDebug(lcInputDevices) << "touch device" << id << "of type" << type
-                                << "registered as Qt device" << QTouchDevicePrivate::get(ret)->id;
     }
     return ret;
 }

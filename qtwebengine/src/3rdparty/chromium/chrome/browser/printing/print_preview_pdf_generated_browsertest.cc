@@ -23,8 +23,8 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/hash/md5.h"
 #include "base/location.h"
-#include "base/logging.h"
 #include "base/macros.h"
+#include "base/optional.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
@@ -40,18 +40,21 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
-#include "components/printing/common/print_messages.h"
+#include "components/printing/common/print.mojom.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui_message_handler.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "ipc/ipc_message_macros.h"
 #include "net/base/filename_util.h"
 #include "pdf/pdf.h"
+#include "printing/mojom/print.mojom.h"
 #include "printing/pdf_render_settings.h"
 #include "printing/units.h"
 #include "ui/gfx/codec/png_codec.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/size_f.h"
 #include "url/gurl.h"
 
 #if defined(OS_WIN)
@@ -60,7 +63,6 @@
 #endif
 
 using content::WebContents;
-using content::WebContentsObserver;
 
 namespace printing {
 
@@ -96,7 +98,7 @@ struct PrintPreviewSettings {
                        const std::string& page_numbers,
                        bool headers_and_footers,
                        bool background_colors_and_images,
-                       MarginType margins,
+                       mojom::MarginType margins,
                        bool source_is_pdf)
       : is_portrait(is_portrait),
         page_numbers(page_numbers),
@@ -109,25 +111,29 @@ struct PrintPreviewSettings {
   std::string page_numbers;
   bool headers_and_footers;
   bool background_colors_and_images;
-  MarginType margins;
+  mojom::MarginType margins;
   bool source_is_pdf;
 };
 
-// Observes the print preview webpage. Once it observes the PreviewPageCount
-// message, will send a sequence of commands to the print preview dialog and
+// Implements PrintPreviewUI::TestDelegate. Once DidGetPreviewPageCount() is
+// called, will send a sequence of commands to the print preview dialog and
 // change the settings of the preview dialog.
-class PrintPreviewObserver : public WebContentsObserver {
+class PrintPreviewDelegate : printing::PrintPreviewUI::TestDelegate {
  public:
-  PrintPreviewObserver(Browser* browser,
+  PrintPreviewDelegate(Browser* browser,
                        WebContents* dialog,
                        const base::FilePath& pdf_file_save_path)
-      : WebContentsObserver(dialog),
-        browser_(browser),
+      : browser_(browser),
         state_(kWaitingToSendSaveAsPdf),
         failed_setting_("None"),
-        pdf_file_save_path_(pdf_file_save_path) {}
-
-  ~PrintPreviewObserver() override {}
+        pdf_file_save_path_(pdf_file_save_path) {
+    printing::PrintPreviewUI::SetDelegateForTesting(this);
+  }
+  PrintPreviewDelegate(const PrintPreviewDelegate&) = delete;
+  PrintPreviewDelegate& operator=(const PrintPreviewDelegate&) = delete;
+  ~PrintPreviewDelegate() override {
+    printing::PrintPreviewUI::SetDelegateForTesting(nullptr);
+  }
 
   // Sets closure for the observer so that it can end the loop.
   void set_quit_closure(base::OnceClosure closure) {
@@ -138,13 +144,6 @@ class PrintPreviewObserver : public WebContentsObserver {
   void EndLoop() {
     base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
                                                   std::move(quit_closure_));
-  }
-
-  bool OnMessageReceived(const IPC::Message& message) override {
-    IPC_BEGIN_MESSAGE_MAP(PrintPreviewObserver, message)
-      IPC_MESSAGE_HANDLER(PrintHostMsg_DidStartPreview, OnDidStartPreview)
-    IPC_END_MESSAGE_MAP()
-    return false;
   }
 
   // Gets the web contents for the print preview dialog so that the UI and
@@ -194,14 +193,15 @@ class PrintPreviewObserver : public WebContentsObserver {
       state_ = kWaitingToSendMargins;
       failed_setting_ = "Background Colors and Images";
     } else if (state_ == kWaitingToSendMargins) {
-      script_argument.SetInteger("margins", settings_->margins);
+      script_argument.SetInteger("margins",
+                                 static_cast<int>(settings_->margins));
       state_ = kWaitingForFinalMessage;
       failed_setting_ = "Margins";
     } else if (state_ == kWaitingForFinalMessage) {
       // Called by |GetUI()->handler_|, it is a callback function that call
       // |EndLoop| when an attempt to save the PDF has been made.
       GetUI()->SetPdfSavedClosureForTesting(base::BindOnce(
-          &PrintPreviewObserver::EndLoop, base::Unretained(this)));
+          &PrintPreviewDelegate::EndLoop, base::Unretained(this)));
       ASSERT_FALSE(pdf_file_save_path_.empty());
       GetUI()->SetSelectedFileForTesting(pdf_file_save_path_);
       return;
@@ -226,21 +226,21 @@ class PrintPreviewObserver : public WebContentsObserver {
   // listens for 'UILoadedForTest' and 'UIFailedLoadingForTest.'
   class UIDoneLoadingMessageHandler : public content::WebUIMessageHandler {
    public:
-    explicit UIDoneLoadingMessageHandler(PrintPreviewObserver* observer)
-        : observer_(observer) {}
+    explicit UIDoneLoadingMessageHandler(PrintPreviewDelegate* delegate)
+        : delegate_(delegate) {}
 
     ~UIDoneLoadingMessageHandler() override {}
 
-    // When a setting has been set succesfully, this is called and the observer
+    // When a setting has been set successfully, this is called and the delegate
     // is told to send the next setting to be set.
     void HandleDone(const base::ListValue* /* args */) {
-      observer_->ManipulatePreviewSettings();
+      delegate_->ManipulatePreviewSettings();
     }
 
     // Ends the test because a setting was not set successfully. Called when
     // this class hears 'UIFailedLoadingForTest.'
     void HandleFailure(const base::ListValue* /* args */) {
-      FAIL() << "Failed to set: " << observer_->GetFailedSetting();
+      FAIL() << "Failed to set: " << delegate_->GetFailedSetting();
     }
 
     // Allows this class to listen for the 'UILoadedForTest' and
@@ -262,19 +262,11 @@ class PrintPreviewObserver : public WebContentsObserver {
     }
 
    private:
-    PrintPreviewObserver* const observer_;
-
-    DISALLOW_COPY_AND_ASSIGN(UIDoneLoadingMessageHandler);
+    PrintPreviewDelegate* const delegate_;
   };
 
-  // Called when the observer gets the IPC message with the preview document's
-  // properties.
-  void OnDidStartPreview(const PrintHostMsg_DidStartPreview_Params& params,
-                         const PrintHostMsg_PreviewIds& ids) {
-    WebContents* web_contents = GetDialog();
-    ASSERT_TRUE(web_contents);
-    Observe(web_contents);
-
+  // PrintPreviewUI::TestDelegate:
+  void DidGetPreviewPageCount(uint32_t page_count) override {
     PrintPreviewUI* ui = GetUI();
     ASSERT_TRUE(ui);
     ASSERT_TRUE(ui->web_ui());
@@ -283,24 +275,18 @@ class PrintPreviewObserver : public WebContentsObserver {
         std::make_unique<UIDoneLoadingMessageHandler>(this));
     ui->SendEnableManipulateSettingsForTest();
   }
-
-  void DidCloneToNewWebContents(WebContents* old_web_contents,
-                                WebContents* new_web_contents) override {
-    Observe(new_web_contents);
-  }
+  void DidRenderPreviewPage(content::WebContents* preview_dialog) override {}
 
   Browser* browser_;
   base::OnceClosure quit_closure_;
   std::unique_ptr<PrintPreviewSettings> settings_;
 
-  // State of the observer. The state indicates what message to send
-  // next. The state advances whenever the message handler calls
-  // ManipulatePreviewSettings() on the observer.
+  // |state_| that indicates what message to send next. The state advances
+  // whenever the message handler calls ManipulatePreviewSettings() on the
+  // delegate.
   State state_;
   std::string failed_setting_;
   const base::FilePath pdf_file_save_path_;
-
-  DISALLOW_COPY_AND_ASSIGN(PrintPreviewObserver);
 };
 
 class PrintPreviewPdfGeneratedBrowserTest : public InProcessBrowserTest {
@@ -312,14 +298,14 @@ class PrintPreviewPdfGeneratedBrowserTest : public InProcessBrowserTest {
   // for all the settings to be set, then save the preview to PDF.
   void NavigateAndPrint(const base::FilePath::StringType& file_name,
                           const PrintPreviewSettings& settings) {
-    print_preview_observer_->SetPrintPreviewSettings(settings);
+    print_preview_delegate_->SetPrintPreviewSettings(settings);
     base::FilePath path(file_name);
     GURL gurl = net::FilePathToFileURL(base::MakeAbsoluteFilePath(path));
 
     ui_test_utils::NavigateToURL(browser(), gurl);
 
     base::RunLoop loop;
-    print_preview_observer_->set_quit_closure(loop.QuitClosure());
+    print_preview_delegate_->set_quit_closure(loop.QuitClosure());
     chrome::Print(browser());
     loop.Run();
 
@@ -334,7 +320,7 @@ class PrintPreviewPdfGeneratedBrowserTest : public InProcessBrowserTest {
   // diff on this image and a reference image.
   void PdfToPng() {
     int num_pages;
-    double max_width_in_points = 0;
+    float max_width_in_points = 0;
     std::vector<uint8_t> bitmap_data;
     double total_height_in_pixels = 0;
     std::string pdf_data;
@@ -349,15 +335,22 @@ class PrintPreviewPdfGeneratedBrowserTest : public InProcessBrowserTest {
     double max_width_in_pixels =
         ConvertUnitDouble(max_width_in_points, kPointsPerInch, kDpi);
 
+    constexpr chrome_pdf::RenderOptions options = {
+        .stretch_to_bounds = false,
+        .keep_aspect_ratio = true,
+        .autorotate = false,
+        .use_color = true,
+        .render_device_type = chrome_pdf::RenderDeviceType::kPrinter,
+    };
     for (int i = 0; i < num_pages; ++i) {
-      double width_in_points, height_in_points;
-      ASSERT_TRUE(chrome_pdf::GetPDFPageSizeByIndex(
-          pdf_span, i, &width_in_points, &height_in_points));
+      base::Optional<gfx::SizeF> size_in_points =
+          chrome_pdf::GetPDFPageSizeByIndex(pdf_span, i);
+      ASSERT_TRUE(size_in_points.has_value());
 
-      double width_in_pixels = ConvertUnitDouble(
-          width_in_points, kPointsPerInch, kDpi);
+      double width_in_pixels = ConvertUnitDouble(size_in_points.value().width(),
+                                                 kPointsPerInch, kDpi);
       double height_in_pixels = ConvertUnitDouble(
-          height_in_points, kPointsPerInch, kDpi);
+          size_in_points.value().height(), kPointsPerInch, kDpi);
 
       // The image will be rotated if |width_in_pixels| is greater than
       // |height_in_pixels|. This is because the page will be rotated to fit
@@ -369,9 +362,9 @@ class PrintPreviewPdfGeneratedBrowserTest : public InProcessBrowserTest {
 
       total_height_in_pixels += height_in_pixels;
       gfx::Rect rect(width_in_pixels, height_in_pixels);
-      PdfRenderSettings settings(rect, gfx::Point(0, 0), gfx::Size(kDpi, kDpi),
-                                 /*autorotate=*/false,
-                                 /*use_color=*/true,
+
+      PdfRenderSettings settings(rect, gfx::Point(), gfx::Size(kDpi, kDpi),
+                                 options.autorotate, options.use_color,
                                  PdfRenderSettings::Mode::NORMAL);
 
       int int_max = std::numeric_limits<int>::max();
@@ -386,9 +379,8 @@ class PrintPreviewPdfGeneratedBrowserTest : public InProcessBrowserTest {
                                             settings.area.size().GetArea());
 
       ASSERT_TRUE(chrome_pdf::RenderPDFPageToBitmap(
-          pdf_span, i, page_bitmap_data.data(), settings.area.size().width(),
-          settings.area.size().height(), settings.dpi.width(),
-          settings.dpi.height(), settings.autorotate, settings.use_color));
+          pdf_span, i, page_bitmap_data.data(), settings.area.size(),
+          settings.dpi, options));
       FillPng(&page_bitmap_data, width_in_pixels, max_width_in_pixels,
               settings.area.size().height());
       bitmap_data.insert(bitmap_data.end(),
@@ -450,31 +442,17 @@ class PrintPreviewPdfGeneratedBrowserTest : public InProcessBrowserTest {
     std::cerr.flush();
   }
 
-  // Duplicates the tab that was created when the browser opened. This is done
-  // so that the observer can listen to the duplicated tab as soon as possible
-  // and start listening for messages related to print preview.
-  void DuplicateTab() {
+  void CreatePreviewDelegate() {
     WebContents* tab =
         browser()->tab_strip_model()->GetActiveWebContents();
     ASSERT_TRUE(tab);
-
-    print_preview_observer_ = std::make_unique<PrintPreviewObserver>(
+    print_preview_delegate_ = std::make_unique<PrintPreviewDelegate>(
         browser(), tab, pdf_file_save_path_);
-    chrome::DuplicateTab(browser());
-
-    WebContents* initiator =
-        browser()->tab_strip_model()->GetActiveWebContents();
-    ASSERT_TRUE(initiator);
-    ASSERT_NE(tab, initiator);
   }
 
-  // Resets the test so that another web page can be printed. It also deletes
-  // the duplicated tab as it isn't needed anymore.
+  // Resets the test so that another web page can be printed.
   void Reset() {
     png_output_.clear();
-    ASSERT_EQ(2, browser()->tab_strip_model()->count());
-    chrome::CloseTab(browser());
-    ASSERT_EQ(1, browser()->tab_strip_model()->count());
   }
 
   // Creates a temporary directory to store a text file that will be used for
@@ -543,7 +521,7 @@ class PrintPreviewPdfGeneratedBrowserTest : public InProcessBrowserTest {
                                       &png_output_));
   }
 
-  std::unique_ptr<PrintPreviewObserver> print_preview_observer_;
+  std::unique_ptr<PrintPreviewDelegate> print_preview_delegate_;
   base::FilePath pdf_file_save_path_;
 
   // Vector for storing the PNG to be sent to the layout test framework.
@@ -604,13 +582,9 @@ IN_PROC_BROWSER_TEST_F(PrintPreviewPdfGeneratedBrowserTest,
     cmd = base::UTF8ToWide(input);
 #endif
 
-    DuplicateTab();
+    CreatePreviewDelegate();
     PrintPreviewSettings settings(
-        true,
-        "",
-        false,
-        false,
-        DEFAULT_MARGINS,
+        true, "", false, false, mojom::MarginType::kDefaultMargins,
         cmd.find(file_extension) != base::FilePath::StringType::npos);
 
     // Splits the command sent by the layout test framework. The first command

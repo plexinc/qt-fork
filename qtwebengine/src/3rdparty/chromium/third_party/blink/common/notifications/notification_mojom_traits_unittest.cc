@@ -5,6 +5,7 @@
 #include "third_party/blink/public/common/notifications/notification_mojom_traits.h"
 
 #include "base/macros.h"
+#include "base/optional.h"
 #include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -61,24 +62,26 @@ TEST(NotificationStructTraitsTest, NotificationDataRoundtrip) {
   notification_data.data.assign(data, data + base::size(data));
 
   notification_data.actions.resize(2);
-  notification_data.actions[0].type = PLATFORM_NOTIFICATION_ACTION_TYPE_BUTTON;
+  notification_data.actions[0].type =
+      blink::mojom::NotificationActionType::BUTTON;
   notification_data.actions[0].action = "buttonAction";
   notification_data.actions[0].title = base::ASCIIToUTF16("Button Title!");
   notification_data.actions[0].icon = GURL("https://example.com/aButton.png");
-  notification_data.actions[0].placeholder = base::NullableString16();
+  notification_data.actions[0].placeholder = base::nullopt;
 
-  notification_data.actions[1].type = PLATFORM_NOTIFICATION_ACTION_TYPE_TEXT;
+  notification_data.actions[1].type =
+      blink::mojom::NotificationActionType::TEXT;
   notification_data.actions[1].action = "textAction";
   notification_data.actions[1].title = base::ASCIIToUTF16("Reply Button Title");
   notification_data.actions[1].icon = GURL("https://example.com/reply.png");
   notification_data.actions[1].placeholder =
-      base::NullableString16(base::ASCIIToUTF16("Placeholder Text"), false);
+      base::ASCIIToUTF16("Placeholder Text");
 
   PlatformNotificationData roundtrip_notification_data;
 
   ASSERT_TRUE(
       mojo::test::SerializeAndDeserialize<blink::mojom::NotificationData>(
-          &notification_data, &roundtrip_notification_data));
+          notification_data, roundtrip_notification_data));
 
   EXPECT_EQ(roundtrip_notification_data.title, notification_data.title);
   EXPECT_EQ(roundtrip_notification_data.direction, notification_data.direction);
@@ -131,7 +134,7 @@ TEST(NotificationStructTraitsTest, ValidVibrationPattern) {
 
   ASSERT_TRUE(
       mojo::test::SerializeAndDeserialize<blink::mojom::NotificationData>(
-          &notification_data, &platform_notification_data));
+          notification_data, platform_notification_data));
 }
 
 // Check round-trip fails when there are too many entries in the vibration
@@ -151,7 +154,7 @@ TEST(NotificationStructTraitsTest, TooManyVibrations) {
 
   ASSERT_FALSE(
       mojo::test::SerializeAndDeserialize<blink::mojom::NotificationData>(
-          &notification_data, &platform_notification_data));
+          notification_data, platform_notification_data));
 }
 
 // Check round-trip fails when there is a too-long vibration duration.
@@ -170,7 +173,7 @@ TEST(NotificationStructTraitsTest, TooLongVibrationDuration) {
 
   ASSERT_FALSE(
       mojo::test::SerializeAndDeserialize<blink::mojom::NotificationData>(
-          &notification_data, &platform_notification_data));
+          notification_data, platform_notification_data));
 }
 
 // Check round-trip fails when there are too many actions provided.
@@ -190,7 +193,7 @@ TEST(NotificationStructTraitsTest, TooManyActions) {
 
   ASSERT_FALSE(
       mojo::test::SerializeAndDeserialize<blink::mojom::NotificationData>(
-          &notification_data, &platform_notification_data));
+          notification_data, platform_notification_data));
 }
 
 // Check round-trip fails when the data size is too big.
@@ -207,7 +210,7 @@ TEST(NotificationStructTraitsTest, DataExceedsMaximumSize) {
 
   ASSERT_FALSE(
       mojo::test::SerializeAndDeserialize<blink::mojom::NotificationData>(
-          &notification_data, &platform_notification_data));
+          notification_data, platform_notification_data));
 }
 
 TEST(NotificationStructTraitsTest, NotificationResourcesRoundtrip) {
@@ -225,7 +228,7 @@ TEST(NotificationStructTraitsTest, NotificationResourcesRoundtrip) {
 
   ASSERT_TRUE(
       mojo::test::SerializeAndDeserialize<blink::mojom::NotificationResources>(
-          &resources, &roundtrip_resources));
+          resources, roundtrip_resources));
 
   ASSERT_FALSE(roundtrip_resources.image.empty());
   EXPECT_TRUE(ImagesShareDimensionsAndColor(resources.image,

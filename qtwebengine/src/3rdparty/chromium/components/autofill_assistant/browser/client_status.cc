@@ -13,8 +13,19 @@ ClientStatus::ClientStatus(ProcessedActionStatusProto status)
     : status_(status) {}
 ClientStatus::~ClientStatus() = default;
 
+ClientStatus ClientStatus::WithStatusOverride(
+    ProcessedActionStatusProto new_status) const {
+  ClientStatus other = *this;
+  if (status_ != new_status) {
+    other.set_proto_status(new_status);
+    other.mutable_details()->set_original_status(status_);
+  }
+  return other;
+}
+
 void ClientStatus::FillProto(ProcessedActionProto* proto) const {
   proto->set_status(status_);
+  proto->set_slow_warning_status(slow_warning_status_);
   if (has_details_)
     proto->mutable_status_details()->MergeFrom(details_);
 }
@@ -115,6 +126,21 @@ std::ostream& operator<<(std::ostream& out,
       break;
     case ProcessedActionStatusProto::FRAME_HOST_NOT_FOUND:
       out << "FRAME_HOST_NOT_FOUND";
+      break;
+    case ProcessedActionStatusProto::AUTOFILL_INCOMPLETE:
+      out << "AUTOFILL_INCOMPLETE";
+      break;
+    case ProcessedActionStatusProto::TOO_MANY_CANDIDATES:
+      out << "TOO_MANY_CANDIDATES";
+      break;
+    case ProcessedActionStatusProto::ELEMENT_MISMATCH:
+      out << "ELEMENT_MISMATCH";
+      break;
+    case ProcessedActionStatusProto::ELEMENT_NOT_ON_TOP:
+      out << "ELEMENT_NOT_ON_TOP";
+      break;
+    case ProcessedActionStatusProto::CLIENT_ID_RESOLUTION_FAILED:
+      out << "CLIENT_ID_RESOLUTION_FAILED";
       break;
 
       // Intentionally no default case to make compilation fail if a new value

@@ -73,7 +73,12 @@ public:
 
     Q_INVOKABLE void evaluate(const QString &script, const QString &fileName, int lineNumber = 1)
     {
-        QJSEngine::evaluate(script, fileName, lineNumber);
+        QStringList stack;
+        QJSValue result = QJSEngine::evaluate(script, fileName, lineNumber, &stack);
+        if (!stack.isEmpty()) {
+            qDebug() << result.toString();
+            qDebug() << stack;
+        }
         emit evaluateFinished();
     }
 
@@ -101,7 +106,7 @@ public:
     ExceptionCollectJob(QV4DataCollector *collector) :
         CollectJob(collector), exception(-1) {}
 
-    void run() {
+    void run() override {
         QV4::Scope scope(collector->engine());
         QV4::ScopedValue v(scope, *collector->engine()->exceptionValue);
         exception = collector->addValueRef(v);
@@ -238,7 +243,7 @@ public:
             QJsonObject object = job.returnValue();
             object = object.value(QLatin1String("object")).toObject();
             QVERIFY(!object.contains("ref") || object.contains("properties"));
-            foreach (const QJsonValue &value, object.value(QLatin1String("properties")).toArray()) {
+            for (const QJsonValue value : object.value(QLatin1String("properties")).toArray()) {
                 QJsonObject property = value.toObject();
                 QString name = property.value(QLatin1String("name")).toString();
                 property.remove(QLatin1String("name"));
@@ -484,7 +489,7 @@ void tst_qv4debugger::conditionalBreakPoint()
 
     QVERIFY(m_debuggerAgent->m_capturedScope.size() > 1);
     const TestAgent::NamedRefs &frame0 = m_debuggerAgent->m_capturedScope.at(0);
-    QCOMPARE(frame0.size(), 3);
+    QCOMPARE(frame0.size(), 2);
     QVERIFY(frame0.contains("i"));
     QCOMPARE(frame0.value("i").toInt(), 11);
 }
@@ -540,7 +545,7 @@ void tst_qv4debugger::readArguments()
     QVERIFY(m_debuggerAgent->m_wasPaused);
     QVERIFY(m_debuggerAgent->m_capturedScope.size() > 1);
     const TestAgent::NamedRefs &frame0 = m_debuggerAgent->m_capturedScope.at(0);
-    QCOMPARE(frame0.size(), 5);
+    QCOMPARE(frame0.size(), 4);
     QVERIFY(frame0.contains(QStringLiteral("a")));
     QCOMPARE(frame0.type(QStringLiteral("a")), QStringLiteral("number"));
     QCOMPARE(frame0.value(QStringLiteral("a")).toDouble(), 1.0);
@@ -563,7 +568,7 @@ void tst_qv4debugger::readComplicatedArguments()
     QVERIFY(m_debuggerAgent->m_wasPaused);
     QVERIFY(m_debuggerAgent->m_capturedScope.size() > 1);
     const TestAgent::NamedRefs &frame0 = m_debuggerAgent->m_capturedScope.at(0);
-    QCOMPARE(frame0.size(), 2);
+    QCOMPARE(frame0.size(), 1);
     QVERIFY(frame0.contains(QStringLiteral("a")));
     QCOMPARE(frame0.type(QStringLiteral("a")), QStringLiteral("number"));
     QCOMPARE(frame0.value(QStringLiteral("a")).toInt(), 12);
@@ -575,21 +580,29 @@ void tst_qv4debugger::readLocals()
     QString script =
             "var f = function(a, b) {\n"
             "  var c = a + b\n"
+            "  let e = 'jaja'\n"
+            "  const ff = 'nenene'\n"
             "  var d = a - b\n" // breakpoint, c should be set, d should be undefined
             "  return c === d\n"
             "}\n"
             "f(1, 2, 3);\n";
-    debugger()->addBreakPoint("readLocals", 3);
+    debugger()->addBreakPoint("readLocals", 5);
     evaluateJavaScript(script, "readLocals");
     QVERIFY(m_debuggerAgent->m_wasPaused);
     QVERIFY(m_debuggerAgent->m_capturedScope.size() > 1);
     const TestAgent::NamedRefs &frame0 = m_debuggerAgent->m_capturedScope.at(0);
-    QCOMPARE(frame0.size(), 5); // locals and parameters
+    QCOMPARE(frame0.size(), 6); // locals and parameters
     QVERIFY(frame0.contains("c"));
     QCOMPARE(frame0.type("c"), QStringLiteral("number"));
     QCOMPARE(frame0.value("c").toDouble(), 3.0);
     QVERIFY(frame0.contains("d"));
     QCOMPARE(frame0.type("d"), QStringLiteral("undefined"));
+    QVERIFY(frame0.contains("e"));
+    QCOMPARE(frame0.type("e"), QStringLiteral("string"));
+    QCOMPARE(frame0.value("e").toString(), QStringLiteral("jaja"));
+    QVERIFY(frame0.contains("ff"));
+    QCOMPARE(frame0.type("ff"), QStringLiteral("string"));
+    QCOMPARE(frame0.value("ff").toString(), QStringLiteral("nenene"));
 }
 
 void tst_qv4debugger::readObject()
@@ -606,7 +619,7 @@ void tst_qv4debugger::readObject()
     QVERIFY(m_debuggerAgent->m_wasPaused);
     QVERIFY(m_debuggerAgent->m_capturedScope.size() > 1);
     const TestAgent::NamedRefs &frame0 = m_debuggerAgent->m_capturedScope.at(0);
-    QCOMPARE(frame0.size(), 3);
+    QCOMPARE(frame0.size(), 2);
     QVERIFY(frame0.contains("b"));
     QCOMPARE(frame0.type("b"), QStringLiteral("object"));
     QJsonObject b = frame0.rawValue("b");
@@ -667,7 +680,7 @@ void tst_qv4debugger::readContextInAllFrames()
 
     for (int i = 0; i < 12; ++i) {
         const TestAgent::NamedRefs &scope = m_debuggerAgent->m_capturedScope.at(i);
-        QCOMPARE(scope.size(), 3);
+        QCOMPARE(scope.size(), 2);
         QVERIFY(scope.contains("n"));
         QCOMPARE(scope.type("n"), QStringLiteral("number"));
         QCOMPARE(scope.value("n").toDouble(), i + 1.0);
@@ -910,19 +923,25 @@ void tst_qv4debugger::signalParameters()
     component.setData("import QtQml 2.12\n"
                       "QtObject {\n"
                       "    id: root\n"
-                      "    property string result\n"
+                      "    property string result: 'unset'\n"
+                      "    property string resultCallbackInternal: 'unset'\n"
+                      "    property string resultCallbackExternal: 'unset'\n"
                       "    signal signalWithArg(string textArg)\n"
+                      "    function call(callback) { callback(); }\n"
+                      "    function externalCallback() { root.resultCallbackExternal = textArg; }\n"
                       "    property Connections connections : Connections {\n"
                       "        target: root\n"
-                      "        onSignalWithArg: { root.result = textArg; }\n"
+                      "        onSignalWithArg: { root.result = textArg; call(function() { root.resultCallbackInternal = textArg; }); call(externalCallback); }\n"
                       "    }\n"
                       "    Component.onCompleted: signalWithArg('something')\n"
                       "}", QUrl("test.qml"));
 
-    QVERIFY(component.isReady());
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
     QScopedPointer<QObject> obj(component.create());
     QVERIFY(obj);
     QCOMPARE(obj->property("result").toString(), QLatin1String("something"));
+    QCOMPARE(obj->property("resultCallbackInternal").toString(), QLatin1String("something"));
+    QCOMPARE(obj->property("resultCallbackExternal").toString(), QLatin1String("unset"));
 }
 
 QTEST_MAIN(tst_qv4debugger)

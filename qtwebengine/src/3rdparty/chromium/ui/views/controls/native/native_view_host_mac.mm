@@ -153,6 +153,15 @@ void NativeViewHostMac::RemovedFromWidget() {
   NativeViewDetaching(false);
 }
 
+bool NativeViewHostMac::SetCornerRadii(
+    const gfx::RoundedCornersF& corner_radii) {
+  ui::Layer* layer = GetUiLayer();
+  DCHECK(layer);
+  layer->SetRoundedCornerRadius(corner_radii);
+  layer->SetIsFastRoundedCorner(true);
+  return true;
+}
+
 bool NativeViewHostMac::SetCustomMask(std::unique_ptr<ui::LayerOwner> mask) {
   NOTIMPLEMENTED();
   return false;
@@ -266,6 +275,12 @@ void NativeViewHostMac::SetParentAccessible(
     // accessibility parent. Fortunately, this interface is only ever used
     // in practice to host a WebContentsView.
   }
+}
+
+gfx::NativeViewAccessible NativeViewHostMac::GetParentAccessible() {
+  return native_view_hostable_
+             ? native_view_hostable_->ViewsHostableGetParentAccessible()
+             : nullptr;
 }
 
 // static

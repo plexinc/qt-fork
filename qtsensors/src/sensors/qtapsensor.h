@@ -49,7 +49,6 @@ class QTapReadingPrivate;
 class Q_SENSORS_EXPORT QTapReading : public QSensorReading
 {
     Q_OBJECT
-    Q_ENUMS(TapDirection)
     Q_PROPERTY(TapDirection tapDirection READ tapDirection)
     Q_PROPERTY(bool doubleTap READ isDoubleTap)
     DECLARE_READING(QTapReading)
@@ -69,6 +68,7 @@ public:
         Y_Both = 0x0222,
         Z_Both = 0x0444
     };
+    Q_ENUM(TapDirection)
 
     TapDirection tapDirection() const;
     void setTapDirection(TapDirection tapDirection);
@@ -93,10 +93,10 @@ class Q_SENSORS_EXPORT QTapSensor : public QSensor
     Q_PROPERTY(bool returnDoubleTapEvents READ returnDoubleTapEvents WRITE setReturnDoubleTapEvents
                NOTIFY returnDoubleTapEventsChanged)
 public:
-    explicit QTapSensor(QObject *parent = Q_NULLPTR);
+    explicit QTapSensor(QObject *parent = nullptr);
     virtual ~QTapSensor();
     QTapReading *reading() const;
-    static char const * const type;
+    static char const * const sensorType;
 
     bool returnDoubleTapEvents() const;
     void setReturnDoubleTapEvents(bool returnDoubleTapEvents);
@@ -112,4 +112,3 @@ private:
 QT_END_NAMESPACE
 
 #endif
-

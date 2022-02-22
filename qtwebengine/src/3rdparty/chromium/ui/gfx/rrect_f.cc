@@ -6,6 +6,7 @@
 
 #include <iomanip>
 #include <iostream>
+#include <sstream>
 
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
@@ -65,8 +66,9 @@ gfx::Vector2dF RRectF::GetSimpleRadii() const {
 }
 
 float RRectF::GetSimpleRadius() const {
-  DCHECK(GetType() <= Type::kSingle);
+  DCHECK(GetType() <= Type::kOval);
   SkPoint result = skrrect_.getSimpleRadii();
+  DCHECK_EQ(result.x(), result.y());
   return result.x();
 }
 
@@ -84,6 +86,10 @@ RRectF::Type RRectF::GetType() const {
       }
       return Type::kSimple;
     case SkRRect::kOval_Type:
+      rad = skrrect_.getSimpleRadii();
+      if (rad.x() == rad.y()) {
+        return Type::kSingle;
+      }
       return Type::kOval;
     case SkRRect::kNinePatch_Type:
     case SkRRect::kComplex_Type:
@@ -127,7 +133,7 @@ void RRectF::Scale(float x_scale, float y_scale) {
     skrrect_ = SkRRect::MakeEmpty();
     return;
   }
-  SkMatrix scale = SkMatrix::MakeScale(x_scale, y_scale);
+  SkMatrix scale = SkMatrix::Scale(x_scale, y_scale);
   SkRRect result;
   bool success = skrrect_.transform(scale, &result);
   DCHECK(success);

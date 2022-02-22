@@ -10,6 +10,8 @@
 
 #include "base/macros.h"
 #include "base/observer_list.h"
+#include "components/arc/session/adb_sideloading_availability_delegate.h"
+#include "components/arc/session/arc_client_adapter.h"
 #include "components/arc/session/arc_stop_reason.h"
 #include "components/arc/session/arc_upgrade_params.h"
 
@@ -19,6 +21,10 @@ class DefaultScaleFactorRetriever;
 
 namespace chromeos {
 class SchedulerConfigurationManagerBase;
+}
+
+namespace cryptohome {
+class Identification;
 }
 
 namespace version_info {
@@ -58,7 +64,10 @@ class ArcSession {
       ash::DefaultScaleFactorRetriever* retriever,
       version_info::Channel channel,
       chromeos::SchedulerConfigurationManagerBase*
-          scheduler_configuration_manager);
+          scheduler_configuration_manager,
+      AdbSideloadingAvailabilityDelegate*
+          adb_sideloading_availability_delegate);
+
   virtual ~ArcSession();
 
   // Sends D-Bus message to start a mini-container.
@@ -82,10 +91,16 @@ class ArcSession {
   // when it has already been called before.
   virtual void OnShutdown() = 0;
 
-  // Sets a hash string of the profile user ID and an ARC serial number for the
+  // Sets a hash string of the profile user IDs and an ARC serial number for the
   // user.
-  virtual void SetUserInfo(const std::string& hash,
+  virtual void SetUserInfo(const cryptohome::Identification& cryptohome_id,
+                           const std::string& hash,
                            const std::string& serial_number) = 0;
+
+  // Provides the DemoModeDelegate which will be used to load the demo session
+  // apps path.
+  virtual void SetDemoModeDelegate(
+      ArcClientAdapter::DemoModeDelegate* delegate) = 0;
 
   void AddObserver(Observer* observer);
   void RemoveObserver(Observer* observer);

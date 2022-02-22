@@ -78,6 +78,20 @@ service ProducerPort {
   // 2) Perform an action as defined in those sessions configs.
   rpc ActivateTriggers(ActivateTriggersRequest)
       returns (ActivateTriggersResponse) {}
+
+  // ----------------------------------------------------
+  // All methods below have been introduced in Android R.
+  // ----------------------------------------------------
+
+  // This is used to linearize the producer with the service and to guarantee
+  // that all IPCs prior to this call have been seen and processed by the
+  // service. Example:
+  //   - RegisterDataSource(A)
+  //   - RegisterDataSource(B)
+  //   - Sync()
+  // When the Sync() response is received, the producer is guaranteed that the
+  // service has seen both data source registrations.
+  rpc Sync(SyncRequest) returns (SyncResponse) {}
 }
 
 // Arguments for rpc InitializeConnection().
@@ -145,6 +159,11 @@ message InitializeConnectionResponse {
   // InitializeConnectionRequest (if any). If false, the shared memory buffer FD
   // will provided by the service via the SetupTracing async command.
   optional bool using_shmem_provided_by_producer = 1;
+
+  // Indicates to the producer that the service allows direct SMB patching of
+  // chunks that have not yet been committed to it.
+  // This field has been introduced in Android S.
+  optional bool direct_smb_patching_supported = 2;
 }
 
 // Arguments for rpc RegisterDataSource().
@@ -280,3 +299,7 @@ message GetAsyncCommandResponse {
     ClearIncrementalState clear_incremental_state = 7;
   }
 }
+
+// Arguments for rpc Sync().
+message SyncRequest {}
+message SyncResponse {}

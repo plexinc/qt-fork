@@ -55,7 +55,7 @@ QWidgetAnimator::QWidgetAnimator(QMainWindowLayout *layout)
 : m_mainWindowLayout(layout)
 #endif
 {
-    Q_UNUSED(layout)
+    Q_UNUSED(layout);
 }
 
 void QWidgetAnimator::abort(QWidget *w)
@@ -93,7 +93,7 @@ void QWidgetAnimator::animate(QWidget *widget, const QRect &_final_geometry, boo
 
     animate = animate && !r.isNull() && !_final_geometry.isNull();
 
-    // might make the wigdet go away by sending it to negative space
+    // might make the widget go away by sending it to negative space
     const QRect final_geometry = _final_geometry.isValid() || widget->isWindow() ? _final_geometry :
         QRect(QPoint(-500 - widget->width(), -500 - widget->height()), widget->size());
 

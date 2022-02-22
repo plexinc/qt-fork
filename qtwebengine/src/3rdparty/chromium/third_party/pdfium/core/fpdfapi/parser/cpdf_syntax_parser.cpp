@@ -9,7 +9,6 @@
 #include <algorithm>
 #include <sstream>
 #include <utility>
-#include <vector>
 
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_boolean.h"
@@ -27,12 +26,18 @@
 #include "core/fxcrt/cfx_binarybuf.h"
 #include "core/fxcrt/fx_extension.h"
 #include "core/fxcrt/fx_safe_types.h"
+#include "third_party/base/check.h"
 #include "third_party/base/numerics/safe_math.h"
-#include "third_party/base/ptr_util.h"
 
 namespace {
 
-enum class ReadStatus { Normal, Backslash, Octal, FinishOctal, CarriageReturn };
+enum class ReadStatus {
+  kNormal,
+  kBackslash,
+  kOctal,
+  kFinishOctal,
+  kCarriageReturn
+};
 
 class ReadableSubStream final : public IFX_SeekableReadStream {
  public:
@@ -76,7 +81,7 @@ int CPDF_SyntaxParser::s_CurrentRecursionDepth = 0;
 std::unique_ptr<CPDF_SyntaxParser> CPDF_SyntaxParser::CreateForTesting(
     const RetainPtr<IFX_SeekableReadStream>& pFileAccess,
     FX_FILESIZE HeaderOffset) {
-  return pdfium::MakeUnique<CPDF_SyntaxParser>(
+  return std::make_unique<CPDF_SyntaxParser>(
       pdfium::MakeRetain<CPDF_ReadValidator>(pFileAccess, nullptr),
       HeaderOffset);
 }
@@ -93,7 +98,7 @@ CPDF_SyntaxParser::CPDF_SyntaxParser(
     : m_pFileAccess(validator),
       m_HeaderOffset(HeaderOffset),
       m_FileLen(m_pFileAccess->GetSize()) {
-  ASSERT(m_HeaderOffset <= m_FileLen);
+  DCHECK(m_HeaderOffset <= m_FileLen);
 }
 
 CPDF_SyntaxParser::~CPDF_SyntaxParser() = default;
@@ -238,11 +243,11 @@ ByteString CPDF_SyntaxParser::ReadString() {
 
   std::ostringstream buf;
   int32_t parlevel = 0;
-  ReadStatus status = ReadStatus::Normal;
+  ReadStatus status = ReadStatus::kNormal;
   int32_t iEscCode = 0;
   while (1) {
     switch (status) {
-      case ReadStatus::Normal:
+      case ReadStatus::kNormal:
         if (ch == ')') {
           if (parlevel == 0)
             return ByteString(buf);
@@ -251,19 +256,19 @@ ByteString CPDF_SyntaxParser::ReadString() {
           parlevel++;
         }
         if (ch == '\\')
-          status = ReadStatus::Backslash;
+          status = ReadStatus::kBackslash;
         else
           buf << static_cast<char>(ch);
         break;
-      case ReadStatus::Backslash:
+      case ReadStatus::kBackslash:
         if (FXSYS_IsOctalDigit(ch)) {
           iEscCode = FXSYS_DecimalCharToInt(static_cast<wchar_t>(ch));
-          status = ReadStatus::Octal;
+          status = ReadStatus::kOctal;
           break;
         }
 
         if (ch == '\r') {
-          status = ReadStatus::CarriageReturn;
+          status = ReadStatus::kCarriageReturn;
           break;
         }
         if (ch == 'n') {
@@ -279,21 +284,21 @@ ByteString CPDF_SyntaxParser::ReadString() {
         } else if (ch != '\n') {
           buf << static_cast<char>(ch);
         }
-        status = ReadStatus::Normal;
+        status = ReadStatus::kNormal;
         break;
-      case ReadStatus::Octal:
+      case ReadStatus::kOctal:
         if (FXSYS_IsOctalDigit(ch)) {
           iEscCode =
               iEscCode * 8 + FXSYS_DecimalCharToInt(static_cast<wchar_t>(ch));
-          status = ReadStatus::FinishOctal;
+          status = ReadStatus::kFinishOctal;
         } else {
           buf << static_cast<char>(iEscCode);
-          status = ReadStatus::Normal;
+          status = ReadStatus::kNormal;
           continue;
         }
         break;
-      case ReadStatus::FinishOctal:
-        status = ReadStatus::Normal;
+      case ReadStatus::kFinishOctal:
+        status = ReadStatus::kNormal;
         if (FXSYS_IsOctalDigit(ch)) {
           iEscCode =
               iEscCode * 8 + FXSYS_DecimalCharToInt(static_cast<wchar_t>(ch));
@@ -303,8 +308,8 @@ ByteString CPDF_SyntaxParser::ReadString() {
           continue;
         }
         break;
-      case ReadStatus::CarriageReturn:
-        status = ReadStatus::Normal;
+      case ReadStatus::kCarriageReturn:
+        status = ReadStatus::kNormal;
         if (ch != '\n')
           continue;
         break;
@@ -366,6 +371,11 @@ void CPDF_SyntaxParser::ToNextLine() {
 }
 
 void CPDF_SyntaxParser::ToNextWord() {
+  if (m_TrailerEnds) {
+    RecordingToNextWord();
+    return;
+  }
+
   uint8_t ch;
   if (!GetNextChar(ch))
     return;
@@ -389,8 +399,73 @@ void CPDF_SyntaxParser::ToNextWord() {
   m_Pos--;
 }
 
+// A state machine which goes % -> E -> O -> F -> line ending.
+enum class EofState {
+  kInitial = 0,
+  kNonPercent,
+  kPercent,
+  kE,
+  kO,
+  kF,
+  kInvalid,
+};
+
+void CPDF_SyntaxParser::RecordingToNextWord() {
+  assert(m_TrailerEnds);
+
+  EofState eof_state = EofState::kInitial;
+  // Find the first character which is neither whitespace, nor part of a
+  // comment.
+  while (1) {
+    uint8_t ch;
+    if (!GetNextChar(ch))
+      return;
+    switch (eof_state) {
+      case EofState::kInitial:
+        if (!PDFCharIsWhitespace(ch))
+          eof_state = ch == '%' ? EofState::kPercent : EofState::kNonPercent;
+        break;
+      case EofState::kNonPercent:
+        break;
+      case EofState::kPercent:
+        if (ch == 'E')
+          eof_state = EofState::kE;
+        else if (ch != '%')
+          eof_state = EofState::kInvalid;
+        break;
+      case EofState::kE:
+        eof_state = ch == 'O' ? EofState::kO : EofState::kInvalid;
+        break;
+      case EofState::kO:
+        eof_state = ch == 'F' ? EofState::kF : EofState::kInvalid;
+        break;
+      case EofState::kF:
+        if (ch == '\r') {
+          // See if \r has to be combined with a \n that follows it
+          // immediately.
+          if (GetNextChar(ch) && ch != '\n') {
+            ch = '\r';
+            m_Pos--;
+          }
+        }
+        // If we now have a \r, that's not followed by a \n, so both are OK.
+        if (ch == '\r' || ch == '\n')
+          m_TrailerEnds->push_back(m_Pos);
+        eof_state = EofState::kInvalid;
+        break;
+      case EofState::kInvalid:
+        break;
+    }
+    if (PDFCharIsLineEnding(ch))
+      eof_state = EofState::kInitial;
+    if (eof_state == EofState::kNonPercent)
+      break;
+  }
+  m_Pos--;
+}
+
 ByteString CPDF_SyntaxParser::GetNextWord(bool* bIsNumber) {
-  const CPDF_ReadValidator::Session read_session(GetValidator());
+  CPDF_ReadValidator::ScopedSession read_session(GetValidator());
   GetNextWordInternal(bIsNumber);
   ByteString ret;
   if (!GetValidator()->has_read_problems())
@@ -413,7 +488,7 @@ void CPDF_SyntaxParser::SetPos(FX_FILESIZE pos) {
 
 RetainPtr<CPDF_Object> CPDF_SyntaxParser::GetObjectBody(
     CPDF_IndirectObjectHolder* pObjList) {
-  const CPDF_ReadValidator::Session read_session(GetValidator());
+  CPDF_ReadValidator::ScopedSession read_session(GetValidator());
   auto result = GetObjectBodyInternal(pObjList, ParseType::kLoose);
   if (GetValidator()->has_read_problems())
     return nullptr;
@@ -534,7 +609,7 @@ RetainPtr<CPDF_Object> CPDF_SyntaxParser::GetObjectBodyInternal(
 RetainPtr<CPDF_Object> CPDF_SyntaxParser::GetIndirectObject(
     CPDF_IndirectObjectHolder* pObjList,
     ParseType parse_type) {
-  const CPDF_ReadValidator::Session read_session(GetValidator());
+  CPDF_ReadValidator::ScopedSession read_session(GetValidator());
   const FX_FILESIZE saved_pos = GetPos();
   bool is_number = false;
   ByteString word = GetNextWord(&is_number);
@@ -667,7 +742,7 @@ RetainPtr<CPDF_Stream> CPDF_SyntaxParser::ReadStream(
   // Note, we allow zero length streams as we need to pass them through when we
   // are importing pages into a new document.
   if (len >= 0) {
-    const CPDF_ReadValidator::Session read_session(GetValidator());
+    CPDF_ReadValidator::ScopedSession read_session(GetValidator());
     m_Pos += ReadEOLMarkers(GetPos());
     memset(m_WordBuffer, 0, kEndStreamStr.GetLength() + 1);
     GetNextWordInternal(nullptr);
@@ -693,7 +768,7 @@ RetainPtr<CPDF_Stream> CPDF_SyntaxParser::ReadStream(
       return nullptr;
 
     len = streamEndPos - streamStartPos;
-    ASSERT(len >= 0);
+    DCHECK(len >= 0);
     if (len > 0) {
       SetPos(streamStartPos);
       // Check data availability first to allow the Validator to request data
@@ -719,6 +794,14 @@ RetainPtr<CPDF_Stream> CPDF_SyntaxParser::ReadStream(
   const FX_FILESIZE end_stream_offset = GetPos();
   memset(m_WordBuffer, 0, kEndObjStr.GetLength() + 1);
   GetNextWordInternal(nullptr);
+
+  // Allow whitespace after endstream and before a newline.
+  unsigned char ch = 0;
+  while (GetNextChar(ch)) {
+    if (!PDFCharIsWhitespace(ch) || PDFCharIsLineEnding(ch))
+      break;
+  }
+  SetPos(GetPos() - 1);
 
   int numMarkers = ReadEOLMarkers(GetPos());
   if (m_WordSize == static_cast<unsigned int>(kEndObjStr.GetLength()) &&
@@ -750,8 +833,8 @@ bool CPDF_SyntaxParser::IsWholeWord(FX_FILESIZE startpos,
                      !PDFCharIsWhitespace(tag[taglen - 1]);
 
   uint8_t ch;
-  if (bCheckRight && startpos + (int32_t)taglen <= limit &&
-      GetCharAt(startpos + (int32_t)taglen, ch)) {
+  if (bCheckRight && startpos + static_cast<int32_t>(taglen) <= limit &&
+      GetCharAt(startpos + static_cast<int32_t>(taglen), ch)) {
     if (PDFCharIsNumeric(ch) || PDFCharIsOther(ch) ||
         (checkKeyword && PDFCharIsDelimiter(ch))) {
       return false;
@@ -804,7 +887,7 @@ bool CPDF_SyntaxParser::BackwardsSearchToWord(ByteStringView word,
 FX_FILESIZE CPDF_SyntaxParser::FindTag(ByteStringView tag) {
   const FX_FILESIZE startpos = GetPos();
   const int32_t taglen = tag.GetLength();
-  ASSERT(taglen > 0);
+  DCHECK(taglen > 0);
 
   int32_t match = 0;
   while (1) {

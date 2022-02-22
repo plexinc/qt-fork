@@ -37,7 +37,7 @@ class CORE_EXPORT LongTaskDetector final
   void RegisterObserver(LongTaskObserver*);
   void UnregisterObserver(LongTaskObserver*);
 
-  void Trace(Visitor*);
+  void Trace(Visitor*) const;
 
   static constexpr base::TimeDelta kLongTaskThreshold =
       base::TimeDelta::FromMilliseconds(50);
@@ -49,6 +49,8 @@ class CORE_EXPORT LongTaskDetector final
                       base::TimeTicks end_time) override;
 
   HeapHashSet<Member<LongTaskObserver>> observers_;
+  HeapVector<Member<LongTaskObserver>> observers_to_be_removed_;
+  bool iterating_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(LongTaskDetector);
 };

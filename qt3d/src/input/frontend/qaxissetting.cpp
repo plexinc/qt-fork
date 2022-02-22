@@ -40,8 +40,6 @@
 #include "qaxissetting.h"
 #include "qaxissetting_p.h"
 
-#include <Qt3DCore/qnodecreatedchange.h>
-
 QT_BEGIN_NAMESPACE
 
 namespace Qt3DInput {
@@ -92,7 +90,7 @@ QAxisSetting::~QAxisSetting()
  * \brief QAxisSetting::axes
  * \return the current list of Axis these settings apply to.
  */
-QVector<int> QAxisSetting::axes() const
+QList<int> QAxisSetting::axes() const
 {
     Q_D(const QAxisSetting);
     return d->m_axes;
@@ -161,7 +159,7 @@ void QAxisSetting::setDeadZoneRadius(float deadZoneRadius)
 }
 
 /*!
-  \fn Qt3DInput::QAxisSetting::axesChanged(const QVector<int> &axes)
+  \fn Qt3DInput::QAxisSetting::axesChanged(const QList<int> &axes)
 
   This signal is emitted when the axes associated with the axis setting is changed to \a axes.
 */
@@ -183,7 +181,7 @@ void QAxisSetting::setDeadZoneRadius(float deadZoneRadius)
 /*!
     Set the current axes of the QAxisSetting instance to \a axes.
  */
-void QAxisSetting::setAxes(const QVector<int> &axes)
+void QAxisSetting::setAxes(const QList<int> &axes)
 {
     Q_D(QAxisSetting);
     if (d->m_axes == axes)
@@ -224,19 +222,6 @@ void QAxisSetting::setSmoothEnabled(bool enabled)
 
     d->m_smooth = enabled;
     emit smoothChanged(enabled);
-}
-
-Qt3DCore::QNodeCreatedChangeBasePtr QAxisSetting::createNodeCreationChange() const
-{
-    auto creationChange = Qt3DCore::QNodeCreatedChangePtr<QAxisSettingData>::create(this);
-    auto &data = creationChange->data;
-
-    Q_D(const QAxisSetting);
-    data.deadZoneRadius = d->m_deadZoneRadius;
-    data.axes = d->m_axes;
-    data.smooth = d->m_smooth;
-
-    return creationChange;
 }
 
 } // namespace Qt3DInput

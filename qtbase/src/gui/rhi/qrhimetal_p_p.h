@@ -1,34 +1,37 @@
 /****************************************************************************
 **
 ** Copyright (C) 2019 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the Qt Gui module
 **
-** $QT_BEGIN_LICENSE:LGPL3$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
 ** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPLv3 included in the
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
 ** packaging of this file. Please review the following information to
 ** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl.html.
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
 ** GNU General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or later as published by the Free
-** Software Foundation and appearing in the file LICENSE.GPL included in
-** the packaging of this file. Please review the following information to
-** ensure the GNU General Public License version 2.0 requirements will be
-** met: http://www.gnu.org/licenses/gpl-2.0.html.
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -63,9 +66,11 @@ struct QMetalBuffer : public QRhiBuffer
 {
     QMetalBuffer(QRhiImplementation *rhi, Type type, UsageFlags usage, int size);
     ~QMetalBuffer();
-    void release() override;
-    bool build() override;
+    void destroy() override;
+    bool create() override;
     QRhiBuffer::NativeBuffer nativeBuffer() override;
+    char *beginFullDynamicBufferUpdateForCurrentFrame() override;
+    void endFullDynamicBufferUpdateForCurrentFrame() override;
 
     QMetalBufferData *d;
     uint generation = 0;
@@ -79,10 +84,11 @@ struct QMetalRenderBufferData;
 struct QMetalRenderBuffer : public QRhiRenderBuffer
 {
     QMetalRenderBuffer(QRhiImplementation *rhi, Type type, const QSize &pixelSize,
-                       int sampleCount, QRhiRenderBuffer::Flags flags);
+                       int sampleCount, QRhiRenderBuffer::Flags flags,
+                       QRhiTexture::Format backingFormatHint);
     ~QMetalRenderBuffer();
-    void release() override;
-    bool build() override;
+    void destroy() override;
+    bool create() override;
     QRhiTexture::Format backingFormat() const override;
 
     QMetalRenderBufferData *d;
@@ -96,15 +102,15 @@ struct QMetalTextureData;
 
 struct QMetalTexture : public QRhiTexture
 {
-    QMetalTexture(QRhiImplementation *rhi, Format format, const QSize &pixelSize,
+    QMetalTexture(QRhiImplementation *rhi, Format format, const QSize &pixelSize, int depth,
                   int sampleCount, Flags flags);
     ~QMetalTexture();
-    void release() override;
-    bool build() override;
-    bool buildFrom(NativeTexture src) override;
+    void destroy() override;
+    bool create() override;
+    bool createFrom(NativeTexture src) override;
     NativeTexture nativeTexture() override;
 
-    bool prepareBuild(QSize *adjustedSize = nullptr);
+    bool prepareCreate(QSize *adjustedSize = nullptr);
 
     QMetalTextureData *d;
     int mipLevelCount = 0;
@@ -123,8 +129,8 @@ struct QMetalSampler : public QRhiSampler
     QMetalSampler(QRhiImplementation *rhi, Filter magFilter, Filter minFilter, Filter mipmapMode,
                   AddressMode u, AddressMode v, AddressMode w);
     ~QMetalSampler();
-    void release() override;
-    bool build() override;
+    void destroy() override;
+    bool create() override;
 
     QMetalSamplerData *d;
     uint generation = 0;
@@ -137,8 +143,12 @@ struct QMetalRenderPassDescriptor : public QRhiRenderPassDescriptor
 {
     QMetalRenderPassDescriptor(QRhiImplementation *rhi);
     ~QMetalRenderPassDescriptor();
-    void release() override;
+    void destroy() override;
     bool isCompatible(const QRhiRenderPassDescriptor *other) const override;
+    QRhiRenderPassDescriptor *newCompatibleRenderPassDescriptor() const override;
+    QVector<quint32> serializedFormat() const override;
+
+    void updateSerializedFormat();
 
     // there is no MTLRenderPassDescriptor here as one will be created for each pass in beginPass()
 
@@ -148,6 +158,7 @@ struct QMetalRenderPassDescriptor : public QRhiRenderPassDescriptor
     bool hasDepthStencil = false;
     int colorFormat[MAX_COLOR_ATTACHMENTS];
     int dsFormat;
+    QVector<quint32> serializedFormatData;
 };
 
 struct QMetalRenderTargetData;
@@ -156,7 +167,7 @@ struct QMetalReferenceRenderTarget : public QRhiRenderTarget
 {
     QMetalReferenceRenderTarget(QRhiImplementation *rhi);
     ~QMetalReferenceRenderTarget();
-    void release() override;
+    void destroy() override;
 
     QSize pixelSize() const override;
     float devicePixelRatio() const override;
@@ -169,14 +180,14 @@ struct QMetalTextureRenderTarget : public QRhiTextureRenderTarget
 {
     QMetalTextureRenderTarget(QRhiImplementation *rhi, const QRhiTextureRenderTargetDescription &desc, Flags flags);
     ~QMetalTextureRenderTarget();
-    void release() override;
+    void destroy() override;
 
     QSize pixelSize() const override;
     float devicePixelRatio() const override;
     int sampleCount() const override;
 
     QRhiRenderPassDescriptor *newCompatibleRenderPassDescriptor() override;
-    bool build() override;
+    bool create() override;
 
     QMetalRenderTargetData *d;
     friend class QRhiMetal;
@@ -186,8 +197,9 @@ struct QMetalShaderResourceBindings : public QRhiShaderResourceBindings
 {
     QMetalShaderResourceBindings(QRhiImplementation *rhi);
     ~QMetalShaderResourceBindings();
-    void release() override;
-    bool build() override;
+    void destroy() override;
+    bool create() override;
+    void updateResources(UpdateFlags flags) override;
 
     QVarLengthArray<QRhiShaderResourceBinding, 8> sortedBindings;
     int maxBinding = -1;
@@ -233,8 +245,8 @@ struct QMetalGraphicsPipeline : public QRhiGraphicsPipeline
 {
     QMetalGraphicsPipeline(QRhiImplementation *rhi);
     ~QMetalGraphicsPipeline();
-    void release() override;
-    bool build() override;
+    void destroy() override;
+    bool create() override;
 
     QMetalGraphicsPipelineData *d;
     uint generation = 0;
@@ -248,8 +260,8 @@ struct QMetalComputePipeline : public QRhiComputePipeline
 {
     QMetalComputePipeline(QRhiImplementation *rhi);
     ~QMetalComputePipeline();
-    void release() override;
-    bool build() override;
+    void destroy() override;
+    bool create() override;
 
     QMetalComputePipelineData *d;
     uint generation = 0;
@@ -264,7 +276,7 @@ struct QMetalCommandBuffer : public QRhiCommandBuffer
 {
     QMetalCommandBuffer(QRhiImplementation *rhi);
     ~QMetalCommandBuffer();
-    void release() override;
+    void destroy() override;
 
     QMetalCommandBufferData *d = nullptr;
     QRhiMetalCommandBufferNativeHandles nativeHandlesStruct;
@@ -306,7 +318,7 @@ struct QMetalSwapChain : public QRhiSwapChain
 {
     QMetalSwapChain(QRhiImplementation *rhi);
     ~QMetalSwapChain();
-    void release() override;
+    void destroy() override;
 
     QRhiCommandBuffer *currentFrameCommandBuffer() override;
     QRhiRenderTarget *currentFrameRenderTarget() override;
@@ -314,7 +326,7 @@ struct QMetalSwapChain : public QRhiSwapChain
 
     QRhiRenderPassDescriptor *newCompatibleRenderPassDescriptor() override;
 
-    bool buildOrResize() override;
+    bool createOrResize() override;
 
     void chooseFormats();
 
@@ -349,9 +361,11 @@ public:
     QRhiRenderBuffer *createRenderBuffer(QRhiRenderBuffer::Type type,
                                          const QSize &pixelSize,
                                          int sampleCount,
-                                         QRhiRenderBuffer::Flags flags) override;
+                                         QRhiRenderBuffer::Flags flags,
+                                         QRhiTexture::Format backingFormatHint) override;
     QRhiTexture *createTexture(QRhiTexture::Format format,
                                const QSize &pixelSize,
+                               int depth,
                                int sampleCount,
                                QRhiTexture::Flags flags) override;
     QRhiSampler *createSampler(QRhiSampler::Filter magFilter,
@@ -377,7 +391,8 @@ public:
                    QRhiRenderTarget *rt,
                    const QColor &colorClearValue,
                    const QRhiDepthStencilClearValue &depthStencilClearValue,
-                   QRhiResourceUpdateBatch *resourceUpdates) override;
+                   QRhiResourceUpdateBatch *resourceUpdates,
+                   QRhiCommandBuffer::BeginPassFlags flags) override;
     void endPass(QRhiCommandBuffer *cb, QRhiResourceUpdateBatch *resourceUpdates) override;
 
     void setGraphicsPipeline(QRhiCommandBuffer *cb,
@@ -409,7 +424,9 @@ public:
     void debugMarkEnd(QRhiCommandBuffer *cb) override;
     void debugMarkMsg(QRhiCommandBuffer *cb, const QByteArray &msg) override;
 
-    void beginComputePass(QRhiCommandBuffer *cb, QRhiResourceUpdateBatch *resourceUpdates) override;
+    void beginComputePass(QRhiCommandBuffer *cb,
+                          QRhiResourceUpdateBatch *resourceUpdates,
+                          QRhiCommandBuffer::BeginPassFlags flags) override;
     void endComputePass(QRhiCommandBuffer *cb, QRhiResourceUpdateBatch *resourceUpdates) override;
     void setComputePipeline(QRhiCommandBuffer *cb, QRhiComputePipeline *ps) override;
     void dispatch(QRhiCommandBuffer *cb, int x, int y, int z) override;
@@ -418,7 +435,7 @@ public:
     void beginExternal(QRhiCommandBuffer *cb) override;
     void endExternal(QRhiCommandBuffer *cb) override;
 
-    QVector<int> supportedSampleCounts() const override;
+    QList<int> supportedSampleCounts() const override;
     int ubufAlignment() const override;
     bool isYUpInFramebuffer() const override;
     bool isYUpInNDC() const override;
@@ -428,10 +445,14 @@ public:
     bool isFeatureSupported(QRhi::Feature feature) const override;
     int resourceLimit(QRhi::ResourceLimit limit) const override;
     const QRhiNativeHandles *nativeHandles() override;
+    QRhiDriverInfo driverInfo() const override;
     void sendVMemStatsToProfiler() override;
     bool makeThreadLocalNativeContextCurrent() override;
     void releaseCachedResources() override;
     bool isDeviceLost() const override;
+
+    QByteArray pipelineCacheData() override;
+    void setPipelineCacheData(const QByteArray &data) override;
 
     void executeDeferredReleases(bool forced = false);
     void finishActiveReadbacks(bool forced = false);
@@ -456,9 +477,12 @@ public:
     QMetalSwapChain *currentSwapChain = nullptr;
     QSet<QMetalSwapChain *> swapchains;
     QRhiMetalNativeHandles nativeHandlesStruct;
+    QRhiDriverInfo driverInfoStruct;
 
     struct {
         int maxTextureSize = 4096;
+        bool baseVertexAndInstance = true;
+        QVector<int> supportedSampleCounts;
     } caps;
 
     QRhiMetalData *d = nullptr;

@@ -48,8 +48,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import QtWayland.Compositor 1.0
+import QtQuick
+import QtWayland.Compositor
 
 ShellSurfaceItem {
     id: chrome
@@ -58,33 +58,10 @@ ShellSurfaceItem {
 
     signal destroyAnimationFinished
 
-    // If the client asks to show popups on this surface, automatically create child ShellSurfaceItems
-    autoCreatePopupItems: true
-
+    // ![destruction]
     onSurfaceDestroyed: {
         bufferLocked = true;
         destroyAnimation.start();
-    }
-
-    transform: [
-        Scale {
-            id: scaleTransform
-            origin.x: chrome.width / 2
-            origin.y: chrome.height / 2
-        }
-    ]
-
-    Connections {
-        target: shellSurface
-
-        // some signals are not available on wl_shell, so let's ignore them
-        ignoreUnknownSignals: true
-
-        onActivatedChanged: { // xdg_shell only
-            if (shellSurface.activated) {
-                receivedFocusAnimation.start();
-            }
-        }
     }
 
     SequentialAnimation {
@@ -97,6 +74,29 @@ ShellSurfaceItem {
         }
         NumberAnimation { target: scaleTransform; property: "xScale"; to: 0; duration: 150 }
         ScriptAction { script: destroyAnimationFinished() }
+    }
+    // ![destruction]
+
+    transform: [
+        Scale {
+            id: scaleTransform
+            origin.x: chrome.width / 2
+            origin.y: chrome.height / 2
+        }
+    ]
+
+    // ![activation]
+    Connections {
+        target: shellSurface.toplevel !== undefined ? shellSurface.toplevel : null
+
+        // some signals are not available on wl_shell, so let's ignore them
+        ignoreUnknownSignals: true
+
+        function onActivatedChanged() { // xdg_shell only
+            if (shellSurface.toplevel.activated) {
+                receivedFocusAnimation.start();
+            }
+        }
     }
 
     SequentialAnimation {
@@ -111,4 +111,5 @@ ShellSurfaceItem {
             NumberAnimation { target: scaleTransform; property: "xScale"; to: 1; duration: 100; easing.type: Easing.InOutQuad }
         }
     }
+    // ![activation]
 }

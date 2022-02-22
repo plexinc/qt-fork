@@ -62,9 +62,6 @@
 
 #if defined(Q_OS_MAC)
 # include <mach/semaphore.h>
-#elif defined(Q_OS_LINUX) && !defined(QT_LINUXBASE)
-// use Linux mutexes everywhere except for LSB builds
-#  define QT_LINUX_FUTEX
 #elif defined(Q_OS_UNIX)
 # if _POSIX_VERSION-0 >= 200112L || _XOPEN_VERSION-0 >= 600
 #  include <semaphore.h>
@@ -76,16 +73,7 @@ struct timespec;
 
 QT_BEGIN_NAMESPACE
 
-class QMutexData
-{
-public:
-    bool recursive;
-    QMutexData(QMutex::RecursionMode mode = QMutex::NonRecursive)
-        : recursive(mode == QMutex::Recursive) {}
-};
-
-#if !defined(QT_LINUX_FUTEX)
-class QMutexPrivate : public QMutexData
+class QMutexPrivate
 {
 public:
     ~QMutexPrivate();
@@ -98,7 +86,8 @@ public:
     QAtomicInt refCount;
     int id;
 
-    bool ref() {
+    bool ref()
+    {
         Q_ASSERT(refCount.loadRelaxed() >= 0);
         int c;
         do {
@@ -109,7 +98,8 @@ public:
         Q_ASSERT(refCount.loadRelaxed() >= 0);
         return true;
     }
-    void deref() {
+    void deref()
+    {
         Q_ASSERT(refCount.loadRelaxed() >= 0);
         if (!refCount.deref())
             release();
@@ -140,7 +130,6 @@ public:
     Qt::HANDLE event;
 #endif
 };
-#endif //QT_LINUX_FUTEX
 
 
 #ifdef Q_OS_UNIX

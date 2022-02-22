@@ -43,7 +43,9 @@
 
 #include "qwizard_win_p.h"
 #include <private/qapplication_p.h>
-#include <qpa/qplatformnativeinterface.h>
+#include <private/qwindowsfontdatabasebase_p.h>
+#include <qpa/qplatformwindow.h>
+#include <qpa/qplatformwindow_p.h>
 #include "qwizard.h"
 #include "qpaintengine.h"
 #include "qapplication.h"
@@ -52,7 +54,7 @@
 #include <QtCore/QDebug>
 #include <QtGui/QMouseEvent>
 #include <QtGui/QWindow>
-#include <QtWidgets/QDesktopWidget>
+#include <QtGui/private/qhighdpiscaling_p.h>
 
 #include <uxtheme.h>
 #include <vssym32.h>
@@ -92,7 +94,7 @@ QSize QVistaBackButton::sizeHint() const
     return QSize(width, height);
 }
 
-void QVistaBackButton::enterEvent(QEvent *event)
+void QVistaBackButton::enterEvent(QEnterEvent *event)
 {
     if (isEnabled())
         update();
@@ -166,6 +168,8 @@ QVistaHelper::~QVistaHelper()
 
 void QVistaHelper::updateCustomMargins(bool vistaMargins)
 {
+    using namespace QNativeInterface::Private;
+
     if (QWindow *window = wizard->windowHandle()) {
         // Reduce top frame to zero since we paint it ourselves. Use
         // device pixel to avoid rounding errors.
@@ -176,18 +180,14 @@ void QVistaHelper::updateCustomMargins(bool vistaMargins)
         // The dynamic property takes effect when creating the platform window.
         window->setProperty("_q_windowsCustomMargins", customMarginsV);
         // If a platform window exists, change via native interface.
-        if (QPlatformWindow *platformWindow = window->handle()) {
-            QGuiApplication::platformNativeInterface()->
-                setWindowProperty(platformWindow, QStringLiteral("WindowsCustomMargins"),
-                                  customMarginsV);
-        }
+        if (auto platformWindow = dynamic_cast<QWindowsWindow *>(window->handle()))
+            platformWindow->setCustomMargins(customMarginsDp);
     }
 }
 
 bool QVistaHelper::isCompositionEnabled()
 {
-    BOOL bEnabled;
-    return SUCCEEDED(DwmIsCompositionEnabled(&bEnabled)) && bEnabled;
+    return true;
 }
 
 bool QVistaHelper::isThemeActive()
@@ -259,11 +259,8 @@ static bool getCaptionQFont(int dpi, QFont *result)
         return false;
     // Call into QWindowsNativeInterface to convert the LOGFONT into a QFont.
     const LOGFONT logFont = getCaptionLogFont(hTheme);
-    QPlatformNativeInterface *ni = QGuiApplication::platformNativeInterface();
-    return ni && QMetaObject::invokeMethod(ni, "logFontToQFont", Qt::DirectConnection,
-                                           Q_RETURN_ARG(QFont, *result),
-                                           Q_ARG(const void*, &logFont),
-                                           Q_ARG(int, dpi));
+    *result = QWindowsFontDatabaseBase::LOGFONT_to_QFont(logFont, dpi);
+    return true;
 }
 
 void QVistaHelper::drawTitleBar(QPainter *painter)
@@ -339,11 +336,7 @@ void QVistaHelper::setTitleBarIconAndCaptionVisible(bool visible)
         SetWindowThemeAttribute(handle, WTA_NONCLIENT, &opt, sizeof(WTA_OPTIONS));
 }
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 bool QVistaHelper::winEvent(MSG* msg, qintptr *result)
-#else
-bool QVistaHelper::winEvent(MSG* msg, long* result)
-#endif
 {
     switch (msg->message) {
     case WM_NCHITTEST: {
@@ -405,11 +398,7 @@ void QVistaHelper::mouseEvent(QEvent *event)
     }
 }
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 bool QVistaHelper::handleWinEvent(MSG *message, qintptr *result)
-#else
-bool QVistaHelper::handleWinEvent(MSG *message, long *result)
-#endif
 {
     if (message->message == WM_THEMECHANGED || message->message == WM_DWMCOMPOSITIONCHANGED)
         cachedVistaState = Dirty;
@@ -510,6 +499,12 @@ void QVistaHelper::mouseReleaseEvent(QMouseEvent *event)
     event->ignore();
 }
 
+static inline LPARAM pointToLParam(const QPointF &p, const QWidget *w)
+{
+    const auto point = QHighDpi::toNativePixels(p, w->screen()).toPoint();
+    return MAKELPARAM(point.x(), point.y());
+}
+
 bool QVistaHelper::eventFilter(QObject *obj, QEvent *event)
 {
     if (obj != wizard)
@@ -517,15 +512,11 @@ bool QVistaHelper::eventFilter(QObject *obj, QEvent *event)
 
     if (event->type() == QEvent::MouseMove) {
         QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
         qintptr result;
-#else
-        long result;
-#endif
         MSG msg;
         msg.message = WM_NCHITTEST;
         msg.wParam  = 0;
-        msg.lParam = MAKELPARAM(mouseEvent->globalX(), mouseEvent->globalY());
+        msg.lParam = pointToLParam(mouseEvent->globalPosition(), wizard);
         msg.hwnd = wizardHWND();
         winEvent(&msg, &result);
         msg.wParam = result;
@@ -535,15 +526,11 @@ bool QVistaHelper::eventFilter(QObject *obj, QEvent *event)
         QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
 
         if (mouseEvent->button() == Qt::LeftButton) {
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
             qintptr result;
-#else
-            long result;
-#endif
             MSG msg;
             msg.message = WM_NCHITTEST;
             msg.wParam  = 0;
-            msg.lParam = MAKELPARAM(mouseEvent->globalX(), mouseEvent->globalY());
+            msg.lParam = pointToLParam(mouseEvent->globalPosition(), wizard);
             msg.hwnd = wizardHWND();
             winEvent(&msg, &result);
             msg.wParam = result;
@@ -554,15 +541,11 @@ bool QVistaHelper::eventFilter(QObject *obj, QEvent *event)
         QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
 
         if (mouseEvent->button() == Qt::LeftButton) {
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
             qintptr result;
-#else
-            long result;
-#endif
             MSG msg;
             msg.message = WM_NCHITTEST;
             msg.wParam  = 0;
-            msg.lParam = MAKELPARAM(mouseEvent->globalX(), mouseEvent->globalY());
+            msg.lParam = pointToLParam(mouseEvent->globalPosition(), wizard);
             msg.hwnd = wizardHWND();
             winEvent(&msg, &result);
             msg.wParam = result;
@@ -685,26 +668,9 @@ bool QVistaHelper::drawBlackRect(const QRect &rect, HDC hdc)
     return value;
 }
 
-#ifndef Q_CC_MSVC
-static inline int getWindowBottomMargin()
-{
-    return GetSystemMetrics(SM_CYSIZEFRAME);
-}
-#else
-// QTBUG-36192, GetSystemMetrics(SM_CYSIZEFRAME) returns bogus values
-// for MSVC2012 which leads to the custom margin having no effect since
-// that only works when removing the entire margin.
-static inline int getWindowBottomMargin()
-{
-    RECT rect = {0, 0, 0, 0};
-    AdjustWindowRectEx(&rect, WS_POPUP | WS_CLIPSIBLINGS | WS_CLIPCHILDREN | WS_THICKFRAME | WS_DLGFRAME, FALSE, 0);
-    return qAbs(rect.bottom);
-}
-#endif // Q_CC_MSVC
-
 int QVistaHelper::frameSizeDp()
 {
-    return getWindowBottomMargin();
+    return GetSystemMetrics(SM_CYSIZEFRAME);
 }
 
 int QVistaHelper::captionSizeDp()
@@ -732,9 +698,7 @@ int QVistaHelper::topOffset(const QPaintDevice *device)
 {
     if (vistaState() != VistaAero)
         return titleBarSize() + 3;
-    static const int aeroOffset =
-        QOperatingSystemVersion::current() < QOperatingSystemVersion::Windows8 ?
-        QStyleHelper::dpiScaled(4, device) : QStyleHelper::dpiScaled(13, device);
+    static const int aeroOffset = QStyleHelper::dpiScaled(13, device);
     return aeroOffset + titleBarSize();
 }
 

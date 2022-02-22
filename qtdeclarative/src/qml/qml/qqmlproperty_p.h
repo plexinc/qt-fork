@@ -57,9 +57,9 @@
 #include <private/qobject_p.h>
 #include <private/qtqmlglobal_p.h>
 #include <private/qqmlrefcount_p.h>
-#include <private/qqmlcontext_p.h>
-#include <private/qqmlboundsignalexpressionpointer_p.h>
+#include <private/qqmlcontextdata_p.h>
 #include <private/qqmlpropertydata_p.h>
+#include <private/qqmlpropertyindex_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -67,34 +67,38 @@ class QQmlContext;
 class QQmlEnginePrivate;
 class QQmlJavaScriptExpression;
 class QQmlMetaObject;
+class QQmlAbstractBinding;
+class QQmlBoundSignalExpression;
 
 class Q_QML_PRIVATE_EXPORT QQmlPropertyPrivate : public QQmlRefCount
 {
 public:
-    QQmlContextData *context;
+    QQmlRefPointer<QQmlContextData> context;
     QPointer<QQmlEngine> engine;
     QPointer<QObject> object;
 
     QQmlPropertyData core;
     QQmlPropertyData valueTypeData;
 
-    bool isNameCached:1;
     QString nameCache;
 
-    QQmlPropertyPrivate();
+    // ### Qt7: Get rid of this.
+    static bool resolveUrlsOnAssignment();
+
+    QQmlPropertyPrivate() {}
 
     QQmlPropertyIndex encodedIndex() const
     { return encodedIndex(core, valueTypeData); }
     static QQmlPropertyIndex encodedIndex(const QQmlPropertyData &core, const QQmlPropertyData &valueTypeData)
     { return QQmlPropertyIndex(core.coreIndex(), valueTypeData.coreIndex()); }
 
-    inline QQmlContextData *effectiveContext() const;
+    QQmlRefPointer<QQmlContextData> effectiveContext() const;
 
     void initProperty(QObject *obj, const QString &name);
     void initDefault(QObject *obj);
 
     bool isValueType() const;
-    int propertyType() const;
+    QMetaType propertyType() const;
     QQmlProperty::Type type() const;
     QQmlProperty::PropertyTypeCategory propertyTypeCategory() const;
 
@@ -106,11 +110,24 @@ public:
                                   const QVariant &value, int flags);
     static bool writeValueProperty(QObject *,
                                    const QQmlPropertyData &, const QQmlPropertyData &valueTypeData,
-                                   const QVariant &, QQmlContextData *,
+                                   const QVariant &, const QQmlRefPointer<QQmlContextData> &,
                                    QQmlPropertyData::WriteFlags flags = {});
     static bool write(QObject *, const QQmlPropertyData &, const QVariant &,
-                      QQmlContextData *, QQmlPropertyData::WriteFlags flags = {});
+                      const QQmlRefPointer<QQmlContextData> &,
+                      QQmlPropertyData::WriteFlags flags = {});
     static void findAliasTarget(QObject *, QQmlPropertyIndex, QObject **, QQmlPropertyIndex *);
+
+    struct ResolvedAlias
+    {
+        QObject *targetObject;
+        QQmlPropertyIndex targetIndex;
+    };
+    /*!
+        \internal
+        Given an alias property specified by \a baseObject and \a baseIndex, this function
+        computes the alias target.
+     */
+    static ResolvedAlias findAliasTarget(QObject *baseObject, QQmlPropertyIndex baseIndex);
 
     enum BindingFlag {
         None = 0,
@@ -126,7 +143,8 @@ public:
     static void removeBinding(QQmlAbstractBinding *b);
     static QQmlAbstractBinding *binding(QObject *, QQmlPropertyIndex index);
 
-    static QQmlProperty restore(QObject *, const QQmlPropertyData &, const QQmlPropertyData *, QQmlContextData *);
+    static QQmlProperty restore(QObject *, const QQmlPropertyData &, const QQmlPropertyData *,
+                                const QQmlRefPointer<QQmlContextData> &);
 
     int signalIndex() const;
 
@@ -146,8 +164,12 @@ public:
                         int type = 0, int *types = nullptr);
     static void flushSignal(const QObject *sender, int signal_index);
 
-    static QVariant resolvedUrlSequence(const QVariant &value, QQmlContextData *context);
-    static QQmlProperty create(QObject *target, const QString &propertyName, QQmlContextData *context);
+    static QList<QUrl> urlSequence(const QVariant &value);
+    static QList<QUrl> urlSequence(
+            const QVariant &value, const QQmlRefPointer<QQmlContextData> &ctxt);
+    static QQmlProperty create(
+            QObject *target, const QString &propertyName,
+            const QQmlRefPointer<QQmlContextData> &context);
 
 };
 

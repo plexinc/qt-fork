@@ -41,7 +41,8 @@ class CORE_EXPORT PseudoElement : public Element {
 
   PseudoElement(Element*, PseudoId);
 
-  scoped_refptr<ComputedStyle> CustomStyleForLayoutObject() override;
+  scoped_refptr<ComputedStyle> CustomStyleForLayoutObject(
+      const StyleRecalcContext&) override;
   void AttachLayoutTree(AttachContext&) override;
   bool LayoutObjectIsNeeded(const ComputedStyle&) const override;
   bool CanGeneratePseudoElement(PseudoId) const override;
@@ -53,6 +54,7 @@ class CORE_EXPORT PseudoElement : public Element {
       const ComputedStyle&);
 
   static const AtomicString& PseudoElementNameForEvents(PseudoId);
+  static bool IsWebExposed(PseudoId, const Node*);
 
   // Pseudo element are not allowed to be the inner node for hit testing. Find
   // the closest ancestor which is a real dom node.

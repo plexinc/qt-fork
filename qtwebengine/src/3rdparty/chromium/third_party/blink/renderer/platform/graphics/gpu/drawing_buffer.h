@@ -33,6 +33,7 @@
 
 #include <memory>
 
+#include "base/containers/span.h"
 #include "base/macros.h"
 #include "cc/layers/texture_layer_client.h"
 #include "cc/resources/cross_thread_shared_bitmap.h"
@@ -98,6 +99,8 @@ class PLATFORM_EXPORT DrawingBuffer : public cc::TextureLayerClient,
     virtual void DrawingBufferClientRestorePixelPackParameters() = 0;
     // Restores the GL_TEXTURE_2D binding for the active texture unit only.
     virtual void DrawingBufferClientRestoreTexture2DBinding() = 0;
+    // Restores the GL_TEXTURE_CUBE_MAP binding for the active texture unit.
+    virtual void DrawingBufferClientRestoreTextureCubeMapBinding() = 0;
     virtual void DrawingBufferClientRestoreRenderbufferBinding() = 0;
     virtual void DrawingBufferClientRestoreFramebufferBinding() = 0;
     virtual void DrawingBufferClientRestorePixelUnpackBufferBinding() = 0;
@@ -114,7 +117,6 @@ class PLATFORM_EXPORT DrawingBuffer : public cc::TextureLayerClient,
   enum WebGLVersion {
     kWebGL1,
     kWebGL2,
-    kWebGL2Compute,
   };
 
   enum ChromiumImageUsage {
@@ -136,9 +138,9 @@ class PLATFORM_EXPORT DrawingBuffer : public cc::TextureLayerClient,
       PreserveDrawingBuffer,
       WebGLVersion,
       ChromiumImageUsage,
+      SkFilterQuality,
       const CanvasColorParams&,
       gl::GpuPreference);
-  static void ForceNextDrawingBufferCreationToFail();
 
   ~DrawingBuffer() override;
 
@@ -156,6 +158,8 @@ class PLATFORM_EXPORT DrawingBuffer : public cc::TextureLayerClient,
   bool HasImplicitStencilBuffer() const { return has_implicit_stencil_buffer_; }
   bool HasDepthBuffer() const { return !!depth_stencil_buffer_; }
   bool HasStencilBuffer() const { return !!depth_stencil_buffer_; }
+
+  bool IsUsingGpuCompositing() const { return using_gpu_compositing_; }
 
   // Given the desired buffer size, provides the largest dimensions that will
   // fit in the pixel budget.
@@ -279,8 +283,12 @@ class PLATFORM_EXPORT DrawingBuffer : public cc::TextureLayerClient,
     bool doing_work_ = false;
   };
 
-  scoped_refptr<CanvasResource> AsCanvasResource(
+  scoped_refptr<CanvasResource> ExportCanvasResource();
+
+  scoped_refptr<CanvasResource> ExportLowLatencyCanvasResource(
       base::WeakPtr<CanvasResourceProvider> resource_provider);
+
+  static const size_t kDefaultColorBufferCacheLimit;
 
  protected:  // For unittests
   DrawingBuffer(std::unique_ptr<WebGraphicsContext3DProvider>,
@@ -296,6 +304,7 @@ class PLATFORM_EXPORT DrawingBuffer : public cc::TextureLayerClient,
                 bool wants_depth,
                 bool wants_stencil,
                 ChromiumImageUsage,
+                SkFilterQuality,
                 const CanvasColorParams&,
                 gl::GpuPreference gpu_preference);
 
@@ -356,6 +365,7 @@ class PLATFORM_EXPORT DrawingBuffer : public cc::TextureLayerClient,
   struct ColorBuffer : public base::RefCountedThreadSafe<ColorBuffer> {
     ColorBuffer(base::WeakPtr<DrawingBuffer> drawing_buffer,
                 const IntSize&,
+                viz::ResourceFormat,
                 GLuint texture_id,
                 std::unique_ptr<gfx::GpuMemoryBuffer>,
                 gpu::Mailbox mailbox);
@@ -370,6 +380,7 @@ class PLATFORM_EXPORT DrawingBuffer : public cc::TextureLayerClient,
     // ColorBuffers.
     base::WeakPtr<DrawingBuffer> drawing_buffer;
     const IntSize size;
+    const viz::ResourceFormat format;
     const GLuint texture_id = 0;
     std::unique_ptr<gfx::GpuMemoryBuffer> gpu_memory_buffer;
 
@@ -459,19 +470,11 @@ class PLATFORM_EXPORT DrawingBuffer : public cc::TextureLayerClient,
   // s_currentResourceUsePixels is updated.
   void SetSize(const IntSize&);
 
-  // This is the order of bytes to use when doing a readback.
-  enum ReadbackOrder { kReadbackRGBA, kReadbackSkia };
-
   // Helper function which does a readback from the currently-bound
   // framebuffer into a buffer of a certain size with 4-byte pixels.
-  void ReadBackFramebuffer(unsigned char* pixels,
-                           int width,
-                           int height,
-                           ReadbackOrder,
+  void ReadBackFramebuffer(base::span<uint8_t> pixels,
+                           SkColorType,
                            WebGLImageConversion::AlphaOp);
-
-  // Helper function to flip a bitmap vertically.
-  void FlipVertically(uint8_t* data, int width, int height);
 
   // If RGB emulation is required, then the CHROMIUM image's alpha channel
   // must be immediately cleared after it is bound to a texture. Nothing
@@ -596,10 +599,8 @@ class PLATFORM_EXPORT DrawingBuffer : public cc::TextureLayerClient,
   const bool want_depth_;
   const bool want_stencil_;
 
-  // The color space of this buffer's storage, and the color space in which
-  // shader samplers will read this buffer.
+  // The color space of this buffer's storage.
   const gfx::ColorSpace storage_color_space_;
-  const gfx::ColorSpace sampler_color_space_;
 
   AntialiasingMode anti_aliasing_mode_ = kAntialiasingModeNone;
 

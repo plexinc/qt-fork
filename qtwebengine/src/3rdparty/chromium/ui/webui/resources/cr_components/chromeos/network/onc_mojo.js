@@ -2,13 +2,24 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// clang-format off
+// #import 'chrome://resources/mojo/mojo/public/js/mojo_bindings_lite.js';
+// #import 'chrome://resources/mojo/services/network/public/mojom/ip_address.mojom-lite.js';
+// #import 'chrome://resources/mojo/chromeos/services/network_config/public/mojom/network_types.mojom-lite.js';
+// #import 'chrome://resources/mojo/mojo/public/mojom/base/time.mojom-lite.js';
+// #import 'chrome://resources/mojo/chromeos/services/network_config/public/mojom/cros_network_config.mojom-lite.js';
+
+// #import {assert, assertNotReached} from 'chrome://resources/js/assert.m.js';
+// #import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
+// cland-format on
+
 /**
  * @fileoverview Utilities supporting network_config.mojom types. The strings
  * returned in the getFooTypeString methods are used for looking up localized
  * strings and for debugging. They are not intended to be drectly user facing.
  */
 
-class OncMojo {
+/* #export */ class OncMojo {
   /**
    * @param {number|undefined} value
    * @return {string}
@@ -68,6 +79,30 @@ class OncMojo {
     }
     assertNotReached('Unexpected value: ' + value);
     return ActivationStateType.kUnknown;
+  }
+
+  /**
+   * @param {!chromeos.networkConfig.mojom.PortalState} value
+   * @return {string}
+   */
+  static getPortalStateString(value) {
+    const PortalState = chromeos.networkConfig.mojom.PortalState;
+    switch (value) {
+      case PortalState.kUnknown:
+        return 'Unknown';
+      case PortalState.kOnline:
+        return 'Online';
+      case PortalState.kPortalSuspected:
+        return 'PortalSuspected';
+      case PortalState.kPortal:
+        return 'Portal';
+      case PortalState.kProxyAuthRequired:
+        return 'ProxyAuthRequired';
+      case PortalState.kNoInternet:
+        return 'NoInternet';
+    }
+    assertNotReached('Unexpected enum value: ' + OncMojo.getEnumString(value));
+    return '';
   }
 
   /**
@@ -147,6 +182,8 @@ class OncMojo {
         return 'Uninitialized';
       case DeviceStateType.kDisabled:
         return 'Disabled';
+      case DeviceStateType.kDisabling:
+        return 'Disabling';
       case DeviceStateType.kEnabling:
         return 'Enabling';
       case DeviceStateType.kEnabled:
@@ -155,33 +192,33 @@ class OncMojo {
         return 'Prohibited';
       case DeviceStateType.kUnavailable:
         return 'Unavailable';
+      case DeviceStateType.kInhibited:
+        return 'Inhibited';
     }
     assertNotReached('Unexpected enum value: ' + OncMojo.getEnumString(value));
     return '';
   }
 
   /**
-   * @param {string} value
-   * @return {!chromeos.networkConfig.mojom.DeviceStateType}
+   * @param {!chromeos.networkConfig.mojom.DeviceStateType} value
+   * @return {boolean}
    */
-  static getDeviceStateTypeFromString(value) {
+  static deviceStateIsIntermediate(value) {
     const DeviceStateType = chromeos.networkConfig.mojom.DeviceStateType;
     switch (value) {
-      case 'Uninitialized':
-        return DeviceStateType.kUninitialized;
-      case 'Disabled':
-        return DeviceStateType.kDisabled;
-      case 'Enabling':
-        return DeviceStateType.kEnabling;
-      case 'Enabled':
-        return DeviceStateType.kEnabled;
-      case 'Prohibited':
-        return DeviceStateType.kProhibited;
-      case 'Unavailable':
-        return DeviceStateType.kUnavailable;
+      case DeviceStateType.kUninitialized:
+      case DeviceStateType.kDisabling:
+      case DeviceStateType.kEnabling:
+      case DeviceStateType.kUnavailable:
+      case DeviceStateType.kInhibited:
+        return true;
+      case DeviceStateType.kDisabled:
+      case DeviceStateType.kEnabled:
+      case DeviceStateType.kProhibited:
+        return false;
     }
-    assertNotReached('Unexpected value: ' + value);
-    return DeviceStateType.kUnavailable;
+    assertNotReached('Unexpected enum value: ' + OncMojo.getEnumString(value));
+    return false;
   }
 
   /**
@@ -232,6 +269,16 @@ class OncMojo {
     }
     assertNotReached('Unexpected enum value: ' + OncMojo.getEnumString(value));
     return false;
+  }
+
+  /**
+   * @param {!chromeos.networkConfig.mojom.NetworkType} value
+   * @return {boolean}
+   */
+  static networkTypeHasConfigurationFlow(value) {
+    // Cellular networks are considered "configured" by their SIM, and Instant
+    // Tethering networks do not have a configuration flow.
+    return !OncMojo.networkTypeIsMobile(value);
   }
 
   /**
@@ -508,6 +555,25 @@ class OncMojo {
   }
 
   /**
+   * Determines whether a connection to |network| can be attempted. Note that
+   * this function does not consider policies which may block a connection from
+   * succeeding.
+   * @param {!chromeos.networkConfig.mojom.NetworkStateProperties|
+   *     !chromeos.networkConfig.mojom.ManagedProperties} network
+   * @return {boolean} Whether the network can currently be connected; if the
+   *     network is not connectable, it must first be configured.
+   */
+  static isNetworkConnectable(network) {
+    // Networks without a configuration flow are always connectable since no
+    // additional configuration can be performed to attempt a connection.
+    if (!OncMojo.networkTypeHasConfigurationFlow(network.type)) {
+      return true;
+    }
+
+    return network.connectable;
+  }
+
+  /**
    * @param {string} key
    * @return {boolean}
    */
@@ -545,6 +611,7 @@ class OncMojo {
       connectionState: mojom.ConnectionStateType.kNotConnected,
       guid: opt_name ? (opt_name + '_guid') : '',
       name: opt_name || '',
+      portalState: mojom.PortalState.kUnknown,
       priority: 0,
       proxyMode: mojom.ProxyMode.kDirect,
       prohibitedByPolicy: false,
@@ -555,6 +622,8 @@ class OncMojo {
     switch (type) {
       case mojom.NetworkType.kCellular:
         result.typeState.cellular = {
+          iccid: '',
+          eid: '',
           activationState: mojom.ActivationStateType.kUnknown,
           networkTechnology: '',
           roaming: false,
@@ -587,6 +656,7 @@ class OncMojo {
           bssid: '',
           frequency: 0,
           hexSsid: opt_name || '',
+          hiddenSsid: false,
           security: mojom.SecurityType.kNone,
           signalStrength: 0,
           ssid: '',
@@ -682,7 +752,9 @@ class OncMojo {
       connectable: false,
       guid: guid,
       name: OncMojo.createManagedString(name),
-      restrictedConnectivity: false,
+      ipAddressConfigType: OncMojo.createManagedString('DHCP'),
+      nameServersConfigType: OncMojo.createManagedString('DHCP'),
+      portalState: mojom.PortalState.kUnknown,
     };
     switch (type) {
       case mojom.NetworkType.kCellular:
@@ -691,6 +763,7 @@ class OncMojo {
             activationState: mojom.ActivationStateType.kUnknown,
             allowRoaming: false,
             signalStrength: 0,
+            simLocked: false,
             supportNetworkScan: false,
           }
         };
@@ -727,6 +800,8 @@ class OncMojo {
             ssid: OncMojo.createManagedString(''),
             security: mojom.SecurityType.kNone,
             signalStrength: 0,
+            isSyncable: false,
+            isConfiguredByActiveUser: false,
           }
         };
         break;
@@ -755,7 +830,14 @@ class OncMojo {
       case mojom.NetworkType.kWiFi:
         // Note: wifi.security can not be changed, so |security| will be ignored
         // for existing configurations.
-        return {typeConfig: {wifi: {security: mojom.SecurityType.kNone}}};
+        return {
+          typeConfig: {
+            wifi: {
+              security: mojom.SecurityType.kNone,
+              hiddenSsid: mojom.HiddenSsidMode.kAutomatic
+            }
+          }
+        };
         break;
     }
     assertNotReached('Unexpected type: ' + type.toString());
@@ -1054,6 +1136,98 @@ class OncMojo {
     assertNotReached();
     return 'OncNotConnected';
   }
+
+  /**
+   * Returns true the IPAddress bytes match.
+   * @param {?network.mojom.IPAddress|undefined} a
+   * @param {?network.mojom.IPAddress|undefined} b
+   * @return {boolean}
+   */
+  static ipAddressMatch(a, b) {
+    if (!a || !b) {
+      return !!a === !!b;
+    }
+    const abytes = a.addressBytes;
+    const bbytes = b.addressBytes;
+    if (abytes.length !== bbytes.length) {
+      return false;
+    }
+    for (let i = 0; i < abytes.length; ++i) {
+      if (abytes[i] !== bbytes[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Returns true the SIMLockStatus properties match.
+   * @param {?chromeos.networkConfig.mojom.SIMLockStatus|undefined} a
+   * @param {?chromeos.networkConfig.mojom.SIMLockStatus|undefined} b
+   * @return {boolean}
+   */
+  static simLockStatusMatch(a, b) {
+    if (!a || !b) {
+      return !!a === !!b;
+    }
+    return a.lockType === b.lockType && a.lockEnabled === b.lockEnabled &&
+        a.retriesLeft === b.retriesLeft;
+  }
+
+  /**
+   * Returns true if the APN properties match.
+   * @param {chromeos.networkConfig.mojom.ApnProperties} a
+   * @param {chromeos.networkConfig.mojom.ApnProperties} b
+   * @return {boolean}
+   */
+  static apnMatch(a, b) {
+    if (!a || !b) {
+      return !!a === !!b;
+    }
+    return a.accessPointName === b.accessPointName &&
+           a.name === b.name && a.username === b.username &&
+           a.password === b.password;
+  }
+
+  /**
+   * Returns true if the APN List matches.
+   * @param {Array<!chromeos.networkConfig.mojom.ApnProperties>|undefined} a
+   * @param {Array<!chromeos.networkConfig.mojom.ApnProperties>|undefined} b
+   * @return {boolean}
+   */
+  static apnListMatch(a, b) {
+    if (!a || !b) {
+      return !!a === !!b;
+    }
+    if (a.length !== b.length) {
+      return false;
+    }
+    return a.every((apn, index) => OncMojo.apnMatch(apn, b[index]));
+  }
+
+  /**
+   * Returns true if the portal state has restricted connectivity.
+   * @param {!chromeos.networkConfig.mojom.PortalState|undefined} portal
+   * @return {boolean}
+   */
+  static isRestrictedConnectivity(portal) {
+    if (portal === undefined) {
+      return false;
+    }
+    const PortalState = chromeos.networkConfig.mojom.PortalState;
+    switch (portal) {
+      case PortalState.kUnknown:
+      case PortalState.kOnline:
+        return false;
+      case PortalState.kPortalSuspected:
+      case PortalState.kPortal:
+      case PortalState.kProxyAuthRequired:
+      case PortalState.kNoInternet:
+        return true;
+    }
+    assertNotReached();
+    return false;
+  }
 }
 
 /** @typedef {chromeos.networkConfig.mojom.DeviceStateProperties} */
@@ -1072,13 +1246,14 @@ OncMojo.NetworkStateProperties;
 OncMojo.ManagedProperty;
 
 /**
- * Modified version of mojom.IPConfigProperties to store routingPrefix as a
- * human-readable string instead of as a number. Used in network_ip_config.js.
+ * Modified version of mojom.IPConfigProperties to store routingPrefix as
+ * a human-readable netmask string instead of as a number. Used in
+ * network_ip_config.js.
  * @typedef {{
  *   gateway: (string|undefined),
  *   ipAddress: (string|undefined),
- *   nameServers: (!Array<string>|undefined),
- *   routingPrefix: (string|undefined),
+ *   nameServers: (Array<string>|undefined),
+ *   netmask: (string|undefined),
  *   type: (string|undefined),
  *   webProxyAutoDiscoveryUrl: (string|undefined),
  * }}

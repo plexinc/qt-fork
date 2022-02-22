@@ -52,7 +52,7 @@
 //
 
 #include <private/qv4compileddata_p.h>
-#include <private/qv4identifier_p.h>
+#include <private/qv4identifierhash_p.h>
 #include <private/qqmlrefcount_p.h>
 #include <private/qintrusivelist_p.h>
 #include <private/qqmlpropertycachevector_p.h>
@@ -90,11 +90,9 @@ namespace QV4 {
 typedef QVector<QQmlPropertyData*> BindingPropertyData;
 
 class CompilationUnitMapper;
-struct ResolvedTypeReference;
+class ResolvedTypeReference;
 // map from name index
-// While this could be a hash, a map is chosen here to provide a stable
-// order, which is used to calculating a check-sum on dependent meta-objects.
-struct ResolvedTypeReferenceMap: public QMap<int, ResolvedTypeReference*>
+struct ResolvedTypeReferenceMap: public QHash<int, ResolvedTypeReference*>
 {
     bool addToHash(QCryptographicHash *hash, QQmlEngine *engine) const;
 };
@@ -182,8 +180,7 @@ public:
 
     CompositeMetaTypeIds typeIdsForComponent(int objectid = 0) const;
 
-    int metaTypeId = -1;
-    int listMetaTypeId = -1;
+    CompositeMetaTypeIds typeIds;
     bool isRegisteredWithEngine = false;
 
     QHash<int, InlineComponentData> inlineComponentData;
@@ -279,17 +276,9 @@ public:
     bool saveToDisk(const QUrl &unitUrl, QString *errorString);
 
     QString bindingValueAsString(const CompiledData::Binding *binding) const;
-    QString bindingValueAsScriptString(const CompiledData::Binding *binding) const;
-    double bindingValueAsNumber(const CompiledData::Binding *binding) const
-    {
-        if (binding->type != CompiledData::Binding::Type_Number)
-            return 0.0;
-        return constants[binding->value.constantValueIndex].doubleValue();
-    }
 
     static bool verifyHeader(const CompiledData::Unit *unit, QDateTime expectedSourceTimeStamp,
                              QString *errorString);
-
 protected:
     quint32 totalStringCount() const
     { return data->stringTableSize; }
@@ -323,82 +312,12 @@ private:
             bool includeDefaultExport = true) const;
 };
 
-struct ResolvedTypeReference
-{
-public:
-    ResolvedTypeReference()
-        : m_compilationUnit(nullptr)
-        , m_stronglyReferencesCompilationUnit(true)
-        , majorVersion(0)
-        , minorVersion(0)
-        , isFullyDynamicType(false)
-    {}
-
-    ~ResolvedTypeReference()
-    {
-        if (m_stronglyReferencesCompilationUnit && m_compilationUnit)
-            m_compilationUnit->release();
-    }
-
-    QQmlRefPointer<QV4::ExecutableCompilationUnit> compilationUnit() { return m_compilationUnit; }
-    void setCompilationUnit(QQmlRefPointer<QV4::ExecutableCompilationUnit> unit)
-    {
-        if (m_compilationUnit == unit.data())
-            return;
-        if (m_stronglyReferencesCompilationUnit) {
-            if (m_compilationUnit)
-                m_compilationUnit->release();
-            m_compilationUnit = unit.take();
-        } else {
-            m_compilationUnit = unit.data();
-        }
-    }
-
-    bool referencesCompilationUnit() const { return m_stronglyReferencesCompilationUnit; }
-    void setReferencesCompilationUnit(bool doReference)
-    {
-        if (doReference == m_stronglyReferencesCompilationUnit)
-            return;
-        m_stronglyReferencesCompilationUnit = doReference;
-        if (!m_compilationUnit)
-            return;
-        if (doReference) {
-            m_compilationUnit->addref();
-        } else if (m_compilationUnit->count() == 1) {
-            m_compilationUnit->release();
-            m_compilationUnit = nullptr;
-        } else {
-            m_compilationUnit->release();
-        }
-    }
-
-    QQmlRefPointer<QQmlPropertyCache> propertyCache() const;
-    QQmlRefPointer<QQmlPropertyCache> createPropertyCache(QQmlEngine *);
-    bool addToHash(QCryptographicHash *hash, QQmlEngine *engine);
-
-    void doDynamicTypeCheck();
-
-    QQmlType type;
-    QQmlRefPointer<QQmlPropertyCache> typePropertyCache;
-private:
-    Q_DISABLE_COPY_MOVE(ResolvedTypeReference)
-
-    QV4::ExecutableCompilationUnit *m_compilationUnit;
-    bool m_stronglyReferencesCompilationUnit;
-
-public:
-    int majorVersion;
-    int minorVersion;
-    // Types such as QQmlPropertyMap can add properties dynamically at run-time and
-    // therefore cannot have a property cache installed when instantiated.
-    bool isFullyDynamicType;
-};
-
 IdentifierHash ExecutableCompilationUnit::namedObjectsPerComponent(int componentObjectIndex)
 {
     auto it = namedObjectsPerComponentCache.find(componentObjectIndex);
     if (Q_UNLIKELY(it == namedObjectsPerComponentCache.end()))
         return createNamedObjectsPerComponent(componentObjectIndex);
+    Q_ASSERT(!it->isEmpty());
     return *it;
 }
 

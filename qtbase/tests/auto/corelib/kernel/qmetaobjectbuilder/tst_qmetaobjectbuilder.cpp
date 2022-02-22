@@ -26,7 +26,8 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QSignalSpy>
 #include <QtCore/qlocale.h>
 #include <private/qmetaobjectbuilder_p.h>
 
@@ -50,8 +51,6 @@ private slots:
     void relatedMetaObject();
     void staticMetacall();
     void copyMetaObject();
-    void serialize();
-    void relocatableData();
     void removeNotifySignal();
 
     void usage_signal();
@@ -64,13 +63,26 @@ private slots:
 
     void classNameFirstInStringData();
 
+    void propertyMetaType();
+
+    void cleanupTestCase();
+
 private:
     static bool checkForSideEffects
         (const QMetaObjectBuilder& builder,
          QMetaObjectBuilder::AddMembers members);
-    static bool sameMetaObject
-        (const QMetaObject *meta1, const QMetaObject *meta2);
+    QList<QMetaObject *> dynamicMetaObjectsPendingFree;
 };
+
+struct MetaObjectComparison {
+    bool isSame = false;
+    QString details;
+    operator bool() {return isSame;}
+
+    static inline auto Ok() {return  MetaObjectComparison{true, QString()}; }
+    static inline auto Failed(QStringView message) {return  MetaObjectComparison{false, message.toString()}; }
+};
+MetaObjectComparison sameMetaObject(const QMetaObject *meta1, const QMetaObject *meta2);
 
 // Dummy class that has something of every type of thing moc can generate.
 class SomethingOfEverything : public QObject
@@ -121,7 +133,7 @@ private slots:
 
 protected slots:
     Q_SCRIPTABLE void slot4(int) {}
-    void slot5(int a, const QString& b) { Q_UNUSED(a); Q_UNUSED(b); }
+    void slot5(int, const QString &) {}
 
 signals:
     void sig1();
@@ -193,8 +205,8 @@ void tst_QMetaObjectBuilder::flags()
     QCOMPARE(builder.flags(), 0);
 
     // Set flags
-    builder.setFlags(QMetaObjectBuilder::DynamicMetaObject);
-    QCOMPARE(builder.flags(), QMetaObjectBuilder::DynamicMetaObject);
+    builder.setFlags(DynamicMetaObject);
+    QCOMPARE(builder.flags(), DynamicMetaObject);
 }
 
 void tst_QMetaObjectBuilder::method()
@@ -556,7 +568,6 @@ void tst_QMetaObjectBuilder::property()
     QVERIFY(!nullProp.isDesignable());
     QVERIFY(!nullProp.isScriptable());
     QVERIFY(!nullProp.isStored());
-    QVERIFY(!nullProp.isEditable());
     QVERIFY(!nullProp.isUser());
     QVERIFY(!nullProp.hasStdCppSet());
     QVERIFY(!nullProp.isEnumOrFlag());
@@ -576,7 +587,6 @@ void tst_QMetaObjectBuilder::property()
     QVERIFY(!prop1.isDesignable());
     QVERIFY(prop1.isScriptable());
     QVERIFY(!prop1.isStored());
-    QVERIFY(!prop1.isEditable());
     QVERIFY(!prop1.isUser());
     QVERIFY(!prop1.hasStdCppSet());
     QVERIFY(!prop1.isEnumOrFlag());
@@ -597,7 +607,6 @@ void tst_QMetaObjectBuilder::property()
     QVERIFY(!prop2.isDesignable());
     QVERIFY(prop2.isScriptable());
     QVERIFY(!prop2.isStored());
-    QVERIFY(!prop2.isEditable());
     QVERIFY(!prop2.isUser());
     QVERIFY(!prop2.hasStdCppSet());
     QVERIFY(!prop2.isEnumOrFlag());
@@ -621,7 +630,6 @@ void tst_QMetaObjectBuilder::property()
     prop1.setDesignable(true);
     prop1.setScriptable(false);
     prop1.setStored(true);
-    prop1.setEditable(true);
     prop1.setUser(true);
     prop1.setStdCppSet(true);
     prop1.setEnumOrFlag(true);
@@ -638,7 +646,6 @@ void tst_QMetaObjectBuilder::property()
     QVERIFY(prop1.isDesignable());
     QVERIFY(!prop1.isScriptable());
     QVERIFY(prop1.isStored());
-    QVERIFY(prop1.isEditable());
     QVERIFY(prop1.isUser());
     QVERIFY(prop1.hasStdCppSet());
     QVERIFY(prop1.isEnumOrFlag());
@@ -653,7 +660,6 @@ void tst_QMetaObjectBuilder::property()
     QVERIFY(!prop2.isDesignable());
     QVERIFY(prop2.isScriptable());
     QVERIFY(!prop2.isStored());
-    QVERIFY(!prop2.isEditable());
     QVERIFY(!prop2.isUser());
     QVERIFY(!prop2.hasStdCppSet());
     QVERIFY(!prop2.isEnumOrFlag());
@@ -671,7 +677,6 @@ void tst_QMetaObjectBuilder::property()
     QVERIFY(!prop2.isDesignable());
     QVERIFY(prop2.isScriptable());
     QVERIFY(!prop2.isStored());
-    QVERIFY(!prop2.isEditable());
     QVERIFY(!prop2.isUser());
     QVERIFY(!prop2.hasStdCppSet());
     QVERIFY(!prop2.isEnumOrFlag());
@@ -697,7 +702,6 @@ void tst_QMetaObjectBuilder::property()
             prop2.setDesignable(false); \
             prop2.setScriptable(false); \
             prop2.setStored(false); \
-            prop2.setEditable(false); \
             prop2.setUser(false); \
             prop2.setStdCppSet(false); \
             prop2.setEnumOrFlag(false); \
@@ -711,7 +715,6 @@ void tst_QMetaObjectBuilder::property()
          (prop2.isDesignable() ? 1 : 0) + \
          (prop2.isScriptable() ? 1 : 0) + \
          (prop2.isStored() ? 1 : 0) + \
-         (prop2.isEditable() ? 1 : 0) + \
          (prop2.isUser() ? 1 : 0) + \
          (prop2.hasStdCppSet() ? 1 : 0) + \
          (prop2.isEnumOrFlag() ? 1 : 0) + \
@@ -731,7 +734,6 @@ void tst_QMetaObjectBuilder::property()
     CHECK_FLAG(setDesignable, isDesignable);
     CHECK_FLAG(setScriptable, isScriptable);
     CHECK_FLAG(setStored, isStored);
-    CHECK_FLAG(setEditable, isEditable);
     CHECK_FLAG(setUser, isUser);
     CHECK_FLAG(setStdCppSet, hasStdCppSet);
     CHECK_FLAG(setEnumOrFlag, isEnumOrFlag);
@@ -757,13 +759,12 @@ void tst_QMetaObjectBuilder::variantProperty()
     QMetaObjectBuilder builder;
     builder.addProperty("variant", "const QVariant &");
     QMetaObject *meta = builder.toMetaObject();
+    dynamicMetaObjectsPendingFree.push_back(meta);
 
     QMetaProperty prop = meta->property(meta->propertyOffset());
-    QCOMPARE(QMetaType::Type(prop.type()), QMetaType::QVariant);
+    QCOMPARE(QMetaType::Type(prop.userType()), QMetaType::QVariant);
     QCOMPARE(QMetaType::Type(prop.userType()), QMetaType::QVariant);
     QCOMPARE(QByteArray(prop.typeName()), QByteArray("QVariant"));
-
-    free(meta);
 }
 
 void tst_QMetaObjectBuilder::notifySignal()
@@ -1007,105 +1008,22 @@ void tst_QMetaObjectBuilder::copyMetaObject()
 {
     QMetaObjectBuilder builder(&QObject::staticMetaObject);
     QMetaObject *meta = builder.toMetaObject();
-    QVERIFY(sameMetaObject(meta, &QObject::staticMetaObject));
-    free(meta);
+    dynamicMetaObjectsPendingFree.push_back(meta);
+    auto compared = sameMetaObject(meta, &QObject::staticMetaObject);
+    QVERIFY2(compared, qPrintable(compared.details));
 
     QMetaObjectBuilder builder2(&staticMetaObject);
     meta = builder2.toMetaObject();
-    QVERIFY(sameMetaObject(meta, &staticMetaObject));
-    free(meta);
+    dynamicMetaObjectsPendingFree.push_back(meta);
+    compared = sameMetaObject(meta, &staticMetaObject);
+    QVERIFY2(compared, qPrintable(compared.details));
 
     QMetaObjectBuilder builder3(&SomethingOfEverything::staticMetaObject);
     meta = builder3.toMetaObject();
-    QVERIFY(sameMetaObject(meta, &SomethingOfEverything::staticMetaObject));
-    free(meta);
+    dynamicMetaObjectsPendingFree.push_back(meta);
+    compared = sameMetaObject(meta, &SomethingOfEverything::staticMetaObject);
+    QVERIFY2(compared, qPrintable(compared.details));
 }
-
-// Serialize and deserialize a meta object and check that
-// it round-trips to the exact same value.
-void tst_QMetaObjectBuilder::serialize()
-{
-    // Full QMetaObjectBuilder
-    {
-    QMetaObjectBuilder builder(&SomethingOfEverything::staticMetaObject);
-    QMetaObject *meta = builder.toMetaObject();
-
-    QByteArray data;
-    QDataStream stream(&data, QIODevice::WriteOnly | QIODevice::Append);
-    builder.serialize(stream);
-
-    QMetaObjectBuilder builder2;
-    QDataStream stream2(data);
-    QMap<QByteArray, const QMetaObject *> references;
-    references.insert(QByteArray("QLocale"), &QLocale::staticMetaObject);
-    builder2.deserialize(stream2, references);
-    builder2.setStaticMetacallFunction(builder.staticMetacallFunction());
-    QMetaObject *meta2 = builder2.toMetaObject();
-
-    QVERIFY(sameMetaObject(meta, meta2));
-    free(meta);
-    free(meta2);
-    }
-
-    // Partial QMetaObjectBuilder
-    {
-    QMetaObjectBuilder builder;
-    builder.setClassName("Test");
-    builder.addProperty("foo", "int");
-
-    QByteArray data;
-    QDataStream stream(&data, QIODevice::WriteOnly | QIODevice::Append);
-    builder.serialize(stream);
-
-    QMetaObjectBuilder builder2;
-    QDataStream stream2(data);
-    builder2.deserialize(stream2, QMap<QByteArray, const QMetaObject *>());
-
-    QCOMPARE(builder.superClass(), builder2.superClass());
-    QCOMPARE(builder.className(), builder2.className());
-    QCOMPARE(builder.propertyCount(), builder2.propertyCount());
-    QCOMPARE(builder.property(0).name(), builder2.property(0).name());
-    QCOMPARE(builder.property(0).type(), builder2.property(0).type());
-    }
-}
-
-void tst_QMetaObjectBuilder::relocatableData()
-{
-    QMetaObjectBuilder builder;
-    builder.setClassName("TestObject");
-
-    QMetaMethodBuilder intPropChanged = builder.addSignal("intPropChanged(int)");
-    intPropChanged.setParameterNames(QList<QByteArray>() << "newIntPropValue");
-
-    QMetaPropertyBuilder prop = builder.addProperty("intProp", "int");
-    prop.setNotifySignal(intPropChanged);
-
-    QMetaMethodBuilder voidSlotInt = builder.addSlot("voidSlotInt(int)");
-    voidSlotInt.setParameterNames(QList<QByteArray>() << "slotIntArg");
-
-    QMetaMethodBuilder listInvokableQRealQString = builder.addMethod("listInvokableQRealQString(qreal,QString)");
-    listInvokableQRealQString.setReturnType("QVariantList");
-    listInvokableQRealQString.setParameterNames(QList<QByteArray>() << "qrealArg" << "qstringArg");
-
-    bool ok = false;
-    QByteArray data = builder.toRelocatableData(&ok);
-    QVERIFY(ok);
-
-    QMetaObjectBuilder builder2;
-    QMetaObject meta2;
-    builder2.fromRelocatableData(&meta2, &QObject::staticMetaObject, data);
-
-    QMetaObject *meta = builder.toMetaObject();
-
-    QVERIFY(sameMetaObject(meta, &meta2));
-
-    QVERIFY(!meta2.d.extradata);
-    QVERIFY(!meta2.d.relatedMetaObjects);
-    QVERIFY(!meta2.d.static_metacall);
-
-    free(meta);
-}
-
 
 // Check that removing a method updates notify signals appropriately
 void tst_QMetaObjectBuilder::removeNotifySignal()
@@ -1217,13 +1135,13 @@ static bool sameMethod(const QMetaMethod& method1, const QMetaMethod& method2)
     return true;
 }
 
-static bool sameProperty(const QMetaProperty& prop1, const QMetaProperty& prop2)
+static MetaObjectComparison sameProperty(const QMetaProperty& prop1, const QMetaProperty& prop2)
 {
     if (QByteArray(prop1.name()) != QByteArray(prop2.name()))
-        return false;
+        return MetaObjectComparison::Failed(QStringLiteral("Property names differ: %1 vs %2").arg(prop1.name(), prop2.name()));
 
     if (QByteArray(prop1.typeName()) != QByteArray(prop2.typeName()))
-        return false;
+        return MetaObjectComparison::Failed(QStringLiteral("Property type names differ: %1 vs %2").arg(prop1.typeName(), prop2.typeName()));
 
     if (prop1.isReadable() != prop2.isReadable() ||
         prop1.isWritable() != prop2.isWritable() ||
@@ -1231,23 +1149,26 @@ static bool sameProperty(const QMetaProperty& prop1, const QMetaProperty& prop2)
         prop1.isDesignable() != prop2.isDesignable() ||
         prop1.isScriptable() != prop2.isScriptable() ||
         prop1.isStored() != prop2.isStored() ||
-        prop1.isEditable() != prop2.isEditable() ||
         prop1.isUser() != prop2.isUser() ||
         prop1.isFlagType() != prop2.isFlagType() ||
         prop1.isEnumType() != prop2.isEnumType() ||
         prop1.hasNotifySignal() != prop2.hasNotifySignal() ||
         prop1.hasStdCppSet() != prop2.hasStdCppSet())
-        return false;
+        return MetaObjectComparison::Failed(u"Flags differ");
 
     if (prop1.hasNotifySignal()) {
         if (prop1.notifySignalIndex() != prop2.notifySignalIndex())
-            return false;
+            return MetaObjectComparison::Failed(QStringLiteral("Notify signal index differ: %1 vs %2").arg(
+                                                    QString::number(prop1.notifySignalIndex()),
+                                                    QString::number(prop2.notifySignalIndex())));
     }
 
-    if (prop1.revision() != prop2.revision())
-        return false;
+    const int revision1 = prop1.revision();
+    const int revision2 = prop2.revision();
+    if (revision1 != revision2)
+        return MetaObjectComparison::Failed(QStringLiteral("Revisions differ: %1 vs %2").arg(QString::number(revision1), QString::number(revision2)));
 
-    return true;
+    return MetaObjectComparison::Ok();
 }
 
 static bool sameEnumerator(const QMetaEnum& enum1, const QMetaEnum& enum2)
@@ -1275,69 +1196,89 @@ static bool sameEnumerator(const QMetaEnum& enum1, const QMetaEnum& enum2)
 }
 
 // Determine if two meta objects are identical.
-bool tst_QMetaObjectBuilder::sameMetaObject
-        (const QMetaObject *meta1, const QMetaObject *meta2)
+MetaObjectComparison sameMetaObject(const QMetaObject *meta1, const QMetaObject *meta2)
 {
     int index;
 
-    if (strcmp(meta1->className(), meta2->className()) != 0)
-        return false;
+    if (strcmp(meta1->className(), meta2->className()) != 0) {
+        QString message = QLatin1String("Class names differ: %1 %2").arg(meta1->className(), meta2->className());
+        return MetaObjectComparison::Failed(message);
+    }
 
     if (meta1->superClass() != meta2->superClass())
-        return false;
+        return MetaObjectComparison::Failed(QStringLiteral("Super classes differ"));
 
-    if (meta1->constructorCount() != meta2->constructorCount() ||
-        meta1->methodCount() != meta2->methodCount() ||
-        meta1->enumeratorCount() != meta2->enumeratorCount() ||
-        meta1->propertyCount() != meta2->propertyCount() ||
-        meta1->classInfoCount() != meta2->classInfoCount())
-        return false;
+    auto numCompare = [](int num1, int num2, const QString &message) {
+        if (num1 != num2)
+            return MetaObjectComparison::Failed(message.arg(QString::number(num1), QString::number(num2)));
+        return MetaObjectComparison::Ok();
+    };
+
+    auto compared = numCompare(meta1->constructorCount(), meta2->constructorCount(), QStringLiteral("Construct counts differ: %1 %2"));
+    if (!compared.isSame)
+        return compared;
+    compared = numCompare(meta1->methodCount(), meta2->methodCount(), QStringLiteral("Method counts differ: %1 %2"));
+    if (!compared.isSame)
+        return compared;
+    compared = numCompare(meta1->enumeratorCount(), meta2->enumeratorCount(), QStringLiteral("Enumerator counts differ: %1 %2"));
+    if (!compared.isSame)
+        return compared;
+    compared = numCompare(meta1->propertyCount(), meta2->propertyCount(), QStringLiteral("Property counts differ: %1 %2"));
+    if (!compared.isSame)
+        return compared;
+    compared = numCompare(meta1->classInfoCount(), meta2->classInfoCount(), QStringLiteral("ClassInfo counts differ: %1 %2"));
+    if (!compared.isSame)
+        return compared;
 
     for (index = 0; index < meta1->constructorCount(); ++index) {
         if (!sameMethod(meta1->constructor(index), meta2->constructor(index)))
-            return false;
+            return MetaObjectComparison::Failed(QStringLiteral("Constructors difer at index %1").arg(index));
     }
 
     for (index = 0; index < meta1->methodCount(); ++index) {
         if (!sameMethod(meta1->method(index), meta2->method(index)))
-            return false;
+            return MetaObjectComparison::Failed(QStringLiteral("Methods difer at index %1").arg(index));
     }
 
     for (index = 0; index < meta1->propertyCount(); ++index) {
-        if (!sameProperty(meta1->property(index), meta2->property(index)))
-            return false;
+        if (auto compared = sameProperty(meta1->property(index), meta2->property(index)); !compared) {
+            compared.details += QStringLiteral(" at index %1").arg(index);
+            return compared;
+        }
     }
 
     for (index = 0; index < meta1->enumeratorCount(); ++index) {
         if (!sameEnumerator(meta1->enumerator(index), meta2->enumerator(index)))
-            return false;
+            return MetaObjectComparison::Failed(QStringLiteral("Enumerators difer at index %1").arg(index));
     }
 
     for (index = 0; index < meta1->classInfoCount(); ++index) {
-        if (QByteArray(meta1->classInfo(index).name()) !=
-            QByteArray(meta2->classInfo(index).name()))
-            return false;
-        if (QByteArray(meta1->classInfo(index).value()) !=
-            QByteArray(meta2->classInfo(index).value()))
-            return false;
+        const auto name1= QByteArray(meta1->classInfo(index).name());
+        const auto name2= QByteArray(meta1->classInfo(index).name());
+        if (name1 != name2)
+            return MetaObjectComparison::Failed(QStringLiteral("Class infos difer at index %1: %2 vs %3").arg(QString::number(index), name1, name2));
+        const auto value1 = QByteArray(meta1->classInfo(index).value());
+        const auto value2= QByteArray(meta2->classInfo(index).value());
+        if ( value1 != value2)
+            return MetaObjectComparison::Failed(QStringLiteral("Class infos difer at index %1: %2 vs %3").arg(QString::number(index), value1, value2));
     }
 
     const auto *objects1 = meta1->d.relatedMetaObjects;
     const auto *objects2 = meta2->d.relatedMetaObjects;
     if (objects1 && !objects2)
-        return false;
+        return MetaObjectComparison::Failed(u"Metaobject 1 had related metaobjects, but Metaoject 2 did not");
     if (objects2 && !objects1)
-        return false;
+        return MetaObjectComparison::Failed(u"Metaobject 2 had related metaobjects, but Metaoject 1 did not");
     if (objects1 && objects2) {
         while (*objects1 != 0 && *objects2 != 0) {
             if (*objects1 != *objects2)
-                return false;
+                return MetaObjectComparison::Failed(QStringLiteral("Related metaobjects differ at index %1").arg(index));
             ++objects1;
             ++objects2;
         }
     }
 
-    return true;
+    return MetaObjectComparison::Ok();
 }
 
 
@@ -1352,17 +1293,16 @@ class TestObject : public QObject
 {
     // Manually expanded from Q_OBJECT macro
 public:
-    Q_OBJECT_CHECK
     static QMetaObject staticMetaObject;
-    virtual const QMetaObject *metaObject() const;
-    virtual void *qt_metacast(const char *);
-    virtual int qt_metacall(QMetaObject::Call, int, void **);
+    virtual const QMetaObject *metaObject() const override;
+    virtual void *qt_metacast(const char *) override;
+    virtual int qt_metacall(QMetaObject::Call, int, void **) override;
 private:
     Q_DECL_HIDDEN static void qt_static_metacall(QObject *, QMetaObject::Call, int, void **);
 
     //Q_PROPERTY(int intProp READ intProp WRITE setIntProp NOTIFY intPropChanged)
 public:
-    TestObject(QObject *parent = 0); // Q_INVOKABLE
+    TestObject(QObject *parent = nullptr); // Q_INVOKABLE
     ~TestObject();
 
     // Property accessors
@@ -1391,7 +1331,7 @@ private:
 };
 
 QMetaObject TestObject::staticMetaObject = {
-    { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }
+    { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr}
 };
 
 TestObject::TestObject(QObject *parent)
@@ -1565,16 +1505,6 @@ int TestObject::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
         _id -= ownPropertyCount;
     } else if (_c == QMetaObject::ResetProperty) {
         _id -= ownPropertyCount;
-    } else if (_c == QMetaObject::QueryPropertyDesignable) {
-        _id -= ownPropertyCount;
-    } else if (_c == QMetaObject::QueryPropertyScriptable) {
-        _id -= ownPropertyCount;
-    } else if (_c == QMetaObject::QueryPropertyStored) {
-        _id -= ownPropertyCount;
-    } else if (_c == QMetaObject::QueryPropertyEditable) {
-        _id -= ownPropertyCount;
-    } else if (_c == QMetaObject::QueryPropertyUser) {
-        _id -= ownPropertyCount;
     }
 #endif // QT_NO_PROPERTIES
     return _id;
@@ -1604,7 +1534,7 @@ void tst_QMetaObjectBuilder::usage_property()
     QScopedPointer<TestObject> testObject(new TestObject);
 
     QVariant prop = testObject->property("intProp");
-    QCOMPARE(prop.type(), QVariant::Int);
+    QCOMPARE(prop.metaType(), QMetaType(QMetaType::Int));
     QCOMPARE(prop.toInt(), testObject->intProp());
 
     QSignalSpy propChangedSpy(testObject.data(), &TestObject::intPropChanged);
@@ -1612,7 +1542,7 @@ void tst_QMetaObjectBuilder::usage_property()
     testObject->setProperty("intProp", 123);
     QCOMPARE(propChangedSpy.count(), 1);
     prop = testObject->property("intProp");
-    QCOMPARE(prop.type(), QVariant::Int);
+    QCOMPARE(prop.metaType(), QMetaType(QMetaType::Int));
     QCOMPARE(prop.toInt(), 123);
 }
 
@@ -1640,9 +1570,9 @@ void tst_QMetaObjectBuilder::usage_method()
     QVERIFY(listInvokableQRealQString.invoke(testObject.data(), Q_RETURN_ARG(QVariantList, list),
                                              Q_ARG(qreal, 123.0), Q_ARG(QString, "ciao")));
     QCOMPARE(list.size(), 2);
-    QCOMPARE(list.at(0).type(), QVariant::Type(QMetaType::QReal));
+    QCOMPARE(list.at(0).metaType(), QMetaType(QMetaType::QReal));
     QCOMPARE(list.at(0).toDouble(), double(123));
-    QCOMPARE(list.at(1).type(), QVariant::String);
+    QCOMPARE(list.at(1).metaType(), QMetaType(QMetaType::QString));
     QCOMPARE(list.at(1).toString(), QString::fromLatin1("ciao"));
 }
 
@@ -1702,11 +1632,36 @@ void tst_QMetaObjectBuilder::classNameFirstInStringData()
     builder.setClassName(QByteArrayLiteral("TestClass"));
     QMetaObject *mo = builder.toMetaObject();
 
-    QByteArrayDataPtr header;
-    header.ptr = const_cast<QByteArrayData*>(mo->d.stringdata);
-    QCOMPARE(QByteArray(header), QByteArrayLiteral("TestClass"));
+    uint offset = mo->d.stringdata[0];
+    uint len = mo->d.stringdata[1];
+    QByteArray className(reinterpret_cast<const char *>(mo->d.stringdata) + offset, len);
+    QCOMPARE(className, QByteArrayLiteral("TestClass"));
 
     free(mo);
+}
+
+struct MyFoo {};
+
+void tst_QMetaObjectBuilder::propertyMetaType()
+{
+    QMetaType meta = QMetaType::fromType<MyFoo>();
+    auto metaId = meta.id();
+    QMetaObjectBuilder builder;
+    builder.setClassName("Test");
+    builder.addProperty("test", "MyFoo");
+    auto mo = builder.toMetaObject();
+
+    QMetaProperty metaProp = mo->property(mo->indexOfProperty("test"));
+    QCOMPARE(metaProp.typeName(), meta.name());
+    QCOMPARE(metaProp.typeId(), metaId);
+    QCOMPARE(metaProp.metaType(), meta);
+    free(mo);
+}
+
+void tst_QMetaObjectBuilder::cleanupTestCase()
+{
+    for (QMetaObject *obj: dynamicMetaObjectsPendingFree)
+        free(obj);
 }
 
 QTEST_MAIN(tst_QMetaObjectBuilder)

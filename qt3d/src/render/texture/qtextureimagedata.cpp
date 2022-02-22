@@ -38,9 +38,9 @@
 ****************************************************************************/
 
 #include "qtextureimagedata_p.h"
-#include <QDebug>
 #include <QFileInfo>
 #include <QFile>
+#include <QDebug>
 
 QT_BEGIN_NAMESPACE
 
@@ -191,7 +191,7 @@ QTextureImageData &QTextureImageData::operator=(const QTextureImageData &other)
 /*!
   Remove stored texture data and return the object to its initial state
  */
-void QTextureImageData::cleanup() Q_DECL_NOTHROW
+void QTextureImageData::cleanup() noexcept
 {
     Q_D(QTextureImageData);
     d->m_width = -1;
@@ -209,7 +209,7 @@ void QTextureImageData::cleanup() Q_DECL_NOTHROW
 /*!
   \return true if the stored texture is in a compressed format
  */
-bool QTextureImageData::isCompressed() const Q_DECL_NOTHROW
+bool QTextureImageData::isCompressed() const noexcept
 {
     Q_D(const QTextureImageData);
     return d->m_isCompressed;
@@ -218,7 +218,7 @@ bool QTextureImageData::isCompressed() const Q_DECL_NOTHROW
 /*!
   \return the width of the stored texture
 */
-int QTextureImageData::width() const Q_DECL_NOTHROW
+int QTextureImageData::width() const noexcept
 {
     Q_D(const QTextureImageData);
     return d->m_width;
@@ -227,7 +227,7 @@ int QTextureImageData::width() const Q_DECL_NOTHROW
 /*!
   \return the height of the stored texture
  */
-int QTextureImageData::height() const Q_DECL_NOTHROW
+int QTextureImageData::height() const noexcept
 {
     Q_D(const QTextureImageData);
     return d->m_height;
@@ -236,7 +236,7 @@ int QTextureImageData::height() const Q_DECL_NOTHROW
 /*!
   \return the depth of the stored texture
  */
-int QTextureImageData::depth() const Q_DECL_NOTHROW
+int QTextureImageData::depth() const noexcept
 {
     Q_D(const QTextureImageData);
     return d->m_depth;
@@ -245,7 +245,7 @@ int QTextureImageData::depth() const Q_DECL_NOTHROW
 /*!
   \return the number of layers in the stored texture
  */
-int QTextureImageData::layers() const Q_DECL_NOTHROW
+int QTextureImageData::layers() const noexcept
 {
     Q_D(const QTextureImageData);
     return d->m_layers;
@@ -254,7 +254,7 @@ int QTextureImageData::layers() const Q_DECL_NOTHROW
 /*!
   \return the number of mip levels in the stored texture
  */
-int QTextureImageData::mipLevels() const Q_DECL_NOTHROW
+int QTextureImageData::mipLevels() const noexcept
 {
     Q_D(const QTextureImageData);
     return d->m_mipLevels;
@@ -263,7 +263,7 @@ int QTextureImageData::mipLevels() const Q_DECL_NOTHROW
 /*!
   \return the number of faces in the stored texture
  */
-int QTextureImageData::faces() const Q_DECL_NOTHROW
+int QTextureImageData::faces() const noexcept
 {
     Q_D(const QTextureImageData);
     return d->m_faces;;
@@ -273,7 +273,7 @@ int QTextureImageData::faces() const Q_DECL_NOTHROW
  * Sets the width to \a width.
  * \param setWidth
  */
-void QTextureImageData::setWidth(int width) Q_DECL_NOTHROW
+void QTextureImageData::setWidth(int width) noexcept
 {
     Q_D(QTextureImageData);
     d->m_width = width;
@@ -283,7 +283,7 @@ void QTextureImageData::setWidth(int width) Q_DECL_NOTHROW
  * Sets the height to \a height.
  * \param setHeight
  */
-void QTextureImageData::setHeight(int height) Q_DECL_NOTHROW
+void QTextureImageData::setHeight(int height) noexcept
 {
     Q_D(QTextureImageData);
     d->m_height = height;
@@ -293,7 +293,7 @@ void QTextureImageData::setHeight(int height) Q_DECL_NOTHROW
  * Sets the depth to \a depth.
  * \param setDepth
  */
-void QTextureImageData::setDepth(int depth) Q_DECL_NOTHROW
+void QTextureImageData::setDepth(int depth) noexcept
 {
     Q_D(QTextureImageData);
     d->m_depth = depth;
@@ -303,7 +303,7 @@ void QTextureImageData::setDepth(int depth) Q_DECL_NOTHROW
  * Sets the layers to \a layers.
  * \param setLayers
  */
-void QTextureImageData::setLayers(int layers) Q_DECL_NOTHROW
+void QTextureImageData::setLayers(int layers) noexcept
 {
     Q_D(QTextureImageData);
     d->m_layers = layers;
@@ -313,7 +313,7 @@ void QTextureImageData::setLayers(int layers) Q_DECL_NOTHROW
  * Sets the mip levels to \a mipLevels.
  * \param setMipLevels
  */
-void QTextureImageData::setMipLevels(int mipLevels) Q_DECL_NOTHROW
+void QTextureImageData::setMipLevels(int mipLevels) noexcept
 {
     Q_D(QTextureImageData);
     d->m_mipLevels = mipLevels;
@@ -323,25 +323,43 @@ void QTextureImageData::setMipLevels(int mipLevels) Q_DECL_NOTHROW
  * Sets the faces to \a faces.
  * \param setFaces
  */
-void QTextureImageData::setFaces(int faces) Q_DECL_NOTHROW
+void QTextureImageData::setFaces(int faces) noexcept
 {
     Q_D(QTextureImageData);
     d->m_faces = faces;
 }
 
 /*!
-  \return the target for the stored texture
+ * Sets the \a alignment requirements for the image.
  */
-QOpenGLTexture::Target QTextureImageData::target() const Q_DECL_NOTHROW
+void QTextureImageData::setAlignment(int alignment) noexcept
+{
+    Q_D(QTextureImageData);
+    d->m_alignment = alignment;
+}
+
+/*!
+  \return the alignment requirement for the image.
+ */
+int QTextureImageData::alignment() const noexcept
+{
+    Q_D(const QTextureImageData);
+    return d->m_alignment;
+}
+
+/*!
+  \return the target for the stored texture.
+ */
+QOpenGLTexture::Target QTextureImageData::target() const noexcept
 {
     Q_D(const QTextureImageData);
     return d->m_target;
 }
 
 /*!
-  \return the format of the stored texture
+  \return the format of the stored texture.
  */
-QOpenGLTexture::TextureFormat QTextureImageData::format() const Q_DECL_NOTHROW
+QOpenGLTexture::TextureFormat QTextureImageData::format() const noexcept
 {
     Q_D(const QTextureImageData);
     return d->m_format;
@@ -349,9 +367,8 @@ QOpenGLTexture::TextureFormat QTextureImageData::format() const Q_DECL_NOTHROW
 
 /*!
  * Sets the target to \a target.
- * \param target
  */
-void QTextureImageData::setTarget(QOpenGLTexture::Target target) Q_DECL_NOTHROW
+void QTextureImageData::setTarget(QOpenGLTexture::Target target) noexcept
 {
     Q_D(QTextureImageData);
     d->m_target = target;
@@ -359,9 +376,8 @@ void QTextureImageData::setTarget(QOpenGLTexture::Target target) Q_DECL_NOTHROW
 
 /*!
  * Sets the format to \a format.
- * \param
  */
-void QTextureImageData::setFormat(QOpenGLTexture::TextureFormat format) Q_DECL_NOTHROW
+void QTextureImageData::setFormat(QOpenGLTexture::TextureFormat format) noexcept
 {
     Q_D(QTextureImageData);
     d->m_format = format;
@@ -369,26 +385,24 @@ void QTextureImageData::setFormat(QOpenGLTexture::TextureFormat format) Q_DECL_N
 
 /*!
  * Sets the pixel format to \a pixelFormat.
- * \param setPixelFormat
  */
-void QTextureImageData::setPixelFormat(QOpenGLTexture::PixelFormat pixelFormat) Q_DECL_NOTHROW
+void QTextureImageData::setPixelFormat(QOpenGLTexture::PixelFormat pixelFormat) noexcept
 {
     Q_D(QTextureImageData);
     d->m_pixelFormat = pixelFormat;
 }
 
 /*!
- * Sets the pixel type to \a pixelType
- * \param setPixelType
+ * Sets the pixel type to \a pixelType.
  */
-void QTextureImageData::setPixelType(QOpenGLTexture::PixelType pixelType) Q_DECL_NOTHROW
+void QTextureImageData::setPixelType(QOpenGLTexture::PixelType pixelType) noexcept
 {
     Q_D(QTextureImageData);
     d->m_pixelType = pixelType;
 }
 
 /*!
-  Copies the image \a image as raw data within this object
+  Copies the image \a image as raw data within this object.
  */
 void QTextureImageData::setImage(const QImage &image)
 {
@@ -412,7 +426,7 @@ void QTextureImageData::setImage(const QImage &image)
 }
 
 /*!
-  Store the data \a data with blocksize \a blockSize and if the data to be stored is compressed \a isCompressed
+  Stores the data \a data with blocksize \a blockSize and if the data to be stored is compressed \a isCompressed.
  */
 void QTextureImageData::setData(const QByteArray &data, int blockSize, bool isCompressed)
 {
@@ -420,8 +434,14 @@ void QTextureImageData::setData(const QByteArray &data, int blockSize, bool isCo
     d->setData(data, blockSize, isCompressed);
 }
 
+void QTextureImageData::setData(const QByteArray &data, std::function<QByteArray(QByteArray data, int layer, int face, int mipmapLevel)> dataExtractor, bool isCompressed)
+{
+    Q_D(QTextureImageData);
+    d->setData(data, dataExtractor, isCompressed);
+}
+
 /*!
-  \return the raw image data for the texture at layer \a layer, face \a face and mipmapLevel \a mipmapLevel
+  \return the raw image data for the texture at layer \a layer, face \a face and mipmapLevel \a mipmapLevel.
  */
 QByteArray QTextureImageData::data(int layer, int face, int mipmapLevel) const
 {
@@ -430,18 +450,18 @@ QByteArray QTextureImageData::data(int layer, int face, int mipmapLevel) const
 }
 
 /*!
-  \return the pixel format of the stored texture
+  \return the pixel format of the stored texture.
  */
-QOpenGLTexture::PixelFormat QTextureImageData::pixelFormat() const Q_DECL_NOTHROW
+QOpenGLTexture::PixelFormat QTextureImageData::pixelFormat() const noexcept
 {
     Q_D(const QTextureImageData);
     return d->m_pixelFormat;
 }
 
 /*!
-  \return the pixel type of the stored texture
+  \return the pixel type of the stored texture.
  */
-QOpenGLTexture::PixelType QTextureImageData::pixelType() const Q_DECL_NOTHROW
+QOpenGLTexture::PixelType QTextureImageData::pixelType() const noexcept
 {
     Q_D(const QTextureImageData);
     return d->m_pixelType;

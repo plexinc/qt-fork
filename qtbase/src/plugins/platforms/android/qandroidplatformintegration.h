@@ -40,23 +40,21 @@
 #ifndef QANDROIDPLATFORMINTERATION_H
 #define QANDROIDPLATFORMINTERATION_H
 
-#include <QtGui/qtguiglobal.h>
+#include "qandroidinputcontext.h"
+#include "qandroidplatformscreen.h"
 
+#include <QtGui/qtguiglobal.h>
 #include <qpa/qplatformintegration.h>
 #include <qpa/qplatformmenu.h>
 #include <qpa/qplatformnativeinterface.h>
+#include <qpa/qplatformopenglcontext.h>
+#include <qpa/qplatformoffscreensurface.h>
 
 #include <EGL/egl.h>
-#include <jni.h>
-#include "qandroidinputcontext.h"
-
-#include "qandroidplatformscreen.h"
-
 #include <memory>
 
 QT_BEGIN_NAMESPACE
 
-class QDesktopWidget;
 class QAndroidPlatformServices;
 class QAndroidSystemLocale;
 class QPlatformAccessibility;
@@ -67,6 +65,7 @@ class QAndroidPlatformNativeInterface: public QPlatformNativeInterface
 public:
     void *nativeResourceForIntegration(const QByteArray &resource) override;
     void *nativeResourceForWindow(const QByteArray &resource, QWindow *window) override;
+    void *nativeResourceForContext(const QByteArray &resource, QOpenGLContext *context) override;
     std::shared_ptr<AndroidStyle> m_androidStyle;
 
 protected:
@@ -74,6 +73,8 @@ protected:
 };
 
 class QAndroidPlatformIntegration : public QPlatformIntegration
+                                  , QNativeInterface::Private::QEGLIntegration
+                                  , QNativeInterface::Private::QAndroidOffScreenIntegration
 {
     friend class QAndroidPlatformScreen;
 
@@ -89,12 +90,14 @@ public:
     QPlatformWindow *createForeignWindow(QWindow *window, WId nativeHandle) const override;
     QPlatformBackingStore *createPlatformBackingStore(QWindow *window) const override;
     QPlatformOpenGLContext *createPlatformOpenGLContext(QOpenGLContext *context) const override;
+    QOpenGLContext *createOpenGLContext(EGLContext context, EGLDisplay display, QOpenGLContext *shareContext) const override;
     QAbstractEventDispatcher *createEventDispatcher() const override;
     QAndroidPlatformScreen *screen() { return m_primaryScreen; }
     QPlatformOffscreenSurface *createPlatformOffscreenSurface(QOffscreenSurface *surface) const override;
+    QOffscreenSurface *createOffscreenSurface(ANativeWindow *nativeSurface) const override;
 
-    virtual void setDesktopSize(int width, int height);
-    virtual void setDisplayMetrics(int width, int height);
+    void setAvailableGeometry(const QRect &availableGeometry);
+    void setPhysicalSize(int width, int height);
     void setScreenSize(int width, int height);
     bool isVirtualDesktop() { return true; }
 
@@ -118,18 +121,19 @@ public:
     QStringList themeNames() const override;
     QPlatformTheme *createPlatformTheme(const QString &name) const override;
 
-    static void setDefaultDisplayMetrics(int gw, int gh, int sw, int sh, int width, int height);
-    static void setDefaultDesktopSize(int gw, int gh);
+    static void setDefaultDisplayMetrics(int availableLeft,
+                                         int availableTop,
+                                         int availableWidth,
+                                         int availableHeight,
+                                         int physicalWidth,
+                                         int physicalHeight,
+                                         int screenWidth,
+                                         int screenHeight);
     static void setScreenOrientation(Qt::ScreenOrientation currentOrientation,
                                      Qt::ScreenOrientation nativeOrientation);
 
-    static QSize defaultDesktopSize()
-    {
-        return QSize(m_defaultGeometryWidth, m_defaultGeometryHeight);
-    }
-
-    QTouchDevice *touchDevice() const { return m_touchDevice; }
-    void setTouchDevice(QTouchDevice *touchDevice) { m_touchDevice = touchDevice; }
+    QPointingDevice *touchDevice() const { return m_touchDevice; }
+    void setTouchDevice(QPointingDevice *touchDevice) { m_touchDevice = touchDevice; }
 
     void flushPendingUpdates();
 
@@ -139,18 +143,15 @@ public:
 
 private:
     EGLDisplay m_eglDisplay;
-    QTouchDevice *m_touchDevice;
+    QPointingDevice *m_touchDevice;
 
     QAndroidPlatformScreen *m_primaryScreen;
 
     QThread *m_mainThread;
 
-    static int m_defaultGeometryWidth;
-    static int m_defaultGeometryHeight;
-    static int m_defaultPhysicalSizeWidth;
-    static int m_defaultPhysicalSizeHeight;
-    static int m_defaultScreenWidth;
-    static int m_defaultScreenHeight;
+    static QRect m_defaultAvailableGeometry;
+    static QSize m_defaultPhysicalSize;
+    static QSize m_defaultScreenSize;
 
     static Qt::ScreenOrientation m_orientation;
     static Qt::ScreenOrientation m_nativeOrientation;

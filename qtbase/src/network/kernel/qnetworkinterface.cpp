@@ -49,6 +49,9 @@
 
 QT_BEGIN_NAMESPACE
 
+static_assert(QT_VERSION < QT_VERSION_CHECK(7, 0, 0)
+           && sizeof(QScopedPointer<QNetworkAddressEntryPrivate>) == sizeof(std::unique_ptr<QNetworkAddressEntryPrivate>));
+
 static QList<QNetworkInterfacePrivate *> postProcess(QList<QNetworkInterfacePrivate *> list)
 {
     // Some platforms report a netmask but don't report a broadcast address
@@ -204,7 +207,7 @@ QNetworkAddressEntry::QNetworkAddressEntry()
     object \a other.
 */
 QNetworkAddressEntry::QNetworkAddressEntry(const QNetworkAddressEntry &other)
-    : d(new QNetworkAddressEntryPrivate(*other.d.data()))
+    : d(new QNetworkAddressEntryPrivate(*other.d.get()))
 {
 }
 
@@ -213,7 +216,7 @@ QNetworkAddressEntry::QNetworkAddressEntry(const QNetworkAddressEntry &other)
 */
 QNetworkAddressEntry &QNetworkAddressEntry::operator=(const QNetworkAddressEntry &other)
 {
-    *d.data() = *other.d.data();
+    *d.get() = *other.d.get();
     return *this;
 }
 
@@ -489,7 +492,7 @@ void QNetworkAddressEntry::clearAddressLifetime()
     \since 5.11
 
     Returns \c true if this address is permanent on this interface, \c false if
-    it's temporary. A permenant address is one which has no expiration time and
+    it's temporary. A permanent address is one which has no expiration time and
     is often static (manually configured).
 
     If this information could not be determined, this function returns \c true.
@@ -552,9 +555,11 @@ bool QNetworkAddressEntry::isPermanent() const
     Specifies the flags associated with this network interface. The
     possible values are:
 
-    \value IsUp                 the network interface is active
-    \value IsRunning            the network interface has resources
-                                allocated
+    \value IsUp                 the network interface is "up" -
+                                enabled by administrative action
+    \value IsRunning            the network interface is operational:
+                                configured "up" and (typically)
+                                physically connected to a network
     \value CanBroadcast         the network interface works in
                                 broadcast mode
     \value IsLoopBack           the network interface is a loopback
@@ -926,17 +931,32 @@ static inline QDebug flagsDebug(QDebug debug, QNetworkInterface::InterfaceFlags 
     return debug;
 }
 
-static inline QDebug operator<<(QDebug debug, const QNetworkAddressEntry &entry)
+/*!
+   \since 6.2
+
+    Writes the QNetworkAddressEntry \a entry to the stream and
+    returns a reference to the \a debug stream.
+
+    \relates QNetworkAddressEntry
+ */
+QDebug operator<<(QDebug debug, const QNetworkAddressEntry &entry)
 {
-    debug << "(address = " << entry.ip();
+    QDebugStateSaver saver(debug);
+    debug.resetFormat().nospace();
+    debug << "address = " << entry.ip();
     if (!entry.netmask().isNull())
         debug << ", netmask = " << entry.netmask();
     if (!entry.broadcast().isNull())
         debug << ", broadcast = " << entry.broadcast();
-    debug << ')';
     return debug;
 }
 
+/*!
+    Writes the QNetworkInterface \a networkInterface to the stream and
+    returns a reference to the \a debug stream.
+
+    \relates QNetworkInterface
+ */
 QDebug operator<<(QDebug debug, const QNetworkInterface &networkInterface)
 {
     QDebugStateSaver saver(debug);

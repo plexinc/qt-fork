@@ -57,8 +57,6 @@
 #include <Qt3DQuickRender/private/quick3draycaster_p.h>
 #include <Qt3DQuick/private/quick3dnode_p.h>
 
-#include <QtQml/QJSValue>
-
 QT_BEGIN_NAMESPACE
 
 namespace Qt3DRender {
@@ -69,16 +67,6 @@ class Q_3DQUICKRENDERSHARED_PRIVATE_EXPORT Quick3DRayCasterPrivate : public QAbs
 {
 public:
     explicit Quick3DRayCasterPrivate() : QAbstractRayCasterPrivate() { }
-
-    QJSValue m_jsHits;
-    QQmlEngine *m_engine = nullptr;
-
-    void dispatchHits(const QAbstractRayCaster::Hits &hits) override;
-    static QJSValue convertHits(const QAbstractRayCaster::Hits &hits, QQmlEngine *engine);
-    static void appendLayer(QQmlListProperty<QLayer> *list, QLayer *bar);
-    static QLayer *layerAt(QQmlListProperty<QLayer> *list, int index);
-    static int layerCount(QQmlListProperty<QLayer> *list);
-    static void clearLayers(QQmlListProperty<QLayer> *list);
 
     Q_DECLARE_PUBLIC(Quick3DRayCaster)
 };

@@ -4,10 +4,11 @@
 
 #include "components/viz/client/client_resource_provider.h"
 
+#include <algorithm>
 #include <memory>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/test/gtest_util.h"
 #include "components/viz/common/resources/returned_resource.h"
 #include "components/viz/common/resources/single_release_callback.h"
@@ -52,7 +53,7 @@ class ClientResourceProviderTest : public testing::TestWithParam<bool> {
                                                 char mailbox_char,
                                                 uint32_t sync_token_value) {
     TransferableResource r;
-    r.id = mailbox_char;
+    r.id = ResourceId(mailbox_char);
     r.is_software = !gpu;
     r.filter = 456;
     r.size = gfx::Size(10, 11);
@@ -485,7 +486,9 @@ TEST_P(ClientResourceProviderTest, ReturnedSyncTokensArePassedToClient) {
   auto* sii = context_provider()->SharedImageInterface();
   gpu::Mailbox mailbox = sii->CreateSharedImage(
       ResourceFormat::RGBA_8888, gfx::Size(1, 1), gfx::ColorSpace(),
-      gpu::SHARED_IMAGE_USAGE_GLES2 | gpu::SHARED_IMAGE_USAGE_DISPLAY);
+      kTopLeft_GrSurfaceOrigin, kPremul_SkAlphaType,
+      gpu::SHARED_IMAGE_USAGE_GLES2 | gpu::SHARED_IMAGE_USAGE_DISPLAY,
+      gpu::kNullSurfaceHandle);
   gpu::SyncToken sync_token = sii->GenUnverifiedSyncToken();
 
   constexpr gfx::Size size(64, 64);
@@ -638,7 +641,7 @@ TEST_P(ClientResourceProviderTest, ReleaseMultipleResources) {
     resources[i] = provider().ImportResource(
         tran, SingleReleaseCallback::Create(
                   base::BindOnce(&MockReleaseCallback::ReleasedWithId,
-                                 base::Unretained(&release), i)));
+                                 base::Unretained(&release), ResourceId(i))));
   }
 
   // Transfer some resources to the parent, but not in the sorted order.
@@ -659,16 +662,16 @@ TEST_P(ClientResourceProviderTest, ReleaseMultipleResources) {
 
   // Remove them from the ClientResourceProvider, they should be returned as
   // they're no longer exported.
-  EXPECT_CALL(release, ReleasedWithId(0, _, false));
+  EXPECT_CALL(release, ReleasedWithId(kInvalidResourceId, _, false));
   provider().RemoveImportedResource(resources[0]);
-  EXPECT_CALL(release, ReleasedWithId(2, _, false));
+  EXPECT_CALL(release, ReleasedWithId(ResourceId(2), _, false));
   provider().RemoveImportedResource(resources[2]);
-  EXPECT_CALL(release, ReleasedWithId(4, _, false));
+  EXPECT_CALL(release, ReleasedWithId(ResourceId(4), _, false));
   provider().RemoveImportedResource(resources[4]);
 
   // These were never exported.
-  EXPECT_CALL(release, ReleasedWithId(1, _, false));
-  EXPECT_CALL(release, ReleasedWithId(3, _, false));
+  EXPECT_CALL(release, ReleasedWithId(ResourceId(1), _, false));
+  EXPECT_CALL(release, ReleasedWithId(ResourceId(3), _, false));
   provider().RemoveImportedResource(resources[1]);
   provider().RemoveImportedResource(resources[3]);
 
@@ -685,7 +688,7 @@ TEST_P(ClientResourceProviderTest, ReleaseMultipleResourcesBeforeReturn) {
     resources[i] = provider().ImportResource(
         tran, SingleReleaseCallback::Create(
                   base::BindOnce(&MockReleaseCallback::ReleasedWithId,
-                                 base::Unretained(&release), i)));
+                                 base::Unretained(&release), ResourceId(i))));
   }
 
   // Transfer some resources to the parent, but not in the sorted order.
@@ -709,14 +712,14 @@ TEST_P(ClientResourceProviderTest, ReleaseMultipleResourcesBeforeReturn) {
   returned_to_child.push_back(list[1].ToReturnedResource());
   returned_to_child.push_back(list[2].ToReturnedResource());
   // The resources are returned immediately since they were previously removed.
-  EXPECT_CALL(release, ReleasedWithId(0, _, false));
-  EXPECT_CALL(release, ReleasedWithId(2, _, false));
-  EXPECT_CALL(release, ReleasedWithId(4, _, false));
+  EXPECT_CALL(release, ReleasedWithId(kInvalidResourceId, _, false));
+  EXPECT_CALL(release, ReleasedWithId(ResourceId(2), _, false));
+  EXPECT_CALL(release, ReleasedWithId(ResourceId(4), _, false));
   provider().ReceiveReturnsFromParent(returned_to_child);
 
   // These were never exported.
-  EXPECT_CALL(release, ReleasedWithId(1, _, false));
-  EXPECT_CALL(release, ReleasedWithId(3, _, false));
+  EXPECT_CALL(release, ReleasedWithId(ResourceId(1), _, false));
+  EXPECT_CALL(release, ReleasedWithId(ResourceId(3), _, false));
   provider().RemoveImportedResource(resources[1]);
   provider().RemoveImportedResource(resources[3]);
 
@@ -733,7 +736,7 @@ TEST_P(ClientResourceProviderTest, ReturnDuplicateResourceBeforeRemove) {
     resources[i] = provider().ImportResource(
         tran, SingleReleaseCallback::Create(
                   base::BindOnce(&MockReleaseCallback::ReleasedWithId,
-                                 base::Unretained(&release), i)));
+                                 base::Unretained(&release), ResourceId(i))));
   }
 
   // Transfer a resource to the parent, do it twice.
@@ -752,14 +755,14 @@ TEST_P(ClientResourceProviderTest, ReturnDuplicateResourceBeforeRemove) {
 
   // Remove it from the ClientResourceProvider, it should be returned as
   // it's no longer exported.
-  EXPECT_CALL(release, ReleasedWithId(2, _, false));
+  EXPECT_CALL(release, ReleasedWithId(ResourceId(2), _, false));
   provider().RemoveImportedResource(resources[2]);
 
   // These were never exported.
-  EXPECT_CALL(release, ReleasedWithId(0, _, false));
-  EXPECT_CALL(release, ReleasedWithId(1, _, false));
-  EXPECT_CALL(release, ReleasedWithId(3, _, false));
-  EXPECT_CALL(release, ReleasedWithId(4, _, false));
+  EXPECT_CALL(release, ReleasedWithId(kInvalidResourceId, _, false));
+  EXPECT_CALL(release, ReleasedWithId(ResourceId(1), _, false));
+  EXPECT_CALL(release, ReleasedWithId(ResourceId(3), _, false));
+  EXPECT_CALL(release, ReleasedWithId(ResourceId(4), _, false));
   provider().RemoveImportedResource(resources[0]);
   provider().RemoveImportedResource(resources[1]);
   provider().RemoveImportedResource(resources[3]);
@@ -778,7 +781,7 @@ TEST_P(ClientResourceProviderTest, ReturnDuplicateResourceAfterRemove) {
     resources[i] = provider().ImportResource(
         tran, SingleReleaseCallback::Create(
                   base::BindOnce(&MockReleaseCallback::ReleasedWithId,
-                                 base::Unretained(&release), i)));
+                                 base::Unretained(&release), ResourceId(i))));
   }
 
   // Transfer a resource to the parent, do it twice.
@@ -799,14 +802,14 @@ TEST_P(ClientResourceProviderTest, ReturnDuplicateResourceAfterRemove) {
   returned_to_child.push_back(list[0].ToReturnedResource());
   // Once no longer exported, since it was removed earlier, it will be returned
   // immediately.
-  EXPECT_CALL(release, ReleasedWithId(2, _, false));
+  EXPECT_CALL(release, ReleasedWithId(ResourceId(2), _, false));
   provider().ReceiveReturnsFromParent(returned_to_child);
 
   // These were never exported.
-  EXPECT_CALL(release, ReleasedWithId(0, _, false));
-  EXPECT_CALL(release, ReleasedWithId(1, _, false));
-  EXPECT_CALL(release, ReleasedWithId(3, _, false));
-  EXPECT_CALL(release, ReleasedWithId(4, _, false));
+  EXPECT_CALL(release, ReleasedWithId(kInvalidResourceId, _, false));
+  EXPECT_CALL(release, ReleasedWithId(ResourceId(1), _, false));
+  EXPECT_CALL(release, ReleasedWithId(ResourceId(3), _, false));
+  EXPECT_CALL(release, ReleasedWithId(ResourceId(4), _, false));
   provider().RemoveImportedResource(resources[0]);
   provider().RemoveImportedResource(resources[1]);
   provider().RemoveImportedResource(resources[3]);

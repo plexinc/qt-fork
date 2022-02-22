@@ -27,7 +27,7 @@
 ****************************************************************************/
 #include <QDebug>
 #include <qtest.h>
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QtCore/QCoreApplication>
 #include <QtCore/QFileInfo>
 #include <QtCore/QFile>
@@ -41,9 +41,9 @@ class qfileinfo : public QObject
 private slots:
     void existsTemporary();
     void existsStatic();
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
     void symLinkTargetPerformanceLNK();
-    void symLinkTargetPerformanceMounpoint();
+    void junctionTargetPerformanceMountpoint();
 #endif
     void initTestCase();
     void cleanupTestCase();
@@ -71,7 +71,7 @@ void qfileinfo::existsStatic()
     QBENCHMARK { QFileInfo::exists(appPath); }
 }
 
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
 void qfileinfo::symLinkTargetPerformanceLNK()
 {
     QVERIFY(QFile::link("file","link.lnk"));
@@ -86,7 +86,7 @@ void qfileinfo::symLinkTargetPerformanceLNK()
     QVERIFY(QFile::remove("link.lnk"));
 }
 
-void qfileinfo::symLinkTargetPerformanceMounpoint()
+void qfileinfo::junctionTargetPerformanceMountpoint()
 {
     wchar_t buffer[MAX_PATH];
     QString rootPath = QDir::toNativeSeparators(QDir::rootPath());
@@ -94,17 +94,16 @@ void qfileinfo::symLinkTargetPerformanceMounpoint()
     QString rootVolume = QString::fromWCharArray(buffer);
     QString mountpoint = "mountpoint";
     rootVolume.replace("\\\\?\\","\\??\\");
-    QString errorMessage;
-    QVERIFY2(FileSystem::createNtfsJunction(rootVolume, mountpoint, &errorMessage) == ERROR_SUCCESS,
-             qPrintable(errorMessage));
+    const auto result = FileSystem::createNtfsJunction(rootVolume, mountpoint);
+    QVERIFY2(result.dwErr == ERROR_SUCCESS, qPrintable(result.errorMessage));
 
     QFileInfo info(mountpoint);
     info.setCaching(false);
-    QVERIFY(info.isSymLink());
-    QString linkTarget;
+    QVERIFY(info.isJunction());
+    QString junctionTarget;
     QBENCHMARK {
         for(int i=0; i<100; i++)
-            linkTarget = info.symLinkTarget();
+            junctionTarget = info.junctionTarget();
     }
     QVERIFY(QDir().rmdir(mountpoint));
 }

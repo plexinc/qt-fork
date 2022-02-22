@@ -240,7 +240,7 @@ void AppModalDialogManager::RunBeforeUnloadDialogWithOptions(
       ShouldDisplaySuppressCheckbox(extra_data),
       true,  // is_before_unload_dialog
       is_reload,
-      base::BindOnce(&AppModalDialogManager::OnBeforeUnloadDialogClosed,
+      base::BindOnce(&AppModalDialogManager::OnDialogClosed,
                      base::Unretained(this), web_contents,
                      std::move(callback))));
 }
@@ -278,38 +278,16 @@ bool AppModalDialogManager::HandleJavaScriptDialog(
 void AppModalDialogManager::CancelDialogs(content::WebContents* web_contents,
                                           bool reset_state) {
   AppModalDialogQueue* queue = AppModalDialogQueue::GetInstance();
-  AppModalDialogController* active_dialog = queue->active_dialog();
   for (auto* dialog : *queue) {
-    // Invalidating the active dialog might trigger showing a not-yet
-    // invalidated dialog, so invalidate the active dialog last.
-    if (dialog == active_dialog)
-      continue;
     if (dialog->web_contents() == web_contents)
       dialog->Invalidate();
   }
+  AppModalDialogController* active_dialog = queue->active_dialog();
   if (active_dialog && active_dialog->web_contents() == web_contents)
     active_dialog->Invalidate();
 
   if (reset_state)
     javascript_dialog_extra_data_.erase(web_contents);
-}
-
-void AppModalDialogManager::OnBeforeUnloadDialogClosed(
-    content::WebContents* web_contents,
-    DialogClosedCallback callback,
-    bool success,
-    const base::string16& user_input) {
-  enum class StayVsLeave {
-    STAY = 0,
-    LEAVE = 1,
-    MAX,
-  };
-  UMA_HISTOGRAM_ENUMERATION(
-      "JSDialogs.OnBeforeUnloadStayVsLeave",
-      static_cast<int>(success ? StayVsLeave::LEAVE : StayVsLeave::STAY),
-      static_cast<int>(StayVsLeave::MAX));
-
-  OnDialogClosed(web_contents, std::move(callback), success, user_input);
 }
 
 void AppModalDialogManager::OnDialogClosed(content::WebContents* web_contents,

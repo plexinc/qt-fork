@@ -233,7 +233,7 @@ public:
 
     \brief The QSGContext holds the scene graph entry points for one QML engine.
 
-    The context is not ready for use until it has a QOpenGLContext. Once that happens,
+    The context is not ready for use until it has a QRhi. Once that happens,
     the scene graph population can start.
 
     \internal
@@ -284,7 +284,7 @@ QSGGuiThreadShaderEffectManager *QSGContext::createGuiThreadShaderEffectManager(
     valid as long as the backend does not claim SupportsShaderEffectNode or
     ignoring ShaderEffect elements is acceptable.
  */
-QSGShaderEffectNode *QSGContext::createShaderEffectNode(QSGRenderContext *, QSGGuiThreadShaderEffectManager *)
+QSGShaderEffectNode *QSGContext::createShaderEffectNode(QSGRenderContext *)
 {
     return nullptr;
 }
@@ -341,10 +341,13 @@ void QSGRenderContext::invalidate()
 {
 }
 
-void QSGRenderContext::prepareSync(qreal devicePixelRatio, QRhiCommandBuffer *cb)
+void QSGRenderContext::prepareSync(qreal devicePixelRatio,
+                                   QRhiCommandBuffer *cb,
+                                   const QQuickGraphicsConfiguration &config)
 {
     Q_UNUSED(devicePixelRatio);
     Q_UNUSED(cb);
+    Q_UNUSED(config);
 }
 
 void QSGRenderContext::beginNextFrame(QSGRenderer *renderer,
@@ -404,7 +407,7 @@ void QSGRenderContext::preprocess()
 /*!
     Factory function for scene graph backends of the distance-field glyph cache.
  */
-QSGDistanceFieldGlyphCache *QSGRenderContext::distanceFieldGlyphCache(const QRawFont &)
+QSGDistanceFieldGlyphCache *QSGRenderContext::distanceFieldGlyphCache(const QRawFont &, int)
 {
     return nullptr;
 }

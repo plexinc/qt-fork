@@ -52,10 +52,11 @@ class LayoutImageResourceStyleImage final : public LayoutImageResource {
   }
   FloatSize ImageSize(float multiplier) const override;
   FloatSize ImageSizeWithDefaultSize(float multiplier,
-                                     const LayoutSize&) const override;
+                                     const FloatSize&) const override;
+  RespectImageOrientationEnum ImageOrientation() const override;
   WrappedImagePtr ImagePtr() const override { return style_image_->Data(); }
 
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
  private:
   Member<StyleImage> style_image_;

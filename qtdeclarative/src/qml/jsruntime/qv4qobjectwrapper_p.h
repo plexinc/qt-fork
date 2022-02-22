@@ -92,34 +92,31 @@ struct Q_QML_EXPORT QObjectWrapper : Object {
     static void markObjects(Heap::Base *that, MarkStack *markStack);
 
 private:
-    QQmlQPointer<QObject> qObj;
+    QV4QPointer<QObject> qObj;
 };
 
 #define QObjectMethodMembers(class, Member) \
     Member(class, Pointer, QQmlValueTypeWrapper *, valueTypeWrapper) \
-    Member(class, NoMark, QQmlQPointer<QObject>, qObj) \
-    Member(class, NoMark, QQmlPropertyCache *, _propertyCache) \
+    Member(class, NoMark, QV4QPointer<QObject>, qObj) \
     Member(class, NoMark, int, index)
 
 DECLARE_HEAP_OBJECT(QObjectMethod, FunctionObject) {
     DECLARE_MARKOBJECTS(QObjectMethod);
 
+    QQmlPropertyData *methods;
+    int methodCount;
+    alignas(alignof(QQmlPropertyData)) std::byte _singleMethod[sizeof(QQmlPropertyData)];
+
     void init(QV4::ExecutionContext *scope);
     void destroy()
     {
-        setPropertyCache(nullptr);
+        if (methods != reinterpret_cast<QQmlPropertyData *>(&_singleMethod))
+            delete[] methods;
         qObj.destroy();
         FunctionObject::destroy();
     }
 
-    QQmlPropertyCache *propertyCache() const { return _propertyCache; }
-    void setPropertyCache(QQmlPropertyCache *c) {
-        if (c)
-            c->addref();
-        if (_propertyCache)
-            _propertyCache->release();
-        _propertyCache = c;
-    }
+    void ensureMethodsCache();
 
     const QMetaObject *metaObject();
     QObject *object() const { return qObj.data(); }
@@ -149,7 +146,7 @@ struct QmlSignalHandler : Object {
     void setObject(QObject *o) { qObj = o; }
 
 private:
-    QQmlQPointer<QObject> qObj;
+    QV4QPointer<QObject> qObj;
 };
 
 }
@@ -165,10 +162,19 @@ struct Q_QML_EXPORT QObjectWrapper : public Object
 
     QObject *object() const { return d()->object(); }
 
-    ReturnedValue getQmlProperty(QQmlContextData *qmlContext, String *name, RevisionMode revisionMode, bool *hasProperty = nullptr, bool includeImports = false) const;
-    static ReturnedValue getQmlProperty(ExecutionEngine *engine, QQmlContextData *qmlContext, QObject *object, String *name, RevisionMode revisionMode, bool *hasProperty = nullptr, QQmlPropertyData **property = nullptr);
+    ReturnedValue getQmlProperty(
+            const QQmlRefPointer<QQmlContextData> &qmlContext, String *name,
+            RevisionMode revisionMode, bool *hasProperty = nullptr,
+            bool includeImports = false) const;
+    \
+    static ReturnedValue getQmlProperty(
+            ExecutionEngine *engine, const QQmlRefPointer<QQmlContextData> &qmlContext,
+            QObject *object, String *name, RevisionMode revisionMode, bool *hasProperty = nullptr,
+            QQmlPropertyData **property = nullptr);
 
-    static bool setQmlProperty(ExecutionEngine *engine, QQmlContextData *qmlContext, QObject *object, String *name, RevisionMode revisionMode, const Value &value);
+    static bool setQmlProperty(
+            ExecutionEngine *engine, const QQmlRefPointer<QQmlContextData> &qmlContext,
+            QObject *object, String *name, RevisionMode revisionMode, const Value &value);
 
     static ReturnedValue wrap(ExecutionEngine *engine, QObject *object);
     static void markWrapper(QObject *object, MarkStack *markStack);
@@ -183,7 +189,8 @@ struct Q_QML_EXPORT QObjectWrapper : public Object
     static ReturnedValue getProperty(ExecutionEngine *engine, QObject *object, QQmlPropertyData *property);
 
     static ReturnedValue virtualResolveLookupGetter(const Object *object, ExecutionEngine *engine, Lookup *lookup);
-    static ReturnedValue lookupGetter(Lookup *l, ExecutionEngine *engine, const Value &object);
+    static ReturnedValue lookupAttached(Lookup *l, ExecutionEngine *engine, const Value &object);
+
     template <typename ReversalFunctor> static ReturnedValue lookupGetterImpl(Lookup *l, ExecutionEngine *engine, const Value &object, bool useOriginalProperty, ReversalFunctor revert);
     static bool virtualResolveLookupSetter(Object *object, ExecutionEngine *engine, Lookup *lookup, const Value &value);
 
@@ -193,8 +200,13 @@ protected:
     static bool virtualIsEqualTo(Managed *that, Managed *o);
     static ReturnedValue create(ExecutionEngine *engine, QObject *object);
 
-    static QQmlPropertyData *findProperty(ExecutionEngine *engine, QObject *o, QQmlContextData *qmlContext, String *name, RevisionMode revisionMode, QQmlPropertyData *local);
-    QQmlPropertyData *findProperty(ExecutionEngine *engine, QQmlContextData *qmlContext, String *name, RevisionMode revisionMode, QQmlPropertyData *local) const;
+    static QQmlPropertyData *findProperty(
+            ExecutionEngine *engine, QObject *o, const QQmlRefPointer<QQmlContextData> &qmlContext,
+            String *name, RevisionMode revisionMode, QQmlPropertyData *local);
+
+    QQmlPropertyData *findProperty(
+            ExecutionEngine *engine, const QQmlRefPointer<QQmlContextData> &qmlContext,
+            String *name, RevisionMode revisionMode, QQmlPropertyData *local) const;
 
     static ReturnedValue virtualGet(const Managed *m, PropertyKey id, const Value *receiver, bool *hasProperty);
     static bool virtualPut(Managed *m, PropertyKey id, const Value &value, Value *receiver);
@@ -303,9 +315,6 @@ protected:
 private:
     void init(ExecutionEngine *engine);
     ReturnedValue constructInternal(const Value *argv, int argc) const;
-    ReturnedValue callConstructor(const QQmlPropertyData &data, QV4::ExecutionEngine *engine, QV4::CallData *callArgs) const;
-    ReturnedValue callOverloadedConstructor(QV4::ExecutionEngine *engine, QV4::CallData *callArgs) const;
-
 };
 
 struct Q_QML_EXPORT QmlSignalHandler : public QV4::Object
@@ -327,6 +336,8 @@ class MultiplyWrappedQObjectMap : public QObject,
 public:
     typedef QHash<QObject*, QV4::WeakValue>::ConstIterator ConstIterator;
     typedef QHash<QObject*, QV4::WeakValue>::Iterator Iterator;
+
+    using value_type = QHash<QObject*, QV4::WeakValue>::value_type;
 
     ConstIterator begin() const { return QHash<QObject*, QV4::WeakValue>::constBegin(); }
     Iterator begin() { return QHash<QObject*, QV4::WeakValue>::begin(); }

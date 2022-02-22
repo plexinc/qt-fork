@@ -45,7 +45,7 @@
 #include <QtCore/QDataStream>
 #include <QtCore/QDateTime>
 #include <QtCore/QDir>
-#include <QtCore/QTextCodec>
+#include <QtCore/QStringDecoder>
 #include <QtCore/QTextStream>
 #include <QtCore/QSet>
 #include <QtCore/QUrl>
@@ -458,12 +458,12 @@ void QHelpSearchIndexWriter::run()
         for (const QStringList &attributes : attributeSets) {
             const QString &attributesString = attributes.join(QLatin1Char('|'));
 
-            const QMap<QString, QByteArray> htmlFiles
-                    = reader.filesData(attributes, QLatin1String("html"));
-            const QMap<QString, QByteArray> htmFiles
-                    = reader.filesData(attributes, QLatin1String("htm"));
-            const QMap<QString, QByteArray> txtFiles
-                    = reader.filesData(attributes, QLatin1String("txt"));
+            const QMultiMap<QString, QByteArray> htmlFiles =
+                    reader.filesData(attributes, QLatin1String("html"));
+            const QMultiMap<QString, QByteArray> htmFiles =
+                    reader.filesData(attributes, QLatin1String("htm"));
+            const QMultiMap<QString, QByteArray> txtFiles =
+                    reader.filesData(attributes, QLatin1String("txt"));
 
             QMultiMap<QString, QByteArray> files = htmlFiles;
             files.unite(htmFiles);
@@ -502,8 +502,9 @@ void QHelpSearchIndexWriter::run()
                 }
 
                 QTextStream s(data);
-                const QString &en = QHelpGlobal::codecFromData(data);
-                s.setCodec(QTextCodec::codecForName(en.toLatin1().constData()));
+                auto encoding = QStringDecoder::encodingForHtml(data);
+                if (encoding)
+                    s.setEncoding(*encoding);
 
                 const QString &text = s.readAll();
                 if (text.isEmpty())

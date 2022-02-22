@@ -12,7 +12,7 @@
 #include "cc/paint/paint_filter.h"
 #include "services/viz/public/cpp/compositing/paint_filter_mojom_traits.h"
 #include "services/viz/public/mojom/compositing/filter_operation.mojom-shared.h"
-#include "skia/public/mojom/blur_image_filter_tile_mode_mojom_traits.h"
+#include "skia/public/mojom/tile_mode_mojom_traits.h"
 #include "ui/gfx/geometry/mojom/geometry_mojom_traits.h"
 
 namespace mojo {
@@ -157,12 +157,10 @@ struct StructTraits<viz::mojom::FilterOperationDataView, cc::FilterOperation> {
     return operation.zoom_inset();
   }
 
-  static skia::mojom::BlurTileMode blur_tile_mode(
-      const cc::FilterOperation& operation) {
+  static SkTileMode blur_tile_mode(const cc::FilterOperation& operation) {
     if (operation.type() != cc::FilterOperation::BLUR)
-      return skia::mojom::BlurTileMode::CLAMP_TO_BLACK;
-    return EnumTraits<skia::mojom::BlurTileMode, SkBlurImageFilter::TileMode>::
-        ToMojom(operation.blur_tile_mode());
+      return SkTileMode::kDecal;
+    return operation.blur_tile_mode();
   }
 
   static bool Read(viz::mojom::FilterOperationDataView data,
@@ -182,7 +180,7 @@ struct StructTraits<viz::mojom::FilterOperationDataView, cc::FilterOperation> {
         return true;
       case cc::FilterOperation::BLUR:
         out->set_amount(data.amount());
-        SkBlurImageFilter::TileMode tile_mode;
+        SkTileMode tile_mode;
         if (!data.ReadBlurTileMode(&tile_mode))
           return false;
         out->set_blur_tile_mode(tile_mode);
@@ -197,13 +195,14 @@ struct StructTraits<viz::mojom::FilterOperationDataView, cc::FilterOperation> {
         return true;
       }
       case cc::FilterOperation::COLOR_MATRIX: {
-        // TODO(fsamuel): It would be nice to modify cc::FilterOperation to
-        // avoid this extra copy.
-        cc::FilterOperation::Matrix matrix_buffer = {};
-        base::span<float> matrix(matrix_buffer);
-        if (!data.ReadMatrix(&matrix))
-          return false;
-        out->set_matrix(matrix_buffer);
+        mojo::ArrayDataView<float> matrix;
+        data.GetMatrixDataView(&matrix);
+        if (!matrix.is_null()) {
+          // Guaranteed by prior validation of the FilterOperation struct
+          // because this array specifies a fixed size in the mojom.
+          DCHECK_EQ(matrix.size(), 20u);
+          out->set_matrix(base::make_span<20>(matrix));
+        }
         return true;
       }
       case cc::FilterOperation::ZOOM: {

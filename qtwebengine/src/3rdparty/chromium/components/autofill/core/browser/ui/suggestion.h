@@ -9,13 +9,13 @@
 
 #include "base/strings/string16.h"
 #include "base/strings/string_piece.h"
-#include "base/util/type_safety/strong_alias.h"
+#include "base/types/strong_alias.h"
 #include "ui/gfx/image/image.h"
 
 namespace autofill {
 
 struct Suggestion {
-  using IsLoading = util::StrongAlias<class IsLoadingTag, bool>;
+  using IsLoading = base::StrongAlias<class IsLoadingTag, bool>;
 
   enum MatchMode {
     PREFIX_MATCH,    // for prefix matched suggestions;
@@ -50,6 +50,9 @@ struct Suggestion {
 
   base::string16 value;
   base::string16 label;
+  // A label to be shown beneath |label| that will display information about any
+  // credit card offers or rewards.
+  base::string16 offer_label;
   // Used only for passwords to show the password value.
   // Also used to display an extra line of information if two line
   // display is enabled.

@@ -46,7 +46,6 @@
 #include <qcheckbox.h>
 #include <qcombobox.h>
 #include <qevent.h>
-#include <qfontdatabase.h>
 #include <qgroupbox.h>
 #include <qlabel.h>
 #include <qlayout.h>
@@ -58,6 +57,7 @@
 #include <qlistview.h>
 #include <qstringlistmodel.h>
 #include <qvalidator.h>
+#include <private/qfontdatabase_p.h>
 #include <private/qdialog_p.h>
 #include <private/qfont_p.h>
 
@@ -486,20 +486,18 @@ void QFontDialogPrivate::updateFamilies()
     const QFontDialog::FontDialogOptions spacingMask = (QFontDialog::ProportionalFonts | QFontDialog::MonospacedFonts);
     const QFontDialog::FontDialogOptions options = q->options();
 
-    QFontDatabase fdb;
-
     QStringList familyNames;
-    const auto families = fdb.families(writingSystem);
+    const auto families = QFontDatabase::families(writingSystem);
     for (const QString &family : families) {
-        if (fdb.isPrivateFamily(family))
+        if (QFontDatabase::isPrivateFamily(family))
             continue;
 
         if ((options & scalableMask) && (options & scalableMask) != scalableMask) {
-            if (bool(options & QFontDialog::ScalableFonts) != fdb.isSmoothlyScalable(family))
+            if (bool(options & QFontDialog::ScalableFonts) != QFontDatabase::isSmoothlyScalable(family))
                 continue;
         }
         if ((options & spacingMask) && (options & spacingMask) != spacingMask) {
-            if (bool(options & QFontDialog::MonospacedFonts) != fdb.isFixedPitch(family))
+            if (bool(options & QFontDialog::MonospacedFonts) != QFontDatabase::isFixedPitch(family))
                 continue;
         }
         familyNames << family;
@@ -514,12 +512,12 @@ void QFontDialogPrivate::updateFamilies()
     QFont f;
 
     // ##### do the right thing for a list of family names in the font.
-    QFontDatabase::parseFontName(family, foundryName1, familyName1);
+    QFontDatabasePrivate::parseFontName(family, foundryName1, familyName1);
 
     QStringList::const_iterator it = familyNames.constBegin();
     int i = 0;
     for(; it != familyNames.constEnd(); ++it, ++i) {
-        QFontDatabase::parseFontName(*it, foundryName2, familyName2);
+        QFontDatabasePrivate::parseFontName(*it, foundryName2, familyName2);
 
         //try to match...
         if (familyName1 == familyName2) {
@@ -536,7 +534,7 @@ void QFontDialogPrivate::updateFamilies()
         match_t type = MATCH_NONE;
         if (bestFamilyType <= MATCH_NONE && familyName2 == QStringLiteral("helvetica"))
             type = MATCH_LAST_RESORT;
-        if (bestFamilyType <= MATCH_LAST_RESORT && familyName2 == f.family())
+        if (bestFamilyType <= MATCH_LAST_RESORT && familyName2 == f.families().first())
             type = MATCH_APP;
         // ### add fallback for writingSystem
         if (type != MATCH_NONE) {
@@ -564,7 +562,7 @@ void QFontDialogPrivate::updateFamilies()
 void QFontDialogPrivate::updateStyles()
 {
     Q_Q(QFontDialog);
-    QStringList styles = fdb.styles(familyList->currentText());
+    QStringList styles = QFontDatabase::styles(familyList->currentText());
     styleList->model()->setStringList(styles);
 
     if (styles.isEmpty()) {
@@ -577,7 +575,7 @@ void QFontDialogPrivate::updateStyles()
             QString cstyle = style;
 
         redo:
-            for (int i = 0; i < (int)styleList->count(); i++) {
+            for (int i = 0; i < static_cast<int>(styleList->count()); i++) {
                 if (cstyle == styleList->text(i)) {
                      styleList->setCurrentItem(i);
                      found = true;
@@ -593,6 +591,14 @@ void QFontDialogPrivate::updateStyles()
                     cstyle.replace(QLatin1String("Oblique"), QLatin1String("Italic"));
                     first = false;
                     goto redo;
+                } else if (cstyle.contains(QLatin1String("Regular"))) {
+                    cstyle.replace(QLatin1String("Regular"), QLatin1String("Normal"));
+                    first = false;
+                    goto redo;
+                } else if (cstyle.contains(QLatin1String("Normal"))) {
+                    cstyle.replace(QLatin1String("Normal"), QLatin1String("Regular"));
+                    first = false;
+                    goto redo;
                 }
             }
             if (!found)
@@ -606,7 +612,7 @@ void QFontDialogPrivate::updateStyles()
                 && styleList->hasFocus())
             styleEdit->selectAll();
 
-        smoothScalable = fdb.isSmoothlyScalable(familyList->currentText(), styleList->currentText());
+        smoothScalable = QFontDatabase::isSmoothlyScalable(familyList->currentText(), styleList->currentText());
     }
 
     updateSizes();
@@ -623,7 +629,7 @@ void QFontDialogPrivate::updateSizes()
     Q_Q(QFontDialog);
 
     if (!familyList->currentText().isEmpty()) {
-        QList<int> sizes = fdb.pointSizes(familyList->currentText(), styleList->currentText());
+        QList<int> sizes = QFontDatabase::pointSizes(familyList->currentText(), styleList->currentText());
 
         int i = 0;
         int current = -1;
@@ -655,7 +661,7 @@ void QFontDialogPrivate::_q_updateSample()
 {
     // compute new font
     int pSize = sizeEdit->text().toInt();
-    QFont newFont(fdb.font(familyList->currentText(), style, pSize));
+    QFont newFont(QFontDatabase::font(familyList->currentText(), style, pSize));
     newFont.setStrikeOut(strikeout->isChecked());
     newFont.setUnderline(underline->isChecked());
 
@@ -806,8 +812,8 @@ void QFontDialog::changeEvent(QEvent *e)
 void QFontDialog::setCurrentFont(const QFont &font)
 {
     Q_D(QFontDialog);
-    d->family = font.family();
-    d->style = d->fdb.styleString(font);
+    d->family = font.families().value(0);
+    d->style = QFontDatabase::styleString(font);
     d->size = font.pointSize();
     if (d->size == -1) {
         QFontInfo fi(font);
@@ -1009,7 +1015,7 @@ void QFontDialog::done(int result)
     if (result == Accepted) {
         // We check if this is the same font we had before, if so we emit currentFontChanged
         QFont selectedFont = currentFont();
-        if(selectedFont != d->selectedFont)
+        if (selectedFont != d->selectedFont)
             emit(currentFontChanged(selectedFont));
         d->selectedFont = selectedFont;
         emit fontSelected(d->selectedFont);

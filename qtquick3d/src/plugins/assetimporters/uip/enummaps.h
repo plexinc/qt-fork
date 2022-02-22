@@ -142,12 +142,6 @@ struct EnumParseMap<Image::TilingMode>
 };
 
 template <>
-struct EnumParseMap<ModelNode::Tessellation>
-{
-    static EnumNameMap *get();
-};
-
-template <>
 struct EnumParseMap<LightNode::LightType>
 {
     static EnumNameMap *get();
@@ -199,7 +193,7 @@ class EnumMap
 {
 public:
     template <typename T>
-    static bool enumFromStr(const QStringRef &str, T *v) {
+    static bool enumFromStr(QStringView str, T *v) {
         QByteArray ba = str.toUtf8();
         EnumNameMap *nameMap = EnumParseMap<T>::get();
         for ( ; nameMap->str; ++nameMap) {

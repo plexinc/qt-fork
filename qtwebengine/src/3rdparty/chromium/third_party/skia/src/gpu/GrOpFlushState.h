@@ -46,7 +46,7 @@ public:
 
     /** Called as ops are executed. Must be called in the same order as the ops were prepared. */
     void executeDrawsAndUploadsForMeshDrawOp(const GrOp* op, const SkRect& chainBounds,
-                                             const GrPipeline*);
+                                             const GrPipeline*, const GrUserStencilSettings*);
 
     GrOpsRenderPass* opsRenderPass() { return fOpsRenderPass; }
     void setOpsRenderPass(GrOpsRenderPass* renderPass) { fOpsRenderPass = renderPass; }
@@ -58,25 +58,27 @@ public:
     /** Additional data required on a per-op basis when executing GrOps. */
     struct OpArgs {
         // TODO: why does OpArgs have the op we're going to pass it to as a member? Remove it.
-        explicit OpArgs(GrOp* op, GrSurfaceProxyView* surfaceView, GrAppliedClip* appliedClip,
-                        const GrXferProcessor::DstProxyView& dstProxyView)
+        explicit OpArgs(GrOp* op, const GrSurfaceProxyView& surfaceView, GrAppliedClip* appliedClip,
+                        const GrXferProcessor::DstProxyView& dstProxyView,
+                        GrXferBarrierFlags renderPassXferBarriers, GrLoadOp colorLoadOp)
                 : fOp(op)
                 , fSurfaceView(surfaceView)
-                , fRenderTargetProxy(surfaceView->asRenderTargetProxy())
+                , fRenderTargetProxy(surfaceView.asRenderTargetProxy())
                 , fAppliedClip(appliedClip)
-                , fDstProxyView(dstProxyView) {
-            SkASSERT(surfaceView->asRenderTargetProxy());
+                , fDstProxyView(dstProxyView)
+                , fRenderPassXferBarriers(renderPassXferBarriers)
+                , fColorLoadOp(colorLoadOp) {
+            SkASSERT(surfaceView.asRenderTargetProxy());
         }
 
-        GrSurfaceOrigin origin() const { return fSurfaceView->origin(); }
-        GrSwizzle writeSwizzle() const { return fSurfaceView->swizzle(); }
-
         GrOp* op() { return fOp; }
-        const GrSurfaceProxyView* outputView() const { return fSurfaceView; }
-        GrRenderTargetProxy* proxy() const { return fRenderTargetProxy; }
+        const GrSurfaceProxyView& writeView() const { return fSurfaceView; }
+        GrRenderTargetProxy* rtProxy() const { return fRenderTargetProxy; }
         GrAppliedClip* appliedClip() { return fAppliedClip; }
         const GrAppliedClip* appliedClip() const { return fAppliedClip; }
         const GrXferProcessor::DstProxyView& dstProxyView() const { return fDstProxyView; }
+        GrXferBarrierFlags renderPassBarriers() const { return fRenderPassXferBarriers; }
+        GrLoadOp colorLoadOp() const { return fColorLoadOp; }
 
 #ifdef SK_DEBUG
         void validate() const {
@@ -87,10 +89,12 @@ public:
 
     private:
         GrOp*                         fOp;
-        GrSurfaceProxyView*           fSurfaceView;
+        const GrSurfaceProxyView&     fSurfaceView;
         GrRenderTargetProxy*          fRenderTargetProxy;
         GrAppliedClip*                fAppliedClip;
         GrXferProcessor::DstProxyView fDstProxyView;   // TODO: do we still need the dst proxy here?
+        GrXferBarrierFlags            fRenderPassXferBarriers;
+        GrLoadOp                      fColorLoadOp;
     };
 
     void setOpArgs(OpArgs* opArgs) { fOpArgs = opArgs; }
@@ -130,10 +134,23 @@ public:
     uint16_t* makeIndexSpaceAtLeast(int minIndexCount, int fallbackIndexCount,
                                     sk_sp<const GrBuffer>*, int* startIndex,
                                     int* actualIndexCount) final;
+    GrDrawIndirectWriter makeDrawIndirectSpace(int drawCount, sk_sp<const GrBuffer>* buffer,
+                                               size_t* offset) override {
+        return fDrawIndirectPool.makeSpace(drawCount, buffer, offset);
+    }
+    GrDrawIndexedIndirectWriter makeDrawIndexedIndirectSpace(int drawCount,
+                                                             sk_sp<const GrBuffer>* buffer,
+                                                             size_t* offset) override {
+        return fDrawIndirectPool.makeIndexedSpace(drawCount, buffer, offset);
+    }
     void putBackIndices(int indexCount) final;
     void putBackVertices(int vertices, size_t vertexStride) final;
-    const GrSurfaceProxyView* outputView() const final { return this->drawOpArgs().outputView(); }
-    GrRenderTargetProxy* proxy() const final { return this->drawOpArgs().proxy(); }
+    void putBackIndirectDraws(int drawCount) final { fDrawIndirectPool.putBack(drawCount); }
+    void putBackIndexedIndirectDraws(int drawCount) final {
+        fDrawIndirectPool.putBackIndexed(drawCount);
+    }
+    const GrSurfaceProxyView& writeView() const final { return this->drawOpArgs().writeView(); }
+    GrRenderTargetProxy* rtProxy() const final { return this->drawOpArgs().rtProxy(); }
     const GrAppliedClip* appliedClip() const final { return this->drawOpArgs().appliedClip(); }
     const GrAppliedHardClip& appliedHardClip() const {
         return (fOpArgs->appliedClip()) ?
@@ -143,15 +160,26 @@ public:
     const GrXferProcessor::DstProxyView& dstProxyView() const final {
         return this->drawOpArgs().dstProxyView();
     }
+
+    GrXferBarrierFlags renderPassBarriers() const final {
+        return this->drawOpArgs().renderPassBarriers();
+    }
+
+    GrLoadOp colorLoadOp() const final {
+        return this->drawOpArgs().colorLoadOp();
+    }
+
     GrDeferredUploadTarget* deferredUploadTarget() final { return this; }
     const GrCaps& caps() const final;
+    GrThreadSafeCache* threadSafeCache() const final;
     GrResourceProvider* resourceProvider() const final { return fResourceProvider; }
 
-    GrStrikeCache* glyphCache() const final;
+    GrStrikeCache* strikeCache() const final;
 
-    // At this point we know we're flushing so full access to the GrAtlasManager is required (and
-    // permissible).
+    // At this point we know we're flushing so full access to the GrAtlasManager and
+    // GrSmallPathAtlasMgr is required (and permissible).
     GrAtlasManager* atlasManager() const final;
+    GrSmallPathAtlasMgr* smallPathAtlasManager() const final;
 
     /** GrMeshDrawOp::Target override. */
     SkArenaAlloc* allocator() override { return &fArena; }
@@ -190,10 +218,11 @@ public:
                       const GrSurfaceProxy* const primProcTextures[], const GrPipeline& pipeline) {
         fOpsRenderPass->bindTextures(primProc, primProcTextures, pipeline);
     }
-    void bindBuffers(const GrBuffer* indexBuffer, const GrBuffer* instanceBuffer,
-                     const GrBuffer* vertexBuffer,
+    void bindBuffers(sk_sp<const GrBuffer> indexBuffer, sk_sp<const GrBuffer> instanceBuffer,
+                     sk_sp<const GrBuffer> vertexBuffer,
                      GrPrimitiveRestart primitiveRestart = GrPrimitiveRestart::kNo) {
-        fOpsRenderPass->bindBuffers(indexBuffer, instanceBuffer, vertexBuffer, primitiveRestart);
+        fOpsRenderPass->bindBuffers(std::move(indexBuffer), std::move(instanceBuffer),
+                                    std::move(vertexBuffer), primitiveRestart);
     }
     void draw(int vertexCount, int baseVertex) {
         fOpsRenderPass->draw(vertexCount, baseVertex);
@@ -210,6 +239,12 @@ public:
                               int baseVertex) {
         fOpsRenderPass->drawIndexedInstanced(indexCount, baseIndex, instanceCount, baseInstance,
                                              baseVertex);
+    }
+    void drawIndirect(const GrBuffer* drawIndirectBuffer, size_t offset, int drawCount) {
+        fOpsRenderPass->drawIndirect(drawIndirectBuffer, offset, drawCount);
+    }
+    void drawIndexedIndirect(const GrBuffer* drawIndirectBuffer, size_t offset, int drawCount) {
+        fOpsRenderPass->drawIndexedIndirect(drawIndirectBuffer, offset, drawCount);
     }
     void drawIndexPattern(int patternIndexCount, int patternRepeatCount,
                           int maxPatternRepetitionsInIndexBuffer, int patternVertexCount,
@@ -246,11 +281,12 @@ private:
     };
 
     // Storage for ops' pipelines, draws, and inline uploads.
-    SkArenaAlloc fArena{sizeof(GrPipeline) * 100};
+    SkArenaAllocWithReset fArena{sizeof(GrPipeline) * 100};
 
     // Store vertex and index data on behalf of ops that are flushed.
     GrVertexBufferAllocPool fVertexPool;
     GrIndexBufferAllocPool fIndexPool;
+    GrDrawIndirectBufferAllocPool fDrawIndirectPool;
 
     // Data stored on behalf of the ops being flushed.
     SkArenaAllocList<GrDeferredTextureUploadFn> fASAPUploads;

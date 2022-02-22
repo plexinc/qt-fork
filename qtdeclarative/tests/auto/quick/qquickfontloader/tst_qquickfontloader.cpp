@@ -31,8 +31,8 @@
 #include <QtQml/qqmlcomponent.h>
 #include <QtQml/qqmlcontext.h>
 #include <QtQuick/private/qquickfontloader_p.h>
-#include "../../shared/util.h"
-#include "../../shared/testhttpserver.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
+#include <QtQuickTestUtils/private/testhttpserver_p.h>
 #include <QtQuick/QQuickView>
 #include <QtQuick/QQuickItem>
 
@@ -43,9 +43,8 @@ public:
     tst_qquickfontloader();
 
 private slots:
-    void initTestCase();
+    void initTestCase() override;
     void noFont();
-    void namedFont();
     void localFont();
     void failLocalFont();
     void webFont();
@@ -60,6 +59,7 @@ private:
 };
 
 tst_qquickfontloader::tst_qquickfontloader()
+    : QQmlDataTest(QT_QMLTEST_DATADIR)
 {
 }
 
@@ -83,19 +83,6 @@ void tst_qquickfontloader::noFont()
     QTRY_COMPARE(fontObject->status(), QQuickFontLoader::Null);
 
     delete fontObject;
-}
-
-void tst_qquickfontloader::namedFont()
-{
-    QString componentStr = "import QtQuick 2.0\nFontLoader { name: \"Helvetica\" }";
-    QQmlComponent component(&engine);
-    component.setData(componentStr.toLatin1(), QUrl::fromLocalFile(""));
-    QQuickFontLoader *fontObject = qobject_cast<QQuickFontLoader*>(component.create());
-
-    QVERIFY(fontObject != nullptr);
-    QCOMPARE(fontObject->source(), QUrl(""));
-    QCOMPARE(fontObject->name(), QString("Helvetica"));
-    QTRY_COMPARE(fontObject->status(), QQuickFontLoader::Ready);
 }
 
 void tst_qquickfontloader::localFont()
@@ -172,9 +159,9 @@ void tst_qquickfontloader::failWebFont()
 
 void tst_qquickfontloader::changeFont()
 {
-    QString componentStr = "import QtQuick 2.0\nFontLoader { source: font }";
+    QString componentStr = "import QtQuick 2.0\nFontLoader { source: fnt }";
     QQmlContext *ctxt = engine.rootContext();
-    ctxt->setContextProperty("font", testFileUrl("tarzeau_ocr_a.ttf"));
+    ctxt->setContextProperty("fnt", testFileUrl("tarzeau_ocr_a.ttf"));
     QQmlComponent component(&engine);
     component.setData(componentStr.toLatin1(), QUrl::fromLocalFile(""));
     QQuickFontLoader *fontObject = qobject_cast<QQuickFontLoader*>(component.create());
@@ -189,20 +176,20 @@ void tst_qquickfontloader::changeFont()
     QCOMPARE(statusSpy.count(), 0);
     QTRY_COMPARE(fontObject->name(), QString("OCRA"));
 
-    ctxt->setContextProperty("font", server.urlString("/daniel.ttf"));
+    ctxt->setContextProperty("fnt", server.urlString("/daniel.ttf"));
     QTRY_COMPARE(fontObject->status(), QQuickFontLoader::Loading);
     QTRY_COMPARE(fontObject->status(), QQuickFontLoader::Ready);
     QCOMPARE(nameSpy.count(), 1);
     QCOMPARE(statusSpy.count(), 2);
     QTRY_COMPARE(fontObject->name(), QString("Daniel"));
 
-    ctxt->setContextProperty("font", testFileUrl("tarzeau_ocr_a.ttf"));
+    ctxt->setContextProperty("fnt", testFileUrl("tarzeau_ocr_a.ttf"));
     QTRY_COMPARE(fontObject->status(), QQuickFontLoader::Ready);
     QCOMPARE(nameSpy.count(), 2);
     QCOMPARE(statusSpy.count(), 2);
     QTRY_COMPARE(fontObject->name(), QString("OCRA"));
 
-    ctxt->setContextProperty("font", server.urlString("/daniel.ttf"));
+    ctxt->setContextProperty("fnt", server.urlString("/daniel.ttf"));
     QTRY_COMPARE(fontObject->status(), QQuickFontLoader::Ready);
     QCOMPARE(nameSpy.count(), 3);
     QCOMPARE(statusSpy.count(), 2);
@@ -223,16 +210,10 @@ void tst_qquickfontloader::changeFontSourceViaState()
     QVERIFY(fontObject->source() != QUrl(""));
     QTRY_COMPARE(fontObject->name(), QString("OCRA"));
 
-    window.rootObject()->setProperty("usename", true);
+    window.rootObject()->setProperty("useotherfont", true);
 
-    // This warning should probably not be printed once QTBUG-20268 is fixed
-    QString warning = QString(testFileUrl("qtbug-20268.qml").toString()) +
-                              QLatin1String(":13:5: QML FontLoader: Cannot load font: \"\"");
-    QTest::ignoreMessage(QtWarningMsg, qPrintable(warning));
-
-    QEXPECT_FAIL("", "QTBUG-20268", Abort);
     QTRY_COMPARE(fontObject->status(), QQuickFontLoader::Ready);
-    QCOMPARE(window.rootObject()->property("name").toString(), QString("Tahoma"));
+    QCOMPARE(window.rootObject()->property("name").toString(), QString("Daniel"));
 }
 
 QTEST_MAIN(tst_qquickfontloader)

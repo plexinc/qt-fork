@@ -2,18 +2,19 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/quic_flow_controller.h"
+#include "quic/core/quic_flow_controller.h"
 
 #include <memory>
 #include <utility>
 
-#include "net/third_party/quiche/src/quic/platform/api/quic_expect_bug.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_connection_peer.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_flow_controller_peer.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_sent_packet_manager_peer.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
+#include "absl/strings/str_cat.h"
+#include "quic/core/crypto/null_encrypter.h"
+#include "quic/platform/api/quic_expect_bug.h"
+#include "quic/platform/api/quic_test.h"
+#include "quic/test_tools/quic_connection_peer.h"
+#include "quic/test_tools/quic_flow_controller_peer.h"
+#include "quic/test_tools/quic_sent_packet_manager_peer.h"
+#include "quic/test_tools/quic_test_utils.h"
 
 using testing::_;
 using testing::Invoke;
@@ -31,7 +32,7 @@ class MockFlowController : public QuicFlowControllerInterface {
   MockFlowController& operator=(const MockFlowController&) = delete;
   ~MockFlowController() override {}
 
-  MOCK_METHOD1(EnsureWindowAtLeast, void(QuicByteCount));
+  MOCK_METHOD(void, EnsureWindowAtLeast, (QuicByteCount), (override));
 };
 
 class QuicFlowControllerTest : public QuicTest {
@@ -39,6 +40,9 @@ class QuicFlowControllerTest : public QuicTest {
   void Initialize() {
     connection_ = new MockQuicConnection(&helper_, &alarm_factory_,
                                          Perspective::IS_CLIENT);
+    connection_->SetEncrypter(
+        ENCRYPTION_FORWARD_SECURE,
+        std::make_unique<NullEncrypter>(connection_->perspective()));
     session_ = std::make_unique<MockQuicSession>(connection_);
     flow_controller_ = std::make_unique<QuicFlowController>(
         session_.get(), stream_id_, /*is_connection_flow_controller*/ false,
@@ -91,9 +95,9 @@ TEST_F(QuicFlowControllerTest, SendingBytes) {
   // Try to send more bytes, violating flow control.
   EXPECT_CALL(*connection_,
               CloseConnection(QUIC_FLOW_CONTROL_SENT_TOO_MUCH_DATA, _, _));
-  EXPECT_QUIC_BUG(flow_controller_->AddBytesSent(send_window_ * 10),
-                  quiche::QuicheStrCat("Trying to send an extra ",
-                                       send_window_ * 10, " bytes"));
+  EXPECT_QUIC_BUG(
+      flow_controller_->AddBytesSent(send_window_ * 10),
+      absl::StrCat("Trying to send an extra ", send_window_ * 10, " bytes"));
   EXPECT_TRUE(flow_controller_->IsBlocked());
   EXPECT_EQ(0u, flow_controller_->SendWindowSize());
 }
@@ -115,7 +119,7 @@ TEST_F(QuicFlowControllerTest, ReceivingBytes) {
             QuicFlowControllerPeer::ReceiveWindowSize(flow_controller_.get()));
 
   // Consume enough bytes to send a WINDOW_UPDATE frame.
-  EXPECT_CALL(*connection_, SendControlFrame(_)).Times(1);
+  EXPECT_CALL(*session_, WriteControlFrame(_, _)).Times(1);
 
   flow_controller_->AddBytesConsumed(1 + receive_window_ / 2);
 
@@ -185,7 +189,7 @@ TEST_F(QuicFlowControllerTest, ReceivingBytesFastIncreasesFlowWindow) {
   should_auto_tune_receive_window_ = true;
   Initialize();
   // This test will generate two WINDOW_UPDATE frames.
-  EXPECT_CALL(*connection_, SendControlFrame(_)).Times(1);
+  EXPECT_CALL(*session_, WriteControlFrame(_, _)).Times(1);
   EXPECT_TRUE(flow_controller_->auto_tune_receive_window());
 
   // Make sure clock is inititialized.
@@ -237,9 +241,9 @@ TEST_F(QuicFlowControllerTest, ReceivingBytesFastIncreasesFlowWindow) {
 TEST_F(QuicFlowControllerTest, ReceivingBytesFastNoAutoTune) {
   Initialize();
   // This test will generate two WINDOW_UPDATE frames.
-  EXPECT_CALL(*connection_, SendControlFrame(_))
+  EXPECT_CALL(*session_, WriteControlFrame(_, _))
       .Times(2)
-      .WillRepeatedly(Invoke(&ClearControlFrame));
+      .WillRepeatedly(Invoke(&ClearControlFrameWithTransmissionType));
   EXPECT_FALSE(flow_controller_->auto_tune_receive_window());
 
   // Make sure clock is inititialized.
@@ -292,7 +296,7 @@ TEST_F(QuicFlowControllerTest, ReceivingBytesNormalStableFlowWindow) {
   should_auto_tune_receive_window_ = true;
   Initialize();
   // This test will generate two WINDOW_UPDATE frames.
-  EXPECT_CALL(*connection_, SendControlFrame(_)).Times(1);
+  EXPECT_CALL(*session_, WriteControlFrame(_, _)).Times(1);
   EXPECT_TRUE(flow_controller_->auto_tune_receive_window());
 
   // Make sure clock is inititialized.
@@ -347,9 +351,9 @@ TEST_F(QuicFlowControllerTest, ReceivingBytesNormalStableFlowWindow) {
 TEST_F(QuicFlowControllerTest, ReceivingBytesNormalNoAutoTune) {
   Initialize();
   // This test will generate two WINDOW_UPDATE frames.
-  EXPECT_CALL(*connection_, SendControlFrame(_))
+  EXPECT_CALL(*session_, WriteControlFrame(_, _))
       .Times(2)
-      .WillRepeatedly(Invoke(&ClearControlFrame));
+      .WillRepeatedly(Invoke(&ClearControlFrameWithTransmissionType));
   EXPECT_FALSE(flow_controller_->auto_tune_receive_window());
 
   // Make sure clock is inititialized.

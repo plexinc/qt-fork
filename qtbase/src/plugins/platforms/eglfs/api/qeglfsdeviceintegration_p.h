@@ -80,7 +80,7 @@ public:
     virtual QSizeF physicalScreenSize() const;
     virtual QSize screenSize() const;
     virtual QDpi logicalDpi() const;
-    virtual qreal pixelDensity() const;
+    virtual QDpi logicalBaseDpi() const;
     virtual Qt::ScreenOrientation nativeOrientation() const;
     virtual Qt::ScreenOrientation orientation() const;
     virtual int screenDepth() const;
@@ -108,10 +108,6 @@ public:
     virtual void *nativeResourceForScreen(const QByteArray &resource, QScreen *screen);
     virtual void *wlDisplay() const;
 
-#if QT_CONFIG(vulkan)
-    virtual QPlatformVulkanInstance *createPlatformVulkanInstance(QVulkanInstance *instance);
-#endif
-
     static EGLConfig chooseConfig(EGLDisplay display, const QSurfaceFormat &format);
 };
 
@@ -130,8 +126,8 @@ public:
 class Q_EGLFS_EXPORT QEglFSDeviceIntegrationFactory
 {
 public:
-    static QStringList keys(const QString &pluginPath = QString());
-    static QEglFSDeviceIntegration *create(const QString &name, const QString &platformPluginPath = QString());
+    static QStringList keys();
+    static QEglFSDeviceIntegration *create(const QString &name);
 };
 
 QT_END_NAMESPACE

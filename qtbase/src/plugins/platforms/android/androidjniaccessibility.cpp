@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the plugins of the Qt Toolkit.
@@ -41,17 +41,15 @@
 #include "androidjnimain.h"
 #include "qandroidplatformintegration.h"
 #include "qpa/qplatformaccessibility.h"
-#include <QtAccessibilitySupport/private/qaccessiblebridgeutils_p.h>
+#include <QtGui/private/qaccessiblebridgeutils_p.h>
 #include "qguiapplication.h"
 #include "qwindow.h"
 #include "qrect.h"
 #include "QtGui/qaccessible.h"
 #include <QtCore/qmath.h>
 #include <QtCore/private/qjnihelpers_p.h>
-#include <QtCore/private/qjni_p.h>
+#include <QtCore/QJniObject>
 #include <QtGui/private/qhighdpiscaling_p.h>
-
-#include "qdebug.h"
 
 static const char m_qtTag[] = "Qt A11Y";
 static const char m_classErrorMsg[] = "Can't find class \"%s\"";
@@ -65,6 +63,7 @@ namespace QtAndroidAccessibility
     static jmethodID m_setCheckedMethodID = 0;
     static jmethodID m_setClickableMethodID = 0;
     static jmethodID m_setContentDescriptionMethodID = 0;
+    static jmethodID m_setEditableMethodID = 0;
     static jmethodID m_setEnabledMethodID = 0;
     static jmethodID m_setFocusableMethodID = 0;
     static jmethodID m_setFocusedMethodID = 0;
@@ -72,25 +71,33 @@ namespace QtAndroidAccessibility
     static jmethodID m_setTextSelectionMethodID = 0;
     static jmethodID m_setVisibleToUserMethodID = 0;
 
+    static bool m_accessibilityActivated = false;
+
     void initialize()
     {
-        QJNIObjectPrivate::callStaticMethod<void>(QtAndroid::applicationClass(),
-                                                  "initializeAccessibility");
+        QJniObject::callStaticMethod<void>(QtAndroid::applicationClass(),
+                                           "initializeAccessibility");
+    }
+
+    bool isActive()
+    {
+        return m_accessibilityActivated;
     }
 
     static void setActive(JNIEnv */*env*/, jobject /*thiz*/, jboolean active)
     {
         QMutexLocker lock(QtAndroid::platformInterfaceMutex());
         QAndroidPlatformIntegration *platformIntegration = QtAndroid::androidPlatformIntegration();
+        m_accessibilityActivated = active;
         if (platformIntegration)
             platformIntegration->accessibility()->setActive(active);
         else
-            __android_log_print(ANDROID_LOG_WARN, m_qtTag, "Could not activate platform accessibility.");
+            __android_log_print(ANDROID_LOG_WARN, m_qtTag, "Could not (yet) activate platform accessibility.");
     }
 
     QAccessibleInterface *interfaceFromId(jint objectId)
     {
-        QAccessibleInterface *iface = 0;
+        QAccessibleInterface *iface = nullptr;
         if (objectId == -1) {
             QWindow *win = qApp->focusWindow();
             if (win)
@@ -99,6 +106,21 @@ namespace QtAndroidAccessibility
             iface = QAccessible::accessibleInterface(objectId);
         }
         return iface;
+    }
+
+    void notifyLocationChange()
+    {
+        QtAndroid::notifyAccessibilityLocationChange();
+    }
+
+    void notifyObjectHide(uint accessibilityObjectId)
+    {
+        QtAndroid::notifyObjectHide(accessibilityObjectId);
+    }
+
+    void notifyObjectFocus(uint accessibilityObjectId)
+    {
+        QtAndroid::notifyObjectFocus(accessibilityObjectId);
     }
 
     static jintArray childIdListForAccessibleObject(JNIEnv *env, jobject /*thiz*/, jint objectId)
@@ -142,6 +164,11 @@ namespace QtAndroidAccessibility
         if (iface && iface->isValid()) {
             rect = QHighDpi::toNativePixels(iface->rect(), iface->window());
         }
+        // If the widget is not fully in-bound in its parent then we have to clip the rectangle to draw
+        if (iface && iface->parent() && iface->parent()->isValid()) {
+            const auto parentRect = QHighDpi::toNativePixels(iface->parent()->rect(), iface->parent()->window());
+            rect = rect.intersected(parentRect);
+        }
 
         jclass rectClass = env->FindClass("android/graphics/Rect");
         jmethodID ctor = env->GetMethodID(rectClass, "<init>", "(IIII)V");
@@ -156,7 +183,7 @@ namespace QtAndroidAccessibility
             QPoint pos = QHighDpi::fromNativePixels(QPoint(int(x), int(y)), root->window());
 
             QAccessibleInterface *child = root->childAt(pos.x(), pos.y());
-            QAccessibleInterface *lastChild = 0;
+            QAccessibleInterface *lastChild = nullptr;
             while (child && (child != lastChild)) {
                 lastChild = child;
                 child = child->childAt(pos.x(), pos.y());
@@ -167,17 +194,33 @@ namespace QtAndroidAccessibility
         return -1;
     }
 
+    static void invokeActionOnInterfaceInMainThread(QAccessibleActionInterface* actionInterface,
+                                                    const QString& action)
+    {
+        QMetaObject::invokeMethod(qApp, [actionInterface, action]() {
+            actionInterface->doAction(action);
+        });
+    }
+
     static jboolean clickAction(JNIEnv */*env*/, jobject /*thiz*/, jint objectId)
     {
 //        qDebug() << "A11Y: CLICK: " << objectId;
         QAccessibleInterface *iface = interfaceFromId(objectId);
-        if (iface && iface->isValid() && iface->actionInterface()) {
-            if (iface->actionInterface()->actionNames().contains(QAccessibleActionInterface::pressAction()))
-                iface->actionInterface()->doAction(QAccessibleActionInterface::pressAction());
-            else
-                iface->actionInterface()->doAction(QAccessibleActionInterface::toggleAction());
+        if (!iface || !iface->isValid() || !iface->actionInterface())
+            return false;
+
+        const auto& actionNames = iface->actionInterface()->actionNames();
+
+        if (actionNames.contains(QAccessibleActionInterface::pressAction())) {
+            invokeActionOnInterfaceInMainThread(iface->actionInterface(),
+                                                QAccessibleActionInterface::pressAction());
+        } else if (actionNames.contains(QAccessibleActionInterface::toggleAction())) {
+            invokeActionOnInterfaceInMainThread(iface->actionInterface(),
+                                                QAccessibleActionInterface::toggleAction());
+        } else {
+            return false;
         }
-        return false;
+        return true;
     }
 
     static jboolean scrollForward(JNIEnv */*env*/, jobject /*thiz*/, jint objectId)
@@ -259,9 +302,10 @@ if (!clazz) { \
             }
         }
 
-        env->CallVoidMethod(node, m_setEnabledMethodID, !state.disabled);
         env->CallVoidMethod(node, m_setCheckableMethodID, (bool)state.checkable);
         env->CallVoidMethod(node, m_setCheckedMethodID, (bool)state.checked);
+        env->CallVoidMethod(node, m_setEditableMethodID, state.editable);
+        env->CallVoidMethod(node, m_setEnabledMethodID, !state.disabled);
         env->CallVoidMethod(node, m_setFocusableMethodID, (bool)state.focusable);
         env->CallVoidMethod(node, m_setFocusedMethodID, (bool)state.focused);
         env->CallVoidMethod(node, m_setVisibleToUserMethodID, !state.invisible);
@@ -270,15 +314,15 @@ if (!clazz) { \
 
         // Add ACTION_CLICK
         if (hasClickableAction)
-            env->CallVoidMethod(node, m_addActionMethodID, (int)16);    // ACTION_CLICK defined in AccessibilityNodeInfo
+            env->CallVoidMethod(node, m_addActionMethodID, (int)0x00000010);    // ACTION_CLICK defined in AccessibilityNodeInfo
 
         // Add ACTION_SCROLL_FORWARD
         if (hasIncreaseAction)
-            env->CallVoidMethod(node, m_addActionMethodID, (int)4096);    // ACTION_SCROLL_FORWARD defined in AccessibilityNodeInfo
+            env->CallVoidMethod(node, m_addActionMethodID, (int)0x00001000);    // ACTION_SCROLL_FORWARD defined in AccessibilityNodeInfo
 
         // Add ACTION_SCROLL_BACKWARD
         if (hasDecreaseAction)
-            env->CallVoidMethod(node, m_addActionMethodID, (int)8192);    // ACTION_SCROLL_BACKWARD defined in AccessibilityNodeInfo
+            env->CallVoidMethod(node, m_addActionMethodID, (int)0x00002000);    // ACTION_SCROLL_BACKWARD defined in AccessibilityNodeInfo
 
 
         //CALL_METHOD(node, "setText", "(Ljava/lang/CharSequence;)V", jdesc)
@@ -310,7 +354,7 @@ if (!clazz) { \
     bool registerNatives(JNIEnv *env)
     {
         jclass clazz;
-        FIND_AND_CHECK_CLASS("org/qtproject/qt5/android/accessibility/QtNativeAccessibility");
+        FIND_AND_CHECK_CLASS("org/qtproject/qt/android/accessibility/QtNativeAccessibility");
         jclass appClass = static_cast<jclass>(env->NewGlobalRef(clazz));
 
         if (env->RegisterNatives(appClass, methods, sizeof(methods) / sizeof(methods[0])) < 0) {
@@ -324,6 +368,7 @@ if (!clazz) { \
         GET_AND_CHECK_STATIC_METHOD(m_setCheckedMethodID, nodeInfoClass, "setChecked", "(Z)V");
         GET_AND_CHECK_STATIC_METHOD(m_setClickableMethodID, nodeInfoClass, "setClickable", "(Z)V");
         GET_AND_CHECK_STATIC_METHOD(m_setContentDescriptionMethodID, nodeInfoClass, "setContentDescription", "(Ljava/lang/CharSequence;)V");
+        GET_AND_CHECK_STATIC_METHOD(m_setEditableMethodID, nodeInfoClass, "setEditable", "(Z)V");
         GET_AND_CHECK_STATIC_METHOD(m_setEnabledMethodID, nodeInfoClass, "setEnabled", "(Z)V");
         GET_AND_CHECK_STATIC_METHOD(m_setFocusableMethodID, nodeInfoClass, "setFocusable", "(Z)V");
         GET_AND_CHECK_STATIC_METHOD(m_setFocusedMethodID, nodeInfoClass, "setFocused", "(Z)V");

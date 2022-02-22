@@ -41,10 +41,9 @@
 
 #include "api/qwebenginemessagepumpscheduler_p.h"
 
-#include "base/message_loop/message_loop.h"
-#include "base/message_loop/message_loop_current.h"
 #include "base/message_loop/message_pump_for_ui.h"
 #include "base/process/process.h"
+#include "base/task/current_thread.h"
 #include "base/task/sequence_manager/sequence_manager_impl.h"
 #include "base/task/sequence_manager/thread_controller_with_message_pump_impl.h"
 #include "base/threading/thread_restrictions.h"
@@ -56,16 +55,17 @@
 #include "content/public/browser/browser_main_parts.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/child_process_security_policy.h"
-#include "content/public/browser/system_connector.h"
-#include "content/public/common/service_manager_connection.h"
 #include "extensions/buildflags/buildflags.h"
 #if BUILDFLAG(ENABLE_EXTENSIONS)
+#include "content/public/browser/plugin_service.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extensions_client.h"
 #include "extensions/extensions_browser_client_qt.h"
 #include "extensions/extension_system_factory_qt.h"
+#include "extensions/plugin_service_filter_qt.h"
 #include "common/extensions/extensions_client_qt.h"
 #endif //BUILDFLAG(ENABLE_EXTENSIONS)
+#include "select_file_dialog_factory_qt.h"
 #include "services/service_manager/public/cpp/connector.h"
 #include "services/service_manager/public/cpp/service.h"
 #include "ui/display/screen.h"
@@ -79,8 +79,9 @@
 #include <QOpenGLContext>
 #endif
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 #include "base/message_loop/message_pump_mac.h"
+#include "services/device/public/cpp/geolocation/geolocation_system_permission_mac.h"
 #include "ui/base/idle/idle.h"
 #endif
 
@@ -150,7 +151,7 @@ private:
     void ensureDelegate()
     {
         if (!m_delegate) {
-            auto seqMan = base::MessageLoopCurrent::GetCurrentSequenceManagerImpl();
+            auto seqMan = base::CurrentThread::Get()->GetCurrentSequenceManagerImpl();
             m_delegate = static_cast<base::sequence_manager::internal::ThreadControllerWithMessagePumpImpl *>(
                              seqMan->controller_.get());
         }
@@ -219,6 +220,21 @@ private:
     QWebEngineMessagePumpScheduler m_scheduler;
 };
 
+#if defined(OS_MAC)
+class FakeSystemGeolocationPermissionManager : public device::GeolocationSystemPermissionManager
+{
+public:
+    FakeSystemGeolocationPermissionManager() = default;
+    ~FakeSystemGeolocationPermissionManager() override = default;
+
+    // GeolocationSystemPermissionManager implementation:
+    device::LocationSystemPermissionStatus GetSystemPermission() override
+    {
+        return device::LocationSystemPermissionStatus::kDenied;
+    }
+};
+#endif // defined(OS_MAC)
+
 std::unique_ptr<base::MessagePump> messagePumpFactory()
 {
     static bool madePrimaryPump = false;
@@ -226,7 +242,7 @@ std::unique_ptr<base::MessagePump> messagePumpFactory()
         madePrimaryPump = true;
         return std::make_unique<MessagePumpForUIQt>();
     }
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
     return base::MessagePumpMac::Create();
 #else
     return std::make_unique<base::MessagePumpForUI>();
@@ -243,14 +259,22 @@ int BrowserMainPartsQt::PreEarlyInitialization()
 
 void BrowserMainPartsQt::PreMainMessageLoopStart()
 {
+#if defined(OS_MAC)
+    m_locationPermissionManager = std::make_unique<FakeSystemGeolocationPermissionManager>();
+#endif
 }
 
 void BrowserMainPartsQt::PreMainMessageLoopRun()
 {
+    ui::SelectFileDialog::SetFactory(new SelectFileDialogFactoryQt());
+
 #if BUILDFLAG(ENABLE_EXTENSIONS)
     extensions::ExtensionsClient::Set(new extensions::ExtensionsClientQt());
     extensions::ExtensionsBrowserClient::Set(new extensions::ExtensionsBrowserClientQt());
     extensions::ExtensionSystemFactoryQt::GetInstance();
+
+    content::PluginService *plugin_service = content::PluginService::GetInstance();
+    plugin_service->SetFilter(extensions::PluginServiceFilterQt::GetInstance());
 #endif //ENABLE_EXTENSIONS
 }
 
@@ -269,7 +293,7 @@ int BrowserMainPartsQt::PreCreateThreads()
 {
     base::ThreadRestrictions::SetIOAllowed(true);
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
     ui::InitIdleMonitor();
 #endif
 
@@ -294,5 +318,12 @@ void BrowserMainPartsQt::PostCreateThreads()
               base::BindOnce(&QtWebEngineCore::CreatePoliciesAndDecorators));
     performance_manager_registry_ = performance_manager::PerformanceManagerRegistry::Create();
 }
+
+#if defined(OS_MAC)
+device::GeolocationSystemPermissionManager *BrowserMainPartsQt::GetLocationPermissionManager()
+{
+    return m_locationPermissionManager.get();
+}
+#endif
 
 } // namespace QtWebEngineCore

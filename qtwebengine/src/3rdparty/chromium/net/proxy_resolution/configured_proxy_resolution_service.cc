@@ -9,7 +9,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/compiler_specific.h"
 #include "base/location.h"
 #include "base/logging.h"
@@ -20,12 +20,13 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "net/base/net_errors.h"
+#include "net/base/net_info_source_list.h"
 #include "net/base/network_isolation_key.h"
 #include "net/base/proxy_delegate.h"
 #include "net/base/url_util.h"
 #include "net/log/net_log.h"
-#include "net/log/net_log_capture_mode.h"
 #include "net/log/net_log_event_type.h"
 #include "net/log/net_log_util.h"
 #include "net/log/net_log_with_source.h"
@@ -39,15 +40,17 @@
 #include "net/url_request/url_request_context.h"
 
 #if defined(OS_WIN)
-#include "net/proxy_resolution/proxy_config_service_win.h"
-#include "net/proxy_resolution/proxy_resolver_winhttp.h"
+#include "net/proxy_resolution/win/proxy_config_service_win.h"
+#include "net/proxy_resolution/win/proxy_resolver_winhttp.h"
 #elif defined(OS_IOS)
 #include "net/proxy_resolution/proxy_config_service_ios.h"
 #include "net/proxy_resolution/proxy_resolver_mac.h"
-#elif defined(OS_MACOSX)
+#elif defined(OS_MAC)
 #include "net/proxy_resolution/proxy_config_service_mac.h"
 #include "net/proxy_resolution/proxy_resolver_mac.h"
-#elif defined(OS_LINUX) && !defined(OS_CHROMEOS)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#elif defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
 #include "net/proxy_resolution/proxy_config_service_linux.h"
 #elif defined(OS_ANDROID)
 #include "net/proxy_resolution/proxy_config_service_android.h"
@@ -60,8 +63,10 @@ namespace net {
 
 namespace {
 
-#if defined(OS_WIN) || defined(OS_IOS) || defined(OS_MACOSX) || \
-    (defined(OS_LINUX) && !defined(OS_CHROMEOS))
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if defined(OS_WIN) || defined(OS_APPLE) || \
+    (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS))
 constexpr net::NetworkTrafficAnnotationTag kSystemProxyConfigTrafficAnnotation =
     net::DefineNetworkTrafficAnnotation("proxy_config_system", R"(
       semantics {
@@ -257,7 +262,7 @@ class ProxyResolverFactoryForSystem : public MultiThreadedProxyResolverFactory {
   std::unique_ptr<ProxyResolverFactory> CreateProxyResolverFactory() override {
 #if defined(OS_WIN)
     return std::make_unique<ProxyResolverFactoryWinHttp>();
-#elif defined(OS_MACOSX)
+#elif defined(OS_APPLE)
     return std::make_unique<ProxyResolverFactoryMac>();
 #else
     NOTREACHED();
@@ -266,7 +271,7 @@ class ProxyResolverFactoryForSystem : public MultiThreadedProxyResolverFactory {
   }
 
   static bool IsSupported() {
-#if defined(OS_WIN) || defined(OS_MACOSX)
+#if defined(OS_WIN) || defined(OS_APPLE)
     return true;
 #else
     return false;
@@ -344,7 +349,7 @@ base::Value NetLogFinishedResolvingProxyParams(const ProxyInfo* result) {
   return dict;
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 class UnsetProxyConfigService : public ProxyConfigService {
  public:
   UnsetProxyConfigService() = default;
@@ -389,34 +394,6 @@ GURL SanitizeUrl(const GURL& url) {
   }
 
   return url.ReplaceComponents(replacements);
-}
-
-// Do not change the enumerated value as it is relied on by histograms.
-enum class PacUrlSchemeForHistogram {
-  kOther = 0,
-
-  kHttp = 1,
-  kHttps = 2,
-  kFtp = 3,
-  kFile = 4,
-  kData = 5,
-
-  kMaxValue = kData,
-};
-
-PacUrlSchemeForHistogram GetPacUrlScheme(const GURL& pac_url) {
-  if (pac_url.SchemeIs("http"))
-    return PacUrlSchemeForHistogram::kHttp;
-  if (pac_url.SchemeIs("https"))
-    return PacUrlSchemeForHistogram::kHttps;
-  if (pac_url.SchemeIs("data"))
-    return PacUrlSchemeForHistogram::kData;
-  if (pac_url.SchemeIs("ftp"))
-    return PacUrlSchemeForHistogram::kFtp;
-  if (pac_url.SchemeIs("file"))
-    return PacUrlSchemeForHistogram::kFile;
-
-  return PacUrlSchemeForHistogram::kOther;
 }
 
 }  // namespace
@@ -848,7 +825,8 @@ const ConfiguredProxyResolutionService::PacPollPolicy*
 ConfiguredProxyResolutionService::ConfiguredProxyResolutionService(
     std::unique_ptr<ProxyConfigService> config_service,
     std::unique_ptr<ProxyResolverFactory> resolver_factory,
-    NetLog* net_log)
+    NetLog* net_log,
+    bool quick_check_enabled)
     : config_service_(std::move(config_service)),
       resolver_factory_(std::move(resolver_factory)),
       current_state_(STATE_NONE),
@@ -856,7 +834,7 @@ ConfiguredProxyResolutionService::ConfiguredProxyResolutionService(
       net_log_(net_log),
       stall_proxy_auto_config_delay_(
           TimeDelta::FromMilliseconds(kDelayAfterNetworkChangesMs)),
-      quick_check_enabled_(true) {
+      quick_check_enabled_(quick_check_enabled) {
   NetworkChangeNotifier::AddIPAddressObserver(this);
   NetworkChangeNotifier::AddDNSObserver(this);
   config_service_->AddObserver(this);
@@ -866,8 +844,8 @@ ConfiguredProxyResolutionService::ConfiguredProxyResolutionService(
 std::unique_ptr<ConfiguredProxyResolutionService>
 ConfiguredProxyResolutionService::CreateUsingSystemProxyResolver(
     std::unique_ptr<ProxyConfigService> proxy_config_service,
-    bool quick_check_enabled,
-    NetLog* net_log) {
+    NetLog* net_log,
+    bool quick_check_enabled) {
   DCHECK(proxy_config_service);
 
   if (!ProxyResolverFactoryForSystem::IsSupported()) {
@@ -880,8 +858,7 @@ ConfiguredProxyResolutionService::CreateUsingSystemProxyResolver(
           std::move(proxy_config_service),
           std::make_unique<ProxyResolverFactoryForSystem>(
               kDefaultNumPacThreads),
-          net_log);
-  proxy_resolution_service->set_quick_check_enabled(quick_check_enabled);
+          net_log, quick_check_enabled);
   return proxy_resolution_service;
 }
 
@@ -892,7 +869,8 @@ ConfiguredProxyResolutionService::CreateWithoutProxyResolver(
     NetLog* net_log) {
   return std::make_unique<ConfiguredProxyResolutionService>(
       std::move(proxy_config_service),
-      std::make_unique<ProxyResolverFactoryForNullResolver>(), net_log);
+      std::make_unique<ProxyResolverFactoryForNullResolver>(), net_log,
+      /*quick_check_enabled=*/false);
 }
 
 // static
@@ -902,8 +880,8 @@ ConfiguredProxyResolutionService::CreateFixed(
   // TODO(eroman): This isn't quite right, won't work if |pc| specifies
   //               a PAC script.
   return CreateUsingSystemProxyResolver(
-      std::make_unique<ProxyConfigServiceFixed>(pc),
-      /*quick_check_enabled=*/true, nullptr);
+      std::make_unique<ProxyConfigServiceFixed>(pc), nullptr,
+      /*quick_check_enabled=*/true);
 }
 
 // static
@@ -923,7 +901,8 @@ ConfiguredProxyResolutionService::CreateDirect() {
   // Use direct connections.
   return std::make_unique<ConfiguredProxyResolutionService>(
       std::make_unique<ProxyConfigServiceDirect>(),
-      std::make_unique<ProxyResolverFactoryForNullResolver>(), nullptr);
+      std::make_unique<ProxyResolverFactoryForNullResolver>(), nullptr,
+      /*quick_check_enabled=*/true);
 }
 
 // static
@@ -941,7 +920,8 @@ ConfiguredProxyResolutionService::CreateFixedFromPacResult(
 
   return std::make_unique<ConfiguredProxyResolutionService>(
       std::move(proxy_config_service),
-      std::make_unique<ProxyResolverFactoryForPacResult>(pac_string), nullptr);
+      std::make_unique<ProxyResolverFactoryForPacResult>(pac_string), nullptr,
+      /*quick_check_enabled=*/true);
 }
 
 // static
@@ -955,7 +935,8 @@ ConfiguredProxyResolutionService::CreateFixedFromAutoDetectedPacResult(
 
   return std::make_unique<ConfiguredProxyResolutionService>(
       std::move(proxy_config_service),
-      std::make_unique<ProxyResolverFactoryForPacResult>(pac_string), nullptr);
+      std::make_unique<ProxyResolverFactoryForPacResult>(pac_string), nullptr,
+      /*quick_check_enabled=*/true);
 }
 
 int ConfiguredProxyResolutionService::ResolveProxy(
@@ -995,10 +976,9 @@ int ConfiguredProxyResolutionService::ResolveProxy(
     return rv;
   }
 
-  std::unique_ptr<ConfiguredProxyResolutionRequest> req =
-      std::make_unique<ConfiguredProxyResolutionRequest>(
-          this, url, method, network_isolation_key, result, std::move(callback),
-          net_log);
+  auto req = std::make_unique<ConfiguredProxyResolutionRequest>(
+      this, url, method, network_isolation_key, result, std::move(callback),
+      net_log);
 
   if (current_state_ == STATE_READY) {
     // Start the resolve request.
@@ -1206,8 +1186,9 @@ void ConfiguredProxyResolutionService::ReportSuccess(const ProxyInfo& result) {
         const ProxyRetryInfo& proxy_retry_info = iter.second;
         proxy_delegate_->OnFallback(bad_proxy, proxy_retry_info.net_error);
       }
-    } else if (existing->second.bad_until < iter.second.bad_until)
+    } else if (existing->second.bad_until < iter.second.bad_until) {
       existing->second.bad_until = iter.second.bad_until;
+    }
   }
   if (net_log_) {
     net_log_->AddGlobalEntry(NetLogEventType::BAD_PROXY_LIST_REPORTED, [&] {
@@ -1374,39 +1355,37 @@ void ConfiguredProxyResolutionService::ForceReloadProxyConfig() {
   ApplyProxyConfigIfAvailable();
 }
 
-std::unique_ptr<base::DictionaryValue>
-ConfiguredProxyResolutionService::GetProxyNetLogValues(int info_sources) {
-  std::unique_ptr<base::DictionaryValue> net_info_dict(
-      new base::DictionaryValue());
+base::Value ConfiguredProxyResolutionService::GetProxyNetLogValues() {
+  base::Value net_info_dict(base::Value::Type::DICTIONARY);
 
-  if (info_sources & NET_INFO_PROXY_SETTINGS) {
-    std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
+  // Log Proxy Settings.
+  {
+    base::Value dict(base::Value::Type::DICTIONARY);
     if (fetched_config_)
-      dict->SetKey("original", fetched_config_->value().ToValue());
+      dict.SetKey("original", fetched_config_->value().ToValue());
     if (config_)
-      dict->SetKey("effective", config_->value().ToValue());
+      dict.SetKey("effective", config_->value().ToValue());
 
-    net_info_dict->Set(NetInfoSourceToString(NET_INFO_PROXY_SETTINGS),
-                       std::move(dict));
+    net_info_dict.SetKey(kNetInfoProxySettings, std::move(dict));
   }
 
-  if (info_sources & NET_INFO_BAD_PROXIES) {
-    auto list = std::make_unique<base::ListValue>();
+  // Log Bad Proxies.
+  {
+    base::Value list(base::Value::Type::LIST);
 
-    for (auto& it : proxy_retry_info_) {
+    for (const auto& it : proxy_retry_info_) {
       const std::string& proxy_uri = it.first;
       const ProxyRetryInfo& retry_info = it.second;
 
-      auto dict = std::make_unique<base::DictionaryValue>();
-      dict->SetString("proxy_uri", proxy_uri);
-      dict->SetString("bad_until",
-                      NetLog::TickCountToString(retry_info.bad_until));
+      base::Value dict(base::Value::Type::DICTIONARY);
+      dict.SetStringKey("proxy_uri", proxy_uri);
+      dict.SetStringKey("bad_until",
+                        NetLog::TickCountToString(retry_info.bad_until));
 
-      list->Append(std::move(dict));
+      list.Append(std::move(dict));
     }
 
-    net_info_dict->Set(NetInfoSourceToString(NET_INFO_BAD_PROXIES),
-                       std::move(list));
+    net_info_dict.SetKey(kNetInfoBadProxies, std::move(list));
   }
 
   return net_info_dict;
@@ -1428,15 +1407,15 @@ ConfiguredProxyResolutionService::CreateSystemProxyConfigService(
 #elif defined(OS_IOS)
   return std::make_unique<ProxyConfigServiceIOS>(
       kSystemProxyConfigTrafficAnnotation);
-#elif defined(OS_MACOSX)
+#elif defined(OS_MAC)
   return std::make_unique<ProxyConfigServiceMac>(
       main_task_runner, kSystemProxyConfigTrafficAnnotation);
-#elif defined(OS_CHROMEOS)
+#elif BUILDFLAG(IS_CHROMEOS_ASH)
   LOG(ERROR) << "ProxyConfigService for ChromeOS should be created in "
              << "profile_io_data.cc::CreateProxyConfigService and this should "
              << "be used only for examples.";
   return std::make_unique<UnsetProxyConfigService>();
-#elif defined(OS_LINUX)
+#elif defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
   std::unique_ptr<ProxyConfigServiceLinux> linux_config_service(
       new ProxyConfigServiceLinux());
 
@@ -1507,11 +1486,6 @@ void ConfiguredProxyResolutionService::OnProxyConfigChanged(
       return NetLogProxyConfigChangedParams(&fetched_config_,
                                             &effective_config);
     });
-  }
-
-  if (config.value().has_pac_url()) {
-    UMA_HISTOGRAM_ENUMERATION("Net.ProxyResolutionService.PacUrlScheme",
-                              GetPacUrlScheme(config.value().pac_url()));
   }
 
   // Set the new configuration as the most recently fetched one.
@@ -1590,13 +1564,27 @@ void ConfiguredProxyResolutionService::OnIPAddressChanged() {
   stall_proxy_autoconfig_until_ =
       TimeTicks::Now() + stall_proxy_auto_config_delay_;
 
+  // With a new network connection, using the proper proxy configuration for the
+  // new connection may be essential for URL requests to work properly. Reset
+  // the config to ensure new URL requests are blocked until the potential new
+  // proxy configuration is loaded.
   State previous_state = ResetProxyConfig(false);
   if (previous_state != STATE_NONE)
     ApplyProxyConfigIfAvailable();
 }
 
 void ConfiguredProxyResolutionService::OnDNSChanged() {
-  OnIPAddressChanged();
+  // Do not fully reset proxy config on DNS change notifications. Instead,
+  // inform the poller that it would be a good time to check for changes.
+  //
+  // While a change to DNS servers in use could lead to different WPAD results,
+  // and thus a different proxy configuration, it is extremely unlikely to ever
+  // be essential for that changed proxy configuration to be picked up
+  // immediately. Either URL requests on the connection are generally working
+  // fine without the proxy, or requests are already broken, leaving little harm
+  // in letting a couple more requests fail until Chrome picks up the new proxy.
+  if (script_poller_.get())
+    script_poller_->OnLazyPoll();
 }
 
 }  // namespace net

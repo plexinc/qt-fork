@@ -1,3 +1,4 @@
+set noparent
 reillyg@chromium.org
 rockot@google.com
 
@@ -5,6 +6,3 @@ per-file BUILD.gn=*
 
 # Translation artifacts:
 per-file *.xtb=file://tools/translation/TRANSLATION_OWNERS
-
-# TEAM: device-dev@chromium.org
-# COMPONENT: Internals>Services>Device

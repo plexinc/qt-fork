@@ -4,7 +4,8 @@
 
 #include "third_party/blink/renderer/core/frame/reporting_context.h"
 
-#include "third_party/blink/public/common/thread_safe_browser_interface_broker_proxy.h"
+#include "net/net_buildflags.h"
+#include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/core/dom/document.h"
@@ -23,13 +24,39 @@
 
 namespace blink {
 
+namespace {
+
+// In the spec (https://w3c.github.io/reporting/#report-body) a report body can
+// have anything that can be serialized into a JSON text, but V8ObjectBuilder
+// doesn't allow us to implement that. Hence here we implement just a one-level
+// dictionary, as that is what is needed currently.
+class DictionaryValueReportBody final : public ReportBody {
+ public:
+  explicit DictionaryValueReportBody(mojom::blink::ReportBodyPtr body)
+      : body_(std::move(body)) {}
+
+  void BuildJSONValue(V8ObjectBuilder& builder) const override {
+    DCHECK(body_);
+
+    for (const auto& element : body_->body) {
+      builder.AddString(element->name, element->value);
+    }
+  }
+
+ private:
+  const mojom::blink::ReportBodyPtr body_;
+};
+
+}  // namespace
+
 // static
 const char ReportingContext::kSupplementName[] = "ReportingContext";
 
 ReportingContext::ReportingContext(ExecutionContext& context)
     : Supplement<ExecutionContext>(context),
       execution_context_(context),
-      reporting_service_(&context) {}
+      reporting_service_(&context),
+      receiver_(this, &context) {}
 
 // static
 ReportingContext* ReportingContext::From(ExecutionContext* context) {
@@ -42,30 +69,25 @@ ReportingContext* ReportingContext::From(ExecutionContext* context) {
   return reporting_context;
 }
 
+void ReportingContext::Bind(
+    mojo::PendingReceiver<mojom::blink::ReportingObserver> receiver) {
+  receiver_.reset();
+  receiver_.Bind(std::move(receiver),
+                 execution_context_->GetTaskRunner(TaskType::kMiscPlatformAPI));
+}
+
 void ReportingContext::QueueReport(Report* report,
                                    const Vector<String>& endpoints) {
   CountReport(report);
 
-  // Buffer the report.
-  if (!report_buffer_.Contains(report->type()))
-    report_buffer_.insert(report->type(), HeapListHashSet<Member<Report>>());
-  report_buffer_.find(report->type())->value.insert(report);
-
-  // Only the most recent 100 reports will remain buffered, per report type.
-  // https://w3c.github.io/reporting/#notify-observers
-  if (report_buffer_.at(report->type()).size() > 100)
-    report_buffer_.find(report->type())->value.RemoveFirst();
-
-  // Queue the report in all registered observers.
-  for (auto observer : observers_)
-    observer->QueueReport(report);
+  NotifyInternal(report);
 
   // Send the report via the Reporting API.
   for (auto& endpoint : endpoints)
     SendToReportingAPI(report, endpoint);
 }
 
-void ReportingContext::RegisterObserver(ReportingObserver* observer) {
+void ReportingContext::RegisterObserver(blink::ReportingObserver* observer) {
   UseCounter::Count(execution_context_, WebFeature::kReportingObserver);
 
   observers_.insert(observer);
@@ -74,21 +96,31 @@ void ReportingContext::RegisterObserver(ReportingObserver* observer) {
 
   observer->ClearBuffered();
   for (auto type : report_buffer_) {
-    for (Report* report : type.value) {
+    for (Report* report : *type.value) {
       observer->QueueReport(report);
     }
   }
 }
 
-void ReportingContext::UnregisterObserver(ReportingObserver* observer) {
+void ReportingContext::UnregisterObserver(blink::ReportingObserver* observer) {
   observers_.erase(observer);
 }
 
-void ReportingContext::Trace(Visitor* visitor) {
+void ReportingContext::Notify(mojom::blink::ReportPtr report) {
+  ReportBody* body = report->body
+                         ? MakeGarbageCollected<DictionaryValueReportBody>(
+                               std::move(report->body))
+                         : nullptr;
+  NotifyInternal(MakeGarbageCollected<Report>(report->type,
+                                              report->url.GetString(), body));
+}
+
+void ReportingContext::Trace(Visitor* visitor) const {
   visitor->Trace(observers_);
   visitor->Trace(report_buffer_);
   visitor->Trace(execution_context_);
   visitor->Trace(reporting_service_);
+  visitor->Trace(receiver_);
   Supplement<ExecutionContext>::Trace(visitor);
 }
 
@@ -111,12 +143,33 @@ void ReportingContext::CountReport(Report* report) {
 
 const HeapMojoRemote<mojom::blink::ReportingServiceProxy>&
 ReportingContext::GetReportingService() const {
+#if BUILDFLAG(ENABLE_REPORTING)
   if (!reporting_service_.is_bound()) {
-    Platform::Current()->GetBrowserInterfaceBroker()->GetInterface(
+    execution_context_->GetBrowserInterfaceBroker().GetInterface(
         reporting_service_.BindNewPipeAndPassReceiver(
             execution_context_->GetTaskRunner(TaskType::kMiscPlatformAPI)));
   }
+#endif
   return reporting_service_;
+}
+
+void ReportingContext::NotifyInternal(Report* report) {
+  // Buffer the report.
+  if (!report_buffer_.Contains(report->type())) {
+    report_buffer_.insert(
+        report->type(),
+        MakeGarbageCollected<HeapListHashSet<Member<Report>>>());
+  }
+  report_buffer_.find(report->type())->value->insert(report);
+
+  // Only the most recent 100 reports will remain buffered, per report type.
+  // https://w3c.github.io/reporting/#notify-observers
+  if (report_buffer_.at(report->type())->size() > 100)
+    report_buffer_.find(report->type())->value->RemoveFirst();
+
+  // Queue the report in all registered observers.
+  for (auto observer : observers_)
+    observer->QueueReport(report);
 }
 
 void ReportingContext::SendToReportingAPI(Report* report,
@@ -129,15 +182,11 @@ void ReportingContext::SendToReportingAPI(Report* report,
     return;
   }
 
+#if BUILDFLAG(ENABLE_REPORTING)
   const LocationReportBody* location_body =
       static_cast<LocationReportBody*>(report->body());
-  bool is_null;
-  int line_number = location_body->lineNumber(is_null);
-  if (is_null)
-    line_number = 0;
-  int column_number = location_body->columnNumber(is_null);
-  if (is_null)
-    column_number = 0;
+  int line_number = location_body->lineNumber().value_or(0);
+  int column_number = location_body->columnNumber().value_or(0);
   KURL url = KURL(report->url());
 
   if (type == ReportType::kCSPViolation) {
@@ -182,6 +231,7 @@ void ReportingContext::SendToReportingAPI(Report* report,
         "Document policy violation", body->sourceFile(), line_number,
         column_number);
   }
+#endif
 }
 
 }  // namespace blink

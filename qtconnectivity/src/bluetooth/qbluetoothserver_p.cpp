@@ -48,7 +48,7 @@ QT_BEGIN_NAMESPACE
 
 QBluetoothServerPrivate::QBluetoothServerPrivate(QBluetoothServiceInfo::Protocol sType,
                                                  QBluetoothServer *parent)
-    : maxPendingConnections(1), serverType(sType), m_lastError(QBluetoothServer::NoError),
+    : serverType(sType),
       q_ptr(parent)
 {
 #ifndef QT_IOS_BLUETOOTH
@@ -75,7 +75,7 @@ bool QBluetoothServer::listen(const QBluetoothAddress &address, quint16 port)
     Q_UNUSED(port);
     Q_D(QBluetoothServer);
     d->m_lastError = UnsupportedProtocolError;
-    emit error(d->m_lastError);
+    emit errorOccurred(d->m_lastError);
     return false;
 }
 
@@ -111,7 +111,7 @@ void QBluetoothServer::setSecurityFlags(QBluetooth::SecurityFlags security)
 
 QBluetooth::SecurityFlags QBluetoothServer::securityFlags() const
 {
-    return QBluetooth::NoSecurity;
+    return QBluetooth::Security::NoSecurity;
 }
 
 QT_END_NAMESPACE

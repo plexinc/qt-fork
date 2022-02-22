@@ -4,16 +4,20 @@
 
 #include "third_party/blink/renderer/core/inspector/inspector_audits_agent.h"
 
+#include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
 #include "third_party/blink/public/platform/web_data.h"
 #include "third_party/blink/public/platform/web_size.h"
 #include "third_party/blink/public/web/web_image.h"
-#include "third_party/blink/renderer/core/inspector/inspector_network_agent.h"
-#include "third_party/blink/renderer/platform/graphics/image_data_buffer.h"
-#include "third_party/blink/renderer/platform/wtf/text/base64.h"
-
+#include "third_party/blink/renderer/core/dom/dom_node_ids.h"
+#include "third_party/blink/renderer/core/dom/dom_token_list.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
+#include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/inspector/inspector_issue.h"
 #include "third_party/blink/renderer/core/inspector/inspector_issue_storage.h"
-
+#include "third_party/blink/renderer/core/inspector/inspector_network_agent.h"
+#include "third_party/blink/renderer/core/inspector/protocol/Audits.h"
+#include "third_party/blink/renderer/platform/graphics/image_data_buffer.h"
+#include "third_party/blink/renderer/platform/wtf/text/base64.h"
 namespace blink {
 
 using protocol::Maybe;
@@ -64,19 +68,55 @@ bool EncodeAsImage(char* body,
   return image_to_encode->EncodeImage(mime_type, quality, output);
 }
 
+mojom::blink::InspectorIssueInfoPtr CreateLowTextContrastIssue(
+    const ContrastInfo& info) {
+  Element* element = info.element;
+  auto low_text_contrast_details = mojom::blink::LowTextContrastIssue::New();
+
+  StringBuilder sb;
+  auto element_id = element->getAttribute("id").LowerASCII();
+  sb.Append(element->nodeName().LowerASCII());
+  if (!element_id.IsEmpty()) {
+    sb.Append("#");
+    sb.Append(element_id);
+  }
+  for (unsigned i = 0; i < element->classList().length(); i++) {
+    sb.Append(".");
+    sb.Append(element->classList().item(i));
+  }
+
+  low_text_contrast_details->threshold_aa = info.threshold_aa;
+  low_text_contrast_details->threshold_aaa = info.threshold_aaa;
+  low_text_contrast_details->font_size = info.font_size;
+  low_text_contrast_details->font_weight = info.font_weight;
+  low_text_contrast_details->violating_node_id = DOMNodeIds::IdForNode(element);
+  low_text_contrast_details->violating_node_selector = sb.ToString();
+  low_text_contrast_details->contrast_ratio = info.contrast_ratio;
+
+  auto details = mojom::blink::InspectorIssueDetails::New();
+  details->low_text_contrast_details = std::move(low_text_contrast_details);
+
+  return mojom::blink::InspectorIssueInfo::New(
+      mojom::blink::InspectorIssueCode::kLowTextContrastIssue,
+      std::move(details));
+}
+
 }  // namespace
 
-void InspectorAuditsAgent::Trace(Visitor* visitor) {
+void InspectorAuditsAgent::Trace(Visitor* visitor) const {
   visitor->Trace(network_agent_);
   visitor->Trace(inspector_issue_storage_);
+  visitor->Trace(inspected_frames_);
   InspectorBaseAgent::Trace(visitor);
 }
 
 InspectorAuditsAgent::InspectorAuditsAgent(InspectorNetworkAgent* network_agent,
-                                           InspectorIssueStorage* storage)
+                                           InspectorIssueStorage* storage,
+                                           InspectedFrames* inspected_frames)
     : inspector_issue_storage_(storage),
       enabled_(&agent_state_, false),
-      network_agent_(network_agent) {}
+      network_agent_(network_agent),
+      inspected_frames_(inspected_frames) {}
 
 InspectorAuditsAgent::~InspectorAuditsAgent() = default;
 
@@ -120,6 +160,32 @@ protocol::Response InspectorAuditsAgent::getEncodedResponse(
   return Response::Success();
 }
 
+void InspectorAuditsAgent::CheckContrastForDocument(Document* document,
+                                                    bool report_aaa) {
+  InspectorContrast contrast(document);
+  Vector<std::pair<Element*, mojom::blink::InspectorIssueInfoPtr>> issues;
+  unsigned max_elements = 100;
+  for (ContrastInfo info :
+       contrast.GetElementsWithContrastIssues(report_aaa, max_elements)) {
+    InspectorIssueAdded(
+        InspectorIssue::Create(CreateLowTextContrastIssue(info)));
+  }
+}
+
+Response InspectorAuditsAgent::checkContrast(protocol::Maybe<bool> report_aaa) {
+  if (!inspected_frames_)
+    return Response::ServerError("Inspected frames are not available");
+
+  auto* main_window = inspected_frames_->Root()->DomWindow();
+  if (!main_window)
+    return Response::ServerError("Document is not available");
+
+  CheckContrastForDocument(main_window->document(),
+                           report_aaa.fromMaybe(false));
+
+  return Response::Success();
+}
+
 Response InspectorAuditsAgent::enable() {
   if (enabled_.Get()) {
     return Response::Success();
@@ -153,46 +219,80 @@ void InspectorAuditsAgent::InnerEnable() {
 }
 
 namespace {
-std::unique_ptr<protocol::Array<protocol::Audits::AffectedCookie>> BuildCookies(
-    const WTF::Vector<mojom::blink::AffectedCookiePtr>& cookies) {
-  auto result =
-      std::make_unique<protocol::Array<protocol::Audits::AffectedCookie>>();
-  for (const auto& cookie : cookies) {
-    auto protocol_cookie = std::move(protocol::Audits::AffectedCookie::create()
-                                         .setName(cookie->name)
-                                         .setPath(cookie->path)
-                                         .setDomain(cookie->domain));
-    if (cookie->site_for_cookies) {
-      protocol_cookie.setSiteForCookies(*cookie->site_for_cookies);
-    }
-    result->push_back(protocol_cookie.build());
-  }
-  return result;
+std::unique_ptr<protocol::Audits::AffectedCookie> BuildAffectedCookie(
+    const mojom::blink::AffectedCookiePtr& cookie) {
+  auto protocol_cookie = std::move(protocol::Audits::AffectedCookie::create()
+                                       .setName(cookie->name)
+                                       .setPath(cookie->path)
+                                       .setDomain(cookie->domain));
+  return protocol_cookie.build();
 }
+
+std::unique_ptr<protocol::Audits::AffectedRequest> BuildAffectedRequest(
+    const mojom::blink::AffectedRequestPtr& request) {
+  auto protocol_request = protocol::Audits::AffectedRequest::create()
+                              .setRequestId(request->request_id)
+                              .build();
+  if (!request->url.IsEmpty()) {
+    protocol_request->setUrl(request->url);
+  }
+  return protocol_request;
+}
+
+std::unique_ptr<protocol::Audits::AffectedFrame> BuildAffectedFrame(
+    const mojom::blink::AffectedFramePtr& frame) {
+  return protocol::Audits::AffectedFrame::create()
+      .setFrameId(frame->frame_id)
+      .build();
+}
+
 blink::protocol::String InspectorIssueCodeValue(
     mojom::blink::InspectorIssueCode code) {
   switch (code) {
     case mojom::blink::InspectorIssueCode::kSameSiteCookieIssue:
       return protocol::Audits::InspectorIssueCodeEnum::SameSiteCookieIssue;
+    case mojom::blink::InspectorIssueCode::kMixedContentIssue:
+      return protocol::Audits::InspectorIssueCodeEnum::MixedContentIssue;
+    case mojom::blink::InspectorIssueCode::kBlockedByResponseIssue:
+      return protocol::Audits::InspectorIssueCodeEnum::BlockedByResponseIssue;
+    case mojom::blink::InspectorIssueCode::kContentSecurityPolicyIssue:
+      return protocol::Audits::InspectorIssueCodeEnum::
+          ContentSecurityPolicyIssue;
+    case mojom::blink::InspectorIssueCode::kSharedArrayBufferIssue:
+      return protocol::Audits::InspectorIssueCodeEnum::SharedArrayBufferIssue;
+    case mojom::blink::InspectorIssueCode::kTrustedWebActivityIssue:
+      CHECK(false);
+      return "";
+    case mojom::blink::InspectorIssueCode::kHeavyAdIssue:
+      CHECK(false);
+      return "";
+    case mojom::blink::InspectorIssueCode::kLowTextContrastIssue:
+      return protocol::Audits::InspectorIssueCodeEnum::LowTextContrastIssue;
   }
-  NOTREACHED();
-  return "unknown";
 }
+
 protocol::String BuildCookieExclusionReason(
     mojom::blink::SameSiteCookieExclusionReason exclusion_reason) {
   switch (exclusion_reason) {
     case blink::mojom::blink::SameSiteCookieExclusionReason::
-        ExcludeSameSiteUnspecifiedTreatedAsLax:
+        kExcludeSameSiteUnspecifiedTreatedAsLax:
       return protocol::Audits::SameSiteCookieExclusionReasonEnum::
           ExcludeSameSiteUnspecifiedTreatedAsLax;
     case blink::mojom::blink::SameSiteCookieExclusionReason::
-        ExcludeSameSiteNoneInsecure:
+        kExcludeSameSiteNoneInsecure:
       return protocol::Audits::SameSiteCookieExclusionReasonEnum::
           ExcludeSameSiteNoneInsecure;
+    case blink::mojom::blink::SameSiteCookieExclusionReason::
+        kExcludeSameSiteLax:
+      return protocol::Audits::SameSiteCookieExclusionReasonEnum::
+          ExcludeSameSiteLax;
+    case blink::mojom::blink::SameSiteCookieExclusionReason::
+        kExcludeSameSiteStrict:
+      return protocol::Audits::SameSiteCookieExclusionReasonEnum::
+          ExcludeSameSiteStrict;
   }
-  NOTREACHED();
-  return "unknown";
 }
+
 std::unique_ptr<std::vector<blink::protocol::String>>
 BuildCookieExclusionReasons(
     const WTF::Vector<mojom::blink::SameSiteCookieExclusionReason>&
@@ -204,49 +304,45 @@ BuildCookieExclusionReasons(
   }
   return protocol_exclusion_reasons;
 }
+
 protocol::String BuildCookieWarningReason(
     mojom::blink::SameSiteCookieWarningReason warning_reason) {
   switch (warning_reason) {
     case blink::mojom::blink::SameSiteCookieWarningReason::
-        WarnSameSiteUnspecifiedCrossSiteContext:
+        kWarnSameSiteUnspecifiedCrossSiteContext:
       return protocol::Audits::SameSiteCookieWarningReasonEnum::
           WarnSameSiteUnspecifiedCrossSiteContext;
     case blink::mojom::blink::SameSiteCookieWarningReason::
-        WarnSameSiteNoneInsecure:
+        kWarnSameSiteNoneInsecure:
       return protocol::Audits::SameSiteCookieWarningReasonEnum::
           WarnSameSiteNoneInsecure;
     case blink::mojom::blink::SameSiteCookieWarningReason::
-        WarnSameSiteUnspecifiedLaxAllowUnsafe:
+        kWarnSameSiteUnspecifiedLaxAllowUnsafe:
       return protocol::Audits::SameSiteCookieWarningReasonEnum::
           WarnSameSiteUnspecifiedLaxAllowUnsafe;
     case blink::mojom::blink::SameSiteCookieWarningReason::
-        WarnSameSiteCrossSchemeSecureUrlMethodUnsafe:
+        kWarnSameSiteStrictLaxDowngradeStrict:
       return protocol::Audits::SameSiteCookieWarningReasonEnum::
-          WarnSameSiteCrossSchemeSecureUrlMethodUnsafe;
+          WarnSameSiteStrictLaxDowngradeStrict;
     case blink::mojom::blink::SameSiteCookieWarningReason::
-        WarnSameSiteCrossSchemeSecureUrlLax:
+        kWarnSameSiteStrictCrossDowngradeStrict:
       return protocol::Audits::SameSiteCookieWarningReasonEnum::
-          WarnSameSiteCrossSchemeSecureUrlLax;
+          WarnSameSiteStrictCrossDowngradeStrict;
     case blink::mojom::blink::SameSiteCookieWarningReason::
-        WarnSameSiteCrossSchemeSecureUrlStrict:
+        kWarnSameSiteStrictCrossDowngradeLax:
       return protocol::Audits::SameSiteCookieWarningReasonEnum::
-          WarnSameSiteCrossSchemeSecureUrlStrict;
+          WarnSameSiteStrictCrossDowngradeLax;
     case blink::mojom::blink::SameSiteCookieWarningReason::
-        WarnSameSiteCrossSchemeInsecureUrlMethodUnsafe:
+        kWarnSameSiteLaxCrossDowngradeStrict:
       return protocol::Audits::SameSiteCookieWarningReasonEnum::
-          WarnSameSiteCrossSchemeInsecureUrlMethodUnsafe;
+          WarnSameSiteLaxCrossDowngradeStrict;
     case blink::mojom::blink::SameSiteCookieWarningReason::
-        WarnSameSiteCrossSchemeInsecureUrlLax:
+        kWarnSameSiteLaxCrossDowngradeLax:
       return protocol::Audits::SameSiteCookieWarningReasonEnum::
-          WarnSameSiteCrossSchemeInsecureUrlLax;
-    case blink::mojom::blink::SameSiteCookieWarningReason::
-        WarnSameSiteCrossSchemeInsecureUrlStrict:
-      return protocol::Audits::SameSiteCookieWarningReasonEnum::
-          WarnSameSiteCrossSchemeInsecureUrlStrict;
+          WarnSameSiteLaxCrossDowngradeLax;
   }
-  NOTREACHED();
-  return "unknown";
 }
+
 std::unique_ptr<std::vector<blink::protocol::String>> BuildCookieWarningReasons(
     const WTF::Vector<mojom::blink::SameSiteCookieWarningReason>&
         warning_reasons) {
@@ -257,32 +353,297 @@ std::unique_ptr<std::vector<blink::protocol::String>> BuildCookieWarningReasons(
   }
   return protocol_warning_reasons;
 }
+protocol::String BuildCookieOperation(
+    mojom::blink::SameSiteCookieOperation operation) {
+  switch (operation) {
+    case blink::mojom::blink::SameSiteCookieOperation::kSetCookie:
+      return protocol::Audits::SameSiteCookieOperationEnum::SetCookie;
+    case blink::mojom::blink::SameSiteCookieOperation::kReadCookie:
+      return protocol::Audits::SameSiteCookieOperationEnum::ReadCookie;
+  }
+}
+
+protocol::String BuildMixedContentResolutionStatus(
+    mojom::blink::MixedContentResolutionStatus resolution_type) {
+  switch (resolution_type) {
+    case blink::mojom::blink::MixedContentResolutionStatus::
+        kMixedContentBlocked:
+      return protocol::Audits::MixedContentResolutionStatusEnum::
+          MixedContentBlocked;
+    case blink::mojom::blink::MixedContentResolutionStatus::
+        kMixedContentAutomaticallyUpgraded:
+      return protocol::Audits::MixedContentResolutionStatusEnum::
+          MixedContentAutomaticallyUpgraded;
+    case blink::mojom::blink::MixedContentResolutionStatus::
+        kMixedContentWarning:
+      return protocol::Audits::MixedContentResolutionStatusEnum::
+          MixedContentWarning;
+  }
+}
+
+protocol::String BuildMixedContentResourceType(
+    mojom::blink::RequestContextType request_context) {
+  switch (request_context) {
+    case blink::mojom::blink::RequestContextType::AUDIO:
+      return protocol::Audits::MixedContentResourceTypeEnum::Audio;
+    case blink::mojom::blink::RequestContextType::BEACON:
+      return protocol::Audits::MixedContentResourceTypeEnum::Beacon;
+    case blink::mojom::blink::RequestContextType::CSP_REPORT:
+      return protocol::Audits::MixedContentResourceTypeEnum::CSPReport;
+    case blink::mojom::blink::RequestContextType::DOWNLOAD:
+      return protocol::Audits::MixedContentResourceTypeEnum::Download;
+    case blink::mojom::blink::RequestContextType::EMBED:
+      return protocol::Audits::MixedContentResourceTypeEnum::PluginResource;
+    case blink::mojom::blink::RequestContextType::EVENT_SOURCE:
+      return protocol::Audits::MixedContentResourceTypeEnum::EventSource;
+    case blink::mojom::blink::RequestContextType::FAVICON:
+      return protocol::Audits::MixedContentResourceTypeEnum::Favicon;
+    case blink::mojom::blink::RequestContextType::FETCH:
+      return protocol::Audits::MixedContentResourceTypeEnum::Resource;
+    case blink::mojom::blink::RequestContextType::FONT:
+      return protocol::Audits::MixedContentResourceTypeEnum::Font;
+    case blink::mojom::blink::RequestContextType::FORM:
+      return protocol::Audits::MixedContentResourceTypeEnum::Form;
+    case blink::mojom::blink::RequestContextType::FRAME:
+      return protocol::Audits::MixedContentResourceTypeEnum::Frame;
+    case blink::mojom::blink::RequestContextType::HYPERLINK:
+      return protocol::Audits::MixedContentResourceTypeEnum::Resource;
+    case blink::mojom::blink::RequestContextType::IFRAME:
+      return protocol::Audits::MixedContentResourceTypeEnum::Frame;
+    case blink::mojom::blink::RequestContextType::IMAGE:
+      return protocol::Audits::MixedContentResourceTypeEnum::Image;
+    case blink::mojom::blink::RequestContextType::IMAGE_SET:
+      return protocol::Audits::MixedContentResourceTypeEnum::Image;
+    case blink::mojom::blink::RequestContextType::IMPORT:
+      return protocol::Audits::MixedContentResourceTypeEnum::Import;
+    case blink::mojom::blink::RequestContextType::INTERNAL:
+      return protocol::Audits::MixedContentResourceTypeEnum::Resource;
+    case blink::mojom::blink::RequestContextType::LOCATION:
+      return protocol::Audits::MixedContentResourceTypeEnum::Resource;
+    case blink::mojom::blink::RequestContextType::MANIFEST:
+      return protocol::Audits::MixedContentResourceTypeEnum::Manifest;
+    case blink::mojom::blink::RequestContextType::OBJECT:
+      return protocol::Audits::MixedContentResourceTypeEnum::PluginResource;
+    case blink::mojom::blink::RequestContextType::PING:
+      return protocol::Audits::MixedContentResourceTypeEnum::Ping;
+    case blink::mojom::blink::RequestContextType::PLUGIN:
+      return protocol::Audits::MixedContentResourceTypeEnum::PluginData;
+    case blink::mojom::blink::RequestContextType::PREFETCH:
+      return protocol::Audits::MixedContentResourceTypeEnum::Prefetch;
+    case blink::mojom::blink::RequestContextType::SCRIPT:
+      return protocol::Audits::MixedContentResourceTypeEnum::Script;
+    case blink::mojom::blink::RequestContextType::SERVICE_WORKER:
+      return protocol::Audits::MixedContentResourceTypeEnum::ServiceWorker;
+    case blink::mojom::blink::RequestContextType::SHARED_WORKER:
+      return protocol::Audits::MixedContentResourceTypeEnum::SharedWorker;
+    case blink::mojom::blink::RequestContextType::STYLE:
+      return protocol::Audits::MixedContentResourceTypeEnum::Stylesheet;
+    case blink::mojom::blink::RequestContextType::SUBRESOURCE:
+      return protocol::Audits::MixedContentResourceTypeEnum::Resource;
+    case blink::mojom::blink::RequestContextType::SUBRESOURCE_WEBBUNDLE:
+      return protocol::Audits::MixedContentResourceTypeEnum::Resource;
+    case blink::mojom::blink::RequestContextType::TRACK:
+      return protocol::Audits::MixedContentResourceTypeEnum::Track;
+    case blink::mojom::blink::RequestContextType::UNSPECIFIED:
+      return protocol::Audits::MixedContentResourceTypeEnum::Resource;
+    case blink::mojom::blink::RequestContextType::VIDEO:
+      return protocol::Audits::MixedContentResourceTypeEnum::Video;
+    case blink::mojom::blink::RequestContextType::WORKER:
+      return protocol::Audits::MixedContentResourceTypeEnum::Worker;
+    case blink::mojom::blink::RequestContextType::XML_HTTP_REQUEST:
+      return protocol::Audits::MixedContentResourceTypeEnum::XMLHttpRequest;
+    case blink::mojom::blink::RequestContextType::XSLT:
+      return protocol::Audits::MixedContentResourceTypeEnum::XSLT;
+  }
+}
+
+protocol::String BuildBlockedByResponseReason(
+    network::mojom::blink::BlockedByResponseReason reason) {
+  switch (reason) {
+    case network::mojom::blink::BlockedByResponseReason::
+        kCoepFrameResourceNeedsCoepHeader:
+      return protocol::Audits::BlockedByResponseReasonEnum::
+          CoepFrameResourceNeedsCoepHeader;
+    case network::mojom::blink::BlockedByResponseReason::
+        kCoopSandboxedIFrameCannotNavigateToCoopPage:
+      return protocol::Audits::BlockedByResponseReasonEnum::
+          CoopSandboxedIFrameCannotNavigateToCoopPage;
+    case network::mojom::blink::BlockedByResponseReason::kCorpNotSameOrigin:
+      return protocol::Audits::BlockedByResponseReasonEnum::CorpNotSameOrigin;
+    case network::mojom::blink::BlockedByResponseReason::
+        kCorpNotSameOriginAfterDefaultedToSameOriginByCoep:
+      return protocol::Audits::BlockedByResponseReasonEnum::
+          CorpNotSameOriginAfterDefaultedToSameOriginByCoep;
+    case network::mojom::blink::BlockedByResponseReason::kCorpNotSameSite:
+      return protocol::Audits::BlockedByResponseReasonEnum::CorpNotSameSite;
+  }
+}
+
+protocol::String BuildViolationType(
+    mojom::blink::ContentSecurityPolicyViolationType violation_type) {
+  switch (violation_type) {
+    case blink::mojom::blink::ContentSecurityPolicyViolationType::
+        kInlineViolation:
+      return protocol::Audits::ContentSecurityPolicyViolationTypeEnum::
+          KInlineViolation;
+    case blink::mojom::blink::ContentSecurityPolicyViolationType::
+        kEvalViolation:
+      return protocol::Audits::ContentSecurityPolicyViolationTypeEnum::
+          KEvalViolation;
+    case blink::mojom::blink::ContentSecurityPolicyViolationType::kURLViolation:
+      return protocol::Audits::ContentSecurityPolicyViolationTypeEnum::
+          KURLViolation;
+    case blink::mojom::blink::ContentSecurityPolicyViolationType::
+        kTrustedTypesSinkViolation:
+      return protocol::Audits::ContentSecurityPolicyViolationTypeEnum::
+          KTrustedTypesSinkViolation;
+    case blink::mojom::blink::ContentSecurityPolicyViolationType::
+        kTrustedTypesPolicyViolation:
+      return protocol::Audits::ContentSecurityPolicyViolationTypeEnum::
+          KTrustedTypesPolicyViolation;
+  }
+}
+
+protocol::String BuildSABIssueType(
+    blink::mojom::blink::SharedArrayBufferIssueType type) {
+  switch (type) {
+    case blink::mojom::blink::SharedArrayBufferIssueType::kTransferIssue:
+      return protocol::Audits::SharedArrayBufferIssueTypeEnum::TransferIssue;
+    case blink::mojom::blink::SharedArrayBufferIssueType::kCreationIssue:
+      return protocol::Audits::SharedArrayBufferIssueTypeEnum::CreationIssue;
+  }
+}
+
+std::unique_ptr<protocol::Audits::SourceCodeLocation> BuildAffectedLocation(
+    const blink::mojom::blink::AffectedLocationPtr& affected_location) {
+  auto protocol_affected_location =
+      protocol::Audits::SourceCodeLocation::create()
+          .setUrl(affected_location->url)
+          .setColumnNumber(affected_location->column)
+          .setLineNumber(affected_location->line)
+          .build();
+  if (!affected_location->script_id.IsEmpty())
+    protocol_affected_location->setScriptId(affected_location->script_id);
+  return protocol_affected_location;
+}
+
 }  // namespace
 
 void InspectorAuditsAgent::InspectorIssueAdded(InspectorIssue* issue) {
   auto issueDetails = protocol::Audits::InspectorIssueDetails::create();
 
-  if (issue->Details()->sameSiteCookieIssueDetails) {
+  if (issue->Details()->samesite_cookie_issue_details) {
+    const auto* d = issue->Details()->samesite_cookie_issue_details.get();
     auto sameSiteCookieDetails =
-        protocol::Audits::SameSiteCookieIssueDetails::create()
-            .setCookieExclusionReasons(BuildCookieExclusionReasons(
-                issue->Details()->sameSiteCookieIssueDetails->exclusionReason))
-            .setCookieWarningReasons(BuildCookieWarningReasons(
-                issue->Details()->sameSiteCookieIssueDetails->warningReason))
-            .build();
-    issueDetails.setSameSiteCookieIssueDetails(
-        std::move(sameSiteCookieDetails));
+        std::move(protocol::Audits::SameSiteCookieIssueDetails::create()
+                      .setCookie(BuildAffectedCookie(d->cookie))
+                      .setCookieExclusionReasons(
+                          BuildCookieExclusionReasons(d->exclusion_reason))
+                      .setCookieWarningReasons(
+                          BuildCookieWarningReasons(d->warning_reason))
+                      .setOperation(BuildCookieOperation(d->operation)));
+
+    if (d->site_for_cookies) {
+      sameSiteCookieDetails.setSiteForCookies(*d->site_for_cookies);
+    }
+    if (d->cookie_url) {
+      sameSiteCookieDetails.setCookieUrl(*d->cookie_url);
+    }
+    if (d->request) {
+      sameSiteCookieDetails.setRequest(BuildAffectedRequest(d->request));
+    }
+    issueDetails.setSameSiteCookieIssueDetails(sameSiteCookieDetails.build());
   }
 
-  auto affectedResources =
-      protocol::Audits::AffectedResources::create()
-          .setCookies(BuildCookies(issue->Resources()->cookies))
-          .build();
+  if (issue->Details()->mixed_content_issue_details) {
+    const auto* d = issue->Details()->mixed_content_issue_details.get();
+    auto mixedContentDetails =
+        protocol::Audits::MixedContentIssueDetails::create()
+            .setResourceType(BuildMixedContentResourceType(d->request_context))
+            .setResolutionStatus(
+                BuildMixedContentResolutionStatus(d->resolution_status))
+            .setInsecureURL(d->insecure_url)
+            .setMainResourceURL(d->main_resource_url)
+            .build();
+    if (d->request) {
+      mixedContentDetails->setRequest(BuildAffectedRequest(d->request));
+    }
+    if (d->frame) {
+      mixedContentDetails->setFrame(BuildAffectedFrame(d->frame));
+    }
+    issueDetails.setMixedContentIssueDetails(std::move(mixedContentDetails));
+  }
+
+  if (issue->Details()->blocked_by_response_issue_details) {
+    const auto* d = issue->Details()->blocked_by_response_issue_details.get();
+    auto blockedByResponseDetails =
+        protocol::Audits::BlockedByResponseIssueDetails::create()
+            .setRequest(BuildAffectedRequest(d->request))
+            .setReason(BuildBlockedByResponseReason(d->reason))
+            .build();
+    if (d->parentFrame) {
+      blockedByResponseDetails->setParentFrame(
+          BuildAffectedFrame(d->parentFrame));
+    }
+    if (d->blockedFrame) {
+      blockedByResponseDetails->setBlockedFrame(
+          BuildAffectedFrame(d->blockedFrame));
+    }
+    issueDetails.setBlockedByResponseIssueDetails(
+        std::move(blockedByResponseDetails));
+  }
+
+  if (issue->Details()->csp_issue_details) {
+    const auto* d = issue->Details()->csp_issue_details.get();
+    auto cspDetails =
+        std::move(protocol::Audits::ContentSecurityPolicyIssueDetails::create()
+                      .setViolatedDirective(d->violated_directive)
+                      .setIsReportOnly(d->is_report_only)
+                      .setContentSecurityPolicyViolationType(BuildViolationType(
+                          d->content_security_policy_violation_type)));
+    if (d->blocked_url) {
+      cspDetails.setBlockedURL(*d->blocked_url);
+    }
+    if (d->frame_ancestor)
+      cspDetails.setFrameAncestor(BuildAffectedFrame(d->frame_ancestor));
+    if (d->affected_location) {
+      cspDetails.setSourceCodeLocation(
+          BuildAffectedLocation(d->affected_location));
+    }
+    if (d->violating_node_id)
+      cspDetails.setViolatingNodeId(d->violating_node_id);
+    issueDetails.setContentSecurityPolicyIssueDetails(cspDetails.build());
+  }
+
+  if (issue->Details()->sab_issue_details) {
+    const auto* d = issue->Details()->sab_issue_details.get();
+    auto details =
+        protocol::Audits::SharedArrayBufferIssueDetails::create()
+            .setIsWarning(d->is_warning)
+            .setType(BuildSABIssueType(d->type))
+            .setSourceCodeLocation(BuildAffectedLocation(d->affected_location))
+            .build();
+    issueDetails.setSharedArrayBufferIssueDetails(std::move(details));
+  }
+
+  if (issue->Details()->low_text_contrast_details) {
+    const auto* d = issue->Details()->low_text_contrast_details.get();
+    auto lowContrastDetails =
+        protocol::Audits::LowTextContrastIssueDetails::create()
+            .setThresholdAA(d->threshold_aa)
+            .setThresholdAAA(d->threshold_aaa)
+            .setFontSize(d->font_size)
+            .setFontWeight(d->font_weight)
+            .setContrastRatio(d->contrast_ratio)
+            .setViolatingNodeSelector(d->violating_node_selector)
+            .setViolatingNodeId(d->violating_node_id)
+            .build();
+    issueDetails.setLowTextContrastIssueDetails(std::move(lowContrastDetails));
+  }
 
   auto inspector_issue = protocol::Audits::InspectorIssue::create()
                              .setCode(InspectorIssueCodeValue(issue->Code()))
                              .setDetails(issueDetails.build())
-                             .setResources(std::move(affectedResources))
                              .build();
 
   GetFrontend()->issueAdded(std::move(inspector_issue));

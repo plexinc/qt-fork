@@ -40,13 +40,16 @@
 // We mean it.
 //
 
-#include <../../../shared/util.h>
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 #include <private/qqmldebugclient_p.h>
 
 class QQmlDebugProcess;
 class QQmlDebugTest : public QQmlDataTest
 {
     Q_OBJECT
+public:
+    QQmlDebugTest(const char *qmlTestDataDir);
+
 public:
     static bool waitForSignal(QObject *receiver, const char *member, int timeout = 5000);
     static QList<QQmlDebugClient *> createOtherClients(QQmlDebugConnection *connection);
@@ -92,7 +95,7 @@ signals:
     void serverMessage(const QByteArray &);
 
 protected:
-    virtual void messageReceived(const QByteArray &ba);
+    void messageReceived(const QByteArray &ba) override;
 
 private:
     QByteArray lastMsg;

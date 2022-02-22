@@ -44,7 +44,7 @@
 #include <QtCore/qstring.h>
 
 #ifndef Q_QSCXMLC_OUTPUT_REVISION
-#define Q_QSCXMLC_OUTPUT_REVISION 1
+#define Q_QSCXMLC_OUTPUT_REVISION 2
 #endif
 
 QT_BEGIN_NAMESPACE

@@ -27,7 +27,7 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QtCore/qversionnumber.h>
 #include <QtCore/qlibraryinfo.h>
 
@@ -81,60 +81,64 @@ private slots:
     void serialize();
     void moveSemantics();
     void qtVersion();
+    void qTypeRevision_data();
+    void qTypeRevision();
+    void qTypeRevisionTypes();
+    void qTypeRevisionComparison();
 };
 
 void tst_QVersionNumber::singleInstanceData()
 {
-    QTest::addColumn<QVector<int> >("segments");
+    QTest::addColumn<QList<int>>("segments");
     QTest::addColumn<QVersionNumber>("expectedVersion");
     QTest::addColumn<QString>("expectedString");
     QTest::addColumn<QString>("constructionString");
     QTest::addColumn<int>("suffixIndex");
     QTest::addColumn<bool>("isNull");
 
-    //                                        segments                           expectedVersion                                                      expectedString                    constructionString                         suffixIndex   null
-    QTest::newRow("null")                  << QVector<int>()                  << QVersionNumber(QVector<int>())                                    << QString()                      << QString()                               << 0          << true;
-    QTest::newRow("text")                  << QVector<int>()                  << QVersionNumber(QVector<int>())                                    << QString()                      << QStringLiteral("text")                  << 0          << true;
-    QTest::newRow(" text")                 << QVector<int>()                  << QVersionNumber(QVector<int>())                                    << QString()                      << QStringLiteral(" text")                 << 0          << true;
-    QTest::newRow("Empty String")          << QVector<int>()                  << QVersionNumber(QVector<int>())                                    << QString()                      << QStringLiteral("Empty String")          << 0          << true;
-    QTest::newRow("-1.-2")                 << (QVector<int>())                << QVersionNumber()                                                  << QStringLiteral("")             << QStringLiteral("-1.-2")                 << 0          << true;
-    QTest::newRow("1.-2-3")                << (QVector<int>() << 1)           << QVersionNumber(QVector<int>() << 1)                               << QStringLiteral("1")            << QStringLiteral("1.-2-3")                << 1          << false;
-    QTest::newRow("1.2-3")                 << (QVector<int>() << 1 << 2)      << QVersionNumber(QVector<int>() << 1 << 2)                          << QStringLiteral("1.2")          << QStringLiteral("1.2-3")                 << 3          << false;
-    QTest::newRow("0")                     << (QVector<int>() << 0)           << QVersionNumber(QVector<int>() << 0)                               << QStringLiteral("0")            << QStringLiteral("0")                     << 1          << false;
-    QTest::newRow("0.1")                   << (QVector<int>() << 0 << 1)      << QVersionNumber(QVector<int>() << 0 << 1)                          << QStringLiteral("0.1")          << QStringLiteral("0.1")                   << 3          << false;
-    QTest::newRow("0.1.2")                 << (QVector<int>() << 0 << 1 << 2) << QVersionNumber(0, 1, 2)                                           << QStringLiteral("0.1.2")        << QStringLiteral("0.1.2")                 << 5          << false;
-    QTest::newRow("0.1.2alpha")            << (QVector<int>() << 0 << 1 << 2) << QVersionNumber(0, 1, 2)                                           << QStringLiteral("0.1.2")        << QStringLiteral("0.1.2alpha")            << 5          << false;
-    QTest::newRow("0.1.2-alpha")           << (QVector<int>() << 0 << 1 << 2) << QVersionNumber(0, 1, 2)                                           << QStringLiteral("0.1.2")        << QStringLiteral("0.1.2-alpha")           << 5          << false;
-    QTest::newRow("0.1.2.alpha")           << (QVector<int>() << 0 << 1 << 2) << QVersionNumber(0, 1, 2)                                           << QStringLiteral("0.1.2")        << QStringLiteral("0.1.2.alpha")           << 5          << false;
-    QTest::newRow("0.1.2.3alpha")          << (QVector<int>() << 0 << 1 << 2 << 3) << QVersionNumber(QVector<int>() << 0 << 1 << 2 << 3)           << QStringLiteral("0.1.2.3")      << QStringLiteral("0.1.2.3alpha")          << 7          << false;
-    QTest::newRow("0.1.2.3.alpha")         << (QVector<int>() << 0 << 1 << 2 << 3) << QVersionNumber(QVector<int>() << 0 << 1 << 2 << 3)           << QStringLiteral("0.1.2.3")      << QStringLiteral("0.1.2.3.alpha")         << 7          << false;
-    QTest::newRow("0.1.2.3.4.alpha")       << (QVector<int>() << 0 << 1 << 2 << 3 << 4) << QVersionNumber(QVector<int>() << 0 << 1 << 2 << 3 << 4) << QStringLiteral("0.1.2.3.4")    << QStringLiteral("0.1.2.3.4.alpha")       << 9          << false;
-    QTest::newRow("0.1.2.3.4 alpha")       << (QVector<int>() << 0 << 1 << 2 << 3 << 4) << QVersionNumber(QVector<int>() << 0 << 1 << 2 << 3 << 4) << QStringLiteral("0.1.2.3.4")    << QStringLiteral("0.1.2.3.4 alpha")       << 9          << false;
-    QTest::newRow("0.1.2.3.4 alp ha")      << (QVector<int>() << 0 << 1 << 2 << 3 << 4) << QVersionNumber(QVector<int>() << 0 << 1 << 2 << 3 << 4) << QStringLiteral("0.1.2.3.4")    << QStringLiteral("0.1.2.3.4 alp ha")      << 9          << false;
-    QTest::newRow("0.1.2.3.4alp ha")       << (QVector<int>() << 0 << 1 << 2 << 3 << 4) << QVersionNumber(QVector<int>() << 0 << 1 << 2 << 3 << 4) << QStringLiteral("0.1.2.3.4")    << QStringLiteral("0.1.2.3.4alp ha")       << 9          << false;
-    QTest::newRow("0.1.2.3.4alpha ")       << (QVector<int>() << 0 << 1 << 2 << 3 << 4) << QVersionNumber(QVector<int>() << 0 << 1 << 2 << 3 << 4) << QStringLiteral("0.1.2.3.4")    << QStringLiteral("0.1.2.3.4alpha ")       << 9          << false;
-    QTest::newRow("0.1.2.3.4.5alpha ")     << (QVector<int>() << 0 << 1 << 2 << 3 << 4 << 5) << QVersionNumber(QVector<int>() << 0 << 1 << 2 << 3 << 4 << 5) << QStringLiteral("0.1.2.3.4.5") << QStringLiteral("0.1.2.3.4.5alpha ") << 11    << false;
-    QTest::newRow("0.1.2.3.4.5.6alpha ")   << (QVector<int>() << 0 << 1 << 2 << 3 << 4 << 5 << 6) << QVersionNumber(QVector<int>() << 0 << 1 << 2 << 3 << 4 << 5 << 6) << QStringLiteral("0.1.2.3.4.5.6") << QStringLiteral("0.1.2.3.4.5.6alpha ")       << 13          << false;
-    QTest::newRow("0.1.2.3.4.5.6.7alpha ")  << (QVector<int>() << 0 << 1 << 2 << 3 << 4 << 5 << 6 << 7) << QVersionNumber(QVector<int>() << 0 << 1 << 2 << 3 << 4 << 5 << 6 << 7) << QStringLiteral("0.1.2.3.4.5.6.7") << QStringLiteral("0.1.2.3.4.5.6.7alpha ")       << 15          << false;
-    QTest::newRow("0.1.2.3.4.5.6.7.8alpha ")  << (QVector<int>() << 0 << 1 << 2 << 3 << 4 << 5 << 6 << 7 << 8) << QVersionNumber(QVector<int>() << 0 << 1 << 2 << 3 << 4 << 5 << 6 << 7 << 8) << QStringLiteral("0.1.2.3.4.5.6.7.8")    << QStringLiteral("0.1.2.3.4.5.6.7.8alpha ")       << 17          << false;
-    QTest::newRow("0.1.2.3.4.5.6.7.8.alpha")  << (QVector<int>() << 0 << 1 << 2 << 3 << 4 << 5 << 6 << 7 << 8) << QVersionNumber(QVector<int>() << 0 << 1 << 2 << 3 << 4 << 5 << 6 << 7 << 8) << QStringLiteral("0.1.2.3.4.5.6.7.8")    << QStringLiteral("0.1.2.3.4.5.6.7.8.alpha")       << 17          << false;
-    QTest::newRow("0.1.2.3.4.5.6.7.8 alpha")  << (QVector<int>() << 0 << 1 << 2 << 3 << 4 << 5 << 6 << 7 << 8) << QVersionNumber(QVector<int>() << 0 << 1 << 2 << 3 << 4 << 5 << 6 << 7 << 8) << QStringLiteral("0.1.2.3.4.5.6.7.8")    << QStringLiteral("0.1.2.3.4.5.6.7.8 alpha")       << 17          << false;
-    QTest::newRow("0.1.2.3.4.5.6.7.8 alp ha") << (QVector<int>() << 0 << 1 << 2 << 3 << 4 << 5 << 6 << 7 << 8) << QVersionNumber(QVector<int>() << 0 << 1 << 2 << 3 << 4 << 5 << 6 << 7 << 8) << QStringLiteral("0.1.2.3.4.5.6.7.8")    << QStringLiteral("0.1.2.3.4.5.6.7.8 alp ha")      << 17          << false;
-    QTest::newRow("0.1.2.3.4.5.6.7.8alp ha")  << (QVector<int>() << 0 << 1 << 2 << 3 << 4 << 5 << 6 << 7 << 8) << QVersionNumber(QVector<int>() << 0 << 1 << 2 << 3 << 4 << 5 << 6 << 7 << 8) << QStringLiteral("0.1.2.3.4.5.6.7.8")    << QStringLiteral("0.1.2.3.4.5.6.7.8alp ha")       << 17          << false;
-    QTest::newRow("10.09")                 << (QVector<int>() << 10 << 9)     << QVersionNumber(QVector<int>() << 10 << 9)                         << QStringLiteral("10.9")         << QStringLiteral("10.09")                 << 5          << false;
-    QTest::newRow("10.0x")                 << (QVector<int>() << 10 << 0)     << QVersionNumber(QVector<int>() << 10 << 0)                         << QStringLiteral("10.0")         << QStringLiteral("10.0x")                 << 4          << false;
-    QTest::newRow("10.0xTest")             << (QVector<int>() << 10 << 0)     << QVersionNumber(QVector<int>() << 10 << 0)                         << QStringLiteral("10.0")         << QStringLiteral("10.0xTest")             << 4          << false;
-    QTest::newRow("127.09")                << (QVector<int>() << 127 << 9)    << QVersionNumber(QVector<int>() << 127 << 9)                        << QStringLiteral("127.9")        << QStringLiteral("127.09")                << 6          << false;
-    QTest::newRow("127.0x")                << (QVector<int>() << 127 << 0)    << QVersionNumber(QVector<int>() << 127 << 0)                        << QStringLiteral("127.0")        << QStringLiteral("127.0x")                << 5          << false;
-    QTest::newRow("127.0xTest")            << (QVector<int>() << 127 << 0)    << QVersionNumber(QVector<int>() << 127 << 0)                        << QStringLiteral("127.0")        << QStringLiteral("127.0xTest")            << 5          << false;
-    QTest::newRow("128.09")                << (QVector<int>() << 128 << 9)    << QVersionNumber(QVector<int>() << 128 << 9)                        << QStringLiteral("128.9")        << QStringLiteral("128.09")                << 6          << false;
-    QTest::newRow("128.0x")                << (QVector<int>() << 128 << 0)    << QVersionNumber(QVector<int>() << 128 << 0)                        << QStringLiteral("128.0")        << QStringLiteral("128.0x")                << 5          << false;
-    QTest::newRow("128.0xTest")            << (QVector<int>() << 128 << 0)    << QVersionNumber(QVector<int>() << 128 << 0)                        << QStringLiteral("128.0")        << QStringLiteral("128.0xTest")            << 5          << false;
+    //                                        segments                                    expectedVersion                                             expectedString                         constructionString                            suffixIndex null
+    QTest::newRow("null")                     << QList<int>()                             << QVersionNumber()                                         << QString()                           << QString()                                  << 0        << true;
+    QTest::newRow("text")                     << QList<int>()                             << QVersionNumber()                                         << QString()                           << QStringLiteral("text")                     << 0        << true;
+    QTest::newRow(" text")                    << QList<int>()                             << QVersionNumber()                                         << QString()                           << QStringLiteral(" text")                    << 0        << true;
+    QTest::newRow("Empty String")             << QList<int>()                             << QVersionNumber()                                         << QString()                           << QStringLiteral("Empty String")             << 0        << true;
+    QTest::newRow("-1.-2")                    << QList<int>()                             << QVersionNumber()                                         << QStringLiteral("")                  << QStringLiteral("-1.-2")                    << 0        << true;
+    QTest::newRow("1.-2-3")                   << QList<int> { 1 }                         << QVersionNumber(QList<int> { 1 })                         << QStringLiteral("1")                 << QStringLiteral("1.-2-3")                   << 1        << false;
+    QTest::newRow("1.2-3")                    << QList<int> { 1, 2 }                      << QVersionNumber(QList<int> { 1, 2 })                      << QStringLiteral("1.2")               << QStringLiteral("1.2-3")                    << 3        << false;
+    QTest::newRow("0")                        << QList<int> { 0 }                         << QVersionNumber(QList<int> { 0 })                         << QStringLiteral("0")                 << QStringLiteral("0")                        << 1        << false;
+    QTest::newRow("0.1")                      << QList<int> { 0, 1 }                      << QVersionNumber(QList<int> { 0, 1 })                      << QStringLiteral("0.1")               << QStringLiteral("0.1")                      << 3        << false;
+    QTest::newRow("0.1.2")                    << QList<int> { 0, 1, 2 }                   << QVersionNumber(QList<int> { 0, 1, 2 })                   << QStringLiteral("0.1.2")             << QStringLiteral("0.1.2")                    << 5        << false;
+    QTest::newRow("0.1.2alpha")               << QList<int> { 0, 1, 2 }                   << QVersionNumber(QList<int> { 0, 1, 2 })                   << QStringLiteral("0.1.2")             << QStringLiteral("0.1.2alpha")               << 5        << false;
+    QTest::newRow("0.1.2-alpha")              << QList<int> { 0, 1, 2 }                   << QVersionNumber(QList<int> { 0, 1, 2 })                   << QStringLiteral("0.1.2")             << QStringLiteral("0.1.2-alpha")              << 5        << false;
+    QTest::newRow("0.1.2.alpha")              << QList<int> { 0, 1, 2 }                   << QVersionNumber(QList<int> { 0, 1, 2 })                   << QStringLiteral("0.1.2")             << QStringLiteral("0.1.2.alpha")              << 5        << false;
+    QTest::newRow("0.1.2.3alpha")             << QList<int> { 0, 1, 2, 3 }                << QVersionNumber(QList<int> { 0, 1, 2, 3 })                << QStringLiteral("0.1.2.3")           << QStringLiteral("0.1.2.3alpha")             << 7        << false;
+    QTest::newRow("0.1.2.3.alpha")            << QList<int> { 0, 1, 2, 3 }                << QVersionNumber(QList<int> { 0, 1, 2, 3 })                << QStringLiteral("0.1.2.3")           << QStringLiteral("0.1.2.3.alpha")            << 7        << false;
+    QTest::newRow("0.1.2.3.4.alpha")          << QList<int> { 0, 1, 2, 3, 4 }             << QVersionNumber(QList<int> { 0, 1, 2, 3, 4 })             << QStringLiteral("0.1.2.3.4")         << QStringLiteral("0.1.2.3.4.alpha")          << 9        << false;
+    QTest::newRow("0.1.2.3.4 alpha")          << QList<int> { 0, 1, 2, 3, 4 }             << QVersionNumber(QList<int> { 0, 1, 2, 3, 4 })             << QStringLiteral("0.1.2.3.4")         << QStringLiteral("0.1.2.3.4 alpha")          << 9        << false;
+    QTest::newRow("0.1.2.3.4 alp ha")         << QList<int> { 0, 1, 2, 3, 4 }             << QVersionNumber(QList<int> { 0, 1, 2, 3, 4 })             << QStringLiteral("0.1.2.3.4")         << QStringLiteral("0.1.2.3.4 alp ha")         << 9        << false;
+    QTest::newRow("0.1.2.3.4alp ha")          << QList<int> { 0, 1, 2, 3, 4 }             << QVersionNumber(QList<int> { 0, 1, 2, 3, 4 })             << QStringLiteral("0.1.2.3.4")         << QStringLiteral("0.1.2.3.4alp ha")          << 9        << false;
+    QTest::newRow("0.1.2.3.4alpha ")          << QList<int> { 0, 1, 2, 3, 4 }             << QVersionNumber(QList<int> { 0, 1, 2, 3, 4 })             << QStringLiteral("0.1.2.3.4")         << QStringLiteral("0.1.2.3.4alpha ")          << 9        << false;
+    QTest::newRow("0.1.2.3.4.5alpha ")        << QList<int> { 0, 1, 2, 3, 4, 5 }          << QVersionNumber(QList<int> { 0, 1, 2, 3, 4, 5 })          << QStringLiteral("0.1.2.3.4.5")       << QStringLiteral("0.1.2.3.4.5alpha ")        << 11       << false;
+    QTest::newRow("0.1.2.3.4.5.6alpha ")      << QList<int> { 0, 1, 2, 3, 4, 5, 6 }       << QVersionNumber(QList<int> { 0, 1, 2, 3, 4, 5, 6 })       << QStringLiteral("0.1.2.3.4.5.6")     << QStringLiteral("0.1.2.3.4.5.6alpha ")      << 13       << false;
+    QTest::newRow("0.1.2.3.4.5.6.7alpha ")    << QList<int> { 0, 1, 2, 3, 4, 5, 6, 7 }    << QVersionNumber(QList<int> { 0, 1, 2, 3, 4, 5, 6, 7 })    << QStringLiteral("0.1.2.3.4.5.6.7")   << QStringLiteral("0.1.2.3.4.5.6.7alpha ")    << 15       << false;
+    QTest::newRow("0.1.2.3.4.5.6.7.8alpha ")  << QList<int> { 0, 1, 2, 3, 4, 5, 6, 7, 8 } << QVersionNumber(QList<int> { 0, 1, 2, 3, 4, 5, 6, 7, 8 }) << QStringLiteral("0.1.2.3.4.5.6.7.8") << QStringLiteral("0.1.2.3.4.5.6.7.8alpha ")  << 17       << false;
+    QTest::newRow("0.1.2.3.4.5.6.7.8.alpha")  << QList<int> { 0, 1, 2, 3, 4, 5, 6, 7, 8 } << QVersionNumber(QList<int> { 0, 1, 2, 3, 4, 5, 6, 7, 8 }) << QStringLiteral("0.1.2.3.4.5.6.7.8") << QStringLiteral("0.1.2.3.4.5.6.7.8.alpha")  << 17       << false;
+    QTest::newRow("0.1.2.3.4.5.6.7.8 alpha")  << QList<int> { 0, 1, 2, 3, 4, 5, 6, 7, 8 } << QVersionNumber(QList<int> { 0, 1, 2, 3, 4, 5, 6, 7, 8 }) << QStringLiteral("0.1.2.3.4.5.6.7.8") << QStringLiteral("0.1.2.3.4.5.6.7.8 alpha")  << 17       << false;
+    QTest::newRow("0.1.2.3.4.5.6.7.8 alp ha") << QList<int> { 0, 1, 2, 3, 4, 5, 6, 7, 8 } << QVersionNumber(QList<int> { 0, 1, 2, 3, 4, 5, 6, 7, 8 }) << QStringLiteral("0.1.2.3.4.5.6.7.8") << QStringLiteral("0.1.2.3.4.5.6.7.8 alp ha") << 17       << false;
+    QTest::newRow("0.1.2.3.4.5.6.7.8alp ha")  << QList<int> { 0, 1, 2, 3, 4, 5, 6, 7, 8 } << QVersionNumber(QList<int> { 0, 1, 2, 3, 4, 5, 6, 7, 8 }) << QStringLiteral("0.1.2.3.4.5.6.7.8") << QStringLiteral("0.1.2.3.4.5.6.7.8alp ha")  << 17       << false;
+    QTest::newRow("10.09")                    << QList<int> { 10, 9 }                     << QVersionNumber(QList<int> { 10, 9 })                     << QStringLiteral("10.9")              << QStringLiteral("10.09")                    << 5        << false;
+    QTest::newRow("10.0x")                    << QList<int> { 10, 0 }                     << QVersionNumber(QList<int> { 10, 0 })                     << QStringLiteral("10.0")              << QStringLiteral("10.0x")                    << 4        << false;
+    QTest::newRow("10.0xTest")                << QList<int> { 10, 0 }                     << QVersionNumber(QList<int> { 10, 0 })                     << QStringLiteral("10.0")              << QStringLiteral("10.0xTest")                << 4        << false;
+    QTest::newRow("127.09")                   << QList<int> { 127, 9 }                    << QVersionNumber(QList<int> { 127, 9 })                    << QStringLiteral("127.9")             << QStringLiteral("127.09")                   << 6        << false;
+    QTest::newRow("127.0x")                   << QList<int> { 127, 0 }                    << QVersionNumber(QList<int> { 127, 0 })                    << QStringLiteral("127.0")             << QStringLiteral("127.0x")                   << 5        << false;
+    QTest::newRow("127.0xTest")               << QList<int> { 127, 0 }                    << QVersionNumber(QList<int> { 127, 0 })                    << QStringLiteral("127.0")             << QStringLiteral("127.0xTest")               << 5        << false;
+    QTest::newRow("128.09")                   << QList<int> { 128, 9 }                    << QVersionNumber(QList<int> { 128, 9 })                    << QStringLiteral("128.9")             << QStringLiteral("128.09")                   << 6        << false;
+    QTest::newRow("128.0x")                   << QList<int> { 128, 0 }                    << QVersionNumber(QList<int> { 128, 0 })                    << QStringLiteral("128.0")             << QStringLiteral("128.0x")                   << 5        << false;
+    QTest::newRow("128.0xTest")               << QList<int> { 128, 0 }                    << QVersionNumber(QList<int> { 128, 0 })                    << QStringLiteral("128.0")             << QStringLiteral("128.0xTest")               << 5        << false;
 }
 
 namespace UglyOperator {
 // ugh, but the alternative (operator <<) is even worse...
-static inline QVector<int> operator+(QVector<int> v, int i) { v.push_back(i); return v; }
+static inline QList<int> operator+(QList<int> v, int i) { v.push_back(i); return v; }
 }
 
 void tst_QVersionNumber::comparisonData()
@@ -196,7 +200,7 @@ void tst_QVersionNumber::comparisonData()
     QTest::newRow("0.-129, 0")          << QVersionNumber(0, -129)     << QVersionNumber(0)           << false << true  << true  << true  << false << false << -129  << false          << QVersionNumber(0);
     QTest::newRow("0, 0.-129")          << QVersionNumber(0)           << QVersionNumber(0, -129)     << false << true  << false << false << true  << true  <<  129  << true           << QVersionNumber(0);
 
-    const QVector<int> common = QVector<int>() << 0 << 1 << 2 << 3 << 4 << 5 << 6;
+    const QList<int> common = QList<int>({ 0, 1, 2, 3, 4, 5, 6 });
     using namespace UglyOperator;
     QTest::newRow("0.1.2.3.4.5.6.0.1.2, 0.1.2.3.4.5.6.0.1")    << QVersionNumber(common + 0 + 1 + 2) << QVersionNumber(common + 0 + 1)     << false << true  << false << false << true  << true  <<  2             << false          << QVersionNumber(common + 0 + 1);
     QTest::newRow("0.1.2.3.4.5.6.0.1, 0.1.2.3.4.5.6.0.1.2")    << QVersionNumber(common + 0 + 1)     << QVersionNumber(common + 0 + 1 + 2) << false << true  << true  << true  << false << false << -2             << true           << QVersionNumber(common + 0 + 1);
@@ -213,7 +217,7 @@ void tst_QVersionNumber::comparisonData()
 
 void tst_QVersionNumber::initTestCase()
 {
-    qRegisterMetaType<QVector<int> >();
+    qRegisterMetaType<QList<int>>();
 }
 
 void tst_QVersionNumber::constructorDefault()
@@ -233,7 +237,7 @@ void tst_QVersionNumber::constructorVersioned_data()
 
 void tst_QVersionNumber::constructorVersioned()
 {
-    QFETCH(QVector<int>, segments);
+    QFETCH(QList<int>, segments);
     QFETCH(QVersionNumber, expectedVersion);
 
     QVersionNumber version(segments);
@@ -246,17 +250,17 @@ void tst_QVersionNumber::constructorVersioned()
 void tst_QVersionNumber::constructorExplicit()
 {
     QVersionNumber v1(1);
-    QVersionNumber v2(QVector<int>() << 1);
+    QVersionNumber v2(QList<int>({ 1 }));
 
     QCOMPARE(v1.segments(), v2.segments());
 
     QVersionNumber v3(1, 2);
-    QVersionNumber v4(QVector<int>() << 1 << 2);
+    QVersionNumber v4(QList<int>({ 1, 2 }));
 
     QCOMPARE(v3.segments(), v4.segments());
 
     QVersionNumber v5(1, 2, 3);
-    QVersionNumber v6(QVector<int>() << 1 << 2 << 3);
+    QVersionNumber v6(QList<int>({ 1, 2, 3 }));
 
     QCOMPARE(v5.segments(), v6.segments());
 
@@ -273,7 +277,7 @@ void tst_QVersionNumber::constructorCopy_data()
 
 void tst_QVersionNumber::constructorCopy()
 {
-    QFETCH(QVector<int>, segments);
+    QFETCH(QList<int>, segments);
     QFETCH(QVersionNumber, expectedVersion);
 
     QVersionNumber original(segments);
@@ -418,14 +422,14 @@ void tst_QVersionNumber::normalized_data()
     QTest::addColumn<QVersionNumber>("version");
     QTest::addColumn<QVersionNumber>("expected");
 
-    QTest::newRow("0")        << QVersionNumber(0) << QVersionNumber();
-    QTest::newRow("1")        << QVersionNumber(1) << QVersionNumber(1);
-    QTest::newRow("1.2")      << QVersionNumber(1, 2) << QVersionNumber(1, 2);
-    QTest::newRow("1.0")      << QVersionNumber(1, 0) << QVersionNumber(1);
-    QTest::newRow("1.0.0")      << QVersionNumber(1, 0, 0) << QVersionNumber(1);
-    QTest::newRow("1.0.1")      << QVersionNumber(1, 0, 1) << QVersionNumber(1, 0, 1);
-    QTest::newRow("1.0.1.0")      << QVersionNumber(QVector<int>() << 1 << 0 << 1 << 0) << QVersionNumber(1, 0, 1);
-    QTest::newRow("0.0.1.0")      << QVersionNumber(QVector<int>() << 0 << 0 << 1 << 0) << QVersionNumber(0, 0, 1);
+    QTest::newRow("0")       << QVersionNumber(0)       << QVersionNumber();
+    QTest::newRow("1")       << QVersionNumber(1)       << QVersionNumber(1);
+    QTest::newRow("1.2")     << QVersionNumber(1, 2)    << QVersionNumber(1, 2);
+    QTest::newRow("1.0")     << QVersionNumber(1, 0)    << QVersionNumber(1);
+    QTest::newRow("1.0.0")   << QVersionNumber(1, 0, 0) << QVersionNumber(1);
+    QTest::newRow("1.0.1")   << QVersionNumber(1, 0, 1) << QVersionNumber(1, 0, 1);
+    QTest::newRow("1.0.1.0") << QVersionNumber(QList<int>({ 1, 0, 1, 0 })) << QVersionNumber(1, 0, 1);
+    QTest::newRow("0.0.1.0") << QVersionNumber(QList<int>({ 0, 0, 1, 0 })) << QVersionNumber(0, 0, 1);
 }
 
 void tst_QVersionNumber::normalized()
@@ -442,13 +446,13 @@ void tst_QVersionNumber::isNormalized_data()
     QTest::addColumn<QVersionNumber>("version");
     QTest::addColumn<bool>("expected");
 
-    QTest::newRow("null")        << QVersionNumber() << true;
-    QTest::newRow("0")        << QVersionNumber(0) << false;
-    QTest::newRow("1")        << QVersionNumber(1) << true;
-    QTest::newRow("1.2")      << QVersionNumber(1, 2) << true;
-    QTest::newRow("1.0")      << QVersionNumber(1, 0) << false;
-    QTest::newRow("1.0.0")      << QVersionNumber(1, 0, 0) << false;
-    QTest::newRow("1.0.1")      << QVersionNumber(1, 0, 1) << true;
+    QTest::newRow("null")  << QVersionNumber() << true;
+    QTest::newRow("0")     << QVersionNumber(0) << false;
+    QTest::newRow("1")     << QVersionNumber(1) << true;
+    QTest::newRow("1.2")   << QVersionNumber(1, 2) << true;
+    QTest::newRow("1.0")   << QVersionNumber(1, 0) << false;
+    QTest::newRow("1.0.0") << QVersionNumber(1, 0, 0) << false;
+    QTest::newRow("1.0.1") << QVersionNumber(1, 0, 1) << true;
 }
 
 void tst_QVersionNumber::isNormalized()
@@ -466,7 +470,7 @@ void tst_QVersionNumber::assignment_data()
 
 void tst_QVersionNumber::assignment()
 {
-    QFETCH(QVector<int>, segments);
+    QFETCH(QList<int>, segments);
     QFETCH(QVersionNumber, expectedVersion);
 
     QVersionNumber original(segments);
@@ -488,17 +492,17 @@ void tst_QVersionNumber::fromString_data()
     const QString largerThanIntCanHoldString1 = "0." + QString::number(largerThanIntCanHold);
 
     QTest::newRow(qPrintable(largerThanIntCanHoldString0))
-            << QVector<int>()  << QVersionNumber()  << QString()           << largerThanIntCanHoldString0 << 0 << true;
+            << QList<int>()  << QVersionNumber()  << QString()           << largerThanIntCanHoldString0 << 0 << true;
     QTest::newRow(qPrintable(largerThanIntCanHoldString1))
-            << QVector<int>(0) << QVersionNumber(0) << QStringLiteral("0") << largerThanIntCanHoldString1 << 1 << true;
+            << QList<int>(0) << QVersionNumber(0) << QStringLiteral("0") << largerThanIntCanHoldString1 << 1 << true;
 
     const QString largerThanULongLongCanHoldString0 = QString::number(std::numeric_limits<qulonglong>::max()) + "0.0";      // 10x ULLONG_MAX
     const QString largerThanULongLongCanHoldString1 = "0." + QString::number(std::numeric_limits<qulonglong>::max()) + '0'; // 10x ULLONG_MAX
 
     QTest::newRow(qPrintable(largerThanULongLongCanHoldString0))
-            << QVector<int>()  << QVersionNumber()  << QString()           << largerThanULongLongCanHoldString0 << 0 << true;
+            << QList<int>()  << QVersionNumber()  << QString()           << largerThanULongLongCanHoldString0 << 0 << true;
     QTest::newRow(qPrintable(largerThanULongLongCanHoldString1))
-            << QVector<int>(0) << QVersionNumber(0) << QStringLiteral("0") << largerThanULongLongCanHoldString1 << 1 << true;
+            << QList<int>(0) << QVersionNumber(0) << QStringLiteral("0") << largerThanULongLongCanHoldString1 << 1 << true;
 }
 
 void tst_QVersionNumber::fromString()
@@ -525,10 +529,10 @@ void tst_QVersionNumber::toString_data()
 {
     singleInstanceData();
 
-    //                                        segments                      expectedVersion            expectedString      constructionString     suffixIndex   null
-    QTest::newRow("-1")                    << (QVector<int>() << -1)       << QVersionNumber(-1)      << QString("-1")    << QString()           << 0          << true;
-    QTest::newRow("-1.0")                  << (QVector<int>() << -1 << 0)  << QVersionNumber(-1, 0)   << QString("-1.0")  << QString()           << 0          << true;
-    QTest::newRow("1.-2")                  << (QVector<int>() << 1 << -2)  << QVersionNumber(1, -2)   << QString("1.-2")  << QString()           << 0          << true;
+    //                    segments                   expectedVersion          expectedString      constructionString suffixIndex null
+    QTest::newRow("-1")   << (QList<int>({ -1 }))    << QVersionNumber(-1)    << QString("-1")    << QString()       << 0        << true;
+    QTest::newRow("-1.0") << (QList<int>({ -1, 0 })) << QVersionNumber(-1, 0) << QString("-1.0")  << QString()       << 0        << true;
+    QTest::newRow("1.-2") << (QList<int>({ 1, -2 })) << QVersionNumber(1, -2) << QString("1.-2")  << QString()       << 0        << true;
 }
 
 void tst_QVersionNumber::toString()
@@ -546,7 +550,7 @@ void tst_QVersionNumber::isNull_data()
 
 void tst_QVersionNumber::isNull()
 {
-    QFETCH(QVector<int>, segments);
+    QFETCH(QList<int>, segments);
     QFETCH(bool, isNull);
 
     QVersionNumber version(segments);
@@ -561,7 +565,7 @@ void tst_QVersionNumber::serialize_data()
 
 void tst_QVersionNumber::serialize()
 {
-    QFETCH(QVector<int>, segments);
+    QFETCH(QList<int>, segments);
 
     QVersionNumber original(segments);
     QVersionNumber version;
@@ -597,9 +601,9 @@ void tst_QVersionNumber::moveSemantics()
         v2 = std::move(v1);
         QCOMPARE(v2, QVersionNumber(1, 2, 3));
     }
-    // QVersionNumber(QVector<int> &&)
+    // QVersionNumber(QList<int> &&)
     {
-        QVector<int> segments = QVector<int>() << 1 << 2 << 3;
+        QList<int> segments = QList<int>({ 1, 2, 3});
         QVersionNumber v1(segments);
         QVersionNumber v2(std::move(segments));
         QVERIFY(!v1.isNull());
@@ -624,7 +628,7 @@ void tst_QVersionNumber::moveSemantics()
     {
         QVersionNumber v(1, 2, 3);
         QVERIFY(!v.isNull());
-        QVector<int> segments;
+        QList<int> segments;
         segments = v.segments();
         QVERIFY(!v.isNull());
         QVERIFY(!segments.empty());
@@ -643,6 +647,153 @@ void tst_QVersionNumber::qtVersion()
     // the library may change without the test being recompiled
 
     QCOMPARE(v.toString(), QString(qVersion()));
+}
+
+template<typename Integer>
+void compileTestRevisionMajorMinor()
+{
+    const Integer major = 8;
+    const Integer minor = 4;
+
+    const QTypeRevision r2 = QTypeRevision::fromVersion(major, minor);
+    QCOMPARE(r2.majorVersion(), 8);
+    QCOMPARE(r2.minorVersion(), 4);
+
+    const QTypeRevision r3 = QTypeRevision::fromMajorVersion(major);
+    QCOMPARE(r3.majorVersion(), 8);
+    QVERIFY(!r3.hasMinorVersion());
+
+    const QTypeRevision r4 = QTypeRevision::fromMinorVersion(minor);
+    QVERIFY(!r4.hasMajorVersion());
+    QCOMPARE(r4.minorVersion(), 4);
+}
+
+
+template<typename Integer>
+void compileTestRevision()
+{
+    if (std::is_signed<Integer>::value)
+        compileTestRevision<typename QIntegerForSize<sizeof(Integer) / 2>::Signed>();
+    else
+        compileTestRevision<typename QIntegerForSize<sizeof(Integer) / 2>::Unsigned>();
+
+    const Integer value = 0x0510;
+    const QTypeRevision r = QTypeRevision::fromEncodedVersion(value);
+
+    QCOMPARE(r.majorVersion(), 5);
+    QCOMPARE(r.minorVersion(), 16);
+    QCOMPARE(r.toEncodedVersion<Integer>(), value);
+
+    compileTestRevisionMajorMinor<Integer>();
+}
+
+template<>
+void compileTestRevision<qint16>()
+{
+    compileTestRevisionMajorMinor<quint8>();
+}
+
+template<>
+void compileTestRevision<quint8>()
+{
+    compileTestRevisionMajorMinor<quint8>();
+}
+
+template<>
+void compileTestRevision<qint8>()
+{
+    compileTestRevisionMajorMinor<qint8>();
+}
+
+void tst_QVersionNumber::qTypeRevision_data()
+{
+    QTest::addColumn<QTypeRevision>("revision");
+    QTest::addColumn<bool>("valid");
+    QTest::addColumn<int>("major");
+    QTest::addColumn<int>("minor");
+
+    QTest::addRow("Qt revision") << QTypeRevision::fromVersion(QT_VERSION_MAJOR, QT_VERSION_MINOR)
+                                 << true << QT_VERSION_MAJOR << QT_VERSION_MINOR;
+    QTest::addRow("invalid")     << QTypeRevision() << false << 0xff << 0xff;
+    QTest::addRow("major")       << QTypeRevision::fromMajorVersion(6) << true << 6 << 0xff;
+    QTest::addRow("minor")       << QTypeRevision::fromMinorVersion(15) << true << 0xff << 15;
+    QTest::addRow("zero")        << QTypeRevision::fromVersion(0, 0) << true << 0 << 0;
+
+    // We're intentionally not testing negative numbers.
+    // There are asserts against negative numbers in QTypeRevision.
+    // You must not pass them as major or minor versions, or values.
+}
+
+void tst_QVersionNumber::qTypeRevision()
+{
+    const QTypeRevision other = QTypeRevision::fromVersion(127, 128);
+
+    QFETCH(QTypeRevision, revision);
+
+    QFETCH(bool, valid);
+    QFETCH(int, major);
+    QFETCH(int, minor);
+
+    QCOMPARE(revision.isValid(), valid);
+    QCOMPARE(revision.majorVersion(), major);
+    QCOMPARE(revision.minorVersion(), minor);
+
+    QCOMPARE(revision.hasMajorVersion(), QTypeRevision::isValidSegment(major));
+    QCOMPARE(revision.hasMinorVersion(), QTypeRevision::isValidSegment(minor));
+
+    const QTypeRevision copy = QTypeRevision::fromEncodedVersion(revision.toEncodedVersion<int>());
+    QCOMPARE(copy, revision);
+
+    QVERIFY(revision != other);
+    QVERIFY(copy != other);
+}
+
+void tst_QVersionNumber::qTypeRevisionTypes()
+{
+    compileTestRevision<quint64>();
+    compileTestRevision<qint64>();
+
+    QVERIFY(!QTypeRevision::isValidSegment(0xff));
+    QVERIFY(!QTypeRevision::isValidSegment(-1));
+
+    const QTypeRevision maxRevision = QTypeRevision::fromVersion(254, 254);
+    QVERIFY(maxRevision.hasMajorVersion());
+    QVERIFY(maxRevision.hasMinorVersion());
+}
+
+void tst_QVersionNumber::qTypeRevisionComparison()
+{
+    const QTypeRevision revisions[] = {
+        QTypeRevision::zero(),
+        QTypeRevision::fromMajorVersion(0),
+        QTypeRevision::fromVersion(0, 1),
+        QTypeRevision::fromVersion(0, 20),
+        QTypeRevision::fromMinorVersion(0),
+        QTypeRevision(),
+        QTypeRevision::fromMinorVersion(1),
+        QTypeRevision::fromMinorVersion(20),
+        QTypeRevision::fromVersion(1, 0),
+        QTypeRevision::fromMajorVersion(1),
+        QTypeRevision::fromVersion(1, 1),
+        QTypeRevision::fromVersion(1, 20),
+        QTypeRevision::fromVersion(20, 0),
+        QTypeRevision::fromMajorVersion(20),
+        QTypeRevision::fromVersion(20, 1),
+        QTypeRevision::fromVersion(20, 20),
+    };
+
+    const int length = sizeof(revisions) / sizeof(QTypeRevision);
+
+    for (int i = 0; i < length; ++i) {
+        for (int j = 0; j < length; ++j) {
+            QCOMPARE(revisions[i] == revisions[j], i == j);
+            QCOMPARE(revisions[i] != revisions[j], i != j);
+            QCOMPARE(revisions[i] < revisions[j], i < j);
+            QCOMPARE(revisions[i] > revisions[j], i > j);
+            QCOMPARE(revisions[i] <= revisions[j], i <= j);
+            QCOMPARE(revisions[i] >= revisions[j], i >= j);
+        }
+    }
 }
 
 QTEST_APPLESS_MAIN(tst_QVersionNumber)

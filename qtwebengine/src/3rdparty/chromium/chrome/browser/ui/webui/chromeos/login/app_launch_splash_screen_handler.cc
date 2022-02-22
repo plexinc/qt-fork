@@ -7,11 +7,11 @@
 #include <memory>
 #include <utility>
 
+#include "ash/public/cpp/login_screen.h"
 #include "base/values.h"
-#include "chrome/browser/chromeos/app_mode/kiosk_app_manager.h"
-#include "chrome/browser/chromeos/login/app_launch_controller.h"
+#include "chrome/browser/ash/app_mode/kiosk_app_manager.h"
+#include "chrome/browser/ash/login/screens/network_error.h"
 #include "chrome/browser/chromeos/login/oobe_screen.h"
-#include "chrome/browser/chromeos/login/screens/network_error.h"
 #include "chrome/browser/ui/webui/chromeos/login/error_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
 #include "chrome/grit/chrome_unscaled_resources.h"
@@ -68,9 +68,6 @@ void AppLaunchSplashScreenHandler::DeclareLocalizedValues(
   builder->Add("shortcutInfo",
                l10n_util::GetStringFUTF16(IDS_APP_START_BAILOUT_SHORTCUT_FORMAT,
                                           product_os_name));
-
-  builder->Add("productName",
-               l10n_util::GetStringUTF16(IDS_SHORT_PRODUCT_OS_NAME));
 }
 
 void AppLaunchSplashScreenHandler::Initialize() {
@@ -125,12 +122,6 @@ void AppLaunchSplashScreenHandler::UpdateAppLaunchState(AppLaunchState state) {
         l10n_util::GetStringUTF8(GetProgressMessageFromState(state_)));
   }
 
-  // When we are asked to initialize network, we should remember that this app
-  // requires network.
-  if (state_ == AppLaunchState::APP_LAUNCH_STATE_PREPARING_NETWORK) {
-    network_required_ = true;
-  }
-
   UpdateState(NetworkError::ERROR_REASON_UPDATE);
 }
 
@@ -145,7 +136,7 @@ void AppLaunchSplashScreenHandler::ShowNetworkConfigureUI() {
 
   // We should not block users when the network was not required by the
   // controller.
-  if (!network_required_) {
+  if (!delegate_->IsNetworkRequired()) {
     state = NetworkStateInformer::ONLINE;
   }
 
@@ -188,7 +179,13 @@ void AppLaunchSplashScreenHandler::ShowNetworkConfigureUI() {
 
   if (GetCurrentScreen() != ErrorScreenView::kScreenId)
     error_screen_->SetParentScreen(kScreenId);
-  error_screen_->Show();
+  error_screen_->Show(nullptr);
+}
+
+void AppLaunchSplashScreenHandler::ShowErrorMessage(
+    KioskAppLaunchError::Error error) {
+  ash::LoginScreen::Get()->ShowKioskAppError(
+      KioskAppLaunchError::GetErrorMessage(error));
 }
 
 bool AppLaunchSplashScreenHandler::IsNetworkReady() {
@@ -250,6 +247,8 @@ int AppLaunchSplashScreenHandler::GetProgressMessageFromState(
       return IDS_APP_START_NETWORK_WAIT_MESSAGE;
     case APP_LAUNCH_STATE_INSTALLING_APPLICATION:
       return IDS_APP_START_APP_WAIT_MESSAGE;
+    case APP_LAUNCH_STATE_INSTALLING_EXTENSION:
+      return IDS_APP_START_EXTENSION_WAIT_MESSAGE;
     case APP_LAUNCH_STATE_WAITING_APP_WINDOW:
       return IDS_APP_START_WAIT_FOR_APP_WINDOW_MESSAGE;
     case APP_LAUNCH_STATE_WAITING_APP_WINDOW_INSTALL_FAILED:

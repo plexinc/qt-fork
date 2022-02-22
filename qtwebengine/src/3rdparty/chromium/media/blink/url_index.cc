@@ -217,8 +217,9 @@ UrlIndex::UrlIndex(ResourceFetchContext* fetch_context, int block_shift)
     : fetch_context_(fetch_context),
       lru_(new MultiBuffer::GlobalLRU(base::ThreadTaskRunnerHandle::Get())),
       block_shift_(block_shift),
-      memory_pressure_listener_(
-          base::Bind(&UrlIndex::OnMemoryPressure, base::Unretained(this))) {}
+      memory_pressure_listener_(FROM_HERE,
+                                base::BindRepeating(&UrlIndex::OnMemoryPressure,
+                                                    base::Unretained(this))) {}
 
 UrlIndex::~UrlIndex() {
 #if DCHECK_IS_ON()
@@ -239,10 +240,13 @@ void UrlIndex::RemoveUrlData(const scoped_refptr<UrlData>& url_data) {
 }
 
 scoped_refptr<UrlData> UrlIndex::GetByUrl(const GURL& gurl,
-                                          UrlData::CorsMode cors_mode) {
-  auto i = indexed_data_.find(std::make_pair(gurl, cors_mode));
-  if (i != indexed_data_.end() && i->second->Valid()) {
-    return i->second;
+                                          UrlData::CorsMode cors_mode,
+                                          CacheMode cache_mode) {
+  if (cache_mode == kNormal) {
+    auto i = indexed_data_.find(std::make_pair(gurl, cors_mode));
+    if (i != indexed_data_.end() && i->second->Valid()) {
+      return i->second;
+    }
   }
 
   return NewUrlData(gurl, cors_mode);

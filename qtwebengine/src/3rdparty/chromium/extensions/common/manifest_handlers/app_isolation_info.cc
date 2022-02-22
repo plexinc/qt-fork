@@ -8,6 +8,7 @@
 
 #include <memory>
 
+#include "base/logging.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
@@ -98,11 +99,7 @@ bool AppIsolationHandler::AlwaysParseForType(Manifest::Type type) const {
 
 base::span<const char* const> AppIsolationHandler::Keys() const {
   static constexpr const char* kKeys[] = {keys::kIsolation};
-#if !defined(__GNUC__) || __GNUC__ > 5
   return kKeys;
-#else
-  return base::make_span(kKeys, 1);
-#endif
 }
 
 }  // namespace extensions

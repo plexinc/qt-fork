@@ -14,13 +14,13 @@
 
 #include "base/bind.h"
 #include "base/cancelable_callback.h"
+#include "base/containers/contains.h"
 #include "base/files/file_descriptor_watcher_posix.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/numerics/checked_math.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/sequence_checker.h"
-#include "base/stl_util.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/device_event_log/device_event_log.h"
@@ -141,6 +141,7 @@ class UsbDeviceHandleUsbfs::BlockingTaskRunnerHelper {
  public:
   BlockingTaskRunnerHelper(
       base::ScopedFD fd,
+      base::ScopedFD lifeline_fd,
       scoped_refptr<UsbDeviceHandleUsbfs> device_handle,
       scoped_refptr<base::SequencedTaskRunner> task_runner);
   ~BlockingTaskRunnerHelper();
@@ -162,6 +163,7 @@ class UsbDeviceHandleUsbfs::BlockingTaskRunnerHelper {
   void OnFileCanWriteWithoutBlocking();
 
   base::ScopedFD fd_;
+  base::ScopedFD lifeline_fd_;
   scoped_refptr<UsbDeviceHandleUsbfs> device_handle_;
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
   std::unique_ptr<base::FileDescriptorWatcher::Controller> watch_controller_;
@@ -208,9 +210,11 @@ struct UsbDeviceHandleUsbfs::Transfer final {
 
 UsbDeviceHandleUsbfs::BlockingTaskRunnerHelper::BlockingTaskRunnerHelper(
     base::ScopedFD fd,
+    base::ScopedFD lifeline_fd,
     scoped_refptr<UsbDeviceHandleUsbfs> device_handle,
     scoped_refptr<base::SequencedTaskRunner> task_runner)
     : fd_(std::move(fd)),
+      lifeline_fd_(std::move(lifeline_fd)),
       device_handle_(std::move(device_handle)),
       task_runner_(std::move(task_runner)) {}
 
@@ -292,8 +296,12 @@ void UsbDeviceHandleUsbfs::BlockingTaskRunnerHelper::SetInterface(
     USB_PLOG(DEBUG) << "Failed to set interface " << interface_number
                     << " to alternate setting " << alternate_setting;
   }
-  task_runner_->PostTask(FROM_HERE,
-                         base::BindOnce(std::move(callback), rc == 0));
+  task_runner_->PostTask(
+      FROM_HERE,
+      base::BindOnce(
+          &UsbDeviceHandleUsbfs::SetAlternateInterfaceSettingComplete,
+          device_handle_, interface_number, alternate_setting, rc == 0,
+          std::move(callback)));
 }
 
 void UsbDeviceHandleUsbfs::BlockingTaskRunnerHelper::ResetDevice(
@@ -352,9 +360,9 @@ void UsbDeviceHandleUsbfs::BlockingTaskRunnerHelper::
   for (size_t i = 0; i < MAX_URBS_PER_EVENT; ++i) {
     base::ScopedBlockingCall scoped_blocking_call(
         FROM_HERE, base::BlockingType::MAY_BLOCK);
-    usbdevfs_urb* urb;
+    usbdevfs_urb* urb = nullptr;
     int rc = HANDLE_EINTR(ioctl(fd_.get(), USBDEVFS_REAPURBNDELAY, &urb));
-    if (rc) {
+    if (rc || !urb) {
       if (errno == EAGAIN)
         break;
       USB_PLOG(DEBUG) << "Failed to reap urbs";
@@ -428,6 +436,7 @@ void UsbDeviceHandleUsbfs::Transfer::RunIsochronousCallback(
 UsbDeviceHandleUsbfs::UsbDeviceHandleUsbfs(
     scoped_refptr<UsbDevice> device,
     base::ScopedFD fd,
+    base::ScopedFD lifeline_fd,
     scoped_refptr<base::SequencedTaskRunner> blocking_task_runner)
     : device_(device),
       fd_(fd.get()),
@@ -437,8 +446,8 @@ UsbDeviceHandleUsbfs::UsbDeviceHandleUsbfs(
   DCHECK(fd.is_valid());
   DCHECK(blocking_task_runner_);
 
-  helper_.reset(
-      new BlockingTaskRunnerHelper(std::move(fd), this, task_runner_));
+  helper_ = std::make_unique<BlockingTaskRunnerHelper>(
+      std::move(fd), std::move(lifeline_fd), this, task_runner_);
   blocking_task_runner_->PostTask(
       FROM_HERE, base::BindOnce(&BlockingTaskRunnerHelper::Start,
                                 base::Unretained(helper_.get())));
@@ -467,6 +476,9 @@ void UsbDeviceHandleUsbfs::Close() {
   device_ = nullptr;
   // The device is no longer attached so we don't have any endpoints either.
   endpoints_.clear();
+
+  // The destruction of the |helper_| below will close the lifeline pipe if it
+  // exists and re-attach kernel driver.
 
   // Releases |helper_|.
   blocking_task_runner_->PostTask(
@@ -581,10 +593,22 @@ void UsbDeviceHandleUsbfs::ResetDevice(ResultCallback callback) {
           base::Unretained(helper_.get()), std::move(callback)));
 }
 
-void UsbDeviceHandleUsbfs::ClearHalt(uint8_t endpoint_address,
+void UsbDeviceHandleUsbfs::ClearHalt(mojom::UsbTransferDirection direction,
+                                     uint8_t endpoint_number,
                                      ResultCallback callback) {
   DCHECK(sequence_checker_.CalledOnValidSequence());
   if (!device_) {
+    task_runner_->PostTask(FROM_HERE,
+                           base::BindOnce(std::move(callback), false));
+    return;
+  }
+
+  uint8_t endpoint_address =
+      ConvertEndpointDirection(direction) | endpoint_number;
+  auto it = endpoints_.find(endpoint_address);
+  if (it == endpoints_.end()) {
+    USB_LOG(USER) << "Endpoint address " << static_cast<int>(endpoint_address)
+                  << " is not part of a claimed interface.";
     task_runner_->PostTask(FROM_HERE,
                            base::BindOnce(std::move(callback), false));
     return;
@@ -752,6 +776,19 @@ void UsbDeviceHandleUsbfs::SetConfigurationComplete(int configuration_value,
     device_->ActiveConfigurationChanged(configuration_value);
     // TODO(reillyg): If all interfaces are unclaimed before a new configuration
     // is set then this will do nothing. Investigate.
+    RefreshEndpointInfo();
+  }
+  std::move(callback).Run(success);
+}
+
+void UsbDeviceHandleUsbfs::SetAlternateInterfaceSettingComplete(
+    int interface_number,
+    int alternate_setting,
+    bool success,
+    ResultCallback callback) {
+  DCHECK(sequence_checker_.CalledOnValidSequence());
+  if (success && device_) {
+    interfaces_[interface_number].alternate_setting = alternate_setting;
     RefreshEndpointInfo();
   }
   std::move(callback).Run(success);

@@ -55,7 +55,7 @@ void AsyncInvoker::Flush(Thread* thread, uint32_t id /*= MQID_ANY*/) {
   // Run this on |thread| to reduce the number of context switches.
   if (Thread::Current() != thread) {
     thread->Invoke<void>(RTC_FROM_HERE,
-                         Bind(&AsyncInvoker::Flush, this, thread, id));
+                         [this, thread, id] { Flush(thread, id); });
     return;
   }
 
@@ -99,28 +99,6 @@ void AsyncInvoker::DoInvokeDelayed(const Location& posted_from,
   }
   thread->PostDelayed(posted_from, delay_ms, this, id,
                       new ScopedMessageData<AsyncClosure>(std::move(closure)));
-}
-
-GuardedAsyncInvoker::GuardedAsyncInvoker() : thread_(Thread::Current()) {
-  thread_->SignalQueueDestroyed.connect(this,
-                                        &GuardedAsyncInvoker::ThreadDestroyed);
-}
-
-GuardedAsyncInvoker::~GuardedAsyncInvoker() {}
-
-bool GuardedAsyncInvoker::Flush(uint32_t id) {
-  CritScope cs(&crit_);
-  if (thread_ == nullptr)
-    return false;
-  invoker_.Flush(thread_, id);
-  return true;
-}
-
-void GuardedAsyncInvoker::ThreadDestroyed() {
-  CritScope cs(&crit_);
-  // We should never get more than one notification about the thread dying.
-  RTC_DCHECK(thread_ != nullptr);
-  thread_ = nullptr;
 }
 
 AsyncClosure::AsyncClosure(AsyncInvoker* invoker)

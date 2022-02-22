@@ -63,14 +63,14 @@ public:
     ~QQmlListAccessor();
 
     QVariant list() const;
-    void setList(const QVariant &, QQmlEngine * = nullptr);
+    void setList(const QVariant &);
 
     bool isValid() const;
 
-    int count() const;
-    QVariant at(int) const;
+    qsizetype count() const;
+    QVariant at(qsizetype) const;
 
-    enum Type { Invalid, StringList, VariantList, ObjectList, ListProperty, Instance, Integer };
+    enum Type { Invalid, StringList, UrlList, VariantList, ObjectList, ListProperty, Instance, Integer };
     Type type() const { return m_type; }
 
 private:

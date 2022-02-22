@@ -69,11 +69,12 @@ private slots:
     void toInt();
     void toUInt();
     void toVariant();
+    void toPrimitive_data();
+    void toPrimitive();
     void toQObject_nonQObject_data();
     void toQObject_nonQObject();
     void toQObject();
     void toDateTime();
-    void toRegExp();
     void toRegularExpression();
     void isArray_data();
     void isArray();
@@ -145,6 +146,9 @@ private slots:
     void jsvalueArrayToSequenceType();
 
     void deleteFromDifferentThread();
+    void stringAndUrl();
+    void jsFunctionInVariant();
+    void integerToEnum();
 
 private:
     void newEngine()

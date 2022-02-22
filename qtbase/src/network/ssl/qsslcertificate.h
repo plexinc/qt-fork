@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtNetwork module of the Qt Toolkit.
@@ -50,7 +50,6 @@
 #include <QtCore/qbytearray.h>
 #include <QtCore/qcryptographichash.h>
 #include <QtCore/qdatetime.h>
-#include <QtCore/qregexp.h>
 #include <QtCore/qsharedpointer.h>
 #include <QtCore/qmap.h>
 #include <QtNetwork/qssl.h>
@@ -62,11 +61,10 @@ class QIODevice;
 class QSslError;
 class QSslKey;
 class QSslCertificateExtension;
-class QStringList;
 
 class QSslCertificate;
 // qHash is a friend, but we can't use default arguments for friends (§8.3.6.4)
-Q_NETWORK_EXPORT uint qHash(const QSslCertificate &key, uint seed = 0) noexcept;
+Q_NETWORK_EXPORT size_t qHash(const QSslCertificate &key, size_t seed = 0) noexcept;
 
 class QSslCertificatePrivate;
 class Q_NETWORK_EXPORT QSslCertificate
@@ -105,14 +103,6 @@ public:
     inline bool operator!=(const QSslCertificate &other) const { return !operator==(other); }
 
     bool isNull() const;
-#if QT_DEPRECATED_SINCE(5,0)
-    QT_DEPRECATED inline bool isValid() const {
-        const QDateTime currentTime = QDateTime::currentDateTimeUtc();
-        return currentTime >= effectiveDate() &&
-               currentTime <= expiryDate() &&
-               !isBlacklisted();
-    }
-#endif
     bool isBlacklisted() const;
     bool isSelfSigned() const;
     void clear();
@@ -130,10 +120,6 @@ public:
 
     QList<QByteArray> subjectInfoAttributes() const;
     QList<QByteArray> issuerInfoAttributes() const;
-#if QT_DEPRECATED_SINCE(5,0)
-    QT_DEPRECATED inline QMultiMap<QSsl::AlternateNameEntryType, QString>
-                  alternateSubjectNames() const { return subjectAlternativeNames(); }
-#endif
     QMultiMap<QSsl::AlternativeNameEntryType, QString> subjectAlternativeNames() const;
     QDateTime effectiveDate() const;
     QDateTime expiryDate() const;
@@ -146,11 +132,6 @@ public:
     QByteArray toDer() const;
     QString toText() const;
 
-#if QT_DEPRECATED_SINCE(5,15)
-    QT_DEPRECATED_X("Use the overload not using QRegExp")
-    static QList<QSslCertificate> fromPath(const QString &path, QSsl::EncodingFormat format,
-                                           QRegExp::PatternSyntax syntax);
-#endif
     static QList<QSslCertificate> fromPath(const QString &path,
                                            QSsl::EncodingFormat format = QSsl::Pem,
                                            PatternSyntax syntax = PatternSyntax::FixedString);
@@ -161,12 +142,7 @@ public:
         const QByteArray &data, QSsl::EncodingFormat format = QSsl::Pem);
 
 #ifndef QT_NO_SSL
-#if QT_VERSION >= QT_VERSION_CHECK(6,0,0)
     static QList<QSslError> verify(const QList<QSslCertificate> &certificateChain, const QString &hostName = QString());
-#else
-    static QList<QSslError> verify(QList<QSslCertificate> certificateChain, const QString &hostName = QString());
-#endif
-
     static bool importPkcs12(QIODevice *device,
                              QSslKey *key, QSslCertificate *cert,
                              QList<QSslCertificate> *caCertificates = nullptr,
@@ -177,10 +153,9 @@ public:
 
 private:
     QExplicitlySharedDataPointer<QSslCertificatePrivate> d;
-    friend class QSslCertificatePrivate;
-    friend class QSslSocketBackendPrivate;
+    friend class QTlsBackend;
 
-    friend Q_NETWORK_EXPORT uint qHash(const QSslCertificate &key, uint seed) noexcept;
+    friend Q_NETWORK_EXPORT size_t qHash(const QSslCertificate &key, size_t seed) noexcept;
 };
 Q_DECLARE_SHARED(QSslCertificate)
 

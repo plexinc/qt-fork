@@ -29,7 +29,9 @@ unsigned GLImage::GetDataFormat() {
   unsigned internalformat = GetInternalFormat();
   switch (internalformat) {
     case GL_R16_EXT:
-      return GL_RED;
+      return GL_RED_EXT;
+    case GL_RG16_EXT:
+      return GL_RG_EXT;
     case GL_RGB10_A2_EXT:
       return GL_RGBA;
     case GL_RGB_YCRCB_420_CHROMIUM:
@@ -114,6 +116,14 @@ bool GLImage::EmulatingRGB() const {
   return false;
 }
 
+bool GLImage::IsInUseByWindowServer() const {
+  return false;
+}
+
+void GLImage::DisableInUseByWindowServer() {
+  NOTIMPLEMENTED();
+}
+
 GLImage::Type GLImage::GetType() const {
   return Type::NONE;
 }
@@ -122,10 +132,6 @@ GLImage::Type GLImage::GetType() const {
 std::unique_ptr<base::android::ScopedHardwareBufferFenceSync>
 GLImage::GetAHardwareBuffer() {
   return nullptr;
-}
-
-gfx::Rect GLImage::GetCropRect() {
-  return gfx::Rect();
 }
 #endif
 

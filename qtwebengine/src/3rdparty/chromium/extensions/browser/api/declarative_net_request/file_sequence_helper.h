@@ -13,8 +13,9 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
+#include "extensions/browser/api/declarative_net_request/constants.h"
+#include "extensions/browser/api/declarative_net_request/file_backed_ruleset_source.h"
 #include "extensions/browser/api/declarative_net_request/ruleset_matcher.h"
-#include "extensions/browser/api/declarative_net_request/ruleset_source.h"
 #include "extensions/common/extension_id.h"
 
 namespace extensions {
@@ -27,16 +28,17 @@ struct Rule;
 
 namespace declarative_net_request {
 enum class DynamicRuleUpdateAction;
+struct RulesCountPair;
 
 // Holds the data relating to the loading of a single ruleset.
 class RulesetInfo {
  public:
-  explicit RulesetInfo(RulesetSource source);
+  explicit RulesetInfo(FileBackedRulesetSource source);
   ~RulesetInfo();
   RulesetInfo(RulesetInfo&&);
   RulesetInfo& operator=(RulesetInfo&&);
 
-  const RulesetSource& source() const { return source_; }
+  const FileBackedRulesetSource& source() const { return source_; }
 
   // Returns the ownership of the ruleset matcher to the caller. Must only be
   // called for a successful load.
@@ -57,13 +59,13 @@ class RulesetInfo {
     return reindexing_successful_;
   }
 
-  // Must be called after CreateVerifiedMatcher.
-  RulesetMatcher::LoadRulesetResult load_ruleset_result() const;
+  // Returns the result of loading the ruleset. The return value is valid (not
+  // equal to base::nullopt) iff CreateVerifiedMatcher() has been called.
+  const base::Optional<LoadRulesetResult>& load_ruleset_result() const;
 
   // Whether the ruleset loaded successfully.
   bool did_load_successfully() const {
-    return load_ruleset_result_ &&
-           *load_ruleset_result_ == RulesetMatcher::kLoadSuccess;
+    return load_ruleset_result() == LoadRulesetResult::kSuccess;
   }
 
   // Must be invoked on the extension file task runner. Must only be called
@@ -71,14 +73,14 @@ class RulesetInfo {
   void CreateVerifiedMatcher();
 
  private:
-  RulesetSource source_;
+  FileBackedRulesetSource source_;
 
   // The expected checksum of the indexed ruleset.
   base::Optional<int> expected_checksum_;
 
   // Stores the result of creating a verified matcher from the |source_|.
   std::unique_ptr<RulesetMatcher> matcher_;
-  base::Optional<RulesetMatcher::LoadRulesetResult> load_ruleset_result_;
+  base::Optional<LoadRulesetResult> load_ruleset_result_;
 
   // The new checksum to be persisted to prefs. A new checksum should only be
   // set in case of flatbuffer version mismatch.
@@ -114,6 +116,7 @@ class FileSequenceHelper {
 
   // Loads rulesets for |load_data|. Invokes |ui_callback| on the UI thread once
   // loading is done. Also tries to reindex the rulesets on failure.
+  // This is a no-op if |load_data.rulesets| is empty.
   using LoadRulesetsUICallback = base::OnceCallback<void(LoadRequestData)>;
   void LoadRulesets(LoadRequestData load_data,
                     LoadRulesetsUICallback ui_callback) const;
@@ -127,6 +130,7 @@ class FileSequenceHelper {
       LoadRequestData load_data,
       std::vector<int> rule_ids_to_remove,
       std::vector<api::declarative_net_request::Rule> rules_to_add,
+      const RulesCountPair& rule_limit,
       UpdateDynamicRulesUICallback ui_callback) const;
 
  private:

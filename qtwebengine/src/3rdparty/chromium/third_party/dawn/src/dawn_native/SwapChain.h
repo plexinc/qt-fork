@@ -33,7 +33,6 @@ namespace dawn_native {
     class SwapChainBase : public ObjectBase {
       public:
         SwapChainBase(DeviceBase* device);
-        virtual ~SwapChainBase();
 
         static SwapChainBase* MakeError(DeviceBase* device);
 
@@ -47,13 +46,13 @@ namespace dawn_native {
 
       protected:
         SwapChainBase(DeviceBase* device, ObjectBase::ErrorTag tag);
+        ~SwapChainBase() override;
     };
 
     // The base class for implementation-based SwapChains that are deprecated.
     class OldSwapChainBase : public SwapChainBase {
       public:
         OldSwapChainBase(DeviceBase* device, const SwapChainDescriptor* descriptor);
-        ~OldSwapChainBase();
 
         static SwapChainBase* MakeError(DeviceBase* device);
 
@@ -66,9 +65,10 @@ namespace dawn_native {
         void Present() override;
 
       protected:
+        ~OldSwapChainBase() override;
         const DawnSwapChainImplementation& GetImplementation();
         virtual TextureBase* GetNextTextureImpl(const TextureDescriptor*) = 0;
-        virtual MaybeError OnBeforePresent(TextureBase* texture) = 0;
+        virtual MaybeError OnBeforePresent(TextureViewBase* view) = 0;
 
       private:
         MaybeError ValidateConfigure(wgpu::TextureFormat format,
@@ -93,15 +93,16 @@ namespace dawn_native {
         NewSwapChainBase(DeviceBase* device,
                          Surface* surface,
                          const SwapChainDescriptor* descriptor);
-        ~NewSwapChainBase() override;
 
-        // This is called when the swapchain is detached for any reason:
+        // This is called when the swapchain is detached when one of the following happens:
         //
-        //  - The swapchain is being destroyed.
         //  - The surface it is attached to is being destroyed.
         //  - The swapchain is being replaced by another one on the surface.
         //
-        // The call for the old swapchain being replaced should be called inside the backend
+        // Note that the surface has a Ref on the last swapchain that was used on it so the
+        // SwapChain destructor will only be called after one of the things above happens.
+        //
+        // The call for the detaching previous swapchain should be called inside the backend
         // implementation of SwapChains. This is to allow them to acquire any resources before
         // calling detach to make a seamless transition from the previous swapchain.
         //
@@ -109,6 +110,8 @@ namespace dawn_native {
         // swapchain's destructor since C++ says it is UB to call virtual methods in the base class
         // destructor.
         void DetachFromSurface();
+
+        void SetIsAttached();
 
         // Dawn API
         void Configure(wgpu::TextureFormat format,
@@ -126,6 +129,9 @@ namespace dawn_native {
         Surface* GetSurface() const;
         bool IsAttached() const;
         wgpu::BackendType GetBackendType() const;
+
+      protected:
+        ~NewSwapChainBase() override;
 
       private:
         bool mAttached;

@@ -39,9 +39,6 @@
 
 #include "qqmltypemoduleversion_p.h"
 
-#include <private/qqmltype_p.h>
-#include <private/qqmltypemodule_p.h>
-
 QT_BEGIN_NAMESPACE
 
 QQmlTypeModuleVersion::QQmlTypeModuleVersion()
@@ -49,11 +46,10 @@ QQmlTypeModuleVersion::QQmlTypeModuleVersion()
 {
 }
 
-QQmlTypeModuleVersion::QQmlTypeModuleVersion(QQmlTypeModule *module, int minor)
-    : m_module(module), m_minor(minor)
+QQmlTypeModuleVersion::QQmlTypeModuleVersion(QQmlTypeModule *module, QTypeRevision version)
+    : m_module(module), m_minor(version.minorVersion())
 {
     Q_ASSERT(m_module);
-    Q_ASSERT(m_minor >= 0);
 }
 
 QQmlTypeModuleVersion::QQmlTypeModuleVersion(const QQmlTypeModuleVersion &o)
@@ -66,30 +62,6 @@ QQmlTypeModuleVersion &QQmlTypeModuleVersion::operator=(const QQmlTypeModuleVers
     m_module = o.m_module;
     m_minor = o.m_minor;
     return *this;
-}
-
-QQmlTypeModule *QQmlTypeModuleVersion::module() const
-{
-    return m_module;
-}
-
-int QQmlTypeModuleVersion::minorVersion() const
-{
-    return m_minor;
-}
-
-QQmlType QQmlTypeModuleVersion::type(const QHashedStringRef &name) const
-{
-    if (!m_module)
-        return QQmlType();
-    return m_module->type(name, m_minor);
-}
-
-QQmlType QQmlTypeModuleVersion::type(const QV4::String *name) const
-{
-    if (!m_module)
-        return QQmlType();
-    return m_module->type(name, m_minor);
 }
 
 QT_END_NAMESPACE

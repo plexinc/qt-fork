@@ -7,17 +7,16 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/check_op.h"
 #include "base/clang_profiling_buildflags.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/i18n/icu_util.h"
-#include "base/logging.h"
 #include "base/process/launch.h"
 #include "build/build_config.h"
 #include "content/public/browser/child_process_launcher_utils.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/sandboxed_process_launcher_delegate.h"
-#include "services/service_manager/embedder/result_codes.h"
 
 namespace content {
 
@@ -40,7 +39,6 @@ ChildProcessLauncher::ChildProcessLauncher(
     bool terminate_on_shutdown)
     : client_(client),
       starting_(true),
-      start_time_(base::TimeTicks::Now()),
 #if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) ||  \
     defined(MEMORY_SANITIZER) || defined(THREAD_SANITIZER) || \
     defined(UNDEFINED_SANITIZER) || BUILDFLAG(CLANG_PROFILING)
@@ -118,19 +116,14 @@ ChildProcessTerminationInfo ChildProcessLauncher::GetChildTerminationInfo(
   if (!process_.process.IsValid()) {
     // Make sure to avoid using the default termination status if the process
     // hasn't even started yet.
-    if (IsStarting()) {
+    if (IsStarting())
       termination_info_.status = base::TERMINATION_STATUS_STILL_RUNNING;
-      termination_info_.uptime = base::TimeTicks::Now() - start_time_;
-      DCHECK_LE(base::TimeDelta::FromSeconds(0), termination_info_.uptime);
-    }
 
     // Process doesn't exist, so return the cached termination info.
     return termination_info_;
   }
 
   termination_info_ = helper_->GetTerminationInfo(process_, known_dead);
-  termination_info_.uptime = base::TimeTicks::Now() - start_time_;
-  DCHECK_LE(base::TimeDelta::FromSeconds(0), termination_info_.uptime);
 
   // POSIX: If the process crashed, then the kernel closed the socket for it and
   // so the child has already died by the time we get here. Since
@@ -175,11 +168,8 @@ ChildProcessLauncher::Client* ChildProcessLauncher::ReplaceClientForTest(
 }
 
 bool ChildProcessLauncherPriority::is_background() const {
-  if (boost_for_pending_views || has_foreground_service_worker ||
-      has_media_stream) {
-    return false;
-  }
-  return has_only_low_priority_frames || !visible;
+  return !visible && !has_media_stream && !boost_for_pending_views &&
+         !has_foreground_service_worker;
 }
 
 bool ChildProcessLauncherPriority::operator==(
@@ -187,7 +177,6 @@ bool ChildProcessLauncherPriority::operator==(
   return visible == other.visible &&
          has_media_stream == other.has_media_stream &&
          has_foreground_service_worker == other.has_foreground_service_worker &&
-         has_only_low_priority_frames == other.has_only_low_priority_frames &&
          frame_depth == other.frame_depth &&
          intersects_viewport == other.intersects_viewport &&
          boost_for_pending_views == other.boost_for_pending_views

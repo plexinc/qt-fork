@@ -35,11 +35,11 @@
 #include <QtWaylandCompositor/private/qwayland-server-wayland.h>
 #include <QtWaylandCompositor/private/qwlclientbufferintegration_p.h>
 
+#include <QtOpenGL/QOpenGLTexture>
 #include <QtCore/QObject>
 #include <QtCore/QHash>
 #include <QtCore/QSize>
 #include <QtCore/QTextStream>
-#include <QtGui/QOpenGLTexture>
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -83,14 +83,14 @@ class LinuxDmabuf : public QtWaylandServer::zwp_linux_dmabuf_v1
 public:
     explicit LinuxDmabuf(wl_display *display, LinuxDmabufClientBufferIntegration *clientBufferIntegration);
 
-    void setSupportedModifiers(const QHash<uint32_t, QVector<uint64_t>> &modifiers);
+    void setSupportedModifiers(const QHash<uint32_t, QList<uint64_t>> &modifiers);
 
 protected:
     void zwp_linux_dmabuf_v1_bind_resource(Resource *resource) override;
     void zwp_linux_dmabuf_v1_create_params(Resource *resource, uint32_t params_id) override;
 
 private:
-    QHash<uint32_t, QVector<uint64_t>> m_modifiers; // key=DRM format, value=supported DRM modifiers for format
+    QHash<uint32_t, QList<uint64_t>> m_modifiers; // key=DRM format, value=supported DRM modifiers for format
     LinuxDmabufClientBufferIntegration *m_clientBufferIntegration;
 };
 

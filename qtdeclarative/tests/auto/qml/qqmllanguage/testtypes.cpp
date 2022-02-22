@@ -31,15 +31,15 @@
 
 static QObject *myTypeObjectSingleton(QQmlEngine *engine, QJSEngine *scriptEngine)
 {
-    Q_UNUSED(engine)
-    Q_UNUSED(scriptEngine)
+    Q_UNUSED(engine);
+    Q_UNUSED(scriptEngine);
 
     return new MyTypeObject();
 }
 
 static QJSValue myQJSValueQObjectSingleton(QQmlEngine *engine, QJSEngine *scriptEngine)
 {
-    Q_UNUSED(engine)
+    Q_UNUSED(engine);
 
     QJSValue value = scriptEngine->newQObject(new MyTypeObject());
     return value;
@@ -47,7 +47,7 @@ static QJSValue myQJSValueQObjectSingleton(QQmlEngine *engine, QJSEngine *script
 
 void registerTypes()
 {
-    qmlRegisterInterface<MyInterface>("MyInterface");
+    qmlRegisterInterface<MyInterface>("MyInterface", 1);
     qmlRegisterType<MyQmlObject>("Test",1,0,"MyQmlObject");
     qmlRegisterType<MyTypeObject>("Test",1,0,"MyTypeObject");
     qmlRegisterType<MyContainer>("Test",1,0,"MyContainer");
@@ -122,6 +122,9 @@ void registerTypes()
     qmlRegisterTypesAndRevisions<Extended, Foreign, ForeignExtended>("Test", 1);
     qmlRegisterTypesAndRevisions<BareSingleton>("Test", 1);
     qmlRegisterTypesAndRevisions<UncreatableSingleton>("Test", 1);
+
+    qmlRegisterTypesAndRevisions<Large>("Test", 1);
+    qmlRegisterTypesAndRevisions<Foo>("Test", 1);
 }
 
 QVariant myCustomVariantTypeConverter(const QString &data)
@@ -149,7 +152,7 @@ void CustomBinding::componentComplete()
 
         int bindingId = binding->value.compiledScriptIndex;
 
-        QQmlContextData *context = QQmlContextData::get(qmlContext(this));
+        QQmlRefPointer<QQmlContextData> context = QQmlContextData::get(qmlContext(this));
 
         QQmlProperty property(m_target, name, qmlContext(this));
         QV4::Scope scope(qmlEngine(this)->handle());

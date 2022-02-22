@@ -2,6 +2,7 @@ TEMPLATE      = subdirs
 
 SUBDIRS = hellowindow \
           paintedwindow \
+          openglwindow \
           qopenglwindow
 
 qtHaveModule(widgets) {
@@ -15,6 +16,3 @@ qtHaveModule(widgets) {
                hellogles3 \
                computegles31
 }
-
-EXAMPLE_FILES += \
-    legacy

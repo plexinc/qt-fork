@@ -36,7 +36,7 @@
 #include <QtCore/QElapsedTimer>
 #include <QtCore/QTimer>
 
-QT_CHARTS_USE_NAMESPACE
+QT_USE_NAMESPACE
 
 class DataSource : public QObject
 {
@@ -53,7 +53,7 @@ public slots:
     void updateAllSeries();
 
 private:
-    QVector<QVector<QVector<QPointF> > > m_data;
+    QList<QList<QList<QPointF>>> m_data;
     int m_index;
     QList<QXYSeries *> m_seriesList;
     QLabel *m_fpsLabel;

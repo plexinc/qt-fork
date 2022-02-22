@@ -57,7 +57,7 @@
 QT_BEGIN_NAMESPACE
 
 class QQuickAnimationControllerPrivate;
-class Q_AUTOTEST_EXPORT QQuickAnimationController : public QObject, public QQmlParserStatus
+class Q_QUICK_PRIVATE_EXPORT QQuickAnimationController : public QObject, public QQmlParserStatus
 {
     Q_OBJECT
     Q_INTERFACES(QQmlParserStatus)
@@ -65,6 +65,7 @@ class Q_AUTOTEST_EXPORT QQuickAnimationController : public QObject, public QQmlP
     Q_DECLARE_PRIVATE(QQuickAnimationController)
     Q_CLASSINFO("DefaultProperty", "animation")
     QML_NAMED_ELEMENT(AnimationController)
+    QML_ADDED_IN_VERSION(2, 0)
 
     Q_PROPERTY(qreal progress READ progress WRITE setProgress NOTIFY progressChanged)
     Q_PROPERTY(QQuickAbstractAnimation *animation READ animation WRITE setAnimation NOTIFY animationChanged)

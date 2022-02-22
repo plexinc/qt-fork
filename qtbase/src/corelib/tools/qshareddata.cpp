@@ -65,6 +65,20 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
+    \class QAdoptSharedDataTag
+    \inmodule QtCore
+    \threadsafe
+    \brief The QAdoptSharedDataTag is a helper tag class.
+    \since 6.0
+
+    QAdoptSharedDataTag objects are used in QSharedDataPointer
+    and QExplicitlySharedDataPointer to adopt a pointer to
+    shared data.
+
+    See QSharedDataPointer and QExplicitlySharedDataPointer for details.
+*/
+
+/*!
     \class QSharedDataPointer
     \inmodule QtCore
     \brief The QSharedDataPointer class represents a pointer to an implicitly shared object.
@@ -285,9 +299,33 @@ QT_BEGIN_NAMESPACE
     \sa constData()
 */
 
+/*! \fn template <class T> T* QSharedDataPointer<T>::get()
+    \since 6.0
+
+    Same as data(). This function is provided for STL compatibility.
+*/
+
 /*! \fn template <class T> const T* QSharedDataPointer<T>::data() const
     Returns a pointer to the shared data object.
     This function does \e not call detach().
+*/
+
+/*! \fn template <class T> const T* QSharedDataPointer<T>::get() const
+    \since 6.0
+
+    Same as data(). This function is provided for STL compatibility.
+*/
+
+/*! \fn template <class T> const T* QSharedDataPointer<T>::take()
+    \since 6.0
+
+    Returns a pointer to the shared object, and resets \e this to be \nullptr.
+    (That is, this function sets the \e{d pointer} of \e this to \nullptr.)
+
+    \note The reference count of the returned object will \b{not} be
+    decremented. This function can be used together with the
+    constructor that takes a QAdoptSharedDataTag tag object to transfer
+    the shared data object without intervening atomic operations.
 */
 
 /*! \fn template <class T> const T* QSharedDataPointer<T>::constData() const
@@ -296,6 +334,15 @@ QT_BEGIN_NAMESPACE
 
     \sa data()
 */
+
+/*! \fn template <class T> void QSharedDataPointer<T>::reset(T *ptr = nullptr)
+    \since 6.0
+
+    Sets the \e{d pointer} of \e this to \a ptr and increments \a{ptr}'s reference
+    count if \a ptr is not \nullptr.
+    The reference count of the old shared data object is decremented,
+    and the object deleted if the reference count reaches 0.
+ */
 
 /*! \fn template <class T> void QSharedDataPointer<T>::swap(QSharedDataPointer &other)
   Swap this instance's shared data pointer with the shared
@@ -310,13 +357,23 @@ QT_BEGIN_NAMESPACE
     \since 5.2
 */
 
-/*! \fn template <class T> bool QSharedDataPointer<T>::operator==(const QSharedDataPointer<T>& other) const
-    Returns \c true if \a other and \e this have the same \e{d pointer}.
+/*! \fn template <class T> bool QSharedDataPointer<T>::operator==(const QSharedDataPointer<T>& lhs, const QSharedDataPointer<T>& rhs)
+    Returns \c true if \a lhs and \a rhs have the same \e{d pointer}.
     This function does \e not call detach().
 */
 
-/*! \fn template <class T> bool QSharedDataPointer<T>::operator!=(const QSharedDataPointer<T>& other) const
-    Returns \c true if \a other and \e this do \e not have the same
+/*! \fn template <class T> bool QSharedDataPointer<T>::operator!=(const QSharedDataPointer<T>& lhs, const QSharedDataPointer<T>& rhs)
+    Returns \c true if \a lhs and \a rhs do \e not have the same
+    \e{d pointer}. This function does \e not call detach().
+*/
+
+/*! \fn template <class T> bool QSharedDataPointer<T>::operator==(const T *ptr, const QSharedDataPointer<T>& rhs)
+    Returns \c true if the \e{d pointer} of \a rhs is \a ptr.
+    This function does \e not call detach().
+*/
+
+/*! \fn template <class T> bool QSharedDataPointer<T>::operator!=(const T *ptr, const QSharedDataPointer<T>& rhs)
+    Returns \c true if the \e{d pointer} of \a rhs is \e not \a ptr.
     \e{d pointer}. This function does \e not call detach().
 */
 
@@ -342,6 +399,15 @@ QT_BEGIN_NAMESPACE
 /*! \fn template <class T> QSharedDataPointer<T>::QSharedDataPointer(T* data)
     Constructs a QSharedDataPointer with \e{d pointer} set to
     \a data and increments \a{data}'s reference count.
+*/
+
+/*! \fn template <class T> QSharedDataPointer<T>::QSharedDataPointer(T* data, QAdoptSharedDataTag)
+    \since 6.0
+    Constructs a QSharedDataPointer with \e{d pointer} set to
+    \a data. \a data's reference counter is \b{not} incremented;
+    this can be used to adopt pointers obtained from take().
+
+    \sa take()
 */
 
 /*! \fn template <class T> QSharedDataPointer<T>::QSharedDataPointer(const QSharedDataPointer<T>& o)
@@ -457,6 +523,12 @@ QT_BEGIN_NAMESPACE
     Returns a pointer to the shared data object.
 */
 
+/*! \fn template <class T> T* QExplicitlySharedDataPointer<T>::get() const
+    \since 6.0
+
+    Same as data(). This function is provided for STL compatibility.
+*/
+
 /*! \fn template <class T> const T* QExplicitlySharedDataPointer<T>::constData() const
     Returns a const pointer to the shared data object.
 
@@ -468,8 +540,8 @@ QT_BEGIN_NAMESPACE
   the explicitly shared data pointer in \a other.
  */
 
-/*! \fn template <class T> bool QExplicitlySharedDataPointer<T>::operator==(const QExplicitlySharedDataPointer<T>& other) const
-    Returns \c true if \a other and \e this have the same \e{d pointer}.
+/*! \fn template <class T> bool QExplicitlySharedDataPointer<T>::operator==(const QExplicitlySharedDataPointer<T>& lhs, const QExplicitlySharedDataPointer<T>& rhs)
+    Returns \c true if \a lhs and \a rhs have the same \e{d pointer}.
 */
 
 /*!
@@ -480,17 +552,17 @@ QT_BEGIN_NAMESPACE
     \since 5.2
 */
 
-/*! \fn template <class T> bool QExplicitlySharedDataPointer<T>::operator==(const T* ptr) const
-    Returns \c true if the \e{d pointer} of \e this is \a ptr.
+/*! \fn template <class T> bool QExplicitlySharedDataPointer<T>::operator==(const T* ptr, const QExplicitlySharedDataPointer<T>& rhs)
+    Returns \c true if the \e{d pointer} of \a rhs is \a ptr.
  */
 
-/*! \fn template <class T> bool QExplicitlySharedDataPointer<T>::operator!=(const QExplicitlySharedDataPointer<T>& other) const
-    Returns \c true if \a other and \e this do \e not have the same
+/*! \fn template <class T> bool QExplicitlySharedDataPointer<T>::operator!=(const QExplicitlySharedDataPointer<T>& lhs, const QExplicitlySharedDataPointer<T>& rhs)
+    Returns \c true if \a lhs and \a rhs do \e not have the same
     \e{d pointer}.
 */
 
-/*! \fn template <class T> bool QExplicitlySharedDataPointer<T>::operator!=(const T* ptr) const
-    Returns \c true if the \e{d pointer} of \e this is \e not \a ptr.
+/*! \fn template <class T> bool QExplicitlySharedDataPointer<T>::operator!=(const T* ptr, const QExplicitlySharedDataPointer<T>& rhs)
+    Returns \c true if the \e{d pointer} of \a rhs is \e not \a ptr.
  */
 
 /*! \fn template <class T> QExplicitlySharedDataPointer<T>::QExplicitlySharedDataPointer()
@@ -572,11 +644,13 @@ QT_BEGIN_NAMESPACE
     0, the old shared data object is deleted.
 */
 
-/*! \fn template <class T> void QExplicitlySharedDataPointer<T>::reset()
-    Resets \e this to be null - i.e., this function sets the
-    \e{d pointer} of \e this to \nullptr, but first it decrements
-    the reference count of the shared data object and deletes
-    the shared data object if the reference count became 0.
+/*! \fn template <class T> void QExplicitlySharedDataPointer<T>::reset(T *ptr = nullptr)
+    \since 6.0
+
+    Sets the \e{d pointer} of \e this to \a ptr and increments \a{ptr}'s reference
+    count if \a ptr is not \nullptr.
+    The reference count of the old shared data object is decremented,
+    and the object deleted if the reference count reaches 0.
  */
 
 /*! \fn template <class T> T *QExplicitlySharedDataPointer<T>::take()
@@ -586,7 +660,9 @@ QT_BEGIN_NAMESPACE
     (That is, this function sets the \e{d pointer} of \e this to \nullptr.)
 
     \note The reference count of the returned object will \b{not} be
-    decremented.
+    decremented. This function can be used together with the
+    constructor that takes a QAdoptSharedDataTag tag object to transfer
+    the shared data object without intervening atomic operations.
  */
 
 /*! \fn template <class T> QExplicitlySharedDataPointer<T>::operator bool () const

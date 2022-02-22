@@ -56,7 +56,7 @@
 
 #include "QtWidgets/qabstractslider.h"
 #include "QtWidgets/qapplication.h"
-#include "QtWidgets/qitemdelegate.h"
+#include "QtWidgets/qstyleditemdelegate.h"
 #include "QtGui/qstandarditemmodel.h"
 #include "QtWidgets/qlineedit.h"
 #include "QtWidgets/qlistview.h"
@@ -94,13 +94,12 @@ protected:
         QListView::resizeEvent(event);
     }
 
-    QStyleOptionViewItem viewOptions() const override
+    void initViewItemOption(QStyleOptionViewItem *option) const override
     {
-        QStyleOptionViewItem option = QListView::viewOptions();
-        option.showDecorationSelected = true;
+        QListView::initViewItemOption(option);
+        option->showDecorationSelected = true;
         if (combo)
-            option.font = combo->font();
-        return option;
+            option->font = combo->font();
     }
 
     void paintEvent(QPaintEvent *e) override
@@ -118,7 +117,7 @@ protected:
                 menuOpt.checkType = QStyleOptionMenuItem::NotCheckable;
                 menuOpt.menuRect = e->rect();
                 menuOpt.maxIconWidth = 0;
-                menuOpt.tabWidth = 0;
+                menuOpt.reservedShortcutWidth = 0;
                 QPainter p(viewport());
                 combo->style()->drawControl(QStyle::CE_MenuEmptyArea, &menuOpt, &p, this);
             }
@@ -155,7 +154,7 @@ protected:
         fast = false;
     }
 
-    void enterEvent(QEvent *) override {
+    void enterEvent(QEnterEvent *) override {
         startTimer();
     }
 
@@ -178,8 +177,8 @@ protected:
     void mouseMoveEvent(QMouseEvent *e) override
     {
         // Enable fast scrolling if the cursor is directly above or below the popup.
-        const int mouseX = e->pos().x();
-        const int mouseY = e->pos().y();
+        const int mouseX = e->position().toPoint().x();
+        const int mouseY = e->position().toPoint().y();
         const bool horizontallyInside = pos().x() < mouseX && mouseX < rect().right() + 1;
         const bool verticallyOutside = (sliderAction == QAbstractSlider::SliderSingleStepAdd) ?
                                         rect().bottom() + 1 < mouseY : mouseY < pos().y();
@@ -190,11 +189,11 @@ protected:
     void paintEvent(QPaintEvent *) override {
         QPainter p(this);
         QStyleOptionMenuItem menuOpt;
-        menuOpt.init(this);
+        menuOpt.initFrom(this);
         menuOpt.checkType = QStyleOptionMenuItem::NotCheckable;
         menuOpt.menuRect = rect();
         menuOpt.maxIconWidth = 0;
-        menuOpt.tabWidth = 0;
+        menuOpt.reservedShortcutWidth = 0;
         menuOpt.menuItemType = QStyleOptionMenuItem::Scroller;
         if (sliderAction == QAbstractSlider::SliderSingleStepAdd)
             menuOpt.state |= QStyle::State_DownArrow;
@@ -223,6 +222,7 @@ public:
     int topMargin() const;
     int bottomMargin() const { return topMargin(); }
     void updateTopBottomMargin();
+    void updateStyleSettings();
 
     QTimer blockMouseReleaseTimer;
     QBasicTimer adjustSizeTimer;
@@ -294,14 +294,13 @@ private:
     int pressedIndex;
 };
 
-// ### Qt6: QStyledItemDelegate ?
-// Note that this class is intentionally not using QStyledItemDelegate
-// Vista does not use the new theme for combo boxes and there might
-// be other side effects from using the new class
-class Q_AUTOTEST_EXPORT QComboBoxDelegate : public QItemDelegate
-{ Q_OBJECT
+class Q_AUTOTEST_EXPORT QComboBoxDelegate : public QStyledItemDelegate
+{
+    Q_OBJECT
 public:
-    QComboBoxDelegate(QObject *parent, QComboBox *cmb) : QItemDelegate(parent), mCombo(cmb) {}
+    QComboBoxDelegate(QObject *parent, QComboBox *cmb)
+        : QStyledItemDelegate(parent), mCombo(cmb)
+    {}
 
     static bool isSeparator(const QModelIndex &index) {
         return index.data(Qt::AccessibleDescriptionRole).toString() == QLatin1String("separator");
@@ -325,7 +324,7 @@ protected:
             opt.rect = rect;
             mCombo->style()->drawPrimitive(QStyle::PE_IndicatorToolBarSeparator, &opt, painter, mCombo);
         } else {
-            QItemDelegate::paint(painter, option, index);
+            QStyledItemDelegate::paint(painter, option, index);
         }
     }
 
@@ -335,7 +334,7 @@ protected:
             int pm = mCombo->style()->pixelMetric(QStyle::PM_DefaultFrameWidth, nullptr, mCombo);
             return QSize(pm, pm);
         }
-        return QItemDelegate::sizeHint(option, index);
+        return QStyledItemDelegate::sizeHint(option, index);
     }
 private:
     QComboBox *mCombo;
@@ -372,7 +371,7 @@ public:
     void updateArrow(QStyle::StateFlag state);
     bool updateHoverControl(const QPoint &pos);
     void trySetValidIndex();
-    QRect popupGeometry(int screen = -1) const;
+    QRect popupGeometry(const QPoint &globalPos) const;
     QStyle::SubControl newHoverControl(const QPoint &pos);
     int computeWidthHint() const;
     QSize recomputeSizeHint(QSize &sh) const;
@@ -410,9 +409,6 @@ public:
 #ifdef Q_OS_MAC
     QPlatformMenu *m_platformMenu = nullptr;
 #endif
-#if QT_CONFIG(completer)
-    QPointer<QCompleter> completer;
-#endif
     QPersistentModelIndex currentIndex;
     QPersistentModelIndex root;
     QString placeholderText;
@@ -424,7 +420,6 @@ public:
     QComboBox::SizeAdjustPolicy sizeAdjustPolicy = QComboBox::AdjustToContentsOnFirstShow;
     QStyle::StateFlag arrowState = QStyle::State_None;
     QStyle::SubControl hoverControl = QStyle::SC_None;
-    Qt::CaseSensitivity autoCompletionCaseSensitivity = Qt::CaseInsensitive;
     int minimumContentsLength = 0;
     int indexBeforeChange = -1;
     int maxVisibleItems = 10;
@@ -432,7 +427,6 @@ public:
     int modelColumn = 0;
     int placeholderIndex = -1;
     bool shownOnce : 1;
-    bool autoCompletion : 1;
     bool duplicatesEnabled : 1;
     bool frame : 1;
     bool inserting : 1;

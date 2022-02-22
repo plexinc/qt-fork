@@ -8,13 +8,10 @@ import * as SDK from '../sdk/sdk.js';                                  // eslint
 import * as TimelineModel from '../timeline_model/timeline_model.js';  // eslint-disable-line no-unused-vars
 import * as UI from '../ui/ui.js';
 
-/**
- * @unrestricted
- */
 export class TimelineLayersView extends UI.SplitWidget.SplitWidget {
   /**
    * @param {!TimelineModel.TimelineModel.TimelineModelImpl} model
-   * @param {function(!SDK.PaintProfiler.PaintProfilerSnapshot)} showPaintProfilerCallback
+   * @param {function(!SDK.PaintProfiler.PaintProfilerSnapshot):void} showPaintProfilerCallback
    */
   constructor(model, showPaintProfilerCallback) {
     super(true, false, 'timelineLayersView');
@@ -80,6 +77,8 @@ export class TimelineLayersView extends UI.SplitWidget.SplitWidget {
   }
 
   _update() {
-    this._frameLayerTree.layerTreePromise().then(layerTree => this._layerViewHost.setLayerTree(layerTree));
+    if (this._frameLayerTree) {
+      this._frameLayerTree.layerTreePromise().then(layerTree => this._layerViewHost.setLayerTree(layerTree));
+    }
   }
 }

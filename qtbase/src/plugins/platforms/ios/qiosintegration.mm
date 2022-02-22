@@ -53,13 +53,14 @@
 #include "qiosservices.h"
 #include "qiosoptionalplugininterface.h"
 
+#include <QtGui/qpointingdevice.h>
 #include <QtGui/private/qguiapplication_p.h>
 
 #include <qoffscreensurface.h>
 #include <qpa/qplatformoffscreensurface.h>
 
-#include <QtFontDatabaseSupport/private/qcoretextfontdatabase_p.h>
-#include <QtClipboardSupport/private/qmacmime_p.h>
+#include <QtGui/private/qcoretextfontdatabase_p.h>
+#include <QtGui/private/qmacmime_p.h>
 #include <QDir>
 #include <QOperatingSystemVersion>
 
@@ -112,13 +113,13 @@ void QIOSIntegration::initialize()
     // Depends on a primary screen being present
     m_inputContext = new QIOSInputContext;
 
-    m_touchDevice = new QTouchDevice;
-    m_touchDevice->setType(QTouchDevice::TouchScreen);
-    QTouchDevice::Capabilities touchCapabilities = QTouchDevice::Position | QTouchDevice::NormalizedPosition;
+    m_touchDevice = new QPointingDevice;
+    m_touchDevice->setType(QInputDevice::DeviceType::TouchScreen);
+    QPointingDevice::Capabilities touchCapabilities = QPointingDevice::Capability::Position | QPointingDevice::Capability::NormalizedPosition;
     if (mainScreen.traitCollection.forceTouchCapability == UIForceTouchCapabilityAvailable)
-        touchCapabilities |= QTouchDevice::Pressure;
+        touchCapabilities |= QPointingDevice::Capability::Pressure;
     m_touchDevice->setCapabilities(touchCapabilities);
-    QWindowSystemInterface::registerTouchDevice(m_touchDevice);
+    QWindowSystemInterface::registerInputDevice(m_touchDevice);
 #if QT_CONFIG(tabletevent)
     QWindowSystemInterfacePrivate::TabletEvent::setPlatformSynthesizesMouse(false);
 #endif
@@ -275,7 +276,7 @@ QPlatformTheme *QIOSIntegration::createPlatformTheme(const QString &name) const
     return QPlatformIntegration::createPlatformTheme(name);
 }
 
-QTouchDevice *QIOSIntegration::touchDevice()
+QPointingDevice *QIOSIntegration::touchDevice()
 {
     return m_touchDevice;
 }

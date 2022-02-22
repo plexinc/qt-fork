@@ -55,10 +55,6 @@
 
 #if defined(Q_OS_VXWORKS)
 #  include "QtCore/qfunctions_vxworks.h"
-#elif defined(Q_OS_NACL)
-#  include "QtCore/qfunctions_nacl.h"
-#elif defined(Q_OS_WINRT)
-#  include "QtCore/qfunctions_winrt.h"
 #endif
 
 #endif

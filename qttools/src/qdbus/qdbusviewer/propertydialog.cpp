@@ -69,7 +69,7 @@ void PropertyDialog::addProperty(const QString &aname, int type)
     if (name.isEmpty())
         name = QLatin1String("argument ") + QString::number(rowCount + 1);
     name += QLatin1String(" (");
-    name += QLatin1String(QMetaType::typeName(type));
+    name += QLatin1String(QMetaType(type).name());
     name += QLatin1String(")");
     QTableWidgetItem *nameItem = new QTableWidgetItem(name);
     nameItem->setFlags(nameItem->flags() &
@@ -77,7 +77,7 @@ void PropertyDialog::addProperty(const QString &aname, int type)
     propertyTable->setItem(rowCount, 0, nameItem);
 
     QTableWidgetItem *valueItem = new QTableWidgetItem;
-    valueItem->setData(Qt::DisplayRole, QVariant(type, /* copy */ 0));
+    valueItem->setData(Qt::DisplayRole, QVariant(QMetaType(type), /* copy */ 0));
     propertyTable->setItem(rowCount, 1, valueItem);
 }
 

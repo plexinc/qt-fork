@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include <qcoreapplication.h>
 #include <qdebug.h>
@@ -37,6 +37,7 @@
 #include <qlabel.h>
 #include <qwidget.h>
 #include <qdialog.h>
+#include <qscroller.h>
 
 class tst_QAbstractScrollArea : public QObject
 {
@@ -57,6 +58,7 @@ private slots:
     void task214488_layoutDirection();
 
     void margins();
+    void resizeWithOvershoot();
 };
 
 tst_QAbstractScrollArea::tst_QAbstractScrollArea()
@@ -291,7 +293,7 @@ public:
         startTimer(2000);
     }
 
-    void timerEvent(QTimerEvent * /* event */)
+    void timerEvent(QTimerEvent * /* event */) override
     {
         // should not crash.
         (void)new QScrollArea(this);
@@ -340,10 +342,6 @@ void tst_QAbstractScrollArea::task214488_layoutDirection()
 
     int refValue = hbar->value();
     qApp->sendEvent(&scrollArea, new QKeyEvent(QEvent::KeyPress, key, Qt::NoModifier));
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("", "WinRT: Scrollbar is not guaranteed to be visible, as QWidget::resize does not"
-                 "work", Abort);
-#endif
     QVERIFY(lessThan ? (hbar->value() < refValue) : (hbar->value() > refValue));
 }
 
@@ -396,6 +394,43 @@ void tst_QAbstractScrollArea::margins()
     QMargins margins(10, 20, 30, 40);
     area.setViewportMargins(margins);
     QCOMPARE(area.viewportMargins(), margins);
+}
+
+void tst_QAbstractScrollArea::resizeWithOvershoot()
+{
+    QWidget window;
+
+    QScrollArea scrollArea(&window);
+    scrollArea.setWidget([]{
+        QWidget *widget = new QWidget;
+        widget->setFixedSize(QSize(0, 200));
+        return widget;
+    }());
+    scrollArea.setGeometry(0, 20, 100, 100);
+
+    QScroller::grabGesture(&scrollArea, QScroller::LeftMouseButtonGesture);
+
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    const QPoint originAtRest = scrollArea.viewport()->pos();
+
+    QPoint center = scrollArea.viewport()->mapToGlobal(scrollArea.viewport()->rect().center());
+    center = window.windowHandle()->mapFromGlobal(center);
+    QTest::mousePress(window.windowHandle(), Qt::LeftButton, {}, center);
+    QTest::mouseMove(window.windowHandle(), center + QPoint(0, 50));
+    QTRY_COMPARE(scrollArea.viewport()->pos(), originAtRest + QPoint(0, 25));
+    QPoint overshootPosition = scrollArea.viewport()->pos();
+
+    // trigger a layout of the scroll area while there's overshoot
+    scrollArea.setGeometry(0, 0, 100, 120);
+    QCOMPARE(scrollArea.viewport()->pos(), overshootPosition);
+    QTest::mouseRelease(window.windowHandle(), Qt::LeftButton, {}, center + QPoint(0, 50));
+    QTRY_COMPARE(scrollArea.viewport()->pos(), originAtRest);
+    // Process a few more events and verify that the scroll area
+    // doesn't overcompensate for the overshoot.
+    QApplication::processEvents();
+    QTRY_COMPARE(scrollArea.viewport()->pos(), originAtRest);
 }
 
 QTEST_MAIN(tst_QAbstractScrollArea)

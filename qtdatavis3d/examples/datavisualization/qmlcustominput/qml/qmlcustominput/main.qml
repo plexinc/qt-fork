@@ -27,12 +27,13 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.1
-import QtQuick.Layouts 1.0
-import QtDataVisualization 1.0
+import QtQuick
+import QtQuick.Layouts
+import QtQuick.Controls
+import QtDataVisualization 1.2
 import "."
 
-Rectangle {
+Item {
     id: mainView
     width: 1280
     height: 720
@@ -111,14 +112,14 @@ Rectangle {
             //! [2]
 
             //! [3]
-            onPositionChanged: {
+            onPositionChanged: (mouse)=> {
                 mouseX = mouse.x;
                 mouseY = mouse.y;
             }
             //! [3]
 
             //! [5]
-            onWheel: {
+            onWheel: (wheel)=> {
                 // Adjust zoom level based on what zoom range we're in.
                 var zoomLevel = scatterGraph.scene.activeCamera.zoomLevel;
                 if (zoomLevel > 100)
@@ -197,7 +198,7 @@ Rectangle {
         anchors.left: parent.left
         spacing: 0
 
-        NewButton {
+        Button {
             id: shadowToggle
             Layout.fillHeight: true
             Layout.minimumWidth: parent.width / 3 // 3 buttons divided equally in the layout
@@ -215,7 +216,7 @@ Rectangle {
             }
         }
 
-        NewButton {
+        Button {
             id: cameraToggle
             Layout.fillHeight: true
             Layout.minimumWidth: parent.width / 3
@@ -232,12 +233,12 @@ Rectangle {
             }
         }
 
-        NewButton {
+        Button {
             id: exitButton
             Layout.fillHeight: true
             Layout.minimumWidth: parent.width / 3
             text: "Quit"
-            onClicked: Qt.quit(0);
+            onClicked: Qt.quit();
         }
     }
 }

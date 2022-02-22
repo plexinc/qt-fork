@@ -29,6 +29,10 @@
 
 #include "../testcpp/testcpp.h"
 
+namespace CrossModuleRef {
+    void documentMeToo();
+}
+
 class TestType : public TestQDoc::TestDerived
 {
 public:

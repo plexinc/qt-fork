@@ -48,8 +48,7 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import QtQuick.XmlListModel 2.0
+import QtQml.XmlListModel
 
 XmlListModel {
     property string tags : ""
@@ -57,10 +56,9 @@ XmlListModel {
     function encodeTags(x) { return encodeURIComponent(x.replace(' ',',')); }
 
     source: "http://api.flickr.com/services/feeds/photos_public.gne?"+(tags ? "tags="+encodeTags(tags)+"&" : "")
-    query: "/feed/entry"
-    namespaceDeclarations: "declare default element namespace 'http://www.w3.org/2005/Atom';"
 
-    XmlRole { name: "title"; query: "title/string()" }
-    XmlRole { name: "content"; query: "content/string()" }
-    XmlRole { name: "hq"; query: "link[@rel='enclosure']/@href/string()" }
+    query: "/feed/entry"
+
+    XmlListModelRole { name: "title"; elementName: "title"; attributeName: "" }
+    XmlListModelRole { name: "link"; elementName: "link"; attributeName: "href" }
 }

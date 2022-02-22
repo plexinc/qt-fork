@@ -10,6 +10,7 @@
 #include <vector>
 #include "base/feature_list.h"
 #include "base/metrics/field_trial_params.h"
+#include "build/build_config.h"
 #include "components/safe_browsing/buildflags.h"
 
 #include "base/macros.h"
@@ -32,93 +33,95 @@ const base::Feature kAdSamplerTriggerFeature{"SafeBrowsingAdSamplerTrigger",
 const base::Feature kCaptureInlineJavascriptForGoogleAds{
     "CaptureInlineJavascriptForGoogleAds", base::FEATURE_DISABLED_BY_DEFAULT};
 
-const base::Feature kCaptureSafetyNetId{"SafeBrowsingCaptureSafetyNetId",
-                                        base::FEATURE_DISABLED_BY_DEFAULT};
+const base::Feature kClientSideDetectionForAndroid{
+    "ClientSideDetectionModelOnAndroid", base::FEATURE_DISABLED_BY_DEFAULT};
 
-const base::Feature kCommittedSBInterstitials{
-    "SafeBrowsingCommittedInterstitials", base::FEATURE_ENABLED_BY_DEFAULT};
-
-const base::Feature kContentComplianceEnabled{
-    "SafeBrowsingContentComplianceEnabled", base::FEATURE_ENABLED_BY_DEFAULT};
+extern const base::Feature kClientSideDetectionModelVersion{
+    "ClientSideDetectionModel", base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::Feature kDelayedWarnings{"SafeBrowsingDelayedWarnings",
                                      base::FEATURE_DISABLED_BY_DEFAULT};
+
+// If true, a delayed warning will be shown when the user clicks on the page.
+// If false, the warning won't be shown, but a metric will be recorded on the
+// first click.
+const base::FeatureParam<bool> kDelayedWarningsEnableMouseClicks{
+    &kDelayedWarnings, "mouse",
+    /*default_value=*/false};
+
+const base::Feature kSimplifiedUrlDisplay{"SimplifiedUrlDisplay",
+                                          base::FEATURE_DISABLED_BY_DEFAULT};
 
 const base::Feature kDownloadRequestWithToken{
     "SafeBrowsingDownloadRequestWithToken", base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::Feature kEnhancedProtection{"SafeBrowsingEnhancedProtection",
-                                        base::FEATURE_DISABLED_BY_DEFAULT};
-
-const base::Feature kMalwareScanEnabled{"SafeBrowsingMalwareScanEnabled",
                                         base::FEATURE_ENABLED_BY_DEFAULT};
 
-// Enable saved password protection by default only on desktop.
-#if BUILDFLAG(FULL_SAFE_BROWSING)
+const base::Feature kEnhancedProtectionMessageInInterstitials{
+    "SafeBrowsingEnhancedProtectionMessageInInterstitials",
+    base::FEATURE_ENABLED_BY_DEFAULT};
+
+const base::Feature kLimitedListSizeForIOS{"SafeBrowsingLimitedListSizeForIOS",
+                                           base::FEATURE_DISABLED_BY_DEFAULT};
+
 const base::Feature kPasswordProtectionForSavedPasswords{
     "SafeBrowsingPasswordProtectionForSavedPasswords",
     base::FEATURE_ENABLED_BY_DEFAULT};
-#else
-const base::Feature kPasswordProtectionForSavedPasswords{
-    "SafeBrowsingPasswordProtectionForSavedPasswords",
-    base::FEATURE_DISABLED_BY_DEFAULT};
-#endif
 
-// Enable saved password protection with domains by default only on desktop.
-#if BUILDFLAG(FULL_SAFE_BROWSING)
+const base::Feature kPasswordProtectionReferringAppEnabledAndroid{
+    "SafeBrowsingPasswordProtectionReferringAppEnabledAndroid",
+    base::FEATURE_DISABLED_BY_DEFAULT};
+
 const base::Feature kPasswordProtectionShowDomainsForSavedPasswords{
     "SafeBrowsingPasswordProtectionShowDomainsForSavedPasswords",
     base::FEATURE_ENABLED_BY_DEFAULT};
-#else
-const base::Feature kPasswordProtectionShowDomainsForSavedPasswords{
-    "SafeBrowsingPasswordProtectionShowDomainsForSavedPasswords",
-    base::FEATURE_DISABLED_BY_DEFAULT};
-#endif
 
+const base::Feature kPasswordProtectionForSignedInUsers{
+  "SafeBrowsingPasswordProtectionForSignedInUsers",
 #if BUILDFLAG(FULL_SAFE_BROWSING)
-const base::Feature kPasswordProtectionForSignedInUsers{
-    "SafeBrowsingPasswordProtectionForSignedInUsers",
-    base::FEATURE_ENABLED_BY_DEFAULT};
+      base::FEATURE_ENABLED_BY_DEFAULT
 #else
-const base::Feature kPasswordProtectionForSignedInUsers{
-    "SafeBrowsingPasswordProtectionForSignedInUsers",
-    base::FEATURE_DISABLED_BY_DEFAULT};
+      base::FEATURE_DISABLED_BY_DEFAULT
 #endif
+};
 
 const base::Feature kPromptAppForDeepScanning{
-    "SafeBrowsingPromptAppForDeepScanning", base::FEATURE_DISABLED_BY_DEFAULT};
+    "SafeBrowsingPromptAppForDeepScanning", base::FEATURE_ENABLED_BY_DEFAULT};
 
-const base::Feature kRealTimeUrlLookupEnabled{
-    "SafeBrowsingRealTimeUrlLookupEnabled", base::FEATURE_DISABLED_BY_DEFAULT};
+const base::Feature kSafeBrowsingEnterpriseCsd{
+    "SafeBrowsingEnterpriseCsd", base::FEATURE_DISABLED_BY_DEFAULT};
 
-const base::Feature kRealTimeUrlLookupEnabledForAllAndroidDevices{
-    "SafeBrowsingRealTimeUrlLookupEnabledForAllAndroidDevices",
+const base::Feature kSafeBrowsingDisableConsumerCsdForEnterprise{
+    "SafeBrowsingDisableConsumerCsdForEnterprise",
     base::FEATURE_DISABLED_BY_DEFAULT};
 
-const base::Feature kRealTimeUrlLookupEnabledForEP{
-    "SafeBrowsingRealTimeUrlLookupEnabledForEP",
+const base::Feature kRealTimeUrlLookupEnabled{
+    "SafeBrowsingRealTimeUrlLookupEnabled", base::FEATURE_ENABLED_BY_DEFAULT};
+
+const base::Feature kRealTimeUrlLookupEnabledForEnterprise{
+    "SafeBrowsingRealTimeUrlLookupEnabledForEnterprise",
     base::FEATURE_ENABLED_BY_DEFAULT};
 
-const base::Feature kRealTimeUrlLookupEnabledForEPWithToken{
-    "SafeBrowsingRealTimeUrlLookupEnabledForEPWithToken",
-    base::FEATURE_ENABLED_BY_DEFAULT};
+const base::Feature kRealTimeUrlLookupEnterpriseGaEndpoint{
+    "SafeBrowsingkRealTimeUrlLookupEnterpriseGaEndpoint",
+    base::FEATURE_DISABLED_BY_DEFAULT};
 
 const base::Feature kRealTimeUrlLookupEnabledWithToken{
     "SafeBrowsingRealTimeUrlLookupEnabledWithToken",
-    base::FEATURE_DISABLED_BY_DEFAULT};
-
-const base::Feature kRealTimeUrlLookupNonMainframeEnabledForEP{
-    "SafeBrowsingRealTimeUrlLookupNonMainframeEnabledForEP",
     base::FEATURE_ENABLED_BY_DEFAULT};
-
-const base::Feature kSafeBrowsingAvailableOnIOS{
-    "SafeBrowsingAvailableOnIOS", base::FEATURE_DISABLED_BY_DEFAULT};
 
 const base::Feature kSafeBrowsingSeparateNetworkContexts{
     "SafeBrowsingSeparateNetworkContexts", base::FEATURE_DISABLED_BY_DEFAULT};
 
+const base::Feature kSafeBrowsingRemoveCookies{
+    "SafeBrowsingRemoveCookies", base::FEATURE_DISABLED_BY_DEFAULT};
+
 constexpr base::FeatureParam<bool> kShouldFillOldPhishGuardProto{
     &kPasswordProtectionForSignedInUsers, "DeprecateOldProto", false};
+
+const base::Feature kSafeBrowsingSectionUIAndroid{
+    "SafeBrowsingSecuritySectionUIAndroid", base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::Feature kSuspiciousSiteTriggerQuotaFeature{
     "SafeBrowsingSuspiciousSiteTriggerQuota", base::FEATURE_ENABLED_BY_DEFAULT};
@@ -131,6 +134,10 @@ const base::Feature kTriggerThrottlerDailyQuotaFeature{
     base::FEATURE_DISABLED_BY_DEFAULT};
 const base::Feature kUseNewDownloadWarnings{"UseNewDownloadWarnings",
                                             base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kVisualFeaturesInPasswordProtectionAndroid{
+    "VisualFeaturesInPasswordProtectionAndroid",
+    base::FEATURE_DISABLED_BY_DEFAULT};
 
 namespace {
 // List of Safe Browsing features. Boolean value for each list member should be
@@ -145,25 +152,23 @@ constexpr struct {
     {&kAdRedirectTriggerFeature, true},
     {&kAdSamplerTriggerFeature, false},
     {&kCaptureInlineJavascriptForGoogleAds, true},
-    {&kCaptureSafetyNetId, true},
-    {&kCommittedSBInterstitials, true},
-    {&kContentComplianceEnabled, true},
+    {&kClientSideDetectionForAndroid, true},
     {&kDelayedWarnings, true},
     {&kDownloadRequestWithToken, true},
     {&kEnhancedProtection, true},
-    {&kMalwareScanEnabled, true},
+    {&kEnhancedProtectionMessageInInterstitials, true},
+    {&kLimitedListSizeForIOS, true},
     {&kPasswordProtectionForSavedPasswords, true},
+    {&kPasswordProtectionReferringAppEnabledAndroid, true},
     {&kPasswordProtectionShowDomainsForSavedPasswords, true},
     {&kPasswordProtectionForSignedInUsers, true},
     {&kPromptAppForDeepScanning, true},
     {&kRealTimeUrlLookupEnabled, true},
-    {&kRealTimeUrlLookupEnabledForAllAndroidDevices, true},
-    {&kRealTimeUrlLookupEnabledForEP, true},
-    {&kRealTimeUrlLookupEnabledForEPWithToken, true},
+    {&kRealTimeUrlLookupEnabledForEnterprise, true},
+    {&kRealTimeUrlLookupEnterpriseGaEndpoint, true},
     {&kRealTimeUrlLookupEnabledWithToken, true},
-    {&kRealTimeUrlLookupNonMainframeEnabledForEP, true},
-    {&kSafeBrowsingAvailableOnIOS, true},
     {&kSafeBrowsingSeparateNetworkContexts, true},
+    {&kSafeBrowsingSectionUIAndroid, true},
     {&kSuspiciousSiteTriggerQuotaFeature, true},
     {&kThreatDomDetailsTagAndAttributeFeature, false},
     {&kTriggerThrottlerDailyQuotaFeature, false},

@@ -16,8 +16,12 @@ extern const char kLocalSyncBackendDir[];
 
 #if defined(OS_ANDROID)
 extern const base::Feature kSyncUseSessionsUnregisterDelay;
-extern const base::Feature kSyncErrorInfoBarAndroid;
 #endif
+
+extern const base::Feature kSyncFilterOutInactiveDevicesForSingleClient;
+extern const base::FeatureParam<base::TimeDelta> kSyncActiveDeviceMargin;
+extern const base::Feature kSyncUseFCMRegistrationTokensList;
+extern const base::FeatureParam<int> kSyncFCMRegistrationTokensListMaxSize;
 
 }  // namespace switches
 

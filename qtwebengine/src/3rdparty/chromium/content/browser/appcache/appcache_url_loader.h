@@ -7,7 +7,7 @@
 
 #include <memory>
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
@@ -127,9 +127,11 @@ class CONTENT_EXPORT AppCacheURLLoader : public AppCacheStorage::Delegate,
   base::WeakPtr<AppCacheURLLoader> GetWeakPtr();
 
   // network::mojom::URLLoader:
-  void FollowRedirect(const std::vector<std::string>& removed_headers,
-                      const net::HttpRequestHeaders& modified_headers,
-                      const base::Optional<GURL>& new_url) override;
+  void FollowRedirect(
+      const std::vector<std::string>& removed_headers,
+      const net::HttpRequestHeaders& modified_headers,
+      const net::HttpRequestHeaders& modified_cors_exempt_headers,
+      const base::Optional<GURL>& new_url) override;
   void SetPriority(net::RequestPriority priority,
                    int32_t intra_priority_value) override;
   void PauseReadingBodyFromNet() override;
@@ -220,7 +222,6 @@ class CONTENT_EXPORT AppCacheURLLoader : public AppCacheStorage::Delegate,
   const base::WeakPtr<AppCacheRequest> appcache_request_;
 
   bool is_deleting_soon_ = false;
-  const bool is_main_resource_load_;
 
   SEQUENCE_CHECKER(sequence_checker_);
 

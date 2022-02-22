@@ -42,60 +42,49 @@
 // We mean it.
 //
 
-#include <QtQuick3DRender/private/qssgrenderbasetypes_p.h>
-#include <QtQuick3DRender/private/qssgrenderrenderbuffer_p.h>
-#include <QtQuick3DRender/private/qssgrendercontext_p.h>
+#include <QtQuick3DRuntimeRender/private/qssgrhicontext_p.h>
+#include <QtQuick3DUtils/private/qssgrenderbasetypes_p.h>
+
 
 #include <QtQuick3DRuntimeRender/private/qtquick3druntimerenderglobal_p.h>
 
 QT_BEGIN_NAMESPACE
-/**
- *	Implements simple pooling of render resources
- */
+
+// Implements simple pooling of render resources. This resource manager is used
+// by shadow maps and custom materials. It does not handle all cases, for
+// example, texture maps used by materials are not managed by this one.
+//
+// Resources are not persisent between frames in the sense that resources with a
+// size (such as, textures) get dropped in the "layer" prepare phase whenever
+// the output dimensions change. (see destroyFreeSizedResources())
+
 class Q_QUICK3DRUNTIMERENDER_EXPORT QSSGResourceManager
 {
     Q_DISABLE_COPY(QSSGResourceManager)
 public:
     QAtomicInt ref;
 private:
-    QSSGRef<QSSGRenderContext> renderContext;
-    // Complete list of all allocated objects
-    //    QVector<QSSGRef<QSSGRefCounted>> m_allocatedObjects;
+    QSSGRef<QSSGRhiContext> rhiContext;
 
-    QVector<QSSGRef<QSSGRenderFrameBuffer>> freeFrameBuffers;
-    QVector<QSSGRef<QSSGRenderRenderBuffer>> freeRenderBuffers;
-    QVector<QSSGRef<QSSGRenderTexture2D>> freeTextures;
-    QVector<QSSGRef<QSSGRenderTextureCube>> freeTexCubes;
-    QVector<QSSGRef<QSSGRenderImage2D>> freeImages;
-
-    QSSGRef<QSSGRenderTexture2D> setupAllocatedTexture(QSSGRef<QSSGRenderTexture2D> inTexture);
+    // RHI
+    QVector<QRhiTexture *> freeRhiTextures;
+    QVector<QRhiRenderBuffer *> freeRhiRenderBuffers;
 
 public:
-    QSSGResourceManager(const QSSGRef<QSSGRenderContext> &ctx);
+    QSSGResourceManager(const QSSGRef<QSSGRhiContext> &ctx);
     ~QSSGResourceManager();
 
-    QSSGRef<QSSGRenderFrameBuffer> allocateFrameBuffer();
-    void release(const QSSGRef<QSSGRenderFrameBuffer> &inBuffer);
-    QSSGRef<QSSGRenderRenderBuffer> allocateRenderBuffer(qint32 inWidth,
-                                                                     qint32 inHeight,
-                                                                     QSSGRenderRenderBufferFormat inBufferFormat);
-    void release(const QSSGRef<QSSGRenderRenderBuffer> &inBuffer);
-    QSSGRef<QSSGRenderTexture2D> allocateTexture2D(qint32 inWidth,
-                                                   qint32 inHeight,
-                                                   QSSGRenderTextureFormat inTextureFormat,
-                                                   qint32 inSampleCount = 1,
-                                                   bool immutable = false);
-    void release(const QSSGRef<QSSGRenderTexture2D> &inBuffer);
-    QSSGRef<QSSGRenderTextureCube> allocateTextureCube(qint32 inWidth,
-                                                                   qint32 inHeight,
-                                                                   QSSGRenderTextureFormat inTextureFormat,
-                                                                   qint32 inSampleCount = 1);
-    void release(const QSSGRef<QSSGRenderTextureCube> &inBuffer);
-    QSSGRef<QSSGRenderImage2D> allocateImage2D(const QSSGRef<QSSGRenderTexture2D> &inTexture,
-                                               QSSGRenderImageAccessType inAccess);
-    void release(const QSSGRef<QSSGRenderImage2D> &inBuffer);
+    QRhiTexture *allocateRhiTexture(qint32 inWidth,
+                                    qint32 inHeight,
+                                    QRhiTexture::Format inFormat,
+                                    QRhiTexture::Flags inFlags);
+    void release(QRhiTexture *inTexture);
 
-    QSSGRef<QSSGRenderContext> getRenderContext();
+    QRhiRenderBuffer *allocateRhiRenderBuffer(qint32 inWidth,
+                                              qint32 inHeight,
+                                              QRhiRenderBuffer::Type inType);
+    void release(QRhiRenderBuffer *inRenderBuffer);
+
     void destroyFreeSizedResources();
 };
 

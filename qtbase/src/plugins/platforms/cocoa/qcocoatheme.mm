@@ -37,7 +37,7 @@
 **
 ****************************************************************************/
 
-#import <AppKit/AppKit.h>
+#include <AppKit/AppKit.h>
 
 #include "qcocoatheme.h"
 
@@ -56,25 +56,16 @@
 #include <QtGui/private/qcoregraphics_p.h>
 #include <QtGui/qpainter.h>
 #include <QtGui/qtextformat.h>
-#include <QtFontDatabaseSupport/private/qcoretextfontdatabase_p.h>
-#include <QtFontDatabaseSupport/private/qfontengine_coretext_p.h>
-#include <QtThemeSupport/private/qabstractfileiconengine_p.h>
+#include <QtGui/private/qcoretextfontdatabase_p.h>
+#include <QtGui/private/qfontengine_coretext_p.h>
+#include <QtGui/private/qabstractfileiconengine_p.h>
 #include <qpa/qplatformdialoghelper.h>
 #include <qpa/qplatformintegration.h>
 #include <qpa/qplatformnativeinterface.h>
 
-#ifdef QT_WIDGETS_LIB
-#include <QtWidgets/qtwidgetsglobal.h>
-#if QT_CONFIG(colordialog)
 #include "qcocoacolordialoghelper.h"
-#endif
-#if QT_CONFIG(filedialog)
 #include "qcocoafiledialoghelper.h"
-#endif
-#if QT_CONFIG(fontdialog)
 #include "qcocoafontdialoghelper.h"
-#endif
-#endif
 
 #include <CoreServices/CoreServices.h>
 
@@ -108,7 +99,6 @@ static QPalette *qt_mac_createSystemPalette()
 
     palette->setBrush(QPalette::Disabled, QPalette::WindowText, dark);
     palette->setBrush(QPalette::Disabled, QPalette::Text, dark);
-    palette->setBrush(QPalette::Disabled, QPalette::ButtonText, dark);
     palette->setBrush(QPalette::Disabled, QPalette::Base, backgroundBrush);
     QBrush textBackgroundBrush = qt_mac_toQBrush([NSColor textBackgroundColor]);
     palette->setBrush(QPalette::Active, QPalette::Base, textBackgroundBrush);
@@ -133,6 +123,7 @@ static QPalette *qt_mac_createSystemPalette()
 
     qc = qt_mac_toQColor([NSColor controlTextColor]);
     palette->setColor(QPalette::Active, QPalette::Text, qc);
+    palette->setColor(QPalette::Active, QPalette::ButtonText, qc);
     palette->setColor(QPalette::Active, QPalette::WindowText, qc);
     palette->setColor(QPalette::Active, QPalette::HighlightedText, qc);
     palette->setColor(QPalette::Inactive, QPalette::Text, qc);
@@ -141,12 +132,18 @@ static QPalette *qt_mac_createSystemPalette()
 
     qc = qt_mac_toQColor([NSColor disabledControlTextColor]);
     palette->setColor(QPalette::Disabled, QPalette::Text, qc);
+    palette->setColor(QPalette::Disabled, QPalette::ButtonText, qc);
     palette->setColor(QPalette::Disabled, QPalette::WindowText, qc);
     palette->setColor(QPalette::Disabled, QPalette::HighlightedText, qc);
 
     palette->setBrush(QPalette::ToolTipBase, qt_mac_toQBrush([NSColor controlColor]));
 
     palette->setColor(QPalette::Normal, QPalette::Link, qt_mac_toQColor([NSColor linkColor]));
+
+    qc = qt_mac_toQColor([NSColor placeholderTextColor]);
+    palette->setColor(QPalette::Active, QPalette::PlaceholderText, qc);
+    palette->setColor(QPalette::Inactive, QPalette::PlaceholderText, qc);
+    palette->setColor(QPalette::Disabled, QPalette::PlaceholderText, qc);
 
     return palette;
 }
@@ -212,7 +209,7 @@ static QHash<QPlatformTheme::Palette, QPalette*> qt_mac_createRolePalettes()
             } else {
                 // selectedMenuItemColor would presumably be the correct color to use as the background
                 // for selected menu items. But that color is always blue, and doesn't follow the
-                // appearance color in system preferences. So we therefore deliberatly choose to use
+                // appearance color in system preferences. So we therefore deliberately choose to use
                 // keyboardFocusIndicatorColor instead, which appears to have the same color value.
                 selectedMenuItemColor = [NSColor keyboardFocusIndicatorColor];
             }
@@ -329,32 +326,22 @@ bool QCocoaTheme::usePlatformNativeDialog(DialogType dialogType) const
 {
     if (dialogType == QPlatformTheme::FileDialog)
         return true;
-#if defined(QT_WIDGETS_LIB) && QT_CONFIG(colordialog)
     if (dialogType == QPlatformTheme::ColorDialog)
         return true;
-#endif
-#if defined(QT_WIDGETS_LIB) && QT_CONFIG(fontdialog)
     if (dialogType == QPlatformTheme::FontDialog)
         return true;
-#endif
     return false;
 }
 
 QPlatformDialogHelper *QCocoaTheme::createPlatformDialogHelper(DialogType dialogType) const
 {
     switch (dialogType) {
-#if defined(QT_WIDGETS_LIB) && QT_CONFIG(filedialog)
     case QPlatformTheme::FileDialog:
         return new QCocoaFileDialogHelper();
-#endif
-#if defined(QT_WIDGETS_LIB) && QT_CONFIG(colordialog)
     case QPlatformTheme::ColorDialog:
         return new QCocoaColorDialogHelper();
-#endif
-#if defined(QT_WIDGETS_LIB) && QT_CONFIG(fontdialog)
     case QPlatformTheme::FontDialog:
         return new QCocoaFontDialogHelper();
-#endif
     default:
         return nullptr;
     }
@@ -496,7 +483,7 @@ public:
         return QAbstractFileIconEngine::toSizeList(sizes, sizes + sizeof(sizes) / sizeof(sizes[0]));
     }
 
-    QList<QSize> availableSizes(QIcon::Mode = QIcon::Normal, QIcon::State = QIcon::Off) const override
+    QList<QSize> availableSizes(QIcon::Mode = QIcon::Normal, QIcon::State = QIcon::Off) override
     { return QCocoaFileIconEngine::availableIconSizes(); }
 
 protected:
@@ -520,7 +507,7 @@ QVariant QCocoaTheme::themeHint(ThemeHint hint) const
 {
     switch (hint) {
     case QPlatformTheme::StyleNames:
-        return QStringList(QStringLiteral("macintosh"));
+        return QStringList(QStringLiteral("macOS"));
     case QPlatformTheme::DialogButtonBoxLayout:
         return QVariant(QPlatformDialogHelper::MacLayout);
     case KeyboardScheme:
@@ -538,10 +525,17 @@ QVariant QCocoaTheme::themeHint(ThemeHint hint) const
         return QVariant(int(QTextCharFormat::DotLine));
     case QPlatformTheme::UseFullScreenForPopupMenu:
         return QVariant(bool([[NSApplication sharedApplication] presentationOptions] & NSApplicationPresentationFullScreen));
+    case QPlatformTheme::InteractiveResizeAcrossScreens:
+        return !NSScreen.screensHaveSeparateSpaces;
     default:
         break;
     }
     return QPlatformTheme::themeHint(hint);
+}
+
+QPlatformTheme::Appearance QCocoaTheme::appearance() const
+{
+    return qt_mac_applicationIsInDarkMode() ? Appearance::Dark : Appearance::Light;
 }
 
 QString QCocoaTheme::standardButtonText(int button) const
@@ -579,5 +573,42 @@ QPlatformMenuBar *QCocoaTheme::createPlatformMenuBar() const
 
     return new QCocoaMenuBar();
 }
+
+#ifndef QT_NO_SHORTCUT
+QList<QKeySequence> QCocoaTheme::keyBindings(QKeySequence::StandardKey key) const
+{
+    // The default key bindings in QPlatformTheme all hard-coded to use the Ctrl
+    // modifier, to match other platforms. In the normal case, when translating
+    // those to key sequences, we'll end up with Qt::ControlModifier+X, which is
+    // then matched against incoming key events that have been mapped from the
+    // command key to Qt::ControlModifier, and we'll get a match. If, however,
+    // the AA_MacDontSwapCtrlAndMeta application attribute is set, we need to
+    // fix the resulting key sequence so that it will match against unmapped
+    // key events that contain Qt::MetaModifier.
+    auto bindings = QPlatformTheme::keyBindings(key);
+
+    if (qApp->testAttribute(Qt::AA_MacDontSwapCtrlAndMeta)) {
+        static auto swapCtrlMeta = [](QKeyCombination keyCombination) {
+            const auto originalKeyModifiers = keyCombination.keyboardModifiers();
+            auto newKeyboardModifiers = originalKeyModifiers & ~(Qt::ControlModifier | Qt::MetaModifier);
+            if (originalKeyModifiers & Qt::ControlModifier)
+                newKeyboardModifiers |= Qt::MetaModifier;
+            if (originalKeyModifiers & Qt::MetaModifier)
+                newKeyboardModifiers |= Qt::ControlModifier;
+            return QKeyCombination(newKeyboardModifiers, keyCombination.key());
+        };
+
+        QList<QKeySequence> swappedBindings;
+        for (auto binding : bindings) {
+            Q_ASSERT(binding.count() == 1);
+            swappedBindings.append(QKeySequence(swapCtrlMeta(binding[0])));
+        }
+
+        bindings = swappedBindings;
+    }
+
+    return bindings;
+}
+#endif
 
 QT_END_NAMESPACE

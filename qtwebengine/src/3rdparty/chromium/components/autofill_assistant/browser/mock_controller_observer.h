@@ -34,10 +34,15 @@ class MockControllerObserver : public ControllerObserver {
   MOCK_METHOD2(OnUserDataChanged,
                void(const UserData* user_data,
                     UserData::FieldChange field_change));
-  MOCK_METHOD1(OnDetailsChanged, void(const Details* details));
+  MOCK_METHOD1(OnDetailsChanged, void(const std::vector<Details>& details));
   MOCK_METHOD1(OnInfoBoxChanged, void(const InfoBox* info_box));
   MOCK_METHOD1(OnProgressChanged, void(int progress));
+  MOCK_METHOD1(OnProgressActiveStepChanged, void(int active_step));
   MOCK_METHOD1(OnProgressVisibilityChanged, void(bool visible));
+  MOCK_METHOD1(OnStepProgressBarConfigurationChanged,
+               void(const ShowProgressBarProto::StepProgressBarConfiguration&
+                        configuration));
+  MOCK_METHOD1(OnProgressBarErrorStateChanged, void(bool error));
   MOCK_METHOD3(OnTouchableAreaChanged,
                void(const RectF&,
                     const std::vector<RectF>& touchable_areas,
@@ -56,6 +61,8 @@ class MockControllerObserver : public ControllerObserver {
   MOCK_METHOD1(OnClientSettingsChanged, void(const ClientSettings& settings));
   MOCK_METHOD1(OnGenericUserInterfaceChanged,
                void(const GenericUserInterfaceProto* generic_ui));
+  MOCK_METHOD1(OnShouldShowOverlayChanged, void(bool should_show));
+  MOCK_METHOD0(OnFeedbackFormRequested, void());
 };
 
 }  // namespace autofill_assistant

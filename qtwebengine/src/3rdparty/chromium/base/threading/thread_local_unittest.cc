@@ -3,11 +3,11 @@
 // found in the LICENSE file.
 
 #include "base/threading/thread_local.h"
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/macros.h"
 #include "base/optional.h"
 #include "base/synchronization/waitable_event.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/gtest_util.h"
 #include "base/threading/simple_thread.h"
 #include "base/threading/thread.h"

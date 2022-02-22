@@ -44,11 +44,11 @@ static int GetVpxVideoDecoderThreadCount(const VideoDecoderConfig& config) {
   // maximum number of tiles possible for higher resolution streams.
   if (config.codec() == kCodecVP9) {
     const int width = config.coded_size().width();
-    if (width >= 4096)
+    if (width >= 3840)
       desired_threads = 16;
-    else if (width >= 2048)
+    else if (width >= 2560)
       desired_threads = 8;
-    else if (width >= 1024)
+    else if (width >= 1280)
       desired_threads = 4;
   }
 
@@ -98,6 +98,25 @@ static int32_t ReleaseVP9FrameBuffer(void* user_priv,
   return 0;
 }
 
+// static
+SupportedVideoDecoderConfigs VpxVideoDecoder::SupportedConfigs() {
+  SupportedVideoDecoderConfigs supported_configs;
+  supported_configs.emplace_back(/*profile_min=*/VP8PROFILE_ANY,
+                                 /*profile_max=*/VP8PROFILE_ANY,
+                                 /*coded_size_min=*/kDefaultSwDecodeSizeMin,
+                                 /*coded_size_max=*/kDefaultSwDecodeSizeMax,
+                                 /*allow_encrypted=*/false,
+                                 /*require_encrypted=*/false);
+
+  supported_configs.emplace_back(/*profile_min=*/VP9PROFILE_PROFILE0,
+                                 /*profile_max=*/VP9PROFILE_PROFILE2,
+                                 /*coded_size_min=*/kDefaultSwDecodeSizeMin,
+                                 /*coded_size_max=*/kDefaultSwDecodeSizeMax,
+                                 /*allow_encrypted=*/false,
+                                 /*require_encrypted=*/false);
+  return supported_configs;
+}
+
 VpxVideoDecoder::VpxVideoDecoder(OffloadState offload_state)
     : bind_callbacks_(offload_state == OffloadState::kNormal) {
   DETACH_FROM_SEQUENCE(sequence_checker_);
@@ -106,6 +125,10 @@ VpxVideoDecoder::VpxVideoDecoder(OffloadState offload_state)
 VpxVideoDecoder::~VpxVideoDecoder() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   CloseDecoder();
+}
+
+VideoDecoderType VpxVideoDecoder::GetDecoderType() const {
+  return VideoDecoderType::kVpx;
 }
 
 std::string VpxVideoDecoder::GetDisplayName() const {
@@ -182,8 +205,7 @@ void VpxVideoDecoder::Decode(scoped_refptr<DecoderBuffer> buffer,
   // We might get a successful VpxDecode but not a frame if only a partial
   // decode happened.
   if (video_frame) {
-    video_frame->metadata()->SetBoolean(VideoFrameMetadata::POWER_EFFICIENT,
-                                        false);
+    video_frame->metadata().power_efficient = false;
     output_cb_.Run(video_frame);
   }
 
@@ -239,6 +261,14 @@ bool VpxVideoDecoder::ConfigureDecoder(const VideoDecoderConfig& config) {
             vpx_codec_.get(), &GetVP9FrameBuffer, &ReleaseVP9FrameBuffer,
             memory_pool_.get())) {
       DLOG(ERROR) << "Failed to configure external buffers. "
+                  << vpx_codec_error(vpx_codec_.get());
+      return false;
+    }
+
+    vpx_codec_err_t status =
+        vpx_codec_control(vpx_codec_.get(), VP9D_SET_LOOP_FILTER_OPT, 1);
+    if (status != VPX_CODEC_OK) {
+      DLOG(ERROR) << "Failed to enable VP9D_SET_LOOP_FILTER_OPT. "
                   << vpx_codec_error(vpx_codec_.get());
       return false;
     }
@@ -331,6 +361,7 @@ bool VpxVideoDecoder::VpxDecode(const DecoderBuffer* buffer,
   }
 
   (*video_frame)->set_timestamp(buffer->timestamp());
+  (*video_frame)->set_hdr_metadata(config_.hdr_metadata());
 
   // Prefer the color space from the config if available. It generally comes
   // from the color tag which is more expressive than the vp8 and vp9 bitstream.

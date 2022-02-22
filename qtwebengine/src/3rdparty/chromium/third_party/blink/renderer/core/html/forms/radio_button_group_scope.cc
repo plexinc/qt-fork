@@ -41,7 +41,7 @@ class RadioButtonGroup : public GarbageCollected<RadioButtonGroup> {
   bool Contains(HTMLInputElement*) const;
   unsigned size() const;
 
-  void Trace(Visitor*);
+  void Trace(Visitor*) const;
 
  private:
   void SetNeedsValidityCheckForAllButtons();
@@ -163,14 +163,6 @@ void RadioButtonGroup::Remove(HTMLInputElement* button) {
     // valid only if the group was invalid.
     button->SetNeedsValidityCheck();
   }
-
-  // Send notification to update AX attributes for AXObjects which radiobutton
-  // group has.
-  if (!members_.IsEmpty()) {
-    HTMLInputElement* input = members_.begin()->key;
-    if (AXObjectCache* cache = input->GetDocument().ExistingAXObjectCache())
-      cache->RadiobuttonRemovedFromGroup(input);
-  }
 }
 
 void RadioButtonGroup::SetNeedsValidityCheckForAllButtons() {
@@ -189,7 +181,7 @@ unsigned RadioButtonGroup::size() const {
   return members_.size();
 }
 
-void RadioButtonGroup::Trace(Visitor* visitor) {
+void RadioButtonGroup::Trace(Visitor* visitor) const {
   visitor->Trace(members_);
   visitor->Trace(checked_button_);
 }
@@ -289,7 +281,7 @@ void RadioButtonGroupScope::RemoveButton(HTMLInputElement* element) {
   }
 }
 
-void RadioButtonGroupScope::Trace(Visitor* visitor) {
+void RadioButtonGroupScope::Trace(Visitor* visitor) const {
   visitor->Trace(name_to_group_map_);
 }
 

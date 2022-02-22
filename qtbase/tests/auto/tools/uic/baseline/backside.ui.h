@@ -1,7 +1,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'backside.ui'
 **
-** Created by: Qt User Interface Compiler version 5.12.0
+** Created by: Qt User Interface Compiler version 6.0.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -136,8 +136,8 @@ public:
         QWidget::setTabOrder(groupBox_2, treeWidget);
 
         retranslateUi(BackSide);
-        QObject::connect(horizontalSlider, SIGNAL(valueChanged(int)), spinBox, SLOT(setValue(int)));
-        QObject::connect(spinBox, SIGNAL(valueChanged(int)), horizontalSlider, SLOT(setValue(int)));
+        QObject::connect(horizontalSlider, &QSlider::valueChanged, spinBox, &QSpinBox::setValue);
+        QObject::connect(spinBox, &QSpinBox::valueChanged, horizontalSlider, &QSlider::setValue);
 
         QMetaObject::connectSlotsByName(BackSide);
     } // setupUi

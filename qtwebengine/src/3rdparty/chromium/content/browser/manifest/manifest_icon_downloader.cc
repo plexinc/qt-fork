@@ -12,7 +12,6 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/numerics/safe_conversions.h"
-#include "base/task/post_task.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_frame_host.h"
@@ -55,6 +54,7 @@ bool ManifestIconDownloader::Download(
     const GURL& icon_url,
     int ideal_icon_size_in_px,
     int minimum_icon_size_in_px,
+    int maximum_icon_size_in_px,
     IconFetchCallback callback,
     bool square_only,
     const GlobalFrameRoutingId& initiator_frame_routing_id) {
@@ -64,10 +64,10 @@ bool ManifestIconDownloader::Download(
 
   web_contents->DownloadImageInFrame(
       initiator_frame_routing_id, icon_url,
-      false,                  // is_favicon
-      ideal_icon_size_in_px,  // preferred_size
-      0,                      // max_bitmap_size - 0 means no maximum size.
-      false,                  // bypass_cache
+      false,                    // is_favicon
+      ideal_icon_size_in_px,    // preferred_size
+      maximum_icon_size_in_px,  // max_bitmap_size - 0 means no maximum size.
+      false,                    // bypass_cache
       base::BindOnce(&ManifestIconDownloader::OnIconFetched,
                      ideal_icon_size_in_px, minimum_icon_size_in_px,
                      square_only,
@@ -126,8 +126,8 @@ void ManifestIconDownloader::OnIconFetched(
   // webapp storage system as well.
   if (chosen.height() > ideal_icon_size_in_px ||
       chosen.width() > ideal_icon_width_in_px) {
-    base::PostTask(FROM_HERE, {BrowserThread::IO},
-                   base::BindOnce(&ManifestIconDownloader::ScaleIcon,
+    GetIOThreadTaskRunner({})->PostTask(
+        FROM_HERE, base::BindOnce(&ManifestIconDownloader::ScaleIcon,
                                   ideal_icon_width_in_px, ideal_icon_size_in_px,
                                   chosen, std::move(callback)));
     return;
@@ -146,8 +146,8 @@ void ManifestIconDownloader::ScaleIcon(int ideal_icon_width_in_px,
       bitmap, skia::ImageOperations::RESIZE_BEST, ideal_icon_width_in_px,
       ideal_icon_height_in_px);
 
-  base::PostTask(FROM_HERE, {BrowserThread::UI},
-                 base::BindOnce(std::move(callback), scaled));
+  GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(std::move(callback), scaled));
 }
 
 int ManifestIconDownloader::FindClosestBitmapIndex(

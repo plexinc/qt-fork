@@ -52,6 +52,9 @@
 #include "base/task/thread_pool/thread_pool_instance.h"
 #include "base/threading/thread_restrictions.h"
 #include "cc/base/switches.h"
+#if QT_CONFIG(webengine_webrtc) && QT_CONFIG(webengine_extensions)
+#include "chrome/browser/media/webrtc/webrtc_log_uploader.h"
+#endif
 #include "chrome/common/chrome_switches.h"
 #include "content/gpu/gpu_child_thread.h"
 #include "content/browser/compositor/surface_utils.h"
@@ -59,12 +62,12 @@
 #include "components/viz/host/host_frame_sink_manager.h"
 #if QT_CONFIG(webengine_printing_and_pdf)
 #include "chrome/browser/printing/print_job_manager.h"
-#include "components/printing/browser/features.h"
 #endif
 #include "components/discardable_memory/service/discardable_shared_memory_manager.h"
+#include "components/download/public/common/download_task_runner.h"
 #include "components/viz/common/features.h"
 #include "components/web_cache/browser/web_cache_manager.h"
-#include "content/app/service_manager_environment.h"
+#include "content/app/mojo_ipc_support.h"
 #include "content/browser/devtools/devtools_http_handler.h"
 #include "content/browser/scheduler/browser_task_executor.h"
 #include "content/browser/startup_data_impl.h"
@@ -89,10 +92,10 @@
 #include "mojo/core/embedder/embedder.h"
 #include "net/base/port_util.h"
 #include "ppapi/buildflags/buildflags.h"
+#include "sandbox/policy/switches.h"
 #include "services/network/public/cpp/features.h"
 #include "services/network/public/cpp/network_switches.h"
 #include "services/network/public/mojom/network_context.mojom.h"
-#include "services/service_manager/sandbox/switches.h"
 #include "services/tracing/public/cpp/trace_startup.h"
 #include "services/tracing/public/cpp/tracing_features.h"
 #include "third_party/blink/public/common/features.h"
@@ -129,17 +132,16 @@
 #include <QMutex>
 #include <QOffscreenSurface>
 #if QT_CONFIG(opengl)
-# include <QOpenGLContext>
+#include <QOpenGLContext>
+#include <qopenglcontext_platform.h>
 #endif
 #include <QQuickWindow>
 #include <QStringList>
 #include <QSurfaceFormat>
-#include <QVector>
 #include <QNetworkProxy>
 #include <QtGui/qpa/qplatformintegration.h>
 #include <QtGui/private/qguiapplication_p.h>
-
-using namespace QtWebEngineCore;
+#include <QLoggingCategory>
 
 #if QT_CONFIG(opengl)
 QT_BEGIN_NAMESPACE
@@ -147,10 +149,10 @@ Q_GUI_EXPORT QOpenGLContext *qt_gl_global_share_context();
 QT_END_NAMESPACE
 #endif
 
-namespace {
+namespace QtWebEngineCore {
 
 #if QT_CONFIG(opengl)
-bool usingANGLE()
+static bool usingANGLE()
 {
 #if defined(Q_OS_WIN)
     if (qt_gl_global_share_context())
@@ -161,11 +163,14 @@ bool usingANGLE()
 #endif
 }
 
-bool usingDefaultSGBackend()
+static bool usingDefaultSGBackend()
 {
+    if (QQuickWindow::graphicsApi() != QSGRendererInterface::OpenGL)
+        return false;
+
     const QStringList args = QGuiApplication::arguments();
 
-    //folow logic from contextFactory in src/quick/scenegraph/qsgcontextplugin.cpp
+    // follow the logic from contextFactory in src/quick/scenegraph/qsgcontextplugin.cpp
     QString device = QQuickWindow::sceneGraphBackend();
 
     for (int index = 0; index < args.count(); ++index) {
@@ -182,37 +187,13 @@ bool usingDefaultSGBackend()
 
     return device.isEmpty();
 }
-#endif // QT_CONFIG(opengl)
-#if QT_CONFIG(webengine_pepper_plugins)
-void dummyGetPluginCallback(const std::vector<content::WebPluginInfo>&)
-{
-}
-#endif
-
-} // namespace
-
-namespace QtWebEngineCore {
-
-#if defined(Q_OS_WIN)
-sandbox::SandboxInterfaceInfo *staticSandboxInterfaceInfo(sandbox::SandboxInterfaceInfo *info)
-{
-    static sandbox::SandboxInterfaceInfo *g_info = nullptr;
-    if (info) {
-        Q_ASSERT(g_info == nullptr);
-        g_info = info;
-    }
-    return g_info;
-}
-#endif
-
-extern std::unique_ptr<base::MessagePump> messagePumpFactory();
 
 bool usingSoftwareDynamicGL()
 {
     if (QCoreApplication::testAttribute(Qt::AA_UseSoftwareOpenGL))
         return true;
-#if defined(Q_OS_WIN) && QT_CONFIG(opengl)
-    HMODULE handle = static_cast<HMODULE>(QOpenGLContext::openGLModuleHandle());
+#if defined(Q_OS_WIN)
+    HMODULE handle = QNativeInterface::QWGLContext::openGLModuleHandle();
     wchar_t path[MAX_PATH];
     DWORD size = GetModuleFileName(handle, path, MAX_PATH);
     QFileInfo openGLModule(QString::fromWCharArray(path, size));
@@ -222,21 +203,112 @@ bool usingSoftwareDynamicGL()
 #endif
 }
 
-void setupProxyPac(base::CommandLine *commandLine){
+static const char *getGLType(bool enableGLSoftwareRendering)
+{
+    const char *glType = nullptr;
+    const bool tryGL = (usingDefaultSGBackend() && !usingSoftwareDynamicGL()
+                        && QGuiApplicationPrivate::platformIntegration()->hasCapability(
+                                QPlatformIntegration::OpenGL))
+            || enableGLSoftwareRendering;
+    if (tryGL) {
+        if (!qt_gl_global_share_context() || !qt_gl_global_share_context()->isValid()) {
+            qWarning("WebEngineContext used before QtWebEngineCore::initialize() or OpenGL context "
+                     "creation failed.");
+        } else {
+            const QSurfaceFormat sharedFormat = qt_gl_global_share_context()->format();
+            switch (sharedFormat.renderableType()) {
+            case QSurfaceFormat::OpenGL:
+                glType = gl::kGLImplementationDesktopName;
+                // Check if Core profile was requested and is supported.
+                if (sharedFormat.profile() == QSurfaceFormat::CoreProfile) {
+#ifdef Q_OS_MACOS
+                    glType = gl::kGLImplementationCoreProfileName;
+#else
+                    qWarning("An OpenGL Core Profile was requested, but it is not supported "
+                             "on the current platform. Falling back to a non-Core profile. "
+                             "Note that this might cause rendering issues.");
+#endif
+                }
+                break;
+            case QSurfaceFormat::OpenGLES:
+                glType = usingANGLE() ? gl::kGLImplementationANGLEName
+                                      : gl::kGLImplementationEGLName;
+                break;
+            case QSurfaceFormat::OpenVG:
+            case QSurfaceFormat::DefaultRenderableType:
+            default:
+                // Shared contex created but no rederable type set.
+                qWarning("Unsupported rendering surface format. Please open bug report at "
+                         "https://bugreports.qt.io");
+            }
+        }
+    }
+    return glType;
+}
+#else
+static const char *getGLType(bool enableGLSoftwareRendering)
+{
+    return nullptr;
+}
+#endif // QT_CONFIG(opengl)
+
+#if QT_CONFIG(webengine_pepper_plugins)
+void dummyGetPluginCallback(const std::vector<content::WebPluginInfo>&)
+{
+}
+#endif
+
+static void logContext(const char *glType, base::CommandLine *cmd)
+{
+    QLoggingCategory webEngineContextLog("qt.webenginecontext");
+    if (webEngineContextLog.isInfoEnabled()) {
+#if QT_CONFIG(opengl)
+        const QSurfaceFormat sharedFormat = qt_gl_global_share_context()->format();
+        const auto profile = QMetaEnum::fromType<QSurfaceFormat::OpenGLContextProfile>().valueToKey(
+                sharedFormat.profile());
+        const auto type = QMetaEnum::fromType<QSurfaceFormat::RenderableType>().valueToKey(
+                sharedFormat.renderableType());
+        const base::CommandLine::SwitchMap switch_map = cmd->GetSwitches();
+        QStringList params;
+        for (const auto &pair : switch_map)
+            params << " * " << toQt(pair.first)
+                   << toQt(pair.second) << "\n";
+        qCInfo(webEngineContextLog,
+               "\n\nGLImplementation: %s\n"
+               "Surface Type: %s\n"
+               "Surface Profile: %s\n"
+               "Surface Version: %d.%d\n"
+               "Using Default SG Backend: %s\n"
+               "Using Software Dynamic GL: %s\n"
+               "Using Angle: %s\n\n"
+               "Init Parameters:\n %s",
+               glType, type, profile, sharedFormat.majorVersion(), sharedFormat.minorVersion(),
+               usingDefaultSGBackend() ? "yes" : "no", usingSoftwareDynamicGL() ? "yes" : "no",
+               usingANGLE() ? "yes" : "no", qPrintable(params.join(" ")));
+#else
+        qCInfo(webEngineContextLog) << "WebEngine compiled with no opengl enabled.";
+#endif //QT_CONFIG(opengl)
+    }
+}
+
+extern std::unique_ptr<base::MessagePump> messagePumpFactory();
+
+static void setupProxyPac(base::CommandLine *commandLine)
+{
     if (commandLine->HasSwitch(switches::kProxyPacUrl)) {
         QUrl pac_url(toQt(commandLine->GetSwitchValueASCII(switches::kProxyPacUrl)));
         if (pac_url.isValid() && (pac_url.isLocalFile() ||
-            !pac_url.scheme().compare(QLatin1String("qrc"), Qt::CaseInsensitive))) {
+                                  !pac_url.scheme().compare(QLatin1String("qrc"), Qt::CaseInsensitive))) {
             QFile file;
             if (pac_url.isLocalFile())
-              file.setFileName(pac_url.toLocalFile());
+                file.setFileName(pac_url.toLocalFile());
             else
-              file.setFileName(pac_url.path().prepend(QChar(':')));
+                file.setFileName(pac_url.path().prepend(QChar(':')));
             if (file.exists() && file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-               QByteArray ba = file.readAll();
-               commandLine->RemoveSwitch(switches::kProxyPacUrl);
-               commandLine->AppendSwitchASCII(switches::kProxyPacUrl,
-                   ba.toBase64().prepend("data:application/x-javascript-config;base64,").toStdString());
+                QByteArray ba = file.readAll();
+                commandLine->RemoveSwitch(switches::kProxyPacUrl);
+                commandLine->AppendSwitchASCII(switches::kProxyPacUrl,
+                        ba.toBase64().prepend("data:application/x-javascript-config;base64,").toStdString());
             }
         }
     }
@@ -312,7 +384,7 @@ static QStringList parseEnvCommandLine(const QString &cmdLine)
 
 scoped_refptr<QtWebEngineCore::WebEngineContext> WebEngineContext::m_handle;
 bool WebEngineContext::m_destroyed = false;
-
+bool WebEngineContext::m_closingDown = false;
 void WebEngineContext::destroyProfileAdapter()
 {
     if (content::RenderProcessHost::run_renderer_in_process()) {
@@ -351,26 +423,36 @@ void WebEngineContext::removeProfileAdapter(ProfileAdapter *profileAdapter)
     m_profileAdapters.removeAll(profileAdapter);
 }
 
+void WebEngineContext::flushMessages()
+{
+    if (!m_destroyed) {
+        base::MessagePump::Delegate *delegate = static_cast<
+                base::sequence_manager::internal::ThreadControllerWithMessagePumpImpl *>(
+                WebEngineContext::current()->m_runLoop->delegate_);
+        while (delegate->DoWork().is_immediate()) { }
+    }
+}
 void WebEngineContext::destroy()
 {
     if (m_devtoolsServer)
         m_devtoolsServer->stop();
 
+#if QT_CONFIG(webengine_webrtc) && QT_CONFIG(webengine_extensions)
+    if (m_webrtcLogUploader)
+        m_webrtcLogUploader->Shutdown();
+#endif
 
-    base::MessagePump::Delegate *delegate =
-            static_cast<base::sequence_manager::internal::ThreadControllerWithMessagePumpImpl *>(
-                m_runLoop->delegate_);
     // Normally the GPU thread is shut down when the GpuProcessHost is destroyed
     // on IO thread (triggered by ~BrowserMainRunner). But by that time the UI
     // task runner is not working anymore so we need to do this earlier.
     cleanupVizProcess();
     while (waitForViz) {
-        while (delegate->DoWork().is_immediate()) { }
+        flushMessages();
         QThread::msleep(50);
     }
     destroyGpuProcess();
     // Flush the UI message loop before quitting.
-    while (delegate->DoWork().is_immediate()) { }
+    flushMessages();
 
 #if QT_CONFIG(webengine_printing_and_pdf)
     // Kill print job manager early as it has a content::NotificationRegistrar
@@ -392,7 +474,7 @@ void WebEngineContext::destroy()
 
     // Handle any events posted by browser-context shutdown.
     // This should deliver all nessesery calls of DeleteSoon from PostTask
-    while (delegate->DoWork().is_immediate()) { }
+    flushMessages();
 
     m_devtoolsServer.reset();
     m_runLoop->AfterRun();
@@ -404,7 +486,7 @@ void WebEngineContext::destroy()
 
     // These would normally be in the content-runner, but we allocated them separately:
     m_startupData.reset();
-    m_serviceManagerEnvironment.reset();
+    m_mojoIpcSupport.reset();
     m_discardableSharedMemoryManager.reset();
 
     // Destroying content-runner will force Chromium at_exit calls to run, and
@@ -413,6 +495,10 @@ void WebEngineContext::destroy()
 
     // Drop the false reference.
     m_handle->Release();
+
+#if QT_CONFIG(webengine_webrtc) && QT_CONFIG(webengine_extensions)
+    m_webrtcLogUploader.reset();
+#endif
 }
 
 WebEngineContext::~WebEngineContext()
@@ -443,7 +529,7 @@ ProfileAdapter *WebEngineContext::createDefaultProfileAdapter()
 {
     Q_ASSERT(!m_destroyed);
     if (!m_defaultProfileAdapter) {
-        ProfileAdapter *profile = new ProfileAdapter(QStringLiteral("Default"));
+        ProfileAdapter *profile = new ProfileAdapter();
         // profile when added to m_profileAdapters might be set default
         // profile in case of single-process
         if (!m_defaultProfileAdapter)
@@ -467,6 +553,7 @@ void WebEngineContext::destroyContextPostRoutine()
     // Destroy WebEngineContext before its static pointer is zeroed and destructor called.
     // Before destroying MessageLoop via destroying BrowserMainRunner destructor
     // WebEngineContext's pointer is used.
+    m_closingDown = true;
     m_handle->destroy();
 #if !defined(NDEBUG)
     if (!m_handle->HasOneRef())
@@ -508,23 +595,47 @@ bool WebEngineContext::isGpuServiceOnUIThread()
     return !threadedGpu;
 }
 
-static void appendToFeatureList(std::string &featureList, const char *feature)
+static void initializeFeatureList(base::CommandLine *commandLine, std::vector<std::string> enableFeatures, std::vector<std::string> disableFeatures)
 {
-    if (featureList.empty())
-        featureList = feature;
-    else
-        featureList = featureList + "," + feature;
-}
+    std::string enableFeaturesString = base::JoinString(enableFeatures, ",");
+    if (commandLine->HasSwitch(switches::kEnableFeatures)) {
+        std::string commandLineEnableFeatures = commandLine->GetSwitchValueASCII(switches::kEnableFeatures);
 
-static void appendToFeatureSwitch(base::CommandLine *commandLine, const char *featureSwitch, std::string feature)
-{
-    if (!commandLine->HasSwitch(featureSwitch)) {
-        commandLine->AppendSwitchASCII(featureSwitch, feature);
-    } else {
-        std::string featureList = commandLine->GetSwitchValueASCII(featureSwitch);
-        featureList = featureList + "," + feature;
-        commandLine->AppendSwitchASCII(featureSwitch, featureList);
+        for (const std::string &enableFeature : base::SplitString(commandLineEnableFeatures, ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY)) {
+            auto it = std::find(disableFeatures.begin(), disableFeatures.end(), enableFeature);
+            if (it == disableFeatures.end())
+                continue;
+
+            qWarning("An unsupported feature has been enabled from command line: %s\n"
+                     "The feature is enabled but there is no guarantee that it will work or not break QtWebEngine.", enableFeature.c_str());
+
+            // If a feature is disabled and enabled at the same time, then it will be disabled.
+            // Remove feature from the disable list to make it possible to override from command line.
+            disableFeatures.erase(it);
+        }
+
+        enableFeaturesString = enableFeaturesString + "," + commandLineEnableFeatures;
     }
+
+    std::string disableFeaturesString = base::JoinString(disableFeatures, ",");
+    if (commandLine->HasSwitch(switches::kDisableFeatures)) {
+        std::string commandLineDisableFeatures = commandLine->GetSwitchValueASCII(switches::kDisableFeatures);
+
+        for (const std::string &disableFeature : base::SplitString(commandLineDisableFeatures, ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY)) {
+            auto it = std::find(enableFeatures.begin(), enableFeatures.end(), disableFeature);
+            if (it == enableFeatures.end())
+                continue;
+
+            qWarning("An essential feature has been disabled from command line: %s\n"
+                     "The feature is disabled but there is no guarantee that it will not break QtWebEngine.", disableFeature.c_str());
+        }
+
+        disableFeaturesString = disableFeaturesString + "," + commandLineDisableFeatures;
+    }
+
+    commandLine->AppendSwitchASCII(switches::kEnableFeatures, enableFeaturesString);
+    commandLine->AppendSwitchASCII(switches::kDisableFeatures, disableFeaturesString);
+    base::FeatureList::InitializeInstance(enableFeaturesString, disableFeaturesString);
 }
 
 WebEngineContext::WebEngineContext()
@@ -538,7 +649,7 @@ WebEngineContext::WebEngineContext()
 #endif
 
     base::ThreadPoolInstance::Create("Browser");
-    m_contentRunner.reset(content::ContentMainRunner::Create());
+    m_contentRunner = content::ContentMainRunner::Create();
     m_browserRunner = content::BrowserMainRunner::Create();
 
 #ifdef Q_OS_LINUX
@@ -551,7 +662,6 @@ WebEngineContext::WebEngineContext()
         // User might have registered "qrc" already with different options.
         QWebEngineUrlScheme qrcScheme(QByteArrayLiteral("qrc"));
         qrcScheme.setFlags(QWebEngineUrlScheme::SecureScheme
-                           | QWebEngineUrlScheme::LocalAccessAllowed
                            | QWebEngineUrlScheme::ViewSourceAllowed);
         QWebEngineUrlScheme::registerScheme(qrcScheme);
     }
@@ -562,12 +672,6 @@ WebEngineContext::WebEngineContext()
     content::RenderFrameHost::AllowInjectingJavaScript();
 
     QStringList appArgs = QCoreApplication::arguments();
-
-    // If user requested GL support instead of using Skia rendering to
-    // bitmaps, use software rendering via software OpenGL. This might be less
-    // performant, but at least provides WebGL support.
-    // TODO(miklocek), check if this still works with latest chromium
-    bool enableGLSoftwareRendering = appArgs.contains(QStringLiteral("--enable-webgl-software-rendering"));
 
     bool useEmbeddedSwitches = false;
 #if defined(QTWEBENGINE_EMBEDDED_SWITCHES)
@@ -580,176 +684,96 @@ WebEngineContext::WebEngineContext()
     setupProxyPac(parsedCommandLine);
     parsedCommandLine->AppendSwitchPath(switches::kBrowserSubprocessPath, WebEngineLibraryInfo::getPath(content::CHILD_PROCESS_EXE));
 
-    parsedCommandLine->AppendSwitchASCII(service_manager::switches::kApplicationName, QCoreApplication::applicationName().toUtf8().toPercentEncoding().toStdString());
+    parsedCommandLine->AppendSwitchASCII(switches::kApplicationName, QCoreApplication::applicationName().toUtf8().toPercentEncoding().toStdString());
 
     // Enable sandboxing on OS X and Linux (Desktop / Embedded) by default.
     bool disable_sandbox = qEnvironmentVariableIsSet(kDisableSandboxEnv);
     if (!disable_sandbox) {
 #if defined(Q_OS_LINUX)
-        parsedCommandLine->AppendSwitch(service_manager::switches::kDisableSetuidSandbox);
+        parsedCommandLine->AppendSwitch(sandbox::policy::switches::kDisableSetuidSandbox);
 #endif
     } else {
-        parsedCommandLine->AppendSwitch(service_manager::switches::kNoSandbox);
+        parsedCommandLine->AppendSwitch(sandbox::policy::switches::kNoSandbox);
         qInfo() << "Sandboxing disabled by user.";
     }
 
     parsedCommandLine->AppendSwitch(switches::kEnableThreadedCompositing);
 
-#if defined(Q_OS_WIN)
-    // This switch is used in Chromium's gl_context_wgl.cc file to determine whether to create
-    // an OpenGL Core Profile context. If the switch is not set, it would always try to create a
-    // Core Profile context, even if Qt uses a legacy profile, which causes
-    // "Could not share GL contexts" warnings, because it's not possible to share between Core and
-    // legacy profiles. See GLContextWGL::Initialize().
-    // Given that Desktop GL Core profile is not currently supported on Windows anyway, pass this
-    // switch to get rid of the warnings.
-    //
-    // The switch is also used to determine which version of OpenGL ES to use (2 or 3) when using
-    // ANGLE.
-    // If the switch is not set, Chromium will always try to create an ES3 context, even if Qt uses
-    // an ES2 context, which causes resource sharing issues (black screen),
-    // see gpu::gles2::GenerateGLContextAttribs().
-    // Make sure to disable ES3 context creation when using ES2.
-    const bool isGLES2Context = qt_gl_global_share_context()
-            && qt_gl_global_share_context()->isOpenGLES()
-            && qt_gl_global_share_context()->format().majorVersion() == 2;
-    const bool isDesktopGLOrSoftware = !usingANGLE();
-
-    if (isDesktopGLOrSoftware || isGLES2Context)
-        parsedCommandLine->AppendSwitch(switches::kDisableES3GLContext);
-#endif
-
     // Do not advertise a feature we have removed at compile time
     parsedCommandLine->AppendSwitch(switches::kDisableSpeechAPI);
 
-    std::string disableFeatures;
-    std::string enableFeatures;
-    // Needed to allow navigations within pages that were set using setHtml(). One example is
-    // tst_QWebEnginePage::acceptNavigationRequest.
-    // This is deprecated behavior, and will be removed in a future Chromium version, as per
-    // upstream Chromium commit ba52f56207a4b9d70b34880fbff2352e71a06422.
-    appendToFeatureList(enableFeatures, features::kAllowContentInitiatedDataUrlNavigations.name);
+    std::vector<std::string> disableFeatures;
+    std::vector<std::string> enableFeatures;
 
-    appendToFeatureList(enableFeatures, features::kTracingServiceInProcess.name);
+    enableFeatures.push_back(features::kNetworkServiceInProcess.name);
+    enableFeatures.push_back(features::kTracingServiceInProcess.name);
 
-    // The video-capture service is not functioning at this moment (since 69)
-    appendToFeatureList(disableFeatures, features::kMojoVideoCapture.name);
-
-#if defined(Q_OS_LINUX)
-    // broken and crashy (even upstream):
-    appendToFeatureList(disableFeatures, features::kFontSrcLocalMatching.name);
-#endif
-
-    // We don't support the skia renderer (enabled by default on Linux since 80)
-    appendToFeatureList(disableFeatures, features::kUseSkiaRenderer.name);
-
-    appendToFeatureList(disableFeatures, network::features::kDnsOverHttpsUpgrade.name);
+    disableFeatures.push_back(network::features::kDnsOverHttpsUpgrade.name);
 
     // When enabled, event.movement is calculated in blink instead of in browser.
-    appendToFeatureList(disableFeatures, features::kConsolidatedMovementXY.name);
+    disableFeatures.push_back(features::kConsolidatedMovementXY.name);
+
+    // Avoid crashing when websites tries using this feature (since 83)
+    disableFeatures.push_back(features::kInstalledApp.name);
 
     // Explicitly tell Chromium about default-on features we do not support
-    appendToFeatureList(disableFeatures, features::kBackgroundFetch.name);
-    appendToFeatureList(disableFeatures, features::kSmsReceiver.name);
-    appendToFeatureList(disableFeatures, features::kWebPayments.name);
-    appendToFeatureList(disableFeatures, features::kWebUsb.name);
-    appendToFeatureList(disableFeatures, media::kPictureInPicture.name);
-
-    // Breaks current colordialog tests.
-    appendToFeatureList(disableFeatures, features::kFormControlsRefresh.name);
+    disableFeatures.push_back(features::kBackgroundFetch.name);
+    disableFeatures.push_back(features::kWebOTP.name);
+    disableFeatures.push_back(features::kWebPayments.name);
+    disableFeatures.push_back(features::kWebUsb.name);
+    disableFeatures.push_back(media::kPictureInPicture.name);
 
     if (useEmbeddedSwitches) {
         // embedded switches are based on the switches for Android, see content/browser/android/content_startup_flags.cc
-        appendToFeatureList(enableFeatures, features::kOverlayScrollbar.name);
+        enableFeatures.push_back(features::kOverlayScrollbar.name);
         parsedCommandLine->AppendSwitch(switches::kEnableViewport);
         parsedCommandLine->AppendSwitch(switches::kMainFrameResizesAreOrientationChanges);
         parsedCommandLine->AppendSwitch(cc::switches::kDisableCompositedAntialiasing);
     }
 
-    appendToFeatureSwitch(parsedCommandLine, switches::kDisableFeatures, disableFeatures);
-    appendToFeatureSwitch(parsedCommandLine, switches::kEnableFeatures, enableFeatures);
-    base::FeatureList::InitializeInstance(
-        parsedCommandLine->GetSwitchValueASCII(switches::kEnableFeatures),
-        parsedCommandLine->GetSwitchValueASCII(switches::kDisableFeatures));
+    initializeFeatureList(parsedCommandLine, enableFeatures, disableFeatures);
 
     GLContextHelper::initialize();
 
-    const char *glType = 0;
-#if QT_CONFIG(opengl)
-
-    const bool tryGL = (usingDefaultSGBackend() && !usingSoftwareDynamicGL() &&
-                        QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::OpenGL))
-                        || enableGLSoftwareRendering;
-    if (tryGL) {
-        if (qt_gl_global_share_context() && qt_gl_global_share_context()->isValid()) {
-            // If the native handle is QEGLNativeContext try to use GL ES/2.
-            // If there is no native handle, assume we are using wayland and try GL ES/2.
-            // If we are using ANGLE on Windows, use OpenGL ES (2 or 3).
-            if (qt_gl_global_share_context()->nativeHandle().isNull()
-                || !strcmp(qt_gl_global_share_context()->nativeHandle().typeName(),
-                           "QEGLNativeContext")
-                || usingANGLE())
-            {
-                if (qt_gl_global_share_context()->isOpenGLES()) {
-                    glType = usingANGLE() ? gl::kGLImplementationANGLEName : gl::kGLImplementationEGLName;
-                } else {
-                    QOpenGLContext context;
-                    QSurfaceFormat format;
-
-                    format.setRenderableType(QSurfaceFormat::OpenGL);
-                    format.setVersion(2, 0);
-
-                    context.setFormat(format);
-                    context.setShareContext(qt_gl_global_share_context());
-                    if (context.create()) {
-                        QOffscreenSurface surface;
-
-                        surface.setFormat(format);
-                        surface.create();
-
-                        if (context.makeCurrent(&surface)) {
-                            if (context.hasExtension("GL_ARB_ES2_compatibility"))
-                                glType = gl::kGLImplementationEGLName;
-
-                            context.doneCurrent();
-                        }
-
-                        surface.destroy();
-                    }
-                }
-            } else {
-                if (!qt_gl_global_share_context()->isOpenGLES()) {
-                    // Default to Desktop non-Core profile OpenGL.
-                    glType = gl::kGLImplementationDesktopName;
-
-                    // Check if Core profile was requested and is supported.
-                    QSurfaceFormat globalSharedFormat = qt_gl_global_share_context()->format();
-                    if (globalSharedFormat.profile() == QSurfaceFormat::CoreProfile) {
-#ifdef Q_OS_MACOS
-                        glType = gl::kGLImplementationCoreProfileName;
-#else
-                        qWarning("An OpenGL Core Profile was requested, but it is not supported "
-                                 "on the current platform. Falling back to a non-Core profile. "
-                                 "Note that this might cause rendering issues.");
-#endif
-                    }
-                }
-            }
-            if (qt_gl_global_share_context()->format().profile() == QSurfaceFormat::CompatibilityProfile)
-                parsedCommandLine->AppendSwitch(switches::kCreateDefaultGLContext);
-        } else {
-            qWarning("WebEngineContext used before QtWebEngine::initialize() or OpenGL context creation failed.");
-        }
-    }
-#endif // QT_CONFIG(opengl)
+    // If user requested GL support instead of using Skia rendering to
+    // bitmaps, use software rendering via software OpenGL. This might be less
+    // performant, but at least provides WebGL support.
+    // TODO(miklocek), check if this still works with latest chromium
+    const bool enableGLSoftwareRendering = appArgs.contains(QStringLiteral("--enable-webgl-software-rendering"));
+    const char *glType = getGLType(enableGLSoftwareRendering);
 
     if (glType) {
+#if QT_CONFIG(opengl)
         parsedCommandLine->AppendSwitchASCII(switches::kUseGL, glType);
         parsedCommandLine->AppendSwitch(switches::kInProcessGPU);
         if (enableGLSoftwareRendering) {
             parsedCommandLine->AppendSwitch(switches::kDisableGpuRasterization);
-            parsedCommandLine->AppendSwitch(switches::kIgnoreGpuBlacklist);
+            parsedCommandLine->AppendSwitch(switches::kIgnoreGpuBlocklist);
         }
+        const QSurfaceFormat sharedFormat = QOpenGLContext::globalShareContext()->format();
+        if (sharedFormat.profile() == QSurfaceFormat::CompatibilityProfile)
+            parsedCommandLine->AppendSwitch(switches::kCreateDefaultGLContext);
+#if defined(Q_OS_WIN)
+        // This switch is used in Chromium's gl_context_wgl.cc file to determine whether to create
+        // an OpenGL Core Profile context. If the switch is not set, it would always try to create a
+        // Core Profile context, even if Qt uses a legacy profile, which causes
+        // "Could not share GL contexts" warnings, because it's not possible to share between Core and
+        // legacy profiles. See GLContextWGL::Initialize().
+        // Given that Desktop GL Core profile is not currently supported on Windows anyway, pass this
+        // switch to get rid of the warnings.
+        //
+        // The switch is also used to determine which version of OpenGL ES to use (2 or 3) when using
+        // ANGLE.
+        // If the switch is not set, Chromium will always try to create an ES3 context, even if Qt uses
+        // an ES2 context, which causes resource sharing issues (black screen),
+        // see gpu::gles2::GenerateGLContextAttribs().
+        // Make sure to disable ES3 context creation when using ES2.
+        const bool isGLES2Context = QOpenGLContext::globalShareContext()->isOpenGLES()
+            && QOpenGLContext::globalShareContext()->format().majorVersion() == 2;
+        if (!usingANGLE() || isGLES2Context)
+            parsedCommandLine->AppendSwitch(switches::kDisableES3GLContext);
+#endif
+#endif //QT_CONFIG(opengl)
     } else {
         parsedCommandLine->AppendSwitch(switches::kDisableGpu);
     }
@@ -757,8 +781,9 @@ WebEngineContext::WebEngineContext()
     registerMainThreadFactories();
 
     content::ContentMainParams contentMainParams(m_mainDelegate.get());
+    contentMainParams.setup_signal_handlers = false;
 #if defined(OS_WIN)
-    contentMainParams.sandbox_info = staticSandboxInterfaceInfo();
+    contentMainParams.sandbox_info = QtWebEngineSandbox::staticSandboxInterfaceInfo();
     sandbox::SandboxInterfaceInfo sandbox_info = {0};
     if (!contentMainParams.sandbox_info) {
         content::InitializeSandboxInfo(&sandbox_info);
@@ -781,8 +806,10 @@ WebEngineContext::WebEngineContext()
     tracing::InitTracingPostThreadPoolStartAndFeatureList();
     m_discardableSharedMemoryManager = std::make_unique<discardable_memory::DiscardableSharedMemoryManager>();
     base::PowerMonitor::Initialize(std::make_unique<base::PowerMonitorDeviceSource>());
-    m_serviceManagerEnvironment = std::make_unique<content::ServiceManagerEnvironment>(content::BrowserTaskExecutor::CreateIOThread());
-    m_startupData = m_serviceManagerEnvironment->CreateBrowserStartupData();
+
+    m_mojoIpcSupport = std::make_unique<content::MojoIpcSupport>(content::BrowserTaskExecutor::CreateIOThread());
+    download::SetIOTaskRunner(m_mojoIpcSupport->io_thread()->task_runner());
+    m_startupData = m_mojoIpcSupport->CreateBrowserStartupData();
 
     // Once the MessageLoop has been created, attach a top-level RunLoop.
     m_runLoop.reset(new base::RunLoop);
@@ -832,6 +859,8 @@ WebEngineContext::WebEngineContext()
 #endif
 
     content::WebUIControllerFactory::RegisterFactory(WebUIControllerFactoryQt::GetInstance());
+
+    logContext(glType, parsedCommandLine);
 }
 
 #if QT_CONFIG(webengine_printing_and_pdf)
@@ -840,6 +869,16 @@ printing::PrintJobManager* WebEngineContext::getPrintJobManager()
     return m_printJobManager.get();
 }
 #endif
+
+#if QT_CONFIG(webengine_webrtc) && QT_CONFIG(webengine_extensions)
+WebRtcLogUploader *WebEngineContext::webRtcLogUploader()
+{
+    if (!m_webrtcLogUploader)
+        m_webrtcLogUploader = std::make_unique<WebRtcLogUploader>();
+    return m_webrtcLogUploader.get();
+}
+#endif
+
 
 static QMutex s_spmMutex;
 QAtomicPointer<gpu::SyncPointManager> WebEngineContext::s_syncPointManager;
@@ -850,8 +889,8 @@ gpu::SyncPointManager *WebEngineContext::syncPointManager()
         return spm;
     QMutexLocker lock(&s_spmMutex);
     if (!s_syncPointManager)
-        s_syncPointManager.store(new gpu::SyncPointManager());
-    return s_syncPointManager.load();
+        s_syncPointManager.storeRelaxed(new gpu::SyncPointManager());
+    return s_syncPointManager.loadRelaxed();
 }
 
 base::CommandLine* WebEngineContext::commandLine() {
@@ -884,4 +923,37 @@ base::CommandLine* WebEngineContext::commandLine() {
     }
 }
 
+bool WebEngineContext::closingDown()
+{
+    return m_closingDown;
+}
+
 } // namespace
+
+QT_BEGIN_NAMESPACE
+/*!
+    \relates <qtwebenginecoreglobal.h>
+    \since 6.2
+
+    Returns the version number of Qt WebEngine at run-time as a string
+    (for example, "6.2.0"). This may be a different version than the
+    version the application was compiled against, and a different version
+    than Qt.
+*/
+const char *qWebEngineVersion() noexcept
+{
+    return QTWEBENGINECORE_VERSION_STR;
+}
+
+/*!
+    \relates <qtwebenginecoreglobal.h>
+    \since 6.2
+
+    Returns the version number of Chromium used by Qt WebEngine at run-time
+    as a string (for example, "83.0.4103.122").
+*/
+const char *qWebEngineChromiumVersion() noexcept
+{
+    return CHROMIUM_VERSION;
+}
+QT_END_NAMESPACE

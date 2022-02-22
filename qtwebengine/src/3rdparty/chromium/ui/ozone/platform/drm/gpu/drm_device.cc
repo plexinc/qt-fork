@@ -16,8 +16,8 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/free_deleter.h"
-#include "base/message_loop/message_loop_current.h"
 #include "base/message_loop/message_pump_for_io.h"
+#include "base/task/current_thread.h"
 #include "base/task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
@@ -206,19 +206,19 @@ class DrmDevice::IOWatcher : public base::MessagePumpLibevent::FdWatcher {
 
  private:
   void Register() {
-    DCHECK(base::MessageLoopCurrentForIO::IsSet());
-    base::MessageLoopCurrentForIO::Get()->WatchFileDescriptor(
+    DCHECK(base::CurrentIOThread::IsSet());
+    base::CurrentIOThread::Get()->WatchFileDescriptor(
         fd_, true, base::MessagePumpForIO::WATCH_READ, &controller_, this);
   }
 
   void Unregister() {
-    DCHECK(base::MessageLoopCurrentForIO::IsSet());
+    DCHECK(base::CurrentIOThread::IsSet());
     controller_.StopWatchingFileDescriptor();
   }
 
   // base::MessagePumpLibevent::FdWatcher overrides:
   void OnFileCanReadWithoutBlocking(int fd) override {
-    DCHECK(base::MessageLoopCurrentForIO::IsSet());
+    DCHECK(base::CurrentIOThread::IsSet());
     TRACE_EVENT1("drm", "OnDrmEvent", "socket", fd);
 
     if (!ProcessDrmEvent(
@@ -308,9 +308,15 @@ bool DrmDevice::SetCrtc(uint32_t crtc_id,
 
   TRACE_EVENT2("drm", "DrmDevice::SetCrtc", "crtc", crtc_id, "size",
                gfx::Size(mode.hdisplay, mode.vdisplay).ToString());
-  return !drmModeSetCrtc(file_.GetPlatformFile(), crtc_id, framebuffer, 0, 0,
-                         connectors.data(), connectors.size(),
-                         const_cast<drmModeModeInfo*>(&mode));
+
+  if (!drmModeSetCrtc(file_.GetPlatformFile(), crtc_id, framebuffer, 0, 0,
+                      connectors.data(), connectors.size(),
+                      const_cast<drmModeModeInfo*>(&mode))) {
+    ++modeset_sequence_id_;
+    return true;
+  }
+
+  return false;
 }
 
 bool DrmDevice::DisableCrtc(uint32_t crtc_id) {
@@ -540,14 +546,45 @@ bool DrmDevice::CommitProperties(
     uint32_t flags,
     uint32_t crtc_count,
     scoped_refptr<PageFlipRequest> page_flip_request) {
+  bool success = CommitPropertiesInternal(properties, flags, crtc_count,
+                                          page_flip_request);
+
+  if (success && flags == DRM_MODE_ATOMIC_ALLOW_MODESET)
+    ++modeset_sequence_id_;
+
+  return success;
+}
+
+bool DrmDevice::CommitPropertiesInternal(
+    drmModeAtomicReq* properties,
+    uint32_t flags,
+    uint32_t crtc_count,
+    scoped_refptr<PageFlipRequest> page_flip_request) {
   uint64_t id = 0;
+
   if (page_flip_request) {
     flags |= DRM_MODE_PAGE_FLIP_EVENT;
     id = page_flip_manager_->GetNextId();
   }
 
-  if (!drmModeAtomicCommit(file_.GetPlatformFile(), properties, flags,
-                           reinterpret_cast<void*>(id))) {
+  int result = drmModeAtomicCommit(file_.GetPlatformFile(), properties, flags,
+                                   reinterpret_cast<void*>(id));
+  if (result && errno == EBUSY && (flags & DRM_MODE_ATOMIC_NONBLOCK)) {
+    VLOG(1) << "Nonblocking atomic commit failed with EBUSY, retry without "
+               "nonblock";
+    // There have been cases where we get back EBUSY when attempting a
+    // non-blocking atomic commit. If we return false from here, that will cause
+    // the GPU process to CHECK itself. These are likely due to kernel bugs,
+    // which should be fixed, but rather than crashing we should retry the
+    // commit without the non-blocking flag and then it should work. This will
+    // cause a slight delay, but that should be imperceptible and better than
+    // crashing. We still do want the underlying driver bugs fixed, but this
+    // provide a better user experience.
+    flags &= ~DRM_MODE_ATOMIC_NONBLOCK;
+    result = drmModeAtomicCommit(file_.GetPlatformFile(), properties, flags,
+                                 reinterpret_cast<void*>(id));
+  }
+  if (!result) {
     if (page_flip_request) {
       page_flip_manager_->RegisterCallback(id, crtc_count,
                                            page_flip_request->AddPageFlip());

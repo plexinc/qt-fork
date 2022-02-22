@@ -40,8 +40,11 @@
 #if QT_CONFIG(regularexpression)
 #include <QtCore/qregularexpression.h>
 #endif
+#if QT_CONFIG(process)
+#include <QtCore/qprocess.h>
+#endif
 #include <QtCore/private/qobject_p.h>
-#include "../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 #include "qobject.h"
 #include <QtQml/QQmlPropertyMap>
 
@@ -90,10 +93,11 @@ class MyContainer : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QQmlListProperty<MyQmlObject> children READ children)
+
 public:
     MyContainer() {}
 
-    QQmlListProperty<MyQmlObject> children() { return QQmlListProperty<MyQmlObject>(this, m_children); }
+    QQmlListProperty<MyQmlObject> children() { return QQmlListProperty<MyQmlObject>(this, &m_children); }
 
     static MyAttached *qmlAttachedProperties(QObject *o) {
         return new MyAttached(o);
@@ -106,14 +110,43 @@ private:
 QML_DECLARE_TYPE(MyContainer);
 QML_DECLARE_TYPEINFO(MyContainer, QML_HAS_ATTACHED_PROPERTIES)
 
+class MyReplaceIfNotDefaultBehaviorContainer : public MyContainer
+{
+    Q_OBJECT
+    Q_PROPERTY(QQmlListProperty<MyQmlObject> defaultList READ defaultList)
+
+    QML_LIST_PROPERTY_ASSIGN_BEHAVIOR_REPLACE_IF_NOT_DEFAULT
+    Q_CLASSINFO("DefaultProperty", "defaultList")
+public:
+    MyReplaceIfNotDefaultBehaviorContainer() {}
+
+    QQmlListProperty<MyQmlObject> defaultList() { return QQmlListProperty<MyQmlObject>(this, &m_defaultList); }
+
+private:
+    QList<MyQmlObject*> m_defaultList;
+};
+
+QML_DECLARE_TYPE(MyReplaceIfNotDefaultBehaviorContainer);
+
+class MyAlwaysReplaceBehaviorContainer : public MyContainer
+{
+    Q_OBJECT
+
+    QML_LIST_PROPERTY_ASSIGN_BEHAVIOR_REPLACE
+public:
+    MyAlwaysReplaceBehaviorContainer() {}
+};
+
+QML_DECLARE_TYPE(MyAlwaysReplaceBehaviorContainer);
+
 class tst_qqmlproperty : public QQmlDataTest
 {
     Q_OBJECT
 public:
-    tst_qqmlproperty() {}
+    tst_qqmlproperty() : QQmlDataTest(QT_QMLTEST_DATADIR) {}
 
 private slots:
-    void initTestCase();
+    void initTestCase() override;
 
     // Constructors
     void qmlmetaproperty();
@@ -131,6 +164,7 @@ private slots:
     // Functionality
     void writeObjectToList();
     void writeListToList();
+    void listOverrideBehavior();
 
     //writeToReadOnly();
 
@@ -164,6 +198,14 @@ private slots:
     void nestedQQmlPropertyMap();
 
     void underscorePropertyChangeHandler();
+
+    void signalExpressionWithoutObject();
+
+    void dontRemoveQPropertyBinding();
+    void compatResolveUrls();
+
+    void bindToNonQObjectTarget();
+
 private:
     QQmlEngine engine;
 };
@@ -384,7 +426,7 @@ public:
     QString stringProperty() const { return m_stringProperty;}
     QChar qcharProperty() const { return m_qcharProperty; }
 
-    QChar constQChar() const { return 0x25cf; /* Unicode: black circle */ }
+    QChar constQChar() const { return u'\u25cf'; /* Unicode: black circle */ }
 
     void setStringProperty(QString arg) { m_stringProperty = arg; }
     void setQcharProperty(QChar arg) { m_qcharProperty = arg; }
@@ -494,7 +536,7 @@ void tst_qqmlproperty::qmlmetaproperty_object()
         QCOMPARE(prop.isValid(), true);
         QCOMPARE(prop.object(), qobject_cast<QObject*>(&dobject));
         QCOMPARE(prop.propertyTypeCategory(), QQmlProperty::Normal);
-        QCOMPARE(prop.propertyType(), (int)QVariant::Int);
+        QCOMPARE(prop.propertyType(), QMetaType::Int);
         QCOMPARE(prop.propertyTypeName(), "int");
         QCOMPARE(QString(prop.property().name()), QString("defaultProperty"));
         QVERIFY(!QQmlPropertyPrivate::binding(prop));
@@ -599,7 +641,7 @@ void tst_qqmlproperty::qmlmetaproperty_object_string()
         QCOMPARE(prop.isValid(), true);
         QCOMPARE(prop.object(), qobject_cast<QObject*>(&dobject));
         QCOMPARE(prop.propertyTypeCategory(), QQmlProperty::Normal);
-        QCOMPARE(prop.propertyType(), (int)QVariant::Int);
+        QCOMPARE(prop.propertyType(), QMetaType::Int);
         QCOMPARE(prop.propertyTypeName(), "int");
         QCOMPARE(QString(prop.property().name()), QString("defaultProperty"));
         QVERIFY(!QQmlPropertyPrivate::binding(prop));
@@ -804,7 +846,7 @@ void tst_qqmlproperty::qmlmetaproperty_object_context()
         QCOMPARE(prop.isValid(), true);
         QCOMPARE(prop.object(), qobject_cast<QObject*>(&dobject));
         QCOMPARE(prop.propertyTypeCategory(), QQmlProperty::Normal);
-        QCOMPARE(prop.propertyType(), (int)QVariant::Int);
+        QCOMPARE(prop.propertyType(), QMetaType::Int);
         QCOMPARE(prop.propertyTypeName(), "int");
         QCOMPARE(QString(prop.property().name()), QString("defaultProperty"));
         QVERIFY(!QQmlPropertyPrivate::binding(prop));
@@ -909,7 +951,7 @@ void tst_qqmlproperty::qmlmetaproperty_object_string_context()
         QCOMPARE(prop.isValid(), true);
         QCOMPARE(prop.object(), qobject_cast<QObject*>(&dobject));
         QCOMPARE(prop.propertyTypeCategory(), QQmlProperty::Normal);
-        QCOMPARE(prop.propertyType(), (int)QVariant::Int);
+        QCOMPARE(prop.propertyType(), QMetaType::Int);
         QCOMPARE(prop.propertyTypeName(), "int");
         QCOMPARE(QString(prop.property().name()), QString("defaultProperty"));
         QVERIFY(!QQmlPropertyPrivate::binding(prop));
@@ -1201,7 +1243,7 @@ void tst_qqmlproperty::read()
 
         QCOMPARE(p.propertyType(), qMetaTypeId<MyQObject*>());
         QVariant v = p.read();
-        QVERIFY(v.canConvert(QMetaType::QObjectStar));
+        QVERIFY(v.canConvert(QMetaType(QMetaType::QObjectStar)));
         QVERIFY(qvariant_cast<QObject *>(v) == o.qObject());
     }
     {
@@ -1212,7 +1254,7 @@ void tst_qqmlproperty::read()
 
         QCOMPARE(p.propertyType(), qMetaTypeId<MyQObject*>());
         QVariant v = p.read();
-        QVERIFY(v.canConvert(QMetaType::QObjectStar));
+        QVERIFY(v.canConvert(QMetaType(QMetaType::QObjectStar)));
         QVERIFY(qvariant_cast<QObject *>(v) == o.qObject());
     }
 
@@ -1223,7 +1265,7 @@ void tst_qqmlproperty::read()
         QCOMPARE(p.propertyTypeCategory(), QQmlProperty::Object);
         QCOMPARE(p.propertyType(), qMetaTypeId<MyQmlObject*>());
         QVariant v = p.read();
-        QCOMPARE(v.userType(), int(QMetaType::QObjectStar));
+        QCOMPARE(v.typeId(), QMetaType::QObjectStar);
         QVERIFY(qvariant_cast<QObject *>(v) == o.qmlObject());
     }
     {
@@ -1237,7 +1279,7 @@ void tst_qqmlproperty::read()
         QVERIFY(p.propertyType() != QMetaType::QObjectStar);
 
         QVariant v = p.read();
-        QCOMPARE(v.userType(), int(QMetaType::QObjectStar));
+        QCOMPARE(v.typeId(), QMetaType::QObjectStar);
         QCOMPARE(qvariant_cast<QObject *>(v)->property("a").toInt(), 10);
         QCOMPARE(qvariant_cast<QObject *>(v)->property("b").toInt(), 19);
     }
@@ -1247,7 +1289,7 @@ void tst_qqmlproperty::read()
         QVERIFY(object != nullptr);
 
         QVariant v = QQmlProperty::read(object.data(), "test", &engine);
-        QCOMPARE(v.userType(), int(QMetaType::QObjectStar));
+        QCOMPARE(v.typeId(), QMetaType::QObjectStar);
         QCOMPARE(qvariant_cast<QObject *>(v)->property("a").toInt(), 10);
         QCOMPARE(qvariant_cast<QObject *>(v)->property("b").toInt(), 19);
     }
@@ -1396,29 +1438,25 @@ void tst_qqmlproperty::write()
     {
         PropertyObject o;
         QQmlProperty p(&o, "url");
+        const QUrl url = QUrl("main.qml");
 
-        QCOMPARE(p.write(QUrl("main.qml")), true);
-        QCOMPARE(o.url(), QUrl("main.qml"));
+        QCOMPARE(p.write(url), true);
+        QCOMPARE(o.url(), url);
 
         QQmlProperty p2(&o, "url", engine.rootContext());
 
-        QUrl result = engine.baseUrl().resolved(QUrl("main.qml"));
-        QVERIFY(result != QUrl("main.qml"));
-
-        QCOMPARE(p2.write(QUrl("main.qml")), true);
-        QCOMPARE(o.url(), result);
+        QCOMPARE(p2.write(url), true);
+        QCOMPARE(o.url(), url);
     }
     {   // static
         PropertyObject o;
+        const QUrl url = QUrl("main.qml");
 
-        QCOMPARE(QQmlProperty::write(&o, "url", QUrl("main.qml")), true);
-        QCOMPARE(o.url(), QUrl("main.qml"));
+        QCOMPARE(QQmlProperty::write(&o, "url", url), true);
+        QCOMPARE(o.url(), url);
 
-        QUrl result = engine.baseUrl().resolved(QUrl("main.qml"));
-        QVERIFY(result != QUrl("main.qml"));
-
-        QCOMPARE(QQmlProperty::write(&o, "url", QUrl("main.qml"), engine.rootContext()), true);
-        QCOMPARE(o.url(), result);
+        QCOMPARE(QQmlProperty::write(&o, "url", url, engine.rootContext()), true);
+        QCOMPARE(o.url(), url);
     }
 
     // Char/string-property
@@ -1427,13 +1465,13 @@ void tst_qqmlproperty::write()
         QQmlProperty qcharProperty(&o, "qcharProperty");
         QQmlProperty stringProperty(&o, "stringProperty");
 
-        const int black_circle = 0x25cf;
+        const char16_t black_circle = 0x25cf;
 
         QCOMPARE(qcharProperty.write(QString("foo")), false);
         QCOMPARE(qcharProperty.write('Q'), true);
-        QCOMPARE(qcharProperty.read(), QVariant('Q'));
+        QCOMPARE(qcharProperty.read(), QChar('Q'));
         QCOMPARE(qcharProperty.write(QChar(black_circle)), true);
-        QCOMPARE(qcharProperty.read(), QVariant(QChar(black_circle)));
+        QCOMPARE(qcharProperty.read(), QChar(black_circle));
 
         QCOMPARE(o.stringProperty(), QString("foo")); // Default value
         QCOMPARE(stringProperty.write(QString("bar")), true);
@@ -1443,7 +1481,7 @@ void tst_qqmlproperty::write()
         QCOMPARE(stringProperty.write('A'), true);
         QCOMPARE(stringProperty.read().toString(), QString::number('A'));
         QCOMPARE(stringProperty.write(QChar(black_circle)), true);
-        QCOMPARE(stringProperty.read(), QVariant(QChar(black_circle)));
+        QCOMPARE(stringProperty.read(), QString(black_circle));
 
         { // QChar -> QString
             QQmlComponent component(&engine);
@@ -1667,6 +1705,30 @@ void tst_qqmlproperty::writeListToList()
     QCOMPARE(container->children()->size(), 1);*/
 }
 
+void tst_qqmlproperty::listOverrideBehavior()
+{
+    QQmlComponent alwaysAppendContainerComponent(&engine, testFileUrl("ListOverrideAlwaysAppendOverridenContainer.qml"));
+    QScopedPointer<QObject> alwaysAppendObject(alwaysAppendContainerComponent.create());
+    MyContainer *alwaysAppendContainer = qobject_cast<MyContainer*>(alwaysAppendObject.data());
+    QVERIFY(alwaysAppendContainer != nullptr);
+    QQmlListReference alwaysAppendChildrenList(alwaysAppendContainer, "children");
+    QCOMPARE(alwaysAppendChildrenList.count(), 5);
+    QQmlComponent replaceIfNotDefaultContainerComponent(&engine, testFileUrl("ListOverrideReplaceIfNotDefaultOverridenContainer.qml"));
+    QScopedPointer<QObject> replaceIfNotDefaultObject(replaceIfNotDefaultContainerComponent.create());
+    MyReplaceIfNotDefaultBehaviorContainer *replaceIfNotDefaultContainer = qobject_cast<MyReplaceIfNotDefaultBehaviorContainer*>(replaceIfNotDefaultObject.data());
+    QVERIFY(replaceIfNotDefaultContainer != nullptr);
+    QQmlListReference replaceIfNotDefaultDefaultList(replaceIfNotDefaultContainer, "defaultList");
+    QCOMPARE(replaceIfNotDefaultDefaultList.count(), 5);
+    QQmlListReference replaceIfNotDefaultChildrenList(replaceIfNotDefaultContainer, "children");
+    QCOMPARE(replaceIfNotDefaultChildrenList.count(), 2);
+    QQmlComponent alwaysReplaceContainerComponent(&engine, testFileUrl("ListOverrideAlwaysReplaceOverridenContainer.qml"));
+    QScopedPointer<QObject> alwaysReplaceObject(alwaysReplaceContainerComponent.create());
+    MyContainer *alwaysReplaceContainer = qobject_cast<MyContainer*>(alwaysReplaceObject.data());
+    QVERIFY(alwaysReplaceContainer != nullptr);
+    QQmlListReference alwaysReplaceChildrenList(alwaysReplaceContainer, "children");
+    QCOMPARE(alwaysReplaceChildrenList.count(), 2);
+}
+
 void tst_qqmlproperty::urlHandling_data()
 {
     QTest::addColumn<QByteArray>("input");
@@ -1716,12 +1778,11 @@ void tst_qqmlproperty::urlHandling_data()
         << QString("/main.qml")
         << QByteArray("http://www.example.com/main.qml?type=text/qml&comment=now%20working?");
 
-    // Although 'text%2Fqml' is pre-encoded, it will be decoded to allow correct QUrl classification
     QTest::newRow("preencodedQuery")
         << QByteArray("http://www.example.com/main.qml?type=text%2Fqml&comment=now working%3F")
         << QString("http")
         << QString("/main.qml")
-        << QByteArray("http://www.example.com/main.qml?type=text/qml&comment=now%20working%3F");
+        << QByteArray("http://www.example.com/main.qml?type=text%2Fqml&comment=now%20working%3F");
 
     QTest::newRow("encodableFragment")
         << QByteArray("http://www.example.com/main.qml?type=text/qml#start+30000|volume+50%")
@@ -1941,19 +2002,20 @@ void tst_qqmlproperty::copy()
 {
     PropertyObject object;
 
-    QQmlProperty *property = new QQmlProperty(&object, QLatin1String("defaultProperty"));
+    QScopedPointer<QQmlProperty> property(
+                new QQmlProperty(&object, QLatin1String("defaultProperty")));
     QCOMPARE(property->name(), QString("defaultProperty"));
     QCOMPARE(property->read(), QVariant(10));
     QCOMPARE(property->type(), QQmlProperty::Property);
     QCOMPARE(property->propertyTypeCategory(), QQmlProperty::Normal);
-    QCOMPARE(property->propertyType(), (int)QVariant::Int);
+    QCOMPARE(property->propertyType(), QMetaType::Int);
 
     QQmlProperty p1(*property);
     QCOMPARE(p1.name(), QString("defaultProperty"));
     QCOMPARE(p1.read(), QVariant(10));
     QCOMPARE(p1.type(), QQmlProperty::Property);
     QCOMPARE(p1.propertyTypeCategory(), QQmlProperty::Normal);
-    QCOMPARE(p1.propertyType(), (int)QVariant::Int);
+    QCOMPARE(p1.propertyType(), QMetaType::Int);
 
     QQmlProperty p2(&object, QLatin1String("url"));
     QCOMPARE(p2.name(), QString("url"));
@@ -1962,21 +2024,31 @@ void tst_qqmlproperty::copy()
     QCOMPARE(p2.read(), QVariant(10));
     QCOMPARE(p2.type(), QQmlProperty::Property);
     QCOMPARE(p2.propertyTypeCategory(), QQmlProperty::Normal);
-    QCOMPARE(p2.propertyType(), (int)QVariant::Int);
+    QCOMPARE(p2.propertyType(), QMetaType::Int);
 
-    delete property; property = nullptr;
+    property.reset();
 
     QCOMPARE(p1.name(), QString("defaultProperty"));
     QCOMPARE(p1.read(), QVariant(10));
     QCOMPARE(p1.type(), QQmlProperty::Property);
     QCOMPARE(p1.propertyTypeCategory(), QQmlProperty::Normal);
-    QCOMPARE(p1.propertyType(), (int)QVariant::Int);
+    QCOMPARE(p1.propertyType(), QMetaType::Int);
 
     QCOMPARE(p2.name(), QString("defaultProperty"));
     QCOMPARE(p2.read(), QVariant(10));
     QCOMPARE(p2.type(), QQmlProperty::Property);
     QCOMPARE(p2.propertyTypeCategory(), QQmlProperty::Normal);
-    QCOMPARE(p2.propertyType(), (int)QVariant::Int);
+    QCOMPARE(p2.propertyType(), QMetaType::Int);
+
+    p1 = QQmlProperty();
+    QQmlPropertyPrivate *p2d = QQmlPropertyPrivate::get(p2);
+    QCOMPARE(p2d->count(), 1);
+
+    // Use a pointer to avoid compiler warning about self-assignment.
+    QQmlProperty *p2p = &p2;
+    *p2p = p2;
+
+    QCOMPARE(p2d->count(), 1);
 }
 
 void tst_qqmlproperty::noContext()
@@ -2096,7 +2168,7 @@ void tst_qqmlproperty::nullPropertyBinding()
 
 void tst_qqmlproperty::interfaceBinding()
 {
-    qmlRegisterInterface<Interface>("Interface");
+    qmlRegisterInterface<Interface>("Interface", 1);
     qmlRegisterType<A>("io.qt.bugreports", 1, 0, "A");
     qmlRegisterType<B>("io.qt.bugreports", 1, 0, "B");
     qmlRegisterType<C>("io.qt.bugreports", 1, 0, "C");
@@ -2111,7 +2183,8 @@ void tst_qqmlproperty::interfaceBinding()
         QQmlEngine engine;
         QQmlComponent component(&engine, url);
         QScopedPointer<QObject> root(component.create());
-        QVERIFY(root);
+        QVERIFY2(root, qPrintable(component.errorString()));
+
         QCOMPARE(root->findChild<QObject*>("a1")->property("testValue").toInt(), 42);
         QCOMPARE(root->findChild<QObject*>("a2")->property("testValue").toInt(), 43);
         QCOMPARE(root->findChild<QObject*>("a3")->property("testValue").toInt(), 44);
@@ -2163,6 +2236,8 @@ void tst_qqmlproperty::initTestCase()
     qmlRegisterType<MyQmlObject>("Test",1,0,"MyQmlObject");
     qmlRegisterType<PropertyObject>("Test",1,0,"PropertyObject");
     qmlRegisterType<MyContainer>("Test",1,0,"MyContainer");
+    qmlRegisterType<MyReplaceIfNotDefaultBehaviorContainer>("Test",1,0,"MyReplaceIfNotDefaultBehaviorContainer");
+    qmlRegisterType<MyAlwaysReplaceBehaviorContainer>("Test",1,0,"MyAlwaysReplaceBehaviorContainer");
 }
 
 // QTBUG-60908
@@ -2208,6 +2283,93 @@ void tst_qqmlproperty::underscorePropertyChangeHandler()
     QQmlProperty changeHandler(root.get(), "on__WithUnderScoreChanged");
     QVERIFY(changeHandler.isValid());
     QVERIFY(changeHandler.isSignalProperty());
+}
+
+void tst_qqmlproperty::signalExpressionWithoutObject()
+{
+    QQmlProperty invalid;
+    QQmlPropertyPrivate::setSignalExpression(invalid, nullptr);
+    QQmlBoundSignalExpression *expr = QQmlPropertyPrivate::signalExpression(invalid);
+    QVERIFY(!expr);
+}
+
+void tst_qqmlproperty::dontRemoveQPropertyBinding()
+{
+    QObject object;
+    QQmlProperty objectName(&object, "objectName");
+    QVERIFY(objectName.isBindable());
+    QProperty<QString> name("hello");
+    object.bindableObjectName().setBinding(Qt::makePropertyBinding(name));
+    QVERIFY(object.bindableObjectName().hasBinding());
+
+    // A write with DontRemoveBinding preserves the binding
+    QQmlPropertyPrivate::write(objectName, u"goodbye"_qs, QQmlPropertyData::DontRemoveBinding);
+    QVERIFY(object.bindableObjectName().hasBinding());
+    // but changes the value
+    QCOMPARE(object.objectName(), u"goodbye"_qs);
+    // subsequent binding evaluations change the value again
+    name = u"hello, again"_qs;
+    QCOMPARE(object.objectName(), name.value());
+
+    // The binding is only preserved by the write which had DontRemoveBinding set
+    // any further write will remove the binding
+    QQmlPropertyPrivate::write(objectName, u"goodbye"_qs, QQmlPropertyData::WriteFlags{});
+    QCOMPARE(object.objectName(), u"goodbye"_qs);
+    QVERIFY(!object.bindableObjectName().hasBinding());
+}
+
+void tst_qqmlproperty::compatResolveUrls()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine);
+    c.setData(R"(
+        import QtQml
+        QtObject {
+            property url a: "relative/url.png"
+        }
+    )", QUrl(QStringLiteral("qrc:/some/resource/path.qml")));
+    QVERIFY(c.isReady());
+    QScopedPointer<QObject> o(c.create());
+    QVERIFY(!o.isNull());
+
+    if (qEnvironmentVariableIsSet("QML_COMPAT_RESOLVE_URLS_ON_ASSIGNMENT")) {
+        QCOMPARE(qvariant_cast<QUrl>(o->property("a")),
+                 QUrl(QStringLiteral("qrc:/some/resource/relative/url.png")));
+        return;
+    }
+
+    QCOMPARE(qvariant_cast<QUrl>(o->property("a")), QUrl(QStringLiteral("relative/url.png")));
+
+#if QT_CONFIG(process)
+    QProcess process;
+    process.setProgram(QCoreApplication::applicationFilePath());
+    process.setEnvironment(QProcess::systemEnvironment()
+                           + QStringList(u"QML_COMPAT_RESOLVE_URLS_ON_ASSIGNMENT=1"_qs));
+    process.setArguments({QStringLiteral("compatResolveUrls")});
+    process.start();
+    QVERIFY(process.waitForFinished());
+    QCOMPARE(process.exitStatus(), QProcess::NormalExit);
+    QCOMPARE(process.exitCode(), 0);
+#else
+    QSKIP("Testing the QML_COMPAT_RESOLVE_URLS_ON_ASSIGNMENT "
+          "environment variable requires QProcess.");
+#endif
+}
+
+void tst_qqmlproperty::bindToNonQObjectTarget()
+{
+    QQmlEngine engine;
+    const QUrl url = testFileUrl("bindToNonQObjectTarget.qml");
+    QQmlComponent component(&engine, url);
+
+    // Yes, we can still create the component. The result of the script expression will only be
+    // known once it's executed.
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+
+    QTest::ignoreMessage(QtWarningMsg,
+                         qPrintable(url.toString() + ":14:7: Unable to assign QFont to QObject*"));
+    QScopedPointer<QObject> o(component.create());
+    QVERIFY(!o.isNull());
 }
 
 QTEST_MAIN(tst_qqmlproperty)

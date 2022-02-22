@@ -12,6 +12,7 @@
 
 #include "base/base64.h"
 #include "base/command_line.h"
+#include "base/feature_list.h"
 #include "base/files/file_path.h"
 #include "base/i18n/rtl.h"
 #include "base/json/json_writer.h"
@@ -32,6 +33,7 @@
 #include "content/public/common/url_constants.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/error_utils.h"
+#include "extensions/common/extension_features.h"
 #include "extensions/common/feature_switch.h"
 #include "extensions/common/manifest.h"
 #include "extensions/common/manifest_constants.h"
@@ -82,9 +84,18 @@ bool IsManifestSupported(int manifest_version,
                          Manifest::Type type,
                          int creation_flags,
                          std::string* warning) {
-  static constexpr int kMaximumSupportedManifestVersion = 2;
+  static constexpr int kMaximumSupportedManifestVersion = 3;
   static_assert(kMaximumSupportedManifestVersion >= kModernManifestVersion,
                 "The modern manifest version must be supported.");
+
+  // The ultimate short-circuit: If the feature for MV3 is disabled, it's not
+  // supported.
+  if (manifest_version == 3 &&
+      !base::FeatureList::IsEnabled(
+          extensions_features::kMv3ExtensionsSupported)) {
+    return false;
+  }
+
   // Modern is always safe.
   if (manifest_version >= kModernManifestVersion &&
       manifest_version <= kMaximumSupportedManifestVersion) {
@@ -92,10 +103,16 @@ bool IsManifestSupported(int manifest_version,
   }
 
   if (manifest_version > kMaximumSupportedManifestVersion) {
-    *warning = ErrorUtils::FormatErrorMessage(
-        manifest_errors::kManifestVersionTooHighWarning,
-        base::NumberToString(kMaximumSupportedManifestVersion),
-        base::NumberToString(manifest_version));
+    // Silence future manifest error with flag.
+    bool allow_future_manifest_version =
+        base::CommandLine::ForCurrentProcess()->HasSwitch(
+            switches::kAllowFutureManifestVersion);
+    if (!allow_future_manifest_version) {
+      *warning = ErrorUtils::FormatErrorMessage(
+          manifest_errors::kManifestVersionTooHighWarning,
+          base::NumberToString(kMaximumSupportedManifestVersion),
+          base::NumberToString(manifest_version));
+    }
     return true;
   }
 
@@ -121,6 +138,41 @@ bool IsManifestSupported(int manifest_version,
   if (type == Manifest::TYPE_PLATFORM_APP)
     return manifest_version >= kMinimumPlatformAppManifestVersion;
 
+  return true;
+}
+
+// Computes the |extension_id| from the given parameters. On success, returns
+// true. On failure, populates |error| and returns false.
+bool ComputeExtensionID(const base::DictionaryValue& manifest,
+                        const base::FilePath& path,
+                        int creation_flags,
+                        base::string16* error,
+                        ExtensionId* extension_id) {
+  if (manifest.HasKey(keys::kPublicKey)) {
+    std::string public_key;
+    std::string public_key_bytes;
+    if (!manifest.GetString(keys::kPublicKey, &public_key) ||
+        !Extension::ParsePEMKeyBytes(public_key, &public_key_bytes)) {
+      *error = base::ASCIIToUTF16(errors::kInvalidKey);
+      return false;
+    }
+    *extension_id = crx_file::id_util::GenerateId(public_key_bytes);
+    return true;
+  }
+
+  if (creation_flags & Extension::REQUIRE_KEY) {
+    *error = base::ASCIIToUTF16(errors::kInvalidKey);
+    return false;
+  }
+
+  // If there is a path, we generate the ID from it. This is useful for
+  // development mode, because it keeps the ID stable across restarts and
+  // reloading the extension.
+  *extension_id = crx_file::id_util::GenerateIdForPath(path);
+  if (extension_id->empty()) {
+    NOTREACHED() << "Could not create ID from path.";
+    return false;
+  }
   return true;
 }
 
@@ -172,17 +224,21 @@ scoped_refptr<Extension> Extension::Create(const base::FilePath& path,
   DCHECK(utf8_error);
   base::string16 error;
 
-  std::unique_ptr<extensions::Manifest> manifest;
-  if (flags & FOR_LOGIN_SCREEN) {
-    manifest = Manifest::CreateManifestForLoginScreen(location,
-                                                      value.CreateDeepCopy());
-  } else {
-    manifest = std::make_unique<Manifest>(location, value.CreateDeepCopy());
-  }
-
-  if (!InitExtensionID(manifest.get(), path, explicit_id, flags, &error)) {
+  ExtensionId extension_id;
+  if (!explicit_id.empty()) {
+    extension_id = explicit_id;
+  } else if (!ComputeExtensionID(value, path, flags, &error, &extension_id)) {
     *utf8_error = base::UTF16ToUTF8(error);
     return nullptr;
+  }
+
+  std::unique_ptr<extensions::Manifest> manifest;
+  if (flags & FOR_LOGIN_SCREEN) {
+    manifest = Manifest::CreateManifestForLoginScreen(
+        location, value.CreateDeepCopy(), std::move(extension_id));
+  } else {
+    manifest = std::make_unique<Manifest>(location, value.CreateDeepCopy(),
+                                          std::move(extension_id));
   }
 
   std::vector<InstallWarning> install_warnings;
@@ -197,6 +253,8 @@ scoped_refptr<Extension> Extension::Create(const base::FilePath& path,
     *utf8_error = base::UTF16ToUTF8(error);
     return nullptr;
   }
+
+  extension->guid_ = base::GUID::GenerateRandomV4();
 
   return extension;
 }
@@ -381,6 +439,16 @@ void Extension::SetManifestData(const std::string& key,
   manifest_data_[key] = std::move(data);
 }
 
+void Extension::SetGUID(const ExtensionGuid& guid) {
+  guid_ = base::GUID::ParseLowercase(guid);
+  DCHECK(guid_.is_valid());
+}
+
+const ExtensionGuid& Extension::guid() const {
+  DCHECK(guid_.is_valid());
+  return guid_.AsLowercaseString();
+}
+
 Manifest::Location Extension::location() const {
   return manifest_->location();
 }
@@ -465,47 +533,6 @@ void Extension::AddWebExtentPattern(const URLPattern& pattern) {
     return;
 
   extent_.AddPattern(pattern);
-}
-
-// static
-bool Extension::InitExtensionID(extensions::Manifest* manifest,
-                                const base::FilePath& path,
-                                const std::string& explicit_id,
-                                int creation_flags,
-                                base::string16* error) {
-  if (!explicit_id.empty()) {
-    manifest->SetExtensionId(explicit_id);
-    return true;
-  }
-
-  if (manifest->HasKey(keys::kPublicKey)) {
-    std::string public_key;
-    std::string public_key_bytes;
-    if (!manifest->GetString(keys::kPublicKey, &public_key) ||
-        !ParsePEMKeyBytes(public_key, &public_key_bytes)) {
-      *error = base::ASCIIToUTF16(errors::kInvalidKey);
-      return false;
-    }
-    std::string extension_id = crx_file::id_util::GenerateId(public_key_bytes);
-    manifest->SetExtensionId(extension_id);
-    return true;
-  }
-
-  if (creation_flags & REQUIRE_KEY) {
-    *error = base::ASCIIToUTF16(errors::kInvalidKey);
-    return false;
-  } else {
-    // If there is a path, we generate the ID from it. This is useful for
-    // development mode, because it keeps the ID stable across restarts and
-    // reloading the extension.
-    std::string extension_id = crx_file::id_util::GenerateIdForPath(path);
-    if (extension_id.empty()) {
-      NOTREACHED() << "Could not create ID from path.";
-      return false;
-    }
-    manifest->SetExtensionId(extension_id);
-    return true;
-  }
 }
 
 Extension::Extension(const base::FilePath& path,
@@ -739,7 +766,7 @@ bool Extension::LoadManifestVersion(base::string16* error) {
     }
   }
 
-  manifest_version_ = manifest_->GetManifestVersion();
+  manifest_version_ = manifest_->manifest_version();
   std::string warning;
   if (!IsManifestSupported(manifest_version_, GetType(), creation_flags_,
                            &warning)) {

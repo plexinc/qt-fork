@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2020 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtWidgets module of the Qt Toolkit.
@@ -190,17 +190,6 @@ public:
     This signal is emitted whenever the spin box's text is changed.
     The new text is passed in \a text with prefix() and suffix().
 */
-
-#if QT_DEPRECATED_SINCE(5, 14)
-/*!
-    \fn void QSpinBox::valueChanged(const QString &text)
-
-    \overload
-    \obsolete Use textChanged(QString) instead
-
-    The new value is passed in \a text with prefix() and suffix().
-*/
-#endif
 
 /*!
     Constructs a spin box with 0 as minimum value and 99 as maximum value, a
@@ -663,17 +652,6 @@ void QSpinBox::fixup(QString &input) const
     The new text is passed in \a text with prefix() and suffix().
 */
 
-#if QT_DEPRECATED_SINCE(5, 14)
-/*!
-    \fn void QDoubleSpinBox::valueChanged(const QString &text);
-
-    \overload
-    \obsolete Use textChanged(QString) instead
-
-    The new value is passed in \a text with prefix() and suffix().
-*/
-#endif
-
 /*!
     Constructs a spin box with 0.0 as minimum value and 99.99 as maximum value,
     a step value of 1.0 and a precision of 2 decimal places. The value is
@@ -1095,12 +1073,6 @@ void QSpinBoxPrivate::emitSignals(EmitPolicy ep, const QVariant &old)
     if (ep != NeverEmit) {
         pendingEmit = false;
         if (ep == AlwaysEmit || value != old) {
-#if QT_DEPRECATED_SINCE(5, 14)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-            emit q->valueChanged(edit->displayText());
-QT_WARNING_POP
-#endif
             emit q->textChanged(edit->displayText());
             emit q->valueChanged(value.toInt());
         }
@@ -1252,12 +1224,6 @@ void QDoubleSpinBoxPrivate::emitSignals(EmitPolicy ep, const QVariant &old)
     if (ep != NeverEmit) {
         pendingEmit = false;
         if (ep == AlwaysEmit || value != old) {
-#if QT_DEPRECATED_SINCE(5, 14)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-            emit q->valueChanged(edit->displayText());
-QT_WARNING_POP
-#endif
             emit q->textChanged(edit->displayText());
             emit q->valueChanged(value.toDouble());
         }
@@ -1315,9 +1281,10 @@ QVariant QDoubleSpinBoxPrivate::validateAndInterpret(QString &input, int &pos,
     const bool minus = min <= 0;
 
     const QString group(locale.groupSeparator());
-    const uint groupUcs = (group.size() > 1 && group.at(0).isHighSurrogate()
-                           ? QChar::surrogateToUcs4(group.at(0), group.at(1))
-                           : group.at(0).unicode());
+    const uint groupUcs = (group.isEmpty() ? 0 :
+                           (group.size() > 1 && group.at(0).isHighSurrogate()
+                            ? QChar::surrogateToUcs4(group.at(0), group.at(1))
+                            : group.at(0).unicode()));
     switch (len) {
     case 0:
         state = max != min ? QValidator::Intermediate : QValidator::Invalid;
@@ -1340,7 +1307,7 @@ QVariant QDoubleSpinBoxPrivate::validateAndInterpret(QString &input, int &pos,
     default: break;
     }
 
-    if (copy.at(0) == locale.groupSeparator()) {
+    if (groupUcs && copy.startsWith(group)) {
         QSBDEBUG() << __FILE__ << __LINE__<< "state is set to Invalid";
         state = QValidator::Invalid;
         goto end;
@@ -1356,8 +1323,9 @@ QVariant QDoubleSpinBoxPrivate::validateAndInterpret(QString &input, int &pos,
                 state = QValidator::Invalid;
                 goto end;
             }
-            for (int i=dec + 1; i<copy.size(); ++i) {
-                if (copy.at(i).isSpace() || copy.at(i) == locale.groupSeparator()) {
+            for (int i = dec + 1; i < copy.size(); ++i) {
+                if (copy.at(i).isSpace()
+                    || (groupUcs && QStringView{copy}.sliced(i).startsWith(group))) {
                     QSBDEBUG() << __FILE__ << __LINE__<< "state is set to Invalid";
                     state = QValidator::Invalid;
                     goto end;
@@ -1365,10 +1333,11 @@ QVariant QDoubleSpinBoxPrivate::validateAndInterpret(QString &input, int &pos,
             }
         } else {
             const QChar last = copy.back();
-            const bool groupEnd = copy.endsWith(group);
+            const bool groupEnd = groupUcs && copy.endsWith(group);
             const QStringView head(copy.constData(), groupEnd ? len - group.size() : len - 1);
             const QChar secondLast = head.back();
-            if ((groupEnd || last.isSpace()) && (head.endsWith(group) || secondLast.isSpace())) {
+            if ((groupEnd || last.isSpace())
+                && ((groupUcs && head.endsWith(group)) || secondLast.isSpace())) {
                 state = QValidator::Invalid;
                 QSBDEBUG() << __FILE__ << __LINE__<< "state is set to Invalid";
                 goto end;
@@ -1387,7 +1356,7 @@ QVariant QDoubleSpinBoxPrivate::validateAndInterpret(QString &input, int &pos,
 
         if (!ok) {
             if (QChar::isPrint(groupUcs)) {
-                if (max < 1000 && min > -1000 && copy.contains(group)) {
+                if (max < 1000 && min > -1000 && groupUcs && copy.contains(group)) {
                     state = QValidator::Invalid;
                     QSBDEBUG() << __FILE__ << __LINE__<< "state is set to Invalid";
                     goto end;
@@ -1395,7 +1364,7 @@ QVariant QDoubleSpinBoxPrivate::validateAndInterpret(QString &input, int &pos,
 
                 const int len = copy.size();
                 for (int i = 0; i < len - 1;) {
-                    if (QStringView(copy).mid(i).startsWith(group)) {
+                    if (groupUcs && QStringView{copy}.sliced(i).startsWith(group)) {
                         if (QStringView(copy).mid(i + group.size()).startsWith(group)) {
                             QSBDEBUG() << __FILE__ << __LINE__<< "state is set to Invalid";
                             state = QValidator::Invalid;
@@ -1408,7 +1377,8 @@ QVariant QDoubleSpinBoxPrivate::validateAndInterpret(QString &input, int &pos,
                 }
 
                 QString copy2 = copy;
-                copy2.remove(group);
+                if (groupUcs)
+                    copy2.remove(group);
                 num = locale.toDouble(copy2, &ok);
                 QSBDEBUG() << group << num << copy2 << ok;
 

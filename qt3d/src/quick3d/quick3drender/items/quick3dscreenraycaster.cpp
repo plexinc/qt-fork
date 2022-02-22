@@ -53,37 +53,47 @@ namespace Qt3DRender {
 namespace Render {
 namespace Quick {
 
-void Quick3DScreenRayCasterPrivate::dispatchHits(const QAbstractRayCaster::Hits &hits)
-{
-    m_hits = hits;
-    updateHitEntites(m_hits, m_scene);
-
-    Q_Q(Quick3DScreenRayCaster);
-    if (!m_engine)
-        m_engine = qmlEngine(q->parent());
-
-    m_jsHits = Quick3DRayCasterPrivate::convertHits(m_hits, m_engine);
-    emit q->hitsChanged(m_jsHits);
-}
-
 Quick3DScreenRayCaster::Quick3DScreenRayCaster(QObject *parent)
     : QScreenRayCaster(*new Quick3DScreenRayCasterPrivate(), qobject_cast<Qt3DCore::QNode *>(parent))
 {
 }
 
-QJSValue Quick3DScreenRayCaster::hits() const
-{
-    Q_D(const Quick3DScreenRayCaster);
-    return d->m_jsHits;
-}
-
 QQmlListProperty<Qt3DRender::QLayer> Qt3DRender::Render::Quick::Quick3DScreenRayCaster::qmlLayers()
 {
-    return QQmlListProperty<QLayer>(this, 0,
-                                    &Quick3DRayCasterPrivate::appendLayer,
-                                    &Quick3DRayCasterPrivate::layerCount,
-                                    &Quick3DRayCasterPrivate::layerAt,
-                                    &Quick3DRayCasterPrivate::clearLayers);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    using qt_size_type = qsizetype;
+#else
+    using qt_size_type = int;
+#endif
+
+    using ListContentType = Qt3DRender::QLayer;
+    auto appendFunction = [](QQmlListProperty<ListContentType> *list, ListContentType *layer) {
+        QAbstractRayCaster *filter = qobject_cast<QAbstractRayCaster *>(list->object);
+        if (filter)
+            filter->addLayer(layer);
+    };
+    auto countFunction = [](QQmlListProperty<ListContentType> *list) -> qt_size_type {
+        QAbstractRayCaster *filter = qobject_cast<QAbstractRayCaster *>(list->object);
+        if (filter)
+            return int(filter->layers().size());
+        return 0;
+    };
+    auto atFunction = [](QQmlListProperty<ListContentType> *list, qt_size_type index) -> ListContentType * {
+        QAbstractRayCaster *filter = qobject_cast<QAbstractRayCaster *>(list->object);
+        if (filter)
+            return filter->layers().at(index);
+        return nullptr;
+    };
+    auto clearFunction = [](QQmlListProperty<ListContentType> *list) {
+        QAbstractRayCaster *filter = qobject_cast<QAbstractRayCaster *>(list->object);
+        if (filter) {
+            const auto layers = filter->layers();
+            for (QLayer *layer : layers)
+                filter->removeLayer(layer);
+        }
+    };
+
+    return QQmlListProperty<ListContentType>(this, nullptr, appendFunction, countFunction, atFunction, clearFunction);
 }
 
 } // namespace Quick

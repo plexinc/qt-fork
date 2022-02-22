@@ -26,13 +26,14 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QtGui>
 #include <QtWidgets>
 #include <QtDebug>
 #include <QPair>
 #include <QList>
 #include <QPointer>
+#include <QSignalSpy>
 
 #include <QtTest/private/qtesthelpers_p.h>
 
@@ -107,12 +108,10 @@ private slots:
     void csMatchingOnCiSortedModel_data();
     void csMatchingOnCiSortedModel();
 
-#if QT_CONFIG(dirmodel) && QT_DEPRECATED_SINCE(5, 15)
-    void directoryModel_data();
-    void directoryModel();
-#endif
     void fileSystemModel_data();
     void fileSystemModel();
+    void fileDialog_data();
+    void fileDialog();
 
     void changingModel_data();
     void changingModel();
@@ -153,7 +152,6 @@ private:
     enum ModelType {
         CASE_SENSITIVELY_SORTED_MODEL,
         CASE_INSENSITIVELY_SORTED_MODEL,
-        DIRECTORY_MODEL,
         HISTORY_MODEL,
         FILESYSTEM_MODEL
     };
@@ -224,16 +222,6 @@ void tst_QCompleter::setSourceModel(ModelType type)
         parent->setText(completionColumn, QLatin1String("p3,c3p3"));
         parent = new QTreeWidgetItem(treeWidget);
         parent->setText(completionColumn, QLatin1String("p2,c4p2"));
-        break;
-    case DIRECTORY_MODEL:
-#if QT_CONFIG(dirmodel) && QT_DEPRECATED_SINCE(5, 15)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-        completer->setCsvCompletion(false);
-        completer->setModel(new QDirModel(completer));
-        completer->setCompletionColumn(0);
-QT_WARNING_POP
-#endif // QT_CONFIG(dirmodel) && QT_DEPRECATED_SINCE(5, 15)
         break;
     case FILESYSTEM_MODEL:
         completer->setCsvCompletion(false);
@@ -597,58 +585,6 @@ void tst_QCompleter::csMatchingOnCiSortedModel()
     filter();
 }
 
-#if QT_CONFIG(dirmodel) && QT_DEPRECATED_SINCE(5, 15)
-void tst_QCompleter::directoryModel_data()
-{
-    delete completer;
-
-    completer = new CsvCompleter;
-    completer->setModelSorting(QCompleter::CaseSensitivelySortedModel);
-    setSourceModel(DIRECTORY_MODEL);
-    completer->setCaseSensitivity(Qt::CaseInsensitive);
-
-    QTest::addColumn<QString>("filterText");
-    QTest::addColumn<QString>("step");
-    QTest::addColumn<QString>("completion");
-    QTest::addColumn<QString>("completionText");
-
-    // NOTE: Add tests carefully, ensurely the paths exist on all systems
-    // Output is the sourceText; currentCompletionText()
-
-    for (int i = 0; i < 2; i++) {
-        if (i == 1)
-            QTest::newRow("FILTERING_OFF") << "FILTERING_OFF" << "" << "" << "";
-
-#if defined(Q_OS_WIN)
-        QTest::newRow("()") << "C" << "" << "C:" << "C:";
-        QTest::newRow("()") << "C:\\Program" << "" << "Program Files" << "C:\\Program Files";
-#elif defined (Q_OS_MAC)
-        QTest::newRow("()") << "" << "" << "/" << "/";
-        QTest::newRow("(/a)") << "/a" << "" << "Applications" << "/Applications";
-        QTest::newRow("(/u)") << "/u" << "" << "Users" << "/Users";
-#elif defined(Q_OS_ANDROID)
-        QTest::newRow("()") << "" << "" << "/" << "/";
-        QTest::newRow("(/et)") << "/et" << "" << "etc" << "/etc";
-#else
-        QTest::newRow("()") << "" << "" << "/" << "/";
-#if !defined(Q_OS_AIX) && !defined(Q_OS_HPUX) && !defined(Q_OS_QNX)
-        QTest::newRow("(/h)") << "/h" << "" << "home" << "/home";
-#endif
-        QTest::newRow("(/et)") << "/et" << "" << "etc" << "/etc";
-        QTest::newRow("(/etc/passw)") << "/etc/passw" << "" << "passwd" << "/etc/passwd";
-#endif
-    }
-}
-
-void tst_QCompleter::directoryModel()
-{
-#ifdef Q_OS_WINRT
-    QSKIP("WinRT cannot access directories outside of the application's sandbox");
-#endif
-    filter();
-}
-#endif // QT_CONFIG(dirmodel) && QT_DEPRECATED_SINCE(5, 15)
-
 void tst_QCompleter::fileSystemModel_data()
 {
     delete completer;
@@ -692,10 +628,23 @@ void tst_QCompleter::fileSystemModel_data()
 
 void tst_QCompleter::fileSystemModel()
 {
-#ifdef Q_OS_WINRT
-    QSKIP("WinRT cannot access directories outside of the application's sandbox");
-#endif
-    //QFileSystemModel is assync.
+    //QFileSystemModel is async.
+    filter(true);
+}
+
+/*!
+    In the file dialog, the completer uses the EditRole.
+    See QTBUG-94799
+*/
+void tst_QCompleter::fileDialog_data()
+{
+    fileSystemModel_data();
+    completer->setCompletionRole(Qt::EditRole);
+}
+
+void tst_QCompleter::fileDialog()
+{
+    //QFileSystemModel is async.
     filter(true);
 }
 
@@ -1732,9 +1681,6 @@ void tst_QCompleter::QTBUG_14292_filesystem()
 
     // Wait for all file system model slots/timers to trigger
     // until the model sees the subdirectories.
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("", "Fails on WinRT - QTBUG-68297", Abort);
-#endif
     QTRY_VERIFY(testFileSystemReady(model));
     // But this should not cause the combo to pop up.
     QVERIFY(!comp.popup()->isVisible());
@@ -1807,7 +1753,7 @@ void tst_QCompleter::QTBUG_52028_tabAutoCompletes()
     QApplication::setActiveWindow(&w);
     QVERIFY(QTest::qWaitForWindowActive(&w));
 
-    QSignalSpy activatedSpy(&cbox, QOverload<int>::of(&QComboBox::activated));
+    QSignalSpy activatedSpy(&cbox, &QComboBox::activated);
 
     // Tab key will complete but not activate
     cbox.lineEdit()->clear();
@@ -1851,7 +1797,7 @@ void tst_QCompleter::QTBUG_51889_activatedSentTwice()
     QApplication::setActiveWindow(&w);
     QVERIFY(QTest::qWaitForWindowActive(&w));
 
-    QSignalSpy activatedSpy(&cbox, QOverload<int>::of(&QComboBox::activated));
+    QSignalSpy activatedSpy(&cbox, &QComboBox::activated);
 
     // Navigate + enter activates only once (first item)
     cbox.lineEdit()->clear();

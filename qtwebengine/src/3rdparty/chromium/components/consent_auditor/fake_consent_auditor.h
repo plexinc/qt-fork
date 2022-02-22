@@ -41,6 +41,10 @@ class FakeConsentAuditor : public ConsentAuditor {
       const CoreAccountId& account_id,
       const sync_pb::UserConsentTypes::AssistantActivityControlConsent& consent)
       override;
+  void RecordAccountPasswordsConsent(
+      const CoreAccountId& account_id,
+      const sync_pb::UserConsentTypes::AccountPasswordsConsent& consent)
+      override;
 
   void RecordLocalConsent(const std::string& feature,
                           const std::string& description_text,
@@ -103,7 +107,7 @@ MATCHER_P(ArcPlayConsentEq, expected_consent, "") {
       expected_consent.SerializeAsString())
     return true;
 
-  LOG(ERROR) << "ERROR: actual proto does not match the expected proto";
+  *result_listener << "ERROR: actual proto does not match the expected proto";
   return false;
 }
 
@@ -115,7 +119,7 @@ MATCHER_P(ArcGoogleLocationServiceConsentEq, expected_consent, "") {
       expected_consent.SerializeAsString())
     return true;
 
-  LOG(ERROR) << "ERROR: actual proto does not match the expected proto";
+  *result_listener << "ERROR: actual proto does not match the expected proto";
   return false;
 }
 
@@ -123,7 +127,7 @@ MATCHER_P(ArcBackupAndRestoreConsentEq, expected_consent, "") {
   if (arg.SerializeAsString() == expected_consent.SerializeAsString())
     return true;
 
-  LOG(ERROR) << "ERROR: actual proto does not match the expected proto";
+  *result_listener << "ERROR: actual proto does not match the expected proto";
   return false;
 }
 

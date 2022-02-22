@@ -2,21 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/spdy/platform/api/spdy_mem_slice.h"
+#include "spdy/platform/api/spdy_mem_slice.h"
 
 #include <utility>
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Weverything"
-
-#include "testing/gtest/include/gtest/gtest.h"
-#pragma clang diagnostic pop
+#include "common/platform/api/quiche_test.h"
 
 namespace spdy {
 namespace test {
 namespace {
 
-class SpdyMemSliceTest : public ::testing::Test {
+class SpdyMemSliceTest : public QuicheTest {
  public:
   SpdyMemSliceTest() {
     slice_ = SpdyMemSlice(1024);

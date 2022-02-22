@@ -30,64 +30,68 @@ qhp.QtQuick.subprojects.qmltypes.sortPages = true
 qhp.QtQuick.subprojects.classes.title = Classes
 qhp.QtQuick.subprojects.classes.title = C++ Classes
 qhp.QtQuick.subprojects.classes.indexTitle = Qt Quick C++ Classes
-qhp.QtQuick.subprojects.classes.selectors = class fake:headerfile
+qhp.QtQuick.subprojects.classes.selectors = class doc:headerfile
 qhp.QtQuick.subprojects.classes.sortPages = true
 qhp.QtQuick.subprojects.examples.title = Examples
 qhp.QtQuick.subprojects.examples.indexTitle = Qt Quick Examples and Tutorials
-qhp.QtQuick.subprojects.examples.selectors = fake:example
+qhp.QtQuick.subprojects.examples.selectors = doc:example
 
-tagfile                 = ../../../doc/qtquick/qtquick.tags
+tagfile = qtquick.tags
 
-depends += qtcore qtqml qtqmlmodels qtqmltest qtgui qtlinguist qtquickcontrols qtquickcontrols1 qtdoc qtquickdialogs qtsensors qtwidgets qmake qtmultimedia qtgraphicaleffects qtsql qtxmlpatterns
+depends += \
+    qtcore \
+    qtqml \
+    qtqmlmodels \
+    qtqmlxmllistmodel \
+    qtqmltest \
+    qtgui \
+    qtlinguist \
+    qtquickcontrols \
+    qtquick3d \
+    qtdoc \
+    qtplatformintegration \
+    qtwidgets \
+    qmake \
+    qtsql \
+    qtshadertools \
+    qmake \
+    qtcmake
 
-headerdirs  += ..\
-               ../../quick \
-               ../../quickwidgets
+{headerdirs,sourcedirs} += \
+    .. \
+    ../../quick \
+    ../../quickwidgets \
+    ../../qmllocalstorage \
+    ../../quicklayouts \
+    ../../labs
 
-sourcedirs  += .. \
-               ../../quick \
-               ../../quickwidgets
+# src/labs/platform has its own documentation project
+excludedirs += ../../labs/platform
 
-exampledirs +=  ../../../examples/quick \
-                snippets
+exampledirs += \
+    ../../../examples/quick \
+    ../../qmlmodels/doc/snippets \
+    snippets
 
+imagedirs += images
 
-imagedirs   += images
+# Add particles and shapes sources
+{headerdirs,sourcedirs} += \
+    ../../particles \
+    ../../quickshapes
 
-#add particles and shapes sources
-headerdirs += ../../particles \
-              ../../quickshapes
-sourcedirs += ../../particles \
-              ../../quickshapes
-
-#add imports directory because of dependencies
-headerdirs += ../../imports
-sourcedirs += ../../imports
-
-#add plugins directory because of dependencies
-headerdirs += ../../plugins
-sourcedirs += ../../plugins
-
-#exclude certain directories
-excludedirs += ../../imports/models \
-               ../../imports/labsmodels \
-               ../../imports/testlib \
-               ../../imports/workerscript \
-               ../../imports/statemachine
+# Add imports and plugins directories because of dependencies
+{headerdirs,sourcedirs} += \
+    ../../imports \
+    ../../plugins
 
 excludefiles += ../util/qquickpropertychanges_p.h
-examples.fileextensions        += "*.qm"
+examples.fileextensions += "*.qm"
 
 manifestmeta.thumbnail.names += "QtQuick/Threaded ListModel Example" \
                                 "QtQuick/QML Dynamic View Ordering Tutorial*"
 
-manifestmeta.highlighted.names = "QtQuick/Qt Quick Demo - Same Game" \
-                                 "QtQuick/Qt Quick Demo - Photo Surface" \
-                                 "QtQuick/Qt Quick Demo - Tweet Search" \
-                                 "QtQuick/Qt Quick Demo - Calqlatr" \
-                                 "QtQuick/Qt Quick Demo - StocQt" \
-                                 "QtQuick/Qt Quick Demo - Clocks" \
-                                 "QtQuick/Qt Quick Examples - Shader Effects"
+manifestmeta.highlighted.names = "QtQuick/Qt Quick Demo - Same Game"
 
 navigation.landingpage = "Qt Quick"
 navigation.cppclassespage = "Qt Quick C++ Classes"
@@ -96,6 +100,5 @@ navigation.qmltypespage = "Qt Quick QML Types"
 # \svgcolor {#ffdead}
 macro.svgcolor.HTML = "<div style=\"padding:10px;color:#fff;background:\1;\"></div>"
 
-# youtube video thumbnails that show up in offline and online docs
-HTML.extraimages += images/9BcAYDlpuT8.jpg
-qhp.QtQuick.extraFiles += images/9BcAYDlpuT8.jpg
+# YouTube video thumbnail that show up in offline docs
+{HTML.extraimages,qhp.QtQuick.extraFiles} += images/9BcAYDlpuT8.jpg

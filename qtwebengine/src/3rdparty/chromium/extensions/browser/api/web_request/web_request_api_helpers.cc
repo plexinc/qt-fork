@@ -14,16 +14,17 @@
 
 #include "base/bind.h"
 #include "base/containers/adapters.h"
-#include "base/containers/flat_map.h"
+#include "base/containers/fixed_flat_map.h"
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/no_destructor.h"
+#include "base/ranges/algorithm.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
-#include "base/task/post_task.h"
 #include "base/time/time.h"
 #include "base/values.h"
 #include "components/web_cache/browser/web_cache_manager.h"
@@ -31,6 +32,7 @@
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_process_host.h"
+#include "extensions/browser/api/declarative_net_request/request_action.h"
 #include "extensions/browser/api/extensions_api_client.h"
 #include "extensions/browser/api/web_request/web_request_api_constants.h"
 #include "extensions/browser/api/web_request/web_request_info.h"
@@ -38,6 +40,7 @@
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/extensions_browser_client.h"
 #include "extensions/browser/runtime_data.h"
+#include "extensions/common/api/declarative_net_request.h"
 #include "extensions/common/extension_messages.h"
 #include "net/cookies/cookie_util.h"
 #include "net/cookies/parsed_cookie.h"
@@ -56,11 +59,13 @@ using net::cookie_util::ParsedRequestCookies;
 
 namespace keys = extension_web_request_api_constants;
 namespace web_request = extensions::api::web_request;
+using DNRRequestAction = extensions::declarative_net_request::RequestAction;
 
 namespace extension_web_request_api_helpers {
 
 namespace {
 
+namespace dnr_api = extensions::api::declarative_net_request;
 using ParsedResponseCookies = std::vector<std::unique_ptr<net::ParsedCookie>>;
 
 void ClearCacheOnNavigationOnUI() {
@@ -91,17 +96,6 @@ bool ParseCookieLifetime(const net::ParsedCookie& cookie,
   return false;
 }
 
-std::set<std::string> GetExtraHeaderRequestHeaders(
-    bool is_out_of_blink_cors_enabled) {
-  std::set<std::string> headers(
-      {"accept-encoding", "accept-language", "cookie", "referer"});
-
-  if (is_out_of_blink_cors_enabled)
-    headers.insert("origin");
-
-  return headers;
-}
-
 void RecordRequestHeaderRemoved(RequestHeaderType type) {
   UMA_HISTOGRAM_ENUMERATION("Extensions.WebRequest.RequestHeaderRemoved", type);
 }
@@ -114,74 +108,87 @@ void RecordRequestHeaderChanged(RequestHeaderType type) {
   UMA_HISTOGRAM_ENUMERATION("Extensions.WebRequest.RequestHeaderChanged", type);
 }
 
+void RecordDNRRequestHeaderRemoved(RequestHeaderType type) {
+  UMA_HISTOGRAM_ENUMERATION(
+      "Extensions.DeclarativeNetRequest.RequestHeaderRemoved", type);
+}
+
+void RecordDNRRequestHeaderAdded(RequestHeaderType type) {
+  UMA_HISTOGRAM_ENUMERATION(
+      "Extensions.DeclarativeNetRequest.RequestHeaderAdded", type);
+}
+
+void RecordDNRRequestHeaderChanged(RequestHeaderType type) {
+  UMA_HISTOGRAM_ENUMERATION(
+      "Extensions.DeclarativeNetRequest.RequestHeaderChanged", type);
+}
+
 bool IsStringLowerCaseASCII(base::StringPiece s) {
   return std::none_of(s.begin(), s.end(), base::IsAsciiUpper<char>);
 }
 
-using RequestHeaderEntry = std::pair<const char*, RequestHeaderType>;
-constexpr RequestHeaderEntry kRequestHeaderEntries[] = {
-    {"accept", RequestHeaderType::kAccept},
-    {"accept-charset", RequestHeaderType::kAcceptCharset},
-    {"accept-encoding", RequestHeaderType::kAcceptEncoding},
-    {"accept-language", RequestHeaderType::kAcceptLanguage},
-    {"access-control-request-headers",
-     RequestHeaderType::kAccessControlRequestHeaders},
-    {"access-control-request-method",
-     RequestHeaderType::kAccessControlRequestMethod},
-    {"authorization", RequestHeaderType::kAuthorization},
-    {"cache-control", RequestHeaderType::kCacheControl},
-    {"connection", RequestHeaderType::kConnection},
-    {"content-encoding", RequestHeaderType::kContentEncoding},
-    {"content-language", RequestHeaderType::kContentLanguage},
-    {"content-length", RequestHeaderType::kContentLength},
-    {"content-location", RequestHeaderType::kContentLocation},
-    {"content-type", RequestHeaderType::kContentType},
-    {"cookie", RequestHeaderType::kCookie},
-    {"date", RequestHeaderType::kDate},
-    {"dnt", RequestHeaderType::kDnt},
-    {"early-data", RequestHeaderType::kEarlyData},
-    {"expect", RequestHeaderType::kExpect},
-    {"forwarded", RequestHeaderType::kForwarded},
-    {"from", RequestHeaderType::kFrom},
-    {"host", RequestHeaderType::kHost},
-    {"if-match", RequestHeaderType::kIfMatch},
-    {"if-modified-since", RequestHeaderType::kIfModifiedSince},
-    {"if-none-match", RequestHeaderType::kIfNoneMatch},
-    {"if-range", RequestHeaderType::kIfRange},
-    {"if-unmodified-since", RequestHeaderType::kIfUnmodifiedSince},
-    {"keep-alive", RequestHeaderType::kKeepAlive},
-    {"origin", RequestHeaderType::kOrigin},
-    {"pragma", RequestHeaderType::kPragma},
-    {"proxy-authorization", RequestHeaderType::kProxyAuthorization},
-    {"proxy-connection", RequestHeaderType::kProxyConnection},
-    {"range", RequestHeaderType::kRange},
-    {"referer", RequestHeaderType::kReferer},
-    {"te", RequestHeaderType::kTe},
-    {"transfer-encoding", RequestHeaderType::kTransferEncoding},
-    {"upgrade", RequestHeaderType::kUpgrade},
-    {"upgrade-insecure-requests", RequestHeaderType::kUpgradeInsecureRequests},
-    {"user-agent", RequestHeaderType::kUserAgent},
-    {"via", RequestHeaderType::kVia},
-    {"warning", RequestHeaderType::kWarning},
-    {"x-forwarded-for", RequestHeaderType::kXForwardedFor},
-    {"x-forwarded-host", RequestHeaderType::kXForwardedHost},
-    {"x-forwarded-proto", RequestHeaderType::kXForwardedProto}};
+constexpr auto kRequestHeaderEntries =
+    base::MakeFixedFlatMap<base::StringPiece, RequestHeaderType>(
+        {{"accept", RequestHeaderType::kAccept},
+         {"accept-charset", RequestHeaderType::kAcceptCharset},
+         {"accept-encoding", RequestHeaderType::kAcceptEncoding},
+         {"accept-language", RequestHeaderType::kAcceptLanguage},
+         {"access-control-request-headers",
+          RequestHeaderType::kAccessControlRequestHeaders},
+         {"access-control-request-method",
+          RequestHeaderType::kAccessControlRequestMethod},
+         {"authorization", RequestHeaderType::kAuthorization},
+         {"cache-control", RequestHeaderType::kCacheControl},
+         {"connection", RequestHeaderType::kConnection},
+         {"content-encoding", RequestHeaderType::kContentEncoding},
+         {"content-language", RequestHeaderType::kContentLanguage},
+         {"content-length", RequestHeaderType::kContentLength},
+         {"content-location", RequestHeaderType::kContentLocation},
+         {"content-type", RequestHeaderType::kContentType},
+         {"cookie", RequestHeaderType::kCookie},
+         {"date", RequestHeaderType::kDate},
+         {"dnt", RequestHeaderType::kDnt},
+         {"early-data", RequestHeaderType::kEarlyData},
+         {"expect", RequestHeaderType::kExpect},
+         {"forwarded", RequestHeaderType::kForwarded},
+         {"from", RequestHeaderType::kFrom},
+         {"host", RequestHeaderType::kHost},
+         {"if-match", RequestHeaderType::kIfMatch},
+         {"if-modified-since", RequestHeaderType::kIfModifiedSince},
+         {"if-none-match", RequestHeaderType::kIfNoneMatch},
+         {"if-range", RequestHeaderType::kIfRange},
+         {"if-unmodified-since", RequestHeaderType::kIfUnmodifiedSince},
+         {"keep-alive", RequestHeaderType::kKeepAlive},
+         {"origin", RequestHeaderType::kOrigin},
+         {"pragma", RequestHeaderType::kPragma},
+         {"proxy-authorization", RequestHeaderType::kProxyAuthorization},
+         {"proxy-connection", RequestHeaderType::kProxyConnection},
+         {"range", RequestHeaderType::kRange},
+         {"referer", RequestHeaderType::kReferer},
+         {"te", RequestHeaderType::kTe},
+         {"transfer-encoding", RequestHeaderType::kTransferEncoding},
+         {"upgrade", RequestHeaderType::kUpgrade},
+         {"upgrade-insecure-requests",
+          RequestHeaderType::kUpgradeInsecureRequests},
+         {"user-agent", RequestHeaderType::kUserAgent},
+         {"via", RequestHeaderType::kVia},
+         {"warning", RequestHeaderType::kWarning},
+         {"x-forwarded-for", RequestHeaderType::kXForwardedFor},
+         {"x-forwarded-host", RequestHeaderType::kXForwardedHost},
+         {"x-forwarded-proto", RequestHeaderType::kXForwardedProto}});
 
-constexpr bool IsValidHeaderName(const char* str) {
-  while (*str) {
-    if ((*str >= 'a' && *str <= 'z') || *str == '-') {
-      str++;
-      continue;
-    }
-    return false;
+constexpr bool IsValidHeaderName(base::StringPiece str) {
+  for (char ch : str) {
+    if ((ch < 'a' || ch > 'z') && ch != '-')
+      return false;
   }
   return true;
 }
 
 template <typename T>
 constexpr bool ValidateHeaderEntries(const T& entries) {
-  for (size_t i = 0; i < base::size(entries); ++i) {
-    if (!IsValidHeaderName(entries[i].first))
+  for (const auto& entry : entries) {
+    if (!IsValidHeaderName(entry.first))
       return false;
   }
   return true;
@@ -193,30 +200,20 @@ constexpr bool ValidateHeaderEntries(const T& entries) {
 // sec-origin-policy which does not have a corresponding entry in
 // kRequestHeaderEntries but does contribute to RequestHeaderType::kMaxValue.
 static_assert(static_cast<size_t>(RequestHeaderType::kMaxValue) - 2 ==
-                  base::size(kRequestHeaderEntries),
+                  kRequestHeaderEntries.size(),
               "Invalid number of request header entries");
 
-static_assert(ValidateHeaderEntries(kRequestHeaderEntries),
-              "Invalid request header entries");
+//static_assert(ValidateHeaderEntries(kRequestHeaderEntries),
+//              "Invalid request header entries");
 
 // Uses |record_func| to record |header|. If |header| is not recorded, false is
 // returned.
 void RecordRequestHeader(const std::string& header,
                          void (*record_func)(RequestHeaderType)) {
-  using HeaderMapType = base::flat_map<base::StringPiece, RequestHeaderType>;
-  static const base::NoDestructor<HeaderMapType> kHeaderMap([] {
-    std::vector<std::pair<base::StringPiece, RequestHeaderType>> entries;
-    entries.reserve(base::size(kRequestHeaderEntries));
-    for (const auto& entry : kRequestHeaderEntries)
-      entries.emplace_back(entry.first, entry.second);
-    return HeaderMapType(entries.begin(), entries.end());
-  }());
-
   DCHECK(IsStringLowerCaseASCII(header));
-  auto it = kHeaderMap->find(header);
-  RequestHeaderType type =
-      it != kHeaderMap->end() ? it->second : RequestHeaderType::kOther;
-  record_func(type);
+  const auto it = kRequestHeaderEntries.find(header);
+  record_func(it != kRequestHeaderEntries.end() ? it->second
+                                                : RequestHeaderType::kOther);
 }
 
 void RecordResponseHeaderChanged(ResponseHeaderType type) {
@@ -233,134 +230,295 @@ void RecordResponseHeaderRemoved(ResponseHeaderType type) {
                             type);
 }
 
-using ResponseHeaderEntry = std::pair<const char*, ResponseHeaderType>;
-constexpr ResponseHeaderEntry kResponseHeaderEntries[] = {
-    {"accept-patch", ResponseHeaderType::kAcceptPatch},
-    {"accept-ranges", ResponseHeaderType::kAcceptRanges},
-    {"access-control-allow-credentials",
-     ResponseHeaderType::kAccessControlAllowCredentials},
-    {"access-control-allow-headers",
-     ResponseHeaderType::kAccessControlAllowHeaders},
-    {"access-control-allow-methods",
-     ResponseHeaderType::kAccessControlAllowMethods},
-    {"access-control-allow-origin",
-     ResponseHeaderType::kAccessControlAllowOrigin},
-    {"access-control-expose-headers",
-     ResponseHeaderType::kAccessControlExposeHeaders},
-    {"access-control-max-age", ResponseHeaderType::kAccessControlMaxAge},
-    {"age", ResponseHeaderType::kAge},
-    {"allow", ResponseHeaderType::kAllow},
-    {"alt-svc", ResponseHeaderType::kAltSvc},
-    {"cache-control", ResponseHeaderType::kCacheControl},
-    {"clear-site-data", ResponseHeaderType::kClearSiteData},
-    {"connection", ResponseHeaderType::kConnection},
-    {"content-disposition", ResponseHeaderType::kContentDisposition},
-    {"content-encoding", ResponseHeaderType::kContentEncoding},
-    {"content-language", ResponseHeaderType::kContentLanguage},
-    {"content-length", ResponseHeaderType::kContentLength},
-    {"content-location", ResponseHeaderType::kContentLocation},
-    {"content-range", ResponseHeaderType::kContentRange},
-    {"content-security-policy", ResponseHeaderType::kContentSecurityPolicy},
-    {"content-security-policy-report-only",
-     ResponseHeaderType::kContentSecurityPolicyReportOnly},
-    {"content-type", ResponseHeaderType::kContentType},
-    {"date", ResponseHeaderType::kDate},
-    {"etag", ResponseHeaderType::kETag},
-    {"expect-ct", ResponseHeaderType::kExpectCT},
-    {"expires", ResponseHeaderType::kExpires},
-    {"feature-policy", ResponseHeaderType::kFeaturePolicy},
-    {"keep-alive", ResponseHeaderType::kKeepAlive},
-    {"large-allocation", ResponseHeaderType::kLargeAllocation},
-    {"last-modified", ResponseHeaderType::kLastModified},
-    {"location", ResponseHeaderType::kLocation},
-    {"pragma", ResponseHeaderType::kPragma},
-    {"proxy-authenticate", ResponseHeaderType::kProxyAuthenticate},
-    {"proxy-connection", ResponseHeaderType::kProxyConnection},
-    {"public-key-pins", ResponseHeaderType::kPublicKeyPins},
-    {"public-key-pins-report-only",
-     ResponseHeaderType::kPublicKeyPinsReportOnly},
-    {"referrer-policy", ResponseHeaderType::kReferrerPolicy},
-    {"refresh", ResponseHeaderType::kRefresh},
-    {"retry-after", ResponseHeaderType::kRetryAfter},
-    {"sec-websocket-accept", ResponseHeaderType::kSecWebSocketAccept},
-    {"server", ResponseHeaderType::kServer},
-    {"server-timing", ResponseHeaderType::kServerTiming},
-    {"set-cookie", ResponseHeaderType::kSetCookie},
-    {"sourcemap", ResponseHeaderType::kSourceMap},
-    {"strict-transport-security", ResponseHeaderType::kStrictTransportSecurity},
-    {"timing-allow-origin", ResponseHeaderType::kTimingAllowOrigin},
-    {"tk", ResponseHeaderType::kTk},
-    {"trailer", ResponseHeaderType::kTrailer},
-    {"transfer-encoding", ResponseHeaderType::kTransferEncoding},
-    {"upgrade", ResponseHeaderType::kUpgrade},
-    {"vary", ResponseHeaderType::kVary},
-    {"via", ResponseHeaderType::kVia},
-    {"warning", ResponseHeaderType::kWarning},
-    {"www-authenticate", ResponseHeaderType::kWWWAuthenticate},
-    {"x-content-type-options", ResponseHeaderType::kXContentTypeOptions},
-    {"x-dns-prefetch-control", ResponseHeaderType::kXDNSPrefetchControl},
-    {"x-frame-options", ResponseHeaderType::kXFrameOptions},
-    {"x-xss-protection", ResponseHeaderType::kXXSSProtection},
-};
+void RecordDNRResponseHeaderChanged(ResponseHeaderType type) {
+  UMA_HISTOGRAM_ENUMERATION(
+      "Extensions.DeclarativeNetRequest.ResponseHeaderChanged", type);
+}
+
+void RecordDNRResponseHeaderAdded(ResponseHeaderType type) {
+  UMA_HISTOGRAM_ENUMERATION(
+      "Extensions.DeclarativeNetRequest.ResponseHeaderAdded", type);
+}
+
+void RecordDNRResponseHeaderRemoved(ResponseHeaderType type) {
+  UMA_HISTOGRAM_ENUMERATION(
+      "Extensions.DeclarativeNetRequest.ResponseHeaderRemoved", type);
+}
+
+constexpr auto kResponseHeaderEntries =
+    base::MakeFixedFlatMap<base::StringPiece, ResponseHeaderType>({
+        {"accept-patch", ResponseHeaderType::kAcceptPatch},
+        {"accept-ranges", ResponseHeaderType::kAcceptRanges},
+        {"access-control-allow-credentials",
+         ResponseHeaderType::kAccessControlAllowCredentials},
+        {"access-control-allow-headers",
+         ResponseHeaderType::kAccessControlAllowHeaders},
+        {"access-control-allow-methods",
+         ResponseHeaderType::kAccessControlAllowMethods},
+        {"access-control-allow-origin",
+         ResponseHeaderType::kAccessControlAllowOrigin},
+        {"access-control-expose-headers",
+         ResponseHeaderType::kAccessControlExposeHeaders},
+        {"access-control-max-age", ResponseHeaderType::kAccessControlMaxAge},
+        {"age", ResponseHeaderType::kAge},
+        {"allow", ResponseHeaderType::kAllow},
+        {"alt-svc", ResponseHeaderType::kAltSvc},
+        {"cache-control", ResponseHeaderType::kCacheControl},
+        {"clear-site-data", ResponseHeaderType::kClearSiteData},
+        {"connection", ResponseHeaderType::kConnection},
+        {"content-disposition", ResponseHeaderType::kContentDisposition},
+        {"content-encoding", ResponseHeaderType::kContentEncoding},
+        {"content-language", ResponseHeaderType::kContentLanguage},
+        {"content-length", ResponseHeaderType::kContentLength},
+        {"content-location", ResponseHeaderType::kContentLocation},
+        {"content-range", ResponseHeaderType::kContentRange},
+        {"content-security-policy", ResponseHeaderType::kContentSecurityPolicy},
+        {"content-security-policy-report-only",
+         ResponseHeaderType::kContentSecurityPolicyReportOnly},
+        {"content-type", ResponseHeaderType::kContentType},
+        {"date", ResponseHeaderType::kDate},
+        {"etag", ResponseHeaderType::kETag},
+        {"expect-ct", ResponseHeaderType::kExpectCT},
+        {"expires", ResponseHeaderType::kExpires},
+        {"feature-policy", ResponseHeaderType::kFeaturePolicy},
+        {"keep-alive", ResponseHeaderType::kKeepAlive},
+        {"large-allocation", ResponseHeaderType::kLargeAllocation},
+        {"last-modified", ResponseHeaderType::kLastModified},
+        {"location", ResponseHeaderType::kLocation},
+        {"pragma", ResponseHeaderType::kPragma},
+        {"proxy-authenticate", ResponseHeaderType::kProxyAuthenticate},
+        {"proxy-connection", ResponseHeaderType::kProxyConnection},
+        {"public-key-pins", ResponseHeaderType::kPublicKeyPins},
+        {"public-key-pins-report-only",
+         ResponseHeaderType::kPublicKeyPinsReportOnly},
+        {"referrer-policy", ResponseHeaderType::kReferrerPolicy},
+        {"refresh", ResponseHeaderType::kRefresh},
+        {"retry-after", ResponseHeaderType::kRetryAfter},
+        {"sec-websocket-accept", ResponseHeaderType::kSecWebSocketAccept},
+        {"server", ResponseHeaderType::kServer},
+        {"server-timing", ResponseHeaderType::kServerTiming},
+        {"set-cookie", ResponseHeaderType::kSetCookie},
+        {"sourcemap", ResponseHeaderType::kSourceMap},
+        {"strict-transport-security",
+         ResponseHeaderType::kStrictTransportSecurity},
+        {"timing-allow-origin", ResponseHeaderType::kTimingAllowOrigin},
+        {"tk", ResponseHeaderType::kTk},
+        {"trailer", ResponseHeaderType::kTrailer},
+        {"transfer-encoding", ResponseHeaderType::kTransferEncoding},
+        {"upgrade", ResponseHeaderType::kUpgrade},
+        {"vary", ResponseHeaderType::kVary},
+        {"via", ResponseHeaderType::kVia},
+        {"warning", ResponseHeaderType::kWarning},
+        {"www-authenticate", ResponseHeaderType::kWWWAuthenticate},
+        {"x-content-type-options", ResponseHeaderType::kXContentTypeOptions},
+        {"x-dns-prefetch-control", ResponseHeaderType::kXDNSPrefetchControl},
+        {"x-frame-options", ResponseHeaderType::kXFrameOptions},
+        {"x-xss-protection", ResponseHeaderType::kXXSSProtection},
+    });
 
 void RecordResponseHeader(base::StringPiece header,
                           void (*record_func)(ResponseHeaderType)) {
-  using HeaderMapType = base::flat_map<base::StringPiece, ResponseHeaderType>;
-  static const base::NoDestructor<HeaderMapType> kHeaderMap([] {
-    std::vector<std::pair<base::StringPiece, ResponseHeaderType>> entries;
-    entries.reserve(base::size(kResponseHeaderEntries));
-    for (const auto& entry : kResponseHeaderEntries)
-      entries.emplace_back(entry.first, entry.second);
-    return HeaderMapType(entries.begin(), entries.end());
-  }());
-
   DCHECK(IsStringLowerCaseASCII(header));
-  auto it = kHeaderMap->find(header);
-  ResponseHeaderType type =
-      it != kHeaderMap->end() ? it->second : ResponseHeaderType::kOther;
-  record_func(type);
+  const auto it = kResponseHeaderEntries.find(header);
+  record_func(it != kResponseHeaderEntries.end() ? it->second
+                                                 : ResponseHeaderType::kOther);
 }
 
 // All entries other than kOther and kNone are mapped.
 static_assert(static_cast<size_t>(ResponseHeaderType::kMaxValue) - 1 ==
-                  base::size(kResponseHeaderEntries),
+                  kResponseHeaderEntries.size(),
               "Invalid number of response header entries");
 
-static_assert(ValidateHeaderEntries(kResponseHeaderEntries),
-              "Invalid response header entries");
+//static_assert(ValidateHeaderEntries(kResponseHeaderEntries),
+//              "Invalid response header entries");
 
-bool HasMatchingRemovedDNRRequestHeader(
-    const extensions::WebRequestInfo& request,
-    const std::string& header) {
-  for (const auto& action : *request.dnr_actions) {
-    if (std::find_if(action.request_headers_to_remove.begin(),
-                     action.request_headers_to_remove.end(),
-                     [&header](const char* header_to_remove) {
-                       return base::EqualsCaseInsensitiveASCII(header_to_remove,
-                                                               header);
-                     }) != action.request_headers_to_remove.end()) {
-      return true;
+// Represents an action to be taken on a given header.
+struct DNRHeaderAction {
+  DNRHeaderAction(const DNRRequestAction::HeaderInfo* header_info,
+                  const extensions::ExtensionId* extension_id)
+      : header_info(header_info), extension_id(extension_id) {}
+
+  // Returns whether for the same header, the operation specified by
+  // |next_action| conflicts with the operation specified by this action.
+  bool ConflictsWithSubsequentAction(const DNRHeaderAction& next_action) const {
+    DCHECK_EQ(header_info->header, next_action.header_info->header);
+
+    switch (header_info->operation) {
+      case dnr_api::HEADER_OPERATION_APPEND:
+        return next_action.header_info->operation !=
+               dnr_api::HEADER_OPERATION_APPEND;
+      case dnr_api::HEADER_OPERATION_SET:
+        return *extension_id != *next_action.extension_id ||
+               next_action.header_info->operation !=
+                   dnr_api::HEADER_OPERATION_APPEND;
+      case dnr_api::HEADER_OPERATION_REMOVE:
+        return true;
+      case dnr_api::HEADER_OPERATION_NONE:
+        NOTREACHED();
+        return true;
     }
   }
 
-  return false;
+  // Non-owning pointers to HeaderInfo and ExtensionId.
+  const DNRRequestAction::HeaderInfo* header_info;
+  const extensions::ExtensionId* extension_id;
+};
+
+// Helper to modify request headers from
+// |request_action.request_headers_to_modify|. Returns whether or not request
+// headers were actually modified and modifies |removed_headers|, |set_headers|
+// and |header_actions|. |header_actions| maps a header name to the operation
+// to be performed on the header.
+bool ModifyRequestHeadersForAction(
+    net::HttpRequestHeaders* headers,
+    const DNRRequestAction& request_action,
+    std::set<std::string>* removed_headers,
+    std::set<std::string>* set_headers,
+    std::map<base::StringPiece, DNRHeaderAction>* header_actions) {
+  bool request_headers_modified = false;
+  for (const DNRRequestAction::HeaderInfo& header_info :
+       request_action.request_headers_to_modify) {
+    bool header_modified = false;
+    const std::string& header = header_info.header;
+
+    DNRHeaderAction header_action(&header_info, &request_action.extension_id);
+    auto iter = header_actions->find(header);
+    if (iter != header_actions->end() &&
+        iter->second.ConflictsWithSubsequentAction(header_action)) {
+      continue;
+    }
+    header_actions->emplace(header, header_action);
+
+    switch (header_info.operation) {
+      case extensions::api::declarative_net_request::HEADER_OPERATION_SET: {
+        bool has_header = headers->HasHeader(header);
+
+        headers->SetHeader(header, *header_info.value);
+        header_modified = true;
+        set_headers->insert(header);
+
+        if (has_header)
+          RecordRequestHeader(header, &RecordDNRRequestHeaderChanged);
+        else
+          RecordRequestHeader(header, &RecordDNRRequestHeaderAdded);
+        break;
+      }
+      case extensions::api::declarative_net_request::HEADER_OPERATION_REMOVE: {
+        while (headers->HasHeader(header)) {
+          header_modified = true;
+          headers->RemoveHeader(header);
+        }
+
+        if (header_modified) {
+          removed_headers->insert(header);
+          RecordRequestHeader(header, &RecordDNRRequestHeaderRemoved);
+        }
+        break;
+      }
+      case extensions::api::declarative_net_request::HEADER_OPERATION_APPEND:
+      case extensions::api::declarative_net_request::HEADER_OPERATION_NONE:
+        NOTREACHED();
+    }
+
+    request_headers_modified |= header_modified;
+  }
+
+  return request_headers_modified;
 }
 
-bool HasMatchingRemovedDNRResponseHeader(
-    const extensions::WebRequestInfo& request,
-    const std::string& header) {
-  for (const auto& action : *request.dnr_actions) {
-    if (std::find_if(action.response_headers_to_remove.begin(),
-                     action.response_headers_to_remove.end(),
-                     [&header](const char* header_to_remove) {
-                       return base::EqualsCaseInsensitiveASCII(
-                           header, header_to_remove);
-                     }) != action.response_headers_to_remove.end()) {
-      return true;
+// Helper to modify response headers from |request_action|. Returns whether or
+// not response headers were actually modified and modifies |header_actions|.
+// |header_actions| maps a header name to a list of operations to be performed
+// on the header.
+bool ModifyResponseHeadersForAction(
+    const net::HttpResponseHeaders* original_response_headers,
+    scoped_refptr<net::HttpResponseHeaders>* override_response_headers,
+    const DNRRequestAction& request_action,
+    std::map<base::StringPiece, std::vector<DNRHeaderAction>>* header_actions) {
+  bool response_headers_modified = false;
+
+  // Check for |header| in |override_response_headers| if headers have been
+  // modified, otherwise, check in |original_response_headers|.
+  auto has_header = [&original_response_headers,
+                     &override_response_headers](std::string header) {
+    return override_response_headers->get()
+               ? override_response_headers->get()->HasHeader(header)
+               : original_response_headers->HasHeader(header);
+  };
+
+  // Create a copy of |original_response_headers| iff we really want to modify
+  // the response headers.
+  auto create_override_headers_if_needed =
+      [&original_response_headers](
+          scoped_refptr<net::HttpResponseHeaders>* override_response_headers) {
+        if (override_response_headers->get() == nullptr) {
+          *override_response_headers =
+              base::MakeRefCounted<net::HttpResponseHeaders>(
+                  original_response_headers->raw_headers());
+        }
+      };
+
+  for (const DNRRequestAction::HeaderInfo& header_info :
+       request_action.response_headers_to_modify) {
+    bool header_modified = false;
+    const std::string& header = header_info.header;
+
+    DNRHeaderAction header_action(&header_info, &request_action.extension_id);
+    auto iter = header_actions->find(header);
+
+    // Checking the first DNRHeaderAction should suffice for determining if a
+    // conflict exists, since the contents of |header_actions| for a given
+    // header will always be one of:
+    // [remove]
+    // [append+] one or more appends
+    // [set, append*] set, any number of appends from the same extension
+    if (iter != header_actions->end() &&
+        (*header_actions)[header][0].ConflictsWithSubsequentAction(
+            header_action)) {
+      continue;
     }
+    (*header_actions)[header].push_back(header_action);
+
+    switch (header_info.operation) {
+      case extensions::api::declarative_net_request::HEADER_OPERATION_REMOVE: {
+        if (has_header(header)) {
+          header_modified = true;
+          create_override_headers_if_needed(override_response_headers);
+          override_response_headers->get()->RemoveHeader(header);
+          RecordResponseHeader(header, &RecordDNRResponseHeaderRemoved);
+        }
+
+        break;
+      }
+      case extensions::api::declarative_net_request::HEADER_OPERATION_APPEND: {
+        header_modified = true;
+        create_override_headers_if_needed(override_response_headers);
+        override_response_headers->get()->AddHeader(header, *header_info.value);
+
+        // Record only the first time a header is appended. appends following a
+        // set from the same extension are treated as part of the set and are
+        // not logged.
+        if ((*header_actions)[header].size() == 1)
+          RecordResponseHeader(header, &RecordDNRResponseHeaderAdded);
+
+        break;
+      }
+      case extensions::api::declarative_net_request::HEADER_OPERATION_SET: {
+        header_modified = true;
+        create_override_headers_if_needed(override_response_headers);
+        override_response_headers->get()->RemoveHeader(header);
+        override_response_headers->get()->AddHeader(header, *header_info.value);
+        RecordResponseHeader(header, &RecordDNRResponseHeaderChanged);
+        break;
+      }
+      case extensions::api::declarative_net_request::HEADER_OPERATION_NONE:
+        NOTREACHED();
+    }
+
+    response_headers_modified |= header_modified;
   }
 
-  return false;
+  return response_headers_modified;
 }
 
 }  // namespace
@@ -374,11 +532,7 @@ IgnoredAction::IgnoredAction(IgnoredAction&& rhs) = default;
 bool ExtraInfoSpec::InitFromValue(content::BrowserContext* browser_context,
                                   const base::ListValue& value,
                                   int* extra_info_spec) {
-  *extra_info_spec =
-      extensions::ExtensionsBrowserClient::Get()
-              ->ShouldForceWebRequestExtraHeaders(browser_context)
-          ? EXTRA_HEADERS
-          : 0;
+  *extra_info_spec = 0;
   for (size_t i = 0; i < value.GetSize(); ++i) {
     std::string str;
     if (!value.GetString(i, &str))
@@ -703,10 +857,13 @@ EventResponseDelta CalculateOnAuthRequiredDelta(
   return result;
 }
 
-void MergeCancelOfResponses(const EventResponseDeltas& deltas, bool* canceled) {
+void MergeCancelOfResponses(
+    const EventResponseDeltas& deltas,
+    base::Optional<extensions::ExtensionId>* canceled_by_extension) {
+  *canceled_by_extension = base::nullopt;
   for (const auto& delta : deltas) {
     if (delta.cancel) {
-      *canceled = true;
+      *canceled_by_extension = delta.extension_id;
       break;
     }
   }
@@ -938,16 +1095,36 @@ void MergeOnBeforeSendHeadersResponses(
     IgnoredActions* ignored_actions,
     std::set<std::string>* removed_headers,
     std::set<std::string>* set_headers,
-    bool* request_headers_modified) {
+    bool* request_headers_modified,
+    std::vector<const DNRRequestAction*>* matched_dnr_actions) {
   DCHECK(request_headers_modified);
   DCHECK(removed_headers->empty());
   DCHECK(set_headers->empty());
+  DCHECK(request.dnr_actions);
+  DCHECK(matched_dnr_actions);
   *request_headers_modified = false;
 
-  // Exhaustive subsets of |set_headers|. Split into a set for added headers and
-  // a set for overridden headers.
-  std::set<std::string> overridden_headers;
-  std::set<std::string> added_headers;
+  std::map<base::StringPiece, DNRHeaderAction> dnr_header_actions;
+  for (const auto& action : *request.dnr_actions) {
+    bool headers_modified_for_action =
+        ModifyRequestHeadersForAction(request_headers, action, removed_headers,
+                                      set_headers, &dnr_header_actions);
+
+    *request_headers_modified |= headers_modified_for_action;
+    if (headers_modified_for_action)
+      matched_dnr_actions->push_back(&action);
+  }
+
+  // A strict subset of |removed_headers| consisting of headers removed by the
+  // web request API. Used for metrics.
+  // TODO(crbug.com/1098945): Use base::StringPiece to avoid copying header
+  // names.
+  std::set<std::string> web_request_removed_headers;
+
+  // Subsets of |set_headers| consisting of headers modified by the web request
+  // API. Split into a set for added headers and a set for overridden headers.
+  std::set<std::string> web_request_overridden_headers;
+  std::set<std::string> web_request_added_headers;
 
   // We assume here that the deltas are sorted in decreasing extension
   // precedence (i.e. decreasing extension installation time).
@@ -969,16 +1146,20 @@ void MergeOnBeforeSendHeadersResponses(
         const std::string key = base::ToLowerASCII(modification.name());
         const std::string& value = modification.value();
 
-        // We must not modify anything that has been deleted before.
-        if (base::Contains(*removed_headers, key)) {
+        // We must not modify anything that was specified to be removed by the
+        // Declarative Net Request API. Note that the actual header
+        // modifications made by Declarative Net Request should be represented
+        // in |removed_headers| and |set_headers|.
+        auto iter = dnr_header_actions.find(key);
+        if (iter != dnr_header_actions.end() &&
+            iter->second.header_info->operation ==
+                dnr_api::HEADER_OPERATION_REMOVE) {
           extension_conflicts = true;
           break;
         }
 
-        // Prevent extensions from adding any header removed by the Declarative
-        // Net Request API.
-        DCHECK(request.dnr_actions);
-        if (HasMatchingRemovedDNRRequestHeader(request, key)) {
+        // We must not modify anything that has been deleted before.
+        if (base::Contains(*removed_headers, key)) {
           extension_conflicts = true;
           break;
         }
@@ -1016,11 +1197,11 @@ void MergeOnBeforeSendHeadersResponses(
       while (modification.GetNext()) {
         std::string key = base::ToLowerASCII(modification.name());
         if (!request_headers->HasHeader(key)) {
-          added_headers.insert(key);
-        } else if (!base::Contains(added_headers, key)) {
+          web_request_added_headers.insert(key);
+        } else if (!base::Contains(web_request_added_headers, key)) {
           // Note: |key| will only be present in |added_headers| if this is an
           // identical edit.
-          overridden_headers.insert(key);
+          web_request_overridden_headers.insert(key);
         }
 
         set_headers->insert(key);
@@ -1031,8 +1212,11 @@ void MergeOnBeforeSendHeadersResponses(
       // Perform all deletions and record which keys were deleted.
       {
         for (const auto& header : delta.deleted_request_headers) {
+          std::string lowercase_header = base::ToLowerASCII(header);
+
           request_headers->RemoveHeader(header);
-          removed_headers->insert(base::ToLowerASCII(header));
+          removed_headers->insert(lowercase_header);
+          web_request_removed_headers.insert(lowercase_header);
         }
       }
       *request_headers_modified = true;
@@ -1057,23 +1241,24 @@ void MergeOnBeforeSendHeadersResponses(
                      IsStringLowerCaseASCII));
   DCHECK(std::all_of(set_headers->begin(), set_headers->end(),
                      IsStringLowerCaseASCII));
-  DCHECK(std::all_of(overridden_headers.begin(), overridden_headers.end(),
-                     IsStringLowerCaseASCII));
-  DCHECK(std::all_of(added_headers.begin(), added_headers.end(),
-                     IsStringLowerCaseASCII));
-  DCHECK(*set_headers == base::STLSetUnion<std::set<std::string>>(
-                             added_headers, overridden_headers));
-  DCHECK(base::STLSetIntersection<std::set<std::string>>(added_headers,
-                                                         overridden_headers)
+  DCHECK(base::ranges::includes(
+      *set_headers,
+      base::STLSetUnion<std::set<std::string>>(
+          web_request_added_headers, web_request_overridden_headers)));
+  DCHECK(base::STLSetIntersection<std::set<std::string>>(
+             web_request_added_headers, web_request_overridden_headers)
              .empty());
   DCHECK(base::STLSetIntersection<std::set<std::string>>(*removed_headers,
                                                          *set_headers)
              .empty());
+  DCHECK(base::ranges::includes(*removed_headers, web_request_removed_headers));
 
   // Record request header removals, additions and modifications.
-  record_request_headers(*removed_headers, &RecordRequestHeaderRemoved);
-  record_request_headers(added_headers, &RecordRequestHeaderAdded);
-  record_request_headers(overridden_headers, &RecordRequestHeaderChanged);
+  record_request_headers(web_request_removed_headers,
+                         &RecordRequestHeaderRemoved);
+  record_request_headers(web_request_added_headers, &RecordRequestHeaderAdded);
+  record_request_headers(web_request_overridden_headers,
+                         &RecordRequestHeaderChanged);
 
   // Currently, conflicts are ignored while merging cookies.
   MergeCookiesInOnBeforeSendHeadersResponses(request.url, deltas,
@@ -1101,8 +1286,7 @@ static void StoreResponseCookies(
     scoped_refptr<net::HttpResponseHeaders> override_response_headers) {
   override_response_headers->RemoveHeader("Set-Cookie");
   for (const std::unique_ptr<net::ParsedCookie>& cookie : cookies) {
-    override_response_headers->AddHeader("Set-Cookie: " +
-                                         cookie->ToCookieLine());
+    override_response_headers->AddHeader("Set-Cookie", cookie->ToCookieLine());
   }
 }
 
@@ -1309,9 +1493,24 @@ void MergeOnHeadersReceivedResponses(
     scoped_refptr<net::HttpResponseHeaders>* override_response_headers,
     GURL* preserve_fragment_on_redirect_url,
     IgnoredActions* ignored_actions,
-    bool* response_headers_modified) {
+    bool* response_headers_modified,
+    std::vector<const DNRRequestAction*>* matched_dnr_actions) {
   DCHECK(response_headers_modified);
   *response_headers_modified = false;
+
+  DCHECK(request.dnr_actions);
+  DCHECK(matched_dnr_actions);
+
+  std::map<base::StringPiece, std::vector<DNRHeaderAction>> dnr_header_actions;
+  for (const auto& action : *request.dnr_actions) {
+    bool headers_modified_for_action = ModifyResponseHeadersForAction(
+        original_response_headers, override_response_headers, action,
+        &dnr_header_actions);
+
+    *response_headers_modified |= headers_modified_for_action;
+    if (headers_modified_for_action)
+      matched_dnr_actions->push_back(&action);
+  }
 
   // Here we collect which headers we have removed or added so far due to
   // extensions of higher precedence. Header keys are always stored as
@@ -1341,18 +1540,28 @@ void MergeOnHeadersReceivedResponses(
     // this takes care of precedence.
     bool extension_conflicts = false;
     for (const ResponseHeader& header : delta.deleted_response_headers) {
-      if (removed_headers.find(ToLowerCase(header)) != removed_headers.end()) {
+      ResponseHeader lowercase_header(ToLowerCase(header));
+      if (base::Contains(removed_headers, lowercase_header) ||
+          base::Contains(dnr_header_actions, lowercase_header.first)) {
         extension_conflicts = true;
         break;
       }
     }
 
-    // Prevent extensions from adding any response header which was removed by
-    // the Declarative Net Request API.
-    DCHECK(request.dnr_actions);
+    // Prevent extensions from adding any response header which was specified to
+    // be removed or set by the Declarative Net Request API. However, multiple
+    // appends are allowed.
     if (!extension_conflicts) {
       for (const ResponseHeader& header : delta.added_response_headers) {
-        if (HasMatchingRemovedDNRResponseHeader(request, header.first)) {
+        ResponseHeader lowercase_header(ToLowerCase(header));
+
+        auto it = dnr_header_actions.find(lowercase_header.first);
+        if (it == dnr_header_actions.end())
+          continue;
+
+        // Multiple appends are allowed.
+        if (it->second[0].header_info->operation !=
+            dnr_api::HEADER_OPERATION_APPEND) {
           extension_conflicts = true;
           break;
         }
@@ -1377,8 +1586,7 @@ void MergeOnHeadersReceivedResponses(
           if (added_headers.find(lowercase_header) != added_headers.end())
             continue;
           added_headers.insert(lowercase_header);
-          (*override_response_headers)
-              ->AddHeader(header.first + ": " + header.second);
+          (*override_response_headers)->AddHeader(header.first, header.second);
         }
       }
       *response_headers_modified = true;
@@ -1404,8 +1612,7 @@ void MergeOnHeadersReceivedResponses(
               original_response_headers->raw_headers());
     }
     (*override_response_headers)->ReplaceStatusLine("HTTP/1.1 302 Found");
-    (*override_response_headers)->RemoveHeader("location");
-    (*override_response_headers)->AddHeader("Location: " + new_url.spec());
+    (*override_response_headers)->SetHeader("Location", new_url.spec());
     // Prevent the original URL's fragment from being added to the new URL.
     *preserve_fragment_on_redirect_url = new_url;
   }
@@ -1427,6 +1634,7 @@ void MergeOnHeadersReceivedResponses(
     std::set<base::StringPiece> modified_header_names;
     std::set<base::StringPiece> added_header_names;
     std::set<base::StringPiece> removed_header_names;
+
     for (const ResponseHeader& header : added_headers) {
       // Skip logging this header if this was subsequently removed by an
       // extension.
@@ -1488,8 +1696,8 @@ void ClearCacheOnNavigation() {
   if (content::BrowserThread::CurrentlyOn(content::BrowserThread::UI)) {
     ClearCacheOnNavigationOnUI();
   } else {
-    base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                   base::BindOnce(&ClearCacheOnNavigationOnUI));
+    content::GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE, base::BindOnce(&ClearCacheOnNavigationOnUI));
   }
 }
 
@@ -1511,18 +1719,11 @@ std::unique_ptr<base::DictionaryValue> CreateHeaderDictionary(
 bool ShouldHideRequestHeader(content::BrowserContext* browser_context,
                              int extra_info_spec,
                              const std::string& name) {
-  static const std::set<std::string> kRequestHeadersForOutOfBlinkCors =
-      GetExtraHeaderRequestHeaders(/*is_out_of_blink_cors_enabled=*/true);
-  static const std::set<std::string> kRequestHeadersForBlinkCors =
-      GetExtraHeaderRequestHeaders(/*is_out_of_blink_cors_enabled=*/false);
-  bool is_out_of_blink_cors_enabled =
-      browser_context && browser_context->ShouldEnableOutOfBlinkCors();
-  const std::set<std::string>& request_headers =
-      is_out_of_blink_cors_enabled ? kRequestHeadersForOutOfBlinkCors
-                                   : kRequestHeadersForBlinkCors;
+  static const std::set<std::string> kRequestHeaders(
+      {"accept-encoding", "accept-language", "cookie", "origin", "referer"});
   return !(extra_info_spec & ExtraInfoSpec::EXTRA_HEADERS) &&
-         request_headers.find(base::ToLowerASCII(name)) !=
-             request_headers.end();
+         kRequestHeaders.find(base::ToLowerASCII(name)) !=
+             kRequestHeaders.end();
 }
 
 bool ShouldHideResponseHeader(int extra_info_spec, const std::string& name) {

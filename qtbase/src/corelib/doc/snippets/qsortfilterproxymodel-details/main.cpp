@@ -55,7 +55,7 @@
 class MyItemModel : public QStandardItemModel
 {
 public:
-    MyItemModel(QWidget *parent = 0);
+    MyItemModel(QWidget *parent = nullptr);
 };
 
 MyItemModel::MyItemModel(QWidget *parent)
@@ -65,7 +65,7 @@ MyItemModel::MyItemModel(QWidget *parent)
 class Widget : public QWidget
 {
 public:
-    Widget(QWidget *parent = 0);
+    Widget(QWidget *parent = nullptr);
 };
 
 Widget::Widget(QWidget *parent)
@@ -94,8 +94,7 @@ Widget::Widget(QWidget *parent)
 //! [4]
         proxyModel->sort(2, Qt::AscendingOrder);
 //! [4] //! [5]
-        proxyModel->setFilterRegExp(QRegExp(".png", Qt::CaseInsensitive,
-                                            QRegExp::FixedString));
+        proxyModel->setFilterRegularExpression(QRegularExpression("\.png", QRegularExpression::CaseInsensitiveOption));
         proxyModel->setFilterKeyColumn(1);
 //! [5]
 }

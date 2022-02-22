@@ -30,13 +30,20 @@
 #include <QtCore/QDebug>
 #include <QtCore/QFileInfo>
 #include <QtCore/QHashFunctions>
+#include <private/qabstractanimation_p.h>
 #include <QtGui/QGuiApplication>
 #include <QtGui/QImage>
+#include <QtGui/QFontDatabase>
 
 #include <QtQuick/QQuickView>
 #include <QtQuick/QQuickItem>
 
 #include <QtQuick3D/qquick3d.h>
+
+#ifdef Q_OS_WIN
+#  include <fcntl.h>
+#  include <io.h>
+#endif // Q_OS_WIN
 
 // Timeout values:
 
@@ -49,14 +56,18 @@
 
 //#define GRABBERDEBUG
 
+static const QSize DefaultGrabSize(400, 400);
+
 class GrabbingView : public QQuickView
 {
     Q_OBJECT
 
 public:
     GrabbingView(const QString &outputFile)
-        : ofile(outputFile), grabNo(0), isGrabbing(false), initDone(false)
+        : ofile(outputFile), grabNo(0), isGrabbing(false), initDone(false), justShow(outputFile.isEmpty())
     {
+        if (justShow)
+            return;
         grabTimer = new QTimer(this);
         grabTimer->setSingleShot(true);
         grabTimer->setInterval(SCENE_STABLE_TIME);
@@ -64,7 +75,10 @@ public:
 
         connect(this, SIGNAL(afterRendering()), SLOT(startGrabbing()));
 
-        QTimer::singleShot(SCENE_TIMEOUT, this, SLOT(timedOut()));
+        int sceneTimeout = qEnvironmentVariableIntValue("LANCELOT_SCENE_TIMEOUT");
+        if (!sceneTimeout)
+            sceneTimeout = SCENE_TIMEOUT;
+        QTimer::singleShot(sceneTimeout, this, SLOT(timedOut()));
     }
 
 private slots:
@@ -101,8 +115,17 @@ private slots:
 #ifdef GRABBERDEBUG
         printf("...sceneStabilized IN\n");
 #endif
+        if (QGuiApplication::platformName() == QLatin1String("eglfs")) {
+            QSize grabSize = initialSize().isEmpty() ? DefaultGrabSize : initialSize();
+            lastGrab = lastGrab.copy(QRect(QPoint(0, 0), grabSize));
+        }
+
         if (ofile == "-") {   // Write to stdout
             QFile of;
+#ifdef Q_OS_WIN
+            // Make sure write to stdout doesn't do LF->CRLF
+            _setmode(_fileno(stdout), _O_BINARY);
+#endif // Q_OS_WIN
             if (!of.open(1, QIODevice::WriteOnly) || !lastGrab.save(&of, "ppm")) {
                 qWarning() << "Error: failed to write grabbed image to stdout.";
                 QGuiApplication::exit(2);
@@ -129,11 +152,12 @@ private slots:
 
 private:
     QImage lastGrab;
-    QTimer *grabTimer;
+    QTimer *grabTimer = nullptr;
     QString ofile;
     int grabNo;
     bool isGrabbing;
     bool initDone;
+    bool justShow;
 };
 
 
@@ -142,12 +166,19 @@ int main(int argc, char *argv[])
     qSetGlobalQHashSeed(0);
 
     QGuiApplication a(argc, argv);
+    QFontDatabase::addApplicationFont(":/trim.ttf");
+    QFont commonFont("Trim");
+    commonFont.setHintingPreference(QFont::PreferNoHinting);
+    a.setFont(commonFont);
+
+    QUnifiedTimer::instance()->setConsistentTiming(true);
 
     QSurfaceFormat::setDefaultFormat(QQuick3D::idealSurfaceFormat(4));
 
     // Parse command line
     QString ifile, ofile;
     bool noText = false;
+    bool justShow = false;
     QStringList args = a.arguments();
     int i = 0;
     bool argError = false;
@@ -162,6 +193,9 @@ int main(int argc, char *argv[])
         else if (arg == "--cache-distance-fields") {
             ;
         }
+        else if (arg == "-viewonly") {
+            justShow = true;
+        }
         else if (ifile.isEmpty()) {
             ifile = arg;
         }
@@ -170,8 +204,8 @@ int main(int argc, char *argv[])
             break;
         }
     }
-    if (argError || ifile.isEmpty() || ofile.isEmpty()) {
-        qWarning() << "Usage:" << args.at(0).toLatin1().constData() << "[-notext] <qml-infile> -o <outfile or - for ppm on stdout>";
+    if (argError || ifile.isEmpty() || (ofile.isEmpty() && !justShow)) {
+        qWarning() << "Usage:" << args.at(0).toLatin1().constData() << "[-notext] <qml-infile> {-o <outfile or - for ppm on stdout>|-viewonly}";
         return 1;
     }
 
@@ -183,6 +217,8 @@ int main(int argc, char *argv[])
     // End parsing
 
     GrabbingView v(ofile);
+    v.setTextRenderType(QQuickWindow::QtTextRendering);
+
     v.setSource(QUrl::fromLocalFile(ifile));
 
     if (noText) {
@@ -192,6 +228,9 @@ int main(int argc, char *argv[])
                 item->setVisible(false);
         }
     }
+
+    if (v.initialSize().isEmpty())
+        v.resize(DefaultGrabSize);
 
     v.show();
 

@@ -2,8 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "build/build_config.h"
 #include "content/public/common/url_constants.h"
+
+#include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 
 namespace content {
 
@@ -15,7 +17,7 @@ const char kChromeUIScheme[] = "chrome";
 const char kChromeUIUntrustedScheme[] = "chrome-untrusted";
 const char kGuestScheme[] = "chrome-guest";
 const char kViewSourceScheme[] = "view-source";
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 const char kExternalFileScheme[] = "externalfile";
 #endif
 const char kGoogleChromeScheme[] = "googlechrome";
@@ -24,6 +26,7 @@ const char kChromeUIAppCacheInternalsHost[] = "appcache-internals";
 const char kChromeUIIndexedDBInternalsHost[] = "indexeddb-internals";
 const char kChromeUIBlobInternalsHost[] = "blob-internals";
 const char kChromeUIBrowserCrashHost[] = "inducebrowsercrashforrealz";
+const char kChromeUIConversionInternalsHost[] = "conversion-internals";
 const char kChromeUIDinoHost[] = "dino";
 const char kChromeUIGpuHost[] = "gpu";
 const char kChromeUIHistogramHost[] = "histograms";
@@ -35,6 +38,7 @@ const char kChromeUIProcessInternalsHost[] = "process-internals";
 const char kChromeUIResourcesHost[] = "resources";
 const char kChromeUIServiceWorkerInternalsHost[] = "serviceworker-internals";
 const char kChromeUITracingHost[] = "tracing";
+const char kChromeUIUkmHost[] = "ukm";
 const char kChromeUIWebRTCInternalsHost[] = "webrtc-internals";
 
 const char kChromeUIBadCastCrashURL[] = "chrome://badcastcrash/";

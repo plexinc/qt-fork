@@ -5,9 +5,13 @@
 #ifndef CC_TREES_UKM_MANAGER_H_
 #define CC_TREES_UKM_MANAGER_H_
 
+#include <memory>
+#include <vector>
+
 #include "cc/cc_export.h"
 #include "cc/metrics/compositor_frame_reporter.h"
-#include "cc/metrics/frame_sequence_tracker.h"
+#include "cc/metrics/event_metrics.h"
+#include "cc/metrics/frame_sequence_metrics.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
 #include "url/gurl.h"
 
@@ -48,11 +52,22 @@ class CC_EXPORT UkmManager {
                            int64_t throughput) const;
   void RecordAggregateThroughput(AggregationType aggregation_type,
                                  int64_t throughput_percent) const;
-  void RecordLatencyUKM(
+  void RecordCompositorLatencyUKM(
       CompositorFrameReporter::FrameReportType report_type,
       const std::vector<CompositorFrameReporter::StageData>& stage_history,
-      const base::flat_set<FrameSequenceTrackerType>* active_trackers,
-      const viz::FrameTimingDetails& viz_breakdown) const;
+      const CompositorFrameReporter::ActiveTrackers& active_trackers,
+      const CompositorFrameReporter::ProcessedBlinkBreakdown&
+          processed_blink_breakdown,
+      const CompositorFrameReporter::ProcessedVizBreakdown&
+          processed_viz_breakdown) const;
+
+  void RecordEventLatencyUKM(
+      const EventMetrics::List& events_metrics,
+      const std::vector<CompositorFrameReporter::StageData>& stage_history,
+      const CompositorFrameReporter::ProcessedBlinkBreakdown&
+          processed_blink_breakdown,
+      const CompositorFrameReporter::ProcessedVizBreakdown&
+          processed_viz_breakdown) const;
 
   ukm::UkmRecorder* recorder_for_testing() { return recorder_.get(); }
 

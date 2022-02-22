@@ -67,6 +67,25 @@
 #include <Qt3DRender/private/stringtoint_p.h>
 #include <Qt3DRender/private/renderlogging_p.h>
 #include <Qt3DRender/private/renderstateset_p.h>
+#include <Qt3DRender/private/renderviewjobutils_p.h>
+#include <Qt3DRender/private/uniformblockbuilder_p.h>
+#include <Qt3DRender/private/clearbuffers_p.h>
+#include <Qt3DRender/private/rendertargetselectornode_p.h>
+#include <Qt3DRender/private/sortpolicy_p.h>
+#include <Qt3DRender/private/techniquefilternode_p.h>
+#include <Qt3DRender/private/managers_p.h>
+#include <Qt3DRender/private/shaderdata_p.h>
+#include <Qt3DRender/private/statesetnode_p.h>
+#include <Qt3DRender/private/dispatchcompute_p.h>
+#include <Qt3DRender/private/rendersurfaceselector_p.h>
+#include <Qt3DRender/private/rendercapture_p.h>
+#include <Qt3DRender/private/buffercapture_p.h>
+#include <Qt3DRender/private/techniquemanager_p.h>
+#include <Qt3DRender/private/memorybarrier_p.h>
+#include <Qt3DRender/private/blitframebuffer_p.h>
+#include <Qt3DRender/private/waitfence_p.h>
+#include <Qt3DRender/private/rendercapture_p.h>
+
 #include <rendercommand_p.h>
 #include <renderer_p.h>
 #include <graphicscontext_p.h>
@@ -91,7 +110,7 @@ namespace OpenGL {
 namespace  {
 
 // register our QNodeId's as a metatype during program loading
-const int Q_DECL_UNUSED qNodeIdTypeId = qMetaTypeId<Qt3DCore::QNodeId>();
+Q_DECL_UNUSED const int qNodeIdTypeId = qMetaTypeId<Qt3DCore::QNodeId>();
 
 std::atomic_bool wasInitialized{};
 
@@ -127,6 +146,8 @@ RenderView::StandardUniformsNameToTypeHash RenderView::initializeStandardUniform
     setters.insert(Shader::timeNameId, Time);
     setters.insert(Shader::eyePositionNameId, EyePosition);
     setters.insert(Shader::skinningPaletteNameId, SkinningPalette);
+    setters.insert(Shader::yUpInFBOId, YUpInFBO);
+    setters.insert(Shader::yUpInNDCId, YUpInNDC);
 
     return setters;
 }
@@ -212,11 +233,240 @@ UniformValue RenderView::standardUniformValue(RenderView::StandardUniform standa
         }
         return armature->skinningPaletteUniform();
     }
+    case YUpInNDC:
+        return UniformValue(0.0f);
+    case YUpInFBO:
+        return UniformValue(0.0f);
     default:
         Q_UNREACHABLE();
         return UniformValue();
     }
 }
+
+/*!
+    \internal
+    Walks up the framegraph tree from \a fgLeaf and builds up as much state
+    as possible and populates \a rv. For cases where we can't get the specific state
+    (e.g. because it depends upon more than just the framegraph) we store the data from
+    the framegraph that will be needed to later when the rest of the data becomes available
+*/
+void RenderView::setRenderViewConfigFromFrameGraphLeafNode(RenderView *rv, const FrameGraphNode *fgLeaf)
+{
+    // The specific RenderPass to be used is also dependent upon the Effect and TechniqueFilter
+    // which is referenced by the Material which is referenced by the RenderMesh. So we can
+    // only store the filter info in the RenderView structure and use it to do the resolving
+    // when we build the RenderCommand list.
+    const NodeManagers *manager = rv->nodeManagers();
+    const FrameGraphNode *node = fgLeaf;
+
+    while (node) {
+        FrameGraphNode::FrameGraphNodeType type = node->nodeType();
+        if (node->isEnabled())
+            switch (type) {
+            case FrameGraphNode::InvalidNodeType:
+                // A base FrameGraphNode, can be used for grouping purposes
+                break;
+            case FrameGraphNode::CameraSelector:
+                // Can be set only once and we take camera nearest to the leaf node
+                if (!rv->renderCameraLens()) {
+                    const CameraSelector *cameraSelector = static_cast<const CameraSelector *>(node);
+                    Entity *camNode = manager->renderNodesManager()->lookupResource(cameraSelector->cameraUuid());
+                    if (camNode) {
+                        CameraLens *lens = camNode->renderComponent<CameraLens>();
+                        rv->setRenderCameraEntity(camNode);
+                        if (lens && lens->isEnabled()) {
+                            rv->setRenderCameraLens(lens);
+                            // ViewMatrix and ProjectionMatrix are computed
+                            // later in updateMatrices()
+                            // since at this point the transformation matrices
+                            // may not yet have been updated
+                        }
+                    }
+                }
+                break;
+
+            case FrameGraphNode::LayerFilter: // Can be set multiple times in the tree
+                rv->appendLayerFilter(static_cast<const LayerFilterNode *>(node)->peerId());
+                break;
+
+            case FrameGraphNode::ProximityFilter: // Can be set multiple times in the tree
+                rv->appendProximityFilterId(node->peerId());
+                break;
+
+            case FrameGraphNode::RenderPassFilter:
+                // Can be set once
+                // TODO: Amalgamate all render pass filters from leaf to root
+                if (!rv->renderPassFilter())
+                    rv->setRenderPassFilter(static_cast<const RenderPassFilter *>(node));
+                break;
+
+            case FrameGraphNode::RenderTarget: {
+                // Can be set once and we take render target nearest to the leaf node
+                const RenderTargetSelector *targetSelector = static_cast<const RenderTargetSelector *>(node);
+                Qt3DCore::QNodeId renderTargetUid = targetSelector->renderTargetUuid();
+                HTarget renderTargetHandle = manager->renderTargetManager()->lookupHandle(renderTargetUid);
+
+                // Add renderTarget Handle and build renderCommand AttachmentPack
+                if (!rv->renderTargetId()) {
+                    rv->setRenderTargetId(renderTargetUid);
+
+                    RenderTarget *renderTarget = manager->renderTargetManager()->data(renderTargetHandle);
+                    if (renderTarget)
+                        rv->setAttachmentPack(AttachmentPack(renderTarget, manager->attachmentManager()));
+                }
+                break;
+            }
+
+            case FrameGraphNode::ClearBuffers: {
+                const ClearBuffers *cbNode = static_cast<const ClearBuffers *>(node);
+                rv->addClearBuffers(cbNode);
+                break;
+            }
+
+            case FrameGraphNode::TechniqueFilter:
+                // Can be set once
+                // TODO Amalgamate all technique filters from leaf to root
+                if (!rv->techniqueFilter())
+                    rv->setTechniqueFilter(static_cast<const TechniqueFilter *>(node));
+                break;
+
+            case FrameGraphNode::Viewport: {
+                // If the Viewport has already been set in a lower node
+                // Make it so that the new viewport is actually
+                // a subregion relative to that of the parent viewport
+                const ViewportNode *vpNode = static_cast<const ViewportNode *>(node);
+                rv->setViewport(ViewportNode::computeViewport(rv->viewport(), vpNode));
+                rv->setGamma(vpNode->gamma());
+                break;
+            }
+
+            case FrameGraphNode::SortMethod: {
+                const Render::SortPolicy *sortPolicy = static_cast<const Render::SortPolicy *>(node);
+                rv->addSortType(sortPolicy->sortTypes());
+                break;
+            }
+
+            case FrameGraphNode::SubtreeEnabler:
+                // Has no meaning here. SubtreeEnabler was used
+                // in a prior step to filter the list of RenderViewJobs
+                break;
+
+            case FrameGraphNode::StateSet: {
+                const Render::StateSetNode *rStateSet = static_cast<const Render::StateSetNode *>(node);
+                // Add states from new stateSet we might be missing
+                // but don' t override existing states (lower StateSetNode always has priority)
+                if (rStateSet->hasRenderStates()) {
+                    // Create global RenderStateSet for renderView if no stateSet was set before
+                    RenderStateSet *stateSet = rv->getOrCreateStateSet();
+                    addStatesToRenderStateSet(stateSet, rStateSet->renderStates(), manager->renderStateManager());
+                }
+                break;
+            }
+
+            case FrameGraphNode::NoDraw: {
+                rv->setNoDraw(true);
+                break;
+            }
+
+            case FrameGraphNode::FrustumCulling: {
+                rv->setFrustumCulling(true);
+                break;
+            }
+
+            case FrameGraphNode::ComputeDispatch: {
+                const Render::DispatchCompute *dispatchCompute = static_cast<const Render::DispatchCompute *>(node);
+                rv->setCompute(true);
+                rv->setComputeWorkgroups(dispatchCompute->x(),
+                                         dispatchCompute->y(),
+                                         dispatchCompute->z());
+                break;
+            }
+
+            case FrameGraphNode::Lighting: {
+                // TODO
+                break;
+            }
+
+            case FrameGraphNode::Surface: {
+                // Use the surface closest to leaf node
+                if (rv->surface() == nullptr) {
+                    const Render::RenderSurfaceSelector *surfaceSelector
+                            = static_cast<const Render::RenderSurfaceSelector *>(node);
+                    rv->setSurface(surfaceSelector->surface());
+                    rv->setSurfaceSize(surfaceSelector->renderTargetSize() * surfaceSelector->devicePixelRatio());
+                    rv->setDevicePixelRatio(surfaceSelector->devicePixelRatio());
+                }
+                break;
+            }
+
+            case FrameGraphNode::DebugOverlay:
+                rv->setShowDebugOverlay(true);
+                break;
+
+            case FrameGraphNode::RenderCapture: {
+                auto *renderCapture = const_cast<Render::RenderCapture *>(
+                                            static_cast<const Render::RenderCapture *>(node));
+                if (rv->renderCaptureNodeId().isNull() && renderCapture->wasCaptureRequested()) {
+                    rv->setRenderCaptureNodeId(renderCapture->peerId());
+                    rv->setRenderCaptureRequest(renderCapture->takeCaptureRequest());
+                }
+                break;
+            }
+
+            case FrameGraphNode::MemoryBarrier: {
+                const Render::MemoryBarrier *barrier = static_cast<const Render::MemoryBarrier *>(node);
+                rv->setMemoryBarrier(barrier->waitOperations()|rv->memoryBarrier());
+                break;
+            }
+
+            case FrameGraphNode::BufferCapture: {
+                auto *bufferCapture = const_cast<Render::BufferCapture *>(
+                                            static_cast<const Render::BufferCapture *>(node));
+                if (bufferCapture != nullptr)
+                     rv->setIsDownloadBuffersEnable(bufferCapture->isEnabled());
+                break;
+            }
+
+            case FrameGraphNode::BlitFramebuffer: {
+                const Render::BlitFramebuffer *blitFramebufferNode =
+                        static_cast<const Render::BlitFramebuffer *>(node);
+                rv->setHasBlitFramebufferInfo(true);
+                BlitFramebufferInfo bfbInfo;
+                bfbInfo.sourceRenderTargetId = blitFramebufferNode->sourceRenderTargetId();
+                bfbInfo.destinationRenderTargetId = blitFramebufferNode->destinationRenderTargetId();
+                bfbInfo.sourceRect = blitFramebufferNode->sourceRect();
+                bfbInfo.destinationRect = blitFramebufferNode->destinationRect();
+                bfbInfo.sourceAttachmentPoint = blitFramebufferNode->sourceAttachmentPoint();
+                bfbInfo.destinationAttachmentPoint = blitFramebufferNode->destinationAttachmentPoint();
+                bfbInfo.interpolationMethod = blitFramebufferNode->interpolationMethod();
+                rv->setBlitFrameBufferInfo(bfbInfo);
+                break;
+            }
+
+            case FrameGraphNode::WaitFence: {
+                const Render::WaitFence *waitFence = static_cast<const Render::WaitFence *>(node);
+                rv->appendWaitFence(waitFence->data());
+                break;
+            }
+
+            case FrameGraphNode::SetFence: {
+                rv->appendInsertFenceId(node->peerId());
+                break;
+            }
+
+            case FrameGraphNode::NoPicking:
+                // Nothing to do RenderView wise for NoPicking
+                break;
+
+            default:
+                // Should never get here
+                qCWarning(Backend) << "Unhandled FrameGraphNode type";
+            }
+
+        node = node->parent();
+    }
+}
+
 
 RenderView::RenderView()
 {
@@ -319,7 +569,7 @@ int advanceUntilNonAdjacent(const EntityRenderCommandDataView *view,
             ++i;
         }
     }
-    return i;
+    return int(i);
 }
 
 
@@ -328,9 +578,9 @@ struct SubRangeSorter
 {
     static void sortSubRange(EntityRenderCommandDataView *view, size_t begin, const size_t end)
     {
-        Q_UNUSED(view)
-        Q_UNUSED(begin)
-        Q_UNUSED(end)
+        Q_UNUSED(view);
+        Q_UNUSED(begin);
+        Q_UNUSED(end);
         Q_UNREACHABLE();
     }
 };
@@ -418,7 +668,7 @@ struct SubRangeSorter<QSortPolicy::Texture>
             const std::vector<ShaderParameterPack::NamedResource> &smallestVector = bBigger ? texturesA : texturesB;
             const std::vector<ShaderParameterPack::NamedResource> &biggestVector = bBigger ? texturesB : texturesA;
 
-            int identicalTextureCount = 0;
+            size_t identicalTextureCount = 0;
             const auto e = biggestVector.cend();
             for (const ShaderParameterPack::NamedResource &tex : smallestVector) {
                 if (std::find(biggestVector.begin(), e, tex) != e)
@@ -463,7 +713,7 @@ void sortByMaterial(EntityRenderCommandDataView *view, int begin, const int end)
     while (begin != end) {
         if (begin + 1 < rangeEnd) {
             std::stable_sort(commandIndices.begin() + begin + 1, commandIndices.begin() + rangeEnd,
-                             [&commands] (const int &iA, const int &iB) {
+                             [&commands] (size_t iA, size_t iB) {
                 const RenderCommand &a = commands[iA];
                 const RenderCommand &b = commands[iB];
                 return a.m_material.handle() < b.m_material.handle();
@@ -475,7 +725,7 @@ void sortByMaterial(EntityRenderCommandDataView *view, int begin, const int end)
 }
 
 void sortCommandRange(EntityRenderCommandDataView *view, int begin, int end, const int level,
-                      const QVector<Qt3DRender::QSortPolicy::SortType> &sortingTypes)
+                      const QList<Qt3DRender::QSortPolicy::SortType> &sortingTypes)
 {
     if (level >= sortingTypes.size())
         return;
@@ -522,7 +772,7 @@ void RenderView::sort()
     assert(m_renderCommandDataView);
     // Compares the bitsetKey of the RenderCommands
     // Key[Depth | StateCost | Shader]
-    sortCommandRange(m_renderCommandDataView.data(), 0, m_renderCommandDataView->size(), 0, m_sortingTypes);
+    sortCommandRange(m_renderCommandDataView.data(), 0, int(m_renderCommandDataView->size()), 0, m_sortingTypes);
 
     // For RenderCommand with the same shader
     // We compute the adjacent change cost
@@ -532,7 +782,7 @@ void RenderView::sort()
         return;
 
     // Minimize uniform changes
-    int i = 0;
+    size_t i = 0;
     std::vector<RenderCommand> &commands = m_renderCommandDataView->data.commands;
     const std::vector<size_t> &indices = m_renderCommandDataView->indices;
     const size_t commandSize = indices.size();
@@ -565,7 +815,7 @@ void RenderView::sort()
                     const UniformValue &refValue = cachedUniforms.value(uniformNameId);
                     const UniformValue &newValue = uniforms.values.at(u);
                     if (newValue == refValue) {
-                        uniforms.erase(u);
+                        uniforms.erase(int(u));
                     } else {
                         // Record updated value so that subsequent comparison
                         // for the next command will be made againts latest
@@ -628,7 +878,7 @@ void RenderView::addClearBuffers(const ClearBuffers *cb) {
 }
 
 // If we are there, we know that entity had a GeometryRenderer + Material
-EntityRenderCommandData RenderView::buildDrawRenderCommands(const QVector<Entity *> &entities,
+EntityRenderCommandData RenderView::buildDrawRenderCommands(const Entity **entities,
                                                             int offset, int count) const
 {
     GLShaderManager *glShaderManager = m_renderer->glResourceManagers()->glShaderManager();
@@ -638,7 +888,7 @@ EntityRenderCommandData RenderView::buildDrawRenderCommands(const QVector<Entity
 
     for (int i = 0; i < count; ++i) {
         const int idx = offset + i;
-        Entity *entity = entities.at(idx);
+        const Entity *entity = entities[idx];
         GeometryRenderer *geometryRenderer = nullptr;
         HGeometryRenderer geometryRendererHandle = entity->componentHandle<GeometryRenderer>();
 
@@ -649,7 +899,7 @@ EntityRenderCommandData RenderView::buildDrawRenderCommands(const QVector<Entity
 
             const Qt3DCore::QNodeId materialComponentId = entity->componentUuid<Material>();
             const HMaterial materialHandle = entity->componentHandle<Material>();
-            const  QVector<RenderPassParameterData> renderPassData = m_parameters.value(materialComponentId);
+            const  std::vector<RenderPassParameterData> &renderPassData = m_parameters.value(materialComponentId);
 
             HGeometry geometryHandle = m_manager->geometryManager()->lookupHandle(geometryRenderer->geometryId());
             Geometry *geometry = m_manager->geometryManager()->data(geometryHandle);
@@ -675,6 +925,14 @@ EntityRenderCommandData RenderView::buildDrawRenderCommands(const QVector<Entity
                     command.m_changeCost = m_renderer->defaultRenderState()->changeCost(command.m_stateSet.data());
                 }
                 command.m_shaderId = pass->shaderProgram();
+
+                // We try to resolve the m_glShader here. If the shader exist,
+                // it won't be null and will allow us to full process the
+                // command over a single frame. Otherwise, the shader will be
+                // loaded at the next submission time and the command will only
+                // be fully valid on the next frame. Additionally, that way, if
+                // a commands keeps being rebuilt, frame after frame, it will
+                // still be visible on screen as long as the shader exists
                 command.m_glShader = glShaderManager->lookupResource(command.m_shaderId);
 
                 // It takes two frames to have a valid command as we can only
@@ -690,17 +948,17 @@ EntityRenderCommandData RenderView::buildDrawRenderCommands(const QVector<Entity
                     Attribute *indexAttribute = nullptr;
                     Attribute *indirectAttribute = nullptr;
 
-                    const QVector<Qt3DCore::QNodeId> attributeIds = geometry->attributes();
+                    const QList<Qt3DCore::QNodeId> attributeIds = geometry->attributes();
                     for (Qt3DCore::QNodeId attributeId : attributeIds) {
                         Attribute *attribute = m_manager->attributeManager()->lookupResource(attributeId);
                         switch (attribute->attributeType()) {
-                        case QAttribute::IndexAttribute:
+                        case Qt3DCore::QAttribute::IndexAttribute:
                             indexAttribute = attribute;
                             break;
-                        case QAttribute::DrawIndirectAttribute:
+                        case Qt3DCore::QAttribute::DrawIndirectAttribute:
                             indirectAttribute = attribute;
                             break;
-                        case QAttribute::VertexAttribute:
+                        case Qt3DCore::QAttribute::VertexAttribute:
                             estimatedCount = std::max(int(attribute->count()), estimatedCount);
                             break;
                         default:
@@ -757,7 +1015,7 @@ EntityRenderCommandData RenderView::buildDrawRenderCommands(const QVector<Entity
     return commands;
 }
 
-EntityRenderCommandData RenderView::buildComputeRenderCommands(const QVector<Entity *> &entities,
+EntityRenderCommandData RenderView::buildComputeRenderCommands(const Entity **entities,
                                                                int offset, int count) const
 {
     // If the RenderView contains only a ComputeDispatch then it cares about
@@ -772,14 +1030,14 @@ EntityRenderCommandData RenderView::buildComputeRenderCommands(const QVector<Ent
 
     for (int i = 0; i < count; ++i) {
         const int idx = offset + i;
-        Entity *entity = entities.at(idx);
+        const Entity *entity = entities[idx];
         ComputeCommand *computeJob = nullptr;
         HComputeCommand computeCommandHandle = entity->componentHandle<ComputeCommand>();
         if ((computeJob = nodeManagers()->computeJobManager()->data(computeCommandHandle)) != nullptr
                 && computeJob->isEnabled()) {
 
             const Qt3DCore::QNodeId materialComponentId = entity->componentUuid<Material>();
-            const  QVector<RenderPassParameterData> renderPassData = m_parameters.value(materialComponentId);
+            const  std::vector<RenderPassParameterData> &renderPassData = m_parameters.value(materialComponentId);
 
             // 1 RenderCommand per RenderPass pass on an Entity with a Mesh
             for (const RenderPassParameterData &passData : renderPassData) {
@@ -823,14 +1081,6 @@ EntityRenderCommandData RenderView::buildComputeRenderCommands(const QVector<Ent
 
 void RenderView::updateRenderCommand(const EntityRenderCommandDataSubView &subView)
 {
-    // Note: since many threads can be building render commands
-    // we need to ensure that the UniformBlockValueBuilder they are using
-    // is only accessed from the same thread
-    UniformBlockValueBuilder *builder = new UniformBlockValueBuilder();
-    builder->shaderDataManager = m_manager->shaderDataManager();
-    builder->textureManager = m_manager->textureManager();
-    m_localData.setLocalData(builder);
-
     subView.forEach([this] (const Entity *entity,
                             const RenderPassParameterData &passData,
                             RenderCommand &command) {
@@ -839,6 +1089,10 @@ void RenderView::updateRenderCommand(const EntityRenderCommandDataSubView &subVi
             // view vector. This gives a depth value suitable as the key
             // for BackToFront sorting.
             command.m_depth = Vector3D::dotProduct(entity->worldBoundingVolume()->center() - m_eyePos, m_eyeViewDir);
+
+            auto geometryRenderer = m_manager->geometryRendererManager()->data(command.m_geometryRenderer);
+            if (geometryRenderer && !qFuzzyCompare(geometryRenderer->sortIndex(), -1.f))
+                command.m_depth = geometryRenderer->sortIndex();
         } else { // Compute
             // Note: if frameCount has reached 0 in the previous frame, isEnabled
             // would be false
@@ -853,9 +1107,6 @@ void RenderView::updateRenderCommand(const EntityRenderCommandDataSubView &subVi
                              passData.parameterInfo,
                              entity);
     });
-
-    // We reset the local data once we are done with it
-    m_localData.setLocalData(nullptr);
 }
 
 void RenderView::updateMatrices()
@@ -960,23 +1211,19 @@ void RenderView::setShaderStorageValue(ShaderParameterPack &uniformPack,
 
 void RenderView::setDefaultUniformBlockShaderDataValue(ShaderParameterPack &uniformPack,
                                                        const GLShader *shader,
-                                                       const ShaderData *shaderData,
+                                                       ShaderData *shaderData,
                                                        const QString &structName) const
 {
-    UniformBlockValueBuilder *builder = m_localData.localData();
-    builder->activeUniformNamesToValue.clear();
+    UniformBlockValueBuilder builder(shader->uniformsNamesIds(),
+                                     m_manager->shaderDataManager(),
+                                     m_manager->textureManager(),
+                                     m_viewMatrix);
 
-    // Set the view matrix to be used to transform "Transformed" properties in the ShaderData
-    builder->viewMatrix = m_viewMatrix;
-    // Force to update the whole block
-    builder->updatedPropertiesOnly = false;
-    // Retrieve names and description of each active uniforms in the uniform block
-    builder->uniforms = shader->activeUniformsForUniformBlock(-1);
     // Build name-value map for the block
-    builder->buildActiveUniformNameValueMapStructHelper(shaderData, structName);
+    builder.buildActiveUniformNameValueMapStructHelper(shaderData, structName);
     // Set uniform values for each entrie of the block name-value map
-    QHash<int, QVariant>::const_iterator activeValuesIt = builder->activeUniformNamesToValue.constBegin();
-    const QHash<int, QVariant>::const_iterator activeValuesEnd = builder->activeUniformNamesToValue.constEnd();
+    QHash<int, QVariant>::const_iterator activeValuesIt = builder.activeUniformNamesToValue.constBegin();
+    const QHash<int, QVariant>::const_iterator activeValuesEnd = builder.activeUniformNamesToValue.constEnd();
 
     // TO DO: Make the ShaderData store UniformValue
     while (activeValuesIt != activeValuesEnd) {
@@ -1076,8 +1323,9 @@ void RenderView::setShaderAndUniforms(RenderCommand *command,
         command->m_parameterPack.reserve(shader->parameterPackSize());
     }
 
+    const size_t previousUniformCount = command->m_parameterPack.uniforms().size();
     if (shader->hasActiveVariables()) {
-        const QVector<int> &standardUniformNamesIds = shader->standardUniformNameIds();
+        const std::vector<int> &standardUniformNamesIds = shader->standardUniformNameIds();
 
         // It only makes sense to update the standard uniforms if:
         // - Camera changed
@@ -1100,21 +1348,22 @@ void RenderView::setShaderAndUniforms(RenderCommand *command,
         updateLightUniforms(command, entity);
     }
 
+    const size_t actualUniformCount = command->m_parameterPack.uniforms().size();
     // Prepare the ShaderParameterPack based on the active uniforms of the shader
-    if (!updateUniformsOnly)
+    if (!updateUniformsOnly || previousUniformCount != actualUniformCount)
         shader->prepareUniforms(command->m_parameterPack);
 }
 
 void RenderView::updateLightUniforms(RenderCommand *command, const Entity *entity) const
 {
     GLShader *shader = command->m_glShader;
-    const QVector<int> &lightUniformNamesIds = shader->lightUniformsNamesIds();
+    const std::vector<int> &lightUniformNamesIds = shader->lightUniformsNamesIds();
     if (!lightUniformNamesIds.empty()) {
         // Pick which lights to take in to account.
         // For now decide based on the distance by taking the MAX_LIGHTS closest lights.
         // Replace with more sophisticated mechanisms later.
         // Copy vector so that we can sort it concurrently and we only want to sort the one for the current command
-        QVector<LightSource> lightSources = m_lightSources;
+        std::vector<LightSource> lightSources = m_lightSources;
 
         if (lightSources.size() > 1) {
             const Vector3D entityCenter = entity->worldBoundingVolume()->center();
@@ -1124,14 +1373,14 @@ void RenderView::updateLightUniforms(RenderCommand *command, const Entity *entit
                 const float distB = entityCenter.distanceToPoint(b.entity->worldBoundingVolume()->center());
                 return distA < distB;
             });
+            m_lightSources = {lightSources.begin(), lightSources.begin() + std::min(lightSources.size(), size_t(MAX_LIGHTS)) };
         }
-        m_lightSources = lightSources.mid(0, std::min(lightSources.size(), MAX_LIGHTS));
 
         int lightIdx = 0;
-        for (const LightSource &lightSource : qAsConst(m_lightSources)) {
+        for (const LightSource &lightSource : m_lightSources) {
             if (lightIdx == MAX_LIGHTS)
                 break;
-            Entity *lightEntity = lightSource.entity;
+            const Entity *lightEntity = lightSource.entity;
             const Matrix4x4 lightWorldTransform = *(lightEntity->worldTransform());
             const Vector3D worldPos = lightWorldTransform * Vector3D(0.0f, 0.0f, 0.0f);
             for (Light *light : lightSource.lights) {
@@ -1146,12 +1395,12 @@ void RenderView::updateLightUniforms(RenderCommand *command, const Entity *entit
                     break;
 
                 // Note: implicit conversion of values to UniformValue
-                if (lightUniformNamesIds.contains(GLLights::LIGHT_TYPE_NAMES[lightIdx])) {
+                if (Qt3DCore::contains(lightUniformNamesIds, GLLights::LIGHT_TYPE_NAMES[lightIdx])) {
                     setUniformValue(command->m_parameterPack, GLLights::LIGHT_POSITION_NAMES[lightIdx], worldPos);
                     setUniformValue(command->m_parameterPack, GLLights::LIGHT_TYPE_NAMES[lightIdx], int(QAbstractLight::PointLight));
                     setUniformValue(command->m_parameterPack, GLLights::LIGHT_COLOR_NAMES[lightIdx], Vector3D(1.0f, 1.0f, 1.0f));
                     setUniformValue(command->m_parameterPack, GLLights::LIGHT_INTENSITY_NAMES[lightIdx], 0.5f);
-                } else if (lightUniformNamesIds.contains(GLLights::LIGHT_TYPE_UNROLL_NAMES[lightIdx])) {
+                } else if (Qt3DCore::contains(lightUniformNamesIds, GLLights::LIGHT_TYPE_UNROLL_NAMES[lightIdx])) {
                     setUniformValue(command->m_parameterPack, GLLights::LIGHT_POSITION_UNROLL_NAMES[lightIdx], worldPos);
                     setUniformValue(command->m_parameterPack, GLLights::LIGHT_TYPE_UNROLL_NAMES[lightIdx], int(QAbstractLight::PointLight));
                     setUniformValue(command->m_parameterPack, GLLights::LIGHT_COLOR_UNROLL_NAMES[lightIdx], Vector3D(1.0f, 1.0f, 1.0f));
@@ -1161,7 +1410,7 @@ void RenderView::updateLightUniforms(RenderCommand *command, const Entity *entit
                 // There is no risk in doing that even if multithreaded
                 // since we are sure that a shaderData is unique for a given light
                 // and won't ever be referenced as a Component either
-                Matrix4x4 *worldTransform = lightEntity->worldTransform();
+                const Matrix4x4 *worldTransform = lightEntity->worldTransform();
                 if (worldTransform)
                     shaderData->updateWorldTransform(*worldTransform);
 
@@ -1174,14 +1423,14 @@ void RenderView::updateLightUniforms(RenderCommand *command, const Entity *entit
         setUniformValue(command->m_parameterPack, GLLights::LIGHT_COUNT_NAME_ID, UniformValue(qMax((m_environmentLight ? 0 : 1), lightIdx)));
 
         // If no active light sources and no environment light, add a default light
-        if (m_lightSources.isEmpty() && !m_environmentLight) {
+        if (m_lightSources.empty() && !m_environmentLight) {
             // Note: implicit conversion of values to UniformValue
-            if (lightUniformNamesIds.contains(GLLights::LIGHT_TYPE_NAMES[0])) {
+            if (Qt3DCore::contains(lightUniformNamesIds, GLLights::LIGHT_TYPE_NAMES[lightIdx])) {
                 setUniformValue(command->m_parameterPack, GLLights::LIGHT_POSITION_NAMES[0], Vector3D(10.0f, 10.0f, 0.0f));
                 setUniformValue(command->m_parameterPack, GLLights::LIGHT_TYPE_NAMES[0], int(QAbstractLight::PointLight));
                 setUniformValue(command->m_parameterPack, GLLights::LIGHT_COLOR_NAMES[0], Vector3D(1.0f, 1.0f, 1.0f));
                 setUniformValue(command->m_parameterPack, GLLights::LIGHT_INTENSITY_NAMES[0], 0.5f);
-            } else if (lightUniformNamesIds.contains(GLLights::LIGHT_TYPE_UNROLL_NAMES[lightIdx])) {
+            } else if (Qt3DCore::contains(lightUniformNamesIds, GLLights::LIGHT_TYPE_UNROLL_NAMES[lightIdx])) {
                 setUniformValue(command->m_parameterPack, GLLights::LIGHT_POSITION_UNROLL_NAMES[0], Vector3D(10.0f, 10.0f, 0.0f));
                 setUniformValue(command->m_parameterPack, GLLights::LIGHT_TYPE_UNROLL_NAMES[0], int(QAbstractLight::PointLight));
                 setUniformValue(command->m_parameterPack, GLLights::LIGHT_COLOR_UNROLL_NAMES[0], Vector3D(1.0f, 1.0f, 1.0f));

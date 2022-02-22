@@ -8,11 +8,11 @@
 #include <memory>
 #include <ostream>
 
-#include "net/third_party/quiche/src/quic/core/frames/quic_inlined_frame.h"
-#include "net/third_party/quiche/src/quic/core/quic_buffer_allocator.h"
-#include "net/third_party/quiche/src/quic/core/quic_types.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/frames/quic_inlined_frame.h"
+#include "quic/core/quic_buffer_allocator.h"
+#include "quic/core/quic_types.h"
+#include "quic/platform/api/quic_export.h"
 
 namespace quic {
 
@@ -22,7 +22,7 @@ struct QUIC_EXPORT_PRIVATE QuicStreamFrame
   QuicStreamFrame(QuicStreamId stream_id,
                   bool fin,
                   QuicStreamOffset offset,
-                  quiche::QuicheStringPiece data);
+                  absl::string_view data);
   QuicStreamFrame(QuicStreamId stream_id,
                   bool fin,
                   QuicStreamOffset offset,
@@ -35,11 +35,14 @@ struct QUIC_EXPORT_PRIVATE QuicStreamFrame
 
   bool operator!=(const QuicStreamFrame& rhs) const;
 
-  bool fin;
-  QuicPacketLength data_length;
-  QuicStreamId stream_id;
-  const char* data_buffer;  // Not owned.
-  QuicStreamOffset offset;  // Location of this data in the stream.
+  QuicFrameType type;
+  bool fin = false;
+  QuicPacketLength data_length = 0;
+  // TODO(wub): Change to a QuicUtils::GetInvalidStreamId when it is not version
+  // dependent.
+  QuicStreamId stream_id = -1;
+  const char* data_buffer = nullptr;  // Not owned.
+  QuicStreamOffset offset = 0;        // Location of this data in the stream.
 
   QuicStreamFrame(QuicStreamId stream_id,
                   bool fin,

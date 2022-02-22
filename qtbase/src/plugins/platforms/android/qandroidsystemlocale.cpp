@@ -37,13 +37,14 @@
 **
 ****************************************************************************/
 
-#include "qandroidsystemlocale.h"
 #include "androidjnimain.h"
-#include <QtCore/private/qjni_p.h>
-#include <QtCore/private/qjnihelpers_p.h>
+#include "qandroidsystemlocale.h"
 #include "qdatetime.h"
 #include "qstringlist.h"
 #include "qvariant.h"
+
+#include <QtCore/private/qjnihelpers_p.h>
+#include <QtCore/QJniObject>
 
 QT_BEGIN_NAMESPACE
 
@@ -55,17 +56,17 @@ void QAndroidSystemLocale::getLocaleFromJava() const
 {
     QWriteLocker locker(&m_lock);
 
-    QJNIObjectPrivate javaLocaleObject;
-    QJNIObjectPrivate javaActivity(QtAndroid::activity());
+    QJniObject javaLocaleObject;
+    QJniObject javaActivity(QtAndroid::activity());
     if (!javaActivity.isValid())
         javaActivity = QtAndroid::service();
     if (javaActivity.isValid()) {
-        QJNIObjectPrivate resources = javaActivity.callObjectMethod("getResources", "()Landroid/content/res/Resources;");
-        QJNIObjectPrivate configuration = resources.callObjectMethod("getConfiguration", "()Landroid/content/res/Configuration;");
+        QJniObject resources = javaActivity.callObjectMethod("getResources", "()Landroid/content/res/Resources;");
+        QJniObject configuration = resources.callObjectMethod("getConfiguration", "()Landroid/content/res/Configuration;");
 
         javaLocaleObject = configuration.getObjectField("locale", "Ljava/util/Locale;");
     } else {
-        javaLocaleObject = QJNIObjectPrivate::callStaticObjectMethod("java/util/Locale", "getDefault", "()Ljava/util/Locale;");
+        javaLocaleObject = QJniObject::callStaticObjectMethod("java/util/Locale", "getDefault", "()Ljava/util/Locale;");
     }
 
     QString languageCode = javaLocaleObject.callObjectMethod("getLanguage", "()Ljava/lang/String;").toString();
@@ -104,14 +105,26 @@ QVariant QAndroidSystemLocale::query(QueryType type, QVariant in) const
         return m_locale.dayName(in.toInt(), QLocale::LongFormat);
     case DayNameShort:
         return m_locale.dayName(in.toInt(), QLocale::ShortFormat);
+    case DayNameNarrow:
+        return m_locale.dayName(in.toInt(), QLocale::NarrowFormat);
+    case StandaloneDayNameLong:
+        return m_locale.standaloneDayName(in.toInt(), QLocale::LongFormat);
+    case StandaloneDayNameShort:
+        return m_locale.standaloneDayName(in.toInt(), QLocale::ShortFormat);
+    case StandaloneDayNameNarrow:
+        return m_locale.standaloneDayName(in.toInt(), QLocale::NarrowFormat);
     case MonthNameLong:
         return m_locale.monthName(in.toInt(), QLocale::LongFormat);
     case MonthNameShort:
         return m_locale.monthName(in.toInt(), QLocale::ShortFormat);
+    case MonthNameNarrow:
+        return m_locale.monthName(in.toInt(), QLocale::NarrowFormat);
     case StandaloneMonthNameLong:
         return m_locale.standaloneMonthName(in.toInt(), QLocale::LongFormat);
     case StandaloneMonthNameShort:
         return m_locale.standaloneMonthName(in.toInt(), QLocale::ShortFormat);
+    case StandaloneMonthNameNarrow:
+        return m_locale.standaloneMonthName(in.toInt(), QLocale::NarrowFormat);
     case DateToStringLong:
         return m_locale.toString(in.toDate(), QLocale::LongFormat);
     case DateToStringShort:
@@ -139,16 +152,16 @@ QVariant QAndroidSystemLocale::query(QueryType type, QVariant in) const
     case CurrencySymbol:
         return m_locale .currencySymbol(QLocale::CurrencySymbolFormat(in.toUInt()));
     case CurrencyToString: {
-        switch (in.type()) {
-        case QVariant::Int:
+        switch (in.metaType().id()) {
+        case QMetaType::Int:
             return m_locale .toCurrencyString(in.toInt());
-        case QVariant::UInt:
+        case QMetaType::UInt:
             return m_locale .toCurrencyString(in.toUInt());
-        case QVariant::Double:
+        case QMetaType::Double:
             return m_locale .toCurrencyString(in.toDouble());
-        case QVariant::LongLong:
+        case QMetaType::LongLong:
             return m_locale .toCurrencyString(in.toLongLong());
-        case QVariant::ULongLong:
+        case QMetaType::ULongLong:
             return m_locale .toCurrencyString(in.toULongLong());
         default:
             break;
@@ -156,18 +169,18 @@ QVariant QAndroidSystemLocale::query(QueryType type, QVariant in) const
         return QString();
     }
     case StringToStandardQuotation:
-        return m_locale.quoteString(in.value<QStringRef>());
+        return m_locale.quoteString(in.value<QStringView>());
     case StringToAlternateQuotation:
-        return m_locale.quoteString(in.value<QStringRef>(), QLocale::AlternateQuotation);
+        return m_locale.quoteString(in.value<QStringView>(), QLocale::AlternateQuotation);
     case ListToSeparatedString:
         return m_locale.createSeparatedList(in.value<QStringList>());
     case LocaleChanged:
         Q_ASSERT_X(false, Q_FUNC_INFO, "This can't happen.");
     case UILanguages: {
         if (QtAndroidPrivate::androidSdkVersion() >= 24) {
-            QJNIObjectPrivate localeListObject =
-                QJNIObjectPrivate::callStaticObjectMethod("android/os/LocaleList", "getDefault",
-                                                          "()Landroid/os/LocaleList;");
+            QJniObject localeListObject =
+                QJniObject::callStaticObjectMethod("android/os/LocaleList", "getDefault",
+                                                   "()Landroid/os/LocaleList;");
             if (localeListObject.isValid()) {
                 QString lang = localeListObject.callObjectMethod("toLanguageTags",
                                                                  "()Ljava/lang/String;").toString();
@@ -186,7 +199,7 @@ QVariant QAndroidSystemLocale::query(QueryType type, QVariant in) const
     return QVariant();
 }
 
-QLocale QAndroidSystemLocale::fallbackUiLocale() const
+QLocale QAndroidSystemLocale::fallbackLocale() const
 {
     QReadLocker locker(&m_lock);
     return m_locale;

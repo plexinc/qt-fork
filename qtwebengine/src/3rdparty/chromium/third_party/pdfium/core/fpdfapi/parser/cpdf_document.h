@@ -74,7 +74,7 @@ class CPDF_Document : public Observable,
     UnownedPtr<CPDF_Document> m_pDoc;
   };
 
-  static const int kPageMaxNum = 0xFFFFF;
+  static constexpr int kPageMaxNum = 0xFFFFF;
 
   static bool IsValidPageObject(const CPDF_Object* obj);
 
@@ -90,6 +90,7 @@ class CPDF_Document : public Observable,
   CPDF_Parser* GetParser() const { return m_pParser.get(); }
   CPDF_Dictionary* GetRoot() const { return m_pRootDict.Get(); }
   CPDF_Dictionary* GetInfo();
+  const CPDF_Array* GetFileIdentifier() const;
 
   void DeletePage(int iPage);
   int GetPageCount() const;
@@ -104,9 +105,7 @@ class CPDF_Document : public Observable,
 
   void SetPageObjNum(int iPage, uint32_t objNum);
 
-  std::unique_ptr<JBig2_DocumentContext>* CodecContext() {
-    return &m_pCodecContext;
-  }
+  JBig2_DocumentContext* GetOrCreateCodecContext();
   LinkListIface* GetLinksContext() const { return m_pLinksContext.get(); }
   void SetLinksContext(std::unique_ptr<LinkListIface> pContext) {
     m_pLinksContext = std::move(pContext);

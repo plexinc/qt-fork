@@ -11,7 +11,8 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/threading/thread_checker.h"
+#include "base/sequence_checker.h"
+#include "media/base/supported_video_decoder_config.h"
 #include "media/base/video_decoder.h"
 #include "media/base/video_decoder_config.h"
 #include "media/base/video_frame_pool.h"
@@ -29,6 +30,7 @@ class MediaLog;
 class MEDIA_EXPORT FFmpegVideoDecoder : public VideoDecoder {
  public:
   static bool IsCodecSupported(VideoCodec codec);
+  static SupportedVideoDecoderConfigs SupportedConfigsForWebRTC();
 
   explicit FFmpegVideoDecoder(MediaLog* media_log);
   ~FFmpegVideoDecoder() override;
@@ -38,6 +40,7 @@ class MEDIA_EXPORT FFmpegVideoDecoder : public VideoDecoder {
   void set_decode_nalus(bool decode_nalus) { decode_nalus_ = decode_nalus; }
 
   // VideoDecoder implementation.
+  VideoDecoderType GetDecoderType() const override;
   std::string GetDisplayName() const override;
   void Initialize(const VideoDecoderConfig& config,
                   bool low_delay,
@@ -75,7 +78,8 @@ class MEDIA_EXPORT FFmpegVideoDecoder : public VideoDecoder {
   // Releases resources associated with |codec_context_|.
   void ReleaseFFmpegResources();
 
-  base::ThreadChecker thread_checker_;
+  SEQUENCE_CHECKER(sequence_checker_);
+
   MediaLog* media_log_;
 
   DecoderState state_;

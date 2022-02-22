@@ -42,23 +42,23 @@
 #include <QtTest/qtestassert.h>
 
 #include <QtCore/qbytearray.h>
+#include <QtCore/qcoreapplication.h>
+#include <QtCore/qdebug.h>
+#include <QtCore/qdir.h>
+#include <QtCore/qdiriterator.h>
+#include <QtCore/qfile.h>
+#include <QtCore/qfileinfo.h>
+#include <QtCore/qfloat16.h>
+#include <QtCore/qlibraryinfo.h>
+#include <QtCore/qlist.h>
 #include <QtCore/qmetaobject.h>
 #include <QtCore/qobject.h>
 #include <QtCore/qstringlist.h>
-#include <QtCore/qvector.h>
-#include <QtCore/qvarlengtharray.h>
-#include <QtCore/qcoreapplication.h>
-#include <QtCore/qfile.h>
-#include <QtCore/qfileinfo.h>
-#include <QtCore/qdir.h>
-#include <QtCore/qdebug.h>
-#include <QtCore/qfloat16.h>
-#include <QtCore/qlibraryinfo.h>
-#include <QtCore/private/qtools_p.h>
-#include <QtCore/qdiriterator.h>
 #include <QtCore/qtemporarydir.h>
 #include <QtCore/qthread.h>
+#include <QtCore/qvarlengtharray.h>
 #include <QtCore/private/qlocking_p.h>
+#include <QtCore/private/qtools_p.h>
 #include <QtCore/private/qwaitcondition_p.h>
 
 #include <QtCore/qtestsupport_core.h>
@@ -102,7 +102,7 @@
 # if !defined(Q_CC_MINGW) || (defined(Q_CC_MINGW) && defined(__MINGW64_VERSION_MAJOR))
 #  include <crtdbg.h>
 # endif
-#include <windows.h> // for Sleep
+#include <qt_windows.h> // for Sleep
 #endif
 #ifdef Q_OS_UNIX
 #include <errno.h>
@@ -114,7 +114,7 @@
 # endif
 #endif
 
-#if defined(Q_OS_MACX)
+#if defined(Q_OS_MACOS)
 #include <IOKit/pwr_mgt/IOPMLib.h>
 #include <mach/task.h>
 #include <mach/mach_init.h>
@@ -177,6 +177,7 @@ static bool debuggerPresent()
 #endif
 }
 
+#if !defined(Q_OS_WASM)
 static bool hasSystemCrashReporter()
 {
 #if defined(Q_OS_MACOS)
@@ -190,7 +191,7 @@ static void disableCoreDump()
 {
     bool ok = false;
     const int disableCoreDump = qEnvironmentVariableIntValue("QTEST_DISABLE_CORE_DUMP", &ok);
-    if (ok && disableCoreDump == 1) {
+    if (ok && disableCoreDump) {
 #if defined(Q_OS_UNIX) && !defined(Q_OS_INTEGRITY)
         struct rlimit limit;
         limit.rlim_cur = 0;
@@ -206,43 +207,47 @@ static void stackTrace()
 {
     bool ok = false;
     const int disableStackDump = qEnvironmentVariableIntValue("QTEST_DISABLE_STACK_DUMP", &ok);
-    if (ok && disableStackDump == 1)
+    if (ok && disableStackDump)
         return;
 
     if (debuggerPresent() || hasSystemCrashReporter())
         return;
 
-#if defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
+#if defined(Q_OS_LINUX) || (defined(Q_OS_MACOS) && !defined(Q_PROCESSOR_ARM_64))
+
     const int msecsFunctionTime = qRound(QTestLog::msecsFunctionTime());
     const int msecsTotalTime = qRound(QTestLog::msecsTotalTime());
     fprintf(stderr, "\n=== Received signal at function time: %dms, total time: %dms, dumping stack ===\n",
             msecsFunctionTime, msecsTotalTime);
-#endif
-#ifdef Q_OS_LINUX
+
+#  ifdef Q_OS_LINUX
     char cmd[512];
-    qsnprintf(cmd, 512, "gdb --pid %d 2>/dev/null <<EOF\n"
+    qsnprintf(cmd, 512, "gdb --pid %d 1>&2 2>/dev/null <<EOF\n"
                          "set prompt\n"
                          "set height 0\n"
                          "thread apply all where full\n"
                          "detach\n"
                          "quit\n"
                          "EOF\n",
-                         (int)getpid());
+                         static_cast<int>(getpid()));
     if (system(cmd) == -1)
         fprintf(stderr, "calling gdb failed\n");
     fprintf(stderr, "=== End of stack trace ===\n");
-#elif defined(Q_OS_MACOS)
+#  elif defined(Q_OS_MACOS)
     char cmd[512];
-    qsnprintf(cmd, 512, "lldb -p %d 2>/dev/null <<EOF\n"
+    qsnprintf(cmd, 512, "lldb -p %d 1>&2 2>/dev/null <<EOF\n"
                          "bt all\n"
                          "quit\n"
                          "EOF\n",
-                         (int)getpid());
+                         static_cast<int>(getpid()));
     if (system(cmd) == -1)
         fprintf(stderr, "calling lldb failed\n");
     fprintf(stderr, "=== End of stack trace ===\n");
+#  endif
+
 #endif
 }
+#endif // !Q_OS_WASM
 
 static bool installCoverageTool(const char * appname, const char * testname)
 {
@@ -502,7 +507,7 @@ static void qPrintDataTags(FILE *stream)
 static int qToInt(const char *str)
 {
     char *pEnd;
-    int l = (int)strtol(str, &pEnd, 10);
+    int l = static_cast<int>(strtol(str, &pEnd, 10));
     if (*pEnd != 0) {
         fprintf(stderr, "Invalid numeric parameter: '%s'\n", str);
         exit(1);
@@ -626,7 +631,10 @@ Q_TESTLIB_EXPORT void qtest_qParseArgs(int argc, const char *const argv[], bool 
             logFormat = QTestLog::Plain;
         } else if (strcmp(argv[i], "-csv") == 0) {
             logFormat = QTestLog::CSV;
-        } else if (strcmp(argv[i], "-junitxml") == 0 || strcmp(argv[i], "-xunitxml") == 0)  {
+        } else if (strcmp(argv[i], "-junitxml") == 0)  {
+            logFormat = QTestLog::JUnitXML;
+        } else if (strcmp(argv[i], "-xunitxml") == 0)  {
+            fprintf(stderr, "WARNING: xunitxml is deprecated. Please use junitxml.\n");
             logFormat = QTestLog::JUnitXML;
         } else if (strcmp(argv[i], "-xml") == 0) {
             logFormat = QTestLog::XML;
@@ -643,7 +651,7 @@ Q_TESTLIB_EXPORT void qtest_qParseArgs(int argc, const char *const argv[], bool 
         } else if (strcmp(argv[i], "-v2") == 0) {
             QTestLog::setVerboseLevel(2);
         } else if (strcmp(argv[i], "-vs") == 0) {
-            QSignalDumper::startDump();
+            QSignalDumper::setEnabled(true);
         } else if (strcmp(argv[i], "-o") == 0) {
             if (i + 1 >= argc) {
                 fprintf(stderr, "-o needs an extra parameter specifying the filename and optional format\n");
@@ -666,9 +674,12 @@ Q_TESTLIB_EXPORT void qtest_qParseArgs(int argc, const char *const argv[], bool 
                     logFormat = QTestLog::LightXML;
                 else if (strcmp(format, "xml") == 0)
                     logFormat = QTestLog::XML;
-                else if (strcmp(format, "junitxml") == 0 || strcmp(format, "xunitxml") == 0)
+                else if (strcmp(format, "junitxml") == 0)
                     logFormat = QTestLog::JUnitXML;
-                else if (strcmp(format, "teamcity") == 0)
+                else if (strcmp(format, "xunitxml") == 0) {
+                    fprintf(stderr, "WARNING: xunitxml is deprecated. Please use junitxml.\n");
+                    logFormat = QTestLog::JUnitXML;
+                } else if (strcmp(format, "teamcity") == 0)
                     logFormat = QTestLog::TeamCity;
                 else if (strcmp(format, "tap") == 0)
                     logFormat = QTestLog::TAP;
@@ -787,14 +798,15 @@ Q_TESTLIB_EXPORT void qtest_qParseArgs(int argc, const char *const argv[], bool 
 
         } else if (strcmp(argv[i], "-vb") == 0) {
             QBenchmarkGlobalData::current->verboseOutput = true;
-#if defined(Q_OS_WINRT)
-        } else if (strncmp(argv[i], "-ServerName:", 12) == 0 ||
-                   strncmp(argv[i], "-qdevel", 7) == 0) {
+#if defined(Q_OS_DARWIN)
+        } else if (strncmp(argv[i], "-Apple", 6) == 0) {
+            i += 1; // Skip Apple-specific user preferences
             continue;
-#elif defined(Q_OS_MAC) && defined(HAVE_XCTEST)
+# if defined(HAVE_XCTEST)
         } else if (int skip = QXcodeTestLogger::parseCommandLineArgument(argv[i])) {
             i += (skip - 1); // Eating argv[i] with a continue counts towards skips
             continue;
+# endif
 #endif
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Unknown option: '%s'\n\n%s", argv[i], testOptions);
@@ -868,7 +880,7 @@ Q_TESTLIB_EXPORT void qtest_qParseArgs(int argc, char *argv[], bool qml) {
     qtest_qParseArgs(argc, const_cast<const char *const *>(argv), qml);
 }
 
-QBenchmarkResult qMedian(const QVector<QBenchmarkResult> &container)
+QBenchmarkResult qMedian(const QList<QBenchmarkResult> &container)
 {
     const int count = container.count();
     if (count == 0)
@@ -877,7 +889,7 @@ QBenchmarkResult qMedian(const QVector<QBenchmarkResult> &container)
     if (count == 1)
         return container.front();
 
-    QVector<QBenchmarkResult> containerCopy = container;
+    QList<QBenchmarkResult> containerCopy = container;
     std::sort(containerCopy.begin(), containerCopy.end());
 
     const int middle = count / 2;
@@ -914,7 +926,7 @@ void TestMethods::invokeTestOnData(int index) const
     bool isBenchmark = false;
     int i = (QBenchmarkGlobalData::current->measurer->needsWarmupIteration()) ? -1 : 0;
 
-    QVector<QBenchmarkResult> results;
+    QList<QBenchmarkResult> results;
     bool minimumTotalReached = false;
     do {
         QBenchmarkTestMethodData::current->beginDataRun();
@@ -1013,7 +1025,7 @@ class WatchDog : public QThread
     };
 
     bool waitFor(std::unique_lock<QtPrivate::mutex> &m, Expectation e) {
-        auto expectationChanged = [this, e] { return expecting != e; };
+        auto expectationChanged = [this, e] { return expecting.load(std::memory_order_relaxed) != e; };
         switch (e) {
         case TestFunctionEnd:
             return waitCondition.wait_for(m, defaultTimeout(), expectationChanged);
@@ -1030,15 +1042,16 @@ class WatchDog : public QThread
 public:
     WatchDog()
     {
+        setObjectName(QLatin1String("QtTest Watchdog"));
         auto locker = qt_unique_lock(mutex);
-        expecting = ThreadStart;
+        expecting.store(ThreadStart, std::memory_order_relaxed);
         start();
         waitFor(locker, ThreadStart);
     }
     ~WatchDog() {
         {
             const auto locker = qt_scoped_lock(mutex);
-            expecting = ThreadEnd;
+            expecting.store(ThreadEnd, std::memory_order_relaxed);
             waitCondition.notify_all();
         }
         wait();
@@ -1046,30 +1059,33 @@ public:
 
     void beginTest() {
         const auto locker = qt_scoped_lock(mutex);
-        expecting = TestFunctionEnd;
+        expecting.store(TestFunctionEnd, std::memory_order_relaxed);
         waitCondition.notify_all();
     }
 
     void testFinished() {
         const auto locker = qt_scoped_lock(mutex);
-        expecting = TestFunctionStart;
+        expecting.store(TestFunctionStart, std::memory_order_relaxed);
         waitCondition.notify_all();
     }
 
     void run() override {
         auto locker = qt_unique_lock(mutex);
-        expecting = TestFunctionStart;
+        expecting.store(TestFunctionStart, std::memory_order_release);
         waitCondition.notify_all();
         while (true) {
-            switch (expecting) {
+            Expectation e = expecting.load(std::memory_order_acquire);
+            switch (e) {
             case ThreadEnd:
                 return;
             case ThreadStart:
                 Q_UNREACHABLE();
             case TestFunctionStart:
             case TestFunctionEnd:
-                if (Q_UNLIKELY(!waitFor(locker, expecting))) {
+                if (Q_UNLIKELY(!waitFor(locker, e))) {
+#ifndef Q_OS_WASM
                     stackTrace();
+#endif
                     qFatal("Test function timed out");
                 }
             }
@@ -1079,7 +1095,7 @@ public:
 private:
     QtPrivate::mutex mutex;
     QtPrivate::condition_variable waitCondition;
-    Expectation expecting;
+    std::atomic<Expectation> expecting;
 };
 
 #else // !QT_CONFIG(thread)
@@ -1208,8 +1224,8 @@ void *fetchData(QTestData *data, const char *tagName, int typeId)
 
     if (Q_UNLIKELY(typeId != data->parent()->elementTypeId(idx))) {
         qFatal("Requested type '%s' does not match available type '%s'.",
-               QMetaType::typeName(typeId),
-               QMetaType::typeName(data->parent()->elementTypeId(idx)));
+               QMetaType(typeId).name(),
+               QMetaType(data->parent()->elementTypeId(idx)).name());
     }
 
     return data->data(idx);
@@ -1489,6 +1505,8 @@ void TestMethods::invokeTests(QObject *testObject) const
         watchDog.reset(new WatchDog);
     }
 
+    QSignalDumper::startDump();
+
     if (!QTestResult::skipCurrentTest() && !QTest::currentTestFailed()) {
         if (m_initTestCaseMethod.isValid())
             m_initTestCaseMethod.invoke(testObject, Qt::DirectConnection);
@@ -1521,9 +1539,11 @@ void TestMethods::invokeTests(QObject *testObject) const
     }
     QTestResult::finishedCurrentTestFunction();
     QTestResult::setCurrentTestFunction(nullptr);
+
+    QSignalDumper::endDump();
 }
 
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
 
 // Helper class for resolving symbol names by dynamically loading "dbghelp.dll".
 class DebugSymbolResolver
@@ -1621,7 +1641,7 @@ DebugSymbolResolver::Symbol DebugSymbolResolver::resolveSymbol(DWORD64 address) 
     return result;
 }
 
-#endif // Q_OS_WIN && !Q_OS_WINRT
+#endif // Q_OS_WIN
 
 class FatalSignalHandler
 {
@@ -1632,10 +1652,8 @@ public:
 #  if !defined(Q_CC_MINGW)
         _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_DEBUG);
 #  endif
-#  if !defined(Q_OS_WINRT)
         SetErrorMode(SetErrorMode(0) | SEM_NOGPFAULTERRORBOX);
         SetUnhandledExceptionFilter(windowsFaultHandler);
-#  endif
 #elif defined(Q_OS_UNIX) && !defined(Q_OS_WASM)
         sigemptyset(&handledSignals);
 
@@ -1717,7 +1735,7 @@ public:
     }
 
 private:
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
     static LONG WINAPI windowsFaultHandler(struct _EXCEPTION_POINTERS *exInfo)
     {
         enum { maxStackFrames = 100 };
@@ -1760,7 +1778,7 @@ private:
 
         return EXCEPTION_EXECUTE_HANDLER;
     }
-#endif // defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#endif // defined(Q_OS_WIN)
 
 #if defined(Q_OS_UNIX) && !defined(Q_OS_WASM)
     static void signal(int signum)
@@ -1971,8 +1989,6 @@ void QTest::qCleanup()
     delete QBenchmarkGlobalData::current;
     QBenchmarkGlobalData::current = nullptr;
 
-    QSignalDumper::endDump();
-
 #if defined(Q_OS_MACOS)
     IOPMAssertionRelease(macPowerSavingDisabled);
 #endif
@@ -1990,7 +2006,7 @@ int QTest::qExec(QObject *testObject, const QStringList &arguments)
     const int argc = arguments.count();
     QVarLengthArray<char *> argv(argc);
 
-    QVector<QByteArray> args;
+    QList<QByteArray> args;
     args.reserve(argc);
 
     for (int i = 0; i < argc; ++i)
@@ -2139,7 +2155,7 @@ QSharedPointer<QTemporaryDir> QTest::qExtractTestData(const QString &dirName)
           QFileInfo fileInfo = it.fileInfo();
 
           if (!fileInfo.isDir()) {
-              const QString destination = dataPath + QLatin1Char('/') + fileInfo.filePath().midRef(resourcePath.length());
+              const QString destination = dataPath + QLatin1Char('/') + QStringView{fileInfo.filePath()}.mid(resourcePath.length());
               QFileInfo destinationFileInfo(destination);
               QDir().mkpath(destinationFileInfo.path());
               if (!QFile::copy(fileInfo.filePath(), destination)) {
@@ -2162,7 +2178,8 @@ QSharedPointer<QTemporaryDir> QTest::qExtractTestData(const QString &dirName)
 /*! \internal
  */
 
-QString QTest::qFindTestData(const QString& base, const char *file, int line, const char *builddir)
+QString QTest::qFindTestData(const QString& base, const char *file, int line, const char *builddir,
+                             const char *sourcedir)
 {
     QString found;
 
@@ -2195,7 +2212,7 @@ QString QTest::qFindTestData(const QString& base, const char *file, int line, co
     if (found.isEmpty()) {
         const char *testObjectName = QTestResult::currentTestObjectName();
         if (testObjectName) {
-            const QString testsPath = QLibraryInfo::location(QLibraryInfo::TestsPath);
+            const QString testsPath = QLibraryInfo::path(QLibraryInfo::TestsPath);
             const QString candidate = QString::fromLatin1("%1/%2/%3")
                 .arg(testsPath, QFile::decodeName(testObjectName).toLower(), base);
             if (QFileInfo::exists(candidate)) {
@@ -2213,7 +2230,7 @@ QString QTest::qFindTestData(const QString& base, const char *file, int line, co
     //  3. relative to test source.
     if (found.isEmpty() && qstrncmp(file, ":/", 2) != 0) {
         // srcdir is the directory containing the calling source file.
-        QFileInfo srcdir = QFileInfo(QFile::decodeName(file)).path();
+        QFileInfo srcdir(QFileInfo(QFile::decodeName(file)).path());
 
         // If the srcdir is relative, that means it is relative to the current working
         // directory of the compiler at compile time, which should be passed in as `builddir'.
@@ -2272,6 +2289,20 @@ QString QTest::qFindTestData(const QString& base, const char *file, int line, co
         }
     }
 
+    // 7. Try the supplied source directory
+    if (found.isEmpty() && sourcedir) {
+        const QString candidate = QFile::decodeName(sourcedir) % QLatin1Char('/') % base;
+        if (QFileInfo::exists(candidate)) {
+            found = candidate;
+        } else if (QTestLog::verboseLevel() >= 2) {
+            QTestLog::info(qPrintable(
+                QString::fromLatin1("testdata %1 not found in supplied source directory [%2]")
+                    .arg(base, QDir::toNativeSeparators(candidate))),
+                file, line);
+        }
+    }
+
+
     if (found.isEmpty()) {
         QTest::qWarn(qPrintable(
             QString::fromLatin1("testdata %1 could not be located!").arg(base)),
@@ -2287,9 +2318,10 @@ QString QTest::qFindTestData(const QString& base, const char *file, int line, co
 
 /*! \internal
  */
-QString QTest::qFindTestData(const char *base, const char *file, int line, const char *builddir)
+QString QTest::qFindTestData(const char *base, const char *file, int line, const char *builddir,
+                             const char *sourcedir)
 {
-    return qFindTestData(QFile::decodeName(base), file, line, builddir);
+    return qFindTestData(QFile::decodeName(base), file, line, builddir, sourcedir);
 }
 
 /*! \internal
@@ -2461,30 +2493,6 @@ bool QTest::currentTestFailed()
     return QTestResult::currentTestFailed();
 }
 
-/*!
-    Sleeps for \a ms milliseconds, blocking execution of the
-    test. qSleep() will not do any event processing and leave your test
-    unresponsive. Network communication might time out while
-    sleeping. Use \l {QTest::qWait()} to do non-blocking sleeping.
-
-    \a ms must be greater than 0.
-
-    \b {Note:} The qSleep() function calls either \c nanosleep() on
-    unix or \c Sleep() on windows, so the accuracy of time spent in
-    qSleep() depends on the operating system.
-
-    Example:
-    \snippet code/src_qtestlib_qtestcase.cpp 23
-
-    \sa {QTest::qWait()}
-*/
-void QTest::qSleep(int ms)
-{
-    // ### Qt 6, move to QtCore or remove altogether
-    QTEST_ASSERT(ms > 0);
-    QTestPrivate::qSleep(ms);
-}
-
 /*! \internal
  */
 QObject *QTest::testObject()
@@ -2587,6 +2595,21 @@ bool QTest::qCompare(int t1, int t2, const char *actual, const char *expected,
                                 "Compared values are not the same",
                                 t1, t2, actual, expected, file, line);
 }
+
+#if QT_POINTER_SIZE == 8
+/*! \fn bool QTest::qCompare(qsizetype t1, qsizetype t2, const char *actual, const char *expected, const char *file, int line)
+    \internal
+    \since 6.0
+ */
+
+bool QTest::qCompare(qsizetype t1, qsizetype t2, const char *actual, const char *expected,
+                     const char *file, int line)
+{
+    return QTestResult::compare(t1 == t2,
+                                "Compared values are not the same",
+                                t1, t2, actual, expected, file, line);
+}
+#endif // QT_POINTER_SIZE == 8
 
 /*! \fn bool QTest::qCompare(unsigned t1, unsigned t2, const char *actual, const char *expected, const char *file, int line)
     \internal
@@ -2798,10 +2821,33 @@ char *QTest::toString(const char *str)
 
 /*! \internal
  */
+char *QTest::toString(const volatile void *p) // Use volatile to match compare_ptr_helper()
+{
+    return QTest::toString(const_cast<const void *>(p));
+}
+
 char *QTest::toString(const void *p)
 {
     char *msg = new char[128];
     qsnprintf(msg, 128, "%p", p);
+    return msg;
+}
+
+/*! \internal
+ */
+char *QTest::toString(const volatile QObject *vo)
+{
+    if (vo == nullptr)
+        return qstrdup("<null>");
+
+    auto *o = const_cast<const QObject*>(vo);
+    const QString &name = o->objectName();
+    const char *className = o->metaObject()->className();
+    char *msg = new char[256];
+    if (name.isEmpty())
+        qsnprintf(msg, 256, "%s/%p", className, o);
+    else
+        qsnprintf(msg, 256, "%s/\"%s\"", className, qPrintable(name));
     return msg;
 }
 

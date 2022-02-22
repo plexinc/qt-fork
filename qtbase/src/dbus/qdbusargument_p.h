@@ -129,9 +129,9 @@ public:
 
     QDBusMarshaller *beginStructure();
     QDBusMarshaller *endStructure();
-    QDBusMarshaller *beginArray(int id);
+    QDBusMarshaller *beginArray(QMetaType id);
     QDBusMarshaller *endArray();
-    QDBusMarshaller *beginMap(int kid, int vid);
+    QDBusMarshaller *beginMap(QMetaType kid, QMetaType vid);
     QDBusMarshaller *endMap();
     QDBusMarshaller *beginMapEntry();
     QDBusMarshaller *endMapEntry();
@@ -155,6 +155,7 @@ public:
     bool skipSignature;
 
 private:
+    Q_DECL_COLD_FUNCTION void unregisteredTypeError(QMetaType t);
     Q_DISABLE_COPY_MOVE(QDBusMarshaller)
 };
 

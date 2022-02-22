@@ -54,7 +54,6 @@
 #include <private/qv4runtimeapi_p.h>
 #include <QtCore/qalgorithms.h>
 #include <QtCore/qmath.h>
-#include <qdebug.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -349,7 +348,7 @@ private:
     struct name##SizeStruct : base, name##OffsetStruct {}; \
     struct name##Data { \
         typedef base SuperClass; \
-        static Q_CONSTEXPR size_t baseOffset = sizeof(name##SizeStruct) - sizeof(name##OffsetStruct); \
+        static constexpr size_t baseOffset = sizeof(name##SizeStruct) - sizeof(name##OffsetStruct); \
         name##Members(name, HEAP_OBJECT_MEMBER_EXPANSION) \
     }; \
     Q_STATIC_ASSERT(sizeof(name##SizeStruct) == sizeof(name##Data) + name##Data::baseOffset); \

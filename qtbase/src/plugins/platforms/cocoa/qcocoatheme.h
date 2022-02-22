@@ -73,12 +73,17 @@ public:
     QIcon fileIcon(const QFileInfo &fileInfo, QPlatformTheme::IconOptions options = {}) const override;
 
     QVariant themeHint(ThemeHint hint) const override;
+    Appearance appearance() const override;
     QString standardButtonText(int button) const override;
     QKeySequence standardButtonShortcut(int button) const override;
 
     static const char *name;
 
     void handleSystemThemeChange();
+
+#ifndef QT_NO_SHORTCUT
+    QList<QKeySequence> keyBindings(QKeySequence::StandardKey key) const override;
+#endif
 
 private:
     mutable QPalette *m_systemPalette;

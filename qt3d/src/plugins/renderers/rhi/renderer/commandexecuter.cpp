@@ -6,30 +6,33 @@
 **
 ** This file is part of the Qt3D module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL3$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
 ** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPLv3 included in the
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
 ** packaging of this file. Please review the following information to
 ** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl.html.
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
 ** GNU General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or later as published by the Free
-** Software Foundation and appearing in the file LICENSE.GPL included in
-** the packaging of this file. Please review the following information to
-** ensure the GNU General Public License version 2.0 requirements will be
-** met: http://www.gnu.org/licenses/gpl-2.0.html.
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -249,40 +252,40 @@ QJsonObject parameterPackToJson(const Render::Rhi::ShaderParameterPack &pack) no
 
     const Render::Rhi::PackUniformHash &uniforms = pack.uniforms();
     QJsonArray uniformsArray;
-    for (int i = 0, m = uniforms.keys.size(); i < m; ++i) {
+    for (qsizetype i = 0, m = uniforms.keys.size(); i < m; ++i) {
         QJsonObject uniformObj;
-        uniformObj.insert(QLatin1String("name"),
-                          Render::StringToInt::lookupString(uniforms.keys.at(i)));
+        uniformObj.insert(QLatin1String("name"), Render::StringToInt::lookupString(uniforms.keys.at(i)));
         const Render::UniformValue::ValueType type = uniforms.values.at(i).valueType();
         uniformObj.insert(QLatin1String("type"),
-                          type == Render::UniformValue::ScalarValue ? QLatin1String("value")
-                                                                    : QLatin1String("texture"));
+                          type == Render::UniformValue::ScalarValue
+                          ? QLatin1String("value")
+                          : QLatin1String("texture"));
         uniformsArray.push_back(uniformObj);
     }
     obj.insert(QLatin1String("uniforms"), uniformsArray);
 
     QJsonArray texturesArray;
-    const QVector<Render::Rhi::ShaderParameterPack::NamedResource> &textures = pack.textures();
-    for (const auto &texture : textures) {
+    const std::vector<Render::Rhi::ShaderParameterPack::NamedResource> &textures = pack.textures();
+    for (const auto & texture : textures) {
         QJsonObject textureObj;
-        textureObj.insert(QLatin1String("name"),
-                          Render::StringToInt::lookupString(texture.glslNameId));
+        textureObj.insert(QLatin1String("name"), Render::StringToInt::lookupString(texture.glslNameId));
         textureObj.insert(QLatin1String("id"), qint64(texture.nodeId.id()));
         texturesArray.push_back(textureObj);
     }
     obj.insert(QLatin1String("textures"), texturesArray);
 
-    const QVector<Render::Rhi::BlockToUBO> &ubos = pack.uniformBuffers();
+    const std::vector<Render::Rhi::BlockToUBO> &ubos = pack.uniformBuffers();
     QJsonArray ubosArray;
     for (const auto &ubo : ubos) {
         QJsonObject uboObj;
         uboObj.insert(QLatin1String("index"), ubo.m_blockIndex);
         uboObj.insert(QLatin1String("bufferId"), qint64(ubo.m_bufferID.id()));
         ubosArray.push_back(uboObj);
+
     }
     obj.insert(QLatin1String("ubos"), ubosArray);
 
-    const QVector<Render::Rhi::BlockToSSBO> &ssbos = pack.shaderStorageBuffers();
+    const std::vector<Render::Rhi::BlockToSSBO> &ssbos = pack.shaderStorageBuffers();
     QJsonArray ssbosArray;
     for (const auto &ssbo : ssbos) {
         QJsonObject ssboObj;
@@ -301,11 +304,12 @@ CommandExecuter::CommandExecuter(Render::Rhi::Renderer *renderer) : m_renderer(r
 
 // Render thread
 void CommandExecuter::performAsynchronousCommandExecution(
-        const QVector<Render::Rhi::RenderView *> &views)
+        const std::vector<Render::Rhi::RenderView *> &views)
 {
+    Q_UNUSED(views);
     RHI_UNIMPLEMENTED;
     //*    QMutexLocker lock(&m_pendingCommandsMutex);
-    //*    const QVector<Qt3DCore::Debug::AsynchronousCommandReply *> shellCommands =
+    //*    const std::vector<Qt3DCore::Debug::AsynchronousCommandReply *> shellCommands =
     //std::move(m_pendingCommands);
     //*    lock.unlock();
     //*
@@ -380,6 +384,7 @@ void CommandExecuter::performAsynchronousCommandExecution(
 // Main thread
 QVariant CommandExecuter::executeCommand(const QStringList &args)
 {
+    Q_UNUSED(args);
     RHI_UNIMPLEMENTED;
     //*    // Note: The replies will be deleted by the AspectCommandDebugger
     //*    if (args.length() > 0 &&

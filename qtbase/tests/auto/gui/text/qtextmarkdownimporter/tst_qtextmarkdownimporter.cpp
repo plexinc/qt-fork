@@ -26,7 +26,7 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QBuffer>
 #include <QDebug>
 #include <QFontInfo>
@@ -36,6 +36,7 @@
 #include <QTextDocumentFragment>
 #include <QTextList>
 #include <QTextTable>
+#include <QLoggingCategory>
 
 #include <private/qtextmarkdownimporter_p.h>
 
@@ -61,6 +62,8 @@ private slots:
     void nestedSpans();
     void avoidBlankLineAtBeginning_data();
     void avoidBlankLineAtBeginning();
+    void fragmentsAndProperties_data();
+    void fragmentsAndProperties();
     void pathological_data();
     void pathological();
 
@@ -69,9 +72,10 @@ public:
         Normal = 0x0,
         Italic = 0x1,
         Bold = 0x02,
-        Strikeout = 0x04,
-        Mono = 0x08,
-        Link = 0x10
+        Underlined = 0x04,
+        Strikeout = 0x08,
+        Mono = 0x10,
+        Link = 0x20
     };
     Q_DECLARE_FLAGS(CharFormats, CharFormat)
 };
@@ -252,6 +256,12 @@ void tst_QTextMarkdownImporter::nestedSpans_data()
     QTest::newRow("bold italic")
             << "before ***bold italic*** after"
             << 1 << (Bold | Italic);
+    QTest::newRow("bold underlined")
+            << "before **_bold underlined_** after"
+            << 1 << (Bold | Underlined);
+    QTest::newRow("italic underlined")
+            << "before *_italic underlined_* after"
+            << 1 << (Italic | Underlined);
     QTest::newRow("bold strikeout")
             << "before **~~bold strikeout~~** after"
             << 1 << (Bold | Strikeout);
@@ -322,12 +332,14 @@ void tst_QTextMarkdownImporter::nestedSpans()
         QTextCharFormat fmt = cur.charFormat();
         qCDebug(lcTests) << "word" << wordToCheck << cur.selectedText() << "font" << fmt.font()
                          << "weight" << fmt.fontWeight() << "italic" << fmt.fontItalic()
+                         << "underlined" << fmt.fontUnderline()
                          << "strikeout" << fmt.fontStrikeOut() << "anchor" << fmt.isAnchor()
                          << "monospace" << QFontInfo(fmt.font()).fixedPitch() // depends on installed fonts (QTBUG-75649)
                                         << fmt.fontFixedPitch() // returns false even when font family is "monospace"
                                         << fmt.hasProperty(QTextFormat::FontFixedPitch); // works
-        QCOMPARE(fmt.fontWeight() > 50, expectedFormat.testFlag(Bold));
+        QCOMPARE(fmt.fontWeight() > QFont::Normal, expectedFormat.testFlag(Bold));
         QCOMPARE(fmt.fontItalic(), expectedFormat.testFlag(Italic));
+        QCOMPARE(fmt.fontUnderline(), expectedFormat.testFlag(Underlined));
         QCOMPARE(fmt.fontStrikeOut(), expectedFormat.testFlag(Strikeout));
         QCOMPARE(fmt.isAnchor(), expectedFormat.testFlag(Link));
         QCOMPARE(fmt.hasProperty(QTextFormat::FontFixedPitch), expectedFormat.testFlag(Mono));
@@ -368,6 +380,70 @@ void tst_QTextMarkdownImporter::avoidBlankLineAtBeginning() // QTBUG-81060
     QCOMPARE(i, expectedNumberOfParagraphs);
 }
 
+void tst_QTextMarkdownImporter::fragmentsAndProperties_data()
+{
+    QTest::addColumn<QString>("input");
+    QTest::addColumn<int>("fragmentToCheck");
+    QTest::addColumn<QString>("expectedText");
+    QTest::addColumn<QTextFormat::Property>("propertyToCheck");
+    QTest::addColumn<QVariant>("expectedPropertyValue");
+    QTest::addColumn<int>("expectedNumberOfBlocks");
+    QTest::addColumn<int>("expectedNumberOfFragments");
+
+    QTest::newRow("entitiesInHtmlFontBlock") // QTBUG-94245
+            << QString("<font color='red'>&lt;123 test&gt;</font>&nbsp;test")
+            << 0 << "<123 test>" << QTextFormat::ForegroundBrush << QVariant(QBrush(QColor("red")))
+            << 1 << 2;
+    QTest::newRow("entitiesInHtmlBoldBlock") // QTBUG-91222
+            << QString("<b>x&amp;lt;</b>")
+            << 0 << "x&lt;" << QTextFormat::FontWeight << QVariant(700)
+            << 1 << 1;
+}
+
+void tst_QTextMarkdownImporter::fragmentsAndProperties()
+{
+    QFETCH(QString, input);
+    QFETCH(int, fragmentToCheck);
+    QFETCH(QString, expectedText);
+    QFETCH(QTextFormat::Property, propertyToCheck);
+    QFETCH(QVariant, expectedPropertyValue);
+    QFETCH(int, expectedNumberOfBlocks);
+    QFETCH(int, expectedNumberOfFragments);
+
+    QTextDocument doc;
+    QTextMarkdownImporter(QTextMarkdownImporter::DialectGitHub).import(&doc, input);
+#ifdef DEBUG_WRITE_HTML
+    {
+        QFile out("/tmp/" + QLatin1String(QTest::currentDataTag()) + ".html");
+        out.open(QFile::WriteOnly);
+        out.write(doc.toHtml().toLatin1());
+        out.close();
+    }
+#endif
+    QTextFrame::iterator blockIter = doc.rootFrame()->begin();
+    int blockCount = 0;
+    int fragCount = 0;
+    while (!blockIter.atEnd()) {
+        QTextBlock block = blockIter.currentBlock();
+        auto fragIter = block.begin();
+        while (!fragIter.atEnd()) {
+            auto frag = fragIter.fragment();
+            qCDebug(lcTests) << "fragment" << fragCount << ':' << frag.text() << Qt::hex << frag.charFormat().properties();
+            if (fragCount == fragmentToCheck) {
+                QVariant prop = frag.charFormat().property(propertyToCheck);
+                QCOMPARE(prop, expectedPropertyValue);
+                QCOMPARE(frag.text(), expectedText);
+            }
+            ++fragIter;
+            ++fragCount;
+        }
+        ++blockIter;
+        ++blockCount;
+    }
+    QCOMPARE(blockCount, expectedNumberOfBlocks);
+    QCOMPARE(fragCount, expectedNumberOfFragments);
+}
+
 void tst_QTextMarkdownImporter::pathological_data()
 {
     QTest::addColumn<QString>("warning");
@@ -382,7 +458,7 @@ void tst_QTextMarkdownImporter::pathological() // avoid crashing on crazy input
     QFile f(QFINDTESTDATA(filename));
     QVERIFY(f.open(QFile::ReadOnly));
 #ifdef QT_NO_DEBUG
-    Q_UNUSED(warning)
+    Q_UNUSED(warning);
 #else
     if (!warning.isEmpty())
         QTest::ignoreMessage(QtWarningMsg, warning.toLatin1());

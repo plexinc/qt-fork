@@ -41,8 +41,6 @@
     \li Text mode.
     \li Configuring timeouts and delays while reading or writing.
     \li Pinout signal change notification.
-    \li Special transceiver conditions, like Framing error, Parity error and
-        Break condition error.
     \endlist
 
     To use the serial port in your application, add the following include
@@ -59,12 +57,17 @@
     #include <QSerialPortInfo>
     \endcode
 
-    To link against the module, add this line to your \l qmake \c
-    .pro file:
+    To use the module with cmake, use the \c{find_package()} command to locate
+    the needed module components in the \c{Qt6} package:
+    \include qtserialport-module-use.qdocinc cmakebuild
 
-    \code
-    QT += serialport
-    \endcode
+    To use the module for building with qmake, add the module as a value of the
+    \c QT variable in the project's .pro file:
+    \include qtserialport-module-use.qdocinc qmakebuild
+
+    \section1 Module Evolution
+    \l{Changes to Qt SerialPort} lists important changes in the module API
+       and functionality that were done for the Qt 6 series of Qt.
 
     \section1 Related Information
     \list

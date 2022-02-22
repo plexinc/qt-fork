@@ -40,7 +40,7 @@
 // You should see the scene from  where the light is
 //#define SHOW_DEPTH_TEXTURE_SCENE
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 const bool sliceGridLabels = true;
 
@@ -357,7 +357,7 @@ SeriesRenderCache *Bars3DRenderer::createNewCache(QAbstract3DSeries *series)
     return new BarSeriesRenderCache(series, this);
 }
 
-void Bars3DRenderer::updateRows(const QVector<Bars3DController::ChangeRow> &rows)
+void Bars3DRenderer::updateRows(const QList<Bars3DController::ChangeRow> &rows)
 {
     int minRow = m_axisCacheZ.min();
     int maxRow = m_axisCacheZ.max();
@@ -390,7 +390,7 @@ void Bars3DRenderer::updateRows(const QVector<Bars3DController::ChangeRow> &rows
     }
 }
 
-void Bars3DRenderer::updateItems(const QVector<Bars3DController::ChangeItem> &items)
+void Bars3DRenderer::updateItems(const QList<Bars3DController::ChangeItem> &items)
 {
     int minRow = m_axisCacheZ.min();
     int maxRow = m_axisCacheZ.max();
@@ -682,7 +682,7 @@ void Bars3DRenderer::drawSlicedScene()
     GLuint baseGradientTexture = 0;
     bool colorStyleIsUniform = true;
     int firstVisualIndex = m_renderCacheList.size();
-    QVector<BarRenderSliceItem> *firstVisualSliceArray = 0;
+    QList<BarRenderSliceItem> *firstVisualSliceArray = 0;
     BarRenderSliceItem *selectedItem = 0;
 
     QQuaternion seriesRotation;
@@ -691,7 +691,7 @@ void Bars3DRenderer::drawSlicedScene()
                 && (baseCache == m_selectedSeriesCache
                     || m_cachedSelectionMode.testFlag(QAbstract3DGraph::SelectionMultiSeries))) {
             BarSeriesRenderCache *cache = static_cast<BarSeriesRenderCache *>(baseCache);
-            QVector<BarRenderSliceItem> &sliceArray = cache->sliceArray();
+            QList<BarRenderSliceItem> &sliceArray = cache->sliceArray();
             int sliceCount = sliceArray.size();
             if (firstVisualIndex > cache->visualIndex()) {
                 firstVisualIndex = cache->visualIndex();
@@ -853,7 +853,7 @@ void Bars3DRenderer::drawSlicedScene()
         foreach (SeriesRenderCache *baseCache, m_renderCacheList) {
             if (baseCache->isVisible()) {
                 BarSeriesRenderCache *cache = static_cast<BarSeriesRenderCache *>(baseCache);
-                QVector<BarRenderSliceItem> &sliceArray = cache->sliceArray();
+                QList<BarRenderSliceItem> &sliceArray = cache->sliceArray();
                 int sliceCount = sliceArray.size();
                 for (int col = 0; col < sliceCount; col++) {
                     BarRenderSliceItem &item = sliceArray[col];
@@ -2856,7 +2856,7 @@ QVector3D Bars3DRenderer::convertPositionToTranslation(const QVector3D &position
 
 void Bars3DRenderer::updateAspectRatio(float ratio)
 {
-    Q_UNUSED(ratio)
+    Q_UNUSED(ratio);
 }
 
 void Bars3DRenderer::updateFloorLevel(float level)
@@ -2873,4 +2873,4 @@ void Bars3DRenderer::updateMargin(float margin)
     calculateSceneScalingFactors();
 }
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE

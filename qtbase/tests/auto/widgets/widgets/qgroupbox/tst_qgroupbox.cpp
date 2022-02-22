@@ -27,13 +27,14 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QLineEdit>
 #include <QStyle>
 #include <QStyleOptionGroupBox>
 #include <QVBoxLayout>
 #include <QRadioButton>
 #include <QDialog>
+#include <QSignalSpy>
 
 #include "qgroupbox.h"
 
@@ -391,7 +392,7 @@ void tst_QGroupBox::clicked()
     else
         QTest::mouseClick(&testWidget, Qt::LeftButton);
 
-    QTEST(spy.count(), "clickedCount");
+    QTEST(int(spy.count()), "clickedCount");
     if (spy.count() > 0)
         QTEST(spy.at(0).at(0).toBool(), "finalCheck");
     QTEST(testWidget.isChecked(), "finalCheck");
@@ -523,17 +524,17 @@ public:
     }
 
 protected:
-    void mousePressEvent(QMouseEvent*)
+    void mousePressEvent(QMouseEvent*) override
     {
         mousePressed = true;
     }
 
-    void mouseReleaseEvent(QMouseEvent*)
+    void mouseReleaseEvent(QMouseEvent*) override
     {
         mouseReleased = true;
     }
 
-    void mouseMoveEvent(QMouseEvent*)
+    void mouseMoveEvent(QMouseEvent*) override
     {
         mouseMoved = true;
     }

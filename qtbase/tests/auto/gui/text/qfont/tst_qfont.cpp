@@ -26,9 +26,12 @@
 **
 ****************************************************************************/
 
-
-#include <QtTest/QtTest>
-
+#include <QTest>
+#include <QBuffer>
+#include <QtEndian>
+#if QT_CONFIG(process)
+#include <QProcess>
+#endif
 
 #include <qfont.h>
 #include <private/qfont_p.h>
@@ -40,6 +43,7 @@
 #include <qwidget.h>
 #endif
 #include <qlist.h>
+#include <QtTest/private/qemulationdetector_p.h>
 
 class tst_QFont : public QObject
 {
@@ -58,9 +62,8 @@ private slots:
     void insertAndRemoveSubstitutions();
     void serialize_data();
     void serialize();
-#if QT_DEPRECATED_SINCE(5, 13)
-    void lastResortFont();
-#endif
+    void deserializeQt515();
+
     void styleName();
     void defaultFamily_data();
     void defaultFamily();
@@ -111,8 +114,6 @@ void tst_QFont::getSetCheck()
     QCOMPARE(QFont::StyleStrategy(QFont::PreferAntialias), obj1.styleStrategy());
     obj1.setStyleStrategy(QFont::StyleStrategy(QFont::NoAntialias));
     QCOMPARE(QFont::StyleStrategy(QFont::NoAntialias), obj1.styleStrategy());
-    obj1.setStyleStrategy(QFont::StyleStrategy(QFont::OpenGLCompatible));
-    QCOMPARE(QFont::StyleStrategy(QFont::OpenGLCompatible), obj1.styleStrategy());
 }
 
 void tst_QFont::exactMatch()
@@ -135,14 +136,13 @@ void tst_QFont::exactMatch()
     QVERIFY(!QFont("monospace").exactMatch());
 
     // Confirm that exactMatch is true for a valid font
-    QFontDatabase db;
-    const QString family = db.families().first();
-    const QString style = db.styles(family).first();
-    const int pointSize = db.pointSizes(family, style).first();
-    font = db.font(family, style, pointSize);
+    const QString family = QFontDatabase::families().first();
+    const QString style = QFontDatabase::styles(family).first();
+    const int pointSize = QFontDatabase::pointSizes(family, style).first();
+    font = QFontDatabase::font(family, style, pointSize);
     QVERIFY(font.exactMatch());
 
-    if (db.families().contains("Arial")) {
+    if (QFontDatabase::families().contains("Arial")) {
         font = QFont("Arial");
         QVERIFY(font.exactMatch());
         font = QFont(QString());
@@ -153,9 +153,7 @@ void tst_QFont::exactMatch()
 
 void tst_QFont::italicOblique()
 {
-    QFontDatabase fdb;
-
-    QStringList families = fdb.families();
+    QStringList families = QFontDatabase::families();
     if (families.isEmpty())
         return;
 
@@ -163,12 +161,12 @@ void tst_QFont::italicOblique()
     for (f_it = families.begin(); f_it != f_end; ++f_it) {
 
         QString family = *f_it;
-        QStringList styles = fdb.styles(family);
+        QStringList styles = QFontDatabase::styles(family);
         QStringList::ConstIterator s_it, s_end = styles.end();
         for (s_it = styles.begin(); s_it != s_end; ++s_it) {
             QString style = *s_it;
 
-            if (fdb.isSmoothlyScalable(family, style)) {
+            if (QFontDatabase::isSmoothlyScalable(family, style)) {
                 if (style.contains("Oblique")) {
                     style.replace("Oblique", "Italic");
                 } else if (style.contains("Italic")) {
@@ -176,7 +174,7 @@ void tst_QFont::italicOblique()
                 } else {
                     continue;
                 }
-                QFont f = fdb.font(family, style, 12);
+                QFont f = QFontDatabase::font(family, style, 12);
                 QVERIFY(f.italic());
             }
         }
@@ -318,10 +316,11 @@ void tst_QFont::resolve()
     QCOMPARE(font6.families(), fontFamilies);
 
     QFont font7, font8;
+    // This will call setFamilies() directly now
     font7.setFamily(QLatin1String("Helvetica"));
     font8.setFamilies(fontFamilies);
     font7 = font7.resolve(font8);
-    QCOMPARE(font7.families(), QStringList({"Helvetica", "Arial"}));
+    QCOMPARE(font7.families(), QStringList({"Helvetica"}));
     QCOMPARE(font7.family(), "Helvetica");
 }
 
@@ -341,22 +340,19 @@ void tst_QFont::resetFont()
     QWidget secondChild(&parent);
     secondChild.setFont(childFont);
 
-    QVERIFY(parentFont.resolve() != 0);
-    QVERIFY(childFont.resolve() != 0);
+    QVERIFY(parentFont.resolveMask() != 0);
+    QVERIFY(childFont.resolveMask() != 0);
     QVERIFY(childFont != parentFont);
 
     // reset font on both children
     firstChild.setFont(QFont());
     secondChild.setFont(QFont());
 
-    QCOMPARE(firstChild.font().resolve(), QFont::SizeResolved);
-    QCOMPARE(secondChild.font().resolve(), QFont::SizeResolved);
-#ifdef Q_OS_ANDROID
-    QEXPECT_FAIL("", "QTBUG-69214", Continue);
-#endif
+    QCOMPARE(firstChild.font().resolveMask(), QFont::SizeResolved);
+    QCOMPARE(secondChild.font().resolveMask(), QFont::SizeResolved);
     QCOMPARE(firstChild.font().pointSize(), parent.font().pointSize());
     QCOMPARE(secondChild.font().pointSize(), parent.font().pointSize());
-    QVERIFY(parent.font().resolve() != 0);
+    QVERIFY(parent.font().resolveMask() != 0);
 }
 #endif
 
@@ -444,7 +440,7 @@ void tst_QFont::serialize_data()
     QTest::newRow("stretch") << font << QDataStream::Qt_4_3;
 
     font = basicFont;
-    font.setWeight(99);
+    font.setWeight(QFont::Light);
     QTest::newRow("weight") << font << QDataStream::Qt_1_0;
 
     font = basicFont;
@@ -516,18 +512,42 @@ void tst_QFont::serialize()
     }
 }
 
-#if QT_DEPRECATED_SINCE(5, 13)
-// QFont::lastResortFont() may abort with qFatal() on QWS/QPA
-// if absolutely no font is found. Just as ducumented for QFont::lastResortFont().
-// This happens on our CI machines which run QWS autotests.
-// ### fixme: Check platforms
-void tst_QFont::lastResortFont()
+void tst_QFont::deserializeQt515()
 {
-    QSKIP("QFont::lastResortFont() may abort with qFatal() on QPA, QTBUG-22325");
+    QFile file;
+    file.setFileName(QFINDTESTDATA("datastream.515"));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+
     QFont font;
-    QVERIFY(!font.lastResortFont().isEmpty());
+    {
+        QDataStream stream(&file);
+        stream.setVersion(QDataStream::Qt_5_15);
+        stream >> font;
+    }
+
+    QCOMPARE(font.family(), QStringLiteral("FirstFamily"));
+    QCOMPARE(font.families().size(), 3);
+    QCOMPARE(font.families().at(0), QStringLiteral("FirstFamily"));
+    QCOMPARE(font.families().at(1), QStringLiteral("OtherFamily1"));
+    QCOMPARE(font.families().at(2), QStringLiteral("OtherFamily2"));
+    QCOMPARE(font.pointSize(), 12);
+
+    QVERIFY(file.reset());
+    QByteArray fileContent = file.readAll();
+    QByteArray serializedContent;
+    {
+        QBuffer buffer(&serializedContent);
+        QVERIFY(buffer.open(QIODevice::WriteOnly));
+
+        QDataStream stream(&buffer);
+        stream.setVersion(QDataStream::Qt_5_15);
+        stream << font;
+    }
+
+    QCOMPARE(serializedContent, fileContent);
+
+    file.close();
 }
-#endif
 
 void tst_QFont::styleName()
 {
@@ -581,12 +601,11 @@ void tst_QFont::defaultFamily()
     QFETCH(QStringList, acceptableFamilies);
 
     QFont f;
-    QFontDatabase db;
     f.setStyleHint(styleHint);
     const QString familyForHint(f.defaultFamily());
 
     // it should at least return a family that is available.
-    QVERIFY(db.hasFamily(familyForHint));
+    QVERIFY(QFontDatabase::hasFamily(familyForHint));
 
     bool isAcceptable = false;
     Q_FOREACH (const QString& family, acceptableFamilies) {
@@ -595,6 +614,10 @@ void tst_QFont::defaultFamily()
             break;
         }
     }
+#ifdef Q_PROCESSOR_ARM_32
+    if (QTestPrivate::isRunningArmOnX86())
+        QEXPECT_FAIL("", "Fails on ARMv7 QEMU (QTQAINFRA-4127)", Continue);
+#endif
 
 #ifdef Q_OS_ANDROID
     QEXPECT_FAIL("serif", "QTBUG-69215", Continue);
@@ -607,19 +630,43 @@ void tst_QFont::toAndFromString()
     QFont defaultFont = QGuiApplication::font();
     QString family = defaultFont.family();
 
-    QFontDatabase fdb;
-    const QStringList stylesList = fdb.styles(family);
+    const QStringList stylesList = QFontDatabase::styles(family);
     if (stylesList.size() == 0)
         QSKIP("Default font doesn't have any styles");
 
     for (const QString &style : stylesList) {
         QFont result;
-        QFont initial = fdb.font(family, style, defaultFont.pointSize());
+        QFont initial = QFontDatabase::font(family, style, defaultFont.pointSize());
 
         result.fromString(initial.toString());
 
         QCOMPARE(result, initial);
     }
+
+    // Since Qt 6.0 it was changed to include more information in the description, so
+    // this checks for compatibility
+    const QString fontStringFrom515(QLatin1String("Times New Roman,18,-1,5,75,1,0,0,1,0,Regular"));
+    QFont fontFrom515("Times New Roman", 18);
+    fontFrom515.setBold(true);
+    fontFrom515.setItalic(true);
+    fontFrom515.setFixedPitch(true);
+    fontFrom515.setStyleName("Regular");
+    QFont from515String;
+    from515String.fromString(fontStringFrom515);
+    QCOMPARE(from515String, fontFrom515);
+
+    const QString fontStringFrom60(
+            QLatin1String("Times New Roman,18,-1,5,700,1,0,0,1,0,1,0,150.5,2.5,50,2,Regular"));
+    QFont fontFrom60 = fontFrom515;
+    fontFrom60.setStyleStrategy(QFont::PreferBitmap);
+    fontFrom60.setCapitalization(QFont::AllUppercase);
+    fontFrom60.setLetterSpacing(QFont::PercentageSpacing, 150.5);
+    fontFrom60.setWordSpacing(2.5);
+    fontFrom60.setStretch(50);
+    QFont from60String;
+    from60String.fromString(fontStringFrom60);
+    QCOMPARE(fontFrom60.toString(), fontStringFrom60);
+    QCOMPARE(from60String, fontFrom60);
 }
 
 void tst_QFont::fromStringWithoutStyleName()
@@ -628,10 +675,18 @@ void tst_QFont::fromStringWithoutStyleName()
     font1.fromString("Noto Sans,12,-1,5,50,0,0,0,0,0,Regular");
 
     QFont font2 = font1;
-    const QString str = "Times,16,-1,5,50,0,0,0,0,0";
+    const QString str = "Times,16,-1,5,400,0,0,0,0,0,0,0,0,0,0,1";
     font2.fromString(str);
 
     QCOMPARE(font2.toString(), str);
+
+    const QString fontStringFrom60(
+            QLatin1String("Times New Roman,18,-1,5,700,1,0,0,1,0,1,0,150.5,2.5,50,2"));
+    QFont font3;
+    font3.fromString("Noto Sans,12,-1,5,50,0,0,0,0,0,Regular");
+    QFont font4 = font3;
+    font4.fromString(fontStringFrom60);
+    QCOMPARE(font4.toString(), fontStringFrom60);
 }
 
 void tst_QFont::fromDegenerateString_data()
@@ -699,6 +754,7 @@ void tst_QFont::sharing()
 
 void tst_QFont::familyNameWithCommaQuote_data()
 {
+    QTest::addColumn<QString>("enteredFamilyName");
     QTest::addColumn<QString>("familyName");
     QTest::addColumn<QString>("chosenFamilyName");
 
@@ -706,15 +762,16 @@ void tst_QFont::familyNameWithCommaQuote_data()
     if (standardFont.isEmpty())
         QSKIP("No default font available on the system");
     const QString weirdFont(QLatin1String("'My, weird'' font name',"));
+    const QString bogusFont(QLatin1String("BogusFont"));
     const QString commaSeparated(standardFont + QLatin1String(",Times New Roman"));
     const QString commaSeparatedWeird(weirdFont + QLatin1String(",") + standardFont);
-    const QString commaSeparatedBogus(QLatin1String("BogusFont,") + standardFont);
+    const QString commaSeparatedBogus(bogusFont +  QLatin1String(",") + standardFont);
 
-    QTest::newRow("standard") << standardFont << standardFont;
-    QTest::newRow("weird") << weirdFont << weirdFont;
-    QTest::newRow("commaSeparated") << commaSeparated << standardFont;
-    QTest::newRow("commaSeparatedWeird") << commaSeparatedWeird << weirdFont;
-    QTest::newRow("commaSeparatedBogus") << commaSeparatedBogus << standardFont;
+    QTest::newRow("standard") << standardFont << standardFont << standardFont;
+    QTest::newRow("weird") << weirdFont << QString("'My") << standardFont;
+    QTest::newRow("commaSeparated") << commaSeparated << standardFont << standardFont;
+    QTest::newRow("commaSeparatedWeird") << commaSeparatedWeird << QString("'My") << standardFont;
+    QTest::newRow("commaSeparatedBogus") << commaSeparatedBogus << bogusFont << standardFont;
 }
 
 void tst_QFont::familyNameWithCommaQuote()
@@ -742,6 +799,7 @@ void tst_QFont::setFamilies_data()
     if (standardFont.isEmpty())
         QSKIP("No default font available on the system");
 
+    QTest::newRow("emptyFamily") << (QStringList()) << QString();
     QTest::newRow("standard") << (QStringList() << standardFont) << standardFont;
     QTest::newRow("weird") << (QStringList() << weirdFont) << weirdFont;
     QTest::newRow("standard-weird") << (QStringList() << standardFont << weirdFont) << standardFont;
@@ -759,7 +817,8 @@ void tst_QFont::setFamilies()
     QVERIFY(weirdFontId != -1);
     QFont f;
     f.setFamilies(families);
-    QCOMPARE(QFontInfo(f).family(), chosenFamilyName);
+    if (!chosenFamilyName.isEmpty()) // Only check when it is not empty
+        QCOMPARE(QFontInfo(f).family(), chosenFamilyName);
 
     QFontDatabase::removeApplicationFont(weirdFontId);
 }
@@ -778,6 +837,7 @@ void tst_QFont::setFamiliesAndFamily_data()
     const QString timesFont(QLatin1String("Times"));
     const QString nonExistFont(QLatin1String("NonExistentFont"));
 
+    QTest::newRow("emptyFamily") << (QStringList()) << QString() << QString();
     QTest::newRow("firstInFamilies") << (QStringList() << defaultFont << timesFont) << weirdFont << defaultFont;
     QTest::newRow("secondInFamilies") << (QStringList() << nonExistFont << weirdFont) << defaultFont << weirdFont;
     QTest::newRow("family") << (QStringList() << nonExistFont) << defaultFont << defaultFont;
@@ -793,9 +853,10 @@ void tst_QFont::setFamiliesAndFamily()
 
     QVERIFY(weirdFontId != -1);
     QFont f;
-    f.setFamilies(families);
     f.setFamily(family);
-    QCOMPARE(QFontInfo(f).family(), chosenFamilyName);
+    f.setFamilies(families);
+    if (!family.isEmpty()) // Only check when it is not empty
+        QCOMPARE(QFontInfo(f).family(), chosenFamilyName);
 
     QFontDatabase::removeApplicationFont(weirdFontId);
 }

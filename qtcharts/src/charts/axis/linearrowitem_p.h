@@ -44,7 +44,7 @@
 #include <QtWidgets/QGraphicsLineItem>
 #include <QtCharts/private/qchartglobal_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class Q_CHARTS_PRIVATE_EXPORT LineArrowItem: public QGraphicsLineItem
 {
@@ -57,18 +57,18 @@ public:
     }
 
 protected:
-    void mousePressEvent(QGraphicsSceneMouseEvent *event)
+    void mousePressEvent(QGraphicsSceneMouseEvent *event) override
     {
         m_axis->axisSelected();
         QGraphicsLineItem::mousePressEvent(event);
     }
 
-    QRectF boundingRect() const
+    QRectF boundingRect() const override
     {
         return shape().boundingRect();
     }
 
-    QPainterPath shape() const
+    QPainterPath shape() const override
     {
         QPainterPath path = QGraphicsLineItem::shape();
         QRectF rect = path.boundingRect();
@@ -81,6 +81,6 @@ private:
     Qt::Orientation m_axisOrientation;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif /* LINEARROWITEM_P_H */

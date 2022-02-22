@@ -28,12 +28,14 @@
 ****************************************************************************/
 
 #include <QtCharts/qcategoryaxis.h>
+#include <QtCharts/QColorAxis>
 #include <QtCharts/qlogvalueaxis.h>
 #include <QtCore/qmath.h>
 #include <private/chartpresenter_p.h>
 #include <private/verticalaxis_p.h>
+#include <private/qabstractaxis_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 VerticalAxis::VerticalAxis(QAbstractAxis *axis, QGraphicsItem *item, bool intervalAxis)
     : CartesianChartAxis(axis, item, intervalAxis)
@@ -68,14 +70,13 @@ QSizeF VerticalAxis::sizeHint(Qt::SizeHint which, const QSizeF &constraint) cons
     default:
         break;
     }
-
     return sh;
 }
 
 void VerticalAxis::updateGeometry()
 {
-    const QVector<qreal> &layout = ChartAxisElement::layout();
-    const QVector<qreal> &dynamicMinorTicklayout = ChartAxisElement::dynamicMinorTicklayout();
+    const QList<qreal> &layout = ChartAxisElement::layout();
+    const QList<qreal> &dynamicMinorTicklayout = ChartAxisElement::dynamicMinorTicklayout();
 
     if (layout.isEmpty() && dynamicMinorTicklayout.isEmpty()
             && axis()->type() != QAbstractAxis::AxisTypeLogValue) {
@@ -100,10 +101,12 @@ void VerticalAxis::updateGeometry()
     QGraphicsLineItem *arrowItem = static_cast<QGraphicsLineItem*>(arrow.at(0));
 
     //arrow position
-    if (axis()->alignment() == Qt::AlignLeft)
-        arrowItem->setLine(axisRect.right(), gridRect.top(), axisRect.right(), gridRect.bottom());
-    else if (axis()->alignment() == Qt::AlignRight)
-        arrowItem->setLine(axisRect.left(), gridRect.top(), axisRect.left(), gridRect.bottom());
+    if (axis()->type() != QAbstractAxis::AxisTypeColor) {
+        if (axis()->alignment() == Qt::AlignLeft)
+            arrowItem->setLine(axisRect.right(), gridRect.top(), axisRect.right(), gridRect.bottom());
+        else if (axis()->alignment() == Qt::AlignRight)
+            arrowItem->setLine(axisRect.left(), gridRect.top(), axisRect.left(), gridRect.bottom());
+    }
 
     //title
     QRectF titleBoundingRect;
@@ -111,13 +114,20 @@ void VerticalAxis::updateGeometry()
     qreal labelAvailableSpace = axisRect.width();
     if (!titleText.isEmpty() && titleItem()->isVisible()) {
         const qreal titleAvailableSpace =
-                axisRect.height() - labelPadding() - (titlePadding() * 2.0);
+                axisRect.width() - labelPadding() - (titlePadding() * 2.0);
         qreal minimumLabelWidth = ChartPresenter::textBoundingRect(axis()->labelsFont(),
                                                                    QStringLiteral("...")).width();
         qreal titleSpace = titleAvailableSpace - minimumLabelWidth;
+
+        if (axis()->type() == QAbstractAxis::AxisTypeColor) {
+            QColorAxis *colorAxis = static_cast<QColorAxis *>(axis());
+            titleSpace -= colorAxis->size() + colorScalePadding();
+        }
+
         title->setHtml(ChartPresenter::truncatedText(axis()->titleFont(), titleText, qreal(90.0),
                                                      titleSpace, gridRect.height(),
                                                      titleBoundingRect));
+
         title->setTextWidth(titleBoundingRect.height());
 
         titleBoundingRect = title->boundingRect();
@@ -134,10 +144,17 @@ void VerticalAxis::updateGeometry()
         title->setTransformOriginPoint(titleBoundingRect.center());
         title->setRotation(270);
         labelAvailableSpace -= titleBoundingRect.height();
+
+        if (axis()->type() == QAbstractAxis::AxisTypeColor) {
+            QColorAxis *colorAxis = static_cast<QColorAxis *>(axis());
+            labelAvailableSpace -= colorAxis->size() + colorScalePadding();
+        }
     }
 
     QList<QGraphicsItem *> lines = gridItems();
     QList<QGraphicsItem *> shades = shadeItems();
+
+    bool labelsTruncated = false;
 
     for (int i = 0; i < layout.size(); ++i) {
         //items
@@ -165,13 +182,24 @@ void VerticalAxis::updateGeometry()
         if (text.isEmpty()) {
             labelItem->setHtml(text);
         } else {
-            qreal labelHeight = (axisRect.height() / layout.count()) - (2 * labelPadding());
-            QString truncatedText =
-                    ChartPresenter::truncatedText(axis()->labelsFont(), text, axis()->labelsAngle(),
-                                                  labelAvailableSpace, labelHeight, boundingRect);
+            QString displayText = text;
+            if (axis()->truncateLabels()) {
+                qreal labelHeight = (axisRect.height() / layout.count()) - (2 * labelPadding());
+                // Replace digits with ellipsis "..." if number does not fit
+                displayText =
+                        ChartPresenter::truncatedText(axis()->labelsFont(), text, axis()->labelsAngle(),
+                                                      labelAvailableSpace, labelHeight, boundingRect);
+            } else {
+                boundingRect = ChartPresenter::textBoundingRect(axis()->labelsFont(),
+                                                                displayText, axis()->labelsAngle());
+            }
+
             labelItem->setTextWidth(ChartPresenter::textBoundingRect(axis()->labelsFont(),
-                                                                     truncatedText).width());
-            labelItem->setHtml(truncatedText);
+                                                                     displayText).width());
+
+            labelItem->setHtml(displayText);
+
+            labelsTruncated |= displayText != text;
         }
 
         //label transformation origin point
@@ -184,43 +212,70 @@ void VerticalAxis::updateGeometry()
         //ticks and label position
         QPointF labelPos;
         if (axis()->alignment() == Qt::AlignLeft) {
+
+            qreal tickStopX = axisRect.right();
+
+            if (axis()->type() == QAbstractAxis::AxisTypeColor) {
+                QColorAxis *colorAxis = static_cast<QColorAxis *>(axis());
+                QGraphicsPixmapItem *colorScale = colorScaleItem();
+
+                const qreal penWidth = axis()->linePen().widthF();
+                // penWidth / 2 is half of tick width
+                colorScale->setOffset(axisRect.right() - colorAxis->size() - colorScalePadding(),
+                                      layout[i] - penWidth / 2);
+                prepareColorScale(colorAxis->size(), gridRect.height() + penWidth);
+
+                tickStopX = axisRect.right() - colorAxis->size() - colorScalePadding();
+            }
+
             if (axis()->isReverse()) {
-                labelPos = QPointF(axisRect.right() - rect.width() + (widthDiff / 2.0)
-                                  - labelPadding(),
-                                  gridRect.top() + gridRect.bottom()
-                                  - layout[layout.size() - i - 1] - center.y());
-                tickItem->setLine(axisRect.right() - labelPadding(),
-                                  gridRect.top() + gridRect.bottom() - layout[i],
-                                  axisRect.right(),
+                labelPos = QPointF(tickStopX - rect.width() + (widthDiff / 2.0) - labelPadding(),
+                                   gridRect.top() + gridRect.bottom()
+                                           - layout[layout.size() - i - 1] - center.y());
+                tickItem->setLine(tickStopX - labelPadding(),
+                                  gridRect.top() + gridRect.bottom() - layout[i], tickStopX,
                                   gridRect.top() + gridRect.bottom() - layout[i]);
             } else {
-                labelPos = QPointF(axisRect.right() - rect.width() + (widthDiff / 2.0)
-                                  - labelPadding(),
-                                  layout[i] - center.y());
-                tickItem->setLine(axisRect.right() - labelPadding(), layout[i],
-                                  axisRect.right(), layout[i]);
+                labelPos = QPointF(tickStopX - rect.width() + (widthDiff / 2.0) - labelPadding(),
+                                   layout[i] - center.y());
+                tickItem->setLine(tickStopX - labelPadding(), layout[i], tickStopX, layout[i]);
             }
         } else if (axis()->alignment() == Qt::AlignRight) {
+            qreal tickStartX = axisRect.left();
+
+            if (axis()->type() == QAbstractAxis::AxisTypeColor) {
+                QColorAxis *colorAxis = static_cast<QColorAxis *>(axis());
+                QGraphicsPixmapItem *colorScale = colorScaleItem();
+
+                const qreal penWidth = axis()->linePen().widthF();
+                // penWidth / 2 is half of tick width
+                colorScale->setOffset(axisRect.x() + colorScalePadding(), layout[i] - penWidth / 2);
+                prepareColorScale(colorAxis->size(), gridRect.height() + penWidth);
+
+                tickStartX = axisRect.x() + colorScalePadding() + colorAxis->size();
+            }
+
+
             if (axis()->isReverse()) {
-                tickItem->setLine(axisRect.left(),
-                                  gridRect.top() + gridRect.bottom() - layout[i],
-                                  axisRect.left() + labelPadding(),
+                tickItem->setLine(tickStartX, gridRect.top() + gridRect.bottom() - layout[i],
+                                  tickStartX + labelPadding(),
                                   gridRect.top() + gridRect.bottom() - layout[i]);
-                labelPos = QPointF(axisRect.left() + labelPadding() - (widthDiff / 2.0),
-                                  gridRect.top() + gridRect.bottom()
-                                  - layout[layout.size() - i - 1] - center.y());
+                labelPos = QPointF(tickStartX + labelPadding() - (widthDiff / 2.0),
+                                   gridRect.top() + gridRect.bottom()
+                                           - layout[layout.size() - i - 1] - center.y());
             } else {
-                labelPos = QPointF(axisRect.left() + labelPadding() - (widthDiff / 2.0),
-                                  layout[i] - center.y());
-                tickItem->setLine(axisRect.left(), layout[i],
-                                  axisRect.left() + labelPadding(), layout[i]);
+
+                labelPos = QPointF(tickStartX + labelPadding() - (widthDiff / 2.0),
+                                   layout[i] - center.y());
+                tickItem->setLine(tickStartX, layout[i], tickStartX + labelPadding(), layout[i]);
             }
         }
 
         //label in between
         bool forceHide = false;
         bool labelOnValue = false;
-        if (intervalAxis() && (i + 1) != layout.size()) {
+        if (intervalAxis() && (i + 1) != layout.size()
+            && axis()->type() != QAbstractAxis::AxisTypeColor) {
             qreal lowerBound;
             qreal upperBound;
             if (axis()->isReverse()) {
@@ -335,6 +390,8 @@ void VerticalAxis::updateGeometry()
         tickItem->setVisible(gridLineVisible);
     }
 
+    axis()->d_ptr->setLabelsTruncated(labelsTruncated);
+
     updateMinorTickGeometry();
 
     // begin/end grid line in case labels between
@@ -354,10 +411,10 @@ void VerticalAxis::updateMinorTickGeometry()
     if (!axis())
         return;
 
-    QVector<qreal> layout = ChartAxisElement::layout();
+    QList<qreal> layout = ChartAxisElement::layout();
     int minorTickCount = 0;
     qreal tickSpacing = 0.0;
-    QVector<qreal> minorTickSpacings;
+    QList<qreal> minorTickSpacings;
     switch (axis()->type()) {
     case QAbstractAxis::AxisTypeValue: {
         const QValueAxis *valueAxis = qobject_cast<QValueAxis *>(axis());
@@ -382,7 +439,7 @@ void VerticalAxis::updateMinorTickGeometry()
 
         minorTickCount = logValueAxis->minorTickCount();
         if (minorTickCount < 0)
-            minorTickCount = qMax(int(qFloor(base) - 2.0), 0);
+            minorTickCount = qMax(qFloor(base) - 2, 0);
 
         // Two "virtual" ticks are required to make sure that all minor ticks
         // are displayed properly (even for the partially visible segments of
@@ -427,7 +484,7 @@ void VerticalAxis::updateMinorTickGeometry()
 
     const QValueAxis *valueAxis = qobject_cast<QValueAxis *>(axis());
     if (valueAxis && valueAxis->tickType() == QValueAxis::TicksDynamic) {
-        const QVector<qreal> dynamicMinorTicklayout = ChartAxisElement::dynamicMinorTicklayout();
+        const QList<qreal> dynamicMinorTicklayout = ChartAxisElement::dynamicMinorTicklayout();
         const QRectF &gridRect = gridGeometry();
         const qreal deltaY = gridRect.height() / (valueAxis->max() - valueAxis->min());
         const qreal bottomPos = gridRect.bottom();
@@ -493,10 +550,10 @@ void VerticalAxis::updateMinorTickGeometry()
 
                 qreal minorGridLineItemY = 0.0;
                 if (axis()->isReverse()) {
-                    minorGridLineItemY = qFloor(gridGeometry().top() + gridGeometry().bottom()
-                                                - layout.at(i) + minorTickSpacing);
+                    minorGridLineItemY = std::floor(gridGeometry().top() + gridGeometry().bottom()
+                                                    - layout.at(i) + minorTickSpacing);
                 } else {
-                    minorGridLineItemY = qCeil(layout.at(i) - minorTickSpacing);
+                    minorGridLineItemY = std::ceil(layout.at(i) - minorTickSpacing);
                 }
 
                 qreal minorArrowLineItemX1;
@@ -531,4 +588,4 @@ void VerticalAxis::updateMinorTickGeometry()
     }
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE

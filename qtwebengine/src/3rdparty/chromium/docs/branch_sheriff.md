@@ -56,39 +56,56 @@ Once you've done that, you'll be able to check out branches:
 ```
 
 To determine the appropriate branch number, you can either use
-[chromiumdash](#chromiumdash) or check [milestone.json][milestone-json] directly.
+[chromiumdash](#chromiumdash) or check [milestone.json][milestone-json]
+directly.
 
 ### Findit
+
 As FindIt is not available on branches, one way to try to find culprits is using
-`git bisect` locally and upload changes to a gerrit CL and run the needed trybots
-to check. This is especially useful when the errors are not reproducible on your
-local builds or you don't have the required hardware to build the failed tests.
+`git bisect` locally and upload changes to a gerrit CL and run the needed
+trybots to check. This is especially useful when the errors are not reproducible
+on your local builds or you don't have the required hardware to build the failed
+tests.
 
 ### Flaky tests
 
-You should largely ignore flaky tests for the time being unless you have
-specific reason to believe that a flake was introduced by a cherry-pick to the
-branch in question. If a test is flaky on both trunk *and* a release branch,
-the trunk sheriffs should investigate it.
+Flaky tests that are disabled on trunk should also be disabled on any branches
+with frequent failures of that test. If a trunk CL lands with no change other
+than to disable one or more tests ([example](https://crrev.com/c/2507299)) and
+it has an associated bug and the release manager is cc'd on the bug, you can and
+should cherrypick it to the affected branch without requesting merge approval.
+
+On the other hand, if you believe that a flake was introduced by a cherry-pick
+to the branch in question and is not flaky on trunk, you will need to create a
+new CL to disable it only on the branch and go through the usual merge request
+process.
 
 ### Landing changes
 
-When you need to land a change to a branch, you'll need to go through the same
-merge approval process as other cherry-picks. You should feel free to ping the
-relevant release TPM as listed on [chromiumdash][chromiumdash-schedule].
+When you need to land a change to a branch, you'll need to go through [the same
+merge approval process](./process/merge_request.md) as other cherry-picks (see
+exception for flaky tests above). You should feel free to ping the relevant
+release TPM as listed on [chromiumdash][chromiumdash-schedule].
 
 ## Tools
 
 ### Sheriff-o-Matic
 
-Use the [branch SoM console][sheriff-o-matic] rather than the main chromium console.
+Use the [branch SoM console][sheriff-o-matic] rather than the main chromium
+console.
 
 ### Consoles
 
-Use the [beta][main-beta] and [stable][main-stable] branch consoles rather than the
-main console. A new console is created for each milestone. They are named
+Use the [beta][main-beta] and [stable][main-stable] branch consoles rather than
+the main console. A new console is created for each milestone. They are named
 "Chromium M## Console" and can be found under the
 [Chromium Project](https://ci.chromium.org/p/chromium).
+
+### Monorail issues (crbug)
+
+Refer and use the
+[Sheriff-Chrome-Release label](https://bugs.chromium.org/p/chromium/issues/list?q=label%3ASheriff-Chrome-Release)
+to find and tag issues that are of importance to Branch sheriffs.
 
 ### Chromiumdash
 

@@ -47,7 +47,6 @@
 #include "objectmanager_p.h"
 #include "properties_p.h"
 #include "adapter1_bluez5_p.h"
-#include "manager_p.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -56,21 +55,23 @@ Q_DECLARE_LOGGING_CATEGORY(QT_BT_BLUEZ)
 typedef enum Bluez5TestResultType
 {
     BluezVersionUnknown,
-    BluezVersion4,
     BluezVersion5,
     BluezNotAvailable
 } Bluez5TestResult;
 
-Q_GLOBAL_STATIC_WITH_ARGS(Bluez5TestResult, bluezVersion, (BluezVersionUnknown));
-Q_GLOBAL_STATIC_WITH_ARGS(QVersionNumber, bluezDaemonVersion, (QVersionNumber()));
+Q_GLOBAL_STATIC_WITH_ARGS(Bluez5TestResult, bluezVersion, (BluezVersionUnknown))
+Q_GLOBAL_STATIC_WITH_ARGS(QVersionNumber, bluezDaemonVersion, (QVersionNumber()))
 
-bool isBluez5()
+/*!
+    Ensures that the DBus types are registered
+ */
+
+void initializeBluez5()
 {
     if (*bluezVersion() == BluezVersionUnknown) {
         OrgFreedesktopDBusObjectManagerInterface manager(QStringLiteral("org.bluez"),
                                                          QStringLiteral("/"),
                                                          QDBusConnection::systemBus());
-
         qDBusRegisterMetaType<InterfaceList>();
         qDBusRegisterMetaType<ManagedObjectList>();
         qDBusRegisterMetaType<ManufacturerDataList>();
@@ -78,27 +79,15 @@ bool isBluez5()
         QDBusPendingReply<ManagedObjectList> reply = manager.GetManagedObjects();
         reply.waitForFinished();
         if (reply.isError()) {
-            // not Bluez 5.x
-            OrgBluezManagerInterface manager_bluez4(QStringLiteral("org.bluez"),
-                                             QStringLiteral("/"),
-                                             QDBusConnection::systemBus());
-            QDBusPendingReply<QList<QDBusObjectPath> > reply
-                    = manager_bluez4.ListAdapters();
-            reply.waitForFinished();
-            if (reply.isError()) {
-                *bluezVersion() = BluezNotAvailable;
-                qWarning() << "Cannot find a running Bluez. Please check the Bluez installation.";
-            } else {
-                *bluezVersion() = BluezVersion4;
-                qCDebug(QT_BT_BLUEZ) << "Bluez 4 detected.";
-            }
+            *bluezVersion() = BluezNotAvailable;
+            qWarning() << "Cannot find a compatible running Bluez. "
+                          "Please check the Bluez installation. "
+                          "QtBluetooth requires at least BlueZ version 5.";
         } else {
             *bluezVersion() = BluezVersion5;
             qCDebug(QT_BT_BLUEZ) << "Bluez 5 detected.";
         }
     }
-
-    return (*bluezVersion() == BluezVersion5);
 }
 
 /*
@@ -358,11 +347,7 @@ QtBluezDiscoveryManager::~QtBluezDiscoveryManager()
 
 QtBluezDiscoveryManager *QtBluezDiscoveryManager::instance()
 {
-    if (isBluez5())
-        return discoveryManager();
-
-    Q_ASSERT(false);
-    return nullptr;
+    return discoveryManager();
 }
 
 bool QtBluezDiscoveryManager::registerDiscoveryInterest(const QString &adapterPath)
@@ -447,7 +432,7 @@ void QtBluezDiscoveryManager::PropertiesChanged(const QString &interface,
                                                 const QStringList &invalidated_properties,
                                                 const QDBusMessage &)
 {
-    Q_UNUSED(invalidated_properties)
+    Q_UNUSED(invalidated_properties);
 
     OrgFreedesktopDBusPropertiesInterface *propIface =
             qobject_cast<OrgFreedesktopDBusPropertiesInterface *>(sender());

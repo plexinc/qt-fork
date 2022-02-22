@@ -6,6 +6,7 @@ module remote_cocoa.mojom;
 
 import "components/remote_cocoa/common/select_file_dialog.mojom";
 import "mojo/public/mojom/base/string16.mojom";
+import "services/network/public/mojom/network_param.mojom";
 import "ui/base/mojom/ui_base_types.mojom";
 import "ui/gfx/geometry/mojom/geometry.mojom";
 import "ui/gfx/mojom/ca_layer_params.mojom";
@@ -91,6 +92,9 @@ interface NativeWidgetNSWindow {
   // Open a panel for file selection or creation.
   CreateSelectFileDialog(pending_receiver<SelectFileDialog> dialog);
 
+  // Open a panel to display the specified certificate.
+  ShowCertificateViewer(network.mojom.X509Certificate certificate);
+
   // Places this NativeWidgetNSWindow in front of the NativeWidgetNSWindow
   // indicated by |sibling_id| in z-order.
   StackAbove(uint64 sibling_id);
@@ -105,8 +109,9 @@ interface NativeWidgetNSWindow {
 
   // Initialize the view to display compositor output. This will send the
   // current visibility and dimensions (and any future updates) to the
-  // NativeWidgetNSWindowHost.
-  InitCompositorView();
+  // NativeWidgetNSWindowHost. Returns the CGWindowID to associate with
+  // the compositor's FrameSinkId.
+  InitCompositorView() => (uint32 cg_window_id);
 
   // Create the NSView to be the content view for the window. Use |ns_view_id|
   // to look up this NSView in other functions (e.g, to specify a parent view).
@@ -182,8 +187,8 @@ interface NativeWidgetNSWindow {
   // Set the window level of the NSWindow.
   SetWindowLevel(int32 level);
 
-  // Set the content aspect ratio of the NSWindow.
-  SetContentAspectRatio(gfx.mojom.SizeF aspect_ratio);
+  // Set the aspect ratio of the NSWindow. |aspect_ratio| must not be empty.
+  SetAspectRatio(gfx.mojom.SizeF aspect_ratio);
 
   // Specify the content to draw in the NSView.
   SetCALayerParams(gfx.mojom.CALayerParams ca_layer_params);

@@ -14,6 +14,7 @@
 #include "content/shell/browser/shell.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
+#include "third_party/blink/public/mojom/loader/mixed_content.mojom.h"
 
 namespace content {
 
@@ -125,6 +126,15 @@ void DevToolsProtocolTest::TearDownOnMainThread() {
   Detach();
 }
 
+bool DevToolsProtocolTest::HasExistingNotification(
+    const std::string& search) const {
+  for (const std::string& notification : notifications_) {
+    if (notification == search)
+      return true;
+  }
+  return false;
+}
+
 std::unique_ptr<base::DictionaryValue>
 DevToolsProtocolTest::WaitForNotification(const std::string& notification,
                                           bool allow_existing) {
@@ -152,7 +162,7 @@ blink::SecurityStyle DevToolsProtocolTest::GetSecurityStyle(
       SecurityStyleExplanation(
           "an explanation title", "an explanation summary",
           "an explanation description", cert_,
-          blink::WebMixedContentContextType::kNotMixedContent));
+          blink::mojom::MixedContentContextType::kNotMixedContent));
   return blink::SecurityStyle::kNeutral;
 }
 
@@ -245,8 +255,10 @@ void DevToolsProtocolTest::DispatchProtocolMessage(
   if (root->GetInteger("id", &id)) {
     result_ids_.push_back(id);
     base::DictionaryValue* result;
-    ASSERT_TRUE(root->GetDictionary("result", &result));
-    result_.reset(result->DeepCopy());
+    bool have_result = root->GetDictionary("result", &result);
+    result_.reset(have_result ? result->DeepCopy() : nullptr);
+    base::Value* error = root->FindDictKey("error");
+    error_ = error ? error->Clone() : base::Value();
     in_dispatch_ = false;
     if (id && id == waiting_for_command_result_id_) {
       waiting_for_command_result_id_ = 0;
@@ -288,6 +300,10 @@ std::vector<std::string> DevToolsProtocolTest::GetAllFrameUrls() {
 void DevToolsProtocolTest::AgentHostClosed(DevToolsAgentHost* agent_host) {
   if (!agent_host_can_close_)
     NOTREACHED();
+}
+
+bool DevToolsProtocolTest::AllowUnsafeOperations() {
+  return allow_unsafe_operations_;
 }
 
 }  // namespace content

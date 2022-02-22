@@ -109,7 +109,7 @@ QByteArray DynamicLoader::load(const QString &name,
     QUrl url(name);
     if (!url.isLocalFile() && !url.isRelative())
         errs << QStringLiteral("src attribute is not a local file (%1)").arg(name);
-    QFileInfo fInfo = url.isLocalFile() ? url.toLocalFile() : name;
+    QFileInfo fInfo(url.isLocalFile() ? url.toLocalFile() : name);
     if (fInfo.isRelative())
         fInfo = QFileInfo(QDir(baseDir).filePath(fInfo.filePath()));
     fInfo = QFileInfo(QLatin1String(":/") + fInfo.filePath()); // take it from resources
@@ -383,6 +383,11 @@ QDebug operator<<(QDebug debug, const QScxmlEvent &event)
     obj.insert(QLatin1String("originType"), event.originType());
     obj.insert(QLatin1String("invokeid"), event.invokeId());
     return debug << obj;
+}
+
+QDebug operator<<(QDebug debug, const QList<QScxmlEvent> &events)
+{
+    return QtPrivate::printSequentialContainer(debug, "QList", events);
 }
 QT_END_NAMESPACE
 

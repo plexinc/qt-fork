@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/http2/hpack/decoder/hpack_decoder_listener.h"
+#include "http2/hpack/decoder/hpack_decoder_listener.h"
 
 namespace http2 {
 
@@ -17,7 +17,7 @@ void HpackDecoderNoOpListener::OnHeader(const HpackString& /*name*/,
                                         const HpackString& /*value*/) {}
 void HpackDecoderNoOpListener::OnHeaderListEnd() {}
 void HpackDecoderNoOpListener::OnHeaderErrorDetected(
-    quiche::QuicheStringPiece /*error_message*/) {}
+    absl::string_view /*error_message*/) {}
 
 // static
 HpackDecoderNoOpListener* HpackDecoderNoOpListener::NoOpListener() {

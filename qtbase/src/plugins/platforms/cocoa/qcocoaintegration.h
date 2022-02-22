@@ -40,8 +40,6 @@
 #ifndef QPLATFORMINTEGRATION_COCOA_H
 #define QPLATFORMINTEGRATION_COCOA_H
 
-#include <AppKit/AppKit.h>
-
 #include "qcocoacursor.h"
 #include "qcocoawindow.h"
 #include "qcocoanativeinterface.h"
@@ -50,18 +48,24 @@
 #include "qcocoaclipboard.h"
 #include "qcocoadrag.h"
 #include "qcocoaservices.h"
-#include "qcocoakeymapper.h"
 #if QT_CONFIG(vulkan)
 #include "qcocoavulkaninstance.h"
 #endif
 
 #include <QtCore/QScopedPointer>
 #include <qpa/qplatformintegration.h>
-#include <QtFontDatabaseSupport/private/qcoretextfontdatabase_p.h>
+#include <QtGui/private/qcoretextfontdatabase_p.h>
+#include <QtGui/private/qopenglcontext_p.h>
+#include <QtGui/private/qapplekeymapper_p.h>
+
+Q_FORWARD_DECLARE_OBJC_CLASS(NSToolbar);
 
 QT_BEGIN_NAMESPACE
 
 class QCocoaIntegration : public QObject, public QPlatformIntegration
+#ifndef QT_NO_OPENGL
+    , public QNativeInterface::Private::QCocoaGLIntegration
+#endif
 {
     Q_OBJECT
 public:
@@ -82,6 +86,7 @@ public:
     QPlatformOffscreenSurface *createPlatformOffscreenSurface(QOffscreenSurface *surface) const override;
 #ifndef QT_NO_OPENGL
     QPlatformOpenGLContext *createPlatformOpenGLContext(QOpenGLContext *context) const override;
+    QOpenGLContext *createOpenGLContext(NSOpenGLContext *, QOpenGLContext *shareContext) const override;
 #endif
     QPlatformBackingStore *createPlatformBackingStore(QWindow *widget) const override;
 
@@ -127,6 +132,7 @@ public:
     void setApplicationIcon(const QIcon &icon) const override;
 
     void beep() const override;
+    void quit() const override;
 
     void closePopups(QWindow *forWindow = nullptr);
 
@@ -150,7 +156,7 @@ private:
     QScopedPointer<QCocoaDrag> mCocoaDrag;
     QScopedPointer<QCocoaNativeInterface> mNativeInterface;
     QScopedPointer<QCocoaServices> mServices;
-    QScopedPointer<QCocoaKeyMapper> mKeyboardMapper;
+    QScopedPointer<QAppleKeyMapper> mKeyboardMapper;
 
 #if QT_CONFIG(vulkan)
     mutable QCocoaVulkanInstance *mCocoaVulkanInstance = nullptr;

@@ -16,36 +16,7 @@
 #include "fpdfsdk/pwl/ipwl_systemhandler.h"
 
 class CPDF_Font;
-
-class IPWL_Filler_Notify {
- public:
-  virtual ~IPWL_Filler_Notify() = default;
-
-  // Must write to |bBottom| and |fPopupRet|.
-  virtual void QueryWherePopup(
-      const IPWL_SystemHandler::PerWindowData* pAttached,
-      float fPopupMin,
-      float fPopupMax,
-      bool* bBottom,
-      float* fPopupRet) = 0;
-
-  virtual std::pair<bool, bool> OnBeforeKeyStroke(
-      const IPWL_SystemHandler::PerWindowData* pAttached,
-      WideString& strChange,
-      const WideString& strChangeEx,
-      int nSelStart,
-      int nSelEnd,
-      bool bKeyDown,
-      uint32_t nFlag) = 0;
-
-  virtual bool OnPopupPreOpen(
-      const IPWL_SystemHandler::PerWindowData* pAttached,
-      uint32_t nFlag) = 0;
-
-  virtual bool OnPopupPostOpen(
-      const IPWL_SystemHandler::PerWindowData* pAttached,
-      uint32_t nFlag) = 0;
-};
+class IPWL_FillerNotify;
 
 class CPWL_Edit final : public CPWL_EditCtrl {
  public:
@@ -59,12 +30,12 @@ class CPWL_Edit final : public CPWL_EditCtrl {
   CFX_FloatRect GetClientRect() const override;
   void DrawThisAppearance(CFX_RenderDevice* pDevice,
                           const CFX_Matrix& mtUser2Device) override;
-  bool OnLButtonDown(const CFX_PointF& point, uint32_t nFlag) override;
-  bool OnLButtonDblClk(const CFX_PointF& point, uint32_t nFlag) override;
-  bool OnRButtonUp(const CFX_PointF& point, uint32_t nFlag) override;
-  bool OnMouseWheel(short zDelta,
+  bool OnLButtonDown(uint32_t nFlag, const CFX_PointF& point) override;
+  bool OnLButtonDblClk(uint32_t nFlag, const CFX_PointF& point) override;
+  bool OnRButtonUp(uint32_t nFlag, const CFX_PointF& point) override;
+  bool OnMouseWheel(uint32_t nFlag,
                     const CFX_PointF& point,
-                    uint32_t nFlag) override;
+                    const CFX_Vector& delta) override;
   bool OnKeyDown(uint16_t nChar, uint32_t nFlag) override;
   bool OnChar(uint16_t nChar, uint32_t nFlag) override;
   CFX_FloatRect GetFocusRect() const override;
@@ -90,7 +61,7 @@ class CPWL_Edit final : public CPWL_EditCtrl {
                                         const CFX_FloatRect& rcPlate,
                                         int32_t nCharArray);
 
-  void SetFillerNotify(IPWL_Filler_Notify* pNotify) {
+  void SetFillerNotify(IPWL_FillerNotify* pNotify) {
     m_pFillerNotify = pNotify;
   }
 
@@ -128,7 +99,7 @@ class CPWL_Edit final : public CPWL_EditCtrl {
 
   bool m_bFocus = false;
   CFX_FloatRect m_rcOldWindow;
-  UnownedPtr<IPWL_Filler_Notify> m_pFillerNotify;
+  UnownedPtr<IPWL_FillerNotify> m_pFillerNotify;
   UnownedPtr<CFFL_FormFiller> m_pFormFiller;
 };
 

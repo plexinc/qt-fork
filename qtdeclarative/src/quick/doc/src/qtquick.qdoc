@@ -49,6 +49,42 @@ For those new to QML and Qt Quick, please see
 \l{QML Applications}
 for an introduction to writing QML applications.
 
+\section1 Using the Module
+
+\section2 QML API
+
+The QML types in Qt Quick are available through the \c QtQuick import. To use the
+types, add the following import statement to your .qml file:
+
+\qml
+import QtQml
+\endqml
+
+\section2 C++ API
+
+Using the \l{Qt Quick C++ Classes}{C++ API} requires linking against the module
+library, either directly or through other dependencies. Several build tools
+have dedicated support for this, including \l{CMake Documentation}{CMake} and
+\l{qmake}.
+
+\section3 Building with CMake
+
+Use the \c find_package() command to locate the needed module components in the
+Qt6 package:
+
+\snippet code/doc_src_qtquick.cmake 0
+
+See also the \l{Build with CMake} overview.
+
+\section3 Building with qmake
+
+To configure the module for building with qmake, add the module as a value of
+the QT variable in the project's .pro file:
+
+\badcode
+QT += quick
+\endcode
+
 \section1 Important Concepts in Qt Quick
 
 Qt Quick provides everything needed to create a rich application with a fluid
@@ -104,20 +140,15 @@ Additional Qt Quick information:
 \li \l{Qt Quick QML Types} - a list of QML types provided by the
     \c{QtQuick} import
     \list
-    \li \l{Qt Quick XmlListModel QML Types}{XML List Model} - contains types
-    for creating models from XML data
     \li \l{Qt Quick Local Storage QML Types}{Local Storage} - a submodule
     containing a JavaScript interface for an SQLite database
     \li \l{Qt Quick Particles QML Types}{Particles} - provides a particle
     system for Qt Quick
     \li \l{Qt Quick Layouts}{Layouts} - provides layouts for arranging Qt Quick items
-    \li \l{Qt Quick Window QML Types}{Window} - contains types for creating
-    top-level windows and accessing screen information
-    \li \l{Qt Quick Dialogs}{Dialogs} - contains types for creating and
-    interacting with system dialogs
     \li \l{Qt Quick Test QML Types}{Tests} - contains types for writing unit test for a QML application
     \endlist
 \li \l{Qt Quick Examples and Tutorials}
+\li \l{Qt Quick Tools and Utilities}
 \li \l{Best Practices for QML and Qt Quick}{Qt Quick Guidelines}
 \endlist
 

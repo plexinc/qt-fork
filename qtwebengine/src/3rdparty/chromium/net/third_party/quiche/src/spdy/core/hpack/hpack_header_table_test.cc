@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/spdy/core/hpack/hpack_header_table.h"
+#include "spdy/core/hpack/hpack_header_table.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -10,9 +10,9 @@
 #include <string>
 #include <vector>
 
-#include "net/third_party/quiche/src/common/platform/api/quiche_test.h"
-#include "net/third_party/quiche/src/spdy/core/hpack/hpack_constants.h"
-#include "net/third_party/quiche/src/spdy/core/hpack/hpack_entry.h"
+#include "common/platform/api/quiche_test.h"
+#include "spdy/core/hpack/hpack_constants.h"
+#include "spdy/core/hpack/hpack_entry.h"
 
 namespace spdy {
 
@@ -33,8 +33,8 @@ class HpackHeaderTablePeer {
   size_t index_size() {
     return table_->static_index_.size() + table_->dynamic_index_.size();
   }
-  std::vector<HpackEntry*> EvictionSet(quiche::QuicheStringPiece name,
-                                       quiche::QuicheStringPiece value) {
+  std::vector<HpackEntry*> EvictionSet(absl::string_view name,
+                                       absl::string_view value) {
     HpackHeaderTable::EntryTable::iterator begin, end;
     table_->EvictionSet(name, value, &begin, &end);
     std::vector<HpackEntry*> result;
@@ -45,8 +45,8 @@ class HpackHeaderTablePeer {
   }
   size_t total_insertions() { return table_->total_insertions_; }
   size_t dynamic_entries_count() { return table_->dynamic_entries_.size(); }
-  size_t EvictionCountForEntry(quiche::QuicheStringPiece name,
-                               quiche::QuicheStringPiece value) {
+  size_t EvictionCountForEntry(absl::string_view name,
+                               absl::string_view value) {
     return table_->EvictionCountForEntry(name, value);
   }
   size_t EvictionCountToReclaim(size_t reclaim_size) {
@@ -54,8 +54,7 @@ class HpackHeaderTablePeer {
   }
   void Evict(size_t count) { return table_->Evict(count); }
 
-  void AddDynamicEntry(quiche::QuicheStringPiece name,
-                       quiche::QuicheStringPiece value) {
+  void AddDynamicEntry(absl::string_view name, absl::string_view value) {
     table_->dynamic_entries_.push_back(
         HpackEntry(name, value, false, table_->total_insertions_++));
   }

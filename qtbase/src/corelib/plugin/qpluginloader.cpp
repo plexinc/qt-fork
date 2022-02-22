@@ -106,33 +106,6 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
-    \class QStaticPlugin
-    \inmodule QtCore
-    \since 5.2
-
-    \brief QStaticPlugin is a struct containing a reference to a
-    static plugin instance together with its meta data.
-
-    \sa QPluginLoader, {How to Create Qt Plugins}
-*/
-
-/*!
-    \fn QObject *QStaticPlugin::instance()
-
-    Returns the plugin instance.
-
-    \sa QPluginLoader::staticInstances()
-*/
-
-/*!
-    \fn const char *QStaticPlugin::rawMetaData()
-
-    Returns the raw meta data for the plugin.
-
-    \sa metaData(), Q_PLUGIN_METADATA()
-*/
-
-/*!
     Constructs a plugin loader with the given \a parent.
 */
 QPluginLoader::QPluginLoader(QObject *parent)
@@ -238,7 +211,6 @@ bool QPluginLoader::load()
     return d->loadPlugin();
 }
 
-
 /*!
     Unloads the plugin and returns \c true if the plugin could be
     unloaded; otherwise returns \c false.
@@ -261,7 +233,7 @@ bool QPluginLoader::unload()
         did_load = false;
         return d->unload();
     }
-    if (d)  // Ouch
+    if (d) // Ouch
         d->errorString = tr("The plugin was not loaded.");
     return false;
 }
@@ -293,8 +265,8 @@ static QString locatePlugin(const QString& fileName)
 
     // Split up "subdir/filename"
     const int slash = fileName.lastIndexOf(QLatin1Char('/'));
-    const QStringRef baseName = fileName.midRef(slash + 1);
-    const QStringRef basePath = isAbsolute ? QStringRef() : fileName.leftRef(slash + 1); // keep the '/'
+    const auto baseName = QStringView{fileName}.mid(slash + 1);
+    const auto basePath = isAbsolute ? QStringView() : QStringView{fileName}.left(slash + 1); // keep the '/'
 
     const bool debug = qt_debug_component();
 
@@ -374,7 +346,7 @@ void QPluginLoader::setFileName(const QString &fileName)
 #else
     if (qt_debug_component()) {
         qWarning("Cannot load %s into a statically linked Qt library.",
-            (const char*)QFile::encodeName(fileName));
+                 (const char *)QFile::encodeName(fileName));
     }
     Q_UNUSED(fileName);
 #endif
@@ -427,7 +399,7 @@ QLibrary::LoadHints QPluginLoader::loadHints() const
 
 #endif // QT_CONFIG(library)
 
-typedef QVector<QStaticPlugin> StaticPluginList;
+typedef QList<QStaticPlugin> StaticPluginList;
 Q_GLOBAL_STATIC(StaticPluginList, staticPluginList)
 
 /*!
@@ -467,28 +439,46 @@ QObjectList QPluginLoader::staticInstances()
     meta data information.
     \sa staticInstances()
 */
-QVector<QStaticPlugin> QPluginLoader::staticPlugins()
+QList<QStaticPlugin> QPluginLoader::staticPlugins()
 {
     StaticPluginList *plugins = staticPluginList();
     if (plugins)
         return *plugins;
-    return QVector<QStaticPlugin>();
+    return QList<QStaticPlugin>();
 }
+
+/*!
+    \class QStaticPlugin
+    \inmodule QtCore
+    \since 5.2
+
+    \brief QStaticPlugin is a struct containing a reference to a
+    static plugin instance together with its meta data.
+
+    \sa QPluginLoader, {How to Create Qt Plugins}
+*/
+
+/*!
+    \fn QStaticPlugin::QStaticPlugin(QtPluginInstanceFunction i, QtPluginMetaDataFunction m)
+    \internal
+*/
+
+/*!
+    \variable QStaticPlugin::instance
+
+    Holds the plugin instance.
+
+    \sa QPluginLoader::staticInstances()
+*/
 
 /*!
     Returns a the meta data for the plugin as a QJsonObject.
 
-    \sa rawMetaData()
+    \sa Q_PLUGIN_METADATA()
 */
 QJsonObject QStaticPlugin::metaData() const
 {
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-    // the data is already loaded, so this doesn't matter
-    qsizetype rawMetaDataSize = INT_MAX;
-    const char *ptr = rawMetaData();
-#else
     auto ptr = static_cast<const char *>(rawMetaData);
-#endif
 
     QString errMsg;
     QJsonDocument doc = qJsonFromRawLibraryMetaData(ptr, rawMetaDataSize, &errMsg);

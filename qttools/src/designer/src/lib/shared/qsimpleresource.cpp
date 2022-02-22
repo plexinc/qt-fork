@@ -40,12 +40,13 @@
 
 #include <QtUiPlugin/customwidget.h>
 
-#include <QtGui/qicon.h>
 #include <QtWidgets/qwidget.h>
-#include <QtWidgets/qaction.h>
+
+#include <QtGui/qaction.h>
+#include <QtGui/qicon.h>
+
 #include <QtCore/qdebug.h>
 #include <QtCore/qcoreapplication.h>
-
 
 QT_BEGIN_NAMESPACE
 
@@ -156,7 +157,7 @@ void QSimpleResource::addFakeMethodsToWidgetDataBase(const DomCustomWidget *domC
 // Classes whose base class could not be found are left in the list.
 
 void QSimpleResource::addCustomWidgetsToWidgetDatabase(const QDesignerFormEditorInterface *core,
-                                                       QVector<DomCustomWidget *> &custom_widget_list)
+                                                       QList<DomCustomWidget *> &custom_widget_list)
 {
     QDesignerWidgetDataBaseInterface *db = core->widgetDataBase();
     for (int i=0; i < custom_widget_list.size(); ) {

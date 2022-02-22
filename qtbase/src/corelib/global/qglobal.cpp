@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Copyright (C) 2017 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
@@ -40,19 +40,18 @@
 
 #include "qplatformdefs.h"
 #include "qstring.h"
-#include "qvector.h"
 #include "qlist.h"
 #include "qdir.h"
 #include "qdatetime.h"
 #include "qoperatingsystemversion.h"
 #include "qoperatingsystemversion_p.h"
-#if defined(Q_OS_WIN) || defined(Q_OS_CYGWIN) || defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN) || defined(Q_OS_CYGWIN)
 #  include "qoperatingsystemversion_win_p.h"
-#  ifndef Q_OS_WINRT
-#    include "private/qwinregistry_p.h"
-#  endif
+#  include "private/qwinregistry_p.h"
 #endif // Q_OS_WIN || Q_OS_CYGWIN
 #include <private/qlocale_tools_p.h>
+#include "qnativeinterface.h"
+#include "qnativeinterface_p.h"
 
 #include <qmutex.h>
 #include <QtCore/private/qlocking_p.h>
@@ -62,19 +61,15 @@
 #include <stdarg.h>
 #include <string.h>
 
+#include <exception> // For std::terminate
 #ifndef QT_NO_EXCEPTIONS
-#  include <string>
-#  include <exception>
+#include <new> // For std::bad_alloc
 #endif
 
 #include <errno.h>
 #if defined(Q_CC_MSVC)
 #  include <crtdbg.h>
 #endif
-
-#ifdef Q_OS_WINRT
-#include <Ws2tcpip.h>
-#endif // Q_OS_WINRT
 
 #ifdef Q_OS_WIN
 #  include <qt_windows.h>
@@ -85,7 +80,7 @@
 #endif
 
 #if defined(Q_OS_ANDROID) && !defined(Q_OS_ANDROID_EMBEDDED)
-#include <private/qjni_p.h>
+#include <qjniobject.h>
 #endif
 
 #if defined(Q_OS_SOLARIS)
@@ -129,42 +124,41 @@ extern "C" {
 
 QT_BEGIN_NAMESPACE
 
-#if !QT_DEPRECATED_SINCE(5, 0)
-// Make sure they're defined to be exported
-Q_CORE_EXPORT void *qMemCopy(void *dest, const void *src, size_t n);
-Q_CORE_EXPORT void *qMemSet(void *dest, int c, size_t n);
-#endif
-
 // Statically check assumptions about the environment we're running
 // in. The idea here is to error or warn if otherwise implicit Qt
 // assumptions are not fulfilled on new hardware or compilers
 // (if this list becomes too long, consider factoring into a separate file)
-Q_STATIC_ASSERT_X(UCHAR_MAX == 255, "Qt assumes that char is 8 bits");
-Q_STATIC_ASSERT_X(sizeof(int) == 4, "Qt assumes that int is 32 bits");
-Q_STATIC_ASSERT_X(QT_POINTER_SIZE == sizeof(void *), "QT_POINTER_SIZE defined incorrectly");
-Q_STATIC_ASSERT_X(sizeof(float) == 4, "Qt assumes that float is 32 bits");
-Q_STATIC_ASSERT_X(sizeof(char16_t) == 2, "Qt assumes that char16_t is 16 bits");
-Q_STATIC_ASSERT_X(sizeof(char32_t) == 4, "Qt assumes that char32_t is 32 bits");
-Q_STATIC_ASSERT_X(std::numeric_limits<int>::radix == 2,
+static_assert(UCHAR_MAX == 255, "Qt assumes that char is 8 bits");
+static_assert(sizeof(int) == 4, "Qt assumes that int is 32 bits");
+static_assert(QT_POINTER_SIZE == sizeof(void *), "QT_POINTER_SIZE defined incorrectly");
+static_assert(sizeof(float) == 4, "Qt assumes that float is 32 bits");
+static_assert(sizeof(char16_t) == 2, "Qt assumes that char16_t is 16 bits");
+static_assert(sizeof(char32_t) == 4, "Qt assumes that char32_t is 32 bits");
+#if defined(Q_OS_WIN)
+static_assert(sizeof(wchar_t) == sizeof(char16_t));
+#endif
+static_assert(std::numeric_limits<int>::radix == 2,
                   "Qt assumes binary integers");
-Q_STATIC_ASSERT_X((std::numeric_limits<int>::max() + std::numeric_limits<int>::lowest()) == -1,
+static_assert((std::numeric_limits<int>::max() + std::numeric_limits<int>::lowest()) == -1,
                   "Qt assumes two's complement integers");
+static_assert(sizeof(wchar_t) == sizeof(char32_t) || sizeof(wchar_t) == sizeof(char16_t),
+              "Qt assumes wchar_t is compatible with either char32_t or char16_t");
 
 // While we'd like to check for __STDC_IEC_559__, as per ISO/IEC 9899:2011
 // Annex F (C11, normative for C++11), there are a few corner cases regarding
 // denormals where GHS compiler is relying hardware behavior that is not IEC
 // 559 compliant. So split the check in several subchecks.
 
-// On GHC the compiler reports std::numeric_limits<float>::is_iec559 as false.
+// On GHS the compiler reports std::numeric_limits<float>::is_iec559 as false.
 // This is all right according to our needs.
 #if !defined(Q_CC_GHS)
-Q_STATIC_ASSERT_X(std::numeric_limits<float>::is_iec559,
+static_assert(std::numeric_limits<float>::is_iec559,
                   "Qt assumes IEEE 754 floating point");
 #endif
 
 // Technically, presence of NaN and infinities are implied from the above check,
 // but double checking our environment doesn't hurt...
-Q_STATIC_ASSERT_X(std::numeric_limits<float>::has_infinity &&
+static_assert(std::numeric_limits<float>::has_infinity &&
                   std::numeric_limits<float>::has_quiet_NaN &&
                   std::numeric_limits<float>::has_signaling_NaN,
                   "Qt assumes IEEE 754 floating point");
@@ -173,13 +167,19 @@ Q_STATIC_ASSERT_X(std::numeric_limits<float>::has_infinity &&
 // but that allows for a non-binary radix. We need to recheck that.
 // Note how __STDC_IEC_559__ would instead check for IEC 60559:1989, aka
 // ANSI/IEEE 754−1985, which specifically implies binary floating point numbers.
-Q_STATIC_ASSERT_X(std::numeric_limits<float>::radix == 2,
+static_assert(std::numeric_limits<float>::radix == 2,
                   "Qt assumes binary IEEE 754 floating point");
 
 // not required by the definition of size_t, but we depend on this
-Q_STATIC_ASSERT_X(sizeof(size_t) == sizeof(void *), "size_t and a pointer don't have the same size");
-Q_STATIC_ASSERT(sizeof(size_t) == sizeof(qsizetype)); // implied by the definition
-Q_STATIC_ASSERT((std::is_same<qsizetype, qptrdiff>::value));
+static_assert(sizeof(size_t) == sizeof(void *), "size_t and a pointer don't have the same size");
+static_assert(sizeof(size_t) == sizeof(qsizetype)); // implied by the definition
+static_assert((std::is_same<qsizetype, qptrdiff>::value));
+
+// Check that our own typedefs are not broken.
+static_assert(sizeof(qint8) == 1, "Internal error, qint8 is misdefined");
+static_assert(sizeof(qint16)== 2, "Internal error, qint16 is misdefined");
+static_assert(sizeof(qint32) == 4, "Internal error, qint32 is misdefined");
+static_assert(sizeof(qint64) == 8, "Internal error, qint64 is misdefined");
 
 /*!
     \class QFlag
@@ -331,16 +331,6 @@ Q_STATIC_ASSERT((std::is_same<qsizetype, qptrdiff>::value));
 */
 
 /*!
-    \fn template <typename Enum> QFlags<Enum>::QFlags(Zero)
-    \deprecated
-
-    Constructs a QFlags object with no flags set. The parameter must be a
-    literal 0 value.
-
-    Deprecated, use default constructor instead.
-*/
-
-/*!
     \fn template <typename Enum> QFlags<Enum>::QFlags(QFlag flag)
 
     Constructs a QFlags object initialized with the integer \a flag.
@@ -364,7 +354,7 @@ Q_STATIC_ASSERT((std::is_same<qsizetype, qptrdiff>::value));
 /*!
     \fn template <typename Enum> QFlags &QFlags<Enum>::operator=(const QFlags &other)
 
-    Assigns \a other to this object and returns a reference to this
+    Assigns \e other to this object and returns a reference to this
     object.
 */
 
@@ -385,6 +375,13 @@ Q_STATIC_ASSERT((std::is_same<qsizetype, qptrdiff>::value));
 
 /*!
     \fn template <typename Enum> QFlags &QFlags<Enum>::operator&=(Enum mask)
+
+    \overload
+*/
+
+/*!
+    \fn template <typename Enum> QFlags &QFlags<Enum>::operator&=(QFlags mask)
+    \since 6.2
 
     \overload
 */
@@ -479,6 +476,13 @@ Q_STATIC_ASSERT((std::is_same<qsizetype, qptrdiff>::value));
 */
 
 /*!
+    \fn template <typename Enum> QFlags QFlags<Enum>::operator&(QFlags mask) const
+    \since 6.2
+
+    \overload
+*/
+
+/*!
     \fn template <typename Enum> QFlags QFlags<Enum>::operator~() const
 
     Returns a QFlags object that contains the bitwise negation of
@@ -499,6 +503,52 @@ Q_STATIC_ASSERT((std::is_same<qsizetype, qptrdiff>::value));
     \since 4.2
 
     Returns \c true if the flag \a flag is set, otherwise \c false.
+
+    \note if \a flag contains multiple bits set to 1 (for instance, if
+    it's an enumerator equal to the bitwise-OR of other enumerators)
+    then this function will return \c true if and only if all the bits
+    are set in this flags object. On the other hand, if \a flag contains
+    no bits set to 1 (that is, its value as a integer is 0), then this
+    function will return \c true if and only if this flags object also
+    has no bits set to 1.
+
+    \sa testAnyFlag()
+*/
+
+/*!
+    \fn template <typename Enum> bool QFlags<Enum>::testFlags(QFlags flags) const noexcept
+    \since 6.2
+
+    Returns \c true if this flags object matches the given \a flags.
+
+    If \a flags has any flags set, this flags object matches precisely
+    if all flags set in \a flags are also set in this flags object.
+    Otherwise, when \a flags has no flags set, this flags object only
+    matches if it also has no flags set.
+
+    \sa testAnyFlags()
+*/
+
+/*!
+    \fn template <typename Enum> bool QFlags<Enum>::testAnyFlag(Enum flag) const noexcept
+    \since 6.2
+
+    Returns \c true if \b any flag set in \a flag is also set in this
+    flags object, otherwise \c false. If \a flag has no flags set, the
+    return will always be \c false.
+
+    \sa testFlag()
+*/
+
+/*!
+    \fn template <typename Enum> bool QFlags<Enum>::testAnyFlags(QFlags flags) const noexcept
+    \since 6.2
+
+    Returns \c true if \b any flag set in \a flags is also set in this
+    flags object, otherwise \c false. If \a flags has no flags set, the
+    return will always be \c false.
+
+    \sa testFlags()
 */
 
 /*!
@@ -507,6 +557,57 @@ Q_STATIC_ASSERT((std::is_same<qsizetype, qptrdiff>::value));
 
     Sets the flag \a flag if \a on is \c true or unsets it if
     \a on is \c false. Returns a reference to this object.
+*/
+
+/*!
+    \fn template <typename Enum> QFlags<Enum> QFlags<Enum>::fromInt(Int i) noexcept
+    \since 6.2
+
+    Constructs a QFlags object representing the integer value \a i.
+*/
+
+/*!
+    \fn template <typename Enum> Int QFlags<Enum>::toInt() const noexcept
+    \since 6.2
+
+    Returns the value stored in the QFlags object as an integer. Note
+    that the returned integer may be signed or unsigned, depending on
+    whether the enum's underlying type is signed or unsigned.
+
+    \sa Int
+*/
+
+/*!
+    \fn template <typename Enum> size_t qHash(QFlags<Enum> flags, size_t seed = 0) noexcept
+    \since 6.2
+    \relates QFlags
+
+    Calculates the hash for the flags \a flags, using \a seed
+    to seed the calculation.
+*/
+
+/*!
+    \fn template <typename Enum> bool operator==(QFlags<Enum> lhs, QFlags<Enum> rhs)
+    \fn template <typename Enum> bool operator==(QFlags<Enum> lhs, Enum rhs)
+    \fn template <typename Enum> bool operator==(Enum lhs, QFlags<Enum> rhs)
+    \since 6.2
+    \relates QFlags
+
+    Compares \a lhs and \a rhs for equality; the two arguments are
+    considered equal if they represent exactly the same value
+    (bitmask).
+*/
+
+/*!
+    \fn template <typename Enum> bool operator!=(QFlags<Enum> lhs, QFlags<Enum> rhs)
+    \fn template <typename Enum> bool operator!=(QFlags<Enum> lhs, Enum rhs)
+    \fn template <typename Enum> bool operator!=(Enum lhs, QFlags<Enum> rhs)
+    \since 6.2
+    \relates QFlags
+
+    Compares \a lhs and \a rhs for inequality; the two arguments are
+    considered different if they don't represent exactly the same value
+    (bitmask).
 */
 
 /*!
@@ -551,18 +652,7 @@ Q_STATIC_ASSERT((std::is_same<qsizetype, qptrdiff>::value));
   application would probably crash when you called a member function
   of \c{w}.
 
-  \sa Q_DISABLE_COPY_MOVE, Q_DISABLE_MOVE
-*/
-
-/*!
-  \macro Q_DISABLE_MOVE(Class)
-  \relates QObject
-
-  Disables the use of move constructors and move assignment operators
-  for the given \a Class.
-
-  \sa Q_DISABLE_COPY, Q_DISABLE_COPY_MOVE
-  \since 5.13
+  \sa Q_DISABLE_COPY_MOVE
 */
 
 /*!
@@ -571,9 +661,9 @@ Q_STATIC_ASSERT((std::is_same<qsizetype, qptrdiff>::value));
 
   A convenience macro that disables the use of copy constructors, assignment
   operators, move constructors and move assignment operators for the given
-  \a Class, combining Q_DISABLE_COPY and Q_DISABLE_MOVE.
+  \a Class.
 
-  \sa Q_DISABLE_COPY, Q_DISABLE_MOVE
+  \sa Q_DISABLE_COPY
   \since 5.13
 */
 
@@ -798,8 +888,8 @@ Q_STATIC_ASSERT((std::is_same<qsizetype, qptrdiff>::value));
 /*! \typedef qint64
     \relates <QtGlobal>
 
-    Typedef for \c{long long int} (\c __int64 on Windows). This type
-    is guaranteed to be 64-bit on all platforms supported by Qt.
+    Typedef for \c{long long int}. This type is guaranteed to be 64-bit
+    on all platforms supported by Qt.
 
     Literals of this type can be created using the Q_INT64_C() macro:
 
@@ -812,9 +902,8 @@ Q_STATIC_ASSERT((std::is_same<qsizetype, qptrdiff>::value));
     \typedef quint64
     \relates <QtGlobal>
 
-    Typedef for \c{unsigned long long int} (\c{unsigned __int64} on
-    Windows). This type is guaranteed to be 64-bit on all platforms
-    supported by Qt.
+    Typedef for \c{unsigned long long int}. This type is guaranteed to
+    be 64-bit on all platforms supported by Qt.
 
     Literals of this type can be created using the Q_UINT64_C()
     macro:
@@ -839,7 +928,27 @@ Q_STATIC_ASSERT((std::is_same<qsizetype, qptrdiff>::value));
 
     Note that qintptr is signed. Use quintptr for unsigned values.
 
+    In order to print values of this type by using formatted-output
+    facilities such as \c{printf()}, qDebug(), QString::asprintf() and
+    so on, you can use the \c{PRIdQINTPTR} and \c{PRIiQINTPTR}
+    macros as format specifiers. They will both print the value as a
+    base 10 number.
+
+    \code
+    qintptr p = 123;
+    printf("The pointer is %" PRIdQINTPTR "\n", p);
+    \endcode
+
     \sa qptrdiff, qint32, qint64
+*/
+
+/*!
+    \macro PRIdQINTPTR
+    \macro PRIiQINTPTR
+    \since 6.2
+    \relates <QtGlobal>
+
+    See qintptr.
 */
 
 /*!
@@ -857,7 +966,34 @@ Q_STATIC_ASSERT((std::is_same<qsizetype, qptrdiff>::value));
 
     Note that quintptr is unsigned. Use qptrdiff for signed values.
 
+    In order to print values of this type by using formatted-output
+    facilities such as \c{printf()}, qDebug(), QString::asprintf() and
+    so on, you can use the following macros as format specifiers:
+
+    \list
+    \li \c{PRIuQUINTPTR}: prints the value as a base 10 number.
+    \li \c{PRIoQUINTPTR}: prints the value as a base 8 number.
+    \li \c{PRIxQUINTPTR}: prints the value as a base 16 number, using lowercase \c{a-f} letters.
+    \li \c{PRIXQUINTPTR}: prints the value as a base 16 number, using uppercase \c{A-F} letters.
+    \endlist
+
+    \code
+    quintptr p = 123u;
+    printf("The pointer value is 0x%" PRIXQUINTPTR "\n", p);
+    \endcode
+
     \sa qptrdiff, quint32, quint64
+*/
+
+/*!
+    \macro PRIoQUINTPTR
+    \macro PRIuQUINTPTR
+    \macro PRIxQUINTPTR
+    \macro PRIXQUINTPTR
+    \since 6.2
+    \relates <QtGlobal>
+
+    See quintptr.
 */
 
 /*!
@@ -873,7 +1009,27 @@ Q_STATIC_ASSERT((std::is_same<qsizetype, qptrdiff>::value));
 
     Note that qptrdiff is signed. Use quintptr for unsigned values.
 
+    In order to print values of this type by using formatted-output
+    facilities such as \c{printf()}, qDebug(), QString::asprintf() and
+    so on, you can use the \c{PRIdQPTRDIFF} and \c{PRIiQPTRDIFF}
+    macros as format specifiers. They will both print the value as a
+    base 10 number.
+
+    \code
+    qptrdiff d = 123;
+    printf("The difference is %" PRIdQPTRDIFF "\n", d);
+    \endcode
+
     \sa quintptr, qint32, qint64
+*/
+
+/*!
+    \macro PRIdQPTRDIFF
+    \macro PRIiQPTRDIFF
+    \since 6.2
+    \relates <QtGlobal>
+
+    See qptrdiff.
 */
 
 /*!
@@ -888,7 +1044,27 @@ Q_STATIC_ASSERT((std::is_same<qsizetype, qptrdiff>::value));
 
     Note that qsizetype is signed. Use \c size_t for unsigned values.
 
+    In order to print values of this type by using formatted-output
+    facilities such as \c{printf()}, qDebug(), QString::asprintf() and
+    so on, you can use the \c{PRIdQSIZETYPE} and \c{PRIiQSIZETYPE}
+    macros as format specifiers. They will both print the value as a
+    base 10 number.
+
+    \code
+    qsizetype s = 123;
+    printf("The size is %" PRIdQSIZETYPE "\n", s);
+    \endcode
+
     \sa qptrdiff
+*/
+
+/*!
+    \macro PRIdQSIZETYPE
+    \macro PRIiQSIZETYPE
+    \since 6.2
+    \relates <QtGlobal>
+
+    See qsizetype.
 */
 
 /*!
@@ -986,7 +1162,9 @@ Q_STATIC_ASSERT((std::is_same<qsizetype, qptrdiff>::value));
 
     Rounds \a d to the nearest integer.
 
-    Rounds half up (e.g. 0.5 -> 1, -0.5 -> 0).
+    Rounds half away from zero (e.g. 0.5 -> 1, -0.5 -> -1).
+
+    \note This function does not guarantee correctness for high precisions.
 
     Example:
 
@@ -998,7 +1176,9 @@ Q_STATIC_ASSERT((std::is_same<qsizetype, qptrdiff>::value));
 
     Rounds \a d to the nearest integer.
 
-    Rounds half up (e.g. 0.5f -> 1, -0.5f -> 0).
+    Rounds half away from zero (e.g. 0.5f -> 1, -0.5f -> -1).
+
+    \note This function does not guarantee correctness for high precisions.
 
     Example:
 
@@ -1010,7 +1190,9 @@ Q_STATIC_ASSERT((std::is_same<qsizetype, qptrdiff>::value));
 
     Rounds \a d to the nearest 64-bit integer.
 
-    Rounds half up (e.g. 0.5 -> 1, -0.5 -> 0).
+    Rounds half away from zero (e.g. 0.5 -> 1, -0.5 -> -1).
+
+    \note This function does not guarantee correctness for high precisions.
 
     Example:
 
@@ -1022,7 +1204,9 @@ Q_STATIC_ASSERT((std::is_same<qsizetype, qptrdiff>::value));
 
     Rounds \a d to the nearest 64-bit integer.
 
-    Rounds half up (e.g. 0.5f -> 1, -0.5f -> 0).
+    Rounds half away from zero (e.g. 0.5f -> 1, -0.5f -> -1).
+
+    \note This function does not guarantee correctness for high precisions.
 
     Example:
 
@@ -1220,177 +1404,12 @@ bool qSharedBuild() noexcept
 */
 
 /*!
-    \deprecated
-    \variable QSysInfo::WindowsVersion
-    \brief the version of the Windows operating system on which the
-           application is run.
-*/
-
-/*!
-    \deprecated
-    \fn QSysInfo::WindowsVersion QSysInfo::windowsVersion()
-    \since 4.4
-
-    Returns the version of the Windows operating system on which the
-    application is run, or WV_None if the operating system is not
-    Windows.
-*/
-
-/*!
-    \deprecated
-    \variable QSysInfo::MacintoshVersion
-    \brief the version of the Macintosh operating system on which
-           the application is run.
-*/
-
-/*!
-    \deprecated
-    \fn QSysInfo::MacVersion QSysInfo::macVersion()
-
-    Returns the version of Darwin (\macos or iOS) on which the
-    application is run, or MV_None if the operating system
-    is not a version of Darwin.
-*/
-
-/*!
     \enum QSysInfo::Endian
 
     \value BigEndian  Big-endian byte order (also called Network byte order)
     \value LittleEndian  Little-endian byte order
     \value ByteOrder  Equals BigEndian or LittleEndian, depending on
                       the platform's byte order.
-*/
-
-/*!
-    \deprecated
-    \enum QSysInfo::WinVersion
-
-    This enum provides symbolic names for the various versions of the
-    Windows operating system. On Windows, the
-    QSysInfo::WindowsVersion variable gives the version of the system
-    on which the application is run.
-
-    MS-DOS-based versions:
-
-    \value WV_32s   Windows 3.1 with Win 32s
-    \value WV_95    Windows 95
-    \value WV_98    Windows 98
-    \value WV_Me    Windows Me
-
-    NT-based versions (note that each operating system version is only represented once rather than each Windows edition):
-
-    \value WV_NT    Windows NT (operating system version 4.0)
-    \value WV_2000  Windows 2000 (operating system version 5.0)
-    \value WV_XP    Windows XP (operating system version 5.1)
-    \value WV_2003  Windows Server 2003, Windows Server 2003 R2, Windows Home Server, Windows XP Professional x64 Edition (operating system version 5.2)
-    \value WV_VISTA Windows Vista, Windows Server 2008 (operating system version 6.0)
-    \value WV_WINDOWS7 Windows 7, Windows Server 2008 R2 (operating system version 6.1)
-    \value WV_WINDOWS8 Windows 8 (operating system version 6.2)
-    \value WV_WINDOWS8_1 Windows 8.1 (operating system version 6.3), introduced in Qt 5.2
-    \value WV_WINDOWS10 Windows 10 (operating system version 10.0), introduced in Qt 5.5
-
-    Alternatively, you may use the following macros which correspond directly to the Windows operating system version number:
-
-    \value WV_4_0   Operating system version 4.0, corresponds to Windows NT
-    \value WV_5_0   Operating system version 5.0, corresponds to Windows 2000
-    \value WV_5_1   Operating system version 5.1, corresponds to Windows XP
-    \value WV_5_2   Operating system version 5.2, corresponds to Windows Server 2003, Windows Server 2003 R2, Windows Home Server, and Windows XP Professional x64 Edition
-    \value WV_6_0   Operating system version 6.0, corresponds to Windows Vista and Windows Server 2008
-    \value WV_6_1   Operating system version 6.1, corresponds to Windows 7 and Windows Server 2008 R2
-    \value WV_6_2   Operating system version 6.2, corresponds to Windows 8
-    \value WV_6_3   Operating system version 6.3, corresponds to Windows 8.1, introduced in Qt 5.2
-    \value WV_10_0  Operating system version 10.0, corresponds to Windows 10, introduced in Qt 5.5
-
-    The following masks can be used for testing whether a Windows
-    version is MS-DOS-based or NT-based:
-
-    \value WV_DOS_based MS-DOS-based version of Windows
-    \value WV_NT_based  NT-based version of Windows
-
-    \value WV_None Operating system other than Windows.
-
-    \omitvalue WV_CE
-    \omitvalue WV_CENET
-    \omitvalue WV_CE_5
-    \omitvalue WV_CE_6
-    \omitvalue WV_CE_based
-
-    \sa MacVersion
-*/
-
-/*!
-    \deprecated
-    \enum QSysInfo::MacVersion
-
-    This enum provides symbolic names for the various versions of the
-    Darwin operating system, covering both \macos and iOS. The
-    QSysInfo::MacintoshVersion variable gives the version of the
-    system on which the application is run.
-
-    \value MV_9        \macos 9
-    \value MV_10_0     \macos 10.0
-    \value MV_10_1     \macos 10.1
-    \value MV_10_2     \macos 10.2
-    \value MV_10_3     \macos 10.3
-    \value MV_10_4     \macos 10.4
-    \value MV_10_5     \macos 10.5
-    \value MV_10_6     \macos 10.6
-    \value MV_10_7     \macos 10.7
-    \value MV_10_8     \macos 10.8
-    \value MV_10_9     \macos 10.9
-    \value MV_10_10    \macos 10.10
-    \value MV_10_11    \macos 10.11
-    \value MV_10_12    \macos 10.12
-    \value MV_Unknown  An unknown and currently unsupported platform
-
-    \value MV_CHEETAH  Apple codename for MV_10_0
-    \value MV_PUMA     Apple codename for MV_10_1
-    \value MV_JAGUAR   Apple codename for MV_10_2
-    \value MV_PANTHER  Apple codename for MV_10_3
-    \value MV_TIGER    Apple codename for MV_10_4
-    \value MV_LEOPARD  Apple codename for MV_10_5
-    \value MV_SNOWLEOPARD  Apple codename for MV_10_6
-    \value MV_LION     Apple codename for MV_10_7
-    \value MV_MOUNTAINLION Apple codename for MV_10_8
-    \value MV_MAVERICKS    Apple codename for MV_10_9
-    \value MV_YOSEMITE     Apple codename for MV_10_10
-    \value MV_ELCAPITAN    Apple codename for MV_10_11
-    \value MV_SIERRA       Apple codename for MV_10_12
-
-    \value MV_IOS      iOS (any)
-    \value MV_IOS_4_3  iOS 4.3
-    \value MV_IOS_5_0  iOS 5.0
-    \value MV_IOS_5_1  iOS 5.1
-    \value MV_IOS_6_0  iOS 6.0
-    \value MV_IOS_6_1  iOS 6.1
-    \value MV_IOS_7_0  iOS 7.0
-    \value MV_IOS_7_1  iOS 7.1
-    \value MV_IOS_8_0  iOS 8.0
-    \value MV_IOS_8_1  iOS 8.1
-    \value MV_IOS_8_2  iOS 8.2
-    \value MV_IOS_8_3  iOS 8.3
-    \value MV_IOS_8_4  iOS 8.4
-    \value MV_IOS_9_0  iOS 9.0
-    \value MV_IOS_9_1  iOS 9.1
-    \value MV_IOS_9_2  iOS 9.2
-    \value MV_IOS_9_3  iOS 9.3
-    \value MV_IOS_10_0 iOS 10.0
-
-    \value MV_TVOS          tvOS (any)
-    \value MV_TVOS_9_0      tvOS 9.0
-    \value MV_TVOS_9_1      tvOS 9.1
-    \value MV_TVOS_9_2      tvOS 9.2
-    \value MV_TVOS_10_0     tvOS 10.0
-
-    \value MV_WATCHOS       watchOS (any)
-    \value MV_WATCHOS_2_0   watchOS 2.0
-    \value MV_WATCHOS_2_1   watchOS 2.1
-    \value MV_WATCHOS_2_2   watchOS 2.2
-    \value MV_WATCHOS_3_0   watchOS 3.0
-
-    \value MV_None     Not a Darwin operating system
-
-    \sa WinVersion
 */
 
 /*!
@@ -1447,7 +1466,7 @@ bool qSharedBuild() noexcept
     \relates <QtGlobal>
 
     Defined on all supported versions of Windows. That is, if
-    \l Q_OS_WIN32, \l Q_OS_WIN64, or \l Q_OS_WINRT is defined.
+    \l Q_OS_WIN32 or \l Q_OS_WIN64 is defined.
 */
 
 /*!
@@ -1469,14 +1488,6 @@ bool qSharedBuild() noexcept
     \relates <QtGlobal>
 
     Defined on 64-bit versions of Windows.
-*/
-
-/*!
-    \macro Q_OS_WINRT
-    \relates <QtGlobal>
-
-    Defined for Windows Runtime (Windows Store apps) on Windows 8, Windows RT,
-    and Windows Phone 8.
 */
 
 /*!
@@ -2086,40 +2097,12 @@ bool qSharedBuild() noexcept
   \sa QT_DISABLE_DEPRECATED_BEFORE
 */
 
-#if defined(QT_BUILD_QMAKE)
-// needed to bootstrap qmake
-static const unsigned int qt_one = 1;
-const int QSysInfo::ByteOrder = ((*((unsigned char *) &qt_one) == 0) ? BigEndian : LittleEndian);
-#endif
-
 #if defined(Q_OS_MAC)
 
 QT_BEGIN_INCLUDE_NAMESPACE
 #include "private/qcore_mac_p.h"
 #include "qnamespace.h"
 QT_END_INCLUDE_NAMESPACE
-
-#if QT_DEPRECATED_SINCE(5, 9)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-QSysInfo::MacVersion QSysInfo::macVersion()
-{
-    const auto version = QOperatingSystemVersion::current();
-#if defined(Q_OS_MACOS)
-    return QSysInfo::MacVersion(Q_MV_OSX(version.majorVersion(), version.minorVersion()));
-#elif defined(Q_OS_IOS)
-    return QSysInfo::MacVersion(Q_MV_IOS(version.majorVersion(), version.minorVersion()));
-#elif defined(Q_OS_TVOS)
-    return QSysInfo::MacVersion(Q_MV_TVOS(version.majorVersion(), version.minorVersion()));
-#elif defined(Q_OS_WATCHOS)
-    return QSysInfo::MacVersion(Q_MV_WATCHOS(version.majorVersion(), version.minorVersion()));
-#else
-    return QSysInfo::MV_Unknown;
-#endif
-}
-const QSysInfo::MacVersion QSysInfo::MacintoshVersion = QSysInfo::macVersion();
-QT_WARNING_POP
-#endif
 
 #ifdef Q_OS_DARWIN
 static const char *osVer_helper(QOperatingSystemVersion version = QOperatingSystemVersion::current())
@@ -2149,7 +2132,7 @@ static const char *osVer_helper(QOperatingSystemVersion version = QOperatingSyst
 }
 #endif
 
-#elif defined(Q_OS_WIN) || defined(Q_OS_CYGWIN) || defined(Q_OS_WINRT)
+#elif defined(Q_OS_WIN) || defined(Q_OS_CYGWIN)
 
 QT_BEGIN_INCLUDE_NAMESPACE
 #include "qt_windows.h"
@@ -2171,7 +2154,7 @@ QWindowsSockInit::QWindowsSockInit()
     WSAData wsadata;
 
     // IPv6 requires Winsock v2.0 or better.
-    if (WSAStartup(MAKEWORD(2,0), &wsadata) != 0) {
+    if (WSAStartup(MAKEWORD(2, 0), &wsadata) != 0) {
         qWarning("QTcpSocketAPI: WinSock v2.0 initialization failed.");
     } else {
         version = 0x20;
@@ -2185,45 +2168,15 @@ QWindowsSockInit::~QWindowsSockInit()
 Q_GLOBAL_STATIC(QWindowsSockInit, winsockInit)
 #  endif // QT_BOOTSTRAPPED
 
-#if QT_DEPRECATED_SINCE(5, 9)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-QSysInfo::WinVersion QSysInfo::windowsVersion()
-{
-    const auto version = QOperatingSystemVersion::current();
-    if (version.majorVersion() == 6 && version.minorVersion() == 1)
-        return QSysInfo::WV_WINDOWS7;
-    if (version.majorVersion() == 6 && version.minorVersion() == 2)
-        return QSysInfo::WV_WINDOWS8;
-    if (version.majorVersion() == 6 && version.minorVersion() == 3)
-        return QSysInfo::WV_WINDOWS8_1;
-    if (version.majorVersion() == 10 && version.minorVersion() == 0)
-        return QSysInfo::WV_WINDOWS10;
-    return QSysInfo::WV_NT_based;
-}
-const QSysInfo::WinVersion QSysInfo::WindowsVersion = QSysInfo::windowsVersion();
-QT_WARNING_POP
-#endif
-
 static QString readVersionRegistryString(const wchar_t *subKey)
 {
-#if !defined(QT_BUILD_QMAKE) && !defined(Q_OS_WINRT)
-     return QWinRegistryKey(HKEY_LOCAL_MACHINE, LR"(SOFTWARE\Microsoft\Windows NT\CurrentVersion)")
+    return QWinRegistryKey(HKEY_LOCAL_MACHINE, LR"(SOFTWARE\Microsoft\Windows NT\CurrentVersion)")
             .stringValue(subKey);
-#else
-     Q_UNUSED(subKey);
-     return QString();
-#endif
 }
 
 static inline QString windows10ReleaseId()
 {
     return readVersionRegistryString(L"ReleaseId");
-}
-
-static inline QString windows7Build()
-{
-    return readVersionRegistryString(L"CurrentBuild");
 }
 
 static QString winSp_helper()
@@ -2249,14 +2202,18 @@ static const char *osVer_helper(QOperatingSystemVersion version = QOperatingSyst
 
 #define Q_WINVER(major, minor) (major << 8 | minor)
     switch (Q_WINVER(osver.dwMajorVersion, osver.dwMinorVersion)) {
-    case Q_WINVER(6, 1):
-        return workstation ? "7" : "Server 2008 R2";
-    case Q_WINVER(6, 2):
-        return workstation ? "8" : "Server 2012";
-    case Q_WINVER(6, 3):
-        return workstation ? "8.1" : "Server 2012 R2";
     case Q_WINVER(10, 0):
-        return workstation ? "10" : "Server 2016";
+        if (workstation) {
+            if (osver.dwBuildNumber >= 22000)
+                return "11";
+            return "10";
+        }
+        // else: Server
+        if (osver.dwBuildNumber >= 20348)
+            return "Server 2022";
+        if (osver.dwBuildNumber >= 17763)
+            return "Server 2019";
+        return "Server 2016";
     }
 #undef Q_WINVER
     // unknown, future version
@@ -2323,7 +2280,7 @@ static bool readEtcFile(QUnixOSVersion &v, const char *filename,
     const char *end = buffer.constEnd();
     const char *eol;
     QByteArray line;
-    for ( ; ptr != end; ptr = eol + 1) {
+    for (; ptr != end; ptr = eol + 1) {
         // find the end of the line after ptr
         eol = static_cast<const char *>(memchr(ptr, '\n', end - ptr));
         if (!eol)
@@ -2521,7 +2478,7 @@ Oreo
 
     // https://source.android.com/source/build-numbers.html
     // https://developer.android.com/guide/topics/manifest/uses-sdk-element.html#ApiLevels
-    const int sdk_int = QJNIObjectPrivate::getStaticField<jint>("android/os/Build$VERSION", "SDK_INT");
+    const int sdk_int = QJniObject::getStaticField<jint>("android/os/Build$VERSION", "SDK_INT");
     return &versions_string[versions_indices[qBound(0, sdk_int, versions_count - 1)]];
 }
 #endif
@@ -2709,15 +2666,11 @@ QString QSysInfo::currentCpuArchitecture()
 */
 QString QSysInfo::buildAbi()
 {
-#ifdef Q_COMPILER_UNICODE_STRINGS
     // ARCH_FULL is a concatenation of strings (incl. ARCH_PROCESSOR), which breaks
     // QStringLiteral on MSVC. Since the concatenation behavior we want is specified
     // the same C++11 paper as the Unicode strings, we'll use that macro and hope
     // that Microsoft implements the new behavior when they add support for Unicode strings.
     return QStringLiteral(ARCH_FULL);
-#else
-    return QLatin1String(ARCH_FULL);
-#endif
 }
 
 static QString unknownText()
@@ -2806,10 +2759,9 @@ QString QSysInfo::kernelVersion()
     to determine the distribution name and returns that. If determining the
     distribution name failed, it returns "unknown".
 
-    \b{\macos note}: this function returns "osx" for all \macos systems,
-    regardless of Apple naming convention. The returned string will be updated
-    for Qt 6. Note that this function erroneously returned "macos" for \macos
-    10.12 in Qt versions 5.6.2, 5.7.1, and 5.8.0.
+    \b{\macos note}: this function returns "macos" for all \macos systems,
+    regardless of Apple naming convention. Previously, in Qt 5, it returned
+    "osx", again regardless of Apple naming conventions.
 
     \b{Darwin, iOS, tvOS, and watchOS note}: this function returns "ios" for
     iOS systems, "tvos" for tvOS systems, "watchos" for watchOS systems, and
@@ -2818,8 +2770,7 @@ QString QSysInfo::kernelVersion()
     \b{FreeBSD note}: this function returns "debian" for Debian/kFreeBSD and
     "unknown" otherwise.
 
-    \b{Windows note}: this function "winrt" for WinRT builds, and "windows"
-    for normal desktop builds.
+    \b{Windows note}: this function return "windows"
 
     For other Unix-type systems, this function usually returns "unknown".
 
@@ -2828,9 +2779,7 @@ QString QSysInfo::kernelVersion()
 QString QSysInfo::productType()
 {
     // similar, but not identical to QFileSelectorPrivate::platformSelectors
-#if defined(Q_OS_WINRT)
-    return QStringLiteral("winrt");
-#elif defined(Q_OS_WIN)
+#if defined(Q_OS_WIN)
     return QStringLiteral("windows");
 
 #elif defined(Q_OS_QNX)
@@ -2846,12 +2795,7 @@ QString QSysInfo::productType()
 #elif defined(Q_OS_WATCHOS)
     return QStringLiteral("watchos");
 #elif defined(Q_OS_MACOS)
-    // ### Qt6: remove fallback
-#  if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     return QStringLiteral("macos");
-#  else
-    return QStringLiteral("osx");
-#  endif
 #elif defined(Q_OS_DARWIN)
     return QStringLiteral("darwin");
 
@@ -2883,8 +2827,6 @@ QString QSysInfo::productType()
         \li "10.0" (tvOS 10)
         \li "16.10" (Ubuntu 16.10)
         \li "3.1" (watchOS 3.1)
-        \li "7 SP 1" (Windows 7 Service Pack 1)
-        \li "8.1" (Windows 8.1)
         \li "10" (Windows 10)
         \li "Server 2016" (Windows Server 2016)
     \endlist
@@ -2952,25 +2894,14 @@ QString QSysInfo::prettyProductName()
     if (!name)
         return result + versionString;
     result += QLatin1String(name);
-#  if !defined(Q_OS_WIN) || defined(Q_OS_WINRT)
+#  if !defined(Q_OS_WIN)
     return result + QLatin1String(" (") + versionString + QLatin1Char(')');
 #  else
     // (resembling winver.exe): Windows 10 "Windows 10 Version 1809"
-    if (majorVersion >= 10) {
-        const auto releaseId = windows10ReleaseId();
-        if (!releaseId.isEmpty())
-            result += QLatin1String(" Version ") + releaseId;
-        return result;
-    }
-    // Windows 7: "Windows 7 Version 6.1 (Build 7601: Service Pack 1)"
-    result += QLatin1String(" Version ") + versionString + QLatin1String(" (");
-    const auto build = windows7Build();
-    if (!build.isEmpty())
-        result += QLatin1String("Build ") + build;
-    const auto servicePack = winSp_helper();
-    if (!servicePack.isEmpty())
-        result += QLatin1String(": ") + servicePack;
-    return result + QLatin1Char(')');
+    const auto releaseId = windows10ReleaseId();
+    if (!releaseId.isEmpty())
+        result += QLatin1String(" Version ") + releaseId;
+    return result;
 #  endif // Windows
 #elif defined(Q_OS_HAIKU)
     return QLatin1String("Haiku ") + productVersion();
@@ -3088,7 +3019,7 @@ QByteArray QSysInfo::machineUniqueId()
         if (len != -1)
             return QByteArray(buffer, len);
     }
-#elif defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#elif defined(Q_OS_WIN)
     // Let's poke at the registry
     // ### Qt 6: Use new helpers from qwinregistry.cpp (once bootstrap builds are obsolete)
     HKEY key = NULL;
@@ -3335,10 +3266,13 @@ void qt_check_pointer(const char *n, int l) noexcept
 */
 void qBadAlloc()
 {
-    QT_THROW(std::bad_alloc());
+#ifndef QT_NO_EXCEPTIONS
+    throw std::bad_alloc();
+#else
+    std::terminate();
+#endif
 }
 
-#ifndef QT_NO_EXCEPTIONS
 /*
    \internal
    Allows you to call std::terminate() without including <exception>.
@@ -3348,7 +3282,6 @@ Q_NORETURN void qTerminate() noexcept
 {
     std::terminate();
 }
-#endif
 
 /*
   The Q_ASSERT macro calls this function when the test fails.
@@ -3375,17 +3308,17 @@ void qt_assert_x(const char *where, const char *what, const char *file, int line
 Q_CORE_EXPORT Q_DECL_CONST_FUNCTION unsigned int qt_int_sqrt(unsigned int n)
 {
     // n must be in the range 0...UINT_MAX/2-1
-    if (n >= (UINT_MAX>>2)) {
+    if (n >= (UINT_MAX >> 2)) {
         unsigned int r = 2 * qt_int_sqrt(n / 4);
         unsigned int r2 = r + 1;
         return (n >= r2 * r2) ? r2 : r;
     }
-    uint h, p= 0, q= 1, r= n;
+    uint h, p = 0, q = 1, r = n;
     while (q <= n)
         q <<= 2;
     while (q != 1) {
         q >>= 2;
-        h= p + q;
+        h = p + q;
         p >>= 1;
         if (r >= h) {
             p += q;
@@ -3394,9 +3327,6 @@ Q_CORE_EXPORT Q_DECL_CONST_FUNCTION unsigned int qt_int_sqrt(unsigned int n)
     }
     return p;
 }
-
-void *qMemCopy(void *dest, const void *src, size_t n) { return memcpy(dest, src, n); }
-void *qMemSet(void *dest, int c, size_t n) { return memset(dest, c, n); }
 
 // In the C runtime on all platforms access to the environment is not thread-safe. We
 // add thread-safety for the Qt wrappers.
@@ -3472,7 +3402,6 @@ QByteArray qgetenv(const char *varName)
 #endif
 }
 
-
 /*!
     \fn QString qEnvironmentVariable(const char *varName, const QString &defaultValue)
     \fn QString qEnvironmentVariable(const char *varName)
@@ -3521,7 +3450,7 @@ QByteArray qgetenv(const char *varName)
 */
 QString qEnvironmentVariable(const char *varName, const QString &defaultValue)
 {
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
     const auto locker = qt_scoped_lock(environmentMutex);
     QVarLengthArray<wchar_t, 32> wname(int(strlen(varName)) + 1);
     for (int i = 0; i < wname.size(); ++i) // wname.size() is correct: will copy terminating null
@@ -3702,7 +3631,7 @@ bool qEnvironmentVariableIsSet(const char *varName) noexcept
 
     \sa qgetenv(), qEnvironmentVariable()
 */
-bool qputenv(const char *varName, const QByteArray& value)
+bool qputenv(const char *varName, const QByteArray &value)
 {
     const auto locker = qt_scoped_lock(environmentMutex);
 #if defined(Q_CC_MSVC)
@@ -3714,7 +3643,7 @@ bool qputenv(const char *varName, const QByteArray& value)
     QByteArray buffer(varName);
     buffer += '=';
     buffer += value;
-    char* envVar = qstrdup(buffer.constData());
+    char *envVar = qstrdup(buffer.constData());
     int result = putenv(envVar);
     if (result != 0) // error. we have to delete the string.
         delete[] envVar;
@@ -3921,6 +3850,15 @@ bool qunsetenv(const char *varName)
     This is perfectly safe, as the for-loop keeps the result of qExchange() alive for as
     long as the loop runs, saving the declaration of a temporary variable. Be aware, though,
     that qExchange() returns a non-const object, so Qt containers may detach.
+*/
+
+/*!
+    \fn template <typename Enum> std::underlying_type_t<Enum> qToUnderlying(Enum e)
+    \relates <QtGlobal>
+    \since 6.2
+
+    Converts the enumerator \a e to the equivalent value expressed in its
+    enumeration's underlying type.
 */
 
 /*!
@@ -4224,13 +4162,14 @@ bool qunsetenv(const char *varName)
 
     \list
     \li \c Q_PRIMITIVE_TYPE specifies that \a Type is a POD (plain old
-       data) type with no constructor or destructor, or else a type where
-       every bit pattern is a valid object and memcpy() creates a valid
-       independent copy of the object.
-    \li \c Q_MOVABLE_TYPE specifies that \a Type has a constructor
+       data) type with no constructor or destructor, and for which memcpy()ing
+       creates a valid independent copy of the object.
+    \li \c Q_RELOCATABLE_TYPE specifies that \a Type has a constructor
        and/or a destructor but can be moved in memory using \c
-       memcpy(). Note: despite the name, this has nothing to do with move
-       constructors or C++ move semantics.
+       memcpy().
+    \li \c Q_MOVABLE_TYPE is the same as \c Q_RELOCATABLE_TYPE. Prefer to use
+        \c Q_RELOCATABLE_TYPE in new code. Note: despite the name, this
+        has nothing to do with move constructors or C++ move semantics.
     \li \c Q_COMPLEX_TYPE (the default) specifies that \a Type has
        constructors and/or a destructor and that it may not be moved
        in memory.
@@ -4245,16 +4184,21 @@ bool qunsetenv(const char *varName)
     pattern still represents a valid object, and memcpy() can be used
     to create a valid independent copy of a QUuid object.
 
-    Example of a movable type:
+    Example of a relocatable type:
 
     \snippet code/src_corelib_global_qglobal.cpp 39
 
-    Qt will try to detect the class of a type using std::is_trivial or
-    std::is_trivially_copyable. Use this macro to tune the behavior.
-    For instance many types would be candidates for Q_MOVABLE_TYPE despite
-    not being trivially-copyable. For binary compatibility reasons, QList
-    optimizations are only enabled if there is an explicit
-    Q_DECLARE_TYPEINFO even for trivially-copyable types.
+    Qt will try to detect the class of a type using
+    \l {https://en.cppreference.com/w/cpp/types/is_trivial} {std::is_trivial_v<T>}
+    to identify primitive
+    types and it will require both
+    \l {https://en.cppreference.com/w/cpp/types/is_trivially_copyable} {std::is_trivially_copyable_v<T>}
+    and
+    \l {https://en.cppreference.com/w/cpp/types/is_destructible} {std::is_trivially_destructible_v<T>}
+    to identify relocatable types.
+    Use this macro to tune the behavior.
+    For instance many types would be candidates for Q_RELOCATABLE_TYPE despite
+    not being trivially-copyable.
 */
 
 /*!
@@ -4267,8 +4211,9 @@ bool qunsetenv(const char *varName)
     with meaningful parameter names in their signatures.
 */
 
-struct QInternal_CallBackTable {
-    QVector<QList<qInternalCallback> > callbacks;
+struct QInternal_CallBackTable
+{
+    QList<QList<qInternalCallback>> callbacks;
 };
 
 Q_GLOBAL_STATIC(QInternal_CallBackTable, global_callback_table)
@@ -4289,7 +4234,7 @@ bool QInternal::unregisterCallback(Callback cb, qInternalCallback callback)
     if (unsigned(cb) < unsigned(QInternal::LastCallback)) {
         if (global_callback_table.exists()) {
             QInternal_CallBackTable *cbt = global_callback_table();
-            return (bool) cbt->callbacks[cb].removeAll(callback);
+            return cbt->callbacks[cb].removeAll(callback) > 0;
         }
     }
     return false;
@@ -4306,7 +4251,7 @@ bool QInternal::activateCallbacks(Callback cb, void **parameters)
     if (cbt && cb < cbt->callbacks.size()) {
         QList<qInternalCallback> callbacks = cbt->callbacks[cb];
         bool ret = false;
-        for (int i=0; i<callbacks.size(); ++i)
+        for (int i = 0; i < callbacks.size(); ++i)
             ret |= (callbacks.at(i))(parameters);
         return ret;
     }
@@ -4786,7 +4731,7 @@ bool QInternal::activateCallbacks(Callback cb, void **parameters)
 /*!
     \macro qMove(x)
     \relates <QtGlobal>
-    \obsolete
+    \deprecated
 
     Use \c std::move instead.
 
@@ -4891,7 +4836,7 @@ bool QInternal::activateCallbacks(Callback cb, void **parameters)
 /*!
     \macro Q_DECL_OVERRIDE
     \since 5.0
-    \obsolete
+    \deprecated
     \relates <QtGlobal>
 
     This macro can be used to declare an overriding virtual
@@ -4911,7 +4856,7 @@ bool QInternal::activateCallbacks(Callback cb, void **parameters)
 /*!
     \macro Q_DECL_FINAL
     \since 5.0
-    \obsolete
+    \deprecated
     \relates <QtGlobal>
 
     This macro can be used to declare an overriding virtual or a class
@@ -4963,5 +4908,9 @@ bool QInternal::activateCallbacks(Callback cb, void **parameters)
     type and the ref type. For example, Q_FORWARD_DECLARE_MUTABLE_CF_TYPE(CFMutableString)
     declares __CFMutableString and CFMutableStringRef.
 */
+
+namespace QtPrivate {
+Q_LOGGING_CATEGORY(lcNativeInterface, "qt.nativeinterface")
+}
 
 QT_END_NAMESPACE

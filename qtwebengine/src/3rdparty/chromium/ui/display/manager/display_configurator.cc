@@ -8,10 +8,11 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/macros.h"
+#include "base/syslog_logging.h"
 #include "base/time/time.h"
 #include "chromeos/system/devicemode.h"
 #include "ui/display/display.h"
@@ -44,31 +45,14 @@ struct DisplayState {
   const DisplayMode* mirror_mode = nullptr;
 };
 
-// This is used for calling either SetColorMatrix() or SetGammaCorrection()
-// depending on the given |color_correction_closure| which is run synchronously.
-// If |reset_color_space_on_success| is true and running
-// |color_correction_closure| returns true, then the color space of the display
-// with |display_id| will be reset.
-bool RunColorCorrectionClosureSync(
+// Returns whether |display_id| can be found in |display_list|,
+bool IsDisplayIdInDisplayStateList(
     int64_t display_id,
-    const DisplayConfigurator::DisplayStateList& cached_displays,
-    bool reset_color_space_on_success,
-    base::OnceCallback<bool(void)> color_correction_closure) {
-  for (DisplaySnapshot* display : cached_displays) {
-    if (display->display_id() != display_id)
-      continue;
-
-    const bool success = std::move(color_correction_closure).Run();
-
-    // Nullify the |display|s ColorSpace to avoid correcting colors twice, if
-    // we have successfully configured something.
-    if (success && reset_color_space_on_success)
-      display->reset_color_space();
-
-    return success;
-  }
-
-  return false;
+    const DisplayConfigurator::DisplayStateList& display_list) {
+  return std::find_if(display_list.begin(), display_list.end(),
+                      [display_id](DisplaySnapshot* display) {
+                        return display->display_id() == display_id;
+                      }) != display_list.end();
 }
 
 // Returns true if a platform native |mode| is equal to a |managed_mode|.
@@ -217,6 +201,13 @@ DisplayConfigurator::DisplayLayoutManagerImpl::ParseDisplays(
     cached_displays.push_back(display_state);
   }
 
+  // TODO(crbug.com/1161556): Hardware mirroring is now disabled by deafult.
+  // This is the first step towards permanently disabling HW mirroring. The use
+  // of a feature flag will be removed once we verify no regressions occur due
+  // to disabling HW mirroring.
+  if (!features::IsHardwareMirrorModeEnabled())
+    return cached_displays;
+
   // Hardware mirroring doesn't work on desktop-linux Chrome OS's fake displays.
   // Skip mirror mode setup in that case to fall back on software mirroring.
   if (!chromeos::IsRunningAsSystemCompositor())
@@ -340,8 +331,9 @@ bool DisplayConfigurator::DisplayLayoutManagerImpl::GetDisplayLayout(
 
       const DisplayMode* mode_info = states[0].mirror_mode;
       if (!mode_info) {
-        LOG(WARNING) << "No mirror mode when configuring display: "
-                     << states[0].display->ToString();
+        SYSLOG(INFO) << "Either hardware mirroring was disabled or no common "
+                        "mode between the available displays was found to "
+                        "support it. Using software mirroring instead.";
         return false;
       }
       size = mode_info->size();
@@ -568,7 +560,6 @@ DisplayConfigurator::DisplayConfigurator()
       configure_display_(chromeos::IsRunningAsSystemCompositor()),
       current_display_state_(MULTIPLE_DISPLAY_STATE_INVALID),
       current_power_state_(chromeos::DISPLAY_POWER_ALL_ON),
-      current_internal_display_(nullptr),
       requested_display_state_(MULTIPLE_DISPLAY_STATE_INVALID),
       pending_power_state_(chromeos::DISPLAY_POWER_ALL_ON),
       has_pending_power_state_(false),
@@ -762,62 +753,42 @@ void DisplayConfigurator::ForceInitialConfigure() {
 bool DisplayConfigurator::SetColorMatrix(
     int64_t display_id,
     const std::vector<float>& color_matrix) {
-  return RunColorCorrectionClosureSync(
-      display_id, cached_displays_,
-      !color_matrix.empty() /* reset_color_space_on_success */,
-      base::BindOnce(&NativeDisplayDelegate::SetColorMatrix,
-                     base::Unretained(native_display_delegate_.get()),
-                     display_id, color_matrix));
+  if (!IsDisplayIdInDisplayStateList(display_id, cached_displays_))
+    return false;
+  return native_display_delegate_->SetColorMatrix(display_id, color_matrix);
 }
 
 bool DisplayConfigurator::SetGammaCorrection(
     int64_t display_id,
     const std::vector<GammaRampRGBEntry>& degamma_lut,
     const std::vector<GammaRampRGBEntry>& gamma_lut) {
-  const bool reset_color_space_on_success =
-      !degamma_lut.empty() || !gamma_lut.empty();
-  return RunColorCorrectionClosureSync(
-      display_id, cached_displays_, reset_color_space_on_success,
-      base::BindOnce(&NativeDisplayDelegate::SetGammaCorrection,
-                     base::Unretained(native_display_delegate_.get()),
-                     display_id, degamma_lut, gamma_lut));
+  if (!IsDisplayIdInDisplayStateList(display_id, cached_displays_))
+    return false;
+  return native_display_delegate_->SetGammaCorrection(display_id, degamma_lut,
+                                                      gamma_lut);
 }
 
-bool DisplayConfigurator::IsPrivacyScreenSupportedOnInternalDisplay() const {
-  return current_internal_display_ &&
-         current_internal_display_->privacy_screen_state() != kNotSupported;
-}
-
-bool DisplayConfigurator::SetPrivacyScreenOnInternalDisplay(bool enabled) {
-  if (!current_internal_display_) {
-    LOG(ERROR) << "This device does not have an internal display.";
-    return false;
+void DisplayConfigurator::SetPrivacyScreen(int64_t display_id, bool enabled) {
+#if DCHECK_IS_ON()
+  DisplaySnapshot* internal_display = nullptr;
+  for (DisplaySnapshot* display : cached_displays_) {
+    if (display->type() == DISPLAY_CONNECTION_TYPE_INTERNAL) {
+      internal_display = display;
+      break;
+    }
   }
+  DCHECK(internal_display);
+  DCHECK_EQ(internal_display->display_id(), display_id);
+  DCHECK_NE(internal_display->privacy_screen_state(), kNotSupported);
+  DCHECK(internal_display->current_mode());
+#endif
 
-  if (!IsPrivacyScreenSupportedOnInternalDisplay()) {
-    LOG(ERROR) << "The internal display of this device does not support "
-                  "privacy screeny.";
-    return false;
-  }
-
-  native_display_delegate_->SetPrivacyScreen(
-      current_internal_display_->display_id(), enabled);
-  return true;
+  native_display_delegate_->SetPrivacyScreen(display_id, enabled);
 }
 
 chromeos::DisplayPowerState DisplayConfigurator::GetRequestedPowerState()
     const {
   return requested_power_state_.value_or(chromeos::DISPLAY_POWER_ALL_ON);
-}
-
-void DisplayConfigurator::UpdateInternalDisplayCache() {
-  for (DisplaySnapshot* display : cached_displays_) {
-    if (display->type() == DISPLAY_CONNECTION_TYPE_INTERNAL) {
-      current_internal_display_ = display;
-      return;
-    }
-  }
-  current_internal_display_ = nullptr;
 }
 
 void DisplayConfigurator::PrepareForExit() {
@@ -1032,9 +1003,6 @@ void DisplayConfigurator::OnConfigured(
   if (success) {
     current_display_state_ = new_display_state;
     UpdatePowerState(new_power_state);
-    UpdateInternalDisplayCache();
-  } else {
-    current_internal_display_ = nullptr;
   }
 
   configuration_task_.reset();

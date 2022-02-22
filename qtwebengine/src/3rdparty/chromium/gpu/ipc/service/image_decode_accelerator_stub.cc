@@ -22,6 +22,7 @@
 #include "base/optional.h"
 #include "base/single_thread_task_runner.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "gpu/command_buffer/common/constants.h"
 #include "gpu/command_buffer/common/context_result.h"
 #include "gpu/command_buffer/common/discardable_handle.h"
@@ -56,7 +57,7 @@
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_image.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ui/gfx/linux/native_pixmap_dmabuf.h"
 #include "ui/gl/gl_image_native_pixmap.h"
 #endif
@@ -64,7 +65,7 @@
 namespace gpu {
 class Buffer;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 namespace {
 
 struct CleanUpContext {
@@ -246,7 +247,7 @@ void ImageDecodeAcceleratorStub::ProcessCompletedDecode(
 
   std::vector<sk_sp<SkImage>> plane_sk_images;
   base::Optional<base::ScopedClosureRunner> notify_gl_state_changed;
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // Right now, we only support YUV 4:2:0 for the output of the decoder (either
   // as YV12 or NV12).
   //
@@ -357,17 +358,14 @@ void ImageDecodeAcceleratorStub::ProcessCompletedDecode(
     shared_context_state->PessimisticallyResetGrContext();
 
     // Create a SkImage using the texture.
-    // TODO(crbug.com/985458): ideally, we use GL_RG8_EXT for the NV12 chroma
-    // plane. However, Skia does not have a corresponding SkColorType. Revisit
-    // this when it's supported.
     const GrBackendTexture plane_backend_texture(
         plane_size.width(), plane_size.height(), GrMipMapped::kNo,
         GrGLTextureInfo{GL_TEXTURE_EXTERNAL_OES, resource->texture,
-                        is_nv12_chroma_plane ? GL_RGBA8_EXT : GL_R8_EXT});
+                        is_nv12_chroma_plane ? GL_RG8_EXT : GL_R8_EXT});
     plane_sk_images[plane] = SkImage::MakeFromTexture(
         shared_context_state->gr_context(), plane_backend_texture,
         kTopLeft_GrSurfaceOrigin,
-        is_nv12_chroma_plane ? kRGBA_8888_SkColorType : kAlpha_8_SkColorType,
+        is_nv12_chroma_plane ? kR8G8_unorm_SkColorType : kAlpha_8_SkColorType,
         kOpaque_SkAlphaType, nullptr /* colorSpace */, CleanUpResource,
         resource);
     if (!plane_sk_images[plane]) {
@@ -408,6 +406,10 @@ void ImageDecodeAcceleratorStub::ProcessCompletedDecode(
       cache_use.emplace(gr_shader_cache,
                         base::strict_cast<int32_t>(channel_->client_id()));
     DCHECK(shared_context_state->transfer_cache());
+    SkYUVAInfo::PlaneConfig plane_config =
+        completed_decode->buffer_format == gfx::BufferFormat::YVU_420
+            ? SkYUVAInfo::PlaneConfig::kY_V_U
+            : SkYUVAInfo::PlaneConfig::kY_UV;
     // TODO(andrescj): |params.target_color_space| is not needed because Skia
     // knows where it's drawing, so it can handle color space conversion without
     // us having to specify the target color space. However, we are currently
@@ -423,9 +425,7 @@ void ImageDecodeAcceleratorStub::ProcessCompletedDecode(
                                           params.discardable_handle_shm_offset,
                                           params.discardable_handle_shm_id),
                  shared_context_state->gr_context(), std::move(plane_sk_images),
-                 completed_decode->buffer_format == gfx::BufferFormat::YVU_420
-                     ? cc::YUVDecodeFormat::kYVU3
-                     : cc::YUVDecodeFormat::kYUV2,
+                 plane_config, SkYUVAInfo::Subsampling::k420,
                  completed_decode->yuv_color_space,
                  completed_decode->buffer_byte_size, params.needs_mips)) {
       DLOG(ERROR) << "Could not create and insert the transfer cache entry";

@@ -32,14 +32,14 @@
 
 #include <QtCore/QIODevice>
 #include <QtCore/QPointF>
-#include <QtCore/QVector>
+#include <QtCore/QList>
 #include <QtCharts/QChartGlobal>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 class QXYSeries;
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
-QT_CHARTS_USE_NAMESPACE
+QT_USE_NAMESPACE
 
 class XYSeriesIODevice : public QIODevice
 {
@@ -55,7 +55,7 @@ protected:
 
 private:
     QXYSeries *m_series;
-    QVector<QPointF> m_buffer;
+    QList<QPointF> m_buffer;
 };
 
 #endif // XYSERIESIODEVICE_H

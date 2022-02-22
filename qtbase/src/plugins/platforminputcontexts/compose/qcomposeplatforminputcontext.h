@@ -45,6 +45,7 @@
 
 #include <xkbcommon/xkbcommon-compose.h>
 
+Q_DECLARE_OPAQUE_POINTER(xkb_context *)
 QT_BEGIN_NAMESPACE
 
 Q_DECLARE_LOGGING_CATEGORY(lcXkbCompose)
@@ -73,7 +74,6 @@ protected:
 
 private:
     bool m_initialized = false;
-    xkb_context *m_context = nullptr;
     xkb_compose_table *m_composeTable = nullptr;
     xkb_compose_state *m_composeState = nullptr;
     QObject *m_focusObject = nullptr;

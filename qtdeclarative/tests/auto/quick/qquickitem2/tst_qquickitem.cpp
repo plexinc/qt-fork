@@ -33,16 +33,22 @@
 #include <QtQuick/qquickitemgrabresult.h>
 #include <QtQuick/qquickview.h>
 #include <QtGui/private/qinputmethod_p.h>
+#include <QtQuick/private/qquickloader_p.h>
+#include <QtQuick/private/qquickpalette_p.h>
 #include <QtQuick/private/qquickrectangle_p.h>
 #include <QtQuick/private/qquicktextinput_p.h>
 #include <QtQuick/private/qquickitemchangelistener_p.h>
 #include <QtGui/qstylehints.h>
 #include <private/qquickitem_p.h>
-#include "../../shared/util.h"
-#include "../shared/visualtestutil.h"
-#include "../../shared/platforminputcontext.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
+#include <QtQuickTestUtils/private/visualtestutils_p.h>
+#include <QtQuickTestUtils/private/viewtestutils_p.h>
+#include <QtQuickTestUtils/private/platforminputcontext_p.h>
+#include <QtTest/private/qpropertytesthelper_p.h>
 
-using namespace QQuickVisualTestUtil;
+using namespace QQuickVisualTestUtils;
+
+Q_LOGGING_CATEGORY(lcTests, "qt.quick.tests")
 
 class tst_QQuickItem : public QQmlDataTest
 {
@@ -51,7 +57,7 @@ public:
     tst_QQuickItem();
 
 private slots:
-    void initTestCase();
+    void initTestCase() override;
     void cleanup();
 
     void activeFocusOnTab();
@@ -75,6 +81,7 @@ private slots:
     void qtbug_50516();
     void qtbug_50516_2_data();
     void qtbug_50516_2();
+    void focusableItemReparentedToLoadedComponent();
 
     void keys();
 #if QT_CONFIG(shortcut)
@@ -115,6 +122,8 @@ private slots:
 
     void childrenProperty();
     void resourcesProperty();
+    void bindableProperties_data();
+    void bindableProperties();
 
     void changeListener();
     void transformCrash();
@@ -128,6 +137,11 @@ private slots:
     void isAncestorOf();
 
     void grab();
+
+    void colorGroup();
+    void paletteAllocated();
+
+    void undefinedIsInvalidForWidthAndHeight();
 
 private:
     QQmlEngine engine;
@@ -202,7 +216,7 @@ public:
     KeyTestItem(QQuickItem *parent=nullptr) : QQuickItem(parent), mKey(0) {}
 
 protected:
-    void keyPressEvent(QKeyEvent *e) {
+    void keyPressEvent(QKeyEvent *e) override {
         mKey = e->key();
 
         if (e->key() == Qt::Key_A)
@@ -211,7 +225,7 @@ protected:
             e->ignore();
     }
 
-    void keyReleaseEvent(QKeyEvent *e) {
+    void keyReleaseEvent(QKeyEvent *e) override {
         if (e->key() == Qt::Key_B)
             e->accept();
         else
@@ -225,7 +239,7 @@ public:
 class FocusEventFilter : public QObject
 {
 protected:
-    bool eventFilter(QObject *watched, QEvent *event) {
+    bool eventFilter(QObject *watched, QEvent *event) override {
         if ((event->type() == QEvent::FocusIn) ||  (event->type() == QEvent::FocusOut)) {
             QFocusEvent *focusEvent = static_cast<QFocusEvent *>(event);
             lastFocusReason = focusEvent->reason();
@@ -242,8 +256,8 @@ QML_DECLARE_TYPE(KeyTestItem);
 class HollowTestItem : public QQuickItem
 {
     Q_OBJECT
-    Q_PROPERTY(bool circle READ isCircle WRITE setCircle)
-    Q_PROPERTY(qreal holeRadius READ holeRadius WRITE setHoleRadius)
+    Q_PROPERTY(bool circle READ isCircle WRITE setCircle NOTIFY circleChanged)
+    Q_PROPERTY(qreal holeRadius READ holeRadius WRITE setHoleRadius NOTIFY holeRadiusChanged)
 
 public:
     HollowTestItem(QQuickItem *parent = nullptr)
@@ -261,12 +275,12 @@ public:
     bool isHovered() const { return m_isHovered; }
 
     bool isCircle() const { return m_isCircle; }
-    void setCircle(bool circle) { m_isCircle = circle; }
+    void setCircle(bool circle) { m_isCircle = circle; emit circleChanged(); }
 
     qreal holeRadius() const { return m_holeRadius; }
-    void setHoleRadius(qreal radius) { m_holeRadius = radius; }
+    void setHoleRadius(qreal radius) { m_holeRadius = radius; emit holeRadiusChanged(); }
 
-    bool contains(const QPointF &point) const {
+    bool contains(const QPointF &point) const override {
         const qreal w = width();
         const qreal h = height();
         const qreal r = m_holeRadius;
@@ -287,11 +301,15 @@ public:
         return dd > (r * r) && dd <= outerRadius * outerRadius;
     }
 
+signals:
+    void circleChanged();
+    void holeRadiusChanged();
+
 protected:
-    void hoverEnterEvent(QHoverEvent *) { m_isHovered = true; }
-    void hoverLeaveEvent(QHoverEvent *) { m_isHovered = false; }
-    void mousePressEvent(QMouseEvent *) { m_isPressed = true; }
-    void mouseReleaseEvent(QMouseEvent *) { m_isPressed = false; }
+    void hoverEnterEvent(QHoverEvent *) override { m_isHovered = true; }
+    void hoverLeaveEvent(QHoverEvent *) override { m_isHovered = false; }
+    void mousePressEvent(QMouseEvent *) override { m_isPressed = true; }
+    void mouseReleaseEvent(QMouseEvent *) override { m_isPressed = false; }
 
 private:
     bool m_isPressed;
@@ -334,6 +352,7 @@ public:
 QML_DECLARE_TYPE(TabFenceItem2);
 
 tst_QQuickItem::tst_QQuickItem()
+    : QQmlDataTest(QT_QMLTEST_DATADIR)
 {
 }
 
@@ -372,94 +391,112 @@ void tst_QQuickItem::activeFocusOnTab()
     QVERIFY(item->hasActiveFocus());
 
     // Tab: button12->sub2
-    QKeyEvent key(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "sub2");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "sub2");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // Tab: sub2->button21
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "button21");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "button21");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // Tab: button21->button22
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "button22");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "button22");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // Tab: button22->edit
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "edit");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
-
+        item = findItem<QQuickItem>(window->rootObject(), "edit");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
     // BackTab: edit->button22
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "button22");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
-
+        item = findItem<QQuickItem>(window->rootObject(), "button22");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
     // BackTab: button22->button21
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "button21");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "button21");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // BackTab: button21->sub2
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "sub2");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "sub2");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // BackTab: sub2->button12
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "button12");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "button12");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // BackTab: button12->button11
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "button11");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "button11");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // BackTab: button11->edit
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "edit");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "edit");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     delete window;
 }
@@ -484,22 +521,26 @@ void tst_QQuickItem::activeFocusOnTab2()
     QVERIFY(item->hasActiveFocus());
 
     // BackTab: button12->button11
-    QKeyEvent key(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "button11");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "button11");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // BackTab: button11->edit
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "edit");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "edit");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     delete window;
 }
@@ -524,164 +565,192 @@ void tst_QQuickItem::activeFocusOnTab3()
     QVERIFY(item->hasActiveFocus());
 
     // 4 Tabs: button1->button2, through a repeater
-    QKeyEvent key(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);;
-    for (int i = 0; i < 4; ++i) {
-        QGuiApplication::sendEvent(window, &key);
-        QVERIFY(key.isAccepted());
-    }
+    {
+        QKeyEvent key(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);;
+        for (int i = 0; i < 4; ++i) {
+            QGuiApplication::sendEvent(window, &key);
+            QVERIFY(key.isAccepted());
+        }
 
-    item = findItem<QQuickItem>(window->rootObject(), "button2");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "button2");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // 4 Tabs: button2->button3, through a row
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);;
-    for (int i = 0; i < 4; ++i) {
-        QGuiApplication::sendEvent(window, &key);
-        QVERIFY(key.isAccepted());
-    }
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);;
+        for (int i = 0; i < 4; ++i) {
+            QGuiApplication::sendEvent(window, &key);
+            QVERIFY(key.isAccepted());
+        }
 
-    item = findItem<QQuickItem>(window->rootObject(), "button3");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "button3");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // 4 Tabs: button3->button4, through a flow
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);;
-    for (int i = 0; i < 4; ++i) {
-        QGuiApplication::sendEvent(window, &key);
-        QVERIFY(key.isAccepted());
-    }
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);;
+        for (int i = 0; i < 4; ++i) {
+            QGuiApplication::sendEvent(window, &key);
+            QVERIFY(key.isAccepted());
+        }
 
-    item = findItem<QQuickItem>(window->rootObject(), "button4");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "button4");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // 4 Tabs: button4->button5, through a focusscope
     // parent is activeFocusOnTab:false, one of children is focus:true
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);;
-    for (int i = 0; i < 4; ++i) {
-        QGuiApplication::sendEvent(window, &key);
-        QVERIFY(key.isAccepted());
-    }
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);;
+        for (int i = 0; i < 4; ++i) {
+            QGuiApplication::sendEvent(window, &key);
+            QVERIFY(key.isAccepted());
+        }
 
-    item = findItem<QQuickItem>(window->rootObject(), "button5");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "button5");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // 4 Tabs: button5->button6, through a focusscope
     // parent is activeFocusOnTab:true, one of children is focus:true
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);;
-    for (int i = 0; i < 4; ++i) {
-        QGuiApplication::sendEvent(window, &key);
-        QVERIFY(key.isAccepted());
-    }
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);;
+        for (int i = 0; i < 4; ++i) {
+            QGuiApplication::sendEvent(window, &key);
+            QVERIFY(key.isAccepted());
+        }
 
-    item = findItem<QQuickItem>(window->rootObject(), "button6");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "button6");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // 5 Tabs: button6->button7, through a focusscope
     // parent is activeFocusOnTab:true, none of children is focus:true
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);;
-    for (int i = 0; i < 5; ++i) {
-        QGuiApplication::sendEvent(window, &key);
-        QVERIFY(key.isAccepted());
-    }
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);;
+        for (int i = 0; i < 5; ++i) {
+            QGuiApplication::sendEvent(window, &key);
+            QVERIFY(key.isAccepted());
+        }
 
-    item = findItem<QQuickItem>(window->rootObject(), "button7");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "button7");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // 4 BackTabs: button7->button6, through a focusscope
     // parent is activeFocusOnTab:true, one of children got focus:true in previous code
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
-    for (int i = 0; i < 4; ++i) {
-        QGuiApplication::sendEvent(window, &key);
-        QVERIFY(key.isAccepted());
-    }
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
+        for (int i = 0; i < 4; ++i) {
+            QGuiApplication::sendEvent(window, &key);
+            QVERIFY(key.isAccepted());
+        }
 
-    item = findItem<QQuickItem>(window->rootObject(), "button6");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "button6");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // 4 Tabs: button6->button7, through a focusscope
     // parent is activeFocusOnTab:true, one of children got focus:true in previous code
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);;
-    for (int i = 0; i < 4; ++i) {
-        QGuiApplication::sendEvent(window, &key);
-        QVERIFY(key.isAccepted());
-    }
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);;
+        for (int i = 0; i < 4; ++i) {
+            QGuiApplication::sendEvent(window, &key);
+            QVERIFY(key.isAccepted());
+        }
 
-    item = findItem<QQuickItem>(window->rootObject(), "button7");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "button7");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // 4 BackTabs: button7->button6, through a focusscope
     // parent is activeFocusOnTab:true, one of children got focus:true in previous code
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
-    for (int i = 0; i < 4; ++i) {
-        QGuiApplication::sendEvent(window, &key);
-        QVERIFY(key.isAccepted());
-    }
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
+        for (int i = 0; i < 4; ++i) {
+            QGuiApplication::sendEvent(window, &key);
+            QVERIFY(key.isAccepted());
+        }
 
-    item = findItem<QQuickItem>(window->rootObject(), "button6");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "button6");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // 4 BackTabs: button6->button5, through a focusscope(parent is activeFocusOnTab: false)
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
-    for (int i = 0; i < 4; ++i) {
-        QGuiApplication::sendEvent(window, &key);
-        QVERIFY(key.isAccepted());
-    }
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
+        for (int i = 0; i < 4; ++i) {
+            QGuiApplication::sendEvent(window, &key);
+            QVERIFY(key.isAccepted());
+        }
 
-    item = findItem<QQuickItem>(window->rootObject(), "button5");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "button5");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // 4 BackTabs: button5->button4, through a focusscope(parent is activeFocusOnTab: false)
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
-    for (int i = 0; i < 4; ++i) {
-        QGuiApplication::sendEvent(window, &key);
-        QVERIFY(key.isAccepted());
-    }
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
+        for (int i = 0; i < 4; ++i) {
+            QGuiApplication::sendEvent(window, &key);
+            QVERIFY(key.isAccepted());
+        }
 
-    item = findItem<QQuickItem>(window->rootObject(), "button4");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "button4");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // 4 BackTabs: button4->button3, through a flow
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
-    for (int i = 0; i < 4; ++i) {
-        QGuiApplication::sendEvent(window, &key);
-        QVERIFY(key.isAccepted());
-    }
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
+        for (int i = 0; i < 4; ++i) {
+            QGuiApplication::sendEvent(window, &key);
+            QVERIFY(key.isAccepted());
+        }
 
-    item = findItem<QQuickItem>(window->rootObject(), "button3");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "button3");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // 4 BackTabs: button3->button2, through a row
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
-    for (int i = 0; i < 4; ++i) {
-        QGuiApplication::sendEvent(window, &key);
-        QVERIFY(key.isAccepted());
-    }
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
+        for (int i = 0; i < 4; ++i) {
+            QGuiApplication::sendEvent(window, &key);
+            QVERIFY(key.isAccepted());
+        }
 
-    item = findItem<QQuickItem>(window->rootObject(), "button2");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "button2");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // 4 BackTabs: button2->button1, through a repeater
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
-    for (int i = 0; i < 4; ++i) {
-        QGuiApplication::sendEvent(window, &key);
-        QVERIFY(key.isAccepted());
-    }
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
+        for (int i = 0; i < 4; ++i) {
+            QGuiApplication::sendEvent(window, &key);
+            QVERIFY(key.isAccepted());
+        }
 
-    item = findItem<QQuickItem>(window->rootObject(), "button1");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "button1");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     delete window;
 }
@@ -772,40 +841,48 @@ void tst_QQuickItem::activeFocusOnTab6()
     QVERIFY(item->hasActiveFocus());
 
     // Tab: button12->edit
-    QKeyEvent key(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "edit");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "edit");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // BackTab: edit->button12
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "button12");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "button12");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // BackTab: button12->button11
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "button11");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "button11");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // BackTab: button11->edit
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "edit");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "edit");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     delete window;
 }
@@ -830,18 +907,22 @@ void tst_QQuickItem::activeFocusOnTab7()
     QVERIFY(item->hasActiveFocus());
 
     // Tab: button1->button1
-    QKeyEvent key(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(!key.isAccepted());
+    {
+        QKeyEvent key(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(!key.isAccepted());
 
-    QVERIFY(item->hasActiveFocus());
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // BackTab: button1->button1
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(!key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(!key.isAccepted());
 
-    QVERIFY(item->hasActiveFocus());
+        QVERIFY(item->hasActiveFocus());
+    }
 
     delete window;
 }
@@ -870,27 +951,33 @@ void tst_QQuickItem::activeFocusOnTab8()
     QVERIFY(!button2->hasActiveFocus());
 
     // Tab: contentItem->button1
-    QKeyEvent key(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    QVERIFY(button1->hasActiveFocus());
+        QVERIFY(button1->hasActiveFocus());
+    }
 
     // Tab: button1->button2
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    QVERIFY(button2->hasActiveFocus());
-    QVERIFY(!button1->hasActiveFocus());
+        QVERIFY(button2->hasActiveFocus());
+        QVERIFY(!button1->hasActiveFocus());
+    }
 
     // BackTab: button2->button1
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    QVERIFY(button1->hasActiveFocus());
-    QVERIFY(!button2->hasActiveFocus());
+        QVERIFY(button1->hasActiveFocus());
+        QVERIFY(!button2->hasActiveFocus());
+    }
 
     delete window;
 }
@@ -923,25 +1010,31 @@ void tst_QQuickItem::activeFocusOnTab9()
     QVERIFY(textinput1->hasActiveFocus());
 
     // Tab: textinput1->textedit1
-    QKeyEvent key(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    QVERIFY(textedit1->hasActiveFocus());
+        QVERIFY(textedit1->hasActiveFocus());
+    }
 
     // BackTab: textedit1->textinput1
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    QVERIFY(textinput1->hasActiveFocus());
+        QVERIFY(textinput1->hasActiveFocus());
+    }
 
     // BackTab: textinput1->textedit1
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    QVERIFY(textedit1->hasActiveFocus());
+        QVERIFY(textedit1->hasActiveFocus());
+    }
 
     delete window;
 }
@@ -978,53 +1071,67 @@ void tst_QQuickItem::activeFocusOnTab10()
     QVERIFY(textinput1->hasActiveFocus());
 
     // Tab: textinput1->textinput2
-    QKeyEvent key(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    QVERIFY(textinput2->hasActiveFocus());
+        QVERIFY(textinput2->hasActiveFocus());
+    }
 
     // Tab: textinput2->textedit1
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    QVERIFY(textedit1->hasActiveFocus());
+        QVERIFY(textedit1->hasActiveFocus());
+    }
 
     // BackTab: textedit1->textinput2
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    QVERIFY(textinput2->hasActiveFocus());
+        QVERIFY(textinput2->hasActiveFocus());
+    }
 
     // BackTab: textinput2->textinput1
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    QVERIFY(textinput1->hasActiveFocus());
+        QVERIFY(textinput1->hasActiveFocus());
+    }
 
     // BackTab: textinput1->textedit2
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    QVERIFY(textedit2->hasActiveFocus());
+        QVERIFY(textedit2->hasActiveFocus());
+    }
 
     // BackTab: textedit2->textedit1
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    QVERIFY(textedit1->hasActiveFocus());
+        QVERIFY(textedit1->hasActiveFocus());
+    }
 
     // BackTab: textedit1->textinput2
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::ShiftModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    QVERIFY(textinput2->hasActiveFocus());
+        QVERIFY(textinput2->hasActiveFocus());
+    }
 
     delete window;
 }
@@ -1196,14 +1303,13 @@ void verifyTabFocusChain(QQuickView *window, const char **focusChain, bool forwa
     int idx = 0;
     for (const char **objectName = focusChain; *objectName; ++objectName, ++idx) {
         const QString &descrStr = QString("idx=%1 objectName=\"%2\"").arg(idx).arg(*objectName);
-        const char *descr = descrStr.toLocal8Bit().data();
         QKeyEvent key(QEvent::KeyPress, Qt::Key_Tab, forward ? Qt::NoModifier : Qt::ShiftModifier);
         QGuiApplication::sendEvent(window, &key);
-        QVERIFY2(key.isAccepted(), descr);
+        QVERIFY2(key.isAccepted(), qPrintable(descrStr));
 
         QQuickItem *item = findItem<QQuickItem>(window->rootObject(), *objectName);
-        QVERIFY2(item, descr);
-        QVERIFY2(item->hasActiveFocus(), descr);
+        QVERIFY2(item, qPrintable(descrStr));
+        QVERIFY2(item->hasActiveFocus(), qPrintable(descrStr));
     }
 }
 
@@ -1312,6 +1418,35 @@ void tst_QQuickItem::qtbug_50516_2()
     delete window;
 }
 
+void tst_QQuickItem::focusableItemReparentedToLoadedComponent() // QTBUG-89736
+{
+    QQuickView window;
+    window.setSource(testFileUrl("focusableItemReparentedToLoadedComponent.qml"));
+    window.show();
+    QVERIFY(QTest::qWaitForWindowActive(&window));
+    QCOMPARE(QGuiApplication::focusWindow(), &window);
+    QQuickLoader *loader = window.rootObject()->findChild<QQuickLoader *>();
+    QVERIFY(loader);
+    QTRY_VERIFY(loader->status() == QQuickLoader::Ready);
+    QQuickTextInput *textInput = window.rootObject()->findChild<QQuickTextInput *>();
+    QVERIFY(textInput);
+
+    // click to focus
+    QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, {10, 10});
+    QTRY_VERIFY(textInput->hasActiveFocus());
+
+    // unload and reload
+    auto component = loader->sourceComponent();
+    loader->resetSourceComponent();
+    QTRY_VERIFY(loader->status() == QQuickLoader::Null);
+    loader->setSourceComponent(component);
+    QTRY_VERIFY(loader->status() == QQuickLoader::Ready);
+
+    // click to focus again
+    QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, {10, 10});
+    QTRY_VERIFY(textInput->hasActiveFocus());
+}
+
 void tst_QQuickItem::keys()
 {
     QQuickView *window = new QQuickView(nullptr);
@@ -1332,112 +1467,134 @@ void tst_QQuickItem::keys()
     QVERIFY(window->rootObject());
     QCOMPARE(window->rootObject()->property("isEnabled").toBool(), true);
 
-    QKeyEvent key(QEvent::KeyPress, Qt::Key_A, Qt::NoModifier, "A", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QCOMPARE(testObject->mKey, int(Qt::Key_A));
-    QCOMPARE(testObject->mForwardedKey, int(Qt::Key_A));
-    QCOMPARE(testObject->mText, QLatin1String("A"));
-    QCOMPARE(testObject->mModifiers, int(Qt::NoModifier));
-    QVERIFY(!key.isAccepted());
+    {
+        QKeyEvent key(QEvent::KeyPress, Qt::Key_A, Qt::NoModifier, "A", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QCOMPARE(testObject->mKey, int(Qt::Key_A));
+        QCOMPARE(testObject->mForwardedKey, int(Qt::Key_A));
+        QCOMPARE(testObject->mText, QLatin1String("A"));
+        QCOMPARE(testObject->mModifiers, int(Qt::NoModifier));
+        QVERIFY(!key.isAccepted());
+    }
 
     testObject->reset();
 
-    key = QKeyEvent(QEvent::KeyRelease, Qt::Key_A, Qt::ShiftModifier, "A", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QCOMPARE(testObject->mKey, int(Qt::Key_A));
-    QCOMPARE(testObject->mForwardedKey, int(Qt::Key_A));
-    QCOMPARE(testObject->mText, QLatin1String("A"));
-    QCOMPARE(testObject->mModifiers, int(Qt::ShiftModifier));
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyRelease, Qt::Key_A, Qt::ShiftModifier, "A", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QCOMPARE(testObject->mKey, int(Qt::Key_A));
+        QCOMPARE(testObject->mForwardedKey, int(Qt::Key_A));
+        QCOMPARE(testObject->mText, QLatin1String("A"));
+        QCOMPARE(testObject->mModifiers, int(Qt::ShiftModifier));
+        QVERIFY(key.isAccepted());
+    }
 
     testObject->reset();
 
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QCOMPARE(testObject->mKey, int(Qt::Key_Return));
-    QCOMPARE(testObject->mForwardedKey, int(Qt::Key_Return));
-    QCOMPARE(testObject->mText, QLatin1String("Return"));
-    QCOMPARE(testObject->mModifiers, int(Qt::NoModifier));
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QCOMPARE(testObject->mKey, int(Qt::Key_Return));
+        QCOMPARE(testObject->mForwardedKey, int(Qt::Key_Return));
+        QCOMPARE(testObject->mText, QLatin1String("Return"));
+        QCOMPARE(testObject->mModifiers, int(Qt::NoModifier));
+        QVERIFY(key.isAccepted());
+    }
 
     testObject->reset();
 
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_0, Qt::NoModifier, "0", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QCOMPARE(testObject->mKey, int(Qt::Key_0));
-    QCOMPARE(testObject->mForwardedKey, int(Qt::Key_0));
-    QCOMPARE(testObject->mText, QLatin1String("0"));
-    QCOMPARE(testObject->mModifiers, int(Qt::NoModifier));
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_0, Qt::NoModifier, "0", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QCOMPARE(testObject->mKey, int(Qt::Key_0));
+        QCOMPARE(testObject->mForwardedKey, int(Qt::Key_0));
+        QCOMPARE(testObject->mText, QLatin1String("0"));
+        QCOMPARE(testObject->mModifiers, int(Qt::NoModifier));
+        QVERIFY(key.isAccepted());
+    }
 
     testObject->reset();
 
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_9, Qt::NoModifier, "9", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QCOMPARE(testObject->mKey, int(Qt::Key_9));
-    QCOMPARE(testObject->mForwardedKey, int(Qt::Key_9));
-    QCOMPARE(testObject->mText, QLatin1String("9"));
-    QCOMPARE(testObject->mModifiers, int(Qt::NoModifier));
-    QVERIFY(!key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_9, Qt::NoModifier, "9", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QCOMPARE(testObject->mKey, int(Qt::Key_9));
+        QCOMPARE(testObject->mForwardedKey, int(Qt::Key_9));
+        QCOMPARE(testObject->mText, QLatin1String("9"));
+        QCOMPARE(testObject->mModifiers, int(Qt::NoModifier));
+        QVERIFY(!key.isAccepted());
+    }
 
     testObject->reset();
 
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QCOMPARE(testObject->mKey, int(Qt::Key_Tab));
-    QCOMPARE(testObject->mForwardedKey, int(Qt::Key_Tab));
-    QCOMPARE(testObject->mText, QLatin1String("Tab"));
-    QCOMPARE(testObject->mModifiers, int(Qt::NoModifier));
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QCOMPARE(testObject->mKey, int(Qt::Key_Tab));
+        QCOMPARE(testObject->mForwardedKey, int(Qt::Key_Tab));
+        QCOMPARE(testObject->mText, QLatin1String("Tab"));
+        QCOMPARE(testObject->mModifiers, int(Qt::NoModifier));
+        QVERIFY(key.isAccepted());
+    }
 
     testObject->reset();
 
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Backtab, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QCOMPARE(testObject->mKey, int(Qt::Key_Backtab));
-    QCOMPARE(testObject->mForwardedKey, int(Qt::Key_Backtab));
-    QCOMPARE(testObject->mText, QLatin1String("Backtab"));
-    QCOMPARE(testObject->mModifiers, int(Qt::NoModifier));
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Backtab, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QCOMPARE(testObject->mKey, int(Qt::Key_Backtab));
+        QCOMPARE(testObject->mForwardedKey, int(Qt::Key_Backtab));
+        QCOMPARE(testObject->mText, QLatin1String("Backtab"));
+        QCOMPARE(testObject->mModifiers, int(Qt::NoModifier));
+        QVERIFY(key.isAccepted());
+    }
 
     testObject->reset();
 
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_VolumeUp, Qt::NoModifier, 1234, 0, 0);
-    QGuiApplication::sendEvent(window, &key);
-    QCOMPARE(testObject->mKey, int(Qt::Key_VolumeUp));
-    QCOMPARE(testObject->mForwardedKey, int(Qt::Key_VolumeUp));
-    QCOMPARE(testObject->mModifiers, int(Qt::NoModifier));
-    QCOMPARE(testObject->mNativeScanCode, quint32(1234));
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_VolumeUp, Qt::NoModifier, 1234, 0, 0);
+        QGuiApplication::sendEvent(window, &key);
+        QCOMPARE(testObject->mKey, int(Qt::Key_VolumeUp));
+        QCOMPARE(testObject->mForwardedKey, int(Qt::Key_VolumeUp));
+        QCOMPARE(testObject->mModifiers, int(Qt::NoModifier));
+        QCOMPARE(testObject->mNativeScanCode, quint32(1234));
+        QVERIFY(key.isAccepted());
+    }
 
     testObject->reset();
 
-    window->rootContext()->setContextProperty("forwardeeVisible", QVariant(false));
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_A, Qt::NoModifier, "A", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QCOMPARE(testObject->mKey, int(Qt::Key_A));
-    QCOMPARE(testObject->mForwardedKey, 0);
-    QCOMPARE(testObject->mText, QLatin1String("A"));
-    QCOMPARE(testObject->mModifiers, int(Qt::NoModifier));
-    QVERIFY(!key.isAccepted());
+    {
+        window->rootContext()->setContextProperty("forwardeeVisible", QVariant(false));
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_A, Qt::NoModifier, "A", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QCOMPARE(testObject->mKey, int(Qt::Key_A));
+        QCOMPARE(testObject->mForwardedKey, 0);
+        QCOMPARE(testObject->mText, QLatin1String("A"));
+        QCOMPARE(testObject->mModifiers, int(Qt::NoModifier));
+        QVERIFY(!key.isAccepted());
+    }
 
     testObject->reset();
 
-    window->rootContext()->setContextProperty("enableKeyHanding", QVariant(false));
-    QCOMPARE(window->rootObject()->property("isEnabled").toBool(), false);
+    {
+        window->rootContext()->setContextProperty("enableKeyHanding", QVariant(false));
+        QCOMPARE(window->rootObject()->property("isEnabled").toBool(), false);
 
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QCOMPARE(testObject->mKey, 0);
-    QVERIFY(!key.isAccepted());
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QCOMPARE(testObject->mKey, 0);
+        QVERIFY(!key.isAccepted());
+    }
 
-    window->rootContext()->setContextProperty("enableKeyHanding", QVariant(true));
-    QCOMPARE(window->rootObject()->property("isEnabled").toBool(), true);
+    {
+        window->rootContext()->setContextProperty("enableKeyHanding", QVariant(true));
+        QCOMPARE(window->rootObject()->property("isEnabled").toBool(), true);
 
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QCOMPARE(testObject->mKey, int(Qt::Key_Return));
-    QVERIFY(key.isAccepted());
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QCOMPARE(testObject->mKey, int(Qt::Key_Return));
+        QVERIFY(key.isAccepted());
+    }
 
     delete window;
     delete testObject;
@@ -1494,9 +1651,9 @@ void tst_QQuickItem::standardKeys()
     QQuickItem *item = qobject_cast<QQuickItem*>(view.rootObject());
     QVERIFY(item);
 
-    const int key = keySequence[0] & Qt::Key_unknown;
-    const int modifiers = keySequence[0] & Qt::KeyboardModifierMask;
-    QKeyEvent keyEvent(eventType, key, static_cast<Qt::KeyboardModifiers>(modifiers));
+    const int key = keySequence[0].key();
+    Qt::KeyboardModifiers modifiers = keySequence[0].keyboardModifiers();
+    QKeyEvent keyEvent(eventType, key, modifiers);
     QGuiApplication::sendEvent(&view, &keyEvent);
 
     QCOMPARE(item->property("pressed").toBool(), pressed);
@@ -1524,12 +1681,14 @@ void tst_QQuickItem::keysProcessingOrder()
 
     QCOMPARE(testItem->property("priorityTest").toInt(), 0);
 
-    QKeyEvent key(QEvent::KeyPress, Qt::Key_A, Qt::NoModifier, "A", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QCOMPARE(testObject->mKey, int(Qt::Key_A));
-    QCOMPARE(testObject->mText, QLatin1String("A"));
-    QCOMPARE(testObject->mModifiers, int(Qt::NoModifier));
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key(QEvent::KeyPress, Qt::Key_A, Qt::NoModifier, "A", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QCOMPARE(testObject->mKey, int(Qt::Key_A));
+        QCOMPARE(testObject->mText, QLatin1String("A"));
+        QCOMPARE(testObject->mModifiers, int(Qt::NoModifier));
+        QVERIFY(key.isAccepted());
+    }
 
     testObject->reset();
 
@@ -1537,26 +1696,32 @@ void tst_QQuickItem::keysProcessingOrder()
 
     QCOMPARE(testItem->property("priorityTest").toInt(), 1);
 
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_A, Qt::NoModifier, "A", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QCOMPARE(testObject->mKey, 0);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_A, Qt::NoModifier, "A", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QCOMPARE(testObject->mKey, 0);
+        QVERIFY(key.isAccepted());
+    }
 
     testObject->reset();
 
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_B, Qt::NoModifier, "B", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QCOMPARE(testObject->mKey, int(Qt::Key_B));
-    QCOMPARE(testObject->mText, QLatin1String("B"));
-    QCOMPARE(testObject->mModifiers, int(Qt::NoModifier));
-    QVERIFY(!key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_B, Qt::NoModifier, "B", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QCOMPARE(testObject->mKey, int(Qt::Key_B));
+        QCOMPARE(testObject->mText, QLatin1String("B"));
+        QCOMPARE(testObject->mModifiers, int(Qt::NoModifier));
+        QVERIFY(!key.isAccepted());
+    }
 
     testObject->reset();
 
-    key = QKeyEvent(QEvent::KeyRelease, Qt::Key_B, Qt::NoModifier, "B", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QCOMPARE(testObject->mKey, 0);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyRelease, Qt::Key_B, Qt::NoModifier, "B", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QCOMPARE(testObject->mKey, 0);
+        QVERIFY(key.isAccepted());
+    }
 
     delete window;
     delete testObject;
@@ -1870,58 +2035,70 @@ void tst_QQuickItem::keyNavigation()
     QVERIFY(result.toBool());
 
     // right
-    QKeyEvent key(QEvent::KeyPress, Qt::Key_Right, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key(QEvent::KeyPress, Qt::Key_Right, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "item2");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "item2");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // down
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Down, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Down, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "item4");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "item4");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // left
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Left, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Left, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "item3");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "item3");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // up
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Up, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Up, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "item1");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "item1");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // tab
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "item2");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "item2");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // backtab
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Backtab, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Backtab, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "item1");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "item1");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     delete window;
 }
@@ -1961,22 +2138,26 @@ void tst_QQuickItem::keyNavigation_RightToLeft()
     QVERIFY(result.toBool());
 
     // right
-    QKeyEvent key(QEvent::KeyPress, Qt::Key_Left, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key(QEvent::KeyPress, Qt::Key_Left, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "item2");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "item2");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // left
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Right, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Right, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "item1");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "item1");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     delete window;
 }
@@ -2003,31 +2184,37 @@ void tst_QQuickItem::keyNavigation_skipNotVisible()
     QVERIFY(!item->isVisible());
 
     // right
-    QKeyEvent key(QEvent::KeyPress, Qt::Key_Right, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key(QEvent::KeyPress, Qt::Key_Right, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "item1");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "item1");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // tab
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "item3");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "item3");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // backtab
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Backtab, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Backtab, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "item1");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "item1");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     //Set item 3 to not visible
     item = findItem<QQuickItem>(window->rootObject(), "item3");
@@ -2036,22 +2223,26 @@ void tst_QQuickItem::keyNavigation_skipNotVisible()
     QVERIFY(!item->isVisible());
 
     // tab
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "item4");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "item4");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // backtab
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Backtab, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Backtab, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "item1");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "item1");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     delete window;
 }
@@ -2082,103 +2273,125 @@ void tst_QQuickItem::keyNavigation_implicitSetting()
     QVERIFY(result.toBool());
 
     // right
-    QKeyEvent key(QEvent::KeyPress, Qt::Key_Right, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key(QEvent::KeyPress, Qt::Key_Right, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "item2");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "item2");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // back to item1
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Left, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Left, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "item1");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "item1");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // down
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Down, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Down, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "item3");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "item3");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // move to item4
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Right, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Right, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "item4");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "item4");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // left
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Left, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Left, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "item3");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "item3");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // back to item4
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Right, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Right, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "item4");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "item4");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // up
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Up, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Up, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "item2");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "item2");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // back to item4
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Down, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Down, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "item4");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "item4");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // tab
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "item1");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "item1");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // back to item4
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Backtab, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Backtab, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "item4");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "item4");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     // backtab
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Backtab, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Backtab, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
 
-    item = findItem<QQuickItem>(window->rootObject(), "item3");
-    QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+        item = findItem<QQuickItem>(window->rootObject(), "item3");
+        QVERIFY(item);
+        QVERIFY(item->hasActiveFocus());
+    }
 
     delete window;
 }
@@ -2242,26 +2455,32 @@ void tst_QQuickItem::keyNavigation_focusReason()
     item->installEventFilter(&focusEventFilter);
 
     // tab
-    QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
-    QCOMPARE(focusEventFilter.lastFocusReason, Qt::TabFocusReason);
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
+        QCOMPARE(focusEventFilter.lastFocusReason, Qt::TabFocusReason);
+    }
 
     // backtab
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Backtab, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
-    QCOMPARE(focusEventFilter.lastFocusReason, Qt::BacktabFocusReason);
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Backtab, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
+        QCOMPARE(focusEventFilter.lastFocusReason, Qt::BacktabFocusReason);
+    }
 
     // right - it's also one kind of key navigation
-    key = QKeyEvent(QEvent::KeyPress, Qt::Key_Right, Qt::NoModifier, "", false, 1);
-    QGuiApplication::sendEvent(window, &key);
-    QVERIFY(key.isAccepted());
-    QCOMPARE(focusEventFilter.lastFocusReason, Qt::TabFocusReason);
+    {
+        QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Right, Qt::NoModifier, "", false, 1);
+        QGuiApplication::sendEvent(window, &key);
+        QVERIFY(key.isAccepted());
+        QCOMPARE(focusEventFilter.lastFocusReason, Qt::TabFocusReason);
 
-    item->setFocus(true, Qt::OtherFocusReason);
-    QVERIFY(item->hasActiveFocus());
-    QCOMPARE(focusEventFilter.lastFocusReason, Qt::OtherFocusReason);
+        item->setFocus(true, Qt::OtherFocusReason);
+        QVERIFY(item->hasActiveFocus());
+        QCOMPARE(focusEventFilter.lastFocusReason, Qt::OtherFocusReason);
+    }
 
     delete window;
 }
@@ -2640,6 +2859,30 @@ void tst_QQuickItem::resourcesProperty()
     delete object;
 }
 
+void tst_QQuickItem::bindableProperties_data()
+{
+    QTest::addColumn<qreal>("initialValue");
+    QTest::addColumn<qreal>("newValue");
+    QTest::addColumn<QString>("property");
+
+    // can't simply use 3. or 3.0 for the numbers as qreal might
+    // be float instead of double...
+    QTest::addRow("x") << qreal(3) << qreal(14) << "x";
+    QTest::addRow("y") << qreal(10) << qreal(20) << "y";
+    QTest::addRow("width") << qreal(100) << qreal(200) << "width";
+    QTest::addRow("height") << qreal(50) << qreal(40) << "height";
+}
+
+void tst_QQuickItem::bindableProperties()
+{
+    QQuickItem item;
+    QFETCH(qreal, initialValue);
+    QFETCH(qreal, newValue);
+    QFETCH(QString, property);
+
+    QTestPrivate::testReadWritePropertyBasics(item, initialValue, newValue, property.toUtf8().constData());
+}
+
 void tst_QQuickItem::propertyChanges()
 {
     QQuickView *window = new QQuickView(nullptr);
@@ -2764,7 +3007,7 @@ void tst_QQuickItem::childrenRectBug()
 {
     QQuickView *window = new QQuickView(nullptr);
 
-    QString warning = testFileUrl("childrenRectBug.qml").toString() + ":7:5: QML Item: Binding loop detected for property \"height\"";
+    QString warning = testFileUrl("childrenRectBug.qml").toString() + ":11:9: QML Item: Binding loop detected for property \"height\"";
     QTest::ignoreMessage(QtWarningMsg, qPrintable(warning));
     QTest::ignoreMessage(QtWarningMsg, qPrintable(warning));
 
@@ -2785,11 +3028,11 @@ void tst_QQuickItem::childrenRectBug2()
 {
     QQuickView *window = new QQuickView(nullptr);
 
-    QString warning1 = testFileUrl("childrenRectBug2.qml").toString() + ":7:5: QML Item: Binding loop detected for property \"width\"";
+    QString warning1 = testFileUrl("childrenRectBug2.qml").toString() + ":10:9: QML Item: Binding loop detected for property \"width\"";
     QTest::ignoreMessage(QtWarningMsg, qPrintable(warning1));
     QTest::ignoreMessage(QtWarningMsg, qPrintable(warning1));
 
-    QString warning2 = testFileUrl("childrenRectBug2.qml").toString() + ":7:5: QML Item: Binding loop detected for property \"height\"";
+    QString warning2 = testFileUrl("childrenRectBug2.qml").toString() + ":11:9: QML Item: Binding loop detected for property \"height\"";
     QTest::ignoreMessage(QtWarningMsg, qPrintable(warning2));
     QTest::ignoreMessage(QtWarningMsg, qPrintable(warning2));
     QTest::ignoreMessage(QtWarningMsg, qPrintable(warning2));
@@ -3340,39 +3583,35 @@ void tst_QQuickItem::contains()
     QFETCH(bool, insideTarget);
     QFETCH(QList<QPoint>, points);
 
-    QQuickView *window = new QQuickView(nullptr);
-    window->rootContext()->setContextProperty("circleShapeTest", circleTest);
-    window->setBaseSize(QSize(400, 400));
-    window->setSource(testFileUrl("hollowTestItem.qml"));
-    window->show();
-    window->requestActivate();
-    QVERIFY(QTest::qWaitForWindowActive(window));
-    QCOMPARE(QGuiApplication::focusWindow(), window);
-
-    QQuickItem *root = qobject_cast<QQuickItem *>(window->rootObject());
+    QQuickView window;
+    QVERIFY(QQuickTest::showView(window, testFileUrl("hollowTestItem.qml")));
+    QQuickItem *root = qobject_cast<QQuickItem *>(window.rootObject());
     QVERIFY(root);
+
+    // Ensure that we don't get extra hover events delivered on the side.
+    QQuickWindowPrivate::get(&window)->deliveryAgentPrivate()->frameSynchronousHoverEnabled = false;
+    // Flush out any mouse events that might be queued up
+    qGuiApp->processEvents();
 
     HollowTestItem *hollowItem = root->findChild<HollowTestItem *>("hollowItem");
     QVERIFY(hollowItem);
+    hollowItem->setCircle(circleTest);
 
-    foreach (const QPoint &point, points) {
+    for (const QPoint &point : points) {
+        qCDebug(lcTests) << "hover and click @" << point;
+
         // check mouse hover
-        QTest::mouseMove(window, point);
-        QTest::qWait(10);
-        QCOMPARE(hollowItem->isHovered(), insideTarget);
+        QTest::mouseMove(&window, point);
+        QTRY_COMPARE(hollowItem->isHovered(), insideTarget);
 
         // check mouse press
-        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, point);
-        QTest::qWait(10);
-        QCOMPARE(hollowItem->isPressed(), insideTarget);
+        QTest::mousePress(&window, Qt::LeftButton, Qt::NoModifier, point);
+        QTRY_COMPARE(hollowItem->isPressed(), insideTarget);
 
         // check mouse release
-        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, point);
-        QTest::qWait(10);
-        QCOMPARE(hollowItem->isPressed(), false);
+        QTest::mouseRelease(&window, Qt::LeftButton, Qt::NoModifier, point);
+        QTRY_COMPARE(hollowItem->isPressed(), false);
     }
-
-    delete window;
 }
 
 void tst_QQuickItem::childAt()
@@ -3487,6 +3726,112 @@ void tst_QQuickItem::isAncestorOf()
     QVERIFY(!sub2.isAncestorOf(&child2));
     QVERIFY(!sub1.isAncestorOf(&sub1));
     QVERIFY(!sub2.isAncestorOf(&sub2));
+}
+
+/*
+    Verify that a nested item's palette responds to changes of the enabled state
+    and of the window's activation state by switching the current color group.
+*/
+void tst_QQuickItem::colorGroup()
+{
+    QQuickView view;
+
+    view.setSource(testFileUrl("colorgroup.qml"));
+    view.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+    QQuickItem *root = qobject_cast<QQuickItem *>(view.rootObject());
+    QQuickItem *background = root->findChild<QQuickItem *>("background");
+    QVERIFY(background);
+    QQuickItem *foreground = root->findChild<QQuickItem *>("foreground");
+    QVERIFY(foreground);
+
+    QQuickPalette *palette = foreground->property("palette").value<QQuickPalette*>();
+    QVERIFY(palette);
+    view.show();
+    QVERIFY(QTest::qWaitForWindowActive(&view));
+
+    QCOMPARE(palette->currentColorGroup(), QPalette::Active);
+    QCOMPARE(foreground->property("color").value<QColor>(), palette->active()->base());
+
+    background->setEnabled(false);
+    QCOMPARE(palette->currentColorGroup(), QPalette::Disabled);
+    QCOMPARE(foreground->property("color").value<QColor>(), palette->disabled()->base());
+
+    QWindow activationThief;
+    activationThief.show();
+    activationThief.requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(&activationThief));
+    QCOMPARE(palette->currentColorGroup(), QPalette::Disabled);
+    QCOMPARE(foreground->property("color").value<QColor>(), palette->disabled()->base());
+
+    background->setEnabled(true);
+    QCOMPARE(palette->currentColorGroup(), QPalette::Inactive);
+    QCOMPARE(foreground->property("color").value<QColor>(), palette->inactive()->base());
+
+    view.requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(&view));
+    QCOMPARE(palette->currentColorGroup(), QPalette::Active);
+    QCOMPARE(foreground->property("color").value<QColor>(), palette->active()->base());
+
+    activationThief.requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(&activationThief));
+    QCOMPARE(palette->currentColorGroup(), QPalette::Inactive);
+    QCOMPARE(foreground->property("color").value<QColor>(), palette->inactive()->base());
+}
+
+/*!
+    Verify that items don't allocate their own QQuickPalette instance
+    unnecessarily.
+*/
+void tst_QQuickItem::paletteAllocated()
+{
+    QQuickView view;
+
+    view.setSource(testFileUrl("paletteAllocate.qml"));
+
+    QQuickItem *root = qobject_cast<QQuickItem *>(view.rootObject());
+    QQuickItem *background = root->findChild<QQuickItem *>("background");
+    QVERIFY(background);
+    QQuickItem *foreground = root->findChild<QQuickItem *>("foreground");
+    QVERIFY(foreground);
+
+    bool backgroundHasPalette = false;
+    bool foregroundHasPalette = false;
+    QObject::connect(background, &QQuickItem::paletteCreated, this, [&]{ backgroundHasPalette = true; });
+    QObject::connect(foreground, &QQuickItem::paletteCreated, this, [&]{ foregroundHasPalette = true; });
+
+    view.show();
+    view.requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(&view));
+
+    QVERIFY(!backgroundHasPalette);
+    QVERIFY(!foregroundHasPalette);
+
+    view.close();
+
+    QVERIFY(!backgroundHasPalette);
+    QVERIFY(!foregroundHasPalette);
+
+    auto quickpalette = foreground->property("palette").value<QQuickPalette*>();
+    QVERIFY(!backgroundHasPalette);
+    QVERIFY(quickpalette);
+    QVERIFY(foregroundHasPalette);
+}
+
+void tst_QQuickItem::undefinedIsInvalidForWidthAndHeight()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("undefinedInvalid.qml"));
+    QScopedPointer<QObject> root(component.create());
+    QVERIFY(root);
+    auto item = qobject_cast<QQuickItem *>(root.get());
+    auto priv = QQuickItemPrivate::get(item);
+    QVERIFY(item);
+    QCOMPARE(item->height(), 300);
+    QCOMPARE(item->width(), 200);
+    QVERIFY(!priv->widthValid());
+    QVERIFY(!priv->heightValid());
 }
 
 QTEST_MAIN(tst_QQuickItem)

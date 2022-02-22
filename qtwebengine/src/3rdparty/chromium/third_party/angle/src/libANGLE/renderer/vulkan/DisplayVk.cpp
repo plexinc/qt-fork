@@ -23,7 +23,10 @@ namespace rx
 {
 
 DisplayVk::DisplayVk(const egl::DisplayState &state)
-    : DisplayImpl(state), vk::Context(new RendererVk()), mScratchBuffer(1000u)
+    : DisplayImpl(state),
+      vk::Context(new RendererVk()),
+      mScratchBuffer(1000u),
+      mSavedError({VK_SUCCESS, "", "", 0})
 {}
 
 DisplayVk::~DisplayVk()
@@ -44,13 +47,18 @@ void DisplayVk::terminate()
     mRenderer->reloadVolkIfNeeded();
 
     ASSERT(mRenderer);
-    mRenderer->onDestroy();
+    mRenderer->onDestroy(this);
 }
 
-egl::Error DisplayVk::makeCurrent(egl::Surface * /*drawSurface*/,
+egl::Error DisplayVk::makeCurrent(egl::Display * /*display*/,
+                                  egl::Surface * /*drawSurface*/,
                                   egl::Surface * /*readSurface*/,
                                   gl::Context * /*context*/)
 {
+    // Ensure the appropriate global DebugAnnotator is used
+    ASSERT(mRenderer);
+    mRenderer->setGlobalDebugAnnotator();
+
     return egl::NoError();
 }
 
@@ -66,21 +74,31 @@ egl::Error DisplayVk::restoreLostDevice(const egl::Display *display)
     return egl::EglBadDisplay();
 }
 
-std::string DisplayVk::getVendorString() const
+std::string DisplayVk::getRendererDescription()
 {
-    std::string vendorString = "Google Inc.";
     if (mRenderer)
     {
-        vendorString += " " + mRenderer->getVendorString();
+        return mRenderer->getRendererDescription();
     }
-
-    return vendorString;
+    return std::string();
 }
 
-DeviceImpl *DisplayVk::createDevice()
+std::string DisplayVk::getVendorString()
 {
-    UNIMPLEMENTED();
-    return nullptr;
+    if (mRenderer)
+    {
+        return mRenderer->getVendorString();
+    }
+    return std::string();
+}
+
+std::string DisplayVk::getVersionString()
+{
+    if (mRenderer)
+    {
+        return mRenderer->getVersionString();
+    }
+    return std::string();
 }
 
 egl::Error DisplayVk::waitClient(const gl::Context *context)
@@ -112,7 +130,7 @@ SurfaceImpl *DisplayVk::createPbufferSurface(const egl::SurfaceState &state,
                                              const egl::AttributeMap &attribs)
 {
     ASSERT(mRenderer);
-    return new OffscreenSurfaceVk(state);
+    return new OffscreenSurfaceVk(state, mRenderer);
 }
 
 SurfaceImpl *DisplayVk::createPbufferFromClientBuffer(const egl::SurfaceState &state,
@@ -140,11 +158,16 @@ ImageImpl *DisplayVk::createImage(const egl::ImageState &state,
     return new ImageVk(state, context);
 }
 
-rx::ContextImpl *DisplayVk::createContext(const gl::State &state,
-                                          gl::ErrorSet *errorSet,
-                                          const egl::Config *configuration,
-                                          const gl::Context *shareContext,
-                                          const egl::AttributeMap &attribs)
+ShareGroupImpl *DisplayVk::createShareGroup()
+{
+    return new ShareGroupVk();
+}
+
+ContextImpl *DisplayVk::createContext(const gl::State &state,
+                                      gl::ErrorSet *errorSet,
+                                      const egl::Config *configuration,
+                                      const gl::Context *shareContext,
+                                      const egl::AttributeMap &attribs)
 {
     return new ContextVk(state, errorSet, mRenderer);
 }
@@ -177,6 +200,7 @@ void DisplayVk::generateExtensions(egl::DisplayExtensions *outExtensions) const
     outExtensions->createContextRobustness      = getRenderer()->getNativeExtensions().robustness;
     outExtensions->surfaceOrientation           = true;
     outExtensions->displayTextureShareGroup     = true;
+    outExtensions->displaySemaphoreShareGroup   = true;
     outExtensions->robustResourceInitialization = true;
 
     // The Vulkan implementation will always say that EGL_KHR_swap_buffers_with_damage is supported.
@@ -197,25 +221,36 @@ void DisplayVk::generateExtensions(egl::DisplayExtensions *outExtensions) const
     outExtensions->imageNativeBuffer =
         getRenderer()->getFeatures().supportsAndroidHardwareBuffer.enabled;
     outExtensions->surfacelessContext = true;
-    outExtensions->glColorspace = getRenderer()->getFeatures().supportsSwapchainColorspace.enabled;
+    outExtensions->glColorspace =
+        getRenderer()->getFeatures().supportsSwapchainColorspace.enabled &&
+        getRenderer()->getFeatures().supportsImageFormatList.enabled;
+    outExtensions->imageGlColorspace =
+        outExtensions->glColorspace && getRenderer()->getFeatures().supportsImageFormatList.enabled;
 
 #if defined(ANGLE_PLATFORM_ANDROID)
-    outExtensions->framebufferTargetANDROID = true;
+    outExtensions->getNativeClientBufferANDROID = true;
+    outExtensions->framebufferTargetANDROID     = true;
 #endif  // defined(ANGLE_PLATFORM_ANDROID)
 
     // Disable context priority when non-zero memory init is enabled. This enforces a queue order.
     outExtensions->contextPriority = !getRenderer()->getFeatures().allocateNonZeroMemory.enabled;
     outExtensions->noConfigContext = true;
 
+#if defined(ANGLE_PLATFORM_ANDROID)
+    outExtensions->nativeFenceSyncANDROID =
+        getRenderer()->getFeatures().supportsAndroidNativeFenceSync.enabled;
+#endif  // defined(ANGLE_PLATFORM_ANDROID)
+
 #if defined(ANGLE_PLATFORM_GGP)
     outExtensions->ggpStreamDescriptor = true;
-    outExtensions->swapWithFrameToken  = true;
+    outExtensions->swapWithFrameToken  = getRenderer()->getFeatures().supportsGGPFrameToken.enabled;
 #endif  // defined(ANGLE_PLATFORM_GGP)
 }
 
 void DisplayVk::generateCaps(egl::Caps *outCaps) const
 {
     outCaps->textureNPOT = true;
+    outCaps->stencil8    = getRenderer()->getNativeExtensions().stencilIndex8;
 }
 
 const char *DisplayVk::getWSILayer() const
@@ -236,14 +271,15 @@ void DisplayVk::handleError(VkResult result,
 {
     ASSERT(result != VK_SUCCESS);
 
-    std::stringstream errorStream;
-    errorStream << "Internal Vulkan error: " << VulkanResultString(result) << ", in " << file
-                << ", " << function << ":" << line << ".";
-    mStoredErrorString = errorStream.str();
+    mSavedError.errorCode = result;
+    mSavedError.file      = file;
+    mSavedError.function  = function;
+    mSavedError.line      = line;
 
     if (result == VK_ERROR_DEVICE_LOST)
     {
-        WARN() << mStoredErrorString;
+        WARN() << "Internal Vulkan error (" << result << "): " << VulkanResultString(result)
+               << ", in " << file << ", " << function << ":" << line << ".";
         mRenderer->notifyDeviceLost();
     }
 }
@@ -251,7 +287,13 @@ void DisplayVk::handleError(VkResult result,
 // TODO(jmadill): Remove this. http://anglebug.com/3041
 egl::Error DisplayVk::getEGLError(EGLint errorCode)
 {
-    return egl::Error(errorCode, 0, std::move(mStoredErrorString));
+    std::stringstream errorStream;
+    errorStream << "Internal Vulkan error (" << mSavedError.errorCode
+                << "): " << VulkanResultString(mSavedError.errorCode) << ", in " << mSavedError.file
+                << ", " << mSavedError.function << ":" << mSavedError.line << ".";
+    std::string errorString = errorStream.str();
+
+    return egl::Error(errorCode, 0, std::move(errorString));
 }
 
 void DisplayVk::populateFeatureList(angle::FeatureList *features)
@@ -259,4 +301,15 @@ void DisplayVk::populateFeatureList(angle::FeatureList *features)
     mRenderer->getFeatures().populateFeatureList(features);
 }
 
+ShareGroupVk::ShareGroupVk() : mSyncObjectPendingFlush(false) {}
+
+void ShareGroupVk::onDestroy(const egl::Display *display)
+{
+    DisplayVk *displayVk = vk::GetImpl(display);
+
+    mPipelineLayoutCache.destroy(displayVk->getRenderer());
+    mDescriptorSetLayoutCache.destroy(displayVk->getRenderer());
+
+    ASSERT(mResourceUseLists.empty());
+}
 }  // namespace rx

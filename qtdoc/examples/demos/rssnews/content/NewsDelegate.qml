@@ -48,7 +48,7 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.2
+import QtQuick
 
 Column {
     id: delegate
@@ -101,14 +101,16 @@ Column {
 
             Image {
                 id: titleImage
-                source: image
+                source: content
+                width: Math.min(delegate.width / 2, sourceSize.width)
+                fillMode: Image.PreserveAspectFit
             }
         }
 
         Text {
             id: titleText
 
-            text: title
+            text: title.replace(/&#39;/g, "'")
             width: delegate.width - titleImage.width
             wrapMode: Text.WordWrap
             font.pixelSize: 26
@@ -122,19 +124,8 @@ Column {
         textFormat: Text.RichText
         font.italic: true
         text: timeSinceEvent(pubDate) + " (<a href=\"" + link + "\">Link</a>)"
-        onLinkActivated: {
+        onLinkActivated: function(link) {
             Qt.openUrlExternally(link)
         }
-    }
-
-    Text {
-        id: descriptionText
-
-        text: description
-        width: parent.width
-        wrapMode: Text.WordWrap
-        font.pixelSize: 14
-        textFormat: Text.StyledText
-        horizontalAlignment: Qt.AlignLeft
     }
 }

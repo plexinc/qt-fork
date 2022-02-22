@@ -10,12 +10,15 @@
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_delegate.h"
+#include "content/public/test/navigation_simulator.h"
 #include "content/public/test/test_renderer_host.h"
 #include "content/test/test_render_view_host.h"
 #include "content/test/test_web_contents.h"
 #include "third_party/blink/public/common/feature_policy/feature_policy.h"
 #include "third_party/blink/public/common/mediastream/media_stream_request.h"
 #include "url/origin.h"
+
+using blink::mojom::MediaDeviceType;
 
 namespace content {
 
@@ -47,15 +50,16 @@ class MediaDevicesPermissionCheckerTest : public RenderViewHostImplTestHarness {
   // page to simulate that.
   void RefreshPageAndSetHeaderPolicy(blink::mojom::FeaturePolicyFeature feature,
                                      bool enabled) {
-    NavigateAndCommit(origin_.GetURL());
+    auto navigation = NavigationSimulator::CreateBrowserInitiated(
+        origin_.GetURL(), web_contents());
     std::vector<url::Origin> allowlist;
     if (enabled)
       allowlist.push_back(origin_);
-    RenderFrameHostTester::For(main_rfh())
-        ->SimulateFeaturePolicyHeader(feature, allowlist);
+    navigation->SetFeaturePolicyHeader({{feature, allowlist, false, false}});
+    navigation->Commit();
   }
 
-  bool CheckPermission(blink::MediaDeviceType device_type) {
+  bool CheckPermission(MediaDeviceType device_type) {
     base::RunLoop run_loop;
     quit_closure_ = run_loop.QuitClosure();
     checker_.CheckPermission(
@@ -93,18 +97,18 @@ class MediaDevicesPermissionCheckerTest : public RenderViewHostImplTestHarness {
 TEST_F(MediaDevicesPermissionCheckerTest, CheckPermissionWithFeaturePolicy) {
   // Mic and Camera should be enabled by default for a frame (if permission is
   // granted).
-  EXPECT_TRUE(CheckPermission(blink::MEDIA_DEVICE_TYPE_AUDIO_INPUT));
-  EXPECT_TRUE(CheckPermission(blink::MEDIA_DEVICE_TYPE_VIDEO_INPUT));
+  EXPECT_TRUE(CheckPermission(MediaDeviceType::MEDIA_AUDIO_INPUT));
+  EXPECT_TRUE(CheckPermission(MediaDeviceType::MEDIA_VIDEO_INPUT));
 
   RefreshPageAndSetHeaderPolicy(blink::mojom::FeaturePolicyFeature::kMicrophone,
                                 /*enabled=*/false);
-  EXPECT_FALSE(CheckPermission(blink::MEDIA_DEVICE_TYPE_AUDIO_INPUT));
-  EXPECT_TRUE(CheckPermission(blink::MEDIA_DEVICE_TYPE_VIDEO_INPUT));
+  EXPECT_FALSE(CheckPermission(MediaDeviceType::MEDIA_AUDIO_INPUT));
+  EXPECT_TRUE(CheckPermission(MediaDeviceType::MEDIA_VIDEO_INPUT));
 
   RefreshPageAndSetHeaderPolicy(blink::mojom::FeaturePolicyFeature::kCamera,
                                 /*enabled=*/false);
-  EXPECT_TRUE(CheckPermission(blink::MEDIA_DEVICE_TYPE_AUDIO_INPUT));
-  EXPECT_FALSE(CheckPermission(blink::MEDIA_DEVICE_TYPE_VIDEO_INPUT));
+  EXPECT_TRUE(CheckPermission(MediaDeviceType::MEDIA_AUDIO_INPUT));
+  EXPECT_FALSE(CheckPermission(MediaDeviceType::MEDIA_VIDEO_INPUT));
 }
 
 }  // namespace

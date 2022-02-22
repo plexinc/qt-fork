@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 #include <QtCore/QtCore>
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include <math.h>
 
@@ -61,7 +61,7 @@ public:
     int m_threadid;
     int timeout;
 
-    void run()
+    void run() override
     {
         for (int count = 0; count < 5000; ++count) {
 
@@ -110,7 +110,7 @@ void tst_QWaitCondition::oscillate_mutex_data()
 void tst_QWaitCondition::oscillate_mutex()
 {
     QFETCH(unsigned long, timeout);
-    oscillate<QMutex, QMutexLocker>(timeout);
+    oscillate<QMutex, QMutexLocker<QMutex>>(timeout);
 }
 
 void tst_QWaitCondition::oscillate_writelock_data()

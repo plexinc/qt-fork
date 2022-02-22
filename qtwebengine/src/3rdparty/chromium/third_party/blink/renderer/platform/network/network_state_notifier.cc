@@ -26,9 +26,11 @@
 #include "third_party/blink/renderer/platform/network/network_state_notifier.h"
 
 #include <memory>
+
 #include "net/nqe/effective_connection_type.h"
 #include "net/nqe/network_quality_estimator_params.h"
 #include "third_party/blink/public/common/client_hints/client_hints.h"
+#include "third_party/blink/public/mojom/webpreferences/web_preferences.mojom-blink.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
@@ -39,6 +41,8 @@
 #include "third_party/blink/renderer/platform/wtf/wtf.h"
 
 namespace blink {
+
+using mojom::blink::EffectiveConnectionType;
 
 namespace {
 
@@ -223,14 +227,19 @@ void NetworkStateNotifier::SetNetworkConnectionInfoOverride(
           base::TimeDelta::FromMilliseconds(http_rtt_msec));
       // Threshold values taken from
       // net/nqe/network_quality_estimator_params.cc.
-      if (http_rtt >= net::kHttpRttEffectiveConnectionTypeThresholds
-                          [net::EFFECTIVE_CONNECTION_TYPE_SLOW_2G]) {
+      if (http_rtt >=
+          net::kHttpRttEffectiveConnectionTypeThresholds[static_cast<int>(
+              EffectiveConnectionType::kEffectiveConnectionSlow2GType)]) {
         effective_type = WebEffectiveConnectionType::kTypeSlow2G;
-      } else if (http_rtt >= net::kHttpRttEffectiveConnectionTypeThresholds
-                                 [net::EFFECTIVE_CONNECTION_TYPE_2G]) {
+      } else if (http_rtt >=
+                 net::kHttpRttEffectiveConnectionTypeThresholds[static_cast<
+                     int>(
+                     EffectiveConnectionType::kEffectiveConnection2GType)]) {
         effective_type = WebEffectiveConnectionType::kType2G;
-      } else if (http_rtt >= net::kHttpRttEffectiveConnectionTypeThresholds
-                                 [net::EFFECTIVE_CONNECTION_TYPE_3G]) {
+      } else if (http_rtt >=
+                 net::kHttpRttEffectiveConnectionTypeThresholds[static_cast<
+                     int>(
+                     EffectiveConnectionType::kEffectiveConnection3GType)]) {
         effective_type = WebEffectiveConnectionType::kType3G;
       } else {
         effective_type = WebEffectiveConnectionType::kType4G;
@@ -394,8 +403,14 @@ void NetworkStateNotifier::CollectZeroedObservers(
 
   // If any observers were removed during the iteration they will have
   // 0 values, clean them up.
-  for (wtf_size_t i = 0; i < list->zeroed_observers.size(); ++i)
-    list->observers.EraseAt(list->zeroed_observers[i]);
+  std::sort(list->zeroed_observers.begin(), list->zeroed_observers.end());
+  int removed = 0;
+  for (wtf_size_t i = 0; i < list->zeroed_observers.size(); ++i) {
+    int index_to_remove = list->zeroed_observers[i] - removed;
+    DCHECK_EQ(nullptr, list->observers[index_to_remove]);
+    list->observers.EraseAt(index_to_remove);
+    removed += 1;
+  }
 
   list->zeroed_observers.clear();
 
@@ -430,25 +445,21 @@ double NetworkStateNotifier::GetRandomMultiplier(const String& host) const {
 uint32_t NetworkStateNotifier::RoundRtt(
     const String& host,
     const base::Optional<base::TimeDelta>& rtt) const {
-  // Limit the size of the buckets and the maximum reported value to reduce
-  // fingerprinting.
-  static const size_t kBucketSize = 50;
-  static const double kMaxRttMsec = 3.0 * 1000;
-
   if (!rtt.has_value()) {
     // RTT is unavailable. So, return the fastest value.
     return 0;
   }
 
-  double rtt_msec = static_cast<double>(rtt.value().InMilliseconds());
-  rtt_msec *= GetRandomMultiplier(host);
-  rtt_msec = std::min(rtt_msec, kMaxRttMsec);
+  // Limit the maximum reported value and the granularity to reduce
+  // fingerprinting.
+  constexpr auto kMaxRtt = base::TimeDelta::FromSeconds(3);
+  constexpr auto kGranularity = base::TimeDelta::FromMilliseconds(50);
 
-  DCHECK_LE(0, rtt_msec);
-  DCHECK_GE(kMaxRttMsec, rtt_msec);
-
-  // Round down to the nearest kBucketSize msec value.
-  return std::round(rtt_msec / kBucketSize) * kBucketSize;
+  const base::TimeDelta modified_rtt =
+      std::min(rtt.value() * GetRandomMultiplier(host), kMaxRtt);
+  DCHECK_GE(modified_rtt, base::TimeDelta());
+  return static_cast<uint32_t>(
+      modified_rtt.RoundToMultiple(kGranularity).InMilliseconds());
 }
 
 double NetworkStateNotifier::RoundMbps(

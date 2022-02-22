@@ -41,6 +41,8 @@
 #define QT3DANIMATION_QABSTRACTCLIPANIMATOR_H
 
 #include <Qt3DAnimation/qt3danimation_global.h>
+#include <Qt3DAnimation/qchannelmapper.h>
+#include <Qt3DAnimation/qclock.h>
 #include <Qt3DCore/qcomponent.h>
 
 QT_BEGIN_NAMESPACE
@@ -48,8 +50,6 @@ QT_BEGIN_NAMESPACE
 namespace Qt3DAnimation {
 
 class QAnimationClip;
-class QChannelMapper;
-class QClock;
 class QAbstractClipAnimatorPrivate;
 
 class Q_3DANIMATIONSHARED_EXPORT QAbstractClipAnimator : public Qt3DCore::QComponent
@@ -94,8 +94,6 @@ protected:
     explicit QAbstractClipAnimator(Qt3DCore::QNode *parent = nullptr);
     QAbstractClipAnimator(QAbstractClipAnimatorPrivate &dd, Qt3DCore::QNode *parent = nullptr);
 
-    // TODO Unused remove in Qt6
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) override;
 private:
     Q_DECLARE_PRIVATE(QAbstractClipAnimator)
 };

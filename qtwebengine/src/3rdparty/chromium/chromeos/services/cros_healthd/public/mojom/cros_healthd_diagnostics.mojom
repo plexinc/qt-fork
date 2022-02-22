@@ -29,6 +29,20 @@ enum DiagnosticRoutineEnum {
   kDiskRead = 10,
   kPrimeSearch = 11,
   kBatteryDischarge = 12,
+  kBatteryCharge = 13,
+  kMemory = 14,
+  kLanConnectivity = 15,
+  kSignalStrength = 16,
+  kGatewayCanBePinged = 17,
+  kHasSecureWiFiConnection = 18,
+  kDnsResolverPresent = 19,
+  kDnsLatency = 20,
+  kDnsResolution = 21,
+  kCaptivePortal = 22,
+  kHttpFirewall = 23,
+  kHttpsFirewall = 24,
+  kHttpsLatency = 25,
+  kVideoConferencing = 26,
 };
 
 // Enumeration of the possible DiskRead routine's command type
@@ -52,6 +66,8 @@ enum DiagnosticRoutineStatusEnum {
   kFailedToStart = 7,  // Routine could not be created.
   kRemoved = 8,  // Routine has been removed and is no longer valid.
   kCancelling = 9,  // Routine is in the process of being cancelled.
+  kUnsupported = 10,  // Routine is not supported by the device.
+  kNotRun = 11,  // Routine was not run because it is currently not applicable.
 };
 
 // Enumeration of each of the messages a diagnostics routine can pass back.

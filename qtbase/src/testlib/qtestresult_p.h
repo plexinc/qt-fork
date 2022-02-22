@@ -77,7 +77,7 @@ public:
     static void reset();
     static void setBlacklistCurrentTest(bool b);
 
-    static void addFailure(const char *message, const char *file, int line);
+    static void addFailure(const char *message, const char *file = nullptr, int line = 0);
     static bool compare(bool success, const char *failureMsg,
                         char *val1, char *val2,
                         const char *actual, const char *expected,
@@ -94,6 +94,12 @@ public:
                         int val1, int val2,
                         const char *actual, const char *expected,
                         const char *file, int line);
+#if QT_POINTER_SIZE == 8
+    static bool compare(bool success, const char *failureMsg,
+                        qsizetype val1, qsizetype val2,
+                        const char *actual, const char *expected,
+                        const char *file, int line);
+#endif
     static bool compare(bool success, const char *failureMsg,
                         unsigned val1, unsigned val2,
                         const char *actual, const char *expected,

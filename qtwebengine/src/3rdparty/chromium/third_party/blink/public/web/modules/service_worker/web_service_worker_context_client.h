@@ -31,13 +31,11 @@
 #ifndef THIRD_PARTY_BLINK_PUBLIC_WEB_MODULES_SERVICE_WORKER_WEB_SERVICE_WORKER_CONTEXT_CLIENT_H_
 #define THIRD_PARTY_BLINK_PUBLIC_WEB_MODULES_SERVICE_WORKER_WEB_SERVICE_WORKER_CONTEXT_CLIENT_H_
 
-#include <memory>
-
 #include "base/memory/scoped_refptr.h"
 #include "base/time/time.h"
-#include "mojo/public/cpp/system/message_pipe.h"
 #include "services/network/public/mojom/url_loader.mojom-shared.h"
 #include "third_party/blink/public/mojom/devtools/console_message.mojom-shared.h"
+#include "third_party/blink/public/mojom/devtools/devtools_agent.mojom-shared.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_event_status.mojom-shared.h"
 #include "third_party/blink/public/mojom/web_feature/web_feature.mojom-shared.h"
 #include "third_party/blink/public/platform/cross_variant_mojo_util.h"
@@ -53,14 +51,6 @@ namespace blink {
 
 class WebServiceWorkerContextProxy;
 class WebString;
-
-// Used to pass the mojom struct blink.mojom.FetchEventPreloadHandle across the
-// boundary between //content and Blink.
-struct WebFetchEventPreloadHandle {
-  CrossVariantMojoRemote<network::mojom::URLLoaderInterfaceBase> url_loader;
-  CrossVariantMojoReceiver<network::mojom::URLLoaderClientInterfaceBase>
-      url_loader_client_receiver;
-};
 
 // WebServiceWorkerContextClient is a "client" of a service worker execution
 // context. This interface is implemented by the embedder and allows the
@@ -79,8 +69,10 @@ class WebServiceWorkerContextClient {
   // ServiceWorker has prepared everything for script loading and is now ready
   // for DevTools inspection. Called on the initiator thread.
   virtual void WorkerReadyForInspectionOnInitiatorThread(
-      mojo::ScopedMessagePipeHandle devtools_agent_ptr_info,
-      mojo::ScopedMessagePipeHandle devtools_agent_host_request) {}
+      CrossVariantMojoRemote<mojom::DevToolsAgentInterfaceBase>
+          devtools_agent_remote,
+      CrossVariantMojoReceiver<mojom::DevToolsAgentHostInterfaceBase>
+          devtools_agent_host_receiver) {}
 
   // The worker started but it could not execute because fetching the classic
   // script failed on the worker thread.
@@ -165,7 +157,8 @@ class WebServiceWorkerContextClient {
   virtual void SetupNavigationPreload(
       int fetch_event_id,
       const WebURL& url,
-      std::unique_ptr<WebFetchEventPreloadHandle> preload_handle) {}
+      CrossVariantMojoReceiver<network::mojom::URLLoaderClientInterfaceBase>
+          preload_url_loader_client_receiver) {}
 
   // Called when we need to request to terminate this worker due to idle
   // timeout.

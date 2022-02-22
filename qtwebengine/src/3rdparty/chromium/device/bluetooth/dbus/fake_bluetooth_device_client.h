@@ -85,9 +85,15 @@ class DEVICE_BLUETOOTH_EXPORT FakeBluetoothDeviceClient
   void Connect(const dbus::ObjectPath& object_path,
                base::OnceClosure callback,
                ErrorCallback error_callback) override;
+  void ConnectLE(const dbus::ObjectPath& object_path,
+                 base::OnceClosure callback,
+                 ErrorCallback error_callback) override;
   void Disconnect(const dbus::ObjectPath& object_path,
                   base::OnceClosure callback,
                   ErrorCallback error_callback) override;
+  void DisconnectLE(const dbus::ObjectPath& object_path,
+                    base::OnceClosure callback,
+                    ErrorCallback error_callback) override;
   void ConnectProfile(const dbus::ObjectPath& object_path,
                       const std::string& uuid,
                       base::OnceClosure callback,
@@ -140,7 +146,7 @@ class DEVICE_BLUETOOTH_EXPORT FakeBluetoothDeviceClient
   // Creates and returns a list of std::unique_ptr<base::DictionaryValue>
   // objects, which contain all the data from the constants for devices with
   // predefined behavior.
-  std::unique_ptr<base::ListValue> GetBluetoothDevicesAsDictionaries() const;
+  base::Value GetBluetoothDevicesAsDictionaries() const;
 
   SimulatedPairingOptions* GetPairingOptions(
       const dbus::ObjectPath& object_path);

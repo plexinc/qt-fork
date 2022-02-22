@@ -1,4 +1,7 @@
 {
+  "program": {
+    "binary": "web_engine_exe"
+  },
   "sandbox": {
     "features": [
       "config-data",
@@ -7,6 +10,8 @@
       "vulkan"
     ],
     "services": [
+      "fuchsia.feedback.ComponentDataRegister",
+      "fuchsia.feedback.CrashReportingProductRegister",
       "fuchsia.logger.LogSink",
       "fuchsia.process.Launcher"
     ]

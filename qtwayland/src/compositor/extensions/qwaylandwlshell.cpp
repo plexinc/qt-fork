@@ -244,7 +244,8 @@ void QWaylandWlShellSurfacePrivate::shell_surface_set_class(Resource *resource,
 
 /*!
  * \qmltype WlShell
- * \inqmlmodule QtWayland.Compositor
+ * \instantiates QWaylandWlShell
+ * \inqmlmodule QtWayland.Compositor.WlShell
  * \since 5.8
  * \brief Provides an extension for desktop-style user interfaces.
  *
@@ -258,8 +259,8 @@ void QWaylandWlShellSurfacePrivate::shell_surface_set_class(Resource *resource,
  * an instance of the WlShell component and add it to the list of extensions
  * supported by the compositor:
  *
- * \qml \QtMinorVersion
- * import QtWayland.Compositor 1.\1
+ * \qml
+ * import QtWayland.Compositor.WlShell
  *
  * WaylandCompositor {
  *     WlShell {
@@ -413,7 +414,8 @@ QByteArray QWaylandWlShell::interfaceName()
 
 /*!
  * \qmltype WlShellSurface
- * \inqmlmodule QtWayland.Compositor
+ * \instantiates QWaylandWlShellSurface
+ * \inqmlmodule QtWayland.Compositor.WlShell
  * \since 5.8
  * \brief Provides a \c wl_shell_surface that offers desktop-style compositor-specific features to a surface.
  *

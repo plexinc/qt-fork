@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include <qcoreapplication.h>
 #include <qdebug.h>
@@ -79,7 +79,7 @@ void tst_QFocusFrame::focusFrameInsideScrollview()
     // is why special considerations are taken inside the focus frame to
     // prevent the frame to scroll away from the widget it tracks.
 
-    if (qApp->style()->objectName() != QLatin1String("macintosh"))
+    if (qApp->style()->objectName() != QLatin1String("macos"))
         QSKIP("This test is only valid when using a style that has a focus frame");
 
     QWidget window;

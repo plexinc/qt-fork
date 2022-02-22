@@ -17,12 +17,13 @@
 #include "media/base/container_names.h"
 #include "media/base/content_decryption_module.h"
 #include "media/base/decode_status.h"
+#include "media/base/decoder.h"
 #include "media/base/decrypt_config.h"
 #include "media/base/decryptor.h"
 #include "media/base/demuxer_stream.h"
 #include "media/base/eme_constants.h"
 #include "media/base/encryption_scheme.h"
-#include "media/base/hdr_metadata.h"
+#include "media/base/media_content_type.h"
 #include "media/base/media_log_record.h"
 #include "media/base/media_status.h"
 #include "media/base/output_device_info.h"
@@ -31,17 +32,16 @@
 #include "media/base/sample_format.h"
 #include "media/base/status_codes.h"
 #include "media/base/subsample_entry.h"
+#include "media/base/supported_video_decoder_config.h"
 #include "media/base/video_codecs.h"
 #include "media/base/video_color_space.h"
 #include "media/base/video_transformation.h"
 #include "media/base/video_types.h"
 #include "media/base/waiting.h"
 #include "media/base/watch_time_keys.h"
-// TODO(crbug.com/676224): When EnabledIf attribute is supported in mojom files,
-// move CdmProxy related code into #if BUILDFLAG(ENABLE_LIBRARY_CDMS).
-#include "media/cdm/cdm_proxy.h"
 #include "media/media_buildflags.h"
-#include "media/video/supported_video_decoder_config.h"
+#include "third_party/blink/public/platform/web_fullscreen_video_status.h"
+#include "ui/gfx/hdr_metadata.h"
 #include "ui/gfx/ipc/color/gfx_param_traits_macros.h"
 
 #if BUILDFLAG(ENABLE_MEDIA_DRM_STORAGE)
@@ -49,6 +49,9 @@
 #endif  // BUILDFLAG(ENABLE_MEDIA_DRM_STORAGE)
 
 // Enum traits.
+
+IPC_ENUM_TRAITS_MAX_VALUE(blink::WebFullscreenVideoStatus,
+                          blink::WebFullscreenVideoStatus::kMaxValue)
 
 IPC_ENUM_TRAITS_MAX_VALUE(media::AudioCodec, media::AudioCodec::kAudioCodecMax)
 IPC_ENUM_TRAITS_MAX_VALUE(media::AudioCodecProfile,
@@ -73,25 +76,10 @@ IPC_ENUM_TRAITS_MAX_VALUE(media::CdmMessageType,
 IPC_ENUM_TRAITS_MAX_VALUE(media::CdmPromise::Exception,
                           media::CdmPromise::Exception::EXCEPTION_MAX)
 
-IPC_ENUM_TRAITS_MAX_VALUE(media::CdmProxy::Function,
-                          media::CdmProxy::Function::kMaxValue)
-
-IPC_ENUM_TRAITS_MAX_VALUE(media::CdmProxy::KeyType,
-                          media::CdmProxy::KeyType::kMaxValue)
-
-IPC_ENUM_TRAITS_MAX_VALUE(media::CdmProxy::Protocol,
-                          media::CdmProxy::Protocol::kMaxValue)
-
-IPC_ENUM_TRAITS_MAX_VALUE(media::CdmProxy::Status,
-                          media::CdmProxy::Status::kMaxValue)
-
 IPC_ENUM_TRAITS_MAX_VALUE(media::CdmSessionType,
                           media::CdmSessionType::kMaxValue)
 
 IPC_ENUM_TRAITS_MAX_VALUE(media::ChannelLayout, media::CHANNEL_LAYOUT_MAX)
-
-IPC_ENUM_TRAITS_MAX_VALUE(media::DecodeStatus,
-                          media::DecodeStatus::DECODE_STATUS_MAX)
 
 IPC_ENUM_TRAITS_MAX_VALUE(media::Decryptor::Status,
                           media::Decryptor::Status::kStatusMax)
@@ -112,6 +100,8 @@ IPC_ENUM_TRAITS_MAX_VALUE(media::EncryptionScheme,
 
 IPC_ENUM_TRAITS_MAX_VALUE(media::HdcpVersion,
                           media::HdcpVersion::kHdcpVersionMax)
+
+IPC_ENUM_TRAITS_MAX_VALUE(media::MediaContentType, media::MediaContentType::Max)
 
 IPC_ENUM_TRAITS_MAX_VALUE(media::MediaLogRecord::Type,
                           media::MediaLogRecord::Type::kMaxValue)
@@ -140,6 +130,12 @@ IPC_ENUM_TRAITS_MIN_MAX_VALUE(media::VideoCodecProfile,
 
 IPC_ENUM_TRAITS_MAX_VALUE(media::VideoDecoderImplementation,
                           media::VideoDecoderImplementation::kMaxValue)
+
+IPC_ENUM_TRAITS_MAX_VALUE(media::VideoDecoderType,
+                          media::VideoDecoderType::kMaxValue)
+
+IPC_ENUM_TRAITS_MAX_VALUE(media::AudioDecoderType,
+                          media::AudioDecoderType::kMaxValue)
 
 IPC_ENUM_TRAITS_MAX_VALUE(media::VideoPixelFormat, media::PIXEL_FORMAT_MAX)
 
@@ -201,7 +197,7 @@ IPC_STRUCT_TRAITS_BEGIN(media::VideoColorSpace)
   IPC_STRUCT_TRAITS_MEMBER(range)
 IPC_STRUCT_TRAITS_END()
 
-IPC_STRUCT_TRAITS_BEGIN(media::MasteringMetadata)
+IPC_STRUCT_TRAITS_BEGIN(gfx::MasteringMetadata)
   IPC_STRUCT_TRAITS_MEMBER(primary_r)
   IPC_STRUCT_TRAITS_MEMBER(primary_g)
   IPC_STRUCT_TRAITS_MEMBER(primary_b)
@@ -210,7 +206,7 @@ IPC_STRUCT_TRAITS_BEGIN(media::MasteringMetadata)
   IPC_STRUCT_TRAITS_MEMBER(luminance_min)
 IPC_STRUCT_TRAITS_END()
 
-IPC_STRUCT_TRAITS_BEGIN(media::HDRMetadata)
+IPC_STRUCT_TRAITS_BEGIN(gfx::HDRMetadata)
   IPC_STRUCT_TRAITS_MEMBER(mastering_metadata)
   IPC_STRUCT_TRAITS_MEMBER(max_content_light_level)
   IPC_STRUCT_TRAITS_MEMBER(max_frame_average_light_level)

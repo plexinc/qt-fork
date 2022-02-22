@@ -36,7 +36,7 @@
 #include <Qt3DRender/private/nodemanagers_p.h>
 #include <Qt3DRender/private/managers_p.h>
 #include <Qt3DRender/private/entity_p.h>
-#include <materialparametergathererjob_p.h>
+#include <Qt3DRender/private/materialparametergathererjob_p.h>
 #include <Qt3DRender/private/techniquefilternode_p.h>
 #include <Qt3DRender/private/technique_p.h>
 #include <Qt3DRender/private/techniquemanager_p.h>
@@ -62,13 +62,13 @@ class TestAspect : public Qt3DRender::QRenderAspect
 {
 public:
     TestAspect(Qt3DCore::QNode *root)
-        : Qt3DRender::QRenderAspect(Qt3DRender::QRenderAspect::Synchronous)
+        : Qt3DRender::QRenderAspect()
         , m_jobManager(new Qt3DCore::QAspectJobManager())
     {
         Qt3DCore::QAbstractAspectPrivate::get(this)->m_jobManager = m_jobManager.data();
         QRenderAspect::onRegistered();
 
-        QVector<Qt3DCore::QNode *> nodes;
+        QList<Qt3DCore::QNode *> nodes;
         Qt3DCore::QNodeVisitor v;
         v.traverse(root, [&nodes](Qt3DCore::QNode *node) {
             Qt3DCore::QNodePrivate *d = Qt3DCore::QNodePrivate::get(node);
@@ -107,15 +107,15 @@ public:
         d_func()->m_renderer->initialize();
     }
 
-    Render::OpenGL::MaterialParameterGathererJobPtr materialGathererJob() const
+    Render::MaterialParameterGathererJobPtr materialGathererJob() const
     {
-        Render::OpenGL::MaterialParameterGathererJobPtr job = Render::OpenGL::MaterialParameterGathererJobPtr::create();
+        Render::MaterialParameterGathererJobPtr job = Render::MaterialParameterGathererJobPtr::create();
         job->setNodeManagers(nodeManagers());
         return job;
     }
 
-    void onRegistered() { QRenderAspect::onRegistered(); }
-    void onUnregistered() { QRenderAspect::onUnregistered(); }
+    void onRegistered() override { QRenderAspect::onRegistered(); }
+    void onUnregistered() override { QRenderAspect::onUnregistered(); }
 
 private:
     QScopedPointer<Qt3DCore::QAspectJobManager> m_jobManager;
@@ -232,7 +232,7 @@ private Q_SLOTS:
         // GIVEN
         Qt3DCore::QEntity *sceneRoot = buildScene(viewportFrameGraph());
         Qt3DRender::TestAspect testAspect(sceneRoot);
-        Qt3DRender::Render::OpenGL::MaterialParameterGathererJobPtr gatherer = testAspect.materialGathererJob();
+        Qt3DRender::Render::MaterialParameterGathererJobPtr gatherer = testAspect.materialGathererJob();
 
         testAspect.initializeRenderer();
 
@@ -252,7 +252,7 @@ private Q_SLOTS:
         TestMaterial material;
         Qt3DCore::QEntity *sceneRoot = buildScene(viewportFrameGraph(), &material);
         Qt3DRender::TestAspect testAspect(sceneRoot);
-        Qt3DRender::Render::OpenGL::MaterialParameterGathererJobPtr gatherer = testAspect.materialGathererJob();
+        Qt3DRender::Render::MaterialParameterGathererJobPtr gatherer = testAspect.materialGathererJob();
 
         testAspect.initializeRenderer();
 
@@ -274,7 +274,7 @@ private Q_SLOTS:
         material.setEnabled(false);
         Qt3DCore::QEntity *sceneRoot = buildScene(viewportFrameGraph(), &material);
         Qt3DRender::TestAspect testAspect(sceneRoot);
-        Qt3DRender::Render::OpenGL::MaterialParameterGathererJobPtr gatherer = testAspect.materialGathererJob();
+        Qt3DRender::Render::MaterialParameterGathererJobPtr gatherer = testAspect.materialGathererJob();
 
         testAspect.initializeRenderer();
 
@@ -306,7 +306,7 @@ private Q_SLOTS:
 
         Qt3DCore::QEntity *sceneRoot = buildScene(frameGraphFilter, &material);
         Qt3DRender::TestAspect testAspect(sceneRoot);
-        Qt3DRender::Render::OpenGL::MaterialParameterGathererJobPtr gatherer = testAspect.materialGathererJob();
+        Qt3DRender::Render::MaterialParameterGathererJobPtr gatherer = testAspect.materialGathererJob();
 
         testAspect.initializeRenderer();
 
@@ -346,7 +346,7 @@ private Q_SLOTS:
 
         Qt3DCore::QEntity *sceneRoot = buildScene(frameGraphFilter, &material);
         Qt3DRender::TestAspect testAspect(sceneRoot);
-        Qt3DRender::Render::OpenGL::MaterialParameterGathererJobPtr gatherer = testAspect.materialGathererJob();
+        Qt3DRender::Render::MaterialParameterGathererJobPtr gatherer = testAspect.materialGathererJob();
 
         testAspect.initializeRenderer();
 
@@ -382,7 +382,7 @@ private Q_SLOTS:
 
         Qt3DCore::QEntity *sceneRoot = buildScene(frameGraphFilter, &material);
         Qt3DRender::TestAspect testAspect(sceneRoot);
-        Qt3DRender::Render::OpenGL::MaterialParameterGathererJobPtr gatherer = testAspect.materialGathererJob();
+        Qt3DRender::Render::MaterialParameterGathererJobPtr gatherer = testAspect.materialGathererJob();
 
         testAspect.initializeRenderer();
 
@@ -416,7 +416,7 @@ private Q_SLOTS:
 
         Qt3DCore::QEntity *sceneRoot = buildScene(frameGraphFilter, &material);
         Qt3DRender::TestAspect testAspect(sceneRoot);
-        Qt3DRender::Render::OpenGL::MaterialParameterGathererJobPtr gatherer = testAspect.materialGathererJob();
+        Qt3DRender::Render::MaterialParameterGathererJobPtr gatherer = testAspect.materialGathererJob();
 
         testAspect.initializeRenderer();
 
@@ -456,7 +456,7 @@ private Q_SLOTS:
 
         Qt3DCore::QEntity *sceneRoot = buildScene(frameGraphFilter, &material);
         Qt3DRender::TestAspect testAspect(sceneRoot);
-        Qt3DRender::Render::OpenGL::MaterialParameterGathererJobPtr gatherer = testAspect.materialGathererJob();
+        Qt3DRender::Render::MaterialParameterGathererJobPtr gatherer = testAspect.materialGathererJob();
 
         testAspect.initializeRenderer();
 
@@ -509,7 +509,7 @@ private Q_SLOTS:
             material.es2Pass()->addParameter(passParam);
 
             Qt3DRender::TestAspect testAspect(sceneRoot);
-            Qt3DRender::Render::OpenGL::MaterialParameterGathererJobPtr gatherer = testAspect.materialGathererJob();
+            Qt3DRender::Render::MaterialParameterGathererJobPtr gatherer = testAspect.materialGathererJob();
             testAspect.initializeRenderer();
 
             QCOMPARE(testAspect.nodeManagers()->materialManager()->activeHandles().size(), 1);
@@ -526,10 +526,10 @@ private Q_SLOTS:
             // THEN -> RenderPassFilter wins
             QCOMPARE(gatherer->materialToPassAndParameter().size(), 1);
 
-            const QVector<Qt3DRender::Render::OpenGL::RenderPassParameterData> passParameterData = gatherer->materialToPassAndParameter().begin().value();
+            const std::vector<Qt3DRender::Render::RenderPassParameterData> passParameterData = gatherer->materialToPassAndParameter().begin().value();
             QCOMPARE(passParameterData.size(), 1);
 
-            const Qt3DRender::Render::OpenGL::RenderPassParameterData data = passParameterData.first();
+            const Qt3DRender::Render::RenderPassParameterData data = passParameterData.front();
 
             QCOMPARE(data.parameterInfo.size(), 1);
             QCOMPARE(data.parameterInfo.first().handle, testAspect.nodeManagers()->parameterManager()->lookupHandle(renderPassParameter->id()));
@@ -565,7 +565,7 @@ private Q_SLOTS:
             material.es2Pass()->addParameter(passParam);
 
             Qt3DRender::TestAspect testAspect(sceneRoot);
-            Qt3DRender::Render::OpenGL::MaterialParameterGathererJobPtr gatherer = testAspect.materialGathererJob();
+            Qt3DRender::Render::MaterialParameterGathererJobPtr gatherer = testAspect.materialGathererJob();
             testAspect.initializeRenderer();
 
             QCOMPARE(testAspect.nodeManagers()->materialManager()->activeHandles().size(), 1);
@@ -582,10 +582,10 @@ private Q_SLOTS:
             // THEN -> TechniqueFilter wins
             QCOMPARE(gatherer->materialToPassAndParameter().size(), 1);
 
-            const QVector<Qt3DRender::Render::OpenGL::RenderPassParameterData> passParameterData = gatherer->materialToPassAndParameter().begin().value();
+            const std::vector<Qt3DRender::Render::RenderPassParameterData> passParameterData = gatherer->materialToPassAndParameter().begin().value();
             QCOMPARE(passParameterData.size(), 1);
 
-            const Qt3DRender::Render::OpenGL::RenderPassParameterData data = passParameterData.first();
+            const Qt3DRender::Render::RenderPassParameterData data = passParameterData.front();
 
             QCOMPARE(data.parameterInfo.size(), 1);
             QCOMPARE(data.parameterInfo.first().handle, testAspect.nodeManagers()->parameterManager()->lookupHandle(techniqueFilterParameter->id()));
@@ -620,7 +620,7 @@ private Q_SLOTS:
             material.es2Pass()->addParameter(passParam);
 
             Qt3DRender::TestAspect testAspect(sceneRoot);
-            Qt3DRender::Render::OpenGL::MaterialParameterGathererJobPtr gatherer = testAspect.materialGathererJob();
+            Qt3DRender::Render::MaterialParameterGathererJobPtr gatherer = testAspect.materialGathererJob();
             testAspect.initializeRenderer();
 
             QCOMPARE(testAspect.nodeManagers()->materialManager()->activeHandles().size(), 1);
@@ -637,10 +637,10 @@ private Q_SLOTS:
             // THEN -> TechniqueFilter wins
             QCOMPARE(gatherer->materialToPassAndParameter().size(), 1);
 
-            const QVector<Qt3DRender::Render::OpenGL::RenderPassParameterData> passParameterData = gatherer->materialToPassAndParameter().begin().value();
+            const std::vector<Qt3DRender::Render::RenderPassParameterData> passParameterData = gatherer->materialToPassAndParameter().begin().value();
             QCOMPARE(passParameterData.size(), 1);
 
-            const Qt3DRender::Render::OpenGL::RenderPassParameterData data = passParameterData.first();
+            const Qt3DRender::Render::RenderPassParameterData data = passParameterData.front();
 
             QCOMPARE(data.parameterInfo.size(), 1);
             QCOMPARE(data.parameterInfo.first().handle, testAspect.nodeManagers()->parameterManager()->lookupHandle(materialParameter->id()));
@@ -674,7 +674,7 @@ private Q_SLOTS:
             material.es2Pass()->addParameter(passParam);
 
             Qt3DRender::TestAspect testAspect(sceneRoot);
-            Qt3DRender::Render::OpenGL::MaterialParameterGathererJobPtr gatherer = testAspect.materialGathererJob();
+            Qt3DRender::Render::MaterialParameterGathererJobPtr gatherer = testAspect.materialGathererJob();
             testAspect.initializeRenderer();
 
             QCOMPARE(testAspect.nodeManagers()->materialManager()->activeHandles().size(), 1);
@@ -691,10 +691,10 @@ private Q_SLOTS:
             // THEN -> TechniqueFilter wins
             QCOMPARE(gatherer->materialToPassAndParameter().size(), 1);
 
-            const QVector<Qt3DRender::Render::OpenGL::RenderPassParameterData> passParameterData = gatherer->materialToPassAndParameter().begin().value();
+            const std::vector<Qt3DRender::Render::RenderPassParameterData> passParameterData = gatherer->materialToPassAndParameter().begin().value();
             QCOMPARE(passParameterData.size(), 1);
 
-            const Qt3DRender::Render::OpenGL::RenderPassParameterData data = passParameterData.first();
+            const Qt3DRender::Render::RenderPassParameterData data = passParameterData.front();
 
             QCOMPARE(data.parameterInfo.size(), 1);
             QCOMPARE(data.parameterInfo.first().handle, testAspect.nodeManagers()->parameterManager()->lookupHandle(effectParameter->id()));
@@ -724,7 +724,7 @@ private Q_SLOTS:
             material.es2Pass()->addParameter(passParam);
 
             Qt3DRender::TestAspect testAspect(sceneRoot);
-            Qt3DRender::Render::OpenGL::MaterialParameterGathererJobPtr gatherer = testAspect.materialGathererJob();
+            Qt3DRender::Render::MaterialParameterGathererJobPtr gatherer = testAspect.materialGathererJob();
             testAspect.initializeRenderer();
 
             QCOMPARE(testAspect.nodeManagers()->materialManager()->activeHandles().size(), 1);
@@ -741,10 +741,10 @@ private Q_SLOTS:
             // THEN -> TechniqueFilter wins
             QCOMPARE(gatherer->materialToPassAndParameter().size(), 1);
 
-            const QVector<Qt3DRender::Render::OpenGL::RenderPassParameterData> passParameterData = gatherer->materialToPassAndParameter().begin().value();
+            const std::vector<Qt3DRender::Render::RenderPassParameterData> passParameterData = gatherer->materialToPassAndParameter().begin().value();
             QCOMPARE(passParameterData.size(), 1);
 
-            const Qt3DRender::Render::OpenGL::RenderPassParameterData data = passParameterData.first();
+            const Qt3DRender::Render::RenderPassParameterData data = passParameterData.front();
 
             QCOMPARE(data.parameterInfo.size(), 1);
             QCOMPARE(data.parameterInfo.first().handle, testAspect.nodeManagers()->parameterManager()->lookupHandle(techniqueParam->id()));
@@ -768,7 +768,7 @@ private Q_SLOTS:
             material.es2Pass()->addParameter(passParam);
 
             Qt3DRender::TestAspect testAspect(sceneRoot);
-            Qt3DRender::Render::OpenGL::MaterialParameterGathererJobPtr gatherer = testAspect.materialGathererJob();
+            Qt3DRender::Render::MaterialParameterGathererJobPtr gatherer = testAspect.materialGathererJob();
             testAspect.initializeRenderer();
 
             QCOMPARE(testAspect.nodeManagers()->materialManager()->activeHandles().size(), 1);
@@ -785,10 +785,10 @@ private Q_SLOTS:
             // THEN -> TechniqueFilter wins
             QCOMPARE(gatherer->materialToPassAndParameter().size(), 1);
 
-            const QVector<Qt3DRender::Render::OpenGL::RenderPassParameterData> passParameterData = gatherer->materialToPassAndParameter().begin().value();
+            const std::vector<Qt3DRender::Render::RenderPassParameterData> passParameterData = gatherer->materialToPassAndParameter().begin().value();
             QCOMPARE(passParameterData.size(), 1);
 
-            const Qt3DRender::Render::OpenGL::RenderPassParameterData data = passParameterData.first();
+            const Qt3DRender::Render::RenderPassParameterData data = passParameterData.front();
 
             QCOMPARE(data.parameterInfo.size(), 1);
             QCOMPARE(data.parameterInfo.first().handle, testAspect.nodeManagers()->parameterManager()->lookupHandle(passParam->id()));

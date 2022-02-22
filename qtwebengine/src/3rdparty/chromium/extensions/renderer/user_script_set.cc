@@ -177,7 +177,7 @@ bool UserScriptSet::UpdateUserScripts(
 }
 
 std::unique_ptr<ScriptInjection> UserScriptSet::GetDeclarativeScriptInjection(
-    int script_id,
+    const std::string& script_id,
     content::RenderFrame* render_frame,
     int tab_id,
     UserScript::RunLocation run_location,
@@ -215,8 +215,9 @@ std::unique_ptr<ScriptInjection> UserScriptSet::GetInjectionForScript(
     injection_host.reset(new WebUIInjectionHost(host_id));
   }
 
-  GURL effective_document_url = ScriptContext::GetEffectiveDocumentURL(
-      web_frame, document_url, script->match_about_blank());
+  GURL effective_document_url =
+      ScriptContext::GetEffectiveDocumentURLForInjection(
+          web_frame, document_url, script->match_origin_as_fallback());
 
   bool is_subframe = web_frame->Parent();
   if (!script->MatchesDocument(effective_document_url, is_subframe))

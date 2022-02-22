@@ -3,8 +3,10 @@
 # found in the LICENSE file.
 
 import("//build/config/chrome_build.gni")
+import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/features.gni")
 import("//build/config/mac/base_rules.gni")
+import("//build/config/python.gni")
 import("//build/toolchain/toolchain.gni")
 import("//components/policy/resources/policy_templates.gni")
 import("//third_party/libprotobuf-mutator/fuzzable_proto_library.gni")
@@ -19,10 +21,10 @@ gen_policy_templates_local = false
 # enable these flags (but don't check that in!).
 gen_policy_templates_common = true
 gen_policy_templates_win = is_win
-gen_policy_templates_linux = is_linux
+gen_policy_templates_linux = is_linux || is_chromeos
 gen_policy_templates_android = is_android
 gen_policy_templates_mac = is_mac
-gen_policy_templates_chromeos = is_chromeos
+gen_policy_templates_chromeos = is_chromeos_ash
 gen_policy_templates_ios = is_ios
 
 # The zip file is grabbed from the Windows build right now.
@@ -97,7 +99,8 @@ constants_source_path = "$target_gen_dir/policy_constants.cc"
 app_restrictions_path = "$target_gen_dir/app_restrictions.xml"
 risk_tag_header_path = "$target_gen_dir/risk_tag.h"
 
-action("policy_code_generate") {
+# TODO(crbug.com/1112471): Get this to run cleanly under Python 3.
+python2_action("policy_code_generate") {
   script = "tools/generate_policy_source.py"
   chrome_version_abspath = "//chrome/VERSION"
   chrome_version_path = rebase_path(chrome_version_abspath, root_build_dir)
@@ -122,7 +125,6 @@ action("policy_code_generate") {
   args = [
     # Input information
     "--chrome-version-file=" + chrome_version_path,
-    "--target-platform=" + target_os,
     "--policy-templates-file=" +
         rebase_path("resources/policy_templates.json", root_build_dir),
 
@@ -139,9 +141,18 @@ action("policy_code_generate") {
         rebase_path(app_restrictions_path, root_build_dir),
     "--risk-tag-header=" + rebase_path(risk_tag_header_path, root_build_dir),
   ]
+
+  #TODO(crbug.com/1169547): Switch lacros-chrome to chromeos policy.
+  if (is_chromeos_lacros) {
+    # Currently lacros-chrome uses linux's policy instead of chromeos policy.
+    args += [ "--target-platform=linux" ]
+  } else {
+    args += [ "--target-platform=" + target_os ]
+  }
 }
 
-action("full_runtime_code_generate") {
+# TODO(crbug.com/1112471): Get this to run cleanly under Python 3.
+python2_action("full_runtime_code_generate") {
   script = "tools/generate_policy_source.py"
   chrome_version_abspath = "//chrome/VERSION"
   chrome_version_path = rebase_path(chrome_version_abspath, root_build_dir)
@@ -174,6 +185,14 @@ action("full_runtime_code_generate") {
         rebase_path(policy_common_definitions_full_runtime_proto_path,
                     root_build_dir),
   ]
+
+  #TODO(crbug.com/1169547): Switch lacros-chrome to chromeos policy.
+  if (is_chromeos_lacros) {
+    # Currently lacros-chrome uses linux's policy instead of chromeos policy.
+    args += [ "--target-platform=linux" ]
+  } else {
+    args += [ "--target-platform=" + target_os ]
+  }
 }
 
 policy_templates_grd_file = "resources/policy_templates.grd"
@@ -187,7 +206,8 @@ grit("translate_policy_templates") {
 }
 
 # Generate the various templates and docs (admx, doc, json, etc.)
-action("policy_templates") {
+# TODO(crbug.com/1112471): Get this to run cleanly under Python 3.
+python2_action("policy_templates") {
   script = "tools/template_writers/template_formatter.py"
   chrome_version_abspath = "//chrome/VERSION"
   chrome_version_path = rebase_path(chrome_version_abspath, root_build_dir)
@@ -371,7 +391,10 @@ static_library("generated") {
     "//components/policy/proto:policy_common_definitions_compile_proto",
     "//third_party/protobuf:protobuf_lite",
   ]
-  deps = [ "//build:branding_buildflags" ]
+  deps = [
+    "//build:branding_buildflags",
+    "//build:chromeos_buildflags",
+  ]
 }
 
 if (gen_policy_templates_android && is_android) {

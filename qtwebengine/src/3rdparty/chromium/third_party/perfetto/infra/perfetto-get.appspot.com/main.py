@@ -37,10 +37,11 @@ class RedirectHandler(webapp2.RequestHandler):
 class GitilesMirrorHandler(webapp2.RequestHandler):
 
   def get(self, resource):
+    self.response.headers['Content-Type'] = 'text/plain'
     resource = resource.lower()
     if resource not in RESOURCES:
       self.error(404)
-      self.response.out.write('Rerource "%s" not found' % resource)
+      self.response.out.write('Resource "%s" not found' % resource)
       return
 
     url = BASE % RESOURCES[resource]
@@ -55,7 +56,6 @@ class GitilesMirrorHandler(webapp2.RequestHandler):
         return
       contents = base64.b64decode(result.content)
       memcache.set(url, contents, time=3600)  # 1h
-    self.response.headers['Content-Type'] = 'text/plain'
     self.response.headers['Content-Disposition'] = \
         'attachment; filename="%s"' % resource
     self.response.write(contents)
@@ -63,6 +63,6 @@ class GitilesMirrorHandler(webapp2.RequestHandler):
 
 app = webapp2.WSGIApplication([
     ('/', RedirectHandler),
-    ('/(.*)', GitilesMirrorHandler),
+    ('/([a-zA-Z0-9_.-]+)', GitilesMirrorHandler),
 ],
                               debug=True)

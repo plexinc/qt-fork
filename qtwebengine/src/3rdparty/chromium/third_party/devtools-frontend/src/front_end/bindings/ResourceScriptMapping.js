@@ -29,18 +29,33 @@
  */
 
 import * as Common from '../common/common.js';
+import * as i18n from '../i18n/i18n.js';
 import * as SDK from '../sdk/sdk.js';
 import * as Workspace from '../workspace/workspace.js';
 
-import {BreakpointManager} from './BreakpointManager.js';
+import {Breakpoint, BreakpointManager} from './BreakpointManager.js';  // eslint-disable-line no-unused-vars
 import {ContentProviderBasedProject} from './ContentProviderBasedProject.js';
 import {DebuggerSourceMapping, DebuggerWorkspaceBinding} from './DebuggerWorkspaceBinding.js';  // eslint-disable-line no-unused-vars
 import {NetworkProject} from './NetworkProject.js';
 import {metadataForURL} from './ResourceUtils.js';
 
+export const UIStrings = {
+  /**
+  *@description Text in Resource Script Mapping
+  *@example {warning} PH1
+  */
+  liveEditFailed: 'LiveEdit failed: {PH1}',
+  /**
+  *@description Text in Resource Script Mapping
+  *@example {connection lost} PH1
+  */
+  liveEditCompileFailed: 'LiveEdit compile failed: {PH1}',
+};
+const str_ = i18n.i18n.registerUIStrings('bindings/ResourceScriptMapping.js', UIStrings);
+const i18nString = i18n.i18n.getLocalizedString.bind(undefined, str_);
+
 /**
  * @implements {DebuggerSourceMapping}
- * @unrestricted
  */
 export class ResourceScriptMapping {
   /**
@@ -119,13 +134,9 @@ export class ResourceScriptMapping {
     if (!scriptFile._hasScripts([script])) {
       return null;
     }
-    let lineNumber = rawLocation.lineNumber - (script.isInlineScriptWithSourceURL() ? script.lineOffset : 0);
+    const lineNumber = rawLocation.lineNumber - (script.isInlineScriptWithSourceURL() ? script.lineOffset : 0);
     let columnNumber = rawLocation.columnNumber || 0;
-    if (script.hasWasmDisassembly()) {
-      // TODO(chromium:1056632) This produces the wrong result when the disassembly is not loaded yet.
-      lineNumber = script.wasmDisassemblyLine(columnNumber);
-      columnNumber = 0;
-    } else if (script.isInlineScriptWithSourceURL() && !lineNumber && columnNumber) {
+    if (script.isInlineScriptWithSourceURL() && !lineNumber && columnNumber) {
       columnNumber -= script.columnOffset;
     }
     return uiSourceCode.uiLocation(lineNumber, columnNumber);
@@ -140,13 +151,10 @@ export class ResourceScriptMapping {
    */
   uiLocationToRawLocations(uiSourceCode, lineNumber, columnNumber) {
     const scriptFile = this._uiSourceCodeToScriptFile.get(uiSourceCode);
-    if (!scriptFile) {
+    if (!scriptFile || typeof scriptFile._script === 'undefined') {
       return [];
     }
     const script = scriptFile._script;
-    if (script.hasWasmDisassembly()) {
-      return [script.wasmByteLocation(lineNumber)];
-    }
     if (script.isInlineScriptWithSourceURL()) {
       return [this._debuggerModel.createRawLocation(
           script, lineNumber + script.lineOffset, lineNumber ? columnNumber : columnNumber + script.columnOffset)];
@@ -190,7 +198,9 @@ export class ResourceScriptMapping {
     const oldUISourceCode = project.uiSourceCodeForURL(url);
     if (oldUISourceCode) {
       const scriptFile = this._uiSourceCodeToScriptFile.get(oldUISourceCode);
-      await this._removeScript(scriptFile._script);
+      if (scriptFile && typeof scriptFile._script !== 'undefined') {
+        await this._removeScript(scriptFile._script);
+      }
     }
 
     // Create UISourceCode.
@@ -202,7 +212,8 @@ export class ResourceScriptMapping {
     const scriptFile = new ResourceScriptFile(this, uiSourceCode, [script]);
     this._uiSourceCodeToScriptFile.set(uiSourceCode, scriptFile);
 
-    project.addUISourceCodeWithProvider(uiSourceCode, originalContentProvider, metadata, 'text/javascript');
+    const mimeType = script.isWasm() ? 'application/wasm' : 'text/javascript';
+    project.addUISourceCodeWithProvider(uiSourceCode, originalContentProvider, metadata, mimeType);
     await this._debuggerWorkspaceBinding.updateLocations(script);
   }
 
@@ -226,7 +237,9 @@ export class ResourceScriptMapping {
     const uiSourceCode =
         /** @type {!Workspace.UISourceCode.UISourceCode} */ (project.uiSourceCodeForURL(script.sourceURL));
     const scriptFile = this._uiSourceCodeToScriptFile.get(uiSourceCode);
-    scriptFile.dispose();
+    if (scriptFile) {
+      scriptFile.dispose();
+    }
     this._uiSourceCodeToScriptFile.delete(uiSourceCode);
     project.removeFile(script.sourceURL);
     await this._debuggerWorkspaceBinding.updateLocations(script);
@@ -273,9 +286,6 @@ export class ResourceScriptMapping {
   }
 }
 
-/**
- * @unrestricted
- */
 export class ResourceScriptFile extends Common.ObjectWrapper.ObjectWrapper {
   /**
    * @param {!ResourceScriptMapping} resourceScriptMapping
@@ -284,7 +294,7 @@ export class ResourceScriptFile extends Common.ObjectWrapper.ObjectWrapper {
    */
   constructor(resourceScriptMapping, uiSourceCode, scripts) {
     super();
-    console.assert(scripts.length);
+    console.assert(scripts.length > 0);
 
     this._resourceScriptMapping = resourceScriptMapping;
     this._uiSourceCode = uiSourceCode;
@@ -304,7 +314,7 @@ export class ResourceScriptFile extends Common.ObjectWrapper.ObjectWrapper {
    * @return {boolean}
    */
   _hasScripts(scripts) {
-    return this._script && this._script === scripts[0];
+    return Boolean(this._script) && this._script === scripts[0];
   }
 
   /**
@@ -317,7 +327,7 @@ export class ResourceScriptFile extends Common.ObjectWrapper.ObjectWrapper {
     if (!this._script) {
       return false;
     }
-    if (typeof this._scriptSource === 'undefined') {
+    if (typeof this._scriptSource === 'undefined' || this._scriptSource === null) {
       return false;
     }
     const workingCopy = this._uiSourceCode.workingCopy();
@@ -330,7 +340,7 @@ export class ResourceScriptFile extends Common.ObjectWrapper.ObjectWrapper {
       return true;
     }
     const suffix = this._uiSourceCode.workingCopy().substr(this._scriptSource.length);
-    return !!suffix.length && !suffix.match(SDK.Script.sourceURLRegex);
+    return Boolean(suffix.length) && !suffix.match(SDK.Script.sourceURLRegex);
   }
 
   /**
@@ -355,35 +365,38 @@ export class ResourceScriptFile extends Common.ObjectWrapper.ObjectWrapper {
                             .breakpointLocationsForUISourceCode(this._uiSourceCode)
                             .map(breakpointLocation => breakpointLocation.breakpoint);
     const source = this._uiSourceCode.workingCopy();
-    debuggerModel.setScriptSource(this._script.scriptId, source, scriptSourceWasSet.bind(this));
+    debuggerModel.setScriptSource(this._script.scriptId, source, (error, exceptionDetails) => {
+      this.scriptSourceWasSet(source, breakpoints, error, exceptionDetails);
+    });
+  }
 
-    /**
-     * @param {?string} error
-     * @param {!Protocol.Runtime.ExceptionDetails=} exceptionDetails
-     * @this {ResourceScriptFile}
-     */
-    async function scriptSourceWasSet(error, exceptionDetails) {
-      if (!error && !exceptionDetails) {
-        this._scriptSource = source;
-      }
-      await this._update();
-
-      if (!error && !exceptionDetails) {
-        // Live edit can cause breakpoints to be in the wrong position, or to be lost altogether.
-        // If any breakpoints were in the pre-live edit script, they need to be re-added.
-        await Promise.all(breakpoints.map(breakpoint => breakpoint.refreshInDebugger()));
-        return;
-      }
-      if (!exceptionDetails) {
-        Common.Console.Console.instance().addMessage(
-            Common.UIString.UIString('LiveEdit failed: %s', error), Common.Console.MessageLevel.Warning);
-        return;
-      }
-      const messageText = Common.UIString.UIString('LiveEdit compile failed: %s', exceptionDetails.text);
-      this._uiSourceCode.addLineMessage(
-          Workspace.UISourceCode.Message.Level.Error, messageText, exceptionDetails.lineNumber,
-          exceptionDetails.columnNumber);
+  /**
+   * @param {string} source
+   * @param {!Array<!Breakpoint>} breakpoints
+   * @param {?string} error
+   * @param {!Protocol.Runtime.ExceptionDetails=} exceptionDetails
+   */
+  async scriptSourceWasSet(source, breakpoints, error, exceptionDetails) {
+    if (!error && !exceptionDetails) {
+      this._scriptSource = source;
     }
+    await this._update();
+
+    if (!error && !exceptionDetails) {
+      // Live edit can cause breakpoints to be in the wrong position, or to be lost altogether.
+      // If any breakpoints were in the pre-live edit script, they need to be re-added.
+      await Promise.all(breakpoints.map(breakpoint => breakpoint.refreshInDebugger()));
+      return;
+    }
+    if (!exceptionDetails) {
+      Common.Console.Console.instance().addMessage(
+          i18nString(UIStrings.liveEditFailed, {PH1: error}), Common.Console.MessageLevel.Warning);
+      return;
+    }
+    const messageText = i18nString(UIStrings.liveEditCompileFailed, {PH1: exceptionDetails.text});
+    this._uiSourceCode.addLineMessage(
+        Workspace.UISourceCode.Message.Level.Error, messageText, exceptionDetails.lineNumber,
+        exceptionDetails.columnNumber);
   }
 
   async _update() {
@@ -395,40 +408,44 @@ export class ResourceScriptFile extends Common.ObjectWrapper.ObjectWrapper {
   }
 
   async _divergeFromVM() {
-    this._isDivergingFromVM = true;
-    await this._resourceScriptMapping._debuggerWorkspaceBinding.updateLocations(this._script);
-    delete this._isDivergingFromVM;
-    this._hasDivergedFromVM = true;
-    this.dispatchEventToListeners(ResourceScriptFile.Events.DidDivergeFromVM, this._uiSourceCode);
+    if (this._script) {
+      this._isDivergingFromVM = true;
+      await this._resourceScriptMapping._debuggerWorkspaceBinding.updateLocations(this._script);
+      delete this._isDivergingFromVM;
+      this._hasDivergedFromVM = true;
+      this.dispatchEventToListeners(ResourceScriptFile.Events.DidDivergeFromVM, this._uiSourceCode);
+    }
   }
 
   async _mergeToVM() {
-    delete this._hasDivergedFromVM;
-    this._isMergingToVM = true;
-    await this._resourceScriptMapping._debuggerWorkspaceBinding.updateLocations(this._script);
-    delete this._isMergingToVM;
-    this.dispatchEventToListeners(ResourceScriptFile.Events.DidMergeToVM, this._uiSourceCode);
+    if (this._script) {
+      delete this._hasDivergedFromVM;
+      this._isMergingToVM = true;
+      await this._resourceScriptMapping._debuggerWorkspaceBinding.updateLocations(this._script);
+      delete this._isMergingToVM;
+      this.dispatchEventToListeners(ResourceScriptFile.Events.DidMergeToVM, this._uiSourceCode);
+    }
   }
 
   /**
    * @return {boolean}
    */
   hasDivergedFromVM() {
-    return this._hasDivergedFromVM;
+    return Boolean(this._hasDivergedFromVM);
   }
 
   /**
    * @return {boolean}
    */
   isDivergingFromVM() {
-    return this._isDivergingFromVM;
+    return Boolean(this._isDivergingFromVM);
   }
 
   /**
    * @return {boolean}
    */
   isMergingToVM() {
-    return this._isMergingToVM;
+    return Boolean(this._isMergingToVM);
   }
 
   checkMapping() {
@@ -466,7 +483,21 @@ export class ResourceScriptFile extends Common.ObjectWrapper.ObjectWrapper {
    * @return {boolean}
    */
   hasSourceMapURL() {
-    return this._script && !!this._script.sourceMapURL;
+    return this._script !== undefined && Boolean(this._script.sourceMapURL);
+  }
+
+  /**
+   * @return {?SDK.Script.Script}
+   */
+  get script() {
+    return this._script || null;
+  }
+
+  /**
+   * @return {!Workspace.UISourceCode.UISourceCode}
+   */
+  get uiSourceCode() {
+    return this._uiSourceCode;
   }
 }
 

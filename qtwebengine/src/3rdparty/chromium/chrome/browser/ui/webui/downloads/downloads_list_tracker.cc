@@ -9,15 +9,13 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/i18n/rtl.h"
 #include "base/i18n/unicodestring.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
-#include "base/value_conversions.h"
-#include "base/values.h"
 #include "chrome/browser/download/download_crx_util.h"
 #include "chrome/browser/download/download_item_model.h"
 #include "chrome/browser/download/download_query.h"
@@ -43,6 +41,9 @@ using content::DownloadManager;
 using DownloadVector = DownloadManager::DownloadVector;
 
 namespace {
+
+// Max URL length to be sent to the download page.
+const int kMaxURLLength = 2 * 1024 * 1024;
 
 // Returns a string constant to be used as the |danger_type| value in
 // CreateDownloadData(). This can be the empty string, if the danger type is not
@@ -81,13 +82,13 @@ const char* GetDangerTypeString(download::DownloadDangerType danger_type) {
     case download::DOWNLOAD_DANGER_TYPE_NOT_DANGEROUS:
     case download::DOWNLOAD_DANGER_TYPE_MAYBE_DANGEROUS_CONTENT:
     case download::DOWNLOAD_DANGER_TYPE_USER_VALIDATED:
-    case download::DOWNLOAD_DANGER_TYPE_WHITELISTED_BY_POLICY:
+    case download::DOWNLOAD_DANGER_TYPE_ALLOWLISTED_BY_POLICY:
     case download::DOWNLOAD_DANGER_TYPE_MAX:
       break;
   }
 
   // Don't return a danger type string if it is NOT_DANGEROUS,
-  // MAYBE_DANGEROUS_CONTENT, or USER_VALIDATED, or WHITELISTED_BY_POLICY.
+  // MAYBE_DANGEROUS_CONTENT, or USER_VALIDATED, or ALLOWLISTED_BY_POLICY.
   return "";
 }
 
@@ -199,10 +200,10 @@ void DownloadsListTracker::OnDownloadRemoved(DownloadManager* manager,
 DownloadsListTracker::DownloadsListTracker(
     DownloadManager* download_manager,
     mojo::PendingRemote<downloads::mojom::Page> page,
-    base::Callback<bool(const DownloadItem&)> should_show)
+    base::RepeatingCallback<bool(const DownloadItem&)> should_show)
     : main_notifier_(download_manager, this),
       page_(std::move(page)),
-      should_show_(should_show) {
+      should_show_(std::move(should_show)) {
   DCHECK(page_);
   Init();
 }
@@ -255,8 +256,12 @@ downloads::mojom::DataPtr DownloadsListTracker::CreateDownloadData(
   base::string16 file_name =
       download_item->GetFileNameToReportUser().LossyDisplayName();
   file_name = base::i18n::GetDisplayStringInLTRDirectionality(file_name);
+
   file_value->file_name = base::UTF16ToUTF8(file_name);
   file_value->url = download_item->GetURL().spec();
+  // If URL is too long, truncate it.
+  if (file_value->url.size() > kMaxURLLength)
+    file_value->url.resize(kMaxURLLength);
   file_value->total = static_cast<int>(download_item->GetTotalBytes());
   file_value->file_externally_removed =
       download_item->GetFileExternallyRemoved();
@@ -326,6 +331,8 @@ downloads::mojom::DataPtr DownloadsListTracker::CreateDownloadData(
   DCHECK(state);
 
   file_value->danger_type = danger_type;
+  file_value->is_dangerous = download_item->IsDangerous();
+  file_value->is_mixed_content = download_item->IsMixedContent();
   file_value->last_reason_text = base::UTF16ToUTF8(last_reason_text);
   file_value->percent = percent;
   file_value->progress_status_text = base::UTF16ToUTF8(progress_status_text);

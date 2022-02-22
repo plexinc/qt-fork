@@ -26,14 +26,18 @@ interface ExternalService {
                   handle<message_pipe> interface_pipe);
 };
 
+struct ServiceInstanceInfo {
+   string service_name;
+   pending_remote<ExternalService> service_remote;
+};
+
 // Interface to register external Mojo services to the broker, and bind to
 // registered Mojo services. This provides functionality similar to Chromium's
 // service manager, but avoids any dependency on the service manager since this
 // is intended for use by code outside of the Chrome repository.
 interface ExternalConnector {
-  // Registers a service with the broker.
-  RegisterServiceInstance(string service_name,
-                          pending_remote<ExternalService> service);
+  // Registers services with the broker.
+  RegisterServiceInstances(array<ServiceInstanceInfo> instances_info);
 
   // Asks the broker to pass the |interface_pipe| to the registered service with
   // the given |service_name| to be bound to the appropriate interface. If the
@@ -52,4 +56,14 @@ interface ExternalConnector {
 
   // Query services that are available from this connector.
   QueryServiceList() => (array<ExternalServiceInfo> services);
+};
+
+// Simple factory for clients to bind an ExternalConnector. This interface is
+// exposed via the Chromium service manager so clients in the Chromium process
+// tree can easily use the External Service Broker. This is a temporary
+// interface which will be deleted once we are no longer using the Service
+// Manager.
+interface ConnectorFactory {
+  // Binds a request for an ExternalConnector.
+  BindConnector(pending_receiver<ExternalConnector> receiver);
 };

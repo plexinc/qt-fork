@@ -8,9 +8,11 @@
 #include <initializer_list>
 #include <map>
 #include <memory>
+#include <sstream>
 
 // Clients of this interface shouldn't depend on lots of compiler internals.
 // Do not include anything from src/compiler here!
+#include "include/cppgc/source-location.h"
 #include "src/base/macros.h"
 #include "src/base/type-traits.h"
 #include "src/builtins/builtins.h"
@@ -62,22 +64,22 @@ class JSRegExpStringIterator;
 class JSRelativeTimeFormat;
 class JSSegmentIterator;
 class JSSegmenter;
+class JSSegments;
 class JSV8BreakIterator;
 class JSWeakCollection;
 class JSFinalizationRegistry;
-class JSFinalizationRegistryCleanupIterator;
 class JSWeakMap;
 class JSWeakRef;
 class JSWeakSet;
+class ProfileDataFromFile;
 class PromiseCapability;
 class PromiseFulfillReactionJobTask;
 class PromiseReaction;
 class PromiseReactionJobTask;
 class PromiseRejectReactionJobTask;
-class WasmDebugInfo;
 class Zone;
-#define MAKE_FORWARD_DECLARATION(V, NAME, Name, name) class Name;
-TORQUE_INTERNAL_CLASS_LIST_GENERATOR(MAKE_FORWARD_DECLARATION, UNUSED)
+#define MAKE_FORWARD_DECLARATION(Name) class Name;
+TORQUE_DEFINED_CLASS_LIST(MAKE_FORWARD_DECLARATION)
 #undef MAKE_FORWARD_DECLARATION
 
 template <typename T>
@@ -175,6 +177,20 @@ HEAP_OBJECT_TEMPLATE_TYPE_LIST(OBJECT_TYPE_TEMPLATE_CASE)
 #undef OBJECT_TYPE_CASE
 #undef OBJECT_TYPE_STRUCT_CASE
 #undef OBJECT_TYPE_TEMPLATE_CASE
+
+#if defined(V8_HOST_ARCH_32_BIT)
+#define BINT_IS_SMI
+using BInt = Smi;
+using AtomicInt64 = PairT<IntPtrT, IntPtrT>;
+using AtomicUint64 = PairT<UintPtrT, UintPtrT>;
+#elif defined(V8_HOST_ARCH_64_BIT)
+#define BINT_IS_INTPTR
+using BInt = IntPtrT;
+using AtomicInt64 = IntPtrT;
+using AtomicUint64 = UintPtrT;
+#else
+#error Unknown architecture.
+#endif
 
 // {raw_value} must be a tagged Object.
 // {raw_type} must be a tagged Smi.
@@ -274,6 +290,7 @@ class CodeAssemblerParameterizedLabel;
   V(WordShl, WordT, WordT, IntegralT)                                   \
   V(WordShr, WordT, WordT, IntegralT)                                   \
   V(WordSar, WordT, WordT, IntegralT)                                   \
+  V(WordSarShiftOutZeros, WordT, WordT, IntegralT)                      \
   V(Word32Or, Word32T, Word32T, Word32T)                                \
   V(Word32And, Word32T, Word32T, Word32T)                               \
   V(Word32Xor, Word32T, Word32T, Word32T)                               \
@@ -281,6 +298,7 @@ class CodeAssemblerParameterizedLabel;
   V(Word32Shl, Word32T, Word32T, Word32T)                               \
   V(Word32Shr, Word32T, Word32T, Word32T)                               \
   V(Word32Sar, Word32T, Word32T, Word32T)                               \
+  V(Word32SarShiftOutZeros, Word32T, Word32T, Word32T)                  \
   V(Word64And, Word64T, Word64T, Word64T)                               \
   V(Word64Or, Word64T, Word64T, Word64T)                                \
   V(Word64Xor, Word64T, Word64T, Word64T)                               \
@@ -374,9 +392,12 @@ class V8_EXPORT_PRIVATE CodeAssembler {
   explicit CodeAssembler(CodeAssemblerState* state) : state_(state) {}
   ~CodeAssembler();
 
-  static Handle<Code> GenerateCode(CodeAssemblerState* state,
-                                   const AssemblerOptions& options);
+  CodeAssembler(const CodeAssembler&) = delete;
+  CodeAssembler& operator=(const CodeAssembler&) = delete;
 
+  static Handle<Code> GenerateCode(CodeAssemblerState* state,
+                                   const AssemblerOptions& options,
+                                   const ProfileDataFromFile* profile_data);
   bool Is64() const;
   bool Is32() const;
   bool IsFloat64RoundUpSupported() const;
@@ -389,7 +410,6 @@ class V8_EXPORT_PRIVATE CodeAssembler {
 
   // Shortened aliases for use in CodeAssembler subclasses.
   using Label = CodeAssemblerLabel;
-  using Variable = CodeAssemblerVariable;
   template <class T>
   using TVariable = TypedCodeAssemblerVariable<T>;
   using VariableList = CodeAssemblerVariableList;
@@ -533,6 +553,7 @@ class V8_EXPORT_PRIVATE CodeAssembler {
   TNode<String> StringConstant(const char* str);
   TNode<Oddball> BooleanConstant(bool value);
   TNode<ExternalReference> ExternalConstant(ExternalReference address);
+  TNode<Float32T> Float32Constant(double value);
   TNode<Float64T> Float64Constant(double value);
   TNode<BoolT> Int32TrueConstant() {
     return ReinterpretCast<BoolT>(Int32Constant(1));
@@ -544,10 +565,12 @@ class V8_EXPORT_PRIVATE CodeAssembler {
     return value ? Int32TrueConstant() : Int32FalseConstant();
   }
 
-  bool ToInt32Constant(Node* node, int32_t* out_value);
-  bool ToInt64Constant(Node* node, int64_t* out_value);
-  bool ToIntPtrConstant(Node* node, intptr_t* out_value);
-  bool ToSmiConstant(Node* node, Smi* out_value);
+  bool TryToInt32Constant(TNode<IntegralT> node, int32_t* out_value);
+  bool TryToInt64Constant(TNode<IntegralT> node, int64_t* out_value);
+  bool TryToIntPtrConstant(TNode<IntegralT> node, intptr_t* out_value);
+  bool TryToIntPtrConstant(TNode<Smi> tnode, intptr_t* out_value);
+  bool TryToSmiConstant(TNode<IntegralT> node, Smi* out_value);
+  bool TryToSmiConstant(TNode<Smi> node, Smi* out_value);
 
   bool IsUndefinedConstant(TNode<Object> node);
   bool IsNullConstant(TNode<Object> node);
@@ -563,7 +586,30 @@ class V8_EXPORT_PRIVATE CodeAssembler {
 
   static constexpr int kTargetParameterIndex = -1;
 
-  Node* Parameter(int value);
+  template <class T>
+  TNode<T> Parameter(
+      int value, cppgc::SourceLocation loc = cppgc::SourceLocation::Current()) {
+    static_assert(
+        std::is_convertible<TNode<T>, TNode<Object>>::value,
+        "Parameter is only for tagged types. Use UncheckedParameter instead.");
+    std::stringstream message;
+    message << "Parameter " << value;
+    if (loc.FileName()) {
+      message << " at " << loc.FileName() << ":" << loc.Line();
+    }
+    size_t buf_size = message.str().size() + 1;
+    char* message_dup = zone()->NewArray<char>(buf_size);
+    snprintf(message_dup, buf_size, "%s", message.str().c_str());
+
+    return Cast(UntypedParameter(value), message_dup);
+  }
+
+  template <class T>
+  TNode<T> UncheckedParameter(int value) {
+    return UncheckedCast<T>(UntypedParameter(value));
+  }
+
+  Node* UntypedParameter(int value);
 
   TNode<Context> GetJSContextParameter();
   void Return(TNode<Object> value);
@@ -572,6 +618,8 @@ class V8_EXPORT_PRIVATE CodeAssembler {
   void Return(TNode<Int32T> value);
   void Return(TNode<Uint32T> value);
   void Return(TNode<WordT> value);
+  void Return(TNode<Float32T> value);
+  void Return(TNode<Float64T> value);
   void Return(TNode<WordT> value1, TNode<WordT> value2);
   void PopAndReturn(Node* pop, Node* value);
 
@@ -593,9 +641,25 @@ class V8_EXPORT_PRIVATE CodeAssembler {
     Comment(s.str());
   }
 
-  void StaticAssert(TNode<BoolT> value);
+  void StaticAssert(TNode<BoolT> value,
+                    const char* source = "unknown position");
 
+  // The following methods refer to source positions in CSA or Torque code
+  // compiled during mksnapshot, not JS compiled at runtime.
   void SetSourcePosition(const char* file, int line);
+  void PushSourcePosition();
+  void PopSourcePosition();
+  class V8_NODISCARD SourcePositionScope {
+   public:
+    explicit SourcePositionScope(CodeAssembler* ca) : ca_(ca) {
+      ca->PushSourcePosition();
+    }
+    ~SourcePositionScope() { ca_->PopSourcePosition(); }
+
+   private:
+    CodeAssembler* ca_;
+  };
+  const std::vector<FileAndLine>& GetMacroSourcePositionStack() const;
 
   void Bind(Label* label);
 #if DEBUG
@@ -678,12 +742,18 @@ class V8_EXPORT_PRIVATE CodeAssembler {
         Load(MachineTypeOf<Type>::value, base, needs_poisoning));
   }
   template <class Type>
-  TNode<Type> Load(Node* base, SloppyTNode<WordT> offset,
+  TNode<Type> Load(Node* base, TNode<WordT> offset,
                    LoadSensitivity needs_poisoning = LoadSensitivity::kSafe) {
     return UncheckedCast<Type>(
         Load(MachineTypeOf<Type>::value, base, offset, needs_poisoning));
   }
-  Node* AtomicLoad(MachineType type, Node* base, Node* offset);
+  template <class Type>
+  TNode<Type> AtomicLoad(TNode<RawPtrT> base, TNode<WordT> offset) {
+    return UncheckedCast<Type>(
+        AtomicLoad(MachineTypeOf<Type>::value, base, offset));
+  }
+  template <class Type>
+  TNode<Type> AtomicLoad64(TNode<RawPtrT> base, TNode<WordT> offset);
   // Load uncompressed tagged value from (most likely off JS heap) memory
   // location.
   TNode<Object> LoadFullTagged(
@@ -692,35 +762,36 @@ class V8_EXPORT_PRIVATE CodeAssembler {
       Node* base, Node* offset,
       LoadSensitivity needs_poisoning = LoadSensitivity::kSafe);
 
-  Node* LoadFromObject(MachineType type, TNode<HeapObject> object,
+  Node* LoadFromObject(MachineType type, TNode<Object> object,
                        TNode<IntPtrT> offset);
 
   // Load a value from the root array.
   TNode<Object> LoadRoot(RootIndex root_index);
 
   // Store value to raw memory location.
-  Node* Store(Node* base, Node* value);
-  Node* Store(Node* base, Node* offset, Node* value);
-  Node* StoreEphemeronKey(Node* base, Node* offset, Node* value);
-  Node* StoreNoWriteBarrier(MachineRepresentation rep, Node* base, Node* value);
-  Node* StoreNoWriteBarrier(MachineRepresentation rep, Node* base, Node* offset,
-                            Node* value);
-  Node* UnsafeStoreNoWriteBarrier(MachineRepresentation rep, Node* base,
-                                  Node* value);
-  Node* UnsafeStoreNoWriteBarrier(MachineRepresentation rep, Node* base,
-                                  Node* offset, Node* value);
+  void Store(Node* base, Node* value);
+  void Store(Node* base, Node* offset, Node* value);
+  void StoreEphemeronKey(Node* base, Node* offset, Node* value);
+  void StoreNoWriteBarrier(MachineRepresentation rep, Node* base, Node* value);
+  void StoreNoWriteBarrier(MachineRepresentation rep, Node* base, Node* offset,
+                           Node* value);
+  void UnsafeStoreNoWriteBarrier(MachineRepresentation rep, Node* base,
+                                 Node* value);
+  void UnsafeStoreNoWriteBarrier(MachineRepresentation rep, Node* base,
+                                 Node* offset, Node* value);
 
   // Stores uncompressed tagged value to (most likely off JS heap) memory
   // location without write barrier.
-  Node* StoreFullTaggedNoWriteBarrier(Node* base, Node* tagged_value);
-  Node* StoreFullTaggedNoWriteBarrier(Node* base, Node* offset,
-                                      Node* tagged_value);
+  void StoreFullTaggedNoWriteBarrier(TNode<RawPtrT> base,
+                                     TNode<Object> tagged_value);
+  void StoreFullTaggedNoWriteBarrier(TNode<RawPtrT> base, TNode<IntPtrT> offset,
+                                     TNode<Object> tagged_value);
 
   // Optimized memory operations that map to Turbofan simplified nodes.
   TNode<HeapObject> OptimizedAllocate(TNode<IntPtrT> size,
                                       AllocationType allocation,
                                       AllowLargeObjects allow_large_objects);
-  void StoreToObject(MachineRepresentation rep, TNode<HeapObject> object,
+  void StoreToObject(MachineRepresentation rep, TNode<Object> object,
                      TNode<IntPtrT> offset, Node* value,
                      StoreToObjectWriteBarrier write_barrier);
   void OptimizedStoreField(MachineRepresentation rep, TNode<HeapObject> object,
@@ -732,38 +803,66 @@ class V8_EXPORT_PRIVATE CodeAssembler {
                                                TNode<HeapObject> object,
                                                int offset, Node* value);
   void OptimizedStoreMap(TNode<HeapObject> object, TNode<Map>);
+  void AtomicStore(MachineRepresentation rep, TNode<RawPtrT> base,
+                   TNode<WordT> offset, TNode<Word32T> value);
   // {value_high} is used for 64-bit stores on 32-bit platforms, must be
   // nullptr in other cases.
-  Node* AtomicStore(MachineRepresentation rep, Node* base, Node* offset,
-                    Node* value, Node* value_high = nullptr);
+  void AtomicStore64(TNode<RawPtrT> base, TNode<WordT> offset,
+                     TNode<UintPtrT> value, TNode<UintPtrT> value_high);
+
+  TNode<Word32T> AtomicAdd(MachineType type, TNode<RawPtrT> base,
+                           TNode<UintPtrT> offset, TNode<Word32T> value);
+  template <class Type>
+  TNode<Type> AtomicAdd64(TNode<RawPtrT> base, TNode<UintPtrT> offset,
+                          TNode<UintPtrT> value, TNode<UintPtrT> value_high);
+
+  TNode<Word32T> AtomicSub(MachineType type, TNode<RawPtrT> base,
+                           TNode<UintPtrT> offset, TNode<Word32T> value);
+  template <class Type>
+  TNode<Type> AtomicSub64(TNode<RawPtrT> base, TNode<UintPtrT> offset,
+                          TNode<UintPtrT> value, TNode<UintPtrT> value_high);
+
+  TNode<Word32T> AtomicAnd(MachineType type, TNode<RawPtrT> base,
+                           TNode<UintPtrT> offset, TNode<Word32T> value);
+  template <class Type>
+  TNode<Type> AtomicAnd64(TNode<RawPtrT> base, TNode<UintPtrT> offset,
+                          TNode<UintPtrT> value, TNode<UintPtrT> value_high);
+
+  TNode<Word32T> AtomicOr(MachineType type, TNode<RawPtrT> base,
+                          TNode<UintPtrT> offset, TNode<Word32T> value);
+  template <class Type>
+  TNode<Type> AtomicOr64(TNode<RawPtrT> base, TNode<UintPtrT> offset,
+                         TNode<UintPtrT> value, TNode<UintPtrT> value_high);
+
+  TNode<Word32T> AtomicXor(MachineType type, TNode<RawPtrT> base,
+                           TNode<UintPtrT> offset, TNode<Word32T> value);
+  template <class Type>
+  TNode<Type> AtomicXor64(TNode<RawPtrT> base, TNode<UintPtrT> offset,
+                          TNode<UintPtrT> value, TNode<UintPtrT> value_high);
 
   // Exchange value at raw memory location
-  Node* AtomicExchange(MachineType type, Node* base, Node* offset, Node* value,
-                       Node* value_high = nullptr);
+  TNode<Word32T> AtomicExchange(MachineType type, TNode<RawPtrT> base,
+                                TNode<UintPtrT> offset, TNode<Word32T> value);
+  template <class Type>
+  TNode<Type> AtomicExchange64(TNode<RawPtrT> base, TNode<UintPtrT> offset,
+                               TNode<UintPtrT> value,
+                               TNode<UintPtrT> value_high);
 
   // Compare and Exchange value at raw memory location
-  Node* AtomicCompareExchange(MachineType type, Node* base, Node* offset,
-                              Node* old_value, Node* new_value,
-                              Node* old_value_high = nullptr,
-                              Node* new_value_high = nullptr);
+  TNode<Word32T> AtomicCompareExchange(MachineType type, TNode<RawPtrT> base,
+                                       TNode<WordT> offset,
+                                       TNode<Word32T> old_value,
+                                       TNode<Word32T> new_value);
 
-  Node* AtomicAdd(MachineType type, Node* base, Node* offset, Node* value,
-                  Node* value_high = nullptr);
-
-  Node* AtomicSub(MachineType type, Node* base, Node* offset, Node* value,
-                  Node* value_high = nullptr);
-
-  Node* AtomicAnd(MachineType type, Node* base, Node* offset, Node* value,
-                  Node* value_high = nullptr);
-
-  Node* AtomicOr(MachineType type, Node* base, Node* offset, Node* value,
-                 Node* value_high = nullptr);
-
-  Node* AtomicXor(MachineType type, Node* base, Node* offset, Node* value,
-                  Node* value_high = nullptr);
+  template <class Type>
+  TNode<Type> AtomicCompareExchange64(TNode<RawPtrT> base, TNode<WordT> offset,
+                                      TNode<UintPtrT> old_value,
+                                      TNode<UintPtrT> new_value,
+                                      TNode<UintPtrT> old_value_high,
+                                      TNode<UintPtrT> new_value_high);
 
   // Store a value to the root array.
-  Node* StoreRoot(RootIndex root_index, Node* value);
+  void StoreRoot(RootIndex root_index, TNode<Object> value);
 
 // Basic arithmetic operations.
 #define DECLARE_CODE_ASSEMBLER_BINARY_OP(name, ResType, Arg1Type, Arg2Type) \
@@ -797,6 +896,10 @@ class V8_EXPORT_PRIVATE CodeAssembler {
   TNode<Uint32T> Word32Shr(TNode<Uint32T> left, TNode<Uint32T> right) {
     return Unsigned(
         Word32Shr(static_cast<Node*>(left), static_cast<Node*>(right)));
+  }
+  TNode<Int32T> Word32Sar(TNode<Int32T> left, TNode<Int32T> right) {
+    return Signed(
+        Word32Sar(static_cast<Node*>(left), static_cast<Node*>(right)));
   }
 
   TNode<IntPtrT> WordAnd(TNode<IntPtrT> left, TNode<IntPtrT> right) {
@@ -893,17 +996,17 @@ class V8_EXPORT_PRIVATE CodeAssembler {
         IntPtrSub(static_cast<Node*>(left), static_cast<Node*>(right)));
   }
 
-  TNode<WordT> WordShl(SloppyTNode<WordT> value, int shift);
-  TNode<WordT> WordShr(SloppyTNode<WordT> value, int shift);
-  TNode<WordT> WordSar(SloppyTNode<WordT> value, int shift);
+  TNode<WordT> WordShl(TNode<WordT> value, int shift);
+  TNode<WordT> WordShr(TNode<WordT> value, int shift);
+  TNode<WordT> WordSar(TNode<WordT> value, int shift);
   TNode<IntPtrT> WordShr(TNode<IntPtrT> value, int shift) {
-    return UncheckedCast<IntPtrT>(WordShr(static_cast<Node*>(value), shift));
+    return UncheckedCast<IntPtrT>(WordShr(TNode<WordT>(value), shift));
   }
   TNode<IntPtrT> WordSar(TNode<IntPtrT> value, int shift) {
-    return UncheckedCast<IntPtrT>(WordSar(static_cast<Node*>(value), shift));
+    return UncheckedCast<IntPtrT>(WordSar(TNode<WordT>(value), shift));
   }
-  TNode<Word32T> Word32Shr(SloppyTNode<Word32T> value, int shift);
-  TNode<Word32T> Word32Sar(SloppyTNode<Word32T> value, int shift);
+  TNode<Word32T> Word32Shr(TNode<Word32T> value, int shift);
+  TNode<Word32T> Word32Sar(TNode<Word32T> value, int shift);
 
 // Unary
 #define DECLARE_CODE_ASSEMBLER_UNARY_OP(name, ResType, ArgType) \
@@ -933,13 +1036,13 @@ class V8_EXPORT_PRIVATE CodeAssembler {
   // No-op on 32-bit, otherwise sign extend.
   TNode<IntPtrT> ChangeInt32ToIntPtr(TNode<Word32T> value);
 
-  // No-op that guarantees that the value is kept alive till this point even
-  // if GC happens.
-  Node* Retain(Node* value);
+  // Truncates a float to a 32-bit integer. If the float is outside of 32-bit
+  // range, make sure that overflow detection is easy. In particular, return
+  // int_min instead of int_max on arm platforms by using parameter
+  // kSetOverflowToMin.
+  TNode<Int32T> TruncateFloat32ToInt32(TNode<Float32T> value);
 
   // Projections
-  Node* Projection(int index, Node* value);
-
   template <int index, class T1, class T2>
   TNode<typename std::tuple_element<index, std::tuple<T1, T2>>::type>
   Projection(TNode<PairT<T1, T2>> value) {
@@ -949,11 +1052,11 @@ class V8_EXPORT_PRIVATE CodeAssembler {
   }
 
   // Calls
-  template <class... TArgs>
-  TNode<Object> CallRuntime(Runtime::FunctionId function, TNode<Object> context,
-                            TArgs... args) {
-    return CallRuntimeImpl(function, context,
-                           {implicit_cast<TNode<Object>>(args)...});
+  template <class T = Object, class... TArgs>
+  TNode<T> CallRuntime(Runtime::FunctionId function, TNode<Object> context,
+                       TArgs... args) {
+    return UncheckedCast<T>(CallRuntimeImpl(
+        function, context, {implicit_cast<TNode<Object>>(args)...}));
   }
 
   template <class... TArgs>
@@ -987,27 +1090,15 @@ class V8_EXPORT_PRIVATE CodeAssembler {
   TNode<T> CallStub(const CallInterfaceDescriptor& descriptor,
                     TNode<Code> target, TNode<Object> context, TArgs... args) {
     return UncheckedCast<T>(CallStubR(StubCallMode::kCallCodeObject, descriptor,
-                                      1, target, context, args...));
+                                      target, context, args...));
   }
-
-  template <class... TArgs>
-  Node* CallStubR(StubCallMode call_mode,
-                  const CallInterfaceDescriptor& descriptor, size_t result_size,
-                  TNode<Object> target, TNode<Object> context, TArgs... args) {
-    return CallStubRImpl(call_mode, descriptor, result_size, target, context,
-                         {args...});
-  }
-
-  Node* CallStubN(StubCallMode call_mode,
-                  const CallInterfaceDescriptor& descriptor, size_t result_size,
-                  int input_count, Node* const* inputs);
 
   template <class T = Object, class... TArgs>
   TNode<T> CallBuiltinPointer(const CallInterfaceDescriptor& descriptor,
                               TNode<BuiltinPtr> target, TNode<Object> context,
                               TArgs... args) {
     return UncheckedCast<T>(CallStubR(StubCallMode::kCallBuiltinPointer,
-                                      descriptor, 1, target, context, args...));
+                                      descriptor, target, context, args...));
   }
 
   template <class... TArgs>
@@ -1083,7 +1174,8 @@ class V8_EXPORT_PRIVATE CodeAssembler {
 
   // Call to a C function.
   template <class... CArgs>
-  Node* CallCFunction(Node* function, MachineType return_type, CArgs... cargs) {
+  Node* CallCFunction(Node* function, base::Optional<MachineType> return_type,
+                      CArgs... cargs) {
     static_assert(v8::internal::conjunction<
                       std::is_convertible<CArgs, CFunctionArg>...>::value,
                   "invalid argument types");
@@ -1143,7 +1235,7 @@ class V8_EXPORT_PRIVATE CodeAssembler {
  private:
   void HandleException(Node* result);
 
-  Node* CallCFunction(Node* function, MachineType return_type,
+  Node* CallCFunction(Node* function, base::Optional<MachineType> return_type,
                       std::initializer_list<CFunctionArg> args);
 
   Node* CallCFunctionWithoutFunctionDescriptor(
@@ -1154,9 +1246,8 @@ class V8_EXPORT_PRIVATE CodeAssembler {
       Node* function, MachineType return_type, SaveFPRegsMode mode,
       std::initializer_list<CFunctionArg> args);
 
-  TNode<Object> CallRuntimeImpl(Runtime::FunctionId function,
-                                TNode<Object> context,
-                                std::initializer_list<TNode<Object>> args);
+  Node* CallRuntimeImpl(Runtime::FunctionId function, TNode<Object> context,
+                        std::initializer_list<TNode<Object>> args);
 
   void TailCallRuntimeImpl(Runtime::FunctionId function, TNode<Int32T> arity,
                            TNode<Object> context,
@@ -1170,20 +1261,35 @@ class V8_EXPORT_PRIVATE CodeAssembler {
       const CallInterfaceDescriptor& descriptor, Node* target, Node* context,
       std::initializer_list<Node*> args);
 
+  template <class... TArgs>
+  Node* CallStubR(StubCallMode call_mode,
+                  const CallInterfaceDescriptor& descriptor,
+                  TNode<Object> target, TNode<Object> context, TArgs... args) {
+    return CallStubRImpl(call_mode, descriptor, target, context, {args...});
+  }
+
   Node* CallStubRImpl(StubCallMode call_mode,
                       const CallInterfaceDescriptor& descriptor,
-                      size_t result_size, TNode<Object> target,
-                      TNode<Object> context, std::initializer_list<Node*> args);
+                      TNode<Object> target, TNode<Object> context,
+                      std::initializer_list<Node*> args);
 
   Node* CallJSStubImpl(const CallInterfaceDescriptor& descriptor,
                        TNode<Object> target, TNode<Object> context,
                        TNode<Object> function, TNode<Object> new_target,
                        TNode<Int32T> arity, std::initializer_list<Node*> args);
 
+  Node* CallStubN(StubCallMode call_mode,
+                  const CallInterfaceDescriptor& descriptor, int input_count,
+                  Node* const* inputs);
+
+  Node* AtomicLoad(MachineType type, TNode<RawPtrT> base, TNode<WordT> offset);
+
   // These two don't have definitions and are here only for catching use cases
   // where the cast is not necessary.
   TNode<Int32T> Signed(TNode<Int32T> x);
   TNode<Uint32T> Unsigned(TNode<Uint32T> x);
+
+  Node* Projection(int index, Node* value);
 
   RawMachineAssembler* raw_assembler() const;
   JSGraph* jsgraph() const;
@@ -1193,12 +1299,21 @@ class V8_EXPORT_PRIVATE CodeAssembler {
   void CallEpilogue();
 
   CodeAssemblerState* state_;
-
-  DISALLOW_COPY_AND_ASSIGN(CodeAssembler);
 };
 
+// TODO(solanes, v8:6949): this class should be merged into
+// TypedCodeAssemblerVariable. It's required to be separate for
+// CodeAssemblerVariableLists.
 class V8_EXPORT_PRIVATE CodeAssemblerVariable {
  public:
+  CodeAssemblerVariable(const CodeAssemblerVariable&) = delete;
+  CodeAssemblerVariable& operator=(const CodeAssemblerVariable&) = delete;
+
+  Node* value() const;
+  MachineRepresentation rep() const;
+  bool IsBound() const;
+
+ protected:
   explicit CodeAssemblerVariable(CodeAssembler* assembler,
                                  MachineRepresentation rep);
   CodeAssemblerVariable(CodeAssembler* assembler, MachineRepresentation rep,
@@ -1212,9 +1327,6 @@ class V8_EXPORT_PRIVATE CodeAssemblerVariable {
 
   ~CodeAssemblerVariable();
   void Bind(Node* value);
-  Node* value() const;
-  MachineRepresentation rep() const;
-  bool IsBound() const;
 
  private:
   class Impl;
@@ -1228,7 +1340,6 @@ class V8_EXPORT_PRIVATE CodeAssemblerVariable {
   };
   Impl* impl_;
   CodeAssemblerState* state_;
-  DISALLOW_COPY_AND_ASSIGN(CodeAssemblerVariable);
 };
 
 std::ostream& operator<<(std::ostream&, const CodeAssemblerVariable&);
@@ -1238,20 +1349,19 @@ template <class T>
 class TypedCodeAssemblerVariable : public CodeAssemblerVariable {
  public:
   TypedCodeAssemblerVariable(TNode<T> initial_value, CodeAssembler* assembler)
-      : CodeAssemblerVariable(assembler, MachineRepresentationOf<T>::value,
+      : CodeAssemblerVariable(assembler, PhiMachineRepresentationOf<T>,
                               initial_value) {}
   explicit TypedCodeAssemblerVariable(CodeAssembler* assembler)
-      : CodeAssemblerVariable(assembler, MachineRepresentationOf<T>::value) {}
+      : CodeAssemblerVariable(assembler, PhiMachineRepresentationOf<T>) {}
 #if DEBUG
   TypedCodeAssemblerVariable(AssemblerDebugInfo debug_info,
                              CodeAssembler* assembler)
       : CodeAssemblerVariable(assembler, debug_info,
-                              MachineRepresentationOf<T>::value) {}
+                              PhiMachineRepresentationOf<T>) {}
   TypedCodeAssemblerVariable(AssemblerDebugInfo debug_info,
                              TNode<T> initial_value, CodeAssembler* assembler)
       : CodeAssemblerVariable(assembler, debug_info,
-                              MachineRepresentationOf<T>::value,
-                              initial_value) {}
+                              PhiMachineRepresentationOf<T>, initial_value) {}
 #endif  // DEBUG
 
   TNode<T> value() const {
@@ -1296,6 +1406,11 @@ class V8_EXPORT_PRIVATE CodeAssemblerLabel {
       : CodeAssemblerLabel(assembler, 1, &merged_variable, type) {}
   ~CodeAssemblerLabel();
 
+  // Cannot be copied because the destructor explicitly call the destructor of
+  // the underlying {RawMachineLabel}, hence only one pointer can point to it.
+  CodeAssemblerLabel(const CodeAssemblerLabel&) = delete;
+  CodeAssemblerLabel& operator=(const CodeAssemblerLabel&) = delete;
+
   inline bool is_bound() const { return bound_; }
   inline bool is_used() const { return merge_count_ != 0; }
 
@@ -1323,10 +1438,6 @@ class V8_EXPORT_PRIVATE CodeAssemblerLabel {
   std::map<CodeAssemblerVariable::Impl*, std::vector<Node*>,
            CodeAssemblerVariable::ImplComparator>
       variable_merges_;
-
-  // Cannot be copied because the destructor explicitly call the destructor of
-  // the underlying {RawMachineLabel}, hence only one pointer can point to it.
-  DISALLOW_COPY_AND_ASSIGN(CodeAssemblerLabel);
 };
 
 class CodeAssemblerParameterizedLabelBase {
@@ -1375,7 +1486,7 @@ class CodeAssemblerParameterizedLabel
   void CreatePhis(TNode<Types>*... results) {
     const std::vector<Node*>& phi_nodes =
         CodeAssemblerParameterizedLabelBase::CreatePhis(
-            {MachineRepresentationOf<Types>::value...});
+            {PhiMachineRepresentationOf<Types>...});
     auto it = phi_nodes.begin();
     USE(it);
     ITERATE_PACK(AssignPhi(results, *(it++)));
@@ -1395,17 +1506,20 @@ class V8_EXPORT_PRIVATE CodeAssemblerState {
   // |result_size| specifies the number of results returned by the stub.
   // TODO(rmcilroy): move result_size to the CallInterfaceDescriptor.
   CodeAssemblerState(Isolate* isolate, Zone* zone,
-                     const CallInterfaceDescriptor& descriptor, Code::Kind kind,
+                     const CallInterfaceDescriptor& descriptor, CodeKind kind,
                      const char* name, PoisoningMitigationLevel poisoning_level,
                      int32_t builtin_index = Builtins::kNoBuiltinId);
 
   // Create with JSCall linkage.
   CodeAssemblerState(Isolate* isolate, Zone* zone, int parameter_count,
-                     Code::Kind kind, const char* name,
+                     CodeKind kind, const char* name,
                      PoisoningMitigationLevel poisoning_level,
                      int32_t builtin_index = Builtins::kNoBuiltinId);
 
   ~CodeAssemblerState();
+
+  CodeAssemblerState(const CodeAssemblerState&) = delete;
+  CodeAssemblerState& operator=(const CodeAssemblerState&) = delete;
 
   const char* name() const { return name_; }
   int parameter_count() const;
@@ -1425,7 +1539,7 @@ class V8_EXPORT_PRIVATE CodeAssemblerState {
   friend class ScopedExceptionHandler;
 
   CodeAssemblerState(Isolate* isolate, Zone* zone,
-                     CallDescriptor* call_descriptor, Code::Kind kind,
+                     CallDescriptor* call_descriptor, CodeKind kind,
                      const char* name, PoisoningMitigationLevel poisoning_level,
                      int32_t builtin_index);
 
@@ -1433,7 +1547,7 @@ class V8_EXPORT_PRIVATE CodeAssemblerState {
   void PopExceptionHandler();
 
   std::unique_ptr<RawMachineAssembler> raw_assembler_;
-  Code::Kind kind_;
+  CodeKind kind_;
   const char* name_;
   int32_t builtin_index_;
   bool code_generated_;
@@ -1446,12 +1560,13 @@ class V8_EXPORT_PRIVATE CodeAssemblerState {
   VariableId next_variable_id_ = 0;
   JSGraph* jsgraph_;
 
-  VariableId NextVariableId() { return next_variable_id_++; }
+  // Only used by CodeStubAssembler builtins.
+  std::vector<FileAndLine> macro_call_stack_;
 
-  DISALLOW_COPY_AND_ASSIGN(CodeAssemblerState);
+  VariableId NextVariableId() { return next_variable_id_++; }
 };
 
-class V8_EXPORT_PRIVATE ScopedExceptionHandler {
+class V8_EXPORT_PRIVATE V8_NODISCARD ScopedExceptionHandler {
  public:
   ScopedExceptionHandler(CodeAssembler* assembler,
                          CodeAssemblerExceptionHandlerLabel* label);
@@ -1472,17 +1587,6 @@ class V8_EXPORT_PRIVATE ScopedExceptionHandler {
 };
 
 }  // namespace compiler
-
-#if defined(V8_HOST_ARCH_32_BIT)
-#define BINT_IS_SMI
-using BInt = Smi;
-#elif defined(V8_HOST_ARCH_64_BIT)
-#define BINT_IS_INTPTR
-using BInt = IntPtrT;
-#else
-#error Unknown architecture.
-#endif
-
 }  // namespace internal
 }  // namespace v8
 

@@ -8,6 +8,7 @@
 #include <string>
 #include "base/macros.h"
 #include "base/optional.h"
+#include "components/sync/base/model_type.h"
 #include "components/sync_device_info/device_info.h"
 
 namespace syncer {
@@ -22,6 +23,15 @@ class DeviceInfoSyncClient {
   virtual bool GetSendTabToSelfReceivingEnabled() const = 0;
   virtual base::Optional<DeviceInfo::SharingInfo> GetLocalSharingInfo()
       const = 0;
+
+  // Returns current FCM registration token if known, empty if the invalidation
+  // service is not enabled. base::nullopt will be returned if the token has
+  // been requested but hasn't been retrieved yet.
+  virtual base::Optional<std::string> GetFCMRegistrationToken() const = 0;
+
+  // A list of enabled data types, base::nullopt if the invalidation service is
+  // not initialized yet.
+  virtual base::Optional<ModelTypeSet> GetInterestedDataTypes() const = 0;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(DeviceInfoSyncClient);

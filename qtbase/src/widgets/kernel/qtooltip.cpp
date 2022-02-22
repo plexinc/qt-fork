@@ -40,8 +40,6 @@
 #include <QtWidgets/private/qtwidgetsglobal_p.h>
 
 #include <qapplication.h>
-#include <qdesktopwidget.h>
-#include <private/qdesktopwidget_p.h>
 #include <qevent.h>
 #include <qpointer.h>
 #include <qstyle.h>
@@ -57,7 +55,6 @@
 #include <qpa/qplatformcursor.h>
 #include <private/qstylesheetstyle_p.h>
 
-#ifndef QT_NO_TOOLTIP
 #include <qlabel.h>
 #include <QtWidgets/private/qlabel_p.h>
 #include <QtGui/private/qhighdpiscaling_p.h>
@@ -140,7 +137,7 @@ public:
     bool tipChanged(const QPoint &pos, const QString &text, QObject *o);
     void placeTip(const QPoint &pos, QWidget *w);
 
-    static int getTipScreen(const QPoint &pos, QWidget *w);
+    static QScreen *getTipScreen(const QPoint &pos, QWidget *w);
 protected:
     void timerEvent(QTimerEvent *e) override;
     void paintEvent(QPaintEvent *e) override;
@@ -169,11 +166,11 @@ private:
 QTipLabel *QTipLabel::instance = nullptr;
 
 QTipLabel::QTipLabel(const QString &text, const QPoint &pos, QWidget *w, int msecDisplayTime)
+    : QLabel(w, Qt::ToolTip | Qt::BypassGraphicsProxyWidget)
 #ifndef QT_NO_STYLE_STYLESHEET
-    : QLabel(w, Qt::ToolTip | Qt::BypassGraphicsProxyWidget), styleSheetParent(nullptr), widget(nullptr)
-#else
-    : QLabel(w, Qt::ToolTip | Qt::BypassGraphicsProxyWidget), widget(0)
+    , styleSheetParent(nullptr)
 #endif
+    , widget(nullptr)
 {
     delete instance;
     instance = this;
@@ -218,11 +215,7 @@ void QTipLabel::reuseTip(const QString &text, int msecDisplayTime, const QPoint 
 
 void  QTipLabel::updateSize(const QPoint &pos)
 {
-#ifndef Q_OS_WINRT
-    // ### The code below does not always work well on WinRT
-    // (e.g COIN fails an auto test - tst_QToolTip::qtbug64550_stylesheet - QTBUG-72652)
     d_func()->setScreenForPoint(pos);
-#endif
     // Ensure that we get correct sizeHints by placing this window on the right screen.
     QFontMetrics fm(font());
     QSize extra(1, 0);
@@ -231,16 +224,10 @@ void  QTipLabel::updateSize(const QPoint &pos)
         ++extra.rheight();
     setWordWrap(Qt::mightBeRichText(text()));
     QSize sh = sizeHint();
-    // ### When the above WinRT code is fixed, windowhandle should be used to find the screen.
-    QScreen *screen = QGuiApplication::screenAt(pos);
-    if (!screen)
-        screen = QGuiApplication::primaryScreen();
-    if (screen) {
-        const qreal screenWidth = screen->geometry().width();
-        if (!wordWrap() && sh.width() > screenWidth) {
-            setWordWrap(true);
-            sh = sizeHint();
-        }
+    const QScreen *screen = getTipScreen(pos, this);
+    if (!wordWrap() && sh.width() > screen->geometry().width()) {
+        setWordWrap(true);
+        sh = sizeHint();
     }
     resize(sh + extra);
 }
@@ -249,7 +236,7 @@ void QTipLabel::paintEvent(QPaintEvent *ev)
 {
     QStylePainter p(this);
     QStyleOptionFrame opt;
-    opt.init(this);
+    opt.initFrom(this);
     p.drawPrimitive(QStyle::PE_PanelTipLabel, opt);
     p.end();
 
@@ -260,7 +247,7 @@ void QTipLabel::resizeEvent(QResizeEvent *e)
 {
     QStyleHintReturnMask frameMask;
     QStyleOption option;
-    option.init(this);
+    option.initFrom(this);
     if (style()->styleHint(QStyle::SH_ToolTip_Mask, &option, this, &frameMask))
         setMask(frameMask.region);
 
@@ -270,7 +257,7 @@ void QTipLabel::resizeEvent(QResizeEvent *e)
 void QTipLabel::mouseMoveEvent(QMouseEvent *e)
 {
     if (!rect.isNull()) {
-        QPoint pos = e->globalPos();
+        QPoint pos = e->globalPosition().toPoint();
         if (widget)
             pos = widget->mapFromGlobal(pos);
         if (!rect.contains(pos))
@@ -334,7 +321,7 @@ bool QTipLabel::eventFilter(QObject *o, QEvent *e)
         break;
 
 
-#if defined (Q_OS_QNX) // On QNX the window activate and focus events are delayed and will appear
+#if defined (Q_OS_QNX)  || defined (Q_OS_WASM) // On QNX the window activate and focus events are delayed and will appear
                        // after the window is shown.
     case QEvent::WindowActivate:
     case QEvent::FocusIn:
@@ -355,7 +342,13 @@ bool QTipLabel::eventFilter(QObject *o, QEvent *e)
     case QEvent::FocusIn:
     case QEvent::FocusOut:
 #endif
-    case QEvent::Close: // For QTBUG-55523 (QQC) specifically: Hide tooltip when windows are closed
+    case QEvent::Close:
+        // For QTBUG-55523 (QQC) specifically: Hide tooltip when windows are closed,
+        // unless the close event is for the this tooltip, in which case we don't
+        // recursively hide/close again.
+        if (o != windowHandle() && o != this)
+            hideTipImmediately();
+        break;
     case QEvent::MouseButtonPress:
     case QEvent::MouseButtonRelease:
     case QEvent::MouseButtonDblClick:
@@ -364,7 +357,7 @@ bool QTipLabel::eventFilter(QObject *o, QEvent *e)
         break;
 
     case QEvent::MouseMove:
-        if (o == widget && !rect.isNull() && !rect.contains(static_cast<QMouseEvent*>(e)->pos()))
+        if (o == widget && !rect.isNull() && !rect.contains(static_cast<QMouseEvent*>(e)->position().toPoint()))
             hideTip();
     default:
         break;
@@ -372,12 +365,11 @@ bool QTipLabel::eventFilter(QObject *o, QEvent *e)
     return false;
 }
 
-int QTipLabel::getTipScreen(const QPoint &pos, QWidget *w)
+QScreen *QTipLabel::getTipScreen(const QPoint &pos, QWidget *w)
 {
-    if (QDesktopWidgetPrivate::isVirtualDesktop())
-        return QDesktopWidgetPrivate::screenNumber(pos);
-    else
-        return QDesktopWidgetPrivate::screenNumber(w);
+    QScreen *guess = w ? w->screen() : QGuiApplication::primaryScreen();
+    QScreen *exact = guess->virtualSiblingAt(pos);
+    return exact ? exact : guess;
 }
 
 void QTipLabel::placeTip(const QPoint &pos, QWidget *w)
@@ -402,8 +394,7 @@ void QTipLabel::placeTip(const QPoint &pos, QWidget *w)
 #endif //QT_NO_STYLE_STYLESHEET
 
     QPoint p = pos;
-    const QScreen *screen = QGuiApplication::screens().value(getTipScreen(pos, w),
-                                                             QGuiApplication::primaryScreen());
+    const QScreen *screen = getTipScreen(pos, w);
     // a QScreen's handle *should* never be null, so this is a bit paranoid
     if (const QPlatformScreen *platformScreen = screen ? screen->handle() : nullptr) {
         QPlatformCursor *cursor = platformScreen->cursor();
@@ -462,32 +453,23 @@ bool QTipLabel::tipChanged(const QPoint &pos, const QString &text, QObject *o)
     Otherwise this argument can be \nullptr but it is used to
     determine the appropriate screen on multi-head systems.
 
+    The \a msecDisplayTime parameter specifies for how long the tool tip
+    will be displayed, in milliseconds. With the default value of -1, the
+    time is based on the length of the text.
+
     If \a text is empty the tool tip is hidden. If the text is the
     same as the currently shown tooltip, the tip will \e not move.
     You can force moving by first hiding the tip with an empty text,
     and then showing the new tip at the new position.
 */
 
-void QToolTip::showText(const QPoint &pos, const QString &text, QWidget *w, const QRect &rect)
-{
-    showText(pos, text, w, rect, -1);
-}
-
-/*!
-   \since 5.2
-   \overload
-   This is similar to QToolTip::showText(\a pos, \a text, \a w, \a rect) but with an extra parameter \a msecDisplayTime
-   that specifies how long the tool tip will be displayed, in milliseconds.
-*/
-
 void QToolTip::showText(const QPoint &pos, const QString &text, QWidget *w, const QRect &rect, int msecDisplayTime)
 {
-    if (QTipLabel::instance && QTipLabel::instance->isVisible()){ // a tip does already exist
+    if (QTipLabel::instance && QTipLabel::instance->isVisible()) { // a tip does already exist
         if (text.isEmpty()){ // empty text means hide current tip
             QTipLabel::instance->hideTip();
             return;
-        }
-        else if (!QTipLabel::instance->fadingOut){
+        } else if (!QTipLabel::instance->fadingOut) {
             // If the tip has changed, reuse the one
             // that is showing (removes flickering)
             QPoint localPos = pos;
@@ -502,21 +484,22 @@ void QToolTip::showText(const QPoint &pos, const QString &text, QWidget *w, cons
         }
     }
 
-    if (!text.isEmpty()){ // no tip can be reused, create new tip:
+    if (!text.isEmpty()) { // no tip can be reused, create new tip:
+        QWidget *tipLabelParent = [w]() -> QWidget* {
 #ifdef Q_OS_WIN32
-        // On windows, we can't use the widget as parent otherwise the window will be
-        // raised when the tooltip will be shown
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-        new QTipLabel(text, pos, QApplication::desktop()->screen(QTipLabel::getTipScreen(pos, w)), msecDisplayTime);
-QT_WARNING_POP
+            // On windows, we can't use the widget as parent otherwise the window will be
+            // raised when the tooltip will be shown
+            Q_UNUSED(w);
+            return nullptr;
 #else
-        new QTipLabel(text, pos, w, msecDisplayTime); // sets QTipLabel::instance to itself
+            return w;
 #endif
+        }();
+        new QTipLabel(text, pos, tipLabelParent, msecDisplayTime); // sets QTipLabel::instance to itself
+        QWidgetPrivate::get(QTipLabel::instance)->setScreen(QTipLabel::getTipScreen(pos, w));
         QTipLabel::instance->setTipRect(w, rect);
         QTipLabel::instance->placeTip(pos, w);
         QTipLabel::instance->setObjectName(QLatin1String("qtooltip_label"));
-
 
 #if QT_CONFIG(effects)
         if (QApplication::isEffectEnabled(Qt::UI_FadeTooltip))
@@ -532,18 +515,6 @@ QT_WARNING_POP
 }
 
 /*!
-    \overload
-
-    This is analogous to calling QToolTip::showText(\a pos, \a text, \a w, QRect())
-*/
-
-void QToolTip::showText(const QPoint &pos, const QString &text, QWidget *w)
-{
-    QToolTip::showText(pos, text, w, QRect());
-}
-
-
-/*!
     \fn void QToolTip::hideText()
     \since 4.2
 
@@ -557,7 +528,7 @@ void QToolTip::showText(const QPoint &pos, const QString &text, QWidget *w)
 /*!
   \since 4.4
 
-  Returns \c true if this tooltip is currently shown.
+  Returns \c true if a tooltip is currently shown.
 
   \sa showText()
  */
@@ -631,4 +602,3 @@ void QToolTip::setFont(const QFont &font)
 QT_END_NAMESPACE
 
 #include "qtooltip.moc"
-#endif // QT_NO_TOOLTIP

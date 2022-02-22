@@ -18,6 +18,7 @@ const char kFileKey[] = "file";
 const char kFocusedKey[] = "focused";
 const char kFormatKey[] = "format";
 const char kFromIndexKey[] = "fromIndex";
+const char kGroupIdKey[] = "groupId";
 const char kHeightKey[] = "height";
 const char kIdKey[] = "id";
 const char kIncognitoKey[] = "incognito";
@@ -91,6 +92,8 @@ const char kCannotDiscardTab[] = "Cannot discard tab with id: *.";
 const char kCannotFindTabToDiscard[] = "Cannot find a tab to discard.";
 const char kTabStripNotEditableError[] =
     "Tabs cannot be edited right now (user may be dragging a tab).";
+const char kTabStripNotEditableQueryError[] =
+    "Tabs cannot be queried right now (user may be dragging a tab).";
 const char kNoSelectedTabError[] = "No selected tab";
 const char kNoHighlightedTabError[] = "No highlighted tab";
 const char kIncognitoModeIsDisabled[] = "Incognito mode is disabled.";
@@ -118,6 +121,11 @@ const char kJavaScriptUrlsNotAllowedInTabsUpdate[] =
 const char kBrowserWindowNotAllowed[] = "Browser windows not allowed.";
 const char kLockedFullscreenModeNewTabError[] =
     "You cannot create new tabs while in locked fullscreen mode.";
+const char kGroupParamsError[] =
+    "Cannot specify 'createProperties' along with a 'groupId'.";
+const char kCannotNavigateToDevtools[] =
+    "Cannot navigate to a devtools:// page without either the devtools or "
+    "debugger permission.";
 
 }  // namespace tabs_constants
 }  // namespace extensions

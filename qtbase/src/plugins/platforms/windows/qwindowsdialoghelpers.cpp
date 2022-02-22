@@ -40,7 +40,7 @@
 #define QT_NO_URL_CAST_FROM_STRING 1
 
 #ifndef _WIN32_WINNT
-#define _WIN32_WINNT 0x0601
+#define _WIN32_WINNT 0x0A00
 #endif
 
 #include "qwindowscombase.h"
@@ -55,7 +55,9 @@
 #include <QtGui/qcolor.h>
 
 #include <QtCore/qdebug.h>
-#include <QtCore/qregularexpression.h>
+#if QT_CONFIG(regularexpression)
+#  include <QtCore/qregularexpression.h>
+#endif
 #include <QtCore/qtimer.h>
 #include <QtCore/qdir.h>
 #include <QtCore/qscopedpointer.h>
@@ -148,7 +150,7 @@ void eatMouseMove()
 
     Base classes for native dialogs (using the CLSID-based
     dialog interfaces "IFileDialog", etc. available from Windows
-    Vista on) that mimick the behaviour of their QDialog
+    Vista on) that mimic the behavior of their QDialog
     counterparts as close as possible.
 
     Instances of derived classes are controlled by
@@ -271,7 +273,7 @@ public:
 
     explicit QWindowsDialogThread(const QWindowsNativeDialogBasePtr &d, HWND owner)
         : m_dialog(d), m_owner(owner) {}
-    void run();
+    void run() override;
 
 private:
     const QWindowsNativeDialogBasePtr m_dialog;
@@ -506,14 +508,20 @@ public:
     static IFileDialogEvents *create(QWindowsNativeFileDialogBase *nativeFileDialog);
 
     // IFileDialogEvents methods
-    IFACEMETHODIMP OnFileOk(IFileDialog *);
-    IFACEMETHODIMP OnFolderChange(IFileDialog *) { return S_OK; }
-    IFACEMETHODIMP OnFolderChanging(IFileDialog *, IShellItem *);
-    IFACEMETHODIMP OnHelp(IFileDialog *) { return S_OK; }
-    IFACEMETHODIMP OnSelectionChange(IFileDialog *);
-    IFACEMETHODIMP OnShareViolation(IFileDialog *, IShellItem *, FDE_SHAREVIOLATION_RESPONSE *) { return S_OK; }
-    IFACEMETHODIMP OnTypeChange(IFileDialog *);
-    IFACEMETHODIMP OnOverwrite(IFileDialog *, IShellItem *, FDE_OVERWRITE_RESPONSE *) { return S_OK; }
+    IFACEMETHODIMP OnFileOk(IFileDialog *) override;
+    IFACEMETHODIMP OnFolderChange(IFileDialog *) override { return S_OK; }
+    IFACEMETHODIMP OnFolderChanging(IFileDialog *, IShellItem *) override;
+    IFACEMETHODIMP OnSelectionChange(IFileDialog *) override;
+    IFACEMETHODIMP OnShareViolation(IFileDialog *, IShellItem *,
+                                    FDE_SHAREVIOLATION_RESPONSE *) override
+    {
+        return S_OK;
+    }
+    IFACEMETHODIMP OnTypeChange(IFileDialog *) override;
+    IFACEMETHODIMP OnOverwrite(IFileDialog *, IShellItem *, FDE_OVERWRITE_RESPONSE *) override
+    {
+        return S_OK;
+    }
 
     QWindowsNativeFileDialogEventHandler(QWindowsNativeFileDialogBase *nativeFileDialog) :
         m_nativeFileDialog(nativeFileDialog) {}
@@ -1026,9 +1034,12 @@ static QList<FilterSpec> filterSpecs(const QStringList &filters,
     result.reserve(filters.size());
     *totalStringLength = 0;
 
+#if QT_CONFIG(regularexpression)
     const QRegularExpression filterSeparatorRE(QStringLiteral("[;\\s]+"));
     const QString separator = QStringLiteral(";");
     Q_ASSERT(filterSeparatorRE.isValid());
+#endif
+
     // Split filter specification as 'Texts (*.txt[;] *.doc)', '*.txt[;] *.doc'
     // into description and filters specification as '*.txt;*.doc'
     for (const QString &filterString : filters) {
@@ -1041,7 +1052,11 @@ static QList<FilterSpec> filterSpecs(const QStringList &filters,
             filterString.mid(openingParenPos + 1, closingParenPos - openingParenPos - 1).trimmed();
         if (filterSpec.filter.isEmpty())
             filterSpec.filter += u'*';
+#if QT_CONFIG(regularexpression)
         filterSpec.filter.replace(filterSeparatorRE, separator);
+#else
+        filterSpec.filter.replace(QLatin1Char(' '), QLatin1Char(';'));
+#endif
         filterSpec.description = filterString;
         if (hideFilterDetails && openingParenPos != -1) { // Do not show pattern in description
             filterSpec.description.truncate(openingParenPos);

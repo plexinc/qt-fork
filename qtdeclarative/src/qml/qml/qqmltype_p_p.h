@@ -58,6 +58,8 @@
 #include <private/qqmlpropertycache_p.h>
 #include <private/qqmlmetatype_p.h>
 
+#include <QAtomicInteger>
+
 QT_BEGIN_NAMESPACE
 
 class QQmlTypePrivate : public QQmlRefCount
@@ -111,8 +113,10 @@ public:
     struct QQmlCppTypeData
     {
         int allocationSize;
-        void (*newFunc)(void *);
+        void (*newFunc)(void *, void *);
+        void *userdata = nullptr;
         QString noCreationReason;
+        QVariant (*createValueTypeFunc)(const QJSValue &);
         int parserStatusCast;
         QObject *(*extFunc)(QObject *);
         const QMetaObject *extMetaObject;
@@ -127,6 +131,8 @@ public:
     struct QQmlSingletonTypeData
     {
         QQmlType::SingletonInstanceInfo *singletonInstanceInfo;
+        QObject *(*extFunc)(QObject *);
+        const QMetaObject *extMetaObject;
     };
 
     struct QQmlCompositeTypeData
@@ -146,31 +152,33 @@ public:
         int objectId = -1;
     };
 
+    using QQmlSequenceTypeData = QMetaSequence;
+
     union extraData {
         QQmlCppTypeData* cd;
         QQmlSingletonTypeData* sd;
         QQmlCompositeTypeData* fd;
         QQmlInlineTypeData* id;
+        QQmlSequenceTypeData* ld;
     } extraData;
 
     const char *iid;
     QHashedString module;
     QString name;
     QString elementName;
-    int version_maj;
-    int version_min;
-    int typeId;
-    int listId;
-    int revision;
+    QMetaType typeId;
+    QMetaType listId;
+    QTypeRevision version;
+    QTypeRevision revision;
     mutable bool containsRevisionedAttributes;
     mutable QQmlType superType;
     const QMetaObject *baseMetaObject;
 
     int index;
-    mutable volatile bool isSetup:1;
-    mutable volatile bool isEnumFromCacheSetup:1;
-    mutable volatile bool isEnumFromBaseSetup:1;
-    mutable bool haveSuperType:1;
+    mutable QAtomicInteger<bool> isSetup;
+    mutable QAtomicInteger<bool> isEnumFromCacheSetup;
+    mutable QAtomicInteger<bool> isEnumFromBaseSetup;
+    mutable bool haveSuperType;
     mutable QList<QQmlProxyMetaObject::ProxyData> metaObjects;
     mutable QStringHash<int> enums;
     mutable QStringHash<int> scopedEnumIndex; // maps from enum name to index in scopedEnums

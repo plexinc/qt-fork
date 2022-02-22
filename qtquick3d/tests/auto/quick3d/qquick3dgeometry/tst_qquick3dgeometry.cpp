@@ -33,6 +33,7 @@
 #include <QtQuick3D/private/qquick3dgeometry_p.h>
 
 #include <QtQuick3DRuntimeRender/private/qssgrendergeometry_p.h>
+#include <QtQuick3DUtils/private/qssgmesh_p.h>
 
 class tst_QQuick3DGeometry : public QObject
 {
@@ -46,33 +47,14 @@ class tst_QQuick3DGeometry : public QObject
     };
 
 private slots:
-    void testProperties();
     void testGeometry();
     void testGeometry2();
+    void testPartialUpdate();
 };
-
-void tst_QQuick3DGeometry::testProperties()
-{
-    Geometry geom;
-    auto node = static_cast<QSSGRenderGeometry *>(geom.updateSpatialNode(nullptr));
-    const auto originalNode = node; // for comparisons later...
-    QVERIFY(node);
-
-    const QString name = QStringLiteral("MyGeometry");
-    geom.setName(name);
-    node = static_cast<QSSGRenderGeometry *>(geom.updateSpatialNode(node));
-    QCOMPARE(name, geom.name());
-    QCOMPARE(name, node->path());
-    QCOMPARE(originalNode, node);
-}
 
 void tst_QQuick3DGeometry::testGeometry()
 {
     QSSGRenderGeometry geom;
-
-    const QString path = QStringLiteral("MyPath");
-    geom.setPath(path);
-    QCOMPARE(path, geom.path());
 
     QByteArray vertexData;
     vertexData.resize(100);
@@ -99,57 +81,56 @@ void tst_QQuick3DGeometry::testGeometry()
     QVERIFY(qFuzzyCompare(maximum, geom.boundsMax()));
 
     geom.clear();
-    QSSGBounds3 emptyBounds = QSSGBounds3::empty();
+    QSSGBounds3 emptyBounds;
     QCOMPARE(geom.vertexBuffer().size(), 0);
     QCOMPARE(geom.indexBuffer().size(), 0);
     QVERIFY(qFuzzyCompare(emptyBounds.minimum, geom.boundsMin()));
     QVERIFY(qFuzzyCompare(emptyBounds.maximum, geom.boundsMax()));
     QCOMPARE(geom.attributeCount(), 0);
 
-    const QSSGRenderGeometry::PrimitiveType primitiveTypes[] = {
-        QSSGRenderGeometry::Points,
-        QSSGRenderGeometry::LineStrip,
-        QSSGRenderGeometry::LineLoop,
-        QSSGRenderGeometry::Lines,
-        QSSGRenderGeometry::TriangleStrip,
-        QSSGRenderGeometry::TriangleFan,
-        QSSGRenderGeometry::Triangles,
-        QSSGRenderGeometry::Patches
+    const QSSGMesh::Mesh::DrawMode primitiveTypes[] = {
+        QSSGMesh::Mesh::DrawMode::Points,
+        QSSGMesh::Mesh::DrawMode::LineStrip,
+        QSSGMesh::Mesh::DrawMode::LineLoop,
+        QSSGMesh::Mesh::DrawMode::Lines,
+        QSSGMesh::Mesh::DrawMode::TriangleStrip,
+        QSSGMesh::Mesh::DrawMode::TriangleFan,
+        QSSGMesh::Mesh::DrawMode::Triangles
     };
     for (const auto primitiveType : primitiveTypes) {
         geom.setPrimitiveType(primitiveType);
         QCOMPARE(primitiveType, geom.primitiveType());
     }
 
-    const QSSGRenderGeometry::Attribute::Semantic semantics[] = {
-        QSSGRenderGeometry::Attribute::IndexSemantic,
-        QSSGRenderGeometry::Attribute::PositionSemantic,
-        QSSGRenderGeometry::Attribute::NormalSemantic,
-        QSSGRenderGeometry::Attribute::TexCoordSemantic,
-        QSSGRenderGeometry::Attribute::TangentSemantic,
-        QSSGRenderGeometry::Attribute::BinormalSemantic,
+    const QSSGMesh::RuntimeMeshData::Attribute::Semantic semantics[] = {
+        QSSGMesh::RuntimeMeshData::Attribute::IndexSemantic,
+        QSSGMesh::RuntimeMeshData::Attribute::PositionSemantic,
+        QSSGMesh::RuntimeMeshData::Attribute::NormalSemantic,
+        QSSGMesh::RuntimeMeshData::Attribute::TexCoordSemantic,
+        QSSGMesh::RuntimeMeshData::Attribute::TangentSemantic,
+        QSSGMesh::RuntimeMeshData::Attribute::BinormalSemantic,
     };
 
     const int offsets[] = {
         0, 16, 21, 33, 46, 52,
     };
 
-    const QSSGRenderGeometry::Attribute::ComponentType types[] = {
-        QSSGRenderGeometry::Attribute::U8Type,
-        QSSGRenderGeometry::Attribute::I8Type,
-        QSSGRenderGeometry::Attribute::U16Type,
-        QSSGRenderGeometry::Attribute::I16Type,
-        QSSGRenderGeometry::Attribute::U32Type,
-        QSSGRenderGeometry::Attribute::I32Type,
-        QSSGRenderGeometry::Attribute::U64Type,
-        QSSGRenderGeometry::Attribute::I64Type,
-        QSSGRenderGeometry::Attribute::F16Type,
-        QSSGRenderGeometry::Attribute::F32Type,
-        QSSGRenderGeometry::Attribute::F64Type
+    const QSSGMesh::Mesh::ComponentType types[] = {
+        QSSGMesh::Mesh::ComponentType::UnsignedInt8,
+        QSSGMesh::Mesh::ComponentType::Int8,
+        QSSGMesh::Mesh::ComponentType::UnsignedInt16,
+        QSSGMesh::Mesh::ComponentType::Int16,
+        QSSGMesh::Mesh::ComponentType::UnsignedInt32,
+        QSSGMesh::Mesh::ComponentType::Int32,
+        QSSGMesh::Mesh::ComponentType::UnsignedInt64,
+        QSSGMesh::Mesh::ComponentType::Int64,
+        QSSGMesh::Mesh::ComponentType::Float16,
+        QSSGMesh::Mesh::ComponentType::Float32,
+        QSSGMesh::Mesh::ComponentType::Float64
     };
 
     for (int i = 0; i < 6; i++) {
-        geom.addAttribute(semantics[i], offsets[i], QSSGRenderGeometry::Attribute::F32Type);
+        geom.addAttribute(semantics[i], offsets[i], QSSGMesh::Mesh::ComponentType::Float32);
         QCOMPARE(semantics[i], geom.attribute(i).semantic);
         QCOMPARE(offsets[i], geom.attribute(i).offset);
         QCOMPARE(geom.attributeCount(), i+1);
@@ -159,7 +140,7 @@ void tst_QQuick3DGeometry::testGeometry()
     QCOMPARE(geom.attributeCount(), 0);
 
     for (auto componentType : types) {
-        geom.addAttribute(QSSGRenderGeometry::Attribute::PositionSemantic, 0, componentType);
+        geom.addAttribute(QSSGMesh::RuntimeMeshData::Attribute::PositionSemantic, 0, componentType);
         QCOMPARE(componentType, geom.attribute(0).componentType);
         geom.clear();
     }
@@ -169,21 +150,20 @@ void tst_QQuick3DGeometry::testGeometry()
 void tst_QQuick3DGeometry::testGeometry2()
 {
     Geometry geom;
-    QThread::sleep(10);
 
     QByteArray vertexData;
     vertexData.resize(100);
     vertexData.fill(0);
     geom.setVertexData(vertexData);
-    QCOMPARE(vertexData.size(), geom.vertexBuffer().size());
-    QVERIFY(geom.vertexBuffer().compare(vertexData) == 0);
+    QCOMPARE(vertexData.size(), geom.vertexData().size());
+    QVERIFY(geom.vertexData().compare(vertexData) == 0);
 
     QByteArray indexData;
     indexData.resize(100);
     indexData.fill(0);
     geom.setIndexData(indexData);
-    QCOMPARE(indexData.size(), geom.indexBuffer().size());
-    QVERIFY(geom.indexBuffer().compare(indexData) == 0);
+    QCOMPARE(indexData.size(), geom.indexData().size());
+    QVERIFY(geom.indexData().compare(indexData) == 0);
 
     const int stride = 20;
     geom.setStride(stride);
@@ -196,8 +176,8 @@ void tst_QQuick3DGeometry::testGeometry2()
     QVERIFY(qFuzzyCompare(maximum, geom.boundsMax()));
 
     geom.clear();
-    QCOMPARE(geom.vertexBuffer().size(), 0);
-    QCOMPARE(geom.indexBuffer().size(), 0);
+    QCOMPARE(geom.vertexData().size(), 0);
+    QCOMPARE(geom.indexData().size(), 0);
     QCOMPARE(geom.attributeCount(), 0);
 
     const QQuick3DGeometry::PrimitiveType primitiveTypes[] = {
@@ -247,6 +227,54 @@ void tst_QQuick3DGeometry::testGeometry2()
         QCOMPARE(componentType, geom.attribute(0).componentType);
         geom.clear();
     }
+}
+
+void tst_QQuick3DGeometry::testPartialUpdate()
+{
+    Geometry geom;
+
+    QByteArray vertexData(100, 'a');
+    geom.setVertexData(vertexData);
+    QCOMPARE(vertexData.size(), geom.vertexData().size());
+    QCOMPARE(geom.vertexData(), vertexData);
+
+    QByteArray indexData(100, 'a');
+    geom.setIndexData(indexData);
+    QCOMPARE(indexData.size(), geom.indexData().size());
+    QCOMPARE(geom.indexData(), indexData);
+
+    QByteArray smallData(10, 'b');
+    geom.setVertexData(30, smallData);
+    QCOMPARE(geom.vertexData().size(), 100);
+    QCOMPARE(geom.vertexData().left(30), QByteArray(30, 'a'));
+    QCOMPARE(geom.vertexData().mid(30, 10), smallData);
+    QCOMPARE(geom.vertexData().mid(40), QByteArray(60, 'a'));
+
+    geom.setIndexData(40, smallData);
+    QCOMPARE(geom.indexData().size(), 100);
+    QCOMPARE(geom.indexData().left(40), QByteArray(40, 'a'));
+    QCOMPARE(geom.indexData().mid(40, 10), smallData);
+    QCOMPARE(geom.indexData().mid(50), QByteArray(50, 'a'));
+
+    geom.setVertexData(100, smallData);
+    QCOMPARE(geom.vertexData().size(), 100);
+    geom.setVertexData(101, smallData);
+    QCOMPARE(geom.vertexData().size(), 100);
+
+    geom.setIndexData(100, smallData);
+    QCOMPARE(geom.indexData().size(), 100);
+    geom.setIndexData(101, smallData);
+    QCOMPARE(geom.indexData().size(), 100);
+
+    geom.setVertexData(95, smallData);
+    QCOMPARE(geom.vertexData().size(), 100);
+    QCOMPARE(geom.vertexData().mid(45, 50), QByteArray(50, 'a'));
+    QCOMPARE(geom.vertexData().mid(95), smallData.left(5));
+
+    geom.setIndexData(95, smallData);
+    QCOMPARE(geom.indexData().size(), 100);
+    QCOMPARE(geom.indexData().mid(55, 40), QByteArray(40, 'a'));
+    QCOMPARE(geom.indexData().mid(95), smallData.left(5));
 }
 
 

@@ -51,14 +51,12 @@
 #ifndef CLIENT_CERT_SELECT_CONTROLLER_H
 #define CLIENT_CERT_SELECT_CONTROLLER_H
 
-#include "qtwebenginecoreglobal_p.h"
+#include <QtWebEngineCore/private/qtwebenginecoreglobal_p.h>
 #include <QtNetwork/qtnetwork-config.h>
 
 #include <QtCore/QUrl>
-#if !defined(QT_NO_SSL) || QT_VERSION >= QT_VERSION_CHECK(5, 12, 0)
-#include <QtCore/QVector>
+#include <QtCore/QList>
 #include <QtNetwork/QSslCertificate>
-#endif
 #include <memory>
 
 namespace content {
@@ -70,7 +68,7 @@ class ClientCertIdentity;
 class SSLCertRequestInfo;
 }
 
-QT_BEGIN_NAMESPACE
+namespace QtWebEngineCore {
 
 class Q_WEBENGINECORE_PRIVATE_EXPORT ClientCertSelectController {
 public:
@@ -80,22 +78,20 @@ public:
     ~ClientCertSelectController();
 
     QUrl hostAndPort() const { return m_hostAndPort; }
-#if !defined(QT_NO_SSL) || QT_VERSION >= QT_VERSION_CHECK(5, 12, 0)
     void selectNone();
     void select(const QSslCertificate &certificate);
     void select(int index);
 
-    QVector<QSslCertificate> certificates() const;
-#endif
+    QList<QSslCertificate> certificates() const;
 
 private:
     QUrl m_hostAndPort;
     std::vector<std::unique_ptr<net::ClientCertIdentity>> m_clientCerts;
     std::unique_ptr<content::ClientCertificateDelegate> m_delegate;
-    mutable QVector<QSslCertificate> m_certificates;
+    mutable QList<QSslCertificate> m_certificates;
     bool m_selected;
 };
 
-QT_END_NAMESPACE
+}
 
 #endif // CLIENT_CERT_SELECT_CONTROLLER_H

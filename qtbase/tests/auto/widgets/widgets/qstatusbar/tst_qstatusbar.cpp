@@ -27,9 +27,8 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
-
-
+#include <QTest>
+#include <QSignalSpy>
 #include <qstatusbar.h>
 #include <QLabel>
 #include <QMainWindow>
@@ -144,9 +143,6 @@ void tst_QStatusBar::setSizeGripEnabled()
     QTRY_VERIFY(statusBar->isVisible());
     QPointer<QSizeGrip> sizeGrip = statusBar->findChild<QSizeGrip *>();
     QVERIFY(sizeGrip);
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("", "Fails on WinRT - QTBUG-68297", Abort);
-#endif
     QVERIFY(sizeGrip->isVisible());
 
     statusBar->setSizeGripEnabled(true);

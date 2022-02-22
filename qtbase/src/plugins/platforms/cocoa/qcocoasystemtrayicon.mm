@@ -72,6 +72,8 @@
 **
 ****************************************************************************/
 
+#include <AppKit/AppKit.h>
+
 #include "qcocoasystemtrayicon.h"
 
 #ifndef QT_NO_SYSTEMTRAYICON
@@ -83,13 +85,12 @@
 #include <QtCore/private/qcore_mac_p.h>
 
 #include "qcocoamenu.h"
+#include "qcocoansmenu.h"
 
 #include "qcocoahelpers.h"
 #include "qcocoaintegration.h"
 #include "qcocoascreen.h"
 #include <QtGui/private/qcoregraphics_p.h>
-
-#import <AppKit/AppKit.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -101,7 +102,7 @@ void QCocoaSystemTrayIcon::init()
 
     m_statusItem.button.target = m_delegate;
     m_statusItem.button.action = @selector(statusItemClicked);
-    [m_statusItem.button sendActionOn:NSEventMaskLeftMouseUp | NSEventMaskRightMouseUp | NSEventMaskOtherMouseUp];
+    [m_statusItem.button sendActionOn:NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown | NSEventMaskOtherMouseDown];
 }
 
 void QCocoaSystemTrayIcon::cleanup()
@@ -203,6 +204,7 @@ void QCocoaSystemTrayIcon::updateIcon(const QIcon &icon)
         r.moveCenter(fullHeightPixmap.rect().center());
         p.drawPixmap(r, pixmap);
     }
+    fullHeightPixmap.setDevicePixelRatio(devicePixelRatio);
 
     auto *nsimage = [NSImage imageFromQImage:fullHeightPixmap.toImage()];
     [nsimage setTemplate:icon.isMask()];
@@ -281,7 +283,7 @@ void QCocoaSystemTrayIcon::statusItemClicked()
     emit activated(activationReason);
 
     if (NSMenu *menu = m_menu ? m_menu->nsMenu() : nil)
-        [m_statusItem popUpStatusItemMenu:menu];
+        QT_IGNORE_DEPRECATIONS([m_statusItem popUpStatusItemMenu:menu]);
 }
 
 QT_END_NAMESPACE

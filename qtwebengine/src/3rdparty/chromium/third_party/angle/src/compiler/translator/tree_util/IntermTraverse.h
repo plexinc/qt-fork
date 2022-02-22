@@ -167,7 +167,7 @@ class TIntermTraverser : angle::NonCopyable
     {
         NodeReplaceWithMultipleEntry(TIntermAggregateBase *parentIn,
                                      TIntermNode *originalIn,
-                                     TIntermSequence replacementsIn)
+                                     TIntermSequence &&replacementsIn)
             : parent(parentIn), original(originalIn), replacements(std::move(replacementsIn))
         {}
 
@@ -301,7 +301,7 @@ class TLValueTrackingTraverser : public TIntermTraverser
                              bool inVisit,
                              bool postVisit,
                              TSymbolTable *symbolTable);
-    virtual ~TLValueTrackingTraverser() {}
+    ~TLValueTrackingTraverser() override {}
 
     void traverseBinary(TIntermBinary *node) final;
     void traverseUnary(TIntermUnary *node) final;

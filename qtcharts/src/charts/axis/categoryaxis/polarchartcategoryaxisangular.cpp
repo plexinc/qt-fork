@@ -33,7 +33,7 @@
 #include <QtCharts/QCategoryAxis>
 #include <QtCore/QDebug>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 PolarChartCategoryAxisAngular::PolarChartCategoryAxisAngular(QCategoryAxis *axis, QGraphicsItem *item)
     : PolarChartAxisAngular(axis, item, true)
@@ -45,11 +45,11 @@ PolarChartCategoryAxisAngular::~PolarChartCategoryAxisAngular()
 {
 }
 
-QVector<qreal> PolarChartCategoryAxisAngular::calculateLayout() const
+QList<qreal> PolarChartCategoryAxisAngular::calculateLayout() const
 {
     QCategoryAxis *catAxis = static_cast<QCategoryAxis *>(axis());
     int tickCount = catAxis->categoriesLabels().count() + 1;
-    QVector<qreal> points;
+    QList<qreal> points;
 
     if (tickCount < 2)
         return points;
@@ -71,7 +71,7 @@ QVector<qreal> PolarChartCategoryAxisAngular::calculateLayout() const
     return points;
 }
 
-void PolarChartCategoryAxisAngular::createAxisLabels(const QVector<qreal> &layout)
+void PolarChartCategoryAxisAngular::createAxisLabels(const QList<qreal> &layout)
 {
     Q_UNUSED(layout);
     setLabels(static_cast<QCategoryAxis *>(axis())->categoriesLabels() << QString());
@@ -83,6 +83,6 @@ void PolarChartCategoryAxisAngular::handleCategoriesChanged()
     presenter()->layout()->invalidate();
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_polarchartcategoryaxisangular_p.cpp"

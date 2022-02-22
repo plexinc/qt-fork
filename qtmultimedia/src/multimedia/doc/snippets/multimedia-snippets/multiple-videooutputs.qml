@@ -37,17 +37,19 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import QtQuick.Window 2.2
-import QtMultimedia 5.15
+import QtQuick
+import QtQuick.Window
+import QtMultimedia
 
 //! [complete]
 Item {
     MediaPlayer {
         id: mediaplayer
-        autoPlay: true
         source: "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
         videoOutput: [v1, v2]
+        audioOutput: AudioOutput {
+
+        }
     }
 
     VideoOutput {

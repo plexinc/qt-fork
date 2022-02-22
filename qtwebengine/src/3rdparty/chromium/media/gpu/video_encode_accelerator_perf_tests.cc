@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include <algorithm>
+#include <map>
 #include <numeric>
 #include <vector>
 
@@ -11,11 +12,16 @@
 #include "base/json/json_writer.h"
 #include "base/strings/stringprintf.h"
 #include "media/base/bitstream_buffer.h"
+#include "media/base/media_util.h"
 #include "media/base/test_data_util.h"
+#include "media/base/video_decoder_config.h"
 #include "media/gpu/test/video.h"
+#include "media/gpu/test/video_encoder/bitstream_validator.h"
 #include "media/gpu/test/video_encoder/video_encoder.h"
 #include "media/gpu/test/video_encoder/video_encoder_client.h"
 #include "media/gpu/test/video_encoder/video_encoder_test_environment.h"
+#include "media/gpu/test/video_frame_validator.h"
+#include "media/gpu/test/video_test_helpers.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace media {
@@ -29,6 +35,7 @@ namespace {
 // TODO(dstaessens): Add video_encoder_perf_test_usage.md
 constexpr const char* usage_msg =
     "usage: video_encode_accelerator_perf_tests\n"
+    "           [--codec=<codec>]\n"
     "           [-v=<level>] [--vmodule=<config>] [--output_folder]\n"
     "           [--gtest_help] [--help]\n"
     "           [<video path>] [<video metadata path>]\n";
@@ -42,6 +49,8 @@ constexpr const char* help_msg =
     "containing the video's metadata. By default <video path>.json will be\n"
     "used.\n"
     "\nThe following arguments are supported:\n"
+    "  --codec              codec profile to encode, \"h264 (baseline)\",\n"
+    "                       \"h264main, \"h264high\", \"vp8\" and \"vp9\"\n"
     "   -v                  enable verbose mode, e.g. -v=2.\n"
     "  --vmodule            enable verbose mode for the specified module,\n"
     "  --output_folder      overwrite the output folder used to store\n"
@@ -55,6 +64,12 @@ constexpr base::FilePath::CharType kDefaultTestVideoPath[] =
     FILE_PATH_LITERAL("bear_320x192_40frames.yuv.webm");
 
 media::test::VideoEncoderTestEnvironment* g_env;
+
+constexpr size_t kNumFramesToEncodeForPerformance = 300;
+
+// The event timeout used in perf tests because encoding 2160p
+// |kNumFramesToEncodeForPerformance| frames take much time.
+constexpr base::TimeDelta kPerfEventTimeout = base::TimeDelta::FromSeconds(180);
 
 // Default output folder used to store performance metrics.
 constexpr const base::FilePath::CharType* kDefaultOutputFolder =
@@ -115,11 +130,8 @@ class PerformanceEvaluator : public BitstreamProcessor {
   // Create a new performance evaluator.
   PerformanceEvaluator() {}
 
-  // Interface BitstreamProcessor
-  void ProcessBitstreamBuffer(
-      int32_t bitstream_buffer_id,
-      const BitstreamBufferMetadata& metadata,
-      const base::UnsafeSharedMemoryRegion* shm) override;
+  void ProcessBitstream(scoped_refptr<BitstreamRef> bitstream,
+                        size_t frame_index) override;
   bool WaitUntilDone() override { return true; }
 
   // Start/Stop collecting performance metrics.
@@ -141,10 +153,9 @@ class PerformanceEvaluator : public BitstreamProcessor {
   PerformanceMetrics perf_metrics_;
 };
 
-void PerformanceEvaluator::ProcessBitstreamBuffer(
-    int32_t bitstream_buffer_id,
-    const BitstreamBufferMetadata& metadata,
-    const base::UnsafeSharedMemoryRegion* shm) {
+void PerformanceEvaluator::ProcessBitstream(
+    scoped_refptr<BitstreamRef> bitstream,
+    size_t frame_index) {
   base::TimeTicks now = base::TimeTicks::Now();
 
   base::TimeDelta delivery_time = (now - prev_bitstream_delivery_time_);
@@ -152,7 +163,8 @@ void PerformanceEvaluator::ProcessBitstreamBuffer(
       delivery_time.InMillisecondsF());
   prev_bitstream_delivery_time_ = now;
 
-  base::TimeDelta encode_time = now.since_origin() - metadata.timestamp;
+  base::TimeDelta encode_time =
+      now.since_origin() - bitstream->metadata.timestamp;
   perf_metrics_.bitstream_encode_times_.push_back(
       encode_time.InMillisecondsF());
 }
@@ -266,38 +278,233 @@ void PerformanceMetrics::WriteToFile() const {
   VLOG(0) << "Wrote performance metrics to: " << metrics_file_path;
 }
 
+struct BitstreamQualityMetrics {
+  BitstreamQualityMetrics(const PSNRVideoFrameValidator& psnr_validator,
+                          const SSIMVideoFrameValidator& ssim_validator);
+  void WriteToConsole() const;
+  void WriteToFile() const;
+
+ private:
+  struct QualityStats {
+    double avg = 0;
+    double percentile_25 = 0;
+    double percentile_50 = 0;
+    double percentile_75 = 0;
+    std::vector<double> values_in_order;
+  };
+
+  static QualityStats ComputeQualityStats(
+      const std::map<size_t, double>& values);
+
+  const QualityStats psnr_stats;
+  const QualityStats ssim_stats;
+};
+
+BitstreamQualityMetrics::BitstreamQualityMetrics(
+    const PSNRVideoFrameValidator& psnr_validator,
+    const SSIMVideoFrameValidator& ssim_validator)
+    : psnr_stats(ComputeQualityStats(psnr_validator.GetPSNRValues())),
+      ssim_stats(ComputeQualityStats(ssim_validator.GetSSIMValues())) {}
+
+// static
+BitstreamQualityMetrics::QualityStats
+BitstreamQualityMetrics::ComputeQualityStats(
+    const std::map<size_t, double>& values) {
+  if (values.empty())
+    return QualityStats();
+  std::vector<double> sorted_values;
+  std::vector<std::pair<size_t, double>> index_and_value;
+  sorted_values.reserve(values.size());
+  index_and_value.reserve(values.size());
+  for (const auto& v : values) {
+    sorted_values.push_back(v.second);
+    index_and_value.emplace_back(v.first, v.second);
+  }
+  std::sort(sorted_values.begin(), sorted_values.end());
+  std::sort(index_and_value.begin(), index_and_value.end());
+  QualityStats stats;
+  stats.avg = std::accumulate(sorted_values.begin(), sorted_values.end(), 0.0) /
+              sorted_values.size();
+  stats.percentile_25 = sorted_values[sorted_values.size() / 4];
+  stats.percentile_50 = sorted_values[sorted_values.size() / 2];
+  stats.percentile_75 = sorted_values[(sorted_values.size() * 3) / 4];
+  stats.values_in_order.resize(index_and_value.size());
+  for (size_t i = 0; i < index_and_value.size(); ++i)
+    stats.values_in_order[i] = index_and_value[i].second;
+  return stats;
+}
+
+void BitstreamQualityMetrics::WriteToConsole() const {
+  std::cout << "SSIM - average:       " << ssim_stats.avg << std::endl;
+  std::cout << "SSIM - percentile 25: " << ssim_stats.percentile_25
+            << std::endl;
+  std::cout << "SSIM - percentile 50: " << ssim_stats.percentile_50
+            << std::endl;
+  std::cout << "SSIM - percentile 75: " << ssim_stats.percentile_75
+            << std::endl;
+  std::cout << "PSNR - average:       " << psnr_stats.avg << std::endl;
+  std::cout << "PSNR - percentile 25: " << psnr_stats.percentile_25
+            << std::endl;
+  std::cout << "PSNR - percentile 50: " << psnr_stats.percentile_50
+            << std::endl;
+  std::cout << "PSNR - percentile 75: " << psnr_stats.percentile_75
+            << std::endl;
+}
+
+void BitstreamQualityMetrics::WriteToFile() const {
+  base::FilePath output_folder_path = base::FilePath(g_env->OutputFolder());
+  if (!DirectoryExists(output_folder_path))
+    base::CreateDirectory(output_folder_path);
+  output_folder_path = base::MakeAbsoluteFilePath(output_folder_path);
+  // Write quality metrics to json.
+  base::Value metrics(base::Value::Type::DICTIONARY);
+  metrics.SetKey("SSIMAverage", base::Value(ssim_stats.avg));
+  metrics.SetKey("SSIMPercentile25", base::Value(ssim_stats.percentile_25));
+  metrics.SetKey("SSIMPercentile50", base::Value(ssim_stats.percentile_50));
+  metrics.SetKey("SSIMPercentile75", base::Value(psnr_stats.percentile_75));
+  metrics.SetKey("PSNRAverage", base::Value(psnr_stats.avg));
+  metrics.SetKey("PSNRPercentile25", base::Value(psnr_stats.percentile_25));
+  metrics.SetKey("PSNRPercentile50", base::Value(psnr_stats.percentile_50));
+  metrics.SetKey("PSNRPercentile75", base::Value(psnr_stats.percentile_75));
+  // Write ssim values bitstream delivery times to json.
+  base::Value ssim_values(base::Value::Type::LIST);
+  for (double value : ssim_stats.values_in_order)
+    ssim_values.Append(value);
+  metrics.SetKey("SSIMValues", std::move(ssim_values));
+
+  // Write psnr values to json.
+  base::Value psnr_values(base::Value::Type::LIST);
+  for (double value : psnr_stats.values_in_order)
+    psnr_values.Append(value);
+  metrics.SetKey("PSNRValues", std::move(psnr_values));
+
+  // Write json to file.
+  std::string metrics_str;
+  ASSERT_TRUE(base::JSONWriter::WriteWithOptions(
+      metrics, base::JSONWriter::OPTIONS_PRETTY_PRINT, &metrics_str));
+  base::FilePath metrics_file_path = output_folder_path.Append(
+      g_env->GetTestOutputFilePath().AddExtension(FILE_PATH_LITERAL(".json")));
+  // Make sure that the directory into which json is saved is created.
+  LOG_ASSERT(base::CreateDirectory(metrics_file_path.DirName()));
+  base::File metrics_output_file(
+      base::FilePath(metrics_file_path),
+      base::File::FLAG_CREATE_ALWAYS | base::File::FLAG_WRITE);
+  int bytes_written = metrics_output_file.WriteAtCurrentPos(
+      metrics_str.data(), metrics_str.length());
+  ASSERT_EQ(bytes_written, static_cast<int>(metrics_str.length()));
+  VLOG(0) << "Wrote performance metrics to: " << metrics_file_path;
+}
+
 // Video encode test class. Performs setup and teardown for each single test.
 class VideoEncoderTest : public ::testing::Test {
  public:
   // Create a new video encoder instance.
-  std::unique_ptr<VideoEncoder> CreateVideoEncoder(const Video* video) {
-    LOG_ASSERT(video);
-
-    std::vector<std::unique_ptr<BitstreamProcessor>> bitstream_processors;
+  std::unique_ptr<VideoEncoder> CreateVideoEncoder(Video* video,
+                                                   VideoCodecProfile profile,
+                                                   uint32_t bitrate,
+                                                   uint32_t encoder_rate = 0) {
     auto performance_evaluator = std::make_unique<PerformanceEvaluator>();
     performance_evaluator_ = performance_evaluator.get();
+    std::vector<std::unique_ptr<BitstreamProcessor>> bitstream_processors;
     bitstream_processors.push_back(std::move(performance_evaluator));
+    return CreateVideoEncoderWithProcessors(
+        video, profile, bitrate, encoder_rate, std::move(bitstream_processors));
+  }
 
-    VideoEncoderClientConfig config;
-    config.framerate = video->FrameRate();
+  // Create a new video encoder instance for quality performance tests.
+  std::unique_ptr<VideoEncoder> CreateVideoEncoderForQualityPerformance(
+      Video* video,
+      VideoCodecProfile profile,
+      uint32_t bitrate) {
+    raw_data_helper_ = RawDataHelper::Create(video);
+    if (!raw_data_helper_) {
+      LOG(ERROR) << "Failed to create raw data helper";
+      return nullptr;
+    }
+
+    std::vector<std::unique_ptr<VideoFrameProcessor>> video_frame_processors;
+    VideoFrameValidator::GetModelFrameCB get_model_frame_cb =
+        base::BindRepeating(&VideoEncoderTest::GetModelFrame,
+                            base::Unretained(this));
+    auto ssim_validator = SSIMVideoFrameValidator::Create(
+        get_model_frame_cb, /*corrupt_frame_processor=*/nullptr,
+        VideoFrameValidator::ValidationMode::kAverage,
+        /*tolerance=*/0.0);
+    LOG_ASSERT(ssim_validator);
+    ssim_validator_ = ssim_validator.get();
+    video_frame_processors.push_back(std::move(ssim_validator));
+    auto psnr_validator = PSNRVideoFrameValidator::Create(
+        get_model_frame_cb, /*corrupt_frame_processor=*/nullptr,
+        VideoFrameValidator::ValidationMode::kAverage,
+        /*tolerance=*/0.0);
+    LOG_ASSERT(psnr_validator);
+    psnr_validator_ = psnr_validator.get();
+    video_frame_processors.push_back(std::move(psnr_validator));
+
+    const gfx::Rect visible_rect(video->Resolution());
+    VideoDecoderConfig decoder_config(
+        VideoCodecProfileToVideoCodec(profile), profile,
+        VideoDecoderConfig::AlphaMode::kIsOpaque, VideoColorSpace(),
+        kNoTransformation, visible_rect.size(), visible_rect,
+        visible_rect.size(), EmptyExtraData(), EncryptionScheme::kUnencrypted);
+
+    auto bitstream_validator = BitstreamValidator::Create(
+        decoder_config, kNumFramesToEncodeForPerformance - 1,
+        std::move(video_frame_processors));
+    LOG_ASSERT(bitstream_validator);
+    std::vector<std::unique_ptr<BitstreamProcessor>> bitstream_processors;
+    bitstream_processors.push_back(std::move(bitstream_validator));
+    return CreateVideoEncoderWithProcessors(video, profile, bitrate,
+                                            /*encoder_rate=*/0,
+                                            std::move(bitstream_processors));
+  }
+
+  std::unique_ptr<VideoEncoder> CreateVideoEncoderWithProcessors(
+      Video* video,
+      VideoCodecProfile profile,
+      uint32_t bitrate,
+      uint32_t encoder_rate,
+      std::vector<std::unique_ptr<BitstreamProcessor>> bitstream_processors) {
+    LOG_ASSERT(video);
+    constexpr size_t kNumTemporalLayers = 1u;
+    VideoEncoderClientConfig config(video, profile, kNumTemporalLayers,
+                                    bitrate);
+    config.num_frames_to_encode = kNumFramesToEncodeForPerformance;
+    if (encoder_rate != 0)
+      config.encode_interval =
+          base::TimeDelta::FromSeconds(/*secs=*/1u) / encoder_rate;
+
     auto video_encoder =
-        VideoEncoder::Create(config, std::move(bitstream_processors));
+        VideoEncoder::Create(config, g_env->GetGpuMemoryBufferFactory(),
+                             std::move(bitstream_processors));
     LOG_ASSERT(video_encoder);
     LOG_ASSERT(video_encoder->Initialize(video));
 
     return video_encoder;
   }
 
+  scoped_refptr<const VideoFrame> GetModelFrame(size_t frame_index) {
+    LOG_ASSERT(raw_data_helper_);
+    return raw_data_helper_->GetFrame(frame_index %
+                                      g_env->Video()->NumFrames());
+  }
+
+  std::unique_ptr<RawDataHelper> raw_data_helper_;
+
   PerformanceEvaluator* performance_evaluator_;
+  SSIMVideoFrameValidator* ssim_validator_;
+  PSNRVideoFrameValidator* psnr_validator_;
 };
 
 }  // namespace
 
-// Encode video from start to end while measuring uncapped performance. This
-// test will encode a video as fast as possible, and gives an idea about the
-// maximum output of the encoder.
+// Encode |kNumFramesToEncodeForPerformance| frames while measuring uncapped
+// performance. This test will encode a video as fast as possible, and gives an
+// idea about the maximum output of the encoder.
 TEST_F(VideoEncoderTest, MeasureUncappedPerformance) {
-  auto encoder = CreateVideoEncoder(g_env->Video());
+  auto encoder =
+      CreateVideoEncoder(g_env->Video(), g_env->Profile(), g_env->Bitrate());
+  encoder->SetEventWaitTimeout(kPerfEventTimeout);
 
   performance_evaluator_->StartMeasuring();
   encoder->Encode();
@@ -309,9 +516,46 @@ TEST_F(VideoEncoderTest, MeasureUncappedPerformance) {
   metrics.WriteToFile();
 
   EXPECT_EQ(encoder->GetFlushDoneCount(), 1u);
-  EXPECT_EQ(encoder->GetFrameReleasedCount(), g_env->Video()->NumFrames());
+  EXPECT_EQ(encoder->GetFrameReleasedCount(), kNumFramesToEncodeForPerformance);
 }
 
+// Encode |kNumFramesToEncodeForPerformance| frames while measuring uncapped
+// performance. This test will encode a video at a fixed ratio, 30fps.
+// This test can be used to measure the cpu metrics during encoding.
+TEST_F(VideoEncoderTest, MeasureCappedPerformance) {
+  const uint32_t kEncodeRate = 30;
+  auto encoder = CreateVideoEncoder(g_env->Video(), g_env->Profile(),
+                                    g_env->Bitrate(), kEncodeRate);
+  encoder->SetEventWaitTimeout(kPerfEventTimeout);
+
+  performance_evaluator_->StartMeasuring();
+  encoder->Encode();
+  EXPECT_TRUE(encoder->WaitForFlushDone());
+  performance_evaluator_->StopMeasuring();
+
+  auto metrics = performance_evaluator_->Metrics();
+  metrics.WriteToConsole();
+  metrics.WriteToFile();
+
+  EXPECT_EQ(encoder->GetFlushDoneCount(), 1u);
+  EXPECT_EQ(encoder->GetFrameReleasedCount(), kNumFramesToEncodeForPerformance);
+}
+
+TEST_F(VideoEncoderTest, MeasureProducedBitstreamQuality) {
+  auto encoder = CreateVideoEncoderForQualityPerformance(
+      g_env->Video(), g_env->Profile(), g_env->Bitrate());
+  encoder->SetEventWaitTimeout(kPerfEventTimeout);
+
+  encoder->Encode();
+  EXPECT_TRUE(encoder->WaitForFlushDone());
+  EXPECT_EQ(encoder->GetFlushDoneCount(), 1u);
+  EXPECT_EQ(encoder->GetFrameReleasedCount(), kNumFramesToEncodeForPerformance);
+  EXPECT_TRUE(encoder->WaitForBitstreamProcessors());
+
+  BitstreamQualityMetrics metrics(*psnr_validator_, *ssim_validator_);
+  metrics.WriteToConsole();
+  metrics.WriteToFile();
+}
 }  // namespace test
 }  // namespace media
 
@@ -336,6 +580,7 @@ int main(int argc, char** argv) {
                          : base::FilePath(media::test::kDefaultTestVideoPath);
   base::FilePath video_metadata_path =
       (args.size() >= 2) ? base::FilePath(args[1]) : base::FilePath();
+  std::string codec = "h264";
 
   // Parse command line arguments.
   base::FilePath::StringType output_folder = media::test::kDefaultOutputFolder;
@@ -349,6 +594,8 @@ int main(int argc, char** argv) {
 
     if (it->first == "output_folder") {
       output_folder = it->second;
+    } else if (it->first == "codec") {
+      codec = it->second;
     } else {
       std::cout << "unknown option: --" << it->first << "\n"
                 << media::test::usage_msg;
@@ -361,7 +608,8 @@ int main(int argc, char** argv) {
   // Set up our test environment.
   media::test::VideoEncoderTestEnvironment* test_environment =
       media::test::VideoEncoderTestEnvironment::Create(
-          video_path, video_metadata_path, base::FilePath(output_folder));
+          video_path, video_metadata_path, false, base::FilePath(output_folder),
+          codec, 1u /* num_temporal_layers */, false /* output_bitstream */);
   if (!test_environment)
     return EXIT_FAILURE;
 

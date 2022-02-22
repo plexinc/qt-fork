@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 #include <memory>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/macros.h"
@@ -115,20 +116,21 @@ class WebIDBCursorImplTest : public testing::Test {
   WebIDBCursorImplTest() : null_key_(IDBKey::CreateNone()) {
     mojo::AssociatedRemote<mojom::blink::IDBCursor> remote;
     mock_cursor_ = std::make_unique<MockCursorImpl>(
-        remote.BindNewEndpointAndPassDedicatedReceiverForTesting());
+        remote.BindNewEndpointAndPassDedicatedReceiver());
     cursor_ = std::make_unique<WebIDBCursorImpl>(
         remote.Unbind(), 1,
         blink::scheduler::GetSingleThreadTaskRunnerForTesting());
   }
+
+  // Disallow copy and assign.
+  WebIDBCursorImplTest(const WebIDBCursorImplTest&) = delete;
+  WebIDBCursorImplTest& operator=(const WebIDBCursorImplTest&) = delete;
 
  protected:
   ScopedTestingPlatformSupport<TestingPlatformSupport> platform_;
   std::unique_ptr<IDBKey> null_key_;
   std::unique_ptr<WebIDBCursorImpl> cursor_;
   std::unique_ptr<MockCursorImpl> mock_cursor_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(WebIDBCursorImplTest);
 };
 
 TEST_F(WebIDBCursorImplTest, PrefetchTest) {

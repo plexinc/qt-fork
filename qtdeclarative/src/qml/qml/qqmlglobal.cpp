@@ -38,6 +38,7 @@
 ****************************************************************************/
 
 #include <private/qqmlglobal_p.h>
+#include <QtQml/private/qqmlmetatype_p.h>
 
 #include <QtQml/qqmlengine.h>
 #include <QtCore/qvariant.h>
@@ -47,232 +48,63 @@
 
 QT_BEGIN_NAMESPACE
 
-QQmlValueTypeProvider::QQmlValueTypeProvider()
-    : next(nullptr)
-{
-}
-
-QQmlValueTypeProvider::~QQmlValueTypeProvider()
-{
-    QQml_removeValueTypeProvider(this);
-}
-
-const QMetaObject *QQmlValueTypeProvider::metaObjectForMetaType(int type)
-{
-    QQmlValueTypeProvider *p = this;
-    do {
-        if (const QMetaObject *mo = p->getMetaObjectForMetaType(type))
-            return mo;
-    } while ((p = p->next));
-
-    return nullptr;
-}
-
 bool QQmlValueTypeProvider::initValueType(int type, QVariant& dst)
 {
-    QQmlValueTypeProvider *p = this;
-    do {
-        if (p->init(type, dst))
+    const QMetaType metaType(type);
+    if (!metaType.isValid())
+        return false;
+    dst = QVariant(QMetaType(type));
+    return true;
+}
+
+bool QQmlValueTypeProvider::createValueType(int type, const QJSValue &s, QVariant &data)
+{
+    const QQmlType qmlType = QQmlMetaType::qmlType(type, QQmlMetaType::TypeIdCategory::MetaType);
+    if (auto valueTypeFunction = qmlType.createValueTypeFunction()) {
+        QVariant result = valueTypeFunction(s);
+        if (result.userType() == type) {
+            data = std::move(result);
             return true;
-    } while ((p = p->next));
-
-    return false;
-}
-
-QVariant QQmlValueTypeProvider::createValueType(int type, int argc, const void *argv[])
-{
-    QVariant v;
-
-    QQmlValueTypeProvider *p = this;
-    do {
-        if (p->create(type, argc, argv, &v))
-            return v;
-    } while ((p = p->next));
-
-    return QVariant();
-}
-
-bool QQmlValueTypeProvider::createValueFromString(int type, const QString &s, void *data, size_t n)
-{
-    Q_ASSERT(data);
-
-    QQmlValueTypeProvider *p = this;
-    do {
-        if (p->createFromString(type, s, data, n))
-            return true;
-    } while ((p = p->next));
-
-    return false;
-}
-
-bool QQmlValueTypeProvider::createStringFromValue(int type, const void *data, QString *s)
-{
-    Q_ASSERT(data);
-    Q_ASSERT(s);
-
-    QQmlValueTypeProvider *p = this;
-    do {
-        if (p->createStringFrom(type, data, s))
-            return true;
-    } while ((p = p->next));
-
-    return false;
-}
-
-QVariant QQmlValueTypeProvider::createVariantFromString(const QString &s)
-{
-    QVariant v;
-
-    QQmlValueTypeProvider *p = this;
-    do {
-        if (p->variantFromString(s, &v))
-            return v;
-    } while ((p = p->next));
-
-    // Return a variant containing the string itself
-    return QVariant(s);
-}
-
-QVariant QQmlValueTypeProvider::createVariantFromString(int type, const QString &s, bool *ok)
-{
-    QVariant v;
-
-    QQmlValueTypeProvider *p = this;
-    do {
-        if (p->variantFromString(type, s, &v)) {
-            if (ok) *ok = true;
-            return v;
         }
-    } while ((p = p->next));
+    }
 
-    if (ok) *ok = false;
-    return QVariant();
-}
-
-QVariant QQmlValueTypeProvider::createVariantFromJsObject(int type, const QV4::Value &obj,
-                                                          QV4::ExecutionEngine *e, bool *ok)
-{
-    QVariant v;
-
-    QQmlValueTypeProvider *p = this;
-    do {
-        if (p->variantFromJsObject(type, obj, e, &v)) {
-            if (ok) *ok = true;
-            return v;
-        }
-    } while ((p = p->next));
-
-    if (ok) *ok = false;
-    return QVariant();
+    return false;
 }
 
 bool QQmlValueTypeProvider::equalValueType(int type, const void *lhs, const QVariant& rhs)
 {
     Q_ASSERT(lhs);
-
-    QQmlValueTypeProvider *p = this;
-    do {
-        if (p->equal(type, lhs, rhs))
-            return true;
-    } while ((p = p->next));
-
-    return false;
+    return QMetaType(type).equals(lhs, rhs.constData());
 }
 
-bool QQmlValueTypeProvider::storeValueType(int type, const void *src, void *dst, size_t dstSize)
-{
-    Q_ASSERT(src);
-    Q_ASSERT(dst);
-
-    QQmlValueTypeProvider *p = this;
-    do {
-        if (p->store(type, src, dst, dstSize))
-            return true;
-    } while ((p = p->next));
-
-    return false;
-}
-
-bool QQmlValueTypeProvider::readValueType(const QVariant& src, void *dst, int dstType)
+bool QQmlValueTypeProvider::readValueType(const QVariant& src, void *dst, int type)
 {
     Q_ASSERT(dst);
+    const QMetaType dstType(type);
+    if (!dstType.isValid() || (src.metaType() == dstType && dstType.equals(src.constData(), dst)))
+        return false;
 
-    QQmlValueTypeProvider *p = this;
-    do {
-        if (p->read(src, dst, dstType))
-            return true;
-    } while ((p = p->next));
-
-    return false;
+    dstType.destruct(dst);
+    dstType.construct(dst, src.metaType() == dstType ? src.constData() : nullptr);
+    return true;
 }
 
 bool QQmlValueTypeProvider::writeValueType(int type, const void *src, QVariant& dst)
 {
     Q_ASSERT(src);
+    const QMetaType srcType(type);
+    if (!srcType.isValid() || (dst.metaType() == srcType && srcType.equals(src, dst.constData())))
+        return false;
 
-    QQmlValueTypeProvider *p = this;
-    do {
-        if (p->write(type, src, dst))
-            return true;
-    } while ((p = p->next));
-
-    return false;
+    dst = QVariant(srcType, src);
+    return true;
 }
 
-const QMetaObject *QQmlValueTypeProvider::getMetaObjectForMetaType(int) { return nullptr; }
-bool QQmlValueTypeProvider::init(int, QVariant&) { return false; }
-bool QQmlValueTypeProvider::create(int, int, const void *[], QVariant *) { return false; }
-bool QQmlValueTypeProvider::createFromString(int, const QString &, void *, size_t) { return false; }
-bool QQmlValueTypeProvider::createStringFrom(int, const void *, QString *) { return false; }
-bool QQmlValueTypeProvider::variantFromString(const QString &, QVariant *) { return false; }
-bool QQmlValueTypeProvider::variantFromString(int, const QString &, QVariant *) { return false; }
-bool QQmlValueTypeProvider::variantFromJsObject(int, const QV4::Value &, QV4::ExecutionEngine *, QVariant *) { return false; }
-bool QQmlValueTypeProvider::equal(int, const void *, const QVariant&) { return false; }
-bool QQmlValueTypeProvider::store(int, const void *, void *, size_t) { return false; }
-bool QQmlValueTypeProvider::read(const QVariant&, void *, int) { return false; }
-bool QQmlValueTypeProvider::write(int, const void *, QVariant&) { return false; }
-
-struct ValueTypeProviderList {
-    QQmlValueTypeProvider nullProvider;
-    QQmlValueTypeProvider *head = &nullProvider;
-};
-
-Q_GLOBAL_STATIC(ValueTypeProviderList, valueTypeProviders)
-
-Q_QML_PRIVATE_EXPORT void QQml_addValueTypeProvider(QQmlValueTypeProvider *newProvider)
-{
-    if (ValueTypeProviderList *providers = valueTypeProviders()) {
-        newProvider->next = providers->head;
-        providers->head = newProvider;
-    }
-}
-
-Q_QML_PRIVATE_EXPORT void QQml_removeValueTypeProvider(QQmlValueTypeProvider *oldProvider)
-{
-    if (ValueTypeProviderList *providers = valueTypeProviders()) {
-        QQmlValueTypeProvider *prev = providers->head;
-        if (prev == oldProvider) {
-            providers->head = oldProvider->next;
-            return;
-        }
-
-        // singly-linked list removal
-        for (; prev; prev = prev->next) {
-            if (prev->next != oldProvider)
-                continue;               // this is not the provider you're looking for
-            prev->next = oldProvider->next;
-            return;
-        }
-
-        qWarning("QQml_removeValueTypeProvider: was asked to remove provider %p but it was not found", oldProvider);
-    }
-}
+Q_GLOBAL_STATIC(QQmlValueTypeProvider, valueTypeProvider)
 
 Q_AUTOTEST_EXPORT QQmlValueTypeProvider *QQml_valueTypeProvider()
 {
-    if (ValueTypeProviderList *providers = valueTypeProviders())
-        return providers->head;
-    return nullptr;
+    return valueTypeProvider();
 }
 
 QQmlColorProvider::~QQmlColorProvider() {}
@@ -283,6 +115,10 @@ QVariant QQmlColorProvider::fromHslF(double, double, double, double) { return QV
 QVariant QQmlColorProvider::fromHsvF(double, double, double, double) { return QVariant(); }
 QVariant QQmlColorProvider::lighter(const QVariant &, qreal) { return QVariant(); }
 QVariant QQmlColorProvider::darker(const QVariant &, qreal) { return QVariant(); }
+QVariant QQmlColorProvider::alpha(const QVariant &, qreal)
+{
+    return QVariant();
+}
 QVariant QQmlColorProvider::tint(const QVariant &, const QVariant &) { return QVariant(); }
 
 static QQmlColorProvider *colorProvider = nullptr;
@@ -313,9 +149,12 @@ Q_AUTOTEST_EXPORT QQmlColorProvider *QQml_colorProvider(void)
 
 
 QQmlGuiProvider::~QQmlGuiProvider() {}
-QObject *QQmlGuiProvider::application(QObject *) { return new QQmlApplication(); }
+QQmlApplication *QQmlGuiProvider::application(QObject *parent)
+{
+    return new QQmlApplication(parent);
+}
 QStringList QQmlGuiProvider::fontFamilies() { return QStringList(); }
-bool QQmlGuiProvider::openUrlExternally(QUrl &) { return false; }
+bool QQmlGuiProvider::openUrlExternally(const QUrl &) { return false; }
 
 QObject *QQmlGuiProvider::inputMethod()
 {

@@ -87,7 +87,7 @@ struct QItemViewPaintPair {
 template <>
 class QTypeInfo<QItemViewPaintPair> : public QTypeInfoMerger<QItemViewPaintPair, QRect, QModelIndex> {};
 
-typedef QVector<QItemViewPaintPair> QItemViewPaintPairs;
+typedef QList<QItemViewPaintPair> QItemViewPaintPairs;
 
 class Q_AUTOTEST_EXPORT QAbstractItemViewPrivate : public QAbstractScrollAreaPrivate
 {
@@ -108,6 +108,7 @@ public:
     virtual void _q_layoutChanged();
     virtual void _q_rowsMoved(const QModelIndex &source, int sourceStart, int sourceEnd, const QModelIndex &destination, int destinationStart);
     virtual void _q_columnsMoved(const QModelIndex &source, int sourceStart, int sourceEnd, const QModelIndex &destination, int destinationStart);
+    virtual QRect intersectedRect(const QRect rect, const QModelIndex &topLeft, const QModelIndex &bottomRight) const;
 
     void _q_headerDataChanged() { doDelayedItemsLayout(); }
     void _q_scrollerStateChanged();
@@ -139,6 +140,7 @@ public:
     bool sendDelegateEvent(const QModelIndex &index, QEvent *event) const;
     bool openEditor(const QModelIndex &index, QEvent *event);
     void updateEditorData(const QModelIndex &topLeft, const QModelIndex &bottomRight);
+    void selectAllInEditor(QWidget *w);
 
     QItemSelectionModel::SelectionFlags multiSelectionCommand(const QModelIndex &index,
                                                               const QEvent *event) const;
@@ -197,7 +199,7 @@ public:
 #endif
             ) {
             QStyleOption opt;
-            opt.init(q_func());
+            opt.initFrom(q_func());
             opt.rect = dropIndicatorRect;
             q_func()->style()->drawPrimitive(QStyle::PE_IndicatorItemViewItemDrop, &opt, painter, q_func());
         }
@@ -210,11 +212,12 @@ public:
 
     inline void releaseEditor(QWidget *editor, const QModelIndex &index = QModelIndex()) const {
         if (editor) {
+            Q_Q(const QAbstractItemView);
             QObject::disconnect(editor, SIGNAL(destroyed(QObject*)),
                                 q_func(), SLOT(editorDestroyed(QObject*)));
             editor->removeEventFilter(itemDelegate);
             editor->hide();
-            QAbstractItemDelegate *delegate = delegateForIndex(index);
+            QAbstractItemDelegate *delegate = q->itemDelegateForIndex(index);
 
             if (delegate)
                 delegate->destroyEditor(editor, index);
@@ -273,20 +276,6 @@ public:
 
     inline bool isAnimating() const {
         return state == QAbstractItemView::AnimatingState;
-    }
-
-    inline QAbstractItemDelegate *delegateForIndex(const QModelIndex &index) const {
-        QMap<int, QPointer<QAbstractItemDelegate> >::ConstIterator it;
-
-        it = rowDelegates.find(index.row());
-        if (it != rowDelegates.end())
-            return it.value();
-
-        it = columnDelegates.find(index.column());
-        if (it != columnDelegates.end())
-            return it.value();
-
-        return itemDelegate;
     }
 
     inline bool isIndexValid(const QModelIndex &index) const {
@@ -352,8 +341,6 @@ public:
 
     QModelIndexList selectedDraggableIndexes() const;
 
-    QStyleOptionViewItem viewOptionsV1() const;
-
     void doDelayedReset()
     {
         //we delay the reset of the timer because some views (QTableView)
@@ -378,6 +365,10 @@ public:
     QIndexEditorHash indexEditorHash;
     QSet<QWidget*> persistent;
     QWidget *currentlyCommittingEditor;
+    QBasicTimer pressClosedEditorWatcher;
+    QPersistentModelIndex lastEditedIndex;
+    bool pressClosedEditor;
+    bool waitForIMCommit;
 
     QPersistentModelIndex enteredIndex;
     QPersistentModelIndex pressedIndex;
@@ -385,6 +376,7 @@ public:
     Qt::KeyboardModifiers pressedModifiers;
     QPoint pressedPosition;
     bool pressedAlreadySelected;
+    bool releaseFromDoubleClick;
 
     //forces the next mouseMoveEvent to send the viewportEntered signal
     //if the mouse is over the viewport and not over an item
@@ -454,16 +446,30 @@ public:
     bool horizontalScrollModeSet;
 
 private:
+    inline QAbstractItemDelegate *delegateForIndex(const QModelIndex &index) const {
+        QMap<int, QPointer<QAbstractItemDelegate> >::ConstIterator it;
+
+        it = rowDelegates.find(index.row());
+        if (it != rowDelegates.end())
+            return it.value();
+
+        it = columnDelegates.find(index.column());
+        if (it != columnDelegates.end())
+            return it.value();
+
+        return itemDelegate;
+    }
+
     mutable QBasicTimer delayedLayout;
     mutable QBasicTimer fetchMoreTimer;
 };
 
 QT_BEGIN_INCLUDE_NAMESPACE
-#include <qvector.h>
+#include <qlist.h>
 QT_END_INCLUDE_NAMESPACE
 
-template <typename T>
-inline int qBinarySearch(const QVector<T> &vec, const T &item, int start, int end)
+template<typename T>
+inline int qBinarySearch(const QList<T> &vec, const T &item, int start, int end)
 {
     int i = (start + end + 1) >> 1;
     while (end - start > 0) {

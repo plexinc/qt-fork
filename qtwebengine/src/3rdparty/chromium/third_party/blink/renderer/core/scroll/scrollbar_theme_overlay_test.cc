@@ -25,9 +25,9 @@ TEST_F(ScrollbarThemeOverlayTest, PaintInvalidation) {
   ScrollbarThemeOverlay theme(14, 0);
 
   Scrollbar* vertical_scrollbar = Scrollbar::CreateForTesting(
-      mock_scrollable_area, kVerticalScrollbar, kRegularScrollbar, &theme);
+      mock_scrollable_area, kVerticalScrollbar, &theme);
   Scrollbar* horizontal_scrollbar = Scrollbar::CreateForTesting(
-      mock_scrollable_area, kHorizontalScrollbar, kRegularScrollbar, &theme);
+      mock_scrollable_area, kHorizontalScrollbar, &theme);
   ON_CALL(*mock_scrollable_area, VerticalScrollbar())
       .WillByDefault(Return(vertical_scrollbar));
   ON_CALL(*mock_scrollable_area, HorizontalScrollbar())
@@ -96,7 +96,8 @@ TEST_F(ScrollbarThemeOverlayTest, PaintInvalidation) {
   mock_scrollable_area->ClearNeedsPaintInvalidationForScrollControls();
 
   // Pressing down should also cause an invalidation.
-  vertical_scrollbar->SetPressedPart(kThumbPart, WebInputEvent::kMouseDown);
+  vertical_scrollbar->SetPressedPart(kThumbPart,
+                                     WebInputEvent::Type::kMouseDown);
   EXPECT_TRUE(vertical_scrollbar->ThumbNeedsRepaint());
   EXPECT_TRUE(mock_scrollable_area->VerticalScrollbarNeedsPaintInvalidation());
 
@@ -104,7 +105,7 @@ TEST_F(ScrollbarThemeOverlayTest, PaintInvalidation) {
   mock_scrollable_area->ClearNeedsPaintInvalidationForScrollControls();
 
   // Release should cause invalidation.
-  vertical_scrollbar->SetPressedPart(kNoPart, WebInputEvent::kMouseDown);
+  vertical_scrollbar->SetPressedPart(kNoPart, WebInputEvent::Type::kMouseDown);
   EXPECT_TRUE(vertical_scrollbar->ThumbNeedsRepaint());
   EXPECT_TRUE(mock_scrollable_area->VerticalScrollbarNeedsPaintInvalidation());
 
@@ -119,8 +120,8 @@ TEST_F(ScrollbarThemeOverlayTest, PaintInvalidation) {
   vertical_scrollbar->ClearThumbNeedsRepaint();
   mock_scrollable_area->ClearNeedsPaintInvalidationForScrollControls();
 
-  // Hiding the scrollbar should invalidate the layer (SetNeedsDisplay) but not
-  // trigger repaint of the thumb resouce, since the compositor will give the
+  // Hiding the scrollbar should invalidate the layer (InvalidateAll) but not
+  // trigger repaint of the thumb resource, since the compositor will give the
   // entire layer opacity 0.
   EXPECT_CALL(*mock_scrollable_area, ScrollbarsHiddenIfOverlay())
       .WillOnce(Return(true));

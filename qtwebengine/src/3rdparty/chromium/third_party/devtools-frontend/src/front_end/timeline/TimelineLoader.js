@@ -5,25 +5,52 @@
 import * as Bindings from '../bindings/bindings.js';
 import * as Common from '../common/common.js';
 import * as Host from '../host/host.js';
+import * as i18n from '../i18n/i18n.js';
 import * as SDK from '../sdk/sdk.js';
 import * as TextUtils from '../text_utils/text_utils.js';
 import * as TimelineModel from '../timeline_model/timeline_model.js';
 
+export const UIStrings = {
+  /**
+  *@description Text in Timeline Loader of the Performance panel
+  */
+  malformedTimelineDataUnknownJson: 'Malformed timeline data: Unknown JSON format',
+  /**
+  *@description Text in Timeline Loader of the Performance panel
+  */
+  malformedTimelineInputWrongJson: 'Malformed timeline input, wrong JSON brackets balance',
+  /**
+  *@description Text in Timeline Loader of the Performance panel
+  *@example {Unknown JSON format} PH1
+  */
+  malformedTimelineDataS: 'Malformed timeline data: {PH1}',
+  /**
+  *@description Text in Timeline Loader of the Performance panel
+  */
+  legacyTimelineFormatIsNot: 'Legacy Timeline format is not supported.',
+  /**
+  *@description Text in Timeline Loader of the Performance panel
+  */
+  malformedCpuProfileFormat: 'Malformed CPU profile format',
+};
+const str_ = i18n.i18n.registerUIStrings('timeline/TimelineLoader.js', UIStrings);
+const i18nString = i18n.i18n.getLocalizedString.bind(undefined, str_);
 /**
  * @implements {Common.StringOutputStream.OutputStream}
- * @unrestricted
  */
 export class TimelineLoader {
   /**
    * @param {!Client} client
    */
   constructor(client) {
+    /** @type {?Client} */
     this._client = client;
 
     this._backingStorage = new Bindings.TempFile.TempFileBackingStorage();
+    /** @type {?SDK.TracingModel.TracingModel} */
     this._tracingModel = new SDK.TracingModel.TracingModel(this._backingStorage);
 
-    /** @type {?function()} */
+    /** @type {?function():void} */
     this._canceledCallback = null;
     this._state = State.Initial;
     this._buffer = '';
@@ -46,8 +73,8 @@ export class TimelineLoader {
     loader._canceledCallback = fileReader.cancel.bind(fileReader);
     loader._totalSize = file.size;
     fileReader.read(loader).then(success => {
-      if (!success) {
-        loader._reportErrorAndCancelLoading(fileReader.error().message);
+      if (!success && fileReader.error()) {
+        loader._reportErrorAndCancelLoading(/** @type {*} */ (fileReader.error()).message);
       }
     });
     return loader;
@@ -66,7 +93,7 @@ export class TimelineLoader {
       client.loadingStarted();
       for (let i = 0; i < events.length; i += eventsPerChunk) {
         const chunk = events.slice(i, i + eventsPerChunk);
-        loader._tracingModel.addEvents(chunk);
+        /** @type {!SDK.TracingModel.TracingModel} */ (loader._tracingModel).addEvents(chunk);
         client.loadingProgress((i + chunk.length) / events.length);
         await new Promise(r => setTimeout(r));  // Yield event loop to paint.
       }
@@ -90,8 +117,10 @@ export class TimelineLoader {
   cancel() {
     this._tracingModel = null;
     this._backingStorage.reset();
-    this._client.loadingComplete(null);
-    this._client = null;
+    if (this._client) {
+      this._client.loadingComplete(null);
+      this._client = null;
+    }
     if (this._canceledCallback) {
       this._canceledCallback();
     }
@@ -100,7 +129,7 @@ export class TimelineLoader {
   /**
    * @override
    * @param {string} chunk
-   * @return {!Promise}
+   * @return {!Promise<void>}
    */
   write(chunk) {
     if (!this._client) {
@@ -122,7 +151,7 @@ export class TimelineLoader {
       } else if (chunk[0] === '[') {
         this._state = State.ReadingEvents;
       } else {
-        this._reportErrorAndCancelLoading(Common.UIString.UIString('Malformed timeline data: Unknown JSON format'));
+        this._reportErrorAndCancelLoading(i18nString(UIStrings.malformedTimelineDataUnknownJson));
         return Promise.resolve();
       }
     }
@@ -152,8 +181,7 @@ export class TimelineLoader {
     }
     this._state = State.SkippingTail;
     if (this._firstChunk) {
-      this._reportErrorAndCancelLoading(
-          Common.UIString.UIString('Malformed timeline input, wrong JSON brackets balance'));
+      this._reportErrorAndCancelLoading(i18nString(UIStrings.malformedTimelineInputWrongJson));
     }
     return Promise.resolve();
   }
@@ -176,22 +204,22 @@ export class TimelineLoader {
     try {
       items = /** @type {!Array.<!SDK.TracingManager.EventPayload>} */ (JSON.parse(json));
     } catch (e) {
-      this._reportErrorAndCancelLoading(Common.UIString.UIString('Malformed timeline data: %s', e.toString()));
+      this._reportErrorAndCancelLoading(i18nString(UIStrings.malformedTimelineDataS, {PH1: e.toString()}));
       return;
     }
 
     if (this._firstChunk) {
       this._firstChunk = false;
       if (this._looksLikeAppVersion(items[0])) {
-        this._reportErrorAndCancelLoading(Common.UIString.UIString('Legacy Timeline format is not supported.'));
+        this._reportErrorAndCancelLoading(i18nString(UIStrings.legacyTimelineFormatIsNot));
         return;
       }
     }
 
     try {
-      this._tracingModel.addEvents(items);
+      /** @type {!SDK.TracingModel.TracingModel} */ (this._tracingModel).addEvents(items);
     } catch (e) {
-      this._reportErrorAndCancelLoading(Common.UIString.UIString('Malformed timeline data: %s', e.toString()));
+      this._reportErrorAndCancelLoading(i18nString(UIStrings.malformedTimelineDataS, {PH1: e.toString()}));
     }
   }
 
@@ -229,8 +257,8 @@ export class TimelineLoader {
       this._parseCPUProfileFormat(this._buffer);
       this._buffer = '';
     }
-    this._tracingModel.tracingComplete();
-    this._client.loadingComplete(this._tracingModel);
+    /** @type {!SDK.TracingModel.TracingModel} */ (this._tracingModel).tracingComplete();
+    /** @type {!Client} */ (this._client).loadingComplete(this._tracingModel);
   }
 
   /**
@@ -243,10 +271,10 @@ export class TimelineLoader {
       traceEvents = TimelineModel.TimelineJSProfile.TimelineJSProfileProcessor.buildTraceProfileFromCpuProfile(
           profile, /* tid */ 1, /* injectPageEvent */ true);
     } catch (e) {
-      this._reportErrorAndCancelLoading(Common.UIString.UIString('Malformed CPU profile format'));
+      this._reportErrorAndCancelLoading(i18nString(UIStrings.malformedCpuProfileFormat));
       return;
     }
-    this._tracingModel.addEvents(traceEvents);
+    /** @type {!SDK.TracingModel.TracingModel} */ (this._tracingModel).addEvents(traceEvents);
   }
 }
 

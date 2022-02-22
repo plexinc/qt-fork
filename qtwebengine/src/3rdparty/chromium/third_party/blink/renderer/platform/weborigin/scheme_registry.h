@@ -49,18 +49,7 @@ class PLATFORM_EXPORT SchemeRegistry {
   STATIC_ONLY(SchemeRegistry);
 
  public:
-  static void RegisterURLSchemeAsLocal(const String&);
-  static bool ShouldTreatURLSchemeAsLocal(const String&);
-
   static bool ShouldTreatURLSchemeAsRestrictingMixedContent(const String&);
-
-  // Subresources transported by secure schemes do not trigger mixed content
-  // warnings. For example, https and data are secure schemes because they
-  // cannot be corrupted by active network attackers.
-  static void RegisterURLSchemeAsSecure(const String&);
-  static bool ShouldTreatURLSchemeAsSecure(const String&);
-
-  static bool ShouldTreatURLSchemeAsNoAccess(const String&);
 
   // Display-isolated schemes can only be displayed (in the sense of
   // SecurityOrigin::canDisplay) by documents from the same scheme.
@@ -71,6 +60,7 @@ class PLATFORM_EXPORT SchemeRegistry {
 
   static void SetDomainRelaxationForbiddenForURLScheme(bool forbidden,
                                                        const String&);
+  static void ResetDomainRelaxation();
   static bool IsDomainRelaxationForbiddenForURLScheme(const String&);
 
   // Such schemes should delegate to SecurityOrigin::canRequest for any URL
@@ -106,22 +96,31 @@ class PLATFORM_EXPORT SchemeRegistry {
   static void RegisterURLSchemeAsSupportingFetchAPI(const String& scheme);
   static bool ShouldTreatURLSchemeAsSupportingFetchAPI(const String& scheme);
 
-  // https://fetch.spec.whatwg.org/#fetch-scheme
-  static bool IsFetchScheme(const String& scheme);
+  // https://url.spec.whatwg.org/#special-scheme
+  static bool IsSpecialScheme(const String& scheme);
 
   // Schemes which override the first-/third-party checks on a Document.
-  // TODO(chlily): This should also reflect the fact that chrome:// scheme
-  // should be considered first-party if the embedded origin is secure, to be
-  // consistent with other places that check this.
   static void RegisterURLSchemeAsFirstPartyWhenTopLevel(const String& scheme);
   static void RemoveURLSchemeAsFirstPartyWhenTopLevel(const String& scheme);
   static bool ShouldTreatURLSchemeAsFirstPartyWhenTopLevel(
       const String& scheme);
 
+  // Like RegisterURLSchemeAsFirstPartyWhenTopLevel, but requires the present
+  // document to be delivered over a secure scheme.
+  static void RegisterURLSchemeAsFirstPartyWhenTopLevelEmbeddingSecure(
+      const String& scheme);
+  static bool ShouldTreatURLSchemeAsFirstPartyWhenTopLevelEmbeddingSecure(
+      const String& top_level_scheme,
+      const String& child_scheme);
+
   // Schemes that can be used in a referrer.
   static void RegisterURLSchemeAsAllowedForReferrer(const String& scheme);
   static void RemoveURLSchemeAsAllowedForReferrer(const String& scheme);
   static bool ShouldTreatURLSchemeAsAllowedForReferrer(const String& scheme);
+
+  // Schemes used for internal error pages, for failed navigations.
+  static void RegisterURLSchemeAsError(const String&);
+  static bool ShouldTreatURLSchemeAsError(const String& scheme);
 
   // Allow resources from some schemes to load on a page, regardless of its
   // Content Security Policy.

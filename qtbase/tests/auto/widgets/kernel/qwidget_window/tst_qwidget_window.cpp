@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QtGui/QtGui>
 #include <QtCore/QTextStream>
 #include <QtCore/QStringList>
@@ -89,6 +89,8 @@ private slots:
     void tst_resize_show();
     void tst_show_resize();
     void tst_show_resize_hide_show();
+
+    void close();
 
     void tst_windowFilePathAndwindowTitle_data();
     void tst_windowFilePathAndwindowTitle();
@@ -195,9 +197,6 @@ void tst_QWidget_window::tst_move_show()
     const QPoint pos(100, 100);
     w.move(pos);
     w.show();
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("", "Winrt does not support move", Abort);
-#endif
     QVERIFY2(qFuzzyCompareWindowPosition(w.pos(), pos, m_fuzz),
              qPrintable(msgPointMismatch(w.pos(), pos)));
 }
@@ -229,9 +228,6 @@ void tst_QWidget_window::tst_resize_show()
     QWidget w;
     w.resize(m_testWidgetSize);
     w.show();
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("", "Winrt does not support resize", Abort);
-#endif
     QCOMPARE(w.size(), m_testWidgetSize);
 }
 
@@ -251,6 +247,70 @@ void tst_QWidget_window::tst_show_resize_hide_show()
     w.hide();
     w.show();
     QCOMPARE(w.size(), m_testWidgetSize);
+}
+
+void tst_QWidget_window::close()
+{
+    // Verfy that closing a QWidgetWindow deletes its platform window,
+    // as expected of a QWindow subclass. This must be done also
+    // if QWidget API is used to close. The QCloseEvent must not be
+    // spontaneous if the close is triggered by a Qt API that the application
+    // would call in response to an event, and spontaneous if it is directly
+    // caused by user interaction, such as clicking the (x) in the titlebar.
+    // We can simulate this only by generating a WindowSystemEvent.
+    // Children of the window should get a hide event (never spontaneous when
+    // caused by closing the window).
+
+    struct Widget : public QWidget
+    {
+        using QWidget::QWidget;
+        int spontClose = -1;
+        int spontHide = -1;
+    protected:
+        void hideEvent(QHideEvent *e)
+        { spontHide = e->spontaneous() ? 1 : 0; }
+        void closeEvent(QCloseEvent *e)
+        { spontClose = e->spontaneous() ? 1 : 0; }
+    };
+
+    // QWindow::close()
+    {
+        Widget w;
+        Widget child(&w);
+        w.winId();
+        QVERIFY(w.windowHandle());
+        QVERIFY(w.windowHandle()->handle());
+        w.windowHandle()->close();
+        QCOMPARE(w.spontClose, 0);
+        QCOMPARE(child.spontHide, -1); // was never shown
+        QVERIFY(w.windowHandle());
+        QVERIFY(!w.windowHandle()->handle());
+    }
+
+    // QWidget::close()
+    {
+        Widget w;
+        Widget child(&w);
+        w.show();
+        QVERIFY(w.windowHandle());
+        QVERIFY(w.windowHandle()->handle());
+        w.close();
+        QCOMPARE(w.spontClose, 0);
+        QCOMPARE(child.spontHide, 0);
+        QVERIFY(w.windowHandle());
+        QVERIFY(!w.windowHandle()->handle());
+    }
+
+    // User-initiated close
+    {
+        Widget w;
+        Widget child(&w);
+        w.show();
+        QWindowSystemInterface::handleCloseEvent(w.windowHandle());
+        QApplication::processEvents();
+        QCOMPARE(w.spontClose, 1);
+        QCOMPARE(child.spontHide, 0);
+    }
 }
 
 class PaintTestWidget : public QWidget
@@ -374,14 +434,14 @@ void tst_QWidget_window::tst_windowFilePath()
 void tst_QWidget_window::tst_showWithoutActivating()
 {
     QString platformName = QGuiApplication::platformName().toLower();
-    if (platformName == "cocoa")
-        QSKIP("Cocoa: This fails. Figure out why.");
-    else if (platformName != QStringLiteral("xcb")
-            && platformName != QStringLiteral("windows")
-            && platformName != QStringLiteral("ios")
-            && platformName != QStringLiteral("tvos")
-            && platformName != QStringLiteral("watchos"))
-        QSKIP("Qt::WA_ShowWithoutActivating is currently supported only on xcb, windows, and ios/tvos/watchos platforms.");
+    if (platformName != QStringLiteral("xcb")
+        && platformName != QStringLiteral("windows")
+        && platformName != QStringLiteral("cocoa")
+        && platformName != QStringLiteral("ios")
+        && platformName != QStringLiteral("tvos")
+        && platformName != QStringLiteral("watchos"))
+        QSKIP("Qt::WA_ShowWithoutActivating is currently supported only on xcb, " \
+              "windows, and macos/ios/tvos/watchos platforms.");
 
     QWidget w1;
     w1.setAttribute(Qt::WA_ShowWithoutActivating);
@@ -405,6 +465,7 @@ void tst_QWidget_window::tst_paintEventOnSecondShow()
 {
     PaintTestWidget w;
     w.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&w));
     w.hide();
 
     w.paintEventCount = 0;
@@ -421,8 +482,7 @@ void tst_QWidget_window::tst_exposeObscuredMapped_QTBUG39220()
 
     const auto integration = QGuiApplicationPrivate::platformIntegration();
     if (!integration->hasCapability(QPlatformIntegration::MultipleWindows)
-        || !integration->hasCapability(QPlatformIntegration::NonFullScreenWindows)
-        || QGuiApplication::platformName() == QLatin1String("winrt")) {
+        || !integration->hasCapability(QPlatformIntegration::NonFullScreenWindows)) {
         QSKIP("The platform does not have the required capabilities");
     }
     // QTBUG-39220: Fully obscured parent widgets may not receive expose
@@ -530,10 +590,10 @@ public:
         : QWidget(w), m_log(log), m_ignoreDragMove(ignoreDragMove)
     {}
 protected:
-    void dragEnterEvent(QDragEnterEvent *);
-    void dragMoveEvent(QDragMoveEvent *);
-    void dragLeaveEvent(QDragLeaveEvent *);
-    void dropEvent(QDropEvent *);
+    void dragEnterEvent(QDragEnterEvent *) override;
+    void dragMoveEvent(QDragMoveEvent *) override;
+    void dragLeaveEvent(QDragLeaveEvent *) override;
+    void dropEvent(QDropEvent *) override;
 
 private:
     void formatDropEvent(const char *function, const QDropEvent *e, QTextStream &str) const;
@@ -543,7 +603,7 @@ private:
 
 void DnDEventLoggerWidget::formatDropEvent(const char *function, const QDropEvent *e, QTextStream &str) const
 {
-    str << objectName() << "::" << function  << " at " << e->pos().x() << ',' << e->pos().y()
+    str << objectName() << "::" << function  << " at " << e->position().toPoint().x() << ',' << e->position().toPoint().y()
         << " action=" << e->dropAction()
         << ' ' << quintptr(e->mimeData()) << " '" << e->mimeData()->text() << '\'';
 }
@@ -587,7 +647,7 @@ static QString msgEventAccepted(const QDropEvent &e)
 {
     QString message;
     QTextStream str(&message);
-    str << "Event at " << e.pos().x() << ',' << e.pos().y() << ' ' << (e.isAccepted() ? "accepted" : "ignored");
+    str << "Event at " << e.position().toPoint().x() << ',' << e.position().toPoint().y() << ' ' << (e.isAccepted() ? "accepted" : "ignored");
     return message;
 }
 
@@ -634,9 +694,6 @@ void tst_QWidget_window::tst_dnd()
     QWidget *dropsAcceptingWidget3 = new DnDEventLoggerWidget(&log, &dndTestWidget, true);
     dropsAcceptingWidget3->setAcceptDrops(true);
     dropsAcceptingWidget3->setObjectName(QLatin1String("acceptingDropsWidget3"));
-    // 260 + 40 = 300 = widget size, must not be more than that.
-    // otherwise it will break WinRT because there the tlw is maximized every time
-    // and this window will receive one more event
     dropsAcceptingWidget3->resize(180, 40);
     dropsAcceptingWidget3->move(10, 260);
 
@@ -710,7 +767,7 @@ public:
     DnDEventRecorder() { setAcceptDrops(true); }
 
 protected:
-    void mousePressEvent(QMouseEvent *)
+    void mousePressEvent(QMouseEvent *) override
     {
         QMimeData *mimeData = new QMimeData;
         mimeData->setData("application/x-dnditemdata", "some data");
@@ -719,23 +776,23 @@ protected:
         drag->exec();
     }
 
-    void dragEnterEvent(QDragEnterEvent *e)
+    void dragEnterEvent(QDragEnterEvent *e) override
     {
         e->accept();
         _dndEvents.append(QStringLiteral("DragEnter "));
     }
-    void dragMoveEvent(QDragMoveEvent *e)
+    void dragMoveEvent(QDragMoveEvent *e) override
     {
         e->accept();
         _dndEvents.append(QStringLiteral("DragMove "));
         emit dragMoveReceived();
     }
-    void dragLeaveEvent(QDragLeaveEvent *e)
+    void dragLeaveEvent(QDragLeaveEvent *e) override
     {
         e->accept();
         _dndEvents.append(QStringLiteral("DragLeave "));
     }
-    void dropEvent(QDropEvent *e)
+    void dropEvent(QDropEvent *e) override
     {
         e->accept();
         _dndEvents.append(QStringLiteral("DropEvent "));
@@ -976,7 +1033,7 @@ class ResizeWidget : public QWidget
 {
 Q_OBJECT
 public:
-    ResizeWidget(QWidget *parent = 0)
+    ResizeWidget(QWidget *parent = nullptr)
         : QWidget(parent)
         , resizeCount(0)
     { }
@@ -997,9 +1054,6 @@ void tst_QWidget_window::tst_resize_count()
         resize.setWindowFlags(Qt::X11BypassWindowManagerHint);
         resize.show();
         QVERIFY(QTest::qWaitForWindowExposed(&resize));
-#ifdef Q_OS_WINRT
-        QEXPECT_FAIL("", "Winrt does not support resize", Abort);
-#endif
         QCOMPARE(resize.resizeCount, 1);
         resize.resizeCount = 0;
         QSize size = resize.size();
@@ -1068,7 +1122,7 @@ void tst_QWidget_window::tst_showhide_count()
             return count;
         }
     protected:
-        bool eventFilter(QObject *receiver, QEvent *event)
+        bool eventFilter(QObject *receiver, QEvent *event) override
         {
             if (QWidget *widget = qobject_cast<QWidget*>(receiver)) {
                 const auto entry = Entry(widget, event->type());
@@ -1123,7 +1177,7 @@ class MoveWidget : public QWidget
 {
 Q_OBJECT
 public:
-    MoveWidget(QWidget *parent = 0)
+    MoveWidget(QWidget *parent = nullptr)
         : QWidget(parent)
         , moveCount(0)
     { }
@@ -1277,11 +1331,6 @@ void tst_QWidget_window::setWindowState()
     w.setWindowState(state);
     QCOMPARE(w.windowState(), state);
     w.show();
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("0", "Winrt windows are maximized by default", Abort);
-    QEXPECT_FAIL("Qt::WindowMinimized", "Winrt windows are maximized by default", Abort);
-    QEXPECT_FAIL("Qt::WindowFullScreen", "Winrt windows are maximized by default", Abort);
-#endif
     QCOMPARE(w.windowState(), state);
     QCOMPARE(w.windowHandle()->windowStates(), state);
     if (!(state & Qt::WindowMinimized))
@@ -1359,7 +1408,7 @@ void tst_QWidget_window::mouseMoveWithPopup()
         : QWidget(parent, flags|Qt::CustomizeWindowHint|Qt::FramelessWindowHint)
         {}
 
-        QSize sizeHint() const
+        QSize sizeHint() const override
         {
             if (parent())
                 return QSize(150, 100);
@@ -1378,14 +1427,14 @@ void tst_QWidget_window::mouseMoveWithPopup()
             mouseReleaseCount = 0;
         }
     protected:
-        void mousePressEvent(QMouseEvent *event)
+        void mousePressEvent(QMouseEvent *event) override
         {
             ++mousePressCount;
 
             if (event->button() == Qt::RightButton) {
                 if (!popup)
                     popup = new Window(this, type);
-                popup->move(event->globalPos());
+                popup->move(event->globalPosition().toPoint());
                 popup->show();
                 if (!QTest::qWaitForWindowExposed(popup)) {
                     delete popup;
@@ -1396,12 +1445,12 @@ void tst_QWidget_window::mouseMoveWithPopup()
                 QWidget::mousePressEvent(event);
             }
         }
-        void mouseReleaseEvent(QMouseEvent *event)
+        void mouseReleaseEvent(QMouseEvent *event) override
         {
             ++mouseReleaseCount;
             QWidget::mouseReleaseEvent(event);
         }
-        void mouseMoveEvent(QMouseEvent *event)
+        void mouseMoveEvent(QMouseEvent *event) override
         {
             ++mouseMoveCount;
             QWidget::mouseMoveEvent(event);
@@ -1415,7 +1464,7 @@ void tst_QWidget_window::mouseMoveWithPopup()
         QSKIP("Failed to expose window!");
 
     QCOMPARE(QApplication::activePopupWidget(), nullptr);
-    QCOMPARE(QApplication::activeWindow(), &topLevel);
+    QTRY_COMPARE(QApplication::activeWindow(), &topLevel);
 
     QPoint mousePos = topLevel.geometry().center();
     QWindow *window = nullptr;
@@ -1470,6 +1519,9 @@ void tst_QWidget_window::mouseMoveWithPopup()
     topLevel.resetCounters();
     topLevel.popup->resetCounters();
 
+    QTRY_VERIFY(QApplication::activeWindow() == topLevel.popup
+                || QApplication::activePopupWidget() == topLevel.popup);
+
     // nested popup, same procedure
     QCOMPARE(mouseAction(Qt::RightButton), QEvent::MouseButtonPress);
     QVERIFY(topLevel.popup);
@@ -1516,9 +1568,8 @@ void tst_QWidget_window::mouseMoveWithPopup()
 
     // but the release event will still be delivered to the first popup - dialogs might not get it
     QCOMPARE(mouseAction(Qt::LeftButton), QEvent::MouseButtonRelease);
-    if (topLevel.popup->mouseMoveCount != 1
-        && (QGuiApplication::platformName().startsWith(QLatin1String("xcb"), Qt::CaseInsensitive)
-            || QGuiApplication::platformName().startsWith(QLatin1String("offscreen"), Qt::CaseInsensitive)))
+    if (topLevel.popup->mouseReleaseCount != 1
+        && !QGuiApplication::platformName().startsWith(QLatin1String("windows"), Qt::CaseInsensitive))
         QEXPECT_FAIL("Dialog", "Platform specific behavior", Continue);
     QCOMPARE(topLevel.popup->mouseReleaseCount, 1);
 }

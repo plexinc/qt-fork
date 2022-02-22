@@ -80,6 +80,7 @@ public:
         FeatureStrikeThrough =            0x0200,
         FeaturePermissiveWWWAutoLinks =   0x0400,
         FeatureTasklists =                0x0800,
+        FeatureUnderline =                0x4000,
         // composite flags
         FeaturePermissiveAutoLinks = FeaturePermissiveMailAutoLinks
             | FeaturePermissiveURLAutoLinks | FeaturePermissiveWWWAutoLinks,
@@ -113,7 +114,7 @@ private:
     QString m_htmlAccumulator;
 #endif
     QString m_blockCodeLanguage;
-    QVector<int> m_nonEmptyTableCells; // in the current row
+    QList<int> m_nonEmptyTableCells; // in the current row
     QStack<QPointer<QTextList>> m_listStack;
     QStack<QTextCharFormat> m_spanFormatStack;
     QFont m_monoFont;

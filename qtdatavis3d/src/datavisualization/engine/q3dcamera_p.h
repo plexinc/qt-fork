@@ -44,7 +44,7 @@
 #include "q3dcamera.h"
 #include <QtGui/QMatrix4x4>
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 class Q3DCamera;
 
@@ -89,7 +89,7 @@ Q_SIGNALS:
     void minYRotationChanged(float rotation);
     void maxXRotationChanged(float rotation);
     void maxYRotationChanged(float rotation);
-    void viewMatrixChanged(QMatrix4x4 viewMatrix);
+    void viewMatrixChanged(const QMatrix4x4 &viewMatrix);
     void viewMatrixAutoUpdateChanged(bool enabled);
 
 public:
@@ -123,6 +123,6 @@ public:
     friend class QTouch3DInputHandler;
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

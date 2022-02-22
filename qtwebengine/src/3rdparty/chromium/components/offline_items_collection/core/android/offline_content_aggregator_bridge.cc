@@ -248,6 +248,26 @@ void OfflineContentAggregatorBridge::RenameItem(
                         std::move(callback));
 }
 
+void OfflineContentAggregatorBridge::ChangeSchedule(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jobject>& jobj,
+    const base::android::JavaParamRef<jstring>& j_namespace,
+    const base::android::JavaParamRef<jstring>& j_id,
+    jboolean j_only_on_wifi,
+    jlong j_start_time_ms) {
+  base::Optional<OfflineItemSchedule> schedule;
+  if (j_only_on_wifi)
+    schedule = base::make_optional<OfflineItemSchedule>(true, base::nullopt);
+  else if (j_start_time_ms > 0) {
+    schedule = base::make_optional<OfflineItemSchedule>(
+        false, base::Time::FromJavaTime(j_start_time_ms));
+  }
+
+  provider_->ChangeSchedule(JNI_OfflineContentAggregatorBridge_CreateContentId(
+                                env, j_namespace, j_id),
+                            std::move(schedule));
+}
+
 void OfflineContentAggregatorBridge::OnItemsAdded(
     const OfflineContentProvider::OfflineItemList& items) {
   if (java_ref_.is_null())
@@ -278,6 +298,13 @@ void OfflineContentAggregatorBridge::OnItemUpdated(
   Java_OfflineContentAggregatorBridge_onItemUpdated(
       env, java_ref_, OfflineItemBridge::CreateOfflineItem(env, item),
       OfflineItemBridge::CreateUpdateDelta(env, update_delta));
+}
+
+void OfflineContentAggregatorBridge::OnContentProviderGoingDown() {
+  // TODO(crbug.com/1177397): This event is only needed for desktop Chrome,
+  // so we didn't add an onContentProviderGoingDown() method yet. If Java
+  // observers need to listen for this event in the future, we should add some
+  // plumbing here.
 }
 
 }  // namespace android

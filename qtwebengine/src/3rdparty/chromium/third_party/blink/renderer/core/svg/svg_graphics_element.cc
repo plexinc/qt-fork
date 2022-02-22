@@ -23,6 +23,7 @@
 
 #include "third_party/blink/renderer/core/css/style_change_reason.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
+#include "third_party/blink/renderer/core/svg/svg_animated_transform_list.h"
 #include "third_party/blink/renderer/core/svg/svg_element_rare_data.h"
 #include "third_party/blink/renderer/core/svg/svg_matrix_tear_off.h"
 #include "third_party/blink/renderer/core/svg/svg_rect_tear_off.h"
@@ -46,7 +47,7 @@ SVGGraphicsElement::SVGGraphicsElement(const QualifiedName& tag_name,
 
 SVGGraphicsElement::~SVGGraphicsElement() = default;
 
-void SVGGraphicsElement::Trace(Visitor* visitor) {
+void SVGGraphicsElement::Trace(Visitor* visitor) const {
   visitor->Trace(transform_);
   SVGElement::Trace(visitor);
   SVGTests::Trace(visitor);
@@ -117,11 +118,18 @@ void SVGGraphicsElement::CollectStyleForPresentationAttribute(
   SVGElement::CollectStyleForPresentationAttribute(name, value, style);
 }
 
+AffineTransform SVGGraphicsElement::LocalCoordinateSpaceTransform(
+    CTMScope) const {
+  return CalculateTransform(kIncludeMotionTransform);
+}
+
 AffineTransform* SVGGraphicsElement::AnimateMotionTransform() {
   return EnsureSVGRareData()->AnimateMotionTransform();
 }
 
-void SVGGraphicsElement::SvgAttributeChanged(const QualifiedName& attr_name) {
+void SVGGraphicsElement::SvgAttributeChanged(
+    const SvgAttributeChangedParams& params) {
+  const QualifiedName& attr_name = params.name;
   // Reattach so the isValid() check will be run again during layoutObject
   // creation.
   if (SVGTests::IsKnownAttribute(attr_name)) {
@@ -144,7 +152,7 @@ void SVGGraphicsElement::SvgAttributeChanged(const QualifiedName& attr_name) {
     return;
   }
 
-  SVGElement::SvgAttributeChanged(attr_name);
+  SVGElement::SvgAttributeChanged(params);
 }
 
 SVGElement* SVGGraphicsElement::nearestViewportElement() const {

@@ -39,10 +39,10 @@
 **
 ****************************************************************************/
 
-#include "qeglfskmsgbmscreen.h"
-#include "qeglfskmsgbmdevice.h"
-#include "qeglfskmsgbmcursor.h"
-#include "qeglfsintegration_p.h"
+#include "qeglfskmsgbmscreen_p.h"
+#include "qeglfskmsgbmdevice_p.h"
+#include "qeglfskmsgbmcursor_p.h"
+#include <private/qeglfsintegration_p.h>
 
 #include <QtCore/QLoggingCategory>
 
@@ -96,7 +96,8 @@ QEglFSKmsGbmScreen::FrameBuffer *QEglFSKmsGbmScreen::framebufferForBufferObject(
     uint32_t pixelFormat = gbmFormatToDrmFormat(gbm_bo_get_format(bo));
 
     QScopedPointer<FrameBuffer> fb(new FrameBuffer);
-    qCDebug(qLcEglfsKmsDebug, "Adding FB, size %ux%u, DRM format 0x%x", width, height, pixelFormat);
+    qCDebug(qLcEglfsKmsDebug, "Adding FB, size %ux%u, DRM format 0x%x, stride %u, handle %u",
+            width, height, pixelFormat, strides[0], handles[0]);
 
     int ret = drmModeAddFB2(device()->fd(), width, height, pixelFormat,
                             handles, strides, offsets, &fb->fb, 0);
@@ -169,7 +170,7 @@ gbm_surface *QEglFSKmsGbmScreen::createSurface(EGLConfig eglConfig)
                                                    rawGeometry().width(),
                                                    rawGeometry().height(),
                                                    native_format,
-                                                   GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING);
+                                                   gbmFlags());
                 if (m_gbm_surface)
                     m_output.drm_format = gbmFormatToDrmFormat(native_format);
             }
@@ -186,7 +187,7 @@ gbm_surface *QEglFSKmsGbmScreen::createSurface(EGLConfig eglConfig)
                                            rawGeometry().width(),
                                            rawGeometry().height(),
                                            gbmFormat,
-                                           GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING);
+                                           gbmFlags());
         }
     }
     return m_gbm_surface; // not owned, gets destroyed in QEglFSKmsGbmIntegration::destroyNativeWindow() via QEglFSKmsGbmWindow::invalidateSurface()
@@ -198,7 +199,7 @@ void QEglFSKmsGbmScreen::resetSurface()
 }
 
 void QEglFSKmsGbmScreen::initCloning(QPlatformScreen *screenThisScreenClones,
-                                     const QVector<QPlatformScreen *> &screensCloningThisScreen)
+                                     const QList<QPlatformScreen *> &screensCloningThisScreen)
 {
     // clone destinations need to know the clone source
     const bool clonesAnother = screenThisScreenClones != nullptr;

@@ -42,7 +42,6 @@
 
 #include <QtGui/qfont.h>
 #include <QtGui/qpa/qplatformnativeinterface.h>
-#include <QtPlatformHeaders/qwindowswindowfunctions.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -63,11 +62,6 @@ QT_BEGIN_NAMESPACE
 class QWindowsNativeInterface : public QPlatformNativeInterface
 {
     Q_OBJECT
-    Q_PROPERTY(bool asyncExpose READ asyncExpose WRITE setAsyncExpose)
-    Q_PROPERTY(bool darkMode READ isDarkMode STORED false NOTIFY darkModeChanged)
-    Q_PROPERTY(bool darkModeStyle READ isDarkModeStyle STORED false)
-    Q_PROPERTY(QVariant gpu READ gpu STORED false)
-    Q_PROPERTY(QVariant gpuList READ gpuList STORED false)
 
 public:
     void *nativeResourceForIntegration(const QByteArray &resource) override;
@@ -79,45 +73,6 @@ public:
 #ifndef QT_NO_CURSOR
     void *nativeResourceForCursor(const QByteArray &resource, const QCursor &cursor) override;
 #endif
-    Q_INVOKABLE void *createMessageWindow(const QString &classNameTemplate,
-                                          const QString &windowName,
-                                          void *eventProc) const;
-
-    Q_INVOKABLE QString registerWindowClass(const QString &classNameIn, void *eventProc) const;
-
-    Q_INVOKABLE void registerWindowsMime(void *mimeIn);
-    Q_INVOKABLE void unregisterWindowsMime(void *mime);
-    Q_INVOKABLE int registerMimeType(const QString &mimeType);
-    Q_INVOKABLE QFont logFontToQFont(const void *logFont, int verticalDpi);
-
-    bool asyncExpose() const;
-    void setAsyncExpose(bool value);
-
-    bool isDarkMode() const;
-    bool isDarkModeStyle() const;
-
-    QVariant gpu() const;
-    QVariant gpuList() const;
-
-    QVariantMap windowProperties(QPlatformWindow *window) const override;
-    QVariant windowProperty(QPlatformWindow *window, const QString &name) const override;
-    QVariant windowProperty(QPlatformWindow *window, const QString &name, const QVariant &defaultValue) const override;
-    void setWindowProperty(QPlatformWindow *window, const QString &name, const QVariant &value) override;
-
-    static QWindowsWindowFunctions::WindowActivationBehavior windowActivationBehavior()
-        { return QWindowsNativeInterface::m_windowActivationBehavior; }
-    static void setWindowActivationBehavior(QWindowsWindowFunctions::WindowActivationBehavior b)
-        { QWindowsNativeInterface::m_windowActivationBehavior = b; }
-
-    static bool isTabletMode();
-
-    QFunctionPointer platformFunction(const QByteArray &function) const override;
-
-Q_SIGNALS:
-    void darkModeChanged(bool);
-
-private:
-    static QWindowsWindowFunctions::WindowActivationBehavior m_windowActivationBehavior;
 };
 
 QT_END_NAMESPACE

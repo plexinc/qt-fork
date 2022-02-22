@@ -84,7 +84,6 @@ class PerfDeviceTriggerer(base_test_triggerer.BaseTestTriggerer):
       # Store what swarming server we need and whether or not we need
       # to send down authentication with it
       self._swarming_server = self._get_swarming_server(swarming_args)
-      self._service_account = self._get_service_account(swarming_args)
 
       # Map of all existing bots in swarming that satisfy the current
       # set of dimensions indexed by bot id.
@@ -234,13 +233,16 @@ class PerfDeviceTriggerer(base_test_triggerer.BaseTestTriggerer):
       values.append(('dimensions', '%s:%s' % (key, value)))
 
     query_result = self.query_swarming(
-        'bots/list', values, True, server=self._swarming_server,
-        service_account=self._service_account)
+        'bots/list', values, True, server=self._swarming_server)
     if 'items' not in query_result:
       return {}
     perf_bots = {}
     for bot in query_result['items']:
-      alive = (not bot['is_dead'] and not bot['quarantined'])
+      # Device maintenance is usually quick, and we can wait for it to finish.
+      # However, if the device is too hot, it can take a long time for it to
+      # cool down, so check for 'Device temperature' in maintenance_msg.
+      alive = (not bot['is_dead'] and not bot['quarantined'] and
+               'Device temperature' not in bot.get('maintenance_msg', ''))
       perf_bots[bot['bot_id']] = Bot(bot['bot_id'], alive)
     return perf_bots
 
@@ -269,8 +271,7 @@ class PerfDeviceTriggerer(base_test_triggerer.BaseTestTriggerer):
 
     # Query for the last task that ran with these dimensions and this shard
     query_result = self.query_swarming(
-          'tasks/list', values, True, limit='1', server=self._swarming_server,
-         service_account=self._service_account)
+          'tasks/list', values, True, limit='1', server=self._swarming_server)
     tasks = query_result.get('items')
     if tasks:
       # We queried with a limit of 1 so we could only get back
@@ -299,10 +300,6 @@ class PerfDeviceTriggerer(base_test_triggerer.BaseTestTriggerer):
         # Strip out the protocol
         return server[slashes_index:]
 
-  def _get_service_account(self, args):
-    for i in xrange(len(args) - 1):
-      if '--auth-service-account-json' in args[i]:
-        return args[i+1]
 
 def main():
   logging.basicConfig(
@@ -319,4 +316,3 @@ def main():
 
 if __name__ == '__main__':
   sys.exit(main())
-

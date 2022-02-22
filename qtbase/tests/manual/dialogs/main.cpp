@@ -52,7 +52,7 @@ static bool optNoPrinter = false;
 class AboutDialog : public QDialog
 {
 public:
-    explicit AboutDialog(QWidget *parent = 0);
+    explicit AboutDialog(QWidget *parent = nullptr);
 };
 
 AboutDialog::AboutDialog(QWidget *parent) : QDialog(parent)
@@ -79,7 +79,7 @@ AboutDialog::AboutDialog(QWidget *parent) : QDialog(parent)
 class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
-    explicit MainWindow(QWidget *parent = 0);
+    explicit MainWindow(QWidget *parent = nullptr);
 
 public slots:
     void aboutDialog();
@@ -126,10 +126,6 @@ void MainWindow::aboutDialog()
 
 int main(int argc, char *argv[])
 {
-#if QT_VERSION >= 0x050600
-    QCoreApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
-#endif
-
     for (int a = 1; a < argc; ++a) {
         if (!qstrcmp(argv[a], "-n")) {
             qDebug("AA_DontUseNativeDialogs");

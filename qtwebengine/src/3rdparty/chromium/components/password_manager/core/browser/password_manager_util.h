@@ -10,13 +10,11 @@
 
 #include "base/callback.h"
 #include "base/strings/string16.h"
+#include "base/time/time.h"
+#include "components/password_manager/core/browser/password_form.h"
 #include "components/password_manager/core/browser/password_manager_client.h"
 #include "components/password_manager/core/browser/password_store.h"
 #include "ui/gfx/native_widget_types.h"
-
-namespace autofill {
-struct PasswordForm;
-}
 
 namespace network {
 namespace mojom {
@@ -25,6 +23,7 @@ class NetworkContext;
 }  // namespace network
 
 namespace password_manager {
+class CredentialsCleanerRunner;
 class PasswordManagerDriver;
 class PasswordManagerClient;
 }  // namespace password_manager
@@ -38,7 +37,7 @@ class PrefService;
 namespace password_manager_util {
 
 // Update |credential| to reflect usage.
-void UpdateMetadataForUsage(autofill::PasswordForm* credential);
+void UpdateMetadataForUsage(password_manager::PasswordForm* credential);
 
 // Reports whether and how passwords are currently synced. In particular, for a
 // null |sync_service| returns NOT_SYNCING.
@@ -52,7 +51,8 @@ bool IsSyncingWithNormalEncryption(const syncer::SyncService* sync_service);
 // Removes Android username-only credentials from |android_credentials|.
 // Transforms federated credentials into non zero-click ones.
 void TrimUsernameOnlyCredentials(
-    std::vector<std::unique_ptr<autofill::PasswordForm>>* android_credentials);
+    std::vector<std::unique_ptr<password_manager::PasswordForm>>*
+        android_credentials);
 
 // A convenience function for testing that |client| has a non-null LogManager
 // and that that LogManager returns true for IsLoggingActive. This function can
@@ -70,16 +70,18 @@ bool ManualPasswordGenerationEnabled(
 bool ShowAllSavedPasswordsContextMenuEnabled(
     password_manager::PasswordManagerDriver* driver);
 
-// Triggers password generation flow and records the metrics.
+// Triggers password generation flow and records the metrics. If the user should
+// be asked to opt in to account storage, will trigger a reauth flow first and
+// generation will only happen on success.
 void UserTriggeredManualGenerationFromContextMenu(
     password_manager::PasswordManagerClient* password_manager_client);
 
 // This function handles the following clean-ups of credentials:
-// (1) Removing blacklisted duplicates: if two blacklisted credentials have the
+// (1) Removing blocklisted duplicates: if two blocklisted credentials have the
 // same signon_realm, they are duplicates of each other. Deleting all but one
 // sharing the signon_realm does not affect Chrome's behaviour and hence
-// duplicates can be removed. Having duplicates makes un-blacklisting not work,
-// hence blacklisted duplicates need to be removed.
+// duplicates can be removed. Having duplicates makes un-blocklisting not work,
+// hence blocklisted duplicates need to be removed.
 // (2) Removing or fixing of HTTPS credentials with wrong signon_realm. See
 // https://crbug.com/881731 for details.
 // (3) Report metrics about HTTP to HTTPS migration process and remove obsolete
@@ -87,9 +89,10 @@ void UserTriggeredManualGenerationFromContextMenu(
 // HSTS query is not supported. |network_context_getter| is always null for iOS
 // and it can also be null for some unittests.
 void RemoveUselessCredentials(
+    password_manager::CredentialsCleanerRunner* cleaning_tasks_runner,
     scoped_refptr<password_manager::PasswordStore> store,
     PrefService* prefs,
-    int delay_in_seconds,
+    base::TimeDelta delay,
     base::RepeatingCallback<network::mojom::NetworkContext*()>
         network_context_getter);
 
@@ -99,25 +102,27 @@ void RemoveUselessCredentials(
 // excluding protocol it becomes "www.google.com/".
 // This assumes that the |form|'s host is a substring of the signon_realm.
 base::StringPiece GetSignonRealmWithProtocolExcluded(
-    const autofill::PasswordForm& form);
+    const password_manager::PasswordForm& form);
 
-// Given all non-blacklisted |non_federated_matches|, finds and populates
+// Given all non-blocklisted |non_federated_matches|, finds and populates
 // |non_federated_same_scheme|, |best_matches|, and |preferred_match|
 // accordingly. For comparing credentials the following rule is used: non-psl
 // match is better than psl match, most recently used match is better than other
 // matches. In case of tie, an arbitrary credential from the tied ones is chosen
 // for |best_matches| and |preferred_match|.
 void FindBestMatches(
-    const std::vector<const autofill::PasswordForm*>& non_federated_matches,
-    autofill::PasswordForm::Scheme scheme,
-    std::vector<const autofill::PasswordForm*>* non_federated_same_scheme,
-    std::vector<const autofill::PasswordForm*>* best_matches,
-    const autofill::PasswordForm** preferred_match);
+    const std::vector<const password_manager::PasswordForm*>&
+        non_federated_matches,
+    password_manager::PasswordForm::Scheme scheme,
+    std::vector<const password_manager::PasswordForm*>*
+        non_federated_same_scheme,
+    std::vector<const password_manager::PasswordForm*>* best_matches,
+    const password_manager::PasswordForm** preferred_match);
 
 // Returns a form with the given |username_value| from |forms|, or nullptr if
 // none exists. If multiple matches exist, returns the first one.
-const autofill::PasswordForm* FindFormByUsername(
-    const std::vector<const autofill::PasswordForm*>& forms,
+const password_manager::PasswordForm* FindFormByUsername(
+    const std::vector<const password_manager::PasswordForm*>& forms,
     const base::string16& username_value);
 
 // If the user submits a form, they may have used existing credentials, new
@@ -128,76 +133,17 @@ const autofill::PasswordForm* FindFormByUsername(
 // |submitted_form| is the form being submitted.
 // |credentials| are all the credentials relevant for the current site including
 // PSL and Android matches.
-const autofill::PasswordForm* GetMatchForUpdating(
-    const autofill::PasswordForm& submitted_form,
-    const std::vector<const autofill::PasswordForm*>& credentials);
+const password_manager::PasswordForm* GetMatchForUpdating(
+    const password_manager::PasswordForm& submitted_form,
+    const std::vector<const password_manager::PasswordForm*>& credentials);
 
-// This method creates a blacklisted form with |digests|'s scheme, signon_realm
+// This method creates a blocklisted form with |digests|'s scheme, signon_realm
 // and origin. This is done to avoid storing PII and to have a normalized unique
 // key. Furthermore it attempts to normalize the origin by stripping path
 // components. In case this fails (e.g. for non-standard origins like Android
 // credentials), the original origin is kept.
-autofill::PasswordForm MakeNormalizedBlacklistedForm(
+password_manager::PasswordForm MakeNormalizedBlocklistedForm(
     password_manager::PasswordStore::FormDigest digest);
-
-// Whether the current signed-in user (aka unconsented primary account) has
-// opted in to use the Google account storage for passwords (as opposed to
-// local/profile storage).
-// |pref_service| must not be null.
-// |sync_service| may be null (commonly the case in incognito mode), in which
-// case this will simply return false.
-bool IsOptedInForAccountStorage(const PrefService* pref_service,
-                                const syncer::SyncService* sync_service);
-
-// Whether it makes sense to ask the user to opt-in for account-based
-// password storage. This is true if the opt-in doesn't exist yet, but all
-// other requirements are met (i.e. there is a signed-in user, Sync-the-feature
-// is not enabled, etc).
-// |pref_service| must not be null.
-// |sync_service| may be null (commonly the case in incognito mode), in which
-// case this will simply return false.
-bool ShouldShowAccountStorageOptIn(const PrefService* pref_service,
-                                   const syncer::SyncService* sync_service);
-
-// Sets or clears the opt-in to using account storage for passwords for the
-// current signed-in user (unconsented primary account).
-// |pref_service| and |sync_service| must not be null.
-void SetAccountStorageOptIn(PrefService* pref_service,
-                            const syncer::SyncService* sync_service,
-                            bool opt_in);
-
-// Whether it makes sense to ask the user about the store when saving a
-// password (i.e. profile or account store). This is true if the user has
-// opted in already, or hasn't opted in but all other requirements are met (i.e.
-// there is a signed-in user, Sync-the-feature is not enabled, etc).
-// |pref_service| must not be null.
-// |sync_service| may be null (commonly the case in incognito mode), in which
-// case this will simply return false.
-bool ShouldShowPasswordStorePicker(const PrefService* pref_service,
-                                   const syncer::SyncService* sync_service);
-
-// Returns the default storage location for signed-in but non-syncing users
-// (i.e. will new passwords be saved to locally or to the account by default).
-// Always returns an actual value, never kNotSet.
-// |pref_service| must not be null.
-// |sync_service| may be null (commonly the case in incognito mode), in which
-// case this will return kProfileStore.
-autofill::PasswordForm::Store GetDefaultPasswordStore(
-    const PrefService* pref_service,
-    const syncer::SyncService* sync_service);
-
-// Sets the default storage location for signed-in but non-syncing users (i.e.
-// will new passwords be saved locally or to the account by default).
-// |pref_service| and |sync_service| must not be null.
-void SetDefaultPasswordStore(PrefService* pref_service,
-                             const syncer::SyncService* sync_service,
-                             autofill::PasswordForm::Store default_store);
-
-// Clears all account-storage-related settings for all users. Most notably, this
-// includes the opt-in, but also all other related settings like the default
-// password store. Meant to be called when account cookies were cleared.
-// |pref_service| must not be null.
-void ClearAccountStorageSettingsForAllUsers(PrefService* pref_service);
 
 }  // namespace password_manager_util
 

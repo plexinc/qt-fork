@@ -31,12 +31,11 @@
 #include "qwasmwindow.h"
 #include "qwasmstylepixmaps_p.h"
 
-#include <QtGui/qopengltexture.h>
+#include <QtOpenGL/qopengltexture.h>
 
 #include <QtGui/private/qwindow_p.h>
 #include <QtGui/qopenglcontext.h>
 #include <QtGui/qopenglfunctions.h>
-#include <QtGui/qopengltextureblitter.h>
 #include <QtGui/qoffscreensurface.h>
 #include <QtGui/qpainter.h>
 #include <private/qpixmapcache_p.h>
@@ -111,6 +110,9 @@ void QWasmCompositor::addWindow(QWasmWindow *window, QWasmWindow *parentWindow)
     else
         m_compositedWindows[parentWindow].childWindows.append(window);
 
+    if (!QGuiApplication::focusWindow()) {
+        window->requestActivateWindow();
+    }
     notifyTopWindowChanged(window);
 }
 
@@ -126,7 +128,11 @@ void QWasmCompositor::removeWindow(QWasmWindow *window)
     m_windowStack.removeAll(window);
     m_compositedWindows.remove(window);
 
-    notifyTopWindowChanged(window);
+    if (!m_windowStack.isEmpty() && !QGuiApplication::focusWindow()) {
+        auto lastWindow = m_windowStack.last();
+        lastWindow->requestActivateWindow();
+        notifyTopWindowChanged(lastWindow);
+    }
 }
 
 void QWasmCompositor::setVisible(QWasmWindow *window, bool visible)
@@ -455,9 +461,9 @@ void QWasmCompositor::drawFrameWindow(QWasmFrameOptions options, QPainter *paint
     const QColor &c2 = options.palette.shadow().color();
     const QColor &c3 = options.palette.midlight().color();
     const QColor &c4 = options.palette.dark().color();
-    const QBrush *fill = 0;
+    const QBrush *fill = nullptr;
 
-    const qreal devicePixelRatio = painter->device()->devicePixelRatioF();
+    const qreal devicePixelRatio = painter->device()->devicePixelRatio();
     if (!qFuzzyCompare(devicePixelRatio, qreal(1))) {
         const qreal inverseScale = qreal(1) / devicePixelRatio;
         painter->scale(inverseScale, inverseScale);
@@ -600,7 +606,7 @@ void QWasmCompositor::drawShadePanel(QWasmTitleBarOptions options, QPainter *pai
     int w = options.rect.width();
     int h = options.rect.height();
 
-    const qreal devicePixelRatio = painter->device()->devicePixelRatioF();
+    const qreal devicePixelRatio = painter->device()->devicePixelRatio();
     if (!qFuzzyCompare(devicePixelRatio, qreal(1))) {
         const qreal inverseScale = qreal(1) / devicePixelRatio;
         painter->scale(inverseScale, inverseScale);
@@ -622,7 +628,7 @@ void QWasmCompositor::drawShadePanel(QWasmTitleBarOptions options, QPainter *pai
             light = palette.midlight().color();
     }
     QPen oldPen = painter->pen();
-    QVector<QLineF> lines;
+    QList<QLineF> lines;
     lines.reserve(2*lineWidth);
 
     painter->setPen(light);
@@ -735,12 +741,13 @@ void QWasmCompositor::notifyTopWindowChanged(QWasmWindow *window)
     bool blocked = QGuiApplicationPrivate::instance()->isWindowBlocked(window->window(), &modalWindow);
 
     if (blocked) {
+        modalWindow->requestActivate();
         raise(static_cast<QWasmWindow*>(modalWindow->handle()));
         return;
     }
 
     requestRedraw();
-    QWindowSystemInterface::handleWindowActivated(window->window());
+
 }
 
 QWasmScreen *QWasmCompositor::screen()

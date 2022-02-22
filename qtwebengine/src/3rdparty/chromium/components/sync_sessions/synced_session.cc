@@ -63,6 +63,8 @@ sync_pb::SyncEnums_PageTransition ToSyncPageTransition(
     case ui::PAGE_TRANSITION_FROM_ADDRESS_BAR:
     case ui::PAGE_TRANSITION_HOME_PAGE:
     case ui::PAGE_TRANSITION_FROM_API:
+    case ui::PAGE_TRANSITION_FROM_API_2:
+    case ui::PAGE_TRANSITION_FROM_API_3:
     case ui::PAGE_TRANSITION_CHAIN_START:
     case ui::PAGE_TRANSITION_CHAIN_END:
     case ui::PAGE_TRANSITION_CLIENT_REDIRECT:
@@ -296,7 +298,7 @@ void SetSessionTabFromSyncData(const sync_pb::SessionTab& sync_data,
   tab->current_navigation_index = sync_data.current_navigation_index();
   tab->pinned = sync_data.pinned();
   tab->extension_app_id = sync_data.extension_app_id();
-  tab->user_agent_override.clear();
+  tab->user_agent_override = sessions::SerializedUserAgentOverride();
   tab->timestamp = timestamp;
   tab->navigations.clear();
   for (int i = 0; i < sync_data.navigation_size(); ++i) {
@@ -306,7 +308,9 @@ void SetSessionTabFromSyncData(const sync_pb::SessionTab& sync_data,
   tab->session_storage_persistent_id.clear();
 }
 
-sync_pb::SessionTab SessionTabToSyncData(const sessions::SessionTab& tab) {
+sync_pb::SessionTab SessionTabToSyncData(
+    const sessions::SessionTab& tab,
+    base::Optional<sync_pb::SessionWindow::BrowserType> browser_type) {
   sync_pb::SessionTab sync_data;
   sync_data.set_tab_id(tab.tab_id.id());
   sync_data.set_window_id(tab.window_id.id());
@@ -316,6 +320,9 @@ sync_pb::SessionTab SessionTabToSyncData(const sessions::SessionTab& tab) {
   sync_data.set_extension_app_id(tab.extension_app_id);
   for (const SerializedNavigationEntry& navigation : tab.navigations) {
     SessionNavigationToSyncData(navigation).Swap(sync_data.add_navigation());
+  }
+  if (browser_type.has_value()) {
+    sync_data.set_browser_type(*browser_type);
   }
   return sync_data;
 }

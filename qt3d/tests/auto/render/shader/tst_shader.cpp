@@ -292,9 +292,7 @@ void tst_RenderShader::checkShaderManager()
     QVERIFY(manager.shaderIdsToCleanup().isEmpty());
 
     // WHEN
-    Qt3DCore::QNodeCreatedChangeBase changeObj(&shader);
-    Qt3DCore::QNodeCreatedChangeBasePtr changePtr(&changeObj, [](Qt3DCore::QNodeCreatedChangeBase *) {});
-    auto backend = creationFunctor.create(changePtr);
+    auto backend = creationFunctor.create(shader.id());
 
     // THEN
     QVERIFY(backend != nullptr);
@@ -315,7 +313,7 @@ void tst_RenderShader::checkShaderManager()
     QVERIFY(creationFunctor.get(shader.id()) == nullptr);
 
     // WHEN -> Should be removed from list of ids to remove
-    creationFunctor.create(changePtr);
+    creationFunctor.create(shader.id());
 
     // THEN
     QVERIFY(manager.shaderIdsToCleanup().isEmpty());

@@ -26,7 +26,7 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QtTest/QTest>
 #include <QMutex>
 #include <QWaitCondition>
 #include <QThread>
@@ -87,7 +87,6 @@ private Q_SLOTS:
         Qt3DCore::QEntity *rootEntity = new Qt3DCore::QEntity();
         QScopedPointer<TestRendererAspect> aspect(new TestRendererAspect(rootEntity));
         auto daspect = Qt3DRender::QRenderAspectPrivate::get(aspect.data());
-        daspect->m_renderAfterJobs = true;
         aspect->onEngineStartup();
 
         // replace with empty renderer
@@ -139,6 +138,10 @@ private Q_SLOTS:
         // THEN -> enabled dirty
         QCOMPARE(jobs.size(),
                  1 + // UpdateTreeEnabled
+                 1 + // UpdateTransform
+                 1 + // UpdateWorldBoundingVolume
+                 1 + // CalcBoundingVolume
+                 1 + // ExpandBoundingVolume
                  1 + // SyncLoadingJobs
                  1 + // UpdateSkinningPalette
                  1 + // UpdateLevelOfDetail

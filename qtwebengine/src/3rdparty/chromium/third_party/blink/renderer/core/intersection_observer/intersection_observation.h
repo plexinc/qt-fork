@@ -43,6 +43,11 @@ class CORE_EXPORT IntersectionObservation final
     // If this bit is set, we can skip tracking the sticky frame during
     // UpdateViewportIntersectionsForSubtree.
     kCanSkipStickyFrameTracking = 1 << 4,
+    // If this bit is set, we only process intersection observations that
+    // require post-layout delivery.
+    kPostLayoutDeliveryOnly = 1 << 5,
+    // If this is set, the overflow clip edge is used.
+    kUseOverflowClipEdge = 1 << 6,
   };
 
   IntersectionObservation(IntersectionObserver&, Element&);
@@ -58,7 +63,7 @@ class CORE_EXPORT IntersectionObservation final
   void Disconnect();
   void InvalidateCachedRects();
 
-  void Trace(Visitor*);
+  void Trace(Visitor*) const;
 
   bool CanUseCachedRectsForTesting() const { return CanUseCachedRects(); }
 
@@ -84,7 +89,7 @@ class CORE_EXPORT IntersectionObservation final
   unsigned last_is_visible_ : 1;
   unsigned needs_update_ : 1;
   unsigned last_threshold_index_ : 30;
-  static const unsigned kMaxThresholdIndex = (unsigned)0x40000000;
+  static const unsigned kMaxThresholdIndex = static_cast<unsigned>(0x40000000);
 };
 
 }  // namespace blink

@@ -36,7 +36,7 @@ class CFX_PathData {
  public:
   CFX_PathData();
   CFX_PathData(const CFX_PathData& src);
-  CFX_PathData(CFX_PathData&& src);
+  CFX_PathData(CFX_PathData&& src) noexcept;
   ~CFX_PathData();
 
   void Clear();
@@ -55,18 +55,14 @@ class CFX_PathData {
 
   void Transform(const CFX_Matrix& matrix);
   bool IsRect() const;
-  bool GetZeroAreaPath(const CFX_Matrix* pMatrix,
-                       bool bAdjust,
-                       CFX_PathData* NewPath,
-                       bool* bThin,
-                       bool* setIdentity) const;
-  Optional<CFX_FloatRect> GetRect(const CFX_Matrix* pMatrix) const;
+  Optional<CFX_FloatRect> GetRect(const CFX_Matrix* matrix) const;
 
-  void Append(const CFX_PathData* pSrc, const CFX_Matrix* pMatrix);
+  void Append(const CFX_PathData* src, const CFX_Matrix* matrix);
   void AppendFloatRect(const CFX_FloatRect& rect);
   void AppendRect(float left, float bottom, float right, float top);
   void AppendLine(const CFX_PointF& pt1, const CFX_PointF& pt2);
-  void AppendPoint(const CFX_PointF& point, FXPT_TYPE type, bool closeFigure);
+  void AppendPoint(const CFX_PointF& point, FXPT_TYPE type);
+  void AppendPointAndClose(const CFX_PointF& point, FXPT_TYPE type);
   void ClosePath();
 
  private:
@@ -75,8 +71,7 @@ class CFX_PathData {
 
 class CFX_RetainablePathData final : public Retainable, public CFX_PathData {
  public:
-  template <typename T, typename... Args>
-  friend RetainPtr<T> pdfium::MakeRetain(Args&&... args);
+  CONSTRUCT_VIA_MAKE_RETAIN;
 
   RetainPtr<CFX_RetainablePathData> Clone() const;
 

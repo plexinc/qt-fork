@@ -4,29 +4,35 @@
 
 #include "components/performance_manager/performance_manager_registry_impl.h"
 
+#include <iterator>
 #include <utility>
 
 #include "base/stl_util.h"
+#include "components/performance_manager/embedder/binders.h"
 #include "components/performance_manager/performance_manager_tab_helper.h"
+#include "components/performance_manager/public/mojom/coordination_unit.mojom.h"
 #include "components/performance_manager/public/performance_manager.h"
+#include "components/performance_manager/public/performance_manager_main_thread_mechanism.h"
 #include "components/performance_manager/public/performance_manager_main_thread_observer.h"
+#include "components/performance_manager/public/performance_manager_owned.h"
 #include "components/performance_manager/service_worker_context_adapter.h"
 #include "components/performance_manager/worker_watcher.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/navigation_throttle.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/storage_partition.h"
 
 namespace performance_manager {
 
-namespace {
+namespace performance_manager_registry_impl {
 
 PerformanceManagerRegistryImpl* g_instance = nullptr;
 
 }  // namespace
 
 PerformanceManagerRegistryImpl::PerformanceManagerRegistryImpl() {
-  DCHECK(!g_instance);
-  g_instance = this;
+  DCHECK(!performance_manager_registry_impl::g_instance);
+  performance_manager_registry_impl::g_instance = this;
 
   // The registry should be created after the PerformanceManager.
   DCHECK(PerformanceManager::IsAvailable());
@@ -37,24 +43,78 @@ PerformanceManagerRegistryImpl::~PerformanceManagerRegistryImpl() {
   // TearDown() should have been invoked to reset |g_instance| and clear
   // |web_contents_| and |render_process_user_data_| prior to destroying the
   // registry.
-  DCHECK(!g_instance);
+  DCHECK(!performance_manager_registry_impl::g_instance);
   DCHECK(web_contents_.empty());
   DCHECK(render_process_hosts_.empty());
+  DCHECK(pm_owned_.empty());
+  DCHECK(pm_registered_.empty());
+  // TODO(crbug.com/1084611): |observers_| and |mechanisms_| should also be
+  // empty by now!
 }
 
 // static
 PerformanceManagerRegistryImpl* PerformanceManagerRegistryImpl::GetInstance() {
-  return g_instance;
+  return performance_manager_registry_impl::g_instance;
 }
 
 void PerformanceManagerRegistryImpl::AddObserver(
     PerformanceManagerMainThreadObserver* observer) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   observers_.AddObserver(observer);
 }
 
 void PerformanceManagerRegistryImpl::RemoveObserver(
     PerformanceManagerMainThreadObserver* observer) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   observers_.RemoveObserver(observer);
+}
+
+void PerformanceManagerRegistryImpl::AddMechanism(
+    PerformanceManagerMainThreadMechanism* mechanism) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  mechanisms_.AddObserver(mechanism);
+}
+
+void PerformanceManagerRegistryImpl::RemoveMechanism(
+    PerformanceManagerMainThreadMechanism* mechanism) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  mechanisms_.RemoveObserver(mechanism);
+}
+
+bool PerformanceManagerRegistryImpl::HasMechanism(
+    PerformanceManagerMainThreadMechanism* mechanism) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  return mechanisms_.HasObserver(mechanism);
+}
+
+void PerformanceManagerRegistryImpl::PassToPM(
+    std::unique_ptr<PerformanceManagerOwned> pm_owned) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  pm_owned_.PassObject(std::move(pm_owned));
+}
+
+std::unique_ptr<PerformanceManagerOwned>
+PerformanceManagerRegistryImpl::TakeFromPM(PerformanceManagerOwned* pm_owned) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  return pm_owned_.TakeObject(pm_owned);
+}
+
+void PerformanceManagerRegistryImpl::RegisterObject(
+    PerformanceManagerRegistered* pm_object) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  pm_registered_.RegisterObject(pm_object);
+}
+
+void PerformanceManagerRegistryImpl::UnregisterObject(
+    PerformanceManagerRegistered* pm_object) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  pm_registered_.UnregisterObject(pm_object);
+}
+
+PerformanceManagerRegistered*
+PerformanceManagerRegistryImpl::GetRegisteredObject(uintptr_t type_id) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  return pm_registered_.GetRegisteredObject(type_id);
 }
 
 void PerformanceManagerRegistryImpl::CreatePageNodeForWebContents(
@@ -62,38 +122,37 @@ void PerformanceManagerRegistryImpl::CreatePageNodeForWebContents(
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   auto result = web_contents_.insert(web_contents);
-  if (result.second) {
-    // Create a PerformanceManagerTabHelper if |web_contents| doesn't already
-    // have one. Support for multiple calls to CreatePageNodeForWebContents()
-    // with the same WebContents is required for Devtools -- see comment in
-    // header file.
-    PerformanceManagerTabHelper::CreateForWebContents(web_contents);
-    PerformanceManagerTabHelper* tab_helper =
-        PerformanceManagerTabHelper::FromWebContents(web_contents);
-    DCHECK(tab_helper);
-    tab_helper->SetDestructionObserver(this);
+  DCHECK(result.second);
 
-    for (auto& observer : observers_)
-      observer.OnPageNodeCreatedForWebContents(web_contents);
-  }
+  PerformanceManagerTabHelper::CreateForWebContents(web_contents);
+  PerformanceManagerTabHelper* tab_helper =
+      PerformanceManagerTabHelper::FromWebContents(web_contents);
+  DCHECK(tab_helper);
+  tab_helper->SetDestructionObserver(this);
+
+  for (auto& observer : observers_)
+    observer.OnPageNodeCreatedForWebContents(web_contents);
 }
 
-void PerformanceManagerRegistryImpl::CreateProcessNodeForRenderProcessHost(
-    content::RenderProcessHost* render_process_host) {
+PerformanceManagerRegistryImpl::Throttles
+PerformanceManagerRegistryImpl::CreateThrottlesForNavigation(
+    content::NavigationHandle* handle) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  auto result = render_process_hosts_.insert(render_process_host);
-  if (result.second) {
-    // Create a RenderProcessUserData if |render_process_host| doesn't already
-    // have one.
-    RenderProcessUserData* user_data =
-        RenderProcessUserData::CreateForRenderProcessHost(render_process_host);
-    user_data->SetDestructionObserver(this);
+  Throttles combined_throttles;
+  for (auto& mechanism : mechanisms_) {
+    Throttles throttles = mechanism.CreateThrottlesForNavigation(handle);
+    combined_throttles.insert(combined_throttles.end(),
+                              std::make_move_iterator(throttles.begin()),
+                              std::make_move_iterator(throttles.end()));
   }
+  return combined_throttles;
 }
 
 void PerformanceManagerRegistryImpl::NotifyBrowserContextAdded(
     content::BrowserContext* browser_context) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
   content::StoragePartition* storage_partition =
       content::BrowserContext::GetDefaultStoragePartition(browser_context);
 
@@ -117,8 +176,31 @@ void PerformanceManagerRegistryImpl::NotifyBrowserContextAdded(
   DCHECK(inserted);
 }
 
+void PerformanceManagerRegistryImpl::
+    CreateProcessNodeAndExposeInterfacesToRendererProcess(
+        service_manager::BinderRegistry* registry,
+        content::RenderProcessHost* render_process_host) {
+  registry->AddInterface(base::BindRepeating(&BindProcessCoordinationUnit,
+                                             render_process_host->GetID()),
+                         base::SequencedTaskRunnerHandle::Get());
+
+  // Ideally this would strictly be a "Create", but when a
+  // RenderFrameHost is "resurrected" with a new process it will
+  // already have user data attached. This will happen on renderer
+  // crash.
+  EnsureProcessNodeForRenderProcessHost(render_process_host);
+}
+
+void PerformanceManagerRegistryImpl::ExposeInterfacesToRenderFrame(
+    mojo::BinderMapWithContext<content::RenderFrameHost*>* map) {
+  map->Add<performance_manager::mojom::DocumentCoordinationUnit>(
+      base::BindRepeating(&BindDocumentCoordinationUnit));
+}
+
 void PerformanceManagerRegistryImpl::NotifyBrowserContextRemoved(
     content::BrowserContext* browser_context) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
   auto it = worker_watchers_.find(browser_context);
   DCHECK(it != worker_watchers_.end());
   it->second->TearDown();
@@ -132,11 +214,16 @@ void PerformanceManagerRegistryImpl::NotifyBrowserContextRemoved(
 void PerformanceManagerRegistryImpl::TearDown() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  DCHECK_EQ(g_instance, this);
-  g_instance = nullptr;
-
   // The registry should be torn down before the PerformanceManager.
   DCHECK(PerformanceManager::IsAvailable());
+
+  // Notify any observers of the tear down. This lets them unregister things,
+  // etc.
+  for (auto& observer : observers_)
+    observer.OnBeforePerformanceManagerDestroyed();
+
+  DCHECK_EQ(performance_manager_registry_impl::g_instance, this);
+  performance_manager_registry_impl::g_instance = nullptr;
 
   // Destroy WorkerNodes before ProcessNodes, because ProcessNode checks that it
   // has no associated WorkerNode when torn down.
@@ -169,6 +256,15 @@ void PerformanceManagerRegistryImpl::TearDown() {
     render_process_host->RemoveUserData(RenderProcessUserData::UserDataKey());
   }
   render_process_hosts_.clear();
+
+  // Tear down PM owned objects. This lets them clear up object registrations,
+  // observers, mechanisms, etc.
+  pm_owned_.ReleaseObjects();
+
+  DCHECK(pm_owned_.empty());
+  DCHECK(pm_registered_.empty());
+  // TODO(crbug.com/1084611): |observers_| and |mechanisms_| should also be
+  // empty by now!
 }
 
 void PerformanceManagerRegistryImpl::OnPerformanceManagerTabHelperDestroying(
@@ -183,6 +279,20 @@ void PerformanceManagerRegistryImpl::OnRenderProcessUserDataDestroying(
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   const size_t num_removed = render_process_hosts_.erase(render_process_host);
   DCHECK_EQ(1U, num_removed);
+}
+
+void PerformanceManagerRegistryImpl::EnsureProcessNodeForRenderProcessHost(
+    content::RenderProcessHost* render_process_host) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  auto result = render_process_hosts_.insert(render_process_host);
+  if (result.second) {
+    // Create a RenderProcessUserData if |render_process_host| doesn't already
+    // have one.
+    RenderProcessUserData* user_data =
+        RenderProcessUserData::CreateForRenderProcessHost(render_process_host);
+    user_data->SetDestructionObserver(this);
+  }
 }
 
 }  // namespace performance_manager

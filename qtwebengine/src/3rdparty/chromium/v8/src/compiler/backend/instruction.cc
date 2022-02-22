@@ -4,6 +4,7 @@
 
 #include "src/compiler/backend/instruction.h"
 
+#include <cstddef>
 #include <iomanip>
 
 #include "src/codegen/interface-descriptors.h"
@@ -13,8 +14,10 @@
 #include "src/compiler/graph.h"
 #include "src/compiler/node.h"
 #include "src/compiler/schedule.h"
+#include "src/deoptimizer/deoptimizer.h"
 #include "src/execution/frames.h"
 #include "src/utils/ostreams.h"
+#include "src/wasm/value-type.h"
 
 namespace v8 {
 namespace internal {
@@ -169,6 +172,8 @@ std::ostream& operator<<(std::ostream& os, const InstructionOperand& op) {
           return os << "[immediate:" << imm.indexed_value() << "]";
       }
     }
+    case InstructionOperand::PENDING:
+      return os << "[pending: " << PendingOperand::cast(op).next() << "]";
     case InstructionOperand::ALLOCATED: {
       LocationOperand allocated = LocationOperand::cast(op);
       if (op.IsStackSlot()) {
@@ -296,6 +301,9 @@ Instruction::Instruction(InstructionCode opcode)
       block_(nullptr) {
   parallel_moves_[0] = nullptr;
   parallel_moves_[1] = nullptr;
+
+  // PendingOperands are required to be 8 byte aligned.
+  STATIC_ASSERT(offsetof(Instruction, operands_) % 8 == 0);
 }
 
 Instruction::Instruction(InstructionCode opcode, size_t output_count,
@@ -577,7 +585,8 @@ void PhiInstruction::RenameInput(size_t offset, int virtual_register) {
 
 InstructionBlock::InstructionBlock(Zone* zone, RpoNumber rpo_number,
                                    RpoNumber loop_header, RpoNumber loop_end,
-                                   bool deferred, bool handler)
+                                   RpoNumber dominator, bool deferred,
+                                   bool handler)
     : successors_(zone),
       predecessors_(zone),
       phis_(zone),
@@ -585,6 +594,7 @@ InstructionBlock::InstructionBlock(Zone* zone, RpoNumber rpo_number,
       rpo_number_(rpo_number),
       loop_header_(loop_header),
       loop_end_(loop_end),
+      dominator_(dominator),
       deferred_(deferred),
       handler_(handler) {}
 
@@ -611,9 +621,9 @@ static InstructionBlock* InstructionBlockFor(Zone* zone,
                                              const BasicBlock* block) {
   bool is_handler =
       !block->empty() && block->front()->opcode() == IrOpcode::kIfException;
-  InstructionBlock* instr_block = new (zone)
-      InstructionBlock(zone, GetRpo(block), GetRpo(block->loop_header()),
-                       GetLoopEndRpo(block), block->deferred(), is_handler);
+  InstructionBlock* instr_block = zone->New<InstructionBlock>(
+      zone, GetRpo(block), GetRpo(block->loop_header()), GetLoopEndRpo(block),
+      GetRpo(block->dominator()), block->deferred(), is_handler);
   // Map successors and precessors
   instr_block->successors().reserve(block->SuccessorCount());
   for (BasicBlock* successor : block->successors()) {
@@ -863,7 +873,7 @@ int InstructionSequence::AddInstruction(Instruction* instr) {
   instructions_.push_back(instr);
   if (instr->NeedsReferenceMap()) {
     DCHECK_NULL(instr->reference_map());
-    ReferenceMap* reference_map = new (zone()) ReferenceMap(zone());
+    ReferenceMap* reference_map = zone()->New<ReferenceMap>(zone());
     reference_map->set_instruction_position(index);
     instr->set_reference_map(reference_map);
     reference_maps_.push_back(reference_map);
@@ -991,31 +1001,32 @@ namespace {
 size_t GetConservativeFrameSizeInBytes(FrameStateType type,
                                        size_t parameters_count,
                                        size_t locals_count,
-                                       BailoutId bailout_id) {
+                                       BytecodeOffset bailout_id) {
   switch (type) {
-    case FrameStateType::kInterpretedFunction: {
-      auto info = InterpretedFrameInfo::Conservative(
+    case FrameStateType::kUnoptimizedFunction: {
+      auto info = UnoptimizedFrameInfo::Conservative(
           static_cast<int>(parameters_count), static_cast<int>(locals_count));
       return info.frame_size_in_bytes();
     }
-    case FrameStateType::kArgumentsAdaptor: {
-      auto info = ArgumentsAdaptorFrameInfo::Conservative(
-          static_cast<int>(parameters_count));
-      return info.frame_size_in_bytes();
-    }
+    case FrameStateType::kArgumentsAdaptor:
+      // The arguments adaptor frame state is only used in the deoptimizer and
+      // does not occupy any extra space in the stack. Check out the design doc:
+      // https://docs.google.com/document/d/150wGaUREaZI6YWqOQFD5l2mWQXaPbbZjcAIJLOFrzMs/edit
+      return 0;
     case FrameStateType::kConstructStub: {
       auto info = ConstructStubFrameInfo::Conservative(
           static_cast<int>(parameters_count));
       return info.frame_size_in_bytes();
     }
     case FrameStateType::kBuiltinContinuation:
+    case FrameStateType::kJSToWasmBuiltinContinuation:
     case FrameStateType::kJavaScriptBuiltinContinuation:
     case FrameStateType::kJavaScriptBuiltinContinuationWithCatch: {
       const RegisterConfiguration* config = RegisterConfiguration::Default();
       auto info = BuiltinContinuationFrameInfo::Conservative(
           static_cast<int>(parameters_count),
           Builtins::CallInterfaceDescriptorFor(
-              Builtins::GetBuiltinFromBailoutId(bailout_id)),
+              Builtins::GetBuiltinFromBytecodeOffset(bailout_id)),
           config);
       return info.frame_size_in_bytes();
     }
@@ -1026,7 +1037,7 @@ size_t GetConservativeFrameSizeInBytes(FrameStateType type,
 size_t GetTotalConservativeFrameSizeInBytes(FrameStateType type,
                                             size_t parameters_count,
                                             size_t locals_count,
-                                            BailoutId bailout_id,
+                                            BytecodeOffset bailout_id,
                                             FrameStateDescriptor* outer_state) {
   size_t outer_total_conservative_frame_size_in_bytes =
       (outer_state == nullptr)
@@ -1040,7 +1051,7 @@ size_t GetTotalConservativeFrameSizeInBytes(FrameStateType type,
 }  // namespace
 
 FrameStateDescriptor::FrameStateDescriptor(
-    Zone* zone, FrameStateType type, BailoutId bailout_id,
+    Zone* zone, FrameStateType type, BytecodeOffset bailout_id,
     OutputFrameStateCombine state_combine, size_t parameters_count,
     size_t locals_count, size_t stack_count,
     MaybeHandle<SharedFunctionInfo> shared_info,
@@ -1060,9 +1071,10 @@ FrameStateDescriptor::FrameStateDescriptor(
 
 size_t FrameStateDescriptor::GetHeight() const {
   switch (type()) {
-    case FrameStateType::kInterpretedFunction:
+    case FrameStateType::kUnoptimizedFunction:
       return locals_count();  // The accumulator is *not* included.
     case FrameStateType::kBuiltinContinuation:
+    case FrameStateType::kJSToWasmBuiltinContinuation:
       // Custom, non-JS calling convention (that does not have a notion of
       // a receiver or context).
       return parameters_count();
@@ -1113,6 +1125,17 @@ size_t FrameStateDescriptor::GetJSFrameCount() const {
   }
   return count;
 }
+
+JSToWasmFrameStateDescriptor::JSToWasmFrameStateDescriptor(
+    Zone* zone, FrameStateType type, BytecodeOffset bailout_id,
+    OutputFrameStateCombine state_combine, size_t parameters_count,
+    size_t locals_count, size_t stack_count,
+    MaybeHandle<SharedFunctionInfo> shared_info,
+    FrameStateDescriptor* outer_state, const wasm::FunctionSig* wasm_signature)
+    : FrameStateDescriptor(zone, type, bailout_id, state_combine,
+                           parameters_count, locals_count, stack_count,
+                           shared_info, outer_state),
+      return_type_(wasm::WasmReturnTypeFromSignature(wasm_signature)) {}
 
 std::ostream& operator<<(std::ostream& os, const RpoNumber& rpo) {
   return os << rpo.ToSize();

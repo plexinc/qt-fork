@@ -96,7 +96,7 @@ void Script::parse()
     if (sourceCode.startsWith(QLatin1String("function("))) {
         static const int snippetLength = 70;
         qWarning() << "Warning: Using function expressions as statements in scripts is not compliant with the ECMAScript specification:\n"
-                   << (sourceCode.leftRef(snippetLength) + QLatin1String("..."))
+                   << (QStringView{sourceCode}.left(snippetLength) + QLatin1String("..."))
                    << "\nThis will throw a syntax error in Qt 5.12. If you want a function expression, surround it by parentheses.";
     }
 
@@ -227,10 +227,12 @@ Script *Script::createFromFileOrCache(ExecutionEngine *engine, QmlContext *qmlCo
         error->clear();
 
     QQmlMetaType::CachedUnitLookupError cacheError = QQmlMetaType::CachedUnitLookupError::NoError;
-    if (const QV4::CompiledData::Unit *cachedUnit = QQmlMetaType::findCachedCompilationUnit(originalUrl, &cacheError)) {
+    if (const QQmlPrivate::CachedQmlUnit *cachedUnit = engine->diskCacheEnabled()
+            ? QQmlMetaType::findCachedCompilationUnit(originalUrl, &cacheError)
+            : nullptr) {
         QQmlRefPointer<QV4::ExecutableCompilationUnit> jsUnit
                 = QV4::ExecutableCompilationUnit::create(
-                        QV4::CompiledData::CompilationUnit(cachedUnit));
+                        QV4::CompiledData::CompilationUnit(cachedUnit->qmlData, cachedUnit->aotCompiledFunctions));
         return new QV4::Script(engine, qmlContext, jsUnit);
     }
 

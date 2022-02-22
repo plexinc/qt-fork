@@ -39,21 +39,21 @@
 
 #include "qxdgdesktopportalfiledialog_p.h"
 
-#include <QtCore/qeventloop.h>
-
-#include <QtDBus/QtDBus>
 #include <QDBusConnection>
 #include <QDBusMessage>
 #include <QDBusPendingCall>
 #include <QDBusPendingCallWatcher>
 #include <QDBusPendingReply>
+#include <QDBusMetaType>
 
+#include <QEventLoop>
 #include <QFile>
 #include <QMetaType>
 #include <QMimeType>
 #include <QMimeDatabase>
 #include <QRandomGenerator>
 #include <QWindow>
+#include <QRegularExpression>
 
 QT_BEGIN_NAMESPACE
 
@@ -185,7 +185,7 @@ void QXdgDesktopPortalFileDialog::openPortal()
                                                           QLatin1String("/org/freedesktop/portal/desktop"),
                                                           QLatin1String("org.freedesktop.portal.FileChooser"),
                                                           d->saveFile ? QLatin1String("SaveFile") : QLatin1String("OpenFile"));
-    QString parentWindowId = QLatin1String("x11:") + QString::number(d->winId);
+    QString parentWindowId = QLatin1String("x11:") + QString::number(d->winId, 16);
 
     QVariantMap options;
     if (!d->acceptLabel.isEmpty())
@@ -302,6 +302,7 @@ void QXdgDesktopPortalFileDialog::openPortal()
                                                   this,
                                                   SLOT(gotResponse(uint,QVariantMap)));
         }
+        watcher->deleteLater();
     });
 }
 

@@ -24,14 +24,14 @@
 #include "base/time/time.h"
 #include "base/trace_event/memory_dump_provider.h"
 #include "components/services/storage/indexed_db/scopes/leveldb_scopes_factory.h"
-#include "components/services/storage/public/mojom/native_file_system_context.mojom-forward.h"
+#include "components/services/storage/public/mojom/blob_storage_context.mojom-forward.h"
+#include "components/services/storage/public/mojom/file_system_access_context.mojom-forward.h"
 #include "content/browser/indexed_db/indexed_db_backing_store.h"
 #include "content/browser/indexed_db/indexed_db_data_loss_info.h"
 #include "content/browser/indexed_db/indexed_db_database_error.h"
 #include "content/browser/indexed_db/indexed_db_factory.h"
 #include "content/browser/indexed_db/indexed_db_origin_state_handle.h"
 #include "content/browser/indexed_db/indexed_db_task_helper.h"
-#include "storage/browser/blob/mojom/blob_storage_context.mojom-forward.h"
 #include "third_party/leveldatabase/src/include/leveldb/status.h"
 #include "url/origin.h"
 
@@ -64,9 +64,6 @@ class CONTENT_EXPORT IndexedDBFactoryImpl
   void GetDatabaseInfo(scoped_refptr<IndexedDBCallbacks> callbacks,
                        const url::Origin& origin,
                        const base::FilePath& data_directory) override;
-  void GetDatabaseNames(scoped_refptr<IndexedDBCallbacks> callbacks,
-                        const url::Origin& origin,
-                        const base::FilePath& data_directory) override;
   void Open(const base::string16& name,
             std::unique_ptr<IndexedDBPendingConnection> connection,
             const url::Origin& origin,
@@ -152,14 +149,12 @@ class CONTENT_EXPORT IndexedDBFactoryImpl
       const base::FilePath& blob_path,
       std::unique_ptr<TransactionalLevelDBDatabase> db,
       storage::mojom::BlobStorageContext* blob_storage_context,
-      storage::mojom::NativeFileSystemContext* native_file_system_context,
+      storage::mojom::FileSystemAccessContext* file_system_access_context,
+      std::unique_ptr<storage::FilesystemProxy> filesystem_proxy,
       IndexedDBBackingStore::BlobFilesCleanedCallback blob_files_cleaned,
       IndexedDBBackingStore::ReportOutstandingBlobsCallback
           report_outstanding_blobs,
-      scoped_refptr<base::SequencedTaskRunner> idb_task_runner,
-      scoped_refptr<base::SequencedTaskRunner> io_task_runner);
-
-  IndexedDBContextImpl* context() const { return context_; }
+      scoped_refptr<base::SequencedTaskRunner> idb_task_runner);
 
  private:
   friend class IndexedDBBrowserTest;
@@ -191,14 +186,16 @@ class CONTENT_EXPORT IndexedDBFactoryImpl
              leveldb::Status,
              IndexedDBDataLossInfo,
              bool /* is_disk_full */>
-  OpenAndVerifyIndexedDBBackingStore(const url::Origin& origin,
-                                     base::FilePath data_directory,
-                                     base::FilePath database_path,
-                                     base::FilePath blob_path,
-                                     LevelDBScopesOptions scopes_options,
-                                     LevelDBScopesFactory* scopes_factory,
-                                     bool is_first_attempt,
-                                     bool create_if_missing);
+  OpenAndVerifyIndexedDBBackingStore(
+      const url::Origin& origin,
+      base::FilePath data_directory,
+      base::FilePath database_path,
+      base::FilePath blob_path,
+      LevelDBScopesOptions scopes_options,
+      LevelDBScopesFactory* scopes_factory,
+      std::unique_ptr<storage::FilesystemProxy> filesystem_proxy,
+      bool is_first_attempt,
+      bool create_if_missing);
 
   void RemoveOriginState(const url::Origin& origin);
 

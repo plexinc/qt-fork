@@ -31,11 +31,13 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_KEYFRAME_EFFECT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_KEYFRAME_EFFECT_H_
 
+#include "base/optional.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
 #include "third_party/blink/renderer/core/animation/animation_effect.h"
 #include "third_party/blink/renderer/core/animation/compositor_animations.h"
 #include "third_party/blink/renderer/core/animation/keyframe_effect_model.h"
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/platform/geometry/float_size.h"
 
 namespace blink {
 
@@ -97,6 +99,7 @@ class CORE_EXPORT KeyframeEffect final : public AnimationEffect {
   void SetKeyframes(StringKeyframeVector keyframes);
 
   bool Affects(const PropertyHandle&) const;
+  bool HasRevert() const;
   const KeyframeEffectModelBase* Model() const { return model_.Get(); }
   KeyframeEffectModelBase* Model() { return model_.Get(); }
   void SetModel(KeyframeEffectModelBase* model) {
@@ -109,7 +112,8 @@ class CORE_EXPORT KeyframeEffect final : public AnimationEffect {
 
   CompositorAnimations::FailureReasons CheckCanStartAnimationOnCompositor(
       const PaintArtifactCompositor*,
-      double animation_playback_rate) const;
+      double animation_playback_rate,
+      PropertyHandleSet* unsupported_properties = nullptr) const;
   // Must only be called once.
   void StartAnimationOnCompositor(int group,
                                   base::Optional<double> start_time,
@@ -129,9 +133,10 @@ class CORE_EXPORT KeyframeEffect final : public AnimationEffect {
   bool HasAnimation() const;
   bool HasPlayingAnimation() const;
 
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
-  bool AnimationsPreserveAxisAlignment() const;
+  bool UpdateBoxSizeAndCheckTransformAxisAlignment(const FloatSize& box_size);
+  bool IsIdentityOrTranslation() const;
 
   ActiveInterpolationsMap InterpolationsForCommitStyles();
 
@@ -139,6 +144,9 @@ class CORE_EXPORT KeyframeEffect final : public AnimationEffect {
   // Animation.effect block subseuqent changes via CSS keyframe rules.
   bool GetIgnoreCSSKeyframes() { return ignore_css_keyframes_; }
   void SetIgnoreCSSKeyframes() { ignore_css_keyframes_ = true; }
+
+  void SetLogicalPropertyResolutionContext(TextDirection text_direction,
+                                           WritingMode writing_mode);
 
  private:
   EffectModel::CompositeOperation CompositeInternal() const;
@@ -151,14 +159,14 @@ class CORE_EXPORT KeyframeEffect final : public AnimationEffect {
   void AttachTarget(Animation*);
   void DetachTarget(Animation*);
   void RefreshTarget();
+  void CountAnimatedProperties() const;
   AnimationTimeDelta CalculateTimeToEffectChange(
       bool forwards,
       base::Optional<double> inherited_time,
       AnimationTimeDelta time_to_next_iteration) const override;
   bool HasIncompatibleStyle() const;
   bool HasMultipleTransformProperties() const;
-
-  bool AnimationsPreserveAxisAlignment(const PropertyHandle&) const;
+  void RestartRunningAnimationOnCompositor();
 
   Member<Element> effect_target_;
   Member<Element> target_element_;
@@ -171,6 +179,8 @@ class CORE_EXPORT KeyframeEffect final : public AnimationEffect {
   Vector<int> compositor_keyframe_model_ids_;
 
   bool ignore_css_keyframes_;
+
+  base::Optional<FloatSize> effect_target_size_;
 };
 
 template <>

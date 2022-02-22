@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
@@ -53,9 +53,6 @@ class CONTENT_EXPORT IndexedDBCallbacks
   // IndexedDBFactory::databases
   virtual void OnSuccess(
       std::vector<blink::mojom::IDBNameAndVersionPtr> names_and_versions);
-
-  // IndexedDBFactory::GetDatabaseNames
-  virtual void OnSuccess(const std::vector<base::string16>& string);
 
   // IndexedDBFactory::Open / DeleteDatabase
   virtual void OnBlocked(int64_t existing_version);

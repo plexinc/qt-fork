@@ -42,6 +42,7 @@
 #include <Qt3DRender/QMaterial>
 #include <Qt3DRender/QParameter>
 #include <Qt3DRender/QLayer>
+#include <Qt3DRender/QGeometryRenderer>
 #include <Qt3DCore/QTransform>
 #include <Qt3DExtras/QPlaneMesh>
 

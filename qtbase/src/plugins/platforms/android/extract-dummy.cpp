@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the plugins of the Qt Toolkit.
@@ -40,12 +40,8 @@
 #include <jni.h>
 #include <extract.h>
 
-extern "C" JNIEXPORT jintArray JNICALL Java_org_qtproject_qt5_android_ExtractStyle_extractNativeChunkInfo20(JNIEnv *, jobject, long)
-{
-    return 0;
-}
-
-extern "C" JNIEXPORT jintArray JNICALL Java_org_qtproject_qt5_android_ExtractStyle_extractChunkInfo20(JNIEnv *, jobject, jbyteArray)
+extern "C" JNIEXPORT jintArray JNICALL
+Java_org_qtproject_qt_android_ExtractStyle_extractNativeChunkInfo20(JNIEnv *, jobject, long)
 {
     return 0;
 }

@@ -7,8 +7,8 @@
 #include <memory>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/memory/ref_counted.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
@@ -64,10 +64,11 @@ DirectSharedImageVideoProvider::~DirectSharedImageVideoProvider() = default;
 // TODO(liberato): add a thread hop to create the default texture owner, but
 // not as part of this class.  just post something from VideoFrameFactory.
 void DirectSharedImageVideoProvider::Initialize(GpuInitCB gpu_init_cb) {
-  // Note that we do not BindToCurrentLoop |gpu_init_cb|, since it is supposed
-  // to be called on the gpu main thread, which is somewhat hacky.
-  gpu_factory_.Post(FROM_HERE, &GpuSharedImageVideoFactory::Initialize,
-                    std::move(gpu_init_cb));
+  // Note that we do use not `AsyncCall()` + `Then()` to call `gpu_init_cb`,
+  // since it is supposed to be called on the gpu main thread, which is somewhat
+  // hacky.
+  gpu_factory_.AsyncCall(&GpuSharedImageVideoFactory::Initialize)
+      .WithArgs(std::move(gpu_init_cb));
 }
 
 void DirectSharedImageVideoProvider::RequestImage(
@@ -83,9 +84,11 @@ void DirectSharedImageVideoProvider::RequestImage(
   // group anyway.  The thing that owns buffer management is all we really
   // care about, and that doesn't have anything to do with GLImage.
 
-  gpu_factory_.Post(FROM_HERE, &GpuSharedImageVideoFactory::CreateImage,
-                    BindToCurrentLoop(std::move(cb)), spec,
-                    std::move(texture_owner));
+  // Note: `cb` is only run on successful creation, so this does not use
+  // `AsyncCall()` + `Then()` to chain the callbacks.
+  gpu_factory_.AsyncCall(&GpuSharedImageVideoFactory::CreateImage)
+      .WithArgs(BindToCurrentLoop(std::move(cb)), spec,
+                std::move(texture_owner));
 }
 
 GpuSharedImageVideoFactory::GpuSharedImageVideoFactory(
@@ -148,7 +151,7 @@ void GpuSharedImageVideoFactory::CreateImage(
 
   // Generate a shared image mailbox.
   auto mailbox = gpu::Mailbox::GenerateForSharedImage();
-  auto codec_image = base::MakeRefCounted<CodecImage>();
+  auto codec_image = base::MakeRefCounted<CodecImage>(spec.coded_size);
 
   TRACE_EVENT0("media", "GpuSharedImageVideoFactory::CreateVideoFrame");
 
@@ -200,14 +203,14 @@ bool GpuSharedImageVideoFactory::CreateImageInternal(
   if (!group)
     return false;
 
-  const auto& size = spec.size;
+  const auto& coded_size = spec.coded_size;
 
   // Create a Texture and a CodecImage to back it.
   // TODO(liberato): Once legacy mailbox support is removed, we don't need to
   // create this texture.  So, we won't need |texture_owner| either.
   std::unique_ptr<AbstractTexture> texture = decoder_helper_->CreateTexture(
-      GL_TEXTURE_EXTERNAL_OES, GL_RGBA, size.width(), size.height(), GL_RGBA,
-      GL_UNSIGNED_BYTE);
+      GL_TEXTURE_EXTERNAL_OES, GL_RGBA, coded_size.width(), coded_size.height(),
+      GL_RGBA, GL_UNSIGNED_BYTE);
 
   // Attach the image to the texture.
   // Either way, we expect this to be UNBOUND (i.e., decoder-managed).  For
@@ -239,7 +242,8 @@ bool GpuSharedImageVideoFactory::CreateImageInternal(
   // TODO(vikassoni): This shared image need to be thread safe eventually for
   // webview to work with shared images.
   auto shared_image = std::make_unique<gpu::SharedImageVideo>(
-      mailbox, size, gfx::ColorSpace::CreateSRGB(), std::move(image),
+      mailbox, coded_size, gfx::ColorSpace::CreateSRGB(),
+      kTopLeft_GrSurfaceOrigin, kPremul_SkAlphaType, std::move(image),
       std::move(texture), std::move(shared_context),
       false /* is_thread_safe */);
 

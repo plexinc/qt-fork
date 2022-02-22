@@ -1,7 +1,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'languagesdialog.ui'
 **
-** Created by: Qt User Interface Compiler version 5.12.0
+** Created by: Qt User Interface Compiler version 6.0.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -101,7 +101,7 @@ public:
 
 
         retranslateUi(LanguagesDialog);
-        QObject::connect(okButton, SIGNAL(clicked()), LanguagesDialog, SLOT(accept()));
+        QObject::connect(okButton, &QPushButton::clicked, LanguagesDialog, qOverload<>(&QDialog::accept));
 
         QMetaObject::connectSlotsByName(LanguagesDialog);
     } // setupUi

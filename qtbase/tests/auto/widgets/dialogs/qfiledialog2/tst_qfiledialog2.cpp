@@ -27,13 +27,15 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QTemporaryFile>
+#include <QSignalSpy>
+#include <QStandardPaths>
 
 #include <qcoreapplication.h>
 #include <qdebug.h>
 #include <qfiledialog.h>
 #include <qabstractitemdelegate.h>
-#include <qdirmodel.h>
 #include <qitemdelegate.h>
 #include <qlistview.h>
 #include <qcombobox.h>
@@ -50,7 +52,7 @@
 #include <qmenu.h>
 #include <qrandom.h>
 #include "../../../../../src/widgets/dialogs/qsidebar_p.h"
-#include "../../../../../src/widgets/dialogs/qfilesystemmodel_p.h"
+#include "../../../../../src/gui/itemmodels/qfilesystemmodel_p.h"
 #include "../../../../../src/widgets/dialogs/qfiledialog_p.h"
 
 #include <private/qguiapplication_p.h>
@@ -193,7 +195,7 @@ void tst_QFileDialog2::listRoot()
 
 void tst_QFileDialog2::heapCorruption()
 {
-    QVector<QFileDialog*> dialogs;
+    QList<QFileDialog *> dialogs;
     for (int i=0; i < 10; i++) {
         QFileDialog *f = new QFileDialog(NULL);
         dialogs << f;
@@ -277,7 +279,7 @@ void tst_QFileDialog2::showNameFilterDetails()
 
 void tst_QFileDialog2::unc()
 {
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
     // Only test UNC on Windows./
     QString dir("\\\\"  + QtNetworkSettings::winServerName() + "\\testsharewritable");
 #else
@@ -423,9 +425,9 @@ void tst_QFileDialog2::task180459_lastDirectory_data()
     QTest::addColumn<bool>("isEnabled");
     QTest::addColumn<QString>("result");
 
-    QTest::newRow("path+file") << QDir::homePath() + QDir::separator() + "foo"
+    QTest::newRow("path+file") << QDir::homePath() + QDir::separator() + "Vugiu1co"
             << QDir::homePath()  << true
-            << QDir::homePath() + QDir::separator() + "foo"  ;
+            << QDir::homePath() + QDir::separator() + "Vugiu1co"  ;
     QTest::newRow("no path") << ""
             << tempDir.path() << false << QString();
     QTest::newRow("file") << "foo"
@@ -483,7 +485,7 @@ public:
       {};
 
 protected:
-      bool filterAcceptsRow(int source_row, const QModelIndex& source_parent) const
+      bool filterAcceptsRow(int source_row, const QModelIndex& source_parent) const override
       {
             QModelIndex parentIndex;
             parentIndex = source_parent;
@@ -516,7 +518,7 @@ public:
         {
         }
 protected:
-        virtual bool lessThan(const QModelIndex &left, const QModelIndex &right) const
+        virtual bool lessThan(const QModelIndex &left, const QModelIndex &right) const override
         {
             QFileSystemModel * const model = qobject_cast<QFileSystemModel *>(sourceModel());
             const QFileInfo leftInfo(model->fileInfo(left));
@@ -639,7 +641,7 @@ void tst_QFileDialog2::task226366_lowerCaseHardDriveWindows()
     QLineEdit *edit = fd.findChild<QLineEdit*>("fileNameEdit");
     QToolButton *buttonParent = fd.findChild<QToolButton*>("toParentButton");
     QTest::qWait(200);
-    QTest::mouseClick(buttonParent, Qt::LeftButton,0,QPoint(0,0));
+    QTest::mouseClick(buttonParent, Qt::LeftButton, {}, QPoint(0, 0));
     QTest::qWait(2000);
     QTest::keyClick(edit, Qt::Key_C);
     QTest::qWait(200);
@@ -650,7 +652,7 @@ void tst_QFileDialog2::task226366_lowerCaseHardDriveWindows()
     //i clear my previous selection in the completer
     QTest::keyClick(edit->completer()->popup(), Qt::Key_Down);
     edit->clear();
-    QTest::keyClick(edit, (char)(Qt::Key_C | Qt::SHIFT));
+    QTest::keyClick(edit, Qt::Key_C, Qt::ShiftModifier);
     QTest::qWait(200);
     QTest::keyClick(edit->completer()->popup(), Qt::Key_Down);
     QCOMPARE(edit->text(), QString("C:/"));
@@ -919,7 +921,7 @@ void tst_QFileDialog2::task239706_editableFilterCombo()
     QVERIFY(QTest::qWaitForWindowExposed(&d));
 
     QList<QComboBox *> comboList = d.findChildren<QComboBox *>();
-    QComboBox *filterCombo = 0;
+    QComboBox *filterCombo = nullptr;
     foreach (QComboBox *combo, comboList) {
         if (combo->objectName() == QString("fileTypeCombo")) {
             filterCombo = combo;
@@ -992,7 +994,7 @@ void tst_QFileDialog2::task251321_sideBarHiddenEntries()
 class MyQSideBar : public QSidebar
 {
 public :
-    MyQSideBar(QWidget *parent = 0) : QSidebar(parent)
+    MyQSideBar(QWidget *parent = nullptr) : QSidebar(parent)
     {}
 
     void removeSelection() {
@@ -1250,14 +1252,7 @@ void tst_QFileDialog2::QTBUG6558_showDirsOnly()
 
     fd.setOption(QFileDialog::ShowDirsOnly, true);
     QTRY_COMPARE(model->rowCount(model->index(dir.absolutePath())), 2);
-
-    fd.setFileMode(QFileDialog::DirectoryOnly);
-    QTRY_COMPARE(model->rowCount(model->index(dir.absolutePath())), 2);
     QTRY_COMPARE(bool(fd.options() & QFileDialog::ShowDirsOnly), true);
-
-    fd.setFileMode(QFileDialog::AnyFile);
-    QTRY_COMPARE(model->rowCount(model->index(dir.absolutePath())), 3);
-    QTRY_COMPARE(bool(fd.options() & QFileDialog::ShowDirsOnly), false);
 
     fd.setDirectory(QDir::homePath());
 

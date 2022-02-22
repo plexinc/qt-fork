@@ -247,7 +247,7 @@ bool QToolBarPrivate::mousePressEvent(QMouseEvent *event)
     Q_Q(QToolBar);
     QStyleOptionToolBar opt;
     q->initStyleOption(&opt);
-    if (q->style()->subElementRect(QStyle::SE_ToolBarHandle, &opt, q).contains(event->pos()) == false) {
+    if (q->style()->subElementRect(QStyle::SE_ToolBarHandle, &opt, q).contains(event->position().toPoint()) == false) {
 #ifdef Q_OS_MACOS
         // When using the unified toolbar on OS X, the user can click and
         // drag between toolbar contents to move the window. Make this work by
@@ -272,7 +272,7 @@ bool QToolBarPrivate::mousePressEvent(QMouseEvent *event)
     if (!layout->movable())
         return true;
 
-    initDrag(event->pos());
+    initDrag(event->position().toPoint());
     return true;
 }
 
@@ -317,11 +317,11 @@ bool QToolBarPrivate::mouseMoveEvent(QMouseEvent *event)
     Q_ASSERT(layout != nullptr);
 
     if (layout->pluggingWidget == nullptr
-        && (event->pos() - state->pressPos).manhattanLength() > QApplication::startDragDistance()) {
+        && (event->position().toPoint() - state->pressPos).manhattanLength() > QApplication::startDragDistance()) {
             const bool wasDragging = state->dragging;
             const bool moving = !q->isWindow() && (orientation == Qt::Vertical ?
-                event->x() >= 0 && event->x() < q->width() :
-                event->y() >= 0 && event->y() < q->height());
+                event->position().toPoint().x() >= 0 && event->position().toPoint().x() < q->width() :
+                event->position().toPoint().y() >= 0 && event->position().toPoint().y() < q->height());
 
             startDrag(moving);
             if (!moving && !wasDragging)
@@ -329,7 +329,7 @@ bool QToolBarPrivate::mouseMoveEvent(QMouseEvent *event)
     }
 
     if (state->dragging) {
-        QPoint pos = event->globalPos();
+        QPoint pos = event->globalPosition().toPoint();
         // if we are right-to-left, we move so as to keep the right edge the same distance
         // from the mouse
         if (q->isLeftToRight())
@@ -338,14 +338,14 @@ bool QToolBarPrivate::mouseMoveEvent(QMouseEvent *event)
             pos += QPoint(state->pressPos.x() - q->width(), -state->pressPos.y());
 
         q->move(pos);
-        layout->hover(state->widgetItem, event->globalPos());
+        layout->hover(state->widgetItem, event->globalPosition().toPoint());
     } else if (state->moving) {
 
         const QPoint rtl(q->width() - state->pressPos.x(), state->pressPos.y()); //for RTL
         const QPoint globalPressPos = q->mapToGlobal(q->isRightToLeft() ? rtl : state->pressPos);
         int pos = 0;
 
-        QPoint delta = event->globalPos() - globalPressPos;
+        QPoint delta = event->globalPosition().toPoint() - globalPressPos;
         if (orientation == Qt::Vertical) {
             pos = q->y() + delta.y();
         } else {
@@ -411,7 +411,7 @@ void QToolBarPrivate::plug(const QRect &r)
     addWidget(). Please use widget actions created by inheriting QWidgetAction
     and implementing QWidgetAction::createWidget() instead.
 
-    \sa QToolButton, QMenu, QAction, {Application Example}
+    \sa QToolButton, QMenu, QAction, {Qt Widgets - Application Example}
 */
 
 /*!
@@ -961,7 +961,7 @@ QAction *QToolBar::actionAt(const QPoint &p) const
 void QToolBar::actionEvent(QActionEvent *event)
 {
     Q_D(QToolBar);
-    QAction *action = event->action();
+    auto action = static_cast<QAction *>(event->action());
     QWidgetAction *widgetAction = qobject_cast<QWidgetAction *>(action);
 
     switch (event->type()) {
@@ -1073,11 +1073,12 @@ static bool waitForPopup(QToolBar *tb, QWidget *popup)
     if (menu == nullptr)
         return false;
 
-    QAction *action = menu->menuAction();
-    QList<QWidget*> widgets = action->associatedWidgets();
-    for (int i = 0; i < widgets.count(); ++i) {
-        if (waitForPopup(tb, widgets.at(i)))
-            return true;
+    const QAction *action = menu->menuAction();
+    for (auto object : action->associatedObjects()) {
+        if (QWidget *widget = qobject_cast<QWidget*>(object)) {
+            if (waitForPopup(tb, widget))
+                return true;
+        }
     }
 
     return false;
@@ -1149,7 +1150,7 @@ bool QToolBar::event(QEvent *event)
         QHoverEvent *e = static_cast<QHoverEvent*>(event);
         QStyleOptionToolBar opt;
         initStyleOption(&opt);
-        if (style()->subElementRect(QStyle::SE_ToolBarHandle, &opt, this).contains(e->pos()))
+        if (style()->subElementRect(QStyle::SE_ToolBarHandle, &opt, this).contains(e->position().toPoint()))
             setCursor(Qt::SizeAllCursor);
         else
             unsetCursor();
@@ -1163,7 +1164,7 @@ bool QToolBar::event(QEvent *event)
     case QEvent::Leave:
         if (d->state != nullptr && d->state->dragging) {
 #ifdef Q_OS_WIN
-            // This is a workaround for loosing the mouse on Vista.
+            // This is a workaround for losing the mouse on Vista.
             QPoint pos = QCursor::pos();
             QMouseEvent fake(QEvent::MouseMove, mapFromGlobal(pos), pos, Qt::NoButton,
                              QGuiApplication::mouseButtons(), QGuiApplication::keyboardModifiers());

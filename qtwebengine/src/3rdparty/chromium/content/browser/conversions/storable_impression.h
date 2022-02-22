@@ -11,6 +11,7 @@
 #include "base/optional.h"
 #include "base/time/time.h"
 #include "content/common/content_export.h"
+#include "net/base/schemeful_site.h"
 #include "url/origin.h"
 
 namespace content {
@@ -45,6 +46,12 @@ class CONTENT_EXPORT StorableImpression {
 
   base::Optional<int64_t> impression_id() const { return impression_id_; }
 
+  // Returns the schemeful site of |conversion_origin|.
+  //
+  // TODO(johnidel): Consider storing the SchemefulSite as a separate member so
+  // that we avoid unnecessary copies of |conversion_origin|.
+  net::SchemefulSite ConversionDestination() const;
+
  private:
   // String representing a valid hexadecimal number.
   std::string impression_data_;
@@ -56,6 +63,9 @@ class CONTENT_EXPORT StorableImpression {
 
   // If null, an ID has not been assigned yet.
   base::Optional<int64_t> impression_id_;
+
+  // When adding new members, the ImpressionsEqual() testing utility in
+  // conversion_test_utils.h should also be updated.
 };
 
 }  // namespace content

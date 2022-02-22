@@ -49,7 +49,7 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
+import QtQuick
 
 Rectangle {
     id: back
@@ -85,7 +85,7 @@ Rectangle {
         delegate: Rectangle {
             id: box
             height:100
-            width: parent.width
+            width: theListView.width
             color: "lightsteelblue"
             border.width: 2
             border.color: "black"

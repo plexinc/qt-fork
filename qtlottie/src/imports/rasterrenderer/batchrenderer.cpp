@@ -32,6 +32,7 @@
 #include <QImage>
 #include <QPainter>
 #include <QHash>
+#include <QMap>
 #include <QMutexLocker>
 #include <QLoggingCategory>
 #include <QThread>
@@ -41,6 +42,7 @@
 
 #include <QtBodymovin/private/bmconstants_p.h>
 #include <QtBodymovin/private/bmbase_p.h>
+#include <QtBodymovin/private/bmimagelayer_p.h>
 #include <QtBodymovin/private/bmlayer_p.h>
 
 #include "lottieanimation.h"
@@ -67,7 +69,11 @@ BatchRenderer::~BatchRenderer()
 {
     QMutexLocker mlocker(&m_mutex);
 
-    qDeleteAll(m_animData);
+    for (Entry *entry : qAsConst(m_animData)) {
+        qDeleteAll(entry->frameCache);
+        delete entry->bmTreeBlueprint;
+        delete entry;
+    }
 }
 
 BatchRenderer *BatchRenderer::instance()
@@ -92,6 +98,12 @@ void BatchRenderer::registerAnimator(LottieAnimation *animator)
                                        << static_cast<void*>(animator);
 
     Entry *&entry = m_animData[animator];
+    if (entry) {
+        qDeleteAll(entry->frameCache);
+        delete entry->bmTreeBlueprint;
+        delete entry;
+        entry = nullptr;
+    }
     Q_ASSERT(entry == nullptr);
     entry = new Entry;
     entry->animator = animator;
@@ -232,11 +244,27 @@ int BatchRenderer::parse(BMBase *rootElement, const QByteArray &jsonSource) cons
     if (rootObj.empty())
         return -1;
 
+    QMap<QString, QJsonObject> assets;
     QJsonArray jsonLayers = rootObj.value(QLatin1String("layers")).toArray();
+    QJsonArray jsonAssets = rootObj.value(QLatin1String("assets")).toArray();
+    QJsonArray::const_iterator jsonAssetsIt = jsonAssets.constBegin();
+    while (jsonAssetsIt != jsonAssets.constEnd()) {
+        QJsonObject jsonAsset = (*jsonAssetsIt).toObject();
+
+        jsonAsset.insert(QLatin1String("fileSource"), QJsonValue::fromVariant(m_animData.keys().last()->source()));
+        QString id = jsonAsset.value(QLatin1String("id")).toString();
+        assets.insert(id, jsonAsset);
+        jsonAssetsIt++;
+    }
+
     QJsonArray::const_iterator jsonLayerIt = jsonLayers.constEnd();
     while (jsonLayerIt != jsonLayers.constBegin()) {
         jsonLayerIt--;
         QJsonObject jsonLayer = (*jsonLayerIt).toObject();
+        if (jsonLayer.value("ty").toInt() == 2) {
+            QString refId = jsonLayer.value("refId").toString();
+            jsonLayer.insert("asset", assets.value(refId));
+        }
         BMLayer *layer = BMLayer::construct(jsonLayer);
         if (layer) {
             layer->setParent(rootElement);

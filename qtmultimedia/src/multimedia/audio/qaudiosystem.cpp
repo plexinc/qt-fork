@@ -37,340 +37,219 @@
 **
 ****************************************************************************/
 
-#include "qaudiosystem.h"
+#include <private/qtmultimediaglobal_p.h>
+#include "qaudiosystem_p.h"
 
 QT_BEGIN_NAMESPACE
 
 /*!
-    \class QAbstractAudioDeviceInfo
-    \brief The QAbstractAudioDeviceInfo class is a base class for audio backends.
-
-    \ingroup multimedia
-    \ingroup multimedia_audio
-    \inmodule QtMultimedia
-
-    This class implements the audio functionality for
-    QAudioDeviceInfo, i.e., QAudioDeviceInfo keeps a
-    QAbstractAudioDeviceInfo and routes function calls to it. For a
-    description of the functionality that QAbstractAudioDeviceInfo
-    implements, you can read the class and functions documentation of
-    QAudioDeviceInfo.
-
-    \sa QAudioDeviceInfo
-    \sa QAbstractAudioOutput, QAbstractAudioInput
-*/
-
-/*!
-    \fn virtual QAudioFormat QAbstractAudioDeviceInfo::preferredFormat() const
-    Returns the recommended settings to use.
-*/
-
-/*!
-    \fn virtual bool QAbstractAudioDeviceInfo::isFormatSupported(const QAudioFormat& format) const
-    Returns true if \a format is available from audio device.
-*/
-
-/*!
-    \fn virtual QString QAbstractAudioDeviceInfo::deviceName() const
-    Returns the audio device name.
-*/
-
-/*!
-    \fn virtual QStringList QAbstractAudioDeviceInfo::supportedCodecs()
-    Returns the list of currently available codecs.
-*/
-
-/*!
-    \fn virtual QList<int> QAbstractAudioDeviceInfo::supportedSampleRates()
-    Returns the list of currently available sample rates.
-*/
-
-/*!
-    \fn virtual QList<int> QAbstractAudioDeviceInfo::supportedChannelCounts()
-    Returns the list of currently available channels.
-*/
-
-/*!
-    \fn virtual QList<int> QAbstractAudioDeviceInfo::supportedSampleSizes()
-    Returns the list of currently available sample sizes.
-*/
-
-/*!
-    \fn virtual QList<QAudioFormat::Endian> QAbstractAudioDeviceInfo::supportedByteOrders()
-    Returns the list of currently available byte orders.
-*/
-
-/*!
-    \fn virtual QList<QAudioFormat::SampleType> QAbstractAudioDeviceInfo::supportedSampleTypes()
-    Returns the list of currently available sample types.
-*/
-
-/*!
-    \class QAbstractAudioOutput
-    \brief The QAbstractAudioOutput class is a base class for audio backends.
+    \class QPlatformAudioSink
+    \brief The QPlatformAudioSink class is a base class for audio backends.
 
     \ingroup multimedia
     \inmodule QtMultimedia
 
-    QAbstractAudioOutput implements audio functionality for
-    QAudioOutput, i.e., QAudioOutput routes function calls to
-    QAbstractAudioOutput. For a description of the functionality that
-    is implemented, see the QAudioOutput class and function
+    QPlatformAudioSink implements audio functionality for
+    QAudioSink, i.e., QAudioSink routes function calls to
+    QPlatformAudioSink. For a description of the functionality that
+    is implemented, see the QAudioSink class and function
     descriptions.
 
-    \sa QAudioOutput
+    \sa QAudioSink
 */
 
 /*!
-    \fn virtual void QAbstractAudioOutput::start(QIODevice* device)
+    \fn void QPlatformAudioSink::start(QIODevice* device)
     Uses the \a device as the QIODevice to transfer data.
 */
 
 /*!
-    \fn virtual QIODevice* QAbstractAudioOutput::start()
+    \fn QIODevice* QPlatformAudioSink::start()
     Returns a pointer to the QIODevice being used to handle
     the data transfer. This QIODevice can be used to write() audio data directly.
 */
 
 /*!
-    \fn virtual void QAbstractAudioOutput::stop()
+    \fn void QPlatformAudioSink::stop()
     Stops the audio output.
 */
 
 /*!
-    \fn virtual void QAbstractAudioOutput::reset()
+    \fn void QPlatformAudioSink::reset()
     Drops all audio data in the buffers, resets buffers to zero.
 */
 
 /*!
-    \fn virtual void QAbstractAudioOutput::suspend()
+    \fn void QPlatformAudioSink::suspend()
     Stops processing audio data, preserving buffered audio data.
 */
 
 /*!
-    \fn virtual void QAbstractAudioOutput::resume()
+    \fn void QPlatformAudioSink::resume()
     Resumes processing audio data after a suspend()
 */
 
 /*!
-    \fn virtual int QAbstractAudioOutput::bytesFree() const
+    \fn qsizetype QPlatformAudioSink::bytesFree() const
     Returns the free space available in bytes in the audio buffer.
 */
 
 /*!
-    \fn virtual int QAbstractAudioOutput::periodSize() const
-    Returns the period size in bytes.
-*/
-
-/*!
-    \fn virtual void QAbstractAudioOutput::setBufferSize(int value)
+    \fn void QPlatformAudioSink::setBufferSize(qsizetype value)
     Sets the audio buffer size to \a value in bytes.
 */
 
 /*!
-    \fn virtual int QAbstractAudioOutput::bufferSize() const
+    \fn qsizetype QPlatformAudioSink::bufferSize() const
     Returns the audio buffer size in bytes.
 */
 
 /*!
-    \fn virtual void QAbstractAudioOutput::setNotifyInterval(int ms)
-    Sets the interval for notify() signal to be emitted. This is based on the \a ms
-    of audio data processed not on actual real-time. The resolution of the timer
-    is platform specific.
-*/
-
-/*!
-    \fn virtual int QAbstractAudioOutput::notifyInterval() const
-    Returns the notify interval in milliseconds.
-*/
-
-/*!
-    \fn virtual qint64 QAbstractAudioOutput::processedUSecs() const
+    \fn qint64 QPlatformAudioSink::processedUSecs() const
     Returns the amount of audio data processed since start() was called in milliseconds.
 */
 
 /*!
-    \fn virtual qint64 QAbstractAudioOutput::elapsedUSecs() const
-    Returns the milliseconds since start() was called, including time in Idle and suspend states.
-*/
-
-/*!
-    \fn virtual QAudio::Error QAbstractAudioOutput::error() const
+    \fn QAudio::Error QPlatformAudioSink::error() const
     Returns the error state.
 */
 
 /*!
-    \fn virtual QAudio::State QAbstractAudioOutput::state() const
+    \fn QAudio::State QPlatformAudioSink::state() const
     Returns the state of audio processing.
 */
 
 /*!
-    \fn virtual void QAbstractAudioOutput::setFormat(const QAudioFormat& fmt)
+    \fn void QPlatformAudioSink::setFormat(const QAudioFormat& fmt)
     Set the QAudioFormat to use to \a fmt.
     Setting the format is only allowable while in QAudio::StoppedState.
 */
 
 /*!
-    \fn virtual QAudioFormat QAbstractAudioOutput::format() const
+    \fn QAudioFormat QPlatformAudioSink::format() const
     Returns the QAudioFormat being used.
 */
 
 /*!
-    \fn virtual void QAbstractAudioOutput::setVolume(qreal volume)
+    \fn void QPlatformAudioSink::setVolume(qreal volume)
     Sets the volume.
     Where \a volume is between 0.0 and 1.0.
 */
 
 /*!
-    \fn virtual qreal QAbstractAudioOutput::volume() const
+    \fn qreal QPlatformAudioSink::volume() const
     Returns the volume in the range 0.0 and 1.0.
 */
 
 /*!
-    \fn QAbstractAudioOutput::errorChanged(QAudio::Error error)
+    \fn QPlatformAudioSink::errorChanged(QAudio::Error error)
     This signal is emitted when the \a error state has changed.
 */
 
 /*!
-    \fn QAbstractAudioOutput::stateChanged(QAudio::State state)
+    \fn QPlatformAudioSink::stateChanged(QAudio::State state)
     This signal is emitted when the device \a state has changed.
 */
 
 /*!
-    \fn QAbstractAudioOutput::notify()
-    This signal is emitted when x ms of audio data has been processed
-    the interval set by setNotifyInterval(x).
-*/
-
-
-/*!
-    \class QAbstractAudioInput
-    \brief The QAbstractAudioInput class provides access for QAudioInput to access the audio
+    \class QPlatformAudioSource
+    \brief The QPlatformAudioSource class provides access for QAudioSource to access the audio
     device provided by the plugin.
 
     \ingroup multimedia
     \inmodule QtMultimedia
 
-    QAudioDeviceInput keeps an instance of QAbstractAudioInput and
-    routes calls to functions of the same name to QAbstractAudioInput.
-    This means that it is QAbstractAudioInput that implements the
+    QAudioDeviceInput keeps an instance of QPlatformAudioSource and
+    routes calls to functions of the same name to QPlatformAudioSource.
+    This means that it is QPlatformAudioSource that implements the
     audio functionality. For a description of the functionality, see
-    the QAudioInput class description.
+    the QAudioSource class description.
 
-    \sa QAudioInput
+    \sa QAudioSource
 */
 
 /*!
-    \fn virtual void QAbstractAudioInput::start(QIODevice* device)
+    \fn void QPlatformAudioSource::start(QIODevice* device)
     Uses the \a device as the QIODevice to transfer data.
 */
 
 /*!
-    \fn virtual QIODevice* QAbstractAudioInput::start()
+    \fn QIODevice* QPlatformAudioSource::start()
     Returns a pointer to the QIODevice being used to handle
     the data transfer. This QIODevice can be used to read() audio data directly.
 */
 
 /*!
-    \fn virtual void QAbstractAudioInput::stop()
+    \fn void QPlatformAudioSource::stop()
     Stops the audio input.
 */
 
 /*!
-    \fn virtual void QAbstractAudioInput::reset()
+    \fn void QPlatformAudioSource::reset()
     Drops all audio data in the buffers, resets buffers to zero.
 */
 
 /*!
-    \fn virtual void QAbstractAudioInput::suspend()
+    \fn void QPlatformAudioSource::suspend()
     Stops processing audio data, preserving buffered audio data.
 */
 
 /*!
-    \fn virtual void QAbstractAudioInput::resume()
+    \fn void QPlatformAudioSource::resume()
     Resumes processing audio data after a suspend().
 */
 
 /*!
-    \fn virtual int QAbstractAudioInput::bytesReady() const
+    \fn qsizetype QPlatformAudioSource::bytesReady() const
     Returns the amount of audio data available to read in bytes.
 */
 
 /*!
-    \fn virtual int QAbstractAudioInput::periodSize() const
-    Returns the period size in bytes.
-*/
-
-/*!
-    \fn virtual void QAbstractAudioInput::setBufferSize(int value)
+    \fn void QPlatformAudioSource::setBufferSize(qsizetype value)
     Sets the audio buffer size to \a value in milliseconds.
 */
 
 /*!
-    \fn virtual int QAbstractAudioInput::bufferSize() const
+    \fn qsizetype QPlatformAudioSource::bufferSize() const
     Returns the audio buffer size in milliseconds.
 */
 
 /*!
-    \fn virtual void QAbstractAudioInput::setNotifyInterval(int ms)
-    Sets the interval for notify() signal to be emitted. This is based
-    on the \a ms of audio data processed not on actual real-time.
-    The resolution of the timer is platform specific.
-*/
-
-/*!
-    \fn virtual int QAbstractAudioInput::notifyInterval() const
-    Returns the notify interval in milliseconds.
-*/
-
-/*!
-    \fn virtual qint64 QAbstractAudioInput::processedUSecs() const
+    \fn qint64 QPlatformAudioSource::processedUSecs() const
     Returns the amount of audio data processed since start() was called in milliseconds.
 */
 
 /*!
-    \fn virtual qint64 QAbstractAudioInput::elapsedUSecs() const
-    Returns the milliseconds since start() was called, including time in Idle and suspend states.
-*/
-
-/*!
-    \fn virtual QAudio::Error QAbstractAudioInput::error() const
+    \fn QAudio::Error QPlatformAudioSource::error() const
     Returns the error state.
 */
 
 /*!
-    \fn virtual QAudio::State QAbstractAudioInput::state() const
+    \fn QAudio::State QPlatformAudioSource::state() const
     Returns the state of audio processing.
 */
 
 /*!
-    \fn virtual void QAbstractAudioInput::setFormat(const QAudioFormat& fmt)
+    \fn void QPlatformAudioSource::setFormat(const QAudioFormat& fmt)
     Set the QAudioFormat to use to \a fmt.
     Setting the format is only allowable while in QAudio::StoppedState.
 */
 
 /*!
-    \fn virtual QAudioFormat QAbstractAudioInput::format() const
+    \fn QAudioFormat QPlatformAudioSource::format() const
     Returns the QAudioFormat being used
 */
 
 /*!
-    \fn QAbstractAudioInput::errorChanged(QAudio::Error error)
+    \fn QPlatformAudioSource::errorChanged(QAudio::Error error)
     This signal is emitted when the \a error state has changed.
 */
 
 /*!
-    \fn QAbstractAudioInput::stateChanged(QAudio::State state)
+    \fn QPlatformAudioSource::stateChanged(QAudio::State state)
     This signal is emitted when the device \a state has changed.
 */
 
-/*!
-    \fn QAbstractAudioInput::notify()
-    This signal is emitted when x ms of audio data has been processed
-    the interval set by setNotifyInterval(x).
-*/
-
-
 QT_END_NAMESPACE
 
-#include "moc_qaudiosystem.cpp"
+#include "moc_qaudiosystem_p.cpp"

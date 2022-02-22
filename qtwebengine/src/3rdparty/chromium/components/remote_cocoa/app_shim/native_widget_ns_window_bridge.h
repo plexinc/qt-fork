@@ -201,12 +201,14 @@ class REMOTE_COCOA_APP_SHIM_EXPORT NativeWidgetNSWindowBridge
   void SetParent(uint64_t parent_id) override;
   void CreateSelectFileDialog(
       mojo::PendingReceiver<mojom::SelectFileDialog> receiver) override;
+  void ShowCertificateViewer(
+      const scoped_refptr<net::X509Certificate>& certificate) override;
   void StackAbove(uint64_t sibling_id) override;
   void StackAtTop() override;
   void ShowEmojiPanel() override;
   void InitWindow(
       remote_cocoa::mojom::NativeWidgetNSWindowInitParamsPtr params) override;
-  void InitCompositorView() override;
+  void InitCompositorView(InitCompositorViewCallback callback) override;
   void CreateContentView(uint64_t ns_view_id, const gfx::Rect& bounds) override;
   void DestroyContentView() override;
   void CloseWindow() override;
@@ -233,7 +235,7 @@ class REMOTE_COCOA_APP_SHIM_EXPORT NativeWidgetNSWindowBridge
                           bool is_maximizable) override;
   void SetOpacity(float opacity) override;
   void SetWindowLevel(int32_t level) override;
-  void SetContentAspectRatio(const gfx::SizeF& aspect_ratio) override;
+  void SetAspectRatio(const gfx::SizeF& aspect_ratio) override;
   void SetCALayerParams(const gfx::CALayerParams& ca_layer_params) override;
   void SetWindowTitle(const base::string16& title) override;
   void SetIgnoresMouseEvents(bool ignores_mouse_events) override;

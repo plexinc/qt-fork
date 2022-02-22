@@ -59,7 +59,6 @@
 
 QT_BEGIN_NAMESPACE
 
-// ### Qt 6: Unexport again, if QOpenGLStaticTextUserData (the one from QtOpenGL) is gone by then
 class Q_GUI_EXPORT QStaticTextUserData
 {
 public:
@@ -120,7 +119,7 @@ private: // private to avoid abuse
                                                                   // ================
                                                                   // 43 bytes per item
 };
-Q_DECLARE_TYPEINFO(QStaticTextItem, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QStaticTextItem, Q_RELOCATABLE_TYPE);
 
 class QStaticText;
 class Q_AUTOTEST_EXPORT QStaticTextPrivate

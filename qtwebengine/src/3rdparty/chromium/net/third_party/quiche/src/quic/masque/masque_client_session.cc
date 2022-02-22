@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/masque/masque_client_session.h"
+#include "quic/masque/masque_client_session.h"
 
 namespace quic {
 
@@ -23,7 +23,7 @@ MasqueClientSession::MasqueClientSession(
       owner_(owner),
       compression_engine_(this) {}
 
-void MasqueClientSession::OnMessageReceived(quiche::QuicheStringPiece message) {
+void MasqueClientSession::OnMessageReceived(absl::string_view message) {
   QUIC_DVLOG(1) << "Received DATAGRAM frame of length " << message.length();
 
   QuicConnectionId client_connection_id, server_connection_id;
@@ -46,7 +46,7 @@ void MasqueClientSession::OnMessageReceived(quiche::QuicheStringPiece message) {
   EncapsulatedClientSession* encapsulated_client_session =
       connection_id_registration->second;
   encapsulated_client_session->ProcessPacket(
-      quiche::QuicheStringPiece(packet.data(), packet.size()), server_address);
+      absl::string_view(packet.data(), packet.size()), server_address);
 
   QUIC_DVLOG(1) << "Sent " << packet.size() << " bytes to connection for "
                 << client_connection_id;
@@ -63,7 +63,7 @@ void MasqueClientSession::OnMessageLost(QuicMessageId message_id) {
 
 void MasqueClientSession::SendPacket(QuicConnectionId client_connection_id,
                                      QuicConnectionId server_connection_id,
-                                     quiche::QuicheStringPiece packet,
+                                     absl::string_view packet,
                                      const QuicSocketAddress& server_address) {
   compression_engine_.CompressAndSendPacket(
       packet, client_connection_id, server_connection_id, server_address);
@@ -74,10 +74,11 @@ void MasqueClientSession::RegisterConnectionId(
     EncapsulatedClientSession* encapsulated_client_session) {
   QUIC_DLOG(INFO) << "Registering " << client_connection_id
                   << " to encapsulated client";
-  DCHECK(client_connection_id_registrations_.find(client_connection_id) ==
-             client_connection_id_registrations_.end() ||
-         client_connection_id_registrations_[client_connection_id] ==
-             encapsulated_client_session);
+  QUICHE_DCHECK(
+      client_connection_id_registrations_.find(client_connection_id) ==
+          client_connection_id_registrations_.end() ||
+      client_connection_id_registrations_[client_connection_id] ==
+          encapsulated_client_session);
   client_connection_id_registrations_[client_connection_id] =
       encapsulated_client_session;
 }

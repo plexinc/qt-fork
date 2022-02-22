@@ -70,7 +70,11 @@ CSSStyleValue* CreateStyleValueWithPropertyInternal(CSSPropertyID property_id,
     case CSSPropertyID::kBorderBottomLeftRadius:
     case CSSPropertyID::kBorderBottomRightRadius:
     case CSSPropertyID::kBorderTopLeftRadius:
-    case CSSPropertyID::kBorderTopRightRadius: {
+    case CSSPropertyID::kBorderTopRightRadius:
+    case CSSPropertyID::kBorderEndEndRadius:
+    case CSSPropertyID::kBorderEndStartRadius:
+    case CSSPropertyID::kBorderStartEndRadius:
+    case CSSPropertyID::kBorderStartStartRadius: {
       // border-radius-* are always stored as pairs, but when both values are
       // the same, we should reify as a single value.
       if (const auto* pair = DynamicTo<CSSValuePair>(value)) {
@@ -287,7 +291,7 @@ CSSStyleValueVector StyleValueFactory::FromString(
   if ((property_id == CSSPropertyID::kVariable && !tokens.IsEmpty()) ||
       CSSVariableParser::ContainsValidVariableReferences(range)) {
     const auto variable_data = CSSVariableData::Create(
-        range, false /* is_animation_tainted */,
+        {range, StringView(css_text)}, false /* is_animation_tainted */,
         false /* needs variable resolution */, parser_context->BaseURL(),
         parser_context->Charset());
     CSSStyleValueVector values;

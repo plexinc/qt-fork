@@ -42,11 +42,12 @@
 // We mean it.
 //
 
-#include <QtQuick3DRender/private/qssgrenderbasetypes_p.h>
+#include <QtQuick3DUtils/private/qssgrenderbasetypes_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrendercamera_p.h>
-#include <QtQuick3DRuntimeRender/private/qssgrendercontextcore_p.h>
 
 QT_BEGIN_NAMESPACE
+
+struct QSSGRenderLayer;
 
 /**	An independent, testable entity to encapsulate taking at least:
  *  layer, current viewport rect, current scissor rect, presentation design dimensions
@@ -63,7 +64,7 @@ QT_BEGIN_NAMESPACE
  *	I am using language level access control on this object because it needs specific
  *	interface design that will enable future modifications.
  */
-struct Q_AUTOTEST_EXPORT QSSGLayerRenderHelper
+struct Q_QUICK3DRUNTIMERENDER_EXPORT QSSGLayerRenderHelper
 {
 private:
     QSSGRenderLayer *m_layer = nullptr;

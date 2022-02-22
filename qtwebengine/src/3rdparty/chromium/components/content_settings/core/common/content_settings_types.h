@@ -21,7 +21,7 @@ enum class ContentSettingsType : int32_t {
   COOKIES = 0,
   IMAGES,
   JAVASCRIPT,
-  PLUGINS,
+  DEPRECATED_PLUGINS,
 
   // This setting governs both popups and unwanted redirects like tab-unders and
   // framebusting.
@@ -96,10 +96,6 @@ enum class ContentSettingsType : int32_t {
   // technology.
   ACCESSIBILITY_EVENTS,
 
-  // Used to store whether the user has ever changed the Flash permission for
-  // a site.
-  PLUGINS_DATA,
-
   // Used to store whether to allow a website to install a payment handler.
   PAYMENT_HANDLER,
 
@@ -130,6 +126,8 @@ enum class ContentSettingsType : int32_t {
   // Nothing is stored in this setting at present. Please refer to
   // PeriodicBackgroundSyncPermissionContext for details on how this permission
   // is ascertained.
+  // This content setting is not registered because it does not require access
+  // to any existing providers.
   PERIODIC_BACKGROUND_SYNC,
 
   // Content setting which stores whether to allow sites to ask for permission
@@ -149,18 +147,20 @@ enum class ContentSettingsType : int32_t {
   WAKE_LOCK_SCREEN,
   WAKE_LOCK_SYSTEM,
 
-  // Legacy SameSite cookie behavior. This disables SameSiteByDefaultCookies
-  // and CookiesWithoutSameSiteMustBeSecure, and forces the legacy behavior
-  // where cookies that don't specify SameSite are treated as SameSite=None and
-  // SameSite=None cookies are not required to be Secure.
+  // Legacy SameSite cookie behavior. This disables SameSiteByDefaultCookies,
+  // CookiesWithoutSameSiteMustBeSecure, and SchemefulSameSite, forcing the
+  // legacy behavior wherein cookies that don't specify SameSite are treated as
+  // SameSite=None, SameSite=None cookies are not required to be Secure, and
+  // schemeful same-site is not active.
+  //
   // This will also be used to revert to legacy behavior when future changes
   // in cookie handling are introduced.
   LEGACY_COOKIE_ACCESS,
 
   // Content settings which stores whether to allow sites to ask for permission
-  // to save changes to an original file selected by the user through the Native
+  // to save changes to an original file selected by the user through the
   // File System API.
-  NATIVE_FILE_SYSTEM_WRITE_GUARD,
+  FILE_SYSTEM_WRITE_GUARD,
 
   // Content settings for installed web apps that browsing history may be
   // inferred from e.g. last update check timestamp.
@@ -195,8 +195,8 @@ enum class ContentSettingsType : int32_t {
   AR,
 
   // Content setting which stores whether to allow site to open and read files
-  // and directories selected through the Native File System API.
-  NATIVE_FILE_SYSTEM_READ_GUARD,
+  // and directories selected through the File System API.
+  FILE_SYSTEM_READ_GUARD,
 
   // Access to first party storage in a third-party context. Exceptions are
   // scoped to the combination of requesting/top-level origin, and are managed
@@ -204,6 +204,38 @@ enum class ContentSettingsType : int32_t {
   // exists in parallel to third-party cookie rules stored in COOKIES.
   // TODO(https://crbug.com/989663): Reconcile the two.
   STORAGE_ACCESS,
+
+  // Content setting which stores whether to allow a site to control camera
+  // movements. It does not give access to camera.
+  CAMERA_PAN_TILT_ZOOM,
+
+  // Content setting for Screen Enumeration and Window Placement functionality.
+  // Permits access to information about the screens, like size and position.
+  // Permits creating and placing windows across the set of connected screens.
+  WINDOW_PLACEMENT,
+
+  // Stores whether to allow insecure websites to make private network requests.
+  // See also: https://wicg.github.io/cors-rfc1918
+  // Set through enterprise policies only.
+  INSECURE_PRIVATE_NETWORK,
+
+  // Content setting which stores whether or not a site can access low-level
+  // locally installed font data using the Font Access API.
+  FONT_ACCESS,
+
+  // Stores per-origin state for permission auto-revocation (for all permission
+  // types).
+  PERMISSION_AUTOREVOCATION_DATA,
+
+  // Stores per-origin state of the most recently selected directory for the use
+  // by the File System Access API.
+  FILE_SYSTEM_LAST_PICKED_DIRECTORY,
+
+  // Capture the current tab using getCurrentBrowsingContextMedia().
+  // TODO(crbug.com/1150788): Apply this to getDisplayMedia() as well.
+  // No values are stored for this type, this is solely needed to be able to
+  // register the PermissionContext.
+  DISPLAY_CAPTURE,
 
   NUM_TYPES,
 };

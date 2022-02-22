@@ -9,6 +9,7 @@
 #include "base/trace_event/trace_event.h"
 #include "third_party/angle/include/EGL/egl.h"
 #include "third_party/angle/include/EGL/eglext.h"
+#include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_surface_egl.h"
 
 namespace gl {
@@ -23,7 +24,7 @@ void* QueryDeviceObjectFromANGLE(int object_type) {
     egl_display = gl::GLSurfaceEGL::GetHardwareDisplay();
   }
 
-  if (!gl::GLSurfaceEGL::HasEGLExtension("EGL_EXT_device_query"))
+  if (!gl::GLSurfaceEGL::HasEGLClientExtension("EGL_EXT_device_query"))
     return nullptr;
 
   PFNEGLQUERYDISPLAYATTRIBEXTPROC QueryDisplayAttribEXT = nullptr;
@@ -100,8 +101,9 @@ Microsoft::WRL::ComPtr<IDCompositionDevice2> QueryDirectCompositionDevice(
     return dcomp_device;
 
   UINT data_size = sizeof(dcomp_device.Get());
-  HRESULT hr = d3d11_device->GetPrivateData(kDirectCompositionGUID, &data_size,
-                                            dcomp_device.GetAddressOf());
+  HRESULT hr =
+      d3d11_device->GetPrivateData(kDirectCompositionGUID, &data_size,
+                                   dcomp_device.ReleaseAndGetAddressOf());
   if (SUCCEEDED(hr) && dcomp_device)
     return dcomp_device;
 
@@ -119,14 +121,13 @@ Microsoft::WRL::ComPtr<IDCompositionDevice2> QueryDirectCompositionDevice(
     return dcomp_device;
 
   Microsoft::WRL::ComPtr<IDXGIDevice> dxgi_device;
-  d3d11_device.CopyTo(dxgi_device.GetAddressOf());
+  d3d11_device.As(&dxgi_device);
   Microsoft::WRL::ComPtr<IDCompositionDesktopDevice> desktop_device;
-  hr = create_device_function(dxgi_device.Get(),
-                              IID_PPV_ARGS(desktop_device.GetAddressOf()));
+  hr = create_device_function(dxgi_device.Get(), IID_PPV_ARGS(&desktop_device));
   if (FAILED(hr))
     return dcomp_device;
 
-  hr = desktop_device.CopyTo(dcomp_device.GetAddressOf());
+  hr = desktop_device.As(&dcomp_device);
   CHECK(SUCCEEDED(hr));
   d3d11_device->SetPrivateDataInterface(kDirectCompositionGUID,
                                         dcomp_device.Get());

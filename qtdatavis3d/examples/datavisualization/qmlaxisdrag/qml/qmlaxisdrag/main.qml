@@ -27,8 +27,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.1
+import QtQuick
 import QtDataVisualization 1.1
+import QtQuick.Controls
 import "."
 
 Item {
@@ -185,7 +186,7 @@ Item {
             //! [1]
 
             //! [3]
-            onPositionChanged: {
+            onPositionChanged: (mouse)=> {
                 currentMouseX = mouse.x;
                 currentMouseY = mouse.y;
                 //! [3]
@@ -200,7 +201,7 @@ Item {
             //! [4]
 
             //! [2]
-            onPressed: {
+            onPressed: (mouse)=> {
                 scatterGraph.scene.selectionQueryPosition = Qt.point(mouse.x, mouse.y);
             }
             //! [2]
@@ -270,7 +271,7 @@ Item {
     }
     //! [7]
 
-    NewButton {
+    Button {
         id: rangeToggle
         width: parent.width / 3 // We're adding 3 buttons and want to divide them equally
         text: "Use Preset Range"
@@ -299,7 +300,7 @@ Item {
     }
 
     //! [8]
-    NewButton {
+    Button {
         id: orthoToggle
         width: parent.width / 3
         text: "Display Orthographic"
@@ -318,11 +319,11 @@ Item {
     }
     //! [8]
 
-    NewButton {
+    Button {
         id: exitButton
         width: parent.width / 3
         text: "Quit"
         anchors.left: orthoToggle.right
-        onClicked: Qt.quit(0);
+        onClicked: Qt.quit();
     }
 }

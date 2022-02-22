@@ -77,22 +77,6 @@ public:
     QQmlListProperty<QParameter> parameterList();
 
     inline QRenderPass *parentRenderPass() const { return qobject_cast<QRenderPass *>(parent()); }
-
-private:
-    static void appendFilterKey(QQmlListProperty<QFilterKey> *list, QFilterKey *filterKey);
-    static QFilterKey *filterKeyAt(QQmlListProperty<QFilterKey> *list, int index);
-    static int filterKeysCount(QQmlListProperty<QFilterKey> *list);
-    static void clearFilterKey(QQmlListProperty<QFilterKey> *list);
-
-    static void appendRenderState(QQmlListProperty<QRenderState> *list, QRenderState *state);
-    static QRenderState *renderStateAt(QQmlListProperty<QRenderState> *list, int index);
-    static int renderStateCount(QQmlListProperty<QRenderState> *list);
-    static void clearRenderStates(QQmlListProperty<QRenderState> *list);
-
-    static void appendParameter(QQmlListProperty<QParameter> *list, QParameter *param);
-    static QParameter *parameterAt(QQmlListProperty<QParameter> *list, int index);
-    static int parametersCount(QQmlListProperty<QParameter> *list);
-    static void clearParameterList(QQmlListProperty<QParameter> *list);
 };
 
 } // namespace Quick

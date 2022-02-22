@@ -19,6 +19,7 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/bindings_policy.h"
 #include "content/public/common/url_constants.h"
+#include "third_party/blink/public/common/security/protocol_handler_security_level.h"
 #include "third_party/blink/public/mojom/mediastream/media_stream.mojom-shared.h"
 #include "ui/gfx/geometry/rect.h"
 
@@ -111,7 +112,7 @@ bool WebContentsDelegate::PreHandleGestureEvent(
 bool WebContentsDelegate::CanDragEnter(
     WebContents* source,
     const DropData& data,
-    blink::WebDragOperationsMask operations_allowed) {
+    blink::DragOperationsMask operations_allowed) {
   return true;
 }
 
@@ -145,29 +146,12 @@ JavaScriptDialogManager* WebContentsDelegate::GetJavaScriptDialogManager(
   return nullptr;
 }
 
-std::unique_ptr<BluetoothChooser> WebContentsDelegate::RunBluetoothChooser(
-    RenderFrameHost* frame,
-    const BluetoothChooser::EventHandler& event_handler) {
-  return nullptr;
-}
-
 void WebContentsDelegate::CreateSmsPrompt(
     RenderFrameHost* host,
-    const url::Origin& origin,
+    const std::vector<url::Origin>& origin_list,
     const std::string& one_time_code,
     base::OnceCallback<void()> on_confirm,
     base::OnceCallback<void()> on_cancel) {}
-
-std::unique_ptr<BluetoothScanningPrompt>
-WebContentsDelegate::ShowBluetoothScanningPrompt(
-    RenderFrameHost* frame,
-    const BluetoothScanningPrompt::EventHandler& event_handler) {
-  return nullptr;
-}
-
-bool WebContentsDelegate::EmbedsFullscreenWidget() {
-  return false;
-}
 
 bool WebContentsDelegate::IsFullscreenForTabOrPending(
     const WebContents* web_contents) {
@@ -179,6 +163,23 @@ blink::mojom::DisplayMode WebContentsDelegate::GetDisplayMode(
   return blink::mojom::DisplayMode::kBrowser;
 }
 
+blink::ProtocolHandlerSecurityLevel
+WebContentsDelegate::GetProtocolHandlerSecurityLevel(RenderFrameHost*) {
+  return blink::ProtocolHandlerSecurityLevel::kStrict;
+}
+
+void WebContentsDelegate::RequestToLockMouse(WebContents* web_contents,
+                                             bool user_gesture,
+                                             bool last_unlocked_by_target) {
+  web_contents->GotResponseToLockMouseRequest(
+      blink::mojom::PointerLockResult::kUnknownError);
+}
+
+void WebContentsDelegate::RequestKeyboardLock(WebContents* web_contents,
+                                              bool esc_key_locked) {
+  web_contents->GotResponseToKeyboardLockRequest(false);
+}
+
 ColorChooser* WebContentsDelegate::OpenColorChooser(
     WebContents* web_contents,
     SkColor color,
@@ -186,16 +187,22 @@ ColorChooser* WebContentsDelegate::OpenColorChooser(
   return nullptr;
 }
 
+std::unique_ptr<EyeDropper> WebContentsDelegate::OpenEyeDropper(
+    RenderFrameHost* frame,
+    EyeDropperListener* listener) {
+  return nullptr;
+}
+
 void WebContentsDelegate::RunFileChooser(
     RenderFrameHost* render_frame_host,
-    std::unique_ptr<FileSelectListener> listener,
+    scoped_refptr<FileSelectListener> listener,
     const blink::mojom::FileChooserParams& params) {
   listener->FileSelectionCanceled();
 }
 
 void WebContentsDelegate::EnumerateDirectory(
     WebContents* web_contents,
-    std::unique_ptr<FileSelectListener> listener,
+    scoped_refptr<FileSelectListener> listener,
     const base::FilePath& path) {
   listener->FileSelectionCanceled();
 }
@@ -232,14 +239,6 @@ bool WebContentsDelegate::ShouldBlockMediaRequest(const GURL& url) {
 }
 #endif
 
-void WebContentsDelegate::RequestPpapiBrokerPermission(
-    WebContents* web_contents,
-    const GURL& url,
-    const base::FilePath& plugin_path,
-    base::OnceCallback<void(bool)> callback) {
-  std::move(callback).Run(false);
-}
-
 WebContentsDelegate::~WebContentsDelegate() {
   while (!attached_contents_.empty()) {
     WebContents* web_contents = *attached_contents_.begin();
@@ -271,7 +270,9 @@ bool WebContentsDelegate::GuestSaveFrame(WebContents* guest_web_contents) {
   return false;
 }
 
-bool WebContentsDelegate::SaveFrame(const GURL& url, const Referrer& referrer) {
+bool WebContentsDelegate::SaveFrame(const GURL& url,
+                                    const Referrer& referrer,
+                                    content::RenderFrameHost* rfh) {
   return false;
 }
 
@@ -310,7 +311,11 @@ bool WebContentsDelegate::ShouldAnimateBrowserControlsHeightChanges() {
 }
 
 bool WebContentsDelegate::DoBrowserControlsShrinkRendererSize(
-    const WebContents* web_contents) {
+    WebContents* web_contents) {
+  return false;
+}
+
+bool WebContentsDelegate::OnlyExpandTopControlsAtPageTop() {
   return false;
 }
 
@@ -331,14 +336,15 @@ std::unique_ptr<WebContents> WebContentsDelegate::ActivatePortalWebContents(
   return portal_contents;
 }
 
-bool WebContentsDelegate::ShouldShowStaleContentOnEviction(
-    WebContents* source) {
-  return false;
+void WebContentsDelegate::UpdateInspectedWebContentsIfNecessary(
+    WebContents* old_contents,
+    WebContents* new_contents,
+    base::OnceCallback<void()> callback) {
+  std::move(callback).Run();
 }
 
-bool WebContentsDelegate::IsFrameLowPriority(
-    const WebContents* web_contents,
-    const RenderFrameHost* render_frame_host) {
+bool WebContentsDelegate::ShouldShowStaleContentOnEviction(
+    WebContents* source) {
   return false;
 }
 
@@ -347,13 +353,13 @@ WebContents* WebContentsDelegate::GetResponsibleWebContents(
   return web_contents;
 }
 
-base::WeakPtr<WebContentsDelegate> WebContentsDelegate::GetDelegateWeakPtr() {
+device::mojom::GeolocationContext*
+WebContentsDelegate::GetInstalledWebappGeolocationContext() {
   return nullptr;
 }
 
-bool WebContentsDelegate::ShouldNavigateOnBackForwardMouseButtons()
-{
-  return true;
+base::WeakPtr<WebContentsDelegate> WebContentsDelegate::GetDelegateWeakPtr() {
+  return nullptr;
 }
 
 }  // namespace content

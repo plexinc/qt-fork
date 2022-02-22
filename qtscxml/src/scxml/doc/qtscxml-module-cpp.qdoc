@@ -33,6 +33,7 @@
     \ingroup modules
     \ingroup technology-apis
     \qtvariable scxml
+    \qtcmakepackage Scxml
 
     To include the definitions of the module's classes, use the following directive:
 
@@ -40,11 +41,13 @@
     #include <QScxmlStateMachine>
     \endcode
 
-    To link against the module, add this line to your qmake .pro file:
+    To use the module with cmake, use the \c{find_package()} command to locate the
+    needed module components in the \c{Qt6} package:
+    \include qtscxml-module-use.qdocinc cmakebuild
 
-    \code
-    QT += scxml
-    \endcode
+    To configure the module for building with qmake, add the module as a value
+    of the \c QT variable in the project's .pro file:
+    \include qtscxml-module-use.qdocinc qmakebuild
 
     For more information, see \l{Instantiating State Machines}.
 */

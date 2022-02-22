@@ -67,7 +67,7 @@ static const QLatin1String profilePathTemplate("/qt/btsocket/%1%2/%3");
 
 QBluetoothSocketPrivateBluezDBus::QBluetoothSocketPrivateBluezDBus()
 {
-    secFlags = QBluetooth::NoSecurity;
+    secFlags = QBluetooth::Security::NoSecurity;
 
     profileManager = new OrgBluezProfileManager1Interface(
                             QStringLiteral("org.bluez"),
@@ -163,7 +163,7 @@ void QBluetoothSocketPrivateBluezDBus::connectToServiceHelper(
 
     if (profileContext) {
         qCDebug(QT_BT_BLUEZ) << "Profile context still active. close socket first.";
-        q->setSocketError(QBluetoothSocket::UnknownSocketError);
+        q->setSocketError(QBluetoothSocket::SocketError::UnknownSocketError);
         return;
     }
 
@@ -193,7 +193,7 @@ void QBluetoothSocketPrivateBluezDBus::connectToServiceHelper(
         profileContext = nullptr;
 
         errorString = QBluetoothSocket::tr("Cannot export profile on DBus");
-        q->setSocketError(QBluetoothSocket::UnknownSocketError);
+        q->setSocketError(QBluetoothSocket::SocketError::UnknownSocketError);
 
         return;
     }
@@ -220,7 +220,7 @@ void QBluetoothSocketPrivateBluezDBus::connectToServiceHelper(
 
         QDBusConnection::systemBus().unregisterObject(profilePath);
         errorString = QBluetoothSocket::tr("Cannot register profile on DBus");
-        q->setSocketError(QBluetoothSocket::UnknownSocketError);
+        q->setSocketError(QBluetoothSocket::SocketError::UnknownSocketError);
         return;
     }
 
@@ -231,25 +231,36 @@ void QBluetoothSocketPrivateBluezDBus::connectToServiceHelper(
         clearSocket();
 
         errorString = QBluetoothSocket::tr("Cannot find remote device");
-        q->setSocketError(QBluetoothSocket::HostNotFoundError);
+        q->setSocketError(QBluetoothSocket::SocketError::HostNotFoundError);
         return;
     }
 
     OrgBluezDevice1Interface device(QStringLiteral("org.bluez"), remoteDevicePath,
                                     QDBusConnection::systemBus());
     reply = device.ConnectProfile(profileUuid);
+    QDBusPendingCallWatcher *watcher = new QDBusPendingCallWatcher(reply, this);
+    connect(watcher, &QDBusPendingCallWatcher::finished,
+            this, &QBluetoothSocketPrivateBluezDBus::connectToServiceReplyHandler);
+
+    q->setOpenMode(openMode);
+    q->setSocketState(QBluetoothSocket::SocketState::ConnectingState);
+}
+
+void QBluetoothSocketPrivateBluezDBus::connectToServiceReplyHandler(
+        QDBusPendingCallWatcher *watcher)
+{
+    Q_Q(QBluetoothSocket);
+
+    QDBusPendingReply<> reply = *watcher;
     if (reply.isError()) {
-        qCWarning(QT_BT_BLUEZ) << "Cannot connect to profile/service:" << uuid;
+        qCWarning(QT_BT_BLUEZ) << "Cannot connect to profile/service.";
 
         clearSocket();
 
         errorString = QBluetoothSocket::tr("Cannot connect to remote profile");
-        q->setSocketError(QBluetoothSocket::HostNotFoundError);
-        return;
+        q->setSocketError(QBluetoothSocket::SocketError::HostNotFoundError);
     }
-
-    q->setOpenMode(openMode);
-    q->setSocketState(QBluetoothSocket::ConnectingState);
+    watcher->deleteLater();
 }
 
 void QBluetoothSocketPrivateBluezDBus::connectToService(
@@ -261,15 +272,15 @@ void QBluetoothSocketPrivateBluezDBus::connectToService(
     targetService = service.serviceUuid();
     if (targetService.isNull()) {
         // Do we have serialport service class?
-        if (service.serviceClassUuids().contains(QBluetoothUuid::SerialPort))
-            targetService = QBluetoothUuid::SerialPort;
+        if (service.serviceClassUuids().contains(QBluetoothUuid::ServiceClassUuid::SerialPort))
+            targetService = QBluetoothUuid::ServiceClassUuid::SerialPort;
     }
 
     if (targetService.isNull()) {
         qCWarning(QT_BT_BLUEZ) << "Cannot find appropriate serviceUuid"
                                << "or SerialPort service class uuid";
         errorString = QBluetoothSocket::tr("Missing serviceUuid or Serial Port service class uuid");
-        q->setSocketError(QBluetoothSocket::OperationError);
+        q->setSocketError(QBluetoothSocket::SocketError::OperationError);
         return;
     }
 
@@ -284,7 +295,7 @@ void QBluetoothSocketPrivateBluezDBus::connectToService(
     if (address.isNull()) {
         qCWarning(QT_BT_BLUEZ) << "Invalid address to remote address passed.";
         errorString = QBluetoothSocket::tr("Invalid Bluetooth address passed to connectToService()");
-        q->setSocketError(QBluetoothSocket::OperationError);
+        q->setSocketError(QBluetoothSocket::SocketError::OperationError);
         return;
     }
 
@@ -292,14 +303,14 @@ void QBluetoothSocketPrivateBluezDBus::connectToService(
         qCWarning(QT_BT_BLUEZ) << "Cannot find appropriate serviceUuid"
                                << "or SerialPort service class uuid";
         errorString = QBluetoothSocket::tr("Missing serviceUuid or Serial Port service class uuid");
-        q->setSocketError(QBluetoothSocket::OperationError);
+        q->setSocketError(QBluetoothSocket::SocketError::OperationError);
         return;
     }
 
-    if (q->state() != QBluetoothSocket::UnconnectedState) {
+    if (q->state() != QBluetoothSocket::SocketState::UnconnectedState) {
         qCWarning(QT_BT_BLUEZ) << "QBluetoothSocketPrivateBluezDBus::connectToService called on busy socket";
         errorString = QBluetoothSocket::tr("Trying to connect while connection is in progress");
-        q->setSocketError(QBluetoothSocket::OperationError);
+        q->setSocketError(QBluetoothSocket::SocketError::OperationError);
         return;
     }
 
@@ -307,13 +318,13 @@ void QBluetoothSocketPrivateBluezDBus::connectToService(
         qCWarning(QT_BT_BLUEZ) << "QBluetoothSocketPrivateBluezDBus::connectToService cannot "
                                   "connect with 'UnknownProtocol' (type provided by given service)";
         errorString = QBluetoothSocket::tr("Socket type not supported");
-        q->setSocketError(QBluetoothSocket::UnsupportedProtocolError);
+        q->setSocketError(QBluetoothSocket::SocketError::UnsupportedProtocolError);
         return;
     }
 
     if (!ensureNativeSocket(q->socketType())) {
         errorString = QBluetoothSocket::tr("Socket type not supported");
-        q->setSocketError(QBluetoothSocket::UnsupportedProtocolError);
+        q->setSocketError(QBluetoothSocket::SocketError::UnsupportedProtocolError);
         return;
     }
     connectToServiceHelper(address, uuid, openMode);
@@ -329,7 +340,7 @@ void QBluetoothSocketPrivateBluezDBus::connectToService(
     Q_Q(QBluetoothSocket);
 
     errorString = tr("Connecting to port is not supported via Bluez DBus");
-    q->setSocketError(QBluetoothSocket::ServiceNotFoundError);
+    q->setSocketError(QBluetoothSocket::SocketError::ServiceNotFoundError);
     qCWarning(QT_BT_BLUEZ) << "Connecting to port is not supported (Uuid required)";
 }
 
@@ -343,7 +354,7 @@ void QBluetoothSocketPrivateBluezDBus::abort()
 
         clearSocket();
         q->setOpenMode(QIODevice::NotOpen);
-        q->setSocketState(QBluetoothSocket::UnconnectedState);
+        q->setSocketState(QBluetoothSocket::SocketState::UnconnectedState);
         emit q->readChannelFinished();
     }
 }
@@ -451,9 +462,9 @@ qint64 QBluetoothSocketPrivateBluezDBus::writeData(const char *data, qint64 maxS
 
     Q_Q(QBluetoothSocket);
 
-    if (state != QBluetoothSocket::ConnectedState) {
+    if (state != QBluetoothSocket::SocketState::ConnectedState) {
         errorString = QBluetoothSocket::tr("Cannot write while not connected");
-        q->setSocketError(QBluetoothSocket::OperationError);
+        q->setSocketError(QBluetoothSocket::SocketError::OperationError);
         return -1;
     }
 
@@ -470,9 +481,9 @@ qint64 QBluetoothSocketPrivateBluezDBus::readData(char *data, qint64 maxSize)
 
     Q_Q(QBluetoothSocket);
 
-    if (state != QBluetoothSocket::ConnectedState) {
+    if (state != QBluetoothSocket::SocketState::ConnectedState) {
         errorString = QBluetoothSocket::tr("Cannot read while not connected");
-        q->setSocketError(QBluetoothSocket::OperationError);
+        q->setSocketError(QBluetoothSocket::SocketError::OperationError);
         return -1;
     }
 
@@ -491,7 +502,7 @@ bool QBluetoothSocketPrivateBluezDBus::setSocketDescriptor(int socketDescriptor,
                                            QBluetoothSocket::SocketState socketState, QBluetoothSocket::OpenMode openMode)
 {
     Q_UNUSED(socketDescriptor);
-    Q_UNUSED(socketType)
+    Q_UNUSED(socketType);
     Q_UNUSED(socketState);
     Q_UNUSED(openMode);
     return false;
@@ -530,7 +541,7 @@ void QBluetoothSocketPrivateBluezDBus::remoteConnected(const QDBusUnixFileDescri
     bool success = localSocket->setSocketDescriptor(
                             descriptor, QLocalSocket::ConnectedState, q->openMode());
     if (!success || !localSocket->isValid()) {
-        q->setSocketState(QBluetoothSocket::UnconnectedState);
+        q->setSocketState(QBluetoothSocket::SocketState::UnconnectedState);
         delete localSocket;
         localSocket = nullptr;
     } else {
@@ -542,7 +553,7 @@ void QBluetoothSocketPrivateBluezDBus::remoteConnected(const QDBusUnixFileDescri
                 q, &QBluetoothSocket::bytesWritten);
 
         socket = descriptor;
-        q->setSocketState(QBluetoothSocket::ConnectedState);
+        q->setSocketState(QBluetoothSocket::SocketState::ConnectedState);
     }
 }
 
@@ -552,12 +563,12 @@ void QBluetoothSocketPrivateBluezDBus::socketStateChanged(QLocalSocket::LocalSoc
 
     switch (newState) {
     case QLocalSocket::ClosingState:
-        q->setSocketState(QBluetoothSocket::ClosingState);
+        q->setSocketState(QBluetoothSocket::SocketState::ClosingState);
         break;
     case QLocalSocket::UnconnectedState:
         clearSocket();
         q->setOpenMode(QIODevice::NotOpen);
-        q->setSocketState(QBluetoothSocket::UnconnectedState);
+        q->setSocketState(QBluetoothSocket::SocketState::UnconnectedState);
         emit q->readChannelFinished();
         break;
     default:
@@ -584,7 +595,7 @@ void QBluetoothSocketPrivateBluezDBus::clearSocket()
 
     socket = -1;
 
-    if (q->state() == QBluetoothSocket::ConnectedState) {
+    if (q->state() == QBluetoothSocket::SocketState::ConnectedState) {
         OrgBluezDevice1Interface device(QStringLiteral("org.bluez"), remoteDevicePath,
                                         QDBusConnection::systemBus());
         auto reply = device.DisconnectProfile(profileUuid);

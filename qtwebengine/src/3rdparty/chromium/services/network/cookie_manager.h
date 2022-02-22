@@ -21,25 +21,26 @@
 
 namespace net {
 class CookieStore;
-}
+class URLRequestContext;
+}  // namespace net
 
 class GURL;
 
 namespace network {
+class FirstPartySets;
 class SessionCleanupCookieStore;
 
 // Wrap a cookie store in an implementation of the mojo cookie interface.
-
-// This is an IO thread object; all methods on this object must be called on
-// the IO thread.  Note that this does not restrict the locations from which
-// mojo messages may be sent to the object.
 class COMPONENT_EXPORT(NETWORK_SERVICE) CookieManager
     : public mojom::CookieManager {
  public:
   // Construct a CookieService that can serve mojo requests for the underlying
-  // cookie store.  |*cookie_store| must outlive this object.
+  // cookie store.  |url_request_context->cookie_store()| must outlive this
+  // object. `*first_party_sets` must outlive
+  // `url_request_context->cookie_store()`.
   CookieManager(
-      net::CookieStore* cookie_store,
+      net::URLRequestContext* url_request_context,
+      const FirstPartySets* first_party_sets,
       scoped_refptr<SessionCleanupCookieStore> session_cleanup_cookie_store,
       mojom::CookieManagerParamsPtr params);
 
@@ -62,7 +63,7 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) CookieManager
                      const net::CookieOptions& cookie_options,
                      GetCookieListCallback callback) override;
   void SetCanonicalCookie(const net::CanonicalCookie& cookie,
-                          const std::string& source_scheme,
+                          const GURL& source_url,
                           const net::CookieOptions& cookie_options,
                           SetCanonicalCookieCallback callback) override;
   void DeleteCanonicalCookie(const net::CanonicalCookie& cookie,

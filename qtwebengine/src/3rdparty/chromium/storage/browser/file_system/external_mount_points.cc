@@ -10,6 +10,7 @@
 #include "base/files/file_path.h"
 #include "base/lazy_instance.h"
 #include "base/macros.h"
+#include "build/chromeos_buildflags.h"
 #include "storage/browser/file_system/file_system_url.h"
 
 namespace storage {
@@ -35,7 +36,7 @@ base::FilePath NormalizeFilePath(const base::FilePath& path) {
 }
 
 bool IsOverlappingMountPathForbidden(FileSystemType type) {
-  return type != kFileSystemTypeNativeMedia &&
+  return type != kFileSystemTypeLocalMedia &&
          type != kFileSystemTypeDeviceMedia;
 }
 
@@ -114,7 +115,7 @@ bool ExternalMountPoints::RegisterFileSystem(
 bool ExternalMountPoints::HandlesFileSystemMountType(
     FileSystemType type) const {
   return type == kFileSystemTypeExternal ||
-         type == kFileSystemTypeNativeForPlatformApp;
+         type == kFileSystemTypeLocalForPlatformApp;
 }
 
 bool ExternalMountPoints::RevokeFileSystem(const std::string& mount_name) {
@@ -195,8 +196,8 @@ FileSystemURL ExternalMountPoints::CrackURL(const GURL& url) const {
 FileSystemURL ExternalMountPoints::CreateCrackedFileSystemURL(
     const url::Origin& origin,
     FileSystemType type,
-    const base::FilePath& path) const {
-  return CrackFileSystemURL(FileSystemURL(origin, type, path));
+    const base::FilePath& virtual_path) const {
+  return CrackFileSystemURL(FileSystemURL(origin, type, virtual_path));
 }
 
 void ExternalMountPoints::AddMountPointInfosTo(
@@ -263,15 +264,15 @@ FileSystemURL ExternalMountPoints::CrackFileSystemURL(
     return FileSystemURL();
 
   base::FilePath virtual_path = url.path();
-  if (url.type() == kFileSystemTypeNativeForPlatformApp) {
-#if defined(OS_CHROMEOS)
+  if (url.type() == kFileSystemTypeLocalForPlatformApp) {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     // On Chrome OS, find a mount point and virtual path for the external fs.
     if (!GetVirtualPath(url.path(), &virtual_path))
       return FileSystemURL();
 #else
     // On other OS, it is simply a native local path.
     return FileSystemURL(url.origin(), url.mount_type(), url.virtual_path(),
-                         url.mount_filesystem_id(), kFileSystemTypeNativeLocal,
+                         url.mount_filesystem_id(), kFileSystemTypeLocal,
                          url.path(), url.filesystem_id(), url.mount_option());
 #endif
   }

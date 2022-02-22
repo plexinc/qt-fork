@@ -35,6 +35,7 @@
 #include "ui/gl/gl_fence.h"
 #include "ui/gl/gl_image.h"
 #include "ui/gl/gl_surface.h"
+#include "ui/gl/gpu_switching_observer.h"
 
 namespace gl {
 class GLFence;
@@ -139,7 +140,9 @@ struct PassthroughResources {
   std::unordered_map<GLuint, MappedBuffer> mapped_buffer_map;
 };
 
-class GPU_GLES2_EXPORT GLES2DecoderPassthroughImpl : public GLES2Decoder {
+class GPU_GLES2_EXPORT GLES2DecoderPassthroughImpl
+    : public GLES2Decoder,
+      public ui::GpuSwitchingObserver {
  public:
   GLES2DecoderPassthroughImpl(DecoderClient* client,
                               CommandBufferServiceBase* command_buffer_service,
@@ -347,6 +350,9 @@ class GPU_GLES2_EXPORT GLES2DecoderPassthroughImpl : public GLES2Decoder {
   // directly, and needing to know if they failed due to loss.
   bool CheckResetStatus() override;
 
+  // Implement GpuSwitchingObserver.
+  void OnGpuSwitched(gl::GpuPreference active_gpu_heuristic) override;
+
   Logger* GetLogger() override;
 
   void BeginDecoding() override;
@@ -449,6 +455,10 @@ class GPU_GLES2_EXPORT GLES2DecoderPassthroughImpl : public GLES2Decoder {
   void UpdateTextureSizeFromTarget(GLenum target);
   void UpdateTextureSizeFromClientID(GLuint client_id);
 
+  // Some operations like binding a VAO will update the element array buffer
+  // binding without an explicit glBindBuffer.
+  void UpdateCurrentlyBoundElementArrayBuffer();
+
   error::Error BindTexImage2DCHROMIUMImpl(GLenum target,
                                           GLenum internalformat,
                                           GLint image_id);
@@ -465,8 +475,7 @@ class GPU_GLES2_EXPORT GLES2DecoderPassthroughImpl : public GLES2Decoder {
 
   void CheckSwapBuffersAsyncResult(const char* function_name,
                                    uint64_t swap_id,
-                                   gfx::SwapResult result,
-                                   std::unique_ptr<gfx::GpuFence> gpu_fence);
+                                   gfx::SwapCompletionResult result);
   error::Error CheckSwapBuffersResult(gfx::SwapResult result,
                                       const char* function_name);
 

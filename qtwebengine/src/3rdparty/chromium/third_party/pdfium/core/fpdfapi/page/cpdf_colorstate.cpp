@@ -9,14 +9,15 @@
 #include "core/fpdfapi/page/cpdf_colorspace.h"
 #include "core/fpdfapi/page/cpdf_pattern.h"
 #include "core/fpdfapi/page/cpdf_tilingpattern.h"
-#include "core/fxge/fx_dib.h"
+#include "core/fxge/dib/fx_dib.h"
+#include "third_party/base/check.h"
 
-CPDF_ColorState::CPDF_ColorState() {}
+CPDF_ColorState::CPDF_ColorState() = default;
 
 CPDF_ColorState::CPDF_ColorState(const CPDF_ColorState& that)
     : m_Ref(that.m_Ref) {}
 
-CPDF_ColorState::~CPDF_ColorState() {}
+CPDF_ColorState::~CPDF_ColorState() = default;
 
 void CPDF_ColorState::Emplace() {
   m_Ref.Emplace();
@@ -98,8 +99,8 @@ void CPDF_ColorState::SetColor(const RetainPtr<CPDF_ColorSpace>& pCS,
                                const std::vector<float>& values,
                                CPDF_Color* color,
                                FX_COLORREF* colorref) {
-  ASSERT(color);
-  ASSERT(colorref);
+  DCHECK(color);
+  DCHECK(colorref);
 
   if (pCS)
     color->SetColorSpace(pCS);
@@ -121,8 +122,8 @@ void CPDF_ColorState::SetPattern(const RetainPtr<CPDF_Pattern>& pPattern,
                                  const std::vector<float>& values,
                                  CPDF_Color* color,
                                  FX_COLORREF* colorref) {
-  ASSERT(color);
-  ASSERT(colorref);
+  DCHECK(color);
+  DCHECK(colorref);
 
   color->SetValueForPattern(pPattern, values);
   int R;

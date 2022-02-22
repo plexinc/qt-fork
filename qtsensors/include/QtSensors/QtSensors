@@ -3,13 +3,10 @@
 #include <QtSensors/QtSensorsDepends>
 #include "qsensorsglobal.h"
 #include "qaccelerometer.h"
-#include "qaltimeter.h"
 #include "qambientlightsensor.h"
 #include "qambienttemperaturesensor.h"
 #include "qcompass.h"
-#include "qdistancesensor.h"
 #include "qgyroscope.h"
-#include "qholstersensor.h"
 #include "qhumiditysensor.h"
 #include "qirproximitysensor.h"
 #include "qlidsensor.h"

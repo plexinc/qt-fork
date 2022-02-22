@@ -44,7 +44,7 @@
 #include <Qt3DCore/qnode.h>
 #include <Qt3DRender/qrenderpass.h>
 #include <Qt3DRender/qfilterkey.h>
-#include <QtCore/QVector>
+#include <QtCore/QList>
 #include <QtCore/QSharedPointer>
 
 QT_BEGIN_NAMESPACE
@@ -66,15 +66,15 @@ public:
 
     void addFilterKey(QFilterKey *filterKey);
     void removeFilterKey(QFilterKey *filterKey);
-    QVector<QFilterKey*> filterKeys() const;
+    QList<QFilterKey*> filterKeys() const;
 
     void addParameter(QParameter *p);
     void removeParameter(QParameter *p);
-    QVector<QParameter *> parameters() const;
+    QList<QParameter *> parameters() const;
 
     void addRenderPass(QRenderPass *pass);
     void removeRenderPass(QRenderPass *pass);
-    QVector<QRenderPass *> renderPasses() const;
+    QList<QRenderPass *> renderPasses() const;
 
     QGraphicsApiFilter *graphicsApiFilter();
     const QGraphicsApiFilter *graphicsApiFilter() const;
@@ -85,7 +85,6 @@ protected:
 private:
     Q_DECLARE_PRIVATE(QTechnique)
     Q_PRIVATE_SLOT(d_func(), void _q_graphicsApiFilterChanged())
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 }

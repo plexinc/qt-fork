@@ -5,14 +5,14 @@
 #ifndef QUICHE_QUIC_QBONE_BONNET_MOCK_ICMP_REACHABLE_H_
 #define QUICHE_QUIC_QBONE_BONNET_MOCK_ICMP_REACHABLE_H_
 
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/qbone/bonnet/icmp_reachable_interface.h"
+#include "quic/platform/api/quic_test.h"
+#include "quic/qbone/bonnet/icmp_reachable_interface.h"
 
 namespace quic {
 
 class MockIcmpReachable : public IcmpReachableInterface {
  public:
-  MOCK_METHOD0(Init, bool());
+  MOCK_METHOD(bool, Init, (), (override));
 };
 
 }  // namespace quic

@@ -29,21 +29,24 @@
  */
 
 import * as Common from '../common/common.js';
+import * as Root from '../root/root.js';
 import * as SDK from '../sdk/sdk.js';
 import * as UI from '../ui/ui.js';
 
 import {ElementsPanel} from './ElementsPanel.js';
 
 /**
+ * @type {!InspectElementModeController}
+ */
+let inspectElementModeController;
+
+
+/**
  * @implements {SDK.SDKModel.SDKModelObserver<!SDK.OverlayModel.OverlayModel>}
- * @unrestricted
  */
 export class InspectElementModeController {
-  /**
-   * @suppressGlobalPropertiesCheck
-   */
   constructor() {
-    this._toggleSearchAction = self.UI.actionRegistry.action('elements.toggle-element-search');
+    this._toggleSearchAction = UI.ActionRegistry.ActionRegistry.instance().action('elements.toggle-element-search');
     this._mode = Protocol.Overlay.InspectMode.None;
     SDK.SDKModel.TargetManager.instance().addEventListener(
         SDK.SDKModel.Events.SuspendStateChanged, this._suspendStateChanged, this);
@@ -67,6 +70,17 @@ export class InspectElementModeController {
       this._setMode(Protocol.Overlay.InspectMode.None);
       event.consume(true);
     }, true);
+  }
+
+  /**
+   * @param {{forceNew: boolean}} opts
+   */
+  static instance({forceNew} = {forceNew: false}) {
+    if (!inspectElementModeController || forceNew) {
+      inspectElementModeController = new InspectElementModeController();
+    }
+
+    return inspectElementModeController;
   }
 
   /**
@@ -123,7 +137,9 @@ export class InspectElementModeController {
     for (const overlayModel of SDK.SDKModel.TargetManager.instance().models(SDK.OverlayModel.OverlayModel)) {
       overlayModel.setInspectMode(mode, this._showDetailedInspectTooltipSetting.get());
     }
-    this._toggleSearchAction.setToggled(this._isInInspectElementMode());
+    if (this._toggleSearchAction) {
+      this._toggleSearchAction.setToggled(this._isInInspectElementMode());
+    }
   }
 
   _suspendStateChanged() {
@@ -132,13 +148,15 @@ export class InspectElementModeController {
     }
 
     this._mode = Protocol.Overlay.InspectMode.None;
-    this._toggleSearchAction.setToggled(false);
+    if (this._toggleSearchAction) {
+      this._toggleSearchAction.setToggled(false);
+    }
   }
 
   /**
    * @param {!SDK.DOMModel.DOMNode} node
    */
-  async _inspectNode(node) {
+  _inspectNode(node) {
     ElementsPanel.instance().revealAndSelectNode(node, true, true);
   }
 
@@ -147,9 +165,11 @@ export class InspectElementModeController {
   }
 }
 
+/** @type {!ToggleSearchActionDelegate} */
+let toggleSearchActionDelegateInstance;
+
 /**
- * @implements {UI.ActionDelegate.ActionDelegate}
- * @unrestricted
+ * @implements {UI.ActionRegistration.ActionDelegate}
  */
 export class ToggleSearchActionDelegate {
   /**
@@ -159,6 +179,11 @@ export class ToggleSearchActionDelegate {
    * @return {boolean}
    */
   handleAction(context, actionId) {
+    if (Root.Runtime.Runtime.queryParam('isSharedWorker')) {
+      return false;
+    }
+
+    inspectElementModeController = InspectElementModeController.instance();
     if (!inspectElementModeController) {
       return false;
     }
@@ -169,8 +194,17 @@ export class ToggleSearchActionDelegate {
     }
     return true;
   }
-}
 
-/** @type {?InspectElementModeController} */
-export const inspectElementModeController =
-    Root.Runtime.queryParam('isSharedWorker') ? null : new InspectElementModeController();
+  /**
+   * @param {{forceNew: ?boolean}=} opts
+   * @return {!ToggleSearchActionDelegate}
+   */
+  static instance(opts = {forceNew: null}) {
+    const {forceNew} = opts;
+    if (!toggleSearchActionDelegateInstance || forceNew) {
+      toggleSearchActionDelegateInstance = new ToggleSearchActionDelegate();
+    }
+
+    return toggleSearchActionDelegateInstance;
+  }
+}

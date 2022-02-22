@@ -119,8 +119,10 @@
  * Skia consumers can provide their own definitions of these macros to
  * integrate with their histogram collection backend.
  */
-//#define SK_HISTOGRAM_BOOLEAN(name, value)
-//#define SK_HISTOGRAM_ENUMERATION(name, value, boundary_value)
+//#define SK_HISTOGRAM_BOOLEAN(name, sample)
+//#define SK_HISTOGRAM_EXACT_LINEAR(name, sample, value_max)
+//#define SK_HISTOGRAM_MEMORY_KB(name, sample)
+#include "skia/ext/skia_histogram.h"
 
 // ===== Begin Chrome-specific definitions =====
 
@@ -132,7 +134,7 @@
 /*  Define this to provide font subsetter for font subsetting when generating
     PDF documents.
  */
-// #define SK_PDF_USE_HARFBUZZ_SUBSET
+#define SK_PDF_USE_HARFBUZZ_SUBSET
 
 // Chromium does not use these fonts.  This define causes type1 fonts to be
 // converted to type3 when producing PDFs, and reduces build size.
@@ -150,6 +152,13 @@ SK_API void SkDebugf_FileLine(const char* file,
                               int line,
                               const char* format,
                               ...);
+
+#define SK_ABORT(format, ...) SkAbort_FileLine(__FILE__, __LINE__, \
+                                               format,##__VA_ARGS__)
+[[noreturn]] SK_API void SkAbort_FileLine(const char* file,
+                                          int line,
+                                          const char* format,
+                                          ...);
 
 #if !defined(ANDROID)   // On Android, we use the skia default settings.
 #define SK_A32_SHIFT    24
@@ -191,25 +200,39 @@ SK_API void SkDebugf_FileLine(const char* file,
 // Workaround for poor anisotropic mipmap quality,
 // pending Skia ripmap support.
 // (https://bugs.chromium.org/p/skia/issues/detail?id=4863)
-#ifndef    SK_SUPPORT_LEGACY_ANISOTROPIC_MIPMAP_SCALE
-#   define SK_SUPPORT_LEGACY_ANISOTROPIC_MIPMAP_SCALE
-#endif
+#define SK_SUPPORT_LEGACY_ANISOTROPIC_MIPMAP_SCALE
+
+#define SK_SUPPORT_LEGACY_MATRIX_IMAGEFILTER
 
 // For now, Chrome should only attempt to reduce opList splitting when recording
 // DDLs
-#ifndef SK_DISABLE_REDUCE_OPLIST_SPLITTING
 #define SK_DISABLE_REDUCE_OPLIST_SPLITTING
-#endif
 
 // Max. verb count for paths rendered by the edge-AA tessellating path renderer.
 #define GR_AA_TESSELLATOR_MAX_VERB_COUNT 100
 
-#ifndef SK_SUPPORT_LEGACY_AAA_CHOICE
+
+#define SK_SUPPORT_NEAREST_PICTURESHADER_POSTFILTER
+
 #define SK_SUPPORT_LEGACY_AAA_CHOICE
-#endif
+
+#define SK_SUPPORT_LEGACY_SPRITE_IGNORE_HQ
+
+#define GR_OP_ALLOCATE_USE_NEW
+
+#define SK_SUPPORT_LEGACY_IMPLICIT_FILTERQUALITY
 
 // Staging for lowp::bilerp_clamp_8888, and for planned misc. others.
 #define SK_DISABLE_LOWP_BILERP_CLAMP_CLAMP_STAGE
+
+#define SK_SUPPORT_LEGACY_DRAWLOOPER
+
+// TODO(crbug.com/1177833): Remove and rebaseline web_tests and viz_unittests.
+#define SK_USE_LEGACY_AA_QUAD_SUBSET
+
+#define SK_SUPPORT_LEGACY_RUNTIME_EFFECTS
+
+#define SK_SUPPORT_LEGACY_DITHER
 
 ///////////////////////// Imported from BUILD.gn and skia_common.gypi
 

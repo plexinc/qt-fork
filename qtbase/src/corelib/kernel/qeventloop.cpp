@@ -118,8 +118,8 @@ QEventLoop::~QEventLoop()
 
 
 /*!
-    Processes pending events that match \a flags until there are no
-    more events to process. Returns \c true if pending events were handled;
+    Processes some pending events that match \a flags.
+    Returns \c true if pending events were handled;
     otherwise returns \c false.
 
     This function is especially useful if you have a long running
@@ -179,10 +179,10 @@ int QEventLoop::exec(ProcessEventsFlags flags)
 
     struct LoopReference {
         QEventLoopPrivate *d;
-        QMutexLocker &locker;
+        QMutexLocker<QMutex> &locker;
 
         bool exceptionCaught;
-        LoopReference(QEventLoopPrivate *d, QMutexLocker &locker) : d(d), locker(locker), exceptionCaught(true)
+        LoopReference(QEventLoopPrivate *d, QMutexLocker<QMutex> &locker) : d(d), locker(locker), exceptionCaught(true)
         {
             d->inExec = true;
             d->exit.storeRelease(false);
@@ -199,9 +199,7 @@ int QEventLoop::exec(ProcessEventsFlags flags)
             if (exceptionCaught) {
                 qWarning("Qt has caught an exception thrown from an event handler. Throwing\n"
                          "exceptions from an event handler is not supported in Qt.\n"
-                         "You must not let any exception whatsoever propagate through Qt code.\n"
-                         "If that is not possible, in Qt 5 you must at least reimplement\n"
-                         "QCoreApplication::notify() and catch all exceptions there.\n");
+                         "You must not let any exception whatsoever propagate through Qt code.");
             }
             locker.relock();
             auto threadData = d->threadData.loadRelaxed();

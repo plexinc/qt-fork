@@ -5,8 +5,9 @@
 #ifndef QUICHE_QUIC_MASQUE_MASQUE_SERVER_BACKEND_H_
 #define QUICHE_QUIC_MASQUE_MASQUE_SERVER_BACKEND_H_
 
-#include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
-#include "net/third_party/quiche/src/quic/tools/quic_memory_cache_backend.h"
+#include "absl/container/flat_hash_map.h"
+#include "quic/platform/api/quic_export.h"
+#include "quic/tools/quic_memory_cache_backend.h"
 
 namespace quic {
 
@@ -20,7 +21,7 @@ class QUIC_NO_EXPORT MasqueServerBackend : public QuicMemoryCacheBackend {
    public:
     virtual std::unique_ptr<QuicBackendResponse> HandleMasqueRequest(
         const std::string& masque_path,
-        const spdy::SpdyHeaderBlock& request_headers,
+        const spdy::Http2HeaderBlock& request_headers,
         const std::string& request_body,
         QuicSimpleServerBackend::RequestHandler* request_handler) = 0;
     virtual ~BackendClient() = default;
@@ -35,7 +36,7 @@ class QUIC_NO_EXPORT MasqueServerBackend : public QuicMemoryCacheBackend {
 
   // From QuicMemoryCacheBackend.
   void FetchResponseFromBackend(
-      const spdy::SpdyHeaderBlock& request_headers,
+      const spdy::Http2HeaderBlock& request_headers,
       const std::string& request_body,
       QuicSimpleServerBackend::RequestHandler* request_handler) override;
 
@@ -52,14 +53,14 @@ class QUIC_NO_EXPORT MasqueServerBackend : public QuicMemoryCacheBackend {
  private:
   // Handle MASQUE request.
   bool MaybeHandleMasqueRequest(
-      const spdy::SpdyHeaderBlock& request_headers,
+      const spdy::Http2HeaderBlock& request_headers,
       const std::string& request_body,
       QuicSimpleServerBackend::RequestHandler* request_handler);
 
   std::string server_authority_;
-  QuicUnorderedMap<std::string, std::unique_ptr<QuicBackendResponse>>
+  absl::flat_hash_map<std::string, std::unique_ptr<QuicBackendResponse>>
       active_response_map_;
-  QuicUnorderedMap<QuicConnectionId, BackendClient*, QuicConnectionIdHash>
+  absl::flat_hash_map<QuicConnectionId, BackendClient*, QuicConnectionIdHash>
       backend_clients_;
 };
 

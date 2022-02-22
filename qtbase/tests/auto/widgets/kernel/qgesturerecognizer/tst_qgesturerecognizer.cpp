@@ -32,8 +32,8 @@
 #include <QtWidgets/QWidget>
 #include <QtWidgets/QGestureEvent>
 #include <QtGui/QScreen>
-#include <QtGui/QTouchDevice>
-#include <QtCore/QVector>
+#include <QtGui/QPointingDevice>
+#include <QtCore/QList>
 #include <QtCore/QString>
 #include <QtCore/QHash>
 #include <QtCore/QDebug>
@@ -53,11 +53,12 @@ private Q_SLOTS:
     void pinchGesture();
     void swipeGesture_data();
     void swipeGesture();
+    void touchReplay();
 #endif // !QT_NO_GESTURES
 
 private:
     const int m_fingerDistance;
-    QTouchDevice *m_touchDevice;
+    QPointingDevice *m_touchDevice;
 };
 
 tst_QGestureRecognizer::tst_QGestureRecognizer()
@@ -73,7 +74,7 @@ void tst_QGestureRecognizer::initTestCase()
 
 #ifndef QT_NO_GESTURES
 
-typedef QVector<Qt::GestureType> GestureTypeVector;
+typedef QList<Qt::GestureType> GestureTypeVector;
 
 class TestWidget : public QWidget
 {
@@ -126,8 +127,7 @@ bool TestWidget::event(QEvent * event)
     return QWidget::event(event);
 }
 
-static void pressSequence(QTest::QTouchEventSequence &sequence,
-                          QVector<QPoint> &points,
+static void pressSequence(QTest::QTouchEventWidgetSequence &sequence, QList<QPoint> &points,
                           QWidget *widget)
 {
     const int pointCount = points.size();
@@ -136,10 +136,8 @@ static void pressSequence(QTest::QTouchEventSequence &sequence,
     sequence.commit();
 }
 
-static void linearSequence(int n, const QPoint &delta,
-                           QTest::QTouchEventSequence &sequence,
-                           QVector<QPoint> &points,
-                           QWidget *widget)
+static void linearSequence(int n, const QPoint &delta, QTest::QTouchEventWidgetSequence &sequence,
+                           QList<QPoint> &points, QWidget *widget)
 {
     const int pointCount = points.size();
     for (int s = 0; s < n; ++s) {
@@ -151,8 +149,7 @@ static void linearSequence(int n, const QPoint &delta,
     }
 }
 
-static void releaseSequence(QTest::QTouchEventSequence &sequence,
-                            QVector<QPoint> &points,
+static void releaseSequence(QTest::QTouchEventWidgetSequence &sequence, QList<QPoint> &points,
                             QWidget *widget)
 {
     const int pointCount = points.size();
@@ -179,7 +176,7 @@ void tst_QGestureRecognizer::panGesture()
     QFETCH(int, panSubTest);
     QFETCH(bool, gestureExpected);
 
-    Q_UNUSED(panSubTest) // Single finger pan will be added later.
+    Q_UNUSED(panSubTest); // Single finger pan will be added later.
 
     const int panPoints = 2;
     const Qt::GestureType gestureType = Qt::PanGesture;
@@ -188,11 +185,11 @@ void tst_QGestureRecognizer::panGesture()
     widget.show();
     QVERIFY(QTest::qWaitForWindowExposed(&widget));
 
-    QVector<QPoint> points;
+    QList<QPoint> points;
     for (int i = 0; i < panPoints; ++i)
         points.append(QPoint(10 + i *20, 10 + i *20));
 
-    QTest::QTouchEventSequence panSequence = QTest::touchEvent(&widget, m_touchDevice);
+    QTest::QTouchEventWidgetSequence panSequence = QTest::touchEvent(&widget, m_touchDevice);
     pressSequence(panSequence, points, &widget);
     linearSequence(5, QPoint(20, 20), panSequence, points, &widget);
     releaseSequence(panSequence, points, &widget);
@@ -223,7 +220,7 @@ void tst_QGestureRecognizer::pinchGesture()
     QFETCH(int, pinchSubTest);
     QFETCH(bool, gestureExpected);
 
-    Q_UNUSED(pinchSubTest)
+    Q_UNUSED(pinchSubTest);
 
     const Qt::GestureType gestureType = Qt::PinchGesture;
     TestWidget widget(GestureTypeVector(1, gestureType));
@@ -231,11 +228,11 @@ void tst_QGestureRecognizer::pinchGesture()
     widget.show();
     QVERIFY(QTest::qWaitForWindowExposed(&widget));
 
-    QVector<QPoint> points;
+    QList<QPoint> points;
     points.append(widget.rect().center());
     points.append(points.front() + QPoint(0, 20));
 
-    QTest::QTouchEventSequence pinchSequence = QTest::touchEvent(&widget, m_touchDevice);
+    QTest::QTouchEventWidgetSequence pinchSequence = QTest::touchEvent(&widget, m_touchDevice);
     pressSequence(pinchSequence, points, &widget);
 
     for (int s = 0; s < 5; ++s) {
@@ -288,11 +285,11 @@ void tst_QGestureRecognizer::swipeGesture()
 
     // Start a swipe sequence with 2 points (QTBUG-15768)
     const QPoint fingerDistance(m_fingerDistance, m_fingerDistance);
-    QVector<QPoint> points;
+    QList<QPoint> points;
     for (int i = 0; i < swipePoints - 1; ++i)
         points.append(fingerDistance + i * fingerDistance);
 
-    QTest::QTouchEventSequence swipeSequence = QTest::touchEvent(&widget, m_touchDevice);
+    QTest::QTouchEventWidgetSequence swipeSequence = QTest::touchEvent(&widget, m_touchDevice);
     pressSequence(swipeSequence, points, &widget);
 
     // Press point #3
@@ -328,6 +325,25 @@ void tst_QGestureRecognizer::swipeGesture()
         QCoreApplication::processEvents();
         QVERIFY(!widget.gestureReceived(gestureType));
     }
+}
+
+void tst_QGestureRecognizer::touchReplay()
+{
+    const Qt::GestureType gestureType = Qt::TapGesture;
+    QWidget parent;
+    TestWidget widget(GestureTypeVector(1, gestureType));
+    widget.setParent(&parent);
+    widget.setGeometry(0, 0, 100, 100);
+    parent.adjustSize();
+    parent.show();
+    QVERIFY(QTest::qWaitForWindowActive(&parent));
+
+    QWindow* windowHandle = parent.window()->windowHandle();
+    const QPoint globalPos = QPoint(42, 16);
+    QTest::touchEvent(windowHandle, m_touchDevice).press(1, globalPos);
+    QTest::touchEvent(windowHandle, m_touchDevice).release(1, globalPos);
+
+    QVERIFY(widget.gestureReceived(gestureType));
 }
 
 #endif // !QT_NO_GESTURES

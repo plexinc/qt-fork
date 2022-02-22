@@ -24,11 +24,11 @@ struct CONTENT_EXPORT DesktopMediaID {
   typedef intptr_t Id;
 
   // Represents an "unset" value for either |id| or |window_id|.
-  static const Id kNullId;
+  static constexpr Id kNullId = 0;
   // Represents a fake id to create a dummy capturer for autotests.
-  static const Id kFakeId;
+  static constexpr Id kFakeId = -3;
 
-#if defined(USE_AURA) || defined(OS_MACOSX)
+#if defined(USE_AURA) || defined(OS_MAC)
   // Assigns integer identifier to the |window| and returns its DesktopMediaID.
   static DesktopMediaID RegisterNativeWindow(Type type,
                                              gfx::NativeWindow window);
@@ -36,23 +36,24 @@ struct CONTENT_EXPORT DesktopMediaID {
   // Returns the Window that was previously registered using
   // RegisterNativeWindow(), else nullptr.
   static gfx::NativeWindow GetNativeWindowById(const DesktopMediaID& id);
-#endif  // USE_AURA || OS_MACOSX
+#endif  // USE_AURA || OS_MAC
 
-  DesktopMediaID() = default;
+  constexpr DesktopMediaID() = default;
 
-  DesktopMediaID(Type type, Id id) : type(type), id(id) {}
+  constexpr DesktopMediaID(Type type, Id id) : type(type), id(id) {}
 
-  DesktopMediaID(Type type,
+  constexpr DesktopMediaID(Type type,
                            Id id,
                            WebContentsMediaCaptureId web_contents_id)
       : type(type), id(id), web_contents_id(web_contents_id) {}
 
-  DesktopMediaID(Type type, Id id, bool audio_share)
+  constexpr DesktopMediaID(Type type, Id id, bool audio_share)
       : type(type), id(id), audio_share(audio_share) {}
 
   // Operators so that DesktopMediaID can be used with STL containers.
   bool operator<(const DesktopMediaID& other) const;
   bool operator==(const DesktopMediaID& other) const;
+  bool operator!=(const DesktopMediaID& other) const;
 
   bool is_null() const { return type == TYPE_NONE; }
   std::string ToString() const;

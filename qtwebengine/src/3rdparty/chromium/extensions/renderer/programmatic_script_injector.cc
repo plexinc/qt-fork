@@ -15,6 +15,7 @@
 #include "extensions/common/manifest_constants.h"
 #include "extensions/common/permissions/api_permission.h"
 #include "extensions/common/permissions/permissions_data.h"
+#include "extensions/common/script_constants.h"
 #include "extensions/renderer/injection_host.h"
 #include "extensions/renderer/renderer_extension_registry.h"
 #include "extensions/renderer/script_context.h"
@@ -43,8 +44,16 @@ bool ProgrammaticScriptInjector::IsUserGesture() const {
   return params_->user_gesture;
 }
 
-base::Optional<CSSOrigin> ProgrammaticScriptInjector::GetCssOrigin() const {
+CSSOrigin ProgrammaticScriptInjector::GetCssOrigin() const {
   return params_->css_origin;
+}
+
+bool ProgrammaticScriptInjector::IsRemovingCSS() const {
+  return params_->action_type == UserScript::ActionType::REMOVE_CSS;
+}
+
+bool ProgrammaticScriptInjector::IsAddingCSS() const {
+  return params_->action_type == UserScript::ActionType::ADD_CSS;
 }
 
 const base::Optional<std::string>
@@ -59,13 +68,16 @@ bool ProgrammaticScriptInjector::ExpectsResults() const {
 bool ProgrammaticScriptInjector::ShouldInjectJs(
     UserScript::RunLocation run_location,
     const std::set<std::string>& executing_scripts) const {
-  return params_->run_at == run_location && params_->is_javascript;
+  return params_->run_at == run_location &&
+         params_->action_type == UserScript::ActionType::ADD_JAVASCRIPT;
 }
 
-bool ProgrammaticScriptInjector::ShouldInjectCss(
+bool ProgrammaticScriptInjector::ShouldInjectOrRemoveCss(
     UserScript::RunLocation run_location,
     const std::set<std::string>& injected_stylesheets) const {
-  return params_->run_at == run_location && !params_->is_javascript;
+  return params_->run_at == run_location &&
+         (params_->action_type == UserScript::ActionType::ADD_CSS ||
+          params_->action_type == UserScript::ActionType::REMOVE_CSS);
 }
 
 PermissionsData::PageAccess ProgrammaticScriptInjector::CanExecuteOnFrame(
@@ -80,8 +92,12 @@ PermissionsData::PageAccess ProgrammaticScriptInjector::CanExecuteOnFrame(
   if (url_.SchemeIs(url::kAboutScheme)) {
     origin_for_about_error_ = frame->GetSecurityOrigin().ToString().Utf8();
   }
-  GURL effective_document_url = ScriptContext::GetEffectiveDocumentURL(
-      frame, frame->GetDocument().Url(), params_->match_about_blank);
+  GURL effective_document_url =
+      ScriptContext::GetEffectiveDocumentURLForInjection(
+          frame, frame->GetDocument().Url(),
+          params_->match_about_blank
+              ? MatchOriginAsFallbackBehavior::kMatchForAboutSchemeAndClimbTree
+              : MatchOriginAsFallbackBehavior::kNever);
   if (params_->is_web_view) {
     if (frame->Parent()) {
       // This is a subframe inside <webview>, so allow it.
@@ -106,7 +122,7 @@ std::vector<blink::WebScriptSource> ProgrammaticScriptInjector::GetJsSources(
     std::set<std::string>* executing_scripts,
     size_t* num_injected_js_scripts) const {
   DCHECK_EQ(params_->run_at, run_location);
-  DCHECK(params_->is_javascript);
+  DCHECK_EQ(params_->action_type, UserScript::ActionType::ADD_JAVASCRIPT);
 
   return std::vector<blink::WebScriptSource>(
       1, blink::WebScriptSource(blink::WebString::FromUTF8(params_->code),
@@ -118,7 +134,8 @@ std::vector<blink::WebString> ProgrammaticScriptInjector::GetCssSources(
     std::set<std::string>* injected_stylesheets,
     size_t* num_injected_stylesheets) const {
   DCHECK_EQ(params_->run_at, run_location);
-  DCHECK(!params_->is_javascript);
+  DCHECK(params_->action_type == UserScript::ActionType::ADD_CSS ||
+         params_->action_type == UserScript::ActionType::REMOVE_CSS);
 
   return std::vector<blink::WebString>(
       1, blink::WebString::FromUTF8(params_->code));
@@ -128,9 +145,10 @@ void ProgrammaticScriptInjector::OnInjectionComplete(
     std::unique_ptr<base::Value> execution_result,
     UserScript::RunLocation run_location,
     content::RenderFrame* render_frame) {
-  DCHECK(results_.empty());
-  if (execution_result)
-    results_.Append(std::move(execution_result));
+  DCHECK(!result_.has_value());
+  if (execution_result) {
+    result_ = base::Value::FromUniquePtrValue(std::move(execution_result));
+  }
   Finish(std::string(), render_frame);
 }
 
@@ -178,10 +196,9 @@ void ProgrammaticScriptInjector::Finish(const std::string& error,
   // injecting scripts. Don't respond if it was (the browser side watches for
   // frame deletions so nothing is left hanging).
   if (render_frame) {
-    render_frame->Send(
-        new ExtensionHostMsg_ExecuteCodeFinished(
-            render_frame->GetRoutingID(), params_->request_id,
-            error, url_, results_));
+    render_frame->Send(new ExtensionHostMsg_ExecuteCodeFinished(
+        render_frame->GetRoutingID(), params_->request_id, error, url_,
+        result_));
   }
 }
 

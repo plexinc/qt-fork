@@ -2,14 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/http2/hpack/decoder/hpack_entry_collector.h"
+#include "http2/hpack/decoder/hpack_entry_collector.h"
 
-#include "testing/gtest/include/gtest/gtest.h"
-#include "net/third_party/quiche/src/http2/hpack/decoder/hpack_string_collector.h"
-#include "net/third_party/quiche/src/http2/hpack/http2_hpack_constants.h"
-#include "net/third_party/quiche/src/http2/platform/api/http2_logging.h"
-#include "net/third_party/quiche/src/http2/platform/api/http2_string_utils.h"
-#include "net/third_party/quiche/src/http2/platform/api/http2_test_helpers.h"
+#include "http2/hpack/decoder/hpack_string_collector.h"
+#include "http2/hpack/http2_hpack_constants.h"
+#include "http2/platform/api/http2_logging.h"
+#include "http2/platform/api/http2_string_utils.h"
+#include "http2/platform/api/http2_test_helpers.h"
+#include "common/platform/api/quiche_test.h"
 
 using ::testing::AssertionResult;
 
@@ -166,7 +166,7 @@ AssertionResult HpackEntryCollector::ValidateLiteralValueHeader(
     HpackEntryType expected_type,
     size_t expected_index,
     bool expected_value_huffman,
-    quiche::QuicheStringPiece expected_value) const {
+    absl::string_view expected_value) const {
   VERIFY_TRUE(started_);
   VERIFY_TRUE(ended_);
   VERIFY_EQ(expected_type, header_type_);
@@ -179,9 +179,9 @@ AssertionResult HpackEntryCollector::ValidateLiteralValueHeader(
 AssertionResult HpackEntryCollector::ValidateLiteralNameValueHeader(
     HpackEntryType expected_type,
     bool expected_name_huffman,
-    quiche::QuicheStringPiece expected_name,
+    absl::string_view expected_name,
     bool expected_value_huffman,
-    quiche::QuicheStringPiece expected_value) const {
+    absl::string_view expected_value) const {
   VERIFY_TRUE(started_);
   VERIFY_TRUE(ended_);
   VERIFY_EQ(expected_type, header_type_);
@@ -216,11 +216,11 @@ void HpackEntryCollector::AppendToHpackBlockBuilder(
     case HpackEntryType::kNeverIndexedLiteralHeader:
       ASSERT_TRUE(value_.HasEnded()) << *this;
       if (index_ != 0) {
-        CHECK(name_.IsClear());
+        QUICHE_CHECK(name_.IsClear());
         hbb->AppendNameIndexAndLiteralValue(header_type_, index_,
                                             value_.huffman_encoded, value_.s);
       } else {
-        CHECK(name_.HasEnded()) << *this;
+        QUICHE_CHECK(name_.HasEnded()) << *this;
         hbb->AppendLiteralNameAndValue(header_type_, name_.huffman_encoded,
                                        name_.s, value_.huffman_encoded,
                                        value_.s);

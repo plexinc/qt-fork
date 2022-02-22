@@ -57,10 +57,6 @@ public:
         TransactionError,
         UnknownError
     };
-#if QT_DEPRECATED_SINCE(5, 3)
-    QT_DEPRECATED QSqlError(const QString &driverText, const QString &databaseText,
-                            ErrorType type, int number);
-#endif
     QSqlError(const QString &driverText = QString(),
               const QString &databaseText = QString(),
               ErrorType type = NoError,
@@ -79,35 +75,15 @@ public:
     QString driverText() const;
     QString databaseText() const;
     ErrorType type() const;
-#if QT_DEPRECATED_SINCE(5, 3)
-    QT_DEPRECATED int number() const;
-#endif
     QString nativeErrorCode() const;
     QString text() const;
     bool isValid() const;
 
-#if QT_DEPRECATED_SINCE(5, 1)
-    QT_DEPRECATED void setDriverText(const QString &driverText);
-    QT_DEPRECATED void setDatabaseText(const QString &databaseText);
-    QT_DEPRECATED void setType(ErrorType type);
-    QT_DEPRECATED void setNumber(int number);
-#endif
-
 private:
-    // ### Qt6: Keep the pointer and remove the rest.
-    QString unused1;
-    QString unused2;
-    struct Unused {
-        ErrorType unused3;
-        int unused4;
-    };
-    union {
-        QSqlErrorPrivate *d;
-        Unused unused5;
-    };
+    QSqlErrorPrivate *d = nullptr;
 };
 
-Q_DECLARE_SHARED_NOT_MOVABLE_UNTIL_QT6(QSqlError)
+Q_DECLARE_SHARED(QSqlError)
 
 #ifndef QT_NO_DEBUG_STREAM
 Q_SQL_EXPORT QDebug operator<<(QDebug, const QSqlError &);

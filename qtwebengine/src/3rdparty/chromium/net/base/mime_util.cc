@@ -9,12 +9,13 @@
 #include <unordered_set>
 
 #include "base/base64.h"
+#include "base/check_op.h"
 #include "base/containers/span.h"
 #include "base/lazy_instance.h"
-#include "base/logging.h"
 #include "base/rand_util.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -160,6 +161,7 @@ static const MimeInfo kPrimaryMappings[] = {
     {"audio/wav", "wav"},
     {"audio/webm", "webm"},
     {"audio/x-m4a", "m4a"},
+    {"image/avif", "avif"},
     {"image/gif", "gif"},
     {"image/jpeg", "jpeg,jpg"},
     {"image/png", "png"},
@@ -193,6 +195,9 @@ static const MimeInfo kSecondaryMappings[] = {
     {"application/rss+xml", "rss"},
     {"application/vnd.android.package-archive", "apk"},
     {"application/vnd.mozilla.xul+xml", "xul"},
+    {"application/vnd.ms-excel", "xls"},
+    {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+     "xlsx"},
     {"application/x-gzip", "gz,tgz"},
     {"application/x-mpegurl", "m3u8"},
     {"application/x-shockwave-flash", "swf,swl"},
@@ -244,9 +249,9 @@ static const char* FindMimeType(const MimeInfo (&mappings)[num_mappings],
 static base::FilePath::StringType StringToFilePathStringType(
     const base::StringPiece& string_piece) {
 #if defined(OS_WIN)
-  return base::UTF8ToUTF16(string_piece);
+  return base::UTF8ToWide(string_piece);
 #else
-  return string_piece.as_string();
+  return std::string(string_piece);
 #endif
 }
 
@@ -530,31 +535,30 @@ namespace {
 
 // From http://www.w3schools.com/media/media_mimeref.asp and
 // http://plugindoc.mozdev.org/winmime.php
-static const char* const kStandardImageTypes[] = {
-  "image/bmp",
-  "image/cis-cod",
-  "image/gif",
-  "image/ief",
-  "image/jpeg",
-  "image/webp",
-  "image/pict",
-  "image/pipeg",
-  "image/png",
-  "image/svg+xml",
-  "image/tiff",
-  "image/vnd.microsoft.icon",
-  "image/x-cmu-raster",
-  "image/x-cmx",
-  "image/x-icon",
-  "image/x-portable-anymap",
-  "image/x-portable-bitmap",
-  "image/x-portable-graymap",
-  "image/x-portable-pixmap",
-  "image/x-rgb",
-  "image/x-xbitmap",
-  "image/x-xpixmap",
-  "image/x-xwindowdump"
-};
+static const char* const kStandardImageTypes[] = {"image/avif",
+                                                  "image/bmp",
+                                                  "image/cis-cod",
+                                                  "image/gif",
+                                                  "image/ief",
+                                                  "image/jpeg",
+                                                  "image/webp",
+                                                  "image/pict",
+                                                  "image/pipeg",
+                                                  "image/png",
+                                                  "image/svg+xml",
+                                                  "image/tiff",
+                                                  "image/vnd.microsoft.icon",
+                                                  "image/x-cmu-raster",
+                                                  "image/x-cmx",
+                                                  "image/x-icon",
+                                                  "image/x-portable-anymap",
+                                                  "image/x-portable-bitmap",
+                                                  "image/x-portable-graymap",
+                                                  "image/x-portable-pixmap",
+                                                  "image/x-rgb",
+                                                  "image/x-xbitmap",
+                                                  "image/x-xpixmap",
+                                                  "image/x-xwindowdump"};
 static const char* const kStandardAudioTypes[] = {
   "audio/aac",
   "audio/aiff",
@@ -596,9 +600,9 @@ struct StandardType {
   const char* const leading_mime_type;
   base::span<const char* const> standard_types;
 };
-static const StandardType kStandardTypes[] = {{"image/", base::span<const char* const>(kStandardImageTypes)},
-                                              {"audio/", base::span<const char* const>(kStandardAudioTypes)},
-                                              {"video/", base::span<const char* const>(kStandardVideoTypes)},
+static const StandardType kStandardTypes[] = {{"image/", kStandardImageTypes},
+                                              {"audio/", kStandardAudioTypes},
+                                              {"video/", kStandardVideoTypes},
                                               {nullptr, {}}};
 
 // GetExtensionsFromHardCodedMappings() adds file extensions (without a leading

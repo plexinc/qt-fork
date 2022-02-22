@@ -4,7 +4,7 @@
 
 #include "base/threading/thread_collision_warner.h"
 
-#include "base/logging.h"
+#include "base/notreached.h"
 #include "base/threading/platform_thread.h"
 
 namespace base {
@@ -13,7 +13,7 @@ void DCheckAsserter::warn() {
   NOTREACHED() << "Thread Collision";
 }
 
-static subtle::Atomic32 GetCurrentThread() {
+static subtle::Atomic32 CurrentThread() {
   const PlatformThreadId current_thread_id = PlatformThread::CurrentId();
   // We need to get the thread id into an atomic data type. This might be a
   // truncating conversion, but any loss-of-information just increases the
@@ -28,7 +28,7 @@ void ThreadCollisionWarner::EnterSelf() {
   // If the active thread is 0 then I'll write the current thread ID
   // if two or more threads arrive here only one will succeed to
   // write on valid_thread_id_ the current thread ID.
-  subtle::Atomic32 current_thread_id = GetCurrentThread();
+  subtle::Atomic32 current_thread_id = CurrentThread();
 
   int previous_value = subtle::NoBarrier_CompareAndSwap(&valid_thread_id_,
                                                         0,
@@ -43,7 +43,7 @@ void ThreadCollisionWarner::EnterSelf() {
 }
 
 void ThreadCollisionWarner::Enter() {
-  subtle::Atomic32 current_thread_id = GetCurrentThread();
+  subtle::Atomic32 current_thread_id = CurrentThread();
 
   if (subtle::NoBarrier_CompareAndSwap(&valid_thread_id_,
                                        0,

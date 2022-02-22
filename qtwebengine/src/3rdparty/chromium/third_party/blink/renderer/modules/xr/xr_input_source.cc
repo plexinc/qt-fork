@@ -8,11 +8,13 @@
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/dom/events/event_dispatcher.h"
 #include "third_party/blink/renderer/core/dom/events/event_path.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/html/html_frame_element_base.h"
 #include "third_party/blink/renderer/core/input/event_handling_util.h"
 #include "third_party/blink/renderer/core/layout/hit_test_location.h"
 #include "third_party/blink/renderer/modules/xr/xr_grip_space.h"
+#include "third_party/blink/renderer/modules/xr/xr_hand.h"
 #include "third_party/blink/renderer/modules/xr/xr_input_source_event.h"
 #include "third_party/blink/renderer/modules/xr/xr_session.h"
 #include "third_party/blink/renderer/modules/xr/xr_session_event.h"
@@ -104,6 +106,13 @@ XRInputSource* XRInputSource::CreateOrUpdateFrom(
         TryGetTransformationMatrix(state->mojo_from_input);
   }
 
+  if (updated_source->state_.is_visible) {
+    if (state->hand_tracking_data.get()) {
+      updated_source->hand_ = MakeGarbageCollected<XRHand>(
+          state->hand_tracking_data.get(), updated_source);
+    }
+  }
+
   updated_source->state_.emulated_position = state->emulated_position;
 
   return updated_source;
@@ -128,6 +137,7 @@ XRInputSource::XRInputSource(const XRInputSource& other)
           MakeGarbageCollected<XRTargetRaySpace>(other.session_, this)),
       grip_space_(MakeGarbageCollected<XRGripSpace>(other.session_, this)),
       gamepad_(other.gamepad_),
+      hand_(other.hand_),
       mojo_from_input_(
           TryGetTransformationMatrix(other.mojo_from_input_.get())),
       input_from_pointer_(
@@ -229,7 +239,22 @@ void XRInputSource::UpdateGamepad(
   }
 }
 
-base::Optional<XRNativeOriginInformation> XRInputSource::nativeOrigin() const {
+base::Optional<TransformationMatrix> XRInputSource::MojoFromInput() const {
+  if (!mojo_from_input_.get()) {
+    return base::nullopt;
+  }
+  return *(mojo_from_input_.get());
+}
+
+base::Optional<TransformationMatrix> XRInputSource::InputFromPointer() const {
+  if (!input_from_pointer_.get()) {
+    return base::nullopt;
+  }
+  return *(input_from_pointer_.get());
+}
+
+base::Optional<device::mojom::blink::XRNativeOriginInformation>
+XRInputSource::nativeOrigin() const {
   return XRNativeOriginInformation::Create(this);
 }
 
@@ -262,8 +287,7 @@ void XRInputSource::OnSelectEnd() {
 
   state_.primary_input_pressed = false;
 
-  LocalFrame* frame = session_->xr()->GetFrame();
-  if (!frame)
+  if (!session_->xr()->DomWindow())
     return;
 
   DVLOG(3) << __func__ << ": dispatch selectend event";
@@ -287,14 +311,16 @@ void XRInputSource::OnSelect() {
     OnSelectStart();
   }
 
-  LocalFrame* frame = session_->xr()->GetFrame();
-  LocalFrame::NotifyUserActivation(frame);
-
   // If SelectStart caused the session to end, we shouldn't try to fire the
   // select event.
+  LocalDOMWindow* window = session_->xr()->DomWindow();
+  if (!window)
+    return;
+  LocalFrame::NotifyUserActivation(
+      window->GetFrame(),
+      mojom::blink::UserActivationNotificationType::kInteraction);
+
   if (!state_.selection_cancelled && !session_->ended()) {
-    if (!frame)
-      return;
     DVLOG(3) << __func__ << ": dispatch select event";
     XRInputSourceEvent* event =
         CreateInputSourceEvent(event_type_names::kSelect);
@@ -335,8 +361,7 @@ void XRInputSource::OnSqueezeEnd() {
 
   state_.primary_squeeze_pressed = false;
 
-  LocalFrame* frame = session_->xr()->GetFrame();
-  if (!frame)
+  if (!session_->xr()->DomWindow())
     return;
 
   DVLOG(3) << __func__ << ": dispatch squeezeend event";
@@ -360,14 +385,18 @@ void XRInputSource::OnSqueeze() {
     OnSqueezeStart();
   }
 
-  LocalFrame* frame = session_->xr()->GetFrame();
-  LocalFrame::NotifyUserActivation(frame);
+  // If SelectStart caused the session to end, we shouldn't try to fire the
+  // select event.
+  LocalDOMWindow* window = session_->xr()->DomWindow();
+  if (!window)
+    return;
+  LocalFrame::NotifyUserActivation(
+      window->GetFrame(),
+      mojom::blink::UserActivationNotificationType::kInteraction);
 
   // If SelectStart caused the session to end, we shouldn't try to fire the
   // select event.
   if (!state_.squeezing_cancelled && !session_->ended()) {
-    if (!frame)
-      return;
     DVLOG(3) << __func__ << ": dispatch squeeze event";
     XRInputSourceEvent* event =
         CreateInputSourceEvent(event_type_names::kSqueeze);
@@ -589,11 +618,12 @@ XRInputSourceEvent* XRInputSource::CreateInputSourceEvent(
   return XRInputSourceEvent::Create(type, presentation_frame, this);
 }
 
-void XRInputSource::Trace(Visitor* visitor) {
+void XRInputSource::Trace(Visitor* visitor) const {
   visitor->Trace(session_);
   visitor->Trace(target_ray_space_);
   visitor->Trace(grip_space_);
   visitor->Trace(gamepad_);
+  visitor->Trace(hand_);
   ScriptWrappable::Trace(visitor);
 }
 

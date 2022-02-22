@@ -61,9 +61,9 @@
 #include <QtWidgets/qstyleditemdelegate.h>
 #include <QtGui/qevent.h>
 
-#include <QtCore/qsortfilterproxymodel.h>
-#include <QtCore/qvector.h>
 #include <QtCore/qdebug.h>
+#include <QtCore/qlist.h>
+#include <QtCore/qsortfilterproxymodel.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -90,7 +90,7 @@ namespace {
         // A widget managed by the form window cursor
         ManagedWidgetSelection };
 
-    using QObjectVector = QVector<QObject *>;
+    using QObjectVector = QList<QObject *>;
 }
 
 static inline SelectionType selectionType(const QDesignerFormWindowInterface *fw, QObject *o)
@@ -255,6 +255,8 @@ ObjectInspector::ObjectInspectorPrivate::ObjectInspectorPrivate(QDesignerFormEdi
     m_filterModel->setSourceModel(m_model);
     m_filterModel->setFilterCaseSensitivity(Qt::CaseInsensitive);
     m_treeView->setModel(m_filterModel);
+    m_treeView->setSortingEnabled(true);
+    m_treeView->sortByColumn(0, Qt::AscendingOrder);
     m_treeView->setItemDelegate(new ObjectInspectorDelegate);
     m_treeView->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
     m_treeView->header()->setSectionResizeMode(1, QHeaderView::Stretch);
@@ -357,7 +359,7 @@ void ObjectInspector::ObjectInspectorPrivate::handleDragEnterMoveEvent(const QWi
 
     QWidget *dropTarget = nullptr;
     QPoint fakeDropTargetOffset = QPoint(0, 0);
-    if (QWidget *managedWidget = managedWidgetAt(objectInspectorWidget->mapToGlobal(event->pos()))) {
+    if (QWidget *managedWidget = managedWidgetAt(objectInspectorWidget->mapToGlobal(event->position().toPoint()))) {
         fakeDropTargetOffset = dropPointOffset(m_formWindow, managedWidget);
         // pretend we drag over the managed widget on the form
         const QPoint fakeFormPos = m_formWindow->mapFromGlobal(managedWidget->mapToGlobal(fakeDropTargetOffset));

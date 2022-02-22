@@ -27,12 +27,13 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.1
-import QtQuick.Layouts 1.0
-import QtDataVisualization 1.1
+import QtQuick
+import QtQuick.Layouts
+import QtQuick.Controls
+import QtDataVisualization 1.2
 import "."
 
-Rectangle {
+Item {
     id: mainView
     width: 800
     height: 600
@@ -56,6 +57,7 @@ Rectangle {
             Layout.fillWidth: true
             border.color: surfaceGraph.theme.gridLineColor
             border.width: 2
+            color: "#00000000"
 
             Surface3D {
                 id: surfaceGraph
@@ -106,7 +108,7 @@ Rectangle {
                 anchors.bottom: parent.bottom
                 columns: 2
 
-                NewButton {
+                Button {
                     Layout.minimumWidth: parent.width / 2
                     Layout.fillHeight: true
                     Layout.fillWidth: true
@@ -114,22 +116,22 @@ Rectangle {
                     onClicked: clearSelections() // call a helper function to keep button itself simpler
                 }
 
-                NewButton {
+                Button {
                     Layout.minimumWidth: parent.width / 2
                     Layout.fillHeight: true
                     Layout.fillWidth: true
                     text: "Quit"
-                    onClicked: Qt.quit(0);
+                    onClicked: Qt.quit();
                 }
 
-                NewButton {
+                Button {
                     Layout.fillHeight: true
                     Layout.fillWidth: true
                     text: "Reset Cameras"
                     onClicked: resetCameras() // call a helper function to keep button itself simpler
                 }
 
-                NewButton {
+                Button {
                     id: mmbButton
                     Layout.fillHeight: true
                     Layout.fillWidth: true
@@ -144,6 +146,7 @@ Rectangle {
             Layout.fillWidth: true
             border.color: scatterGraph.theme.gridLineColor
             border.width: 2
+            color: "#00000000"
 
             Scatter3D {
                 id: scatterGraph
@@ -184,6 +187,7 @@ Rectangle {
             Layout.fillWidth: true
             border.color: barGraph.theme.gridLineColor
             border.width: 2
+            color: "#00000000"
 
             Bars3D {
                 id: barGraph

@@ -34,10 +34,13 @@ namespace dawn_native {
 
         wgpu::BackendType GetBackendType() const;
         wgpu::AdapterType GetAdapterType() const;
+        const std::string& GetDriverDescription() const;
         const PCIInfo& GetPCIInfo() const;
         InstanceBase* GetInstance() const;
 
         DeviceBase* CreateDevice(const DeviceDescriptor* descriptor = nullptr);
+
+        void ResetInternalDeviceForTesting();
 
         ExtensionsSet GetSupportedExtensions() const;
         bool SupportsAllRequestedExtensions(
@@ -47,6 +50,7 @@ namespace dawn_native {
       protected:
         PCIInfo mPCIInfo = {};
         wgpu::AdapterType mAdapterType = wgpu::AdapterType::Unknown;
+        std::string mDriverDescription;
         ExtensionsSet mSupportedExtensions;
 
       private:
@@ -54,6 +58,7 @@ namespace dawn_native {
 
         MaybeError CreateDeviceInternal(DeviceBase** result, const DeviceDescriptor* descriptor);
 
+        virtual MaybeError ResetInternalDeviceForTestingImpl();
         InstanceBase* mInstance = nullptr;
         wgpu::BackendType mBackend;
     };

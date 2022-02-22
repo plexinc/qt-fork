@@ -103,7 +103,7 @@ QWindowsOleDataObject::GetData(LPFORMATETC pformatetc, LPSTGMEDIUM pmedium)
 
     if (data) {
         const QWindowsMimeConverter &mc = QWindowsContext::instance()->mimeConverter();
-        if (QWindowsMime *converter = mc.converterFromMime(*pformatetc, data))
+        if (auto converter = mc.converterFromMime(*pformatetc, data))
             if (converter->convertFromMime(*pformatetc, data, pmedium))
                 hr = ResultFromScode(S_OK);
     }
@@ -178,7 +178,7 @@ QWindowsOleDataObject::EnumFormatEtc(DWORD dwDirection, LPENUMFORMATETC FAR* ppe
 
     SCODE sc = S_OK;
 
-    QVector<FORMATETC> fmtetcs;
+    QList<FORMATETC> fmtetcs;
     if (dwDirection == DATADIR_GET) {
         QWindowsMimeConverter &mc = QWindowsContext::instance()->mimeConverter();
         fmtetcs = mc.allFormatsForMime(data);
@@ -229,7 +229,7 @@ QWindowsOleDataObject::EnumDAdvise(LPENUMSTATDATA FAR*)
     \internal
 */
 
-QWindowsOleEnumFmtEtc::QWindowsOleEnumFmtEtc(const QVector<FORMATETC> &fmtetcs)
+QWindowsOleEnumFmtEtc::QWindowsOleEnumFmtEtc(const QList<FORMATETC> &fmtetcs)
 {
     if (QWindowsContext::verbose > 1)
         qCDebug(lcQpaMime) << __FUNCTION__ << fmtetcs;
@@ -246,7 +246,7 @@ QWindowsOleEnumFmtEtc::QWindowsOleEnumFmtEtc(const QVector<FORMATETC> &fmtetcs)
     }
 }
 
-QWindowsOleEnumFmtEtc::QWindowsOleEnumFmtEtc(const QVector<LPFORMATETC> &lpfmtetcs)
+QWindowsOleEnumFmtEtc::QWindowsOleEnumFmtEtc(const QList<LPFORMATETC> &lpfmtetcs)
 {
     if (QWindowsContext::verbose > 1)
         qCDebug(lcQpaMime) << __FUNCTION__;

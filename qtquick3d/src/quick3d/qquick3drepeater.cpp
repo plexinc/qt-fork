@@ -184,7 +184,7 @@ void QQuick3DRepeater::setModel(const QVariant &m)
 
 /*!
     \qmlproperty Component QtQuick3D::Repeater3D::delegate
-    \default
+    \qmldefault
 
     The delegate provides a template defining each object instantiated by the repeater.
 
@@ -217,6 +217,8 @@ void QQuick3DRepeater::setDelegate(QQmlComponent *delegate)
     if (!m_ownModel) {
         m_model = new QQmlDelegateModel(qmlContext(this));
         m_ownModel = true;
+        if (isComponentComplete())
+            static_cast<QQmlDelegateModel *>(m_model.data())->componentComplete();
     }
 
     if (QQmlDelegateModel *dataModel = qobject_cast<QQmlDelegateModel*>(m_model)) {
@@ -229,6 +231,7 @@ void QQuick3DRepeater::setDelegate(QQmlComponent *delegate)
 
 /*!
     \qmlproperty int QtQuick3D::Repeater3D::count
+    \readonly
 
     This property holds the number of items in the model.
 
@@ -300,7 +303,7 @@ void QQuick3DRepeater::componentComplete()
 {
     if (m_model && m_ownModel)
         static_cast<QQmlDelegateModel *>(m_model.data())->componentComplete();
-    QQuick3DObject::componentComplete();
+    QQuick3DNode::componentComplete();
     regenerate();
     if (m_model && m_model->count())
         emit countChanged();

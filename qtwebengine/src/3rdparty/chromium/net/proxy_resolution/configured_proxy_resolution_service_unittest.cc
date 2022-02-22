@@ -5,19 +5,23 @@
 #include "net/proxy_resolution/configured_proxy_resolution_service.h"
 
 #include <cstdarg>
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
+#include "base/check.h"
 #include "base/format_macros.h"
-#include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
+#include "net/base/mock_network_change_notifier.h"
 #include "net/base/net_errors.h"
+#include "net/base/network_change_notifier.h"
 #include "net/base/network_isolation_key.h"
 #include "net/base/proxy_delegate.h"
 #include "net/base/proxy_server.h"
@@ -119,8 +123,13 @@ class ImmediateAfterActivityPollPolicy
 //
 // The tests which verify the polling code re-enable the polling behavior but
 // are careful to avoid timing problems.
-class ConfiguredProxyResolutionServiceTest : public TestWithTaskEnvironment {
+class ConfiguredProxyResolutionServiceTest : public ::testing::Test,
+                                             public WithTaskEnvironment {
  protected:
+  ConfiguredProxyResolutionServiceTest()
+      : WithTaskEnvironment(
+            base::test::TaskEnvironment::TimeSource::MOCK_TIME) {}
+
   void SetUp() override {
     testing::Test::SetUp();
     previous_policy_ =
@@ -346,42 +355,6 @@ JobMap GetCancelledJobsForURLs(const MockAsyncProxyResolver& resolver,
   return GetJobsForURLs(map, urls);
 }
 
-// Helper class to verify the bucket counts for PacUrlScheme histogram.
-class PacUrlSchemeHistogramTester {
- public:
-  void VerifyHistogram() const {
-    const char kPacUrlSchemeHistogram[] =
-        "Net.ProxyResolutionService.PacUrlScheme";
-
-    int total = GetTotal();
-
-    histograms_.ExpectTotalCount(kPacUrlSchemeHistogram, total);
-
-    if (total > 0) {
-      histograms_.ExpectBucketCount(kPacUrlSchemeHistogram, 0, num_other);
-      histograms_.ExpectBucketCount(kPacUrlSchemeHistogram, 1, num_http);
-      histograms_.ExpectBucketCount(kPacUrlSchemeHistogram, 2, num_https);
-      histograms_.ExpectBucketCount(kPacUrlSchemeHistogram, 3, num_ftp);
-      histograms_.ExpectBucketCount(kPacUrlSchemeHistogram, 4, num_file);
-      histograms_.ExpectBucketCount(kPacUrlSchemeHistogram, 5, num_data);
-    }
-  }
-
-  int num_http = 0;
-  int num_https = 0;
-  int num_ftp = 0;
-  int num_data = 0;
-  int num_file = 0;
-  int num_other = 0;
-
- private:
-  int GetTotal() const {
-    return num_http + num_https + num_ftp + num_data + num_file + num_other;
-  }
-
-  base::HistogramTester histograms_;
-};
-
 }  // namespace
 
 TEST_F(ConfiguredProxyResolutionServiceTest, Direct) {
@@ -389,7 +362,7 @@ TEST_F(ConfiguredProxyResolutionServiceTest, Direct) {
       new MockAsyncProxyResolverFactory(false);
   ConfiguredProxyResolutionService service(
       std::make_unique<MockProxyConfigService>(ProxyConfig::CreateDirect()),
-      base::WrapUnique(factory), nullptr);
+      base::WrapUnique(factory), nullptr, /*quick_check_enabled=*/true);
 
   GURL url("http://www.google.com/");
 
@@ -427,7 +400,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, OnResolveProxyCallbackAddProxy) {
   config.proxy_rules().bypass_rules.ParseFromString("*.org");
 
   ConfiguredProxyResolutionService service(
-      std::make_unique<MockProxyConfigService>(config), nullptr, nullptr);
+      std::make_unique<MockProxyConfigService>(config), nullptr, nullptr,
+      /*quick_check_enabled=*/true);
 
   GURL url("http://www.google.com/");
   GURL bypass_url("http://internet.org");
@@ -494,7 +468,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   config.proxy_rules().bypass_rules.ParseFromString("*.org");
 
   ConfiguredProxyResolutionService service(
-      std::make_unique<MockProxyConfigService>(config), nullptr, nullptr);
+      std::make_unique<MockProxyConfigService>(config), nullptr, nullptr,
+      /*quick_check_enabled=*/true);
 
   GURL url("http://www.google.com/");
   GURL bypass_url("http://internet.org");
@@ -576,7 +551,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, CallbackDeletesRequest) {
 
   std::unique_ptr<ConfiguredProxyResolutionService> service =
       std::make_unique<ConfiguredProxyResolutionService>(
-          base::WrapUnique(config_service), base::WrapUnique(factory), nullptr);
+          base::WrapUnique(config_service), base::WrapUnique(factory), nullptr,
+          /*quick_check_enabled=*/true);
 
   GURL url("http://www.google.com/");
   GURL url2("http://www.example.com/");
@@ -642,7 +618,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
 
   std::unique_ptr<ConfiguredProxyResolutionService> service =
       std::make_unique<ConfiguredProxyResolutionService>(
-          base::WrapUnique(config_service), base::WrapUnique(factory), nullptr);
+          base::WrapUnique(config_service), base::WrapUnique(factory), nullptr,
+          /*quick_check_enabled=*/true);
 
   GURL url("http://www.google.com/");
 
@@ -692,7 +669,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, CallbackDeletesSelf) {
 
   std::unique_ptr<ConfiguredProxyResolutionService> service =
       std::make_unique<ConfiguredProxyResolutionService>(
-          base::WrapUnique(config_service), base::WrapUnique(factory), nullptr);
+          base::WrapUnique(config_service), base::WrapUnique(factory), nullptr,
+          /*quick_check_enabled=*/true);
 
   GURL url("http://www.google.com/");
   ProxyInfo info;
@@ -760,7 +738,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
 
   std::unique_ptr<ConfiguredProxyResolutionService> service =
       std::make_unique<ConfiguredProxyResolutionService>(
-          base::WrapUnique(config_service), base::WrapUnique(factory), nullptr);
+          base::WrapUnique(config_service), base::WrapUnique(factory), nullptr,
+          /*quick_check_enabled=*/true);
 
   GURL url("http://www.google.com/");
   ProxyInfo info;
@@ -813,8 +792,9 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ProxyServiceDeletedBeforeRequest) {
 
   int rv;
   {
-    ConfiguredProxyResolutionService service(
-        base::WrapUnique(config_service), base::WrapUnique(factory), nullptr);
+    ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
+                                             base::WrapUnique(factory), nullptr,
+                                             /*quick_check_enabled=*/true);
     rv = service.ResolveProxy(url, std::string(), NetworkIsolationKey(), &info,
                               callback.callback(), &request, log.bound());
     EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
@@ -845,7 +825,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, CallbackDeletesService) {
 
   std::unique_ptr<ConfiguredProxyResolutionService> service =
       std::make_unique<ConfiguredProxyResolutionService>(
-          base::WrapUnique(config_service), base::WrapUnique(factory), nullptr);
+          base::WrapUnique(config_service), base::WrapUnique(factory), nullptr,
+          /*quick_check_enabled=*/true);
 
   GURL url("http://www.google.com/");
 
@@ -892,7 +873,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PAC) {
       new MockAsyncProxyResolverFactory(false);
 
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   GURL url("http://www.google.com/");
 
@@ -923,7 +905,6 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PAC) {
   EXPECT_THAT(callback.WaitForResult(), IsOk());
   EXPECT_FALSE(info.is_direct());
   EXPECT_EQ("foopy:80", info.proxy_server().ToURI());
-  EXPECT_TRUE(info.did_use_pac_script());
 
   EXPECT_FALSE(info.proxy_resolve_start_time().is_null());
   EXPECT_FALSE(info.proxy_resolve_end_time().is_null());
@@ -956,7 +937,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PAC_NoIdentityOrHash) {
       new MockAsyncProxyResolverFactory(false);
 
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   GURL url("http://username:password@www.google.com/?ref#hash#hash");
 
@@ -989,7 +971,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PAC_FailoverWithoutDirect) {
       new MockAsyncProxyResolverFactory(false);
 
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   GURL url("http://www.google.com/");
 
@@ -1015,7 +998,6 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PAC_FailoverWithoutDirect) {
   EXPECT_THAT(callback1.WaitForResult(), IsOk());
   EXPECT_FALSE(info.is_direct());
   EXPECT_EQ("foopy:8080", info.proxy_server().ToURI());
-  EXPECT_TRUE(info.did_use_pac_script());
 
   EXPECT_FALSE(info.proxy_resolve_start_time().is_null());
   EXPECT_FALSE(info.proxy_resolve_end_time().is_null());
@@ -1038,7 +1020,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PAC_RuntimeError) {
       new MockAsyncProxyResolverFactory(false);
 
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   GURL url("http://this-causes-js-error/");
 
@@ -1065,7 +1048,6 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PAC_RuntimeError) {
   // Since the PAC script was non-mandatory, we should have fallen-back to
   // DIRECT.
   EXPECT_TRUE(info.is_direct());
-  EXPECT_TRUE(info.did_use_pac_script());
 
   EXPECT_FALSE(info.proxy_resolve_start_time().is_null());
   EXPECT_FALSE(info.proxy_resolve_end_time().is_null());
@@ -1097,7 +1079,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PAC_FailoverAfterDirect) {
       new MockAsyncProxyResolverFactory(false);
 
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   GURL url("http://www.google.com/");
 
@@ -1154,7 +1137,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PAC_ConfigSourcePropagates) {
   MockAsyncProxyResolverFactory* factory =
       new MockAsyncProxyResolverFactory(false);
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   // Resolve something.
   GURL url("http://www.google.com/");
@@ -1175,7 +1159,6 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PAC_ConfigSourcePropagates) {
   EXPECT_THAT(callback.WaitForResult(), IsOk());
   EXPECT_EQ(MutableNetworkTrafficAnnotationTag(TRAFFIC_ANNOTATION_FOR_TESTS),
             info.traffic_annotation());
-  EXPECT_TRUE(info.did_use_pac_script());
 
   EXPECT_FALSE(info.proxy_resolve_start_time().is_null());
   EXPECT_FALSE(info.proxy_resolve_end_time().is_null());
@@ -1195,7 +1178,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ProxyResolverFails) {
       new MockAsyncProxyResolverFactory(false);
 
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   // Start first resolve request.
   GURL url("http://www.google.com/");
@@ -1260,7 +1244,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
       new MockAsyncProxyResolverFactory(false);
 
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   // Start first resolve request.
   GURL url("http://www.google.com/");
@@ -1332,7 +1317,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
       new MockAsyncProxyResolverFactory(false);
 
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   // Start two resolve requests.
   GURL url1("http://www.google.com/");
@@ -1406,7 +1392,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
       new MockAsyncProxyResolverFactory(false);
 
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   // Start first resolve request.
   GURL url("http://www.google.com/");
@@ -1456,7 +1443,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
       new MockAsyncProxyResolverFactory(true);
 
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   MockPacFileFetcher* fetcher = new MockPacFileFetcher;
   service.SetPacFileFetchers(base::WrapUnique(fetcher),
@@ -1508,7 +1496,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
       new MockAsyncProxyResolverFactory(false);
 
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   // Start first resolve request.
   GURL url("http://www.google.com/");
@@ -1569,7 +1558,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ProxyFallback) {
       new MockAsyncProxyResolverFactory(false);
 
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   GURL url("http://www.google.com/");
 
@@ -1707,7 +1697,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ProxyFallbackToDirect) {
       new MockAsyncProxyResolverFactory(false);
 
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   GURL url("http://www.google.com/");
 
@@ -1770,7 +1761,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ProxyFallback_BadConfig) {
       new MockAsyncProxyResolverFactory(false);
 
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   GURL url("http://www.google.com/");
 
@@ -1876,7 +1868,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ProxyFallback_BadConfigMandatory) {
       new MockAsyncProxyResolverFactory(false);
 
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   GURL url("http://www.google.com/");
 
@@ -1974,7 +1967,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ProxyBypassList) {
   config.proxy_rules().bypass_rules.ParseFromString("*.org");
 
   ConfiguredProxyResolutionService service(
-      std::make_unique<MockProxyConfigService>(config), nullptr, nullptr);
+      std::make_unique<MockProxyConfigService>(config), nullptr, nullptr,
+      /*quick_check_enabled=*/true);
 
   int rv;
   GURL url1("http://www.webkit.org");
@@ -2017,7 +2011,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, MarkProxiesAsBadTests) {
   EXPECT_EQ(3u, additional_bad_proxies.size());
 
   ConfiguredProxyResolutionService service(
-      std::make_unique<MockProxyConfigService>(config), nullptr, nullptr);
+      std::make_unique<MockProxyConfigService>(config), nullptr, nullptr,
+      /*quick_check_enabled=*/true);
   ProxyInfo proxy_info;
   proxy_info.UseProxyList(proxy_list);
   const ProxyRetryInfoMap& retry_info = service.proxy_retry_info();
@@ -2038,7 +2033,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PerProtocolProxyTests) {
   std::unique_ptr<ProxyResolutionRequest> request;
   {
     ConfiguredProxyResolutionService service(
-        std::make_unique<MockProxyConfigService>(config), nullptr, nullptr);
+        std::make_unique<MockProxyConfigService>(config), nullptr, nullptr,
+        /*quick_check_enabled=*/true);
     GURL test_url("http://www.msn.com");
     ProxyInfo info;
     TestCompletionCallback callback;
@@ -2051,7 +2047,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PerProtocolProxyTests) {
   }
   {
     ConfiguredProxyResolutionService service(
-        std::make_unique<MockProxyConfigService>(config), nullptr, nullptr);
+        std::make_unique<MockProxyConfigService>(config), nullptr, nullptr,
+        /*quick_check_enabled=*/true);
     GURL test_url("ftp://ftp.google.com");
     ProxyInfo info;
     TestCompletionCallback callback;
@@ -2064,7 +2061,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PerProtocolProxyTests) {
   }
   {
     ConfiguredProxyResolutionService service(
-        std::make_unique<MockProxyConfigService>(config), nullptr, nullptr);
+        std::make_unique<MockProxyConfigService>(config), nullptr, nullptr,
+        /*quick_check_enabled=*/true);
     GURL test_url("https://webbranch.techcu.com");
     ProxyInfo info;
     TestCompletionCallback callback;
@@ -2078,7 +2076,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PerProtocolProxyTests) {
   {
     config.proxy_rules().ParseFromString("foopy1:8080");
     ConfiguredProxyResolutionService service(
-        std::make_unique<MockProxyConfigService>(config), nullptr, nullptr);
+        std::make_unique<MockProxyConfigService>(config), nullptr, nullptr,
+        /*quick_check_enabled=*/true);
     GURL test_url("http://www.microsoft.com");
     ProxyInfo info;
     TestCompletionCallback callback;
@@ -2101,7 +2100,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
     ProxyConfig config;
     config.proxy_rules().ParseFromString("https=foopy2:8080");
     ConfiguredProxyResolutionService service(
-        std::make_unique<MockProxyConfigService>(config), nullptr, nullptr);
+        std::make_unique<MockProxyConfigService>(config), nullptr, nullptr,
+        /*quick_check_enabled=*/true);
     GURL test_url("http://www.google.com");
     ProxyInfo info;
     TestCompletionCallback callback;
@@ -2117,7 +2117,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
     ProxyConfig config;
     config.proxy_rules().ParseFromString("https=foopy2:8080");
     ConfiguredProxyResolutionService service(
-        std::make_unique<MockProxyConfigService>(config), nullptr, nullptr);
+        std::make_unique<MockProxyConfigService>(config), nullptr, nullptr,
+        /*quick_check_enabled=*/true);
     GURL test_url("https://www.google.com");
     ProxyInfo info;
     TestCompletionCallback callback;
@@ -2132,7 +2133,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   {
     ProxyConfig config;
     ConfiguredProxyResolutionService service(
-        std::make_unique<MockProxyConfigService>(config), nullptr, nullptr);
+        std::make_unique<MockProxyConfigService>(config), nullptr, nullptr,
+        /*quick_check_enabled=*/true);
     GURL test_url("http://www.google.com");
     ProxyInfo info;
     TestCompletionCallback callback;
@@ -2158,7 +2160,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, DefaultProxyFallbackToSOCKS) {
   std::unique_ptr<ProxyResolutionRequest> request;
   {
     ConfiguredProxyResolutionService service(
-        std::make_unique<MockProxyConfigService>(config), nullptr, nullptr);
+        std::make_unique<MockProxyConfigService>(config), nullptr, nullptr,
+        /*quick_check_enabled=*/true);
     GURL test_url("http://www.msn.com");
     ProxyInfo info;
     TestCompletionCallback callback;
@@ -2171,7 +2174,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, DefaultProxyFallbackToSOCKS) {
   }
   {
     ConfiguredProxyResolutionService service(
-        std::make_unique<MockProxyConfigService>(config), nullptr, nullptr);
+        std::make_unique<MockProxyConfigService>(config), nullptr, nullptr,
+        /*quick_check_enabled=*/true);
     GURL test_url("ftp://ftp.google.com");
     ProxyInfo info;
     TestCompletionCallback callback;
@@ -2184,7 +2188,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, DefaultProxyFallbackToSOCKS) {
   }
   {
     ConfiguredProxyResolutionService service(
-        std::make_unique<MockProxyConfigService>(config), nullptr, nullptr);
+        std::make_unique<MockProxyConfigService>(config), nullptr, nullptr,
+        /*quick_check_enabled=*/true);
     GURL test_url("https://webbranch.techcu.com");
     ProxyInfo info;
     TestCompletionCallback callback;
@@ -2197,7 +2202,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, DefaultProxyFallbackToSOCKS) {
   }
   {
     ConfiguredProxyResolutionService service(
-        std::make_unique<MockProxyConfigService>(config), nullptr, nullptr);
+        std::make_unique<MockProxyConfigService>(config), nullptr, nullptr,
+        /*quick_check_enabled=*/true);
     GURL test_url("unknown://www.microsoft.com");
     ProxyInfo info;
     TestCompletionCallback callback;
@@ -2223,7 +2229,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, CancelInProgressRequest) {
       new MockAsyncProxyResolverFactory(false);
 
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   // Start 3 requests.
 
@@ -2297,7 +2304,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, InitialPACScriptDownload) {
       new MockAsyncProxyResolverFactory(true);
 
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   MockPacFileFetcher* fetcher = new MockPacFileFetcher;
   service.SetPacFileFetchers(base::WrapUnique(fetcher),
@@ -2404,7 +2412,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
       new MockAsyncProxyResolverFactory(true);
 
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   MockPacFileFetcher* fetcher = new MockPacFileFetcher;
   service.SetPacFileFetchers(base::WrapUnique(fetcher),
@@ -2467,7 +2476,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, CancelWhilePACFetching) {
       new MockAsyncProxyResolverFactory(true);
 
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   MockPacFileFetcher* fetcher = new MockPacFileFetcher;
   service.SetPacFileFetchers(base::WrapUnique(fetcher),
@@ -2568,7 +2578,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   MockAsyncProxyResolverFactory* factory =
       new MockAsyncProxyResolverFactory(true);
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   MockPacFileFetcher* fetcher = new MockPacFileFetcher;
   service.SetPacFileFetchers(base::WrapUnique(fetcher),
@@ -2654,7 +2665,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   MockAsyncProxyResolverFactory* factory =
       new MockAsyncProxyResolverFactory(true);
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   MockPacFileFetcher* fetcher = new MockPacFileFetcher;
   service.SetPacFileFetchers(base::WrapUnique(fetcher),
@@ -2733,7 +2745,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   MockAsyncProxyResolverFactory* factory =
       new MockAsyncProxyResolverFactory(true);
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   MockPacFileFetcher* fetcher = new MockPacFileFetcher;
   service.SetPacFileFetchers(base::WrapUnique(fetcher),
@@ -2796,7 +2809,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, BypassDoesntApplyToPac) {
   MockAsyncProxyResolverFactory* factory =
       new MockAsyncProxyResolverFactory(true);
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   MockPacFileFetcher* fetcher = new MockPacFileFetcher;
   service.SetPacFileFetchers(base::WrapUnique(fetcher),
@@ -2868,7 +2882,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
   MockAsyncProxyResolverFactory* factory =
       new MockAsyncProxyResolverFactory(true);
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   MockPacFileFetcher* fetcher = new MockPacFileFetcher;
   service.SetPacFileFetchers(base::WrapUnique(fetcher),
@@ -2906,7 +2921,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
       new MockAsyncProxyResolverFactory(false);
 
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   GURL url("http://www.google.com/");
 
@@ -2932,7 +2948,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, UpdateConfigFromPACToDirect) {
   MockAsyncProxyResolverFactory* factory =
       new MockAsyncProxyResolverFactory(false);
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   // Start 1 request.
 
@@ -2988,7 +3005,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, NetworkChangeTriggersPacRefetch) {
   RecordingTestNetLog log;
 
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), &log);
+                                           base::WrapUnique(factory), &log,
+                                           /*quick_check_enabled=*/true);
 
   MockPacFileFetcher* fetcher = new MockPacFileFetcher;
   service.SetPacFileFetchers(base::WrapUnique(fetcher),
@@ -3111,7 +3129,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PACScriptRefetchAfterFailure) {
       new MockAsyncProxyResolverFactory(true);
 
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   MockPacFileFetcher* fetcher = new MockPacFileFetcher;
   service.SetPacFileFetchers(base::WrapUnique(fetcher),
@@ -3221,7 +3240,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
       new MockAsyncProxyResolverFactory(true);
 
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   MockPacFileFetcher* fetcher = new MockPacFileFetcher;
   service.SetPacFileFetchers(base::WrapUnique(fetcher),
@@ -3337,7 +3357,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
       new MockAsyncProxyResolverFactory(true);
 
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   MockPacFileFetcher* fetcher = new MockPacFileFetcher;
   service.SetPacFileFetchers(base::WrapUnique(fetcher),
@@ -3449,7 +3470,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PACScriptRefetchAfterSuccess) {
       new MockAsyncProxyResolverFactory(true);
 
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   MockPacFileFetcher* fetcher = new MockPacFileFetcher;
   service.SetPacFileFetchers(base::WrapUnique(fetcher),
@@ -3623,7 +3645,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PACScriptRefetchAfterActivity) {
       new MockAsyncProxyResolverFactory(true);
 
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   MockPacFileFetcher* fetcher = new MockPacFileFetcher;
   service.SetPacFileFetchers(base::WrapUnique(fetcher),
@@ -3719,6 +3742,175 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PACScriptRefetchAfterActivity) {
   EXPECT_TRUE(info3.is_direct());
 }
 
+TEST_F(ConfiguredProxyResolutionServiceTest, IpAddressChangeResetsProxy) {
+  NeverPollPolicy poll_policy;
+  ConfiguredProxyResolutionService::set_pac_script_poll_policy(&poll_policy);
+
+  MockAsyncProxyResolver resolver;
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(
+      /*resolvers_expect_pac_bytes=*/true);
+  MockAsyncProxyResolverFactory* factory_ptr = factory.get();
+  ConfiguredProxyResolutionService service(
+      std::make_unique<MockProxyConfigService>(ProxyConfig::CreateAutoDetect()),
+      std::move(factory),
+      /*net_log=*/nullptr, /*quick_check_enabled=*/true);
+  auto fetcher = std::make_unique<MockPacFileFetcher>();
+  MockPacFileFetcher* fetcher_ptr = fetcher.get();
+  service.SetPacFileFetchers(std::move(fetcher),
+                             std::make_unique<DoNothingDhcpPacFileFetcher>());
+
+  const base::TimeDelta kConfigDelay = base::TimeDelta::FromSeconds(5);
+  service.set_stall_proxy_auto_config_delay(kConfigDelay);
+
+  // Initialize by making and completing a proxy request.
+  ProxyInfo info1;
+  TestCompletionCallback callback1;
+  std::unique_ptr<ProxyResolutionRequest> request1;
+  int rv = service.ResolveProxy(
+      GURL("http://request1"), std::string(), NetworkIsolationKey(), &info1,
+      callback1.callback(), &request1, NetLogWithSource());
+  ASSERT_THAT(rv, IsError(ERR_IO_PENDING));
+  ASSERT_TRUE(fetcher_ptr->has_pending_request());
+  fetcher_ptr->NotifyFetchCompletion(OK, kValidPacScript1);
+  ASSERT_THAT(factory_ptr->pending_requests(), testing::SizeIs(1));
+  EXPECT_EQ(ASCIIToUTF16(kValidPacScript1),
+            factory_ptr->pending_requests()[0]->script_data()->utf16());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+  ASSERT_THAT(resolver.pending_jobs(), testing::SizeIs(1));
+  resolver.pending_jobs()[0]->CompleteNow(OK);
+  ASSERT_THAT(callback1.WaitForResult(), IsOk());
+  EXPECT_FALSE(fetcher_ptr->has_pending_request());
+
+  // Expect IP address notification to trigger a fetch after wait period.
+  NetworkChangeNotifier::NotifyObserversOfIPAddressChangeForTests();
+  FastForwardBy(kConfigDelay - base::TimeDelta::FromMilliseconds(2));
+  EXPECT_FALSE(fetcher_ptr->has_pending_request());
+  FastForwardBy(base::TimeDelta::FromMilliseconds(2));
+  EXPECT_TRUE(fetcher_ptr->has_pending_request());
+
+  // Leave pending fetch hanging.
+
+  // Expect proxy requests are blocked on completion of change-triggered fetch.
+  ProxyInfo info2;
+  TestCompletionCallback callback2;
+  std::unique_ptr<ProxyResolutionRequest> request2;
+  rv = service.ResolveProxy(GURL("http://request1"), std::string(),
+                            NetworkIsolationKey(), &info2, callback2.callback(),
+                            &request2, NetLogWithSource());
+  EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
+  EXPECT_THAT(resolver.pending_jobs(), testing::IsEmpty());
+
+  // Finish pending fetch and expect proxy request to be able to complete.
+  fetcher_ptr->NotifyFetchCompletion(OK, kValidPacScript2);
+  ASSERT_THAT(factory_ptr->pending_requests(), testing::SizeIs(1));
+  EXPECT_EQ(ASCIIToUTF16(kValidPacScript2),
+            factory_ptr->pending_requests()[0]->script_data()->utf16());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+  ASSERT_THAT(resolver.pending_jobs(), testing::SizeIs(1));
+  resolver.pending_jobs()[0]->CompleteNow(OK);
+  EXPECT_THAT(callback2.WaitForResult(), IsOk());
+  EXPECT_FALSE(fetcher_ptr->has_pending_request());
+}
+
+TEST_F(ConfiguredProxyResolutionServiceTest, DnsChangeTriggersPoll) {
+  ImmediateAfterActivityPollPolicy poll_policy;
+  ConfiguredProxyResolutionService::set_pac_script_poll_policy(&poll_policy);
+
+  MockAsyncProxyResolver resolver;
+  auto factory = std::make_unique<MockAsyncProxyResolverFactory>(
+      /*resolvers_expect_pac_bytes=*/true);
+  MockAsyncProxyResolverFactory* factory_ptr = factory.get();
+  ConfiguredProxyResolutionService service(
+      std::make_unique<MockProxyConfigService>(ProxyConfig::CreateAutoDetect()),
+      std::move(factory),
+      /*net_log=*/nullptr, /*quick_check_enabled=*/true);
+  auto fetcher = std::make_unique<MockPacFileFetcher>();
+  MockPacFileFetcher* fetcher_ptr = fetcher.get();
+  service.SetPacFileFetchers(std::move(fetcher),
+                             std::make_unique<DoNothingDhcpPacFileFetcher>());
+
+  // Initialize config and poller by making and completing a proxy request.
+  ProxyInfo info1;
+  TestCompletionCallback callback1;
+  std::unique_ptr<ProxyResolutionRequest> request1;
+  int rv = service.ResolveProxy(
+      GURL("http://request1"), std::string(), NetworkIsolationKey(), &info1,
+      callback1.callback(), &request1, NetLogWithSource());
+  ASSERT_THAT(rv, IsError(ERR_IO_PENDING));
+  ASSERT_TRUE(fetcher_ptr->has_pending_request());
+  fetcher_ptr->NotifyFetchCompletion(OK, kValidPacScript1);
+  ASSERT_THAT(factory_ptr->pending_requests(), testing::SizeIs(1));
+  EXPECT_EQ(ASCIIToUTF16(kValidPacScript1),
+            factory_ptr->pending_requests()[0]->script_data()->utf16());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+  ASSERT_THAT(resolver.pending_jobs(), testing::SizeIs(1));
+  resolver.pending_jobs()[0]->CompleteNow(OK);
+  ASSERT_THAT(callback1.WaitForResult(), IsOk());
+  EXPECT_FALSE(fetcher_ptr->has_pending_request());
+
+  // Expect DNS notification to trigger a fetch.
+  NetworkChangeNotifier::NotifyObserversOfDNSChangeForTests();
+  fetcher_ptr->WaitUntilFetch();
+  EXPECT_TRUE(fetcher_ptr->has_pending_request());
+
+  // Leave pending fetch hanging.
+
+  // Expect proxy requests are not blocked on completion of DNS-triggered fetch.
+  ProxyInfo info2;
+  TestCompletionCallback callback2;
+  std::unique_ptr<ProxyResolutionRequest> request2;
+  rv = service.ResolveProxy(GURL("http://request2"), std::string(),
+                            NetworkIsolationKey(), &info2, callback2.callback(),
+                            &request2, NetLogWithSource());
+  EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
+  ASSERT_THAT(resolver.pending_jobs(), testing::SizeIs(1));
+  resolver.pending_jobs()[0]->CompleteNow(OK);
+  EXPECT_THAT(callback2.WaitForResult(), IsOk());
+
+  // Complete DNS-triggered fetch.
+  fetcher_ptr->NotifyFetchCompletion(OK, kValidPacScript2);
+  RunUntilIdle();
+
+  // Expect further proxy requests to use the new fetch result.
+  ProxyInfo info3;
+  TestCompletionCallback callback3;
+  std::unique_ptr<ProxyResolutionRequest> request3;
+  rv = service.ResolveProxy(GURL("http://request3"), std::string(),
+                            NetworkIsolationKey(), &info3, callback3.callback(),
+                            &request3, NetLogWithSource());
+  ASSERT_THAT(rv, IsError(ERR_IO_PENDING));
+  ASSERT_THAT(factory_ptr->pending_requests(), testing::SizeIs(1));
+  EXPECT_EQ(ASCIIToUTF16(kValidPacScript2),
+            factory_ptr->pending_requests()[0]->script_data()->utf16());
+  factory_ptr->pending_requests()[0]->CompleteNowWithForwarder(OK, &resolver);
+  ASSERT_THAT(resolver.pending_jobs(), testing::SizeIs(1));
+  resolver.pending_jobs()[0]->CompleteNow(OK);
+  ASSERT_THAT(callback3.WaitForResult(), IsOk());
+  EXPECT_FALSE(fetcher_ptr->has_pending_request());
+}
+
+TEST_F(ConfiguredProxyResolutionServiceTest, DnsChangeNoopWithoutResolver) {
+  ImmediateAfterActivityPollPolicy poll_policy;
+  ConfiguredProxyResolutionService::set_pac_script_poll_policy(&poll_policy);
+
+  MockAsyncProxyResolver resolver;
+  ConfiguredProxyResolutionService service(
+      std::make_unique<MockProxyConfigService>(ProxyConfig::CreateAutoDetect()),
+      std::make_unique<MockAsyncProxyResolverFactory>(
+          /*resolvers_expect_pac_bytes=*/true),
+      /*net_log=*/nullptr, /*quick_check_enabled=*/true);
+  auto fetcher = std::make_unique<MockPacFileFetcher>();
+  MockPacFileFetcher* fetcher_ptr = fetcher.get();
+  service.SetPacFileFetchers(std::move(fetcher),
+                             std::make_unique<DoNothingDhcpPacFileFetcher>());
+
+  // Expect DNS notification to do nothing because no proxy requests have yet
+  // been made.
+  NetworkChangeNotifier::NotifyObserversOfDNSChangeForTests();
+  RunUntilIdle();
+  EXPECT_FALSE(fetcher_ptr->has_pending_request());
+}
+
 // Helper class to exercise URL sanitization by submitting URLs to the
 // ConfiguredProxyResolutionService and returning the URL passed to the
 // ProxyResolver.
@@ -3731,7 +3923,8 @@ class SanitizeUrlHelper {
     factory = new MockAsyncProxyResolverFactory(false);
 
     service_.reset(new ConfiguredProxyResolutionService(
-        std::move(config_service), base::WrapUnique(factory), nullptr));
+        std::move(config_service), base::WrapUnique(factory), nullptr,
+        /*quick_check_enabled=*/true));
 
     // Do an initial request to initialize the service (configure the PAC
     // script).
@@ -3894,7 +4087,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, OnShutdownWithLiveRequest) {
       new MockAsyncProxyResolverFactory(true);
 
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   MockPacFileFetcher* fetcher = new MockPacFileFetcher;
   service.SetPacFileFetchers(base::WrapUnique(fetcher),
@@ -3927,7 +4121,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, OnShutdownFollowedByRequest) {
       new MockAsyncProxyResolverFactory(true);
 
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   MockPacFileFetcher* fetcher = new MockPacFileFetcher;
   service.SetPacFileFetchers(base::WrapUnique(fetcher),
@@ -3946,66 +4141,10 @@ TEST_F(ConfiguredProxyResolutionServiceTest, OnShutdownFollowedByRequest) {
   EXPECT_TRUE(info.is_direct());
 }
 
-// Tests that the URL scheme for PAC files gets output to the histogram.
-TEST_F(ConfiguredProxyResolutionServiceTest, PacUrlSchemeHistogram) {
-  PacUrlSchemeHistogramTester pac_histogram;
-
-  MockProxyConfigService* config_service =
-      new MockProxyConfigService(ProxyConfig::CreateDirect());
-
-  ConfiguredProxyResolutionService service(
-      base::WrapUnique(config_service),
-      std::make_unique<MockAsyncProxyResolverFactory>(false), nullptr);
-
-  pac_histogram.VerifyHistogram();
-
-  // Set an http:// PAC.
-  config_service->SetPacUrlConfig("http://example.test/");
-  pac_histogram.num_http++;
-  pac_histogram.VerifyHistogram();
-
-  // Set an https:// PAC.
-  config_service->SetPacUrlConfig("hTTps://example.test/wpad.dat");
-  pac_histogram.num_https++;
-  pac_histogram.VerifyHistogram();
-
-  // Set an ftp:// PAC.
-  config_service->SetPacUrlConfig("ftp://example.test/pac.js");
-  pac_histogram.num_ftp++;
-  pac_histogram.VerifyHistogram();
-
-  // Set an file:// PAC.
-  config_service->SetPacUrlConfig("file://example.test/boo");
-  pac_histogram.num_file++;
-  pac_histogram.VerifyHistogram();
-
-  // Set an mailto: PAC.
-  config_service->SetPacUrlConfig("mailto:foo@example.test");
-  pac_histogram.num_other++;
-  pac_histogram.VerifyHistogram();
-
-  // Set an data: PAC.
-  config_service->SetPacUrlConfig("data:,Hello%2C%20World!");
-  pac_histogram.num_data++;
-  pac_histogram.VerifyHistogram();
-
-  // Set an filesystem: PAC.
-  config_service->SetPacUrlConfig("filesystem:http://example.test/pac.js");
-  pac_histogram.num_other++;
-  pac_histogram.VerifyHistogram();
-
-  // Set another https:// as PAC.
-  config_service->SetPacUrlConfig("https://example2.test/wpad.dat");
-  pac_histogram.num_https++;
-  pac_histogram.VerifyHistogram();
-}
-
 const char* kImplicityBypassedHosts[] = {
     "localhost",
     "localhost.",
     "foo.localhost",
-    "localhost6",
-    "localhost6.localdomain6",
     "127.0.0.1",
     "127.100.0.2",
     "[::1]",
@@ -4066,7 +4205,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ImplicitlyBypassWithPac) {
   MockAsyncProxyResolverFactory* factory =
       new MockAsyncProxyResolverFactory(true);
   ConfiguredProxyResolutionService service(base::WrapUnique(config_service),
-                                           base::WrapUnique(factory), nullptr);
+                                           base::WrapUnique(factory), nullptr,
+                                           /*quick_check_enabled=*/true);
 
   MockPacFileFetcher* fetcher = new MockPacFileFetcher;
   service.SetPacFileFetchers(base::WrapUnique(fetcher),
@@ -4128,7 +4268,8 @@ TEST_F(ConfiguredProxyResolutionServiceTest,
 
   ConfiguredProxyResolutionService service(
       base::WrapUnique(config_service),
-      std::make_unique<MockAsyncProxyResolverFactory>(false), nullptr);
+      std::make_unique<MockAsyncProxyResolverFactory>(false), nullptr,
+      /*quick_check_enabled=*/true);
 
   ConfiguredProxyResolutionService* casted_service = nullptr;
   EXPECT_TRUE(service.CastToConfiguredProxyResolutionService(&casted_service));

@@ -59,15 +59,13 @@ int main(int argc, char *argv[])
 {
     Q_INIT_RESOURCE(classwizard);
 
-    QCoreApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
-
     QApplication app(argc, argv);
 
 #ifndef QT_NO_TRANSLATION
     QString translatorFileName = QLatin1String("qtbase_");
     translatorFileName += QLocale::system().name();
     QTranslator *translator = new QTranslator(&app);
-    if (translator->load(translatorFileName, QLibraryInfo::location(QLibraryInfo::TranslationsPath)))
+    if (translator->load(translatorFileName, QLibraryInfo::path(QLibraryInfo::TranslationsPath)))
         app.installTranslator(translator);
 #endif
 

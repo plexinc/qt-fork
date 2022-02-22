@@ -51,7 +51,6 @@
 #include <QtWidgets>
 
 #include "mainwindow.h"
-#include "xmlwriter.h"
 
 MainWindow::MainWindow()
 {
@@ -146,21 +145,3 @@ void MainWindow::insertCalendar()
 //! [3]
 }
 
-bool MainWindow::writeXml(const QString &fileName)
-{
-    XmlWriter documentWriter(editor->document());
-
-    QDomDocument *domDocument = documentWriter.toXml();
-    QFile file(fileName);
-
-    if (file.open(QFile::WriteOnly)) {
-        QTextStream textStream(&file);
-        textStream.setCodec(QTextCodec::codecForName("UTF-8"));
-
-        textStream << domDocument->toString(1).toUtf8();
-        file.close();
-        return true;
-    }
-    else
-        return false;
-}

@@ -17,8 +17,8 @@
 #include "aom_dsp/aom_dsp_common.h"
 #include "aom_mem/aom_mem.h"
 #include "aom_ports/mem.h"
+#include "av1/common/av1_common_int.h"
 #include "av1/common/av1_loopfilter.h"
-#include "av1/common/onyxc_int.h"
 #include "av1/common/reconinter.h"
 #include "av1/common/seg_common.h"
 
@@ -964,7 +964,7 @@ void av1_filter_block_plane_bitmask_vert(
     const int shift = get_index_shift(col, row, &index);
     int index_next = 0;
     const int shift_next = get_index_shift(col, row_next, &index_next);
-    const int has_next_row = row_next < cm->mi_rows;
+    const int has_next_row = row_next < cm->mi_params.mi_rows;
     switch (pl) {
       case 0:
         mask_16x16 = lfm->left_y[TX_16X16].bits[index];
@@ -1260,11 +1260,9 @@ void av1_store_bitmask_vartx(AV1_COMMON *cm, int mi_row, int mi_col,
   const TX_SIZE tx_size_y_vert = txsize_vert_map[tx_size];
   const TX_SIZE tx_size_y_horz = txsize_horz_map[tx_size];
   const TX_SIZE tx_size_uv_vert = txsize_vert_map[av1_get_max_uv_txsize(
-      mbmi->sb_type, cm->seq_params.subsampling_x,
-      cm->seq_params.subsampling_y)];
+      mbmi->bsize, cm->seq_params.subsampling_x, cm->seq_params.subsampling_y)];
   const TX_SIZE tx_size_uv_horz = txsize_horz_map[av1_get_max_uv_txsize(
-      mbmi->sb_type, cm->seq_params.subsampling_x,
-      cm->seq_params.subsampling_y)];
+      mbmi->bsize, cm->seq_params.subsampling_x, cm->seq_params.subsampling_y)];
   const int is_square_transform_size = tx_size <= TX_64X64;
   int mask_id = 0;
   int offset = 0;
@@ -1332,11 +1330,9 @@ void av1_store_bitmask_univariant_tx(AV1_COMMON *cm, int mi_row, int mi_col,
   const TX_SIZE tx_size_y_vert = txsize_vert_map[mbmi->tx_size];
   const TX_SIZE tx_size_y_horz = txsize_horz_map[mbmi->tx_size];
   const TX_SIZE tx_size_uv_vert = txsize_vert_map[av1_get_max_uv_txsize(
-      mbmi->sb_type, cm->seq_params.subsampling_x,
-      cm->seq_params.subsampling_y)];
+      mbmi->bsize, cm->seq_params.subsampling_x, cm->seq_params.subsampling_y)];
   const TX_SIZE tx_size_uv_horz = txsize_horz_map[av1_get_max_uv_txsize(
-      mbmi->sb_type, cm->seq_params.subsampling_x,
-      cm->seq_params.subsampling_y)];
+      mbmi->bsize, cm->seq_params.subsampling_x, cm->seq_params.subsampling_y)];
   const int is_square_transform_size = mbmi->tx_size <= TX_64X64;
   int mask_id = 0;
   int offset = 0;
@@ -1424,7 +1420,7 @@ void av1_store_bitmask_other_info(AV1_COMMON *cm, int mi_row, int mi_col,
            << vert_shift);
     }
   }
-  const int is_skip = mbmi->skip && is_inter_block(mbmi);
+  const int is_skip = is_inter_block(mbmi) && mbmi->skip_mode;
   if (is_skip) {
     const int is_skip_mask = mask_id_table_tx_4x4[bsize];
     for (int i = 0; i + index < 4; ++i) {

@@ -22,9 +22,9 @@
 
 namespace dawn_native {
 
-    DawnProcTable GetProcsAutogen();
+    const DawnProcTable& GetProcsAutogen();
 
-    DawnProcTable GetProcs() {
+    const DawnProcTable& GetProcs() {
         return GetProcsAutogen();
     }
 
@@ -45,9 +45,13 @@ namespace dawn_native {
         mImpl = nullptr;
     }
 
+    Adapter::Adapter(const Adapter& other) = default;
+    Adapter& Adapter::operator=(const Adapter& other) = default;
+
     void Adapter::GetProperties(wgpu::AdapterProperties* properties) const {
         properties->backendType = mImpl->GetBackendType();
         properties->adapterType = mImpl->GetAdapterType();
+        properties->driverDescription = mImpl->GetDriverDescription().c_str();
         properties->deviceID = mImpl->GetPCIInfo().deviceId;
         properties->vendorID = mImpl->GetPCIInfo().vendorId;
         properties->name = mImpl->GetPCIInfo().name.c_str();
@@ -65,7 +69,10 @@ namespace dawn_native {
                 return BackendType::OpenGL;
             case wgpu::BackendType::Vulkan:
                 return BackendType::Vulkan;
-            default:
+            case wgpu::BackendType::OpenGLES:
+                return BackendType::OpenGLES;
+
+            case wgpu::BackendType::D3D11:
                 UNREACHABLE();
         }
     }
@@ -80,8 +87,6 @@ namespace dawn_native {
                 return DeviceType::CPU;
             case wgpu::AdapterType::Unknown:
                 return DeviceType::Unknown;
-            default:
-                UNREACHABLE();
         }
     }
 
@@ -104,6 +109,10 @@ namespace dawn_native {
 
     WGPUDevice Adapter::CreateDevice(const DeviceDescriptor* deviceDescriptor) {
         return reinterpret_cast<WGPUDevice>(mImpl->CreateDevice(deviceDescriptor));
+    }
+
+    void Adapter::ResetInternalDeviceForTesting() {
+        mImpl->ResetInternalDeviceForTesting();
     }
 
     // AdapterDiscoverOptionsBase
@@ -146,7 +155,13 @@ namespace dawn_native {
     }
 
     void Instance::EnableBackendValidation(bool enableBackendValidation) {
-        mImpl->EnableBackendValidation(enableBackendValidation);
+        if (enableBackendValidation) {
+            mImpl->SetBackendValidationLevel(BackendValidationLevel::Full);
+        }
+    }
+
+    void Instance::SetBackendValidationLevel(BackendValidationLevel level) {
+        mImpl->SetBackendValidationLevel(level);
     }
 
     void Instance::EnableBeginCaptureOnStartup(bool beginCaptureOnStartup) {
@@ -166,15 +181,23 @@ namespace dawn_native {
         return deviceBase->GetLazyClearCountForTesting();
     }
 
-    bool IsTextureSubresourceInitialized(WGPUTexture texture,
+    size_t GetDeprecationWarningCountForTesting(WGPUDevice device) {
+        dawn_native::DeviceBase* deviceBase = reinterpret_cast<dawn_native::DeviceBase*>(device);
+        return deviceBase->GetDeprecationWarningCountForTesting();
+    }
+
+    bool IsTextureSubresourceInitialized(WGPUTexture cTexture,
                                          uint32_t baseMipLevel,
                                          uint32_t levelCount,
                                          uint32_t baseArrayLayer,
-                                         uint32_t layerCount) {
-        dawn_native::TextureBase* textureBase =
-            reinterpret_cast<dawn_native::TextureBase*>(texture);
-        return textureBase->IsSubresourceContentInitialized(baseMipLevel, levelCount,
-                                                            baseArrayLayer, layerCount);
+                                         uint32_t layerCount,
+                                         WGPUTextureAspect cAspect) {
+        dawn_native::TextureBase* texture = reinterpret_cast<dawn_native::TextureBase*>(cTexture);
+
+        Aspect aspect =
+            ConvertAspect(texture->GetFormat(), static_cast<wgpu::TextureAspect>(cAspect));
+        SubresourceRange range(aspect, {baseArrayLayer, layerCount}, {baseMipLevel, levelCount});
+        return texture->IsSubresourceContentInitialized(range);
     }
 
     std::vector<const char*> GetProcMapNamesForTestingInternal();
@@ -183,8 +206,19 @@ namespace dawn_native {
         return GetProcMapNamesForTestingInternal();
     }
 
-    ExternalImageDescriptor::ExternalImageDescriptor(ExternalImageDescriptorType type)
-        : type(type) {
+    DAWN_NATIVE_EXPORT bool DeviceTick(WGPUDevice device) {
+        dawn_native::DeviceBase* deviceBase = reinterpret_cast<dawn_native::DeviceBase*>(device);
+        return deviceBase->Tick();
+    }
+
+    // ExternalImageDescriptor
+
+    ExternalImageDescriptor::ExternalImageDescriptor(ExternalImageType type) : type(type) {
+    }
+
+    // ExternalImageExportInfo
+
+    ExternalImageExportInfo::ExternalImageExportInfo(ExternalImageType type) : type(type) {
     }
 
 }  // namespace dawn_native

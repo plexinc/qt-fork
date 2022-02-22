@@ -318,7 +318,6 @@ static Position UpdatePostionAfterAdoptingTextNodesMerged(
   Node* const anchor_node = position.AnchorNode();
   const Node& node_to_be_removed = node_to_be_removed_with_index.GetNode();
   switch (position.AnchorType()) {
-    case PositionAnchorType::kBeforeChildren:
     case PositionAnchorType::kAfterChildren:
       return position;
     case PositionAnchorType::kBeforeAnchor:
@@ -538,7 +537,7 @@ void SelectionEditor::ClearDocumentCachedRange() {
   cached_range_ = nullptr;
 }
 
-void SelectionEditor::Trace(Visitor* visitor) {
+void SelectionEditor::Trace(Visitor* visitor) const {
   visitor->Trace(frame_);
   visitor->Trace(selection_);
   visitor->Trace(cached_visible_selection_in_dom_tree_);

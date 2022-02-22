@@ -35,10 +35,6 @@ using namespace QMakeInternal;
 #include <qfile.h>
 #include <qfileinfo.h>
 
-#if QT_CONFIG(textcodec)
-#include <qtextcodec.h>
-#endif
-
 #define fL1S(s) QString::fromLatin1(s)
 
 QT_BEGIN_NAMESPACE
@@ -49,9 +45,6 @@ QMakeVfs::QMakeVfs()
     , m_magicExisting(fL1S("existing"))
 #endif
 {
-#if QT_CONFIG(textcodec)
-    m_textCodec = 0;
-#endif
     ref();
 }
 
@@ -149,12 +142,12 @@ bool QMakeVfs::writeFile(int id, QIODevice::OpenMode mode, VfsFlags flags,
     QMutexLocker locker(&m_mutex);
 # endif
     QString *cont = &m_files[id];
-    Q_UNUSED(flags)
+    Q_UNUSED(flags);
     if (mode & QIODevice::Append)
         *cont += contents;
     else
         *cont = contents;
-    Q_UNUSED(errStr)
+    Q_UNUSED(errStr);
     return true;
 #else
     QFileInfo qfi(fileNameForId(id));
@@ -235,11 +228,7 @@ QMakeVfs::ReadResult QMakeVfs::readFile(int id, QString *contents, QString *errS
         *errStr = fL1S("Unexpected UTF-8 BOM");
         return ReadOtherError;
     }
-    *contents =
-#if QT_CONFIG(textcodec)
-        m_textCodec ? m_textCodec->toUnicode(bcont) :
-#endif
-        QString::fromLocal8Bit(bcont);
+    *contents = QString::fromLocal8Bit(bcont);
     return ReadOk;
 }
 
@@ -254,7 +243,7 @@ bool QMakeVfs::exists(const QString &fn, VfsFlags flags)
     if (it != m_files.constEnd())
         return it->constData() != m_magicMissing.constData();
 #else
-    Q_UNUSED(flags)
+    Q_UNUSED(flags);
 #endif
     bool ex = IoUtils::fileType(fn) == IoUtils::FileIsRegular;
 #ifndef PROEVALUATOR_FULL
@@ -287,13 +276,6 @@ void QMakeVfs::invalidateContents()
     QMutexLocker locker(&m_mutex);
 # endif
     m_files.clear();
-}
-#endif
-
-#if QT_CONFIG(textcodec)
-void QMakeVfs::setTextCodec(const QTextCodec *textCodec)
-{
-    m_textCodec = textCodec;
 }
 #endif
 

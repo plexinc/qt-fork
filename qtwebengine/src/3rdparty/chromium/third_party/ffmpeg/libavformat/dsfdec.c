@@ -56,8 +56,8 @@ static void read_id3(AVFormatContext *s, uint64_t id3pos)
 
     ff_id3v2_read(s, ID3v2_DEFAULT_MAGIC, &id3v2_extra_meta, 0);
     if (id3v2_extra_meta) {
-        ff_id3v2_parse_apic(s, &id3v2_extra_meta);
-        ff_id3v2_parse_chapters(s, &id3v2_extra_meta);
+        ff_id3v2_parse_apic(s, id3v2_extra_meta);
+        ff_id3v2_parse_chapters(s, id3v2_extra_meta);
     }
     ff_id3v2_free_extra_meta(&id3v2_extra_meta);
 }
@@ -124,8 +124,8 @@ static int dsf_read_header(AVFormatContext *s)
 
     dsf->audio_size = avio_rl64(pb) / 8 * st->codecpar->channels;
     st->codecpar->block_align = avio_rl32(pb);
-    if (st->codecpar->block_align > INT_MAX / st->codecpar->channels) {
-        avpriv_request_sample(s, "block_align overflow");
+    if (st->codecpar->block_align > INT_MAX / st->codecpar->channels || st->codecpar->block_align <= 0) {
+        avpriv_request_sample(s, "block_align invalid");
         return AVERROR_INVALIDDATA;
     }
     st->codecpar->block_align *= st->codecpar->channels;

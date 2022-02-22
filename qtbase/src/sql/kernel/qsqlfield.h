@@ -54,10 +54,7 @@ class Q_SQL_EXPORT QSqlField
 public:
     enum RequiredStatus { Unknown = -1, Optional = 0, Required = 1 };
 
-    explicit QSqlField(const QString& fieldName = QString(),
-                       QVariant::Type type = {});
-    QSqlField(const QString &fieldName, QVariant::Type type,
-              const QString &tableName);
+    explicit QSqlField(const QString& fieldName = QString(), QMetaType type = QMetaType(), const QString &tableName = QString());
 
     QSqlField(const QSqlField& other);
     QSqlField& operator=(const QSqlField& other);
@@ -76,10 +73,25 @@ public:
     void setReadOnly(bool readOnly);
     bool isReadOnly() const;
     void clear();
-    QVariant::Type type() const;
     bool isAutoValue() const;
 
-    void setType(QVariant::Type type);
+    QMetaType metaType() const;
+    void setMetaType(QMetaType type);
+
+#if QT_DEPRECATED_SINCE(6, 0)
+    QT_WARNING_PUSH
+    QT_WARNING_DISABLE_DEPRECATED
+    QT_DEPRECATED_VERSION_X_6_0("Use the constructor using a QMetaType instead")
+    QSqlField(const QString& fieldName, QVariant::Type type, const QString &tableName = QString())
+        : QSqlField(fieldName, QMetaType(type), tableName)
+    {}
+    QT_DEPRECATED_VERSION_X_6_0("Use metaType() instead")
+    QVariant::Type type() const { return QVariant::Type(metaType().id()); };
+    QT_DEPRECATED_VERSION_X_6_0("Use setMetaType() instead")
+    void setType(QVariant::Type type) { setMetaType(QMetaType(int(type))); }
+    QT_WARNING_POP
+#endif
+
     void setRequiredStatus(RequiredStatus status);
     inline void setRequired(bool required)
     { setRequiredStatus(required ? Required : Optional); }

@@ -32,6 +32,7 @@ import Qt3D.Render 2.1 as QQ3Render21
 import Qt3D.Render 2.10 as QQ3Render210
 import Qt3D.Render 2.13 as QQ3Render213
 import Qt3D.Render 2.14 as QQ3Render214
+import Qt3D.Render 2.16 as QQ3Render216
 import QtQuick 2.0
 
 Item {
@@ -87,10 +88,6 @@ Item {
     QQ3Render213.SetFence {}                   //Qt3DRender::QSetFence
 
     // Geometry
-    QQ3Render20.Attribute {}                   //Qt3DRender::QAttribute
-    //QQ3Render20.BufferBase                   // (uncreatable) Qt3DRender::QBuffer
-    QQ3Render20.Buffer {}                      //Qt3DRender::Render::Quick::Quick3DBuffer
-    QQ3Render20.Geometry {}                    //Qt3DRender::QGeometry, Qt3DRender::Render::Quick::Quick3DGeometry
     QQ3Render20.GeometryRenderer {}            //Qt3DRender::QGeometryRenderer
 
     // Mesh
@@ -128,6 +125,7 @@ Item {
     QQ3Render21.RenderCapture {}               //Qt3DRender::QRenderCapture
     //QQ3Render21.RenderCaptureReply           // (uncreatable) Qt3DRender::QRenderCaptureReply
     QQ3Render210.ProximityFilter {}           //Q3DRender::QProximityFilter
+    QQ3Render216.DebugOverlay {}               //Q3DRender::QDebugOverlay
 
     // RenderTarget
     QQ3Render20.RenderTargetOutput {}          //Qt3DRender::QRenderTargetOutput

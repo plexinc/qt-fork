@@ -15,7 +15,6 @@
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
-#include "base/threading/thread_checker.h"
 #include "base/time/time.h"
 #include "media/base/video_decoder_config.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
@@ -24,7 +23,7 @@
 #include "ui/gfx/geometry/size.h"
 
 namespace base {
-class SingleThreadTaskRunner;
+class SequencedTaskRunner;
 }
 
 namespace media {
@@ -47,14 +46,14 @@ PLATFORM_EXPORT extern const base::Feature kWebRtcScreenshareSwEncoding;
 class PLATFORM_EXPORT RTCVideoEncoder : public webrtc::VideoEncoder {
  public:
   RTCVideoEncoder(media::VideoCodecProfile profile,
+                  bool is_constrained_h264,
                   media::GpuVideoAcceleratorFactories* gpu_factories);
   ~RTCVideoEncoder() override;
 
   // webrtc::VideoEncoder implementation.  Tasks are posted to |impl_| using the
   // appropriate VEA methods.
-  int32_t InitEncode(const webrtc::VideoCodec* codec_settings,
-                     int32_t number_of_cores,
-                     size_t max_payload_size) override;
+  int InitEncode(const webrtc::VideoCodec* codec_settings,
+                 const webrtc::VideoEncoder::Settings& settings) override;
   int32_t Encode(
       const webrtc::VideoFrame& input_image,
       const std::vector<webrtc::VideoFrameType>* frame_types) override;
@@ -71,11 +70,13 @@ class PLATFORM_EXPORT RTCVideoEncoder : public webrtc::VideoEncoder {
 
   const media::VideoCodecProfile profile_;
 
+  const bool is_constrained_h264_;
+
   // Factory for creating VEAs, shared memory buffers, etc.
   media::GpuVideoAcceleratorFactories* gpu_factories_;
 
   // Task runner that the video accelerator runs on.
-  const scoped_refptr<base::SingleThreadTaskRunner> gpu_task_runner_;
+  const scoped_refptr<base::SequencedTaskRunner> gpu_task_runner_;
 
   // The RTCVideoEncoder::Impl that does all the work.
   scoped_refptr<Impl> impl_;

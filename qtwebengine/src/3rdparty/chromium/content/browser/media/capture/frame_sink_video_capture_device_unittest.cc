@@ -7,12 +7,12 @@
 #include <memory>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/containers/flat_map.h"
 #include "base/memory/read_only_shared_memory_region.h"
 #include "base/memory/shared_memory_mapping.h"
-#include "base/task/post_task.h"
 #include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/test_utils.h"
 #include "media/base/video_frame.h"
@@ -55,7 +55,7 @@ namespace {
 
 // Convenience macro to post a task to run on the device thread.
 #define POST_DEVICE_TASK(closure) \
-  base::PostTask(FROM_HERE, {BrowserThread::IO}, closure)
+  GetIOThreadTaskRunner({})->PostTask(FROM_HERE, closure)
 
 // Convenience macro to block the test procedure until all pending tasks have
 // run on the device thread.
@@ -101,8 +101,8 @@ class MockFrameSinkVideoCapturer : public viz::mojom::FrameSinkVideoCapturer {
                     const gfx::Size& max_size,
                     bool use_fixed_aspect_ratio));
   MOCK_METHOD1(SetAutoThrottlingEnabled, void(bool));
-  void ChangeTarget(
-      const base::Optional<viz::FrameSinkId>& frame_sink_id) final {
+  void ChangeTarget(const base::Optional<viz::FrameSinkId>& frame_sink_id,
+                    const viz::SubtreeCaptureId& subtree_capture_id) final {
     DCHECK_NOT_ON_DEVICE_THREAD();
     MockChangeTarget(frame_sink_id ? *frame_sink_id : viz::FrameSinkId());
   }
@@ -147,7 +147,7 @@ class MockFrameSinkVideoConsumerFrameCallbacks
   }
 
   MOCK_METHOD0(Done, void());
-  MOCK_METHOD1(ProvideFeedback, void(double utilization));
+  MOCK_METHOD1(ProvideFeedback, void(const media::VideoFrameFeedback&));
 
  private:
   mojo::Receiver<viz::mojom::FrameSinkVideoConsumerFrameCallbacks> receiver_{
@@ -181,17 +181,16 @@ class MockVideoFrameReceiver : public media::VideoFrameReceiver {
                void(int buffer_id,
                     media::mojom::VideoBufferHandle* buffer_handle));
   void OnFrameReadyInBuffer(
-      int buffer_id,
-      int frame_feedback_id,
-      std::unique_ptr<Buffer::ScopedAccessPermission> buffer_read_permission,
-      media::mojom::VideoFrameInfoPtr frame_info) final {
+      media::ReadyFrameInBuffer frame,
+      std::vector<media::ReadyFrameInBuffer> scaled_frames) final {
     DCHECK_ON_DEVICE_THREAD();
-    feedback_ids_[buffer_id] = frame_feedback_id;
-    auto* const raw_pointer_to_permission = buffer_read_permission.get();
-    access_permissions_[buffer_id] = std::move(buffer_read_permission);
-    auto* const raw_pointer_to_info = frame_info.get();
-    frame_infos_[buffer_id] = std::move(frame_info);
-    MockOnFrameReadyInBuffer(buffer_id, frame_feedback_id,
+    feedback_ids_[frame.buffer_id] = frame.frame_feedback_id;
+    auto* const raw_pointer_to_permission = frame.buffer_read_permission.get();
+    access_permissions_[frame.buffer_id] =
+        std::move(frame.buffer_read_permission);
+    auto* const raw_pointer_to_info = frame.frame_info.get();
+    frame_infos_[frame.buffer_id] = std::move(frame.frame_info);
+    MockOnFrameReadyInBuffer(frame.buffer_id, frame.frame_feedback_id,
                              raw_pointer_to_permission, raw_pointer_to_info);
   }
   MOCK_METHOD4(MockOnFrameReadyInBuffer,
@@ -273,8 +272,8 @@ class FrameSinkVideoCaptureDeviceForTest : public FrameSinkVideoCaptureDevice {
  protected:
   void CreateCapturer(mojo::PendingReceiver<viz::mojom::FrameSinkVideoCapturer>
                           receiver) final {
-    base::PostTask(
-        FROM_HERE, {BrowserThread::UI},
+    GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE,
         base::BindOnce(
             [](MockFrameSinkVideoCapturer* capturer,
                mojo::PendingReceiver<viz::mojom::FrameSinkVideoCapturer>
@@ -384,9 +383,8 @@ class FrameSinkVideoCaptureDeviceTest : public testing::Test {
           device->OnFrameCaptured(
               std::move(data),
               media::mojom::VideoFrameInfo::New(
-                  kMinCapturePeriod * frame_number,
-                  base::Value(base::Value::Type::DICTIONARY), kFormat,
-                  kResolution, gfx::Rect(kResolution),
+                  kMinCapturePeriod * frame_number, media::VideoFrameMetadata(),
+                  kFormat, kResolution, gfx::Rect(kResolution),
                   gfx::ColorSpace::CreateREC709(), nullptr),
               gfx::Rect(kResolution), std::move(callbacks_remote));
         },
@@ -494,15 +492,16 @@ TEST_F(FrameSinkVideoCaptureDeviceTest, CapturesAndDeliversFrames) {
         MockFrameSinkVideoConsumerFrameCallbacks& callbacks =
             callbackses[frame_number - first_frame_number];
 
-        const double fake_utilization =
-            static_cast<double>(frame_number) / kNumFramesToDeliver;
-        EXPECT_CALL(callbacks, ProvideFeedback(fake_utilization));
+        const media::VideoFrameFeedback fake_feedback =
+            media::VideoFrameFeedback(static_cast<double>(frame_number) /
+                                      kNumFramesToDeliver);
+        EXPECT_CALL(callbacks, ProvideFeedback(fake_feedback));
         EXPECT_CALL(callbacks, Done());
         EXPECT_CALL(*receiver, OnBufferRetired(buffer_id));
 
         const int feedback_id = receiver->TakeFeedbackId(buffer_id);
         POST_DEVICE_METHOD_CALL(OnUtilizationReport, feedback_id,
-                                fake_utilization);
+                                fake_feedback);
         receiver->ReleaseAccessPermission(buffer_id);
         WAIT_FOR_DEVICE_TASKS();
       }

@@ -12,10 +12,13 @@ import androidx.annotation.Nullable;
 
 import org.chromium.weblayer_private.interfaces.APICallException;
 import org.chromium.weblayer_private.interfaces.IClientNavigation;
+import org.chromium.weblayer_private.interfaces.IClientPage;
+import org.chromium.weblayer_private.interfaces.INavigateParams;
 import org.chromium.weblayer_private.interfaces.INavigation;
 import org.chromium.weblayer_private.interfaces.INavigationController;
 import org.chromium.weblayer_private.interfaces.INavigationControllerClient;
 import org.chromium.weblayer_private.interfaces.ITab;
+import org.chromium.weblayer_private.interfaces.ObjectWrapper;
 import org.chromium.weblayer_private.interfaces.StrictModeWorkaround;
 
 /**
@@ -51,16 +54,29 @@ public class NavigationController {
      * @param uri the destination URI.
      * @param params extra parameters for the navigation.
      *
-     * @since 83
+     * @throws IllegalStateException if params.getResponse() is not null but a URLBarController
+     *         View is attached to a Window.
      */
     public void navigate(@NonNull Uri uri, @Nullable NavigateParams params) {
         ThreadCheck.ensureOnUiThread();
-        if ((WebLayer.getSupportedMajorVersionInternal() < 83) && (params != null)) {
-            throw new UnsupportedOperationException();
-        }
         try {
-            mNavigationController.navigate(
-                    uri.toString(), params == null ? null : params.toInterfaceParams());
+            INavigateParams iparams = mNavigationController.createNavigateParams();
+            if (params != null) {
+                if (params.getShouldReplaceCurrentEntry()) iparams.replaceCurrentEntry();
+                if (params.isIntentProcessingDisabled()) iparams.disableIntentProcessing();
+                if (WebLayer.getSupportedMajorVersionInternal() >= 89
+                        && params.areIntentLaunchesAllowedInBackground()) {
+                    iparams.allowIntentLaunchesInBackground();
+                }
+                if (params.isNetworkErrorAutoReloadDisabled()) {
+                    iparams.disableNetworkErrorAutoReload();
+                }
+                if (params.isAutoPlayEnabled()) iparams.enableAutoPlay();
+                if (params.getResponse() != null) {
+                    iparams.setResponse(ObjectWrapper.wrap(params.getResponse()));
+                }
+            }
+            mNavigationController.navigate3(uri.toString(), iparams);
         } catch (RemoteException e) {
             throw new APICallException(e);
         }
@@ -68,6 +84,9 @@ public class NavigationController {
 
     /**
      * Navigates to the previous navigation.
+     *
+     * Note: this may go back more than a single navigation entry, see {@link
+     * isNavigationEntrySkippable} for more details.
      *
      * @throws IndexOutOfBoundsException If {@link #canGoBack} returns false.
      */
@@ -103,6 +122,9 @@ public class NavigationController {
     /**
      * Returns true if there is a navigation before the current one.
      *
+     * Note: this may return false even if the current index is not 0, see {@link
+     * isNavigationEntrySkippable} for more details.
+     *
      * @return Whether there is a navigation before the current one.
      */
     public boolean canGoBack() {
@@ -134,14 +156,9 @@ public class NavigationController {
      * @throws IndexOutOfBoundsException If index is not between 0 and {@link
      *         getNavigationListCurrentIndex}.
      * @throws IndexOutOfBoundsException
-     *
-     * @since 81
      */
     public void goToIndex(int index) throws IndexOutOfBoundsException {
         ThreadCheck.ensureOnUiThread();
-        if (WebLayer.getSupportedMajorVersionInternal() < 81) {
-            throw new UnsupportedOperationException();
-        }
         checkNavigationIndex(index);
         try {
             mNavigationController.goToIndex(index);
@@ -212,16 +229,11 @@ public class NavigationController {
     @NonNull
     public Uri getNavigationEntryDisplayUri(int index) throws IndexOutOfBoundsException {
         ThreadCheck.ensureOnUiThread();
+        checkNavigationIndex(index);
         try {
             return Uri.parse(mNavigationController.getNavigationEntryDisplayUri(index));
         } catch (RemoteException e) {
             throw new APICallException(e);
-        }
-    }
-
-    private void checkNavigationIndex(int index) throws IndexOutOfBoundsException {
-        if (index < 0 || index >= getNavigationListSize()) {
-            throw new IndexOutOfBoundsException();
         }
     }
 
@@ -230,17 +242,31 @@ public class NavigationController {
      *
      * @throws IndexOutOfBoundsException If index is not between 0 and {@link
      *         getNavigationListCurrentIndex}.
-     * @since 81
      */
     @NonNull
     public String getNavigationEntryTitle(int index) throws IndexOutOfBoundsException {
         ThreadCheck.ensureOnUiThread();
-        if (WebLayer.getSupportedMajorVersionInternal() < 81) {
-            throw new UnsupportedOperationException();
-        }
         checkNavigationIndex(index);
         try {
             return mNavigationController.getNavigationEntryTitle(index);
+        } catch (RemoteException e) {
+            throw new APICallException(e);
+        }
+    }
+
+    /**
+     * Returns whether this entry will be skipped on a call to {@link goBack} or {@link goForward}.
+     * This will be true for certain navigations, such as certain client side redirects and
+     * history.pushState navigations done without user interaction.
+     *
+     * @throws IndexOutOfBoundsException If index is not between 0 and {@link
+     *         getNavigationListCurrentIndex}.
+     */
+    public boolean isNavigationEntrySkippable(int index) throws IndexOutOfBoundsException {
+        ThreadCheck.ensureOnUiThread();
+        checkNavigationIndex(index);
+        try {
+            return mNavigationController.isNavigationEntrySkippable(index);
         } catch (RemoteException e) {
             throw new APICallException(e);
         }
@@ -254,6 +280,12 @@ public class NavigationController {
     public void unregisterNavigationCallback(@NonNull NavigationCallback callback) {
         ThreadCheck.ensureOnUiThread();
         mCallbacks.removeObserver(callback);
+    }
+
+    private void checkNavigationIndex(int index) throws IndexOutOfBoundsException {
+        if (index < 0 || index >= getNavigationListSize()) {
+            throw new IndexOutOfBoundsException();
+        }
     }
 
     private final class NavigationControllerClientImpl extends INavigationControllerClient.Stub {
@@ -282,9 +314,7 @@ public class NavigationController {
         @Override
         public void readyToCommitNavigation(IClientNavigation navigation) {
             StrictModeWorkaround.apply();
-            for (NavigationCallback callback : mCallbacks) {
-                callback.onReadyToCommitNavigation((Navigation) navigation);
-            }
+            // Functionality removed from NavigationCallback in M90. See crbug.com/1174193
         }
 
         @Override
@@ -324,6 +354,47 @@ public class NavigationController {
             StrictModeWorkaround.apply();
             for (NavigationCallback callback : mCallbacks) {
                 callback.onFirstContentfulPaint();
+            }
+        }
+
+        @Override
+        public void onFirstContentfulPaint2(
+                long navigationStartMs, long firstContentfulPaintDurationMs) {
+            StrictModeWorkaround.apply();
+            for (NavigationCallback callback : mCallbacks) {
+                callback.onFirstContentfulPaint(navigationStartMs, firstContentfulPaintDurationMs);
+            }
+        }
+
+        @Override
+        public void onLargestContentfulPaint(
+                long navigationStartMs, long largestContentfulPaintDurationMs) {
+            StrictModeWorkaround.apply();
+            for (NavigationCallback callback : mCallbacks) {
+                callback.onLargestContentfulPaint(
+                        navigationStartMs, largestContentfulPaintDurationMs);
+            }
+        }
+
+        @Override
+        public void onOldPageNoLongerRendered(String uri) {
+            StrictModeWorkaround.apply();
+            for (NavigationCallback callback : mCallbacks) {
+                callback.onOldPageNoLongerRendered(Uri.parse(uri));
+            }
+        }
+
+        @Override
+        public IClientPage createClientPage() {
+            StrictModeWorkaround.apply();
+            return new Page();
+        }
+
+        @Override
+        public void onPageDestroyed(IClientPage page) {
+            StrictModeWorkaround.apply();
+            for (NavigationCallback callback : mCallbacks) {
+                callback.onPageDestroyed((Page) page);
             }
         }
     }

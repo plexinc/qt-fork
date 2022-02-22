@@ -29,7 +29,7 @@
 #include <QtCore/QCoreApplication>
 #include <QtCore/QProcess>
 #include <QtCore/QThread>
-#include <QtTest>
+#include <QTest>
 
 class tst_QProcessNoApplication : public QObject
 {
@@ -49,7 +49,7 @@ void tst_QProcessNoApplication::initializationDeadlock()
 
     struct MyThread : public QThread
     {
-        void run()
+        void run() override
         {
             // what we execute does not matter, as long as we try to
             // and that the process exits

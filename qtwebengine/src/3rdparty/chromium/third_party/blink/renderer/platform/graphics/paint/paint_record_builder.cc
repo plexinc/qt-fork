@@ -10,32 +10,22 @@
 
 namespace blink {
 
-PaintRecordBuilder::PaintRecordBuilder(
-    printing::MetafileSkia* metafile,
-    GraphicsContext* containing_context,
-    PaintController* paint_controller,
-    paint_preview::PaintPreviewTracker* tracker)
-    : paint_controller_(nullptr) {
-  if (paint_controller) {
-    paint_controller_ = paint_controller;
-  } else {
-    own_paint_controller_ =
-        std::make_unique<PaintController>(PaintController::kTransient);
-    paint_controller_ = own_paint_controller_.get();
-  }
-
+PaintRecordBuilder::PaintRecordBuilder()
+    : own_paint_controller_(new PaintController(PaintController::kTransient)),
+      paint_controller_(own_paint_controller_.get()),
+      context_(new GraphicsContext(*paint_controller_)) {
   paint_controller_->UpdateCurrentPaintChunkProperties(
       nullptr, PropertyTreeState::Root());
-
-  context_ =
-      std::make_unique<GraphicsContext>(*paint_controller_, metafile, tracker);
-  if (containing_context) {
-    context_->SetDarkMode(containing_context->dark_mode_settings());
-    context_->SetDeviceScaleFactor(containing_context->DeviceScaleFactor());
-    context_->SetPrinting(containing_context->Printing());
-    context_->SetIsPaintingPreview(containing_context->IsPaintingPreview());
-  }
 }
+
+PaintRecordBuilder::PaintRecordBuilder(GraphicsContext& containing_context)
+    : PaintRecordBuilder() {
+  context_->CopyConfigFrom(containing_context);
+}
+
+PaintRecordBuilder::PaintRecordBuilder(PaintController& paint_controller)
+    : paint_controller_(&paint_controller),
+      context_(new GraphicsContext(*paint_controller_)) {}
 
 PaintRecordBuilder::~PaintRecordBuilder() = default;
 
@@ -48,9 +38,7 @@ sk_sp<PaintRecord> PaintRecordBuilder::EndRecording(
 
 void PaintRecordBuilder::EndRecording(cc::PaintCanvas& canvas,
                                       const PropertyTreeState& replay_state) {
-  paint_controller_->CommitNewDisplayItems();
-  paint_controller_->FinishCycle();
-  paint_controller_->GetPaintArtifact().Replay(canvas, replay_state);
+  canvas.drawPicture(EndRecording(replay_state));
 }
 
 }  // namespace blink

@@ -4,16 +4,18 @@
 
 #include "ui/wm/core/compound_event_filter.h"
 
-#include "base/logging.h"
+#include "base/check.h"
+#include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "ui/aura/client/cursor_client.h"
 #include "ui/aura/client/drag_drop_client.h"
 #include "ui/aura/env.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_delegate.h"
 #include "ui/aura/window_event_dispatcher.h"
+#include "ui/base/cursor/mojom/cursor_type.mojom-shared.h"
 #include "ui/base/hit_test.h"
-#include "ui/base/mojom/cursor_type.mojom-shared.h"
 #include "ui/events/event.h"
 #include "ui/wm/public/activation_client.h"
 
@@ -24,7 +26,7 @@ namespace {
 // Returns true if the cursor should be hidden on touch events.
 // TODO(tdanderson|rsadam): Move this function into CursorClient.
 bool ShouldHideCursorOnTouch(const ui::TouchEvent& event) {
-#if defined(OS_WIN) || defined(OS_CHROMEOS)
+#if defined(OS_WIN) || BUILDFLAG(IS_CHROMEOS_ASH)
   return true;
 #else
   // Linux Aura does not hide the cursor on touch by default.
@@ -109,7 +111,12 @@ void CompoundEventFilter::UpdateCursor(aura::Window* target,
         return;
       }
     }
-    cursor_client->SetCursor(cursor);
+    // For ET_MOUSE_ENTERED, force the update of the cursor because it may have
+    // changed without |cursor_client| knowing about it.
+    if (event->type() == ui::ET_MOUSE_ENTERED)
+      cursor_client->SetCursorForced(cursor);
+    else
+      cursor_client->SetCursor(cursor);
   }
 }
 
@@ -157,12 +164,20 @@ void CompoundEventFilter::SetCursorVisibilityOnEvent(aura::Window* target,
 void CompoundEventFilter::SetMouseEventsEnableStateOnEvent(aura::Window* target,
                                                            ui::Event* event,
                                                            bool enable) {
+  TRACE_EVENT2("ui,input",
+               "CompoundEventFilter::SetMouseEventsEnableStateOnEvent",
+               "event_flags", event->flags(), "enable", enable);
   if (event->flags() & ui::EF_IS_SYNTHESIZED)
     return;
   aura::client::CursorClient* client =
       aura::client::GetCursorClient(target->GetRootWindow());
-  if (!client)
+  if (!client) {
+    TRACE_EVENT_INSTANT0(
+        "ui,input",
+        "CompoundEventFilter::SetMouseEventsEnableStateOnEvent - No Client",
+        TRACE_EVENT_SCOPE_THREAD);
     return;
+  }
 
   if (enable)
     client->EnableMouseEvents();
@@ -184,6 +199,8 @@ void CompoundEventFilter::OnKeyEvent(ui::KeyEvent* event) {
 }
 
 void CompoundEventFilter::OnMouseEvent(ui::MouseEvent* event) {
+  TRACE_EVENT2("ui,input", "CompoundEventFilter::OnMouseEvent", "event_type",
+               event->type(), "event_flags", event->flags());
   aura::Window* window = static_cast<aura::Window*>(event->target());
 
   // We must always update the cursor, otherwise the cursor can get stuck if an
@@ -211,13 +228,17 @@ void CompoundEventFilter::OnScrollEvent(ui::ScrollEvent* event) {
 }
 
 void CompoundEventFilter::OnTouchEvent(ui::TouchEvent* event) {
+  TRACE_EVENT2("ui,input", "CompoundEventFilter::OnTouchEvent", "event_type",
+               event->type(), "event_handled", event->handled());
   FilterTouchEvent(event);
   if (!event->handled() && event->type() == ui::ET_TOUCH_PRESSED &&
       ShouldHideCursorOnTouch(*event)) {
     aura::Window* target = static_cast<aura::Window*>(event->target());
     DCHECK(target);
-    if (!aura::Env::GetInstance()->IsMouseButtonDown())
+    if (!aura::Env::GetInstance()->IsMouseButtonDown()) {
       SetMouseEventsEnableStateOnEvent(target, event, false);
+      SetCursorVisibilityOnEvent(target, event, false);
+    }
   }
 }
 
@@ -227,6 +248,10 @@ void CompoundEventFilter::OnGestureEvent(ui::GestureEvent* event) {
       break;
     handler.OnGestureEvent(event);
   }
+}
+
+base::StringPiece CompoundEventFilter::GetLogContext() const {
+  return "CompoundEventFilter";
 }
 
 }  // namespace wm

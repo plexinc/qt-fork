@@ -25,7 +25,7 @@
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QtCore/QSize>
 #include <QtCore/QRectF>
 #include <QtGui/QTransform>
@@ -40,7 +40,6 @@
 Q_DECLARE_METATYPE(ExpectedValueDescription)
 Q_DECLARE_METATYPE(QList<int>)
 Q_DECLARE_METATYPE(QList<QRectF>)
-Q_DECLARE_METATYPE(QMatrix)
 Q_DECLARE_METATYPE(QPainterPath)
 Q_DECLARE_METATYPE(Qt::ScrollBarPolicy)
 Q_DECLARE_METATYPE(ScrollBarCount)
@@ -50,7 +49,7 @@ static void _scrollBarRanges_addTestData(const QByteArray &style, bool styled)
     const int viewWidth = 250;
     const int viewHeight = 100;
 
-    static Q_CONSTEXPR struct Data {
+    static constexpr struct Data {
         const char *name;
         QRectF sceneRect;
         ScrollBarCount sceneRectOffsetFactors;

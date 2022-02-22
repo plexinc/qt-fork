@@ -88,10 +88,9 @@ protected:
      * @param programInfo   Program information need to build the key
      * @param caps          the caps
      **/
-    static bool Build(GrProgramDesc*, const GrRenderTarget*, const GrProgramInfo&, const GrCaps&);
+    static bool Build(GrProgramDesc*, GrRenderTarget*, const GrProgramInfo&, const GrCaps&);
 
-    // This is strictly an OpenGL call since the other backends have additional data in their
-    // keys
+    // This is strictly an OpenGL call since the other backends have additional data in their keys.
     static bool BuildFromData(GrProgramDesc* desc, const void* keyData, size_t keyLength) {
         if (!SkTFitsIn<int>(keyLength)) {
             return false;
@@ -116,7 +115,7 @@ protected:
         // portions added by the platform-specific backends.
         uint32_t fInitialKeyLength : 27;
     };
-    static_assert(sizeof(KeyHeader) == 8, "");
+    static_assert(sizeof(KeyHeader) == 8);
 
     const KeyHeader& header() const { return *this->atOffset<KeyHeader, kHeaderOffset>(); }
 
@@ -134,7 +133,7 @@ protected:
     enum KeyOffsets {
         kHeaderOffset = 0,
         kHeaderSize = SkAlign4(sizeof(KeyHeader)),
-        // This is the offset into the backenend specific part of the key, which includes
+        // This is the offset into the backend-specific part of the key, which includes
         // per-processor keys.
         kProcessorKeysOffset = kHeaderOffset + kHeaderSize,
     };

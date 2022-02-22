@@ -15,8 +15,8 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/location.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
@@ -31,8 +31,12 @@
 #include "net/base/auth.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/ip_endpoint.h"
+#include "net/base/isolation_info.h"
+#include "net/base/load_flags.h"
+#include "net/base/net_errors.h"
 #include "net/base/proxy_delegate.h"
 #include "net/base/url_util.h"
+#include "net/cert/ct_policy_status.h"
 #include "net/http/http_request_headers.h"
 #include "net/log/net_log.h"
 #include "net/proxy_resolution/configured_proxy_resolution_service.h"
@@ -41,6 +45,8 @@
 #include "net/proxy_resolution/proxy_config_service_fixed.h"
 #include "net/proxy_resolution/proxy_config_with_annotation.h"
 #include "net/proxy_resolution/proxy_info.h"
+#include "net/socket/socket_test_util.h"
+#include "net/test/cert_test_util.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
@@ -51,8 +57,10 @@
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_test_util.h"
+#include "net/url_request/websocket_handshake_userdata_key.h"
 #include "net/websockets/websocket_channel.h"
 #include "net/websockets/websocket_event_interface.h"
+#include "net/websockets/websocket_test_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 #include "url/origin.h"
@@ -68,13 +76,6 @@ using test_server::HttpRequest;
 using test_server::HttpResponse;
 
 static const char kEchoServer[] = "echo-with-no-extension";
-
-// Simplify changing URL schemes.
-GURL ReplaceUrlScheme(const GURL& in_url, const base::StringPiece& scheme) {
-  GURL::Replacements replacements;
-  replacements.SetSchemeStr(scheme);
-  return in_url.ReplaceComponents(replacements);
-}
 
 // An implementation of WebSocketEventInterface that waits for and records the
 // results of the connect.
@@ -99,8 +100,7 @@ class ConnectTestingEventInterface : public WebSocketEventInterface {
   void OnAddChannelResponse(
       std::unique_ptr<WebSocketHandshakeResponseInfo> response,
       const std::string& selected_subprotocol,
-      const std::string& extensions,
-      int64_t send_flow_control_quota) override;
+      const std::string& extensions) override;
 
   void OnDataFrame(bool fin,
                    WebSocketMessageType type,
@@ -108,7 +108,7 @@ class ConnectTestingEventInterface : public WebSocketEventInterface {
 
   bool HasPendingDataFrames() override { return false; }
 
-  void OnSendFlowControlQuotaAdded(int64_t quota) override;
+  void OnSendDataFrameDone() override;
 
   void OnClosingHandshake() override;
 
@@ -116,7 +116,9 @@ class ConnectTestingEventInterface : public WebSocketEventInterface {
                      uint16_t code,
                      const std::string& reason) override;
 
-  void OnFailChannel(const std::string& message) override;
+  void OnFailChannel(const std::string& message,
+                     int net_error,
+                     base::Optional<int> response_code) override;
 
   void OnStartOpeningHandshake(
       std::unique_ptr<WebSocketHandshakeRequestInfo> request) override;
@@ -169,8 +171,7 @@ std::string ConnectTestingEventInterface::extensions() const {
 void ConnectTestingEventInterface::OnAddChannelResponse(
     std::unique_ptr<WebSocketHandshakeResponseInfo> response,
     const std::string& selected_subprotocol,
-    const std::string& extensions,
-    int64_t send_flow_control_quota) {
+    const std::string& extensions) {
   selected_subprotocol_ = selected_subprotocol;
   extensions_ = extensions;
   QuitNestedEventLoop();
@@ -181,7 +182,7 @@ void ConnectTestingEventInterface::OnDataFrame(bool fin,
                                                base::span<const char> payload) {
 }
 
-void ConnectTestingEventInterface::OnSendFlowControlQuotaAdded(int64_t quota) {}
+void ConnectTestingEventInterface::OnSendDataFrameDone() {}
 
 void ConnectTestingEventInterface::OnClosingHandshake() {}
 
@@ -189,7 +190,10 @@ void ConnectTestingEventInterface::OnDropChannel(bool was_clean,
                                                  uint16_t code,
                                                  const std::string& reason) {}
 
-void ConnectTestingEventInterface::OnFailChannel(const std::string& message) {
+void ConnectTestingEventInterface::OnFailChannel(
+    const std::string& message,
+    int net_error,
+    base::Optional<int> response_code) {
   failed_ = true;
   failure_message_ = message;
   QuitNestedEventLoop();
@@ -293,13 +297,15 @@ class WebSocketEndToEndTest : public TestWithTaskEnvironment {
     url::Origin origin = url::Origin::Create(GURL("http://localhost"));
     net::SiteForCookies site_for_cookies =
         net::SiteForCookies::FromOrigin(origin);
-    net::NetworkIsolationKey network_isolation_key(origin, origin);
+    IsolationInfo isolation_info =
+        IsolationInfo::Create(IsolationInfo::RequestType::kOther, origin,
+                              origin, SiteForCookies::FromOrigin(origin));
     event_interface_ = new ConnectTestingEventInterface();
     channel_ = std::make_unique<WebSocketChannel>(
         base::WrapUnique(event_interface_), &context_);
-    channel_->SendAddChannelRequest(GURL(socket_url), sub_protocols_, origin,
-                                    site_for_cookies, network_isolation_key,
-                                    HttpRequestHeaders());
+    channel_->SendAddChannelRequest(
+        GURL(socket_url), sub_protocols_, origin, site_for_cookies,
+        isolation_info, HttpRequestHeaders(), TRAFFIC_ANNOTATION_FOR_TESTS);
     event_interface_->WaitForResponse();
     return !event_interface_->failed();
   }
@@ -436,7 +442,7 @@ std::unique_ptr<HttpResponse> ProxyPacHandler(const HttpRequest& request) {
 // TODO(ricea): Remove this test if --winhttp-proxy-resolver flag is removed.
 // See crbug.com/644030.
 
-#if defined(OS_WIN) || defined(OS_MACOSX)
+#if defined(OS_WIN) || defined(OS_APPLE)
 #define MAYBE_ProxyPacUsed ProxyPacUsed
 #else
 #define MAYBE_ProxyPacUsed DISABLED_ProxyPacUsed
@@ -465,8 +471,8 @@ TEST_F(WebSocketEndToEndTest, MAYBE_ProxyPacUsed) {
       ProxyConfigWithAnnotation(proxy_config, TRAFFIC_ANNOTATION_FOR_TESTS));
   std::unique_ptr<ProxyResolutionService> proxy_resolution_service(
       ConfiguredProxyResolutionService::CreateUsingSystemProxyResolver(
-          std::move(proxy_config_service), /*quick_check_enabled=*/true,
-          NetLog::Get()));
+          std::move(proxy_config_service), NetLog::Get(),
+          /*quick_check_enabled=*/true));
   ASSERT_EQ(ws_server.host_port_pair().host(), "127.0.0.1");
   context_.set_proxy_resolution_service(proxy_resolution_service.get());
   InitialiseContext();
@@ -498,81 +504,6 @@ TEST_F(WebSocketEndToEndTest, TruncatedResponse) {
   EXPECT_FALSE(ConnectAndWait(ws_url));
 }
 
-// Regression test for crbug.com/455215 "HSTS not applied to WebSocket"
-TEST_F(WebSocketEndToEndTest, HstsHttpsToWebSocket) {
-  EmbeddedTestServer https_server(net::EmbeddedTestServer::Type::TYPE_HTTPS);
-  https_server.SetSSLConfig(
-      net::EmbeddedTestServer::CERT_COMMON_NAME_IS_DOMAIN);
-  https_server.ServeFilesFromSourceDirectory("net/data/url_request_unittest");
-
-  SpawnedTestServer::SSLOptions ssl_options(
-      SpawnedTestServer::SSLOptions::CERT_COMMON_NAME_IS_DOMAIN);
-  SpawnedTestServer wss_server(SpawnedTestServer::TYPE_WSS, ssl_options,
-                               GetWebSocketTestDataDirectory());
-
-  ASSERT_TRUE(https_server.Start());
-  ASSERT_TRUE(wss_server.Start());
-  InitialiseContext();
-  // Set HSTS via https:
-  TestDelegate delegate;
-  GURL https_page = https_server.GetURL("/hsts-headers.html");
-  std::unique_ptr<URLRequest> request(context_.CreateRequest(
-      https_page, DEFAULT_PRIORITY, &delegate, TRAFFIC_ANNOTATION_FOR_TESTS));
-  request->Start();
-  delegate.RunUntilComplete();
-  EXPECT_EQ(OK, delegate.request_status());
-
-  // Check HSTS with ws:
-  // Change the scheme from wss: to ws: to verify that it is switched back.
-  GURL ws_url = ReplaceUrlScheme(wss_server.GetURL(kEchoServer), "ws");
-  EXPECT_TRUE(ConnectAndWait(ws_url));
-}
-
-TEST_F(WebSocketEndToEndTest, HstsWebSocketToHttps) {
-  EmbeddedTestServer https_server(net::EmbeddedTestServer::Type::TYPE_HTTPS);
-  https_server.SetSSLConfig(
-      net::EmbeddedTestServer::CERT_COMMON_NAME_IS_DOMAIN);
-  https_server.ServeFilesFromSourceDirectory("net/data/url_request_unittest");
-
-  SpawnedTestServer::SSLOptions ssl_options(
-      SpawnedTestServer::SSLOptions::CERT_COMMON_NAME_IS_DOMAIN);
-  SpawnedTestServer wss_server(SpawnedTestServer::TYPE_WSS, ssl_options,
-                               GetWebSocketTestDataDirectory());
-  ASSERT_TRUE(https_server.Start());
-  ASSERT_TRUE(wss_server.Start());
-  InitialiseContext();
-  // Set HSTS via wss:
-  GURL wss_url = wss_server.GetURL("set-hsts");
-  EXPECT_TRUE(ConnectAndWait(wss_url));
-
-  // Verify via http:
-  TestDelegate delegate;
-  GURL http_page =
-      ReplaceUrlScheme(https_server.GetURL("/simple.html"), "http");
-  std::unique_ptr<URLRequest> request(context_.CreateRequest(
-      http_page, DEFAULT_PRIORITY, &delegate, TRAFFIC_ANNOTATION_FOR_TESTS));
-  request->Start();
-  delegate.RunUntilComplete();
-  EXPECT_EQ(OK, delegate.request_status());
-  EXPECT_TRUE(request->url().SchemeIs("https"));
-}
-
-TEST_F(WebSocketEndToEndTest, HstsWebSocketToWebSocket) {
-  SpawnedTestServer::SSLOptions ssl_options(
-      SpawnedTestServer::SSLOptions::CERT_COMMON_NAME_IS_DOMAIN);
-  SpawnedTestServer wss_server(SpawnedTestServer::TYPE_WSS, ssl_options,
-                               GetWebSocketTestDataDirectory());
-  ASSERT_TRUE(wss_server.Start());
-  InitialiseContext();
-  // Set HSTS via wss:
-  GURL wss_url = wss_server.GetURL("set-hsts");
-  EXPECT_TRUE(ConnectAndWait(wss_url));
-
-  // Verify via wss:
-  GURL ws_url = ReplaceUrlScheme(wss_server.GetURL(kEchoServer), "ws");
-  EXPECT_TRUE(ConnectAndWait(ws_url));
-}
-
 // Regression test for crbug.com/180504 "WebSocket handshake fails when HTTP
 // headers have trailing LWS".
 TEST_F(WebSocketEndToEndTest, TrailingWhitespace) {
@@ -601,6 +532,161 @@ TEST_F(WebSocketEndToEndTest, HeaderContinuations) {
   EXPECT_TRUE(ConnectAndWait(ws_url));
   EXPECT_EQ("permessage-deflate; server_max_window_bits=10",
             event_interface_->extensions());
+}
+
+// These are not true end-to-end tests as the SpawnedTestServer doesn't
+// support TLS 1.2.
+// TODO(ricea): Make these be true end-to-end tests again when
+// SpawnedTestServer supports TLS 1.2 or EmbeddedTestServer supports
+// WebSockets.
+class WebSocketHstsTest : public TestWithTaskEnvironment {
+ protected:
+  WebSocketHstsTest() : context_(true) {
+    context_.set_client_socket_factory(&socket_factory_);
+    context_.Init();
+  }
+
+  void MakeHttpConnection(const GURL& url) {
+    // Set up SSL details, because otherwise HSTS headers aren't processed.
+    SSLSocketDataProvider ssl_socket_data(net::ASYNC, net::OK);
+    ssl_socket_data.ssl_info.cert =
+        ImportCertFromFile(GetTestCertsDirectory(), "ok_cert.pem");
+    ssl_socket_data.ssl_info.is_issued_by_known_root = true;
+    ssl_socket_data.ssl_info.ct_policy_compliance =
+        ct::CTPolicyCompliance::CT_POLICY_COMPLIES_VIA_SCTS;
+    ssl_socket_data.ssl_info.cert_status = 0;
+    socket_factory_.AddSSLSocketDataProvider(&ssl_socket_data);
+
+    req_ = context_.CreateRequest(url, DEFAULT_PRIORITY, &delegate_,
+                                  TRAFFIC_ANNOTATION_FOR_TESTS);
+
+    MockWrite writes[] = {
+        MockWrite("GET / HTTP/1.1\r\n"
+                  "Host: www.example.org\r\n"
+                  "Connection: keep-alive\r\n"
+                  "User-Agent: \r\n"
+                  "Accept-Encoding: gzip, deflate\r\n"
+                  "Accept-Language: en-us,fr\r\n\r\n")};
+    MockRead reads[] = {MockRead("HTTP/1.1 200 OK\r\n"
+                                 "Strict-Transport-Security: max-age=123; "
+                                 "includeSubdomains\r\n\r\n"),
+                        MockRead(ASYNC, 0)};
+
+    StaticSocketDataProvider data(reads, writes);
+    socket_factory_.AddSocketDataProvider(&data);
+
+    req_->Start();
+    base::RunLoop().RunUntilIdle();
+  }
+
+  void MakeWebsocketConnection(const GURL& url) {
+    // Set up SSL details, because otherwise HSTS headers aren't processed.
+    SSLSocketDataProvider ssl_socket_data(net::ASYNC, net::OK);
+    ssl_socket_data.ssl_info.cert =
+        ImportCertFromFile(GetTestCertsDirectory(), "ok_cert.pem");
+    ssl_socket_data.ssl_info.is_issued_by_known_root = true;
+    ssl_socket_data.ssl_info.ct_policy_compliance =
+        ct::CTPolicyCompliance::CT_POLICY_COMPLIES_VIA_SCTS;
+    ssl_socket_data.ssl_info.cert_status = 0;
+    socket_factory_.AddSSLSocketDataProvider(&ssl_socket_data);
+
+    req_ = context_.CreateRequest(url, DEFAULT_PRIORITY, &delegate_,
+                                  TRAFFIC_ANNOTATION_FOR_TESTS);
+
+    HttpRequestHeaders headers;
+    headers.SetHeader("Connection", "Upgrade");
+    headers.SetHeader("Upgrade", "websocket");
+    headers.SetHeader("Origin", "null");
+    headers.SetHeader("Sec-WebSocket-Version", "13");
+    req_->SetExtraRequestHeaders(headers);
+
+    MockWrite writes[] = {
+        MockWrite("GET / HTTP/1.1\r\n"
+                  "Host: www.example.org\r\n"
+                  "Connection: Upgrade\r\n"
+                  "Upgrade: websocket\r\n"
+                  "Origin: null\r\n"
+                  "Sec-WebSocket-Version: 13\r\n"
+                  "User-Agent: \r\n"
+                  "Accept-Encoding: gzip, deflate\r\n"
+                  "Accept-Language: en-us,fr\r\n"
+                  "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+                  "Sec-WebSocket-Extensions: permessage-deflate; "
+                  "client_max_window_bits\r\n\r\n")};
+    MockRead reads[] = {
+        MockRead("HTTP/1.1 101 Switching Protocols\r\n"
+                 "Upgrade: websocket\r\n"
+                 "Connection: Upgrade\r\n"
+                 "Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n"
+                 "Strict-Transport-Security: max-age=123; "
+                 "includeSubdomains\r\n\r\n"),
+        MockRead(ASYNC, 0)};
+
+    StaticSocketDataProvider data(reads, writes);
+    socket_factory_.AddSocketDataProvider(&data);
+
+    req_->SetUserData(
+        kWebSocketHandshakeUserDataKey,
+        std::make_unique<TestWebSocketHandshakeStreamCreateHelper>());
+    req_->SetLoadFlags(LOAD_DISABLE_CACHE);
+    req_->Start();
+    base::RunLoop().RunUntilIdle();
+  }
+
+  TestURLRequestContext context_;
+  MockClientSocketFactory socket_factory_;
+  TestDelegate delegate_;
+  std::unique_ptr<URLRequest> req_;
+};
+
+// Regression test for crbug.com/455215 "HSTS not applied to WebSocket"
+TEST_F(WebSocketHstsTest, HTTPSToWebSocket) {
+  // Set HSTS via https:
+  MakeHttpConnection(GURL("https://www.example.org"));
+  EXPECT_EQ(OK, delegate_.request_status());
+
+  ASSERT_TRUE(context_.transport_security_state()->ShouldUpgradeToSSL(
+      "www.example.org"));
+
+  // Check HSTS by starting a request over ws: and verifying that it gets
+  // ugpraded to wss:.
+  MakeWebsocketConnection(GURL("ws://www.example.org"));
+  EXPECT_EQ(OK, delegate_.request_status());
+  EXPECT_TRUE(delegate_.response_completed());
+  EXPECT_TRUE(req_->url().SchemeIs("wss"));
+}
+
+TEST_F(WebSocketHstsTest, WebSocketToHTTP) {
+  // Set HSTS via wss:
+  MakeWebsocketConnection(GURL("wss://www.example.org"));
+  EXPECT_EQ(OK, delegate_.request_status());
+  EXPECT_TRUE(delegate_.response_completed());
+
+  ASSERT_TRUE(context_.transport_security_state()->ShouldUpgradeToSSL(
+      "www.example.org"));
+
+  // Check HSTS by starting a request over http: and verifying that it gets
+  // ugpraded to https:.
+  MakeHttpConnection(GURL("http://www.example.org"));
+  EXPECT_EQ(OK, delegate_.request_status());
+  EXPECT_TRUE(req_->url().SchemeIs("https"));
+}
+
+TEST_F(WebSocketHstsTest, WebSocketToWebSocket) {
+  // Set HSTS via wss:
+  MakeWebsocketConnection(GURL("wss://www.example.org"));
+  EXPECT_EQ(OK, delegate_.request_status());
+  EXPECT_TRUE(delegate_.response_completed());
+
+  ASSERT_TRUE(context_.transport_security_state()->ShouldUpgradeToSSL(
+      "www.example.org"));
+
+  // Check HSTS by starting a request over ws: and verifying that it gets
+  // ugpraded to wss:.
+  MakeWebsocketConnection(GURL("ws://www.example.org"));
+  EXPECT_EQ(OK, delegate_.request_status());
+  EXPECT_TRUE(delegate_.response_completed());
+  EXPECT_TRUE(req_->url().SchemeIs("wss"));
 }
 
 }  // namespace

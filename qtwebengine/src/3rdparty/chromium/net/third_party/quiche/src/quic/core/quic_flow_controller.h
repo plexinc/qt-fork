@@ -5,8 +5,8 @@
 #ifndef QUICHE_QUIC_CORE_QUIC_FLOW_CONTROLLER_H_
 #define QUICHE_QUIC_CORE_QUIC_FLOW_CONTROLLER_H_
 
-#include "net/third_party/quiche/src/quic/core/quic_packets.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
+#include "quic/core/quic_packets.h"
+#include "quic/platform/api/quic_export.h"
 
 namespace quic {
 
@@ -77,6 +77,8 @@ class QUIC_EXPORT_PRIVATE QuicFlowController
   // Returns the current available send window.
   QuicByteCount SendWindowSize() const;
 
+  QuicByteCount receive_window_size() const { return receive_window_size_; }
+
   // Returns whether a BLOCKED frame should be sent.
   bool ShouldSendBlocked();
 
@@ -91,12 +93,16 @@ class QUIC_EXPORT_PRIVATE QuicFlowController
 
   QuicByteCount bytes_consumed() const { return bytes_consumed_; }
 
+  QuicByteCount bytes_sent() const { return bytes_sent_; }
+
+  QuicStreamOffset send_window_offset() const { return send_window_offset_; }
+
   QuicStreamOffset highest_received_byte_offset() const {
     return highest_received_byte_offset_;
   }
 
   void set_receive_window_size_limit(QuicByteCount receive_window_size_limit) {
-    DCHECK_GE(receive_window_size_limit, receive_window_size_limit_);
+    QUICHE_DCHECK_GE(receive_window_size_limit, receive_window_size_limit_);
     receive_window_size_limit_ = receive_window_size_limit;
   }
 
@@ -190,7 +196,7 @@ class QUIC_EXPORT_PRIVATE QuicFlowController
   // Used to dynamically enable receive window auto-tuning.
   bool auto_tune_receive_window_;
 
-  // The session's flow controller.  null if this is stream id 0.
+  // The session's flow controller. Null if this is the session flow controller.
   // Not owned.
   QuicFlowControllerInterface* session_flow_controller_;
 

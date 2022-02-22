@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -47,21 +47,61 @@
 */
 
 /*!
-    \externalpage http://www.ietf.org/rfc/rfc4648.txt
-    \title RFC 4648
-*/
-
-/*!
     \externalpage http://www.iana.org/assignments/character-sets/character-sets.xml
     \title IANA character-sets encoding file
 */
 
 /*!
-    \externalpage http://marcmutz.wordpress.com/effective-qt/containers/#containers-qlist
+    \externalpage https://marcmutz.wordpress.com/effective-qt/containers/#containers-qlist
     \title Pros and Cons of Using QList
 */
 
 /*!
-    \externalpage http://marcmutz.wordpress.com/effective-qt/containers/
+    \externalpage https://marcmutz.wordpress.com/effective-qt/containers/
     \title Understand the Qt Containers
+*/
+
+/*!
+    \externalpage https://developer.android.com/training/articles/perf-jni#javavm-and-jnienv
+    \title JNI tips: JavaVM and JNIEnv
+*/
+
+/*!
+    \externalpage https://docs.oracle.com/javase/7/docs/technotes/guides/jni/spec/jniTOC.html
+    \title Java Native Interface Specification
+*/
+
+/*!
+    \externalpage https://docs.oracle.com/javase/7/docs/technotes/guides/jni/spec/functions.html
+    \title Java: JNI Functions
+*/
+
+/*!
+    \externalpage https://docs.oracle.com/javase/8/docs/technotes/guides/jni/spec/design.html#global_and_local_references
+    \title JNI Design Overview: Global and Local References
+*/
+
+/*!
+    \externalpage https://developer.android.com/training/articles/perf-jni#local-and-global-references
+    \title JNI tips: Local and global references
+*/
+
+/*!
+    \externalpage https://docs.oracle.com/javase/7/docs/technotes/guides/jni/spec/invocation.html#attach_current_thread
+    \title Java: AttachCurrentThread
+*/
+
+/*!
+    \externalpage https://docs.oracle.com/en/java/javase/13/docs/specs/jni/functions.html#interface-function-table
+    \title Java: Interface Function Table
+*/
+
+/*!
+    \externalpage https://doc.qt.io/qtcreator/creator-deploying-android.html#editing-manifest-files
+    \title Qt Creator: Editing Manifest Files
+*/
+
+/*!
+    \externalpage https://developer.android.com/training/articles/perf-anr
+    \title Android: Keeping your app responsive
 */

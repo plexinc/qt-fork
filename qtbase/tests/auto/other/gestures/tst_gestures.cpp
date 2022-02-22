@@ -27,11 +27,11 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QtTest/qtesttouch.h>
 
 #include <qevent.h>
-#include <qtouchdevice.h>
+#include <qpointingdevice.h>
 #include <qwidget.h>
 #include <qlayout.h>
 #include <qgesture.h>
@@ -54,7 +54,7 @@ class CustomGesture : public QGesture
 public:
     static Qt::GestureType GestureType;
 
-    CustomGesture(QObject *parent = 0)
+    CustomGesture(QObject *parent = nullptr)
         : QGesture(parent), serial(0)
     {
     }
@@ -98,12 +98,12 @@ public:
             CustomEvent::EventType = QEvent::registerEventType();
     }
 
-    QGesture* create(QObject *)
+    QGesture* create(QObject *) override
     {
         return new CustomGesture;
     }
 
-    QGestureRecognizer::Result recognize(QGesture *state, QObject*, QEvent *event)
+    QGestureRecognizer::Result recognize(QGesture *state, QObject*, QEvent *event) override
     {
         if (event->type() == CustomEvent::EventType) {
             QGestureRecognizer::Result result;
@@ -127,7 +127,7 @@ public:
         return QGestureRecognizer::Ignore;
     }
 
-    void reset(QGesture *state)
+    void reset(QGesture *state) override
     {
         CustomGesture *g = static_cast<CustomGesture *>(state);
         g->serial = 0;
@@ -146,12 +146,12 @@ public:
             CustomEvent::EventType = QEvent::registerEventType();
     }
 
-    QGesture* create(QObject *)
+    QGesture* create(QObject *) override
     {
         return new CustomGesture;
     }
 
-    QGestureRecognizer::Result recognize(QGesture *state, QObject*, QEvent *event)
+    QGestureRecognizer::Result recognize(QGesture *state, QObject*, QEvent *event) override
     {
         if (event->type() == CustomEvent::EventType) {
             QGestureRecognizer::Result result = QGestureRecognizer::ConsumeEventHint;
@@ -171,7 +171,7 @@ public:
         return QGestureRecognizer::Ignore;
     }
 
-    void reset(QGesture *state)
+    void reset(QGesture *state) override
     {
         CustomGesture *g = static_cast<CustomGesture *>(state);
         g->serial = 0;
@@ -183,7 +183,7 @@ class GestureWidget : public QWidget
 {
     Q_OBJECT
 public:
-    GestureWidget(const char *name = 0, QWidget *parent = 0)
+    GestureWidget(const char *name = nullptr, QWidget *parent = nullptr)
         : QWidget(parent)
     {
         if (name)
@@ -226,7 +226,7 @@ public:
     QSet<Qt::GestureType> ignoredGestures;
 
 protected:
-    bool event(QEvent *event)
+    bool event(QEvent *event) override
     {
         Events *eventsPtr = 0;
         if (event->type() == QEvent::Gesture) {
@@ -720,17 +720,17 @@ public:
         ignoredFinishedGestures.clear();
     }
 
-    QRectF boundingRect() const
+    QRectF boundingRect() const override
     {
         return size;
     }
-    void paint(QPainter *p, const QStyleOptionGraphicsItem *, QWidget *)
+    void paint(QPainter *p, const QStyleOptionGraphicsItem *, QWidget *) override
     {
         QColor color = InstanceColors[instanceNumber % (sizeof(InstanceColors)/sizeof(InstanceColors[0]))];
         p->fillRect(boundingRect(), color);
     }
 
-    bool event(QEvent *event)
+    bool event(QEvent *event) override
     {
         Events *eventsPtr = 0;
         if (event->type() == QEvent::Gesture) {
@@ -1395,7 +1395,7 @@ void tst_Gestures::ungrabGesture() // a method on QWidget
 {
     class MockGestureWidget : public GestureWidget {
     public:
-        MockGestureWidget(const char *name = 0, QWidget *parent = 0)
+        MockGestureWidget(const char *name = nullptr, QWidget *parent = nullptr)
             : GestureWidget(name, parent) { }
 
 
@@ -1483,7 +1483,7 @@ void tst_Gestures::autoCancelGestures()
       public:
         MockWidget(const char *name) : GestureWidget(name), badGestureEvents(0) { }
 
-        bool event(QEvent *event)
+        bool event(QEvent *event) override
         {
             if (event->type() == QEvent::Gesture) {
                 QGestureEvent *ge = static_cast<QGestureEvent*>(event);
@@ -1538,7 +1538,8 @@ void tst_Gestures::autoCancelGestures2()
       public:
         MockItem(const char *name) : GestureItem(name), badGestureEvents(0) { }
 
-        bool event(QEvent *event) {
+        bool event(QEvent *event) override
+        {
             if (event->type() == QEvent::Gesture) {
                 QGestureEvent *ge = static_cast<QGestureEvent*>(event);
                 if (ge->gestures().count() != 1)
@@ -1821,7 +1822,7 @@ void tst_Gestures::deleteMacPanGestureRecognizerTargetWidget()
     window.show();
 
     QVERIFY(QTest::qWaitForWindowExposed(&window));
-    QTouchDevice *device = QTest::createTouchDevice();
+    QPointingDevice *device = QTest::createTouchDevice();
     // QMacOSPenGestureRecognizer will start a timer on a touch press event
     QTest::touchEvent(&window, device).press(1, QPoint(100, 100), &window);
     delete view;
@@ -1923,7 +1924,7 @@ void tst_Gestures::deleteGestureTargetItem()
 class GraphicsView : public QGraphicsView
 {
 public:
-    GraphicsView(QGraphicsScene *scene, QWidget *parent = 0)
+    GraphicsView(QGraphicsScene *scene, QWidget *parent = nullptr)
         : QGraphicsView(scene, parent)
     {
     }
@@ -2029,7 +2030,8 @@ public:
     enum PanType { Platform, Default, Custom };
 
     PanRecognizer(int id) : m_id(id) {}
-    QGesture *create(QObject *) {
+    QGesture *create(QObject *) override
+    {
         switch(m_id) {
         case Platform: return new WinNativePan();
         case Default:  return new Pan();
@@ -2037,7 +2039,7 @@ public:
         }
     }
 
-    Result recognize(QGesture *, QObject *, QEvent *) { return QGestureRecognizer::Ignore; }
+    Result recognize(QGesture *, QObject *, QEvent *) override { return QGestureRecognizer::Ignore; }
 
     const int m_id;
 };
@@ -2087,19 +2089,21 @@ public:
 
     ReuseCanceledGesturesRecognizer(Type type) : m_type(type) {}
 
-    QGesture *create(QObject *) {
+    QGesture *create(QObject *) override
+    {
         QGesture *g = new QGesture;
         return g;
     }
 
-    Result recognize(QGesture *gesture, QObject *, QEvent *event) {
+    Result recognize(QGesture *gesture, QObject *, QEvent *event) override
+    {
         QMouseEvent *me = static_cast<QMouseEvent *>(event);
         Qt::MouseButton mouseButton(m_type == LmbType ? Qt::LeftButton : Qt::RightButton);
 
         switch(event->type()) {
         case QEvent::MouseButtonPress:
             if (me->button() == mouseButton && gesture->state() == Qt::NoGesture) {
-                gesture->setHotSpot(QPointF(me->globalPos()));
+                gesture->setHotSpot(QPointF(me->globalPosition().toPoint()));
                 if (m_type == RmbAndCancelAllType)
                     gesture->setGestureCancelPolicy(QGesture::CancelAllInContext);
                 return QGestureRecognizer::TriggerGesture;
@@ -2120,14 +2124,15 @@ private:
 class ReuseCanceledGesturesWidget : public QGraphicsWidget
 {
   public:
-    ReuseCanceledGesturesWidget(Qt::GestureType gestureType = Qt::TapGesture, QGraphicsItem *parent = 0)
+    ReuseCanceledGesturesWidget(Qt::GestureType gestureType = Qt::TapGesture, QGraphicsItem *parent = nullptr)
         : QGraphicsWidget(parent),
         m_gestureType(gestureType),
         m_started(0), m_updated(0), m_canceled(0), m_finished(0)
     {
     }
 
-    bool event(QEvent *event) {
+    bool event(QEvent *event) override
+    {
         if (event->type() == QEvent::Gesture) {
             QGesture *gesture = static_cast<QGestureEvent*>(event)->gesture(m_gestureType);
             if (gesture) {
@@ -2310,7 +2315,8 @@ class NoConsumeWidgetBug13501 :public QWidget
 {
     Q_OBJECT
 protected:
-    bool event(QEvent *e) {
+    bool event(QEvent *e) override
+    {
         if(e->type() == QEvent::Gesture) {
             return false;
         }
@@ -2327,7 +2333,7 @@ void tst_Gestures::bug_13501_gesture_not_accepted()
     w.show();
     QVERIFY(QTest::qWaitForWindowExposed(&w));
     //QTest::mousePress(&ignoreEvent, Qt::LeftButton);
-    QTouchDevice *device = QTest::createTouchDevice();
+    QPointingDevice *device = QTest::createTouchDevice();
     QTest::touchEvent(&w, device).press(0, QPoint(10, 10), &w);
 }
 

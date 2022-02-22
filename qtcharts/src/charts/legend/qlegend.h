@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the Qt Charts module of the Qt Toolkit.
@@ -35,7 +35,7 @@
 #include <QtGui/QPen>
 #include <QtGui/QBrush>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class QChart;
 class QLegendPrivate;
@@ -63,13 +63,17 @@ public:
         MarkerShapeDefault,
         MarkerShapeRectangle,
         MarkerShapeCircle,
-        MarkerShapeFromSeries
+        MarkerShapeFromSeries,
+        MarkerShapeRotatedRectangle,
+        MarkerShapeTriangle,
+        MarkerShapeStar,
+        MarkerShapePentagon
     };
     Q_ENUMS(MarkerShape)
 
     ~QLegend();
 
-    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget = nullptr);
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget = nullptr) override;
 
     void setBrush(const QBrush &brush);
     QBrush brush() const;
@@ -107,12 +111,15 @@ public:
     bool showToolTips() const;
     void setShowToolTips(bool show);
 
+    bool isInteractive() const;
+    void setInteractive(bool interactive);
+
     MarkerShape markerShape() const;
     void setMarkerShape(MarkerShape shape);
 
 protected:
-    void hideEvent(QHideEvent *event);
-    void showEvent(QShowEvent *event);
+    void hideEvent(QHideEvent *event) override;
+    void showEvent(QShowEvent *event) override;
 
 Q_SIGNALS:
     void backgroundVisibleChanged(bool visible);
@@ -123,17 +130,20 @@ Q_SIGNALS:
     void reverseMarkersChanged(bool reverseMarkers);
     void showToolTipsChanged(bool showToolTips);
     void markerShapeChanged(MarkerShape shape);
+    Q_REVISION(6, 2) void attachedToChartChanged(bool attachedToChart);
+    void interactiveChanged(bool interactive);
 
 private:
     QScopedPointer<QLegendPrivate> d_ptr;
     Q_DISABLE_COPY(QLegend)
     friend class LegendScroller;
     friend class LegendLayout;
+    friend class LegendMoveResizeHandler;
     friend class ChartLayout;
     friend class LegendMarkerItem;
     friend class QLegendMarkerPrivate;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // QLEGEND_H

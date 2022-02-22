@@ -6,10 +6,11 @@
 
 #include <stdint.h>
 
+#include <memory>
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -21,13 +22,13 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/task_environment.h"
 #include "components/services/storage/dom_storage/legacy_dom_storage_database.h"
 #include "components/services/storage/dom_storage/storage_area_test_util.h"
 #include "components/services/storage/dom_storage/testing_legacy_session_storage_database.h"
-#include "mojo/core/embedder/embedder.h"
 #include "mojo/public/cpp/bindings/remote.h"
+#include "mojo/public/cpp/system/functions.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/features.h"
 #include "url/gurl.h"
@@ -57,23 +58,18 @@ class SessionStorageImplTest : public testing::Test {
   SessionStorageImplTest() { CHECK(temp_dir_.CreateUniqueTempDir()); }
 
   ~SessionStorageImplTest() override {
-    // There may be pending tasks to clean up files in the temp dir. Make sure
-    // they run so temp dir deletion can succeed.
-    RunUntilIdle();
-
     EXPECT_TRUE(temp_dir_.Delete());
   }
 
   void SetUp() override {
-    mojo::core::SetDefaultProcessErrorCallback(base::BindRepeating(
+    mojo::SetDefaultProcessErrorHandler(base::BindRepeating(
         &SessionStorageImplTest::OnBadMessage, base::Unretained(this)));
   }
 
   void TearDown() override {
     if (session_storage_)
       ShutDownSessionStorage();
-    mojo::core::SetDefaultProcessErrorCallback(
-        mojo::core::ProcessErrorCallback());
+    mojo::SetDefaultProcessErrorHandler(base::NullCallback());
   }
 
   void OnBadMessage(const std::string& reason) { bad_message_called_ = true; }
@@ -83,22 +79,30 @@ class SessionStorageImplTest : public testing::Test {
     backing_mode_ = backing_mode;
   }
 
-  SessionStorageImpl* session_storage() {
+  SessionStorageImpl* session_storage_impl() {
     if (!session_storage_) {
       remote_session_storage_.reset();
-      session_storage_ = new SessionStorageImpl(
+      session_storage_ = std::make_unique<SessionStorageImpl>(
           temp_path(), blocking_task_runner_,
           base::SequencedTaskRunnerHandle::Get(), backing_mode_,
           kSessionStorageDirectory,
           remote_session_storage_.BindNewPipeAndPassReceiver());
     }
-    return session_storage_;
+    return session_storage_.get();
+  }
+
+  mojom::SessionStorageControl* session_storage() {
+    session_storage_impl();
+    return remote_session_storage_.get();
   }
 
   void ShutDownSessionStorage() {
-    session_storage_->ShutdownAndDelete();
-    session_storage_ = nullptr;
-    RunUntilIdle();
+    remote_session_storage_.FlushForTesting();
+
+    base::RunLoop loop;
+    session_storage_->ShutDown(loop.QuitClosure());
+    loop.Run();
+    session_storage_.reset();
   }
 
   void DoTestPut(const std::string& namespace_id,
@@ -144,6 +148,7 @@ class SessionStorageImplTest : public testing::Test {
  protected:
   const base::FilePath& temp_path() const { return temp_dir_.GetPath(); }
   void RunUntilIdle() { task_environment_.RunUntilIdle(); }
+  void FlushMojo() { remote_session_storage_.FlushForTesting(); }
 
   bool bad_message_called_ = false;
 
@@ -155,7 +160,7 @@ class SessionStorageImplTest : public testing::Test {
   scoped_refptr<base::SequencedTaskRunner> blocking_task_runner_{
       base::ThreadPool::CreateSequencedTaskRunner(
           {base::MayBlock(), base::TaskShutdownBehavior::BLOCK_SHUTDOWN})};
-  SessionStorageImpl* session_storage_ = nullptr;
+  std::unique_ptr<SessionStorageImpl> session_storage_;
   mojo::Remote<mojom::SessionStorageControl> remote_session_storage_;
 
   DISALLOW_COPY_AND_ASSIGN(SessionStorageImplTest);
@@ -409,6 +414,7 @@ TEST_F(SessionStorageImplTest, ImmediateCloning) {
 
   // Delete that namespace, copy again after a put.
   session_storage()->DeleteNamespace(namespace_id2, false);
+  FlushMojo();
 
   // Put some data.
   EXPECT_TRUE(test::PutSync(area_n1.get(), StringPieceToUint8Vector("key1"),
@@ -430,6 +436,7 @@ TEST_F(SessionStorageImplTest, ImmediateCloning) {
   }
 
   session_storage()->DeleteNamespace(namespace_id2, false);
+  FlushMojo();
 
   // Verify that cloning from the namespace object will result in a bad message.
   session_storage()->CloneNamespace(namespace_id1, namespace_id2,
@@ -587,7 +594,7 @@ TEST_F(SessionStorageImplTest, CorruptionOnDisk) {
                                  FILE_PATH_LITERAL("MANIFEST*"));
   for (base::FilePath name = file_enum.Next(); !name.empty();
        name = file_enum.Next()) {
-    base::DeleteFile(name, false);
+    base::DeleteFile(name);
   }
   opt_value = DoTestGet(namespace_id, origin, "key");
   EXPECT_FALSE(opt_value);
@@ -613,7 +620,7 @@ TEST_F(SessionStorageImplTest, RecreateOnCommitFailure) {
   base::Optional<base::RunLoop> open_loop;
   size_t num_database_open_requests = 0;
   size_t num_databases_destroyed = 0;
-  session_storage()->SetDatabaseOpenCallbackForTesting(
+  session_storage_impl()->SetDatabaseOpenCallbackForTesting(
       base::BindLambdaForTesting([&] {
         ++num_database_open_requests;
         open_loop->Quit();
@@ -642,7 +649,7 @@ TEST_F(SessionStorageImplTest, RecreateOnCommitFailure) {
   open_loop->Run();
 
   // Ensure that the first opened database always fails to write data.
-  session_storage()->GetDatabaseForTesting().PostTaskWithThisObject(
+  session_storage_impl()->GetDatabaseForTesting().PostTaskWithThisObject(
       FROM_HERE, base::BindLambdaForTesting([&](DomStorageDatabase* db) {
         db->MakeAllCommitsFailForTesting();
         db->SetDestructionCallbackForTesting(
@@ -659,8 +666,7 @@ TEST_F(SessionStorageImplTest, RecreateOnCommitFailure) {
 
   // Also prepare for another database connection, next time providing a
   // functioning database.
-  open_loop.emplace();
-  session_storage()->SetDatabaseOpenCallbackForTesting(
+  session_storage_impl()->SetDatabaseOpenCallbackForTesting(
       base::BindLambdaForTesting([&] {
         ++num_database_open_requests;
         open_loop->Quit();
@@ -691,7 +697,7 @@ TEST_F(SessionStorageImplTest, RecreateOnCommitFailure) {
     RunUntilIdle();
     // And we need to flush after every change. Otherwise changes get batched up
     // and only one commit is done some time later.
-    session_storage()->FlushAreaForTesting(namespace_id, origin1);
+    session_storage_impl()->FlushAreaForTesting(namespace_id, origin1);
   }
   area_o1.reset();
 
@@ -746,7 +752,7 @@ TEST_F(SessionStorageImplTest, DontRecreateOnRepeatedCommitFailure) {
   base::Optional<base::RunLoop> open_loop;
   size_t num_database_open_requests = 0;
   size_t num_databases_destroyed = 0;
-  session_storage()->SetDatabaseOpenCallbackForTesting(
+  session_storage_impl()->SetDatabaseOpenCallbackForTesting(
       base::BindLambdaForTesting([&] {
         ++num_database_open_requests;
         open_loop->Quit();
@@ -762,7 +768,7 @@ TEST_F(SessionStorageImplTest, DontRecreateOnRepeatedCommitFailure) {
   open_loop->Run();
 
   // Ensure that this database always fails to write data.
-  session_storage()->GetDatabaseForTesting().PostTaskWithThisObject(
+  session_storage_impl()->GetDatabaseForTesting().PostTaskWithThisObject(
       FROM_HERE, base::BindLambdaForTesting([&](DomStorageDatabase* db) {
         db->MakeAllCommitsFailForTesting();
         db->SetDestructionCallbackForTesting(
@@ -776,14 +782,14 @@ TEST_F(SessionStorageImplTest, DontRecreateOnRepeatedCommitFailure) {
   // reconnect to the database, which should happen after several commit
   // errors.
   open_loop.emplace();
-  session_storage()->SetDatabaseOpenCallbackForTesting(
+  session_storage_impl()->SetDatabaseOpenCallbackForTesting(
       base::BindLambdaForTesting([&] {
         ++num_database_open_requests;
         open_loop->Quit();
 
         // Ensure that this database also always fails to write data.
-        session_storage()->GetDatabaseForTesting().Post(
-            FROM_HERE, &DomStorageDatabase::MakeAllCommitsFailForTesting);
+        session_storage_impl()->GetDatabaseForTesting().AsyncCall(
+            &DomStorageDatabase::MakeAllCommitsFailForTesting);
       }));
 
   // Repeatedly write data to the database, to trigger enough commit errors.
@@ -799,7 +805,7 @@ TEST_F(SessionStorageImplTest, DontRecreateOnRepeatedCommitFailure) {
     RunUntilIdle();
     // And we need to flush after every change. Otherwise changes get batched up
     // and only one commit is done some time later.
-    session_storage()->FlushAreaForTesting(namespace_id, origin1);
+    session_storage_impl()->FlushAreaForTesting(namespace_id, origin1);
 
     old_value = value;
     value[0]++;
@@ -832,7 +838,7 @@ TEST_F(SessionStorageImplTest, DontRecreateOnRepeatedCommitFailure) {
     RunUntilIdle();
     // And we need to flush after every change. Otherwise changes get batched up
     // and only one commit is done some time later.
-    session_storage()->FlushAreaForTesting(namespace_id, origin1);
+    session_storage_impl()->FlushAreaForTesting(namespace_id, origin1);
 
     old_value = value;
     value[0]++;
@@ -931,13 +937,13 @@ TEST_F(SessionStorageImplTest, PurgeInactiveWrappers) {
   EXPECT_TRUE(test::PutSync(area.get(), StringPieceToUint8Vector("key1"),
                             StringPieceToUint8Vector("value1"), base::nullopt,
                             "source1"));
-  session_storage()->FlushAreaForTesting(namespace_id1, origin1);
+  session_storage_impl()->FlushAreaForTesting(namespace_id1, origin1);
 
   area.reset();
 
   // Clear all the data from the backing database.
   base::RunLoop loop;
-  session_storage()->DatabaseForTesting()->DeletePrefixed(
+  session_storage_impl()->DatabaseForTesting()->DeletePrefixed(
       StringPieceToUint8Vector("map"),
       base::BindLambdaForTesting([&](leveldb::Status status) {
         loop.Quit();
@@ -1147,17 +1153,17 @@ TEST_F(SessionStorageImplTest, PurgeMemoryDoesNotCrashOrHang) {
                             StringPieceToUint8Vector("value2"), base::nullopt,
                             "source1"));
 
-  session_storage()->FlushAreaForTesting(namespace_id1, origin1);
+  session_storage_impl()->FlushAreaForTesting(namespace_id1, origin1);
 
   area_n2.reset();
 
   RunUntilIdle();
 
   // Verify this doesn't crash or hang.
-  session_storage()->PurgeMemory();
+  session_storage_impl()->PurgeMemory();
 
-  size_t memory_used = session_storage()
-                           ->namespaces_[namespace_id1]
+  size_t memory_used = session_storage_impl()
+                           ->GetNamespaceForTesting(namespace_id1)
                            ->origin_areas_[origin1]
                            ->data_map()
                            ->storage_area()
@@ -1279,6 +1285,43 @@ TEST_F(SessionStorageImplTest, DeleteAfterCloneWithoutMojoClone) {
   std::vector<blink::mojom::KeyValuePtr> data;
   EXPECT_TRUE(test::GetAllSync(area_n2.get(), &data));
   EXPECT_EQ(1ul, data.size());
+}
+
+// Regression test for https://crbug.com/1128318
+TEST_F(SessionStorageImplTest, Bug1128318) {
+  std::string namespace_id1 = base::GenerateGUID();
+  std::string namespace_id2 = base::GenerateGUID();
+  std::string namespace_id3 = base::GenerateGUID();
+
+  // Create two namespaces by cloning.
+  session_storage()->CloneNamespace(
+      namespace_id1, namespace_id2,
+      mojom::SessionStorageCloneType::kWaitForCloneOnNamespace);
+  session_storage()->CloneNamespace(
+      namespace_id2, namespace_id3,
+      mojom::SessionStorageCloneType::kWaitForCloneOnNamespace);
+  // And delete both namespaces again. Since namespace_id2 has child namespaces
+  // that are waiting for a clone (namespace_id3), the delete will not complete
+  // until the database has been initialized.
+  session_storage()->DeleteNamespace(namespace_id2, false);
+  session_storage()->DeleteNamespace(namespace_id3, false);
+  // Now recreate one of the namespaces. The previous delete should have fully
+  // completed before the namespace is recreated to prevent any dangling
+  // references.
+  session_storage()->CloneNamespace(
+      namespace_id2, namespace_id3,
+      mojom::SessionStorageCloneType::kWaitForCloneOnNamespace);
+  RunUntilIdle();
+
+  // At this point `namespace_id3` should be alive. It should not exist in meta
+  // data yet, as that would only be populated once the actual clone happens.
+  // As such, the namespace_entry for the namespace should be null.
+  auto* ns = session_storage_impl()->GetNamespaceForTesting(namespace_id3);
+  EXPECT_TRUE(ns);
+  EXPECT_FALSE(base::Contains(
+      session_storage_impl()->GetMetadataForTesting().namespace_origin_map(),
+      namespace_id3));
+  EXPECT_EQ(ns->namespace_entry(), SessionStorageMetadata::NamespaceEntry());
 }
 
 }  // namespace storage

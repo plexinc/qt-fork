@@ -28,6 +28,9 @@ class RenderFrameHost;
 // All methods of this class should be called from the UI thread.
 class CONTENT_EXPORT BackForwardCache {
  public:
+  // Returns true if BackForwardCache is enabled.
+  static bool IsBackForwardCacheFeatureEnabled();
+
   // Prevents the |render_frame_host| from entering the BackForwardCache. A
   // RenderFrameHost can only enter the BackForwardCache if the main one and all
   // its children can. This action can not be undone. Any document that is
@@ -51,19 +54,6 @@ class CONTENT_EXPORT BackForwardCache {
   // its |id| can be used.
   static void DisableForRenderFrameHost(GlobalFrameRoutingId id,
                                         base::StringPiece reason);
-
-  // If the RenderFrameHost referenced by |id| is in the BackForwardCache cache
-  // this method will evict it and return true. A reason can be provided for
-  // logging and metrics purposes. On the other hand, if the RenderFrameHost is
-  // not cached or it no longer exists, nothing happens and false is returned.
-  //
-  // Calling this method will not prevent this RenderFrameHost from entering the
-  // back-forward cache in the future as opposed to the
-  // DisableForRenderFrameHost methods.
-  //
-  // This method is useful to gate operations that are not allowed while a
-  // document is in the cache.
-  static bool EvictIfCached(GlobalFrameRoutingId id, base::StringPiece reason);
 
   // List of reasons the BackForwardCache was disabled for a specific test. If a
   // test needs to be disabled for a reason not covered below, please add to

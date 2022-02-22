@@ -43,7 +43,7 @@ To use the \l{Qt Quick} module, a QML document needs to
 import it. The import syntax looks like this:
 
 \code
-import QtQuick 2.3
+import QtQuick
 \endcode
 
 The types and functionality that \l{Qt Quick} provides can now
@@ -84,7 +84,7 @@ by the \c{QtQuick} import. Putting the import and object declaration
 together, we get a complete QML document:
 
 \qml
-import QtQuick 2.3
+import QtQuick
 
 Rectangle {
     width: 200
@@ -104,8 +104,8 @@ If we save that document as "HelloWorld.qml", we can load and display it.
 
 To display the graphical scene defined by the QML document, it may be loaded
 with \l{Qt Creator Manual}{Qt Creator}. For simple UI files such as this one,
-select \gui{File > New File or Project > Applications > Qt Quick UI} from
-within Qt Creator.
+select \gui{File > New File or Project > Application (Qt Quick) > Qt Quick
+Application - Empty} from within Qt Creator.
 
 Pressing the green \gui{Run} button runs the application. You should see the
 text \gui{Hello, World!} in the center of a red rectangle.
@@ -133,11 +133,13 @@ demonstrates the use of available space:
 
 \qml
 //import related modules
-import QtQuick 2.12
-import QtQuick.Controls 2.12
+import QtQuick
+import QtQuick.Controls
 
 //window containing the application
 ApplicationWindow {
+
+    visible: true
 
     //title of the application
     title: qsTr("Hello World")
@@ -195,7 +197,7 @@ as \l{Signal and Handler Event System}{signals} and these signals are handled by
 
 For example, consider the following example:
 \qml
-import QtQuick 2.12
+import QtQuick
 
 Rectangle {
     width: 200
@@ -213,7 +215,8 @@ Rectangle {
 }
 \endqml
 
-This example can be saved as "ClickableHelloWorld.qml" and run with qmlscene.
+This example can be saved as "ClickableHelloWorld.qml" and run with the
+\l{qtquick-qml-runtime.html}{qml} runtime tool.
 Whenever the user clicks anywhere in the window, the rectangle will change
 from red to blue.
 

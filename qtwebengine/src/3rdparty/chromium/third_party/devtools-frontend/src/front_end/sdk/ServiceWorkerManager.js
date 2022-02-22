@@ -29,13 +29,64 @@
  */
 
 import * as Common from '../common/common.js';
+import * as i18n from '../i18n/i18n.js';
 
 import {Events as RuntimeModelEvents, ExecutionContext, RuntimeModel} from './RuntimeModel.js';  // eslint-disable-line no-unused-vars
 import {Capability, SDKModel, Target, TargetManager, Type} from './SDKModel.js';  // eslint-disable-line no-unused-vars
 
-/**
- * @unrestricted
- */
+export const UIStrings = {
+  /**
+  *@description Service worker running status displayed in the Service Workers view in the Application panel
+  */
+  running: 'running',
+  /**
+  *@description Service worker running status displayed in the Service Workers view in the Application panel
+  */
+  starting: 'starting',
+  /**
+  *@description Service worker running status displayed in the Service Workers view in the Application panel
+  */
+  stopped: 'stopped',
+  /**
+  *@description Service worker running status displayed in the Service Workers view in the Application panel
+  */
+  stopping: 'stopping',
+  /**
+  *@description Service worker version status displayed in the Threads view of the Debugging side pane in the Sources panel
+  */
+  activated: 'activated',
+  /**
+  *@description Service worker version status displayed in the Threads view of the Debugging side pane in the Sources panel
+  */
+  activating: 'activating',
+  /**
+  *@description Service worker version status displayed in the Threads view of the Debugging side pane in the Sources panel
+  */
+  installed: 'installed',
+  /**
+  *@description Service worker version status displayed in the Threads view of the Debugging side pane in the Sources panel
+  */
+  installing: 'installing',
+  /**
+  *@description Service worker version status displayed in the Threads view of the Debugging side pane in the Sources panel
+  */
+  new: 'new',
+  /**
+  *@description Service worker version status displayed in the Threads view of the Debugging side pane in the Sources panel
+  */
+  redundant: 'redundant',
+  /**
+  *@description Service worker version status displayed in the Threads view of the Debugging side pane in the Sources panel
+  *@example {sw.js} PH1
+  *@example {117} PH2
+  *@example {activated} PH3
+  */
+  sSS: '{PH1} #{PH2} ({PH3})',
+};
+const str_ = i18n.i18n.registerUIStrings('sdk/ServiceWorkerManager.js', UIStrings);
+const i18nString = i18n.i18n.getLocalizedString.bind(undefined, str_);
+const i18nLazyString = i18n.i18n.getLazilyComputedLocalizedString.bind(undefined, str_);
+
 export class ServiceWorkerManager extends SDKModel {
   /**
    * @param {!Target} target
@@ -47,30 +98,39 @@ export class ServiceWorkerManager extends SDKModel {
     this._agent = target.serviceWorkerAgent();
     /** @type {!Map.<string, !ServiceWorkerRegistration>} */
     this._registrations = new Map();
+    /** @type {boolean} */
+    this._enabled = false;
     this.enable();
+    /** @type {!Common.Settings.Setting<boolean>} */
     this._forceUpdateSetting = Common.Settings.Settings.instance().createSetting('serviceWorkerUpdateOnReload', false);
     if (this._forceUpdateSetting.get()) {
       this._forceUpdateSettingChanged();
     }
     this._forceUpdateSetting.addChangeListener(this._forceUpdateSettingChanged, this);
     new ServiceWorkerContextNamer(target, this);
+
+    /** Status of service worker network requests panel */
+    this.serviceWorkerNetworkRequestsPanelStatus = {
+      isOpen: false,
+      openedAt: 0,
+    };
   }
 
-  enable() {
+  async enable() {
     if (this._enabled) {
       return;
     }
     this._enabled = true;
-    this._agent.enable();
+    await this._agent.invoke_enable();
   }
 
-  disable() {
+  async disable() {
     if (!this._enabled) {
       return;
     }
     this._enabled = false;
     this._registrations.clear();
-    this._agent.disable();
+    await this._agent.invoke_enable();
   }
 
   /**
@@ -130,25 +190,25 @@ export class ServiceWorkerManager extends SDKModel {
   /**
    * @param {string} registrationId
    */
-  updateRegistration(registrationId) {
+  async updateRegistration(registrationId) {
     const registration = this._registrations.get(registrationId);
     if (!registration) {
       return;
     }
-    this._agent.updateRegistration(registration.scopeURL);
+    await this._agent.invoke_updateRegistration({scopeURL: registration.scopeURL});
   }
 
   /**
    * @param {string} registrationId
    * @param {string} data
    */
-  deliverPushMessage(registrationId, data) {
+  async deliverPushMessage(registrationId, data) {
     const registration = this._registrations.get(registrationId);
     if (!registration) {
       return;
     }
     const origin = Common.ParsedURL.ParsedURL.extractOrigin(registration.scopeURL);
-    this._agent.deliverPushMessage(origin, registrationId, data);
+    await this._agent.invoke_deliverPushMessage({origin, registrationId, data});
   }
 
   /**
@@ -156,61 +216,61 @@ export class ServiceWorkerManager extends SDKModel {
    * @param {string} tag
    * @param {boolean} lastChance
    */
-  dispatchSyncEvent(registrationId, tag, lastChance) {
+  async dispatchSyncEvent(registrationId, tag, lastChance) {
     const registration = this._registrations.get(registrationId);
     if (!registration) {
       return;
     }
     const origin = Common.ParsedURL.ParsedURL.extractOrigin(registration.scopeURL);
-    this._agent.dispatchSyncEvent(origin, registrationId, tag, lastChance);
+    await this._agent.invoke_dispatchSyncEvent({origin, registrationId, tag, lastChance});
   }
 
   /**
    * @param {string} registrationId
    * @param {string} tag
    */
-  dispatchPeriodicSyncEvent(registrationId, tag) {
+  async dispatchPeriodicSyncEvent(registrationId, tag) {
     const registration = this._registrations.get(registrationId);
     if (!registration) {
       return;
     }
     const origin = Common.ParsedURL.ParsedURL.extractOrigin(registration.scopeURL);
-    this._agent.dispatchPeriodicSyncEvent(origin, registrationId, tag);
+    await this._agent.invoke_dispatchPeriodicSyncEvent({origin, registrationId, tag});
   }
 
   /**
-   * @param {string} scope
+   * @param {string} scopeURL
    */
-  _unregister(scope) {
-    this._agent.unregister(scope);
+  async _unregister(scopeURL) {
+    await this._agent.invoke_unregister({scopeURL});
   }
 
   /**
-   * @param {string} scope
+   * @param {string} scopeURL
    */
-  startWorker(scope) {
-    this._agent.startWorker(scope);
+  async startWorker(scopeURL) {
+    await this._agent.invoke_startWorker({scopeURL});
   }
 
   /**
-   * @param {string} scope
+   * @param {string} scopeURL
    */
-  skipWaiting(scope) {
-    this._agent.skipWaiting(scope);
-  }
-
-  /**
-   * @param {string} versionId
-   */
-  stopWorker(versionId) {
-    this._agent.stopWorker(versionId);
+  async skipWaiting(scopeURL) {
+    await this._agent.invoke_skipWaiting({scopeURL});
   }
 
   /**
    * @param {string} versionId
    */
-  inspectWorker(versionId) {
-    this._agent.inspectWorker(versionId);
+  async stopWorker(versionId) {
+    await this._agent.invoke_stopWorker({versionId});
+  }
+
+  /**
+   * @param {string} versionId
+   */
+  async inspectWorker(versionId) {
+    await this._agent.invoke_inspectWorker({versionId});
   }
 
   /**
@@ -273,14 +333,15 @@ export class ServiceWorkerManager extends SDKModel {
   }
 
   /**
-   * @return {!Common.Settings.Setting}
+   * @return {!Common.Settings.Setting<boolean>}
    */
   forceUpdateOnReloadSetting() {
     return this._forceUpdateSetting;
   }
 
   _forceUpdateSettingChanged() {
-    this._agent.setForceUpdateOnPageLoad(this._forceUpdateSetting.get());
+    const forceUpdateOnPageLoad = this._forceUpdateSetting.get();
+    this._agent.invoke_setForceUpdateOnPageLoad({forceUpdateOnPageLoad});
   }
 }
 
@@ -292,8 +353,7 @@ export const Events = {
 };
 
 /**
- * @implements {Protocol.ServiceWorkerDispatcher}
- * @unrestricted
+ * @implements {ProtocolProxyApi.ServiceWorkerDispatcher}
  */
 class ServiceWorkerDispatcher {
   /**
@@ -305,38 +365,67 @@ class ServiceWorkerDispatcher {
 
   /**
    * @override
-   * @param {!Array.<!Protocol.ServiceWorker.ServiceWorkerRegistration>} registrations
+   * @param {!Protocol.ServiceWorker.WorkerRegistrationUpdatedEvent} event
    */
-  workerRegistrationUpdated(registrations) {
+  workerRegistrationUpdated({registrations}) {
     this._manager._workerRegistrationUpdated(registrations);
   }
 
   /**
    * @override
-   * @param {!Array.<!Protocol.ServiceWorker.ServiceWorkerVersion>} versions
+   * @param {!Protocol.ServiceWorker.WorkerVersionUpdatedEvent} event
    */
-  workerVersionUpdated(versions) {
+  workerVersionUpdated({versions}) {
     this._manager._workerVersionUpdated(versions);
   }
 
   /**
    * @override
-   * @param {!Protocol.ServiceWorker.ServiceWorkerErrorMessage} errorMessage
+   * @param {!Protocol.ServiceWorker.WorkerErrorReportedEvent} event
    */
-  workerErrorReported(errorMessage) {
+  workerErrorReported({errorMessage}) {
     this._manager._workerErrorReported(errorMessage);
   }
 }
 
 /**
- * @unrestricted
+ * For every version, we keep a history of ServiceWorkerVersionState. Every time
+ * a version is updated we will add a new state at the head of the history chain.
+ * This history tells us information such as what the current state is, or when
+ * the version becomes installed.
  */
+export class ServiceWorkerVersionState {
+  /**
+   *
+   * @param {!Protocol.ServiceWorker.ServiceWorkerVersionRunningStatus} runningStatus
+   * @param {!Protocol.ServiceWorker.ServiceWorkerVersionStatus} status
+   * @param {?ServiceWorkerVersionState} previousState
+   * @param {number} timestamp
+   */
+  constructor(runningStatus, status, previousState, timestamp) {
+    this.runningStatus = runningStatus;
+    this.status = status;
+    /** @type {number} */
+    this.last_updated_timestamp = timestamp;
+    this.previousState = previousState;
+  }
+}
+
 export class ServiceWorkerVersion {
   /**
    * @param {!ServiceWorkerRegistration} registration
    * @param {!Protocol.ServiceWorker.ServiceWorkerVersion} payload
    */
   constructor(registration, payload) {
+    /** @type {string} */ this.id;
+    /** @type {string} */ this.scriptURL;
+    /** @type {!Common.ParsedURL.ParsedURL} */ this.parsedURL;
+    /** @type {string} */ this.securityOrigin;
+    /** @type {number|undefined} */ this.scriptLastModified;
+    /** @type {number|undefined} */ this.scriptResponseTime;
+    /** @type {!Array<!Protocol.Target.TargetID>} */ this.controlledClients;
+    /** @type {?Protocol.Target.TargetID} */ this.targetId;
+    /** @type {!ServiceWorkerVersionState} */ this.currentState;
     this.registration = registration;
     this._update(payload);
   }
@@ -349,13 +438,14 @@ export class ServiceWorkerVersion {
     this.scriptURL = payload.scriptURL;
     const parsedURL = new Common.ParsedURL.ParsedURL(payload.scriptURL);
     this.securityOrigin = parsedURL.securityOrigin();
-    this.runningStatus = payload.runningStatus;
-    this.status = payload.status;
+    this.currentState =
+        new ServiceWorkerVersionState(payload.runningStatus, payload.status, this.currentState, Date.now());
     this.scriptLastModified = payload.scriptLastModified;
     this.scriptResponseTime = payload.scriptResponseTime;
-    this.controlledClients = [];
-    for (let i = 0; i < payload.controlledClients.length; ++i) {
-      this.controlledClients.push(payload.controlledClients[i]);
+    if (payload.controlledClients) {
+      this.controlledClients = payload.controlledClients.slice();
+    } else {
+      this.controlledClients = [];
     }
     this.targetId = payload.targetId || null;
   }
@@ -446,6 +536,20 @@ export class ServiceWorkerVersion {
   }
 
   /**
+   * @returns {!Protocol.ServiceWorker.ServiceWorkerVersionStatus}
+   */
+  get status() {
+    return this.currentState.status;
+  }
+
+  /**
+   * @returns {!Protocol.ServiceWorker.ServiceWorkerVersionRunningStatus}
+   */
+  get runningStatus() {
+    return this.currentState.runningStatus;
+  }
+
+  /**
    * @return {string}
    */
   mode() {
@@ -463,25 +567,25 @@ export class ServiceWorkerVersion {
 }
 
 /**
- * @type {!Object<string, string>}
+ * @type {!Object<string, () => string>}
  */
 ServiceWorkerVersion.RunningStatus = {
-  [Protocol.ServiceWorker.ServiceWorkerVersionRunningStatus.Running]: ls`running`,
-  [Protocol.ServiceWorker.ServiceWorkerVersionRunningStatus.Starting]: ls`starting`,
-  [Protocol.ServiceWorker.ServiceWorkerVersionRunningStatus.Stopped]: ls`stopped`,
-  [Protocol.ServiceWorker.ServiceWorkerVersionRunningStatus.Stopping]: ls`stopping`,
+  [Protocol.ServiceWorker.ServiceWorkerVersionRunningStatus.Running]: i18nLazyString(UIStrings.running),
+  [Protocol.ServiceWorker.ServiceWorkerVersionRunningStatus.Starting]: i18nLazyString(UIStrings.starting),
+  [Protocol.ServiceWorker.ServiceWorkerVersionRunningStatus.Stopped]: i18nLazyString(UIStrings.stopped),
+  [Protocol.ServiceWorker.ServiceWorkerVersionRunningStatus.Stopping]: i18nLazyString(UIStrings.stopping),
 };
 
 /**
- * @type {!Object<string, string>}
+ * @type {!Object<string, () => string>}
  */
 ServiceWorkerVersion.Status = {
-  [Protocol.ServiceWorker.ServiceWorkerVersionStatus.Activated]: ls`activated`,
-  [Protocol.ServiceWorker.ServiceWorkerVersionStatus.Activating]: ls`activating`,
-  [Protocol.ServiceWorker.ServiceWorkerVersionStatus.Installed]: ls`installed`,
-  [Protocol.ServiceWorker.ServiceWorkerVersionStatus.Installing]: ls`installing`,
-  [Protocol.ServiceWorker.ServiceWorkerVersionStatus.New]: ls`new`,
-  [Protocol.ServiceWorker.ServiceWorkerVersionStatus.Redundant]: ls`redundant`,
+  [Protocol.ServiceWorker.ServiceWorkerVersionStatus.Activated]: i18nLazyString(UIStrings.activated),
+  [Protocol.ServiceWorker.ServiceWorkerVersionStatus.Activating]: i18nLazyString(UIStrings.activating),
+  [Protocol.ServiceWorker.ServiceWorkerVersionStatus.Installed]: i18nLazyString(UIStrings.installed),
+  [Protocol.ServiceWorker.ServiceWorkerVersionStatus.Installing]: i18nLazyString(UIStrings.installing),
+  [Protocol.ServiceWorker.ServiceWorkerVersionStatus.New]: i18nLazyString(UIStrings.new),
+  [Protocol.ServiceWorker.ServiceWorkerVersionStatus.Redundant]: i18nLazyString(UIStrings.redundant),
 };
 
 /**
@@ -494,14 +598,16 @@ ServiceWorkerVersion.Modes = {
   Redundant: 'redundant'
 };
 
-/**
- * @unrestricted
- */
 export class ServiceWorkerRegistration {
   /**
    * @param {!Protocol.ServiceWorker.ServiceWorkerRegistration} payload
    */
   constructor(payload) {
+    /** @type {symbol} */ this._fingerprint;
+    /** @type {string} */ this.id;
+    /** @type {string} */ this.scopeURL;
+    /** @type {string} */ this.securityOrigin;
+    /** @type {boolean} */ this.isDeleted;
     this._update(payload);
     /** @type {!Map.<string, !ServiceWorkerVersion>} */
     this.versions = new Map();
@@ -520,7 +626,6 @@ export class ServiceWorkerRegistration {
     const parsedURL = new Common.ParsedURL.ParsedURL(payload.scopeURL);
     this.securityOrigin = parsedURL.securityOrigin();
     this.isDeleted = payload.isDeleted;
-    this.forceUpdateOnPageLoad = payload.forceUpdateOnPageLoad;
   }
 
   /**
@@ -591,9 +696,6 @@ export class ServiceWorkerRegistration {
   }
 }
 
-/**
- * @unrestricted
- */
 class ServiceWorkerContextNamer {
   /**
    * @param {!Target} target
@@ -676,7 +778,7 @@ class ServiceWorkerContextNamer {
     const parsedUrl = Common.ParsedURL.ParsedURL.fromString(context.origin);
     const label = parsedUrl ? parsedUrl.lastPathComponentWithFragment() : context.name;
     const localizedStatus = ServiceWorkerVersion.Status[version.status];
-    context.setLabel(ls`${label} #${version.id} (${localizedStatus})`);
+    context.setLabel(i18nString(UIStrings.sSS, {PH1: label, PH2: version.id, PH3: localizedStatus}));
   }
 }
 

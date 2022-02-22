@@ -27,7 +27,7 @@
 
 /*!
     \example qmlsensorgestures
-    \title Qt Sensors - SensorGesture QML Type example
+    \title Qt Sensors - SensorGesture QML Type Example
     \ingroup qtsensors-examples
 
     \brief Demonstrates the use of SensorGesture QML type.
@@ -36,7 +36,7 @@
     To write a QML application that will use the gesture plugin, following
     steps are needed:
 
-    Import the QtSensors 5.x module:
+    Import the QtSensors module:
 
     \snippet qmlsensorgestures/GestureView.qml 0
 

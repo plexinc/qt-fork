@@ -27,16 +27,16 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
+import QtQuick
 // Deliberately imported after QtQuick to avoid missing restoreMode property in Binding. Fix in Qt 6.
-import QtQml 2.14
-import QtQuick.Layouts 1.0
-import QtQuick.Window 2.2
-import QtQuick.VirtualKeyboard 2.3
-import QtQuick.VirtualKeyboard.Styles 2.1
-import QtQuick.VirtualKeyboard.Settings 2.2
-import QtQuick.VirtualKeyboard.Plugins 2.3
-import Qt.labs.folderlistmodel 2.0
+import QtQml
+import QtQuick.Layouts
+import QtQuick.Window
+import QtQuick.VirtualKeyboard
+import QtQuick.VirtualKeyboard.Styles
+import QtQuick.VirtualKeyboard.Settings
+import QtQuick.VirtualKeyboard.Plugins
+import Qt.labs.folderlistmodel
 
 Item {
     id: keyboard
@@ -82,10 +82,11 @@ Item {
     property bool navigationModeActive: false
     readonly property bool languagePopupListActive: languagePopupList.enabled
     property alias soundEffect: soundEffect
+    property alias keyboardLayoutLoader: keyboardLayoutLoader
 
     function initDefaultInputMethod() {
         try {
-            return Qt.createQmlObject('import QtQuick 2.0; import QtQuick.VirtualKeyboard.Plugins 2.3; DefaultInputMethod {}', keyboard, "defaultInputMethod")
+            return Qt.createQmlObject('import QtQuick; import QtQuick.VirtualKeyboard.Plugins; DefaultInputMethod {}', keyboard, "defaultInputMethod")
         } catch (e) { }
         return plainInputMethod
     }
@@ -119,6 +120,9 @@ Item {
         function onFullScreenModeChanged() {
             wordCandidateView.disableAnimation = VirtualKeyboardSettings.fullScreenMode
             keyboard.fullScreenMode = VirtualKeyboardSettings.fullScreenMode
+        }
+        function onDefaultInputMethodDisabledChanged() {
+            updateInputMethod()
         }
     }
     onAvailableLocaleIndicesChanged: hideLanguagePopup()
@@ -193,6 +197,16 @@ Item {
                         }
                         break
                     }
+                    if (functionPopupList.active) {
+                        if (functionPopupList.listView.currentIndex > 0) {
+                            functionPopupList.listView.decrementCurrentIndex()
+                        } else {
+                            functionPopupList.close()
+                            keyboardInputArea.setActiveKey(null)
+                            keyboardInputArea.navigateToNextKey(0, 0, false)
+                        }
+                        break
+                    }
                     if (wordCandidateContextMenu.active) {
                         hideWordCandidateContextMenu()
                         break
@@ -251,6 +265,10 @@ Item {
                     alternativeKeys.close()
                     keyboardInputArea.setActiveKey(null)
                     keyboardInputArea.navigateToNextKey(0, 0, false)
+                } else if (functionPopupList.active) {
+                    functionPopupList.close()
+                    keyboardInputArea.setActiveKey(null)
+                    keyboardInputArea.navigateToNextKey(0, 0, false)
                 } else if (wordCandidateContextMenu.active) {
                     if (wordCandidateContextMenuList.currentIndex > 0) {
                         wordCandidateContextMenuList.decrementCurrentIndex()
@@ -286,6 +304,16 @@ Item {
                             alternativeKeys.listView.incrementCurrentIndex()
                         } else {
                             alternativeKeys.close()
+                            keyboardInputArea.setActiveKey(null)
+                            keyboardInputArea.navigateToNextKey(0, 0, false)
+                        }
+                        break
+                    }
+                    if (functionPopupList.active) {
+                        if (functionPopupList.listView.currentIndex + 1 < functionPopupList.listView.count) {
+                            functionPopupList.listView.incrementCurrentIndex()
+                        } else {
+                            functionPopupList.close()
                             keyboardInputArea.setActiveKey(null)
                             keyboardInputArea.navigateToNextKey(0, 0, false)
                         }
@@ -344,6 +372,10 @@ Item {
                     }
                 } else if (alternativeKeys.active) {
                     alternativeKeys.close()
+                    keyboardInputArea.setActiveKey(null)
+                    keyboardInputArea.navigateToNextKey(0, 0, false)
+                } else if (functionPopupList.active) {
+                    functionPopupList.close()
                     keyboardInputArea.setActiveKey(null)
                     keyboardInputArea.navigateToNextKey(0, 0, false)
                 } else if (wordCandidateContextMenu.active) {
@@ -405,10 +437,11 @@ Item {
                 }
                 if (isAutoRepeat)
                     break
-                if (!languagePopupListActive && !alternativeKeys.active && !wordCandidateContextMenu.active && keyboard.activeKey) {
+                if (!languagePopupListActive && !alternativeKeys.active && !functionPopupList.active && !wordCandidateContextMenu.active && keyboard.activeKey) {
                     keyboardInputArea.release(keyboard.activeKey)
                     pressAndHoldTimer.stop()
                     alternativeKeys.close()
+                    functionPopupList.close()
                     keyboardInputArea.setActiveKey(null)
                     if (!languagePopupListActive && keyboardInputArea.navigationCursor !== Qt.point(-1, -1))
                         keyboardInputArea.navigateToNextKey(0, 0, false)
@@ -427,6 +460,15 @@ Item {
                         keyboardInputArea.reset()
                     } else {
                         alternativeKeys.openedByNavigationKeyLongPress = false
+                    }
+                } else if (functionPopupList.active) {
+                    if (!functionPopupList.openedByNavigationKeyLongPress) {
+                        functionPopupList.clicked()
+                        functionPopupList.close()
+                        keyboardInputArea.navigateToNextKey(0, 0, false)
+                        keyboardInputArea.reset()
+                    } else {
+                        functionPopupList.openedByNavigationKeyLongPress = false
                     }
                 } else if (!wordCandidateContextMenu.active && wordCandidateView.count > 0) {
                     wordCandidateView.model.selectItem(wordCandidateView.currentIndex)
@@ -485,13 +527,22 @@ Item {
             InputContext.priv.previewVisible = visible
         }
     }
+    FunctionPopupList {
+        id: functionPopupList
+        property bool openedByNavigationKeyLongPress
+    }
     Timer {
         id: pressAndHoldTimer
-        interval: 800
+        interval: 500
         onTriggered: {
             if (keyboard.activeKey && keyboard.activeKey === keyboardInputArea.initialKey) {
                 var origin = keyboard.mapFromItem(activeKey, activeKey.width / 2, 0)
-                if (alternativeKeys.open(keyboard.activeKey, origin.x, origin.y)) {
+                if (keyboard.activeKey.smallText === "\u2699" &&
+                        functionPopupList.open(keyboard.activeKey, origin.x, origin.y)) {
+                    InputContext.inputEngine.virtualKeyCancel()
+                    keyboardInputArea.initialKey = null
+                    functionPopupList.openedByNavigationKeyLongPress = keyboard.navigationModeActive
+                } else if (alternativeKeys.open(keyboard.activeKey, origin.x, origin.y)) {
                     InputContext.inputEngine.virtualKeyCancel()
                     keyboardInputArea.initialKey = null
                     alternativeKeys.openedByNavigationKeyLongPress = keyboard.navigationModeActive
@@ -512,7 +563,7 @@ Item {
                 keyboardInputArea.initialKey = null
                 if (keyboardInputArea.navigationCursor !== Qt.point(-1, -1))
                     keyboardInputArea.navigateToNextKey(0, 0, false)
-            } else if (!wordCandidateContextMenu.active) {
+            } else if (!wordCandidateContextMenu.active && keyboard.navigationModeActive) {
                 wordCandidateContextMenu.show(wordCandidateView.currentIndex)
                 wordCandidateContextMenu.openedByNavigationKeyLongPress = keyboard.navigationModeActive
             }
@@ -522,7 +573,7 @@ Item {
         id: releaseInaccuracyTimer
         interval: 500
         onTriggered: {
-            if (keyboardInputArea.pressed && activeTouchPoint && !alternativeKeys.active && !keyboardInputArea.dragSymbolMode) {
+            if (keyboardInputArea.pressed && activeTouchPoint && !alternativeKeys.active && !keyboardInputArea.dragSymbolMode && !functionPopupList.active) {
                 var key = keyboardInputArea.keyOnPoint(activeTouchPoint.x, activeTouchPoint.y)
                 if (key !== keyboard.activeKey) {
                     InputContext.inputEngine.virtualKeyCancel()
@@ -535,7 +586,7 @@ Item {
     CharacterPreviewBubble {
         id: characterPreview
         objectName: "characterPreviewBubble"
-        active: keyboardInputArea.pressed && !alternativeKeys.active
+        active: keyboardInputArea.pressed && !alternativeKeys.active && !functionPopupList.active
         property rect previewRect: Qt.rect(keyboard.x + characterPreview.x,
                                            keyboard.y + characterPreview.y,
                                            characterPreview.width,
@@ -576,12 +627,14 @@ Item {
         objectName: "naviationHighlight"
         property var highlightItem: {
             if (keyboard.navigationModeActive) {
-                if (keyboardInputArea.initialKey) {
-                    return keyboardInputArea.initialKey
-                } else if (languagePopupListActive) {
+                if (languagePopupListActive) {
                     return languagePopupList.highlightItem
+                } else if (keyboardInputArea.initialKey) {
+                    return keyboardInputArea.initialKey
                 } else if (alternativeKeys.listView.count > 0) {
                     return alternativeKeys.listView.highlightItem
+                } else if (functionPopupList.listView.count > 0) {
+                    return functionPopupList.listView.highlightItem
                 } else if (wordCandidateContextMenu.active) {
                     return wordCandidateContextMenuList.highlightItem
                 } else if (wordCandidateView.count > 0) {
@@ -673,7 +726,7 @@ Item {
                                                  (keyboard.active || shadowInputControl.visible)
         readonly property real visibleYOffset: VirtualKeyboardSettings.wordCandidateList.alwaysVisible ? 0 : -height
         readonly property real currentYOffset: visibleCondition || wordCandidateViewTransition.running ? visibleYOffset : 0
-        height: Math.round(style.selectionListHeight)
+        height: style ? style.selectionListHeight : 0
         anchors.left: parent.left
         anchors.right: parent.right
         spacing: 0
@@ -782,7 +835,7 @@ Item {
                 var soundId = Qt.md5(sound)
                 multiSoundEffect = __sounds[soundId]
                 if (!multiSoundEffect) {
-                    multiSoundEffect = Qt.createQmlObject('import QtQuick 2.0; import QtQuick.VirtualKeyboard 2.1; MultiSoundEffect {}', soundEffect)
+                    multiSoundEffect = Qt.createQmlObject('import QtQuick; import QtQuick.VirtualKeyboard; MultiSoundEffect {}', soundEffect)
                     if (multiSoundEffect) {
                         multiSoundEffect.playingChanged.connect(soundEffect.playingChanged)
                         multiSoundEffect.source = sound
@@ -808,10 +861,26 @@ Item {
             id: keyboardInnerContainer
             z: 1
             width: Math.round(keyboardBackground.width)
-            height: Math.round(style.keyboardDesignHeight * width / style.keyboardDesignWidth)
+            height: style ? Math.round(style.keyboardDesignHeight * width / style.keyboardDesignWidth) : 0
             anchors.horizontalCenter: parent.horizontalCenter
             LayoutMirroring.enabled: false
             LayoutMirroring.childrenInherit: true
+
+            KeyboardObserver {
+                id: keyboardObserver
+
+                function scanLayout() {
+                    if (keyboardLayoutLoader.item == null)
+                        return null
+
+                    return keyboardLayoutLoader.item.scanLayout()
+                }
+            }
+
+            Component.onCompleted: InputContext.priv.setKeyboardObserver(keyboardObserver)
+
+            onWidthChanged: notifyLayoutChanged()
+            onHeightChanged: notifyLayoutChanged()
 
             Loader {
                 id: keyboardLayoutLoader
@@ -835,6 +904,8 @@ Item {
                     // Reset input mode if the new layout wants to override it
                     if (item && item.inputMode !== -1)
                         inputModeNeedsReset = true
+                    if (item)
+                        notifyLayoutChanged()
                 }
 
                 MultiPointTouchArea {
@@ -850,9 +921,8 @@ Item {
 
                     Connections {
                         target: keyboardLayoutLoader
-                        function onStatusChanged() {
-                            if (keyboardLayoutLoader.status == Loader.Ready &&
-                                    keyboard.navigationModeActive &&
+                        function onLoaded() {
+                            if (keyboard.navigationModeActive &&
                                     keyboardInputArea.navigationCursor !== Qt.point(-1, -1))
                                 keyboard.navigationModeActive = keyboardInputArea.navigateToNextKey(0, 0, false)
                         }
@@ -893,6 +963,8 @@ Item {
                         if (keyboard.activeKey === activeKey)
                             return
                         if (keyboard.activeKey) {
+                            if (keyboard.activeKey.keyType === QtVirtualKeyboard.FlickKey)
+                                keyboard.activeKey.onKeyChanged.disconnect(onFlickKeyKeyChanged)
                             keyboard.activeKey.active = false
                         }
                         keyboard.activeKey = activeKey
@@ -933,6 +1005,8 @@ Item {
                     function releaseActiveKey() {
                         if (alternativeKeys.active) {
                             alternativeKeys.clicked()
+                        } else if (functionPopupList.active) {
+                            functionPopupList.clicked()
                         } else if (keyboard.activeKey) {
                             release(keyboard.activeKey)
                         }
@@ -944,6 +1018,7 @@ Item {
                         setActiveKey(null)
                         activeTouchPoint = null
                         alternativeKeys.close()
+                        functionPopupList.close()
                         if (dragSymbolMode) {
                             keyboard.symbolMode = false
                             dragSymbolMode = false
@@ -1036,7 +1111,12 @@ Item {
                         return initialKey !== null
                     }
 
-                    onPressed: {
+                    function onFlickKeyKeyChanged() {
+                        InputContext.inputEngine.virtualKeyCancel()
+                        press(activeKey, false)
+                    }
+
+                    onPressed: (touchPoints) => {
                         keyboard.navigationModeActive = false
 
                         // Immediately release any pending key that the user might be
@@ -1049,20 +1129,31 @@ Item {
                             if (containsPoint(touchPoints, activeTouchPoint))
                                 releaseActiveKey();
 
-                            releaseInaccuracyTimer.start()
-                            pressAndHoldTimer.start()
                             initialKey = keyOnPoint(touchPoints[i].x, touchPoints[i].y)
+                            if (!initialKey)
+                                continue
                             activeTouchPoint = touchPoints[i]
+                            if (initialKey.keyType === QtVirtualKeyboard.FlickKey) {
+                                initialKey.press(activeTouchPoint.x, activeTouchPoint.y)
+                                initialKey.onKeyChanged.connect(onFlickKeyKeyChanged)
+                            } else {
+                                releaseInaccuracyTimer.start()
+                                pressAndHoldTimer.start()
+                            }
                             setActiveKey(initialKey)
                             press(initialKey, true)
                         }
                     }
-                    onUpdated: {
+                    onUpdated: (touchPoints) => {
                         if (!containsPoint(touchPoints, activeTouchPoint))
                             return
 
                         if (alternativeKeys.active) {
                             alternativeKeys.move(mapToItem(alternativeKeys, activeTouchPoint.x, 0).x)
+                        } else if (functionPopupList.active) {
+                            functionPopupList.move(mapToItem(functionPopupList, activeTouchPoint.x, activeTouchPoint.y))
+                        } else if (activeKey && activeKey.keyType === QtVirtualKeyboard.FlickKey) {
+                            activeKey.update(activeTouchPoint.x, activeTouchPoint.y)
                         } else {
                             var key = null
                             if (releaseInaccuracyTimer.running) {
@@ -1089,7 +1180,7 @@ Item {
                             }
                         }
                     }
-                    onReleased: {
+                    onReleased: (touchPoints) => {
                         if (containsPoint(touchPoints, activeTouchPoint)) {
                             if (dragSymbolMode) {
                                 var key = keyOnPoint(activeTouchPoint.x, activeTouchPoint.y)
@@ -1103,7 +1194,7 @@ Item {
                             releaseActiveKey();
                         }
                     }
-                    onCanceled: {
+                    onCanceled: (touchPoints) => {
                         if (containsPoint(touchPoints, activeTouchPoint))
                             reset()
                     }
@@ -1137,11 +1228,17 @@ Item {
             highlight: keyboard.style ? keyboard.style.languageListHighlight : defaultHighlight
             add: keyboard.style ? keyboard.style.languageListAdd : null
             remove: keyboard.style ? keyboard.style.languageListRemove : null
-            background: keyboard.style ? keyboard.style.languageListBackground : null
             property rect previewRect: Qt.rect(keyboard.x + languagePopupList.x,
                                                keyboard.y + languagePopupList.y,
                                                languagePopupList.width,
                                                languagePopupList.height)
+        }
+
+        Loader {
+            sourceComponent: keyboard.style.languageListBackground
+            anchors.fill: languagePopupList
+            z: -1
+            visible: languagePopupList.visible
         }
 
         ListModel {
@@ -1178,8 +1275,13 @@ Item {
                         languagePopupList.currentIndex = i
                 }
                 languagePopupList.positionViewAtIndex(languagePopupList.currentIndex, ListView.Center)
-                languagePopupList.anchors.leftMargin = Qt.binding(function() {return Math.round(keyboard.mapFromItem(parentItem, (parentItem.width - languagePopupList.width) / 2, 0).x)})
-                languagePopupList.anchors.topMargin = Qt.binding(function() {return Math.round(keyboard.mapFromItem(parentItem, 0, -languagePopupList.height).y)})
+                if (parentItem) {
+                    languagePopupList.anchors.leftMargin = Qt.binding(function() {return Math.round(keyboard.mapFromItem(parentItem, (parentItem.width - languagePopupList.width) / 2, 0).x)})
+                    languagePopupList.anchors.topMargin = Qt.binding(function() {return Math.round(keyboard.mapFromItem(parentItem, 0, -languagePopupList.height).y)})
+                } else {
+                    languagePopupList.anchors.leftMargin = Qt.binding(function() {return Math.round((keyboard.width - languagePopupList.width) / 2)})
+                    languagePopupList.anchors.topMargin = Qt.binding(function() {return Math.round((keyboard.height - languagePopupList.height) / 2)})
+                }
             }
             languagePopupList.enabled = true
         }
@@ -1296,9 +1398,11 @@ Item {
             wordCandidateView.currentIndex = wordCandidateIndex
 
             wordCandidateContextMenuList.anchors.leftMargin = Qt.binding(function() {
+                if (!wordCandidateView.currentItem)
+                    return 0
                 var leftBorder = Math.round(wordCandidateView.mapFromItem(wordCandidateView.currentItem, (wordCandidateView.currentItem.width - wordCandidateContextMenuList.width) / 2, 0).x)
                 var rightBorder = Math.round(wordCandidateContextMenuList.parent.width - wordCandidateContextMenuList.width)
-                return Math.min(leftBorder, rightBorder)
+                return Math.max(0, Math.min(leftBorder, rightBorder))
             })
 
             wordCandidateContextMenuList.enabled = true
@@ -1341,9 +1445,13 @@ Item {
         if (customInputMethod && !inputMethodNeedsReset && customInputMethodSharedLayouts.indexOf(layoutType) === -1)
             inputMethodNeedsReset = true
 
+        var customInputMethodToDestroy = null
         if (inputMethodNeedsReset) {
             if (customInputMethod) {
-                customInputMethod.destroy()
+                // Postpones the destruction of the custom input method after creating a new one
+                // and after assigning it to the input engine. This allows the input method to clear
+                // its state before destroying.
+                customInputMethodToDestroy = customInputMethod
                 customInputMethod = null
             }
             customInputMethodSharedLayouts = []
@@ -1375,8 +1483,15 @@ Item {
                 console.error(e.message)
             }
         }
-        if (!inputMethod)
-            inputMethod = customInputMethod ? customInputMethod : defaultInputMethod
+        if (!inputMethod) {
+            if (customInputMethod) {
+                inputMethod = customInputMethod
+            } else if (!VirtualKeyboardSettings.defaultInputMethodDisabled) {
+                inputMethod = defaultInputMethod
+            } else {
+                inputMethod = plainInputMethod
+            }
+        }
 
         var inputMethodChanged = InputContext.inputEngine.inputMethod !== inputMethod
         if (inputMethodChanged) {
@@ -1415,12 +1530,17 @@ Item {
                 if (inputModes.indexOf(inputMode) === -1)
                     inputMode = inputModes[0]
 
-                if (InputContext.inputEngine.inputMode !== inputMode || inputMethodChanged || inputModeNeedsReset)
+                if (InputContext.inputEngine.inputMode !== inputMode || inputMethodChanged || inputModeNeedsReset) {
+                    InputContext.priv.setKeyboardObserver(keyboardObserver)
                     InputContext.inputEngine.inputMode = inputMode
+                }
 
                 inputModeNeedsReset = false
             }
         }
+
+        if (customInputMethodToDestroy !== null)
+            customInputMethodToDestroy.destroy()
 
         // Clear the toggle shift timer
         InputContext.priv.shiftHandler.clearToggleShiftTimer()
@@ -1485,9 +1605,10 @@ Item {
 
         // Handle case where the VirtualKeyboardSettings.activeLocales contains no valid entries
         // Fetch all locales by ignoring active locales setting
-        if (newIndices.length === 0) {
+        var ignoreActiveLocales = newIndices.length === 0
+        if (ignoreActiveLocales) {
             newIndices = filterLocaleIndices(function(localeName) {
-                return isValidLocale(localeName, true)
+                return isValidLocale(localeName, ignoreActiveLocales)
             })
         }
 
@@ -1497,9 +1618,21 @@ Item {
             newAvailableLocales.push(layoutsModel.get(newIndices[i], "fileName"))
         }
 
-        newIndices.sort(function(a, b) { return a - b })
-        availableLocaleIndices = newIndices
         newAvailableLocales.sort()
+
+        var sortOrder = !ignoreActiveLocales && VirtualKeyboardSettings.activeLocales.length > 0 ?
+                    VirtualKeyboardSettings.activeLocales :
+                    newAvailableLocales
+
+        newIndices.sort(function(localeIndexA, localeIndexB) {
+            var localeNameA = layoutsModel.get(localeIndexA, "fileName")
+            var localeNameB = layoutsModel.get(localeIndexB, "fileName")
+            var sortIndexA = sortOrder.indexOf(localeNameA)
+            var sortIndexB = sortOrder.indexOf(localeNameB)
+            return sortIndexA - sortIndexB
+        })
+
+        availableLocaleIndices = newIndices
         InputContext.priv.updateAvailableLocales(newAvailableLocales)
 
         // Update list of custom locale indices
@@ -1632,12 +1765,64 @@ Item {
     }
 
     function isHandwritingAvailable() {
+        if (VirtualKeyboardSettings.handwritingModeDisabled)
+            return false
         return InputContext.priv.inputMethods.indexOf("HandwritingInputMethod") !== -1 && layoutExists(locale, "handwriting")
     }
 
     function setHandwritingMode(enabled, resetInputMode) {
+        if (VirtualKeyboardSettings.handwritingModeDisabled)
+            return
         if (enabled && resetInputMode)
             inputModeNeedsReset = true
         handwritingMode = enabled
+    }
+
+    function notifyLayoutChanged() {
+        Qt.callLater(function() {
+            if (keyboardLayoutLoader.item != null) keyboardObserver.layoutChanged()
+        })
+    }
+
+    function doKeyboardFunction(keyboardFunction) {
+        if (!isKeyboardFunctionAvailable(keyboardFunction))
+            return
+        switch (keyboardFunction) {
+        case QtVirtualKeyboard.HideInputPanel:
+            InputContext.priv.hideInputPanel()
+            break
+        case QtVirtualKeyboard.ChangeLanguage:
+            if (style.languagePopupListEnabled) {
+                if (!languagePopupListActive) {
+                    showLanguagePopup(activeKey, false)
+                } else {
+                    hideLanguagePopup()
+                }
+            } else {
+                const customLayoutsOnly = arguments.length == 2 && arguments[1]
+                changeInputLanguage(customLayoutsOnly)
+            }
+            break
+        case QtVirtualKeyboard.ToggleHandwritingMode:
+            setHandwritingMode(!handwritingMode)
+            break
+        default:
+            console.warn("Unknown keyboard function '%1'".arg(keyboardFunction))
+            break
+        }
+    }
+
+    function isKeyboardFunctionAvailable(keyboardFunction) {
+        switch (keyboardFunction) {
+        case QtVirtualKeyboard.HideInputPanel:
+            return true
+        case QtVirtualKeyboard.ChangeLanguage:
+            const customLayoutsOnly = arguments.length == 2 && arguments[1]
+            return canChangeInputLanguage(customLayoutsOnly)
+        case QtVirtualKeyboard.ToggleHandwritingMode:
+            return isHandwritingAvailable()
+        default:
+            return false
+        }
     }
 }

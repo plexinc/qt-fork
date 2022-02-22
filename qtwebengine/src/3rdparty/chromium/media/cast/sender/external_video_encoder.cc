@@ -84,7 +84,7 @@ struct InProgressExternalVideoFrameEncode {
 // to encode media::VideoFrames and emit media::cast::EncodedFrames.  All
 // methods must be called on the thread associated with the given
 // SingleThreadTaskRunner, except for the task_runner() accessor.
-class ExternalVideoEncoder::VEAClientImpl
+class ExternalVideoEncoder::VEAClientImpl final
     : public VideoEncodeAccelerator::Client,
       public base::RefCountedThreadSafe<VEAClientImpl> {
  public:
@@ -182,7 +182,7 @@ class ExternalVideoEncoder::VEAClientImpl
         create_video_encode_memory_cb_.Run(
             media::VideoFrame::AllocationSize(media::PIXEL_FORMAT_I420,
                                               frame_coded_size_),
-            base::Bind(&VEAClientImpl::OnCreateInputSharedMemory, this));
+            base::BindOnce(&VEAClientImpl::OnCreateInputSharedMemory, this));
       }
       AbortLatestEncodeAttemptDueToErrors();
       return;
@@ -219,7 +219,7 @@ class ExternalVideoEncoder::VEAClientImpl
       }
       frame->BackWithSharedMemory(&input_buffer->first);
 
-      frame->AddDestructionObserver(media::BindToCurrentLoop(base::Bind(
+      frame->AddDestructionObserver(media::BindToCurrentLoop(base::BindOnce(
           &ExternalVideoEncoder::VEAClientImpl::ReturnInputBufferToPool, this,
           index)));
       free_input_buffer_index_.pop_back();
@@ -258,7 +258,7 @@ class ExternalVideoEncoder::VEAClientImpl
     for (size_t j = 0; j < kOutputBufferCount; ++j) {
       create_video_encode_memory_cb_.Run(
           output_buffer_size,
-          base::Bind(&VEAClientImpl::OnCreateSharedMemory, this));
+          base::BindOnce(&VEAClientImpl::OnCreateSharedMemory, this));
     }
   }
 
@@ -325,10 +325,10 @@ class ExternalVideoEncoder::VEAClientImpl
 
       // If FRAME_DURATION metadata was provided in the source VideoFrame,
       // compute the utilization metrics.
-      base::TimeDelta frame_duration;
-      if (request.video_frame->metadata()->GetTimeDelta(
-              media::VideoFrameMetadata::FRAME_DURATION, &frame_duration) &&
-          frame_duration > base::TimeDelta()) {
+      base::TimeDelta frame_duration =
+          request.video_frame->metadata().frame_duration.value_or(
+              base::TimeDelta());
+      if (frame_duration > base::TimeDelta()) {
         // Compute encoder utilization in terms of the number of frames in
         // backlog, including the current frame encode that is finishing
         // here. This "backlog" model works as follows: First, assume that all
@@ -657,9 +657,9 @@ ExternalVideoEncoder::ExternalVideoEncoder(
   DCHECK_GT(bit_rate_, 0);
 
   create_vea_cb.Run(
-      base::Bind(&ExternalVideoEncoder::OnCreateVideoEncodeAccelerator,
-                 weak_factory_.GetWeakPtr(), video_config, first_frame_id,
-                 std::move(status_change_cb)));
+      base::BindOnce(&ExternalVideoEncoder::OnCreateVideoEncodeAccelerator,
+                     weak_factory_.GetWeakPtr(), video_config, first_frame_id,
+                     std::move(status_change_cb)));
 }
 
 ExternalVideoEncoder::~ExternalVideoEncoder() {
@@ -754,7 +754,7 @@ void ExternalVideoEncoder::OnCreateVideoEncodeAccelerator(
 
   // Create a callback that wraps the StatusChangeCallback. It monitors when a
   // fatal error occurs and schedules destruction of the VEAClientImpl.
-  StatusChangeCallback wrapped_status_change_cb = base::Bind(
+  StatusChangeCallback wrapped_status_change_cb = base::BindRepeating(
       [](base::WeakPtr<ExternalVideoEncoder> self,
          const StatusChangeCallback& status_change_cb,
          OperationalStatus status) {

@@ -9,9 +9,6 @@
 #include "qndefnfcurirecord.h"
 #include "qndefrecord.h"
 #include "qnearfieldmanager.h"
-#include "qnearfieldsharemanager.h"
-#include "qnearfieldsharetarget.h"
 #include "qnearfieldtarget.h"
-#include "qqmlndefrecord.h"
 #include "qtnfcversion.h"
 #endif

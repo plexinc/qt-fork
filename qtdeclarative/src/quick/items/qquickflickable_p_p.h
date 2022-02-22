@@ -188,14 +188,14 @@ public:
     void updateBeginningEnd();
 
     bool isInnermostPressDelay(QQuickItem *item) const;
-    void captureDelayedPress(QQuickItem *item, QMouseEvent *event);
+    void captureDelayedPress(QQuickItem *item, QPointerEvent *event);
     void clearDelayedPress();
     void replayDelayedPress();
 
     void setViewportX(qreal x);
     void setViewportY(qreal y);
 
-    qreal overShootDistance(qreal size) const;
+    qreal overShootDistance(qreal velocity) const;
 
     void itemGeometryChanged(QQuickItem *, QQuickGeometryChange, const QRectF &) override;
 
@@ -208,8 +208,7 @@ public:
 
     void addPointerHandler(QQuickPointerHandler *h) override;
 
-    // TODO Qt 6: QPointerEvent
-    virtual bool wantsPointerEvent(const QEvent *) { return true; }
+    virtual bool wantsPointerEvent(const QPointerEvent *) { return true; }
 
 public:
     QQuickItem *contentItem;
@@ -235,12 +234,12 @@ public:
     QVector2D accumulatedWheelPixelDelta;
     qreal deceleration;
     qreal maxVelocity;
-    qreal reportedVelocitySmoothing;
-    QMouseEvent *delayedPressEvent;
+    QPointerEvent *delayedPressEvent;
     QBasicTimer delayedPressTimer;
     int pressDelay;
     int fixupDuration;
     qreal flickBoost;
+    qreal initialWheelFlickDistance;
 
     enum FixupMode { Normal, Immediate, ExtentChanged };
     FixupMode fixupMode;
@@ -257,12 +256,12 @@ public:
     QQuickFlickable::BoundsMovement boundsMovement;
     QQuickTransition *rebound;
 
-    void viewportAxisMoved(AxisData &data, qreal minExtent, qreal maxExtent, qreal vSize,
+    void viewportAxisMoved(AxisData &data, qreal minExtent, qreal maxExtent,
                        QQuickTimeLineCallback::Callback fixupCallback);
 
-    void handleMousePressEvent(QMouseEvent *);
-    void handleMouseMoveEvent(QMouseEvent *);
-    void handleMouseReleaseEvent(QMouseEvent *);
+    void handlePressEvent(QPointerEvent *);
+    void handleMoveEvent(QPointerEvent *);
+    void handleReleaseEvent(QPointerEvent *);
 
     void maybeBeginDrag(qint64 currentTimestamp, const QPointF &pressPosn);
     void drag(qint64 currentTimestamp, QEvent::Type eventType, const QPointF &localPos,
@@ -274,12 +273,12 @@ public:
 
     // flickableData property
     static void data_append(QQmlListProperty<QObject> *, QObject *);
-    static int data_count(QQmlListProperty<QObject> *);
-    static QObject *data_at(QQmlListProperty<QObject> *, int);
+    static qsizetype data_count(QQmlListProperty<QObject> *);
+    static QObject *data_at(QQmlListProperty<QObject> *, qsizetype);
     static void data_clear(QQmlListProperty<QObject> *);
 };
 
-class QQuickFlickableVisibleArea : public QObject
+class Q_QUICK_PRIVATE_EXPORT QQuickFlickableVisibleArea : public QObject
 {
     Q_OBJECT
 
@@ -288,6 +287,7 @@ class QQuickFlickableVisibleArea : public QObject
     Q_PROPERTY(qreal widthRatio READ widthRatio NOTIFY widthRatioChanged)
     Q_PROPERTY(qreal heightRatio READ heightRatio NOTIFY heightRatioChanged)
     QML_ANONYMOUS
+    QML_ADDED_IN_VERSION(2, 0)
 
 public:
     QQuickFlickableVisibleArea(QQuickFlickable *parent=nullptr);

@@ -14,6 +14,7 @@
 #include "base/files/file_util.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
+#include "base/logging.h"
 #include "base/stl_util.h"
 #include "base/timer/elapsed_timer.h"
 #include "base/values.h"
@@ -37,9 +38,9 @@ namespace {
 
 using SortedFilePathSet = std::set<base::FilePath>;
 
-constexpr char kUMAComputedHashesReadResult[] =
+const char kUMAComputedHashesReadResult[] =
     "Extensions.ContentVerification.ComputedHashesReadResult";
-constexpr char kUMAComputedHashesInitTime[] =
+const char kUMAComputedHashesInitTime[] =
     "Extensions.ContentVerification.ComputedHashesInitTime";
 
 }  // namespace
@@ -230,7 +231,7 @@ base::Optional<ComputedHashes::Data> ComputedHashes::Compute(
       data.Add(relative_path, block_size, std::move(hashes.value()));
   }
 
-  return std::move(data);
+  return data;
 }
 
 bool ComputedHashes::GetHashes(const base::FilePath& relative_path,

@@ -4,8 +4,9 @@
 
 /**
  * @fileoverview using private properties isn't a Closure violation in tests.
- * @suppress {accessControls}
  */
+
+self.BindingsTestRunner = self.BindingsTestRunner || {};
 
 BindingsTestRunner.addFiles = function(testFileSystem, files) {
   for (const filePath in files) {
@@ -84,7 +85,9 @@ BindingsTestRunner.AutomappingTest.prototype = {
   },
 
   waitUntilMappingIsStabilized: function() {
-    const promise = new Promise(x => this._stabilizedCallback = x);
+    const promise = new Promise(x => {
+      this._stabilizedCallback = x;
+    });
     this._checkStabilized();
     return promise;
   },

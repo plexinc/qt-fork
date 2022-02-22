@@ -12,24 +12,25 @@
 // values that the decoder should reject. For now, this is only intended for
 // use in tests, and thus has EXPECT* in the code. If desired to use it in an
 // encoder, it will need optimization work, especially w.r.t memory mgmt, and
-// the EXPECT* will need to be removed or replaced with DCHECKs. And of course
-// the support for very large varints will not be needed in production code.
+// the EXPECT* will need to be removed or replaced with QUICHE_DCHECKs. And of
+// course the support for very large varints will not be needed in production
+// code.
 
 #include <stddef.h>
 
 #include <cstdint>
 #include <string>
 
-#include "testing/gtest/include/gtest/gtest.h"
-#include "net/third_party/quiche/src/http2/hpack/http2_hpack_constants.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/string_view.h"
+#include "http2/hpack/http2_hpack_constants.h"
+#include "common/platform/api/quiche_test.h"
 
 namespace http2 {
 namespace test {
 
 class HpackBlockBuilder {
  public:
-  explicit HpackBlockBuilder(quiche::QuicheStringPiece initial_contents)
+  explicit HpackBlockBuilder(absl::string_view initial_contents)
       : buffer_(initial_contents.data(), initial_contents.size()) {}
   HpackBlockBuilder() {}
   ~HpackBlockBuilder() {}
@@ -51,7 +52,7 @@ class HpackBlockBuilder {
   void AppendNameIndexAndLiteralValue(HpackEntryType entry_type,
                                       uint64_t name_index,
                                       bool value_is_huffman_encoded,
-                                      quiche::QuicheStringPiece value) {
+                                      absl::string_view value) {
     // name_index==0 would indicate that the entry includes a literal name.
     // Call AppendLiteralNameAndValue in that case.
     EXPECT_NE(0u, name_index);
@@ -61,9 +62,9 @@ class HpackBlockBuilder {
 
   void AppendLiteralNameAndValue(HpackEntryType entry_type,
                                  bool name_is_huffman_encoded,
-                                 quiche::QuicheStringPiece name,
+                                 absl::string_view name,
                                  bool value_is_huffman_encoded,
-                                 quiche::QuicheStringPiece value) {
+                                 absl::string_view value) {
     AppendEntryTypeAndVarint(entry_type, 0);
     AppendString(name_is_huffman_encoded, name);
     AppendString(value_is_huffman_encoded, value);
@@ -84,7 +85,7 @@ class HpackBlockBuilder {
 
   // Append a header string (i.e. a header name or value) in HPACK format.
   // Does NOT perform Huffman encoding.
-  void AppendString(bool is_huffman_encoded, quiche::QuicheStringPiece str);
+  void AppendString(bool is_huffman_encoded, absl::string_view str);
 
  private:
   std::string buffer_;

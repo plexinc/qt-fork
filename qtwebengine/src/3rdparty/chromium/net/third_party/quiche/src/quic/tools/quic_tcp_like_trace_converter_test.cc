@@ -2,9 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/tools/quic_tcp_like_trace_converter.h"
+#include "quic/tools/quic_tcp_like_trace_converter.h"
 
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
+#include "quic/platform/api/quic_test.h"
 
 namespace quic {
 namespace test {
@@ -96,6 +96,27 @@ TEST(QuicTcpLikeTraceConverterTest, FuzzerTest) {
 
   // Stream sends frame after fin.
   EXPECT_EQ(expected, converter.OnStreamFrameSent(1, 50, 600, false));
+}
+
+TEST(QuicTcpLikeTraceConverterTest, OnCryptoFrameSent) {
+  QuicTcpLikeTraceConverter converter;
+
+  EXPECT_EQ(QuicIntervalSet<uint64_t>(0, 100),
+            converter.OnCryptoFrameSent(ENCRYPTION_INITIAL, 0, 100));
+  EXPECT_EQ(QuicIntervalSet<uint64_t>(100, 200),
+            converter.OnStreamFrameSent(1, 0, 100, false));
+  EXPECT_EQ(QuicIntervalSet<uint64_t>(200, 300),
+            converter.OnStreamFrameSent(1, 100, 100, false));
+  EXPECT_EQ(QuicIntervalSet<uint64_t>(300, 400),
+            converter.OnCryptoFrameSent(ENCRYPTION_HANDSHAKE, 0, 100));
+  EXPECT_EQ(QuicIntervalSet<uint64_t>(400, 500),
+            converter.OnCryptoFrameSent(ENCRYPTION_HANDSHAKE, 100, 100));
+
+  // Verify crypto frame retransmission works as intended.
+  EXPECT_EQ(QuicIntervalSet<uint64_t>(0, 100),
+            converter.OnCryptoFrameSent(ENCRYPTION_INITIAL, 0, 100));
+  EXPECT_EQ(QuicIntervalSet<uint64_t>(400, 500),
+            converter.OnCryptoFrameSent(ENCRYPTION_HANDSHAKE, 100, 100));
 }
 
 }  // namespace

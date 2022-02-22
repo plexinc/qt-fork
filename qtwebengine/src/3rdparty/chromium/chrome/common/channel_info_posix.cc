@@ -8,6 +8,7 @@
 #include "base/strings/string_util.h"
 #include "build/branding_buildflags.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/version_info/version_info.h"
 
 namespace chrome {
@@ -67,9 +68,18 @@ std::string GetChannelSuffixForDataDir() {
   }
 }
 
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
 std::string GetDesktopName(base::Environment* env) {
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
+  // Google Chrome packaged as a snap is a special case: the application name
+  // is always "google-chrome", regardless of the channel (channels are built
+  // in to snapd, switching between them or doing parallel installs does not
+  // require distinct application names).
+  std::string snap_name;
+  if (env->GetVar("SNAP_NAME", &snap_name) && snap_name == "google-chrome")
+    return "google-chrome.desktop";
   version_info::Channel product_channel(GetChannel());
   switch (product_channel) {
     case version_info::Channel::DEV:
@@ -89,7 +99,7 @@ std::string GetDesktopName(base::Environment* env) {
   return "chromium-browser.desktop";
 #endif
 }
-#endif  // defined(OS_LINUX) && !defined(OS_CHROMEOS)
+#endif  // defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
 
 version_info::Channel GetChannel() {
   return GetChannelImpl(nullptr);

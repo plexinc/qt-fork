@@ -12,8 +12,10 @@
 #include "base/macros.h"
 #include "build/build_config.h"
 #include "mojo/public/cpp/bindings/associated_interface_ptr_info.h"
+#include "mojo/public/cpp/bindings/lib/multiplex_router.h"
 #include "mojo/public/cpp/bindings/pending_associated_receiver.h"
 #include "mojo/public/cpp/bindings/scoped_interface_endpoint_handle.h"
+#include "mojo/public/cpp/system/message_pipe.h"
 
 namespace mojo {
 
@@ -90,11 +92,46 @@ class PendingAssociatedRemote {
     return PendingAssociatedReceiver<Interface>(std::move(receiver_handle));
   }
 
+  // Associates this endpoint with a dedicated message pipe. This allows the
+  // entangled AssociatedReceiver/AssociatedRemote endpoints to be used without
+  // ever being associated with any other mojom interfaces.
+  //
+  // Needless to say, messages sent between the two entangled endpoints will not
+  // be ordered with respect to any other mojom interfaces. This is generally
+  // useful for ignoring calls on an associated remote or for binding associated
+  // endpoints in tests.
+  void EnableUnassociatedUsage() {
+    DCHECK(is_valid());
+
+    MessagePipe pipe;
+    scoped_refptr<internal::MultiplexRouter> router0 =
+        new internal::MultiplexRouter(
+            std::move(pipe.handle0), internal::MultiplexRouter::MULTI_INTERFACE,
+            false, base::SequencedTaskRunnerHandle::Get());
+    scoped_refptr<internal::MultiplexRouter> router1 =
+        new internal::MultiplexRouter(
+            std::move(pipe.handle1), internal::MultiplexRouter::MULTI_INTERFACE,
+            true, base::SequencedTaskRunnerHandle::Get());
+
+    InterfaceId id = router1->AssociateInterface(PassHandle());
+    set_handle(router0->CreateLocalEndpointHandle(id));
+  }
+
  private:
   ScopedInterfaceEndpointHandle handle_;
   uint32_t version_ = 0;
 
   DISALLOW_COPY_AND_ASSIGN(PendingAssociatedRemote);
+};
+
+// Constructs an invalid PendingAssociatedRemote of any arbitrary interface
+// type. Useful as short-hand for a default constructed value.
+class COMPONENT_EXPORT(MOJO_CPP_BINDINGS) NullAssociatedRemote {
+ public:
+  template <typename Interface>
+  operator PendingAssociatedRemote<Interface>() const {
+    return PendingAssociatedRemote<Interface>();
+  }
 };
 
 }  // namespace mojo

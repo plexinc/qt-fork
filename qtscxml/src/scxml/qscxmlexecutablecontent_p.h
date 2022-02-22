@@ -404,10 +404,16 @@ struct StateTable {
             return *(start + idx + 1);
         }
 
-        struct const_iterator: public std::iterator<std::forward_iterator_tag, int, ptrdiff_t,
-                                                    const int *, const int &>
+        struct const_iterator
         {
             const_iterator(const Array &a, int pos): a(a), pos(pos) {}
+
+            // std::iterator_traits
+            using value_type = int;
+            using pointer = const int*;
+            using reference = const int&;
+            using difference_type = std::ptrdiff_t;
+            using iterator_category =  std::forward_iterator_tag;
 
             const_iterator &operator++() {
                 if (pos < a.size()) ++pos;

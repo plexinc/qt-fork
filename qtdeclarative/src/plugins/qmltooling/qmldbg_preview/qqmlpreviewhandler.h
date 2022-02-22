@@ -66,7 +66,6 @@ class QQmlEngine;
 class QQuickItem;
 class QQmlPreviewUrlInterceptor;
 class QQuickWindow;
-class QTranslator;
 
 class QQmlPreviewHandler : public QObject
 {
@@ -75,15 +74,14 @@ public:
     explicit QQmlPreviewHandler(QObject *parent = nullptr);
     ~QQmlPreviewHandler();
 
+    QQuickItem *currentRootItem();
+
     void addEngine(QQmlEngine *engine);
     void removeEngine(QQmlEngine *engine);
 
     void loadUrl(const QUrl &url);
     void rerun();
     void zoom(qreal newFactor);
-#if QT_CONFIG(translation)
-    void language(const QUrl &context, const QLocale &locale);
-#endif
 
     void clear();
 
@@ -104,7 +102,7 @@ signals:
     void fps(const FpsInfo &info);
 
 protected:
-    bool eventFilter(QObject *obj, QEvent *event);
+    bool eventFilter(QObject *obj, QEvent *event) override;
 private:
     void doZoom();
     void tryCreateObject();
@@ -117,12 +115,10 @@ private:
     void frameSwapped();
 
     void fpsTimerHit();
-#if QT_CONFIG(translation)
-    void removeTranslators();
-#endif
 
     QScopedPointer<QQuickItem> m_dummyItem;
     QList<QQmlEngine *> m_engines;
+    QPointer<QQuickItem> m_currentRootItem;
     QVector<QPointer<QObject>> m_createdObjects;
     QScopedPointer<QQmlComponent> m_component;
     QPointer<QQuickWindow> m_currentWindow;
@@ -148,11 +144,6 @@ private:
 
     FrameTime m_rendering;
     FrameTime m_synchronizing;
-
-#if QT_CONFIG(translation)
-    QScopedPointer<QTranslator> m_qtTranslator;
-    QScopedPointer<QTranslator> m_qmlTranslator;
-#endif
 };
 
 QT_END_NAMESPACE

@@ -29,8 +29,8 @@ class CSSPropertyNamesWriter(json5_generator.Writer):
         'core/css/templates/css_property_names.h.tmpl')
     def generate_header(self):
         return {
-            'alias_offset':
-            self._css_properties.alias_offset,
+            'alias_mask':
+            hex(0xffffffff - self._css_properties.alias_offset + 1),
             'class_name':
             self.class_name,
             'property_enums':
@@ -47,6 +47,10 @@ class CSSPropertyNamesWriter(json5_generator.Writer):
             self._css_properties.last_property_id,
             'last_unresolved_property_id':
             self._css_properties.last_unresolved_property_id,
+            'last_high_priority_property_id':
+            self._css_properties.last_high_priority_property_id,
+            'property_id_bit_length':
+            self._css_properties.property_id_bit_length,
             'max_name_length':
             max(map(len, self._css_properties.properties_by_id)),
         }

@@ -51,7 +51,6 @@
 #include <qstringlist.h>
 #include <qthread.h>
 #include <qurl.h>
-#include <private/qnetworksession_p.h>
 
 #include <algorithm>
 
@@ -160,11 +159,13 @@ void QHostInfoResult::postResultsReady(const QHostInfo &info)
     auto metaCallEvent = new QMetaCallEvent(slotObj, nullptr, signal_index, nargs);
     Q_CHECK_PTR(metaCallEvent);
     void **args = metaCallEvent->args();
-    int *types = metaCallEvent->types();
-    types[0] = QMetaType::type("void");
-    types[1] = QMetaType::type("QHostInfo");
+    QMetaType *types = metaCallEvent->types();
+    auto voidType = QMetaType::fromType<void>();
+    auto hostInfoType = QMetaType::fromType<QHostInfo>();
+    types[0] = voidType;
+    types[1] = hostInfoType;
     args[0] = nullptr;
-    args[1] = QMetaType::create(types[1], &info);
+    args[1] = hostInfoType.create(&info);
     Q_CHECK_PTR(args[1]);
     qApp->postEvent(result, metaCallEvent);
 }
@@ -233,7 +234,7 @@ bool QHostInfoResult::event(QEvent *event)
     QHostInfo::localHostName() function.
 
     QHostInfo uses the mechanisms provided by the operating system
-    to perform the lookup. As per {https://tools.ietf.org/html/rfc6724}{RFC 6724}
+    to perform the lookup. As per \l {RFC 6724}
     there is no guarantee that all IP addresses registered for a domain or
     host will be returned.
 
@@ -244,8 +245,7 @@ bool QHostInfoResult::event(QEvent *event)
     \note Since Qt 4.6.3 QHostInfo is using a small internal 60 second DNS cache
     for performance improvements.
 
-    \sa QAbstractSocket, {http://www.rfc-editor.org/rfc/rfc3492.txt}{RFC 3492},
-    {https://tools.ietf.org/html/rfc6724}{RFC 6724}
+    \sa QAbstractSocket, {RFC 3492}, {RFC 6724}
 */
 
 static int nextId()
@@ -285,7 +285,7 @@ static int nextId()
 */
 int QHostInfo::lookupHost(const QString &name, QObject *receiver, const char *member)
 {
-    return QHostInfoPrivate::lookupHostImpl(name, receiver, nullptr, member);
+    return QHostInfo::lookupHostImpl(name, receiver, nullptr, member);
 }
 
 /*!
@@ -608,10 +608,11 @@ QHostInfo::QHostInfo(const QHostInfo &other)
 */
 QHostInfo &QHostInfo::operator=(const QHostInfo &other)
 {
-    if (d_ptr)
-        *d_ptr = *other.d_ptr;
-    else
-        d_ptr = new QHostInfoPrivate(*other.d_ptr);
+    if (this == &other)
+      return *this;
+
+    Q_ASSERT(d_ptr && other.d_ptr);
+    *d_ptr = *other.d_ptr;
     return *this;
 }
 
@@ -772,14 +773,8 @@ QString QHostInfo::localHostName()
     \sa hostName()
 */
 
-// ### Qt 6 merge with function below
-int QHostInfo::lookupHostImpl(const QString &name,
-                              const QObject *receiver,
-                              QtPrivate::QSlotObjectBase *slotObj)
-{
-    return QHostInfoPrivate::lookupHostImpl(name, receiver, slotObj, nullptr);
-}
-/*
+/*!
+    \internal
     Called by the various lookupHost overloads to perform the lookup.
 
     Signals either the functor encapuslated in the \a slotObj in the context
@@ -787,13 +782,13 @@ int QHostInfo::lookupHostImpl(const QString &name,
 
     \a receiver might be the nullptr, but only if a \a slotObj is provided.
 */
-int QHostInfoPrivate::lookupHostImpl(const QString &name,
-                                     const QObject *receiver,
-                                     QtPrivate::QSlotObjectBase *slotObj,
-                                     const char *member)
+int QHostInfo::lookupHostImpl(const QString &name,
+                              const QObject *receiver,
+                              QtPrivate::QSlotObjectBase *slotObj,
+                              const char *member)
 {
 #if defined QHOSTINFO_DEBUG
-    qDebug("QHostInfoPrivate::lookupHostImpl(\"%s\", %p, %p, %s)",
+    qDebug("QHostInfo::lookupHostImpl(\"%s\", %p, %p, %s)",
            name.toLatin1().constData(), receiver, slotObj, member ? member + 1 : 0);
 #endif
     Q_ASSERT(!member != !slotObj); // one of these must be set, but not both
@@ -1097,7 +1092,7 @@ QHostInfo qt_qhostinfo_lookup(const QString &name, QObject *receiver, const char
     }
 
     // was not in cache, trigger lookup
-    *id = QHostInfoPrivate::lookupHostImpl(name, receiver, nullptr, member);
+    *id = QHostInfo::lookupHostImpl(name, receiver, nullptr, member);
 
     // return empty response, valid==false
     return QHostInfo();

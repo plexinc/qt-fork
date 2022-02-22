@@ -24,13 +24,13 @@ class WTF_EXPORT PartitionAllocator {
 
   template <typename T>
   static size_t MaxElementCountInBackingStore() {
-    return base::kGenericMaxDirectMapped / sizeof(T);
+    return base::MaxDirectMapped() / sizeof(T);
   }
 
   template <typename T>
   static size_t QuantizedSize(size_t count) {
     CHECK_LE(count, MaxElementCountInBackingStore<T>());
-    return WTF::Partitions::BufferActualSize(count * sizeof(T));
+    return WTF::Partitions::BufferPotentialCapacity(count * sizeof(T));
   }
   template <typename T>
   static T* AllocateVectorBacking(size_t size) {
@@ -67,6 +67,11 @@ class WTF_EXPORT PartitionAllocator {
   }
 
   static inline bool ExpandHashTableBacking(void*, size_t) { return false; }
+  template <typename Traits>
+  static inline bool CanReuseHashTableDeletedBucket() {
+    return true;
+  }
+
   static void Free(void* address) { WTF::Partitions::FastFree(address); }
   template <typename T>
   static void* NewArray(size_t bytes) {
@@ -76,15 +81,12 @@ class WTF_EXPORT PartitionAllocator {
     Free(ptr);  // Not the system free, the one from this class.
   }
 
-  static void TraceBackingStoreIfMarked(const void*) {}
+  template <typename T>
+  static void TraceBackingStoreIfMarked(T**) {}
   template <typename T>
   static void BackingWriteBarrier(T**) {}
-  template <typename, typename T>
-  static void BackingWriteBarrierForHashTable(T**) {}
 
   static bool IsAllocationAllowed() { return true; }
-  static bool IsObjectResurrectionForbidden() { return false; }
-  static bool IsSweepForbidden() { return false; }
   static bool IsIncrementalMarking() { return false; }
 
   static void EnterGCForbiddenScope() {}

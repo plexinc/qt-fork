@@ -28,7 +28,8 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QTypeRevision>
 
 #include <qobject.h>
 #include <qmetaobject.h>
@@ -48,6 +49,14 @@ private slots:
     void fromSignal();
 
     void gadget();
+    void revision();
+
+    void returnMetaType();
+    void parameterMetaType();
+
+    void parameterTypeName();
+
+    void isConst();
 };
 
 struct CustomType { };
@@ -75,7 +84,7 @@ public:
                                  uchar ucharArg, float floatArg);
     Q_INVOKABLE MethodTestObject(bool, int);
 
-    Q_INVOKABLE void voidInvokable();
+    Q_INVOKABLE void voidInvokable() const;
     Q_INVOKABLE void voidInvokableInt(int voidInvokableIntArg);
     Q_INVOKABLE void voidInvokableQReal(qreal voidInvokableQRealArg);
     Q_INVOKABLE void voidInvokableQString(const QString &voidInvokableQStringArg);
@@ -136,7 +145,7 @@ MethodTestObject::MethodTestObject(bool, int, uint, qlonglong, qulonglong,
                                    uchar, float) {}
 MethodTestObject::MethodTestObject(bool, int) {}
 
-void MethodTestObject::voidInvokable() {}
+void MethodTestObject::voidInvokable() const {}
 void MethodTestObject::voidInvokableInt(int) {}
 void MethodTestObject::voidInvokableQReal(qreal) {}
 void MethodTestObject::voidInvokableQString(const QString &) {}
@@ -378,10 +387,11 @@ void tst_QMetaMethod::method_data()
             << QMetaMethod::Public
             << QMetaMethod::Constructor;
 
+    // since Qt 6.0, parameter types get automatically registered
     QTest::newRow("voidSignalCustomUnregisteredType")
             << QByteArray("voidSignalCustomUnregisteredType(CustomUnregisteredType)")
             << int(QMetaType::Void) << QByteArray("void")
-            << (QList<int>() << 0)
+            << (QList<int>() << QMetaType::fromType<CustomUnregisteredType>().id())
             << (QList<QByteArray>() << QByteArray("CustomUnregisteredType"))
             << (QList<QByteArray>() << QByteArray("voidSignalCustomUnregisteredTypeArg"))
             << QMetaMethod::Public
@@ -390,7 +400,7 @@ void tst_QMetaMethod::method_data()
     QTest::newRow("voidInvokableCustomUnregisteredType")
             << QByteArray("voidInvokableCustomUnregisteredType(CustomUnregisteredType)")
             << int(QMetaType::Void) << QByteArray("void")
-            << (QList<int>() << 0)
+            << (QList<int>() << QMetaType::fromType<CustomUnregisteredType>().id())
             << (QList<QByteArray>() << QByteArray("CustomUnregisteredType"))
             << (QList<QByteArray>() << QByteArray("voidInvokableCustomUnregisteredTypeArg"))
             << QMetaMethod::Public
@@ -399,7 +409,7 @@ void tst_QMetaMethod::method_data()
     QTest::newRow("voidSlotCustomUnregisteredType")
             << QByteArray("voidSlotCustomUnregisteredType(CustomUnregisteredType)")
             << int(QMetaType::Void) << QByteArray("void")
-            << (QList<int>() << 0)
+            << (QList<int>() << QMetaType::fromType<CustomUnregisteredType>().id())
             << (QList<QByteArray>() << QByteArray("CustomUnregisteredType"))
             << (QList<QByteArray>() << QByteArray("voidSlotCustomUnregisteredTypeArg"))
             << QMetaMethod::Public
@@ -408,7 +418,7 @@ void tst_QMetaMethod::method_data()
     QTest::newRow("MethodTestObject(CustomUnregisteredType)")
             << QByteArray("MethodTestObject(CustomUnregisteredType)")
             << int(QMetaType::UnknownType) << QByteArray("")
-            << (QList<int>() << 0)
+            << (QList<int>() << QMetaType::fromType<CustomUnregisteredType>().id())
             << (QList<QByteArray>() << QByteArray("CustomUnregisteredType"))
             << (QList<QByteArray>() << QByteArray("constructorCustomUnregisteredTypeArg"))
             << QMetaMethod::Public
@@ -624,7 +634,13 @@ void tst_QMetaMethod::method()
     QVERIFY(method.typeName() != 0);
     if (QByteArray(method.typeName()) != returnTypeName) {
         // QMetaMethod should always produce a semantically equivalent typename
-        QCOMPARE(QMetaType::type(method.typeName()), QMetaType::type(returnTypeName));
+        QCOMPARE(QMetaType::fromName(method.typeName()), QMetaType::fromName(returnTypeName));
+    }
+
+    // check that parameterNames and parameterTypeName agree
+    const auto methodParmaterTypes = method.parameterTypes();
+    for (int i = 0; i< methodParmaterTypes.size(); ++i) {
+        QCOMPARE(methodParmaterTypes[i], method.parameterTypeName(i));
     }
 
     if (method.parameterTypes() != parameterTypeNames) {
@@ -632,8 +648,8 @@ void tst_QMetaMethod::method()
         QList<QByteArray> actualTypeNames = method.parameterTypes();
         QCOMPARE(actualTypeNames.size(), parameterTypeNames.size());
         for (int i = 0; i < parameterTypeNames.size(); ++i) {
-            QCOMPARE(QMetaType::type(actualTypeNames.at(i)),
-                     QMetaType::type(parameterTypeNames.at(i)));
+            QCOMPARE(QMetaType::fromName(actualTypeNames.at(i)),
+                     QMetaType::fromName(parameterTypeNames.at(i)));
         }
     }
     QCOMPARE(method.parameterNames(), parameterNames);
@@ -643,7 +659,7 @@ void tst_QMetaMethod::method()
         QCOMPARE(method.parameterType(i), parameterTypes.at(i));
 
     {
-        QVector<int> actualParameterTypes(parameterTypes.size());
+        QList<int> actualParameterTypes(parameterTypes.size());
         method.getParameterTypes(actualParameterTypes.data());
         for (int i = 0; i < parameterTypes.size(); ++i)
             QCOMPARE(actualParameterTypes.at(i), parameterTypes.at(i));
@@ -767,6 +783,107 @@ void tst_QMetaMethod::gadget()
         QString string;
         QVERIFY(!setValueMethod.invokeOnGadget(gadget, Q_ARG(QString, QLatin1String("hi"))));
         QVERIFY(!getValueMethod.invokeOnGadget(gadget, Q_RETURN_ARG(QString, string)));
+    }
+}
+
+class MyTestClass : public QObject
+{
+    Q_OBJECT
+
+public:
+    MyTestClass() {};
+public Q_SLOTS:
+    Q_REVISION(42) MyGadget doStuff(int, float, MyGadget) {return {};}
+Q_SIGNALS:
+    QObject *mySignal();
+};
+
+void tst_QMetaMethod::revision()
+{
+    auto mo = MyTestClass::staticMetaObject;
+    const auto normalized = QMetaObject::normalizedSignature("doStuff(int, float, MyGadget)");
+    const int idx = mo.indexOfSlot(normalized);
+    QMetaMethod mm = mo.method(idx);
+    QVERIFY(mm.isValid());
+    QCOMPARE(QTypeRevision::fromEncodedVersion(mm.revision()), QTypeRevision::fromMinorVersion(42));
+}
+
+void tst_QMetaMethod::returnMetaType()
+{
+    {
+        QMetaMethod mm = QMetaMethod::fromSignal(&MyTestClass::mySignal);
+        QCOMPARE(mm.returnMetaType(), QMetaType::fromType<QObject*>());
+    }
+    auto mo = MyTestClass::staticMetaObject;
+    {
+        const auto normalized = QMetaObject::normalizedSignature("doStuff(int, float, MyGadget)");
+        const int idx = mo.indexOfSlot(normalized);
+        QMetaMethod mm = mo.method(idx);
+        QVERIFY(mm.isValid());
+        QCOMPARE(mm.returnMetaType(), QMetaType::fromType<MyGadget>());
+    }
+    {
+        // access of parent class meta methods works, too
+        const auto normalized = QMetaObject::normalizedSignature("deleteLater()");
+        const int idx = mo.indexOfSlot(normalized);
+        QMetaMethod mm = mo.method(idx);
+        QVERIFY(mm.isValid());
+        QCOMPARE(mm.returnMetaType(), QMetaType::fromType<void>());
+    }
+}
+
+void tst_QMetaMethod::parameterMetaType()
+{
+    auto mo = MyTestClass::staticMetaObject;
+    const auto normalized = QMetaObject::normalizedSignature("doStuff(int, float, MyGadget)");
+    const int idx = mo.indexOfSlot(normalized);
+    QMetaMethod mm = mo.method(idx);
+    {
+        QVERIFY(!mm.parameterMetaType(-1).isValid());
+        QVERIFY(!mm.parameterMetaType(3).isValid());
+    }
+    {
+        QCOMPARE(mm.parameterMetaType(0), QMetaType::fromType<int>());
+        QCOMPARE(mm.parameterMetaType(1), QMetaType::fromType<float>());
+        QCOMPARE(mm.parameterMetaType(2), QMetaType::fromType<MyGadget>());
+    }
+}
+
+
+void tst_QMetaMethod::parameterTypeName()
+{
+    auto mo = MyTestClass::staticMetaObject;
+    const auto normalized = QMetaObject::normalizedSignature("doStuff(int, float, MyGadget)");
+    const int idx = mo.indexOfSlot(normalized);
+    QMetaMethod mm = mo.method(idx);
+    {
+        // check invalid indices
+        QVERIFY(mm.parameterTypeName(-1).isEmpty());
+        QVERIFY(mm.parameterTypeName(3).isEmpty());
+    }
+    {
+        QCOMPARE(mm.parameterTypeName(0), QByteArray("int"));
+        QCOMPARE(mm.parameterTypeName(1), QByteArray("float"));
+        QCOMPARE(mm.parameterTypeName(2), QByteArray("MyGadget"));
+    }
+}
+
+void tst_QMetaMethod::isConst()
+{
+    auto mo = MethodTestObject::staticMetaObject;
+    {
+        const auto normalized = QMetaObject::normalizedSignature("qrealInvokable()");
+        const int idx = mo.indexOfSlot(normalized);
+        QMetaMethod mm = mo.method(idx);
+        QVERIFY(mm.isValid());
+        QCOMPARE(mm.isConst(), false);
+    }
+    {
+        const auto normalized = QMetaObject::normalizedSignature("voidInvokable()");
+        const int idx = mo.indexOfSlot(normalized);
+        QMetaMethod mm = mo.method(idx);
+        QVERIFY(mm.isValid());
+        QCOMPARE(mm.isConst(), true);
     }
 }
 

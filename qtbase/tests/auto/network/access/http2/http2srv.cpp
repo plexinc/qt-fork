@@ -26,7 +26,7 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include <QtNetwork/private/http2protocol_p.h>
 #include <QtNetwork/private/bitstreams_p.h>
@@ -120,6 +120,16 @@ void Http2Server::setResponseBody(const QByteArray &body)
     responseBody = body;
 }
 
+void Http2Server::setContentEncoding(const QByteArray &encoding)
+{
+    contentEncoding = encoding;
+}
+
+void Http2Server::setAuthenticationHeader(const QByteArray &authentication)
+{
+    authenticationHeader = authentication;
+}
+
 void Http2Server::emulateGOAWAY(int timeout)
 {
     Q_ASSERT(timeout >= 0);
@@ -136,6 +146,17 @@ void Http2Server::redirectOpenStream(quint16 port)
 bool Http2Server::isClearText() const
 {
     return connectionType == H2Type::h2c || connectionType == H2Type::h2cDirect;
+}
+
+QByteArray Http2Server::requestAuthorizationHeader()
+{
+    const auto isAuthHeader = [](const HeaderField &field) {
+        return field.name == "authorization";
+    };
+    const auto requestHeaders = decoder.decodedHeader();
+    const auto authentication =
+            std::find_if(requestHeaders.cbegin(), requestHeaders.cend(), isAuthHeader);
+    return authentication == requestHeaders.cend() ? QByteArray() : authentication->value;
 }
 
 void Http2Server::startServer()
@@ -297,11 +318,11 @@ void Http2Server::incomingConnection(qintptr socketDescriptor)
         sslSocket->setProtocol(QSsl::TlsV1_2OrLater);
         connect(sslSocket, SIGNAL(sslErrors(QList<QSslError>)),
                 this, SLOT(ignoreErrorSlot()));
-        QFile file(SRCDIR "certs/fluke.key");
+        QFile file(QT_TESTCASE_SOURCEDIR "/certs/fluke.key");
         file.open(QIODevice::ReadOnly);
         QSslKey key(file.readAll(), QSsl::Rsa, QSsl::Pem, QSsl::PrivateKey);
         sslSocket->setPrivateKey(key);
-        auto localCert = QSslCertificate::fromPath(SRCDIR "certs/fluke.cert");
+        auto localCert = QSslCertificate::fromPath(QT_TESTCASE_SOURCEDIR "/certs/fluke.cert");
         sslSocket->setLocalCertificateChain(localCert);
         sslSocket->setSocketDescriptor(socketDescriptor, QAbstractSocket::ConnectedState);
         // Stop listening.
@@ -732,10 +753,15 @@ void Http2Server::handleDATA()
     }
 
     if (inboundFrame.flags().testFlag(FrameFlag::END_STREAM)) {
-        closedStreams.insert(streamID); // Enter "half-closed remote" state.
-        streamWindows.erase(it);
+        if (responseBody.isEmpty()) {
+            closedStreams.insert(streamID); // Enter "half-closed remote" state.
+            streamWindows.erase(it);
+        }
         emit receivedData(streamID);
     }
+    emit receivedDATAFrame(streamID,
+                           QByteArray(reinterpret_cast<const char *>(inboundFrame.dataBegin()),
+                                      inboundFrame.dataSize()));
 }
 
 void Http2Server::handleWINDOW_UPDATE()
@@ -816,6 +842,9 @@ void Http2Server::sendResponse(quint32 streamID, bool emptyBody)
     if (emptyBody)
         writer.addFlag(FrameFlag::END_STREAM);
 
+    // We assume any auth is correct. Leaves the checking to the test itself
+    const bool hasAuth = !requestAuthorizationHeader().isEmpty();
+
     HttpHeader header;
     if (redirectWhileReading) {
         if (redirectSent) {
@@ -832,6 +861,10 @@ void Http2Server::sendResponse(quint32 streamID, bool emptyBody)
         header.push_back({"location", url.arg(isClearText() ? QStringLiteral("http") : QStringLiteral("https"),
                                               QString::number(targetPort)).toLatin1()});
 
+    } else if (!authenticationHeader.isEmpty() && !hasAuth) {
+        header.push_back({ ":status", "401" });
+        header.push_back(HPack::HeaderField("www-authenticate", authenticationHeader));
+        authenticationHeader.clear();
     } else {
         header.push_back({":status", "200"});
     }
@@ -840,6 +873,9 @@ void Http2Server::sendResponse(quint32 streamID, bool emptyBody)
         header.push_back(HPack::HeaderField("content-length",
                          QString("%1").arg(responseBody.size()).toLatin1()));
     }
+
+    if (!contentEncoding.isEmpty())
+        header.push_back(HPack::HeaderField("content-encoding", contentEncoding));
 
     HPack::BitOStream ostream(writer.outboundFrame().buffer);
     const bool result = encoder.encodeResponse(ostream, header);

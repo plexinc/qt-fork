@@ -8,9 +8,12 @@ qml/qml/AnimatedItem.qml
 lighting/materials/Default_002.qml
 lighting/materials/Default_009.qml
 lighting/materials/Material.qml
+shared/materials/GoldLattice.qml
 
 # Dynamic component
 quick/Component.qml
 defaultmaterial/BlendComponent.qml
 view3d/SceneComponent.qml
 effects/PlainView.qml
+custommaterial/NoUniformsUnshadedMaterial.qml
+custommaterial/DepthDrawTestMaterial.qml

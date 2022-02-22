@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtGui module of the Qt Toolkit.
@@ -51,13 +51,12 @@
 // We mean it.
 //
 
-#include <QtGui/qcolorspace.h>
 #include <QtGui/private/qtguiglobal_p.h>
+#include <QtGui/qcolorspace.h>
 #include <QtGui/qimage.h>
 #include <QtCore/private/qnumeric_p.h>
-
-#include <QMap>
-#include <QVector>
+#include <QtCore/qlist.h>
+#include <QtCore/qmap.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -67,7 +66,7 @@ struct Q_GUI_EXPORT QImageData {        // internal image data
     QImageData();
     ~QImageData();
     static QImageData *create(const QSize &size, QImage::Format format);
-    static QImageData *create(uchar *data, int w, int h,  int bpl, QImage::Format format, bool readOnly, QImageCleanupFunction cleanupFunction = nullptr, void *cleanupInfo = nullptr);
+    static QImageData *create(uchar *data, int w, int h,  qsizetype bpl, QImage::Format format, bool readOnly, QImageCleanupFunction cleanupFunction = nullptr, void *cleanupInfo = nullptr);
 
     static QImageData *get(QImage &img) noexcept { return img.d; }
     static const QImageData *get(const QImage &img) noexcept { return img.d; }
@@ -79,7 +78,7 @@ struct Q_GUI_EXPORT QImageData {        // internal image data
     int depth;
     qsizetype nbytes;               // number of bytes data
     qreal devicePixelRatio;
-    QVector<QRgb> colortable;
+    QList<QRgb> colortable;
     uchar *data;
     QImage::Format format;
     qsizetype bytes_per_line;
@@ -94,7 +93,6 @@ struct Q_GUI_EXPORT QImageData {        // internal image data
     uint ro_data : 1;
     uint has_alpha_clut : 1;
     uint is_cached : 1;
-    uint is_locked : 1;
 
     QImageCleanupFunction cleanupFunction;
     void* cleanupInfo;
@@ -143,7 +141,7 @@ QImageData::calculateImageParameters(qsizetype width, qsizetype height, qsizetyp
     qsizetype dummy;
     if (mul_overflow(height, qsizetype(sizeof(uchar *)), &dummy))
         return invalid;                                 // why is this here?
-#if QT_VERSION < QT_VERSION_CHECK(6,0,0)
+#if 1 || QT_VERSION < QT_VERSION_CHECK(6,0,0) // ### can only fix this if QImage dimensions are not int anymore
     // Disallow images where width * depth calculations might overflow
     if (width > (INT_MAX - 31) / depth)
         return invalid;
@@ -159,15 +157,20 @@ extern Image_Converter qimage_converter_map[QImage::NImageFormats][QImage::NImag
 extern InPlace_Image_Converter qimage_inplace_converter_map[QImage::NImageFormats][QImage::NImageFormats];
 
 void convert_generic(QImageData *dest, const QImageData *src, Qt::ImageConversionFlags);
-void convert_generic_to_rgb64(QImageData *dest, const QImageData *src, Qt::ImageConversionFlags);
+void convert_generic_over_rgb64(QImageData *dest, const QImageData *src, Qt::ImageConversionFlags);
 bool convert_generic_inplace(QImageData *data, QImage::Format dst_format, Qt::ImageConversionFlags);
+bool convert_generic_inplace_over_rgb64(QImageData *data, QImage::Format dst_format, Qt::ImageConversionFlags);
+#if QT_CONFIG(raster_fp)
+void convert_generic_over_rgba32f(QImageData *dest, const QImageData *src, Qt::ImageConversionFlags);
+bool convert_generic_inplace_over_rgba32f(QImageData *data, QImage::Format dst_format, Qt::ImageConversionFlags);
+#endif
 
 void dither_to_Mono(QImageData *dst, const QImageData *src, Qt::ImageConversionFlags flags, bool fromalpha);
 
 const uchar *qt_get_bitflip_array();
 Q_GUI_EXPORT void qGamma_correct_back_to_linear_cs(QImage *image);
 
-#if defined(_M_ARM) // QTBUG-42038
+#if defined(_M_ARM) && defined(_MSC_VER) // QTBUG-42038
 #pragma optimize("", off)
 #endif
 inline int qt_depthForFormat(QImage::Format format)
@@ -216,13 +219,21 @@ inline int qt_depthForFormat(QImage::Format format)
     case QImage::Format_RGBX64:
     case QImage::Format_RGBA64:
     case QImage::Format_RGBA64_Premultiplied:
+    case QImage::Format_RGBX16FPx4:
+    case QImage::Format_RGBA16FPx4:
+    case QImage::Format_RGBA16FPx4_Premultiplied:
         depth = 64;
+        break;
+    case QImage::Format_RGBX32FPx4:
+    case QImage::Format_RGBA32FPx4:
+    case QImage::Format_RGBA32FPx4_Premultiplied:
+        depth = 128;
         break;
     }
     return depth;
 }
 
-#if defined(_M_ARM)
+#if defined(_M_ARM) && defined(_MSC_VER)
 #pragma optimize("", on)
 #endif
 
@@ -247,16 +258,48 @@ inline QImage::Format qt_opaqueVersion(QImage::Format format)
     case QImage::Format_RGBA64:
     case QImage::Format_RGBA64_Premultiplied:
         return QImage::Format_RGBX64;
+    case QImage::Format_RGBA16FPx4:
+    case QImage::Format_RGBA16FPx4_Premultiplied:
+        return QImage::Format_RGBX16FPx4;
+    case QImage::Format_RGBA32FPx4:
+    case QImage::Format_RGBA32FPx4_Premultiplied:
+        return QImage::Format_RGBX32FPx4;
     case QImage::Format_ARGB32_Premultiplied:
     case QImage::Format_ARGB32:
-    default:
         return QImage::Format_RGB32;
+    case QImage::Format_RGB16:
+    case QImage::Format_RGB32:
+    case QImage::Format_RGB444:
+    case QImage::Format_RGB555:
+    case QImage::Format_RGB666:
+    case QImage::Format_RGB888:
+    case QImage::Format_BGR888:
+    case QImage::Format_RGBX8888:
+    case QImage::Format_BGR30:
+    case QImage::Format_RGB30:
+    case QImage::Format_RGBX64:
+    case QImage::Format_RGBX16FPx4:
+    case QImage::Format_RGBX32FPx4:
+    case QImage::Format_Grayscale8:
+    case QImage::Format_Grayscale16:
+        return format;
+    case QImage::Format_Mono:
+    case QImage::Format_MonoLSB:
+    case QImage::Format_Indexed8:
+    case QImage::Format_Alpha8:
+    case QImage::Format_Invalid:
+    case QImage::NImageFormats:
+        break;
     }
+    return QImage::Format_RGB32;
 }
 
 inline QImage::Format qt_alphaVersion(QImage::Format format)
 {
     switch (format) {
+    case QImage::Format_RGB32:
+    case QImage::Format_ARGB32:
+        return QImage::Format_ARGB32_Premultiplied;
     case QImage::Format_RGB16:
         return QImage::Format_ARGB8565_Premultiplied;
     case QImage::Format_RGB555:
@@ -266,14 +309,43 @@ inline QImage::Format qt_alphaVersion(QImage::Format format)
     case QImage::Format_RGB444:
         return QImage::Format_ARGB4444_Premultiplied;
     case QImage::Format_RGBX8888:
+    case QImage::Format_RGBA8888:
         return QImage::Format_RGBA8888_Premultiplied;
     case QImage::Format_BGR30:
         return QImage::Format_A2BGR30_Premultiplied;
     case QImage::Format_RGB30:
         return QImage::Format_A2RGB30_Premultiplied;
     case QImage::Format_RGBX64:
+    case QImage::Format_RGBA64:
+    case QImage::Format_Grayscale16:
         return QImage::Format_RGBA64_Premultiplied;
-    default:
+    case QImage::Format_RGBX16FPx4:
+    case QImage::Format_RGBA16FPx4:
+        return QImage::Format_RGBA16FPx4_Premultiplied;
+    case QImage::Format_RGBX32FPx4:
+    case QImage::Format_RGBA32FPx4:
+        return QImage::Format_RGBA32FPx4_Premultiplied;
+    case QImage::Format_ARGB32_Premultiplied:
+    case QImage::Format_ARGB8565_Premultiplied:
+    case QImage::Format_ARGB8555_Premultiplied:
+    case QImage::Format_ARGB6666_Premultiplied:
+    case QImage::Format_ARGB4444_Premultiplied:
+    case QImage::Format_RGBA8888_Premultiplied:
+    case QImage::Format_A2BGR30_Premultiplied:
+    case QImage::Format_A2RGB30_Premultiplied:
+    case QImage::Format_RGBA64_Premultiplied:
+    case QImage::Format_RGBA16FPx4_Premultiplied:
+    case QImage::Format_RGBA32FPx4_Premultiplied:
+        return format;
+    case QImage::Format_Mono:
+    case QImage::Format_MonoLSB:
+    case QImage::Format_Indexed8:
+    case QImage::Format_RGB888:
+    case QImage::Format_BGR888:
+    case QImage::Format_Alpha8:
+    case QImage::Format_Grayscale8:
+    case QImage::Format_Invalid:
+    case QImage::NImageFormats:
         break;
     }
     return QImage::Format_ARGB32_Premultiplied;
@@ -294,6 +366,12 @@ inline bool qt_highColorPrecision(QImage::Format format, bool opaque = false)
     case QImage::Format_RGBA64:
     case QImage::Format_RGBA64_Premultiplied:
     case QImage::Format_Grayscale16:
+    case QImage::Format_RGBX16FPx4:
+    case QImage::Format_RGBA16FPx4:
+    case QImage::Format_RGBA16FPx4_Premultiplied:
+    case QImage::Format_RGBX32FPx4:
+    case QImage::Format_RGBA32FPx4:
+    case QImage::Format_RGBA32FPx4_Premultiplied:
         return true;
     default:
         break;
@@ -301,6 +379,21 @@ inline bool qt_highColorPrecision(QImage::Format format, bool opaque = false)
     return false;
 }
 
+inline bool qt_fpColorPrecision(QImage::Format format)
+{
+    switch (format) {
+    case QImage::Format_RGBX16FPx4:
+    case QImage::Format_RGBA16FPx4:
+    case QImage::Format_RGBA16FPx4_Premultiplied:
+    case QImage::Format_RGBX32FPx4:
+    case QImage::Format_RGBA32FPx4:
+    case QImage::Format_RGBA32FPx4_Premultiplied:
+        return true;
+    default:
+        break;
+    }
+    return false;
+}
 
 inline QImage::Format qt_maybeAlphaVersionWithSameDepth(QImage::Format format)
 {
@@ -310,7 +403,11 @@ inline QImage::Format qt_maybeAlphaVersionWithSameDepth(QImage::Format format)
 
 inline QImage::Format qt_opaqueVersionForPainting(QImage::Format format)
 {
-    return qt_opaqueVersion(format);
+    QImage::Format toFormat = qt_opaqueVersion(format);
+    // If we are switching depth anyway upgrade to RGB32
+    if (qt_depthForFormat(format) != qt_depthForFormat(toFormat) && qt_depthForFormat(toFormat) <= 32)
+        toFormat = QImage::Format_RGB32;
+    return toFormat;
 }
 
 inline QImage::Format qt_alphaVersionForPainting(QImage::Format format)
@@ -318,7 +415,7 @@ inline QImage::Format qt_alphaVersionForPainting(QImage::Format format)
     QImage::Format toFormat = qt_alphaVersion(format);
 #if defined(__ARM_NEON__) || defined(__SSE2__)
     // If we are switching depth anyway and we have optimized ARGB32PM routines, upgrade to that.
-    if (qt_depthForFormat(format) != qt_depthForFormat(toFormat))
+    if (qt_depthForFormat(format) != qt_depthForFormat(toFormat) && qt_depthForFormat(toFormat) <= 32)
         toFormat = QImage::Format_ARGB32_Premultiplied;
 #endif
     return toFormat;

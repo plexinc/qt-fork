@@ -37,10 +37,10 @@ This document provides a technical overview of the Qt Virtual Keyboard plugin.
 
 \section1 Basic Concepts
 
-The Qt Virtual Keyboard project is a Qt 5 input context plugin which implements
+The Qt Virtual Keyboard project is a Qt input context plugin which implements
 QPlatformInputContextPlugin and QPlatformInputContext interfaces.
 These interfaces allow the plugin to be used as a platform input
-context plugin in Qt 5 applications.
+context plugin in Qt applications.
 
 The plugin itself provides an input framework supporting multiple
 input methods as well as a QML UI for the virtual keyboard. The input
@@ -244,7 +244,7 @@ conflicting extension plugins, for example, two handwriting extensions.
             \list
             \li \c hangul
             \li \c default (Hunspell)
-            \li \c handwriting (T9 Write, Lipi-Toolkit)
+            \li \c handwriting (T9 Write)
             \li \c japanese (OpenWNN)
             \li \c pinyin
             \li \c traditional_chinese
@@ -269,12 +269,12 @@ conflicting extension plugins, for example, two handwriting extensions.
             preferred.
 \endtable
 
-The following metadata example is from the Lipi-Toolkit extension plugin (lipi.json):
+The following snippet shows the example handwriting plugin metadata:
 
 \badcode
 {
     "Name": "handwriting",
-    "Provider": "Qt Lipi-Toolkit Extension",
+    "Provider": "Qt Handwriting Extension",
     "InputMethod": "HandwritingInputMethod",
     "Version": 100
 }
@@ -528,6 +528,7 @@ specialized key types. Below is the list of all key types:
     \li \l ShiftKey
     \li \l SpaceKey
     \li \l SymbolModeKey
+    \li \l FlickKey
     \li \l HandwritingModeKey
     \li \l TraceInputKey
 \endlist
@@ -696,7 +697,7 @@ directory, the virtual keyboard falls back to the default built-in layouts.
 
 To prevent the built-in layouts from being built into the virtual keyboard
 plugin when using custom layouts, add \c disable-layouts to the \c CONFIG qmake variable.
-For more information, see \l {Advanced Configuration Options}.
+For more information, see \l {Advanced Usage}{qmake advanced configuration options}.
 
 \section1 Keyboard Styles
 

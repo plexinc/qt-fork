@@ -110,9 +110,9 @@
     Change notifications can be triggered as a result of writing a value or due to an on-device
     update potentially triggered by the internal logic.
     During the initial detail search the service's \l {QLowEnergyService::state()}{state()} transitions
-    from \l {QLowEnergyService::DiscoveryRequired}{DiscoveryRequired} to
-    \l {QLowEnergyService::DiscoveringServices}{DiscoveringServices} and eventually ends with
-    \l {QLowEnergyService::ServiceDiscovered}{ServiceDiscovered}:
+    from \l {QLowEnergyService::RemoteService}{RemoteService} to
+    \l {QLowEnergyService::RemoteServiceDiscovering}{RemoteServiceDiscovering} and eventually ends with
+    \l {QLowEnergyService::RemoteServiceDiscovered}{RemoteServiceDiscovered}:
 
     \snippet lowenergyscanner/device.cpp les-service-3
 
@@ -132,7 +132,7 @@
     Although the example application does not display descriptors it uses descriptors to
     get the name of an individual characteristic if its name cannot be discerned based on its
     UUID. The second way to obtain the name is the existence of a descriptor of the type
-    \l {QBluetoothUuid::CharacteristicUserDescription}. The code below demonstrates how this
+    \l {QBluetoothUuid::DescriptorType::CharacteristicUserDescription}. The code below demonstrates how this
     may be achieved:
 
     \snippet lowenergyscanner/characteristicinfo.cpp les-get-descriptors

@@ -31,9 +31,10 @@
 
 #include <QtDesigner/abstractformwindow.h>
 
-#include <QtWidgets/qaction.h>
 #include <QtWidgets/qstyle.h>
 #include <QtWidgets/qstyleoption.h>
+
+#include <QtGui/qaction.h>
 #include <QtGui/qtextdocument.h>
 
 static const char *textPropertyC = "text";
@@ -60,7 +61,7 @@ LabelTaskMenuInlineEditor::LabelTaskMenuInlineEditor(QLabel *w, QObject *parent)
 QRect LabelTaskMenuInlineEditor::editRectangle() const
 {
     QStyleOptionButton opt;
-    opt.init(widget());
+    opt.initFrom(widget());
     return opt.rect;
 }
 

@@ -45,7 +45,7 @@
 #include <QtGui/QGradientStops>
 #include <QtCharts/private/qchartglobal_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 class ChartTheme;
 
 class Q_CHARTS_PRIVATE_EXPORT ChartThemeManager: public QObject
@@ -74,7 +74,7 @@ public:
     static QColor colorAt(const QGradient &gradient, qreal pos);
 
 private:
-    int createIndexKey(QList<int> keys) const;
+    int createIndexKey(const QList<int> &keys) const;
     int seriesCount(QAbstractSeries::SeriesType type) const;
 
 public Q_SLOTS:
@@ -90,6 +90,6 @@ protected:
     QChart* m_chart;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // CHARTTHEME_H

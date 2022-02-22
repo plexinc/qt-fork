@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
@@ -26,13 +26,9 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <qline.h>
-#include <math.h>
-
-#ifndef M_2PI
-#define M_2PI 6.28318530717958647692528676655900576
-#endif
+#include <qmath.h>
 
 class tst_QLine : public QObject
 {
@@ -53,11 +49,6 @@ private slots:
     void testNormalVector();
     void testNormalVector_data();
 
-#if QT_DEPRECATED_SINCE(5, 14)
-    void testAngle();
-    void testAngle_data();
-#endif
-
     void testAngle2();
     void testAngle2_data();
 
@@ -68,12 +59,6 @@ private slots:
 
     void testSet();
 };
-
-// Square root of two
-#define SQRT2 1.4142135623731
-
-// Length of unit vector projected to x from 45 degrees
-#define UNITX_45 0.707106781186547
 
 const qreal epsilon = sizeof(qreal) == sizeof(double) ? 1e-8 : 1e-4;
 
@@ -208,9 +193,6 @@ void tst_QLine::testIntersection()
 
     QPointF ip;
     QLineF::IntersectionType itype = a.intersects(b, &ip);
-#if QT_DEPRECATED_SINCE(5, 14)
-    QCOMPARE(a.intersect(b, &ip), itype);
-#endif
 
     QCOMPARE(int(itype), type);
     if (type != QLineF::NoIntersection) {
@@ -236,26 +218,26 @@ void tst_QLine::testLength_data()
     QTest::newRow("[0,1]->|2|") << 0.0 << 0.0 << 0.0 << 1.0 << 1.0 << 2.0 << 0.0 << 2.0;
     QTest::newRow("[-1,0]->|2|") << 0.0 << 0.0 << -1.0 << 0.0 << 1.0 << 2.0 << -2.0 << 0.0;
     QTest::newRow("[0,-1]->|2|") << 0.0 << 0.0 << 0.0 << -1.0 << 1.0 << 2.0 << 0.0 << -2.0;
-    QTest::newRow("[1,1]->|1|") << 0.0 << 0.0 << 1.0 << 1.0
-                             << double(SQRT2) << 1.0 << double(UNITX_45) << double(UNITX_45);
+    QTest::newRow("[1,1]->->|1|") << 0.0 << 0.0 << 1.0 << 1.0
+                             << M_SQRT2 << 1.0 << M_SQRT1_2 << M_SQRT1_2;
     QTest::newRow("[-1,1]->|1|") << 0.0 << 0.0 << -1.0 << 1.0
-                             << double(SQRT2) << 1.0 << double(-UNITX_45) << double(UNITX_45);
+                             << M_SQRT2 << 1.0 << -M_SQRT1_2 << M_SQRT1_2;
     QTest::newRow("[1,-1]->|1|") << 0.0 << 0.0 << 1.0 << -1.0
-                             << double(SQRT2) << 1.0 << double(UNITX_45) << double(-UNITX_45);
+                             << M_SQRT2 << 1.0 << M_SQRT1_2 << -M_SQRT1_2;
     QTest::newRow("[-1,-1]->|1|") << 0.0 << 0.0 << -1.0 << -1.0
-                             << double(SQRT2) << 1.0 << double(-UNITX_45) << double(-UNITX_45);
+                             << M_SQRT2 << 1.0 << -M_SQRT1_2 << -M_SQRT1_2;
     QTest::newRow("[1,0]->|2| (2,2)") << 2.0 << 2.0 << 3.0 << 2.0 << 1.0 << 2.0 << 2.0 << 0.0;
     QTest::newRow("[0,1]->|2| (2,2)") << 2.0 << 2.0 << 2.0 << 3.0 << 1.0 << 2.0 << 0.0 << 2.0;
     QTest::newRow("[-1,0]->|2| (2,2)") << 2.0 << 2.0 << 1.0 << 2.0 << 1.0 << 2.0 << -2.0 << 0.0;
     QTest::newRow("[0,-1]->|2| (2,2)") << 2.0 << 2.0 << 2.0 << 1.0 << 1.0 << 2.0 << 0.0 << -2.0;
     QTest::newRow("[1,1]->|1| (2,2)") << 2.0 << 2.0 << 3.0 << 3.0
-                                   << double(SQRT2) << 1.0 << double(UNITX_45) << double(UNITX_45);
+                                   << M_SQRT2 << 1.0 << M_SQRT1_2 << M_SQRT1_2;
     QTest::newRow("[-1,1]->|1| (2,2)") << 2.0 << 2.0 << 1.0 << 3.0
-                                    << double(SQRT2) << 1.0 << double(-UNITX_45) << double(UNITX_45);
+                                    << M_SQRT2 << 1.0 << -M_SQRT1_2 << M_SQRT1_2;
     QTest::newRow("[1,-1]->|1| (2,2)") << 2.0 << 2.0 << 3.0 << 1.0
-                                    << double(SQRT2) << 1.0 << double(UNITX_45) << double(-UNITX_45);
+                                    << M_SQRT2 << 1.0 << M_SQRT1_2 << -M_SQRT1_2;
     QTest::newRow("[-1,-1]->|1| (2,2)") << 2.0 << 2.0 << 1.0 << 1.0
-                                     << double(SQRT2) << 1.0 << double(-UNITX_45) << double(-UNITX_45);
+                                     << M_SQRT2 << 1.0 << -M_SQRT1_2 << -M_SQRT1_2;
     const double small = qSqrt(std::numeric_limits<qreal>::denorm_min()) / 8;
     QTest::newRow("[small,small]->|2| (-small/2,-small/2)")
         << -(small * .5) << -(small * .5) << (small * .5) << (small * .5)
@@ -265,8 +247,8 @@ void tst_QLine::testLength_data()
         << -(tiny * .5) << -(tiny * .5) << (tiny * .5) << (tiny * .5)
         << (tiny * M_SQRT2) << (2 * M_SQRT2) << 2.0 << 2.0;
     QTest::newRow("[1+3e-13,1+4e-13]|1895| (1, 1)")
-        << 1.0 << 1.0 << (1 + 3e-13) << (1 + 4e-13) // isNull(), so ignores setLength()
-        << 5e-13 << 1895.0 << 3e-13 << 4e-13;
+        << 1.0 << 1.0 << (1 + 3e-13) << (1 + 4e-13)
+        << 5e-13 << 1895.0 << 1137.0 << 1516.0;
     QTest::newRow("[4e-323,5e-324]|1892|") // Unavoidable underflow: denormals
         << 0.0 << 0.0 << 4e-323 << 5e-324
         << 4e-323 << 1892.0 << 4e-323 << 5e-324; // vx, vy values ignored
@@ -284,14 +266,14 @@ void tst_QLine::testLength()
     QFETCH(double, vy);
 
     QLineF l(x1, y1, x2, y2);
-    const bool wasNull = l.isNull();
-    if (!wasNull)
-        QCOMPARE(l.length(), qreal(length));
+    QCOMPARE(l.length(), qreal(length));
 
     l.setLength(lengthToSet);
-    QCOMPARE(l.length(), wasNull ? qreal(length) : qreal(lengthToSet));
     // Scaling tiny values up to big can be imprecise: don't try to test vx, vy
-    if (wasNull || !qFuzzyIsNull(length)) {
+    if (length > 0 && qFuzzyIsNull(length)) {
+        QVERIFY(l.length() > lengthToSet / 2 && l.length() < lengthToSet * 2);
+    } else {
+        QCOMPARE(l.length(), length > 0 ? qreal(lengthToSet) : qreal(length));
         QCOMPARE(l.dx(), qreal(vx));
         QCOMPARE(l.dy(), qreal(vy));
     }
@@ -403,57 +385,6 @@ void tst_QLine::testNormalVector()
     QCOMPARE(n.dx(), qreal(nvx));
     QCOMPARE(n.dy(), qreal(nvy));
 }
-
-#if QT_DEPRECATED_SINCE(5, 14)
-void tst_QLine::testAngle_data()
-{
-    QTest::addColumn<double>("xa1");
-    QTest::addColumn<double>("ya1");
-    QTest::addColumn<double>("xa2");
-    QTest::addColumn<double>("ya2");
-    QTest::addColumn<double>("xb1");
-    QTest::addColumn<double>("yb1");
-    QTest::addColumn<double>("xb2");
-    QTest::addColumn<double>("yb2");
-    QTest::addColumn<double>("angle");
-
-    QTest::newRow("parallel") << 1.0 << 1.0 << 3.0 << 4.0
-                           << 5.0 << 6.0 << 7.0 << 9.0
-                           << 0.0;
-    QTest::newRow("[4,4]-[4,0]") << 1.0 << 1.0 << 5.0 << 5.0
-                              << 0.0 << 4.0 << 3.0 << 4.0
-                              << 45.0;
-    QTest::newRow("[4,4]-[-4,0]") << 1.0 << 1.0 << 5.0 << 5.0
-                              << 3.0 << 4.0 << 0.0 << 4.0
-                              << 135.0;
-
-    for (int i=0; i<180; ++i) {
-        QTest::newRow(("angle:" + QByteArray::number(i)).constData())
-            << 0.0 << 0.0 << double(cos(i*M_2PI/360)) << double(sin(i*M_2PI/360))
-            << 0.0 << 0.0 << 1.0 << 0.0
-            << double(i);
-    }
-}
-
-void tst_QLine::testAngle()
-{
-    QFETCH(double, xa1);
-    QFETCH(double, ya1);
-    QFETCH(double, xa2);
-    QFETCH(double, ya2);
-    QFETCH(double, xb1);
-    QFETCH(double, yb1);
-    QFETCH(double, xb2);
-    QFETCH(double, yb2);
-    QFETCH(double, angle);
-
-    QLineF a(xa1, ya1, xa2, ya2);
-    QLineF b(xb1, yb1, xb2, yb2);
-
-    double resultAngle = a.angle(b);
-    QCOMPARE(qRound(resultAngle), qRound(angle));
-}
-#endif
 
 void tst_QLine::testAngle2_data()
 {

@@ -53,6 +53,7 @@
 
 #include <private/qtqmlglobal_p.h>
 #include <private/qanimationjobutil_p.h>
+#include <private/qdoubleendedlist_p.h>
 #include <QtCore/QObject>
 #include <QtCore/private/qabstractanimation_p.h>
 #include <vector>
@@ -65,7 +66,7 @@ class QAnimationGroupJob;
 class QAnimationJobChangeListener;
 class QQmlAnimationTimer;
 
-class Q_QML_PRIVATE_EXPORT QAbstractAnimationJob
+class Q_QML_PRIVATE_EXPORT QAbstractAnimationJob : public QInheritedListNode
 {
     Q_DISABLE_COPY(QAbstractAnimationJob)
 public:
@@ -113,6 +114,7 @@ public:
     void pause();
     void resume();
     void stop();
+    void complete();
 
     enum ChangeType {
         Completion = 0x01,
@@ -124,8 +126,6 @@ public:
 
     void addAnimationChangeListener(QAnimationJobChangeListener *listener, QAbstractAnimationJob::ChangeTypes);
     void removeAnimationChangeListener(QAnimationJobChangeListener *listener, QAbstractAnimationJob::ChangeTypes);
-    QAbstractAnimationJob *nextSibling() const { return m_nextSibling; }
-    QAbstractAnimationJob *previousSibling() const { return m_previousSibling; }
 
     bool isGroup() const { return m_isGroup; }
     bool isRenderThreadJob() const { return m_isRenderThreadJob; }
@@ -173,8 +173,6 @@ protected:
     };
     std::vector<ChangeListener> changeListeners;
 
-    QAbstractAnimationJob *m_nextSibling;
-    QAbstractAnimationJob *m_previousSibling;
     QQmlAnimationTimer *m_timer = nullptr;
 
     bool m_hasRegisteredTimer:1;
@@ -207,6 +205,8 @@ private:
     QQmlAnimationTimer();
 
 public:
+    ~QQmlAnimationTimer(); // must be destructible by QThreadStorage
+
     static QQmlAnimationTimer *instance();
     static QQmlAnimationTimer *instance(bool create);
 
@@ -252,6 +252,7 @@ private:
 
     void registerRunningAnimation(QAbstractAnimationJob *animation);
     void unregisterRunningAnimation(QAbstractAnimationJob *animation);
+    void unsetJobTimer(QAbstractAnimationJob *animation);
 
     int closestPauseAnimationTimeToFinish();
 };

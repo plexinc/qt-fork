@@ -43,7 +43,7 @@
 #include "datavisualizationglobal_p.h"
 #include "abstract3dcontroller_p.h"
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 class Bars3DRenderer;
 class QBar3DSeries;
@@ -83,8 +83,8 @@ public:
 
 private:
     Bars3DChangeBitField m_changeTracker;
-    QVector<ChangeItem> m_changedItems;
-    QVector<ChangeRow> m_changedRows;
+    QList<ChangeItem> m_changedItems;
+    QList<ChangeRow> m_changedRows;
 
     // Interaction
     QPoint m_selectedBar;     // Points to row & column in data window.
@@ -106,8 +106,8 @@ public:
     explicit Bars3DController(QRect rect, Q3DScene *scene = 0);
     ~Bars3DController();
 
-    virtual void initializeOpenGL();
-    virtual void synchDataToRenderer();
+    void initializeOpenGL() override;
+    void synchDataToRenderer() override;
 
     void setMultiSeriesScaling(bool uniform);
     bool multiSeriesScaling() const;
@@ -126,29 +126,29 @@ public:
 
     inline QBar3DSeries *selectedSeries() const { return m_selectedBarSeries; }
 
-    void setSelectionMode(QAbstract3DGraph::SelectionFlags mode);
+    void setSelectionMode(QAbstract3DGraph::SelectionFlags mode) override;
     void setSelectedBar(const QPoint &position, QBar3DSeries *series, bool enterSlice);
-    virtual void clearSelection();
+    void clearSelection() override;
 
-    virtual void handleAxisAutoAdjustRangeChangedInOrientation(
-            QAbstract3DAxis::AxisOrientation orientation, bool autoAdjust);
-    virtual void handleSeriesVisibilityChangedBySender(QObject *sender);
-    virtual void handlePendingClick();
+    void handleAxisAutoAdjustRangeChangedInOrientation(
+            QAbstract3DAxis::AxisOrientation orientation, bool autoAdjust) override;
+    void handleSeriesVisibilityChangedBySender(QObject *sender) override;
+    void handlePendingClick() override;
 
     static QPoint invalidSelectionPosition();
 
-    virtual void setAxisX(QAbstract3DAxis *axis);
-    virtual void setAxisZ(QAbstract3DAxis *axis);
+    void setAxisX(QAbstract3DAxis *axis) override;
+    void setAxisZ(QAbstract3DAxis *axis) override;
 
     virtual void setPrimarySeries(QBar3DSeries *series);
     virtual QBar3DSeries *primarySeries() const;
-    virtual void addSeries(QAbstract3DSeries *series);
-    virtual void removeSeries(QAbstract3DSeries *series);
-    virtual void insertSeries(int index, QAbstract3DSeries *series);
+    void addSeries(QAbstract3DSeries *series) override;
+    void removeSeries(QAbstract3DSeries *series) override;
+    void insertSeries(int index, QAbstract3DSeries *series) override;
     virtual QList<QBar3DSeries *> barSeriesList();
 
-    virtual void handleAxisRangeChangedBySender(QObject *sender);
-    virtual void adjustAxisRanges();
+    void handleAxisRangeChangedBySender(QObject *sender) override;
+    void adjustAxisRanges() override;
 
 public Q_SLOTS:
     void handleArrayReset();
@@ -165,7 +165,7 @@ Q_SIGNALS:
     void selectedSeriesChanged(QBar3DSeries *series);
 
 protected:
-    virtual QAbstract3DAxis *createDefaultAxis(QAbstract3DAxis::AxisOrientation orientation);
+    QAbstract3DAxis *createDefaultAxis(QAbstract3DAxis::AxisOrientation orientation) override;
 
 private:
     void adjustSelectionPosition(QPoint &pos, const QBar3DSeries *series);
@@ -173,6 +173,6 @@ private:
     Q_DISABLE_COPY(Bars3DController)
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

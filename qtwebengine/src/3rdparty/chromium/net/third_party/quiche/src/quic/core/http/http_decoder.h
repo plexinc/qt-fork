@@ -7,11 +7,11 @@
 
 #include <cstdint>
 
-#include "net/third_party/quiche/src/quic/core/http/http_frames.h"
-#include "net/third_party/quiche/src/quic/core/quic_error_codes.h"
-#include "net/third_party/quiche/src/quic/core/quic_types.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/http/http_frames.h"
+#include "quic/core/quic_error_codes.h"
+#include "quic/core/quic_types.h"
+#include "quic/platform/api/quic_export.h"
 
 namespace quic {
 
@@ -62,7 +62,7 @@ class QUIC_EXPORT_PRIVATE HttpDecoder {
     // Called when part of the payload of a DATA frame has been read.  May be
     // called multiple times for a single frame.  |payload| is guaranteed to be
     // non-empty.
-    virtual bool OnDataFramePayload(quiche::QuicheStringPiece payload) = 0;
+    virtual bool OnDataFramePayload(absl::string_view payload) = 0;
     // Called when a DATA frame has been completely processed.
     virtual bool OnDataFrameEnd() = 0;
 
@@ -74,7 +74,7 @@ class QUIC_EXPORT_PRIVATE HttpDecoder {
     // Called when part of the payload of a HEADERS frame has been read.  May be
     // called multiple times for a single frame.  |payload| is guaranteed to be
     // non-empty.
-    virtual bool OnHeadersFramePayload(quiche::QuicheStringPiece payload) = 0;
+    virtual bool OnHeadersFramePayload(absl::string_view payload) = 0;
     // Called when a HEADERS frame has been completely processed.
     virtual bool OnHeadersFrameEnd() = 0;
 
@@ -91,8 +91,7 @@ class QUIC_EXPORT_PRIVATE HttpDecoder {
     // Called when part of the header block of a PUSH_PROMISE frame has been
     // read. May be called multiple times for a single frame.  |payload| is
     // guaranteed to be non-empty.
-    virtual bool OnPushPromiseFramePayload(
-        quiche::QuicheStringPiece payload) = 0;
+    virtual bool OnPushPromiseFramePayload(absl::string_view payload) = 0;
     // Called when a PUSH_PROMISE frame has been completely processed.
     virtual bool OnPushPromiseFrameEnd() = 0;
 
@@ -102,6 +101,13 @@ class QUIC_EXPORT_PRIVATE HttpDecoder {
 
     // Called when a PRIORITY_UPDATE frame has been successfully parsed.
     virtual bool OnPriorityUpdateFrame(const PriorityUpdateFrame& frame) = 0;
+
+    // Called when an ACCEPT_CH frame has been received.
+    // |header_length| contains ACCEPT_CH frame length and payload length.
+    virtual bool OnAcceptChFrameStart(QuicByteCount header_length) = 0;
+
+    // Called when an ACCEPT_CH frame has been successfully parsed.
+    virtual bool OnAcceptChFrame(const AcceptChFrame& frame) = 0;
 
     // Called when a frame of unknown type |frame_type| has been received.
     // Frame type might be reserved, Visitor must make sure to ignore.
@@ -113,7 +119,7 @@ class QUIC_EXPORT_PRIVATE HttpDecoder {
     // Called when part of the payload of the unknown frame has been read.  May
     // be called multiple times for a single frame.  |payload| is guaranteed to
     // be non-empty.
-    virtual bool OnUnknownFramePayload(quiche::QuicheStringPiece payload) = 0;
+    virtual bool OnUnknownFramePayload(absl::string_view payload) = 0;
     // Called when the unknown frame has been completely processed.
     virtual bool OnUnknownFrameEnd() = 0;
   };
@@ -131,11 +137,21 @@ class QUIC_EXPORT_PRIVATE HttpDecoder {
   // occurred.
   QuicByteCount ProcessInput(const char* data, QuicByteCount len);
 
+  // Decode settings frame from |data|.
+  // Upon successful decoding, |frame| will be populated, and returns true.
+  // This method is not used for regular processing of incoming data.
+  static bool DecodeSettings(const char* data,
+                             QuicByteCount len,
+                             SettingsFrame* frame);
+
   // Returns an error code other than QUIC_NO_ERROR if and only if
   // Visitor::OnError() has been called.
   QuicErrorCode error() const { return error_; }
 
   const std::string& error_detail() const { return error_detail_; }
+
+  // Returns true if input data processed so far ends on a frame boundary.
+  bool AtFrameBoundary() const { return state_ == STATE_READING_FRAME_TYPE; }
 
  private:
   friend test::HttpDecoderPeer;
@@ -151,8 +167,9 @@ class QUIC_EXPORT_PRIVATE HttpDecoder {
 
   // Reads the type of a frame from |reader|. Sets error_ and error_detail_
   // if there are any errors.  Also calls OnDataFrameStart() or
-  // OnHeadersFrameStart() for appropriate frame types.
-  void ReadFrameType(QuicDataReader* reader);
+  // OnHeadersFrameStart() for appropriate frame types. Returns whether the
+  // processing should continue.
+  bool ReadFrameType(QuicDataReader* reader);
 
   // Reads the length of a frame from |reader|. Sets error_ and error_detail_
   // if there are any errors.  Returns whether processing should continue.
@@ -166,6 +183,11 @@ class QUIC_EXPORT_PRIVATE HttpDecoder {
   // Optionally parses buffered data; calls visitor method to signal that frame
   // had been parsed completely.  Returns whether processing should continue.
   bool FinishParsing();
+
+  // Read payload of unknown frame from |reader| and call
+  // Visitor::OnUnknownFramePayload().  Returns true decoding should continue,
+  // false if it should be paused.
+  bool HandleUnknownFramePayload(QuicDataReader* reader);
 
   // Discards any remaining frame payload from |reader|.
   void DiscardFramePayload(QuicDataReader* reader);
@@ -190,9 +212,18 @@ class QUIC_EXPORT_PRIVATE HttpDecoder {
   // Parses the payload of a SETTINGS frame from |reader| into |frame|.
   bool ParseSettingsFrame(QuicDataReader* reader, SettingsFrame* frame);
 
-  // Parses the payload of a PRIORITY_UPDATE frame from |reader| into |frame|.
+  // Parses the payload of a PRIORITY_UPDATE frame (draft-01, type 0x0f)
+  // from |reader| into |frame|.
   bool ParsePriorityUpdateFrame(QuicDataReader* reader,
                                 PriorityUpdateFrame* frame);
+
+  // Parses the payload of a PRIORITY_UPDATE frame (draft-02, type 0xf0700)
+  // from |reader| into |frame|.
+  bool ParseNewPriorityUpdateFrame(QuicDataReader* reader,
+                                   PriorityUpdateFrame* frame);
+
+  // Parses the payload of an ACCEPT_CH frame from |reader| into |frame|.
+  bool ParseAcceptChFrame(QuicDataReader* reader, AcceptChFrame* frame);
 
   // Returns the max frame size of a given |frame_type|.
   QuicByteCount MaxFrameLength(uint64_t frame_type);

@@ -5,9 +5,9 @@
 #include "content/browser/renderer_host/render_widget_host_delegate.h"
 
 #include "build/build_config.h"
-#include "components/rappor/public/sample.h"
 #include "content/browser/renderer_host/render_view_host_delegate_view.h"
 #include "content/public/browser/keyboard_event_processing_result.h"
+#include "services/metrics/public/cpp/ukm_source_id.h"
 #include "ui/gfx/geometry/rect.h"
 
 namespace content {
@@ -79,7 +79,7 @@ RenderWidgetHostDelegate::GetRenderWidgetHostWithPageFocus() {
   return nullptr;
 }
 
-bool RenderWidgetHostDelegate::IsFullscreenForCurrentTab() {
+bool RenderWidgetHostDelegate::IsFullscreen() {
   return false;
 }
 
@@ -87,8 +87,7 @@ bool RenderWidgetHostDelegate::ShouldShowStaleContentOnEviction() {
   return false;
 }
 
-blink::mojom::DisplayMode RenderWidgetHostDelegate::GetDisplayMode(
-    RenderWidgetHostImpl* render_widget_host) const {
+blink::mojom::DisplayMode RenderWidgetHostDelegate::GetDisplayMode() const {
   return blink::mojom::DisplayMode::kBrowser;
 }
 
@@ -122,27 +121,11 @@ RenderViewHostDelegateView* RenderWidgetHostDelegate::GetDelegateView() {
   return nullptr;
 }
 
-RenderWidgetHostImpl* RenderWidgetHostDelegate::GetFullscreenRenderWidgetHost()
-    const {
-  return nullptr;
-}
-
-bool RenderWidgetHostDelegate::OnUpdateDragCursor() {
-  return false;
-}
-
 bool RenderWidgetHostDelegate::IsWidgetForMainFrame(RenderWidgetHostImpl*) {
   return false;
 }
 
-bool RenderWidgetHostDelegate::AddDomainInfoToRapporSample(
-    rappor::Sample* sample) {
-  sample->SetStringField("Domain", "Unknown");
-  return false;
-}
-
-ukm::SourceId RenderWidgetHostDelegate::GetUkmSourceIdForLastCommittedSource()
-    const {
+ukm::SourceId RenderWidgetHostDelegate::GetCurrentPageUkmSourceId() {
   return ukm::kInvalidSourceId;
 }
 
@@ -159,7 +142,7 @@ RenderWidgetHostDelegate::GetFocusedFrameFromFocusedDelegate() {
   return nullptr;
 }
 
-bool RenderWidgetHostDelegate::IsPortal() const {
+bool RenderWidgetHostDelegate::IsPortal() {
   return false;
 }
 

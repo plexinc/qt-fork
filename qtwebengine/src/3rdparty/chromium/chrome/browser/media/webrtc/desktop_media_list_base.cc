@@ -8,19 +8,21 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/task/post_task.h"
 #include "chrome/browser/media/webrtc/desktop_media_list.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "ui/gfx/image/image.h"
 
-using content::BrowserThread;
 using content::DesktopMediaID;
 
 DesktopMediaListBase::DesktopMediaListBase(base::TimeDelta update_period)
     : update_period_(update_period) {}
 
-DesktopMediaListBase::~DesktopMediaListBase() {}
+DesktopMediaListBase::DesktopMediaListBase(base::TimeDelta update_period,
+                                           DesktopMediaListObserver* observer)
+    : update_period_(update_period), observer_(observer) {}
+
+DesktopMediaListBase::~DesktopMediaListBase() = default;
 
 void DesktopMediaListBase::SetUpdatePeriod(base::TimeDelta period) {
   DCHECK(!observer_);
@@ -70,7 +72,7 @@ const DesktopMediaList::Source& DesktopMediaListBase::GetSource(
   return sources_[index];
 }
 
-DesktopMediaID::Type DesktopMediaListBase::GetMediaListType() const {
+DesktopMediaList::Type DesktopMediaListBase::GetMediaListType() const {
   return type_;
 }
 
@@ -179,8 +181,9 @@ void DesktopMediaListBase::ScheduleNextRefresh() {
   DCHECK(!refresh_callback_);
   refresh_callback_ = base::BindOnce(&DesktopMediaListBase::ScheduleNextRefresh,
                                      weak_factory_.GetWeakPtr());
-  base::PostDelayedTask(FROM_HERE, {BrowserThread::UI},
-                        base::BindOnce(&DesktopMediaListBase::Refresh,
-                                       weak_factory_.GetWeakPtr(), true),
-                        update_period_);
+  content::GetUIThreadTaskRunner({})->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(&DesktopMediaListBase::Refresh, weak_factory_.GetWeakPtr(),
+                     true),
+      update_period_);
 }

@@ -103,7 +103,7 @@ inline bool operator!=(const QQmlProfilerEventLocation &location1,
     return !(location1 == location2);
 }
 
-inline uint qHash(const QQmlProfilerEventLocation &location)
+inline size_t qHash(const QQmlProfilerEventLocation &location)
 {
     return qHash(location.filename())
             ^ ((location.line() & 0xfff)                   // 12 bits of line number
@@ -114,7 +114,7 @@ inline uint qHash(const QQmlProfilerEventLocation &location)
 QDataStream &operator>>(QDataStream &stream, QQmlProfilerEventLocation &location);
 QDataStream &operator<<(QDataStream &stream, const QQmlProfilerEventLocation &location);
 
-Q_DECLARE_TYPEINFO(QQmlProfilerEventLocation, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QQmlProfilerEventLocation, Q_RELOCATABLE_TYPE);
 
 QT_END_NAMESPACE
 

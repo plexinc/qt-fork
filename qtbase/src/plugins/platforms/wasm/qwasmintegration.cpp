@@ -41,10 +41,11 @@
 #include "qwasmwindow.h"
 #ifndef QT_NO_OPENGL
 # include "qwasmbackingstore.h"
+# include <QtOpenGL/qpa/qplatformbackingstoreopenglsupport.h>
 #endif
 #include "qwasmfontdatabase.h"
 #if defined(Q_OS_UNIX)
-#include <QtEventDispatcherSupport/private/qgenericunixeventdispatcher_p.h>
+#include <QtGui/private/qgenericunixeventdispatcher_p.h>
 #endif
 #include <qpa/qplatformwindow.h>
 #include <QtGui/qscreen.h>
@@ -253,8 +254,8 @@ QVariant QWasmIntegration::styleHint(QPlatformIntegration::StyleHint hint) const
 
 Qt::WindowState QWasmIntegration::defaultWindowState(Qt::WindowFlags flags) const
 {
-    // Don't maximize dialogs
-    if (flags & Qt::Dialog & ~Qt::Window)
+    // Don't maximize dialogs or popups
+    if (flags.testFlag(Qt::Dialog) || flags.testFlag(Qt::Popup))
         return Qt::WindowNoState;
 
     return QPlatformIntegration::defaultWindowState(flags);

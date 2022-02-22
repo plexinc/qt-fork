@@ -45,7 +45,7 @@
 #include "qlist.h"
 #include "qalgorithms.h"
 
-#define Q_MUTEX_T void*
+#define Q_MUTEX_T void *
 #include <private/qmutex_p.h>
 #include <private/qreadwritelock_p.h>
 #include <qt_windows.h>
@@ -61,11 +61,7 @@ class QWaitConditionEvent
 public:
     inline QWaitConditionEvent() : priority(0), wokenUp(false)
     {
-#ifndef Q_OS_WINRT
         event = CreateEvent(NULL, TRUE, FALSE, NULL);
-#else
-        event = CreateEventEx(NULL, NULL, CREATE_EVENT_MANUAL_RESET, EVENT_ALL_ACCESS);
-#endif
     }
     inline ~QWaitConditionEvent() { CloseHandle(event); }
     int priority;
@@ -91,10 +87,8 @@ QWaitConditionEvent *QWaitConditionPrivate::pre()
 {
     mtx.lock();
     QWaitConditionEvent *wce =
-        freeQueue.isEmpty() ? new QWaitConditionEvent : freeQueue.takeFirst();
-#ifndef Q_OS_WINRT
+            freeQueue.isEmpty() ? new QWaitConditionEvent : freeQueue.takeFirst();
     wce->priority = GetThreadPriority(GetCurrentThread());
-#endif
     wce->wokenUp = false;
 
     // insert 'wce' into the queue (sorted by priority)
@@ -115,7 +109,8 @@ bool QWaitConditionPrivate::wait(QWaitConditionEvent *wce, unsigned long time)
     // wait for the event
     bool ret = false;
     switch (WaitForSingleObjectEx(wce->event, time, FALSE)) {
-    default: break;
+    default:
+        break;
 
     case WAIT_OBJECT_0:
         ret = true;
@@ -167,10 +162,6 @@ bool QWaitCondition::wait(QMutex *mutex, unsigned long time)
 {
     if (!mutex)
         return false;
-    if (mutex->isRecursive()) {
-        qWarning("QWaitCondition::wait: Cannot wait on recursive mutexes");
-        return false;
-    }
 
     QWaitConditionEvent *wce = d->pre();
     mutex->unlock();

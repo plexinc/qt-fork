@@ -23,10 +23,6 @@ class LayoutFlexibleBoxTest : public testing::WithParamInterface<bool>,
   void ExpectSameAsRowReverseVLR();
   void ExpectSameAsRowReverseVRL();
   void ExpectSameAsRTLRowHTB();
-
-  LayoutBox* GetLayoutBoxByElementId(const char* id) const {
-    return ToLayoutBox(GetLayoutObjectByElementId(id));
-  }
 };
 
 INSTANTIATE_TEST_SUITE_P(All, LayoutFlexibleBoxTest, testing::Bool());
@@ -499,7 +495,7 @@ TEST_P(LayoutFlexibleBoxTest, ResizedFlexChildRequiresVisualOverflowRecalc) {
   GetDocument().View()->UpdateLifecycleToLayoutClean(
       DocumentUpdateReason::kTest);
 
-  auto* child1_box = ToLayoutBox(child1_element->GetLayoutObject());
+  auto* child1_box = To<LayoutBox>(child1_element->GetLayoutObject());
   ASSERT_TRUE(child1_box->HasSelfPaintingLayer());
   EXPECT_TRUE(child1_box->Layer()->NeedsVisualOverflowRecalc());
 
@@ -507,6 +503,64 @@ TEST_P(LayoutFlexibleBoxTest, ResizedFlexChildRequiresVisualOverflowRecalc) {
 
   EXPECT_EQ(child1_box->PhysicalVisualOverflowRect(),
             PhysicalRect(0, 0, 105, 960));
+}
+
+TEST_P(LayoutFlexibleBoxTest, PercentDefiniteGapUseCounter) {
+  SetBodyInnerHTML(CommonStyle() + R"HTML(
+    <div id="flex-box" style="gap: 20%;"></div>
+  )HTML");
+  RunDocumentLifecycle();
+
+  EXPECT_TRUE(GetDocument().IsUseCounted(WebFeature::kFlexGapPositive));
+  EXPECT_TRUE(GetDocument().IsUseCounted(WebFeature::kFlexGapSpecified));
+  EXPECT_TRUE(GetDocument().IsUseCounted(WebFeature::kFlexRowGapPercent));
+  EXPECT_FALSE(
+      GetDocument().IsUseCounted(WebFeature::kFlexRowGapPercentIndefinite));
+}
+
+TEST_P(LayoutFlexibleBoxTest, PercentIndefiniteGapUseCounter) {
+  SetBodyInnerHTML(CommonStyle() + R"HTML(
+    <div style="display: flex; row-gap: 20%;"></div>
+  )HTML");
+  RunDocumentLifecycle();
+
+  EXPECT_FALSE(GetDocument().IsUseCounted(WebFeature::kFlexGapPositive));
+  EXPECT_TRUE(GetDocument().IsUseCounted(WebFeature::kFlexGapSpecified));
+  EXPECT_TRUE(GetDocument().IsUseCounted(WebFeature::kFlexRowGapPercent));
+  EXPECT_TRUE(
+      GetDocument().IsUseCounted(WebFeature::kFlexRowGapPercentIndefinite));
+}
+
+TEST_P(LayoutFlexibleBoxTest, ZeroGapUseCounter) {
+  SetBodyInnerHTML(CommonStyle() + R"HTML(
+    <div style="display: flex; gap: 0;"></div>
+  )HTML");
+  RunDocumentLifecycle();
+
+  EXPECT_FALSE(GetDocument().IsUseCounted(WebFeature::kFlexGapPositive));
+  EXPECT_TRUE(GetDocument().IsUseCounted(WebFeature::kFlexGapSpecified));
+  EXPECT_FALSE(GetDocument().IsUseCounted(WebFeature::kFlexRowGapPercent));
+  EXPECT_FALSE(
+      GetDocument().IsUseCounted(WebFeature::kFlexRowGapPercentIndefinite));
+}
+
+TEST_P(LayoutFlexibleBoxTest, NormalGapUseCounter) {
+  // 'normal' is the initial value. It resolves to non-zero for multi-col but 0
+  // for flex.
+  SetBodyInnerHTML(CommonStyle() + R"HTML(
+    <div style="display: flex; gap: normal"></div>
+    <div style="display: flex; gap: auto"></div>
+    <div style="display: flex; gap: initial"></div>
+    <div style="display: flex; gap: -10px"></div>
+    <div style="display: flex; gap: 1hz"></div>
+  )HTML");
+  RunDocumentLifecycle();
+
+  EXPECT_FALSE(GetDocument().IsUseCounted(WebFeature::kFlexGapPositive));
+  EXPECT_FALSE(GetDocument().IsUseCounted(WebFeature::kFlexGapSpecified));
+  EXPECT_FALSE(GetDocument().IsUseCounted(WebFeature::kFlexRowGapPercent));
+  EXPECT_FALSE(
+      GetDocument().IsUseCounted(WebFeature::kFlexRowGapPercentIndefinite));
 }
 
 }  // namespace blink

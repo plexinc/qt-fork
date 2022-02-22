@@ -9,6 +9,7 @@
 #include "base/memory/singleton.h"
 #include "ui/base/x/x11_util.h"
 #include "ui/gfx/x/x11_atom_cache.h"
+#include "ui/gfx/x/xproto_util.h"
 
 namespace ui {
 
@@ -18,29 +19,29 @@ XMenuList* XMenuList::GetInstance() {
 }
 
 XMenuList::XMenuList()
-    : menu_type_atom_(gfx::GetAtom("_NET_WM_WINDOW_TYPE_MENU")) {}
+    : menu_type_atom_(x11::GetAtom("_NET_WM_WINDOW_TYPE_MENU")) {}
 
 XMenuList::~XMenuList() {
   menus_.clear();
 }
 
-void XMenuList::MaybeRegisterMenu(XID menu) {
-  int value = 0;
-  if (!GetIntProperty(menu, "_NET_WM_WINDOW_TYPE", &value) ||
-      static_cast<XAtom>(value) != menu_type_atom_) {
+void XMenuList::MaybeRegisterMenu(x11::Window menu) {
+  x11::Atom value;
+  if (!GetProperty(menu, x11::GetAtom("_NET_WM_WINDOW_TYPE"), &value) ||
+      value != menu_type_atom_) {
     return;
   }
   menus_.push_back(menu);
 }
 
-void XMenuList::MaybeUnregisterMenu(XID menu) {
+void XMenuList::MaybeUnregisterMenu(x11::Window menu) {
   auto iter = std::find(menus_.begin(), menus_.end(), menu);
   if (iter == menus_.end())
     return;
   menus_.erase(iter);
 }
 
-void XMenuList::InsertMenuWindowXIDs(std::vector<XID>* stack) {
+void XMenuList::InsertMenuWindows(std::vector<x11::Window>* stack) {
   stack->insert(stack->begin(), menus_.begin(), menus_.end());
 }
 

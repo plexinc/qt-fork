@@ -52,10 +52,14 @@ class DequeConstIterator;
 template <typename T,
           wtf_size_t inlineCapacity = 0,
           typename Allocator = PartitionAllocator>
-class Deque : public ConditionalDestructor<Deque<T, INLINE_CAPACITY, Allocator>,
-                                           (INLINE_CAPACITY == 0) &&
-                                               Allocator::kIsGarbageCollected> {
+class Deque
+    : public ConditionalDestructor<Deque<T, INLINE_CAPACITY, Allocator>,
+                                   !VectorTraits<T>::kNeedsDestruction &&
+                                       Allocator::kIsGarbageCollected> {
   USE_ALLOCATOR(Deque, Allocator);
+
+  static_assert((inlineCapacity == 0) || !Allocator::kIsGarbageCollected,
+                "inlineCapacity not supported with garbage collection.");
 
  public:
   typedef DequeIterator<T, inlineCapacity, Allocator> iterator;
@@ -260,12 +264,23 @@ class DequeIterator : public DequeIteratorBase<T, inlineCapacity, Allocator> {
     Base::Increment();
     return *this;
   }
-  // postfix ++ intentionally omitted
+
+  Iterator operator++(int) {
+    Iterator tmp = *this;
+    ++*this;
+    return tmp;
+  }
+
   Iterator& operator--() {
     Base::Decrement();
     return *this;
   }
-  // postfix -- intentionally omitted
+
+  Iterator operator--(int) {
+    Iterator tmp = *this;
+    --*this;
+    return tmp;
+  }
 };
 
 template <typename T,
@@ -310,12 +325,23 @@ class DequeConstIterator
     Base::Increment();
     return *this;
   }
-  // postfix ++ intentionally omitted
+
+  Iterator operator++(int) {
+    Iterator tmp = *this;
+    ++*this;
+    return tmp;
+  }
+
   Iterator& operator--() {
     Base::Decrement();
     return *this;
   }
-  // postfix -- intentionally omitted
+
+  Iterator operator--(int) {
+    Iterator tmp = *this;
+    --*this;
+    return tmp;
+  }
 };
 
 template <typename T, wtf_size_t inlineCapacity, typename Allocator>
@@ -609,7 +635,7 @@ inline void Deque<T, inlineCapacity, Allocator>::erase(wtf_size_t position) {
 
 template <typename T, wtf_size_t inlineCapacity, typename Allocator>
 inline DequeIteratorBase<T, inlineCapacity, Allocator>::DequeIteratorBase()
-    : deque_(0) {}
+    : deque_(nullptr) {}
 
 template <typename T, wtf_size_t inlineCapacity, typename Allocator>
 inline DequeIteratorBase<T, inlineCapacity, Allocator>::DequeIteratorBase(
@@ -682,20 +708,12 @@ template <typename T, wtf_size_t inlineCapacity, typename Allocator>
 template <typename VisitorDispatcher, typename A>
 std::enable_if_t<A::kIsGarbageCollected>
 Deque<T, inlineCapacity, Allocator>::Trace(VisitorDispatcher visitor) const {
-  // Bail out for concurrent marking.
-  if (visitor->ConcurrentTracingBailOut(
-          {this, [](blink::Visitor* visitor, const void* object) {
-             reinterpret_cast<const Deque<T, inlineCapacity, Allocator>*>(
-                 object)
-                 ->Trace(visitor);
-           }}))
-    return;
-
   static_assert(inlineCapacity == 0,
                 "Heap allocated Deque should not use inline buffer");
   static_assert(Allocator::kIsGarbageCollected,
                 "Garbage collector must be enabled.");
   const T* buffer = buffer_.BufferSafe();
+
   DCHECK(!buffer || buffer_.IsOutOfLineBuffer(buffer));
   Allocator::TraceVectorBacking(visitor, buffer, buffer_.BufferSlot());
 }

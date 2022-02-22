@@ -61,7 +61,7 @@ QT_BEGIN_NAMESPACE
 
 class QQuickGridViewAttached;
 class QQuickGridViewPrivate;
-class Q_AUTOTEST_EXPORT QQuickGridView : public QQuickItemView
+class Q_QUICK_PRIVATE_EXPORT QQuickGridView : public QQuickItemView
 {
     Q_OBJECT
     Q_DECLARE_PRIVATE(QQuickGridView)
@@ -74,6 +74,7 @@ class Q_AUTOTEST_EXPORT QQuickGridView : public QQuickItemView
 
     Q_CLASSINFO("DefaultProperty", "data")
     QML_NAMED_ELEMENT(GridView)
+    QML_ADDED_IN_VERSION(2, 0)
     QML_ATTACHED(QQuickGridViewAttached)
 
 public:
@@ -121,7 +122,7 @@ Q_SIGNALS:
 protected:
     void viewportMoved(Qt::Orientations) override;
     void keyPressEvent(QKeyEvent *) override;
-    void geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry) override;
+    void geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry) override;
     void initItem(int index, QObject *item) override;
 };
 

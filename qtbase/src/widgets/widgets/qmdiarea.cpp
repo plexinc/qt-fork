@@ -63,7 +63,7 @@
     Subwindows in QMdiArea are instances of QMdiSubWindow. They
     are added to an MDI area with addSubWindow(). It is common to pass
     a QWidget, which is set as the internal widget, to this function,
-    but it is also possible to pass a QMdiSubWindow directly.The class
+    but it is also possible to pass a QMdiSubWindow directly. The class
     inherits QWidget, and you can use the same API as with a normal
     top-level window when programming. QMdiSubWindow also has behavior
     that is specific to MDI windows. See the QMdiSubWindow class
@@ -165,8 +165,6 @@
 #include <QPainter>
 #include <QFontMetrics>
 #include <QStyleOption>
-#include <QDesktopWidget>
-#include <private/qdesktopwidget_p.h>
 #include <QDebug>
 #include <qmath.h>
 #if QT_CONFIG(menu)
@@ -410,7 +408,7 @@ void IconTiler::rearrange(QList<QWidget *> &widgets, const QRect &domain) const
     \internal
     Calculates the accumulated overlap (intersection area) between 'source' and 'rects'.
 */
-int MinOverlapPlacer::accumulatedOverlap(const QRect &source, const QVector<QRect> &rects)
+int MinOverlapPlacer::accumulatedOverlap(const QRect &source, const QList<QRect> &rects)
 {
     int accOverlap = 0;
     for (const QRect &rect : rects) {
@@ -426,7 +424,7 @@ int MinOverlapPlacer::accumulatedOverlap(const QRect &source, const QVector<QRec
     Finds among 'source' the rectangle with the minimum accumulated overlap with the
     rectangles in 'rects'.
 */
-QRect MinOverlapPlacer::findMinOverlapRect(const QVector<QRect> &source, const QVector<QRect> &rects)
+QRect MinOverlapPlacer::findMinOverlapRect(const QList<QRect> &source, const QList<QRect> &rects)
 {
     int minAccOverlap = -1;
     QRect minAccOverlapRect;
@@ -444,16 +442,16 @@ QRect MinOverlapPlacer::findMinOverlapRect(const QVector<QRect> &source, const Q
     \internal
     Gets candidates for the final placement.
 */
-QVector<QRect> MinOverlapPlacer::getCandidatePlacements(const QSize &size, const QVector<QRect> &rects,
-                                                        const QRect &domain)
+QList<QRect> MinOverlapPlacer::getCandidatePlacements(const QSize &size, const QList<QRect> &rects,
+                                                      const QRect &domain)
 {
-    QVector<QRect> result;
+    QList<QRect> result;
 
-    QVector<int> xlist;
+    QList<int> xlist;
     xlist.reserve(2 + rects.size());
     xlist << domain.left() << domain.right() - size.width() + 1;
 
-    QVector<int> ylist;
+    QList<int> ylist;
     ylist.reserve(2 + rects.size());
     ylist << domain.top();
     if (domain.bottom() - size.height() + 1 >= 0)
@@ -482,14 +480,14 @@ QVector<QRect> MinOverlapPlacer::getCandidatePlacements(const QSize &size, const
     Finds all rectangles in 'source' not completely inside 'domain'. The result is stored
     in 'result' and also removed from 'source'.
 */
-QVector<QRect> MinOverlapPlacer::findNonInsiders(const QRect &domain, QVector<QRect> &source)
+QList<QRect> MinOverlapPlacer::findNonInsiders(const QRect &domain, QList<QRect> &source)
 {
     const auto containedInDomain =
             [domain](const QRect &srcRect) { return domain.contains(srcRect); };
 
     const auto firstOut = std::stable_partition(source.begin(), source.end(), containedInDomain);
 
-    QVector<QRect> result;
+    QList<QRect> result;
     result.reserve(source.end() - firstOut);
     std::copy(firstOut, source.end(), std::back_inserter(result));
 
@@ -503,9 +501,9 @@ QVector<QRect> MinOverlapPlacer::findNonInsiders(const QRect &domain, QVector<QR
     Finds all rectangles in 'source' that overlaps 'domain' by the maximum overlap area
     between 'domain' and any rectangle in 'source'. The result is stored in 'result'.
 */
-QVector<QRect> MinOverlapPlacer::findMaxOverlappers(const QRect &domain, const QVector<QRect> &source)
+QList<QRect> MinOverlapPlacer::findMaxOverlappers(const QRect &domain, const QList<QRect> &source)
 {
-    QVector<QRect> result;
+    QList<QRect> result;
     result.reserve(source.size());
 
     int maxOverlap = -1;
@@ -530,15 +528,15 @@ QVector<QRect> MinOverlapPlacer::findMaxOverlappers(const QRect &domain, const Q
     placement that overlaps the rectangles in 'rects' as little as possible while at the
     same time being as much as possible inside 'domain'.
 */
-QPoint MinOverlapPlacer::findBestPlacement(const QRect &domain, const QVector<QRect> &rects,
-                                           QVector<QRect> &source)
+QPoint MinOverlapPlacer::findBestPlacement(const QRect &domain, const QList<QRect> &rects,
+                                           QList<QRect> &source)
 {
-    const QVector<QRect> nonInsiders = findNonInsiders(domain, source);
+    const QList<QRect> nonInsiders = findNonInsiders(domain, source);
 
     if (!source.empty())
         return findMinOverlapRect(source, rects).topLeft();
 
-    QVector<QRect> maxOverlappers = findMaxOverlappers(domain, nonInsiders);
+    QList<QRect> maxOverlappers = findMaxOverlappers(domain, nonInsiders);
     return findMinOverlapRect(maxOverlappers, rects).topLeft();
 }
 
@@ -549,7 +547,7 @@ QPoint MinOverlapPlacer::findBestPlacement(const QRect &domain, const QVector<QR
     overlaps 'rects' as little as possible and 'domain' as much as possible.
     Returns the position of the resulting rectangle.
 */
-QPoint MinOverlapPlacer::place(const QSize &size, const QVector<QRect> &rects,
+QPoint MinOverlapPlacer::place(const QSize &size, const QList<QRect> &rects,
                                const QRect &domain) const
 {
     if (size.isEmpty() || !domain.isValid())
@@ -559,7 +557,7 @@ QPoint MinOverlapPlacer::place(const QSize &size, const QVector<QRect> &rects,
             return QPoint();
     }
 
-    QVector<QRect> candidates = getCandidatePlacements(size, rects, domain);
+    QList<QRect> candidates = getCandidatePlacements(size, rects, domain);
     return findBestPlacement(domain, rects, candidates);
 }
 
@@ -589,7 +587,7 @@ void QMdiAreaTabBar::mousePressEvent(QMouseEvent *event)
         return;
     }
 
-    QMdiSubWindow *subWindow = subWindowFromIndex(tabAt(event->pos()));
+    QMdiSubWindow *subWindow = subWindowFromIndex(tabAt(event->position().toPoint()));
     if (!subWindow) {
         event->ignore();
         return;
@@ -725,7 +723,7 @@ void QMdiAreaPrivate::_q_deactivateAllWindows(QMdiSubWindow *aboutToActivate)
             continue;
         // We don't want to handle signals caused by child->showNormal().
         ignoreWindowStateChange = true;
-        if(!(options & QMdiArea::DontMaximizeSubWindowOnActivation) && !showActiveWindowMaximized)
+        if (!(options & QMdiArea::DontMaximizeSubWindowOnActivation) && !showActiveWindowMaximized)
             showActiveWindowMaximized = child->isMaximized() && child->isVisible();
         if (showActiveWindowMaximized && child->isMaximized()) {
             if (q->updatesEnabled()) {
@@ -892,7 +890,7 @@ void QMdiAreaPrivate::place(Placer *placer, QMdiSubWindow *child)
         return;
     }
 
-    QVector<QRect> rects;
+    QList<QRect> rects;
     rects.reserve(childWindows.size());
     QRect parentRect = q->rect();
     foreach (QMdiSubWindow *window, childWindows) {
@@ -1002,6 +1000,10 @@ void QMdiAreaPrivate::activateWindow(QMdiSubWindow *child)
 
     if (child->isHidden() || child == active)
         return;
+
+    if (child->d_func()->isActive && active == nullptr)
+        child->d_func()->isActive = false;
+
     child->d_func()->setActive(true);
 }
 
@@ -1733,7 +1735,7 @@ QMdiArea::~QMdiArea()
 */
 QSize QMdiArea::sizeHint() const
 {
-    // Calculate a proper scale factor for QDesktopWidget::size().
+    // Calculate a proper scale factor for the desktop's size.
     // This also takes into account that we can have nested workspaces.
     int nestedCount = 0;
     QWidget *widget = this->parentWidget();
@@ -1744,14 +1746,14 @@ QSize QMdiArea::sizeHint() const
     }
     const int scaleFactor = 3 * (nestedCount + 1);
 
-    QSize desktopSize = QDesktopWidgetPrivate::size();
+    QSize desktopSize = QGuiApplication::primaryScreen()->virtualSize();
     QSize size(desktopSize.width() * 2 / scaleFactor, desktopSize.height() * 2 / scaleFactor);
     for (QMdiSubWindow *child : d_func()->childWindows) {
         if (!sanityCheck(child, "QMdiArea::sizeHint"))
             continue;
         size = size.expandedTo(child->sizeHint());
     }
-    return size.expandedTo(QApplication::globalStrut());
+    return size;
 }
 
 /*!
@@ -1770,7 +1772,7 @@ QSize QMdiArea::minimumSizeHint() const
             size = size.expandedTo(child->minimumSizeHint());
         }
     }
-    return size.expandedTo(QApplication::globalStrut());
+    return size;
 }
 
 /*!
@@ -2549,7 +2551,7 @@ bool QMdiArea::eventFilter(QObject *object, QEvent *event)
     if (event->type() == QEvent::KeyPress || event->type() == QEvent::KeyRelease) {
 
         QKeyEvent *keyEvent = static_cast<QKeyEvent *>(event);
-        // Ingore key events without a Ctrl modifier (except for press/release on the modifier itself).
+        // Ignore key events without a Ctrl modifier (except for press/release on the modifier itself).
         if (!(keyEvent->modifiers() & Qt::ControlModifier) && keyEvent->key() != Qt::Key_Control)
             return QAbstractScrollArea::eventFilter(object, event);
 

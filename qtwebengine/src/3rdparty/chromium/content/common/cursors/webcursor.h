@@ -48,8 +48,6 @@ class CONTENT_EXPORT WebCursor {
   gfx::NativeCursor GetNativeCursor();
 
 #if defined(USE_AURA)
-  ui::PlatformCursor GetPlatformCursor(const ui::Cursor& cursor);
-
   // Updates |device_scale_factor_| and |rotation_| based on |display|.
   void SetDisplayInfo(const display::Display& display);
 
@@ -61,9 +59,6 @@ class CONTENT_EXPORT WebCursor {
 #endif
 
  private:
-  // Returns true if this cursor's platform data matches that of |other|.
-  bool IsPlatformDataEqual(const WebCursor& other) const;
-
   // Copies all data from |other| to this object.
   void CopyAllData(const WebCursor& other);
 
@@ -80,7 +75,7 @@ class CONTENT_EXPORT WebCursor {
 
 #if defined(USE_AURA) || defined(USE_OZONE)
   // Only used for custom cursors.
-  ui::PlatformCursor platform_cursor_ = 0;
+  ui::PlatformCursor platform_cursor_ = nullptr;
   float device_scale_factor_ = 1.f;
   display::Display::Rotation rotation_ = display::Display::ROTATE_0;
 #endif

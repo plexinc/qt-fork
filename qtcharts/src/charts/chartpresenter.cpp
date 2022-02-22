@@ -47,7 +47,7 @@
 #include <QtWidgets/QGraphicsScene>
 #include <QtWidgets/QGraphicsView>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 ChartPresenter::ChartPresenter(QChart *chart, QChart::ChartType type)
     : QObject(chart),
@@ -98,7 +98,7 @@ void ChartPresenter::setFixedGeometry(const QRectF &rect)
 
 void ChartPresenter::setGeometry(const QRectF rect)
 {
-    if (m_rect != rect) {
+    if (rect.isValid() && m_rect != rect) {
         m_rect = rect;
         if (!m_fixedRect.isNull())
             return;
@@ -253,6 +253,7 @@ void ChartPresenter::createPlotAreaBackgroundItem()
             m_plotAreaBackground = new QGraphicsEllipseItem(rootItem());
         // Use transparent pen instead of Qt::NoPen, as Qt::NoPen causes
         // antialising artifacts with axis lines for some reason.
+        m_plotAreaBackground->setAcceptedMouseButtons({});
         m_plotAreaBackground->setPen(QPen(Qt::transparent));
         m_plotAreaBackground->setBrush(Qt::NoBrush);
         m_plotAreaBackground->setZValue(ChartPresenter::PlotAreaZValue);
@@ -478,18 +479,59 @@ ChartTitle *ChartPresenter::titleElement()
     return m_title;
 }
 
+template <int TSize>
+struct TextBoundCache
+{
+    struct element
+    {
+        quint32 lastUsed;
+        QRectF bounds;
+    };
+    QHash<QString, element> elements;
+    quint32 usedCounter = 0;
+    QGraphicsTextItem dummyText;
+
+    QRectF bounds(const QFont &font, const QString &text)
+    {
+        const QString key = font.key() + text;
+        auto elem = elements.find(key);
+        if (elem != elements.end()) {
+            usedCounter++;
+            elem->lastUsed = usedCounter;
+            return elem->bounds;
+        }
+        dummyText.setFont(font);
+        dummyText.setHtml(text);
+        const QRectF bounds = dummyText.boundingRect();
+        if (elements.size() >= TSize) {
+            auto elem = std::min_element(elements.begin(), elements.end(),
+                                         [](const element &a, const element &b) {
+                return a.lastUsed < b.lastUsed;
+            });
+            if (elem != elements.end()) {
+                const QString key = elem.key();
+                elements.remove(key);
+            }
+        }
+        elements.insert(key, {usedCounter++, bounds});
+        return bounds;
+    }
+    QTextDocument *document()
+    {
+        return dummyText.document();
+    }
+};
+
 QRectF ChartPresenter::textBoundingRect(const QFont &font, const QString &text, qreal angle)
 {
-    static QGraphicsTextItem dummyTextItem;
+    static TextBoundCache<32> textBoundCache;
     static bool initMargin = true;
     if (initMargin) {
-        dummyTextItem.document()->setDocumentMargin(textMargin());
+        textBoundCache.document()->setDocumentMargin(textMargin());
         initMargin = false;
     }
 
-    dummyTextItem.setFont(font);
-    dummyTextItem.setHtml(text);
-    QRectF boundingRect = dummyTextItem.boundingRect();
+    QRectF boundingRect = textBoundCache.bounds(font, text);
 
     // Take rotation into account
     if (angle) {
@@ -513,7 +555,7 @@ QString ChartPresenter::truncatedText(const QFont &font, const QString &text, qr
         // to try.
         static QRegularExpression truncateMatcher(QStringLiteral("&#?[0-9a-zA-Z]*;$"));
 
-        QVector<QString> testStrings(text.length());
+        QList<QString> testStrings(text.length());
         int count(0);
         static QLatin1Char closeTag('>');
         static QLatin1Char openTag('<');
@@ -611,6 +653,6 @@ void ChartPresenter::updateGLWidget()
 #endif
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_chartpresenter_p.cpp"

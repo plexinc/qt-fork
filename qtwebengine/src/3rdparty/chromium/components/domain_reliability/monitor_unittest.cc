@@ -13,19 +13,30 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/strings/string_piece.h"
-#include "base/test/test_simple_task_runner.h"
+#include "base/test/metrics/histogram_tester.h"
+#include "base/test/scoped_feature_list.h"
+#include "base/test/task_environment.h"
+#include "base/time/time.h"
 #include "components/domain_reliability/baked_in_configs.h"
 #include "components/domain_reliability/beacon.h"
 #include "components/domain_reliability/config.h"
+#include "components/domain_reliability/features.h"
 #include "components/domain_reliability/google_configs.h"
 #include "components/domain_reliability/test_util.h"
-#include "net/base/load_flags.h"
+#include "net/base/isolation_info.h"
+#include "net/base/load_timing_info.h"
 #include "net/base/net_errors.h"
+#include "net/base/network_isolation_key.h"
+#include "net/base/request_priority.h"
 #include "net/http/http_response_headers.h"
+#include "net/http/http_response_info.h"
 #include "net/http/http_util.h"
-#include "net/url_request/url_request_context_getter.h"
+#include "net/test/embedded_test_server/embedded_test_server.h"
+#include "net/test/gtest_util.h"
+#include "net/third_party/quiche/src/quic/core/quic_error_codes.h"
+#include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "net/url_request/url_request_test_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -34,6 +45,8 @@ namespace domain_reliability {
 namespace {
 
 typedef std::vector<const DomainReliabilityBeacon*> BeaconVector;
+
+const char kBeaconOutcomeHistogram[] = "Net.DomainReliability.BeaconOutcome";
 
 scoped_refptr<net::HttpResponseHeaders> MakeHttpResponseHeaders(
     base::StringPiece headers) {
@@ -54,14 +67,11 @@ class DomainReliabilityMonitorTest : public testing::Test {
   typedef DomainReliabilityMonitor::RequestInfo RequestInfo;
 
   DomainReliabilityMonitorTest()
-      : network_task_runner_(new base::TestSimpleTaskRunner()),
-        url_request_context_getter_(
-            new net::TestURLRequestContextGetter(network_task_runner_)),
-        time_(new MockTime()),
-        monitor_("test-reporter",
+      : time_(new MockTime()),
+        monitor_(&url_request_context_,
+                 "test-reporter",
                  DomainReliabilityContext::UploadAllowedCallback(),
                  std::unique_ptr<MockableTime>(time_)) {
-    monitor_.InitURLRequestContext(url_request_context_getter_);
     monitor_.SetDiscardUploads(false);
   }
 
@@ -79,7 +89,7 @@ class DomainReliabilityMonitorTest : public testing::Test {
     request.response_info.was_cached = false;
     request.response_info.network_accessed = true;
     request.response_info.was_fetched_via_proxy = false;
-    request.load_flags = 0;
+    request.allow_credentials = true;
     request.upload_depth = 0;
     return request;
   }
@@ -108,8 +118,9 @@ class DomainReliabilityMonitorTest : public testing::Test {
     return monitor_.AddContextForTesting(std::move(config));
   }
 
-  scoped_refptr<base::TestSimpleTaskRunner> network_task_runner_;
-  scoped_refptr<net::URLRequestContextGetter> url_request_context_getter_;
+  base::test::SingleThreadTaskEnvironment task_environment_{
+      base::test::TaskEnvironment::MainThreadType::IO};
+  net::TestURLRequestContext url_request_context_;
   MockTime* time_;
   DomainReliabilityMonitor monitor_;
   DomainReliabilityMonitor::RequestInfo request_;
@@ -178,13 +189,13 @@ TEST_F(DomainReliabilityMonitorTest, DidNotAccessNetwork) {
   EXPECT_EQ(0u, CountQueuedBeacons(context));
 }
 
-// Make sure the monitor does not log requests that don't send cookies.
+// Make sure the monitor does not log requests that don't send credentials.
 TEST_F(DomainReliabilityMonitorTest, DoNotSendCookies) {
   const DomainReliabilityContext* context = CreateAndAddContext();
 
   RequestInfo request = MakeRequestInfo();
   request.url = GURL("http://example/");
-  request.load_flags = net::LOAD_DO_NOT_SEND_COOKIES;
+  request.allow_credentials = false;
   OnRequestLegComplete(request);
 
   EXPECT_EQ(0u, CountQueuedBeacons(context));
@@ -257,20 +268,59 @@ TEST_F(DomainReliabilityMonitorTest, NoCachedIPFromFailedRevalidationRequest) {
   EXPECT_TRUE(beacons[0]->server_ip.empty());
 }
 
-// Make sure the monitor does log uploads, even though they have
-// LOAD_DO_NOT_SEND_COOKIES.
+// Make sure the monitor does log uploads, even when credentials are not
+// allowed.
 TEST_F(DomainReliabilityMonitorTest, Upload) {
   const DomainReliabilityContext* context = CreateAndAddContext();
 
   RequestInfo request = MakeRequestInfo();
   request.url = GURL("http://example/");
-  request.load_flags =
-      net::LOAD_DO_NOT_SAVE_COOKIES | net::LOAD_DO_NOT_SEND_COOKIES;
+  request.allow_credentials = false;
   request.net_error = net::ERR_CONNECTION_RESET;
   request.upload_depth = 1;
   OnRequestLegComplete(request);
 
   EXPECT_EQ(1u, CountQueuedBeacons(context));
+}
+
+// Make sure NetworkIsolationKey is populated in the beacon, or not, depending
+// on features::kPartitionDomainReliabilityByNetworkIsolationKey.
+TEST_F(DomainReliabilityMonitorTest, NetworkIsolationKey) {
+  const net::NetworkIsolationKey kNetworkIsolationKey =
+      net::NetworkIsolationKey::CreateTransient();
+
+  const DomainReliabilityContext* context = CreateAndAddContext();
+
+  size_t index = 0;
+  for (bool partitioning_enabled : {false, true}) {
+    base::test::ScopedFeatureList feature_list;
+    if (partitioning_enabled) {
+      feature_list.InitAndEnableFeature(
+          features::kPartitionDomainReliabilityByNetworkIsolationKey);
+    } else {
+      feature_list.InitAndDisableFeature(
+          features::kPartitionDomainReliabilityByNetworkIsolationKey);
+    }
+    RequestInfo request = MakeRequestInfo();
+    request.url = GURL("http://example/");
+    request.allow_credentials = false;
+    request.net_error = net::ERR_CONNECTION_RESET;
+    request.upload_depth = 1;
+    request.network_isolation_key = kNetworkIsolationKey;
+    OnRequestLegComplete(request);
+
+    BeaconVector beacons;
+    context->GetQueuedBeaconsForTesting(&beacons);
+    ASSERT_EQ(index + 1, beacons.size());
+    if (partitioning_enabled) {
+      EXPECT_EQ(kNetworkIsolationKey, beacons[index]->network_isolation_key);
+    } else {
+      EXPECT_EQ(net::NetworkIsolationKey(),
+                beacons[index]->network_isolation_key);
+    }
+
+    ++index;
+  }
 }
 
 // Will fail when baked-in configs expire, as a reminder to update them.
@@ -343,6 +393,7 @@ TEST_F(DomainReliabilityMonitorTest, GoogleConfigOnDemand) {
 }
 
 TEST_F(DomainReliabilityMonitorTest, ClearBeacons) {
+  base::HistogramTester histograms;
   const DomainReliabilityContext* context = CreateAndAddContext();
 
   // Initially the monitor should have just the test context, with no beacons.
@@ -363,9 +414,14 @@ TEST_F(DomainReliabilityMonitorTest, ClearBeacons) {
   // Make sure the beacon was cleared, but not the contexts.
   EXPECT_EQ(1u, monitor_.contexts_size_for_testing());
   EXPECT_EQ(0u, CountQueuedBeacons(context));
+
+  histograms.ExpectBucketCount(kBeaconOutcomeHistogram,
+                               DomainReliabilityBeacon::Outcome::kCleared, 1);
+  histograms.ExpectTotalCount(kBeaconOutcomeHistogram, 1);
 }
 
 TEST_F(DomainReliabilityMonitorTest, ClearBeaconsWithFilter) {
+  base::HistogramTester histograms;
   // Create two contexts, each with one beacon.
   GURL origin1("http://example.com/");
   GURL origin2("http://example.org/");
@@ -396,18 +452,35 @@ TEST_F(DomainReliabilityMonitorTest, ClearBeaconsWithFilter) {
   EXPECT_EQ(2u, monitor_.contexts_size_for_testing());
   EXPECT_EQ(0u, CountQueuedBeacons(context1));
   EXPECT_EQ(1u, CountQueuedBeacons(context2));
+
+  histograms.ExpectBucketCount(kBeaconOutcomeHistogram,
+                               DomainReliabilityBeacon::Outcome::kCleared, 1);
+  histograms.ExpectTotalCount(kBeaconOutcomeHistogram, 1);
 }
 
 TEST_F(DomainReliabilityMonitorTest, ClearContexts) {
-  CreateAndAddContext();
+  base::HistogramTester histograms;
+  const DomainReliabilityContext* context = CreateAndAddContext();
 
   // Initially the monitor should have just the test context.
   EXPECT_EQ(1u, monitor_.contexts_size_for_testing());
+
+  // Add a beacon so we can test histogram behavior.
+  RequestInfo request = MakeRequestInfo();
+  request.url = GURL("http://example/");
+  request.net_error = net::ERR_CONNECTION_RESET;
+  OnRequestLegComplete(request);
+  EXPECT_EQ(1u, CountQueuedBeacons(context));
 
   monitor_.ClearBrowsingData(CLEAR_CONTEXTS, base::NullCallback());
 
   // Clearing contexts should leave the monitor with none.
   EXPECT_EQ(0u, monitor_.contexts_size_for_testing());
+
+  histograms.ExpectBucketCount(
+      kBeaconOutcomeHistogram,
+      DomainReliabilityBeacon::Outcome::kContextShutDown, 1);
+  histograms.ExpectTotalCount(kBeaconOutcomeHistogram, 1);
 }
 
 TEST_F(DomainReliabilityMonitorTest, ClearContextsWithFilter) {
@@ -495,6 +568,72 @@ TEST_F(DomainReliabilityMonitorTest,
 
   EXPECT_EQ(1u, CountQueuedBeacons(context1));
   EXPECT_EQ(0u, CountQueuedBeacons(context2));
+}
+
+// Uses a real request, to make sure CreateBeaconFromAttempt() works as
+// expected.
+TEST_F(DomainReliabilityMonitorTest, RealRequest) {
+  const net::IsolationInfo kIsolationInfo =
+      net::IsolationInfo::CreateTransient();
+
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(
+      features::kPartitionDomainReliabilityByNetworkIsolationKey);
+
+  net::test_server::EmbeddedTestServer test_server;
+  test_server.AddDefaultHandlers();
+  ASSERT_TRUE(test_server.Start());
+
+  std::unique_ptr<DomainReliabilityConfig> config(
+      MakeTestConfigWithOrigin(test_server.base_url()));
+  const DomainReliabilityContext* context =
+      monitor_.AddContextForTesting(std::move(config));
+
+  base::TimeTicks start = base::TimeTicks::Now();
+
+  net::TestDelegate test_delegate;
+  std::unique_ptr<net::URLRequest> url_request =
+      url_request_context_.CreateRequest(test_server.GetURL("/close-socket"),
+                                         net::DEFAULT_PRIORITY, &test_delegate,
+                                         TRAFFIC_ANNOTATION_FOR_TESTS);
+  url_request->set_isolation_info(kIsolationInfo);
+  url_request->Start();
+
+  test_delegate.RunUntilComplete();
+  EXPECT_THAT(test_delegate.request_status(),
+              net::test::IsError(net::ERR_EMPTY_RESPONSE));
+
+  net::LoadTimingInfo load_timing_info;
+  url_request->GetLoadTimingInfo(&load_timing_info);
+  base::TimeDelta expected_elapsed = base::TimeDelta::FromSeconds(1);
+  time_->Advance(load_timing_info.request_start - time_->NowTicks() +
+                 expected_elapsed);
+
+  monitor_.OnCompleted(url_request.get(), true /* started */,
+                       test_delegate.request_status());
+  BeaconVector beacons;
+  context->GetQueuedBeaconsForTesting(&beacons);
+  ASSERT_EQ(1u, beacons.size());
+  EXPECT_EQ(url_request->url(), beacons[0]->url);
+  EXPECT_EQ(kIsolationInfo.network_isolation_key(),
+            beacons[0]->network_isolation_key);
+  EXPECT_EQ("http.response.empty", beacons[0]->status);
+  EXPECT_EQ("", beacons[0]->quic_error);
+  EXPECT_EQ(net::ERR_EMPTY_RESPONSE, beacons[0]->chrome_error);
+  EXPECT_EQ(test_server.base_url().host() + ":" + test_server.base_url().port(),
+            beacons[0]->server_ip);
+  EXPECT_FALSE(beacons[0]->was_proxied);
+  EXPECT_EQ("HTTP", beacons[0]->protocol);
+  EXPECT_FALSE(beacons[0]->details.quic_broken);
+  EXPECT_EQ(quic::QUIC_NO_ERROR, beacons[0]->details.quic_connection_error);
+  EXPECT_EQ(net::HttpResponseInfo::CONNECTION_INFO_HTTP1_1,
+            beacons[0]->details.connection_info);
+  EXPECT_FALSE(beacons[0]->details.quic_port_migration_detected);
+  EXPECT_EQ(-1, beacons[0]->http_response_code);
+  EXPECT_EQ(expected_elapsed, beacons[0]->elapsed);
+  EXPECT_LE(start, beacons[0]->start_time);
+  EXPECT_EQ(0, beacons[0]->upload_depth);
+  EXPECT_LE(0.99, beacons[0]->sample_rate);
 }
 
 }  // namespace

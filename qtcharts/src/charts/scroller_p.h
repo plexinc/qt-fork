@@ -50,7 +50,7 @@ QT_BEGIN_NAMESPACE
 class QGraphicsSceneMouseEvent;
 QT_END_NAMESPACE
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class Scroller;
 class QLegend;
@@ -63,7 +63,7 @@ public:
     void start(int interval);
     void stop();
 protected:
-    void timerEvent(QTimerEvent *event);
+    void timerEvent(QTimerEvent *event) override;
 
 private:
     QBasicTimer m_timer;
@@ -117,6 +117,6 @@ private:
     qreal m_treshold;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif /* SCROLLER_P_H */

@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/logging.h"
+#include "base/check.h"
 #include "skia/ext/image_operations.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
 #include "third_party/blink/public/platform/interface_registry.h"
@@ -79,7 +79,8 @@ SkBitmap ResizeImage(const SkBitmap& image, uint32_t max_image_size) {
 // size |max_image_size|. Returns the result if it is not empty. Otherwise,
 // find the smallest image in the array and resize it proportionally to fit
 // in a box of size |max_image_size|.
-// Sets |original_image_sizes| to the sizes of |images| before resizing.
+// Sets |original_image_sizes| to the sizes of |images| before resizing. Both
+// output vectors are guaranteed to have the same size.
 void FilterAndResizeImagesForMaximalSize(
     const WTF::Vector<SkBitmap>& unfiltered,
     uint32_t max_image_size,
@@ -147,8 +148,8 @@ void ImageDownloaderImpl::ProvideTo(LocalFrame& frame) {
 
 ImageDownloaderImpl::ImageDownloaderImpl(LocalFrame& frame)
     : Supplement<LocalFrame>(frame),
-      ExecutionContextLifecycleObserver(
-          frame.GetDocument()->GetExecutionContext()) {
+      ExecutionContextLifecycleObserver(frame.DomWindow()),
+      receiver_(this, frame.DomWindow()) {
   frame.GetInterfaceRegistry()->AddInterface(WTF::BindRepeating(
       &ImageDownloaderImpl::CreateMojoService, WrapWeakPersistent(this)));
 }
@@ -157,7 +158,8 @@ ImageDownloaderImpl::~ImageDownloaderImpl() {}
 
 void ImageDownloaderImpl::CreateMojoService(
     mojo::PendingReceiver<mojom::blink::ImageDownloader> receiver) {
-  receiver_.Bind(std::move(receiver));
+  receiver_.Bind(std::move(receiver),
+                 GetSupplementable()->GetTaskRunner(TaskType::kNetworking));
   receiver_.set_disconnect_handler(
       WTF::Bind(&ImageDownloaderImpl::Dispose, WrapWeakPersistent(this)));
 }
@@ -201,6 +203,8 @@ void ImageDownloaderImpl::DidDownloadImage(
   FilterAndResizeImagesForMaximalSize(images, max_image_size, &result_images,
                                       &result_original_image_sizes);
 
+  DCHECK_EQ(result_images.size(), result_original_image_sizes.size());
+
   std::move(callback).Run(http_status_code, result_images,
                           result_original_image_sizes);
 }
@@ -217,9 +221,7 @@ void ImageDownloaderImpl::FetchImage(const KURL& image_url,
   // Create an image resource fetcher and assign it with a call back object.
   image_fetchers_.push_back(
       std::make_unique<MultiResolutionImageResourceFetcher>(
-          image_url, GetSupplementable(),
-          is_favicon ? blink::mojom::RequestContextType::FAVICON
-                     : blink::mojom::RequestContextType::IMAGE,
+          image_url, GetSupplementable(), is_favicon,
           bypass_cache ? blink::mojom::FetchCacheMode::kBypassCache
                        : blink::mojom::FetchCacheMode::kDefault,
           WTF::Bind(&ImageDownloaderImpl::DidFetchImage, WrapPersistent(this),
@@ -252,7 +254,8 @@ void ImageDownloaderImpl::DidFetchImage(
   std::move(callback).Run(http_status_code, images);
 }
 
-void ImageDownloaderImpl::Trace(Visitor* visitor) {
+void ImageDownloaderImpl::Trace(Visitor* visitor) const {
+  visitor->Trace(receiver_);
   Supplement<LocalFrame>::Trace(visitor);
   ExecutionContextLifecycleObserver::Trace(visitor);
 }

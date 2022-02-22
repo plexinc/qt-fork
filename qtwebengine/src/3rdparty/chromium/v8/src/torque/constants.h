@@ -17,6 +17,7 @@ namespace torque {
 static const char* const CONSTEXPR_TYPE_PREFIX = "constexpr ";
 static const char* const NEVER_TYPE_STRING = "never";
 static const char* const CONSTEXPR_BOOL_TYPE_STRING = "constexpr bool";
+static const char* const CONSTEXPR_STRING_TYPE_STRING = "constexpr string";
 static const char* const CONSTEXPR_INTPTR_TYPE_STRING = "constexpr intptr";
 static const char* const CONSTEXPR_INSTANCE_TYPE_TYPE_STRING =
     "constexpr InstanceType";
@@ -30,6 +31,7 @@ static const char* const JS_FUNCTION_TYPE_STRING = "JSFunction";
 static const char* const MAP_TYPE_STRING = "Map";
 static const char* const OBJECT_TYPE_STRING = "Object";
 static const char* const HEAP_OBJECT_TYPE_STRING = "HeapObject";
+static const char* const TAGGED_ZERO_PATTERN_TYPE_STRING = "TaggedZeroPattern";
 static const char* const JSANY_TYPE_STRING = "JSAny";
 static const char* const JSOBJECT_TYPE_STRING = "JSObject";
 static const char* const SMI_TYPE_STRING = "Smi";
@@ -39,6 +41,7 @@ static const char* const UNINITIALIZED_TYPE_STRING = "Uninitialized";
 static const char* const UNINITIALIZED_HEAP_OBJECT_TYPE_STRING =
     "UninitializedHeapObject";
 static const char* const RAWPTR_TYPE_STRING = "RawPtr";
+static const char* const EXTERNALPTR_TYPE_STRING = "ExternalPointer";
 static const char* const CONST_STRING_TYPE_STRING = "constexpr string";
 static const char* const STRING_TYPE_STRING = "String";
 static const char* const NUMBER_TYPE_STRING = "Number";
@@ -66,14 +69,18 @@ static const char* const CONST_FLOAT64_TYPE_STRING = "constexpr float64";
 static const char* const TORQUE_INTERNAL_NAMESPACE_STRING = "torque_internal";
 static const char* const MUTABLE_REFERENCE_TYPE_STRING = "MutableReference";
 static const char* const CONST_REFERENCE_TYPE_STRING = "ConstReference";
-static const char* const SLICE_TYPE_STRING = "Slice";
+static const char* const MUTABLE_SLICE_TYPE_STRING = "MutableSlice";
+static const char* const CONST_SLICE_TYPE_STRING = "ConstSlice";
 static const char* const WEAK_TYPE_STRING = "Weak";
 static const char* const SMI_TAGGED_TYPE_STRING = "SmiTagged";
+static const char* const LAZY_TYPE_STRING = "Lazy";
 static const char* const UNINITIALIZED_ITERATOR_TYPE_STRING =
     "UninitializedIterator";
 static const char* const GENERIC_TYPE_INSTANTIATION_NAMESPACE_STRING =
     "_generic_type_instantiation_namespace";
 static const char* const FIXED_ARRAY_BASE_TYPE_STRING = "FixedArrayBase";
+static const char* const WEAK_HEAP_OBJECT = "WeakHeapObject";
+static const char* const STATIC_ASSERT_MACRO_STRING = "StaticAssert";
 
 static const char* const ANNOTATION_GENERATE_PRINT = "@generatePrint";
 static const char* const ANNOTATION_NO_VERIFIER = "@noVerifier";
@@ -81,6 +88,8 @@ static const char* const ANNOTATION_ABSTRACT = "@abstract";
 static const char* const ANNOTATION_HAS_SAME_INSTANCE_TYPE_AS_PARENT =
     "@hasSameInstanceTypeAsParent";
 static const char* const ANNOTATION_GENERATE_CPP_CLASS = "@generateCppClass";
+static const char* const ANNOTATION_CUSTOM_MAP = "@customMap";
+static const char* const ANNOTATION_CUSTOM_CPP_CLASS = "@customCppClass";
 static const char* const ANNOTATION_HIGHEST_INSTANCE_TYPE_WITHIN_PARENT =
     "@highestInstanceTypeWithinParentClassRange";
 static const char* const ANNOTATION_LOWEST_INSTANCE_TYPE_WITHIN_PARENT =
@@ -93,7 +102,19 @@ static const char* const ANNOTATION_IF = "@if";
 static const char* const ANNOTATION_IFNOT = "@ifnot";
 static const char* const ANNOTATION_GENERATE_BODY_DESCRIPTOR =
     "@generateBodyDescriptor";
-static const char* const ANNOTATION_EXPORT_CPP_CLASS = "@export";
+static const char* const ANNOTATION_EXPORT = "@export";
+static const char* const ANNOTATION_DO_NOT_GENERATE_CAST = "@doNotGenerateCast";
+static const char* const ANNOTATION_USE_PARENT_TYPE_CHECKER =
+    "@useParentTypeChecker";
+// Generate C++ accessors with relaxed write semantics.
+// Weak<T> and MaybeObject fields always use relaxed write.
+static const char* const ANNOTATION_RELAXED_WRITE = "@relaxedWrite";
+// Generate C++ accessors with relaxed read semantics.
+static const char* const ANNOTATION_RELAXED_READ = "@relaxedRead";
+// Generate C++ accessors with release write semantics.
+static const char* const ANNOTATION_RELEASE_WRITE = "@releaseWrite";
+// Generate C++ accessors with acquire read semantics.
+static const char* const ANNOTATION_ACQUIRE_READ = "@acquireRead";
 
 inline bool IsConstexprName(const std::string& name) {
   return name.substr(0, std::strlen(CONSTEXPR_TYPE_PREFIX)) ==
@@ -113,7 +134,8 @@ inline std::string GetConstexprName(const std::string& name) {
 enum class AbstractTypeFlag {
   kNone = 0,
   kTransient = 1 << 0,
-  kConstexpr = 1 << 1
+  kConstexpr = 1 << 1,
+  kUseParentTypeChecker = 1 << 2,
 };
 using AbstractTypeFlags = base::Flags<AbstractTypeFlag>;
 
@@ -127,17 +149,25 @@ enum class ClassFlag {
   kIsShape = 1 << 5,
   kHasSameInstanceTypeAsParent = 1 << 6,
   kGenerateCppClassDefinitions = 1 << 7,
-  kHasIndexedField = 1 << 8,
+  kCustomCppClass = 1 << 8,
   kHighestInstanceTypeWithinParent = 1 << 9,
   kLowestInstanceTypeWithinParent = 1 << 10,
   kUndefinedLayout = 1 << 11,
   kGenerateBodyDescriptor = 1 << 12,
   kExport = 1 << 13,
+  kDoNotGenerateCast = 1 << 14,
+  kCustomMap = 1 << 15,
 };
 using ClassFlags = base::Flags<ClassFlag>;
 
 enum class StructFlag { kNone = 0, kExport = 1 << 0 };
 using StructFlags = base::Flags<StructFlag>;
+
+enum class FieldSynchronization {
+  kNone,
+  kRelaxed,
+  kAcquireRelease,
+};
 
 }  // namespace torque
 }  // namespace internal

@@ -71,12 +71,11 @@ public:
     ~QEventDispatcherGlib();
 
     bool processEvents(QEventLoop::ProcessEventsFlags flags) override;
-    bool hasPendingEvents() override;
 
     void registerSocketNotifier(QSocketNotifier *socketNotifier) final;
     void unregisterSocketNotifier(QSocketNotifier *socketNotifier) final;
 
-    void registerTimer(int timerId, int interval, Qt::TimerType timerType, QObject *object) final;
+    void registerTimer(int timerId, qint64 interval, Qt::TimerType timerType, QObject *object) final;
     bool unregisterTimer(int timerId) final;
     bool unregisterTimers(QObject *object) final;
     QList<TimerInfo> registeredTimers(QObject *object) const final;
@@ -85,7 +84,6 @@ public:
 
     void wakeUp() final;
     void interrupt() final;
-    void flush() final;
 
     static bool versionSupported();
 

@@ -48,13 +48,15 @@
 #include "base/version.h"
 #include "content/public/common/cdm_info.h"
 #include "content/public/common/content_constants.h"
+#include "content/public/common/content_switches.h"
+#include "extensions/buildflags/buildflags.h"
+#include "extensions/common/constants.h"
 #include "media/base/media_switches.h"
 #include "media/base/video_codecs.h"
 #include "media/media_buildflags.h"
 #include "ui/base/layout.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
-#include "services/service_manager/embedder/switches.h"
 #include "type_conversion.h"
 
 #include <QCoreApplication>
@@ -71,7 +73,7 @@
 
 // File name of the CDM on different platforms.
 const char kWidevineCdmFileName[] =
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
     "widevinecdm.plugin";
 #elif defined(OS_WIN)
     "widevinecdm.dll";
@@ -79,13 +81,13 @@ const char kWidevineCdmFileName[] =
     "libwidevinecdm.so";
 #endif
 #endif
+#endif  // BUILDFLAG(ENABLE_LIBRARY_CDMS)
 
 #if QT_CONFIG(webengine_printing_and_pdf)
 #include "pdf/pdf.h"
 #include "pdf/pdf_ppapi.h"
 const char kPdfPluginMimeType[] = "application/x-google-chrome-pdf";
-const char kPdfPluginPath[] = "internal-pdf-viewer/";
-const char kPdfPluginSrc[] = "src";
+const char kPdfPluginPath[] = "internal-pdf-viewer";
 #endif // QT_CONFIG(webengine_printing_and_pdf)
 
 static QString webenginePluginsPath()
@@ -100,7 +102,6 @@ static QString webenginePluginsPath()
     }
     return potentialPluginsPath;
 }
-#endif  // BUILDFLAG(ENABLE_LIBRARY_CDMS)
 
 #if defined(Q_OS_WIN)
 #include <shlobj.h>
@@ -133,18 +134,6 @@ static QString getProgramFilesDir(bool x86Dir = false)
 #include "content/public/common/pepper_plugin_info.h"
 #include "ppapi/shared_impl/ppapi_permissions.h"
 
-static const int32_t kPepperFlashPermissions = ppapi::PERMISSION_DEV |
-                                               ppapi::PERMISSION_PRIVATE |
-                                               ppapi::PERMISSION_BYPASS_USER_GESTURE |
-                                               ppapi::PERMISSION_FLASH |
-                                               ppapi::PERMISSION_SOCKET;
-
-namespace switches {
-const char kPpapiFlashPath[]    = "ppapi-flash-path";
-const char kPpapiFlashVersion[] = "ppapi-flash-version";
-const char kPpapiWidevinePath[] = "ppapi-widevine-path";
-}
-
 static QString ppapiPluginsPath()
 {
     // Look for plugins in /plugins/ppapi or application dir.
@@ -156,95 +145,6 @@ static QString ppapiPluginsPath()
             potentialPluginsPath = QCoreApplication::applicationDirPath();
     }
     return potentialPluginsPath;
-}
-
-
-content::PepperPluginInfo CreatePepperFlashInfo(const base::FilePath& path, const std::string& version)
-{
-    content::PepperPluginInfo plugin;
-
-    plugin.is_out_of_process = true;
-    plugin.name = content::kFlashPluginName;
-    plugin.path = path;
-    plugin.permissions = kPepperFlashPermissions;
-
-    std::vector<std::string> flash_version_numbers = base::SplitString(version, ".", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
-    if (flash_version_numbers.size() < 1)
-        flash_version_numbers.push_back("11");
-    else if (flash_version_numbers[0].empty())
-        flash_version_numbers[0] = "11";
-    if (flash_version_numbers.size() < 2)
-        flash_version_numbers.push_back("2");
-    if (flash_version_numbers.size() < 3)
-        flash_version_numbers.push_back("999");
-    if (flash_version_numbers.size() < 4)
-        flash_version_numbers.push_back("999");
-
-    // E.g., "Shockwave Flash 10.2 r154":
-    plugin.description = plugin.name + " " + flash_version_numbers[0] + "." + flash_version_numbers[1] + " r" + flash_version_numbers[2];
-    plugin.version = base::JoinString(flash_version_numbers, ".");
-    content::WebPluginMimeType swf_mime_type(content::kFlashPluginSwfMimeType,
-                                             content::kFlashPluginSwfExtension,
-                                             content::kFlashPluginSwfDescription);
-    plugin.mime_types.push_back(swf_mime_type);
-    content::WebPluginMimeType spl_mime_type(content::kFlashPluginSplMimeType,
-                                             content::kFlashPluginSplExtension,
-                                             content::kFlashPluginSplDescription);
-    plugin.mime_types.push_back(spl_mime_type);
-
-    return plugin;
-}
-
-void AddPepperFlashFromSystem(std::vector<content::PepperPluginInfo>* plugins)
-{
-    QStringList pluginPaths;
-#if defined(Q_OS_WIN)
-    QString winDir = QDir::fromNativeSeparators(qEnvironmentVariable("WINDIR"));
-    if (winDir.isEmpty())
-        winDir = QString::fromLatin1("C:/Windows");
-    QDir pluginDir(winDir + "/System32/Macromed/Flash");
-    pluginDir.setFilter(QDir::Files);
-    const QFileInfoList infos = pluginDir.entryInfoList(QStringList("pepflashplayer*.dll"));
-    for (const QFileInfo &info : infos)
-        pluginPaths << info.absoluteFilePath();
-    pluginPaths << ppapiPluginsPath() + QStringLiteral("/pepflashplayer.dll");
-#endif
-#if defined(Q_OS_OSX)
-    pluginPaths << "/Library/Internet Plug-Ins/PepperFlashPlayer/PepperFlashPlayer.plugin"; // System path
-    QDir potentialDir(QDir::homePath() + "/Library/Application Support/Google/Chrome/PepperFlash");
-    if (potentialDir.exists()) {
-        QFileInfoList versionDirs = potentialDir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name | QDir::Reversed);
-        for (int i = 0; i < versionDirs.size(); ++i) {
-            pluginPaths << versionDirs.at(i).absoluteFilePath() + "/PepperFlashPlayer.plugin";
-        }
-    }
-    pluginPaths << ppapiPluginsPath() + QStringLiteral("/PepperFlashPlayer.plugin");
-#endif
-#if defined(Q_OS_LINUX)
-    pluginPaths << "/opt/google/chrome/PepperFlash/libpepflashplayer.so" // Google Chrome
-                << "/usr/lib/pepperflashplugin-nonfree/libpepflashplayer.so" // Ubuntu, package pepperflashplugin-nonfree
-                << "/usr/lib/adobe-flashplugin/libpepflashplayer.so" // Ubuntu, package adobe-flashplugin
-                << "/usr/lib/PepperFlash/libpepflashplayer.so" // Arch
-                << "/usr/lib64/chromium/PepperFlash/libpepflashplayer.so"; // OpenSuSE
-    pluginPaths << ppapiPluginsPath() + QStringLiteral("/libpepflashplayer.so");
-#endif
-    std::string flash_version = base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(switches::kPpapiFlashVersion);
-    for (auto it = pluginPaths.constBegin(); it != pluginPaths.constEnd(); ++it) {
-        if (!QFile::exists(*it))
-            continue;
-        plugins->push_back(CreatePepperFlashInfo(QtWebEngineCore::toFilePath(*it), flash_version));
-    }
-}
-
-void AddPepperFlashFromCommandLine(std::vector<content::PepperPluginInfo>* plugins)
-{
-    const base::CommandLine::StringType flash_path = base::CommandLine::ForCurrentProcess()->GetSwitchValueNative(switches::kPpapiFlashPath);
-    if (flash_path.empty() || !QFile::exists(QtWebEngineCore::toQt(flash_path)))
-        return;
-
-    // Read pepper flash plugin version from command-line. (e.g. 16.0.0.235)
-    std::string flash_version = base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(switches::kPpapiFlashVersion);
-    plugins->push_back(CreatePepperFlashInfo(base::FilePath(flash_path), flash_version));
 }
 
 void ComputeBuiltInPlugins(std::vector<content::PepperPluginInfo>* plugins)
@@ -261,7 +161,7 @@ void ComputeBuiltInPlugins(std::vector<content::PepperPluginInfo>* plugins)
     pdf_info.internal_entry_points.get_interface = chrome_pdf::PPP_GetInterface;
     pdf_info.internal_entry_points.initialize_module = chrome_pdf::PPP_InitializeModule;
     pdf_info.internal_entry_points.shutdown_module = chrome_pdf::PPP_ShutdownModule;
-    pdf_info.permissions = ppapi::PERMISSION_PRIVATE | ppapi::PERMISSION_DEV | ppapi::PERMISSION_PDF;
+    pdf_info.permissions = ppapi::PERMISSION_DEV | ppapi::PERMISSION_PDF;
     plugins->push_back(pdf_info);
 #endif // QT_CONFIG(webengine_printing_and_pdf)
 }
@@ -271,8 +171,6 @@ namespace QtWebEngineCore {
 void ContentClientQt::AddPepperPlugins(std::vector<content::PepperPluginInfo>* plugins)
 {
     ComputeBuiltInPlugins(plugins);
-    AddPepperFlashFromSystem(plugins);
-    AddPepperFlashFromCommandLine(plugins);
 }
 
 } // namespace QtWebEngineCore
@@ -285,7 +183,7 @@ static bool IsWidevineAvailable(base::FilePath *cdm_path,
                                 content::CdmCapability *capability)
 {
     QStringList pluginPaths;
-    const base::CommandLine::StringType widevine_argument = base::CommandLine::ForCurrentProcess()->GetSwitchValueNative(service_manager::switches::kCdmWidevinePath);
+    const base::CommandLine::StringType widevine_argument = base::CommandLine::ForCurrentProcess()->GetSwitchValueNative(switches::kCdmWidevinePath);
     if (!widevine_argument.empty())
         pluginPaths << QtWebEngineCore::toQt(widevine_argument);
     else {
@@ -422,8 +320,7 @@ void ContentClientQt::AddContentDecryptionModules(std::vector<content::CdmInfo> 
             content::CdmCapability capability(
                 {}, {media::EncryptionScheme::kCenc, media::EncryptionScheme::kCbcs},
                 {media::CdmSessionType::kTemporary,
-                 media::CdmSessionType::kPersistentLicense},
-                {});
+                 media::CdmSessionType::kPersistentLicense});
 
             // Register kExternalClearKeyDifferentGuidTestKeySystem first separately.
             // Otherwise, it'll be treated as a sub-key-system of normal
@@ -446,7 +343,15 @@ void ContentClientQt::AddContentDecryptionModules(std::vector<content::CdmInfo> 
 
 void ContentClientQt::AddAdditionalSchemes(Schemes* schemes)
 {
-    schemes->standard_schemes.push_back("chrome-extension");
+    // Matching ChromeContentClient::AddAdditionalSchemes
+    schemes->standard_schemes.push_back(extensions::kExtensionScheme);
+    schemes->secure_schemes.push_back(extensions::kExtensionScheme);
+
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+    schemes->service_worker_schemes.push_back(extensions::kExtensionScheme);
+    schemes->cors_enabled_schemes.push_back(extensions::kExtensionScheme);
+    schemes->csp_bypassing_schemes.push_back(extensions::kExtensionScheme);
+#endif
 }
 
 base::StringPiece ContentClientQt::GetDataResource(int resource_id, ui::ScaleFactor scale_factor)

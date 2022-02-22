@@ -26,14 +26,14 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QtTest/QTest>
 #include <QMutex>
 #include <QWaitCondition>
 #include <QThread>
 #include <renderer_p.h>
 #include <renderview_p.h>
 #include <renderviewbuilder_p.h>
-#include <renderqueue_p.h>
+#include <Qt3DRender/private/renderqueue_p.h>
 #include <Qt3DRender/private/viewportnode_p.h>
 #include <Qt3DRender/private/offscreensurfacehelper_p.h>
 #include <Qt3DRender/private/qrenderaspect_p.h>
@@ -50,11 +50,16 @@ public :
 
 private Q_SLOTS:
 
+    void initTestCase()
+    {
+        qputenv("QT3D_RENDERER", "opengl");
+    }
+
     void checkPreRenderBinJobs()
     {
         // GIVEN
         Qt3DRender::Render::NodeManagers nodeManagers;
-        Qt3DRender::Render::OpenGL::Renderer renderer(Qt3DRender::QRenderAspect::Synchronous);
+        Qt3DRender::Render::OpenGL::Renderer renderer;
         Qt3DRender::Render::OffscreenSurfaceHelper offscreenHelper(&renderer);
         Qt3DRender::Render::RenderSettings settings;
         // owned by FG manager
@@ -73,7 +78,7 @@ private Q_SLOTS:
         QCoreApplication::processEvents();
 
         // WHEN (nothing dirty, no buffers, no layers to be rebuilt, no materials to be rebuilt)
-        QVector<Qt3DCore::QAspectJobPtr> jobs = renderer.preRenderingJobs();
+        std::vector<Qt3DCore::QAspectJobPtr> jobs = renderer.preRenderingJobs();
 
         // THEN
         QCOMPARE(jobs.size(), 0);
@@ -92,8 +97,7 @@ private Q_SLOTS:
 
         // THEN
         QCOMPARE(jobs.size(),
-                 1 + // SendBufferCaptureJob
-                 1); // SendSetFenceHandlesJob
+                 1); // SendBufferCaptureJob´
         // Note: pending set fence handles are only cleared when the job is run
 
         // Properly shutdown command thread
@@ -109,7 +113,7 @@ private Q_SLOTS:
 
         Qt3DRender::Render::NodeManagers nodeManagers;
         auto &renderer = *(static_cast<Qt3DRender::Render::OpenGL::Renderer *>(daspect->m_renderer));
-        Qt3DRender::Render::OpenGL::RenderQueue *renderQueue = renderer.renderQueue();
+        Qt3DRender::Render::RenderQueue<Qt3DRender::Render::OpenGL::RenderView> *renderQueue = renderer.renderQueue();
         Qt3DRender::Render::OffscreenSurfaceHelper offscreenHelper(&renderer);
         Qt3DRender::Render::RenderSettings settings;
         // owned by FG manager
@@ -141,9 +145,9 @@ private Q_SLOTS:
         // filterEntityByLayerJob,
         // syncFilterEntityByLayerJob
 
-        const int singleRenderViewCommandRebuildJobCount  = 1 + Qt3DRender::Render::OpenGL::RenderViewBuilder::defaultJobCount();
+        const int singleRenderViewCommandRebuildJobCount  = 1 + Qt3DCore::QAspectJobManager::idealThreadCount();
 
-        const int singleRenderViewJobCount = 8 + 1 * Qt3DRender::Render::OpenGL::RenderViewBuilder::defaultJobCount();
+        const int singleRenderViewJobCount = 8 + 1 * Qt3DCore::QAspectJobManager::idealThreadCount();
         // RenderViewBuilder renderViewJob,
         //                   syncRenderViewInitializationJob,
         //                   syncFrustumCullingJob,
@@ -155,7 +159,7 @@ private Q_SLOTS:
         //                   n * (RenderViewCommandBuildJobs)
 
         // WHEN
-        QVector<Qt3DCore::QAspectJobPtr> jobs = renderer.renderBinJobs();
+        std::vector<Qt3DCore::QAspectJobPtr> jobs = renderer.renderBinJobs();
 
         // THEN -> AllDirty
         // (Renderer is not initialized so FilterCompatibleTechniqueJob
@@ -195,7 +199,7 @@ private Q_SLOTS:
 
         // WHEN (nothing dirty, no buffers, no layers to be rebuilt, no materials to be rebuilt) (RV leaf in cache)
         renderer.markDirty(Qt3DRender::Render::AbstractRenderer::FrameGraphDirty, nullptr);
-        renderer.cache()->leafNodeCache[renderer.m_frameGraphLeaves.first()] = {};
+        renderer.cache()->leafNodeCache[renderer.m_frameGraphLeaves.front()] = {};
         jobs = renderer.renderBinJobs();
 
         // THEN (level

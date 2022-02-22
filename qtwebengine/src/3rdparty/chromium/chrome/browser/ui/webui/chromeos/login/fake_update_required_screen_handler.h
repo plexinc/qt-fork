@@ -9,7 +9,7 @@
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
-#include "chrome/browser/chromeos/login/screens/update_required_screen.h"
+#include "chrome/browser/ash/login/screens/update_required_screen.h"
 #include "chrome/browser/ui/webui/chromeos/login/base_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/update_required_screen_handler.h"
 
@@ -39,6 +39,8 @@ class FakeUpdateRequiredScreenHandler : public UpdateRequiredView {
   void SetUIState(UpdateRequiredView::UIState ui_state) override;
   void SetEnterpriseAndDeviceName(const std::string& enterpriseDomain,
                                   const base::string16& deviceName) override {}
+  void SetEolMessage(const std::string& eolMessage) override {}
+  void SetIsUserDataPresent(bool data_present) override {}
 
   UpdateRequiredView::UIState ui_state_;
 

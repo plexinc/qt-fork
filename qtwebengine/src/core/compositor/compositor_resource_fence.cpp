@@ -41,7 +41,6 @@
 #include "ozone/gl_surface_qt.h"
 #include "ui/gl/gl_context.h"
 
-#include <QtGui/private/qtguiglobal_p.h>
 #include <QtGui/qopenglcontext.h>
 
 #ifndef GL_TIMEOUT_IGNORED
@@ -62,7 +61,8 @@ void CompositorResourceFence::wait()
         return;
 
     QOpenGLContext *context = QOpenGLContext::currentContext();
-    Q_ASSERT(context);
+    if (!context)
+        return;
 
     // Chromium uses its own GL bindings and stores in in thread local storage.
     // For that reason, let chromium_gpu_helper.cpp contain the producing code that will run in the Chromium

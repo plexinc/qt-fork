@@ -73,7 +73,7 @@
  * === The sanitize() contract ===
  *
  * The sanitize() method of each object type shall return true if it's safe to
- * call other methods of the object, and false otherwise.
+ * call other methods of the object, and %false otherwise.
  *
  * Note that what sanitize() checks for might align with what the specification
  * describes as valid table data, but does not have to be.  In particular, we
@@ -113,15 +113,14 @@
 #ifndef HB_SANITIZE_MAX_OPS_MAX
 #define HB_SANITIZE_MAX_OPS_MAX 0x3FFFFFFF
 #endif
-#ifndef HB_SANITIZE_MAX_SUTABLES
-#define HB_SANITIZE_MAX_SUTABLES 0x4000
+#ifndef HB_SANITIZE_MAX_SUBTABLES
+#define HB_SANITIZE_MAX_SUBTABLES 0x4000
 #endif
 
 struct hb_sanitize_context_t :
        hb_dispatch_context_t<hb_sanitize_context_t, bool, HB_DEBUG_SANITIZE>
 {
   hb_sanitize_context_t () :
-	debug_depth (0),
 	start (nullptr), end (nullptr),
 	max_ops (0), max_subtables (0),
 	writable (false), edit_count (0),
@@ -140,7 +139,7 @@ struct hb_sanitize_context_t :
   bool visit_subtables (unsigned count)
   {
     max_subtables += count;
-    return max_subtables < HB_SANITIZE_MAX_SUTABLES;
+    return max_subtables < HB_SANITIZE_MAX_SUBTABLES;
   }
 
   private:
@@ -387,7 +386,6 @@ struct hb_sanitize_context_t :
     return sanitize_blob<Type> (hb_face_reference_table (face, tableTag));
   }
 
-  mutable unsigned int debug_depth;
   const char *start, *end;
   mutable int max_ops, max_subtables;
   private:

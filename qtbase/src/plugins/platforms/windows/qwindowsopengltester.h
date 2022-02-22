@@ -42,7 +42,7 @@
 
 #include <QtCore/qbytearray.h>
 #include <QtCore/qflags.h>
-#include <QtCore/qvector.h>
+#include <QtCore/qlist.h>
 #include <QtCore/qversionnumber.h>
 
 QT_BEGIN_NAMESPACE
@@ -53,7 +53,7 @@ class QVariant;
 struct GpuDescription
 {
     static GpuDescription detect();
-    static QVector<GpuDescription> detectAll();
+    static QList<GpuDescription> detectAll();
     QString toString() const;
     QVariant toVariant() const;
 
@@ -77,12 +77,6 @@ public:
     enum Renderer {
         InvalidRenderer         = 0x0000,
         DesktopGl               = 0x0001,
-        AngleRendererD3d11      = 0x0002,
-        AngleRendererD3d9       = 0x0004,
-        AngleRendererD3d11Warp  = 0x0008, // "Windows Advanced Rasterization Platform"
-        AngleBackendMask        = AngleRendererD3d11 | AngleRendererD3d9 | AngleRendererD3d11Warp,
-        Gles                    = 0x0010, // ANGLE/unspecified or Generic GLES for Windows CE.
-        GlesMask                = Gles | AngleBackendMask,
         SoftwareRasterizer      = 0x0020,
         RendererMask            = 0x00FF,
         DisableRotationFlag     = 0x0100,
@@ -90,7 +84,6 @@ public:
     };
     Q_DECLARE_FLAGS(Renderers, Renderer)
 
-    static Renderer requestedGlesRenderer();
     static Renderer requestedRenderer();
 
     static QWindowsOpenGLTester::Renderers  supportedRenderers(Renderer requested);

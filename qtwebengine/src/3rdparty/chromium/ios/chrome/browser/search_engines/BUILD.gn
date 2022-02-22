@@ -83,6 +83,7 @@ source_set("unit_tests") {
     ":search_engines",
     "//base:base",
     "//base/test:test_support",
+    "//components/favicon/core",
     "//components/favicon/ios",
     "//components/search_engines",
     "//ios/chrome/browser/browser_state",
@@ -100,4 +101,10 @@ source_set("unit_tests") {
 
 js_compile_checked("search_engine_js") {
   sources = [ "resources/search_engine.js" ]
+
+  js_modules = [
+    "//ios/web/web_state/js/resources/base.js",
+    "//ios/web/web_state/js/resources/common.js",
+    "//ios/web/js_messaging/resources/message.js",
+  ]
 }

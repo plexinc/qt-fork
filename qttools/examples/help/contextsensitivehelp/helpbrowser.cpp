@@ -53,11 +53,12 @@
 #include <QtHelp/QHelpEngineCore>
 
 #include "helpbrowser.h"
+#include "qhelplink.h"
 
 HelpBrowser::HelpBrowser(QWidget *parent)
     : QTextBrowser(parent)
 {
-    QString collectionFile = QLibraryInfo::location(QLibraryInfo::ExamplesPath)
+    QString collectionFile = QLibraryInfo::path(QLibraryInfo::ExamplesPath)
         + QLatin1String("/help/contextsensitivehelp/docs/wateringmachine.qhc");
 
     m_helpEngine = new QHelpEngineCore(collectionFile, this);
@@ -70,9 +71,9 @@ HelpBrowser::HelpBrowser(QWidget *parent)
 void HelpBrowser::showHelpForKeyword(const QString &id)
 {
     if (m_helpEngine) {
-        QMap<QString, QUrl> links = m_helpEngine->linksForIdentifier(id);
-        if (links.count())
-            setSource(links.constBegin().value());
+        QList<QHelpLink> documents = m_helpEngine->documentsForIdentifier(id);
+        if (documents.count())
+            setSource(documents.first().url);
     }
 }
 

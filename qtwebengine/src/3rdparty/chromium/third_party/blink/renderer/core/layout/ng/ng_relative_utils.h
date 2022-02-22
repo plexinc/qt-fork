@@ -7,21 +7,47 @@
 
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/geometry/logical_size.h"
+#include "third_party/blink/renderer/core/layout/ng/ng_box_fragment_builder.h"
+#include "third_party/blink/renderer/core/layout/ng/ng_physical_box_fragment.h"
+#include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/platform/text/text_direction.h"
 
 namespace blink {
 
-class ComputedStyle;
-struct PhysicalOffset;
+class NGConstraintSpace;
 
-// Implements the relative positioning spec:
+// Implements relative positioning:
 // https://www.w3.org/TR/css-position-3/#rel-pos
 // Returns the relative position offset as defined by |child_style|.
-CORE_EXPORT PhysicalOffset
+CORE_EXPORT LogicalOffset
 ComputeRelativeOffset(const ComputedStyle& child_style,
-                      WritingMode container_writing_mode,
-                      TextDirection container_direction,
-                      PhysicalSize container_size);
+                      WritingDirectionMode container_writing_direction,
+                      const LogicalSize& available_size);
+
+CORE_EXPORT LogicalOffset ComputeRelativeOffsetForBoxFragment(
+    const NGPhysicalBoxFragment& fragment,
+    WritingDirectionMode container_writing_direction,
+    const LogicalSize& available_size);
+
+CORE_EXPORT LogicalOffset
+ComputeRelativeOffsetForInline(const NGConstraintSpace& space,
+                               const ComputedStyle& child_style);
+
+// Un-apply any offset caused by relative positioning. When re-using a previous
+// fragment's offset (from the cache), we need to convert from "paint offset" to
+// "layout offset" before re-adding the fragment, in order to get overflow
+// calculation right.
+inline void RemoveRelativeOffset(const NGBoxFragmentBuilder& builder,
+                                 const NGPhysicalFragment& fragment,
+                                 LogicalOffset* offset) {
+  if (fragment.Style().GetPosition() != EPosition::kRelative)
+    return;
+  if (const auto* box_fragment = DynamicTo<NGPhysicalBoxFragment>(&fragment)) {
+    *offset -= ComputeRelativeOffsetForBoxFragment(
+        *box_fragment, builder.GetWritingDirection(),
+        builder.ChildAvailableSize());
+  }
+}
 
 }  // namespace blink
 

@@ -46,8 +46,6 @@
 
 #include <qpa/qwindowsysteminterface.h>
 
-#include <xcb/xinerama.h>
-
 void QXcbConnection::xrandrSelectEvents()
 {
     xcb_screen_iterator_t rootIter = xcb_setup_roots_iterator(setup());
@@ -158,7 +156,6 @@ void QXcbConnection::updateScreens(const xcb_randr_notify_event_t *event)
                     screen = createScreen(virtualDesktop, output, outputInfo.get());
                     qCDebug(lcQpaScreen) << "output" << screen->name() << "is connected and enabled";
                 }
-                QHighDpiScaling::updateHighDpiScaling();
             }
         } else if (screen) {
             if (output.crtc == XCB_NONE && output.mode == XCB_NONE) {
@@ -290,6 +287,8 @@ void QXcbConnection::initializeScreens()
             // RRGetScreenResources in this case.
             auto resources_current = Q_XCB_REPLY(xcb_randr_get_screen_resources_current,
                                                  xcb_connection(), xcbScreen->root);
+            decltype(Q_XCB_REPLY(xcb_randr_get_screen_resources,
+                                 xcb_connection(), xcbScreen->root)) resources;
             if (!resources_current) {
                 qWarning("failed to get the current screen resources");
             } else {
@@ -300,8 +299,8 @@ void QXcbConnection::initializeScreens()
                     timestamp = resources_current->config_timestamp;
                     outputs = xcb_randr_get_screen_resources_current_outputs(resources_current.get());
                 } else {
-                    auto resources = Q_XCB_REPLY(xcb_randr_get_screen_resources,
-                                                 xcb_connection(), xcbScreen->root);
+                    resources = Q_XCB_REPLY(xcb_randr_get_screen_resources,
+                                            xcb_connection(), xcbScreen->root);
                     if (!resources) {
                         qWarning("failed to get the screen resources");
                     } else {
@@ -356,21 +355,6 @@ void QXcbConnection::initializeScreens()
                             }
                         }
                     }
-                }
-            }
-        } else if (hasXinerama()) {
-            // Xinerama is available
-            auto screens = Q_XCB_REPLY(xcb_xinerama_query_screens, xcb_connection());
-            if (screens) {
-                xcb_xinerama_screen_info_iterator_t it = xcb_xinerama_query_screens_screen_info_iterator(screens.get());
-                while (it.rem) {
-                    xcb_xinerama_screen_info_t *screen_info = it.data;
-                    QXcbScreen *screen = new QXcbScreen(this, virtualDesktop,
-                                                        XCB_NONE, nullptr,
-                                                        screen_info, it.index);
-                    siblings << screen;
-                    m_screens << screen;
-                    xcb_xinerama_screen_info_next(&it);
                 }
             }
         }

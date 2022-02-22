@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include <qcoreapplication.h>
 #include <qdebug.h>
@@ -50,8 +50,8 @@ class MyImageIOHandler : public QImageIOHandler
 {
 public:
     MyImageIOHandler() : QImageIOHandler() { }
-    bool canRead() const { return true; }
-    bool read(QImage *) { return true; }
+    bool canRead() const override { return true; }
+    bool read(QImage *) override { return true; }
 };
 
 tst_QImageIOHandler::tst_QImageIOHandler()

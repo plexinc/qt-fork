@@ -26,15 +26,6 @@
 ****************************************************************************/
 
 /*!
-    \namespace QtDataVisualization
-    \inmodule QtDataVisualization
-    \brief Contains the classes and enumerations in the Qt Data Visualization
-    module.
-
-    \generatelist{classesbymodule QtDataVisualization}
-*/
-
-/*!
     \module QtDataVisualization
     \title Qt Data Visualization C++ Classes
     \ingroup modules
@@ -150,7 +141,7 @@
 
     When you have a data set that updates rapidly, it is important to handle data properly to
     ensure good performance. Since memory allocation is a costly operation, always use
-    QList::reserve() and QVector::resize() where possible to avoid unnecessary reallocations when
+    QList::reserve() and QList::resize() where possible to avoid unnecessary reallocations when
     constructing the array to give to the proxy. If you need to change the entire data set
     for each frame, it is in most cases best to reuse the existing array - especially if the
     array dimensions do not change. If you need to add, insert, remove, or change several
@@ -225,6 +216,11 @@
     \title Qt Data Visualization Known Issues
 
     \list
+        \li As OpenGL is not necessarily the default rendering backend anymore in Qt 6.x (it is
+            Metal on macOS and Direct3D on Windows, for example), it is necessary to define
+            the rendering backend explicitly either on your environment variables, or in your
+            application main. It can be defined by adding \c {qputenv("QSG_RHI_BACKEND", "opengl");}
+            in the beginning of your main function.
         \li Some platforms like Android and WinRT cannot handle multiple native windows properly,
             so only the Qt Quick 2 graphs are available in practice for those platforms.
         \li Surfaces with non-straight rows and columns do not always render properly.
@@ -240,7 +236,7 @@
 */
 
 /*!
- * \fn QSurfaceFormat QtDataVisualization::qDefaultSurfaceFormat(bool antialias)
+ * \fn QSurfaceFormat qDefaultSurfaceFormat(bool antialias)
  * \relates QAbstract3DGraph
  *
  * This convenience function can be used to create a custom surface format suitable for use by
@@ -258,7 +254,7 @@
  *
  * // ...
  *
- * Q3DBars *graph = new Q3DBars(QtDataVisualization::qDefaultSurfaceFormat(false));
+ * Q3DBars *graph = new Q3DBars(qDefaultSurfaceFormat(false));
  * \endcode
  *
  * For example, enable antialiasing for direct rendering modes on QML application:
@@ -269,7 +265,7 @@
  * // ...
  *
  * QQuickView viewer;
- * viewer.setFormat(QtDataVisualization::qDefaultSurfaceFormat());
+ * viewer.setFormat(qDefaultSurfaceFormat(true));
  * \endcode
  *
  * \note Antialiasing is not supported in OpenGL ES2 environments.

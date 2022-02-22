@@ -37,12 +37,19 @@ QT_FORWARD_DECLARE_CLASS(QTextStream)
 
 enum class Language { Cpp, Python };
 
+enum class ConnectionSyntax { StringBased, MemberFunctionPtr };
+
 namespace language {
 
 Language language();
 void setLanguage(Language);
 
+ConnectionSyntax connectionSyntax();
+void setConnectionSyntax(ConnectionSyntax cs);
+
 extern QString derefPointer;
+extern char listStart;
+extern char listEnd;
 extern QString nullPtr;
 extern QString operatorNew;
 extern QString qtQualifier;
@@ -191,14 +198,23 @@ inline QTextStream &operator<<(QTextStream &str, const _stackVariable<withInitPa
 using stackVariable = _stackVariable<false>;
 using stackVariableWithInitParameters = _stackVariable<true>;
 
+enum class SignalSlotOption
+{
+    Ambiguous = 0x1
+};
+
+Q_DECLARE_FLAGS(SignalSlotOptions, SignalSlotOption)
+
 struct SignalSlot
 {
     QString name;
     QString signature;
     QString className;
+    SignalSlotOptions options;
 };
 
-void formatConnection(QTextStream &str, const SignalSlot &sender, const SignalSlot &receiver);
+void formatConnection(QTextStream &str, const SignalSlot &sender, const SignalSlot &receiver,
+                      ConnectionSyntax connectionSyntax);
 
 QString boolValue(bool v);
 

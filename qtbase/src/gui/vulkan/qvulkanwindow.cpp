@@ -284,7 +284,7 @@ QVulkanWindow::Flags QVulkanWindow::flags() const
 
    \note This function can be called before making the window visible.
  */
-QVector<VkPhysicalDeviceProperties> QVulkanWindow::availablePhysicalDevices()
+QList<VkPhysicalDeviceProperties> QVulkanWindow::availablePhysicalDevices()
 {
     Q_D(QVulkanWindow);
     if (!d->physDevs.isEmpty() && !d->physDevProps.isEmpty())
@@ -308,7 +308,7 @@ QVector<VkPhysicalDeviceProperties> QVulkanWindow::availablePhysicalDevices()
     if (!count)
         return d->physDevProps;
 
-    QVector<VkPhysicalDevice> devs(count);
+    QList<VkPhysicalDevice> devs(count);
     err = f->vkEnumeratePhysicalDevices(inst->vkInstance(), &count, devs.data());
     if (err != VK_SUCCESS) {
         qWarning("QVulkanWindow: Failed to enumerate physical devices: %d", err);
@@ -378,7 +378,7 @@ QVulkanInfoVector<QVulkanExtension> QVulkanWindow::supportedDeviceExtensions()
     uint32_t count = 0;
     VkResult err = f->vkEnumerateDeviceExtensionProperties(physDev, nullptr, &count, nullptr);
     if (err == VK_SUCCESS) {
-        QVector<VkExtensionProperties> extProps(count);
+        QList<VkExtensionProperties> extProps(count);
         err = f->vkEnumerateDeviceExtensionProperties(physDev, nullptr, &count, extProps.data());
         if (err == VK_SUCCESS) {
             QVulkanInfoVector<QVulkanExtension> exts;
@@ -445,7 +445,7 @@ void QVulkanWindow::setDeviceExtensions(const QByteArrayList &extensions)
 
     \sa colorFormat()
  */
-void QVulkanWindow::setPreferredColorFormats(const QVector<VkFormat> &formats)
+void QVulkanWindow::setPreferredColorFormats(const QList<VkFormat> &formats)
 {
     Q_D(QVulkanWindow);
     if (d->status != QVulkanWindowPrivate::StatusUninitialized) {
@@ -471,7 +471,7 @@ static struct {
 
 /*!
     Returns the set of supported sample counts when using the physical device
-    selected by setPhysicalDeviceIndex(), as a sorted vector.
+    selected by setPhysicalDeviceIndex(), as a sorted list.
 
     By default QVulkanWindow uses a sample count of 1. By calling setSampleCount()
     with a different value (2, 4, 8, ...) from the set returned by this
@@ -481,10 +481,10 @@ static struct {
 
     \sa setSampleCount()
  */
-QVector<int> QVulkanWindow::supportedSampleCounts()
+QList<int> QVulkanWindow::supportedSampleCounts()
 {
     Q_D(const QVulkanWindow);
-    QVector<int> result;
+    QList<int> result;
 
     availablePhysicalDevices();
 
@@ -606,7 +606,7 @@ void QVulkanWindowPrivate::init()
 
     uint32_t queueCount = 0;
     f->vkGetPhysicalDeviceQueueFamilyProperties(physDev, &queueCount, nullptr);
-    QVector<VkQueueFamilyProperties> queueFamilyProps(queueCount);
+    QList<VkQueueFamilyProperties> queueFamilyProps(queueCount);
     f->vkGetPhysicalDeviceQueueFamilyProperties(physDev, &queueCount, queueFamilyProps.data());
     gfxQueueFamilyIdx = uint32_t(-1);
     presQueueFamilyIdx = uint32_t(-1);
@@ -647,7 +647,7 @@ void QVulkanWindowPrivate::init()
 #endif
     qCDebug(lcGuiVk, "Using queue families: graphics = %u present = %u", gfxQueueFamilyIdx, presQueueFamilyIdx);
 
-    QVector<VkDeviceQueueCreateInfo> queueInfo;
+    QList<VkDeviceQueueCreateInfo> queueInfo;
     queueInfo.reserve(2);
     const float prio[] = { 0 };
     VkDeviceQueueCreateInfo addQueueInfo;
@@ -685,7 +685,7 @@ void QVulkanWindowPrivate::init()
 
     // Filter out unsupported extensions in order to keep symmetry
     // with how QVulkanInstance behaves. Add the swapchain extension.
-    QVector<const char *> devExts;
+    QList<const char *> devExts;
     QVulkanInfoVector<QVulkanExtension> supportedExtensions = q->supportedDeviceExtensions();
     QByteArrayList reqExts = requestedDevExtensions;
     reqExts.append("VK_KHR_swapchain");
@@ -722,13 +722,13 @@ void QVulkanWindowPrivate::init()
         && VK_VERSION_PATCH(apiVersion) <= 13)
     {
         // Make standard validation work at least.
-        const QByteArray stdValName = QByteArrayLiteral("VK_LAYER_LUNARG_standard_validation");
+        const QByteArray stdValName = QByteArrayLiteral("VK_LAYER_KHRONOS_validation");
         const char *stdValNamePtr = stdValName.constData();
         if (inst->layers().contains(stdValName)) {
             uint32_t count = 0;
             VkResult err = f->vkEnumerateDeviceLayerProperties(physDev, &count, nullptr);
             if (err == VK_SUCCESS) {
-                QVector<VkLayerProperties> layerProps(count);
+                QList<VkLayerProperties> layerProps(count);
                 err = f->vkEnumerateDeviceLayerProperties(physDev, &count, layerProps.data());
                 if (err == VK_SUCCESS) {
                     for (const VkLayerProperties &prop : layerProps) {
@@ -840,7 +840,7 @@ void QVulkanWindowPrivate::init()
 
     uint32_t formatCount = 0;
     vkGetPhysicalDeviceSurfaceFormatsKHR(physDev, surface, &formatCount, nullptr);
-    QVector<VkSurfaceFormatKHR> formats(formatCount);
+    QList<VkSurfaceFormatKHR> formats(formatCount);
     if (formatCount)
         vkGetPhysicalDeviceSurfaceFormatsKHR(physDev, surface, &formatCount, formats.data());
 
@@ -1043,9 +1043,11 @@ void QVulkanWindowPrivate::recreateSwapChain()
     VkPhysicalDevice physDev = physDevs.at(physDevIndex);
     VkSurfaceCapabilitiesKHR surfaceCaps;
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physDev, surface, &surfaceCaps);
-    uint32_t reqBufferCount = swapChainBufferCount;
-    if (surfaceCaps.maxImageCount)
-        reqBufferCount = qBound(surfaceCaps.minImageCount, reqBufferCount, surfaceCaps.maxImageCount);
+    uint32_t reqBufferCount;
+    if (surfaceCaps.maxImageCount == 0)
+        reqBufferCount = qMax<uint32_t>(2, surfaceCaps.minImageCount);
+    else
+        reqBufferCount = qMax(qMin<uint32_t>(surfaceCaps.maxImageCount, 3), surfaceCaps.minImageCount);
 
     VkExtent2D bufferSize = surfaceCaps.currentExtent;
     if (bufferSize.width == uint32_t(-1)) {
@@ -1579,8 +1581,8 @@ bool QVulkanWindow::event(QEvent *e)
 /*!
     \typedef QVulkanWindow::QueueCreateInfoModifier
 
-    A function function that is called during graphics initialization to add
-    additAional queues that should be created.
+    A function that is called during graphics initialization to add
+    additional queues that should be created.
 
     Set if the renderer needs additional queues besides the default graphics
     queue (e.g. a transfer queue).
@@ -1588,17 +1590,17 @@ bool QVulkanWindow::event(QEvent *e)
     the additional queues.
     The renderer can subsequently request the actual queue in initResources().
 
-    Note when requesting additional graphics queues: Qt itself always requests
-    a graphics queue, you'll need to search queueCreateInfo for the appropriate
+    \note When requesting additional graphics queues, Qt itself always requests
+    a graphics queue. You'll need to search queueCreateInfo for the appropriate
     entry and manipulate it to obtain the additional queue.
 
     \sa setQueueCreateInfoModifier()
  */
 
 /*!
-    Set a queue create info modification function.
+    Sets the queue create info modification function \a modifier.
 
-    \sa queueCreateInfoModifier()
+    \sa QueueCreateInfoModifier
 
     \since 5.15
  */
@@ -1746,7 +1748,7 @@ void QVulkanWindowRenderer::releaseResources()
 }
 
 /*!
-    \fn QVulkanWindowRenderer::startNextFrame()
+    \fn void QVulkanWindowRenderer::startNextFrame()
 
     This virtual function is called when the draw calls for the next frame are
     to be added to the command buffer.

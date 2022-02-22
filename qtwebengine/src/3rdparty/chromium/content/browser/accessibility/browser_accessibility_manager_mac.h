@@ -19,13 +19,13 @@
 
 namespace content {
 
+class BrowserAccessibilityCocoaBrowserTest;
+
 class CONTENT_EXPORT BrowserAccessibilityManagerMac
     : public BrowserAccessibilityManager {
  public:
-  BrowserAccessibilityManagerMac(
-      const ui::AXTreeUpdate& initial_tree,
-      BrowserAccessibilityDelegate* delegate,
-      BrowserAccessibilityFactory* factory = new BrowserAccessibilityFactory());
+  BrowserAccessibilityManagerMac(const ui::AXTreeUpdate& initial_tree,
+                                 BrowserAccessibilityDelegate* delegate);
 
   ~BrowserAccessibilityManagerMac() override;
 
@@ -62,11 +62,15 @@ class CONTENT_EXPORT BrowserAccessibilityManagerMac
   NSDictionary* GetUserInfoForValueChangedNotification(
       const BrowserAccessibilityCocoa* native_node,
       const base::string16& deleted_text,
-      const base::string16& inserted_text) const;
+      const base::string16& inserted_text,
+      id edit_text_marker) const;
 
   void AnnounceActiveDescendant(BrowserAccessibility* node) const;
 
   bool IsInGeneratedEventBatch(ui::AXEventGenerator::Event event_type) const;
+
+  // Returns whether this page is a new tab page on Chrome.
+  bool IsChromeNewTabPage();
 
   // Keeps track of any edits that have been made by the user during a tree
   // update. Used by NSAccessibilityValueChangedNotification.
@@ -77,9 +81,11 @@ class CONTENT_EXPORT BrowserAccessibilityManagerMac
   // constructor.
   friend class BrowserAccessibilityManager;
 
+  friend class BrowserAccessibilityCocoaBrowserTest;
+
   DISALLOW_COPY_AND_ASSIGN(BrowserAccessibilityManagerMac);
 };
 
-}
+}  // namespace content
 
 #endif  // CONTENT_BROWSER_ACCESSIBILITY_BROWSER_ACCESSIBILITY_MANAGER_MAC_H_

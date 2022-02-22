@@ -5,7 +5,7 @@
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
 
 #include "base/callback.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/time/default_tick_clock.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/renderer/bindings/core/v8/string_or_array_buffer_or_array_buffer_view.h"
@@ -201,8 +201,8 @@ void PageTestBase::InsertStyleElement(const std::string& style_rules) {
 
 void PageTestBase::NavigateTo(const KURL& url,
                               const WTF::HashMap<String, String>& headers) {
-  auto params =
-      WebNavigationParams::CreateWithHTMLBuffer(SharedBuffer::Create(), url);
+  auto params = WebNavigationParams::CreateWithHTMLBufferForTesting(
+      SharedBuffer::Create(), url);
 
   for (const auto& header : headers)
     params->response.SetHttpHeaderField(header.key, header.value);
@@ -215,8 +215,7 @@ void PageTestBase::NavigateTo(const KURL& url,
 }
 
 void PageTestBase::UpdateAllLifecyclePhasesForTest() {
-  GetDocument().View()->UpdateAllLifecyclePhases(DocumentUpdateReason::kTest);
-  GetDocument().View()->RunPostLifecycleSteps();
+  GetDocument().View()->UpdateAllLifecyclePhasesForTest();
 }
 
 StyleEngine& PageTestBase::GetStyleEngine() {

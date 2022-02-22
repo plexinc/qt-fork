@@ -42,6 +42,8 @@
 
 #include <QtCore/qbytearray.h>
 
+#include <limits>
+
 QT_BEGIN_NAMESPACE
 
 
@@ -52,7 +54,7 @@ class Q_CORE_EXPORT QByteArrayMatcher
 public:
     QByteArrayMatcher();
     explicit QByteArrayMatcher(const QByteArray &pattern);
-    explicit QByteArrayMatcher(const char *pattern, int length);
+    explicit QByteArrayMatcher(const char *pattern, qsizetype length);
     QByteArrayMatcher(const QByteArrayMatcher &other);
     ~QByteArrayMatcher();
 
@@ -60,8 +62,8 @@ public:
 
     void setPattern(const QByteArray &pattern);
 
-    int indexIn(const QByteArray &ba, int from = 0) const;
-    int indexIn(const char *str, int len, int from = 0) const;
+    qsizetype indexIn(const QByteArray &ba, qsizetype from = 0) const;
+    qsizetype indexIn(const char *str, qsizetype len, qsizetype from = 0) const;
     inline QByteArray pattern() const
     {
         if (q_pattern.isNull())
@@ -75,7 +77,7 @@ private:
     struct Data {
         uchar q_skiptable[256];
         const uchar *p;
-        int l;
+        qsizetype l;
     };
     union {
         uint dummy[256];
@@ -85,12 +87,12 @@ private:
 
 class QStaticByteArrayMatcherBase
 {
-    Q_DECL_ALIGN(16)
+    alignas(16)
     struct Skiptable {
         uchar data[256];
     } m_skiptable;
 protected:
-    explicit Q_DECL_RELAXED_CONSTEXPR QStaticByteArrayMatcherBase(const char *pattern, uint n) noexcept
+    explicit constexpr QStaticByteArrayMatcherBase(const char *pattern, uint n) noexcept
         : m_skiptable(generate(pattern, n)) {}
     // compiler-generated copy/more ctors/assignment operators are ok!
     // compiler-generated dtor is ok!
@@ -98,10 +100,10 @@ protected:
     Q_CORE_EXPORT int indexOfIn(const char *needle, uint nlen, const char *haystack, int hlen, int from) const noexcept;
 
 private:
-    static Q_DECL_RELAXED_CONSTEXPR Skiptable generate(const char *pattern, uint n) noexcept
+    static constexpr Skiptable generate(const char *pattern, uint n) noexcept
     {
         const auto uchar_max = (std::numeric_limits<uchar>::max)();
-        uchar max = n > uchar_max ? uchar_max : n;
+        uchar max = n > uchar_max ? uchar_max : uchar(n);
         Skiptable table = {
             // this verbose initialization code aims to avoid some opaque error messages
             // even on powerful compilers such as GCC 5.3. Even though for GCC a loop
@@ -138,9 +140,9 @@ template <uint N>
 class QStaticByteArrayMatcher : QStaticByteArrayMatcherBase
 {
     char m_pattern[N];
-    Q_STATIC_ASSERT_X(N > 2, "QStaticByteArrayMatcher makes no sense for finding a single-char pattern");
+    static_assert(N > 2, "QStaticByteArrayMatcher makes no sense for finding a single-char pattern");
 public:
-    explicit Q_DECL_RELAXED_CONSTEXPR QStaticByteArrayMatcher(const char (&patternToMatch)[N]) noexcept
+    explicit constexpr QStaticByteArrayMatcher(const char (&patternToMatch)[N]) noexcept
         : QStaticByteArrayMatcherBase(patternToMatch, N - 1), m_pattern()
     {
         for (uint i = 0; i < N; ++i)
@@ -156,7 +158,7 @@ public:
 };
 
 template <uint N>
-Q_DECL_RELAXED_CONSTEXPR QStaticByteArrayMatcher<N> qMakeStaticByteArrayMatcher(const char (&pattern)[N]) noexcept
+constexpr QStaticByteArrayMatcher<N> qMakeStaticByteArrayMatcher(const char (&pattern)[N]) noexcept
 { return QStaticByteArrayMatcher<N>(pattern); }
 
 QT_END_NAMESPACE

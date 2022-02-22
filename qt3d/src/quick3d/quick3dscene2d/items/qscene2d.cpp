@@ -1,34 +1,37 @@
 /****************************************************************************
 **
 ** Copyright (C) 2017 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the Qt3D module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL3$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
 ** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPLv3 included in the
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
 ** packaging of this file. Please review the following information to
 ** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl.html.
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
 ** GNU General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or later as published by the Free
-** Software Foundation and appearing in the file LICENSE.GPL included in
-** the packaging of this file. Please review the following information to
-** ensure the GNU General Public License version 2.0 requirements will be
-** met: http://www.gnu.org/licenses/gpl-2.0.html.
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -280,20 +283,6 @@ void QScene2D::setOutput(Qt3DRender::QRenderTargetOutput *output)
     }
 }
 
-Qt3DCore::QNodeCreatedChangeBasePtr QScene2D::createNodeCreationChange() const
-{
-    auto creationChange = Qt3DCore::QNodeCreatedChangePtr<QScene2DData>::create(this);
-    auto &data = creationChange->data;
-    Q_D(const QScene2D);
-    data.renderPolicy = d->m_renderManager->m_renderPolicy;
-    data.sharedObject = d->m_renderManager->m_sharedObject;
-    data.output = d->m_output ? d->m_output->id() : Qt3DCore::QNodeId();
-    for (Qt3DCore::QEntity *e : d->m_entities)
-        data.entityIds.append(e->id());
-    data.mouseEnabled = d->m_renderManager->m_mouseEnabled;
-    return creationChange;
-}
-
 bool QScene2D::isMouseEnabled() const
 {
     Q_D(const QScene2D);
@@ -303,16 +292,7 @@ bool QScene2D::isMouseEnabled() const
 /*!
     Retrieve entities associated with the QScene2D.
  */
-QVector<Qt3DCore::QEntity*> QScene2D::entities()
-{
-    Q_D(const QScene2D);
-    return d->m_entities;
-}
-
-/*!
-    Retrieve entities associated with the QScene2D.
- */
-QVector<Qt3DCore::QEntity*> QScene2D::entities() const
+QList<Qt3DCore::QEntity *> QScene2D::entities() const
 {
     Q_D(const QScene2D);
     return d->m_entities;
@@ -329,7 +309,7 @@ void QScene2D::addEntity(Qt3DCore::QEntity *entity)
         d->m_entities.append(entity);
 
         d->registerDestructionHelper(entity, &QScene2D::removeEntity, d->m_entities);
-        d->updateNode(entity, "entities", PropertyValueAdded);
+        d->update();
     }
 }
 
@@ -343,7 +323,7 @@ void QScene2D::removeEntity(Qt3DCore::QEntity *entity)
         d->m_entities.removeAll(entity);
 
         d->unregisterDestructionHelper(entity);
-        d->updateNode(entity, "entities", PropertyValueRemoved);
+        d->update();
     }
 }
 

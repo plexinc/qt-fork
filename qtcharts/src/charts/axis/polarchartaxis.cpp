@@ -32,7 +32,7 @@
 #include <private/chartpresenter_p.h>
 #include <QtCharts/QValueAxis>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 PolarChartAxis::PolarChartAxis(QAbstractAxis *axis, QGraphicsItem *item, bool intervalAxis)
     : ChartAxisElement(axis, item, intervalAxis)
@@ -49,12 +49,12 @@ void PolarChartAxis::setGeometry(const QRectF &axis, const QRectF &grid)
     Q_UNUSED(grid);
     setAxisGeometry(axis);
 
-    if (isEmpty()) {
+    if (emptyAxis()) {
         prepareGeometryChange();
         return;
     }
 
-    QVector<qreal> layout = calculateLayout();
+    const QList<qreal> layout = calculateLayout();
     updateLayout(layout);
 }
 
@@ -63,7 +63,7 @@ QRectF PolarChartAxis::gridGeometry() const
     return QRectF();
 }
 
-void PolarChartAxis::updateLayout(QVector<qreal> &layout)
+void PolarChartAxis::updateLayout(const QList<qreal> &layout)
 {
     int diff = ChartAxisElement::layout().size() - layout.size();
 
@@ -103,7 +103,7 @@ void PolarChartAxis::updateLayout(QVector<qreal> &layout)
     }
 }
 
-bool PolarChartAxis::isEmpty()
+bool PolarChartAxis::emptyAxis() const
 {
     return !axisGeometry().isValid() || qFuzzyIsNull(min() - max());
 }
@@ -136,6 +136,6 @@ void PolarChartAxis::handleShadesPenChanged(const QPen &pen)
         static_cast<QGraphicsPathItem *>(item)->setPen(pen);
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_polarchartaxis_p.cpp"

@@ -105,15 +105,6 @@ void QEnvironmentLightPrivate::_q_updateEnvMapsSize()
     m_shaderData->setProperty("specularMipLevels", QVariant::fromValue(levels));
 }
 
-Qt3DCore::QNodeCreatedChangeBasePtr QEnvironmentLight::createNodeCreationChange() const
-{
-    auto creationChange = Qt3DCore::QNodeCreatedChangePtr<QEnvironmentLightData>::create(this);
-    auto &data = creationChange->data;
-    Q_D(const QEnvironmentLight);
-    data.shaderDataId = qIdForNode(d->m_shaderData);
-    return creationChange;
-}
-
 /*!
     \class Qt3DRender::QEnvironmentLight
     \inmodule Qt3DRender

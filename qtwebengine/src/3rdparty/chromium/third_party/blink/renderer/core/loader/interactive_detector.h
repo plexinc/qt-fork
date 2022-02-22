@@ -33,6 +33,15 @@ namespace blink {
 class Document;
 class Event;
 
+// This enum is for EventType UKM and existing values should not be removed or
+// modified.
+enum class InputEventType {
+  kMousedown = 0,
+  kClick = 1,
+  kKeydown = 2,
+  kPointerup = 3
+};
+
 // Detects when a page reaches First Idle and Time to Interactive. See
 // https://goo.gl/SYt55W for detailed description and motivation of First Idle
 // and Time to Interactive.
@@ -43,8 +52,6 @@ class CORE_EXPORT InteractiveDetector
       public Supplement<Document>,
       public ExecutionContextLifecycleObserver,
       public LongTaskObserver {
-  USING_GARBAGE_COLLECTED_MIXIN(InteractiveDetector);
-
  public:
   static const char kSupplementName[];
 
@@ -88,6 +95,9 @@ class CORE_EXPORT InteractiveDetector
   // pointer down followed by a pointer up.
   base::Optional<base::TimeDelta> GetFirstInputDelay() const;
 
+  WTF::Vector<base::Optional<base::TimeDelta>>
+  GetFirstInputDelaysAfterBackForwardCacheRestore() const;
+
   // The timestamp of the event whose delay is reported by GetFirstInputDelay().
   base::Optional<base::TimeTicks> GetFirstInputTimestamp() const;
 
@@ -100,6 +110,15 @@ class CORE_EXPORT InteractiveDetector
   // GetLongestInputDelay().
   base::Optional<base::TimeTicks> GetLongestInputTimestamp() const;
 
+  // The duration of event handlers processing the first input event.
+  base::Optional<base::TimeDelta> GetFirstInputProcessingTime() const;
+
+  // The duration between the user's first scroll and display update.
+  base::Optional<base::TimeTicks> GetFirstScrollTimestamp() const;
+
+  // The hardware timestamp of the first scroll after a navigation.
+  base::Optional<base::TimeDelta> GetFirstScrollDelay() const;
+
   // Process an input event, updating first_input_delay and
   // first_input_timestamp if needed.
   void HandleForInputDelay(const Event&,
@@ -109,7 +128,7 @@ class CORE_EXPORT InteractiveDetector
   // ExecutionContextLifecycleObserver
   void ContextDestroyed() override;
 
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
   void SetTaskRunnerForTesting(
       scoped_refptr<base::SingleThreadTaskRunner> task_runner_for_testing);
@@ -119,6 +138,16 @@ class CORE_EXPORT InteractiveDetector
   ukm::UkmRecorder* GetUkmRecorder() const;
 
   void SetUkmRecorderForTesting(ukm::UkmRecorder* test_ukm_recorder);
+
+  void RecordInputEventTimingUKM(base::TimeDelta input_delay,
+                                 base::TimeDelta processing_time,
+                                 base::TimeDelta time_to_next_paint,
+                                 WTF::AtomicString event_type);
+
+  void DidObserveFirstScrollDelay(base::TimeDelta first_scroll_delay,
+                                  base::TimeTicks first_scroll_timestamp);
+
+  void OnRestoredFromBackForwardCache();
 
  private:
   friend class InteractiveDetectorTest;
@@ -142,6 +171,12 @@ class CORE_EXPORT InteractiveDetector
     base::Optional<base::TimeDelta> longest_input_delay;
     base::Optional<base::TimeTicks> first_input_timestamp;
     base::Optional<base::TimeTicks> longest_input_timestamp;
+    base::Optional<base::TimeDelta> first_input_processing_time;
+    base::Optional<base::TimeTicks> first_scroll_timestamp;
+    base::Optional<base::TimeDelta> frist_scroll_delay;
+
+    WTF::Vector<base::Optional<base::TimeDelta>>
+        first_input_delays_after_back_forward_cache_restore;
   } page_event_times_;
 
   struct VisibilityChangeEvent {
@@ -175,13 +210,12 @@ class CORE_EXPORT InteractiveDetector
   void UpdateNetworkQuietState(double request_count,
                                base::Optional<base::TimeTicks> current_time);
 
-  TaskRunnerTimer<InteractiveDetector> time_to_interactive_timer_;
+  HeapTaskRunnerTimer<InteractiveDetector> time_to_interactive_timer_;
   base::TimeTicks time_to_interactive_timer_fire_time_;
   void StartOrPostponeCITimer(base::TimeTicks timer_fire_time);
   void TimeToInteractiveTimerFired(TimerBase*);
   void CheckTimeToInteractiveReached();
   void OnTimeToInteractiveDetected();
-  std::unique_ptr<TracedValue> ComputeTimeToInteractiveTraceArgs();
   base::TimeDelta ComputeTotalBlockingTime();
 
   Vector<VisibilityChangeEvent> visibility_change_events_;

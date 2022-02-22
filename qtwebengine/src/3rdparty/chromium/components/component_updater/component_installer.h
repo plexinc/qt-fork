@@ -93,9 +93,6 @@ class ComponentInstallerPolicy {
   // Returns the human-readable name of the component.
   virtual std::string GetName() const = 0;
 
-  // If this component is a plugin, returns the media types it can handle.
-  virtual std::vector<std::string> GetMimeTypes() const = 0;
-
   // Returns a container of name-value pairs representing arbitrary,
   // installer-defined metadata.
   // The installer metadata may be used in the update checks for this component.
@@ -126,6 +123,7 @@ class ComponentInstaller final : public update_client::CrxInstaller {
   void Install(const base::FilePath& unpack_path,
                const std::string& public_key,
                std::unique_ptr<InstallParams> install_params,
+               ProgressCallback progress_callback,
                Callback callback) override;
 
   bool GetInstalledFile(const std::string& file,

@@ -13,9 +13,9 @@
 #include <string>
 #include <vector>
 
+#include "base/check.h"
 #include "base/compiler_specific.h"
 #include "base/containers/flat_set.h"
-#include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
@@ -24,11 +24,13 @@
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
-#include "components/viz/common/surfaces/local_surface_id_allocation.h"
+#include "components/viz/common/surfaces/local_surface_id.h"
 #include "components/viz/common/surfaces/scoped_surface_id_allocator.h"
+#include "components/viz/common/surfaces/subtree_capture_id.h"
 #include "components/viz/host/host_frame_sink_client.h"
 #include "ui/aura/aura_export.h"
 #include "ui/aura/client/window_types.h"
+#include "ui/aura/scoped_window_capture_request.h"
 #include "ui/aura/window_observer.h"
 #include "ui/base/class_property.h"
 #include "ui/compositor/layer_animator.h"
@@ -41,7 +43,7 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/native_widget_types.h"
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
 #error This file must not be included on macOS; Chromium Mac does not use Aura.
 #endif
 
@@ -193,9 +195,9 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
   const Window* parent() const { return parent_; }
 
   // Returns the root Window that contains this Window. The root Window is
-  // defined as the Window that has a dispatcher. These functions return NULL if
-  // the Window is contained in a hierarchy that does not have a dispatcher at
-  // its root.
+  // defined as the Window that has a dispatcher. These functions return nullptr
+  // if the Window is contained in a hierarchy that does not have a dispatcher
+  // at its root.
   Window* GetRootWindow();
   const Window* GetRootWindow() const;
 
@@ -219,17 +221,41 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
   // WindowOcclusionTracker::ScopedPause.
   OcclusionState occlusion_state() const { return occlusion_state_; }
 
-  // Returns the currently occluded region. This will be empty unless
-  // the window is tracked and has a VISIBLE occlusion state. That is,
-  // this is only maintained when the window is partially occluded. Further,
-  // this region may extend outside the window bounds. For performance reasons,
-  // the actual intersection with the window is not computed. The occluded
-  // region is the set of window rectangles that may occlude this window.
-  // Note that this means that the occluded region may be updated if one of
-  // those windows moves, even if the actual intersection of the occluded
-  // region with this window does not change. Clients may compute the actual
-  // intersection region if necessary.
-  const SkRegion& occluded_region() const { return occluded_region_; }
+  // Returns the currently occluded region in the root Window coordinates. This
+  // will be empty unless the window is tracked and has a VISIBLE occlusion
+  // state. That is, this is only maintained when the window is partially
+  // occluded. Further, this region may extend outside the window bounds. For
+  // performance reasons, the actual intersection with the window is not
+  // computed. The occluded region is the set of window rectangles that may
+  // occlude this window. Note that this means that the occluded region may be
+  // updated if one of those windows moves, even if the actual intersection of
+  // the occluded region with this window does not change. Clients may compute
+  // the actual intersection region if necessary.
+  const SkRegion& occluded_region_in_root() const {
+    return occluded_region_in_root_;
+  }
+
+  // Makes this *non-root* window individually capturable by the
+  // |FrameSinkVideoCapturer| by tagging its layer with a unique
+  // |viz::SubtreeCaptureId| which will force the layer tree root at this
+  // window's layer to a render surface that draws into a render pass that is
+  // identifiable by the capturer using that ID.
+  //
+  // Note that this should only be called for non-root windows. Root windows are
+  // already capturable by the capturer as they're identifiable by their
+  // |viz::FrameSinkId| and thei associated root render pass, so there's no need
+  // to call this.
+  //
+  // This returns a scoped object associated with this request to make the
+  // window capturable, since multiple capturers can capture the same window at
+  // the same time. Once all requests are destroyed, this window will no longer
+  // be individually capturable, and its layer won't be tagged with a valid
+  // |viz::SubtreeCaptureId|.
+  // See https://crbug.com/1143930 for more details.
+  ScopedWindowCaptureRequest MakeWindowCapturable() WARN_UNUSED_RESULT;
+  const viz::SubtreeCaptureId& subtree_capture_id() const {
+    return subtree_capture_id_;
+  }
 
   // Returns the window's bounds in root window's coordinates.
   gfx::Rect GetBoundsInRootWindow() const;
@@ -278,7 +304,7 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
   void StackChildAtTop(Window* child);
 
   // Stacks |child| above |target|.  Does nothing if |child| is already above
-  // |target|.  Does not stack on top of windows with NULL layer delegates,
+  // |target|.  Does not stack on top of windows with nullptr layer delegates,
   // see WindowTest.StackingMadrigal for details.
   void StackChildAbove(Window* child, Window* target);
 
@@ -298,14 +324,14 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
   // Returns true if this Window contains |other| somewhere in its children.
   bool Contains(const Window* other) const;
 
-  // Retrieves the first-level child with the specified id, or NULL if no first-
-  // level child is found matching |id|.
+  // Retrieves the first-level child with the specified id, or nullptr if no
+  // first- level child is found matching |id|.
   Window* GetChildById(int id);
   const Window* GetChildById(int id) const;
 
   // Converts |point| from |source|'s coordinates to |target|'s. If |source| is
-  // NULL, the function returns without modifying |point|. |target| cannot be
-  // NULL.
+  // nullptr, the function returns without modifying |point|. |target| cannot be
+  // nullptr.
   static void ConvertPointToTarget(const Window* source,
                                    const Window* target,
                                    gfx::PointF* point);
@@ -398,8 +424,10 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
                                   float new_device_scale_factor) override;
   void UpdateVisualState() override;
 
-  // Overridden from ui::LayerOwner:
+  // ui::LayerOwner:
+  std::unique_ptr<ui::Layer> ReleaseLayer() override;
   std::unique_ptr<ui::Layer> RecreateLayer() override;
+  void SetLayer(std::unique_ptr<ui::Layer> layer) override;
 
 #if DCHECK_IS_ON()
   // These methods are useful when debugging.
@@ -425,8 +453,7 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
   viz::ScopedSurfaceIdAllocator GetSurfaceIdAllocator(
       base::OnceCallback<void()> allocation_task);
 
-  // Returns the current viz::LocalSurfaceIdAllocation.
-  const viz::LocalSurfaceIdAllocation& GetLocalSurfaceIdAllocation();
+  const viz::LocalSurfaceId& GetLocalSurfaceId();
 
   // Marks the current viz::LocalSurfaceId as invalid. AllocateLocalSurfaceId
   // must be called before submitting new CompositorFrames.
@@ -436,8 +463,7 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
   // has allocated one. Also sets child sequence number component of the
   // viz::LocalSurfaceId allocator.
   void UpdateLocalSurfaceIdFromEmbeddedClient(
-      const base::Optional<viz::LocalSurfaceIdAllocation>&
-          local_surface_id_allocation);
+      const base::Optional<viz::LocalSurfaceId>& local_surface_id);
 
   // Returns the FrameSinkId. In LOCAL mode, this returns a valid FrameSinkId
   // only if a LayerTreeFrameSink has been created. In MUS mode, this always
@@ -508,6 +534,7 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
   friend class HitTestDataProviderAura;
   friend class LayoutManager;
   friend class PropertyConverter;
+  friend class ScopedWindowCaptureRequest;
   friend class ScopedWindowEventTargetingBlocker;
   friend class WindowTargeter;
   friend class test::WindowTestApi;
@@ -617,7 +644,8 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
 
   // viz::HostFrameSinkClient:
   void OnFirstSurfaceActivation(const viz::SurfaceInfo& surface_info) override;
-  void OnFrameTokenChanged(uint32_t frame_token) override;
+  void OnFrameTokenChanged(uint32_t frame_token,
+                           base::TimeTicks activation_time) override;
 
   // Updates the layer name based on the window's name and id.
   void UpdateLayerName();
@@ -625,9 +653,16 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
   void RegisterFrameSinkId();
   void UnregisterFrameSinkId();
   void UpdateLocalSurfaceId();
-  const viz::LocalSurfaceIdAllocation& GetCurrentLocalSurfaceIdAllocation()
-      const;
+  const viz::LocalSurfaceId& GetCurrentLocalSurfaceId() const;
   bool IsEmbeddingExternalContent() const;
+
+  // Called by the constructor of ScopedWindowCaptureRequest to add a request to
+  // make this non-root window capturable by the FrameSinkVideoCapturer.
+  void OnScopedWindowCaptureRequestAdded();
+
+  // Called by the destructor of ScopedWindowCaptureRequest to remove a request
+  // to make this non-root window capturable by the FrameSinkVideoCapturer.
+  void OnScopedWindowCaptureRequestRemoved();
 
   // Bounds of this window relative to the parent. This is cached as the bounds
   // of the Layer and Window are not necessarily the same. In particular bounds
@@ -662,8 +697,8 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
   // Occlusion state of the window.
   OcclusionState occlusion_state_ = OcclusionState::UNKNOWN;
 
-  // Occluded region of the window.
-  SkRegion occluded_region_;
+  // Occluded region of the window in the root window coordiantes.
+  SkRegion occluded_region_in_root_;
 
   int id_ = kInitialId;
 
@@ -688,6 +723,22 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
   int event_targeting_blocker_count_ = 0;
 
   base::ReentrantObserverList<WindowObserver, true> observers_;
+
+  // Video capturing support ---------------------------------------------------
+
+  // A non-root window must be marked with a viz::SubtreeCaptureId so that it
+  // can be captured by a FrameSinkVideoCapturer. Multiple clients can request
+  // to capture the same window at the same time. This is the number of those
+  // requests, which once it goes to zero, we well clear the
+  // viz::SubtreeCaptureId from the layer associated with this window.
+  int number_of_capture_requests_ = 0;
+
+  // The ID allocated for the layer tree rooted at this window's layer, so that
+  // it can be uniquely identified by the FrameSinkVideoCapturer. This can only
+  // be set for non-root windows. Root windows can be captured normally by the
+  // capturer using their frame sink ID, since those root windows are already
+  // associated with a root compositor render pass.
+  viz::SubtreeCaptureId subtree_capture_id_;
 
   // Embedding support ---------------------------------------------------------
 

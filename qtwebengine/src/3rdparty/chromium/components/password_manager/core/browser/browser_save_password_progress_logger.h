@@ -9,7 +9,6 @@
 
 #include "base/macros.h"
 #include "components/autofill/core/common/mojom/autofill_types.mojom.h"
-#include "components/autofill/core/common/password_form.h"
 #include "components/autofill/core/common/save_password_progress_logger.h"
 #include "url/gurl.h"
 
@@ -19,6 +18,8 @@ class LogManager;
 }
 
 namespace password_manager {
+
+struct PasswordForm;
 
 // This is the SavePasswordProgressLogger specialization for the browser code,
 // where the LogManager can be directly called.
@@ -46,6 +47,8 @@ class BrowserSavePasswordProgressLogger
   // Log a password successful submission event.
   void LogSuccessfulSubmissionIndicatorEvent(
       autofill::mojom::SubmissionIndicatorEvent event);
+
+  void LogPasswordForm(StringID label, const PasswordForm& form);
 
  protected:
   // autofill::SavePasswordProgressLogger:

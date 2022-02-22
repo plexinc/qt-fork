@@ -79,7 +79,7 @@ namespace qdesigner_internal {
             resetMap[property] = true;
         }
 
-        if (type == QVariant::Font)
+        if (type == QMetaType::QFont)
             m_createdFontProperty = property;
     }
 
@@ -103,7 +103,7 @@ namespace qdesigner_internal {
                                                      int type,
                                                      int enumTypeId)
     {
-        if (type != QVariant::Font)
+        if (type != QMetaType::QFont)
             return;
 
         // This will cause a recursion
@@ -176,11 +176,11 @@ namespace qdesigner_internal {
 
         QVariant v = fontProperty->value();
         QFont font = qvariant_cast<QFont>(v);
-        unsigned mask = font.resolve();
+        unsigned mask = font.resolveMask();
         const unsigned flag = fontFlag(m_fontSubPropertyToFlag.value(property));
 
         mask &= ~flag;
-        font.resolve(mask);
+        font.setResolveMask(mask);
         v.setValue(font);
         fontProperty->setValue(v);
         return true;
@@ -210,7 +210,7 @@ namespace qdesigner_internal {
     unsigned FontPropertyManager::fontFlag(int idx)
     {
         switch (idx) {
-        case 0: return QFont::FamilyResolved;
+        case 0: return QFont::FamilyResolved | QFont::FamiliesResolved;
         case 1: return QFont::SizeResolved;
         case 2: return QFont::WeightResolved;
         case 3: return QFont::StyleResolved;
@@ -254,7 +254,7 @@ namespace qdesigner_internal {
         const PropertyList &subProperties = it.value();
 
         QFont font = qvariant_cast<QFont>(value);
-        const unsigned mask = font.resolve();
+        const unsigned mask = font.resolveMask();
 
         const int count = subProperties.size();
         for (int index = 0; index < count; index++) {
@@ -295,7 +295,7 @@ namespace qdesigner_internal {
     enum ParseStage { ParseBeginning, ParseWithinRoot, ParseWithinMapping, ParseWithinFamily,
                       ParseWithinDisplay, ParseError };
 
-    static ParseStage nextStage(ParseStage currentStage, const QStringRef &startElement)
+    static ParseStage nextStage(ParseStage currentStage, QStringView startElement)
     {
         switch (currentStage) {
         case ParseBeginning:

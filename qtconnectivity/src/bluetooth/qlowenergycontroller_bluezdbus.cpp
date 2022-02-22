@@ -60,6 +60,9 @@ QLowEnergyControllerPrivateBluezDBus::QLowEnergyControllerPrivateBluezDBus()
 
 QLowEnergyControllerPrivateBluezDBus::~QLowEnergyControllerPrivateBluezDBus()
 {
+    if (state != QLowEnergyController::UnconnectedState) {
+        qCWarning(QT_BT_BLUEZ) << "Low Energy Controller deleted while connected.";
+    }
 }
 
 void QLowEnergyControllerPrivateBluezDBus::init()
@@ -115,7 +118,7 @@ void QLowEnergyControllerPrivateBluezDBus::devicePropertiesChanged(
 
         if (changedProperties.contains(QStringLiteral("UUIDs"))) {
             const QStringList newUuidStringList = changedProperties.value(QStringLiteral("UUIDs")).toStringList();
-            QVector<QBluetoothUuid> newUuidList;
+            QList<QBluetoothUuid> newUuidList;
             for (const QString &uuidString : newUuidStringList)
                 newUuidList.append(QBluetoothUuid(uuidString));
 
@@ -134,27 +137,27 @@ void QLowEnergyControllerPrivateBluezDBus::devicePropertiesChanged(
         if (changedProperties.contains(QStringLiteral("Percentage"))) {
             // if battery service is discovered and ClientCharConfig is enabled
             // emit characteristicChanged() signal
-            const QBluetoothUuid uuid(QBluetoothUuid::BatteryService);
+            const QBluetoothUuid uuid(QBluetoothUuid::ServiceClassUuid::BatteryService);
             if (!serviceList.contains(uuid) || !dbusServices.contains(uuid)
                     || !dbusServices[uuid].hasBatteryService
                     || dbusServices[uuid].batteryInterface.isNull())
                 return;
 
             QSharedPointer<QLowEnergyServicePrivate> serviceData = serviceList.value(uuid);
-            if (serviceData->state != QLowEnergyService::ServiceDiscovered)
+            if (serviceData->state != QLowEnergyService::RemoteServiceDiscovered)
                 return;
 
             QHash<QLowEnergyHandle, QLowEnergyServicePrivate::CharData>::iterator iter;
             iter = serviceData->characteristicList.begin();
             while (iter != serviceData->characteristicList.end()) {
                 auto &charData = iter.value();
-                if (charData.uuid != QBluetoothUuid::BatteryLevel)
+                if (charData.uuid != QBluetoothUuid::CharacteristicType::BatteryLevel)
                     continue;
 
                 // Client Characteristic Notification enabled?
                 bool cccActive = false;
                 for (const QLowEnergyServicePrivate::DescData &descData : qAsConst(charData.descriptorList)) {
-                    if (descData.uuid != QBluetoothUuid(QBluetoothUuid::ClientCharacteristicConfiguration))
+                    if (descData.uuid != QBluetoothUuid(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration))
                         continue;
                     if (descData.value == QByteArray::fromHex("0100")
                             || descData.value == QByteArray::fromHex("0200")) {
@@ -194,7 +197,7 @@ void QLowEnergyControllerPrivateBluezDBus::characteristicPropertiesChanged(
 
     const QLowEnergyCharacteristic changedChar = characteristicForHandle(charHandle);
     const QLowEnergyDescriptor ccnDescriptor = changedChar.descriptor(
-                                    QBluetoothUuid::ClientCharacteristicConfiguration);
+                                    QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
     if (!ccnDescriptor.isValid())
         return;
 
@@ -208,12 +211,17 @@ void QLowEnergyControllerPrivateBluezDBus::characteristicPropertiesChanged(
         emit service->characteristicChanged(changedChar, newValue);
 }
 
-void QLowEnergyControllerPrivateBluezDBus::interfacesRemoved(
-        const QDBusObjectPath &objectPath, const QStringList &/*interfaces*/)
+void QLowEnergyControllerPrivateBluezDBus::interfacesRemoved(const QDBusObjectPath &objectPath,
+                                                             const QStringList &interfaces)
 {
     if (objectPath.path() == device->path()) {
-        qCWarning(QT_BT_BLUEZ) << "DBus Device1 was removed";
-        executeClose(QLowEnergyController::UnknownRemoteDeviceError);
+        if (interfaces.contains(QStringLiteral("org.bluez.Device1"))) {
+            qCWarning(QT_BT_BLUEZ) << "DBus Device1 was removed";
+            executeClose(QLowEnergyController::UnknownRemoteDeviceError);
+        } else {
+            qCDebug(QT_BT_BLUEZ) << "DBus interfaces" << interfaces << "were removed from"
+                                 << objectPath.path();
+        }
     } else if (objectPath.path() == adapter->path()) {
         qCWarning(QT_BT_BLUEZ) << "DBus Adapter was removed";
         executeClose(QLowEnergyController::InvalidBluetoothAdapterError);
@@ -385,6 +393,8 @@ void QLowEnergyControllerPrivateBluezDBus::disconnectFromDevice()
             qCDebug(QT_BT_BLUEZ) << "BTLE_DBUS::disconnect() failed"
                                  << reply.reply().errorName()
                                  << reply.reply().errorMessage();
+            executeClose(QLowEnergyController::UnknownError);
+        } else {
             executeClose(QLowEnergyController::NoError);
         }
         call->deleteLater();
@@ -413,7 +423,7 @@ void QLowEnergyControllerPrivateBluezDBus::discoverServices()
 
         GattService serviceContainer;
         serviceContainer.servicePath = path;
-        if (uuid == QBluetoothUuid::BatteryService)
+        if (uuid == QBluetoothUuid::ServiceClassUuid::BatteryService)
             serviceContainer.hasBatteryService = true;
 
         serviceList.insert(priv->uuid, priv);
@@ -441,7 +451,7 @@ void QLowEnergyControllerPrivateBluezDBus::discoverServices()
                 if (iface == QStringLiteral("org.bluez.Battery1")) {
                     qCDebug(QT_BT_BLUEZ) << "Found dedicated Battery service -> emulating generic btle access";
                     setupServicePrivate(QLowEnergyService::PrimaryService,
-                                        QBluetoothUuid::BatteryService,
+                                        QBluetoothUuid::ServiceClassUuid::BatteryService,
                                         it.key().path());
                 }
             }
@@ -491,19 +501,19 @@ void QLowEnergyControllerPrivateBluezDBus::discoverBatteryServiceDetails(
     charData.valueHandle = runningHandle++;
     charData.properties.setFlag(QLowEnergyCharacteristic::Read);
     charData.properties.setFlag(QLowEnergyCharacteristic::Notify);
-    charData.uuid = QBluetoothUuid::BatteryLevel;
+    charData.uuid = QBluetoothUuid::CharacteristicType::BatteryLevel;
     charData.value = QByteArray(1, char(batteryService->percentage()));
 
     // Create the descriptors for the BatteryLevel
     // They are hardcoded although CCC may change
     QLowEnergyServicePrivate::DescData descData;
     QLowEnergyHandle descriptorHandle = runningHandle++;
-    descData.uuid = QBluetoothUuid::ClientCharacteristicConfiguration;
+    descData.uuid = QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration;
     descData.value = QByteArray::fromHex("0000"); // all configs off
     charData.descriptorList.insert(descriptorHandle, descData);
 
     descriptorHandle = runningHandle++;
-    descData.uuid = QBluetoothUuid::CharacteristicPresentationFormat;
+    descData.uuid = QBluetoothUuid::DescriptorType::CharacteristicPresentationFormat;
     //for details see Characteristic Presentation Format Vol3, Part G 3.3.3.5
     // unsigend 8 bit, exp=1, org.bluetooth.unit.percentage, namespace & description
     // bit order: little endian
@@ -511,14 +521,14 @@ void QLowEnergyControllerPrivateBluezDBus::discoverBatteryServiceDetails(
     charData.descriptorList.insert(descriptorHandle, descData);
 
     descriptorHandle = runningHandle++;
-    descData.uuid = QBluetoothUuid::ReportReference;
+    descData.uuid = QBluetoothUuid::DescriptorType::ReportReference;
     descData.value = QByteArray::fromHex("0401");
     charData.descriptorList.insert(descriptorHandle, descData);
 
     serviceData->characteristicList[indexHandle] = charData;
     serviceData->endHandle = runningHandle++;
 
-    serviceData->setState(QLowEnergyService::ServiceDiscovered);
+    serviceData->setState(QLowEnergyService::RemoteServiceDiscovered);
 }
 
 void QLowEnergyControllerPrivateBluezDBus::executeClose(QLowEnergyController::Error newError)
@@ -536,7 +546,8 @@ void QLowEnergyControllerPrivateBluezDBus::executeClose(QLowEnergyController::Er
     }
 }
 
-void QLowEnergyControllerPrivateBluezDBus::discoverServiceDetails(const QBluetoothUuid &service)
+void QLowEnergyControllerPrivateBluezDBus::discoverServiceDetails(
+        const QBluetoothUuid &service, QLowEnergyService::DiscoveryMode mode)
 {
     if (!serviceList.contains(service) || !dbusServices.contains(service)) {
         qCWarning(QT_BT_BLUEZ) << "Discovery of unknown service" << service.toString()
@@ -639,7 +650,8 @@ void QLowEnergyControllerPrivateBluezDBus::discoverServiceDetails(const QBluetoo
         charData.uuid = QBluetoothUuid(dbusChar.characteristic->uUID());
 
         // schedule read for initial char value
-        if (charData.properties.testFlag(QLowEnergyCharacteristic::Read)) {
+        if (mode == QLowEnergyService::FullDiscovery
+            && charData.properties.testFlag(QLowEnergyCharacteristic::Read)) {
             GattJob job;
             job.flags = GattJob::JobFlags({GattJob::CharRead, GattJob::ServiceDiscovery});
             job.service = serviceData;
@@ -657,7 +669,7 @@ void QLowEnergyControllerPrivateBluezDBus::discoverServiceDetails(const QBluetoo
 
             // every ClientCharacteristicConfiguration needs to track property changes
             if (descData.uuid
-                        == QBluetoothUuid(QBluetoothUuid::ClientCharacteristicConfiguration)) {
+                        == QBluetoothUuid(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration)) {
                 dbusChar.charMonitor = QSharedPointer<OrgFreedesktopDBusPropertiesInterface>::create(
                                                 QStringLiteral("org.bluez"),
                                                 dbusChar.characteristic->path(),
@@ -671,12 +683,14 @@ void QLowEnergyControllerPrivateBluezDBus::discoverServiceDetails(const QBluetoo
                 });
             }
 
-            // schedule read for initial descriptor value
-            GattJob job;
-            job.flags = GattJob::JobFlags({GattJob::DescRead, GattJob::ServiceDiscovery});
-            job.service = serviceData;
-            job.handle = descriptorHandle;
-            jobs.append(job);
+            if (mode == QLowEnergyService::FullDiscovery) {
+                // schedule read for initial descriptor value
+                GattJob job;
+                job.flags = GattJob::JobFlags({ GattJob::DescRead, GattJob::ServiceDiscovery });
+                job.service = serviceData;
+                job.handle = descriptorHandle;
+                jobs.append(job);
+            }
         }
 
         serviceData->characteristicList[indexHandle] = charData;
@@ -689,7 +703,7 @@ void QLowEnergyControllerPrivateBluezDBus::discoverServiceDetails(const QBluetoo
         GattJob &lastJob = jobs.last();
         lastJob.flags.setFlag(GattJob::LastServiceDiscovery, true);
     } else {
-        serviceData->setState(QLowEnergyService::ServiceDiscovered);
+        serviceData->setState(QLowEnergyService::RemoteServiceDiscovered);
     }
 
     scheduleNextJob();
@@ -740,7 +754,7 @@ void QLowEnergyControllerPrivateBluezDBus::onCharReadFinished(QDBusPendingCallWa
 
         if (isServiceDiscovery) {
             if (nextJob.flags.testFlag(GattJob::LastServiceDiscovery))
-                service->setState(QLowEnergyService::ServiceDiscovered);
+                service->setState(QLowEnergyService::RemoteServiceDiscovered);
         } else {
             QLowEnergyCharacteristic ch(service, nextJob.handle);
             emit service->characteristicRead(ch, reply.value());
@@ -806,7 +820,7 @@ void QLowEnergyControllerPrivateBluezDBus::onDescReadFinished(QDBusPendingCallWa
 
         if (isServiceDiscovery) {
             if (nextJob.flags.testFlag(GattJob::LastServiceDiscovery))
-                service->setState(QLowEnergyService::ServiceDiscovered);
+                service->setState(QLowEnergyService::RemoteServiceDiscovered);
         } else {
             QLowEnergyDescriptor desc(service, ch.attributeHandle(), nextJob.handle);
             emit service->descriptorRead(desc, reply.value());
@@ -1063,7 +1077,7 @@ void QLowEnergyControllerPrivateBluezDBus::scheduleNextJob()
 
                 //notifications enabled via characteristics Start/StopNotify() functions
                 //otherwise regular WriteValue() calls on descriptor interface
-                if (descUuid == QBluetoothUuid(QBluetoothUuid::ClientCharacteristicConfiguration)) {
+                if (descUuid == QBluetoothUuid(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration)) {
                     const QByteArray value = nextJob.value;
 
                     QDBusPendingReply<> reply;
@@ -1234,7 +1248,7 @@ void QLowEnergyControllerPrivateBluezDBus::writeDescriptor(
             if (!descriptor.isValid())
                 return;
 
-            if (descriptor.uuid() == QBluetoothUuid::ClientCharacteristicConfiguration) {
+            if (descriptor.uuid() == QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration) {
                 if (newValue == QByteArray::fromHex("0000")
                         || newValue == QByteArray::fromHex("0100")
                     || newValue == QByteArray::fromHex("0200")) {
@@ -1286,6 +1300,12 @@ void QLowEnergyControllerPrivateBluezDBus::addToGenericAttributeList(
                     const QLowEnergyServiceData &/* service */,
                     QLowEnergyHandle /* startHandle */)
 {
+}
+
+int QLowEnergyControllerPrivateBluezDBus::mtu() const
+{
+    // currently not supported
+    return -1;
 }
 
 QLowEnergyService *QLowEnergyControllerPrivateBluezDBus::addServiceHelper(

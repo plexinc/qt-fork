@@ -34,7 +34,7 @@
 #include <QScopedPointer>
 #include <private/qqmlglobal_p.h>
 #include <private/qquickvaluetypes_p.h>
-#include "../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 #include "testtypes.h"
 
 QT_BEGIN_NAMESPACE
@@ -50,10 +50,10 @@ class tst_qqmlvaluetypeproviders : public QQmlDataTest
 {
     Q_OBJECT
 public:
-    tst_qqmlvaluetypeproviders() {}
+    tst_qqmlvaluetypeproviders() : QQmlDataTest(QT_QMLTEST_DATADIR) {}
 
 private slots:
-    void initTestCase();
+    void initTestCase() override;
 
     void qtqmlValueTypes();   // This test function _must_ be the first test function run.
     void qtquickValueTypes();
@@ -225,33 +225,6 @@ public:
     void setProperty2(double p2) { v.setProperty2(p2); }
 };
 
-class TestValueTypeProvider : public QQmlValueTypeProvider
-{
-public:
-    const QMetaObject *getMetaObjectForMetaType(int type)
-    {
-        if (type == qMetaTypeId<TestValue>())
-            return &TestValueType::staticMetaObject;
-
-        return nullptr;
-    }
-
-};
-
-TestValueTypeProvider *getValueTypeProvider()
-{
-    static TestValueTypeProvider valueTypeProvider;
-    return &valueTypeProvider;
-}
-
-bool initializeProviders()
-{
-    QQml_addValueTypeProvider(getValueTypeProvider());
-    return true;
-}
-
-const bool initialized = initializeProviders();
-
 class TestValueExporter : public QObject
 {
     Q_OBJECT
@@ -271,12 +244,9 @@ private:
 
 void tst_qqmlvaluetypeproviders::userType()
 {
-    Q_ASSERT(initialized);
-    Q_ASSERT(qMetaTypeId<TestValue>() >= QMetaType::User);
-
-    qRegisterMetaType<TestValue>();
-    QMetaType::registerComparators<TestValue>();
+    qmlRegisterExtendedType<TestValue, TestValueType>("Test", 1, 0, "test_value");
     qmlRegisterTypesAndRevisions<TestValueExporter>("Test", 1);
+    Q_ASSERT(qMetaTypeId<TestValue>() >= QMetaType::User);
 
     TestValueExporter exporter;
 

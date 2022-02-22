@@ -17,14 +17,14 @@
 #include "core/fxcrt/fx_stream.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/invalid_seekable_read_stream.h"
-#include "third_party/base/ptr_util.h"
+#include "third_party/base/check.h"
+#include "third_party/base/notreached.h"
 
 namespace {
 
 class TestReadValidator final : public CPDF_ReadValidator {
  public:
-  template <typename T, typename... Args>
-  friend RetainPtr<T> pdfium::MakeRetain(Args&&... args);
+  CONSTRUCT_VIA_MAKE_RETAIN;
 
   void SimulateReadError() { ReadBlockAtOffset(nullptr, 0, 1); }
 
@@ -66,13 +66,13 @@ class TestHolder final : public CPDF_IndirectObjectHolder {
     ObjectData object_data;
     object_data.object = std::move(object);
     object_data.state = state;
-    ASSERT(objects_data_.find(objnum) == objects_data_.end());
+    DCHECK(objects_data_.find(objnum) == objects_data_.end());
     objects_data_[objnum] = std::move(object_data);
   }
 
   void SetObjectState(uint32_t objnum, ObjectState state) {
     auto it = objects_data_.find(objnum);
-    ASSERT(it != objects_data_.end());
+    DCHECK(it != objects_data_.end());
     ObjectData& obj_data = it->second;
     obj_data.state = state;
   }

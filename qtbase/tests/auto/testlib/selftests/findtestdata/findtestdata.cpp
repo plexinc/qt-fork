@@ -28,7 +28,8 @@
 
 
 #include <QtCore/QCoreApplication>
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QLibraryInfo>
 
 #define TESTFILE "testfile"
 
@@ -56,7 +57,7 @@ void FindTestData::initTestCase()
         + "/tests";
     QVERIFY(QDir("/").mkpath(install_path));
     QVERIFY(QDir("/").mkpath(install_path + "/findtestdata"));
-    QCOMPARE(QLibraryInfo::location(QLibraryInfo::TestsPath), install_path);
+    QCOMPARE(QLibraryInfo::path(QLibraryInfo::TestsPath), install_path);
 
     // make fake source and build directories
     QVERIFY(QDir("/").mkpath(app_path + "/fakesrc"));

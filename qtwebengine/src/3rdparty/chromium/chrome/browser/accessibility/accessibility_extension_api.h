@@ -7,6 +7,7 @@
 
 #include <string>
 
+#include "build/chromeos_buildflags.h"
 #include "extensions/browser/extension_function.h"
 
 // API function that enables or disables web content accessibility support.
@@ -61,7 +62,7 @@ class AccessibilityPrivateOpenSettingsSubpageFunction
                              ACCESSIBILITY_PRIVATE_OPENSETTINGSSUBPAGE)
 };
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 // API function that sets native ChromeVox ARC support.
 class AccessibilityPrivateSetNativeChromeVoxArcSupportForCurrentAppFunction
     : public ExtensionFunction {
@@ -83,12 +84,11 @@ class AccessibilityPrivateSendSyntheticKeyEventFunction
 };
 
 // API function that enables or disables mouse events in ChromeVox.
-class AccessibilityPrivateEnableChromeVoxMouseEventsFunction
-    : public ExtensionFunction {
-  ~AccessibilityPrivateEnableChromeVoxMouseEventsFunction() override {}
+class AccessibilityPrivateEnableMouseEventsFunction : public ExtensionFunction {
+  ~AccessibilityPrivateEnableMouseEventsFunction() override {}
   ResponseAction Run() override;
-  DECLARE_EXTENSION_FUNCTION("accessibilityPrivate.enableChromeVoxMouseEvents",
-                             ACCESSIBILITY_PRIVATE_ENABLECHROMEVOXMOUSEEVENTS)
+  DECLARE_EXTENSION_FUNCTION("accessibilityPrivate.enableMouseEvents",
+                             ACCESSIBILITY_PRIVATE_ENABLEMOUSEEVENTS)
 };
 
 // API function that injects mouse events.
@@ -101,23 +101,33 @@ class AccessibilityPrivateSendSyntheticMouseEventFunction
 };
 
 // API function that is called when the Select-to-Speak extension state changes.
-class AccessibilityPrivateOnSelectToSpeakStateChangedFunction
+class AccessibilityPrivateSetSelectToSpeakStateFunction
     : public ExtensionFunction {
-  ~AccessibilityPrivateOnSelectToSpeakStateChangedFunction() override {}
+  ~AccessibilityPrivateSetSelectToSpeakStateFunction() override {}
   ResponseAction Run() override;
-  DECLARE_EXTENSION_FUNCTION("accessibilityPrivate.onSelectToSpeakStateChanged",
-                             ACCESSIBILITY_PRIVATE_ONSELECTTOSPEAKSTATECHANGED)
+  DECLARE_EXTENSION_FUNCTION("accessibilityPrivate.setSelectToSpeakState",
+                             ACCESSIBILITY_PRIVATE_SETSELECTTOSPEAKSTATE)
 };
 
-// API function that is called when the Autoclick extension finds scrollable
-// bounds.
-class AccessibilityPrivateOnScrollableBoundsForPointFoundFunction
+// API function that is called when the Accessibility Common extension finds
+// scrollable bounds.
+class AccessibilityPrivateHandleScrollableBoundsForPointFoundFunction
     : public ExtensionFunction {
-  ~AccessibilityPrivateOnScrollableBoundsForPointFoundFunction() override {}
+  ~AccessibilityPrivateHandleScrollableBoundsForPointFoundFunction() override {}
   ResponseAction Run() override;
   DECLARE_EXTENSION_FUNCTION(
-      "accessibilityPrivate.onScrollableBoundsForPointFound",
-      ACCESSIBILITY_PRIVATE_ONSCROLLABLEBOUNDSFORPOINTFOUND)
+      "accessibilityPrivate.handleScrollableBoundsForPointFound",
+      ACCESSIBILITY_PRIVATE_HANDLESCROLLABLEBOUNDSFORPOINTFOUND)
+};
+
+// API function that is called by the Accessibility Common extension to center
+// the magnifier viewport on a passed-in rect.
+class AccessibilityPrivateMoveMagnifierToRectFunction
+    : public ExtensionFunction {
+  ~AccessibilityPrivateMoveMagnifierToRectFunction() override {}
+  ResponseAction Run() override;
+  DECLARE_EXTENSION_FUNCTION("accessibilityPrivate.moveMagnifierToRect",
+                             ACCESSIBILITY_PRIVATE_MOVEMAGNIFIERTORECT)
 };
 
 // API function that is called when a user toggles Dictation from another
@@ -129,15 +139,6 @@ class AccessibilityPrivateToggleDictationFunction : public ExtensionFunction {
                              ACCESSIBILITY_PRIVATE_TOGGLEDICTATION)
 };
 
-// API function that is called to show or hide the Switch Access menu.
-class AccessibilityPrivateSetSwitchAccessMenuStateFunction
-    : public ExtensionFunction {
-  ~AccessibilityPrivateSetSwitchAccessMenuStateFunction() override {}
-  ResponseAction Run() override;
-  DECLARE_EXTENSION_FUNCTION("accessibilityPrivate.setSwitchAccessMenuState",
-                             ACCESSIBILITY_PRIVATE_SETSWITCHACCESSMENUSTATE)
-};
-
 // API function that requests that key events be forwarded to the Switch
 // Access extension.
 class AccessibilityPrivateForwardKeyEventsToSwitchAccessFunction
@@ -147,6 +148,24 @@ class AccessibilityPrivateForwardKeyEventsToSwitchAccessFunction
   DECLARE_EXTENSION_FUNCTION(
       "accessibilityPrivate.forwardKeyEventsToSwitchAccess",
       ACCESSIBILITY_PRIVATE_FORWARDKEYEVENTSTOSWITCHACCESS)
+};
+
+// API function that is called to show or hide one of the Switch Access bubbles.
+class AccessibilityPrivateUpdateSwitchAccessBubbleFunction
+    : public ExtensionFunction {
+  ~AccessibilityPrivateUpdateSwitchAccessBubbleFunction() override {}
+  ResponseAction Run() override;
+  DECLARE_EXTENSION_FUNCTION("accessibilityPrivate.updateSwitchAccessBubble",
+                             ACCESSIBILITY_PRIVATE_UPDATESWITCHACCESSBUBBLE)
+};
+
+// API function that is called to start or end point scanning of the
+// Switch Access extension.
+class AccessibilityPrivateSetPointScanStateFunction : public ExtensionFunction {
+  ~AccessibilityPrivateSetPointScanStateFunction() override {}
+  ResponseAction Run() override;
+  DECLARE_EXTENSION_FUNCTION("accessibilityPrivate.setPointScanState",
+                             ACCESSIBILITY_PRIVATE_SETPOINTSCANSTATE)
 };
 
 // API function that is called to get the device's battery status as a string.
@@ -169,6 +188,32 @@ class AccessibilityPrivateSetVirtualKeyboardVisibleFunction
   ResponseAction Run() override;
   DECLARE_EXTENSION_FUNCTION("accessibilityPrivate.setVirtualKeyboardVisible",
                              ACCESSIBILITY_PRIVATE_SETVIRTUALKEYBOARDVISIBLE)
+};
+
+// API function that performs an accelerator action.
+class AccessibilityPrivatePerformAcceleratorActionFunction
+    : public ExtensionFunction {
+  ~AccessibilityPrivatePerformAcceleratorActionFunction() override {}
+  ResponseAction Run() override;
+  DECLARE_EXTENSION_FUNCTION("accessibilityPrivate.performAcceleratorAction",
+                             ACCESSIBILITY_PRIVATE_PERFORMACCELERATORACTION)
+};
+
+// API function that determines if an accessibility feature is enabled.
+class AccessibilityPrivateIsFeatureEnabledFunction : public ExtensionFunction {
+  ~AccessibilityPrivateIsFeatureEnabledFunction() override {}
+  ResponseAction Run() override;
+  DECLARE_EXTENSION_FUNCTION("accessibilityPrivate.isFeatureEnabled",
+                             ACCESSIBILITY_PRIVATE_ISFEATUREENABLED)
+};
+
+// API function that updates properties of the Select-to-speak panel.
+class AccessibilityPrivateUpdateSelectToSpeakPanelFunction
+    : public ExtensionFunction {
+  ~AccessibilityPrivateUpdateSelectToSpeakPanelFunction() override = default;
+  ResponseAction Run() override;
+  DECLARE_EXTENSION_FUNCTION("accessibilityPrivate.updateSelectToSpeakPanel",
+                             ACCESSIBILITY_PRIVATE_UPDATESELECTTOSPEAKPANEL)
 };
 #endif  // defined (OS_CHROMEOS)
 

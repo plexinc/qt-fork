@@ -55,21 +55,17 @@
 #include <QtCore/private/qglobal_p.h>
 #include <QtNetwork/private/qtnetwork-config_p.h>
 
-// ### Qt6: Remove
-#ifdef QT_DEPRECATED_BEARER_MANAGEMENT
-#undef QT_DEPRECATED_BEARER_MANAGEMENT
-#endif
-#define QT_DEPRECATED_BEARER_MANAGEMENT
+#define Q_NETWORK_PRIVATE_EXPORT Q_NETWORK_EXPORT
 
-// ### Qt6: Remove
-#ifdef QT_DEPRECATED_NETWORK_API_5_15
-#undef QT_DEPRECATED_NETWORK_API_5_15
-#endif
-#define QT_DEPRECATED_NETWORK_API_5_15
+QT_BEGIN_NAMESPACE
 
-#ifdef QT_DEPRECATED_NETWORK_API_5_15_X
-#undef QT_DEPRECATED_NETWORK_API_5_15_X
+enum {
+#ifdef Q_OS_LINUX
+    PlatformSupportsAbstractNamespace = true
+#else
+    PlatformSupportsAbstractNamespace = false
 #endif
-#define QT_DEPRECATED_NETWORK_API_5_15_X(x)
+};
 
+QT_END_NAMESPACE
 #endif // QTNETWORKGLOBAL_P_H

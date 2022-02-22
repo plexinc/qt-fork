@@ -16,16 +16,19 @@
 #include "third_party/blink/renderer/platform/bindings/to_v8.h"
 #include "third_party/blink/renderer/platform/bindings/v8_binding.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
-#include "third_party/blink/renderer/platform/heap/visitor.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 
 namespace blink {
 
 WritableStreamDefaultController* WritableStreamDefaultController::From(
+    ScriptState* script_state,
     ScriptValue controller) {
-  DCHECK(controller.IsObject());
-  return V8WritableStreamDefaultController::ToImpl(
-      controller.V8Value().As<v8::Object>());
+  CHECK(controller.IsObject());
+  auto* controller_impl =
+      V8WritableStreamDefaultController::ToImplWithTypeCheck(
+          script_state->GetIsolate(), controller.V8Value().As<v8::Object>());
+  CHECK(controller_impl);
+  return controller_impl;
 }
 
 // Only used internally. Not reachable from JavaScript.
@@ -166,7 +169,7 @@ void WritableStreamDefaultController::SetUp(
                                                             controller);
     }
 
-    void Trace(Visitor* visitor) override {
+    void Trace(Visitor* visitor) const override {
       visitor->Trace(stream_);
       PromiseHandler::Trace(visitor);
     }
@@ -195,7 +198,7 @@ void WritableStreamDefaultController::SetUp(
       WritableStream::DealWithRejection(GetScriptState(), stream_, r);
     }
 
-    void Trace(Visitor* visitor) override {
+    void Trace(Visitor* visitor) const override {
       visitor->Trace(stream_);
       PromiseHandler::Trace(visitor);
     }
@@ -392,7 +395,7 @@ void WritableStreamDefaultController::ErrorIfNeeded(
   }
 }
 
-void WritableStreamDefaultController::Trace(Visitor* visitor) {
+void WritableStreamDefaultController::Trace(Visitor* visitor) const {
   visitor->Trace(abort_algorithm_);
   visitor->Trace(close_algorithm_);
   visitor->Trace(controlled_writable_stream_);
@@ -511,7 +514,7 @@ void WritableStreamDefaultController::ProcessClose(
       WritableStream::FinishInFlightClose(GetScriptState(), stream_);
     }
 
-    void Trace(Visitor* visitor) override {
+    void Trace(Visitor* visitor) const override {
       visitor->Trace(stream_);
       PromiseHandler::Trace(visitor);
     }
@@ -533,7 +536,7 @@ void WritableStreamDefaultController::ProcessClose(
                                                    reason);
     }
 
-    void Trace(Visitor* visitor) override {
+    void Trace(Visitor* visitor) const override {
       visitor->Trace(stream_);
       PromiseHandler::Trace(visitor);
     }
@@ -608,7 +611,7 @@ void WritableStreamDefaultController::ProcessWrite(
                                                             controller_);
     }
 
-    void Trace(Visitor* visitor) override {
+    void Trace(Visitor* visitor) const override {
       visitor->Trace(stream_);
       visitor->Trace(controller_);
       PromiseHandler::Trace(visitor);
@@ -643,7 +646,7 @@ void WritableStreamDefaultController::ProcessWrite(
                                                    reason);
     }
 
-    void Trace(Visitor* visitor) override {
+    void Trace(Visitor* visitor) const override {
       visitor->Trace(stream_);
       visitor->Trace(controller_);
       PromiseHandler::Trace(visitor);

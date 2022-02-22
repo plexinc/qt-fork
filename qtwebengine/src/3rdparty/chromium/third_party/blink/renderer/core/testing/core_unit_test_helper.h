@@ -19,7 +19,6 @@
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/layout/ng/layout_ng_block_flow.h"
 #include "third_party/blink/renderer/core/loader/empty_clients.h"
-#include "third_party/blink/renderer/core/paint/ng/ng_paint_fragment.h"
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
 #include "third_party/blink/renderer/platform/testing/layer_tree_host_embedder.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
@@ -32,35 +31,26 @@ class SingleChildLocalFrameClient final : public EmptyLocalFrameClient {
  public:
   explicit SingleChildLocalFrameClient() = default;
 
-  void Trace(Visitor* visitor) override {
-    visitor->Trace(child_);
+  void Trace(Visitor* visitor) const override {
     EmptyLocalFrameClient::Trace(visitor);
   }
 
   // LocalFrameClient overrides:
-  LocalFrame* FirstChild() const override { return child_.Get(); }
   LocalFrame* CreateFrame(const AtomicString& name,
                           HTMLFrameOwnerElement*) override;
-
-  void DidDetachChild() { child_ = nullptr; }
-
- private:
-  Member<LocalFrame> child_;
 };
 
 class LocalFrameClientWithParent final : public EmptyLocalFrameClient {
  public:
   explicit LocalFrameClientWithParent(LocalFrame* parent) : parent_(parent) {}
 
-  void Trace(Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(parent_);
     EmptyLocalFrameClient::Trace(visitor);
   }
 
   // FrameClient overrides:
   void Detached(FrameDetachType) override;
-  LocalFrame* Parent() const override { return parent_.Get(); }
-  LocalFrame* Top() const override { return parent_.Get(); }
 
  private:
   Member<LocalFrame> parent_;
@@ -149,15 +139,16 @@ class RenderingTest : public PageTestBase {
     return element ? element->GetLayoutObject() : nullptr;
   }
 
+  LayoutBox* GetLayoutBoxByElementId(const char* id) const {
+    return To<LayoutBox>(GetLayoutObjectByElementId(id));
+  }
+
   PaintLayer* GetPaintLayerByElementId(const char* id) {
-    return ToLayoutBoxModelObject(GetLayoutObjectByElementId(id))->Layer();
+    return To<LayoutBoxModelObject>(GetLayoutObjectByElementId(id))->Layer();
   }
 
   const DisplayItemClient* GetDisplayItemClientFromLayoutObject(
       LayoutObject* obj) const {
-    LayoutNGBlockFlow* block_flow = ToLayoutNGBlockFlowOrNull(obj);
-    if (block_flow && block_flow->PaintFragment())
-      return block_flow->PaintFragment();
     return obj;
   }
 

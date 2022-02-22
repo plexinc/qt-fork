@@ -1,7 +1,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'authenticationdialog.ui'
 **
-** Created by: Qt User Interface Compiler version 5.12.0
+** Created by: Qt User Interface Compiler version 6.0.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -10,6 +10,7 @@
 #define AUTHENTICATIONDIALOG_H
 
 #include <QtCore/QVariant>
+#include <QtWidgets/QAbstractButton>
 #include <QtWidgets/QApplication>
 #include <QtWidgets/QDialog>
 #include <QtWidgets/QDialogButtonBox>
@@ -83,7 +84,6 @@ public:
         siteDescription->setObjectName(QString::fromUtf8("siteDescription"));
         QFont font;
         font.setBold(true);
-        font.setWeight(75);
         siteDescription->setFont(font);
         siteDescription->setWordWrap(true);
 
@@ -95,8 +95,8 @@ public:
 
 
         retranslateUi(Dialog);
-        QObject::connect(buttonBox, SIGNAL(accepted()), Dialog, SLOT(accept()));
-        QObject::connect(buttonBox, SIGNAL(rejected()), Dialog, SLOT(reject()));
+        QObject::connect(buttonBox, &QDialogButtonBox::accepted, Dialog, qOverload<>(&QDialog::accept));
+        QObject::connect(buttonBox, &QDialogButtonBox::rejected, Dialog, qOverload<>(&QDialog::reject));
 
         QMetaObject::connectSlotsByName(Dialog);
     } // setupUi

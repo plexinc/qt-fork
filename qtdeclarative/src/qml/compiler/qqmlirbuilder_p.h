@@ -371,7 +371,7 @@ public:
     // specified object. Used for declarations inside group properties.
     Object *declarationsOverride;
 
-    void init(QQmlJS::MemoryPool *pool, int typeNameIndex, int idIndex, const QQmlJS::SourceLocation &location = QQmlJS::SourceLocation());
+    void init(QQmlJS::MemoryPool *pool, int typeNameIndex, int idIndex, const QV4::CompiledData::Location &location);
 
     QString appendEnum(Enum *enumeration);
     QString appendSignal(Signal *signal);
@@ -410,7 +410,8 @@ private:
 struct Q_QMLCOMPILER_PRIVATE_EXPORT Pragma
 {
     enum PragmaType {
-        PragmaSingleton = 0x1
+        PragmaSingleton = 0x1,
+        PragmaStrict    = 0x2
     };
     quint32 type;
 
@@ -460,6 +461,7 @@ public:
     bool generateFromQml(const QString &code, const QString &url, Document *output);
 
     static bool isSignalPropertyName(const QString &name);
+    static QString signalNameFromSignalPropertyName(const QString &signalPropertyName);
 
     using QQmlJS::AST::Visitor::visit;
     using QQmlJS::AST::Visitor::endVisit;
@@ -492,21 +494,33 @@ public:
     void accept(QQmlJS::AST::Node *node);
 
     // returns index in _objects
-    bool defineQMLObject(int *objectIndex, QQmlJS::AST::UiQualifiedId *qualifiedTypeNameId, const QQmlJS::SourceLocation &location, QQmlJS::AST::UiObjectInitializer *initializer, Object *declarationsOverride = nullptr);
-    bool defineQMLObject(int *objectIndex, QQmlJS::AST::UiObjectDefinition *node, Object *declarationsOverride = nullptr)
-    { return defineQMLObject(objectIndex, node->qualifiedTypeNameId, node->qualifiedTypeNameId->firstSourceLocation(), node->initializer, declarationsOverride); }
+    bool defineQMLObject(
+            int *objectIndex, QQmlJS::AST::UiQualifiedId *qualifiedTypeNameId,
+            const QV4::CompiledData::Location &location,
+            QQmlJS::AST::UiObjectInitializer *initializer, Object *declarationsOverride = nullptr);
+
+    bool defineQMLObject(
+            int *objectIndex, QQmlJS::AST::UiObjectDefinition *node,
+            Object *declarationsOverride = nullptr)
+    {
+        const QQmlJS::SourceLocation location = node->qualifiedTypeNameId->firstSourceLocation();
+        return defineQMLObject(
+                    objectIndex, node->qualifiedTypeNameId,
+                    { location.startLine, location.startColumn }, node->initializer,
+                    declarationsOverride);
+    }
 
     static QString asString(QQmlJS::AST::UiQualifiedId *node);
-    QStringRef asStringRef(QQmlJS::AST::Node *node);
-    static void extractVersion(const QStringRef &string, int *maj, int *min);
-    QStringRef textRefAt(const QQmlJS::SourceLocation &loc) const
-    { return QStringRef(&sourceCode, loc.offset, loc.length); }
-    QStringRef textRefAt(const QQmlJS::SourceLocation &first,
+    QStringView asStringRef(QQmlJS::AST::Node *node);
+    static QTypeRevision extractVersion(QStringView string);
+    QStringView textRefAt(const QQmlJS::SourceLocation &loc) const
+    { return QStringView(sourceCode).mid(loc.offset, loc.length); }
+    QStringView textRefAt(const QQmlJS::SourceLocation &first,
                          const QQmlJS::SourceLocation &last) const;
 
     void setBindingValue(QV4::CompiledData::Binding *binding, QQmlJS::AST::Statement *statement,
                          QQmlJS::AST::Node *parentNode);
-    void tryGeneratingTranslationBinding(const QStringRef &base, QQmlJS::AST::ArgumentList *args, QV4::CompiledData::Binding *binding);
+    void tryGeneratingTranslationBinding(QStringView base, QQmlJS::AST::ArgumentList *args, QV4::CompiledData::Binding *binding);
 
     void appendBinding(QQmlJS::AST::UiQualifiedId *name, QQmlJS::AST::Statement *value,
                        QQmlJS::AST::Node *parentNode);

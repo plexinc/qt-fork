@@ -51,6 +51,7 @@
 // We mean it.
 //
 
+#include <private/qtquickglobal_p.h>
 #include "qquickitem.h"
 
 #include <QtGui/qevent.h>
@@ -60,7 +61,7 @@ QT_REQUIRE_CONFIG(quick_draganddrop);
 QT_BEGIN_NAMESPACE
 
 class QQuickDropAreaPrivate;
-class QQuickDropEvent : public QObject
+class QQuickDragEvent : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(qreal x READ x)
@@ -80,12 +81,14 @@ class QQuickDropEvent : public QObject
     Q_PROPERTY(QString text READ text)
     Q_PROPERTY(QList<QUrl> urls READ urls)
     Q_PROPERTY(QStringList formats READ formats)
-    QML_ANONYMOUS
+    QML_NAMED_ELEMENT(DragEvent)
+    QML_UNCREATABLE("DragEvent is only meant to be created by DropArea")
+    QML_ADDED_IN_VERSION(2, 0)
 public:
-    QQuickDropEvent(QQuickDropAreaPrivate *d, QDropEvent *event) : d(d), event(event) {}
+    QQuickDragEvent(QQuickDropAreaPrivate *d, QDropEvent *event) : d(d), event(event) {}
 
-    qreal x() const { return event->pos().x(); }
-    qreal y() const { return event->pos().y(); }
+    qreal x() const { return event->position().x(); }
+    qreal y() const { return event->position().y(); }
 
     QObject *source() const;
 
@@ -127,6 +130,7 @@ class QQuickDropAreaDrag : public QObject
     Q_PROPERTY(qreal y READ y NOTIFY positionChanged)
     Q_PROPERTY(QObject *source READ source NOTIFY sourceChanged)
     QML_ANONYMOUS
+    QML_ADDED_IN_VERSION(2, 0)
 public:
     QQuickDropAreaDrag(QQuickDropAreaPrivate *d, QObject *parent = 0);
     ~QQuickDropAreaDrag();
@@ -147,13 +151,14 @@ private:
 };
 
 class QQuickDropAreaPrivate;
-class Q_AUTOTEST_EXPORT QQuickDropArea : public QQuickItem
+class Q_QUICK_PRIVATE_EXPORT QQuickDropArea : public QQuickItem
 {
     Q_OBJECT
     Q_PROPERTY(bool containsDrag READ containsDrag NOTIFY containsDragChanged)
     Q_PROPERTY(QStringList keys READ keys WRITE setKeys NOTIFY keysChanged)
     Q_PROPERTY(QQuickDropAreaDrag *drag READ drag CONSTANT)
     QML_NAMED_ELEMENT(DropArea)
+    QML_ADDED_IN_VERSION(2, 0)
 
 public:
     QQuickDropArea(QQuickItem *parent=0);
@@ -172,10 +177,10 @@ Q_SIGNALS:
     void keysChanged();
     void sourceChanged();
 
-    void entered(QQuickDropEvent *drag);
+    void entered(QQuickDragEvent *drag);
     void exited();
-    void positionChanged(QQuickDropEvent *drag);
-    void dropped(QQuickDropEvent *drop);
+    void positionChanged(QQuickDragEvent *drag);
+    void dropped(QQuickDragEvent *drop);
 
 protected:
     void dragMoveEvent(QDragMoveEvent *event) override;
@@ -190,7 +195,6 @@ private:
 
 QT_END_NAMESPACE
 
-QML_DECLARE_TYPE(QQuickDropEvent)
 QML_DECLARE_TYPE(QQuickDropArea)
 
 #endif // QQUICKDROPAREA_P_H

@@ -28,7 +28,6 @@
 #include "content/browser/indexed_db/indexed_db_backing_store.h"
 #include "content/browser/indexed_db/indexed_db_callbacks.h"
 #include "content/browser/indexed_db/indexed_db_connection_coordinator.h"
-#include "content/browser/indexed_db/indexed_db_observer.h"
 #include "content/browser/indexed_db/indexed_db_origin_state_handle.h"
 #include "content/browser/indexed_db/indexed_db_pending_connection.h"
 #include "content/browser/indexed_db/indexed_db_task_helper.h"
@@ -112,19 +111,6 @@ class CONTENT_EXPORT IndexedDBDatabase {
   void TransactionCreated();
   void TransactionFinished(blink::mojom::IDBTransactionMode mode,
                            bool committed);
-
-  void AddPendingObserver(IndexedDBTransaction* transaction,
-                          int32_t observer_id,
-                          const IndexedDBObserver::Options& options);
-
-  // |value| can be null for delete and clear operations.
-  void FilterObservation(IndexedDBTransaction*,
-                         int64_t object_store_id,
-                         blink::mojom::IDBOperationType type,
-                         const blink::IndexedDBKeyRange& key_range,
-                         const IndexedDBValue* value);
-  void SendObservations(
-      std::map<int32_t, blink::mojom::IDBObserverChangesPtr> change_map);
 
   void ScheduleOpenConnection(
       IndexedDBOriginStateHandle origin_state_handle,
@@ -245,6 +231,22 @@ class CONTENT_EXPORT IndexedDBDatabase {
   };
   leveldb::Status PutOperation(std::unique_ptr<PutOperationParams> params,
                                IndexedDBTransaction* transaction);
+
+  struct CONTENT_EXPORT PutAllOperationParams {
+    PutAllOperationParams();
+    ~PutAllOperationParams();
+    IndexedDBValue value;
+    std::unique_ptr<blink::IndexedDBKey> key;
+    std::vector<blink::IndexedDBIndexKeys> index_keys;
+
+   private:
+    DISALLOW_COPY_AND_ASSIGN(PutAllOperationParams);
+  };
+  leveldb::Status PutAllOperation(
+      int64_t object_store_id,
+      std::vector<std::unique_ptr<PutAllOperationParams>> params,
+      blink::mojom::IDBTransaction::PutAllCallback callback,
+      IndexedDBTransaction* transaction);
 
   leveldb::Status SetIndexKeysOperation(
       int64_t object_store_id,

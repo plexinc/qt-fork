@@ -2,13 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/http2/hpack/decoder/hpack_block_collector.h"
+#include "http2/hpack/decoder/hpack_block_collector.h"
 
 #include <algorithm>
 #include <memory>
 
-#include "net/third_party/quiche/src/http2/platform/api/http2_logging.h"
-#include "net/third_party/quiche/src/http2/platform/api/http2_test_helpers.h"
+#include "http2/platform/api/http2_logging.h"
+#include "http2/platform/api/http2_test_helpers.h"
 
 using ::testing::AssertionResult;
 using ::testing::AssertionSuccess;
@@ -95,7 +95,7 @@ void HpackBlockCollector::ShuffleEntries(Http2Random* rng) {
 
 void HpackBlockCollector::AppendToHpackBlockBuilder(
     HpackBlockBuilder* hbb) const {
-  CHECK(IsNotPending());
+  QUICHE_CHECK(IsNotPending());
   for (const auto& entry : entries_) {
     entry.AppendToHpackBlockBuilder(hbb);
   }
@@ -112,7 +112,7 @@ AssertionResult HpackBlockCollector::ValidateSoleLiteralValueHeader(
     HpackEntryType expected_type,
     size_t expected_index,
     bool expected_value_huffman,
-    quiche::QuicheStringPiece expected_value) const {
+    absl::string_view expected_value) const {
   VERIFY_TRUE(pending_entry_.IsClear());
   VERIFY_EQ(1u, entries_.size());
   VERIFY_TRUE(entries_.front().ValidateLiteralValueHeader(
@@ -122,9 +122,9 @@ AssertionResult HpackBlockCollector::ValidateSoleLiteralValueHeader(
 AssertionResult HpackBlockCollector::ValidateSoleLiteralNameValueHeader(
     HpackEntryType expected_type,
     bool expected_name_huffman,
-    quiche::QuicheStringPiece expected_name,
+    absl::string_view expected_name,
     bool expected_value_huffman,
-    quiche::QuicheStringPiece expected_value) const {
+    absl::string_view expected_value) const {
   VERIFY_TRUE(pending_entry_.IsClear());
   VERIFY_EQ(1u, entries_.size());
   VERIFY_TRUE(entries_.front().ValidateLiteralNameValueHeader(

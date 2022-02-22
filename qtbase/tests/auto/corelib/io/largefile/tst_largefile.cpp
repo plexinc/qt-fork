@@ -48,7 +48,7 @@
 #  endif
 #endif // Q_OS_WIN
 
-#include "emulationdetector.h"
+#include <QtTest/private/qemulationdetector_p.h>
 
 class tst_LargeFile
     : public QObject
@@ -62,18 +62,23 @@ public:
         , fd_(-1)
         , stream_(0)
     {
-    #if defined(QT_LARGEFILE_SUPPORT) && !defined(Q_OS_MAC) && !defined(Q_OS_WINRT)
+    #if defined(QT_LARGEFILE_SUPPORT) && !defined(Q_OS_MAC) && !defined(Q_OS_QNX)
         maxSizeBits = 36; // 64 GiB
     #elif defined(Q_OS_MAC)
         // HFS+ does not support sparse files, so we limit file size for the test
         // on Mac OS.
         maxSizeBits = 24; // 16 MiB
+    #elif defined(Q_OS_QNX)
+        // Many of the filesystems that QNX supports use a 32-bit format.
+        // This means that files are limited to 2 GB − 1 bytes.
+        // Limit max size to 256MB
+        maxSizeBits = 28; // 256 MiB
     #else
         maxSizeBits = 24; // 16 MiB
     #endif
 
         // QEMU only supports < 4GB files
-        if (EmulationDetector::isRunningArmOnX86())
+        if (QTestPrivate::isRunningArmOnX86())
             maxSizeBits = qMin(maxSizeBits, 28);
     }
 
@@ -127,7 +132,7 @@ private:
 
     QFile largeFile;
 
-    QVector<QByteArray> generatedBlocks;
+    QByteArrayList generatedBlocks;
 
     int fd_;
     FILE *stream_;
@@ -299,7 +304,7 @@ void tst_LargeFile::createSparseFile()
     DWORD bytes;
     if (!::DeviceIoControl(handle, FSCTL_SET_SPARSE, NULL, 0, NULL, 0,
             &bytes, NULL)) {
-        QWARN("Unable to set test file as sparse. "
+        qWarning("Unable to set test file as sparse. "
             "Limiting test file to 16MiB.");
         maxSizeBits = 24;
     }
@@ -347,11 +352,10 @@ void tst_LargeFile::fillFileSparsely()
         {
             if (failed) {
                 this_->maxSizeBits = lastKnownGoodIndex;
-                QWARN( qPrintable(
-                    QString("QFile::error %1: '%2'. Maximum size bits reset to %3.")
-                        .arg(this_->largeFile.error())
-                        .arg(this_->largeFile.errorString())
-                        .arg(this_->maxSizeBits)) );
+                qWarning("QFile::error %d: '%s'. Maximum size bits reset to %d.",
+                        this_->largeFile.error(),
+                        qPrintable(this_->largeFile.errorString()),
+                        this_->maxSizeBits);
             } else
                 lastKnownGoodIndex = qMax<int>(index_, lastKnownGoodIndex);
         }

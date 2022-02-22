@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -328,7 +328,7 @@ version 1.0 to the .pro file:
 
 \snippet tutorials/extending-qml/chapter4-customPropertyTypes/pieslice.h 0
 \dots
-\quotefile tutorials/extending-qml/chapter1-basics/chapter4-customPropertyTypes.pro
+\quotefile tutorials/extending-qml/chapter4-customPropertyTypes/chapter4-customPropertyTypes.pro
 
 The source code from the following files are referred to in this chapter:
 \generatelist examplefiles .*chapter4.*
@@ -391,22 +391,17 @@ by any QML application, instead of restricting these types to be only used by
 the one application.
 
 The steps for creating a plugin are described in \l {Creating C++ Plugins for QML}.
-To start with, we create a plugin class named \c ChartsPlugin. It subclasses QQmlExtensionPlugin
-and registers our QML types in the inherited \l{QQmlExtensionPlugin::}{registerTypes()} method.
+To start with, we create a plugin class named \c ChartsPlugin. It subclasses
+QQmlEngineExtensionPlugin and uses the Q_PLUGIN_METADATA() macro to register the
+plugin with the Qt meta object system.
 
 Here is the \c ChartsPlugin definition in \c chartsplugin.h:
 
-\snippet tutorials/extending-qml/chapter6-plugins/import/chartsplugin.h 0
+\snippet tutorials/extending-qml/chapter6-plugins/Charts/chartsplugin.h 0
 
-And its implementation in \c chartsplugin.cpp:
+Then, we write a \c .pro project file that defines the project as a plugin library.
 
-\snippet tutorials/extending-qml/chapter6-plugins/import/chartsplugin.cpp 0
-
-Then, we write a \c .pro project file that defines the project as a plugin library
-and specifies with DESTDIR that library files should be built into a \c {../Charts}
-directory.
-
-\quotefile tutorials/extending-qml/chapter6-plugins/import/import.pro
+\quotefile tutorials/extending-qml/chapter6-plugins/Charts/Charts.pro
 
 When building this example on Windows or Linux, the \c Charts directory will be
 located at the same level as the application that uses our new import module.
@@ -416,7 +411,7 @@ plugin binary is copied to \c Contents/PlugIns in the the application bundle;
 this path is set in \c {chapter6-plugins/app.pro}:
 
 \quotefromfile tutorials/extending-qml/chapter6-plugins/app.pro
-\skipto osx
+\skipto macos
 \printuntil }
 
 To account for this, we also need to add this location as a
@@ -435,16 +430,16 @@ to the same location as the plugin binary.
 The \c qmldir file declares the module name and the plugin that is made available
 by the module:
 
-\quotefile tutorials/extending-qml/chapter6-plugins/import/qmldir
+\quotefile tutorials/extending-qml/chapter6-plugins/Charts/qmldir
 
 Now we have a QML module that can be imported to any application, provided that the
 QML engine knows where to find it. The example contains an executable that loads
 \c app.qml, which uses the \c {import Charts 1.0} statement. Alternatively, you can
-load the QML file using the \l{Prototyping with qmlscene}{qmlscene tool}, setting the
-import path to the current directory so that it finds the \c qmldir file:
+load the QML file using the \l {Prototyping with the QML Runtime Tool}{qml tool},
+setting the import path to the current directory so that it finds the \c qmldir file:
 
 \code
-    qmlscene -I . app.qml
+    qml -I . app.qml
 \endcode
 
 The module "Charts" will be loaded by the QML engine, and the types provided by that

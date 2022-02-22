@@ -40,6 +40,9 @@
 #include "qaspectjob.h"
 #include "qaspectjob_p.h"
 
+#include <Qt3DCore/qaspectengine.h>
+#include <Qt3DCore/private/qaspectengine_p.h>
+
 #include <QtCore/QByteArray>
 
 QT_BEGIN_NAMESPACE
@@ -74,7 +77,7 @@ bool QAspectJobPrivate::isRequired() const
 
 void QAspectJobPrivate::postFrame(QAspectManager *aspectManager)
 {
-    Q_UNUSED(aspectManager)
+    Q_UNUSED(aspectManager);
 }
 
 QAspectJob::QAspectJob()
@@ -91,7 +94,7 @@ QAspectJob::QAspectJob()
 
 /*!
  * \fn void Qt3DCore::QAspectJob::run()
- * Executes the job.
+ * Executes the job. This is called on a separate thread by the scheduler.
  */
 
 /*!
@@ -113,7 +116,7 @@ QAspectJob::~QAspectJob()
 void QAspectJob::addDependency(QWeakPointer<QAspectJob> dependency)
 {
     Q_D(QAspectJob);
-    d->m_dependencies.append(dependency);
+    d->m_dependencies.push_back(dependency);
 #ifdef QT3DCORE_ASPECT_JOB_DEBUG
     static int threshold = qMax(1, qgetenv("QT3DCORE_ASPECT_JOB_DEPENDENCY_THRESHOLD").toInt());
     if (d->m_dependencies.count() > threshold)
@@ -128,7 +131,10 @@ void QAspectJob::removeDependency(QWeakPointer<QAspectJob> dependency)
 {
     Q_D(QAspectJob);
     if (!dependency.isNull()) {
-        d->m_dependencies.removeAll(dependency);
+        d->m_dependencies.erase(std::remove(d->m_dependencies.begin(),
+                                            d->m_dependencies.end(),
+                                            dependency),
+                                d->m_dependencies.end());
     } else {
         d->m_dependencies.erase(std::remove_if(d->m_dependencies.begin(),
                                                d->m_dependencies.end(),
@@ -140,17 +146,35 @@ void QAspectJob::removeDependency(QWeakPointer<QAspectJob> dependency)
 /*!
  * \return the dependencies of the aspect job.
  */
-QVector<QWeakPointer<QAspectJob> > QAspectJob::dependencies() const
+const std::vector<QWeakPointer<QAspectJob> > &QAspectJob::dependencies() const
 {
     Q_D(const QAspectJob);
     return d->m_dependencies;
 }
 
-void QAspectJob::postFrame(QAspectManager *aspectManager)
+/*!
+ * Called in the main thread when all the jobs have completed.
+ * This is a good point to push changes back to the frontend.
+ * \a aspectEngine is the engine responsible for the run loop.
+ */
+void QAspectJob::postFrame(QAspectEngine *aspectEngine)
 {
     Q_D(QAspectJob);
-    if (aspectManager)
-        d->postFrame(aspectManager);
+    if (aspectEngine) {
+        auto manager = QAspectEnginePrivate::get(aspectEngine)->m_aspectManager;
+        d->postFrame(manager);
+    }
+}
+
+/*!
+ * Should return true (default) if the job has actually something to do.
+ * If returning false, the job will not be scheduled (but it's dependencies
+ * will be).
+ */
+bool QAspectJob::isRequired()
+{
+    Q_D(QAspectJob);
+    return d->isRequired();
 }
 
 } // namespace Qt3DCore

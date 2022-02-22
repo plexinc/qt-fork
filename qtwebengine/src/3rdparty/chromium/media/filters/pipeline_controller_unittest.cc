@@ -7,10 +7,10 @@
 #include <memory>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
-#include "base/logging.h"
+#include "base/callback_helpers.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/notreached.h"
 #include "base/run_loop.h"
 #include "base/test/gmock_callback_support.h"
 #include "base/test/gmock_move_support.h"
@@ -152,8 +152,8 @@ class PipelineControllerTest : public ::testing::Test, public Pipeline::Client {
   void OnVideoOpacityChange(bool opaque) override {}
   void OnVideoFrameRateChange(base::Optional<int>) override {}
   void OnVideoAverageKeyframeDistanceUpdate() override {}
-  void OnAudioDecoderChange(const PipelineDecoderInfo& info) override {}
-  void OnVideoDecoderChange(const PipelineDecoderInfo& info) override {}
+  void OnAudioDecoderChange(const AudioDecoderInfo& info) override {}
+  void OnVideoDecoderChange(const VideoDecoderInfo& info) override {}
 
   base::test::SingleThreadTaskEnvironment task_environment_;
 
@@ -533,6 +533,28 @@ TEST_F(PipelineControllerTest, SuspendDuringAudioTrackChange) {
 
   loop.Run();
   EXPECT_FALSE(was_resumed_);
+}
+
+TEST_F(PipelineControllerTest, ResumePlaybackDuringSwitchingTracksState) {
+  Complete(StartPipeline());
+  Complete(SuspendPipeline());
+  EXPECT_CALL(*pipeline_, OnSelectedVideoTrackChanged(_, _)).Times(1);
+  EXPECT_CALL(*pipeline_, GetMediaTime()).Times(1);
+  EXPECT_CALL(*pipeline_, OnResume(_, _)).Times(1);
+
+  pipeline_controller_.OnSelectedVideoTrackChanged({});
+  pipeline_controller_.Resume();
+  pipeline_controller_.FireOnTrackChangeCompleteForTesting(
+      PipelineController::State::SUSPENDED);
+}
+
+TEST_F(PipelineControllerTest, PreservesPitch) {
+  Complete(StartPipeline());
+  EXPECT_CALL(*pipeline_, SetPreservesPitch(false));
+  pipeline_controller_.SetPreservesPitch(false);
+
+  EXPECT_CALL(*pipeline_, SetPreservesPitch(true));
+  pipeline_controller_.SetPreservesPitch(true);
 }
 
 }  // namespace media

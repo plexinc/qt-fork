@@ -33,7 +33,7 @@
 #include <QtCharts/QAbstractAxis>
 #include <QtCharts/QValueAxis>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class QCategoryAxisPrivate;
 
@@ -60,7 +60,7 @@ protected:
     QCategoryAxis(QCategoryAxisPrivate &d, QObject *parent = nullptr);
 
 public:
-    AxisType type() const;
+    AxisType type() const override;
 
     void append(const QString &label, qreal categoryEndValue);
     void remove(const QString &label);
@@ -86,6 +86,6 @@ private:
     Q_DISABLE_COPY(QCategoryAxis)
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // QCATEGORYAXIS_H

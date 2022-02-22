@@ -32,11 +32,11 @@
 #include <private/boxplotchartitem_p.h>
 #include <private/boxwhiskersdata_p.h>
 
-Q_DECLARE_METATYPE(QVector<QRectF>)
-Q_DECLARE_METATYPE(QT_CHARTS_NAMESPACE::BoxWhiskersData)
+Q_DECLARE_METATYPE(QList<QRectF>)
+Q_DECLARE_METATYPE(BoxWhiskersData)
 Q_DECLARE_METATYPE(qreal)
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 BoxWhiskersAnimation::BoxWhiskersAnimation(BoxWhiskers *box, BoxPlotAnimation *boxPlotAnimation,
                                            int duration, QEasingCurve &curve)
@@ -89,7 +89,7 @@ QVariant BoxWhiskersAnimation::interpolated(const QVariant &from, const QVariant
 
 void BoxWhiskersAnimation::updateCurrentValue(const QVariant &value)
 {
-    BoxWhiskersData data = qvariant_cast<BoxWhiskersData>(value);
+    const BoxWhiskersData data = qvariant_cast<BoxWhiskersData>(value);
     m_box->setLayout(data);
 }
 
@@ -115,6 +115,6 @@ void BoxWhiskersAnimation::setStartData(const BoxWhiskersData &endData)
     setStartValue(QVariant::fromValue(endData));
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_boxwhiskersanimation_p.cpp"

@@ -29,7 +29,7 @@
 #include "msvc_nmake.h"
 #include "option.h"
 
-#include <qregexp.h>
+#include <qregularexpression.h>
 #include <qdir.h>
 #include <qdiriterator.h>
 #include <qset.h>
@@ -86,8 +86,8 @@ QString NmakeMakefileGenerator::defaultInstall(const QString &t)
 
     if (project->isActiveConfig("debug_info")) {
         if (t == "dlltarget" || project->values(ProKey(t + ".CONFIG")).indexOf("no_dll") == -1) {
-            const QFileInfo targetFileInfo = project->first("DESTDIR") + project->first("TARGET")
-                    + project->first("TARGET_EXT");
+            const QFileInfo targetFileInfo(project->first("DESTDIR") + project->first("TARGET")
+                    + project->first("TARGET_EXT"));
             const QString pdb_target = targetFileInfo.completeBaseName() + ".pdb";
             QString src_targ = (project->isEmpty("DESTDIR") ? QString("$(DESTDIR)") : project->first("DESTDIR")) + pdb_target;
             QString dst_targ = filePrefixRoot(root, fileFixify(targetdir + pdb_target, FileFixifyAbsolute));
@@ -245,8 +245,8 @@ void NmakeMakefileGenerator::init()
         project->values("PRECOMPILED_PCH_C")    = ProStringList(precompPchC);
     }
 
-    const QFileInfo targetFileInfo = project->first("DESTDIR") + project->first("TARGET")
-            + project->first("TARGET_EXT");
+    const QFileInfo targetFileInfo(project->first("DESTDIR") + project->first("TARGET")
+            + project->first("TARGET_EXT"));
     const ProString targetBase = targetFileInfo.path() + '/' + targetFileInfo.completeBaseName();
     if (project->first("TEMPLATE") == "lib" && project->isActiveConfig("shared")) {
         project->values("QMAKE_CLEAN").append(targetBase + ".exp");
@@ -370,12 +370,12 @@ void NmakeMakefileGenerator::writeImplicitRulesPart(QTextStream &t)
             for(QStringList::Iterator cppit = Option::cpp_ext.begin(); cppit != Option::cpp_ext.end(); ++cppit)
                 t << '{' << escapeDependencyPath(sourceDir) << '}' << (*cppit)
                   << '{' << escapeDependencyPath(objDir) << '}' << Option::obj_ext << "::\n\t"
-                  << var("QMAKE_RUN_CXX_IMP_BATCH").replace(QRegExp("\\$@"), fileVar("OBJECTS_DIR"))
+                  << var("QMAKE_RUN_CXX_IMP_BATCH").replace(QRegularExpression("\\$@"), fileVar("OBJECTS_DIR"))
                   << "\n\t$<\n<<\n\n";
             for(QStringList::Iterator cit = Option::c_ext.begin(); cit != Option::c_ext.end(); ++cit)
                 t << '{' << escapeDependencyPath(sourceDir) << '}' << (*cit)
                   << '{' << escapeDependencyPath(objDir) << '}' << Option::obj_ext << "::\n\t"
-                  << var("QMAKE_RUN_CC_IMP_BATCH").replace(QRegExp("\\$@"), fileVar("OBJECTS_DIR"))
+                  << var("QMAKE_RUN_CC_IMP_BATCH").replace(QRegularExpression("\\$@"), fileVar("OBJECTS_DIR"))
                   << "\n\t$<\n<<\n\n";
         }
     } else {
@@ -434,7 +434,7 @@ void NmakeMakefileGenerator::writeBuildRulesPart(QTextStream &t)
             }
 
             const QString resourceId = (templateName == "app") ? "1" : "2";
-            const bool incrementalLinking = project->values("QMAKE_LFLAGS").toQStringList().filter(QRegExp("(/|-)INCREMENTAL:NO")).isEmpty();
+            const bool incrementalLinking = project->values("QMAKE_LFLAGS").toQStringList().filter(QRegularExpression("(/|-)INCREMENTAL:NO")).isEmpty();
             if (incrementalLinking && !linkerSupportsEmbedding) {
                 // Link a resource that contains the manifest without modifying the exe/dll after linking.
 

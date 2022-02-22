@@ -22,6 +22,10 @@ using protocol::Runtime::PropertyPreview;
 using protocol::Runtime::RemoteObject;
 
 namespace {
+
+// WebAssembly memory is organized in pages of size 64KiB.
+const size_t kWasmPageSize = 64 * 1024;
+
 V8InspectorClient* clientFor(v8::Local<v8::Context> context) {
   return static_cast<V8InspectorImpl*>(
              v8::debug::GetInspector(context->GetIsolate()))
@@ -94,7 +98,7 @@ Response toProtocolValue(v8::Local<v8::Context> context,
   if (value->IsObject()) {
     std::unique_ptr<protocol::DictionaryValue> jsonObject =
         protocol::DictionaryValue::create();
-    v8::Local<v8::Object> object = v8::Local<v8::Object>::Cast(value);
+    v8::Local<v8::Object> object = value.As<v8::Object>();
     v8::Local<v8::Array> propertyNames;
     if (!object->GetPropertyNames(context).ToLocal(&propertyNames))
       return Response::InternalError();
@@ -105,8 +109,8 @@ Response toProtocolValue(v8::Local<v8::Context> context,
         return Response::InternalError();
       // FIXME(yurys): v8::Object should support GetOwnPropertyNames
       if (name->IsString()) {
-        v8::Maybe<bool> hasRealNamedProperty = object->HasRealNamedProperty(
-            context, v8::Local<v8::String>::Cast(name));
+        v8::Maybe<bool> hasRealNamedProperty =
+            object->HasRealNamedProperty(context, name.As<v8::String>());
         if (hasRealNamedProperty.IsNothing() ||
             !hasRealNamedProperty.FromJust())
           continue;
@@ -128,6 +132,7 @@ Response toProtocolValue(v8::Local<v8::Context> context,
     *result = std::move(jsonObject);
     return Response::Success();
   }
+
   return Response::ServerError("Object couldn't be returned by value");
 }
 
@@ -135,7 +140,13 @@ Response toProtocolValue(v8::Local<v8::Context> context,
                          v8::Local<v8::Value> value,
                          std::unique_ptr<protocol::Value>* result) {
   if (value->IsUndefined()) return Response::Success();
-  return toProtocolValue(context, value, 1000, result);
+#if defined(V8_USE_ADDRESS_SANITIZER) && V8_OS_MACOSX
+  // For whatever reason, ASan on MacOS has bigger stack frames.
+  static const int kMaxDepth = 900;
+#else
+  static const int kMaxDepth = 1000;
+#endif
+  return toProtocolValue(context, value, kMaxDepth, result);
 }
 
 enum AbbreviateMode { kMiddle, kEnd };
@@ -192,6 +203,7 @@ String16 descriptionForRegExp(v8::Isolate* isolate,
   v8::RegExp::Flags flags = value->GetFlags();
   if (flags & v8::RegExp::Flags::kGlobal) description.append('g');
   if (flags & v8::RegExp::Flags::kIgnoreCase) description.append('i');
+  if (flags & v8::RegExp::Flags::kLinear) description.append('l');
   if (flags & v8::RegExp::Flags::kMultiline) description.append('m');
   if (flags & v8::RegExp::Flags::kDotAll) description.append('s');
   if (flags & v8::RegExp::Flags::kUnicode) description.append('u');
@@ -687,7 +699,7 @@ bool isArrayLike(v8::Local<v8::Context> context, v8::Local<v8::Value> value,
       !lengthValue->IsUint32()) {
     return false;
   }
-  *length = v8::Local<v8::Uint32>::Cast(lengthValue)->Value();
+  *length = lengthValue.As<v8::Uint32>()->Value();
   return true;
 }
 
@@ -727,11 +739,11 @@ struct EntryMirror {
 
 class PreviewPropertyAccumulator : public ValueMirror::PropertyAccumulator {
  public:
-  PreviewPropertyAccumulator(const std::vector<String16>& blacklist,
+  PreviewPropertyAccumulator(const std::vector<String16>& blocklist,
                              int skipIndex, int* nameLimit, int* indexLimit,
                              bool* overflow,
                              std::vector<PropertyMirror>* mirrors)
-      : m_blacklist(blacklist),
+      : m_blocklist(blocklist),
         m_skipIndex(skipIndex),
         m_nameLimit(nameLimit),
         m_indexLimit(indexLimit),
@@ -745,8 +757,8 @@ class PreviewPropertyAccumulator : public ValueMirror::PropertyAccumulator {
       return true;
     }
     if (!mirror.isOwn) return true;
-    if (std::find(m_blacklist.begin(), m_blacklist.end(), mirror.name) !=
-        m_blacklist.end()) {
+    if (std::find(m_blocklist.begin(), m_blocklist.end(), mirror.name) !=
+        m_blocklist.end()) {
       return true;
     }
     if (mirror.isIndex && m_skipIndex > 0) {
@@ -764,7 +776,7 @@ class PreviewPropertyAccumulator : public ValueMirror::PropertyAccumulator {
   }
 
  private:
-  std::vector<String16> m_blacklist;
+  std::vector<String16> m_blocklist;
   int m_skipIndex;
   int* m_nameLimit;
   int* m_indexLimit;
@@ -776,27 +788,29 @@ bool getPropertiesForPreview(v8::Local<v8::Context> context,
                              v8::Local<v8::Object> object, int* nameLimit,
                              int* indexLimit, bool* overflow,
                              std::vector<PropertyMirror>* properties) {
-  std::vector<String16> blacklist;
+  std::vector<String16> blocklist;
   size_t length = 0;
   if (object->IsArray() || isArrayLike(context, object, &length) ||
       object->IsStringObject()) {
-    blacklist.push_back("length");
+    blocklist.push_back("length");
+  } else if (v8::debug::WasmValueObject::IsWasmValueObject(object)) {
+    blocklist.push_back("type");
   } else {
     auto clientSubtype = clientFor(context)->valueSubtype(object);
     if (clientSubtype && toString16(clientSubtype->string()) == "array") {
-      blacklist.push_back("length");
+      blocklist.push_back("length");
     }
   }
   if (object->IsArrayBuffer() || object->IsSharedArrayBuffer()) {
-    blacklist.push_back("[[Int8Array]]");
-    blacklist.push_back("[[Uint8Array]]");
-    blacklist.push_back("[[Int16Array]]");
-    blacklist.push_back("[[Int32Array]]");
+    blocklist.push_back("[[Int8Array]]");
+    blocklist.push_back("[[Uint8Array]]");
+    blocklist.push_back("[[Int16Array]]");
+    blocklist.push_back("[[Int32Array]]");
   }
   int skipIndex = object->IsStringObject()
                       ? object.As<v8::StringObject>()->ValueOf()->Length() + 1
                       : -1;
-  PreviewPropertyAccumulator accumulator(blacklist, skipIndex, nameLimit,
+  PreviewPropertyAccumulator accumulator(blocklist, skipIndex, nameLimit,
                                          indexLimit, overflow, properties);
   return ValueMirror::getProperties(context, object, false, false,
                                     &accumulator);
@@ -808,20 +822,20 @@ void getInternalPropertiesForPreview(
     std::vector<InternalPropertyMirror>* properties) {
   std::vector<InternalPropertyMirror> mirrors;
   ValueMirror::getInternalProperties(context, object, &mirrors);
-  std::vector<String16> whitelist;
+  std::vector<String16> allowlist;
   if (object->IsBooleanObject() || object->IsNumberObject() ||
       object->IsStringObject() || object->IsSymbolObject() ||
       object->IsBigIntObject()) {
-    whitelist.emplace_back("[[PrimitiveValue]]");
+    allowlist.emplace_back("[[PrimitiveValue]]");
   } else if (object->IsPromise()) {
-    whitelist.emplace_back("[[PromiseStatus]]");
-    whitelist.emplace_back("[[PromiseValue]]");
+    allowlist.emplace_back("[[PromiseState]]");
+    allowlist.emplace_back("[[PromiseResult]]");
   } else if (object->IsGeneratorObject()) {
-    whitelist.emplace_back("[[GeneratorStatus]]");
+    allowlist.emplace_back("[[GeneratorState]]");
   }
   for (auto& mirror : mirrors) {
-    if (std::find(whitelist.begin(), whitelist.end(), mirror.name) ==
-        whitelist.end()) {
+    if (std::find(allowlist.begin(), allowlist.end(), mirror.name) ==
+        allowlist.end()) {
       continue;
     }
     if (!*nameLimit) {
@@ -839,7 +853,6 @@ void getPrivatePropertiesForPreview(
     protocol::Array<PropertyPreview>* privateProperties) {
   std::vector<PrivatePropertyMirror> mirrors =
       ValueMirror::getPrivateProperties(context, object);
-  std::vector<String16> whitelist;
   for (auto& mirror : mirrors) {
     std::unique_ptr<PropertyPreview> propertyPreview;
     if (mirror.value) {
@@ -1161,45 +1174,7 @@ bool doesAttributeHaveObservableSideEffectOnGet(v8::Local<v8::Context> context,
   }
   return false;
 }
-template <typename ArrayView, typename ArrayBuffer>
-void addTypedArrayView(v8::Local<v8::Context> context,
-                       v8::Local<ArrayBuffer> buffer, size_t length,
-                       const char* name,
-                       ValueMirror::PropertyAccumulator* accumulator) {
-  accumulator->Add(PropertyMirror{
-      String16(name), false, false, false, true, false,
-      ValueMirror::create(context, ArrayView::New(buffer, 0, length)), nullptr,
-      nullptr, nullptr, nullptr});
-}
 
-template <typename ArrayBuffer>
-void addTypedArrayViews(v8::Local<v8::Context> context,
-                        v8::Local<ArrayBuffer> buffer,
-                        ValueMirror::PropertyAccumulator* accumulator) {
-  // TODO(alph): these should be internal properties.
-  // TODO(v8:9308): Reconsider how large arrays are previewed.
-  const size_t byte_length = buffer->ByteLength();
-
-  size_t length = byte_length;
-  if (length > v8::TypedArray::kMaxLength) return;
-
-  addTypedArrayView<v8::Int8Array>(context, buffer, length, "[[Int8Array]]",
-                                   accumulator);
-  addTypedArrayView<v8::Uint8Array>(context, buffer, length, "[[Uint8Array]]",
-                                    accumulator);
-
-  length = byte_length / 2;
-  if (length > v8::TypedArray::kMaxLength || (byte_length % 2) != 0) return;
-
-  addTypedArrayView<v8::Int16Array>(context, buffer, length, "[[Int16Array]]",
-                                    accumulator);
-
-  length = byte_length / 4;
-  if (length > v8::TypedArray::kMaxLength || (byte_length % 4) != 0) return;
-
-  addTypedArrayView<v8::Int32Array>(context, buffer, length, "[[Int32Array]]",
-                                    accumulator);
-}
 }  // anonymous namespace
 
 ValueMirror::~ValueMirror() = default;
@@ -1234,23 +1209,24 @@ bool ValueMirror::getProperties(v8::Local<v8::Context> context,
 
   bool formatAccessorsAsProperties =
       clientFor(context)->formatAccessorsAsProperties(object);
-
-  if (object->IsArrayBuffer()) {
-    addTypedArrayViews(context, object.As<v8::ArrayBuffer>(), accumulator);
+  auto iterator = v8::debug::PropertyIterator::Create(context, object);
+  if (!iterator) {
+    CHECK(tryCatch.HasCaught());
+    return false;
   }
-  if (object->IsSharedArrayBuffer()) {
-    addTypedArrayViews(context, object.As<v8::SharedArrayBuffer>(),
-                       accumulator);
-  }
-
-  for (auto iterator = v8::debug::PropertyIterator::Create(object);
-       !iterator->Done(); iterator->Advance()) {
+  while (!iterator->Done()) {
     bool isOwn = iterator->is_own();
     if (!isOwn && ownProperties) break;
     v8::Local<v8::Name> v8Name = iterator->name();
     v8::Maybe<bool> result = set->Has(context, v8Name);
     if (result.IsNothing()) return false;
-    if (result.FromJust()) continue;
+    if (result.FromJust()) {
+      if (!iterator->Advance().FromMaybe(false)) {
+        CHECK(tryCatch.HasCaught());
+        return false;
+      }
+      continue;
+    }
     if (!set->Add(context, v8Name).ToLocal(&set)) return false;
 
     String16 name;
@@ -1346,6 +1322,11 @@ bool ValueMirror::getProperties(v8::Local<v8::Context> context,
                                  std::move(symbolMirror),
                                  std::move(exceptionMirror)};
     if (!accumulator->Add(std::move(mirror))) return true;
+
+    if (!iterator->Advance().FromMaybe(false)) {
+      CHECK(tryCatch.HasCaught());
+      return false;
+    }
   }
   if (!shouldSkipProto && ownProperties && !object->IsProxy() &&
       !accessorPropertiesOnly) {
@@ -1548,6 +1529,12 @@ std::unique_ptr<ValueMirror> clientMirror(v8::Local<v8::Context> context,
                                           v8::Local<v8::Value> value,
                                           const String16& subtype) {
   // TODO(alph): description and length retrieval should move to embedder.
+  auto descriptionForValueSubtype =
+      clientFor(context)->descriptionForValueSubtype(context, value);
+  if (descriptionForValueSubtype) {
+    return std::make_unique<ObjectMirror>(
+        value, subtype, toString16(descriptionForValueSubtype->string()));
+  }
   if (subtype == "node") {
     return std::make_unique<ObjectMirror>(value, subtype,
                                           descriptionForNode(context, value));
@@ -1699,8 +1686,22 @@ std::unique_ptr<ValueMirror> ValueMirror::create(v8::Local<v8::Context> context,
         value, RemoteObject::SubtypeEnum::Dataview,
         descriptionForCollection(isolate, view, view->ByteLength()));
   }
+  if (value->IsWasmMemoryObject()) {
+    v8::Local<v8::WasmMemoryObject> memory = value.As<v8::WasmMemoryObject>();
+    return std::make_unique<ObjectMirror>(
+        value, RemoteObject::SubtypeEnum::Webassemblymemory,
+        descriptionForCollection(
+            isolate, memory, memory->Buffer()->ByteLength() / kWasmPageSize));
+  }
+  if (v8::debug::WasmValueObject::IsWasmValueObject(value)) {
+    v8::Local<v8::debug::WasmValueObject> object =
+        value.As<v8::debug::WasmValueObject>();
+    return std::make_unique<ObjectMirror>(
+        value, RemoteObject::SubtypeEnum::Wasmvalue,
+        descriptionForObject(isolate, object));
+  }
   V8InternalValueType internalType =
-      v8InternalValueTypeFrom(context, v8::Local<v8::Object>::Cast(value));
+      v8InternalValueTypeFrom(context, value.As<v8::Object>());
   if (value->IsArray() && internalType == V8InternalValueType::kScopeList) {
     return std::make_unique<ObjectMirror>(
         value, "internal#scopeList",

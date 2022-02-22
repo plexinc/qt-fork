@@ -32,9 +32,8 @@
 #include <QtQuick/qquickimageprovider.h>
 #include <QtQml/QQmlComponent>
 #include <QNetworkReply>
-#include "../../shared/util.h"
-#include "testhttpserver.h"
-#include <QtNetwork/QNetworkConfigurationManager>
+#include <QtQuickTestUtils/private/qmlutils_p.h>
+#include <QtQuickTestUtils/private/testhttpserver_p.h>
 
 #if QT_CONFIG(concurrent)
 #include <qtconcurrentrun.h>
@@ -47,10 +46,10 @@ class tst_qquickpixmapcache : public QQmlDataTest
 {
     Q_OBJECT
 public:
-    tst_qquickpixmapcache() {}
+    tst_qquickpixmapcache() : QQmlDataTest(QT_QMLTEST_DATADIR) {}
 
 private slots:
-    void initTestCase();
+    void initTestCase() override;
     void single();
     void single_data();
     void parallel();
@@ -106,15 +105,6 @@ void tst_qquickpixmapcache::initTestCase()
     QQmlDataTest::initTestCase();
 
     QVERIFY2(server.listen(), qPrintable(server.errorString()));
-
-#if QT_CONFIG(bearermanagement)
-    // This avoids a race condition/deadlock bug in network config
-    // manager when it is accessed by the HTTP server thread before
-    // anything else. Bug report can be found at:
-    // QTBUG-26355
-    QNetworkConfigurationManager cm;
-    cm.updateConfigurations();
-#endif
 
     server.serveDirectory(testFile("http"));
 }
@@ -350,8 +340,8 @@ public:
     MyPixmapProvider()
     : QQuickImageProvider(Pixmap) {}
 
-    virtual QPixmap requestPixmap(const QString &d, QSize *, const QSize &) {
-        Q_UNUSED(d)
+    QPixmap requestPixmap(const QString &d, QSize *, const QSize &) override {
+        Q_UNUSED(d);
         QPixmap pix(800, 600);
         pix.fill(fillColor);
         return pix;

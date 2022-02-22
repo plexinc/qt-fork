@@ -26,9 +26,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import QtTest 1.0
-import QtWebEngine 1.2
+import QtQuick
+import QtTest
+import QtWebEngine
 
 Item {
     id: parentItem
@@ -37,8 +37,12 @@ Item {
 
     property var pressEvents: []
     property var releaseEvents: []
-    Keys.onPressed: pressEvents.push(event.key)
-    Keys.onReleased: releaseEvents.push(event.key)
+    Keys.onPressed: function(event) {
+        pressEvents.push(event.key)
+    }
+    Keys.onReleased: function(event) {
+        releaseEvents.push(event.key)
+    }
 
     TestWebEngineView {
         id: webEngineView
@@ -46,6 +50,7 @@ Item {
         focus: true
     }
     TestCase {
+        id: testCase
         name: "WebEngineViewUnhandledKeyEventPropagation"
 
         when: false

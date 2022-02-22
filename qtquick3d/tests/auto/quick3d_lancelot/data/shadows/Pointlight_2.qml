@@ -48,8 +48,8 @@
 **
 ****************************************************************************/
 
-import QtQuick3D 1.15
-import QtQuick 2.15
+import QtQuick3D
+import QtQuick
 
 Rectangle {
     id: pointlight_2
@@ -99,7 +99,6 @@ Rectangle {
                 specularRoughness: 0
                 bumpAmount: 0.5
                 translucentFalloff: 1
-                displacementAmount: 20
             }
             materials: [material]
         }
@@ -122,7 +121,6 @@ Rectangle {
                 specularRoughness: 0
                 bumpAmount: 0.5
                 translucentFalloff: 1
-                displacementAmount: 20
             }
             materials: [material_001]
         }

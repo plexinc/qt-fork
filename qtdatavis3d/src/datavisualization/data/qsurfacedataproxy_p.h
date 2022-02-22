@@ -43,7 +43,7 @@
 #include "qsurfacedataproxy.h"
 #include "qabstractdataproxy_p.h"
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 class QAbstract3DAxis;
 
@@ -67,7 +67,7 @@ public:
                      QAbstract3DAxis *axisY, QAbstract3DAxis *axisZ) const;
     bool isValidValue(float value, QAbstract3DAxis *axis) const;
 
-    virtual void setSeries(QAbstract3DSeries *series);
+    void setSeries(QAbstract3DSeries *series) override;
 
 protected:
     QSurfaceDataArray *m_dataArray;
@@ -80,6 +80,6 @@ private:
     friend class QSurfaceDataProxy;
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

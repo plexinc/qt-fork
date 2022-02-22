@@ -13,9 +13,6 @@
 #include <map>
 #include <memory>
 
-#include "api/test/fake_media_transport.h"
-#include "api/test/loopback_media_transport.h"
-#include "api/transport/media/media_transport_interface.h"
 #include "p2p/base/dtls_transport_factory.h"
 #include "p2p/base/fake_dtls_transport.h"
 #include "p2p/base/fake_ice_transport.h"
@@ -43,20 +40,6 @@ static const char kVideoMid2[] = "video2";
 static const char kDataMid1[] = "data1";
 
 namespace webrtc {
-
-namespace {
-
-// Media transport factory requires crypto settings to be present in order to
-// create media transport.
-void AddCryptoSettings(cricket::SessionDescription* description) {
-  for (auto& content : description->contents()) {
-    content.media_description()->AddCrypto(cricket::CryptoParams(
-        /*t=*/0, std::string(rtc::CS_AES_CM_128_HMAC_SHA1_80),
-        "inline:YUJDZGVmZ2hpSktMbW9QUXJzVHVWd3l6MTIzNDU2", ""));
-  }
-}
-
-}  // namespace
 
 class FakeIceTransportFactory : public webrtc::IceTransportFactory {
  public:
@@ -91,7 +74,6 @@ class JsepTransportControllerTest : public JsepTransportController::Observer,
 
   void CreateJsepTransportController(
       JsepTransportController::Config config,
-      rtc::Thread* signaling_thread = rtc::Thread::Current(),
       rtc::Thread* network_thread = rtc::Thread::Current(),
       cricket::PortAllocator* port_allocator = nullptr) {
     config.transport_observer = this;
@@ -99,23 +81,37 @@ class JsepTransportControllerTest : public JsepTransportController::Observer,
                              int64_t packet_time_us) { RTC_NOTREACHED(); };
     config.ice_transport_factory = fake_ice_transport_factory_.get();
     config.dtls_transport_factory = fake_dtls_transport_factory_.get();
+    config.on_dtls_handshake_error_ = [](rtc::SSLHandshakeError s) {};
     transport_controller_ = std::make_unique<JsepTransportController>(
-        signaling_thread, network_thread, port_allocator,
-        nullptr /* async_resolver_factory */, config);
-    ConnectTransportControllerSignals();
+        network_thread, port_allocator, nullptr /* async_resolver_factory */,
+        config);
+    network_thread->Invoke<void>(RTC_FROM_HERE,
+                                 [&] { ConnectTransportControllerSignals(); });
   }
 
   void ConnectTransportControllerSignals() {
-    transport_controller_->SignalIceConnectionState.connect(
-        this, &JsepTransportControllerTest::OnConnectionState);
-    transport_controller_->SignalStandardizedIceConnectionState.connect(
-        this, &JsepTransportControllerTest::OnStandardizedIceConnectionState);
-    transport_controller_->SignalConnectionState.connect(
-        this, &JsepTransportControllerTest::OnCombinedConnectionState);
-    transport_controller_->SignalIceGatheringState.connect(
-        this, &JsepTransportControllerTest::OnGatheringState);
-    transport_controller_->SignalIceCandidatesGathered.connect(
-        this, &JsepTransportControllerTest::OnCandidatesGathered);
+    transport_controller_->SubscribeIceConnectionState(
+        [this](cricket::IceConnectionState s) {
+          JsepTransportControllerTest::OnConnectionState(s);
+        });
+    transport_controller_->SubscribeConnectionState(
+        [this](PeerConnectionInterface::PeerConnectionState s) {
+          JsepTransportControllerTest::OnCombinedConnectionState(s);
+        });
+    transport_controller_->SubscribeStandardizedIceConnectionState(
+        [this](PeerConnectionInterface::IceConnectionState s) {
+          JsepTransportControllerTest::OnStandardizedIceConnectionState(s);
+        });
+    transport_controller_->SubscribeIceGatheringState(
+        [this](cricket::IceGatheringState s) {
+          JsepTransportControllerTest::OnGatheringState(s);
+        });
+    transport_controller_->SubscribeIceCandidateGathered(
+        [this](const std::string& transport,
+               const std::vector<cricket::Candidate>& candidates) {
+          JsepTransportControllerTest::OnCandidatesGathered(transport,
+                                                            candidates);
+        });
   }
 
   std::unique_ptr<cricket::SessionDescription>
@@ -280,18 +276,14 @@ class JsepTransportControllerTest : public JsepTransportController::Observer,
 
  protected:
   void OnConnectionState(cricket::IceConnectionState state) {
-    if (!signaling_thread_->IsCurrent()) {
-      signaled_on_non_signaling_thread_ = true;
-    }
+    ice_signaled_on_thread_ = rtc::Thread::Current();
     connection_state_ = state;
     ++connection_state_signal_count_;
   }
 
   void OnStandardizedIceConnectionState(
       PeerConnectionInterface::IceConnectionState state) {
-    if (!signaling_thread_->IsCurrent()) {
-      signaled_on_non_signaling_thread_ = true;
-    }
+    ice_signaled_on_thread_ = rtc::Thread::Current();
     ice_connection_state_ = state;
     ++ice_connection_state_signal_count_;
   }
@@ -300,26 +292,20 @@ class JsepTransportControllerTest : public JsepTransportController::Observer,
       PeerConnectionInterface::PeerConnectionState state) {
     RTC_LOG(LS_INFO) << "OnCombinedConnectionState: "
                      << static_cast<int>(state);
-    if (!signaling_thread_->IsCurrent()) {
-      signaled_on_non_signaling_thread_ = true;
-    }
+    ice_signaled_on_thread_ = rtc::Thread::Current();
     combined_connection_state_ = state;
     ++combined_connection_state_signal_count_;
   }
 
   void OnGatheringState(cricket::IceGatheringState state) {
-    if (!signaling_thread_->IsCurrent()) {
-      signaled_on_non_signaling_thread_ = true;
-    }
+    ice_signaled_on_thread_ = rtc::Thread::Current();
     gathering_state_ = state;
     ++gathering_state_signal_count_;
   }
 
   void OnCandidatesGathered(const std::string& transport_name,
                             const Candidates& candidates) {
-    if (!signaling_thread_->IsCurrent()) {
-      signaled_on_non_signaling_thread_ = true;
-    }
+    ice_signaled_on_thread_ = rtc::Thread::Current();
     candidates_[transport_name].insert(candidates_[transport_name].end(),
                                        candidates.begin(), candidates.end());
     ++candidates_signal_count_;
@@ -364,7 +350,7 @@ class JsepTransportControllerTest : public JsepTransportController::Observer,
   std::unique_ptr<FakeIceTransportFactory> fake_ice_transport_factory_;
   std::unique_ptr<FakeDtlsTransportFactory> fake_dtls_transport_factory_;
   rtc::Thread* const signaling_thread_ = nullptr;
-  bool signaled_on_non_signaling_thread_ = false;
+  rtc::Thread* ice_signaled_on_thread_ = nullptr;
   // Used to verify the SignalRtpTransportChanged/SignalDtlsTransportChanged are
   // signaled correctly.
   std::map<std::string, RtpTransportInternal*> changed_rtp_transport_by_mid_;
@@ -438,96 +424,6 @@ TEST_F(JsepTransportControllerTest, GetDtlsTransportWithRtcpMux) {
   EXPECT_EQ(nullptr, transport_controller_->GetRtcpDtlsTransport(kAudioMid1));
   EXPECT_NE(nullptr, transport_controller_->GetDtlsTransport(kVideoMid1));
   EXPECT_EQ(nullptr, transport_controller_->GetRtcpDtlsTransport(kVideoMid1));
-}
-
-TEST_F(JsepTransportControllerTest,
-       DtlsIsStillCreatedIfDatagramTransportIsOnlyUsedForDataChannels) {
-  FakeMediaTransportFactory fake_media_transport_factory("transport_params");
-  JsepTransportController::Config config;
-
-  config.rtcp_mux_policy = PeerConnectionInterface::kRtcpMuxPolicyRequire;
-  config.bundle_policy = PeerConnectionInterface::kBundlePolicyMaxBundle;
-  config.media_transport_factory = &fake_media_transport_factory;
-  config.use_datagram_transport_for_data_channels = true;
-  CreateJsepTransportController(config);
-
-  auto description = CreateSessionDescriptionWithBundledData();
-  AddCryptoSettings(description.get());
-
-  absl::optional<cricket::OpaqueTransportParameters> params =
-      transport_controller_->GetTransportParameters(kAudioMid1);
-  for (auto& info : description->transport_infos()) {
-    info.description.opaque_parameters = params;
-  }
-  for (cricket::ContentInfo& content_info : description->contents()) {
-    if (content_info.media_description()->type() == cricket::MEDIA_TYPE_DATA) {
-      content_info.media_description()->set_alt_protocol(params->protocol);
-    }
-  }
-
-  EXPECT_TRUE(transport_controller_
-                  ->SetLocalDescription(SdpType::kOffer, description.get())
-                  .ok());
-  EXPECT_TRUE(transport_controller_
-                  ->SetRemoteDescription(SdpType::kAnswer, description.get())
-                  .ok());
-
-  FakeDatagramTransport* datagram_transport =
-      static_cast<FakeDatagramTransport*>(
-          transport_controller_->GetDataChannelTransport(kAudioMid1));
-
-  ASSERT_NE(nullptr, datagram_transport);
-
-  EXPECT_EQ(cricket::ICE_CANDIDATE_COMPONENT_RTP,
-            transport_controller_->GetDtlsTransport(kAudioMid1)->component())
-      << "Datagram transport for media was not enabled, and so DTLS transport "
-         "should be created.";
-
-  // Datagram transport is not used for media, so no max packet size is
-  // specified.
-  EXPECT_EQ(transport_controller_->GetMediaTransportConfig(kAudioMid1)
-                .rtp_max_packet_size,
-            absl::nullopt);
-
-  // Since datagram transport is not used for RTP, setting it to writable should
-  // not make the RTP transport writable.
-  datagram_transport->set_state(MediaTransportState::kWritable);
-  EXPECT_FALSE(transport_controller_->GetRtpTransport(kAudioMid1)
-                   ->IsWritable(/*rtcp=*/false));
-}
-
-// An offer that bundles different alt-protocols should be rejected.
-TEST_F(JsepTransportControllerTest, CannotBundleDifferentAltProtocols) {
-  FakeMediaTransportFactory fake_media_transport_factory("transport_params");
-  JsepTransportController::Config config;
-  config.rtcp_mux_policy = PeerConnectionInterface::kRtcpMuxPolicyRequire;
-  config.bundle_policy = PeerConnectionInterface::kBundlePolicyMaxBundle;
-  config.media_transport_factory = &fake_media_transport_factory;
-  config.use_datagram_transport = true;
-  config.use_datagram_transport_for_data_channels = true;
-  CreateJsepTransportController(config);
-
-  auto description = CreateSessionDescriptionWithBundledData();
-  AddCryptoSettings(description.get());
-
-  absl::optional<cricket::OpaqueTransportParameters> params =
-      transport_controller_->GetTransportParameters(kAudioMid1);
-  for (auto& info : description->transport_infos()) {
-    info.description.opaque_parameters = params;
-  }
-
-  // Append a different alt-protocol to each of the sections.
-  for (cricket::ContentInfo& content_info : description->contents()) {
-    content_info.media_description()->set_alt_protocol(params->protocol + "-" +
-                                                       content_info.name);
-  }
-
-  EXPECT_FALSE(transport_controller_
-                   ->SetLocalDescription(SdpType::kOffer, description.get())
-                   .ok());
-  EXPECT_FALSE(transport_controller_
-                   ->SetRemoteDescription(SdpType::kAnswer, description.get())
-                   .ok());
 }
 
 TEST_F(JsepTransportControllerTest, SetIceConfig) {
@@ -977,11 +873,12 @@ TEST_F(JsepTransportControllerTest, SignalCandidatesGathered) {
   EXPECT_EQ(1u, candidates_[kAudioMid1].size());
 }
 
-TEST_F(JsepTransportControllerTest, IceSignalingOccursOnSignalingThread) {
+TEST_F(JsepTransportControllerTest, IceSignalingOccursOnNetworkThread) {
   network_thread_ = rtc::Thread::CreateWithSocketServer();
   network_thread_->Start();
+  EXPECT_EQ(ice_signaled_on_thread_, nullptr);
   CreateJsepTransportController(JsepTransportController::Config(),
-                                signaling_thread_, network_thread_.get(),
+                                network_thread_.get(),
                                 /*port_allocator=*/nullptr);
   CreateLocalDescriptionAndCompleteConnectionOnNetworkThread();
 
@@ -997,50 +894,10 @@ TEST_F(JsepTransportControllerTest, IceSignalingOccursOnSignalingThread) {
   EXPECT_EQ_WAIT(1u, candidates_[kVideoMid1].size(), kTimeout);
   EXPECT_EQ(2, candidates_signal_count_);
 
-  EXPECT_TRUE(!signaled_on_non_signaling_thread_);
-}
+  EXPECT_EQ(ice_signaled_on_thread_, network_thread_.get());
 
-// Older versions of Chrome expect the ICE role to be re-determined when an
-// ICE restart occurs, and also don't perform conflict resolution correctly,
-// so for now we can't safely stop doing this.
-// See: https://bugs.chromium.org/p/chromium/issues/detail?id=628676
-// TODO(deadbeef): Remove this when these old versions of Chrome reach a low
-// enough population.
-TEST_F(JsepTransportControllerTest, IceRoleRedeterminedOnIceRestartByDefault) {
-  CreateJsepTransportController(JsepTransportController::Config());
-  // Let the |transport_controller_| be the controlled side initially.
-  auto remote_offer = std::make_unique<cricket::SessionDescription>();
-  AddAudioSection(remote_offer.get(), kAudioMid1, kIceUfrag1, kIcePwd1,
-                  cricket::ICEMODE_FULL, cricket::CONNECTIONROLE_ACTPASS,
-                  nullptr);
-  auto local_answer = std::make_unique<cricket::SessionDescription>();
-  AddAudioSection(local_answer.get(), kAudioMid1, kIceUfrag2, kIcePwd2,
-                  cricket::ICEMODE_FULL, cricket::CONNECTIONROLE_PASSIVE,
-                  nullptr);
-
-  EXPECT_TRUE(transport_controller_
-                  ->SetRemoteDescription(SdpType::kOffer, remote_offer.get())
-                  .ok());
-  EXPECT_TRUE(transport_controller_
-                  ->SetLocalDescription(SdpType::kAnswer, local_answer.get())
-                  .ok());
-
-  auto fake_dtls = static_cast<FakeDtlsTransport*>(
-      transport_controller_->GetDtlsTransport(kAudioMid1));
-  EXPECT_EQ(cricket::ICEROLE_CONTROLLED,
-            fake_dtls->fake_ice_transport()->GetIceRole());
-
-  // New offer will trigger the ICE restart.
-  auto restart_local_offer = std::make_unique<cricket::SessionDescription>();
-  AddAudioSection(restart_local_offer.get(), kAudioMid1, kIceUfrag3, kIcePwd3,
-                  cricket::ICEMODE_FULL, cricket::CONNECTIONROLE_ACTPASS,
-                  nullptr);
-  EXPECT_TRUE(
-      transport_controller_
-          ->SetLocalDescription(SdpType::kOffer, restart_local_offer.get())
-          .ok());
-  EXPECT_EQ(cricket::ICEROLE_CONTROLLING,
-            fake_dtls->fake_ice_transport()->GetIceRole());
+  network_thread_->Invoke<void>(RTC_FROM_HERE,
+                                [&] { transport_controller_.reset(); });
 }
 
 // Test that if the TransportController was created with the
@@ -1692,424 +1549,5 @@ TEST_F(JsepTransportControllerTest, ChangeTaggedMediaSectionMaxBundle) {
           ->SetRemoteDescription(SdpType::kAnswer, remote_reanswer.get())
           .ok());
 }
-
-constexpr char kFakeTransportParameters[] = "fake-params";
-
-// Test fixture that provides common setup and helpers for tests related to the
-// datagram transport.
-class JsepTransportControllerDatagramTest
-    : public JsepTransportControllerTest,
-      public testing::WithParamInterface<bool> {
- public:
-  JsepTransportControllerDatagramTest()
-      : JsepTransportControllerTest(),
-        fake_media_transport_factory_(kFakeTransportParameters) {
-    JsepTransportController::Config config;
-    config.rtcp_mux_policy = PeerConnectionInterface::kRtcpMuxPolicyRequire;
-    config.bundle_policy = PeerConnectionInterface::kBundlePolicyMaxBundle;
-    config.media_transport_factory = &fake_media_transport_factory_;
-    config.use_datagram_transport = true;
-    CreateJsepTransportController(config);
-  }
-
-  // Whether the JsepTransportController under test acts as the offerer or
-  // answerer in this test.
-  bool IsOfferer() { return GetParam(); }
-
-  // Sets a description as local or remote based on type and current
-  // perspective.
-  RTCError SetDescription(SdpType type,
-                          const cricket::SessionDescription* description) {
-    if (IsOfferer() == (type == SdpType::kOffer)) {
-      return transport_controller_->SetLocalDescription(type, description);
-    } else {
-      return transport_controller_->SetRemoteDescription(type, description);
-    }
-  }
-
-  // Creates a session description with the settings necessary for datagram
-  // transport (bundle + crypto) and the given |transport_params|.
-  std::unique_ptr<cricket::SessionDescription>
-  CreateSessionDescriptionForDatagramTransport(
-      absl::optional<cricket::OpaqueTransportParameters> transport_params) {
-    auto description = CreateSessionDescriptionWithBundleGroup();
-    AddCryptoSettings(description.get());
-
-    for (auto& info : description->transport_infos()) {
-      info.description.opaque_parameters = transport_params;
-    }
-    if (transport_params) {
-      for (auto& content_info : description->contents()) {
-        content_info.media_description()->set_alt_protocol(
-            transport_params->protocol);
-      }
-    }
-    return description;
-  }
-
-  // Creates transport parameters with |protocol| and |parameters|
-  // matching what |fake_media_transport_factory_| provides.
-  cricket::OpaqueTransportParameters CreateTransportParameters() {
-    cricket::OpaqueTransportParameters params;
-    params.protocol = fake_media_transport_factory_.GetTransportName();
-    params.parameters = "fake-params";
-    return params;
-  }
-
- protected:
-  FakeMediaTransportFactory fake_media_transport_factory_;
-};
-
-TEST_P(JsepTransportControllerDatagramTest, InitDatagramTransport) {
-  cricket::OpaqueTransportParameters fake_params = CreateTransportParameters();
-  if (IsOfferer()) {
-    // Getting transport parameters is allowed before setting a description.
-    // This is necessary so that the offerer can include these params.
-    EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
-              fake_params);
-    EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
-              fake_params);
-  }
-
-  // Setting a description activates the datagram transport without changing
-  // transport parameters.
-  auto description = CreateSessionDescriptionForDatagramTransport(fake_params);
-  EXPECT_TRUE(SetDescription(SdpType::kOffer, description.get()).ok());
-
-  // After setting an offer with transport parameters, those parameters are
-  // reflected by the controller.
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
-            fake_params);
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
-            fake_params);
-}
-
-TEST_P(JsepTransportControllerDatagramTest,
-       OfferMissingDatagramTransportParams) {
-  if (IsOfferer()) {
-    // This test doesn't make sense from the offerer's perspective, as the offer
-    // must contain datagram transport params if the offerer supports it.
-    return;
-  }
-
-  auto description =
-      CreateSessionDescriptionForDatagramTransport(absl::nullopt);
-  EXPECT_TRUE(SetDescription(SdpType::kOffer, description.get()).ok());
-
-  // The offer didn't contain any datagram transport parameters, so the answer
-  // won't either.
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
-            absl::nullopt);
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
-            absl::nullopt);
-}
-
-TEST_P(JsepTransportControllerDatagramTest, OfferHasWrongTransportName) {
-  if (IsOfferer()) {
-    // This test doesn't make sense from the offerer's perspective, as the
-    // offerer cannot offer itself the wrong transport.
-    return;
-  }
-
-  cricket::OpaqueTransportParameters fake_params = CreateTransportParameters();
-  fake_params.protocol = "wrong-name";
-
-  auto description = CreateSessionDescriptionForDatagramTransport(fake_params);
-  EXPECT_TRUE(SetDescription(SdpType::kOffer, description.get()).ok());
-
-  // The offerer and answerer support different datagram transports, so the
-  // answerer rejects the offered parameters.
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
-            absl::nullopt);
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
-            absl::nullopt);
-}
-
-TEST_P(JsepTransportControllerDatagramTest, IncompatibleAnswer) {
-  // Transport will claim that no parameters are compatible, even if they match
-  // exactly.
-  fake_media_transport_factory_.set_transport_parameters_comparison(
-      [](absl::string_view, absl::string_view) { return false; });
-
-  cricket::OpaqueTransportParameters fake_params = CreateTransportParameters();
-  if (IsOfferer()) {
-    EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
-              fake_params);
-    EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
-              fake_params);
-  }
-
-  auto offer = CreateSessionDescriptionForDatagramTransport(fake_params);
-  EXPECT_TRUE(SetDescription(SdpType::kOffer, offer.get()).ok());
-
-  auto answer = CreateSessionDescriptionForDatagramTransport(fake_params);
-  EXPECT_TRUE(SetDescription(SdpType::kAnswer, answer.get()).ok());
-
-  // The offerer and answerer have incompatible parameters, so the answerer
-  // rejects the offered parameters.
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
-            absl::nullopt);
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
-            absl::nullopt);
-}
-
-TEST_P(JsepTransportControllerDatagramTest, CompatibleAnswer) {
-  // Transport will claim that no parameters are compatible, even if they are
-  // completely different.
-  fake_media_transport_factory_.set_transport_parameters_comparison(
-      [](absl::string_view, absl::string_view) { return true; });
-
-  cricket::OpaqueTransportParameters fake_params = CreateTransportParameters();
-  if (IsOfferer()) {
-    EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
-              fake_params);
-    EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
-              fake_params);
-  }
-
-  auto offer = CreateSessionDescriptionForDatagramTransport(fake_params);
-  EXPECT_TRUE(SetDescription(SdpType::kOffer, offer.get()).ok());
-
-  cricket::OpaqueTransportParameters answer_params;
-  answer_params.protocol = fake_params.protocol;
-  answer_params.parameters = "something different from offer";
-  auto answer = CreateSessionDescriptionForDatagramTransport(answer_params);
-  EXPECT_TRUE(SetDescription(SdpType::kAnswer, answer.get()).ok());
-
-  // The offerer and answerer have compatible parameters, so the answerer
-  // accepts the offered parameters.
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
-            fake_params);
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
-            fake_params);
-}
-
-TEST_P(JsepTransportControllerDatagramTest, AnswerRejectsDatagram) {
-  cricket::OpaqueTransportParameters fake_params = CreateTransportParameters();
-  if (IsOfferer()) {
-    EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
-              fake_params);
-    EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
-              fake_params);
-  }
-
-  auto offer = CreateSessionDescriptionForDatagramTransport(fake_params);
-  EXPECT_TRUE(SetDescription(SdpType::kOffer, offer.get()).ok());
-
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
-            fake_params);
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
-            fake_params);
-
-  auto answer = CreateSessionDescriptionForDatagramTransport(absl::nullopt);
-  EXPECT_TRUE(SetDescription(SdpType::kAnswer, answer.get()).ok());
-
-  // The answer rejected datagram transport, so its parameters are empty.
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
-            absl::nullopt);
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
-            absl::nullopt);
-}
-
-TEST_P(JsepTransportControllerDatagramTest, AnswerAcceptsDatagram) {
-  cricket::OpaqueTransportParameters fake_params = CreateTransportParameters();
-  if (IsOfferer()) {
-    EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
-              fake_params);
-    EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
-              fake_params);
-  }
-
-  auto offer = CreateSessionDescriptionForDatagramTransport(fake_params);
-  EXPECT_TRUE(SetDescription(SdpType::kOffer, offer.get()).ok());
-
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
-            fake_params);
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
-            fake_params);
-
-  auto answer = CreateSessionDescriptionForDatagramTransport(fake_params);
-  EXPECT_TRUE(SetDescription(SdpType::kAnswer, answer.get()).ok());
-
-  // The answer accepted datagram transport, so it is present.
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
-            fake_params);
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
-            fake_params);
-}
-
-TEST_P(JsepTransportControllerDatagramTest, PrAnswerRejectsDatagram) {
-  cricket::OpaqueTransportParameters fake_params = CreateTransportParameters();
-  if (IsOfferer()) {
-    EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
-              fake_params);
-    EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
-              fake_params);
-  }
-
-  auto offer = CreateSessionDescriptionForDatagramTransport(fake_params);
-  EXPECT_TRUE(SetDescription(SdpType::kOffer, offer.get()).ok());
-
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
-            fake_params);
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
-            fake_params);
-
-  auto answer = CreateSessionDescriptionForDatagramTransport(absl::nullopt);
-  EXPECT_TRUE(SetDescription(SdpType::kPrAnswer, answer.get()).ok());
-
-  // The answer rejected datagram transport, but it's provisional, so the
-  // transport is kept around for now.
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
-            fake_params);
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
-            fake_params);
-}
-
-TEST_P(JsepTransportControllerDatagramTest, PrAnswerAcceptsDatagram) {
-  cricket::OpaqueTransportParameters fake_params = CreateTransportParameters();
-  if (IsOfferer()) {
-    EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
-              fake_params);
-    EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
-              fake_params);
-  }
-
-  auto offer = CreateSessionDescriptionForDatagramTransport(fake_params);
-  EXPECT_TRUE(SetDescription(SdpType::kOffer, offer.get()).ok());
-
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
-            fake_params);
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
-            fake_params);
-
-  auto answer = CreateSessionDescriptionForDatagramTransport(fake_params);
-  EXPECT_TRUE(SetDescription(SdpType::kPrAnswer, answer.get()).ok());
-
-  // The answer provisionally accepted datagram transport, so it's kept.
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
-            fake_params);
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
-            fake_params);
-}
-
-TEST_P(JsepTransportControllerDatagramTest, RenegotiationCannotAddDatagram) {
-  auto offer = CreateSessionDescriptionForDatagramTransport(absl::nullopt);
-  EXPECT_TRUE(SetDescription(SdpType::kOffer, offer.get()).ok());
-
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
-            absl::nullopt);
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
-            absl::nullopt);
-
-  auto answer = CreateSessionDescriptionForDatagramTransport(absl::nullopt);
-  EXPECT_TRUE(SetDescription(SdpType::kAnswer, answer.get()).ok());
-
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
-            absl::nullopt);
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
-            absl::nullopt);
-
-  // Attempting to add a datagram transport on a re-offer does not cause an
-  // error, but also does not add a datagram transport.
-  auto reoffer =
-      CreateSessionDescriptionForDatagramTransport(CreateTransportParameters());
-  EXPECT_TRUE(SetDescription(SdpType::kOffer, reoffer.get()).ok());
-
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
-            absl::nullopt);
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
-            absl::nullopt);
-}
-
-TEST_P(JsepTransportControllerDatagramTest, RenegotiationCannotRemoveDatagram) {
-  cricket::OpaqueTransportParameters fake_params = CreateTransportParameters();
-  if (IsOfferer()) {
-    EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
-              fake_params);
-    EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
-              fake_params);
-  }
-
-  auto offer = CreateSessionDescriptionForDatagramTransport(fake_params);
-  EXPECT_TRUE(SetDescription(SdpType::kOffer, offer.get()).ok());
-
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
-            fake_params);
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
-            fake_params);
-
-  auto answer = CreateSessionDescriptionForDatagramTransport(fake_params);
-  EXPECT_TRUE(SetDescription(SdpType::kAnswer, answer.get()).ok());
-
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
-            fake_params);
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
-            fake_params);
-
-  // Attempting to remove a datagram transport on a re-offer does not cause an
-  // error, but also does not remove the datagram transport.
-  auto reoffer = CreateSessionDescriptionForDatagramTransport(absl::nullopt);
-  EXPECT_TRUE(SetDescription(SdpType::kOffer, reoffer.get()).ok());
-
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
-            fake_params);
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
-            fake_params);
-}
-
-TEST_P(JsepTransportControllerDatagramTest,
-       RenegotiationKeepsDatagramTransport) {
-  cricket::OpaqueTransportParameters fake_params = CreateTransportParameters();
-  if (IsOfferer()) {
-    EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
-              fake_params);
-    EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
-              fake_params);
-  }
-
-  auto offer = CreateSessionDescriptionForDatagramTransport(fake_params);
-  EXPECT_TRUE(SetDescription(SdpType::kOffer, offer.get()).ok());
-
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
-            fake_params);
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
-            fake_params);
-
-  auto answer = CreateSessionDescriptionForDatagramTransport(fake_params);
-  EXPECT_TRUE(SetDescription(SdpType::kAnswer, answer.get()).ok());
-
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
-            fake_params);
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
-            fake_params);
-
-  // Attempting to remove a datagram transport on a re-offer does not cause an
-  // error, but also does not remove the datagram transport.
-  auto reoffer = CreateSessionDescriptionForDatagramTransport(fake_params);
-  EXPECT_TRUE(SetDescription(SdpType::kOffer, reoffer.get()).ok());
-
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
-            fake_params);
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
-            fake_params);
-
-  auto reanswer = CreateSessionDescriptionForDatagramTransport(fake_params);
-  EXPECT_TRUE(SetDescription(SdpType::kAnswer, reanswer.get()).ok());
-
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
-            fake_params);
-  EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
-            fake_params);
-}
-
-INSTANTIATE_TEST_SUITE_P(
-    JsepTransportControllerDatagramTests,
-    JsepTransportControllerDatagramTest,
-    testing::Values(true, false),
-    // The parameter value is the local perspective (offerer or answerer).
-    [](const testing::TestParamInfo<bool>& info) {
-      return info.param ? "Offerer" : "Answerer";
-    });
 
 }  // namespace webrtc

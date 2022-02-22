@@ -54,9 +54,9 @@
 #include <Qt3DRender/private/backendnode_p.h>
 #include <Qt3DRender/private/handle_types_p.h>
 #include <Qt3DRender/private/qabstracttexture_p.h>
+#include <Qt3DRender/private/qtexturegenerator_p.h>
 #include <Qt3DRender/qtexture.h>
 #include <Qt3DRender/qtexturedata.h>
-#include <Qt3DRender/qtexturegenerator.h>
 #include <QOpenGLContext>
 #include <QMutex>
 
@@ -159,7 +159,8 @@ public:
     void cleanup();
 
     void addTextureDataUpdate(const QTextureDataUpdate &update);
-    QVector<QTextureDataUpdate> takePendingTextureDataUpdates() { return std::move(m_pendingTextureDataUpdates); }
+    std::vector<QTextureDataUpdate> takePendingTextureDataUpdates() {
+        return std::exchange(m_pendingTextureDataUpdates, {}); }
 
     void syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firstTime) override;
 
@@ -172,8 +173,6 @@ public:
     void setDataGenerator(const QTextureGeneratorPtr &generator);
     bool isValid(TextureImageManager *manager) const;
 private:
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) final;
-
     DirtyFlags m_dirty;
     TextureProperties m_properties;
     TextureParameters m_parameters;
@@ -183,7 +182,7 @@ private:
     Qt3DCore::QNodeIdVector m_textureImageIds;
 
     QMutex m_flagsMutex;
-    QVector<QTextureDataUpdate> m_pendingTextureDataUpdates;
+    std::vector<QTextureDataUpdate> m_pendingTextureDataUpdates;
 };
 
 class Q_AUTOTEST_EXPORT TextureFunctor : public Qt3DCore::QBackendNodeMapper
@@ -191,7 +190,7 @@ class Q_AUTOTEST_EXPORT TextureFunctor : public Qt3DCore::QBackendNodeMapper
 public:
     explicit TextureFunctor(AbstractRenderer *renderer,
                             TextureManager *textureNodeManager);
-    Qt3DCore::QBackendNode *create(const Qt3DCore::QNodeCreatedChangeBasePtr &change) const final;
+    Qt3DCore::QBackendNode *create(Qt3DCore::QNodeId id) const final;
     Qt3DCore::QBackendNode *get(Qt3DCore::QNodeId id) const final;
     void destroy(Qt3DCore::QNodeId id) const final;
 

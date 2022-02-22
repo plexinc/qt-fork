@@ -76,9 +76,6 @@ Q_DECLARE_LOGGING_CATEGORY(QT_BT)
 
     \note Since Android 6.0 the ability to detect devices requires ACCESS_COARSE_LOCATION.
 
-    \note Due to API limitations it is only possible to find devices that have been paired using
-    Windows' settings on Windows.
-
     \note The Win32 backend currently does not support the Received Signal Strength
     Indicator (RSSI), as well as the Manufacturer Specific Data, or other data
     updates advertised by Bluetooth LE devices after discovery.
@@ -100,25 +97,10 @@ Q_DECLARE_LOGGING_CATEGORY(QT_BT)
                                     Bluetooth device search at all. This value was introduced by Qt 5.5.
     \value UnsupportedDiscoveryMethod   One of the requested discovery methods is not supported by
                                         the current platform. This value was introduced by Qt 5.8.
+    \value LocationServiceTurnedOffError    The location service is turned off. Usage of
+                                            Bluetooth APIs is not possible when location service
+                                            is turned off. This value was introduced by Qt 6.2.
     \value UnknownError     An unknown error has occurred.
-*/
-
-/*!
-    \enum QBluetoothDeviceDiscoveryAgent::InquiryType
-
-    This enum describes the inquiry type used while discovering Bluetooth devices.
-
-    \value GeneralUnlimitedInquiry  A general unlimited inquiry. Discovers all visible Bluetooth
-                                    devices in the local vicinity.
-    \value LimitedInquiry           A limited inquiry discovers devices that are in limited
-                                    inquiry mode.
-
-    LimitedInquiry is not supported on all platforms. If it is requested on a platform that does not
-    support it, GeneralUnlimitedInquiry will be used instead. Setting LimitedInquiry is useful
-    for multi-player Bluetooth-based games that needs faster communication between the devices.
-    The phone scans for devices in LimitedInquiry and Service Discovery is done on one or two devices
-    to speed up the service scan. After the game has connected to the device it intended to,
-    the device returns to GeneralUnlimitedInquiry.
 */
 
 /*!
@@ -186,12 +168,14 @@ Q_DECLARE_LOGGING_CATEGORY(QT_BT)
 */
 
 /*!
-    \fn void QBluetoothDeviceDiscoveryAgent::error(QBluetoothDeviceDiscoveryAgent::Error error)
+    \fn void QBluetoothDeviceDiscoveryAgent::errorOccurred(QBluetoothDeviceDiscoveryAgent::Error
+   error)
 
     This signal is emitted when an \a error occurs during Bluetooth device discovery.
     The \a error parameter describes the error that occurred.
 
     \sa error(), errorString()
+    \since 6.2
 */
 
 /*!
@@ -252,30 +236,6 @@ QBluetoothDeviceDiscoveryAgent::~QBluetoothDeviceDiscoveryAgent()
 }
 
 /*!
-    \property QBluetoothDeviceDiscoveryAgent::inquiryType
-    \brief type of inquiry scan to be used while discovering devices
-
-    This property affects the type of inquiry scan which is performed while discovering devices.
-
-    By default, this property is set to GeneralUnlimitedInquiry.
-
-    Not all platforms support LimitedInquiry.
-
-    \sa InquiryType
-*/
-QBluetoothDeviceDiscoveryAgent::InquiryType QBluetoothDeviceDiscoveryAgent::inquiryType() const
-{
-    Q_D(const QBluetoothDeviceDiscoveryAgent);
-    return d->inquiryType;
-}
-
-void QBluetoothDeviceDiscoveryAgent::setInquiryType(QBluetoothDeviceDiscoveryAgent::InquiryType type)
-{
-    Q_D(QBluetoothDeviceDiscoveryAgent);
-    d->inquiryType = type;
-}
-
-/*!
     Returns a list of all discovered Bluetooth devices.
 */
 QList<QBluetoothDeviceInfo> QBluetoothDeviceDiscoveryAgent::discoveredDevices() const
@@ -307,9 +267,14 @@ void QBluetoothDeviceDiscoveryAgent::setLowEnergyDiscoveryTimeout(int timeout)
     Q_D(QBluetoothDeviceDiscoveryAgent);
 
     // cannot deliberately turn it off
-    if (d->lowEnergySearchTimeout < 0 || timeout < 0) {
-        qCDebug(QT_BT) << "The Bluetooth Low Energy device discovery timeout cannot be negative "
-                          "or set on a backend which does not support this feature.";
+    if (timeout < 0) {
+        qCDebug(QT_BT) << "The Bluetooth Low Energy device discovery timeout cannot be negative.";
+        return;
+    }
+
+    if (d->lowEnergySearchTimeout < 0) {
+        qCDebug(QT_BT) << "The Bluetooth Low Energy device discovery timeout cannot be  "
+                          "set on a backend which does not support this feature.";
         return;
     }
 
@@ -385,7 +350,7 @@ void QBluetoothDeviceDiscoveryAgent::start(DiscoveryMethods methods)
         d->lastError = UnsupportedDiscoveryMethod;
         d->errorString = QBluetoothDeviceDiscoveryAgent::tr("One or more device discovery methods "
                                                             "are not supported on this platform");
-        emit error(d->lastError);
+        emit errorOccurred(d->lastError);
         return;
     }
 

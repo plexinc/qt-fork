@@ -6,6 +6,7 @@
 #include "chrome/browser/extensions/extension_action_runner.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "content/public/test/browser_test.h"
 #include "extensions/browser/extension_dialog_auto_confirm.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/test_extension_registry_observer.h"
@@ -24,15 +25,18 @@ class ManagementApiNonPersistentApiTest
       public testing::WithParamInterface<ContextType> {
  protected:
   const Extension* LoadNonPersistentExtension(const char* relative_path) {
-    return LoadExtensionWithFlags(test_data_dir_.AppendASCII(relative_path),
-                                  GetParam() == ContextType::kEventPage
-                                      ? kFlagNone
-                                      : kFlagRunAsServiceWorkerBasedExtension);
+    return LoadExtension(
+        test_data_dir_.AppendASCII(relative_path),
+        {.load_as_service_worker = GetParam() == ContextType::kServiceWorker});
   }
 };
 
 // Tests chrome.management.uninstallSelf API.
 IN_PROC_BROWSER_TEST_P(ManagementApiNonPersistentApiTest, UninstallSelf) {
+  // TODO(crbug.com/1003597): Flaky for SW based extension.
+  if (GetParam() == ContextType::kServiceWorker)
+    return;
+
   constexpr char kEventPageBackgroundScript[] = R"({"scripts": ["script.js"]})";
   constexpr char kServiceWorkerBackgroundScript[] =
       R"({"service_worker": "script.js"})";
@@ -64,11 +68,11 @@ IN_PROC_BROWSER_TEST_P(ManagementApiNonPersistentApiTest, UninstallSelf) {
       extensions::ExtensionRegistry::Get(browser()->profile()));
 
   base::FilePath path = test_dir.Pack();
-  // Note: We pass kFlagDontWaitForExtensionRenderers because the extension
+  // Note: We set LoadOptions::wait_for_renderers to false because the extension
   // uninstalls itself, so the ExtensionHost never fully finishes loading. Since
   // we wait for the uninstall explicitly, this isn't racy.
   scoped_refptr<const Extension> extension =
-      LoadExtensionWithFlags(path, kFlagDontWaitForExtensionRenderers);
+      LoadExtension(path, {.wait_for_renderers = false});
 
   EXPECT_EQ(extension, observer.WaitForExtensionUninstalled());
 }
@@ -126,9 +130,8 @@ INSTANTIATE_TEST_SUITE_P(EventPage,
                          ManagementApiNonPersistentApiTest,
                          ::testing::Values(ContextType::kEventPage));
 
-// Flaky: crbug.com/1003597
-// INSTANTIATE_TEST_SUITE_P(ServiceWorker,
-//                          ManagementApiNonPersistentApiTest,
-//                          ::testing::Values(ContextType::kServiceWorker));
+INSTANTIATE_TEST_SUITE_P(ServiceWorker,
+                         ManagementApiNonPersistentApiTest,
+                         ::testing::Values(ContextType::kServiceWorker));
 
 }  // namespace extensions

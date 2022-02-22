@@ -96,7 +96,7 @@ Renderer::Renderer(VulkanWindow *w, int initialCount)
 
 void Renderer::preInitResources()
 {
-    const QVector<int> sampleCounts = m_window->supportedSampleCounts();
+    const QList<int> sampleCounts = m_window->supportedSampleCounts();
     if (DBG)
         qDebug() << "Supported sample counts:" << sampleCounts;
     if (sampleCounts.contains(4)) {
@@ -136,7 +136,7 @@ void Renderer::initResources()
     if (!m_floorMaterial.fs.isValid())
         m_floorMaterial.fs.load(inst, dev, QStringLiteral(":/color_frag.spv"));
 
-    m_pipelinesFuture = QtConcurrent::run(this, &Renderer::createPipelines);
+    m_pipelinesFuture = QtConcurrent::run(&Renderer::createPipelines, this);
 }
 
 void Renderer::createPipelines()
@@ -879,7 +879,7 @@ void Renderer::startNextFrame()
     // finished.
     Q_ASSERT(!m_framePending);
     m_framePending = true;
-    QFuture<void> future = QtConcurrent::run(this, &Renderer::buildFrame);
+    QFuture<void> future = QtConcurrent::run(&Renderer::buildFrame, this);
     m_frameWatcher.setFuture(future);
 }
 

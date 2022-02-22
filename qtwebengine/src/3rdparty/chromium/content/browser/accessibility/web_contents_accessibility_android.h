@@ -17,6 +17,20 @@ class MotionEventAndroid;
 
 namespace content {
 
+namespace {
+// The maximum number of TYPE_WINDOW_CONTENT_CHANGED events to fire in one
+// atomic update before we give up and fire it on the root node instead.
+constexpr int kMaxContentChangedEventsToFire = 5;
+
+// The number of 'ticks' on a slider when no step value is defined. The value
+// of 20 implies 20 steps, or a 5% move with each increment/decrement action.
+constexpr int kDefaultNumberOfTicksForSliders = 20;
+
+// The minimum amount a slider can move per increment/decement action as a
+// percentage of the total range, regardless of step value set on the element.
+constexpr float kMinimumPercentageMoveForSliders = 0.01f;
+}  // namespace
+
 class BrowserAccessibilityAndroid;
 class BrowserAccessibilityManagerAndroid;
 class WebContents;
@@ -24,7 +38,7 @@ class WebContentsImpl;
 
 // Bridges BrowserAccessibilityManagerAndroid and Java WebContentsAccessibility.
 // A RenderWidgetHostConnector runs behind to manage the connection. Referenced
-// by BrowserAccessibilityManagerAndroid for main frame (root manager) only.
+// by BrowserAccessibilityManagerAndroid for main frame only.
 // The others for subframes should acquire this instance through the root
 // manager to access Java layer.
 //
@@ -38,6 +52,10 @@ class CONTENT_EXPORT WebContentsAccessibilityAndroid
       const base::android::JavaParamRef<jobject>& obj,
       WebContents* web_contents);
   ~WebContentsAccessibilityAndroid() override;
+
+  // Notify the root BrowserAccessibilityManager that this is the
+  // WebContentsAccessibilityAndroid it should talk to.
+  void UpdateBrowserAccessibilityManager();
 
   // --------------------------------------------------------------------------
   // Methods called from Java via JNI
@@ -132,11 +150,15 @@ class CONTENT_EXPORT WebContentsAccessibilityAndroid
   // where |element_type| is a special uppercase string from TalkBack or
   // BrailleBack indicating general categories of web content like
   // "SECTION" or "CONTROL".  Return 0 if not found.
+  // Use |can_wrap_to_last_element| to specify if a backwards search can wrap
+  // around to the last element. This is used to expose the last HTML element
+  // upon swiping backwards into a WebView.
   jint FindElementType(JNIEnv* env,
                        const base::android::JavaParamRef<jobject>& obj,
                        jint start_id,
                        const base::android::JavaParamRef<jstring>& element_type,
-                       jboolean forwards);
+                       jboolean forwards,
+                       jboolean can_wrap_to_last_element);
 
   // Respond to a ACTION_[NEXT/PREVIOUS]_AT_MOVEMENT_GRANULARITY action
   // and move the cursor/selection within the given node id. We keep track
@@ -244,9 +266,26 @@ class CONTENT_EXPORT WebContentsAccessibilityAndroid
 
   void UpdateFrameInfo(float page_scale);
 
-  void set_root_manager(BrowserAccessibilityManagerAndroid* manager) {
-    root_manager_ = manager;
+  // Set a new max for TYPE_WINDOW_CONTENT_CHANGED events to fire.
+  void SetMaxContentChangedEventsToFireForTesting(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      jint maxEvents) {
+    // Consider a new |maxEvents| value of -1 to mean to reset to the default.
+    if (maxEvents == -1) {
+      max_content_changed_events_to_fire_ = kMaxContentChangedEventsToFire;
+    } else {
+      max_content_changed_events_to_fire_ = maxEvents;
+    }
   }
+
+  // Get the current max for TYPE_WINDOW_CONTENT_CHANGED events to fire.
+  jint GetMaxContentChangedEventsToFireForTesting(JNIEnv* env) {
+    return max_content_changed_events_to_fire_;
+  }
+
+  // Reset count of content changed events fired this atomic update.
+  void ResetContentChangedEventsCounter() { content_changed_events_ = 0; }
 
   // --------------------------------------------------------------------------
   // Methods called from the BrowserAccessibilityManager
@@ -274,6 +313,8 @@ class CONTENT_EXPORT WebContentsAccessibilityAndroid
   base::WeakPtr<WebContentsAccessibilityAndroid> GetWeakPtr();
 
  private:
+  BrowserAccessibilityManagerAndroid* GetRootBrowserAccessibilityManager();
+
   BrowserAccessibilityAndroid* GetAXFromUniqueID(int32_t unique_id);
 
   void CollectStats();
@@ -295,13 +336,18 @@ class CONTENT_EXPORT WebContentsAccessibilityAndroid
 
   bool use_zoom_for_dsf_enabled_;
 
-  BrowserAccessibilityManagerAndroid* root_manager_;
+  // Current max number of events to fire, mockable for unit tests
+  int max_content_changed_events_to_fire_ = kMaxContentChangedEventsToFire;
+
+  // A count of the number of TYPE_WINDOW_CONTENT_CHANGED events we've
+  // fired during a single atomic update.
+  int content_changed_events_ = 0;
 
   // Manages the connection between web contents and the RenderFrameHost that
   // receives accessibility events.
   // Owns itself, and destroyed upon WebContentsObserver::WebContentsDestroyed.
   class Connector;
-  Connector* connector_;
+  Connector* connector_ = nullptr;
 
   base::WeakPtrFactory<WebContentsAccessibilityAndroid> weak_ptr_factory_{this};
 

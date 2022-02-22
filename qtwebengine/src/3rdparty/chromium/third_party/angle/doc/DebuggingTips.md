@@ -38,6 +38,41 @@ apitrace trace -o mytrace ./out/Debug/hello_triangle
 qapitrace mytrace
 ```
 
+## Enabling Debug Markers
+
+ANGLE can emit debug-utils markers for every GLES API command that are visible to both Android
+GPU Inspector (AGI) and RenderDoc.  This support is compiled when the following GN args are set:
+```
+angle_enable_trace = true
+angle_enable_annotator_run_time_checks = true
+```
+In addition, if the following GN arg is set, the API calls will output to Android's logcat:
+```
+angle_enable_trace_android_logcat = true
+```
+Once compiled, the markers need to be turned on.
+
+### Turning on Debug Markers on Android
+
+On Android, debug markers are turned on and off with an Android debug property that is
+automatically deleted at the next reboot:
+
+```
+adb shell setprop debug.angle.markers 1
+```
+
+* 0: Turned off/disabled (default)
+* 1: Turned on/enabled
+
+### Turning on Debug Markers on Desktop
+
+On desktop, debug markers are turned on and off with the ANGLE_ENABLE_DEBUG_MARKERS environment
+variable (set in OS-specific manner):
+
+* 0: Turned off/disabled (default)
+* 1: Turned on/enabled
+
+
 ## Running ANGLE under GAPID on Linux
 
 [GAPID](https://github.com/google/gapid) can be used to capture trace of Vulkan commands on Linux.

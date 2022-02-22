@@ -51,36 +51,60 @@
 #ifndef QAXWIDGET_H
 #define QAXWIDGET_H
 
-#include <ActiveQt/qaxbase.h>
+#include <QtAxContainer/qaxbase.h>
+#include <QtAxContainer/qaxobjectinterface.h>
 #include <QtWidgets/qwidget.h>
 
 QT_BEGIN_NAMESPACE
 
-class QAxHostWindow;
 class QAxAggregated;
 
 class QAxClientSite;
 class QAxWidgetPrivate;
 
-class QAxWidget : public QWidget, public QAxBase
+class QAxBaseWidget : public QWidget, public QAxObjectInterface
 {
-    Q_OBJECT_FAKE
+    Q_OBJECT
+    Q_PROPERTY(ulong classContext READ classContext WRITE setClassContext)
+    Q_PROPERTY(QString control READ control WRITE setControl RESET resetControl)
 public:
-    QObject* qObject() const override { return const_cast<QAxWidget *>(this); }
-    const char *className() const override;
 
+Q_SIGNALS:
+    void exception(int code, const QString &source, const QString &desc, const QString &help);
+    void propertyChanged(const QString &name);
+    void signal(const QString &name, int argc, void *argv);
+
+protected:
+    using QWidget::QWidget;
+    QAxBaseWidget(QWidgetPrivate &d, QWidget *parent, Qt::WindowFlags f);
+};
+
+class QAxWidget : public QAxBaseWidget, public QAxBase
+{
+public:
     explicit QAxWidget(QWidget* parent = nullptr, Qt::WindowFlags f = Qt::WindowFlags());
     explicit QAxWidget(const QString &c, QWidget *parent = nullptr, Qt::WindowFlags f = Qt::WindowFlags());
     explicit QAxWidget(IUnknown *iface, QWidget *parent = nullptr, Qt::WindowFlags f = Qt::WindowFlags());
     ~QAxWidget() override;
 
-    void clear() override;
+    ulong classContext() const override;
+    void setClassContext(ulong classContext) override;
+
+    QString control() const override;
+    bool setControl(const QString &) override;
+    void resetControl() override;
+    void clear();
     bool doVerb(const QString &verb);
 
     QSize sizeHint() const override;
     QSize minimumSizeHint() const override;
 
     virtual QAxAggregated *createAggregate();
+
+    const QMetaObject *metaObject() const override;
+    int qt_metacall(QMetaObject::Call call, int id, void **v) override;
+    Q_DECL_HIDDEN_STATIC_METACALL static void qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id, void **_a);
+    void *qt_metacast(const char *) override;
 
 protected:
     bool initialize(IUnknown **) override;
@@ -93,13 +117,10 @@ protected:
     virtual bool translateKeyEvent(int message, int keycode) const;
 
     void connectNotify(const QMetaMethod &signal) override;
-    const QMetaObject *fallbackMetaObject() const override;
 private:
-    friend class QAxClientSite;
-    QAxClientSite *container = nullptr;
+    Q_DECLARE_PRIVATE(QAxWidget)
 
-    QAxWidgetPrivate *m_unused = nullptr;
-    const QMetaObject *parentMetaObject() const override;
+    friend class QAxClientSite;
 };
 
 template <> inline QAxWidget *qobject_cast<QAxWidget*>(const QObject *o)

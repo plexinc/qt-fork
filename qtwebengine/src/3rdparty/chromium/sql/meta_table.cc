@@ -6,7 +6,7 @@
 
 #include <stdint.h>
 
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
 #include "sql/database.h"
@@ -55,7 +55,7 @@ void RecordDeprecationEvent(DeprecationEventType deprecation_event) {
 
 namespace sql {
 
-MetaTable::MetaTable() : db_(nullptr) {}
+MetaTable::MetaTable() = default;
 
 MetaTable::~MetaTable() = default;
 

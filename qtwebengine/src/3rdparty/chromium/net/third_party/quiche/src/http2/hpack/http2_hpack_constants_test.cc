@@ -2,13 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/http2/hpack/http2_hpack_constants.h"
+#include "http2/hpack/http2_hpack_constants.h"
 
 #include <sstream>
 
-#include "testing/gmock/include/gmock/gmock.h"
-#include "testing/gtest/include/gtest/gtest.h"
-#include "net/third_party/quiche/src/http2/platform/api/http2_logging.h"
+#include "http2/platform/api/http2_logging.h"
+#include "http2/platform/api/http2_test_helpers.h"
 
 namespace http2 {
 namespace test {

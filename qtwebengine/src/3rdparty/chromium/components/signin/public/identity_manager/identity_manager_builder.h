@@ -9,6 +9,8 @@
 
 #include "base/files/file_path.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
+#include "components/signin/public/identity_manager/identity_manager.h"
 
 #if !defined(OS_ANDROID)
 #include "base/memory/scoped_refptr.h"
@@ -39,15 +41,14 @@ namespace network {
 class NetworkConnectionTracker;
 }
 
-#if defined(OS_CHROMEOS)
-namespace chromeos {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+namespace ash {
 class AccountManager;
 }
 #endif
 
 namespace signin {
 enum class AccountConsistencyMethod;
-class IdentityManager;
 
 struct IdentityManagerBuildParams {
   IdentityManagerBuildParams();
@@ -68,8 +69,8 @@ struct IdentityManagerBuildParams {
   scoped_refptr<TokenWebData> token_web_data;
 #endif
 
-#if defined(OS_CHROMEOS)
-  chromeos::AccountManager* account_manager;
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  ash::AccountManager* account_manager;
   bool is_regular_profile;
 #endif
 
@@ -80,7 +81,13 @@ struct IdentityManagerBuildParams {
 #if defined(OS_WIN)
   base::RepeatingCallback<bool()> reauth_callback;
 #endif
+
+  bool allow_access_token_fetch = true;
 };
+
+// Builds all required dependencies to initialize the IdentityManager instance.
+IdentityManager::InitParameters BuildIdentityManagerInitParameters(
+    IdentityManagerBuildParams* params);
 
 // Builds an IdentityManager instance from the supplied embedder-level
 // dependencies.

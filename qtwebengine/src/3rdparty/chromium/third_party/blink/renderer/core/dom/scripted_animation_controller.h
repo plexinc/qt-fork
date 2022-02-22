@@ -48,13 +48,11 @@ class CORE_EXPORT ScriptedAnimationController
     : public GarbageCollected<ScriptedAnimationController>,
       public ExecutionContextLifecycleStateObserver,
       public NameClient {
-  USING_GARBAGE_COLLECTED_MIXIN(ScriptedAnimationController);
-
  public:
   explicit ScriptedAnimationController(LocalDOMWindow*);
   ~ScriptedAnimationController() override = default;
 
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
   const char* NameInHeapSnapshot() const override {
     return "ScriptedAnimationController";
   }
@@ -67,15 +65,10 @@ class CORE_EXPORT ScriptedAnimationController
 
   // Animation frame callbacks are used for requestAnimationFrame().
   typedef int CallbackId;
-  CallbackId RegisterFrameCallback(
-      FrameRequestCallbackCollection::FrameCallback*);
+  CallbackId RegisterFrameCallback(FrameCallback*);
   void CancelFrameCallback(CallbackId);
   // Returns true if any callback is currently registered.
   bool HasFrameCallback() const;
-
-  CallbackId RegisterPostFrameCallback(
-      FrameRequestCallbackCollection::FrameCallback*);
-  void CancelPostFrameCallback(CallbackId);
 
   // Queues up the execution of video.requestVideoFrameCallback() callbacks for
   // a specific HTMLVideoELement, as part of the next rendering steps.
@@ -95,7 +88,6 @@ class CORE_EXPORT ScriptedAnimationController
   // Invokes callbacks, dispatches events, etc. The order is defined by HTML:
   // https://html.spec.whatwg.org/C/#event-loop-processing-model
   void ServiceScriptedAnimations(base::TimeTicks monotonic_time_now);
-  void RunPostFrameCallbacks();
 
   void ContextLifecycleStateChanged(mojom::FrameLifecycleState) final;
   void ContextDestroyed() final {}
@@ -129,9 +121,11 @@ class CORE_EXPORT ScriptedAnimationController
   using PerFrameEventsMap =
       HeapHashMap<Member<const EventTarget>, HashSet<const StringImpl*>>;
   PerFrameEventsMap per_frame_events_;
-  using MediaQueryListListeners =
-      HeapListHashSet<Member<MediaQueryListListener>>;
+  using MediaQueryListListeners = HeapVector<Member<MediaQueryListListener>>;
   MediaQueryListListeners media_query_list_listeners_;
+  // This is used to quickly lookup if a listener exists in
+  // media_query_list_listeners_. The contents should be exactly the same.
+  HeapHashSet<Member<MediaQueryListListener>> media_query_list_listeners_set_;
   double current_frame_time_ms_ = 0.0;
   double current_frame_legacy_time_ms_ = 0.0;
 

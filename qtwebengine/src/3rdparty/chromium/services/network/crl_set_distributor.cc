@@ -8,10 +8,12 @@
 
 #include "base/bind.h"
 #include "base/containers/span.h"
+#include "base/feature_list.h"
 #include "base/location.h"
 #include "base/strings/string_piece.h"
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
+#include "services/network/public/cpp/features.h"
 
 namespace network {
 
@@ -21,7 +23,7 @@ namespace {
 // CRLSet.
 scoped_refptr<net::CRLSet> ParseCRLSet(std::string crl_set) {
   scoped_refptr<net::CRLSet> result;
-  if (!net::CRLSet::Parse(crl_set, &result))
+  if (!net::CRLSet::ParseAndStoreUnparsedData(std::move(crl_set), &result))
     return nullptr;
   return result;
 }

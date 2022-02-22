@@ -167,6 +167,14 @@ VirtualKeyboardSettings::VirtualKeyboardSettings(QQmlEngine *engine) :
     connect(settings, SIGNAL(wclAlwaysVisibleChanged()), &d->wordCandidateListSettings, SIGNAL(alwaysVisibleChanged()));
     connect(settings, SIGNAL(wclAutoCommitWordChanged()), &d->wordCandidateListSettings, SIGNAL(autoCommitWordChanged()));
     connect(settings, SIGNAL(fullScreenModeChanged()), SIGNAL(fullScreenModeChanged()));
+    connect(settings, SIGNAL(userDataPathChanged()), SIGNAL(userDataPathChanged()));
+    settings->connect(this, SIGNAL(userDataReset()), SIGNAL(userDataReset()));
+    connect(settings, SIGNAL(hwrTimeoutForAlphabeticChanged()), SIGNAL(hwrTimeoutForAlphabeticChanged()));
+    connect(settings, SIGNAL(hwrTimeoutForCjkChanged()), SIGNAL(hwrTimeoutForCjkChanged()));
+    connect(settings, SIGNAL(inputMethodHintsChanged()), SIGNAL(inputMethodHintsChanged()));
+    connect(settings, SIGNAL(handwritingModeDisabledChanged()), SIGNAL(handwritingModeDisabledChanged()));
+    connect(settings, SIGNAL(defaultInputMethodDisabledChanged()), SIGNAL(defaultInputMethodDisabledChanged()));
+    connect(settings, SIGNAL(defaultDictionaryDisabledChanged()), SIGNAL(defaultDictionaryDisabledChanged()));
 }
 
 /*!
@@ -289,6 +297,76 @@ void VirtualKeyboardSettings::setFullScreenMode(bool fullScreenMode)
     return Settings::instance()->setFullScreenMode(fullScreenMode);
 }
 
+QString VirtualKeyboardSettings::userDataPath() const
+{
+    return Settings::instance()->userDataPath();
+}
+
+void VirtualKeyboardSettings::setUserDataPath(const QString &userDataPath)
+{
+    return Settings::instance()->setUserDataPath(userDataPath);
+}
+
+int VirtualKeyboardSettings::hwrTimeoutForAlphabetic() const
+{
+    return Settings::instance()->hwrTimeoutForAlphabetic();
+}
+
+void VirtualKeyboardSettings::setHwrTimeoutForAlphabetic(int hwrTimeoutForAlphabetic)
+{
+    return Settings::instance()->setHwrTimeoutForAlphabetic(hwrTimeoutForAlphabetic);
+}
+
+int VirtualKeyboardSettings::hwrTimeoutForCjk() const
+{
+    return Settings::instance()->hwrTimeoutForCjk();
+}
+
+void VirtualKeyboardSettings::setHwrTimeoutForCjk(int hwrTimeoutForCjk)
+{
+    return Settings::instance()->setHwrTimeoutForCjk(hwrTimeoutForCjk);
+}
+
+Qt::InputMethodHints VirtualKeyboardSettings::inputMethodHints() const
+{
+    return Settings::instance()->inputMethodHints();
+}
+
+void VirtualKeyboardSettings::setInputMethodHints(const Qt::InputMethodHints &inputMethodHints)
+{
+    Settings::instance()->setInputMethodHints(inputMethodHints);
+}
+
+bool VirtualKeyboardSettings::isHandwritingModeDisabled() const
+{
+    return Settings::instance()->isHandwritingModeDisabled();
+}
+
+void VirtualKeyboardSettings::setHandwritingModeDisabled(bool handwritingModeDisabled)
+{
+    Settings::instance()->setHandwritingModeDisabled(handwritingModeDisabled);
+}
+
+bool VirtualKeyboardSettings::isDefaultInputMethodDisabled() const
+{
+    return Settings::instance()->isDefaultInputMethodDisabled();
+}
+
+void VirtualKeyboardSettings::setDefaultInputMethodDisabled(bool defaultInputMethodDisabled)
+{
+    return Settings::instance()->setDefaultInputMethodDisabled(defaultInputMethodDisabled);
+}
+
+bool VirtualKeyboardSettings::isDefaultDictionaryDisabled() const
+{
+    return Settings::instance()->isDefaultDictionaryDisabled();
+}
+
+void VirtualKeyboardSettings::setDefaultDictionaryDisabled(bool defaultDictionaryDisabled)
+{
+    return Settings::instance()->setDefaultDictionaryDisabled(defaultDictionaryDisabled);
+}
+
 void VirtualKeyboardSettings::resetStyle()
 {
     Q_D(VirtualKeyboardSettings);
@@ -352,6 +430,7 @@ void VirtualKeyboardSettings::resetStyle()
 /*!
     \qmlproperty list<string> VirtualKeyboardSettings::availableLocales
     \since QtQuick.VirtualKeyboard.Settings 2.0
+    \readonly
 
     This property contains a list of languages supported by the virtual keyboard.
 
@@ -367,6 +446,8 @@ void VirtualKeyboardSettings::resetStyle()
 
     The list of active languages is a subset of the available languages, and can be
     used to limit the list of available languages in the application lifetime.
+
+    The list of languages will be shown based on the specified ordering.
 */
 
 /*!
@@ -389,6 +470,80 @@ void VirtualKeyboardSettings::resetStyle()
             value: (Screen.width / Screen.height) > (16.0 / 9.0)
         }
     \endcode
+*/
+
+/*!
+    \qmlproperty bool VirtualKeyboardSettings::userDataPath
+    \since QtQuick.VirtualKeyboard.Settings 6.1
+
+    This property sets the user data path for the virtual keyboard and its plugins.
+
+    By default, the user data path is set to \l {QStandardPaths::GenericConfigLocation}{GenericConfigLocation} + "/qtvirtualkeyboard".
+*/
+
+/*!
+    \qmlsignal VirtualKeyboardSettings::userDataReset()
+
+    The application triggers this signal prior to the user's data being reset to
+    indicate to the virtual keyboard that all files must be closed
+    in the user data directory.
+*/
+
+/*!
+    \qmlproperty bool VirtualKeyboardSettings::hwrTimeoutForAlphabetic
+    \since QtQuick.VirtualKeyboard.Settings 6.1
+
+    This property sets the handwriting recognition timeout for alphabetical languages.
+
+    By default, the timeout is 500 millliseconds.
+*/
+
+/*!
+    \qmlproperty bool VirtualKeyboardSettings::hwrTimeoutForCjk
+    \since QtQuick.VirtualKeyboard.Settings 6.1
+
+    This property sets the handwriting recognition timeout for Chinese / Japanese / Korean languages.
+
+    By default, the timeout is 500 millliseconds.
+*/
+
+/*!
+    \qmlproperty int VirtualKeyboardSettings::inputMethodHints
+    \since QtQuick.VirtualKeyboard.Settings 6.1
+
+    This property allows to set persistent input method hints.
+
+    The value of this property is combined with the input method
+    hints from the input control. For example, to disable predictive
+    text input, this property can be set to \c Qt::ImhNoPredictiveText.
+*/
+
+/*!
+    \qmlproperty bool VirtualKeyboardSettings::handwritingModeDisabled
+    \since QtQuick.VirtualKeyboard.Settings 6.1
+
+    This property allows to disable handwriting input mode, if it is
+    otherwise available in the system.
+
+    When this property is set to \c true, the handwriting button is hidden
+    from the keyboard layout and the user cannot switch to handwriting
+    input mode.
+*/
+
+/*!
+    \qmlproperty bool VirtualKeyboardSettings::defaultInputMethodDisabled
+    \since QtQuick.VirtualKeyboard.Settings 6.1
+
+    This property disables the default input method. The purpose of this setting is to be able to
+    override the default input method with the plain input method, disabling its functionality.
+*/
+
+/*!
+    \qmlproperty bool VirtualKeyboardSettings::defaultDictionaryDisabled
+    \since QtQuick.VirtualKeyboard.Settings 6.1
+
+    This property disables the default dictionary. The purpose of this setting is to be able to
+    use a custom dictionary only instead of the standard dictionary.
 */
 
 /*!

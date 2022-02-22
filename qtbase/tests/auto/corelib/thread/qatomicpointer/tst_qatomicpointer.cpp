@@ -27,7 +27,7 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include <qatomic.h>
 #include <limits.h>
@@ -73,12 +73,12 @@ void tst_QAtomicPointer::warningFreeHelper()
 {
     qFatal("This code is bogus, and shouldn't be run. We're looking for compiler warnings only.");
 
-    QBasicAtomicPointer<WFHC> p = Q_BASIC_ATOMIC_INITIALIZER(0);
+    QBasicAtomicPointer<WFHC> p = Q_BASIC_ATOMIC_INITIALIZER(nullptr);
 
     p.loadRelaxed()->bar();
 
-    WFHC *expectedValue = 0;
-    WFHC *newValue = 0;
+    WFHC *expectedValue = nullptr;
+    WFHC *newValue = nullptr;
     qptrdiff valueToAdd = 0;
 
     p.testAndSetRelaxed(expectedValue, newValue);
@@ -108,11 +108,7 @@ void tst_QAtomicPointer::warningFree()
 
 void tst_QAtomicPointer::alignment()
 {
-#ifdef Q_ALIGNOF
-    // this will cause a build error if the alignment isn't the same
-    char dummy[Q_ALIGNOF(QBasicAtomicPointer<void>) == Q_ALIGNOF(void*) ? 1 : -1];
-    (void)dummy;
-#endif
+    static_assert(alignof(QBasicAtomicPointer<void>) == alignof(void*));
 }
 
 void tst_QAtomicPointer::constructor()
@@ -589,7 +585,7 @@ void tst_QAtomicPointer::fetchAndAdd()
 
 template <typename T> void constAndVolatile_helper()
 {
-    T *one = 0;
+    T *one = nullptr;
     T *two = &one;
     T *three = &two;
 
@@ -649,8 +645,8 @@ void tst_QAtomicPointer::forwardDeclared()
     // this is just a compilation test
     QAtomicPointer<ForwardDeclared> ptr;
     ContainsForwardDeclared cfd;
-    Q_UNUSED(ptr);
-    Q_UNUSED(cfd);
+    Q_UNUSED(ptr)
+    Q_UNUSED(cfd)
     QVERIFY(true);
 }
 
@@ -665,7 +661,7 @@ template <typename T> static void operators_helper()
     {
         // Test that QBasicAtomicPointer also has operator= and cast operators
         // We've been using them for QAtomicPointer<T> elsewhere
-        QBasicAtomicPointer<T> atomic = Q_BASIC_ATOMIC_INITIALIZER(0);
+        QBasicAtomicPointer<T> atomic = Q_BASIC_ATOMIC_INITIALIZER(nullptr);
         atomic = one;
         QCOMPARE(Ptr(atomic), one);
     }

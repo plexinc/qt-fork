@@ -23,9 +23,10 @@
 #include "aom_dsp/blend.h"
 #include "aom_dsp/variance.h"
 
+#include "av1/common/av1_common_int.h"
 #include "av1/common/filter.h"
-#include "av1/common/onyxc_int.h"
 #include "av1/common/reconinter.h"
+#include "av1/encoder/reconinter_enc.h"
 
 uint32_t aom_get4x4sse_cs_c(const uint8_t *a, int a_stride, const uint8_t *b,
                             int b_stride) {
@@ -249,12 +250,16 @@ VARIANCES(4, 4)
 VARIANCES(4, 2)
 VARIANCES(2, 4)
 VARIANCES(2, 2)
+
+// Realtime mode doesn't use rectangular blocks.
+#if !CONFIG_REALTIME_ONLY
 VARIANCES(4, 16)
 VARIANCES(16, 4)
 VARIANCES(8, 32)
 VARIANCES(32, 8)
 VARIANCES(16, 64)
 VARIANCES(64, 16)
+#endif
 
 GET_VAR(16, 16)
 GET_VAR(8, 8)
@@ -295,70 +300,24 @@ void aom_upsampled_pred_c(MACROBLOCKD *xd, const AV1_COMMON *const cm,
     const int is_scaled = av1_is_scaled(sf);
 
     if (is_scaled) {
-      // Note: This is mostly a copy from the >=8X8 case in
-      // build_inter_predictors() function, with some small tweaks.
-
-      // Some assumptions.
-      const int plane = 0;
-
-      // Get pre-requisites.
+      int plane = 0;
+      const int mi_x = mi_col * MI_SIZE;
+      const int mi_y = mi_row * MI_SIZE;
       const struct macroblockd_plane *const pd = &xd->plane[plane];
-      const int ssx = pd->subsampling_x;
-      const int ssy = pd->subsampling_y;
-      assert(ssx == 0 && ssy == 0);
       const struct buf_2d *const dst_buf = &pd->dst;
       const struct buf_2d *const pre_buf =
           is_intrabc ? dst_buf : &pd->pre[ref_num];
-      const int mi_x = mi_col * MI_SIZE;
-      const int mi_y = mi_row * MI_SIZE;
-
-      // Calculate subpel_x/y and x/y_step.
-      const int row_start = 0;  // Because ss_y is 0.
-      const int col_start = 0;  // Because ss_x is 0.
-      const int pre_x = (mi_x + MI_SIZE * col_start) >> ssx;
-      const int pre_y = (mi_y + MI_SIZE * row_start) >> ssy;
-      int orig_pos_y = pre_y << SUBPEL_BITS;
-      orig_pos_y += mv->row * (1 << (1 - ssy));
-      int orig_pos_x = pre_x << SUBPEL_BITS;
-      orig_pos_x += mv->col * (1 << (1 - ssx));
-      int pos_y = sf->scale_value_y(orig_pos_y, sf);
-      int pos_x = sf->scale_value_x(orig_pos_x, sf);
-      pos_x += SCALE_EXTRA_OFF;
-      pos_y += SCALE_EXTRA_OFF;
-
-      const int top = -AOM_LEFT_TOP_MARGIN_SCALED(ssy);
-      const int left = -AOM_LEFT_TOP_MARGIN_SCALED(ssx);
-      const int bottom = (pre_buf->height + AOM_INTERP_EXTEND)
-                         << SCALE_SUBPEL_BITS;
-      const int right = (pre_buf->width + AOM_INTERP_EXTEND)
-                        << SCALE_SUBPEL_BITS;
-      pos_y = clamp(pos_y, top, bottom);
-      pos_x = clamp(pos_x, left, right);
-
-      const uint8_t *const pre =
-          pre_buf->buf0 + (pos_y >> SCALE_SUBPEL_BITS) * pre_buf->stride +
-          (pos_x >> SCALE_SUBPEL_BITS);
 
       InterPredParams inter_pred_params;
-
-      const SubpelParams subpel_params = { sf->x_step_q4, sf->y_step_q4,
-                                           pos_x & SCALE_SUBPEL_MASK,
-                                           pos_y & SCALE_SUBPEL_MASK };
-
-      // Get convolve parameters.
       inter_pred_params.conv_params = get_conv_params(0, plane, xd->bd);
       const int_interpfilters filters =
           av1_broadcast_interp_filter(EIGHTTAP_REGULAR);
-
       av1_init_inter_params(
           &inter_pred_params, width, height, mi_y >> pd->subsampling_y,
           mi_x >> pd->subsampling_x, pd->subsampling_x, pd->subsampling_y,
-          xd->bd, is_cur_buf_hbd(xd), mi->use_intrabc, sf, pre_buf, filters);
-
-      // Get the inter predictor.
-      av1_make_inter_predictor(pre, pre_buf->stride, comp_pred, width,
-                               &inter_pred_params, &subpel_params);
-
+          xd->bd, is_cur_buf_hbd(xd), is_intrabc, sf, pre_buf, filters);
+      av1_enc_build_one_inter_predictor(comp_pred, width, mv,
+                                        &inter_pred_params);
       return;
     }
   }
@@ -408,8 +367,9 @@ void aom_comp_avg_upsampled_pred_c(MACROBLOCKD *xd, const AV1_COMMON *const cm,
                                    int ref_stride, int subpel_search) {
   int i, j;
 
-  aom_upsampled_pred(xd, cm, mi_row, mi_col, mv, comp_pred, width, height,
-                     subpel_x_q3, subpel_y_q3, ref, ref_stride, subpel_search);
+  aom_upsampled_pred_c(xd, cm, mi_row, mi_col, mv, comp_pred, width, height,
+                       subpel_x_q3, subpel_y_q3, ref, ref_stride,
+                       subpel_search);
   for (i = 0; i < height; i++) {
     for (j = 0; j < width; j++) {
       comp_pred[j] = ROUND_POWER_OF_TWO(comp_pred[j] + pred[j], 1);
@@ -834,12 +794,16 @@ HIGHBD_VARIANCES(4, 4)
 HIGHBD_VARIANCES(4, 2)
 HIGHBD_VARIANCES(2, 4)
 HIGHBD_VARIANCES(2, 2)
+
+// Realtime mode doesn't use 4x rectangular blocks.
+#if !CONFIG_REALTIME_ONLY
 HIGHBD_VARIANCES(4, 16)
 HIGHBD_VARIANCES(16, 4)
 HIGHBD_VARIANCES(8, 32)
 HIGHBD_VARIANCES(32, 8)
 HIGHBD_VARIANCES(16, 64)
 HIGHBD_VARIANCES(64, 16)
+#endif
 
 HIGHBD_GET_VAR(8)
 HIGHBD_GET_VAR(16)
@@ -884,69 +848,24 @@ void aom_highbd_upsampled_pred_c(MACROBLOCKD *xd,
     const int is_scaled = av1_is_scaled(sf);
 
     if (is_scaled) {
-      // Note: This is mostly a copy from the >=8X8 case in
-      // build_inter_predictors() function, with some small tweaks.
-      // Some assumptions.
-      const int plane = 0;
-
-      // Get pre-requisites.
+      int plane = 0;
+      const int mi_x = mi_col * MI_SIZE;
+      const int mi_y = mi_row * MI_SIZE;
       const struct macroblockd_plane *const pd = &xd->plane[plane];
-      const int ssx = pd->subsampling_x;
-      const int ssy = pd->subsampling_y;
-      assert(ssx == 0 && ssy == 0);
       const struct buf_2d *const dst_buf = &pd->dst;
       const struct buf_2d *const pre_buf =
           is_intrabc ? dst_buf : &pd->pre[ref_num];
-      const int mi_x = mi_col * MI_SIZE;
-      const int mi_y = mi_row * MI_SIZE;
-
-      // Calculate subpel_x/y and x/y_step.
-      const int row_start = 0;  // Because ss_y is 0.
-      const int col_start = 0;  // Because ss_x is 0.
-      const int pre_x = (mi_x + MI_SIZE * col_start) >> ssx;
-      const int pre_y = (mi_y + MI_SIZE * row_start) >> ssy;
-      int orig_pos_y = pre_y << SUBPEL_BITS;
-      orig_pos_y += mv->row * (1 << (1 - ssy));
-      int orig_pos_x = pre_x << SUBPEL_BITS;
-      orig_pos_x += mv->col * (1 << (1 - ssx));
-      int pos_y = sf->scale_value_y(orig_pos_y, sf);
-      int pos_x = sf->scale_value_x(orig_pos_x, sf);
-      pos_x += SCALE_EXTRA_OFF;
-      pos_y += SCALE_EXTRA_OFF;
-
-      const int top = -AOM_LEFT_TOP_MARGIN_SCALED(ssy);
-      const int left = -AOM_LEFT_TOP_MARGIN_SCALED(ssx);
-      const int bottom = (pre_buf->height + AOM_INTERP_EXTEND)
-                         << SCALE_SUBPEL_BITS;
-      const int right = (pre_buf->width + AOM_INTERP_EXTEND)
-                        << SCALE_SUBPEL_BITS;
-      pos_y = clamp(pos_y, top, bottom);
-      pos_x = clamp(pos_x, left, right);
-
-      const uint8_t *const pre =
-          pre_buf->buf0 + (pos_y >> SCALE_SUBPEL_BITS) * pre_buf->stride +
-          (pos_x >> SCALE_SUBPEL_BITS);
 
       InterPredParams inter_pred_params;
-
-      const SubpelParams subpel_params = { sf->x_step_q4, sf->y_step_q4,
-                                           pos_x & SCALE_SUBPEL_MASK,
-                                           pos_y & SCALE_SUBPEL_MASK };
-
-      // Get convolve parameters.
       inter_pred_params.conv_params = get_conv_params(0, plane, xd->bd);
       const int_interpfilters filters =
           av1_broadcast_interp_filter(EIGHTTAP_REGULAR);
-
       av1_init_inter_params(
           &inter_pred_params, width, height, mi_y >> pd->subsampling_y,
           mi_x >> pd->subsampling_x, pd->subsampling_x, pd->subsampling_y,
-          xd->bd, is_cur_buf_hbd(xd), mi->use_intrabc, sf, pre_buf, filters);
-
-      // Get the inter predictor.
-      av1_make_inter_predictor(pre, pre_buf->stride, comp_pred8, width,
-                               &inter_pred_params, &subpel_params);
-
+          xd->bd, is_cur_buf_hbd(xd), is_intrabc, sf, pre_buf, filters);
+      av1_enc_build_one_inter_predictor(comp_pred8, width, mv,
+                                        &inter_pred_params);
       return;
     }
   }
@@ -1138,12 +1057,16 @@ MASK_SUBPIX_VAR(64, 64)
 MASK_SUBPIX_VAR(64, 128)
 MASK_SUBPIX_VAR(128, 64)
 MASK_SUBPIX_VAR(128, 128)
+
+// Realtime mode doesn't use 4x rectangular blocks.
+#if !CONFIG_REALTIME_ONLY
 MASK_SUBPIX_VAR(4, 16)
 MASK_SUBPIX_VAR(16, 4)
 MASK_SUBPIX_VAR(8, 32)
 MASK_SUBPIX_VAR(32, 8)
 MASK_SUBPIX_VAR(16, 64)
 MASK_SUBPIX_VAR(64, 16)
+#endif
 
 #if CONFIG_AV1_HIGHBITDEPTH
 void aom_highbd_comp_mask_pred_c(uint8_t *comp_pred8, const uint8_t *pred8,
@@ -1264,14 +1187,17 @@ HIGHBD_MASK_SUBPIX_VAR(64, 64)
 HIGHBD_MASK_SUBPIX_VAR(64, 128)
 HIGHBD_MASK_SUBPIX_VAR(128, 64)
 HIGHBD_MASK_SUBPIX_VAR(128, 128)
+#if !CONFIG_REALTIME_ONLY
 HIGHBD_MASK_SUBPIX_VAR(4, 16)
 HIGHBD_MASK_SUBPIX_VAR(16, 4)
 HIGHBD_MASK_SUBPIX_VAR(8, 32)
 HIGHBD_MASK_SUBPIX_VAR(32, 8)
 HIGHBD_MASK_SUBPIX_VAR(16, 64)
 HIGHBD_MASK_SUBPIX_VAR(64, 16)
+#endif
 #endif  // CONFIG_AV1_HIGHBITDEPTH
 
+#if !CONFIG_REALTIME_ONLY
 static INLINE void obmc_variance(const uint8_t *pre, int pre_stride,
                                  const int32_t *wsrc, const int32_t *mask,
                                  int w, int h, unsigned int *sse, int *sum) {
@@ -1571,3 +1497,28 @@ HIGHBD_OBMC_SUBPIX_VAR(16, 64)
 HIGHBD_OBMC_VAR(64, 16)
 HIGHBD_OBMC_SUBPIX_VAR(64, 16)
 #endif  // CONFIG_AV1_HIGHBITDEPTH
+#endif  // !CONFIG_REALTIME_ONLY
+
+uint64_t aom_mse_wxh_16bit_c(uint8_t *dst, int dstride, uint16_t *src,
+                             int sstride, int w, int h) {
+  uint64_t sum = 0;
+  for (int i = 0; i < h; i++) {
+    for (int j = 0; j < w; j++) {
+      int e = (uint16_t)dst[i * dstride + j] - src[i * sstride + j];
+      sum += e * e;
+    }
+  }
+  return sum;
+}
+
+uint64_t aom_mse_wxh_16bit_highbd_c(uint16_t *dst, int dstride, uint16_t *src,
+                                    int sstride, int w, int h) {
+  uint64_t sum = 0;
+  for (int i = 0; i < h; i++) {
+    for (int j = 0; j < w; j++) {
+      int e = dst[i * dstride + j] - src[i * sstride + j];
+      sum += e * e;
+    }
+  }
+  return sum;
+}

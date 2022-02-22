@@ -44,10 +44,10 @@
 QT_BEGIN_NAMESPACE
 
 TcpClientIo::TcpClientIo(QObject *parent)
-    : ClientIoDevice(parent)
+    : QtROClientIoDevice(parent)
     , m_socket(new QTcpSocket(this))
 {
-    connect(m_socket, &QTcpSocket::readyRead, this, &ClientIoDevice::readyRead);
+    connect(m_socket, &QTcpSocket::readyRead, this, &QtROClientIoDevice::readyRead);
     connect(m_socket, &QAbstractSocket::errorOccurred, this, &TcpClientIo::onError);
     connect(m_socket, &QTcpSocket::stateChanged, this, &TcpClientIo::onStateChanged);
 }
@@ -88,7 +88,7 @@ void TcpClientIo::connectToServer()
         address = addresses.first();
     }
 
-    m_socket->connectToHost(address, url().port());
+    m_socket->connectToHost(address, quint16(url().port()));
 }
 
 bool TcpClientIo::isOpen() const
@@ -127,11 +127,11 @@ void TcpClientIo::onStateChanged(QAbstractSocket::SocketState state)
 
 
 TcpServerIo::TcpServerIo(QTcpSocket *conn, QObject *parent)
-    : ServerIoDevice(parent), m_connection(conn)
+    : QtROServerIoDevice(parent), m_connection(conn)
 {
     m_connection->setParent(this);
-    connect(conn, &QIODevice::readyRead, this, &ServerIoDevice::readyRead);
-    connect(conn, &QAbstractSocket::disconnected, this, &ServerIoDevice::disconnected);
+    connect(conn, &QIODevice::readyRead, this, &QtROServerIoDevice::readyRead);
+    connect(conn, &QAbstractSocket::disconnected, this, &QtROServerIoDevice::disconnected);
 }
 
 QIODevice *TcpServerIo::connection() const
@@ -157,12 +157,12 @@ TcpServerImpl::~TcpServerImpl()
     close();
 }
 
-ServerIoDevice *TcpServerImpl::configureNewConnection()
+QtROServerIoDevice *TcpServerImpl::configureNewConnection()
 {
     if (!m_server.isListening())
         return nullptr;
 
-    return new TcpServerIo(m_server.nextPendingConnection());
+    return new TcpServerIo(m_server.nextPendingConnection(), this);
 }
 
 bool TcpServerImpl::hasPendingConnections() const
@@ -191,7 +191,7 @@ bool TcpServerImpl::listen(const QUrl &address)
         }
     }
 
-    bool ret = m_server.listen(host, address.port());
+    bool ret = m_server.listen(host, quint16(address.port()));
     if (ret) {
         m_originalUrl.setScheme(QLatin1String("tcp"));
         m_originalUrl.setHost(m_server.serverAddress().toString());

@@ -69,10 +69,12 @@ class QScreen;
 class QOpenGLTexture;
 class QMouseEvent;
 class QKeyEvent;
+class QRhi;
+class QRhiRenderTarget;
+class QRhiCommandBuffer;
 
 namespace Qt3DCore {
 class QAbstractFrameAdvanceService;
-class QEventFilterService;
 class QAbstractAspectJobManager;
 class QServiceLocator;
 class QAspectManager;
@@ -119,9 +121,16 @@ public:
     };
     Q_DECLARE_FLAGS(BackendNodeDirtySet, BackendNodeDirtyFlag)
 
+    enum RenderDriver {
+        Qt3D,
+        Scene3D,
+    };
+
     virtual void dumpInfo() const = 0;
 
     virtual API api() const = 0;
+    virtual void setRenderDriver(RenderDriver driver) = 0;
+    virtual RenderDriver renderDriver() const = 0;
 
     virtual qint64 time() const = 0;
     virtual void setTime(qint64 time) = 0;
@@ -140,10 +149,7 @@ public:
     virtual void shutdown() = 0;
     virtual void releaseGraphicsResources() = 0;
 
-    // Threaded renderer
-    virtual void render() = 0;
-    // Synchronous renderer
-    virtual void doRender(bool swapBuffers) = 0;
+    virtual void render(bool swapBuffers) = 0;
 
     virtual void cleanGraphicsResources() = 0;
 
@@ -158,10 +164,11 @@ public:
     virtual void skipNextFrame() = 0;
     virtual void jobsDone(Qt3DCore::QAspectManager *manager) = 0;
 
-    virtual void setPendingEvents(const QList<QPair<QObject *, QMouseEvent>> &mouseEvents, const QList<QKeyEvent> &keyEvents) = 0;
+    virtual bool processMouseEvent(QObject *object, QMouseEvent *event) = 0;
+    virtual bool processKeyEvent(QObject *object, QKeyEvent *event) = 0;
 
-    virtual QVector<Qt3DCore::QAspectJobPtr> preRenderingJobs() = 0;
-    virtual QVector<Qt3DCore::QAspectJobPtr> renderBinJobs() = 0;
+    virtual std::vector<Qt3DCore::QAspectJobPtr> preRenderingJobs() = 0;
+    virtual std::vector<Qt3DCore::QAspectJobPtr> renderBinJobs() = 0;
 
     virtual void setSceneRoot(Entity *root) = 0;
 
@@ -175,8 +182,11 @@ public:
 
     virtual QVariant executeCommand(const QStringList &args) = 0;
 
-    // For QtQuick rendering (Scene2D)
+    // For QtQuick rendering (Scene3D/2D)
     virtual void setOpenGLContext(QOpenGLContext *ctx) = 0;
+    virtual void setRHIContext(QRhi *ctx) = 0;
+    virtual void setDefaultRHIRenderTarget(QRhiRenderTarget *defaultTarget) = 0;
+    virtual void setRHICommandBuffer(QRhiCommandBuffer *commandBuffer) = 0;
     virtual void setScreen(QScreen *) {}
     virtual QScreen *screen() const { return nullptr; }
     virtual bool accessOpenGLTexture(Qt3DCore::QNodeId nodeId, QOpenGLTexture **texture, QMutex **lock, bool readonly) = 0;
@@ -187,9 +197,14 @@ public:
     virtual QOpenGLContext *shareContext() const = 0;
     virtual const GraphicsApiFilterData *contextInfo() const = 0;
 
-    // These commands are executed in a dedicated command thread
-    // More will be added later
-    virtual void loadShader(Shader *shader, Qt3DRender::Render::HShader shaderHandle) = 0;
+    // Runtime Cache for Generated Shader Graph
+    bool containsGeneratedShaderGraph(const QByteArray &key) const { return m_cachedGeneratedShaderGraphes.contains(key); };
+    QByteArray cachedGeneratedShaderGraph(const QByteArray &key) const { return m_cachedGeneratedShaderGraphes.value(key); };
+    void insertGeneratedShaderGraph(const QByteArray &key, const QByteArray shaderCode) { m_cachedGeneratedShaderGraphes.insert(key, shaderCode); }
+    void removeGeneratedShaderGraph(const QByteArray &key) { m_cachedGeneratedShaderGraphes.remove(key); };
+
+private:
+    QHash<QByteArray, QByteArray> m_cachedGeneratedShaderGraphes;
 };
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(AbstractRenderer::BackendNodeDirtySet)

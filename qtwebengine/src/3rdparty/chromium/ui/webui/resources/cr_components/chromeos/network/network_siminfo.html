@@ -1,17 +1,18 @@
-<link rel="import" href="chrome://resources/html/polymer.html">
+<link rel="import" href="../../../html/polymer.html">
 
-<link rel="import" href="chrome://resources/cr_components/chromeos/network/onc_mojo.html">
-<link rel="import" href="chrome://resources/cr_elements/cr_button/cr_button.html">
-<link rel="import" href="chrome://resources/cr_elements/cr_dialog/cr_dialog.html">
-<link rel="import" href="chrome://resources/cr_elements/cr_toggle/cr_toggle.html">
-<link rel="import" href="chrome://resources/cr_elements/icons.html">
-<link rel="import" href="chrome://resources/html/assert.html">
-<link rel="import" href="chrome://resources/html/cr/ui/focus_without_ink.html">
-<link rel="import" href="chrome://resources/html/i18n_behavior.html">
+<link rel="import" href="../../../cr_elements/cr_button/cr_button.html">
+<link rel="import" href="../../../cr_elements/cr_dialog/cr_dialog.html">
+<link rel="import" href="../../../cr_elements/cr_toggle/cr_toggle.html">
+<link rel="import" href="../../../cr_elements/icons.html">
+<link rel="import" href="../../../html/assert.html">
+<link rel="import" href="../../../html/cr/ui/focus_without_ink.html">
+<link rel="import" href="../../../html/i18n_behavior.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-flex-layout/iron-flex-layout-classes.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-icon/iron-icon.html">
+<link rel="import" href="mojo_interface_provider.html">
 <link rel="import" href="network_password_input.html">
 <link rel="import" href="network_shared_css.html">
+<link rel="import" href="onc_mojo.html">
 
 <dom-module id="network-siminfo">
   <template>
@@ -28,7 +29,7 @@
         color: red;
         font-size: 125%;
         font-weight: 500;
-        margin-top: 10px;
+        margin-bottom: 10px;
       }
 
       .error {
@@ -50,7 +51,7 @@
     </style>
 
     <!-- SIM missing UI -->
-    <div class="property-box two-line"
+    <div id="simMissing" class="property-box two-line"
         hidden$="[[!showSimMissing_(deviceState)]]">
       <div class="start layout horizontal center">
         <iron-icon icon="cr:sim-card-alert"></iron-icon>
@@ -59,7 +60,7 @@
     </div>
 
     <!-- SIM locked -->
-    <div class="property-box two-line"
+    <div id="simLocked" class="property-box two-line"
         hidden$="[[!showSimLocked_(deviceState)]]">
       <div class="start layout horizontal center">
         <iron-icon icon="cr:sim-lock"></iron-icon>
@@ -180,6 +181,9 @@
             label="[[i18n('networkSimEnterPuk')]]"
             disabled="[[inProgress_]]">
         </network-password-input>
+        <div class="dialog-error">
+          [[getErrorMsg_(error_, deviceState)]]
+        </div>
         <network-password-input id="unlockPin1" value="{{pin_new1_}}"
             label="[[i18n('networkSimEnterNewPin')]]"
             disabled="[[inProgress_]]">
@@ -190,9 +194,6 @@
         </network-password-input>
         <div class="dialog-error">
           [[i18n('networkSimLockedWarning')]]
-        </div>
-        <div class="dialog-error">
-          [[getErrorMsg_(error_, deviceState)]]
         </div>
       </div>
       <div slot="button-container">

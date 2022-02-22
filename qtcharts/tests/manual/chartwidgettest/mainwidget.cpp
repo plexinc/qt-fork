@@ -52,11 +52,11 @@
 #include <QtCore/QRandomGenerator>
 #include <QtGui/QStandardItemModel>
 #include <QtCharts/QBarCategoryAxis>
-#include <QtWidgets/QOpenGLWidget>
+#include <QtOpenGLWidgets/QOpenGLWidget>
 
 #include <qmath.h>
 
-QT_CHARTS_USE_NAMESPACE
+QT_USE_NAMESPACE
 
 MainWidget::MainWidget(QWidget *parent) :
     QWidget(parent),

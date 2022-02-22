@@ -414,7 +414,7 @@ struct FileHeader
     QByteArray extra_field;
     QByteArray file_comment;
 };
-Q_DECLARE_TYPEINFO(FileHeader, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(FileHeader, Q_RELOCATABLE_TYPE);
 
 class QZipPrivate
 {
@@ -435,7 +435,7 @@ public:
     QIODevice *device;
     bool ownDevice;
     bool dirtyFileTree;
-    QVector<FileHeader> fileHeaders;
+    QList<FileHeader> fileHeaders;
     QByteArray comment;
     uint start_of_directory;
 };
@@ -497,7 +497,7 @@ QZipReader::FileInfo QZipPrivate::fillFileInfo(int index) const
 
     // fix the file path, if broken (convert separators, eat leading and trailing ones)
     fileInfo.filePath = QDir::fromNativeSeparators(fileInfo.filePath);
-    QStringRef filePathRef(&fileInfo.filePath);
+    QStringView filePathRef(fileInfo.filePath);
     while (filePathRef.startsWith(QLatin1Char('.')) || filePathRef.startsWith(QLatin1Char('/')))
         filePathRef = filePathRef.mid(1);
     while (filePathRef.endsWith(QLatin1Char('/')))
@@ -856,7 +856,7 @@ QZipReader::QZipReader(QIODevice *device)
 }
 
 /*!
-    Desctructor
+    Destructor
 */
 QZipReader::~QZipReader()
 {
@@ -894,10 +894,10 @@ bool QZipReader::exists() const
 /*!
     Returns the list of files the archive contains.
 */
-QVector<QZipReader::FileInfo> QZipReader::fileInfoList() const
+QList<QZipReader::FileInfo> QZipReader::fileInfoList() const
 {
     d->scanFiles();
-    QVector<FileInfo> files;
+    QList<FileInfo> files;
     const int numFileHeaders = d->fileHeaders.size();
     files.reserve(numFileHeaders);
     for (int i = 0; i < numFileHeaders; ++i)
@@ -1023,14 +1023,34 @@ bool QZipReader::extractAll(const QString &destinationDir) const
     QDir baseDir(destinationDir);
 
     // create directories first
-    const QVector<FileInfo> allFiles = fileInfoList();
+    const QList<FileInfo> allFiles = fileInfoList();
+    bool foundDirs = false;
+    bool hasDirs = false;
     for (const FileInfo &fi : allFiles) {
         const QString absPath = destinationDir + QDir::separator() + fi.filePath;
         if (fi.isDir) {
+            foundDirs = true;
             if (!baseDir.mkpath(fi.filePath))
                 return false;
             if (!QFile::setPermissions(absPath, fi.permissions))
                 return false;
+        } else if (!hasDirs && fi.filePath.contains(u"/")) {
+            // filePath does not have leading or trailing '/', so if we find
+            // one, than the file path contains directories.
+            hasDirs = true;
+        }
+    }
+
+    // Some zip archives can be broken in the sense that they do not report
+    // separate entries for directories, only for files. In this case we
+    // need to recreate directory structure based on the file paths.
+    if (hasDirs && !foundDirs) {
+        for (const FileInfo &fi : allFiles) {
+            const auto dirPath = fi.filePath.left(fi.filePath.lastIndexOf(u"/"));
+            if (!baseDir.mkpath(dirPath))
+                return false;
+            // We will leave the directory permissions default in this case,
+            // because setting dir permissions based on file is incorrect
         }
     }
 

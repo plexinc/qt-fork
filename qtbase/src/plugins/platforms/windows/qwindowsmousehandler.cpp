@@ -47,7 +47,7 @@
 #include <qpa/qwindowsysteminterface.h>
 #include <QtGui/qguiapplication.h>
 #include <QtGui/qscreen.h>
-#include <QtGui/qtouchdevice.h>
+#include <QtGui/qpointingdevice.h>
 #include <QtGui/qwindow.h>
 #include <QtGui/qcursor.h>
 
@@ -117,27 +117,6 @@ static inline void compressMouseMove(MSG *msg)
     }
 }
 
-static inline QTouchDevice *createTouchDevice()
-{
-    const int digitizers = GetSystemMetrics(SM_DIGITIZER);
-    if (!(digitizers & (NID_INTEGRATED_TOUCH | NID_EXTERNAL_TOUCH)))
-        return nullptr;
-    const int tabletPc = GetSystemMetrics(SM_TABLETPC);
-    const int maxTouchPoints = GetSystemMetrics(SM_MAXIMUMTOUCHES);
-    qCDebug(lcQpaEvents) << "Digitizers:" << Qt::hex << Qt::showbase << (digitizers & ~NID_READY)
-        << "Ready:" << (digitizers & NID_READY) << Qt::dec << Qt::noshowbase
-        << "Tablet PC:" << tabletPc << "Max touch points:" << maxTouchPoints;
-    auto *result = new QTouchDevice;
-    result->setType(digitizers & NID_INTEGRATED_TOUCH
-                    ? QTouchDevice::TouchScreen : QTouchDevice::TouchPad);
-    QTouchDevice::Capabilities capabilities = QTouchDevice::Position | QTouchDevice::Area | QTouchDevice::NormalizedPosition;
-    if (result->type() == QTouchDevice::TouchPad)
-        capabilities |= QTouchDevice::MouseEmulation;
-    result->setCapabilities(capabilities);
-    result->setMaximumTouchPoints(maxTouchPoints);
-    return result;
-}
-
 /*!
     \class QWindowsMouseHandler
     \brief Windows mouse handler
@@ -149,11 +128,12 @@ static inline QTouchDevice *createTouchDevice()
 
 QWindowsMouseHandler::QWindowsMouseHandler() = default;
 
-QTouchDevice *QWindowsMouseHandler::ensureTouchDevice()
+const QPointingDevice *QWindowsMouseHandler::primaryMouse()
 {
-    if (!m_touchDevice)
-        m_touchDevice = createTouchDevice();
-    return m_touchDevice;
+    static QPointer<const QPointingDevice> result;
+    if (!result)
+        result = QPointingDevice::primaryPointingDevice();
+    return result;
 }
 
 void QWindowsMouseHandler::clearEvents()
@@ -280,8 +260,13 @@ bool QWindowsMouseHandler::translateMouseEvent(QWindow *window, HWND hwnd,
         globalPosition = winEventPosition;
         clientPosition = QWindowsGeometryHint::mapFromGlobal(hwnd, globalPosition);
     } else {
-        clientPosition = winEventPosition;
         globalPosition = QWindowsGeometryHint::mapToGlobal(hwnd, winEventPosition);
+        auto targetHwnd = hwnd;
+        if (auto *pw = window->handle())
+            targetHwnd = HWND(pw->winId());
+        clientPosition = targetHwnd == hwnd
+            ? winEventPosition
+            : QWindowsGeometryHint::mapFromGlobal(targetHwnd, globalPosition);
     }
 
     // Windows sends a mouse move with no buttons pressed to signal "Enter"
@@ -298,6 +283,8 @@ bool QWindowsMouseHandler::translateMouseEvent(QWindow *window, HWND hwnd,
 
     Qt::MouseEventSource source = Qt::MouseEventNotSynthesized;
 
+    const QPointingDevice *device = primaryMouse();
+
     // Check for events synthesized from touch. Lower byte is touch index, 0 means pen.
     static const bool passSynthesizedMouseEvents =
             !(QWindowsIntegration::instance()->options() & QWindowsIntegration::DontPassOsMouseEventsSynthesizedFromTouch);
@@ -309,6 +296,8 @@ bool QWindowsMouseHandler::translateMouseEvent(QWindow *window, HWND hwnd,
     if ((extraInfo & signatureMask) == miWpSignature) {
         if (extraInfo & 0x80) { // Bit 7 indicates touch event, else tablet pen.
             source = Qt::MouseEventSynthesizedBySystem;
+            if (!m_touchDevice.isNull())
+                device = m_touchDevice.data();
             if (!passSynthesizedMouseEvents)
                 return false;
         }
@@ -333,10 +322,10 @@ bool QWindowsMouseHandler::translateMouseEvent(QWindow *window, HWND hwnd,
             && (mouseEvent.type == QEvent::NonClientAreaMouseMove || mouseEvent.type == QEvent::MouseMove)
             && (m_lastEventButton & buttons) == 0) {
             if (mouseEvent.type == QEvent::NonClientAreaMouseMove) {
-                QWindowSystemInterface::handleFrameStrutMouseEvent(window, clientPosition, globalPosition, buttons, m_lastEventButton,
+                QWindowSystemInterface::handleFrameStrutMouseEvent(window, device, clientPosition, globalPosition, buttons, m_lastEventButton,
                                                                    QEvent::NonClientAreaMouseButtonRelease, keyModifiers, source);
             } else {
-                QWindowSystemInterface::handleMouseEvent(window, clientPosition, globalPosition, buttons, m_lastEventButton,
+                QWindowSystemInterface::handleMouseEvent(window, device, clientPosition, globalPosition, buttons, m_lastEventButton,
                                                          QEvent::MouseButtonRelease, keyModifiers, source);
             }
     }
@@ -344,7 +333,7 @@ bool QWindowsMouseHandler::translateMouseEvent(QWindow *window, HWND hwnd,
     m_lastEventButton = mouseEvent.button;
 
     if (mouseEvent.type >= QEvent::NonClientAreaMouseMove && mouseEvent.type <= QEvent::NonClientAreaMouseButtonDblClick) {
-        QWindowSystemInterface::handleFrameStrutMouseEvent(window, clientPosition,
+        QWindowSystemInterface::handleFrameStrutMouseEvent(window, device, clientPosition,
                                                            globalPosition, buttons,
                                                            mouseEvent.button, mouseEvent.type,
                                                            keyModifiers, source);
@@ -494,7 +483,7 @@ bool QWindowsMouseHandler::translateMouseEvent(QWindow *window, HWND hwnd,
     }
 
     if (!discardEvent && mouseEvent.type != QEvent::None) {
-        QWindowSystemInterface::handleMouseEvent(window, winEventPosition, globalPosition, buttons,
+        QWindowSystemInterface::handleMouseEvent(window, device, clientPosition, globalPosition, buttons,
                                                  mouseEvent.button, mouseEvent.type,
                                                  keyModifiers, source);
     }
@@ -629,7 +618,7 @@ bool QWindowsMouseHandler::translateTouchEvent(QWindow *window, HWND,
 
     QTouchPointList touchPoints;
     touchPoints.reserve(winTouchPointCount);
-    Qt::TouchPointStates allStates;
+    QEventPoint::States allStates;
 
     GetTouchInputInfo(reinterpret_cast<HTOUCHINPUT>(msg.lParam),
                       UINT(msg.wParam), winTouchInputs.data(), sizeof(TOUCHINPUT));
@@ -656,15 +645,15 @@ bool QWindowsMouseHandler::translateTouchEvent(QWindow *window, HWND,
         touchPoint.normalPosition = normalPosition;
 
         if (winTouchInput.dwFlags & TOUCHEVENTF_DOWN) {
-            touchPoint.state = Qt::TouchPointPressed;
+            touchPoint.state = QEventPoint::State::Pressed;
             m_lastTouchPositions.insert(id, touchPoint.normalPosition);
         } else if (winTouchInput.dwFlags & TOUCHEVENTF_UP) {
-            touchPoint.state = Qt::TouchPointReleased;
+            touchPoint.state = QEventPoint::State::Released;
             m_lastTouchPositions.remove(id);
         } else {
             touchPoint.state = (stationaryTouchPoint
-                     ? Qt::TouchPointStationary
-                     : Qt::TouchPointMoved);
+                     ? QEventPoint::State::Stationary
+                     : QEventPoint::State::Updated);
             m_lastTouchPositions.insert(id, touchPoint.normalPosition);
         }
 
@@ -676,11 +665,11 @@ bool QWindowsMouseHandler::translateTouchEvent(QWindow *window, HWND,
     CloseTouchInputHandle(reinterpret_cast<HTOUCHINPUT>(msg.lParam));
 
     // all touch points released, forget the ids we've seen, they may not be reused
-    if (allStates == Qt::TouchPointReleased)
+    if (allStates == QEventPoint::State::Released)
         m_touchInputIDToTouchPointID.clear();
 
     QWindowSystemInterface::handleTouchEvent(window,
-                                             m_touchDevice,
+                                             m_touchDevice.data(),
                                              touchPoints,
                                              QWindowsKeyMapper::queryKeyboardModifiers());
     return true;
@@ -690,9 +679,9 @@ bool QWindowsMouseHandler::translateGestureEvent(QWindow *window, HWND hwnd,
                                                  QtWindows::WindowsEventType,
                                                  MSG msg, LRESULT *)
 {
-    Q_UNUSED(window)
-    Q_UNUSED(hwnd)
-    Q_UNUSED(msg)
+    Q_UNUSED(window);
+    Q_UNUSED(hwnd);
+    Q_UNUSED(msg);
     return false;
 }
 

@@ -95,7 +95,7 @@ void QQuickPen::setWidth(qreal w)
     m_width = w;
     m_valid = m_color.alpha() && (qRound(m_width) >= 1 || (!m_aligned && m_width > 0));
     static_cast<QQuickItem*>(parent())->update();
-    emit penChanged();
+    emit widthChanged();
 }
 
 QColor QQuickPen::color() const
@@ -108,7 +108,7 @@ void QQuickPen::setColor(const QColor &c)
     m_color = c;
     m_valid = m_color.alpha() && (qRound(m_width) >= 1 || (!m_aligned && m_width > 0));
     static_cast<QQuickItem*>(parent())->update();
-    emit penChanged();
+    emit colorChanged();
 }
 
 bool QQuickPen::pixelAligned() const
@@ -123,7 +123,7 @@ void QQuickPen::setPixelAligned(bool aligned)
     m_aligned = aligned;
     m_valid = m_color.alpha() && (qRound(m_width) >= 1 || (!m_aligned && m_width > 0));
     static_cast<QQuickItem*>(parent())->update();
-    emit penChanged();
+    emit pixelAlignedChanged();
 }
 
 bool QQuickPen::isValid() const
@@ -238,7 +238,7 @@ void QQuickGradientStop::updateGradient()
 
 /*!
     \qmlproperty list<GradientStop> QtQuick::Gradient::stops
-    \default
+    \qmldefault
 
     This property holds the gradient stops describing the gradient.
 
@@ -606,7 +606,7 @@ QSGNode *QQuickRectangle::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData 
                 // QSGInternalRectangleNode doesn't support stops in the wrong order,
                 // so we need to manually reverse them here.
                 QGradientStops reverseStops;
-                for (auto it = stops.crbegin(); it != stops.crend(); ++it) {
+                for (auto it = stops.rbegin(); it != stops.rend(); ++it) {
                     auto stop = *it;
                     stop.first = 1 - stop.first;
                     reverseStops.append(stop);

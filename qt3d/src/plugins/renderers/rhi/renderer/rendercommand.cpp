@@ -38,13 +38,29 @@
 ****************************************************************************/
 
 #include "rendercommand_p.h"
-#include "renderer/rhigraphicspipeline_p.h"
+#include "rhigraphicspipeline_p.h"
 
 QT_BEGIN_NAMESPACE
 
 namespace Qt3DRender {
 namespace Render {
 namespace Rhi {
+
+bool RenderCommand::Pipeline::isValid() const noexcept
+{
+    struct {
+        bool operator()(RHIGraphicsPipeline* pipeline) const noexcept {
+            return pipeline && pipeline->pipeline();
+        }
+        bool operator()(RHIComputePipeline* pipeline) const noexcept {
+            return pipeline && pipeline->pipeline();
+        }
+        bool operator()(std::monostate) const noexcept {
+            return false;
+        }
+    } visitor;
+    return this->visit(visitor);
+}
 
 RenderCommand::RenderCommand()
     : m_rhiShader(nullptr),
@@ -62,7 +78,7 @@ RenderCommand::RenderCommand()
       m_instanceCount(0),
       m_indexOffset(0),
       m_indexAttributeByteOffset(0),
-      m_indexAttributeDataType(Qt3DRender::QAttribute::UnsignedShort),
+      m_indexAttributeDataType(Qt3DCore::QAttribute::UnsignedShort),
       m_indirectAttributeByteOffset(0),
       m_drawIndexed(false),
       m_drawIndirect(false),
@@ -71,7 +87,7 @@ RenderCommand::RenderCommand()
       indexAttribute(nullptr),
       indexBuffer(nullptr),
       m_commandUBO(),
-      pipeline(nullptr)
+      pipeline()
 
 {
     m_workGroups[0] = 0;
@@ -81,7 +97,7 @@ RenderCommand::RenderCommand()
 
 bool RenderCommand::isValid() const noexcept
 {
-    return m_rhiShader && pipeline && pipeline->pipeline();
+    return m_isValid && m_rhiShader && pipeline.isValid();
 }
 
 bool operator==(const RenderCommand &a, const RenderCommand &b) noexcept
@@ -103,6 +119,20 @@ bool operator==(const RenderCommand &a, const RenderCommand &b) noexcept
             && a.m_drawIndexed == b.m_drawIndexed && a.m_drawIndirect == b.m_drawIndirect
             && a.m_primitiveRestartEnabled == b.m_primitiveRestartEnabled
             && a.m_isValid == b.m_isValid && a.m_computeCommand == b.m_computeCommand);
+}
+
+bool operator==(const AttributeInfo &a, const AttributeInfo &b)
+{
+    return a.nameId == b.nameId &&
+            a.classification == b.classification &&
+            a.stride == b.stride &&
+            a.offset == b.offset &&
+            a.divisor == b.divisor;
+}
+
+bool operator!=(const AttributeInfo &a, const AttributeInfo &b)
+{
+    return !(a == b);
 }
 
 } // namespace Rhi

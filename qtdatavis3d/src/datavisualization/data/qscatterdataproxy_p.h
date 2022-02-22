@@ -44,7 +44,7 @@
 #include "qabstractdataproxy_p.h"
 #include "qscatterdataitem.h"
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 class QAbstract3DAxis;
 
@@ -67,7 +67,7 @@ public:
                      QAbstract3DAxis *axisY, QAbstract3DAxis *axisZ) const;
     bool isValidValue(float axisValue, float value, QAbstract3DAxis *axis) const;
 
-    virtual void setSeries(QAbstract3DSeries *series);
+    void setSeries(QAbstract3DSeries *series) override;
 private:
     QScatterDataProxy *qptr();
     QScatterDataArray *m_dataArray;
@@ -75,6 +75,6 @@ private:
     friend class QScatterDataProxy;
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

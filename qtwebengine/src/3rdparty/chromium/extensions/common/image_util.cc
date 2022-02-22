@@ -9,9 +9,11 @@
 
 #include <algorithm>
 
+#include "base/check.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/notreached.h"
 #include "base/numerics/ranges.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -269,7 +271,7 @@ void RenderIconForVisibilityAnalysis(const SkBitmap& icon,
   DCHECK(rendered_icon->empty());
   rendered_icon->allocN32Pixels(icon.width(), icon.height());
   rendered_icon->eraseColor(background_color);
-  SkCanvas offscreen(*rendered_icon);
+  SkCanvas offscreen(*rendered_icon, SkSurfaceProps{});
   offscreen.drawImage(SkImage::MakeFromBitmap(icon), 0, 0);
   offscreen.drawColor(background_color, SkBlendMode::kDifference);
 }

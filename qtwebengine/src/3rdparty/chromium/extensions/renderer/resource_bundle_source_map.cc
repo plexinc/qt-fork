@@ -4,7 +4,7 @@
 
 #include "extensions/renderer/resource_bundle_source_map.h"
 
-#include "base/logging.h"
+#include "base/notreached.h"
 #include "base/stl_util.h"
 #include "base/strings/string_piece.h"
 #include "extensions/renderer/static_v8_external_one_byte_string_resource.h"
@@ -46,7 +46,7 @@ ResourceBundleSourceMap::~ResourceBundleSourceMap() {
 
 void ResourceBundleSourceMap::RegisterSource(const char* const name,
                                              int resource_id) {
-  resource_map_.emplace(name, ResourceInfo(resource_id));
+  resource_map_.emplace(name, resource_id);
 }
 
 v8::Local<v8::String> ResourceBundleSourceMap::GetSource(

@@ -45,7 +45,9 @@
 #if QT_CONFIG(whatsthis)
 #include <qwhatsthis.h>
 #endif
+#if QT_CONFIG(tooltip)
 #include <qtooltip.h>
+#endif
 #include <qevent.h>
 #include <qstring.h>
 #include <qdebug.h>
@@ -345,28 +347,6 @@ bool QAbstractItemDelegate::editorEvent(QEvent *,
     return false;
 }
 
-#if QT_DEPRECATED_SINCE(5, 13)
-/*!
-    \obsolete
-
-    Use QFontMetrics::elidedText() instead.
-
-    \oldcode
-        QFontMetrics fm = ...
-        QString str = QAbstractItemDelegate::elidedText(fm, width, mode, text);
-    \newcode
-        QFontMetrics fm = ...
-        QString str = fm.elidedText(text, mode, width);
-    \endcode
-*/
-
-QString QAbstractItemDelegate::elidedText(const QFontMetrics &fontMetrics, int width,
-                                          Qt::TextElideMode mode, const QString &text)
-{
-    return fontMetrics.elidedText(text, mode, width);
-}
-#endif
-
 /*!
     \since 4.3
     Whenever a help event occurs, this function is called with the \a event
@@ -389,10 +369,12 @@ bool QAbstractItemDelegate::helpEvent(QHelpEvent *event,
 {
     if (!event || !view)
         return false;
-    Q_D(QAbstractItemDelegate);
+    Q_UNUSED(index);
+    Q_UNUSED(option);
     switch (event->type()) {
-#ifndef QT_NO_TOOLTIP
+#if QT_CONFIG(tooltip)
     case QEvent::ToolTip: {
+        Q_D(QAbstractItemDelegate);
         QHelpEvent *he = static_cast<QHelpEvent*>(event);
         const int precision = inherits("QItemDelegate") ? 10 : 6; // keep in sync with DBL_DIG in qitemdelegate.cpp
         const QString tooltip = index.isValid() ?
@@ -413,6 +395,7 @@ bool QAbstractItemDelegate::helpEvent(QHelpEvent *event,
         event->setAccepted(index.data(Qt::WhatsThisRole).isValid());
         break;
     case QEvent::WhatsThis: {
+        Q_D(QAbstractItemDelegate);
         QHelpEvent *he = static_cast<QHelpEvent*>(event);
         const int precision = inherits("QItemDelegate") ? 10 : 6; // keep in sync with DBL_DIG in qitemdelegate.cpp
         const QString whatsthis = index.isValid() ?
@@ -423,6 +406,7 @@ bool QAbstractItemDelegate::helpEvent(QHelpEvent *event,
         break;
         }
 #endif
+    case QEvent::None:
     default:
         break;
     }
@@ -434,9 +418,9 @@ bool QAbstractItemDelegate::helpEvent(QHelpEvent *event,
 
     This virtual method is reserved and will be used in Qt 5.1.
 */
-QVector<int> QAbstractItemDelegate::paintingRoles() const
+QList<int> QAbstractItemDelegate::paintingRoles() const
 {
-    return QVector<int>();
+    return QList<int>();
 }
 
 QAbstractItemDelegatePrivate::QAbstractItemDelegatePrivate()
@@ -571,7 +555,7 @@ bool QAbstractItemDelegatePrivate::tryFixup(QWidget *editor)
         }
     }
 #else
-    Q_UNUSED(editor)
+    Q_UNUSED(editor);
 #endif // QT_CONFIG(lineedit)
 
     return true;

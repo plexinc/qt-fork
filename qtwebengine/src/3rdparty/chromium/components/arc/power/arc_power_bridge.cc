@@ -134,6 +134,14 @@ ArcPowerBridge::~ArcPowerBridge() {
   arc_bridge_service_->power()->SetHost(nullptr);
 }
 
+void ArcPowerBridge::AddObserver(Observer* observer) {
+  observer_list_.AddObserver(observer);
+}
+
+void ArcPowerBridge::RemoveObserver(Observer* observer) {
+  observer_list_.RemoveObserver(observer);
+}
+
 void ArcPowerBridge::SetUserIdHash(const std::string& user_id_hash) {
   user_id_hash_ = user_id_hash;
 }
@@ -151,7 +159,7 @@ void ArcPowerBridge::FlushWakeLocksForTesting() {
 }
 
 void ArcPowerBridge::OnConnectionReady() {
-  // TODO(mash): Support this functionality without ash::Shell access in Chrome.
+  // ash::Shell may not exist in tests.
   if (ash::Shell::HasInstance())
     ash::Shell::Get()->display_configurator()->AddObserver(this);
   chromeos::PowerManagerClient::Get()->AddObserver(this);
@@ -161,7 +169,7 @@ void ArcPowerBridge::OnConnectionReady() {
 }
 
 void ArcPowerBridge::OnConnectionClosed() {
-  // TODO(mash): Support this functionality without ash::Shell access in Chrome.
+  // ash::Shell may not exist in tests.
   if (ash::Shell::HasInstance())
     ash::Shell::Get()->display_configurator()->RemoveObserver(this);
   chromeos::PowerManagerClient::Get()->RemoveObserver(this);
@@ -170,6 +178,7 @@ void ArcPowerBridge::OnConnectionClosed() {
 
 void ArcPowerBridge::SuspendImminent(
     power_manager::SuspendImminent::Reason reason) {
+  is_suspending_ = true;
   mojom::PowerInstance* power_instance =
       ARC_GET_INSTANCE_FOR_METHOD(arc_bridge_service_->power(), Suspend);
   if (!power_instance)
@@ -183,7 +192,12 @@ void ArcPowerBridge::SuspendImminent(
 }
 
 void ArcPowerBridge::OnAndroidSuspendReady(base::UnguessableToken token) {
-  if (arc::IsArcVmEnabled()) {
+  // For the ARCVM case, we only want to suspend the VM if a suspend is still
+  // underway ie. if SuspendImminent was observed without a subsequent
+  // SuspendDone. Otherwise, skip suspending the VM but still call
+  // UnblockSuspend to fulfill the contract and to align with ARC container's
+  // behavior.
+  if (arc::IsArcVmEnabled() && is_suspending_) {
     vm_tools::concierge::SuspendVmRequest request;
     request.set_name(kArcVmName);
     request.set_owner_id(user_id_hash_);
@@ -206,7 +220,8 @@ void ArcPowerBridge::OnConciergeSuspendVmResponse(
   chromeos::PowerManagerClient::Get()->UnblockSuspend(token);
 }
 
-void ArcPowerBridge::SuspendDone(const base::TimeDelta& sleep_duration) {
+void ArcPowerBridge::SuspendDone(base::TimeDelta sleep_duration) {
+  is_suspending_ = false;
   if (arc::IsArcVmEnabled()) {
     vm_tools::concierge::ResumeVmRequest request;
     request.set_name(kArcVmName);
@@ -357,6 +372,11 @@ void ArcPowerBridge::OnGetScreenBrightnessPercent(
     return;
   }
   UpdateAndroidScreenBrightness(percent.value());
+}
+
+void ArcPowerBridge::OnWakefulnessChanged(mojom::WakefulnessMode mode) {
+  for (auto& observer : observer_list_)
+    observer.OnWakefulnessChanged(mode);
 }
 
 void ArcPowerBridge::UpdateAndroidScreenBrightness(double percent) {

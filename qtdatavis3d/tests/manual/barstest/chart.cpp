@@ -42,8 +42,6 @@
 #include <QtCore/QElapsedTimer>
 #include <QtCore/qmath.h>
 
-using namespace QtDataVisualization;
-
 const QString celsiusString = QString(QChar(0xB0)) + "C";
 
 GraphModifier::GraphModifier(Q3DBars *barchart, QColorDialog *colorDialog)
@@ -686,7 +684,9 @@ void GraphModifier::changeSelectionMode()
 {
     static int selectionMode = m_graph->selectionMode();
 
-    if (++selectionMode > (QAbstract3DGraph::SelectionItemAndColumn | QAbstract3DGraph::SelectionSlice | QAbstract3DGraph::SelectionMultiSeries))
+    if (++selectionMode > (int)(QAbstract3DGraph::SelectionItemAndColumn |
+                                QAbstract3DGraph::SelectionSlice |
+                                QAbstract3DGraph::SelectionMultiSeries))
         selectionMode = QAbstract3DGraph::SelectionNone;
 
     m_graph->setSelectionMode((QAbstract3DGraph::SelectionFlag)selectionMode);

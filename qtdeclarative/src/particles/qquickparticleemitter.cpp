@@ -497,13 +497,12 @@ void QQuickParticleEmitter::emitWindow(int timeStamp)
             array->put(i, (v = toEmit[i]->v4Value(m_system)));
 
         QJSValue particles;
-        QJSValuePrivate::setValue(&particles, v4, array);
+        QJSValuePrivate::setValue(&particles, array);
         emit emitParticles(particles);//A chance for arbitrary JS changes
     }
 
     m_last_emission = pt;
 
-    m_last_last_last_emitter = m_last_last_emitter;
     m_last_last_emitter = m_last_emitter;
     m_last_emitter = QPointF(x(), y());
     m_last_timestamp = time;

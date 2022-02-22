@@ -7,17 +7,19 @@
 
 #include "content/browser/service_worker/service_worker_info.h"
 #include "content/common/content_export.h"
+#include "mojo/public/cpp/bindings/binder_map.h"
+#include "services/device/public/mojom/battery_monitor.mojom-forward.h"
 #include "services/device/public/mojom/vibration_manager.mojom-forward.h"
-#include "services/service_manager/public/cpp/binder_map.h"
 #include "url/origin.h"
 
 namespace content {
 
+class AgentSchedulingGroupHost;
 class RenderFrameHost;
 class RenderFrameHostImpl;
 class DedicatedWorkerHost;
 class SharedWorkerHost;
-class ServiceWorkerProviderHost;
+class ServiceWorkerHost;
 
 namespace internal {
 
@@ -31,38 +33,47 @@ namespace internal {
 // handling InterfaceProvider's GetInterface() calls (see crbug.com/718652).
 
 // Registers the handlers for interfaces requested by frames.
-void PopulateBinderMap(RenderFrameHostImpl* host,
-                       service_manager::BinderMap* map);
+void PopulateBinderMap(RenderFrameHostImpl* host, mojo::BinderMap* map);
 void PopulateBinderMapWithContext(
     RenderFrameHostImpl* host,
-    service_manager::BinderMapWithContext<RenderFrameHost*>* map);
+    mojo::BinderMapWithContext<RenderFrameHost*>* map);
 RenderFrameHost* GetContextForHost(RenderFrameHostImpl* host);
 
 // Registers the handlers for interfaces requested by dedicated workers.
-void PopulateBinderMap(DedicatedWorkerHost* host,
-                       service_manager::BinderMap* map);
+void PopulateBinderMap(DedicatedWorkerHost* host, mojo::BinderMap* map);
 void PopulateBinderMapWithContext(
     DedicatedWorkerHost* host,
-    service_manager::BinderMapWithContext<const url::Origin&>* map);
+    mojo::BinderMapWithContext<const url::Origin&>* map);
 const url::Origin& GetContextForHost(DedicatedWorkerHost* host);
 
 // Registers the handlers for interfaces requested by shared workers.
-void PopulateBinderMap(SharedWorkerHost* host, service_manager::BinderMap* map);
+void PopulateBinderMap(SharedWorkerHost* host, mojo::BinderMap* map);
 void PopulateBinderMapWithContext(
     SharedWorkerHost* host,
-    service_manager::BinderMapWithContext<const url::Origin&>* map);
+    mojo::BinderMapWithContext<const url::Origin&>* map);
 url::Origin GetContextForHost(SharedWorkerHost* host);
 
 // Registers the handlers for interfaces requested by service workers.
-void PopulateBinderMap(ServiceWorkerProviderHost* host,
-                       service_manager::BinderMap* map);
+void PopulateBinderMap(ServiceWorkerHost* host, mojo::BinderMap* map);
 void PopulateBinderMapWithContext(
-    ServiceWorkerProviderHost* host,
-    service_manager::BinderMapWithContext<const ServiceWorkerVersionInfo&>*
-        map);
-ServiceWorkerVersionInfo GetContextForHost(ServiceWorkerProviderHost* host);
+    ServiceWorkerHost* host,
+    mojo::BinderMapWithContext<const ServiceWorkerVersionInfo&>* map);
+ServiceWorkerVersionInfo GetContextForHost(ServiceWorkerHost* host);
+
+// Registers the handlers for interfaces requested by `AgentSchedulingGroup`s.
+void PopulateBinderMap(AgentSchedulingGroupHost* host, mojo::BinderMap* map);
+void PopulateBinderMapWithContext(
+    AgentSchedulingGroupHost* host,
+    mojo::BinderMapWithContext<AgentSchedulingGroupHost*>* map);
+AgentSchedulingGroupHost* GetContextForHost(AgentSchedulingGroupHost* host);
 
 }  // namespace internal
+
+// Allows tests to override how frame hosts bind BatteryMonitor receivers.
+using BatteryMonitorBinder = base::RepeatingCallback<void(
+    mojo::PendingReceiver<device::mojom::BatteryMonitor>)>;
+CONTENT_EXPORT void OverrideBatteryMonitorBinderForTesting(
+    BatteryMonitorBinder binder);
 
 // Allows tests to override how frame hosts bind VibrationManager receivers.
 using VibrationManagerBinder = base::RepeatingCallback<void(

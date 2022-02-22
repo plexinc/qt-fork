@@ -6,6 +6,7 @@
 
 #include "build/build_config.h"
 #include "content/browser/appcache/appcache_internals_ui.h"
+#include "content/browser/conversions/conversion_internals_ui.h"
 #include "content/browser/gpu/gpu_internals_ui.h"
 #include "content/browser/histograms_internals_ui.h"
 #include "content/browser/indexed_db/indexed_db_internals_ui.h"
@@ -14,10 +15,12 @@
 #include "content/browser/process_internals/process_internals_ui.h"
 #include "content/browser/service_worker/service_worker_internals_ui.h"
 #include "content/browser/tracing/tracing_ui.h"
+#include "content/browser/ukm_internals_ui.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/common/url_constants.h"
+#include "media/base/media_switches.h"
 #include "media/media_buildflags.h"
 
 #if BUILDFLAG(ENABLE_WEBRTC)
@@ -32,8 +35,11 @@ WebUI::TypeID ContentWebUIControllerFactory::GetWebUIType(
   if (!url.SchemeIs(kChromeUIScheme))
     return WebUI::kNoWebUI;
 
-  if (url.host_piece() == kChromeUIWebRTCInternalsHost ||
-#if !defined(OS_ANDROID) && !defined(TOOLKIT_QT)
+  if (false ||
+#if BUILDFLAG(ENABLE_WEBRTC)
+      url.host_piece() == kChromeUIWebRTCInternalsHost ||
+#endif
+#if !defined(OS_ANDROID)
       url.host_piece() == kChromeUITracingHost ||
 #endif
       url.host_piece() == kChromeUIGpuHost ||
@@ -43,7 +49,9 @@ WebUI::TypeID ContentWebUIControllerFactory::GetWebUIType(
       url.host_piece() == kChromeUIServiceWorkerInternalsHost ||
       url.host_piece() == kChromeUIAppCacheInternalsHost ||
       url.host_piece() == kChromeUINetworkErrorsListingHost ||
-      url.host_piece() == kChromeUIProcessInternalsHost) {
+      url.host_piece() == kChromeUIProcessInternalsHost ||
+      url.host_piece() == kChromeUIConversionInternalsHost ||
+      url.host_piece() == kChromeUIUkmHost) {
     return const_cast<ContentWebUIControllerFactory*>(this);
   }
   return WebUI::kNoWebUI;
@@ -53,12 +61,6 @@ bool ContentWebUIControllerFactory::UseWebUIForURL(
     BrowserContext* browser_context,
     const GURL& url) {
   return GetWebUIType(browser_context, url) != WebUI::kNoWebUI;
-}
-
-bool ContentWebUIControllerFactory::UseWebUIBindingsForURL(
-    BrowserContext* browser_context,
-    const GURL& url) {
-  return UseWebUIForURL(browser_context, url);
 }
 
 std::unique_ptr<WebUIController>
@@ -75,13 +77,11 @@ ContentWebUIControllerFactory::CreateWebUIControllerForURL(WebUI* web_ui,
     return std::make_unique<HistogramsInternalsUI>(web_ui);
   if (url.host_piece() == kChromeUIIndexedDBInternalsHost)
     return std::make_unique<IndexedDBInternalsUI>(web_ui);
-  if (url.host_piece() == kChromeUIMediaInternalsHost)
-    return std::make_unique<MediaInternalsUI>(web_ui);
   if (url.host_piece() == kChromeUIServiceWorkerInternalsHost)
     return std::make_unique<ServiceWorkerInternalsUI>(web_ui);
   if (url.host_piece() == kChromeUINetworkErrorsListingHost)
     return std::make_unique<NetworkErrorsListingUI>(web_ui);
-#if !defined(OS_ANDROID)&& !defined(TOOLKIT_QT)
+#if !defined(OS_ANDROID)
   if (url.host_piece() == kChromeUITracingHost)
     return std::make_unique<TracingUI>(web_ui);
 #endif
@@ -91,7 +91,15 @@ ContentWebUIControllerFactory::CreateWebUIControllerForURL(WebUI* web_ui,
 #endif
   if (url.host_piece() == kChromeUIProcessInternalsHost)
     return std::make_unique<ProcessInternalsUI>(web_ui);
-
+  if (url.host_piece() == kChromeUIConversionInternalsHost)
+    return std::make_unique<ConversionInternalsUI>(web_ui);
+  if (url.host_piece() == kChromeUIUkmHost)
+    return std::make_unique<UkmInternalsUI>(web_ui);
+  if (url.host_piece() == kChromeUIMediaInternalsHost) {
+    if (base::FeatureList::IsEnabled(media::kEnableMediaInternals))
+      return std::make_unique<MediaInternalsUI>(web_ui);
+    return nullptr;
+  }
   return nullptr;
 }
 

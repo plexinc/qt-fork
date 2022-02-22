@@ -54,11 +54,12 @@ Q_PROPERTY(type name
             MEMBER memberName [(READ getFunction | WRITE setFunction)])
            [RESET resetFunction]
            [NOTIFY notifySignal]
-           [REVISION int]
+           [REVISION int | REVISION(int[, int])]
            [DESIGNABLE bool]
            [SCRIPTABLE bool]
            [STORED bool]
            [USER bool]
+           [BINDABLE bindableProperty]
            [CONSTANT]
            [FINAL]
            [REQUIRED])
@@ -106,7 +107,7 @@ class MyClass : public QObject
     Q_PROPERTY(Priority priority READ priority WRITE setPriority NOTIFY priorityChanged)
 
 public:
-    MyClass(QObject *parent = 0);
+    MyClass(QObject *parent = nullptr);
     ~MyClass();
 
     enum Priority { High, Low, VeryHigh, VeryLow };

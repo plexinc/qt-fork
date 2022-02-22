@@ -46,29 +46,48 @@
 #include <QtQuick/private/qquickitemchangelistener_p.h>
 #include <QtQuick/QSGNode>
 #include <QtCore/QPointer>
+#include <QtCore/QVector>
 
 QT_BEGIN_NAMESPACE
 
 class QSGLayer;
-class QQuick3DItem2D : public QQuick3DNode, public QQuickItemChangeListener
+class QSGRenderer;
+class QSGRootNode;
+class QQuickRootItem;
+class Q_AUTOTEST_EXPORT QQuick3DItem2D : public QQuick3DNode, public QQuickItemChangeListener
 {
     Q_OBJECT
 public:
     explicit QQuick3DItem2D(QQuickItem* item, QQuick3DNode *parent = nullptr);
     ~QQuick3DItem2D() override;
 
+    void addChildItem(QQuickItem *item);
+    void removeChildItem(QQuickItem *item);
+    QQuickItem *contentItem() const;
+
 private Q_SLOTS:
     void sourceItemDestroyed(QObject *item);
+    void invalidated();
+    void updatePicking();
 
+Q_SIGNALS:
+    void allChildrenRemoved();
+
+protected:
+    void preSync() override;
+    void itemChange(QQuick3DObject::ItemChange change, const QQuick3DObject::ItemChangeData &value) override;
 private:
-    void createLayerTexture();
     QSSGRenderGraphObject *updateSpatialNode(QSSGRenderGraphObject *node) override;
     void markAllDirty() override;
 
-    QQuickItem *m_sourceItem = nullptr;
-    QSGLayer *m_layer = nullptr;
+    QVector<QQuickItem *> m_sourceItems;
+    QSGRenderer *m_renderer = nullptr;
+    QSGRootNode *m_rootNode = nullptr;
+    QQuickWindow *m_window = nullptr;
+    QQuickItem *m_contentItem = nullptr;
+    bool m_sceneManagerValid = false;
+    bool m_pickingDirty = true;
     QPointer<QQuick3DSceneManager> m_sceneManagerForLayer;
-    bool m_initialized = false;
 };
 
 QT_END_NAMESPACE

@@ -11,8 +11,8 @@
 #include <string>
 #include <unordered_map>
 
-#include "base/logging.h"
 #include "base/macros.h"
+#include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/timer/elapsed_timer.h"
 #include "content/public/browser/media_stream_request.h"
@@ -36,7 +36,7 @@ class ExtensionHostDelegate;
 class ExtensionHostObserver;
 class ExtensionHostQueue;
 
-// This class is the browser component of an extension component's RenderView.
+// This class is the browser component of an extension component's page.
 // It handles setting up the renderer process, if needed, with special
 // privileges available to extensions.  It may have a view to be shown in the
 // browser UI, or it may be hidden.
@@ -59,7 +59,7 @@ class ExtensionHost : public DeferredStartRenderHost,
 
   const std::string& extension_id() const { return extension_id_; }
   content::WebContents* host_contents() const { return host_contents_.get(); }
-  content::RenderViewHost* render_view_host() const;
+  content::RenderFrameHost* main_frame_host() const { return main_frame_host_; }
   content::RenderProcessHost* render_process_host() const;
   bool has_loaded_once() const { return has_loaded_once_; }
   const GURL& initial_url() const { return initial_url_; }
@@ -70,15 +70,17 @@ class ExtensionHost : public DeferredStartRenderHost,
   content::BrowserContext* browser_context() { return browser_context_; }
 
   ViewType extension_host_type() const { return extension_host_type_; }
-  const GURL& GetURL() const;
 
-  // Returns true if the render view is initialized and didn't crash.
-  bool IsRenderViewLive() const;
+  // Returns the last committed URL of the associated WebContents.
+  const GURL& GetLastCommittedURL() const;
 
-  // Prepares to initializes our RenderViewHost by creating its RenderView and
-  // navigating to this host's url. Uses host_view for the RenderViewHost's view
-  // (can be NULL). This happens delayed to avoid locking the UI.
-  void CreateRenderViewSoon();
+  // Returns true if the renderer main frame exists.
+  bool IsRendererLive() const;
+
+  // Prepares to initializes our RenderFrameHost by creating the main frame and
+  // navigating `host_contents_` to the initial url. This happens delayed to
+  // avoid locking the UI.
+  void CreateRendererSoon();
 
   // Closes this host (results in [possibly asynchronous] deletion).
   void Close();
@@ -102,9 +104,8 @@ class ExtensionHost : public DeferredStartRenderHost,
   // content::WebContentsObserver:
   bool OnMessageReceived(const IPC::Message& message,
                          content::RenderFrameHost* host) override;
-  void RenderViewCreated(content::RenderViewHost* render_view_host) override;
-  void RenderViewDeleted(content::RenderViewHost* render_view_host) override;
-  void RenderViewReady() override;
+  void RenderFrameCreated(content::RenderFrameHost* frame_host) override;
+  void RenderFrameDeleted(content::RenderFrameHost* frame_host) override;
   void RenderProcessGone(base::TerminationStatus status) override;
   void DocumentAvailableInMainFrame() override;
   void DidStopLoading() override;
@@ -114,6 +115,7 @@ class ExtensionHost : public DeferredStartRenderHost,
       content::WebContents* source) override;
   void AddNewContents(content::WebContents* source,
                       std::unique_ptr<content::WebContents> new_contents,
+                      const GURL& target_url,
                       WindowOpenDisposition disposition,
                       const gfx::Rect& initial_rect,
                       bool user_gesture,
@@ -153,12 +155,14 @@ class ExtensionHost : public DeferredStartRenderHost,
 
  private:
   // DeferredStartRenderHost:
-  void CreateRenderViewNow() override;
+  void CreateRendererNow() override;
 
   // Message handlers.
   void OnEventAck(int event_id);
   void OnIncrementLazyKeepaliveCount();
   void OnDecrementLazyKeepaliveCount();
+
+  void NotifyRenderProcessReady();
 
   // Records UMA for load events.
   void RecordStopLoadingUMA();
@@ -178,27 +182,28 @@ class ExtensionHost : public DeferredStartRenderHost,
   // The host for our HTML content.
   std::unique_ptr<content::WebContents> host_contents_;
 
-  // A weak pointer to the current or pending RenderViewHost. We don't access
-  // this through the host_contents because we want to deal with the pending
-  // host, so we can send messages to it before it finishes loading.
-  content::RenderViewHost* render_view_host_;
+  // A pointer to the current or speculative main frame in `host_contents_`. We
+  // can't access this frame through the `host_contents_` directly as it does
+  // not expose the speculative main frame. While navigating to a still-loading
+  // speculative main frame, we want to send messages to it rather than the
+  // current frame.
+  content::RenderFrameHost* main_frame_host_;
 
-  // Whether CreateRenderViewNow was called before the extension was ready.
-  bool is_render_view_creation_pending_;
+  // Whether CreateRendererNow was called before the extension was ready.
+  bool is_renderer_creation_pending_ = false;
 
-  // Whether NOTIFICATION_EXTENSION_HOST_CREATED has been already delivered
-  // (since it is triggered by RenderViewReady which happens not only for the
-  // very first RenderViewHost, but also can happen when swapping RenderViewHost
-  // for another one).
+  // Whether NOTIFICATION_EXTENSION_HOST_CREATED has been already delivered,
+  // since RenderFrameCreated is triggered by every main frame that is created,
+  // including during a cross-site navigation which uses a new main frame.
   bool has_creation_notification_already_fired_ = false;
 
   // Whether the ExtensionHost has finished loading some content at least once.
   // There may be subsequent loads - such as reloads and navigations - and this
   // will not affect its value (it will remain true).
-  bool has_loaded_once_;
+  bool has_loaded_once_ = false;
 
   // True if the main frame has finished parsing.
-  bool document_element_available_;
+  bool document_element_available_ = false;
 
   // The original URL of the page being hosted.
   GURL initial_url_;
@@ -222,6 +227,8 @@ class ExtensionHost : public DeferredStartRenderHost,
   std::unique_ptr<base::ElapsedTimer> load_start_;
 
   base::ObserverList<ExtensionHostObserver>::Unchecked observer_list_;
+
+  base::WeakPtrFactory<ExtensionHost> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(ExtensionHost);
 };

@@ -8,13 +8,12 @@
 #include <memory>
 
 #include "base/compiler_specific.h"
-#include "base/logging.h"
 #include "build/build_config.h"
 #include "cc/paint/paint_canvas.h"
 #include "cc/paint/paint_flags.h"
 #include "cc/paint/paint_record.h"
 #include "third_party/skia/include/core/SkCanvas.h"
-#include "third_party/skia/include/gpu/GrContext.h"
+#include "third_party/skia/include/gpu/GrRecordingContext.h"
 
 namespace cc {
 class ImageProvider;
@@ -71,6 +70,8 @@ class CC_PAINT_EXPORT SkiaPaintCanvas final : public PaintCanvas {
   void rotate(SkScalar degrees) override;
   void concat(const SkMatrix& matrix) override;
   void setMatrix(const SkMatrix& matrix) override;
+  void concat(const SkM44& matrix) override;
+  void setMatrix(const SkM44& matrix) override;
 
   void clipRect(const SkRect& rect, SkClipOp op, bool do_anti_alias) override;
   void clipRRect(const SkRRect& rrect,
@@ -104,12 +105,14 @@ class CC_PAINT_EXPORT SkiaPaintCanvas final : public PaintCanvas {
   void drawImage(const PaintImage& image,
                  SkScalar left,
                  SkScalar top,
+                 const SkSamplingOptions&,
                  const PaintFlags* flags) override;
   void drawImageRect(const PaintImage& image,
                      const SkRect& src,
                      const SkRect& dst,
+                     const SkSamplingOptions&,
                      const PaintFlags* flags,
-                     SrcRectConstraint constraint) override;
+                     SkCanvas::SrcRectConstraint constraint) override;
   void drawSkottie(scoped_refptr<SkottieWrapper> skottie,
                    const SkRect& dst,
                    float t) override;
@@ -152,7 +155,7 @@ class CC_PAINT_EXPORT SkiaPaintCanvas final : public PaintCanvas {
   void FlushAfterDrawIfNeeded();
 
   int max_texture_size() const {
-    auto* context = canvas_->getGrContext();
+    auto* context = canvas_->recordingContext();
     return context ? context->maxTextureSize() : 0;
   }
 

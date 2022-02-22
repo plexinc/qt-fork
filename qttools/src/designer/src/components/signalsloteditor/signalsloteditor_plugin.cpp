@@ -32,7 +32,7 @@
 #include <QtDesigner/abstractformeditor.h>
 #include <QtDesigner/abstractformwindowmanager.h>
 
-#include <QtWidgets/qaction.h>
+#include <QtGui/qaction.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -113,3 +113,5 @@ void SignalSlotEditorPlugin::activeFormWindowChanged(QDesignerFormWindowInterfac
 }
 
 QT_END_NAMESPACE
+
+#include "moc_signalsloteditor_plugin.cpp"

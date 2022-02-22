@@ -12,6 +12,7 @@
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/location.h"
+#include "base/logging.h"
 #include "base/macros.h"
 #include "base/path_service.h"
 #include "base/sequenced_task_runner.h"
@@ -23,6 +24,7 @@
 #include "base/values.h"
 #include "base/version.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/component_updater/component_updater_paths.h"
 #include "components/component_updater/component_updater_service.h"
 #include "components/crx_file/crx_verifier.h"
@@ -116,7 +118,7 @@ Result ComponentInstaller::InstallHelper(
       local_install_path.Append(installer_policy_->GetRelativeInstallDir())
           .AppendASCII(manifest_version.GetString());
   if (base::PathExists(local_install_path)) {
-    if (!base::DeleteFileRecursively(local_install_path))
+    if (!base::DeletePathRecursively(local_install_path))
       return Result(InstallError::CLEAN_INSTALL_DIR_FAILED);
   }
 
@@ -125,7 +127,7 @@ Result ComponentInstaller::InstallHelper(
 
   if (!base::Move(unpack_path, local_install_path)) {
     PLOG(ERROR) << "Move failed.";
-    base::DeleteFileRecursively(local_install_path);
+    base::DeletePathRecursively(local_install_path);
     return Result(InstallError::MOVE_FILES_ERROR);
   }
 
@@ -133,13 +135,13 @@ Result ComponentInstaller::InstallHelper(
   base::ScopedTempDir install_path_owner;
   ignore_result(install_path_owner.Set(local_install_path));
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   if (!base::SetPosixFilePermissions(local_install_path, 0755)) {
     PLOG(ERROR) << "SetPosixFilePermissions failed: "
                 << local_install_path.value();
     return Result(InstallError::SET_PERMISSIONS_FAILED);
   }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
   DCHECK(!base::PathExists(unpack_path));
   DCHECK(base::PathExists(local_install_path));
@@ -164,13 +166,14 @@ void ComponentInstaller::Install(
     const base::FilePath& unpack_path,
     const std::string& /*public_key*/,
     std::unique_ptr<InstallParams> /*install_params*/,
+    ProgressCallback /*progress_callback*/,
     Callback callback) {
   std::unique_ptr<base::DictionaryValue> manifest;
   base::Version version;
   base::FilePath install_path;
   const Result result =
       InstallHelper(unpack_path, &manifest, &version, &install_path);
-  base::DeleteFileRecursively(unpack_path);
+  base::DeletePathRecursively(unpack_path);
   if (result.error) {
     main_task_runner_->PostTask(FROM_HERE,
                                 base::BindOnce(std::move(callback), result));
@@ -286,7 +289,7 @@ void ComponentInstaller::StartRegistration(
     return;
   }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   base::FilePath base_dir_ = base_component_dir;
   std::vector<base::FilePath::StringType> components;
   installer_policy_->GetRelativeInstallDir().GetComponents(&components);
@@ -297,7 +300,7 @@ void ComponentInstaller::StartRegistration(
       return;
     }
   }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
   std::vector<base::FilePath> older_paths;
   base::FileEnumerator file_enumerator(base_dir, false,
@@ -349,7 +352,7 @@ void ComponentInstaller::StartRegistration(
   // Remove older versions of the component. None should be in use during
   // browser startup.
   for (const auto& older_path : older_paths)
-    base::DeleteFileRecursively(older_path);
+    base::DeletePathRecursively(older_path);
 }
 
 void ComponentInstaller::UninstallOnTaskRunner() {
@@ -375,13 +378,13 @@ void ComponentInstaller::UninstallOnTaskRunner() {
     if (!version.IsValid())
       continue;
 
-    if (!base::DeleteFileRecursively(path))
+    if (!base::DeletePathRecursively(path))
       DLOG(ERROR) << "Couldn't delete " << path.value();
   }
 
   // Delete the base directory if it's empty now.
   if (base::IsDirectoryEmpty(base_dir)) {
-    if (!base::DeleteFile(base_dir, false))
+    if (!base::DeleteFile(base_dir))
       DLOG(ERROR) << "Couldn't delete " << base_dir.value();
   }
 
@@ -413,13 +416,14 @@ void ComponentInstaller::FinishRegistration(
       installer_policy_->RequiresNetworkEncryption();
   crx.crx_format_requirement =
       crx_file::VerifierFormat::CRX3_WITH_PUBLISHER_PROOF;
-  crx.handled_mime_types = installer_policy_->GetMimeTypes();
   crx.supports_group_policy_enable_component_updates =
       installer_policy_->SupportsGroupPolicyEnabledComponentUpdates();
 
   if (!cus->RegisterComponent(crx)) {
     LOG(ERROR) << "Component registration failed for "
                << installer_policy_->GetName();
+    if (!callback.is_null())
+      std::move(callback).Run();
     return;
   }
 

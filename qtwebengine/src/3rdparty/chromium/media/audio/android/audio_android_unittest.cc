@@ -9,6 +9,7 @@
 #include "base/android/build_info.h"
 #include "base/bind.h"
 #include "base/files/file_util.h"
+#include "base/logging.h"
 #include "base/macros.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
@@ -202,7 +203,8 @@ class FileAudioSource : public AudioOutputStream::AudioSourceCallback {
     // sufficient data remaining in the file to fill up the complete frame.
     int frames = max_size / (dest->channels() * kBytesPerSample);
     if (max_size) {
-      dest->FromInterleaved(file_->data() + pos_, frames, kBytesPerSample);
+      auto* source = reinterpret_cast<const int16_t*>(file_->data() + pos_);
+      dest->FromInterleaved<SignedInt16SampleTypeTraits>(source, frames);
       pos_ += max_size;
     }
 
@@ -421,7 +423,7 @@ class AudioAndroidOutputTest : public testing::Test {
         audio_manager_(AudioManager::CreateForTesting(
             std::make_unique<TestAudioThread>())),
         audio_manager_device_info_(audio_manager_.get()),
-        audio_output_stream_(NULL) {
+        audio_output_stream_(nullptr) {
     // Flush the message loop to ensure that AudioManager is fully initialized.
     base::RunLoop().RunUntilIdle();
   }
@@ -553,7 +555,7 @@ class AudioAndroidOutputTest : public testing::Test {
     DCHECK(audio_manager()->GetTaskRunner()->BelongsToCurrentThread());
     EXPECT_TRUE(audio_output_stream_->Open());
     audio_output_stream_->Close();
-    audio_output_stream_ = NULL;
+    audio_output_stream_ = nullptr;
   }
 
   void OpenAndStart(AudioOutputStream::AudioSourceCallback* source) {
@@ -566,7 +568,7 @@ class AudioAndroidOutputTest : public testing::Test {
     DCHECK(audio_manager()->GetTaskRunner()->BelongsToCurrentThread());
     audio_output_stream_->Stop();
     audio_output_stream_->Close();
-    audio_output_stream_ = NULL;
+    audio_output_stream_ = nullptr;
   }
 
   base::test::SingleThreadTaskEnvironment task_environment_;
@@ -587,7 +589,7 @@ class AudioAndroidOutputTest : public testing::Test {
 class AudioAndroidInputTest : public AudioAndroidOutputTest,
                               public testing::WithParamInterface<bool> {
  public:
-  AudioAndroidInputTest() : audio_input_stream_(NULL) {}
+  AudioAndroidInputTest() : audio_input_stream_(nullptr) {}
 
  protected:
   const AudioParameters& audio_input_parameters() {
@@ -691,7 +693,7 @@ class AudioAndroidInputTest : public AudioAndroidOutputTest,
     DCHECK(audio_manager()->GetTaskRunner()->BelongsToCurrentThread());
     EXPECT_TRUE(audio_input_stream_->Open());
     audio_input_stream_->Close();
-    audio_input_stream_ = NULL;
+    audio_input_stream_ = nullptr;
   }
 
   void OpenAndStart(AudioInputStream::AudioInputCallback* sink) {
@@ -704,7 +706,7 @@ class AudioAndroidInputTest : public AudioAndroidOutputTest,
     DCHECK(audio_manager()->GetTaskRunner()->BelongsToCurrentThread());
     audio_input_stream_->Stop();
     audio_input_stream_->Close();
-    audio_input_stream_ = NULL;
+    audio_input_stream_ = nullptr;
   }
 
   AudioInputStream* audio_input_stream_;

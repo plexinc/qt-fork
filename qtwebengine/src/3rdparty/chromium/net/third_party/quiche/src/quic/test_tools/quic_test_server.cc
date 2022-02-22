@@ -2,17 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/test_tools/quic_test_server.h"
+#include "quic/test_tools/quic_test_server.h"
 
 #include <utility>
 
-#include "net/third_party/quiche/src/quic/core/quic_epoll_alarm_factory.h"
-#include "net/third_party/quiche/src/quic/core/quic_epoll_connection_helper.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_ptr_util.h"
-#include "net/third_party/quiche/src/quic/tools/quic_simple_crypto_server_stream_helper.h"
-#include "net/third_party/quiche/src/quic/tools/quic_simple_dispatcher.h"
-#include "net/third_party/quiche/src/quic/tools/quic_simple_server_session.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/quic_epoll_alarm_factory.h"
+#include "quic/core/quic_epoll_connection_helper.h"
+#include "quic/platform/api/quic_ptr_util.h"
+#include "quic/tools/quic_simple_crypto_server_stream_helper.h"
+#include "quic/tools/quic_simple_dispatcher.h"
+#include "quic/tools/quic_simple_server_session.h"
 
 namespace quic {
 
@@ -95,18 +95,20 @@ class QuicTestDispatcher : public QuicSimpleDispatcher {
 
   std::unique_ptr<QuicSession> CreateQuicSession(
       QuicConnectionId id,
-      const QuicSocketAddress& client,
-      quiche::QuicheStringPiece alpn,
+      const QuicSocketAddress& self_address,
+      const QuicSocketAddress& peer_address,
+      absl::string_view alpn,
       const ParsedQuicVersion& version) override {
     QuicReaderMutexLock lock(&factory_lock_);
     if (session_factory_ == nullptr && stream_factory_ == nullptr &&
         crypto_stream_factory_ == nullptr) {
-      return QuicSimpleDispatcher::CreateQuicSession(id, client, alpn, version);
+      return QuicSimpleDispatcher::CreateQuicSession(
+          id, self_address, peer_address, alpn, version);
     }
-    QuicConnection* connection =
-        new QuicConnection(id, client, helper(), alarm_factory(), writer(),
-                           /* owns_writer= */ false, Perspective::IS_SERVER,
-                           ParsedQuicVersionVector{version});
+    QuicConnection* connection = new QuicConnection(
+        id, self_address, peer_address, helper(), alarm_factory(), writer(),
+        /* owns_writer= */ false, Perspective::IS_SERVER,
+        ParsedQuicVersionVector{version});
 
     std::unique_ptr<QuicServerSessionBase> session;
     if (stream_factory_ != nullptr || crypto_stream_factory_ != nullptr) {
@@ -119,34 +121,29 @@ class QuicTestDispatcher : public QuicSimpleDispatcher {
           config(), connection, this, session_helper(), crypto_config(),
           compressed_certs_cache(), server_backend());
     }
-    // TODO(b/142715651): Figure out how to use QPACK in tests.
-    // Do not use the QPACK dynamic table in tests to avoid flakiness due to the
-    // uncertain order of receiving the SETTINGS frame and sending headers.
-    session->set_qpack_maximum_dynamic_table_capacity(0);
-    session->set_qpack_maximum_blocked_streams(0);
     session->Initialize();
     return session;
   }
 
   void SetSessionFactory(QuicTestServer::SessionFactory* factory) {
     QuicWriterMutexLock lock(&factory_lock_);
-    DCHECK(session_factory_ == nullptr);
-    DCHECK(stream_factory_ == nullptr);
-    DCHECK(crypto_stream_factory_ == nullptr);
+    QUICHE_DCHECK(session_factory_ == nullptr);
+    QUICHE_DCHECK(stream_factory_ == nullptr);
+    QUICHE_DCHECK(crypto_stream_factory_ == nullptr);
     session_factory_ = factory;
   }
 
   void SetStreamFactory(QuicTestServer::StreamFactory* factory) {
     QuicWriterMutexLock lock(&factory_lock_);
-    DCHECK(session_factory_ == nullptr);
-    DCHECK(stream_factory_ == nullptr);
+    QUICHE_DCHECK(session_factory_ == nullptr);
+    QUICHE_DCHECK(stream_factory_ == nullptr);
     stream_factory_ = factory;
   }
 
   void SetCryptoStreamFactory(QuicTestServer::CryptoStreamFactory* factory) {
     QuicWriterMutexLock lock(&factory_lock_);
-    DCHECK(session_factory_ == nullptr);
-    DCHECK(crypto_stream_factory_ == nullptr);
+    QUICHE_DCHECK(session_factory_ == nullptr);
+    QUICHE_DCHECK(crypto_stream_factory_ == nullptr);
     crypto_stream_factory_ = factory;
   }
 
@@ -198,7 +195,7 @@ QuicDispatcher* QuicTestServer::CreateQuicDispatcher() {
 }
 
 void QuicTestServer::SetSessionFactory(SessionFactory* factory) {
-  DCHECK(dispatcher());
+  QUICHE_DCHECK(dispatcher());
   static_cast<QuicTestDispatcher*>(dispatcher())->SetSessionFactory(factory);
 }
 
@@ -232,7 +229,7 @@ ImmediateGoAwaySession::ImmediateGoAwaySession(
 
 void ImmediateGoAwaySession::OnStreamFrame(const QuicStreamFrame& frame) {
   if (VersionUsesHttp3(transport_version())) {
-    SendHttp3GoAway();
+    SendHttp3GoAway(QUIC_PEER_GOING_AWAY, "");
   } else {
     SendGoAway(QUIC_PEER_GOING_AWAY, "");
   }
@@ -240,12 +237,25 @@ void ImmediateGoAwaySession::OnStreamFrame(const QuicStreamFrame& frame) {
 }
 
 void ImmediateGoAwaySession::OnCryptoFrame(const QuicCryptoFrame& frame) {
-  // In IETF QUIC, GOAWAY lives up in HTTP/3 layer. Even if it's a immediate
-  // goaway session, goaway shouldn't be sent when crypto frame is received.
+  // In IETF QUIC, GOAWAY lives up in HTTP/3 layer. It's sent in a QUIC stream
+  // and requires encryption. Thus the sending is done in
+  // OnNewEncryptionKeyAvailable().
   if (!VersionUsesHttp3(transport_version())) {
     SendGoAway(QUIC_PEER_GOING_AWAY, "");
   }
   QuicSimpleServerSession::OnCryptoFrame(frame);
+}
+
+void ImmediateGoAwaySession::OnNewEncryptionKeyAvailable(
+    EncryptionLevel level,
+    std::unique_ptr<QuicEncrypter> encrypter) {
+  QuicSimpleServerSession::OnNewEncryptionKeyAvailable(level,
+                                                       std::move(encrypter));
+  if (VersionUsesHttp3(transport_version())) {
+    if (IsEncryptionEstablished() && !goaway_sent()) {
+      SendHttp3GoAway(QUIC_PEER_GOING_AWAY, "");
+    }
+  }
 }
 
 }  // namespace test

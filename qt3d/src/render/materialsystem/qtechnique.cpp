@@ -69,9 +69,9 @@ QTechniquePrivate::~QTechniquePrivate()
     Parameter objects and a GraphicsApiFilter, which together define a
     rendering technique the given graphics API can render. The filter keys are
     used by TechniqueFilter to select specific techniques at specific parts of
-    the FrameGraph. If two Parameter instances with the same name are specified
-    in a Technique and a RenderPass, the one in Technique overrides the one
-    used in the RenderPass.
+    the FrameGraph. A Parameter defined on a Technique overrides parameter
+    (of the same name) defined in RenderPass, but are overridden by
+    parameter in RenderPassFilter, TechniqueFilter, Material and Effect.
 
     When creating an Effect that targets several versions of a graphics API, it
     is useful to create several Technique nodes each with a graphicsApiFilter
@@ -136,9 +136,9 @@ QTechniquePrivate::~QTechniquePrivate()
     a Qt3DRender::QGraphicsApiFilter, which together define a rendering
     technique the given graphics API can render. The filter keys are used by
     Qt3DRender::QTechniqueFilter to select specific techniques at specific
-    parts of the FrameGraph. If two QParameter instances with the same name are
-    specified in a QTechnique and a QRenderPass, the one in Technique overrides
-    the one used in the QRenderPass.
+    parts of the FrameGraph. A QParameter defined on a QTechnique overrides parameter
+    (of the same name) defined in QRenderPass, but are overridden by
+    parameter in QRenderPassFilter, QTechniqueFilter, QMaterial and QEffect.
 
     When creating an QEffect that targets several versions of a graphics API,
     it is useful to create several QTechnique nodes each with a
@@ -258,7 +258,7 @@ void QTechnique::addFilterKey(QFilterKey *filterKey)
         if (!filterKey->parent())
             filterKey->setParent(this);
 
-        d->updateNode(filterKey, "filterKeys", Qt3DCore::PropertyValueAdded);
+        d->update();
     }
 }
 
@@ -271,7 +271,7 @@ void QTechnique::removeFilterKey(QFilterKey *filterKey)
     Q_D(QTechnique);
     if (!d->m_filterKeys.removeOne(filterKey))
         return;
-    d->updateNode(filterKey, "filterKeys", Qt3DCore::PropertyValueRemoved);
+    d->update();
     // Remove bookkeeping connection
     d->unregisterDestructionHelper(filterKey);
 }
@@ -280,7 +280,7 @@ void QTechnique::removeFilterKey(QFilterKey *filterKey)
     Returns the list of Qt3DCore::QFilterKey key objects making up the filter keys
     of the Qt3DRender::QTechnique.
  */
-QVector<QFilterKey *> QTechnique::filterKeys() const
+QList<QFilterKey *> QTechnique::filterKeys() const
 {
     Q_D(const QTechnique);
     return d->m_filterKeys;
@@ -306,7 +306,7 @@ void QTechnique::addParameter(QParameter *parameter)
         if (!parameter->parent())
             parameter->setParent(this);
 
-        d->updateNode(parameter, "parameter", Qt3DCore::PropertyValueAdded);
+        d->update();
     }
 }
 
@@ -319,7 +319,7 @@ void QTechnique::removeParameter(QParameter *parameter)
     Q_D(QTechnique);
     if (!d->m_parameters.removeOne(parameter))
         return;
-    d->updateNode(parameter, "parameter", Qt3DCore::PropertyValueRemoved);
+    d->update();
     // Remove bookkeeping connection
     d->unregisterDestructionHelper(parameter);
 }
@@ -344,7 +344,7 @@ void QTechnique::addRenderPass(QRenderPass *pass)
         if (!pass->parent())
             pass->setParent(this);
 
-        d->updateNode(pass, "pass", Qt3DCore::PropertyValueAdded);
+        d->update();
     }
 }
 
@@ -357,7 +357,7 @@ void QTechnique::removeRenderPass(QRenderPass *pass)
     Q_D(QTechnique);
     if (!d->m_renderPasses.removeOne(pass))
         return;
-    d->updateNode(pass, "pass", Qt3DCore::PropertyValueAdded);
+    d->update();
     // Remove bookkeeping connection
     d->unregisterDestructionHelper(pass);
 }
@@ -365,7 +365,7 @@ void QTechnique::removeRenderPass(QRenderPass *pass)
 /*!
     Returns the list of render passes contained in the technique.
  */
-QVector<QRenderPass *> QTechnique::renderPasses() const
+QList<QRenderPass *> QTechnique::renderPasses() const
 {
     Q_D(const QTechnique);
     return d->m_renderPasses;
@@ -374,7 +374,7 @@ QVector<QRenderPass *> QTechnique::renderPasses() const
 /*!
     Returns a vector of the techniques current parameters
  */
-QVector<QParameter *> QTechnique::parameters() const
+QList<QParameter *> QTechnique::parameters() const
 {
     Q_D(const QTechnique);
     return d->m_parameters;
@@ -390,20 +390,6 @@ const QGraphicsApiFilter *QTechnique::graphicsApiFilter() const
 {
     Q_D(const QTechnique);
     return &d->m_graphicsApiFilter;
-}
-
-Qt3DCore::QNodeCreatedChangeBasePtr QTechnique::createNodeCreationChange() const
-{
-    auto creationChange = Qt3DCore::QNodeCreatedChangePtr<QTechniqueData>::create(this);
-    QTechniqueData &data = creationChange->data;
-
-    Q_D(const QTechnique);
-    data.graphicsApiFilterData = QGraphicsApiFilterPrivate::get(const_cast<QGraphicsApiFilter *>(&d->m_graphicsApiFilter))->m_data;
-    data.filterKeyIds = qIdsForNodes(d->m_filterKeys);
-    data.parameterIds = qIdsForNodes(d->m_parameters);
-    data.renderPassIds = qIdsForNodes(d->m_renderPasses);
-
-    return creationChange;
 }
 
 } // of namespace Qt3DRender

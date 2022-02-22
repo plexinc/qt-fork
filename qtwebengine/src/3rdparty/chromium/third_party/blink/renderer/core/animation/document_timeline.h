@@ -40,8 +40,6 @@
 
 namespace blink {
 
-class Animation;
-class AnimationEffect;
 class DocumentTimelineOptions;
 
 // DocumentTimeline is constructed and owned by Document, and tied to its
@@ -55,7 +53,7 @@ class CORE_EXPORT DocumentTimeline : public AnimationTimeline {
     // Calls DocumentTimeline's wake() method after duration seconds.
     virtual void WakeAfter(base::TimeDelta duration) = 0;
     virtual ~PlatformTiming() = default;
-    virtual void Trace(Visitor* visitor) {}
+    virtual void Trace(Visitor* visitor) const {}
   };
 
   // Web Animations API IDL constructor
@@ -71,18 +69,24 @@ class CORE_EXPORT DocumentTimeline : public AnimationTimeline {
 
   void ScheduleNextService() override;
 
-  Animation* Play(AnimationEffect*);
-
   bool IsActive() const override;
   base::Optional<base::TimeDelta> InitialStartTimeForAnimations() override;
   bool HasPendingUpdates() const {
     return !animations_needing_update_.IsEmpty();
   }
 
-  base::TimeTicks ZeroTime();
-  void PauseAnimationsForTesting(double);
+  // The zero time of DocumentTimeline is computed by adding a separate
+  // |origin_time_| from DocumentTimelineOptions.
+  // https://drafts.csswg.org/web-animations/#origin-time
+  // TODO(crbug.com/1162960) Convert DocumentTimeline::zero_time_ from
+  // base::TimeTicks to AnimationTimeDelta
+  base::TimeTicks CalculateZeroTime();
+  AnimationTimeDelta ZeroTime() override {
+    return AnimationTimeDelta(CalculateZeroTime().since_origin());
+  }
 
-  void SetAllCompositorPending(bool source_changed = false);
+  void PauseAnimationsForTesting(AnimationTimeDelta);
+
   void InvalidateKeyframeEffects(const TreeScope&);
 
   void SetPlaybackRate(double);
@@ -93,7 +97,7 @@ class CORE_EXPORT DocumentTimeline : public AnimationTimeline {
 
   CompositorAnimationTimeline* EnsureCompositorTimeline() override;
 
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
  protected:
   PhaseAndTime CurrentPhaseAndTime() override;
@@ -105,6 +109,8 @@ class CORE_EXPORT DocumentTimeline : public AnimationTimeline {
   base::TimeDelta origin_time_;
   // The origin time. This is computed by adding |origin_time_| to the time
   // origin of the document.
+  // TODO(crbug.com/1162960) Convert DocumentTimeline::zero_time_ from
+  // base::TimeTicks to AnimationTimeDelta
   base::TimeTicks zero_time_;
   bool zero_time_initialized_;
 
@@ -117,7 +123,7 @@ class CORE_EXPORT DocumentTimeline : public AnimationTimeline {
 
   class DocumentTimelineTiming final : public PlatformTiming {
    public:
-    DocumentTimelineTiming(DocumentTimeline* timeline)
+    explicit DocumentTimelineTiming(DocumentTimeline* timeline)
         : timeline_(timeline),
           timer_(timeline->GetDocument()->GetTaskRunner(
                      TaskType::kInternalDefault),
@@ -130,11 +136,11 @@ class CORE_EXPORT DocumentTimeline : public AnimationTimeline {
 
     void TimerFired(TimerBase*) { timeline_->ScheduleServiceOnNextFrame(); }
 
-    void Trace(Visitor*) override;
+    void Trace(Visitor*) const override;
 
    private:
     Member<DocumentTimeline> timeline_;
-    TaskRunnerTimer<DocumentTimelineTiming> timer_;
+    HeapTaskRunnerTimer<DocumentTimelineTiming> timer_;
   };
 
   friend class AnimationDocumentTimelineTest;

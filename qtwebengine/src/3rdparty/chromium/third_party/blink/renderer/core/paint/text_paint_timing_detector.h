@@ -9,7 +9,6 @@
 #include <queue>
 #include <set>
 
-#include "third_party/blink/public/web/web_widget_client.h"
 #include "third_party/blink/renderer/core/dom/dom_node_ids.h"
 #include "third_party/blink/renderer/core/paint/paint_timing_detector.h"
 #include "third_party/blink/renderer/core/paint/text_element_timing.h"
@@ -20,7 +19,7 @@
 namespace blink {
 class LayoutBoxModelObject;
 class LocalFrameView;
-class PropertyTreeState;
+class PropertyTreeStateOrAlias;
 class TextElementTiming;
 class TracedValue;
 
@@ -28,13 +27,21 @@ class TextRecord : public base::SupportsWeakPtr<TextRecord> {
  public:
   TextRecord(DOMNodeId new_node_id,
              uint64_t new_first_size,
-             const FloatRect& element_timing_rect)
+             const FloatRect& element_timing_rect,
+             const IntRect& frame_visual_rect,
+             const FloatRect& root_visual_rect)
       : node_id(new_node_id),
         first_size(new_first_size),
         element_timing_rect_(element_timing_rect) {
     static unsigned next_insertion_index_ = 1;
     insertion_index_ = next_insertion_index_++;
+    if (PaintTimingVisualizer::IsTracingEnabled()) {
+      lcp_rect_info_ = std::make_unique<LCPRectInfo>(
+          frame_visual_rect, RoundedIntRect(root_visual_rect));
+    }
   }
+  TextRecord(const TextRecord&) = delete;
+  TextRecord& operator=(const TextRecord&) = delete;
 
   DOMNodeId node_id = kInvalidDOMNodeId;
   uint64_t first_size = 0;
@@ -42,13 +49,13 @@ class TextRecord : public base::SupportsWeakPtr<TextRecord> {
   // for ranking.
   unsigned insertion_index_ = 0;
   FloatRect element_timing_rect_;
+  std::unique_ptr<LCPRectInfo> lcp_rect_info_;
   // The time of the first paint after fully loaded.
   base::TimeTicks paint_time = base::TimeTicks();
-  DISALLOW_COPY_AND_ASSIGN(TextRecord);
 };
 
-class CORE_EXPORT LargestTextPaintManager {
-  DISALLOW_NEW();
+class CORE_EXPORT LargestTextPaintManager final
+    : public GarbageCollected<LargestTextPaintManager> {
   using TextRecordSetComparator = bool (*)(const base::WeakPtr<TextRecord>&,
                                            const base::WeakPtr<TextRecord>&);
   using TextRecordSet =
@@ -56,6 +63,8 @@ class CORE_EXPORT LargestTextPaintManager {
 
  public:
   LargestTextPaintManager(LocalFrameView*, PaintTimingDetector*);
+  LargestTextPaintManager(const LargestTextPaintManager&) = delete;
+  LargestTextPaintManager& operator=(const LargestTextPaintManager&) = delete;
 
   inline void RemoveVisibleRecord(base::WeakPtr<TextRecord> record) {
     DCHECK(record);
@@ -80,7 +89,15 @@ class CORE_EXPORT LargestTextPaintManager {
     SetCachedResultInvalidated(true);
   }
 
-  void Trace(Visitor*);
+  void MaybeUpdateLargestIgnoredText(const LayoutObject&,
+                                     const uint64_t&,
+                                     const IntRect& frame_visual_rect,
+                                     const FloatRect& root_visual_rect);
+  std::unique_ptr<TextRecord> PopLargestIgnoredText() {
+    return std::move(largest_ignored_text_);
+  }
+
+  void Trace(Visitor*) const;
 
  private:
   friend class LargestContentfulPaintCalculatorTest;
@@ -95,9 +112,16 @@ class CORE_EXPORT LargestTextPaintManager {
   bool is_result_invalidated_ = false;
   unsigned count_candidates_ = 0;
 
+  // Text paints are ignored when they (or an ancestor) have opacity 0. This can
+  // be a problem later on if the opacity changes to nonzero but this change is
+  // composited. We solve this for the special case of documentElement by
+  // storing a record for the largest ignored text without nested opacity. We
+  // consider this an LCP candidate when the documentElement's opacity changes
+  // from zero to nonzero.
+  std::unique_ptr<TextRecord> largest_ignored_text_;
+
   Member<const LocalFrameView> frame_view_;
   Member<PaintTimingDetector> paint_timing_detector_;
-  DISALLOW_COPY_AND_ASSIGN(LargestTextPaintManager);
 };
 
 class CORE_EXPORT TextRecordsManager {
@@ -106,12 +130,16 @@ class CORE_EXPORT TextRecordsManager {
 
  public:
   TextRecordsManager(LocalFrameView*, PaintTimingDetector*);
+  TextRecordsManager(const TextRecordsManager&) = delete;
+  TextRecordsManager& operator=(const TextRecordsManager&) = delete;
 
   void RemoveVisibleRecord(const LayoutObject&);
   void RemoveInvisibleRecord(const LayoutObject&);
   void RecordVisibleObject(const LayoutObject&,
                            const uint64_t& visual_size,
-                           const FloatRect& element_timing_rect);
+                           const FloatRect& element_timing_rect,
+                           const IntRect& frame_visual_rect,
+                           const FloatRect& root_visual_rect);
   void RecordInvisibleObject(const LayoutObject& object);
   bool NeedMeausuringPaintTime() const {
     return !texts_queued_for_paint_time_.IsEmpty() ||
@@ -144,11 +172,25 @@ class CORE_EXPORT TextRecordsManager {
     return ltp_manager_->UpdateCandidate();
   }
 
-  inline bool IsRecordingLargestTextPaint() const {
-    return ltp_manager_.has_value();
+  // Receives a candidate text painted under opacity 0 but without nested
+  // opacity. May update |largest_ignored_text_| if the new candidate has a
+  // larger size.
+  void MaybeUpdateLargestIgnoredText(const LayoutObject& object,
+                                     const uint64_t& size,
+                                     const IntRect& aggregated_visual_rect,
+                                     const FloatRect& mapped_visual_rect) {
+    DCHECK(ltp_manager_);
+    ltp_manager_->MaybeUpdateLargestIgnoredText(
+        object, size, aggregated_visual_rect, mapped_visual_rect);
   }
+  // Called when documentElement changes from zero to nonzero opacity. Makes the
+  // largest text that was hidden due to this a Largest Contentful Paint
+  // candidate.
+  void ReportLargestIgnoredText();
 
-  void Trace(Visitor*);
+  inline bool IsRecordingLargestTextPaint() const { return ltp_manager_; }
+
+  void Trace(Visitor*) const;
 
  private:
   friend class LargestContentfulPaintCalculatorTest;
@@ -169,10 +211,8 @@ class CORE_EXPORT TextRecordsManager {
   // LCP computations, even if the size of the text itself is not 0. They are
   // considered invisible objects by Largest Contentful Paint.
   Deque<std::unique_ptr<TextRecord>> size_zero_texts_queued_for_paint_time_;
-  base::Optional<LargestTextPaintManager> ltp_manager_;
+  Member<LargestTextPaintManager> ltp_manager_;
   Member<TextElementTiming> text_element_timing_;
-
-  DISALLOW_COPY_AND_ASSIGN(TextRecordsManager);
 };
 
 // TextPaintTimingDetector contains Largest Text Paint and support for Text
@@ -199,10 +239,13 @@ class CORE_EXPORT TextPaintTimingDetector final
   explicit TextPaintTimingDetector(LocalFrameView*,
                                    PaintTimingDetector*,
                                    PaintTimingCallbackManager*);
+  TextPaintTimingDetector(const TextPaintTimingDetector&) = delete;
+  TextPaintTimingDetector& operator=(const TextPaintTimingDetector&) = delete;
+
   bool ShouldWalkObject(const LayoutBoxModelObject&) const;
   void RecordAggregatedText(const LayoutBoxModelObject& aggregator,
                             const IntRect& aggregated_visual_rect,
-                            const PropertyTreeState&);
+                            const PropertyTreeStateOrAlias&);
   void OnPaintFinished();
   void LayoutObjectWillBeDestroyed(const LayoutObject&);
   void StopRecordingLargestTextPaint();
@@ -215,27 +258,26 @@ class CORE_EXPORT TextPaintTimingDetector final
   inline base::WeakPtr<TextRecord> UpdateCandidate() {
     return records_manager_.UpdateCandidate();
   }
-  void ReportSwapTime(base::TimeTicks timestamp);
-  void Trace(Visitor*);
+  void ReportLargestIgnoredText();
+  void ReportPresentationTime(base::TimeTicks timestamp);
+  void Trace(Visitor*) const;
 
  private:
   friend class LargestContentfulPaintCalculatorTest;
 
-  void RegisterNotifySwapTime(
+  void RegisterNotifyPresentationTime(
       PaintTimingCallbackManager::LocalThreadCallback callback);
 
   TextRecordsManager records_manager_;
 
   Member<PaintTimingCallbackManager> callback_manager_;
 
-  // Make sure that at most one swap promise is ongoing.
-  bool awaiting_swap_promise_ = false;
+  // Make sure that at most one presentation promise is ongoing.
+  bool awaiting_presentation_promise_ = false;
 
   bool need_update_timing_at_frame_end_ = false;
 
   Member<const LocalFrameView> frame_view_;
-
-  DISALLOW_COPY_AND_ASSIGN(TextPaintTimingDetector);
 };
 }  // namespace blink
 

@@ -28,7 +28,7 @@
 
 #include <QDebug>
 #include <qtest.h>
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QtNetwork/qnetworkreply.h>
 #include <QtNetwork/qnetworkrequest.h>
 #include <QtNetwork/qnetworkaccessmanager.h>
@@ -36,9 +36,6 @@
 #include <QDebug>
 #include <private/qabstractsocketengine_p.h>
 #include <cstdio>
-#include <QNetworkConfigurationManager>
-#include <QNetworkConfiguration>
-#include <QNetworkSession>
 #include <QCoreApplication>
 
 const int bufsize = 16*1024;

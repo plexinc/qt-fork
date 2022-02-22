@@ -5,7 +5,7 @@
 #include "gpu/vulkan/android/vulkan_implementation_android.h"
 
 #include "base/android/android_hardware_buffer_compat.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
 #include "gpu/ipc/common/vulkan_ycbcr_info.h"
@@ -13,7 +13,6 @@
 #include "gpu/vulkan/vulkan_function_pointers.h"
 #include "gpu/vulkan/vulkan_image.h"
 #include "gpu/vulkan/vulkan_instance.h"
-#include "gpu/vulkan/vulkan_posix_util.h"
 #include "gpu/vulkan/vulkan_surface.h"
 #include "gpu/vulkan/vulkan_util.h"
 #include "ui/gfx/gpu_fence.h"
@@ -61,7 +60,7 @@ std::unique_ptr<VulkanSurface> VulkanImplementationAndroid::CreateViewSurface(
     return nullptr;
   }
 
-  return std::make_unique<VulkanSurface>(vulkan_instance_.vk_instance(),
+  return std::make_unique<VulkanSurface>(vulkan_instance_.vk_instance(), window,
                                          surface,
                                          false /* use_protected_memory */);
 }
@@ -92,7 +91,6 @@ VulkanImplementationAndroid::GetOptionalDeviceExtensions() {
       VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME,
       VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME,
       VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME,
-      VK_KHR_INCREMENTAL_PRESENT_EXTENSION_NAME,
       VK_KHR_SAMPLER_YCBCR_CONVERSION_EXTENSION_NAME,
       VK_KHR_SWAPCHAIN_EXTENSION_NAME,
       VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_EXTENSION_NAME,
@@ -121,7 +119,7 @@ VkSemaphore VulkanImplementationAndroid::CreateExternalSemaphore(
 VkSemaphore VulkanImplementationAndroid::ImportSemaphoreHandle(
     VkDevice vk_device,
     SemaphoreHandle sync_handle) {
-  return ImportVkSemaphoreHandlePosix(vk_device, std::move(sync_handle));
+  return ImportVkSemaphoreHandle(vk_device, std::move(sync_handle));
 }
 
 SemaphoreHandle VulkanImplementationAndroid::GetSemaphoreHandle(
@@ -129,8 +127,8 @@ SemaphoreHandle VulkanImplementationAndroid::GetSemaphoreHandle(
     VkSemaphore vk_semaphore) {
   // VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_SYNC_FD_BIT specifies a POSIX file
   // descriptor handle to a Linux Sync File or Android Fence object.
-  return GetVkSemaphoreHandlePosix(
-      vk_device, vk_semaphore, VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_SYNC_FD_BIT);
+  return GetVkSemaphoreHandle(vk_device, vk_semaphore,
+                              VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_SYNC_FD_BIT);
 }
 
 VkExternalMemoryHandleTypeFlagBits

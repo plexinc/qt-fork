@@ -51,7 +51,6 @@
 #include <QtWidgets>
 
 #include "mainwindow.h"
-#include "xmlwriter.h"
 
 MainWindow::MainWindow()
 {
@@ -65,6 +64,12 @@ MainWindow::MainWindow()
 
     menuBar()->addMenu(fileMenu);
     editor = new QTextEdit;
+
+//! [rootframe]
+    QTextDocument *editorDocument = editor->document();
+    QTextFrame *root = editorDocument->rootFrame();
+//! [rootframe]
+    processFrame(root);
 
     QTextCursor cursor(editor->textCursor());
     cursor.movePosition(QTextCursor::Start);
@@ -151,21 +156,24 @@ void MainWindow::saveFile()
                 QMessageBox::NoButton);
     }
 }
-bool MainWindow::writeXml(const QString &fileName)
+
+void MainWindow::processBlock(QTextBlock)
 {
-    XmlWriter documentWriter(editor->document());
+}
 
-    QDomDocument *domDocument = documentWriter.toXml();
-    QFile file(fileName);
+void MainWindow::processFrame(QTextFrame *frame)
+{
+//! [4]
+    QTextFrame::iterator it;
+    for (it = frame->begin(); !(it.atEnd()); ++it) {
 
-    if (file.open(QFile::WriteOnly)) {
-        QTextStream textStream(&file);
-        textStream.setCodec(QTextCodec::codecForName("UTF-8"));
+        QTextFrame *childFrame = it.currentFrame();
+        QTextBlock childBlock = it.currentBlock();
 
-        textStream << domDocument->toString(1).toUtf8();
-        file.close();
-        return true;
+        if (childFrame)
+            processFrame(childFrame);
+        else if (childBlock.isValid())
+            processBlock(childBlock);
     }
-    else
-        return false;
+//! [4]
 }

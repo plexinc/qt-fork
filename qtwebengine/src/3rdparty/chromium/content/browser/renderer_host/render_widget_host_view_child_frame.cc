@@ -19,12 +19,11 @@
 #include "components/viz/common/surfaces/parent_local_surface_id_allocator.h"
 #include "components/viz/host/host_frame_sink_manager.h"
 #include "content/browser/accessibility/browser_accessibility_manager.h"
-#include "content/browser/browser_plugin/browser_plugin_guest.h"
 #include "content/browser/compositor/surface_utils.h"
 #include "content/browser/gpu/compositor_util.h"
+#include "content/browser/renderer_host/cross_process_frame_connector.h"
 #include "content/browser/renderer_host/cursor_manager.h"
 #include "content/browser/renderer_host/display_util.h"
-#include "content/browser/renderer_host/frame_connector_delegate.h"
 #include "content/browser/renderer_host/input/synthetic_gesture_target.h"
 #include "content/browser/renderer_host/input/touch_selection_controller_client_child_frame.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
@@ -33,11 +32,11 @@
 #include "content/browser/renderer_host/render_widget_host_input_event_router.h"
 #include "content/browser/renderer_host/render_widget_host_view_event_handler.h"
 #include "content/browser/renderer_host/text_input_manager.h"
-#include "content/common/text_input_state.h"
-#include "content/common/widget_messages.h"
 #include "content/public/browser/render_process_host.h"
 #include "gpu/ipc/common/gpu_messages.h"
 #include "third_party/blink/public/common/input/web_touch_event.h"
+#include "third_party/blink/public/mojom/frame/viewport_intersection_state.mojom.h"
+#include "ui/base/ime/mojom/text_input_state.mojom.h"
 #include "ui/gfx/geometry/dip_util.h"
 #include "ui/gfx/geometry/size_conversions.h"
 #include "ui/gfx/geometry/size_f.h"
@@ -47,24 +46,28 @@ namespace content {
 
 // static
 RenderWidgetHostViewChildFrame* RenderWidgetHostViewChildFrame::Create(
-    RenderWidgetHost* widget) {
+    RenderWidgetHost* widget,
+    const blink::ScreenInfo& screen_info) {
   RenderWidgetHostViewChildFrame* view =
-      new RenderWidgetHostViewChildFrame(widget);
+      new RenderWidgetHostViewChildFrame(widget, screen_info);
   view->Init();
   return view;
 }
 
 RenderWidgetHostViewChildFrame::RenderWidgetHostViewChildFrame(
-    RenderWidgetHost* widget_host)
+    RenderWidgetHost* widget_host,
+    const blink::ScreenInfo& screen_info)
     : RenderWidgetHostViewBase(widget_host),
       frame_sink_id_(
           base::checked_cast<uint32_t>(widget_host->GetProcess()->GetID()),
           base::checked_cast<uint32_t>(widget_host->GetRoutingID())),
-      frame_connector_(nullptr) {
+      frame_connector_(nullptr),
+      screen_info_(screen_info) {
   GetHostFrameSinkManager()->RegisterFrameSinkId(
       frame_sink_id_, this, viz::ReportFirstSurfaceActivation::kNo);
   GetHostFrameSinkManager()->SetFrameSinkDebugLabel(
       frame_sink_id_, "RenderWidgetHostViewChildFrame");
+  host()->render_frame_metadata_provider()->AddObserver(this);
 }
 
 RenderWidgetHostViewChildFrame::~RenderWidgetHostViewChildFrame() {
@@ -104,8 +107,8 @@ void RenderWidgetHostViewChildFrame::
   selection_controller_client_.reset();
 }
 
-void RenderWidgetHostViewChildFrame::SetFrameConnectorDelegate(
-    FrameConnectorDelegate* frame_connector) {
+void RenderWidgetHostViewChildFrame::SetFrameConnector(
+    CrossProcessFrameConnector* frame_connector) {
   if (frame_connector_ == frame_connector)
     return;
 
@@ -128,8 +131,8 @@ void RenderWidgetHostViewChildFrame::SetFrameConnectorDelegate(
     SetParentFrameSinkId(parent_view->GetFrameSinkId());
   }
 
-  current_device_scale_factor_ =
-      frame_connector_->screen_info().device_scale_factor;
+  set_current_device_scale_factor(
+      frame_connector_->screen_info().device_scale_factor);
 
   auto* root_view = frame_connector_->GetRootRenderWidgetHostView();
   if (root_view) {
@@ -146,9 +149,9 @@ void RenderWidgetHostViewChildFrame::SetFrameConnectorDelegate(
 }
 
 void RenderWidgetHostViewChildFrame::UpdateIntrinsicSizingInfo(
-    const blink::WebIntrinsicSizingInfo& sizing_info) {
+    blink::mojom::IntrinsicSizingInfoPtr sizing_info) {
   if (frame_connector_)
-    frame_connector_->SendIntrinsicSizingInfoToParent(sizing_info);
+    frame_connector_->SendIntrinsicSizingInfoToParent(std::move(sizing_info));
 }
 
 std::unique_ptr<SyntheticGestureTarget>
@@ -183,7 +186,10 @@ void RenderWidgetHostViewChildFrame::SetBounds(const gfx::Rect& rect) {
   }
 }
 
-void RenderWidgetHostViewChildFrame::Focus() {}
+void RenderWidgetHostViewChildFrame::Focus() {
+  if (frame_connector_ && !frame_connector_->HasFocus())
+    return frame_connector_->FocusRootView();
+}
 
 bool RenderWidgetHostViewChildFrame::HasFocus() {
   if (frame_connector_)
@@ -192,7 +198,7 @@ bool RenderWidgetHostViewChildFrame::HasFocus() {
 }
 
 bool RenderWidgetHostViewChildFrame::IsSurfaceAvailableForCopy() {
-  return GetLocalSurfaceIdAllocation().IsValid();
+  return GetLocalSurfaceId().is_valid();
 }
 
 void RenderWidgetHostViewChildFrame::EnsureSurfaceSynchronizedForWebTest() {
@@ -213,7 +219,7 @@ void RenderWidgetHostViewChildFrame::Show() {
   if (!CanBecomeVisible())
     return;
 
-  host()->WasShown(base::nullopt /* record_tab_switch_time_request */);
+  host()->WasShown({} /* record_tab_switch_time_request */);
 
   if (frame_connector_)
     frame_connector_->SetVisibilityForChildViews(true);
@@ -310,6 +316,17 @@ void RenderWidgetHostViewChildFrame::UpdateBackgroundColor() {
   }
 }
 
+base::Optional<DisplayFeature>
+RenderWidgetHostViewChildFrame::GetDisplayFeature() {
+  NOTREACHED();
+  return base::nullopt;
+}
+
+void RenderWidgetHostViewChildFrame::SetDisplayFeatureForTesting(
+    const DisplayFeature*) {
+  NOTREACHED();
+}
+
 gfx::Size RenderWidgetHostViewChildFrame::GetCompositorViewportPixelSize() {
   if (frame_connector_)
     return frame_connector_->local_frame_size_in_pixels();
@@ -327,14 +344,20 @@ void RenderWidgetHostViewChildFrame::InitAsPopup(
   NOTREACHED();
 }
 
-void RenderWidgetHostViewChildFrame::InitAsFullscreen(
-    RenderWidgetHostView* reference_host_view) {
-  NOTREACHED();
-}
-
 void RenderWidgetHostViewChildFrame::UpdateCursor(const WebCursor& cursor) {
   if (frame_connector_)
     frame_connector_->UpdateCursor(cursor);
+}
+
+void RenderWidgetHostViewChildFrame::SendInitialPropertiesIfNeeded() {
+  if (initial_properties_sent_ || !frame_connector_)
+    return;
+  UpdateViewportIntersection(frame_connector_->intersection_state(),
+                             base::nullopt);
+  SetIsInert();
+  UpdateInheritedEffectiveTouchAction();
+  UpdateRenderThrottlingStatus();
+  initial_properties_sent_ = true;
 }
 
 void RenderWidgetHostViewChildFrame::SetIsLoading(bool is_loading) {
@@ -352,12 +375,14 @@ void RenderWidgetHostViewChildFrame::RenderProcessGone() {
 }
 
 void RenderWidgetHostViewChildFrame::Destroy() {
+  host()->render_frame_metadata_provider()->RemoveObserver(this);
+
   // FrameSinkIds registered with RenderWidgetHostInputEventRouter
   // have already been cleared when RenderWidgetHostViewBase notified its
   // observers of our impending destruction.
   if (frame_connector_) {
     frame_connector_->SetView(nullptr);
-    SetFrameConnectorDelegate(nullptr);
+    SetFrameConnector(nullptr);
   }
 
   // We notify our observers about shutdown here since we are about to release
@@ -415,41 +440,49 @@ void RenderWidgetHostViewChildFrame::UnregisterFrameSinkId() {
 }
 
 void RenderWidgetHostViewChildFrame::UpdateViewportIntersection(
-    const blink::ViewportIntersectionState& intersection_state) {
+    const blink::mojom::ViewportIntersectionState& intersection_state,
+    const base::Optional<blink::VisualProperties>& visual_properties) {
   if (host()) {
     host()->SetIntersectsViewport(
         !intersection_state.viewport_intersection.IsEmpty());
-    host()->Send(new WidgetMsg_SetViewportIntersection(host()->GetRoutingID(),
-                                                       intersection_state));
+
+    // Do not send viewport intersection to main frames.
+    if (!host()->owner_delegate()) {
+      host()->GetAssociatedFrameWidget()->SetViewportIntersection(
+          intersection_state.Clone(), visual_properties);
+    }
   }
 }
 
 void RenderWidgetHostViewChildFrame::SetIsInert() {
-  if (host() && frame_connector_) {
-    host()->Send(new WidgetMsg_SetIsInert(host()->GetRoutingID(),
-                                          frame_connector_->IsInert()));
+  // Do not send inert to main frames.
+  if (host() && frame_connector_ && !host()->owner_delegate()) {
+    host_->GetAssociatedFrameWidget()->SetIsInertForSubFrame(
+        frame_connector_->IsInert());
   }
 }
 
 void RenderWidgetHostViewChildFrame::UpdateInheritedEffectiveTouchAction() {
-  if (host_ && frame_connector_) {
-    host_->Send(new WidgetMsg_SetInheritedEffectiveTouchAction(
-        host_->GetRoutingID(),
-        frame_connector_->InheritedEffectiveTouchAction()));
+  // Do not send inherited touch action to main frames.
+  if (host_ && frame_connector_ && !host()->owner_delegate()) {
+    host_->GetAssociatedFrameWidget()
+        ->SetInheritedEffectiveTouchActionForSubFrame(
+            frame_connector_->InheritedEffectiveTouchAction());
   }
 }
 
 void RenderWidgetHostViewChildFrame::UpdateRenderThrottlingStatus() {
-  if (host() && frame_connector_) {
-    host()->Send(new WidgetMsg_UpdateRenderThrottlingStatus(
-        host()->GetRoutingID(), frame_connector_->IsThrottled(),
-        frame_connector_->IsSubtreeThrottled()));
+  // Do not send throttling status to main frames.
+  if (host() && frame_connector_ && !host()->owner_delegate()) {
+    host_->GetAssociatedFrameWidget()->UpdateRenderThrottlingStatusForSubFrame(
+        frame_connector_->IsThrottled(), frame_connector_->IsSubtreeThrottled(),
+        frame_connector_->IsDisplayLocked());
   }
 }
 
 void RenderWidgetHostViewChildFrame::StopFlingingIfNecessary(
     const blink::WebGestureEvent& event,
-    InputEventAckState ack_result) {
+    blink::mojom::InputEventResultState ack_result) {
   // In case of scroll bubbling the target view is in charge of stopping the
   // fling if needed.
   if (is_scroll_sequence_bubbling_)
@@ -460,7 +493,7 @@ void RenderWidgetHostViewChildFrame::StopFlingingIfNecessary(
 
 void RenderWidgetHostViewChildFrame::GestureEventAck(
     const blink::WebGestureEvent& event,
-    InputEventAckState ack_result) {
+    blink::mojom::InputEventResultState ack_result) {
   // Stop flinging if a GSU event with momentum phase is sent to the renderer
   // but not consumed.
   StopFlingingIfNecessary(event, ack_result);
@@ -475,20 +508,19 @@ void RenderWidgetHostViewChildFrame::GestureEventAck(
   // its ack is not consumed. For the rest of the scroll events
   // (GestureScrollUpdate, GestureScrollEnd) are bubbled if the
   // GestureScrollBegin was bubbled.
-  if (event.GetType() == blink::WebInputEvent::kGestureScrollBegin) {
+  if (event.GetType() == blink::WebInputEvent::Type::kGestureScrollBegin) {
     DCHECK(!is_scroll_sequence_bubbling_);
     is_scroll_sequence_bubbling_ =
-        ack_result == INPUT_EVENT_ACK_STATE_NOT_CONSUMED ||
-        ack_result == INPUT_EVENT_ACK_STATE_NO_CONSUMER_EXISTS ||
-        ack_result == INPUT_EVENT_ACK_STATE_CONSUMED_SHOULD_BUBBLE;
+        ack_result == blink::mojom::InputEventResultState::kNotConsumed ||
+        ack_result == blink::mojom::InputEventResultState::kNoConsumerExists;
   }
 
   if (is_scroll_sequence_bubbling_ &&
-      (event.GetType() == blink::WebInputEvent::kGestureScrollBegin ||
-       event.GetType() == blink::WebInputEvent::kGestureScrollUpdate ||
-       event.GetType() == blink::WebInputEvent::kGestureScrollEnd)) {
+      (event.GetType() == blink::WebInputEvent::Type::kGestureScrollBegin ||
+       event.GetType() == blink::WebInputEvent::Type::kGestureScrollUpdate ||
+       event.GetType() == blink::WebInputEvent::Type::kGestureScrollEnd)) {
     const bool can_continue = frame_connector_->BubbleScrollEvent(event);
-    if (event.GetType() == blink::WebInputEvent::kGestureScrollEnd ||
+    if (event.GetType() == blink::WebInputEvent::Type::kGestureScrollEnd ||
         !can_continue) {
       is_scroll_sequence_bubbling_ = false;
     }
@@ -499,7 +531,7 @@ void RenderWidgetHostViewChildFrame::GestureEventAck(
 
 void RenderWidgetHostViewChildFrame::ProcessTouchpadZoomEventAckInRoot(
     const blink::WebGestureEvent& event,
-    InputEventAckState ack_result) {
+    blink::mojom::InputEventResultState ack_result) {
   DCHECK(event.IsTouchpadZoomEvent());
 
   frame_connector_->ForwardAckedTouchpadZoomEvent(event, ack_result);
@@ -507,7 +539,7 @@ void RenderWidgetHostViewChildFrame::ProcessTouchpadZoomEventAckInRoot(
 
 void RenderWidgetHostViewChildFrame::ForwardTouchpadZoomEventIfNecessary(
     const blink::WebGestureEvent& event,
-    InputEventAckState ack_result) {
+    blink::mojom::InputEventResultState ack_result) {
   // ACKs of synthetic wheel events for touchpad pinch or double tap are
   // processed in the root RWHV.
   NOTREACHED();
@@ -598,11 +630,11 @@ const viz::FrameSinkId& RenderWidgetHostViewChildFrame::GetFrameSinkId() const {
   return frame_sink_id_;
 }
 
-const viz::LocalSurfaceIdAllocation&
-RenderWidgetHostViewChildFrame::GetLocalSurfaceIdAllocation() const {
+const viz::LocalSurfaceId& RenderWidgetHostViewChildFrame::GetLocalSurfaceId()
+    const {
   if (frame_connector_)
-    return frame_connector_->local_surface_id_allocation();
-  return viz::ParentLocalSurfaceIdAllocator::InvalidLocalSurfaceIdAllocation();
+    return frame_connector_->local_surface_id();
+  return viz::ParentLocalSurfaceIdAllocator::InvalidLocalSurfaceId();
 }
 
 void RenderWidgetHostViewChildFrame::NotifyHitTestRegionUpdated(
@@ -617,7 +649,7 @@ void RenderWidgetHostViewChildFrame::NotifyHitTestRegionUpdated(
        ToRoundedSize(last_stable_screen_rect_.size())) ||
       (std::abs(last_stable_screen_rect_.x() - screen_rect.x()) +
            std::abs(last_stable_screen_rect_.y() - screen_rect.y()) >
-       blink::kMaxChildFrameScreenRectMovement)) {
+       blink::mojom::kMaxChildFrameScreenRectMovement)) {
     last_stable_screen_rect_ = screen_rect;
     screen_rect_stable_since_ = base::TimeTicks::Now();
   }
@@ -625,8 +657,8 @@ void RenderWidgetHostViewChildFrame::NotifyHitTestRegionUpdated(
 
 bool RenderWidgetHostViewChildFrame::ScreenRectIsUnstableFor(
     const blink::WebInputEvent& event) {
-  if (event.TimeStamp() -
-          base::TimeDelta::FromMilliseconds(blink::kMinScreenRectStableTimeMs) <
+  if (event.TimeStamp() - base::TimeDelta::FromMilliseconds(
+                              blink::mojom::kMinScreenRectStableTimeMs) <
       screen_rect_stable_since_) {
     return true;
   }
@@ -637,10 +669,8 @@ bool RenderWidgetHostViewChildFrame::ScreenRectIsUnstableFor(
 
 void RenderWidgetHostViewChildFrame::PreProcessTouchEvent(
     const blink::WebTouchEvent& event) {
-  if (event.GetType() == blink::WebInputEvent::kTouchStart &&
-      frame_connector_ && !frame_connector_->HasFocus()) {
-    frame_connector_->FocusRootView();
-  }
+  if (event.GetType() == blink::WebInputEvent::Type::kTouchStart)
+    Focus();
 }
 
 viz::FrameSinkId RenderWidgetHostViewChildFrame::GetRootFrameSinkId() {
@@ -656,8 +686,7 @@ viz::FrameSinkId RenderWidgetHostViewChildFrame::GetRootFrameSinkId() {
 }
 
 viz::SurfaceId RenderWidgetHostViewChildFrame::GetCurrentSurfaceId() const {
-  return viz::SurfaceId(frame_sink_id_,
-                        GetLocalSurfaceIdAllocation().local_surface_id());
+  return viz::SurfaceId(frame_sink_id_, GetLocalSurfaceId());
 }
 
 bool RenderWidgetHostViewChildFrame::HasSize() const {
@@ -712,24 +741,7 @@ bool RenderWidgetHostViewChildFrame::IsRenderWidgetHostViewChildFrame() {
   return true;
 }
 
-void RenderWidgetHostViewChildFrame::WillSendScreenRects() {
-  // TODO(kenrb): These represent post-initialization state updates that are
-  // needed by the renderer. During normal OOPIF setup these are unnecessary,
-  // as the parent renderer will send the information and it will be
-  // immediately propagated to the OOPIF. However when an OOPIF navigates from
-  // one process to another, the parent doesn't know that, and certain
-  // browser-side state needs to be sent again. There is probably a less
-  // spammy way to do this, but triggering on SendScreenRects() is reasonable
-  // until somebody figures that out. RWHVCF::Init() is too early.
-  if (frame_connector_) {
-    UpdateViewportIntersection(frame_connector_->intersection_state());
-    SetIsInert();
-    UpdateInheritedEffectiveTouchAction();
-    UpdateRenderThrottlingStatus();
-  }
-}
-
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 void RenderWidgetHostViewChildFrame::SetActive(bool active) {}
 
 void RenderWidgetHostViewChildFrame::ShowDefinitionForSelection() {
@@ -740,7 +752,10 @@ void RenderWidgetHostViewChildFrame::ShowDefinitionForSelection() {
 }
 
 void RenderWidgetHostViewChildFrame::SpeakSelection() {}
-#endif  // defined(OS_MACOSX)
+
+void RenderWidgetHostViewChildFrame::SetWindowFrameInScreen(
+    const gfx::Rect& rect) {}
+#endif  // defined(OS_MAC)
 
 void RenderWidgetHostViewChildFrame::CopyFromSurface(
     const gfx::Rect& src_subrect,
@@ -764,7 +779,7 @@ void RenderWidgetHostViewChildFrame::CopyFromSurface(
   if (src_subrect.IsEmpty()) {
     request->set_area(gfx::Rect(GetCompositorViewportPixelSize()));
   } else {
-    ScreenInfo screen_info;
+    blink::ScreenInfo screen_info;
     GetScreenInfo(&screen_info);
     // |src_subrect| is in DIP coordinates; convert to Surface coordinates.
     request->set_area(
@@ -791,8 +806,10 @@ void RenderWidgetHostViewChildFrame::CopyFromSurface(
 void RenderWidgetHostViewChildFrame::OnFirstSurfaceActivation(
     const viz::SurfaceInfo& surface_info) {}
 
-void RenderWidgetHostViewChildFrame::OnFrameTokenChanged(uint32_t frame_token) {
-  OnFrameTokenChangedForView(frame_token);
+void RenderWidgetHostViewChildFrame::OnFrameTokenChanged(
+    uint32_t frame_token,
+    base::TimeTicks activation_time) {
+  OnFrameTokenChangedForView(frame_token, activation_time);
 }
 
 TouchSelectionControllerClientManager*
@@ -808,13 +825,13 @@ RenderWidgetHostViewChildFrame::GetTouchSelectionControllerClientManager() {
 }
 
 void RenderWidgetHostViewChildFrame::
-    OnRenderFrameMetadataChangedAfterActivation() {
-  RenderWidgetHostViewBase::OnRenderFrameMetadataChangedAfterActivation();
+    OnRenderFrameMetadataChangedAfterActivation(
+        base::TimeTicks activation_time) {
   if (selection_controller_client_) {
     const cc::RenderFrameMetadata& metadata =
         host()->render_frame_metadata_provider()->LastRenderFrameMetadata();
     selection_controller_client_->UpdateSelectionBoundsIfNeeded(
-        metadata.selection, current_device_scale_factor_);
+        metadata.selection, current_device_scale_factor());
   }
 }
 
@@ -823,7 +840,8 @@ void RenderWidgetHostViewChildFrame::TakeFallbackContentFrom(
   // This method only makes sense for top-level views.
 }
 
-InputEventAckState RenderWidgetHostViewChildFrame::FilterInputEvent(
+blink::mojom::InputEventResultState
+RenderWidgetHostViewChildFrame::FilterInputEvent(
     const blink::WebInputEvent& input_event) {
   // A child renderer should never receive a GesturePinch event. Pinch events
   // can still be targeted to a child, but they must be processed without
@@ -836,12 +854,12 @@ InputEventAckState RenderWidgetHostViewChildFrame::FilterInputEvent(
     // child's TouchActionFilter filter them, but we may encounter
     // https://crbug.com/771330 which would let the pinch events through.
     if (gesture_event.SourceDevice() == blink::WebGestureDevice::kTouchscreen) {
-      return INPUT_EVENT_ACK_STATE_CONSUMED;
+      return blink::mojom::InputEventResultState::kConsumed;
     }
     NOTREACHED();
   }
 
-  if (input_event.GetType() == blink::WebInputEvent::kGestureFlingStart) {
+  if (input_event.GetType() == blink::WebInputEvent::Type::kGestureFlingStart) {
     const blink::WebGestureEvent& gesture_event =
         static_cast<const blink::WebGestureEvent&>(input_event);
     // Zero-velocity touchpad flings are an Aura-specific signal that the
@@ -857,12 +875,13 @@ InputEventAckState RenderWidgetHostViewChildFrame::FilterInputEvent(
       // a fling animation.
       // Note: this event handling is modeled on similar code in
       // TenderWidgetHostViewAura::FilterInputEvent().
-      return INPUT_EVENT_ACK_STATE_NO_CONSUMER_EXISTS;
+      return blink::mojom::InputEventResultState::kNoConsumerExists;
     }
   }
 
   if (is_scroll_sequence_bubbling_ &&
-      (input_event.GetType() == blink::WebInputEvent::kGestureScrollUpdate) &&
+      (input_event.GetType() ==
+       blink::WebInputEvent::Type::kGestureScrollUpdate) &&
       frame_connector_) {
     // If we're bubbling, then to preserve latching behaviour, the child should
     // not consume this event. If the child has added its viewport to the scroll
@@ -872,25 +891,17 @@ InputEventAckState RenderWidgetHostViewChildFrame::FilterInputEvent(
     // If the child has not added its viewport to the scroll chain, then we
     // know that it will not attempt to consume the rest of the scroll
     // sequence.
-    return INPUT_EVENT_ACK_STATE_NO_CONSUMER_EXISTS;
+    return blink::mojom::InputEventResultState::kNoConsumerExists;
   }
 
-  return INPUT_EVENT_ACK_STATE_NOT_CONSUMED;
+  return blink::mojom::InputEventResultState::kNotConsumed;
 }
 
-BrowserAccessibilityManager*
-RenderWidgetHostViewChildFrame::CreateBrowserAccessibilityManager(
-    BrowserAccessibilityDelegate* delegate,
-    bool for_root_frame) {
-  return BrowserAccessibilityManager::Create(
-      BrowserAccessibilityManager::GetEmptyDocument(), delegate);
-}
-
-void RenderWidgetHostViewChildFrame::GetScreenInfo(ScreenInfo* screen_info) {
+void RenderWidgetHostViewChildFrame::GetScreenInfo(
+    blink::ScreenInfo* screen_info) {
   if (frame_connector_)
-    *screen_info = frame_connector_->screen_info();
-  else
-    DisplayUtil::GetDefaultScreenInfo(screen_info);
+    screen_info_ = frame_connector_->screen_info();
+  *screen_info = screen_info_;
 }
 
 void RenderWidgetHostViewChildFrame::EnableAutoResize(

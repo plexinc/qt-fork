@@ -209,17 +209,16 @@ class Q_CORE_EXPORT QEventDispatcherCoreFoundation : public QAbstractEventDispat
     Q_OBJECT
 
 public:
-    explicit QEventDispatcherCoreFoundation(QObject *parent = 0);
+    explicit QEventDispatcherCoreFoundation(QObject *parent = nullptr);
     void startingUp() override;
     ~QEventDispatcherCoreFoundation();
 
     bool processEvents(QEventLoop::ProcessEventsFlags flags) override;
-    bool hasPendingEvents() override;
 
     void registerSocketNotifier(QSocketNotifier *notifier) override;
     void unregisterSocketNotifier(QSocketNotifier *notifier) override;
 
-    void registerTimer(int timerId, int interval, Qt::TimerType timerType, QObject *object) override;
+    void registerTimer(int timerId, qint64 interval, Qt::TimerType timerType, QObject *object) override;
     bool unregisterTimer(int timerId) override;
     bool unregisterTimers(QObject *object) override;
     QList<QAbstractEventDispatcher::TimerInfo> registeredTimers(QObject *object) const override;
@@ -228,7 +227,6 @@ public:
 
     void wakeUp() override;
     void interrupt() override;
-    void flush() override;
 
 protected:
     QEventLoop *currentEventLoop() const;
@@ -238,7 +236,7 @@ protected:
     struct ProcessEventsState
     {
         ProcessEventsState(QEventLoop::ProcessEventsFlags f)
-         : flags(f), wasInterrupted(false)
+         : flags(f.toInt()), wasInterrupted(false)
          , processedPostedEvents(false), processedTimers(false)
          , deferredWakeUp(false), deferredUpdateTimers(false) {}
 

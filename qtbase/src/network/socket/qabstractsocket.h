@@ -41,6 +41,12 @@
 #define QABSTRACTSOCKET_H
 
 #include <QtNetwork/qtnetworkglobal.h>
+#if QT_VERSION >= QT_VERSION_CHECK(7, 0, 0)
+#include <QtNetwork/qabstractsocket.h>
+#endif
+#ifdef Q_CLANG_QDOC
+#include <QtNetwork/qhostaddress.h>
+#endif
 #include <QtCore/qiodevice.h>
 #include <QtCore/qobject.h>
 #ifndef QT_NO_DEBUG_STREAM
@@ -60,6 +66,8 @@ class QAuthenticator;
 class Q_NETWORK_EXPORT QAbstractSocket : public QIODevice
 {
     Q_OBJECT
+    Q_MOC_INCLUDE(<QtNetwork/qauthenticator.h>)
+
 public:
     enum SocketType {
         TcpSocket,
@@ -68,6 +76,8 @@ public:
         UnknownSocketType = -1
     };
     Q_ENUM(SocketType)
+
+#if QT_VERSION < QT_VERSION_CHECK(7, 0, 0)
     enum NetworkLayerProtocol {
         IPv4Protocol,
         IPv6Protocol,
@@ -75,6 +85,15 @@ public:
         UnknownNetworkLayerProtocol = -1
     };
     Q_ENUM(NetworkLayerProtocol)
+#else
+    // compatibility with Qt 4 to 6
+    using NetworkLayerProtocol = QHostAddress::NetworkLayerProtocol;
+    static constexpr auto IPv4Protocol = QHostAddress::IPv4Protocol;
+    static constexpr auto IPv6Protocol = QHostAddress::IPv6Protocol;
+    static constexpr auto AnyIPProtocol = QHostAddress::AnyIPProtocol;
+    static constexpr auto UnknownNetworkLayerProtocol = QHostAddress::UnknownNetworkLayerProtocol;
+#endif
+
     enum SocketError {
         ConnectionRefusedError,
         RemoteHostClosedError,
@@ -144,21 +163,25 @@ public:
     PauseModes pauseMode() const;
     void setPauseMode(PauseModes pauseMode);
 
-    // ### Qt6: make the first one virtual
-    bool bind(const QHostAddress &address, quint16 port = 0, BindMode mode = DefaultForPlatform);
+    virtual bool bind(const QHostAddress &address, quint16 port = 0,
+                      BindMode mode = DefaultForPlatform);
+#if QT_VERSION >= QT_VERSION_CHECK(7,0,0) || defined(Q_CLANG_QDOC)
+    bool bind(QHostAddress::SpecialAddress addr, quint16 port = 0, BindMode mode = DefaultForPlatform)
+    { return bind(QHostAddress(addr), port, mode); }
+    bool bind(quint16 port = 0, BindMode mode = DefaultForPlatform)
+    { return bind(QHostAddress::Any, port, mode); }
+#else
     bool bind(quint16 port = 0, BindMode mode = DefaultForPlatform);
+#endif
 
-    // ### Qt6: de-virtualize connectToHost(QHostAddress) overload
     virtual void connectToHost(const QString &hostName, quint16 port, OpenMode mode = ReadWrite, NetworkLayerProtocol protocol = AnyIPProtocol);
-    virtual void connectToHost(const QHostAddress &address, quint16 port, OpenMode mode = ReadWrite);
+    void connectToHost(const QHostAddress &address, quint16 port, OpenMode mode = ReadWrite);
     virtual void disconnectFromHost();
 
     bool isValid() const;
 
     qint64 bytesAvailable() const override;
     qint64 bytesToWrite() const override;
-
-    bool canReadLine() const override; // ### Qt6: remove me
 
     quint16 localPort() const;
     QHostAddress localAddress() const;
@@ -185,7 +208,6 @@ public:
     // from QIODevice
     void close() override;
     bool isSequential() const override;
-    bool atEnd() const override; // ### Qt6: remove me
     bool flush();
 
     // for synchronous access
@@ -206,10 +228,6 @@ Q_SIGNALS:
     void connected();
     void disconnected();
     void stateChanged(QAbstractSocket::SocketState);
-#if QT_DEPRECATED_SINCE(5,15)
-    QT_DEPRECATED_NETWORK_API_5_15_X("Use QAbstractSocket::errorOccurred(QAbstractSocket::SocketError) instead")
-    void error(QAbstractSocket::SocketError);
-#endif
     void errorOccurred(QAbstractSocket::SocketError);
 #ifndef QT_NO_NETWORKPROXY
     void proxyAuthenticationRequired(const QNetworkProxy &proxy, QAuthenticator *authenticator);
@@ -218,6 +236,7 @@ Q_SIGNALS:
 protected:
     qint64 readData(char *data, qint64 maxlen) override;
     qint64 readLineData(char *data, qint64 maxlen) override;
+    qint64 skipData(qint64 maxSize) override;
     qint64 writeData(const char *data, qint64 len) override;
 
     void setSocketState(SocketState state);
@@ -232,7 +251,7 @@ protected:
 
 private:
     Q_DECLARE_PRIVATE(QAbstractSocket)
-    Q_DISABLE_COPY(QAbstractSocket)
+    Q_DISABLE_COPY_MOVE(QAbstractSocket)
 
     Q_PRIVATE_SLOT(d_func(), void _q_connectToNextAddress())
     Q_PRIVATE_SLOT(d_func(), void _q_startConnecting(const QHostInfo &))

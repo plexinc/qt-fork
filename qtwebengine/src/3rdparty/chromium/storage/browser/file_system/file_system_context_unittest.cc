@@ -8,11 +8,13 @@
 
 #include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "storage/browser/file_system/external_mount_points.h"
 #include "storage/browser/file_system/file_system_backend.h"
 #include "storage/browser/file_system/isolated_context.h"
@@ -50,9 +52,9 @@ class FileSystemContextTest : public testing::Test {
   void SetUp() override {
     ASSERT_TRUE(data_dir_.CreateUniqueTempDir());
 
-    storage_policy_ = new MockSpecialStoragePolicy();
+    storage_policy_ = base::MakeRefCounted<MockSpecialStoragePolicy>();
 
-    mock_quota_manager_ = new MockQuotaManager(
+    mock_quota_manager_ = base::MakeRefCounted<MockQuotaManager>(
         false /* is_incognito */, data_dir_.GetPath(),
         base::ThreadTaskRunnerHandle::Get().get(), storage_policy_.get());
   }
@@ -96,7 +98,7 @@ class FileSystemContextTest : public testing::Test {
 
 // It is not valid to pass nullptr ExternalMountPoints to FileSystemContext on
 // ChromeOS.
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
 TEST_F(FileSystemContextTest, NullExternalMountPoints) {
   scoped_refptr<FileSystemContext> file_system_context(
       CreateFileSystemContextForTest(nullptr));
@@ -105,12 +107,12 @@ TEST_F(FileSystemContextTest, NullExternalMountPoints) {
   std::string isolated_name = "root";
   IsolatedContext::ScopedFSHandle isolated_fs =
       IsolatedContext::GetInstance()->RegisterFileSystemForPath(
-          kFileSystemTypeNativeLocal, std::string(),
+          kFileSystemTypeLocal, std::string(),
           base::FilePath(DRIVE FPL("/test/isolated/root")), &isolated_name);
   std::string isolated_id = isolated_fs.id();
   // Register system external mount point.
   ASSERT_TRUE(ExternalMountPoints::GetSystemInstance()->RegisterFileSystem(
-      "system", kFileSystemTypeNativeLocal, FileSystemMountOption(),
+      "system", kFileSystemTypeLocal, FileSystemMountOption(),
       base::FilePath(DRIVE FPL("/test/sys/"))));
 
   FileSystemURL cracked_isolated = file_system_context->CrackURL(
@@ -118,7 +120,7 @@ TEST_F(FileSystemContextTest, NullExternalMountPoints) {
 
   ExpectFileSystemURLMatches(
       cracked_isolated, GURL(kTestOrigin), kFileSystemTypeIsolated,
-      kFileSystemTypeNativeLocal,
+      kFileSystemTypeLocal,
       base::FilePath(DRIVE FPL("/test/isolated/root/file"))
           .NormalizePathSeparators(),
       base::FilePath::FromUTF8Unsafe(isolated_id)
@@ -131,7 +133,7 @@ TEST_F(FileSystemContextTest, NullExternalMountPoints) {
 
   ExpectFileSystemURLMatches(
       cracked_external, GURL(kTestOrigin), kFileSystemTypeExternal,
-      kFileSystemTypeNativeLocal,
+      kFileSystemTypeLocal,
       base::FilePath(DRIVE FPL("/test/sys/root/file"))
           .NormalizePathSeparators(),
       base::FilePath(FPL("system/root/file")).NormalizePathSeparators(),
@@ -148,7 +150,7 @@ TEST_F(FileSystemContextTest, FileSystemContextKeepsMountPointsAlive) {
 
   // Register system external mount point.
   ASSERT_TRUE(mount_points->RegisterFileSystem(
-      "system", kFileSystemTypeNativeLocal, FileSystemMountOption(),
+      "system", kFileSystemTypeLocal, FileSystemMountOption(),
       base::FilePath(DRIVE FPL("/test/sys/"))));
 
   scoped_refptr<FileSystemContext> file_system_context(
@@ -164,7 +166,7 @@ TEST_F(FileSystemContextTest, FileSystemContextKeepsMountPointsAlive) {
 
   ExpectFileSystemURLMatches(
       cracked_external, GURL(kTestOrigin), kFileSystemTypeExternal,
-      kFileSystemTypeNativeLocal,
+      kFileSystemTypeLocal,
       base::FilePath(DRIVE FPL("/test/sys/root/file"))
           .NormalizePathSeparators(),
       base::FilePath(FPL("system/root/file")).NormalizePathSeparators(),
@@ -184,27 +186,27 @@ TEST_F(FileSystemContextTest, CrackFileSystemURL) {
   std::string isolated_file_system_name = "root";
   IsolatedContext::ScopedFSHandle isolated_fs =
       IsolatedContext::GetInstance()->RegisterFileSystemForPath(
-          kFileSystemTypeNativeLocal, std::string(),
+          kFileSystemTypeLocal, std::string(),
           base::FilePath(DRIVE FPL("/test/isolated/root")),
           &isolated_file_system_name);
   const std::string kIsolatedFileSystemID = isolated_fs.id();
   // Register system external mount point.
   ASSERT_TRUE(ExternalMountPoints::GetSystemInstance()->RegisterFileSystem(
-      "system", kFileSystemTypeNativeLocal, FileSystemMountOption(),
+      "system", kFileSystemTypeLocal, FileSystemMountOption(),
       base::FilePath(DRIVE FPL("/test/sys/"))));
   ASSERT_TRUE(ExternalMountPoints::GetSystemInstance()->RegisterFileSystem(
-      "ext", kFileSystemTypeNativeLocal, FileSystemMountOption(),
+      "ext", kFileSystemTypeLocal, FileSystemMountOption(),
       base::FilePath(DRIVE FPL("/test/ext"))));
   // Register a system external mount point with the same name/id as the
   // registered isolated mount point.
   ASSERT_TRUE(ExternalMountPoints::GetSystemInstance()->RegisterFileSystem(
-      kIsolatedFileSystemID, kFileSystemTypeRestrictedNativeLocal,
+      kIsolatedFileSystemID, kFileSystemTypeRestrictedLocal,
       FileSystemMountOption(),
       base::FilePath(DRIVE FPL("/test/system/isolated"))));
   // Add a mount points with the same name as a system mount point to
   // FileSystemContext's external mount points.
   ASSERT_TRUE(external_mount_points->RegisterFileSystem(
-      "ext", kFileSystemTypeNativeLocal, FileSystemMountOption(),
+      "ext", kFileSystemTypeLocal, FileSystemMountOption(),
       base::FilePath(DRIVE FPL("/test/local/ext/"))));
 
   const GURL kTestOrigin = GURL("http://chromium.org/");
@@ -237,18 +239,17 @@ TEST_F(FileSystemContextTest, CrackFileSystemURL) {
       },
       // Should be cracked by isolated mount points:
       {kIsolatedFileSystemID, "isolated", true /* is_valid */,
-       kFileSystemTypeIsolated, kFileSystemTypeNativeLocal,
+       kFileSystemTypeIsolated, kFileSystemTypeLocal,
        DRIVE FPL("/test/isolated/root/file"), kIsolatedFileSystemID},
       // Should be cracked by system mount points:
       {"system", "external", true /* is_valid */, kFileSystemTypeExternal,
-       kFileSystemTypeNativeLocal, DRIVE FPL("/test/sys/root/file"), "system"},
+       kFileSystemTypeLocal, DRIVE FPL("/test/sys/root/file"), "system"},
       {kIsolatedFileSystemID, "external", true /* is_valid */,
-       kFileSystemTypeExternal, kFileSystemTypeRestrictedNativeLocal,
+       kFileSystemTypeExternal, kFileSystemTypeRestrictedLocal,
        DRIVE FPL("/test/system/isolated/root/file"), kIsolatedFileSystemID},
       // Should be cracked by FileSystemContext's ExternalMountPoints.
       {"ext", "external", true /* is_valid */, kFileSystemTypeExternal,
-       kFileSystemTypeNativeLocal, DRIVE FPL("/test/local/ext/root/file"),
-       "ext"},
+       kFileSystemTypeLocal, DRIVE FPL("/test/local/ext/root/file"), "ext"},
       // Test for invalid filesystem url (made invalid by adding invalid
       // filesystem type).
       {"sytem", "external", false /* is_valid */,
@@ -308,7 +309,7 @@ TEST_F(FileSystemContextTest, CanServeURLRequest) {
   std::string isolated_fs_name = "root";
   IsolatedContext::ScopedFSHandle isolated_fs =
       IsolatedContext::GetInstance()->RegisterFileSystemForPath(
-          kFileSystemTypeNativeLocal, std::string(),
+          kFileSystemTypeLocal, std::string(),
           base::FilePath(DRIVE FPL("/test/isolated/root")), &isolated_fs_name);
   std::string isolated_fs_id = isolated_fs.id();
   cracked_url =
@@ -319,7 +320,7 @@ TEST_F(FileSystemContextTest, CanServeURLRequest) {
   // A request for an external mount point should be served.
   const std::string kExternalMountName = "ext_mount";
   ASSERT_TRUE(ExternalMountPoints::GetSystemInstance()->RegisterFileSystem(
-      kExternalMountName, kFileSystemTypeNativeLocal, FileSystemMountOption(),
+      kExternalMountName, kFileSystemTypeLocal, FileSystemMountOption(),
       base::FilePath()));
   cracked_url =
       context->CrackURL(CreateRawFileSystemURL("external", kExternalMountName));
@@ -346,10 +347,9 @@ TEST_F(FileSystemContextTest, IsolatedFileSystemsTypesHandled) {
       file_system_context->GetFileSystemBackend(kFileSystemTypeDragged));
   EXPECT_TRUE(file_system_context->GetFileSystemBackend(
       kFileSystemTypeForTransientFile));
-  EXPECT_TRUE(
-      file_system_context->GetFileSystemBackend(kFileSystemTypeNativeLocal));
+  EXPECT_TRUE(file_system_context->GetFileSystemBackend(kFileSystemTypeLocal));
   EXPECT_TRUE(file_system_context->GetFileSystemBackend(
-      kFileSystemTypeNativeForPlatformApp));
+      kFileSystemTypeLocalForPlatformApp));
 }
 
 }  // namespace

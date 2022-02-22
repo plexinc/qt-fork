@@ -26,6 +26,8 @@
 #include "third_party/blink/renderer/platform/loader/fetch/raw_resource.h"
 
 #include <memory>
+
+#include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
 #include "third_party/blink/public/mojom/loader/request_context_frame_type.mojom-blink.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/platform/loader/fetch/buffering_bytes_consumer.h"
@@ -34,8 +36,6 @@
 #include "third_party/blink/renderer/platform/loader/fetch/resource_client_walker.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher.h"
 #include "third_party/blink/renderer/platform/loader/fetch/response_body_loader.h"
-#include "third_party/blink/renderer/platform/loader/fetch/script_cached_metadata_handler.h"
-#include "third_party/blink/renderer/platform/loader/fetch/source_keyed_cached_metadata_handler.h"
 #include "third_party/blink/renderer/platform/network/http_names.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread_scheduler.h"
@@ -54,7 +54,7 @@ RawResource* RawResource::FetchSynchronously(FetchParameters& params,
 RawResource* RawResource::FetchImport(FetchParameters& params,
                                       ResourceFetcher* fetcher,
                                       RawResourceClient* client) {
-  params.SetRequestContext(mojom::RequestContextType::IMPORT);
+  params.SetRequestContext(mojom::blink::RequestContextType::IMPORT);
   params.SetRequestDestination(network::mojom::RequestDestination::kEmpty);
   return ToRawResource(fetcher->RequestResource(
       params, RawResourceFactory(ResourceType::kImportResource), client));
@@ -64,7 +64,7 @@ RawResource* RawResource::Fetch(FetchParameters& params,
                                 ResourceFetcher* fetcher,
                                 RawResourceClient* client) {
   DCHECK_NE(params.GetResourceRequest().GetRequestContext(),
-            mojom::RequestContextType::UNSPECIFIED);
+            mojom::blink::RequestContextType::UNSPECIFIED);
   return ToRawResource(fetcher->RequestResource(
       params, RawResourceFactory(ResourceType::kRaw), client));
 }
@@ -73,9 +73,9 @@ RawResource* RawResource::FetchMedia(FetchParameters& params,
                                      ResourceFetcher* fetcher,
                                      RawResourceClient* client) {
   auto context = params.GetResourceRequest().GetRequestContext();
-  DCHECK(context == mojom::RequestContextType::AUDIO ||
-         context == mojom::RequestContextType::VIDEO);
-  ResourceType type = (context == mojom::RequestContextType::AUDIO)
+  DCHECK(context == mojom::blink::RequestContextType::AUDIO ||
+         context == mojom::blink::RequestContextType::VIDEO);
+  ResourceType type = (context == mojom::blink::RequestContextType::AUDIO)
                           ? ResourceType::kAudio
                           : ResourceType::kVideo;
   return ToRawResource(
@@ -85,7 +85,7 @@ RawResource* RawResource::FetchMedia(FetchParameters& params,
 RawResource* RawResource::FetchTextTrack(FetchParameters& params,
                                          ResourceFetcher* fetcher,
                                          RawResourceClient* client) {
-  params.SetRequestContext(mojom::RequestContextType::TRACK);
+  params.SetRequestContext(mojom::blink::RequestContextType::TRACK);
   params.SetRequestDestination(network::mojom::RequestDestination::kTrack);
   return ToRawResource(fetcher->RequestResource(
       params, RawResourceFactory(ResourceType::kTextTrack), client));
@@ -95,7 +95,7 @@ RawResource* RawResource::FetchManifest(FetchParameters& params,
                                         ResourceFetcher* fetcher,
                                         RawResourceClient* client) {
   DCHECK_EQ(params.GetResourceRequest().GetRequestContext(),
-            mojom::RequestContextType::MANIFEST);
+            mojom::blink::RequestContextType::MANIFEST);
   return ToRawResource(fetcher->RequestResource(
       params, RawResourceFactory(ResourceType::kManifest), client));
 }
@@ -115,8 +115,6 @@ void RawResource::AppendData(const char* data, size_t length) {
 class RawResource::PreloadBytesConsumerClient final
     : public GarbageCollected<PreloadBytesConsumerClient>,
       public BytesConsumer::Client {
-  USING_GARBAGE_COLLECTED_MIXIN(PreloadBytesConsumerClient);
-
  public:
   PreloadBytesConsumerClient(BytesConsumer& bytes_consumer,
                              RawResource& resource,
@@ -148,7 +146,7 @@ class RawResource::PreloadBytesConsumerClient final
 
   String DebugName() const override { return "PreloadBytesConsumerClient"; }
 
-  void Trace(Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(bytes_consumer_);
     visitor->Trace(resource_);
     visitor->Trace(client_);
@@ -233,16 +231,11 @@ void RawResource::WillNotFollowRedirect() {
     c->RedirectBlocked();
 }
 
-SingleCachedMetadataHandler* RawResource::ScriptCacheHandler() {
-  DCHECK_EQ(ResourceType::kRaw, GetType());
-  return static_cast<SingleCachedMetadataHandler*>(Resource::CacheHandler());
-}
-
 scoped_refptr<BlobDataHandle> RawResource::DownloadedBlob() const {
   return downloaded_blob_;
 }
 
-void RawResource::Trace(Visitor* visitor) {
+void RawResource::Trace(Visitor* visitor) const {
   visitor->Trace(bytes_consumer_for_preload_);
   Resource::Trace(visitor);
 }
@@ -300,33 +293,15 @@ void RawResource::ResponseBodyReceived(
   client->ResponseBodyReceived(this, body_loader.DrainAsBytesConsumer());
 }
 
-CachedMetadataHandler* RawResource::CreateCachedMetadataHandler(
-    std::unique_ptr<CachedMetadataSender> send_callback) {
-  if (GetType() == ResourceType::kRaw) {
-    // This is a resource of indeterminate type, e.g. a fetched WebAssembly
-    // module; create a cache handler that can store a single metadata entry.
-    return MakeGarbageCollected<ScriptCachedMetadataHandler>(
-        Encoding(), std::move(send_callback));
-  }
-  return Resource::CreateCachedMetadataHandler(std::move(send_callback));
-}
-
 void RawResource::SetSerializedCachedMetadata(mojo_base::BigBuffer data) {
   // Resource ignores the cached metadata.
   Resource::SetSerializedCachedMetadata(mojo_base::BigBuffer());
 
-  // Notify clients before potentially transferring ownership of the buffer.
   ResourceClientWalker<RawResourceClient> w(Clients());
-  while (RawResourceClient* c = w.Next()) {
-    c->SetSerializedCachedMetadata(this, data.data(), data.size());
-  }
-
-  if (GetType() == ResourceType::kRaw) {
-    ScriptCachedMetadataHandler* cache_handler =
-        static_cast<ScriptCachedMetadataHandler*>(Resource::CacheHandler());
-    if (cache_handler) {
-      cache_handler->SetSerializedCachedMetadata(std::move(data));
-    }
+  // We rely on the fact that RawResource cannot have multiple clients.
+  CHECK_LE(Clients().size(), 1u);
+  if (RawResourceClient* c = w.Next()) {
+    c->CachedMetadataReceived(this, std::move(data));
   }
 }
 
@@ -350,15 +325,10 @@ void RawResource::DidDownloadToBlob(scoped_refptr<BlobDataHandle> blob) {
     c->DidDownloadToBlob(this, blob);
 }
 
-bool RawResource::MatchPreload(const FetchParameters& params,
-                               base::SingleThreadTaskRunner* task_runner) {
-  if (!Resource::MatchPreload(params, task_runner))
-    return false;
-
+void RawResource::MatchPreload(const FetchParameters& params) {
+  Resource::MatchPreload(params);
   matched_with_non_streaming_destination_ =
       !params.GetResourceRequest().UseStreamOnResponse();
-
-  return true;
 }
 
 static bool ShouldIgnoreHeaderForCacheReuse(AtomicString header_name) {

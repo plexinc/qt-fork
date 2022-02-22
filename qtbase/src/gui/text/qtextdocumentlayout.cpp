@@ -105,14 +105,13 @@ public:
 
     bool sizeDirty;
     bool layoutDirty;
-    bool fullLayoutCompleted;
 
-    QVector<QPointer<QTextFrame> > floats;
+    QList<QPointer<QTextFrame>> floats;
 };
 
 QTextFrameData::QTextFrameData()
     : maximumWidth(QFIXED_MAX),
-      currentLayoutStruct(nullptr), sizeDirty(true), layoutDirty(true), fullLayoutCompleted(false)
+      currentLayoutStruct(nullptr), sizeDirty(true), layoutDirty(true)
 {
 }
 
@@ -205,14 +204,14 @@ class QTextTableData : public QTextFrameData
 public:
     QFixed cellSpacing, cellPadding;
     qreal deviceScale;
-    QVector<QFixed> minWidths;
-    QVector<QFixed> maxWidths;
-    QVector<QFixed> widths;
-    QVector<QFixed> heights;
-    QVector<QFixed> columnPositions;
-    QVector<QFixed> rowPositions;
+    QList<QFixed> minWidths;
+    QList<QFixed> maxWidths;
+    QList<QFixed> widths;
+    QList<QFixed> heights;
+    QList<QFixed> columnPositions;
+    QList<QFixed> rowPositions;
 
-    QVector<QFixed> cellVerticalOffsets;
+    QList<QFixed> cellVerticalOffsets;
 
     // without borderCollapse, those equal QTextFrameData::border;
     // otherwise the widest outermost cell edge will be used
@@ -585,7 +584,7 @@ public:
     void floatMargins(const QFixed &y, const QTextLayoutStruct *layoutStruct, QFixed *left, QFixed *right) const;
     QFixed findY(QFixed yFrom, const QTextLayoutStruct *layoutStruct, QFixed requiredWidth) const;
 
-    QVector<QCheckPoint> checkPoints;
+    QList<QCheckPoint> checkPoints;
 
     QTextFrame::Iterator frameIteratorForYPosition(QFixed y) const;
     QTextFrame::Iterator frameIteratorForTextPosition(int position) const;
@@ -623,7 +622,7 @@ QTextFrame::Iterator QTextDocumentLayoutPrivate::frameIteratorForYPosition(QFixe
         || y < 0 || y > data(rootFrame)->size.height)
         return rootFrame->begin();
 
-    QVector<QCheckPoint>::ConstIterator checkPoint = std::lower_bound(checkPoints.begin(), checkPoints.end(), y);
+    auto checkPoint = std::lower_bound(checkPoints.begin(), checkPoints.end(), y);
     if (checkPoint == checkPoints.end())
         return rootFrame->begin();
 
@@ -792,14 +791,14 @@ QTextDocumentLayoutPrivate::hitTest(QTextTable *table, const QFixedPoint &point,
 {
     QTextTableData *td = static_cast<QTextTableData *>(data(table));
 
-    QVector<QFixed>::ConstIterator rowIt = std::lower_bound(td->rowPositions.constBegin(), td->rowPositions.constEnd(), point.y);
+    auto rowIt = std::lower_bound(td->rowPositions.constBegin(), td->rowPositions.constEnd(), point.y);
     if (rowIt == td->rowPositions.constEnd()) {
         rowIt = td->rowPositions.constEnd() - 1;
     } else if (rowIt != td->rowPositions.constBegin()) {
         --rowIt;
     }
 
-    QVector<QFixed>::ConstIterator colIt = std::lower_bound(td->columnPositions.constBegin(), td->columnPositions.constEnd(), point.x);
+    auto colIt = std::lower_bound(td->columnPositions.constBegin(), td->columnPositions.constEnd(), point.x);
     if (colIt == td->columnPositions.constEnd()) {
         colIt = td->columnPositions.constEnd() - 1;
     } else if (colIt != td->columnPositions.constBegin()) {
@@ -1169,7 +1168,7 @@ void QTextDocumentLayoutPrivate::drawFrame(const QPointF &offset, QPainter *pain
         int lastRow = rows;
 
         if (context.clip.isValid()) {
-            QVector<QFixed>::ConstIterator rowIt = std::lower_bound(td->rowPositions.constBegin(), td->rowPositions.constEnd(), QFixed::fromReal(context.clip.top() - off.y()));
+            auto rowIt = std::lower_bound(td->rowPositions.constBegin(), td->rowPositions.constEnd(), QFixed::fromReal(context.clip.top() - off.y()));
             if (rowIt != td->rowPositions.constEnd() && rowIt != td->rowPositions.constBegin()) {
                 --rowIt;
                 firstRow = rowIt - td->rowPositions.constBegin();
@@ -1520,7 +1519,7 @@ static inline qreal collapseOffset(const QTextDocumentLayoutPrivate *p, const Ed
 // there was no edge B (due to a rowspan or the axis C-D being the table's right
 // border).
 //
-// ignoreEdgesAbove: true if an egde (left, right or top) for the first row
+// ignoreEdgesAbove: true if an edge (left, right or top) for the first row
 // after a table page break should be painted. In this case the edges of the
 // row above must be ignored.
 static inline double prioritizedEdgeAnchorOffset(const QTextDocumentLayoutPrivate *p,
@@ -1616,7 +1615,7 @@ void drawCellBorder(const QTextDocumentLayoutPrivate *p, QPainter *painter,
     QBrush brush;
 
     if (edgeData.edgeClass != EdgeData::ClassExplicit && td->drawGrid) {
-        borderStyle = QTextFrameFormat::BorderStyle_Solid;
+        borderStyle = table->format().borderStyle();
         brush = table->format().borderBrush();
     }
     else {
@@ -1949,7 +1948,7 @@ void QTextDocumentLayoutPrivate::drawFlow(const QPointF &offset, QPainter *paint
     Q_Q(const QTextDocumentLayout);
     const bool inRootFrame = (!it.atEnd() && it.parentFrame() && it.parentFrame()->parentFrame() == nullptr);
 
-    QVector<QCheckPoint>::ConstIterator lastVisibleCheckPoint = checkPoints.end();
+    auto lastVisibleCheckPoint = checkPoints.end();
     if (inRootFrame && context.clip.isValid()) {
         lastVisibleCheckPoint = std::lower_bound(checkPoints.begin(), checkPoints.end(), QFixed::fromReal(context.clip.bottom()));
     }
@@ -2048,7 +2047,7 @@ void QTextDocumentLayoutPrivate::drawBlock(const QPointF &offset, QPainter *pain
         fillBackground(painter, rect, bg, r.topLeft());
     }
 
-    QVector<QTextLayout::FormatRange> selections;
+    QList<QTextLayout::FormatRange> selections;
     int blpos = bl.position();
     int bllen = bl.length();
     const QTextCharFormat *selFormat = nullptr;
@@ -2124,7 +2123,7 @@ void QTextDocumentLayoutPrivate::drawListItem(const QPointF &offset, QPainter *p
 {
     Q_Q(const QTextDocumentLayout);
     const QTextBlockFormat blockFormat = bl.blockFormat();
-    const QTextCharFormat charFormat = QTextCursor(bl).charFormat();
+    const QTextCharFormat charFormat = bl.charFormat();
     QFont font(charFormat.font());
     if (q->paintDevice())
         font = QFont(font, q->paintDevice());
@@ -2187,9 +2186,11 @@ void QTextDocumentLayoutPrivate::drawListItem(const QPointF &offset, QPainter *p
 
     painter->setRenderHint(QPainter::Antialiasing);
 
+    const bool marker = bl.blockFormat().marker() != QTextBlockFormat::MarkerType::NoMarker;
     if (selectionFormat) {
         painter->setPen(QPen(selectionFormat->foreground(), 0));
-        painter->fillRect(r, selectionFormat->background());
+        if (!marker)
+            painter->fillRect(r, selectionFormat->background());
     } else {
         QBrush fg = charFormat.foreground();
         if (fg == Qt::NoBrush)
@@ -2199,19 +2200,21 @@ void QTextDocumentLayoutPrivate::drawListItem(const QPointF &offset, QPainter *p
 
     QBrush brush = context.palette.brush(QPalette::Text);
 
-    bool marker = bl.blockFormat().marker() != QTextBlockFormat::MarkerType::NoMarker;
     if (marker) {
         int adj = fontMetrics.lineSpacing() / 6;
         r.adjust(-adj, 0, -adj, 0);
+        const QRectF outer = r.adjusted(-adj, -adj, adj, adj);
+        if (selectionFormat)
+            painter->fillRect(outer, selectionFormat->background());
         if (bl.blockFormat().marker() == QTextBlockFormat::MarkerType::Checked) {
-            // ### Qt6: render with QStyle / PE_IndicatorCheckBox. We don't currently
+            // ### Qt7: render with QStyle / PE_IndicatorCheckBox. We don't currently
             // have access to that here, because it would be a widget dependency.
             painter->setPen(QPen(painter->pen().color(), 2));
             painter->drawLine(r.topLeft(), r.bottomRight());
             painter->drawLine(r.topRight(), r.bottomLeft());
             painter->setPen(QPen(painter->pen().color(), 0));
         }
-        painter->drawRect(r.adjusted(-adj, -adj, adj, adj));
+        painter->drawRect(outer);
     }
 
     switch (style) {
@@ -2358,9 +2361,10 @@ QTextLayoutStruct QTextDocumentLayoutPrivate::layoutCell(QTextTable *t, const QT
         floatMinWidth = qMax(floatMinWidth, cd->minimumWidth);
     }
 
-    // constraint the maximumWidth by the minimum width of the fixed size floats, to
-    // keep them visible
+    // constraint the maximum/minimumWidth by the minimum width of the fixed size floats,
+    // to keep them visible
     layoutStruct.maximumWidth = qMax(layoutStruct.maximumWidth, floatMinWidth);
+    layoutStruct.minimumWidth = qMax(layoutStruct.minimumWidth, floatMinWidth);
 
     // as floats in cells get added to the table's float list but must not affect
     // floats in other cells we must clear the list here.
@@ -2402,7 +2406,7 @@ QRectF QTextDocumentLayoutPrivate::layoutTable(QTextTable *table, int layoutFrom
         }
     }
 
-    QVector<QTextLength> columnWidthConstraints = fmt.columnWidthConstraints();
+    QList<QTextLength> columnWidthConstraints = fmt.columnWidthConstraints();
     if (columnWidthConstraints.size() != columns)
         columnWidthConstraints.resize(columns);
     Q_ASSERT(columnWidthConstraints.count() == columns);
@@ -2537,6 +2541,8 @@ recalc_minmax_widths:
             for (int n = 0; n < cspan; ++n) {
                 const int col = i + n;
                 QFixed w = widthToDistribute / (cspan - n);
+                if (td->maxWidths[col] != QFIXED_MAX)
+                    w = qMax(td->maxWidths[col], w);
                 td->maxWidths[col] = qMax(td->minWidths.at(col), w);
                 widthToDistribute -= td->maxWidths.at(col);
                 if (widthToDistribute <= 0)
@@ -2666,14 +2672,14 @@ recalc_minmax_widths:
     bool haveRowSpannedCells = false;
 
     // need to keep track of cell heights for vertical alignment
-    QVector<QFixed> cellHeights;
+    QList<QFixed> cellHeights;
     cellHeights.reserve(rows * columns);
 
     QFixed pageHeight = QFixed::fromReal(document->pageSize().height());
     if (pageHeight <= 0)
         pageHeight = QFIXED_MAX;
 
-    QVector<QFixed> heightToDistribute;
+    QList<QFixed> heightToDistribute;
     heightToDistribute.resize(columns);
 
     td->headerHeight = 0;
@@ -2909,7 +2915,7 @@ void QTextDocumentLayoutPrivate::positionFloat(QTextFrame *frame, QTextLine *cur
 
     // If the frame is a table, then positioning it will affect the size if it covers more than
     // one page, because of page breaks and repeating the header.
-    if (qobject_cast<QTextTable *>(frame) != 0)
+    if (qobject_cast<QTextTable *>(frame) != nullptr)
         fd->sizeDirty = frameSpansIntoNextPage;
 }
 
@@ -2944,7 +2950,7 @@ QRectF QTextDocumentLayoutPrivate::layoutFrame(QTextFrame *f, int layoutFrom, in
     QTextFrameData *fd = data(f);
     QFixed newContentsWidth;
 
-    bool fullLayout = (f == document->rootFrame() && !fd->fullLayoutCompleted);
+    bool fullLayout = false;
     {
         QTextFrameFormat fformat = f->frameFormat();
         // set sizes of this frame from the format
@@ -3093,7 +3099,7 @@ void QTextDocumentLayoutPrivate::layoutFlow(QTextFrame::Iterator it, QTextLayout
         bool redoCheckPoints = layoutStruct->fullLayout || checkPoints.isEmpty();
 
         if (!redoCheckPoints) {
-            QVector<QCheckPoint>::Iterator checkPoint = std::lower_bound(checkPoints.begin(), checkPoints.end(), layoutFrom);
+            auto checkPoint = std::lower_bound(checkPoints.begin(), checkPoints.end(), layoutFrom);
             if (checkPoint != checkPoints.end()) {
                 if (checkPoint != checkPoints.begin())
                     --checkPoint;
@@ -3398,11 +3404,10 @@ void QTextDocumentLayoutPrivate::layoutFlow(QTextFrame::Iterator it, QTextLayout
             cp.contentsWidth = layoutStruct->contentsWidth;
             checkPoints.append(cp);
             checkPoints.reserve(checkPoints.size());
-            fd->fullLayoutCompleted = true;
         } else {
             currentLazyLayoutPosition = checkPoints.constLast().positionInFrame;
             // #######
-            //checkPoints.last().positionInFrame = q->document()->docHandle()->length();
+            //checkPoints.last().positionInFrame = QTextDocumentPrivate::get(q->document())->length();
         }
     }
 
@@ -3458,7 +3463,7 @@ void QTextDocumentLayoutPrivate::layoutBlock(const QTextBlock &bl, int blockPosi
     QFixed extraMargin;
     if (docPrivate->defaultTextOption.flags() & QTextOption::AddSpaceForLineAndParagraphSeparators) {
         QFontMetricsF fm(bl.charFormat().font());
-        extraMargin = QFixed::fromReal(fm.horizontalAdvance(QChar(QChar(0x21B5))));
+        extraMargin = QFixed::fromReal(fm.horizontalAdvance(u'\x21B5'));
     }
 
     const QFixed indent = this->blockIndent(blockFormat);
@@ -3719,7 +3724,7 @@ void QTextDocumentLayout::draw(QPainter *painter, const PaintContext &context)
     QTextFrame *frame = d->document->rootFrame();
     QTextFrameData *fd = data(frame);
 
-    if(fd->sizeDirty)
+    if (fd->sizeDirty)
         return;
 
     if (context.clip.isValid()) {
@@ -3756,11 +3761,7 @@ static void markFrames(QTextFrame *current, int from, int oldLength, int length)
 
     QTextFrameData *fd = data(current);
     // float got removed in editing operation
-    QTextFrame *null = nullptr; // work-around for (at least) MSVC 2012 emitting
-                                // warning C4100 for its own header <algorithm>
-                                // when passing nullptr directly to std::remove
-    fd->floats.erase(std::remove(fd->floats.begin(), fd->floats.end(), null),
-                     fd->floats.end());
+    fd->floats.removeAll(nullptr);
 
     fd->layoutDirty = true;
     fd->sizeDirty = true;
@@ -3810,7 +3811,6 @@ void QTextDocumentLayout::documentChanged(int from, int oldLength, int length)
         d->contentHasAlignment = false;
         d->currentLazyLayoutPosition = 0;
         d->checkPoints.clear();
-        data(d->docPrivate->rootFrame())->fullLayoutCompleted = false;
         d->layoutStep();
     } else {
         d->ensureLayoutedByPosition(from);
@@ -3850,7 +3850,7 @@ QRectF QTextDocumentLayout::doLayout(int from, int oldLength, int length)
     QRectF updateRect;
 
     QTextFrame *root = d->docPrivate->rootFrame();
-    if(data(root)->sizeDirty)
+    if (data(root)->sizeDirty)
         updateRect = d->layoutFrame(root, from, from + length);
     data(root)->layoutDirty = false;
 
@@ -4149,7 +4149,7 @@ int QTextDocumentLayout::layoutStatus() const
     int pos = d->currentLazyLayoutPosition;
     if (pos == -1)
         return 100;
-    return pos * 100 / d->document->docHandle()->length();
+    return pos * 100 / QTextDocumentPrivate::get(d->document)->length();
 }
 
 void QTextDocumentLayout::timerEvent(QTimerEvent *e)

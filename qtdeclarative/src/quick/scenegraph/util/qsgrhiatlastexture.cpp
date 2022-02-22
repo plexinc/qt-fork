@@ -46,16 +46,10 @@
 #include <QtGui/QWindow>
 
 #include <private/qqmlglobal_p.h>
-#include <private/qquickprofiler_p.h>
 #include <private/qsgdefaultrendercontext_p.h>
 #include <private/qsgtexture_p.h>
-
-#include <qtquick_tracepoints_p.h>
-
-#if 0
 #include <private/qsgcompressedtexture_p.h>
 #include <private/qsgcompressedatlastexture_p.h>
-#endif
 
 QT_BEGIN_NAMESPACE
 
@@ -63,7 +57,7 @@ int qt_sg_envInt(const char *name, int defaultValue);
 
 static QElapsedTimer qsg_renderer_timer;
 
-//DEFINE_BOOL_CONFIG_OPTION(qsgEnableCompressedAtlas, QSG_ENABLE_COMPRESSED_ATLAS)
+DEFINE_BOOL_CONFIG_OPTION(qsgEnableCompressedAtlas, QSG_ENABLE_COMPRESSED_ATLAS)
 
 namespace QSGRhiAtlasTexture
 {
@@ -105,7 +99,6 @@ void Manager::invalidate()
         m_atlas = nullptr;
     }
 
- #if 0
     QHash<unsigned int, QSGCompressedAtlasTexture::Atlas*>::iterator i = m_atlases.begin();
     while (i != m_atlases.end()) {
         i.value()->invalidate();
@@ -113,7 +106,6 @@ void Manager::invalidate()
         ++i;
     }
     m_atlases.clear();
-#endif
 }
 
 QSGTexture *Manager::create(const QImage &image, bool hasAlphaChannel)
@@ -131,38 +123,27 @@ QSGTexture *Manager::create(const QImage &image, bool hasAlphaChannel)
 
 QSGTexture *Manager::create(const QSGCompressedTextureFactory *factory)
 {
-    Q_UNUSED(factory);
-    return nullptr;
-    // ###
-
-#if 0
     QSGTexture *t = nullptr;
-    if (!qsgEnableCompressedAtlas() || !factory->m_textureData.isValid())
+    if (!qsgEnableCompressedAtlas() || !factory->textureData()->isValid())
         return t;
 
-    // TODO: further abstract the atlas and remove this restriction
-    unsigned int format = factory->m_textureData.glInternalFormat();
-    switch (format) {
-    case QOpenGLTexture::RGB8_ETC1:
-    case QOpenGLTexture::RGB8_ETC2:
-    case QOpenGLTexture::RGBA8_ETC2_EAC:
-    case QOpenGLTexture::RGB8_PunchThrough_Alpha1_ETC2:
-        break;
-    default:
+    unsigned int format = factory->textureData()->glInternalFormat();
+    QSGCompressedTexture::FormatInfo fmt = QSGCompressedTexture::formatInfo(format);
+    if (!m_rhi->isTextureFormatSupported(fmt.rhiFormat))
         return t;
-    }
 
-    QSize size = factory->m_textureData.size();
+    QSize size = factory->textureData()->size();
     if (size.width() < m_atlas_size_limit && size.height() < m_atlas_size_limit) {
         QHash<unsigned int, QSGCompressedAtlasTexture::Atlas*>::iterator i = m_atlases.find(format);
-        if (i == m_atlases.end())
-            i = m_atlases.insert(format, new QSGCompressedAtlasTexture::Atlas(m_atlas_size, format));
-        // must be multiple of 4
-        QSize paddedSize(((size.width() + 3) / 4) * 4, ((size.height() + 3) / 4) * 4);
-        QByteArray data = factory->m_textureData.data();
-        t = i.value()->create(data, factory->m_textureData.dataLength(), factory->m_textureData.dataOffset(), size, paddedSize);
+        if (i == m_atlases.cend()) {
+            auto newAtlas = new QSGCompressedAtlasTexture::Atlas(m_rc, m_atlas_size, format);
+            i = m_atlases.insert(format, newAtlas);
+        }
+        const QTextureFileData *cmpData = factory->textureData();
+        t = i.value()->create(cmpData->getDataView(), size);
     }
-#endif
+
+    return t;
 }
 
 AtlasBase::AtlasBase(QSGDefaultRenderContext *rc, const QSize &size)
@@ -184,7 +165,7 @@ void AtlasBase::invalidate()
     m_texture = nullptr;
 }
 
-void AtlasBase::updateRhiTexture(QRhiResourceUpdateBatch *resourceUpdates)
+void AtlasBase::commitTextureOperations(QRhiResourceUpdateBatch *resourceUpdates)
 {
     if (!m_allocated) {
         m_allocated = true;
@@ -194,32 +175,8 @@ void AtlasBase::updateRhiTexture(QRhiResourceUpdateBatch *resourceUpdates)
         }
     }
 
-    for (TextureBase *t : m_pending_uploads) {
-        // ### this profiling is all wrong, the real work is done elsewhere
-        bool profileFrames = QSG_LOG_TIME_TEXTURE().isDebugEnabled();
-        if (profileFrames)
-            qsg_renderer_timer.start();
-
-        Q_TRACE_SCOPE(QSG_texture_prepare);
-        Q_QUICK_SG_PROFILE_START(QQuickProfiler::SceneGraphTexturePrepare);
-
-        // Skip bind, convert, swizzle; they're irrelevant
-        Q_QUICK_SG_PROFILE_SKIP(QQuickProfiler::SceneGraphTexturePrepare,
-                                QQuickProfiler::SceneGraphTexturePrepareStart, 3);
-        Q_TRACE(QSG_texture_upload_entry);
-
+    for (TextureBase *t : m_pending_uploads)
         enqueueTextureUpload(t, resourceUpdates);
-
-        Q_TRACE(QSG_texture_upload_exit);
-        Q_QUICK_SG_PROFILE_RECORD(QQuickProfiler::SceneGraphTexturePrepare,
-                                  QQuickProfiler::SceneGraphTexturePrepareUpload);
-
-        // Skip mipmap; unused
-        Q_QUICK_SG_PROFILE_SKIP(QQuickProfiler::SceneGraphTexturePrepare,
-                                QQuickProfiler::SceneGraphTexturePrepareUpload, 1);
-        Q_QUICK_SG_PROFILE_REPORT(QQuickProfiler::SceneGraphTexturePrepare,
-                                  QQuickProfiler::SceneGraphTexturePrepareMipmap);
-    }
 
     m_pending_uploads.clear();
 }
@@ -267,7 +224,7 @@ bool Atlas::generateTexture()
     if (!m_texture)
         return false;
 
-    if (!m_texture->build()) {
+    if (!m_texture->create()) {
         delete m_texture;
         m_texture = nullptr;
         return false;
@@ -381,7 +338,7 @@ void Atlas::enqueueTextureUpload(TextureBase *t, QRhiResourceUpdateBatch *resour
 }
 
 TextureBase::TextureBase(AtlasBase *atlas, const QRect &textureRect)
-    : QSGTexture(*(new TextureBasePrivate))
+    : QSGTexture(*(new QSGTexturePrivate(this)))
     , m_allocated_rect(textureRect)
     , m_atlas(atlas)
 {
@@ -392,16 +349,8 @@ TextureBase::~TextureBase()
     m_atlas->remove(this);
 }
 
-QRhiResourceUpdateBatch *TextureBase::workResourceUpdateBatch() const
+qint64 TextureBase::comparisonKey() const
 {
-    Q_D(const TextureBase);
-    return d->workResourceUpdateBatch;
-}
-
-int TextureBasePrivate::comparisonKey() const
-{
-    Q_Q(const TextureBase);
-
     // We need special care here: a typical comparisonKey() implementation
     // returns a unique result when there is no underlying texture yet. This is
     // not quite ideal for atlasing however since textures with the same atlas
@@ -410,23 +359,21 @@ int TextureBasePrivate::comparisonKey() const
 
     // base the comparison on the atlas ptr; this way textures for the same
     // atlas are considered equal
-    return int(qintptr(q->m_atlas));
+    return qint64(m_atlas);
 }
 
-QRhiTexture *TextureBasePrivate::rhiTexture() const
+QRhiTexture *TextureBase::rhiTexture() const
 {
-    Q_Q(const TextureBase);
-    return q->m_atlas->m_texture;
+    return m_atlas->m_texture;
 }
 
-void TextureBasePrivate::updateRhiTexture(QRhi *rhi, QRhiResourceUpdateBatch *resourceUpdates)
+void TextureBase::commitTextureOperations(QRhi *rhi, QRhiResourceUpdateBatch *resourceUpdates)
 {
-    Q_Q(TextureBase);
 #ifdef QT_NO_DEBUG
     Q_UNUSED(rhi);
 #endif
-    Q_ASSERT(rhi == q->m_atlas->m_rhi);
-    q->m_atlas->updateRhiTexture(resourceUpdates);
+    Q_ASSERT(rhi == m_atlas->m_rhi);
+    m_atlas->commitTextureOperations(resourceUpdates);
 }
 
 Texture::Texture(Atlas *atlas, const QRect &textureRect, const QImage &image)
@@ -449,7 +396,7 @@ Texture::~Texture()
         delete m_nonatlas_texture;
 }
 
-QSGTexture *Texture::removedFromAtlas() const
+QSGTexture *Texture::removedFromAtlas(QRhiResourceUpdateBatch *resourceUpdates) const
 {
     if (!m_nonatlas_texture) {
         m_nonatlas_texture = new QSGPlainTexture;
@@ -463,9 +410,9 @@ QSGTexture *Texture::removedFromAtlas() const
             const QRect r = atlasSubRectWithoutPadding();
 
             QRhiTexture *extractTex = rhi->newTexture(m_atlas->texture()->format(), r.size());
-            if (extractTex->build()) {
+            if (extractTex->create()) {
                 bool ownResUpd = false;
-                QRhiResourceUpdateBatch *resUpd = workResourceUpdateBatch(); // ### Qt 6: should be an arg to this function
+                QRhiResourceUpdateBatch *resUpd = resourceUpdates;
                 if (!resUpd) {
                     ownResUpd = true;
                     resUpd = rhi->nextResourceUpdateBatch();

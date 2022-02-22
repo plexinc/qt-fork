@@ -38,14 +38,16 @@
 #include <QtDesigner/abstractobjectinspector.h>
 #include <QtDesigner/abstractpropertyeditor.h>
 
-#include <QtWidgets/qaction.h>
-#include <QtWidgets/qactiongroup.h>
 #include <QtWidgets/qmenu.h>
 #include <QtWidgets/qstyle.h>
 #include <QtWidgets/qstyleoption.h>
 #include <QtWidgets/qabstractbutton.h>
 #include <QtWidgets/qbuttongroup.h>
 #include <QtWidgets/qapplication.h>
+
+#include <QtGui/qaction.h>
+#include <QtGui/qactiongroup.h>
+
 #include <QtCore/qdebug.h>
 
 Q_DECLARE_METATYPE(QButtonGroup*)
@@ -388,7 +390,7 @@ QRect ButtonTextTaskMenuInlineEditor::editRectangle() const
 {
     QWidget *w = widget();
     QStyleOptionButton opt;
-    opt.init(w);
+    opt.initFrom(w);
     return w->style()->subElementRect(QStyle::SE_PushButtonContents, &opt, w);
 }
 
@@ -411,7 +413,7 @@ QRect LinkDescriptionTaskMenuInlineEditor::editRectangle() const
 {
     QWidget *w = widget(); // TODO: What is the exact description area?
     QStyleOptionButton opt;
-    opt.init(w);
+    opt.initFrom(w);
     return w->style()->subElementRect(QStyle::SE_PushButtonContents, &opt, w);
 }
 

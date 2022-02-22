@@ -52,12 +52,14 @@
 //
 
 #include <QtGui/private/qtguiglobal_p.h>
-#include "QtCore/qvector.h"
 #include "QtGui/qbrush.h"
 #include "QtGui/qcolor.h"
 #include "QtGui/qfont.h"
 #include "QtGui/qtextdocument.h"
 #include "QtGui/qtextcursor.h"
+
+#include "QtCore/qlist.h"
+
 #include "private/qtextformat_p.h"
 #include "private/qtextdocument_p.h"
 #include "private/qcssparser_p.h"
@@ -167,7 +169,7 @@ struct QTextHtmlParserNode {
     QString text;
     QStringList attributes;
     int parent;
-    QVector<int> children;
+    QList<int> children;
     QTextHTMLElements id;
     QTextCharFormat charFormat;
     QTextBlockFormat blockFormat;
@@ -251,10 +253,11 @@ struct QTextHtmlParserNode {
     void parseStyleAttribute(const QString &value, const QTextDocument *resourceProvider);
 
 #if QT_CONFIG(cssparser)
-    void applyCssDeclarations(const QVector<QCss::Declaration> &declarations, const QTextDocument *resourceProvider);
+    void applyCssDeclarations(const QList<QCss::Declaration> &declarations,
+                              const QTextDocument *resourceProvider);
 
-    void setListStyle(const QVector<QCss::Value> &cssValues);
-#endif
+    void setListStyle(const QList<QCss::Value> &cssValues);
+#    endif
 
     void applyForegroundImage(qint64 cacheKey, const QTextDocument *resourceProvider);
     void applyBackgroundImage(const QString &url, const QTextDocument *resourceProvider);
@@ -266,7 +269,7 @@ struct QTextHtmlParserNode {
 
     friend class QTextHtmlParser;
 };
-Q_DECLARE_TYPEINFO(QTextHtmlParserNode, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QTextHtmlParserNode, Q_RELOCATABLE_TYPE);
 
 
 class QTextHtmlParser
@@ -278,9 +281,13 @@ public:
         MarginBottom,
         MarginLeft
     };
+    ~QTextHtmlParser()
+    {
+        qDeleteAll(nodes);
+    }
 
-    inline const QTextHtmlParserNode &at(int i) const { return nodes.at(i); }
-    inline QTextHtmlParserNode &operator[](int i) { return nodes[i]; }
+    inline const QTextHtmlParserNode &at(int i) const { return *nodes.at(i); }
+    inline QTextHtmlParserNode &operator[](int i) { return *nodes[i]; }
     inline int count() const { return nodes.count(); }
     inline int last() const { return nodes.count()-1; }
     int depth(int i) const;
@@ -303,9 +310,12 @@ public:
     void parse(const QString &text, const QTextDocument *resourceProvider);
 
     static int lookupElement(const QString &element);
+
+    Q_GUI_EXPORT static QString parseEntity(QStringView entity);
+
 protected:
     QTextHtmlParserNode *newNode(int parent);
-    QVector<QTextHtmlParserNode> nodes;
+    QList<QTextHtmlParserNode *> nodes;
     QString txt;
     int pos, len;
 
@@ -323,14 +333,16 @@ protected:
     void applyAttributes(const QStringList &attributes);
     void eatSpace();
     inline bool hasPrefix(QChar c, int lookahead = 0) const
-        {return pos + lookahead < len && txt.at(pos) == c; }
+    {
+        return pos + lookahead < len && txt.at(pos + lookahead) == c;
+    }
     int margin(int i, int mar) const;
 
     bool nodeIsChildOf(int i, QTextHTMLElements id) const;
 
 
 #if QT_CONFIG(cssparser)
-    QVector<QCss::Declaration> declarationsForNode(int node) const;
+    QList<QCss::Declaration> declarationsForNode(int node) const;
     void resolveStyleSheetImports(const QCss::StyleSheet &sheet);
     void importStyleSheet(const QString &href);
 
@@ -343,14 +355,14 @@ protected:
         QCss::StyleSheet sheet;
     };
     friend class QTypeInfo<ExternalStyleSheet>;
-    QVector<ExternalStyleSheet> externalStyleSheets;
-    QVector<QCss::StyleSheet> inlineStyleSheets;
-#endif
+    QList<ExternalStyleSheet> externalStyleSheets;
+    QList<QCss::StyleSheet> inlineStyleSheets;
+#    endif
 
     const QTextDocument *resourceProvider;
 };
 #if QT_CONFIG(cssparser)
-Q_DECLARE_TYPEINFO(QTextHtmlParser::ExternalStyleSheet, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QTextHtmlParser::ExternalStyleSheet, Q_RELOCATABLE_TYPE);
 #endif
 
 QT_END_NAMESPACE

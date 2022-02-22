@@ -35,7 +35,7 @@
 #include "third_party/blink/renderer/core/layout/generated_children.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/core/layout/layout_quote.h"
-#include "third_party/blink/renderer/core/layout/ng/list/list_marker.h"
+#include "third_party/blink/renderer/core/layout/list_marker.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/core/style/content_data.h"
@@ -94,6 +94,17 @@ const AtomicString& PseudoElement::PseudoElementNameForEvents(
     return PseudoElementTagName(pseudo_id).LocalName();
 }
 
+bool PseudoElement::IsWebExposed(PseudoId pseudo_id, const Node* parent) {
+  switch (pseudo_id) {
+    case kPseudoIdMarker:
+      if (parent && parent->IsPseudoElement())
+        return RuntimeEnabledFeatures::CSSMarkerNestedPseudoElementEnabled();
+      return true;
+    default:
+      return true;
+  }
+}
+
 PseudoElement::PseudoElement(Element* parent, PseudoId pseudo_id)
     : Element(PseudoElementTagName(pseudo_id),
               &parent->GetDocument(),
@@ -110,9 +121,10 @@ PseudoElement::PseudoElement(Element* parent, PseudoId pseudo_id)
   }
 }
 
-scoped_refptr<ComputedStyle> PseudoElement::CustomStyleForLayoutObject() {
+scoped_refptr<ComputedStyle> PseudoElement::CustomStyleForLayoutObject(
+    const StyleRecalcContext& style_recalc_context) {
   return ParentOrShadowHostElement()->StyleForPseudoElement(
-      PseudoElementStyleRequest(pseudo_id_));
+      style_recalc_context, PseudoElementStyleRequest(pseudo_id_));
 }
 
 scoped_refptr<ComputedStyle> PseudoElement::LayoutStyleForDisplayContents(
@@ -190,13 +202,8 @@ void PseudoElement::AttachLayoutTree(AttachContext& context) {
   const ComputedStyle& style = layout_object->StyleRef();
   switch (pseudo_id_) {
     case kPseudoIdMarker: {
-      if (ListMarker* marker = ListMarker::Get(layout_object)) {
+      if (ListMarker* marker = ListMarker::Get(layout_object))
         marker->UpdateMarkerContentIfNeeded(*layout_object);
-      } else {
-        DCHECK(layout_object->IsListMarker());
-        // TODO(obrufau): support non-normal content in legacy markers.
-        return;
-      }
       if (style.ContentBehavesAsNormal())
         return;
       break;
@@ -219,7 +226,7 @@ void PseudoElement::AttachLayoutTree(AttachContext& context) {
       if (layout_object->IsChildAllowed(child, style)) {
         layout_object->AddChild(child);
         if (child->IsQuote())
-          ToLayoutQuote(child)->AttachQuote();
+          To<LayoutQuote>(child)->AttachQuote();
       } else {
         child->Destroy();
       }
@@ -269,9 +276,8 @@ bool PseudoElementLayoutObjectIsNeeded(const ComputedStyle* pseudo_style,
         return !pseudo_style->ContentPreventsBoxGeneration();
       const ComputedStyle* parent_style =
           originating_element->GetComputedStyle();
-      return parent_style &&
-             (parent_style->ListStyleType() != EListStyleType::kNone ||
-              parent_style->GeneratesMarkerImage());
+      return parent_style && (parent_style->GetListStyleType() ||
+                              parent_style->GeneratesMarkerImage());
     }
     default:
       NOTREACHED();

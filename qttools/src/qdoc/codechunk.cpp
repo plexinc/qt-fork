@@ -26,14 +26,7 @@
 **
 ****************************************************************************/
 
-/*
-  codechunk.cpp
-*/
-
 #include "codechunk.h"
-
-#include <QtCore/qregexp.h>
-#include <QtCore/qstringlist.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -120,29 +113,17 @@ static int category(QChar ch)
  */
 void CodeChunk::append(const QString &lexeme)
 {
-    if (!s.isEmpty() && !lexeme.isEmpty()) {
+    if (!m_str.isEmpty() && !lexeme.isEmpty()) {
         /*
           Should there be a space or not between the code chunk so far and the
           new lexeme?
         */
-        int cat1 = category(s.at(s.size() - 1));
+        int cat1 = category(m_str.at(m_str.size() - 1));
         int cat2 = category(lexeme[0]);
         if (needSpace[cat1][cat2])
-            s += QLatin1Char(' ');
+            m_str += QLatin1Char(' ');
     }
-    s += lexeme;
-}
-
-/*!
-  Converts the string with a regular expression that I think
-  removes the angle brackets parts and then splits it on "::".
-  The result is returned as a string list.
- */
-QStringList CodeChunk::toPath() const
-{
-    QString t = s;
-    t.remove(QRegExp(QLatin1String("<([^<>]|<([^<>]|<[^<>]*>)*>)*>")));
-    return t.split(QLatin1String("::"));
+    m_str += lexeme;
 }
 
 QT_END_NAMESPACE

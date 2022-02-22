@@ -34,14 +34,15 @@
 #include "cc/trees/transform_node.h"
 #include "components/viz/client/client_resource_provider.h"
 #include "components/viz/common/frame_sinks/copy_output_request.h"
+#include "components/viz/common/quads/compositor_render_pass.h"
 #include "components/viz/common/quads/debug_border_draw_quad.h"
-#include "components/viz/common/quads/render_pass.h"
 #include "components/viz/common/traced_value.h"
 #include "ui/gfx/geometry/point_conversions.h"
 #include "ui/gfx/geometry/quad_f.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/geometry/size_conversions.h"
 #include "ui/gfx/geometry/vector2d_conversions.h"
+#include "ui/gfx/transform_util.h"
 
 namespace cc {
 LayerImpl::LayerImpl(LayerTreeImpl* tree_impl,
@@ -55,6 +56,7 @@ LayerImpl::LayerImpl(LayerTreeImpl* tree_impl,
       layer_property_changed_from_property_trees_(false),
       may_contain_video_(false),
       contents_opaque_(false),
+      contents_opaque_for_text_(false),
       should_check_backface_visibility_(false),
       draws_content_(false),
       contributes_to_drawn_render_surface_(false),
@@ -67,9 +69,7 @@ LayerImpl::LayerImpl(LayerTreeImpl* tree_impl,
       clip_tree_index_(ClipTree::kInvalidNodeId),
       scroll_tree_index_(ScrollTree::kInvalidNodeId),
       current_draw_mode_(DRAW_MODE_NONE),
-      has_will_change_transform_hint_(false),
       needs_push_properties_(false),
-      is_scrollbar_(false),
       scrollbars_hidden_(false),
       needs_show_scrollbars_(false),
       raster_even_if_not_drawn_(false),
@@ -88,10 +88,6 @@ LayerImpl::~LayerImpl() {
   layer_tree_impl_->RemoveFromElementLayerList(element_id_);
   TRACE_EVENT_OBJECT_DELETED_WITH_ID(
       TRACE_DISABLED_BY_DEFAULT("cc.debug"), "cc::LayerImpl", this);
-}
-
-void LayerImpl::SetHasWillChangeTransformHint(bool has_will_change) {
-  has_will_change_transform_hint_ = has_will_change;
 }
 
 ElementListType LayerImpl::GetElementTypeForAnimation() const {
@@ -147,9 +143,9 @@ void LayerImpl::PopulateSharedQuadState(viz::SharedQuadState* state,
   EffectNode* effect_node = GetEffectTree().Node(effect_tree_index_);
   state->SetAll(draw_properties_.target_space_transform, gfx::Rect(bounds()),
                 draw_properties_.visible_layer_rect,
-                draw_properties_.rounded_corner_bounds,
-                draw_properties_.clip_rect, draw_properties_.is_clipped,
-                contents_opaque, draw_properties_.opacity,
+                draw_properties_.mask_filter_info, draw_properties_.clip_rect,
+                draw_properties_.is_clipped, contents_opaque,
+                draw_properties_.opacity,
                 effect_node->HasRenderSurface() ? SkBlendMode::kSrcOver
                                                 : effect_node->blend_mode,
                 GetSortingContextId());
@@ -183,9 +179,9 @@ void LayerImpl::PopulateScaledSharedQuadStateWithContentRects(
 
   EffectNode* effect_node = GetEffectTree().Node(effect_tree_index_);
   state->SetAll(scaled_draw_transform, content_rect, visible_content_rect,
-                draw_properties().rounded_corner_bounds,
-                draw_properties().clip_rect, draw_properties().is_clipped,
-                contents_opaque, draw_properties().opacity,
+                draw_properties().mask_filter_info, draw_properties().clip_rect,
+                draw_properties().is_clipped, contents_opaque,
+                draw_properties().opacity,
                 effect_node->HasRenderSurface() ? SkBlendMode::kSrcOver
                                                 : effect_node->blend_mode,
                 GetSortingContextId());
@@ -237,7 +233,7 @@ void LayerImpl::GetDebugBorderProperties(SkColor* color, float* width) const {
 }
 
 void LayerImpl::AppendDebugBorderQuad(
-    viz::RenderPass* render_pass,
+    viz::CompositorRenderPass* render_pass,
     const gfx::Rect& quad_rect,
     const viz::SharedQuadState* shared_quad_state,
     AppendQuadsData* append_quads_data) const {
@@ -249,7 +245,7 @@ void LayerImpl::AppendDebugBorderQuad(
 }
 
 void LayerImpl::AppendDebugBorderQuad(
-    viz::RenderPass* render_pass,
+    viz::CompositorRenderPass* render_pass,
     const gfx::Rect& quad_rect,
     const viz::SharedQuadState* shared_quad_state,
     AppendQuadsData* append_quads_data,
@@ -293,7 +289,7 @@ void LayerImpl::GetContentsResourceId(viz::ResourceId* resource_id,
                                       gfx::Size* resource_size,
                                       gfx::SizeF* resource_uv_size) const {
   NOTREACHED();
-  *resource_id = 0;
+  *resource_id = viz::kInvalidResourceId;
 }
 
 gfx::Vector2dF LayerImpl::ScrollBy(const gfx::Vector2dF& scroll) {
@@ -370,11 +366,11 @@ void LayerImpl::PushPropertiesTo(LayerImpl* layer) {
   // depend on it. Referencing element id on a layer is
   // deprecated. http://crbug.com/709137
   layer->SetElementId(element_id_);
-  layer->SetFrameElementId(frame_element_id_);
 
   layer->has_transform_node_ = has_transform_node_;
   layer->offset_to_transform_parent_ = offset_to_transform_parent_;
   layer->contents_opaque_ = contents_opaque_;
+  layer->contents_opaque_for_text_ = contents_opaque_for_text_;
   layer->may_contain_video_ = may_contain_video_;
   layer->should_check_backface_visibility_ = should_check_backface_visibility_;
   layer->draws_content_ = draws_content_;
@@ -392,7 +388,6 @@ void LayerImpl::PushPropertiesTo(LayerImpl* layer) {
   layer->effect_tree_index_ = effect_tree_index_;
   layer->clip_tree_index_ = clip_tree_index_;
   layer->scroll_tree_index_ = scroll_tree_index_;
-  layer->has_will_change_transform_hint_ = has_will_change_transform_hint_;
   layer->scrollbars_hidden_ = scrollbars_hidden_;
   if (needs_show_scrollbars_)
     layer->needs_show_scrollbars_ = needs_show_scrollbars_;
@@ -407,8 +402,6 @@ void LayerImpl::PushPropertiesTo(LayerImpl* layer) {
 
   layer->SetBounds(bounds_);
   layer->UpdateScrollable();
-
-  layer->set_is_scrollbar(is_scrollbar_);
 
   layer->UnionUpdateRect(update_rect_);
 
@@ -512,8 +505,13 @@ void LayerImpl::SetBounds(const gfx::Size& bounds) {
   NoteLayerPropertyChanged();
 }
 
-ScrollbarLayerImplBase* LayerImpl::ToScrollbarLayer() {
-  return nullptr;
+bool LayerImpl::IsScrollbarLayer() const {
+  return false;
+}
+
+bool LayerImpl::IsScrollerOrScrollbar() const {
+  return IsScrollbarLayer() ||
+         GetScrollTree().FindNodeFromElementId(element_id());
 }
 
 void LayerImpl::SetDrawsContent(bool draws_content) {
@@ -558,22 +556,14 @@ void LayerImpl::SetSafeOpaqueBackgroundColor(SkColor background_color) {
   safe_opaque_background_color_ = background_color;
 }
 
-SkColor LayerImpl::SafeOpaqueBackgroundColor() const {
-  if (contents_opaque()) {
-    // TODO(936906): We should uncomment this DCHECK, since the
-    // |safe_opaque_background_color_| could be transparent if it is never set
-    // (the default is 0). But to do that, one test needs to be fixed.
-    // DCHECK_EQ(SkColorGetA(safe_opaque_background_color_), SK_AlphaOPAQUE);
-    return safe_opaque_background_color_;
-  }
-  SkColor color = background_color();
-  if (SkColorGetA(color) == 255)
-    color = SK_ColorTRANSPARENT;
-  return color;
-}
-
 void LayerImpl::SetContentsOpaque(bool opaque) {
   contents_opaque_ = opaque;
+  contents_opaque_for_text_ = opaque;
+}
+
+void LayerImpl::SetContentsOpaqueForText(bool opaque) {
+  DCHECK(!contents_opaque_ || opaque);
+  contents_opaque_for_text_ = opaque;
 }
 
 float LayerImpl::Opacity() const {
@@ -704,11 +694,7 @@ void LayerImpl::AsValueInto(base::trace_event::TracedValue* state) const {
   }
 
   state->SetBoolean("hit_testable", HitTestable());
-  state->SetBoolean("can_use_lcd_text", CanUseLCDText());
   state->SetBoolean("contents_opaque", contents_opaque());
-
-  state->SetBoolean("has_will_change_transform_hint",
-                    has_will_change_transform_hint());
 
   if (debug_info_) {
     state->SetString("layer_name", debug_info_->name);
@@ -774,32 +760,6 @@ gfx::Transform LayerImpl::ScreenSpaceTransform() const {
   return draw_properties().screen_space_transform;
 }
 
-bool LayerImpl::CanUseLCDText() const {
-  if (layer_tree_impl()->settings().layers_always_allowed_lcd_text)
-    return true;
-  if (!layer_tree_impl()->settings().can_use_lcd_text)
-    return false;
-  if (!contents_opaque())
-    return false;
-
-  if (GetEffectTree().Node(effect_tree_index())->screen_space_opacity != 1.f)
-    return false;
-  if (!GetTransformTree()
-           .Node(transform_tree_index())
-           ->node_and_ancestors_have_only_integer_translation)
-    return false;
-  if (static_cast<int>(offset_to_transform_parent().x()) !=
-      offset_to_transform_parent().x())
-    return false;
-  if (static_cast<int>(offset_to_transform_parent().y()) !=
-      offset_to_transform_parent().y())
-    return false;
-
-  if (has_will_change_transform_hint())
-    return false;
-  return true;
-}
-
 int LayerImpl::GetSortingContextId() const {
   return GetTransformTree().Node(transform_tree_index())->sorting_context_id;
 }
@@ -839,7 +799,7 @@ float LayerImpl::GetIdealContentsScale() const {
 
   const auto& transform = ScreenSpaceTransform();
   if (transform.HasPerspective()) {
-    float scale = MathUtil::ComputeApproximateMaxScale(transform);
+    float scale = gfx::ComputeApproximateMaxScale(transform);
 
     const int kMaxTilesToCoverLayerDimension = 5;
     // Cap the scale in a way that it should be covered by at most
@@ -869,7 +829,7 @@ float LayerImpl::GetIdealContentsScale() const {
   }
 
   gfx::Vector2dF transform_scales =
-      MathUtil::ComputeTransform2dScaleComponents(transform, default_scale);
+      gfx::ComputeTransform2dScaleComponents(transform, default_scale);
 
   return GetPreferredRasterScale(transform_scales);
 }

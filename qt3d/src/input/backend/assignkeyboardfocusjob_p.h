@@ -51,6 +51,7 @@
 // We mean it.
 //
 
+#include <Qt3DInput/qkeyboarddevice.h>
 #include <Qt3DCore/qaspectjob.h>
 #include <Qt3DCore/qnodeid.h>
 

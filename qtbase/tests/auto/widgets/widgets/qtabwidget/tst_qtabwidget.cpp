@@ -27,7 +27,8 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QSignalSpy>
 #include <qtabwidget.h>
 #include <qtabbar.h>
 #include <qdebug.h>
@@ -35,7 +36,7 @@
 #include <qlabel.h>
 #include <QtWidgets/qboxlayout.h>
 
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
 #  include <qt_windows.h>
 #define Q_CHECK_PAINTEVENTS \
     if (::SwitchDesktop(::GetThreadDesktop(::GetCurrentThreadId())) == 0) \
@@ -60,10 +61,12 @@ class QTabWidgetChild:public QTabWidget {
     };
 
   protected:
-    virtual void tabInserted(int /*index */ ) {
+    virtual void tabInserted(int /*index */ ) override
+    {
         tabCount++;
     };
-    virtual void tabRemoved(int /*index */ ) {
+    virtual void tabRemoved(int /*index */ ) override
+    {
         tabCount--;
     };
     int tabCount;
@@ -553,7 +556,8 @@ public:
     PaintCounter() :count(0) { setAttribute(Qt::WA_OpaquePaintEvent); }
     int count;
 protected:
-    void paintEvent(QPaintEvent*) {
+    void paintEvent(QPaintEvent*) override
+    {
         ++count;
     }
 };

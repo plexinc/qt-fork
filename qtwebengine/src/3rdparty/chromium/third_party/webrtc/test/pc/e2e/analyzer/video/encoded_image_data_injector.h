@@ -47,6 +47,15 @@ class EncodedImageDataExtractor {
  public:
   virtual ~EncodedImageDataExtractor() = default;
 
+  // Invoked by framework before any image will come to the extractor.
+  // |expected_receivers_count| is the expected amount of receivers for each
+  // encoded image.
+  virtual void Start(int expected_receivers_count) = 0;
+
+  // Invoked by framework when it is required to add one more receiver for
+  // frames. Will be invoked before that receiver will start receive data.
+  virtual void AddParticipantInCall() = 0;
+
   // Returns encoded image id, extracted from payload and also encoded image
   // with its original payload. For concatenated spatial layers it should be the
   // same id. |coding_entity_id| is unique id of decoder or encoder.

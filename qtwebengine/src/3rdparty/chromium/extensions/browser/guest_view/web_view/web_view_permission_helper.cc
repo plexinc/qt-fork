@@ -164,21 +164,18 @@ WebViewPermissionHelper::~WebViewPermissionHelper() {
 WebViewPermissionHelper* WebViewPermissionHelper::FromFrameID(
     int render_process_id,
     int render_frame_id) {
-  WebViewGuest* web_view_guest = WebViewGuest::FromFrameID(
-      render_process_id, render_frame_id);
-  if (!web_view_guest) {
-    return NULL;
-  }
-  return web_view_guest->web_view_permission_helper_.get();
+  WebViewGuest* web_view_guest =
+      WebViewGuest::FromFrameID(render_process_id, render_frame_id);
+  return web_view_guest ? web_view_guest->web_view_permission_helper()
+                        : nullptr;
 }
 
 // static
 WebViewPermissionHelper* WebViewPermissionHelper::FromWebContents(
-      content::WebContents* web_contents) {
+    content::WebContents* web_contents) {
   WebViewGuest* web_view_guest = WebViewGuest::FromWebContents(web_contents);
-  if (!web_view_guest)
-      return NULL;
-  return web_view_guest->web_view_permission_helper_.get();
+  return web_view_guest ? web_view_guest->web_view_permission_helper()
+                        : nullptr;
 }
 
 #if BUILDFLAG(ENABLE_PLUGINS)
@@ -214,7 +211,9 @@ bool WebViewPermissionHelper::CheckMediaAccessPermission(
   return web_view_guest()
       ->embedder_web_contents()
       ->GetDelegate()
-      ->CheckMediaAccessPermission(render_frame_host, security_origin, type);
+      ->CheckMediaAccessPermission(
+          web_view_guest()->web_contents()->GetOuterWebContentsFrame(),
+          security_origin, type);
 }
 
 void WebViewPermissionHelper::OnMediaPermissionResponse(

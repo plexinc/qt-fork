@@ -68,28 +68,65 @@ struct QSGSamplerDescription
     static QSGSamplerDescription fromTexture(QSGTexture *t);
 };
 
-Q_DECLARE_TYPEINFO(QSGSamplerDescription, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QSGSamplerDescription, Q_RELOCATABLE_TYPE);
 
-bool operator==(const QSGSamplerDescription &a, const QSGSamplerDescription &b) Q_DECL_NOTHROW;
-bool operator!=(const QSGSamplerDescription &a, const QSGSamplerDescription &b) Q_DECL_NOTHROW;
-uint qHash(const QSGSamplerDescription &s, uint seed = 0) Q_DECL_NOTHROW;
+bool operator==(const QSGSamplerDescription &a, const QSGSamplerDescription &b) noexcept;
+bool operator!=(const QSGSamplerDescription &a, const QSGSamplerDescription &b) noexcept;
+size_t qHash(const QSGSamplerDescription &s, size_t seed = 0) noexcept;
+
+#if QT_CONFIG(opengl)
+class Q_QUICK_PRIVATE_EXPORT QSGTexturePlatformOpenGL : public QNativeInterface::QSGOpenGLTexture
+{
+public:
+    QSGTexturePlatformOpenGL(QSGTexture *t) : m_texture(t) { }
+    QSGTexture *m_texture;
+
+    GLuint nativeTexture() const override;
+};
+#endif
+
+#ifdef Q_OS_WIN
+class Q_QUICK_PRIVATE_EXPORT QSGTexturePlatformD3D11 : public QNativeInterface::QSGD3D11Texture
+{
+public:
+    QSGTexturePlatformD3D11(QSGTexture *t) : m_texture(t) { }
+    QSGTexture *m_texture;
+
+    void *nativeTexture() const override;
+};
+#endif
+
+#if defined(__OBJC__)
+class Q_QUICK_PRIVATE_EXPORT QSGTexturePlatformMetal : public QNativeInterface::QSGMetalTexture
+{
+public:
+    QSGTexturePlatformMetal(QSGTexture *t) : m_texture(t) { }
+    QSGTexture *m_texture;
+
+    id<MTLTexture> nativeTexture() const override;
+};
+#endif
+
+#if QT_CONFIG(vulkan)
+class Q_QUICK_PRIVATE_EXPORT QSGTexturePlatformVulkan : public QNativeInterface::QSGVulkanTexture
+{
+public:
+    QSGTexturePlatformVulkan(QSGTexture *t) : m_texture(t) { }
+    QSGTexture *m_texture;
+
+    VkImage nativeImage() const override;
+    VkImageLayout nativeImageLayout() const override;
+};
+#endif
 
 class Q_QUICK_PRIVATE_EXPORT QSGTexturePrivate : public QObjectPrivate
 {
     Q_DECLARE_PUBLIC(QSGTexture)
 public:
-    QSGTexturePrivate();
+    QSGTexturePrivate(QSGTexture *t);
     static QSGTexturePrivate *get(QSGTexture *t) { return t->d_func(); }
     void resetDirtySamplerOptions();
     bool hasDirtySamplerOptions() const;
-
-    virtual QRhiTexture *rhiTexture() const;
-
-    // ### Qt 6: these should be virtuals in the public class instead
-    virtual int comparisonKey() const; // ### Qt 6: pure virtual
-    virtual void updateRhiTexture(QRhi *rhi, QRhiResourceUpdateBatch *resourceUpdates);
-
-    QRhiResourceUpdateBatch *workResourceUpdateBatch = nullptr; // ### Qt 6: remove
 
     uint wrapChanged : 1;
     uint filteringChanged : 1;
@@ -100,6 +137,22 @@ public:
     uint mipmapMode : 2;
     uint filterMode : 2;
     uint anisotropyLevel: 3;
+
+    // While we could make QSGTexturePrivate implement all the interfaces, we
+    // rather choose to use separate objects to avoid clashes in the function
+    // names and signatures.
+#if QT_CONFIG(opengl)
+    QSGTexturePlatformOpenGL m_openglTextureAccessor;
+#endif
+#ifdef Q_OS_WIN
+    QSGTexturePlatformD3D11 m_d3d11TextureAccessor;
+#endif
+#if defined(__OBJC__)
+    QSGTexturePlatformMetal m_metalTextureAccessor;
+#endif
+#if QT_CONFIG(vulkan)
+    QSGTexturePlatformVulkan m_vulkanTextureAccessor;
+#endif
 };
 
 Q_QUICK_PRIVATE_EXPORT bool qsg_safeguard_texture(QSGTexture *);

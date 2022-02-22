@@ -42,10 +42,10 @@
 
 #include <QtWebEngineCore/qtwebenginecoreglobal.h>
 
-#include <QtCore/QObject>
-#include <QtCore/QScopedPointer>
-#include <QtCore/QSharedPointer>
-#include <QtCore/QUrl>
+#include <QtCore/qobject.h>
+#include <QtCore/qscopedpointer.h>
+#include <QtCore/qsharedpointer.h>
+#include <QtCore/qurl.h>
 
 namespace QtWebEngineCore {
 class UserNotificationController;
@@ -55,7 +55,8 @@ QT_BEGIN_NAMESPACE
 
 class QWebEngineNotificationPrivate;
 
-class Q_WEBENGINECORE_EXPORT QWebEngineNotification : public QObject {
+class Q_WEBENGINECORE_EXPORT QWebEngineNotification : public QObject
+{
     Q_OBJECT
     Q_PROPERTY(QUrl origin READ origin CONSTANT FINAL)
     Q_PROPERTY(QString title READ title CONSTANT FINAL)

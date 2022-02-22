@@ -26,7 +26,7 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include <QCoreApplication>
 #include <QReadLocker>
@@ -73,7 +73,7 @@ void tst_QReadLocker::scopeTest()
     class ScopeTestThread : public tst_QReadLockerThread
     {
     public:
-        void run()
+        void run() override
         {
             waitForTest();
 
@@ -109,7 +109,7 @@ void tst_QReadLocker::scopeTest()
     QVERIFY(thread->wait());
 
     delete thread;
-    thread = 0;
+    thread = nullptr;
 }
 
 
@@ -118,7 +118,7 @@ void tst_QReadLocker::unlockAndRelockTest()
     class UnlockAndRelockThread : public tst_QReadLockerThread
     {
     public:
-        void run()
+        void run() override
         {
             QReadLocker locker(&lock);
 
@@ -156,7 +156,7 @@ void tst_QReadLocker::unlockAndRelockTest()
     QVERIFY(thread->wait());
 
     delete thread;
-    thread = 0;
+    thread = nullptr;
 }
 
 void tst_QReadLocker::lockerStateTest()
@@ -164,7 +164,7 @@ void tst_QReadLocker::lockerStateTest()
     class LockerStateThread : public tst_QReadLockerThread
     {
     public:
-        void run()
+        void run() override
         {
             {
                 QReadLocker locker(&lock);
@@ -196,7 +196,7 @@ void tst_QReadLocker::lockerStateTest()
     QVERIFY(thread->wait());
 
     delete thread;
-    thread = 0;
+    thread = nullptr;
 }
 
 QTEST_MAIN(tst_QReadLocker)

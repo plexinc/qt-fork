@@ -58,15 +58,13 @@ public:
     QQmlApplicationEngine(const QString &filePath, QObject *parent = nullptr);
     ~QQmlApplicationEngine() override;
 
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-    QList<QObject*> rootObjects(); // ### Qt 6: remove
-#endif
     QList<QObject*> rootObjects() const;
 
 public Q_SLOTS:
     void load(const QUrl &url);
     void load(const QString &filePath);
     void setInitialProperties(const QVariantMap &initialProperties);
+    void setExtraFileSelectors(const QStringList &extraFileSelectors);
     void loadData(const QByteArray &data, const QUrl &url = QUrl());
 
 Q_SIGNALS:

@@ -52,20 +52,18 @@ class QQuick3DSceneManager;
 class Q_QUICK3D_EXPORT QQuick3DMaterial : public QQuick3DObject
 {
     Q_OBJECT
-    Q_PROPERTY(QQuick3DTexture *lightmapIndirect READ lightmapIndirect WRITE setLightmapIndirect NOTIFY lightmapIndirectChanged)
-    Q_PROPERTY(QQuick3DTexture *lightmapRadiosity READ lightmapRadiosity WRITE setLightmapRadiosity NOTIFY lightmapRadiosityChanged)
-    Q_PROPERTY(QQuick3DTexture *lightmapShadow READ lightmapShadow WRITE setLightmapShadow NOTIFY lightmapShadowChanged)
     Q_PROPERTY(QQuick3DTexture *lightProbe READ lightProbe WRITE setLightProbe NOTIFY lightProbeChanged)
-
-    Q_PROPERTY(QQuick3DTexture *displacementMap READ displacementMap WRITE setDisplacementMap NOTIFY displacementMapChanged)
-    Q_PROPERTY(float displacementAmount READ displacementAmount WRITE setDisplacementAmount NOTIFY displacementAmountChanged)
     Q_PROPERTY(CullMode cullMode READ cullMode WRITE setCullMode NOTIFY cullModeChanged)
+    Q_PROPERTY(DepthDrawMode depthDrawMode READ depthDrawMode WRITE setDepthDrawMode NOTIFY depthDrawModeChanged)
+
+    QML_NAMED_ELEMENT(Material)
+    QML_UNCREATABLE("Material is Abstract")
 
 public:
     enum CullMode {
         BackFaceCulling = 1,
         FrontFaceCulling = 2,
-        NoCulling = 3,
+        NoCulling = 3
     };
     Q_ENUM(CullMode)
 
@@ -77,56 +75,45 @@ public:
     };
     Q_ENUM(TextureChannelMapping)
 
+    enum DepthDrawMode {
+        OpaqueOnlyDepthDraw = 0,
+        AlwaysDepthDraw,
+        NeverDepthDraw,
+        OpaquePrePassDepthDraw,
+    };
+    Q_ENUM(DepthDrawMode)
+
     ~QQuick3DMaterial() override;
 
-    QQuick3DTexture *lightmapIndirect() const;
-    QQuick3DTexture *lightmapRadiosity() const;
-    QQuick3DTexture *lightmapShadow() const;
     QQuick3DTexture *lightProbe() const;
 
-    QQuick3DTexture *displacementMap() const;
-    float displacementAmount() const;
     CullMode cullMode() const;
 
-public Q_SLOTS:
-    void setLightmapIndirect(QQuick3DTexture *lightmapIndirect);
-    void setLightmapRadiosity(QQuick3DTexture *lightmapRadiosity);
-    void setLightmapShadow(QQuick3DTexture *lightmapShadow);
-    void setLightProbe(QQuick3DTexture *lightProbe);
+    DepthDrawMode depthDrawMode() const;
 
-    void setDisplacementMap(QQuick3DTexture *displacementMap);
-    void setDisplacementAmount(float displacementAmount);
-    void setCullMode(CullMode cullMode);
+public Q_SLOTS:
+    void setLightProbe(QQuick3DTexture *lightProbe);
+    void setCullMode(QQuick3DMaterial::CullMode cullMode);
+    void setDepthDrawMode(QQuick3DMaterial::DepthDrawMode depthDrawMode);
 
 Q_SIGNALS:
-    void lightmapIndirectChanged(QQuick3DTexture *lightmapIndirect);
-    void lightmapRadiosityChanged(QQuick3DTexture *lightmapRadiosity);
-    void lightmapShadowChanged(QQuick3DTexture *lightmapShadow);
     void lightProbeChanged(QQuick3DTexture *lightProbe);
-
-    void displacementMapChanged(QQuick3DTexture *displacementMap);
-    void displacementAmountChanged(float displacementAmount);
-    void cullModeChanged(CullMode cullMode);
+    void cullModeChanged(QQuick3DMaterial::CullMode cullMode);
+    void depthDrawModeChanged(QQuick3DMaterial::DepthDrawMode depthDrawMode);
 
 protected:
     explicit QQuick3DMaterial(QQuick3DObjectPrivate &dd, QQuick3DObject *parent = nullptr);
     QSSGRenderGraphObject *updateSpatialNode(QSSGRenderGraphObject *node) override;
     void itemChange(ItemChange, const ItemChangeData &) override;
-public:
-    void setDynamicTextureMap(QQuick3DTexture *textureMap, const QByteArray &name);
-private:
-    void updateSceneManager(const QSharedPointer<QQuick3DSceneManager> &sceneManager);
-    QQuick3DTexture *m_lightmapIndirect = nullptr;
-    QQuick3DTexture *m_lightmapRadiosity = nullptr;
-    QQuick3DTexture *m_lightmapShadow = nullptr;
-    QQuick3DTexture *m_iblProbe = nullptr;
-
-    QQuick3DTexture *m_displacementMap = nullptr;
-    float m_displacementAmount = 0.0f;
-    CullMode m_cullMode = CullMode::BackFaceCulling;
 
     QHash<QByteArray, QMetaObject::Connection> m_connections;
-    QVector<QQuick3DTexture *> m_dynamicTextureMaps;
+
+private:
+    void updateSceneManager(QQuick3DSceneManager *sceneManager);
+    QQuick3DTexture *m_iblProbe = nullptr;
+
+    CullMode m_cullMode = CullMode::BackFaceCulling;
+    DepthDrawMode m_depthDrawMode = DepthDrawMode::OpaqueOnlyDepthDraw;
 };
 
 QT_END_NAMESPACE

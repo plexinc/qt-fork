@@ -79,18 +79,22 @@ public:
         SerialStopBitsParameter,
 
         NetworkPortParameter,
-        NetworkAddressParameter,
-
-        // Reserved
-        UserParameter = 0x100 // ### Qt6: remove
+        NetworkAddressParameter
     };
     Q_ENUM(ConnectionParameter)
+
+    enum IntermediateError
+    {
+        ResponseCrcError,
+        ResponseRequestMismatch
+    };
+    Q_ENUM(IntermediateError)
 
     explicit QModbusDevice(QObject *parent = nullptr);
     ~QModbusDevice();
 
-    QVariant connectionParameter(int parameter) const;
-    void setConnectionParameter(int parameter, const QVariant &value);
+    QVariant connectionParameter(ConnectionParameter parameter) const;
+    void setConnectionParameter(ConnectionParameter parameter, const QVariant &value);
 
     bool connectDevice();
     void disconnectDevice();
@@ -118,6 +122,7 @@ protected:
 Q_DECLARE_TYPEINFO(QModbusDevice::Error, Q_PRIMITIVE_TYPE);
 Q_DECLARE_TYPEINFO(QModbusDevice::State, Q_PRIMITIVE_TYPE);
 Q_DECLARE_TYPEINFO(QModbusDevice::ConnectionParameter, Q_PRIMITIVE_TYPE);
+Q_DECLARE_TYPEINFO(QModbusDevice::IntermediateError, Q_PRIMITIVE_TYPE);
 
 QT_END_NAMESPACE
 

@@ -25,7 +25,8 @@ protected:
     void drawPoints(SkCanvas::PointMode mode, size_t count,
                     const SkPoint[], const SkPaint& paint) override;
     void drawImageRect(const SkImage* image, const SkRect* src, const SkRect& dst,
-                       const SkPaint& paint, SkCanvas::SrcRectConstraint constraint) override;
+                       const SkSamplingOptions&, const SkPaint& paint,
+                       SkCanvas::SrcRectConstraint constraint) override;
     void drawRect(const SkRect& r, const SkPaint& paint) override;
     void drawOval(const SkRect& oval, const SkPaint& paint) override;
     void drawRRect(const SkRRect& rr, const SkPaint& paint) override;
@@ -35,9 +36,6 @@ protected:
 
     void drawGlyphRunList(const SkGlyphRunList& glyphRunList) override;
     void drawVertices(const SkVertices*, SkBlendMode, const SkPaint&) override;
-
-    void drawDevice(SkBaseDevice*, int x, int y,
-                    const SkPaint&) override;
 
 private:
     SkSVGDevice(const SkISize& size, std::unique_ptr<SkXMLWriter>, uint32_t);
@@ -63,7 +61,7 @@ private:
     std::unique_ptr<AutoElement>    fRootElement;
     SkTArray<ClipRec>               fClipStack;
 
-    typedef SkClipStackDevice INHERITED;
+    using INHERITED = SkClipStackDevice;
 };
 
 #endif // SkSVGDevice_DEFINED

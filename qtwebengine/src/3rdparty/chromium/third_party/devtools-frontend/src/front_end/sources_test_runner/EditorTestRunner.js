@@ -4,8 +4,8 @@
 
 /**
  * @fileoverview using private properties isn't a Closure violation in tests.
- * @suppress {accessControls}
  */
+self.SourcesTestRunner = self.SourcesTestRunner || {};
 
 SourcesTestRunner.createTestEditor = function(clientHeight, textEditorDelegate) {
   const textEditor =

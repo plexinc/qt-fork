@@ -12,33 +12,106 @@ import collections
 
 from os import path
 _CURRENT_DIR = path.join(path.dirname(__file__))
-TSC_LOCATION = path.join(_CURRENT_DIR, '..', '..', 'node_modules', 'typescript', 'bin', 'tsc')
+ROOT_DIRECTORY_OF_REPOSITORY = path.join(_CURRENT_DIR, '..', '..')
+TSC_LOCATION = path.join(ROOT_DIRECTORY_OF_REPOSITORY, 'node_modules',
+                         'typescript', 'bin', 'tsc')
 
 try:
     old_sys_path = sys.path[:]
-    sys.path.append(path.join(_CURRENT_DIR, '..', '..', 'scripts'))
+    sys.path.append(path.join(ROOT_DIRECTORY_OF_REPOSITORY, 'scripts'))
     import devtools_paths
 finally:
     sys.path = old_sys_path
 NODE_LOCATION = devtools_paths.node_path()
 
-ROOT_DIRECTORY_OF_REPOSITORY = path.join(_CURRENT_DIR, '..', '..')
 BASE_TS_CONFIG_LOCATION = path.join(ROOT_DIRECTORY_OF_REPOSITORY, 'tsconfig.base.json')
 TYPES_NODE_MODULES_DIRECTORY = path.join(ROOT_DIRECTORY_OF_REPOSITORY, 'node_modules', '@types')
 RESOURCES_INSPECTOR_PATH = path.join(os.getcwd(), 'resources', 'inspector')
 
 GLOBAL_TYPESCRIPT_DEFINITION_FILES = [
     # legacy definitions used to help us bridge Closure and TypeScript
-    path.join(ROOT_DIRECTORY_OF_REPOSITORY, 'front_end', 'legacy', 'legacy-defs.d.ts'),
+    path.join(ROOT_DIRECTORY_OF_REPOSITORY, 'front_end', 'legacy',
+              'legacy-defs.d.ts'),
+    # global definitions that we need
+    # e.g. TypeScript doesn't provide ResizeObserver definitions so we host them ourselves
+    path.join(ROOT_DIRECTORY_OF_REPOSITORY, 'front_end', 'global_typings',
+              'global_defs.d.ts'),
+    path.join(ROOT_DIRECTORY_OF_REPOSITORY, 'front_end', 'global_typings',
+              'request_idle_callback.d.ts'),
     # generated protocol definitions
-    path.join(ROOT_DIRECTORY_OF_REPOSITORY, 'front_end', 'generated', 'protocol.d.ts'),
+    path.join(ROOT_DIRECTORY_OF_REPOSITORY, 'front_end', 'generated',
+              'protocol.d.ts'),
+    # generated protocol api interactions
+    path.join(ROOT_DIRECTORY_OF_REPOSITORY, 'front_end', 'generated',
+              'protocol-proxy-api.d.ts'),
     # Types for W3C FileSystem API
-    path.join(ROOT_DIRECTORY_OF_REPOSITORY, 'node_modules', '@types', 'filesystem', 'index.d.ts'),
+    path.join(ROOT_DIRECTORY_OF_REPOSITORY, 'node_modules', '@types',
+              'filesystem', 'index.d.ts'),
+    # Global types required for our usage of ESTree (coming from Acorn)
+    path.join(ROOT_DIRECTORY_OF_REPOSITORY, 'node_modules', '@types', 'estree',
+              'index.d.ts'),
+    path.join(ROOT_DIRECTORY_OF_REPOSITORY, 'front_end', 'legacy',
+              'estree-legacy.d.ts'),
+    # CodeMirror types
+    path.join(ROOT_DIRECTORY_OF_REPOSITORY, 'node_modules', '@types',
+              'codemirror', 'index.d.ts'),
+    path.join(ROOT_DIRECTORY_OF_REPOSITORY, 'front_end', 'legacy',
+              'codemirror-legacy.d.ts'),
 ]
 
 
 def runTsc(tsconfig_location):
     process = subprocess.Popen([NODE_LOCATION, TSC_LOCATION, '-p', tsconfig_location],
+                               stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE)
+    stdout, stderr = process.communicate()
+    # TypeScript does not correctly write to stderr because of https://github.com/microsoft/TypeScript/issues/33849
+    return process.returncode, stdout + stderr
+
+
+def runTscRemote(tsconfig_location, all_ts_files, rewrapper_binary,
+                 rewrapper_cfg, rewrapper_exec_root, test_only):
+    relative_ts_file_paths = [
+        path.relpath(x, rewrapper_exec_root) for x in all_ts_files
+    ]
+
+    tsc_lib_directory = path.join(ROOT_DIRECTORY_OF_REPOSITORY, 'node_modules',
+                                  'typescript', 'lib')
+    all_d_ts_files = [
+        path.relpath(path.join(tsc_lib_directory, f), rewrapper_exec_root)
+        for f in os.listdir(tsc_lib_directory) if f.endswith('.d.ts')
+    ]
+
+    if test_only:
+        # TODO(crbug.com/1139220): Measure whats more performant:
+        #     1) Just specify the `node_modules/@types` directory as an input and upload all files.
+        #     2) Recursively walk `node_modules/@types` and collect all *.d.ts files and list them
+        #        explicitly.
+        all_d_ts_files.append(
+            path.relpath(TYPES_NODE_MODULES_DIRECTORY, rewrapper_exec_root))
+
+    relative_node_location = path.relpath(NODE_LOCATION, os.getcwd())
+    relative_tsc_location = path.relpath(TSC_LOCATION, os.getcwd())
+    relative_tsconfig_location = path.relpath(tsconfig_location, os.getcwd())
+    relative_tsc_directory = path.relpath(
+        path.join(ROOT_DIRECTORY_OF_REPOSITORY, 'node_modules', 'typescript'),
+        rewrapper_exec_root)
+
+    inputs = ','.join([
+        relative_node_location,
+        relative_tsc_location,
+        path.join(relative_tsc_directory, 'lib', 'tsc.js'),
+        path.relpath(tsconfig_location, os.getcwd()),
+    ] + relative_ts_file_paths + all_d_ts_files)
+
+    process = subprocess.Popen([
+        rewrapper_binary, '-cfg', rewrapper_cfg, '-exec_root',
+        rewrapper_exec_root, '-labels=type=tool', '-inputs', inputs,
+        '-output_directories',
+        path.relpath(path.dirname(tsconfig_location),
+                     rewrapper_exec_root), '--', relative_node_location,
+        relative_tsc_location, '-p', relative_tsconfig_location
+    ],
                                stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE)
     stdout, stderr = process.communicate()
@@ -53,7 +126,18 @@ def main():
     parser.add_argument('-dir', '--front_end_directory', required=True, help='Folder that contains source files')
     parser.add_argument('-b', '--tsconfig_output_location', required=True)
     parser.add_argument('--test-only', action='store_true')
-    parser.set_defaults(test_only=False)
+    parser.add_argument('--no-emit', action='store_true')
+    parser.add_argument('--verify-lib-check', action='store_true')
+    parser.add_argument('--is_web_worker', action='store_true')
+    parser.add_argument('--module', required=False)
+    parser.add_argument('--use-rbe', action='store_true')
+    parser.add_argument('--rewrapper-binary', required=False)
+    parser.add_argument('--rewrapper-cfg', required=False)
+    parser.add_argument('--rewrapper-exec-root', required=False)
+    parser.set_defaults(test_only=False,
+                        no_emit=False,
+                        verify_lib_check=False,
+                        module='esnext')
 
     opts = parser.parse_args()
     with open(BASE_TS_CONFIG_LOCATION) as root_tsconfig:
@@ -77,15 +161,23 @@ def main():
 
     if (opts.deps is not None):
         tsconfig['references'] = [{'path': src} for src in opts.deps]
-    tsconfig['compilerOptions']['declaration'] = True
-    tsconfig['compilerOptions']['composite'] = True
-    tsconfig['compilerOptions']['sourceMap'] = True
+    tsconfig['compilerOptions']['module'] = opts.module
+    if (not opts.verify_lib_check):
+        tsconfig['compilerOptions']['skipLibCheck'] = True
     tsconfig['compilerOptions']['rootDir'] = get_relative_path_from_output_directory(opts.front_end_directory)
     tsconfig['compilerOptions']['typeRoots'] = opts.test_only and [
         get_relative_path_from_output_directory(TYPES_NODE_MODULES_DIRECTORY)
     ] or []
+    if opts.test_only:
+        tsconfig['compilerOptions']['moduleResolution'] = 'node'
+    if opts.no_emit:
+        tsconfig['compilerOptions']['emitDeclarationOnly'] = True
     tsconfig['compilerOptions']['outDir'] = '.'
     tsconfig['compilerOptions']['tsBuildInfoFile'] = tsbuildinfo_name
+    tsconfig['compilerOptions']['lib'] = ['esnext'] + (
+        opts.is_web_worker and ['webworker', 'webworker.iterable']
+        or ['dom', 'dom.iterable'])
+
     with open(tsconfig_output_location, 'w') as generated_tsconfig:
         try:
             json.dump(tsconfig, generated_tsconfig)
@@ -93,7 +185,26 @@ def main():
             print('Encountered error while writing generated tsconfig in location %s:' % tsconfig_output_location)
             print(e)
             return 1
-    found_errors, stderr = runTsc(tsconfig_location=tsconfig_output_location)
+
+    # If there are no sources to compile, we can bail out and don't call tsc.
+    # That's because tsc can successfully compile dependents solely on the
+    # the tsconfig.json
+    if len(sources) == 0 and not opts.verify_lib_check:
+        return 0
+
+    use_remote_execution = opts.use_rbe and (opts.deps is None
+                                             or len(opts.deps) == 0)
+    if use_remote_execution:
+        found_errors, stderr = runTscRemote(
+            tsconfig_location=tsconfig_output_location,
+            all_ts_files=all_ts_files,
+            rewrapper_binary=opts.rewrapper_binary,
+            rewrapper_cfg=opts.rewrapper_cfg,
+            rewrapper_exec_root=opts.rewrapper_exec_root,
+            test_only=opts.test_only)
+    else:
+        found_errors, stderr = runTsc(
+            tsconfig_location=tsconfig_output_location)
     if found_errors:
         print('')
         print('TypeScript compilation failed. Used tsconfig %s' % opts.tsconfig_output_location)
@@ -102,69 +213,8 @@ def main():
         print('')
         return 1
 
-    # The .tsbuildinfo is non-deterministic (https://github.com/microsoft/TypeScript/issues/37156)
-    # To make sure the output remains the same for consecutive invocations, we have to manually
-    # re-order the "json"-like output.
-    fix_non_determinism_in_ts_buildinfo(path.join(tsconfig_output_directory, tsbuildinfo_name))
-
-    if not opts.test_only:
-        # We are currently still loading devtools from out/<NAME>/resources/inspector
-        # but we generate our sources in out/<NAME>/gen/ (which is the proper location).
-        # For now, copy paste the build output back into resources/inspector to keep
-        # DevTools loading properly
-        copy_all_typescript_sources(sources, path.dirname(tsconfig_output_location))
-
     return 0
 
-
-def order_arrays_and_dicts_recursively(obj):
-    ordered_obj = collections.OrderedDict()
-    for key in sorted(obj):
-        value = obj[key]
-        if isinstance(value, dict):
-            ordered_obj[key] = order_arrays_and_dicts_recursively(value)
-        else:
-            if isinstance(value, list):
-                value.sort()
-            ordered_obj[key] = value
-    return ordered_obj
-
-
-def fix_non_determinism_in_ts_buildinfo(tsbuildinfo_location):
-    with open(tsbuildinfo_location, 'rt') as input:
-        tsbuildinfo_content = input.read()
-
-    tsbuildinfo_ordered = order_arrays_and_dicts_recursively(json.loads(tsbuildinfo_content))
-
-    with open(tsbuildinfo_location, 'wt') as output:
-        output.write(json.dumps(tsbuildinfo_ordered, indent=2))
-
-
-def copy_all_typescript_sources(sources, output_directory):
-    front_end_output_location = output_directory
-    while path.basename(front_end_output_location) != 'front_end':
-        front_end_output_location = path.dirname(front_end_output_location)
-    for src in sources:
-        if src.endswith('.ts') or src.endswith('_bridge.js'):
-            generated_javascript_location = path.join(output_directory, path.basename(src).replace('.ts', '.js'))
-
-            relative_path_from_generated_front_end_folder = path.relpath(generated_javascript_location, front_end_output_location)
-
-            dest = path.join(RESOURCES_INSPECTOR_PATH, relative_path_from_generated_front_end_folder)
-
-            if path.exists(dest):
-                os.remove(dest)
-            # Make sure that the directory actually exists, otherwise
-            # the copy action will throw an error
-            dest_directory = path.dirname(dest)
-            try:
-                os.makedirs(dest_directory)
-            except OSError as exc:  # Python >2.5
-                if exc.errno == errno.EEXIST and os.path.isdir(dest_directory):
-                    pass
-                else:
-                    raise
-            shutil.copy(generated_javascript_location, dest)
 
 
 if __name__ == '__main__':

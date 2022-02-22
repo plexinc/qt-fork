@@ -1,5 +1,6 @@
 import("//build/config/c++/c++.gni")
 import("//build/config/chrome_build.gni")
+import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/dcheck_always_on.gni")
 import("//buildtools/deps_revisions.gni")
 
@@ -15,12 +16,12 @@ declare_args() {
   # symbols are not exported.
   # TODO(thomasanderson): Set this to true by default once rL352899 is available
   # in MacOS's lldb.
-  libcxx_abi_unstable = !((is_mac || is_ios) && is_debug && is_component_build)
+  libcxx_abi_unstable = !(is_apple && is_debug && is_component_build)
 }
 
 # TODO(xiaohuic): https://crbug/917533 Crashes on internal ChromeOS build.
 # Do unconditionally once the underlying problem is fixed.
-if (is_chromeos && is_chrome_branded) {
+if (is_chromeos_ash && is_chrome_branded) {
   libcxx_abi_unstable = false
 }
 
@@ -39,11 +40,12 @@ config("runtime_library") {
     defines += [ "_LIBCPP_ABI_UNSTABLE" ]
   }
 
-  if (is_component_build) {
-    # In component builds, symbols from libc++.so are exported for all DSOs to
-    # use.  If the system libc++ gets loaded (indirectly through a system
-    # library), then it will conflict with our libc++.so.  Add a custom ABI
-    # version if we're building with _LIBCPP_ABI_UNSTABLE to avoid conflicts.
+  if (libcxx_is_shared) {
+    # When libcxx_is_shared is true, symbols from libc++.so are exported for
+    # all DSOs to use.  If the system libc++ gets loaded (indirectly through
+    # a system library), then it will conflict with our libc++.so.  Add a
+    # custom ABI version if we're building with _LIBCPP_ABI_UNSTABLE to avoid
+    # conflicts.
     #
     # Windows doesn't need to set _LIBCPP_ABI_VERSION since there's no system
     # C++ library we could conflict with.
@@ -58,7 +60,18 @@ config("runtime_library") {
     }
   }
 
-  defines += [ "_LIBCPP_ENABLE_NODISCARD" ]
+  defines += [
+    "_LIBCPP_ENABLE_NODISCARD",
+
+    # TODO(crbug.com/1166707): libc++ requires this macro.
+    "_LIBCPP_HAS_NO_VENDOR_AVAILABILITY_ANNOTATIONS",
+  ]
+
+  # Work around a symbol conflict between GRPC and the Fuchsia SDK.
+  # TODO(crbug.com/1166970): Remove this when resolved.
+  if (is_fuchsia) {
+    defines += [ "_LIBCPP_NO_NATIVE_SEMAPHORES" ]
+  }
 
   # The Windows component build fails to link with libc++'s debug mode. See
   # https://crbug.com/923166#c33, https://crbug.com/923166#c44, and
@@ -91,6 +104,13 @@ config("runtime_library") {
     # does not match ours.
     defines += [ "_LIBCPP_NO_AUTO_LINK" ]
 
+    if (is_component_build) {
+      # TODO(crbug.com/1090975): Disable the exclude_from_explicit_instantiation
+      # to work around compiler bugs in the interaction between it and
+      # dllimport/dllexport.
+      defines += [ "_LIBCPP_HIDE_FROM_ABI=_LIBCPP_HIDDEN" ]
+    }
+
     # Add a debug visualizer for Microsoft's debuggers so that they can display
     # libc++ types well.
     if (libcxx_natvis_include) {
@@ -106,7 +126,7 @@ config("runtime_library") {
     ]
     cflags_objcc = cflags_cc
 
-    defines += [ "CR_LIBCXX_REVISION=$libcxx_svn_revision" ]
+    defines += [ "CR_LIBCXX_REVISION=$libcxx_revision" ]
 
     # Make sure we don't link against the system libstdc++ or libc++.
     if (is_clang) {

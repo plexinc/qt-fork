@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtWidgets module of the Qt Toolkit.
@@ -51,6 +51,8 @@
 // We mean it.
 //
 
+
+
 #include <QtWidgets/private/qtwidgetsglobal_p.h>
 #include "QtWidgets/qwidget.h"
 #include "private/qobject_p.h"
@@ -61,6 +63,7 @@
 #include "QtGui/qinputmethod.h"
 #include "QtGui/qopengl.h"
 #include "QtGui/qsurfaceformat.h"
+#include "QtGui/qscreen.h"
 #include "QtWidgets/qsizepolicy.h"
 #include "QtWidgets/qstyle.h"
 #include "QtWidgets/qapplication.h"
@@ -144,8 +147,7 @@ struct QTLWExtra {
     QRect frameStrut;
     QRect normalGeometry; // used by showMin/maximized/FullScreen
     Qt::WindowFlags savedFlags; // Save widget flags while showing fullscreen
-    // ### TODO replace initialScreenIndex with QScreen *, in case the screens change at runtime
-    int initialScreenIndex; // Screen number when passing a QDesktop[Screen]Widget as parent.
+    QScreen *initialScreen; // Screen when passing a QDesktop[Screen]Widget as parent.
 
 #ifndef QT_NO_OPENGL
     std::vector<std::unique_ptr<QPlatformTextureList>> widgetTextures;
@@ -269,6 +271,7 @@ public:
         TopLevel
     };
     QWindow *windowHandle(WindowHandleMode mode = WindowHandleMode::Direct) const;
+    QWindow *_q_closestWindowHandle() const; // Private slot in QWidget
 
     QScreen *associatedScreen() const;
 
@@ -298,7 +301,7 @@ public:
 
     void setPalette_helper(const QPalette &);
     void resolvePalette();
-    QPalette naturalWidgetPalette(uint inheritedMask) const;
+    QPalette naturalWidgetPalette(QPalette::ResolveMask inheritedMask) const;
 
     void setMask_sys(const QRegion &);
 
@@ -312,7 +315,7 @@ public:
 
     void updateFont(const QFont &);
     inline void setFont_helper(const QFont &font) {
-        if (directFontResolveMask == font.resolve() && data.fnt == font)
+        if (directFontResolveMask == font.resolveMask() && data.fnt == font)
             return;
         updateFont(font);
     }
@@ -387,6 +390,7 @@ public:
     void invalidateBackingStore(const T &);
 
     QRegion overlappedRegion(const QRect &rect, bool breakAfterFirst = false) const;
+    bool isOverlapped(const QRect &rect) const { return !overlappedRegion(rect, true).isEmpty(); }
     void syncBackingStore();
     void syncBackingStore(const QRegion &region);
 
@@ -396,8 +400,6 @@ public:
     void updateWidgetTransform(QEvent *event);
 
     void reparentFocusWidgets(QWidget *oldtlw);
-
-    static int pointToRect(const QPoint &p, const QRect &r);
 
     void setWinId(WId);
     void showChildren(bool spontaneous);
@@ -475,13 +477,11 @@ public:
 
     void setModal_sys();
 
-    // This is an helper function that return the available geometry for
-    // a widget and takes care is this one is in QGraphicsView.
-    // If the widget is not embed in a scene then the geometry available is
-    // null, we let QDesktopWidget decide for us.
-    static QRect screenGeometry(const QWidget *widget)
+    // These helper functions return the (available) geometry for the screen
+    // the widget is on, and takes care if this one is embedded in a QGraphicsView.
+    static QRect graphicsViewParentRect(const QWidget *widget)
     {
-        QRect screen;
+        QRect rect;
 #if QT_CONFIG(graphicsview)
         QGraphicsProxyWidget *ancestorProxy = widget->d_func()->nearestGraphicsProxyWidget(widget);
         //It's embedded if it has an ancestor
@@ -490,16 +490,56 @@ public:
                 // One view, let be smart and return the viewport rect then the popup is aligned
                 if (ancestorProxy->scene()->views().size() == 1) {
                     QGraphicsView *view = ancestorProxy->scene()->views().at(0);
-                    screen = view->mapToScene(view->viewport()->rect()).boundingRect().toRect();
+                    rect = view->mapToScene(view->viewport()->rect()).boundingRect().toRect();
                 } else {
-                    screen = ancestorProxy->scene()->sceneRect().toRect();
+                    rect = ancestorProxy->scene()->sceneRect().toRect();
                 }
             }
         }
 #else
         Q_UNUSED(widget);
 #endif
-        return screen;
+        return rect;
+    }
+
+    static QRect screenGeometry(const QWidget *widget)
+    {
+        return screenGeometry(widget, QPoint(), false);
+    }
+
+    static QRect availableScreenGeometry(const QWidget *widget)
+    {
+        return availableScreenGeometry(widget, QPoint(), false);
+    }
+
+    static QRect screenGeometry(const QWidget *widget, const QPoint &globalPosition, bool hasPosition = true)
+    {
+        QRect rect = graphicsViewParentRect(widget);
+        if (!rect.isNull())
+            return rect;
+
+        QScreen *screen = nullptr;
+        if (hasPosition)
+            screen = widget->screen()->virtualSiblingAt(globalPosition);
+        if (!screen)
+            screen = widget->screen();
+
+        return screen->geometry();
+    }
+
+    static QRect availableScreenGeometry(const QWidget *widget, const QPoint &globalPosition, bool hasPosition = true)
+    {
+        QRect rect = graphicsViewParentRect(widget);
+        if (!rect.isNull())
+            return rect;
+
+        QScreen *screen = nullptr;
+        if (hasPosition)
+            screen = widget->screen()->virtualSiblingAt(globalPosition);
+        if (!screen)
+            screen = widget->screen();
+
+        return screen->availableGeometry();
     }
 
     inline void setRedirected(QPaintDevice *replacement, const QPoint &offset)
@@ -557,8 +597,14 @@ public:
 
     inline void handleSoftwareInputPanel(Qt::MouseButton button, bool clickCausedFocus)
     {
+        if (button == Qt::LeftButton)
+            handleSoftwareInputPanel(clickCausedFocus);
+    }
+
+    inline void handleSoftwareInputPanel(bool clickCausedFocus = false)
+    {
         Q_Q(QWidget);
-        if (button == Qt::LeftButton && qApp->autoSipEnabled()) {
+        if (qApp->autoSipEnabled()) {
             QStyle::RequestSoftwareInputPanel behavior = QStyle::RequestSoftwareInputPanel(
                     q->style()->styleHint(QStyle::SH_RequestSoftwareInputPanel));
             if (!clickCausedFocus || behavior == QStyle::RSIP_OnMouseClick) {
@@ -653,7 +699,7 @@ public:
     // Implicit pointers (shared_null/shared_empty).
     QRegion opaqueChildren;
     QRegion dirty;
-#ifndef QT_NO_TOOLTIP
+#if QT_CONFIG(tooltip)
     QString toolTip;
     int toolTipDuration;
 #endif
@@ -671,8 +717,8 @@ public:
     // Other variables.
     uint directFontResolveMask;
     uint inheritedFontResolveMask;
-    decltype(std::declval<QPalette>().resolve()) directPaletteResolveMask;
-    uint inheritedPaletteResolveMask;
+    decltype(std::declval<QPalette>().resolveMask()) directPaletteResolveMask;
+    QPalette::ResolveMask inheritedPaletteResolveMask;
     short leftmargin;
     short topmargin;
     short rightmargin;

@@ -56,8 +56,6 @@ class ProjectBuilderMakefileGenerator : public UnixMakefileGenerator
     enum { SettingsAsList=0x01, SettingsNoQuote=0x02 };
     inline QString writeSettings(const QString &var, const char *val, int flags=0, int indent_level=0)
         { return writeSettings(var, ProString(val), flags, indent_level); }
-    inline QString writeSettings(const QString &var, const QString &val, int flags=0, int indent_level=0)
-        { return writeSettings(var, ProString(val), flags, indent_level); }
     inline QString writeSettings(const QString &var, const ProString &val, int flags=0, int indent_level=0)
         { return writeSettings(var, ProStringList(val), flags, indent_level); }
     QString writeSettings(const QString &var, const ProStringList &vals, int flags=0, int indent_level=0);
@@ -68,6 +66,7 @@ public:
 protected:
     bool doPrecompiledHeaders() const override { return false; }
     bool doDepends() const override { return writingUnixMakefileGenerator && UnixMakefileGenerator::doDepends(); }
+    bool inhibitMakeDirOutPath(const ProKey &path) const override;
 };
 QT_END_NAMESPACE
 

@@ -11,9 +11,13 @@ SUBDIRS += \
     deferred-renderer-cpp \
     raster-cpp \
     qtbug-72236 \
-    manual-renderloop \
-    rhi
+    manual-renderloop
 
+QT_FOR_CONFIG += 3drender-private
+qtConfig(qt3d-rhi-renderer): {
+    SUBDIRS += \
+        rhi
+}
 
 qtHaveModule(multimedia): {
     SUBDIRS += \
@@ -67,7 +71,6 @@ qtHaveModule(quick) {
         simple-shaders-qml \
         transparency-qml \
         transparency-qml-scene3d \
-        rendercapture-qml \
         additional-attributes-qml \
         dynamic-model-loader-qml \
         buffercapture-qml \
@@ -77,7 +80,6 @@ qtHaveModule(quick) {
         transforms-qml \
         layerfilter-qml \
         tessellation-modes \
-        rendercapture-qml-fbo \
         blitframebuffer-qml \
         raycasting-qml \
         raster-qml \
@@ -96,6 +98,14 @@ qtHaveModule(quick) {
         qtbug-76766 \
         scene3d-in-sync \
         compressed_textures \
+        boundingvolumes
+
+greaterThan(QT_MAJOR_VERSION, 6) {
+    SUBDIRS += \
+        rendercapture-qml \
+        rendercapture-qml-fbo
+}
+
 }
 
 qtHaveModule(quickwidgets): SUBDIRS += quickwidget-switch

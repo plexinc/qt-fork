@@ -17,6 +17,7 @@
 #include "base/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
+#include "cc/base/features.h"
 #include "cc/base/simple_enclosed_region.h"
 #include "cc/layers/layer_impl.h"
 #include "cc/layers/picture_layer.h"
@@ -51,14 +52,13 @@ struct SameSizeAsLayer : public base::RefCounted<SameSizeAsLayer> {
     SkColor background_color;
     Region non_fast_scrollable_region;
     TouchActionRegion touch_action_region;
+    Region wheel_event_region;
     ElementId element_id;
-    ElementId frame_element_id;
   } inputs;
   void* layer_tree_inputs;
   int int_fields[6];
   gfx::Vector2dF offset;
   unsigned bitfields;
-  SkColor safe_opaque_background_color;
   void* debug_info;
 };
 
@@ -78,28 +78,21 @@ Layer::Inputs::Inputs(int layer_id)
     : layer_id(layer_id),
       hit_testable(false),
       contents_opaque(false),
+      contents_opaque_for_text(false),
       is_drawable(false),
       double_sided(true),
-      is_scrollbar(false),
-      has_will_change_transform_hint(false),
       background_color(0) {}
 
 Layer::Inputs::~Inputs() = default;
 
 Layer::LayerTreeInputs::LayerTreeInputs()
-    : mask_layer(nullptr),
-      opacity(1.f),
-      blend_mode(SkBlendMode::kSrcOver),
-      masks_to_bounds(false),
+    : masks_to_bounds(false),
       is_fast_rounded_corner(false),
       user_scrollable_horizontal(true),
       user_scrollable_vertical(true),
       trilinear_filtering(false),
       hide_layer_and_subtree(false),
-      scrollable(false),
-      backdrop_filter_quality(1.0f),
-      mirror_count(0),
-      corner_radii({0, 0, 0, 0}) {}
+      scrollable(false) {}
 
 Layer::LayerTreeInputs::~LayerTreeInputs() = default;
 
@@ -128,8 +121,7 @@ Layer::Layer()
       needs_show_scrollbars_(false),
       has_transform_node_(false),
       has_clip_node_(false),
-      subtree_has_copy_request_(false),
-      safe_opaque_background_color_(0) {}
+      subtree_has_copy_request_(false) {}
 
 Layer::~Layer() {
   // Our parent should be holding a reference to us so there should be no
@@ -224,13 +216,6 @@ void Layer::SetNeedsFullTreeSync() {
   layer_tree_host_->SetNeedsFullTreeSync();
 }
 
-void Layer::SetNextCommitWaitsForActivation() {
-  if (!layer_tree_host_)
-    return;
-
-  layer_tree_host_->SetNextCommitWaitsForActivation();
-}
-
 void Layer::SetNeedsPushProperties() {
   if (layer_tree_host_)
     layer_tree_host_->AddLayerShouldPushProperties(this);
@@ -244,7 +229,7 @@ bool Layer::IsPropertyChangeAllowed() const {
 }
 
 void Layer::CaptureContent(const gfx::Rect& rect,
-                           std::vector<NodeId>* content) {}
+                           std::vector<NodeInfo>* content) {}
 
 sk_sp<SkPicture> Layer::GetPicture() const {
   return nullptr;
@@ -503,25 +488,41 @@ void Layer::SetBackgroundColor(SkColor background_color) {
 
 void Layer::SetSafeOpaqueBackgroundColor(SkColor background_color) {
   DCHECK(IsPropertyChangeAllowed());
-  SkColor opaque_color = SkColorSetA(background_color, 255);
-  if (safe_opaque_background_color_ == opaque_color)
+  SkColor opaque_color = SkColorSetA(background_color, SK_AlphaOPAQUE);
+  auto& inputs = EnsureLayerTreeInputs();
+  if (inputs.safe_opaque_background_color == opaque_color)
     return;
-  safe_opaque_background_color_ = opaque_color;
+  inputs.safe_opaque_background_color = opaque_color;
   SetNeedsPushProperties();
 }
 
 SkColor Layer::SafeOpaqueBackgroundColor() const {
   if (contents_opaque()) {
-    // TODO(936906): We should uncomment this DCHECK, since the
-    // |safe_opaque_background_color_| could be transparent if it is never set
-    // (the default is 0). But to do that, one test needs to be fixed.
-    // DCHECK_EQ(SkColorGetA(safe_opaque_background_color_), SK_AlphaOPAQUE);
-    return safe_opaque_background_color_;
+    if (!layer_tree_host_ || !layer_tree_host_->IsUsingLayerLists()) {
+      // In layer tree mode, PropertyTreeBuilder should have calculated the safe
+      // opaque background color and called SetSafeOpaqueBackgroundColor().
+      DCHECK(layer_tree_inputs());
+      DCHECK_EQ(SkColorGetA(layer_tree_inputs()->safe_opaque_background_color),
+                SK_AlphaOPAQUE);
+      return layer_tree_inputs()->safe_opaque_background_color;
+    }
+    // In layer list mode, the PropertyTreeBuilder algorithm doesn't apply
+    // because it depends on the layer tree hierarchy. Instead we use
+    // background_color() if it's not transparent, or layer_tree_host_'s
+    // background_color(), with the alpha channel forced to be opaque.
+    SkColor color = background_color() == SK_ColorTRANSPARENT
+                        ? layer_tree_host_->background_color()
+                        : background_color();
+    return SkColorSetA(color, SK_AlphaOPAQUE);
   }
-  SkColor color = background_color();
-  if (SkColorGetA(color) == 255)
-    color = SK_ColorTRANSPARENT;
-  return color;
+  if (SkColorGetA(background_color()) == SK_AlphaOPAQUE) {
+    // The layer is not opaque while the background color is, meaning that the
+    // background color doesn't cover the whole layer. Use SK_ColorTRANSPARENT
+    // to avoid intrusive checkerboard where the layer is not covered by the
+    // background color.
+    return SK_ColorTRANSPARENT;
+  }
+  return background_color();
 }
 
 void Layer::SetMasksToBounds(bool masks_to_bounds) {
@@ -558,8 +559,8 @@ void Layer::SetClipRect(const gfx::Rect& clip_rect) {
         effect_tree_index() != EffectTree::kInvalidNodeId) {
       if (EffectNode* node =
               property_trees->effect_tree.Node(effect_tree_index())) {
-        node->rounded_corner_bounds =
-            gfx::RRectF(effective_clip_rect, corner_radii());
+        node->mask_filter_info =
+            gfx::MaskFilterInfo(effective_clip_rect, corner_radii());
         node->effect_changed = true;
         property_trees->effect_tree.set_needs_update(true);
       }
@@ -665,8 +666,8 @@ void Layer::SetRoundedCorner(const gfx::RoundedCornersF& corner_radii) {
   EffectNode* node = nullptr;
   if (property_trees && effect_tree_index() != EffectTree::kInvalidNodeId &&
       (node = property_trees->effect_tree.Node(effect_tree_index()))) {
-    node->rounded_corner_bounds =
-        gfx::RRectF(EffectiveClipRect(), corner_radii);
+    node->mask_filter_info =
+        gfx::MaskFilterInfo(EffectiveClipRect(), corner_radii);
     node->effect_changed = true;
     property_trees->effect_tree.set_needs_update(true);
   } else {
@@ -805,9 +806,19 @@ void Layer::SetContentsOpaque(bool opaque) {
   if (inputs_.contents_opaque == opaque)
     return;
   inputs_.contents_opaque = opaque;
+  inputs_.contents_opaque_for_text = opaque;
   SetNeedsCommit();
   SetSubtreePropertyChanged();
   SetPropertyTreesNeedRebuild();
+}
+
+void Layer::SetContentsOpaqueForText(bool opaque) {
+  DCHECK(IsPropertyChangeAllowed());
+  if (inputs_.contents_opaque_for_text == opaque)
+    return;
+  DCHECK(!contents_opaque() || opaque);
+  inputs_.contents_opaque_for_text = opaque;
+  SetNeedsCommit();
 }
 
 void Layer::SetPosition(const gfx::PointF& position) {
@@ -952,7 +963,6 @@ void Layer::SetScrollOffsetFromImplSide(
   if (inputs.scroll_offset == scroll_offset)
     return;
   inputs.scroll_offset = scroll_offset;
-  SetNeedsPushProperties();
 
   UpdatePropertyTreeScrollOffset();
 
@@ -993,6 +1003,22 @@ void Layer::SetDidScrollCallback(
   EnsureLayerTreeInputs().did_scroll_callback = std::move(callback);
 }
 
+void Layer::SetSubtreeCaptureId(viz::SubtreeCaptureId subtree_id) {
+  DCHECK(IsPropertyChangeAllowed());
+
+  auto& inputs = EnsureLayerTreeInputs();
+  if (inputs.subtree_capture_id == subtree_id)
+    return;
+
+  DCHECK(!inputs.subtree_capture_id.is_valid() || !subtree_id.is_valid())
+      << "Not allowed to change from a valid ID to another valid ID, as it may "
+         "already be in use.";
+
+  inputs.subtree_capture_id = subtree_id;
+  SetPropertyTreesNeedRebuild();
+  SetNeedsCommit();
+}
+
 void Layer::SetScrollable(const gfx::Size& bounds) {
   DCHECK(IsPropertyChangeAllowed());
   auto& inputs = EnsureLayerTreeInputs();
@@ -1015,12 +1041,8 @@ void Layer::SetScrollable(const gfx::Size& bounds) {
   SetNeedsCommit();
 }
 
-void Layer::SetIsScrollbar(bool is_scrollbar) {
-  if (inputs_.is_scrollbar == is_scrollbar)
-    return;
-
-  inputs_.is_scrollbar = is_scrollbar;
-  SetNeedsCommit();
+bool Layer::IsScrollbarLayerForTesting() const {
+  return false;
 }
 
 void Layer::SetUserScrollable(bool horizontal, bool vertical) {
@@ -1077,6 +1099,15 @@ void Layer::SetTouchActionRegion(TouchActionRegion touch_action_region) {
   SetNeedsCommit();
 }
 
+void Layer::SetWheelEventRegion(Region wheel_event_region) {
+  DCHECK(IsPropertyChangeAllowed());
+  if (inputs_.wheel_event_region == wheel_event_region)
+    return;
+
+  inputs_.wheel_event_region = std::move(wheel_event_region);
+  SetNeedsCommit();
+}
+
 void Layer::SetCacheRenderSurface(bool cache) {
   DCHECK(IsPropertyChangeAllowed());
   if (cache_render_surface_ == cache)
@@ -1110,16 +1141,6 @@ void Layer::SetForceRenderSurfaceForTesting(bool force) {
   force_render_surface_for_testing_ = force;
   SetPropertyTreesNeedRebuild();
   SetNeedsCommit();
-}
-
-void Layer::SetDoubleSided(bool double_sided) {
-  DCHECK(IsPropertyChangeAllowed());
-  if (inputs_.double_sided == double_sided)
-    return;
-  inputs_.double_sided = double_sided;
-  SetNeedsCommit();
-  SetPropertyTreesNeedRebuild();
-  SetSubtreePropertyChanged();
 }
 
 void Layer::SetTransformTreeIndex(int index) {
@@ -1241,13 +1262,14 @@ std::string Layer::ToString() const {
       "  name: %s\n"
       "  Bounds: %s\n"
       "  ElementId: %s\n"
+      "  HitTestable: %d\n"
       "  OffsetToTransformParent: %s\n"
       "  clip_tree_index: %d\n"
       "  effect_tree_index: %d\n"
       "  scroll_tree_index: %d\n"
       "  transform_tree_index: %d\n",
       id(), DebugName().c_str(), bounds().ToString().c_str(),
-      element_id().ToString().c_str(),
+      element_id().ToString().c_str(), HitTestable(),
       offset_to_transform_parent().ToString().c_str(), clip_tree_index(),
       effect_tree_index(), scroll_tree_index(), transform_tree_index());
 }
@@ -1307,7 +1329,7 @@ void Layer::PushPropertiesTo(LayerImpl* layer) {
   layer->SetElementId(inputs_.element_id);
   layer->SetHasTransformNode(has_transform_node_);
   layer->SetBackgroundColor(inputs_.background_color);
-  layer->SetSafeOpaqueBackgroundColor(safe_opaque_background_color_);
+  layer->SetSafeOpaqueBackgroundColor(SafeOpaqueBackgroundColor());
   layer->SetBounds(inputs_.bounds);
   layer->SetTransformTreeIndex(transform_tree_index());
   layer->SetEffectTreeIndex(effect_tree_index());
@@ -1323,23 +1345,25 @@ void Layer::PushPropertiesTo(LayerImpl* layer) {
   layer->set_may_contain_video(may_contain_video_);
   layer->SetNonFastScrollableRegion(inputs_.non_fast_scrollable_region);
   layer->SetTouchActionRegion(inputs_.touch_action_region);
-  // TODO(sunxd): Pass the correct region for wheel event handlers, see
-  // https://crbug.com/841364.
+
+  // TODO(https://crbug.com/841364): This block is optimized to avoid checks
+  // for kWheelEventRegions. It will be simplified once kWheelEventRegions
+  // feature flag is removed.
   EventListenerProperties mouse_wheel_props =
       layer_tree_host()->event_listener_properties(
           EventListenerClass::kMouseWheel);
-  if (mouse_wheel_props == EventListenerProperties::kBlocking ||
-      mouse_wheel_props == EventListenerProperties::kBlockingAndPassive) {
+  if ((mouse_wheel_props == EventListenerProperties::kBlocking ||
+       mouse_wheel_props == EventListenerProperties::kBlockingAndPassive) &&
+      !base::FeatureList::IsEnabled(::features::kWheelEventRegions))
     layer->SetWheelEventHandlerRegion(Region(gfx::Rect(bounds())));
-  } else {
-    layer->SetWheelEventHandlerRegion(Region());
-  }
+  else
+    layer->SetWheelEventHandlerRegion(inputs_.wheel_event_region);
+
   layer->SetContentsOpaque(inputs_.contents_opaque);
+  layer->SetContentsOpaqueForText(inputs_.contents_opaque_for_text);
   layer->SetShouldCheckBackfaceVisibility(should_check_backface_visibility_);
 
   layer->UpdateScrollable();
-
-  layer->set_is_scrollbar(inputs_.is_scrollbar);
 
   // The property trees must be safe to access because they will be used below
   // to call |SetScrollOffsetClobberActiveValue|.
@@ -1359,8 +1383,6 @@ void Layer::PushPropertiesTo(LayerImpl* layer) {
     layer->set_needs_show_scrollbars(true);
 
   layer->UnionUpdateRect(inputs_.update_rect);
-  layer->SetHasWillChangeTransformHint(has_will_change_transform_hint());
-  layer->SetFrameElementId(inputs_.frame_element_id);
   layer->SetNeedsPushProperties();
 
   // debug_info_->invalidations, if exist, will be cleared in the function.
@@ -1461,20 +1483,6 @@ void Layer::OnOpacityAnimated(float opacity) {
 
 void Layer::OnTransformAnimated(const gfx::Transform& transform) {
   EnsureLayerTreeInputs().transform = transform;
-}
-
-void Layer::SetHasWillChangeTransformHint(bool has_will_change) {
-  if (inputs_.has_will_change_transform_hint == has_will_change)
-    return;
-  inputs_.has_will_change_transform_hint = has_will_change;
-  SetNeedsCommit();
-}
-
-void Layer::SetFrameElementId(ElementId frame_element_id) {
-  if (inputs_.frame_element_id == frame_element_id)
-    return;
-  inputs_.frame_element_id = frame_element_id;
-  SetNeedsCommit();
 }
 
 void Layer::SetTrilinearFiltering(bool trilinear_filtering) {

@@ -15,7 +15,7 @@
 #include "gpu/config/gpu_feature_info.h"
 #include "media/renderers/paint_canvas_video_renderer.h"
 #include "services/viz/public/cpp/gpu/context_provider_command_buffer.h"
-#include "third_party/skia/include/gpu/GrContext.h"
+#include "third_party/skia/include/gpu/GrDirectContext.h"
 
 namespace content {
 
@@ -60,7 +60,12 @@ WebGraphicsContext3DProviderImpl::WebGPUInterface() {
   return provider_->WebGPUInterface();
 }
 
-GrContext* WebGraphicsContext3DProviderImpl::GetGrContext() {
+bool WebGraphicsContext3DProviderImpl::IsContextLost() {
+  return RasterInterface() &&
+         RasterInterface()->GetGraphicsResetStatusKHR() != GL_NO_ERROR;
+}
+
+GrDirectContext* WebGraphicsContext3DProviderImpl::GetGrContext() {
   return provider_->GrContext();
 }
 
@@ -86,8 +91,6 @@ WebGraphicsContext3DProviderImpl::GetWebglPreferences() const {
 
     if (gpu_feature_info.IsWorkaroundEnabled(MAX_MSAA_SAMPLE_COUNT_2))
       prefs.msaa_sample_count = 2;
-    else if (gpu_feature_info.IsWorkaroundEnabled(MAX_MSAA_SAMPLE_COUNT_4))
-      prefs.msaa_sample_count = 4;
 
     if (command_line->HasSwitch(switches::kWebglMSAASampleCount)) {
       std::string sample_count =
@@ -180,7 +183,7 @@ cc::ImageDecodeCache* WebGraphicsContext3DProviderImpl::ImageDecodeCache(
       std::make_unique<cc::GpuImageDecodeCache>(
           provider_.get(), use_transfer_cache, color_type, kMaxWorkingSetBytes,
           provider_->ContextCapabilities().max_texture_size,
-          cc::PaintImage::kDefaultGeneratorClientId));
+          cc::PaintImage::kDefaultGeneratorClientId, nullptr));
   DCHECK(insertion_result.second);
   cache_iterator = insertion_result.first;
   return cache_iterator->second.get();
@@ -195,7 +198,12 @@ void WebGraphicsContext3DProviderImpl::CopyVideoFrame(
     media::PaintCanvasVideoRenderer* video_renderer,
     media::VideoFrame* video_frame,
     cc::PaintCanvas* canvas) {
-  video_renderer->Copy(video_frame, canvas, context_provider());
+  video_renderer->Copy(video_frame, canvas, provider_.get());
+}
+
+viz::RasterContextProvider*
+WebGraphicsContext3DProviderImpl::RasterContextProvider() const {
+  return provider_.get();
 }
 
 }  // namespace content

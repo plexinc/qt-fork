@@ -26,24 +26,22 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QSemaphore>
 #include <qcoreapplication.h>
 #include <qreadwritelock.h>
 #include <qelapsedtimer.h>
 #include <qmutex.h>
 #include <qthread.h>
 #include <qwaitcondition.h>
+#include <private/qemulationdetector_p.h>
 
 #ifdef Q_OS_UNIX
 #include <unistd.h>
 #endif
 #if defined(Q_OS_WIN)
 #  include <qt_windows.h>
-#  ifndef Q_OS_WINRT
-#    define sleep(X) Sleep(X)
-#  else
-#    define sleep(X) WaitForSingleObjectEx(GetCurrentThread(), X, FALSE);
-#  endif
+#  define sleep(X) Sleep(X)
 #endif
 
 //on solaris, threads that loop on the release bool variable
@@ -188,10 +186,10 @@ void tst_QReadWriteLock::readWriteLockUnlockLoop()
 
 }
 
-QAtomicInt lockCount(0);
-QReadWriteLock readWriteLock;
-QSemaphore testsTurn;
-QSemaphore threadsTurn;
+static QAtomicInt lockCount(0);
+static QReadWriteLock readWriteLock;
+static QSemaphore testsTurn;
+static QSemaphore threadsTurn;
 
 
 void tst_QReadWriteLock::tryReadLock()
@@ -218,7 +216,7 @@ void tst_QReadWriteLock::tryReadLock()
         class Thread : public QThread
         {
         public:
-            void run()
+            void run() override
             {
                 testsTurn.release();
 
@@ -335,7 +333,7 @@ void tst_QReadWriteLock::tryWriteLock()
         {
         public:
             Thread() : failureCount(0) { }
-            void run()
+            void run() override
             {
                 testsTurn.release();
 
@@ -407,8 +405,8 @@ void tst_QReadWriteLock::tryWriteLock()
     }
 }
 
-bool threadDone;
-QAtomicInt release;
+static bool threadDone;
+static QAtomicInt release;
 
 /*
     write-lock
@@ -420,7 +418,7 @@ class WriteLockThread : public QThread
 public:
     QReadWriteLock &testRwlock;
     inline WriteLockThread(QReadWriteLock &l) : testRwlock(l) { }
-    void run()
+    void run() override
     {
         testRwlock.lockForWrite();
         testRwlock.unlock();
@@ -438,7 +436,7 @@ class ReadLockThread : public QThread
 public:
     QReadWriteLock &testRwlock;
     inline ReadLockThread(QReadWriteLock &l) : testRwlock(l) { }
-    void run()
+    void run() override
     {
         testRwlock.lockForRead();
         testRwlock.unlock();
@@ -455,7 +453,7 @@ class WriteLockReleasableThread : public QThread
 public:
     QReadWriteLock &testRwlock;
     inline WriteLockReleasableThread(QReadWriteLock &l) : testRwlock(l) { }
-    void run()
+    void run() override
     {
         testRwlock.lockForWrite();
         while (release.loadRelaxed() == false) {
@@ -475,7 +473,7 @@ class ReadLockReleasableThread : public QThread
 public:
     QReadWriteLock &testRwlock;
     inline ReadLockReleasableThread(QReadWriteLock &l) : testRwlock(l) { }
-    void run()
+    void run() override
     {
         testRwlock.lockForRead();
         while (release.loadRelaxed() == false) {
@@ -509,15 +507,15 @@ public:
     ,waitTime(waitTime)
     ,print(print)
     { }
-    void run()
+    void run() override
     {
         t.start();
         while (t.elapsed()<runTime)  {
             testRwlock.lockForRead();
             if(print) printf("reading\n");
-            if (holdTime) msleep(holdTime);
+            if (holdTime) msleep(ulong(holdTime));
             testRwlock.unlock();
-            if (waitTime) msleep(waitTime);
+            if (waitTime) msleep(ulong(waitTime));
         }
     }
 };
@@ -545,20 +543,20 @@ public:
     ,waitTime(waitTime)
     ,print(print)
     { }
-    void run()
+    void run() override
     {
         t.start();
         while (t.elapsed() < runTime)  {
             testRwlock.lockForWrite();
             if (print) printf(".");
-            if (holdTime) msleep(holdTime);
+            if (holdTime) msleep(ulong(holdTime));
             testRwlock.unlock();
-            if (waitTime) msleep(waitTime);
+            if (waitTime) msleep(ulong(waitTime));
         }
     }
 };
 
-volatile int count=0;
+static volatile int count = 0;
 
 /*
     for(runTime msecs)
@@ -582,7 +580,7 @@ public:
     ,waitTime(waitTime)
     ,maxval(maxval)
     { }
-    void run()
+    void run() override
     {
         t.start();
         while (t.elapsed() < runTime)  {
@@ -598,7 +596,7 @@ public:
             }
             count=0;
             testRwlock.unlock();
-            msleep(waitTime);
+            msleep(ulong(waitTime));
         }
     }
 };
@@ -622,7 +620,7 @@ public:
     ,runTime(runTime)
     ,waitTime(waitTime)
     { }
-    void run()
+    void run() override
     {
         t.start();
         while (t.elapsed() < runTime)  {
@@ -630,7 +628,7 @@ public:
             if(count)
                 qFatal("Non-zero count at Read! (%d)",count );
             testRwlock.unlock();
-            msleep(waitTime);
+            msleep(ulong(waitTime));
         }
     }
 };
@@ -699,6 +697,9 @@ void tst_QReadWriteLock::multipleReadersBlockRelease()
 */
 void tst_QReadWriteLock::multipleReadersLoop()
 {
+    if (QTestPrivate::isRunningArmOnX86())
+        QSKIP("Flaky on QEMU, QTBUG-96103");
+
     int time=500;
     int hold=250;
     int wait=0;
@@ -849,7 +850,7 @@ class DeleteOnUnlockThread : public QThread
 public:
     DeleteOnUnlockThread(QReadWriteLock **lock, QWaitCondition *startup, QMutex *waitMutex)
     :m_lock(lock), m_startup(startup), m_waitMutex(waitMutex) {}
-    void run()
+    void run() override
     {
         m_waitMutex->lock();
         m_startup->wakeAll();
@@ -868,7 +869,7 @@ private:
 
 void tst_QReadWriteLock::deleteOnUnlock()
 {
-    QReadWriteLock *lock = 0;
+    QReadWriteLock *lock = nullptr;
     QWaitCondition startup;
     QMutex waitMutex;
 
@@ -947,7 +948,7 @@ void tst_QReadWriteLock::recursiveReadLock()
         QReadWriteLock *lock;
         bool tryLockForWriteResult;
 
-        void run()
+        void run() override
         {
             testsTurn.release();
 
@@ -1042,7 +1043,7 @@ void tst_QReadWriteLock::recursiveWriteLock()
         QReadWriteLock *lock;
         bool tryLockForReadResult;
 
-        void run()
+        void run() override
         {
             testsTurn.release();
 

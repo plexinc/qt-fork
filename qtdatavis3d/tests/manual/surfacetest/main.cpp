@@ -45,12 +45,11 @@
 #include <QFrame>
 #include <QDebug>
 
-using namespace QtDataVisualization;
-
 const int initialTheme = 4;
 
 int main(int argc, char *argv[])
 {
+    qputenv("QSG_RHI_BACKEND", "opengl");
     QApplication app(argc, argv);
 
     QWidget *widget = new QWidget;

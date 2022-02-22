@@ -38,6 +38,15 @@ ListView {
     model: 10
     spacing: 2
 
+    // faster rebound to speed up test runs
+    rebound: Transition {
+        NumberAnimation {
+            properties: "x,y"
+            duration: 30
+            easing.type: Easing.OutBounce
+        }
+    }
+
     delegate: Rectangle {
         objectName: "itemview delegate"
         color: delegateDrag.active ? "wheat" : "beige"
@@ -55,14 +64,14 @@ ListView {
                 id: buttonDrag
                 objectName: "buttonDrag"
             }
-            Component.onCompleted: if (!root.buttonUnderTest) {
+            Component.onCompleted: if (!root.buttonUnderTest && index == 2) {
                 root.buttonUnderTest = this
                 root.delegateUnderTest = parent
             }
         }
         DragHandler {
             id: delegateDrag
-            objectName: "delegateDrag"
+            objectName: "delegateDrag " + index
         }
     }
 

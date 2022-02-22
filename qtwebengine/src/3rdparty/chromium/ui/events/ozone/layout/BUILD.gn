@@ -2,10 +2,17 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/linux/pkg_config.gni")
 import("//ui/base/ui_features.gni")
 
 # Chromedriver uses this in X11 builds for StubKeyboardLayoutEngine.
 assert(use_ozone || use_x11)
+
+if (use_xkbcommon) {
+  pkg_config("xkbcommon") {
+    packages = [ "xkbcommon" ]
+  }
+}
 
 component("layout") {
   output_name = "events_ozone_layout"
@@ -31,6 +38,8 @@ component("layout") {
   ]
 
   if (use_xkbcommon) {
+    configs += [ ":xkbcommon" ]
+
     sources += [
       "xkb/xkb_evdev_codes.cc",
       "xkb/xkb_evdev_codes.h",
@@ -39,7 +48,10 @@ component("layout") {
       "xkb/xkb_keyboard_layout_engine.h",
     ]
 
-    deps += [ "//ui/events/keycodes:xkb" ]
+    deps += [
+      "//build:chromeos_buildflags",
+      "//ui/events/keycodes:xkb",
+    ]
   }
 }
 
@@ -52,6 +64,7 @@ source_set("unittests") {
       "keyboard_layout_engine_unittest.cc",
       "xkb/xkb_keyboard_layout_engine_unittest.cc",
     ]
+    configs += [ ":xkbcommon" ]
   }
 
   deps = [

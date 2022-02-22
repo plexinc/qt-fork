@@ -137,7 +137,7 @@
 #include <vector>
 
 #include "base/base_export.h"
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 
@@ -443,6 +443,16 @@ class IntrusiveHeap {
   template <typename P>
   const_iterator Update(P pos) {
     return Update(ToIndex(pos));
+  }
+
+  // Applies a modification function to the object at the given location, then
+  // repairs the heap. To be used to modify an element in the heap in-place
+  // while keeping the heap intact.
+  template <typename P, typename UnaryOperation>
+  const_iterator Modify(P pos, UnaryOperation unary_op) {
+    size_type index = ToIndex(pos);
+    unary_op(impl_.heap_.at(index));
+    return Update(index);
   }
 
   //////////////////////////////////////////////////////////////////////////////

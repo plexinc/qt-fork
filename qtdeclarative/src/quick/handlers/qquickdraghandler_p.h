@@ -62,9 +62,11 @@ class Q_QUICK_PRIVATE_EXPORT QQuickDragHandler : public QQuickMultiPointHandler
     Q_PROPERTY(QQuickDragAxis * xAxis READ xAxis CONSTANT)
     Q_PROPERTY(QQuickDragAxis * yAxis READ yAxis CONSTANT)
     Q_PROPERTY(QVector2D translation READ translation NOTIFY translationChanged)
-    Q_PROPERTY(SnapMode snapMode READ snapMode WRITE setSnapMode NOTIFY snapModeChanged REVISION 14)
+    Q_PROPERTY(QVector2D activeTranslation READ activeTranslation NOTIFY translationChanged REVISION(6, 2))
+    Q_PROPERTY(QVector2D persistentTranslation READ persistentTranslation WRITE setPersistentTranslation NOTIFY translationChanged REVISION(6, 2))
+    Q_PROPERTY(SnapMode snapMode READ snapMode WRITE setSnapMode NOTIFY snapModeChanged REVISION(2, 14))
     QML_NAMED_ELEMENT(DragHandler)
-    QML_ADDED_IN_MINOR_VERSION(12)
+    QML_ADDED_IN_VERSION(2, 12)
 
 public:
     enum SnapMode {
@@ -77,13 +79,16 @@ public:
 
     explicit QQuickDragHandler(QQuickItem *parent = nullptr);
 
-    void handlePointerEventImpl(QQuickPointerEvent *event) override;
+    void handlePointerEventImpl(QPointerEvent *event) override;
 
     QQuickDragAxis *xAxis() { return &m_xAxis; }
     QQuickDragAxis *yAxis() { return &m_yAxis; }
 
-    QVector2D translation() const { return m_translation; }
-    void setTranslation(const QVector2D &trans);
+    QVector2D translation() const { return m_activeTranslation; }
+    QVector2D activeTranslation() const { return m_activeTranslation; }
+    void setActiveTranslation(const QVector2D &trans);
+    QVector2D persistentTranslation() const { return m_persistentTranslation; }
+    void setPersistentTranslation(const QVector2D &trans);
     QQuickDragHandler::SnapMode snapMode() const;
     void setSnapMode(QQuickDragHandler::SnapMode mode);
 
@@ -91,23 +96,25 @@ public:
 
 Q_SIGNALS:
     void translationChanged();
-    Q_REVISION(14) void snapModeChanged();
+    Q_REVISION(2, 14) void snapModeChanged();
 
 protected:
+    bool wantsPointerEvent(QPointerEvent *event) override;
     void onActiveChanged() override;
-    void onGrabChanged(QQuickPointerHandler *grabber, QQuickEventPoint::GrabTransition transition, QQuickEventPoint *point) override;
+    void onGrabChanged(QQuickPointerHandler *grabber, QPointingDevice::GrabTransition transition, QPointerEvent *event, QEventPoint &point) override;
 
 private:
     void ungrab();
     void enforceAxisConstraints(QPointF *localPos);
-    bool targetContainsCentroid();
     QPointF targetCentroidPosition();
 
 private:
     QPointF m_pressTargetPos;   // We must also store the local targetPos, because we cannot deduce
                                 // the press target pos from the scene pos in case there was e.g a
                                 // flick in one of the ancestors during the drag.
-    QVector2D m_translation;
+    QVector2D m_activeTranslation;
+    QVector2D m_persistentTranslation;
+    QVector2D m_startTranslation;
 
     QQuickDragAxis m_xAxis;
     QQuickDragAxis m_yAxis;

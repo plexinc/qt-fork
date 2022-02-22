@@ -8,10 +8,10 @@
 #include <utility>
 #include <vector>
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/optional.h"
 #include "base/run_loop.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/task_environment.h"
 #include "base/time/time.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
@@ -30,7 +30,9 @@
 #include "net/dns/host_resolver_manager.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/dns/public/dns_protocol.h"
+#include "net/dns/public/secure_dns_mode.h"
 #include "net/log/net_log.h"
+#include "net/net_buildflags.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -657,7 +659,7 @@ TEST_F(HostResolverTest, IncludeCanonicalName) {
   auto inner_resolver = std::make_unique<net::MockHostResolver>();
   inner_resolver->rules()->AddRuleWithFlags("example.com", "123.0.12.24",
                                             net::HOST_RESOLVER_CANONNAME,
-                                            "canonicalexample.com");
+                                            {"canonicalexample.com"});
 
   HostResolver resolver(inner_resolver.get(), net::NetLog::Get());
 
@@ -678,7 +680,7 @@ TEST_F(HostResolverTest, IncludeCanonicalName) {
   EXPECT_THAT(response_client.result_addresses().value().endpoints(),
               testing::ElementsAre(CreateExpectedEndPoint("123.0.12.24", 80)));
   EXPECT_EQ("canonicalexample.com",
-            response_client.result_addresses().value().canonical_name());
+            response_client.result_addresses().value().GetCanonicalName());
 }
 
 TEST_F(HostResolverTest, LoopbackOnly) {
@@ -728,7 +730,7 @@ TEST_F(HostResolverTest, SecureDnsModeOverride) {
   EXPECT_EQ(net::OK, response_client.result_error());
   EXPECT_THAT(response_client.result_addresses().value().endpoints(),
               testing::ElementsAre(CreateExpectedEndPoint("127.0.0.1", 80)));
-  EXPECT_EQ(net::DnsConfig::SecureDnsMode::SECURE,
+  EXPECT_EQ(net::SecureDnsMode::kSecure,
             inner_resolver->last_secure_dns_mode_override().value());
 }
 

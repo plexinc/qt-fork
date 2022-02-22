@@ -34,7 +34,9 @@
 #include <QtCore/QObject>
 #include <QtGui/QVector3D>
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+Q_MOC_INCLUDE(<QtDataVisualization/q3dscene.h>)
+
+QT_BEGIN_NAMESPACE
 
 class Q3DObjectPrivate;
 class Q3DScene;
@@ -71,6 +73,6 @@ private:
     friend class Q3DScenePrivate;
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

@@ -3,6 +3,7 @@
 # found in the LICENSE file.
 
 import("//build/buildflag_header.gni")
+import("//build/config/chromeos/ui_mode.gni")
 import("//components/gcm_driver/config.gni")
 
 buildflag_header("gcm_buildflags") {
@@ -59,7 +60,7 @@ static_library("gcm_driver") {
     "//components/pref_registry",
     "//components/prefs",
     "//components/signin/public/identity_manager",
-    "//components/sync",
+    "//components/sync/base",
     "//components/version_info",
     "//google_apis",
     "//google_apis/gcm",
@@ -76,11 +77,12 @@ static_library("gcm_driver") {
     "//components/gcm_driver/instance_id",
   ]
 
-  if (is_chromeos) {
+  if (is_chromeos_ash) {
     deps += [ "//components/timers" ]
   }
 
   if (use_gcm_from_platform) {
+    assert(is_android)
     sources += [
       "gcm_driver_android.cc",
       "gcm_driver_android.h",
@@ -107,6 +109,7 @@ static_library("gcm_driver") {
       "gcm_stats_recorder_impl.h",
     ]
     deps += [
+      "//build:chromeos_buildflags",
       "//components/crx_file",
       "//google_apis/gcm",
     ]
@@ -167,10 +170,7 @@ static_library("test_support") {
 source_set("unit_tests") {
   testonly = true
 
-  sources = [
-    "gcm_delayed_task_controller_unittest.cc",
-    "gcm_stats_recorder_android_unittest.cc",
-  ]
+  sources = [ "gcm_delayed_task_controller_unittest.cc" ]
 
   deps = [
     ":gcm_driver",
@@ -188,6 +188,10 @@ source_set("unit_tests") {
     "//third_party/protobuf:protobuf_lite",
   ]
 
+  if (is_android) {
+    sources += [ "gcm_stats_recorder_android_unittest.cc" ]
+  }
+
   if (!use_gcm_from_platform) {
     sources += [
       "account_tracker_unittest.cc",
@@ -199,6 +203,9 @@ source_set("unit_tests") {
       "gcm_stats_recorder_impl_unittest.cc",
     ]
 
-    deps += [ "//components/signin/public/identity_manager:test_support" ]
+    deps += [
+      "//build:chromeos_buildflags",
+      "//components/signin/public/identity_manager:test_support",
+    ]
   }
 }

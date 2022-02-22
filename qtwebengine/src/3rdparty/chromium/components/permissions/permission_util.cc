@@ -4,14 +4,10 @@
 
 #include "components/permissions/permission_util.h"
 
-#include "base/logging.h"
+#include "base/notreached.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "content/public/browser/permission_type.h"
-
-#if defined(OS_ANDROID)
-#include "base/android/jni_array.h"
-#include "components/permissions/android/jni_headers/PermissionUtil_jni.h"
-#endif
 
 using content::PermissionType;
 
@@ -40,8 +36,6 @@ std::string PermissionUtil::GetPermissionString(
       return "Midi";
     case ContentSettingsType::BACKGROUND_SYNC:
       return "BackgroundSync";
-    case ContentSettingsType::PLUGINS:
-      return "Flash";
     case ContentSettingsType::SENSORS:
       return "Sensors";
     case ContentSettingsType::ACCESSIBILITY_EVENTS:
@@ -70,47 +64,19 @@ std::string PermissionUtil::GetPermissionString(
       return "AR";
     case ContentSettingsType::STORAGE_ACCESS:
       return "StorageAccess";
+    case ContentSettingsType::CAMERA_PAN_TILT_ZOOM:
+      return "CameraPanTiltZoom";
+    case ContentSettingsType::WINDOW_PLACEMENT:
+      return "WindowPlacement";
+    case ContentSettingsType::FONT_ACCESS:
+      return "FontAccess";
+    case ContentSettingsType::DISPLAY_CAPTURE:
+      return "DisplayCapture";
     default:
       break;
   }
   NOTREACHED();
   return std::string();
-}
-
-PermissionRequestType PermissionUtil::GetRequestType(ContentSettingsType type) {
-  switch (type) {
-    case ContentSettingsType::GEOLOCATION:
-      return PermissionRequestType::PERMISSION_GEOLOCATION;
-    case ContentSettingsType::NOTIFICATIONS:
-      return PermissionRequestType::PERMISSION_NOTIFICATIONS;
-    case ContentSettingsType::MIDI_SYSEX:
-      return PermissionRequestType::PERMISSION_MIDI_SYSEX;
-    case ContentSettingsType::PROTECTED_MEDIA_IDENTIFIER:
-      return PermissionRequestType::PERMISSION_PROTECTED_MEDIA_IDENTIFIER;
-    case ContentSettingsType::PLUGINS:
-      return PermissionRequestType::PERMISSION_FLASH;
-    case ContentSettingsType::MEDIASTREAM_MIC:
-      return PermissionRequestType::PERMISSION_MEDIASTREAM_MIC;
-    case ContentSettingsType::MEDIASTREAM_CAMERA:
-      return PermissionRequestType::PERMISSION_MEDIASTREAM_CAMERA;
-    case ContentSettingsType::ACCESSIBILITY_EVENTS:
-      return PermissionRequestType::PERMISSION_ACCESSIBILITY_EVENTS;
-    case ContentSettingsType::CLIPBOARD_READ_WRITE:
-      return PermissionRequestType::PERMISSION_CLIPBOARD_READ_WRITE;
-    case ContentSettingsType::PAYMENT_HANDLER:
-      return PermissionRequestType::PERMISSION_PAYMENT_HANDLER;
-    case ContentSettingsType::NFC:
-      return PermissionRequestType::PERMISSION_NFC;
-    case ContentSettingsType::VR:
-      return PermissionRequestType::PERMISSION_VR;
-    case ContentSettingsType::AR:
-      return PermissionRequestType::PERMISSION_AR;
-    case ContentSettingsType::STORAGE_ACCESS:
-      return PermissionRequestType::PERMISSION_STORAGE_ACCESS;
-    default:
-      NOTREACHED();
-      return PermissionRequestType::UNKNOWN;
-  }
 }
 
 PermissionRequestGestureType PermissionUtil::GetGestureType(bool user_gesture) {
@@ -136,9 +102,7 @@ bool PermissionUtil::GetPermissionType(ContentSettingsType type,
     *out = PermissionType::AUDIO_CAPTURE;
   } else if (type == ContentSettingsType::BACKGROUND_SYNC) {
     *out = PermissionType::BACKGROUND_SYNC;
-  } else if (type == ContentSettingsType::PLUGINS) {
-    *out = PermissionType::FLASH;
-#if defined(OS_ANDROID) || defined(OS_CHROMEOS)
+#if defined(OS_ANDROID) || BUILDFLAG(IS_CHROMEOS_ASH)
   } else if (type == ContentSettingsType::PROTECTED_MEDIA_IDENTIFIER) {
     *out = PermissionType::PROTECTED_MEDIA_IDENTIFIER;
 #endif
@@ -166,6 +130,16 @@ bool PermissionUtil::GetPermissionType(ContentSettingsType type,
     *out = PermissionType::AR;
   } else if (type == ContentSettingsType::STORAGE_ACCESS) {
     *out = PermissionType::STORAGE_ACCESS_GRANT;
+  } else if (type == ContentSettingsType::CAMERA_PAN_TILT_ZOOM) {
+    *out = PermissionType::CAMERA_PAN_TILT_ZOOM;
+  } else if (type == ContentSettingsType::WINDOW_PLACEMENT) {
+    *out = PermissionType::WINDOW_PLACEMENT;
+  } else if (type == ContentSettingsType::FONT_ACCESS) {
+    *out = PermissionType::FONT_ACCESS;
+  } else if (type == ContentSettingsType::IDLE_DETECTION) {
+    *out = PermissionType::IDLE_DETECTION;
+  } else if (type == ContentSettingsType::DISPLAY_CAPTURE) {
+    *out = PermissionType::DISPLAY_CAPTURE;
   } else {
     return false;
   }
@@ -176,13 +150,13 @@ bool PermissionUtil::IsPermission(ContentSettingsType type) {
   switch (type) {
     case ContentSettingsType::GEOLOCATION:
     case ContentSettingsType::NOTIFICATIONS:
+    case ContentSettingsType::MIDI:
     case ContentSettingsType::MIDI_SYSEX:
     case ContentSettingsType::DURABLE_STORAGE:
     case ContentSettingsType::MEDIASTREAM_CAMERA:
     case ContentSettingsType::MEDIASTREAM_MIC:
     case ContentSettingsType::BACKGROUND_SYNC:
-    case ContentSettingsType::PLUGINS:
-#if defined(OS_ANDROID) || defined(OS_CHROMEOS)
+#if defined(OS_ANDROID) || BUILDFLAG(IS_CHROMEOS_ASH)
     case ContentSettingsType::PROTECTED_MEDIA_IDENTIFIER:
 #endif
     case ContentSettingsType::SENSORS:
@@ -197,24 +171,15 @@ bool PermissionUtil::IsPermission(ContentSettingsType type) {
     case ContentSettingsType::VR:
     case ContentSettingsType::AR:
     case ContentSettingsType::STORAGE_ACCESS:
+    case ContentSettingsType::CAMERA_PAN_TILT_ZOOM:
+    case ContentSettingsType::WINDOW_PLACEMENT:
+    case ContentSettingsType::FONT_ACCESS:
+    case ContentSettingsType::IDLE_DETECTION:
+    case ContentSettingsType::DISPLAY_CAPTURE:
       return true;
     default:
       return false;
   }
 }
-
-#if defined(OS_ANDROID)
-// static
-void PermissionUtil::GetAndroidPermissionsForContentSetting(
-    ContentSettingsType content_settings_type,
-    std::vector<std::string>* out) {
-  JNIEnv* env = base::android::AttachCurrentThread();
-  base::android::AppendJavaStringArrayToStringVector(
-      env,
-      Java_PermissionUtil_getAndroidPermissionsForContentSetting(
-          env, static_cast<int>(content_settings_type)),
-      out);
-}
-#endif
 
 }  // namespace permissions

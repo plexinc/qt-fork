@@ -37,15 +37,15 @@
 **
 ****************************************************************************/
 
-#include "qandroidplatformvulkanwindow.h"
-#include "qandroidplatformscreen.h"
+#include "androiddeadlockprotector.h"
 #include "androidjnimain.h"
 #include "qandroideventdispatcher.h"
-#include "androiddeadlockprotector.h"
+#include "qandroidplatformscreen.h"
+#include "qandroidplatformvulkanwindow.h"
 
 #include <QSurfaceFormat>
-#include <qpa/qwindowsysteminterface.h>
 #include <qpa/qplatformscreen.h>
+#include <qpa/qwindowsysteminterface.h>
 
 #include <android/native_window.h>
 #include <android/native_window_jni.h>
@@ -172,8 +172,8 @@ VkSurfaceKHR *QAndroidPlatformVulkanWindow::vkSurface()
         if (m_nativeSurfaceId == -1 || !m_androidSurfaceObject.isValid())
             return &m_vkSurface;
 
-        QJNIEnvironmentPrivate env;
-        m_nativeWindow = ANativeWindow_fromSurface(env, m_androidSurfaceObject.object());
+        QJniEnvironment env;
+        m_nativeWindow = ANativeWindow_fromSurface(env.jniEnv(), m_androidSurfaceObject.object());
 
         VkAndroidSurfaceCreateInfoKHR surfaceInfo;
         memset(&surfaceInfo, 0, sizeof(surfaceInfo));

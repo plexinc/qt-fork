@@ -77,7 +77,7 @@ struct QQmlTypeWrapper : Object {
     void init();
     void destroy();
     TypeNameMode mode;
-    QQmlQPointer<QObject> object;
+    QV4QPointer<QObject> object;
 
     QQmlType type() const;
 
@@ -102,6 +102,7 @@ struct Q_QML_EXPORT QQmlTypeWrapper : Object
     V4_NEEDS_DESTROY
 
     bool isSingleton() const;
+    QObject *object() const;
     QObject *singletonObject() const;
 
     QVariant toVariant() const;

@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/test_tools/mock_clock.h"
+#include "quic/test_tools/mock_clock.h"
 
 namespace quic {
 
@@ -12,6 +12,10 @@ MockClock::~MockClock() {}
 
 void MockClock::AdvanceTime(QuicTime::Delta delta) {
   now_ = now_ + delta;
+}
+
+void MockClock::Reset() {
+  now_ = QuicTime::Zero();
 }
 
 QuicTime MockClock::Now() const {

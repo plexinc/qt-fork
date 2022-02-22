@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the Qt Charts module of the Qt Toolkit.
@@ -45,7 +45,7 @@
 #include <QtGui/QPen>
 #include <QtCharts/private/qchartglobal_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class QLineSeries;
 class ChartPresenter;
@@ -59,22 +59,22 @@ public:
     ~LineChartItem() {}
 
     //from QGraphicsItem
-    QRectF boundingRect() const;
-    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget);
-    QPainterPath shape() const;
+    QRectF boundingRect() const override;
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
+    QPainterPath shape() const override;
 
     QPainterPath path() const { return m_fullPath; }
 
 public Q_SLOTS:
-    void handleUpdated();
+    void handleSeriesUpdated() override;
 
 protected:
-    void updateGeometry();
-    void mousePressEvent(QGraphicsSceneMouseEvent *event);
-    void hoverEnterEvent(QGraphicsSceneHoverEvent *event);
-    void hoverLeaveEvent(QGraphicsSceneHoverEvent *event);
-    void mouseReleaseEvent(QGraphicsSceneMouseEvent *event);
-    void mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event);
+    void updateGeometry() override;
+    void mousePressEvent(QGraphicsSceneMouseEvent *event) override;
+    void hoverEnterEvent(QGraphicsSceneHoverEvent *event) override;
+    void hoverLeaveEvent(QGraphicsSceneHoverEvent *event) override;
+    void mouseReleaseEvent(QGraphicsSceneMouseEvent *event) override;
+    void mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) override;
     void suppressPoints() { m_pointsVisible = false; }
     void forceChartType(QChart::ChartType chartType) { m_chartType = chartType; }
 
@@ -86,13 +86,14 @@ private:
     QPainterPath m_fullPath;
     QPainterPath m_shapePath;
 
-    QVector<QPointF> m_linePoints;
+    QList<QPointF> m_linePoints;
     QRectF m_rect;
     QPen m_linePen;
     bool m_pointsVisible;
     QChart::ChartType m_chartType;
 
     bool m_pointLabelsVisible;
+    qreal m_markerSize;
     QString m_pointLabelsFormat;
     QFont m_pointLabelsFont;
     QColor m_pointLabelsColor;
@@ -102,6 +103,6 @@ private:
     bool m_mousePressed;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif

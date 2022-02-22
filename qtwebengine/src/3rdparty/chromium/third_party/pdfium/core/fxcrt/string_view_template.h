@@ -15,7 +15,6 @@
 #include "core/fxcrt/fx_system.h"
 #include "third_party/base/optional.h"
 #include "third_party/base/span.h"
-#include "third_party/base/stl_util.h"
 
 namespace fxcrt {
 
@@ -43,7 +42,7 @@ class StringViewTemplate {
       : m_Span(reinterpret_cast<const UnsignedType*>(ptr),
                ptr ? FXSYS_len(ptr) : 0) {}
 
-  StringViewTemplate(const CharType* ptr, size_t len) noexcept
+  constexpr StringViewTemplate(const CharType* ptr, size_t len) noexcept
       : m_Span(reinterpret_cast<const UnsignedType*>(ptr), len) {}
 
   explicit constexpr StringViewTemplate(
@@ -69,7 +68,7 @@ class StringViewTemplate {
   // Deliberately implicit to avoid calling on every string literal.
   // |ch| must be an lvalue that outlives the StringViewTemplate.
   // NOLINTNEXTLINE(runtime/explicit)
-  StringViewTemplate(CharType& ch) noexcept
+  constexpr StringViewTemplate(CharType& ch) noexcept
       : m_Span(reinterpret_cast<const UnsignedType*>(&ch), 1) {}
 
   // Any changes to |vec| invalidate the string.

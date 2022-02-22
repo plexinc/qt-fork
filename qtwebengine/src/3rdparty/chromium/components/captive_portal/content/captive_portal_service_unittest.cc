@@ -33,8 +33,8 @@ class CaptivePortalObserver {
         num_results_received_(0),
         captive_portal_service_(captive_portal_service),
         subscription_(captive_portal_service->RegisterCallback(
-            base::Bind(&CaptivePortalObserver::Observe,
-                       base::Unretained(this)))) {}
+            base::BindRepeating(&CaptivePortalObserver::Observe,
+                                base::Unretained(this)))) {}
 
   CaptivePortalResult captive_portal_result() const {
     return captive_portal_result_;
@@ -56,7 +56,7 @@ class CaptivePortalObserver {
 
   CaptivePortalService* captive_portal_service_;
 
-  std::unique_ptr<CaptivePortalService::Subscription> subscription_;
+  base::CallbackListSubscription subscription_;
 
   DISALLOW_COPY_AND_ASSIGN(CaptivePortalObserver);
 };

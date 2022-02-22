@@ -5,7 +5,7 @@
 #include "content/browser/service_worker/service_worker_installed_scripts_sender.h"
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/optional.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
@@ -13,7 +13,6 @@
 #include "base/test/metrics/histogram_tester.h"
 #include "content/browser/service_worker/embedded_worker_test_helper.h"
 #include "content/browser/service_worker/service_worker_context_core.h"
-#include "content/browser/service_worker/service_worker_disk_cache.h"
 #include "content/browser/service_worker/service_worker_test_utils.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/test/browser_task_environment.h"
@@ -21,59 +20,10 @@
 #include "net/base/io_buffer.h"
 #include "net/base/test_completion_callback.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/blob/blob_utils.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_registration.mojom.h"
 
 namespace content {
-
-namespace {
-
-void ReadDataPipeInternal(mojo::DataPipeConsumerHandle handle,
-                          std::string* result,
-                          base::OnceClosure quit_closure) {
-  while (true) {
-    uint32_t num_bytes;
-    const void* buffer = nullptr;
-    MojoResult rv =
-        handle.BeginReadData(&buffer, &num_bytes, MOJO_READ_DATA_FLAG_NONE);
-    switch (rv) {
-      case MOJO_RESULT_BUSY:
-      case MOJO_RESULT_INVALID_ARGUMENT:
-        NOTREACHED();
-        return;
-      case MOJO_RESULT_FAILED_PRECONDITION:
-        std::move(quit_closure).Run();
-        return;
-      case MOJO_RESULT_SHOULD_WAIT:
-        base::ThreadTaskRunnerHandle::Get()->PostTask(
-            FROM_HERE, base::BindOnce(&ReadDataPipeInternal, handle, result,
-                                      std::move(quit_closure)));
-        return;
-      case MOJO_RESULT_OK:
-        EXPECT_NE(nullptr, buffer);
-        EXPECT_GT(num_bytes, 0u);
-        uint32_t before_size = result->size();
-        result->append(static_cast<const char*>(buffer), num_bytes);
-        uint32_t read_size = result->size() - before_size;
-        EXPECT_EQ(num_bytes, read_size);
-        rv = handle.EndReadData(read_size);
-        EXPECT_EQ(MOJO_RESULT_OK, rv);
-        break;
-    }
-  }
-  NOTREACHED();
-  return;
-}
-
-std::string ReadDataPipe(mojo::ScopedDataPipeConsumerHandle handle) {
-  EXPECT_TRUE(handle.is_valid());
-  std::string result;
-  base::RunLoop loop;
-  ReadDataPipeInternal(handle.get(), &result, loop.QuitClosure());
-  loop.Run();
-  return result;
-}
-
-}  // namespace
 
 class ExpectedScriptInfo {
  public:
@@ -92,7 +42,8 @@ class ExpectedScriptInfo {
         meta_data_(meta_data) {}
 
   storage::mojom::ServiceWorkerResourceRecordPtr WriteToDiskCache(
-      ServiceWorkerStorage* storage) const {
+      mojo::Remote<storage::mojom::ServiceWorkerStorageControl>& storage)
+      const {
     return ::content::WriteToDiskCacheWithIdSync(
         storage, script_url_, resource_id_, headers_, body_, meta_data_);
   }
@@ -175,8 +126,6 @@ class ServiceWorkerInstalledScriptsSenderTest : public testing::Test {
   void SetUp() override {
     helper_ = std::make_unique<EmbeddedWorkerTestHelper>(base::FilePath());
 
-    context()->storage()->LazyInitializeForTest();
-
     scope_ = GURL("http://www.example.com/test/");
     blink::mojom::ServiceWorkerRegistrationOptions options;
     options.scope = scope_;
@@ -199,6 +148,7 @@ class ServiceWorkerInstalledScriptsSenderTest : public testing::Test {
 
   EmbeddedWorkerTestHelper* helper() { return helper_.get(); }
   ServiceWorkerContextCore* context() { return helper_->context(); }
+  ServiceWorkerRegistry* registry() { return context()->registry(); }
   ServiceWorkerVersion* version() { return version_.get(); }
 
  private:
@@ -251,7 +201,8 @@ TEST_F(ServiceWorkerInstalledScriptsSenderTest, SendScripts) {
   {
     std::vector<storage::mojom::ServiceWorkerResourceRecordPtr> records;
     for (const auto& info : kExpectedScriptInfoMap)
-      records.push_back(info.second.WriteToDiskCache(context()->storage()));
+      records.push_back(
+          info.second.WriteToDiskCache(context()->GetStorageControl()));
     version()->script_cache_map()->SetResources(records);
   }
 
@@ -285,6 +236,8 @@ TEST_F(ServiceWorkerInstalledScriptsSenderTest, SendScripts) {
     info.CheckIfIdentical(script_info);
   }
 
+  // Wait until the last send finishes.
+  base::RunLoop().RunUntilIdle();
   EXPECT_EQ(FinishedReason::kSuccess, sender->last_finished_reason());
 }
 
@@ -307,7 +260,8 @@ TEST_F(ServiceWorkerInstalledScriptsSenderTest, FailedToSendBody) {
   {
     std::vector<storage::mojom::ServiceWorkerResourceRecordPtr> records;
     for (const auto& info : kExpectedScriptInfoMap)
-      records.push_back(info.second.WriteToDiskCache(context()->storage()));
+      records.push_back(
+          info.second.WriteToDiskCache(context()->GetStorageControl()));
     version()->script_cache_map()->SetResources(records);
   }
 
@@ -350,7 +304,7 @@ TEST_F(ServiceWorkerInstalledScriptsSenderTest, FailedToSendBody) {
 TEST_F(ServiceWorkerInstalledScriptsSenderTest, FailedToSendMetaData) {
   const GURL kMainScriptURL = version()->script_url();
   std::string long_meta_data = "I'm the meta data!";
-  long_meta_data.resize(3E6, '!');
+  long_meta_data.resize(blink::BlobUtils::GetDataPipeCapacity(3E6) + 1, '!');
   std::map<GURL, ExpectedScriptInfo> kExpectedScriptInfoMap = {
       {kMainScriptURL,
        {1,
@@ -366,7 +320,8 @@ TEST_F(ServiceWorkerInstalledScriptsSenderTest, FailedToSendMetaData) {
   {
     std::vector<storage::mojom::ServiceWorkerResourceRecordPtr> records;
     for (const auto& info : kExpectedScriptInfoMap)
-      records.push_back(info.second.WriteToDiskCache(context()->storage()));
+      records.push_back(
+          info.second.WriteToDiskCache(context()->GetStorageControl()));
     version()->script_cache_map()->SetResources(records);
   }
 
@@ -410,7 +365,7 @@ TEST_F(ServiceWorkerInstalledScriptsSenderTest, FailedToSendMetaData) {
 TEST_F(ServiceWorkerInstalledScriptsSenderTest, Histograms) {
   const GURL kMainScriptURL = version()->script_url();
   // Use script bodies small enough to be read by one
-  // ServiceWorkerResponseReader::ReadData(). The number of
+  // ServiceWorkerResourceReader::ReadData(). The number of
   // ServiceWorker.DiskCache.ReadResponseResult will be two per script (one is
   // reading the body and the other is saying EOD).
   std::map<GURL, ExpectedScriptInfo> kExpectedScriptInfoMap = {
@@ -437,7 +392,8 @@ TEST_F(ServiceWorkerInstalledScriptsSenderTest, Histograms) {
   {
     std::vector<storage::mojom::ServiceWorkerResourceRecordPtr> records;
     for (const auto& info : kExpectedScriptInfoMap)
-      records.push_back(info.second.WriteToDiskCache(context()->storage()));
+      records.push_back(
+          info.second.WriteToDiskCache(context()->GetStorageControl()));
     version()->script_cache_map()->SetResources(records);
   }
 
@@ -472,6 +428,8 @@ TEST_F(ServiceWorkerInstalledScriptsSenderTest, Histograms) {
     info.CheckIfIdentical(script_info);
   }
 
+  // Wait until the last send finishes.
+  base::RunLoop().RunUntilIdle();
   EXPECT_EQ(FinishedReason::kSuccess, sender->last_finished_reason());
 
   // The histogram should be recorded when reading the script.
@@ -517,7 +475,8 @@ TEST_F(ServiceWorkerInstalledScriptsSenderTest, RequestScriptBeforeStreaming) {
   {
     std::vector<storage::mojom::ServiceWorkerResourceRecordPtr> records;
     for (const auto& info : kExpectedScriptInfoMap)
-      records.push_back(info.second.WriteToDiskCache(context()->storage()));
+      records.push_back(
+          info.second.WriteToDiskCache(context()->GetStorageControl()));
     version()->script_cache_map()->SetResources(records);
   }
 
@@ -566,6 +525,9 @@ TEST_F(ServiceWorkerInstalledScriptsSenderTest, RequestScriptBeforeStreaming) {
     EXPECT_EQ(info.script_url(), script_info->script_url);
     info.CheckIfIdentical(script_info);
   }
+
+  // Wait until the last send finishes.
+  base::RunLoop().RunUntilIdle();
   EXPECT_EQ(FinishedReason::kSuccess, sender->last_finished_reason());
 }
 
@@ -604,7 +566,8 @@ TEST_F(ServiceWorkerInstalledScriptsSenderTest, RequestScriptAfterStreaming) {
   {
     std::vector<storage::mojom::ServiceWorkerResourceRecordPtr> records;
     for (const auto& info : kExpectedScriptInfoMap)
-      records.push_back(info.second.WriteToDiskCache(context()->storage()));
+      records.push_back(
+          info.second.WriteToDiskCache(context()->GetStorageControl()));
     version()->script_cache_map()->SetResources(records);
   }
 
@@ -640,6 +603,8 @@ TEST_F(ServiceWorkerInstalledScriptsSenderTest, RequestScriptAfterStreaming) {
     EXPECT_EQ(info.script_url(), script_info->script_url);
     info.CheckIfIdentical(script_info);
   }
+  // Wait until the initial "streaming" ends.
+  base::RunLoop().RunUntilIdle();
   EXPECT_EQ(FinishedReason::kSuccess, sender->last_finished_reason());
 
   // Request the main script again before receiving the other scripts.
@@ -652,6 +617,8 @@ TEST_F(ServiceWorkerInstalledScriptsSenderTest, RequestScriptAfterStreaming) {
     EXPECT_EQ(info.script_url(), script_info->script_url);
     info.CheckIfIdentical(script_info);
   }
+  // Wait until the second send for the main script finishes.
+  base::RunLoop().RunUntilIdle();
   EXPECT_EQ(FinishedReason::kSuccess, sender->last_finished_reason());
 }
 
@@ -671,7 +638,8 @@ TEST_F(ServiceWorkerInstalledScriptsSenderTest, NoContext) {
         "I'm meta data for the main script"}}};
   std::vector<storage::mojom::ServiceWorkerResourceRecordPtr> records;
   for (const auto& info : kExpectedScriptInfoMap)
-    records.push_back(info.second.WriteToDiskCache(context()->storage()));
+    records.push_back(
+        info.second.WriteToDiskCache(context()->GetStorageControl()));
   version()->script_cache_map()->SetResources(records);
   auto sender =
       std::make_unique<ServiceWorkerInstalledScriptsSender>(version());
@@ -681,6 +649,67 @@ TEST_F(ServiceWorkerInstalledScriptsSenderTest, NoContext) {
 
   sender->Start();
   EXPECT_EQ(sender->last_finished_reason(), FinishedReason::kNoContextError);
+}
+
+// Test that the scripts sender aborts gracefully when a remote connection to
+// the Storage Service is disconnected.
+TEST_F(ServiceWorkerInstalledScriptsSenderTest, RemoteStorageDisconnection) {
+  const GURL kMainScriptURL = version()->script_url();
+  std::map<GURL, ExpectedScriptInfo> kExpectedScriptInfoMap = {
+      {kMainScriptURL,
+       {1,
+        kMainScriptURL,
+        {{"Content-Length", "35"},
+         {"Content-Type", "text/javascript; charset=utf-8"},
+         {"TestHeader", "BlahBlah"}},
+        "utf-8",
+        "I'm script body for the main script",
+        "I'm meta data for the main script"}}};
+  std::vector<storage::mojom::ServiceWorkerResourceRecordPtr> records;
+  for (const auto& info : kExpectedScriptInfoMap)
+    records.push_back(
+        info.second.WriteToDiskCache(context()->GetStorageControl()));
+  version()->script_cache_map()->SetResources(records);
+  auto sender =
+      std::make_unique<ServiceWorkerInstalledScriptsSender>(version());
+
+  sender->Start();
+
+  helper()->SimulateStorageRestartForTesting();
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_EQ(sender->last_finished_reason(), FinishedReason::kConnectionError);
+}
+
+// Test that the scripts sender aborts gracefully when the storage is disabled.
+TEST_F(ServiceWorkerInstalledScriptsSenderTest, StorageDisabled) {
+  const GURL kMainScriptURL = version()->script_url();
+  std::map<GURL, ExpectedScriptInfo> kExpectedScriptInfoMap = {
+      {kMainScriptURL,
+       {1,
+        kMainScriptURL,
+        {{"Content-Length", "35"},
+         {"Content-Type", "text/javascript; charset=utf-8"},
+         {"TestHeader", "BlahBlah"}},
+        "utf-8",
+        "I'm script body for the main script",
+        "I'm meta data for the main script"}}};
+  std::vector<storage::mojom::ServiceWorkerResourceRecordPtr> records;
+  for (const auto& info : kExpectedScriptInfoMap)
+    records.push_back(
+        info.second.WriteToDiskCache(context()->GetStorageControl()));
+  version()->script_cache_map()->SetResources(records);
+
+  base::RunLoop loop;
+  registry()->DisableStorageForTesting(loop.QuitClosure());
+  loop.Run();
+
+  auto sender =
+      std::make_unique<ServiceWorkerInstalledScriptsSender>(version());
+  sender->Start();
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_EQ(sender->last_finished_reason(), FinishedReason::kConnectionError);
 }
 
 }  // namespace content

@@ -63,7 +63,12 @@ WebGPUCommandBufferStub::WebGPUCommandBufferStub(
                         stream_id,
                         route_id) {}
 
-WebGPUCommandBufferStub::~WebGPUCommandBufferStub() {}
+WebGPUCommandBufferStub::~WebGPUCommandBufferStub() {
+  // Must run before memory_tracker_ is destroyed.
+  decoder_context()->Destroy(false);
+
+  memory_tracker_ = nullptr;
+}
 
 gpu::ContextResult WebGPUCommandBufferStub::Initialize(
     CommandBufferStub* share_command_buffer_stub,
@@ -101,13 +106,13 @@ gpu::ContextResult WebGPUCommandBufferStub::Initialize(
   share_group_ = manager->share_group();
   use_virtualized_gl_context_ = false;
 
-  memory_tracker_ = CreateMemoryTracker(init_params);
+  memory_tracker_ = CreateMemoryTracker();
 
   command_buffer_ =
       std::make_unique<CommandBufferService>(this, memory_tracker_.get());
   std::unique_ptr<webgpu::WebGPUDecoder> decoder(webgpu::WebGPUDecoder::Create(
       this, command_buffer_.get(), manager->shared_image_manager(),
-      memory_tracker_.get(), manager->outputter()));
+      memory_tracker_.get(), manager->outputter(), manager->gpu_preferences()));
 
   sync_point_client_state_ =
       channel_->sync_point_manager()->CreateSyncPointClientState(
@@ -144,8 +149,8 @@ gpu::ContextResult WebGPUCommandBufferStub::Initialize(
 #endif  // defined(OS_FUCHSIA)
 }
 
-MemoryTracker* WebGPUCommandBufferStub::GetMemoryTracker() const {
-  return memory_tracker_.get();
+MemoryTracker* WebGPUCommandBufferStub::GetContextGroupMemoryTracker() const {
+  return nullptr;
 }
 
 bool WebGPUCommandBufferStub::HandleMessage(const IPC::Message& message) {

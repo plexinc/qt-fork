@@ -17,7 +17,7 @@ namespace gpu {
 #if defined(CYGPROFILE_INSTRUMENTATION)
 constexpr base::TimeDelta kGpuWatchdogTimeout =
     base::TimeDelta::FromSeconds(30);
-#elif defined(OS_MACOSX)
+#elif defined(OS_MAC)
 constexpr base::TimeDelta kGpuWatchdogTimeout =
     base::TimeDelta::FromSeconds(25);
 #elif defined(OS_WIN)
@@ -40,13 +40,6 @@ constexpr int kInitFactor = 2;
 #else
 constexpr int kInitFactor = 1;
 #endif
-
-// Do not change this number. It's for histogram "GPU.GPUChannelHostWaitTime".
-// This is the max wait time when waiting for sync in the GPU channel Host. It
-// needs to be bigger than (kGpuWatchdogTimeout * kRestartFactor) for all
-// platforms.
-constexpr base::TimeDelta kGpuChannelHostMaxWaitTime =
-    base::TimeDelta::FromSeconds(120);
 
 }  // namespace gpu
 

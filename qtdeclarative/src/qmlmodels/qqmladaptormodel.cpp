@@ -72,7 +72,7 @@ static QV4::ReturnedValue get_index(const QV4::FunctionObject *f, const QV4::Val
 
 template <typename T, typename M> static void setModelDataType(QMetaObjectBuilder *builder, M *metaType)
 {
-    builder->setFlags(QMetaObjectBuilder::DynamicMetaObject);
+    builder->setFlags(MetaObjectFlag::DynamicMetaObject);
     builder->setClassName(T::staticMetaObject.className());
     builder->setSuperClass(&T::staticMetaObject);
     metaType->propertyOffset = T::staticMetaObject.propertyCount();
@@ -369,10 +369,10 @@ QV4::ReturnedValue QQmlDMCachedModelData::set_property(const QV4::FunctionObject
         QQmlDMCachedModelData *modelData = static_cast<QQmlDMCachedModelData *>(o->d()->item);
         if (!modelData->cachedData.isEmpty()) {
             if (modelData->cachedData.count() > 1) {
-                modelData->cachedData[propertyId] = scope.engine->toVariant(argv[0], QMetaType::UnknownType);
+                modelData->cachedData[propertyId] = scope.engine->toVariant(argv[0], QMetaType {});
                 QMetaObject::activate(o->d()->item, o->d()->item->metaObject(), propertyId, nullptr);
             } else if (modelData->cachedData.count() == 1) {
-                modelData->cachedData[0] = scope.engine->toVariant(argv[0], QMetaType::UnknownType);
+                modelData->cachedData[0] = scope.engine->toVariant(argv[0], QMetaType {});
                 QMetaObject::activate(o->d()->item, o->d()->item->metaObject(), 0, nullptr);
                 QMetaObject::activate(o->d()->item, o->d()->item->metaObject(), 1, nullptr);
             }
@@ -603,7 +603,7 @@ public:
         if (!argc)
             return v4->throwTypeError();
 
-        static_cast<QQmlDMListAccessorData *>(o->d()->item)->setModelData(v4->toVariant(argv[0], QMetaType::UnknownType));
+        static_cast<QQmlDMListAccessorData *>(o->d()->item)->setModelData(v4->toVariant(argv[0], QMetaType {}));
         return QV4::Encode::undefined();
     }
 
@@ -770,7 +770,7 @@ public:
                 | QMetaObjectBuilder::SuperClass
                 | QMetaObjectBuilder::ClassName)
     {
-        builder.setFlags(QMetaObjectBuilder::DynamicMetaObject);
+        builder.setFlags(MetaObjectFlag::DynamicMetaObject);
     }
 
     int rowCount(const QQmlAdaptorModel &model) const override
@@ -962,11 +962,11 @@ QQmlAdaptorModel::~QQmlAdaptorModel()
     accessors->cleanup(*this);
 }
 
-void QQmlAdaptorModel::setModel(const QVariant &variant, QObject *parent, QQmlEngine *engine)
+void QQmlAdaptorModel::setModel(const QVariant &variant, QObject *parent)
 {
     accessors->cleanup(*this);
 
-    list.setList(variant, engine);
+    list.setList(variant);
 
     if (QObject *object = qvariant_cast<QObject *>(list.list())) {
         setObject(object, parent);
@@ -1035,14 +1035,14 @@ int QQmlAdaptorModel::indexAt(int row, int column) const
     return column * rowCount() + row;
 }
 
-void QQmlAdaptorModel::useImportVersion(int minorVersion)
+void QQmlAdaptorModel::useImportVersion(QTypeRevision revision)
 {
-    modelItemRevision = minorVersion;
+    modelItemRevision = revision;
 }
 
 void QQmlAdaptorModel::objectDestroyed(QObject *)
 {
-    setModel(QVariant(), nullptr, nullptr);
+    setModel(QVariant(), nullptr);
 }
 
 QQmlAdaptorModelEngineData::QQmlAdaptorModelEngineData(QV4::ExecutionEngine *v4)

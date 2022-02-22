@@ -13,6 +13,8 @@
 
 #include <set>
 
+#if defined(SKSL_STANDALONE) || GR_TEST_UTILS
+
 namespace SkSL {
 
 class CPPCodeGenerator : public GLSLCodeGenerator {
@@ -23,9 +25,11 @@ public:
     bool generateCode() override;
 
 private:
-    void writef(const char* s, va_list va) SKSL_PRINTF_LIKE(2, 0);
+    using Precedence = Operator::Precedence;
 
-    void writef(const char* s, ...) SKSL_PRINTF_LIKE(2, 3);
+    void writef(const char* s, va_list va) SK_PRINTF_LIKE(2, 0);
+
+    void writef(const char* s, ...) SK_PRINTF_LIKE(2, 3);
 
     bool writeSection(const char* name, const char* prefix = "");
 
@@ -37,13 +41,9 @@ private:
 
     void writeBinaryExpression(const BinaryExpression& b, Precedence parentPrecedence) override;
 
-    void writeIndexExpression(const IndexExpression& i) override;
-
     void writeIntLiteral(const IntLiteral& i) override;
 
     void writeSwizzle(const Swizzle& swizzle) override;
-
-    void writeFieldAccess(const FieldAccess& access) override;
 
     void writeVariableReference(const VariableReference& ref) override;
 
@@ -55,9 +55,15 @@ private:
 
     void writeSwitchStatement(const SwitchStatement& s) override;
 
+    String getSampleVarName(const char* prefix, int sampleCounter);
+
     void writeFunctionCall(const FunctionCall& c) override;
 
     void writeFunction(const FunctionDefinition& f) override;
+
+    void prepareHelperFunction(const FunctionDeclaration& decl);
+
+    void prototypeHelperFunction(const FunctionDeclaration& decl);
 
     void writeSetting(const Setting& s) override;
 
@@ -67,6 +73,8 @@ private:
 
     // writes a printf escape that will be filled in at runtime by the given C++ expression string
     void writeRuntimeValue(const Type& type, const Layout& layout, const String& cppCode);
+    String formatRuntimeValue(const Type& type, const Layout& layout, const String& cppCode,
+                              std::vector<String>* formatArgs);
 
     void writeVarInitializer(const Variable& var, const Expression& value) override;
 
@@ -78,6 +86,8 @@ private:
 
     void writeCodeAppend(const String& code);
 
+    String assembleCodeAndFormatArgPrintf(const String& code);
+
     bool writeEmitCode(std::vector<const Variable*>& uniforms);
 
     void writeSetData(std::vector<const Variable*>& uniforms);
@@ -87,6 +97,8 @@ private:
     void writeOnTextureSampler();
 
     void writeClone();
+
+    void writeDumpInfo();
 
     void writeTest();
 
@@ -123,19 +135,29 @@ private:
     std::vector<String> fExtraEmitCodeBlocks;
 
     std::vector<String> fFormatArgs;
-    std::set<int> fWrittenTransformedCoords;
-    // if true, we are writing a C++ expression instead of a GLSL expression
+    // true if the sksl declared its main() function with a float2 parameter AND referenced that
+    // parameter in its body.
+    bool fAccessSampleCoordsDirectly = false;
+
+    // If true, we are writing a C++ expression instead of a GLSL expression
     bool fCPPMode = false;
+
+    // True while compiling the main() function of the FP.
     bool fInMain = false;
+
+    // Gives unique but predictable names to invocations of sample().
+    int fSampleCounter = 0;
 
     // if not null, we are accumulating SkSL for emitCode into fOut, which
     // replaced the original buffer with a StringStream. The original buffer is
     // stored here for restoration.
     OutputStream* fCPPBuffer = nullptr;
 
-    typedef GLSLCodeGenerator INHERITED;
+    using INHERITED = GLSLCodeGenerator;
 };
 
-}
+}  // namespace SkSL
 
-#endif
+#endif // defined(SKSL_STANDALONE) || GR_TEST_UTILS
+
+#endif // SKSL_CPPCODEGENERATOR

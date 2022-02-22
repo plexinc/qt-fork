@@ -5,10 +5,9 @@ opensuse-leap
 [mouseSelectionMode]
 opensuse-leap
 
-[hAlignVisual]
-sles
-
 # QTBUG-82052
 [linkHover]
 macos ci
 
+[hAlignVisual]
+sles

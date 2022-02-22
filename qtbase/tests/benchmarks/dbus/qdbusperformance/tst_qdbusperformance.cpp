@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
@@ -25,9 +25,13 @@
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
-#include <QtCore/QtCore>
-#include <QtTest/QtTest>
-#include <QtDBus/QtDBus>
+
+#include <QTest>
+#include <QTestEventLoop>
+#include <QProcess>
+#include <QDBusServiceWatcher>
+#include <QDBusConnectionInterface>
+#include <QDBusInterface>
 
 #include "./serverobject.h"
 
@@ -79,7 +83,7 @@ void tst_QDBusPerformance::initTestCase()
 #else
 #  define EXE ""
 #endif
-    proc.start(QFINDTESTDATA("server/server" EXE));
+    proc.start(QFINDTESTDATA("../server/server" EXE));
     QVERIFY2(proc.waitForStarted(), qPrintable(proc.errorString()));
     QVERIFY(proc.waitForReadyRead());
 

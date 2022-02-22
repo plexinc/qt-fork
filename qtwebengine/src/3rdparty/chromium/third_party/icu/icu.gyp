@@ -44,10 +44,6 @@
           'UCHAR_TYPE=wchar_t',
         ],
 	'cflags': [ '/utf-8' ],
-      },{
-        'defines': [
-          'UCHAR_TYPE=uint16_t',
-        ],
       }],
       ['(OS=="linux" or OS=="freebsd" or OS=="openbsd" or OS=="solaris" \
          or OS=="netbsd" or OS=="mac" or OS=="android" or OS=="qnx") and \
@@ -579,6 +575,7 @@
               'unicode/umsg.h',
               'unicode/unirepl.h',
               'unicode/unumberformatter.h',
+              'unicode/unumberrangeformatter.h',
               'unicode/unum.h',
               'unicode/unumsys.h',
               'unicode/upluralrules.h',

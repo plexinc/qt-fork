@@ -14,10 +14,36 @@
 
 #include "dawn_native/opengl/BindGroupGL.h"
 
+#include "dawn_native/Texture.h"
 #include "dawn_native/opengl/BindGroupLayoutGL.h"
 #include "dawn_native/opengl/DeviceGL.h"
 
 namespace dawn_native { namespace opengl {
+
+    MaybeError ValidateGLBindGroupDescriptor(const BindGroupDescriptor* descriptor) {
+        const BindGroupLayoutBase::BindingMap& bindingMap = descriptor->layout->GetBindingMap();
+        for (uint32_t i = 0; i < descriptor->entryCount; ++i) {
+            const BindGroupEntry& entry = descriptor->entries[i];
+
+            const auto& it = bindingMap.find(BindingNumber(entry.binding));
+            BindingIndex bindingIndex = it->second;
+            ASSERT(bindingIndex < descriptor->layout->GetBindingCount());
+
+            const BindingInfo& bindingInfo = descriptor->layout->GetBindingInfo(bindingIndex);
+            if (bindingInfo.bindingType == BindingInfoType::StorageTexture) {
+                ASSERT(entry.textureView != nullptr);
+                const uint32_t textureViewLayerCount = entry.textureView->GetLayerCount();
+                if (textureViewLayerCount != 1 &&
+                    textureViewLayerCount != entry.textureView->GetTexture()->GetArrayLayers()) {
+                    return DAWN_VALIDATION_ERROR(
+                        "Currently the OpenGL backend only supports either binding a layer or "
+                        "the entire texture as storage texture.");
+                }
+            }
+        }
+
+        return {};
+    }
 
     BindGroup::BindGroup(Device* device, const BindGroupDescriptor* descriptor)
         : BindGroupBase(this, device, descriptor) {

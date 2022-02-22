@@ -4,6 +4,7 @@
 
 #include "ui/accessibility/platform/ax_platform_node_win.h"
 
+#include "base/test/scoped_feature_list.h"
 #include "base/win/scoped_variant.h"
 #include "content/browser/accessibility/accessibility_content_browsertest.h"
 #include "content/browser/accessibility/browser_accessibility.h"
@@ -11,17 +12,52 @@
 #include "content/browser/renderer_host/render_widget_host_view_aura.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/test/accessibility_notification_waiter.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
 #include "content/shell/browser/shell.h"
 #include "testing/gmock/include/gmock/gmock-matchers.h"
+#include "ui/accessibility/accessibility_features.h"
+#include "ui/accessibility/platform/uia_registrar_win.h"
 
+using base::win::ScopedVariant;
 using Microsoft::WRL::ComPtr;
 
 namespace content {
+
+#define EXPECT_UIA_INT_EQ(node, property_id, expected)              \
+  {                                                                 \
+    base::win::ScopedVariant expectedVariant(expected);             \
+    ASSERT_EQ(VT_I4, expectedVariant.type());                       \
+    base::win::ScopedVariant actual;                                \
+    ASSERT_HRESULT_SUCCEEDED(                                       \
+        node->GetPropertyValue(property_id, actual.Receive()));     \
+    EXPECT_EQ(expectedVariant.ptr()->intVal, actual.ptr()->intVal); \
+  }
+
+#define EXPECT_UIA_BSTR_EQ(node, property_id, expected)                  \
+  {                                                                      \
+    ScopedVariant expectedVariant(expected);                             \
+    ASSERT_EQ(VT_BSTR, expectedVariant.type());                          \
+    ASSERT_NE(nullptr, expectedVariant.ptr()->bstrVal);                  \
+    ScopedVariant actual;                                                \
+    ASSERT_HRESULT_SUCCEEDED(                                            \
+        node->GetPropertyValue(property_id, actual.Receive()));          \
+    ASSERT_EQ(VT_BSTR, actual.type());                                   \
+    ASSERT_NE(nullptr, actual.ptr()->bstrVal);                           \
+    EXPECT_STREQ(expectedVariant.ptr()->bstrVal, actual.ptr()->bstrVal); \
+  }
+
 class AXPlatformNodeWinBrowserTest : public AccessibilityContentBrowserTest {
  protected:
+  void SetUp() override {
+    scoped_feature_list_.InitAndEnableFeature(
+        features::kEnableAccessibilityAriaVirtualContent);
+
+    ContentBrowserTest::SetUp();
+  }
+
   template <typename T>
   ComPtr<T> QueryInterfaceFromNode(
       BrowserAccessibility* browser_accessibility) {
@@ -45,6 +81,19 @@ class AXPlatformNodeWinBrowserTest : public AccessibilityContentBrowserTest {
     CHECK(SUCCEEDED(service_provider->QueryService(IID_IAccessible2,
                                                    IID_PPV_ARGS(&result))));
     return result;
+  }
+
+  BrowserAccessibility* FindNodeAfter(BrowserAccessibility* begin,
+                                      const std::string& name) {
+    WebContentsImpl* web_contents =
+        static_cast<WebContentsImpl*>(shell()->web_contents());
+    BrowserAccessibilityManager* manager =
+        web_contents->GetRootBrowserAccessibilityManager();
+    BrowserAccessibility* node = begin;
+    while (node && (node->GetName() != name))
+      node = manager->NextInTreeOrder(node);
+
+    return node;
   }
 
   void UIAGetPropertyValueFlowsFromBrowserTestTemplate(
@@ -87,7 +136,7 @@ class AXPlatformNodeWinBrowserTest : public AccessibilityContentBrowserTest {
       ASSERT_HRESULT_SUCCEEDED(raw_element_provider_simple->GetPropertyValue(
           UIA_NamePropertyId, name.Receive()));
       ASSERT_EQ(VT_BSTR, name.type());
-      names.push_back(base::UTF16ToUTF8(
+      names.push_back(base::WideToUTF8(
           std::wstring(V_BSTR(name.ptr()), SysStringLen(V_BSTR(name.ptr())))));
     }
 
@@ -128,6 +177,9 @@ class AXPlatformNodeWinBrowserTest : public AccessibilityContentBrowserTest {
       ASSERT_EQ(nullptr, window_provider.Get());
     }
   }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
 };
 
 IN_PROC_BROWSER_TEST_F(AXPlatformNodeWinBrowserTest,
@@ -430,6 +482,105 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeWinBrowserTest,
 }
 
 IN_PROC_BROWSER_TEST_F(AXPlatformNodeWinBrowserTest,
+                       UIAGetPropertyValueCulture) {
+  LoadInitialAccessibilityTreeFromHtml(std::string(R"HTML(
+      <!DOCTYPE html>
+      <html>
+        <body>
+          <div lang='en-us'>en-us</div>
+          <div lang='en-gb'>en-gb</div>
+          <div lang='ru-ru'>ru-ru</div>
+          <div lang='fake'>fake</div>
+          <div>no lang</div>
+          <div lang=''>empty lang</div>
+        </body>
+      </html>
+  )HTML"));
+
+  BrowserAccessibility* root_node = GetRootAndAssertNonNull();
+  BrowserAccessibility* body_node = root_node->PlatformGetFirstChild();
+  ASSERT_NE(nullptr, body_node);
+
+  BrowserAccessibility* node = FindNodeAfter(body_node, "en-us");
+  ASSERT_NE(nullptr, node);
+  BrowserAccessibilityComWin* en_us_node_com_win =
+      ToBrowserAccessibilityWin(node)->GetCOM();
+  ASSERT_NE(nullptr, en_us_node_com_win);
+  constexpr int en_us_lcid = 1033;
+  EXPECT_UIA_INT_EQ(en_us_node_com_win, UIA_CulturePropertyId, en_us_lcid);
+
+  node = FindNodeAfter(node, "en-gb");
+  ASSERT_NE(nullptr, node);
+  BrowserAccessibilityComWin* en_gb_node_com_win =
+      ToBrowserAccessibilityWin(node)->GetCOM();
+  ASSERT_NE(nullptr, en_gb_node_com_win);
+  constexpr int en_gb_lcid = 2057;
+  EXPECT_UIA_INT_EQ(en_gb_node_com_win, UIA_CulturePropertyId, en_gb_lcid);
+
+  node = FindNodeAfter(node, "ru-ru");
+  ASSERT_NE(nullptr, node);
+  BrowserAccessibilityComWin* ru_ru_node_com_win =
+      ToBrowserAccessibilityWin(node)->GetCOM();
+  ASSERT_NE(nullptr, ru_ru_node_com_win);
+  constexpr int ru_ru_lcid = 1049;
+  EXPECT_UIA_INT_EQ(ru_ru_node_com_win, UIA_CulturePropertyId, ru_ru_lcid);
+
+  // Setting to an invalid language should return a failed HRESULT.
+  node = FindNodeAfter(node, "fake");
+  ASSERT_NE(nullptr, node);
+  BrowserAccessibilityComWin* fake_lang_node_com_win =
+      ToBrowserAccessibilityWin(node)->GetCOM();
+  ASSERT_NE(nullptr, fake_lang_node_com_win);
+  base::win::ScopedVariant actual;
+  EXPECT_HRESULT_FAILED(fake_lang_node_com_win->GetPropertyValue(
+      UIA_CulturePropertyId, actual.Receive()));
+
+  // No lang should default to the page's default language (en-us).
+  node = FindNodeAfter(node, "no lang");
+  ASSERT_NE(nullptr, node);
+  BrowserAccessibilityComWin* no_lang_node_com_win =
+      ToBrowserAccessibilityWin(node)->GetCOM();
+  ASSERT_NE(nullptr, no_lang_node_com_win);
+  EXPECT_UIA_INT_EQ(no_lang_node_com_win, UIA_CulturePropertyId, en_us_lcid);
+
+  // Empty lang should default to the page's default language (en-us).
+  node = FindNodeAfter(node, "empty lang");
+  ASSERT_NE(nullptr, node);
+  BrowserAccessibilityComWin* empty_lang_node_com_win =
+      ToBrowserAccessibilityWin(node)->GetCOM();
+  ASSERT_NE(nullptr, empty_lang_node_com_win);
+  EXPECT_UIA_INT_EQ(empty_lang_node_com_win, UIA_CulturePropertyId, en_us_lcid);
+}
+
+IN_PROC_BROWSER_TEST_F(AXPlatformNodeWinBrowserTest,
+                       UIAGetPropertyValueVirtualContent) {
+  LoadInitialAccessibilityTreeFromHtml(std::string(R"HTML(
+      <!DOCTYPE html>
+      <html>
+        <body>
+          <div aria-virtualcontent="block-end" aria-label="vc">Hello World</div>
+        </body>
+      </html>
+  )HTML"));
+
+  BrowserAccessibility* root_node = GetRootAndAssertNonNull();
+  BrowserAccessibility* body_node = root_node->PlatformGetFirstChild();
+  ASSERT_NE(nullptr, body_node);
+
+  BrowserAccessibility* node =
+      FindNode(ax::mojom::Role::kGenericContainer, "vc");
+  ASSERT_NE(nullptr, node);
+  BrowserAccessibilityComWin* node_com_win =
+      ToBrowserAccessibilityWin(node)->GetCOM();
+  ASSERT_NE(nullptr, node_com_win);
+
+  EXPECT_UIA_BSTR_EQ(
+      node_com_win,
+      ui::UiaRegistrarWin::GetInstance().GetVirtualContentPropertyId(),
+      L"block-end");
+}
+
+IN_PROC_BROWSER_TEST_F(AXPlatformNodeWinBrowserTest,
                        HitTestOnAncestorOfWebRoot) {
   EXPECT_TRUE(NavigateToURL(shell(), GURL(url::kAboutBlankURL)));
 
@@ -506,6 +657,84 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeWinBrowserTest,
     ASSERT_NE(nullptr, hit_child);
     EXPECT_EQ(node->GetId(), hit_child->GetDelegate()->GetData().id);
   }
+}
+
+IN_PROC_BROWSER_TEST_F(AXPlatformNodeWinBrowserTest, IFrameTraversal) {
+  LoadInitialAccessibilityTreeFromHtmlFilePath(
+      "/accessibility/html/iframe-traversal.html");
+  WaitForAccessibilityTreeToContainNodeWithName(shell()->web_contents(),
+                                                "Text in iframe");
+
+  BrowserAccessibility* root_node = GetRootAndAssertNonNull();
+  BrowserAccessibility* before_iframe_node =
+      FindNodeAfter(root_node, "Before iframe");
+  ASSERT_NE(nullptr, before_iframe_node);
+  ASSERT_EQ(ax::mojom::Role::kStaticText, before_iframe_node->GetRole());
+  before_iframe_node = before_iframe_node->PlatformGetFirstChild();
+  ASSERT_NE(nullptr, before_iframe_node);
+  ASSERT_EQ(ax::mojom::Role::kInlineTextBox, before_iframe_node->GetRole());
+
+  BrowserAccessibility* inside_iframe_node =
+      FindNodeAfter(before_iframe_node, "Text in iframe");
+  ASSERT_NE(nullptr, inside_iframe_node);
+  ASSERT_EQ(ax::mojom::Role::kStaticText, inside_iframe_node->GetRole());
+  inside_iframe_node = inside_iframe_node->PlatformGetFirstChild();
+  ASSERT_NE(nullptr, inside_iframe_node);
+  ASSERT_EQ(ax::mojom::Role::kInlineTextBox, inside_iframe_node->GetRole());
+
+  BrowserAccessibility* after_iframe_node =
+      FindNodeAfter(inside_iframe_node, "After iframe");
+  ASSERT_NE(nullptr, after_iframe_node);
+  ASSERT_EQ(ax::mojom::Role::kStaticText, after_iframe_node->GetRole());
+  after_iframe_node = after_iframe_node->PlatformGetFirstChild();
+  ASSERT_NE(nullptr, after_iframe_node);
+  ASSERT_EQ(ax::mojom::Role::kInlineTextBox, after_iframe_node->GetRole());
+
+  EXPECT_LT(*before_iframe_node->CreatePositionAt(0),
+            *inside_iframe_node->CreatePositionAt(0));
+  // The following positions should not be equivalent because they are on two
+  // separate lines in the accessibility tree's text representation, i.e. the
+  // first has an upstream affinity while the second has a downstream affinity.
+  // Note that an iframe boundary is also a line boundary.
+  EXPECT_LT(*before_iframe_node->CreatePositionAt(13),
+            *inside_iframe_node->CreatePositionAt(0));
+  EXPECT_LT(*inside_iframe_node->CreatePositionAt(0),
+            *after_iframe_node->CreatePositionAt(0));
+  // The following positions should not be equivalent because they are on two
+  // separate lines in the accessibility tree's text representation, i.e. the
+  // first has an upstream affinity while the second has a downstream affinity.
+  // Note that an iframe boundary is also a line boundary.
+  EXPECT_LT(*inside_iframe_node->CreatePositionAt(14),
+            *after_iframe_node->CreatePositionAt(0));
+
+  // Traverse the leaves of the AXTree forwards.
+  BrowserAccessibility::AXPosition tree_position =
+      root_node->CreatePositionAt(0)->CreateNextLeafTreePosition();
+  EXPECT_TRUE(tree_position->IsTreePosition());
+  EXPECT_EQ(before_iframe_node->node(), tree_position->GetAnchor());
+  tree_position = tree_position->CreateNextLeafTreePosition();
+  EXPECT_TRUE(tree_position->IsTreePosition());
+  EXPECT_EQ(inside_iframe_node->node(), tree_position->GetAnchor());
+  tree_position = tree_position->CreateNextLeafTreePosition();
+  EXPECT_TRUE(tree_position->IsTreePosition());
+  EXPECT_EQ(after_iframe_node->node(), tree_position->GetAnchor());
+  tree_position = tree_position->CreateNextLeafTreePosition();
+  EXPECT_TRUE(tree_position->IsNullPosition());
+
+  // Traverse the leaves of the AXTree backwards.
+  tree_position = after_iframe_node->CreatePositionAt(0)
+                      ->CreatePositionAtEndOfAnchor()
+                      ->AsLeafTreePosition();
+  EXPECT_TRUE(tree_position->IsTreePosition());
+  EXPECT_EQ(after_iframe_node->node(), tree_position->GetAnchor());
+  tree_position = tree_position->CreatePreviousLeafTreePosition();
+  EXPECT_TRUE(tree_position->IsTreePosition());
+  EXPECT_EQ(inside_iframe_node->node(), tree_position->GetAnchor());
+  tree_position = tree_position->CreatePreviousLeafTreePosition();
+  EXPECT_TRUE(tree_position->IsTreePosition());
+  EXPECT_EQ(before_iframe_node->node(), tree_position->GetAnchor());
+  tree_position = tree_position->CreatePreviousLeafTreePosition();
+  EXPECT_TRUE(tree_position->IsNullPosition());
 }
 
 }  // namespace content

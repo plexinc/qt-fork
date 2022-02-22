@@ -48,10 +48,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.15
-import QtQuick.Window 2.14
-import QtQuick3D 1.15
-import QtQuick.Controls 2.14
+import QtQuick
+import QtQuick3D
+import QtQuick.Controls
 
 Window {
     id: window
@@ -59,6 +58,7 @@ Window {
     height: 720
     visible: true
     title: "View3Ds with Different Cameras"
+    color: "#848895"
 
     // The root scene
     //! [rootnode]
@@ -67,7 +67,9 @@ Window {
         //! [rootnode]
 
         DirectionalLight {
-            ambientColor: Qt.rgba(1.0, 1.0, 1.0, 1.0)
+            ambientColor: Qt.rgba(0.5, 0.5, 0.5, 1.0)
+            brightness: 1.0
+            eulerRotation.x: -25
         }
 
         Model {
@@ -89,10 +91,8 @@ Window {
             materials: [
                 PrincipledMaterial {
                     baseColor: "#41cd52"
-                    metalness: 0.75
+                    metalness: 0.0
                     roughness: 0.1
-                    specularAmount: 1.0
-                    indexOfRefraction: 2.5
                     opacity: 1.0
                 }
             ]
@@ -225,7 +225,7 @@ Window {
             renderMode: View3D.Underlay
 
             environment: SceneEnvironment {
-                clearColor: "#848895"
+                clearColor: window.color
                 backgroundMode: SceneEnvironment.Color
             }
         }

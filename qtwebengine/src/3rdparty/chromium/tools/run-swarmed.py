@@ -34,50 +34,31 @@ import sys
 
 INTERNAL_ERROR_EXIT_CODE = -1000
 
-
-def _ReadVpythonPin():
-  """Reads the vpython CIPD package name and version from
-  //third_party/depot_tools.
-
-  Returns them as a (pkgname, version) tuple.
-  """
-  chromium_src_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-  manifest_path = os.path.join(chromium_src_dir, 'third_party', 'depot_tools',
-                               'cipd_manifest.txt')
-  with open(manifest_path, 'r') as manifest:
-    for line in manifest.readlines():
-      # lines look like:
-      # name/of/package version
-      if 'vpython' in line and 'git_revision' in line:
-        vpython_pkg, vpython_version = line.split()
-        return vpython_pkg, vpython_version
-  raise ValueError('unable to read vpython pin from %s' % (manifest_path, ))
+DEFAULT_ANDROID_DEVICE_TYPE = "walleye"
 
 
 def _Spawn(args):
   """Triggers a swarming job. The arguments passed are:
   - The index of the job;
   - The command line arguments object;
-  - The hash of the isolate job used to trigger.
+  - The digest of test files.
 
   The return value is passed to a collect-style map() and consists of:
   - The index of the job;
   - The json file created by triggering and used to collect results;
   - The command line arguments object.
   """
-  index, args, isolated_hash = args
+  index, args, cas_digest, swarming_command = args
   json_file = os.path.join(args.results, '%d.json' % index)
   trigger_args = [
       'tools/luci-go/swarming',
       'trigger',
       '-S',
       'https://chromium-swarm.appspot.com',
-      '-I',
-      'https://isolateserver.appspot.com',
       '-d',
       'pool=' + args.pool,
-      '-s',
-      isolated_hash,
+      '-digest',
+      cas_digest,
       '-dump-json',
       json_file,
       '-d',
@@ -90,47 +71,47 @@ def _Spawn(args):
         'kvm=1',
         '-d',
         'gpu=none',
+    ]
+  if args.arch != 'detect':
+    trigger_args += [
         '-d',
         'cpu=' + args.arch,
     ]
+
+  # The aliases for device type are stored here:
+  # luci/appengine/swarming/ui2/modules/alias.js
+  # for example 'blueline' = 'Pixel 3'
   if args.target_os == 'android':
+    if args.device_type is None and args.device_os is None:
+      trigger_args += ['-d', 'device_type=' + DEFAULT_ANDROID_DEVICE_TYPE]
+  if args.device_type:
+    trigger_args += ['-d', 'device_type=' + args.device_type]
+
+  if args.device_os:
     trigger_args += ['-d', 'device_os=' + args.device_os]
-  # The canonical version numbers are stored in the infra repository here:
-  # build/scripts/slave/recipe_modules/swarming/api.py
-  #
-  # HACK(iannucci): These packages SHOULD NOT BE HERE.
-  # Remove method once Swarming Pool Task Templates are implemented.
-  # crbug.com/812428
-  cpython_version = 'version:2.7.15.chromium14'
-  cpython_pkg = (
-      '.swarming_module:infra/python/cpython/${platform}=' + cpython_version)
 
-  vpython_pkg = '.swarming_module:%s=%s' % _ReadVpythonPin()
-  vpython_native_pkg = vpython_pkg.replace('vpython', 'vpython-native')
-
-  trigger_args += [
-      '--cipd-package',
-      cpython_pkg,
-      '--cipd-package',
-      vpython_native_pkg,
-      '--cipd-package',
-      vpython_pkg,
-      '--',
-  ]
+  runner_args = []
   if not args.no_test_flags:
     # These flags are recognized by our test runners, but do not work
     # when running custom scripts.
-    trigger_args += [
+    runner_args += [
         '--test-launcher-summary-output=${ISOLATED_OUTDIR}/output.json',
         '--system-log-file=${ISOLATED_OUTDIR}/system_log'
     ]
   if args.gtest_filter:
-    trigger_args.append('--gtest_filter=' + args.gtest_filter)
+    runner_args.append('--gtest_filter=' + args.gtest_filter)
+  if args.gtest_repeat:
+    runner_args.append('--gtest_repeat=' + args.gtest_repeat)
   elif args.target_os == 'fuchsia':
     filter_file = \
         'testing/buildbot/filters/fuchsia.' + args.target_name + '.filter'
     if os.path.isfile(filter_file):
-      trigger_args.append('--test-launcher-filter-file=../../' + filter_file)
+      runner_args.append('--test-launcher-filter-file=../../' + filter_file)
+
+  trigger_args.extend(['--relative-cwd', args.out_dir, '--'])
+  trigger_args.extend(swarming_command)
+  trigger_args.extend(runner_args)
+
   with open(os.devnull, 'w') as nul:
     subprocess.check_call(trigger_args, stdout=nul)
   return (index, json_file, args)
@@ -174,27 +155,35 @@ def main():
   parser.add_argument('--target-os', default='detect', help='gn target_os')
   parser.add_argument('--arch', '-a', default='detect',
                       help='CPU architecture of the test binary.')
-  parser.add_argument('--build', dest='build', action='store_true',
-                      help='Build before isolating (default).')
-  parser.add_argument( '--no-build', dest='build', action='store_false',
-                      help='Do not build, just isolate.')
+  parser.add_argument('--build',
+                      dest='build',
+                      action='store_true',
+                      help='Build before isolating.')
+  parser.add_argument('--no-build',
+                      dest='build',
+                      action='store_false',
+                      help='Do not build, just isolate (default).')
   parser.add_argument('--isolate-map-file', '-i',
                       help='path to isolate map file if not using default')
   parser.add_argument('--copies', '-n', type=int, default=1,
                       help='Number of copies to spawn.')
-  parser.add_argument('--device-os', default='M',
-                      help='Run tests on the given version of Android.')
-  # TODO(crbug.com/812428): Switch this back to chromium.tests once
-  # that pool runs with task templates.
   parser.add_argument(
-      '--pool',
-      default='chromium.tests.template',
-      help='Use the given swarming pool.')
+      '--device-os', help='Run tests on the given version of Android.')
+  parser.add_argument(
+      '--device-type',
+      help='device_type specifier for Swarming'
+      ' from https://chromium-swarm.appspot.com/botlist .')
+  parser.add_argument('--pool',
+                      default='chromium.tests',
+                      help='Use the given swarming pool.')
   parser.add_argument('--results', '-r', default='results',
                       help='Directory in which to store results.')
   parser.add_argument('--gtest_filter',
                       help='Use the given gtest_filter, rather than the '
                            'default filter file, if any.')
+  parser.add_argument(
+      '--gtest_repeat',
+      help='Number of times to repeat the specified set of tests.')
   parser.add_argument('--no-test-flags', action='store_true',
                       help='Do not add --test-launcher-summary-output and '
                            '--system-log-file flags to the comment.')
@@ -231,7 +220,7 @@ def main():
     args.target_name = os.path.splitext(args.target_name)[0]
 
   # Determine the CPU architecture of the test binary, if not specified.
-  if args.arch == 'detect' and args.target_os == 'fuchsia':
+  if args.arch == 'detect' and args.target_os not in ('android', 'mac', 'win'):
     executable_info = subprocess.check_output(
         ['file', os.path.join(args.out_dir, args.target_name)])
     if 'ARM aarch64' in executable_info:
@@ -253,14 +242,24 @@ def main():
   )
 
   print('Uploading to isolate server, this can take a while...')
-  isolated = os.path.join(args.out_dir, args.target_name + '.isolated')
+  isolate = os.path.join(args.out_dir, args.target_name + '.isolate')
+  archive_json = os.path.join(args.out_dir, args.target_name + '.archive.json')
   subprocess.check_output([
-      'tools/luci-go/isolate', 'archive', '-I',
-      'https://isolateserver.appspot.com', '-i',
-      os.path.join(args.out_dir, args.target_name + '.isolate'), '-s', isolated
+      'tools/luci-go/isolate', 'archive', '-cas-instance', 'chromium-swarm',
+      '-isolate', isolate, '-dump-json', archive_json
   ])
-  with open(isolated) as f:
-    isolated_hash = hashlib.sha1(f.read()).hexdigest()
+  with open(archive_json) as f:
+    cas_digest = json.load(f).get(args.target_name)
+
+  mb_cmd = [
+      sys.executable, 'tools/mb/mb.py', 'get-swarming-command', '--as-list'
+  ]
+  if not args.build:
+    mb_cmd.append('--no-build')
+  if args.isolate_map_file:
+    mb_cmd += ['--isolate-map-file', args.isolate_map_file]
+  mb_cmd += ['//' + args.out_dir, args.target_name]
+  swarming_cmd = json.loads(subprocess.check_output(mb_cmd))
 
   if os.path.isdir(args.results):
     shutil.rmtree(args.results)
@@ -271,7 +270,8 @@ def main():
     # Use dummy since threadpools give better exception messages
     # than process pools do, and threads work fine for what we're doing.
     pool = multiprocessing.dummy.Pool()
-    spawn_args = map(lambda i: (i, args, isolated_hash), range(args.copies))
+    spawn_args = map(lambda i: (i, args, cas_digest, swarming_cmd),
+                     range(args.copies))
     spawn_results = pool.imap_unordered(_Spawn, spawn_args)
 
     exit_codes = []

@@ -45,7 +45,7 @@
 #include <QtCharts/QBoxPlotSeries>
 #include <QtCharts/private/qchartglobal_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class QBoxPlotLegendMarker;
 
@@ -56,11 +56,11 @@ public:
     explicit QBoxPlotLegendMarkerPrivate(QBoxPlotLegendMarker *q, QBoxPlotSeries *series, QLegend *legend);
     virtual ~QBoxPlotLegendMarkerPrivate();
 
-    virtual QAbstractSeries *series();
-    virtual QObject *relatedObject();
+    QAbstractSeries *series() override;
+    QObject *relatedObject() override;
 
 public Q_SLOTS:
-    virtual void updated();
+    void updated() override;
 
 private:
     QBoxPlotLegendMarker *q_ptr;
@@ -69,6 +69,6 @@ private:
     Q_DECLARE_PUBLIC(QBoxPlotLegendMarker)
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // QBOXPLOTLEGENDMARKER_P_H

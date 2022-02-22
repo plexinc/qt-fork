@@ -47,13 +47,7 @@ struct lookahead_ctx *av1_lookahead_init(
     unsigned int subsampling_y, int use_highbitdepth, unsigned int depth,
     const int border_in_pixels, int byte_alignment, int num_lap_buffers) {
   struct lookahead_ctx *ctx = NULL;
-  int lag_in_frames = clamp(depth, 1, MAX_LAG_BUFFERS);
-
-  // Clamp the lookahead queue depth
-  depth = clamp(depth, 0, MAX_LAG_BUFFERS);
-
-  // Clamp the LAP lag
-  num_lap_buffers = clamp(num_lap_buffers, 0, MAX_LAP_BUFFERS);
+  int lag_in_frames = AOMMAX(1, depth);
 
   // Add the lags to depth and clamp
   depth += num_lap_buffers;
@@ -67,6 +61,7 @@ struct lookahead_ctx *av1_lookahead_init(
   if (ctx) {
     unsigned int i;
     ctx->max_sz = depth;
+    ctx->push_frame_count = 0;
     ctx->read_ctxs[ENCODE_STAGE].pop_sz = ctx->max_sz - MAX_PRE_FRAMES;
     ctx->read_ctxs[ENCODE_STAGE].valid = 1;
     if (num_lap_buffers) {
@@ -90,7 +85,7 @@ fail:
   return NULL;
 }
 
-int av1_lookahead_push(struct lookahead_ctx *ctx, YV12_BUFFER_CONFIG *src,
+int av1_lookahead_push(struct lookahead_ctx *ctx, const YV12_BUFFER_CONFIG *src,
                        int64_t ts_start, int64_t ts_end, int use_highbitdepth,
                        aom_enc_frame_flags_t flags) {
   struct lookahead_entry *buf;
@@ -142,7 +137,9 @@ int av1_lookahead_push(struct lookahead_ctx *ctx, YV12_BUFFER_CONFIG *src,
 
   buf->ts_start = ts_start;
   buf->ts_end = ts_end;
+  buf->display_idx = ctx->push_frame_count;
   buf->flags = flags;
+  ++ctx->push_frame_count;
   aom_remove_metadata_from_frame_buffer(&buf->img);
   aom_copy_metadata_to_frame_buffer(&buf->img, src->metadata);
   return 0;

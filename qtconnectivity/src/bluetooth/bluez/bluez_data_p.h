@@ -55,6 +55,7 @@
 #include <QtCore/qendian.h>
 #include <sys/socket.h>
 #include <QtBluetooth/QBluetoothUuid>
+#include <QtCore/qtmetamacros.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -344,7 +345,6 @@ typedef struct {
 } __attribute__ ((packed)) hci_event_hdr;
 #define HCI_EVENT_HDR_SIZE 2
 
-#define EVT_ENCRYPT_CHANGE 0x08
 typedef struct {
     quint8  status;
     quint16 handle;
@@ -352,7 +352,6 @@ typedef struct {
 } __attribute__ ((packed)) evt_encrypt_change;
 #define EVT_ENCRYPT_CHANGE_SIZE 4
 
-#define EVT_CMD_COMPLETE                0x0E
 struct evt_cmd_complete {
     quint8 ncmd;
     quint16 opcode;
@@ -375,21 +374,88 @@ struct hci_command_hdr {
     quint8 plen;
 } __attribute__ ((packed));
 
-enum OpCodeGroupField {
-    OgfLinkControl = 0x8,
-};
+namespace QBluezConst {
+    Q_NAMESPACE
+    enum OpCodeGroupField {
+        OgfLinkControl = 0x8,
+    };
+    Q_ENUM_NS(OpCodeGroupField)
 
-enum OpCodeCommandField {
-    OcfLeSetAdvParams = 0x6,
-    OcfLeReadTxPowerLevel = 0x7,
-    OcfLeSetAdvData = 0x8,
-    OcfLeSetScanResponseData = 0x9,
-    OcfLeSetAdvEnable = 0xa,
-    OcfLeClearWhiteList = 0x10,
-    OcfLeAddToWhiteList = 0x11,
-    OcfLeConnectionUpdate = 0x13,
-};
+    enum OpCodeCommandField {
+        OcfLeSetAdvParams = 0x6,
+        OcfLeReadTxPowerLevel = 0x7,
+        OcfLeSetAdvData = 0x8,
+        OcfLeSetScanResponseData = 0x9,
+        OcfLeSetAdvEnable = 0xa,
+        OcfLeClearWhiteList = 0x10,
+        OcfLeAddToWhiteList = 0x11,
+        OcfLeConnectionUpdate = 0x13,
+    };
+    Q_ENUM_NS(OpCodeCommandField)
 
+    enum class AttCommand : quint8 {
+        ATT_OP_ERROR_RESPONSE              = 0x01,
+        ATT_OP_EXCHANGE_MTU_REQUEST        = 0x02, //send own mtu
+        ATT_OP_EXCHANGE_MTU_RESPONSE       = 0x03, //receive server MTU
+        ATT_OP_FIND_INFORMATION_REQUEST    = 0x04, //discover individual attribute info
+        ATT_OP_FIND_INFORMATION_RESPONSE   = 0x05,
+        ATT_OP_FIND_BY_TYPE_VALUE_REQUEST  = 0x06,
+        ATT_OP_FIND_BY_TYPE_VALUE_RESPONSE = 0x07,
+        ATT_OP_READ_BY_TYPE_REQUEST        = 0x08, //discover characteristics
+        ATT_OP_READ_BY_TYPE_RESPONSE       = 0x09,
+        ATT_OP_READ_REQUEST                = 0x0A, //read characteristic & descriptor values
+        ATT_OP_READ_RESPONSE               = 0x0B,
+        ATT_OP_READ_BLOB_REQUEST           = 0x0C, //read values longer than MTU-1
+        ATT_OP_READ_BLOB_RESPONSE          = 0x0D,
+        ATT_OP_READ_MULTIPLE_REQUEST       = 0x0E,
+        ATT_OP_READ_MULTIPLE_RESPONSE      = 0x0F,
+        ATT_OP_READ_BY_GROUP_REQUEST       = 0x10, //discover services
+        ATT_OP_READ_BY_GROUP_RESPONSE      = 0x11,
+        ATT_OP_WRITE_REQUEST               = 0x12, //write characteristic with response
+        ATT_OP_WRITE_RESPONSE              = 0x13,
+        ATT_OP_PREPARE_WRITE_REQUEST       = 0x16, //write values longer than MTU-3 -> queueing
+        ATT_OP_PREPARE_WRITE_RESPONSE      = 0x17,
+        ATT_OP_EXECUTE_WRITE_REQUEST       = 0x18, //write values longer than MTU-3 -> execute queue
+        ATT_OP_EXECUTE_WRITE_RESPONSE      = 0x19,
+        ATT_OP_HANDLE_VAL_NOTIFICATION     = 0x1b, //informs about value change
+        ATT_OP_HANDLE_VAL_INDICATION       = 0x1d, //informs about value change -> requires reply
+        ATT_OP_HANDLE_VAL_CONFIRMATION     = 0x1e, //answer for ATT_OP_HANDLE_VAL_INDICATION
+        ATT_OP_WRITE_COMMAND               = 0x52, //write characteristic without response
+        ATT_OP_SIGNED_WRITE_COMMAND        = 0xD2
+    };
+    Q_ENUM_NS(AttCommand)
+
+    enum class AttError : quint8 {
+        ATT_ERROR_NO_ERROR              = 0x00,
+        ATT_ERROR_INVALID_HANDLE        = 0x01,
+        ATT_ERROR_READ_NOT_PERM         = 0x02,
+        ATT_ERROR_WRITE_NOT_PERM        = 0x03,
+        ATT_ERROR_INVALID_PDU           = 0x04,
+        ATT_ERROR_INSUF_AUTHENTICATION  = 0x05,
+        ATT_ERROR_REQUEST_NOT_SUPPORTED = 0x06,
+        ATT_ERROR_INVALID_OFFSET        = 0x07,
+        ATT_ERROR_INSUF_AUTHORIZATION   = 0x08,
+        ATT_ERROR_PREPARE_QUEUE_FULL    = 0x09,
+        ATT_ERROR_ATTRIBUTE_NOT_FOUND   = 0x0A,
+        ATT_ERROR_ATTRIBUTE_NOT_LONG    = 0x0B,
+        ATT_ERROR_INSUF_ENCR_KEY_SIZE   = 0x0C,
+        ATT_ERROR_INVAL_ATTR_VALUE_LEN  = 0x0D,
+        ATT_ERROR_UNLIKELY              = 0x0E,
+        ATT_ERROR_INSUF_ENCRYPTION      = 0x0F,
+        ATT_ERROR_UNSUPPRTED_GROUP_TYPE = 0x10,
+        ATT_ERROR_INSUF_RESOURCES       = 0x11,
+        ATT_ERROR_APPLICATION_START     = 0x80,
+        //------------------------------------------
+        // The error codes in this block are
+        // implementation specific errors
+
+        ATT_ERROR_REQUEST_STALLED       = 0x81,
+
+        //------------------------------------------
+        ATT_ERROR_APPLICATION_END       = 0x9f
+    };
+    Q_ENUM_NS(AttError)
+}
 /* Command opcode pack/unpack */
 #define opCodePack(ogf, ocf) (quint16(((ocf) & 0x03ff)|((ogf) << 10)))
 #define ogfFromOpCode(op) ((op) >> 10)

@@ -8,6 +8,7 @@
 #include "base/lazy_instance.h"
 #include "base/memory/ptr_util.h"
 #include "base/observer_list_types.h"
+#include "build/build_config.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/env_input_state_controller.h"
 #include "ui/aura/env_observer.h"
@@ -21,8 +22,20 @@
 #include "ui/events/gestures/gesture_recognizer_impl.h"
 #include "ui/events/platform/platform_event_source.h"
 
+#if defined(OS_WIN)
+#include "ui/base/cursor/win/win_cursor_factory.h"
+#endif
+
 #if defined(USE_OZONE)
 #include "ui/ozone/public/ozone_platform.h"
+#endif
+
+#if defined(USE_X11)
+#include "ui/base/x/x11_cursor_factory.h"
+#endif
+
+#if defined(OS_WIN) || defined(USE_X11)
+#include "ui/gfx/switches.h"
 #endif
 
 namespace aura {
@@ -205,22 +218,35 @@ bool Env::initial_throttle_input_on_resize_ = true;
 Env::Env()
     : env_controller_(std::make_unique<EnvInputStateController>(this)),
       gesture_recognizer_(std::make_unique<ui::GestureRecognizerImpl>()),
-      input_state_lookup_(InputStateLookup::Create()) {}
+      input_state_lookup_(InputStateLookup::Create()) {
+#if (defined(OS_WIN) || defined(USE_X11)) && !defined(TOOLKIT_QT)
+  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kHeadless)) {
+#if defined(USE_X11)
+    // In Ozone/X11, the cursor factory is initialized by the platform
+    // initialization code.
+    if (!features::IsUsingOzonePlatform())
+      cursor_factory_ = std::make_unique<ui::X11CursorFactory>();
+#else
+    cursor_factory_ = std::make_unique<ui::WinCursorFactory>();
+#endif
+  }
+#endif
+}
 
 void Env::Init() {
 #if defined(USE_OZONE)
   // The ozone platform can provide its own event source. So initialize the
   // platform before creating the default event source. If running inside mus
   // let the mus process initialize ozone instead.
-  ui::OzonePlatform::InitParams params;
-  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-  // TODO(kylechar): Pass in single process information to Env::CreateInstance()
-  // instead of checking flags here.
-  params.single_process = command_line->HasSwitch("single-process") ||
-                          command_line->HasSwitch("in-process-gpu");
-  params.using_mojo = features::IsOzoneDrmMojo();
-
-  ui::OzonePlatform::InitializeForUI(params);
+  if (features::IsUsingOzonePlatform()) {
+    ui::OzonePlatform::InitParams params;
+    base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+    // TODO(kylechar): Pass in single process information to
+    // Env::CreateInstance() instead of checking flags here.
+    params.single_process = command_line->HasSwitch("single-process") ||
+                            command_line->HasSwitch("in-process-gpu");
+    ui::OzonePlatform::InitializeForUI(params);
+  }
 #endif
   if (!ui::PlatformEventSource::GetInstance())
     event_source_ = ui::PlatformEventSource::CreateDefault();
@@ -232,8 +258,15 @@ void Env::NotifyWindowInitialized(Window* window) {
 }
 
 void Env::NotifyHostInitialized(WindowTreeHost* host) {
+  window_tree_hosts_.push_back(host);
   for (EnvObserver& observer : observers_)
     observer.OnHostInitialized(host);
+}
+
+void Env::NotifyHostDestroyed(WindowTreeHost* host) {
+  base::Erase(window_tree_hosts_, host);
+  for (EnvObserver& observer : observers_)
+    observer.OnHostDestroyed(host);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

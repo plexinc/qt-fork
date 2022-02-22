@@ -19,7 +19,16 @@ if (use_system_harfbuzz) {
     ]
     packages = [
       "harfbuzz",
+      "harfbuzz-subset",
     ]
+  }
+} else if (use_qt_harfbuzz) {
+  config("harfbuzz_from_qt") {
+    visibility = [
+      "//third_party:freetype_harfbuzz",
+      "//third_party/freetype:freetype_source",
+    ]
+    include_dirs = [ qt_harfbuzz_includes ]
   }
 } else {
   config("harfbuzz_config") {
@@ -62,7 +71,6 @@ if (use_system_harfbuzz) {
     ]
 
     sources = [
-      "src/src/hb-aat-fdsc-table.hh",
       "src/src/hb-aat-layout-ankr-table.hh",
       "src/src/hb-aat-layout-bsln-table.hh",
       "src/src/hb-aat-layout-feat-table.hh",
@@ -159,6 +167,7 @@ if (use_system_harfbuzz) {
       "src/src/hb-ot-os2-unicode-ranges.hh",
       "src/src/hb-ot-post-macroman.hh",
       "src/src/hb-ot-shape-complex-arabic-fallback.hh",
+      "src/src/hb-ot-shape-complex-arabic-joining-list.hh",
       "src/src/hb-ot-shape-complex-arabic-table.hh",
       "src/src/hb-ot-shape-complex-arabic.cc",
       "src/src/hb-ot-shape-complex-arabic.hh",
@@ -175,11 +184,12 @@ if (use_system_harfbuzz) {
       "src/src/hb-ot-shape-complex-myanmar-machine.hh",
       "src/src/hb-ot-shape-complex-myanmar.cc",
       "src/src/hb-ot-shape-complex-myanmar.hh",
+      "src/src/hb-ot-shape-complex-syllabic.cc",
+      "src/src/hb-ot-shape-complex-syllabic.hh",
       "src/src/hb-ot-shape-complex-thai.cc",
       "src/src/hb-ot-shape-complex-use-machine.hh",
-      "src/src/hb-ot-shape-complex-use-table.cc",
+      "src/src/hb-ot-shape-complex-use-table.hh",
       "src/src/hb-ot-shape-complex-use.cc",
-      "src/src/hb-ot-shape-complex-use.hh",
       "src/src/hb-ot-shape-complex-vowel-constraints.cc",
       "src/src/hb-ot-shape-complex-vowel-constraints.hh",
       "src/src/hb-ot-shape-complex.hh",
@@ -237,6 +247,7 @@ if (use_system_harfbuzz) {
       "HAVE_INTEL_ATOMIC_PRIMITIVES",
       "HAVE_ROUNDF",
       "HB_NO_MMAP",
+      "HB_NO_RESOURCE_FORK",
 
       # Size reductions by disabling parts that we do not currently require:
 
@@ -277,13 +288,24 @@ if (use_system_harfbuzz) {
       } else {
         configs -= [ "//build/config/gcc:symbol_visibility_hidden" ]
         configs += [ "//build/config/gcc:symbol_visibility_default" ]
+
+        # Exposing symbols in component builds can cause a mixture of system
+        # harfbuzz symbols and //third_party harfbuzz symbols to be loaded at
+        # the same time.  This can cause issues for libraries that indirectly
+        # load harfbuzz like pango (see https://crbug.com/1146397), so include
+        # metrics symbols to prevent pango from using the system library.
+        # TODO(https://crbug.com/1148459): Remove this workaround once bug
+        # 1148459 is fixed.
+        defines -= [ "HB_NO_METRICS" ]
       }
     }
 
     if (use_system_freetype) {
-      configs += [ "//build/linux:freetype_from_pkgconfig" ]
+      configs += [ "//third_party/freetype:freetype_from_pkgconfig" ]
+    } else if (use_qt_freetype) {
+      configs += [ "//third_party/freetype:freetype_from_qt" ]
     } else {
-      configs += [ "//third_party/freetype:freetype_config" ]
+      configs += [ "//third_party/freetype:freetype_component_config" ]
     }
     configs -= [ "//build/config/compiler:chromium_code" ]
     configs += [

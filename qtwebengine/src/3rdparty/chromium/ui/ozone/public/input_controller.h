@@ -43,6 +43,7 @@ class COMPONENT_EXPORT(OZONE_BASE) InputController {
 
   // Functions for checking devices existence.
   virtual bool HasMouse() = 0;
+  virtual bool HasPointingStick() = 0;
   virtual bool HasTouchpad() = 0;
 
   // Keyboard settings.
@@ -70,10 +71,23 @@ class COMPONENT_EXPORT(OZONE_BASE) InputController {
   // Mouse settings.
   virtual void SetMouseSensitivity(int value) = 0;
   virtual void SetMouseScrollSensitivity(int value) = 0;
+
+  // Sets the primary button for the mouse. Passing true sets the right button
+  // as primary, while false (the default) sets the left as primary.
   virtual void SetPrimaryButtonRight(bool right) = 0;
   virtual void SetMouseReverseScroll(bool enabled) = 0;
   virtual void SetMouseAcceleration(bool enabled) = 0;
+  virtual void SuspendMouseAcceleration() = 0;
+  virtual void EndMouseAccelerationSuspension() = 0;
   virtual void SetMouseScrollAcceleration(bool enabled) = 0;
+
+  // Pointing stick settings.
+  virtual void SetPointingStickSensitivity(int value) = 0;
+
+  // Sets the primary button for the pointing stick. Passing true sets the right
+  // button as primary, while false (the default) sets the left as primary.
+  virtual void SetPointingStickPrimaryButtonRight(bool right) = 0;
+  virtual void SetPointingStickAcceleration(bool enabled) = 0;
 
   // Touch log collection.
   virtual void GetTouchDeviceStatus(GetTouchDeviceStatusReply reply) = 0;
@@ -90,6 +104,15 @@ class COMPONENT_EXPORT(OZONE_BASE) InputController {
   virtual bool IsInternalTouchpadEnabled() const = 0;
 
   virtual void SetTouchscreensEnabled(bool enabled) = 0;
+
+  // Controls vibration for the gamepad device with the corresponding |id|.
+  // |amplitude| determines the strength of the vibration, where 0 is no
+  // vibration and 255 is maximum vibration, and |duration_millis|
+  // determines the duration of the vibration in milliseconds.
+  virtual void PlayVibrationEffect(int id,
+                                   uint8_t amplitude,
+                                   uint16_t duration_millis) = 0;
+  virtual void StopVibration(int id) = 0;
 
   // If |enable_filter| is true, all keys on the internal keyboard except
   // |allowed_keys| are disabled.

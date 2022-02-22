@@ -40,6 +40,7 @@
 #include "net/base/auth.h"
 #include "net/base/completion_once_callback.h"
 #include "net/http/http_request_headers.h"
+#include "services/metrics/public/cpp/ukm_source_id.h"
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
 #include "services/network/public/mojom/websocket.mojom.h"
 
@@ -197,6 +198,7 @@ class WebRequestAPI : public BrowserContextKeyedAPI,
       int render_process_id,
       content::ContentBrowserClient::URLLoaderFactoryType type,
       base::Optional<int64_t> navigation_id,
+      ukm::SourceIdObj ukm_source_id,
       mojo::PendingReceiver<network::mojom::URLLoaderFactory>* factory_receiver,
       mojo::PendingRemote<network::mojom::TrustedURLLoaderHeaderClient>*
           header_client);
@@ -494,7 +496,7 @@ class ExtensionWebRequestEventRouter {
 
   // Registers a |callback| that is executed when the next page load happens.
   // The callback is then deleted.
-  void AddCallbackForPageLoad(const base::Closure& callback);
+  void AddCallbackForPageLoad(base::OnceClosure callback);
 
   // Whether there is a listener matching the request that has
   // ExtraInfoSpec::EXTRA_HEADERS set.
@@ -600,7 +602,7 @@ class ExtensionWebRequestEventRouter {
   using CrossBrowserContextMap =
       std::map<content::BrowserContext*,
                std::pair<bool, content::BrowserContext*>>;
-  using CallbacksForPageLoad = std::list<base::Closure>;
+  using CallbacksForPageLoad = std::list<base::OnceClosure>;
 
   ExtensionWebRequestEventRouter();
 
@@ -836,7 +838,7 @@ class WebRequestHandlerBehaviorChangedFunction
       extensions::QuotaLimitHeuristics* heuristics) const override;
   // Handle quota exceeded gracefully: Only warn the user but still execute the
   // function.
-  void OnQuotaExceeded(const std::string& error) override;
+  void OnQuotaExceeded(std::string error) override;
   ResponseAction Run() override;
 };
 

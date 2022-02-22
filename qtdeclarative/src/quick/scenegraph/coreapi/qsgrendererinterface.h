@@ -52,14 +52,18 @@ public:
     enum GraphicsApi {
         Unknown,
         Software,
-        OpenGL,
-        Direct3D12,
         OpenVG,
-        OpenGLRhi,
-        Direct3D11Rhi,
-        VulkanRhi,
-        MetalRhi,
-        NullRhi,
+        OpenGL,
+        Direct3D11,
+        Vulkan,
+        Metal,
+        Null,
+
+        OpenGLRhi = OpenGL,
+        Direct3D11Rhi = Direct3D11,
+        VulkanRhi = Vulkan,
+        MetalRhi = Metal,
+        NullRhi = Null
     };
 
     enum Resource {
@@ -68,6 +72,9 @@ public:
         CommandListResource,
         PainterResource,
         RhiResource,
+        RhiSwapchainResource,
+        RhiRedirectCommandBuffer,
+        RhiRedirectRenderTarget,
         PhysicalDeviceResource,
         OpenGLContextResource,
         DeviceContextResource,
@@ -95,6 +102,12 @@ public:
         ShaderByteCode = 0x04
     };
     Q_DECLARE_FLAGS(ShaderSourceTypes, ShaderSourceType)
+
+    enum RenderMode {
+        RenderMode2D,
+        RenderMode2DNoDepthBuffer,
+        RenderMode3D
+    };
 
     virtual ~QSGRendererInterface();
 

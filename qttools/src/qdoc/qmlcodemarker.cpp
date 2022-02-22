@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2019 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -26,18 +26,14 @@
 **
 ****************************************************************************/
 
-/*
-  qmlcodemarker.cpp
-*/
-
 #include "qmlcodemarker.h"
+
+#include <QtCore/qregularexpression.h>
 
 #include "atom.h"
 #include "node.h"
 #include "qmlmarkupvisitor.h"
 #include "text.h"
-#include "tree.h"
-#include "generator.h"
 
 #ifndef QT_NO_DECLARATIVE
 #    include <private/qqmljsast_p.h>
@@ -48,10 +44,6 @@
 #endif
 
 QT_BEGIN_NAMESPACE
-
-QmlCodeMarker::QmlCodeMarker() {}
-
-QmlCodeMarker::~QmlCodeMarker() {}
 
 /*!
   Returns \c true if the \a code is recognized by the parser.
@@ -69,6 +61,7 @@ bool QmlCodeMarker::recognizeCode(const QString &code)
 
     return parser.parse();
 #else
+    Q_UNUSED(code);
     return false;
 #endif
 }
@@ -118,23 +111,6 @@ QString QmlCodeMarker::markedUpName(const Node *node)
     return name;
 }
 
-QString QmlCodeMarker::markedUpFullName(const Node *node, const Node *relative)
-{
-    if (node->name().isEmpty()) {
-        return "global";
-    } else {
-        QString fullName;
-        for (;;) {
-            fullName.prepend(markedUpName(node));
-            if (node->parent() == relative || node->parent()->name().isEmpty())
-                break;
-            fullName.prepend("<@op>::</@op>");
-            node = node->parent();
-        }
-        return fullName;
-    }
-}
-
 QString QmlCodeMarker::markedUpIncludes(const QStringList &includes)
 {
     QString code;
@@ -148,7 +124,7 @@ QString QmlCodeMarker::markedUpIncludes(const QStringList &includes)
 
 QString QmlCodeMarker::functionBeginRegExp(const QString &funcName)
 {
-    return QLatin1Char('^') + QRegExp::escape("function " + funcName) + QLatin1Char('$');
+    return QLatin1Char('^') + QRegularExpression::escape("function " + funcName) + QLatin1Char('$');
 }
 
 QString QmlCodeMarker::functionEndRegExp(const QString & /* funcName */)
@@ -164,7 +140,7 @@ QString QmlCodeMarker::addMarkUp(const QString &code, const Node * /* relative *
     QQmlJS::Lexer lexer(&engine);
 
     QString newCode = code;
-    QVector<QQmlJS::SourceLocation> pragmas = extractPragmas(newCode);
+    QList<QQmlJS::SourceLocation> pragmas = extractPragmas(newCode);
     lexer.setCode(newCode, 1);
 
     QQmlJS::Parser parser(&engine);
@@ -177,12 +153,13 @@ QString QmlCodeMarker::addMarkUp(const QString &code, const Node * /* relative *
         QmlMarkupVisitor visitor(code, pragmas, &engine);
         QQmlJS::AST::Node::accept(ast, &visitor);
         if (visitor.hasError()) {
-            location.warning(location.fileName()
-                             + tr("Unable to analyze QML snippet. The output is incomplete."));
+            location.warning(
+                    location.fileName()
+                    + QStringLiteral("Unable to analyze QML snippet. The output is incomplete."));
         }
         output = visitor.markedUpCode();
     } else {
-        location.warning(tr("Unable to parse QML snippet: \"%1\" at line %2, column %3")
+        location.warning(QStringLiteral("Unable to parse QML snippet: \"%1\" at line %2, column %3")
                                  .arg(parser.errorMessage())
                                  .arg(parser.errorLineNumber())
                                  .arg(parser.errorColumnNumber()));
@@ -191,6 +168,7 @@ QString QmlCodeMarker::addMarkUp(const QString &code, const Node * /* relative *
 
     return output;
 #else
+    Q_UNUSED(code);
     location.warning("QtDeclarative not installed; cannot parse QML or JS.");
     return QString();
 #endif
@@ -217,11 +195,9 @@ static void replaceWithSpace(QString &str, int idx, int n)
   Searches for ".pragma <value>" or ".import <stuff>" declarations
   in \a script. Currently supported pragmas are: library
 */
-QVector<QQmlJS::SourceLocation> QmlCodeMarker::extractPragmas(QString &script)
+QList<QQmlJS::SourceLocation> QmlCodeMarker::extractPragmas(QString &script)
 {
-    const QString pragma(QLatin1String("pragma"));
-    const QString library(QLatin1String("library"));
-    QVector<QQmlJS::SourceLocation> removed;
+    QList<QQmlJS::SourceLocation> removed;
 
     QQmlJS::Lexer l(nullptr);
     l.setCode(script, 0);
@@ -230,7 +206,7 @@ QVector<QQmlJS::SourceLocation> QmlCodeMarker::extractPragmas(QString &script)
 
     while (true) {
         if (token != QQmlJSGrammar::T_DOT)
-            return removed;
+            break;
 
         int startOffset = l.tokenOffset();
         int startLine = l.tokenStartLine();
@@ -239,7 +215,7 @@ QVector<QQmlJS::SourceLocation> QmlCodeMarker::extractPragmas(QString &script)
         token = l.lex();
 
         if (token != QQmlJSGrammar::T_PRAGMA && token != QQmlJSGrammar::T_IMPORT)
-            return removed;
+            break;
         int endOffset = 0;
         while (startLine == l.tokenStartLine()) {
             endOffset = l.tokenLength() + l.tokenOffset();

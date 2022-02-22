@@ -55,7 +55,6 @@
 #include <QBoxLayout>
 #include <QCheckBox>
 #include <QClipboard>
-#include <QDesktopWidget>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFontComboBox>
@@ -90,7 +89,7 @@ MainWindow::MainWindow(QWidget *parent)
     filterCombo->addItem(tr("Monospaced"), QVariant::fromValue(QFontComboBox::MonospacedFonts));
     filterCombo->addItem(tr("Proportional"), QVariant::fromValue(QFontComboBox::ProportionalFonts));
     filterCombo->setCurrentIndex(0);
-    connect(filterCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+    connect(filterCombo, &QComboBox::currentIndexChanged,
             this, &MainWindow::filterChanged);
 
     QLabel *fontLabel = new QLabel(tr("Font:"));
@@ -179,13 +178,12 @@ MainWindow::MainWindow(QWidget *parent)
 //! [7]
 void MainWindow::findStyles(const QFont &font)
 {
-    QFontDatabase fontDatabase;
     QString currentItem = styleCombo->currentText();
     styleCombo->clear();
 //! [7]
 
 //! [8]
-    const QStringList styles = fontDatabase.styles(font.family());
+    const QStringList styles = QFontDatabase::styles(font.family());
     for (const QString &style : styles)
         styleCombo->addItem(style);
 
@@ -208,7 +206,6 @@ void MainWindow::filterChanged(int f)
 
 void MainWindow::findSizes(const QFont &font)
 {
-    QFontDatabase fontDatabase;
     QString currentSize = sizeCombo->currentText();
 
     {
@@ -216,7 +213,7 @@ void MainWindow::findSizes(const QFont &font)
         // sizeCombo signals are now blocked until end of scope
         sizeCombo->clear();
 
-        if (fontDatabase.isSmoothlyScalable(font.family(), fontDatabase.styleString(font))) {
+        if (QFontDatabase::isSmoothlyScalable(font.family(), QFontDatabase::styleString(font))) {
             const QList<int> sizes = QFontDatabase::standardSizes();
             for (const int size : sizes) {
                 sizeCombo->addItem(QVariant(size).toString());
@@ -224,7 +221,7 @@ void MainWindow::findSizes(const QFont &font)
             }
 
         } else {
-            const QList<int> sizes = fontDatabase.smoothSizes(font.family(), fontDatabase.styleString(font));
+            const QList<int> sizes = QFontDatabase::smoothSizes(font.family(), QFontDatabase::styleString(font));
             for (const int size : sizes ) {
                 sizeCombo->addItem(QVariant(size).toString());
                 sizeCombo->setEditable(false);
@@ -291,8 +288,8 @@ QString FontInfoDialog::text() const
 
     str << "Qt " << QT_VERSION_STR << " on " << QGuiApplication::platformName()
         << ", " << logicalDpiX() << "DPI";
-    if (!qFuzzyCompare(devicePixelRatioF(), qreal(1)))
-        str  << ", device pixel ratio: " << devicePixelRatioF();
+    if (!qFuzzyCompare(devicePixelRatio(), qreal(1)))
+        str  << ", device pixel ratio: " << devicePixelRatio();
     str << "\n\nDefault font : " << defaultFont.family() << ", " << defaultFont.pointSizeF() << "pt\n"
         << "Fixed font   : " << fixedFont.family() << ", " << fixedFont.pointSizeF() << "pt\n"
         << "Title font   : " << titleFont.family() << ", " << titleFont.pointSizeF() << "pt\n"

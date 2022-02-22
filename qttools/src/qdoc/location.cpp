@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2019 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -29,25 +29,23 @@
 #include "location.h"
 
 #include "config.h"
-#include "generator.h"
 
 #include <QtCore/qdebug.h>
 #include <QtCore/qdir.h>
-#include <QtCore/qregexp.h>
-#include <QtCore/QTime>
+#include <QtCore/qregularexpression.h>
 
-#include <limits.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include <climits>
+#include <cstdio>
+#include <cstdlib>
 
 QT_BEGIN_NAMESPACE
 
-int Location::tabSize;
-int Location::warningCount = 0;
-int Location::warningLimit = -1;
-QString Location::programName;
-QString Location::project;
-QRegExp *Location::spuriousRegExp = nullptr;
+int Location::s_tabSize;
+int Location::s_warningCount = 0;
+int Location::s_warningLimit = -1;
+QString Location::s_programName;
+QString Location::s_project;
+QRegularExpression *Location::s_spuriousRegExp = nullptr;
 
 /*!
   \class Location
@@ -63,7 +61,7 @@ QRegExp *Location::spuriousRegExp = nullptr;
 /*!
   Constructs an empty location.
  */
-Location::Location() : stk(nullptr), stkTop(&stkBottom), stkDepth(0), etcetera(false)
+Location::Location() : m_stk(nullptr), m_stkTop(&m_stkBottom), m_stkDepth(0), m_etc(false)
 {
     // nothing.
 }
@@ -73,7 +71,7 @@ Location::Location() : stk(nullptr), stkTop(&stkBottom), stkDepth(0), etcetera(f
   position stack.
  */
 Location::Location(const QString &fileName)
-    : stk(nullptr), stkTop(&stkBottom), stkDepth(0), etcetera(false)
+    : m_stk(nullptr), m_stkTop(&m_stkBottom), m_stkDepth(0), m_etc(false)
 {
     push(fileName);
 }
@@ -83,7 +81,7 @@ Location::Location(const QString &fileName)
   this Location using the assignment operator.
  */
 Location::Location(const Location &other)
-    : stk(nullptr), stkTop(&stkBottom), stkDepth(0), etcetera(false)
+    : m_stk(nullptr), m_stkTop(&m_stkBottom), m_stkDepth(0), m_etc(false)
 {
     *this = other;
 }
@@ -94,18 +92,18 @@ Location::Location(const Location &other)
  */
 Location &Location::operator=(const Location &other)
 {
-    QStack<StackEntry> *oldStk = stk;
+    QStack<StackEntry> *oldStk = m_stk;
 
-    stkBottom = other.stkBottom;
-    if (other.stk == nullptr) {
-        stk = nullptr;
-        stkTop = &stkBottom;
+    m_stkBottom = other.m_stkBottom;
+    if (other.m_stk == nullptr) {
+        m_stk = nullptr;
+        m_stkTop = &m_stkBottom;
     } else {
-        stk = new QStack<StackEntry>(*other.stk);
-        stkTop = &stk->top();
+        m_stk = new QStack<StackEntry>(*other.m_stk);
+        m_stkTop = &m_stk->top();
     }
-    stkDepth = other.stkDepth;
-    etcetera = other.etcetera;
+    m_stkDepth = other.m_stkDepth;
+    m_etc = other.m_etc;
     delete oldStk;
     return *this;
 }
@@ -117,9 +115,9 @@ Location &Location::operator=(const Location &other)
   */
 void Location::start()
 {
-    if (stkTop->lineNo < 1) {
-        stkTop->lineNo = 1;
-        stkTop->columnNo = 1;
+    if (m_stkTop->m_lineNo < 1) {
+        m_stkTop->m_lineNo = 1;
+        m_stkTop->m_columnNo = 1;
     }
 }
 
@@ -134,12 +132,12 @@ void Location::start()
 void Location::advance(QChar ch)
 {
     if (ch == QLatin1Char('\n')) {
-        stkTop->lineNo++;
-        stkTop->columnNo = 1;
+        m_stkTop->m_lineNo++;
+        m_stkTop->m_columnNo = 1;
     } else if (ch == QLatin1Char('\t')) {
-        stkTop->columnNo = 1 + tabSize * (stkTop->columnNo + tabSize - 1) / tabSize;
+        m_stkTop->m_columnNo = 1 + s_tabSize * (m_stkTop->m_columnNo + s_tabSize - 1) / s_tabSize;
     } else {
-        stkTop->columnNo++;
+        m_stkTop->m_columnNo++;
     }
 }
 
@@ -151,16 +149,16 @@ void Location::advance(QChar ch)
 */
 void Location::push(const QString &filePath)
 {
-    if (stkDepth++ >= 1) {
-        if (stk == nullptr)
-            stk = new QStack<StackEntry>;
-        stk->push(StackEntry());
-        stkTop = &stk->top();
+    if (m_stkDepth++ >= 1) {
+        if (m_stk == nullptr)
+            m_stk = new QStack<StackEntry>;
+        m_stk->push(StackEntry());
+        m_stkTop = &m_stk->top();
     }
 
-    stkTop->filePath = filePath;
-    stkTop->lineNo = INT_MIN;
-    stkTop->columnNo = 1;
+    m_stkTop->m_filePath = filePath;
+    m_stkTop->m_lineNo = INT_MIN;
+    m_stkTop->m_columnNo = 1;
 }
 
 /*!
@@ -171,16 +169,18 @@ void Location::push(const QString &filePath)
 */
 void Location::pop()
 {
-    if (--stkDepth == 0) {
-        stkBottom = StackEntry();
+    if (--m_stkDepth == 0) {
+        m_stkBottom = StackEntry();
     } else {
-        stk->pop();
-        if (stk->isEmpty()) {
-            delete stk;
-            stk = nullptr;
-            stkTop = &stkBottom;
+        if (!m_stk)
+            return;
+        m_stk->pop();
+        if (m_stk->isEmpty()) {
+            delete m_stk;
+            m_stk = nullptr;
+            m_stkTop = &m_stkBottom;
         } else {
-            stkTop = &stk->top();
+            m_stkTop = &m_stk->top();
         }
     }
 }
@@ -219,21 +219,6 @@ QString Location::fileSuffix() const
     return (fp.isEmpty() ? fp : fp.mid(fp.lastIndexOf('.') + 1));
 }
 
-/*!
-  \brief  Returns \a path which is canonicalized and relative to the config file.
-
-  QDir::relativeFilePath does not canonicalize the paths, so
-  if the config file is located at qtbase\src\widgets\doc\qtwidgets.qdocconf
-  and it has a reference to any ancestor folder (e.g. ".." or even "../doc")
- */
-QString Location::canonicalRelativePath(const QString &path)
-{
-    QDir configFileDir(QDir::current());
-    QDir dir(path);
-    const QString canon = dir.canonicalPath();
-    return configFileDir.relativeFilePath(canon);
-}
-
 /*! \fn int Location::lineNo() const
   Returns the current line number.
   Must not be called on an empty Location object.
@@ -249,7 +234,7 @@ QString Location::canonicalRelativePath(const QString &path)
 */
 
 /*!
-  Writes \a message and \a detals to stderr as a formatted
+  Writes \a message and \a details to stderr as a formatted
   warning message. Does not write the message if qdoc is in
   the Prepare phase.
  */
@@ -261,7 +246,7 @@ void Location::warning(const QString &message, const QString &details) const
 }
 
 /*!
-  Writes \a message and \a detals to stderr as a formatted
+  Writes \a message and \a details to stderr as a formatted
   error message. Does not write the message if qdoc is in
   the Prepare phase.
  */
@@ -279,19 +264,20 @@ void Location::error(const QString &message, const QString &details) const
  */
 int Location::exitCode()
 {
-    if (warningLimit < 0 || warningCount <= warningLimit)
+    if (s_warningLimit < 0 || s_warningCount <= s_warningLimit)
         return EXIT_SUCCESS;
 
     Location().emitMessage(
             Error,
-            tr("Documentation warnings (%1) exceeded the limit (%2) for '%3'.")
-                    .arg(QString::number(warningCount), QString::number(warningLimit), project),
+            QStringLiteral("Documentation warnings (%1) exceeded the limit (%2) for '%3'.")
+                    .arg(QString::number(s_warningCount), QString::number(s_warningLimit),
+                         s_project),
             QString());
-    return warningCount;
+    return s_warningCount;
 }
 
 /*!
-  Writes \a message and \a detals to stderr as a formatted
+  Writes \a message and \a details to stderr as a formatted
   error message and then exits the program. qdoc prints fatal
   errors in either phase (Prepare or Generate).
  */
@@ -305,7 +291,7 @@ void Location::fatal(const QString &message, const QString &details) const
 }
 
 /*!
-  Writes \a message and \a detals to stderr as a formatted
+  Writes \a message and \a details to stderr as a formatted
   report message.
  */
 void Location::report(const QString &message, const QString &details) const
@@ -322,19 +308,21 @@ void Location::report(const QString &message, const QString &details) const
 void Location::initialize()
 {
     Config &config = Config::instance();
-    tabSize = config.getInt(CONFIG_TABSIZE);
-    programName = config.programName();
-    project = config.getString(CONFIG_PROJECT);
-    warningCount = 0;
+    s_tabSize = config.getInt(CONFIG_TABSIZE);
+    s_programName = config.programName();
+    s_project = config.getString(CONFIG_PROJECT);
+    if (!config.singleExec())
+        s_warningCount = 0;
     if (qEnvironmentVariableIsSet("QDOC_ENABLE_WARNINGLIMIT")
         || config.getBool(CONFIG_WARNINGLIMIT + Config::dot + "enabled"))
-        warningLimit = config.getInt(CONFIG_WARNINGLIMIT);
+        s_warningLimit = config.getInt(CONFIG_WARNINGLIMIT);
 
-    QRegExp regExp = config.getRegExp(CONFIG_SPURIOUS);
+    QRegularExpression regExp = config.getRegExp(CONFIG_SPURIOUS);
     if (regExp.isValid()) {
-        spuriousRegExp = new QRegExp(regExp);
+        s_spuriousRegExp = new QRegularExpression(regExp);
     } else {
-        config.lastLocation().warning(tr("Invalid regular expression '%1'").arg(regExp.pattern()));
+        config.lastLocation().warning(
+                QStringLiteral("Invalid regular expression '%1'").arg(regExp.pattern()));
     }
 }
 
@@ -345,8 +333,8 @@ void Location::initialize()
  */
 void Location::terminate()
 {
-    delete spuriousRegExp;
-    spuriousRegExp = nullptr;
+    delete s_spuriousRegExp;
+    s_spuriousRegExp = nullptr;
 }
 
 /*!
@@ -363,11 +351,10 @@ void Location::information(const QString &message)
  */
 void Location::internalError(const QString &hint)
 {
-    Location().fatal(tr("Internal error (%1)").arg(hint),
-                     tr("There is a bug in %1. Seek advice from your local"
-                        " %2 guru.")
-                             .arg(programName)
-                             .arg(programName));
+    Location().fatal(QStringLiteral("Internal error (%1)").arg(hint),
+                     QStringLiteral("There is a bug in %1. Seek advice from your local"
+                                    " %2 guru.")
+                             .arg(s_programName, s_programName));
 }
 
 /*!
@@ -377,8 +364,12 @@ void Location::internalError(const QString &hint)
  */
 void Location::emitMessage(MessageType type, const QString &message, const QString &details) const
 {
-    if (type == Warning && spuriousRegExp != nullptr && spuriousRegExp->exactMatch(message))
-        return;
+    if (type == Warning && s_spuriousRegExp != nullptr) {
+        auto match = s_spuriousRegExp->match(message, 0, QRegularExpression::NormalMatch,
+                                             QRegularExpression::AnchorAtOffsetMatchOption);
+        if (match.hasMatch() && match.capturedLength() == message.length())
+            return;
+    }
 
     QString result = message;
     if (!details.isEmpty())
@@ -386,17 +377,17 @@ void Location::emitMessage(MessageType type, const QString &message, const QStri
     result.replace("\n", "\n    ");
     if (isEmpty()) {
         if (type == Error)
-            result.prepend(tr(": error: "));
+            result.prepend(QStringLiteral(": error: "));
         else if (type == Warning) {
-            result.prepend(tr(": warning: "));
-            ++warningCount;
+            result.prepend(QStringLiteral(": warning: "));
+            ++s_warningCount;
         }
     } else {
         if (type == Error)
-            result.prepend(tr(": (qdoc) error: "));
+            result.prepend(QStringLiteral(": (qdoc) error: "));
         else if (type == Warning) {
-            result.prepend(tr(": (qdoc) warning: "));
-            ++warningCount;
+            result.prepend(QStringLiteral(": (qdoc) warning: "));
+            ++s_warningCount;
         }
     }
     if (type != Report)
@@ -414,25 +405,23 @@ QString Location::toString() const
     QString str;
 
     if (isEmpty()) {
-        str = programName;
+        str = s_programName;
     } else {
         Location loc2 = *this;
         loc2.setEtc(false);
         loc2.pop();
         if (!loc2.isEmpty()) {
-            QString blah = tr("In file included from ");
+            QString blah = QStringLiteral("In file included from ");
             for (;;) {
                 str += blah;
                 str += loc2.top();
                 loc2.pop();
                 if (loc2.isEmpty())
                     break;
-                str += tr(",");
-                str += QLatin1Char('\n');
+                str += QStringLiteral(",\n");
                 blah.fill(' ');
             }
-            str += tr(":");
-            str += QLatin1Char('\n');
+            str += QStringLiteral(":\n");
         }
         str += top();
     }

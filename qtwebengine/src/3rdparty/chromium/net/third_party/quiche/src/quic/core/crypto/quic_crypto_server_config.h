@@ -12,25 +12,25 @@
 #include <string>
 #include <vector>
 
+#include "absl/strings/string_view.h"
 #include "third_party/boringssl/src/include/openssl/base.h"
-#include "net/third_party/quiche/src/quic/core/crypto/crypto_handshake.h"
-#include "net/third_party/quiche/src/quic/core/crypto/crypto_handshake_message.h"
-#include "net/third_party/quiche/src/quic/core/crypto/crypto_protocol.h"
-#include "net/third_party/quiche/src/quic/core/crypto/crypto_secret_boxer.h"
-#include "net/third_party/quiche/src/quic/core/crypto/key_exchange.h"
-#include "net/third_party/quiche/src/quic/core/crypto/proof_source.h"
-#include "net/third_party/quiche/src/quic/core/crypto/proof_verifier.h"
-#include "net/third_party/quiche/src/quic/core/crypto/quic_compressed_certs_cache.h"
-#include "net/third_party/quiche/src/quic/core/crypto/quic_crypto_proof.h"
-#include "net/third_party/quiche/src/quic/core/crypto/server_proof_verifier.h"
-#include "net/third_party/quiche/src/quic/core/proto/cached_network_parameters_proto.h"
-#include "net/third_party/quiche/src/quic/core/proto/source_address_token_proto.h"
-#include "net/third_party/quiche/src/quic/core/quic_time.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_mutex.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_reference_counted.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_socket_address.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "quic/core/crypto/crypto_handshake.h"
+#include "quic/core/crypto/crypto_handshake_message.h"
+#include "quic/core/crypto/crypto_protocol.h"
+#include "quic/core/crypto/crypto_secret_boxer.h"
+#include "quic/core/crypto/key_exchange.h"
+#include "quic/core/crypto/proof_source.h"
+#include "quic/core/crypto/proof_verifier.h"
+#include "quic/core/crypto/quic_compressed_certs_cache.h"
+#include "quic/core/crypto/quic_crypto_proof.h"
+#include "quic/core/crypto/server_proof_verifier.h"
+#include "quic/core/proto/cached_network_parameters_proto.h"
+#include "quic/core/proto/source_address_token_proto.h"
+#include "quic/core/quic_time.h"
+#include "quic/platform/api/quic_export.h"
+#include "quic/platform/api/quic_mutex.h"
+#include "quic/platform/api/quic_reference_counted.h"
+#include "quic/platform/api/quic_socket_address.h"
 
 namespace quic {
 
@@ -54,10 +54,10 @@ struct QUIC_EXPORT_PRIVATE ClientHelloInfo {
 
   // Outputs from EvaluateClientHello.
   bool valid_source_address_token;
-  quiche::QuicheStringPiece sni;
-  quiche::QuicheStringPiece client_nonce;
-  quiche::QuicheStringPiece server_nonce;
-  quiche::QuicheStringPiece user_agent_id;
+  absl::string_view sni;
+  absl::string_view client_nonce;
+  absl::string_view server_nonce;
+  absl::string_view user_agent_id;
   SourceAddressTokens source_address_tokens;
 
   // Errors from EvaluateClientHello.
@@ -171,7 +171,7 @@ class QUIC_EXPORT_PRIVATE KeyExchangeSource {
       std::string server_config_id,
       bool is_fallback,
       QuicTag type,
-      quiche::QuicheStringPiece private_key) = 0;
+      absl::string_view private_key) = 0;
 };
 
 // QuicCryptoServerConfig contains the crypto configuration of a QUIC server.
@@ -215,7 +215,7 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerConfig {
   // |proof_source|: provides certificate chains and signatures.
   // |key_exchange_source|: provides key-exchange functionality.
   QuicCryptoServerConfig(
-      quiche::QuicheStringPiece source_address_token_secret,
+      absl::string_view source_address_token_secret,
       QuicRandom* server_nonce_entropy,
       std::unique_ptr<ProofSource> proof_source,
       std::unique_ptr<KeyExchangeSource> key_exchange_source);
@@ -294,7 +294,7 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerConfig {
   //     completion of an asynchronous operation.
   void ValidateClientHello(
       const CryptoHandshakeMessage& client_hello,
-      const QuicIpAddress& client_ip,
+      const QuicSocketAddress& client_address,
       const QuicSocketAddress& server_address,
       QuicTransportVersion version,
       const QuicClock* clock,
@@ -357,10 +357,10 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerConfig {
   // |cached_network_params| is optional, and can be nullptr.
   void BuildServerConfigUpdateMessage(
       QuicTransportVersion version,
-      quiche::QuicheStringPiece chlo_hash,
+      absl::string_view chlo_hash,
       const SourceAddressTokens& previous_source_address_tokens,
       const QuicSocketAddress& server_address,
-      const QuicIpAddress& client_ip,
+      const QuicSocketAddress& client_address,
       const QuicClock* clock,
       QuicRandom* rand,
       QuicCompressedCertsCache* compressed_certs_cache,
@@ -417,6 +417,37 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerConfig {
   // Returns the number of configs this object owns.
   int NumberOfConfigs() const;
 
+  // NewSourceAddressToken returns a fresh source address token for the given
+  // IP address. |previous_tokens| is the received tokens, and can be empty.
+  // |cached_network_params| is optional, and can be nullptr.
+  std::string NewSourceAddressToken(
+      const CryptoSecretBoxer& crypto_secret_boxer,
+      const SourceAddressTokens& previous_tokens,
+      const QuicIpAddress& ip,
+      QuicRandom* rand,
+      QuicWallTime now,
+      const CachedNetworkParameters* cached_network_params) const;
+
+  // ParseSourceAddressToken parses the source address tokens contained in
+  // the encrypted |token|, and populates |tokens| with the parsed tokens.
+  // Returns HANDSHAKE_OK if |token| could be parsed, or the reason for the
+  // failure.
+  HandshakeFailureReason ParseSourceAddressToken(
+      const CryptoSecretBoxer& crypto_secret_boxer,
+      absl::string_view token,
+      SourceAddressTokens* tokens) const;
+
+  // ValidateSourceAddressTokens returns HANDSHAKE_OK if the source address
+  // tokens in |tokens| contain a valid and timely token for the IP address
+  // |ip| given that the current time is |now|. Otherwise it returns the
+  // reason for failure. |cached_network_params| is populated if the valid
+  // token contains a CachedNetworkParameters proto.
+  HandshakeFailureReason ValidateSourceAddressTokens(
+      const SourceAddressTokens& tokens,
+      const QuicIpAddress& ip,
+      QuicWallTime now,
+      CachedNetworkParameters* cached_network_params) const;
+
   // Callers retain the ownership of |rejection_observer| which must outlive the
   // config.
   void set_rejection_observer(RejectionObserver* rejection_observer) {
@@ -432,7 +463,9 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerConfig {
 
   SSL_CTX* ssl_ctx() const;
 
-  void set_pre_shared_key(quiche::QuicheStringPiece psk) {
+  // Pre-shared key used during the handshake.
+  const std::string& pre_shared_key() const { return pre_shared_key_; }
+  void set_pre_shared_key(absl::string_view psk) {
     pre_shared_key_ = std::string(psk);
   }
 
@@ -441,6 +474,10 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerConfig {
 
   bool pad_shlo() const { return pad_shlo_; }
   void set_pad_shlo(bool new_value) { pad_shlo_ = new_value; }
+
+  const CryptoSecretBoxer& source_address_token_boxer() const {
+    return source_address_token_boxer_;
+  }
 
  private:
   friend class test::QuicCryptoServerConfigPeer;
@@ -509,12 +546,12 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerConfig {
     ~Config() override;
   };
 
-  typedef std::map<ServerConfigID, QuicReferenceCountedPointer<Config>>
-      ConfigMap;
+  using ConfigMap =
+      std::map<ServerConfigID, QuicReferenceCountedPointer<Config>>;
 
   // Get a ref to the config with a given server config id.
   QuicReferenceCountedPointer<Config> GetConfigWithScid(
-      quiche::QuicheStringPiece requested_scid) const
+      absl::string_view requested_scid) const
       QUIC_SHARED_LOCKS_REQUIRED(configs_lock_);
 
   // A snapshot of the configs associated with an in-progress handshake.
@@ -531,7 +568,7 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerConfig {
   // Returns true if any configs are loaded.  If false is returned, |configs| is
   // not modified.
   bool GetCurrentConfigs(const QuicWallTime& now,
-                         quiche::QuicheStringPiece requested_scid,
+                         absl::string_view requested_scid,
                          QuicReferenceCountedPointer<Config> old_primary_config,
                          Configs* configs) const;
 
@@ -551,6 +588,7 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerConfig {
   // are written to |client_hello_state->info|.
   void EvaluateClientHello(
       const QuicSocketAddress& server_address,
+      const QuicSocketAddress& client_address,
       QuicTransportVersion version,
       const Configs& configs,
       QuicReferenceCountedPointer<ValidateClientHelloResultCallback::Result>
@@ -684,7 +722,7 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerConfig {
       std::unique_ptr<ProofSource::Details> proof_source_details,
       QuicTag key_exchange_type,
       std::unique_ptr<CryptoHandshakeMessage> out,
-      quiche::QuicheStringPiece public_value,
+      absl::string_view public_value,
       std::unique_ptr<ProcessClientHelloContext> context,
       const Configs& configs) const;
 
@@ -741,36 +779,6 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerConfig {
   QuicReferenceCountedPointer<Config> ParseConfigProtobuf(
       const QuicServerConfigProtobuf& protobuf,
       bool is_fallback) const;
-
-  // NewSourceAddressToken returns a fresh source address token for the given
-  // IP address. |cached_network_params| is optional, and can be nullptr.
-  std::string NewSourceAddressToken(
-      const Config& config,
-      const SourceAddressTokens& previous_tokens,
-      const QuicIpAddress& ip,
-      QuicRandom* rand,
-      QuicWallTime now,
-      const CachedNetworkParameters* cached_network_params) const;
-
-  // ParseSourceAddressToken parses the source address tokens contained in
-  // the encrypted |token|, and populates |tokens| with the parsed tokens.
-  // Returns HANDSHAKE_OK if |token| could be parsed, or the reason for the
-  // failure.
-  HandshakeFailureReason ParseSourceAddressToken(
-      const Config& config,
-      quiche::QuicheStringPiece token,
-      SourceAddressTokens* tokens) const;
-
-  // ValidateSourceAddressTokens returns HANDSHAKE_OK if the source address
-  // tokens in |tokens| contain a valid and timely token for the IP address
-  // |ip| given that the current time is |now|. Otherwise it returns the
-  // reason for failure. |cached_network_params| is populated if the valid
-  // token contains a CachedNetworkParameters proto.
-  HandshakeFailureReason ValidateSourceAddressTokens(
-      const SourceAddressTokens& tokens,
-      const QuicIpAddress& ip,
-      QuicWallTime now,
-      CachedNetworkParameters* cached_network_params) const;
 
   // ValidateSingleSourceAddressToken returns HANDSHAKE_OK if the source
   // address token in |token| is a timely token for the IP address |ip|

@@ -10,6 +10,7 @@
 
 #include "include/core/SkImageInfo.h"
 #include "include/core/SkRefCnt.h"
+#include "include/core/SkSamplingOptions.h"
 #include "include/core/SkSurfaceProps.h"
 #include "src/core/SkNextID.h"
 
@@ -62,16 +63,12 @@ public:
     virtual size_t getSize() const = 0;
 
     /**
-     *  Ensures that a special image is backed by a texture (when GrRecordingContext is non-null).
-     *  If no transformation is required, the returned image may be the same as this special image.
-     *  If this special image is from a different GrRecordingContext, this will fail.
-     */
-    sk_sp<SkSpecialImage> makeTextureImage(GrRecordingContext*) const;
-
-    /**
      *  Draw this SpecialImage into the canvas, automatically taking into account the image's subset
      */
-    void draw(SkCanvas*, SkScalar x, SkScalar y, const SkPaint*) const;
+    void draw(SkCanvas*, SkScalar x, SkScalar y, const SkSamplingOptions&, const SkPaint*) const;
+    void draw(SkCanvas* canvas, SkScalar x, SkScalar y) const {
+        this->draw(canvas, x, y, SkSamplingOptions(), nullptr);
+    }
 
     static sk_sp<SkSpecialImage> MakeFromImage(GrRecordingContext*,
                                                const SkIRect& subset,
@@ -166,7 +163,7 @@ private:
     const SkIRect        fSubset;
     const uint32_t       fUniqueID;
 
-    typedef SkRefCnt INHERITED;
+    using INHERITED = SkRefCnt;
 };
 
 #endif

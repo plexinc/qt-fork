@@ -30,6 +30,10 @@ namespace dawn_native {
         return mAdapterType;
     }
 
+    const std::string& AdapterBase::GetDriverDescription() const {
+        return mDriverDescription;
+    }
+
     const PCIInfo& AdapterBase::GetPCIInfo() const {
         return mPCIInfo;
     }
@@ -85,6 +89,15 @@ namespace dawn_native {
         // descriptor is valid and is a subset what's allowed on this adapter.
         DAWN_TRY_ASSIGN(*result, CreateDeviceImpl(descriptor));
         return {};
+    }
+
+    void AdapterBase::ResetInternalDeviceForTesting() {
+        mInstance->ConsumedError(ResetInternalDeviceForTestingImpl());
+    }
+
+    MaybeError AdapterBase::ResetInternalDeviceForTestingImpl() {
+        return DAWN_INTERNAL_ERROR(
+            "ResetInternalDeviceForTesting should only be used with the D3D12 backend.");
     }
 
 }  // namespace dawn_native

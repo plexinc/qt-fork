@@ -39,7 +39,7 @@
 #include "fxbarcode/datamatrix/BC_SymbolInfo.h"
 #include "fxbarcode/datamatrix/BC_TextEncoder.h"
 #include "fxbarcode/datamatrix/BC_X12Encoder.h"
-#include "third_party/base/ptr_util.h"
+#include "third_party/base/check.h"
 
 namespace {
 
@@ -112,7 +112,7 @@ bool IsNativeEDIFACT(wchar_t ch) {
 }
 
 size_t EncoderIndex(CBC_HighLevelEncoder::Encoding encoding) {
-  ASSERT(encoding != CBC_HighLevelEncoder::Encoding::UNKNOWN);
+  DCHECK(encoding != CBC_HighLevelEncoder::Encoding::UNKNOWN);
   return static_cast<size_t>(encoding);
 }
 
@@ -145,12 +145,12 @@ WideString CBC_HighLevelEncoder::EncodeHighLevel(const WideString& msg) {
   }
 
   std::vector<std::unique_ptr<CBC_Encoder>> encoders;
-  encoders.push_back(pdfium::MakeUnique<CBC_ASCIIEncoder>());
-  encoders.push_back(pdfium::MakeUnique<CBC_C40Encoder>());
-  encoders.push_back(pdfium::MakeUnique<CBC_TextEncoder>());
-  encoders.push_back(pdfium::MakeUnique<CBC_X12Encoder>());
-  encoders.push_back(pdfium::MakeUnique<CBC_EdifactEncoder>());
-  encoders.push_back(pdfium::MakeUnique<CBC_Base256Encoder>());
+  encoders.push_back(std::make_unique<CBC_ASCIIEncoder>());
+  encoders.push_back(std::make_unique<CBC_C40Encoder>());
+  encoders.push_back(std::make_unique<CBC_TextEncoder>());
+  encoders.push_back(std::make_unique<CBC_X12Encoder>());
+  encoders.push_back(std::make_unique<CBC_EdifactEncoder>());
+  encoders.push_back(std::make_unique<CBC_Base256Encoder>());
   Encoding encodingMode = Encoding::ASCII;
   while (context.hasMoreCharacters()) {
     if (!encoders[EncoderIndex(encodingMode)]->Encode(&context))
@@ -165,7 +165,7 @@ WideString CBC_HighLevelEncoder::EncodeHighLevel(const WideString& msg) {
   if (!context.UpdateSymbolInfo())
     return WideString();
 
-  size_t capacity = context.m_symbolInfo->dataCapacity();
+  size_t capacity = context.m_symbolInfo->data_capacity();
   if (len < capacity) {
     if (encodingMode != Encoding::ASCII && encodingMode != Encoding::BASE256)
       context.writeCodeword(0x00fe);
@@ -177,7 +177,7 @@ WideString CBC_HighLevelEncoder::EncodeHighLevel(const WideString& msg) {
   while (codewords.GetLength() < capacity)
     codewords += Randomize253State(kPad, codewords.GetLength() + 1);
 
-  ASSERT(!codewords.IsEmpty());
+  DCHECK(!codewords.IsEmpty());
   return codewords;
 }
 

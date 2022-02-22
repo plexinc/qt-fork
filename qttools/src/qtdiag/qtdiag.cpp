@@ -37,14 +37,16 @@
 #ifndef QT_NO_OPENGL
 #  include <QtGui/QOpenGLContext>
 #  include <QtGui/QOpenGLFunctions>
-#  include <QtGui/QOpenGLVersionProfile>
+#  include <QtOpenGL/QOpenGLVersionProfile>
+#  include <QtOpenGL/QOpenGLVersionFunctions>
+#  include <QtOpenGL/QOpenGLVersionFunctionsFactory>
 #endif // QT_NO_OPENGL
 #if QT_CONFIG(vulkan)
 #  include <QtGui/QVulkanInstance>
 #  include <QtGui/QVulkanWindow>
 #endif // vulkan
 #include <QtGui/QWindow>
-#include <QtGui/QTouchDevice>
+#include <QtGui/QInputDevice>
 
 #ifdef NETWORK_DIAG
 #  include <QSslSocket>
@@ -71,7 +73,7 @@
 #include <qpa/qplatformscreen.h>
 #include <qpa/qplatformtheme.h>
 #include <qpa/qplatformthemefactory_p.h>
-#include <qpa/qplatformnativeinterface.h>
+#include <qpa/qplatformintegration.h>
 #include <private/qhighdpiscaling_p.h>
 
 #include <QtGui/private/qrhi_p.h>
@@ -147,6 +149,19 @@ QTextStream &operator<<(QTextStream &str, QPlatformScreen::SubpixelAntialiasingT
     return str;
 }
 
+QTextStream &operator<<(QTextStream &str, const QRhiDriverInfo &info)
+{
+    static const char *enumValues[] = {
+        "Unknown", "Integrated", "Discrete", "External", "Virtual", "Cpu"
+    };
+    str << "Device: " << info.deviceName
+        << " Device ID: 0x" << Qt::hex << info.deviceId
+        << " Vendor ID: 0x" << info.vendorId << Qt::dec
+        << " Device type: " << (size_t(info.deviceType) < sizeof(enumValues) / sizeof(enumValues[0])
+                                ? enumValues[info.deviceType] : "<Unknown>");
+    return str;
+}
+
 #ifndef QT_NO_OPENGL
 
 QTextStream &operator<<(QTextStream &str, const QSurfaceFormat &format)
@@ -197,7 +212,7 @@ void dumpGlInfo(QTextStream &str, bool listExtensions)
             << "\nVersion: " << reinterpret_cast<const char *>(functions.glGetString(GL_VERSION))
             << "\nShading language: " << reinterpret_cast<const char *>(functions.glGetString(GL_SHADING_LANGUAGE_VERSION))
             <<  "\nFormat: " << context.format();
-#  ifndef QT_OPENGL_ES_2
+#  if !QT_CONFIG(opengles2)
         GLint majorVersion;
         functions.glGetIntegerv(GL_MAJOR_VERSION, &majorVersion);
         GLint minorVersion;
@@ -209,18 +224,18 @@ void dumpGlInfo(QTextStream &str, bool listExtensions)
             QOpenGLVersionProfile profile;
             profile.setVersion(majorVersion, minorVersion);
             profile.setProfile(QSurfaceFormat::CoreProfile);
-            if (QAbstractOpenGLFunctions *f = context.versionFunctions(profile)) {
+            if (auto f = QOpenGLVersionFunctionsFactory::get(profile, &context)) {
                 if (f->initializeOpenGLFunctions())
                     str << ", Core (" << openGlVersionFunctionsName << "_Core)";
             }
             profile.setProfile(QSurfaceFormat::CompatibilityProfile);
-            if (QAbstractOpenGLFunctions *f = context.versionFunctions(profile)) {
+            if (auto f = QOpenGLVersionFunctionsFactory::get(profile, &context)) {
                 if (f->initializeOpenGLFunctions())
                     str << ", Compatibility (" << openGlVersionFunctionsName << "_Compatibility)";
             }
         }
         str << '\n';
-#  endif // !QT_OPENGL_ES_2
+#  endif // !QT_CONFIG(opengles2)
         if (listExtensions) {
             QByteArrayList extensionList = context.extensions().values();
             std::sort(extensionList.begin(), extensionList.end());
@@ -300,6 +315,12 @@ void dumpRhiBackendInfo(QTextStream &str, const char *name, QRhi::Implementation
         { "TriangleFanTopology", QRhi::TriangleFanTopology },
         { "ReadBackNonUniformBuffer", QRhi::ReadBackNonUniformBuffer },
         { "ReadBackNonBaseMipLevel", QRhi::ReadBackNonBaseMipLevel },
+        { "TexelFetch", QRhi::TexelFetch },
+        { "RenderToNonBaseMipLevel", QRhi::RenderToNonBaseMipLevel },
+        { "IntAttributes", QRhi::IntAttributes },
+        { "ScreenSpaceDerivatives", QRhi::ScreenSpaceDerivatives },
+        { "ReadBackAnyTextureFormat", QRhi::ReadBackAnyTextureFormat },
+
         { nullptr, QRhi::Feature(0) }
     };
     struct RhiTextureFormat {
@@ -311,6 +332,7 @@ void dumpRhiBackendInfo(QTextStream &str, const char *name, QRhi::Implementation
         { "BGRA8", QRhiTexture::BGRA8 },
         { "R8", QRhiTexture::R8 },
         { "R16", QRhiTexture::R16 },
+        { "RG8", QRhiTexture::RG8 },
         { "RED_OR_ALPHA8", QRhiTexture::RED_OR_ALPHA8 },
         { "RGBA16F", QRhiTexture::RGBA16F },
         { "RGBA32F", QRhiTexture::RGBA32F },
@@ -348,10 +370,17 @@ void dumpRhiBackendInfo(QTextStream &str, const char *name, QRhi::Implementation
     QScopedPointer<QRhi> rhi(QRhi::create(impl, initParams, QRhi::Flags(), nullptr));
     if (rhi) {
         str << name << ":\n";
+        str << "  Driver Info: " << rhi->driverInfo() << "\n";
         str << "  Min Texture Size: " << rhi->resourceLimit(QRhi::TextureSizeMin) << "\n";
         str << "  Max Texture Size: " << rhi->resourceLimit(QRhi::TextureSizeMax) << "\n";
         str << "  Max Color Attachments: " << rhi->resourceLimit(QRhi::MaxColorAttachments) << "\n";
         str << "  Frames in Flight: " << rhi->resourceLimit(QRhi::FramesInFlight) << "\n";
+        str << "  Async Readback Limit: " << rhi->resourceLimit(QRhi::MaxAsyncReadbackFrames) << "\n";
+        str << "  MaxThreadGroupsPerDimension: " << rhi->resourceLimit(QRhi::MaxThreadGroupsPerDimension) << "\n";
+        str << "  MaxThreadsPerThreadGroup: " << rhi->resourceLimit(QRhi::MaxThreadsPerThreadGroup) << "\n";
+        str << "  MaxThreadGroupX: " << rhi->resourceLimit(QRhi::MaxThreadGroupX) << "\n";
+        str << "  MaxThreadGroupY: " << rhi->resourceLimit(QRhi::MaxThreadGroupY) << "\n";
+        str << "  MaxThreadGroupZ: " << rhi->resourceLimit(QRhi::MaxThreadGroupZ) << "\n";
         str << "  Uniform Buffer Alignment: " << rhi->ubufAlignment() << "\n";
         QByteArrayList supportedSampleCounts;
         for (int s : rhi->supportedSampleCounts())
@@ -442,7 +471,7 @@ static void dumpStandardLocation(QTextStream &str, QStandardPaths::StandardLocat
     str << '\n';
 
 #define DUMP_LIBRARYPATH(str, loc) \
-    str << "  " << #loc << ": " << QDir::toNativeSeparators(QLibraryInfo::location(QLibraryInfo::loc)) << '\n';
+    str << "  " << #loc << ": " << QDir::toNativeSeparators(QLibraryInfo::path(QLibraryInfo::loc)) << '\n';
 
 // Helper to format a type via QDebug to be used for QFlags/Q_ENUM.
 template <class T>
@@ -591,8 +620,7 @@ QString qtDiag(unsigned flags)
     DUMP_LIBRARYPATH(str, LibraryExecutablesPath)
     DUMP_LIBRARYPATH(str, BinariesPath)
     DUMP_LIBRARYPATH(str, PluginsPath)
-    DUMP_LIBRARYPATH(str, ImportsPath)
-    DUMP_LIBRARYPATH(str, Qml2ImportsPath)
+    DUMP_LIBRARYPATH(str, QmlImportsPath)
     DUMP_LIBRARYPATH(str, ArchDataPath)
     DUMP_LIBRARYPATH(str, DataPath)
     DUMP_LIBRARYPATH(str, TranslationsPath)
@@ -722,8 +750,7 @@ QString qtDiag(unsigned flags)
               << "  Title font   : " << QFontDatabase::systemFont(QFontDatabase::TitleFont) << '\n'
               << "  Smallest font: " << QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont) << '\n';
     if (flags & QtDiagFonts) {
-        QFontDatabase fontDatabase;
-        const QStringList families = fontDatabase.families();
+        const QStringList families = QFontDatabase::families();
         str << "\n  Families (" << families.size() << "):\n";
         for (int i = 0, count = families.size(); i < count; ++i)
             str << "    " << families.at(i) << '\n';
@@ -732,7 +759,7 @@ QString qtDiag(unsigned flags)
         str << "\n  Standard Sizes:";
         for (int i = 0, count = standardSizes.size(); i < count; ++i)
             str << ' ' << standardSizes.at(i);
-        QList<QFontDatabase::WritingSystem> writingSystems = fontDatabase.writingSystems();
+        QList<QFontDatabase::WritingSystem> writingSystems = QFontDatabase::writingSystems();
         str << "\n\n  Writing systems:\n";
         for (int i = 0, count = writingSystems.size(); i < count; ++i)
             str << "    " << formatValueQDebug(writingSystems.at(i)) << '\n';
@@ -776,37 +803,54 @@ QString qtDiag(unsigned flags)
         str << ' ' << platformScreen->subpixelAntialiasingTypeHint() << "\n  ";
         if (QHighDpiScaling::isActive())
             str << "High DPI scaling factor: " << QHighDpiScaling::factor(screen) << ' ';
-        str << "DevicePixelRatio: " << screen->devicePixelRatio()
-            << " Pixel density: " << platformScreen->pixelDensity();
+        str << "DevicePixelRatio: " << screen->devicePixelRatio();
         str << "\n  Primary orientation: " << screen->primaryOrientation()
             << " Orientation: " << screen->orientation()
             << " Native orientation: " << screen->nativeOrientation()
-            << " OrientationUpdateMask: " << screen->orientationUpdateMask()
             << "\n\n";
     }
 
-    const QList<const QTouchDevice *> touchDevices = QTouchDevice::devices();
-    if (!touchDevices.isEmpty()) {
-        str << "Touch devices: " << touchDevices.size() << '\n';
-        for (const QTouchDevice *device : touchDevices) {
-            str << "  " << (device->type() == QTouchDevice::TouchScreen ? "TouchScreen" : "TouchPad")
-                << " \"" << device->name() << "\", max " << device->maximumTouchPoints()
-                << " touch points, capabilities:";
-            const QTouchDevice::Capabilities capabilities = device->capabilities();
-            if (capabilities & QTouchDevice::Position)
+    const auto inputDevices = QInputDevice::devices();
+    if (!inputDevices.isEmpty()) {
+        str << "Input devices: " << inputDevices.size() << '\n';
+        for (auto device : inputDevices) {
+            str << "  " << formatValueQDebug(device->type())
+                << " \"" << device->name() << "\",";
+            if (!device->seatName().isEmpty())
+                str << " seat: \"" << device->seatName() << '"';
+            str << " capabilities:";
+            const auto capabilities = device->capabilities();
+            if (capabilities.testFlag(QInputDevice::Capability::Position))
                 str << " Position";
-            if (capabilities & QTouchDevice::Area)
+            if (capabilities.testFlag(QInputDevice::Capability::Area))
                 str << " Area";
-            if (capabilities & QTouchDevice::Pressure)
+            if (capabilities.testFlag(QInputDevice::Capability::Pressure))
                 str << " Pressure";
-            if (capabilities & QTouchDevice::Velocity)
+            if (capabilities.testFlag(QInputDevice::Capability::Velocity))
                 str << " Velocity";
-            if (capabilities & QTouchDevice::RawPositions)
-                str << " RawPositions";
-            if (capabilities & QTouchDevice::NormalizedPosition)
+            if (capabilities.testFlag(QInputDevice::Capability::NormalizedPosition))
                 str << " NormalizedPosition";
-            if (capabilities & QTouchDevice::MouseEmulation)
+            if (capabilities.testFlag(QInputDevice::Capability::MouseEmulation))
                 str << " MouseEmulation";
+            if (capabilities.testFlag(QInputDevice::Capability::Scroll))
+                str << " Scroll";
+            if (capabilities.testFlag(QInputDevice::Capability::Hover))
+                str << " Hover";
+            if (capabilities.testFlag(QInputDevice::Capability::Rotation))
+                str << " Rotation";
+            if (capabilities.testFlag(QInputDevice::Capability::XTilt))
+                str << " XTilt";
+            if (capabilities.testFlag(QInputDevice::Capability::YTilt))
+                str << " YTilt";
+            if (capabilities.testFlag(QInputDevice::Capability::TangentialPressure))
+                str << " TangentialPressure";
+            if (capabilities.testFlag(QInputDevice::Capability::ZPosition))
+                str << " ZPosition";
+            if (!device->availableVirtualGeometry().isNull()) {
+                const auto r = device->availableVirtualGeometry();
+                str << " availableVirtualGeometry: " << r.width() << 'x' << r.height()
+                    << Qt::forcesign << r.x() << r.y() << Qt::noforcesign;
+            }
             str << '\n';
         }
         str << "\n\n";
@@ -828,10 +872,12 @@ QString qtDiag(unsigned flags)
     }
 #endif // vulkan
 
+#ifdef Q_OS_WIN
     // On Windows, this will provide addition GPU info similar to the output of dxdiag.
-    if (const QPlatformNativeInterface *ni = QGuiApplication::platformNativeInterface()) {
-        const QVariant gpuInfoV = ni->property("gpuList");
-        if (gpuInfoV.type() == QVariant::List) {
+    using QWindowsApplication = QNativeInterface::Private::QWindowsApplication;
+    if (auto nativeWindowsApp = dynamic_cast<QWindowsApplication *>(QGuiApplicationPrivate::platformIntegration())) {
+        const QVariant gpuInfoV = nativeWindowsApp->gpuList();
+        if (gpuInfoV.typeId() == QMetaType::QVariantList) {
             const auto gpuList = gpuInfoV.toList();
             for (int i = 0; i < gpuList.size(); ++i) {
                 const QString description =
@@ -842,6 +888,7 @@ QString qtDiag(unsigned flags)
             str << "\n";
         }
     }
+#endif // Q_OS_WIN
 
     if (flags & QtDiagRhi) {
         dumpRhiInfo(str);

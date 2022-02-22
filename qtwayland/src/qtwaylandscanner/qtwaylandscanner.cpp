@@ -123,13 +123,13 @@ private:
     QByteArray m_scannerName;
     QByteArray m_headerPath;
     QByteArray m_prefix;
-    QVector <QByteArray> m_includes;
+    QList <QByteArray> m_includes;
     QXmlStreamReader *m_xml = nullptr;
 };
 
 bool Scanner::parseArguments(int argc, char **argv)
 {
-    QVector<QByteArray> args;
+    QList<QByteArray> args;
     args.reserve(argc);
     for (int i = 0; i < argc; ++i)
         args << QByteArray(argv[i]);
@@ -223,7 +223,7 @@ Scanner::WaylandEvent Scanner::readEvent(QXmlStreamReader &xml, bool request)
         .arguments = {},
     };
     while (xml.readNextStartElement()) {
-        if (xml.name() == "arg") {
+        if (xml.name() == u"arg") {
             WaylandArgument argument = {
                 .name      = byteArrayValue(xml, "name"),
                 .type      = byteArrayValue(xml, "type"),
@@ -247,7 +247,7 @@ Scanner::WaylandEnum Scanner::readEnum(QXmlStreamReader &xml)
     };
 
     while (xml.readNextStartElement()) {
-        if (xml.name() == "entry") {
+        if (xml.name() == u"entry") {
             WaylandEnumEntry entry = {
                 .name    = byteArrayValue(xml, "name"),
                 .value   = byteArrayValue(xml, "value"),
@@ -273,11 +273,11 @@ Scanner::WaylandInterface Scanner::readInterface(QXmlStreamReader &xml)
     };
 
     while (xml.readNextStartElement()) {
-        if (xml.name() == "event")
+        if (xml.name() == u"event")
             interface.events.push_back(readEvent(xml, false));
-        else if (xml.name() == "request")
+        else if (xml.name() == u"request")
             interface.requests.push_back(readEvent(xml, true));
-        else if (xml.name() == "enum")
+        else if (xml.name() == u"enum")
             interface.enums.push_back(readEnum(xml));
         else
             xml.skipCurrentElement();
@@ -438,7 +438,7 @@ bool Scanner::process()
     if (!m_xml->readNextStartElement())
         return false;
 
-    if (m_xml->name() != "protocol") {
+    if (m_xml->name() != u"protocol") {
         m_xml->raiseError(QStringLiteral("The file is not a wayland protocol file."));
         return false;
     }
@@ -458,7 +458,7 @@ bool Scanner::process()
     std::vector<WaylandInterface> interfaces;
 
     while (m_xml->readNextStartElement()) {
-        if (m_xml->name() == "interface")
+        if (m_xml->name() == u"interface")
             interfaces.push_back(readInterface(*m_xml));
         else
             m_xml->skipCurrentElement();
@@ -532,7 +532,7 @@ bool Scanner::process()
 
             printf("    class %s %s\n    {\n", serverExport.constData(), interfaceName);
             printf("    public:\n");
-            printf("        %s(struct ::wl_client *client, int id, int version);\n", interfaceName);
+            printf("        %s(struct ::wl_client *client, uint32_t id, int version);\n", interfaceName);
             printf("        %s(struct ::wl_display *display, int version);\n", interfaceName);
             printf("        %s(struct ::wl_resource *resource);\n", interfaceName);
             printf("        %s();\n", interfaceName);
@@ -555,13 +555,13 @@ bool Scanner::process()
             printf("            static Resource *fromResource(struct ::wl_resource *resource);\n");
             printf("        };\n");
             printf("\n");
-            printf("        void init(struct ::wl_client *client, int id, int version);\n");
+            printf("        void init(struct ::wl_client *client, uint32_t id, int version);\n");
             printf("        void init(struct ::wl_display *display, int version);\n");
             printf("        void init(struct ::wl_resource *resource);\n");
             printf("\n");
             printf("        Resource *add(struct ::wl_client *client, int version);\n");
-            printf("        Resource *add(struct ::wl_client *client, int id, int version);\n");
-            printf("        Resource *add(struct wl_list *resource_list, struct ::wl_client *client, int id, int version);\n");
+            printf("        Resource *add(struct ::wl_client *client, uint32_t id, int version);\n");
+            printf("        Resource *add(struct wl_list *resource_list, struct ::wl_client *client, uint32_t id, int version);\n");
             printf("\n");
             printf("        Resource *resource() { return m_resource; }\n");
             printf("        const Resource *resource() const { return m_resource; }\n");
@@ -637,7 +637,6 @@ bool Scanner::process()
             printf("        QMultiMap<struct ::wl_client*, Resource*> m_resource_map;\n");
             printf("        Resource *m_resource;\n");
             printf("        struct ::wl_global *m_global;\n");
-            printf("        uint32_t m_globalVersion;\n");
             printf("        struct DisplayDestroyedListener : ::wl_listener {\n");
             printf("            %s *parent;\n", interfaceName);
             printf("        };\n");
@@ -681,7 +680,7 @@ bool Scanner::process()
             QByteArray stripped = stripInterfaceName(interface.name);
             const char *interfaceNameStripped = stripped.constData();
 
-            printf("    %s::%s(struct ::wl_client *client, int id, int version)\n", interfaceName, interfaceName);
+            printf("    %s::%s(struct ::wl_client *client, uint32_t id, int version)\n", interfaceName, interfaceName);
             printf("        : m_resource_map()\n");
             printf("        , m_resource(nullptr)\n");
             printf("        , m_global(nullptr)\n");
@@ -731,7 +730,7 @@ bool Scanner::process()
             printf("    }\n");
             printf("\n");
 
-            printf("    void %s::init(struct ::wl_client *client, int id, int version)\n", interfaceName);
+            printf("    void %s::init(struct ::wl_client *client, uint32_t id, int version)\n", interfaceName);
             printf("    {\n");
             printf("        m_resource = bind(client, id, version);\n");
             printf("    }\n");
@@ -751,7 +750,7 @@ bool Scanner::process()
             printf("    }\n");
             printf("\n");
 
-            printf("    %s::Resource *%s::add(struct ::wl_client *client, int id, int version)\n", interfaceName, interfaceName);
+            printf("    %s::Resource *%s::add(struct ::wl_client *client, uint32_t id, int version)\n", interfaceName, interfaceName);
             printf("    {\n");
             printf("        Resource *resource = bind(client, id, version);\n");
             printf("        m_resource_map.insert(client, resource);\n");
@@ -762,7 +761,6 @@ bool Scanner::process()
             printf("    void %s::init(struct ::wl_display *display, int version)\n", interfaceName);
             printf("    {\n");
             printf("        m_global = wl_global_create(display, &::%s_interface, version, this, bind_func);\n", interfaceName);
-            printf("        m_globalVersion = version;\n");
             printf("        m_displayDestroyedListener.notify = %s::display_destroy_func;\n", interfaceName);
             printf("        m_displayDestroyedListener.parent = this;\n");
             printf("        wl_display_add_destroy_listener(display, &m_displayDestroyedListener);\n");
@@ -794,7 +792,7 @@ bool Scanner::process()
             printf("    void %s::bind_func(struct ::wl_client *client, void *data, uint32_t version, uint32_t id)\n", interfaceName);
             printf("    {\n");
             printf("        %s *that = static_cast<%s *>(data);\n", interfaceName, interfaceName);
-            printf("        that->add(client, id, qMin(that->m_globalVersion, version));\n");
+            printf("        that->add(client, id, version);\n");
             printf("    }\n");
             printf("\n");
 
@@ -814,7 +812,9 @@ bool Scanner::process()
             printf("        if (Q_LIKELY(that)) {\n");
             printf("            that->m_resource_map.remove(resource->client(), resource);\n");
             printf("            that->%s_destroy_resource(resource);\n", interfaceNameStripped);
-            printf("            if (that->m_resource == resource)\n");
+            printf("\n");
+            printf("            that = resource->%s_object;\n", interfaceNameStripped);
+            printf("            if (that && that->m_resource == resource)\n");
             printf("                that->m_resource = nullptr;\n");
             printf("        }\n");
             printf("        delete resource;\n");
@@ -1028,13 +1028,13 @@ bool Scanner::process()
 
             printf("    class %s %s\n    {\n", clientExport.constData(), interfaceName);
             printf("    public:\n");
-            printf("        %s(struct ::wl_registry *registry, int id, int version);\n", interfaceName);
+            printf("        %s(struct ::wl_registry *registry, uint32_t id, int version);\n", interfaceName);
             printf("        %s(struct ::%s *object);\n", interfaceName, interfaceName);
             printf("        %s();\n", interfaceName);
             printf("\n");
             printf("        virtual ~%s();\n", interfaceName);
             printf("\n");
-            printf("        void init(struct ::wl_registry *registry, int id, int version);\n");
+            printf("        void init(struct ::wl_registry *registry, uint32_t id, int version);\n");
             printf("        void init(struct ::%s *object);\n", interfaceName);
             printf("\n");
             printf("        struct ::%s *object() { return m_%s; }\n", interfaceName, interfaceName);
@@ -1042,6 +1042,8 @@ bool Scanner::process()
             printf("        static %s *fromObject(struct ::%s *object);\n", interfaceName, interfaceName);
             printf("\n");
             printf("        bool isInitialized() const;\n");
+            printf("\n");
+            printf("        uint32_t version() const;");
             printf("\n");
             printf("        static const struct ::wl_interface *interface();\n");
 
@@ -1117,13 +1119,8 @@ bool Scanner::process()
         printf("static inline void *wlRegistryBind(struct ::wl_registry *registry, uint32_t name, const struct ::wl_interface *interface, uint32_t version)\n");
         printf("{\n");
         printf("    const uint32_t bindOpCode = 0;\n");
-        printf("#if (WAYLAND_VERSION_MAJOR == 1 && WAYLAND_VERSION_MINOR > 10) || WAYLAND_VERSION_MAJOR > 1\n");
         printf("    return (void *) wl_proxy_marshal_constructor_versioned((struct wl_proxy *) registry,\n");
-        printf("        bindOpCode, interface, version, name, interface->name, version, nullptr);\n");
-        printf("#else\n");
-        printf("    return (void *) wl_proxy_marshal_constructor((struct wl_proxy *) registry,\n");
-        printf("        bindOpCode, interface, name, interface->name, version, nullptr);\n");
-        printf("#endif\n");
+        printf("    bindOpCode, interface, version, name, interface->name, version, nullptr);\n");
         printf("}\n");
         printf("\n");
 
@@ -1144,7 +1141,7 @@ bool Scanner::process()
 
             bool hasEvents = !interface.events.empty();
 
-            printf("    %s::%s(struct ::wl_registry *registry, int id, int version)\n", interfaceName, interfaceName);
+            printf("    %s::%s(struct ::wl_registry *registry, uint32_t id, int version)\n", interfaceName, interfaceName);
             printf("    {\n");
             printf("        init(registry, id, version);\n");
             printf("    }\n");
@@ -1169,7 +1166,7 @@ bool Scanner::process()
             printf("    }\n");
             printf("\n");
 
-            printf("    void %s::init(struct ::wl_registry *registry, int id, int version)\n", interfaceName);
+            printf("    void %s::init(struct ::wl_registry *registry, uint32_t id, int version)\n", interfaceName);
             printf("    {\n");
             printf("        m_%s = static_cast<struct ::%s *>(wlRegistryBind(registry, id, &%s_interface, version));\n", interfaceName, interfaceName, interfaceName);
             if (hasEvents)
@@ -1198,6 +1195,12 @@ bool Scanner::process()
             printf("    bool %s::isInitialized() const\n", interfaceName);
             printf("    {\n");
             printf("        return m_%s != nullptr;\n", interfaceName);
+            printf("    }\n");
+            printf("\n");
+
+            printf("    uint32_t %s::version() const\n", interfaceName);
+            printf("    {\n");
+            printf("        return wl_proxy_get_version(reinterpret_cast<wl_proxy*>(m_%s));\n", interfaceName);
             printf("    }\n");
             printf("\n");
 

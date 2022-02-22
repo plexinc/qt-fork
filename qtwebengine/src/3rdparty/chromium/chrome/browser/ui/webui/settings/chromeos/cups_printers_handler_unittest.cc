@@ -7,16 +7,19 @@
 #include <memory>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/files/file_path.h"
 #include "base/json/json_string_value_serializer.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/values.h"
+#include "chrome/browser/chromeos/printing/print_management/print_management_uma.h"
 #include "chrome/browser/chromeos/printing/printing_stubs.h"
 #include "chrome/browser/download/chrome_download_manager_delegate.h"
 #include "chrome/browser/download/download_core_service_factory.h"
 #include "chrome/browser/download/download_core_service_impl.h"
 #include "chrome/browser/ui/chrome_select_file_policy.h"
 #include "chrome/test/base/testing_profile.h"
+#include "chromeos/components/scanning/scanning_uma.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/debug_daemon/debug_daemon_client.h"
 #include "content/public/test/browser_task_environment.h"
@@ -201,6 +204,7 @@ class CupsPrintersHandlerTest : public testing::Test {
 
  protected:
   // Must outlive |profile_|.
+  base::HistogramTester histogram_tester_;
   content::BrowserTaskEnvironment task_environment_;
   TestingProfile profile_;
   content::TestWebUI web_ui_;
@@ -230,7 +234,7 @@ TEST_F(CupsPrintersHandlerTest, RemoveCorrectPrinter) {
   bool expected = true;
   client->CupsRemovePrinter(
       "testprinter1",
-      base::BindRepeating(&RemovedPrinter, run_loop.QuitClosure(), &expected),
+      base::BindOnce(&RemovedPrinter, run_loop.QuitClosure(), &expected),
       base::DoNothing());
   run_loop.Run();
   EXPECT_FALSE(expected);
@@ -253,5 +257,36 @@ TEST_F(CupsPrintersHandlerTest, VerifyOnlyPpdFilesAllowed) {
   web_ui_.HandleReceivedMessage("selectPPDFile",
                                 &base::Value::AsListValue(args));
 }
+
+TEST_F(CupsPrintersHandlerTest, VerifyPrintManagementAppEntryPointHistogram) {
+  base::Value args(base::Value::Type::LIST);
+  web_ui_.HandleReceivedMessage("openPrintManagementApp",
+                                &base::Value::AsListValue(args));
+  histogram_tester_.ExpectBucketCount(
+      "Printing.CUPS.PrintManagementAppEntryPoint",
+      PrintManagementAppEntryPoint::kSettings, 1);
+  histogram_tester_.ExpectBucketCount(
+      "Printing.CUPS.PrintManagementAppEntryPoint",
+      PrintManagementAppEntryPoint::kNotification, 0);
+  histogram_tester_.ExpectBucketCount(
+      "Printing.CUPS.PrintManagementAppEntryPoint",
+      PrintManagementAppEntryPoint::kLauncher, 0);
+  histogram_tester_.ExpectBucketCount(
+      "Printing.CUPS.PrintManagementAppEntryPoint",
+      PrintManagementAppEntryPoint::kBrowser, 0);
+}
+
+TEST_F(CupsPrintersHandlerTest, VerifyScanAppEntryPointHistogram) {
+  base::Value args(base::Value::Type::LIST);
+  web_ui_.HandleReceivedMessage("openScanningApp",
+                                &base::Value::AsListValue(args));
+  histogram_tester_.ExpectBucketCount(
+      "Scanning.ScanAppEntryPoint",
+      chromeos::scanning::ScanAppEntryPoint::kSettings, 1);
+  histogram_tester_.ExpectBucketCount(
+      "Scanning.ScanAppEntryPoint",
+      chromeos::scanning::ScanAppEntryPoint::kLauncher, 0);
+}
+
 }  // namespace settings.
 }  // namespace chromeos.

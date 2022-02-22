@@ -160,7 +160,7 @@ static void showHelp(QCommandLineParser &parser, const QString &errorMessage = Q
 struct Options
 {
     QStringList files;
-    QString resourceDir{QLibraryInfo::location(QLibraryInfo::TranslationsPath)};
+    QString resourceDir{QLibraryInfo::path(QLibraryInfo::TranslationsPath)};
     bool server{false};
     quint16 clientPort{0};
     bool enableInternalDynamicProperties{false};
@@ -189,9 +189,6 @@ static inline QDesigner::ParseArgumentsResult
     const QCommandLineOption internalDynamicPropertyOption(QStringLiteral("enableinternaldynamicproperties"),
                                           QStringLiteral("Enable internal dynamic properties"));
     parser.addOption(internalDynamicPropertyOption);
-    const QCommandLineOption noScalingOption(QStringLiteral("no-scaling"),
-                                             QStringLiteral("Disable High DPI scaling"));
-    parser.addOption(noScalingOption);
 
     parser.addPositionalArgument(QStringLiteral("files"),
                                  QStringLiteral("The UI files to open."));
@@ -203,6 +200,10 @@ static inline QDesigner::ParseArgumentsResult
 
     if (parser.isSet(helpOption))
         return QDesigner::ParseArgumentsHelpRequested;
+    // There is no way to retrieve the complete help text from QCommandLineParser,
+    // so, call process() to display it.
+    if (parser.isSet(u"help-all"_qs))
+        parser.process(QCoreApplication::arguments()); // exits
     options->server = parser.isSet(serverOption);
     if (parser.isSet(clientOption)) {
         bool ok;
@@ -240,13 +241,12 @@ QDesigner::ParseArgumentsResult QDesigner::parseCommandLineArguments()
     if (options.enableInternalDynamicProperties)
         QDesignerPropertySheet::setInternalDynamicPropertiesEnabled(true);
 
-    const QString localSysName = QLocale::system().name();
-    QScopedPointer<QTranslator> designerTranslator(new QTranslator(this));
-    if (designerTranslator->load(QStringLiteral("designer_") + localSysName, options.resourceDir)) {
-        installTranslator(designerTranslator.take());
-        QScopedPointer<QTranslator> qtTranslator(new QTranslator(this));
-        if (qtTranslator->load(QStringLiteral("qt_") + localSysName, options.resourceDir))
-            installTranslator(qtTranslator.take());
+    std::unique_ptr<QTranslator> designerTranslator(new QTranslator(this));
+    if (designerTranslator->load(QLocale(), QStringLiteral("designer"), QStringLiteral("_"), options.resourceDir)) {
+        installTranslator(designerTranslator.release());
+        std::unique_ptr<QTranslator> qtTranslator(new QTranslator(this));
+        if (qtTranslator->load(QLocale(), QStringLiteral("qt"), QStringLiteral("_"), options.resourceDir))
+            installTranslator(qtTranslator.release());
     }
 
     m_workbench = new QDesignerWorkbench();

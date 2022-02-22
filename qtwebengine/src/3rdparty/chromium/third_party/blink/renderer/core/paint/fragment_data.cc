@@ -33,6 +33,19 @@ FragmentData& FragmentData::EnsureNextFragment() {
   return *rare_data_->next_fragment_;
 }
 
+FragmentData& FragmentData::LastFragment() {
+  for (FragmentData* fragment = this;;) {
+    FragmentData* next = fragment->NextFragment();
+    if (!next)
+      return *fragment;
+    fragment = next;
+  }
+}
+
+const FragmentData& FragmentData::LastFragment() const {
+  return const_cast<FragmentData*>(this)->LastFragment();
+}
+
 FragmentData::RareData& FragmentData::EnsureRareData() {
   if (!rare_data_)
     rare_data_ = std::make_unique<RareData>();
@@ -44,7 +57,7 @@ void FragmentData::SetLayer(std::unique_ptr<PaintLayer> layer) {
     EnsureRareData().layer = std::move(layer);
 }
 
-const TransformPaintPropertyNode& FragmentData::PreTransform() const {
+const TransformPaintPropertyNodeOrAlias& FragmentData::PreTransform() const {
   if (const auto* properties = PaintProperties()) {
     if (const auto* transform = properties->Transform()) {
       DCHECK(transform->Parent());
@@ -54,7 +67,8 @@ const TransformPaintPropertyNode& FragmentData::PreTransform() const {
   return LocalBorderBoxProperties().Transform();
 }
 
-const TransformPaintPropertyNode& FragmentData::PostScrollTranslation() const {
+const TransformPaintPropertyNodeOrAlias& FragmentData::PostScrollTranslation()
+    const {
   if (const auto* properties = PaintProperties()) {
     if (properties->TransformIsolationNode())
       return *properties->TransformIsolationNode();
@@ -68,7 +82,7 @@ const TransformPaintPropertyNode& FragmentData::PostScrollTranslation() const {
   return LocalBorderBoxProperties().Transform();
 }
 
-const ClipPaintPropertyNode& FragmentData::PreClip() const {
+const ClipPaintPropertyNodeOrAlias& FragmentData::PreClip() const {
   if (const auto* properties = PaintProperties()) {
     if (const auto* clip = properties->ClipPathClip()) {
       // SPv1 composited clip-path has an alternative clip tree structure.
@@ -90,7 +104,7 @@ const ClipPaintPropertyNode& FragmentData::PreClip() const {
   return LocalBorderBoxProperties().Clip();
 }
 
-const ClipPaintPropertyNode& FragmentData::PostOverflowClip() const {
+const ClipPaintPropertyNodeOrAlias& FragmentData::PostOverflowClip() const {
   if (const auto* properties = PaintProperties()) {
     if (properties->ClipIsolationNode())
       return *properties->ClipIsolationNode();
@@ -102,7 +116,7 @@ const ClipPaintPropertyNode& FragmentData::PostOverflowClip() const {
   return LocalBorderBoxProperties().Clip();
 }
 
-const EffectPaintPropertyNode& FragmentData::PreEffect() const {
+const EffectPaintPropertyNodeOrAlias& FragmentData::PreEffect() const {
   if (const auto* properties = PaintProperties()) {
     if (const auto* effect = properties->Effect()) {
       DCHECK(effect->Parent());
@@ -116,7 +130,7 @@ const EffectPaintPropertyNode& FragmentData::PreEffect() const {
   return LocalBorderBoxProperties().Effect();
 }
 
-const EffectPaintPropertyNode& FragmentData::PreFilter() const {
+const EffectPaintPropertyNodeOrAlias& FragmentData::PreFilter() const {
   if (const auto* properties = PaintProperties()) {
     if (const auto* filter = properties->Filter()) {
       DCHECK(filter->Parent());
@@ -126,7 +140,8 @@ const EffectPaintPropertyNode& FragmentData::PreFilter() const {
   return LocalBorderBoxProperties().Effect();
 }
 
-const EffectPaintPropertyNode& FragmentData::PostIsolationEffect() const {
+const EffectPaintPropertyNodeOrAlias& FragmentData::PostIsolationEffect()
+    const {
   if (const auto* properties = PaintProperties()) {
     if (properties->EffectIsolationNode())
       return *properties->EffectIsolationNode();

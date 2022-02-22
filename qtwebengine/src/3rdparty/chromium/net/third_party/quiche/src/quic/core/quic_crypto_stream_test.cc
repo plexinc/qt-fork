@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/quic_crypto_stream.h"
+#include "quic/core/quic_crypto_stream.h"
 
 #include <cstdint>
 #include <memory>
@@ -10,15 +10,15 @@
 #include <utility>
 #include <vector>
 
-#include "net/third_party/quiche/src/quic/core/crypto/crypto_handshake.h"
-#include "net/third_party/quiche/src/quic/core/crypto/crypto_protocol.h"
-#include "net/third_party/quiche/src/quic/core/crypto/null_encrypter.h"
-#include "net/third_party/quiche/src/quic/core/quic_utils.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_socket_address.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/test_tools/crypto_test_utils.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_stream_peer.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
+#include "quic/core/crypto/crypto_handshake.h"
+#include "quic/core/crypto/crypto_protocol.h"
+#include "quic/core/crypto/null_encrypter.h"
+#include "quic/core/quic_utils.h"
+#include "quic/platform/api/quic_socket_address.h"
+#include "quic/platform/api/quic_test.h"
+#include "quic/test_tools/crypto_test_utils.h"
+#include "quic/test_tools/quic_stream_peer.h"
+#include "quic/test_tools/quic_test_utils.h"
 
 using testing::_;
 using testing::InSequence;
@@ -46,6 +46,9 @@ class MockQuicCryptoStream : public QuicCryptoStream,
 
   std::vector<CryptoHandshakeMessage>* messages() { return &messages_; }
 
+  ssl_early_data_reason_t EarlyDataReason() const override {
+    return ssl_early_data_unknown;
+  }
   bool encryption_established() const override { return false; }
   bool one_rtt_keys_available() const override { return false; }
 
@@ -58,8 +61,24 @@ class MockQuicCryptoStream : public QuicCryptoStream,
   }
   void OnPacketDecrypted(EncryptionLevel /*level*/) override {}
   void OnOneRttPacketAcknowledged() override {}
+  void OnHandshakePacketSent() override {}
   void OnHandshakeDoneReceived() override {}
+  void OnNewTokenReceived(absl::string_view /*token*/) override {}
+  std::string GetAddressToken() const override { return ""; }
+  bool ValidateAddressToken(absl::string_view /*token*/) const override {
+    return true;
+  }
   HandshakeState GetHandshakeState() const override { return HANDSHAKE_START; }
+  void SetServerApplicationStateForResumption(
+      std::unique_ptr<ApplicationState> /*application_state*/) override {}
+  bool KeyUpdateSupportedLocally() const override { return false; }
+  std::unique_ptr<QuicDecrypter> AdvanceKeysAndCreateCurrentOneRttDecrypter()
+      override {
+    return nullptr;
+  }
+  std::unique_ptr<QuicEncrypter> CreateCurrentOneRttEncrypter() override {
+    return nullptr;
+  }
 
  private:
   QuicReferenceCountedPointer<QuicCryptoNegotiatedParameters> params_;
@@ -215,15 +234,18 @@ TEST_F(QuicCryptoStreamTest, RetransmitCryptoDataInCryptoFrames) {
                        &MockQuicConnection::QuicConnection_SendCryptoData));
   stream_->WriteCryptoData(ENCRYPTION_INITIAL, data);
   // Send [1350, 2700) in ENCRYPTION_ZERO_RTT.
-  connection_->SetDefaultEncryptionLevel(ENCRYPTION_ZERO_RTT);
   std::unique_ptr<NullEncrypter> encrypter =
       std::make_unique<NullEncrypter>(Perspective::IS_CLIENT);
   connection_->SetEncrypter(ENCRYPTION_ZERO_RTT, std::move(encrypter));
+  connection_->SetDefaultEncryptionLevel(ENCRYPTION_ZERO_RTT);
   EXPECT_EQ(ENCRYPTION_ZERO_RTT, connection_->encryption_level());
   EXPECT_CALL(*connection_, SendCryptoData(ENCRYPTION_ZERO_RTT, 1350, 0))
       .WillOnce(Invoke(connection_,
                        &MockQuicConnection::QuicConnection_SendCryptoData));
   stream_->WriteCryptoData(ENCRYPTION_ZERO_RTT, data);
+  connection_->SetEncrypter(
+      ENCRYPTION_FORWARD_SECURE,
+      std::make_unique<NullEncrypter>(Perspective::IS_CLIENT));
   connection_->SetDefaultEncryptionLevel(ENCRYPTION_FORWARD_SECURE);
   EXPECT_EQ(ENCRYPTION_FORWARD_SECURE, connection_->encryption_level());
 
@@ -251,6 +273,51 @@ TEST_F(QuicCryptoStreamTest, RetransmitCryptoDataInCryptoFrames) {
   EXPECT_FALSE(stream_->HasPendingCryptoRetransmission());
   // Verify connection's encryption level has restored.
   EXPECT_EQ(ENCRYPTION_FORWARD_SECURE, connection_->encryption_level());
+}
+
+// Regression test for handling the missing ENCRYPTION_HANDSHAKE in
+// quic_crypto_stream.cc. This test is essentially the same as
+// RetransmitCryptoDataInCryptoFrames, except it uses ENCRYPTION_HANDSHAKE in
+// place of ENCRYPTION_ZERO_RTT.
+TEST_F(QuicCryptoStreamTest, RetransmitEncryptionHandshakeLevelCryptoFrames) {
+  if (!QuicVersionUsesCryptoFrames(connection_->transport_version())) {
+    return;
+  }
+  EXPECT_CALL(*connection_, SendCryptoData(_, _, _)).Times(0);
+  InSequence s;
+  // Send [0, 1000) in ENCRYPTION_INITIAL.
+  EXPECT_EQ(ENCRYPTION_INITIAL, connection_->encryption_level());
+  std::string data(1000, 'a');
+  EXPECT_CALL(*connection_, SendCryptoData(ENCRYPTION_INITIAL, 1000, 0))
+      .WillOnce(Invoke(connection_,
+                       &MockQuicConnection::QuicConnection_SendCryptoData));
+  stream_->WriteCryptoData(ENCRYPTION_INITIAL, data);
+  // Send [1000, 2000) in ENCRYPTION_HANDSHAKE.
+  std::unique_ptr<NullEncrypter> encrypter =
+      std::make_unique<NullEncrypter>(Perspective::IS_CLIENT);
+  connection_->SetEncrypter(ENCRYPTION_HANDSHAKE, std::move(encrypter));
+  connection_->SetDefaultEncryptionLevel(ENCRYPTION_HANDSHAKE);
+  EXPECT_EQ(ENCRYPTION_HANDSHAKE, connection_->encryption_level());
+  EXPECT_CALL(*connection_, SendCryptoData(ENCRYPTION_HANDSHAKE, 1000, 0))
+      .WillOnce(Invoke(connection_,
+                       &MockQuicConnection::QuicConnection_SendCryptoData));
+  stream_->WriteCryptoData(ENCRYPTION_HANDSHAKE, data);
+  connection_->SetEncrypter(
+      ENCRYPTION_FORWARD_SECURE,
+      std::make_unique<NullEncrypter>(Perspective::IS_CLIENT));
+  connection_->SetDefaultEncryptionLevel(ENCRYPTION_FORWARD_SECURE);
+  EXPECT_EQ(ENCRYPTION_FORWARD_SECURE, connection_->encryption_level());
+
+  // Lost [1000, 1200).
+  QuicCryptoFrame lost_frame(ENCRYPTION_HANDSHAKE, 0, 200);
+  stream_->OnCryptoFrameLost(&lost_frame);
+  EXPECT_TRUE(stream_->HasPendingCryptoRetransmission());
+  // Verify [1000, 1200) is sent.
+  EXPECT_CALL(*connection_, SendCryptoData(ENCRYPTION_HANDSHAKE, 200, 0))
+      .WillOnce(Invoke(connection_,
+                       &MockQuicConnection::QuicConnection_SendCryptoData));
+  stream_->WritePendingCryptoRetransmission();
+  EXPECT_FALSE(stream_->HasPendingCryptoRetransmission());
 }
 
 TEST_F(QuicCryptoStreamTest, NeuterUnencryptedStreamData) {
@@ -305,6 +372,9 @@ TEST_F(QuicCryptoStreamTest, NeuterUnencryptedCryptoData) {
                        &MockQuicConnection::QuicConnection_SendCryptoData));
   stream_->WriteCryptoData(ENCRYPTION_INITIAL, data);
   // Send [1350, 2700) in ENCRYPTION_ZERO_RTT.
+  connection_->SetEncrypter(
+      ENCRYPTION_ZERO_RTT,
+      std::make_unique<NullEncrypter>(Perspective::IS_CLIENT));
   connection_->SetDefaultEncryptionLevel(ENCRYPTION_ZERO_RTT);
   std::unique_ptr<NullEncrypter> encrypter =
       std::make_unique<NullEncrypter>(Perspective::IS_CLIENT);
@@ -376,7 +446,7 @@ TEST_F(QuicCryptoStreamTest, RetransmitStreamData) {
       .WillOnce(InvokeWithoutArgs([this]() {
         return session_.ConsumeData(
             QuicUtils::GetCryptoStreamId(connection_->transport_version()), 150,
-            1350, NO_FIN, HANDSHAKE_RETRANSMISSION, QuicheNullOpt);
+            1350, NO_FIN, HANDSHAKE_RETRANSMISSION, absl::nullopt);
       }));
 
   EXPECT_FALSE(stream_->RetransmitStreamData(1350, 1350, false,
@@ -419,15 +489,18 @@ TEST_F(QuicCryptoStreamTest, RetransmitStreamDataWithCryptoFrames) {
                        &MockQuicConnection::QuicConnection_SendCryptoData));
   stream_->WriteCryptoData(ENCRYPTION_INITIAL, data);
   // Send [1350, 2700) in ENCRYPTION_ZERO_RTT.
-  connection_->SetDefaultEncryptionLevel(ENCRYPTION_ZERO_RTT);
   std::unique_ptr<NullEncrypter> encrypter =
       std::make_unique<NullEncrypter>(Perspective::IS_CLIENT);
   connection_->SetEncrypter(ENCRYPTION_ZERO_RTT, std::move(encrypter));
+  connection_->SetDefaultEncryptionLevel(ENCRYPTION_ZERO_RTT);
   EXPECT_EQ(ENCRYPTION_ZERO_RTT, connection_->encryption_level());
   EXPECT_CALL(*connection_, SendCryptoData(ENCRYPTION_ZERO_RTT, 1350, 0))
       .WillOnce(Invoke(connection_,
                        &MockQuicConnection::QuicConnection_SendCryptoData));
   stream_->WriteCryptoData(ENCRYPTION_ZERO_RTT, data);
+  connection_->SetEncrypter(
+      ENCRYPTION_FORWARD_SECURE,
+      std::make_unique<NullEncrypter>(Perspective::IS_CLIENT));
   connection_->SetDefaultEncryptionLevel(ENCRYPTION_FORWARD_SECURE);
   EXPECT_EQ(ENCRYPTION_FORWARD_SECURE, connection_->encryption_level());
 
@@ -508,20 +581,22 @@ TEST_F(QuicCryptoStreamTest, HasUnackedCryptoDataWithCryptoFrames) {
 
 // Regression test for bugfix of GetPacketHeaderSize.
 TEST_F(QuicCryptoStreamTest, CryptoMessageFramingOverhead) {
-  for (auto version : AllSupportedTransportVersions()) {
+  for (const ParsedQuicVersion& version :
+       AllSupportedVersionsWithQuicCrypto()) {
     SCOPED_TRACE(version);
     QuicByteCount expected_overhead = 48;
-    if (VersionHasIetfInvariantHeader(version)) {
+    if (version.HasIetfInvariantHeader()) {
       expected_overhead += 4;
     }
-    if (QuicVersionHasLongHeaderLengths(version)) {
+    if (version.HasLongHeaderLengths()) {
       expected_overhead += 3;
     }
-    if (VersionHasLengthPrefixedConnectionIds(version)) {
+    if (version.HasLengthPrefixedConnectionIds()) {
       expected_overhead += 1;
     }
-    EXPECT_EQ(expected_overhead, QuicCryptoStream::CryptoMessageFramingOverhead(
-                                     version, TestConnectionId()));
+    EXPECT_EQ(expected_overhead,
+              QuicCryptoStream::CryptoMessageFramingOverhead(
+                  version.transport_version, TestConnectionId()));
   }
 }
 
@@ -543,6 +618,9 @@ TEST_F(QuicCryptoStreamTest, WriteBufferedCryptoFrames) {
   // Send [1350, 2700) in ENCRYPTION_ZERO_RTT and verify no write is attempted
   // because there is buffered data.
   EXPECT_CALL(*connection_, SendCryptoData(_, _, _)).Times(0);
+  connection_->SetEncrypter(
+      ENCRYPTION_ZERO_RTT,
+      std::make_unique<NullEncrypter>(Perspective::IS_CLIENT));
   connection_->SetDefaultEncryptionLevel(ENCRYPTION_ZERO_RTT);
   stream_->WriteCryptoData(ENCRYPTION_ZERO_RTT, data);
   EXPECT_EQ(ENCRYPTION_ZERO_RTT, connection_->encryption_level());

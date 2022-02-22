@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/test_tools/simple_session_notifier.h"
+#include "quic/test_tools/simple_session_notifier.h"
 
-#include "net/third_party/quiche/src/quic/core/quic_utils.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_map_util.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
+#include "quic/core/quic_utils.h"
+#include "quic/platform/api/quic_logging.h"
+#include "quic/platform/api/quic_map_util.h"
+#include "quic/test_tools/quic_test_utils.h"
 
 namespace quic {
 
@@ -118,6 +118,24 @@ void SimpleSessionNotifier::WriteOrBufferPing() {
       HasBufferedStreamData() || HasBufferedControlFrames();
   control_frames_.emplace_back(
       (QuicFrame(QuicPingFrame(++last_control_frame_id_))));
+  if (had_buffered_data) {
+    QUIC_DLOG(WARNING) << "Connection is write blocked";
+    return;
+  }
+  WriteBufferedControlFrames();
+}
+
+void SimpleSessionNotifier::WriteOrBufferAckFrequency(
+    const QuicAckFrequencyFrame& ack_frequency_frame) {
+  QUIC_DVLOG(1) << "Writing ACK_FREQUENCY";
+  const bool had_buffered_data =
+      HasBufferedStreamData() || HasBufferedControlFrames();
+  QuicControlFrameId control_frame_id = ++last_control_frame_id_;
+  control_frames_.emplace_back((
+      QuicFrame(new QuicAckFrequencyFrame(control_frame_id,
+                                          /*sequence_number=*/control_frame_id,
+                                          ack_frequency_frame.packet_tolerance,
+                                          ack_frequency_frame.max_ack_delay))));
   if (had_buffered_data) {
     QUIC_DLOG(WARNING) << "Connection is write blocked";
     return;
@@ -312,8 +330,9 @@ void SimpleSessionNotifier::RetransmitFrames(const QuicFrames& frames,
         connection_->SetDefaultEncryptionLevel(frame.crypto_frame->level);
         size_t consumed = connection_->SendCryptoData(frame.crypto_frame->level,
                                                       length, offset);
-        // CRYPTO frames should never be write blocked.
-        DCHECK_EQ(consumed, length);
+        if (consumed < length) {
+          break;
+        }
       }
       connection_->SetDefaultEncryptionLevel(current_encryption_level);
     }
@@ -450,7 +469,7 @@ bool SimpleSessionNotifier::HasUnackedCryptoData() const {
 }
 
 bool SimpleSessionNotifier::HasUnackedStreamData() const {
-  for (auto it : stream_map_) {
+  for (const auto& it : stream_map_) {
     if (StreamIsWaitingForAcks(it.first))
       return true;
   }
@@ -462,7 +481,7 @@ bool SimpleSessionNotifier::OnControlFrameAcked(const QuicFrame& frame) {
   if (id == kInvalidControlFrameId) {
     return false;
   }
-  DCHECK(id < least_unacked_ + control_frames_.size());
+  QUICHE_DCHECK(id < least_unacked_ + control_frames_.size());
   if (id < least_unacked_ ||
       GetControlFrameId(control_frames_.at(id - least_unacked_)) ==
           kInvalidControlFrameId) {
@@ -485,7 +504,7 @@ void SimpleSessionNotifier::OnControlFrameLost(const QuicFrame& frame) {
   if (id == kInvalidControlFrameId) {
     return;
   }
-  DCHECK(id < least_unacked_ + control_frames_.size());
+  QUICHE_DCHECK(id < least_unacked_ + control_frames_.size());
   if (id < least_unacked_ ||
       GetControlFrameId(control_frames_.at(id - least_unacked_)) ==
           kInvalidControlFrameId) {

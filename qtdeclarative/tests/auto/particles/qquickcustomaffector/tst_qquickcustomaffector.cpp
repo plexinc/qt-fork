@@ -30,17 +30,16 @@
 #include "../shared/particlestestsshared.h"
 #include <private/qquickparticlesystem_p.h>
 #include <private/qabstractanimation_p.h>
-
-#include "../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 
 class tst_qquickcustomaffector : public QQmlDataTest
 {
     Q_OBJECT
 public:
-    tst_qquickcustomaffector() {}
+    tst_qquickcustomaffector() : QQmlDataTest(QT_QMLTEST_DATADIR) {}
 
 private slots:
-    void initTestCase();
+    void initTestCase() override;
     void test_basic();
     void test_move();
     void test_affectedSignal();
@@ -75,7 +74,7 @@ void tst_qquickcustomaffector::test_basic()
         QCOMPARE(d->lifeSpan, 0.5f);
         QCOMPARE(d->size, 100.f);
         QCOMPARE(d->endSize, 100.f);
-        QCOMPARE(d->autoRotate, 1.f);
+        QCOMPARE(d->autoRotate, (uchar)1);
         QCOMPARE(d->color.r, (uchar)0);
         QCOMPARE(d->color.g, (uchar)255);
         QCOMPARE(d->color.b, (uchar)0);

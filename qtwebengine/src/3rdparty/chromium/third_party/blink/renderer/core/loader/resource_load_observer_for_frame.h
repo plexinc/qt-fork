@@ -8,6 +8,7 @@
 #include <inttypes.h>
 
 #include "base/containers/span.h"
+#include "third_party/blink/public/mojom/frame/back_forward_cache_controller.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/frame/web_feature_forward.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_load_observer.h"
@@ -15,16 +16,17 @@
 namespace blink {
 
 class CoreProbeSink;
-class FrameOrImportedDocument;
+class Document;
+class DocumentLoader;
 class ResourceFetcherProperties;
 
 // ResourceLoadObserver implementation associated with a frame.
 class CORE_EXPORT ResourceLoadObserverForFrame final
     : public ResourceLoadObserver {
  public:
-  ResourceLoadObserverForFrame(
-      const FrameOrImportedDocument& frame_or_imported_document,
-      const ResourceFetcherProperties& properties);
+  ResourceLoadObserverForFrame(DocumentLoader& loader,
+                               Document& document,
+                               const ResourceFetcherProperties& properties);
   ~ResourceLoadObserverForFrame() override;
 
   // ResourceLoadObserver implementation.
@@ -33,7 +35,8 @@ class CORE_EXPORT ResourceLoadObserverForFrame final
                        const ResourceRequest&,
                        const ResourceResponse& redirect_response,
                        ResourceType,
-                       const FetchInitiatorInfo&) override;
+                       const FetchInitiatorInfo&,
+                       RenderBlockingBehavior) override;
   void DidChangePriority(uint64_t identifier,
                          ResourceLoadPriority,
                          int intra_priority_value) override;
@@ -57,17 +60,16 @@ class CORE_EXPORT ResourceLoadObserverForFrame final
                       const ResourceError&,
                       int64_t encoded_data_length,
                       IsInternalRequest) override;
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
  private:
   CoreProbeSink* GetProbe();
   void CountUsage(WebFeature);
 
-  // There are some overlap between |frame_or_imported_document| and
-  // |fetcher_properties_|.
-  // Use this when you want to access frame, document, etc. directly.
-  const Member<const FrameOrImportedDocument> frame_or_imported_document_;
-  // Use this whenever possible.
+  // There are some overlap between |document_loader_|, |document_| and
+  // |fetcher_properties_|. Use |fetcher_properties_| whenever possible.
+  const Member<DocumentLoader> document_loader_;
+  const Member<Document> document_;
   const Member<const ResourceFetcherProperties> fetcher_properties_;
 };
 

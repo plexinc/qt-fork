@@ -75,13 +75,40 @@ void FilterLayerEntityJob::run()
     std::sort(m_filteredEntities.begin(), m_filteredEntities.end());
 }
 
+void FilterLayerEntityJob::filterEntityAgainstLayers(Entity *entity,
+                                                     const Qt3DCore::QNodeIdVector &layerIds,
+                                                     const QLayerFilter::FilterMode filterMode)
+{
+    // Perform filtering
+    switch (filterMode) {
+    case QLayerFilter::AcceptAnyMatchingLayers: {
+        filterAcceptAnyMatchingLayers(entity, layerIds);
+        break;
+    }
+    case QLayerFilter::AcceptAllMatchingLayers: {
+        filterAcceptAllMatchingLayers(entity, layerIds);
+        break;
+    }
+    case QLayerFilter::DiscardAnyMatchingLayers: {
+        filterDiscardAnyMatchingLayers(entity, layerIds);
+        break;
+    }
+    case QLayerFilter::DiscardAllMatchingLayers: {
+        filterDiscardAllMatchingLayers(entity, layerIds);
+        break;
+    }
+    default:
+        Q_UNREACHABLE();
+    }
+}
+
 // We accept the entity if it contains any of the layers that are in the layer filter
 void FilterLayerEntityJob::filterAcceptAnyMatchingLayers(Entity *entity,
                                                          const Qt3DCore::QNodeIdVector &layerIds)
 {
     const Qt3DCore::QNodeIdVector entityLayers = entity->layerIds();
 
-    for (const Qt3DCore::QNodeId id : entityLayers) {
+    for (const Qt3DCore::QNodeId &id : entityLayers) {
         const bool layerAccepted = layerIds.contains(id);
 
         if (layerAccepted) {
@@ -99,7 +126,7 @@ void FilterLayerEntityJob::filterAcceptAllMatchingLayers(Entity *entity,
     const Qt3DCore::QNodeIdVector entityLayers = entity->layerIds();
     int layersAccepted = 0;
 
-    for (const Qt3DCore::QNodeId id : entityLayers) {
+    for (const Qt3DCore::QNodeId &id : entityLayers) {
         if (layerIds.contains(id))
             ++layersAccepted;
     }
@@ -118,7 +145,7 @@ void FilterLayerEntityJob::filterDiscardAnyMatchingLayers(Entity *entity,
     const Qt3DCore::QNodeIdVector entityLayers = entity->layerIds();
     bool entityCanBeDiscarded = false;
 
-    for (const Qt3DCore::QNodeId id : entityLayers) {
+    for (const Qt3DCore::QNodeId &id : entityLayers) {
         if (layerIds.contains(id)) {
             entityCanBeDiscarded =  true;
             break;
@@ -140,7 +167,7 @@ void FilterLayerEntityJob::filterDiscardAllMatchingLayers(Entity *entity,
 
     int containedLayers = 0;
 
-    for (const Qt3DCore::QNodeId id : layerIds) {
+    for (const Qt3DCore::QNodeId &id : layerIds) {
         if (entityLayers.contains(id))
             ++containedLayers;
     }
@@ -154,7 +181,7 @@ void FilterLayerEntityJob::filterLayerAndEntity()
     EntityManager *entityManager = m_manager->renderNodesManager();
     const std::vector<HEntity> &handles = entityManager->activeHandles();
 
-    QVector<Entity *> entitiesToFilter;
+    std::vector<Entity *> entitiesToFilter;
     entitiesToFilter.reserve(handles.size());
 
     for (const HEntity &handle : handles) {
@@ -167,7 +194,7 @@ void FilterLayerEntityJob::filterLayerAndEntity()
     FrameGraphManager *frameGraphManager = m_manager->frameGraphManager();
     LayerManager *layerManager = m_manager->layerManager();
 
-    for (const Qt3DCore::QNodeId layerFilterId : qAsConst(m_layerFilterIds)) {
+    for (const Qt3DCore::QNodeId &layerFilterId : qAsConst(m_layerFilterIds)) {
         LayerFilterNode *layerFilter = static_cast<LayerFilterNode *>(frameGraphManager->lookupNode(layerFilterId));
         Qt3DCore::QNodeIdVector layerIds = layerFilter->layerIds();
 
@@ -181,28 +208,8 @@ void FilterLayerEntityJob::filterLayerAndEntity()
         const QLayerFilter::FilterMode filterMode = layerFilter->filterMode();
 
         // Perform filtering
-        for (Entity *entity : entitiesToFilter) {
-            switch (filterMode) {
-            case QLayerFilter::AcceptAnyMatchingLayers: {
-                filterAcceptAnyMatchingLayers(entity, layerIds);
-                break;
-            }
-            case QLayerFilter::AcceptAllMatchingLayers: {
-                filterAcceptAllMatchingLayers(entity, layerIds);
-                break;
-            }
-            case QLayerFilter::DiscardAnyMatchingLayers: {
-                filterDiscardAnyMatchingLayers(entity, layerIds);
-                break;
-            }
-            case QLayerFilter::DiscardAllMatchingLayers: {
-                filterDiscardAllMatchingLayers(entity, layerIds);
-                break;
-            }
-            default:
-                Q_UNREACHABLE();
-            }
-        }
+        for (Entity *entity : entitiesToFilter)
+            filterEntityAgainstLayers(entity, layerIds, filterMode);
 
         // Entities to filter for the next frame are the filtered result of the
         // current LayerFilter

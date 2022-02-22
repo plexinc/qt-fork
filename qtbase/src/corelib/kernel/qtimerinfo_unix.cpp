@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Copyright (C) 2016 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
@@ -64,7 +64,7 @@ Q_CORE_EXPORT bool qt_disable_lowpriority_timers=false;
 
 QTimerInfoList::QTimerInfoList()
 {
-#if (_POSIX_MONOTONIC_CLOCK-0 <= 0) && !defined(Q_OS_MAC) && !defined(Q_OS_NACL)
+#if (_POSIX_MONOTONIC_CLOCK-0 <= 0) && !defined(Q_OS_MAC)
     if (!QElapsedTimer::isMonotonic()) {
         // not using monotonic timers, initialize the timeChanged() machinery
         previousTime = qt_gettime();
@@ -115,10 +115,6 @@ timespec qAbsTimespec(const timespec &t)
 */
 bool QTimerInfoList::timeChanged(timespec *delta)
 {
-#ifdef Q_OS_NACL
-    Q_UNUSED(delta)
-    return false; // Calling "times" crashes.
-#endif
     struct tms unused;
     clock_t currentTicks = times(&unused);
 
@@ -443,7 +439,7 @@ int QTimerInfoList::timerRemainingTime(int timerId)
     return -1;
 }
 
-void QTimerInfoList::registerTimer(int timerId, int interval, Qt::TimerType timerType, QObject *object)
+void QTimerInfoList::registerTimer(int timerId, qint64 interval, Qt::TimerType timerType, QObject *object)
 {
     QTimerInfo *t = new QTimerInfo;
     t->id = timerId;
@@ -635,13 +631,16 @@ int QTimerInfoList::activateTimers()
         if (currentTimerInfo->interval > 0)
             n_act++;
 
+        // Send event, but don't allow it to recurse:
         if (!currentTimerInfo->activateRef) {
-            // send event, but don't allow it to recurse
             currentTimerInfo->activateRef = &currentTimerInfo;
 
             QTimerEvent e(currentTimerInfo->id);
             QCoreApplication::sendEvent(currentTimerInfo->obj, &e);
 
+            // Storing currentTimerInfo's address in its activateRef allows the
+            // handling of that event to clear this local variable on deletion
+            // of the object it points to - if it didn't, clear activateRef:
             if (currentTimerInfo)
                 currentTimerInfo->activateRef = nullptr;
         }

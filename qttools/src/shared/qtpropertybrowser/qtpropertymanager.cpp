@@ -43,6 +43,7 @@
 #include <QtCore/QLocale>
 #include <QtCore/QMap>
 #include <QtCore/QTimer>
+#include <QtCore/QRegularExpression>
 #include <QtGui/QIcon>
 #include <QtCore/QMetaEnum>
 #include <QtGui/QFontDatabase>
@@ -270,7 +271,7 @@ static void setBorderValues(PropertyManager *manager, PropertyManagerPrivate *ma
             void (PropertyManager::*propertyChangedSignal)(QtProperty *),
             void (PropertyManager::*valueChangedSignal)(QtProperty *, ValueChangeParameter),
             void (PropertyManager::*rangeChangedSignal)(QtProperty *, ValueChangeParameter, ValueChangeParameter),
-            QtProperty *property, const Value &minVal, const Value &maxVal,
+            QtProperty *property, ValueChangeParameter minVal, ValueChangeParameter maxVal,
             void (PropertyManagerPrivate::*setSubPropertyRange)(QtProperty *,
                     ValueChangeParameter, ValueChangeParameter, ValueChangeParameter))
 {
@@ -1188,11 +1189,8 @@ public:
 
     struct Data
     {
-        Data() : regExp(QString(QLatin1Char('*')),  Qt::CaseSensitive, QRegExp::Wildcard)
-        {
-        }
         QString val;
-        QRegExp regExp;
+        QRegularExpression regExp;
     };
 
     typedef QMap<const QtProperty *, Data> PropertyValueMap;
@@ -1233,7 +1231,7 @@ public:
 */
 
 /*!
-    \fn void QtStringPropertyManager::regExpChanged(QtProperty *property, const QRegExp &regExp)
+    \fn void QtStringPropertyManager::regExpChanged(QtProperty *property, const QRegularExpression &regExp)
 
     This signal is emitted whenever a property created by this manager
     changes its currenlty set regular expression, passing a pointer to
@@ -1280,9 +1278,9 @@ QString QtStringPropertyManager::value(const QtProperty *property) const
 
     \sa setRegExp()
 */
-QRegExp QtStringPropertyManager::regExp(const QtProperty *property) const
+QRegularExpression QtStringPropertyManager::regExp(const QtProperty *property) const
 {
-    return getData<QRegExp>(d_ptr->m_values, &QtStringPropertyManagerPrivate::Data::regExp, property, QRegExp());
+    return getData<QRegularExpression>(d_ptr->m_values, &QtStringPropertyManagerPrivate::Data::regExp, property, QRegularExpression());
 }
 
 /*!
@@ -1317,8 +1315,10 @@ void QtStringPropertyManager::setValue(QtProperty *property, const QString &val)
     if (data.val == val)
         return;
 
-    if (data.regExp.isValid() && !data.regExp.exactMatch(val))
+    if (data.regExp.isValid() && !data.regExp.pattern().isEmpty()
+        && !data.regExp.match(val).hasMatch()) {
         return;
+    }
 
     data.val = val;
 
@@ -1333,7 +1333,7 @@ void QtStringPropertyManager::setValue(QtProperty *property, const QString &val)
 
     \sa regExp(), setValue(), regExpChanged()
 */
-void QtStringPropertyManager::setRegExp(QtProperty *property, const QRegExp &regExp)
+void QtStringPropertyManager::setRegExp(QtProperty *property, const QRegularExpression &regExp)
 {
     const QtStringPropertyManagerPrivate::PropertyValueMap::iterator it = d_ptr->m_values.find(property);
     if (it == d_ptr->m_values.end())
@@ -1545,8 +1545,8 @@ public:
         QDate maxVal{QDate(9999, 12, 31)};
         QDate minimumValue() const { return minVal; }
         QDate maximumValue() const { return maxVal; }
-        void setMinimumValue(const QDate &newMinVal) { setSimpleMinimumData(this, newMinVal); }
-        void setMaximumValue(const QDate &newMaxVal) { setSimpleMaximumData(this, newMaxVal); }
+        void setMinimumValue(QDate newMinVal) { setSimpleMinimumData(this, newMinVal); }
+        void setMaximumValue(QDate newMaxVal) { setSimpleMaximumData(this, newMaxVal); }
     };
 
     QString m_format;
@@ -1587,7 +1587,7 @@ QtDatePropertyManagerPrivate::QtDatePropertyManagerPrivate(QtDatePropertyManager
 */
 
 /*!
-    \fn void QtDatePropertyManager::valueChanged(QtProperty *property, const QDate &value)
+    \fn void QtDatePropertyManager::valueChanged(QtProperty *property, QDate value)
 
     This signal is emitted whenever a property created by this manager
     changes its value, passing a pointer to the \a property and the new
@@ -1597,7 +1597,7 @@ QtDatePropertyManagerPrivate::QtDatePropertyManagerPrivate(QtDatePropertyManager
 */
 
 /*!
-    \fn void QtDatePropertyManager::rangeChanged(QtProperty *property, const QDate &minimum, const QDate &maximum)
+    \fn void QtDatePropertyManager::rangeChanged(QtProperty *property, QDate minimum, QDate maximum)
 
     This signal is emitted whenever a property created by this manager
     changes its range of valid dates, passing a pointer to the \a
@@ -1667,7 +1667,7 @@ QString QtDatePropertyManager::valueText(const QtProperty *property) const
 }
 
 /*!
-    \fn void QtDatePropertyManager::setValue(QtProperty *property, const QDate &value)
+    \fn void QtDatePropertyManager::setValue(QtProperty *property, QDate value)
 
     Sets the value of the given \a property to \a value.
 
@@ -1677,10 +1677,10 @@ QString QtDatePropertyManager::valueText(const QtProperty *property) const
 
     \sa value(), setRange(), valueChanged()
 */
-void QtDatePropertyManager::setValue(QtProperty *property, const QDate &val)
+void QtDatePropertyManager::setValue(QtProperty *property, QDate val)
 {
-    void (QtDatePropertyManagerPrivate::*setSubPropertyValue)(QtProperty *, const QDate &) = 0;
-    setValueInRange<const QDate &, QtDatePropertyManagerPrivate, QtDatePropertyManager, const QDate>(this, d_ptr.data(),
+    void (QtDatePropertyManagerPrivate::*setSubPropertyValue)(QtProperty *, QDate) = 0;
+    setValueInRange<QDate, QtDatePropertyManagerPrivate, QtDatePropertyManager, const QDate>(this, d_ptr.data(),
                 &QtDatePropertyManager::propertyChanged,
                 &QtDatePropertyManager::valueChanged,
                 property, val, setSubPropertyValue);
@@ -1695,9 +1695,9 @@ void QtDatePropertyManager::setValue(QtProperty *property, const QDate &val)
 
     \sa minimum(), setRange()
 */
-void QtDatePropertyManager::setMinimum(QtProperty *property, const QDate &minVal)
+void QtDatePropertyManager::setMinimum(QtProperty *property, QDate minVal)
 {
-    setMinimumValue<const QDate &, QtDatePropertyManagerPrivate, QtDatePropertyManager, QDate, QtDatePropertyManagerPrivate::Data>(this, d_ptr.data(),
+    setMinimumValue<QDate, QtDatePropertyManagerPrivate, QtDatePropertyManager, QDate, QtDatePropertyManagerPrivate::Data>(this, d_ptr.data(),
                 &QtDatePropertyManager::propertyChanged,
                 &QtDatePropertyManager::valueChanged,
                 &QtDatePropertyManager::rangeChanged,
@@ -1713,9 +1713,9 @@ void QtDatePropertyManager::setMinimum(QtProperty *property, const QDate &minVal
 
     \sa maximum(), setRange()
 */
-void QtDatePropertyManager::setMaximum(QtProperty *property, const QDate &maxVal)
+void QtDatePropertyManager::setMaximum(QtProperty *property, QDate maxVal)
 {
-    setMaximumValue<const QDate &, QtDatePropertyManagerPrivate, QtDatePropertyManager, QDate, QtDatePropertyManagerPrivate::Data>(this, d_ptr.data(),
+    setMaximumValue<QDate, QtDatePropertyManagerPrivate, QtDatePropertyManager, QDate, QtDatePropertyManagerPrivate::Data>(this, d_ptr.data(),
                 &QtDatePropertyManager::propertyChanged,
                 &QtDatePropertyManager::valueChanged,
                 &QtDatePropertyManager::rangeChanged,
@@ -1723,7 +1723,7 @@ void QtDatePropertyManager::setMaximum(QtProperty *property, const QDate &maxVal
 }
 
 /*!
-    \fn void QtDatePropertyManager::setRange(QtProperty *property, const QDate &minimum, const QDate &maximum)
+    \fn void QtDatePropertyManager::setRange(QtProperty *property, QDate minimum, QDate maximum)
 
     Sets the range of valid dates.
 
@@ -1736,11 +1736,10 @@ void QtDatePropertyManager::setMaximum(QtProperty *property, const QDate &maxVal
 
     \sa setMinimum(), setMaximum(), rangeChanged()
 */
-void QtDatePropertyManager::setRange(QtProperty *property, const QDate &minVal, const QDate &maxVal)
+void QtDatePropertyManager::setRange(QtProperty *property, QDate minVal, QDate maxVal)
 {
-    void (QtDatePropertyManagerPrivate::*setSubPropertyRange)(QtProperty *, const QDate &,
-          const QDate &, const QDate &) = 0;
-    setBorderValues<const QDate &, QtDatePropertyManagerPrivate, QtDatePropertyManager, QDate>(this, d_ptr.data(),
+    void (QtDatePropertyManagerPrivate::*setSubPropertyRange)(QtProperty *, QDate, QDate, QDate) = 0;
+    setBorderValues<QDate, QtDatePropertyManagerPrivate, QtDatePropertyManager, QDate>(this, d_ptr.data(),
                 &QtDatePropertyManager::propertyChanged,
                 &QtDatePropertyManager::valueChanged,
                 &QtDatePropertyManager::rangeChanged,
@@ -1803,7 +1802,7 @@ QtTimePropertyManagerPrivate::QtTimePropertyManagerPrivate(QtTimePropertyManager
 */
 
 /*!
-    \fn void QtTimePropertyManager::valueChanged(QtProperty *property, const QTime &value)
+    \fn void QtTimePropertyManager::valueChanged(QtProperty *property, QTime value)
 
     This signal is emitted whenever a property created by this manager
     changes its value, passing a pointer to the \a property and the
@@ -1853,15 +1852,15 @@ QString QtTimePropertyManager::valueText(const QtProperty *property) const
 }
 
 /*!
-    \fn void QtTimePropertyManager::setValue(QtProperty *property, const QTime &value)
+    \fn void QtTimePropertyManager::setValue(QtProperty *property, QTime value)
 
     Sets the value of the given \a property to \a value.
 
     \sa value(), valueChanged()
 */
-void QtTimePropertyManager::setValue(QtProperty *property, const QTime &val)
+void QtTimePropertyManager::setValue(QtProperty *property, QTime val)
 {
-    setSimpleValue<const QTime &, QTime, QtTimePropertyManager>(d_ptr->m_values, this,
+    setSimpleValue<QTime, QTime, QtTimePropertyManager>(d_ptr->m_values, this,
                 &QtTimePropertyManager::propertyChanged,
                 &QtTimePropertyManager::valueChanged,
                 property, val);
@@ -5513,8 +5512,6 @@ void QtSizePolicyPropertyManager::uninitializeProperty(QtProperty *property)
 // enumeration manager to re-set its strings and index values
 // for each property.
 
-Q_GLOBAL_STATIC(QFontDatabase, fontDatabase)
-
 class QtFontPropertyManagerPrivate
 {
     QtFontPropertyManager *q_ptr;
@@ -5657,7 +5654,7 @@ void QtFontPropertyManagerPrivate::slotFontDatabaseDelayedChange()
     typedef QMap<const QtProperty *, QtProperty *> PropertyPropertyMap;
     // rescan available font names
     const QStringList oldFamilies = m_familyNames;
-    m_familyNames = fontDatabase()->families();
+    m_familyNames = QFontDatabase::families();
 
     // Adapt all existing properties
     if (!m_propertyToFamily.isEmpty()) {
@@ -5842,7 +5839,7 @@ void QtFontPropertyManager::setValue(QtProperty *property, const QFont &val)
         return;
 
     const QFont oldVal = it.value();
-    if (oldVal == val && oldVal.resolve() == val.resolve())
+    if (oldVal == val && oldVal.resolveMask() == val.resolveMask())
         return;
 
     it.value() = val;
@@ -5876,7 +5873,7 @@ void QtFontPropertyManager::initializeProperty(QtProperty *property)
     QtProperty *familyProp = d_ptr->m_enumPropertyManager->addProperty();
     familyProp->setPropertyName(tr("Family"));
     if (d_ptr->m_familyNames.isEmpty())
-        d_ptr->m_familyNames = fontDatabase()->families();
+        d_ptr->m_familyNames = QFontDatabase::families();
     d_ptr->m_enumPropertyManager->setEnumNames(familyProp, d_ptr->m_familyNames);
     int idx = d_ptr->m_familyNames.indexOf(val.family());
     if (idx == -1)

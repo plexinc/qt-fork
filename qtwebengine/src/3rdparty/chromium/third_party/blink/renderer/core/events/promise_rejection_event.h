@@ -32,6 +32,7 @@ class CORE_EXPORT PromiseRejectionEvent final : public Event {
   PromiseRejectionEvent(ScriptState*,
                         const AtomicString&,
                         const PromiseRejectionEventInit*);
+  ~PromiseRejectionEvent() override;
 
   ScriptValue reason(ScriptState*) const;
   ScriptPromise promise(ScriptState*) const;
@@ -42,11 +43,9 @@ class CORE_EXPORT PromiseRejectionEvent final : public Event {
   // observed across different worlds.
   bool CanBeDispatchedInWorld(const DOMWrapperWorld&) const override;
 
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
  private:
-  ~PromiseRejectionEvent() override;
-
   scoped_refptr<DOMWrapperWorld> world_;
   TraceWrapperV8Reference<v8::Value> promise_;
   TraceWrapperV8Reference<v8::Value> reason_;

@@ -100,8 +100,8 @@ class QQmlDelegateModelItem : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(int index READ modelIndex NOTIFY modelIndexChanged)
-    Q_PROPERTY(int row READ modelRow NOTIFY rowChanged REVISION 12)
-    Q_PROPERTY(int column READ modelColumn NOTIFY columnChanged REVISION 12)
+    Q_PROPERTY(int row READ modelRow NOTIFY rowChanged REVISION(2, 12))
+    Q_PROPERTY(int column READ modelColumn NOTIFY columnChanged REVISION(2, 12))
     Q_PROPERTY(QObject *model READ modelObject CONSTANT)
 public:
     QQmlDelegateModelItem(const QQmlRefPointer<QQmlDelegateModelItemMetaType> &metaType,
@@ -149,7 +149,7 @@ public:
 
     QV4::ExecutionEngine *v4;
     QQmlRefPointer<QQmlDelegateModelItemMetaType> const metaType;
-    QQmlContextDataRef contextData;
+    QQmlRefPointer<QQmlContextData> contextData;
     QPointer<QObject> object;
     QPointer<QQmlDelegateModelAttached> attached;
     QQDMIncubationTask *incubationTask;
@@ -162,8 +162,8 @@ public:
 
 Q_SIGNALS:
     void modelIndexChanged();
-    Q_REVISION(12) void rowChanged();
-    Q_REVISION(12) void columnChanged();
+    Q_REVISION(2, 12) void rowChanged();
+    Q_REVISION(2, 12) void columnChanged();
 
 protected:
     void objectDestroyed(QObject *);
@@ -222,7 +222,7 @@ public:
 
     QQmlDelegateModelItem *incubating = nullptr;
     QQmlDelegateModelPrivate *vdm = nullptr;
-    QQmlContextData *proxyContext = nullptr;
+    QQmlRefPointer<QQmlContextData> proxyContext;
     QPointer<QObject> proxiedObject  = nullptr; // the proxied object might disapear, so we use a QPointer instead of a raw one
     int index[QQmlListCompositor::MaximumGroupCount];
 };
@@ -338,8 +338,8 @@ public:
     int adaptorModelCount() const;
 
     static void group_append(QQmlListProperty<QQmlDelegateModelGroup> *property, QQmlDelegateModelGroup *group);
-    static int group_count(QQmlListProperty<QQmlDelegateModelGroup> *property);
-    static QQmlDelegateModelGroup *group_at(QQmlListProperty<QQmlDelegateModelGroup> *property, int index);
+    static qsizetype group_count(QQmlListProperty<QQmlDelegateModelGroup> *property);
+    static QQmlDelegateModelGroup *group_at(QQmlListProperty<QQmlDelegateModelGroup> *property, qsizetype index);
 
     void releaseIncubator(QQDMIncubationTask *incubationTask);
     void incubatorStatusChanged(QQDMIncubationTask *incubationTask, QQmlIncubator::Status status);

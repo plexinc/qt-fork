@@ -18,7 +18,7 @@ namespace ws {
 namespace mojom {
 enum class WindowType;
 }
-}
+}  // namespace ws
 
 namespace aura {
 namespace client {
@@ -29,6 +29,9 @@ constexpr int kResizeBehaviorNone = 0;
 constexpr int kResizeBehaviorCanResize = 1 << 0;
 constexpr int kResizeBehaviorCanMaximize = 1 << 1;
 constexpr int kResizeBehaviorCanMinimize = 1 << 2;
+
+// A value used to represent an unassigned workspace for kWindowWorkspaceKey.
+constexpr int kUnassignedWorkspace = -1;
 
 // Alphabetical sort.
 
@@ -81,12 +84,6 @@ AURA_EXPORT extern const WindowProperty<bool>* const kCreatedByUserGesture;
 // attention.
 AURA_EXPORT extern const WindowProperty<bool>* const kDrawAttentionKey;
 
-// A property key to store a bounds in screen coordinates that an embedded
-// window wants to be moved out of. This is only used in MUS to move the
-// embedding top-level window at the other side.
-AURA_EXPORT extern const WindowProperty<gfx::Rect*>* const
-    kEmbeddedWindowEnsureNotInRect;
-
 // A property key to store the focus client on the window.
 AURA_EXPORT extern const WindowProperty<FocusClient*>* const kFocusClientKey;
 
@@ -137,6 +134,11 @@ AURA_EXPORT extern const WindowProperty<gfx::Rect*>* const kRestoreBoundsKey;
 AURA_EXPORT extern const WindowProperty<ui::WindowShowState>* const
     kShowStateKey;
 
+// A property key to store key event dispatch policy. The default value is
+// false, which means IME receives a key event in PREDISPATCH phace before a
+// window receives it. If it's true, a window receives a key event before IME.
+AURA_EXPORT extern const WindowProperty<bool>* const kSkipImeProcessing;
+
 // A property key to store the title of the window; sometimes shown to users.
 AURA_EXPORT extern const WindowProperty<base::string16*>* const kTitleKey;
 
@@ -146,12 +148,19 @@ AURA_EXPORT extern const WindowProperty<base::string16*>* const kTitleKey;
 // the web contents for app windows and varies for fullscreen windows.
 AURA_EXPORT extern const WindowProperty<int>* const kTopViewInset;
 
+// A property key to store whether this window is visible on all workspaces.
+AURA_EXPORT extern const WindowProperty<bool>* const kVisibleOnAllWorkspacesKey;
+
 // A property key to store the window icon, typically 16x16 for title bars.
 AURA_EXPORT extern const WindowProperty<gfx::ImageSkia*>* const kWindowIconKey;
 
 // The corner radius of a window in DIPs. Currently only used for shadows.
 // Default is -1, meaning "unspecified". 0 Ensures corners are square.
 AURA_EXPORT extern const WindowProperty<int>* const kWindowCornerRadiusKey;
+
+// A property key to indicate a desk index of a workspace this window belongs
+// to. The default value is kUnassignedWorkspace.
+AURA_EXPORT extern const WindowProperty<int>* const kWindowWorkspaceKey;
 
 // A property key to store the z-ordering.
 AURA_EXPORT extern const WindowProperty<ui::ZOrderLevel>* const kZOrderingKey;

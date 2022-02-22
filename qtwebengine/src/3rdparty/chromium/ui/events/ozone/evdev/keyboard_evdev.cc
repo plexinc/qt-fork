@@ -13,7 +13,6 @@
 #include "ui/events/keycodes/dom/dom_code.h"
 #include "ui/events/keycodes/dom/keycode_converter.h"
 #include "ui/events/keycodes/keyboard_code_conversion.h"
-#include "ui/events/ozone/evdev/keyboard_util_evdev.h"
 #include "ui/events/ozone/layout/keyboard_layout_engine.h"
 #include "ui/events/ozone/layout/keyboard_layout_engine_manager.h"
 #include "ui/events/types/event_type.h"
@@ -32,6 +31,7 @@ KeyboardEvdev::~KeyboardEvdev() {
 }
 
 void KeyboardEvdev::OnKeyChange(unsigned int key,
+                                unsigned int scan_code,
                                 bool down,
                                 bool suppress_auto_repeat,
                                 base::TimeTicks timestamp,
@@ -46,9 +46,9 @@ void KeyboardEvdev::OnKeyChange(unsigned int key,
     return;  // Key already released.
 
   key_state_.set(key, down);
-  auto_repeat_handler_.UpdateKeyRepeat(key, down, suppress_auto_repeat,
-                                       device_id);
-  DispatchKey(key, down, is_repeat, timestamp, device_id, flags);
+  auto_repeat_handler_.UpdateKeyRepeat(key, scan_code, down,
+                                       suppress_auto_repeat, device_id);
+  DispatchKey(key, scan_code, down, is_repeat, timestamp, device_id, flags);
 }
 
 void KeyboardEvdev::SetCapsLockEnabled(bool enabled) {
@@ -118,8 +118,7 @@ void KeyboardEvdev::RefreshModifiers() {
   for (int key = 0; key < KEY_CNT; ++key) {
     if (!key_state_.test(key))
       continue;
-    DomCode dom_code =
-        KeycodeConverter::NativeKeycodeToDomCode(EvdevCodeToNativeCode(key));
+    DomCode dom_code = KeycodeConverter::EvdevCodeToDomCode(key);
     if (dom_code == DomCode::NONE)
       continue;
     DomKey dom_key;
@@ -134,13 +133,13 @@ void KeyboardEvdev::RefreshModifiers() {
 }
 
 void KeyboardEvdev::DispatchKey(unsigned int key,
+                                unsigned int scan_code,
                                 bool down,
                                 bool repeat,
                                 base::TimeTicks timestamp,
                                 int device_id,
                                 int flags) {
-  DomCode dom_code =
-      KeycodeConverter::NativeKeycodeToDomCode(EvdevCodeToNativeCode(key));
+  DomCode dom_code = KeycodeConverter::EvdevCodeToDomCode(key);
   if (dom_code == DomCode::NONE)
     return;
   int modifier_flags = modifiers_->GetModifierFlags();
@@ -156,6 +155,7 @@ void KeyboardEvdev::DispatchKey(unsigned int key,
 
   KeyEvent event(down ? ET_KEY_PRESSED : ET_KEY_RELEASED, key_code, dom_code,
                  flags | modifiers_->GetModifierFlags(), dom_key, timestamp);
+  event.set_scan_code(scan_code);
   event.set_source_device_id(device_id);
   callback_.Run(&event);
 }

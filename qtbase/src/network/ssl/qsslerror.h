@@ -45,6 +45,8 @@
 #include <QtCore/qvariant.h>
 #include <QtNetwork/qsslcertificate.h>
 
+#include <memory>
+
 QT_BEGIN_NAMESPACE
 
 
@@ -100,7 +102,7 @@ public:
     // RVCT compiler in debug build does not like about default values in const-
     // So as an workaround we define all constructor overloads here explicitly
     QSslError();
-    QSslError(SslError error);
+    explicit QSslError(SslError error);
     QSslError(SslError error, const QSslCertificate &certificate);
 
     QSslError(const QSslError &other);
@@ -120,18 +122,20 @@ public:
     QSslCertificate certificate() const;
 
 private:
-    QScopedPointer<QSslErrorPrivate> d;
+    // ### Qt 7: make QSslError implicitly shared
+    std::unique_ptr<QSslErrorPrivate> d;
 };
 Q_DECLARE_SHARED(QSslError)
 
-Q_NETWORK_EXPORT uint qHash(const QSslError &key, uint seed = 0) noexcept;
+Q_NETWORK_EXPORT size_t qHash(const QSslError &key, size_t seed = 0) noexcept;
 
 #ifndef QT_NO_DEBUG_STREAM
 class QDebug;
 Q_NETWORK_EXPORT QDebug operator<<(QDebug debug, const QSslError &error);
 Q_NETWORK_EXPORT QDebug operator<<(QDebug debug, const QSslError::SslError &error);
 #endif
-
+#else
+class Q_NETWORK_EXPORT QSslError {}; // dummy class so that moc has a complete type
 #endif // QT_NO_SSL
 
 QT_END_NAMESPACE

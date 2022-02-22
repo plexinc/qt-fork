@@ -14,9 +14,7 @@ defines                 += Q_QDOC \
                           QT_DEPRECATED_* \
                           Q_NO_USING_KEYWORD \
                           Q_OS_.* \
-                          Q_STDLIB_UNICODE_STRINGS \
                           Q_COMPILER_INITIALIZER_LISTS \
-                          Q_COMPILER_UNICODE_STRINGS \
                           Q_COMPILER_UNIFORM_INIT \
                           Q_COMPILER_RVALUE_REFS
 
@@ -54,10 +52,8 @@ clangdefines            += Q_QDOC \
                            Q_COMPILER_RVALUE_REFS \
                            Q_COMPILER_STATIC_ASSERT \
                            Q_COMPILER_UNIFORM_INIT \
-                           Q_COMPILER_UNICODE_STRINGS \
                            Q_COMPILER_VARIADIC_MACROS \
                            Q_COMPILER_VARIADIC_TEMPLATES \
-                           Q_STDLIB_UNICODE_STRINGS \
                            Q_ATOMIC_INT16_IS_SUPPORTED \
                            Q_ATOMIC_INT64_IS_SUPPORTED \
                            Q_ATOMIC_INT8_IS_SUPPORTED \
@@ -93,9 +89,6 @@ Cpp.ignoretokens        += \
                           Q_DECLARATIVE_EXPORT \
                           Q_EXPLICIT \
                           Q_EXPORT \
-                          Q_EXPORT_CODECS_CN \
-                          Q_EXPORT_CODECS_JP \
-                          Q_EXPORT_CODECS_KR \
                           Q_EXPORT_PLUGIN \
                           Q_EXPORT_PLUGIN2 \
                           Q_GADGET \
@@ -135,6 +128,7 @@ Cpp.ignoretokens        += \
                           Q_SVG_EXPORT \
                           Q_TESTLIB_EXPORT \
                           Q_TYPENAME \
+                          Q_WEAK_OVERLOAD \
                           Q_WIDGETS_EXPORT \
                           Q_WINEXTRAS_EXPORT \
                           Q_XML_EXPORT \

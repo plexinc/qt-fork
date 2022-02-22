@@ -18,9 +18,10 @@
 #include "extensions/browser/guest_view/mime_handler_view/mime_handler_view_constants.h"
 #include "extensions/browser/guest_view/mime_handler_view/mime_handler_view_guest.h"
 #include "extensions/common/mojom/guest_view.mojom.h"
+#include "services/network/public/cpp/web_sandbox_flags.h"
+#include "services/network/public/mojom/web_sandbox_flags.mojom-shared.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
-#include "third_party/blink/public/common/frame/frame_owner_element_type.h"
-#include "third_party/blink/public/common/frame/sandbox_flags.h"
+#include "third_party/blink/public/mojom/frame/frame_owner_element_type.mojom.h"
 
 namespace extensions {
 
@@ -91,6 +92,12 @@ void MimeHandlerViewEmbedder::ReadyToCommitNavigation(
     content::NavigationHandle* handle) {
   if (handle->GetFrameTreeNodeId() != frame_tree_node_id_)
     return;
+  // We should've deleted the MimeHandlerViewEmbedder at this point if the frame
+  // is sandboxed.
+  DCHECK_EQ(network::mojom::WebSandboxFlags::kNone,
+            handle->SandboxFlagsToCommit() &
+                network::mojom::WebSandboxFlags::kPlugins);
+
   if (!render_frame_host_) {
     render_frame_host_ = handle->GetRenderFrameHost();
     GetContainerManager()->SetInternalId(internal_id_);
@@ -99,9 +106,15 @@ void MimeHandlerViewEmbedder::ReadyToCommitNavigation(
 
 void MimeHandlerViewEmbedder::DidFinishNavigation(
     content::NavigationHandle* handle) {
-  if (frame_tree_node_id_ != handle->GetFrameTreeNodeId())
+  if (!handle->HasCommitted() ||
+      frame_tree_node_id_ != handle->GetFrameTreeNodeId()) {
     return;
-  CheckSandboxFlags();
+  }
+  // We should've deleted the MimeHandlerViewEmbedder at this point if the frame
+  // is sandboxed.
+  DCHECK(render_frame_host_);
+  DCHECK(!render_frame_host_->IsSandboxed(
+      network::mojom::WebSandboxFlags::kPlugins));
 }
 
 void MimeHandlerViewEmbedder::RenderFrameCreated(
@@ -114,7 +127,7 @@ void MimeHandlerViewEmbedder::RenderFrameCreated(
       render_frame_host_ != render_frame_host->GetParent() ||
       render_frame_host_->GetLastCommittedURL() != resource_url_ ||
       render_frame_host->GetFrameOwnerElementType() !=
-          blink::FrameOwnerElementType::kEmbed ||
+          blink::mojom::FrameOwnerElementType::kEmbed ||
       render_frame_host->GetFrameName() != internal_id_) {
     return;
   }
@@ -224,18 +237,9 @@ void MimeHandlerViewEmbedder::ReadyToCreateMimeHandlerView(
     GetMimeHandlerViewEmbeddersMap()->erase(frame_tree_node_id_);
 }
 
-void MimeHandlerViewEmbedder::CheckSandboxFlags() {
-  // If the FrameTreeNode is deleted while it has ownership of the ongoing
-  // NavigationRequest, DidFinishNavigation is called before FrameDeleted (see
-  // https://crbug.com/969840).
-  if (render_frame_host_ && !render_frame_host_->IsSandboxed(
-                                blink::mojom::WebSandboxFlags::kPlugins)) {
-    return;
-  }
-  if (render_frame_host_) {
-    // Notify the renderer to load an empty page instead.
-    GetContainerManager()->LoadEmptyPage(resource_url_);
-  }
+void MimeHandlerViewEmbedder::OnFrameSandboxed() {
+  DCHECK(!render_frame_host_);
+  DCHECK(!container_manager_);
   GetMimeHandlerViewEmbeddersMap()->erase(frame_tree_node_id_);
 }
 

@@ -140,6 +140,17 @@ class WebGL2RenderingContextBase : public WebGLRenderingContextBase {
                   GLenum,
                   HTMLVideoElement*,
                   ExceptionState&);
+  void texImage2D(ExecutionContext*,
+                  GLenum,
+                  GLint,
+                  GLint,
+                  GLsizei,
+                  GLsizei,
+                  GLint,
+                  GLenum,
+                  GLenum,
+                  VideoFrame*,
+                  ExceptionState&);
   void texImage2D(GLenum,
                   GLint,
                   GLint,
@@ -212,6 +223,17 @@ class WebGL2RenderingContextBase : public WebGLRenderingContextBase {
                      GLenum,
                      HTMLVideoElement*,
                      ExceptionState&);
+  void texSubImage2D(ExecutionContext*,
+                     GLenum,
+                     GLint,
+                     GLint,
+                     GLint,
+                     GLsizei,
+                     GLsizei,
+                     GLenum,
+                     GLenum,
+                     VideoFrame*,
+                     ExceptionState&);
   void texSubImage2D(GLenum,
                      GLint,
                      GLint,
@@ -261,6 +283,14 @@ class WebGL2RenderingContextBase : public WebGLRenderingContextBase {
                   GLenum,
                   HTMLVideoElement*,
                   ExceptionState&);
+  void texImage2D(ExecutionContext*,
+                  GLenum,
+                  GLint,
+                  GLint,
+                  GLenum,
+                  GLenum,
+                  VideoFrame*,
+                  ExceptionState&);
   void texImage2D(GLenum,
                   GLint,
                   GLint,
@@ -295,6 +325,15 @@ class WebGL2RenderingContextBase : public WebGLRenderingContextBase {
                      GLenum,
                      GLenum,
                      HTMLVideoElement*,
+                     ExceptionState&);
+  void texSubImage2D(ExecutionContext*,
+                     GLenum,
+                     GLint,
+                     GLint,
+                     GLint,
+                     GLenum,
+                     GLenum,
+                     VideoFrame*,
                      ExceptionState&);
   void texSubImage2D(GLenum,
                      GLint,
@@ -373,6 +412,18 @@ class WebGL2RenderingContextBase : public WebGLRenderingContextBase {
                   GLenum,
                   GLenum,
                   HTMLVideoElement*,
+                  ExceptionState&);
+  void texImage3D(ExecutionContext*,
+                  GLenum,
+                  GLint,
+                  GLint,
+                  GLsizei,
+                  GLsizei,
+                  GLsizei,
+                  GLint,
+                  GLenum,
+                  GLenum,
+                  VideoFrame*,
                   ExceptionState&);
   void texImage3D(GLenum,
                   GLint,
@@ -467,6 +518,19 @@ class WebGL2RenderingContextBase : public WebGLRenderingContextBase {
                      GLenum,
                      GLenum,
                      HTMLVideoElement*,
+                     ExceptionState&);
+  void texSubImage3D(ExecutionContext*,
+                     GLenum,
+                     GLint,
+                     GLint,
+                     GLint,
+                     GLint,
+                     GLsizei,
+                     GLsizei,
+                     GLsizei,
+                     GLenum,
+                     GLenum,
+                     VideoFrame*,
                      ExceptionState&);
   void texSubImage3D(GLenum,
                      GLint,
@@ -970,7 +1034,7 @@ class WebGL2RenderingContextBase : public WebGLRenderingContextBase {
   /* Helpers */
   GLint GetMaxTransformFeedbackSeparateAttribs() const;
 
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
  protected:
   friend class V8WebGL2RenderingContext;
@@ -1135,6 +1199,11 @@ class WebGL2RenderingContextBase : public WebGLRenderingContextBase {
   GLint pack_skip_rows_;
   GLint unpack_image_height_;
   GLint unpack_skip_images_;
+
+ private:
+  void RecordInternalFormatParameter(GLenum internalformat,
+                                     GLint* values,
+                                     GLint length);
 };
 
 }  // namespace blink

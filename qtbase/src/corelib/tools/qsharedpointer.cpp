@@ -848,7 +848,7 @@
 /*!
     \fn template <class T> T *QWeakPointer<T>::data() const
     \since 4.6
-    \obsolete Use toStrongRef() instead, and data() on the returned QSharedPointer.
+    \deprecated Use toStrongRef() instead, and data() on the returned QSharedPointer.
 
     Returns the value of the pointer being tracked by this QWeakPointer,
     \b without ensuring that it cannot get deleted. To have that guarantee,
@@ -1400,7 +1400,7 @@ QtSharedPointer::ExternalRefCountData *QtSharedPointer::ExternalRefCountData::ge
     }
 
     // we can create the refcount data because it doesn't exist
-    ExternalRefCountData *x = new ExternalRefCountData(Qt::Uninitialized);
+    ExternalRefCountData *x = ::new ExternalRefCountData(Qt::Uninitialized);
     x->strongref.storeRelaxed(-1);
     x->weakref.storeRelaxed(2);  // the QWeakPointer that called us plus the QObject itself
 
@@ -1411,7 +1411,7 @@ QtSharedPointer::ExternalRefCountData *QtSharedPointer::ExternalRefCountData::ge
         // ~ExternalRefCountData has a Q_ASSERT, so we use this trick to
         // only execute this if Q_ASSERTs are enabled
         Q_ASSERT((x->weakref.storeRelaxed(0), true));
-        delete x;
+        ::delete x;
         ret->weakref.ref();
     }
     return ret;
@@ -1424,7 +1424,7 @@ QtSharedPointer::ExternalRefCountData *QtSharedPointer::ExternalRefCountData::ge
 */
 QSharedPointer<QObject> QtSharedPointer::sharedPointerFromVariant_internal(const QVariant &variant)
 {
-    Q_ASSERT(QMetaType::typeFlags(variant.userType()) & QMetaType::SharedPointerToQObject);
+    Q_ASSERT(variant.metaType().flags() & QMetaType::SharedPointerToQObject);
     return *reinterpret_cast<const QSharedPointer<QObject>*>(variant.constData());
 }
 
@@ -1435,7 +1435,8 @@ QSharedPointer<QObject> QtSharedPointer::sharedPointerFromVariant_internal(const
 */
 QWeakPointer<QObject> QtSharedPointer::weakPointerFromVariant_internal(const QVariant &variant)
 {
-    Q_ASSERT(QMetaType::typeFlags(variant.userType()) & QMetaType::WeakPointerToQObject || QMetaType::typeFlags(variant.userType()) & QMetaType::TrackingPointerToQObject);
+    Q_ASSERT(variant.metaType().flags() & QMetaType::WeakPointerToQObject ||
+             variant.metaType().flags() & QMetaType::TrackingPointerToQObject);
     return *reinterpret_cast<const QWeakPointer<QObject>*>(variant.constData());
 }
 
@@ -1574,7 +1575,7 @@ void QtSharedPointer::internalSafetyCheckAdd(const void *d_ptr, const volatile v
 
     //qDebug("Adding d=%p value=%p", d_ptr, ptr);
 
-    const void *other_d_ptr = kp->dataPointers.value(ptr, 0);
+    const void *other_d_ptr = kp->dataPointers.value(ptr, nullptr);
     if (Q_UNLIKELY(other_d_ptr)) {
 #  ifdef BACKTRACE_SUPPORTED
         printBacktrace(knownPointers()->dPointers.value(other_d_ptr).backtrace);
@@ -1637,7 +1638,7 @@ void QtSharedPointer::internalSafetyCheckCleanCheck()
         qFatal("Internal consistency error: the number of pointers is not equal!");
 
     if (Q_UNLIKELY(!kp->dPointers.isEmpty()))
-        qFatal("Pointer cleaning failed: %d entries remaining", kp->dPointers.size());
+        qFatal("Pointer cleaning failed: %d entries remaining", int(kp->dPointers.size()));
 #  endif
 }
 

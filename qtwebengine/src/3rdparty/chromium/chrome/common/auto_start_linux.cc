@@ -11,7 +11,6 @@
 #include "base/environment.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
-#include "base/logging.h"
 #include "base/nix/xdg_util.h"
 #include "base/strings/string_tokenizer.h"
 
@@ -19,17 +18,9 @@ namespace {
 
 const base::FilePath::CharType kAutostart[] = "autostart";
 
-base::FilePath GetAutostartDirectory(base::Environment* environment) {
-  base::FilePath result = base::nix::GetXDGDirectory(
-      environment,
-      base::nix::kXdgConfigHomeEnvVar,
-      base::nix::kDotConfigDir);
-  result = result.Append(kAutostart);
-  return result;
-}
-
 }  // namespace
 
+// static
 bool AutoStart::AddApplication(const std::string& autostart_filename,
                                const std::string& application_name,
                                const std::string& command_line,
@@ -54,20 +45,22 @@ bool AutoStart::AddApplication(const std::string& autostart_filename,
   if (base::WriteFile(autostart_file, autostart_file_contents.c_str(),
                       content_length) !=
       static_cast<int>(content_length)) {
-    base::DeleteFile(autostart_file, false);
+    base::DeleteFile(autostart_file);
     return false;
   }
   return true;
 }
 
+// static
 bool AutoStart::Remove(const std::string& autostart_filename) {
   std::unique_ptr<base::Environment> environment(base::Environment::Create());
   base::FilePath autostart_directory = GetAutostartDirectory(environment.get());
   base::FilePath autostart_file =
       autostart_directory.Append(autostart_filename);
-  return base::DeleteFile(autostart_file, false);
+  return base::DeleteFile(autostart_file);
 }
 
+// static
 bool AutoStart::GetAutostartFileContents(
     const std::string& autostart_filename, std::string* contents) {
   std::unique_ptr<base::Environment> environment(base::Environment::Create());
@@ -77,6 +70,7 @@ bool AutoStart::GetAutostartFileContents(
   return base::ReadFileToString(autostart_file, contents);
 }
 
+// static
 bool AutoStart::GetAutostartFileValue(const std::string& autostart_filename,
                                       const std::string& value_name,
                                       std::string* value) {
@@ -92,4 +86,13 @@ bool AutoStart::GetAutostartFileValue(const std::string& autostart_filename,
     }
   }
   return false;
+}
+
+// static
+base::FilePath AutoStart::GetAutostartDirectory(
+    base::Environment* environment) {
+  base::FilePath result = base::nix::GetXDGDirectory(
+      environment, base::nix::kXdgConfigHomeEnvVar, base::nix::kDotConfigDir);
+  result = result.Append(kAutostart);
+  return result;
 }

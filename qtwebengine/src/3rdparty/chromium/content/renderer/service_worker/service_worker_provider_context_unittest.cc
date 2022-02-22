@@ -11,11 +11,10 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/test/task_environment.h"
-#include "content/child/thread_safe_sender.h"
 #include "content/public/common/content_features.h"
 #include "content/renderer/service_worker/controller_service_worker_connector.h"
 #include "content/renderer/service_worker/web_service_worker_provider_impl.h"
@@ -24,11 +23,11 @@
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
 #include "services/network/public/cpp/wrapper_shared_url_loader_factory.h"
+#include "services/network/public/mojom/fetch_api.mojom-shared.h"
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
 #include "services/network/test/test_url_loader_client.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/mojom/loader/fetch_client_settings_object.mojom.h"
-#include "third_party/blink/public/mojom/loader/resource_load_info.mojom-shared.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_container.mojom.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_container_type.mojom.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_error_type.mojom.h"
@@ -292,8 +291,7 @@ class ServiceWorkerProviderContextTest : public testing::Test {
                     const GURL& url) {
     network::ResourceRequest request;
     request.url = url;
-    request.resource_type =
-        static_cast<int>(blink::mojom::ResourceType::kSubResource);
+    request.destination = network::mojom::RequestDestination::kEmpty;
     mojo::PendingRemote<network::mojom::URLLoader> loader;
     network::TestURLLoaderClient loader_client;
     factory->CreateLoaderAndStart(
@@ -333,8 +331,7 @@ TEST_F(ServiceWorkerProviderContextTest, SetController) {
     mojo::AssociatedRemote<blink::mojom::ServiceWorkerContainerHost>
         host_remote;
     mojo::PendingAssociatedReceiver<blink::mojom::ServiceWorkerContainerHost>
-        host_receiver =
-            host_remote.BindNewEndpointAndPassDedicatedReceiverForTesting();
+        host_receiver = host_remote.BindNewEndpointAndPassDedicatedReceiver();
 
     // (1) In the case there is no WebSWProviderClient but SWProviderContext for
     // the provider, the passed reference should be adopted and owned by the
@@ -342,7 +339,7 @@ TEST_F(ServiceWorkerProviderContextTest, SetController) {
     mojo::AssociatedRemote<blink::mojom::ServiceWorkerContainer>
         container_remote;
     auto container_receiver =
-        container_remote.BindNewEndpointAndPassDedicatedReceiverForTesting();
+        container_remote.BindNewEndpointAndPassDedicatedReceiver();
     auto provider_context = base::MakeRefCounted<ServiceWorkerProviderContext>(
         blink::mojom::ServiceWorkerContainerType::kForWindow,
         std::move(container_receiver), host_remote.Unbind(),
@@ -378,13 +375,12 @@ TEST_F(ServiceWorkerProviderContextTest, SetController) {
     mojo::AssociatedRemote<blink::mojom::ServiceWorkerContainerHost>
         host_remote;
     mojo::PendingAssociatedReceiver<blink::mojom::ServiceWorkerContainerHost>
-        host_receiver =
-            host_remote.BindNewEndpointAndPassDedicatedReceiverForTesting();
+        host_receiver = host_remote.BindNewEndpointAndPassDedicatedReceiver();
 
     mojo::AssociatedRemote<blink::mojom::ServiceWorkerContainer>
         container_remote;
     auto container_receiver =
-        container_remote.BindNewEndpointAndPassDedicatedReceiverForTesting();
+        container_remote.BindNewEndpointAndPassDedicatedReceiver();
     auto provider_context = base::MakeRefCounted<ServiceWorkerProviderContext>(
         blink::mojom::ServiceWorkerContainerType::kForWindow,
         std::move(container_receiver), host_remote.Unbind(),
@@ -412,12 +408,11 @@ TEST_F(ServiceWorkerProviderContextTest, SetController) {
 TEST_F(ServiceWorkerProviderContextTest, SetController_Null) {
   mojo::AssociatedRemote<blink::mojom::ServiceWorkerContainerHost> host_remote;
   mojo::PendingAssociatedReceiver<blink::mojom::ServiceWorkerContainerHost>
-      host_receiver =
-          host_remote.BindNewEndpointAndPassDedicatedReceiverForTesting();
+      host_receiver = host_remote.BindNewEndpointAndPassDedicatedReceiver();
 
   mojo::AssociatedRemote<blink::mojom::ServiceWorkerContainer> container_remote;
   auto container_receiver =
-      container_remote.BindNewEndpointAndPassDedicatedReceiverForTesting();
+      container_remote.BindNewEndpointAndPassDedicatedReceiver();
   auto provider_context = base::MakeRefCounted<ServiceWorkerProviderContext>(
       blink::mojom::ServiceWorkerContainerType::kForWindow,
       std::move(container_receiver), host_remote.Unbind(),
@@ -444,10 +439,10 @@ TEST_F(ServiceWorkerProviderContextTest, SetControllerServiceWorker) {
   // ServiceWorkerContainer request.
   mojo::AssociatedRemote<blink::mojom::ServiceWorkerContainerHost> host_remote;
   FakeServiceWorkerContainerHost host(
-      host_remote.BindNewEndpointAndPassDedicatedReceiverForTesting());
+      host_remote.BindNewEndpointAndPassDedicatedReceiver());
   mojo::AssociatedRemote<blink::mojom::ServiceWorkerContainer> container_remote;
   auto container_receiver =
-      container_remote.BindNewEndpointAndPassDedicatedReceiverForTesting();
+      container_remote.BindNewEndpointAndPassDedicatedReceiver();
 
   // (1) Test if setting the controller via the CTOR works.
 
@@ -660,7 +655,7 @@ TEST_F(ServiceWorkerProviderContextTest, ControllerWithoutFetchHandler) {
 
   mojo::AssociatedRemote<blink::mojom::ServiceWorkerContainer> container_remote;
   auto container_receiver =
-      container_remote.BindNewEndpointAndPassDedicatedReceiverForTesting();
+      container_remote.BindNewEndpointAndPassDedicatedReceiver();
   auto provider_context = base::MakeRefCounted<ServiceWorkerProviderContext>(
       blink::mojom::ServiceWorkerContainerType::kForWindow,
       std::move(container_receiver),
@@ -683,12 +678,11 @@ TEST_F(ServiceWorkerProviderContextTest, PostMessageToClient) {
 
   mojo::AssociatedRemote<blink::mojom::ServiceWorkerContainerHost> host_remote;
   mojo::PendingAssociatedReceiver<blink::mojom::ServiceWorkerContainerHost>
-      host_receiver =
-          host_remote.BindNewEndpointAndPassDedicatedReceiverForTesting();
+      host_receiver = host_remote.BindNewEndpointAndPassDedicatedReceiver();
 
   mojo::AssociatedRemote<blink::mojom::ServiceWorkerContainer> container_remote;
   auto container_receiver =
-      container_remote.BindNewEndpointAndPassDedicatedReceiverForTesting();
+      container_remote.BindNewEndpointAndPassDedicatedReceiver();
   auto provider_context = base::MakeRefCounted<ServiceWorkerProviderContext>(
       blink::mojom::ServiceWorkerContainerType::kForWindow,
       std::move(container_receiver), host_remote.Unbind(),
@@ -712,12 +706,11 @@ TEST_F(ServiceWorkerProviderContextTest, PostMessageToClient) {
 TEST_F(ServiceWorkerProviderContextTest, CountFeature) {
   mojo::AssociatedRemote<blink::mojom::ServiceWorkerContainerHost> host_remote;
   mojo::PendingAssociatedReceiver<blink::mojom::ServiceWorkerContainerHost>
-      host_receiver =
-          host_remote.BindNewEndpointAndPassDedicatedReceiverForTesting();
+      host_receiver = host_remote.BindNewEndpointAndPassDedicatedReceiver();
 
   mojo::AssociatedRemote<blink::mojom::ServiceWorkerContainer> container_remote;
   auto container_receiver =
-      container_remote.BindNewEndpointAndPassDedicatedReceiverForTesting();
+      container_remote.BindNewEndpointAndPassDedicatedReceiver();
   auto provider_context = base::MakeRefCounted<ServiceWorkerProviderContext>(
       blink::mojom::ServiceWorkerContainerType::kForWindow,
       std::move(container_receiver), host_remote.Unbind(),
@@ -765,11 +758,10 @@ TEST_F(ServiceWorkerProviderContextTest, OnNetworkProviderDestroyed) {
   // Make the container host and container pointers.
   mojo::AssociatedRemote<blink::mojom::ServiceWorkerContainerHost> host_remote;
   mojo::PendingAssociatedReceiver<blink::mojom::ServiceWorkerContainerHost>
-      host_receiver =
-          host_remote.BindNewEndpointAndPassDedicatedReceiverForTesting();
+      host_receiver = host_remote.BindNewEndpointAndPassDedicatedReceiver();
   mojo::AssociatedRemote<blink::mojom::ServiceWorkerContainer> container_remote;
   auto container_receiver =
-      container_remote.BindNewEndpointAndPassDedicatedReceiverForTesting();
+      container_remote.BindNewEndpointAndPassDedicatedReceiver();
 
   // Make the provider context.
   auto provider_context = base::MakeRefCounted<ServiceWorkerProviderContext>(
@@ -814,11 +806,10 @@ TEST_F(ServiceWorkerProviderContextTest,
   // Make the container host and container pointers.
   mojo::AssociatedRemote<blink::mojom::ServiceWorkerContainerHost> host_remote;
   mojo::PendingAssociatedReceiver<blink::mojom::ServiceWorkerContainerHost>
-      host_receiver =
-          host_remote.BindNewEndpointAndPassDedicatedReceiverForTesting();
+      host_receiver = host_remote.BindNewEndpointAndPassDedicatedReceiver();
   mojo::AssociatedRemote<blink::mojom::ServiceWorkerContainer> container_remote;
   auto container_receiver =
-      container_remote.BindNewEndpointAndPassDedicatedReceiverForTesting();
+      container_remote.BindNewEndpointAndPassDedicatedReceiver();
 
   // Make the ServiceWorkerProviderContext, passing it the controller,
   // container, and container host.
@@ -837,8 +828,7 @@ TEST_F(ServiceWorkerProviderContextTest,
 
   network::ResourceRequest request;
   request.url = GURL("https://www.example.com/random.js");
-  request.resource_type =
-      static_cast<int>(blink::mojom::ResourceType::kSubResource);
+  request.destination = network::mojom::RequestDestination::kEmpty;
   mojo::PendingRemote<network::mojom::URLLoader> loader;
   network::TestURLLoaderClient loader_client;
   wrapped_loader_factory->CreateLoaderAndStart(

@@ -14,6 +14,7 @@ extern const char kAuthFailure[];
 extern const char kNoGrant[];
 extern const char kUserRejected[];
 extern const char kUserNotSignedIn[];
+extern const char kUserNonPrimary[];
 extern const char kBrowserSigninNotAllowed[];
 extern const char kInteractionRequired[];
 extern const char kInvalidRedirect[];
@@ -23,7 +24,7 @@ extern const char kSetAccountsInCookieFailure[];
 extern const char kInvalidConsentResult[];
 extern const char kCanceled[];
 
-extern const int kCachedIssueAdviceTTLSeconds;
+extern const int kCachedRemoteConsentTTLSeconds;
 }  // namespace identity_constants
 
 }  // namespace extensions

@@ -17,7 +17,7 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "base/strings/string16.h"
 #include "base/task/cancelable_task_tracker.h"
 #include "base/time/clock.h"
@@ -67,7 +67,9 @@ class BrowsingHistoryService : public HistoryServiceObserver,
                  bool is_search_result,
                  const base::string16& snippet,
                  bool blocked_visit,
-                 const GURL& remote_icon_url_for_uma);
+                 const GURL& remote_icon_url_for_uma,
+                 int visit_count,
+                 int typed_count);
     HistoryEntry();
     HistoryEntry(const HistoryEntry& other);
     virtual ~HistoryEntry();
@@ -105,6 +107,12 @@ class BrowsingHistoryService : public HistoryServiceObserver,
 
     // Optional parameter used to plumb footprints associated icon url.
     GURL remote_icon_url_for_uma;
+
+    // Total number of times this URL has been visited.
+    int visit_count = 0;
+
+    // Number of times this URL has been manually entered in the URL bar.
+    int typed_count = 0;
   };
 
   // Contains information about a completed history query.
@@ -227,16 +235,16 @@ class BrowsingHistoryService : public HistoryServiceObserver,
   std::unique_ptr<base::OneShotTimer> web_history_timer_;
 
   // HistoryService (local history) observer.
-  ScopedObserver<HistoryService, HistoryServiceObserver>
-      history_service_observer_{this};
+  base::ScopedObservation<HistoryService, HistoryServiceObserver>
+      history_service_observation_{this};
 
   // WebHistoryService (synced history) observer.
-  ScopedObserver<WebHistoryService, WebHistoryServiceObserver>
-      web_history_service_observer_{this};
+  base::ScopedObservation<WebHistoryService, WebHistoryServiceObserver>
+      web_history_service_observation_{this};
 
   // SyncService observer listens to late initialization of history sync.
-  ScopedObserver<syncer::SyncService, syncer::SyncServiceObserver>
-      sync_service_observer_{this};
+  base::ScopedObservation<syncer::SyncService, syncer::SyncServiceObserver>
+      sync_service_observation_{this};
 
   // Whether the last call to Web History returned synced results.
   bool has_synced_results_ = false;

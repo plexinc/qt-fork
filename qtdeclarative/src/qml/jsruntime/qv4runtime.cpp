@@ -60,6 +60,7 @@
 #include <private/qqmlengine_p.h>
 #include <private/qqmljavascriptexpression_p.h>
 #include <private/qqmljsast_p.h>
+#include <private/qqmlvaluetypewrapper_p.h>
 #include "qv4qobjectwrapper_p.h"
 #include "qv4symbol_p.h"
 #include "qv4generatorobject_p.h"
@@ -393,6 +394,19 @@ QV4::ReturnedValue Runtime::Instanceof::call(ExecutionEngine *engine, const Valu
     return scope.hasException() ? Encode::undefined() : Encode(result->toBoolean());
 }
 
+QV4::ReturnedValue Runtime::As::call(ExecutionEngine *engine, const Value &lval, const Value &rval)
+{
+    Scope scope(engine);
+    ScopedValue result(scope, Runtime::Instanceof::call(engine, lval, rval));
+
+    if (scope.hasException())
+        engine->catchException();
+    else if (result->toBoolean())
+        return lval.asReturnedValue();
+
+    return Encode::null();
+}
+
 QV4::ReturnedValue Runtime::In::call(ExecutionEngine *engine, const Value &left, const Value &right)
 {
     Object *ro = right.objectValue();
@@ -417,7 +431,7 @@ double RuntimeHelpers::stringToNumber(const QString &string)
     if (string.length() > excessiveLength)
         return qQNaN();
 
-    const QStringRef s = QStringRef(&string).trimmed();
+    const QStringView s = QStringView(string).trimmed();
     if (s.startsWith(QLatin1Char('0'))) {
         int base = -1;
         if (s.startsWith(QLatin1String("0x")) || s.startsWith(QLatin1String("0X")))
@@ -802,7 +816,7 @@ ReturnedValue Runtime::GetIterator::call(ExecutionEngine *engine, const Value &i
         ScopedFunctionObject f(scope, o->get(engine->symbol_iterator()));
         if (!f)
             return engine->throwTypeError();
-        JSCallData cData(scope, 0, nullptr, o);
+        JSCallData cData(o, nullptr, 0);
         ScopedObject it(scope, f->call(cData));
         if (engine->hasException)
             return Encode::undefined();
@@ -825,7 +839,7 @@ ReturnedValue Runtime::IteratorNext::call(ExecutionEngine *engine, const Value &
         engine->throwTypeError();
         return Encode(true);
     }
-    JSCallData cData(scope, 0, nullptr, &iterator);
+    JSCallData cData(&iterator, nullptr, 0);
     ScopedObject o(scope, f->call(cData));
     if (scope.hasException())
         return Encode(true);
@@ -1572,7 +1586,7 @@ ReturnedValue Runtime::ConstructWithSpread::call(ExecutionEngine *engine, const 
     return static_cast<const FunctionObject &>(function).callAsConstructor(arguments.argv, arguments.argc, &newTarget);
 }
 
-ReturnedValue Runtime::TailCall::call(CppStackFrame *frame, ExecutionEngine *engine)
+ReturnedValue Runtime::TailCall::call(JSTypesStackFrame *frame, ExecutionEngine *engine)
 {
     // IMPORTANT! The JIT assumes that this method has the same amount (or less) arguments than
     // the jitted function, so it can safely do a tail call.
@@ -1588,18 +1602,19 @@ ReturnedValue Runtime::TailCall::call(CppStackFrame *frame, ExecutionEngine *eng
         return engine->throwTypeError();
 
     const FunctionObject &fo = static_cast<const FunctionObject &>(function);
-    if (!frame->callerCanHandleTailCall || !fo.canBeTailCalled() || engine->debugger()
+    if (!frame->callerCanHandleTailCall() || !fo.canBeTailCalled() || engine->debugger()
             || unsigned(argc) > fo.formalParameterCount()) {
         // Cannot tailcall, do a normal call:
         return checkedResult(engine, fo.call(&thisObject, argv, argc));
     }
 
     memcpy(frame->jsFrame->args, argv, argc * sizeof(Value));
-    frame->init(engine, fo.function(), frame->jsFrame->argValues<Value>(), argc,
-                frame->callerCanHandleTailCall);
-    frame->setupJSFrame(frame->savedStackTop, fo, fo.scope(), thisObject, Primitive::undefinedValue());
-    engine->jsStackTop = frame->savedStackTop + frame->requiredJSStackFrameSize();
-    frame->pendingTailCall = true;
+    frame->init(fo.function(), frame->jsFrame->argValues<Value>(), argc,
+                frame->callerCanHandleTailCall());
+    frame->setupJSFrame(frame->framePointer(), fo, fo.scope(), thisObject,
+                        Primitive::undefinedValue());
+    engine->jsStackTop = frame->framePointer() + frame->requiredJSStackFrameSize();
+    frame->setPendingTailCall(true);
     return Encode::undefined();
 }
 
@@ -1650,7 +1665,7 @@ QV4::ReturnedValue Runtime::TypeofName::call(ExecutionEngine *engine, int nameIn
     return TypeofValue::call(engine, prop);
 }
 
-void Runtime::PushCallContext::call(CppStackFrame *frame)
+void Runtime::PushCallContext::call(JSTypesStackFrame *frame)
 {
     frame->jsFrame->context = ExecutionContext::newCallContext(frame)->asReturnedValue();
 }
@@ -1930,14 +1945,18 @@ QV4::ReturnedValue Runtime::CreateMappedArgumentsObject::call(ExecutionEngine *e
 
 QV4::ReturnedValue Runtime::CreateUnmappedArgumentsObject::call(ExecutionEngine *engine)
 {
+    Q_ASSERT(engine->currentStackFrame->isJSTypesFrame());
     Heap::InternalClass *ic = engine->internalClasses(EngineBase::Class_StrictArgumentsObject);
-    return engine->memoryManager->allocObject<StrictArgumentsObject>(ic, engine->currentStackFrame)->asReturnedValue();
+    return engine->memoryManager->allocObject<StrictArgumentsObject>(
+                ic, static_cast<JSTypesStackFrame *>(engine->currentStackFrame))->asReturnedValue();
 }
 
 QV4::ReturnedValue Runtime::CreateRestParameter::call(ExecutionEngine *engine, int argIndex)
 {
-    const Value *values = engine->currentStackFrame->originalArguments + argIndex;
-    int nValues = engine->currentStackFrame->originalArgumentsCount - argIndex;
+    Q_ASSERT(engine->currentStackFrame->isJSTypesFrame());
+    JSTypesStackFrame *frame = static_cast<JSTypesStackFrame *>(engine->currentStackFrame);
+    const Value *values = frame->argv() + argIndex;
+    int nValues = frame->argc() - argIndex;
     if (nValues <= 0)
         return engine->newArrayObject(0)->asReturnedValue();
     return engine->newArrayObject(values, nValues)->asReturnedValue();
@@ -2421,6 +2440,7 @@ QHash<const void *, const char *> Runtime::symbolTable()
             {symbol<UMinus>(), "UMinus" },
 
             {symbol<Instanceof>(), "Instanceof" },
+            {symbol<As>(), "As" },
             {symbol<In>(), "In" },
             {symbol<Add>(), "Add" },
             {symbol<Sub>(), "Sub" },

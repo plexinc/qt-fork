@@ -74,12 +74,16 @@ public:
     void appendRenderOutput(Qt3DCore::QNodeId outputId);
     void removeRenderOutput(Qt3DCore::QNodeId outputId);
 
-    QVector<Qt3DCore::QNodeId> renderOutputs() const;
+    QList<Qt3DCore::QNodeId> renderOutputs() const;
+
+    bool isDirty() const;
+    void unsetDirty();
 
     void syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firstTime) override;
 
 private:
-    QVector<Qt3DCore::QNodeId> m_renderOutputs;
+    QList<Qt3DCore::QNodeId> m_renderOutputs;
+    bool m_dirty;
 };
 
 class Q_AUTOTEST_EXPORT RenderTargetFunctor : public Qt3DCore::QBackendNodeMapper
@@ -87,7 +91,7 @@ class Q_AUTOTEST_EXPORT RenderTargetFunctor : public Qt3DCore::QBackendNodeMappe
 public:
     explicit RenderTargetFunctor(AbstractRenderer *renderer,
                                  RenderTargetManager *manager);
-    Qt3DCore::QBackendNode *create(const Qt3DCore::QNodeCreatedChangeBasePtr &change) const final;
+    Qt3DCore::QBackendNode *create(Qt3DCore::QNodeId id) const final;
     Qt3DCore::QBackendNode *get(Qt3DCore::QNodeId id) const final;
     void destroy(Qt3DCore::QNodeId id) const final;
 

@@ -7,8 +7,7 @@
 
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/platform/geometry/layout_unit.h"
-#include "third_party/blink/renderer/platform/text/text_direction.h"
-#include "third_party/blink/renderer/platform/text/writing_mode.h"
+#include "third_party/blink/renderer/platform/text/writing_direction_mode.h"
 
 namespace blink {
 
@@ -38,14 +37,13 @@ struct CORE_EXPORT LogicalOffset {
   // the same point.
   // @param outer_size the size of the rect (typically a fragment).
   // @param inner_size the size of the inner rect (typically a child fragment).
-  PhysicalOffset ConvertToPhysical(WritingMode,
-                                   TextDirection,
+  PhysicalOffset ConvertToPhysical(WritingDirectionMode writing_direction,
                                    PhysicalSize outer_size,
                                    PhysicalSize inner_size) const;
 
   constexpr bool operator==(const LogicalOffset& other) const {
-    return other.inline_offset == inline_offset &&
-           other.block_offset == block_offset;
+    return std::tie(other.inline_offset, other.block_offset) ==
+           std::tie(inline_offset, block_offset);
   }
   constexpr bool operator!=(const LogicalOffset& other) const {
     return !operator==(other);

@@ -365,7 +365,7 @@ base::NativeLibrary GSSAPISharedLibrary::LoadSharedLibrary(
     num_lib_names = 1;
   } else {
     static const char* const kDefaultLibraryNames[] = {
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
       "/System/Library/Frameworks/GSS.framework/GSS"
 #elif defined(OS_OPENBSD)
       "libgssapi.so"          // Heimdal - OpenBSD
@@ -434,7 +434,6 @@ void* BindUntypedMethod(base::NativeLibrary lib,
                         const NetLogWithSource& net_log) {
   void* ptr = base::GetFunctionPointerFromNativeLibrary(lib, method);
   if (ptr == nullptr) {
-    std::string method_string = method.as_string();
     net_log.AddEvent(NetLogEventType::AUTH_LIBRARY_BIND_FAILED,
                      [&] { return BindFailureParams(library_name, method); });
   }

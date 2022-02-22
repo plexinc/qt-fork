@@ -42,6 +42,7 @@
 #include <QMetaObject>
 #include <QLoggingCategory>
 #include <QThread>
+#include <QQmlContext>
 #include <QQmlFile>
 #include <math.h>
 
@@ -76,9 +77,8 @@ Q_LOGGING_CATEGORY(lcLottieQtBodymovinParser, "qt.lottieqt.bodymovin.parser");
     \li Expressions are not supported
     \endlist
 
-    For the full list of devations, please refer to the file
-    \c unsupported_features.txt in the source code.
-
+    For the full list of devations, please see see the \l{Limitations}
+    section.
 
     \section1 Example Usage
 
@@ -167,6 +167,8 @@ LottieAnimation::LottieAnimation(QQuickItem *parent)
     m_frameRenderThread = BatchRenderer::instance();
 
     qRegisterMetaType<LottieAnimation*>();
+
+    setAntialiasing(m_quality == HighQuality);
 }
 
 LottieAnimation::~LottieAnimation()
@@ -587,6 +589,7 @@ void LottieAnimation::setDirection(LottieAnimation::Direction direction)
         return;
 
     m_direction = direction;
+    m_currentLoop = 0;
     emit directionChanged();
 
     m_frameRenderThread->gotoFrame(this, m_currentFrame);
@@ -596,7 +599,9 @@ void LottieAnimation::load()
 {
     setStatus(Loading);
 
-    m_file.reset(new QQmlFile(qmlEngine(this), m_source));
+    const QQmlContext *context = qmlContext(this);
+    const QUrl loadUrl = context ? context->resolvedUrl(m_source) : m_source;
+    m_file.reset(new QQmlFile(qmlEngine(this), loadUrl));
     if (m_file->isLoading())
         m_file->connectFinished(this, SLOT(loadFinished()));
     else
@@ -694,9 +699,6 @@ int LottieAnimation::parse(QByteArray jsonSource)
                     << "property 'dr' not support in a marker";
         ++markerIt;
     }
-
-    if (rootObj.value(QLatin1String("assets")).toArray().count())
-        qCWarning(lcLottieQtBodymovinParser) << "assets not supported";
 
     if (rootObj.value(QLatin1String("chars")).toArray().count())
         qCWarning(lcLottieQtBodymovinParser) << "chars not supported";

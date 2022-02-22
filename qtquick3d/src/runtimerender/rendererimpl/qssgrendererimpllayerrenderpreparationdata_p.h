@@ -46,45 +46,40 @@
 #include <QtQuick3DRuntimeRender/private/qssgrendershadercache_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrenderableobjects_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrenderclippingfrustum_p.h>
-#include <QtQuick3DRuntimeRender/private/qssgrenderresourcetexture2d_p.h>
-#include <QtQuick3DRuntimeRender/private/qssgrendergpuprofiler_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrendershadowmap_p.h>
-#include <QtQuick3DRuntimeRender/private/qssgrenderableobjects_p.h>
-
+#include <QtQuick3DRuntimeRender/private/qssgrendereffect_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrenderitem2d_p.h>
 
 #define QSSG_RENDER_MINIMUM_RENDER_OPACITY .01f
 
 QT_BEGIN_NAMESPACE
-struct QSSGLayerRenderData;
+
 class QSSGRendererImpl;
 struct QSSGRenderableObject;
 
 enum class QSSGLayerRenderPreparationResultFlag
 {
     // Was the data in this layer dirty (meaning re-render to texture, possibly)
-    WasLayerDataDirty = 1,
+    WasLayerDataDirty = 1 << 0,
+
     // Was the data in this layer dirty *or* this layer *or* any effect dirty.
     WasDirty = 1 << 1,
 
-    // Should create independent viewport
-    // If we aren't rendering to texture we still may have width/height manipulations
-    // that require our own viewport.
-    ShouldCreateIndependentViewport = 1 << 2,
-
-    RequiresDepthTexture = 1 << 3,
+    RequiresDepthTexture = 1 << 2,
 
     // SSAO should be done in a separate pass
     // Note that having an AO pass necessitates a DepthTexture so this flag should
     // never be set without the RequiresDepthTexture flag as well.
-    RequiresSsaoPass = 1 << 4,
+    RequiresSsaoPass = 1 << 3,
 
     // if some light cause shadow
     // we need a separate per light shadow map pass
-    RequiresShadowMapPass = 1 << 5,
+    RequiresShadowMapPass = 1 << 4,
 
-    // This is the case when direct rendering, and need to clear an FBO, but not a Window
-    RequiresTransparentClear = 1 << 6
+    RequiresScreenTexture = 1 << 5,
+
+    // set together with RequiresScreenTexture when SCREEN_MIP_TEXTURE is used
+    RequiresMipmapsForScreenTexture = 1 << 6
 };
 
 struct QSSGLayerRenderPreparationResultFlags : public QFlags<QSSGLayerRenderPreparationResultFlag>
@@ -100,15 +95,6 @@ struct QSSGLayerRenderPreparationResultFlags : public QFlags<QSSGLayerRenderPrep
 
     bool wasDirty() const { return this->operator&(QSSGLayerRenderPreparationResultFlag::WasDirty); }
     void setWasDirty(bool inValue) { setFlag(QSSGLayerRenderPreparationResultFlag::WasDirty, inValue); }
-
-    bool shouldCreateIndependentViewport() const
-    {
-        return this->operator&(QSSGLayerRenderPreparationResultFlag::ShouldCreateIndependentViewport);
-    }
-    void setShouldCreateIndependentViewport(bool inValue)
-    {
-        setFlag(QSSGLayerRenderPreparationResultFlag::ShouldCreateIndependentViewport, inValue);
-    }
 
     bool requiresDepthTexture() const
     {
@@ -134,16 +120,23 @@ struct QSSGLayerRenderPreparationResultFlags : public QFlags<QSSGLayerRenderPrep
         setFlag(QSSGLayerRenderPreparationResultFlag::RequiresShadowMapPass, inValue);
     }
 
-    bool requiresTransparentClear() const
+    bool requiresScreenTexture() const
     {
-        return this->operator&(QSSGLayerRenderPreparationResultFlag::RequiresTransparentClear);
+        return this->operator&(QSSGLayerRenderPreparationResultFlag::RequiresScreenTexture);
+    }
+    void setRequiresScreenTexture(bool inValue)
+    {
+        setFlag(QSSGLayerRenderPreparationResultFlag::RequiresScreenTexture, inValue);
     }
 
-    void setRequiresTransparentClear(bool inValue)
+    bool requiresMipmapsForScreenTexture() const
     {
-        setFlag(QSSGLayerRenderPreparationResultFlag::RequiresTransparentClear, inValue);
+        return this->operator&(QSSGLayerRenderPreparationResultFlag::RequiresMipmapsForScreenTexture);
     }
-
+    void setRequiresMipmapsForScreenTexture(bool inValue)
+    {
+        setFlag(QSSGLayerRenderPreparationResultFlag::RequiresMipmapsForScreenTexture, inValue);
+    }
 };
 
 struct QSSGLayerRenderPreparationResult : public QSSGLayerRenderHelper
@@ -161,35 +154,9 @@ struct QSSGLayerRenderPreparationResult : public QSSGLayerRenderHelper
 struct QSSGRenderableNodeEntry
 {
     QSSGRenderNode *node = nullptr;
-    QSSGNodeLightEntryList lights;
+    QSSGShaderLightList lights;
     QSSGRenderableNodeEntry() = default;
     QSSGRenderableNodeEntry(QSSGRenderNode &inNode) : node(&inNode) {}
-};
-
-struct QSSGScopedLightsListScope
-{
-    QVector<QSSGRenderLight *> &lightsList;
-    QVector<QVector3D> &lightDirList;
-    qint32 listOriginalSize;
-    QSSGScopedLightsListScope(QVector<QSSGRenderLight *> &inLights,
-                                QVector<QVector3D> &inDestLightDirList,
-                                QVector<QVector3D> &inSrcLightDirList,
-                                QSSGNodeLightEntryList &inScopedLights)
-        : lightsList(inLights), lightDirList(inDestLightDirList), listOriginalSize(lightsList.size())
-    {
-        auto iter = inScopedLights.begin();
-        const auto end = inScopedLights.end();
-        while (iter != end) {
-            lightsList.push_back(iter->light);
-            lightDirList.push_back(inSrcLightDirList.at(iter->lightIndex));
-            ++iter;
-        }
-    }
-    ~QSSGScopedLightsListScope()
-    {
-        lightsList.resize(listOriginalSize);
-        lightDirList.resize(listOriginalSize);
-    }
 };
 
 struct QSSGDefaultMaterialPreparationResult
@@ -200,18 +167,12 @@ struct QSSGDefaultMaterialPreparationResult
     QSSGShaderDefaultMaterialKey materialKey;
     bool dirty;
 
-    QSSGDefaultMaterialPreparationResult(QSSGShaderDefaultMaterialKey inMaterialKey);
+    explicit QSSGDefaultMaterialPreparationResult(QSSGShaderDefaultMaterialKey inMaterialKey);
 };
 
 // Data used strictly in the render preparation step.
-struct QSSGLayerRenderPreparationData
+struct Q_QUICK3DRUNTIMERENDER_EXPORT QSSGLayerRenderPreparationData
 {
-    typedef void (*TRenderRenderableFunction)(QSSGLayerRenderData &inData,
-                                              QSSGRenderableObject &inObject,
-                                              const QVector2D &inCameraProps,
-                                              const ShaderFeatureSetList &inShaderFeatures,
-                                              quint32 lightIndex,
-                                              const QSSGRenderCamera &inCamera);
     typedef QHash<QSSGRenderLight *, QSSGRenderNode *> TLightToNodeMap;
     typedef QVector<QSSGModelContext *> TModelContextPtrList;
     typedef QVector<QSSGRenderableObjectHandle> TRenderableObjectList;
@@ -224,65 +185,54 @@ struct QSSGLayerRenderPreparationData
     };
 
     QSSGRenderLayer &layer;
-    QSSGRef<QSSGRendererImpl> renderer;
+    QSSGRef<QSSGRenderer> renderer;
     // List of nodes we can render, not all may be active.  Found by doing a depth-first
     // search through m_FirstChild if length is zero.
 
     // TNodeLightEntryPoolType m_RenderableNodeLightEntryPool;
+
+    // renderableNodes have all lights, but properties configured for specific node
     QVector<QSSGRenderableNodeEntry> renderableNodes;
-    QVector<QSSGRenderableNodeEntry> renderableItem2Ds;
-    QVector<QSSGRenderableNodeEntry> renderedItem2Ds;
-    TLightToNodeMap lightToNodeMap; // map of lights to nodes to cache if we have looked up a
-    // given scoped light yet.
-    // Built at the same time as the renderable nodes map.
-    // these are processed so they are available when the shaders for the models
-    // are being generated.
     QVector<QSSGRenderCamera *> cameras;
     QVector<QSSGRenderLight *> lights;
+    QVector<QSSGRenderableNodeEntry> renderableItem2Ds;
+    QVector<QSSGRenderableNodeEntry> renderedItem2Ds;
 
     // Results of prepare for render.
     QSSGRenderCamera *camera;
-    QVector<QSSGRenderLight *> globalLights; // Only contains lights that are global.
+    QSSGShaderLightList globalLights; // Contains all lights
     TRenderableObjectList opaqueObjects;
     TRenderableObjectList transparentObjects;
     // Sorted lists of the rendered objects.  There may be other transforms applied so
     // it is simplest to duplicate the lists.
     TRenderableObjectList renderedOpaqueObjects;
     TRenderableObjectList renderedTransparentObjects;
+    TRenderableObjectList renderedOpaqueDepthPrepassObjects;
+    TRenderableObjectList renderedDepthWriteObjects;
     QMatrix4x4 viewProjection;
     QSSGOption<QSSGClippingFrustum> clippingFrustum;
     QSSGOption<QSSGLayerRenderPreparationResult> layerPrepResult;
     QSSGOption<QVector3D> cameraDirection;
-    // Scoped lights need a level of indirection into a light direction list.  The source light
-    // directions list is as long as there are lights on the layer.  It holds invalid
-    // information for
-    // any lights that are not both active and scoped; but the relative position for a given
-    // light
-    // in this list is completely constant and immutable; this relative position is saved on a
-    // structure
-    // and used when looking up the light direction for a given light.
-    QVector<QVector3D> sourceLightDirections;
-    QVector<QVector3D> lightDirections;
+
     TModelContextPtrList modelContexts;
 
     ShaderFeatureSetList features;
     bool featuresDirty;
     size_t featureSetHash;
-    bool tooManyLightsError;
+    bool tooManyLightsWarningShown = false;
+    bool tooManyShadowLightsWarningShown = false;
+    bool particlesNotSupportedWarningShown = false;
 
-    // shadow mapps
-    QSSGRef<QSSGRenderShadowMap> shadowMapManager;
+    QSSGRenderShadowMap *shadowMapManager = nullptr;
 
-    QSSGLayerRenderPreparationData(QSSGRenderLayer &inLayer, const QSSGRef<QSSGRendererImpl> &inRenderer);
+    QSSGLayerRenderPreparationData(QSSGRenderLayer &inLayer, const QSSGRef<QSSGRenderer> &inRenderer);
     virtual ~QSSGLayerRenderPreparationData();
-    void createShadowMapManager();
 
-    static QByteArray cgLightingFeatureName();
-
-    QSSGShaderDefaultMaterialKey generateLightingKey(QSSGRenderDefaultMaterial::MaterialLighting inLightingType, bool receivesShadows = true);
+    QSSGShaderDefaultMaterialKey generateLightingKey(QSSGRenderDefaultMaterial::MaterialLighting inLightingType,
+                                                     const QSSGShaderLightList &lights, bool receivesShadows = true);
 
     void prepareImageForRender(QSSGRenderImage &inImage,
-                               QSSGImageMapTypes inMapType,
+                               QSSGRenderableImage::Type inMapType,
                                QSSGRenderableImage *&ioFirstImage,
                                QSSGRenderableImage *&ioNextImage,
                                QSSGRenderableObjectFlags &ioFlags,
@@ -290,32 +240,37 @@ struct QSSGLayerRenderPreparationData
                                quint32 inImageIndex, QSSGRenderDefaultMaterial *inMaterial = nullptr);
 
     void setVertexInputPresence(const QSSGRenderableObjectFlags &renderableFlags,
-                                QSSGShaderDefaultMaterialKey &key);
+                                QSSGShaderDefaultMaterialKey &key,
+                                QSSGRenderer *renderer);
 
     QSSGDefaultMaterialPreparationResult prepareDefaultMaterialForRender(QSSGRenderDefaultMaterial &inMaterial,
                                                                            QSSGRenderableObjectFlags &inExistingFlags,
-                                                                           float inOpacity);
+                                                                           float inOpacity, const QSSGShaderLightList &lights);
 
     QSSGDefaultMaterialPreparationResult prepareCustomMaterialForRender(QSSGRenderCustomMaterial &inMaterial,
-                                                                          QSSGRenderableObjectFlags &inExistingFlags,
-                                                                          float inOpacity, bool alreadyDirty);
+                                                                        QSSGRenderableObjectFlags &inExistingFlags,
+                                                                        float inOpacity, bool alreadyDirty,
+                                                                        const QSSGShaderLightList &lights,
+                                                                        QSSGLayerRenderPreparationResultFlags &ioFlags);
 
-    bool prepareModelForRender(QSSGRenderModel &inModel,
+    // Updates lights with model receivesShadows. Do not pass globalLights.
+    bool prepareModelForRender(const QSSGRenderModel &inModel,
                                const QMatrix4x4 &inViewProjection,
                                const QSSGOption<QSSGClippingFrustum> &inClipFrustum,
-                               QSSGNodeLightEntryList &inScopedLights);
+                               QSSGShaderLightList &lights,
+                               QSSGLayerRenderPreparationResultFlags &ioFlags);
+    bool prepareParticlesForRender(const QSSGRenderParticles &inParticles,
+                                   const QSSGOption<QSSGClippingFrustum> &inClipFrustum,
+                                   QSSGShaderLightList &lights);
 
-    // Helper function used during PRepareForRender and PrepareAndRender
+    // Helper function used during PrepareForRender and PrepareAndRender
     bool prepareRenderablesForRender(const QMatrix4x4 &inViewProjection,
                                      const QSSGOption<QSSGClippingFrustum> &inClipFrustum,
                                      QSSGLayerRenderPreparationResultFlags &ioFlags);
 
-    // returns true if this object will render something different than it rendered the last
-    // time.
-    virtual void prepareForRender(const QSize &inViewportDimensions);
-    bool checkLightProbeDirty(QSSGRenderImage &inLightProbe);
-    void setShaderFeature(const char *inName, bool inValue);
-    ShaderFeatureSetList getShaderFeatureSet();
+    virtual void prepareForRender(const QSize &outputSize);
+    void setShaderFeature(QSSGShaderDefines::Define inFeature, bool inValue);
+    const ShaderFeatureSetList &getShaderFeatureSet();
     size_t getShaderFeatureSetHash();
 
     QVector3D getCameraDirection();

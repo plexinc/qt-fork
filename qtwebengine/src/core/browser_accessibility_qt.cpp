@@ -56,6 +56,16 @@ using QtWebEngineCore::toQt;
 
 namespace content {
 
+// static
+BrowserAccessibility *BrowserAccessibility::Create()
+{
+#if QT_CONFIG(accessibility)
+    return new BrowserAccessibilityQt();
+#else
+    return nullptr;
+#endif // QT_CONFIG(accessibility)
+}
+
 const BrowserAccessibilityQt *ToBrowserAccessibilityQt(const BrowserAccessibility *obj)
 {
     return static_cast<const BrowserAccessibilityQt *>(obj);
@@ -79,7 +89,7 @@ bool BrowserAccessibilityQt::isValid() const
 
 QObject *BrowserAccessibilityQt::object() const
 {
-    return 0;
+    return nullptr;
 }
 
 QAccessibleInterface *BrowserAccessibilityQt::childAt(int x, int y) const
@@ -90,7 +100,7 @@ QAccessibleInterface *BrowserAccessibilityQt::childAt(int x, int y) const
         if (childIface->rect().contains(x,y))
             return childIface;
     }
-    return 0;
+    return nullptr;
 }
 
 void *BrowserAccessibilityQt::interface_cast(QAccessible::InterfaceType type)
@@ -132,7 +142,7 @@ void *BrowserAccessibilityQt::interface_cast(QAccessible::InterfaceType type)
     default:
         break;
     }
-    return 0;
+    return nullptr;
 }
 
 QAccessibleInterface *BrowserAccessibilityQt::parent() const
@@ -209,9 +219,15 @@ QAccessible::Role BrowserAccessibilityQt::role() const
     case ax::mojom::Role::kUnknown:
         return QAccessible::NoRole;
 
+    // Internal roles (matching auralinux and win)
+    case ax::mojom::Role::kKeyboard:
+    case ax::mojom::Role::kIgnored:
+    case ax::mojom::Role::kImeCandidate:
+    case ax::mojom::Role::kPresentational:
+        return QAccessible::NoRole;
+
     // Used by Chromium to distinguish between the root of the tree
     // for this page, and a web area for a frame within this page.
-    case ax::mojom::Role::kWebArea:
     case ax::mojom::Role::kWebView:
     case ax::mojom::Role::kRootWebArea: // not sure if we need to make a diff here, but this seems common
         return QAccessible::WebDocument;
@@ -327,6 +343,11 @@ QAccessible::Role BrowserAccessibilityQt::role() const
     case ax::mojom::Role::kDocIndex:
     case ax::mojom::Role::kDocIntroduction:
     case ax::mojom::Role::kDocNotice:
+        return QAccessible::Section;
+    case ax::mojom::Role::kDocPageFooter:
+        return QAccessible::Footer;
+    case ax::mojom::Role::kDocPageHeader:
+        return QAccessible::Heading;
     case ax::mojom::Role::kDocPageList:
     case ax::mojom::Role::kDocPart:
     case ax::mojom::Role::kDocPreface:
@@ -352,7 +373,8 @@ QAccessible::Role BrowserAccessibilityQt::role() const
     case ax::mojom::Role::kFigure:
         return QAccessible::Section;
     case ax::mojom::Role::kFooter:
-        return QAccessible::Footer;
+        // CORE-AAM recommends LANDMARK instead of FOOTER.
+        return QAccessible::Section;
     case ax::mojom::Role::kFooterAsNonLandmark:
         return QAccessible::Section;
     case ax::mojom::Role::kForm:
@@ -376,8 +398,6 @@ QAccessible::Role BrowserAccessibilityQt::role() const
         return QAccessible::WebDocument;
     case ax::mojom::Role::kIframePresentational:
         return QAccessible::Grouping;
-    case ax::mojom::Role::kIgnored:
-        return QAccessible::NoRole;
     case ax::mojom::Role::kImage:
         return QAccessible::Graphic;
     case ax::mojom::Role::kImageMap:
@@ -386,8 +406,6 @@ QAccessible::Role BrowserAccessibilityQt::role() const
         return QAccessible::StaticText;
     case ax::mojom::Role::kInputTime:
         return QAccessible::SpinBox;
-    case ax::mojom::Role::kKeyboard:
-        return QAccessible::NoRole; // FIXME
     case ax::mojom::Role::kLabelText:
         return QAccessible::StaticText;
     case ax::mojom::Role::kLayoutTable:
@@ -432,8 +450,6 @@ QAccessible::Role BrowserAccessibilityQt::role() const
         return QAccessible::CheckBox;
     case ax::mojom::Role::kMenuItemRadio:
         return QAccessible::RadioButton;
-    case ax::mojom::Role::kMenuButton:
-        return QAccessible::MenuItem;
     case ax::mojom::Role::kMenuListOption:
         return QAccessible::MenuItem;
     case ax::mojom::Role::kMenuListPopup:
@@ -450,6 +466,8 @@ QAccessible::Role BrowserAccessibilityQt::role() const
         return QAccessible::Paragraph;
     case ax::mojom::Role::kPdfActionableHighlight:
         return QAccessible::Button;
+    case ax::mojom::Role::kPdfRoot:
+        return QAccessible::Document;
     case ax::mojom::Role::kPluginObject:
         return QAccessible::Grouping;
     case ax::mojom::Role::kPopUpButton:
@@ -458,8 +476,6 @@ QAccessible::Role BrowserAccessibilityQt::role() const
         return QAccessible::Button;
     case ax::mojom::Role::kPre:
         return QAccessible::Section;
-    case ax::mojom::Role::kPresentational:
-        return QAccessible::NoRole; // FIXME
     case ax::mojom::Role::kProgressIndicator:
         return QAccessible::ProgressBar;
     case ax::mojom::Role::kRadioButton:
@@ -475,7 +491,7 @@ QAccessible::Role BrowserAccessibilityQt::role() const
     case ax::mojom::Role::kRowHeader:
         return QAccessible::RowHeader;
     case ax::mojom::Role::kRuby:
-        return QAccessible::StaticText;
+        return QAccessible::Grouping;
     case ax::mojom::Role::kRubyAnnotation:
         return QAccessible::StaticText;
     case ax::mojom::Role::kScrollBar:
@@ -489,7 +505,6 @@ QAccessible::Role BrowserAccessibilityQt::role() const
     case ax::mojom::Role::kSection:
         return QAccessible::Section;
     case ax::mojom::Role::kSlider:
-    case ax::mojom::Role::kSliderThumb:
         return QAccessible::Slider;
     case ax::mojom::Role::kSpinButton:
         return QAccessible::SpinBox;
@@ -646,16 +661,7 @@ QAccessible::State BrowserAccessibilityQt::state() const
     return state;
 }
 
-// Qt does not reference count accessibles
-void BrowserAccessibilityQt::NativeAddReference()
-{
-}
-
-// there is no reference counting, but BrowserAccessibility::Destroy
-// calls this (and that is the only place in the chromium sources,
-// so we can safely use it to dispose of ourselves here
-// (the default implementation of this function just contains a "delete this")
-void BrowserAccessibilityQt::NativeReleaseReference()
+void BrowserAccessibilityQt::Destroy()
 {
     // delete this
     QAccessible::Id interfaceId = QAccessible::uniqueId(this);
@@ -684,7 +690,7 @@ QStringList BrowserAccessibilityQt::keyBindingsForAction(const QString &actionNa
 
 void BrowserAccessibilityQt::addSelection(int startOffset, int endOffset)
 {
-    manager()->SetSelection(AXPlatformRange(CreatePositionAt(startOffset), CreatePositionAt(endOffset)));
+    manager()->SetSelection(AXRange(CreatePositionAt(startOffset), CreatePositionAt(endOffset)));
 }
 
 QString BrowserAccessibilityQt::attributes(int offset, int *startOffset, int *endOffset) const
@@ -742,19 +748,19 @@ QString BrowserAccessibilityQt::text(int startOffset, int endOffset) const
 
 void BrowserAccessibilityQt::removeSelection(int selectionIndex)
 {
-    manager()->SetSelection(AXPlatformRange(CreatePositionAt(0), CreatePositionAt(0)));
+    manager()->SetSelection(AXRange(CreatePositionAt(0), CreatePositionAt(0)));
 }
 
 void BrowserAccessibilityQt::setCursorPosition(int position)
 {
-    manager()->SetSelection(AXPlatformRange(CreatePositionAt(position), CreatePositionAt(position)));
+    manager()->SetSelection(AXRange(CreatePositionAt(position), CreatePositionAt(position)));
 }
 
 void BrowserAccessibilityQt::setSelection(int selectionIndex, int startOffset, int endOffset)
 {
     if (selectionIndex != 0)
         return;
-    manager()->SetSelection(AXPlatformRange(CreatePositionAt(startOffset), CreatePositionAt(endOffset)));
+    manager()->SetSelection(AXRange(CreatePositionAt(startOffset), CreatePositionAt(endOffset)));
 }
 
 int BrowserAccessibilityQt::characterCount() const
@@ -987,7 +993,7 @@ QAccessibleInterface *BrowserAccessibilityQt::table() const
     while (find_table && find_table->GetRole() != ax::mojom::Role::kTable)
         find_table = find_table->PlatformGetParent();
     if (!find_table)
-        return 0;
+        return nullptr;
     return static_cast<BrowserAccessibilityQt*>(find_table);
 }
 

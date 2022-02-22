@@ -47,10 +47,6 @@
 
 QT_BEGIN_NAMESPACE
 
-template <class Key, class T> class QMap;
-typedef QMap<QString, QVariant> QVariantMap;
-template <class Key, class T> class QHash;
-typedef QHash<QString, QVariant> QVariantHash;
 class QJsonObject;
 class QDataStream;
 
@@ -78,8 +74,8 @@ public:
         typedef QPair<const QCborValueRef, QCborValueRef> reference;
         typedef QPair<const QCborValueRef, QCborValueRef> pointer;
 
-        Q_DECL_CONSTEXPR Iterator() = default;
-        Q_DECL_CONSTEXPR Iterator(const Iterator &) = default;
+        constexpr Iterator() = default;
+        constexpr Iterator(const Iterator &) = default;
         Iterator &operator=(const Iterator &other)
         {
             // rebind the reference
@@ -130,8 +126,8 @@ public:
         typedef QPair<const QCborValueRef, const QCborValueRef> reference;
         typedef QPair<const QCborValueRef, const QCborValueRef> pointer;
 
-        Q_DECL_CONSTEXPR ConstIterator() = default;
-        Q_DECL_CONSTEXPR ConstIterator(const ConstIterator &) = default;
+        constexpr ConstIterator() = default;
+        constexpr ConstIterator(const ConstIterator &) = default;
         ConstIterator &operator=(const ConstIterator &other)
         {
             // rebind the reference
@@ -190,7 +186,7 @@ public:
     qsizetype size() const noexcept Q_DECL_PURE_FUNCTION;
     bool isEmpty() const { return size() == 0; }
     void clear();
-    QVector<QCborValue> keys() const;
+    QList<QCborValue> keys() const;
 
     QCborValue value(qint64 key) const
     { const_iterator it = find(key); return it == end() ? QCborValue() : it.value(); }
@@ -353,14 +349,16 @@ inline QCborMap QCborValueRef::toMap(const QCborMap &m) const
     return concrete().toMap(m);
 }
 
-Q_CORE_EXPORT uint qHash(const QCborMap &map, uint seed = 0);
+Q_CORE_EXPORT size_t qHash(const QCborMap &map, size_t seed = 0);
 
 #if !defined(QT_NO_DEBUG_STREAM)
 Q_CORE_EXPORT QDebug operator<<(QDebug, const QCborMap &m);
 #endif
 
 #ifndef QT_NO_DATASTREAM
+#if QT_CONFIG(cborstreamwriter)
 Q_CORE_EXPORT QDataStream &operator<<(QDataStream &, const QCborMap &);
+#endif
 Q_CORE_EXPORT QDataStream &operator>>(QDataStream &, QCborMap &);
 #endif
 

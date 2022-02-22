@@ -192,7 +192,7 @@ void SerializerMarkupAccumulator::AppendExtraForHeadElement(
   AppendStylesheets(document_, true /*style_element_only*/);
 
   // The stylesheets defined in imported documents are not incorporated into
-  // master document. So we need to scan all of them.
+  // the tree-root document. So we need to scan all of them.
   if (HTMLImportsController* controller = document_->ImportsController()) {
     for (wtf_size_t i = 0; i < controller->LoaderCount(); ++i) {
       if (Document* imported_document =
@@ -488,7 +488,7 @@ void FrameSerializer::SerializeCSSRule(CSSRule* rule) {
   DCHECK(rule->parentStyleSheet()->OwnerDocument());
   Document& document = *rule->parentStyleSheet()->OwnerDocument();
 
-  switch (rule->type()) {
+  switch (rule->GetType()) {
     case CSSRule::kStyleRule:
       RetrieveResourcesForProperties(
           &To<CSSStyleRule>(rule)->GetStyleRule()->Properties(), document);
@@ -506,7 +506,8 @@ void FrameSerializer::SerializeCSSRule(CSSRule* rule) {
 
     // Rules inheriting CSSGroupingRule
     case CSSRule::kMediaRule:
-    case CSSRule::kSupportsRule: {
+    case CSSRule::kSupportsRule:
+    case CSSRule::kContainerRule: {
       CSSRuleList* rule_list = rule->cssRules();
       for (unsigned i = 0; i < rule_list->length(); ++i)
         SerializeCSSRule(rule_list->item(i));
@@ -518,12 +519,18 @@ void FrameSerializer::SerializeCSSRule(CSSRule* rule) {
           &To<CSSFontFaceRule>(rule)->StyleRule()->Properties(), document);
       break;
 
+    case CSSRule::kCounterStyleRule:
+      // TODO(crbug.com/1176323): Handle image symbols in @counter-style rules
+      // when we implement it.
+      break;
+
     // Rules in which no external resources can be referenced
     case CSSRule::kCharsetRule:
     case CSSRule::kPageRule:
     case CSSRule::kPropertyRule:
     case CSSRule::kKeyframesRule:
     case CSSRule::kKeyframeRule:
+    case CSSRule::kScrollTimelineRule:
     case CSSRule::kNamespaceRule:
     case CSSRule::kViewportRule:
       break;
@@ -620,19 +627,8 @@ void FrameSerializer::RetrieveResourcesForCSSValue(const CSSValue& css_value,
     if (font_face_src_value->IsLocal())
       return;
 
-    if (document.ImportsController()) {
-      if (Document* context_document = document.ContextDocument()) {
-        // For @imports from HTML imported Documents, we use the
-        // context document for getting origin and ResourceFetcher to use the
-        // main Document's origin, while using the element document for
-        // CompleteURL() to use imported Documents' base URLs.
-        AddFontToResources(font_face_src_value->Fetch(
-            context_document->ToExecutionContext(), nullptr));
-      }
-    } else {
-      AddFontToResources(
-          font_face_src_value->Fetch(document.ToExecutionContext(), nullptr));
-    }
+    AddFontToResources(
+        font_face_src_value->Fetch(document.GetExecutionContext(), nullptr));
   } else if (const auto* css_value_list = DynamicTo<CSSValueList>(css_value)) {
     for (unsigned i = 0; i < css_value_list->length(); i++)
       RetrieveResourcesForCSSValue(css_value_list->Item(i), document);

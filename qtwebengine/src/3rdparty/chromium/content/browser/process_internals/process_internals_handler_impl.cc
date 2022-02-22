@@ -11,6 +11,10 @@
 #include "base/strings/string_piece.h"
 #include "content/browser/child_process_security_policy_impl.h"
 #include "content/browser/process_internals/process_internals.mojom.h"
+#include "content/browser/renderer_host/agent_scheduling_group_host.h"
+#include "content/browser/renderer_host/back_forward_cache_impl.h"
+#include "content/browser/renderer_host/navigation_controller_impl.h"
+#include "content/browser/renderer_host/navigation_entry_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/site_isolation_policy.h"
 #include "content/public/browser/web_contents.h"
@@ -24,16 +28,19 @@ namespace {
 
 using IsolatedOriginSource = ChildProcessSecurityPolicy::IsolatedOriginSource;
 
-::mojom::FrameInfoPtr FrameTreeNodeToFrameInfo(FrameTreeNode* ftn) {
-  RenderFrameHost* frame = ftn->current_frame_host();
+::mojom::FrameInfoPtr RenderFrameHostToFrameInfo(RenderFrameHostImpl* frame,
+                                                 bool is_bfcached) {
   auto frame_info = ::mojom::FrameInfo::New();
 
   frame_info->routing_id = frame->GetRoutingID();
+  frame_info->agent_scheduling_group_id =
+      frame->GetAgentSchedulingGroup().id_for_debugging();
   frame_info->process_id = frame->GetProcess()->GetID();
   frame_info->last_committed_url =
       frame->GetLastCommittedURL().is_valid()
           ? base::make_optional(frame->GetLastCommittedURL())
           : base::nullopt;
+  frame_info->is_bfcached = is_bfcached;
 
   SiteInstanceImpl* site_instance =
       static_cast<SiteInstanceImpl*>(frame->GetSiteInstance());
@@ -42,15 +49,31 @@ using IsolatedOriginSource = ChildProcessSecurityPolicy::IsolatedOriginSource;
 
   auto* policy = ChildProcessSecurityPolicyImpl::GetInstance();
   frame_info->site_instance->locked =
-      !policy->GetOriginLock(site_instance->GetProcess()->GetID()).is_empty();
+      policy->GetProcessLock(site_instance->GetProcess()->GetID())
+          .is_locked_to_site();
 
   frame_info->site_instance->site_url =
       site_instance->HasSite()
-          ? base::make_optional(site_instance->GetSiteURL())
+          ? base::make_optional(site_instance->GetSiteInfo().site_url())
           : base::nullopt;
 
-  for (size_t i = 0; i < ftn->child_count(); ++i) {
-    frame_info->subframes.push_back(FrameTreeNodeToFrameInfo(ftn->child_at(i)));
+  // Only send a process lock URL if it's different from the site URL.  In the
+  // common case they are the same, so we avoid polluting the UI with two
+  // identical URLs.
+  bool should_show_lock_url = frame_info->site_instance->locked &&
+                              site_instance->GetSiteInfo().process_lock_url() !=
+                                  site_instance->GetSiteInfo().site_url();
+  frame_info->site_instance->process_lock_url =
+      should_show_lock_url
+          ? base::make_optional(site_instance->GetSiteInfo().process_lock_url())
+          : base::nullopt;
+
+  frame_info->site_instance->is_origin_keyed =
+      site_instance->GetSiteInfo().is_origin_keyed();
+
+  for (size_t i = 0; i < frame->child_count(); ++i) {
+    frame_info->subframes.push_back(RenderFrameHostToFrameInfo(
+        frame->child_at(i)->current_frame_host(), is_bfcached));
   }
 
   return frame_info;
@@ -162,7 +185,16 @@ void ProcessInternalsHandlerImpl::GetAllWebContentsInfo(
     auto info = ::mojom::WebContentsInfo::New();
     info->title = base::UTF16ToUTF8(web_contents->GetTitle());
     info->root_frame =
-        FrameTreeNodeToFrameInfo(web_contents->GetFrameTree()->root());
+        RenderFrameHostToFrameInfo(web_contents->GetMainFrame(), false);
+
+    // Retrieve all root frames from bfcache as well.
+    NavigationControllerImpl& controller = web_contents->GetController();
+    const auto& entries = controller.GetBackForwardCache().GetEntries();
+    for (const auto& entry : entries) {
+      info->bfcached_root_frames.push_back(
+          RenderFrameHostToFrameInfo((*entry).render_frame_host.get(), true));
+    }
+
     infos.push_back(std::move(info));
   }
 

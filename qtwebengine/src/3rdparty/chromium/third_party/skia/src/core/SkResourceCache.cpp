@@ -13,13 +13,13 @@
 #include "src/core/SkDiscardableMemory.h"
 #include "src/core/SkImageFilter_Base.h"
 #include "src/core/SkMessageBus.h"
-#include "src/core/SkMipMap.h"
+#include "src/core/SkMipmap.h"
 #include "src/core/SkOpts.h"
 
 #include <stddef.h>
 #include <stdlib.h>
 
-DECLARE_SKMESSAGEBUS_MESSAGE(SkResourceCache::PurgeSharedIDMessage)
+DECLARE_SKMESSAGEBUS_MESSAGE(SkResourceCache::PurgeSharedIDMessage, true)
 
 static inline bool SkShouldPostMessageToBus(
         const SkResourceCache::PurgeSharedIDMessage&, uint32_t) {
@@ -70,7 +70,7 @@ namespace {
             return rec->getKey();
         }
     };
-}
+}  // namespace
 
 class SkResourceCache::Hash :
     public SkTHashTable<SkResourceCache::Rec*, SkResourceCache::Key, HashTraits> {};

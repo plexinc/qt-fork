@@ -51,10 +51,10 @@
 // We mean it.
 //
 
+#include <QtCore/QList>
 #include <QtCore/QObject>
-#include <QtCore/QRect>
 #include <QtCore/QPointer>
-#include <QtCore/QVector>
+#include <QtCore/QRect>
 #include <QtCore/QMutex>
 #include <QtCore/QReadWriteLock>
 
@@ -68,7 +68,7 @@
 #include <qpa/qplatforminputcontextfactory_p.h>
 
 #if QT_CONFIG(xkbcommon)
-#include <QtXkbCommonSupport/private/qxkbcommon_p.h>
+#include <QtGui/private/qxkbcommon_p.h>
 #endif
 
 struct wl_cursor_image;
@@ -83,6 +83,7 @@ class QPlatformPlaceholderScreen;
 namespace QtWayland {
     class qt_surface_extension;
     class zwp_text_input_manager_v2;
+    class qt_text_input_method_manager_v1;
 }
 
 namespace QtWaylandClient {
@@ -100,6 +101,7 @@ class QWaylandDataDeviceManager;
 class QWaylandPrimarySelectionDeviceManagerV1;
 #endif
 class QWaylandTabletManagerV2;
+class QWaylandPointerGestures;
 class QWaylandTouchExtension;
 class QWaylandQtKeyExtension;
 class QWaylandWindow;
@@ -129,6 +131,8 @@ public:
     QWaylandDisplay(QWaylandIntegration *waylandIntegration);
     ~QWaylandDisplay(void) override;
 
+    void initialize();
+
 #if QT_CONFIG(xkbcommon)
     struct xkb_context *xkbContext() const { return mXkbContext.get(); }
 #endif
@@ -157,7 +161,6 @@ public:
 
     const struct wl_compositor *wl_compositor() const { return mCompositor.object(); }
     QtWayland::wl_compositor *compositor() { return &mCompositor; }
-    int compositorVersion() const { return mCompositorVersion; }
 
     QList<QWaylandInputDevice *> inputDevices() const { return mInputDevices; }
     QWaylandInputDevice *defaultInputDevice() const;
@@ -170,12 +173,12 @@ public:
 #endif
     QtWayland::qt_surface_extension *windowExtension() const { return mWindowExtension.data(); }
     QWaylandTabletManagerV2 *tabletManager() const { return mTabletManager.data(); }
+    QWaylandPointerGestures *pointerGestures() const { return mPointerGestures.data(); }
     QWaylandTouchExtension *touchExtension() const { return mTouchExtension.data(); }
+    QtWayland::qt_text_input_method_manager_v1 *textInputMethodManager() const { return mTextInputMethodManager.data(); }
     QtWayland::zwp_text_input_manager_v2 *textInputManager() const { return mTextInputManager.data(); }
     QWaylandHardwareIntegration *hardwareIntegration() const { return mHardwareIntegration.data(); }
     QWaylandXdgOutputManagerV1 *xdgOutputManager() const { return mXdgOutputManager.data(); }
-
-    bool usingInputContextFromCompositor() const { return mUsingInputContextFromCompositor; }
 
     struct RegistryGlobal {
         uint32_t id;
@@ -222,7 +225,6 @@ public slots:
     void flushRequests();
 
 private:
-    void waitForScreens();
     void checkError() const;
 
     void handleWaylandSync();
@@ -248,7 +250,22 @@ private:
     QList<Listener> mRegistryListeners;
     QWaylandIntegration *mWaylandIntegration = nullptr;
 #if QT_CONFIG(cursor)
-    QMap<std::pair<QString, int>, QWaylandCursorTheme *> mCursorThemes; // theme name and size
+    struct WaylandCursorTheme {
+        QString name;
+        int pixelSize;
+        std::unique_ptr<QWaylandCursorTheme> theme;
+    };
+    std::vector<WaylandCursorTheme> mCursorThemes;
+
+    struct FindExistingCursorThemeResult {
+        std::vector<WaylandCursorTheme>::const_iterator position;
+        bool found;
+
+        QWaylandCursorTheme *theme() const noexcept
+        { return found ? position->theme.get() : nullptr; }
+    };
+    FindExistingCursorThemeResult findExistingCursorTheme(const QString &name, int pixelSize) const noexcept;
+
     QScopedPointer<QWaylandCursor> mCursor;
 #endif
 #if QT_CONFIG(wayland_datadevice)
@@ -260,9 +277,11 @@ private:
     QScopedPointer<QWaylandQtKeyExtension> mQtKeyExtension;
     QScopedPointer<QWaylandWindowManagerIntegration> mWindowManagerIntegration;
     QScopedPointer<QWaylandTabletManagerV2> mTabletManager;
+    QScopedPointer<QWaylandPointerGestures> mPointerGestures;
 #if QT_CONFIG(wayland_client_primary_selection)
     QScopedPointer<QWaylandPrimarySelectionDeviceManagerV1> mPrimarySelectionManager;
 #endif
+    QScopedPointer<QtWayland::qt_text_input_method_manager_v1> mTextInputMethodManager;
     QScopedPointer<QtWayland::zwp_text_input_manager_v2> mTextInputManager;
     QScopedPointer<QWaylandHardwareIntegration> mHardwareIntegration;
     QScopedPointer<QWaylandXdgOutputManagerV1> mXdgOutputManager;
@@ -270,19 +289,17 @@ private:
     int mFd = -1;
     int mWritableNotificationFd = -1;
     QList<RegistryGlobal> mGlobals;
-    int mCompositorVersion = -1;
     uint32_t mLastInputSerial = 0;
     QWaylandInputDevice *mLastInputDevice = nullptr;
     QPointer<QWaylandWindow> mLastInputWindow;
     QPointer<QWaylandWindow> mLastKeyboardFocus;
-    QVector<QWaylandWindow *> mActiveWindows;
-    QVector<FrameQueue> mExternalQueues;
+    QList<QWaylandWindow *> mActiveWindows;
+    QList<FrameQueue> mExternalQueues;
     struct wl_callback *mSyncCallback = nullptr;
     static const wl_callback_listener syncCallbackListener;
     QReadWriteLock m_frameQueueLock;
 
     bool mClientSideInputContextRequested = !QPlatformInputContextFactory::requested().isNull();
-    bool mUsingInputContextFromCompositor = false;
 
     void registry_global(uint32_t id, const QString &interface, uint32_t version) override;
     void registry_global_remove(uint32_t id) override;

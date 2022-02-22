@@ -6,6 +6,7 @@
 
 #include "base/macros.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "ui/aura/client/cursor_client.h"
 #include "ui/aura/env.h"
 #include "ui/aura/test/aura_test_base.h"
@@ -21,12 +22,11 @@
 
 namespace {
 
-#if defined(OS_CHROMEOS) || defined(OS_WIN)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || defined(OS_WIN)
 base::TimeTicks GetTime() {
   return ui::EventTimeForNow();
 }
-#endif  // defined(OS_CHROMEOS) || defined(OS_WIN)
-
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH) || defined(OS_WIN)
 }
 
 namespace wm {
@@ -50,7 +50,7 @@ class ConsumeGestureEventFilter : public ui::EventHandler {
 
 typedef aura::test::AuraTestBase CompoundEventFilterTest;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 // A keypress only hides the cursor on ChromeOS (crbug.com/304296).
 TEST_F(CompoundEventFilterTest, CursorVisibilityChange) {
   std::unique_ptr<CompoundEventFilter> compound_filter(new CompoundEventFilter);
@@ -108,9 +108,9 @@ TEST_F(CompoundEventFilterTest, CursorVisibilityChange) {
 
   aura::Env::GetInstance()->RemovePreTargetHandler(compound_filter.get());
 }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
-#if defined(OS_CHROMEOS) || defined(OS_WIN)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || defined(OS_WIN)
 // Touch visually hides the cursor on ChromeOS and Windows.
 TEST_F(CompoundEventFilterTest, TouchHidesCursor) {
   std::unique_ptr<CompoundEventFilter> compound_filter(new CompoundEventFilter);
@@ -127,43 +127,45 @@ TEST_F(CompoundEventFilterTest, TouchHidesCursor) {
                         gfx::Point(10, 10), ui::EventTimeForNow(), 0, 0);
   DispatchEventUsingWindowDispatcher(&mouse0);
   EXPECT_TRUE(cursor_client.IsMouseEventsEnabled());
+  EXPECT_TRUE(cursor_client.IsCursorVisible());
 
   // This press is required for the GestureRecognizer to associate a target
   // with kTouchId
-  ui::TouchEvent press0(
-      ui::ET_TOUCH_PRESSED, gfx::Point(90, 90), GetTime(),
-      ui::PointerDetails(ui::EventPointerType::POINTER_TYPE_TOUCH, 1));
+  ui::TouchEvent press0(ui::ET_TOUCH_PRESSED, gfx::Point(90, 90), GetTime(),
+                        ui::PointerDetails(ui::EventPointerType::kTouch, 1));
   DispatchEventUsingWindowDispatcher(&press0);
   EXPECT_FALSE(cursor_client.IsMouseEventsEnabled());
+  EXPECT_FALSE(cursor_client.IsCursorVisible());
 
-  ui::TouchEvent move(
-      ui::ET_TOUCH_MOVED, gfx::Point(10, 10), GetTime(),
-      ui::PointerDetails(ui::EventPointerType::POINTER_TYPE_TOUCH, 1));
+  ui::TouchEvent move(ui::ET_TOUCH_MOVED, gfx::Point(10, 10), GetTime(),
+                      ui::PointerDetails(ui::EventPointerType::kTouch, 1));
   DispatchEventUsingWindowDispatcher(&move);
   EXPECT_FALSE(cursor_client.IsMouseEventsEnabled());
+  EXPECT_FALSE(cursor_client.IsCursorVisible());
 
-  ui::TouchEvent release(
-      ui::ET_TOUCH_RELEASED, gfx::Point(10, 10), GetTime(),
-      ui::PointerDetails(ui::EventPointerType::POINTER_TYPE_TOUCH, 1));
+  ui::TouchEvent release(ui::ET_TOUCH_RELEASED, gfx::Point(10, 10), GetTime(),
+                         ui::PointerDetails(ui::EventPointerType::kTouch, 1));
   DispatchEventUsingWindowDispatcher(&release);
   EXPECT_FALSE(cursor_client.IsMouseEventsEnabled());
+  EXPECT_FALSE(cursor_client.IsCursorVisible());
 
   ui::MouseEvent mouse1(ui::ET_MOUSE_MOVED, gfx::Point(10, 10),
                         gfx::Point(10, 10), ui::EventTimeForNow(), 0, 0);
   // Move the cursor again. The cursor should be visible.
   DispatchEventUsingWindowDispatcher(&mouse1);
   EXPECT_TRUE(cursor_client.IsMouseEventsEnabled());
+  EXPECT_TRUE(cursor_client.IsCursorVisible());
 
   // Now activate the window and press on it again.
-  ui::TouchEvent press1(
-      ui::ET_TOUCH_PRESSED, gfx::Point(90, 90), GetTime(),
-      ui::PointerDetails(ui::EventPointerType::POINTER_TYPE_TOUCH, 1));
+  ui::TouchEvent press1(ui::ET_TOUCH_PRESSED, gfx::Point(90, 90), GetTime(),
+                        ui::PointerDetails(ui::EventPointerType::kTouch, 1));
   GetActivationClient(root_window())->ActivateWindow(window.get());
   DispatchEventUsingWindowDispatcher(&press1);
   EXPECT_FALSE(cursor_client.IsMouseEventsEnabled());
+  EXPECT_FALSE(cursor_client.IsCursorVisible());
   aura::Env::GetInstance()->RemovePreTargetHandler(compound_filter.get());
 }
-#endif  // defined(OS_CHROMEOS) || defined(OS_WIN)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH) || defined(OS_WIN)
 
 // Tests that if an event filter consumes a gesture, then it doesn't focus the
 // window.

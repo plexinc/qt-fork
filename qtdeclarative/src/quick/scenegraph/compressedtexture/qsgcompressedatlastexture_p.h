@@ -53,11 +53,9 @@
 
 #include <QtCore/QSize>
 
-#include <QtGui/qopengl.h>
-
 #include <QtQuick/QSGTexture>
 #include <QtQuick/private/qsgareaallocator_p.h>
-#include <QtQuick/private/qsgopenglatlastexture_p.h>
+#include <QtQuick/private/qsgrhiatlastexture_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -67,16 +65,17 @@ namespace QSGCompressedAtlasTexture {
 
 class Texture;
 
-class Atlas : public QSGOpenGLAtlasTexture::AtlasBase
+class Atlas : public QSGRhiAtlasTexture::AtlasBase
 {
 public:
-    Atlas(const QSize &size, uint format);
+    Atlas(QSGDefaultRenderContext *rc, const QSize &size, uint format);
     ~Atlas();
 
-    void generateTexture() override;
-    void uploadPendingTexture(int i) override;
+    bool generateTexture() override;
+    void enqueueTextureUpload(QSGRhiAtlasTexture::TextureBase *t,
+                              QRhiResourceUpdateBatch *rcub) override;
 
-    Texture *create(const QByteArray &data, int dataLength, int dataOffset, const QSize &size, const QSize &paddedSize);
+    Texture *create(QByteArrayView data, const QSize &size);
 
     uint format() const { return m_format; }
 
@@ -84,11 +83,11 @@ private:
     uint m_format;
 };
 
-class Texture : public QSGOpenGLAtlasTexture::TextureBase
+class Texture : public QSGRhiAtlasTexture::TextureBase
 {
     Q_OBJECT
 public:
-    Texture(Atlas *atlas, const QRect &textureRect, const QByteArray &data, int dataLength, int dataOffset, const QSize &size);
+    Texture(Atlas *atlas, const QRect &textureRect, QByteArrayView data, const QSize &size);
     ~Texture();
 
     QSize textureSize() const override { return m_size; }
@@ -97,19 +96,16 @@ public:
 
     QRectF normalizedTextureSubRect() const override { return m_texture_coords_rect; }
 
-    QSGTexture *removedFromAtlas() const override;
+    QSGTexture *removedFromAtlas(QRhiResourceUpdateBatch *) const override;
 
     const QByteArray &data() const { return m_data; }
-    int sizeInBytes() const { return m_dataLength; }
-    int dataOffset() const { return m_dataOffset; }
+    int sizeInBytes() const { return m_data.length(); }
 
 private:
     QRectF m_texture_coords_rect;
     mutable QSGTexture *m_nonatlas_texture;
     QByteArray m_data;
     QSize m_size;
-    int m_dataLength;
-    int m_dataOffset;
 };
 
 }

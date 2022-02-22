@@ -25,7 +25,7 @@
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include <QCoreApplication>
 
@@ -34,8 +34,15 @@
 #include <QElapsedTimer>
 #include <QTextStream>
 #include <QDir>
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#include <QSignalSpy>
+#include <QTimer>
+#include <QTemporaryFile>
+#if defined(Q_OS_WIN)
 #include <windows.h>
+#endif
+
+#if defined(Q_OS_ANDROID) && !defined(Q_OS_ANDROID_EMBEDDED)
+#include <QStandardPaths>
 #endif
 
 /* All tests need to run in temporary directories not used
@@ -82,7 +89,7 @@ private slots:
     void signalsEmittedAfterFileMoved();
 
     void watchUnicodeCharacters();
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
     void watchDirectoryAttributeChanges();
 #endif
 
@@ -117,7 +124,7 @@ void tst_QFileSystemWatcher::basicTest_data()
         + QChar(ushort(0x00DC)) // LATIN_CAPITAL_LETTER_U_WITH_DIAERESIS
         + QStringLiteral(".txt");
 
-#if !defined(Q_OS_QNX) || !defined(QT_NO_INOTIFY)
+#if !defined(QT_NO_INOTIFY)
     QTest::newRow("native backend-testfile") << "native" << testFile;
     QTest::newRow("native backend-specialchars") << "native" << specialCharacterFile;
 #endif
@@ -411,7 +418,7 @@ void tst_QFileSystemWatcher::addPaths()
 {
     QFileSystemWatcher watcher;
     QStringList paths;
-    paths << QDir::homePath() << QDir::currentPath();
+    paths << QDir::homePath() << QDir::tempPath();
     QCOMPARE(watcher.addPaths(paths), QStringList());
     QCOMPARE(watcher.directories().count(), 2);
 
@@ -479,7 +486,7 @@ void tst_QFileSystemWatcher::removePaths()
 {
     QFileSystemWatcher watcher;
     QStringList paths;
-    paths << QDir::homePath() << QDir::currentPath();
+    paths << QDir::homePath() << QDir::tempPath();
     QCOMPARE(watcher.addPaths(paths), QStringList());
     QCOMPARE(watcher.directories().count(), 2);
     QCOMPARE(watcher.removePaths(paths), QStringList());
@@ -722,7 +729,7 @@ public:
     SignalReceiver(const QDir &moveSrcDir,
                    const QString &moveDestination,
                    QFileSystemWatcher *watcher,
-                   QObject *parent = 0)
+                   QObject *parent = nullptr)
         : QObject(parent),
           added(false),
           moveSrcDir(moveSrcDir),
@@ -819,7 +826,7 @@ void tst_QFileSystemWatcher::watchUnicodeCharacters()
     QTRY_COMPARE(changedSpy.count(), 1);
 }
 
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
 void tst_QFileSystemWatcher::watchDirectoryAttributeChanges()
 {
     QTemporaryDir temporaryDirectory(m_tempDirPattern);

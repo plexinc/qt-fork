@@ -41,7 +41,6 @@
 #include "src/execution/isolate.h"
 #include "src/heap/heap-inl.h"  // For MemoryAllocator. TODO(jkummerow): Drop.
 #include "src/snapshot/embedded/embedded-data.h"
-#include "src/snapshot/serializer-common.h"
 #include "src/snapshot/snapshot.h"
 #include "src/utils/ostreams.h"
 #include "src/utils/vector.h"
@@ -77,12 +76,21 @@ AssemblerOptions AssemblerOptions::Default(Isolate* isolate) {
   return options;
 }
 
+AssemblerOptions AssemblerOptions::DefaultForOffHeapTrampoline(
+    Isolate* isolate) {
+  AssemblerOptions options = AssemblerOptions::Default(isolate);
+  // Off-heap trampolines may not contain any metadata since their metadata
+  // offsets refer to the off-heap metadata area.
+  options.emit_code_comments = false;
+  return options;
+}
+
 namespace {
 
 class DefaultAssemblerBuffer : public AssemblerBuffer {
  public:
   explicit DefaultAssemblerBuffer(int size)
-      : buffer_(OwnedVector<uint8_t>::New(size)) {
+      : buffer_(OwnedVector<uint8_t>::NewForOverwrite(size)) {
 #ifdef DEBUG
     ZapCode(reinterpret_cast<Address>(buffer_.start()), size);
 #endif
@@ -114,10 +122,37 @@ class ExternalAssemblerBufferImpl : public AssemblerBuffer {
     FATAL("Cannot grow external assembler buffer");
   }
 
+  void* operator new(std::size_t count);
+  void operator delete(void* ptr) noexcept;
+
  private:
   byte* const start_;
   const int size_;
 };
+
+static thread_local std::aligned_storage_t<sizeof(ExternalAssemblerBufferImpl),
+                                           alignof(ExternalAssemblerBufferImpl)>
+    tls_singleton_storage;
+
+static thread_local bool tls_singleton_taken{false};
+
+void* ExternalAssemblerBufferImpl::operator new(std::size_t count) {
+  DCHECK_EQ(count, sizeof(ExternalAssemblerBufferImpl));
+  if (V8_LIKELY(!tls_singleton_taken)) {
+    tls_singleton_taken = true;
+    return &tls_singleton_storage;
+  }
+  return ::operator new(count);
+}
+
+void ExternalAssemblerBufferImpl::operator delete(void* ptr) noexcept {
+  if (V8_LIKELY(ptr == &tls_singleton_storage)) {
+    DCHECK(tls_singleton_taken);
+    tls_singleton_taken = false;
+    return;
+  }
+  ::operator delete(ptr);
+}
 
 }  // namespace
 
@@ -173,6 +208,7 @@ CpuFeatureScope::~CpuFeatureScope() {
 #endif
 
 bool CpuFeatures::initialized_ = false;
+bool CpuFeatures::supports_wasm_simd_128_ = false;
 unsigned CpuFeatures::supported_ = 0;
 unsigned CpuFeatures::icache_line_size_ = 0;
 unsigned CpuFeatures::dcache_line_size_ = 0;
@@ -256,7 +292,9 @@ Handle<HeapObject> AssemblerBase::GetEmbeddedObject(
 
 
 int Assembler::WriteCodeComments() {
-  if (!FLAG_code_comments || code_comments_writer_.entry_count() == 0) return 0;
+  CHECK_IMPLIES(code_comments_writer_.entry_count() > 0,
+                options().emit_code_comments);
+  if (code_comments_writer_.entry_count() == 0) return 0;
   int offset = pc_offset();
   code_comments_writer_.Emit(this);
   int size = pc_offset() - offset;

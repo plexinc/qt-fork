@@ -48,7 +48,7 @@
 #include <QtCharts/QBoxSet>
 #include <QtWidgets/QGraphicsItem>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class BoxPlotSeriesPrivate;
 
@@ -61,20 +61,20 @@ public:
 
     void setAnimation(BoxPlotAnimation *animation);
 
-    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget);
-    QRectF boundingRect() const;
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
+    QRectF boundingRect() const override;
 
 public Q_SLOTS:
     void handleSeriesVisibleChanged();
     void handleOpacityChanged();
     void handleDataStructureChanged();
-    void handleDomainUpdated();
+    void handleDomainUpdated() override;
     void handleLayoutChanged();
     void handleUpdatedBars();
-    void handleBoxsetRemove(QList<QBoxSet *> barSets);
+    void handleBoxsetRemove(const QList<QBoxSet *> &barSets);
 
 private:
-    virtual QVector<QRectF> calculateLayout();
+    virtual QList<QRectF> calculateLayout();
     void initializeLayout();
     bool updateBoxGeometry(BoxWhiskers *box, int index);
 
@@ -91,6 +91,6 @@ protected:
     QRectF m_boundingRect;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // BOXPLOTCHARTITEM_H

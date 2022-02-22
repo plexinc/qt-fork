@@ -52,43 +52,44 @@
 //
 
 #include "android/androidjninfc_p.h"
-#include "qnearfieldtarget.h"
 #include "qnearfieldtarget_p.h"
 #include "qndefmessage.h"
 #include "qlist.h"
 #include "qstringlist.h"
 #include <QTimer>
 
-#include <QtAndroidExtras/QAndroidJniObject>
-#include <QtAndroidExtras/QAndroidJniEnvironment>
+#include <QtCore/QJniObject>
+#include <QtCore/QJniEnvironment>
 
 QT_BEGIN_NAMESPACE
 
-class NearFieldTarget : public QNearFieldTarget
+class QNearFieldTargetPrivateImpl : public QNearFieldTargetPrivate
 {
     Q_OBJECT
 public:
-    NearFieldTarget(QAndroidJniObject intent,
-                    const QByteArray uid,
-                    QObject *parent = 0);
-    virtual ~NearFieldTarget();
-    virtual QByteArray uid() const;
-    virtual Type type() const;
-    virtual AccessMethods accessMethods() const;
-    bool keepConnection() const;
-    bool setKeepConnection(bool isPersistent);
-    bool disconnect();
-    virtual bool hasNdefMessage();
-    virtual RequestId readNdefMessages();
-    int maxCommandLength() const;
-    virtual RequestId sendCommand(const QByteArray &command);
-    virtual RequestId sendCommands(const QList<QByteArray> &commands);
-    virtual RequestId writeNdefMessages(const QList<QNdefMessage> &messages);
-    void setIntent(QAndroidJniObject intent);
+    QNearFieldTargetPrivateImpl(QJniObject intent,
+                                const QByteArray uid,
+                                QObject *parent = nullptr);
+    ~QNearFieldTargetPrivateImpl() override;
+
+    QByteArray uid() const override;
+    QNearFieldTarget::Type type() const override;
+    QNearFieldTarget::AccessMethods accessMethods() const override;
+
+    bool disconnect() override;
+
+    bool hasNdefMessage() override;
+    QNearFieldTarget::RequestId readNdefMessages() override;
+    QNearFieldTarget::RequestId writeNdefMessages(const QList<QNdefMessage> &messages) override;
+
+    int maxCommandLength() const override;
+    QNearFieldTarget::RequestId sendCommand(const QByteArray &command) override;
+
+    void setIntent(QJniObject intent);
 
 signals:
     void targetDestroyed(const QByteArray &tagId);
-    void targetLost(QNearFieldTarget *target);
+    void targetLost(QNearFieldTargetPrivateImpl *target);
     void ndefMessageRead(const QNdefMessage &message, const QNearFieldTarget::RequestId &id);
 
 protected slots:
@@ -98,24 +99,24 @@ protected:
     void releaseIntent();
     void updateTechList();
     void updateType();
-    Type getTagType() const;
+    QNearFieldTarget::Type getTagType() const;
     void setupTargetCheckTimer();
     void handleTargetLost();
-    QAndroidJniObject getTagTechnology(const QString &tech) const;
-    bool setTagTechnology(const QStringList &techList);
+    QJniObject getTagTechnology(const QString &tech) const;
+    bool setTagTechnology(const QStringList &technologies);
     bool connect();
+    bool setCommandTimeout(int timeout);
     QByteArray jbyteArrayToQByteArray(const jbyteArray &byteArray) const;
-    bool catchJavaExceptions(bool verbose = true) const;
 
 protected:
-    QAndroidJniObject m_intent;
-    QByteArray m_uid;
-    QStringList m_techList;
-    Type m_type;
-    QTimer *m_targetCheckTimer;
-    QString m_tech;
-    QAndroidJniObject m_tagTech;
-    bool m_keepConnection;
+    QJniObject targetIntent;
+    QByteArray targetUid;
+    QTimer *targetCheckTimer;
+
+    QString selectedTech;
+    QStringList techList;
+    QNearFieldTarget::Type tagType;
+    QJniObject tagTech;
 };
 
 QT_END_NAMESPACE

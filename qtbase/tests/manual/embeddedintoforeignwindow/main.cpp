@@ -111,7 +111,7 @@ static void showNativeWindow(WId wid)
 #ifdef Q_OS_WIN
      ShowWindow(HWND(wid), SW_SHOW);
 #else // Q_OS_WIN
-    Q_UNUSED(wid)
+    Q_UNUSED(wid);
     Q_UNIMPLEMENTED();
 #endif
 }
@@ -121,7 +121,7 @@ static void setFocusToNativeWindow(WId wid)
 #ifdef Q_OS_WIN
      SetFocus(HWND(wid));
 #else // Q_OS_WIN
-    Q_UNUSED(wid)
+    Q_UNUSED(wid);
     Q_UNIMPLEMENTED();
 #endif
 }
@@ -131,7 +131,7 @@ static void destroyNativeWindow(WId wid)
 #ifdef Q_OS_WIN
      DestroyWindow(HWND(wid));
 #else // Q_OS_WIN
-    Q_UNUSED(wid)
+    Q_UNUSED(wid);
     Q_UNIMPLEMENTED();
 #endif
 }
@@ -166,7 +166,7 @@ public:
         pos.rx() += buttonSize.width() + spacing;
         ButtonItem *qi = new ButtonItem("Quit", QRect(pos, buttonSize),
                                         QColor(Qt::red).lighter(), this);
-        qi->setShortcut(Qt::CTRL + Qt::Key_Q);
+        qi->setShortcut(Qt::CTRL | Qt::Key_Q);
         connect(qi, &ButtonItem::clicked, qApp, &QCoreApplication::quit);
         addItem(qi);
 
@@ -207,9 +207,6 @@ static inline bool isOptionSet(int argc, char *argv[], const char *option)
 
 int main(int argc, char *argv[])
 {
-    // Check for no scaling before QApplication is instantiated.
-    if (isOptionSet(argc, argv, "-s"))
-        QCoreApplication::setAttribute(Qt::AA_DisableHighDpiScaling);
     QCoreApplication::setApplicationVersion(QLatin1String(QT_VERSION_STR));
     QGuiApplication::setApplicationDisplayName("Foreign Window Embedding Tester");
 
@@ -233,7 +230,7 @@ int main(int argc, char *argv[])
 
     parser.process(QCoreApplication::arguments());
 
-    QtDiag::EventFilter::EventCategories eventCategories = 0;
+    QtDiag::EventFilter::EventCategories eventCategories = {};
     for (int i = 0; i < eventFilterOptionCount; ++i) {
         if (parser.isSet(QLatin1String(eventFilterOptions[i].name)))
             eventCategories |= eventFilterOptions[i].categories;

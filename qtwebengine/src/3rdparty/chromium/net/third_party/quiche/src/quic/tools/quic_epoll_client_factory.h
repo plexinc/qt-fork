@@ -5,8 +5,8 @@
 #ifndef QUICHE_QUIC_TOOLS_EPOLL_CLIENT_FACTORY_H_
 #define QUICHE_QUIC_TOOLS_EPOLL_CLIENT_FACTORY_H_
 
-#include "net/third_party/quiche/src/quic/platform/api/quic_epoll.h"
-#include "net/third_party/quiche/src/quic/tools/quic_toy_client.h"
+#include "quic/platform/api/quic_epoll.h"
+#include "quic/tools/quic_toy_client.h"
 
 namespace quic {
 
@@ -16,8 +16,10 @@ class QuicEpollClientFactory : public QuicToyClient::ClientFactory {
   std::unique_ptr<QuicSpdyClientBase> CreateClient(
       std::string host_for_handshake,
       std::string host_for_lookup,
+      int address_family_for_lookup,
       uint16_t port,
       ParsedQuicVersionVector versions,
+      const QuicConfig& config,
       std::unique_ptr<ProofVerifier> verifier) override;
 
  private:

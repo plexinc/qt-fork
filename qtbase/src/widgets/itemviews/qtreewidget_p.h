@@ -99,9 +99,7 @@ public:
 
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
     bool setData(const QModelIndex &index, const QVariant &value, int role) override;
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     bool clearItemData(const QModelIndex &index) override;
-#endif
     QMap<int, QVariant> itemData(const QModelIndex &index) const override;
 
     QVariant headerData(int section, Qt::Orientation orientation, int role) const override;
@@ -141,7 +139,7 @@ public:
 
 protected:
     QTreeModel(QTreeModelPrivate &, QTreeWidget *parent = nullptr);
-    void emitDataChanged(QTreeWidgetItem *item, int column, const QVector<int> &roles);
+    void emitDataChanged(QTreeWidgetItem *item, int column, const QList<int> &roles);
     void beginInsertItems(QTreeWidgetItem *parent, int row, int count);
     void endInsertItems();
     void beginRemoveItems(QTreeWidgetItem *parent, int row, int count);
@@ -183,6 +181,7 @@ QT_END_INCLUDE_NAMESPACE
 class QTreeModelPrivate : public QAbstractItemModelPrivate
 {
     Q_DECLARE_PUBLIC(QTreeModel)
+    void executePendingOperations() const override;
 };
 
 class QTreeWidgetItemPrivate

@@ -26,7 +26,7 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include <QCoreApplication>
 #include <QMutexLocker>
@@ -74,7 +74,7 @@ void tst_QMutexLocker::scopeTest()
     class ScopeTestThread : public tst_QMutexLockerThread
     {
     public:
-        void run()
+        void run() override
         {
             waitForTest();
 
@@ -110,7 +110,7 @@ void tst_QMutexLocker::scopeTest()
     QVERIFY(thread->wait());
 
     delete thread;
-    thread = 0;
+    thread = nullptr;
 }
 
 
@@ -119,7 +119,7 @@ void tst_QMutexLocker::unlockAndRelockTest()
     class UnlockAndRelockThread : public tst_QMutexLockerThread
     {
     public:
-        void run()
+        void run() override
         {
             QMutexLocker locker(&mutex);
 
@@ -157,7 +157,7 @@ void tst_QMutexLocker::unlockAndRelockTest()
     QVERIFY(thread->wait());
 
     delete thread;
-    thread = 0;
+    thread = nullptr;
 }
 
 void tst_QMutexLocker::lockerStateTest()
@@ -165,7 +165,7 @@ void tst_QMutexLocker::lockerStateTest()
     class LockerStateThread : public tst_QMutexLockerThread
     {
     public:
-        void run()
+        void run() override
         {
             {
                 QMutexLocker locker(&mutex);
@@ -197,7 +197,7 @@ void tst_QMutexLocker::lockerStateTest()
     QVERIFY(thread->wait());
 
     delete thread;
-    thread = 0;
+    thread = nullptr;
 }
 
 QTEST_MAIN(tst_QMutexLocker)

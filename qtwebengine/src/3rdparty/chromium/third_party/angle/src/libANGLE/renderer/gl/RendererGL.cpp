@@ -63,6 +63,15 @@ const char *kIgnoredErrors[] = {
     "share_context to eglCreateContext. Results are undefined.",
 };
 #endif  // defined(ANGLE_PLATFORM_ANDROID)
+
+const char *kIgnoredWarnings[] = {
+    // We always request GL_ARB_gpu_shader5 and GL_EXT_gpu_shader5 when compiling shaders but some
+    // drivers warn when it is not present. This ends up spamming the console on every shader
+    // compile.
+    "extension `GL_ARB_gpu_shader5' unsupported in",
+    "extension `GL_EXT_gpu_shader5' unsupported in",
+};
+
 }  // namespace
 
 static void INTERNAL_GL_APIENTRY LogGLDebugMessage(GLenum source,
@@ -105,6 +114,14 @@ static void INTERNAL_GL_APIENTRY LogGLDebugMessage(GLenum source,
     {
         // Don't print performance warnings. They tend to be very spammy in the dEQP test suite and
         // there is very little we can do about them.
+
+        for (const char *&warn : kIgnoredWarnings)
+        {
+            if (strstr(message, warn) != nullptr)
+            {
+                return;
+            }
+        }
 
         // TODO(ynovikov): filter into WARN and INFO if INFO is ever implemented
         WARN() << std::endl
@@ -235,42 +252,6 @@ void RendererGL::popGroupMarker() {}
 void RendererGL::pushDebugGroup(GLenum source, GLuint id, const std::string &message) {}
 
 void RendererGL::popDebugGroup() {}
-
-std::string RendererGL::getVendorString() const
-{
-    return std::string(reinterpret_cast<const char *>(mFunctions->getString(GL_VENDOR)));
-}
-
-std::string RendererGL::getRendererDescription() const
-{
-    std::string nativeVendorString(
-        reinterpret_cast<const char *>(mFunctions->getString(GL_VENDOR)));
-    std::string nativeRendererString(
-        reinterpret_cast<const char *>(mFunctions->getString(GL_RENDERER)));
-
-    std::ostringstream rendererString;
-    rendererString << nativeVendorString << ", " << nativeRendererString << ", OpenGL";
-    if (mFunctions->standard == STANDARD_GL_ES)
-    {
-        rendererString << " ES";
-    }
-    rendererString << " " << mFunctions->version.major << "." << mFunctions->version.minor;
-    if (mFunctions->standard == STANDARD_GL_DESKTOP)
-    {
-        // Some drivers (NVIDIA) use a profile mask of 0 when in compatibility profile.
-        if ((mFunctions->profile & GL_CONTEXT_COMPATIBILITY_PROFILE_BIT) != 0 ||
-            (mFunctions->isAtLeastGL(gl::Version(3, 2)) && mFunctions->profile == 0))
-        {
-            rendererString << " compatibility";
-        }
-        else if ((mFunctions->profile & GL_CONTEXT_CORE_PROFILE_BIT) != 0)
-        {
-            rendererString << " core";
-        }
-    }
-
-    return rendererString.str();
-}
 
 const gl::Version &RendererGL::getMaxSupportedESVersion() const
 {
@@ -428,6 +409,10 @@ unsigned int RendererGL::getMaxWorkerContexts()
 
 bool RendererGL::hasNativeParallelCompile()
 {
+    if (mFeatures.disableNativeParallelCompile.enabled)
+    {
+        return false;
+    }
     return mFunctions->maxShaderCompilerThreadsKHR != nullptr ||
            mFunctions->maxShaderCompilerThreadsARB != nullptr;
 }

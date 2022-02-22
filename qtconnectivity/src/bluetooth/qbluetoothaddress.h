@@ -45,16 +45,15 @@
 #include <QtCore/QByteArray>
 #include <QtCore/QString>
 #include <QtCore/QMetaType>
+#include <QtCore/QDebug>
 
 QT_BEGIN_NAMESPACE
-
-class QBluetoothAddressPrivate;
 
 class Q_BLUETOOTH_EXPORT QBluetoothAddress
 {
 public:
-    QBluetoothAddress();
-    explicit QBluetoothAddress(quint64 address);
+    constexpr QBluetoothAddress() noexcept {};
+    constexpr explicit QBluetoothAddress(quint64 address) noexcept : m_address(address) {};
     explicit QBluetoothAddress(const QString &address);
     QBluetoothAddress(const QBluetoothAddress &other);
     ~QBluetoothAddress();
@@ -65,24 +64,32 @@ public:
 
     void clear();
 
-    bool operator<(const QBluetoothAddress &other) const;
-    bool operator==(const QBluetoothAddress &other) const;
-    inline bool operator!=(const QBluetoothAddress &other) const
+    friend bool operator<(const QBluetoothAddress &a, const QBluetoothAddress &b)
     {
-        return !operator==(other);
+        return a.m_address < b.m_address;
+    }
+    friend bool operator==(const QBluetoothAddress &a, const QBluetoothAddress &b)
+    {
+        return a.m_address == b.m_address;
+    }
+    inline friend bool operator!=(const QBluetoothAddress &a, const QBluetoothAddress &b)
+    {
+        return a.m_address != b.m_address;
     }
 
     quint64 toUInt64() const;
     QString toString() const;
 
 private:
-    Q_DECLARE_PRIVATE(QBluetoothAddress)
-    QBluetoothAddressPrivate *d_ptr;
-};
-
+    quint64 m_address = { 0 };
 #ifndef QT_NO_DEBUG_STREAM
-Q_BLUETOOTH_EXPORT QDebug operator<<(QDebug, const QBluetoothAddress &address);
+    friend QDebug operator<<(QDebug d, const QBluetoothAddress &a)
+    {
+        return streamingOperator(d, a);
+    }
+    static QDebug streamingOperator(QDebug, const QBluetoothAddress &address);
 #endif
+};
 
 QT_END_NAMESPACE
 

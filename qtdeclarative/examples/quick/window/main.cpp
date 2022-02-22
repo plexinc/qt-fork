@@ -59,11 +59,15 @@
 int main(int argc, char* argv[])
 {
     QGuiApplication app(argc, argv);
-    const auto screens = QGuiApplication::screens();
-    for (QScreen *screen : screens)
-        screen->setOrientationUpdateMask(Qt::LandscapeOrientation | Qt::PortraitOrientation |
-                                         Qt::InvertedLandscapeOrientation | Qt::InvertedPortraitOrientation);
     QQmlEngine engine;
+
+    // Add the qrc root as QML import path so that the "shared" module can be found.
+    engine.addImportPath(QStringLiteral(":/"));
+
+#ifdef Q_OS_MACOS
+    engine.addImportPath(app.applicationDirPath() + QStringLiteral("/../PlugIns"));
+#endif
+
     QQmlComponent component(&engine);
     QQuickWindow::setDefaultAlphaBuffer(true);
     component.loadUrl(QUrl("qrc:///window/window.qml"));

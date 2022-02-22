@@ -2,15 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/frames/quic_crypto_frame.h"
+#include "quic/core/frames/quic_crypto_frame.h"
 
-#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/string_view.h"
+#include "quic/platform/api/quic_logging.h"
 
 namespace quic {
-
-QuicCryptoFrame::QuicCryptoFrame()
-    : QuicCryptoFrame(ENCRYPTION_INITIAL, 0, nullptr, 0) {}
 
 QuicCryptoFrame::QuicCryptoFrame(EncryptionLevel level,
                                  QuicStreamOffset offset,
@@ -19,7 +16,7 @@ QuicCryptoFrame::QuicCryptoFrame(EncryptionLevel level,
 
 QuicCryptoFrame::QuicCryptoFrame(EncryptionLevel level,
                                  QuicStreamOffset offset,
-                                 quiche::QuicheStringPiece data)
+                                 absl::string_view data)
     : QuicCryptoFrame(level, offset, data.data(), data.length()) {}
 
 QuicCryptoFrame::QuicCryptoFrame(EncryptionLevel level,
@@ -35,8 +32,7 @@ QuicCryptoFrame::~QuicCryptoFrame() {}
 
 std::ostream& operator<<(std::ostream& os,
                          const QuicCryptoFrame& stream_frame) {
-  os << "{ level: " << static_cast<int>(stream_frame.level)
-     << ", offset: " << stream_frame.offset
+  os << "{ level: " << stream_frame.level << ", offset: " << stream_frame.offset
      << ", length: " << stream_frame.data_length << " }\n";
   return os;
 }

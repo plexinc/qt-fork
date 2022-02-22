@@ -5,7 +5,7 @@
 #ifndef QUICHE_QUIC_TEST_TOOLS_QUIC_PACKET_CREATOR_PEER_H_
 #define QUICHE_QUIC_TEST_TOOLS_QUIC_PACKET_CREATOR_PEER_H_
 
-#include "net/third_party/quiche/src/quic/core/quic_packets.h"
+#include "quic/core/quic_packets.h"
 
 namespace quic {
 class QuicFramer;
@@ -50,15 +50,17 @@ class QuicPacketCreatorPeer {
                                              const QuicFrames& frames,
                                              char* buffer,
                                              size_t buffer_len);
-  static OwningSerializedPacketPointer SerializeConnectivityProbingPacket(
+  static std::unique_ptr<SerializedPacket> SerializeConnectivityProbingPacket(
       QuicPacketCreator* creator);
-  static OwningSerializedPacketPointer
-  SerializePathChallengeConnectivityProbingPacket(QuicPacketCreator* creator,
-                                                  QuicPathFrameBuffer* payload);
+  static std::unique_ptr<SerializedPacket>
+  SerializePathChallengeConnectivityProbingPacket(
+      QuicPacketCreator* creator,
+      const QuicPathFrameBuffer& payload);
 
   static EncryptionLevel GetEncryptionLevel(QuicPacketCreator* creator);
   static QuicFramer* framer(QuicPacketCreator* creator);
   static std::string GetRetryToken(QuicPacketCreator* creator);
+  static QuicFrames& QueuedFrames(QuicPacketCreator* creator);
 };
 
 }  // namespace test

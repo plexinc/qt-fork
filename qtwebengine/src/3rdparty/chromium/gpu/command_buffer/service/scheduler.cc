@@ -8,14 +8,29 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/hash/md5_constexpr.h"
+#include "base/logging.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
+#include "base/timer/elapsed_timer.h"
 #include "base/trace_event/trace_event.h"
 #include "base/trace_event/traced_value.h"
 #include "gpu/command_buffer/service/sync_point_manager.h"
 #include "gpu/config/gpu_preferences.h"
 
 namespace gpu {
+
+namespace {
+
+uint64_t GetTaskFlowId(uint32_t sequence_id, uint32_t order_num) {
+  // Xor with a mask to ensure that the flow id does not collide with non-gpu
+  // tasks.
+  static constexpr uint64_t kMask = base::MD5Hash64Constexpr("gpu::Scheduler");
+  return kMask ^ (sequence_id) ^ (static_cast<uint64_t>(order_num) << 32);
+}
+
+}  // namespace
 
 Scheduler::Task::Task(SequenceId sequence_id,
                       base::OnceClosure closure,
@@ -163,6 +178,9 @@ void Scheduler::Sequence::ContinueTask(base::OnceClosure closure) {
 
 uint32_t Scheduler::Sequence::ScheduleTask(base::OnceClosure closure) {
   uint32_t order_num = order_data_->GenerateUnprocessedOrderNumber();
+  TRACE_EVENT_WITH_FLOW0("gpu,toplevel.flow", "Scheduler::ScheduleTask",
+                         GetTaskFlowId(sequence_id_.value(), order_num),
+                         TRACE_EVENT_FLAG_FLOW_OUT);
   tasks_.push_back({std::move(closure), order_num});
   return order_num;
 }
@@ -188,15 +206,18 @@ void Scheduler::Sequence::FinishTask() {
 
 void Scheduler::Sequence::AddWaitFence(const SyncToken& sync_token,
                                        uint32_t order_num,
-                                       SequenceId release_sequence_id,
-                                       Sequence* release_sequence) {
+                                       SequenceId release_sequence_id) {
   auto it =
       wait_fences_.find(WaitFence{sync_token, order_num, release_sequence_id});
   if (it != wait_fences_.end())
     return;
 
-  DCHECK(release_sequence);
-  release_sequence->AddWaitingPriority(default_priority_);
+  // |release_sequence| can be nullptr if we wait on SyncToken from sequence
+  // that is not in this scheduler. It can happen on WebView when compositing
+  // that runs on different thread returns resources.
+  Sequence* release_sequence = scheduler_->GetSequence(release_sequence_id);
+  if (release_sequence)
+    release_sequence->AddWaitingPriority(default_priority_);
 
   wait_fences_.emplace(
       std::make_pair(WaitFence(sync_token, order_num, release_sequence_id),
@@ -321,14 +342,18 @@ SequenceId Scheduler::CreateSequence(SchedulingPriority priority) {
 }
 
 void Scheduler::DestroySequence(SequenceId sequence_id) {
-  base::AutoLock auto_lock(lock_);
+  base::circular_deque<Sequence::Task> tasks_to_be_destroyed;
+  {
+    base::AutoLock auto_lock(lock_);
 
-  Sequence* sequence = GetSequence(sequence_id);
-  DCHECK(sequence);
-  if (sequence->scheduled())
-    rebuild_scheduling_queue_ = true;
+    Sequence* sequence = GetSequence(sequence_id);
+    DCHECK(sequence);
+    if (sequence->scheduled())
+      rebuild_scheduling_queue_ = true;
 
-  sequences_.erase(sequence_id);
+    tasks_to_be_destroyed = std::move(sequence->tasks_);
+    sequences_.erase(sequence_id);
+  }
 }
 
 Scheduler::Sequence* Scheduler::GetSequence(SequenceId sequence_id) {
@@ -393,16 +418,12 @@ void Scheduler::ScheduleTaskHelper(Task task) {
   for (const SyncToken& sync_token : task.sync_token_fences) {
     SequenceId release_sequence_id =
         sync_point_manager_->GetSyncTokenReleaseSequenceId(sync_token);
-    Sequence* release_sequence = GetSequence(release_sequence_id);
-    if (!release_sequence)
-      continue;
     if (sync_point_manager_->WaitNonThreadSafe(
             sync_token, sequence_id, order_num, task_runner_,
             base::BindOnce(&Scheduler::SyncTokenFenceReleased, weak_ptr_,
                            sync_token, order_num, release_sequence_id,
                            sequence_id))) {
-      sequence->AddWaitFence(sync_token, order_num, release_sequence_id,
-                             release_sequence);
+      sequence->AddWaitFence(sync_token, order_num, release_sequence_id);
     }
   }
 
@@ -518,7 +539,7 @@ void Scheduler::RunNextTask() {
   SchedulingState state = scheduling_queue_.back();
   scheduling_queue_.pop_back();
 
-  TRACE_EVENT1("gpu", "Scheduler::RunNextTask", "state", state.AsValue());
+  base::ElapsedTimer task_timer;
 
   Sequence* sequence = GetSequence(state.sequence_id);
   DCHECK(sequence);
@@ -526,6 +547,10 @@ void Scheduler::RunNextTask() {
   base::OnceClosure closure;
   uint32_t order_num = sequence->BeginTask(&closure);
   DCHECK_EQ(order_num, state.order_num);
+
+  TRACE_EVENT_WITH_FLOW1("gpu,toplevel.flow", "Scheduler::RunNextTask",
+                         GetTaskFlowId(state.sequence_id.value(), order_num),
+                         TRACE_EVENT_FLAG_FLOW_IN, "state", state.AsValue());
 
   // Begin/FinishProcessingOrderNumber must be called with the lock released
   // because they can renter the scheduler in Enable/DisableSequence.
@@ -567,6 +592,11 @@ void Scheduler::RunNextTask() {
                      &SchedulingState::Comparator);
     }
   }
+
+  UMA_HISTOGRAM_CUSTOM_MICROSECONDS_TIMES(
+      "GPU.Scheduler.RunTaskTime", task_timer.Elapsed(),
+      base::TimeDelta::FromMicroseconds(10), base::TimeDelta::FromSeconds(30),
+      100);
 
   task_runner_->PostTask(FROM_HERE,
                          base::BindOnce(&Scheduler::RunNextTask, weak_ptr_));

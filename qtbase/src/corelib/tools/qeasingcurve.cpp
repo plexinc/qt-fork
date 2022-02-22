@@ -308,7 +308,7 @@
 #endif
 
 #include <QtCore/qpoint.h>
-#include <QtCore/qvector.h>
+#include <QtCore/qlist.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -320,7 +320,8 @@ static bool isConfigFunction(QEasingCurve::Type type)
             type == QEasingCurve::TCBSpline;
 }
 
-struct TCBPoint {
+struct TCBPoint
+{
     QPointF _point;
     qreal _t;
     qreal _c;
@@ -357,7 +358,7 @@ QDataStream &operator>>(QDataStream &stream, TCBPoint &point)
     return stream;
 }
 
-typedef QVector<TCBPoint> TCBPoints;
+typedef QList<TCBPoint> TCBPoints;
 
 class QEasingCurveFunction
 {
@@ -375,7 +376,7 @@ public:
     qreal _p;
     qreal _a;
     qreal _o;
-    QVector<QPointF> _bezierCurves;
+    QList<QPointF> _bezierCurves;
     TCBPoints _tcbPoints;
 
 };
@@ -468,8 +469,8 @@ struct BezierEase : public QEasingCurveFunction
         qreal p3x, p3y;
     };
 
-    QVector<SingleCubicBezier> _curves;
-    QVector<qreal> _intervals;
+    QList<SingleCubicBezier> _curves;
+    QList<qreal> _intervals;
     int _curveCount;
     bool _init;
     bool _valid;
@@ -605,8 +606,8 @@ struct BezierEase : public QEasingCurveFunction
 
         const qreal s = 1 - t;
 
-        const qreal s_squared = s*s;
-        const qreal t_squared = t*t;
+        const qreal s_squared = s * s;
+        const qreal t_squared = t * t;
 
         const qreal s_cubic = s_squared * s;
         const qreal t_cubic = t_squared * t;
@@ -623,8 +624,8 @@ struct BezierEase : public QEasingCurveFunction
 
         const qreal s = 1 - t;
 
-        const qreal s_squared = s*s;
-        const qreal t_squared = t*t;
+        const qreal s_squared = s * s;
+        const qreal t_squared = t * t;
 
         const qreal s_cubic = s_squared * s;
         const qreal t_cubic = t_squared * t;
@@ -639,7 +640,7 @@ struct BezierEase : public QEasingCurveFunction
         const qreal p2 = singleCubicBezier.p2x;
         const qreal p3 = singleCubicBezier.p3x;
 
-        const qreal t_squared = t*t;
+        const qreal t_squared = t * t;
 
         return -3*p0 + 3*p1 + 6*p0*t - 12*p1*t + 6*p2*t + 3*p3*t_squared - 3*p0*t_squared + 9*p1*t_squared - 9*p2*t_squared;
     }
@@ -739,7 +740,7 @@ struct BezierEase : public QEasingCurveFunction
         qreal cos = b * x - a * x_squared;
 
         if (cos < 0)
-            return 0.225 * (cos * 1 *-cos - cos) + cos;
+            return 0.225 * (cos * 1 * -cos - cos) + cos;
         return 0.225 * (cos * cos - cos) + cos;
     }
 
@@ -794,15 +795,15 @@ struct BezierEase : public QEasingCurveFunction
 
         if (D >= 0) {
             const qreal D_sqrt = qSqrt(D);
-            qreal u = _cbrt( -q * 0.5 + D_sqrt);
-            qreal v = _cbrt( -q * 0.5 - D_sqrt);
+            qreal u = _cbrt(-q * 0.5 + D_sqrt);
+            qreal v = _cbrt(-q * 0.5 - D_sqrt);
             qreal z1 = u + v;
 
             qreal t1 = z1 - a_by3;
 
             if (inRange(t1))
                 return t1;
-            qreal z2 = -1 *u;
+            qreal z2 = -1 * u;
             qreal t2 = z2 - a_by3;
             return t2;
         }
@@ -825,7 +826,7 @@ struct BezierEase : public QEasingCurveFunction
 
         cosacos(g, s1, s2, s3);
 
-        qreal z1 = -1* f * s2;
+        qreal z1 = -1 * f * s2;
         qreal t1 = z1 - a_by3;
         if (inRange(t1))
             return t1;
@@ -940,7 +941,7 @@ struct ElasticEase : public QEasingCurveFunction
     {
         qreal p = (_p < 0) ? qreal(0.3) : _p;
         qreal a = (_a < 0) ? qreal(1.0) : _a;
-        switch(_t) {
+        switch (_t) {
         case QEasingCurve::InElastic:
             return easeInElastic(t, a, p);
         case QEasingCurve::OutElastic:
@@ -973,7 +974,7 @@ struct BounceEase : public QEasingCurveFunction
     qreal value(qreal t) override
     {
         qreal a = (_a < 0) ? qreal(1.0) : _a;
-        switch(_t) {
+        switch (_t) {
         case QEasingCurve::InBounce:
             return easeInBounce(t, a);
         case QEasingCurve::OutBounce:
@@ -1011,7 +1012,7 @@ struct BackEase : public QEasingCurveFunction
         if (!(t < 1))
             return 1;
         qreal o = (_o < 0) ? qreal(1.70158) : _o;
-        switch(_t) {
+        switch (_t) {
         case QEasingCurve::InBack:
             return easeInBack(t, o);
         case QEasingCurve::OutBack:
@@ -1028,7 +1029,7 @@ struct BackEase : public QEasingCurveFunction
 
 static QEasingCurve::EasingFunction curveToFunc(QEasingCurve::Type curve)
 {
-    switch(curve) {
+    switch (curve) {
     case QEasingCurve::Linear:
         return &easeNone;
     case QEasingCurve::InQuad:
@@ -1103,7 +1104,7 @@ static QEasingCurve::EasingFunction curveToFunc(QEasingCurve::Type curve)
 
 static QEasingCurveFunction *curveToFunctionObject(QEasingCurve::Type type)
 {
-    switch(type) {
+    switch (type) {
     case QEasingCurve::InElastic:
     case QEasingCurve::OutElastic:
     case QEasingCurve::InOutElastic:
@@ -1197,14 +1198,14 @@ bool QEasingCurve::operator==(const QEasingCurve &other) const
             && d_ptr->type == other.d_ptr->type;
     if (res) {
         if (d_ptr->config && other.d_ptr->config) {
-        // catch the config content
+            // catch the config content
             res = d_ptr->config->operator==(*(other.d_ptr->config));
 
         } else if (d_ptr->config || other.d_ptr->config) {
-        // one one has a config object, which could contain default values
-            res = qFuzzyCompare(amplitude(), other.amplitude()) &&
-                  qFuzzyCompare(period(), other.period()) &&
-                  qFuzzyCompare(overshoot(), other.overshoot());
+            // one one has a config object, which could contain default values
+            res = qFuzzyCompare(amplitude(), other.amplitude())
+               && qFuzzyCompare(period(), other.period())
+               && qFuzzyCompare(overshoot(), other.overshoot());
         }
     }
     return res;
@@ -1275,7 +1276,7 @@ void QEasingCurve::setPeriod(qreal period)
  */
 qreal QEasingCurve::overshoot() const
 {
-    return d_ptr->config ? d_ptr->config->_o : qreal(1.70158) ;
+    return d_ptr->config ? d_ptr->config->_o : qreal(1.70158);
 }
 
 /*!
@@ -1307,10 +1308,10 @@ void QEasingCurve::addCubicBezierSegment(const QPointF & c1, const QPointF & c2,
     d_ptr->config->_bezierCurves << c1 << c2 << endPoint;
 }
 
-QVector<QPointF> static inline tcbToBezier(const TCBPoints &tcbPoints)
+QList<QPointF> static inline tcbToBezier(const TCBPoints &tcbPoints)
 {
     const int count = tcbPoints.count();
-    QVector<QPointF> bezierPoints;
+    QList<QPointF> bezierPoints;
     bezierPoints.reserve(3 * (count - 1));
 
     for (int i = 1; i < count; i++) {
@@ -1356,7 +1357,7 @@ QVector<QPointF> static inline tcbToBezier(const TCBPoints &tcbPoints)
 /*!
     Adds a segment of a TCB bezier spline to define a custom easing curve.
     It is only applicable if type() is QEasingCurve::TCBSpline.
-    The spline has to start explitly at (0.0, 0.0) and has to end at (1.0, 1.0) to
+    The spline has to start explicitly at (0.0, 0.0) and has to end at (1.0, 1.0) to
     be a valid easing curve.
     The tension \a t changes the length of the tangent vector.
     The continuity \a c changes the sharpness in change between the tangents.
@@ -1372,7 +1373,7 @@ void QEasingCurve::addTCBSegment(const QPointF &nextPoint, qreal t, qreal c, qre
     if (!d_ptr->config)
         d_ptr->config = curveToFunctionObject(d_ptr->type);
 
-    d_ptr->config->_tcbPoints.append(TCBPoint(nextPoint, t, c ,b));
+    d_ptr->config->_tcbPoints.append(TCBPoint(nextPoint, t, c, b));
 
     if (nextPoint == QPointF(1.0, 1.0)) {
         d_ptr->config->_bezierCurves = tcbToBezier(d_ptr->config->_tcbPoints);
@@ -1382,20 +1383,15 @@ void QEasingCurve::addTCBSegment(const QPointF &nextPoint, qreal t, qreal c, qre
 }
 
 /*!
-    \fn QList<QPointF> QEasingCurve::cubicBezierSpline() const
-    \obsolete Use toCubicSpline() instead.
- */
-
-/*!
     \since 5.0
 
     Returns the cubicBezierSpline that defines a custom easing curve.
     If the easing curve does not have a custom bezier easing curve the list
     is empty.
 */
-QVector<QPointF> QEasingCurve::toCubicSpline() const
+QList<QPointF> QEasingCurve::toCubicSpline() const
 {
-    return d_ptr->config ? d_ptr->config->_bezierCurves : QVector<QPointF>();
+    return d_ptr->config ? d_ptr->config->_bezierCurves : QList<QPointF>();
 }
 
 /*!
@@ -1411,8 +1407,8 @@ void QEasingCurvePrivate::setType_helper(QEasingCurve::Type newType)
     qreal amp = -1.0;
     qreal period = -1.0;
     qreal overshoot = -1.0;
-    QVector<QPointF> bezierCurves;
-    QVector<TCBPoint> tcbPoints;
+    QList<QPointF> bezierCurves;
+    QList<TCBPoint> tcbPoints;
 
     if (config) {
         amp = config->_a;

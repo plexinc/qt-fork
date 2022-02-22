@@ -32,15 +32,10 @@
  * The color of the icon can be overridden using CSS variables. When using
  * iron-icon both the fill and stroke can be overridden the variables:
  * --cr-icon-button-fill-color
- * --cr-icon-button-fill-color-focus
  * --cr-icon-button-stroke-color
- * --cr-icon-button-stroke-color-focus
  *
  * When not using iron-icon (ie. specifying --cr-icon-image), the icons support
  * one color and the 'stroke' variables are ignored.
- *
- * The '-focus' variables are used for opaque ripple support. This is enabled
- * when the 'a11y-enhanced' attribute on <html> is present.
  *
  * When using iron-icon's, more than one icon can be specified by setting
  * the |ironIcon| property to a comma-delimited list of keys.
@@ -74,6 +69,17 @@ Polymer({
       reflectToAttribute: true,
     },
 
+    noRippleOnFocus: {
+      type: Boolean,
+      value: false,
+    },
+
+    /** @private */
+    multipleIcons_: {
+      type: Boolean,
+      reflectToAttribute: true,
+    },
+
     /** @private */
     rippleShowing_: {
       type: Boolean,
@@ -89,15 +95,26 @@ Polymer({
   },
 
   listeners: {
-    blur: 'hideRipple_',
+    blur: 'onBlur_',
     click: 'onClick_',
     down: 'showRipple_',
-    focus: 'showRipple_',
+    focus: 'onFocus_',
     keydown: 'onKeyDown_',
     keyup: 'onKeyUp_',
     pointerdown: 'ensureRipple',
     up: 'hideRipple_',
   },
+
+  /**
+   * It is possible to activate a tab when the space key is pressed down. When
+   * this element has focus, the keyup event for the space key should not
+   * perform a 'click'. |spaceKeyDown_| tracks when a space pressed and handled
+   * by this element. Space keyup will only result in a 'click' when
+   * |spaceKeyDown_| is true. |spaceKeyDown_| is set to false when element loses
+   * focus.
+   * @private {boolean}
+   */
+  spaceKeyDown_: false,
 
   /** @private */
   hideRipple_() {
@@ -143,6 +160,22 @@ Polymer({
     this.setAttribute('tabindex', value);
   },
 
+  /** @private */
+  onFocus_() {
+    if (!this.noRippleOnFocus) {
+      this.showRipple_();
+    }
+  },
+
+  /** @private */
+  onBlur_() {
+    this.spaceKeyDown_ = false;
+
+    if (!this.noRippleOnFocus) {
+      this.hideRipple_();
+    }
+  },
+
   /**
    * @param {!Event} e
    * @private
@@ -160,10 +193,15 @@ Polymer({
       return;
     }
     const icons = (this.ironIcon || '').split(',');
+    this.multipleIcons_ = icons.length > 1;
     icons.forEach(icon => {
-      const element = document.createElement('iron-icon');
-      element.icon = icon;
-      this.$.icon.appendChild(element);
+      const ironIcon = document.createElement('iron-icon');
+      ironIcon.icon = icon;
+      this.$.icon.appendChild(ironIcon);
+      if (ironIcon.shadowRoot) {
+        ironIcon.shadowRoot.querySelectorAll('svg', 'img')
+            .forEach(child => child.setAttribute('role', 'none'));
+      }
     });
     if (!this.hasRipple()) {
       return;
@@ -192,6 +230,8 @@ Polymer({
 
     if (e.key === 'Enter') {
       this.click();
+    } else if (e.key === ' ') {
+      this.spaceKeyDown_ = true;
     }
   },
 
@@ -205,7 +245,8 @@ Polymer({
       e.stopPropagation();
     }
 
-    if (e.key === ' ') {
+    if (this.spaceKeyDown_ && e.key === ' ') {
+      this.spaceKeyDown_ = false;
       this.click();
     }
   },
@@ -222,3 +263,4 @@ Polymer({
     return ripple;
   },
 });
+/* #ignore */ console.warn('crbug/1173575, non-JS module files deprecated.');

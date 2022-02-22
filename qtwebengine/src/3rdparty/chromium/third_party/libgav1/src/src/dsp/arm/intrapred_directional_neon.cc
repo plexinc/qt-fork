@@ -19,11 +19,11 @@
 
 #include <arm_neon.h>
 
-#include <algorithm>  // std::min
+#include <algorithm>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
-#include <cstring>  // memset
+#include <cstring>
 
 #include "src/dsp/arm/common_neon.h"
 #include "src/dsp/constants.h"

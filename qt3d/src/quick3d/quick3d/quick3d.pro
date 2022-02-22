@@ -1,8 +1,8 @@
 TARGET   = Qt3DQuick
 MODULE   = 3dquick
-DEFINES += BUILD_QT3D_MODULE
 
 QT      += core-private gui-private qml qml-private quick quick-private 3dcore 3dcore-private
+CONFIG  += c++17 qmltypes qmltypes_install
 
 gcov {
     QMAKE_CXXFLAGS += -fprofile-arcs -ftest-coverage
@@ -26,5 +26,8 @@ SOURCES += \
     qquaternionanimation.cpp
 
 include(./items/items.pri)
+
+QML_IMPORT_NAME = Qt3DQuick
+QML_IMPORT_MAJOR_VERSION = 1
 
 load(qt_module)

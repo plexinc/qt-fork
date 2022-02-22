@@ -334,8 +334,9 @@ dialog.config {
   position: relative;
 }
 
-#port-forwarding-enable {
-  vertical-align: middle;
+.port-forwarding-container {
+  align-items: center;
+  display: flex;
 }
 
 .close-button {

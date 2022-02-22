@@ -9,16 +9,21 @@
 #include <memory>
 #include <string>
 
-#include "net/third_party/quiche/src/quic/core/crypto/proof_verifier.h"
-#include "net/third_party/quiche/src/quic/core/crypto/quic_crypto_client_config.h"
-#include "net/third_party/quiche/src/quic/core/quic_config.h"
-#include "net/third_party/quiche/src/quic/core/quic_crypto_handshaker.h"
-#include "net/third_party/quiche/src/quic/core/quic_crypto_stream.h"
-#include "net/third_party/quiche/src/quic/core/quic_server_id.h"
-#include "net/third_party/quiche/src/quic/core/quic_session.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
+#include "quic/core/crypto/proof_verifier.h"
+#include "quic/core/crypto/quic_crypto_client_config.h"
+#include "quic/core/quic_config.h"
+#include "quic/core/quic_crypto_handshaker.h"
+#include "quic/core/quic_crypto_stream.h"
+#include "quic/core/quic_server_id.h"
+#include "quic/core/quic_session.h"
+#include "quic/core/quic_versions.h"
+#include "quic/platform/api/quic_export.h"
 
 namespace quic {
+
+namespace test {
+class QuicCryptoClientStreamPeer;
+}  // namespace test
 
 class QUIC_EXPORT_PRIVATE QuicCryptoClientStreamBase : public QuicCryptoStream {
  public:
@@ -111,6 +116,10 @@ class QUIC_EXPORT_PRIVATE QuicCryptoClientStream
     // Returns true if early data (0-RTT) was accepted in the connection.
     virtual bool EarlyDataAccepted() const = 0;
 
+    // Returns the ssl_early_data_reason_t describing why 0-RTT was accepted or
+    // rejected.
+    virtual ssl_early_data_reason_t EarlyDataReason() const = 0;
+
     // Returns true if the client received an inchoate REJ during the handshake,
     // extending the handshake by one round trip. This only applies for QUIC
     // crypto handshakes. The equivalent feature in IETF QUIC is a Retry packet,
@@ -142,14 +151,40 @@ class QUIC_EXPORT_PRIVATE QuicCryptoClientStream
     // buffered at each encryption level.
     virtual size_t BufferSizeLimitForLevel(EncryptionLevel level) const = 0;
 
+    // Returns whether the implementation supports key update.
+    virtual bool KeyUpdateSupportedLocally() const = 0;
+
+    // Called to generate a decrypter for the next key phase. Each call should
+    // generate the key for phase n+1.
+    virtual std::unique_ptr<QuicDecrypter>
+    AdvanceKeysAndCreateCurrentOneRttDecrypter() = 0;
+
+    // Called to generate an encrypter for the same key phase of the last
+    // decrypter returned by AdvanceKeysAndCreateCurrentOneRttDecrypter().
+    virtual std::unique_ptr<QuicEncrypter> CreateCurrentOneRttEncrypter() = 0;
+
     // Returns current handshake state.
     virtual HandshakeState GetHandshakeState() const = 0;
 
     // Called when a 1RTT packet has been acknowledged.
     virtual void OnOneRttPacketAcknowledged() = 0;
 
+    // Called when a packet of ENCRYPTION_HANDSHAKE gets sent.
+    virtual void OnHandshakePacketSent() = 0;
+
+    // Called when connection gets closed.
+    virtual void OnConnectionClosed(QuicErrorCode error,
+                                    ConnectionCloseSource source) = 0;
+
     // Called when handshake done has been received.
     virtual void OnHandshakeDoneReceived() = 0;
+
+    // Called when new token has been received.
+    virtual void OnNewTokenReceived(absl::string_view token) = 0;
+
+    // Called when application state is received.
+    virtual void SetServerApplicationStateForResumption(
+        std::unique_ptr<ApplicationState> application_state) = 0;
   };
 
   // ProofHandler is an interface that handles callbacks from the crypto
@@ -175,7 +210,8 @@ class QUIC_EXPORT_PRIVATE QuicCryptoClientStream
                          QuicSession* session,
                          std::unique_ptr<ProofVerifyContext> verify_context,
                          QuicCryptoClientConfig* crypto_config,
-                         ProofHandler* proof_handler);
+                         ProofHandler* proof_handler,
+                         bool has_application_state);
   QuicCryptoClientStream(const QuicCryptoClientStream&) = delete;
   QuicCryptoClientStream& operator=(const QuicCryptoClientStream&) = delete;
 
@@ -186,6 +222,7 @@ class QUIC_EXPORT_PRIVATE QuicCryptoClientStream
   int num_sent_client_hellos() const override;
   bool IsResumption() const override;
   bool EarlyDataAccepted() const override;
+  ssl_early_data_reason_t EarlyDataReason() const override;
   bool ReceivedInchoateReject() const override;
 
   int num_scup_messages_received() const override;
@@ -198,9 +235,21 @@ class QUIC_EXPORT_PRIVATE QuicCryptoClientStream
   CryptoMessageParser* crypto_message_parser() override;
   void OnPacketDecrypted(EncryptionLevel /*level*/) override {}
   void OnOneRttPacketAcknowledged() override;
+  void OnHandshakePacketSent() override;
+  void OnConnectionClosed(QuicErrorCode error,
+                          ConnectionCloseSource source) override;
   void OnHandshakeDoneReceived() override;
+  void OnNewTokenReceived(absl::string_view token) override;
+  std::string GetAddressToken() const override;
+  bool ValidateAddressToken(absl::string_view token) const override;
   HandshakeState GetHandshakeState() const override;
+  void SetServerApplicationStateForResumption(
+      std::unique_ptr<ApplicationState> application_state) override;
   size_t BufferSizeLimitForLevel(EncryptionLevel level) const override;
+  bool KeyUpdateSupportedLocally() const override;
+  std::unique_ptr<QuicDecrypter> AdvanceKeysAndCreateCurrentOneRttDecrypter()
+      override;
+  std::unique_ptr<QuicEncrypter> CreateCurrentOneRttEncrypter() override;
 
   std::string chlo_hash() const;
 
@@ -210,6 +259,7 @@ class QUIC_EXPORT_PRIVATE QuicCryptoClientStream
   }
 
  private:
+  friend class test::QuicCryptoClientStreamPeer;
   std::unique_ptr<HandshakerInterface> handshaker_;
 };
 

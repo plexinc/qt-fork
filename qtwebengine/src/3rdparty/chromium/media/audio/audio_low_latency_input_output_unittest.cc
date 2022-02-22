@@ -11,6 +11,7 @@
 #include "base/bind.h"
 #include "base/environment.h"
 #include "base/files/file_util.h"
+#include "base/logging.h"
 #include "base/macros.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
@@ -209,8 +210,12 @@ class FullDuplexAudioSinkSource
       EXPECT_EQ(channels_, dest->channels());
       size = std::min(dest->frames() * frame_size_, size);
       EXPECT_EQ(static_cast<size_t>(size) % sizeof(*dest->channel(0)), 0U);
-      dest->FromInterleaved(source, size / frame_size_,
-                            frame_size_ / channels_);
+
+      // We should only have 16 bits per sample.
+      DCHECK_EQ(frame_size_ / channels_, 2);
+      dest->FromInterleaved<SignedInt16SampleTypeTraits>(
+          reinterpret_cast<const int16_t*>(source), size / channels_);
+
       buffer_->Seek(size);
       return size / frame_size_;
     }
@@ -390,10 +395,10 @@ TEST_F(AudioLowLatencyInputOutputTest, DISABLED_FullDuplexDelayMeasurement) {
   // Wait for approximately 10 seconds. The user will hear their own voice
   // in loop back during this time. At the same time, delay recordings are
   // performed and stored in the output text file.
+  base::RunLoop run_loop;
   task_runner()->PostDelayedTask(
-      FROM_HERE, base::RunLoop::QuitCurrentWhenIdleClosureDeprecated(),
-      TestTimeouts::action_timeout());
-  base::RunLoop().Run();
+      FROM_HERE, run_loop.QuitClosure(), TestTimeouts::action_timeout());
+  run_loop.Run();
 
   aos->Stop();
   ais->Stop();

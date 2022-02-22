@@ -41,8 +41,8 @@
 
 #include <QtCore/qbitarray.h>
 #include <QtCore/qdebug.h>
+#include <QtCore/qlist.h>
 #include <QtCore/qloggingcategory.h>
-#include <QtCore/qvector.h>
 
 #include <algorithm>
 
@@ -139,7 +139,7 @@ void QModbusServer::setServerAddress(int serverAddress)
 }
 
 /*!
-    Returns the address of this Mobus server instance.
+    Returns the address of this Modbus server instance.
 
     \sa setServerAddress()
 */
@@ -311,7 +311,7 @@ bool QModbusServer::setValue(int option, const QVariant &newValue)
 {
 #define CHECK_INT_OR_UINT(val) \
     do { \
-        if ((val.type() != QVariant::Int) && (val.type() != QVariant::UInt)) \
+        if ((val.typeId() != QMetaType::Type::Int) && (val.typeId() != QMetaType::Type::UInt)) \
             return false; \
     } while (0)
 
@@ -347,7 +347,7 @@ bool QModbusServer::setValue(int option, const QVariant &newValue)
         return true;
     }
     case ListenOnlyMode: {
-        if (newValue.type() != QVariant::Bool)
+        if (newValue.typeId() != QMetaType::Type::Bool)
             return false;
         d->m_serverOptions.insert(option, newValue);
         return true;
@@ -365,7 +365,7 @@ bool QModbusServer::setValue(int option, const QVariant &newValue)
         return true;
     }
     case AdditionalData: {
-        if (newValue.type() != QVariant::ByteArray)
+        if (newValue.typeId() != QMetaType::Type::QByteArray)
             return false;
         const QByteArray additionalData = newValue.toByteArray();
         if (additionalData.size() > 249)
@@ -448,7 +448,7 @@ bool QModbusServer::data(QModbusDataUnit *newData) const
 */
 bool QModbusServer::setData(QModbusDataUnit::RegisterType table, quint16 address, quint16 data)
 {
-    return writeData(QModbusDataUnit(table, address, QVector<quint16>() << data));
+    return writeData(QModbusDataUnit(table, address, QList<quint16> { data }));
 }
 
 /*!
@@ -502,9 +502,9 @@ bool QModbusServer::writeData(const QModbusDataUnit &newData)
         return false;
 
     bool changeRequired = false;
-    for (uint i = 0; i < newData.valueCount(); i++) {
+    for (qsizetype i = 0; i < newData.valueCount(); i++) {
         const quint16 newValue = newData.value(i);
-        const int translatedIndex = newData.startAddress() - current.startAddress() + i;
+        const qsizetype translatedIndex = newData.startAddress() - current.startAddress() + i;
         changeRequired |= (current.value(translatedIndex) != newValue);
         current.setValue(translatedIndex, newValue);
     }
@@ -725,7 +725,7 @@ QModbusResponse QModbusServerPrivate::readBits(const QModbusPdu &request,
             QModbusExceptionResponse::IllegalDataAddress);
     }
 
-    quint8 byteCount = count / 8;
+    quint8 byteCount = quint8(count / 8);
     if ((count % 8) != 0) {
         byteCount += 1;
         // If the range is not a multiple of 8, resize.
@@ -829,7 +829,7 @@ QModbusResponse QModbusServerPrivate::processReadExceptionStatusRequest(const QM
                                         QModbusExceptionResponse::IllegalDataAddress);
     }
 
-    quint16 address = 0;
+    qsizetype address = 0;
     quint8 byte = 0;
     for (int currentBit = 0; currentBit < 8; ++currentBit)
         if (coils.value(address++)) // The padding happens inside value().
@@ -946,7 +946,7 @@ QModbusResponse QModbusServerPrivate::processGetCommEventLogRequest(const QModbu
     }
     const quint16 deviceBusy = tmp.value<quint16>();
 
-    QVector<quint8> eventLog(int(m_commEventLog.size()));
+    QList<quint8> eventLog(int(m_commEventLog.size()));
     std::copy(m_commEventLog.cbegin(), m_commEventLog.cend(), eventLog.begin());
 
     // 6 -> 3 x 2 Bytes (Status, Event Count and Message Count)
@@ -983,7 +983,7 @@ QModbusResponse QModbusServerPrivate::processWriteMultipleCoilsRequest(const QMo
             QModbusExceptionResponse::IllegalDataAddress);
     }
 
-    QVector<quint8> bytes;
+    QList<quint8> bytes;
     const QByteArray payload = request.data().mid(5);
     for (qint32 i = payload.size() - 1; i >= 0; --i)
         bytes.append(quint8(payload[i]));
@@ -1035,7 +1035,7 @@ QModbusResponse QModbusServerPrivate::processWriteMultipleRegistersRequest(
     const QByteArray pduData = request.data().remove(0,5);
     QDataStream stream(pduData);
 
-    QVector<quint16> values;
+    QList<quint16> values;
     quint16 tmp;
     for (int i = 0; i < numberOfRegisters; i++) {
         stream >> tmp;
@@ -1134,7 +1134,7 @@ QModbusResponse QModbusServerPrivate::processReadWriteMultipleRegistersRequest(
     const QByteArray pduData = request.data().remove(0,9);
     QDataStream stream(pduData);
 
-    QVector<quint16> values;
+    QList<quint16> values;
     quint16 tmp;
     for (int i = 0; i < writeQuantity; i++) {
         stream >> tmp;

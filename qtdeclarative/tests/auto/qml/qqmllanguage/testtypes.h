@@ -177,7 +177,7 @@ signals:
     void somethingUnknownChanged();
 
 protected:
-    virtual bool event(QEvent *event);
+    bool event(QEvent *event) override;
 
 private:
     friend class tst_qqmllanguage;
@@ -437,7 +437,7 @@ public:
     QDate dateProperty() const {
        return datePropertyValue;
     }
-    void setDateProperty(const QDate &v) {
+    void setDateProperty(QDate v) {
         datePropertyValue = v;
         emit datePropertyChanged();
     }
@@ -446,7 +446,7 @@ public:
     QTime timeProperty() const {
        return timePropertyValue;
     }
-    void setTimeProperty(const QTime &v) {
+    void setTimeProperty(QTime v) {
         timePropertyValue = v;
         emit timePropertyChanged();
     }
@@ -654,10 +654,10 @@ class MyContainer : public QObject
 public:
     MyContainer() {}
 
-    QQmlListProperty<QObject> children() { return QQmlListProperty<QObject>(this, m_children); }
-    QQmlListProperty<MyContainer> containerChildren() { return QQmlListProperty<MyContainer>(this, m_containerChildren); }
+    QQmlListProperty<QObject> children() { return QQmlListProperty<QObject>(this, &m_children); }
+    QQmlListProperty<MyContainer> containerChildren() { return QQmlListProperty<MyContainer>(this, &m_containerChildren); }
     QList<QObject *> *getChildren() { return &m_children; }
-    QQmlListProperty<MyInterface> qlistInterfaces() { return QQmlListProperty<MyInterface>(this, m_interfaces); }
+    QQmlListProperty<MyInterface> qlistInterfaces() { return QQmlListProperty<MyInterface>(this, &m_interfaces); }
     QList<MyInterface *> *getQListInterfaces() { return &m_interfaces; }
 
     QList<MyContainer*> m_containerChildren;
@@ -675,7 +675,7 @@ public:
         : QQmlPropertyValueSource() {}
 
     QQmlProperty prop;
-    virtual void setTarget(const QQmlProperty &p)
+    void setTarget(const QQmlProperty &p) override
     {
         prop = p;
     }
@@ -820,7 +820,7 @@ namespace MyNamespace {
         Q_OBJECT
         Q_PROPERTY(QQmlListProperty<MyNamespace::MyNamespacedType> list READ list)
     public:
-        QQmlListProperty<MyNamespacedType> list() { return QQmlListProperty<MyNamespacedType>(this, m_list); }
+        QQmlListProperty<MyNamespacedType> list() { return QQmlListProperty<MyNamespacedType>(this, &m_list); }
 
     private:
         QList<MyNamespacedType *> m_list;
@@ -835,15 +835,15 @@ class MyCustomParserType : public QObject
 class MyCustomParserTypeParser : public QQmlCustomParser
 {
 public:
-    virtual void verifyBindings(const QQmlRefPointer<QV4::ExecutableCompilationUnit> &, const QList<const QV4::CompiledData::Binding *> &) {}
-    virtual void applyBindings(QObject *, const QQmlRefPointer<QV4::ExecutableCompilationUnit> &, const QList<const QV4::CompiledData::Binding *> &) {}
+    void verifyBindings(const QQmlRefPointer<QV4::ExecutableCompilationUnit> &, const QList<const QV4::CompiledData::Binding *> &) override {}
+    void applyBindings(QObject *, const QQmlRefPointer<QV4::ExecutableCompilationUnit> &, const QList<const QV4::CompiledData::Binding *> &) override {}
 };
 
 class EnumSupportingCustomParser : public QQmlCustomParser
 {
 public:
-    virtual void verifyBindings(const QQmlRefPointer<QV4::ExecutableCompilationUnit> &, const QList<const QV4::CompiledData::Binding *> &);
-    virtual void applyBindings(QObject *, const QQmlRefPointer<QV4::ExecutableCompilationUnit> &, const QList<const QV4::CompiledData::Binding *> &) {}
+    void verifyBindings(const QQmlRefPointer<QV4::ExecutableCompilationUnit> &, const QList<const QV4::CompiledData::Binding *> &) override;
+    void applyBindings(QObject *, const QQmlRefPointer<QV4::ExecutableCompilationUnit> &, const QList<const QV4::CompiledData::Binding *> &) override {}
 };
 
 class MyParserStatus : public QObject, public QQmlParserStatus
@@ -856,8 +856,8 @@ public:
     int classBeginCount() const { return m_cbc; }
     int componentCompleteCount() const { return m_ccc; }
 
-    virtual void classBegin() { m_cbc++; }
-    virtual void componentComplete() { m_ccc++; }
+    void classBegin() override { m_cbc++; }
+    void componentComplete() override { m_ccc++; }
 private:
     int m_cbc;
     int m_ccc;
@@ -1322,8 +1322,8 @@ class CustomBinding : public QObject, public QQmlParserStatus
     Q_PROPERTY(QObject* target READ target WRITE setTarget)
 public:
 
-    virtual void classBegin() {}
-    virtual void componentComplete();
+    void classBegin() override {}
+    void componentComplete() override;
 
     QObject *target() const { return m_target; }
     void setTarget(QObject *newTarget) { m_target = newTarget; }
@@ -1336,8 +1336,8 @@ public:
 
 class CustomBindingParser : public QQmlCustomParser
 {
-    virtual void verifyBindings(const QQmlRefPointer<QV4::ExecutableCompilationUnit> &, const QList<const QV4::CompiledData::Binding *> &) {}
-    virtual void applyBindings(QObject *, const QQmlRefPointer<QV4::ExecutableCompilationUnit> &, const QList<const QV4::CompiledData::Binding *> &);
+    void verifyBindings(const QQmlRefPointer<QV4::ExecutableCompilationUnit> &, const QList<const QV4::CompiledData::Binding *> &) override {}
+    void applyBindings(QObject *, const QQmlRefPointer<QV4::ExecutableCompilationUnit> &, const QList<const QV4::CompiledData::Binding *> &) override;
 };
 
 class SimpleObjectWithCustomParser : public QObject
@@ -1382,8 +1382,8 @@ private:
 
 class SimpleObjectCustomParser : public QQmlCustomParser
 {
-    virtual void verifyBindings(const QQmlRefPointer<QV4::ExecutableCompilationUnit> &, const QList<const QV4::CompiledData::Binding *> &) {}
-    virtual void applyBindings(QObject *, const QQmlRefPointer<QV4::ExecutableCompilationUnit> &, const QList<const QV4::CompiledData::Binding *> &);
+    void verifyBindings(const QQmlRefPointer<QV4::ExecutableCompilationUnit> &, const QList<const QV4::CompiledData::Binding *> &) override {}
+    void applyBindings(QObject *, const QQmlRefPointer<QV4::ExecutableCompilationUnit> &, const QList<const QV4::CompiledData::Binding *> &) override;
 };
 
 class RootObjectInCreationTester : public QObject
@@ -1431,22 +1431,22 @@ class DeferredProperties : public QObject
     Q_CLASSINFO("DeferredPropertyNames", "groupProperty,listProperty")
     Q_CLASSINFO("DefaultProperty", "listProperty")
 public:
-    QQmlListProperty<QObject> listProperty() { return QQmlListProperty<QObject>(this, m_list); }
+    QQmlListProperty<QObject> listProperty() { return QQmlListProperty<QObject>(this, &m_list); }
 
 private:
     QObject *m_group = 0;
     QObjectList m_list;
 };
 
-class ScopedEnumsWithNameClash
+namespace ScopedEnumsWithNameClash
 {
-    Q_GADGET
-    Q_ENUMS(ScopedEnum)
-    Q_ENUMS(OtherScopedEnum)
+Q_NAMESPACE
 
-public:
-    enum class ScopedEnum : int { ScopedVal1, ScopedVal2, ScopedVal3, OtherScopedEnum };
-    enum class OtherScopedEnum : int { ScopedVal1 = 10, ScopedVal2 = 11, ScopedVal3 = 12 };
+enum class ScopedEnum : int { ScopedVal1, ScopedVal2, ScopedVal3, OtherScopedEnum };
+Q_ENUM_NS(ScopedEnum)
+
+enum class OtherScopedEnum : int { ScopedVal1 = 10, ScopedVal2 = 11, ScopedVal3 = 12 };
+Q_ENUM_NS(OtherScopedEnum)
 };
 
 class ScopedEnumsWithResolvedNameClash
@@ -1468,6 +1468,9 @@ class Extension : public QObject
 public:
     Extension(QObject *parent = nullptr) : QObject(parent) {}
     int extension() const { return 42; }
+    Q_INVOKABLE int invokable() { return 123; }
+public slots:
+    int slot() { return 456; }
 };
 
 class Extended : public QObject
@@ -1525,6 +1528,249 @@ public:
 
 private:
     UncreatableSingleton() { setObjectName("uncreatable"); }
+};
+
+class UncreatableElementNoReason : public QObject
+{
+    Q_OBJECT
+    QML_ELEMENT
+    QML_UNCREATABLE("")
+};
+
+namespace ExtensionNamespace {
+Q_NAMESPACE
+
+enum Foo {
+    Bar = 9,
+    Baz = 12
+};
+Q_ENUM_NS(Foo)
+}
+
+class ExtendedByNamespace : public QObject
+{
+    Q_OBJECT
+    QML_ELEMENT
+    QML_EXTENDED_NAMESPACE(ExtensionNamespace)
+
+    Q_PROPERTY(int own READ own CONSTANT)
+public:
+
+    enum OwnEnum {
+        Moo = 16,
+        Maeh = 17
+    };
+    Q_ENUM(OwnEnum)
+
+    ExtendedByNamespace(QObject *parent = nullptr) : QObject(parent) {}
+    int own() const { return 93; }
+};
+
+class FactorySingleton : public QObject
+{
+    Q_OBJECT
+    QML_ELEMENT
+    QML_SINGLETON
+
+    Q_PROPERTY(int foo READ foo CONSTANT)
+public:
+
+    static FactorySingleton *create(QQmlEngine *, QJSEngine *)
+    {
+        return new FactorySingleton;
+    }
+
+    int foo() const { return 314; }
+
+private:
+    FactorySingleton() = default;
+};
+
+class ExtendedSingleton : public QObject {
+    Q_OBJECT
+    QML_ELEMENT
+    QML_SINGLETON
+    QML_EXTENDED(Extension)
+
+    Q_PROPERTY(int foo READ foo CONSTANT)
+public:
+
+    int foo() const { return 315; }
+};
+
+class NamespaceExtendedSingleton : public QObject {
+    Q_OBJECT
+    QML_ELEMENT
+    QML_SINGLETON
+    QML_EXTENDED_NAMESPACE(ExtensionNamespace)
+
+    Q_PROPERTY(int foo READ foo CONSTANT)
+public:
+
+    int foo() const { return 316; }
+};
+
+class ForeignSingleton : public QObject {
+    Q_OBJECT
+    Q_PROPERTY(int number READ number WRITE setnumber NOTIFY numberchanged)
+public:
+    ForeignSingleton(QObject *parent = nullptr) : QObject(parent) {};
+    int number() { return m_number; }
+    void setnumber(int number) { m_number = number; }
+    static ForeignSingleton *obtain() { return new ForeignSingleton; }
+signals:
+    void numberchanged();
+private:
+    int m_number = 0;
+};
+
+class WrapperSingleton : public QObject {
+    Q_OBJECT
+    QML_NAMED_ELEMENT(ForeignSingleton)
+    QML_FOREIGN(ForeignSingleton)
+    QML_SINGLETON
+
+public:
+    static ForeignSingleton* create(QQmlEngine *, QJSEngine *) {
+        ForeignSingleton *singleton = ForeignSingleton::obtain();
+        singleton->setnumber(42);
+        return singleton;
+    }
+
+private:
+    WrapperSingleton() = default;
+};
+
+class ExtensionA : public QObject
+{
+    Q_OBJECT
+    QML_ANONYMOUS
+    Q_PROPERTY(int a READ a CONSTANT)
+    Q_PROPERTY(int c READ c CONSTANT)
+    Q_PROPERTY(int d READ d CONSTANT)
+    Q_PROPERTY(int f READ f CONSTANT)
+    Q_PROPERTY(int g READ g CONSTANT)
+public:
+    ExtensionA(QObject *parent = nullptr) : QObject(parent) {}
+    int a() const { return 'a'; }
+    int c() const { return 11; }
+    int d() const { return 21; }
+    int f() const { return 31; }
+    int g() const { return 41; }
+};
+
+class ExtensionB : public QObject
+{
+    Q_OBJECT
+    QML_ANONYMOUS
+    Q_PROPERTY(int b READ b CONSTANT)
+    Q_PROPERTY(int c READ c CONSTANT)
+    Q_PROPERTY(int d READ d CONSTANT)
+public:
+    ExtensionB(QObject *parent = nullptr) : QObject(parent) {}
+    int b() const { return 'b'; }
+    int c() const { return 12; }
+    int d() const { return 22; }
+};
+
+class MultiExtensionParent : public QObject
+{
+    Q_OBJECT
+    QML_ANONYMOUS
+    QML_EXTENDED(ExtensionA)
+    Q_PROPERTY(int p READ p CONSTANT)
+    Q_PROPERTY(int c READ c CONSTANT)
+    Q_PROPERTY(int f READ f CONSTANT)
+public:
+    MultiExtensionParent(QObject *parent = nullptr) : QObject(parent) {}
+    int p() const { return 'p'; }
+    int c() const { return 13; }
+    int f() const { return 33; }
+};
+
+class MultiExtension : public MultiExtensionParent
+{
+    Q_OBJECT
+    QML_ELEMENT
+    QML_EXTENDED(ExtensionB)
+    Q_PROPERTY(int e READ e CONSTANT)
+    Q_PROPERTY(int c READ c CONSTANT)
+    Q_PROPERTY(int g READ g CONSTANT)
+public:
+    MultiExtension(QObject *parent = nullptr) : MultiExtensionParent(parent) {}
+    int e() const { return 'e'; }
+    int c() const { return 14; }
+    int g() const { return 44; }
+};
+
+class StringSignaler : public QObject
+{
+    Q_OBJECT
+    QML_ELEMENT
+public:
+    StringSignaler(QObject *parent = nullptr) : QObject(parent) {}
+    Q_INVOKABLE void call() { emit signal(QJSValue("Hello world!")); }
+signals:
+    void signal(QJSValue value);
+};
+
+class EnumList : public QObject
+{
+    Q_OBJECT
+    QML_ELEMENT
+public:
+    enum Enum { Alpha, Beta, Gamma };
+    Q_ENUM(Enum)
+
+    Q_INVOKABLE QList<EnumList::Enum> list() const { return { Alpha, Beta, Gamma }; }
+};
+
+struct Large {
+    Q_GADGET
+    QML_VALUE_TYPE(large)
+
+    Q_PROPERTY(uint a MEMBER a)
+    Q_PROPERTY(uint b MEMBER b)
+    Q_PROPERTY(uint c MEMBER c)
+    Q_PROPERTY(uint d MEMBER d)
+    Q_PROPERTY(uint e MEMBER e)
+    Q_PROPERTY(uint f MEMBER f)
+
+public:
+    quint64 a;
+    quint64 b;
+    quint64 c;
+    quint64 d;
+    quint64 e;
+    quint64 f;
+};
+
+inline bool operator==(const Large &a, const Large &b)
+{
+    return a.a == b.a && a.b == b.b && a.c == b.c && a.d == b.d && a.e == b.e && a.f == b.f;
+}
+
+inline bool operator!=(const Large &a, const Large &b) { return !(a == b); }
+
+class Foo: public QObject {
+
+    Q_OBJECT
+    Q_PROPERTY(QVariantList fooProperty READ getList WRITE setList)
+    Q_PROPERTY(Large a MEMBER a BINDABLE aBindable)
+    Q_PROPERTY(Large b MEMBER b BINDABLE bBindable)
+    QML_ELEMENT
+
+public:
+    QVariantList getList() const { return mFooProperty;}
+    void setList(QVariantList list) { mFooProperty = list;}
+
+    QBindable<Large> aBindable() { return QBindable<Large>(&a); }
+    QBindable<Large> bBindable() { return QBindable<Large>(&b); }
+
+private:
+    QProperty<Large> a;
+    QProperty<Large> b;
+    QVariantList mFooProperty;
 };
 
 void registerTypes();

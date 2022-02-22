@@ -42,7 +42,9 @@ ExtensionFunction::ResponseAction ExtensionSetUpdateUrlDataFunction::Run() {
   std::string data;
   EXTENSION_FUNCTION_VALIDATE(args_->GetString(0, &data));
 
-  if (ManifestURL::UpdatesFromGallery(extension())) {
+  ExtensionManagement* extension_management =
+      ExtensionManagementFactory::GetForBrowserContext(browser_context());
+  if (extension_management->UpdatesFromWebstore(*extension())) {
     return RespondNow(Error(kUnknownErrorDoNotUse));
   }
 
@@ -54,14 +56,14 @@ ExtensionFunction::ResponseAction ExtensionSetUpdateUrlDataFunction::Run() {
 
 ExtensionFunction::ResponseAction
 ExtensionIsAllowedIncognitoAccessFunction::Run() {
-  return RespondNow(OneArgument(std::make_unique<base::Value>(
+  return RespondNow(OneArgument(base::Value(
       util::IsIncognitoEnabled(extension_id(), browser_context()))));
 }
 
 ExtensionFunction::ResponseAction
 ExtensionIsAllowedFileSchemeAccessFunction::Run() {
-  return RespondNow(OneArgument(std::make_unique<base::Value>(
-      util::AllowFileAccess(extension_id(), browser_context()))));
+  return RespondNow(OneArgument(
+      base::Value(util::AllowFileAccess(extension_id(), browser_context()))));
 }
 
 }  // namespace extensions

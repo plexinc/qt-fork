@@ -43,9 +43,9 @@
 #include "qwindowscombase.h"
 #include <QtCore/qt_windows.h>
 
+#include <QtCore/qlist.h>
 #include <QtCore/qmap.h>
 #include <QtCore/qpointer.h>
-#include <QtCore/qvector.h>
 
 #include <objidl.h>
 
@@ -65,17 +65,17 @@ public:
     DWORD reportedPerformedEffect() const;
 
     // IDataObject methods
-    STDMETHOD(GetData)(LPFORMATETC pformatetcIn, LPSTGMEDIUM pmedium);
-    STDMETHOD(GetDataHere)(LPFORMATETC pformatetc, LPSTGMEDIUM pmedium);
-    STDMETHOD(QueryGetData)(LPFORMATETC pformatetc);
-    STDMETHOD(GetCanonicalFormatEtc)(LPFORMATETC pformatetc, LPFORMATETC pformatetcOut);
-    STDMETHOD(SetData)(LPFORMATETC pformatetc, STGMEDIUM FAR * pmedium,
-                       BOOL fRelease);
-    STDMETHOD(EnumFormatEtc)(DWORD dwDirection, LPENUMFORMATETC FAR* ppenumFormatEtc);
-    STDMETHOD(DAdvise)(FORMATETC FAR* pFormatetc, DWORD advf,
-                      LPADVISESINK pAdvSink, DWORD FAR* pdwConnection);
-    STDMETHOD(DUnadvise)(DWORD dwConnection);
-    STDMETHOD(EnumDAdvise)(LPENUMSTATDATA FAR* ppenumAdvise);
+    STDMETHOD(GetData)(LPFORMATETC pformatetcIn, LPSTGMEDIUM pmedium) override;
+    STDMETHOD(GetDataHere)(LPFORMATETC pformatetc, LPSTGMEDIUM pmedium) override;
+    STDMETHOD(QueryGetData)(LPFORMATETC pformatetc) override;
+    STDMETHOD(GetCanonicalFormatEtc)(LPFORMATETC pformatetc, LPFORMATETC pformatetcOut) override;
+    STDMETHOD(SetData)(LPFORMATETC pformatetc, STGMEDIUM FAR *pmedium, BOOL fRelease) override;
+    STDMETHOD(EnumFormatEtc)(DWORD dwDirection, LPENUMFORMATETC FAR *ppenumFormatEtc) override;
+    STDMETHOD(DAdvise)
+    (FORMATETC FAR *pFormatetc, DWORD advf, LPADVISESINK pAdvSink,
+     DWORD FAR *pdwConnection) override;
+    STDMETHOD(DUnadvise)(DWORD dwConnection) override;
+    STDMETHOD(EnumDAdvise)(LPENUMSTATDATA FAR *ppenumAdvise) override;
 
 private:
     QPointer<QMimeData> data;
@@ -86,23 +86,23 @@ private:
 class QWindowsOleEnumFmtEtc : public QWindowsComBase<IEnumFORMATETC>
 {
 public:
-    explicit QWindowsOleEnumFmtEtc(const QVector<FORMATETC> &fmtetcs);
-    explicit QWindowsOleEnumFmtEtc(const QVector<LPFORMATETC> &lpfmtetcs);
+    explicit QWindowsOleEnumFmtEtc(const QList<FORMATETC> &fmtetcs);
+    explicit QWindowsOleEnumFmtEtc(const QList<LPFORMATETC> &lpfmtetcs);
     ~QWindowsOleEnumFmtEtc() override;
 
     bool isNull() const;
 
     // IEnumFORMATETC methods
-    STDMETHOD(Next)(ULONG celt, LPFORMATETC rgelt, ULONG FAR* pceltFetched);
-    STDMETHOD(Skip)(ULONG celt);
-    STDMETHOD(Reset)(void);
-    STDMETHOD(Clone)(LPENUMFORMATETC FAR* newEnum);
+    STDMETHOD(Next)(ULONG celt, LPFORMATETC rgelt, ULONG FAR *pceltFetched) override;
+    STDMETHOD(Skip)(ULONG celt) override;
+    STDMETHOD(Reset)(void) override;
+    STDMETHOD(Clone)(LPENUMFORMATETC FAR *newEnum) override;
 
 private:
     bool copyFormatEtc(LPFORMATETC dest, const FORMATETC *src) const;
 
     ULONG m_nIndex = 0;
-    QVector<LPFORMATETC> m_lpfmtetcs;
+    QList<LPFORMATETC> m_lpfmtetcs;
     bool m_isNull = false;
 };
 

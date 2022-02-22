@@ -8,16 +8,16 @@
 #include <memory>
 
 #include "base/callback.h"
-#include "base/unguessable_token.h"
+#include "third_party/blink/public/common/tokens/tokens.h"
 #include "third_party/blink/public/web/web_document_loader.h"
 #include "third_party/blink/public/web/web_frame_load_type.h"
 #include "third_party/blink/public/web/web_local_frame.h"
 
 namespace blink {
 
+class WebSecurityOrigin;
 class WebURL;
 struct WebURLError;
-class WebHistoryItem;
 struct WebNavigationInfo;
 struct WebNavigationParams;
 
@@ -44,14 +44,17 @@ class WebNavigationControl : public WebLocalFrame {
       std::unique_ptr<WebNavigationParams> navigation_params,
       std::unique_ptr<WebDocumentLoader::ExtraData> extra_data) = 0;
 
-  // Commits a same-document navigation in the frame. For history navigations, a
-  // valid WebHistoryItem should be provided. Returns CommitResult::Ok if the
+  // Commits a same-document navigation in the frame. For history navigations,
+  // a valid WebHistoryItem should be provided. |initiator_origin| is null
+  // for browser-initiated navigations. Returns CommitResult::Ok if the
   // navigation has actually committed.
   virtual mojom::CommitResult CommitSameDocumentNavigation(
       const WebURL&,
       WebFrameLoadType,
       const WebHistoryItem&,
       bool is_client_redirect,
+      bool has_transient_user_activation,
+      const WebSecurityOrigin& initiator_origin,
       std::unique_ptr<WebDocumentLoader::ExtraData> extra_data) = 0;
 
   // Loads a JavaScript URL in the frame.
@@ -82,26 +85,16 @@ class WebNavigationControl : public WebLocalFrame {
   // This runs some JavaScript event listeners, which may cancel the navigation
   // or detach the frame. In this case the method returns false and client
   // should not proceed with the navigation.
-  virtual bool WillStartNavigation(
-      const WebNavigationInfo&,
-      bool is_history_navigation_in_new_child_frame) = 0;
+  virtual bool WillStartNavigation(const WebNavigationInfo&) = 0;
 
   // Informs the frame that the navigation it asked the client to do was
   // dropped.
   virtual void DidDropNavigation() = 0;
 
-  // Marks the frame as loading, without performing any loading. Used for
-  // initial history navigations in child frames, which may actually happen
-  // in another process.
-  virtual void MarkAsLoading() = 0;
-
-  // TODO(ahemery): Remove all IsClientNavigationInitialHistoryLoad functions
-  // when IsPerNavigationMojoInterface is enabled.
-  virtual bool IsClientNavigationInitialHistoryLoad() = 0;
-
  protected:
-  explicit WebNavigationControl(WebTreeScopeType scope)
-      : WebLocalFrame(scope) {}
+  explicit WebNavigationControl(mojom::TreeScopeType scope,
+                                const LocalFrameToken& frame_token)
+      : WebLocalFrame(scope, frame_token) {}
 };
 
 }  // namespace blink

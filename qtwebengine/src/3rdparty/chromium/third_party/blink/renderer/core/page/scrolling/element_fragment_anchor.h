@@ -14,6 +14,7 @@ namespace blink {
 
 class LocalFrame;
 class KURL;
+class Node;
 
 // An element fragment anchor is a FragmentAnchor based on a single element.
 // This is the traditional fragment anchor of the web. For example, the fragment
@@ -55,7 +56,7 @@ class CORE_EXPORT ElementFragmentAnchor final : public FragmentAnchor {
   // Does nothing as an element anchor does not have any dismissal work.
   bool Dismiss() override;
 
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
  private:
   FRIEND_TEST_ALL_PREFIXES(ElementFragmentAnchorTest,

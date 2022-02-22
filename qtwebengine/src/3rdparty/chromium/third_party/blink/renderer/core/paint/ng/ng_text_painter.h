@@ -28,9 +28,13 @@ class CORE_EXPORT NGTextPainter : public TextPainterBase {
                 const NGTextFragmentPaintInfo& fragment_paint_info,
                 const IntRect& visual_rect,
                 const PhysicalOffset& text_origin,
-                const PhysicalRect& text_bounds,
+                const PhysicalRect& text_frame_rect,
                 bool horizontal)
-      : TextPainterBase(context, font, text_origin, text_bounds, horizontal),
+      : TextPainterBase(context,
+                        font,
+                        text_origin,
+                        text_frame_rect,
+                        horizontal),
         fragment_paint_info_(fragment_paint_info),
         visual_rect_(visual_rect) {}
   ~NGTextPainter() = default;
@@ -42,7 +46,8 @@ class CORE_EXPORT NGTextPainter : public TextPainterBase {
              unsigned end_offset,
              unsigned length,
              const TextPaintStyle&,
-             DOMNodeId);
+             DOMNodeId,
+             ShadowMode = kBothShadowsAndTextProper);
 
   void PaintSelectedText(unsigned start_offset,
                          unsigned end_offset,

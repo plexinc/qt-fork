@@ -26,6 +26,7 @@
 
 using testing::_;
 using testing::Mock;
+using testing::NiceMock;
 
 namespace extensions {
 
@@ -128,7 +129,7 @@ class PolicyValueStoreTest : public testing::Test {
   base::ScopedTempDir scoped_temp_dir_;
   content::BrowserTaskEnvironment task_environment_;
   std::unique_ptr<PolicyValueStore> store_;
-  MockSettingsObserver observer_;
+  NiceMock<MockSettingsObserver> observer_;
   scoped_refptr<SettingsObserverList> observers_;
 };
 
@@ -137,10 +138,10 @@ TEST_F(PolicyValueStoreTest, DontProvideRecommendedPolicies) {
   base::Value expected(123);
   policies.Set("must", policy::POLICY_LEVEL_MANDATORY,
                policy::POLICY_SCOPE_USER, policy::POLICY_SOURCE_CLOUD,
-               expected.CreateDeepCopy(), nullptr);
+               expected.Clone(), nullptr);
   policies.Set("may", policy::POLICY_LEVEL_RECOMMENDED,
                policy::POLICY_SCOPE_USER, policy::POLICY_SOURCE_CLOUD,
-               std::make_unique<base::Value>(456), nullptr);
+               base::Value(456), nullptr);
   SetCurrentPolicy(policies);
 
   ValueStore::ReadResult result = store_->Get();
@@ -183,7 +184,7 @@ TEST_F(PolicyValueStoreTest, NotifyOnChanges) {
 
   policy::PolicyMap policies;
   policies.Set("aaa", policy::POLICY_LEVEL_MANDATORY, policy::POLICY_SCOPE_USER,
-               policy::POLICY_SOURCE_CLOUD, value.CreateDeepCopy(), nullptr);
+               policy::POLICY_SOURCE_CLOUD, value.Clone(), nullptr);
   SetCurrentPolicy(policies);
   Mock::VerifyAndClearExpectations(&observer_);
 
@@ -198,7 +199,7 @@ TEST_F(PolicyValueStoreTest, NotifyOnChanges) {
   }
 
   policies.Set("bbb", policy::POLICY_LEVEL_MANDATORY, policy::POLICY_SCOPE_USER,
-               policy::POLICY_SOURCE_CLOUD, value.CreateDeepCopy(), nullptr);
+               policy::POLICY_SOURCE_CLOUD, value.Clone(), nullptr);
   SetCurrentPolicy(policies);
   Mock::VerifyAndClearExpectations(&observer_);
 
@@ -215,8 +216,7 @@ TEST_F(PolicyValueStoreTest, NotifyOnChanges) {
   }
 
   policies.Set("bbb", policy::POLICY_LEVEL_MANDATORY, policy::POLICY_SCOPE_USER,
-               policy::POLICY_SOURCE_CLOUD, new_value.CreateDeepCopy(),
-               nullptr);
+               policy::POLICY_SOURCE_CLOUD, new_value.Clone(), nullptr);
   SetCurrentPolicy(policies);
   Mock::VerifyAndClearExpectations(&observer_);
 

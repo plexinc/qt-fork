@@ -18,6 +18,7 @@ enum WindowsPrintMode {
   kModePostScript3 = 3,
   kModePostScript2PassThrough = 4,
   kModePostScript3PassThrough = 5,
+  kModeEmfImageMasks = 6,
 };
 
 class RenderDeviceDriverIface;
@@ -39,10 +40,9 @@ class CFX_WindowsRenderDevice : public CFX_RenderDevice {
   CFX_WindowsRenderDevice(HDC hDC, const EncoderIface* pEncoderIface);
   ~CFX_WindowsRenderDevice() override;
 
- private:
-  static RenderDeviceDriverIface* CreateDriver(
-      HDC hDC,
-      const EncoderIface* pEncoderIface);
+#if defined(_SKIA_SUPPORT_)
+  void DebugVerifyBitmapIsPreMultiplied() const override;
+#endif
 };
 
 #endif  // CORE_FXGE_CFX_WINDOWSRENDERDEVICE_H_

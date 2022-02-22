@@ -19,13 +19,6 @@ base::Optional<Vector<double>> OrientationSensor::quaternion() {
   return Vector<double>({quat.x, quat.y, quat.z, quat.w});
 }
 
-Vector<double> OrientationSensor::quaternion(bool& is_null) {
-  reading_dirty_ = false;
-  INIT_IS_NULL_AND_RETURN(is_null, Vector<double>());
-  const auto& quat = GetReading().orientation_quat;
-  return Vector<double>({quat.x, quat.y, quat.z, quat.w});
-}
-
 template <typename T>
 void DoPopulateMatrix(T* target_matrix,
                       double x,
@@ -77,7 +70,7 @@ void DoPopulateMatrix(DOMMatrix* target_matrix,
 
 template <typename T>
 bool CheckBufferLength(T* buffer) {
-  return buffer->lengthAsSizeT() >= 16;
+  return buffer->length() >= 16;
 }
 
 template <>
@@ -109,9 +102,9 @@ void OrientationSensor::populateMatrix(
     Float32ArrayOrFloat64ArrayOrDOMMatrix& matrix,
     ExceptionState& exception_state) {
   if (matrix.IsFloat32Array())
-    PopulateMatrixInternal(matrix.GetAsFloat32Array().View(), exception_state);
+    PopulateMatrixInternal(matrix.GetAsFloat32Array().Get(), exception_state);
   else if (matrix.IsFloat64Array())
-    PopulateMatrixInternal(matrix.GetAsFloat64Array().View(), exception_state);
+    PopulateMatrixInternal(matrix.GetAsFloat64Array().Get(), exception_state);
   else if (matrix.IsDOMMatrix())
     PopulateMatrixInternal(matrix.GetAsDOMMatrix(), exception_state);
   else
@@ -136,7 +129,7 @@ void OrientationSensor::OnSensorReadingChanged() {
   Sensor::OnSensorReadingChanged();
 }
 
-void OrientationSensor::Trace(Visitor* visitor) {
+void OrientationSensor::Trace(Visitor* visitor) const {
   Sensor::Trace(visitor);
 }
 

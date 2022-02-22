@@ -26,7 +26,7 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QtWidgets/qgraphicsanchorlayout.h>
 #include <private/qgraphicsanchorlayout_p.h>
 #include <QtWidgets/qgraphicswidget.h>
@@ -85,9 +85,9 @@ private slots:
 class RectWidget : public QGraphicsWidget
 {
 public:
-    RectWidget(QGraphicsItem *parent = 0) : QGraphicsWidget(parent){}
+    RectWidget(QGraphicsItem *parent = nullptr) : QGraphicsWidget(parent){}
 
-    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget)
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override
     {
         Q_UNUSED(option);
         Q_UNUSED(widget);
@@ -159,11 +159,7 @@ static bool layoutHasConflict(QGraphicsAnchorLayout *l)
 
 static bool usedSimplex(QGraphicsAnchorLayout *l, Qt::Orientation o)
 {
-    QGraphicsAnchorLayoutPrivate::Orientation oo = (o == Qt::Horizontal) ?
-        QGraphicsAnchorLayoutPrivate::Horizontal :
-        QGraphicsAnchorLayoutPrivate::Vertical;
-
-    return QGraphicsAnchorLayoutPrivate::get(l)->lastCalculationUsedSimplex[oo];
+    return QGraphicsAnchorLayoutPrivate::get(l)->lastCalculationUsedSimplex[o];
 }
 
 void tst_QGraphicsAnchorLayout::simple()
@@ -1116,8 +1112,8 @@ public:
         vspacing = 10;
     }
 
-    virtual int pixelMetric(PixelMetric metric, const QStyleOption * option = 0,
-                            const QWidget * widget = 0 ) const;
+    virtual int pixelMetric(PixelMetric metric, const QStyleOption * option = nullptr,
+                            const QWidget * widget = nullptr) const override;
 
     int hspacing;
     int vspacing;
@@ -1125,8 +1121,8 @@ public:
     int layoutSpacing(QSizePolicy::ControlType control1,
                       QSizePolicy::ControlType control2,
                       Qt::Orientation orientation,
-                      const QStyleOption *option = 0,
-                      const QWidget *widget = 0) const;
+                      const QStyleOption *option = nullptr,
+                      const QWidget *widget = nullptr) const override;
 
 };
 
@@ -1136,8 +1132,8 @@ public:
 int CustomLayoutStyle::layoutSpacing(QSizePolicy::ControlType control1,
                                 QSizePolicy::ControlType control2,
                                 Qt::Orientation orientation,
-                                const QStyleOption * /*option = 0*/,
-                                const QWidget * /*widget = 0*/) const
+                                const QStyleOption * /*option = nullptr*/,
+                                const QWidget * /*widget = nullptr*/) const
 {
     if (orientation == Qt::Horizontal) {
         switch (CT2(control1, control2)) {
@@ -1157,8 +1153,8 @@ int CustomLayoutStyle::layoutSpacing(QSizePolicy::ControlType control1,
     }
 }
 
-int CustomLayoutStyle::pixelMetric(PixelMetric metric, const QStyleOption * option /*= 0*/,
-                                   const QWidget * widget /*= 0*/ ) const
+int CustomLayoutStyle::pixelMetric(PixelMetric metric, const QStyleOption * option /*= nullptr*/,
+                                   const QWidget * widget /*= nullptr*/ ) const
 {
     switch (metric) {
         case PM_LayoutLeftMargin:
@@ -1362,7 +1358,7 @@ static inline QByteArray msgStability(const QRectF &actual, const QRectF &expect
 
 void tst_QGraphicsAnchorLayout::stability()
 {
-    QVector<QRectF> geometries;
+    QList<QRectF> geometries;
     geometries.resize(7);
     QGraphicsWidget p(0, Qt::Window);
     // it usually fails after 3-4 iterations

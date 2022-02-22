@@ -41,13 +41,15 @@
 #include <QFile>
 #include <QTimer>
 #include <QDebug>
+#include <qobject.h>
+#include <qfile.h>
 
-#include "qaudiodeviceinfo.h"
-#include "qaudioinput.h"
+#include "qaudiodevice.h"
+#include "qaudiosource.h"
 #include "qaudiooutput.h"
-#include "qaudioprobe.h"
 #include "qaudiodecoder.h"
 #include "qmediaplayer.h"
+#include "qmediadevices.h"
 
 class AudioInputExample : public QObject {
     Q_OBJECT
@@ -62,7 +64,7 @@ public Q_SLOTS:
 private:
     //! [Audio input class members]
     QFile destinationFile;   // Class member
-    QAudioInput* audio; // Class member
+    QAudioSource* audio; // Class member
     //! [Audio input class members]
 };
 
@@ -77,18 +79,14 @@ void AudioInputExample::setup()
     // Set up the desired format, for example:
     format.setSampleRate(8000);
     format.setChannelCount(1);
-    format.setSampleSize(8);
-    format.setCodec("audio/pcm");
-    format.setByteOrder(QAudioFormat::LittleEndian);
-    format.setSampleType(QAudioFormat::UnSignedInt);
+    format.setSampleFormat(QAudioFormat::UInt8);
 
-    QAudioDeviceInfo info = QAudioDeviceInfo::defaultInputDevice();
+    QAudioDevice info = QMediaDevices::defaultAudioInput();
     if (!info.isFormatSupported(format)) {
         qWarning() << "Default format not supported, trying to use the nearest.";
-        format = info.nearestFormat(format);
     }
 
-    audio = new QAudioInput(format, this);
+    audio = new QAudioSource(format, this);
     connect(audio, SIGNAL(stateChanged(QAudio::State)), this, SLOT(handleStateChanged(QAudio::State)));
 
     QTimer::singleShot(3000, this, SLOT(stopRecording()));
@@ -141,7 +139,7 @@ public Q_SLOTS:
 private:
     //! [Audio output class members]
     QFile sourceFile;   // class member.
-    QAudioOutput* audio; // class member.
+    QAudioSink* audio; // class member.
     //! [Audio output class members]
 };
 
@@ -156,18 +154,15 @@ void AudioOutputExample::setup()
     // Set up the format, eg.
     format.setSampleRate(8000);
     format.setChannelCount(1);
-    format.setSampleSize(8);
-    format.setCodec("audio/pcm");
-    format.setByteOrder(QAudioFormat::LittleEndian);
-    format.setSampleType(QAudioFormat::UnSignedInt);
+    format.setSampleFormat(QAudioFormat::UInt8);
 
-    QAudioDeviceInfo info(QAudioDeviceInfo::defaultOutputDevice());
+    QAudioDevice info(QAudioDevice::defaultOutputDevice());
     if (!info.isFormatSupported(format)) {
         qWarning() << "Raw audio format not supported by backend, cannot play audio.";
         return;
     }
 
-    audio = new QAudioOutput(format, this);
+    audio = new QAudioSink(format, this);
     connect(audio, SIGNAL(stateChanged(QAudio::State)), this, SLOT(handleStateChanged(QAudio::State)));
     audio->start(&sourceFile);
 }
@@ -204,18 +199,13 @@ void AudioDeviceInfo()
     QAudioFormat format;
     format.setSampleRate(44100);
     // ... other format parameters
-    format.setSampleType(QAudioFormat::SignedInt);
-
-    QAudioDeviceInfo info(QAudioDeviceInfo::defaultOutputDevice());
-
-    if (!info.isFormatSupported(format))
-        format = info.nearestFormat(format);
+    format.setSampleFormat(QAudioFormat::Int16);
     //! [Setting audio format]
 
     //! [Dumping audio formats]
-    const auto deviceInfos = QAudioDeviceInfo::availableDevices(QAudio::AudioOutput);
-    for (const QAudioDeviceInfo &deviceInfo : deviceInfos)
-        qDebug() << "Device name: " << deviceInfo.deviceName();
+    const auto deviceInfos = QMediaDevices::availableDevices(QAudioDevice::Output);
+    for (const QAudioDevice &deviceInfo : deviceInfos)
+        qDebug() << "Device: " << deviceInfo.description();
     //! [Dumping audio formats]
 }
 
@@ -234,14 +224,12 @@ void AudioDecodingExample::decode()
     //! [Local audio decoding]
     QAudioFormat desiredFormat;
     desiredFormat.setChannelCount(2);
-    desiredFormat.setCodec("audio/x-raw");
-    desiredFormat.setSampleType(QAudioFormat::UnSignedInt);
+    desiredFormat.setSampleFormat(QAudioFormat::Int16);
     desiredFormat.setSampleRate(48000);
-    desiredFormat.setSampleSize(16);
 
     QAudioDecoder *decoder = new QAudioDecoder(this);
     decoder->setAudioFormat(desiredFormat);
-    decoder->setSourceFilename("level1.mp3");
+    decoder->setSource("level1.mp3");
 
     connect(decoder, SIGNAL(bufferReady()), this, SLOT(readBuffer()));
     decoder->start();

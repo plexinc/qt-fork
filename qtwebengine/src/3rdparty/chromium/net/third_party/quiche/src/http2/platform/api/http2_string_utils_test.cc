@@ -2,13 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/http2/platform/api/http2_string_utils.h"
+#include "http2/platform/api/http2_string_utils.h"
 
 #include <cstdint>
 
-#include "testing/gtest/include/gtest/gtest.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/string_view.h"
+#include "common/platform/api/quiche_test.h"
 
 namespace http2 {
 namespace test {
@@ -23,7 +22,7 @@ TEST(Http2StringUtilsTest, Http2StrAppend) {
   // Single string-like argument.
   const char kFoo[] = "foo";
   const std::string string_foo(kFoo);
-  const quiche::QuicheStringPiece stringpiece_foo(string_foo);
+  const absl::string_view stringpiece_foo(string_foo);
   Http2StrAppend(&output, kFoo);
   EXPECT_EQ("foo", output);
   Http2StrAppend(&output, string_foo);
@@ -39,7 +38,7 @@ TEST(Http2StringUtilsTest, Http2StrAppend) {
 
   // Two string-like arguments.
   const char kBar[] = "bar";
-  const quiche::QuicheStringPiece stringpiece_bar(kBar);
+  const absl::string_view stringpiece_bar(kBar);
   const std::string string_bar(kBar);
   Http2StrAppend(&output, kFoo, kBar);
   EXPECT_EQ("foobar", output);

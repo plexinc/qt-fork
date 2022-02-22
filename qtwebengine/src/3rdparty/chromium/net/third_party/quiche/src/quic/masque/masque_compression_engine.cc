@@ -2,20 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/masque/masque_compression_engine.h"
+#include "quic/masque/masque_compression_engine.h"
 
 #include <cstdint>
 
-#include "net/third_party/quiche/src/quic/core/quic_buffer_allocator.h"
-#include "net/third_party/quiche/src/quic/core/quic_data_reader.h"
-#include "net/third_party/quiche/src/quic/core/quic_data_writer.h"
-#include "net/third_party/quiche/src/quic/core/quic_framer.h"
-#include "net/third_party/quiche/src/quic/core/quic_session.h"
-#include "net/third_party/quiche/src/quic/core/quic_types.h"
-#include "net/third_party/quiche/src/quic/core/quic_versions.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_containers.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_text_utils.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/quic_buffer_allocator.h"
+#include "quic/core/quic_data_reader.h"
+#include "quic/core/quic_data_writer.h"
+#include "quic/core/quic_framer.h"
+#include "quic/core/quic_session.h"
+#include "quic/core/quic_types.h"
+#include "quic/core/quic_versions.h"
+#include "quic/platform/api/quic_containers.h"
+#include "common/platform/api/quiche_text_utils.h"
 
 namespace quic {
 
@@ -63,7 +63,7 @@ QuicDatagramFlowId MasqueCompressionEngine::FindOrCreateCompressionContext(
     }
 
     flow_id = kv.first;
-    DCHECK_NE(flow_id, kFlowId0);
+    QUICHE_DCHECK_NE(flow_id, kFlowId0);
     *validated = context.validated;
     QUIC_DVLOG(1) << "Compressing using " << (*validated ? "" : "un")
                   << "validated flow_id " << flow_id << " to "
@@ -133,9 +133,9 @@ bool MasqueCompressionEngine::WriteCompressedPacketToSlice(
       return false;
     }
     QuicIpAddress peer_ip = server_address.host();
-    DCHECK(peer_ip.IsInitialized());
+    QUICHE_DCHECK(peer_ip.IsInitialized());
     std::string peer_ip_bytes = peer_ip.ToPackedString();
-    DCHECK(!peer_ip_bytes.empty());
+    QUICHE_DCHECK(!peer_ip_bytes.empty());
     uint8_t address_id;
     if (peer_ip.address_family() == IpAddressFamily::IP_V6) {
       address_id = MasqueAddressFamilyIPv6;
@@ -213,7 +213,7 @@ bool MasqueCompressionEngine::WriteCompressedPacketToSlice(
       return false;
     }
   }
-  quiche::QuicheStringPiece packet_payload = reader->ReadRemainingPayload();
+  absl::string_view packet_payload = reader->ReadRemainingPayload();
   if (!writer->WriteStringPiece(packet_payload)) {
     QUIC_BUG << "Failed to write packet_payload";
     return false;
@@ -222,14 +222,14 @@ bool MasqueCompressionEngine::WriteCompressedPacketToSlice(
 }
 
 void MasqueCompressionEngine::CompressAndSendPacket(
-    quiche::QuicheStringPiece packet,
+    absl::string_view packet,
     QuicConnectionId client_connection_id,
     QuicConnectionId server_connection_id,
     const QuicSocketAddress& server_address) {
   QUIC_DVLOG(2) << "Compressing client " << client_connection_id << " server "
                 << server_connection_id << "\n"
                 << quiche::QuicheTextUtils::HexDump(packet);
-  DCHECK(server_address.IsInitialized());
+  QUICHE_DCHECK(server_address.IsInitialized());
   if (packet.empty()) {
     QUIC_BUG << "Tried to send empty packet";
     return;
@@ -452,7 +452,7 @@ bool MasqueCompressionEngine::WriteDecompressedPacket(
       return false;
     }
   }
-  quiche::QuicheStringPiece payload = reader->ReadRemainingPayload();
+  absl::string_view payload = reader->ReadRemainingPayload();
   if (!writer.WriteStringPiece(payload)) {
     QUIC_BUG << "Failed to write payload";
     return false;
@@ -461,7 +461,7 @@ bool MasqueCompressionEngine::WriteDecompressedPacket(
 }
 
 bool MasqueCompressionEngine::DecompressDatagram(
-    quiche::QuicheStringPiece datagram,
+    absl::string_view datagram,
     QuicConnectionId* client_connection_id,
     QuicConnectionId* server_connection_id,
     QuicSocketAddress* server_address,
@@ -514,8 +514,8 @@ bool MasqueCompressionEngine::DecompressDatagram(
 
   QUIC_DVLOG(2) << "Decompressed client " << context.client_connection_id
                 << " server " << context.server_connection_id << "\n"
-                << quiche::QuicheTextUtils::HexDump(quiche::QuicheStringPiece(
-                       packet->data(), packet->size()));
+                << quiche::QuicheTextUtils::HexDump(
+                       absl::string_view(packet->data(), packet->size()));
 
   return true;
 }

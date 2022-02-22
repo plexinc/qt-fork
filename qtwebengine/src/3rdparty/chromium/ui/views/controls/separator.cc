@@ -11,17 +11,18 @@
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/scoped_canvas.h"
 #include "ui/native_theme/native_theme.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace views {
+
+constexpr int Separator::kThickness;
 
 Separator::Separator() = default;
 
 Separator::~Separator() = default;
 
 SkColor Separator::GetColor() const {
-  if (overridden_color_ == true)
-    return overridden_color_.value();
-  return 0;
+  return overridden_color_.value_or(0);
 }
 
 void Separator::SetColor(SkColor color) {
@@ -95,10 +96,9 @@ void Separator::OnPaint(gfx::Canvas* canvas) {
   canvas->FillRect({x, y, w, h}, color);
 }
 
-BEGIN_METADATA(Separator)
-METADATA_PARENT_CLASS(View)
-ADD_PROPERTY_METADATA(Separator, SkColor, Color)
-ADD_PROPERTY_METADATA(Separator, int, PreferredHeight)
-END_METADATA()
+BEGIN_METADATA(Separator, View)
+ADD_PROPERTY_METADATA(SkColor, Color, metadata::SkColorConverter)
+ADD_PROPERTY_METADATA(int, PreferredHeight)
+END_METADATA
 
 }  // namespace views

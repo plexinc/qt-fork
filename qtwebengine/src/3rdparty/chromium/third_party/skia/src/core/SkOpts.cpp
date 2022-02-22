@@ -16,6 +16,8 @@
     #else
         #define SK_OPTS_NS neon
     #endif
+#elif SK_CPU_SSE_LEVEL >= SK_CPU_SSE_LEVEL_SKX
+    #define SK_OPTS_NS skx
 #elif SK_CPU_SSE_LEVEL >= SK_CPU_SSE_LEVEL_AVX2
     #define SK_OPTS_NS avx2
 #elif SK_CPU_SSE_LEVEL >= SK_CPU_SSE_LEVEL_AVX
@@ -105,21 +107,17 @@ namespace SkOpts {
 
     // Each Init_foo() is defined in src/opts/SkOpts_foo.cpp.
     void Init_ssse3();
-    void Init_sse41();
     void Init_sse42();
     void Init_avx();
     void Init_hsw();
+    void Init_skx();
+    void Init_erms();
     void Init_crc32();
 
     static void init() {
-#if !defined(SK_BUILD_NO_OPTS)
     #if defined(SK_CPU_X86)
         #if SK_CPU_SSE_LEVEL < SK_CPU_SSE_LEVEL_SSSE3
             if (SkCpu::Supports(SkCpu::SSSE3)) { Init_ssse3(); }
-        #endif
-
-        #if SK_CPU_SSE_LEVEL < SK_CPU_SSE_LEVEL_SSE41
-            if (SkCpu::Supports(SkCpu::SSE41)) { Init_sse41(); }
         #endif
 
         #if SK_CPU_SSE_LEVEL < SK_CPU_SSE_LEVEL_SSE42
@@ -131,11 +129,16 @@ namespace SkOpts {
             if (SkCpu::Supports(SkCpu::HSW)) { Init_hsw();   }
         #endif
 
+        #if SK_CPU_SSE_LEVEL < SK_CPU_SSE_LEVEL_SKX
+            if (SkCpu::Supports(SkCpu::SKX)) { Init_skx(); }
+        #endif
+
+        if (SkCpu::Supports(SkCpu::ERMS)) { Init_erms(); }
+
     #elif defined(SK_CPU_ARM64)
         if (SkCpu::Supports(SkCpu::CRC32)) { Init_crc32(); }
 
     #endif
-#endif
     }
 
     void Init() {

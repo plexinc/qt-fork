@@ -5,6 +5,7 @@
 import("//third_party/closure_compiler/compile_js.gni")
 
 js_type_check("closure_compile") {
+  uses_legacy_modules = true
   deps = [
     #TODO(crbug.com/986001): Fix compilation errors and enable all targets.
 
@@ -19,9 +20,8 @@ js_type_check("closure_compile") {
 
     #":sync_node_browser",
     #":sync_search",
+    ":invalidations",
     ":traffic_log",
-
-    #":types",
     ":user_events",
   ]
 }
@@ -90,13 +90,13 @@ js_library("traffic_log") {
   deps = [ "//ui/webui/resources/js:cr" ]
 }
 
-js_library("types") {
-  deps = [ "//ui/webui/resources/js:cr" ]
-}
-
 js_library("user_events") {
   deps = [
     "//ui/webui/resources/js:cr",
     "//ui/webui/resources/js:util",
   ]
+}
+
+js_library("invalidations") {
+  deps = [ "//ui/webui/resources/js:cr" ]
 }

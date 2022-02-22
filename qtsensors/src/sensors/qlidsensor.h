@@ -76,10 +76,10 @@ class Q_SENSORS_EXPORT QLidSensor : public QSensor
 {
     Q_OBJECT
 public:
-    explicit QLidSensor(QObject *parent = Q_NULLPTR);
+    explicit QLidSensor(QObject *parent = nullptr);
     ~QLidSensor();
     QLidReading *reading() const;
-    static char const * const type;
+    static char const * const sensorType;
 
 private:
     Q_DISABLE_COPY(QLidSensor)

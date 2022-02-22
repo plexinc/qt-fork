@@ -169,7 +169,6 @@ list << "A" << "B" << "C" << "D";
 QList<QString>::reverse_iterator i;
 for (i = list.rbegin(); i != list.rend(); ++i)
     *i = i->toLower();
-}
 //! [11]
 
 
@@ -205,35 +204,35 @@ for (i = splitter->sizes().begin();
 
 
 //! [15]
-QLinkedList<QString> list;
+QList<QString> values;
 ...
 QString str;
-foreach (str, list)
+foreach (str, values)
     qDebug() << str;
 //! [15]
 
 
 //! [16]
-QLinkedList<QString> list;
+QList<QString> values;
 ...
-QLinkedListIterator<QString> i(list);
+QListIterator<QString> i(values);
 while (i.hasNext())
     qDebug() << i.next();
 //! [16]
 
 
 //! [17]
-QLinkedList<QString> list;
+QList<QString> values;
 ...
-foreach (const QString &str, list)
+foreach (const QString &str, values)
     qDebug() << str;
 //! [17]
 
 
 //! [18]
-QLinkedList<QString> list;
+QList<QString> values;
 ...
-foreach (const QString &str, list) {
+foreach (const QString &str, values) {
     if (str.isEmpty())
         break;
     qDebug() << str;
@@ -284,10 +283,10 @@ QString onlyLetters(const QString &in)
 //! [23]
 
 //! [24]
-QVector<int> a, b;
-a.resize(100000); // make a big vector filled with 0.
+QList<int> a, b;
+a.resize(100000); // make a big list filled with 0.
 
-QVector<int>::iterator i = a.begin();
+QList<int>::iterator i = a.begin();
 // WRONG way of using the iterator i:
 b = a;
 /*
@@ -309,14 +308,35 @@ int j = *i; // Undefined behavior!
 /*
     The data from b (which i pointed to) is gone.
     This would be well-defined with STL containers (and (*i) == 5),
-    but with QVector this is likely to crash.
+    but with QList this is likely to crash.
 */
 //! [24]
 
 //! [25]
-QVector<int> vector{1, 2, 3, 4, 4, 5};
-QSet<int> set(vector.begin(), vector.end());
+QList<int> list { 1, 2, 3, 4, 4, 5 };
+QSet<int> set(list.begin(), list.end());
 /*
-    Will generate a QSet containing 1, 2, 4, 5.
+    Will generate a QSet containing 1, 2, 3, 4, 5.
 */
 //! [25]
+
+//! [26]
+QList<int> list { 2, 3, 1 };
+
+std::sort(list.begin(), list.end());
+/*
+    Sort the list, now contains { 1, 2, 3 }
+*/
+
+std::reverse(list.begin(), list.end());
+/*
+    Reverse the list, now contains { 3, 2, 1 }
+*/
+
+int even_elements =
+        std::count_if(list.begin(), list.end(), [](int element) { return (element % 2 == 0); });
+/*
+    Count how many elements that are even numbers, 1
+*/
+
+//! [26]

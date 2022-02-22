@@ -54,6 +54,8 @@
 #include <private/qsgadaptationlayer_p.h>
 #include <private/qsgtexturematerial_p.h>
 
+#include <QtCore/QPointer>
+
 QT_BEGIN_NAMESPACE
 
 namespace QSGSoftwareHelpers {
@@ -111,7 +113,7 @@ public:
     void setInnerSourceRect(const QRectF &rect) override;
     void setSubSourceRect(const QRectF &rect) override;
     void setTexture(QSGTexture *texture) override;
-    void setMirror(bool mirror) override;
+    void setMirror(bool mirrorHorizontally, bool mirrorVertically) override;
     void setMipmapFiltering(QSGTexture::Filtering filtering) override;
     void setFiltering(QSGTexture::Filtering filtering) override;
     void setHorizontalWrapMode(QSGTexture::WrapMode wrapMode) override;
@@ -132,10 +134,11 @@ private:
     QRectF m_innerSourceRect;
     QRectF m_subSourceRect;
 
-    QSGTexture *m_texture;
+    QPointer<QSGTexture> m_texture;
     QPixmap m_cachedMirroredPixmap;
 
-    bool m_mirror;
+    bool m_mirrorHorizontally;
+    bool m_mirrorVertically;
     bool m_textureIsLayer;
     bool m_smooth;
     bool m_tileHorizontal;

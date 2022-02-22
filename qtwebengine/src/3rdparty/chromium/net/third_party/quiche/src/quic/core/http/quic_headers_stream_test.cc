@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/http/quic_headers_stream.h"
+#include "quic/core/http/quic_headers_stream.h"
 
 #include <cstdint>
 #include <ostream>
@@ -11,27 +11,30 @@
 #include <utility>
 #include <vector>
 
-#include "net/third_party/quiche/src/quic/core/http/spdy_utils.h"
-#include "net/third_party/quiche/src/quic/core/quic_data_writer.h"
-#include "net/third_party/quiche/src/quic/core/quic_utils.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_bug_tracker.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_expect_bug.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_connection_peer.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_spdy_session_peer.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_stream_peer.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_endian.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
-#include "net/third_party/quiche/src/spdy/core/http2_frame_decoder_adapter.h"
-#include "net/third_party/quiche/src/spdy/core/spdy_alt_svc_wire_format.h"
-#include "net/third_party/quiche/src/spdy/core/spdy_protocol.h"
-#include "net/third_party/quiche/src/spdy/core/spdy_test_utils.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/crypto/null_encrypter.h"
+#include "quic/core/http/spdy_utils.h"
+#include "quic/core/quic_data_writer.h"
+#include "quic/core/quic_utils.h"
+#include "quic/platform/api/quic_bug_tracker.h"
+#include "quic/platform/api/quic_expect_bug.h"
+#include "quic/platform/api/quic_flags.h"
+#include "quic/platform/api/quic_logging.h"
+#include "quic/platform/api/quic_test.h"
+#include "quic/test_tools/quic_connection_peer.h"
+#include "quic/test_tools/quic_spdy_session_peer.h"
+#include "quic/test_tools/quic_stream_peer.h"
+#include "quic/test_tools/quic_test_utils.h"
+#include "common/quiche_endian.h"
+#include "spdy/core/http2_frame_decoder_adapter.h"
+#include "spdy/core/recording_headers_handler.h"
+#include "spdy/core/spdy_alt_svc_wire_format.h"
+#include "spdy/core/spdy_protocol.h"
+#include "spdy/core/spdy_test_utils.h"
 
 using spdy::ERROR_CODE_PROTOCOL_ERROR;
+using spdy::RecordingHeadersHandler;
 using spdy::SETTINGS_ENABLE_PUSH;
 using spdy::SETTINGS_HEADER_TABLE_SIZE;
 using spdy::SETTINGS_INITIAL_WINDOW_SIZE;
@@ -59,8 +62,8 @@ using spdy::SpdySettingsId;
 using spdy::SpdySettingsIR;
 using spdy::SpdyStreamId;
 using spdy::SpdyWindowUpdateIR;
-using spdy::test::TestHeadersHandler;
 using testing::_;
+using testing::AnyNumber;
 using testing::AtLeast;
 using testing::InSequence;
 using testing::Invoke;
@@ -78,66 +81,96 @@ class MockQuicHpackDebugVisitor : public QuicHpackDebugVisitor {
   MockQuicHpackDebugVisitor& operator=(const MockQuicHpackDebugVisitor&) =
       delete;
 
-  MOCK_METHOD1(OnUseEntry, void(QuicTime::Delta elapsed));
+  MOCK_METHOD(void, OnUseEntry, (QuicTime::Delta elapsed), (override));
 };
 
 namespace {
 
 class MockVisitor : public SpdyFramerVisitorInterface {
  public:
-  MOCK_METHOD1(OnError,
-               void(http2::Http2DecoderAdapter::SpdyFramerError error));
-  MOCK_METHOD3(OnDataFrameHeader,
-               void(SpdyStreamId stream_id, size_t length, bool fin));
-  MOCK_METHOD3(OnStreamFrameData,
-               void(SpdyStreamId stream_id, const char* data, size_t len));
-  MOCK_METHOD1(OnStreamEnd, void(SpdyStreamId stream_id));
-  MOCK_METHOD2(OnStreamPadding, void(SpdyStreamId stream_id, size_t len));
-  MOCK_METHOD1(OnHeaderFrameStart,
-               SpdyHeadersHandlerInterface*(SpdyStreamId stream_id));
-  MOCK_METHOD1(OnHeaderFrameEnd, void(SpdyStreamId stream_id));
-  MOCK_METHOD3(OnControlFrameHeaderData,
-               bool(SpdyStreamId stream_id,
-                    const char* header_data,
-                    size_t len));
-  MOCK_METHOD2(OnRstStream,
-               void(SpdyStreamId stream_id, SpdyErrorCode error_code));
-  MOCK_METHOD0(OnSettings, void());
-  MOCK_METHOD2(OnSetting, void(SpdySettingsId id, uint32_t value));
-  MOCK_METHOD0(OnSettingsAck, void());
-  MOCK_METHOD0(OnSettingsEnd, void());
-  MOCK_METHOD2(OnPing, void(SpdyPingId unique_id, bool is_ack));
-  MOCK_METHOD2(OnGoAway,
-               void(SpdyStreamId last_accepted_stream_id,
-                    SpdyErrorCode error_code));
-  MOCK_METHOD7(OnHeaders,
-               void(SpdyStreamId stream_id,
-                    bool has_priority,
-                    int weight,
-                    SpdyStreamId parent_stream_id,
-                    bool exclusive,
-                    bool fin,
-                    bool end));
-  MOCK_METHOD2(OnWindowUpdate,
-               void(SpdyStreamId stream_id, int delta_window_size));
-  MOCK_METHOD1(OnBlocked, void(SpdyStreamId stream_id));
-  MOCK_METHOD3(OnPushPromise,
-               void(SpdyStreamId stream_id,
-                    SpdyStreamId promised_stream_id,
-                    bool end));
-  MOCK_METHOD2(OnContinuation, void(SpdyStreamId stream_id, bool end));
-  MOCK_METHOD3(OnAltSvc,
-               void(SpdyStreamId stream_id,
-                    quiche::QuicheStringPiece origin,
-                    const SpdyAltSvcWireFormat::AlternativeServiceVector&
-                        altsvc_vector));
-  MOCK_METHOD4(OnPriority,
-               void(SpdyStreamId stream_id,
-                    SpdyStreamId parent_stream_id,
-                    int weight,
-                    bool exclusive));
-  MOCK_METHOD2(OnUnknownFrame,
-               bool(SpdyStreamId stream_id, uint8_t frame_type));
+  MOCK_METHOD(void,
+              OnError,
+              (http2::Http2DecoderAdapter::SpdyFramerError error,
+               std::string detailed_error),
+              (override));
+  MOCK_METHOD(void,
+              OnDataFrameHeader,
+              (SpdyStreamId stream_id, size_t length, bool fin),
+              (override));
+  MOCK_METHOD(void,
+              OnStreamFrameData,
+              (SpdyStreamId stream_id, const char*, size_t len),
+              (override));
+  MOCK_METHOD(void, OnStreamEnd, (SpdyStreamId stream_id), (override));
+  MOCK_METHOD(void,
+              OnStreamPadding,
+              (SpdyStreamId stream_id, size_t len),
+              (override));
+  MOCK_METHOD(SpdyHeadersHandlerInterface*,
+              OnHeaderFrameStart,
+              (SpdyStreamId stream_id),
+              (override));
+  MOCK_METHOD(void, OnHeaderFrameEnd, (SpdyStreamId stream_id), (override));
+  MOCK_METHOD(void,
+              OnRstStream,
+              (SpdyStreamId stream_id, SpdyErrorCode error_code),
+              (override));
+  MOCK_METHOD(void, OnSettings, (), (override));
+  MOCK_METHOD(void, OnSetting, (SpdySettingsId id, uint32_t value), (override));
+  MOCK_METHOD(void, OnSettingsAck, (), (override));
+  MOCK_METHOD(void, OnSettingsEnd, (), (override));
+  MOCK_METHOD(void, OnPing, (SpdyPingId unique_id, bool is_ack), (override));
+  MOCK_METHOD(void,
+              OnGoAway,
+              (SpdyStreamId last_accepted_stream_id, SpdyErrorCode error_code),
+              (override));
+  MOCK_METHOD(void,
+              OnHeaders,
+              (SpdyStreamId stream_id,
+               bool has_priority,
+               int weight,
+               SpdyStreamId parent_stream_id,
+               bool exclusive,
+               bool fin,
+               bool end),
+              (override));
+  MOCK_METHOD(void,
+              OnWindowUpdate,
+              (SpdyStreamId stream_id, int delta_window_size),
+              (override));
+  MOCK_METHOD(void,
+              OnPushPromise,
+              (SpdyStreamId stream_id,
+               SpdyStreamId promised_stream_id,
+               bool end),
+              (override));
+  MOCK_METHOD(void,
+              OnContinuation,
+              (SpdyStreamId stream_id, bool end),
+              (override));
+  MOCK_METHOD(
+      void,
+      OnAltSvc,
+      (SpdyStreamId stream_id,
+       absl::string_view origin,
+       const SpdyAltSvcWireFormat::AlternativeServiceVector& altsvc_vector),
+      (override));
+  MOCK_METHOD(void,
+              OnPriority,
+              (SpdyStreamId stream_id,
+               SpdyStreamId parent_stream_id,
+               int weight,
+               bool exclusive),
+              (override));
+  MOCK_METHOD(void,
+              OnPriorityUpdate,
+              (SpdyStreamId prioritized_stream_id,
+               absl::string_view priority_field_value),
+              (override));
+  MOCK_METHOD(bool,
+              OnUnknownFrame,
+              (SpdyStreamId stream_id, uint8_t frame_type),
+              (override));
 };
 
 struct TestParams {
@@ -163,7 +196,7 @@ struct TestParams {
 
 // Used by ::testing::PrintToStringParamName().
 std::string PrintToString(const TestParams& tp) {
-  return quiche::QuicheStrCat(
+  return absl::StrCat(
       ParsedQuicVersionToString(tp.version), "_",
       (tp.perspective == Perspective::IS_CLIENT ? "client" : "server"));
 }
@@ -198,7 +231,11 @@ class QuicHeadersStreamTest : public QuicTestWithParam<TestParams> {
             ""),
         next_promised_stream_id_(2) {
     QuicSpdySessionPeer::SetMaxInboundHeaderListSize(&session_, 256 * 1024);
+    EXPECT_CALL(session_, OnCongestionWindowChange(_)).Times(AnyNumber());
     session_.Initialize();
+    connection_->SetEncrypter(
+        quic::ENCRYPTION_FORWARD_SECURE,
+        std::make_unique<quic::NullEncrypter>(connection_->perspective()));
     headers_stream_ = QuicSpdySessionPeer::GetHeadersStream(&session_);
     headers_[":status"] = "200 Ok";
     headers_["content-length"] = "11";
@@ -244,7 +281,7 @@ class QuicHeadersStreamTest : public QuicTestWithParam<TestParams> {
     return true;
   }
 
-  void SaveHeaderDataStringPiece(quiche::QuicheStringPiece data) {
+  void SaveHeaderDataStringPiece(absl::string_view data) {
     saved_header_data_.append(data.data(), data.length());
   }
 
@@ -263,7 +300,7 @@ class QuicHeadersStreamTest : public QuicTestWithParam<TestParams> {
   }
 
   void SaveToHandler(size_t size, const QuicHeaderList& header_list) {
-    headers_handler_ = std::make_unique<TestHeadersHandler>();
+    headers_handler_ = std::make_unique<RecordingHeadersHandler>();
     headers_handler_->OnHeaderBlockStart();
     for (const auto& p : header_list) {
       headers_handler_->OnHeader(p.first, p.second);
@@ -308,7 +345,7 @@ class QuicHeadersStreamTest : public QuicTestWithParam<TestParams> {
                             /*parent_stream_id=*/0,
                             /*exclusive=*/false, fin, kFrameComplete));
     }
-    headers_handler_ = std::make_unique<TestHeadersHandler>();
+    headers_handler_ = std::make_unique<RecordingHeadersHandler>();
     EXPECT_CALL(visitor_, OnHeaderFrameStart(stream_id))
         .WillOnce(Return(headers_handler_.get()));
     EXPECT_CALL(visitor_, OnHeaderFrameEnd(stream_id)).Times(1);
@@ -350,8 +387,8 @@ class QuicHeadersStreamTest : public QuicTestWithParam<TestParams> {
     return next_promised_stream_id_ += next_stream_id_;
   }
 
-  static const bool kFrameComplete = true;
-  static const bool kHasPriority = true;
+  static constexpr bool kFrameComplete = true;
+  static constexpr bool kHasPriority = true;
 
   MockQuicConnectionHelper helper_;
   MockAlarmFactory alarm_factory_;
@@ -359,7 +396,7 @@ class QuicHeadersStreamTest : public QuicTestWithParam<TestParams> {
   StrictMock<MockQuicSpdySession> session_;
   QuicHeadersStream* headers_stream_;
   SpdyHeaderBlock headers_;
-  std::unique_ptr<TestHeadersHandler> headers_handler_;
+  std::unique_ptr<RecordingHeadersHandler> headers_handler_;
   std::string body_;
   std::string saved_data_;
   std::string saved_header_data_;
@@ -418,7 +455,7 @@ TEST_P(QuicHeadersStreamTest, WritePushPromises) {
       // Parse the outgoing data and check that it matches was was written.
       EXPECT_CALL(visitor_,
                   OnPushPromise(stream_id, promised_stream_id, kFrameComplete));
-      headers_handler_ = std::make_unique<TestHeadersHandler>();
+      headers_handler_ = std::make_unique<RecordingHeadersHandler>();
       EXPECT_CALL(visitor_, OnHeaderFrameStart(stream_id))
           .WillOnce(Return(headers_handler_.get()));
       EXPECT_CALL(visitor_, OnHeaderFrameEnd(stream_id)).Times(1);
@@ -636,7 +673,7 @@ TEST_P(QuicHeadersStreamTest, RespectHttp2SettingsFrameSupportedFields) {
   // Respect supported settings frames SETTINGS_HEADER_TABLE_SIZE,
   // SETTINGS_MAX_HEADER_LIST_SIZE.
   data.AddSetting(SETTINGS_HEADER_TABLE_SIZE, kTestHeaderTableSize);
-  data.AddSetting(SETTINGS_MAX_HEADER_LIST_SIZE, 2000);
+  data.AddSetting(spdy::SETTINGS_MAX_HEADER_LIST_SIZE, 2000);
   SpdySerializedFrame frame(framer_->SerializeFrame(data));
   stream_frame_.data_buffer = frame.data();
   stream_frame_.data_length = frame.size();
@@ -655,36 +692,32 @@ TEST_P(QuicHeadersStreamTest, RespectHttp2SettingsFrameUnsupportedFields) {
   data.AddSetting(SETTINGS_ENABLE_PUSH, 1);
   data.AddSetting(SETTINGS_MAX_FRAME_SIZE, 1250);
   SpdySerializedFrame frame(framer_->SerializeFrame(data));
-  EXPECT_CALL(
-      *connection_,
-      CloseConnection(
-          QUIC_INVALID_HEADERS_STREAM_DATA,
-          quiche::QuicheStrCat("Unsupported field of HTTP/2 SETTINGS frame: ",
+  EXPECT_CALL(*connection_,
+              CloseConnection(
+                  QUIC_INVALID_HEADERS_STREAM_DATA,
+                  absl::StrCat("Unsupported field of HTTP/2 SETTINGS frame: ",
                                SETTINGS_MAX_CONCURRENT_STREAMS),
-          _));
-  EXPECT_CALL(
-      *connection_,
-      CloseConnection(
-          QUIC_INVALID_HEADERS_STREAM_DATA,
-          quiche::QuicheStrCat("Unsupported field of HTTP/2 SETTINGS frame: ",
+                  _));
+  EXPECT_CALL(*connection_,
+              CloseConnection(
+                  QUIC_INVALID_HEADERS_STREAM_DATA,
+                  absl::StrCat("Unsupported field of HTTP/2 SETTINGS frame: ",
                                SETTINGS_INITIAL_WINDOW_SIZE),
-          _));
+                  _));
   if (session_.perspective() == Perspective::IS_CLIENT) {
-    EXPECT_CALL(
-        *connection_,
-        CloseConnection(
-            QUIC_INVALID_HEADERS_STREAM_DATA,
-            quiche::QuicheStrCat("Unsupported field of HTTP/2 SETTINGS frame: ",
+    EXPECT_CALL(*connection_,
+                CloseConnection(
+                    QUIC_INVALID_HEADERS_STREAM_DATA,
+                    absl::StrCat("Unsupported field of HTTP/2 SETTINGS frame: ",
                                  SETTINGS_ENABLE_PUSH),
-            _));
+                    _));
   }
-  EXPECT_CALL(
-      *connection_,
-      CloseConnection(
-          QUIC_INVALID_HEADERS_STREAM_DATA,
-          quiche::QuicheStrCat("Unsupported field of HTTP/2 SETTINGS frame: ",
+  EXPECT_CALL(*connection_,
+              CloseConnection(
+                  QUIC_INVALID_HEADERS_STREAM_DATA,
+                  absl::StrCat("Unsupported field of HTTP/2 SETTINGS frame: ",
                                SETTINGS_MAX_FRAME_SIZE),
-          _));
+                  _));
   stream_frame_.data_buffer = frame.data();
   stream_frame_.data_length = frame.size();
   headers_stream_->OnStreamFrame(stream_frame_);

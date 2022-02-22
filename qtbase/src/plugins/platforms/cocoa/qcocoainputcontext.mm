@@ -37,6 +37,8 @@
 **
 ****************************************************************************/
 
+#include <AppKit/AppKit.h>
+
 #include "qnsview.h"
 #include "qcocoainputcontext.h"
 #include "qcocoanativeinterface.h"
@@ -55,8 +57,8 @@ QT_BEGIN_NAMESPACE
     \class QCocoaInputContext
     \brief Cocoa Input context implementation
 
-    Handles input of foreign characters (particularly East Asian)
-    languages.
+    Handles input of languages that support character composition,
+    for example East Asian languages.
 
     \section1 Testing
 
@@ -72,17 +74,20 @@ QT_BEGIN_NAMESPACE
 
     \section1 Interaction
 
-    Input method support in Cocoa uses NSTextInput protorol. Therefore
-    almost all functionality is implemented in QNSView.
+    Input method support in Cocoa is based on the NSTextInputClient protocol,
+    therefore almost all functionality is in QNSView (qnsview_complextext.mm).
 */
-
-
 
 QCocoaInputContext::QCocoaInputContext()
     : QPlatformInputContext()
-    , mWindow(QGuiApplication::focusWindow())
+    , m_focusWindow(QGuiApplication::focusWindow())
 {
-    QMetaObject::invokeMethod(this, "connectSignals", Qt::QueuedConnection);
+    m_inputSourceObserver = QMacNotificationObserver(nil,
+        NSTextInputContextKeyboardSelectionDidChangeNotification, [&]() {
+        qCDebug(lcQpaInputMethods) << "Text input source changed";
+        updateLocale();
+    });
+
     updateLocale();
 }
 
@@ -91,17 +96,45 @@ QCocoaInputContext::~QCocoaInputContext()
 }
 
 /*!
-    \brief Cancels a composition.
+    Commits the current composition if there is one,
+    by "unmarking" the text in the edit buffer, and
+    informing the system input context of this fact.
 */
-
-void QCocoaInputContext::reset()
+void QCocoaInputContext::commit()
 {
-    QPlatformInputContext::reset();
+    qCDebug(lcQpaInputMethods) << "Committing composition";
 
-    if (!mWindow)
+    if (!m_focusWindow)
         return;
 
-    QCocoaWindow *window = static_cast<QCocoaWindow *>(mWindow->handle());
+    auto *platformWindow = m_focusWindow->handle();
+    if (!platformWindow)
+        return;
+
+    auto *cocoaWindow = static_cast<QCocoaWindow *>(platformWindow);
+    QNSView *view = qnsview_cast(cocoaWindow->view());
+    if (!view)
+        return;
+
+    QMacAutoReleasePool pool;
+    [view unmarkText];
+    [view.inputContext discardMarkedText];
+}
+
+
+/*!
+    \brief Cancels a composition.
+*/
+void QCocoaInputContext::reset()
+{
+    qCDebug(lcQpaInputMethods) << "Resetting input method";
+
+    QPlatformInputContext::reset();
+
+    if (!m_focusWindow)
+        return;
+
+    QCocoaWindow *window = static_cast<QCocoaWindow *>(m_focusWindow->handle());
     QNSView *view = qnsview_cast(window->view());
     if (!view)
         return;
@@ -113,20 +146,15 @@ void QCocoaInputContext::reset()
     }
 }
 
-void QCocoaInputContext::connectSignals()
+void QCocoaInputContext::setFocusObject(QObject *focusObject)
 {
-    connect(qApp, SIGNAL(focusObjectChanged(QObject*)), this, SLOT(focusObjectChanged(QObject*)));
-    focusObjectChanged(qApp->focusObject());
-}
+    qCDebug(lcQpaInputMethods) << "Focus object changed to" << focusObject;
 
-void QCocoaInputContext::focusObjectChanged(QObject *focusObject)
-{
-    Q_UNUSED(focusObject);
-    if (mWindow == QGuiApplication::focusWindow()) {
-        if (!mWindow)
+    if (m_focusWindow == QGuiApplication::focusWindow()) {
+        if (!m_focusWindow)
             return;
 
-        QCocoaWindow *window = static_cast<QCocoaWindow *>(mWindow->handle());
+        QCocoaWindow *window = static_cast<QCocoaWindow *>(m_focusWindow->handle());
         if (!window)
             return;
         QNSView *view = qnsview_cast(window->view());
@@ -138,24 +166,27 @@ void QCocoaInputContext::focusObjectChanged(QObject *focusObject)
             [view cancelComposingText];
         }
     } else {
-        mWindow = QGuiApplication::focusWindow();
+        m_focusWindow = QGuiApplication::focusWindow();
     }
 }
 
 void QCocoaInputContext::updateLocale()
 {
-    TISInputSourceRef source = TISCopyCurrentKeyboardInputSource();
-    CFArrayRef languages = (CFArrayRef) TISGetInputSourceProperty(source, kTISPropertyInputSourceLanguages);
-    if (CFArrayGetCount(languages) > 0) {
-        CFStringRef langRef = (CFStringRef)CFArrayGetValueAtIndex(languages, 0);
-        QString name = QString::fromCFString(langRef);
-        QLocale locale(name);
-        if (m_locale != locale) {
-            m_locale = locale;
-            emitLocaleChanged();
-        }
+    QCFType<TISInputSourceRef> source = TISCopyCurrentKeyboardInputSource();
+    NSArray *languages = static_cast<NSArray*>(TISGetInputSourceProperty(source,
+                                               kTISPropertyInputSourceLanguages));
+
+    qCDebug(lcQpaInputMethods) << "Input source supports" << languages;
+    if (!languages.count)
+        return;
+
+    QString language = QString::fromNSString(languages.firstObject);
+    QLocale locale(language);
+    if (m_locale != locale) {
+        qCDebug(lcQpaInputMethods) << "Reporting new locale" << locale;
+        m_locale = locale;
+        emitLocaleChanged();
     }
-    CFRelease(source);
 }
 
 QT_END_NAMESPACE

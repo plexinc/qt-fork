@@ -67,9 +67,11 @@ static const MediaQueryEvaluator& PrintEval() {
 }
 
 static const MediaQueryEvaluator& ForcedColorsEval() {
+  // We use "ua-forced-colors" here instead of "forced-colors" to indicate that
+  // this is a UA hack for the "forced-colors" media query.
   DEFINE_STATIC_LOCAL(
       Persistent<MediaQueryEvaluator>, forced_colors_eval,
-      (MakeGarbageCollected<MediaQueryEvaluator>("forced-colors")));
+      (MakeGarbageCollected<MediaQueryEvaluator>("ua-forced-colors")));
   return *forced_colors_eval;
 }
 
@@ -87,14 +89,16 @@ static StyleSheetContents* ParseUASheet(const String& str) {
 
 CSSDefaultStyleSheets::CSSDefaultStyleSheets()
     : media_controls_style_sheet_loader_(nullptr) {
-  // Strict-mode rules.
-  String forced_colors_style_sheet =
-      RuntimeEnabledFeatures::ForcedColorsEnabled()
-          ? UncompressResourceAsASCIIString(IDR_UASTYLE_THEME_FORCED_COLORS_CSS)
+  // Predefined @counter-style rules
+  String predefined_counter_styles_sheet =
+      RuntimeEnabledFeatures::CSSAtRuleCounterStyleEnabled()
+          ? UncompressResourceAsASCIIString(
+                IDR_UASTYLE_PREDEFINED_COUNTER_STYLES_CSS)
           : String();
+  // Strict-mode rules.
   String default_rules = UncompressResourceAsASCIIString(IDR_UASTYLE_HTML_CSS) +
                          LayoutTheme::GetTheme().ExtraDefaultStyleSheet() +
-                         forced_colors_style_sheet;
+                         predefined_counter_styles_sheet;
 
   default_style_sheet_ = ParseUASheet(default_rules);
 
@@ -108,13 +112,15 @@ CSSDefaultStyleSheets::CSSDefaultStyleSheets()
 
 #if DCHECK_IS_ON()
   default_style_->CompactRulesIfNeeded();
+  default_mathml_style_->CompactRulesIfNeeded();
+  default_svg_style_->CompactRulesIfNeeded();
   default_quirks_style_->CompactRulesIfNeeded();
   default_print_style_->CompactRulesIfNeeded();
-  default_forced_color_style_->CompactRulesIfNeeded();
   DCHECK(default_style_->UniversalRules()->IsEmpty());
+  DCHECK(default_mathml_style_->UniversalRules()->IsEmpty());
+  DCHECK(default_svg_style_->UniversalRules()->IsEmpty());
   DCHECK(default_quirks_style_->UniversalRules()->IsEmpty());
   DCHECK(default_print_style_->UniversalRules()->IsEmpty());
-  DCHECK(default_forced_color_style_->UniversalRules()->IsEmpty());
 #endif
 }
 
@@ -127,8 +133,10 @@ void CSSDefaultStyleSheets::PrepareForLeakDetection() {
   mathml_style_sheet_.Clear();
   media_controls_style_sheet_.Clear();
   text_track_style_sheet_.Clear();
+  forced_colors_style_sheet_.Clear();
   fullscreen_style_sheet_.Clear();
   webxr_overlay_style_sheet_.Clear();
+  marker_style_sheet_.Clear();
   // Recreate the default style sheet to clean up possible SVG resources.
   String default_rules = UncompressResourceAsASCIIString(IDR_UASTYLE_HTML_CSS) +
                          LayoutTheme::GetTheme().ExtraDefaultStyleSheet();
@@ -142,15 +150,17 @@ void CSSDefaultStyleSheets::PrepareForLeakDetection() {
 void CSSDefaultStyleSheets::InitializeDefaultStyles() {
   // This must be called only from constructor / PrepareForLeakDetection.
   default_style_ = MakeGarbageCollected<RuleSet>();
+  default_mathml_style_ = MakeGarbageCollected<RuleSet>();
+  default_svg_style_ = MakeGarbageCollected<RuleSet>();
   default_quirks_style_ = MakeGarbageCollected<RuleSet>();
   default_print_style_ = MakeGarbageCollected<RuleSet>();
-  default_forced_color_style_ = MakeGarbageCollected<RuleSet>();
+  default_media_controls_style_ = MakeGarbageCollected<RuleSet>();
+  default_forced_color_style_.Clear();
+  default_pseudo_element_style_.Clear();
 
   default_style_->AddRulesFromSheet(DefaultStyleSheet(), ScreenEval());
   default_quirks_style_->AddRulesFromSheet(QuirksStyleSheet(), ScreenEval());
   default_print_style_->AddRulesFromSheet(DefaultStyleSheet(), PrintEval());
-  default_forced_color_style_->AddRulesFromSheet(DefaultStyleSheet(),
-                                                 ForcedColorsEval());
 }
 
 RuleSet* CSSDefaultStyleSheets::DefaultViewSourceStyle() {
@@ -206,10 +216,12 @@ bool CSSDefaultStyleSheets::EnsureDefaultStyleSheetsForElement(
   if (element.IsSVGElement() && !svg_style_sheet_) {
     svg_style_sheet_ =
         ParseUASheet(UncompressResourceAsASCIIString(IDR_UASTYLE_SVG_CSS));
-    default_style_->AddRulesFromSheet(SvgStyleSheet(), ScreenEval());
+    default_svg_style_->AddRulesFromSheet(SvgStyleSheet(), ScreenEval());
     default_print_style_->AddRulesFromSheet(SvgStyleSheet(), PrintEval());
-    default_forced_color_style_->AddRulesFromSheet(SvgStyleSheet(),
-                                                   ForcedColorsEval());
+    if (default_forced_color_style_) {
+      default_forced_color_style_->AddRulesFromSheet(SvgStyleSheet(),
+                                                     ForcedColorsEval());
+    }
     changed_default_style = true;
   }
 
@@ -220,7 +232,7 @@ bool CSSDefaultStyleSheets::EnsureDefaultStyleSheetsForElement(
         RuntimeEnabledFeatures::MathMLCoreEnabled()
             ? UncompressResourceAsASCIIString(IDR_UASTYLE_MATHML_CSS)
             : UncompressResourceAsASCIIString(IDR_UASTYLE_MATHML_FALLBACK_CSS));
-    default_style_->AddRulesFromSheet(MathmlStyleSheet(), ScreenEval());
+    default_mathml_style_->AddRulesFromSheet(MathmlStyleSheet(), ScreenEval());
     default_print_style_->AddRulesFromSheet(MathmlStyleSheet(), PrintEval());
     changed_default_style = true;
   }
@@ -231,11 +243,14 @@ bool CSSDefaultStyleSheets::EnsureDefaultStyleSheetsForElement(
     // and <audio>.
     media_controls_style_sheet_ =
         ParseUASheet(media_controls_style_sheet_loader_->GetUAStyleSheet());
-    default_style_->AddRulesFromSheet(MediaControlsStyleSheet(), ScreenEval());
+    default_media_controls_style_->AddRulesFromSheet(MediaControlsStyleSheet(),
+                                                     ScreenEval());
     default_print_style_->AddRulesFromSheet(MediaControlsStyleSheet(),
                                             PrintEval());
-    default_forced_color_style_->AddRulesFromSheet(MediaControlsStyleSheet(),
-                                                   ForcedColorsEval());
+    if (default_forced_color_style_) {
+      default_forced_color_style_->AddRulesFromSheet(MediaControlsStyleSheet(),
+                                                     ForcedColorsEval());
+    }
     changed_default_style = true;
   }
 
@@ -267,7 +282,8 @@ bool CSSDefaultStyleSheets::EnsureDefaultStyleSheetsForElement(
                                 settings->GetTextTrackTextSize());
       builder.Append(" } ");
       text_track_style_sheet_ = ParseUASheet(builder.ToString());
-      default_style_->AddRulesFromSheet(text_track_style_sheet_, ScreenEval());
+      default_media_controls_style_->AddRulesFromSheet(text_track_style_sheet_,
+                                                       ScreenEval());
       default_print_style_->AddRulesFromSheet(text_track_style_sheet_,
                                               PrintEval());
       changed_default_style = true;
@@ -276,6 +292,25 @@ bool CSSDefaultStyleSheets::EnsureDefaultStyleSheetsForElement(
 
   DCHECK(!default_style_->Features().HasIdsInSelectors());
   return changed_default_style;
+}
+
+bool CSSDefaultStyleSheets::EnsureDefaultStyleSheetsForPseudoElement(
+    PseudoId pseudo_id) {
+  switch (pseudo_id) {
+    case kPseudoIdMarker: {
+      if (marker_style_sheet_)
+        return false;
+      marker_style_sheet_ =
+          ParseUASheet(UncompressResourceAsASCIIString(IDR_UASTYLE_MARKER_CSS));
+      if (!default_pseudo_element_style_)
+        default_pseudo_element_style_ = MakeGarbageCollected<RuleSet>();
+      default_pseudo_element_style_->AddRulesFromSheet(MarkerStyleSheet(),
+                                                       ScreenEval());
+      return true;
+    }
+    default:
+      return false;
+  }
 }
 
 void CSSDefaultStyleSheets::SetMediaControlsStyleSheetLoader(
@@ -292,8 +327,10 @@ bool CSSDefaultStyleSheets::EnsureDefaultStyleSheetForXrOverlay() {
   default_style_->AddRulesFromSheet(webxr_overlay_style_sheet_, ScreenEval());
   default_print_style_->AddRulesFromSheet(webxr_overlay_style_sheet_,
                                           PrintEval());
-  default_forced_color_style_->AddRulesFromSheet(webxr_overlay_style_sheet_,
-                                                 ForcedColorsEval());
+  if (default_forced_color_style_) {
+    default_forced_color_style_->AddRulesFromSheet(webxr_overlay_style_sheet_,
+                                                   ForcedColorsEval());
+  }
   return true;
 }
 
@@ -310,13 +347,61 @@ void CSSDefaultStyleSheets::EnsureDefaultStyleSheetForFullscreen() {
                                            ScreenEval());
 }
 
-void CSSDefaultStyleSheets::Trace(Visitor* visitor) {
+bool CSSDefaultStyleSheets::EnsureDefaultStyleSheetForForcedColors() {
+  if (forced_colors_style_sheet_)
+    return false;
+
+  String forced_colors_rules =
+      RuntimeEnabledFeatures::ForcedColorsEnabled()
+          ? UncompressResourceAsASCIIString(IDR_UASTYLE_THEME_FORCED_COLORS_CSS)
+          : String();
+  forced_colors_style_sheet_ = ParseUASheet(forced_colors_rules);
+
+  if (!default_forced_color_style_)
+    default_forced_color_style_ = MakeGarbageCollected<RuleSet>();
+  default_forced_color_style_->AddRulesFromSheet(DefaultStyleSheet(),
+                                                 ForcedColorsEval());
+  default_forced_color_style_->AddRulesFromSheet(ForcedColorsStyleSheet(),
+                                                 ForcedColorsEval());
+  if (svg_style_sheet_) {
+    default_forced_color_style_->AddRulesFromSheet(SvgStyleSheet(),
+                                                   ForcedColorsEval());
+  }
+  if (media_controls_style_sheet_) {
+    default_forced_color_style_->AddRulesFromSheet(MediaControlsStyleSheet(),
+                                                   ForcedColorsEval());
+  }
+  if (webxr_overlay_style_sheet_) {
+    default_forced_color_style_->AddRulesFromSheet(webxr_overlay_style_sheet_,
+                                                   ForcedColorsEval());
+  }
+
+  return true;
+}
+
+void CSSDefaultStyleSheets::CollectFeaturesTo(const Document& document,
+                                              RuleFeatureSet& features) {
+  if (DefaultStyle())
+    features.Add(DefaultStyle()->Features());
+  if (DefaultMediaControlsStyle())
+    features.Add(DefaultMediaControlsStyle()->Features());
+  if (DefaultMathMLStyle())
+    features.Add(DefaultMathMLStyle()->Features());
+  if (document.IsViewSource() && DefaultViewSourceStyle())
+    features.Add(DefaultViewSourceStyle()->Features());
+}
+
+void CSSDefaultStyleSheets::Trace(Visitor* visitor) const {
   visitor->Trace(default_style_);
+  visitor->Trace(default_mathml_style_);
+  visitor->Trace(default_svg_style_);
   visitor->Trace(default_quirks_style_);
   visitor->Trace(default_print_style_);
   visitor->Trace(default_view_source_style_);
   visitor->Trace(default_forced_color_style_);
+  visitor->Trace(default_media_controls_style_);
   visitor->Trace(default_style_sheet_);
+  visitor->Trace(default_pseudo_element_style_);
   visitor->Trace(mobile_viewport_style_sheet_);
   visitor->Trace(television_viewport_style_sheet_);
   visitor->Trace(xhtml_mobile_profile_style_sheet_);
@@ -325,8 +410,10 @@ void CSSDefaultStyleSheets::Trace(Visitor* visitor) {
   visitor->Trace(mathml_style_sheet_);
   visitor->Trace(media_controls_style_sheet_);
   visitor->Trace(text_track_style_sheet_);
+  visitor->Trace(forced_colors_style_sheet_);
   visitor->Trace(fullscreen_style_sheet_);
   visitor->Trace(webxr_overlay_style_sheet_);
+  visitor->Trace(marker_style_sheet_);
 }
 
 }  // namespace blink

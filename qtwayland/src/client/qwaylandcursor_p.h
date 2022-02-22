@@ -57,6 +57,8 @@
 
 #if QT_CONFIG(cursor)
 
+#include <memory>
+
 struct wl_cursor;
 struct wl_cursor_image;
 struct wl_cursor_theme;
@@ -73,11 +75,11 @@ class QWaylandShm;
 class Q_WAYLAND_CLIENT_EXPORT QWaylandCursorTheme
 {
 public:
-    static QWaylandCursorTheme *create(QWaylandShm *shm, int size, const QString &themeName);
+    static std::unique_ptr<QWaylandCursorTheme> create(QWaylandShm *shm, int size, const QString &themeName);
     ~QWaylandCursorTheme();
     ::wl_cursor *cursor(Qt::CursorShape shape);
 
-private:
+protected:
     enum WaylandCursor {
         ArrowCursor = Qt::ArrowCursor,
         UpArrowCursor,
@@ -109,13 +111,15 @@ private:
         ResizeNorthWestCursor,
         ResizeSouthEastCursor,
         ResizeNorthEastCursor,
-        ResizeSouthWestCursor
+        ResizeSouthWestCursor,
+
+        NumWaylandCursors
     };
 
     explicit QWaylandCursorTheme(struct ::wl_cursor_theme *theme) : m_theme(theme) {}
     struct ::wl_cursor *requestCursor(WaylandCursor shape);
     struct ::wl_cursor_theme *m_theme = nullptr;
-    QMap<WaylandCursor, wl_cursor *> m_cursors;
+    wl_cursor *m_cursors[NumWaylandCursors] = {};
 };
 
 class Q_WAYLAND_CLIENT_EXPORT QWaylandCursor : public QPlatformCursor
@@ -130,7 +134,7 @@ public:
 
     static QSharedPointer<QWaylandBuffer> cursorBitmapBuffer(QWaylandDisplay *display, const QCursor *cursor);
 
-private:
+protected:
     QWaylandDisplay *mDisplay = nullptr;
     QPoint mLastPos;
 };

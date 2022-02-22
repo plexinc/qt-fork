@@ -26,8 +26,6 @@
 **
 ****************************************************************************/
 
-#include <QtGui>
-
 #include "simplelistview.h"
 #include "scrollbar.h"
 #include "simplelistview.h"
@@ -35,6 +33,10 @@
 #include "listitem.h"
 #include "listitemcache.h"
 #include "theme.h"
+
+#include <QtGui>
+#include <QGraphicsGridLayout>
+#include <QGraphicsSceneResizeEvent>
 
 class SimpleListViewPrivate
 {
@@ -407,7 +409,7 @@ void SimpleListView::setListItemCaching(bool enabled)
 void SimpleListView::scrollContentsBy(qreal dx, qreal dy)
 {
     Q_D(SimpleListView);
-    Q_UNUSED(dx)
+    Q_UNUSED(dx);
     QRectF contentRect = d->m_content->boundingRect();
     QRectF viewportRect = viewport()->boundingRect();
     QPointF contentPos = d->m_content->pos();

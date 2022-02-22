@@ -72,6 +72,18 @@ Effect {
     }
 
     RenderPass {
+        id: rhipass
+        filterKeys: [ forwardkey ]
+
+        shaderProgram: ShaderProgram {
+            vertexShaderCode:   loadSource("qrc:/shaders/rhi/sun.vert")
+            fragmentShaderCode: loadSource("qrc:/shaders/rhi/sun.frag")
+        }
+
+        // no special render state set => use the default set of states
+    }
+
+    RenderPass {
         id: espass
         filterKeys: [ forwardkey ]
 
@@ -116,6 +128,17 @@ Effect {
             filterKeys: [ eskey ]
 
             renderPasses: [ espass ]
+        },
+        Technique {
+            graphicsApiFilter {
+                api: GraphicsApiFilter.RHI
+                majorVersion: 1
+                minorVersion: 0
+            }
+
+            filterKeys: [ desktopkey ]
+
+            renderPasses: [ rhipass ]
         }
     ]
 }

@@ -22,13 +22,6 @@
 namespace media {
 namespace remoting {
 
-// static
-mojo::DataPipe* DemuxerStreamAdapter::CreateDataPipe() {
-  // Capacity in bytes for Mojo data pipe.
-  constexpr int kMojoDataPipeCapacityInBytes = 512 * 1024;
-  return new mojo::DataPipe(kMojoDataPipeCapacityInBytes);
-}
-
 DemuxerStreamAdapter::DemuxerStreamAdapter(
     scoped_refptr<base::SingleThreadTaskRunner> main_task_runner,
     scoped_refptr<base::SingleThreadTaskRunner> media_task_runner,
@@ -128,7 +121,9 @@ void DemuxerStreamAdapter::OnReceivedRpc(
     case pb::RpcMessage::RPC_DS_ENABLEBITSTREAMCONVERTER:
       EnableBitstreamConverter();
       break;
-
+    case pb::RpcMessage::RPC_DS_ONERROR:
+      OnFatalError(UNEXPECTED_FAILURE);
+      break;
     default:
       DEMUXER_VLOG(1) << "Unknown RPC: " << message->proc();
   }

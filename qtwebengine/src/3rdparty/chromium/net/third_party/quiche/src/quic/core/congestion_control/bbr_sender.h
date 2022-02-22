@@ -11,17 +11,17 @@
 #include <ostream>
 #include <string>
 
-#include "net/third_party/quiche/src/quic/core/congestion_control/bandwidth_sampler.h"
-#include "net/third_party/quiche/src/quic/core/congestion_control/send_algorithm_interface.h"
-#include "net/third_party/quiche/src/quic/core/congestion_control/windowed_filter.h"
-#include "net/third_party/quiche/src/quic/core/crypto/quic_random.h"
-#include "net/third_party/quiche/src/quic/core/quic_bandwidth.h"
-#include "net/third_party/quiche/src/quic/core/quic_packet_number.h"
-#include "net/third_party/quiche/src/quic/core/quic_packets.h"
-#include "net/third_party/quiche/src/quic/core/quic_time.h"
-#include "net/third_party/quiche/src/quic/core/quic_unacked_packet_map.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
+#include "quic/core/congestion_control/bandwidth_sampler.h"
+#include "quic/core/congestion_control/send_algorithm_interface.h"
+#include "quic/core/congestion_control/windowed_filter.h"
+#include "quic/core/crypto/quic_random.h"
+#include "quic/core/quic_bandwidth.h"
+#include "quic/core/quic_packet_number.h"
+#include "quic/core/quic_packets.h"
+#include "quic/core/quic_time.h"
+#include "quic/core/quic_unacked_packet_map.h"
+#include "quic/platform/api/quic_export.h"
+#include "quic/platform/api/quic_flags.h"
 
 namespace quic {
 
@@ -106,6 +106,7 @@ class QUIC_EXPORT_PRIVATE BbrSender : public SendAlgorithmInterface {
 
   void SetFromConfig(const QuicConfig& config,
                      Perspective perspective) override;
+  void ApplyConnectionOptions(const QuicTagVector& connection_options) override;
 
   void AdjustNetworkParameters(const NetworkParams& params) override;
   void SetInitialCongestionWindowInPackets(
@@ -142,7 +143,7 @@ class QUIC_EXPORT_PRIVATE BbrSender : public SendAlgorithmInterface {
 
   // Sets the pacing gain used in STARTUP.  Must be greater than 1.
   void set_high_gain(float high_gain) {
-    DCHECK_LT(1.0f, high_gain);
+    QUICHE_DCHECK_LT(1.0f, high_gain);
     high_gain_ = high_gain;
     if (mode_ == STARTUP) {
       pacing_gain_ = high_gain;
@@ -151,7 +152,7 @@ class QUIC_EXPORT_PRIVATE BbrSender : public SendAlgorithmInterface {
 
   // Sets the CWND gain used in STARTUP.  Must be greater than 1.
   void set_high_cwnd_gain(float high_cwnd_gain) {
-    DCHECK_LT(1.0f, high_cwnd_gain);
+    QUICHE_DCHECK_LT(1.0f, high_cwnd_gain);
     high_cwnd_gain_ = high_cwnd_gain;
     if (mode_ == STARTUP) {
       congestion_window_gain_ = high_cwnd_gain;
@@ -160,7 +161,7 @@ class QUIC_EXPORT_PRIVATE BbrSender : public SendAlgorithmInterface {
 
   // Sets the gain used in DRAIN.  Must be less than 1.
   void set_drain_gain(float drain_gain) {
-    DCHECK_GT(1.0f, drain_gain);
+    QUICHE_DCHECK_GT(1.0f, drain_gain);
     drain_gain_ = drain_gain;
   }
 
@@ -174,17 +175,15 @@ class QUIC_EXPORT_PRIVATE BbrSender : public SendAlgorithmInterface {
   // For switching send algorithm mid connection.
   friend class Bbr2Sender;
 
-  typedef WindowedFilter<QuicBandwidth,
-                         MaxFilter<QuicBandwidth>,
-                         QuicRoundTripCount,
-                         QuicRoundTripCount>
-      MaxBandwidthFilter;
+  using MaxBandwidthFilter = WindowedFilter<QuicBandwidth,
+                                            MaxFilter<QuicBandwidth>,
+                                            QuicRoundTripCount,
+                                            QuicRoundTripCount>;
 
-  typedef WindowedFilter<QuicByteCount,
-                         MaxFilter<QuicByteCount>,
-                         QuicRoundTripCount,
-                         QuicRoundTripCount>
-      MaxAckHeightFilter;
+  using MaxAckHeightFilter = WindowedFilter<QuicByteCount,
+                                            MaxFilter<QuicByteCount>,
+                                            QuicRoundTripCount,
+                                            QuicRoundTripCount>;
 
   // Returns whether the connection has achieved full bandwidth required to exit
   // the slow start.
@@ -242,10 +241,6 @@ class QUIC_EXPORT_PRIVATE BbrSender : public SendAlgorithmInterface {
   // recovery.
   void CalculateRecoveryWindow(QuicByteCount bytes_acked,
                                QuicByteCount bytes_lost);
-
-  // Returns true if there are enough bytes in flight to ensure more bandwidth
-  // will be observed if present.
-  bool IsPipeSufficientlyFull() const;
 
   // Called right before exiting STARTUP.
   void OnExitStartup(QuicTime now);
@@ -325,13 +320,6 @@ class QUIC_EXPORT_PRIVATE BbrSender : public SendAlgorithmInterface {
   // The number of RTTs to stay in STARTUP mode.  Defaults to 3.
   QuicRoundTripCount num_startup_rtts_;
 
-  // Latched value of --quic_bbr_default_exit_startup_on_loss.
-  // If true, exit startup if all of the following conditions are met:
-  // - 1RTT has passed with no bandwidth increase,
-  // - Some number of congestion events happened with loss, in the last round.
-  // - Some amount of inflight bytes (at the start of the last round) are lost.
-  bool exit_startup_on_loss_;
-
   // Number of round-trips in PROBE_BW mode, used for determining the current
   // pacing gain cycle.
   int cycle_current_offset_;
@@ -360,9 +348,6 @@ class QUIC_EXPORT_PRIVATE BbrSender : public SendAlgorithmInterface {
   bool last_sample_is_app_limited_;
   // Indicates whether any non app-limited samples have been recorded.
   bool has_non_app_limited_sample_;
-  // Indicates app-limited calls should be ignored as long as there's
-  // enough data inflight to see more bandwidth when necessary.
-  bool flexible_app_limited_;
 
   // Current state of recovery.
   RecoveryState recovery_state_;
@@ -390,18 +375,17 @@ class QUIC_EXPORT_PRIVATE BbrSender : public SendAlgorithmInterface {
   // or it's time for high gain mode.
   bool drain_to_target_;
 
-  const bool fix_zero_bw_on_loss_only_event_ =
-      GetQuicReloadableFlag(quic_bbr_fix_zero_bw_on_loss_only_event);
-
-  // True if network parameters are adjusted, and this will be reset if
-  // overshooting is detected and pacing rate gets slowed.
-  bool network_parameters_adjusted_;
-  // Bytes lost after network parameters gets adjusted.
-  QuicByteCount bytes_lost_with_network_parameters_adjusted_;
-  // Decrease pacing rate after parameters adjusted if
-  // bytes_lost_with_network_parameters_adjusted_ *
-  // bytes_lost_multiplier_with_network_parameters_adjusted_ > IW.
-  uint8_t bytes_lost_multiplier_with_network_parameters_adjusted_;
+  // If true, slow down pacing rate in STARTUP when overshooting is detected.
+  bool detect_overshooting_;
+  // Bytes lost while detect_overshooting_ is true.
+  QuicByteCount bytes_lost_while_detecting_overshooting_;
+  // Slow down pacing rate if
+  // bytes_lost_while_detecting_overshooting_ *
+  // bytes_lost_multiplier_while_detecting_overshooting_ > IW.
+  uint8_t bytes_lost_multiplier_while_detecting_overshooting_;
+  // When overshooting is detected, do not drop pacing_rate_ below this value /
+  // min_rtt.
+  QuicByteCount cwnd_to_calculate_min_pacing_rate_;
 
   // Max congestion window when adjusting network parameters.
   QuicByteCount max_congestion_window_with_network_parameters_adjusted_;

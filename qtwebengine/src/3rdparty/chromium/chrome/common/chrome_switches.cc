@@ -5,6 +5,7 @@
 #include "chrome/common/chrome_switches.h"
 
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "ppapi/buildflags/buildflags.h"
 #include "printing/buildflags/buildflags.h"
 
@@ -12,9 +13,9 @@ namespace switches {
 
 // -----------------------------------------------------------------------------
 // Can't find the switch you are looking for? Try looking in:
+// ash/constants/ash_switches.cc
 // ash/public/cpp/ash_switches.cc
 // base/base_switches.cc
-// chromeos/constants/chromeos_switches.cc
 // etc.
 //
 // When commenting your switch, please use the same voice as surrounding
@@ -29,9 +30,6 @@ const char kAllowCrossOriginAuthPrompt[]    = "allow-cross-origin-auth-prompt";
 // Allow non-secure origins to use the screen capture API and the desktopCapture
 // extension API.
 const char kAllowHttpScreenCapture[] = "allow-http-screen-capture";
-
-// Don't block outdated plugins.
-const char kAllowOutdatedPlugins[]          = "allow-outdated-plugins";
 
 // Allows profiles to be created outside of the user data dir.
 // TODO(https://crbug.com/1060366): Various places in Chrome assume that all
@@ -55,6 +53,12 @@ const char kApp[]                           = "app";
 // according to its configuration.
 const char kAppId[]                         = "app-id";
 
+// Overrides the launch url of an app with the specified url. This is used
+// along with kAppId to launch a given app with the url corresponding to an item
+// in the app's shortcuts menu.
+const char kAppLaunchUrlForShortcutsMenuItem[] =
+    "app-launch-url-for-shortcuts-menu-item";
+
 // Value of GAIA auth code for --force-app-mode.
 const char kAppModeAuthCode[]               = "app-mode-auth-code";
 
@@ -71,8 +75,8 @@ const char kAppsGalleryUpdateURL[]          = "apps-gallery-update-url";
 // The URL to use for the gallery link in the app launcher.
 const char kAppsGalleryURL[]                = "apps-gallery-url";
 
-// Whitelist for Negotiate Auth servers
-const char kAuthServerWhitelist[]           = "auth-server-whitelist";
+// Allowlist for Negotiate Auth servers
+const char kAuthServerAllowlist[] = "auth-server-whitelist";
 
 // This flag makes Chrome auto-open DevTools window for each tab. It is
 // intended to be used by developers and automation to not require user
@@ -87,12 +91,6 @@ const char kAutoOpenDevToolsForTabs[]       = "auto-open-devtools-for-tabs";
 // would match "Built-in display" and "External display", whichever comes first.
 const char kAutoSelectDesktopCaptureSource[] =
     "auto-select-desktop-capture-source";
-
-// This flag causes the user engagement checks for showing app banners to be
-// bypassed. It is intended to be used by developers who wish to test that their
-// sites otherwise meet the criteria needed to show app banners.
-const char kBypassAppBannerEngagementChecks[] =
-    "bypass-app-banner-engagement-checks";
 
 // How often (in seconds) to check for updates. Should only be used for testing
 // purposes.
@@ -160,6 +158,13 @@ const char kDebugEnableFrameToggle[]        = "debug-enable-frame-toggle";
 // apps.
 const char kDebugPackedApps[]               = "debug-packed-apps";
 
+// Values for the enable-desktop-pwas-attention-badging-cros flag.
+const char kDesktopPWAsAttentionBadgingCrOSApiAndNotifications[] =
+    "api-and-notifications";
+const char kDesktopPWAsAttentionBadgingCrOSApiOnly[] = "api-only";
+const char kDesktopPWAsAttentionBadgingCrOSNotificationsOnly[] =
+    "notifications-only";
+
 // Passes command line parameters to the DevTools front-end.
 const char kDevToolsFlags[]                 = "devtools-flags";
 
@@ -180,9 +185,6 @@ const char kDisableAutoReload[] = "disable-auto-reload";
 // measurements.
 const char kDisableBackgroundNetworking[]   = "disable-background-networking";
 
-// Disables the bundled PPAPI version of Flash.
-const char kDisableBundledPpapiFlash[]      = "disable-bundled-ppapi-flash";
-
 // Disables the client-side phishing detection feature. Note that even if
 // client-side phishing detection is enabled, it will only be active if the
 // user has opted in to UMA stats and SafeBrowsing is enabled in the
@@ -200,10 +202,6 @@ const char kDisableComponentUpdate[]        = "disable-component-update";
 // Disables installation of default apps on first run. This is used during
 // automated testing.
 const char kDisableDefaultApps[]            = "disable-default-apps";
-
-// Disables device discovery notifications.
-const char kDisableDeviceDiscoveryNotifications[] =
-    "disable-device-discovery-notifications";
 
 // Disables Domain Reliability Monitoring.
 const char kDisableDomainReliability[]      = "disable-domain-reliability";
@@ -227,15 +225,6 @@ const char kDisablePrintPreview[]           = "disable-print-preview";
 // disable that check. This switch is used during automated testing.
 const char kDisablePromptOnRepost[]         = "disable-prompt-on-repost";
 
-// Disables showing the search geolocation disclosure UI. Used for perf testing.
-const char kDisableSearchGeolocationDisclosure[] =
-    "disable-search-geolocation-disclosure";
-
-// Disables prompting the user for consent before fulfilling WebXR's
-// requestSession(). Use only when absolutely necessary, such as for perf tests.
-const char kDisableXrDeviceConsentPromptForTesting[] =
-    "disable-xr-device-consent-prompt-for-testing";
-
 // Some tests seem to require the application to close when the last
 // browser window is closed. Thus, we need a switch to force this behavior
 // for ChromeOS Aura, disable "zero window mode".
@@ -251,14 +240,9 @@ const char kDiskCacheDir[]                  = "disk-cache-dir";
 // Forces the maximum disk space to be used by the disk cache, in bytes.
 const char kDiskCacheSize[]                 = "disk-cache-size";
 
-const char kDnsLogDetails[]                 = "dns-log-details";
-
 // Requests that a running browser process dump its collected histograms to a
 // given file. The file is overwritten if it exists.
 const char kDumpBrowserHistograms[]         = "dump-browser-histograms";
-
-// Overrides the path of Easy Unlock component app.
-const char kEasyUnlockAppPath[]             = "easy-unlock-app-path";
 
 // Enable auto-reload of error pages.
 const char kEnableAutoReload[] = "enable-auto-reload";
@@ -273,6 +257,10 @@ const char kEnableBookmarkUndo[]            = "enable-bookmark-undo";
 // This applies only when the process type is "service". Enables the Cloud Print
 // Proxy component within the service process.
 const char kEnableCloudPrintProxy[]         = "enable-cloud-print-proxy";
+
+// Enables CriticalPersistedTabData - redesign/replacement for TabState
+const char kEnableCriticalPersistedTabData[] =
+    "enable-critical-persisted-tab-data";
 
 // Enable device discovery notifications.
 const char kEnableDeviceDiscoveryNotifications[] =
@@ -291,11 +279,6 @@ const char kEnableExtensionActivityLogTesting[] =
 // Runs the Native Client inside the renderer process and enables GPU plugin
 // (internally adds lEnableGpuPlugin to the command line).
 const char kEnableNaCl[]                    = "enable-nacl";
-
-// Enables tracing for each navigation. It will attempt to trace each navigation
-// for 10s, until the buffer is full, or until the next navigation.
-// It only works if a URL was provided by --trace-upload-url.
-const char kEnableNavigationTracing[] = "enable-navigation-tracing";
 
 // Enables the network-related benchmarking extensions.
 const char kEnableNetBenchmarking[]         = "enable-net-benchmarking";
@@ -349,11 +332,6 @@ const char kInstallAutogeneratedTheme[] = "install-autogenerated-theme";
 
 // Causes Chrome to initiate an installation flow for the given app.
 const char kInstallChromeApp[]              = "install-chrome-app";
-
-// A list of whitelists to install for a supervised user, for testing.
-// The list is of the following form: <id>[:<name>],[<id>[:<name>],...]
-const char kInstallSupervisedUserWhitelists[] =
-    "install-supervised-user-whitelists";
 
 // Marks a renderer as an Instant process.
 const char kInstantProcess[]                = "instant-process";
@@ -426,13 +404,6 @@ const char kNoServiceAutorun[]              = "no-service-autorun";
 // launching Chrome for the purpose of hosting background apps).
 const char kNoStartupWindow[]               = "no-startup-window";
 
-// Disables checking whether we received an acknowledgment when registering
-// a supervised user. Also disables the timeout during registration that waits
-// for the ack. Useful when debugging against a server that does not
-// support notifications.
-const char kNoSupervisedUserAcknowledgmentCheck[]  =
-    "no-managed-user-acknowledgment-check";
-
 // Calculate the hash of an MHTML file as it is being saved.
 // The browser process will write the serialized MHTML contents to a file and
 // calculate its hash as it is streamed back from the renderer via a Mojo data
@@ -442,18 +413,6 @@ const char kOnTheFlyMhtmlHashComputation[] =
 
 // Launches URL in new browser window.
 const char kOpenInNewWindow[]               = "new-window";
-
-// Contains a list of feature names for which origin trial experiments should
-// be disabled. Names should be separated by "|" characters.
-const char kOriginTrialDisabledFeatures[] = "origin-trial-disabled-features";
-
-// Contains a list of token signatures for which origin trial experiments should
-// be disabled. Tokens should be separated by "|" characters.
-const char kOriginTrialDisabledTokens[] = "origin-trial-disabled-tokens";
-
-// Comma-separated list of keys which will override the default public keys for
-// checking origin trial tokens.
-const char kOriginTrialPublicKey[] = "origin-trial-public-key";
 
 // Packages an extension to a .crx installable file from a given directory.
 const char kPackExtension[]                 = "pack-extension";
@@ -471,13 +430,10 @@ const char kPermissionRequestApiScope[]     = "permission-request-api-scope";
 // TODO(bauerb): Remove when this flag is not needed anymore.
 const char kPermissionRequestApiUrl[]       = "permission-request-api-url";
 
-// Use the PPAPI (Pepper) Flash found at the given path.
-const char kPpapiFlashPath[]                = "ppapi-flash-path";
-
-// Report the given version for the PPAPI (Pepper) Flash. The version should be
-// numbers separated by '.'s (e.g., "12.3.456.78"). If not specified, it
-// defaults to "10.2.999.999".
-const char kPpapiFlashVersion[]             = "ppapi-flash-version";
+// Used to mock the response received from the Web Permission Prediction
+// Service. Used for testing.
+const char kPredictionServiceMockLikelihood[] =
+    "prediction-service-mock-likelihood";
 
 // Use IPv6 only for privet HTTP.
 const char kPrivetIPv6Only[]                   = "privet-ipv6-only";
@@ -519,9 +475,6 @@ const char kSavePageAsMHTML[]               = "save-page-as-mhtml";
 
 // Sets the Reporting API delay to under a second to allow much quicker reports.
 const char kShortReportingDelay[] = "short-reporting-delay";
-
-// If true the app list will be shown.
-const char kShowAppList[]                   = "show-app-list";
 
 // Does not show an infobar when an extension attaches to a page using
 // chrome.debugger page. Required to attach to extension background pages.
@@ -590,10 +543,10 @@ const char kSupervisedUserId[]              = "managed-user-id";
 // testing purposes.
 const char kSystemLogUploadFrequency[] = "system-log-upload-frequency";
 
-// Sets the task manager to track extra renderer processes that might not
-// normally be displayed in the task manager.
-const char kTaskManagerShowExtraRenderers[] =
-    "task-manager-show-extra-renderers";
+// This flag makes Chrome auto-accept/reject requests to capture the current
+// tab. It should only be used for tests.
+const char kThisTabCaptureAutoAccept[] = "auto-accept-this-tab-capture";
+const char kThisTabCaptureAutoReject[] = "auto-reject-this-tab-capture";
 
 // Passes the name of the current running automated test to Chrome.
 const char kTestName[]                      = "test-name";
@@ -609,9 +562,6 @@ const char kTryChromeAgain[]                = "try-chrome-again";
 // Overrides per-origin quota settings to unlimited storage for any
 // apps/origins.  This should be used only for testing purpose.
 const char kUnlimitedStorage[]              = "unlimited-storage";
-
-// A string used to override the default user agent with a custom one.
-const char kUserAgent[]                     = "user-agent";
 
 // Specifies the user data directory, which is where the browser will look for
 // all of its state.
@@ -670,6 +620,10 @@ const char kEnableAccessibilityTabSwitcher[] =
 // unresponsive web content.
 const char kEnableHungRendererInfoBar[] = "enable-hung-renderer-infobar";
 
+// Forces the device to report being owned by an enterprise. This mimics the
+// presence of an app signaling device ownerhsip.
+const char kForceDeviceOwnership[] = "force-device-ownership";
+
 // Forces the night mode to be enabled.
 const char kForceEnableNightMode[] = "force-enable-night-mode";
 
@@ -685,17 +639,11 @@ const char kForceShowUpdateMenuItemCustomSummary[] = "custom_summary";
 // Sets the market URL for Chrome for use in testing.
 const char kMarketUrlForTesting[] = "market-url-for-testing";
 
-// Specifies Android phone page loading progress bar animation.
-const char kProgressBarAnimation[]          = "progress-bar-animation";
-
-// Specifies a base URL for the trusted CDN for tests.
-const char kTrustedCDNBaseURLForTests[] = "trusted-cdn-base-url-for-tests";
-
 // Custom WebAPK server URL for the sake of testing.
 const char kWebApkServerUrl[] = "webapk-server-url";
 #endif  // defined(OS_ANDROID)
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 // Custom crosh command.
 const char kCroshCommand[] = "crosh-command";
 
@@ -718,9 +666,9 @@ const char kSchedulerConfigurationPerformance[] = "performance";
 // Specifies what the default scheduler configuration value is if the user does
 // not set one.
 const char kSchedulerConfigurationDefault[] = "scheduler-configuration-default";
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
-#if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_CHROMEOS)
+#if defined(OS_POSIX) && !defined(OS_MAC) && !BUILDFLAG(IS_CHROMEOS_ASH)
 // These flags show the man page on Linux. They are equivalent to each
 // other.
 const char kHelp[]                          = "help";
@@ -745,7 +693,7 @@ const char kEnableEncryptionSelection[] = "enable-encryption-selection";
 const char kWmClass[]                       = "class";
 #endif
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 // Prevents Chrome from quitting when Chrome Apps are open.
 const char kAppsKeepChromeAliveInTests[]    = "apps-keep-chrome-alive-in-tests";
 
@@ -777,19 +725,22 @@ const char kRelauncherProcessDMGDevice[]    = "dmg-device";
 // Indicates whether Chrome should be set as the default browser during
 // installation.
 const char kMakeChromeDefault[] = "make-chrome-default";
-#endif  // defined(OS_MACOSX)
+#endif  // defined(OS_MAC)
 
 #if defined(OS_WIN)
 // Disables custom-drawing the window titlebar on Windows 10.
 const char kDisableWindows10CustomTitlebar[] =
     "disable-windows10-custom-titlebar";
 
-// Fallback to XPS. By default connector uses CDD.
-const char kEnableCloudPrintXps[]           = "enable-cloud-print-xps";
-
 // Force-enables the profile shortcut manager. This is needed for tests since
 // they use a custom-user-data-dir which disables this.
 const char kEnableProfileShortcutManager[]  = "enable-profile-shortcut-manager";
+
+// Indicates that this launch of the browser originated from the installer
+// (i.e., following a successful new install or over-install). This triggers
+// browser behaviors for this specific launch, such as a welcome announcement
+// for accessibility software (see https://crbug.com/1072735).
+extern const char kFromInstaller[] = "from-installer";
 
 // Makes Windows happy by allowing it to show "Enable access to this program"
 // checkbox in Add/Remove Programs->Set Program Access and Defaults. This only
@@ -813,7 +764,7 @@ const char kNotificationLaunchId[] = "notification-launch-id";
 // for the watcher process. Use profiles 5, 6 and 7 as documented on
 // kPrefetchArgument* in content_switches.cc.
 const char kPrefetchArgumentBrowserBackground[] = "/prefetch:5";
-const char kPrefetchArgumentWatcher[] = "/prefetch:6";
+// /prefetch:6 was formerly used by the watcher but is no longer used.
 // /prefetch:7 is used by crashpad, which can't depend on constants defined
 // here. See crashpad_win.cc for more details.
 
@@ -822,6 +773,9 @@ const char kShowIcons[]                     = "show-icons";
 
 // Runs un-installation steps that were done by chrome first-run.
 const char kUninstall[]                     = "uninstall";
+
+// Specifies that the WebApp with the specified id should be uninstalled.
+const char kUninstallAppId[] = "uninstall-app-id";
 
 // Specifies the version of the Progressive-Web-App launcher that launched
 // Chrome, used to determine whether to update all launchers.
@@ -850,19 +804,15 @@ const char kAllowNaClFileHandleAPI[]        = "allow-nacl-file-handle-api";
 const char kAllowNaClSocketAPI[]            = "allow-nacl-socket-api";
 #endif
 
-#if defined(OS_LINUX) || defined(OS_MACOSX) || defined(OS_WIN)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_MAC) || \
+    defined(OS_WIN)
 const char kEnableNewAppMenuIcon[] = "enable-new-app-menu-icon";
 
 // Causes the browser to launch directly in guest mode.
 const char kGuest[] = "guest";
 #endif
 
-#if !defined(OS_CHROMEOS) && !defined(OS_ANDROID)
-// Enables Machine level user cloud policy on Chromium build. This policy is
-// always enabled on the branded builds.
-const char kEnableChromeBrowserCloudManagement[] =
-    "enable-chrome-browser-cloud-management";
-
+#if !BUILDFLAG(IS_CHROMEOS_ASH) && !defined(OS_ANDROID)
 // Uses the system default printer as the initially selected destination in
 // print preview, instead of the most recently used destination.
 const char kUseSystemDefaultPrinter[] = "use-system-default-printer";

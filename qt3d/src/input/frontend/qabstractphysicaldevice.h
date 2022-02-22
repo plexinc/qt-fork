@@ -42,8 +42,8 @@
 
 #include <Qt3DInput/qt3dinput_global.h>
 #include <Qt3DCore/qnode.h>
+#include <QtCore/qlist.h>
 #include <QtCore/qobject.h>
-#include <QtCore/qvector.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -70,12 +70,11 @@ public:
 
     void addAxisSetting(QAxisSetting *axisSetting);
     void removeAxisSetting(QAxisSetting *axisSetting);
-    QVector<QAxisSetting *> axisSettings() const;
+    QList<QAxisSetting *> axisSettings() const;
 
 protected:
     QAbstractPhysicalDevice(QAbstractPhysicalDevicePrivate &dd, Qt3DCore::QNode *parent = nullptr);
     Q_DECLARE_PRIVATE(QAbstractPhysicalDevice)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // Qt3DInput

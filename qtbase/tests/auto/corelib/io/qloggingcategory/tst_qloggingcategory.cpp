@@ -26,7 +26,7 @@
 **
 ****************************************************************************/
 
-#include <QtTest>
+#include <QTest>
 #include <QMutexLocker>
 #include <QLoggingCategory>
 
@@ -133,7 +133,7 @@ public:
         : _logtext(logtext), _configuration(configuration)
     {}
 protected:
-    void run()
+    void run() override
     {
         for (int i = 0; i < 2000; i++) {
             _configuration->addKey("Digia*", true);
@@ -820,7 +820,7 @@ private slots:
     {
         _config->clear();
         _config->addKey("LoggingCategoryObject", true);
-        QLoggingCategory *pcategorybject = 0;
+        QLoggingCategory *pcategorybject = nullptr;
         QLoggingCategory::setFilterRules(_config->array());
         {
             QLoggingCategory mycategoryobject("LoggingCategoryObject");

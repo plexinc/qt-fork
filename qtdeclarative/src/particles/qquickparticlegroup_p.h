@@ -58,26 +58,19 @@ QT_BEGIN_NAMESPACE
 class QQuickParticleGroup : public QQuickStochasticState, public QQmlParserStatus
 {
     Q_OBJECT
-    //### Would setting limits per group be useful? Or clutter the API?
-    //Q_PROPERTY(int maximumAlive READ maximumAlive WRITE setMaximumAlive NOTIFY maximumAliveChanged)
-
     Q_PROPERTY(QQuickParticleSystem* system READ system WRITE setSystem NOTIFY systemChanged)
 
     //Intercept children requests and assign to the group & system
     Q_PROPERTY(QQmlListProperty<QObject> particleChildren READ particleChildren DESIGNABLE false)//### Hidden property for in-state system definitions - ought not to be used in actual "Sprite" states
     Q_CLASSINFO("DefaultProperty", "particleChildren")
     QML_NAMED_ELEMENT(ParticleGroup)
+    QML_ADDED_IN_VERSION(2, 0)
     Q_INTERFACES(QQmlParserStatus)
 
 public:
     explicit QQuickParticleGroup(QObject* parent = 0);
 
     QQmlListProperty<QObject> particleChildren();
-
-    int maximumAlive() const
-    {
-        return m_maximumAlive;
-    }
 
     QQuickParticleSystem* system() const
     {
@@ -86,21 +79,11 @@ public:
 
 public Q_SLOTS:
 
-    void setMaximumAlive(int arg)
-    {
-        if (m_maximumAlive != arg) {
-            m_maximumAlive = arg;
-            Q_EMIT maximumAliveChanged(arg);
-        }
-    }
-
     void setSystem(QQuickParticleSystem* arg);
 
     void delayRedirect(QObject* obj);
 
 Q_SIGNALS:
-
-    void maximumAliveChanged(int arg);
 
     void systemChanged(QQuickParticleSystem* arg);
 
@@ -112,7 +95,6 @@ private:
 
     void performDelayedRedirects();
 
-    int m_maximumAlive;
     QQuickParticleSystem* m_system;
     QList<QObject*> m_delayedRedirects;
 };

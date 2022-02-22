@@ -14,25 +14,20 @@
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/json/json_writer.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/metrics/user_metrics.h"
 #include "base/task/post_task.h"
 #include "base/threading/scoped_blocking_call.h"
-#include "content/browser/accessibility/browser_accessibility_android.h"
-#include "content/browser/accessibility/browser_accessibility_manager_android.h"
 #include "content/browser/android/java/gin_java_bridge_dispatcher_host.h"
-#include "content/browser/frame_host/interstitial_page_impl.h"
 #include "content/browser/media/media_web_contents_observer.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/browser/web_contents/web_contents_view_android.h"
 #include "content/common/frame.mojom.h"
 #include "content/common/frame_messages.h"
-#include "content/common/input_messages.h"
-#include "content/common/view_messages.h"
 #include "content/public/android/content_jni_headers/WebContentsImpl_jni.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
@@ -101,12 +96,14 @@ ScopedJavaLocalRef<jobject> JNI_WebContentsImpl_CreateJavaAXSnapshot(
       ConvertUTF16ToJavaString(env, node->text);
   ScopedJavaLocalRef<jstring> j_class =
       ConvertUTF8ToJavaString(env, node->class_name);
+  ScopedJavaLocalRef<jstring> j_html_tag =
+      ConvertUTF8ToJavaString(env, node->html_tag);
   ScopedJavaLocalRef<jobject> j_node =
       Java_WebContentsImpl_createAccessibilitySnapshotNode(
           env, node->rect.x(), node->rect.y(), node->rect.width(),
           node->rect.height(), is_root, j_text, node->color, node->bgcolor,
           node->text_size, node->bold, node->italic, node->underline,
-          node->line_through, j_class);
+          node->line_through, j_class, j_html_tag);
 
   if (node->selection.has_value()) {
     Java_WebContentsImpl_setAccessibilitySnapshotSelection(
@@ -130,11 +127,8 @@ void AXTreeSnapshotCallback(const ScopedJavaGlobalRef<jobject>& callback,
     Java_WebContentsImpl_onAccessibilitySnapshot(env, nullptr, callback);
     return;
   }
-  std::unique_ptr<BrowserAccessibilityManagerAndroid> manager(
-      static_cast<BrowserAccessibilityManagerAndroid*>(
-          BrowserAccessibilityManager::Create(result, nullptr)));
   std::unique_ptr<ui::AssistantTree> assistant_tree =
-      ui::CreateAssistantTree(result, manager->ShouldExposePasswordText());
+      ui::CreateAssistantTree(result);
   ScopedJavaLocalRef<jobject> j_root = JNI_WebContentsImpl_CreateJavaAXSnapshot(
       env, assistant_tree.get(), assistant_tree->nodes.front().get(), true);
   Java_WebContentsImpl_onAccessibilitySnapshot(env, j_root, callback);
@@ -282,6 +276,30 @@ ScopedJavaLocalRef<jobject> WebContentsAndroid::GetFocusedFrame(
   return rfh->GetJavaRenderFrameHost();
 }
 
+ScopedJavaLocalRef<jobject> WebContentsAndroid::GetRenderFrameHostFromId(
+    JNIEnv* env,
+    jint render_process_id,
+    jint render_frame_id) const {
+  RenderFrameHost* rfh =
+      RenderFrameHost::FromID(render_process_id, render_frame_id);
+  if (!rfh)
+    return nullptr;
+  return rfh->GetJavaRenderFrameHost();
+}
+
+ScopedJavaLocalRef<jobjectArray> WebContentsAndroid::GetAllRenderFrameHosts(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj) const {
+  std::vector<RenderFrameHost*> frames = web_contents_->GetAllFrames();
+  ScopedJavaLocalRef<jobjectArray> jframes =
+      Java_WebContentsImpl_createRenderFrameHostArray(env, frames.size());
+  for (size_t i = 0; i < frames.size(); i++) {
+    Java_WebContentsImpl_addRenderFrameHostToArray(
+        env, jframes, i, frames[i]->GetJavaRenderFrameHost());
+  }
+  return jframes;
+}
+
 ScopedJavaLocalRef<jstring> WebContentsAndroid::GetTitle(
     JNIEnv* env,
     const JavaParamRef<jobject>& obj) const {
@@ -385,13 +403,6 @@ RenderWidgetHostViewAndroid*
     WebContentsAndroid::GetRenderWidgetHostViewAndroid() {
   RenderWidgetHostView* rwhv = NULL;
   rwhv = web_contents_->GetRenderWidgetHostView();
-  if (web_contents_->ShowingInterstitialPage()) {
-    rwhv = web_contents_->GetInterstitialPage()
-               ->GetMainFrame()
-               ->GetRenderViewHost()
-               ->GetWidget()
-               ->GetView();
-  }
   return static_cast<RenderWidgetHostViewAndroid*>(rwhv);
 }
 
@@ -407,11 +418,11 @@ jint WebContentsAndroid::GetBackgroundColor(JNIEnv* env,
   return *rwhva->GetCachedBackgroundColor();
 }
 
-ScopedJavaLocalRef<jstring> WebContentsAndroid::GetLastCommittedURL(
+ScopedJavaLocalRef<jobject> WebContentsAndroid::GetLastCommittedURL(
     JNIEnv* env,
     const JavaParamRef<jobject>&) const {
-  return ConvertUTF8ToJavaString(env,
-                                 web_contents_->GetLastCommittedURL().spec());
+  return url::GURLAndroid::FromNativeGURL(env,
+                                          web_contents_->GetLastCommittedURL());
 }
 
 jboolean WebContentsAndroid::IsIncognito(JNIEnv* env,
@@ -453,12 +464,6 @@ void WebContentsAndroid::SetAudioMuted(JNIEnv* env,
   web_contents_->SetAudioMuted(mute);
 }
 
-jboolean WebContentsAndroid::IsShowingInterstitialPage(
-    JNIEnv* env,
-    const JavaParamRef<jobject>& obj) {
-  return web_contents_->ShowingInterstitialPage();
-}
-
 jboolean WebContentsAndroid::FocusLocationBarByDefault(
     JNIEnv* env,
     const JavaParamRef<jobject>& obj) {
@@ -468,7 +473,7 @@ jboolean WebContentsAndroid::FocusLocationBarByDefault(
 bool WebContentsAndroid::IsFullscreenForCurrentTab(
     JNIEnv* env,
     const JavaParamRef<jobject>& obj) {
-  return web_contents_->IsFullscreenForCurrentTab();
+  return web_contents_->IsFullscreen();
 }
 
 void WebContentsAndroid::ExitFullscreen(JNIEnv* env,
@@ -479,10 +484,14 @@ void WebContentsAndroid::ExitFullscreen(JNIEnv* env,
 void WebContentsAndroid::ScrollFocusedEditableNodeIntoView(
     JNIEnv* env,
     const JavaParamRef<jobject>& obj) {
-  auto* input_handler = web_contents_->GetFocusedFrameInputHandler();
+  auto* input_handler = web_contents_->GetFocusedFrameWidgetInputHandler();
   if (!input_handler)
     return;
-  input_handler->ScrollFocusedEditableNodeIntoRect(gfx::Rect());
+  RenderFrameHostImpl* rfh = web_contents_->GetMainFrame();
+  bool should_overlay_content =
+      rfh && rfh->ShouldVirtualKeyboardOverlayContent();
+  if (!should_overlay_content)
+    input_handler->ScrollFocusedEditableNodeIntoRect(gfx::Rect());
 }
 
 void WebContentsAndroid::SelectWordAroundCaretAck(bool did_select,
@@ -496,7 +505,7 @@ void WebContentsAndroid::SelectWordAroundCaretAck(bool did_select,
 void WebContentsAndroid::SelectWordAroundCaret(
     JNIEnv* env,
     const JavaParamRef<jobject>& obj) {
-  auto* input_handler = web_contents_->GetFocusedFrameInputHandler();
+  auto* input_handler = web_contents_->GetFocusedFrameWidgetInputHandler();
   if (!input_handler)
     return;
   input_handler->SelectWordAroundCaret(
@@ -514,6 +523,17 @@ void WebContentsAndroid::AdjustSelectionByCharacterOffset(
                                                   show_selection_menu);
 }
 
+bool WebContentsAndroid::InitializeRenderFrameForJavaScript() {
+  if (!web_contents_->GetFrameTree()
+           ->root()
+           ->render_manager()
+           ->InitializeMainRenderFrameForImmediateUse()) {
+    LOG(ERROR) << "Failed to initialize RenderFrame to evaluate javascript";
+    return false;
+  }
+  return true;
+}
+
 void WebContentsAndroid::EvaluateJavaScript(
     JNIEnv* env,
     const JavaParamRef<jobject>& obj,
@@ -522,13 +542,8 @@ void WebContentsAndroid::EvaluateJavaScript(
   RenderViewHost* rvh = web_contents_->GetRenderViewHost();
   DCHECK(rvh);
 
-  if (!rvh->IsRenderViewLive()) {
-    if (!static_cast<WebContentsImpl*>(web_contents_)->
-        CreateRenderViewForInitialEmptyDocument()) {
-      LOG(ERROR) << "Failed to create RenderView in EvaluateJavaScript";
-      return;
-    }
-  }
+  if (!InitializeRenderFrameForJavaScript())
+    return;
 
   if (!callback) {
     // No callback requested.
@@ -555,13 +570,8 @@ void WebContentsAndroid::EvaluateJavaScriptForTests(
   RenderViewHost* rvh = web_contents_->GetRenderViewHost();
   DCHECK(rvh);
 
-  if (!rvh->IsRenderViewLive()) {
-    if (!static_cast<WebContentsImpl*>(web_contents_)->
-        CreateRenderViewForInitialEmptyDocument()) {
-      LOG(ERROR) << "Failed to create RenderView in EvaluateJavaScriptForTests";
-      return;
-    }
-  }
+  if (!InitializeRenderFrameForJavaScript())
+    return;
 
   if (!callback) {
     // No callback requested.
@@ -648,10 +658,16 @@ void WebContentsAndroid::RequestAccessibilitySnapshot(
   ScopedJavaGlobalRef<jobject> j_callback;
   j_callback.Reset(env, callback);
 
+  // Set a timeout of 2.0 seconds to compute the snapshot of the
+  // accessibility tree because Google Assistant ignores results that
+  // don't come back within 3.0 seconds.
   static_cast<WebContentsImpl*>(web_contents_)
       ->RequestAXTreeSnapshot(
           base::BindOnce(&AXTreeSnapshotCallback, j_callback),
-          ui::kAXModeComplete);
+          ui::kAXModeComplete,
+          /* exclude_offscreen= */ false,
+          /* max_nodes= */ 5000,
+          /* timeout= */ base::TimeDelta::FromSeconds(2));
 }
 
 ScopedJavaLocalRef<jstring> WebContentsAndroid::GetEncoding(
@@ -774,7 +790,7 @@ void WebContentsAndroid::OnFinishDownloadImage(
     // WARNING: convering to java bitmaps results in duplicate memory
     // allocations, which increases the chance of OOMs if DownloadImage() is
     // misused.
-    ScopedJavaLocalRef<jobject> jbitmap = gfx::ConvertToJavaBitmap(&bitmap);
+    ScopedJavaLocalRef<jobject> jbitmap = gfx::ConvertToJavaBitmap(bitmap);
     Java_WebContentsImpl_addToBitmapList(env, jbitmaps, jbitmap);
   }
   for (const gfx::Size& size : sizes) {
@@ -845,9 +861,7 @@ void WebContentsAndroid::SetDisplayCutoutSafeArea(
 void WebContentsAndroid::NotifyRendererPreferenceUpdate(
     JNIEnv* env,
     const base::android::JavaParamRef<jobject>& obj) {
-  RenderViewHost* rvh = web_contents_->GetRenderViewHost();
-  DCHECK(rvh);
-  rvh->OnWebkitPreferencesChanged();
+  web_contents_->OnWebPreferencesChanged();
 }
 
 void WebContentsAndroid::NotifyBrowserControlsHeightChanged(

@@ -13,6 +13,7 @@
 #include "base/hash/md5.h"
 #include "base/json/json_reader.h"
 #include "base/logging.h"
+#include "base/notreached.h"
 #include "base/strings/stringprintf.h"
 #include "base/system/sys_info.h"
 #include "base/values.h"
@@ -233,8 +234,8 @@ std::string GetPostDataForPrinterTags(
   return post_data;
 }
 
-std::string GetCloudPrintAuthHeader(const std::string& auth_token) {
-  return base::StringPrintf("Authorization: OAuth %s", auth_token.c_str());
+std::string GetCloudPrintAuthHeaderValue(const std::string& auth_token) {
+  return base::StringPrintf("OAuth %s", auth_token.c_str());
 }
 
 }  // namespace cloud_print

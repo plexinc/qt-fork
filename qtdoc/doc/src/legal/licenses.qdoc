@@ -107,8 +107,8 @@
 
     \b {Third-party Licenses}
 
-    The following table lists parts (modules) of Qt that incorporate code licensed
-    under third-party open-source licenses:
+    The following table lists parts (modules) of Qt \QtVersion that incorporate
+    code licensed under third-party open-source licenses:
 
     \div {class="fixed"}
     \generatelist annotatedattributions
@@ -134,10 +134,10 @@
     projects using CMake.
 
     \list
-        \li \c qtbase/src/corelib/Qt5CoreMacros.cmake
-        \li \c qtbase/src/dbus/Qt5DBusMacros.cmake
-        \li \c qtbase/src/widgets/Qt5WidgetsMacros.cmake
-        \li \c qttools/src/linguist/Qt5LinguistToolsMacros.cmake
+        \li \c qtbase/src/corelib/Qt6CoreMacros.cmake
+        \li \c qtbase/src/dbus/Qt6DBusMacros.cmake
+        \li \c qtbase/src/widgets/Qt6WidgetsMacros.cmake
+        \li \c qttools/src/linguist/Qt6LinguistToolsMacros.cmake
     \endlist
 
     \badcode
@@ -225,7 +225,8 @@
     \ingroup licensing
     \brief University of Illinois/NCSA Open Source License, BSD licenses
 
-    The provided binaries of Qt include a static copy of LLVM inside the \c qdoc binary.
+    The provided binaries of Qt include a static copy of LLVM inside the \b qdoc
+    and \b lupdate binaries.
 
     Most of LLVM is under the \e{University of Illinois/NCSA Open Source License}:
 

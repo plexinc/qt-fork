@@ -43,13 +43,6 @@ struct NET_EXPORT SSLContextConfig {
   // Ex: To disable TLS_RSA_WITH_RC4_128_MD5, specify 0x0004, while to
   // disable TLS_ECDH_ECDSA_WITH_RC4_128_SHA, specify 0xC002.
   std::vector<uint16_t> disabled_cipher_suites;
-
-  // If true, enables TLS 1.3 downgrade hardening for connections using
-  // local trust anchors. (Hardening for known roots is always enabled.)
-  //
-  // TODO(https://crbug.com/1033598): Enable this it has successfully been
-  // enabled in Chrome.
-  bool tls13_hardening_for_local_anchors_enabled = false;
 };
 
 // The interface for retrieving global SSL configuration.  This interface
@@ -98,12 +91,6 @@ class NET_EXPORT SSLConfigService {
   // removed in a future release. Please leave a comment on
   // https://crbug.com/855690 if you believe this is needed.
   virtual bool CanShareConnectionWithClientCerts(
-      const std::string& hostname) const = 0;
-
-  // Returns true if connections to |hostname| should not trigger legacy TLS
-  // warnings. This allows implementations to override the warnings for specific
-  // sites.
-  virtual bool ShouldSuppressLegacyTLSWarning(
       const std::string& hostname) const = 0;
 
   // Add an observer of this service.

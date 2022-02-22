@@ -9,7 +9,7 @@
 #include <utility>
 
 #include "base/memory/weak_ptr.h"
-#include "base/observer_list.h"
+#include "base/scoped_observation.h"
 #include "components/offline_items_collection/core/offline_content_provider.h"
 
 namespace base {
@@ -53,8 +53,8 @@ class ThrottledOfflineContentProvider
   void RenameItem(const ContentId& id,
                   const std::string& name,
                   RenameCallback callback) override;
-  void AddObserver(OfflineContentProvider::Observer* observer) override;
-  void RemoveObserver(OfflineContentProvider::Observer* observer) override;
+  void ChangeSchedule(const ContentId& id,
+                      base::Optional<OfflineItemSchedule> schedule) override;
 
   // Visible for testing. Overrides the time at which this throttle last pushed
   // updates to observers.
@@ -66,6 +66,7 @@ class ThrottledOfflineContentProvider
   void OnItemRemoved(const ContentId& id) override;
   void OnItemUpdated(const OfflineItem& item,
                      const base::Optional<UpdateDelta>& update_delta) override;
+  void OnContentProviderGoingDown() override;
 
   void OnGetAllItemsDone(MultipleItemCallback callback,
                          const OfflineItemList& items);
@@ -86,7 +87,9 @@ class ThrottledOfflineContentProvider
   bool update_queued_;
 
   OfflineContentProvider* const wrapped_provider_;
-  base::ObserverList<OfflineContentProvider::Observer>::Unchecked observers_;
+  base::ScopedObservation<OfflineContentProvider,
+                          OfflineContentProvider::Observer>
+      observation_{this};
 
   typedef std::map<ContentId,
                    std::pair<OfflineItem, base::Optional<UpdateDelta>>>

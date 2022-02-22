@@ -60,22 +60,22 @@ QT_REQUIRE_CONFIG(quick_shadereffect);
 
 QT_BEGIN_NAMESPACE
 
-class QQuickOpenGLShaderEffect;
-class QQuickGenericShaderEffect;
+class QQuickShaderEffectImpl;
 class QQuickShaderEffectPrivate;
 
 class Q_QUICK_PRIVATE_EXPORT QQuickShaderEffect : public QQuickItem
 {
     Q_OBJECT
-    Q_PROPERTY(QByteArray fragmentShader READ fragmentShader WRITE setFragmentShader NOTIFY fragmentShaderChanged)
-    Q_PROPERTY(QByteArray vertexShader READ vertexShader WRITE setVertexShader NOTIFY vertexShaderChanged)
+    Q_PROPERTY(QUrl fragmentShader READ fragmentShader WRITE setFragmentShader NOTIFY fragmentShaderChanged)
+    Q_PROPERTY(QUrl vertexShader READ vertexShader WRITE setVertexShader NOTIFY vertexShaderChanged)
     Q_PROPERTY(bool blending READ blending WRITE setBlending NOTIFY blendingChanged)
     Q_PROPERTY(QVariant mesh READ mesh WRITE setMesh NOTIFY meshChanged)
     Q_PROPERTY(CullMode cullMode READ cullMode WRITE setCullMode NOTIFY cullModeChanged)
     Q_PROPERTY(QString log READ log NOTIFY logChanged)
     Q_PROPERTY(Status status READ status NOTIFY statusChanged)
-    Q_PROPERTY(bool supportsAtlasTextures READ supportsAtlasTextures WRITE setSupportsAtlasTextures NOTIFY supportsAtlasTexturesChanged REVISION 4)
+    Q_PROPERTY(bool supportsAtlasTextures READ supportsAtlasTextures WRITE setSupportsAtlasTextures NOTIFY supportsAtlasTexturesChanged REVISION(2, 4))
     QML_NAMED_ELEMENT(ShaderEffect)
+    QML_ADDED_IN_VERSION(2, 0)
 
 public:
     enum CullMode {
@@ -95,11 +95,11 @@ public:
     QQuickShaderEffect(QQuickItem *parent = nullptr);
     ~QQuickShaderEffect() override;
 
-    QByteArray fragmentShader() const;
-    void setFragmentShader(const QByteArray &code);
+    QUrl fragmentShader() const;
+    void setFragmentShader(const QUrl &fileUrl);
 
-    QByteArray vertexShader() const;
-    void setVertexShader(const QByteArray &code);
+    QUrl vertexShader() const;
+    void setVertexShader(const QUrl &fileUrl);
 
     bool blending() const;
     void setBlending(bool enable);
@@ -119,9 +119,7 @@ public:
     bool isComponentComplete() const;
     QString parseLog();
 
-#if QT_CONFIG(opengl)
-    bool isOpenGLShaderEffect() const;
-#endif
+    bool updateUniformValue(const QByteArray &name, const QVariant &value);
 
 Q_SIGNALS:
     void fragmentShaderChanged();
@@ -135,16 +133,13 @@ Q_SIGNALS:
 
 protected:
     bool event(QEvent *e) override;
-    void geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry) override;
+    void geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry) override;
     QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *updatePaintNodeData) override;
     void componentComplete() override;
     void itemChange(ItemChange change, const ItemChangeData &value) override;
 
 private:
-#if QT_CONFIG(opengl)
-    QQuickOpenGLShaderEffect *m_glImpl;
-#endif
-    QQuickGenericShaderEffect *m_impl;
+    QQuickShaderEffectImpl *m_impl;
 
     Q_DECLARE_PRIVATE(QQuickShaderEffect)
 };

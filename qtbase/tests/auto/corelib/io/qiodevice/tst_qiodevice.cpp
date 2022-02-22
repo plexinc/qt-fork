@@ -28,7 +28,7 @@
 
 #include <QtCore/QCoreApplication>
 #include <QtNetwork/QtNetwork>
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include "../../../network-settings.h"
 
@@ -104,9 +104,6 @@ void tst_QIODevice::getSetCheck()
 //----------------------------------------------------------------------------------
 void tst_QIODevice::constructing_QTcpSocket()
 {
-#if defined(Q_OS_WINRT)
-    QSKIP("Synchronous socket calls are broken on winrt. See QTBUG-40922");
-#endif
     if (!QtNetworkSettings::verifyTestNetworkSettings())
         QSKIP("No network test server available");
 
@@ -263,9 +260,6 @@ void tst_QIODevice::unget()
     buffer.ungetChar('Q');
     QCOMPARE(buffer.readLine(buf, 3), qint64(1));
 
-#if defined(Q_OS_WINRT)
-    QSKIP("Synchronous socket calls are broken on winrt. See QTBUG-40922");
-#endif
     for (int i = 0; i < 2; ++i) {
         QTcpSocket socket;
         QIODevice *dev;
@@ -561,7 +555,8 @@ protected:
     qint64 readData(char *data, qint64 maxSize) override
     {
         maxSize = qMin(maxSize, qint64(buf->size() - offset));
-        memcpy(data, buf->constData() + offset, maxSize);
+        if (maxSize > 0)
+            memcpy(data, buf->constData() + offset, maxSize);
         offset += maxSize;
         return maxSize;
     }
@@ -604,13 +599,15 @@ protected:
     qint64 readData(char *data, qint64 maxSize) override
     {
         maxSize = qMin(maxSize, qint64(buf.size() - pos()));
-        memcpy(data, buf.constData() + pos(), maxSize);
+        if (maxSize > 0)
+            memcpy(data, buf.constData() + pos(), maxSize);
         return maxSize;
     }
     qint64 writeData(const char *data, qint64 maxSize) override
     {
         maxSize = qMin(maxSize, qint64(buf.size() - pos()));
-        memcpy(buf.data() + pos(), data, maxSize);
+        if (maxSize > 0)
+            memcpy(buf.data() + pos(), data, maxSize);
         return maxSize;
     }
 
@@ -652,11 +649,12 @@ void tst_QIODevice::skip_data()
     do {
         QByteArray devName(sequential ? "sequential" : "random-access");
 
-        QTest::newRow(qPrintable(devName + "-small_data")) << true  << QByteArray("abcdefghij")
+        QTest::newRow(qPrintable(devName + "-small_data")) << sequential
+                                                           << QByteArray("abcdefghij")
                                                            << 3 << 6 << 6 << 'j';
-        QTest::newRow(qPrintable(devName + "-big_data")) << true  << bigData
+        QTest::newRow(qPrintable(devName + "-big_data")) << sequential << bigData
                                                          << 1 << 10000 << 10000 << 'x';
-        QTest::newRow(qPrintable(devName + "-beyond_the_end")) << true  << bigData
+        QTest::newRow(qPrintable(devName + "-beyond_the_end")) << sequential << bigData
                                                                << 1 << 20000 << 19999 << '\0';
 
         sequential = !sequential;

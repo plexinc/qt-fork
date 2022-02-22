@@ -12,8 +12,6 @@
 
 #if defined(ENABLE_TRACE_LOGGING)
 
-// TODO(crbug.com/openscreen/52): Remove duplicate code from trace
-// logging+internal unit tests
 namespace openscreen {
 namespace internal {
 
@@ -97,7 +95,7 @@ TEST(TraceLoggingInternalTest, ValidateGettersValidOnEmptyStack) {
   EXPECT_EQ(ids.root, kEmptyTraceId);
 }
 
-TEST(TraceLoggingInternalTest, ValidateSetResultDoesntSegfaultOnEmptyStack) {
+TEST(TraceLoggingInternalTest, ValidateSetResultDoesNotSegfaultOnEmptyStack) {
   Error error = Error::Code::kNone;
   ScopedTraceOperation::set_result(error);
 

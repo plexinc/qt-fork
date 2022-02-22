@@ -231,7 +231,7 @@ TEST_F(DocumentLoadingRenderingTest,
 
   LoadURL("https://example.com/test.html");
 
-  WebView().MainFrameWidget()->Resize(WebSize(800, 600));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 600));
 
   main_resource.Complete(R"HTML(
     <!DOCTYPE html>
@@ -296,8 +296,7 @@ TEST_F(DocumentLoadingRenderingTest,
 
 namespace {
 
-class CheckRafCallback final
-    : public FrameRequestCallbackCollection::FrameCallback {
+class CheckRafCallback final : public FrameCallback {
  public:
   void Invoke(double high_res_time_ms) override { was_called_ = true; }
   bool WasCalled() const { return was_called_; }
@@ -317,7 +316,7 @@ TEST_F(DocumentLoadingRenderingTest,
 
   LoadURL("https://example.com/main.html");
 
-  WebView().MainFrameWidget()->Resize(WebSize(800, 600));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 600));
 
   main_resource.Complete(R"HTML(
     <!DOCTYPE html>
@@ -410,7 +409,7 @@ TEST_F(DocumentLoadingRenderingTest,
 
   LoadURL("https://example.com/test.html");
 
-  WebView().MainFrameWidget()->Resize(WebSize(800, 600));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 600));
 
   main_resource.Write(R"HTML(
     <html><body>
@@ -464,9 +463,10 @@ TEST_F(DocumentLoadingRenderingTest, StableSVGStopStylingWhileLoadingImport) {
 
     Element* element = GetDocument().getElementById("test");
     ASSERT_NE(nullptr, element);
-    const SVGComputedStyle& svg_style = element->ComputedStyleRef().SvgStyle();
-    EXPECT_EQ(0xff008000, svg_style.StopColor().GetColor());
-    EXPECT_EQ(.5f, svg_style.StopOpacity());
+    const ComputedStyle& style = element->ComputedStyleRef();
+    EXPECT_EQ(0xff008000,
+              style.VisitedDependentColor(GetCSSPropertyStopColor()));
+    EXPECT_EQ(.5f, style.StopOpacity());
   };
 
   EXPECT_TRUE(GetDocument().HaveRenderBlockingResourcesLoaded());

@@ -16,6 +16,10 @@
 #include "common/angleutils.h"
 #include "util/Timer.h"
 
+// DeleteFile is defined in the Windows headers to either DeleteFileA or DeleteFileW. Make sure
+// there are no conflicts.
+#undef DeleteFile
+
 namespace angle
 {
 // Cross platform equivalent of the Windows Sleep function
@@ -116,6 +120,17 @@ Process *LaunchProcess(const std::vector<const char *> &args,
 
 int NumberOfProcessors();
 
+const char *GetNativeEGLLibraryNameWithExtension();
+
+// Intercept Metal shader cache access to avoid slow caching mechanism that caused the test timeout
+// in the past. Note:
+// - If there is NO "--skip-file-hooking" switch in the argument list:
+//   - This function will re-launch the app with additional argument "--skip-file-hooking".
+//   - The running process's image & memory will be re-created.
+// - If there is "--skip-file-hooking" switch in the argument list, this function will do nothing.
+#if defined(ANGLE_PLATFORM_APPLE)
+void InitMetalFileAPIHooking(int argc, char **argv);
+#endif
 }  // namespace angle
 
 #endif  // UTIL_TEST_UTILS_H_

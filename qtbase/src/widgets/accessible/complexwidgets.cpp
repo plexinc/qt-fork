@@ -57,7 +57,9 @@
 #endif
 #include <qstyle.h>
 #include <qstyleoption.h>
+#if QT_CONFIG(tooltip)
 #include <qtooltip.h>
+#endif
 #if QT_CONFIG(whatsthis)
 #include <qwhatsthis.h>
 #endif
@@ -398,9 +400,24 @@ void QAccessibleComboBox::doAction(const QString &actionName)
 {
     if (actionName == showMenuAction() || actionName == pressAction()) {
         if (comboBox()->view()->isVisible()) {
+#if defined(Q_OS_ANDROID)
+            const auto list = child(0)->tableInterface();
+            if (list && list->selectedRowCount() > 0) {
+                comboBox()->setCurrentIndex(list->selectedRows().at(0));
+            }
+            comboBox()->setFocus();
+#endif
             comboBox()->hidePopup();
         } else {
             comboBox()->showPopup();
+#if defined(Q_OS_ANDROID)
+            const auto list = child(0)->tableInterface();
+            if (list && list->selectedRowCount() > 0) {
+                auto selectedCells = list->selectedCells();
+                QAccessibleEvent ev(selectedCells.at(0),QAccessible::Focus);
+                QAccessible::updateAccessibility(&ev);
+            }
+#endif
         }
     }
 }

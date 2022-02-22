@@ -2,9 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-import {PDFMetrics} from '../metrics.js';
-import {Viewport} from '../viewport.js';
+import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {record, UserAction} from '../metrics.js';
+import {PAGE_SHADOW, Viewport} from '../viewport.js';
 
 /** @enum {string} */
 const State = {
@@ -19,67 +20,87 @@ const BACKGROUND_COLOR = '#525659';
  * Hosts the Ink component which is responsible for both PDF rendering and
  * annotation when in annotation mode.
  */
-Polymer({
-  is: 'viewer-ink-host',
+class ViewerInkHostElement extends PolymerElement {
+  static get is() {
+    return 'viewer-ink-host';
+  }
 
-  _template: html`{__html_template__}`,
+  static get template() {
+    return html`{__html_template__}`;
+  }
 
-  /** @private {InkAPI} */
-  ink_: null,
+  constructor() {
+    super();
 
-  /** @private {?string} */
-  fileName_: null,
+    /** @private {InkAPI} */
+    this.ink_ = null;
 
-  /** @private {ArrayBuffer} */
-  buffer_: null,
+    /** @private {?string} */
+    this.fileName_ = null;
 
-  /** @private {State} */
-  state_: State.IDLE,
+    /** @private {ArrayBuffer} */
+    this.buffer_ = null;
 
-  /** @private {PointerEvent} */
-  activePointer_: null,
+    /** @private {State} */
+    this.state_ = State.IDLE;
 
-  /** @private {?number} */
-  lastZoom_: null,
+    /** @private {PointerEvent} */
+    this.activePointer_ = null;
 
-  /**
-   * Used to conditionally allow a 'touchstart' event to cause
-   * a gesture. If we receive a 'touchstart' with this timestamp
-   * we will skip calling `preventDefault()`.
-   * @private {?number}
-   */
-  allowTouchStartTimeStamp_: null,
+    /** @private {?number} */
+    this.lastZoom_ = null;
 
-  /** @private {boolean} */
-  penMode_: false,
+    /**
+     * Used to conditionally allow a 'touchstart' event to cause
+     * a gesture. If we receive a 'touchstart' with this timestamp
+     * we will skip calling `preventDefault()`.
+     * @private {?number}
+     */
+    this.allowTouchStartTimeStamp_ = null;
 
-  /** @type {?Viewport} */
-  viewport: null,
+    /** @private {boolean} */
+    this.penMode_ = false;
 
-  /** @type {?AnnotationTool} */
-  tool_: null,
+    /** @type {?Viewport} */
+    this.viewport = null;
 
-  /**
-   * Whether we should suppress pointer events due to a gesture,
-   * eg. pinch-zoom.
-   *
-   * @private {boolean}
-   */
-  pointerGesture_: false,
+    /** @type {?AnnotationTool} */
+    this.tool_ = null;
 
-  listeners: {
-    pointerdown: 'onPointerDown_',
-    pointerup: 'onPointerUpOrCancel_',
-    pointermove: 'onPointerMove_',
-    pointercancel: 'onPointerUpOrCancel_',
-    pointerleave: 'onPointerLeave_',
-    touchstart: 'onTouchStart_',
-  },
+    /**
+     * Whether we should suppress pointer events due to a gesture;
+     * eg. pinch-zoom.
+     * @private {boolean}
+     */
+    this.pointerGesture_ = false;
+  }
+
+  /** @override */
+  ready() {
+    super.ready();
+    this.addEventListener(
+        'pointerdown',
+        e => this.onPointerDown_(/** @type {!PointerEvent} */ (e)));
+    this.addEventListener(
+        'pointerup',
+        e => this.onPointerUpOrCancel_(/** @type {!PointerEvent} */ (e)));
+    this.addEventListener(
+        'pointermove',
+        e => this.onPointerMove_(/** @type {!PointerEvent} */ (e)));
+    this.addEventListener(
+        'pointercancel',
+        e => this.onPointerUpOrCancel_(/** @type {!PointerEvent} */ (e)));
+    this.addEventListener(
+        'pointerleave',
+        e => this.onPointerLeave_(/** @type {!PointerEvent} */ (e)));
+    this.addEventListener(
+        'touchstart', e => this.onTouchStart_(/** @type {!TouchEvent} */ (e)));
+  }
 
   /** Turns off pen mode if it is active. */
   resetPenMode() {
     this.penMode_ = false;
-  },
+  }
 
   /** @param {AnnotationTool} tool */
   setAnnotationTool(tool) {
@@ -87,29 +108,20 @@ Polymer({
     if (this.state_ === State.ACTIVE) {
       this.ink_.setAnnotationTool(tool);
     }
-  },
+  }
 
   /** @param {PointerEvent} e */
   isActivePointer_(e) {
     return this.activePointer_ && this.activePointer_.pointerId === e.pointerId;
-  },
+  }
 
   /**
    * Dispatches a pointer event to Ink.
-   *
    * @param {PointerEvent} e
    */
   dispatchPointerEvent_(e) {
-    // TODO(dstockwell) come up with a solution to propagate e.timeStamp.
-    this.ink_.dispatchPointerEvent(e.type, {
-      pointerId: e.pointerId,
-      pointerType: e.pointerType,
-      clientX: e.clientX,
-      clientY: e.clientY,
-      pressure: e.pressure,
-      buttons: e.buttons,
-    });
-  },
+    this.ink_.dispatchPointerEvent(e);
+  }
 
   /** @param {TouchEvent} e */
   onTouchStart_(e) {
@@ -117,7 +129,7 @@ Polymer({
       e.preventDefault();
     }
     this.allowTouchStartTimeStamp_ = null;
-  },
+  }
 
   /** @param {PointerEvent} e */
   onPointerDown_(e) {
@@ -135,10 +147,10 @@ Polymer({
         // A multi-touch gesture has started with the active pointer. Cancel
         // the active pointer and suppress further events until it is released.
         this.pointerGesture_ = true;
-        this.ink_.dispatchPointerEvent('pointercancel', {
+        this.ink_.dispatchPointerEvent(new PointerEvent('pointercancel', {
           pointerId: this.activePointer_.pointerId,
           pointerType: this.activePointer_.pointerType,
-        });
+        }));
       }
       return;
     }
@@ -159,7 +171,7 @@ Polymer({
 
     this.activePointer_ = e;
     this.dispatchPointerEvent_(e);
-  },
+  }
 
   /** @param {PointerEvent} e */
   onPointerLeave_(e) {
@@ -167,7 +179,7 @@ Polymer({
       return;
     }
     this.onPointerUpOrCancel_(new PointerEvent('pointerup', e));
-  },
+  }
 
   /** @param {PointerEvent} e */
   onPointerUpOrCancel_(e) {
@@ -182,24 +194,23 @@ Polymer({
       if (e.type === 'pointerup') {
         this.dispatchEvent(new CustomEvent('stroke-added'));
         if (e.pointerType === 'mouse') {
-          PDFMetrics.record(PDFMetrics.UserAction.ANNOTATE_STROKE_DEVICE_MOUSE);
+          record(UserAction.ANNOTATE_STROKE_DEVICE_MOUSE);
         } else if (e.pointerType === 'pen') {
-          PDFMetrics.record(PDFMetrics.UserAction.ANNOTATE_STROKE_DEVICE_PEN);
+          record(UserAction.ANNOTATE_STROKE_DEVICE_PEN);
         } else if (e.pointerType === 'touch') {
-          PDFMetrics.record(PDFMetrics.UserAction.ANNOTATE_STROKE_DEVICE_TOUCH);
+          record(UserAction.ANNOTATE_STROKE_DEVICE_TOUCH);
         }
         if (this.tool_.tool === 'eraser') {
-          PDFMetrics.record(PDFMetrics.UserAction.ANNOTATE_STROKE_TOOL_ERASER);
+          record(UserAction.ANNOTATE_STROKE_TOOL_ERASER);
         } else if (this.tool_.tool === 'pen') {
-          PDFMetrics.record(PDFMetrics.UserAction.ANNOTATE_STROKE_TOOL_PEN);
+          record(UserAction.ANNOTATE_STROKE_TOOL_PEN);
         } else if (this.tool_.tool === 'highlighter') {
-          PDFMetrics.record(
-              PDFMetrics.UserAction.ANNOTATE_STROKE_TOOL_HIGHLIGHTER);
+          record(UserAction.ANNOTATE_STROKE_TOOL_HIGHLIGHTER);
         }
       }
     }
     this.pointerGesture_ = false;
-  },
+  }
 
   /** @param {PointerEvent} e */
   onPointerMove_(e) {
@@ -214,7 +225,7 @@ Polymer({
     for (const event of events) {
       this.dispatchPointerEvent_(event);
     }
-  },
+  }
 
   /**
    * Begins annotation mode with the document represented by `data`.
@@ -225,7 +236,7 @@ Polymer({
    * @param {!ArrayBuffer} data The contents of the PDF document.
    * @return {!Promise} void value.
    */
-  load: async function(fileName, data) {
+  async load(fileName, data) {
     this.fileName_ = fileName;
     this.state_ = State.LOADING;
     this.$.frame.src = 'ink/index.html';
@@ -234,17 +245,17 @@ Polymer({
     this.ink_.addUndoStateListener(
         e => this.dispatchEvent(
             new CustomEvent('undo-state-changed', {detail: e})));
-    this.ink_.setPDF(data);
+    await this.ink_.setPDF(data);
     this.state_ = State.ACTIVE;
     this.viewportChanged();
     // Wait for the next task to avoid a race where Ink drops the background
     // color.
     await new Promise(resolve => setTimeout(resolve));
     this.ink_.setOutOfBoundsColor(BACKGROUND_COLOR);
-    const spacing = Viewport.PAGE_SHADOW.top + Viewport.PAGE_SHADOW.bottom;
+    const spacing = PAGE_SHADOW.top + PAGE_SHADOW.bottom;
     this.ink_.setPageSpacing(spacing);
     this.style.visibility = 'visible';
-  },
+  }
 
   viewportChanged() {
     if (this.state_ !== State.ACTIVE) {
@@ -256,8 +267,8 @@ Polymer({
     const zoom = viewport.getZoom();
     const documentWidth = viewport.getDocumentDimensions().width * zoom;
     // Adjust for page shadows.
-    const y = pos.y - Viewport.PAGE_SHADOW.top * zoom;
-    let x = pos.x - Viewport.PAGE_SHADOW.left * zoom;
+    const y = pos.y - PAGE_SHADOW.top * zoom;
+    let x = pos.x - PAGE_SHADOW.left * zoom;
     // Center the document if the width is smaller than the viewport.
     if (documentWidth < size.width) {
       x += (documentWidth - size.width) / 2;
@@ -278,23 +289,23 @@ Polymer({
       this.updateShadow_(zoom);
     }
     this.ink_.setCamera(camera);
-  },
+  }
 
   /** Undo the last edit action. */
   undo() {
     this.ink_.undo();
-  },
+  }
 
   /** Redo the last undone edit action. */
   redo() {
     this.ink_.redo();
-  },
+  }
 
   /**
    * @return {!Promise<{fileName: string, dataToSave: ArrayBuffer}>}
    *     The serialized PDF document including any annotations that were made.
    */
-  saveDocument: async function() {
+  async saveDocument() {
     if (this.state_ === State.ACTIVE) {
       this.buffer_ = await this.ink_.getPDFDestructive().buffer;
       this.state_ = State.IDLE;
@@ -303,7 +314,7 @@ Polymer({
       fileName: /** @type {string} */ (this.fileName_),
       dataToSave: this.buffer_,
     };
-  },
+  }
 
   /** @param {number} zoom */
   updateShadow_(zoom) {
@@ -335,4 +346,6 @@ Polymer({
 
     this.ink_.setBorderImage(canvas.toDataURL());
   }
-});
+}
+
+customElements.define(ViewerInkHostElement.is, ViewerInkHostElement);

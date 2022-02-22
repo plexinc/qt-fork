@@ -213,7 +213,10 @@ TEST(ChromeUnwinderAndroidTest, CanUnwindFrom) {
   auto non_chrome_module =
       std::make_unique<TestModule>(0x2000, 0x500, "OtherModule");
 
-  ChromeUnwinderAndroid unwinder(cfi_table.get(), chrome_module.get());
+  ModuleCache module_cache;
+  ChromeUnwinderAndroid unwinder(cfi_table.get(),
+                                 chrome_module->GetBaseAddress());
+  unwinder.Initialize(&module_cache);
 
   EXPECT_TRUE(unwinder.CanUnwindFrom({0x1100, chrome_module.get()}));
   EXPECT_FALSE(unwinder.CanUnwindFrom({0x2100, non_chrome_module.get()}));
@@ -227,7 +230,9 @@ TEST(ChromeUnwinderAndroidTest, TryUnwind) {
   const ModuleCache::Module* chrome_module = AddNativeModule(
       &module_cache, std::make_unique<TestModule>(0x1000, 0x500));
 
-  ChromeUnwinderAndroid unwinder(cfi_table.get(), chrome_module);
+  ChromeUnwinderAndroid unwinder(cfi_table.get(),
+                                 chrome_module->GetBaseAddress());
+  unwinder.Initialize(&module_cache);
 
   std::vector<uintptr_t> stack_buffer = {
       0xFFFF,
@@ -248,7 +253,7 @@ TEST(ChromeUnwinderAndroidTest, TryUnwind) {
   context.arm_lr = 0x11AA;
 
   EXPECT_EQ(UnwindResult::UNRECOGNIZED_FRAME,
-            unwinder.TryUnwind(&context, stack_top, &module_cache, &stack));
+            unwinder.TryUnwind(&context, stack_top, &stack));
   EXPECT_EQ(std::vector<Frame>({{0x1100, chrome_module},
                                 {0x11AA, chrome_module},
                                 {0x2000, nullptr}}),
@@ -264,7 +269,9 @@ TEST(ChromeUnwinderAndroidTest, TryUnwindAbort) {
   const ModuleCache::Module* chrome_module = AddNativeModule(
       &module_cache, std::make_unique<TestModule>(0x1000, 0x500));
 
-  ChromeUnwinderAndroid unwinder(cfi_table.get(), chrome_module);
+  ChromeUnwinderAndroid unwinder(cfi_table.get(),
+                                 chrome_module->GetBaseAddress());
+  unwinder.Initialize(&module_cache);
 
   std::vector<uintptr_t> stack_buffer = {
       0xFFFF,
@@ -283,7 +290,7 @@ TEST(ChromeUnwinderAndroidTest, TryUnwindAbort) {
 
   // Aborted because ra == pc.
   EXPECT_EQ(UnwindResult::ABORTED,
-            unwinder.TryUnwind(&context, stack_top, &module_cache, &stack));
+            unwinder.TryUnwind(&context, stack_top, &stack));
   EXPECT_EQ(std::vector<Frame>({{0x1100, chrome_module}}), stack);
 }
 
@@ -295,7 +302,9 @@ TEST(ChromeUnwinderAndroidTest, TryUnwindNoData) {
   const ModuleCache::Module* chrome_module = AddNativeModule(
       &module_cache, std::make_unique<TestModule>(0x1000, 0x500));
 
-  ChromeUnwinderAndroid unwinder(cfi_table.get(), chrome_module);
+  ChromeUnwinderAndroid unwinder(cfi_table.get(),
+                                 chrome_module->GetBaseAddress());
+  unwinder.Initialize(&module_cache);
 
   std::vector<uintptr_t> stack_buffer = {0xFFFF};
 
@@ -311,10 +320,13 @@ TEST(ChromeUnwinderAndroidTest, TryUnwindNoData) {
       reinterpret_cast<uintptr_t>(stack_buffer.data());
   context.arm_lr = 0x12AA;
 
-  // Aborted because there's no unwind info for the instruction pointer.
+  // Unwinding will first use arm_lr as fallback because there's no unwind info
+  // for the instruction pointer, and then abort.
   EXPECT_EQ(UnwindResult::ABORTED,
-            unwinder.TryUnwind(&context, stack_top, &module_cache, &stack));
-  EXPECT_EQ(std::vector<Frame>({{0x1200, chrome_module}}), stack);
+            unwinder.TryUnwind(&context, stack_top, &stack));
+  EXPECT_EQ(
+      std::vector<Frame>({{0x1200, chrome_module}, {0x12AA, chrome_module}}),
+      stack);
 }
 
 }  // namespace base

@@ -21,7 +21,7 @@
 
 #include "platform/api/time.h"
 #include "platform/base/ip_address.h"
-#include "util/logging.h"
+#include "util/osp_logging.h"
 
 namespace openscreen {
 namespace discovery {
@@ -40,20 +40,24 @@ namespace discovery {
 // See RFC 6762, Section 2
 constexpr uint16_t kDefaultMulticastPort = 5353;
 
-// IPv4 group address for joining mDNS multicast group, given as byte array in
+// IPv4 group address for sending mDNS messages, given as byte array in
 // network-order. This is a link-local multicast address, so messages will not
 // be forwarded outside local network. See RFC 6762, section 3.
-const IPAddress kDefaultMulticastGroupIPv4{224, 0, 0, 251};
-const IPEndpoint kDefaultMulticastGroupIPv4Endpoint{{}, kDefaultMulticastPort};
+constexpr IPAddress kDefaultMulticastGroupIPv4{224, 0, 0, 251};
 
-// IPv6 group address for joining mDNS multicast group. This is a link-local
+// IPv6 group address for sending mDNS messages. This is a link-local
 // multicast address, so messages will not be forwarded outside local network.
 // See RFC 6762, section 3.
-const IPAddress kDefaultMulticastGroupIPv6{
+constexpr IPAddress kDefaultMulticastGroupIPv6{
     0xFF02, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x00FB,
 };
-const IPEndpoint kDefaultMulticastGroupIPv6Endpoint{{0, 0, 0, 0, 0, 0, 0, 0},
-                                                    kDefaultMulticastPort};
+
+// The send address for multicast mDNS should be the any address (0.*) on the
+// default mDNS multicast port.
+constexpr IPEndpoint kMulticastSendIPv4Endpoint{kDefaultMulticastGroupIPv4,
+                                                kDefaultMulticastPort};
+constexpr IPEndpoint kMulticastSendIPv6Endpoint{kDefaultMulticastGroupIPv6,
+                                                kDefaultMulticastPort};
 
 // IPv4 group address for joining cast-specific site-local mDNS multicast group,
 // given as byte array in network-order. This is a site-local multicast address,
@@ -71,9 +75,9 @@ const IPEndpoint kDefaultMulticastGroupIPv6Endpoint{{0, 0, 0, 0, 0, 0, 0, 0},
 
 // NOTE: For now the group address is the same group address used for SSDP
 // discovery, albeit using the MDNS port rather than SSDP port.
-const IPAddress kDefaultSiteLocalGroupIPv4{239, 255, 255, 250};
-const IPEndpoint kDefaultSiteLocalGroupIPv4Endpoint{kDefaultSiteLocalGroupIPv4,
-                                                    kDefaultMulticastPort};
+constexpr IPAddress kDefaultSiteLocalGroupIPv4{239, 255, 255, 250};
+constexpr IPEndpoint kDefaultSiteLocalGroupIPv4Endpoint{
+    kDefaultSiteLocalGroupIPv4, kDefaultMulticastPort};
 
 // IPv6 group address for joining cast-specific site-local mDNS multicast group,
 // give as byte array in network-order. See comments for IPv4 group address for
@@ -81,11 +85,11 @@ const IPEndpoint kDefaultSiteLocalGroupIPv4Endpoint{kDefaultSiteLocalGroupIPv4,
 // 0xFF05 is site-local. See RFC 7346.
 // FF0X:0:0:0:0:0:0:C is variable scope multicast addresses for SSDP. See
 // https://www.iana.org/assignments/ipv6-multicast-addresses
-const IPAddress kDefaultSiteLocalGroupIPv6{
+constexpr IPAddress kDefaultSiteLocalGroupIPv6{
     0xFF05, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x000C,
 };
-const IPEndpoint kDefaultSiteLocalGroupIPv6Endpoint{kDefaultSiteLocalGroupIPv6,
-                                                    kDefaultMulticastPort};
+constexpr IPEndpoint kDefaultSiteLocalGroupIPv6Endpoint{
+    kDefaultSiteLocalGroupIPv6, kDefaultMulticastPort};
 
 // Maximum MTU size (1500) minus the UDP header size (8) and IP header size
 // (20). If any packets are larger than this size, the responder or sender
@@ -303,6 +307,7 @@ enum class DnsType : uint16_t {
   kTXT = 16,
   kAAAA = 28,
   kSRV = 33,
+  kOPT = 41,
   kNSEC = 47,
   kANY = 255,  // Only allowed for QTYPE
 };
@@ -319,6 +324,8 @@ inline std::ostream& operator<<(std::ostream& output, DnsType type) {
       return output << "AAAA";
     case DnsType::kSRV:
       return output << "SRV";
+    case DnsType::kOPT:
+      return output << "OPT";
     case DnsType::kNSEC:
       return output << "NSEC";
     case DnsType::kANY:
@@ -326,7 +333,6 @@ inline std::ostream& operator<<(std::ostream& output, DnsType type) {
   }
 
   OSP_NOTREACHED();
-  return output;
 }
 
 constexpr std::array<DnsType, 7> kSupportedDnsTypes = {
@@ -429,11 +435,31 @@ constexpr uint8_t kTXTEmptyRdata = 0;
 // RFC 6762 section 8.1 specifies that a probe should wait 250 ms between
 // subsequent probe queries.
 constexpr Clock::duration kDelayBetweenProbeQueries =
-    std::chrono::duration_cast<Clock::duration>(std::chrono::milliseconds{250});
+    Clock::to_duration(std::chrono::milliseconds(250));
 
 // RFC 6762 section 8.1 specifies that the probing phase should send out probe
 // requests 3 times before treating the probe as completed.
 constexpr int kProbeIterationCountBeforeSuccess = 3;
+
+// ============================================================================
+// OPT Pseudo-Record Constants
+// ============================================================================
+
+// For OPT records, the TTL field has been re-purposed as follows:
+//
+//                   +0 (MSB)                            +1 (LSB)
+//        +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+//     0: |         EXTENDED-RCODE        |            VERSION            |
+//        +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+//     2: | DO|                           Z                               |
+//        +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+
+constexpr uint32_t kExtendedRcodeMask = 0xFF000000;
+constexpr int kExtendedRcodeShift = 24;
+constexpr uint32_t kVersionMask = 0x00FF0000;
+constexpr int kVersionShift = 16;
+constexpr uint32_t kDnssecOkBitMask = 0x00008000;
+constexpr uint8_t kVersionBadvers = 0x10;
 
 }  // namespace discovery
 }  // namespace openscreen

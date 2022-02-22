@@ -11,6 +11,7 @@
 
 #include "base/time/time.h"
 #include "extensions/common/api/declarative_net_request.h"
+#include "extensions/common/api/declarative_net_request/constants.h"
 #include "extensions/common/extension_id.h"
 
 namespace base {
@@ -24,6 +25,7 @@ class BrowserContext;
 
 namespace extensions {
 
+class Extension;
 class ExtensionPrefs;
 struct WebRequestInfo;
 
@@ -54,14 +56,20 @@ class ActionTracker {
   void SetTimerForTest(
       std::unique_ptr<base::RetainingOneShotTimer> injected_trim_rules_timer);
 
+  // Disables checking whether a tab ID corresponds to an existing tab when a
+  // rule is matched. Used for unit tests where WebContents/actual tabs do not
+  // exist.
+  void SetCheckTabIdOnRuleMatchForTest(bool check_tab_id);
+
   // Called whenever a request matches with a rule.
   void OnRuleMatched(const RequestAction& request_action,
                      const WebRequestInfo& request_info);
 
   // Updates the action count for all tabs for the specified |extension_id|'s
-  // extension action. Called when chrome.setActionCountAsBadgeText(true) is
-  // called by an extension.
-  void OnPreferenceEnabled(const ExtensionId& extension_id) const;
+  // extension action. Called when the extension calls setExtensionActionOptions
+  // to enable setting the action count as badge text.
+  void OnActionCountAsBadgeTextPreferenceEnabled(
+      const ExtensionId& extension_id) const;
 
   // Clears the TrackedInfo for the specified |extension_id| for all tabs.
   // Called when an extension's ruleset is removed.
@@ -79,10 +87,10 @@ class ActionTracker {
   // Updates the TrackedInfo for all extensions for the given |tab_id|.
   void ResetTrackedInfoForTab(int tab_id, int64_t navigation_id);
 
-  // Returns all matched rules for |extension_id|. If |tab_id| is provided, only
+  // Returns all matched rules for |extension|. If |tab_id| is provided, only
   // rules matched for |tab_id| will be returned.
   std::vector<api::declarative_net_request::MatchedRuleInfo> GetMatchedRules(
-      const ExtensionId& extension_id,
+      const Extension& extension,
       const base::Optional<int>& tab_id,
       const base::Time& min_time_stamp);
 
@@ -99,6 +107,13 @@ class ActionTracker {
   // tests.
   int GetPendingRuleCountForTest(const ExtensionId& extension_id,
                                  int64_t navigation_id);
+
+  // Increments the action count for the given |extension_id| and |tab_id|.
+  // A negative value for |increment| will decrement the action count, but the
+  // action count will never be less than 0.
+  void IncrementActionCountForTab(const ExtensionId& extension_id,
+                                  int tab_id,
+                                  int increment);
 
  private:
   // Template key type used for TrackedInfo, specified by an extension_id and
@@ -124,16 +139,14 @@ class ActionTracker {
   // Represents a matched rule. This is used as a lightweight version of
   // api::declarative_net_request::MatchedRuleInfo.
   struct TrackedRule {
-    TrackedRule(int rule_id,
-                api::declarative_net_request::SourceType source_type);
+    TrackedRule(int rule_id, RulesetID ruleset_id);
     TrackedRule(const TrackedRule& other) = delete;
     TrackedRule& operator=(const TrackedRule& other) = delete;
 
     const int rule_id;
-    const api::declarative_net_request::SourceType source_type;
+    const RulesetID ruleset_id;
 
-    // The timestamp for when the rule was matched. This is set in the
-    // constructor.
+    // The timestamp for when the rule was matched.
     const base::Time time_stamp;
   };
 
@@ -177,6 +190,7 @@ class ActionTracker {
 
   // Converts an internally represented |tracked_rule| to a MatchedRuleInfo.
   api::declarative_net_request::MatchedRuleInfo CreateMatchedRuleInfo(
+      const Extension& extension,
       const TrackedRule& tracked_rule,
       int tab_id) const;
 

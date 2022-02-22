@@ -50,7 +50,6 @@ QT_REQUIRE_CONFIG(ssl);
 QT_BEGIN_NAMESPACE
 
 class QSslPreSharedKeyAuthenticatorPrivate;
-
 class QSslPreSharedKeyAuthenticator
 {
 public:
@@ -74,17 +73,18 @@ public:
     Q_NETWORK_EXPORT int maximumPreSharedKeyLength() const;
 
 private:
-    friend Q_NETWORK_EXPORT bool operator==(const QSslPreSharedKeyAuthenticator &lhs, const QSslPreSharedKeyAuthenticator &rhs);
-    friend class QSslSocketBackendPrivate;
-    friend class QDtlsPrivateOpenSSL;
+    Q_NETWORK_EXPORT bool isEqual(const QSslPreSharedKeyAuthenticator &other) const;
+
+    friend class QTlsBackend;
+
+    friend bool operator==(const QSslPreSharedKeyAuthenticator &lhs, const QSslPreSharedKeyAuthenticator &rhs)
+    { return lhs.isEqual(rhs); }
+    friend bool operator!=(const QSslPreSharedKeyAuthenticator &lhs, const QSslPreSharedKeyAuthenticator &rhs)
+    { return !lhs.isEqual(rhs); }
 
     QSharedDataPointer<QSslPreSharedKeyAuthenticatorPrivate> d;
 };
 
-inline bool operator!=(const QSslPreSharedKeyAuthenticator &lhs, const QSslPreSharedKeyAuthenticator &rhs)
-{
-    return !operator==(lhs, rhs);
-}
 
 Q_DECLARE_SHARED(QSslPreSharedKeyAuthenticator)
 

@@ -49,7 +49,8 @@ public:
 
 private:
     QVariant loadResource(int type, const QUrl &name) override;
-    void setSource(const QUrl &url) override;
+
+    void doSetSource(const QUrl &name, QTextDocument::ResourceType type) override;
 
     QMap<QString, QByteArray> m_resourceMap;
 };

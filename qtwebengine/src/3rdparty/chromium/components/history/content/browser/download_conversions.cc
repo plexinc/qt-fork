@@ -4,7 +4,8 @@
 
 #include "components/history/content/browser/download_conversions.h"
 
-#include "base/logging.h"
+#include "base/check_op.h"
+#include "base/notreached.h"
 #include "components/download/public/common/download_danger_type.h"
 #include "components/history/core/browser/download_constants.h"
 
@@ -70,8 +71,8 @@ download::DownloadDangerType ToContentDownloadDangerType(
       return download::DOWNLOAD_DANGER_TYPE_DANGEROUS_HOST;
     case DownloadDangerType::POTENTIALLY_UNWANTED:
       return download::DOWNLOAD_DANGER_TYPE_POTENTIALLY_UNWANTED;
-    case DownloadDangerType::WHITELISTED_BY_POLICY:
-      return download::DOWNLOAD_DANGER_TYPE_WHITELISTED_BY_POLICY;
+    case DownloadDangerType::ALLOWLISTED_BY_POLICY:
+      return download::DOWNLOAD_DANGER_TYPE_ALLOWLISTED_BY_POLICY;
     case DownloadDangerType::ASYNC_SCANNING:
       return download::DOWNLOAD_DANGER_TYPE_ASYNC_SCANNING;
     case DownloadDangerType::BLOCKED_PASSWORD_PROTECTED:
@@ -119,8 +120,8 @@ DownloadDangerType ToHistoryDownloadDangerType(
       return DownloadDangerType::DANGEROUS_HOST;
     case download::DOWNLOAD_DANGER_TYPE_POTENTIALLY_UNWANTED:
       return DownloadDangerType::POTENTIALLY_UNWANTED;
-    case download::DOWNLOAD_DANGER_TYPE_WHITELISTED_BY_POLICY:
-      return DownloadDangerType::WHITELISTED_BY_POLICY;
+    case download::DOWNLOAD_DANGER_TYPE_ALLOWLISTED_BY_POLICY:
+      return DownloadDangerType::ALLOWLISTED_BY_POLICY;
     case download::DOWNLOAD_DANGER_TYPE_ASYNC_SCANNING:
       return DownloadDangerType::ASYNC_SCANNING;
     case download::DOWNLOAD_DANGER_TYPE_BLOCKED_PASSWORD_PROTECTED:

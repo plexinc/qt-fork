@@ -35,7 +35,7 @@
 #include <QtCore/QDateTime>
 #include <QtCore/QtMath>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 ChartDateTimeAxisX::ChartDateTimeAxisX(QDateTimeAxis *axis, QGraphicsItem *item)
     : HorizontalAxis(axis, item),
@@ -49,13 +49,13 @@ ChartDateTimeAxisX::~ChartDateTimeAxisX()
 {
 }
 
-QVector<qreal> ChartDateTimeAxisX::calculateLayout() const
+QList<qreal> ChartDateTimeAxisX::calculateLayout() const
 {
     int tickCount = m_axis->tickCount();
 
     Q_ASSERT(tickCount >= 2);
 
-    QVector<qreal> points;
+    QList<qreal> points;
     points.resize(tickCount);
     const QRectF &gridRect = gridGeometry();
     const qreal deltaX = gridRect.width() / (qreal(tickCount) - 1.0);
@@ -66,7 +66,7 @@ QVector<qreal> ChartDateTimeAxisX::calculateLayout() const
 
 void ChartDateTimeAxisX::updateGeometry()
 {
-    const QVector<qreal>& layout = ChartAxisElement::layout();
+    const QList<qreal> &layout = ChartAxisElement::layout();
     if (layout.isEmpty())
         return;
     setLabels(createDateTimeLabels(min(), max(), layout.size(), m_axis->format()));
@@ -76,7 +76,7 @@ void ChartDateTimeAxisX::updateGeometry()
 
 void ChartDateTimeAxisX::handleTickCountChanged(int tick)
 {
-    Q_UNUSED(tick)
+    Q_UNUSED(tick);
     QGraphicsLayoutItem::updateGeometry();
     if (presenter())
         presenter()->layout()->invalidate();
@@ -92,7 +92,7 @@ void ChartDateTimeAxisX::handleFormatChanged(const QString &format)
 
 QSizeF ChartDateTimeAxisX::sizeHint(Qt::SizeHint which, const QSizeF &constraint) const
 {
-    Q_UNUSED(constraint)
+    Q_UNUSED(constraint);
 
     QSizeF sh;
 
@@ -138,6 +138,6 @@ QSizeF ChartDateTimeAxisX::sizeHint(Qt::SizeHint which, const QSizeF &constraint
     return sh;
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_chartdatetimeaxisx_p.cpp"

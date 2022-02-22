@@ -67,6 +67,11 @@ bool UseMultiChannelCaptureProcessing() {
       features::kWebRtcEnableCaptureMultiChannelApm);
 }
 
+bool Allow48kHzApmProcessing() {
+  return base::FeatureList::IsEnabled(
+      features::kWebRtcAllow48kHzProcessingOnArm);
+}
+
 constexpr int kAudioProcessingNumberOfChannels = 1;
 constexpr int kBuffersPerSecond = 100;  // 10 ms per buffer.
 
@@ -576,24 +581,49 @@ void MediaStreamAudioProcessor::InitializeAudioProcessingModule(
 
   if (properties.goog_auto_gain_control ||
       properties.goog_experimental_auto_gain_control) {
-    bool use_hybrid_agc = false;
-    base::Optional<bool> use_peaks_not_rms;
-    base::Optional<int> saturation_margin;
-    if (properties.goog_experimental_auto_gain_control) {
-      use_hybrid_agc = base::FeatureList::IsEnabled(features::kWebRtcHybridAgc);
-      if (use_hybrid_agc) {
-        DCHECK(properties.goog_auto_gain_control)
-            << "Cannot enable hybrid AGC when AGC is disabled.";
-      }
-      use_peaks_not_rms = base::GetFieldTrialParamByFeatureAsBool(
-          features::kWebRtcHybridAgc, "use_peaks_not_rms", false);
-      saturation_margin = base::GetFieldTrialParamByFeatureAsInt(
-          features::kWebRtcHybridAgc, "saturation_margin", -1);
+    base::Optional<blink::AdaptiveGainController2Properties> agc2_properties;
+    if (properties.goog_experimental_auto_gain_control &&
+        base::FeatureList::IsEnabled(features::kWebRtcHybridAgc)) {
+      DCHECK(properties.goog_auto_gain_control)
+          << "Cannot enable hybrid AGC when AGC is disabled.";
+      agc2_properties = blink::AdaptiveGainController2Properties{};
+      agc2_properties->vad_probability_attack =
+          base::GetFieldTrialParamByFeatureAsDouble(
+              features::kWebRtcHybridAgc, "vad_probability_attack", 0.3);
+      agc2_properties->use_peaks_not_rms =
+          base::GetFieldTrialParamByFeatureAsBool(features::kWebRtcHybridAgc,
+                                                  "use_peaks_not_rms", false);
+      agc2_properties->level_estimator_speech_frames_threshold =
+          base::GetFieldTrialParamByFeatureAsInt(
+              features::kWebRtcHybridAgc,
+              "level_estimator_speech_frames_threshold", 6);
+      agc2_properties->initial_saturation_margin_db =
+          base::GetFieldTrialParamByFeatureAsInt(
+              features::kWebRtcHybridAgc, "initial_saturation_margin", 20);
+      agc2_properties->extra_saturation_margin_db =
+          base::GetFieldTrialParamByFeatureAsInt(features::kWebRtcHybridAgc,
+                                                 "extra_saturation_margin", 5);
+      agc2_properties->gain_applier_speech_frames_threshold =
+          base::GetFieldTrialParamByFeatureAsInt(
+              features::kWebRtcHybridAgc,
+              "gain_applier_speech_frames_threshold", 6);
+      agc2_properties->max_gain_change_db_per_second =
+          base::GetFieldTrialParamByFeatureAsInt(
+              features::kWebRtcHybridAgc, "max_gain_change_db_per_second", 3);
+      agc2_properties->max_output_noise_level_dbfs =
+          base::GetFieldTrialParamByFeatureAsInt(
+              features::kWebRtcHybridAgc, "max_output_noise_level_dbfs", -55);
+      agc2_properties->sse2_allowed = base::GetFieldTrialParamByFeatureAsBool(
+          features::kWebRtcHybridAgc, "sse2_allowed", true);
+      agc2_properties->avx2_allowed = base::GetFieldTrialParamByFeatureAsBool(
+          features::kWebRtcHybridAgc, "avx2_allowed", true);
+      agc2_properties->neon_allowed = base::GetFieldTrialParamByFeatureAsBool(
+          features::kWebRtcHybridAgc, "neon_allowed", true);
     }
     blink::ConfigAutomaticGainControl(
-        &apm_config, properties.goog_auto_gain_control,
-        properties.goog_experimental_auto_gain_control, use_hybrid_agc,
-        use_peaks_not_rms, saturation_margin, gain_control_compression_gain_db);
+        properties.goog_auto_gain_control,
+        properties.goog_experimental_auto_gain_control, agc2_properties,
+        gain_control_compression_gain_db, apm_config);
   }
 
   if (goog_typing_detection) {
@@ -603,6 +633,13 @@ void MediaStreamAudioProcessor::InitializeAudioProcessingModule(
     blink::EnableTypingDetection(&apm_config, typing_detector_.get());
   }
 
+  // Ensure that 48 kHz APM processing is always active. This overrules the
+  // default setting in WebRTC of 32 kHz for ARM platforms.
+  if (Allow48kHzApmProcessing()) {
+    apm_config.pipeline.maximum_internal_processing_rate = 48000;
+  }
+
+  apm_config.residual_echo_detector.enabled = false;
   audio_processing_->ApplyConfig(apm_config);
 }
 
@@ -669,6 +706,10 @@ void MediaStreamAudioProcessor::InitializeCaptureFifo(
   output_format_ = media::AudioParameters(
       media::AudioParameters::AUDIO_PCM_LOW_LATENCY, output_channel_layout,
       output_sample_rate, output_frames);
+  if (output_channel_layout == media::CHANNEL_LAYOUT_DISCRETE) {
+    // Explicitly set number of channels for discrete channel layouts.
+    output_format_.set_channels_for_discrete(input_format.channels());
+  }
 
   capture_fifo_.reset(
       new MediaStreamAudioFifo(input_format.channels(), fifo_output_channels,

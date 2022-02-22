@@ -10,6 +10,7 @@ found in the LICENSE file.
 <title>Inspect with Chrome Developer Tools</title>
 <link rel="stylesheet" href="chrome://resources/css/text_defaults.css">
 <link rel="stylesheet" href="inspect.css">
+<script src="chrome://resources/js/assert.js"></script>
 <script src="chrome://resources/js/util.js"></script>
 <script src="inspect.js"></script>
 </head>
@@ -98,7 +99,7 @@ found in the LICENSE file.
       Specify hosts and ports of the target discovery servers.
   </div>
   <div class="config-buttons">
-    <label class="port-forwarding">
+    <label class="port-forwarding-container">
       <input id="port-forwarding-enable" type="checkbox" disabled>Enable port forwarding
     </label>
     <button id="button-done">Done</button>

@@ -6,6 +6,8 @@ import("//build/config/android/rules.gni")
 
 static_library("android") {
   sources = [
+    "security_state_client.cc",
+    "security_state_client.h",
     "security_state_model_android.cc",
     "security_state_model_delegate.h",
   ]
@@ -21,14 +23,13 @@ static_library("android") {
 android_library("java") {
   sources = [
     "java/src/org/chromium/components/security_state/SecurityStateModel.java",
-    "java/src/org/chromium/components/security_state/SecurityStateModelDelegate.java",
   ]
   deps = [
     "//base:base_java",
     "//base:jni_java",
     "//components/security_state/core:security_state_enums_java",
     "//content/public/android:content_java",
-    "//third_party/android_deps:androidx_annotation_annotation_java",
+    "//third_party/androidx:androidx_annotation_annotation_java",
   ]
   annotation_processor_deps = [ "//base/android/jni_generator:jni_processor" ]
 }
@@ -36,6 +37,5 @@ android_library("java") {
 generate_jni("jni_headers") {
   sources = [
     "java/src/org/chromium/components/security_state/SecurityStateModel.java",
-    "java/src/org/chromium/components/security_state/SecurityStateModelDelegate.java",
   ]
 }

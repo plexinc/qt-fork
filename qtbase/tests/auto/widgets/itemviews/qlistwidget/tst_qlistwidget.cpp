@@ -35,7 +35,7 @@
 #include <QTest>
 #include <private/qlistwidget_p.h>
 
-using IntList = QVector<int>;
+using IntList = QList<int>;
 
 class tst_QListWidget : public QObject
 {
@@ -118,6 +118,8 @@ private slots:
     void QTBUG14363_completerWithAnyKeyPressedEditTriggers();
     void mimeData();
     void QTBUG50891_ensureSelectionModelSignalConnectionsAreSet();
+    void createPersistentOnLayoutAboutToBeChanged();
+    void createPersistentOnLayoutAboutToBeChangedAutoSort();
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     void clearItemData();
 #endif
@@ -154,9 +156,9 @@ protected slots:
 
 private:
     QListWidget *testWidget = nullptr;
-    QVector<QModelIndex> rcParent{8};
-    QVector<int> rcFirst = QVector<int>(8, 0);
-    QVector<int> rcLast = QVector<int>(8, 0);
+    QList<QModelIndex> rcParent { 8 };
+    QList<int> rcFirst = QList<int>(8, 0);
+    QList<int> rcLast = QList<int>(8, 0);
 
     void populate();
     void checkDefaultValues();
@@ -407,15 +409,6 @@ void tst_QListWidget::closePersistentEditor()
 
 void tst_QListWidget::setItemHidden()
 {
-#if QT_DEPRECATED_SINCE(5, 13)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-    // Boundary checking
-    testWidget->setItemHidden(nullptr, true);
-    testWidget->setItemHidden(nullptr, false);
-QT_WARNING_POP
-#endif
-
     auto countHidden = [](QListWidget *testWidget)
     {
         int totalHidden = 0;
@@ -1071,7 +1064,7 @@ void tst_QListWidget::sortItems()
     }
 
     QAbstractItemModel *model = testWidget->model();
-    QVector<QPersistentModelIndex> persistent;
+    QList<QPersistentModelIndex> persistent;
     for (int j = 0; j < model->rowCount(QModelIndex()); ++j)
         persistent << model->index(j, 0, QModelIndex());
 
@@ -1138,7 +1131,7 @@ void tst_QListWidget::sortHiddenItems()
     tw->addItems(initialList);
 
     QAbstractItemModel *model = tw->model();
-    QVector<QPersistentModelIndex> persistent;
+    QList<QPersistentModelIndex> persistent;
     for (int j = 0; j < model->rowCount(QModelIndex()); ++j) {
         persistent << model->index(j, 0, QModelIndex());
         tw->setRowHidden(j, j & 1); // every odd is hidden
@@ -1488,12 +1481,13 @@ class QListWidgetDataChanged : public QListWidget
 public:
     using QListWidget::QListWidget;
 
-    void dataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight, const QVector<int> &roles) override
+    void dataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight,
+                     const QList<int> &roles) override
     {
         QListWidget::dataChanged(topLeft, bottomRight, roles);
         currentRoles = roles;
     }
-    QVector<int> currentRoles;
+    QList<int> currentRoles;
 };
 
 void tst_QListWidget::itemData()
@@ -1502,13 +1496,13 @@ void tst_QListWidget::itemData()
     QListWidgetItem item(&widget);
     item.setFlags(item.flags() | Qt::ItemIsEditable);
     item.setData(Qt::DisplayRole,  QString("0"));
-    QCOMPARE(widget.currentRoles, QVector<int>({Qt::DisplayRole, Qt::EditRole}));
+    QCOMPARE(widget.currentRoles, QList<int>({ Qt::DisplayRole, Qt::EditRole }));
     item.setData(Qt::CheckStateRole, Qt::PartiallyChecked);
-    QCOMPARE(widget.currentRoles, QVector<int>{Qt::CheckStateRole});
+    QCOMPARE(widget.currentRoles, QList<int> { Qt::CheckStateRole });
     for (int i = 0; i < 4; ++i)
     {
         item.setData(Qt::UserRole + i, QString::number(i + 1));
-        QCOMPARE(widget.currentRoles, QVector<int>{Qt::UserRole + i});
+        QCOMPARE(widget.currentRoles, QList<int> { Qt::UserRole + i });
     }
     QMap<int, QVariant> flags = widget.model()->itemData(widget.model()->index(0, 0));
     QCOMPARE(flags.count(), 6);
@@ -1546,7 +1540,7 @@ void tst_QListWidget::changeDataWithSorting()
     w.addItems(initialItems);
 
     QAbstractItemModel *model = w.model();
-    QVector<QPersistentModelIndex> persistent;
+    QList<QPersistentModelIndex> persistent;
     for (int j = 0; j < model->rowCount(QModelIndex()); ++j)
         persistent << model->index(j, 0, QModelIndex());
 
@@ -1852,6 +1846,72 @@ void tst_QListWidget::QTBUG50891_ensureSelectionModelSignalConnectionsAreSet()
 
 }
 
+void tst_QListWidget::createPersistentOnLayoutAboutToBeChanged() // QTBUG-93466
+{
+    QListWidget widget;
+    QCOMPARE(widget.model()->columnCount(), 1);
+    widget.model()->insertRows(0, 3);
+    for (int row = 0; row < 3; ++row)
+        widget.model()->setData(widget.model()->index(row, 0), row);
+    QList<QPersistentModelIndex> idxList;
+    QSignalSpy layoutAboutToBeChangedSpy(widget.model(), &QAbstractItemModel::layoutAboutToBeChanged);
+    QSignalSpy layoutChangedSpy(widget.model(), &QAbstractItemModel::layoutChanged);
+    connect(widget.model(), &QAbstractItemModel::layoutAboutToBeChanged, this, [&idxList, &widget](){
+        idxList.clear();
+        for (int row = 0; row < 3; ++row)
+            idxList << QPersistentModelIndex(widget.model()->index(row, 0));
+    });
+    connect(widget.model(), &QAbstractItemModel::layoutChanged, this, [&idxList](){
+        QCOMPARE(idxList.size(), 3);
+        QCOMPARE(idxList.at(0).row(), 1);
+        QCOMPARE(idxList.at(0).column(), 0);
+        QCOMPARE(idxList.at(0).data().toInt(), 0);
+        QCOMPARE(idxList.at(1).row(), 0);
+        QCOMPARE(idxList.at(1).column(), 0);
+        QCOMPARE(idxList.at(1).data().toInt(), -1);
+        QCOMPARE(idxList.at(2).row(), 2);
+        QCOMPARE(idxList.at(2).column(), 0);
+        QCOMPARE(idxList.at(2).data().toInt(), 2);
+    });
+    widget.model()->setData(widget.model()->index(1, 0), -1);
+    widget.model()->sort(0);
+    QCOMPARE(layoutAboutToBeChangedSpy.size(), 1);
+    QCOMPARE(layoutChangedSpy.size(), 1);
+}
+
+void tst_QListWidget::createPersistentOnLayoutAboutToBeChangedAutoSort() // QTBUG-93466
+{
+    QListWidget widget;
+    QCOMPARE(widget.model()->columnCount(), 1);
+    widget.model()->insertRows(0, 3);
+    for (int row = 0; row < 3; ++row)
+        widget.model()->setData(widget.model()->index(row, 0), row);
+    widget.setSortingEnabled(true);
+    QList<QPersistentModelIndex> idxList;
+    QSignalSpy layoutAboutToBeChangedSpy(widget.model(), &QAbstractItemModel::layoutAboutToBeChanged);
+    QSignalSpy layoutChangedSpy(widget.model(), &QAbstractItemModel::layoutChanged);
+    connect(widget.model(), &QAbstractItemModel::layoutAboutToBeChanged, this, [&idxList, &widget](){
+        idxList.clear();
+        for (int row = 0; row < 3; ++row)
+            idxList << QPersistentModelIndex(widget.model()->index(row, 0));
+    });
+    connect(widget.model(), &QAbstractItemModel::layoutChanged, this, [&idxList](){
+        QCOMPARE(idxList.size(), 3);
+        QCOMPARE(idxList.at(0).row(), 1);
+        QCOMPARE(idxList.at(0).column(), 0);
+        QCOMPARE(idxList.at(0).data().toInt(), 0);
+        QCOMPARE(idxList.at(1).row(), 0);
+        QCOMPARE(idxList.at(1).column(), 0);
+        QCOMPARE(idxList.at(1).data().toInt(), -1);
+        QCOMPARE(idxList.at(2).row(), 2);
+        QCOMPARE(idxList.at(2).column(), 0);
+        QCOMPARE(idxList.at(2).data().toInt(), 2);
+    });
+    widget.model()->setData(widget.model()->index(1, 0), -1);
+    QCOMPARE(layoutAboutToBeChangedSpy.size(), 1);
+    QCOMPARE(layoutChangedSpy.size(), 1);
+}
+
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 void tst_QListWidget::clearItemData()
 {
@@ -1868,7 +1928,7 @@ void tst_QListWidget::clearItemData()
     const QList<QVariant> dataChangeArgs = dataChangeSpy.takeFirst();
     QCOMPARE(dataChangeArgs.at(0).value<QModelIndex>(), list.model()->index(0, 0));
     QCOMPARE(dataChangeArgs.at(1).value<QModelIndex>(), list.model()->index(0, 0));
-    QVERIFY(dataChangeArgs.at(2).value<QVector<int>>().isEmpty());
+    QVERIFY(dataChangeArgs.at(2).value<QList<int>>().isEmpty());
     QVERIFY(list.model()->clearItemData(list.model()->index(0, 0)));
     QCOMPARE(dataChangeSpy.size(), 0);
 }

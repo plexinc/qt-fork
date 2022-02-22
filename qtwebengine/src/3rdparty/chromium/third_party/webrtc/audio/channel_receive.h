@@ -28,6 +28,7 @@
 #include "call/rtp_packet_sink_interface.h"
 #include "call/syncable.h"
 #include "modules/audio_coding/include/audio_coding_module_typedefs.h"
+#include "modules/rtp_rtcp/source/source_tracker.h"
 #include "system_wrappers/include/clock.h"
 
 // TODO(solenberg, nisse): This file contains a few NOLINT marks, to silence
@@ -99,12 +100,13 @@ class ChannelReceiveInterface : public RtpPacketSinkInterface {
   virtual double GetTotalOutputDuration() const = 0;
 
   // Stats.
-  virtual NetworkStatistics GetNetworkStatistics() const = 0;
+  virtual NetworkStatistics GetNetworkStatistics(
+      bool get_and_clear_legacy_stats) const = 0;
   virtual AudioDecodingCallStats GetDecodingCallStatistics() const = 0;
 
   // Audio+Video Sync.
   virtual uint32_t GetDelayEstimate() const = 0;
-  virtual void SetMinimumPlayoutDelay(int delay_ms) = 0;
+  virtual bool SetMinimumPlayoutDelay(int delay_ms) = 0;
   virtual bool GetPlayoutRtpTimestamp(uint32_t* rtp_timestamp,
                                       int64_t* time_ms) const = 0;
   virtual void SetEstimatedPlayoutNtpTimestampMs(int64_t ntp_timestamp_ms,
@@ -133,6 +135,10 @@ class ChannelReceiveInterface : public RtpPacketSinkInterface {
       AudioFrame* audio_frame) = 0;
 
   virtual int PreferredSampleRate() const = 0;
+
+  // Sets the source tracker to notify about "delivered" packets when output is
+  // muted.
+  virtual void SetSourceTracker(SourceTracker* source_tracker) = 0;
 
   // Associate to a send channel.
   // Used for obtaining RTT for a receive-only channel.

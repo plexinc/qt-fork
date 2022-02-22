@@ -37,16 +37,23 @@
 #include <QLoggingCategory>
 #include <private/qqmlcomponent_p.h>
 #include <private/qqmlscriptdata_p.h>
+#include <private/qv4compileddata_p.h>
 #include <qtranslator.h>
+#include <qqmlscriptstring.h>
+#include <QString>
 
-#include "../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
+#include "scriptstringprops.h"
 
 class tst_qmlcachegen: public QQmlDataTest
 {
     Q_OBJECT
 
+public:
+    tst_qmlcachegen();
+
 private slots:
-    void initTestCase();
+    void initTestCase() override;
 
     void loadGeneratedFile();
     void translationExpressionSupport();
@@ -77,6 +84,10 @@ private slots:
 
     void parameterAdjustment();
     void inlineComponent();
+    void posthocRequired();
+
+    void scriptStringCachegenInteraction();
+    void saveableUnitPointer();
 };
 
 // A wrapper around QQmlComponent to ensure the temporary reference counts
@@ -106,7 +117,8 @@ static bool generateCache(const QString &qmlFileName, QByteArray *capturedStderr
     QProcess proc;
     if (capturedStderr == nullptr)
         proc.setProcessChannelMode(QProcess::ForwardedChannels);
-    proc.setProgram(QLibraryInfo::location(QLibraryInfo::BinariesPath) + QDir::separator() + QLatin1String("qmlcachegen"));
+    proc.setProgram(QLibraryInfo::path(QLibraryInfo::LibraryExecutablesPath)
+                    + QLatin1String("/qmlcachegen"));
     proc.setArguments(QStringList() << qmlFileName);
     proc.start();
     if (!proc.waitForFinished())
@@ -118,6 +130,11 @@ static bool generateCache(const QString &qmlFileName, QByteArray *capturedStderr
     if (proc.exitStatus() != QProcess::NormalExit)
         return false;
     return proc.exitCode() == 0;
+}
+
+tst_qmlcachegen::tst_qmlcachegen()
+    : QQmlDataTest(QT_QMLTEST_DATADIR)
+{
 }
 
 void tst_qmlcachegen::initTestCase()
@@ -370,11 +387,13 @@ void tst_qmlcachegen::versionChecksForAheadOfTimeUnits()
 
     Q_ASSERT(!temporaryModifiedCachedUnit);
     QQmlMetaType::CachedUnitLookupError error = QQmlMetaType::CachedUnitLookupError::NoError;
-    const QV4::CompiledData::Unit *originalUnit = QQmlMetaType::findCachedCompilationUnit(
+    const QQmlPrivate::CachedQmlUnit *originalUnit = QQmlMetaType::findCachedCompilationUnit(
             QUrl("qrc:/data/versionchecks.qml"), &error);
     QVERIFY(originalUnit);
-    QV4::CompiledData::Unit *tweakedUnit = (QV4::CompiledData::Unit *)malloc(originalUnit->unitSize);
-    memcpy(reinterpret_cast<void *>(tweakedUnit), reinterpret_cast<const void *>(originalUnit), originalUnit->unitSize);
+    QV4::CompiledData::Unit *tweakedUnit = (QV4::CompiledData::Unit *)malloc(originalUnit->qmlData->unitSize);
+    memcpy(reinterpret_cast<void *>(tweakedUnit),
+           reinterpret_cast<const void *>(originalUnit->qmlData),
+           originalUnit->qmlData->unitSize);
     tweakedUnit->version = QV4_DATA_STRUCTURE_VERSION - 1;
     temporaryModifiedCachedUnit = new QQmlPrivate::CachedQmlUnit{tweakedUnit, nullptr, nullptr};
 
@@ -419,7 +438,8 @@ void tst_qmlcachegen::skippedResources()
     QVERIFY(file.readAll().startsWith("import QtQml 2.0"));
 
     QQmlMetaType::CachedUnitLookupError error = QQmlMetaType::CachedUnitLookupError::NoError;
-    const auto *unit = QQmlMetaType::findCachedCompilationUnit(QUrl("qrc:/not/Skip.qml"), &error);
+    const QQmlPrivate::CachedQmlUnit *unit = QQmlMetaType::findCachedCompilationUnit(
+            QUrl("qrc:/not/Skip.qml"), &error);
     QCOMPARE(unit, nullptr);
     QCOMPARE(error, QQmlMetaType::CachedUnitLookupError::NoUnitFound);
 }
@@ -611,11 +631,11 @@ void tst_qmlcachegen::moduleScriptImport()
         QVERIFY(unitData->flags & QV4::CompiledData::Unit::IsESModule);
 
         QQmlMetaType::CachedUnitLookupError error = QQmlMetaType::CachedUnitLookupError::NoError;
-        const QV4::CompiledData::Unit *unitFromResources = QQmlMetaType::findCachedCompilationUnit(
+        const QQmlPrivate::CachedQmlUnit *unitFromResources = QQmlMetaType::findCachedCompilationUnit(
                 QUrl("qrc:/data/script.mjs"), &error);
         QVERIFY(unitFromResources);
 
-        QCOMPARE(unitFromResources, compilationUnit->unitData());
+        QCOMPARE(unitFromResources->qmlData, compilationUnit->unitData());
     }
 }
 
@@ -642,11 +662,11 @@ void tst_qmlcachegen::sourceFileIndices()
     QVERIFY(QFileInfo(":/data/versionchecks.qml").size() > 0);
 
     QQmlMetaType::CachedUnitLookupError error = QQmlMetaType::CachedUnitLookupError::NoError;
-    const QV4::CompiledData::Unit *unitFromResources = QQmlMetaType::findCachedCompilationUnit(
+    const QQmlPrivate::CachedQmlUnit *unitFromResources = QQmlMetaType::findCachedCompilationUnit(
             QUrl("qrc:/data/versionchecks.qml"), &error);
     QVERIFY(unitFromResources);
-    QVERIFY(unitFromResources->flags & QV4::CompiledData::Unit::PendingTypeCompilation);
-    QCOMPARE(uint(unitFromResources->sourceFileIndex), uint(0));
+    QVERIFY(unitFromResources->qmlData->flags & QV4::CompiledData::Unit::PendingTypeCompilation);
+    QCOMPARE(uint(unitFromResources->qmlData->sourceFileIndex), uint(0));
 }
 
 void tst_qmlcachegen::reproducibleCache_data()
@@ -692,13 +712,140 @@ void tst_qmlcachegen::parameterAdjustment()
 
 void tst_qmlcachegen::inlineComponent()
 {
-    bool ok = generateCache(testFile("inlineComponentWithId.qml"));
-    QVERIFY(ok);
+    QByteArray errors;
+    bool ok = generateCache(testFile("inlineComponentWithId.qml"), &errors);
+    QVERIFY2(ok, errors);
     QQmlEngine engine;
     CleanlyLoadingComponent component(&engine, testFileUrl("inlineComponentWithId.qml"));
     QTest::ignoreMessage(QtMsgType::QtInfoMsg, "42");
     QScopedPointer<QObject> obj(component.create());
     QVERIFY(!obj.isNull());
+}
+
+void tst_qmlcachegen::posthocRequired()
+{
+    bool ok = generateCache(testFile("posthocrequired.qml"));
+    QVERIFY(ok);
+    QQmlEngine engine;
+    CleanlyLoadingComponent component(&engine, testFileUrl("posthocrequired.qml"));
+    QScopedPointer<QObject> obj(component.create());
+    QVERIFY(obj.isNull() && component.isError());
+    QVERIFY(component.errorString().contains(QStringLiteral("Required property x was not initialized")));
+}
+
+void tst_qmlcachegen::scriptStringCachegenInteraction()
+{
+    bool ok = generateCache(testFile("scriptstring.qml"));
+    QVERIFY(ok);
+    QQmlEngine engine;
+    CleanlyLoadingComponent component(&engine, testFileUrl("scriptstring.qml"));
+    QScopedPointer<QObject> root(component.create());
+    QVERIFY2(!root.isNull(), qPrintable(component.errorString()));
+    auto scripty = qobject_cast<ScriptStringProps *>(root.get());
+    QVERIFY(scripty);
+
+    QVERIFY(scripty->m_undef.isUndefinedLiteral());
+    QVERIFY(scripty->m_nul.isNullLiteral());
+    QCOMPARE(scripty->m_str.stringLiteral(), u"hello"_qs);
+    QCOMPARE(scripty->m_num.numberLiteral(&ok), 42);
+    ok = false;
+    scripty->m_bol.booleanLiteral(&ok);
+    QVERIFY(ok);
+}
+
+void tst_qmlcachegen::saveableUnitPointer()
+{
+    QV4::CompiledData::Unit unit;
+    unit.flags = QV4::CompiledData::Unit::StaticData | QV4::CompiledData::Unit::IsJavascript;
+    const auto flags = unit.flags;
+
+    QV4::CompiledData::SaveableUnitPointer pointer(&unit);
+
+    QVERIFY(pointer.saveToDisk<char>([](const char *, quint32) { return true; }));
+    QCOMPARE(unit.flags, flags);
+}
+
+const QQmlScriptString &ScriptStringProps::undef() const
+{
+    return m_undef;
+}
+
+
+
+void ScriptStringProps::setUndef(const QQmlScriptString &newUndef)
+{
+    if (m_undef == newUndef)
+        return;
+    m_undef = newUndef;
+    emit undefChanged();
+}
+
+
+
+const QQmlScriptString &ScriptStringProps::nul() const
+{
+    return m_nul;
+}
+
+
+
+void ScriptStringProps::setNul(const QQmlScriptString &newNul)
+{
+    if (m_nul == newNul)
+        return;
+    m_nul = newNul;
+    emit nulChanged();
+}
+
+
+
+const QQmlScriptString &ScriptStringProps::str() const
+{
+    return m_str;
+}
+
+
+
+void ScriptStringProps::setStr(const QQmlScriptString &newStr)
+{
+    if (m_str == newStr)
+        return;
+    m_str = newStr;
+    emit strChanged();
+}
+
+
+
+const QQmlScriptString &ScriptStringProps::num() const
+{
+    return m_num;
+}
+
+
+
+void ScriptStringProps::setNum(const QQmlScriptString &newNum)
+{
+    if (m_num == newNum)
+        return;
+    m_num = newNum;
+    emit numChanged();
+}
+
+
+
+const QQmlScriptString &ScriptStringProps::bol() const
+{
+    return m_bol;
+}
+
+
+
+void ScriptStringProps::setBol(const QQmlScriptString &newBol)
+{
+    if (m_bol == newBol)
+        return;
+    m_bol = newBol;
+    emit bolChanged();
 }
 
 QTEST_GUILESS_MAIN(tst_qmlcachegen)

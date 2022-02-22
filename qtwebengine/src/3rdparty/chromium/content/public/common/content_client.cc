@@ -4,8 +4,9 @@
 
 #include "content/public/common/content_client.h"
 
-#include "base/logging.h"
+#include "base/files/file_path.h"
 #include "base/no_destructor.h"
+#include "base/notreached.h"
 #include "base/strings/string_piece.h"
 #include "base/values.h"
 #include "build/build_config.h"
@@ -91,22 +92,22 @@ gfx::Image& ContentClient::GetNativeImageNamed(int resource_id) {
   return *kEmptyImage;
 }
 
+#if defined(OS_MAC)
+base::FilePath ContentClient::GetChildProcessPath(
+    int child_flags,
+    const base::FilePath& helpers_path) {
+  NOTIMPLEMENTED();
+  return base::FilePath();
+}
+#endif
+
 std::string ContentClient::GetProcessTypeNameInEnglish(int type) {
   NOTIMPLEMENTED();
   return std::string();
 }
 
-base::DictionaryValue ContentClient::GetNetLogConstants() {
-  return base::DictionaryValue();
-}
-
 blink::OriginTrialPolicy* ContentClient::GetOriginTrialPolicy() {
   return nullptr;
-}
-
-bool ContentClient::AllowScriptExtensionForServiceWorker(
-    const url::Origin& script_origin) {
-  return false;
 }
 
 #if defined(OS_ANDROID)

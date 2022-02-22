@@ -5,8 +5,11 @@
 #include "third_party/blink/renderer/core/feature_policy/dom_feature_policy.h"
 
 #include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom-blink.h"
+#include "third_party/blink/public/mojom/feature_policy/feature_policy_feature.mojom-blink.h"
 #include "third_party/blink/renderer/core/dom/document.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/feature_policy/feature_policy_parser.h"
+#include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
@@ -15,16 +18,26 @@
 
 namespace blink {
 
+bool FeatureAvailable(const String& feature, ExecutionContext* ec) {
+  return GetDefaultFeatureNameMap().Contains(feature) &&
+         (!DisabledByOriginTrial(feature, ec)) &&
+         (!IsFeatureForMeasurementOnly(GetDefaultFeatureNameMap().at(feature)));
+}
+
+DOMFeaturePolicy::DOMFeaturePolicy(ExecutionContext* context)
+    : context_(context) {}
+
 bool DOMFeaturePolicy::allowsFeature(ScriptState* script_state,
                                      const String& feature) const {
   ExecutionContext* execution_context =
       script_state ? ExecutionContext::From(script_state) : nullptr;
-  if (GetAvailableFeatures(execution_context).Contains(feature)) {
+  UseCounter::Count(execution_context,
+                    IsIFramePolicy()
+                        ? WebFeature::kFeaturePolicyJSAPIAllowsFeatureIFrame
+                        : WebFeature::kFeaturePolicyJSAPIAllowsFeatureDocument);
+  if (FeatureAvailable(feature, execution_context)) {
     auto feature_name = GetDefaultFeatureNameMap().at(feature);
-    mojom::PolicyValueType feature_type =
-        GetPolicy()->GetFeatureList().at(feature_name).second;
-    PolicyValue value = PolicyValue::CreateMaxPolicyValue(feature_type);
-    return GetPolicy()->IsFeatureEnabled(feature_name, value);
+    return GetPolicy()->IsFeatureEnabled(feature_name);
   }
 
   AddWarningForUnrecognizedFeature(feature);
@@ -36,32 +49,38 @@ bool DOMFeaturePolicy::allowsFeature(ScriptState* script_state,
                                      const String& url) const {
   ExecutionContext* execution_context =
       script_state ? ExecutionContext::From(script_state) : nullptr;
+  UseCounter::Count(
+      execution_context,
+      IsIFramePolicy()
+          ? WebFeature::kFeaturePolicyJSAPIAllowsFeatureOriginIFrame
+          : WebFeature::kFeaturePolicyJSAPIAllowsFeatureOriginDocument);
   scoped_refptr<const SecurityOrigin> origin =
       SecurityOrigin::CreateFromString(url);
   if (!origin || origin->IsOpaque()) {
-    GetDocument()->AddConsoleMessage(MakeGarbageCollected<ConsoleMessage>(
-        mojom::ConsoleMessageSource::kOther,
-        mojom::ConsoleMessageLevel::kWarning,
+    context_->AddConsoleMessage(MakeGarbageCollected<ConsoleMessage>(
+        mojom::blink::ConsoleMessageSource::kOther,
+        mojom::blink::ConsoleMessageLevel::kWarning,
         "Invalid origin url for feature '" + feature + "': " + url + "."));
     return false;
   }
 
-  if (!GetAvailableFeatures(execution_context).Contains(feature)) {
+  if (!FeatureAvailable(feature, execution_context)) {
     AddWarningForUnrecognizedFeature(feature);
     return false;
   }
 
   auto feature_name = GetDefaultFeatureNameMap().at(feature);
-  mojom::PolicyValueType feature_type =
-      GetPolicy()->GetFeatureList().at(feature_name).second;
-  PolicyValue value = PolicyValue::CreateMaxPolicyValue(feature_type);
   return GetPolicy()->IsFeatureEnabledForOrigin(feature_name,
-                                                origin->ToUrlOrigin(), value);
+                                                origin->ToUrlOrigin());
 }
 
 Vector<String> DOMFeaturePolicy::features(ScriptState* script_state) const {
   ExecutionContext* execution_context =
       script_state ? ExecutionContext::From(script_state) : nullptr;
+  UseCounter::Count(execution_context,
+                    IsIFramePolicy()
+                        ? WebFeature::kFeaturePolicyJSAPIFeaturesIFrame
+                        : WebFeature::kFeaturePolicyJSAPIFeaturesDocument);
   return GetAvailableFeatures(execution_context);
 }
 
@@ -69,13 +88,15 @@ Vector<String> DOMFeaturePolicy::allowedFeatures(
     ScriptState* script_state) const {
   ExecutionContext* execution_context =
       script_state ? ExecutionContext::From(script_state) : nullptr;
+  UseCounter::Count(
+      execution_context,
+      IsIFramePolicy()
+          ? WebFeature::kFeaturePolicyJSAPIAllowedFeaturesIFrame
+          : WebFeature::kFeaturePolicyJSAPIAllowedFeaturesDocument);
   Vector<String> allowed_features;
   for (const String& feature : GetAvailableFeatures(execution_context)) {
     auto feature_name = GetDefaultFeatureNameMap().at(feature);
-    mojom::PolicyValueType feature_type =
-        GetPolicy()->GetFeatureList().at(feature_name).second;
-    PolicyValue value = PolicyValue::CreateMaxPolicyValue(feature_type);
-    if (GetPolicy()->IsFeatureEnabled(feature_name, value))
+    if (GetPolicy()->IsFeatureEnabled(feature_name))
       allowed_features.push_back(feature);
   }
   return allowed_features;
@@ -86,23 +107,23 @@ Vector<String> DOMFeaturePolicy::getAllowlistForFeature(
     const String& feature) const {
   ExecutionContext* execution_context =
       script_state ? ExecutionContext::From(script_state) : nullptr;
-  if (GetAvailableFeatures(execution_context).Contains(feature)) {
+  UseCounter::Count(execution_context,
+                    IsIFramePolicy()
+                        ? WebFeature::kFeaturePolicyJSAPIGetAllowlistIFrame
+                        : WebFeature::kFeaturePolicyJSAPIGetAllowlistDocument);
+  if (FeatureAvailable(feature, execution_context)) {
     auto feature_name = GetDefaultFeatureNameMap().at(feature);
-    auto feature_type = GetPolicy()->GetFeatureList().at(feature_name).second;
 
     const FeaturePolicy::Allowlist allowlist =
         GetPolicy()->GetAllowlistForFeature(feature_name);
-    auto values = allowlist.Values();
-    PolicyValue max_value = PolicyValue::CreateMaxPolicyValue(feature_type);
-    if (values.empty()) {
-      if (allowlist.GetFallbackValue().Type() !=
-              mojom::PolicyValueType::kNull &&
-          allowlist.GetFallbackValue() >= max_value)
+    const auto& allowed_origins = allowlist.AllowedOrigins();
+    if (allowed_origins.empty()) {
+      if (allowlist.MatchesAll())
         return Vector<String>({"*"});
     }
     Vector<String> result;
-    for (const auto& entry : values) {
-      result.push_back(WTF::String::FromUTF8(entry.first.Serialize()));
+    for (const auto& origin : allowed_origins) {
+      result.push_back(WTF::String::FromUTF8(origin.Serialize()));
     }
     return result;
   }
@@ -113,17 +134,15 @@ Vector<String> DOMFeaturePolicy::getAllowlistForFeature(
 
 void DOMFeaturePolicy::AddWarningForUnrecognizedFeature(
     const String& feature) const {
-  GetDocument()->AddConsoleMessage(MakeGarbageCollected<ConsoleMessage>(
-      mojom::ConsoleMessageSource::kOther, mojom::ConsoleMessageLevel::kWarning,
+  context_->AddConsoleMessage(MakeGarbageCollected<ConsoleMessage>(
+      mojom::blink::ConsoleMessageSource::kOther,
+      mojom::blink::ConsoleMessageLevel::kWarning,
       "Unrecognized feature: '" + feature + "'."));
 }
 
-void DOMFeaturePolicy::Trace(Visitor* visitor) {
+void DOMFeaturePolicy::Trace(Visitor* visitor) const {
   ScriptWrappable::Trace(visitor);
+  visitor->Trace(context_);
 }
-
-void DOMFeaturePolicy::UpdateContainerPolicy(
-    const ParsedFeaturePolicy& container_policy,
-    scoped_refptr<const SecurityOrigin> src_origin) {}
 
 }  // namespace blink

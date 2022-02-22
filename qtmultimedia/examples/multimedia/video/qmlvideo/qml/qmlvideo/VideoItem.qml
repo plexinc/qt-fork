@@ -48,20 +48,19 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import QtMultimedia 5.0
+import QtQuick
+import QtMultimedia
 
 VideoOutput {
     id: root
     height: width
-    source: mediaPlayer
 
     property alias duration: mediaPlayer.duration
     property alias mediaSource: mediaPlayer.source
     property alias metaData: mediaPlayer.metaData
     property alias playbackRate: mediaPlayer.playbackRate
     property alias position: mediaPlayer.position
-    property alias volume: mediaPlayer.volume
+    property alias volume: audioOutput.volume
 
     signal sizeChanged
     signal fatalError
@@ -70,11 +69,13 @@ VideoOutput {
 
     MediaPlayer {
         id: mediaPlayer
-        autoLoad: false
-        loops: Audio.Infinite
+        videoOutput: root;
+        audioOutput: AudioOutput {
+            id: audioOutput
+        }
 
-        onError: {
-            if (MediaPlayer.NoError != error) {
+        onErrorOccurred: function(error, errorString) {
+            if (MediaPlayer.NoError !== error) {
                 console.log("[qmlvideo] VideoItem.onError error " + error + " errorString " + errorString)
                 root.fatalError()
             }

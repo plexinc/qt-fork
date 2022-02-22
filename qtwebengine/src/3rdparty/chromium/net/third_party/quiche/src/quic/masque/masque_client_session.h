@@ -5,11 +5,12 @@
 #ifndef QUICHE_QUIC_MASQUE_MASQUE_CLIENT_SESSION_H_
 #define QUICHE_QUIC_MASQUE_MASQUE_CLIENT_SESSION_H_
 
-#include "net/third_party/quiche/src/quic/core/http/quic_spdy_client_session.h"
-#include "net/third_party/quiche/src/quic/masque/masque_compression_engine.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_socket_address.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/container/flat_hash_map.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/http/quic_spdy_client_session.h"
+#include "quic/masque/masque_compression_engine.h"
+#include "quic/platform/api/quic_export.h"
+#include "quic/platform/api/quic_socket_address.h"
 
 namespace quic {
 
@@ -37,7 +38,7 @@ class QUIC_NO_EXPORT MasqueClientSession : public QuicSpdyClientSession {
     virtual ~EncapsulatedClientSession() {}
 
     // Process packet that was just decapsulated.
-    virtual void ProcessPacket(quiche::QuicheStringPiece packet,
+    virtual void ProcessPacket(absl::string_view packet,
                                QuicSocketAddress server_address) = 0;
   };
 
@@ -58,7 +59,7 @@ class QUIC_NO_EXPORT MasqueClientSession : public QuicSpdyClientSession {
   MasqueClientSession& operator=(const MasqueClientSession&) = delete;
 
   // From QuicSession.
-  void OnMessageReceived(quiche::QuicheStringPiece message) override;
+  void OnMessageReceived(absl::string_view message) override;
 
   void OnMessageAcked(QuicMessageId message_id,
                       QuicTime receive_timestamp) override;
@@ -68,7 +69,7 @@ class QUIC_NO_EXPORT MasqueClientSession : public QuicSpdyClientSession {
   // Send encapsulated packet.
   void SendPacket(QuicConnectionId client_connection_id,
                   QuicConnectionId server_connection_id,
-                  quiche::QuicheStringPiece packet,
+                  absl::string_view packet,
                   const QuicSocketAddress& server_address);
 
   // Register encapsulated client. This allows clients that are encapsulated
@@ -86,9 +87,9 @@ class QUIC_NO_EXPORT MasqueClientSession : public QuicSpdyClientSession {
   void UnregisterConnectionId(QuicConnectionId client_connection_id);
 
  private:
-  QuicUnorderedMap<QuicConnectionId,
-                   EncapsulatedClientSession*,
-                   QuicConnectionIdHash>
+  absl::flat_hash_map<QuicConnectionId,
+                      EncapsulatedClientSession*,
+                      QuicConnectionIdHash>
       client_connection_id_registrations_;
   Owner* owner_;  // Unowned;
   MasqueCompressionEngine compression_engine_;

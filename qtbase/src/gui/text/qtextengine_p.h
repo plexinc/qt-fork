@@ -52,26 +52,26 @@
 //
 
 #include <QtGui/private/qtguiglobal_p.h>
-#include "QtCore/qstring.h"
-#include "QtCore/qvarlengtharray.h"
-#include "QtCore/qnamespace.h"
-#include "QtGui/qtextlayout.h"
-#include "private/qtextformat_p.h"
-#include "private/qfont_p.h"
-#include "QtCore/qvector.h"
 #include "QtGui/qpaintengine.h"
+#include "QtGui/qtextcursor.h"
 #include "QtGui/qtextobject.h"
 #include "QtGui/qtextoption.h"
-#include "QtGui/qtextcursor.h"
-#include "QtCore/qset.h"
+#include "QtGui/qtextlayout.h"
+
 #include "QtCore/qdebug.h"
+#include "QtCore/qlist.h"
+#include "QtCore/qnamespace.h"
+#include "QtCore/qset.h"
+#include "QtCore/qstring.h"
+#include "QtCore/qvarlengtharray.h"
+
+#include "private/qfixed_p.h"
+#include "private/qfont_p.h"
+#include "private/qtextformat_p.h"
+#include "private/qunicodetools_p.h"
 #ifndef QT_BUILD_COMPAT_LIB
 #include "private/qtextdocument_p.h"
 #endif
-
-#include "private/qfixed_p.h"
-
-#include <private/qunicodetools_p.h>
 
 #include <stdlib.h>
 #include <vector>
@@ -189,7 +189,7 @@ struct QGlyphAttributes {
     uchar justification : 4;
     uchar reserved      : 2;
 };
-Q_STATIC_ASSERT(sizeof(QGlyphAttributes) == 1);
+static_assert(sizeof(QGlyphAttributes) == 1);
 Q_DECLARE_TYPEINFO(QGlyphAttributes, Q_PRIMITIVE_TYPE);
 
 struct QGlyphLayout
@@ -332,7 +332,7 @@ public:
 
 struct QScriptItem
 {
-    Q_DECL_CONSTEXPR QScriptItem(int p, QScriptAnalysis a) noexcept
+    constexpr QScriptItem(int p, QScriptAnalysis a) noexcept
         : position(p), analysis(a),
           num_glyphs(0), descent(-1), ascent(-1), leading(-1), width(-1),
           glyph_data_offset(0) {}
@@ -345,14 +345,14 @@ struct QScriptItem
     QFixed leading;
     QFixed width;
     int glyph_data_offset;
-    Q_DECL_CONSTEXPR QFixed height() const noexcept { return ascent + descent; }
+    constexpr QFixed height() const noexcept { return ascent + descent; }
 private:
-    friend class QVector<QScriptItem>;
-    QScriptItem() {} // for QVector, don't use
+    friend class QList<QScriptItem>;
+    QScriptItem() {} // for QList, don't use
 };
 Q_DECLARE_TYPEINFO(QScriptItem, Q_PRIMITIVE_TYPE);
 
-typedef QVector<QScriptItem> QScriptItemArray;
+typedef QList<QScriptItem> QScriptItemArray;
 
 struct Q_AUTOTEST_EXPORT QScriptLine
 {
@@ -394,7 +394,7 @@ inline void QScriptLine::operator+=(const QScriptLine &other)
     length += other.length;
 }
 
-typedef QVector<QScriptLine> QScriptLineArray;
+typedef QList<QScriptLine> QScriptLineArray;
 
 class QFontPrivate;
 class QTextFormatCollection;
@@ -426,7 +426,7 @@ public:
     };
 
     struct ItemDecoration {
-        ItemDecoration() {} // for QVector, don't use
+        ItemDecoration() { } // for QList, don't use
         ItemDecoration(qreal x1, qreal x2, qreal y, const QPen &pen):
             x1(x1), x2(x2), y(y), pen(pen) {}
 
@@ -436,7 +436,7 @@ public:
         QPen pen;
     };
 
-    typedef QVector<ItemDecoration> ItemDecorationList;
+    typedef QList<ItemDecoration> ItemDecorationList;
 
     QTextEngine();
     QTextEngine(const QString &str, const QFont &f);
@@ -525,14 +525,14 @@ public:
 
     int findItem(int strPos, int firstItem = 0) const;
     inline QTextFormatCollection *formatCollection() const {
-        if (block.docHandle())
-            return block.docHandle()->formatCollection();
+        if (QTextDocumentPrivate::get(block) != nullptr)
+            return const_cast<QTextFormatCollection *>(QTextDocumentPrivate::get(block)->formatCollection());
         return specialData ? specialData->formatCollection.data() : nullptr;
     }
     QTextCharFormat format(const QScriptItem *si) const;
     inline QAbstractTextDocumentLayout *docLayout() const {
-        Q_ASSERT(block.docHandle());
-        return block.docHandle()->document()->documentLayout();
+        Q_ASSERT(QTextDocumentPrivate::get(block) != nullptr);
+        return QTextDocumentPrivate::get(block)->document()->documentLayout();
     }
     int formatIndex(const QScriptItem *si) const;
 
@@ -589,17 +589,19 @@ public:
     ItemDecorationList overlineList;
 
     inline bool visualCursorMovement() const
-    { return visualMovement || (block.docHandle() && block.docHandle()->defaultCursorMoveStyle == Qt::VisualMoveStyle); }
+    { return visualMovement || (QTextDocumentPrivate::get(block) != nullptr && QTextDocumentPrivate::get(block)->defaultCursorMoveStyle == Qt::VisualMoveStyle); }
 
     inline int preeditAreaPosition() const { return specialData ? specialData->preeditPosition : -1; }
     inline QString preeditAreaText() const { return specialData ? specialData->preeditText : QString(); }
     void setPreeditArea(int position, const QString &text);
 
     inline bool hasFormats() const
-    { return block.docHandle() || (specialData && !specialData->formats.isEmpty()); }
-    inline QVector<QTextLayout::FormatRange> formats() const
-    { return specialData ? specialData->formats : QVector<QTextLayout::FormatRange>(); }
-    void setFormats(const QVector<QTextLayout::FormatRange> &formats);
+    { return QTextDocumentPrivate::get(block) != nullptr || (specialData && !specialData->formats.isEmpty()); }
+    inline QList<QTextLayout::FormatRange> formats() const
+    {
+        return specialData ? specialData->formats : QList<QTextLayout::FormatRange>();
+    }
+    void setFormats(const QList<QTextLayout::FormatRange> &formats);
 
 private:
     static void init(QTextEngine *e);
@@ -607,9 +609,9 @@ private:
     struct SpecialData {
         int preeditPosition;
         QString preeditText;
-        QVector<QTextLayout::FormatRange> formats;
-        QVector<QTextCharFormat> resolvedFormats;
-        // only used when no docHandle is available
+        QList<QTextLayout::FormatRange> formats;
+        QList<QTextCharFormat> resolvedFormats;
+        // only used when no QTextDocumentPrivate is available
         QScopedPointer<QTextFormatCollection> formatCollection;
     };
     SpecialData *specialData;
@@ -654,15 +656,10 @@ private:
     void addRequiredBoundaries() const;
     void shapeText(int item) const;
 #if QT_CONFIG(harfbuzz)
-    int shapeTextWithHarfbuzzNG(const QScriptItem &si,
-                                const ushort *string,
-                                int itemLength,
-                                QFontEngine *fontEngine,
-                                const QVector<uint> &itemBoundaries,
-                                bool kerningEnabled,
-                                bool hasLetterSpacing) const;
+    int shapeTextWithHarfbuzzNG(const QScriptItem &si, const ushort *string, int itemLength,
+                                QFontEngine *fontEngine, const QList<uint> &itemBoundaries,
+                                bool kerningEnabled, bool hasLetterSpacing) const;
 #endif
-    int shapeTextWithHarfbuzz(const QScriptItem &si, const ushort *string, int itemLength, QFontEngine *fontEngine, const QVector<uint> &itemBoundaries, bool kerningEnabled) const;
 
     int endOfLine(int lineNum);
     int beginningOfLine(int lineNum);
@@ -676,7 +673,7 @@ public:
     LayoutData _layoutData;
     void *_memory[MemSize];
 };
-Q_DECLARE_TYPEINFO(QTextEngine::ItemDecoration, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QTextEngine::ItemDecoration, Q_RELOCATABLE_TYPE);
 
 struct QTextLineItemIterator
 {

@@ -32,7 +32,7 @@
 #include <private/qbarset_p.h>
 #include <private/bar_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 HorizontalStackedBarChartItem::HorizontalStackedBarChartItem(QAbstractBarSeries *series, QGraphicsItem* item)
     : AbstractBarChartItem(series, item)
@@ -42,8 +42,8 @@ HorizontalStackedBarChartItem::HorizontalStackedBarChartItem(QAbstractBarSeries 
 void HorizontalStackedBarChartItem::initializeLayout(int set, int category,
                                                      int layoutIndex, bool resetAnimation)
 {
-    Q_UNUSED(set)
-    Q_UNUSED(resetAnimation)
+    Q_UNUSED(set);
+    Q_UNUSED(resetAnimation);
 
     QRectF rect;
     if (set > 0) {
@@ -108,16 +108,16 @@ QPointF HorizontalStackedBarChartItem::bottomRightPoint(int category, qreal barW
                 QPointF(value, m_seriesPosAdjustment + category + (barWidth / 2)), m_validData);
 }
 
-QVector<QRectF> HorizontalStackedBarChartItem::calculateLayout()
+QList<QRectF> HorizontalStackedBarChartItem::calculateLayout()
 {
-    QVector<QRectF> layout;
+    QList<QRectF> layout;
     layout.resize(m_layout.size());
 
     const int setCount = m_series->count();
     const qreal barWidth = m_series->d_func()->barWidth() * m_seriesWidth;
 
-    QVector<qreal> positiveSums(m_categoryCount, 0.0);
-    QVector<qreal> negativeSums(m_categoryCount, 0.0);
+    QList<qreal> positiveSums(m_categoryCount, 0.0);
+    QList<qreal> negativeSums(m_categoryCount, 0.0);
 
     for (int set = 0; set < setCount; set++) {
         QBarSet *barSet = m_series->barSets().at(set);
@@ -175,6 +175,6 @@ QVector<QRectF> HorizontalStackedBarChartItem::calculateLayout()
     return layout;
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_horizontalstackedbarchartitem_p.cpp"

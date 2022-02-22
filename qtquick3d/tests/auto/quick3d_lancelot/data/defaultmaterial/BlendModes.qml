@@ -48,8 +48,8 @@
 **
 ****************************************************************************/
 
-import QtQuick3D 1.15
-import QtQuick 2.15
+import QtQuick3D
+import QtQuick
 
 Rectangle {
     id: defaultmaterial_screen
@@ -57,10 +57,7 @@ Rectangle {
     property var blendModesModel: [
         DefaultMaterial.SourceOver,
         DefaultMaterial.Screen,
-        DefaultMaterial.Multiply,
-        DefaultMaterial.Overlay,
-        DefaultMaterial.ColorBurn,
-        DefaultMaterial.ColorDodge
+        DefaultMaterial.Multiply
     ]
     property int itemsWidth: 800
     property int itemsHeight: 400

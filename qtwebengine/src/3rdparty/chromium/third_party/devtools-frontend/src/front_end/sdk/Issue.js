@@ -3,137 +3,210 @@
 // found in the LICENSE file.
 
 import * as Common from '../common/common.js';
+import * as Host from '../host/host.js';
 
-import {NetworkRequest} from './NetworkRequest.js';  // eslint-disable-line no-unused-vars
-import {IssueCategory} from './RelatedIssue.js';
+import {IssuesModel} from './IssuesModel.js';  // eslint-disable-line no-unused-vars
+
+/** @enum {symbol} */
+export const IssueCategory = {
+  CrossOriginEmbedderPolicy: Symbol('CrossOriginEmbedderPolicy'),
+  MixedContent: Symbol('MixedContent'),
+  SameSiteCookie: Symbol('SameSiteCookie'),
+  HeavyAd: Symbol('HeavyAd'),
+  ContentSecurityPolicy: Symbol('ContentSecurityPolicy'),
+  TrustedWebActivity: Symbol('TrustedWebActivity'),
+  LowTextContrast: Symbol('LowTextContrast'),
+  Cors: Symbol('Cors'),
+  Other: Symbol('Other')
+};
+
+/** @enum {symbol} */
+export const IssueKind = {
+  BreakingChange: Symbol('BreakingChange'),
+};
+
+/** @return {!Common.Settings.Setting<boolean>} */
+export function getShowThirdPartyIssuesSetting() {
+  return Common.Settings.Settings.instance().createSetting('showThirdPartyIssues', false);
+}
 
 /**
- * @unrestricted
+ * @param {LazyMarkdownIssueDescription | undefined} lazyDescription
+ */
+export function resolveLazyDescription(lazyDescription) {
+  /**
+     * @param {!{link: string, linkTitle: () => string}} currentLink
+     */
+  function linksMap(currentLink) {
+    return {link: currentLink.link, linkTitle: currentLink.linkTitle()};
+  }
+
+  const substitutionMap = new Map();
+  lazyDescription?.substitutions?.forEach((value, key) => {
+    substitutionMap.set(key, value());
+  });
+
+  const description =
+      Object.assign([], lazyDescription, {links: lazyDescription?.links.map(linksMap), substitutions: substitutionMap});
+
+  if (!description) {
+    return null;
+  }
+  return description;
+}
+
+/**
+ * @typedef {{
+  *             file: string,
+  *             substitutions: (!Map<string, string>|undefined),
+  *             issueKind: !IssueKind,
+  *             links: !Array<!{link: string, linkTitle: string}>
+  *          }}
+  */
+// @ts-ignore typedef
+export let MarkdownIssueDescription;  // eslint-disable-line no-unused-vars
+
+/**
+  * @typedef {{
+  *             file: string,
+  *             substitutions: (!Map<string, () => string>|undefined),
+  *             issueKind: !IssueKind,
+  *             links: !Array<!{link: string, linkTitle: () => string}>
+  *          }}
+  */
+// @ts-ignore typedef
+export let LazyMarkdownIssueDescription;  // eslint-disable-line no-unused-vars
+
+/**
+ * @typedef {{
+  *            backendNodeId: number,
+  *            nodeName: string
+  *          }}
+  */
+// @ts-ignore typedef
+export let AffectedElement;  // eslint-disable-line no-unused-vars
+
+/**
+ * @typedef {{
+ *            columnNumber: (number|undefined),
+ *            lineNumber: number,
+ *            url: string
+ *          }}
+ */
+// @ts-ignore typedef
+export let AffectedSource;  // eslint-disable-line no-unused-vars
+
+/**
+ * @abstract
  */
 export class Issue extends Common.ObjectWrapper.ObjectWrapper {
   /**
-   * @param {string} code
-   * @param {*} resources
+   * @param {string|{code:string, umaCode:string}} code
+   * @param {IssuesModel|null} issuesModel
    */
-  constructor(code, resources) {
+  constructor(code, issuesModel = null) {
     super();
     /** @type {string} */
-    this._code = code;
-    /** @type {*} */
-    this._resources = resources;
+    this._code = typeof code === 'string' ? code : code.code;
+    this._issuesModel = issuesModel;
+    Host.userMetrics.issueCreated(typeof code === 'string' ? code : code.umaCode);
   }
 
   /**
-   * @returns {string}
+   * @return {string}
    */
   code() {
     return this._code;
   }
 
   /**
-   * @returns {*}
+   * @return {string}
    */
-  resources() {
-    return this._resources;
+  primaryKey() {
+    throw new Error('Not implemented');
+  }
+
+  /**
+   * @return {!Iterable<!Protocol.Audits.BlockedByResponseIssueDetails>}
+   */
+  getBlockedByResponseDetails() {
+    return [];
+  }
+
+  /**
+   * @return {!Iterable<!Protocol.Audits.AffectedCookie>}
+   */
+  cookies() {
+    return [];
+  }
+
+  /**
+   * @return {!Iterable<!AffectedElement>}
+   */
+  elements() {
+    return [];
+  }
+
+  /**
+   * @returns {!Iterable<!Protocol.Audits.HeavyAdIssueDetails>}
+   */
+  heavyAds() {
+    return [];
+  }
+
+  /**
+   * @return {!Iterable<!Protocol.Audits.AffectedRequest>}
+   */
+  requests() {
+    return [];
+  }
+
+  /**
+   * @returns {!Iterable<!AffectedSource>}
+   */
+  sources() {
+    return [];
   }
 
   /**
    * @param {string} requestId
-   * @returns {boolean}
+   * @return {boolean}
    */
   isAssociatedWithRequestId(requestId) {
-    if (!this._resources) {
-      return false;
-    }
-    if (this._resources.requests) {
-      for (const request of this._resources.requests) {
-        if (request.requestId === requestId) {
-          return true;
-        }
+    for (const request of this.requests()) {
+      if (request.requestId === requestId) {
+        return true;
       }
     }
     return false;
   }
 
   /**
-   * @return {symbol}
+   * The model might be unavailable or belong to a target that has already been disposed.
+   * @returns {IssuesModel|null}
+   */
+  model() {
+    return this._issuesModel;
+  }
+
+  /**
+   * @return {?MarkdownIssueDescription}
+   */
+  getDescription() {
+    throw new Error('Not implemented');
+  }
+
+  /**
+   * @return {!IssueCategory}
    */
   getCategory() {
-    const code = this.code();
-    if (code === 'SameSiteCookieIssue') {
-      return IssueCategory.SameSiteCookie;
-    }
-    if (code.startsWith('CrossOriginEmbedderPolicy')) {
-      return IssueCategory.CrossOriginEmbedderPolicy;
-    }
-    return IssueCategory.Other;
-  }
-}
-
-/**
- * An `AggregatedIssue` representes a number of `Issue` objects that is displayed together. Currently only grouping by
- * issue code, is supported. The class provides helpers to support displaying of all resources that are affected by
- * the aggregated issues.
- */
-export class AggregatedIssue extends Common.ObjectWrapper.ObjectWrapper {
-  /**
-   * @param {string} code
-   */
-  constructor(code) {
-    super();
-    this._code = code;
-    // TODO(chromium:1063765): Strengthen types.
-    /** @type {!Array<*>} */
-    this._resources = [];
-    /** @type {!Map<string, *>} */
-    this._cookies = new Map();
-    /** @type {!Map<string, !NetworkRequest>} */
-    this._requests = new Map();
+    throw new Error('Not implemented');
   }
 
   /**
-   * @returns {string}
+   * @return {boolean}
    */
-  code() {
-    return this._code;
-  }
-
-  /**
-   * TODO(chromium:1063765): Strengthen types.
-   * @returns {!Iterable<*>}
-   */
-  cookies() {
-    return this._cookies.values();
-  }
-
-  /**
-   * @returns {!Iterable<!NetworkRequest>}
-   */
-  requests() {
-    return this._requests.values();
-  }
-
-  /**
-   * @param {!Issue} issue
-   */
-  addInstance(issue) {
-    const resources = issue.resources();
-    if (!resources) {
-      return;
-    }
-    if (resources.cookies) {
-      for (const cookie of resources.cookies) {
-        const key = JSON.stringify(cookie);
-        if (!this._cookies.has(key)) {
-          this._cookies.set(key, cookie);
-        }
-      }
-    }
-
-    if (resources.requests) {
-      for (const request of resources.requests) {
-        this._requests.set(request.requestId, request.request);
-      }
-    }
+  isCausedByThirdParty() {
+    return false;
   }
 }

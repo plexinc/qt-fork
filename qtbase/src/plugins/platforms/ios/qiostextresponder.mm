@@ -178,7 +178,7 @@
     m_inSelectionChange = NO;
     m_inputContext = inputContext;
 
-    m_configuredImeState = new QInputMethodQueryEvent(m_inputContext->imeState().currentState);
+    m_configuredImeState = static_cast<QInputMethodQueryEvent*>(m_inputContext->imeState().currentState.clone());
     QVariantMap platformData = m_configuredImeState->value(Qt::ImPlatformData).toMap();
     Qt::InputMethodHints hints = Qt::InputMethodHints(m_configuredImeState->value(Qt::ImHints).toUInt());
 
@@ -227,13 +227,11 @@
         self.keyboardType = UIKeyboardTypeEmailAddress;
     else if (hints & Qt::ImhDigitsOnly)
         self.keyboardType = UIKeyboardTypeNumberPad;
-    else if (hints & Qt::ImhFormattedNumbersOnly)
-        self.keyboardType = UIKeyboardTypeDecimalPad;
     else if (hints & Qt::ImhDialableCharactersOnly)
         self.keyboardType = UIKeyboardTypePhonePad;
     else if (hints & Qt::ImhLatinOnly)
         self.keyboardType = UIKeyboardTypeASCIICapable;
-    else if (hints & Qt::ImhPreferNumbers)
+    else if (hints & (Qt::ImhPreferNumbers | Qt::ImhFormattedNumbersOnly))
         self.keyboardType = UIKeyboardTypeNumbersAndPunctuation;
     else
         self.keyboardType = UIKeyboardTypeDefault;
@@ -516,14 +514,22 @@
         // from within a undo callback.
         NSUndoManager *undoMgr = self.undoManager;
         [undoMgr removeAllActions];
+
+        [undoMgr beginUndoGrouping];
+        [undoMgr registerUndoWithTarget:self selector:@selector(undo) object:nil];
+        [undoMgr endUndoGrouping];
         [undoMgr beginUndoGrouping];
         [undoMgr registerUndoWithTarget:self selector:@selector(undo) object:nil];
         [undoMgr endUndoGrouping];
 
-        // Schedule an operation that we immediately pop off to be able to schedule a redo
+        // Schedule operations that we immediately pop off to be able to schedule redos
         [undoMgr beginUndoGrouping];
         [undoMgr registerUndoWithTarget:self selector:@selector(registerRedo) object:nil];
         [undoMgr endUndoGrouping];
+        [undoMgr beginUndoGrouping];
+        [undoMgr registerUndoWithTarget:self selector:@selector(registerRedo) object:nil];
+        [undoMgr endUndoGrouping];
+        [undoMgr undo];
         [undoMgr undo];
 
         // Note that, perhaps because of a bug in UIKit, the buttons on the shortcuts bar ends up
@@ -532,6 +538,11 @@
         // become disabled when there is nothing more to undo (Qt didn't change anything upon receiving
         // an undo request). This seems to be OK behavior, so we let it stay like that unless it shows
         // to cause problems.
+
+        // QTBUG-63393: Having two operations on the rebuilt undo stack keeps the undo/redo widgets
+        // always enabled on the shortcut bar. This workaround was found by experimenting with
+        // removing the removeAllActions call, and is related to the unknown internal implementation
+        // details of how the shortcut bar updates the dimming of its buttons.
     });
 }
 
@@ -828,20 +839,24 @@
     NSRange r = static_cast<QUITextRange*>(range).range;
     QList<QInputMethodEvent::Attribute> attrs;
     attrs << QInputMethodEvent::Attribute(QInputMethodEvent::Selection, r.location, 0, 0);
-    QInputMethodEvent e(m_markedText, attrs);
-    [self sendEventToFocusObject:e];
-    QRectF startRect = qApp->inputMethod()->cursorRectangle();
+    {
+        QInputMethodEvent e(m_markedText, attrs);
+        [self sendEventToFocusObject:e];
+    }
+    QRectF startRect = QPlatformInputContext::cursorRectangle();;
 
     attrs = QList<QInputMethodEvent::Attribute>();
     attrs << QInputMethodEvent::Attribute(QInputMethodEvent::Selection, r.location + r.length, 0, 0);
-    e = QInputMethodEvent(m_markedText, attrs);
-    [self sendEventToFocusObject:e];
-    QRectF endRect = qApp->inputMethod()->cursorRectangle();
+    {
+        QInputMethodEvent e(m_markedText, attrs);
+        [self sendEventToFocusObject:e];
+    }
+    QRectF endRect = QPlatformInputContext::cursorRectangle();;
 
     if (cursorPos != int(r.location + r.length) || cursorPos != anchorPos) {
         attrs = QList<QInputMethodEvent::Attribute>();
         attrs << QInputMethodEvent::Attribute(QInputMethodEvent::Selection, qMin(cursorPos, anchorPos), qAbs(cursorPos - anchorPos), 0);
-        e = QInputMethodEvent(m_markedText, attrs);
+        QInputMethodEvent e(m_markedText, attrs);
         [self sendEventToFocusObject:e];
     }
 
@@ -862,8 +877,7 @@
     Q_UNUSED(position);
     // Assume for now that position is always the same as
     // cursor index until a better API is in place:
-    QRectF cursorRect = qApp->inputMethod()->cursorRectangle();
-    return cursorRect.toCGRect();
+    return QPlatformInputContext::cursorRectangle().toCGRect();
 }
 
 - (void)replaceRange:(UITextRange *)range withText:(NSString *)text
@@ -902,9 +916,7 @@
 
 - (UITextPosition *)closestPositionToPoint:(CGPoint)point
 {
-    QPointF p = QPointF::fromCGPoint(point);
-    const QTransform mapToLocal = QGuiApplication::inputMethod()->inputItemTransform().inverted();
-    int textPos = QInputMethod::queryFocusObject(Qt::ImCursorPosition, p * mapToLocal).toInt();
+    int textPos = QPlatformInputContext::queryFocusObject(Qt::ImCursorPosition, QPointF::fromCGPoint(point)).toInt();
     return [QUITextPosition positionWithIndex:textPos];
 }
 

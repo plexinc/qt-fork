@@ -60,7 +60,7 @@
 #include <private/qicon_p.h>
 #include <private/qfactoryloader_p.h>
 #include <QtCore/QHash>
-#include <QtCore/QVector>
+#include <QtCore/QList>
 #include <QtCore/QTypeInfo>
 
 QT_BEGIN_NAMESPACE
@@ -86,7 +86,7 @@ struct QIconDirInfo
     short scale;
     Type type;
 };
-Q_DECLARE_TYPEINFO(QIconDirInfo, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QIconDirInfo, Q_RELOCATABLE_TYPE);
 
 class QIconLoaderEngineEntry
  {
@@ -132,13 +132,17 @@ public:
     bool read(QDataStream &in) override;
     bool write(QDataStream &out) const override;
 
+    QString iconName() override;
+    bool isNull() override;
+    QPixmap scaledPixmap(const QSize &size, QIcon::Mode mode, QIcon::State state, qreal scale) override;
+    QList<QSize> availableSizes(QIcon::Mode mode, QIcon::State state) override;
+
     Q_GUI_EXPORT static QIconLoaderEngineEntry *entryForSize(const QThemeIconInfo &info, const QSize &size, int scale = 1);
 
 private:
     QString key() const override;
     bool hasIcon() const;
     void ensureLoaded();
-    void virtual_hook(int id, void *data) override;
 
     QIconLoaderEngine(const QIconLoaderEngine &other);
     QThemeIconInfo m_info;
@@ -156,16 +160,16 @@ public:
     QIconTheme(const QString &name);
     QIconTheme() : m_valid(false) {}
     QStringList parents() { return m_parents; }
-    QVector<QIconDirInfo> keyList() { return m_keyList; }
+    QList<QIconDirInfo> keyList() { return m_keyList; }
     QStringList contentDirs() { return m_contentDirs; }
     bool isValid() { return m_valid; }
 private:
     QStringList m_contentDirs;
-    QVector<QIconDirInfo> m_keyList;
+    QList<QIconDirInfo> m_keyList;
     QStringList m_parents;
     bool m_valid;
 public:
-    QVector<QSharedPointer<QIconCacheGtkReader>> m_gtkCaches;
+    QList<QSharedPointer<QIconCacheGtkReader>> m_gtkCaches;
 };
 
 class Q_GUI_EXPORT QIconLoader

@@ -18,6 +18,7 @@
 #include "base/strings/string_split.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "components/proxy_config/proxy_config_dictionary.h"
@@ -41,8 +42,8 @@
 #include "components/sync/base/pref_names.h"
 #endif
 
-#if defined(OS_CHROMEOS)
-#include "chromeos/constants/chromeos_switches.h"
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/constants/ash_switches.h"
 #endif
 
 const CommandLinePrefStore::SwitchToPreferenceMapEntry
@@ -54,14 +55,14 @@ const CommandLinePrefStore::SwitchToPreferenceMapEntry
         {data_reduction_proxy::switches::kDataReductionProxy,
          data_reduction_proxy::prefs::kDataReductionProxy},
 #endif
-        {switches::kAuthServerWhitelist, prefs::kAuthServerWhitelist},
+        {switches::kAuthServerAllowlist, prefs::kAuthServerAllowlist},
         {switches::kSSLVersionMin, prefs::kSSLVersionMin},
         {switches::kSSLVersionMax, prefs::kSSLVersionMax},
 #if defined(OS_ANDROID)
         {switches::kAuthAndroidNegotiateAccountType,
          prefs::kAuthAndroidNegotiateAccountType},
 #endif
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
         {switches::kSchedulerConfiguration, prefs::kSchedulerConfiguration},
 #endif
 };
@@ -79,7 +80,6 @@ const CommandLinePrefStore::BooleanSwitchToPreferenceMapEntry
         {switches::kDisable3DAPIs, prefs::kDisable3DAPIs, true},
         {switches::kEnableCloudPrintProxy, prefs::kCloudPrintProxyEnabled,
          true},
-        {switches::kAllowOutdatedPlugins, prefs::kPluginsAllowOutdated, true},
         {switches::kNoPings, prefs::kEnableHyperlinkAuditing, false},
         {switches::kAllowRunningInsecureContent,
          prefs::kWebKitAllowRunningInsecureContent, true},
@@ -90,7 +90,7 @@ const CommandLinePrefStore::BooleanSwitchToPreferenceMapEntry
         {safe_browsing::switches::kSbEnableEnhancedProtection,
          prefs::kSafeBrowsingEnhanced, true},
 #endif
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
         {chromeos::switches::kEnableTouchpadThreeFingerClick,
          prefs::kEnableTouchpadThreeFingerClick, true},
         {switches::kEnableUnifiedDesktop,
@@ -102,7 +102,7 @@ const CommandLinePrefStore::BooleanSwitchToPreferenceMapEntry
         {switches::kEnableLocalSyncBackend,
          syncer::prefs::kEnableLocalSyncBackend, true},
 #endif
-#if !defined(OS_CHROMEOS) && !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_CHROMEOS_ASH) && !defined(OS_ANDROID)
         {switches::kUseSystemDefaultPrinter,
          prefs::kPrintPreviewUseSystemDefaultPrinter, true},
 #endif

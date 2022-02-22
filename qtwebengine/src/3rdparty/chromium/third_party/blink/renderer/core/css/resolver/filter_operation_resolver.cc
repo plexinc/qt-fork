@@ -156,7 +156,8 @@ double FilterOperationResolver::ResolveNumericArgumentForFunction(
 
 FilterOperations FilterOperationResolver::CreateFilterOperations(
     StyleResolverState& state,
-    const CSSValue& in_value) {
+    const CSSValue& in_value,
+    CSSPropertyID property_id) {
   FilterOperations operations;
 
   if (auto* in_identifier_value = DynamicTo<CSSIdentifierValue>(in_value)) {
@@ -173,9 +174,8 @@ FilterOperations FilterOperationResolver::CreateFilterOperations(
       CountFilterUse(FilterOperation::REFERENCE, state.GetDocument());
 
       SVGResource* resource =
-          state.GetElementStyleResources().GetSVGResourceFromValue(
-              state.GetTreeScope(), *url_value,
-              ElementStyleResources::kAllowExternalResource);
+          state.GetElementStyleResources().GetSVGResourceFromValue(property_id,
+                                                                   *url_value);
       operations.Operations().push_back(
           MakeGarbageCollected<ReferenceFilterOperation>(
               url_value->ValueForSerialization(), resource));
@@ -224,7 +224,7 @@ FilterOperations FilterOperationResolver::CreateFilterOperations(
             conversion_data, &state, filter_value->Item(0));
         // TODO(fs): Resolve 'currentcolor' when constructing the filter chain.
         if (shadow.GetColor().IsCurrentColor()) {
-          shadow.OverrideColor(state.Style()->GetColor());
+          shadow.OverrideColor(state.Style()->GetCurrentColor());
         }
         operations.Operations().push_back(
             MakeGarbageCollected<DropShadowFilterOperation>(shadow));

@@ -54,7 +54,9 @@
 #include <QtGui/private/qtguiglobal_p.h>
 #include "qcolortransferfunction_p.h"
 
-#include <QVector>
+#include <QList>
+
+#include <algorithm>
 #include <cmath>
 
 QT_BEGIN_NAMESPACE
@@ -66,17 +68,15 @@ public:
     QColorTransferTable() noexcept
             : m_tableSize(0)
     { }
-    QColorTransferTable(uint32_t size, const QVector<uint8_t> &table) noexcept
-            : m_tableSize(size)
-            , m_table8(table)
+    QColorTransferTable(uint32_t size, const QList<uint8_t> &table) noexcept
+        : m_tableSize(size), m_table8(table)
     {
-        Q_ASSERT(size <= uint32_t(table.count()));
+        Q_ASSERT(qsizetype(size) <= table.count());
     }
-    QColorTransferTable(uint32_t size, const QVector<uint16_t> &table) noexcept
-            : m_tableSize(size)
-            , m_table16(table)
+    QColorTransferTable(uint32_t size, const QList<uint16_t> &table) noexcept
+        : m_tableSize(size), m_table16(table)
     {
-        Q_ASSERT(size <= uint32_t(table.count()));
+        Q_ASSERT(qsizetype(size) <= table.count());
     }
 
     bool isEmpty() const
@@ -116,11 +116,11 @@ public:
 
     float apply(float x) const
     {
-        x = std::min(std::max(x, 0.0f), 1.0f);
+        x = std::clamp(x, 0.0f, 1.0f);
         x *= m_tableSize - 1;
-        uint32_t lo = static_cast<uint32_t>(std::floor(x));
-        uint32_t hi = std::min(lo + 1, m_tableSize - 1);
-        float frac = x - lo;
+        const uint32_t lo = static_cast<uint32_t>(std::floor(x));
+        const uint32_t hi = std::min(lo + 1, m_tableSize - 1);
+        const float frac = x - lo;
         if (!m_table16.isEmpty())
             return (m_table16[lo] * (1.0f - frac) + m_table16[hi] * frac) * (1.0f/65535.0f);
         if (!m_table8.isEmpty())
@@ -137,34 +137,30 @@ public:
         if (x >= 1.0f)
             return 1.0f;
         if (!m_table16.isEmpty()) {
-            float v = x * 65535.0f;
-            uint32_t i = std::floor(resultLargerThan * (m_tableSize - 1)) + 1;
-            for ( ; i < m_tableSize; ++i) {
-                if (m_table16[i] > v)
-                    break;
-            }
+            const float v = x * 65535.0f;
+            uint32_t i = static_cast<uint32_t>(std::floor(resultLargerThan * (m_tableSize - 1)));
+            auto it = std::lower_bound(m_table16.cbegin() + i, m_table16.cend(), v);
+            i = it - m_table16.cbegin();
             if (i >= m_tableSize - 1)
                 return 1.0f;
-            float y1 = m_table16[i - 1];
-            float y2 = m_table16[i];
-            Q_ASSERT(x >= y1 && x < y2);
-            float fr = (v - y1) / (y2 - y1);
+            const float y1 = m_table16[i - 1];
+            const float y2 = m_table16[i];
+            Q_ASSERT(v >= y1 && v <= y2);
+            const float fr = (v - y1) / (y2 - y1);
             return (i + fr) * (1.0f / (m_tableSize - 1));
 
         }
         if (!m_table8.isEmpty()) {
-            float v = x * 255.0f;
-            uint32_t i = std::floor(resultLargerThan * (m_tableSize - 1)) + 1;
-            for ( ; i < m_tableSize; ++i) {
-                if (m_table8[i] > v)
-                    break;
-            }
+            const float v = x * 255.0f;
+            uint32_t i = static_cast<uint32_t>(std::floor(resultLargerThan * (m_tableSize - 1)));
+            auto it = std::lower_bound(m_table8.cbegin() + i, m_table8.cend(), v);
+            i = it - m_table8.cbegin();
             if (i >= m_tableSize - 1)
                 return 1.0f;
-            float y1 = m_table8[i - 1];
-            float y2 = m_table8[i];
-            Q_ASSERT(x >= y1 && x < y2);
-            float fr = (v - y1) / (y2 - y1);
+            const float y1 = m_table8[i - 1];
+            const float y2 = m_table8[i];
+            Q_ASSERT(v >= y1 && v <= y2);
+            const float fr = (v - y1) / (y2 - y1);
             return (i + fr) * (1.0f / (m_tableSize - 1));
         }
         return x;
@@ -223,8 +219,8 @@ public:
     friend inline bool operator==(const QColorTransferTable &t1, const QColorTransferTable &t2);
 
     uint32_t m_tableSize;
-    QVector<uint8_t> m_table8;
-    QVector<uint16_t> m_table16;
+    QList<uint8_t> m_table8;
+    QList<uint16_t> m_table16;
 };
 
 inline bool operator!=(const QColorTransferTable &t1, const QColorTransferTable &t2)

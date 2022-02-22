@@ -26,16 +26,20 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LOADER_FRAME_LOAD_REQUEST_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LOADER_FRAME_LOAD_REQUEST_H_
 
+#include "base/memory/scoped_refptr.h"
+#include "base/stl_util.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "services/network/public/mojom/referrer_policy.mojom-blink.h"
-#include "third_party/blink/public/common/navigation/triggering_event_info.h"
 #include "third_party/blink/public/mojom/blob/blob_url_store.mojom-blink.h"
+#include "third_party/blink/public/mojom/frame/frame.mojom-blink.h"
+#include "third_party/blink/public/mojom/frame/policy_container.mojom-blink.h"
 #include "third_party/blink/public/mojom/loader/request_context_frame_type.mojom-blink.h"
+#include "third_party/blink/public/platform/web_impression.h"
 #include "third_party/blink/public/web/web_window_features.h"
-#include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/frame_types.h"
 #include "third_party/blink/renderer/core/loader/frame_loader_types.h"
 #include "third_party/blink/renderer/core/loader/navigation_policy.h"
+#include "third_party/blink/renderer/platform/bindings/dom_wrapper_world.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_loader_options.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_request.h"
 #include "third_party/blink/renderer/platform/weborigin/referrer.h"
@@ -43,18 +47,19 @@
 namespace blink {
 
 class HTMLFormElement;
+class LocalDOMWindow;
 class KURL;
 
 struct CORE_EXPORT FrameLoadRequest {
   STACK_ALLOCATED();
 
  public:
-  FrameLoadRequest(Document* origin_document, const ResourceRequest&);
-  FrameLoadRequest(Document* origin_document, const ResourceRequestHead&);
+  FrameLoadRequest(LocalDOMWindow* origin_window, const ResourceRequest&);
+  FrameLoadRequest(LocalDOMWindow* origin_window, const ResourceRequestHead&);
   FrameLoadRequest(const FrameLoadRequest&) = delete;
   FrameLoadRequest& operator=(const FrameLoadRequest&) = delete;
 
-  Document* OriginDocument() const { return origin_document_; }
+  LocalDOMWindow* GetOriginWindow() const { return origin_window_; }
 
   mojom::RequestContextFrameType GetFrameType() const { return frame_type_; }
   void SetFrameType(mojom::RequestContextFrameType frame_type) {
@@ -83,12 +88,22 @@ struct CORE_EXPORT FrameLoadRequest {
     navigation_policy_ = navigation_policy;
   }
 
-  TriggeringEventInfo GetTriggeringEventInfo() const {
+  mojom::blink::TriggeringEventInfo GetTriggeringEventInfo() const {
     return triggering_event_info_;
   }
-  void SetTriggeringEventInfo(TriggeringEventInfo info) {
-    DCHECK(info != TriggeringEventInfo::kUnknown);
+  void SetTriggeringEventInfo(mojom::blink::TriggeringEventInfo info) {
+    DCHECK(info != mojom::blink::TriggeringEventInfo::kUnknown);
     triggering_event_info_ = info;
+  }
+
+  mojo::PendingRemote<mojom::blink::PolicyContainerHostKeepAliveHandle>
+  TakeInitiatorPolicyContainerKeepAliveHandle() {
+    return std::move(initiator_policy_container_keep_alive_handle_);
+  }
+  void SetInitiatorPolicyContainerKeepAliveHandle(
+      mojo::PendingRemote<mojom::blink::PolicyContainerHostKeepAliveHandle>
+          handle) {
+    initiator_policy_container_keep_alive_handle_ = std::move(handle);
   }
 
   HTMLFormElement* Form() const { return form_; }
@@ -103,9 +118,9 @@ struct CORE_EXPORT FrameLoadRequest {
     href_translate_ = translate;
   }
 
-  network::mojom::CSPDisposition ShouldCheckMainWorldContentSecurityPolicy()
-      const {
-    return should_check_main_world_content_security_policy_;
+  // The javascript world in which this request initiated.
+  const scoped_refptr<const DOMWrapperWorld>& JavascriptWorld() const {
+    return world_;
   }
 
   // The BlobURLToken that should be used when fetching the resource. This
@@ -132,9 +147,7 @@ struct CORE_EXPORT FrameLoadRequest {
   }
   void SetFeaturesForWindowOpen(const WebWindowFeatures& features) {
     window_features_ = features;
-    is_window_open_ = true;
   }
-  bool IsWindowOpen() const { return is_window_open_; }
 
   void SetNoOpener() { window_features_.noopener = true; }
   void SetNoReferrer() {
@@ -144,30 +157,47 @@ struct CORE_EXPORT FrameLoadRequest {
     resource_request_.ClearHTTPOrigin();
   }
 
-  // Whether either OriginDocument, RequestorOrigin or IsolatedWorldOrigin can
-  // display the |url|,
+  // Impressions are set when a FrameLoadRequest is created for a click on an
+  // anchor tag that has conversion measurement attributes.
+  void SetImpression(const base::Optional<WebImpression>& impression) {
+    impression_ = impression;
+  }
+
+  const base::Optional<WebImpression>& Impression() const {
+    return impression_;
+  }
+
   bool CanDisplay(const KURL&) const;
 
+  void SetInitiatorFrameToken(const LocalFrameToken& token) {
+    initiator_frame_token_ = token;
+  }
+  const LocalFrameToken* GetInitiatorFrameToken() const {
+    return base::OptionalOrNullptr(initiator_frame_token_);
+  }
+
  private:
-  Document* origin_document_;
+  LocalDOMWindow* origin_window_;
   ResourceRequest resource_request_;
   AtomicString href_translate_;
   ClientNavigationReason client_navigation_reason_ =
       ClientNavigationReason::kNone;
   NavigationPolicy navigation_policy_ = kNavigationPolicyCurrentTab;
-  TriggeringEventInfo triggering_event_info_ =
-      TriggeringEventInfo::kNotFromEvent;
+  mojom::blink::TriggeringEventInfo triggering_event_info_ =
+      mojom::blink::TriggeringEventInfo::kNotFromEvent;
   HTMLFormElement* form_ = nullptr;
   ShouldSendReferrer should_send_referrer_;
-  network::mojom::CSPDisposition
-      should_check_main_world_content_security_policy_;
+  scoped_refptr<const DOMWrapperWorld> world_;
   scoped_refptr<base::RefCountedData<mojo::Remote<mojom::blink::BlobURLToken>>>
       blob_url_token_;
   base::TimeTicks input_start_time_;
   mojom::RequestContextFrameType frame_type_ =
       mojom::RequestContextFrameType::kNone;
   WebWindowFeatures window_features_;
-  bool is_window_open_ = false;
+  base::Optional<WebImpression> impression_;
+  base::Optional<LocalFrameToken> initiator_frame_token_;
+  mojo::PendingRemote<mojom::blink::PolicyContainerHostKeepAliveHandle>
+      initiator_policy_container_keep_alive_handle_;
 };
 
 }  // namespace blink

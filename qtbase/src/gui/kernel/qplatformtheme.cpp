@@ -163,11 +163,15 @@ QT_BEGIN_NAMESPACE
 
     \value ShowShortcutsInContextMenus (bool) Whether to display shortcut key sequences in context menus.
 
+    \value InteractiveResizeAcrossScreens (bool) Whether using the whole virtual geometry of all the screens
+                        as basis for the resize.
+                        This enum value has been added in Qt 6.2.
+
     \sa themeHint(), QStyle::pixelMetric()
 */
 
 
-#ifndef QT_NO_SHORTCUT
+#if QT_CONFIG(shortcut)
 // Table of key bindings. It must be sorted on key sequence:
 // The integer value of VK_KEY | Modifier Keys (e.g., VK_META, and etc.)
 // A priority of 1 indicates that this is the primary key binding when multiple are defined.
@@ -286,7 +290,7 @@ const QKeyBinding QPlatformThemePrivate::keyBindings[] = {
     {QKeySequence::MoveToEndOfLine,         0,          Qt::META | Qt::Key_Right,               KB_Mac},
     {QKeySequence::MoveToEndOfLine,         0,          Qt::CTRL | Qt::Key_Right,               KB_Mac },
     {QKeySequence::MoveToEndOfLine,         0,          Qt::Key_End,                            KB_Win | KB_X11},
-    {QKeySequence::MoveToEndOfLine,         0,          Qt::CTRL + Qt::Key_E,                   KB_X11},
+    {QKeySequence::MoveToEndOfLine,         0,          Qt::CTRL | Qt::Key_E,                   KB_X11},
     {QKeySequence::MoveToStartOfBlock,      0,          Qt::META | Qt::Key_A,                   KB_Mac},
     {QKeySequence::MoveToStartOfBlock,      1,          Qt::ALT  | Qt::Key_Up,                  KB_Mac}, //mac only
     {QKeySequence::MoveToEndOfBlock,        0,          Qt::META | Qt::Key_E,                   KB_Mac},
@@ -397,6 +401,11 @@ QPlatformDialogHelper *QPlatformTheme::createPlatformDialogHelper(DialogType typ
     return nullptr;
 }
 
+QPlatformTheme::Appearance QPlatformTheme::appearance() const
+{
+    return Appearance::Unknown;
+}
+
 const QPalette *QPlatformTheme::palette(Palette type) const
 {
     Q_D(const QPlatformTheme);
@@ -410,7 +419,7 @@ const QPalette *QPlatformTheme::palette(Palette type) const
 
 const QFont *QPlatformTheme::font(Font type) const
 {
-    Q_UNUSED(type)
+    Q_UNUSED(type);
     return nullptr;
 }
 
@@ -496,7 +505,7 @@ QVariant QPlatformTheme::defaultThemeHint(ThemeHint hint)
     case QPlatformTheme::PasswordMaskDelay:
         return QVariant(int(0));
     case QPlatformTheme::PasswordMaskCharacter:
-        return QVariant(QChar(0x25CF));
+        return QVariant(QChar(u'\x25CF'));
     case QPlatformTheme::StartDragVelocity:
         return QVariant(int(0)); // no limit
     case QPlatformTheme::UseFullScreenForPopupMenu:
@@ -563,6 +572,8 @@ QVariant QPlatformTheme::defaultThemeHint(ThemeHint hint)
         }
     case MouseQuickSelectionThreshold:
         return QVariant(10);
+    case InteractiveResizeAcrossScreens:
+        return true;
     }
     return QVariant();
 }
@@ -608,22 +619,7 @@ QIconEngine *QPlatformTheme::createIconEngine(const QString &iconName) const
     return new QIconLoaderEngine(iconName);
 }
 
-#if defined(Q_OS_MACX)
-static inline int maybeSwapShortcut(int shortcut)
-{
-    if (qApp->testAttribute(Qt::AA_MacDontSwapCtrlAndMeta)) {
-        uint oldshortcut = shortcut;
-        shortcut &= ~(Qt::CTRL | Qt::META);
-        if (oldshortcut & Qt::CTRL)
-            shortcut |= Qt::META;
-        if (oldshortcut & Qt::META)
-            shortcut |= Qt::CTRL;
-    }
-    return shortcut;
-}
-#endif
-
-#ifndef QT_NO_SHORTCUT
+#if QT_CONFIG(shortcut)
 // mixed-mode predicate: all of these overloads are actually needed (but not all for every compiler)
 struct ByStandardKey {
     typedef bool result_type;
@@ -660,12 +656,8 @@ QList<QKeySequence> QPlatformTheme::keyBindings(QKeySequence::StandardKey key) c
         if (!(it->platform & platform))
             continue;
 
-        uint shortcut =
-#if defined(Q_OS_MACX)
-            maybeSwapShortcut(it->shortcut);
-#else
-            it->shortcut;
-#endif
+        uint shortcut = it->shortcut.toCombined();
+
         if (it->priority > 0)
             list.prepend(QKeySequence(shortcut));
         else
@@ -688,6 +680,7 @@ QString QPlatformTheme::standardButtonText(int button) const
     return QPlatformTheme::defaultStandardButtonText(button);
 }
 
+#if QT_CONFIG(shortcut)
 /*!
    Returns the mnemonic that should be used for a standard \a button.
 
@@ -697,9 +690,10 @@ QString QPlatformTheme::standardButtonText(int button) const
 
 QKeySequence QPlatformTheme::standardButtonShortcut(int button) const
 {
-    Q_UNUSED(button)
+    Q_UNUSED(button);
     return QKeySequence();
 }
+#endif // QT_CONFIG(shortcut)
 
 QString QPlatformTheme::defaultStandardButtonText(int button)
 {
@@ -748,7 +742,7 @@ QString QPlatformTheme::defaultStandardButtonText(int button)
 
 QString QPlatformTheme::removeMnemonics(const QString &original)
 {
-    QString returnText(original.size(), 0);
+    QString returnText(original.size(), u'\0');
     int finalDest = 0;
     int currPos = 0;
     int l = original.length();
@@ -784,7 +778,7 @@ unsigned QPlatformThemePrivate::currentKeyPlatforms()
 {
     const uint keyboardScheme = QGuiApplicationPrivate::platformTheme()->themeHint(QPlatformTheme::KeyboardScheme).toInt();
     unsigned result = 1u << keyboardScheme;
-#ifndef QT_NO_SHORTCUT
+#if QT_CONFIG(shortcut)
     if (keyboardScheme == QPlatformTheme::KdeKeyboardScheme
         || keyboardScheme == QPlatformTheme::GnomeKeyboardScheme
         || keyboardScheme == QPlatformTheme::CdeKeyboardScheme)

@@ -72,6 +72,7 @@
 #include "third_party/blink/renderer/modules/webgl/webgl_multi_draw.h"
 #include "third_party/blink/renderer/modules/webgl/webgl_multi_draw_instanced_base_vertex_base_instance.h"
 #include "third_party/blink/renderer/modules/webgl/webgl_video_texture.h"
+#include "third_party/blink/renderer/modules/webgl/webgl_webcodecs_video_frame.h"
 #include "third_party/blink/renderer/platform/graphics/gpu/drawing_buffer.h"
 
 namespace blink {
@@ -98,16 +99,32 @@ static bool ShouldCreateContext(
 CanvasRenderingContext* WebGLRenderingContext::Factory::Create(
     CanvasRenderingContextHost* host,
     const CanvasContextCreationAttributesCore& attrs) {
+  // Create a copy of attrs so flags can be modified if needed before passing
+  // into the WebGLRenderingContext constructor.
+  CanvasContextCreationAttributesCore attribs = attrs;
+
+  // The xr_compatible attribute needs to be handled before creating the context
+  // because the GPU process may potentially be restarted in order to be XR
+  // compatible. This scenario occurs if the GPU process is not using the GPU
+  // that the VR headset is plugged into. If the GPU process is restarted, the
+  // WebGraphicsContext3DProvider must be created using the new one.
+  if (attribs.xr_compatible &&
+      !WebGLRenderingContextBase::MakeXrCompatibleSync(host)) {
+    // If xr compatibility is requested and we can't be xr compatible, return a
+    // context with the flag set to false.
+    attribs.xr_compatible = false;
+  }
+
   bool using_gpu_compositing;
   std::unique_ptr<WebGraphicsContext3DProvider> context_provider(
       CreateWebGraphicsContext3DProvider(
-          host, attrs, Platform::kWebGL1ContextType, &using_gpu_compositing));
+          host, attribs, Platform::kWebGL1ContextType, &using_gpu_compositing));
   if (!ShouldCreateContext(context_provider.get()))
     return nullptr;
 
   WebGLRenderingContext* rendering_context =
       MakeGarbageCollected<WebGLRenderingContext>(
-          host, std::move(context_provider), using_gpu_compositing, attrs);
+          host, std::move(context_provider), using_gpu_compositing, attribs);
   if (!rendering_context->GetDrawingBuffer()) {
     host->HostDispatchEvent(
         WebGLContextEvent::Create(event_type_names::kWebglcontextcreationerror,
@@ -116,7 +133,8 @@ CanvasRenderingContext* WebGLRenderingContext::Factory::Create(
   }
   rendering_context->InitializeNewContext();
   rendering_context->RegisterContextExtensions();
-
+  rendering_context->RecordUKMCanvasRenderingAPI(
+      CanvasRenderingContext::CanvasRenderingAPI::kWebgl);
   return rendering_context;
 }
 
@@ -193,11 +211,12 @@ void WebGLRenderingContext::RegisterContextExtensions() {
   RegisterExtension(webgl_depth_texture_, kApprovedExtension, kBothPrefixes);
   RegisterExtension(webgl_draw_buffers_);
   RegisterExtension(webgl_lose_context_, kApprovedExtension, kBothPrefixes);
-  RegisterExtension(webgl_multi_draw_, kDraftExtension);
+  RegisterExtension(webgl_multi_draw_);
   RegisterExtension(webgl_video_texture_, kDraftExtension);
+  RegisterExtension(webgl_webcodecs_video_frame_, kDraftExtension);
 }
 
-void WebGLRenderingContext::Trace(Visitor* visitor) {
+void WebGLRenderingContext::Trace(Visitor* visitor) const {
   visitor->Trace(angle_instanced_arrays_);
   visitor->Trace(ext_blend_min_max_);
   visitor->Trace(ext_color_buffer_half_float_);
@@ -232,6 +251,7 @@ void WebGLRenderingContext::Trace(Visitor* visitor) {
   visitor->Trace(webgl_lose_context_);
   visitor->Trace(webgl_multi_draw_);
   visitor->Trace(webgl_video_texture_);
+  visitor->Trace(webgl_webcodecs_video_frame_);
   WebGLRenderingContextBase::Trace(visitor);
 }
 

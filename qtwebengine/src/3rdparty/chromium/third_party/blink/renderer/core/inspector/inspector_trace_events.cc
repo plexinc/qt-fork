@@ -113,6 +113,25 @@ void SetCallStack(TracedValue* value) {
   v8::CpuProfiler::CollectSample(v8::Isolate::GetCurrent());
 }
 
+void SetCallStack(perfetto::TracedDictionary& dict) {
+  static const unsigned char* trace_category_enabled = nullptr;
+  WTF_ANNOTATE_BENIGN_RACE(&trace_category_enabled, "trace_event category");
+  if (!trace_category_enabled) {
+    trace_category_enabled = TRACE_EVENT_API_GET_CATEGORY_GROUP_ENABLED(
+        TRACE_DISABLED_BY_DEFAULT("devtools.timeline.stack"));
+  }
+  if (!*trace_category_enabled)
+    return;
+  // The CPU profiler stack trace does not include call site line numbers.
+  // So we collect the top frame with SourceLocation::capture() to get the
+  // binding call site info.
+  auto source_location = SourceLocation::Capture();
+  if (source_location->HasStackTrace()) {
+    dict.Add("stackTrace", source_location);
+  }
+  v8::CpuProfiler::CollectSample(v8::Isolate::GetCurrent());
+}
+
 void InspectorTraceEvents::WillSendRequest(
     uint64_t identifier,
     DocumentLoader* loader,
@@ -120,12 +139,12 @@ void InspectorTraceEvents::WillSendRequest(
     const ResourceRequest& request,
     const ResourceResponse& redirect_response,
     const FetchInitiatorInfo&,
-    ResourceType) {
+    ResourceType,
+    RenderBlockingBehavior render_blocking_behavior) {
   LocalFrame* frame = loader ? loader->GetFrame() : nullptr;
-  TRACE_EVENT_INSTANT1(
-      "devtools.timeline", "ResourceSendRequest", TRACE_EVENT_SCOPE_THREAD,
-      "data",
-      inspector_send_request_event::Data(loader, identifier, frame, request));
+  DEVTOOLS_TIMELINE_TRACE_EVENT_INSTANT(
+      "ResourceSendRequest", inspector_send_request_event::Data, loader,
+      identifier, frame, request, render_blocking_behavior);
 }
 
 void InspectorTraceEvents::WillSendNavigationRequest(
@@ -177,9 +196,12 @@ void InspectorTraceEvents::DidFinishLoading(uint64_t identifier,
                                             decoded_body_length));
 }
 
-void InspectorTraceEvents::DidFailLoading(uint64_t identifier,
-                                          DocumentLoader* loader,
-                                          const ResourceError&) {
+void InspectorTraceEvents::DidFailLoading(
+    CoreProbeSink* sink,
+    uint64_t identifier,
+    DocumentLoader* loader,
+    const ResourceError&,
+    const base::UnguessableToken& devtools_frame_or_worker_token) {
   TRACE_EVENT_INSTANT1("devtools.timeline", "ResourceFinish",
                        TRACE_EVENT_SCOPE_THREAD, "data",
                        inspector_resource_finish_event::Data(
@@ -296,6 +318,7 @@ const char* PseudoTypeToString(CSSSelector::PseudoType pseudo_type) {
     DEFINE_STRING_MAPPING(PseudoEnabled)
     DEFINE_STRING_MAPPING(PseudoFullPageMedia)
     DEFINE_STRING_MAPPING(PseudoDefault)
+    DEFINE_STRING_MAPPING(PseudoDir)
     DEFINE_STRING_MAPPING(PseudoDisabled)
     DEFINE_STRING_MAPPING(PseudoOptional)
     DEFINE_STRING_MAPPING(PseudoPlaceholderShown)
@@ -313,6 +336,7 @@ const char* PseudoTypeToString(CSSSelector::PseudoType pseudo_type) {
     DEFINE_STRING_MAPPING(PseudoLang)
     DEFINE_STRING_MAPPING(PseudoNot)
     DEFINE_STRING_MAPPING(PseudoPlaceholder)
+    DEFINE_STRING_MAPPING(PseudoFileSelectorButton)
     DEFINE_STRING_MAPPING(PseudoResizer)
     DEFINE_STRING_MAPPING(PseudoRoot)
     DEFINE_STRING_MAPPING(PseudoScope)
@@ -348,22 +372,25 @@ const char* PseudoTypeToString(CSSSelector::PseudoType pseudo_type) {
     DEFINE_STRING_MAPPING(PseudoCue)
     DEFINE_STRING_MAPPING(PseudoFutureCue)
     DEFINE_STRING_MAPPING(PseudoPastCue)
-    DEFINE_STRING_MAPPING(PseudoUnresolved)
     DEFINE_STRING_MAPPING(PseudoDefined)
-    DEFINE_STRING_MAPPING(PseudoContent)
     DEFINE_STRING_MAPPING(PseudoHost)
     DEFINE_STRING_MAPPING(PseudoHostContext)
-    DEFINE_STRING_MAPPING(PseudoShadow)
     DEFINE_STRING_MAPPING(PseudoSlotted)
     DEFINE_STRING_MAPPING(PseudoSpatialNavigationFocus)
     DEFINE_STRING_MAPPING(PseudoSpatialNavigationInterest)
+    DEFINE_STRING_MAPPING(PseudoHasDatalist)
     DEFINE_STRING_MAPPING(PseudoIsHtml)
     DEFINE_STRING_MAPPING(PseudoListBox)
     DEFINE_STRING_MAPPING(PseudoMultiSelectFocus)
+    DEFINE_STRING_MAPPING(PseudoPopupOpen)
     DEFINE_STRING_MAPPING(PseudoHostHasAppearance)
     DEFINE_STRING_MAPPING(PseudoVideoPersistent)
     DEFINE_STRING_MAPPING(PseudoVideoPersistentAncestor)
     DEFINE_STRING_MAPPING(PseudoXrOverlay)
+    DEFINE_STRING_MAPPING(PseudoTargetText)
+    DEFINE_STRING_MAPPING(PseudoModal)
+    DEFINE_STRING_MAPPING(PseudoSpellingError)
+    DEFINE_STRING_MAPPING(PseudoGrammarError)
 #undef DEFINE_STRING_MAPPING
   }
 
@@ -392,43 +419,49 @@ const char* CompileOptionsString(v8::ScriptCompiler::CompileOptions options) {
 
 const char* NotStreamedReasonString(ScriptStreamer::NotStreamingReason reason) {
   switch (reason) {
-    case ScriptStreamer::kNotHTTP:
+    case ScriptStreamer::NotStreamingReason::kNotHTTP:
       return "not http/https protocol";
-    case ScriptStreamer::kRevalidate:
+    case ScriptStreamer::NotStreamingReason::kRevalidate:
       return "revalidation event";
-    case ScriptStreamer::kContextNotValid:
+    case ScriptStreamer::NotStreamingReason::kContextNotValid:
       return "script context not valid";
-    case ScriptStreamer::kEncodingNotSupported:
+    case ScriptStreamer::NotStreamingReason::kEncodingNotSupported:
       return "encoding not supported";
-    case ScriptStreamer::kThreadBusy:
+    case ScriptStreamer::NotStreamingReason::kThreadBusy:
       return "script streamer thread busy";
-    case ScriptStreamer::kV8CannotStream:
+    case ScriptStreamer::NotStreamingReason::kV8CannotStream:
       return "V8 cannot stream script";
-    case ScriptStreamer::kScriptTooSmall:
+    case ScriptStreamer::NotStreamingReason::kScriptTooSmall:
       return "script too small";
-    case ScriptStreamer::kNoResourceBuffer:
+    case ScriptStreamer::NotStreamingReason::kNoResourceBuffer:
       return "resource no longer alive";
-    case ScriptStreamer::kHasCodeCache:
+    case ScriptStreamer::NotStreamingReason::kHasCodeCache:
       return "script has code-cache available";
-    case ScriptStreamer::kStreamerNotReadyOnGetSource:
+    case ScriptStreamer::NotStreamingReason::kStreamerNotReadyOnGetSource:
       return "streamer not ready";
-    case ScriptStreamer::kInlineScript:
+    case ScriptStreamer::NotStreamingReason::kInlineScript:
       return "inline script";
-    case ScriptStreamer::kDidntTryToStartStreaming:
-      return "start streaming not called";
-    case ScriptStreamer::kErrorOccurred:
+    case ScriptStreamer::NotStreamingReason::kErrorOccurred:
       return "an error occurred";
-    case ScriptStreamer::kStreamingDisabled:
+    case ScriptStreamer::NotStreamingReason::kStreamingDisabled:
       return "already disabled streaming";
-    case ScriptStreamer::kSecondScriptResourceUse:
+    case ScriptStreamer::NotStreamingReason::kSecondScriptResourceUse:
       return "already used streamed data";
-    case ScriptStreamer::kWorkerTopLevelScript:
+    case ScriptStreamer::NotStreamingReason::kWorkerTopLevelScript:
       return "worker top-level scripts are not streamable";
-    case ScriptStreamer::kModuleScript:
+    case ScriptStreamer::NotStreamingReason::kModuleScript:
       return "module script";
-    case ScriptStreamer::kAlreadyLoaded:
-    case ScriptStreamer::kCount:
-    case ScriptStreamer::kInvalid:
+    case ScriptStreamer::NotStreamingReason::kNoDataPipe:
+      return "no data pipe received";
+    case ScriptStreamer::NotStreamingReason::kDisabledByFeatureList:
+      return "streaming disabled from the feature list";
+    case ScriptStreamer::NotStreamingReason::kNonJavascriptModule:
+      return "not a javascript module";
+    case ScriptStreamer::NotStreamingReason::kLoadingCancelled:
+      return "loading was cancelled";
+    case ScriptStreamer::NotStreamingReason::kDidntTryToStartStreaming:
+    case ScriptStreamer::NotStreamingReason::kAlreadyLoaded:
+    case ScriptStreamer::NotStreamingReason::kInvalid:
       NOTREACHED();
   }
   NOTREACHED();
@@ -704,6 +737,7 @@ const char kFullscreen[] = "Fullscreen change";
 const char kChildChanged[] = "Child changed";
 const char kListValueChange[] = "List value change";
 const char kListStyleTypeChange[] = "List style type change";
+const char kCounterStyleChange[] = "Counter style change";
 const char kImageChanged[] = "Image changed";
 const char kLineBoxesChanged[] = "Line boxes changed";
 const char kSliderValueChanged[] = "Slider value changed";
@@ -723,6 +757,7 @@ const char kTextControlChanged[] = "Text control changed";
 const char kSvgChanged[] = "SVG changed";
 const char kScrollbarChanged[] = "Scrollbar changed";
 const char kDisplayLock[] = "Display lock";
+const char kCanvasFormattedTextRunChange[] = "CanvasFormattedText runs changed";
 }  // namespace layout_invalidation_reason
 
 std::unique_ptr<TracedValue> inspector_layout_invalidation_tracking_event::Data(
@@ -750,22 +785,47 @@ std::unique_ptr<TracedValue> inspector_change_resource_priority_event::Data(
   return value;
 }
 
-std::unique_ptr<TracedValue> inspector_send_request_event::Data(
+void inspector_send_request_event::Data(
+    perfetto::TracedValue context,
     DocumentLoader* loader,
     uint64_t identifier,
     LocalFrame* frame,
-    const ResourceRequest& request) {
-  auto value = std::make_unique<TracedValue>();
-  value->SetString("requestId",
-                   IdentifiersFactory::RequestId(loader, identifier));
-  value->SetString("frame", IdentifiersFactory::FrameId(frame));
-  value->SetString("url", request.Url().GetString());
-  value->SetString("requestMethod", request.HttpMethod());
+    const ResourceRequest& request,
+    RenderBlockingBehavior render_blocking_behavior) {
+  auto dict = std::move(context).WriteDictionary();
+  dict.Add("requestId", IdentifiersFactory::RequestId(loader, identifier));
+  dict.Add("frame", IdentifiersFactory::FrameId(frame));
+  dict.Add("url", request.Url().GetString());
+  dict.Add("requestMethod", request.HttpMethod());
+  String render_blocking_string;
+  switch (render_blocking_behavior) {
+    case RenderBlockingBehavior::kUnset:
+      break;
+    case RenderBlockingBehavior::kBlocking:
+      render_blocking_string = "blocking";
+      break;
+    case RenderBlockingBehavior::kNonBlocking:
+      render_blocking_string = "non_blocking";
+      break;
+    case RenderBlockingBehavior::kNonBlockingDynamic:
+      render_blocking_string = "dynamically_injected_non_blocking";
+      break;
+    case RenderBlockingBehavior::kInBodyParserBlocking:
+      render_blocking_string = "in_body_parser_blocking";
+      break;
+    case RenderBlockingBehavior::kPotentiallyBlocking:
+      render_blocking_string = "potentially_blocking";
+      break;
+    default:
+      NOTREACHED();
+  }
+  if (!render_blocking_string.IsNull()) {
+    dict.Add("renderBlocking", render_blocking_string);
+  }
   const char* priority = ResourcePriorityString(request.Priority());
   if (priority)
-    value->SetString("priority", priority);
-  SetCallStack(value.get());
-  return value;
+    dict.Add("priority", priority);
+  SetCallStack(dict);
 }
 
 std::unique_ptr<TracedValue> inspector_send_navigation_request_event::Data(
@@ -835,6 +895,30 @@ std::unique_ptr<TracedValue> inspector_receive_response_event::Data(
   value->SetDouble("encodedDataLength", response.EncodedDataLength());
   value->SetBoolean("fromCache", response.WasCached());
   value->SetBoolean("fromServiceWorker", response.WasFetchedViaServiceWorker());
+
+  if (response.WasFetchedViaServiceWorker()) {
+    switch (response.GetServiceWorkerResponseSource()) {
+      case network::mojom::FetchResponseSource::kCacheStorage:
+        value->SetString("serviceWorkerResponseSource", "cacheStorage");
+        break;
+      case network::mojom::FetchResponseSource::kHttpCache:
+        value->SetString("serviceWorkerResponseSource", "httpCache");
+        break;
+      case network::mojom::FetchResponseSource::kNetwork:
+        value->SetString("serviceWorkerResponseSource", "network");
+        break;
+      case network::mojom::FetchResponseSource::kUnspecified:
+        value->SetString("serviceWorkerResponseSource", "fallbackCode");
+    }
+  }
+
+  if (!response.ResponseTime().is_null()) {
+    value->SetDouble("responseTime", response.ResponseTime().ToJsTime());
+  }
+  if (!response.CacheStorageCacheName().IsEmpty()) {
+    value->SetString("cacheStorageCacheName", response.CacheStorageCacheName());
+  }
+
   if (response.GetResourceLoadTiming()) {
     value->BeginDictionary("timing");
     RecordTiming(*response.GetResourceLoadTiming(), value.get());
@@ -1036,7 +1120,7 @@ std::unique_ptr<TracedValue> inspector_paint_event::Data(
   LocalToPageQuad(*layout_object, clip_rect, &quad);
   CreateQuad(value.get(), "clip", quad);
   SetGeneratingNodeInfo(value.get(), layout_object, "nodeId");
-  int graphics_layer_id = graphics_layer ? graphics_layer->CcLayer()->id() : 0;
+  int graphics_layer_id = graphics_layer ? graphics_layer->CcLayer().id() : 0;
   value->SetInteger("layerId", graphics_layer_id);
   SetCallStack(value.get());
   return value;
@@ -1209,8 +1293,8 @@ std::unique_ptr<TracedValue> inspector_paint_image_event::Data(
     const FloatRect& dest_rect) {
   auto value = std::make_unique<TracedValue>();
   SetGeneratingNodeInfo(value.get(), &layout_image, "nodeId");
-  if (const ImageResourceContent* resource = layout_image.CachedImage())
-    value->SetString("url", resource->Url().GetString());
+  if (const ImageResourceContent* content = layout_image.CachedImage())
+    value->SetString("url", content->Url().GetString());
 
   value->SetInteger("x", dest_rect.X());
   value->SetInteger("y", dest_rect.Y());
@@ -1227,8 +1311,8 @@ std::unique_ptr<TracedValue> inspector_paint_image_event::Data(
     const StyleImage& style_image) {
   auto value = std::make_unique<TracedValue>();
   SetGeneratingNodeInfo(value.get(), &owning_layout_object, "nodeId");
-  if (const ImageResourceContent* resource = style_image.CachedImage())
-    value->SetString("url", resource->Url().GetString());
+  if (const ImageResourceContent* content = style_image.CachedImage())
+    value->SetString("url", content->Url().GetString());
   return value;
 }
 
@@ -1240,8 +1324,8 @@ std::unique_ptr<TracedValue> inspector_paint_image_event::Data(
   auto value = std::make_unique<TracedValue>();
   if (node)
     SetNodeInfo(value.get(), node, "nodeId", nullptr);
-  if (const ImageResourceContent* resource = style_image.CachedImage())
-    value->SetString("url", resource->Url().GetString());
+  if (const ImageResourceContent* content = style_image.CachedImage())
+    value->SetString("url", content->Url().GetString());
 
   value->SetInteger("x", dest_rect.X());
   value->SetInteger("y", dest_rect.Y());
@@ -1255,10 +1339,10 @@ std::unique_ptr<TracedValue> inspector_paint_image_event::Data(
 
 std::unique_ptr<TracedValue> inspector_paint_image_event::Data(
     const LayoutObject* owning_layout_object,
-    const ImageResourceContent& image_resource) {
+    const ImageResourceContent& image_content) {
   auto value = std::make_unique<TracedValue>();
   SetGeneratingNodeInfo(value.get(), owning_layout_object, "nodeId");
-  value->SetString("url", image_resource.Url().GetString());
+  value->SetString("url", image_content.Url().GetString());
   return value;
 }
 
@@ -1415,6 +1499,19 @@ std::unique_ptr<TracedValue> inspector_animation_state_event::Data(
     const Animation& animation) {
   auto value = std::make_unique<TracedValue>();
   value->SetString("state", animation.PlayStateString());
+  return value;
+}
+
+std::unique_ptr<TracedValue> inspector_animation_compositor_event::Data(
+    CompositorAnimations::FailureReasons failure_reasons,
+    const PropertyHandleSet& unsupported_properties) {
+  auto value = std::make_unique<TracedValue>();
+  value->SetInteger("compositeFailed", failure_reasons);
+  value->BeginArray("unsupportedProperties");
+  for (const PropertyHandle& p : unsupported_properties) {
+    value->PushString(p.GetCSSPropertyName().ToAtomicString());
+  }
+  value->EndArray();
   return value;
 }
 

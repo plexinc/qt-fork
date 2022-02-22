@@ -54,6 +54,10 @@
 #include <fcntl.h>
 #include <errno.h>
 
+#if defined(Q_OS_DARWIN)
+#include "qcore_mac_p.h"
+#endif
+
 #include "private/qcore_unix_p.h"
 
 // OpenBSD 4.2 doesn't define EIDRM, see BUGS section:
@@ -71,14 +75,19 @@ QT_BEGIN_NAMESPACE
  */
 key_t QSystemSemaphorePrivate::handle(QSystemSemaphore::AccessMode mode)
 {
-    if (key.isEmpty()){
-        errorString =
-#if QT_CONFIG(translation)
-            QCoreApplication::tr("%1: key is empty", "QSystemSemaphore")
-#else
-            QLatin1String("%1: key is empty")
+#if defined(Q_OS_DARWIN)
+    if (qt_apple_isSandboxed()) {
+        errorString = QSystemSemaphore::tr("%1: System V semaphores are not available " \
+            "for sandboxed applications. Please build Qt with -feature-ipc_posix")
+                      .arg(QLatin1String("QSystemSemaphore::handle:"));
+        error = QSystemSemaphore::PermissionDenied;
+        return -1;
+    }
 #endif
-                .arg(QLatin1String("QSystemSemaphore::handle:"));
+
+    if (key.isEmpty()){
+        errorString = QSystemSemaphore::tr("%1: key is empty")
+                      .arg(QLatin1String("QSystemSemaphore::handle:"));
         error = QSystemSemaphore::KeyError;
         return -1;
     }
@@ -90,13 +99,8 @@ key_t QSystemSemaphorePrivate::handle(QSystemSemaphore::AccessMode mode)
     // Create the file needed for ftok
     int built = QSharedMemoryPrivate::createUnixKeyFile(fileName);
     if (-1 == built) {
-        errorString =
-#if QT_CONFIG(translation)
-            QCoreApplication::tr("%1: unable to make key", "QSystemSemaphore")
-#else
-            QLatin1String("%1: unable to make key")
-#endif
-                .arg(QLatin1String("QSystemSemaphore::handle:"));
+        errorString = QSystemSemaphore::tr("%1: unable to make key")
+                      .arg(QLatin1String("QSystemSemaphore::handle:"));
         error = QSystemSemaphore::KeyError;
         return -1;
     }
@@ -107,13 +111,8 @@ key_t QSystemSemaphorePrivate::handle(QSystemSemaphore::AccessMode mode)
     unix_key = ftok(QFile::encodeName(fileName).constData(), 'Q');
 #endif
     if (-1 == unix_key) {
-        errorString =
-#if QT_CONFIG(translation)
-            QCoreApplication::tr("%1: ftok failed", "QSystemSemaphore")
-#else
-            QLatin1String("%1: ftok failed")
-#endif
-                .arg(QLatin1String("QSystemSemaphore::handle:"));
+        errorString = QSystemSemaphore::tr("%1: ftok failed")
+                      .arg(QLatin1String("QSystemSemaphore::handle:"));
         error = QSystemSemaphore::KeyError;
         return -1;
     }

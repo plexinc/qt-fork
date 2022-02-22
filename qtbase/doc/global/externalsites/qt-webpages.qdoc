@@ -101,11 +101,6 @@
 */
 
 /*!
-    \externalpage http://doc.qt.io/qt-4.8/qtquick.html
-    \title Qt Quick 1 Reference Documentation
-*/
-
-/*!
     \externalpage http://wiki.qt.io/Qt_Localization
     \title external: Translating Qt Into Other Languages
 */
@@ -113,4 +108,24 @@
 /*!
     \externalpage http://wiki.qt.io/Qt_Multimedia_Backends
     \title Qt Multimedia Backends
+*/
+
+/*!
+    \externalpage https://doc.qt.io/qt3dstudio/index.html
+    \title Qt 3D Studio Manual
+*/
+
+/*!
+    \externalpage https://doc.qt.io/qtdesignstudio/index.html
+    \title Qt Design Studio Manual
+*/
+
+/*!
+    \externalpage https://marketplace.qt.io
+    \title Qt Marketplace
+*/
+
+/*!
+    \externalpage https://doc.qt.io/qtforpython/index.html
+    \title Qt for Python
 */

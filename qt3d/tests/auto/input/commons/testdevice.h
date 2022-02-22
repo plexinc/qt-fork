@@ -47,8 +47,8 @@ public:
     int buttonCount() const final { return 0; }
     QStringList axisNames() const final { return QStringList(); }
     QStringList buttonNames() const final { return QStringList(); }
-    int axisIdentifier(const QString &name) const final { Q_UNUSED(name) return 0; }
-    int buttonIdentifier(const QString &name) const final { Q_UNUSED(name) return 0; }
+    int axisIdentifier(const QString &name) const final { Q_UNUSED(name); return 0; }
+    int buttonIdentifier(const QString &name) const final { Q_UNUSED(name); return 0; }
 
 private:
     friend class TestDeviceBackendNode;
@@ -60,7 +60,7 @@ public:
     explicit TestDeviceBackendNode(TestDevice *device)
         : Qt3DInput::QAbstractPhysicalDeviceBackendNode(ReadOnly)
     {
-        Qt3DCore::QBackendNodeTester().simulateInitialization(device, this);
+        Qt3DCore::QBackendNodeTester().simulateInitializationSync(device, this);
     }
 
     float axisValue(int axisIdentifier) const final
@@ -103,10 +103,10 @@ public:
         qDeleteAll(m_deviceBackendNodes);
     }
 
-    QVector<Qt3DCore::QAspectJobPtr> jobsToExecute(qint64 time) final
+    std::vector<Qt3DCore::QAspectJobPtr> jobsToExecute(qint64 time) final
     {
         Q_UNUSED(time);
-        return QVector<Qt3DCore::QAspectJobPtr>();
+        return std::vector<Qt3DCore::QAspectJobPtr>();
     }
 
     TestDevice *createPhysicalDevice(const QString &name) final
@@ -119,9 +119,9 @@ public:
         return device;
     }
 
-    QVector<Qt3DCore::QNodeId> physicalDevices() const final
+    QList<Qt3DCore::QNodeId> physicalDevices() const final
     {
-        QVector<Qt3DCore::QNodeId> ids;
+        QList<Qt3DCore::QNodeId> ids;
         std::transform(m_devices.constBegin(), m_devices.constEnd(),
                        std::back_inserter(ids),
                        [] (TestDevice *device) { return device->id(); });
@@ -151,8 +151,8 @@ private:
     void onInitialize() final {}
 
     QScopedPointer<Qt3DCore::QNode> m_devicesParent;
-    QVector<TestDevice*> m_devices;
-    QVector<TestDeviceBackendNode*> m_deviceBackendNodes;
+    QList<TestDevice *> m_devices;
+    QList<TestDeviceBackendNode *> m_deviceBackendNodes;
 };
 
 #endif // TESTDEVICE_H

@@ -6,9 +6,9 @@
 
 #include "third_party/blink/public/common/loader/url_loader_factory_bundle.h"
 #include "third_party/blink/public/platform/platform.h"
-#include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/events/application_cache_error_event.h"
 #include "third_party/blink/renderer/core/events/progress_event.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame_client.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
@@ -34,8 +34,8 @@ KURL ClearUrlRef(const KURL& input_url) {
 }
 
 void RestartNavigation(LocalFrame* frame) {
-  Document* document = frame->GetDocument();
-  FrameLoadRequest request(document, ResourceRequest(document->Url()));
+  LocalDOMWindow* window = frame->DomWindow();
+  FrameLoadRequest request(window, ResourceRequest(window->Url()));
   request.SetClientRedirectReason(ClientNavigationReason::kReload);
   frame->Navigate(request, WebFrameLoadType::kReplaceCurrentItem);
 }
@@ -134,11 +134,8 @@ void ApplicationCacheHostForFrame::SetSubresourceFactory(
     mojo::PendingRemote<network::mojom::blink::URLLoaderFactory>
         url_loader_factory) {
   auto pending_factories = std::make_unique<PendingURLLoaderFactoryBundle>();
-  // |PassPipe()| invalidates all state, so capture |version()| first.
-  uint32_t version = url_loader_factory.version();
   pending_factories->pending_appcache_factory() =
-      mojo::PendingRemote<network::mojom::URLLoaderFactory>(
-          url_loader_factory.PassPipe(), version);
+      ToCrossVariantMojoType(std::move(url_loader_factory));
   local_frame_->Client()->UpdateSubresourceFactory(
       std::move(pending_factories));
 }
@@ -207,15 +204,15 @@ void ApplicationCacheHostForFrame::SelectCacheWithoutManifest() {
 void ApplicationCacheHostForFrame::SelectCacheWithManifest(
     const KURL& manifest_url) {
   LocalFrame* frame = document_loader_->GetFrame();
-  Document* document = frame->GetDocument();
-  if (document->IsSandboxed(mojom::blink::WebSandboxFlags::kOrigin)) {
+  LocalDOMWindow* window = frame->DomWindow();
+  if (window->IsSandboxed(network::mojom::blink::WebSandboxFlags::kOrigin)) {
     // Prevent sandboxes from establishing application caches.
     SelectCacheWithoutManifest();
     return;
   }
-  CHECK(document->IsSecureContext());
+  CHECK(window->IsSecureContext());
   Deprecation::CountDeprecation(
-      document, WebFeature::kApplicationCacheManifestSelectSecureOrigin);
+      window, WebFeature::kApplicationCacheManifestSelectSecureOrigin);
 
   if (!backend_host_.is_bound())
     return;
@@ -285,7 +282,7 @@ void ApplicationCacheHostForFrame::DidReceiveResponseForMainResource(
     is_new_master_entry_ = OLD_ENTRY;
 }
 
-void ApplicationCacheHostForFrame::Trace(Visitor* visitor) {
+void ApplicationCacheHostForFrame::Trace(Visitor* visitor) const {
   visitor->Trace(dom_application_cache_);
   visitor->Trace(local_frame_);
   visitor->Trace(document_loader_);

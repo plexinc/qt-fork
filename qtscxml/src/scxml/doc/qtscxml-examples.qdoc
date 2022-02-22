@@ -40,7 +40,7 @@ that are stored in a common folder, in addition to the files stored in the
 example version folder.
 
 All versions of an example application have the same appearance and
-fuctionality. They demonstrate the different options for creating user
+functionality. They demonstrate the different options for creating user
 interfaces (using \l {Qt Widgets} or \l {Qt Quick}) and for loading the SCXML
 dynamically versus first compiling it to a C++ class (the \e static versions).
 

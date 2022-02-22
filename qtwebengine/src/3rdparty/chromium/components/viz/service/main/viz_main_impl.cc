@@ -16,7 +16,6 @@
 #include "base/trace_event/memory_dump_manager.h"
 #include "build/build_config.h"
 #include "components/ui_devtools/buildflags.h"
-#include "components/viz/service/gl/gpu_service_impl.h"
 #include "gpu/command_buffer/common/activity_flags.h"
 #include "gpu/config/gpu_finch_features.h"
 #include "gpu/ipc/service/gpu_init.h"
@@ -24,7 +23,7 @@
 #include "media/gpu/buildflags.h"
 #include "services/metrics/public/cpp/delegating_ukm_recorder.h"
 #include "services/metrics/public/cpp/mojo_ukm_recorder.h"
-#include "third_party/skia/include/core/SkFontLCDConfig.h"
+#include "skia/ext/legacy_display_globals.h"
 
 namespace {
 
@@ -99,8 +98,7 @@ VizMainImpl::VizMainImpl(Delegate* delegate,
       gpu_init_->gpu_feature_info(), gpu_init_->gpu_preferences(),
       gpu_init_->gpu_info_for_hardware_gpu(),
       gpu_init_->gpu_feature_info_for_hardware_gpu(),
-      gpu_init_->gpu_extra_info(), gpu_init_->device_perf_info(),
-      gpu_init_->vulkan_implementation(),
+      gpu_init_->gpu_extra_info(), gpu_init_->vulkan_implementation(),
       base::BindOnce(&VizMainImpl::ExitProcess, base::Unretained(this)));
 }
 
@@ -161,18 +159,15 @@ void VizMainImpl::CreateGpuService(
   if (!gpu_init_->gpu_info().in_process_gpu) {
     // If the GPU is running in the browser process, discardable memory manager
     // has already been initialized.
-    discardable_shared_memory_manager_ = std::make_unique<
+    discardable_shared_memory_manager_ = base::MakeRefCounted<
         discardable_memory::ClientDiscardableSharedMemoryManager>(
         std::move(discardable_memory_manager), io_task_runner());
     base::DiscardableMemoryAllocator::SetInstance(
         discardable_shared_memory_manager_.get());
   }
 
-  SkFontLCDConfig::SetSubpixelOrder(
-      gfx::FontRenderParams::SubpixelRenderingToSkiaLCDOrder(
-          subpixel_rendering));
-  SkFontLCDConfig::SetSubpixelOrientation(
-      gfx::FontRenderParams::SubpixelRenderingToSkiaLCDOrientation(
+  skia::LegacyDisplayGlobals::SetCachedPixelGeometry(
+      gfx::FontRenderParams::SubpixelRenderingToSkiaPixelGeometry(
           subpixel_rendering));
 
   gpu_service_->Bind(std::move(pending_receiver));
@@ -191,6 +186,20 @@ void VizMainImpl::CreateGpuService(
   if (delegate_)
     delegate_->OnGpuServiceConnection(gpu_service_.get());
 }
+
+#if defined(OS_WIN)
+void VizMainImpl::CreateInfoCollectionGpuService(
+    mojo::PendingReceiver<mojom::InfoCollectionGpuService> pending_receiver) {
+  DCHECK(gpu_thread_task_runner_->BelongsToCurrentThread());
+  DCHECK(!info_collection_gpu_service_);
+  DCHECK(gpu_init_->device_perf_info().has_value());
+
+  info_collection_gpu_service_ = std::make_unique<InfoCollectionGpuServiceImpl>(
+      gpu_thread_task_runner_, io_task_runner(),
+      gpu_init_->device_perf_info().value(), gpu_init_->gpu_info().active_gpu(),
+      std::move(pending_receiver));
+}
+#endif
 
 void VizMainImpl::CreateFrameSinkManager(
     mojom::FrameSinkManagerParamsPtr params) {
@@ -227,6 +236,7 @@ void VizMainImpl::CreateFrameSinkManagerInternal(
   // road so that all crash reports caused by this issue look the same and have
   // the same signature. https://crbug.com/928845
   CHECK(!task_executor_);
+
   task_executor_ = std::make_unique<gpu::GpuInProcessThreadService>(
       this, gpu_thread_task_runner_, gpu_service_->GetGpuScheduler(),
       gpu_service_->sync_point_manager(), gpu_service_->mailbox_manager(),
@@ -253,12 +263,13 @@ scoped_refptr<gl::GLShareGroup> VizMainImpl::GetShareGroup() {
   return gpu_service_->share_group();
 }
 
-void VizMainImpl::ExitProcess(bool immediately) {
+void VizMainImpl::ExitProcess(base::Optional<ExitCode> immediate_exit_code) {
   DCHECK(gpu_thread_task_runner_->BelongsToCurrentThread());
 
-  if (!gpu_init_->gpu_info().in_process_gpu && immediately) {
+  if (!gpu_init_->gpu_info().in_process_gpu && immediate_exit_code) {
     // Atomically shut down GPU process to make it faster and simpler.
-    base::Process::TerminateCurrentProcessImmediately(/*exit_code=*/0);
+    base::Process::TerminateCurrentProcessImmediately(
+        static_cast<int>(immediate_exit_code.value()));
     return;
   }
 

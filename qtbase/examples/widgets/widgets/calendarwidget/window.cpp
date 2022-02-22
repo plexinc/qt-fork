@@ -237,6 +237,9 @@ void Window::createPreviewGroupBox()
 }
 //! [9]
 
+// TODO: use loc.name() as label (but has underscore in place of slash)
+// TODO: use locale() == loc instead of only comparing language and territory
+// Needs someone familiar with this example to work out ramifications
 //! [10]
 void Window::createGeneralOptionsGroupBox()
 {
@@ -247,16 +250,16 @@ void Window::createGeneralOptionsGroupBox()
     int index = 0;
     for (int _lang = QLocale::C; _lang <= QLocale::LastLanguage; ++_lang) {
         QLocale::Language lang = static_cast<QLocale::Language>(_lang);
-        QList<QLocale::Country> countries = QLocale::countriesForLanguage(lang);
-        for (int i = 0; i < countries.count(); ++i) {
-            QLocale::Country country = countries.at(i);
+        const auto locales =
+            QLocale::matchingLocales(lang, QLocale::AnyScript, QLocale::AnyTerritory);
+        for (auto loc : locales) {
             QString label = QLocale::languageToString(lang);
+            auto territory = loc.territory();
             label += QLatin1Char('/');
-            label += QLocale::countryToString(country);
-            QLocale locale(lang, country);
-            if (this->locale().language() == lang && this->locale().country() == country)
+            label += QLocale::territoryToString(territory);
+            if (locale().language() == lang && locale().territory() == territory)
                 curLocaleIndex = index;
-            localeCombo->addItem(label, locale);
+            localeCombo->addItem(label, loc);
             ++index;
         }
     }
@@ -313,19 +316,19 @@ void Window::createGeneralOptionsGroupBox()
     verticalHeaderLabel->setBuddy(verticalHeaderCombo);
 
 //! [11]
-    connect(localeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+    connect(localeCombo, &QComboBox::currentIndexChanged,
             this, &Window::localeChanged);
-    connect(firstDayCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+    connect(firstDayCombo, &QComboBox::currentIndexChanged,
             this, &Window::firstDayChanged);
-    connect(selectionModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+    connect(selectionModeCombo, &QComboBox::currentIndexChanged,
             this, &Window::selectionModeChanged);
     connect(gridCheckBox, &QCheckBox::toggled,
             calendar, &QCalendarWidget::setGridVisible);
     connect(navigationCheckBox, &QCheckBox::toggled,
             calendar, &QCalendarWidget::setNavigationBarVisible);
-    connect(horizontalHeaderCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+    connect(horizontalHeaderCombo, &QComboBox::currentIndexChanged,
             this, &Window::horizontalHeaderChanged);
-    connect(verticalHeaderCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+    connect(verticalHeaderCombo, &QComboBox::currentIndexChanged,
             this, &Window::verticalHeaderChanged);
 //! [11]
 
@@ -446,15 +449,15 @@ void Window::createTextFormatsGroupBox()
     mayFirstCheckBox = new QCheckBox(tr("May &1 in red"));
 
 //! [17] //! [18]
-    connect(weekdayColorCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+    connect(weekdayColorCombo, &QComboBox::currentIndexChanged,
             this, &Window::weekdayFormatChanged);
-    connect(weekdayColorCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+    connect(weekdayColorCombo, &QComboBox::currentIndexChanged,
             this, &Window::reformatCalendarPage);
-    connect(weekendColorCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+    connect(weekendColorCombo, &QComboBox::currentIndexChanged,
             this, &Window::weekendFormatChanged);
-    connect(weekendColorCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+    connect(weekendColorCombo, &QComboBox::currentIndexChanged,
             this, &Window::reformatCalendarPage);
-    connect(headerTextFormatCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+    connect(headerTextFormatCombo, &QComboBox::currentIndexChanged,
             this, &Window::reformatHeaders);
     connect(firstFridayCheckBox, &QCheckBox::toggled,
             this, &Window::reformatCalendarPage);

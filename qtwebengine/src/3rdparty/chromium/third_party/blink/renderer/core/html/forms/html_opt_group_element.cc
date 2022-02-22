@@ -26,6 +26,7 @@
 #include "third_party/blink/renderer/core/html/forms/html_opt_group_element.h"
 
 #include "third_party/blink/renderer/core/css/css_property_names.h"
+#include "third_party/blink/renderer/core/dom/events/simulated_click_options.h"
 #include "third_party/blink/renderer/core/dom/text.h"
 #include "third_party/blink/renderer/core/editing/editing_utilities.h"
 #include "third_party/blink/renderer/core/html/forms/html_select_element.h"
@@ -96,8 +97,7 @@ void HTMLOptGroupElement::ChildrenChanged(const ChildrenChange& change) {
     if (auto* option = DynamicTo<HTMLOptionElement>(change.sibling_changed))
       select->OptionRemoved(*option);
   } else if (change.type == ChildrenChangeType::kAllChildrenRemoved) {
-    DCHECK(change.removed_nodes);
-    for (Node* node : *change.removed_nodes) {
+    for (Node* node : change.removed_nodes) {
       if (auto* option = DynamicTo<HTMLOptionElement>(node))
         select->OptionRemoved(*option);
     }
@@ -139,8 +139,7 @@ String HTMLOptGroupElement::GroupLabelText() const {
 }
 
 HTMLSelectElement* HTMLOptGroupElement::OwnerSelectElement() const {
-  // TODO(tkent): We should return only the parent <select>.
-  return Traversal<HTMLSelectElement>::FirstAncestor(*this);
+  return DynamicTo<HTMLSelectElement>(parentNode());
 }
 
 String HTMLOptGroupElement::DefaultToolTip() const {
@@ -149,11 +148,14 @@ String HTMLOptGroupElement::DefaultToolTip() const {
   return String();
 }
 
-void HTMLOptGroupElement::AccessKeyAction(bool) {
+void HTMLOptGroupElement::AccessKeyAction(
+    SimulatedClickCreationScope creation_scope) {
   HTMLSelectElement* select = OwnerSelectElement();
-  // send to the parent to bring focus to the list box
+  // Send to the parent to bring focus to the list box.
+  // TODO(crbug.com/1176745): investigate why we don't care
+  // about creation scope.
   if (select && !select->IsFocused())
-    select->AccessKeyAction(false);
+    select->AccessKeyAction(SimulatedClickCreationScope::kFromUserAgent);
 }
 
 void HTMLOptGroupElement::DidAddUserAgentShadowRoot(ShadowRoot& root) {
@@ -164,7 +166,7 @@ void HTMLOptGroupElement::DidAddUserAgentShadowRoot(ShadowRoot& root) {
   label->setAttribute(html_names::kAriaLabelAttr, AtomicString());
   label->SetInlineStyleProperty(CSSPropertyID::kPadding, label_padding);
   label->SetInlineStyleProperty(CSSPropertyID::kMinHeight, label_min_height);
-  label->SetIdAttribute(shadow_element_names::OptGroupLabel());
+  label->SetIdAttribute(shadow_element_names::kIdOptGroupLabel);
   root.AppendChild(label);
 
   root.AppendChild(
@@ -180,7 +182,7 @@ void HTMLOptGroupElement::UpdateGroupLabel() {
 
 HTMLDivElement& HTMLOptGroupElement::OptGroupLabelElement() const {
   auto* element = UserAgentShadowRoot()->getElementById(
-      shadow_element_names::OptGroupLabel());
+      shadow_element_names::kIdOptGroupLabel);
   CHECK(!element || IsA<HTMLDivElement>(element));
   return *To<HTMLDivElement>(element);
 }

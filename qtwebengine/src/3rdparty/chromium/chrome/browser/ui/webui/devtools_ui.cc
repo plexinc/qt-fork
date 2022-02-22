@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/webui/devtools_ui.h"
 
+#include "base/command_line.h"
 #ifndef TOOLKIT_QT
 #include "chrome/browser/devtools/url_constants.h"
 #endif
@@ -15,6 +16,7 @@
 #include "content/public/browser/url_data_source.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
+#include "content/public/common/bindings_policy.h"
 #include "content/public/common/user_agent.h"
 #include "net/base/load_flags.h"
 
@@ -78,7 +80,7 @@ DevToolsUI::DevToolsUI(content::WebUI* web_ui)
     , bindings_(web_ui->GetWebContents())
 #endif
 {
-  web_ui->SetBindings(0);
+  web_ui->SetBindings(content::BINDINGS_POLICY_NONE);
   auto factory = content::BrowserContext::GetDefaultStoragePartition(
                      web_ui->GetWebContents()->GetBrowserContext())
                      ->GetURLLoaderFactoryForBrowserProcess();

@@ -187,20 +187,16 @@ static void setPaletteColor(const QVariantMap &object,
 
 QJsonObject AndroidStyle::loadStyleData()
 {
-    QString stylePath(QLatin1String(qgetenv("MINISTRO_ANDROID_STYLE_PATH")));
+    QString stylePath(QLatin1String(qgetenv("ANDROID_STYLE_PATH")));
     const QLatin1Char slashChar('/');
     if (!stylePath.isEmpty() && !stylePath.endsWith(slashChar))
         stylePath += slashChar;
 
+    Q_ASSERT(!stylePath.isEmpty());
+
     QString androidTheme = QLatin1String(qgetenv("QT_ANDROID_THEME"));
     if (!androidTheme.isEmpty() && !androidTheme.endsWith(slashChar))
         androidTheme += slashChar;
-
-    if (stylePath.isEmpty()) {
-        stylePath = QLatin1String("/data/data/org.kde.necessitas.ministro/files/dl/style/")
-                  + QLatin1String(qgetenv("QT_ANDROID_THEME_DISPLAY_DPI")) + slashChar;
-    }
-    Q_ASSERT(!stylePath.isEmpty());
 
     if (!androidTheme.isEmpty() && QFileInfo::exists(stylePath + androidTheme + QLatin1String("style.json")))
         stylePath += androidTheme;
@@ -304,7 +300,7 @@ static std::shared_ptr<AndroidStyle> loadAndroidStyle(QPalette *defaultPalette)
 
             attributeIterator = item.find(QLatin1String("defaultBackgroundColor"));
             if (attributeIterator != item.constEnd())
-                palette.setColor(QPalette::Background, QRgb(int(attributeIterator.value().toDouble())));
+                palette.setColor(QPalette::Window, QRgb(int(attributeIterator.value().toDouble())));
 
             attributeIterator = item.find(QLatin1String("TextAppearance_textColor"));
             if (attributeIterator != item.constEnd())
@@ -464,7 +460,7 @@ QVariant QAndroidPlatformTheme::themeHint(ThemeHint hint) const
                 && m_androidStyleData) {
             return QStringList(QLatin1String("android"));
         }
-        return QStringList(QLatin1String("fusion"));
+        return QStringList(QLatin1String("Fusion"));
     case DialogButtonBoxLayout:
         return QVariant(QPlatformDialogHelper::AndroidLayout);
     case MouseDoubleClickDistance:

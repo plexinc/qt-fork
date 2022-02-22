@@ -32,8 +32,7 @@ class CORE_EXPORT ModuleRecordResolverImpl final
       : ExecutionContextLifecycleObserver(execution_context),
         modulator_(modulator) {}
 
-  void Trace(Visitor*) override;
-  USING_GARBAGE_COLLECTED_MIXIN(ModuleRecordResolverImpl);
+  void Trace(Visitor*) const override;
 
  private:
   // Implements ModuleRecordResolver:
@@ -45,7 +44,7 @@ class CORE_EXPORT ModuleRecordResolverImpl final
 
   // Implements "Runtime Semantics: HostResolveImportedModule" per HTML spec.
   // https://html.spec.whatwg.org/C/#hostresolveimportedmodule(referencingscriptormodule,-specifier))
-  v8::Local<v8::Module> Resolve(const String& specifier,
+  v8::Local<v8::Module> Resolve(const ModuleRequest& module_request,
                                 v8::Local<v8::Module> referrer,
                                 ExceptionState&) final;
 

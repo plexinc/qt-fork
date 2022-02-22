@@ -41,12 +41,23 @@
 #include "qurl_p.h"
 
 #include <QtCore/qstringlist.h>
+#include <QtCore/private/qstringiterator_p.h>
+#include <QtCore/private/qnumeric_p.h>
+
 #include <algorithm>
+
+/* NOTE: IDNA 2003 is based on Unicode 3.2
+
+   As a result, the assorted Unicode data below snould *not* be updated as part
+   of our routine updates to UCS (see ../text/qt_attributions.json and
+   util/unicode/).  See QTBUG-85323 and RFCs 3491, 3454.
+
+   TODO (QTBUG-85371): Update to IDNA 2008.
+*/
 
 QT_BEGIN_NAMESPACE
 
 // needed by the punycode encoder/decoder
-#define Q_MAXINT ((uint)((uint)(-1)>>1))
 static const uint base = 36;
 static const uint tmin = 1;
 static const uint tmax = 26;
@@ -55,15 +66,17 @@ static const uint damp = 700;
 static const uint initial_bias = 72;
 static const uint initial_n = 128;
 
+static constexpr unsigned MaxDomainLabelLength = 63;
+
 struct NameprepCaseFoldingEntry {
-    uint uc;
-    ushort mapping[4];
+    char32_t uc;
+    char16_t mapping[4];
 };
 
-inline bool operator<(uint one, const NameprepCaseFoldingEntry &other)
+inline bool operator<(char32_t one, const NameprepCaseFoldingEntry &other)
 { return one < other.uc; }
 
-inline bool operator<(const NameprepCaseFoldingEntry &one, uint other)
+inline bool operator<(const NameprepCaseFoldingEntry &one, char32_t other)
 { return one.uc < other; }
 
 static const NameprepCaseFoldingEntry NameprepCaseFolding[] = {
@@ -1442,8 +1455,6 @@ static const NameprepCaseFoldingEntry NameprepCaseFolding[] = {
 
 static void mapToLowerCase(QString *str, int from)
 {
-    int N = sizeof(NameprepCaseFolding) / sizeof(NameprepCaseFolding[0]);
-
     ushort *d = nullptr;
     for (int i = from; i < str->size(); ++i) {
         uint uc = str->at(i).unicode();
@@ -1461,10 +1472,10 @@ static void mapToLowerCase(QString *str, int from)
                     ++i;
                 }
             }
-            const NameprepCaseFoldingEntry *entry = std::lower_bound(NameprepCaseFolding,
-                                                                     NameprepCaseFolding + N,
-                                                                     uc);
-            if ((entry != NameprepCaseFolding + N) && !(uc < *entry)) {
+            const auto entry = std::lower_bound(std::begin(NameprepCaseFolding),
+                                                std::end(NameprepCaseFolding),
+                                                uc);
+            if ((entry != std::end(NameprepCaseFolding)) && !(uc < *entry)) {
                 int l = 1;
                 while (l < 4 && entry->mapping[l])
                     ++l;
@@ -1501,23 +1512,9 @@ static bool isMappedToNothing(uint uc)
     }
 }
 
-
-static bool containsProhibitedOuptut(const QString *str, int from)
-{
-    const ushort *in = reinterpret_cast<const ushort *>(str->begin() + from);
-    const ushort *end = (const ushort *)str->data() + str->size();
-    for ( ; in < end; ++in) {
-        uint uc = *in;
-        if (QChar(uc).isHighSurrogate() && in < end - 1) {
-            ushort low = *(in + 1);
-            if (QChar(low).isLowSurrogate()) {
-                ++in;
-                uc = QChar::surrogateToUcs4(uc, low);
-            } else {
-                // unpaired surrogates are prohibited
-                return true;
-            }
-        }
+namespace {
+    static constexpr bool isProhibitedOutputChar(char32_t uc)
+    {
         if (uc <= 0xFFFF) {
             if (uc < 0x80 ||
                 !(uc <= 0x009F
@@ -1539,8 +1536,8 @@ static bool containsProhibitedOuptut(const QString *str, int from)
                 || (uc >= 0xE000 && uc <= 0xF8FF)
                 || (uc >= 0xFDD0 && uc <= 0xFDEF)
                 || uc == 0xFEFF
-                || (uc >= 0xFFF9 && uc <= 0xFFFF))) {
-                continue;
+                || uc >= 0xFFF9)) {
+                return false;
             }
         } else {
             if (!((uc >= 0x1D173 && uc <= 0x1D17A)
@@ -1564,11 +1561,24 @@ static bool containsProhibitedOuptut(const QString *str, int from)
                 || (uc >= 0xFFFFE && uc <= 0xFFFFF)
                 || (uc >= 0x100000 && uc <= 0x10FFFD)
                 || (uc >= 0x10FFFE && uc <= 0x10FFFF))) {
-                continue;
+                return false;
             }
         }
         return true;
     }
+} // unnamed namespace
+
+static bool containsProhibitedOutput(QStringView str, qsizetype from)
+{
+    constexpr char32_t invalid = 0xDEAD;
+    static_assert(isProhibitedOutputChar(invalid));
+
+    QStringIterator it{str, from};
+    while (it.hasNext()) {
+        if (isProhibitedOutputChar(it.next(invalid)))
+            return true;
+    }
+
     return false;
 }
 
@@ -2079,12 +2089,12 @@ Q_AUTOTEST_EXPORT bool qt_nameprep(QString *source, int from)
 
     // Normalize to Unicode 3.2 form KC
     extern void qt_string_normalize(QString *data, QString::NormalizationForm mode,
-                                    QChar::UnicodeVersion version, int from);
+                                    QChar::UnicodeVersion version, qsizetype from);
     qt_string_normalize(source, QString::NormalizationForm_KC, QChar::Unicode_3_2,
                         firstNonAscii > from ? firstNonAscii - 1 : from);
 
-    // Strip prohibited output
-    if (containsProhibitedOuptut(source, firstNonAscii)) {
+    // Check for prohibited output
+    if (containsProhibitedOutput(*source, firstNonAscii)) {
         source->resize(from);
         return false;
     }
@@ -2119,13 +2129,16 @@ Q_AUTOTEST_EXPORT bool qt_nameprep(QString *source, int from)
     return true;
 }
 
-static const QChar *qt_find_nonstd3(const QChar *uc, int len, Qt::CaseSensitivity cs)
+static const QChar *qt_find_nonstd3(QStringView in, Qt::CaseSensitivity cs)
 {
-    if (len > 63)
+    const QChar * const uc = in.data();
+    const qsizetype len = in.size();
+
+    if (len > MaxDomainLabelLength)
         return uc;
 
-    for (int i = 0; i < len; ++i) {
-        ushort c = uc[i].unicode();
+    for (qsizetype i = 0; i < len; ++i) {
+        const char16_t c = uc[i].unicode();
         if (c == '-' && (i == 0 || i == len - 1))
             return uc + i;
 
@@ -2145,22 +2158,21 @@ static const QChar *qt_find_nonstd3(const QChar *uc, int len, Qt::CaseSensitivit
     return nullptr;
 }
 
-Q_AUTOTEST_EXPORT bool qt_check_std3rules(const QChar *uc, int len)
+Q_AUTOTEST_EXPORT bool qt_check_std3rules(QStringView in)
 {
-    return qt_find_nonstd3(uc, len, Qt::CaseInsensitive) == nullptr;
+    return qt_find_nonstd3(in, Qt::CaseInsensitive) == nullptr;
 }
 
-static bool qt_check_nameprepped_std3(const QChar *in, int len)
+static bool qt_check_nameprepped_std3(QStringView in)
 {
     // fast path: check for lowercase ASCII
-    const QChar *firstNonAscii = qt_find_nonstd3(in, len, Qt::CaseSensitive);
+    const QChar *firstNonAscii = qt_find_nonstd3(in, Qt::CaseSensitive);
     if (firstNonAscii == nullptr) {
         // everything was lowercase ASCII, digits or hyphen
         return true;
     }
 
-    const QChar *e = in + len;
-    QString origin = QString::fromRawData(firstNonAscii, e - firstNonAscii);
+    QString origin = QString::fromRawData(firstNonAscii, in.end() - firstNonAscii);
     QString copy = origin;
     qt_nameprep(&copy, 0);
     return origin == copy;
@@ -2183,14 +2195,13 @@ static inline uint adapt(uint delta, uint numpoints, bool firsttime)
     return k + (((base - tmin + 1) * delta) / (delta + skew));
 }
 
-static inline void appendEncode(QString* output, uint& delta, uint& bias, uint& b, uint& h)
+static inline void appendEncode(QString *output, uint delta, uint bias)
 {
     uint qq;
     uint k;
     uint t;
 
-    // insert the variable length delta integer; fail on
-    // overflow.
+    // insert the variable length delta integer.
     for (qq = delta, k = base;; k += base) {
         // stop generating digits when the threshold is
         // detected.
@@ -2202,26 +2213,29 @@ static inline void appendEncode(QString* output, uint& delta, uint& bias, uint& 
     }
 
     *output += QChar(encodeDigit(qq));
-    bias = adapt(delta, h + 1, h == b);
-    delta = 0;
-    ++h;
 }
 
-Q_AUTOTEST_EXPORT void qt_punycodeEncoder(const QChar *s, int ucLength, QString *output)
+Q_AUTOTEST_EXPORT void qt_punycodeEncoder(QStringView in, QString *output)
 {
     uint n = initial_n;
     uint delta = 0;
     uint bias = initial_bias;
 
+    // Do not try to encode strings that certainly will result in output
+    // that is longer than allowable domain name label length. Note that
+    // non-BMP codepoints are encoded as two QChars.
+    if (in.length() > MaxDomainLabelLength * 2)
+        return;
+
     int outLen = output->length();
-    output->resize(outLen + ucLength);
+    output->resize(outLen + in.length());
 
     QChar *d = output->data() + outLen;
     bool skipped = false;
     // copy all basic code points verbatim to output.
-    for (uint j = 0; j < (uint) ucLength; ++j) {
-        if (s[j].unicode() < 0x80)
-            *d++ = s[j];
+    for (QChar c : in) {
+        if (c.unicode() < 0x80)
+            *d++ = c;
         else
             skipped = true;
     }
@@ -2240,46 +2254,59 @@ Q_AUTOTEST_EXPORT void qt_punycodeEncoder(const QChar *s, int ucLength, QString 
 
     // if basic code points were copied, add the delimiter character.
     if (h > 0)
-        *output += QChar(0x2d);
+        *output += QLatin1Char{'-'};
+
+    // compute the input length in Unicode code points.
+    qsizetype inputLength = 0;
+    for (QStringIterator iter(in); iter.hasNext();) {
+        inputLength++;
+
+        if (iter.next(char32_t(-1)) == char32_t(-1)) {
+            output->truncate(outLen);
+            return; // invalid surrogate pair
+        }
+    }
 
     // while there are still unprocessed non-basic code points left in
     // the input string...
-    while (h < (uint) ucLength) {
-        // find the character in the input string with the lowest
-        // unicode value.
-        uint m = Q_MAXINT;
-        uint j;
-        for (j = 0; j < (uint) ucLength; ++j) {
-            if (s[j].unicode() >= n && s[j].unicode() < m)
-                m = (uint) s[j].unicode();
+    while (h < inputLength) {
+        // find the character in the input string with the lowest unprocessed value.
+        uint m = std::numeric_limits<uint>::max();
+        for (QStringIterator iter(in); iter.hasNext();) {
+            auto c = iter.nextUnchecked();
+            static_assert(std::numeric_limits<decltype(m)>::max()
+                                  >= std::numeric_limits<decltype(c)>::max(),
+                          "Punycode uint should be able to cover all codepoints");
+            if (c >= n && c < m)
+                m = c;
         }
 
-        // reject out-of-bounds unicode characters
-        if (m - n > (Q_MAXINT - delta) / (h + 1)) {
+        // delta = delta + (m - n) * (h + 1), fail on overflow
+        uint tmp;
+        if (mul_overflow<uint>(m - n, h + 1, &tmp) || add_overflow<uint>(delta, tmp, &delta)) {
             output->truncate(outLen);
             return; // punycode_overflow
         }
-
-        delta += (m - n) * (h + 1);
         n = m;
 
-        // for each code point in the input string
-        for (j = 0; j < (uint) ucLength; ++j) {
+        for (QStringIterator iter(in); iter.hasNext();) {
+            auto c = iter.nextUnchecked();
 
-            // increase delta until we reach the character with the
-            // lowest unicode code. fail if delta overflows.
-            if (s[j].unicode() < n) {
-                ++delta;
-                if (!delta) {
+            // increase delta until we reach the character processed in this iteration;
+            // fail if delta overflows.
+            if (c < n) {
+                if (add_overflow<uint>(delta, 1, &delta)) {
                     output->truncate(outLen);
                     return; // punycode_overflow
                 }
             }
 
-            // if j is the index of the character with the lowest
-            // unicode code...
-            if (s[j].unicode() == n) {
-                appendEncode(output, delta, bias, b, h);
+            if (c == n) {
+                appendEncode(output, delta, bias);
+
+                bias = adapt(delta, h + 1, h == b);
+                delta = 0;
+                ++h;
             }
         }
 
@@ -2298,6 +2325,12 @@ Q_AUTOTEST_EXPORT QString qt_punycodeDecoder(const QString &pc)
     uint i = 0;
     uint bias = initial_bias;
 
+    // Do not try to decode strings longer than allowable for a domain label.
+    // Non-ASCII strings are not allowed here anyway, so there is no need
+    // to account for surrogates.
+    if (pc.length() > MaxDomainLabelLength)
+        return QString();
+
     // strip any ACE prefix
     int start = pc.startsWith(QLatin1String("xn--")) ? 4 : 0;
     if (!start)
@@ -2305,9 +2338,9 @@ Q_AUTOTEST_EXPORT QString qt_punycodeDecoder(const QString &pc)
 
     // find the last delimiter character '-' in the input array. copy
     // all data before this delimiter directly to the output array.
-    int delimiterPos = pc.lastIndexOf(QChar(0x2d));
-    QString output = delimiterPos < 4 ?
-                     QString() : pc.mid(start, delimiterPos - start);
+    int delimiterPos = pc.lastIndexOf(QLatin1Char{'-'});
+    auto output = delimiterPos < 4 ? std::u32string()
+                                   : pc.mid(start, delimiterPos - start).toStdU32String();
 
     // if a delimiter was found, skip to the position after it;
     // otherwise start at the front of the input string. everything
@@ -2331,36 +2364,68 @@ Q_AUTOTEST_EXPORT QString qt_punycodeDecoder(const QString &pc)
             else if (digit - 97 < 26) digit -= 97;
             else digit = base;
 
-            // reject out of range digits
-            if (digit >= base || digit > (Q_MAXINT - i) / w)
-                return QStringLiteral("");
+            // Fail if the code point has no digit value
+            if (digit >= base)
+                return QString();
 
-            i += (digit * w);
+            // i = i + digit * w, fail on overflow
+            uint tmp;
+            if (mul_overflow<uint>(digit, w, &tmp) || add_overflow<uint>(i, tmp, &i))
+                return QString();
 
             // detect threshold to stop reading delta digits
             uint t;
             if (k <= bias) t = tmin;
             else if (k >= bias + tmax) t = tmax;
             else t = k - bias;
+
             if (digit < t) break;
 
-            w *= (base - t);
+            // w = w * (base - t), fail on overflow
+            if (mul_overflow<uint>(w, base - t, &w))
+                return QString();
         }
 
         // find new bias and calculate the next non-basic code
         // character.
-        bias = adapt(i - oldi, output.length() + 1, oldi == 0);
-        n += i / (output.length() + 1);
+        uint outputLength = static_cast<uint>(output.length());
+        bias = adapt(i - oldi, outputLength + 1, oldi == 0);
+
+        // n = n + i div (length(output) + 1), fail on overflow
+        if (add_overflow<uint>(n, i / (outputLength + 1), &n))
+            return QString();
 
         // allow the deltas to wrap around
-        i %= (output.length() + 1);
+        i %= (outputLength + 1);
+
+        // if n is a basic code point then fail; this should not happen with
+        // correct implementation of Punycode, but check just n case.
+        if (n < initial_n) {
+            // Don't use Q_ASSERT() to avoid possibility of DoS
+            qWarning("Attempt to insert a basic codepoint. Unhandled overflow?");
+            return QString();
+        }
+
+        // Surrogates should normally be rejected later by other IDNA code.
+        // But because of Qt's use of UTF-16 to represent strings the
+        // IDNA code is not able to distinguish characters represented as pairs
+        // of surrogates from normal code points. This is why surrogates are
+        // not allowed here.
+        //
+        // Allowing surrogates would lead to non-unique (after normalization)
+        // encoding of strings with non-BMP characters.
+        //
+        // Punycode that encodes characters outside the Unicode range is also
+        // invalid and is rejected here.
+        if (QChar::isSurrogate(n) || n > QChar::LastValidCodePoint)
+            return QString();
 
         // insert the character n at position i
-        output.insert((uint) i, QChar((ushort) n));
+        output.insert(i, 1, static_cast<char32_t>(n));
         ++i;
     }
 
-    return output;
+    return QString::fromStdU32String(output);
 }
 
 static const char * const idn_whitelist[] = {
@@ -2434,15 +2499,14 @@ static bool equal(const QChar *a, int l, const char *b)
     return l == 0;
 }
 
-static bool qt_is_idn_enabled(const QString &domain)
+static bool qt_is_idn_enabled(QStringView domain)
 {
-    int idx = domain.lastIndexOf(QLatin1Char('.'));
+    const auto idx = domain.lastIndexOf(QLatin1Char('.'));
     if (idx == -1)
         return false;
 
-    int len = domain.size() - idx - 1;
-    QString tldString = qt_ACE_do(QString::fromRawData(domain.constData() + idx + 1, len), ToAceOnly, ForbidLeadingDot);
-    len = tldString.size();
+    QString tldString = qt_ACE_do(domain.mid(idx + 1), ToAceOnly, ForbidLeadingDot);
+    const auto len = tldString.size();
 
     const QChar *tld = tldString.constData();
 
@@ -2471,9 +2535,9 @@ static inline bool isDotDelimiter(ushort uc)
     return uc == 0x2e || uc == 0x3002 || uc == 0xff0e || uc == 0xff61;
 }
 
-static int nextDotDelimiter(const QString &domain, int from = 0)
+static qsizetype nextDotDelimiter(QStringView domain, qsizetype from = 0)
 {
-    const QChar *b = domain.unicode();
+    const QChar *b = domain.data();
     const QChar *ch = b + from;
     const QChar *e = b + domain.length();
     while (ch < e) {
@@ -2485,23 +2549,23 @@ static int nextDotDelimiter(const QString &domain, int from = 0)
     return ch - b;
 }
 
-QString qt_ACE_do(const QString &domain, AceOperation op, AceLeadingDot dot)
+QString qt_ACE_do(QStringView domain, AceOperation op, AceLeadingDot dot)
 {
-    if (domain.isEmpty())
-        return domain;
-
     QString result;
+    if (domain.isEmpty())
+        return result;
+
     result.reserve(domain.length());
 
     const bool isIdnEnabled = op == NormalizeAce ? qt_is_idn_enabled(domain) : false;
-    int lastIdx = 0;
+    qsizetype lastIdx = 0;
     QString aceForm; // this variable is here for caching
 
     while (1) {
-        int idx = nextDotDelimiter(domain, lastIdx);
-        int labelLength = idx - lastIdx;
+        const auto idx = nextDotDelimiter(domain, lastIdx);
+        const auto labelLength = idx - lastIdx;
         if (labelLength == 0) {
-            if (idx == domain.length())
+            if (idx == domain.size())
                 break;
             if (dot == ForbidLeadingDot || idx > 0)
                 return QString(); // two delimiters in a row -- empty label not allowed
@@ -2526,16 +2590,14 @@ QString qt_ACE_do(const QString &domain, AceOperation op, AceLeadingDot dot)
         result.resize(prevLen + labelLength);
         {
             QChar *out = result.data() + prevLen;
-            const QChar *in = domain.constData() + lastIdx;
-            const QChar *e = in + labelLength;
-            for (; in < e; ++in, ++out) {
-                ushort uc = in->unicode();
+            for (QChar c : domain.mid(lastIdx, labelLength)) {
+                const auto uc = c.unicode();
                 if (uc > 0x7f)
                     simple = false;
                 if (uc >= 'A' && uc <= 'Z')
-                    *out = QChar(uc | 0x20);
+                    *out++ = QChar(uc | 0x20);
                 else
-                    *out = *in;
+                    *out++ = c;
             }
         }
 
@@ -2543,35 +2605,36 @@ QString qt_ACE_do(const QString &domain, AceOperation op, AceLeadingDot dot)
             // ACE form domains contain only ASCII characters, but we can't consider them simple
             // is this an ACE form?
             // the shortest valid ACE domain is 6 characters long (U+0080 would be 1, but it's not allowed)
-            static const ushort acePrefixUtf16[] = { 'x', 'n', '-', '-' };
-            if (memcmp(result.constData() + prevLen, acePrefixUtf16, sizeof acePrefixUtf16) == 0)
+            if (QStringView{result}.sliced(prevLen).startsWith(u"xn--"))
                 simple = false;
         }
 
         if (simple) {
             // fastest case: this is the common case (non IDN-domains)
             // so we're done
-            if (!qt_check_std3rules(result.constData() + prevLen, labelLength))
+            if (!qt_check_std3rules(QStringView{result.constData() + prevLen, labelLength}))
                 return QString();
         } else {
             // Punycode encoding and decoding cannot be done in-place
             // That means we need one or two temporaries
             if (!qt_nameprep(&result, prevLen))
                 return QString();   // failed
-            labelLength = result.length() - prevLen;
-            int toReserve = labelLength + 4 + 6; // "xn--" plus some extra bytes
+            const auto toReserve = result.length() - prevLen + 4 + 6; // "xn--" plus some extra bytes
             aceForm.resize(0);
             if (toReserve > aceForm.capacity())
                 aceForm.reserve(toReserve);
-            qt_punycodeEncoder(result.constData() + prevLen, result.size() - prevLen, &aceForm);
+            qt_punycodeEncoder(QStringView{result}.mid(prevLen), &aceForm);
 
             // We use resize()+memcpy() here because we're overwriting the data we've copied
             bool appended = false;
             if (isIdnEnabled) {
+                // The decoding step can fail here if the original domain name contained
+                // labels that start with "xn--" but don't contain valid Punycode. Even
+                // if the label was decoded correctly, it may still break some IDNA rules.
+                // In either case the original ASCII label should be used instead of
+                // the result returned by the decoder.
                 QString tmp = qt_punycodeDecoder(aceForm);
-                if (tmp.isEmpty())
-                    return QString(); // shouldn't happen, since we've just punycode-encoded it
-                if (qt_check_nameprepped_std3(tmp.constData(), tmp.size())) {
+                if (!tmp.isEmpty() && qt_check_nameprepped_std3(tmp)) {
                     result.resize(prevLen + tmp.size());
                     memcpy(result.data() + prevLen, tmp.constData(), tmp.size() * sizeof(QChar));
                     appended = true;
@@ -2583,7 +2646,7 @@ QString qt_ACE_do(const QString &domain, AceOperation op, AceLeadingDot dot)
                 memcpy(result.data() + prevLen, aceForm.constData(), aceForm.size() * sizeof(QChar));
             }
 
-            if (!qt_check_std3rules(aceForm.constData(), aceForm.size()))
+            if (!qt_check_std3rules(aceForm))
                 return QString();
         }
 
@@ -2609,13 +2672,16 @@ QStringList QUrl::idnWhitelist()
 {
     if (user_idn_whitelist)
         return *user_idn_whitelist;
-    QStringList list;
-    list.reserve(idn_whitelist_size);
-    unsigned int i = 0;
-    while (i < idn_whitelist_size) {
-        list << QLatin1String(idn_whitelist[i]);
-        ++i;
-    }
+    static const QStringList list = [] {
+        QStringList list;
+        list.reserve(idn_whitelist_size);
+        unsigned int i = 0;
+        while (i < idn_whitelist_size) {
+            list << QLatin1String(idn_whitelist[i]);
+            ++i;
+        }
+        return list;
+    }();
     return list;
 }
 

@@ -8,7 +8,6 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
@@ -19,7 +18,10 @@
 #include "base/synchronization/lock.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "build/build_config.h"
 #include "media/base/bind_to_current_loop.h"
+#include "media/base/cdm_context.h"
+#include "media/base/decoder.h"
 #include "media/base/demuxer.h"
 #include "media/base/media_log.h"
 #include "media/base/media_switches.h"
@@ -50,8 +52,8 @@ gfx::Size GetRotatedVideoSize(VideoRotation rotation, gfx::Size natural_size) {
 // |default_renderer| in Start() and Resume() helps avoid a round trip to the
 // render main task runner for Renderer creation in most cases which could add
 // latency to start-to-play time.
-class PipelineImpl::RendererWrapper : public DemuxerHost,
-                                      public RendererClient {
+class PipelineImpl::RendererWrapper final : public DemuxerHost,
+                                            public RendererClient {
  public:
   RendererWrapper(scoped_refptr<base::SingleThreadTaskRunner> media_task_runner,
                   scoped_refptr<base::SingleThreadTaskRunner> main_task_runner,
@@ -69,6 +71,8 @@ class PipelineImpl::RendererWrapper : public DemuxerHost,
   void SetPlaybackRate(double playback_rate);
   void SetVolume(float volume);
   void SetLatencyHint(base::Optional<base::TimeDelta> latency_hint);
+  void SetPreservesPitch(bool preserves_pitch);
+  void SetAutoplayInitiated(bool autoplay_initiated);
   base::TimeDelta GetMediaTime() const;
   Ranges<base::TimeDelta> GetBufferedTimeRanges() const;
   bool DidLoadingProgress();
@@ -191,6 +195,11 @@ class PipelineImpl::RendererWrapper : public DemuxerHost,
   float volume_;
   base::Optional<base::TimeDelta> latency_hint_;
   CdmContext* cdm_context_;
+
+  // By default, apply pitch adjustments.
+  bool preserves_pitch_ = true;
+
+  bool autoplay_initiated_ = false;
 
   // Lock used to serialize |shared_state_|.
   // TODO(crbug.com/893739): Add GUARDED_BY annotations.
@@ -325,7 +334,7 @@ void PipelineImpl::RendererWrapper::Stop() {
 
   if (demuxer_) {
     demuxer_->Stop();
-    demuxer_ = NULL;
+    demuxer_ = nullptr;
   }
 
   SetState(kStopped);
@@ -465,7 +474,7 @@ void PipelineImpl::RendererWrapper::SetVolume(float volume) {
   DCHECK(media_task_runner_->BelongsToCurrentThread());
 
   volume_ = volume;
-  if (state_ == kPlaying)
+  if (shared_state_.renderer)
     shared_state_.renderer->SetVolume(volume_);
 }
 
@@ -479,6 +488,29 @@ void PipelineImpl::RendererWrapper::SetLatencyHint(
   latency_hint_ = latency_hint;
   if (shared_state_.renderer)
     shared_state_.renderer->SetLatencyHint(latency_hint_);
+}
+
+void PipelineImpl::RendererWrapper::SetPreservesPitch(bool preserves_pitch) {
+  DCHECK(media_task_runner_->BelongsToCurrentThread());
+
+  if (preserves_pitch_ == preserves_pitch)
+    return;
+
+  preserves_pitch_ = preserves_pitch;
+  if (shared_state_.renderer)
+    shared_state_.renderer->SetPreservesPitch(preserves_pitch_);
+}
+
+void PipelineImpl::RendererWrapper::SetAutoplayInitiated(
+    bool autoplay_initiated) {
+  DCHECK(media_task_runner_->BelongsToCurrentThread());
+
+  if (autoplay_initiated_ == autoplay_initiated)
+    return;
+
+  autoplay_initiated_ = autoplay_initiated;
+  if (shared_state_.renderer)
+    shared_state_.renderer->SetAutoplayInitiated(autoplay_initiated_);
 }
 
 base::TimeDelta PipelineImpl::RendererWrapper::GetMediaTime() const {
@@ -548,8 +580,11 @@ void PipelineImpl::RendererWrapper::CreateRendererInternal(
       << "CDM should be available now if has encrypted stream";
 
   base::Optional<RendererFactoryType> factory_type;
+
+#if defined(OS_WIN)
   if (cdm_context_ && cdm_context_->RequiresMediaFoundationRenderer())
     factory_type = RendererFactoryType::kMediaFoundation;
+#endif  // defined(OS_WIN)
 
   // TODO(xhwang): During Resume(), the |default_renderer_| might already match
   // the |factory_type|, in which case we shouldn't need to create a new one.
@@ -558,7 +593,7 @@ void PipelineImpl::RendererWrapper::CreateRendererInternal(
     // BindToCurrentLoop to call OnRendererCreated() on the media task runner.
     auto renderer_created_cb = BindToCurrentLoop(
         base::BindOnce(&RendererWrapper::OnRendererCreated,
-                       weak_factory_.GetWeakPtr(), std::move(done_cb)));
+                       weak_factory_.GetWeakPtr(), std::move(done_cb)), FROM_HERE);
     main_task_runner_->PostTask(
         FROM_HERE,
         base::BindOnce(&PipelineImpl::AsyncCreateRenderer, weak_pipeline_,
@@ -632,7 +667,7 @@ void PipelineImpl::OnEnabledAudioTracksChanged(
       base::BindOnce(&RendererWrapper::OnEnabledAudioTracksChanged,
                      base::Unretained(renderer_wrapper_.get()),
                      enabled_track_ids,
-                     BindToCurrentLoop(std::move(change_completed_cb))));
+                     BindToCurrentLoop(std::move(change_completed_cb), FROM_HERE)));
 }
 
 void PipelineImpl::RendererWrapper::OnEnabledAudioTracksChanged(
@@ -673,7 +708,7 @@ void PipelineImpl::OnSelectedVideoTrackChanged(
       base::BindOnce(&RendererWrapper::OnSelectedVideoTrackChanged,
                      base::Unretained(renderer_wrapper_.get()),
                      selected_track_id,
-                     BindToCurrentLoop(std::move(change_completed_cb))));
+                     BindToCurrentLoop(std::move(change_completed_cb), FROM_HERE)));
 }
 
 void PipelineImpl::RendererWrapper::OnSelectedVideoTrackChanged(
@@ -746,7 +781,7 @@ void PipelineImpl::RendererWrapper::OnStatisticsUpdate(
   shared_state_.statistics.audio_memory_usage += stats.audio_memory_usage;
   shared_state_.statistics.video_memory_usage += stats.video_memory_usage;
 
-  if (!stats.audio_decoder_info.decoder_name.empty() &&
+  if (stats.audio_decoder_info.decoder_type != AudioDecoderType::kUnknown &&
       stats.audio_decoder_info != shared_state_.statistics.audio_decoder_info) {
     shared_state_.statistics.audio_decoder_info = stats.audio_decoder_info;
     main_task_runner_->PostTask(
@@ -754,7 +789,7 @@ void PipelineImpl::RendererWrapper::OnStatisticsUpdate(
                                   weak_pipeline_, stats.audio_decoder_info));
   }
 
-  if (!stats.video_decoder_info.decoder_name.empty() &&
+  if (stats.video_decoder_info.decoder_type != VideoDecoderType::kUnknown &&
       stats.video_decoder_info != shared_state_.statistics.video_decoder_info) {
     shared_state_.statistics.video_decoder_info = stats.video_decoder_info;
     main_task_runner_->PostTask(
@@ -933,7 +968,6 @@ void PipelineImpl::RendererWrapper::CompleteSeek(base::TimeDelta seek_time,
   }
 
   shared_state_.renderer->SetPlaybackRate(playback_rate_);
-  shared_state_.renderer->SetVolume(volume_);
 
   SetState(kPlaying);
   main_task_runner_->PostTask(
@@ -1034,14 +1068,17 @@ void PipelineImpl::RendererWrapper::InitializeRenderer(
       break;
   }
 
-  if (cdm_context_) {
-    shared_state_.renderer->SetCdm(cdm_context_,
-                                   base::BindOnce(&IgnoreCdmAttached));
-  }
+  if (cdm_context_)
+    shared_state_.renderer->SetCdm(cdm_context_, base::DoNothing());
 
-  if (latency_hint_) {
+  if (latency_hint_)
     shared_state_.renderer->SetLatencyHint(latency_hint_);
-  }
+
+  shared_state_.renderer->SetPreservesPitch(preserves_pitch_);
+
+  // Calling SetVolume() before Initialize() allows renderers to optimize for
+  // power by avoiding initialization of audio output until necessary.
+  shared_state_.renderer->SetVolume(volume_);
 
   shared_state_.renderer->Initialize(demuxer_, this, std::move(done_cb));
 }
@@ -1359,6 +1396,24 @@ void PipelineImpl::SetLatencyHint(
                      base::Unretained(renderer_wrapper_.get()), latency_hint));
 }
 
+void PipelineImpl::SetPreservesPitch(bool preserves_pitch) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+
+  media_task_runner_->PostTask(
+      FROM_HERE, base::BindOnce(&RendererWrapper::SetPreservesPitch,
+                                base::Unretained(renderer_wrapper_.get()),
+                                preserves_pitch));
+}
+
+void PipelineImpl::SetAutoplayInitiated(bool autoplay_initiated) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+
+  media_task_runner_->PostTask(
+      FROM_HERE, base::BindOnce(&RendererWrapper::SetAutoplayInitiated,
+                                base::Unretained(renderer_wrapper_.get()),
+                                autoplay_initiated));
+}
+
 base::TimeDelta PipelineImpl::GetMediaTime() const {
   DCHECK(thread_checker_.CalledOnValidThread());
 
@@ -1422,7 +1477,7 @@ void PipelineImpl::SetCdm(CdmContext* cdm_context,
       FROM_HERE,
       base::BindOnce(&RendererWrapper::SetCdm,
                      base::Unretained(renderer_wrapper_.get()), cdm_context,
-                     BindToCurrentLoop(std::move(cdm_attached_cb))));
+                     BindToCurrentLoop(std::move(cdm_attached_cb), FROM_HERE)));
 }
 
 #define RETURN_STRING(state) \
@@ -1581,7 +1636,7 @@ void PipelineImpl::OnVideoAverageKeyframeDistanceUpdate() {
   client_->OnVideoAverageKeyframeDistanceUpdate();
 }
 
-void PipelineImpl::OnAudioDecoderChange(const PipelineDecoderInfo& info) {
+void PipelineImpl::OnAudioDecoderChange(const AudioDecoderInfo& info) {
   DVLOG(2) << __func__ << ": info=" << info;
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(IsRunning());
@@ -1590,7 +1645,7 @@ void PipelineImpl::OnAudioDecoderChange(const PipelineDecoderInfo& info) {
   client_->OnAudioDecoderChange(info);
 }
 
-void PipelineImpl::OnVideoDecoderChange(const PipelineDecoderInfo& info) {
+void PipelineImpl::OnVideoDecoderChange(const VideoDecoderInfo& info) {
   DVLOG(2) << __func__ << ": info=" << info;
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(IsRunning());

@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/qpack/qpack_instructions.h"
+#include "quic/core/qpack/qpack_instructions.h"
 
 #include <limits>
 
-#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/string_view.h"
+#include "quic/platform/api/quic_logging.h"
 
 namespace quic {
 
@@ -19,7 +19,7 @@ namespace {
 void ValidateLangague(const QpackLanguage* language) {
 #ifndef NDEBUG
   for (const auto* instruction : *language) {
-    DCHECK_EQ(0, instruction->opcode.value & ~instruction->opcode.mask);
+    QUICHE_DCHECK_EQ(0, instruction->opcode.value & ~instruction->opcode.mask);
   }
 
   for (uint8_t byte = 0; byte < std::numeric_limits<uint8_t>::max(); ++byte) {
@@ -29,7 +29,7 @@ void ValidateLangague(const QpackLanguage* language) {
         ++match_count;
       }
     }
-    DCHECK_EQ(1u, match_count) << static_cast<int>(byte);
+    QUICHE_DCHECK_EQ(1u, match_count) << static_cast<int>(byte);
   }
 #else
   (void)language;
@@ -204,7 +204,7 @@ const QpackLanguage* QpackRequestStreamLanguage() {
 QpackInstructionWithValues QpackInstructionWithValues::InsertWithNameReference(
     bool is_static,
     uint64_t name_index,
-    quiche::QuicheStringPiece value) {
+    absl::string_view value) {
   QpackInstructionWithValues instruction_with_values;
   instruction_with_values.instruction_ = InsertWithNameReferenceInstruction();
   instruction_with_values.s_bit_ = is_static;
@@ -217,8 +217,8 @@ QpackInstructionWithValues QpackInstructionWithValues::InsertWithNameReference(
 // static
 QpackInstructionWithValues
 QpackInstructionWithValues::InsertWithoutNameReference(
-    quiche::QuicheStringPiece name,
-    quiche::QuicheStringPiece value) {
+    absl::string_view name,
+    absl::string_view value) {
   QpackInstructionWithValues instruction_with_values;
   instruction_with_values.instruction_ =
       InsertWithoutNameReferenceInstruction();
@@ -307,7 +307,7 @@ QpackInstructionWithValues
 QpackInstructionWithValues::LiteralHeaderFieldNameReference(
     bool is_static,
     uint64_t index,
-    quiche::QuicheStringPiece value) {
+    absl::string_view value) {
   QpackInstructionWithValues instruction_with_values;
   instruction_with_values.instruction_ =
       QpackLiteralHeaderFieldNameReferenceInstruction();
@@ -320,8 +320,8 @@ QpackInstructionWithValues::LiteralHeaderFieldNameReference(
 
 // static
 QpackInstructionWithValues QpackInstructionWithValues::LiteralHeaderField(
-    quiche::QuicheStringPiece name,
-    quiche::QuicheStringPiece value) {
+    absl::string_view name,
+    absl::string_view value) {
   QpackInstructionWithValues instruction_with_values;
   instruction_with_values.instruction_ = QpackLiteralHeaderFieldInstruction();
   instruction_with_values.name_ = name;

@@ -14,8 +14,6 @@
 -- limitations under the License.
 --
 
-SELECT RUN_METRIC('android/android_package_list.sql');
-
 DROP TABLE IF EXISTS uid_package_count;
 
 CREATE TABLE uid_package_count AS
@@ -28,7 +26,16 @@ DROP TABLE IF EXISTS process_metadata_table;
 CREATE TABLE process_metadata_table AS
 SELECT
   process.upid,
-  process.name AS process_name,
+  -- TODO(b/169226092) remove this workaround
+  CASE
+      -- cmdline gets rewritten after fork, if these are still there we must
+      -- have seen a racy capture.
+    WHEN length(process.name) = 15 AND (
+      process.cmdline in ('zygote', 'zygote64', '<pre-initialized>')
+      OR process.cmdline like '%' || process.name)
+    THEN process.cmdline
+    ELSE process.name
+  END AS process_name,
   process.android_appid AS uid,
   CASE WHEN uid_package_count.cnt > 1 THEN TRUE ELSE NULL END AS shared_uid,
   plist.package_name,
@@ -47,7 +54,9 @@ ON (
     OR process.name LIKE plist.package_name || '%')
   );
 
-CREATE VIEW IF NOT EXISTS process_metadata AS
+DROP VIEW IF EXISTS process_metadata;
+
+CREATE VIEW process_metadata AS
 WITH upid_packages AS (
   SELECT
   upid,
@@ -62,15 +71,15 @@ WITH upid_packages AS (
 )
 SELECT
   upid,
-  AndroidProcessMetadata(
+  NULL_IF_EMPTY(AndroidProcessMetadata(
     'name', process_name,
     'uid', uid,
-    'package', AndroidProcessMetadata_Package(
+    'package', NULL_IF_EMPTY(AndroidProcessMetadata_Package(
       'package_name', package_name,
       'apk_version_code', version_code,
       'debuggable', debuggable
-    ),
+    )),
     'packages_for_uid', packages_for_uid
-  ) AS metadata
+  )) AS metadata
 FROM process_metadata_table
 LEFT JOIN upid_packages USING (upid);

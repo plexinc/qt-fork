@@ -3,7 +3,9 @@
 // found in the LICENSE file.
 
 #include "content/browser/accessibility/browser_accessibility_win.h"
+
 #include "content/browser/accessibility/browser_accessibility_manager.h"
+#include "content/browser/accessibility/browser_accessibility_manager_win.h"
 #include "content/browser/accessibility/browser_accessibility_state_impl.h"
 
 #include "ui/base/win/atl_module.h"
@@ -40,23 +42,28 @@ void BrowserAccessibilityWin::UpdatePlatformAttributes() {
   GetCOM()->UpdateStep3FireEvents();
 }
 
-ui::AXPlatformNode* BrowserAccessibilityWin::GetAXPlatformNode() const {
-  if (!instance_active())
-    return nullptr;
+bool BrowserAccessibilityWin::CanFireEvents() const {
+  // On Windows, we want to hide the subtree of a collapsed <select> element but
+  // we still need to fire events on those hidden nodes.
+  if (!IsIgnored() && GetCollapsedMenuListPopUpButtonAncestor())
+    return true;
 
-  return GetCOM();
+  // If the node changed its ignored state this frame then some events should be
+  // allowed, such as hide/show/structure events. If a node with no siblings
+  // changes aria-hidden value, this would affect whether it would be considered
+  // a "child of leaf" node which affects BrowserAccessibility::CanFireEvents.
+  if (manager()->ToBrowserAccessibilityManagerWin()->IsIgnoredChangedNode(this))
+    return true;
+
+  return BrowserAccessibility::CanFireEvents();
 }
 
-bool BrowserAccessibilityWin::IsNative() const {
-  return true;
+ui::AXPlatformNode* BrowserAccessibilityWin::GetAXPlatformNode() const {
+  return GetCOM();
 }
 
 void BrowserAccessibilityWin::OnLocationChanged() {
   GetCOM()->FireNativeEvent(EVENT_OBJECT_LOCATIONCHANGE);
-}
-
-base::string16 BrowserAccessibilityWin::GetText() const {
-  return GetHypertext();
 }
 
 base::string16 BrowserAccessibilityWin::GetHypertext() const {
@@ -104,13 +111,11 @@ BrowserAccessibilityComWin* BrowserAccessibilityWin::GetCOM() const {
 }
 
 BrowserAccessibilityWin* ToBrowserAccessibilityWin(BrowserAccessibility* obj) {
-  DCHECK(!obj || obj->IsNative());
   return static_cast<BrowserAccessibilityWin*>(obj);
 }
 
 const BrowserAccessibilityWin* ToBrowserAccessibilityWin(
     const BrowserAccessibility* obj) {
-  DCHECK(!obj || obj->IsNative());
   return static_cast<const BrowserAccessibilityWin*>(obj);
 }
 

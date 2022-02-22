@@ -27,6 +27,7 @@
 ****************************************************************************/
 #include <QCoreApplication>
 #include <QDir>
+#include <QLibraryInfo>
 
 #include "../shared/shared.h"
 
@@ -232,14 +233,34 @@ int main(int argc, char **argv)
         // Update deploymentInfo.deployedFrameworks - the QML imports
         // may have brought in extra frameworks as dependencies.
         deploymentInfo.deployedFrameworks += findAppFrameworkNames(appBundlePath);
-        deploymentInfo.deployedFrameworks = deploymentInfo.deployedFrameworks.toSet().toList();
+        deploymentInfo.deployedFrameworks =
+            QSet<QString>(deploymentInfo.deployedFrameworks.begin(),
+                          deploymentInfo.deployedFrameworks.end()).values();
     }
 
-    if (plugins && !deploymentInfo.qtPath.isEmpty()) {
-        deploymentInfo.pluginPath = deploymentInfo.qtPath + "/plugins";
-        LogNormal();
-        deployPlugins(appBundlePath, deploymentInfo, useDebugLibs);
-        createQtConf(appBundlePath);
+    // Handle plugins
+    if (plugins) {
+        // Set the plugins search directory
+        deploymentInfo.pluginPath = QLibraryInfo::path(QLibraryInfo::PluginsPath);
+
+        // Sanity checks
+        if (deploymentInfo.pluginPath.isEmpty()) {
+            LogError() << "Missing Qt plugins path\n";
+            return 1;
+        }
+
+        if (!QDir(deploymentInfo.pluginPath).exists()) {
+            LogError() << "Plugins path does not exist" << deploymentInfo.pluginPath << "\n";
+            return 1;
+        }
+
+        // Deploy plugins
+        Q_ASSERT(!deploymentInfo.pluginPath.isEmpty());
+        if (!deploymentInfo.pluginPath.isEmpty()) {
+            LogNormal();
+            deployPlugins(appBundlePath, deploymentInfo, useDebugLibs);
+            createQtConf(appBundlePath);
+        }
     }
 
     if (runStripEnabled)
@@ -255,4 +276,3 @@ int main(int argc, char **argv)
 
     return 0;
 }
-

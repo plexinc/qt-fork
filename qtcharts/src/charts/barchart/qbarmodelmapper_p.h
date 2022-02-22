@@ -47,7 +47,7 @@ QT_BEGIN_NAMESPACE
 class QModelIndex;
 QT_END_NAMESPACE
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class QBarSet;
 
@@ -68,8 +68,8 @@ public Q_SLOTS:
     void handleModelDestroyed();
 
     // for the series
-    void barSetsAdded(QList<QBarSet *> sets);
-    void barSetsRemoved(QList<QBarSet *> sets);
+    void barSetsAdded(const QList<QBarSet *> &sets);
+    void barSetsRemoved(const QList<QBarSet *> &sets);
     void valuesAdded(int index, int count);
     void valuesRemoved(int index, int count);
     void barLabelChanged();
@@ -103,6 +103,6 @@ private:
     Q_DECLARE_PUBLIC(QBarModelMapper)
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // QBARMODELMAPPER_P_H

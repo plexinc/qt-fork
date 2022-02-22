@@ -53,6 +53,7 @@ public:
     QString m_errorText;
     QModbusResponse m_response;
     QModbusReply::ReplyType m_type;
+    QList<QModbusDevice::IntermediateError> m_intermediateErrors;
 };
 
 /*!
@@ -147,15 +148,17 @@ void QModbusReply::setFinished(bool isFinished)
     If the request has not finished, has failed with an error or was a write
     request then the returned \l QModbusDataUnit instance is invalid.
 
-    \note If the \l type() of the reply is \l QModbusReply::Raw, the return
-    value will always be invalid.
+    \note If the \l type() of the reply is \l QModbusReply::Broadcast, the
+    return value will always be invalid. If the l type() of the reply is
+    \l QModbusReply::Raw, the return value might be invalid depending on the
+    implementation of \l QModbusClient::processPrivateResponse().
 
-    \sa type(), rawResult()
+    \sa type(), rawResult(), QModbusClient::processPrivateResponse()
 */
 QModbusDataUnit QModbusReply::result() const
 {
     Q_D(const QModbusReply);
-    if (type() == QModbusReply::Common)
+    if (type() != QModbusReply::Broadcast)
         return d->m_unit;
     return QModbusDataUnit();
 }
@@ -239,7 +242,6 @@ QString QModbusReply::errorString() const
     return d->m_errorText;
 }
 
-
 /*!
     Returns the type of the reply.
 
@@ -276,6 +278,41 @@ void QModbusReply::setRawResult(const QModbusResponse &response)
 {
     Q_D(QModbusReply);
     d->m_response = response;
+}
+
+/*!
+    \since 6.0
+    \fn void intermediateErrorOccurred(QModbusDevice::IntermediateError error)
+
+    This signal is emitted when an error has been detected in the processing of
+    this reply. The error will be described by the error code \a error.
+*/
+
+/*!
+    \since 6.0
+
+    Returns the list of intermediate errors that might have happened during
+    the send-receive cycle of a Modbus request until the QModbusReply reports
+    to be finished.
+*/
+QList<QModbusDevice::IntermediateError> QModbusReply::intermediateErrors() const
+{
+    Q_D(const QModbusReply);
+    return d->m_intermediateErrors;
+}
+
+/*!
+   \internal
+   \since 6.0
+
+    Adds an intermediate error to the list of intermediate errors.
+    This will also cause the \l intermediateErrorOccurred() signal to be emitted.
+*/
+void QModbusReply::addIntermediateError(QModbusDevice::IntermediateError error)
+{
+    Q_D(QModbusReply);
+    d->m_intermediateErrors.append(error);
+    emit intermediateErrorOccurred(error);
 }
 
 QT_END_NAMESPACE

@@ -4,7 +4,7 @@
 
 #include "extensions/browser/extension_web_contents_observer.h"
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "content/public/browser/child_process_security_policy.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
@@ -16,6 +16,7 @@
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extensions_browser_client.h"
+#include "extensions/browser/kiosk/kiosk_delegate.h"
 #include "extensions/browser/process_manager.h"
 #include "extensions/browser/renderer_startup_helper.h"
 #include "extensions/browser/url_loader_factory_manager.h"
@@ -24,6 +25,8 @@
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_messages.h"
 #include "extensions/common/view_type.h"
+#include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
+#include "third_party/blink/public/mojom/autoplay/autoplay.mojom.h"
 #include "url/origin.h"
 
 namespace extensions {
@@ -143,6 +146,7 @@ void ExtensionWebContentsObserver::RenderFrameCreated(
 void ExtensionWebContentsObserver::RenderFrameDeleted(
     content::RenderFrameHost* render_frame_host) {
   DCHECK(initialized_);
+  local_frame_map_.erase(render_frame_host);
   ProcessManager::Get(browser_context_)
       ->UnregisterRenderFrameHost(render_frame_host);
   ExtensionApiFrameIdMap::Get()->OnRenderFrameDeleted(render_frame_host);
@@ -151,6 +155,36 @@ void ExtensionWebContentsObserver::RenderFrameDeleted(
 void ExtensionWebContentsObserver::ReadyToCommitNavigation(
     content::NavigationHandle* navigation_handle) {
   URLLoaderFactoryManager::ReadyToCommitNavigation(navigation_handle);
+
+  const ExtensionRegistry* const registry =
+      ExtensionRegistry::Get(browser_context_);
+
+#ifndef TOOLKIT_QT
+  const Extension* const extension =
+      GetExtensionFromFrame(web_contents()->GetMainFrame(), false);
+  KioskDelegate* const kiosk_delegate =
+      ExtensionsBrowserClient::Get()->GetKioskDelegate();
+  DCHECK(kiosk_delegate);
+  bool is_kiosk =
+      extension && kiosk_delegate && kiosk_delegate->IsAutoLaunchedKioskApp(extension->id());
+#else
+  bool is_kiosk = false;
+#endif
+
+  // If the top most frame is an extension, packaged app, hosted app, etc. then
+  // the main frame and all iframes should be able to autoplay without
+  // restriction. <webview> should still have autoplay blocked though.
+  GURL url = navigation_handle->IsInMainFrame()
+                 ? navigation_handle->GetURL()
+                 : navigation_handle->GetWebContents()->GetLastCommittedURL();
+  if (is_kiosk || registry->enabled_extensions().GetExtensionOrAppByURL(url)) {
+    mojo::AssociatedRemote<blink::mojom::AutoplayConfigurationClient> client;
+    navigation_handle->GetRenderFrameHost()
+        ->GetRemoteAssociatedInterfaces()
+        ->GetInterface(&client);
+    client->AddAutoplayFlags(url::Origin::Create(navigation_handle->GetURL()),
+                             blink::mojom::kAutoplayFlagForceAllow);
+  }
 }
 
 void ExtensionWebContentsObserver::DidFinishNavigation(
@@ -262,16 +296,29 @@ const Extension* ExtensionWebContentsObserver::GetExtensionFromFrame(
 
   if (verify_url) {
     const url::Origin& origin(render_frame_host->GetLastCommittedOrigin());
-    // Without site isolation, this check is needed to eliminate non-extension
-    // schemes. With site isolation, this is still needed to exclude sandboxed
-    // extension frames with an opaque origin.
-    const GURL site_url(render_frame_host->GetSiteInstance()->GetSiteURL());
-    if (origin.opaque() || site_url != content::SiteInstance::GetSiteForURL(
-                                           browser_context, origin.GetURL()))
+    // This check is needed to eliminate origins that are not within a
+    // hosted-app's web extent, and sandboxed extension frames with an opaque
+    // origin.
+    // TODO(1139108) See if extension check is still needed after bug is fixed.
+    auto* extension_for_origin = ExtensionRegistry::Get(browser_context)
+                                     ->enabled_extensions()
+                                     .GetExtensionOrAppByURL(origin.GetURL());
+    if (origin.opaque() || extension_for_origin != extension)
       return nullptr;
   }
 
   return extension;
+}
+
+mojom::LocalFrame* ExtensionWebContentsObserver::GetLocalFrame(
+    content::RenderFrameHost* render_frame_host) {
+  mojo::AssociatedRemote<mojom::LocalFrame>& remote =
+      local_frame_map_[render_frame_host];
+  if (!remote.is_bound()) {
+    render_frame_host->GetRemoteAssociatedInterfaces()->GetInterface(
+        remote.BindNewEndpointAndPassReceiver());
+  }
+  return remote.get();
 }
 
 void ExtensionWebContentsObserver::OnRequest(

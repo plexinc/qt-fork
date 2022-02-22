@@ -73,14 +73,14 @@ private slots:
     void incomplete();
 
 protected slots:
-    void proxyAuthenticationRequired(const QNetworkProxy &proxy, QAuthenticator *auth);
+    void proxyAuthenticationRequired(const QNetworkProxy &proxy, QAuthenticator *auth) override;
 
 private:
-    void readNotification() { }
-    void writeNotification() { }
-    void closeNotification() { }
-    void exceptionNotification() { }
-    void connectionNotification() { }
+    void readNotification() override { }
+    void writeNotification() override { }
+    void closeNotification() override { }
+    void exceptionNotification() override { }
+    void connectionNotification() override { }
 };
 
 class MiniSocks5ResponseHandler : public QObject
@@ -137,6 +137,10 @@ private slots:
 
 void tst_QSocks5SocketEngine::initTestCase()
 {
+    if (qEnvironmentVariable("QT_QPA_PLATFORM").contains("offscreen")
+          && !qEnvironmentVariableIsEmpty("QEMU_LD_PREFIX"))
+        QSKIP("Not support yet for B2Qt");
+
 #ifdef QT_TEST_SERVER
      QVERIFY(QtNetworkSettings::verifyConnection(QtNetworkSettings::socksProxyServerName(), 1080));
      QVERIFY(QtNetworkSettings::verifyConnection(QtNetworkSettings::httpServerName(), 80));
@@ -308,12 +312,15 @@ void tst_QSocks5SocketEngine::simpleConnectToIMAP()
     QCOMPARE(socketDevice.state(), QAbstractSocket::ConnectedState);
     QCOMPARE(socketDevice.peerAddress(), QtNetworkSettings::imapServerIp());
 
-    // Wait for the greeting
-    QVERIFY2(socketDevice.waitForRead(), qPrintable("Socket error:" + socketDevice.errorString()));
+    // Wait for the greeting, if it hasn't arrived yet
+    qint64 available = socketDevice.bytesAvailable();
+    if (available == 0) {
+        QVERIFY2(socketDevice.waitForRead(), qPrintable("Socket error:" + socketDevice.errorString()));
+        available = socketDevice.bytesAvailable();
+    }
+    QVERIFY(available > 0);
 
     // Read the greeting
-    qint64 available = socketDevice.bytesAvailable();
-    QVERIFY(available > 0);
     QByteArray array;
     array.resize(available);
     QVERIFY(socketDevice.read(array.data(), array.size()) == available);

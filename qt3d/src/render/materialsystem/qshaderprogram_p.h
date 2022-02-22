@@ -80,17 +80,11 @@ public:
 
     static QByteArray deincludify(const QByteArray &contents, const QString &filePath);
     static QByteArray deincludify(const QString &filePath);
-};
-
-struct QShaderProgramData
-{
-    QByteArray vertexShaderCode;
-    QByteArray tessellationControlShaderCode;
-    QByteArray tessellationEvaluationShaderCode;
-    QByteArray geometryShaderCode;
-    QByteArray fragmentShaderCode;
-    QByteArray computeShaderCode;
-    QShaderProgram::Format format;
+    static QByteArray resolveAutoBindingIndices(const QByteArray &content,
+                                                int &currentBinding,
+                                                int &currentInputLocation,
+                                                int &currentOutputLocation);
+    static QByteArray resolveAutoBindingIndices(const QByteArray &content);
 };
 
 } // namespace Qt3DRender

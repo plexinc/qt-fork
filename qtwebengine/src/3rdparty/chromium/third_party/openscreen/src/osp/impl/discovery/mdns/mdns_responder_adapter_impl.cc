@@ -9,8 +9,10 @@
 #include <cstring>
 #include <iostream>
 #include <memory>
+#include <string>
+#include <utility>
 
-#include "util/logging.h"
+#include "util/osp_logging.h"
 #include "util/trace_logging.h"
 
 namespace openscreen {
@@ -185,7 +187,7 @@ std::vector<std::string> ParseTxtResponse(
 }
 
 void MdnsStatusCallback(mDNS* mdns, mStatus result) {
-  OSP_LOG << "status good? " << (result == mStatus_NoError);
+  OSP_LOG_INFO << "status good? " << (result == mStatus_NoError);
 }
 
 }  // namespace
@@ -344,6 +346,11 @@ void MdnsResponderAdapterImpl::OnSendError(UdpSocket* socket, Error error) {
 }
 
 void MdnsResponderAdapterImpl::OnError(UdpSocket* socket, Error error) {
+  // TODO(crbug.com/openscreen/67): Implement this method.
+  OSP_UNIMPLEMENTED();
+}
+
+void MdnsResponderAdapterImpl::OnBound(UdpSocket* socket) {
   // TODO(crbug.com/openscreen/67): Implement this method.
   OSP_UNIMPLEMENTED();
 }

@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -42,6 +42,42 @@
 QT_BEGIN_NAMESPACE
 
 namespace QtPrivate {
+
+/*!
+  \internal
+
+  Finds result in \a store by \a index
+ */
+static ResultIteratorBase findResult(const QMap<int, ResultItem> &store, int index)
+{
+    if (store.isEmpty())
+        return ResultIteratorBase(store.end());
+    QMap<int, ResultItem>::const_iterator it = store.lowerBound(index);
+
+    // lowerBound returns either an iterator to the result or an iterator
+    // to the nearest greater index. If the latter happens it might be
+    // that the result is stored in a vector at the previous index.
+    if (it == store.end()) {
+        --it;
+        if (it.value().isVector() == false) {
+            return ResultIteratorBase(store.end());
+        }
+    } else {
+        if (it.key() > index) {
+            if (it == store.begin())
+                return ResultIteratorBase(store.end());
+            --it;
+        }
+    }
+
+    const int vectorIndex = index - it.key();
+
+    if (vectorIndex >= it.value().count())
+        return ResultIteratorBase(store.end());
+    else if (it.value().isVector() == false && vectorIndex != 0)
+        return ResultIteratorBase(store.end());
+    return ResultIteratorBase(it, vectorIndex);
+}
 
 /*!
   \class QtPrivate::ResultItem
@@ -108,6 +144,11 @@ bool ResultIteratorBase::canIncrementVectorIndex() const
     return (m_vectorIndex + 1 < mapIterator.value().m_count);
 }
 
+bool ResultIteratorBase::isValid() const
+{
+    return mapIterator.value().isValid();
+}
+
 ResultStoreBase::ResultStoreBase()
     : insertIndex(0), resultCount(0), m_filterMode(false), filteredResults(0) { }
 
@@ -160,6 +201,15 @@ int ResultStoreBase::insertResultItem(int index, ResultItem &resultItem)
     return storeIndex;
 }
 
+bool ResultStoreBase::containsValidResultItem(int index) const
+{
+    // index might refer to either visible or pending result
+    const bool inPending = m_filterMode && index != -1 && index > insertIndex;
+    const auto &store = inPending ? pendingResults : m_results;
+    auto it = findResult(store, index);
+    return it != ResultIteratorBase(store.end()) && it.isValid();
+}
+
 void ResultStoreBase::syncPendingResults()
 {
     // check if we can insert any of the pending results:
@@ -185,6 +235,7 @@ int ResultStoreBase::addResult(int index, const void *result)
 int ResultStoreBase::addResults(int index, const void *results, int vectorSize, int totalCount)
 {
     if (m_filterMode == false || vectorSize == totalCount) {
+        Q_ASSERT(vectorSize != 0);
         ResultItem resultItem(results, vectorSize);
         return insertResultItem(index, resultItem);
     } else {
@@ -214,33 +265,7 @@ bool ResultStoreBase::hasNextResult() const
 
 ResultIteratorBase ResultStoreBase::resultAt(int index) const
 {
-    if (m_results.isEmpty())
-        return ResultIteratorBase(m_results.end());
-    QMap<int, ResultItem>::const_iterator it = m_results.lowerBound(index);
-
-    // lowerBound returns either an iterator to the result or an iterator
-    // to the nearest greater index. If the latter happens it might be
-    // that the result is stored in a vector at the previous index.
-    if (it == m_results.end()) {
-        --it;
-        if (it.value().isVector() == false) {
-            return ResultIteratorBase(m_results.end());
-        }
-    } else {
-        if (it.key() > index) {
-            if (it == m_results.begin())
-                return ResultIteratorBase(m_results.end());
-            --it;
-        }
-    }
-
-    const int vectorIndex = index - it.key();
-
-    if (vectorIndex >= it.value().count())
-        return ResultIteratorBase(m_results.end());
-    else if (it.value().isVector() == false && vectorIndex != 0)
-        return ResultIteratorBase(m_results.end());
-    return ResultIteratorBase(it, vectorIndex);
+    return findResult(m_results, index);
 }
 
 bool ResultStoreBase::contains(int index) const

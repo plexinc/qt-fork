@@ -8,20 +8,37 @@
 #include <limits>
 #include <memory>
 
-#include "include/cppgc/gc-info.h"
+#include "include/cppgc/internal/gc-info.h"
 #include "include/cppgc/platform.h"
 #include "src/base/bits.h"
 #include "src/base/lazy-instance.h"
+#include "src/base/page-allocator.h"
 
 namespace cppgc {
 namespace internal {
 
 namespace {
 
+// GCInfoTable::table_, the table which holds GCInfos, is maintained as a
+// contiguous array reserved upfront. Subparts of the array are (re-)committed
+// as read/write or read-only in OS pages, whose size is a power of 2. To avoid
+// having GCInfos that cross the boundaries between these subparts we force the
+// size of GCInfo to be a power of 2 as well.
 constexpr size_t kEntrySize = sizeof(GCInfo);
 static_assert(v8::base::bits::IsPowerOfTwo(kEntrySize),
               "GCInfoTable entries size must be power of "
               "two");
+
+PageAllocator* GetAllocator(PageAllocator* page_allocator) {
+  if (!page_allocator) {
+    static v8::base::LeakyObject<v8::base::PageAllocator>
+        default_page_allocator;
+    page_allocator = default_page_allocator.get();
+  }
+  // TODO(chromium:1056170): Wrap page_allocator into LsanPageAllocator when
+  // running with LEAK_SANITIZER.
+  return page_allocator;
+}
 
 }  // namespace
 
@@ -30,10 +47,13 @@ constexpr GCInfoIndex GCInfoTable::kMaxIndex;
 constexpr GCInfoIndex GCInfoTable::kMinIndex;
 constexpr GCInfoIndex GCInfoTable::kInitialWantedLimit;
 
-void GlobalGCInfoTable::Create(PageAllocator* page_allocator) {
-  static v8::base::LeakyObject<GCInfoTable> table(page_allocator);
+// static
+void GlobalGCInfoTable::Initialize(PageAllocator* page_allocator) {
+  static v8::base::LeakyObject<GCInfoTable> table(GetAllocator(page_allocator));
   if (!global_table_) {
     global_table_ = table.get();
+  } else {
+    CHECK_EQ(page_allocator, global_table_->allocator());
   }
 }
 

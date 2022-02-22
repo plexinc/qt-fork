@@ -39,13 +39,13 @@
 ****************************************************************************/
 
 #include "qbluetoothdevicediscoveryagent_p.h"
+#include <QCoreApplication>
 #include <QtCore/QLoggingCategory>
 #include <QtBluetooth/QBluetoothAddress>
 #include <QtBluetooth/QBluetoothDeviceInfo>
-#include <QtCore/private/qjnihelpers_p.h>
 #include "android/devicediscoverybroadcastreceiver_p.h"
-#include <QtAndroidExtras/QAndroidJniEnvironment>
-#include <QtAndroid>
+#include <QtCore/QJniEnvironment>
+#include <QtCore/private/qandroidextras_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -59,26 +59,15 @@ enum {
 
 QBluetoothDeviceDiscoveryAgentPrivate::QBluetoothDeviceDiscoveryAgentPrivate(
     const QBluetoothAddress &deviceAdapter, QBluetoothDeviceDiscoveryAgent *parent) :
-    inquiryType(QBluetoothDeviceDiscoveryAgent::GeneralUnlimitedInquiry),
-    lastError(QBluetoothDeviceDiscoveryAgent::NoError),
-    receiver(0),
     m_adapterAddress(deviceAdapter),
     m_active(NoScanActive),
-    leScanTimeout(0),
-    pendingCancel(false),
-    pendingStart(false),
-    lowEnergySearchTimeout(25000),
     q_ptr(parent)
 {
-    QAndroidJniEnvironment env;
-    adapter = QAndroidJniObject::callStaticObjectMethod("android/bluetooth/BluetoothAdapter",
+    QJniEnvironment env;
+    adapter = QJniObject::callStaticObjectMethod("android/bluetooth/BluetoothAdapter",
                                                         "getDefaultAdapter",
                                                         "()Landroid/bluetooth/BluetoothAdapter;");
     if (!adapter.isValid()) {
-        if (env->ExceptionCheck()) {
-            env->ExceptionDescribe();
-            env->ExceptionClear();
-        }
         qCWarning(QT_BT_ANDROID) << "Device does not support Bluetooth";
     }
 }
@@ -127,7 +116,7 @@ void QBluetoothDeviceDiscoveryAgentPrivate::start(QBluetoothDeviceDiscoveryAgent
         qCWarning(QT_BT_ANDROID) << "Device does not support Bluetooth";
         lastError = QBluetoothDeviceDiscoveryAgent::InputOutputError;
         errorString = QBluetoothDeviceDiscoveryAgent::tr("Device does not support Bluetooth");
-        emit q->error(lastError);
+        emit q->errorOccurred(lastError);
         return;
     }
 
@@ -137,7 +126,7 @@ void QBluetoothDeviceDiscoveryAgentPrivate::start(QBluetoothDeviceDiscoveryAgent
         qCWarning(QT_BT_ANDROID) << "Incorrect local adapter passed.";
         lastError = QBluetoothDeviceDiscoveryAgent::InvalidBluetoothAdapterError;
         errorString = QBluetoothDeviceDiscoveryAgent::tr("Passed address is not a local device.");
-        emit q->error(lastError);
+        emit q->errorOccurred(lastError);
         return;
     }
 
@@ -145,79 +134,56 @@ void QBluetoothDeviceDiscoveryAgentPrivate::start(QBluetoothDeviceDiscoveryAgent
     if (state != 12) {  // BluetoothAdapter.STATE_ON
         lastError = QBluetoothDeviceDiscoveryAgent::PoweredOffError;
         errorString = QBluetoothDeviceDiscoveryAgent::tr("Device is powered off");
-        emit q->error(lastError);
+        emit q->errorOccurred(lastError);
         return;
     }
 
-    // check Android v23+ permissions
-    // -> any device search requires android.permission.ACCESS_COARSE_LOCATION or android.permission.ACCESS_FINE_LOCATION
-    if (QtAndroid::androidSdkVersion() >= 23) {
-        const QString coarsePermission(QLatin1String("android.permission.ACCESS_COARSE_LOCATION"));
-        const QString finePermission(QLatin1String("android.permission.ACCESS_FINE_LOCATION"));
-
-        // do we have required permission already, if so nothing to do
-        if (QtAndroidPrivate::checkPermission(coarsePermission) == QtAndroidPrivate::PermissionsResult::Denied
-            && QtAndroidPrivate::checkPermission(finePermission) == QtAndroidPrivate::PermissionsResult::Denied) {
-            qCWarning(QT_BT_ANDROID) << "Requesting ACCESS_*_LOCATION permission";
-
-            QAndroidJniEnvironment env;
-            const QHash<QString, QtAndroidPrivate::PermissionsResult> results =
-                    QtAndroidPrivate::requestPermissionsSync(env, QStringList() << coarsePermission << finePermission);
-
-            bool permissionReceived = false;
-            for (const QString &permission: results.keys()) {
-                qCDebug(QT_BT_ANDROID) << permission << (results[permission] == QtAndroidPrivate::PermissionsResult::Denied);
-                if ((permission == coarsePermission || permission == finePermission)
-                    && results[permission] == QtAndroidPrivate::PermissionsResult::Granted) {
-                        permissionReceived = true;
-                        break;
-                }
-            }
-            if (!permissionReceived) {
-                qCWarning(QT_BT_ANDROID) << "Search not possible due to missing permission (ACCESS_COARSE|FINE_LOCATION)";
-                lastError = QBluetoothDeviceDiscoveryAgent::UnknownError;
-                errorString = QBluetoothDeviceDiscoveryAgent::tr("Missing Location permission. Search is not possible.");
-                emit q->error(lastError);
-                return;
-            }
+    auto precisePermission = QtAndroidPrivate::PreciseLocation;
+    auto preciseCheckRes = QtAndroidPrivate::checkPermission(precisePermission).result();
+    if (preciseCheckRes != QtAndroidPrivate::Authorized) {
+        auto preciseRequestRes = QtAndroidPrivate::requestPermission(precisePermission).result();
+        if (preciseRequestRes != QtAndroidPrivate::Authorized) {
+            qCWarning(QT_BT_ANDROID) <<
+                "Search not possible due to missing permission (ACCESS_FINE_LOCATION)";
+            errorString = QBluetoothDeviceDiscoveryAgent::tr(
+                "Missing Location permission. Search is not possible.");
+            lastError = QBluetoothDeviceDiscoveryAgent::UnknownError;
+            emit q->errorOccurred(lastError);
+            return;
         }
-
-        qCWarning(QT_BT_ANDROID) << "ACCESS_COARSE|FINE_LOCATION permission available";
     }
+    qCDebug(QT_BT_ANDROID) << "ACCESS_FINE_LOCATION permission available";
 
     // Double check Location service is turned on
     bool locationTurnedOn = true; // backwards compatible behavior to previous Qt versions
-    const  QAndroidJniObject locString = QAndroidJniObject::getStaticObjectField(
+    const  QJniObject locString = QJniObject::getStaticObjectField(
                 "android/content/Context", "LOCATION_SERVICE", "Ljava/lang/String;");
-    const QAndroidJniObject locService = QtAndroid::androidContext().callObjectMethod(
+    const QJniObject locService = QJniObject(QNativeInterface::QAndroidApplication::context()).callObjectMethod(
                 "getSystemService",
                 "(Ljava/lang/String;)Ljava/lang/Object;",
                 locString.object<jstring>());
 
     if (locService.isValid()) {
-        if (QtAndroid::androidSdkVersion() >= 28) {
+        if (QNativeInterface::QAndroidApplication::sdkVersion() >= 28) {
             locationTurnedOn = bool(locService.callMethod<jboolean>("isLocationEnabled"));
         } else {
-            // try GPS and network provider
-            QAndroidJniObject provider = QAndroidJniObject::getStaticObjectField(
-                        "android/location/LocationManager", "GPS_PROVIDER", "Ljava/lang/String;");
-            bool gpsTurnedOn = bool(locService.callMethod<jboolean>("isProviderEnabled",
-                                      "(Ljava/lang/String;)Z", provider.object<jstring>()));
+            // check whether there is any enabled provider
+            QJniObject listOfEnabledProviders =
+                    locService.callObjectMethod("getProviders", "(Z)Ljava/util/List;", true);
 
-            provider = QAndroidJniObject::getStaticObjectField(
-                       "android/location/LocationManager", "NETWORK_PROVIDER", "Ljava/lang/String;");
-            bool providerTurnedOn = bool(locService.callMethod<jboolean>("isProviderEnabled",
-                                          "(Ljava/lang/String;)Z", provider.object<jstring>()));
-
-            locationTurnedOn = gpsTurnedOn || providerTurnedOn;
+            if (listOfEnabledProviders.isValid()) {
+                int size = listOfEnabledProviders.callMethod<jint>("size", "()I");
+                locationTurnedOn = size > 0;
+                qCDebug(QT_BT_ANDROID) << size << "enabled location providers detected.";
+            }
         }
     }
 
     if (!locationTurnedOn) {
         qCWarning(QT_BT_ANDROID) << "Search not possible due to turned off Location service";
-        lastError = QBluetoothDeviceDiscoveryAgent::UnknownError;
+        lastError = QBluetoothDeviceDiscoveryAgent::LocationServiceTurnedOffError;
         errorString = QBluetoothDeviceDiscoveryAgent::tr("Location service turned off. Search is not possible.");
-        emit q->error(lastError);
+        emit q->errorOccurred(lastError);
         return;
     }
 
@@ -245,7 +211,7 @@ void QBluetoothDeviceDiscoveryAgentPrivate::start(QBluetoothDeviceDiscoveryAgent
                 lastError = QBluetoothDeviceDiscoveryAgent::InputOutputError;
                 errorString = QBluetoothDeviceDiscoveryAgent::tr("Classic Discovery cannot be started");
 
-                emit q->error(lastError);
+                emit q->errorOccurred(lastError);
                 return;
             } // else fall through to LE discovery
         } else {
@@ -260,13 +226,14 @@ void QBluetoothDeviceDiscoveryAgentPrivate::start(QBluetoothDeviceDiscoveryAgent
         // LE search only requested or classic discovery failed but lets try LE scan anyway
         Q_ASSERT(requestedMethods & QBluetoothDeviceDiscoveryAgent::LowEnergyMethod);
 
-        if (QtAndroidPrivate::androidSdkVersion() < 18) {
-            qCDebug(QT_BT_ANDROID) << "Skipping Bluetooth Low Energy device scan due to"
-                                      "insufficient Android version.";
+        if (QNativeInterface::QAndroidApplication::sdkVersion() < 18) {
+            qCDebug(QT_BT_ANDROID) << "Skipping Bluetooth Low Energy device scan due to "
+                                      "insufficient Android version"
+                                     << QNativeInterface::QAndroidApplication::sdkVersion();
             m_active = NoScanActive;
             lastError = QBluetoothDeviceDiscoveryAgent::UnsupportedDiscoveryMethod;
             errorString = QBluetoothDeviceDiscoveryAgent::tr("Low Energy Discovery not supported");
-            emit q->error(lastError);
+            emit q->errorOccurred(lastError);
             return;
         }
 
@@ -291,7 +258,7 @@ void QBluetoothDeviceDiscoveryAgentPrivate::stop()
         if (!success) {
             lastError = QBluetoothDeviceDiscoveryAgent::InputOutputError;
             errorString = QBluetoothDeviceDiscoveryAgent::tr("Discovery cannot be stopped");
-            emit q->error(lastError);
+            emit q->errorOccurred(lastError);
             return;
         }
     } else if (m_active == BtleScanActive) {
@@ -323,7 +290,7 @@ void QBluetoothDeviceDiscoveryAgentPrivate::processSdpDiscoveryFinished()
             m_active = NoScanActive;
             lastError = QBluetoothDeviceDiscoveryAgent::PoweredOffError;
             errorString = QBluetoothDeviceDiscoveryAgent::tr("Device is powered off");
-            emit q->error(lastError);
+            emit q->errorOccurred(lastError);
             return;
         }
 
@@ -335,7 +302,7 @@ void QBluetoothDeviceDiscoveryAgentPrivate::processSdpDiscoveryFinished()
         }
 
         // start LE scan if supported
-        if (QtAndroidPrivate::androidSdkVersion() < 18) {
+        if (QNativeInterface::QAndroidApplication::sdkVersion() < 18) {
             qCDebug(QT_BT_ANDROID) << "Skipping Bluetooth Low Energy device scan";
             m_active = NoScanActive;
             emit q->finished();
@@ -373,7 +340,7 @@ void QBluetoothDeviceDiscoveryAgentPrivate::processDiscoveredDevices(
             }
             if (discoveredDevices[i].manufacturerData() != info.manufacturerData()) {
                 qCDebug(QT_BT_ANDROID) << "Updating manufacturer data for" << info.address();
-                const QVector<quint16> keys = info.manufacturerIds();
+                const QList<quint16> keys = info.manufacturerIds();
                 for (auto key: keys)
                     discoveredDevices[i].setManufacturerData(key, info.manufacturerData(key));
                 updatedFields.setFlag(QBluetoothDeviceInfo::Field::ManufacturerData);
@@ -418,13 +385,10 @@ void QBluetoothDeviceDiscoveryAgentPrivate::startLowEnergyScan()
 
     m_active = BtleScanActive;
 
-    QAndroidJniEnvironment env;
     if (!leScanner.isValid()) {
-        leScanner = QAndroidJniObject("org/qtproject/qt5/android/bluetooth/QtBluetoothLE");
-        if (env->ExceptionCheck() || !leScanner.isValid()) {
+        leScanner = QJniObject("org/qtproject/qt/android/bluetooth/QtBluetoothLE");
+        if (!leScanner.isValid()) {
             qCWarning(QT_BT_ANDROID) << "Cannot load BTLE device scan class";
-            env->ExceptionDescribe();
-            env->ExceptionClear();
             m_active = NoScanActive;
             emit q->finished();
             return;

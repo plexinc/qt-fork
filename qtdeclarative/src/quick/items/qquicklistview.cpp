@@ -146,7 +146,7 @@ public:
     void fixupHeader();
     void fixupHeaderCompleted();
 
-    bool wantsPointerEvent(const QEvent *event) override;
+    bool wantsPointerEvent(const QPointerEvent *event) override;
 
     QQuickListView::Orientation orient;
     qreal visiblePos;
@@ -382,6 +382,83 @@ private:
     }
 };
 
+/*! \internal
+    \brief A helper class for iterating over a model that might change
+
+    When populating the ListView from a model under normal
+    circumstances, we would iterate over the range of model indices
+    correspondning to the visual range, and basically call
+    createItem(index++) in order to create each item.
+
+    This will also emit Component.onCompleted() for each item, which
+    might do some weird things...  For instance, it might remove itself
+    from the model, and this might change model count and the indices
+    of the other subsequent entries in the model.
+
+    This class takes such changes to the model into consideration while
+    iterating, and will adjust the iterator index and keep track of
+    whether the iterator has reached the end of the range.
+
+    It keeps track of changes to the model by connecting to
+    QQmlInstanceModel::modelUpdated() from its constructor.
+    When destroyed, it will automatically disconnect. You can
+    explicitly disconnect earlier by calling \fn disconnect().
+*/
+class MutableModelIterator {
+public:
+    MutableModelIterator(QQmlInstanceModel *model, int iBegin, int iEnd)
+        : removedAtIndex(false)
+        , backwards(iEnd < iBegin)
+    {
+        conn = QObject::connect(model, &QQmlInstanceModel::modelUpdated,
+                [&] (const QQmlChangeSet &changeSet, bool /*reset*/)
+        {
+            for (const QQmlChangeSet::Change &rem : changeSet.removes()) {
+                idxEnd -= rem.count;
+                if (rem.start() <= index) {
+                    index -= rem.count;
+                    if (index < rem.start() + rem.count)
+                        removedAtIndex = true; // model index was removed
+                }
+            }
+            for (const QQmlChangeSet::Change &ins : changeSet.inserts()) {
+                idxEnd += ins.count;
+                if (ins.start() <= index)
+                    index += ins.count;
+            }
+        }
+        );
+        index = iBegin;
+        idxEnd = iEnd;
+    }
+
+    bool hasNext() const {
+        return backwards ? index > idxEnd : index < idxEnd;
+    }
+
+    void next() { index += (backwards ? -1 : +1); }
+
+    ~MutableModelIterator()
+    {
+        disconnect();
+    }
+
+    void disconnect()
+    {
+        if (conn) {
+            QObject::disconnect(conn);
+            conn = QMetaObject::Connection();   // set to nullptr
+        }
+    }
+    int index = 0;
+    int idxEnd;
+    unsigned removedAtIndex : 1;
+    unsigned backwards : 1;
+private:
+    QMetaObject::Connection conn;
+};
+
+
 //----------------------------------------------------------------------------
 
 bool QQuickListViewPrivate::isContentFlowReversed() const
@@ -473,7 +550,7 @@ qreal QQuickListViewPrivate::lastPosition() const
             // All visible items are in delayRemove state
             invisibleCount = model->count();
         }
-        pos = (*(--visibleItems.constEnd()))->endPosition();
+        pos = (*(visibleItems.constEnd() - 1))->endPosition();
         if (invisibleCount > 0)
             pos += invisibleCount * (averageSize + spacing);
     } else if (model && model->count()) {
@@ -498,7 +575,7 @@ qreal QQuickListViewPrivate::positionAt(int modelIndex) const
             return (*visibleItems.constBegin())->position() - count * (averageSize + spacing) - cs;
         } else {
             int count = modelIndex - findLastVisibleIndex(visibleIndex) - 1;
-            return (*(--visibleItems.constEnd()))->endPosition() + spacing + count * (averageSize + spacing);
+            return (*(visibleItems.constEnd() - 1))->endPosition() + spacing + count * (averageSize + spacing);
         }
     }
     return 0;
@@ -514,7 +591,7 @@ qreal QQuickListViewPrivate::endPositionAt(int modelIndex) const
             return (*visibleItems.constBegin())->position() - (count - 1) * (averageSize + spacing) - spacing;
         } else {
             int count = modelIndex - findLastVisibleIndex(visibleIndex) - 1;
-            return (*(--visibleItems.constEnd()))->endPosition() + count * (averageSize + spacing);
+            return (*(visibleItems.constEnd() - 1))->endPosition() + count * (averageSize + spacing);
         }
     }
     return 0;
@@ -540,7 +617,7 @@ qreal QQuickListViewPrivate::snapPosAt(qreal pos)
         return snapItem->itemPosition();
     if (visibleItems.count()) {
         qreal firstPos = (*visibleItems.constBegin())->position();
-        qreal endPos = (*(--visibleItems.constEnd()))->position();
+        qreal endPos = (*(visibleItems.constEnd() - 1))->position();
         if (pos < firstPos) {
             return firstPos - qRound((firstPos - pos) / averageSize) * averageSize;
         } else if (pos > endPos)
@@ -685,7 +762,7 @@ bool QQuickListViewPrivate::addVisibleItems(qreal fillFrom, qreal fillTo, qreal 
     qreal itemEnd = visiblePos;
     if (visibleItems.count()) {
         visiblePos = (*visibleItems.constBegin())->position();
-        itemEnd = (*(--visibleItems.constEnd()))->endPosition() + spacing;
+        itemEnd = (*(visibleItems.constEnd() - 1))->endPosition() + spacing;
     }
 
     int modelIndex = findLastVisibleIndex();
@@ -1024,7 +1101,7 @@ QQuickItem * QQuickListViewPrivate::getSectionItem(const QString &section)
         QObject *nobj = delegate->beginCreate(context);
         if (nobj) {
             if (delegatePriv->hadRequiredProperties()) {
-                delegate->setInitialProperties(nobj, {{"section", section}});
+                delegate->setInitialProperties(nobj, {{QLatin1String("section"), section}});
             } else {
                 context->setContextProperty(QLatin1String("section"), section);
             }
@@ -1565,6 +1642,10 @@ void QQuickListViewPrivate::fixup(AxisData &data, qreal minExtent, qreal maxExte
         return;
     }
 
+    // update footer if all visible items have been removed
+    if (visibleItems.count() == 0)
+        updateFooter();
+
     correctFlick = false;
     fixupMode = moveReason == Mouse ? fixupMode : Immediate;
     bool strictHighlightRange = haveHighlightRange && highlightRange == QQuickListView::StrictlyEnforceRange;
@@ -1975,9 +2056,9 @@ QQuickItemViewAttached *QQuickListViewPrivate::getAttachedObject(const QObject *
     Delegates are instantiated as needed and may be destroyed at any time.
     As such, state should \e never be stored in a delegate.
     Delegates are usually parented to ListView's \l {Flickable::contentItem}{contentItem}, but
-    typically depending on whether it's visible in the view or not, the \l parent
+    typically depending on whether it's visible in the view or not, the \e parent
     can change, and sometimes be \c null. Because of that, binding to
-    the parent's properties from within the delegate is \i not recommended. If you
+    the parent's properties from within the delegate is \e not recommended. If you
     want the delegate to fill out the width of the ListView, consider
     using one of the following approaches instead:
 
@@ -2125,7 +2206,7 @@ QQuickItemViewAttached *QQuickListViewPrivate::getAttachedObject(const QObject *
     The following example shows a delegate that animates a spinning rectangle. When
     it is pooled, the animation is temporarily paused:
 
-    \snippet qml/listview/reusabledelegate.qml 0
+    \snippet qml/listview/ReusableDelegate.qml 0
 
     \sa {QML Data Models}, GridView, PathView, {Qt Quick Examples - Views}
 */
@@ -2221,8 +2302,8 @@ QQuickListView::~QQuickListView()
     This property holds the model providing data for the list.
 
     The model provides the set of data that is used to create the items
-    in the view. Models can be created directly in QML using \l ListModel, \l XmlListModel
-    or \l ObjectModel, or provided by C++ model classes. If a C++ model class is
+    in the view. Models can be created directly in QML using \l ListModel,
+    \l ObjectModel, or provided by C++ model classes. If a C++ model class is
     used, it must be a subclass of \l QAbstractItemModel or a simple list.
 
     \sa {qml-data-models}{Data Models}
@@ -2299,7 +2380,38 @@ QQuickListView::~QQuickListView()
 
     \since 5.15
 
-    \sa {Reusing items}, ListView::pooled, ListView::reused
+    \sa {Reusing items}, pooled(), reused()
+*/
+
+/*!
+    \qmlattachedsignal QtQuick::ListView::pooled()
+
+    This signal is emitted after an item has been added to the reuse
+    pool. You can use it to pause ongoing timers or animations inside
+    the item, or free up resources that cannot be reused.
+
+    This signal is emitted only if the \l reuseItems property is \c true.
+
+    \sa {Reusing items}, reuseItems, reused()
+*/
+
+/*!
+    \qmlattachedsignal QtQuick::ListView::reused()
+
+    This signal is emitted after an item has been reused. At this point, the
+    item has been taken out of the pool and placed inside the content view,
+    and the model properties such as \c index and \c row have been updated.
+
+    Other properties that are not provided by the model does not change when an
+    item is reused. You should avoid storing any state inside a delegate, but if
+    you do, manually reset that state on receiving this signal.
+
+    This signal is emitted when the item is reused, and not the first time the
+    item is created.
+
+    This signal is emitted only if the \l reuseItems property is \c true.
+
+    \sa {Reusing items}, reuseItems, pooled()
 */
 
 /*!
@@ -2971,7 +3083,8 @@ void QQuickListView::setFooterPositioning(QQuickListView::FooterPositioning posi
     \list
     \li The view is first created
     \li The view's \l model changes in such a way that the visible delegates are completely replaced
-    \li The view's \l model is \l {QAbstractItemModel::reset()}{reset}, if the model is a QAbstractItemModel subclass
+    \li The view's \l model is \l {QAbstractItemModel::beginResetModel()}{reset}, if the model is a
+        QAbstractItemModel subclass
     \endlist
 
     For example, here is a view that specifies such a transition:
@@ -3408,7 +3521,7 @@ void QQuickListView::keyPressEvent(QKeyEvent *event)
     QQuickItemView::keyPressEvent(event);
 }
 
-void QQuickListView::geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry)
+void QQuickListView::geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry)
 {
     Q_D(QQuickListView);
 
@@ -3427,7 +3540,7 @@ void QQuickListView::geometryChanged(const QRectF &newGeometry, const QRectF &ol
         qreal dy = newGeometry.height() - oldGeometry.height();
         setContentY(contentY() - dy);
     }
-    QQuickItemView::geometryChanged(newGeometry, oldGeometry);
+    QQuickItemView::geometryChange(newGeometry, oldGeometry);
 }
 
 void QQuickListView::initItem(int index, QObject *object)
@@ -3570,7 +3683,6 @@ bool QQuickListViewPrivate::applyInsertionChange(const QQmlChangeSet::Change &ch
     if (insertResult->visiblePos.isValid() && pos < insertResult->visiblePos) {
         // Insert items before the visible item.
         int insertionIdx = index;
-        int i = 0;
         qreal from = tempPos - displayMarginBeginning - buffer;
 
         if (insertionIdx < visibleIndex) {
@@ -3579,15 +3691,18 @@ bool QQuickListViewPrivate::applyInsertionChange(const QQmlChangeSet::Change &ch
                 insertResult->sizeChangesBeforeVisiblePos += count * (averageSize + spacing);
             }
         } else {
-            for (i = count-1; i >= 0 && pos >= from; --i) {
+            MutableModelIterator it(model, modelIndex + count - 1, modelIndex -1);
+            for (; it.hasNext() && pos >= from; it.next()) {
                 // item is before first visible e.g. in cache buffer
                 FxViewItem *item = nullptr;
-                if (change.isMove() && (item = currentChanges.removedItems.take(change.moveKey(modelIndex + i))))
-                    item->index = modelIndex + i;
+                if (change.isMove() && (item = currentChanges.removedItems.take(change.moveKey(it.index))))
+                    item->index = it.index;
                 if (!item)
-                    item = createItem(modelIndex + i, QQmlIncubator::Synchronous);
+                    item = createItem(it.index, QQmlIncubator::Synchronous);
                 if (!item)
                     return false;
+                if (it.removedAtIndex)
+                    continue;
 
                 visibleAffected = true;
                 visibleItems.insert(insertionIdx, item);
@@ -3620,16 +3735,20 @@ bool QQuickListViewPrivate::applyInsertionChange(const QQmlChangeSet::Change &ch
         }
 
     } else {
-        for (int i = 0; i < count && pos <= lastVisiblePos; ++i) {
+        MutableModelIterator it(model, modelIndex, modelIndex + count);
+        for (; it.hasNext() && pos <= lastVisiblePos; it.next()) {
             visibleAffected = true;
             FxViewItem *item = nullptr;
-            if (change.isMove() && (item = currentChanges.removedItems.take(change.moveKey(modelIndex + i))))
-                item->index = modelIndex + i;
+            if (change.isMove() && (item = currentChanges.removedItems.take(change.moveKey(it.index))))
+                item->index = it.index;
             bool newItem = !item;
+            it.removedAtIndex = false;
             if (!item)
-                item = createItem(modelIndex + i, QQmlIncubator::Synchronous);
+                item = createItem(it.index, QQmlIncubator::Synchronous);
             if (!item)
                 return false;
+            if (it.removedAtIndex)
+                continue;
 
             visibleItems.insert(index, item);
             if (index == 0)
@@ -3650,6 +3769,7 @@ bool QQuickListViewPrivate::applyInsertionChange(const QQmlChangeSet::Change &ch
             pos += item->size() + spacing;
             ++index;
         }
+        it.disconnect();
 
         if (0 < index && index < visibleItems.count()) {
             FxViewItem *prevItem = visibleItems.at(index - 1);
@@ -3828,24 +3948,12 @@ QQuickListViewAttached *QQuickListView::qmlAttachedProperties(QObject *obj)
 /*! \internal
     Prevents clicking or dragging through floating headers (QTBUG-74046).
 */
-bool QQuickListViewPrivate::wantsPointerEvent(const QEvent *event)
+bool QQuickListViewPrivate::wantsPointerEvent(const QPointerEvent *event)
 {
     Q_Q(const QQuickListView);
     bool ret = true;
 
-    QPointF pos;
-    // TODO switch not needed in Qt 6: use points().first().position()
-    switch (event->type()) {
-    case QEvent::Wheel:
-        pos = static_cast<const QWheelEvent *>(event)->position();
-        break;
-    case QEvent::MouseButtonPress:
-        pos = static_cast<const QMouseEvent *>(event)->localPos();
-        break;
-    default:
-        break;
-    }
-
+    QPointF pos = event->points().first().position();
     if (!pos.isNull()) {
         if (auto header = q->headerItem()) {
             if (q->headerPositioning() != QQuickListView::InlineHeader &&

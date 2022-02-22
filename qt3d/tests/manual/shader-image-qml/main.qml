@@ -200,7 +200,9 @@ Entity {
 
     // Preview Texture Scene
     Entity {
-        PlaneMesh { id: planeMesh }
+        PlaneMesh {
+            id: planeMesh
+        }
 
         components: Transform {
             rotationX: 90

@@ -51,19 +51,13 @@
 #ifndef FILE_PICKER_CONTROLLER_H
 #define FILE_PICKER_CONTROLLER_H
 
-#include "qtwebenginecoreglobal_p.h"
-
-#include <memory>
-
+#include <QtWebEngineCore/private/qtwebenginecoreglobal_p.h>
 #include <QObject>
 #include <QStringList>
 
-namespace content {
-    class FileSelectListener;
-}
-
 namespace QtWebEngineCore {
 
+class FilePickerControllerPrivate;
 class Q_WEBENGINECORE_PRIVATE_EXPORT FilePickerController : public QObject {
     Q_OBJECT
 public:
@@ -74,8 +68,9 @@ public:
         Save
     };
 
-    FilePickerController(FileChooserMode mode, std::unique_ptr<content::FileSelectListener> listener, const QString &defaultFileName, const QStringList &acceptedMimeTypes, QObject * = 0);
+    FilePickerController(FilePickerControllerPrivate *priv, QObject *parent = nullptr);
     ~FilePickerController() override;
+
     QStringList acceptedMimeTypes() const;
     QString defaultFileName() const;
     FileChooserMode mode() const;
@@ -89,13 +84,12 @@ public Q_SLOTS:
 
 private:
     void filesSelectedInChooser(const QStringList &filesList);
-    QString m_defaultFileName;
-    QStringList m_acceptedMimeTypes;
-    std::unique_ptr<content::FileSelectListener> m_listener;
-    FileChooserMode m_mode;
-
+    FilePickerControllerPrivate *d_ptr;
+    // Using Quick, the FileSelectListenerImpl destructor may crash in debug mode
+    // if the browser window is closed and the FilePicker is still open
+    bool m_isHandled = false;
 };
 
-} // namespace
+} // namespace QtWebEngineCore
 
 #endif // FILE_PICKER_CONTROLLER_H

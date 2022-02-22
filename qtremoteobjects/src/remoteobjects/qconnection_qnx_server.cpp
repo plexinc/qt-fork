@@ -118,8 +118,8 @@ bool QQnxNativeServer::waitForNewConnection(int msec, bool *timedOut)
     //TODO - This method isn't used by Qt Remote Objects, but would
     //need to be implemented before this class could be used as a
     //connection server (like QTcpServer or QLocalServer).
-    Q_UNUSED(msec);
-    Q_UNUSED(timedOut);
+    Q_UNUSED(msec)
+    Q_UNUSED(timedOut)
     Q_ASSERT(false);
     return false;
 }
@@ -150,11 +150,11 @@ void QQnxNativeServerPrivate::thread_func()
 {
     struct _msg_info msg_info;
     recv_msgs recv_buf;
-    QVector<iov_t> resp_repeat_iov(5);
+    QList<iov_t> resp_repeat_iov(5);
 
     qCDebug(QT_REMOTEOBJECT) << "Server thread_func running";
 
-    while (running.load()) {
+    while (running.loadRelaxed()) {
         // wait for messages and pulses
         int rcvid = MsgReceive(attachStruct->chid, &recv_buf, sizeof(_pulse), &msg_info);
         qCDebug(QT_REMOTEOBJECT) << "MsgReceive unblocked.  Rcvid" << rcvid << " Scoid" << msg_info.scoid;
@@ -235,7 +235,7 @@ void QQnxNativeServerPrivate::thread_func()
             }
                 break;
             case _PULSE_CODE_UNBLOCK:
-                if (running.load()) {
+                if (running.loadRelaxed()) {
                     // did we forget to Reply to our client?
                     qCWarning(QT_REMOTEOBJECT) << "got an unblock pulse, did you forget to reply to your client?";
                     WARN_ON_ERROR(MsgError, recv_buf.pulse.value.sival_int, EINTR)
@@ -324,7 +324,7 @@ void QQnxNativeServerPrivate::thread_func()
 
             int len_taken = 0;
             const int to_send = msg_info.dstmsglen - sizeof(int); //Exclude the buffer count
-            QVector<QByteArray> qba_array;
+            QByteArrayList qba_array;
             io->d_func()->obLock.lockForWrite(); //NAR (Not-An-Error)
             qCDebug(QT_REMOTEOBJECT) << "server received SOURCE_TX_RESP_REPEAT with length" << msg_info.dstmsglen << "Available:" << io->d_func()->obuffer.size();
             while (len_taken != to_send)
@@ -459,7 +459,7 @@ void QQnxNativeServerPrivate::createSource(int rcvid, uint64_t uid, pid_t toPid)
 {
     Q_Q(QQnxNativeServer);
 #ifndef USE_HAM
-    Q_UNUSED(toPid);
+    Q_UNUSED(toPid)
 #endif
     auto io = QSharedPointer<QIOQnxSource>(new QIOQnxSource(rcvid));
     io->moveToThread(q->thread());

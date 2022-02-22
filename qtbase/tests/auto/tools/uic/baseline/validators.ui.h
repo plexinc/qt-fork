@@ -1,7 +1,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'validators.ui'
 **
-** Created by: Qt User Interface Compiler version 5.12.0
+** Created by: Qt User Interface Compiler version 6.0.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -368,7 +368,7 @@ public:
 
 
         retranslateUi(ValidatorsForm);
-        QObject::connect(pushButton, SIGNAL(clicked()), ValidatorsForm, SLOT(close()));
+        QObject::connect(pushButton, &QPushButton::clicked, ValidatorsForm, qOverload<>(&QWidget::close));
 
         QMetaObject::connectSlotsByName(ValidatorsForm);
     } // setupUi

@@ -17,17 +17,16 @@
 
 namespace dawn_wire { namespace server {
     {% for command in cmd_records["command"] %}
-        {% set type = command.derived_object %}
         {% set method = command.derived_method %}
         {% set is_method = method != None %}
         {% set returns = is_method and method.return_type.name.canonical_case() != "void" %}
 
         {% set Suffix = command.name.CamelCase() %}
         //* The generic command handlers
-        bool Server::Handle{{Suffix}}(const volatile char** commands, size_t* size) {
+        bool Server::Handle{{Suffix}}(DeserializeBuffer* deserializeBuffer) {
             {{Suffix}}Cmd cmd;
-            DeserializeResult deserializeResult = cmd.Deserialize(commands, size, &mAllocator
-                {%- if command.has_dawn_object -%}
+            DeserializeResult deserializeResult = cmd.Deserialize(deserializeBuffer, &mAllocator
+                {%- if command.may_have_dawn_object -%}
                     , *this
                 {%- endif -%}
             );
@@ -52,7 +51,25 @@ namespace dawn_wire { namespace server {
                 if ({{name}}Data == nullptr) {
                     return false;
                 }
-                {{name}}Data->serial = cmd.{{name}}.serial;
+                {{name}}Data->generation = cmd.{{name}}.generation;
+
+                //* TODO(crbug.com/dawn/384): This is a hack to make sure that all child objects
+                //* are destroyed before their device. The dawn_native device needs to track all child objects so
+                //* it can destroy them if the device is destroyed first.
+                {% if command.derived_object %}
+                    {% set type = command.derived_object %}
+                    {% if type.name.get() == "device" %}
+                        {{name}}Data->deviceInfo = DeviceObjects().Get(cmd.selfId)->info.get();
+                    {% else %}
+                        auto* selfData = {{type.name.CamelCase()}}Objects().Get(cmd.selfId);
+                        {{name}}Data->deviceInfo = selfData->deviceInfo;
+                    {% endif %}
+                    if ({{name}}Data->deviceInfo != nullptr) {
+                        if (!TrackDeviceChild({{name}}Data->deviceInfo, ObjectType::{{Type}}, cmd.{{name}}.id)) {
+                            return false;
+                        }
+                    }
+                {% endif %}
             {% endfor %}
 
             //* Do command
@@ -89,17 +106,28 @@ namespace dawn_wire { namespace server {
         }
     {% endfor %}
 
-    const volatile char* Server::HandleCommands(const volatile char* commands, size_t size) {
-        mProcs.deviceTick(DeviceObjects().Get(1)->handle);
+    const volatile char* Server::HandleCommandsImpl(const volatile char* commands, size_t size) {
+        DeserializeBuffer deserializeBuffer(commands, size);
 
-        while (size >= sizeof(WireCmd)) {
-            WireCmd cmdId = *reinterpret_cast<const volatile WireCmd*>(commands);
+        while (deserializeBuffer.AvailableSize() >= sizeof(CmdHeader) + sizeof(WireCmd)) {
+            // Start by chunked command handling, if it is done, then it means the whole buffer
+            // was consumed by it, so we return a pointer to the end of the commands.
+            switch (HandleChunkedCommands(deserializeBuffer.Buffer(), deserializeBuffer.AvailableSize())) {
+                case ChunkedCommandsResult::Consumed:
+                    return commands + size;
+                case ChunkedCommandsResult::Error:
+                    return nullptr;
+                case ChunkedCommandsResult::Passthrough:
+                    break;
+            }
 
+            WireCmd cmdId = *static_cast<const volatile WireCmd*>(static_cast<const volatile void*>(
+                deserializeBuffer.Buffer() + sizeof(CmdHeader)));
             bool success = false;
             switch (cmdId) {
                 {% for command in cmd_records["command"] %}
                     case WireCmd::{{command.name.CamelCase()}}:
-                        success = Handle{{command.name.CamelCase()}}(&commands, &size);
+                        success = Handle{{command.name.CamelCase()}}(&deserializeBuffer);
                         break;
                 {% endfor %}
                 default:
@@ -112,7 +140,7 @@ namespace dawn_wire { namespace server {
             mAllocator.Reset();
         }
 
-        if (size != 0) {
+        if (deserializeBuffer.AvailableSize() != 0) {
             return nullptr;
         }
 

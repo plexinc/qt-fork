@@ -29,8 +29,6 @@
 
 #include "variantbardataproxy.h"
 
-using namespace QtDataVisualization;
-
 VariantBarDataProxy::VariantBarDataProxy() :
     QBarDataProxy()
 {
@@ -92,8 +90,8 @@ VariantBarDataMapping *VariantBarDataProxy::mapping()
 
 void VariantBarDataProxy::handleItemsAdded(int index, int count)
 {
-    Q_UNUSED(index)
-    Q_UNUSED(count)
+    Q_UNUSED(index);
+    Q_UNUSED(count);
 
     // Resolve new items
     resolveDataSet();

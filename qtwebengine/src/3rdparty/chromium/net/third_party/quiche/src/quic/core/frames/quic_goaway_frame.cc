@@ -4,15 +4,9 @@
 
 #include <string>
 
-#include "net/third_party/quiche/src/quic/core/frames/quic_goaway_frame.h"
-#include "net/third_party/quiche/src/quic/core/quic_constants.h"
+#include "quic/core/frames/quic_goaway_frame.h"
 
 namespace quic {
-
-QuicGoAwayFrame::QuicGoAwayFrame()
-    : control_frame_id(kInvalidControlFrameId),
-      error_code(QUIC_NO_ERROR),
-      last_good_stream_id(0) {}
 
 QuicGoAwayFrame::QuicGoAwayFrame(QuicControlFrameId control_frame_id,
                                  QuicErrorCode error_code,

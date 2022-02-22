@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/core/loader/interactive_detector.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/profiler/sample_metadata.h"
 #include "base/time/default_tick_clock.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
 #include "services/metrics/public/cpp/ukm_recorder.h"
@@ -19,7 +20,7 @@ namespace blink {
 namespace {
 
 // Used to generate a unique id when emitting the "Long Input Delay" trace
-// event.
+// event and metadata.
 int g_num_long_input_events = 0;
 
 // The threshold to emit the "Long Input Delay" trace event is the 99th
@@ -67,7 +68,7 @@ InteractiveDetector::InteractiveDetector(
     Document& document,
     NetworkActivityChecker* network_activity_checker)
     : Supplement<Document>(document),
-      ExecutionContextLifecycleObserver(&document),
+      ExecutionContextLifecycleObserver(document.GetExecutionContext()),
       clock_(base::DefaultTickClock::GetInstance()),
       network_activity_checker_(network_activity_checker),
       time_to_interactive_timer_(
@@ -138,6 +139,11 @@ base::Optional<base::TimeDelta> InteractiveDetector::GetFirstInputDelay()
   return page_event_times_.first_input_delay;
 }
 
+WTF::Vector<base::Optional<base::TimeDelta>>
+InteractiveDetector::GetFirstInputDelaysAfterBackForwardCacheRestore() const {
+  return page_event_times_.first_input_delays_after_back_forward_cache_restore;
+}
+
 base::Optional<base::TimeTicks> InteractiveDetector::GetFirstInputTimestamp()
     const {
   return page_event_times_.first_input_timestamp;
@@ -151,6 +157,21 @@ base::Optional<base::TimeDelta> InteractiveDetector::GetLongestInputDelay()
 base::Optional<base::TimeTicks> InteractiveDetector::GetLongestInputTimestamp()
     const {
   return page_event_times_.longest_input_timestamp;
+}
+
+base::Optional<base::TimeDelta>
+InteractiveDetector::GetFirstInputProcessingTime() const {
+  return page_event_times_.first_input_processing_time;
+}
+
+base::Optional<base::TimeTicks> InteractiveDetector::GetFirstScrollTimestamp()
+    const {
+  return page_event_times_.first_scroll_timestamp;
+}
+
+base::Optional<base::TimeDelta> InteractiveDetector::GetFirstScrollDelay()
+    const {
+  return page_event_times_.frist_scroll_delay;
 }
 
 bool InteractiveDetector::PageWasBackgroundedSinceEvent(
@@ -173,7 +194,7 @@ bool InteractiveDetector::PageWasBackgroundedSinceEvent(
   }
 
   return false;
-}  // namespace blink
+}
 
 void InteractiveDetector::HandleForInputDelay(
     const Event& event,
@@ -222,7 +243,6 @@ void InteractiveDetector::HandleForInputDelay(
     delay = processing_start - event_platform_timestamp;
     event_timestamp = event_platform_timestamp;
   }
-
   pending_pointerdown_delay_ = base::TimeDelta();
   pending_pointerdown_timestamp_ = base::TimeTicks();
   bool interactive_timing_metrics_changed = false;
@@ -251,15 +271,27 @@ void InteractiveDetector::HandleForInputDelay(
     TRACE_EVENT_ASYNC_END_WITH_TIMESTAMP0(
         "latency", "Long Input Delay", TRACE_ID_LOCAL(g_num_long_input_events),
         event_timestamp + delay);
+    // Apply metadata on stack samples.
+    base::ApplyMetadataToPastSamples(
+        event_timestamp, event_timestamp + delay,
+        "PageLoad.InteractiveTiming.LongInputDelay", g_num_long_input_events,
+        1);
     g_num_long_input_events++;
   }
 
-  // Record input delay UKM.
-  ukm::SourceId source_id = GetSupplementable()->UkmSourceID();
-  DCHECK_NE(source_id, ukm::kInvalidSourceId);
-  ukm::builders::InputEvent(source_id)
-      .SetInteractiveTiming_InputDelay(delay.InMilliseconds())
-      .Record(GetUkmRecorder());
+  // ELements in |first_input_delays_after_back_forward_cache_restore| is
+  // allocated when the page is restored from the back-forward cache. If the
+  // last element exists and this is nullopt value, the first input has not come
+  // yet after the last time when the page is restored from the cache.
+  if (!page_event_times_.first_input_delays_after_back_forward_cache_restore
+           .IsEmpty() &&
+      !page_event_times_.first_input_delays_after_back_forward_cache_restore
+           .back()
+           .has_value()) {
+    page_event_times_.first_input_delays_after_back_forward_cache_restore
+        .back() = delay;
+  }
+
   if (GetSupplementable()->Loader()) {
     GetSupplementable()->Loader()->DidObserveInputDelay(delay);
   }
@@ -540,25 +572,21 @@ void InteractiveDetector::OnTimeToInteractiveDetected() {
   TRACE_EVENT_MARK_WITH_TIMESTAMP2(
       "loading,rail", "InteractiveTime", interactive_time_, "frame",
       ToTraceValue(GetSupplementable()->GetFrame()), "args",
-      ComputeTimeToInteractiveTraceArgs());
+      [&](perfetto::TracedValue context) {
+        // We log the trace event even if there is user input, but annotate the
+        // event with whether that happened.
+        bool had_user_input_before_interactive =
+            !page_event_times_.first_invalidating_input.is_null() &&
+            page_event_times_.first_invalidating_input < interactive_time_;
+
+        auto dict = std::move(context).WriteDictionary();
+        dict.Add("had_user_input_before_interactive",
+                 had_user_input_before_interactive);
+        dict.Add("total_blocking_time_ms",
+                 ComputeTotalBlockingTime().InMillisecondsF());
+      });
 
   long_tasks_.clear();
-}
-
-std::unique_ptr<TracedValue>
-InteractiveDetector::ComputeTimeToInteractiveTraceArgs() {
-  // We log the trace event even if there is user input, but annotate the event
-  // with whether that happened.
-  bool had_user_input_before_interactive =
-      !page_event_times_.first_invalidating_input.is_null() &&
-      page_event_times_.first_invalidating_input < interactive_time_;
-
-  auto dict = std::make_unique<TracedValue>();
-  dict->SetBoolean("had_user_input_before_interactive",
-                   had_user_input_before_interactive);
-  dict->SetDouble("total_blocking_time_ms",
-                  ComputeTotalBlockingTime().InMillisecondsF());
-  return dict;
 }
 
 base::TimeDelta InteractiveDetector::ComputeTotalBlockingTime() {
@@ -582,7 +610,8 @@ void InteractiveDetector::ContextDestroyed() {
   LongTaskDetector::Instance().UnregisterObserver(this);
 }
 
-void InteractiveDetector::Trace(Visitor* visitor) {
+void InteractiveDetector::Trace(Visitor* visitor) const {
+  visitor->Trace(time_to_interactive_timer_);
   Supplement<Document>::Trace(visitor);
   ExecutionContextLifecycleObserver::Trace(visitor);
 }
@@ -604,4 +633,53 @@ void InteractiveDetector::SetUkmRecorderForTesting(
     ukm::UkmRecorder* test_ukm_recorder) {
   ukm_recorder_ = test_ukm_recorder;
 }
+
+void InteractiveDetector::RecordInputEventTimingUKM(
+    base::TimeDelta input_delay,
+    base::TimeDelta processing_time,
+    base::TimeDelta time_to_next_paint,
+    WTF::AtomicString event_type) {
+  ukm::SourceId source_id = GetSupplementable()->UkmSourceID();
+
+  DCHECK_NE(source_id, ukm::kInvalidSourceId);
+  static const WTF::HashMap<WTF::AtomicString, blink::InputEventType>&
+      event_type_to_enum = {{"mousedown", blink::InputEventType::kMousedown},
+                            {"click", blink::InputEventType::kClick},
+                            {"keydown", blink::InputEventType::kKeydown},
+                            {"pointerup", blink::InputEventType::kPointerup}};
+  ukm::builders::InputEvent(source_id)
+      .SetEventType(static_cast<int>(event_type_to_enum.at(event_type)))
+      .SetInteractiveTiming_InputDelay(input_delay.InMilliseconds())
+      .SetInteractiveTiming_ProcessingTime(processing_time.InMilliseconds())
+      .SetInteractiveTiming_ProcessingFinishedToNextPaint(
+          time_to_next_paint.InMilliseconds())
+      .Record(GetUkmRecorder());
+
+  if (!page_event_times_.first_input_processing_time) {
+    page_event_times_.first_input_processing_time = processing_time;
+    if (GetSupplementable()->Loader()) {
+      GetSupplementable()->Loader()->DidChangePerformanceTiming();
+    }
+  }
+}
+
+void InteractiveDetector::DidObserveFirstScrollDelay(
+    base::TimeDelta first_scroll_delay,
+    base::TimeTicks first_scroll_timestamp) {
+  if (!page_event_times_.frist_scroll_delay.has_value()) {
+    page_event_times_.frist_scroll_delay = first_scroll_delay;
+    page_event_times_.first_scroll_timestamp = first_scroll_timestamp;
+    if (GetSupplementable()->Loader()) {
+      GetSupplementable()->Loader()->DidChangePerformanceTiming();
+    }
+  }
+}
+
+void InteractiveDetector::OnRestoredFromBackForwardCache() {
+  // Allocate the last element with 0, which indicates that the first input
+  // after this navigation doesn't happen yet.
+  page_event_times_.first_input_delays_after_back_forward_cache_restore
+      .push_back(base::nullopt);
+}
+
 }  // namespace blink

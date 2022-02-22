@@ -755,7 +755,7 @@ TEST_P(PeerConnectionBundleTest, RejectDescriptionChangingBundleTag) {
 // (https://bugs.chromium.org/p/chromium/issues/detail?id=827917)
 TEST_P(PeerConnectionBundleTest, RemovingContentAndRejectBundleGroup) {
   RTCConfiguration config;
-#ifndef HAVE_SCTP
+#ifndef WEBRTC_HAVE_SCTP
   config.enable_rtp_data_channel = true;
 #endif
   config.bundle_policy = BundlePolicy::kBundlePolicyMaxBundle;
@@ -873,7 +873,7 @@ TEST_F(PeerConnectionBundleTestUnifiedPlan,
 
   // Stop all transceivers, causing all m= sections to be rejected.
   for (const auto& transceiver : callee->pc()->GetTransceivers()) {
-    transceiver->Stop();
+    transceiver->StopInternal();
   }
   EXPECT_TRUE(
       caller->SetRemoteDescription(callee->CreateAnswerAndSetAsLocal()));

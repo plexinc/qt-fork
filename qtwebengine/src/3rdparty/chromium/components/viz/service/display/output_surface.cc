@@ -42,6 +42,14 @@ OutputSurface::OutputSurface(
 
 OutputSurface::~OutputSurface() = default;
 
+void OutputSurface::SetDrawRectangle(const gfx::Rect& rect) {
+  NOTREACHED();
+}
+
+void OutputSurface::SetEnableDCLayers(bool enabled) {
+  NOTREACHED();
+}
+
 gfx::Rect OutputSurface::GetCurrentFramebufferDamage() const {
   return gfx::Rect();
 }
@@ -68,7 +76,7 @@ void OutputSurface::UpdateLatencyInfoOnSwap(
 
 void OutputSurface::SetNeedsSwapSizeNotifications(
     bool needs_swap_size_notifications) {
-  DCHECK(!needs_swap_size_notifications);
+//  DCHECK(!needs_swap_size_notifications);
 }
 
 base::ScopedClosureRunner OutputSurface::GetCacheBackBufferCb() {

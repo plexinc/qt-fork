@@ -26,13 +26,16 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QSignalSpy>
 
 #include <qfontdatabase.h>
 #include <qfontinfo.h>
 #include <qfontmetrics.h>
 #include <qtextlayout.h>
 #include <private/qrawfont_p.h>
+#include <private/qfont_p.h>
+#include <private/qfontengine_p.h>
 #include <qpa/qplatformfontdatabase.h>
 
 Q_LOGGING_CATEGORY(lcTests, "qt.text.tests")
@@ -79,6 +82,10 @@ private slots:
     void registerOpenTypePreferredNamesSystem();
     void registerOpenTypePreferredNamesApplication();
 
+#ifdef Q_OS_WIN
+    void findCourier();
+#endif
+
 private:
     QString m_ledFont;
     QString m_testFont;
@@ -113,8 +120,7 @@ void tst_QFontDatabase::styles()
 {
     QFETCH( QString, font );
 
-    QFontDatabase fdb;
-    QStringList styles = fdb.styles( font );
+    QStringList styles = QFontDatabase::styles( font );
     QStringList::Iterator it = styles.begin();
     while ( it != styles.end() ) {
         QString style = *it;
@@ -151,11 +157,10 @@ void tst_QFontDatabase::fixedPitch()
     QFETCH(QString, font);
     QFETCH(bool, fixedPitch);
 
-    QFontDatabase fdb;
-    if (!fdb.families().contains(font))
+    if (!QFontDatabase::families().contains(font))
         QSKIP("Font not installed");
 
-    QCOMPARE(fdb.isFixedPitch(font), fixedPitch);
+    QCOMPARE(QFontDatabase::isFixedPitch(font), fixedPitch);
 
     QFont qfont(font);
     QFontInfo fi(qfont);
@@ -166,7 +171,7 @@ void tst_QFontDatabase::systemFixedFont() // QTBUG-54623
 {
     QFont font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
     QFontInfo fontInfo(font);
-    bool fdbSaysFixed = QFontDatabase().isFixedPitch(fontInfo.family(), fontInfo.styleName());
+    bool fdbSaysFixed = QFontDatabase::isFixedPitch(fontInfo.family(), fontInfo.styleName());
     qCDebug(lcTests) << "system fixed font is" << font << "really fixed?" << fdbSaysFixed << fontInfo.fixedPitch();
     QVERIFY(fdbSaysFixed);
     QVERIFY(fontInfo.fixedPitch());
@@ -184,8 +189,7 @@ void tst_QFontDatabase::trickyFonts()
 {
     QFETCH(QString, font);
 
-    QFontDatabase fdb;
-    if (!fdb.families().contains(font))
+    if (!QFontDatabase::families().contains(font))
         QSKIP( "Font not installed");
 
     QFont qfont(font);
@@ -232,9 +236,7 @@ void tst_QFontDatabase::addAppFont()
     QFETCH(bool, useMemoryFont);
     QSignalSpy fontDbChangedSpy(QGuiApplication::instance(), SIGNAL(fontDatabaseChanged()));
 
-    QFontDatabase db;
-
-    const QStringList oldFamilies = db.families();
+    const QStringList oldFamilies = QFontDatabase::families();
     QVERIFY(!oldFamilies.isEmpty());
 
     fontDbChangedSpy.clear();
@@ -262,7 +264,7 @@ void tst_QFontDatabase::addAppFont()
     const QStringList addedFamilies = QFontDatabase::applicationFontFamilies(id);
     QVERIFY(!addedFamilies.isEmpty());
 
-    const QStringList newFamilies = db.families();
+    const QStringList newFamilies = QFontDatabase::families();
     QVERIFY(!newFamilies.isEmpty());
     QVERIFY(newFamilies.count() >= oldFamilies.count());
 
@@ -277,7 +279,7 @@ void tst_QFontDatabase::addAppFont()
     QVERIFY(QFontDatabase::removeApplicationFont(id));
     QCOMPARE(fontDbChangedSpy.count(), 2);
 
-    QCOMPARE(db.families(), oldFamilies);
+    QVERIFY(QFontDatabase::families().count() <= oldFamilies.count());
 }
 
 void tst_QFontDatabase::addTwoAppFontsFromFamily()
@@ -296,8 +298,8 @@ void tst_QFontDatabase::addTwoAppFontsFromFamily()
     QString italicFontName = QFontDatabase::applicationFontFamilies(italicId).first();
     QCOMPARE(regularFontName, italicFontName);
 
-    QFont italicFont = QFontDatabase().font(italicFontName,
-                                            QString::fromLatin1("Italic"), 14);
+    QFont italicFont = QFontDatabase::font(italicFontName,
+                                           QString::fromLatin1("Italic"), 14);
     QVERIFY(italicFont.italic());
 
     QFontDatabase::removeApplicationFont(regularId);
@@ -306,15 +308,25 @@ void tst_QFontDatabase::addTwoAppFontsFromFamily()
 
 void tst_QFontDatabase::aliases()
 {
-    QFontDatabase db;
-    const QStringList families = db.families();
+    const QStringList families = QFontDatabase::families();
     QVERIFY(!families.isEmpty());
-    const QString firstFont = families.front();
-    QVERIFY(db.hasFamily(firstFont));
+
+    QString firstFont;
+    for (int i = 0; i < families.size(); ++i) {
+        if (!families.at(i).contains('[')) {
+            firstFont = families.at(i);
+            break;
+        }
+    }
+
+    if (firstFont.isEmpty())
+        QSKIP("Skipped because there are no unambiguous font families on the system.");
+
+    QVERIFY(QFontDatabase::hasFamily(firstFont));
     const QString alias = QStringLiteral("AliasToFirstFont") + firstFont;
-    QVERIFY(!db.hasFamily(alias));
+    QVERIFY(!QFontDatabase::hasFamily(alias));
     QPlatformFontDatabase::registerAliasToFontFamily(firstFont, alias);
-    QVERIFY(db.hasFamily(alias));
+    QVERIFY(QFontDatabase::hasFamily(alias));
 }
 
 void tst_QFontDatabase::fallbackFonts()
@@ -368,12 +380,11 @@ void tst_QFontDatabase::condensedFontWidthNoFontMerging()
 
 void tst_QFontDatabase::condensedFontWidth()
 {
-    QFontDatabase db;
     QFontDatabase::addApplicationFont(m_testFont);
     QFontDatabase::addApplicationFont(m_testFontCondensed);
 
-    QVERIFY(db.hasFamily("QtBidiTestFont"));
-    if (!db.hasFamily("QtBidiTestFontCondensed"))
+    QVERIFY(QFontDatabase::hasFamily("QtBidiTestFont"));
+    if (!QFontDatabase::hasFamily("QtBidiTestFontCondensed"))
         QSKIP("This platform doesn't support font sub-family names (QTBUG-55625)");
 
     // Test we really get a condensed font, and a not renormalized one (QTBUG-48043):
@@ -387,10 +398,9 @@ void tst_QFontDatabase::condensedFontWidth()
 
 void tst_QFontDatabase::condensedFontMatching()
 {
-    QFontDatabase db;
     QFontDatabase::removeAllApplicationFonts();
     QFontDatabase::addApplicationFont(m_testFontCondensed);
-    if (!db.hasFamily("QtBidiTestFont"))
+    if (!QFontDatabase::hasFamily("QtBidiTestFont"))
         QSKIP("This platform doesn't support preferred font family names (QTBUG-53478)");
     QFontDatabase::addApplicationFont(m_testFont);
 
@@ -401,7 +411,11 @@ void tst_QFontDatabase::condensedFontMatching()
     tfcByStyleName.setStyleName("Condensed");
 
 #ifdef Q_OS_WIN
-    QEXPECT_FAIL("","No matching of sub-family by stretch on Windows", Continue);
+    QFont f;
+    f.setStyleStrategy(QFont::NoFontMerging);
+    QFontPrivate *font_d = QFontPrivate::get(f);
+    if (font_d->engineForScript(QChar::Script_Common)->type() != QFontEngine::Freetype)
+        QEXPECT_FAIL("","No matching of sub-family by stretch on Windows", Continue);
 #endif
 
 #ifdef Q_OS_ANDROID
@@ -410,7 +424,7 @@ void tst_QFontDatabase::condensedFontMatching()
     QCOMPARE(QFontMetrics(tfcByStretch).horizontalAdvance(testString()),
              QFontMetrics(tfcByStyleName).horizontalAdvance(testString()));
 
-    if (!db.hasFamily("QtBidiTestFontCondensed"))
+    if (!QFontDatabase::hasFamily("QtBidiTestFontCondensed"))
         QSKIP("This platform doesn't support font sub-family names (QTBUG-55625)");
 
     QFont tfcBySubfamilyName("QtBidiTestFontCondensed");
@@ -426,7 +440,7 @@ void tst_QFontDatabase::rasterFonts()
     if (fontInfo.family() != font.family())
         QSKIP("Fixedsys font not available.");
 
-    QVERIFY(!QFontDatabase().isSmoothlyScalable(font.family()));
+    QVERIFY(!QFontDatabase::isSmoothlyScalable(font.family()));
     QVERIFY(fontInfo.pointSize() != font.pointSize());
 }
 
@@ -439,35 +453,59 @@ void tst_QFontDatabase::smoothFonts()
         QSKIP("Arial font not available.");
 
     // Smooth and bitmap scaling are mutually exclusive
-    QVERIFY(QFontDatabase().isSmoothlyScalable(font.family()));
-    QVERIFY(!QFontDatabase().isBitmapScalable(font.family()));
+    QVERIFY(QFontDatabase::isSmoothlyScalable(font.family()));
+    QVERIFY(!QFontDatabase::isBitmapScalable(font.family()));
 }
 
 void tst_QFontDatabase::registerOpenTypePreferredNamesSystem()
 {
-    QFontDatabase db;
     // This font family was picked because it was the only one I had installed which showcased the
     // problem
-    if (!db.hasFamily(QString::fromLatin1("Source Code Pro ExtraLight")))
+    if (!QFontDatabase::hasFamily(QString::fromLatin1("Source Code Pro ExtraLight")))
         QSKIP("Source Code Pro ExtraLight is not installed");
 
-    QStringList styles = db.styles(QString::fromLatin1("Source Code Pro"));
+    QStringList styles = QFontDatabase::styles(QString::fromLatin1("Source Code Pro"));
     QVERIFY(styles.contains(QLatin1String("ExtraLight")));
 }
 
 void tst_QFontDatabase::registerOpenTypePreferredNamesApplication()
 {
-    QFontDatabase db;
-
     int id = QFontDatabase::addApplicationFont(QString::fromLatin1(":/testfont_open.otf"));
     if (id == -1)
         QSKIP("Skip the test since app fonts are not supported on this system");
 
-    QStringList styles = db.styles(QString::fromLatin1("QtBidiTestFont"));
+    QStringList styles = QFontDatabase::styles(QString::fromLatin1("QtBidiTestFont"));
     QVERIFY(styles.contains(QLatin1String("Open")));
 
     QFontDatabase::removeApplicationFont(id);
 }
+
+#ifdef Q_OS_WIN
+void tst_QFontDatabase::findCourier()
+{
+    QFont font = QFontDatabase::font(u"Courier"_qs, u""_qs, 16);
+    QFontInfo info(font);
+    QCOMPARE(info.family(), u"Courier New"_qs);
+    QCOMPARE(info.pointSize(), 16);
+
+    font = QFontDatabase::font("Courier", "", 64);
+    info = font;
+    QCOMPARE(info.family(), u"Courier New"_qs);
+    QCOMPARE(info.pointSize(), 64);
+
+    // By setting "PreferBitmap" we should get Courier itself.
+    font.setStyleStrategy(QFont::PreferBitmap);
+    info = font;
+    QCOMPARE(info.family(), u"Courier"_qs);
+    // Which has an upper bound on point size
+    QCOMPARE(info.pointSize(), 19);
+
+    font.setStyleStrategy(QFont::PreferDefault);
+    info = font;
+    QCOMPARE(info.family(), u"Courier New"_qs);
+    QCOMPARE(info.pointSize(), 64);
+}
+#endif
 
 QTEST_MAIN(tst_QFontDatabase)
 #include "tst_qfontdatabase.moc"

@@ -86,6 +86,12 @@ public:
     QtMsgType type = QtWarningMsg;
     int line = -1;
     int column = -1;
+
+    friend bool operator==(const QQmlErrorPrivate &a, const QQmlErrorPrivate &b)
+    {
+        return a.url == b.url && a.object == b.object && a.message == b.message
+                && a.type == b.type && a.line == b.line && a.column == b.column;
+    }
 };
 
 /*!
@@ -298,6 +304,11 @@ QString QQmlError::toString() const
     return rv;
 }
 
+bool operator==(const QQmlError &a, const QQmlError &b)
+{
+    return a.d == b.d || (a.d && b.d && *a.d == *b.d);
+}
+
 /*!
     \relates QQmlError
     \fn QDebug operator<<(QDebug debug, const QQmlError &error)
@@ -317,14 +328,11 @@ QDebug operator<<(QDebug debug, const QQmlError &error)
         if (f.open(QIODevice::ReadOnly)) {
             QByteArray data = f.readAll();
             QTextStream stream(data, QIODevice::ReadOnly);
-#if QT_CONFIG(textcodec)
-            stream.setCodec("UTF-8");
-#endif
             const QString code = stream.readAll();
-            const auto lines = code.splitRef(QLatin1Char('\n'));
+            const auto lines = QStringView{code}.split(QLatin1Char('\n'));
 
             if (lines.count() >= error.line()) {
-                const QStringRef &line = lines.at(error.line() - 1);
+                const QStringView &line = lines.at(error.line() - 1);
                 debug << "\n    " << line.toLocal8Bit().constData();
 
                 if(error.column() > 0) {

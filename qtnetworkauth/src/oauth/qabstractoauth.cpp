@@ -336,7 +336,7 @@ void QAbstractOAuthPrivate::addContentTypeHeaders(QNetworkRequest *request)
     }
 }
 
-QUrlQuery QAbstractOAuthPrivate::createQuery(const QVariantMap &parameters)
+QUrlQuery QAbstractOAuthPrivate::createQuery(const QMultiMap<QString, QVariant> &parameters)
 {
     QUrlQuery query;
     for (auto it = parameters.begin(), end = parameters.end(); it != end; ++it)
@@ -511,6 +511,7 @@ void QAbstractOAuth::setReplyHandler(QAbstractOAuthReplyHandler *handler)
 }
 
 /*!
+    \fn QAbstractOAuth::prepareRequest(QNetworkRequest *request, const QByteArray &verb, const QByteArray &body)
     \since 5.13
 
     Authorizes the given \a request by adding a header and \a body to
@@ -519,13 +520,6 @@ void QAbstractOAuth::setReplyHandler(QAbstractOAuthReplyHandler *handler)
     The \a verb must be a valid HTTP verb and the same as the one that will be
     used to send the \a request.
 */
-void QAbstractOAuth::prepareRequest(QNetworkRequest *request,
-                                    const QByteArray &verb,
-                                    const QByteArray &body)
-{
-    Q_D(QAbstractOAuth);
-    d->prepareRequestImpl(request, verb, body);
-}
 
 /*!
     Returns the current parameter-modification function.
@@ -606,7 +600,7 @@ QString QAbstractOAuth::callback() const
     URL.
     \sa authorizeWithBrowser()
 */
-void QAbstractOAuth::resourceOwnerAuthorization(const QUrl &url, const QVariantMap &parameters)
+void QAbstractOAuth::resourceOwnerAuthorization(const QUrl &url, const QMultiMap<QString, QVariant> &parameters)
 {
     QUrl u = url;
     u.setQuery(QAbstractOAuthPrivate::createQuery(parameters));

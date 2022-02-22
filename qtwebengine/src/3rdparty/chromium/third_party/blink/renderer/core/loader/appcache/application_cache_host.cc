@@ -33,6 +33,7 @@
 #include <utility>
 
 #include "mojo/public/cpp/bindings/pending_remote.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/mojom/appcache/appcache.mojom-blink.h"
 #include "third_party/blink/public/mojom/appcache/appcache_info.mojom-blink.h"
 #include "third_party/blink/public/platform/platform.h"
@@ -230,6 +231,12 @@ void ApplicationCacheHost::ErrorEventRaised(
   }
 }
 
+void ApplicationCacheHost::Trace(Visitor* visitor) const {
+  visitor->Trace(backend_host_);
+  visitor->Trace(receiver_);
+  visitor->Trace(backend_remote_);
+}
+
 void ApplicationCacheHost::GetAssociatedCacheInfo(
     ApplicationCacheHost::CacheInfo* info) {
   if (!backend_host_.is_bound())
@@ -246,6 +253,9 @@ void ApplicationCacheHost::GetAssociatedCacheInfo(
 
 bool ApplicationCacheHost::BindBackend() {
   if (!task_runner_)
+    return false;
+
+  if (!base::FeatureList::IsEnabled(blink::features::kAppCache))
     return false;
 
   DCHECK(!host_id_.is_empty());

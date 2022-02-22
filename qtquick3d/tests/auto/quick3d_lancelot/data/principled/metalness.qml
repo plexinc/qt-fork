@@ -48,8 +48,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.14
-import QtQuick3D 1.15
+import QtQuick
+import QtQuick3D
 
 Rectangle {
     width: 400
@@ -68,7 +68,7 @@ Rectangle {
 
         DirectionalLight {
             id: dirLight
-            brightness: 150
+            brightness: 1.5
             eulerRotation.y: 310
             ambientColor: Qt.rgba(0.5, 0.5, 0.5, 1.0);
         }
@@ -83,15 +83,15 @@ Rectangle {
             materials: [ DefaultMaterial {
                     lighting: DefaultMaterial.NoLighting
                     diffuseMap: Texture {
-                        source: "../shared/maps/checkerboard_1.png"
+                        source: "../shared/maps/checkers1.png"
                         tilingModeHorizontal: Texture.Repeat
                         tilingModeVertical: Texture.Repeat
-                        scaleU: 8
-                        scaleV: 8
+                        scaleU: 100
+                        scaleV: 100
                     }
                 } ]
             z: -500
-            scale: Qt.vector3d(8, 12, 1)
+            scale: Qt.vector3d(10, 10, 1)
         }
 
         // Row 1
@@ -114,6 +114,7 @@ Rectangle {
             materials: [ PrincipledMaterial {
                     baseColor: "#4080A0"
                     metalnessMap: tex_rgba
+                    metalness: 1
                 } ]
         }
 
@@ -151,6 +152,7 @@ Rectangle {
                     baseColor: "#4080A0"
                     roughness: 1
                     metalnessMap: tex_rgba
+                    metalness: 1
                 } ]
         }
 
@@ -162,7 +164,7 @@ Rectangle {
             materials: [ PrincipledMaterial {
                     baseColor: "#4080A0"
                     roughness: 1
-                    metalness: .5
+                    metalness: 0.5
                     metalnessMap: tex_rgba
                 } ]
         }

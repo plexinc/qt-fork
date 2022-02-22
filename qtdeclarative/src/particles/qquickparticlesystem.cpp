@@ -214,7 +214,7 @@ QQuickParticleDataHeap::QQuickParticleDataHeap()
 
 void QQuickParticleDataHeap::grow() //###Consider automatic growth vs resize() calls from GroupData
 {
-    m_data.resize(1 << ++m_size);
+    m_data.resize(qsizetype(1) << ++m_size);
 }
 
 void QQuickParticleDataHeap::insert(QQuickParticleData* data)
@@ -324,11 +324,11 @@ QQuickParticleGroupData::QQuickParticleGroupData(const QString &name, QQuickPart
 
 QQuickParticleGroupData::~QQuickParticleGroupData()
 {
-    foreach (QQuickParticleData* d, data)
+    for (QQuickParticleData *d : qAsConst(data))
         delete d;
 }
 
-QString QQuickParticleGroupData::name()//### Worth caching as well?
+QString QQuickParticleGroupData::name() const//### Worth caching as well?
 {
     return m_system->groupIds.key(index);
 }
@@ -347,7 +347,7 @@ void QQuickParticleGroupData::setSize(int newSize)
     }
     int delta = newSize - m_size;
     m_size = newSize;
-    foreach (QQuickParticlePainter* p, painters)
+    for (QQuickParticlePainter *p : qAsConst(painters))
         p->setCount(p->count() + delta);
 }
 
@@ -360,7 +360,7 @@ void QQuickParticleGroupData::kill(QQuickParticleData* d)
 {
     Q_ASSERT(d->groupId == index);
     d->lifeSpan = 0;//Kill off
-    foreach (QQuickParticlePainter* p, painters)
+    for (QQuickParticlePainter *p : qAsConst(painters))
         p->reload(d);
     freeList.free(d->index);
 }
@@ -392,7 +392,7 @@ bool QQuickParticleGroupData::recycle()
     m_latestAliveParticles.clear();
 
     while (dataHeap.top() <= m_system->timeInt) {
-        foreach (QQuickParticleData* datum, dataHeap.pop()) {
+        for (QQuickParticleData *datum : dataHeap.pop()) {
             if (!datum->stillAlive(m_system)) {
                 freeList.free(datum->index);
             } else {
@@ -413,9 +413,10 @@ void QQuickParticleGroupData::prepareRecycler(QQuickParticleData* d)
     if (d->lifeSpan*1000 < m_system->maxLife) {
         dataHeap.insert(d);
     } else {
-        while ((roundedTime(d->t) + 2*m_system->maxLife/3) <= m_system->timeInt)
+        int extend = 2 * m_system->maxLife / 3;
+        while ((roundedTime(d->t) + extend) <= m_system->timeInt)
             d->extendLife(m_system->maxLife / 3000.0, m_system);
-        dataHeap.insertTimed(d, roundedTime(d->t) + 2*m_system->maxLife/3);
+        dataHeap.insertTimed(d, roundedTime(d->t) + extend);
     }
 }
 
@@ -459,9 +460,7 @@ QQuickParticleData::QQuickParticleData()
     color.g = 255;
     color.b = 255;
     color.a = 255;
-    r = 0;
     delegate = nullptr;
-    modelIndex = -1;
 }
 
 QQuickParticleData::~QQuickParticleData()
@@ -514,13 +513,8 @@ void QQuickParticleData::clone(const QQuickParticleData& other)
     animY = other.animY;
     animWidth = other.animWidth;
     animHeight = other.animHeight;
-    color.r = other.color.r;
-    color.g = other.color.g;
-    color.b = other.color.b;
-    color.a = other.color.a;
-    r = other.r;
+    color = other.color;
     delegate = other.delegate;
-    modelIndex = other.modelIndex;
 
     colorOwner = other.colorOwner;
     rotationOwner = other.rotationOwner;
@@ -585,7 +579,7 @@ QQuickParticleSystem::QQuickParticleSystem(QQuickItem *parent) :
 
 QQuickParticleSystem::~QQuickParticleSystem()
 {
-    foreach (QQuickParticleGroupData* gd, groupData)
+    for (QQuickParticleGroupData *gd : qAsConst(groupData))
         delete gd;
 }
 
@@ -602,7 +596,7 @@ void QQuickParticleSystem::initGroups()
     for (auto e : qAsConst(m_emitters)) {
         e->reclaculateGroupId();
     }
-    foreach (QQuickParticlePainter *p, m_painters) {
+    for (QQuickParticlePainter *p : qAsConst(m_painters)) {
         p->recalculateGroupIds();
     }
 
@@ -644,7 +638,8 @@ void QQuickParticleSystem::registerParticleAffector(QQuickParticleAffector* a)
 {
     if (m_debugMode)
         qDebug() << "Registering Affector" << a << "to" << this;
-    m_affectors << QPointer<QQuickParticleAffector>(a);
+    if (!m_affectors.contains(a))
+        m_affectors << QPointer<QQuickParticleAffector>(a);
 }
 
 void QQuickParticleSystem::registerParticleGroup(QQuickParticleGroup* g)
@@ -673,7 +668,7 @@ void QQuickParticleSystem::setPaused(bool arg) {
         if (m_animation && m_animation->state() != QAbstractAnimation::Stopped)
             m_paused ? m_animation->pause() : m_animation->resume();
         if (!m_paused) {
-            foreach (QQuickParticlePainter *p, m_painters) {
+            for (QQuickParticlePainter *p : qAsConst(m_painters)) {
                 if (p) {
                     p->update();
                 }
@@ -783,12 +778,12 @@ void QQuickParticleSystem::reset()
     if (!m_running)
         return;
 
-    foreach (QQuickParticleEmitter* e, m_emitters)
+    for (QQuickParticleEmitter *e : qAsConst(m_emitters))
         e->reset();
 
     emittersChanged();
 
-    foreach (QQuickParticlePainter *p, m_painters) {
+    for (QQuickParticlePainter *p : qAsConst(m_painters)) {
         loadPainter(p);
         p->reset();
     }
@@ -812,7 +807,7 @@ void QQuickParticleSystem::loadPainter(QQuickParticlePainter *painter)
     if (!m_componentComplete || !painter)
         return;
 
-    for (QQuickParticleGroupData* sg : groupData) {
+    for (QQuickParticleGroupData *sg : groupData) {
         sg->painters.removeOne(painter);
     }
 
@@ -881,13 +876,13 @@ void QQuickParticleSystem::emittersChanged()
     if (particleCount > bySysIdx.size())//New datum requests haven't updated it
         bySysIdx.resize(particleCount);
 
-    foreach (QQuickParticleAffector *a, m_affectors) {//Groups may have changed
+    for (QQuickParticleAffector *a : qAsConst(m_affectors)) {//Groups may have changed
         if (a) {
             a->m_updateIntSet = true;
         }
     }
 
-    foreach (QQuickParticlePainter *p, m_painters)
+    for (QQuickParticlePainter *p : qAsConst(m_painters))
         loadPainter(p);
 
     if (!m_groups.isEmpty())
@@ -902,7 +897,7 @@ void QQuickParticleSystem::createEngine()
     if (stateEngine && m_debugMode)
         qDebug() << "Resetting Existing Sprite Engine...";
     //### Solve the losses if size/states go down
-    foreach (QQuickParticleGroup* group, m_groups) {
+    for (QQuickParticleGroup *group : qAsConst(m_groups)) {
         bool exists = false;
         for (auto it = groupIds.keyBegin(), end = groupIds.keyEnd(); it != end; ++it) {
             if (group->name() == *it) {
@@ -922,7 +917,7 @@ void QQuickParticleSystem::createEngine()
         for (int i = 0, ei = groupData.size(); i != ei; ++i) {
             bool exists = false;
             QString name = groupData[i]->name();
-            foreach (QQuickParticleGroup* existing, m_groups) {
+            for (QQuickParticleGroup *existing : qAsConst(m_groups)) {
                 if (existing->name() == name) {
                     newList << existing;
                     exists = true;
@@ -936,7 +931,7 @@ void QQuickParticleSystem::createEngine()
         m_groups = newList;
         QList<QQuickStochasticState*> states;
         states.reserve(m_groups.count());
-        foreach (QQuickParticleGroup* g, m_groups)
+        for (QQuickParticleGroup *g : qAsConst(m_groups))
             states << (QQuickStochasticState*)g;
 
         if (!stateEngine)
@@ -1041,10 +1036,10 @@ void QQuickParticleSystem::finishNewDatum(QQuickParticleData *pd)
     Q_ASSERT(pd);
     groupData[pd->groupId]->prepareRecycler(pd);
 
-    foreach (QQuickParticleAffector *a, m_affectors)
+    for (QQuickParticleAffector *a : qAsConst(m_affectors))
         if (a && a->m_needsReset)
             a->reset(pd);
-    foreach (QQuickParticlePainter* p, groupData[pd->groupId]->painters)
+    for (QQuickParticlePainter *p : qAsConst(groupData[pd->groupId]->painters))
         if (p)
             p->load(pd);
 }
@@ -1067,18 +1062,18 @@ void QQuickParticleSystem::updateCurrentTime( int currentTime )
 
     bool oldClear = m_empty;
     m_empty = true;
-    foreach (QQuickParticleGroupData* gd, groupData)//Recycle all groups and see if they're out of live particles
+    for (QQuickParticleGroupData *gd : qAsConst(groupData))//Recycle all groups and see if they're out of live particles
         m_empty = gd->recycle() && m_empty;
 
     if (stateEngine)
         stateEngine->updateSprites(timeInt);
 
-    foreach (QQuickParticleEmitter* emitter, m_emitters)
+    for (QQuickParticleEmitter *emitter : qAsConst(m_emitters))
         emitter->emitWindow(timeInt);
-    foreach (QQuickParticleAffector* a, m_affectors)
+    for (QQuickParticleAffector *a : qAsConst(m_affectors))
         a->affectSystem(dt);
-    for (QQuickParticleData* d : needsReset)
-        foreach (QQuickParticlePainter* p, groupData[d->groupId]->painters)
+    for (QQuickParticleData *d : needsReset)
+        for (QQuickParticlePainter *p : qAsConst(groupData[d->groupId]->painters))
             p->reload(d);
 
     if (oldClear != m_empty)

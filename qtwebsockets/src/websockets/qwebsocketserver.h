@@ -109,18 +109,14 @@ public:
 
     SslMode secureMode() const;
 
-#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
     bool setSocketDescriptor(qintptr socketDescriptor);
     qintptr socketDescriptor() const;
+#if QT_DEPRECATED_SINCE(6, 2)
+    QT_DEPRECATED_VERSION_X_6_2("Use setSocketDescriptor instead")
     bool setNativeDescriptor(qintptr descriptor) { return setSocketDescriptor(descriptor); }
+    QT_DEPRECATED_VERSION_X_6_2("Use socketDescriptor instead")
     qintptr nativeDescriptor() const { return socketDescriptor(); }
-#else // ### Qt 6: Remove leftovers
-    Q_DECL_DEPRECATED_X("Use setNativeDescriptor") bool setSocketDescriptor(int socketDescriptor);
-    Q_DECL_DEPRECATED_X("Use nativeDescriptor") int socketDescriptor() const;
-    bool setNativeDescriptor(qintptr descriptor);
-    qintptr nativeDescriptor() const;
-#endif // (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
-
+#endif
 
     bool hasPendingConnections() const;
     virtual QWebSocket *nextPendingConnection();
@@ -158,6 +154,9 @@ Q_SIGNALS:
     void peerVerifyError(const QSslError &error);
     void sslErrors(const QList<QSslError> &errors);
     void preSharedKeyAuthenticationRequired(QSslPreSharedKeyAuthenticator *authenticator);
+    void alertSent(QSsl::AlertLevel level, QSsl::AlertType type, const QString &description);
+    void alertReceived(QSsl::AlertLevel level, QSsl::AlertType type, const QString &description);
+    void handshakeInterruptedOnError(const QSslError &error);
 #endif
     void closed();
 };

@@ -74,7 +74,7 @@ public:
     };
     Q_ENUM(FilterMode) // LOVC_EXLC_LINE
 
-    using Hits = QVector<QRayCasterHit>;
+    using Hits = QList<QRayCasterHit>;
 
     explicit QAbstractRayCaster(QNode *parent = nullptr);
     ~QAbstractRayCaster();
@@ -85,7 +85,7 @@ public:
 
     void addLayer(QLayer *layer);
     void removeLayer(QLayer *layer);
-    QVector<QLayer *> layers() const;
+    QList<QLayer *> layers() const;
 
 public Q_SLOTS:
     void setRunMode(RunMode runMode);
@@ -98,8 +98,6 @@ Q_SIGNALS:
 
 protected:
     explicit QAbstractRayCaster(QAbstractRayCasterPrivate &dd, QNode *parent = nullptr);
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) override;
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 
 private:
     Q_DECLARE_PRIVATE(QAbstractRayCaster)

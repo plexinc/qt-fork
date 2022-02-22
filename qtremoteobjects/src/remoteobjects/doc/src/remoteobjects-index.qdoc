@@ -109,21 +109,34 @@ Consider a service that provides access to a printer. In QtRO terms:
         to all Replicas.
 \endlist
 
-\section1 Guides
+\include module-use.qdocinc using qt module
+\snippet cmake-macros/CMakeLists.txt remote_objects_cmake
+
+See also the \l {Build with CMake} overview.
+
+\include module-use.qdocinc building with qmake
+\snippet doc_src_simpleswitch.cpp simpleSwitch_remoteobjectsadd_example1
+
+\section1 Articles and Guides
  \list
     \li \l {Getting Started with Qt Remote Objects}
     \li \l {Qt Remote Objects Nodes}{Nodes}
     \li \l {Qt Remote Objects Source}{Sources}
     \li \l {Qt Remote Objects Replica}{Replicas}
     \li \l {Qt Remote Objects Registry}{Registry}
-    \li \l {Qt Remote Objects - External QIODevices}{External QIODevices}
+    \li Using Custom Transports
+        \list
+        \li \l {Qt Remote Objects - External QIODevices}{External QIODevices}
+        \li \l {APIs for Implementing Custom Transport Backends}
+               {Implementing Custom Transport Backends}
+        \endlist
     \li \l {Qt Remote Objects Compiler}{Compiler}
     \li \l {Remote Object Interaction}
     \li \l {Troubleshooting Qt Remote Objects}{Troubleshooting}
     \li \l {Qt Remote Objects Protocol Versioning}{Protocol Versioning}
  \endlist
 
-\section2 Reference
+\section2 API Reference
 
 \list
     \li \l {Qt Remote Objects C++ Classes}

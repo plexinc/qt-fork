@@ -92,6 +92,8 @@ content::WebUIDataSource* CreateBrowserSwitchUIHTMLSource(
   content::WebUIDataSource* source =
       content::WebUIDataSource::Create(chrome::kChromeUIBrowserSwitchHost);
 
+  source->DisableTrustedTypesCSP();
+
   auto* service = GetBrowserSwitcherService(web_ui);
   source->AddInteger("launchDelay", service->prefs().GetDelay());
 
@@ -234,12 +236,9 @@ class BrowserSwitchHandler : public content::WebUIMessageHandler {
   // Immediately re-download and apply XML rules.
   void HandleRefreshXml(const base::ListValue* args);
 
-  std::unique_ptr<browser_switcher::BrowserSwitcherPrefs::CallbackSubscription>
-      prefs_subscription_;
+  base::CallbackListSubscription prefs_subscription_;
 
-  std::unique_ptr<
-      browser_switcher::BrowserSwitcherService::CallbackSubscription>
-      service_subscription_;
+  base::CallbackListSubscription service_subscription_;
 
   base::WeakPtrFactory<BrowserSwitchHandler> weak_ptr_factory_{this};
 
@@ -292,8 +291,8 @@ void BrowserSwitchHandler::OnJavascriptAllowed() {
 }
 
 void BrowserSwitchHandler::OnJavascriptDisallowed() {
-  prefs_subscription_.reset();
-  service_subscription_.reset();
+  prefs_subscription_ = {};
+  service_subscription_ = {};
 }
 
 void BrowserSwitchHandler::OnAllRulesetsParsed(

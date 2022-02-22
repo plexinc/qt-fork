@@ -8,7 +8,7 @@
 #include <cstddef>
 #include <memory>
 
-#include "net/third_party/quiche/src/quic/core/quic_packet_writer.h"
+#include "quic/core/quic_packet_writer.h"
 
 namespace quic {
 
@@ -35,8 +35,9 @@ class QUIC_NO_EXPORT QuicPacketWriterWrapper : public QuicPacketWriter {
       const QuicSocketAddress& peer_address) const override;
   bool SupportsReleaseTime() const override;
   bool IsBatchMode() const override;
-  char* GetNextWriteLocation(const QuicIpAddress& self_address,
-                             const QuicSocketAddress& peer_address) override;
+  QuicPacketBuffer GetNextWriteLocation(
+      const QuicIpAddress& self_address,
+      const QuicSocketAddress& peer_address) override;
   WriteResult Flush() override;
 
   // Takes ownership of |writer|.

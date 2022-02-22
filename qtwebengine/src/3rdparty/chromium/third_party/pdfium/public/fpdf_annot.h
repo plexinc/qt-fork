@@ -47,6 +47,7 @@ extern "C" {
 #define FPDF_ANNOT_THREED 25
 #define FPDF_ANNOT_RICHMEDIA 26
 #define FPDF_ANNOT_XFAWIDGET 27
+#define FPDF_ANNOT_REDACT 28
 
 // Refer to PDF Reference (6th edition) table 8.16 for all annotation flags.
 #define FPDF_ANNOT_FLAG_NONE 0
@@ -81,6 +82,7 @@ extern "C" {
 // interactive form choice fields.
 #define FPDF_FORMFLAG_CHOICE_COMBO (1 << 17)
 #define FPDF_FORMFLAG_CHOICE_EDIT (1 << 18)
+#define FPDF_FORMFLAG_CHOICE_MULTI_SELECT (1 << 21)
 
 typedef enum FPDFANNOT_COLORTYPE {
   FPDFANNOT_COLORTYPE_Color = 0,
@@ -192,6 +194,34 @@ FPDFAnnot_IsObjectSupportedSubtype(FPDF_ANNOTATION_SUBTYPE subtype);
 // Return true if successful.
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
 FPDFAnnot_UpdateObject(FPDF_ANNOTATION annot, FPDF_PAGEOBJECT obj);
+
+// Experimental API.
+// Add a new InkStroke, represented by an array of points, to the InkList of
+// |annot|. The API creates an InkList if one doesn't already exist in |annot|.
+// This API works only for ink annotations. Please refer section 12.5.6.13 in
+// PDF 32000-1:2008 Specification.
+//
+//   annot       - handle to an annotation.
+//   points      - pointer to a FS_POINTF array representing input points.
+//   point_count - number of elements in |points| array. This should not exceed
+//                 the maximum value that can be represented by an int32_t).
+//
+// Returns the 0-based index at which the new InkStroke is added in the InkList
+// of the |annot|. Returns -1 on failure.
+FPDF_EXPORT int FPDF_CALLCONV FPDFAnnot_AddInkStroke(FPDF_ANNOTATION annot,
+                                                     const FS_POINTF* points,
+                                                     size_t point_count);
+
+// Experimental API.
+// Removes an InkList in |annot|.
+// This API works only for ink annotations.
+//
+//   annot  - handle to an annotation.
+//
+// Return true on successful removal of /InkList entry from context of the
+// non-null ink |annot|. Returns false on failure.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+FPDFAnnot_RemoveInkList(FPDF_ANNOTATION annot);
 
 // Experimental API.
 // Add |obj| to |annot|. |obj| must have been created by
@@ -364,6 +394,79 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDFAnnot_SetRect(FPDF_ANNOTATION annot,
 // Returns true if successful.
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDFAnnot_GetRect(FPDF_ANNOTATION annot,
                                                       FS_RECTF* rect);
+
+// Experimental API.
+// Get the vertices of a polygon or polyline annotation. |buffer| is an array of
+// points of the annotation. If |length| is less than the returned length, or
+// |annot| or |buffer| is NULL, |buffer| will not be modified.
+//
+//   annot  - handle to an annotation, as returned by e.g. FPDFPage_GetAnnot()
+//   buffer - buffer for holding the points.
+//   length - length of the buffer in points.
+//
+// Returns the number of points if the annotation is of type polygon or
+// polyline, 0 otherwise.
+FPDF_EXPORT unsigned long FPDF_CALLCONV
+FPDFAnnot_GetVertices(FPDF_ANNOTATION annot,
+                      FS_POINTF* buffer,
+                      unsigned long length);
+
+// Experimental API.
+// Get the number of paths in the ink list of an ink annotation.
+//
+//   annot  - handle to an annotation, as returned by e.g. FPDFPage_GetAnnot()
+//
+// Returns the number of paths in the ink list if the annotation is of type ink,
+// 0 otherwise.
+FPDF_EXPORT unsigned long FPDF_CALLCONV
+FPDFAnnot_GetInkListCount(FPDF_ANNOTATION annot);
+
+// Experimental API.
+// Get a path in the ink list of an ink annotation. |buffer| is an array of
+// points of the path. If |length| is less than the returned length, or |annot|
+// or |buffer| is NULL, |buffer| will not be modified.
+//
+//   annot  - handle to an annotation, as returned by e.g. FPDFPage_GetAnnot()
+//   path_index - index of the path
+//   buffer - buffer for holding the points.
+//   length - length of the buffer in points.
+//
+// Returns the number of points of the path if the annotation is of type ink, 0
+// otherwise.
+FPDF_EXPORT unsigned long FPDF_CALLCONV
+FPDFAnnot_GetInkListPath(FPDF_ANNOTATION annot,
+                         unsigned long path_index,
+                         FS_POINTF* buffer,
+                         unsigned long length);
+
+// Experimental API.
+// Get the starting and ending coordinates of a line annotation.
+//
+//   annot  - handle to an annotation, as returned by e.g. FPDFPage_GetAnnot()
+//   start - starting point
+//   end - ending point
+//
+// Returns true if the annotation is of type line, |start| and |end| are not
+// NULL, false otherwise.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDFAnnot_GetLine(FPDF_ANNOTATION annot,
+                                                      FS_POINTF* start,
+                                                      FS_POINTF* end);
+
+// Experimental API.
+// Get the characteristics of the annotation's border (rounded rectangle).
+//
+//   annot  - handle to an annotation, as returned by e.g. FPDFPage_GetAnnot()
+//   horizontal_radius - horizontal corner radius, in default user space units
+//   vertical_radius - vertical corner radius, in default user space units
+//   border_width - border width, in default user space units
+//
+// Returns true if |horizontal_radius|, |vertical_radius| and |border_width| are
+// not NULL, false otherwise.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+FPDFAnnot_GetBorder(FPDF_ANNOTATION annot,
+                    float* horizontal_radius,
+                    float* vertical_radius,
+                    float* border_width);
 
 // Experimental API.
 // Check if |annot|'s dictionary has |key| as a key.
@@ -628,6 +731,22 @@ FPDFAnnot_GetOptionLabel(FPDF_FORMHANDLE hHandle,
                          unsigned long buflen);
 
 // Experimental API.
+// Determine whether or not the option at |index| in |annot|'s "Opt" dictionary
+// is selected. Intended for use with listbox and combobox widget annotations.
+//
+//   handle  - handle to the form fill module, returned by
+//             FPDFDOC_InitFormFillEnvironment.
+//   annot   - handle to an annotation.
+//   index   - numeric index of the option in the "Opt" array.
+//
+// Returns true if the option at |index| in |annot|'s "Opt" dictionary is
+// selected, false otherwise.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+FPDFAnnot_IsOptionSelected(FPDF_FORMHANDLE handle,
+                           FPDF_ANNOTATION annot,
+                           int index);
+
+// Experimental API.
 // Get the float value of the font size for an |annot| with variable text.
 // If 0, the font is to be auto-sized: its size is computed as a function of
 // the height of the annotation rectangle.
@@ -700,6 +819,63 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
 FPDFAnnot_GetFocusableSubtypes(FPDF_FORMHANDLE hHandle,
                                FPDF_ANNOTATION_SUBTYPE* subtypes,
                                size_t count);
+
+// Experimental API.
+// Gets FPDF_LINK object for |annot|. Intended to use for link annotations.
+//
+//   annot   - handle to an annotation.
+//
+// Returns FPDF_LINK from the FPDF_ANNOTATION and NULL on failure,
+// if the input annot is NULL or input annot's subtype is not link.
+FPDF_EXPORT FPDF_LINK FPDF_CALLCONV FPDFAnnot_GetLink(FPDF_ANNOTATION annot);
+
+// Experimental API.
+// Gets the count of annotations in the |annot|'s control group.
+// A group of interactive form annotations is collectively called a form
+// control group. Here, |annot|, an interactive form annotation, should be
+// either a radio button or a checkbox.
+//
+//   hHandle - handle to the form fill module, returned by
+//             FPDFDOC_InitFormFillEnvironment.
+//   annot   - handle to an annotation.
+//
+// Returns number of controls in its control group or -1 on error.
+FPDF_EXPORT int FPDF_CALLCONV
+FPDFAnnot_GetFormControlCount(FPDF_FORMHANDLE hHandle, FPDF_ANNOTATION annot);
+
+// Experimental API.
+// Gets the index of |annot| in |annot|'s control group.
+// A group of interactive form annotations is collectively called a form
+// control group. Here, |annot|, an interactive form annotation, should be
+// either a radio button or a checkbox.
+//
+//   hHandle - handle to the form fill module, returned by
+//             FPDFDOC_InitFormFillEnvironment.
+//   annot   - handle to an annotation.
+//
+// Returns index of a given |annot| in its control group or -1 on error.
+FPDF_EXPORT int FPDF_CALLCONV
+FPDFAnnot_GetFormControlIndex(FPDF_FORMHANDLE hHandle, FPDF_ANNOTATION annot);
+
+// Experimental API.
+// Gets the export value of |annot| which is an interactive form annotation.
+// Intended for use with radio button and checkbox widget annotations.
+// |buffer| is only modified if |buflen| is longer than the length of contents.
+// In case of error, nothing will be added to |buffer| and the return value
+// will be 0. Note that return value of empty string is 2 for "\0\0".
+//
+//    hHandle     -   handle to the form fill module, returned by
+//                    FPDFDOC_InitFormFillEnvironment().
+//    annot       -   handle to an interactive form annotation.
+//    buffer      -   buffer for holding the value string, encoded in UTF-16LE.
+//    buflen      -   length of the buffer in bytes.
+//
+// Returns the length of the string value in bytes.
+FPDF_EXPORT unsigned long FPDF_CALLCONV
+FPDFAnnot_GetFormFieldExportValue(FPDF_FORMHANDLE hHandle,
+                                  FPDF_ANNOTATION annot,
+                                  FPDF_WCHAR* buffer,
+                                  unsigned long buflen);
 
 #ifdef __cplusplus
 }  // extern "C"

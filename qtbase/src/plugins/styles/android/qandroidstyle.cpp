@@ -248,7 +248,7 @@ QAndroidStyle::ItemType QAndroidStyle::qtControl(QStyle::PrimitiveElement primit
     case QStyle::PE_FrameLineEdit:
         return QC_EditText;
 
-    case QStyle::PE_IndicatorViewItemCheck:
+    case QStyle::PE_IndicatorItemViewItemCheck:
     case QStyle::PE_IndicatorCheckBox:
         return QC_Checkbox;
 
@@ -607,7 +607,7 @@ QSize QAndroidStyle::sizeFromContents(ContentsType ct,
             if (qApp->styleSheet().isEmpty())
                 txt = hdr->fontMetrics.size(0, hdr->text);
             else
-                txt = qApp->fontMetrics().size(0, hdr->text);
+                txt = QFontMetrics(QApplication::font()).size(0, hdr->text);
 
             sz.setHeight(margin + qMax(iconSize, txt.height()) + margin);
             sz.setWidth((nullIcon ? 0 : margin) + iconSize
@@ -845,7 +845,7 @@ int QAndroidStyle::Android9PatchDrawable::calculateStretch(int boundsLimit,
 }
 
 void QAndroidStyle::Android9PatchDrawable::extractIntArray(const QVariantList &values,
-                                                           QVector<int> & array)
+                                                           QList<int> & array)
 {
     for (const QVariant &value : values)
         array << value.toInt();
@@ -1193,7 +1193,7 @@ QSize QAndroidStyle::AndroidStateDrawable::sizeImage(const QStyleOption *opt) co
 
 const QAndroidStyle::AndroidDrawable * QAndroidStyle::AndroidStateDrawable::bestAndroidStateMatch(const QStyleOption *opt) const
 {
-    const AndroidDrawable *bestMatch = 0;
+    const AndroidDrawable *bestMatch = nullptr;
     if (!opt) {
         if (m_states.size())
             return m_states[0].second;
@@ -1352,9 +1352,10 @@ void QAndroidStyle::AndroidLayerDrawable::draw(QPainter *painter, const QStyleOp
 
 QAndroidStyle::AndroidDrawable *QAndroidStyle::AndroidLayerDrawable::layer(int id) const
 {
-    for (const LayerType &layer : m_layers)
+    for (const LayerType &layer : m_layers) {
         if (layer.first == id)
             return layer.second;
+    }
     return 0;
 }
 
@@ -1407,7 +1408,7 @@ void QAndroidStyle::AndroidControl::drawControl(const QStyleOption *opt, QPainte
                 qDrawShadePanel(p, frame->rect, frame->palette, frame->state & State_Sunken,
                                 frame->lineWidth);
             } else {
-                qDrawPlainRect(p, frame->rect, frame->palette.foreground().color(), frame->lineWidth);
+                qDrawPlainRect(p, frame->rect, frame->palette.windowText().color(), frame->lineWidth);
             }
         } else {
             if (const QStyleOptionFocusRect *fropt = qstyleoption_cast<const QStyleOptionFocusRect *>(opt)) {
@@ -1421,13 +1422,13 @@ void QAndroidStyle::AndroidControl::drawControl(const QStyleOption *opt, QPainte
                     else
                         p->setPen(Qt::white);
                 } else {
-                    p->setPen(opt->palette.foreground().color());
+                    p->setPen(opt->palette.windowText().color());
                 }
                 QRect focusRect = opt->rect.adjusted(1, 1, -1, -1);
                 p->drawRect(focusRect.adjusted(0, 0, -1, -1)); //draw pen inclusive
                 p->setPen(oldPen);
             } else {
-                p->fillRect(opt->rect, opt->palette.brush(QPalette::Background));
+                p->fillRect(opt->rect, opt->palette.window());
             }
         }
     }
@@ -1619,10 +1620,11 @@ void QAndroidStyle::AndroidProgressBarControl::drawControl(const QStyleOption *o
         if (m_progressDrawable->type() == QAndroidStyle::Layer) {
             const double fraction = double(qint64(pb->progress) - pb->minimum) / (qint64(pb->maximum) - pb->minimum);
             QAndroidStyle::AndroidDrawable *clipDrawable = static_cast<QAndroidStyle::AndroidLayerDrawable *>(m_progressDrawable)->layer(m_progressId);
+            const Qt::Orientation orientation = pb->state & QStyle::State_Horizontal ? Qt::Horizontal : Qt::Vertical;
             if (clipDrawable->type() == QAndroidStyle::Clip)
-                static_cast<AndroidClipDrawable *>(clipDrawable)->setFactor(fraction, pb->orientation);
+                static_cast<AndroidClipDrawable *>(clipDrawable)->setFactor(fraction, orientation);
             else
-                static_cast<AndroidLayerDrawable *>(m_progressDrawable)->setFactor(m_progressId, fraction, pb->orientation);
+                static_cast<AndroidLayerDrawable *>(m_progressDrawable)->setFactor(m_progressId, fraction, orientation);
         }
         m_progressDrawable->draw(p, option);
     }
@@ -1634,7 +1636,7 @@ QRect QAndroidStyle::AndroidProgressBarControl::subElementRect(QStyle::SubElemen
 {
     if (const QStyleOptionProgressBar *progressBarOption =
            qstyleoption_cast<const QStyleOptionProgressBar *>(option)) {
-        const bool horizontal = progressBarOption->orientation == Qt::Vertical;
+        const bool horizontal = progressBarOption->state & QStyle::State_Horizontal;
         if (!m_background)
             return option->rect;
 
@@ -1676,12 +1678,12 @@ QSize QAndroidStyle::AndroidProgressBarControl::sizeFromContents(const QStyleOpt
 
     if (const QStyleOptionProgressBar *progressBarOption =
            qstyleoption_cast<const QStyleOptionProgressBar *>(opt)) {
-        if (progressBarOption->orientation == Qt::Vertical) {
-            if (sz.height() > m_maxSize.height())
-                sz.setHeight(m_maxSize.height());
-        } else {
+        if (progressBarOption->state & QStyle::State_Horizontal) {
             if (sz.width() > m_maxSize.width())
                 sz.setWidth(m_maxSize.width());
+        } else {
+            if (sz.height() > m_maxSize.height())
+                sz.setHeight(m_maxSize.height());
         }
     }
     return contentsSize;

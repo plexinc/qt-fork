@@ -75,8 +75,8 @@ std::unique_ptr<QEvdevMouseHandler> QEvdevMouseHandler::create(const QString &de
     int grab = 0;
     bool abs = false;
 
-    const auto args = specification.splitRef(QLatin1Char(':'));
-    for (const QStringRef &arg : args) {
+    const auto args = QStringView{specification}.split(QLatin1Char(':'));
+    for (const auto &arg : args) {
         if (arg == QLatin1String("nocompress"))
             compression = false;
         else if (arg.startsWith(QLatin1String("dejitter=")))
@@ -204,7 +204,10 @@ void QEvdevMouseHandler::sendMouseEvent()
         m_prevInvalid = false;
     }
 
-    emit handleMouseEvent(x, y, m_abs, m_buttons, m_button, m_eventType);
+    if (m_eventType == QEvent::MouseMove)
+        emit handleMouseEvent(x, y, m_abs, m_buttons, Qt::NoButton, m_eventType);
+    else
+        emit handleMouseEvent(x, y, m_abs, m_buttons, m_button, m_eventType);
 
     m_prevx = m_x;
     m_prevy = m_y;

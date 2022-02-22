@@ -4,6 +4,8 @@
 
 #include "ui/platform_window/platform_window.h"
 
+#include <string>
+
 #include "ui/gfx/geometry/rect.h"
 
 namespace ui {
@@ -47,5 +49,13 @@ bool PlatformWindow::IsTranslucentWindowOpacitySupported() const {
 void PlatformWindow::SetOpacity(float opacity) {}
 
 void PlatformWindow::SetVisibilityChangedAnimationsEnabled(bool enabled) {}
+
+std::string PlatformWindow::GetWindowUniqueId() const {
+  return std::string();
+}
+
+bool PlatformWindow::ShouldUseLayerForShapedWindow() const {
+  return false;
+}
 
 }  // namespace ui

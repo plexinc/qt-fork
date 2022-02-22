@@ -25,13 +25,16 @@
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
-#include <QtCore/QObject>
-#include <QtCore/QVariant>
-#include <QtCore/QList>
-#include <QtCore/QVector>
-#include <QtTest/QtTest>
-#include <QtDBus>
 
+#include <QTest>
+#include <QTestEventLoop>
+#include <QObject>
+#include <QVariant>
+#include <QList>
+#include <QDBusConnection>
+#include <QDBusVariant>
+#include <QDBusPendingCallWatcher>
+#include <QDBusMetaType>
 
 class tst_QDBusLocalCalls: public QObject
 {
@@ -52,8 +55,7 @@ public Q_SLOTS:
     Q_SCRIPTABLE QDBusVariant echo(const QDBusVariant &value)
     { return value; }
 
-    Q_SCRIPTABLE QVector<int> echo(const QVector<int> &value)
-    { return value; }
+    Q_SCRIPTABLE QList<int> echo(const QList<int> &value) { return value; }
 
     Q_SCRIPTABLE QString echo2(const QStringList &list, QString &out)
     { out = list[1]; return list[0]; }
@@ -200,7 +202,7 @@ void tst_QDBusLocalCalls::makeCallsTwoRets()
 void tst_QDBusLocalCalls::makeCallsComplex()
 {
     qDBusRegisterMetaType<QList<int> >();
-    qDBusRegisterMetaType<QVector<int> >();
+    qDBusRegisterMetaType<QList<int>>();
 
     QList<int> value;
     value << 1 << -42 << 47;

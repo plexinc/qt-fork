@@ -5,12 +5,15 @@
 #ifndef COMPONENTS_VIZ_HOST_CLIENT_FRAME_SINK_VIDEO_CAPTURER_H_
 #define COMPONENTS_VIZ_HOST_CLIENT_FRAME_SINK_VIDEO_CAPTURER_H_
 
+#include <memory>
+#include <string>
 #include <vector>
 
 #include "base/callback.h"
 #include "base/sequence_checker.h"
 #include "base/time/time.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
+#include "components/viz/common/surfaces/subtree_capture_id.h"
 #include "components/viz/host/viz_host_export.h"
 #include "media/base/video_types.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
@@ -36,7 +39,8 @@ class VIZ_HOST_EXPORT ClientFrameSinkVideoCapturer
     : private mojom::FrameSinkVideoConsumer {
  public:
   // A re-connectable FrameSinkVideoCaptureOverlay. See CreateOverlay().
-  class VIZ_HOST_EXPORT Overlay : public mojom::FrameSinkVideoCaptureOverlay {
+  class VIZ_HOST_EXPORT Overlay final
+      : public mojom::FrameSinkVideoCaptureOverlay {
    public:
     Overlay(base::WeakPtr<ClientFrameSinkVideoCapturer> client_capturer,
             int32_t stacking_index);
@@ -80,7 +84,8 @@ class VIZ_HOST_EXPORT ClientFrameSinkVideoCapturer
                                 const gfx::Size& max_size,
                                 bool use_fixed_aspect_ratio);
   void SetAutoThrottlingEnabled(bool enabled);
-  void ChangeTarget(const base::Optional<FrameSinkId>& frame_sink_id);
+  void ChangeTarget(const base::Optional<FrameSinkId>& frame_sink_id,
+                    SubtreeCaptureId subtree_capture_id);
   void Stop();
   void RequestRefreshFrame();
 
@@ -148,6 +153,7 @@ class VIZ_HOST_EXPORT ClientFrameSinkVideoCapturer
   base::Optional<ResolutionConstraints> resolution_constraints_;
   base::Optional<bool> auto_throttling_enabled_;
   base::Optional<FrameSinkId> target_;
+  SubtreeCaptureId subtree_capture_id_;
   // Overlays are owned by the callers of CreateOverlay().
   std::vector<Overlay*> overlays_;
   bool is_started_ = false;

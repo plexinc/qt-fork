@@ -57,7 +57,9 @@
 #include <QtGui/QWindow>
 #include <qpa/qplatformintegration.h>
 #include <qpa/qplatformnativeinterface.h>
+#include <qpa/qplatformopenglcontext.h>
 #include <qpa/qplatformscreen.h>
+#include <QtGui/private/qkeymapper_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -67,6 +69,12 @@ class QFbVtHandler;
 class QEvdevKeyboardManager;
 
 class Q_EGLFS_EXPORT QEglFSIntegration : public QPlatformIntegration, public QPlatformNativeInterface
+#if QT_CONFIG(evdev)
+    , public QNativeInterface::Private::QEvdevKeyMapper
+#endif
+#ifndef QT_NO_OPENGL
+    , public QNativeInterface::Private::QEGLIntegration
+#endif
 {
 public:
     QEglFSIntegration();
@@ -86,10 +94,8 @@ public:
     QPlatformBackingStore *createPlatformBackingStore(QWindow *window) const override;
 #ifndef QT_NO_OPENGL
     QPlatformOpenGLContext *createPlatformOpenGLContext(QOpenGLContext *context) const override;
+    QOpenGLContext *createOpenGLContext(EGLContext context, EGLDisplay display, QOpenGLContext *shareContext) const override;
     QPlatformOffscreenSurface *createPlatformOffscreenSurface(QOffscreenSurface *surface) const override;
-#endif
-#if QT_CONFIG(vulkan)
-    QPlatformVulkanInstance *createPlatformVulkanInstance(QVulkanInstance *instance) const override;
 #endif
     bool hasCapability(QPlatformIntegration::Capability cap) const override;
 
@@ -111,18 +117,23 @@ public:
     QPointer<QWindow> pointerWindow() { return m_pointerWindow; }
     void setPointerWindow(QWindow *pointerWindow) { m_pointerWindow = pointerWindow; }
 
+#if QT_CONFIG(evdev)
+    void loadKeymap(const QString &filename) override;
+    void switchLang() override;
+#endif
+
+protected:
+    virtual void createInputHandlers();
+    QEvdevKeyboardManager *m_kbdMgr;
+
 private:
     EGLNativeDisplayType nativeDisplay() const;
-    void createInputHandlers();
-    static void loadKeymapStatic(const QString &filename);
-    static void switchLangStatic();
 
     EGLDisplay m_display;
     QPlatformInputContext *m_inputContext;
     QScopedPointer<QPlatformFontDatabase> m_fontDb;
     QScopedPointer<QPlatformServices> m_services;
     QScopedPointer<QFbVtHandler> m_vtHandler;
-    QEvdevKeyboardManager *m_kbdMgr;
     QPointer<QWindow> m_pointerWindow;
     bool m_disableInputHandlers;
 };

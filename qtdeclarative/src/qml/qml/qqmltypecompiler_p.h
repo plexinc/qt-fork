@@ -118,14 +118,14 @@ public:
     void setComponentRoots(const QVector<quint32> &roots) { m_componentRoots = roots; }
     const QVector<quint32> &componentRoots() const { return m_componentRoots; }
     QQmlJS::MemoryPool *memoryPool();
-    QStringRef newStringRef(const QString &string);
+    QStringView newStringRef(const QString &string);
     const QV4::Compiler::StringTableGenerator *stringPool() const;
 
     const QHash<int, QQmlCustomParser*> &customParserCache() const { return customParsers; }
 
     QString bindingAsString(const QmlIR::Object *object, int scriptIndex) const;
 
-    void addImport(const QString &module, const QString &qualifier, int majorVersion, int minorVersion);
+    void addImport(const QString &module, const QString &qualifier, QTypeRevision version);
 
     QV4::ResolvedTypeReference *resolvedType(int id) const
     {
@@ -172,20 +172,20 @@ protected:
     QQmlTypeCompiler *compiler;
 };
 
-// "Converts" signal expressions to full-fleged function declarations with
-// parameters taken from the signal declarations
-// It also updates the QV4::CompiledData::Binding objects to set the property name
-// to the final signal name (onTextChanged -> textChanged) and sets the IsSignalExpression flag.
-struct SignalHandlerConverter : public QQmlCompilePass
+// Resolves signal handlers. Updates the QV4::CompiledData::Binding objects to
+// set the property name to the final signal name (onTextChanged -> textChanged)
+// and sets the IsSignalExpression flag.
+struct SignalHandlerResolver : public QQmlCompilePass
 {
-    Q_DECLARE_TR_FUNCTIONS(SignalHandlerConverter)
+    Q_DECLARE_TR_FUNCTIONS(SignalHandlerResolver)
 public:
-    SignalHandlerConverter(QQmlTypeCompiler *typeCompiler);
+    SignalHandlerResolver(QQmlTypeCompiler *typeCompiler);
 
-    bool convertSignalHandlerExpressionsToFunctionDeclarations();
+    bool resolveSignalHandlerExpressions();
 
 private:
-    bool convertSignalHandlerExpressionsToFunctionDeclarations(const QmlIR::Object *obj, const QString &typeName, QQmlPropertyCache *propertyCache);
+    bool resolveSignalHandlerExpressions(const QmlIR::Object *obj, const QString &typeName,
+                                         QQmlPropertyCache *propertyCache);
 
     QQmlEnginePrivate *enginePrivate;
     const QVector<QmlIR::Object*> &qmlObjects;
@@ -207,15 +207,15 @@ public:
     bool resolveEnumBindings();
 
 private:
-    bool assignEnumToBinding(QmlIR::Binding *binding, const QStringRef &enumName, int enumValue, bool isQtObject);
+    bool assignEnumToBinding(QmlIR::Binding *binding, QStringView enumName, int enumValue, bool isQtObject);
     bool assignEnumToBinding(QmlIR::Binding *binding, const QString &enumName, int enumValue, bool isQtObject)
     {
-        return assignEnumToBinding(binding, QStringRef(&enumName), enumValue, isQtObject);
+        return assignEnumToBinding(binding, QStringView(enumName), enumValue, isQtObject);
     }
     bool tryQualifiedEnumAssignment(const QmlIR::Object *obj, const QQmlPropertyCache *propertyCache,
                                     const QQmlPropertyData *prop,
                                     QmlIR::Binding *binding);
-    int evaluateEnum(const QString &scope, const QStringRef &enumName, const QStringRef &enumValue, bool *ok) const;
+    int evaluateEnum(const QString &scope, QStringView enumName, QStringView enumValue, bool *ok) const;
 
 
     const QVector<QmlIR::Object*> &qmlObjects;
@@ -267,7 +267,7 @@ class QQmlComponentAndAliasResolver : public QQmlCompilePass
 public:
     QQmlComponentAndAliasResolver(QQmlTypeCompiler *typeCompiler);
 
-    bool resolve();
+    bool resolve(int root = 0);
 
 protected:
     void findAndRegisterImplicitComponents(const QmlIR::Object *obj, QQmlPropertyCache *propertyCache);

@@ -30,6 +30,7 @@
 #define FORWARD_DECLARED_PARAM_H
 #include <qobject.h>
 #include <qmetatype.h>
+Q_MOC_INCLUDE("forwarddeclaredparam.h")
 
 // test support for const refs to forward-declared structs in parameters
 
@@ -37,6 +38,8 @@ struct ForwardDeclaredParam;
 template <typename T> class ForwardDeclaredContainer;
 
 struct FullyDefined {};
+inline size_t qHash(const FullyDefined &, size_t seed = 0) { return seed; }
+inline bool operator==(const FullyDefined &, const FullyDefined &) { return true; }
 Q_DECLARE_METATYPE(FullyDefined)
 
 class ForwardDeclaredParamClass : public QObject

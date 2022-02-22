@@ -33,7 +33,7 @@
 #include <private/chartdataset_p.h>
 #include <private/charttheme_p.h>
 #include <private/qchart_p.h>
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 /*!
     \class QLineSeries
@@ -159,7 +159,7 @@ QDebug operator<< (QDebug debug, const QLineSeries series)
 QLineSeriesPrivate::QLineSeriesPrivate(QLineSeries *q)
     : QXYSeriesPrivate(q)
 {
-
+    m_markerSize = m_pen.widthF() * 1.5;
 }
 
 void QLineSeriesPrivate::initializeGraphics(QGraphicsItem *parent)
@@ -188,6 +188,6 @@ void QLineSeriesPrivate::initializeTheme(int index, ChartTheme* theme, bool forc
     }
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_qlineseries.cpp"

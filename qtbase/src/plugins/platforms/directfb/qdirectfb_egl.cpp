@@ -47,10 +47,10 @@
 #include <qpa/qwindowsysteminterface.h>
 #include <QtGui/QScreen>
 
-#include <QtEglSupport/private/qeglplatformcontext_p.h>
-#include <QtEglSupport/private/qeglconvenience_p.h>
+#include <QtGui/private/qeglplatformcontext_p.h>
+#include <QtGui/private/qeglconvenience_p.h>
 
-#include <QtEglSupport/private/qt_egl_p.h>
+#include <QtGui/private/qt_egl_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -58,7 +58,7 @@ QT_BEGIN_NAMESPACE
 extern QDirectFBEGLHooks platform_hook;
 static QDirectFBEGLHooks *hooks = &platform_hook;
 #else
-static QDirectFBEGLHooks *hooks = 0;
+static QDirectFBEGLHooks *hooks = nullptr;
 #endif
 
 /**

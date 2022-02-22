@@ -51,7 +51,8 @@
 #ifndef AUDIODEVICES_H
 #define AUDIODEVICES_H
 
-#include <QAudioDeviceInfo>
+#include <QAudioDevice>
+#include <QMediaDevices>
 #include <QMainWindow>
 #include <QObject>
 
@@ -72,18 +73,18 @@ public:
     explicit AudioTest(QWidget *parent = nullptr);
 
 private:
-    QAudioDeviceInfo m_deviceInfo;
+    QAudioDevice m_deviceInfo;
     QAudioFormat m_settings;
+    QAudioDevice::Mode m_mode = QAudioDevice::Input;
+    QMediaDevices *m_devices = nullptr;
 
 private slots:
+    void updateAudioDevices();
     void modeChanged(int idx);
     void deviceChanged(int idx);
     void sampleRateChanged(int idx);
     void channelChanged(int idx);
-    void codecChanged(int idx);
-    void sampleSizeChanged(int idx);
-    void sampleTypeChanged(int idx);
-    void endianChanged(int idx);
+    void sampleFormatChanged(int idx);
     void test();
     void populateTable();
 

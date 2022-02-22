@@ -2,12 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import * as Common from '../../common/common.js';
+import * as Platform from '../../platform/platform.js';
+
 import {EdgeTypes, EdgeView, generateEdgePortIdsByData} from './EdgeView.js';
 import {NodeCreationData, NodeParamConnectionData, NodeParamDisconnectionData, NodesConnectionData, NodesDisconnectionData, NodesDisconnectionDataWithDestination, ParamCreationData} from './GraphStyle.js';  // eslint-disable-line no-unused-vars
 import {NodeLabelGenerator, NodeView} from './NodeView.js';
 
 // A class that tracks all the nodes and edges of an audio graph.
-export class GraphView extends Common.Object {
+export class GraphView extends Common.ObjectWrapper.ObjectWrapper {
   /**
    * @param {!Protocol.WebAudio.GraphObjectId} contextId
    */
@@ -23,15 +26,15 @@ export class GraphView extends Common.Object {
 
     /**
      * For each node ID, keep a set of all out-bound edge IDs.
-     * @type {!Platform.Multimap<!Protocol.WebAudio.GraphObjectId, string>}
+     * @type {!Platform.MapUtilities.Multimap<!Protocol.WebAudio.GraphObjectId, string>}
      */
-    this._outboundEdgeMap = new Platform.Multimap();
+    this._outboundEdgeMap = new Platform.MapUtilities.Multimap();
 
     /**
      * For each node ID, keep a set of all in-bound edge IDs.
-     * @type {!Platform.Multimap<!Protocol.WebAudio.GraphObjectId, string>}
+     * @type {!Platform.MapUtilities.Multimap<!Protocol.WebAudio.GraphObjectId, string>}
      */
-    this._inboundEdgeMap = new Platform.Multimap();
+    this._inboundEdgeMap = new Platform.MapUtilities.Multimap();
 
     // Use concise node label to replace the long UUID.
     // Each graph has its own label generator so that the label starts from 0.
@@ -108,8 +111,14 @@ export class GraphView extends Common.Object {
   removeNodeToNodeConnection(edgeData) {
     if (edgeData.destinationId) {
       // Remove a single edge if destinationId is specified.
-      const {edgeId} = generateEdgePortIdsByData(
+      const edgePortIds = generateEdgePortIdsByData(
           /** @type {!NodesDisconnectionDataWithDestination} */ (edgeData), EdgeTypes.NodeToNode);
+
+      if (!edgePortIds) {
+        throw new Error('Unable to generate edge port IDs');
+      }
+      const {edgeId} = edgePortIds;
+
       this._removeEdge(edgeId);
     } else {
       // Otherwise, remove all outgoing edges from source node.
@@ -131,7 +140,12 @@ export class GraphView extends Common.Object {
    * @param {!NodeParamDisconnectionData} edgeData
    */
   removeNodeToParamConnection(edgeData) {
-    const {edgeId} = generateEdgePortIdsByData(edgeData, EdgeTypes.NodeToParam);
+    const edgePortIds = generateEdgePortIdsByData(edgeData, EdgeTypes.NodeToParam);
+    if (!edgePortIds) {
+      throw new Error('Unable to generate edge port IDs');
+    }
+
+    const {edgeId} = edgePortIds;
     this._removeEdge(edgeId);
   }
 
@@ -140,7 +154,7 @@ export class GraphView extends Common.Object {
    * @return {?NodeView}
    */
   getNodeById(nodeId) {
-    return this._nodes.get(nodeId);
+    return this._nodes.get(nodeId) || null;
   }
 
   /** @return {!Map<!Protocol.WebAudio.GraphObjectId, !NodeView>} */
@@ -158,7 +172,7 @@ export class GraphView extends Common.Object {
    * @return {?Protocol.WebAudio.GraphObjectId}
    */
   getNodeIdByParamId(paramId) {
-    return this._paramIdToNodeIdMap.get(paramId);
+    return this._paramIdToNodeIdMap.get(paramId) || null;
   }
 
   /**

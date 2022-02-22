@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QtTest/QTest>
 
 #include <Qt3DRender/private/qshaderformat_p.h>
 #include <Qt3DRender/private/qshadernode_p.h>
@@ -540,8 +540,8 @@ void tst_QShaderNodes::shouldHandleNodeRulesSupportAndOrder()
     QCOMPARE(node.availableFormats().at(2), openGL3);
     QCOMPARE(node.rule(openGLES2), es2Rule);
     QCOMPARE(node.rule(openGL3), gl3bisRule);
-    QCOMPARE(node.rule(openGL32), gl3bisRule);
-    QCOMPARE(node.rule(openGL4), gl3bisRule);
+    QCOMPARE(node.rule(openGL32), gl32Rule);
+    QCOMPARE(node.rule(openGL4), gl32Rule);
 }
 
 QTEST_MAIN(tst_QShaderNodes)

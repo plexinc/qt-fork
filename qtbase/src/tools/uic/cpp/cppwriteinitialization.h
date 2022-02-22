@@ -37,6 +37,9 @@
 #include <qstack.h>
 #include <qtextstream.h>
 
+enum class ConnectionSyntax;
+namespace language { struct SignalSlot; }
+
 QT_BEGIN_NAMESPACE
 
 class Driver;
@@ -187,7 +190,7 @@ private:
         };
         ItemData m_setupUiData;
         ItemData m_retranslateUiData;
-        QVector<Item *> m_children;
+        QList<Item *> m_children;
         Item *m_parent = nullptr;
 
         const QString m_itemClassName;
@@ -196,7 +199,7 @@ private:
         QTextStream &m_retranslateUiStream;
         Driver *m_driver;
     };
-    using Items = QVector<Item *>;
+    using Items = QList<Item *>;
 
     void addInitializer(Item *item,
             const QString &name, int column, const QString &value, const QString &directive = QString(), bool translatable = false) const;
@@ -215,7 +218,7 @@ private:
     void initializeComboBox(DomWidget *w);
     void initializeListWidget(DomWidget *w);
     void initializeTreeWidget(DomWidget *w);
-    Items initializeTreeWidgetItems(const QVector<DomItem *> &domItems);
+    Items initializeTreeWidgetItems(const QList<DomItem *> &domItems);
     void initializeTableWidget(DomWidget *w);
 
     QString disableSorting(DomWidget *w, const QString &varName);
@@ -238,6 +241,9 @@ private:
     QString writeBrushInitialization(const DomBrush *brush);
     void addButtonGroup(const DomWidget *node, const QString &varName);
     void addWizardPage(const QString &pageVarName, const DomWidget *page, const QString &parentWidget);
+    bool isCustomWidget(const QString &className) const;
+    ConnectionSyntax connectionSyntax(const language::SignalSlot &sender,
+                                      const language::SignalSlot &receiver) const;
 
     const Uic *m_uic;
     Driver *m_driver;
@@ -257,7 +263,7 @@ private:
     QStack<DomWidget*> m_widgetChain;
     QStack<DomLayout*> m_layoutChain;
     QStack<DomActionGroup*> m_actionGroupChain;
-    QVector<Buddy> m_buddies;
+    QList<Buddy> m_buddies;
 
     QSet<QString> m_buttonGroups;
     using ColorBrushHash = QHash<uint, QString>;
@@ -299,6 +305,8 @@ private:
 
     QString m_generatedClass;
     QString m_mainFormVarName;
+    QStringList m_customSlots;
+    QStringList m_customSignals;
     bool m_mainFormUsedInRetranslateUi = false;
 
     QString m_delayedInitialization;
@@ -317,7 +325,7 @@ private:
 
 } // namespace CPP
 
-Q_DECLARE_TYPEINFO(CPP::WriteInitialization::Buddy, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(CPP::WriteInitialization::Buddy, Q_RELOCATABLE_TYPE);
 
 QT_END_NAMESPACE
 

@@ -31,7 +31,7 @@
 #include "qwasmwindow.h"
 #include "qwasmcompositor.h"
 
-#include <QtGui/qopengltexture.h>
+#include <QtOpenGL/qopengltexture.h>
 #include <QtGui/qmatrix4x4.h>
 #include <QtGui/qpainter.h>
 #include <private/qguiapplication_p.h>
@@ -164,7 +164,7 @@ void QWasmBackingStore::beginPaint(const QRegion &region)
 
 void QWasmBackingStore::resize(const QSize &size, const QRegion &staticContents)
 {
-    Q_UNUSED(staticContents)
+    Q_UNUSED(staticContents);
 
     m_image = QImage(size * window()->devicePixelRatio(), QImage::Format_RGB32);
     m_image.setDevicePixelRatio(window()->devicePixelRatio());

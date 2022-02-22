@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2018 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -60,10 +60,9 @@ QT_BEGIN_NAMESPACE
 class Q_CORE_EXPORT QJalaliCalendar : public QCalendarBackend
 {
 public:
-    QJalaliCalendar();
     // Calendar properties:
     QString name() const override;
-    QCalendar::System calendarSystem() const override;
+    static QStringList nameList();
     // Date queries:
     int daysInMonth(int month, int year = QCalendar::Unspecified) const override;
     bool isLeapYear(int year) const override;
@@ -78,7 +77,7 @@ public:
 protected:
     // locale support:
     const QCalendarLocale *localeMonthIndexData() const override;
-    const ushort *localeMonthData() const override;
+    const char16_t *localeMonthData() const override;
 };
 
 QT_END_NAMESPACE

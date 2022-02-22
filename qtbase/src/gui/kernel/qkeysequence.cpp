@@ -42,8 +42,6 @@
 #include <qpa/qplatformtheme.h>
 #include "private/qguiapplication_p.h"
 
-#if !defined(QT_NO_SHORTCUT) || defined(Q_CLANG_QDOC)
-
 #include "qdebug.h"
 #include <QtCore/qhashfunctions.h>
 #ifndef QT_NO_DATASTREAM
@@ -51,7 +49,7 @@
 #endif
 #include "qvariant.h"
 
-#if defined(Q_OS_MACX)
+#if defined(Q_OS_MACOS)
 #include <QtCore/private/qcore_mac_p.h>
 #endif
 
@@ -703,7 +701,7 @@ static const struct {
     { Qt::Key_TouchpadOff,  QT_TRANSLATE_NOOP("QShortcut", "Touchpad Off") },
 
 };
-static Q_CONSTEXPR int numKeyNames = sizeof keyname / sizeof *keyname;
+static constexpr int numKeyNames = sizeof keyname / sizeof *keyname;
 
 /*!
     \enum QKeySequence::StandardKey
@@ -853,7 +851,7 @@ QKeySequence::QKeySequence(const QString &key, QKeySequence::SequenceFormat form
     assign(key, format);
 }
 
-Q_STATIC_ASSERT_X(QKeySequencePrivate::MaxKeyCount == 4, "Change docs and ctor impl below");
+static_assert(QKeySequencePrivate::MaxKeyCount == 4, "Change docs and ctor impl below");
 /*!
     Constructs a key sequence with up to 4 keys \a k1, \a k2,
     \a k3 and \a k4.
@@ -869,6 +867,17 @@ QKeySequence::QKeySequence(int k1, int k2, int k3, int k4)
     d->key[1] = k2;
     d->key[2] = k3;
     d->key[3] = k4;
+}
+
+/*!
+    Constructs a key sequence with up to 4 keys \a k1, \a k2,
+    \a k3 and \a k4.
+
+    \sa QKeyCombination
+*/
+QKeySequence::QKeySequence(QKeyCombination k1, QKeyCombination k2, QKeyCombination k3, QKeyCombination k4)
+    : QKeySequence(k1.toCombined(), k2.toCombined(), k3.toCombined(), k4.toCombined())
+{
 }
 
 /*!
@@ -910,14 +919,14 @@ QKeySequence::~QKeySequence()
     delivery.
 */
 
-void QKeySequence::setKey(int key, int index)
+void QKeySequence::setKey(QKeyCombination key, int index)
 {
     Q_ASSERT_X(index >= 0 && index < QKeySequencePrivate::MaxKeyCount, "QKeySequence::setKey", "index out of range");
     qAtomicDetach(d);
-    d->key[index] = key;
+    d->key[index] = key.toCombined();
 }
 
-Q_STATIC_ASSERT_X(QKeySequencePrivate::MaxKeyCount == 4, "Change docs below");
+static_assert(QKeySequencePrivate::MaxKeyCount == 4, "Change docs below");
 /*!
     Returns the number of keys in the key sequence.
     The maximum is 4.
@@ -955,7 +964,7 @@ QKeySequence QKeySequence::mnemonic(const QString &text)
 {
     QKeySequence ret;
 
-    if(qt_sequence_no_mnemonics)
+    if (qt_sequence_no_mnemonics)
         return ret;
 
     bool found = false;
@@ -969,7 +978,7 @@ QKeySequence QKeySequence::mnemonic(const QString &text)
             if (c.isPrint()) {
                 if (!found) {
                     c = c.toUpper();
-                    ret = QKeySequence(c.unicode() + Qt::ALT);
+                    ret = QKeySequence(QKeyCombination(Qt::ALT, Qt::Key(c.unicode())));
 #ifdef QT_NO_DEBUG
                     return ret;
 #else
@@ -1050,10 +1059,10 @@ struct QModifKeyName {
     int qt_key;
     QString name;
 };
-Q_DECLARE_TYPEINFO(QModifKeyName, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QModifKeyName, Q_RELOCATABLE_TYPE);
 
-Q_GLOBAL_STATIC(QVector<QModifKeyName>, globalModifs)
-Q_GLOBAL_STATIC(QVector<QModifKeyName>, globalPortableModifs)
+Q_GLOBAL_STATIC(QList<QModifKeyName>, globalModifs)
+Q_GLOBAL_STATIC(QList<QModifKeyName>, globalPortableModifs)
 
 /*!
   Constructs a single key from the string \a str.
@@ -1071,11 +1080,11 @@ int QKeySequencePrivate::decodeString(QString accel, QKeySequence::SequenceForma
     accel = std::move(accel).toLower();
     bool nativeText = (format == QKeySequence::NativeText);
 
-    QVector<QModifKeyName> *gmodifs;
+    QList<QModifKeyName> *gmodifs;
     if (nativeText) {
         gmodifs = globalModifs();
         if (gmodifs->isEmpty()) {
-#if defined(Q_OS_MACX)
+#if defined(Q_OS_MACOS)
             const bool dontSwap = qApp->testAttribute(Qt::AA_MacDontSwapCtrlAndMeta);
             if (dontSwap)
                 *gmodifs << QModifKeyName(Qt::META, QChar(kCommandUnicode));
@@ -1106,7 +1115,7 @@ int QKeySequencePrivate::decodeString(QString accel, QKeySequence::SequenceForma
     }
 
 
-    QVector<QModifKeyName> modifs;
+    QList<QModifKeyName> modifs;
     if (nativeText) {
         modifs << QModifKeyName(Qt::CTRL, QCoreApplication::translate("QShortcut", "Ctrl").toLower().append(QLatin1Char('+')))
                << QModifKeyName(Qt::SHIFT, QCoreApplication::translate("QShortcut", "Shift").toLower().append(QLatin1Char('+')))
@@ -1117,7 +1126,7 @@ int QKeySequencePrivate::decodeString(QString accel, QKeySequence::SequenceForma
     modifs += *gmodifs; // Test non-translated ones last
 
     QString sl = accel;
-#if defined(Q_OS_MACX)
+#if defined(Q_OS_MACOS)
     for (int i = 0; i < modifs.size(); ++i) {
         const QModifKeyName &mkf = modifs.at(i);
         if (sl.contains(mkf.name)) {
@@ -1133,7 +1142,7 @@ int QKeySequencePrivate::decodeString(QString accel, QKeySequence::SequenceForma
     int i = 0;
     int lastI = 0;
     while ((i = sl.indexOf(QLatin1Char('+'), i + 1)) != -1) {
-        const QStringRef sub = sl.midRef(lastI, i - lastI + 1);
+        const QStringView sub = QStringView{sl}.mid(lastI, i - lastI + 1);
         // If we get here the shortcuts contains at least one '+'. We break up
         // along the following strategy:
         //      Meta+Ctrl++   ( "Meta+", "Ctrl+", "+" )
@@ -1166,13 +1175,13 @@ int QKeySequencePrivate::decodeString(QString accel, QKeySequence::SequenceForma
     }
 
     int p = accel.lastIndexOf(QLatin1Char('+'), accel.length() - 2); // -2 so that Ctrl++ works
-    QStringRef accelRef(&accel);
-    if(p > 0)
+    QStringView accelRef(accel);
+    if (p > 0)
         accelRef = accelRef.mid(p + 1);
 
     int fnum = 0;
     if (accelRef.length() == 1) {
-#if defined(Q_OS_MACX)
+#if defined(Q_OS_MACOS)
         int qtKey = qtkeyForMacSymbol(accelRef.at(0));
         if (qtKey != -1) {
             ret |= qtKey;
@@ -1184,7 +1193,7 @@ int QKeySequencePrivate::decodeString(QString accel, QKeySequence::SequenceForma
     } else if (accelRef.at(0) == QLatin1Char('f') && (fnum = accelRef.mid(1).toInt()) >= 1 && fnum <= 35) {
         ret |= Qt::Key_F1 + fnum - 1;
     } else {
-        // For NativeText, check the traslation table first,
+        // For NativeText, check the translation table first,
         // if we don't find anything then try it out with just the untranlated stuff.
         // PortableText will only try the untranlated table.
         bool found = false;
@@ -1244,7 +1253,7 @@ QString QKeySequencePrivate::encodeString(int key, QKeySequence::SequenceFormat 
     if (key == -1 || key == Qt::Key_unknown)
         return s;
 
-#if defined(Q_OS_MACX)
+#if defined(Q_OS_MACOS)
     if (nativeText) {
         // On OS X the order (by default) is Meta, Alt, Shift, Control.
         // If the AA_MacDontSwapCtrlAndMeta is enabled, then the order
@@ -1313,7 +1322,7 @@ QString QKeySequencePrivate::keyName(int key, QKeySequence::SequenceFormat forma
 
     if (key && key < Qt::Key_Escape && key != Qt::Key_Space) {
         if (!QChar::requiresSurrogates(key)) {
-            p = QChar(ushort(key)).toUpper();
+            p = QChar::fromUcs2(key).toUpper();
         } else {
             p += QChar(QChar::highSurrogate(key));
             p += QChar(QChar::lowSurrogate(key));
@@ -1323,7 +1332,7 @@ QString QKeySequencePrivate::keyName(int key, QKeySequence::SequenceFormat forma
                            : QString::fromLatin1("F%1").arg(key - Qt::Key_F1 + 1);
     } else if (key) {
         int i=0;
-#if defined(Q_OS_MACX)
+#if defined(Q_OS_MACOS)
         if (nativeText) {
             QChar ch = qt_macSymbolForQtKey(key);
             if (!ch.isNull())
@@ -1333,7 +1342,7 @@ QString QKeySequencePrivate::keyName(int key, QKeySequence::SequenceFormat forma
         } else
 #endif
         {
-#if defined(Q_OS_MACX)
+#if defined(Q_OS_MACOS)
 NonSymbol:
 #endif
             while (i < numKeyNames) {
@@ -1350,7 +1359,7 @@ NonSymbol:
             // (Really depends on you locale)
             if (i >= numKeyNames) {
                 if (!QChar::requiresSurrogates(key)) {
-                    p = QChar(ushort(key)).toUpper();
+                    p = QChar::fromUcs2(key).toUpper();
                 } else {
                     p += QChar(QChar::highSurrogate(key));
                     p += QChar(QChar::lowSurrogate(key));
@@ -1379,49 +1388,30 @@ QKeySequence::SequenceMatch QKeySequence::matches(const QKeySequence &seq) const
     SequenceMatch match = (userN == seqN ? ExactMatch : PartialMatch);
 
     for (uint i = 0; i < userN; ++i) {
-        int userKey = (*this)[i],
-            sequenceKey = seq[i];
+        QKeyCombination userKey = (*this)[i],
+                    sequenceKey = seq[i];
         if (userKey != sequenceKey)
             return NoMatch;
     }
     return match;
 }
 
-
-/*! \fn QKeySequence::operator QString() const
-
-    \obsolete
-
-    Use toString() instead.
-
-    Returns the key sequence as a QString. This is equivalent to
-    calling toString(QKeySequence::NativeText). Note that the
-    result is not platform independent.
-*/
-
 /*!
    Returns the key sequence as a QVariant
 */
 QKeySequence::operator QVariant() const
 {
-    return QVariant(QMetaType::QKeySequence, this);
+    return QVariant::fromValue(*this);
 }
-
-/*! \fn QKeySequence::operator int () const
-
-    \obsolete
-    For backward compatibility: returns the first keycode
-    as integer. If the key sequence is empty, 0 is returned.
- */
 
 /*!
     Returns a reference to the element at position \a index in the key
     sequence. This can only be used to read an element.
  */
-int QKeySequence::operator[](uint index) const
+QKeyCombination QKeySequence::operator[](uint index) const
 {
     Q_ASSERT_X(index < QKeySequencePrivate::MaxKeyCount, "QKeySequence::operator[]", "index out of range");
-    return d->key[index];
+    return QKeyCombination::fromCombined(d->key[index]);
 }
 
 
@@ -1469,7 +1459,7 @@ bool QKeySequence::operator==(const QKeySequence &other) const
     Calculates the hash value of \a key, using
     \a seed to seed the calculation.
 */
-uint qHash(const QKeySequence &key, uint seed) noexcept
+size_t qHash(const QKeySequence &key, size_t seed) noexcept
 {
     return qHashRange(key.d->key, key.d->key + QKeySequencePrivate::MaxKeyCount, seed);
 }
@@ -1630,7 +1620,7 @@ QString QKeySequence::listToString(const QList<QKeySequence> &list, SequenceForm
 */
 QDataStream &operator<<(QDataStream &s, const QKeySequence &keysequence)
 {
-    Q_STATIC_ASSERT_X(QKeySequencePrivate::MaxKeyCount == 4, "Forgot to adapt QDataStream &operator<<(QDataStream &s, const QKeySequence &keysequence) to new QKeySequence::MaxKeyCount");
+    static_assert(QKeySequencePrivate::MaxKeyCount == 4, "Forgot to adapt QDataStream &operator<<(QDataStream &s, const QKeySequence &keysequence) to new QKeySequence::MaxKeyCount");
     const bool extended = s.version() >= 5 && keysequence.count() > 1;
     s << quint32(extended ? 4 : 1) << quint32(keysequence.d->key[0]);
     if (extended) {
@@ -1678,9 +1668,6 @@ QDebug operator<<(QDebug dbg, const QKeySequence &p)
     return dbg;
 }
 #endif
-
-#endif // QT_NO_SHORTCUT
-
 
 /*!
     \typedef QKeySequence::DataPtr

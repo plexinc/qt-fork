@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2019 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -41,8 +41,6 @@ class QDocDatabase;
 
 class CodeParser
 {
-    Q_DECLARE_TR_FUNCTIONS(QDoc::CppCodeParser)
-
 public:
     CodeParser();
     virtual ~CodeParser();
@@ -55,14 +53,14 @@ public:
     virtual void parseHeaderFile(const Location &location, const QString &filePath);
     virtual void parseSourceFile(const Location &location, const QString &filePath) = 0;
     virtual void precompileHeaders() {}
-    virtual Node *parseFnArg(const Location &, const QString &) { return nullptr; }
+    virtual Node *parseFnArg(const Location &, const QString &, const QString & = QString())
+    {
+        return nullptr;
+    }
 
-    bool isParsingH() const;
-    bool isParsingCpp() const;
-    bool isParsingQdoc() const;
-    const QString &currentFile() const { return currentFile_; }
-    const QString &moduleHeader() const { return moduleHeader_; }
-    void setModuleHeader(const QString &t) { moduleHeader_ = t; }
+    [[nodiscard]] const QString &currentFile() const { return m_currentFile; }
+    [[nodiscard]] const QString &moduleHeader() const { return m_moduleHeader; }
+    void setModuleHeader(const QString &t) { m_moduleHeader = t; }
     void checkModuleInclusion(Node *n);
 
     static void initialize();
@@ -75,30 +73,22 @@ public:
 
 protected:
     const QSet<QString> &commonMetaCommands();
-    static void extractPageLinkAndDesc(const QString &arg, QString *link, QString *desc);
-    static bool showInternal() { return showInternal_; }
-    QString moduleHeader_;
-    QString currentFile_;
-    QDocDatabase *qdb_;
+    static void extractPageLinkAndDesc(QStringView arg, QString *link, QString *desc);
+    static bool showInternal() { return s_showInternal; }
+    QString m_moduleHeader {};
+    QString m_currentFile {};
+    QDocDatabase *m_qdb {};
 
 private:
-    static QVector<CodeParser *> parsers;
-    static bool showInternal_;
-    static bool singleExec_;
+    static QList<CodeParser *> s_parsers;
+    static bool s_showInternal;
 };
 
 #define COMMAND_ABSTRACT Doc::alias(QLatin1String("abstract"))
-#define COMMAND_AUDIENCE Doc::alias(QLatin1String("audience"))
-#define COMMAND_AUTHOR Doc::alias(QLatin1String("author"))
-#define COMMAND_CATEGORY Doc::alias(QLatin1String("category"))
 #define COMMAND_CLASS Doc::alias(QLatin1String("class"))
-#define COMMAND_COMPONENT Doc::alias(QLatin1String("component"))
-#define COMMAND_CONTENTSPAGE Doc::alias(QLatin1String("contentspage"))
-#define COMMAND_COPYRHOLDER Doc::alias(QLatin1String("copyrholder"))
-#define COMMAND_COPYRYEAR Doc::alias(QLatin1String("copyryear"))
+#define COMMAND_DEFAULT Doc::alias(QLatin1String("default"))
 #define COMMAND_DEPRECATED Doc::alias(QLatin1String("deprecated")) // ### don't document
 #define COMMAND_DONTDOCUMENT Doc::alias(QLatin1String("dontdocument"))
-#define COMMAND_DITAMAP Doc::alias(QLatin1String("ditamap"))
 #define COMMAND_ENUM Doc::alias(QLatin1String("enum"))
 #define COMMAND_EXAMPLE Doc::alias(QLatin1String("example"))
 #define COMMAND_EXTERNALPAGE Doc::alias(QLatin1String("externalpage"))
@@ -122,13 +112,7 @@ private:
 #define COMMAND_JSPROPERTYGROUP Doc::alias(QLatin1String("jspropertygroup"))
 #define COMMAND_JSSIGNAL Doc::alias(QLatin1String("jssignal"))
 #define COMMAND_JSTYPE Doc::alias(QLatin1String("jstype"))
-#define COMMAND_LICENSEDESCRIPTION Doc::alias(QLatin1String("licensedescription"))
-#define COMMAND_LICENSENAME Doc::alias(QLatin1String("licensename"))
-#define COMMAND_LICENSEYEAR Doc::alias(QLatin1String("licenseyear"))
-#define COMMAND_LIFECYCLEVERSION Doc::alias(QLatin1String("lifecycleversion"))
-#define COMMAND_LIFECYCLEWSTATUS Doc::alias(QLatin1String("lifecyclestatus"))
 #define COMMAND_MACRO Doc::alias(QLatin1String("macro"))
-#define COMMAND_MAINCLASS Doc::alias(QLatin1String("mainclass"))
 #define COMMAND_MODULE Doc::alias(QLatin1String("module"))
 #define COMMAND_NAMESPACE Doc::alias(QLatin1String("namespace"))
 #define COMMAND_NEXTPAGE Doc::alias(QLatin1String("nextpage"))
@@ -137,19 +121,16 @@ private:
 #define COMMAND_OBSOLETE Doc::alias(QLatin1String("obsolete"))
 #define COMMAND_OVERLOAD Doc::alias(QLatin1String("overload"))
 #define COMMAND_PAGE Doc::alias(QLatin1String("page"))
-#define COMMAND_PERMISSIONS Doc::alias(QLatin1String("permissions"))
 #define COMMAND_PRELIMINARY Doc::alias(QLatin1String("preliminary"))
 #define COMMAND_PREVIOUSPAGE Doc::alias(QLatin1String("previouspage"))
-#define COMMAND_PRODNAME Doc::alias(QLatin1String("prodname"))
 #define COMMAND_PROPERTY Doc::alias(QLatin1String("property"))
-#define COMMAND_PUBLISHER Doc::alias(QLatin1String("publisher"))
 #define COMMAND_QMLABSTRACT Doc::alias(QLatin1String("qmlabstract"))
 #define COMMAND_QMLATTACHEDMETHOD Doc::alias(QLatin1String("qmlattachedmethod"))
 #define COMMAND_QMLATTACHEDPROPERTY Doc::alias(QLatin1String("qmlattachedproperty"))
 #define COMMAND_QMLATTACHEDSIGNAL Doc::alias(QLatin1String("qmlattachedsignal"))
 #define COMMAND_QMLBASICTYPE Doc::alias(QLatin1String("qmlbasictype"))
 #define COMMAND_QMLCLASS Doc::alias(QLatin1String("qmlclass"))
-#define COMMAND_QMLDEFAULT Doc::alias(QLatin1String("default"))
+#define COMMAND_QMLDEFAULT Doc::alias(QLatin1String("qmldefault"))
 #define COMMAND_QMLINHERITS Doc::alias(QLatin1String("inherits"))
 #define COMMAND_QMLINSTANTIATES Doc::alias(QLatin1String("instantiates"))
 #define COMMAND_QMLMETHOD Doc::alias(QLatin1String("qmlmethod"))
@@ -157,13 +138,14 @@ private:
 #define COMMAND_QMLPROPERTY Doc::alias(QLatin1String("qmlproperty"))
 #define COMMAND_QMLPROPERTYGROUP Doc::alias(QLatin1String("qmlpropertygroup"))
 #define COMMAND_QMLREADONLY Doc::alias(QLatin1String("readonly"))
+#define COMMAND_QMLREQUIRED Doc::alias(QLatin1String("required"))
 #define COMMAND_QMLSIGNAL Doc::alias(QLatin1String("qmlsignal"))
 #define COMMAND_QMLTYPE Doc::alias(QLatin1String("qmltype"))
+#define COMMAND_QTCMAKEPACKAGE Doc::alias(QLatin1String("qtcmakepackage"))
 #define COMMAND_QTVARIABLE Doc::alias(QLatin1String("qtvariable"))
 #define COMMAND_REENTRANT Doc::alias(QLatin1String("reentrant"))
 #define COMMAND_REIMP Doc::alias(QLatin1String("reimp"))
 #define COMMAND_RELATES Doc::alias(QLatin1String("relates"))
-#define COMMAND_RELEASEDATE Doc::alias(QLatin1String("releasedate"))
 #define COMMAND_SINCE Doc::alias(QLatin1String("since"))
 #define COMMAND_STRUCT Doc::alias(QLatin1String("struct"))
 #define COMMAND_SUBTITLE Doc::alias(QLatin1String("subtitle"))

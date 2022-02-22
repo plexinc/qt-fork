@@ -11,7 +11,7 @@ cast_source_set("net") {
     "net_util_cast.h",
   ]
 
-  if (is_linux) {
+  if (is_linux || is_chromeos) {
     sources += [
       "network_change_notifier_factory_cast.cc",
       "network_change_notifier_factory_cast.h",
@@ -32,10 +32,7 @@ cast_source_set("net") {
       "network_change_notifier_factory_fuchsia.h",
     ]
 
-    deps += [
-      "//chromecast/base:chromecast_switches",
-      "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.hardware.ethernet",
-    ]
+    deps += [ "//chromecast/base:chromecast_switches" ]
   }
 }
 
@@ -44,6 +41,21 @@ cast_source_set("net_switches") {
     "net_switches.cc",
     "net_switches.h",
   ]
+}
+
+cast_source_set("time_sync_tracker") {
+  sources = [
+    "time_sync_tracker.cc",
+    "time_sync_tracker.h",
+  ]
+  deps = [ "//base" ]
+
+  if (is_fuchsia) {
+    sources += [
+      "time_sync_tracker_fuchsia.cc",
+      "time_sync_tracker_fuchsia.h",
+    ]
+  }
 }
 
 cast_source_set("connectivity_checker") {
@@ -57,6 +69,7 @@ cast_source_set("connectivity_checker") {
   ]
   deps = [
     ":net_switches",
+    ":time_sync_tracker",
     "//base",
     "//chromecast:chromecast_buildflags",
     "//chromecast/base/metrics",

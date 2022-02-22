@@ -47,31 +47,6 @@ namespace Render {
 
 namespace Rhi {
 
-RHIGraphicsPipeline::RHIGraphicsPipeline()
-    : m_rvUbo(nullptr),
-      m_cmdUbo(nullptr),
-      m_pipeline(nullptr),
-      m_shaderResourceBindings(nullptr),
-      m_score(0)
-{
-}
-
-RHIGraphicsPipeline::~RHIGraphicsPipeline() { }
-
-void RHIGraphicsPipeline::cleanup()
-{
-    delete m_shaderResourceBindings;
-    delete m_rvUbo;
-    delete m_cmdUbo;
-    delete m_pipeline;
-    m_rvUbo = nullptr;
-    m_cmdUbo = nullptr;
-    m_pipeline = nullptr;
-    m_shaderResourceBindings = nullptr;
-    m_ubos.clear();
-    m_attributeNameIdToBindingIndex.clear();
-}
-
 } // Rhi
 
 } // Render

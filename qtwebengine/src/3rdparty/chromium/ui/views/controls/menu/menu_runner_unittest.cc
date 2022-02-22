@@ -9,9 +9,10 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/bind.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "build/build_config.h"
 #include "ui/base/ui_base_types.h"
@@ -257,7 +258,7 @@ TEST_F(MenuRunnerTest, PrefixSelect) {
 
 // This test is Mac-specific: Mac is the only platform where VKEY_SPACE
 // activates menu items.
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
 TEST_F(MenuRunnerTest, SpaceActivatesItem) {
   if (!MenuConfig::instance().all_menus_use_prefix_selection)
     return;
@@ -282,7 +283,7 @@ TEST_F(MenuRunnerTest, SpaceActivatesItem) {
   EXPECT_EQ(1, delegate->on_menu_closed_called());
   EXPECT_NE(nullptr, delegate->on_menu_closed_menu());
 }
-#endif  // OS_MACOSX
+#endif  // OS_APPLE
 
 // Tests that attempting to nest a menu within a drag-and-drop menu does not
 // cause a crash. Instead the drag and drop action should be canceled, and the
@@ -576,9 +577,12 @@ TEST_F(MenuRunnerDestructionTest, MenuRunnerDestroyedDuringReleaseRef) {
   menu_runner->RunMenuAt(owner(), nullptr, gfx::Rect(),
                          MenuAnchorPosition::kTopLeft, 0);
 
-  test_views_delegate()->set_release_ref_callback(base::BindRepeating(
-      [](internal::MenuRunnerImpl* menu_runner) { menu_runner->Release(); },
-      base::Unretained(menu_runner)));
+  base::RunLoop run_loop;
+  test_views_delegate()->set_release_ref_callback(
+      base::BindLambdaForTesting([&]() {
+        run_loop.Quit();
+        menu_runner->Release();
+      }));
 
   base::WeakPtr<internal::MenuRunnerImpl> ref(MenuRunnerAsWeakPtr(menu_runner));
   MenuControllerTestApi menu_controller;
@@ -586,8 +590,9 @@ TEST_F(MenuRunnerDestructionTest, MenuRunnerDestroyedDuringReleaseRef) {
   // |menu_runner| simulating device shutdown.
   menu_controller.controller()->Cancel(MenuController::ExitType::kAll);
   // Both the |menu_runner| and |menu_controller| should have been deleted.
-  EXPECT_EQ(nullptr, ref);
   EXPECT_EQ(nullptr, menu_controller.controller());
+  run_loop.Run();
+  EXPECT_EQ(nullptr, ref);
 }
 
 TEST_F(MenuRunnerImplTest, FocusOnMenuClose) {
@@ -595,11 +600,12 @@ TEST_F(MenuRunnerImplTest, FocusOnMenuClose) {
       new internal::MenuRunnerImpl(menu_item_view());
 
   // Create test button that has focus.
+  auto button_managed = std::make_unique<LabelButton>();
+  button_managed->SetID(1);
+  button_managed->SetSize(gfx::Size(20, 20));
   LabelButton* button =
-      new LabelButton(nullptr, base::string16(), style::CONTEXT_BUTTON);
-  button->SetID(1);
-  button->SetSize(gfx::Size(20, 20));
-  owner()->GetRootView()->AddChildView(button);
+      owner()->GetRootView()->AddChildView(std::move(button_managed));
+
   button->SetFocusBehavior(View::FocusBehavior::ALWAYS);
   button->GetWidget()->widget_delegate()->SetCanActivate(true);
   button->GetWidget()->Activate();
@@ -640,8 +646,8 @@ TEST_F(MenuRunnerImplTest, FocusOnMenuClose) {
 
 TEST_F(MenuRunnerImplTest, FocusOnMenuCloseDeleteAfterRun) {
   // Create test button that has focus.
-  LabelButton* button =
-      new LabelButton(nullptr, base::string16(), style::CONTEXT_BUTTON);
+  LabelButton* button = new LabelButton(
+      Button::PressedCallback(), base::string16(), style::CONTEXT_BUTTON);
   button->SetID(1);
   button->SetSize(gfx::Size(20, 20));
   owner()->GetRootView()->AddChildView(button);

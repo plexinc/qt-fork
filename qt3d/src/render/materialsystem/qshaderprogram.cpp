@@ -39,12 +39,12 @@
 
 #include "qshaderprogram.h"
 #include "qshaderprogram_p.h"
-#include <Qt3DCore/qpropertyupdatedchange.h>
-#include <Qt3DRender/private/qurlhelper_p.h>
+#include <Qt3DCore/private/qurlhelper_p.h>
 #include <QDebug>
 #include <QFile>
 #include <QFileInfo>
 #include <QUrl>
+#include <QRegularExpression>
 
 /*!
     \class Qt3DRender::QShaderProgram
@@ -60,121 +60,216 @@
 
     \table
     \header
-        \li {1, 1} Default Uniform
-        \li {2, 1} Associated Qt3D Parameter name
-        \li {3, 1} GLSL declaration
+        \li Default Uniform
+        \li Associated Qt3D Parameter name
+        \li GLSL declaration
 
     \row
-        \li {1, 1} ModelMatrix
-        \li {2, 1} modelMatrix
-        \li {3, 1} uniform mat4 modelMatrix;
+        \li ModelMatrix
+        \li modelMatrix
+        \li uniform mat4 modelMatrix;
 
     \row
-        \li {1, 1} ViewMatrix
-        \li {2, 1} viewMatrix
-        \li {3, 1} uniform mat4 viewMatrix;
+        \li ViewMatrix
+        \li viewMatrix
+        \li uniform mat4 viewMatrix;
 
     \row
-        \li {1, 1} ProjectionMatrix
-        \li {2, 1} projectionMatrix
-        \li {3, 1} uniform mat4 projectionMatrix;
+        \li ProjectionMatrix
+        \li projectionMatrix
+        \li uniform mat4 projectionMatrix;
 
     \row
-        \li {1, 1} ModelViewMatrix
-        \li {2, 1} modelView
-        \li {3, 1} uniform mat4 modelView;
+        \li ModelViewMatrix
+        \li modelView
+        \li uniform mat4 modelView;
 
     \row
-        \li {1, 1} ViewProjectionMatrix
-        \li {2, 1} viewProjectionMatrix
-        \li {3, 1} uniform mat4 viewProjectionMatrix;
+        \li ViewProjectionMatrix
+        \li viewProjectionMatrix
+        \li uniform mat4 viewProjectionMatrix;
 
     \row
-        \li {1, 1} ModelViewProjectionMatrix
-        \li {2, 1} modelViewProjection \br mvp
-        \li {3, 1} uniform mat4 modelViewProjection; \br uniform mat4 mvp;
+        \li ModelViewProjectionMatrix
+        \li modelViewProjection \br mvp
+        \li uniform mat4 modelViewProjection; \br uniform mat4 mvp;
 
     \row
-        \li {1, 1} InverseModelMatrix
-        \li {2, 1} inverseModelMatrix
-        \li {3, 1} uniform mat4 inverseModelMatrix;
+        \li InverseModelMatrix
+        \li inverseModelMatrix
+        \li uniform mat4 inverseModelMatrix;
 
     \row
-        \li {1, 1} InverseViewMatrix
-        \li {2, 1} inverseViewMatrix
-        \li {3, 1} uniform mat4 inverseViewMatrix;
+        \li InverseViewMatrix
+        \li inverseViewMatrix
+        \li uniform mat4 inverseViewMatrix;
 
     \row
-        \li {1, 1} InverseProjectionMatrix
-        \li {2, 1} inverseProjectionMatrix
-        \li {3, 1} uniform mat4 inverseProjectionMatrix;
+        \li InverseProjectionMatrix
+        \li inverseProjectionMatrix
+        \li uniform mat4 inverseProjectionMatrix;
 
     \row
-        \li {1, 1} InverseModelViewMatrix
-        \li {2, 1} inverseModelView
-        \li {3, 1} uniform mat4 inverseModelView;
+        \li InverseModelViewMatrix
+        \li inverseModelView
+        \li uniform mat4 inverseModelView;
 
     \row
-        \li {1, 1} InverseViewProjectionMatrix
-        \li {2, 1} inverseViewProjectionMatrix
-        \li {3, 1} uniform mat4 inverseViewProjectionMatrix;
+        \li InverseViewProjectionMatrix
+        \li inverseViewProjectionMatrix
+        \li uniform mat4 inverseViewProjectionMatrix;
 
     \row
-        \li {1, 1} InverseModelViewProjectionMatrix
-        \li {2, 1} inverseModelViewProjection
-        \li {3, 1} uniform mat4 inverseModelViewProjection;
+        \li InverseModelViewProjectionMatrix
+        \li inverseModelViewProjection
+        \li uniform mat4 inverseModelViewProjection;
 
     \row
-        \li {1, 1} ModelNormalMatrix
-        \li {2, 1} modelNormalMatrix
-        \li {3, 1} uniform mat3 modelNormalMatrix;
+        \li ModelNormalMatrix
+        \li modelNormalMatrix
+        \li uniform mat3 modelNormalMatrix;
 
     \row
-        \li {1, 1} ModelViewNormalMatrix
-        \li {2, 1} modelViewNormal
-        \li {3, 1} uniform mat3 modelViewNormal;
+        \li ModelViewNormalMatrix
+        \li modelViewNormal
+        \li uniform mat3 modelViewNormal;
 
     \row
-        \li {1, 1} ViewportMatrix
-        \li {2, 1} viewportMatrix
-        \li {3, 1} uniform mat4 viewportMatrix;
+        \li ViewportMatrix
+        \li viewportMatrix
+        \li uniform mat4 viewportMatrix;
 
     \row
-        \li {1, 1} InverseViewportMatrix
-        \li {2, 1} inverseViewportMatrix
-        \li {3, 1} uniform mat4 inverseViewportMatrix;
+        \li InverseViewportMatrix
+        \li inverseViewportMatrix
+        \li uniform mat4 inverseViewportMatrix;
 
     \row
-        \li {1, 1} AspectRatio \br (surface width / surface height)
-        \li {2, 1} aspectRatio
-        \li {3, 1} uniform float aspectRatio;
+        \li AspectRatio \br (surface width / surface height)
+        \li aspectRatio
+        \li uniform float aspectRatio;
 
     \row
-        \li {1, 1} Exposure
-        \li {2, 1} exposure
-        \li {3, 1} uniform float exposure;
+        \li Exposure
+        \li exposure
+        \li uniform float exposure;
 
     \row
-        \li {1, 1} Gamma
-        \li {2, 1} gamma
-        \li {3, 1} uniform float gamma;
+        \li Gamma
+        \li gamma
+        \li uniform float gamma;
 
     \row
-        \li {1, 1} Time \br (in nano seconds)
-        \li {2, 1} time
-        \li {3, 1} uniform float time;
+        \li Time \br (in nano seconds)
+        \li time
+        \li uniform float time;
 
     \row
-        \li {1, 1} EyePosition
-        \li {2, 1} eyePosition
-        \li {3, 1} uniform vec3 eyePosition;
+        \li EyePosition
+        \li eyePosition
+        \li uniform vec3 eyePosition;
 
     \row
-        \li {1, 1} SkinningPalette
-        \li {2, 1} skinningPalette[0]
-        \li {3, 1} const int maxJoints = 100; \br uniform mat4 skinningPalette[maxJoints];
+        \li SkinningPalette
+        \li skinningPalette[0]
+        \li const int maxJoints = 100; \br uniform mat4 skinningPalette[maxJoints];
 
     \endtable
+
+    \section1 RHI Support
+
+    When writing GLSL 450 shader code to use with Qt 3D's RHI backend,
+    the default uniforms will be provided as 2 uniform buffer objects.
+
+    The binding locations for these is set to bindings 0 for RenderView
+    uniforms and 1 for Command uniforms.
+
+    \badcode
+    #version 450 core
+
+    layout(location = 0) in vec3 vertexPosition;
+
+    layout(std140, binding = 0) uniform qt3d_render_view_uniforms {
+      mat4 viewMatrix;
+      mat4 projectionMatrix;
+      mat4 uncorrectedProjectionMatrix;
+      mat4 clipCorrectionMatrix;
+      mat4 viewProjectionMatrix;
+      mat4 inverseViewMatrix;
+      mat4 inverseProjectionMatrix;
+      mat4 inverseViewProjectionMatrix;
+      mat4 viewportMatrix;
+      mat4 inverseViewportMatrix;
+      vec4 textureTransformMatrix;
+      vec3 eyePosition;
+      float aspectRatio;
+      float gamma;
+      float exposure;
+      float time;
+      float yUpInNDC;
+      float yUpInFBO;
+    };
+
+    layout(std140, binding = 1) uniform qt3d_command_uniforms {
+      mat4 modelMatrix;
+      mat4 inverseModelMatrix;
+      mat4 modelViewMatrix;
+      mat3 modelNormalMatrix;
+      mat4 inverseModelViewMatrix;
+      mat4 modelViewProjection;
+      mat4 inverseModelViewProjectionMatrix;
+    };
+
+    void main()
+    {
+        gl_Position = (projectionMatrix * viewMatrix * modelMatrix * vertexPosition);
+    }
+    \endcode
+
+    For user defined uniform buffer object, use binding starting at 2 or auto
+    to let Qt 3D work out the binding automatically. Make sure to remain
+    consistent between the different shader stages.
+
+
+    \badcode
+    #version 450 core
+
+    layout(std140, binding = auto) uniform my_uniforms {
+      vec4 myColor;
+    };
+
+    layout(location=0) out vec4 fragColor;
+
+    void main()
+    {
+        fragColor = myColor;
+    }
+    \endcode
+
+    There is no change involved when it comes to feeding values to uniforms.
+
+    For the above example, setting myColor could be done with:
+
+    \badcode
+    QParameter *parameter = new QParameter();
+    parameter->setName("myColor");
+    parameter->setValue(QVariant::fromValue(QColor(Qt::blue)));
+    \endcode
+
+    Textures still have to be defined as standalone uniforms.
+
+    \badcode
+    #version 450 core
+
+    layout(binding=0) uniform sampler2D source;
+
+    layout(location=0) out vec4 fragColor;
+
+    void main()
+    {
+        fragColor = texture(source, vec2(0.5, 0.5));
+    }
+    \endcode
 */
 
 /*!
@@ -307,6 +402,99 @@
         \li {3, 1} const int maxJoints = 100; \br uniform mat4 skinningPalette[maxJoints];
 
     \endtable
+
+    \section1 RHI Support
+
+    When writing GLSL 450 shader code to use with Qt 3D's RHI backend,
+    the default uniforms will be provided as 2 uniform buffer objects.
+
+    The binding locations for these is set to bindings 0 for RenderView
+    uniforms and 1 for Command uniforms.
+
+    \badcode
+    #version 450 core
+
+    layout(location = 0) in vec3 vertexPosition;
+
+    layout(std140, binding = 0) uniform qt3d_render_view_uniforms {
+      mat4 viewMatrix;
+      mat4 projectionMatrix;
+      mat4 uncorrectedProjectionMatrix;
+      mat4 clipCorrectionMatrix;
+      mat4 viewProjectionMatrix;
+      mat4 inverseViewMatrix;
+      mat4 inverseProjectionMatrix;
+      mat4 inverseViewProjectionMatrix;
+      mat4 viewportMatrix;
+      mat4 inverseViewportMatrix;
+      vec4 textureTransformMatrix;
+      vec3 eyePosition;
+      float aspectRatio;
+      float gamma;
+      float exposure;
+      float time;
+      float yUpInNDC;
+      float yUpInFBO;
+    };
+
+    layout(std140, binding = 1) uniform qt3d_command_uniforms {
+      mat4 modelMatrix;
+      mat4 inverseModelMatrix;
+      mat4 modelViewMatrix;
+      mat3 modelNormalMatrix;
+      mat4 inverseModelViewMatrix;
+      mat4 modelViewProjection;
+      mat4 inverseModelViewProjectionMatrix;
+    };
+
+    void main()
+    {
+        gl_Position = (projectionMatrix * viewMatrix * modelMatrix * vertexPosition);
+    }
+    \endcode
+
+    For user defined uniform buffer object, use binding starting at 2 or auto
+    to let Qt 3D work out the binding automatically. Make sure to remain
+    consistent between the different shader stages.
+
+
+    \badcode
+    #version 450 core
+
+    layout(std140, binding = auto) uniform my_uniforms {
+      vec4 myColor;
+    };
+
+    layout(location=0) out vec4 fragColor;
+
+    void main()
+    {
+        fragColor = myColor;
+    }
+    \endcode
+
+    There is no change involved when it comes to feeding values to uniforms.
+
+    For the above example, setting myColor could be done with:
+
+    \badcode
+    Parameter { name: "myColor"; value: "blue" }
+    \endcode
+
+    Textures still have to be defined as standalone uniforms.
+
+    \badcode
+    #version 450 core
+
+    layout(binding=0) uniform sampler2D source;
+
+    layout(location=0) out vec4 fragColor;
+
+    void main()
+    {
+        fragColor = texture(source, vec2(0.5, 0.5));
+    }
+    \endcode
 */
 
 /*!
@@ -389,21 +577,6 @@ QShaderProgram::~QShaderProgram()
 QShaderProgram::QShaderProgram(QShaderProgramPrivate &dd, QNode *parent)
     : QNode(dd, parent)
 {
-}
-
-/*!
-    Posts a scene change with parameter \a change.
-*/
-void QShaderProgram::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change)
-{
-    Q_D(QShaderProgram);
-    if (change->type() == Qt3DCore::PropertyUpdated) {
-        const Qt3DCore::QPropertyUpdatedChangePtr e = qSharedPointerCast<Qt3DCore::QPropertyUpdatedChange>(change);
-        if (e->propertyName() == QByteArrayLiteral("log"))
-            d->setLog(e->value().toString());
-        else if (e->propertyName() == QByteArrayLiteral("status"))
-            d->setStatus(static_cast<QShaderProgram::Status>(e->value().toInt()));
-    }
 }
 
 /*!
@@ -688,6 +861,74 @@ QByteArray QShaderProgramPrivate::deincludify(const QString &filePath)
     return deincludify(contents, filePath);
 }
 
+QByteArray QShaderProgramPrivate::resolveAutoBindingIndices(const QByteArray &content,
+                                                            int &currentBinding,
+                                                            int &currentInputLocation,
+                                                            int &currentOutputLocation)
+{
+    QString shaderCode = QString::fromUtf8(content);
+
+    // This lambda will replace all occurrences of a string (e.g. "binding = auto") by another,
+    // with the incremented int passed as argument (e.g. "binding = 1", "binding = 2" ...)
+    const auto replaceAndIncrement = [&](const QRegularExpression &regexp,
+            int &variable,
+            const QString &replacement) noexcept {
+        int matchStart = 0;
+        do {
+            matchStart = shaderCode.indexOf(regexp, matchStart);
+            if (matchStart != -1) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+                const auto match = regexp.match(QStringView{shaderCode}.mid(matchStart));
+#else
+                const auto match = regexp.match(shaderCode.mid(matchStart));
+#endif
+                const auto length = match.capturedLength(0);
+                shaderCode.replace(matchStart, length, replacement.arg(variable++));
+            }
+        } while (matchStart != -1);
+    };
+
+    // 1. Handle uniforms
+    {
+        thread_local const QRegularExpression bindings(
+                    QStringLiteral("binding\\s*=\\s*auto"));
+
+        replaceAndIncrement(bindings, currentBinding, QStringLiteral("binding = %1"));
+    }
+
+    // 2. Handle inputs
+    {
+        thread_local const QRegularExpression inLocations(
+                    QStringLiteral("location\\s*=\\s*auto\\s*\\)\\s*in\\s+"));
+
+        replaceAndIncrement(inLocations, currentInputLocation,
+                            QStringLiteral("location = %1) in "));
+    }
+
+    // 3. Handle outputs
+    {
+        thread_local const QRegularExpression outLocations(
+                    QStringLiteral("location\\s*=\\s*auto\\s*\\)\\s*out\\s+"));
+
+        replaceAndIncrement(outLocations, currentOutputLocation,
+                            QStringLiteral("location = %1) out "));
+    }
+
+    return shaderCode.toUtf8();
+}
+
+QByteArray QShaderProgramPrivate::resolveAutoBindingIndices(const QByteArray &content)
+{
+    int currentBinding = 2; // Qt3D default uniforms are 0 and 1
+    int currentInputLocation = 0;
+    int currentOutputLocation = 0;
+
+    return QShaderProgramPrivate::resolveAutoBindingIndices(content,
+                                                            currentBinding,
+                                                            currentInputLocation,
+                                                            currentOutputLocation);
+}
+
 QByteArray QShaderProgramPrivate::deincludify(const QByteArray &contents, const QString &filePath)
 {
     QByteArrayList lines = contents.split('\n');
@@ -726,22 +967,8 @@ QByteArray QShaderProgramPrivate::deincludify(const QByteArray &contents, const 
 QByteArray QShaderProgram::loadSource(const QUrl &sourceUrl)
 {
     // TO DO: Handle remote path
-    return QShaderProgramPrivate::deincludify(Qt3DRender::QUrlHelper::urlToLocalFileOrQrc(sourceUrl));
-}
-
-Qt3DCore::QNodeCreatedChangeBasePtr QShaderProgram::createNodeCreationChange() const
-{
-    auto creationChange = Qt3DCore::QNodeCreatedChangePtr<QShaderProgramData>::create(this);
-    auto &data = creationChange->data;
-    Q_D(const QShaderProgram);
-    data.vertexShaderCode = d->m_vertexShaderCode;
-    data.tessellationControlShaderCode = d->m_tessControlShaderCode;
-    data.tessellationEvaluationShaderCode = d->m_tessEvalShaderCode;
-    data.geometryShaderCode = d->m_geometryShaderCode;
-    data.fragmentShaderCode = d->m_fragmentShaderCode;
-    data.computeShaderCode = d->m_computeShaderCode;
-    data.format = d->m_format;
-    return creationChange;
+    const QByteArray deincluded = QShaderProgramPrivate::deincludify(Qt3DCore::QUrlHelper::urlToLocalFileOrQrc(sourceUrl));
+    return QShaderProgramPrivate::resolveAutoBindingIndices(deincluded);
 }
 
 } // of namespace Qt3DRender

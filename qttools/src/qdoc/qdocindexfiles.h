@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2019 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -35,8 +35,8 @@
 QT_BEGIN_NAMESPACE
 
 class Atom;
+class FunctionNode;
 class Generator;
-class QStringList;
 class QDocDatabase;
 class WebXMLGenerator;
 class QXmlStreamReader;
@@ -47,7 +47,7 @@ class QXmlStreamAttributes;
 class IndexSectionWriter
 {
 public:
-    virtual ~IndexSectionWriter() {}
+    virtual ~IndexSectionWriter() = default;
     virtual void append(QXmlStreamWriter &writer, Node *node) = 0;
 };
 
@@ -69,6 +69,8 @@ private:
     void insertTarget(TargetRec::TargetType type, const QXmlStreamAttributes &attributes,
                       Node *node);
     void resolveIndex();
+    int indexForNode(Node *node);
+    bool adoptRelatedNode(Aggregate *adoptiveParent, int index);
 
     void generateIndex(const QString &fileName, const QString &url, const QString &title,
                        Generator *g);
@@ -80,12 +82,13 @@ private:
                                IndexSectionWriter *post = nullptr);
 
 private:
-    static QDocIndexFiles *qdocIndexFiles_;
-    QDocDatabase *qdb_;
-    Generator *gen_;
-    QString project_;
-    QVector<QPair<ClassNode *, QString>> basesList_;
-    bool storeLocationInfo_;
+    static QDocIndexFiles *s_qdocIndexFiles;
+    QDocDatabase *m_qdb {};
+    Generator *m_gen {};
+    QString m_project;
+    QList<QPair<ClassNode *, QString>> m_basesList;
+    NodeList m_relatedNodes;
+    bool m_storeLocationInfo;
 };
 
 QT_END_NAMESPACE

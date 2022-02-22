@@ -693,8 +693,9 @@
         "border-inline-width",
         "inset-block-start",
         "syntax",
-        "subtree-visibility",
+        "content-visibility",
         "origin-trial-test-property",
+        "overflow-clip-margin",
     ],
     "properties": {}
 }

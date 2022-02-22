@@ -41,9 +41,9 @@
 #define QMACCLIPBOARD_H
 
 #include <QtGui>
-#include <QtClipboardSupport/private/qmacmime_p.h>
+#include <QtGui/private/qmacmime_p.h>
 
-#import <AppKit/AppKit.h>
+#include <ApplicationServices/ApplicationServices.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -92,7 +92,7 @@ public:
 
     QStringList formats() const;
     bool hasFormat(const QString &format) const;
-    QVariant retrieveData(const QString &format, QVariant::Type) const;
+    QVariant retrieveData(const QString &format, QMetaType) const;
 
     void clear();
     bool sync() const;

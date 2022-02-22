@@ -111,9 +111,11 @@ public:
     virtual bool isActive() const;
     virtual bool isAncestorOf(const QPlatformWindow *child) const;
     virtual bool isEmbedded() const;
-    virtual bool isForeignWindow() const { return false; };
+    virtual bool isForeignWindow() const { return false; }
     virtual QPoint mapToGlobal(const QPoint &pos) const;
+    QPointF mapToGlobalF(const QPointF &pos) const;
     virtual QPoint mapFromGlobal(const QPoint &pos) const;
+    QPointF mapFromGlobalF(const QPointF &pos) const;
 
     virtual void propagateSizeHints();
 

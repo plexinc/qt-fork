@@ -12,7 +12,29 @@ namespace feature_engagement {
 
 base::Optional<FeatureConfig> GetClientSideFeatureConfig(
     const base::Feature* feature) {
+#if defined(OS_WIN) || defined(OS_APPLE) || defined(OS_LINUX) || \
+    defined(OS_CHROMEOS)
+  if (kIPHPasswordsAccountStorageFeature.name == feature->name) {
+    base::Optional<FeatureConfig> config = FeatureConfig();
+    config->valid = true;
+    config->availability = Comparator(ANY, 0);
+    config->session_rate = Comparator(ANY, 0);
+    config->trigger = EventConfig("passwords_account_storage_trigger",
+                                  Comparator(LESS_THAN, 5), 180, 180);
+    config->used = EventConfig("passwords_account_storage_used",
+                               Comparator(EQUAL, 0), 180, 180);
+    config->event_configs.insert(
+        EventConfig("passwords_account_storage_unselected",
+                    Comparator(EQUAL, 0), 180, 180));
+    return config;
+  }
+#endif  // defined(OS_WIN) || defined(OS_APPLE) || defined(OS_LINUX) ||
+        // defined(OS_CHROMEOS)
+
 #if defined(OS_ANDROID)
+
+  constexpr int k10YearsInDays = 365 * 10;
+
   if (kIPHDataSaverDetailFeature.name == feature->name) {
     base::Optional<FeatureConfig> config = FeatureConfig();
     config->valid = true;
@@ -64,6 +86,19 @@ base::Optional<FeatureConfig> GetClientSideFeatureConfig(
         "download_completed", Comparator(GREATER_THAN_OR_EQUAL, 1), 90, 360));
     return config;
   }
+  if (kIPHDownloadIndicatorFeature.name == feature->name) {
+    // A config that allows the DownloadIndicator IPH to be shown up to 2 times,
+    // but only if download home hasn't been opened in the last 90 days.
+    base::Optional<FeatureConfig> config = FeatureConfig();
+    config->valid = true;
+    config->availability = Comparator(ANY, 0);
+    config->session_rate = Comparator(ANY, 0);
+    config->trigger = EventConfig("download_indicator_iph_trigger",
+                                  Comparator(LESS_THAN, 2), 360, 360);
+    config->used =
+        EventConfig("download_home_opened", Comparator(EQUAL, 0), 90, 360);
+    return config;
+  }
   if (kIPHExploreSitesTileFeature.name == feature->name) {
     // A config that allows the ExploreSites IPH to be shown:
     // * Once per day
@@ -78,6 +113,34 @@ base::Optional<FeatureConfig> GetClientSideFeatureConfig(
         EventConfig("explore_sites_tile_tapped", Comparator(EQUAL, 0), 90, 360);
     config->event_configs.insert(EventConfig("explore_sites_tile_iph_trigger",
                                              Comparator(LESS_THAN, 1), 1, 360));
+    return config;
+  }
+
+  if (kIPHFeedHeaderMenuFeature.name == feature->name) {
+    // A config that allows the feed header menu IPH to be shown only once when
+    // the user starts using a version of the feed that uploads click and view
+    // actions.
+    base::Optional<FeatureConfig> config = FeatureConfig();
+    config->valid = true;
+    config->availability = Comparator(ANY, 0);
+
+    config->session_rate = Comparator(ANY, 0);
+    SessionRateImpact session_rate_impact;
+    session_rate_impact.type = SessionRateImpact::Type::NONE;
+    config->session_rate_impact = session_rate_impact;
+
+    // Keep the IPH trigger event for 10 years, which is a relatively long time
+    // period that we could consider as being "forever".
+    config->trigger =
+        EventConfig("iph_feed_header_menu_triggered", Comparator(LESS_THAN, 1),
+                    k10YearsInDays, k10YearsInDays);
+    // Set a dummy config for the used event to be consistent with the other
+    // IPH configurations. The used event is never recorded by the feature code
+    // because the trigger event is already reported the first time the feed is
+    // being used, which corresponds to a used event.
+    config->used =
+        EventConfig("iph_feed_header_menu_used", Comparator(EQUAL, 0),
+                    k10YearsInDays, k10YearsInDays);
     return config;
   }
 #endif  // defined(OS_ANDROID)

@@ -4,6 +4,7 @@
 
 #include "base/command_line.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/media/webrtc/webrtc_browsertest_base.h"
 #include "chrome/browser/media/webrtc/webrtc_browsertest_common.h"
 #include "chrome/browser/ui/browser.h"
@@ -13,6 +14,7 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "media/base/media_switches.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
@@ -46,7 +48,7 @@ class WebRtcDesktopCaptureBrowserTest : public WebRtcTestBase {
   void DetectVideoAndHangUp() {
     StartDetectingVideo(left_tab_, "remote-view");
     StartDetectingVideo(right_tab_, "remote-view");
-#if !defined(OS_MACOSX)
+#if !defined(OS_MAC)
     // Video is choppy on Mac OS X. http://crbug.com/443542.
     WaitForVideoToPlay(left_tab_);
     WaitForVideoToPlay(right_tab_);
@@ -61,7 +63,9 @@ class WebRtcDesktopCaptureBrowserTest : public WebRtcTestBase {
 
 // TODO(crbug.com/796889): Enable on Mac when thread check crash is fixed.
 // TODO(sprang): Figure out why test times out on Win 10 and ChromeOS.
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
 #define MAYBE_RunsScreenshareFromOneTabToAnother \
   RunsScreenshareFromOneTabToAnother
 #else

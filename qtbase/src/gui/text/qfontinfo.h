@@ -72,8 +72,9 @@ public:
     bool strikeOut() const;
     bool fixedPitch() const;
     QFont::StyleHint styleHint() const;
-#if QT_DEPRECATED_SINCE(5, 5)
-    bool rawMode() const;
+
+#if QT_DEPRECATED_SINCE(6, 0)
+    QT_DEPRECATED_VERSION_X_6_0("Use weight() instead") int legacyWeight() const;
 #endif
 
     bool exactMatch() const;

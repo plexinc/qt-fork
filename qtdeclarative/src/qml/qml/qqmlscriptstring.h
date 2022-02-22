@@ -41,6 +41,7 @@
 #define QQMLSCRIPTSTRING_H
 
 #include <QtQml/qtqmlglobal.h>
+#include <QtQml/qqml.h>
 #include <QtCore/qstring.h>
 #include <QtCore/qshareddata.h>
 #include <QtCore/qmetatype.h>
@@ -57,6 +58,8 @@ namespace QV4 {
 }
 class Q_QML_EXPORT QQmlScriptString
 {
+    Q_GADGET
+    QML_ANONYMOUS
 public:
     QQmlScriptString();
     QQmlScriptString(const QQmlScriptString &);
@@ -83,6 +86,7 @@ private:
     friend class QQmlScriptStringPrivate;
     friend class QQmlExpression;
     friend class QQmlBinding;
+    friend class QQmlPropertyBinding;
     friend struct QV4::QObjectWrapper;
 };
 

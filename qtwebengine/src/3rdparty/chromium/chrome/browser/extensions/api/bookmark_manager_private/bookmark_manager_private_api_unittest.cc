@@ -18,12 +18,19 @@ namespace extensions {
 
 class BookmarkManagerPrivateApiUnitTest : public ExtensionServiceTestBase {
  public:
-  BookmarkManagerPrivateApiUnitTest() {}
+  BookmarkManagerPrivateApiUnitTest() = default;
+  BookmarkManagerPrivateApiUnitTest(const BookmarkManagerPrivateApiUnitTest&) =
+      delete;
+  BookmarkManagerPrivateApiUnitTest& operator=(
+      const BookmarkManagerPrivateApiUnitTest&) = delete;
 
   void SetUp() override {
     ExtensionServiceTestBase::SetUp();
-    InitializeEmptyExtensionService();
-    profile_->CreateBookmarkModel(false);
+
+    ExtensionServiceInitParams params = CreateDefaultInitParams();
+    params.enable_bookmark_model = true;
+    InitializeExtensionService(params);
+
     model_ = BookmarkModelFactory::GetForBrowserContext(profile());
     bookmarks::test::WaitForBookmarkModelToLoad(model_);
 
@@ -40,8 +47,6 @@ class BookmarkManagerPrivateApiUnitTest : public ExtensionServiceTestBase {
  private:
   bookmarks::BookmarkModel* model_ = nullptr;
   std::string node_id_;
-
-  DISALLOW_COPY_AND_ASSIGN(BookmarkManagerPrivateApiUnitTest);
 };
 
 // Tests that running ExtensionFunction-s on deleted bookmark node gracefully
@@ -58,7 +63,8 @@ TEST_F(BookmarkManagerPrivateApiUnitTest, RunOnDeletedNode) {
   auto copy_function =
       base::MakeRefCounted<BookmarkManagerPrivateCopyFunction>();
   EXPECT_EQ(
-      "Could not find bookmark nodes with given ids.",
+      base::StringPrintf("Could not find bookmark nodes with given ids: [%s]",
+                         node_id().c_str()),
       api_test_utils::RunFunctionAndReturnError(
           copy_function.get(),
           base::StringPrintf("[[\"%s\"]]", node_id().c_str()), profile()));

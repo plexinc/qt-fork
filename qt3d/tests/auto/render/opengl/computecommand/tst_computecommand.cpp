@@ -36,19 +36,17 @@
 #include <Qt3DCore/private/qbackendnode_p.h>
 #include <Qt3DCore/private/qaspectmanager_p.h>
 #include <Qt3DCore/private/qscene_p.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include <renderer_p.h>
-#include "qbackendnodetester.h"
 #include "testrenderer.h"
-#include "testpostmanarbiter.h"
-
+#include "testarbiter.h"
+#include "qbackendnodetester.h"
 
 // tst_Renderer is a friend class of Renderer
 class tst_Renderer : public Qt3DRender::Render::OpenGL::Renderer
 {
 public:
     tst_Renderer()
-        : Qt3DRender::Render::OpenGL::Renderer(Qt3DRender::QRenderAspect::Synchronous)
+        : Qt3DRender::Render::OpenGL::Renderer()
     {}
 
     ~tst_Renderer() {
@@ -68,7 +66,6 @@ private Q_SLOTS:
         // GIVEN
         Qt3DRender::Render::NodeManagers nodeManager;
         tst_Renderer renderer;
-        TestArbiter arbiter;
 
         Qt3DCore::QAspectManager manager;
         Qt3DCore::QScene scene;
@@ -100,7 +97,6 @@ private Q_SLOTS:
         computeCommand.setRunType(Qt3DRender::QComputeCommand::Manual);
         computeCommand.trigger(1);
 
-        Qt3DCore::QBackendNodePrivate::get(backendComputeCommand)->setArbiter(&arbiter);
         backendComputeCommand->setRenderer(&renderer);
         simulateInitializationSync(&computeCommand, backendComputeCommand);
 

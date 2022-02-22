@@ -30,10 +30,8 @@
 
 import * as Common from '../common/common.js';
 
-/**
- * @unrestricted
- */
 import {InspectorFrontendHostInstance} from './InspectorFrontendHost.js';
+import {EnumeratedHistogram} from './InspectorFrontendHostAPI.js';
 
 export class UserMetrics {
   constructor() {
@@ -43,22 +41,52 @@ export class UserMetrics {
   }
 
   /**
+   * @param {string} contrastThreshold
+   */
+  colorFixed(contrastThreshold) {
+    const code = ContrastThresholds[contrastThreshold];
+    if (code === undefined) {
+      console.warn(`Unknown contrast threshold: ${contrastThreshold}`);
+      return;
+    }
+    const size = Object.keys(ContrastThresholds).length + 1;
+    InspectorFrontendHostInstance.recordEnumeratedHistogram(EnumeratedHistogram.ColorPickerFixedColor, code, size);
+    Common.EventTarget.fireEvent(EnumeratedHistogram.ColorPickerFixedColor, {value: code});
+  }
+
+  /**
    * @param {string} panelName
    */
   panelShown(panelName) {
     const code = PanelCodes[panelName] || 0;
     const size = Object.keys(PanelCodes).length + 1;
-    InspectorFrontendHostInstance.recordEnumeratedHistogram('DevTools.PanelShown', code, size);
-    Common.EventTarget.fireEvent('DevTools.PanelShown', {value: code});
+    InspectorFrontendHostInstance.recordEnumeratedHistogram(EnumeratedHistogram.PanelShown, code, size);
+    Common.EventTarget.fireEvent(EnumeratedHistogram.PanelShown, {value: code});
     // Store that the user has changed the panel so we know launch histograms should not be fired.
     this._panelChangedSinceLaunch = true;
   }
 
   /**
-   * @param {string} drawerId
+   * Fired when a panel is closed (regardless if it exists in the main panel or the drawer)
+   * @param {string} panelName
    */
-  drawerShown(drawerId) {
-    this.panelShown('drawer-' + drawerId);
+  panelClosed(panelName) {
+    const code = PanelCodes[panelName] || 0;
+    const size = Object.keys(PanelCodes).length + 1;
+    InspectorFrontendHostInstance.recordEnumeratedHistogram(EnumeratedHistogram.PanelClosed, code, size);
+    Common.EventTarget.fireEvent(EnumeratedHistogram.PanelClosed, {value: code});
+    // Store that the user has changed the panel so we know launch histograms should not be fired.
+    this._panelChangedSinceLaunch = true;
+  }
+
+  /**
+   * @param {string} sidebarPaneName
+   */
+  sidebarPaneShown(sidebarPaneName) {
+    const code = SidebarPaneCodes[sidebarPaneName] || 0;
+    const size = Object.keys(SidebarPaneCodes).length + 1;
+    InspectorFrontendHostInstance.recordEnumeratedHistogram(EnumeratedHistogram.SidebarPaneShown, code, size);
+    Common.EventTarget.fireEvent(EnumeratedHistogram.SidebarPaneShown, {value: code});
   }
 
   /**
@@ -73,14 +101,13 @@ export class UserMetrics {
    */
   actionTaken(action) {
     const size = Object.keys(Action).length + 1;
-    InspectorFrontendHostInstance.recordEnumeratedHistogram('DevTools.ActionTaken', action, size);
-    Common.EventTarget.fireEvent('DevTools.ActionTaken', {value: action});
+    InspectorFrontendHostInstance.recordEnumeratedHistogram(EnumeratedHistogram.ActionTaken, action, size);
+    Common.EventTarget.fireEvent(EnumeratedHistogram.ActionTaken, {value: action});
   }
 
   /**
    * @param {string} panelName
    * @param {string} histogramName
-   * @suppressGlobalPropertiesCheck
    */
   panelLoaded(panelName, histogramName) {
     if (this._firedLaunchHistogram || panelName !== this._launchPanelName) {
@@ -117,13 +144,164 @@ export class UserMetrics {
   }
 
   /**
+   * @param {string} keybindSet
+   */
+  keybindSetSettingChanged(keybindSet) {
+    const size = Object.keys(KeybindSetSettings).length + 1;
+    const value = KeybindSetSettings[keybindSet] || 0;
+    InspectorFrontendHostInstance.recordEnumeratedHistogram(EnumeratedHistogram.KeybindSetSettingChanged, value, size);
+    Common.EventTarget.fireEvent(EnumeratedHistogram.KeybindSetSettingChanged, {value});
+  }
+
+  /**
    * @param {string} actionId
    */
   keyboardShortcutFired(actionId) {
     const size = Object.keys(KeyboardShortcutAction).length + 1;
     const action = KeyboardShortcutAction[actionId] || KeyboardShortcutAction.OtherShortcut;
-    InspectorFrontendHostInstance.recordEnumeratedHistogram('DevTools.KeyboardShortcutFired', action, size);
-    Common.EventTarget.fireEvent('DevTools.KeyboardShortcutFired', {value: action});
+    InspectorFrontendHostInstance.recordEnumeratedHistogram(EnumeratedHistogram.KeyboardShortcutFired, action, size);
+    Common.EventTarget.fireEvent(EnumeratedHistogram.KeyboardShortcutFired, {value: action});
+  }
+
+  /**
+   * @param {!IssueOpener} issueOpener
+   */
+  issuesPanelOpenedFrom(issueOpener) {
+    const size = Object.keys(IssueOpener).length + 1;
+    InspectorFrontendHostInstance.recordEnumeratedHistogram(
+        EnumeratedHistogram.IssuesPanelOpenedFrom, issueOpener, size);
+    Common.EventTarget.fireEvent(EnumeratedHistogram.IssuesPanelOpenedFrom, {value: issueOpener});
+  }
+
+  /**
+   * @param {string | undefined} issueExpandedCategory
+   */
+  issuesPanelIssueExpanded(issueExpandedCategory) {
+    if (issueExpandedCategory === undefined) {
+      return;
+    }
+
+    const size = Object.keys(IssueExpanded).length + 1;
+    const issueExpanded = IssueExpanded[issueExpandedCategory];
+
+    if (issueExpanded === undefined) {
+      return;
+    }
+
+    InspectorFrontendHostInstance.recordEnumeratedHistogram(
+        EnumeratedHistogram.IssuesPanelIssueExpanded, issueExpanded, size);
+    Common.EventTarget.fireEvent(EnumeratedHistogram.IssuesPanelIssueExpanded, {value: issueExpanded});
+  }
+
+  /**
+   * @param {symbol} issueCategory
+   * @param {string} type
+   */
+  issuesPanelResourceOpened(issueCategory, type) {
+    const size = Object.keys(IssueResourceOpened).length + 1;
+    const key = issueCategory.description + type;
+    const value = IssueResourceOpened[key];
+
+    if (value === undefined) {
+      return;
+    }
+
+    InspectorFrontendHostInstance.recordEnumeratedHistogram(EnumeratedHistogram.IssuesPanelResourceOpened, value, size);
+    Common.EventTarget.fireEvent(EnumeratedHistogram.IssuesPanelResourceOpened, {value});
+  }
+
+  /**
+   * @param {string} code
+   */
+  issueCreated(code) {
+    const size = Object.keys(IssueCreated).length + 1;
+    const issueCreated = IssueCreated[code];
+    if (issueCreated === undefined) {
+      return;
+    }
+    InspectorFrontendHostInstance.recordEnumeratedHistogram(EnumeratedHistogram.IssueCreated, issueCreated, size);
+    Common.EventTarget.fireEvent(EnumeratedHistogram.IssueCreated, {value: issueCreated});
+  }
+
+  /**
+   * @param {!DualScreenDeviceEmulated} emulationAction
+   */
+  dualScreenDeviceEmulated(emulationAction) {
+    const size = Object.keys(DualScreenDeviceEmulated).length + 1;
+    InspectorFrontendHostInstance.recordEnumeratedHistogram(
+        EnumeratedHistogram.DualScreenDeviceEmulated, emulationAction, size);
+    Common.EventTarget.fireEvent(EnumeratedHistogram.DualScreenDeviceEmulated, {value: emulationAction});
+  }
+
+  /**
+   * @param {string} editorName
+   */
+  cssEditorOpened(editorName) {
+    const size = Object.keys(CssEditorOpened).length + 1;
+    const key = editorName;
+    const value = CssEditorOpened[key];
+
+    if (value === undefined) {
+      return;
+    }
+
+    InspectorFrontendHostInstance.recordEnumeratedHistogram(EnumeratedHistogram.CssEditorOpened, value, size);
+    Common.EventTarget.fireEvent(EnumeratedHistogram.CssEditorOpened, {value});
+  }
+
+  /**
+   * @param {string} experimentId
+   */
+  experimentEnabledAtLaunch(experimentId) {
+    const size = DevtoolsExperiments['__lastValidEnumPosition'] + 1;
+    const experiment = DevtoolsExperiments[experimentId];
+    if (experiment === undefined) {
+      return;
+    }
+    InspectorFrontendHostInstance.recordEnumeratedHistogram(
+        EnumeratedHistogram.ExperimentEnabledAtLaunch, experiment, size);
+    Common.EventTarget.fireEvent(EnumeratedHistogram.ExperimentEnabledAtLaunch, {value: experiment});
+  }
+
+  /**
+   * @param {string} experimentId
+   * @param {boolean} isEnabled
+   */
+  experimentChanged(experimentId, isEnabled) {
+    const size = DevtoolsExperiments['__lastValidEnumPosition'] + 1;
+    const experiment = DevtoolsExperiments[experimentId];
+    if (experiment === undefined) {
+      return;
+    }
+    const actionName = isEnabled ? EnumeratedHistogram.ExperimentEnabled : EnumeratedHistogram.ExperimentDisabled;
+    InspectorFrontendHostInstance.recordEnumeratedHistogram(actionName, experiment, size);
+    Common.EventTarget.fireEvent(actionName, {value: experiment});
+  }
+
+  /**
+   * @param {!DeveloperResourceLoaded} developerResourceLoaded
+   */
+  developerResourceLoaded(developerResourceLoaded) {
+    const size = Object.keys(DeveloperResourceLoaded).length + 1;
+    if (developerResourceLoaded >= size) {
+      return;
+    }
+    InspectorFrontendHostInstance.recordEnumeratedHistogram(
+        EnumeratedHistogram.DeveloperResourceLoaded, developerResourceLoaded, size);
+    Common.EventTarget.fireEvent(EnumeratedHistogram.DeveloperResourceLoaded, {value: developerResourceLoaded});
+  }
+
+  /**
+   * @param {!DeveloperResourceScheme} developerResourceScheme
+   */
+  developerResourceScheme(developerResourceScheme) {
+    const size = Object.keys(DeveloperResourceScheme).length + 1;
+    if (developerResourceScheme >= size) {
+      return;
+    }
+    InspectorFrontendHostInstance.recordEnumeratedHistogram(
+        EnumeratedHistogram.DeveloperResourceScheme, developerResourceScheme, size);
+    Common.EventTarget.fireEvent(EnumeratedHistogram.DeveloperResourceScheme, {value: developerResourceScheme});
   }
 }
 
@@ -169,9 +347,29 @@ export const Action = {
   FilmStripStartedRecording: 33,
   CoverageReportFiltered: 34,
   CoverageStartedPerBlock: 35,
-  SettingsOpenedFromGear: 36,
-  SettingsOpenedFromMenu: 37,
-  SettingsOpenedFromCommandMenu: 38
+  'SettingsOpenedFromGear-deprecated': 36,
+  'SettingsOpenedFromMenu-deprecated': 37,
+  'SettingsOpenedFromCommandMenu-deprecated': 38,
+  TabMovedToDrawer: 39,
+  TabMovedToMainPanel: 40,
+  CaptureCssOverviewClicked: 41,
+  VirtualAuthenticatorEnvironmentEnabled: 42,
+  SourceOrderViewActivated: 43,
+  UserShortcutAdded: 44,
+  ShortcutRemoved: 45,
+  ShortcutModified: 46,
+  CustomPropertyLinkClicked: 47,
+  CustomPropertyEdited: 48,
+  ServiceWorkerNetworkRequestClicked: 49,
+  ServiceWorkerNetworkRequestClosedQuickly: 50,
+  NetworkPanelServiceWorkerRespondWith: 51,
+  NetworkPanelCopyValue: 52,
+};
+
+/** @type {!Object<string, number>} */
+export const ContrastThresholds = {
+  aa: 0,
+  aaa: 1,
 };
 
 /** @type {!Object<string, number>} */
@@ -186,33 +384,54 @@ export const PanelCodes = {
   'legacy-audits-deprecated': 7,
   console: 8,
   layers: 9,
-  'drawer-console-view': 10,
-  'drawer-animations': 11,
-  'drawer-network.config': 12,
-  'drawer-rendering': 13,
-  'drawer-sensors': 14,
-  'drawer-sources.search': 15,
+  'console-view': 10,
+  'animations': 11,
+  'network.config': 12,
+  'rendering': 13,
+  'sensors': 14,
+  'sources.search': 15,
   security: 16,
   js_profiler: 17,
   lighthouse: 18,
-  'drawer-coverage': 19,
-  'drawer-protocol-monitor': 20,
-  'drawer-remote-devices': 21,
-  'drawer-web-audio': 22,
-  'drawer-changes.changes': 23,
-  'drawer-performance.monitor': 24,
-  'drawer-release-note': 25,
-  'drawer-live_heap_profile': 26,
-  'drawer-sources.quick': 27,
-  'drawer-network.blocked-urls': 28,
+  'coverage': 19,
+  'protocol-monitor': 20,
+  'remote-devices': 21,
+  'web-audio': 22,
+  'changes.changes': 23,
+  'performance.monitor': 24,
+  'release-note': 25,
+  'live_heap_profile': 26,
+  'sources.quick': 27,
+  'network.blocked-urls': 28,
   'settings-preferences': 29,
   'settings-workspace': 30,
   'settings-experiments': 31,
   'settings-blackbox': 32,
   'settings-devices': 33,
   'settings-throttling-conditions': 34,
-  'settings-emulation-geolocations': 35,
-  'settings-shortcuts': 36
+  'settings-emulation-locations': 35,
+  'settings-shortcuts': 36,
+  'issues-pane': 37,
+  'settings-keybinds': 38,
+  'cssoverview': 39
+};
+
+/** @type {!Object<string, number>} */
+export const SidebarPaneCodes = {
+  'OtherSidebarPane': 0,
+  'Styles': 1,
+  'Computed': 2,
+  'elements.layout': 3,
+  'elements.eventListeners': 4,
+  'elements.domBreakpoints': 5,
+  'elements.domProperties': 6,
+  'accessibility.view': 7,
+};
+
+/** @type {!Object<string, number>} */
+export const KeybindSetSettings = {
+  'devToolsDefault': 0,
+  'vsCode': 1,
 };
 
 /** @type {!Object<string, number>} */
@@ -241,4 +460,264 @@ export const KeyboardShortcutAction = {
   'quickOpen.show': 21,
   'settings.show': 22,
   'sources.search': 23,
+  'background-service.toggle-recording': 24,
+  'components.collect-garbage': 25,
+  'console.clear.history': 26,
+  'console.create-pin': 27,
+  'coverage.start-with-reload': 28,
+  'coverage.toggle-recording': 29,
+  'debugger.breakpoint-input-window': 30,
+  'debugger.evaluate-selection': 31,
+  'debugger.next-call-frame': 32,
+  'debugger.previous-call-frame': 33,
+  'debugger.run-snippet': 34,
+  'debugger.toggle-breakpoints-active': 35,
+  'elements.capture-area-screenshot': 36,
+  'emulation.capture-full-height-screenshot': 37,
+  'emulation.capture-node-screenshot': 38,
+  'emulation.capture-screenshot': 39,
+  'emulation.show-sensors': 40,
+  'emulation.toggle-device-mode': 41,
+  'help.release-notes': 42,
+  'help.report-issue': 43,
+  'input.start-replaying': 44,
+  'input.toggle-pause': 45,
+  'input.toggle-recording': 46,
+  'inspector_main.focus-debuggee': 47,
+  'inspector_main.hard-reload': 48,
+  'inspector_main.reload': 49,
+  'live-heap-profile.start-with-reload': 50,
+  'live-heap-profile.toggle-recording': 51,
+  'main.debug-reload': 52,
+  'main.next-tab': 53,
+  'main.previous-tab': 54,
+  'main.search-in-panel.cancel': 55,
+  'main.search-in-panel.find-next': 56,
+  'main.search-in-panel.find-previous': 57,
+  'main.toggle-dock': 58,
+  'main.zoom-in': 59,
+  'main.zoom-out': 60,
+  'main.zoom-reset': 61,
+  'network-conditions.network-low-end-mobile': 62,
+  'network-conditions.network-mid-tier-mobile': 63,
+  'network-conditions.network-offline': 64,
+  'network-conditions.network-online': 65,
+  'profiler.heap-toggle-recording': 66,
+  'profiler.js-toggle-recording': 67,
+  'resources.clear': 68,
+  'settings.documentation': 69,
+  'settings.shortcuts': 70,
+  'sources.add-folder-to-workspace': 71,
+  'sources.add-to-watch': 72,
+  'sources.close-all': 73,
+  'sources.close-editor-tab': 74,
+  'sources.create-snippet': 75,
+  'sources.go-to-line': 76,
+  'sources.go-to-member': 77,
+  'sources.jump-to-next-location': 78,
+  'sources.jump-to-previous-location': 79,
+  'sources.rename': 80,
+  'sources.save': 81,
+  'sources.save-all': 82,
+  'sources.switch-file': 83,
+  'timeline.jump-to-next-frame': 84,
+  'timeline.jump-to-previous-frame': 85,
+  'timeline.load-from-file': 86,
+  'timeline.next-recording': 87,
+  'timeline.previous-recording': 88,
+  'timeline.record-reload': 89,
+  'timeline.save-to-file': 90,
+  'timeline.show-history': 91,
+  'timeline.toggle-recording': 92,
+  'sources.increment-css': 93,
+  'sources.increment-css-by-ten': 94,
+  'sources.decrement-css': 95,
+  'sources.decrement-css-by-ten': 96,
+  'layers.reset-view': 97,
+  'layers.pan-mode': 98,
+  'layers.rotate-mode': 99,
+  'layers.zoom-in': 100,
+  'layers.zoom-out': 101,
+  'layers.up': 102,
+  'layers.down': 103,
+  'layers.left': 104,
+  'layers.right': 105,
+};
+
+/** @enum {number} */
+export const IssueOpener = {
+  ConsoleInfoBar: 0,
+  LearnMoreLinkCOEP: 1,
+  StatusBarIssuesCounter: 2,
+  HamburgerMenu: 3,
+  Adorner: 4,
+  CommandMenu: 5
+};
+
+/** @enum {number} */
+export const DualScreenDeviceEmulated = {
+  DualScreenDeviceSelected: 0,  // a dual screen or fold device is selected
+  SpanButtonClicked: 1,         // span button is clicked when emulating a dual screen/fold device
+  PlatformSupportUsed: 2        // user starts to use platform dual screen support feature.
+};
+
+/** @type {!Object<string, number>} */
+export const CssEditorOpened = {
+  'colorPicker': 0,
+  'shadowEditor': 1,
+  'bezierEditor': 2,
+  'fontEditor': 3
+};
+
+/**
+ * This list should contain the currently active Devtools Experiments.
+ * Therefore, it is possible that the id's will no longer be continuous
+ * as experiemnts are removed.
+ * When adding a new experiemnt:
+ * 1. Add an entry to the bottom of the list before '__lastValidEnumPosition'
+ * 2. Set the value of the new entry and '__lastValidEnumPosition' to
+ *    __lastValidEnumPosition + 1
+ * When removing an experiment, simply delete the line from the enum.
+ */
+/** @type {!Object<string, number>} */
+export const DevtoolsExperiments = {
+  'applyCustomStylesheet': 0,
+  'captureNodeCreationStacks': 1,
+  'sourcesPrettyPrint': 2,
+  'backgroundServices': 3,
+  'backgroundServicesNotifications': 4,
+  'backgroundServicesPaymentHandler': 5,
+  'backgroundServicesPushMessaging': 6,
+  'blackboxJSFramesOnTimeline': 7,
+  'cssOverview': 8,
+  'emptySourceMapAutoStepping': 9,
+  'inputEventsOnTimelineOverview': 10,
+  'liveHeapProfile': 11,
+  'protocolMonitor': 13,
+  'developerResourcesView': 15,
+  'recordCoverageWithPerformanceTracing': 16,
+  'samplingHeapProfilerTimeline': 17,
+  'showOptionToNotTreatGlobalObjectsAsRoots': 18,
+  'sourceDiff': 19,
+  'sourceOrderViewer': 20,
+  'spotlight': 21,
+  'webauthnPane': 22,
+  'timelineEventInitiators': 24,
+  'timelineInvalidationTracking': 26,
+  'timelineShowAllEvents': 27,
+  'timelineV8RuntimeCallStats': 28,
+  'timelineWebGL': 29,
+  'timelineReplayEvent': 30,
+  'wasmDWARFDebugging': 31,
+  'dualScreenSupport': 32,
+  'keyboardShortcutEditor': 35,
+  'cssFlexboxFeatures': 36,
+  'recorder': 38,
+  'APCA': 39,
+  'cspViolationsView': 40,
+  'fontEditor': 41,
+  'fullAccessibilityTree': 42,
+  'ignoreListJSFramesOnTimeline': 43,
+  'contrastIssues': 44,
+  'experimentalCookieFeatures': 45,
+  '__lastValidEnumPosition': 45,
+};
+
+/** @type {!Object<string, number>} */
+export const IssueExpanded = {
+  CrossOriginEmbedderPolicy: 0,
+  MixedContent: 1,
+  SameSiteCookie: 2,
+  HeavyAd: 3,
+  ContentSecurityPolicy: 4,
+  Other: 5
+};
+
+/** @type {!Object<string, number>} */
+export const IssueResourceOpened = {
+  CrossOriginEmbedderPolicyRequest: 0,
+  CrossOriginEmbedderPolicyElement: 1,
+  MixedContentRequest: 2,
+  SameSiteCookieCookie: 3,
+  SameSiteCookieRequest: 4,
+  HeavyAdElement: 5,
+  ContentSecurityPolicyDirective: 6,
+  ContentSecurityPolicyElement: 7,
+  CrossOriginEmbedderPolicyLearnMore: 8,
+  MixedContentLearnMore: 9,
+  SameSiteCookieLearnMore: 10,
+  HeavyAdLearnMore: 11,
+  ContentSecurityPolicyLearnMore: 12
+};
+
+/** @type {!Object<string, number>} */
+export const IssueCreated = {
+  MixedContentIssue: 0,
+  'ContentSecurityPolicyIssue::kInlineViolation': 1,
+  'ContentSecurityPolicyIssue::kEvalViolation': 2,
+  'ContentSecurityPolicyIssue::kURLViolation': 3,
+  'ContentSecurityPolicyIssue::kTrustedTypesSinkViolation': 4,
+  'ContentSecurityPolicyIssue::kTrustedTypesPolicyViolation': 5,
+  'HeavyAdIssue::NetworkTotalLimit': 6,
+  'HeavyAdIssue::CpuTotalLimit': 7,
+  'HeavyAdIssue::CpuPeakLimit': 8,
+  'CrossOriginEmbedderPolicyIssue::CoepFrameResourceNeedsCoepHeader': 9,
+  'CrossOriginEmbedderPolicyIssue::CoopSandboxedIFrameCannotNavigateToCoopPage': 10,
+  'CrossOriginEmbedderPolicyIssue::CorpNotSameOrigin': 11,
+  'CrossOriginEmbedderPolicyIssue::CorpNotSameOriginAfterDefaultedToSameOriginByCoep': 12,
+  'CrossOriginEmbedderPolicyIssue::CorpNotSameSite': 13,
+  'SameSiteCookieIssue::ExcludeSameSiteNoneInsecure::ReadCookie': 14,
+  'SameSiteCookieIssue::ExcludeSameSiteNoneInsecure::SetCookie': 15,
+  'SameSiteCookieIssue::WarnSameSiteNoneInsecure::ReadCookie': 16,
+  'SameSiteCookieIssue::WarnSameSiteNoneInsecure::SetCookie': 17,
+  'SameSiteCookieIssue::WarnSameSiteStrictLaxDowngradeStrict::Secure': 18,
+  'SameSiteCookieIssue::WarnSameSiteStrictLaxDowngradeStrict::Insecure': 19,
+  'SameSiteCookieIssue::WarnCrossDowngrade::ReadCookie::Secure': 20,
+  'SameSiteCookieIssue::WarnCrossDowngrade::ReadCookie::Insecure': 21,
+  'SameSiteCookieIssue::WarnCrossDowngrade::SetCookie::Secure': 22,
+  'SameSiteCookieIssue::WarnCrossDowngrade::SetCookie::Insecure': 23,
+  'SameSiteCookieIssue::ExcludeNavigationContextDowngrade::Secure': 24,
+  'SameSiteCookieIssue::ExcludeNavigationContextDowngrade::Insecure': 25,
+  'SameSiteCookieIssue::ExcludeContextDowngrade::ReadCookie::Secure': 26,
+  'SameSiteCookieIssue::ExcludeContextDowngrade::ReadCookie::Insecure': 27,
+  'SameSiteCookieIssue::ExcludeContextDowngrade::SetCookie::Secure': 28,
+  'SameSiteCookieIssue::ExcludeContextDowngrade::SetCookie::Insecure': 29,
+  'SameSiteCookieIssue::ExcludeSameSiteUnspecifiedTreatedAsLax::ReadCookie': 30,
+  'SameSiteCookieIssue::ExcludeSameSiteUnspecifiedTreatedAsLax::SetCookie': 31,
+  'SameSiteCookieIssue::WarnSameSiteUnspecifiedLaxAllowUnsafe::ReadCookie': 32,
+  'SameSiteCookieIssue::WarnSameSiteUnspecifiedLaxAllowUnsafe::SetCookie': 33,
+  'SameSiteCookieIssue::WarnSameSiteUnspecifiedCrossSiteContext::ReadCookie': 34,
+  'SameSiteCookieIssue::WarnSameSiteUnspecifiedCrossSiteContext::SetCookie': 35,
+  'SharedArrayBufferIssue::TransferIssue': 36,
+  'SharedArrayBufferIssue::CreationIssue': 37,
+  'TrustedWebActivityIssue::kHttpError': 38,
+  'TrustedWebActivityIssue::kUnavailableOffline': 39,
+  'TrustedWebActivityIssue::kDigitalAssetLinks': 40,
+  LowTextContrastIssue: 41,
+  'CorsIssue::InsecurePrivateNetwork': 42
+};
+
+/** @enum {number} */
+export const DeveloperResourceLoaded = {
+  LoadThroughPageViaTarget: 0,
+  LoadThroughPageViaFrame: 1,
+  LoadThroughPageFailure: 2,
+  LoadThroughPageFallback: 3,
+  FallbackAfterFailure: 4,
+  FallbackPerOverride: 5,
+  FallbackPerProtocol: 6,
+  FallbackFailure: 7,
+};
+
+/** @enum {number} */
+export const DeveloperResourceScheme = {
+  SchemeOther: 0,
+  SchemeUnknown: 1,
+  SchemeHttp: 2,
+  SchemeHttps: 3,
+  SchemeHttpLocalhost: 4,
+  SchemeHttpsLocalhost: 5,
+  SchemeData: 6,
+  SchemeFile: 7,
+  SchemeBlob: 8,
 };

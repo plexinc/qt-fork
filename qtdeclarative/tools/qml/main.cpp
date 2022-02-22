@@ -35,8 +35,6 @@
 #include <QGuiApplication>
 #include <QWindow>
 #include <QFileOpenEvent>
-#include <QOpenGLContext>
-#include <QOpenGLFunctions>
 #include <QSurfaceFormat>
 #ifdef QT_WIDGETS_LIB
 #include <QApplication>
@@ -62,7 +60,6 @@
 #include <qqmldebug.h>
 #include <qqmlfileselector.h>
 
-#include <private/qmemory_p.h>
 #include <private/qtqmlglobal_p.h>
 #if QT_CONFIG(qml_animation)
 #include <private/qabstractanimation_p.h>
@@ -102,6 +99,7 @@ static const QString iconResourcePath(QStringLiteral(":/qt-project.org/QmlRuntim
 static const QString confResourcePath(QStringLiteral(":/qt-project.org/QmlRuntime/conf/"));
 static bool verboseMode = false;
 static bool quietMode = false;
+static bool glShareContexts = true;
 
 static void loadConf(const QString &override, bool quiet) // Terminates app on failure
 {
@@ -110,7 +108,7 @@ static void loadConf(const QString &override, bool quiet) // Terminates app on f
     bool builtIn = false; //just for keeping track of the warning
     if (override.isEmpty()) {
         QFileInfo fi;
-        fi.setFile(QStandardPaths::locate(QStandardPaths::DataLocation, defaultFileName));
+        fi.setFile(QStandardPaths::locate(QStandardPaths::AppDataLocation, defaultFileName));
         if (fi.exists()) {
             settingsUrl = QUrl::fromLocalFile(fi.absoluteFilePath());
         } else {
@@ -231,7 +229,7 @@ public:
 public Q_SLOTS:
     void checkFinished(QObject *o, const QUrl &url)
     {
-        Q_UNUSED(url)
+        Q_UNUSED(url);
         if (o) {
             checkForWindow(o);
             if (conf && qae)
@@ -258,10 +256,6 @@ public Q_SLOTS:
         returnCode = retCode;
     }
 
-#if defined(QT_GUI_LIB) && QT_CONFIG(opengl)
-    void onOpenGlContextCreated(QOpenGLContext *context);
-#endif
-
 private:
     void contain(QObject *o, const QUrl &containPath);
     void checkForWindow(QObject *o);
@@ -277,6 +271,7 @@ void LoadWatcher::contain(QObject *o, const QUrl &containPath)
     QObject *o2 = c.create();
     if (!o2)
         return;
+    o2->setParent(this);
     checkForWindow(o2);
     bool success = false;
     int idx;
@@ -288,35 +283,13 @@ void LoadWatcher::contain(QObject *o, const QUrl &containPath)
 
 void LoadWatcher::checkForWindow(QObject *o)
 {
-#if defined(QT_GUI_LIB) && QT_CONFIG(opengl)
-    if (o->isWindowType() && o->inherits("QQuickWindow")) {
+#if defined(QT_GUI_LIB)
+    if (o->isWindowType() && o->inherits("QQuickWindow"))
         haveWindow = true;
-        if (verboseMode)
-            connect(o, SIGNAL(openglContextCreated(QOpenGLContext*)),
-                    this, SLOT(onOpenGlContextCreated(QOpenGLContext*)));
-    }
 #else
-    Q_UNUSED(o)
-#endif // QT_GUI_LIB && !QT_NO_OPENGL
+    Q_UNUSED(o);
+#endif // QT_GUI_LIB
 }
-
-#if defined(QT_GUI_LIB) && QT_CONFIG(opengl)
-void LoadWatcher::onOpenGlContextCreated(QOpenGLContext *context)
-{
-    context->makeCurrent(qobject_cast<QWindow *>(sender()));
-    QOpenGLFunctions functions(context);
-    QByteArray output = "Vendor  : ";
-    output += reinterpret_cast<const char *>(functions.glGetString(GL_VENDOR));
-    output += "\nRenderer: ";
-    output += reinterpret_cast<const char *>(functions.glGetString(GL_RENDERER));
-    output += "\nVersion : ";
-    output += reinterpret_cast<const char *>(functions.glGetString(GL_VERSION));
-    output += "\nLanguage: ";
-    output += reinterpret_cast<const char *>(functions.glGetString(GL_SHADING_LANGUAGE_VERSION));
-    puts(output.constData());
-    context->doneCurrent();
-}
-#endif // QT_GUI_LIB && !QT_NO_OPENGL
 
 void quietMessageHandler(QtMsgType type, const QMessageLogContext &ctxt, const QString &msg)
 {
@@ -359,29 +332,14 @@ static void getAppFlags(int argc, char **argv)
             QCoreApplication::setAttribute(Qt::AA_UseOpenGLES);
         } else if (!strcmp(argv[i], "-software") || !strcmp(argv[i], "--software")) {
             QCoreApplication::setAttribute(Qt::AA_UseSoftwareOpenGL);
-        } else if (!strcmp(argv[i], "-scaling") || !strcmp(argv[i], "--scaling")) {
-            QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
-        } else if (!strcmp(argv[i], "-no-scaling") || !strcmp(argv[i], "--no-scaling")) {
-            QCoreApplication::setAttribute(Qt::AA_DisableHighDpiScaling);
+        } else if (!strcmp(argv[i], "-disable-context-sharing") || !strcmp(argv[i], "--disable-context-sharing")) {
+            glShareContexts = false;
         }
     }
 #else
-    Q_UNUSED(argc)
-    Q_UNUSED(argv)
+    Q_UNUSED(argc);
+    Q_UNUSED(argv);
 #endif // QT_GUI_LIB
-}
-
-bool getFileSansBangLine(const QString &path, QByteArray &output)
-{
-    QFile f(path);
-    if (!f.open(QFile::ReadOnly | QFile::Text))
-        return false;
-    output = f.readAll();
-    if (output.startsWith("#!")) {//Remove first line in this case (except \n, to avoid disturbing line count)
-        output.remove(0, output.indexOf('\n'));
-        return true;
-    }
-    return false;
 }
 
 static void loadDummyDataFiles(QQmlEngine &engine, const QString& directory)
@@ -411,15 +369,19 @@ static void loadDummyDataFiles(QQmlEngine &engine, const QString& directory)
 int main(int argc, char *argv[])
 {
     getAppFlags(argc, argv);
+
+    if (glShareContexts)
+        QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
+
     std::unique_ptr<QCoreApplication> app;
     switch (applicationType) {
 #ifdef QT_GUI_LIB
     case QmlApplicationTypeGui:
-        app = qt_make_unique<LoaderApplication>(argc, argv);
+        app = std::make_unique<LoaderApplication>(argc, argv);
         break;
 #ifdef QT_WIDGETS_LIB
     case QmlApplicationTypeWidget:
-        app = qt_make_unique<QApplication>(argc, argv);
+        app = std::make_unique<QApplication>(argc, argv);
         static_cast<QApplication *>(app.get())->setWindowIcon(QIcon(iconResourcePath));
         break;
 #endif // QT_WIDGETS_LIB
@@ -427,7 +389,7 @@ int main(int argc, char *argv[])
     case QmlApplicationTypeCore:
         Q_FALLTHROUGH();
     default: // QmlApplicationTypeUnknown: not allowed, but we'll exit after checking apptypeOption below
-        app = qt_make_unique<QCoreApplication>(argc, argv);
+        app = std::make_unique<QCoreApplication>(argc, argv);
         break;
     }
 
@@ -487,12 +449,12 @@ int main(int argc, char *argv[])
     QCommandLineOption glSoftwareOption(QStringLiteral("software"),
         QCoreApplication::translate("main", "Force use of software rendering (AA_UseSoftwareOpenGL)."));
     parser.addOption(glSoftwareOption); // Just for the help text... we've already handled this argument above
-    QCommandLineOption scalingOption(QStringLiteral("scaling"),
-        QCoreApplication::translate("main", "Enable High DPI scaling (AA_EnableHighDpiScaling)."));
-    parser.addOption(scalingOption); // Just for the help text... we've already handled this argument above
-    QCommandLineOption noScalingOption(QStringLiteral("no-scaling"),
-        QCoreApplication::translate("main", "Disable High DPI scaling (AA_DisableHighDpiScaling)."));
-    parser.addOption(noScalingOption); // Just for the help text... we've already handled this argument above
+    QCommandLineOption glCoreProfile(QStringLiteral("core-profile"),
+        QCoreApplication::translate("main", "Force use of OpenGL Core Profile."));
+    parser.addOption(glCoreProfile);
+    QCommandLineOption glContextSharing(QStringLiteral("disable-context-sharing"),
+        QCoreApplication::translate("main", "Disable the use of a shared GL context for QtQuick Windows"));
+    parser.addOption(glContextSharing); // Just for the help text... we've already handled this argument above
 #endif // QT_GUI_LIB
     // Debugging and verbosity options
     QCommandLineOption quietOption(QStringLiteral("quiet"),
@@ -508,7 +470,7 @@ int main(int argc, char *argv[])
         QCoreApplication::translate("main", "Run animations off animation tick rather than wall time."));
     parser.addOption(fixedAnimationsOption);
     QCommandLineOption rhiOption(QStringList() << QStringLiteral("r") << QStringLiteral("rhi"),
-        QCoreApplication::translate("main", "Use the Qt graphics abstraction (RHI) instead of OpenGL directly. "
+        QCoreApplication::translate("main", "Set the backend for the Qt graphics abstraction (RHI). "
                                     "Backend is one of: default, vulkan, metal, d3d11, gl"),
                                  QStringLiteral("backend"));
     parser.addOption(rhiOption);
@@ -558,13 +520,12 @@ int main(int argc, char *argv[])
     QStringList customSelectors;
     for (const QString &selector : parser.values(selectorOption))
         customSelectors.append(selector);
-    if (!customSelectors.isEmpty()) {
-        QQmlFileSelector *selector =  QQmlFileSelector::get(&e);
-        selector->setExtraSelectors(customSelectors);
-    }
 
-#if defined(QT_GUI_LIB) && QT_CONFIG(opengl)
-    if (qEnvironmentVariableIsSet("QSG_CORE_PROFILE") || qEnvironmentVariableIsSet("QML_CORE_PROFILE")) {
+    if (!customSelectors.isEmpty())
+        e.setExtraFileSelectors(customSelectors);
+
+#if defined(QT_GUI_LIB)
+    if (qEnvironmentVariableIsSet("QSG_CORE_PROFILE") || qEnvironmentVariableIsSet("QML_CORE_PROFILE") || parser.isSet(glCoreProfile)) {
         QSurfaceFormat surfaceFormat;
         surfaceFormat.setStencilBufferSize(8);
         surfaceFormat.setDepthBufferSize(24);
@@ -582,7 +543,6 @@ int main(int argc, char *argv[])
     if (parser.isSet(dummyDataOption))
         dummyDir = parser.value(dummyDataOption);
     if (parser.isSet(rhiOption)) {
-        qputenv("QSG_RHI", "1");
         const QString rhiBackend = parser.value(rhiOption);
         if (rhiBackend == QLatin1String("default"))
             qunsetenv("QSG_RHI_BACKEND");
@@ -622,7 +582,7 @@ int main(int argc, char *argv[])
     }
 
     if (files.count() <= 0) {
-#if defined(Q_OS_DARWIN)
+#if defined(Q_OS_DARWIN) && defined(QT_GUI_LIB)
         if (applicationType == QmlApplicationTypeGui)
             exitTimerId = static_cast<LoaderApplication *>(app.get())->startTimer(FILE_OPEN_EVENT_WAIT_TIME);
         else
@@ -644,12 +604,7 @@ int main(int argc, char *argv[])
         QUrl url = QUrl::fromUserInput(path, QDir::currentPath(), QUrl::AssumeLocalFile);
         if (verboseMode)
             printf("qml: loading %s\n", qPrintable(url.toString()));
-        QByteArray strippedFile;
-        if (getFileSansBangLine(path, strippedFile))
-            // QQmlComponent won't resolve it for us: it doesn't know it's a valid file if we loadData
-            e.loadData(strippedFile, e.baseUrl().resolved(url));
-        else // Errors or no bang line
-            e.load(url);
+        e.load(url);
     }
 
     if (lw->earlyExit)

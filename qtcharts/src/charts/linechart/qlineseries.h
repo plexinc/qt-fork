@@ -27,14 +27,15 @@
 **
 ****************************************************************************/
 
+
 #ifndef QLINESERIES_H
 #define QLINESERIES_H
-
 #include <QtCharts/QChartGlobal>
+#if QT_CONFIG(charts_line_chart)
 #include <QtCharts/QXYSeries>
 #include <QtGui/QPen>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class QLineSeriesPrivate;
 
@@ -45,7 +46,7 @@ class Q_CHARTS_EXPORT QLineSeries : public QXYSeries
 public:
     explicit QLineSeries(QObject *parent = nullptr);
     ~QLineSeries();
-    QAbstractSeries::SeriesType type() const;
+    QAbstractSeries::SeriesType type() const override;
 
 protected:
     QLineSeries(QLineSeriesPrivate &d, QObject *parent = nullptr);
@@ -56,6 +57,7 @@ private:
     friend class LineChartItem;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
+#endif // QT_CONFIG(charts_line_chart)
 #endif // QLINESERIES_H

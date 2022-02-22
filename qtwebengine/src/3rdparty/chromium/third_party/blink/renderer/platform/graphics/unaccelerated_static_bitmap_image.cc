@@ -47,7 +47,7 @@ UnacceleratedStaticBitmapImage::UnacceleratedStaticBitmapImage(
     PaintImage image,
     ImageOrientation orientation)
     : StaticBitmapImage(orientation), paint_image_(std::move(image)) {
-  CHECK(paint_image_.GetSkImage());
+  DCHECK(paint_image_);
 }
 
 UnacceleratedStaticBitmapImage::~UnacceleratedStaticBitmapImage() {
@@ -70,12 +70,11 @@ IntSize UnacceleratedStaticBitmapImage::Size() const {
 }
 
 bool UnacceleratedStaticBitmapImage::IsPremultiplied() const {
-  return paint_image_.GetSkImage()->alphaType() ==
-         SkAlphaType::kPremul_SkAlphaType;
+  return paint_image_.GetAlphaType() == SkAlphaType::kPremul_SkAlphaType;
 }
 
 bool UnacceleratedStaticBitmapImage::CurrentFrameKnownToBeOpaque() {
-  return paint_image_.GetSkImage()->isOpaque();
+  return paint_image_.IsOpaque();
 }
 
 void UnacceleratedStaticBitmapImage::Draw(
@@ -83,12 +82,13 @@ void UnacceleratedStaticBitmapImage::Draw(
     const cc::PaintFlags& flags,
     const FloatRect& dst_rect,
     const FloatRect& src_rect,
+    const SkSamplingOptions& sampling,
     RespectImageOrientationEnum should_respect_image_orientation,
     ImageClampingMode clamp_mode,
     ImageDecodingMode) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  StaticBitmapImage::DrawHelper(canvas, flags, dst_rect, src_rect, clamp_mode,
-                                should_respect_image_orientation,
+  StaticBitmapImage::DrawHelper(canvas, flags, dst_rect, src_rect, sampling,
+                                clamp_mode, should_respect_image_orientation,
                                 PaintImageForCurrentFrame());
 }
 
@@ -99,7 +99,7 @@ PaintImage UnacceleratedStaticBitmapImage::PaintImageForCurrentFrame() {
 void UnacceleratedStaticBitmapImage::Transfer() {
   DETACH_FROM_THREAD(thread_checker_);
 
-  original_skia_image_ = paint_image_.GetSkImage();
+  original_skia_image_ = paint_image_.GetSwSkImage();
   original_skia_image_task_runner_ = Thread::Current()->GetTaskRunner();
 }
 
@@ -109,7 +109,7 @@ UnacceleratedStaticBitmapImage::ConvertToColorSpace(
     SkColorType color_type) {
   DCHECK(color_space);
 
-  sk_sp<SkImage> skia_image = PaintImageForCurrentFrame().GetSkImage();
+  sk_sp<SkImage> skia_image = PaintImageForCurrentFrame().GetSwSkImage();
   // If we don't need to change the color type, use SkImage::makeColorSpace()
   if (skia_image->colorType() == color_type) {
     skia_image = skia_image->makeColorSpace(color_space);

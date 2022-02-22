@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the Qt Charts module of the Qt Toolkit.
@@ -42,12 +42,13 @@
 #include <QtCharts/QLegend>
 #include <QtCharts/private/qchartglobal_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class QChart;
 class ChartPresenter;
 class QAbstractSeries;
 class LegendLayout;
+class LegendMoveResizeHandler;
 class QLegendMarker;
 
 class Q_CHARTS_PRIVATE_EXPORT QLegendPrivate : public QObject
@@ -77,17 +78,18 @@ public Q_SLOTS:
 private:
     // Internal helpers
     void insertMarkerHelper(QLegendMarker *marker);
-    void addMarkers(QList<QLegendMarker *> markers);
+    void addMarkers(const QList<QLegendMarker *> &markers);
     void removeMarkerHelper(QLegendMarker *marker);
-    void removeMarkers(QList<QLegendMarker *> markers);
+    void removeMarkers(const QList<QLegendMarker *> &markers);
     void decorateMarker(QLegendMarker *marker);
-    void decorateMarkers(QList<QLegendMarker *> markers);
+    void decorateMarkers(const QList<QLegendMarker *> &markers);
     void updateToolTips();
 
 private:
     QLegend *q_ptr;
     ChartPresenter *m_presenter;
     LegendLayout *m_layout;
+    LegendMoveResizeHandler *m_resizer;
     QChart *m_chart;
     QGraphicsItemGroup *m_items;
     Qt::Alignment m_alignment;
@@ -101,6 +103,7 @@ private:
     bool m_backgroundVisible;
     bool m_reverseMarkers;
     bool m_showToolTips;
+    bool m_interactive;
     QLegend::MarkerShape m_markerShape;
 
     QList<QLegendMarker *> m_markers;
@@ -113,8 +116,9 @@ private:
     friend class LegendLayout;
     friend class QLegendMarkerPrivate;
     friend class LegendScroller;
+    friend class LegendMoveResizeHandler;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif

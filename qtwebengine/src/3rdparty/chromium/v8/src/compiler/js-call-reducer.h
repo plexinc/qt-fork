@@ -43,6 +43,7 @@ class V8_EXPORT_PRIVATE JSCallReducer final : public AdvancedReducer {
   enum Flag {
     kNoFlags = 0u,
     kBailoutOnUninitialized = 1u << 0,
+    kInlineJSToWasmCalls = 1u << 1,
   };
   using Flags = base::Flags<Flag>;
 
@@ -64,10 +65,19 @@ class V8_EXPORT_PRIVATE JSCallReducer final : public AdvancedReducer {
   // and does a final attempt to reduce the nodes in the waitlist.
   void Finalize() final;
 
+  // JSCallReducer outsources much work to a graph assembler.
+  void RevisitForGraphAssembler(Node* node) { Revisit(node); }
+  Zone* ZoneForGraphAssembler() const { return temp_zone(); }
+  JSGraph* JSGraphForGraphAssembler() const { return jsgraph(); }
+
+  bool has_wasm_calls() const { return has_wasm_calls_; }
+
  private:
   Reduction ReduceBooleanConstructor(Node* node);
   Reduction ReduceCallApiFunction(Node* node,
                                   const SharedFunctionInfoRef& shared);
+  Reduction ReduceCallWasmFunction(Node* node,
+                                   const SharedFunctionInfoRef& shared);
   Reduction ReduceFunctionPrototypeApply(Node* node);
   Reduction ReduceFunctionPrototypeBind(Node* node);
   Reduction ReduceFunctionPrototypeCall(Node* node);
@@ -106,14 +116,15 @@ class V8_EXPORT_PRIVATE JSCallReducer final : public AdvancedReducer {
                                    const SharedFunctionInfoRef& shared);
   Reduction ReduceArraySome(Node* node, const SharedFunctionInfoRef& shared);
 
-  enum class ArrayIteratorKind { kArray, kTypedArray };
-  Reduction ReduceArrayIterator(Node* node, IterationKind kind);
+  enum class ArrayIteratorKind { kArrayLike, kTypedArray };
+  Reduction ReduceArrayIterator(Node* node, ArrayIteratorKind array_kind,
+                                IterationKind iteration_kind);
   Reduction ReduceArrayIteratorPrototypeNext(Node* node);
   Reduction ReduceFastArrayIteratorNext(InstanceType type, Node* node,
                                         IterationKind kind);
 
   Reduction ReduceCallOrConstructWithArrayLikeOrSpread(
-      Node* node, int arity, CallFrequency const& frequency,
+      Node* node, int arraylike_or_spread_index, CallFrequency const& frequency,
       FeedbackSource const& feedback, SpeculationMode speculation_mode,
       CallFeedbackRelation feedback_relation);
   Reduction ReduceJSConstruct(Node* node);
@@ -158,7 +169,7 @@ class V8_EXPORT_PRIVATE JSCallReducer final : public AdvancedReducer {
                                         const SharedFunctionInfoRef& shared);
   Reduction ReduceTypedArrayPrototypeToStringTag(Node* node);
 
-  Reduction ReduceSoftDeoptimize(Node* node, DeoptimizeReason reason);
+  Reduction ReduceForInsufficientFeedback(Node* node, DeoptimizeReason reason);
 
   Reduction ReduceMathUnary(Node* node, const Operator* op);
   Reduction ReduceMathBinary(Node* node, const Operator* op);
@@ -215,7 +226,10 @@ class V8_EXPORT_PRIVATE JSCallReducer final : public AdvancedReducer {
 
   void CheckIfElementsKind(Node* receiver_elements_kind, ElementsKind kind,
                            Node* control, Node** if_true, Node** if_false);
-  Node* LoadReceiverElementsKind(Node* receiver, Node** effect, Node** control);
+  Node* LoadReceiverElementsKind(Node* receiver, Effect* effect,
+                                 Control control);
+
+  bool IsBuiltinOrApiFunction(JSFunctionRef target_ref) const;
 
   Graph* graph() const;
   JSGraph* jsgraph() const { return jsgraph_; }
@@ -229,7 +243,6 @@ class V8_EXPORT_PRIVATE JSCallReducer final : public AdvancedReducer {
   SimplifiedOperatorBuilder* simplified() const;
   Flags flags() const { return flags_; }
   CompilationDependencies* dependencies() const { return dependencies_; }
-  bool should_disallow_heap_access() const;
 
   JSGraph* const jsgraph_;
   JSHeapBroker* const broker_;
@@ -237,6 +250,8 @@ class V8_EXPORT_PRIVATE JSCallReducer final : public AdvancedReducer {
   Flags const flags_;
   CompilationDependencies* const dependencies_;
   std::set<Node*> waitlist_;
+
+  bool has_wasm_calls_ = false;
 };
 
 }  // namespace compiler

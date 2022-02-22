@@ -36,9 +36,9 @@
 #include <QtCore/qcoreapplication.h>
 #include <QtCore/qendian.h>
 #include <QtCore/qhash.h>
+#include <QtCore/qlist.h>
 #include <QtCore/qscopedpointer.h>
 #include <QtCore/qsharedpointer.h>
-#include <QtCore/qvector.h>
 
 static QByteArray deviceName() { return "Qt GATT server"; }
 
@@ -59,14 +59,14 @@ void addService(const QLowEnergyServiceData &serviceData)
 void addRunningSpeedService()
 {
     QLowEnergyServiceData serviceData;
-    serviceData.setUuid(QBluetoothUuid::RunningSpeedAndCadence);
+    serviceData.setUuid(QBluetoothUuid::ServiceClassUuid::RunningSpeedAndCadence);
     serviceData.setType(QLowEnergyServiceData::ServiceTypePrimary);
 
     QLowEnergyDescriptorData desc;
-    desc.setUuid(QBluetoothUuid::ClientCharacteristicConfiguration);
+    desc.setUuid(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
     desc.setValue(QByteArray(2, 0)); // Default: No indication, no notification.
     QLowEnergyCharacteristicData charData;
-    charData.setUuid(QBluetoothUuid::RSCMeasurement);
+    charData.setUuid(QBluetoothUuid::CharacteristicType::RSCMeasurement);
     charData.addDescriptor(desc);
     charData.setProperties(QLowEnergyCharacteristic::Notify);
     QByteArray value(4, 0);
@@ -75,7 +75,7 @@ void addRunningSpeedService()
     serviceData.addCharacteristic(charData);
 
     charData = QLowEnergyCharacteristicData();
-    charData.setUuid(QBluetoothUuid::RSCFeature);
+    charData.setUuid(QBluetoothUuid::CharacteristicType::RSCFeature);
     charData.setProperties(QLowEnergyCharacteristic::Read);
     value = QByteArray(2, 0);
     qToLittleEndian<quint16>(1 << 2, reinterpret_cast<uchar *>(value.data()));
@@ -87,24 +87,24 @@ void addRunningSpeedService()
 void addGenericAccessService()
 {
     QLowEnergyServiceData serviceData;
-    serviceData.setUuid(QBluetoothUuid::GenericAccess);
+    serviceData.setUuid(QBluetoothUuid::ServiceClassUuid::GenericAccess);
     serviceData.setType(QLowEnergyServiceData::ServiceTypePrimary);
 
     QLowEnergyCharacteristicData charData;
-    charData.setUuid(QBluetoothUuid::DeviceName);
+    charData.setUuid(QBluetoothUuid::CharacteristicType::DeviceName);
     charData.setProperties(QLowEnergyCharacteristic::Read | QLowEnergyCharacteristic::Write);
     charData.setValue(deviceName());
     serviceData.addCharacteristic(charData);
 
     charData = QLowEnergyCharacteristicData();
-    charData.setUuid(QBluetoothUuid::Appearance);
+    charData.setUuid(QBluetoothUuid::CharacteristicType::Appearance);
     charData.setProperties(QLowEnergyCharacteristic::Read);
     QByteArray value(2, 0);
     qToLittleEndian<quint16>(128, reinterpret_cast<uchar *>(value.data())); // Generic computer.
     charData.setValue(value);
     serviceData.addCharacteristic(charData);
 
-    serviceData.addIncludedService(services.value(QBluetoothUuid::RunningSpeedAndCadence).data());
+    serviceData.addIncludedService(services.value(QBluetoothUuid::ServiceClassUuid::RunningSpeedAndCadence).data());
     addService(serviceData);
 }
 
@@ -122,14 +122,15 @@ void addCustomService()
 
     charData.setUuid(QBluetoothUuid(quint16(0x5001)));
     charData.setProperties(QLowEnergyCharacteristic::Read);
-    charData.setReadConstraints(QBluetooth::AttAuthorizationRequired); // To test read failure.
+    charData.setReadConstraints(
+            QBluetooth::AttAccessConstraint::AttAuthorizationRequired); // To test read failure.
     serviceData.addCharacteristic(charData);
     charData.setValue("something");
 
     charData.setUuid(QBluetoothUuid(quint16(0x5002)));
     charData.setProperties(QLowEnergyCharacteristic::Read | QLowEnergyCharacteristic::Indicate);
     charData.setReadConstraints(QBluetooth::AttAccessConstraints());
-    const QLowEnergyDescriptorData desc(QBluetoothUuid::ClientCharacteristicConfiguration,
+    const QLowEnergyDescriptorData desc(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration,
                                         QByteArray(2, 0));
     charData.addDescriptor(desc);
     serviceData.addCharacteristic(charData);

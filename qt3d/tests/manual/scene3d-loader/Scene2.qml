@@ -84,7 +84,7 @@ Scene3D {
         components: [renderSettings]
 
         TorusMesh {
-            id: mesh
+            id: torusMesh
             radius: 5
             minorRadius: 1
             rings: 100

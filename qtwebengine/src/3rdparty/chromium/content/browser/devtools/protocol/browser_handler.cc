@@ -35,7 +35,7 @@ BrowserHandler::BrowserHandler(bool allow_set_download_behavior)
     : DevToolsDomainHandler(Browser::Metainfo::domainName),
       allow_set_download_behavior_(allow_set_download_behavior) {}
 
-BrowserHandler::~BrowserHandler() {}
+BrowserHandler::~BrowserHandler() = default;
 
 Response BrowserHandler::Disable() {
   // TODO: this leaks context ids for all contexts with overridden permissions.
@@ -146,7 +146,10 @@ Response PermissionDescriptorToPermissionType(
   if (name == "geolocation") {
     *permission_type = PermissionType::GEOLOCATION;
   } else if (name == "camera") {
-    *permission_type = PermissionType::VIDEO_CAPTURE;
+    if (descriptor->GetPanTiltZoom(false))
+      *permission_type = PermissionType::CAMERA_PAN_TILT_ZOOM;
+    else
+      *permission_type = PermissionType::VIDEO_CAPTURE;
   } else if (name == "microphone") {
     *permission_type = PermissionType::AUDIO_CAPTURE;
   } else if (name == "notifications") {
@@ -186,21 +189,18 @@ Response PermissionDescriptorToPermissionType(
     *permission_type = PermissionType::IDLE_DETECTION;
   } else if (name == "periodic-background-sync") {
     *permission_type = PermissionType::PERIODIC_BACKGROUND_SYNC;
-  } else if (name == "wake-lock") {
-    if (!descriptor->HasType()) {
-      return Response::InvalidParams(
-          "Could not parse WakeLockPermissionDescriptor with property type");
-    }
-    const std::string type = descriptor->GetType("");
-    if (type == "screen") {
-      *permission_type = PermissionType::WAKE_LOCK_SCREEN;
-    } else if (type == "system") {
-      *permission_type = PermissionType::WAKE_LOCK_SYSTEM;
-    } else {
-      return Response::InvalidParams("Invalid WakeLockType: " + type);
-    }
+  } else if (name == "screen-wake-lock") {
+    *permission_type = PermissionType::WAKE_LOCK_SCREEN;
+  } else if (name == "system-wake-lock") {
+    *permission_type = PermissionType::WAKE_LOCK_SYSTEM;
   } else if (name == "nfc") {
     *permission_type = PermissionType::NFC;
+  } else if (name == "window-placement") {
+    *permission_type = PermissionType::WINDOW_PLACEMENT;
+  } else if (name == "font-access") {
+    *permission_type = PermissionType::FONT_ACCESS;
+  } else if (name == "display-capture") {
+    *permission_type = PermissionType::DISPLAY_CAPTURE;
   } else {
     return Response::InvalidParams("Invalid PermissionDescriptor name: " +
                                    name);
@@ -229,10 +229,11 @@ Response FromProtocolPermissionType(
     *out_type = PermissionType::AUDIO_CAPTURE;
   } else if (type == protocol::Browser::PermissionTypeEnum::VideoCapture) {
     *out_type = PermissionType::VIDEO_CAPTURE;
+  } else if (type ==
+             protocol::Browser::PermissionTypeEnum::VideoCapturePanTiltZoom) {
+    *out_type = PermissionType::CAMERA_PAN_TILT_ZOOM;
   } else if (type == protocol::Browser::PermissionTypeEnum::BackgroundSync) {
     *out_type = PermissionType::BACKGROUND_SYNC;
-  } else if (type == protocol::Browser::PermissionTypeEnum::Flash) {
-    *out_type = PermissionType::FLASH;
   } else if (type == protocol::Browser::PermissionTypeEnum::Sensors) {
     *out_type = PermissionType::SENSORS;
   } else if (type ==
@@ -259,6 +260,8 @@ Response FromProtocolPermissionType(
     *out_type = PermissionType::WAKE_LOCK_SYSTEM;
   } else if (type == protocol::Browser::PermissionTypeEnum::Nfc) {
     *out_type = PermissionType::NFC;
+  } else if (type == protocol::Browser::PermissionTypeEnum::DisplayCapture) {
+    *out_type = PermissionType::DISPLAY_CAPTURE;
   } else {
     return Response::InvalidParams("Unknown permission type: " + type);
   }
@@ -329,9 +332,9 @@ Response BrowserHandler::FindBrowserContext(
 }
 
 Response BrowserHandler::SetPermission(
-    Maybe<std::string> origin,
     std::unique_ptr<protocol::Browser::PermissionDescriptor> permission,
     const protocol::Browser::PermissionSetting& setting,
+    Maybe<std::string> origin,
     Maybe<std::string> browser_context_id) {
   BrowserContext* browser_context = nullptr;
   Response response = FindBrowserContext(browser_context_id, &browser_context);
@@ -373,9 +376,9 @@ Response BrowserHandler::SetPermission(
 }
 
 Response BrowserHandler::GrantPermissions(
-    Maybe<std::string> origin,
     std::unique_ptr<protocol::Array<protocol::Browser::PermissionType>>
         permissions,
+    Maybe<std::string> origin,
     Maybe<std::string> browser_context_id) {
   BrowserContext* browser_context = nullptr;
   Response response = FindBrowserContext(browser_context_id, &browser_context);
@@ -508,7 +511,7 @@ Response BrowserHandler::GetBrowserCommandLine(
   if (command_line->HasSwitch(switches::kEnableAutomation)) {
     for (const auto& arg : command_line->argv()) {
 #if defined(OS_WIN)
-      (*arguments)->emplace_back(base::UTF16ToUTF8(arg));
+      (*arguments)->emplace_back(base::WideToUTF8(arg));
 #else
       (*arguments)->emplace_back(arg);
 #endif

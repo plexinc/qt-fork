@@ -5,7 +5,9 @@
 #ifndef CC_LAYERS_TEXTURE_LAYER_IMPL_H_
 #define CC_LAYERS_TEXTURE_LAYER_IMPL_H_
 
+#include <memory>
 #include <string>
+#include <vector>
 
 #include "base/callback.h"
 #include "base/containers/flat_map.h"
@@ -39,7 +41,7 @@ class CC_EXPORT TextureLayerImpl : public LayerImpl {
 
   bool WillDraw(DrawMode draw_mode,
                 viz::ClientResourceProvider* resource_provider) override;
-  void AppendQuads(viz::RenderPass* render_pass,
+  void AppendQuads(viz::CompositorRenderPass* render_pass,
                    AppendQuadsData* append_quads_data) override;
   SimpleEnclosedRegion VisibleOpaqueRegion() const override;
   void ReleaseResources() override;
@@ -100,7 +102,7 @@ class CC_EXPORT TextureLayerImpl : public LayerImpl {
   // Local ResourceId for the TransferableResource, to be used with the
   // compositor's viz::ClientResourceProvider in order to refer to the
   // TransferableResource given to it.
-  viz::ResourceId resource_id_ = 0;
+  viz::ResourceId resource_id_ = viz::kInvalidResourceId;
   std::unique_ptr<viz::SingleReleaseCallback> release_callback_;
 
   // As a pending layer, the set of SharedBitmapIds and the underlying

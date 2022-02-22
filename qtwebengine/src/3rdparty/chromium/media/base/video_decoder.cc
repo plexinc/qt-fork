@@ -15,15 +15,7 @@ namespace media {
 
 VideoDecoder::VideoDecoder() = default;
 
-void VideoDecoder::Destroy() {
-  delete this;
-}
-
 VideoDecoder::~VideoDecoder() = default;
-
-bool VideoDecoder::IsPlatformDecoder() const {
-  return false;
-}
 
 bool VideoDecoder::NeedsBitstreamConversion() const {
   return false;
@@ -35,6 +27,10 @@ bool VideoDecoder::CanReadWithoutStalling() const {
 
 int VideoDecoder::GetMaxDecodeRequests() const {
   return 1;
+}
+
+bool VideoDecoder::IsOptimizedForRTC() const {
+  return false;
 }
 
 // static
@@ -66,12 +62,3 @@ int VideoDecoder::GetRecommendedThreadCount(int desired_threads) {
 }
 
 }  // namespace media
-
-namespace std {
-
-void default_delete<media::VideoDecoder>::operator()(
-    media::VideoDecoder* ptr) const {
-  ptr->Destroy();
-}
-
-}  // namespace std

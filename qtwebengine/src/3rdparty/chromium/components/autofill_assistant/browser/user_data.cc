@@ -6,7 +6,6 @@
 
 #include "components/autofill/core/browser/data_model/autofill_profile.h"
 #include "components/autofill/core/browser/data_model/credit_card.h"
-#include "components/autofill/core/common/password_form.h"
 
 namespace autofill_assistant {
 
@@ -16,13 +15,15 @@ LoginChoice::LoginChoice(
     const std::string& _sublabel,
     const base::Optional<std::string>& _sublabel_accessibility_hint,
     int _preselect_priority,
-    const base::Optional<InfoPopupProto>& _info_popup)
+    const base::Optional<InfoPopupProto>& _info_popup,
+    const base::Optional<std::string>& _edit_button_content_description)
     : identifier(_identifier),
       label(_label),
       sublabel(_sublabel),
       sublabel_accessibility_hint(_sublabel_accessibility_hint),
       preselect_priority(_preselect_priority),
-      info_popup(_info_popup) {}
+      info_popup(_info_popup),
+      edit_button_content_description(_edit_button_content_description) {}
 LoginChoice::LoginChoice(const LoginChoice& another) = default;
 LoginChoice::~LoginChoice() = default;
 

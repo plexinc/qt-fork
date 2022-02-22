@@ -34,14 +34,27 @@ using Skeletons = base::flat_set<std::string>;
 // can be detected than would be by using plain ICU API.
 class SkeletonGenerator {
  public:
-  SkeletonGenerator(const USpoofChecker* checker);
+  explicit SkeletonGenerator(const USpoofChecker* checker);
   ~SkeletonGenerator();
 
   // Returns the set of skeletons for the |hostname|. For IDN, |hostname| must
   // already be decoded to unicode.
   Skeletons GetSkeletons(base::StringPiece16 hostname);
 
+  // Returns true if the diacritics should be removed from |label|. Diacritic
+  // removal is a slow operation and should be avoided when possible.
+  bool ShouldRemoveDiacriticsFromLabel(const icu::UnicodeString& label) const;
+
  private:
+  // Adds an additional mapping from |src_char| to |mapped_char| when generating
+  // skeletons: If |host| contains |src_char|, |skeletons| will contain a new
+  // skeleton where all occurances of |src_char| are replaced with
+  // |mapped_char|.
+  void AddSkeletonMapping(const icu::UnicodeString& host,
+                          int32_t src_char,
+                          int32_t mapped_char,
+                          Skeletons* skeletons);
+
   icu::UnicodeSet lgc_letters_n_ascii_;
 
   std::unique_ptr<icu::Transliterator> diacritic_remover_;

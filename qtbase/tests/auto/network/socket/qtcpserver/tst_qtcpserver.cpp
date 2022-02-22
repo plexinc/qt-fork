@@ -38,7 +38,9 @@
 #define INVALID_SOCKET -1
 #endif
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QSignalSpy>
+#include <QTimer>
 
 #ifndef Q_OS_WIN
 #include <unistd.h>
@@ -55,12 +57,10 @@
 #include <qstringlist.h>
 #include <qplatformdefs.h>
 #include <qhostinfo.h>
+#include <qnetworkinterface.h>
 
 #include <QNetworkProxy>
 
-#include <QNetworkSession>
-#include <QNetworkConfiguration>
-#include <QNetworkConfigurationManager>
 #include "../../../network-settings.h"
 
 #if defined(Q_OS_LINUX)
@@ -90,9 +90,7 @@ private slots:
     void maxPendingConnections();
     void listenError();
     void waitForConnectionTest();
-#ifndef Q_OS_WINRT
     void setSocketDescriptor();
-#endif
     void listenWhileListening();
     void addressReusable();
     void setNewSocketDescriptorBlocking();
@@ -117,15 +115,14 @@ private slots:
 
     void canAccessPendingConnectionsWhileNotListening();
 
+    void pauseAccepting();
+
 private:
     bool shouldSkipIpv6TestsForBrokenGetsockopt();
 #ifdef SHOULD_CHECK_SYSCALL_SUPPORT
     bool ipv6GetsockoptionMissing(int level, int optname);
 #endif
 
-#ifndef QT_NO_BEARERMANAGEMENT
-    QNetworkSession *networkSession;
-#endif
     QString crashingServerDir;
 };
 
@@ -168,12 +165,6 @@ void tst_QTcpServer::initTestCase()
 #else
     if (!QtNetworkSettings::verifyTestNetworkSettings())
         QSKIP("No network test server available");
-#endif
-#ifndef QT_NO_BEARERMANAGEMENT
-    QNetworkConfigurationManager man;
-    networkSession = new QNetworkSession(man.defaultConfiguration(), this);
-    networkSession->open();
-    QVERIFY(networkSession->waitForOpened());
 #endif
 }
 
@@ -487,7 +478,7 @@ public:
     }
 
 protected:
-    void run()
+    void run() override
     {
         sleep(2);
 
@@ -538,7 +529,6 @@ void tst_QTcpServer::waitForConnectionTest()
 }
 
 //----------------------------------------------------------------------------------
-#ifndef Q_OS_WINRT
 void tst_QTcpServer::setSocketDescriptor()
 {
     QTcpServer server;
@@ -568,7 +558,6 @@ void tst_QTcpServer::setSocketDescriptor()
     WSACleanup();
 #endif
 }
-#endif // !Q_OS_WINRT
 
 //----------------------------------------------------------------------------------
 void tst_QTcpServer::listenWhileListening()
@@ -590,8 +579,7 @@ public:
     bool ok;
 
 protected:
-#ifndef Q_OS_WINRT
-    void incomingConnection(qintptr socketDescriptor)
+    void incomingConnection(qintptr socketDescriptor) override
     {
         // how a user woulddo it (qabstractsocketengine is not public)
         unsigned long arg = 0;
@@ -603,7 +591,6 @@ protected:
         ::close(socketDescriptor);
 #endif
     }
-#endif // !Q_OS_WINRT
 };
 
 void tst_QTcpServer::addressReusable()
@@ -730,7 +717,7 @@ public:
         lastQuery = QNetworkProxyQuery();
     }
 
-    virtual QList<QNetworkProxy> queryProxy(const QNetworkProxyQuery &query)
+    virtual QList<QNetworkProxy> queryProxy(const QNetworkProxyQuery &query) override
     {
         lastQuery = query;
         ++callCount;
@@ -1061,6 +1048,37 @@ void tst_QTcpServer::canAccessPendingConnectionsWhileNotListening()
     QTcpSocket socket;
     server.addSocketFromOutside(&socket);
     QCOMPARE(&socket, server.nextPendingConnection());
+}
+
+void tst_QTcpServer::pauseAccepting()
+{
+    QTcpServer server;
+    QSignalSpy spy(&server, &QTcpServer::newConnection);
+    QVERIFY(server.listen());
+
+    QFETCH_GLOBAL(bool, setProxy);
+    const auto address = QHostAddress(setProxy ? QtNetworkSettings::socksProxyServerIp()
+                                               : QHostAddress::LocalHost);
+
+    const int NumSockets = 6;
+    QTcpSocket sockets[NumSockets];
+    sockets[0].connectToHost(address, server.serverPort());
+    QVERIFY(spy.wait());
+    QCOMPARE(spy.count(), 1);
+
+    server.pauseAccepting();
+    for (int i = 1; i < NumSockets; ++i)
+        sockets[i].connectToHost(address, server.serverPort());
+    QVERIFY(!spy.wait(400));
+    QCOMPARE(spy.count(), 1);
+
+    server.resumeAccepting();
+    if (setProxy) {
+        QEXPECT_FAIL("", "The socks proxy does weird things after accepting the first connection",
+                     Abort);
+    }
+    QVERIFY(spy.wait());
+    QCOMPARE(spy.count(), 6);
 }
 
 QTEST_MAIN(tst_QTcpServer)

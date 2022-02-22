@@ -73,6 +73,7 @@ public:
 
     void start();
     void stop();
+    void complete();
 
     bool isRunning() const;
 
@@ -104,6 +105,7 @@ class Q_QUICK_PRIVATE_EXPORT QQuickTransition : public QObject
     Q_CLASSINFO("DefaultProperty", "animations")
     Q_CLASSINFO("DeferredPropertyNames", "animations")
     QML_NAMED_ELEMENT(Transition)
+    QML_ADDED_IN_VERSION(2, 0)
 
 public:
     QQuickTransition(QObject *parent=nullptr);

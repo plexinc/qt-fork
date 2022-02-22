@@ -32,7 +32,7 @@
 
 #include <QtCharts/QAbstractBarSeries>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class QHorizontalBarSeriesPrivate;
 
@@ -42,13 +42,13 @@ class Q_CHARTS_EXPORT QHorizontalBarSeries : public QAbstractBarSeries
 public:
     explicit QHorizontalBarSeries(QObject *parent = nullptr);
     ~QHorizontalBarSeries();
-    QAbstractSeries::SeriesType type() const;
+    QAbstractSeries::SeriesType type() const override;
 
 private:
     Q_DECLARE_PRIVATE(QHorizontalBarSeries)
     Q_DISABLE_COPY(QHorizontalBarSeries)
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // QHORIZONTALBARSERIES_H

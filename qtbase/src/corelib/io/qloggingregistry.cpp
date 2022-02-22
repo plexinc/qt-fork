@@ -105,8 +105,7 @@ int QLoggingRule::pass(QLatin1String cat, QtMsgType msgType) const
     if (idx >= 0) {
         if (flags == MidFilter) {
             // matches somewhere
-            if (idx >= 0)
-                return (enabled ? 1 : -1);
+            return (enabled ? 1 : -1);
         } else if (flags == LeftFilter) {
             // matches left
             if (idx == 0)
@@ -190,7 +189,7 @@ void QLoggingRule::parse(QStringView pattern)
 void QLoggingSettingsParser::setContent(const QString &content)
 {
     _rules.clear();
-    const auto lines = content.splitRef(QLatin1Char('\n'));
+    const auto lines = QStringView{content}.split(QLatin1Char('\n'));
     for (const auto &line : lines)
         parseNextLine(line);
 }
@@ -209,7 +208,7 @@ void QLoggingSettingsParser::setContent(QTextStream &stream)
 
 /*!
     \internal
-    Parses one line of the configuation file
+    Parses one line of the configuration file
 */
 
 void QLoggingSettingsParser::parseNextLine(QStringView line)
@@ -283,7 +282,7 @@ static bool qtLoggingDebug()
     return debugEnv;
 }
 
-static QVector<QLoggingRule> loadRulesFromFile(const QString &filePath)
+static QList<QLoggingRule> loadRulesFromFile(const QString &filePath)
 {
     QFile file(filePath);
     if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -295,7 +294,7 @@ static QVector<QLoggingRule> loadRulesFromFile(const QString &filePath)
         parser.setContent(stream);
         return parser.rules();
     }
-    return QVector<QLoggingRule>();
+    return QList<QLoggingRule>();
 }
 
 /*!
@@ -305,7 +304,7 @@ static QVector<QLoggingRule> loadRulesFromFile(const QString &filePath)
  */
 void QLoggingRegistry::initializeRules()
 {
-    QVector<QLoggingRule> er, qr, cr;
+    QList<QLoggingRule> er, qr, cr;
     // get rules from environment
     const QByteArray rulesFilePath = qgetenv("QT_LOGGING_CONF");
     if (!rulesFilePath.isEmpty())
@@ -325,7 +324,7 @@ void QLoggingRegistry::initializeRules()
 #if !defined(QT_BOOTSTRAPPED)
     // get rules from Qt data configuration path
     const QString qtConfigPath
-            = QDir(QLibraryInfo::location(QLibraryInfo::DataPath)).absoluteFilePath(configFileName);
+            = QDir(QLibraryInfo::path(QLibraryInfo::DataPath)).absoluteFilePath(configFileName);
     qr = loadRulesFromFile(qtConfigPath);
 #endif
 

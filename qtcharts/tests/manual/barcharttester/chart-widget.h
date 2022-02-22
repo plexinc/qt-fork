@@ -39,7 +39,7 @@
 #include <QtCore/QTimer>
 #include <QtCore/QElapsedTimer>
 
-QT_CHARTS_USE_NAMESPACE
+QT_USE_NAMESPACE
 
 
 class ChartWidget : public QWidget
@@ -62,8 +62,8 @@ private:
     QChartView *m_chartView;
     QAbstractAxis *m_barAxis;
     QAbstractAxis *m_valueAxis;
-    QVector<QAbstractBarSeries *> m_series;
-    QMap<const QAbstractBarSeries *, QVector<QBarSet *> > m_sets;
+    QList<QAbstractBarSeries *> m_series;
+    QMap<const QAbstractBarSeries *, QList<QBarSet *>> m_sets;
     QTimer m_timer;
     QElapsedTimer m_elapsedTimer;
     QHBoxLayout *m_horizontalLayout;

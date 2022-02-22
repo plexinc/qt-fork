@@ -138,6 +138,9 @@ inline Element* TreeOrderedMap::Get(const AtomicString& key,
 #if DCHECK_IS_ON()
   DCHECK(g_remove_scope_level);
 #endif
+  // Since we didn't find any elements for this key, remove the key from the
+  // map here.
+  map_.erase(key);
   return nullptr;
 }
 
@@ -201,11 +204,11 @@ Element* TreeOrderedMap::GetCachedFirstElementWithoutAccessingNodeTree(
   return entry->element;
 }
 
-void TreeOrderedMap::Trace(Visitor* visitor) {
+void TreeOrderedMap::Trace(Visitor* visitor) const {
   visitor->Trace(map_);
 }
 
-void TreeOrderedMap::MapEntry::Trace(Visitor* visitor) {
+void TreeOrderedMap::MapEntry::Trace(Visitor* visitor) const {
   visitor->Trace(element);
   visitor->Trace(ordered_list);
 }

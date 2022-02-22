@@ -2,8 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {html, Polymer} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import '../cr_icon_button/cr_icon_button.m.js';
+import '../cr_icons_css.m.js';
+import './cr_toolbar_search_field.m.js';
+import '../hidden_style_css.m.js';
+import '../icons.m.js';
+import '../shared_vars_css.m.js';
+import '//resources/polymer/v3_0/iron-media-query/iron-media-query.js';
+
 Polymer({
   is: 'cr-toolbar',
+
+  _template: html`{__html_template__}`,
 
   properties: {
     // Name to display in the toolbar, in titlecase.
@@ -18,10 +30,6 @@ Polymer({
     // Tooltip to display on the menu button.
     menuLabel: String,
 
-    // Promotional toolstip string, shown in narrow mode if showMenuPromo is
-    // true.
-    menuPromo: String,
-
     // Value is proxied through to cr-toolbar-search-field. When true,
     // the search field will show a processing spinner.
     spinnerActive: Boolean,
@@ -29,14 +37,15 @@ Polymer({
     // Controls whether the menu button is shown at the start of the menu.
     showMenu: {type: Boolean, value: false},
 
-    // Whether to show menu promo tooltip.
-    showMenuPromo: {
-      type: Boolean,
-      value: false,
-    },
-
     // Controls whether the search field is shown.
     showSearch: {type: Boolean, value: true},
+
+    // Controls whether the search field is autofocused.
+    autofocus: {
+      type: Boolean,
+      value: false,
+      reflectToAttribute: true,
+    },
 
     // True when the toolbar is displaying in narrow mode.
     narrow: {
@@ -55,8 +64,6 @@ Polymer({
       value: 900,
     },
 
-    closeMenuPromo: String,
-
     /** @private */
     showingSearch_: {
       type: Boolean,
@@ -64,18 +71,9 @@ Polymer({
     },
   },
 
-  observers: [
-    'possiblyShowMenuPromo_(showMenu, showMenuPromo, showingSearch_)',
-  ],
-
   /** @return {!CrToolbarSearchFieldElement} */
   getSearchField() {
     return /** @type {!CrToolbarSearchFieldElement} */ (this.$.search);
-  },
-
-  /** @private */
-  onClosePromoTap_() {
-    this.fire('cr-toolbar-menu-promo-close');
   },
 
   /** @private */
@@ -83,31 +81,20 @@ Polymer({
     this.fire('cr-toolbar-menu-tap');
   },
 
-  /** @private */
-  possiblyShowMenuPromo_() {
-    Polymer.RenderStatus.afterNextRender(this, function() {
-      if (this.showMenu && this.showMenuPromo && !this.showingSearch_) {
-        // The call to animate can have 2 methods of passing the keyframes,
-        // however as of the current closure version, only one of them is
-        // supported. See https://crbug.com/987842 for more info.
-        this.$$('#menuPromo')
-            .animate(
-                [{opacity: 0}, {opacity: 0.9}],
-                /** @type {!KeyframeAnimationOptions} */ ({
-                  duration: 500,
-                  fill: 'forwards'
-                }));
-        this.fire('cr-toolbar-menu-promo-shown');
+  focusMenuButton() {
+    requestAnimationFrame(() => {
+      // Wait for next animation frame in case dom-if has not applied yet and
+      // added the menu button.
+      const menuButton = this.shadowRoot.querySelector('#menuButton');
+      if (menuButton) {
+        menuButton.focus();
       }
-    }.bind(this));
+    });
   },
 
-  /**
-   * @param {string} title
-   * @param {boolean} showMenuPromo
-   * @return {string} The title if the menu promo isn't showing, else "".
-   */
-  titleIfNotShowMenuPromo_(title, showMenuPromo) {
-    return showMenuPromo ? '' : title;
-  },
+  /** @return {boolean} */
+  isMenuFocused() {
+    return Boolean(this.shadowRoot.activeElement) &&
+        this.shadowRoot.activeElement.id === 'menuButton';
+  }
 });

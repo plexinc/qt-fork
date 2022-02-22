@@ -26,7 +26,7 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include <qcache.h>
 
@@ -47,6 +47,10 @@ private slots:
     void remove();
     void take();
     void axioms_on_key_type();
+    void largeCache();
+    void internalChainOrderAfterEntryUpdate();
+    void emplaceLowerCost();
+    void trimWithMovingAcrossSpans();
 };
 
 
@@ -356,6 +360,7 @@ struct KeyType
     int foo;
 
     KeyType(int x) : foo(x) {}
+    constexpr KeyType(const KeyType &o) noexcept : foo(o.foo) {}
 
 private:
     KeyType &operator=(const KeyType &);
@@ -377,7 +382,7 @@ bool operator==(const KeyType &key1, const KeyType &key2)
     return key1.foo == key2.foo;
 }
 
-uint qHash(const KeyType &key)
+size_t qHash(const KeyType &key)
 {
     return qHash(key.foo);
 }
@@ -396,6 +401,115 @@ void tst_QCache::axioms_on_key_type()
     foo.take(KeyType(789));
 // If this fails, contact the maintaner
     QVERIFY(sizeof(QHash<int, int>) == sizeof(void *));
+}
+
+void tst_QCache::largeCache()
+{
+    QCache<int, int> cache;
+    cache.setMaxCost(500);
+    for (int i = 0; i < 1000; ++i) {
+        for (int j = 0; j < qMax(0, i - 500); ++j)
+            QVERIFY(!cache.contains(j));
+        for (int j = qMax(0, i - 500); j < i; ++j)
+            QVERIFY(cache.contains(j));
+        cache.insert(i, new int);
+    }
+    cache.clear();
+    QVERIFY(cache.size() == 0);
+}
+
+// The internal chain could lose track of some objects.
+// Make sure it doesn't happen again.
+void tst_QCache::internalChainOrderAfterEntryUpdate()
+{
+    QCache<QString, int> cache;
+    cache.setMaxCost(20);
+    cache.insert(QString::number(1), new int, 1);
+    cache.insert(QString::number(2), new int, 1);
+    cache.insert(QString::number(1), new int, 1);
+    // If the chain is still 'in order' then setting maxCost == 0 should
+    // a. not crash, and
+    // b. remove all the elements in the QHash
+    cache.setMaxCost(0);
+    QCOMPARE(cache.size(), 0);
+}
+
+void tst_QCache::emplaceLowerCost()
+{
+    QCache<QString, int> cache;
+    cache.setMaxCost(5);
+    cache.insert("a", new int, 3); // insert high cost
+    cache.insert("a", new int, 1); // and then exchange it with a lower-cost object
+    QCOMPARE(cache.totalCost(), 1);
+    cache.remove("a"); // then remove the object
+    // The cache should now have a cost == 0 and be empty.
+    QCOMPARE(cache.totalCost(), 0);
+    QVERIFY(cache.isEmpty());
+}
+
+struct TrivialHashType {
+    int i = -1;
+    size_t hash = 0;
+
+    TrivialHashType(int i, size_t hash) : i(i), hash(hash) {}
+    TrivialHashType(const TrivialHashType &o) noexcept = default;
+    TrivialHashType &operator=(const TrivialHashType &o) noexcept = default;
+    TrivialHashType(TrivialHashType &&o) noexcept : i(o.i), hash(o.hash) {
+        o.i = -1;
+        o.hash = 0;
+    }
+    TrivialHashType &operator=(TrivialHashType &&o) noexcept {
+        i = o.i;
+        hash = o.hash;
+        o.i = -1;
+        o.hash = 0;
+        return *this;
+    }
+
+
+    friend bool operator==(const TrivialHashType &lhs, const TrivialHashType &rhs)
+    {
+        return lhs.i == rhs.i;
+    }
+};
+quint64 qHash(TrivialHashType t, size_t seed = 0)
+{
+    return t.hash;
+}
+
+// During trim(), if the Node we have a pointer to in the function is moved
+// to another span in the hash table, our pointer would end up pointing to
+// garbage memory. Test that this no longer happens
+void tst_QCache::trimWithMovingAcrossSpans()
+{
+    qsizetype numBuckets = [](){
+        QHash<int, int> h;
+        h.reserve(1);
+        // Beholden to QHash internals:
+        return h.capacity() << 1;
+    }();
+
+    QCache<TrivialHashType, int> cache;
+    cache.setMaxCost(1000);
+
+    auto lastBucketInSpan = size_t(numBuckets - 1);
+    // If this fails then the test is no longer valid
+    QCOMPARE(QHashPrivate::GrowthPolicy::bucketForHash(numBuckets, lastBucketInSpan),
+             lastBucketInSpan);
+
+    // Pad some space so we have two spans:
+    for (int i = 2; i < numBuckets; ++i)
+        cache.insert({i, 0}, nullptr);
+
+    // These two are vying for the last bucket in the first span,
+    // when '0' is deleted, '1' is moved across the span boundary,
+    // invalidating any pointer to its Node.
+    cache.insert({0, lastBucketInSpan}, nullptr);
+    cache.insert({1, lastBucketInSpan}, nullptr);
+
+    QCOMPARE(cache.size(), numBuckets);
+    cache.setMaxCost(0);
+    QCOMPARE(cache.size(), 0);
 }
 
 QTEST_APPLESS_MAIN(tst_QCache)

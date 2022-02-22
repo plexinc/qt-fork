@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 #include <QApplication>
-#include <QtTest>
+#include <QTest>
 
 #include "ui_form.h"
 #include "touchwidget.h"
@@ -37,7 +37,7 @@ class MultitouchTestWidget : public QWidget, public Ui::Form
     Q_OBJECT
 
 public:
-    MultitouchTestWidget(QWidget *parent = 0)
+    MultitouchTestWidget(QWidget *parent = nullptr)
         : QWidget(parent)
     {
         setAttribute(Qt::WA_QuitOnClose, false);

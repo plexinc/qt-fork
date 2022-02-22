@@ -161,7 +161,7 @@ struct QRelation
 class QRelatedTableModel : public QSqlTableModel
 {
 public:
-    QRelatedTableModel(QRelation *rel, QObject *parent = nullptr, QSqlDatabase db = QSqlDatabase());
+    QRelatedTableModel(QRelation *rel, QObject *parent = nullptr, const QSqlDatabase &db = QSqlDatabase());
     bool select() override;
 private:
     bool firstSelect;
@@ -245,7 +245,7 @@ bool QRelation::isValid()
 
 
 
-QRelatedTableModel::QRelatedTableModel(QRelation *rel, QObject *parent, QSqlDatabase db) :
+QRelatedTableModel::QRelatedTableModel(QRelation *rel, QObject *parent, const QSqlDatabase &db) :
     QSqlTableModel(parent, db), firstSelect(true), relation(rel)
 {
 }
@@ -275,7 +275,7 @@ public:
     QString fullyQualifiedFieldName(const QString &tableName, const QString &fieldName) const;
 
     int nameToIndex(const QString &name) const override;
-    mutable QVector<QRelation> relations;
+    mutable QList<QRelation> relations;
     QSqlRecord baseRec; // the record without relations
     void clearChanges();
     void clearCache() override;
@@ -410,7 +410,7 @@ void QSqlRelationalTableModelPrivate::clearCache()
     and the database connection to \a db. If \a db is not valid, the
     default database connection will be used.
 */
-QSqlRelationalTableModel::QSqlRelationalTableModel(QObject *parent, QSqlDatabase db)
+QSqlRelationalTableModel::QSqlRelationalTableModel(QObject *parent, const QSqlDatabase &db)
     : QSqlTableModel(*new QSqlRelationalTableModelPrivate, parent, db)
 {
 }
@@ -590,8 +590,9 @@ QString QSqlRelationalTableModel::selectStatement() const
                 QString displayColumn = relation.displayColumn();
                 if (d->db.driver()->isIdentifierEscaped(displayColumn, QSqlDriver::FieldName))
                     displayColumn = d->db.driver()->stripDelimiters(displayColumn, QSqlDriver::FieldName);
-                const QString alias = QString::fromLatin1("%1_%2_%3")
+                QString alias = QString::fromLatin1("%1_%2_%3")
                                       .arg(relTableName, displayColumn, QString::number(fieldNames.value(fieldList[i])));
+                alias.truncate(d->db.driver()->maximumIdentifierLength(QSqlDriver::FieldName));
                 displayTableField = Sql::as(displayTableField, alias);
                 --fieldNames[fieldList[i]];
             }

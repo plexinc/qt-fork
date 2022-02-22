@@ -95,14 +95,14 @@ var PeerConnectionRecord = (function() {
 // will be shifted out when the buffer is full.
 var MAX_STATS_DATA_POINT_BUFFER_SIZE = 1000;
 
-// <include src="../../resources/media/tab_view.js">
-// <include src="../../resources/media/data_series.js">
-// <include src="../../resources/media/ssrc_info_manager.js">
-// <include src="../../resources/media/stats_graph_helper.js">
-// <include src="../../resources/media/stats_rates_calculator.js">
-// <include src="../../resources/media/stats_table.js">
-// <include src="../../resources/media/peer_connection_update_table.js">
-// <include src="../../resources/media/dump_creator.js">
+// <include src="tab_view.js">
+// <include src="data_series.js">
+// <include src="ssrc_info_manager.js">
+// <include src="stats_graph_helper.js">
+// <include src="stats_rates_calculator.js">
+// <include src="stats_table.js">
+// <include src="peer_connection_update_table.js">
+// <include src="dump_creator.js">
 
 
 function initialize() {
@@ -146,6 +146,13 @@ function createStatsSelectionOptionElements() {
 
   p.appendChild(document.createTextNode('Read Stats From: '));
   p.appendChild(selectElement);
+
+  const statsDocumentation = document.createElement('p');
+  statsDocumentation.appendChild(
+    document.createTextNode('Note: computed stats are in []. ' +
+      'Experimental stats are marked with an * at the end.'));
+  p.appendChild(statsDocumentation);
+
   return p;
 }
 

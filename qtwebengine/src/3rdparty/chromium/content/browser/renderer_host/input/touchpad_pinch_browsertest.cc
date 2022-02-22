@@ -11,13 +11,14 @@
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_features.h"
-#include "content/public/common/web_preferences.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
 #include "content/public/test/hit_test_region_observer.h"
 #include "content/public/test/test_utils.h"
 #include "content/shell/browser/shell.h"
+#include "third_party/blink/public/common/web_preferences/web_preferences.h"
 
 namespace content {
 
@@ -65,10 +66,11 @@ void PerformTouchpadPinch(WebContents* web_contents,
                           gfx::PointF position,
                           float scale_factor) {
   RenderWidgetHostImpl* widget_host = RenderWidgetHostImpl::From(
-      web_contents->GetRenderViewHost()->GetWidget());
+      web_contents->GetMainFrame()->GetRenderViewHost()->GetWidget());
 
   SyntheticPinchGestureParams params;
-  params.gesture_source_type = SyntheticGestureParams::TOUCHPAD_INPUT;
+  params.gesture_source_type =
+      content::mojom::GestureSourceType::kTouchpadInput;
   params.scale_factor = scale_factor;
   params.anchor = position;
   auto pinch_gesture = std::make_unique<SyntheticTouchpadPinchGesture>(params);
@@ -251,15 +253,15 @@ IN_PROC_BROWSER_TEST_P(TouchpadPinchBrowserTest,
                        WheelListenerPreventingDoubleTap) {
   LoadURL();
 
-  WebPreferences prefs =
-      shell()->web_contents()->GetRenderViewHost()->GetWebkitPreferences();
+  blink::web_pref::WebPreferences prefs =
+      shell()->web_contents()->GetOrCreateWebPreferences();
   prefs.double_tap_to_zoom_enabled = true;
-  shell()->web_contents()->GetRenderViewHost()->UpdateWebkitPreferences(prefs);
+  shell()->web_contents()->SetWebPreferences(prefs);
 
   EnsureNoScaleChangeWhenCanceled(
       base::BindOnce([](WebContents* web_contents, gfx::PointF position) {
         blink::WebGestureEvent double_tap_zoom(
-            blink::WebInputEvent::kGestureDoubleTap,
+            blink::WebInputEvent::Type::kGestureDoubleTap,
             blink::WebInputEvent::kNoModifiers,
             blink::WebInputEvent::GetStaticTimeStampForTests(),
             blink::WebGestureDevice::kTouchpad);

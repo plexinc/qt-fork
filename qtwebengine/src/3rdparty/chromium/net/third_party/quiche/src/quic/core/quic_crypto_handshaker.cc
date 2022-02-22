@@ -2,9 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/quic_crypto_handshaker.h"
+#include "quic/core/quic_crypto_handshaker.h"
 
-#include "net/third_party/quiche/src/quic/core/quic_session.h"
+#include "quic/core/quic_session.h"
 
 namespace quic {
 
@@ -20,13 +20,16 @@ QuicCryptoHandshaker::QuicCryptoHandshaker(QuicCryptoStream* stream,
 QuicCryptoHandshaker::~QuicCryptoHandshaker() {}
 
 void QuicCryptoHandshaker::SendHandshakeMessage(
-    const CryptoHandshakeMessage& message) {
+    const CryptoHandshakeMessage& message,
+    EncryptionLevel level) {
   QUIC_DVLOG(1) << ENDPOINT << "Sending " << message.DebugString();
   session()->NeuterUnencryptedData();
   session()->OnCryptoHandshakeMessageSent(message);
   last_sent_handshake_message_tag_ = message.tag();
   const QuicData& data = message.GetSerialized();
-  stream_->WriteCryptoData(session_->connection()->encryption_level(),
+  stream_->WriteCryptoData(session_->use_write_or_buffer_data_at_level()
+                               ? level
+                               : session_->connection()->encryption_level(),
                            data.AsStringPiece());
 }
 

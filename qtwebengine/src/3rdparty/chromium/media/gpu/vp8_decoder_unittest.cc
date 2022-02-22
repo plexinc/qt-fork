@@ -8,7 +8,6 @@
 
 #include "base/command_line.h"
 #include "base/files/file_util.h"
-#include "base/logging.h"
 #include "media/base/test_data_util.h"
 #include "media/gpu/vp8_decoder.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -81,6 +80,7 @@ void VP8DecoderTest::SetUp() {
 void VP8DecoderTest::DecodeFirstIFrame() {
   ASSERT_EQ(AcceleratedVideoDecoder::kRanOutOfStreamData, Decode(kNullFrame));
   ASSERT_EQ(AcceleratedVideoDecoder::kConfigChange, Decode(kIFrame));
+  EXPECT_EQ(8u, decoder_->GetBitDepth());
   EXPECT_EQ(kVideoSize, decoder_->GetPicSize());
   EXPECT_LE(kRequiredNumOfPictures, decoder_->GetRequiredNumOfPictures());
 }
@@ -120,6 +120,8 @@ AcceleratedVideoDecoder::DecodeResult VP8DecoderTest::Decode(
                   AcceleratedVideoDecoder::DecodeResult::kRanOutOfStreamData ||
               result == AcceleratedVideoDecoder::DecodeResult::kConfigChange ||
               result == AcceleratedVideoDecoder::DecodeResult::kDecodeError);
+  if (result != AcceleratedVideoDecoder::DecodeResult::kDecodeError)
+    EXPECT_EQ(8u, decoder_->GetBitDepth());
   return result;
 }
 

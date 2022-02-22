@@ -12,13 +12,13 @@
 #include "base/big_endian.h"
 #include "base/logging.h"
 #include "base/numerics/safe_conversions.h"
+#include "base/optional.h"
 #include "base/strings/string_util.h"
 #include "base/sys_byteorder.h"
-#include "net/base/address_list.h"
 #include "net/base/io_buffer.h"
-#include "net/base/ip_address.h"
 #include "net/base/net_errors.h"
 #include "net/dns/dns_query.h"
+#include "net/dns/dns_response_result_extractor.h"
 #include "net/dns/dns_util.h"
 #include "net/dns/public/dns_protocol.h"
 #include "net/dns/record_rdata.h"
@@ -93,8 +93,10 @@ DnsResourceRecord& DnsResourceRecord::operator=(DnsResourceRecord&& other) {
 }
 
 void DnsResourceRecord::SetOwnedRdata(std::string value) {
+  DCHECK(!value.empty());
   owned_rdata = std::move(value);
   rdata = owned_rdata;
+  DCHECK_EQ(owned_rdata.data(), rdata.data());
 }
 
 size_t DnsResourceRecord::CalculateRecordSize() const {
@@ -258,7 +260,8 @@ DnsResponse::DnsResponse(
     const std::vector<DnsResourceRecord>& authority_records,
     const std::vector<DnsResourceRecord>& additional_records,
     const base::Optional<DnsQuery>& query,
-    uint8_t rcode) {
+    uint8_t rcode,
+    bool validate_records) {
   bool has_query = query.has_value();
   dns_protocol::Header header;
   header.id = id;
@@ -307,17 +310,17 @@ DnsResponse::DnsResponse(
   }
   // Start the Answer section.
   for (const auto& answer : answers) {
-    success &= WriteAnswer(&writer, answer, query);
+    success &= WriteAnswer(&writer, answer, query, validate_records);
     DCHECK(success);
   }
   // Start the Authority section.
   for (const auto& record : authority_records) {
-    success &= WriteRecord(&writer, record);
+    success &= WriteRecord(&writer, record, validate_records);
     DCHECK(success);
   }
   // Start the Additional section.
   for (const auto& record : additional_records) {
-    success &= WriteRecord(&writer, record);
+    success &= WriteRecord(&writer, record, validate_records);
     DCHECK(success);
   }
   if (!success) {
@@ -353,6 +356,9 @@ DnsResponse::DnsResponse(const void* data, size_t length, size_t answer_offset)
   memcpy(io_buffer_->data(), data, length);
 }
 
+DnsResponse::DnsResponse(DnsResponse&& other) = default;
+DnsResponse& DnsResponse::operator=(DnsResponse&& other) = default;
+
 DnsResponse::~DnsResponse() = default;
 
 bool DnsResponse::InitParse(size_t nbytes, const DnsQuery& query) {
@@ -363,8 +369,13 @@ bool DnsResponse::InitParse(size_t nbytes, const DnsQuery& query) {
     return false;
   }
 
+  // At this point, it has been validated that the response is at least large
+  // enough to read the ID field.
+  id_available_ = true;
+
   // Match the query id.
-  if (base::NetToHost16(header()->id) != query.id())
+  DCHECK(id());
+  if (id().value() != query.id())
     return false;
 
   // Not a response?
@@ -391,6 +402,7 @@ bool DnsResponse::InitParseWithoutQuery(size_t nbytes) {
   if (nbytes < kHeaderSize || nbytes > io_buffer_size_) {
     return false;
   }
+  id_available_ = true;
 
   parser_ = DnsRecordParser(io_buffer_->data(), nbytes, kHeaderSize);
 
@@ -407,6 +419,13 @@ bool DnsResponse::InitParseWithoutQuery(size_t nbytes) {
   }
 
   return true;
+}
+
+base::Optional<uint16_t> DnsResponse::id() const {
+  if (!id_available_)
+    return base::nullopt;
+
+  return base::NetToHost16(header()->id);
 }
 
 bool DnsResponse::IsValid() const {
@@ -426,6 +445,11 @@ uint8_t DnsResponse::rcode() const {
 unsigned DnsResponse::answer_count() const {
   DCHECK(parser_.IsValid());
   return base::NetToHost16(header()->ancount);
+}
+
+unsigned DnsResponse::authority_count() const {
+  DCHECK(parser_.IsValid());
+  return base::NetToHost16(header()->nscount);
 }
 
 unsigned DnsResponse::additional_answer_count() const {
@@ -453,7 +477,7 @@ uint16_t DnsResponse::qtype() const {
 }
 
 std::string DnsResponse::GetDottedName() const {
-  return DNSDomainToString(qname());
+  return DnsDomainToString(qname()).value_or("");
 }
 
 DnsRecordParser DnsResponse::Parser() const {
@@ -464,82 +488,6 @@ DnsRecordParser DnsResponse::Parser() const {
 
 const dns_protocol::Header* DnsResponse::header() const {
   return reinterpret_cast<const dns_protocol::Header*>(io_buffer_->data());
-}
-
-DnsResponse::Result DnsResponse::ParseToAddressList(
-    AddressList* addr_list,
-    base::TimeDelta* ttl) const {
-  DCHECK(IsValid());
-  // DnsTransaction already verified that |response| matches the issued query.
-  // We still need to determine if there is a valid chain of CNAMEs from the
-  // query name to the RR owner name.
-  // We err on the side of caution with the assumption that if we are too picky,
-  // we can always fall back to the system getaddrinfo.
-
-  // Expected owner of record. No trailing dot.
-  std::string expected_name = GetDottedName();
-
-  uint16_t expected_type = qtype();
-  DCHECK(expected_type == dns_protocol::kTypeA ||
-         expected_type == dns_protocol::kTypeAAAA);
-
-  size_t expected_size = (expected_type == dns_protocol::kTypeAAAA)
-                             ? IPAddress::kIPv6AddressSize
-                             : IPAddress::kIPv4AddressSize;
-
-  uint32_t ttl_sec = std::numeric_limits<uint32_t>::max();
-  IPAddressList ip_addresses;
-  DnsRecordParser parser = Parser();
-  DnsResourceRecord record;
-  unsigned ancount = answer_count();
-
-  for (unsigned i = 0; i < ancount; ++i) {
-    if (!parser.ReadRecord(&record))
-      return DNS_MALFORMED_RESPONSE;
-
-    if (record.type == dns_protocol::kTypeCNAME) {
-      // Following the CNAME chain, only if no addresses seen.
-      if (!ip_addresses.empty())
-        return DNS_CNAME_AFTER_ADDRESS;
-
-      if (!base::EqualsCaseInsensitiveASCII(record.name, expected_name))
-        return DNS_NAME_MISMATCH;
-
-      if (record.rdata.size() !=
-          parser.ReadName(record.rdata.begin(), &expected_name))
-        return DNS_MALFORMED_CNAME;
-
-      ttl_sec = std::min(ttl_sec, record.ttl);
-    } else if (record.type == expected_type) {
-      if (record.rdata.size() != expected_size)
-        return DNS_SIZE_MISMATCH;
-
-      if (!base::EqualsCaseInsensitiveASCII(record.name, expected_name))
-        return DNS_NAME_MISMATCH;
-
-      ttl_sec = std::min(ttl_sec, record.ttl);
-      ip_addresses.push_back(
-          IPAddress(reinterpret_cast<const uint8_t*>(record.rdata.data()),
-                    record.rdata.length()));
-    }
-  }
-
-  // NXDOMAIN or NODATA cases respectively.
-  if (rcode() == dns_protocol::kRcodeNXDOMAIN ||
-      (ancount == 0 && rcode() == dns_protocol::kRcodeNOERROR)) {
-    unsigned nscount = base::NetToHost16(header()->nscount);
-    for (unsigned i = 0; i < nscount; ++i) {
-      if (parser.ReadRecord(&record) && record.type == dns_protocol::kTypeSOA)
-        ttl_sec = std::min(ttl_sec, record.ttl);
-    }
-  }
-
-  // getcanonname in eglibc returns the first owner name of an A or AAAA RR.
-  // If the response passed all the checks so far, then |expected_name| is it.
-  *addr_list = AddressList::CreateFromIPAddressList(ip_addresses,
-                                                    expected_name);
-  *ttl = base::TimeDelta::FromSeconds(ttl_sec);
-  return DNS_PARSE_OK;
 }
 
 bool DnsResponse::WriteHeader(base::BigEndianWriter* writer,
@@ -556,14 +504,15 @@ bool DnsResponse::WriteQuestion(base::BigEndianWriter* writer,
 }
 
 bool DnsResponse::WriteRecord(base::BigEndianWriter* writer,
-                              const DnsResourceRecord& record) {
-  if (record.rdata.data() != record.owned_rdata.data() ||
-      record.rdata.size() != record.owned_rdata.size()) {
+                              const DnsResourceRecord& record,
+                              bool validate_record) {
+  if (record.rdata != base::StringPiece(record.owned_rdata)) {
     VLOG(1) << "record.rdata should point to record.owned_rdata.";
     return false;
   }
 
-  if (!RecordRdata::HasValidSize(record.owned_rdata, record.type)) {
+  if (validate_record &&
+      !RecordRdata::HasValidSize(record.owned_rdata, record.type)) {
     VLOG(1) << "Invalid RDATA size for a record.";
     return false;
   }
@@ -583,15 +532,17 @@ bool DnsResponse::WriteRecord(base::BigEndianWriter* writer,
 
 bool DnsResponse::WriteAnswer(base::BigEndianWriter* writer,
                               const DnsResourceRecord& answer,
-                              const base::Optional<DnsQuery>& query) {
+                              const base::Optional<DnsQuery>& query,
+                              bool validate_record) {
   // Generally assumed to be a mistake if we write answers that don't match the
   // query type, except CNAME answers which can always be added.
-  if (query.has_value() && answer.type != query.value().qtype() &&
+  if (validate_record && query.has_value() &&
+      answer.type != query.value().qtype() &&
       answer.type != dns_protocol::kTypeCNAME) {
     VLOG(1) << "Mismatched answer resource record type and qtype.";
     return false;
   }
-  return WriteRecord(writer, answer);
+  return WriteRecord(writer, answer, validate_record);
 }
 
 }  // namespace net

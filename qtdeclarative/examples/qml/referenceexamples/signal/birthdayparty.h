@@ -61,10 +61,10 @@ class BirthdayPartyAttached : public QObject
     Q_PROPERTY(QDate rsvp READ rsvp WRITE setRsvp)
     QML_ANONYMOUS
 public:
-    BirthdayPartyAttached(QObject *object);
+    using QObject::QObject;
 
     QDate rsvp() const;
-    void setRsvp(const QDate &);
+    void setRsvp(QDate);
 
 private:
     QDate m_rsvp;
@@ -79,25 +79,25 @@ class BirthdayParty : public QObject
     QML_ELEMENT
     QML_ATTACHED(BirthdayPartyAttached)
 public:
-    BirthdayParty(QObject *parent = nullptr);
+    using QObject::QObject;
 
     Person *host() const;
     void setHost(Person *);
 
     QQmlListProperty<Person> guests();
-    int guestCount() const;
-    Person *guest(int) const;
+    qsizetype guestCount() const;
+    Person *guest(qsizetype) const;
 
     static BirthdayPartyAttached *qmlAttachedProperties(QObject *);
 
     void startParty();
 // ![0]
 signals:
-    void partyStarted(const QTime &time);
+    void partyStarted(QTime time);
 // ![0]
 
 private:
-    Person *m_host;
+    Person *m_host = nullptr;
     QList<Person *> m_guests;
 };
 

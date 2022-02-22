@@ -5,11 +5,13 @@
 #include "ui/views/window/custom_frame_view.h"
 
 #include <algorithm>
+#include <utility>
 #include <vector>
 
 #include "base/containers/adapters.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "third_party/skia/include/core/SkPath.h"
 #include "ui/base/hit_test.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -67,33 +69,30 @@ void LayoutButton(ImageButton* button, const gfx::Rect& bounds) {
 
 }  // namespace
 
-///////////////////////////////////////////////////////////////////////////////
-// CustomFrameView, public:
-
-CustomFrameView::CustomFrameView() : frame_background_(new FrameBackground()) {}
-
-CustomFrameView::~CustomFrameView() = default;
-
-void CustomFrameView::Init(Widget* frame) {
-  frame_ = frame;
-
-  close_button_ = InitWindowCaptionButton(IDS_APP_ACCNAME_CLOSE, IDR_CLOSE,
-                                          IDR_CLOSE_H, IDR_CLOSE_P);
+CustomFrameView::CustomFrameView(Widget* frame)
+    : frame_(frame), frame_background_(new FrameBackground()) {
+  close_button_ = InitWindowCaptionButton(
+      base::BindRepeating(&Widget::CloseWithReason, base::Unretained(frame_),
+                          views::Widget::ClosedReason::kCloseButtonClicked),
+      IDS_APP_ACCNAME_CLOSE, IDR_CLOSE, IDR_CLOSE_H, IDR_CLOSE_P);
   minimize_button_ = InitWindowCaptionButton(
+      base::BindRepeating(&Widget::Minimize, base::Unretained(frame_)),
       IDS_APP_ACCNAME_MINIMIZE, IDR_MINIMIZE, IDR_MINIMIZE_H, IDR_MINIMIZE_P);
   maximize_button_ = InitWindowCaptionButton(
+      base::BindRepeating(&Widget::Maximize, base::Unretained(frame_)),
       IDS_APP_ACCNAME_MAXIMIZE, IDR_MAXIMIZE, IDR_MAXIMIZE_H, IDR_MAXIMIZE_P);
   restore_button_ = InitWindowCaptionButton(
+      base::BindRepeating(&Widget::Restore, base::Unretained(frame_)),
       IDS_APP_ACCNAME_RESTORE, IDR_RESTORE, IDR_RESTORE_H, IDR_RESTORE_P);
 
   if (frame_->widget_delegate()->ShouldShowWindowIcon()) {
-    window_icon_ = new ImageButton(this);
-    AddChildView(window_icon_);
+    window_icon_ =
+        AddChildView(std::make_unique<ImageButton>(Button::PressedCallback()));
+    window_icon_->SetFocusBehavior(FocusBehavior::ACCESSIBLE_ONLY);
   }
 }
 
-///////////////////////////////////////////////////////////////////////////////
-// CustomFrameView, NonClientFrameView implementation:
+CustomFrameView::~CustomFrameView() = default;
 
 gfx::Rect CustomFrameView::GetBoundsForClientView() const {
   return client_view_bounds_;
@@ -156,8 +155,7 @@ void CustomFrameView::GetWindowMask(const gfx::Size& size,
   if (frame_->IsMaximized() || !ShouldShowTitleBarAndBorder())
     return;
 
-  GetDefaultWindowMask(size, frame_->GetCompositor()->device_scale_factor(),
-                       window_mask);
+  GetDefaultWindowMask(size, window_mask);
 }
 
 void CustomFrameView::ResetWindowControls() {
@@ -186,13 +184,6 @@ void CustomFrameView::SizeConstraintsChanged() {
   LayoutWindowControls();
 }
 
-void CustomFrameView::PaintAsActiveChanged(bool active) {
-  SchedulePaint();
-}
-
-///////////////////////////////////////////////////////////////////////////////
-// CustomFrameView, View overrides:
-
 void CustomFrameView::OnPaint(gfx::Canvas* canvas) {
   if (!ShouldShowTitleBarAndBorder())
     return;
@@ -200,7 +191,6 @@ void CustomFrameView::OnPaint(gfx::Canvas* canvas) {
   frame_background_->set_frame_color(GetFrameColor());
   frame_background_->set_use_custom_frame(true);
   frame_background_->set_is_active(ShouldPaintAsActive());
-  frame_background_->set_incognito(false);
   const gfx::ImageSkia frame_image = GetFrameImage();
   frame_background_->set_theme_image(frame_image);
   frame_background_->set_top_area_height(frame_image.height());
@@ -247,23 +237,6 @@ gfx::Size CustomFrameView::GetMaximumSize() const {
                    max_size.height() == 0 ? 0 : converted_size.height());
 }
 
-///////////////////////////////////////////////////////////////////////////////
-// CustomFrameView, ButtonListener implementation:
-
-void CustomFrameView::ButtonPressed(Button* sender, const ui::Event& event) {
-  if (sender == close_button_)
-    frame_->CloseWithReason(views::Widget::ClosedReason::kCloseButtonClicked);
-  else if (sender == minimize_button_)
-    frame_->Minimize();
-  else if (sender == maximize_button_)
-    frame_->Maximize();
-  else if (sender == restore_button_)
-    frame_->Restore();
-}
-
-///////////////////////////////////////////////////////////////////////////////
-// CustomFrameView, private:
-
 int CustomFrameView::FrameBorderThickness() const {
   return frame_->IsMaximized() ? 0 : kFrameBorderThickness;
 }
@@ -283,7 +256,9 @@ int CustomFrameView::NonClientTopBorderHeight() const {
 int CustomFrameView::CaptionButtonY() const {
   // Maximized buttons start at window top so that even if their images aren't
   // drawn flush with the screen edge, they still obey Fitts' Law.
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
   return FrameBorderThickness();
 #else
   return frame_->IsMaximized() ? FrameBorderThickness() : kFrameShadowThickness;
@@ -560,12 +535,15 @@ void CustomFrameView::LayoutClientView() {
 }
 
 ImageButton* CustomFrameView::InitWindowCaptionButton(
+    Button::PressedCallback callback,
     int accessibility_string_id,
     int normal_image_id,
     int hot_image_id,
     int pushed_image_id) {
   ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
-  ImageButton* button = new ImageButton(this);
+  ImageButton* button =
+      AddChildView(std::make_unique<ImageButton>(std::move(callback)));
+  button->SetFocusBehavior(FocusBehavior::ACCESSIBLE_ONLY);
   button->SetAccessibleName(l10n_util::GetStringUTF16(accessibility_string_id));
   button->SetImage(Button::STATE_NORMAL,
                    rb.GetImageNamed(normal_image_id).ToImageSkia());
@@ -573,7 +551,6 @@ ImageButton* CustomFrameView::InitWindowCaptionButton(
                    rb.GetImageNamed(hot_image_id).ToImageSkia());
   button->SetImage(Button::STATE_PRESSED,
                    rb.GetImageNamed(pushed_image_id).ToImageSkia());
-  AddChildView(button);
   return button;
 }
 

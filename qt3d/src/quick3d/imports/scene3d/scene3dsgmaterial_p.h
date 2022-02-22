@@ -71,9 +71,13 @@ public:
         setFlag(Blending, m_texture ? m_texture->hasAlphaChannel() : false);
     }
 
-    QSGTexture *texture() const Q_DECL_NOTHROW { return m_texture; }
+    QSGTexture *texture() const noexcept { return m_texture; }
     QSGMaterialType *type() const final { return &Scene3DSGMaterialShader::type; }
-    QSGMaterialShader *createShader() const final { return new Scene3DSGMaterialShader(); }
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    QSGMaterialShader *createShader(QSGRendererInterface::RenderMode renderMode) const final;
+#else
+    QSGMaterialShader *createShader() const final;
+#endif
 
     void show() { m_visible = true; }
     bool visible() const { return m_visible; }

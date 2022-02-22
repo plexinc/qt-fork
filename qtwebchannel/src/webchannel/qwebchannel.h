@@ -55,9 +55,12 @@ class Q_WEBCHANNEL_EXPORT QWebChannel : public QObject
 {
     Q_OBJECT
     Q_DISABLE_COPY(QWebChannel)
-    Q_PROPERTY(bool blockUpdates READ blockUpdates WRITE setBlockUpdates NOTIFY blockUpdatesChanged)
+    Q_PROPERTY(bool blockUpdates READ blockUpdates WRITE setBlockUpdates NOTIFY blockUpdatesChanged
+                       BINDABLE bindableBlockUpdates)
+    Q_PROPERTY(int propertyUpdateInterval READ propertyUpdateInterval WRITE
+                       setPropertyUpdateInterval BINDABLE bindablePropertyUpdateInterval)
 public:
-    explicit QWebChannel(QObject *parent = Q_NULLPTR);
+    explicit QWebChannel(QObject *parent = nullptr);
     ~QWebChannel();
 
     void registerObjects(const QHash<QString, QObject*> &objects);
@@ -66,8 +69,12 @@ public:
     Q_INVOKABLE void deregisterObject(QObject *object);
 
     bool blockUpdates() const;
-
     void setBlockUpdates(bool block);
+    QBindable<bool> bindableBlockUpdates();
+
+    int propertyUpdateInterval() const;
+    void setPropertyUpdateInterval(int ms);
+    QBindable<int> bindablePropertyUpdateInterval();
 
 Q_SIGNALS:
     void blockUpdatesChanged(bool block);
@@ -78,7 +85,7 @@ public Q_SLOTS:
 
 private:
     Q_DECLARE_PRIVATE(QWebChannel)
-    QWebChannel(QWebChannelPrivate &dd, QObject *parent = Q_NULLPTR);
+    QWebChannel(QWebChannelPrivate &dd, QObject *parent = nullptr);
     Q_PRIVATE_SLOT(d_func(), void _q_transportDestroyed(QObject*))
 
     friend class QMetaObjectPublisher;

@@ -289,6 +289,94 @@ TEST_F(NGCaretPositionTest, CaretPositionAtSoftLineWrapBetweenDeepTextNodes) {
              fragment_d, kAtTextOffset, base::Optional<unsigned>(wrap_offset));
 }
 
+TEST_F(NGCaretPositionTest, GeneratedZeroWidthSpace) {
+  LoadAhem();
+  InsertStyleElement(
+      "p { font: 10px/1 Ahem; }"
+      "p { width: 4ch; white-space: pre-wrap;");
+  // We have ZWS before "abc" due by "pre-wrap".
+  // text content is
+  //    [0..3] "   "
+  //    [4] ZWS
+  //    [5..8] "abcd"
+  SetBodyInnerHTML("<p id=t>    abcd</p>");
+  const Text& text = To<Text>(*GetElementById("t")->firstChild());
+  const Position after_zws(text, 4);  // before "a".
+
+  NGInlineCursor cursor;
+  cursor.MoveTo(*text.GetLayoutObject());
+
+  ASSERT_EQ(NGTextOffset(0, 4), cursor.Current().TextOffset());
+  TEST_CARET(blink::ComputeNGCaretPosition(
+                 PositionWithAffinity(after_zws, TextAffinity::kUpstream)),
+             cursor, kAtTextOffset, base::Optional<unsigned>(4));
+
+  cursor.MoveToNextForSameLayoutObject();
+  ASSERT_EQ(NGTextOffset(5, 9), cursor.Current().TextOffset());
+  TEST_CARET(blink::ComputeNGCaretPosition(
+                 PositionWithAffinity(after_zws, TextAffinity::kDownstream)),
+             cursor, kAtTextOffset, base::Optional<unsigned>(5));
+}
+
+// http://crbug.com/1183269
+// See also NGCaretPositionTest.CaretPositionAtSoftLineWrap
+TEST_F(NGCaretPositionTest, SoftLineWrap) {
+  LoadAhem();
+  InsertStyleElement(
+      "p { font: 10px/1 Ahem; }"
+      "p { width: 4ch;");
+  // Note: "contenteditable" adds
+  //    line-break: after-white-space;
+  //    overflow-wrap: break-word;
+  SetBodyInnerHTML("<p id=t contenteditable>abc xyz</p>");
+  const Text& text = To<Text>(*GetElementById("t")->firstChild());
+  const Position before_xyz(text, 4);  // before "w".
+
+  NGInlineCursor cursor;
+  cursor.MoveTo(*text.GetLayoutObject());
+
+  // Note: upstream/downstream before "xyz" are in different line.
+
+  ASSERT_EQ(NGTextOffset(0, 3), cursor.Current().TextOffset());
+  TEST_CARET(blink::ComputeNGCaretPosition(
+                 PositionWithAffinity(before_xyz, TextAffinity::kUpstream)),
+             cursor, kAtTextOffset, base::Optional<unsigned>(3));
+
+  cursor.MoveToNextForSameLayoutObject();
+  ASSERT_EQ(NGTextOffset(4, 7), cursor.Current().TextOffset());
+  TEST_CARET(blink::ComputeNGCaretPosition(
+                 PositionWithAffinity(before_xyz, TextAffinity::kDownstream)),
+             cursor, kAtTextOffset, base::Optional<unsigned>(4));
+}
+
+TEST_F(NGCaretPositionTest, ZeroWidthSpace) {
+  LoadAhem();
+  InsertStyleElement(
+      "p { font: 10px/1 Ahem; }"
+      "p { width: 4ch;");
+  // dom and text content is
+  //    [0..3] "abcd"
+  //    [4] ZWS
+  //    [5..8] "wxyz"
+  SetBodyInnerHTML("<p id=t>abcd&#x200B;wxyz</p>");
+  const Text& text = To<Text>(*GetElementById("t")->firstChild());
+  const Position after_zws(text, 5);  // before "w".
+
+  NGInlineCursor cursor;
+  cursor.MoveTo(*text.GetLayoutObject());
+
+  ASSERT_EQ(NGTextOffset(0, 5), cursor.Current().TextOffset());
+  TEST_CARET(blink::ComputeNGCaretPosition(
+                 PositionWithAffinity(after_zws, TextAffinity::kUpstream)),
+             cursor, kAtTextOffset, base::Optional<unsigned>(4));
+
+  cursor.MoveToNextForSameLayoutObject();
+  ASSERT_EQ(NGTextOffset(5, 9), cursor.Current().TextOffset());
+  TEST_CARET(blink::ComputeNGCaretPosition(
+                 PositionWithAffinity(after_zws, TextAffinity::kDownstream)),
+             cursor, kAtTextOffset, base::Optional<unsigned>(5));
+}
+
 TEST_F(NGCaretPositionTest, InlineBlockBeforeContent) {
   SetInlineFormattingContext(
       "t",
@@ -306,6 +394,56 @@ TEST_F(NGCaretPositionTest, InlineBlockBeforeContent) {
   TEST_CARET(ComputeNGCaretPosition(text_offset, TextAffinity::kDownstream),
              text_fragment, kAtTextOffset,
              base::Optional<unsigned>(text_offset));
+}
+
+TEST_F(NGCaretPositionTest, InlineBoxesLTR) {
+  SetBodyInnerHTML(
+      "<div dir=ltr>"
+      "<bdo id=box1 dir=ltr>ABCD</bdo>"
+      "<bdo id=box2 dir=ltr style='font-size: 150%'>EFG</bdo></div>");
+
+  // text_content:
+  //    [0] U+202D LEFT-TO_RIGHT_OVERRIDE
+  //    [1:4] "ABCD"
+  //    [5] U+202C POP DIRECTIONAL FORMATTING
+  //    [6] U+202D LEFT-TO_RIGHT_OVERRIDE
+  //    [7:8] "EF"
+  //    [9] U+202C POP DIRECTIONAL FORMATTING
+  const Node& box1 = *GetElementById("box1")->firstChild();
+  const Node& box2 = *GetElementById("box1")->firstChild();
+
+  TEST_CARET(
+      blink::ComputeNGCaretPosition(PositionWithAffinity(Position(box1, 4))),
+      FragmentOf(&box1), kAtTextOffset, base::Optional<unsigned>(5));
+
+  TEST_CARET(
+      blink::ComputeNGCaretPosition(PositionWithAffinity(Position(box2, 0))),
+      FragmentOf(&box2), kAtTextOffset, base::Optional<unsigned>(1));
+}
+
+TEST_F(NGCaretPositionTest, InlineBoxesRTL) {
+  SetBodyInnerHTML(
+      "<div dir=rtl>"
+      "<bdo id=box1 dir=rtl>ABCD</bdo>"
+      "<bdo id=box2 dir=rtl style='font-size: 150%'>EFG</bdo></div>");
+
+  // text_content:
+  //    [0] U+202E RIGHT-TO_LEFT _OVERRIDE
+  //    [1:4] "ABCD"
+  //    [5] U+202C POP DIRECTIONAL FORMATTING
+  //    [6] U+202E RIGHT-TO_LEFT _OVERRIDE
+  //    [7:8] "EF"
+  //    [9] U+202C POP DIRECTIONAL FORMATTING
+  const Node& box1 = *GetElementById("box1")->firstChild();
+  const Node& box2 = *GetElementById("box1")->firstChild();
+
+  TEST_CARET(
+      blink::ComputeNGCaretPosition(PositionWithAffinity(Position(box1, 4))),
+      FragmentOf(&box1), kAtTextOffset, base::Optional<unsigned>(5));
+
+  TEST_CARET(
+      blink::ComputeNGCaretPosition(PositionWithAffinity(Position(box2, 0))),
+      FragmentOf(&box2), kAtTextOffset, base::Optional<unsigned>(1));
 }
 
 }  // namespace blink

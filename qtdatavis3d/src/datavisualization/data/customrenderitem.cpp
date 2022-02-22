@@ -29,7 +29,7 @@
 
 #include "customrenderitem_p.h"
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 CustomRenderItem::CustomRenderItem()
     : AbstractRenderItem(),
@@ -73,7 +73,7 @@ void CustomRenderItem::setMesh(const QString &meshFile)
     ObjectHelper::resetObjectHelper(m_renderer, m_object, meshFile);
 }
 
-void CustomRenderItem::setColorTable(const QVector<QRgb> &colors)
+void CustomRenderItem::setColorTable(const QList<QRgb> &colors)
 {
     m_colorTable.resize(256);
     for (int i = 0; i < 256; i++) {
@@ -116,4 +116,4 @@ void CustomRenderItem::setSliceFrameColor(const QColor &color)
                                   float(1.0f)); // Alpha not supported for frames
 }
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE

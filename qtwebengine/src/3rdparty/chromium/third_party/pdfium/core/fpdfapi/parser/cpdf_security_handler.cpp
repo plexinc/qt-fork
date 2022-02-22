@@ -19,7 +19,10 @@
 #include "core/fpdfapi/parser/cpdf_object.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
 #include "core/fxcrt/fx_random.h"
-#include "third_party/base/ptr_util.h"
+#include "third_party/base/check.h"
+#include "third_party/base/check_op.h"
+#include "third_party/base/notreached.h"
+#include "third_party/base/stl_util.h"
 
 namespace {
 
@@ -118,13 +121,13 @@ void Revision6_Hash(const ByteString& password,
   uint8_t digest[32];
   CRYPT_SHA256Finish(&sha, digest);
 
-  std::vector<uint8_t> buf;
+  std::vector<uint8_t, FxAllocAllocator<uint8_t>> buf;
   uint8_t* input = digest;
   uint8_t* key = input;
   uint8_t* iv = input + 16;
   uint8_t* E = nullptr;
   int iBufLen = 0;
-  std::vector<uint8_t> interDigest;
+  std::vector<uint8_t, FxAllocAllocator<uint8_t>> interDigest;
   int i = 0;
   int iBlockSize = 32;
   CRYPT_aes_context aes = {};
@@ -136,7 +139,7 @@ void Revision6_Hash(const ByteString& password,
     iBufLen = iRoundSize * 64;
     buf.resize(iBufLen);
     E = buf.data();
-    std::vector<uint8_t> content;
+    std::vector<uint8_t, FxAllocAllocator<uint8_t>> content;
     for (int j = 0; j < 64; ++j) {
       content.insert(std::end(content), password.raw_str(),
                      password.raw_str() + password.GetLength());
@@ -318,8 +321,8 @@ bool CPDF_SecurityHandler::LoadDict(const CPDF_Dictionary* pEncryptDict,
 
 bool CPDF_SecurityHandler::AES256_CheckPassword(const ByteString& password,
                                                 bool bOwner) {
-  ASSERT(m_pEncryptDict);
-  ASSERT(m_Revision >= 5);
+  DCHECK(m_pEncryptDict);
+  DCHECK(m_Revision >= 5);
 
   ByteString okey = m_pEncryptDict->GetStringFor("O");
   if (okey.GetLength() < 48)
@@ -539,7 +542,7 @@ void CPDF_SecurityHandler::OnCreateInternal(CPDF_Dictionary* pEncryptDict,
                                             const ByteString& user_password,
                                             const ByteString& owner_password,
                                             bool bDefault) {
-  ASSERT(pEncryptDict);
+  DCHECK(pEncryptDict);
 
   int cipher = FXCIPHER_NONE;
   size_t key_len = 0;
@@ -552,7 +555,7 @@ void CPDF_SecurityHandler::OnCreateInternal(CPDF_Dictionary* pEncryptDict,
 
   if (m_Revision >= 5) {
     uint32_t random[4];
-    FX_Random_GenerateMT(random, FX_ArraySize(random));
+    FX_Random_GenerateMT(random, pdfium::size(random));
     CRYPT_sha2_context sha;
     CRYPT_SHA256Start(&sha);
     CRYPT_SHA256Update(&sha, reinterpret_cast<uint8_t*>(random),
@@ -718,5 +721,5 @@ void CPDF_SecurityHandler::AES256_SetPerms(CPDF_Dictionary* pEncryptDict) {
 
 void CPDF_SecurityHandler::InitCryptoHandler() {
   m_pCryptoHandler =
-      pdfium::MakeUnique<CPDF_CryptoHandler>(m_Cipher, m_EncryptKey, m_KeyLen);
+      std::make_unique<CPDF_CryptoHandler>(m_Cipher, m_EncryptKey, m_KeyLen);
 }

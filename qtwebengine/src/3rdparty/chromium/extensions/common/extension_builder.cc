@@ -8,6 +8,7 @@
 
 #include "base/optional.h"
 #include "components/crx_file/id_util.h"
+#include "extensions/common/api/content_scripts.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/manifest_constants.h"
 
@@ -66,6 +67,9 @@ struct ExtensionBuilder::ManifestData {
         case ActionType::BROWSER_ACTION:
           action_key = manifest_keys::kBrowserAction;
           break;
+        case ActionType::ACTION:
+          action_key = manifest_keys::kAction;
+          break;
       }
       manifest.Set(action_key, std::make_unique<base::DictionaryValue>());
     }
@@ -96,16 +100,17 @@ struct ExtensionBuilder::ManifestData {
       ListBuilder scripts_value;
       for (const auto& script : content_scripts) {
         ListBuilder matches;
-        for (const auto& match : script.second)
-          matches.Append(match);
+        matches.Append(script.second.begin(), script.second.end());
         scripts_value.Append(
             DictionaryBuilder()
-                .Set(manifest_keys::kJs,
+                .Set(api::content_scripts::ContentScript::kJs,
                      ListBuilder().Append(script.first).Build())
-                .Set(manifest_keys::kMatches, matches.Build())
+                .Set(api::content_scripts::ContentScript::kMatches,
+                     matches.Build())
                 .Build());
       }
-      manifest.Set(manifest_keys::kContentScripts, scripts_value.Build());
+      manifest.Set(api::content_scripts::ManifestKeys::kContentScripts,
+                   scripts_value.Build());
     }
 
     std::unique_ptr<base::DictionaryValue> result = manifest.Build();

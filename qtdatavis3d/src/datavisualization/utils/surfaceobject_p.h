@@ -46,7 +46,7 @@
 
 #include <QtCore/QRect>
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 class Surface3DRenderer;
 class AxisRenderCache;
@@ -88,7 +88,7 @@ public:
     void createCoarseGridlineIndices(int x, int y, int endX, int endY);
     void uploadBuffers();
     GLuint gridElementBuf();
-    GLuint uvBuf();
+    GLuint uvBuf() override;
     GLuint gridIndexCount();
     QVector3D vertexAt(int column, int row);
     void clear();
@@ -104,8 +104,8 @@ private:
     QVector3D createSmoothNormalBodyLineItem(int x, int y);
     QVector3D createSmoothNormalUpperLineItem(int x, int y);
     QVector3D normal(const QVector3D &a, const QVector3D &b, const QVector3D &c);
-    void createBuffers(const QVector<QVector3D> &vertices, const QVector<QVector2D> &uvs,
-                       const QVector<QVector3D> &normals, const GLint *indices);
+    void createBuffers(const QList<QVector3D> &vertices, const QList<QVector2D> &uvs,
+                       const QList<QVector3D> &normals, const GLint *indices);
     void checkDirections(const QSurfaceDataArray &array);
     inline void getNormalizedVertex(const QSurfaceDataItem &data, QVector3D &vertex, bool polar,
                                     bool flipXZ);
@@ -116,8 +116,8 @@ private:
     int m_rows = 0;
     GLuint m_gridElementbuffer;
     GLuint m_gridIndexCount = 0;
-    QVector<QVector3D> m_vertices;
-    QVector<QVector3D> m_normals;
+    QList<QVector3D> m_vertices;
+    QList<QVector3D> m_normals;
     // Caches are not owned
     AxisRenderCache &m_axisCacheX;
     AxisRenderCache &m_axisCacheY;
@@ -131,6 +131,6 @@ private:
     SurfaceObject::DataDimensions m_oldDataDimension = DataDimensions(-1);
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

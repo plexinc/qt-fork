@@ -119,6 +119,10 @@ let calculateHitMatrix = function(ray_vector, plane_normal, point) {
 // single plane hit test - doesn't take into account the plane's polygon
 function hitTestPlane(frame, ray, plane, frameOfReference) {
   const plane_pose = frame.getPose(plane.planeSpace, frameOfReference);
+  if(!plane_pose) {
+    return null;
+  }
+
   const plane_normal = transform_point_by_matrix(
     plane_pose.transform.matrix, {x : 0, y : 1.0, z : 0, w : 0});
   const plane_center = normalize_perspective(
@@ -175,7 +179,7 @@ function hitTestPlane(frame, ray, plane, frameOfReference) {
 
 // multiple planes hit test
 export function hitTest(frame, ray, frameOfReference) {
-  const planes = frame.worldInformation.detectedPlanes;
+  const planes = frame.detectedPlanes;
 
   let hit_test_results = [];
   planes.forEach(plane => {

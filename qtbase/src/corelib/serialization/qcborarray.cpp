@@ -59,14 +59,14 @@ using namespace QtCbor;
     binary data encoding that is a superset of JSON. It was created by the IETF
     Constrained RESTful Environments (CoRE) WG, which has used it in many new
     RFCs. It is meant to be used alongside the
-    \l{https://tools.ietf.org/html/rfc7252}{CoAP protocol}.
+    \l{RFC 7252}{CoAP protocol}.
 
     QCborArray is very similar to \l QVariantList and \l QJsonArray and its API
     is almost identical to those two classes. It can also be converted to and
     from those two, though there may be loss of information in some
     conversions.
 
-    \sa QCborValue, QCborMap, QJsonArray, QList, QVector
+    \sa QCborValue, QCborMap, QJsonArray, QList
  */
 
 /*!
@@ -1200,7 +1200,7 @@ void QCborArray::detach(qsizetype reserved)
     Returns the offset of this iterator relative to \a other.
 */
 
-uint qHash(const QCborArray &array, uint seed)
+size_t qHash(const QCborArray &array, size_t seed)
 {
     return qHashRange(array.begin(), array.end(), seed);
 }
@@ -1220,11 +1220,13 @@ QDebug operator<<(QDebug dbg, const QCborArray &a)
 #endif
 
 #ifndef QT_NO_DATASTREAM
+#if QT_CONFIG(cborstreamwriter)
 QDataStream &operator<<(QDataStream &stream, const QCborArray &value)
 {
     stream << value.toCborValue().toCbor();
     return stream;
 }
+#endif
 
 QDataStream &operator>>(QDataStream &stream, QCborArray &value)
 {

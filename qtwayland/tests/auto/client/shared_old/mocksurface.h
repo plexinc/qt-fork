@@ -37,7 +37,6 @@
 
 namespace Impl {
 
-class XdgToplevelV6;
 class WlShellSurface;
 
 class Surface : public QtWaylandServer::wl_surface
@@ -50,8 +49,6 @@ public:
     static Surface *fromResource(struct ::wl_resource *resource);
     void map();
     bool isMapped() const;
-    XdgSurfaceV6 *xdgSurfaceV6() const { return m_xdgSurfaceV6; }
-    XdgToplevelV6 *xdgToplevelV6() const { return m_xdgSurfaceV6 ? m_xdgSurfaceV6->toplevel() : nullptr; }
     WlShellSurface *wlShellSurface() const { return m_wlShellSurface; }
 
     QSharedPointer<MockSurface> mockSurface() const { return m_mockSurface; }
@@ -65,12 +62,13 @@ protected:
                         struct wl_resource *buffer, int x, int y) override;
     void surface_damage(Resource *resource,
                         int32_t x, int32_t y, int32_t width, int32_t height) override;
+    void surface_damage_buffer(Resource *resource,
+                               int32_t x, int32_t y, int32_t width, int32_t height) override;
     void surface_frame(Resource *resource,
                        uint32_t callback) override;
     void surface_commit(Resource *resource) override;
 private:
     wl_resource *m_buffer = nullptr;
-    XdgSurfaceV6 *m_xdgSurfaceV6 = nullptr;
     WlShellSurface *m_wlShellSurface = nullptr;
 
     Compositor *m_compositor = nullptr;
@@ -78,7 +76,6 @@ private:
     QList<wl_resource *> m_frameCallbackList;
     bool m_mapped = false;
 
-    friend class XdgSurfaceV6;
     friend class WlShellSurface;
 };
 

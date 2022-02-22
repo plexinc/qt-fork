@@ -32,7 +32,7 @@
 
 #include <QtCore/qmath.h>
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 /*!
  * \class Q3DCamera
@@ -592,7 +592,7 @@ void Q3DCamera::setCameraPosition(float horizontal, float vertical, float zoom)
  * \property Q3DCamera::target
  * \since QtDataVisualization 1.2
  *
- * \brief The camera target as a a vector or vertex in the 3D space.
+ * \brief The camera target as a vector or vertex in the 3D space.
  *
  * Defaults to \c {QVector3D(0.0, 0.0, 0.0)}.
  *
@@ -939,4 +939,4 @@ QVector3D Q3DCameraPrivate::calculatePositionRelativeToCamera(const QVector3D &r
                      zPos + relativePosition.z());
 }
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE

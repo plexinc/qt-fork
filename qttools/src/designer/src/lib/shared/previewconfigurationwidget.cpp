@@ -57,7 +57,7 @@ static const char *skinExtensionC = "skin";
 
 // Pair of skin name, path
 typedef QPair<QString, QString> SkinNamePath;
-using Skins = QVector<SkinNamePath>;
+using Skins = QList<SkinNamePath>;
 enum { SkinComboNoneIndex = 0 };
 
 // find default skins (resources)
@@ -317,7 +317,7 @@ PreviewConfigurationWidget::PreviewConfigurationWidget(QDesignerFormEditorInterf
             this, &PreviewConfigurationWidget::slotEditAppStyleSheet);
     connect(m_impl->skinRemoveButton(), &QAbstractButton::clicked,
             this, &PreviewConfigurationWidget::slotDeleteSkinEntry);
-    connect(m_impl->skinCombo(), QOverload<int>::of(&QComboBox::currentIndexChanged),
+    connect(m_impl->skinCombo(), &QComboBox::currentIndexChanged,
             this, &PreviewConfigurationWidget::slotSkinChanged);
 
     m_impl->retrieveSettings();

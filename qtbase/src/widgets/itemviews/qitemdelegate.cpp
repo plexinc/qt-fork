@@ -267,7 +267,6 @@ QSizeF QItemDelegatePrivate::doTextLayout(int lineWidth) const
     \row    \li \l Qt::AccessibleTextRole \li QString
     \endomit
     \row    \li \l Qt::BackgroundRole \li QBrush (\since 4.2)
-    \row    \li \l Qt::BackgroundColorRole \li QColor (obsolete; use Qt::BackgroundRole instead)
     \row    \li \l Qt::CheckStateRole \li Qt::CheckState
     \row    \li \l Qt::DecorationRole \li QIcon, QPixmap and QColor
     \row    \li \l Qt::DisplayRole \li QString and types with a string representation
@@ -279,7 +278,6 @@ QSizeF QItemDelegatePrivate::doTextLayout(int lineWidth) const
     \endomit
     \row    \li \l Qt::TextAlignmentRole \li Qt::Alignment
     \row    \li \l Qt::ForegroundRole \li QBrush (\since 4.2)
-    \row    \li \l Qt::TextColorRole \li QColor (obsolete; use Qt::ForegroundRole instead)
     \omit
     \row    \li \l Qt::ToolTipRole
     \row    \li \l Qt::WhatsThisRole
@@ -533,7 +531,7 @@ void QItemDelegate::setEditorData(QWidget *editor, const QModelIndex &index) con
 
     if (!n.isEmpty()) {
         if (!v.isValid())
-            v = QVariant(editor->property(n).userType(), (const void *)nullptr);
+            v = QVariant(editor->property(n).metaType());
         editor->setProperty(n, v);
     }
 #endif
@@ -697,10 +695,12 @@ void QItemDelegate::drawDisplay(QPainter *painter, const QStyleOptionViewItem &o
                            || textRect.height() < textLayoutSize.height())) {
         painter->save();
         painter->setClipRect(layoutRect);
-        d->textLayout.draw(painter, layoutRect.topLeft(), QVector<QTextLayout::FormatRange>(), layoutRect);
+        d->textLayout.draw(painter, layoutRect.topLeft(), QList<QTextLayout::FormatRange>(),
+                           layoutRect);
         painter->restore();
     } else {
-        d->textLayout.draw(painter, layoutRect.topLeft(), QVector<QTextLayout::FormatRange>(), layoutRect);
+        d->textLayout.draw(painter, layoutRect.topLeft(), QList<QTextLayout::FormatRange>(),
+                           layoutRect);
     }
 }
 
@@ -1001,20 +1001,6 @@ static QString qPixmapSerial(quint64 i, bool enabled)
     return QString((const QChar *)ptr, int(&arr[sizeof(arr) / sizeof(ushort)] - ptr));
 }
 
-#if QT_DEPRECATED_SINCE(5, 13)
-QPixmap *QItemDelegate::selected(const QPixmap &pixmap, const QPalette &palette, bool enabled) const
-{
-    const QString key = qPixmapSerial(pixmap.cacheKey(), enabled);
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-    QPixmap *pm = QPixmapCache::find(key);
-    if (pm)
-        return pm;
-    selectedPixmap(pixmap, palette, enabled);
-    return QPixmapCache::find(key);
-QT_WARNING_POP
-}
-#endif
 
 /*!
   \internal
@@ -1031,7 +1017,7 @@ QPixmap QItemDelegate::selectedPixmap(const QPixmap &pixmap, const QPalette &pal
 
         QColor color = palette.color(enabled ? QPalette::Normal : QPalette::Disabled,
                                      QPalette::Highlight);
-        color.setAlphaF((qreal)0.3);
+        color.setAlphaF(0.3f);
 
         QPainter painter(&img);
         painter.setCompositionMode(QPainter::CompositionMode_SourceAtop);
@@ -1191,7 +1177,7 @@ bool QItemDelegate::editorEvent(QEvent *event,
         QRect emptyRect;
         doLayout(option, &checkRect, &emptyRect, &emptyRect, false);
         QMouseEvent *me = static_cast<QMouseEvent*>(event);
-        if (me->button() != Qt::LeftButton || !checkRect.contains(me->pos()))
+        if (me->button() != Qt::LeftButton || !checkRect.contains(me->position().toPoint()))
             return false;
 
         // eat the double click events inside the check rect

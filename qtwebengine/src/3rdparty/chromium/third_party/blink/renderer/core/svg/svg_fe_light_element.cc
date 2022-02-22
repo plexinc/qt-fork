@@ -23,6 +23,7 @@
 
 #include "third_party/blink/renderer/core/dom/element_traversal.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
+#include "third_party/blink/renderer/core/svg/svg_animated_number.h"
 #include "third_party/blink/renderer/core/svg/svg_fe_diffuse_lighting_element.h"
 #include "third_party/blink/renderer/core/svg/svg_fe_specular_lighting_element.h"
 #include "third_party/blink/renderer/core/svg_names.h"
@@ -81,7 +82,7 @@ SVGFELightElement::SVGFELightElement(const QualifiedName& tag_name,
   AddToPropertyMap(limiting_cone_angle_);
 }
 
-void SVGFELightElement::Trace(Visitor* visitor) {
+void SVGFELightElement::Trace(Visitor* visitor) const {
   visitor->Trace(azimuth_);
   visitor->Trace(elevation_);
   visitor->Trace(x_);
@@ -112,7 +113,9 @@ FloatPoint3D SVGFELightElement::PointsAt() const {
                       pointsAtZ()->CurrentValue()->Value());
 }
 
-void SVGFELightElement::SvgAttributeChanged(const QualifiedName& attr_name) {
+void SVGFELightElement::SvgAttributeChanged(
+    const SvgAttributeChangedParams& params) {
+  const QualifiedName& attr_name = params.name;
   if (attr_name == svg_names::kAzimuthAttr ||
       attr_name == svg_names::kElevationAttr ||
       attr_name == svg_names::kXAttr || attr_name == svg_names::kYAttr ||
@@ -139,7 +142,7 @@ void SVGFELightElement::SvgAttributeChanged(const QualifiedName& attr_name) {
     return;
   }
 
-  SVGElement::SvgAttributeChanged(attr_name);
+  SVGElement::SvgAttributeChanged(params);
 }
 
 void SVGFELightElement::ChildrenChanged(const ChildrenChange& change) {

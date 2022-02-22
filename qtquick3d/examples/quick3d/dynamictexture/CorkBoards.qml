@@ -48,7 +48,7 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.15
+import QtQuick
 import "content"
 
 Rectangle {
@@ -94,7 +94,7 @@ Rectangle {
         orientation: ListView.Horizontal
         snapMode: ListView.SnapOneItem
         model: list
-        delegate: Panel { }
+        delegate: Panel { objectName: name }
     }
 }
 

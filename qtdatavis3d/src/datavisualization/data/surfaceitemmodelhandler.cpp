@@ -29,7 +29,7 @@
 
 #include "surfaceitemmodelhandler_p.h"
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 static const int noRoleIndex = -1;
 
@@ -52,7 +52,7 @@ SurfaceItemModelHandler::~SurfaceItemModelHandler()
 
 void SurfaceItemModelHandler::handleDataChanged(const QModelIndex &topLeft,
                                                 const QModelIndex &bottomRight,
-                                                const QVector<int> &roles)
+                                                const QList<int> &roles)
 {
     // Do nothing if full reset already pending
     if (!m_fullReset) {
@@ -123,8 +123,8 @@ void SurfaceItemModelHandler::resolveModel()
     }
 
     // Position patterns can be reused on single item changes, so store them to member variables.
-    QRegExp rowPattern(m_proxy->rowRolePattern());
-    QRegExp colPattern(m_proxy->columnRolePattern());
+    QRegularExpression rowPattern(m_proxy->rowRolePattern());
+    QRegularExpression colPattern(m_proxy->columnRolePattern());
     m_xPosPattern = m_proxy->xPosRolePattern();
     m_yPosPattern = m_proxy->yPosRolePattern();
     m_zPosPattern = m_proxy->zPosRolePattern();
@@ -133,11 +133,11 @@ void SurfaceItemModelHandler::resolveModel()
     m_xPosReplace = m_proxy->xPosRoleReplace();
     m_yPosReplace = m_proxy->yPosRoleReplace();
     m_zPosReplace = m_proxy->zPosRoleReplace();
-    bool haveRowPattern = !rowPattern.isEmpty() && rowPattern.isValid();
-    bool haveColPattern = !colPattern.isEmpty() && colPattern.isValid();
-    m_haveXPosPattern = !m_xPosPattern.isEmpty() && m_xPosPattern.isValid();
-    m_haveYPosPattern = !m_yPosPattern.isEmpty() && m_yPosPattern.isValid();
-    m_haveZPosPattern = !m_zPosPattern.isEmpty() && m_zPosPattern.isValid();
+    bool haveRowPattern = !rowPattern.namedCaptureGroups().isEmpty() && rowPattern.isValid();
+    bool haveColPattern = !colPattern.namedCaptureGroups().isEmpty() && colPattern.isValid();
+    m_haveXPosPattern = !m_xPosPattern.namedCaptureGroups().isEmpty() && m_xPosPattern.isValid();
+    m_haveYPosPattern = !m_yPosPattern.namedCaptureGroups().isEmpty() && m_yPosPattern.isValid();
+    m_haveZPosPattern = !m_zPosPattern.namedCaptureGroups().isEmpty() && m_zPosPattern.isValid();
 
     QHash<int, QByteArray> roleHash = m_itemModel->roleNames();
 
@@ -313,12 +313,14 @@ void SurfaceItemModelHandler::resolveModel()
             for (int j = 0; j < columnList.size(); j++) {
                 QVector3D &itemPos = itemValueMap[rowKey][columnList.at(j)];
                 if (cumulative) {
-                    if (average) {
-                        itemPos /= float((*matchCountMap)[rowKey][columnList.at(j)]);
-                    } else { // cumulativeY
-                        float divisor = float((*matchCountMap)[rowKey][columnList.at(j)]);
-                        itemPos.setX(itemPos.x() / divisor);
-                        itemPos.setZ(itemPos.z() / divisor);
+                    float divisor = float((*matchCountMap)[rowKey][columnList.at(j)]);
+                    if (divisor) {
+                        if (average) {
+                            itemPos /= divisor;
+                        } else { // cumulativeY
+                            itemPos.setX(itemPos.x() / divisor);
+                            itemPos.setZ(itemPos.z() / divisor);
+                        }
                     }
                 }
                 newProxyRow[j].setPosition(itemPos);
@@ -331,4 +333,4 @@ void SurfaceItemModelHandler::resolveModel()
     m_proxy->resetArray(m_proxyArray);
 }
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE

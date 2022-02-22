@@ -29,8 +29,11 @@
  */
 
 import * as Common from '../common/common.js';
-import * as HostModule from '../host/host.js';
+import * as Host from '../host/host.js';
+import * as i18n from '../i18n/i18n.js';
+import * as Platform from '../platform/platform.js';  // eslint-disable-line no-unused-vars
 
+import {FrontendMessageSource, FrontendMessageType} from './ConsoleModelTypes.js';
 import {CPUProfilerModel, EventData, Events as CPUProfilerModelEvents} from './CPUProfilerModel.js';  // eslint-disable-line no-unused-vars
 import {Events as DebuggerModelEvents, Location} from './DebuggerModel.js';  // eslint-disable-line no-unused-vars
 import {LogModel} from './LogModel.js';
@@ -39,8 +42,29 @@ import {Events as ResourceTreeModelEvents, ResourceTreeModel} from './ResourceTr
 import {Events as RuntimeModelEvents, ExecutionContext, RuntimeModel} from './RuntimeModel.js';  // eslint-disable-line no-unused-vars
 import {Observer, Target, TargetManager} from './SDKModel.js';  // eslint-disable-line no-unused-vars
 
-const _events = Symbol('SDK.ConsoleModel.events');
-
+export const UIStrings = {
+  /**
+  *@description Text in Console Model
+  *@example {https://example.com} PH1
+  */
+  navigatedToS: 'Navigated to {PH1}',
+  /**
+  *@description Text in Console Model
+  *@example {title} PH1
+  */
+  profileSStarted: 'Profile \'{PH1}\' started.',
+  /**
+  *@description Text in Console Model
+  *@example {name} PH1
+  */
+  profileSFinished: 'Profile \'{PH1}\' finished.',
+  /**
+  *@description Text in Console Model
+  */
+  failedToSaveToTempVariable: 'Failed to save to temp variable.',
+};
+const str_ = i18n.i18n.registerUIStrings('sdk/ConsoleModel.js', UIStrings);
+const i18nString = i18n.i18n.getLocalizedString.bind(undefined, str_);
 /**
  * @type {!ConsoleModel}
  */
@@ -64,6 +88,8 @@ export class ConsoleModel extends Common.ObjectWrapper.ObjectWrapper {
     this._errors = 0;
     this._violations = 0;
     this._pageLoadSequenceNumber = 0;
+    /** @type {!WeakMap<!Target, !Array<!Common.EventTarget.EventDescriptor>>} */
+    this._targetListeners = new WeakMap();
 
     TargetManager.instance().observeTargets(this);
   }
@@ -133,7 +159,7 @@ export class ConsoleModel extends Common.ObjectWrapper.ObjectWrapper {
           RuntimeModelEvents.QueryObjectRequested, this._queryObjectRequested.bind(this, runtimeModel)));
     }
 
-    target[_events] = eventListeners;
+    this._targetListeners.set(target, eventListeners);
   }
 
   /**
@@ -145,7 +171,7 @@ export class ConsoleModel extends Common.ObjectWrapper.ObjectWrapper {
     if (runtimeModel) {
       this._messageByExceptionId.delete(runtimeModel);
     }
-    Common.EventTarget.EventTarget.removeEventListeners(target[_events] || []);
+    Common.EventTarget.EventTarget.removeEventListeners(this._targetListeners.get(target) || []);
   }
 
   /**
@@ -163,11 +189,15 @@ export class ConsoleModel extends Common.ObjectWrapper.ObjectWrapper {
           silent: false,
           returnByValue: false,
           generatePreview: true,
-          replMode: true
+          replMode: true,
+          allowUnsafeEvalBlockedByCSP: false,
+          disableBreaks: undefined,
+          throwOnSideEffect: undefined,
+          timeout: undefined
         },
         Common.Settings.Settings.instance().moduleSetting('consoleUserActivationEval').get(), /* awaitPromise */ false);
-    HostModule.userMetrics.actionTaken(Host.UserMetrics.Action.ConsoleEvaluated);
-    if (result.error) {
+    Host.userMetrics.actionTaken(Host.UserMetrics.Action.ConsoleEvaluated);
+    if ('error' in result) {
       return;
     }
     await Common.Console.Console.instance().showPromise();
@@ -183,7 +213,7 @@ export class ConsoleModel extends Common.ObjectWrapper.ObjectWrapper {
    */
   addCommandMessage(executionContext, text) {
     const commandMessage =
-        new ConsoleMessage(executionContext.runtimeModel, MessageSource.JS, null, text, MessageType.Command);
+        new ConsoleMessage(executionContext.runtimeModel, MessageSource.Javascript, null, text, MessageType.Command);
     commandMessage.setExecutionContextId(executionContext.id);
     this.addMessage(commandMessage);
     return commandMessage;
@@ -246,6 +276,7 @@ export class ConsoleModel extends Common.ObjectWrapper.ObjectWrapper {
    */
   _consoleAPICalled(runtimeModel, event) {
     const call = /** @type {!ConsoleAPICall} */ (event.data);
+    /** @type {MessageLevel} */
     let level = MessageLevel.Info;
     if (call.type === MessageType.Debug) {
       level = MessageLevel.Verbose;
@@ -260,7 +291,7 @@ export class ConsoleModel extends Common.ObjectWrapper.ObjectWrapper {
     if (call.args.length && call.args[0].unserializableValue) {
       message = call.args[0].unserializableValue;
     } else if (call.args.length && (typeof call.args[0].value !== 'object' || call.args[0].value === null)) {
-      message = call.args[0].value + '';
+      message = String(call.args[0].value);
     } else if (call.args.length && call.args[0].description) {
       message = call.args[0].description;
     }
@@ -278,9 +309,10 @@ export class ConsoleModel extends Common.ObjectWrapper.ObjectWrapper {
    * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _queryObjectRequested(runtimeModel, event) {
+    const data = /** @type {!{objects:!RemoteObject}} */ (event.data);
     const consoleMessage = new ConsoleMessage(
         runtimeModel, MessageSource.ConsoleAPI, MessageLevel.Info, '', MessageType.QueryObjectResult, undefined,
-        undefined, undefined, [event.data.objects]);
+        undefined, undefined, [data.objects]);
     this.addMessage(consoleMessage);
   }
 
@@ -296,7 +328,7 @@ export class ConsoleModel extends Common.ObjectWrapper.ObjectWrapper {
    */
   _mainFrameNavigated(event) {
     if (Common.Settings.Settings.instance().moduleSetting('preserveConsoleLog').get()) {
-      Common.Console.Console.instance().log(Common.UIString.UIString('Navigated to %s', event.data.url));
+      Common.Console.Console.instance().log(i18nString(UIStrings.navigatedToS, {PH1: event.data.url}));
     }
   }
 
@@ -308,7 +340,7 @@ export class ConsoleModel extends Common.ObjectWrapper.ObjectWrapper {
     const data = /** @type {!EventData} */ (event.data);
     this._addConsoleProfileMessage(
         cpuProfilerModel, MessageType.Profile, data.scriptLocation,
-        Common.UIString.UIString('Profile \'%s\' started.', data.title));
+        i18nString(UIStrings.profileSStarted, {PH1: data.title}));
   }
 
   /**
@@ -319,26 +351,27 @@ export class ConsoleModel extends Common.ObjectWrapper.ObjectWrapper {
     const data = /** @type {!EventData} */ (event.data);
     this._addConsoleProfileMessage(
         cpuProfilerModel, MessageType.ProfileEnd, data.scriptLocation,
-        Common.UIString.UIString('Profile \'%s\' finished.', data.title));
+        i18nString(UIStrings.profileSFinished, {PH1: data.title}));
   }
 
   /**
    * @param {!CPUProfilerModel} cpuProfilerModel
-   * @param {string} type
+   * @param {MessageType} type
    * @param {!Location} scriptLocation
    * @param {string} messageText
    */
   _addConsoleProfileMessage(cpuProfilerModel, type, scriptLocation, messageText) {
-    const stackTrace = [{
+    const script = scriptLocation.script();
+    const callFrames = [{
       functionName: '',
       scriptId: scriptLocation.scriptId,
-      url: scriptLocation.script() ? scriptLocation.script().contentURL() : '',
+      url: script ? script.contentURL() : '',
       lineNumber: scriptLocation.lineNumber,
-      columnNumber: scriptLocation.columnNumber || 0
+      columnNumber: scriptLocation.columnNumber || 0,
     }];
     this.addMessage(new ConsoleMessage(
         cpuProfilerModel.runtimeModel(), MessageSource.ConsoleAPI, MessageLevel.Info, messageText, type, undefined,
-        undefined, undefined, stackTrace));
+        undefined, undefined, undefined, {callFrames}));
   }
 
   /**
@@ -418,8 +451,8 @@ export class ConsoleModel extends Common.ObjectWrapper.ObjectWrapper {
     const executionContext = /** @type {!ExecutionContext} */ (currentExecutionContext);
 
     const result = await executionContext.globalObject(/* objectGroup */ '', /* generatePreview */ false);
-    if (!!result.exceptionDetails || !result.object) {
-      failedToSave(result.object || null);
+    if ('error' in result || Boolean(result.exceptionDetails) || !result.object) {
+      failedToSave('object' in result && result.object || null);
       return;
     }
 
@@ -439,7 +472,7 @@ export class ConsoleModel extends Common.ObjectWrapper.ObjectWrapper {
     }
 
     /**
-     * @suppressReceiverCheck
+     * @param {!Protocol.Runtime.CallArgument} value
      * @this {Window}
      */
     function saveVariable(value) {
@@ -449,6 +482,7 @@ export class ConsoleModel extends Common.ObjectWrapper.ObjectWrapper {
         ++index;
       }
       const name = prefix + index;
+      // @ts-ignore Assignment to global object
       this[name] = value;
       return name;
     }
@@ -457,9 +491,9 @@ export class ConsoleModel extends Common.ObjectWrapper.ObjectWrapper {
      * @param {?RemoteObject} result
      */
     function failedToSave(result) {
-      let message = Common.UIString.UIString('Failed to save to temp variable.');
+      let message = i18nString(UIStrings.failedToSaveToTempVariable);
       if (result) {
-        message += ' ' + result.description;
+        message = /** @type {!Platform.UIString.LocalizedString} */ (message + ' ' + result.description);
       }
       Common.Console.Console.instance().error(message);
     }
@@ -474,21 +508,18 @@ export const Events = {
   CommandEvaluated: Symbol('CommandEvaluated')
 };
 
-
-/**
- * @unrestricted
- */
 export class ConsoleMessage {
   /**
    * @param {?RuntimeModel} runtimeModel
-   * @param {string} source
-   * @param {?string} level
+   * @param {MessageSource} source
+   * @param {?MessageLevel} level
    * @param {string} messageText
-   * @param {string=} type
+   * @param {MessageType=} type
    * @param {?string=} url
    * @param {number=} line
    * @param {number=} column
-   * @param {!Array.<!Protocol.Runtime.RemoteObject>=} parameters
+   * TODO(chromium:1136435): Remove string possiblity from parameters.
+   * @param {!Array.<string|!RemoteObject|!Protocol.Runtime.RemoteObject>=} parameters
    * @param {!Protocol.Runtime.StackTrace=} stackTrace
    * @param {number=} timestamp
    * @param {!Protocol.Runtime.ExecutionContextId=} executionContextId
@@ -503,13 +534,14 @@ export class ConsoleMessage {
     this.source = source;
     this.level = /** @type {?MessageLevel} */ (level);
     this.messageText = messageText;
-    this.type = type || MessageType.Log;
+    this._type = type || MessageType.Log;
     /** @type {string|undefined} */
     this.url = url || undefined;
     /** @type {number} */
     this.line = line || 0;
     /** @type {number} */
     this.column = column || 0;
+    /** @type {undefined|!Array<string|!RemoteObject|!Protocol.Runtime.RemoteObject>} */
     this.parameters = parameters;
     /** @type {!Protocol.Runtime.StackTrace|undefined} */
     this.stackTrace = stackTrace;
@@ -527,22 +559,33 @@ export class ConsoleMessage {
     }
 
     if (context) {
-      this.context = context.match(/[^#]*/)[0];
+      const match = context.match(/[^#]*/);
+      this.context = match && match[0];
     }
+    this._originatingConsoleMessage = null;
+    /** @type {number|undefined} */
+    this._pageLoadSequenceNumber = undefined;
+    /** @type {number|undefined} */
+    this._exceptionId = undefined;
+  }
+
+  get type() {
+    return this._type;
   }
 
   /**
    * @param {!RuntimeModel} runtimeModel
    * @param {!Protocol.Runtime.ExceptionDetails} exceptionDetails
-   * @param {string=} messageType
+   * @param {MessageType=} messageType
    * @param {number=} timestamp
    * @param {string=} forceUrl
    * @return {!ConsoleMessage}
    */
   static fromException(runtimeModel, exceptionDetails, messageType, timestamp, forceUrl) {
     return new ConsoleMessage(
-        runtimeModel, MessageSource.JS, MessageLevel.Error, RuntimeModel.simpleTextFromException(exceptionDetails),
-        messageType, forceUrl || exceptionDetails.url, exceptionDetails.lineNumber, exceptionDetails.columnNumber,
+        runtimeModel, MessageSource.Javascript, MessageLevel.Error,
+        RuntimeModel.simpleTextFromException(exceptionDetails), messageType, forceUrl || exceptionDetails.url,
+        exceptionDetails.lineNumber, exceptionDetails.columnNumber,
         exceptionDetails.exception ? [RemoteObject.fromLocalObject(exceptionDetails.text), exceptionDetails.exception] :
                                      undefined,
         exceptionDetails.stackTrace, timestamp, exceptionDetails.executionContextId, exceptionDetails.scriptId);
@@ -618,7 +661,7 @@ export class ConsoleMessage {
    */
   isGroupable() {
     const isUngroupableError = this.level === MessageLevel.Error &&
-        (this.source === MessageSource.JS || this.source === MessageSource.Network);
+        (this.source === MessageSource.Javascript || this.source === MessageSource.Network);
     return (
         this.source !== MessageSource.ConsoleAPI && this.type !== MessageType.Command &&
         this.type !== MessageType.Result && this.type !== MessageType.System && !isUngroupableError);
@@ -650,14 +693,19 @@ export class ConsoleMessage {
       }
 
       for (let i = 0; i < msg.parameters.length; ++i) {
-        // Never treat objects as equal - their properties might change over time. Errors can be treated as equal
-        // since they are always formatted as strings.
-        if (msg.parameters[i].type === 'object' && msg.parameters[i].subtype !== 'error') {
+        const msgParam = msg.parameters[i];
+        const param = this.parameters[i];
+        if (typeof msgParam === 'string' || typeof param === 'string') {
+          // TODO(chromium:1136435): Remove this case.
           return false;
         }
-        if (this.parameters[i].type !== msg.parameters[i].type ||
-            this.parameters[i].value !== msg.parameters[i].value ||
-            this.parameters[i].description !== msg.parameters[i].description) {
+        // Never treat objects as equal - their properties might change over time. Errors can be treated as equal
+        // since they are always formatted as strings.
+        if (msgParam.type === 'object' && msgParam.subtype !== 'error') {
+          return false;
+        }
+        if (param.type !== msgParam.type || param.value !== msgParam.value ||
+            param.description !== msgParam.description) {
           return false;
         }
       }
@@ -665,7 +713,7 @@ export class ConsoleMessage {
 
     return (this.runtimeModel() === msg.runtimeModel()) && (this.source === msg.source) && (this.type === msg.type) &&
         (this.level === msg.level) && (this.line === msg.line) && (this.url === msg.url) &&
-        (this.messageText === msg.messageText) && (this.request === msg.request) &&
+        (this.scriptId === msg.scriptId) && (this.messageText === msg.messageText) &&
         (this.executionContextId === msg.executionContextId);
   }
 
@@ -678,7 +726,7 @@ export class ConsoleMessage {
     if (!stackTrace1 !== !stackTrace2) {
       return false;
     }
-    if (!stackTrace1) {
+    if (!stackTrace1 || !stackTrace2) {
       return true;
     }
     const callFrames1 = stackTrace1.callFrames;
@@ -697,84 +745,51 @@ export class ConsoleMessage {
   }
 }
 
-// Note: Keep these constants in sync with the ones in ConsoleTypes.h
 /**
- * @enum {string}
+ * @enum {Protocol.Log.LogEntrySource|FrontendMessageSource}
  */
 export const MessageSource = {
-  XML: 'xml',
-  JS: 'javascript',
-  Network: 'network',
-  ConsoleAPI: 'console-api',
-  Storage: 'storage',
-  AppCache: 'appcache',
-  Rendering: 'rendering',
-  CSS: 'css',
-  Security: 'security',
-  Deprecation: 'deprecation',
-  Worker: 'worker',
-  Violation: 'violation',
-  Intervention: 'intervention',
-  Recommendation: 'recommendation',
-  Other: 'other'
+  ...Protocol.Log.LogEntrySource,
+  ...FrontendMessageSource,
 };
 
 /**
- * @enum {string}
- */
-export const MessageType = {
-  Log: 'log',
-  Debug: 'debug',
-  Info: 'info',
-  Error: 'error',
-  Warning: 'warning',
-  Dir: 'dir',
-  DirXML: 'dirxml',
-  Table: 'table',
-  Trace: 'trace',
-  Clear: 'clear',
-  StartGroup: 'startGroup',
-  StartGroupCollapsed: 'startGroupCollapsed',
-  EndGroup: 'endGroup',
-  Assert: 'assert',
-  Result: 'result',
-  Profile: 'profile',
-  ProfileEnd: 'profileEnd',
-  Command: 'command',
-  System: 'system',
-  QueryObjectResult: 'queryObjectResult'
-};
-
-/**
- * @enum {string}
+ * @enum {Protocol.Log.LogEntryLevel}
  */
 export const MessageLevel = {
-  Verbose: 'verbose',
-  Info: 'info',
-  Warning: 'warning',
-  Error: 'error'
+  ...Protocol.Log.LogEntryLevel,
 };
 
-/** @type {!Map<!MessageSource, string>} */
-export const MessageSourceDisplayName = new Map([
-  [MessageSource.XML, 'xml'], [MessageSource.JS, 'javascript'], [MessageSource.Network, 'network'],
-  [MessageSource.ConsoleAPI, 'console-api'], [MessageSource.Storage, 'storage'], [MessageSource.AppCache, 'appcache'],
+/**
+ * @enum {Protocol.Runtime.ConsoleAPICalledEventType|FrontendMessageType}
+ */
+export const MessageType = {
+  ...Protocol.Runtime.ConsoleAPICalledEventType,
+  ...FrontendMessageType,
+};
+
+export const MessageSourceDisplayName = new Map(/** @type {[!MessageSource, string][]} */ ([
+  [MessageSource.XML, 'xml'], [MessageSource.Javascript, 'javascript'], [MessageSource.Network, 'network'],
+  [MessageSource.ConsoleAPI, 'console-api'], [MessageSource.Storage, 'storage'], [MessageSource.Appcache, 'appcache'],
   [MessageSource.Rendering, 'rendering'], [MessageSource.CSS, 'css'], [MessageSource.Security, 'security'],
   [MessageSource.Deprecation, 'deprecation'], [MessageSource.Worker, 'worker'], [MessageSource.Violation, 'violation'],
   [MessageSource.Intervention, 'intervention'], [MessageSource.Recommendation, 'recommendation'],
   [MessageSource.Other, 'other']
-]);
+]));
 
 /**
  * @typedef {{
-  *    type: string,
+  *    type: MessageType,
   *    args: !Array<!Protocol.Runtime.RemoteObject>,
   *    executionContextId: number,
   *    timestamp: number,
-  *    stackTrace: (!Protocol.Runtime.StackTrace|undefined)
+  *    stackTrace: (!Protocol.Runtime.StackTrace|undefined),
+  *    context: (string|undefined)
   * }}
   */
+// @ts-ignore typedef
 export let ConsoleAPICall;
 
 /** @typedef {{timestamp: number, details: !Protocol.Runtime.ExceptionDetails}} */
+// @ts-ignore typedef
 export let ExceptionWithTimestamp;

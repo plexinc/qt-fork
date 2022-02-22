@@ -26,7 +26,7 @@
 ****************************************************************************/
 
 /*!
-    \qmlmodule QtScxml 5.\QtMinorVersion
+    \qmlmodule QtScxml 6.\QtMinorVersion
     \title Qt SCXML QML Types
     \ingroup qmlmodules
     \brief Enables the use of SCXML state machines with QML.
@@ -34,8 +34,8 @@
     To import the QML types into your application, use the following import statement
     in your .qml file:
 
-    \qml \QtMinorVersion
-    import QtScxml 5.\1
+    \qml
+    import QtScxml
     \endqml
 
     For more information, see \l{Instantiating State Machines}.

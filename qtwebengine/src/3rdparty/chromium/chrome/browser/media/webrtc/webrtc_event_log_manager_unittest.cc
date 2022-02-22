@@ -36,6 +36,7 @@
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/media/webrtc/webrtc_event_log_manager_common.h"
 #include "chrome/browser/media/webrtc/webrtc_event_log_manager_unittest_helpers.h"
 #include "chrome/browser/policy/profile_policy_connector.h"
@@ -59,17 +60,15 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/zlib/google/compression_utils.h"
 
-#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
+#if !defined(OS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/policy/chrome_browser_policy_connector.h"
 #include "components/policy/core/common/mock_configuration_policy_provider.h"
 #include "components/policy/core/common/policy_map.h"
 #include "components/policy/core/common/policy_types.h"
 #endif
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
-#include "chrome/test/base/testing_profile.h"
 #include "components/account_id/account_id.h"
 #include "components/user_manager/scoped_user_manager.h"
 #endif
@@ -77,7 +76,7 @@
 namespace webrtc_event_logging {
 
 #if defined(OS_WIN)
-#define NumberToStringType base::NumberToString16
+#define NumberToStringType base::NumberToWString
 #else
 #define NumberToStringType base::NumberToString
 #endif
@@ -176,8 +175,10 @@ bool CreateRemoteBoundLogFile(const base::FilePath& dir,
 class NullWebRtcEventLogUploader : public WebRtcEventLogUploader {
  public:
   NullWebRtcEventLogUploader(const WebRtcLogFileInfo& log_file,
+                             UploadResultCallback callback,
                              bool cancellation_expected)
       : log_file_(log_file),
+        callback_(std::move(callback)),
         cancellation_expected_(cancellation_expected),
         was_cancelled_(false) {}
 
@@ -189,14 +190,14 @@ class NullWebRtcEventLogUploader : public WebRtcEventLogUploader {
     return log_file_;
   }
 
-  bool Cancel() override {
+  void Cancel() override {
     EXPECT_TRUE(cancellation_expected_);
-    if (was_cancelled_) {  // Should not be called more than once.
-      EXPECT_TRUE(false);
-      return false;
-    }
     was_cancelled_ = true;
-    return true;
+    if (callback_) {
+      base::SequencedTaskRunnerHandle::Get()->PostTask(
+          FROM_HERE,
+          base::BindOnce(std::move(callback_), log_file_.path, false));
+    }
   }
 
   class Factory : public WebRtcEventLogUploader::Factory {
@@ -220,7 +221,7 @@ class NullWebRtcEventLogUploader : public WebRtcEventLogUploader {
         EXPECT_LE(++instance_count_, expected_instance_count_.value());
       }
       return std::make_unique<NullWebRtcEventLogUploader>(
-          log_file, cancellation_expected_);
+          log_file, std::move(callback), cancellation_expected_);
     }
 
    private:
@@ -231,6 +232,7 @@ class NullWebRtcEventLogUploader : public WebRtcEventLogUploader {
 
  private:
   const WebRtcLogFileInfo log_file_;
+  UploadResultCallback callback_;
   const bool cancellation_expected_;
   bool was_cancelled_;
 };
@@ -303,13 +305,13 @@ class WebRtcEventLogManagerTestBase : public ::testing::Test {
     SetLocalLogsObserver(&local_observer_);
     SetRemoteLogsObserver(&remote_observer_);
     LoadMainTestProfile();
-#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
+#if !defined(OS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
     policy::BrowserPolicyConnectorBase::SetPolicyProviderForTesting(&provider_);
 #endif
   }
 
   void TearDown() override {
-#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
+#if !defined(OS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
     TestingBrowserProcess::GetGlobal()->ShutdownBrowserPolicyConnector();
 #endif
   }
@@ -664,13 +666,13 @@ class WebRtcEventLogManagerTestBase : public ::testing::Test {
                                 policy_allows_remote_logging.value());
     }
 
-#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
+#if !defined(OS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
     policy::PolicyMap policy_map;
     if (has_device_level_policies) {
       policy_map.Set("test-policy", policy::POLICY_LEVEL_MANDATORY,
                      policy::POLICY_SCOPE_MACHINE,
-                     policy::POLICY_SOURCE_PLATFORM,
-                     std::make_unique<base::Value>("test"), nullptr);
+                     policy::POLICY_SOURCE_PLATFORM, base::Value("test"),
+                     nullptr);
     }
     provider_.UpdateChromePolicy(policy_map);
 #else
@@ -808,7 +810,7 @@ class WebRtcEventLogManagerTestBase : public ::testing::Test {
   scoped_refptr<network::SharedURLLoaderFactory>
       test_shared_url_loader_factory_;
 
-#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
+#if !defined(OS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
   policy::MockConfigurationPolicyProvider provider_;
 #endif
 
@@ -1052,7 +1054,7 @@ class WebRtcEventLogManagerTestPolicy : public WebRtcEventLogManagerTestBase {
     WebRtcEventLogManagerTestBase::SetUp();
   }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   std::unique_ptr<user_manager::ScopedUserManager> GetScopedUserManager(
       user_manager::UserType user_type);
 #endif
@@ -1202,14 +1204,14 @@ class WebRtcEventLogManagerTestIncognito
     incognito_rph_.reset();
     if (incognito_profile_) {
       DCHECK(browser_context_);
-      browser_context_->DestroyOffTheRecordProfile();
+      browser_context_->DestroyOffTheRecordProfile(incognito_profile_);
     }
   }
 
   void SetUp() override {
     WebRtcEventLogManagerTestBase::SetUp();
 
-    incognito_profile_ = browser_context_->GetOffTheRecordProfile();
+    incognito_profile_ = browser_context_->GetPrimaryOTRProfile();
     incognito_rph_ =
         std::make_unique<MockRenderProcessHost>(incognito_profile_);
   }
@@ -1311,7 +1313,7 @@ class FileListExpectingWebRtcEventLogUploader : public WebRtcEventLogUploader {
         // we cannot verify |log_file.browser_context_id| is correct.
         // This is unimportant to the test.
 
-        base::DeleteFile(log_file.path, false);
+        base::DeleteFile(log_file.path);
         expected_files_.pop_front();
       }
 
@@ -1345,9 +1347,8 @@ class FileListExpectingWebRtcEventLogUploader : public WebRtcEventLogUploader {
     return log_file_;
   }
 
-  bool Cancel() override {
+  void Cancel() override {
     NOTREACHED() << "Incompatible with this kind of test.";
-    return true;
   }
 
  private:
@@ -1408,19 +1409,19 @@ TEST_F(WebRtcEventLogManagerTest,
 }
 
 TEST_F(WebRtcEventLogManagerTest,
-       PeerConnectionSessionIdSetReturnsFalseIfAlreadyCalledSameId) {
-  const auto key = GetPeerConnectionKey(rph_.get(), kLid);
-  ASSERT_TRUE(PeerConnectionAdded(key));
-  ASSERT_TRUE(PeerConnectionSessionIdSet(key, kSessionId));
-  EXPECT_FALSE(PeerConnectionSessionIdSet(key, kSessionId));
-}
-
-TEST_F(WebRtcEventLogManagerTest,
        PeerConnectionSessionIdSetReturnsFalseIfPeerConnectionAlreadyRemoved) {
   const auto key = GetPeerConnectionKey(rph_.get(), kLid);
   ASSERT_TRUE(PeerConnectionAdded(key));
   ASSERT_TRUE(PeerConnectionRemoved(key));
   EXPECT_FALSE(PeerConnectionSessionIdSet(key, kSessionId));
+}
+
+TEST_F(WebRtcEventLogManagerTest,
+       PeerConnectionSessionIdSetReturnsTrueIfAlreadyCalledSameId) {
+  const auto key = GetPeerConnectionKey(rph_.get(), kLid);
+  ASSERT_TRUE(PeerConnectionAdded(key));
+  ASSERT_TRUE(PeerConnectionSessionIdSet(key, kSessionId));
+  EXPECT_TRUE(PeerConnectionSessionIdSet(key, kSessionId));
 }
 
 TEST_F(WebRtcEventLogManagerTest,
@@ -2239,9 +2240,9 @@ TEST_F(WebRtcEventLogManagerTest,
   EXPECT_EQ(filename, expected_filename);
 
   // Compare extension.
-  EXPECT_EQ(
-      base::FilePath::kExtensionSeparator + remote_log_extension_.as_string(),
-      file_path->Extension());
+  EXPECT_EQ(base::FilePath::kExtensionSeparator +
+                base::FilePath::StringType(remote_log_extension_),
+            file_path->Extension());
 }
 
 TEST_F(WebRtcEventLogManagerTest, StartRemoteLoggingCreatesEmptyFile) {
@@ -2599,7 +2600,7 @@ TEST_F(WebRtcEventLogManagerTest,
   // Unload the profile, delete its remove logs directory, and remove write
   // permissions from it, thereby preventing it from being created again.
   UnloadMainTestProfile();
-  ASSERT_TRUE(base::DeleteFileRecursively(remote_logs_path));
+  ASSERT_TRUE(base::DeletePathRecursively(remote_logs_path));
   RemoveWritePermissions(browser_context_dir);
 
   // Graceful handling by BrowserContext::EnableForBrowserContext, despite
@@ -3985,7 +3986,7 @@ TEST_F(WebRtcEventLogManagerTestPolicy, NotManagedRejectsRemoteLogging) {
   EXPECT_EQ(StartRemoteLogging(key), allow_remote_logging);
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 std::unique_ptr<user_manager::ScopedUserManager>
 WebRtcEventLogManagerTestPolicy::GetScopedUserManager(
     user_manager::UserType user_type) {
@@ -4011,7 +4012,7 @@ TEST_F(WebRtcEventLogManagerTestPolicy,
 
   const bool allow_remote_logging = true;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   std::unique_ptr<user_manager::ScopedUserManager> scoped_user_manager =
       GetScopedUserManager(user_manager::USER_TYPE_REGULAR);
 #endif
@@ -4042,7 +4043,7 @@ TEST_F(WebRtcEventLogManagerTestPolicy,
 
   const bool allow_remote_logging = false;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   std::unique_ptr<user_manager::ScopedUserManager> scoped_user_manager =
       GetScopedUserManager(user_manager::USER_TYPE_CHILD);
 #endif
@@ -4060,7 +4061,7 @@ TEST_F(WebRtcEventLogManagerTestPolicy,
   EXPECT_EQ(StartRemoteLogging(key), allow_remote_logging);
 }
 
-#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
+#if !defined(OS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
 TEST_F(WebRtcEventLogManagerTestPolicy,
        OnlyManagedByPlatformPoliciesDoesNotAllowRemoteLoggingByDefault) {
   SetUp(true);  // Feature generally enabled (kill-switch not engaged).
@@ -4357,7 +4358,7 @@ TEST_F(WebRtcEventLogManagerTestPolicy,
 
   ASSERT_TRUE(base::PathExists(*log_file));  // Test sanity; exists before.
 
-  allow_remote_logging = !allow_remote_logging;
+  allow_remote_logging = false;
   profile->GetPrefs()->SetBoolean(prefs::kWebRtcEventLogCollectionAllowed,
                                   allow_remote_logging);
 

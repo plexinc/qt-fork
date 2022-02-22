@@ -33,7 +33,7 @@
 #include "libavutil/pixfmt.h"
 
 #include "avcodec.h"
-#include "hwaccel.h"
+#include "hwconfig.h"
 #include "qsv_internal.h"
 
 typedef struct QSVContext {
@@ -74,7 +74,7 @@ typedef struct QSVContext {
     int         nb_ext_buffers;
 } QSVContext;
 
-extern const AVCodecHWConfigInternal *ff_qsv_hw_configs[];
+extern const AVCodecHWConfigInternal *const ff_qsv_hw_configs[];
 
 int ff_qsv_process_data(AVCodecContext *avctx, QSVContext *q,
                         AVFrame *frame, int *got_frame, AVPacket *pkt);

@@ -4,7 +4,7 @@
 
 #include "google_apis/gaia/core_account_id.h"
 
-#include "base/logging.h"
+#include "base/check.h"
 
 namespace {
 // Returns whether the string looks like an email (the test is
@@ -24,11 +24,7 @@ CoreAccountId::~CoreAccountId() = default;
 
 CoreAccountId& CoreAccountId::operator=(const CoreAccountId&) = default;
 
-CoreAccountId& CoreAccountId::operator=(CoreAccountId&& o) noexcept
-{
-  id_ = std::move(o.id_);
-  return *this;
-}
+CoreAccountId& CoreAccountId::operator=(CoreAccountId&&) noexcept = default;
 
 // static
 CoreAccountId CoreAccountId::FromGaiaId(const std::string& gaia_id) {

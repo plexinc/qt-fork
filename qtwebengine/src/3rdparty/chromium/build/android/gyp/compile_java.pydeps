@@ -7,8 +7,10 @@
 ../../../third_party/colorama/src/colorama/win32.py
 ../../../third_party/colorama/src/colorama/winterm.py
 ../../gn_helpers.py
+../../print_python_deps.py
 compile_java.py
 util/__init__.py
 util/build_utils.py
 util/jar_info_utils.py
 util/md5_check.py
+util/server_utils.py

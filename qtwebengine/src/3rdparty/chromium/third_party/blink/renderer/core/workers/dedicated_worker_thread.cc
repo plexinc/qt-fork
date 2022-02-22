@@ -34,6 +34,7 @@
 #include <utility>
 
 #include "base/memory/ptr_util.h"
+#include "services/metrics/public/cpp/ukm_source_id.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
@@ -46,9 +47,12 @@ namespace blink {
 
 DedicatedWorkerThread::DedicatedWorkerThread(
     ExecutionContext* parent_execution_context,
-    DedicatedWorkerObjectProxy& worker_object_proxy)
+    DedicatedWorkerObjectProxy& worker_object_proxy,
+    mojo::PendingRemote<mojom::blink::DedicatedWorkerHost>
+        dedicated_worker_host)
     : WorkerThread(worker_object_proxy),
-      worker_object_proxy_(worker_object_proxy) {
+      worker_object_proxy_(worker_object_proxy),
+      pending_dedicated_worker_host_(std::move(dedicated_worker_host)) {
   FrameOrWorkerScheduler* scheduler =
       parent_execution_context ? parent_execution_context->GetScheduler()
                                : nullptr;
@@ -65,8 +69,10 @@ void DedicatedWorkerThread::ClearWorkerBackingThread() {
 
 WorkerOrWorkletGlobalScope* DedicatedWorkerThread::CreateWorkerGlobalScope(
     std::unique_ptr<GlobalScopeCreationParams> creation_params) {
-  return DedicatedWorkerGlobalScope::Create(std::move(creation_params), this,
-                                            time_origin_);
+  DCHECK(pending_dedicated_worker_host_);
+  return DedicatedWorkerGlobalScope::Create(
+      std::move(creation_params), this, time_origin_,
+      std::move(pending_dedicated_worker_host_));
 }
 
 }  // namespace blink

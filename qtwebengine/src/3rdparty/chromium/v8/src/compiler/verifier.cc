@@ -355,6 +355,7 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       break;
     case IrOpcode::kDeoptimizeIf:
     case IrOpcode::kDeoptimizeUnless:
+    case IrOpcode::kDynamicCheckMapsWithDeoptUnless:
       CheckNotTyped(node);
       break;
     case IrOpcode::kTrapIf:
@@ -395,11 +396,10 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       CHECK_EQ(1, input_count);
       // Parameter has an input that produces enough values.
       int const index = ParameterIndexOf(node->op());
-      Node* const start = NodeProperties::GetValueInput(node, 0);
-      CHECK_EQ(IrOpcode::kStart, start->opcode());
+      StartNode start{NodeProperties::GetValueInput(node, 0)};
       // Currently, parameter indices start at -1 instead of 0.
       CHECK_LE(-1, index);
-      CHECK_LT(index + 1, start->op()->ValueOutputCount());
+      CHECK_LE(index, start.LastParameterIndex_MaybeNonStandardLayout());
       CheckTypeIs(node, Type::Any());
       break;
     }
@@ -535,29 +535,25 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       CHECK_EQ(0, control_count);
       CHECK_EQ(0, effect_count);
       CHECK_EQ(6, input_count);
-      // Check that the parameters and registers are kStateValues or
-      // kTypedStateValues.
-      for (int i = 0; i < 2; ++i) {
-        CHECK(NodeProperties::GetValueInput(node, i)->opcode() ==
-                  IrOpcode::kStateValues ||
-              NodeProperties::GetValueInput(node, i)->opcode() ==
-                  IrOpcode::kTypedStateValues);
-      }
+
+      FrameState state{node};
+      CHECK(state.parameters()->opcode() == IrOpcode::kStateValues ||
+            state.parameters()->opcode() == IrOpcode::kTypedStateValues);
+      CHECK(state.locals()->opcode() == IrOpcode::kStateValues ||
+            state.locals()->opcode() == IrOpcode::kTypedStateValues);
 
       // Checks that the state input is empty for all but kInterpretedFunction
       // frames, where it should have size one.
       {
-        const FrameStateInfo& state_info = FrameStateInfoOf(node->op());
-        const FrameStateFunctionInfo* func_info = state_info.function_info();
+        const FrameStateFunctionInfo* func_info =
+            state.frame_state_info().function_info();
         CHECK_EQ(func_info->parameter_count(),
-                 StateValuesAccess(node->InputAt(kFrameStateParametersInput))
-                     .size());
-        CHECK_EQ(
-            func_info->local_count(),
-            StateValuesAccess(node->InputAt(kFrameStateLocalsInput)).size());
+                 StateValuesAccess(state.parameters()).size());
+        CHECK_EQ(func_info->local_count(),
+                 StateValuesAccess(state.locals()).size());
 
-        Node* accumulator = node->InputAt(kFrameStateStackInput);
-        if (func_info->type() == FrameStateType::kInterpretedFunction) {
+        Node* accumulator = state.stack();
+        if (func_info->type() == FrameStateType::kUnoptimizedFunction) {
           // The accumulator (InputAt(2)) cannot be kStateValues.
           // It can be kTypedStateValues (to signal the type) and it can have
           // other Node types including that of the optimized_out HeapConstant.
@@ -722,6 +718,9 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
     case IrOpcode::kJSLoadNamed:
       CheckTypeIs(node, Type::Any());
       break;
+    case IrOpcode::kJSLoadNamedFromSuper:
+      CheckTypeIs(node, Type::Any());
+      break;
     case IrOpcode::kJSLoadGlobal:
       CheckTypeIs(node, Type::Any());
       CHECK(LoadGlobalParametersOf(node->op()).feedback().IsValid());
@@ -760,11 +759,16 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
     case IrOpcode::kTypeOf:
       CheckTypeIs(node, Type::InternalizedString());
       break;
+    case IrOpcode::kTierUpCheck:
+    case IrOpcode::kUpdateInterruptBudget:
+      CheckValueInputIs(node, 0, Type::Any());
+      CheckNotTyped(node);
+      break;
     case IrOpcode::kJSGetSuperConstructor:
       // We don't check the input for Type::Function because this_function can
       // be context-allocated.
       CheckValueInputIs(node, 0, Type::Any());
-      CheckTypeIs(node, Type::Callable());
+      CheckTypeIs(node, Type::NonInternal());
       break;
 
     case IrOpcode::kJSHasContextExtension:
@@ -818,6 +822,10 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       break;
     case IrOpcode::kJSStoreModule:
       CheckNotTyped(node);
+      break;
+
+    case IrOpcode::kJSGetImportMeta:
+      CheckTypeIs(node, Type::Any());
       break;
 
     case IrOpcode::kJSGeneratorStore:
@@ -1218,11 +1226,8 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       CheckTypeIs(node, Type::SignedSmall());
       break;
     case IrOpcode::kArgumentsLength:
-      CheckValueInputIs(node, 0, Type::ExternalPointer());
+    case IrOpcode::kRestLength:
       CheckTypeIs(node, TypeCache::Get()->kArgumentsLengthType);
-      break;
-    case IrOpcode::kArgumentsFrame:
-      CheckTypeIs(node, Type::ExternalPointer());
       break;
     case IrOpcode::kNewDoubleElements:
     case IrOpcode::kNewSmiOrObjectElements:
@@ -1231,8 +1236,7 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       CheckTypeIs(node, Type::OtherInternal());
       break;
     case IrOpcode::kNewArgumentsElements:
-      CheckValueInputIs(node, 0, Type::ExternalPointer());
-      CheckValueInputIs(node, 1,
+      CheckValueInputIs(node, 0,
                         Type::Range(0.0, FixedArray::kMaxLength, zone));
       CheckTypeIs(node, Type::OtherInternal());
       break;
@@ -1430,6 +1434,10 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       CheckValueInputIs(node, 0, Type::Any());
       CheckNotTyped(node);
       break;
+    case IrOpcode::kDynamicCheckMaps:
+      CheckValueInputIs(node, 0, Type::Any());
+      CheckNotTyped(node);
+      break;
     case IrOpcode::kCompareMaps:
       CheckValueInputIs(node, 0, Type::Any());
       CheckTypeIs(node, Type::Boolean());
@@ -1605,8 +1613,14 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       CheckTypeIs(node, Type::BigInt());
       break;
     case IrOpcode::kFastApiCall:
-      CHECK_GE(value_count, 1);
-      CheckValueInputIs(node, 0, Type::ExternalPointer());
+      CHECK_GE(value_count, 2);
+      CheckValueInputIs(node, 0, Type::ExternalPointer());  // callee
+      CheckValueInputIs(node, 1, Type::Any());              // receiver
+      break;
+    case IrOpcode::kJSWasmCall:
+      CHECK_GE(value_count, 3);
+      CheckTypeIs(node, Type::Any());
+      CheckValueInputIs(node, 0, Type::Any());  // callee
       break;
 
     // Machine operators
@@ -1623,6 +1637,7 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
     case IrOpcode::kWord32Shl:
     case IrOpcode::kWord32Shr:
     case IrOpcode::kWord32Sar:
+    case IrOpcode::kWord32Rol:
     case IrOpcode::kWord32Ror:
     case IrOpcode::kWord32Equal:
     case IrOpcode::kWord32Clz:
@@ -1637,6 +1652,7 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
     case IrOpcode::kWord64Shl:
     case IrOpcode::kWord64Shr:
     case IrOpcode::kWord64Sar:
+    case IrOpcode::kWord64Rol:
     case IrOpcode::kWord64Ror:
     case IrOpcode::kWord64Clz:
     case IrOpcode::kWord64Popcnt:
@@ -2001,7 +2017,7 @@ void ScheduleVerifier::Run(Schedule* schedule) {
     ZoneQueue<BasicBlock*> queue(zone);
     queue.push(start);
     dominators[start->id().ToSize()] =
-        new (zone) BitVector(static_cast<int>(count), zone);
+        zone->New<BitVector>(static_cast<int>(count), zone);
     while (!queue.empty()) {
       BasicBlock* block = queue.front();
       queue.pop();
@@ -2017,7 +2033,7 @@ void ScheduleVerifier::Run(Schedule* schedule) {
 
         if (succ_doms == nullptr) {
           // First time visiting the node. S.doms = B U B.doms
-          succ_doms = new (zone) BitVector(static_cast<int>(count), zone);
+          succ_doms = zone->New<BitVector>(static_cast<int>(count), zone);
           succ_doms->CopyFrom(*block_doms);
           succ_doms->Add(block->id().ToInt());
           dominators[succ->id().ToSize()] = succ_doms;

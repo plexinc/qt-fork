@@ -12,6 +12,7 @@
 #undef GetGlyphIndices
 
 #include "include/codec/SkCodec.h"
+#include "include/core/SkBitmap.h"
 #include "include/core/SkFontMetrics.h"
 #include "include/core/SkPath.h"
 #include "include/private/SkMutex.h"
@@ -20,6 +21,7 @@
 #include "src/core/SkEndian.h"
 #include "src/core/SkGlyph.h"
 #include "src/core/SkMaskGamma.h"
+#include "src/core/SkMatrixProvider.h"
 #include "src/core/SkRasterClip.h"
 #include "src/core/SkScalerContext.h"
 #include "src/core/SkSharedMutex.h"
@@ -217,9 +219,9 @@ SkScalerContext_DW::SkScalerContext_DW(sk_sp<DWriteFontTypeface> typefaceRef,
                                        const SkScalerContextEffects& effects,
                                        const SkDescriptor* desc)
         : SkScalerContext(std::move(typefaceRef), effects, desc)
-        , fGlyphCount(-1) {
-
+{
     DWriteFontTypeface* typeface = this->getDWriteTypeface();
+    fGlyphCount = typeface->fDWriteFontFace->GetGlyphCount();
     fIsColorFont = typeface->fFactory2 &&
                    typeface->fDWriteFontFace2 &&
                    typeface->fDWriteFontFace2->IsColorFont();
@@ -367,16 +369,18 @@ SkScalerContext_DW::SkScalerContext_DW(sk_sp<DWriteFontTypeface> typefaceRef,
         fTextSizeMeasure = realTextSize;
         fMeasuringMode = DWRITE_MEASURING_MODE_NATURAL;
     }
+
+    // The GDI measuring modes don't seem to work well with CBDT fonts (DWrite.dll 10.0.18362.836).
+    if (fMeasuringMode != DWRITE_MEASURING_MODE_NATURAL) {
+        constexpr UINT32 CBDTTag = DWRITE_MAKE_OPENTYPE_TAG('C','B','D','T');
+        AutoDWriteTable CBDT(typeface->fDWriteFontFace.get(), CBDTTag);
+        if (CBDT.fExists) {
+            fMeasuringMode = DWRITE_MEASURING_MODE_NATURAL;
+        }
+    }
 }
 
 SkScalerContext_DW::~SkScalerContext_DW() {
-}
-
-unsigned SkScalerContext_DW::generateGlyphCount() {
-    if (fGlyphCount < 0) {
-        fGlyphCount = this->getDWriteTypeface()->fDWriteFontFace->GetGlyphCount();
-    }
-    return fGlyphCount;
 }
 
 bool SkScalerContext_DW::generateAdvance(SkGlyph* glyph) {
@@ -384,6 +388,13 @@ bool SkScalerContext_DW::generateAdvance(SkGlyph* glyph) {
     glyph->fAdvanceY = 0;
 
     uint16_t glyphId = glyph->getGlyphID();
+
+    // DirectWrite treats all out of bounds glyph ids as having the same data as glyph 0.
+    // For consistency with all other backends, treat out of range glyph ids as an error.
+    if (fGlyphCount <= glyphId) {
+        return false;
+    }
+
     DWRITE_GLYPH_METRICS gm;
 
     if (DWRITE_MEASURING_MODE_GDI_CLASSIC == fMeasuringMode ||
@@ -654,7 +665,6 @@ void SkScalerContext_DW::generatePngMetrics(SkGlyph* glyph) {
 
 void SkScalerContext_DW::generateMetrics(SkGlyph* glyph) {
 
-
      // GetAlphaTextureBounds succeeds but sometimes returns empty bounds like
      // { 0x80000000, 0x80000000, 0x80000000, 0x80000000 }
      // for small, but not quite zero, sized glyphs.
@@ -765,6 +775,14 @@ void SkScalerContext_DW::generateFontMetrics(SkFontMetrics* metrics) {
     metrics->fFlags |= SkFontMetrics::kStrikeoutThicknessIsValid_Flag;
     metrics->fFlags |= SkFontMetrics::kStrikeoutPositionIsValid_Flag;
 
+    SkTScopedComPtr<IDWriteFontFace5> fontFace5;
+    if (SUCCEEDED(this->getDWriteTypeface()->fDWriteFontFace->QueryInterface(&fontFace5))) {
+        if (fontFace5->HasVariations()) {
+            // The bounds are only valid for the default variation.
+            metrics->fFlags |= SkFontMetrics::kBoundsInvalid_Flag;
+        }
+    }
+
     if (this->getDWriteTypeface()->fDWriteFontFace1.get()) {
         DWRITE_FONT_METRICS1 dwfm1;
         this->getDWriteTypeface()->fDWriteFontFace1->GetMetrics(&dwfm1);
@@ -791,6 +809,8 @@ void SkScalerContext_DW::generateFontMetrics(SkFontMetrics* metrics) {
         return;
     }
 
+    // The real bounds weren't actually available.
+    metrics->fFlags |= SkFontMetrics::kBoundsInvalid_Flag;
     metrics->fTop = metrics->fAscent;
     metrics->fBottom = metrics->fDescent;
 }
@@ -1005,7 +1025,8 @@ void SkScalerContext_DW::generateColorGlyphImage(const SkGlyph& glyph) {
     draw.fDst = SkPixmap(SkImageInfo::MakeN32(glyph.width(), glyph.height(), kPremul_SkAlphaType),
                          glyph.fImage,
                          glyph.rowBytesUsingFormat(SkMask::Format::kARGB32_Format));
-    draw.fMatrix = &matrix;
+    SkSimpleMatrixProvider matrixProvider(matrix);
+    draw.fMatrixProvider = &matrixProvider;
     draw.fRC = &rc;
 
     SkPaint paint;
@@ -1092,7 +1113,7 @@ void SkScalerContext_DW::generatePngGlyphImage(const SkGlyph& glyph) {
     SkScalar ratio = fTextSizeRender / glyphData.pixelsPerEm;
     canvas.scale(ratio, ratio);
     canvas.translate(-glyphData.horizontalLeftOrigin.x, -glyphData.horizontalLeftOrigin.y);
-    canvas.drawImage(image, 0, 0, nullptr);
+    canvas.drawImage(image, 0, 0);
 }
 
 void SkScalerContext_DW::generateImage(const SkGlyph& glyph) {
@@ -1164,8 +1185,13 @@ void SkScalerContext_DW::generateImage(const SkGlyph& glyph) {
 
 bool SkScalerContext_DW::generatePath(SkGlyphID glyph, SkPath* path) {
     SkASSERT(path);
-
     path->reset();
+
+    // DirectWrite treats all out of bounds glyph ids as having the same data as glyph 0.
+    // For consistency with all other backends, treat out of range glyph ids as an error.
+    if (fGlyphCount <= glyph) {
+        return false;
+    }
 
     SkTScopedComPtr<IDWriteGeometrySink> geometryToPath;
     HRBM(SkDWriteGeometrySink::Create(path, &geometryToPath),

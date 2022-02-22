@@ -10,7 +10,7 @@
 
 #include "core/fxcrt/fx_system.h"
 #include "core/fxge/cfx_gemodule.h"
-#include "core/fxge/fx_dib.h"
+#include "core/fxge/dib/fx_dib.h"
 
 #if !defined(OS_IOS)
 #include <Carbon/Carbon.h>

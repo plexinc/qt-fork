@@ -39,6 +39,7 @@
 #include <QtQuick3DRuntimeRender/private/qssgrenderdefaultmaterial_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrendercustommaterial_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrenderimage_p.h>
+#include <QtQuick3DUtils/private/qssgutils_p.h>
 
 class tst_QQuick3DMaterials : public QObject
 {
@@ -92,12 +93,6 @@ void tst_QQuick3DMaterials::testDefaultProperties()
     QCOMPARE(originalNode, node);
     QCOMPARE(material.opacity(), node->opacity);
 
-    const float displacementAmount = 0.5f;
-    material.setDisplacementAmount(displacementAmount);
-    node = static_cast<QSSGRenderDefaultMaterial *>(material.updateSpatialNode(node));
-    QCOMPARE(originalNode, node);
-    QCOMPARE(material.displacementAmount(), node->displaceAmount);
-
     const float specularAmount = 10.0f;
     material.setSpecularAmount(specularAmount);
     node = static_cast<QSSGRenderDefaultMaterial *>(material.updateSpatialNode(node));
@@ -105,18 +100,11 @@ void tst_QQuick3DMaterials::testDefaultProperties()
     QCOMPARE(material.specularAmount(), node->specularAmount);
 
     const float emissiveFactor = 0.5f;
-    material.setEmissiveColor(Qt::white);
-    material.setEmissiveFactor(emissiveFactor);
+    material.setEmissiveFactor(QVector3D(emissiveFactor, emissiveFactor, emissiveFactor));
     material.setLighting(QQuick3DDefaultMaterial::FragmentLighting);
     node = static_cast<QSSGRenderDefaultMaterial *>(material.updateSpatialNode(node));
     QCOMPARE(originalNode, node);
-    // If != NoLighting the emissive color on the node should be emissiveColor * emissiveFactor
-    static const auto toVec3 = [](const QColor &c) { return QVector3D{float(c.redF()), float(c.greenF()), float(c.blueF())}; };
-    auto expectedEmissiceColor = toVec3(material.emissiveColor()) * material.emissiveFactor();
-    QCOMPARE(expectedEmissiceColor, node->emissiveColor);
-    material.setLighting(QQuick3DDefaultMaterial::NoLighting);
-    node = static_cast<QSSGRenderDefaultMaterial *>(material.updateSpatialNode(node));
-    expectedEmissiceColor = toVec3(Qt::white);
+    auto expectedEmissiceColor = material.emissiveFactor();
     QCOMPARE(expectedEmissiceColor, node->emissiveColor);
 
     const float bumpAmount = 0.3f;
@@ -133,10 +121,9 @@ void tst_QQuick3DMaterials::testDefaultProperties()
     QCOMPARE(material.vertexColorsEnabled(), node->vertexColorsEnabled);
 
     QColor color1("#12345678");
-    QVector4D color1Vec4(float(color1.redF()), float(color1.greenF()),
-                         float(color1.blueF()), float(color1.alphaF()));
+    QVector4D color1Vec4 = color::sRGBToLinear(color1);
     material.setDiffuseColor(color1);
-    material.setEmissiveColor(color1);
+    material.setEmissiveFactor(color1Vec4.toVector3D());
     node = static_cast<QSSGRenderDefaultMaterial *>(material.updateSpatialNode(node));
     QCOMPARE(originalNode, node);
     QCOMPARE(color1Vec4, node->color);
@@ -217,10 +204,7 @@ void tst_QQuick3DMaterials::testDefaultEnums()
 
     auto blendModes = { QQuick3DDefaultMaterial::BlendMode::SourceOver,
                         QQuick3DDefaultMaterial::BlendMode::Screen,
-                        QQuick3DDefaultMaterial::BlendMode::Overlay,
-                        QQuick3DDefaultMaterial::BlendMode::Multiply,
-                        QQuick3DDefaultMaterial::BlendMode::ColorBurn,
-                        QQuick3DDefaultMaterial::BlendMode::ColorDodge };
+                        QQuick3DDefaultMaterial::BlendMode::Multiply };
     for (const auto blendMode : blendModes)
     {
         material.setBlendMode(blendMode);
@@ -229,13 +213,25 @@ void tst_QQuick3DMaterials::testDefaultEnums()
     }
 
     auto specularModes = { QQuick3DDefaultMaterial::SpecularModel::Default,
-                           QQuick3DDefaultMaterial::SpecularModel::KGGX,
-                           QQuick3DDefaultMaterial::SpecularModel::KWard };
+                           QQuick3DDefaultMaterial::SpecularModel::KGGX};
     for (const auto specularMode : specularModes)
     {
         material.setSpecularModel(specularMode);
         node = static_cast<QSSGRenderDefaultMaterial *>(material.updateSpatialNode(nullptr));
         QCOMPARE(int(material.specularModel()), int(node->specularModel));
+    }
+
+    auto depthDrawModes = {
+        QQuick3DMaterial::DepthDrawMode::OpaqueOnlyDepthDraw,
+        QQuick3DMaterial::DepthDrawMode::AlwaysDepthDraw,
+        QQuick3DMaterial::DepthDrawMode::NeverDepthDraw,
+        QQuick3DMaterial::DepthDrawMode::OpaquePrePassDepthDraw
+    };
+
+    for (const auto depthDrawMode : depthDrawModes) {
+        material.setDepthDrawMode(depthDrawMode);
+        node = static_cast<QSSGRenderDefaultMaterial *>(material.updateSpatialNode(nullptr));
+        QCOMPARE(int(material.depthDrawMode()), int(node->depthDrawMode));
     }
 }
 
@@ -276,12 +272,6 @@ void tst_QQuick3DMaterials::testPrincipledProperties()
     QCOMPARE(roughness, material.roughness());
     QCOMPARE(roughness, node->specularRoughness);
 
-    const float indexOfRefraction = 0.5f;
-    material.setIndexOfRefraction(indexOfRefraction);
-    node = static_cast<QSSGRenderDefaultMaterial *>(material.updateSpatialNode(node));
-    QCOMPARE(indexOfRefraction, material.indexOfRefraction());
-    QCOMPARE(indexOfRefraction, node->ior);
-
     const float opacity = 0.7f;
     material.setOpacity(opacity);
     node = static_cast<QSSGRenderDefaultMaterial *>(material.updateSpatialNode(node));
@@ -307,13 +297,11 @@ void tst_QQuick3DMaterials::testPrincipledProperties()
     QCOMPARE(alphaCutoff, node->alphaCutoff);
 
     QColor color1("#12345678");
-    QVector4D color1Vec4(float(color1.redF()), float(color1.greenF()),
-                         float(color1.blueF()), float(color1.alphaF()));
+    QVector4D color1Vec4 = color::sRGBToLinear(color1);
     QColor color2("#cccccccc");
-    QVector3D color2Vec3(float(color2.redF()), float(color2.greenF()),
-                         float(color2.blueF()));
+    QVector3D color2Vec3 = color::sRGBToLinear(color2).toVector3D();
     material.setBaseColor(color1);
-    material.setEmissiveColor(color2);
+    material.setEmissiveFactor(color2Vec3);
     node = static_cast<QSSGRenderDefaultMaterial *>(material.updateSpatialNode(node));
     QCOMPARE(originalNode, node);
     QCOMPARE(color1Vec4, node->color);
@@ -422,17 +410,14 @@ void tst_QQuick3DMaterials::testPrincipledEnums()
 
     auto blendModes = { QQuick3DPrincipledMaterial::BlendMode::SourceOver,
                         QQuick3DPrincipledMaterial::BlendMode::Screen,
-                        QQuick3DPrincipledMaterial::BlendMode::Multiply,
-                        QQuick3DPrincipledMaterial::BlendMode::Overlay,
-                        QQuick3DPrincipledMaterial::BlendMode::ColorBurn,
-                        QQuick3DPrincipledMaterial::BlendMode::ColorDodge };
+                        QQuick3DPrincipledMaterial::BlendMode::Multiply };
     for (const auto blendMode : blendModes) {
         material.setBlendMode(blendMode);
         node = static_cast<QSSGRenderDefaultMaterial *>(material.updateSpatialNode(node));
         QCOMPARE(int(material.blendMode()), int(node->blendMode));
     }
 
-    auto alphaModes = { QQuick3DPrincipledMaterial::AlphaMode::Opaque,
+    auto alphaModes = { QQuick3DPrincipledMaterial::AlphaMode::Default,
                         QQuick3DPrincipledMaterial::AlphaMode::Mask,
                         QQuick3DPrincipledMaterial::AlphaMode::Blend };
     for (const auto alphaMode : alphaModes) {
@@ -440,23 +425,33 @@ void tst_QQuick3DMaterials::testPrincipledEnums()
         node = static_cast<QSSGRenderDefaultMaterial *>(material.updateSpatialNode(node));
         QCOMPARE(int(material.alphaMode()), int(node->alphaMode));
     }
+
+    auto depthDrawModes = {
+        QQuick3DMaterial::DepthDrawMode::OpaqueOnlyDepthDraw,
+        QQuick3DMaterial::DepthDrawMode::AlwaysDepthDraw,
+        QQuick3DMaterial::DepthDrawMode::NeverDepthDraw,
+        QQuick3DMaterial::DepthDrawMode::OpaquePrePassDepthDraw
+    };
+
+    for (const auto depthDrawMode : depthDrawModes) {
+        material.setDepthDrawMode(depthDrawMode);
+        node = static_cast<QSSGRenderDefaultMaterial *>(material.updateSpatialNode(nullptr));
+        QCOMPARE(int(material.depthDrawMode()), int(node->depthDrawMode));
+    }
 }
 
 void tst_QQuick3DMaterials::testCustomMaterials()
 {
+    QSKIP("Test can not work as implemented without crashing");
     CustomMaterial material;
-    QQuick3DShaderUtilsShaderInfo shaderInfo;
-    shaderInfo.version = "1.2.3";
     QQuick3DViewport *view3D = new QQuick3DViewport;
     material.setParent(view3D);
-    material.setShaderInfo(&shaderInfo);
     auto node = static_cast<QSSGRenderCustomMaterial *>(material.updateSpatialNode(nullptr));
     QVERIFY(node);
-    QVERIFY(material.shaderInfo()->version == node->shaderInfo.version);
 
     QQuick3DShaderUtilsTextureInput mTexture;
     QQuick3DTexture qTexture;
-    QSignalSpy spy(&mTexture, SIGNAL(textureDirty(QQuick3DShaderUtilsTextureInput *)));
+    QSignalSpy spy(&mTexture, SIGNAL(textureChanged()));
     mTexture.setTexture(&qTexture);
     QCOMPARE(spy.count(), 1);
     QVERIFY(&qTexture == mTexture.texture());

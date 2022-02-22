@@ -17,12 +17,11 @@
 #include "base/sys_byteorder.h"
 #include "base/test/task_environment.h"
 #include "content/browser/speech/audio_buffer.h"
-#include "content/browser/speech/proto/google_streaming_api.pb.h"
+#include "content/public/browser/google_streaming_api.pb.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "net/base/net_errors.h"
 #include "net/http/http_response_headers.h"
 #include "net/http/http_util.h"
-#include "net/url_request/url_request_context_getter.h"
 #include "services/network/public/cpp/url_loader_completion_status.h"
 #include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
@@ -568,10 +567,14 @@ void SpeechRecognitionEngineTest::ProvideMockResponseStartDownstreamIfNeeded() {
       net::HttpUtil::AssembleRawHeaders(headers));
   downstream_request->client->OnReceiveResponse(std::move(head));
 
-  mojo::DataPipe data_pipe;
+  mojo::ScopedDataPipeProducerHandle producer_handle;
+  mojo::ScopedDataPipeConsumerHandle consumer_handle;
+  ASSERT_EQ(mojo::CreateDataPipe(nullptr, producer_handle, consumer_handle),
+            MOJO_RESULT_OK);
+
   downstream_request->client->OnStartLoadingResponseBody(
-      std::move(data_pipe.consumer_handle));
-  downstream_data_pipe_ = std::move(data_pipe.producer_handle);
+      std::move(consumer_handle));
+  downstream_data_pipe_ = std::move(producer_handle);
 }
 
 void SpeechRecognitionEngineTest::ProvideMockProtoResultDownstream(
@@ -710,20 +713,22 @@ std::string SpeechRecognitionEngineTest::ConsumeChunkedUploadData() {
       EXPECT_TRUE(upstream_request);
       EXPECT_TRUE(upstream_request->request.request_body);
       EXPECT_EQ(1u, upstream_request->request.request_body->elements()->size());
-      EXPECT_EQ(
-          network::mojom::DataElementType::kChunkedDataPipe,
-          (*upstream_request->request.request_body->elements())[0].type());
-      network::TestURLLoaderFactory::PendingRequest* mutable_upstream_request =
-          const_cast<network::TestURLLoaderFactory::PendingRequest*>(
-              upstream_request);
-      chunked_data_pipe_getter_.Bind((*mutable_upstream_request->request
-                                           .request_body->elements_mutable())[0]
-                                         .ReleaseChunkedDataPipeGetter());
+      auto& element =
+          (*upstream_request->request.request_body->elements_mutable())[0];
+      if (element.type() != network::DataElement::Tag::kChunkedDataPipe) {
+        ADD_FAILURE() << "element type mismatch";
+        return "";
+      }
+      chunked_data_pipe_getter_.Bind(
+          element.As<network::DataElementChunkedDataPipe>()
+              .ReleaseChunkedDataPipeGetter());
     }
-    mojo::DataPipe data_pipe;
-    chunked_data_pipe_getter_->StartReading(
-        std::move(data_pipe.producer_handle));
-    upstream_data_pipe_ = std::move(data_pipe.consumer_handle);
+    mojo::ScopedDataPipeProducerHandle producer_handle;
+    mojo::ScopedDataPipeConsumerHandle consumer_handle;
+    EXPECT_EQ(mojo::CreateDataPipe(nullptr, producer_handle, consumer_handle),
+              MOJO_RESULT_OK);
+    chunked_data_pipe_getter_->StartReading(std::move(producer_handle));
+    upstream_data_pipe_ = std::move(consumer_handle);
   }
   EXPECT_TRUE(upstream_data_pipe_.is_valid());
 

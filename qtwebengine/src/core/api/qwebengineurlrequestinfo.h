@@ -47,15 +47,14 @@
 
 namespace QtWebEngineCore {
 class InterceptedRequest;
-class NetworkDelegateQt;
-class URLRequestNotification;
 } // namespace QtWebEngineCore
 
 QT_BEGIN_NAMESPACE
 
 class QWebEngineUrlRequestInfoPrivate;
 
-class Q_WEBENGINECORE_EXPORT QWebEngineUrlRequestInfo {
+class Q_WEBENGINECORE_EXPORT QWebEngineUrlRequestInfo
+{
 public:
     enum ResourceType {
         ResourceTypeMainFrame = 0,  // top level page
@@ -109,8 +108,6 @@ public:
     void setHttpHeader(const QByteArray &name, const QByteArray &value);
 
 private:
-    friend class QtWebEngineCore::NetworkDelegateQt;
-    friend class QtWebEngineCore::URLRequestNotification;
     friend class QtWebEngineCore::InterceptedRequest;
     Q_DISABLE_COPY(QWebEngineUrlRequestInfo)
     Q_DECLARE_PRIVATE(QWebEngineUrlRequestInfo)

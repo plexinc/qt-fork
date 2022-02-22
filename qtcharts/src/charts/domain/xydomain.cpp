@@ -31,7 +31,7 @@
 #include <private/qabstractaxis_p.h>
 #include <QtCore/QtMath>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 XYDomain::XYDomain(QObject *parent)
     : AbstractDomain(parent)
@@ -156,7 +156,7 @@ QPointF XYDomain::calculateGeometryPoint(const QPointF &point, bool &ok) const
 {
     const qreal xd = m_maxX - m_minX;
     const qreal yd = m_maxY - m_minY;
-    if (qFuzzyIsNull(xd) || qFuzzyIsNull(yd))
+    if (xd == 0.0 || yd == 0.0)
         return QPointF();
     const qreal deltaX = m_size.width() / xd;
     const qreal deltaY = m_size.height() / yd;
@@ -170,23 +170,23 @@ QPointF XYDomain::calculateGeometryPoint(const QPointF &point, bool &ok) const
     return QPointF(x, y);
 }
 
-QVector<QPointF> XYDomain::calculateGeometryPoints(const QVector<QPointF> &vector) const
+QList<QPointF> XYDomain::calculateGeometryPoints(const QList<QPointF> &list) const
 {
     const qreal xd = m_maxX - m_minX;
     const qreal yd = m_maxY - m_minY;
-    if (qFuzzyIsNull(xd) || qFuzzyIsNull(yd))
-        return QVector<QPointF>();
+    if (xd == 0.0 || yd == 0.0)
+        return QList<QPointF>();
     const qreal deltaX = m_size.width() / xd;
     const qreal deltaY = m_size.height() / yd;
 
-    QVector<QPointF> result;
-    result.resize(vector.count());
+    QList<QPointF> result;
+    result.resize(list.count());
 
-    for (int i = 0; i < vector.count(); ++i) {
-        qreal x = (vector[i].x() - m_minX) * deltaX;
+    for (int i = 0; i < list.count(); ++i) {
+        qreal x = (list[i].x() - m_minX) * deltaX;
         if (m_reverseX)
             x = m_size.width() - x;
-        qreal y = (vector[i].y() - m_minY) * deltaY;
+        qreal y = (list[i].y() - m_minY) * deltaY;
         if (!m_reverseY)
             y = m_size.height() - y;
         result[i].setX(x);
@@ -199,7 +199,7 @@ QPointF XYDomain::calculateDomainPoint(const QPointF &point) const
 {
     const qreal xd = m_maxX - m_minX;
     const qreal yd = m_maxY - m_minY;
-    if (qFuzzyIsNull(xd) || qFuzzyIsNull(yd))
+    if (xd == 0.0 || yd == 0.0)
         return QPointF();
     const qreal deltaX = m_size.width() / xd;
     const qreal deltaY = m_size.height() / yd;
@@ -232,13 +232,13 @@ bool Q_AUTOTEST_EXPORT operator!= (const XYDomain &domain1, const XYDomain &doma
 QDebug Q_AUTOTEST_EXPORT operator<<(QDebug dbg, const XYDomain &domain)
 {
 #ifdef QT_NO_TEXTSTREAM
-    Q_UNUSED(domain)
+    Q_UNUSED(domain);
 #else
     dbg.nospace() << "AbstractDomain(" << domain.m_minX << ',' << domain.m_maxX << ',' << domain.m_minY << ',' << domain.m_maxY << ')' << domain.m_size;
 #endif
     return dbg.maybeSpace();
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_xydomain_p.cpp"

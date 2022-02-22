@@ -9,14 +9,20 @@
 
 namespace performance_manager {
 
+// static
+constexpr char WorkerNodeImpl::kDefaultPriorityReason[] =
+    "default worker priority";
+
+using PriorityAndReason = execution_context_priority::PriorityAndReason;
+
 WorkerNodeImpl::WorkerNodeImpl(const std::string& browser_context_id,
                                WorkerType worker_type,
                                ProcessNodeImpl* process_node,
-                               const base::UnguessableToken& dev_tools_token)
+                               const blink::WorkerToken& worker_token)
     : browser_context_id_(browser_context_id),
       worker_type_(worker_type),
       process_node_(process_node),
-      dev_tools_token_(dev_tools_token) {
+      worker_token_(worker_token) {
   DETACH_FROM_SEQUENCE(sequence_checker_);
   DCHECK(process_node);
 }
@@ -91,6 +97,12 @@ void WorkerNodeImpl::RemoveClientWorker(WorkerNodeImpl* worker_node) {
   DCHECK_EQ(removed, 1u);
 }
 
+void WorkerNodeImpl::SetPriorityAndReason(
+    const PriorityAndReason& priority_and_reason) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  priority_and_reason_.SetAndMaybeNotify(this, priority_and_reason);
+}
+
 void WorkerNodeImpl::OnFinalResponseURLDetermined(const GURL& url) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(url_.is_empty());
@@ -120,9 +132,9 @@ const GURL& WorkerNodeImpl::url() const {
   return url_;
 }
 
-const base::UnguessableToken& WorkerNodeImpl::dev_tools_token() const {
+const blink::WorkerToken& WorkerNodeImpl::worker_token() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  return dev_tools_token_;
+  return worker_token_;
 }
 
 const base::flat_set<FrameNodeImpl*>& WorkerNodeImpl::client_frames() const {
@@ -138,6 +150,11 @@ const base::flat_set<WorkerNodeImpl*>& WorkerNodeImpl::client_workers() const {
 const base::flat_set<WorkerNodeImpl*>& WorkerNodeImpl::child_workers() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   return child_workers_;
+}
+
+const PriorityAndReason& WorkerNodeImpl::priority_and_reason() const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  return priority_and_reason_.value();
 }
 
 void WorkerNodeImpl::OnJoiningGraph() {
@@ -172,9 +189,9 @@ const GURL& WorkerNodeImpl::GetURL() const {
   return url();
 }
 
-const base::UnguessableToken& WorkerNodeImpl::GetDevToolsToken() const {
+const blink::WorkerToken& WorkerNodeImpl::GetWorkerToken() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  return dev_tools_token();
+  return worker_token();
 }
 
 const base::flat_set<const FrameNode*> WorkerNodeImpl::GetClientFrames() const {
@@ -204,6 +221,21 @@ const base::flat_set<const WorkerNode*> WorkerNodeImpl::GetChildWorkers()
     child_workers.insert(static_cast<const WorkerNode*>(child));
   DCHECK_EQ(child_workers.size(), child_workers_.size());
   return child_workers;
+}
+
+bool WorkerNodeImpl::VisitChildDedicatedWorkers(
+    const WorkerNodeVisitor& visitor) const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  for (auto* worker_node_impl : child_workers_) {
+    const WorkerNode* node = worker_node_impl;
+    if (node->GetWorkerType() == WorkerType::kDedicated && !visitor.Run(node))
+      return false;
+  }
+  return true;
+}
+
+const PriorityAndReason& WorkerNodeImpl::GetPriorityAndReason() const {
+  return priority_and_reason();
 }
 
 void WorkerNodeImpl::AddChildWorker(WorkerNodeImpl* worker_node) {

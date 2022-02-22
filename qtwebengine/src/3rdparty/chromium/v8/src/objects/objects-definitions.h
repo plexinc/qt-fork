@@ -6,8 +6,7 @@
 #define V8_OBJECTS_OBJECTS_DEFINITIONS_H_
 
 #include "src/init/heap-symbols.h"
-
-#include "torque-generated/instance-types-tq.h"
+#include "torque-generated/instance-types.h"
 
 namespace v8 {
 
@@ -125,6 +124,7 @@ namespace internal {
   V(_, ASM_WASM_DATA_TYPE, AsmWasmData, asm_wasm_data)                        \
   V(_, ASYNC_GENERATOR_REQUEST_TYPE, AsyncGeneratorRequest,                   \
     async_generator_request)                                                  \
+  V(_, BASELINE_DATA_TYPE, BaselineData, baseline_data)                       \
   V(_, BREAK_POINT_TYPE, BreakPoint, break_point)                             \
   V(_, BREAK_POINT_INFO_TYPE, BreakPointInfo, break_point_info)               \
   V(_, CACHED_TEMPLATE_OBJECT_TYPE, CachedTemplateObject,                     \
@@ -136,22 +136,21 @@ namespace internal {
     function_template_rare_data)                                              \
   V(_, INTERCEPTOR_INFO_TYPE, InterceptorInfo, interceptor_info)              \
   V(_, INTERPRETER_DATA_TYPE, InterpreterData, interpreter_data)              \
+  V(_, MODULE_REQUEST_TYPE, ModuleRequest, module_request)                    \
   V(_, PROMISE_CAPABILITY_TYPE, PromiseCapability, promise_capability)        \
   V(_, PROMISE_REACTION_TYPE, PromiseReaction, promise_reaction)              \
   V(_, PROPERTY_DESCRIPTOR_OBJECT_TYPE, PropertyDescriptorObject,             \
     property_descriptor_object)                                               \
   V(_, PROTOTYPE_INFO_TYPE, PrototypeInfo, prototype_info)                    \
+  V(_, REG_EXP_BOILERPLATE_DESCRIPTION_TYPE, RegExpBoilerplateDescription,    \
+    regexp_boilerplate_description)                                           \
   V(_, SCRIPT_TYPE, Script, script)                                           \
   V(_, SOURCE_TEXT_MODULE_INFO_ENTRY_TYPE, SourceTextModuleInfoEntry,         \
     module_info_entry)                                                        \
   V(_, STACK_FRAME_INFO_TYPE, StackFrameInfo, stack_frame_info)               \
-  V(_, STACK_TRACE_FRAME_TYPE, StackTraceFrame, stack_trace_frame)            \
   V(_, TEMPLATE_OBJECT_DESCRIPTION_TYPE, TemplateObjectDescription,           \
     template_object_description)                                              \
   V(_, TUPLE2_TYPE, Tuple2, tuple2)                                           \
-  V(_, WASM_CAPI_FUNCTION_DATA_TYPE, WasmCapiFunctionData,                    \
-    wasm_capi_function_data)                                                  \
-  V(_, WASM_DEBUG_INFO_TYPE, WasmDebugInfo, wasm_debug_info)                  \
   V(_, WASM_EXCEPTION_TAG_TYPE, WasmExceptionTag, wasm_exception_tag)         \
   V(_, WASM_EXPORTED_FUNCTION_DATA_TYPE, WasmExportedFunctionData,            \
     wasm_exported_function_data)                                              \
@@ -173,15 +172,6 @@ namespace internal {
 
 // Produces (Map, struct_name_map, StructNameMap) entries
 #define STRUCT_MAPS_LIST(V) STRUCT_LIST_GENERATOR(STRUCT_MAPS_LIST_ADAPTER, V)
-
-// Adapts one STRUCT_LIST_GENERATOR entry to the STRUCT_LIST entry
-#define TORQUE_INTERNAL_CLASS_LIST_MAPS_ADAPTER(V, NAME, Name, name) \
-  V(Map, name##_map, Name##Map)
-
-// Produces (NAME, Name, name) entries.
-#define TORQUE_INTERNAL_CLASS_MAPS_LIST(V) \
-  TORQUE_INTERNAL_CLASS_LIST_GENERATOR(    \
-      TORQUE_INTERNAL_CLASS_LIST_MAPS_ADAPTER, V)
 
 //
 // The following macros define list of allocation size objects and list of

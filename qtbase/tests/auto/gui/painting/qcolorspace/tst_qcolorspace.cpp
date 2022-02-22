@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include <qcolorspace.h>
 #include <qimage.h>
@@ -59,6 +59,12 @@ private slots:
 
     void imageConversion_data();
     void imageConversion();
+    void imageConversion64_data();
+    void imageConversion64();
+    void imageConversion64PM_data();
+    void imageConversion64PM();
+    void imageConversionOverLargerGamut_data();
+    void imageConversionOverLargerGamut();
 
     void loadImage();
 
@@ -74,6 +80,10 @@ private slots:
 
     void changeTransferFunction();
     void changePrimaries();
+
+    void transferFunctionTable();
+
+    void description();
 };
 
 tst_QColorSpace::tst_QColorSpace()
@@ -219,7 +229,7 @@ void tst_QColorSpace::fromIccProfile()
         QCOMPARE(fileColorSpace, namedColorSpace);
 
     QCOMPARE(fileColorSpace.transferFunction(), transferFunction);
-    QCOMPARE(QColorSpacePrivate::get(fileColorSpace)->description, description);
+    QCOMPARE(fileColorSpace.description(), description);
 }
 
 void tst_QColorSpace::imageConversion_data()
@@ -234,6 +244,7 @@ void tst_QColorSpace::imageConversion_data()
     QTest::newRow("Adobe RGB -> sRGB") << QColorSpace::AdobeRgb << QColorSpace::SRgb << 2;
     QTest::newRow("Display-P3 -> Adobe RGB") << QColorSpace::DisplayP3 << QColorSpace::AdobeRgb << 2;
     QTest::newRow("sRGB -> sRGB Linear") << QColorSpace::SRgb << QColorSpace::SRgbLinear << 0;
+    QTest::newRow("sRGB Linear -> sRGB") << QColorSpace::SRgbLinear << QColorSpace::SRgb << 0;
 }
 
 void tst_QColorSpace::imageConversion()
@@ -284,6 +295,190 @@ void tst_QColorSpace::imageConversion()
     }
 }
 
+void tst_QColorSpace::imageConversion64_data()
+{
+    QTest::addColumn<QColorSpace::NamedColorSpace>("fromColorSpace");
+    QTest::addColumn<QColorSpace::NamedColorSpace>("toColorSpace");
+
+    QTest::newRow("sRGB -> Display-P3") << QColorSpace::SRgb << QColorSpace::DisplayP3;
+    QTest::newRow("sRGB -> Adobe RGB") << QColorSpace::SRgb << QColorSpace::AdobeRgb;
+    QTest::newRow("Display-P3 -> sRGB") << QColorSpace::DisplayP3 << QColorSpace::SRgb;
+    QTest::newRow("Display-P3 -> Adobe RGB") << QColorSpace::DisplayP3 << QColorSpace::AdobeRgb;
+    QTest::newRow("sRGB -> sRGB Linear") << QColorSpace::SRgb << QColorSpace::SRgbLinear;
+    QTest::newRow("sRGB Linear -> sRGB") << QColorSpace::SRgbLinear << QColorSpace::SRgb;
+}
+
+void tst_QColorSpace::imageConversion64()
+{
+    QFETCH(QColorSpace::NamedColorSpace, fromColorSpace);
+    QFETCH(QColorSpace::NamedColorSpace, toColorSpace);
+
+    QImage testImage(256, 1, QImage::Format_RGBX64);
+
+    for (int i = 0; i < 256; ++i)
+        testImage.setPixel(i, 0, qRgb(i, i, i));
+
+    testImage.setColorSpace(fromColorSpace);
+    QCOMPARE(testImage.colorSpace(), QColorSpace(fromColorSpace));
+
+    testImage.convertToColorSpace(toColorSpace);
+    QCOMPARE(testImage.colorSpace(), QColorSpace(toColorSpace));
+
+    int lastRed = 0;
+    int lastGreen = 0;
+    int lastBlue = 0;
+    for (int i = 0; i < 256; ++i) {
+        QRgb p = testImage.pixel(i, 0);
+        QVERIFY(qRed(p) >= lastRed);
+        QVERIFY(qGreen(p) >= lastGreen);
+        QVERIFY(qBlue(p) >= lastBlue);
+        lastRed = qRed(p);
+        lastGreen = qGreen(p);
+        lastBlue = qBlue(p);
+    }
+
+    lastRed = 0;
+    lastGreen = 0;
+    lastBlue = 0;
+    testImage.convertToColorSpace(fromColorSpace);
+    QCOMPARE(testImage.colorSpace(), QColorSpace(fromColorSpace));
+    for (int i = 0; i < 256; ++i) {
+        QRgb p = testImage.pixel(i, 0);
+        QCOMPARE(qRed(p),  qGreen(p));
+        QCOMPARE(qRed(p),  qBlue(p));
+        QVERIFY((lastRed   - qRed(p))   <= 0);
+        QVERIFY((lastGreen - qGreen(p)) <= 0);
+        QVERIFY((lastBlue  - qBlue(p))  <= 0);
+        lastRed = qRed(p);
+        lastGreen = qGreen(p);
+        lastBlue = qBlue(p);
+    }
+}
+
+void tst_QColorSpace::imageConversion64PM_data()
+{
+    imageConversion64_data();
+}
+
+void tst_QColorSpace::imageConversion64PM()
+{
+    QFETCH(QColorSpace::NamedColorSpace, fromColorSpace);
+    QFETCH(QColorSpace::NamedColorSpace, toColorSpace);
+
+    QImage testImage(256, 16, QImage::Format_RGBA64_Premultiplied);
+
+    for (int j = 0; j < 16; ++j) {
+        int a = j * 15;
+        for (int i = 0; i < 256; ++i)
+            testImage.setPixel(i, j, qPremultiply(qRgba(i, i, i, a)));
+    }
+
+    testImage.setColorSpace(fromColorSpace);
+    QCOMPARE(testImage.colorSpace(), QColorSpace(fromColorSpace));
+
+    testImage.convertToColorSpace(toColorSpace);
+    QCOMPARE(testImage.colorSpace(), QColorSpace(toColorSpace));
+
+    int lastRed = 0;
+    int lastGreen = 0;
+    int lastBlue = 0;
+    for (int j = 0; j < 16; ++j) {
+        for (int i = 0; i < 256; ++i) {
+            QRgb p = testImage.pixel(i, j);
+            QVERIFY(qRed(p) >= lastRed);
+            QVERIFY(qGreen(p) >= lastGreen);
+            QVERIFY(qBlue(p) >= lastBlue);
+            QCOMPARE(qAlpha(p), j * 15);
+            lastRed = qRed(p);
+            lastGreen = qGreen(p);
+            lastBlue = qBlue(p);
+        }
+        QVERIFY(lastRed <= j * 15);
+        QVERIFY(lastGreen <= j * 15);
+        QVERIFY(lastBlue <= j * 15);
+        lastRed = 0;
+        lastGreen = 0;
+        lastBlue = 0;
+    }
+
+    testImage.convertToColorSpace(fromColorSpace);
+    QCOMPARE(testImage.colorSpace(), QColorSpace(fromColorSpace));
+    for (int j = 0; j < 16; ++j) {
+        for (int i = 0; i < 256; ++i) {
+            QRgb p = testImage.pixel(i, j);
+            QCOMPARE(qRed(p),  qGreen(p));
+            QCOMPARE(qRed(p),  qBlue(p));
+            QCOMPARE(qAlpha(p), j * 15);
+            QVERIFY((lastRed   - qRed(p))   <= 0);
+            QVERIFY((lastGreen - qGreen(p)) <= 0);
+            QVERIFY((lastBlue  - qBlue(p))  <= 0);
+            lastRed = qRed(p);
+            lastGreen = qGreen(p);
+            lastBlue = qBlue(p);
+        }
+        QVERIFY(lastRed <= j * 15);
+        QVERIFY(lastGreen <= j * 15);
+        QVERIFY(lastBlue <= j * 15);
+        lastRed = 0;
+        lastGreen = 0;
+        lastBlue = 0;
+    }
+}
+
+void tst_QColorSpace::imageConversionOverLargerGamut_data()
+{
+    QTest::addColumn<QColorSpace::NamedColorSpace>("fromColorSpace");
+    QTest::addColumn<QColorSpace::NamedColorSpace>("toColorSpace");
+
+    QTest::newRow("sRGB -> Display-P3") << QColorSpace::SRgb << QColorSpace::DisplayP3;
+    QTest::newRow("sRGB -> Adobe RGB") << QColorSpace::SRgb << QColorSpace::AdobeRgb;
+    QTest::newRow("sRGB -> ProPhoto RGB") << QColorSpace::SRgb << QColorSpace::ProPhotoRgb;
+    QTest::newRow("Display-P3 -> ProPhoto RGB") << QColorSpace::DisplayP3 << QColorSpace::ProPhotoRgb;
+    QTest::newRow("Adobe RGB -> ProPhoto RGB") << QColorSpace::AdobeRgb << QColorSpace::ProPhotoRgb;
+}
+
+void tst_QColorSpace::imageConversionOverLargerGamut()
+{
+    QFETCH(QColorSpace::NamedColorSpace, fromColorSpace);
+    QFETCH(QColorSpace::NamedColorSpace, toColorSpace);
+
+    QColorSpace csfrom(fromColorSpace);
+    QColorSpace csto(toColorSpace);
+    csfrom.setTransferFunction(QColorSpace::TransferFunction::Linear);
+    csto.setTransferFunction(QColorSpace::TransferFunction::Linear);
+
+    QImage testImage(256, 256, QImage::Format_RGBX64);
+    testImage.setColorSpace(csfrom);
+    for (int y = 0; y < 256; ++y)
+        for (int x = 0; x < 256; ++x)
+            testImage.setPixel(x, y, qRgb(x, y, 0));
+
+    QImage resultImage = testImage.convertedToColorSpace(csto);
+    for (int y = 0; y < 256; ++y) {
+        int lastRed = 0;
+        for (int x = 0; x < 256; ++x) {
+            QRgb p = resultImage.pixel(x, y);
+            QVERIFY(qRed(p) >= lastRed);
+            lastRed = qRed(p);
+        }
+    }
+    for (int x = 0; x < 256; ++x) {
+        int lastGreen = 0;
+        for (int y = 0; y < 256; ++y) {
+            QRgb p = resultImage.pixel(x, y);
+            QVERIFY(qGreen(p) >= lastGreen);
+            lastGreen = qGreen(p);
+        }
+    }
+
+    resultImage.convertToColorSpace(csfrom);
+    // The images are not exactly identical at 4x16bit, but they preserve 4x8bit accuracy.
+    for (int y = 0; y < 256; ++y) {
+        for (int x = 0; x < 256; ++x) {
+            QCOMPARE(resultImage.pixel(x, y), testImage.pixel(x, y));
+        }
+    }
+}
 
 void tst_QColorSpace::loadImage()
 {
@@ -304,10 +499,10 @@ void tst_QColorSpace::loadImage()
     QVERIFY(defaultProPhotoRgb.iccProfile() != image.colorSpace().iccProfile());
 
     QColorTransform transform = image.colorSpace().transformationToColorSpace(QColorSpace::SRgb);
-    qreal maxRed = 0;
-    qreal maxBlue = 0;
-    qreal maxRed2 = 0;
-    qreal maxBlue2 = 0;
+    float maxRed = 0;
+    float maxBlue = 0;
+    float maxRed2 = 0;
+    float maxBlue2 = 0;
     for (int y = 0; y < image.height(); ++y) {
         for (int x = 0; x < image.width(); ++x) {
             QColor p = image.pixelColor(x, y);
@@ -326,11 +521,11 @@ void tst_QColorSpace::loadImage()
 
 void tst_QColorSpace::primaries()
 {
-    QColor black = QColor::fromRgbF(0.0, 0.0, 0.0);
-    QColor white = QColor::fromRgbF(1.0, 1.0, 1.0);
-    QColor red = QColor::fromRgbF(1.0, 0.0, 0.0);
-    QColor green = QColor::fromRgbF(0.0, 1.0, 0.0);
-    QColor blue = QColor::fromRgbF(0.0, 0.0, 1.0);
+    QColor black = QColor::fromRgbF(0.0f, 0.0f, 0.0f);
+    QColor white = QColor::fromRgbF(1.0f, 1.0f, 1.0f);
+    QColor red = QColor::fromRgbF(1.0f, 0.0f, 0.0f);
+    QColor green = QColor::fromRgbF(0.0f, 1.0f, 0.0f);
+    QColor blue = QColor::fromRgbF(0.0f, 0.0f, 1.0f);
 
     QColorTransform toAdobeRgb = QColorSpace(QColorSpace::SRgb).transformationToColorSpace(QColorSpace::AdobeRgb);
 
@@ -466,6 +661,52 @@ void tst_QColorSpace::changePrimaries()
     cs.setPrimaries(QPointF(0.3127, 0.3290), QPointF(0.640, 0.330),
                     QPointF(0.3000, 0.6000), QPointF(0.150, 0.060));
     QCOMPARE(cs, QColorSpace(QColorSpace::SRgbLinear));
+}
+
+void tst_QColorSpace::transferFunctionTable()
+{
+    QVector<quint16> linearTable = { 0, 65535 };
+
+    // Check linearSRgb is recognized
+    QColorSpace linearSRgb(QColorSpace::Primaries::SRgb, linearTable);
+    QCOMPARE(linearSRgb.primaries(), QColorSpace::Primaries::SRgb);
+    QCOMPARE(linearSRgb.transferFunction(), QColorSpace::TransferFunction::Linear);
+    QCOMPARE(linearSRgb.gamma(), 1.0);
+    QCOMPARE(linearSRgb, QColorSpace::SRgbLinear);
+
+    // Check other linear is recognized
+    QColorSpace linearARgb(QColorSpace::Primaries::AdobeRgb, linearTable);
+    QCOMPARE(linearARgb.primaries(), QColorSpace::Primaries::AdobeRgb);
+    QCOMPARE(linearARgb.transferFunction(), QColorSpace::TransferFunction::Linear);
+    QCOMPARE(linearARgb.gamma(), 1.0);
+
+    // Check custom transfer function.
+    QVector<quint16> customTable = { 0, 10, 100, 10000, 65535 };
+    QColorSpace customSRgb(QColorSpace::Primaries::SRgb, customTable);
+    QCOMPARE(customSRgb.primaries(), QColorSpace::Primaries::SRgb);
+    QCOMPARE(customSRgb.transferFunction(), QColorSpace::TransferFunction::Custom);
+
+    customSRgb.setTransferFunction(linearTable);
+    QCOMPARE(customSRgb, QColorSpace::SRgbLinear);
+}
+
+void tst_QColorSpace::description()
+{
+    QColorSpace srgb(QColorSpace::SRgb);
+    QCOMPARE(srgb.description(), QLatin1String("sRGB"));
+
+    srgb.setTransferFunction(QColorSpace::TransferFunction::ProPhotoRgb);
+    QCOMPARE(srgb.description(), QString()); // No longer sRGB
+    srgb.setTransferFunction(QColorSpace::TransferFunction::Linear);
+    QCOMPARE(srgb.description(), QLatin1String("Linear sRGB")); // Auto-detect
+
+    srgb.setTransferFunction(QColorSpace::TransferFunction::ProPhotoRgb);
+    srgb.setDescription(QStringLiteral("My custom sRGB"));
+    QCOMPARE(srgb.description(), QLatin1String("My custom sRGB"));
+    srgb.setTransferFunction(QColorSpace::TransferFunction::Linear);
+    QCOMPARE(srgb.description(), QLatin1String("My custom sRGB")); // User given name not reset
+    srgb.setDescription(QString());
+    QCOMPARE(srgb.description(), QLatin1String("Linear sRGB")); // Set to empty returns default behavior
 }
 
 QTEST_MAIN(tst_QColorSpace)

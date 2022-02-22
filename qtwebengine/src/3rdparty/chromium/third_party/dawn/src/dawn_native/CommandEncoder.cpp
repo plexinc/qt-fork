@@ -15,6 +15,7 @@
 #include "dawn_native/CommandEncoder.h"
 
 #include "common/BitSetIterator.h"
+#include "common/Math.h"
 #include "dawn_native/BindGroup.h"
 #include "dawn_native/Buffer.h"
 #include "dawn_native/CommandBuffer.h"
@@ -24,6 +25,9 @@
 #include "dawn_native/ComputePassEncoder.h"
 #include "dawn_native/Device.h"
 #include "dawn_native/ErrorData.h"
+#include "dawn_native/QueryHelper.h"
+#include "dawn_native/QuerySet.h"
+#include "dawn_native/Queue.h"
 #include "dawn_native/RenderPassEncoder.h"
 #include "dawn_native/RenderPipeline.h"
 #include "dawn_native/ValidationUtils_autogen.h"
@@ -37,56 +41,9 @@ namespace dawn_native {
 
     namespace {
 
-        MaybeError ValidateCopySizeFitsInTexture(const TextureCopy& textureCopy,
-                                                 const Extent3D& copySize) {
-            const TextureBase* texture = textureCopy.texture.Get();
-            if (textureCopy.mipLevel >= texture->GetNumMipLevels()) {
-                return DAWN_VALIDATION_ERROR("Copy mipLevel out of range");
-            }
-
-            if (textureCopy.arrayLayer >= texture->GetArrayLayers()) {
-                return DAWN_VALIDATION_ERROR("Copy arrayLayer out of range");
-            }
-
-            Extent3D extent = texture->GetMipLevelPhysicalSize(textureCopy.mipLevel);
-
-            // All texture dimensions are in uint32_t so by doing checks in uint64_t we avoid
-            // overflows.
-            if (uint64_t(textureCopy.origin.x) + uint64_t(copySize.width) >
-                    static_cast<uint64_t>(extent.width) ||
-                uint64_t(textureCopy.origin.y) + uint64_t(copySize.height) >
-                    static_cast<uint64_t>(extent.height)) {
-                return DAWN_VALIDATION_ERROR("Copy would touch outside of the texture");
-            }
-
-            // TODO(cwallez@chromium.org): Check the depth bound differently for 2D arrays and 3D
-            // textures
-            if (textureCopy.origin.z != 0 || copySize.depth > 1) {
-                return DAWN_VALIDATION_ERROR("No support for z != 0 and depth > 1 for now");
-            }
-
-            return {};
-        }
-
-        MaybeError ValidateCopySizeFitsInBuffer(const Ref<BufferBase>& buffer,
-                                                uint64_t offset,
-                                                uint64_t size) {
-            uint64_t bufferSize = buffer->GetSize();
-            bool fitsInBuffer = offset <= bufferSize && (size <= (bufferSize - offset));
-            if (!fitsInBuffer) {
-                return DAWN_VALIDATION_ERROR("Copy would overflow the buffer");
-            }
-
-            return {};
-        }
-
-        MaybeError ValidateCopySizeFitsInBuffer(const BufferCopy& bufferCopy, uint64_t dataSize) {
-            return ValidateCopySizeFitsInBuffer(bufferCopy.buffer, bufferCopy.offset, dataSize);
-        }
-
-        MaybeError ValidateB2BCopySizeAlignment(uint64_t dataSize,
-                                                uint64_t srcOffset,
-                                                uint64_t dstOffset) {
+        MaybeError ValidateB2BCopyAlignment(uint64_t dataSize,
+                                            uint64_t srcOffset,
+                                            uint64_t dstOffset) {
             // Copy size must be a multiple of 4 bytes on macOS.
             if (dataSize % 4 != 0) {
                 return DAWN_VALIDATION_ERROR("Copy size must be a multiple of 4 bytes");
@@ -101,162 +58,42 @@ namespace dawn_native {
             return {};
         }
 
-        MaybeError ValidateTexelBufferOffset(const BufferCopy& bufferCopy, const Format& format) {
-            if (bufferCopy.offset % format.blockByteSize != 0) {
-                return DAWN_VALIDATION_ERROR(
-                    "Buffer offset must be a multiple of the texel or block size");
-            }
-
-            return {};
-        }
-
-        MaybeError ValidateImageHeight(const Format& format,
-                                       uint32_t imageHeight,
-                                       uint32_t copyHeight) {
-            if (imageHeight < copyHeight) {
-                return DAWN_VALIDATION_ERROR("Image height must not be less than the copy height.");
-            }
-
-            if (imageHeight % format.blockHeight != 0) {
-                return DAWN_VALIDATION_ERROR(
-                    "Image height must be a multiple of compressed texture format block width");
-            }
-
-            return {};
-        }
-
-        MaybeError ValidateTextureSampleCountInCopyCommands(const TextureBase* texture) {
+        MaybeError ValidateTextureSampleCountInBufferCopyCommands(const TextureBase* texture) {
             if (texture->GetSampleCount() > 1) {
-                return DAWN_VALIDATION_ERROR("The sample count of textures must be 1");
-            }
-
-            return {};
-        }
-
-        MaybeError ValidateEntireSubresourceCopied(const TextureCopy& src,
-                                                   const TextureCopy& dst,
-                                                   const Extent3D& copySize) {
-            Extent3D srcSize = src.texture.Get()->GetSize();
-
-            if (dst.origin.x != 0 || dst.origin.y != 0 || dst.origin.z != 0 ||
-                srcSize.width != copySize.width || srcSize.height != copySize.height ||
-                srcSize.depth != copySize.depth) {
                 return DAWN_VALIDATION_ERROR(
-                    "The entire subresource must be copied when using a depth/stencil texture or "
-                    "when samples are greater than 1.");
+                    "The sample count of textures must be 1 when copying between buffers and "
+                    "textures");
             }
 
             return {};
         }
 
-        MaybeError ValidateTextureToTextureCopyRestrictions(const TextureCopy& src,
-                                                            const TextureCopy& dst,
-                                                            const Extent3D& copySize) {
-            const uint32_t srcSamples = src.texture.Get()->GetSampleCount();
-            const uint32_t dstSamples = dst.texture.Get()->GetSampleCount();
-
-            if (srcSamples != dstSamples) {
+        MaybeError ValidateLinearTextureCopyOffset(const TextureDataLayout& layout,
+                                                   const TexelBlockInfo& blockInfo) {
+            if (layout.offset % blockInfo.byteSize != 0) {
                 return DAWN_VALIDATION_ERROR(
-                    "Source and destination textures must have matching sample counts.");
-            } else if (srcSamples > 1) {
-                // D3D12 requires entire subresource to be copied when using CopyTextureRegion when
-                // samples > 1.
-                DAWN_TRY(ValidateEntireSubresourceCopied(src, dst, copySize));
+                    "offset must be a multiple of the texel block byte size.");
             }
-
-            if (src.texture.Get()->GetFormat().format != dst.texture.Get()->GetFormat().format) {
-                // Metal requires texture-to-texture copies be the same format
-                return DAWN_VALIDATION_ERROR("Source and destination texture formats must match.");
-            }
-
-            if (src.texture.Get()->GetFormat().HasDepthOrStencil()) {
-                // D3D12 requires entire subresource to be copied when using CopyTextureRegion is
-                // used with depth/stencil.
-                DAWN_TRY(ValidateEntireSubresourceCopied(src, dst, copySize));
-            }
-
             return {};
         }
 
-        MaybeError ComputeTextureCopyBufferSize(const Format& textureFormat,
-                                                const Extent3D& copySize,
-                                                uint32_t rowPitch,
-                                                uint32_t imageHeight,
-                                                uint32_t* bufferSize) {
-            ASSERT(imageHeight >= copySize.height);
-            uint32_t blockByteSize = textureFormat.blockByteSize;
-            uint32_t blockWidth = textureFormat.blockWidth;
-            uint32_t blockHeight = textureFormat.blockHeight;
+        MaybeError ValidateTextureDepthStencilToBufferCopyRestrictions(const TextureCopyView& src) {
+            Aspect aspectUsed;
+            DAWN_TRY_ASSIGN(aspectUsed, SingleAspectUsedByTextureCopyView(src));
+            if (aspectUsed == Aspect::Depth) {
+                switch (src.texture->GetFormat().format) {
+                    case wgpu::TextureFormat::Depth24Plus:
+                    case wgpu::TextureFormat::Depth24PlusStencil8:
+                        return DAWN_VALIDATION_ERROR(
+                            "The depth aspect of depth24plus texture cannot be selected in a "
+                            "texture to buffer copy");
+                        break;
+                    case wgpu::TextureFormat::Depth32Float:
+                        break;
 
-            // TODO(cwallez@chromium.org): check for overflows
-            uint32_t slicePitch = rowPitch * imageHeight / blockWidth;
-            uint32_t sliceSize = rowPitch * (copySize.height / blockHeight - 1) +
-                                 (copySize.width / blockWidth) * blockByteSize;
-            *bufferSize = (slicePitch * (copySize.depth - 1)) + sliceSize;
-
-            return {};
-        }
-
-        uint32_t ComputeDefaultRowPitch(const Format& format, uint32_t width) {
-            return width / format.blockWidth * format.blockByteSize;
-        }
-
-        MaybeError ValidateRowPitch(const Format& format,
-                                    const Extent3D& copySize,
-                                    uint32_t rowPitch) {
-            if (rowPitch % kTextureRowPitchAlignment != 0) {
-                return DAWN_VALIDATION_ERROR("Row pitch must be a multiple of 256");
-            }
-
-            if (rowPitch < copySize.width / format.blockWidth * format.blockByteSize) {
-                return DAWN_VALIDATION_ERROR(
-                    "Row pitch must not be less than the number of bytes per row");
-            }
-
-            return {};
-        }
-
-        MaybeError ValidateImageOrigin(const Format& format, const Origin3D& offset) {
-            if (offset.x % format.blockWidth != 0) {
-                return DAWN_VALIDATION_ERROR(
-                    "Offset.x must be a multiple of compressed texture format block width");
-            }
-
-            if (offset.y % format.blockHeight != 0) {
-                return DAWN_VALIDATION_ERROR(
-                    "Offset.y must be a multiple of compressed texture format block height");
-            }
-
-            return {};
-        }
-
-        MaybeError ValidateImageCopySize(const Format& format, const Extent3D& extent) {
-            if (extent.width % format.blockWidth != 0) {
-                return DAWN_VALIDATION_ERROR(
-                    "Extent.width must be a multiple of compressed texture format block width");
-            }
-
-            if (extent.height % format.blockHeight != 0) {
-                return DAWN_VALIDATION_ERROR(
-                    "Extent.height must be a multiple of compressed texture format block height");
-            }
-
-            return {};
-        }
-
-        MaybeError ValidateCanUseAs(const BufferBase* buffer, wgpu::BufferUsage usage) {
-            ASSERT(wgpu::HasZeroOrOneBits(usage));
-            if (!(buffer->GetUsage() & usage)) {
-                return DAWN_VALIDATION_ERROR("buffer doesn't have the required usage.");
-            }
-
-            return {};
-        }
-
-        MaybeError ValidateCanUseAs(const TextureBase* texture, wgpu::TextureUsage usage) {
-            ASSERT(wgpu::HasZeroOrOneBits(usage));
-            if (!(texture->GetUsage() & usage)) {
-                return DAWN_VALIDATION_ERROR("texture doesn't have the required usage.");
+                    default:
+                        UNREACHABLE();
+                }
             }
 
             return {};
@@ -282,16 +119,15 @@ namespace dawn_native {
         MaybeError ValidateOrSetAttachmentSize(const TextureViewBase* attachment,
                                                uint32_t* width,
                                                uint32_t* height) {
-            const Extent3D& textureSize = attachment->GetTexture()->GetSize();
-            const uint32_t attachmentWidth = textureSize.width >> attachment->GetBaseMipLevel();
-            const uint32_t attachmentHeight = textureSize.height >> attachment->GetBaseMipLevel();
+            const Extent3D& attachmentSize =
+                attachment->GetTexture()->GetMipLevelVirtualSize(attachment->GetBaseMipLevel());
 
             if (*width == 0) {
                 DAWN_ASSERT(*height == 0);
-                *width = attachmentWidth;
-                *height = attachmentHeight;
+                *width = attachmentSize.width;
+                *height = attachmentSize.height;
                 DAWN_ASSERT(*width != 0 && *height != 0);
-            } else if (*width != attachmentWidth || *height != attachmentHeight) {
+            } else if (*width != attachmentSize.width || *height != attachmentSize.height) {
                 return DAWN_VALIDATION_ERROR("Attachment size mismatch");
             }
 
@@ -320,6 +156,8 @@ namespace dawn_native {
             const TextureViewBase* resolveTarget = colorAttachment.resolveTarget;
             const TextureViewBase* attachment = colorAttachment.attachment;
             DAWN_TRY(device->ValidateObject(colorAttachment.resolveTarget));
+            DAWN_TRY(ValidateCanUseAs(colorAttachment.resolveTarget->GetTexture(),
+                                      wgpu::TextureUsage::RenderAttachment));
 
             if (!attachment->GetTexture()->IsMultisampledTexture()) {
                 return DAWN_VALIDATION_ERROR(
@@ -370,9 +208,12 @@ namespace dawn_native {
             uint32_t* height,
             uint32_t* sampleCount) {
             DAWN_TRY(device->ValidateObject(colorAttachment.attachment));
+            DAWN_TRY(ValidateCanUseAs(colorAttachment.attachment->GetTexture(),
+                                      wgpu::TextureUsage::RenderAttachment));
 
             const TextureViewBase* attachment = colorAttachment.attachment;
-            if (!attachment->GetFormat().IsColor() || !attachment->GetFormat().isRenderable) {
+            if (!(attachment->GetAspects() & Aspect::Color) ||
+                !attachment->GetFormat().isRenderable) {
                 return DAWN_VALIDATION_ERROR(
                     "The format of the texture view used as color attachment is not color "
                     "renderable");
@@ -409,9 +250,11 @@ namespace dawn_native {
             DAWN_ASSERT(depthStencilAttachment != nullptr);
 
             DAWN_TRY(device->ValidateObject(depthStencilAttachment->attachment));
+            DAWN_TRY(ValidateCanUseAs(depthStencilAttachment->attachment->GetTexture(),
+                                      wgpu::TextureUsage::RenderAttachment));
 
             const TextureViewBase* attachment = depthStencilAttachment->attachment;
-            if (!attachment->GetFormat().HasDepthOrStencil() ||
+            if ((attachment->GetAspects() & (Aspect::Depth | Aspect::Stencil)) == Aspect::None ||
                 !attachment->GetFormat().isRenderable) {
                 return DAWN_VALIDATION_ERROR(
                     "The format of the texture view used as depth stencil attachment is not a "
@@ -423,15 +266,33 @@ namespace dawn_native {
             DAWN_TRY(ValidateStoreOp(depthStencilAttachment->depthStoreOp));
             DAWN_TRY(ValidateStoreOp(depthStencilAttachment->stencilStoreOp));
 
+            if (attachment->GetAspects() == (Aspect::Depth | Aspect::Stencil) &&
+                depthStencilAttachment->depthReadOnly != depthStencilAttachment->stencilReadOnly) {
+                return DAWN_VALIDATION_ERROR(
+                    "depthReadOnly and stencilReadOnly must be the same when texture aspect is "
+                    "'all'");
+            }
+
+            if (depthStencilAttachment->depthReadOnly &&
+                (depthStencilAttachment->depthLoadOp != wgpu::LoadOp::Load ||
+                 depthStencilAttachment->depthStoreOp != wgpu::StoreOp::Store)) {
+                return DAWN_VALIDATION_ERROR(
+                    "depthLoadOp must be load and depthStoreOp must be store when depthReadOnly "
+                    "is true.");
+            }
+
+            if (depthStencilAttachment->stencilReadOnly &&
+                (depthStencilAttachment->stencilLoadOp != wgpu::LoadOp::Load ||
+                 depthStencilAttachment->stencilStoreOp != wgpu::StoreOp::Store)) {
+                return DAWN_VALIDATION_ERROR(
+                    "stencilLoadOp must be load and stencilStoreOp must be store when "
+                    "stencilReadOnly "
+                    "is true.");
+            }
+
             if (depthStencilAttachment->depthLoadOp == wgpu::LoadOp::Clear &&
                 std::isnan(depthStencilAttachment->clearDepth)) {
                 return DAWN_VALIDATION_ERROR("Depth clear value cannot be NaN");
-            }
-
-            // This validates that the depth storeOp and stencil storeOps are the same
-            if (depthStencilAttachment->depthStoreOp != depthStencilAttachment->stencilStoreOp) {
-                return DAWN_VALIDATION_ERROR(
-                    "The depth storeOp and stencil storeOp are not the same");
             }
 
             // *sampleCount == 0 must only happen when there is no color attachment. In that case we
@@ -470,6 +331,22 @@ namespace dawn_native {
                     device, descriptor->depthStencilAttachment, width, height, sampleCount));
             }
 
+            if (descriptor->occlusionQuerySet != nullptr) {
+                DAWN_TRY(device->ValidateObject(descriptor->occlusionQuerySet));
+
+                // Occlusion query has not been implemented completely. Disallow it as unsafe until
+                // the implementaion is completed.
+                if (device->IsToggleEnabled(Toggle::DisallowUnsafeAPIs)) {
+                    return DAWN_VALIDATION_ERROR(
+                        "Occlusion query is disallowed because it has not been implemented "
+                        "completely.");
+                }
+
+                if (descriptor->occlusionQuerySet->GetQueryType() != wgpu::QueryType::Occlusion) {
+                    return DAWN_VALIDATION_ERROR("The type of query set must be Occlusion");
+                }
+            }
+
             if (descriptor->colorAttachmentCount == 0 &&
                 descriptor->depthStencilAttachment == nullptr) {
                 return DAWN_VALIDATION_ERROR("Cannot use render pass with no attachments.");
@@ -483,6 +360,79 @@ namespace dawn_native {
             return {};
         }
 
+        MaybeError ValidateQuerySetResolve(const QuerySetBase* querySet,
+                                           uint32_t firstQuery,
+                                           uint32_t queryCount,
+                                           const BufferBase* destination,
+                                           uint64_t destinationOffset) {
+            if (firstQuery >= querySet->GetQueryCount()) {
+                return DAWN_VALIDATION_ERROR("Query index out of bounds");
+            }
+
+            if (queryCount > querySet->GetQueryCount() - firstQuery) {
+                return DAWN_VALIDATION_ERROR(
+                    "The sum of firstQuery and queryCount exceeds the number of queries in query "
+                    "set");
+            }
+
+            // TODO(hao.x.li@intel.com): Validate that the queries between [firstQuery, firstQuery +
+            // queryCount - 1] must be available(written by query operations).
+
+            // The destinationOffset must be a multiple of 8 bytes on D3D12 and Vulkan
+            if (destinationOffset % 8 != 0) {
+                return DAWN_VALIDATION_ERROR(
+                    "The alignment offset into the destination buffer must be a multiple of 8 "
+                    "bytes");
+            }
+
+            uint64_t bufferSize = destination->GetSize();
+            // The destination buffer must have enough storage, from destination offset, to contain
+            // the result of resolved queries
+            bool fitsInBuffer = destinationOffset <= bufferSize &&
+                                (static_cast<uint64_t>(queryCount) * sizeof(uint64_t) <=
+                                 (bufferSize - destinationOffset));
+            if (!fitsInBuffer) {
+                return DAWN_VALIDATION_ERROR("The resolved query data would overflow the buffer");
+            }
+
+            return {};
+        }
+
+        void EncodeTimestampsToNanosecondsConversion(CommandEncoder* encoder,
+                                                     QuerySetBase* querySet,
+                                                     uint32_t queryCount,
+                                                     BufferBase* destination,
+                                                     uint64_t destinationOffset) {
+            DeviceBase* device = encoder->GetDevice();
+
+            // The availability got from query set is a reference to vector<bool>, need to covert
+            // bool to uint32_t due to a user input in pipeline must not contain a bool type in
+            // WGSL.
+            std::vector<uint32_t> availability{querySet->GetQueryAvailability().begin(),
+                                               querySet->GetQueryAvailability().end()};
+
+            // Timestamp availability storage buffer
+            BufferDescriptor availabilityDesc = {};
+            availabilityDesc.usage = wgpu::BufferUsage::Storage | wgpu::BufferUsage::CopyDst;
+            availabilityDesc.size = querySet->GetQueryCount() * sizeof(uint32_t);
+            Ref<BufferBase> availabilityBuffer =
+                AcquireRef(device->CreateBuffer(&availabilityDesc));
+            device->GetQueue()->WriteBuffer(availabilityBuffer.Get(), 0, availability.data(),
+                                            availability.size() * sizeof(uint32_t));
+
+            // Timestamp params uniform buffer
+            TimestampParams params = {queryCount, static_cast<uint32_t>(destinationOffset),
+                                      device->GetTimestampPeriodInNS()};
+            BufferDescriptor parmsDesc = {};
+            parmsDesc.usage = wgpu::BufferUsage::Uniform | wgpu::BufferUsage::CopyDst;
+            parmsDesc.size = sizeof(params);
+            Ref<BufferBase> paramsBuffer = AcquireRef(device->CreateBuffer(&parmsDesc));
+            device->GetQueue()->WriteBuffer(paramsBuffer.Get(), 0, &params, sizeof(params));
+
+            EncodeConvertTimestampsToNanoseconds(encoder, destination, availabilityBuffer.Get(),
+                                                 paramsBuffer.Get());
+        }
+
     }  // namespace
 
     CommandEncoder::CommandEncoder(DeviceBase* device, const CommandEncoderDescriptor*)
@@ -491,12 +441,36 @@ namespace dawn_native {
 
     CommandBufferResourceUsage CommandEncoder::AcquireResourceUsages() {
         return CommandBufferResourceUsage{mEncodingContext.AcquirePassUsages(),
-                                          std::move(mTopLevelBuffers),
-                                          std::move(mTopLevelTextures)};
+                                          std::move(mTopLevelBuffers), std::move(mTopLevelTextures),
+                                          std::move(mUsedQuerySets)};
     }
 
     CommandIterator CommandEncoder::AcquireCommands() {
         return mEncodingContext.AcquireCommands();
+    }
+
+    void CommandEncoder::TrackUsedQuerySet(QuerySetBase* querySet) {
+        mUsedQuerySets.insert(querySet);
+    }
+
+    void CommandEncoder::TrackQueryAvailability(QuerySetBase* querySet, uint32_t queryIndex) {
+        DAWN_ASSERT(querySet != nullptr);
+
+        if (GetDevice()->IsValidationEnabled()) {
+            TrackUsedQuerySet(querySet);
+        }
+
+        // Set the query at queryIndex to available for resolving in query set.
+        querySet->SetQueryAvailability(queryIndex, 1);
+
+        // Gets the iterator for that querySet or create a new vector of bool set to false
+        // if the querySet wasn't registered.
+        auto it = mQueryAvailabilityMap.emplace(querySet, querySet->GetQueryCount()).first;
+        it->second[queryIndex] = 1;
+    }
+
+    const QueryAvailabilityMap& CommandEncoder::GetQueryAvailabilityMap() const {
+        return mQueryAvailabilityMap;
     }
 
     // Implementation of the API's command recording methods
@@ -526,11 +500,13 @@ namespace dawn_native {
     RenderPassEncoder* CommandEncoder::BeginRenderPass(const RenderPassDescriptor* descriptor) {
         DeviceBase* device = GetDevice();
 
-        PassResourceUsageTracker usageTracker;
+        PassResourceUsageTracker usageTracker(PassType::Render);
+
+        uint32_t width = 0;
+        uint32_t height = 0;
+        Ref<AttachmentState> attachmentState;
         bool success =
             mEncodingContext.TryEncode(this, [&](CommandAllocator* allocator) -> MaybeError {
-                uint32_t width = 0;
-                uint32_t height = 0;
                 uint32_t sampleCount = 0;
 
                 DAWN_TRY(ValidateRenderPassDescriptor(device, descriptor, &width, &height,
@@ -542,24 +518,26 @@ namespace dawn_native {
                     allocator->Allocate<BeginRenderPassCmd>(Command::BeginRenderPass);
 
                 cmd->attachmentState = device->GetOrCreateAttachmentState(descriptor);
+                attachmentState = cmd->attachmentState;
 
-                for (uint32_t i : IterateBitSet(cmd->attachmentState->GetColorAttachmentsMask())) {
+                for (ColorAttachmentIndex index :
+                     IterateBitSet(cmd->attachmentState->GetColorAttachmentsMask())) {
+                    uint8_t i = static_cast<uint8_t>(index);
                     TextureViewBase* view = descriptor->colorAttachments[i].attachment;
                     TextureViewBase* resolveTarget = descriptor->colorAttachments[i].resolveTarget;
 
-                    cmd->colorAttachments[i].view = view;
-                    cmd->colorAttachments[i].resolveTarget = resolveTarget;
-                    cmd->colorAttachments[i].loadOp = descriptor->colorAttachments[i].loadOp;
-                    cmd->colorAttachments[i].storeOp = descriptor->colorAttachments[i].storeOp;
-                    cmd->colorAttachments[i].clearColor =
+                    cmd->colorAttachments[index].view = view;
+                    cmd->colorAttachments[index].resolveTarget = resolveTarget;
+                    cmd->colorAttachments[index].loadOp = descriptor->colorAttachments[i].loadOp;
+                    cmd->colorAttachments[index].storeOp = descriptor->colorAttachments[i].storeOp;
+                    cmd->colorAttachments[index].clearColor =
                         descriptor->colorAttachments[i].clearColor;
 
-                    usageTracker.TextureUsedAs(view->GetTexture(),
-                                               wgpu::TextureUsage::OutputAttachment);
+                    usageTracker.TextureViewUsedAs(view, wgpu::TextureUsage::RenderAttachment);
 
                     if (resolveTarget != nullptr) {
-                        usageTracker.TextureUsedAs(resolveTarget->GetTexture(),
-                                                   wgpu::TextureUsage::OutputAttachment);
+                        usageTracker.TextureViewUsedAs(resolveTarget,
+                                                       wgpu::TextureUsage::RenderAttachment);
                     }
                 }
 
@@ -580,19 +558,21 @@ namespace dawn_native {
                     cmd->depthStencilAttachment.stencilStoreOp =
                         descriptor->depthStencilAttachment->stencilStoreOp;
 
-                    usageTracker.TextureUsedAs(view->GetTexture(),
-                                               wgpu::TextureUsage::OutputAttachment);
+                    usageTracker.TextureViewUsedAs(view, wgpu::TextureUsage::RenderAttachment);
                 }
 
                 cmd->width = width;
                 cmd->height = height;
 
+                cmd->occlusionQuerySet = descriptor->occlusionQuerySet;
+
                 return {};
             });
 
         if (success) {
-            RenderPassEncoder* passEncoder =
-                new RenderPassEncoder(device, this, &mEncodingContext, std::move(usageTracker));
+            RenderPassEncoder* passEncoder = new RenderPassEncoder(
+                device, this, &mEncodingContext, std::move(usageTracker),
+                std::move(attachmentState), descriptor->occlusionQuerySet, width, height);
             mEncodingContext.EnterPass(passEncoder);
             return passEncoder;
         }
@@ -606,21 +586,37 @@ namespace dawn_native {
                                             uint64_t destinationOffset,
                                             uint64_t size) {
         mEncodingContext.TryEncode(this, [&](CommandAllocator* allocator) -> MaybeError {
-            DAWN_TRY(GetDevice()->ValidateObject(source));
-            DAWN_TRY(GetDevice()->ValidateObject(destination));
-
-            CopyBufferToBufferCmd* copy =
-                allocator->Allocate<CopyBufferToBufferCmd>(Command::CopyBufferToBuffer);
-            copy->source = source;
-            copy->sourceOffset = sourceOffset;
-            copy->destination = destination;
-            copy->destinationOffset = destinationOffset;
-            copy->size = size;
-
             if (GetDevice()->IsValidationEnabled()) {
+                DAWN_TRY(GetDevice()->ValidateObject(source));
+                DAWN_TRY(GetDevice()->ValidateObject(destination));
+
+                if (source == destination) {
+                    return DAWN_VALIDATION_ERROR(
+                        "Source and destination cannot be the same buffer.");
+                }
+
+                DAWN_TRY(ValidateCopySizeFitsInBuffer(source, sourceOffset, size));
+                DAWN_TRY(ValidateCopySizeFitsInBuffer(destination, destinationOffset, size));
+                DAWN_TRY(ValidateB2BCopyAlignment(size, sourceOffset, destinationOffset));
+
+                DAWN_TRY(ValidateCanUseAs(source, wgpu::BufferUsage::CopySrc));
+                DAWN_TRY(ValidateCanUseAs(destination, wgpu::BufferUsage::CopyDst));
+
                 mTopLevelBuffers.insert(source);
                 mTopLevelBuffers.insert(destination);
             }
+
+            // Skip noop copies. Some backends validation rules disallow them.
+            if (size != 0) {
+                CopyBufferToBufferCmd* copy =
+                    allocator->Allocate<CopyBufferToBufferCmd>(Command::CopyBufferToBuffer);
+                copy->source = source;
+                copy->sourceOffset = sourceOffset;
+                copy->destination = destination;
+                copy->destinationOffset = destinationOffset;
+                copy->size = size;
+            }
+
             return {};
         });
     }
@@ -629,34 +625,53 @@ namespace dawn_native {
                                              const TextureCopyView* destination,
                                              const Extent3D* copySize) {
         mEncodingContext.TryEncode(this, [&](CommandAllocator* allocator) -> MaybeError {
-            DAWN_TRY(GetDevice()->ValidateObject(source->buffer));
-            DAWN_TRY(GetDevice()->ValidateObject(destination->texture));
-
-            CopyBufferToTextureCmd* copy =
-                allocator->Allocate<CopyBufferToTextureCmd>(Command::CopyBufferToTexture);
-            copy->source.buffer = source->buffer;
-            copy->source.offset = source->offset;
-            copy->destination.texture = destination->texture;
-            copy->destination.origin = destination->origin;
-            copy->copySize = *copySize;
-            copy->destination.mipLevel = destination->mipLevel;
-            copy->destination.arrayLayer = destination->arrayLayer;
-            if (source->rowPitch == 0) {
-                copy->source.rowPitch =
-                    ComputeDefaultRowPitch(destination->texture->GetFormat(), copySize->width);
-            } else {
-                copy->source.rowPitch = source->rowPitch;
-            }
-            if (source->imageHeight == 0) {
-                copy->source.imageHeight = copySize->height;
-            } else {
-                copy->source.imageHeight = source->imageHeight;
-            }
-
             if (GetDevice()->IsValidationEnabled()) {
+                DAWN_TRY(ValidateBufferCopyView(GetDevice(), *source));
+                DAWN_TRY(ValidateCanUseAs(source->buffer, wgpu::BufferUsage::CopySrc));
+
+                DAWN_TRY(ValidateTextureCopyView(GetDevice(), *destination, *copySize));
+                DAWN_TRY(ValidateCanUseAs(destination->texture, wgpu::TextureUsage::CopyDst));
+                DAWN_TRY(ValidateTextureSampleCountInBufferCopyCommands(destination->texture));
+
+                DAWN_TRY(ValidateLinearToDepthStencilCopyRestrictions(*destination));
+                // We validate texture copy range before validating linear texture data,
+                // because in the latter we divide copyExtent.width by blockWidth and
+                // copyExtent.height by blockHeight while the divisibility conditions are
+                // checked in validating texture copy range.
+                DAWN_TRY(ValidateTextureCopyRange(*destination, *copySize));
+            }
+            const TexelBlockInfo& blockInfo =
+                destination->texture->GetFormat().GetAspectInfo(destination->aspect).block;
+            TextureDataLayout srcLayout = FixUpDeprecatedTextureDataLayoutOptions(
+                GetDevice(), source->layout, blockInfo, *copySize);
+            if (GetDevice()->IsValidationEnabled()) {
+                DAWN_TRY(ValidateLinearTextureCopyOffset(srcLayout, blockInfo));
+                DAWN_TRY(ValidateLinearTextureData(srcLayout, source->buffer->GetSize(), blockInfo,
+                                                   *copySize));
+
                 mTopLevelBuffers.insert(source->buffer);
                 mTopLevelTextures.insert(destination->texture);
             }
+
+            ApplyDefaultTextureDataLayoutOptions(&srcLayout, blockInfo, *copySize);
+
+            // Skip noop copies.
+            if (copySize->width != 0 && copySize->height != 0 && copySize->depth != 0) {
+                // Record the copy command.
+                CopyBufferToTextureCmd* copy =
+                    allocator->Allocate<CopyBufferToTextureCmd>(Command::CopyBufferToTexture);
+                copy->source.buffer = source->buffer;
+                copy->source.offset = srcLayout.offset;
+                copy->source.bytesPerRow = srcLayout.bytesPerRow;
+                copy->source.rowsPerImage = srcLayout.rowsPerImage;
+                copy->destination.texture = destination->texture;
+                copy->destination.origin = destination->origin;
+                copy->destination.mipLevel = destination->mipLevel;
+                copy->destination.aspect =
+                    ConvertAspect(destination->texture->GetFormat(), destination->aspect);
+                copy->copySize = *copySize;
+            }
+
             return {};
         });
     }
@@ -665,34 +680,52 @@ namespace dawn_native {
                                              const BufferCopyView* destination,
                                              const Extent3D* copySize) {
         mEncodingContext.TryEncode(this, [&](CommandAllocator* allocator) -> MaybeError {
-            DAWN_TRY(GetDevice()->ValidateObject(source->texture));
-            DAWN_TRY(GetDevice()->ValidateObject(destination->buffer));
-
-            CopyTextureToBufferCmd* copy =
-                allocator->Allocate<CopyTextureToBufferCmd>(Command::CopyTextureToBuffer);
-            copy->source.texture = source->texture;
-            copy->source.origin = source->origin;
-            copy->copySize = *copySize;
-            copy->source.mipLevel = source->mipLevel;
-            copy->source.arrayLayer = source->arrayLayer;
-            copy->destination.buffer = destination->buffer;
-            copy->destination.offset = destination->offset;
-            if (destination->rowPitch == 0) {
-                copy->destination.rowPitch =
-                    ComputeDefaultRowPitch(source->texture->GetFormat(), copySize->width);
-            } else {
-                copy->destination.rowPitch = destination->rowPitch;
-            }
-            if (destination->imageHeight == 0) {
-                copy->destination.imageHeight = copySize->height;
-            } else {
-                copy->destination.imageHeight = destination->imageHeight;
-            }
-
             if (GetDevice()->IsValidationEnabled()) {
+                DAWN_TRY(ValidateTextureCopyView(GetDevice(), *source, *copySize));
+                DAWN_TRY(ValidateCanUseAs(source->texture, wgpu::TextureUsage::CopySrc));
+                DAWN_TRY(ValidateTextureSampleCountInBufferCopyCommands(source->texture));
+                DAWN_TRY(ValidateTextureDepthStencilToBufferCopyRestrictions(*source));
+
+                DAWN_TRY(ValidateBufferCopyView(GetDevice(), *destination));
+                DAWN_TRY(ValidateCanUseAs(destination->buffer, wgpu::BufferUsage::CopyDst));
+
+                // We validate texture copy range before validating linear texture data,
+                // because in the latter we divide copyExtent.width by blockWidth and
+                // copyExtent.height by blockHeight while the divisibility conditions are
+                // checked in validating texture copy range.
+                DAWN_TRY(ValidateTextureCopyRange(*source, *copySize));
+            }
+            const TexelBlockInfo& blockInfo =
+                source->texture->GetFormat().GetAspectInfo(source->aspect).block;
+            TextureDataLayout dstLayout = FixUpDeprecatedTextureDataLayoutOptions(
+                GetDevice(), destination->layout, blockInfo, *copySize);
+            if (GetDevice()->IsValidationEnabled()) {
+                DAWN_TRY(ValidateLinearTextureCopyOffset(dstLayout, blockInfo));
+                DAWN_TRY(ValidateLinearTextureData(dstLayout, destination->buffer->GetSize(),
+                                                   blockInfo, *copySize));
+
                 mTopLevelTextures.insert(source->texture);
                 mTopLevelBuffers.insert(destination->buffer);
             }
+
+            ApplyDefaultTextureDataLayoutOptions(&dstLayout, blockInfo, *copySize);
+
+            // Skip noop copies.
+            if (copySize->width != 0 && copySize->height != 0 && copySize->depth != 0) {
+                // Record the copy command.
+                CopyTextureToBufferCmd* copy =
+                    allocator->Allocate<CopyTextureToBufferCmd>(Command::CopyTextureToBuffer);
+                copy->source.texture = source->texture;
+                copy->source.origin = source->origin;
+                copy->source.mipLevel = source->mipLevel;
+                copy->source.aspect = ConvertAspect(source->texture->GetFormat(), source->aspect);
+                copy->destination.buffer = destination->buffer;
+                copy->destination.offset = dstLayout.offset;
+                copy->destination.bytesPerRow = dstLayout.bytesPerRow;
+                copy->destination.rowsPerImage = dstLayout.rowsPerImage;
+                copy->copySize = *copySize;
+            }
+
             return {};
         });
     }
@@ -701,27 +734,50 @@ namespace dawn_native {
                                               const TextureCopyView* destination,
                                               const Extent3D* copySize) {
         mEncodingContext.TryEncode(this, [&](CommandAllocator* allocator) -> MaybeError {
-            DAWN_TRY(GetDevice()->ValidateObject(source->texture));
-            DAWN_TRY(GetDevice()->ValidateObject(destination->texture));
-
-            CopyTextureToTextureCmd* copy =
-                allocator->Allocate<CopyTextureToTextureCmd>(Command::CopyTextureToTexture);
-            copy->source.texture = source->texture;
-            copy->source.origin = source->origin;
-            copy->source.mipLevel = source->mipLevel;
-            copy->source.arrayLayer = source->arrayLayer;
-            copy->destination.texture = destination->texture;
-            copy->destination.origin = destination->origin;
-            copy->destination.mipLevel = destination->mipLevel;
-            copy->destination.arrayLayer = destination->arrayLayer;
-            copy->copySize = *copySize;
-
             if (GetDevice()->IsValidationEnabled()) {
+                DAWN_TRY(GetDevice()->ValidateObject(source->texture));
+                DAWN_TRY(GetDevice()->ValidateObject(destination->texture));
+
+                DAWN_TRY(ValidateTextureCopyView(GetDevice(), *source, *copySize));
+                DAWN_TRY(ValidateTextureCopyView(GetDevice(), *destination, *copySize));
+
+                DAWN_TRY(
+                    ValidateTextureToTextureCopyRestrictions(*source, *destination, *copySize));
+
+                DAWN_TRY(ValidateTextureCopyRange(*source, *copySize));
+                DAWN_TRY(ValidateTextureCopyRange(*destination, *copySize));
+
+                DAWN_TRY(ValidateCanUseAs(source->texture, wgpu::TextureUsage::CopySrc));
+                DAWN_TRY(ValidateCanUseAs(destination->texture, wgpu::TextureUsage::CopyDst));
+
                 mTopLevelTextures.insert(source->texture);
                 mTopLevelTextures.insert(destination->texture);
             }
+
+            // Skip noop copies.
+            if (copySize->width != 0 && copySize->height != 0 && copySize->depth != 0) {
+                CopyTextureToTextureCmd* copy =
+                    allocator->Allocate<CopyTextureToTextureCmd>(Command::CopyTextureToTexture);
+                copy->source.texture = source->texture;
+                copy->source.origin = source->origin;
+                copy->source.mipLevel = source->mipLevel;
+                copy->source.aspect = ConvertAspect(source->texture->GetFormat(), source->aspect);
+                copy->destination.texture = destination->texture;
+                copy->destination.origin = destination->origin;
+                copy->destination.mipLevel = destination->mipLevel;
+                copy->destination.aspect =
+                    ConvertAspect(destination->texture->GetFormat(), destination->aspect);
+                copy->copySize = *copySize;
+            }
+
             return {};
         });
+    }
+
+    void CommandEncoder::InjectValidationError(const char* message) {
+        if (mEncodingContext.CheckCurrentEncoder(this)) {
+            mEncodingContext.HandleError(InternalErrorType::Validation, message);
+        }
     }
 
     void CommandEncoder::InsertDebugMarker(const char* groupLabel) {
@@ -739,7 +795,13 @@ namespace dawn_native {
 
     void CommandEncoder::PopDebugGroup() {
         mEncodingContext.TryEncode(this, [&](CommandAllocator* allocator) -> MaybeError {
+            if (GetDevice()->IsValidationEnabled()) {
+                if (mDebugGroupStackSize == 0) {
+                    return DAWN_VALIDATION_ERROR("Pop must be balanced by a corresponding Push.");
+                }
+            }
             allocator->Allocate<PopDebugGroupCmd>(Command::PopDebugGroup);
+            mDebugGroupStackSize--;
 
             return {};
         });
@@ -753,6 +815,64 @@ namespace dawn_native {
 
             char* label = allocator->AllocateData<char>(cmd->length + 1);
             memcpy(label, groupLabel, cmd->length + 1);
+
+            mDebugGroupStackSize++;
+
+            return {};
+        });
+    }
+
+    void CommandEncoder::ResolveQuerySet(QuerySetBase* querySet,
+                                         uint32_t firstQuery,
+                                         uint32_t queryCount,
+                                         BufferBase* destination,
+                                         uint64_t destinationOffset) {
+        mEncodingContext.TryEncode(this, [&](CommandAllocator* allocator) -> MaybeError {
+            if (GetDevice()->IsValidationEnabled()) {
+                DAWN_TRY(GetDevice()->ValidateObject(querySet));
+                DAWN_TRY(GetDevice()->ValidateObject(destination));
+
+                DAWN_TRY(ValidateQuerySetResolve(querySet, firstQuery, queryCount, destination,
+                                                 destinationOffset));
+
+                DAWN_TRY(ValidateCanUseAs(destination, wgpu::BufferUsage::QueryResolve));
+
+                TrackUsedQuerySet(querySet);
+                mTopLevelBuffers.insert(destination);
+            }
+
+            ResolveQuerySetCmd* cmd =
+                allocator->Allocate<ResolveQuerySetCmd>(Command::ResolveQuerySet);
+            cmd->querySet = querySet;
+            cmd->firstQuery = firstQuery;
+            cmd->queryCount = queryCount;
+            cmd->destination = destination;
+            cmd->destinationOffset = destinationOffset;
+
+            // Encode internal compute pipeline for timestamp query
+            if (querySet->GetQueryType() == wgpu::QueryType::Timestamp &&
+                GetDevice()->IsToggleEnabled(Toggle::ConvertTimestampsToNanoseconds)) {
+                EncodeTimestampsToNanosecondsConversion(this, querySet, queryCount, destination,
+                                                        destinationOffset);
+            }
+
+            return {};
+        });
+    }
+
+    void CommandEncoder::WriteTimestamp(QuerySetBase* querySet, uint32_t queryIndex) {
+        mEncodingContext.TryEncode(this, [&](CommandAllocator* allocator) -> MaybeError {
+            if (GetDevice()->IsValidationEnabled()) {
+                DAWN_TRY(GetDevice()->ValidateObject(querySet));
+                DAWN_TRY(ValidateTimestampQuery(querySet, queryIndex));
+            }
+
+            TrackQueryAvailability(querySet, queryIndex);
+
+            WriteTimestampCmd* cmd =
+                allocator->Allocate<WriteTimestampCmd>(Command::WriteTimestamp);
+            cmd->querySet = querySet;
+            cmd->queryIndex = queryIndex;
 
             return {};
         });
@@ -784,159 +904,9 @@ namespace dawn_native {
             DAWN_TRY(ValidatePassResourceUsage(passUsage));
         }
 
-        uint64_t debugGroupStackSize = 0;
-
-        commands->Reset();
-        Command type;
-        while (commands->NextCommandId(&type)) {
-            switch (type) {
-                case Command::BeginComputePass: {
-                    commands->NextCommand<BeginComputePassCmd>();
-                    DAWN_TRY(ValidateComputePass(commands));
-                    break;
-                }
-
-                case Command::BeginRenderPass: {
-                    const BeginRenderPassCmd* cmd = commands->NextCommand<BeginRenderPassCmd>();
-                    DAWN_TRY(ValidateRenderPass(commands, cmd));
-                    break;
-                }
-
-                case Command::CopyBufferToBuffer: {
-                    const CopyBufferToBufferCmd* copy =
-                        commands->NextCommand<CopyBufferToBufferCmd>();
-
-                    DAWN_TRY(
-                        ValidateCopySizeFitsInBuffer(copy->source, copy->sourceOffset, copy->size));
-                    DAWN_TRY(ValidateCopySizeFitsInBuffer(copy->destination,
-                                                          copy->destinationOffset, copy->size));
-                    DAWN_TRY(ValidateB2BCopySizeAlignment(copy->size, copy->sourceOffset,
-                                                          copy->destinationOffset));
-
-                    DAWN_TRY(ValidateCanUseAs(copy->source.Get(), wgpu::BufferUsage::CopySrc));
-                    DAWN_TRY(ValidateCanUseAs(copy->destination.Get(), wgpu::BufferUsage::CopyDst));
-                    break;
-                }
-
-                case Command::CopyBufferToTexture: {
-                    const CopyBufferToTextureCmd* copy =
-                        commands->NextCommand<CopyBufferToTextureCmd>();
-
-                    DAWN_TRY(
-                        ValidateTextureSampleCountInCopyCommands(copy->destination.texture.Get()));
-
-                    DAWN_TRY(ValidateImageHeight(copy->destination.texture->GetFormat(),
-                                                 copy->source.imageHeight, copy->copySize.height));
-                    DAWN_TRY(ValidateImageOrigin(copy->destination.texture->GetFormat(),
-                                                 copy->destination.origin));
-                    DAWN_TRY(ValidateImageCopySize(copy->destination.texture->GetFormat(),
-                                                   copy->copySize));
-
-                    uint32_t bufferCopySize = 0;
-                    DAWN_TRY(ValidateRowPitch(copy->destination.texture->GetFormat(),
-                                              copy->copySize, copy->source.rowPitch));
-
-                    DAWN_TRY(ComputeTextureCopyBufferSize(
-                        copy->destination.texture->GetFormat(), copy->copySize,
-                        copy->source.rowPitch, copy->source.imageHeight, &bufferCopySize));
-
-                    DAWN_TRY(ValidateCopySizeFitsInTexture(copy->destination, copy->copySize));
-                    DAWN_TRY(ValidateCopySizeFitsInBuffer(copy->source, bufferCopySize));
-                    DAWN_TRY(ValidateTexelBufferOffset(copy->source,
-                                                       copy->destination.texture->GetFormat()));
-
-                    DAWN_TRY(
-                        ValidateCanUseAs(copy->source.buffer.Get(), wgpu::BufferUsage::CopySrc));
-                    DAWN_TRY(ValidateCanUseAs(copy->destination.texture.Get(),
-                                              wgpu::TextureUsage::CopyDst));
-                    break;
-                }
-
-                case Command::CopyTextureToBuffer: {
-                    const CopyTextureToBufferCmd* copy =
-                        commands->NextCommand<CopyTextureToBufferCmd>();
-
-                    DAWN_TRY(ValidateTextureSampleCountInCopyCommands(copy->source.texture.Get()));
-
-                    DAWN_TRY(ValidateImageHeight(copy->source.texture->GetFormat(),
-                                                 copy->destination.imageHeight,
-                                                 copy->copySize.height));
-                    DAWN_TRY(ValidateImageOrigin(copy->source.texture->GetFormat(),
-                                                 copy->source.origin));
-                    DAWN_TRY(
-                        ValidateImageCopySize(copy->source.texture->GetFormat(), copy->copySize));
-
-                    uint32_t bufferCopySize = 0;
-                    DAWN_TRY(ValidateRowPitch(copy->source.texture->GetFormat(), copy->copySize,
-                                              copy->destination.rowPitch));
-                    DAWN_TRY(ComputeTextureCopyBufferSize(
-                        copy->source.texture->GetFormat(), copy->copySize,
-                        copy->destination.rowPitch, copy->destination.imageHeight,
-                        &bufferCopySize));
-
-                    DAWN_TRY(ValidateCopySizeFitsInTexture(copy->source, copy->copySize));
-                    DAWN_TRY(ValidateCopySizeFitsInBuffer(copy->destination, bufferCopySize));
-                    DAWN_TRY(ValidateTexelBufferOffset(copy->destination,
-                                                       copy->source.texture->GetFormat()));
-
-                    DAWN_TRY(
-                        ValidateCanUseAs(copy->source.texture.Get(), wgpu::TextureUsage::CopySrc));
-                    DAWN_TRY(ValidateCanUseAs(copy->destination.buffer.Get(),
-                                              wgpu::BufferUsage::CopyDst));
-                    break;
-                }
-
-                case Command::CopyTextureToTexture: {
-                    const CopyTextureToTextureCmd* copy =
-                        commands->NextCommand<CopyTextureToTextureCmd>();
-
-                    DAWN_TRY(ValidateTextureToTextureCopyRestrictions(
-                        copy->source, copy->destination, copy->copySize));
-
-                    DAWN_TRY(ValidateImageOrigin(copy->source.texture->GetFormat(),
-                                                 copy->source.origin));
-                    DAWN_TRY(
-                        ValidateImageCopySize(copy->source.texture->GetFormat(), copy->copySize));
-                    DAWN_TRY(ValidateImageOrigin(copy->destination.texture->GetFormat(),
-                                                 copy->destination.origin));
-                    DAWN_TRY(ValidateImageCopySize(copy->destination.texture->GetFormat(),
-                                                   copy->copySize));
-
-                    DAWN_TRY(ValidateCopySizeFitsInTexture(copy->source, copy->copySize));
-                    DAWN_TRY(ValidateCopySizeFitsInTexture(copy->destination, copy->copySize));
-
-                    DAWN_TRY(
-                        ValidateCanUseAs(copy->source.texture.Get(), wgpu::TextureUsage::CopySrc));
-                    DAWN_TRY(ValidateCanUseAs(copy->destination.texture.Get(),
-                                              wgpu::TextureUsage::CopyDst));
-                    break;
-                }
-
-                case Command::InsertDebugMarker: {
-                    const InsertDebugMarkerCmd* cmd = commands->NextCommand<InsertDebugMarkerCmd>();
-                    commands->NextData<char>(cmd->length + 1);
-                    break;
-                }
-
-                case Command::PopDebugGroup: {
-                    commands->NextCommand<PopDebugGroupCmd>();
-                    DAWN_TRY(ValidateCanPopDebugGroup(debugGroupStackSize));
-                    debugGroupStackSize--;
-                    break;
-                }
-
-                case Command::PushDebugGroup: {
-                    const PushDebugGroupCmd* cmd = commands->NextCommand<PushDebugGroupCmd>();
-                    commands->NextData<char>(cmd->length + 1);
-                    debugGroupStackSize++;
-                    break;
-                }
-                default:
-                    return DAWN_VALIDATION_ERROR("Command disallowed outside of a pass");
-            }
+        if (mDebugGroupStackSize != 0) {
+            return DAWN_VALIDATION_ERROR("Each Push must be balanced by a corresponding Pop.");
         }
-
-        DAWN_TRY(ValidateFinalDebugGroupStackSize(debugGroupStackSize));
 
         return {};
     }

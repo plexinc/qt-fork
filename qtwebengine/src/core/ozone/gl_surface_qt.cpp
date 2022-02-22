@@ -41,44 +41,31 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE.Chromium file.
 
+#if !defined(OS_MAC)
+
 #include "gl_surface_qt.h"
-
-#if !defined(OS_MACOSX)
-
-#include <QGuiApplication>
-#include "gl_context_qt.h"
 #include "qtwebenginecoreglobal_p.h"
-#include "web_engine_context.h"
-#include "ozone/gl_surface_egl_qt.h"
 
 #include "base/logging.h"
-#include "base/threading/thread_restrictions.h"
-#include "gpu/ipc/service/image_transport_surface.h"
-#include "ui/gl/gl_bindings.h"
-#include "ui/gl/gl_context.h"
-#include "ui/gl/gl_implementation.h"
-#include "ui/gl/init/gl_initializer.h"
-#include "ui/gl/init/gl_factory.h"
-#include "ui/gl/gl_gl_api_implementation.h"
-#if defined(OS_WIN)
-#include "ozone/gl_surface_wgl_qt.h"
 
+#if defined(OS_WIN)
+#include "web_engine_context.h"
+#include "ozone/gl_surface_wgl_qt.h"
+#include "ozone/gl_surface_egl_qt.h"
+
+#include "gpu/ipc/service/image_transport_surface.h"
+#include "ui/gl/gl_implementation.h"
 #include "ui/gl/direct_composition_surface_win.h"
 #include "ui/gl/vsync_provider_win.h"
 #endif
 
-#include "ozone/gl_surface_egl_qt.h"
-#include "ui/gl/gl_egl_api_implementation.h"
 
 namespace gl {
 
-namespace {
-bool g_initializedEGL = false;
-}
-
-void* GLSurfaceQt::g_display = nullptr;
-void* GLSurfaceQt::g_config = nullptr;
-const char* GLSurfaceQt::g_extensions = nullptr;
+void *GLSurfaceQt::g_display = nullptr;
+void *GLSurfaceQt::g_config = nullptr;
+const char *GLSurfaceQt::g_client_extensions = nullptr;
+const char *GLSurfaceQt::g_extensions = nullptr;
 
 GLSurfaceQt::~GLSurfaceQt()
 {
@@ -143,15 +130,8 @@ bool InitializeGLOneOffPlatform()
     if (GetGLImplementation() == kGLImplementationEGLGLES2 || GetGLImplementation() == kGLImplementationEGLANGLE)
         return GLSurfaceEGLQt::InitializeOneOff();
 
-    if (GetGLImplementation() == kGLImplementationDesktopGL) {
+    if (GetGLImplementation() == kGLImplementationDesktopGL)
         return GLSurfaceWGLQt::InitializeOneOff();
-
-        // Fallback to trying EGL with desktop GL.
-        if (GLSurfaceEGLQt::InitializeOneOff()) {
-            g_initializedEGL = true;
-            return true;
-        }
-    }
 
     return false;
 }
@@ -254,6 +234,14 @@ UINT DirectCompositionSurfaceWin::GetOverlaySupportFlags(DXGI_FORMAT format)
     Q_UNUSED(format);
     return 0;
 }
+
+void DirectCompositionSurfaceWin::DisableDecodeSwapChain()
+{
+}
+
+void DirectCompositionSurfaceWin::DisableSoftwareOverlays()
+{
+}
 } // namespace gl
 #endif
-#endif // !defined(OS_MACOSX)
+#endif // !defined(OS_MAC)

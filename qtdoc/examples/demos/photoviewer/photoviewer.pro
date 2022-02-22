@@ -1,6 +1,6 @@
 TEMPLATE = app
 
-QT += qml quick xmlpatterns
+QT += qml quick
 CONFIG += lrelease embed_translations
 
 SOURCES += main.cpp

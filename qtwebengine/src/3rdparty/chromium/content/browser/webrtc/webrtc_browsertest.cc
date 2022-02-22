@@ -10,6 +10,7 @@
 #include "content/browser/webrtc/webrtc_content_browsertest_base.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/network_service_util.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test_utils.h"
 #include "content/public/test/test_utils.h"
@@ -60,7 +61,15 @@ IN_PROC_BROWSER_TEST_F(MAYBE_WebRtcBrowserTest, CanSetupAudioAndVideoCall) {
   MakeTypicalPeerConnectionCall("call({video: true, audio: true});");
 }
 
-IN_PROC_BROWSER_TEST_F(MAYBE_WebRtcBrowserTest, NetworkProcessCrashRecovery) {
+#if defined(OS_ANDROID)
+// Flaky on Android https://crbug.com/1099365
+#define MAYBE_NetworkProcessCrashRecovery DISABLED_NetworkProcessCrashRecovery
+#else
+#define MAYBE_NetworkProcessCrashRecovery NetworkProcessCrashRecovery
+#endif
+
+IN_PROC_BROWSER_TEST_F(MAYBE_WebRtcBrowserTest,
+                       MAYBE_NetworkProcessCrashRecovery) {
   if (!IsOutOfProcessNetworkService())
     return;
   MakeTypicalPeerConnectionCall("call({video: true, audio: true});");
@@ -255,10 +264,8 @@ IN_PROC_BROWSER_TEST_F(
 #if defined(OS_ANDROID) && BUILDFLAG(USE_PROPRIETARY_CODECS)
 // This test is to make sure HW H264 work normally on supported devices, since
 // there is no SW H264 fallback available on Android.
-// TODO(crbug.com/1047994): Disabled due to flakiness caused by timing issue
-// in blink HW codec factories.
 IN_PROC_BROWSER_TEST_F(MAYBE_WebRtcBrowserTest,
-                       DISABLED_CanSetupH264VideoCallOnSupportedDevice) {
+                       CanSetupH264VideoCallOnSupportedDevice) {
   MakeTypicalPeerConnectionCall("CanSetupH264VideoCallOnSupportedDevice();");
 }
 #endif

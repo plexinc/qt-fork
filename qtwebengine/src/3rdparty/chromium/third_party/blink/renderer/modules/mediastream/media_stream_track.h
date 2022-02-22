@@ -33,6 +33,7 @@
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/mediastream/media_stream_descriptor.h"
 #include "third_party/blink/renderer/platform/mediastream/media_stream_source.h"
+#include "third_party/blink/renderer/platform/scheduler/public/frame_scheduler.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 
 namespace blink {
@@ -50,47 +51,54 @@ class MODULES_EXPORT MediaStreamTrack
     : public EventTargetWithInlineData,
       public ActiveScriptWrappable<MediaStreamTrack>,
       public MediaStreamSource::Observer {
-  USING_GARBAGE_COLLECTED_MIXIN(MediaStreamTrack);
   DEFINE_WRAPPERTYPEINFO();
 
  public:
+  class MODULES_EXPORT Observer : public GarbageCollectedMixin {
+   public:
+    virtual ~Observer() = default;
+    virtual void TrackChangedState() = 0;
+  };
+
   MediaStreamTrack(ExecutionContext*, MediaStreamComponent*);
   MediaStreamTrack(ExecutionContext*,
                    MediaStreamComponent*,
-                   MediaStreamSource::ReadyState);
+                   base::OnceClosure callback);
+  MediaStreamTrack(ExecutionContext*,
+                   MediaStreamComponent*,
+                   MediaStreamSource::ReadyState,
+                   base::OnceClosure callback);
   ~MediaStreamTrack() override;
 
+  // MediaStreamTrack.idl
   String kind() const;
   String id() const;
   String label() const;
-
   bool enabled() const;
   void setEnabled(bool);
-
   bool muted() const;
-
   String ContentHint() const;
   void SetContentHint(const String&);
-
   String readyState() const;
-
-  void stopTrack(ExecutionContext*);
   virtual MediaStreamTrack* clone(ScriptState*);
-
-  // This function is called when constrains have been successfully applied.
-  // Called from UserMediaRequest when it succeeds. It is not IDL-exposed.
-  void SetConstraints(const MediaConstraints&);
-
+  void stopTrack(ExecutionContext*);
   MediaTrackCapabilities* getCapabilities() const;
   MediaTrackConstraints* getConstraints() const;
   MediaTrackSettings* getSettings() const;
   ScriptPromise applyConstraints(ScriptState*, const MediaTrackConstraints*);
 
+  // This function is called when constrains have been successfully applied.
+  // Called from UserMediaRequest when it succeeds. It is not IDL-exposed.
+  void SetConstraints(const MediaConstraints&);
+
   DEFINE_ATTRIBUTE_EVENT_LISTENER(mute, kMute)
   DEFINE_ATTRIBUTE_EVENT_LISTENER(unmute, kUnmute)
   DEFINE_ATTRIBUTE_EVENT_LISTENER(ended, kEnded)
 
-  MediaStreamComponent* Component() { return component_; }
+  // Returns the enum value of the ready state.
+  MediaStreamSource::ReadyState GetReadyState() { return ready_state_; }
+
+  MediaStreamComponent* Component() const { return component_; }
   bool Ended() const;
 
   void RegisterMediaStream(MediaStream*);
@@ -106,7 +114,11 @@ class MODULES_EXPORT MediaStreamTrack
   std::unique_ptr<AudioSourceProvider> CreateWebAudioSource(
       int context_sample_rate);
 
-  void Trace(Visitor*) override;
+  ImageCapture* GetImageCapture() { return image_capture_; }
+
+  void AddObserver(Observer*);
+
+  void Trace(Visitor*) const override;
 
  private:
   friend class CanvasCaptureMediaStreamTrack;
@@ -120,12 +132,24 @@ class MODULES_EXPORT MediaStreamTrack
 
   std::string GetTrackLogString() const;
 
+  // Ensures that |feature_handle_for_scheduler_| is initialized.
+  void EnsureFeatureHandleForScheduler();
+
+  void setReadyState(MediaStreamSource::ReadyState ready_state);
+
+  // This handle notifies the scheduler about a live media stream track
+  // associated with a frame. The handle should be destroyed when the track
+  // is stopped.
+  FrameScheduler::SchedulingAffectingFeatureHandle
+      feature_handle_for_scheduler_;
+
   MediaStreamSource::ReadyState ready_state_;
   HeapHashSet<Member<MediaStream>> registered_media_streams_;
   bool is_iterating_registered_media_streams_ = false;
   Member<MediaStreamComponent> component_;
   Member<ImageCapture> image_capture_;
   WeakMember<ExecutionContext> execution_context_;
+  HeapHashSet<WeakMember<Observer>> observers_;
 };
 
 typedef HeapVector<Member<MediaStreamTrack>> MediaStreamTrackVector;

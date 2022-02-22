@@ -26,11 +26,14 @@
 #include "third_party/blink/renderer/core/html/forms/html_button_element.h"
 
 #include "third_party/blink/renderer/core/dom/attribute.h"
+#include "third_party/blink/renderer/core/dom/events/simulated_click_options.h"
 #include "third_party/blink/renderer/core/events/keyboard_event.h"
+#include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/html/forms/form_data.h"
 #include "third_party/blink/renderer/core/html/forms/html_form_element.h"
 #include "third_party/blink/renderer/core/html_names.h"
-#include "third_party/blink/renderer/core/layout/layout_button.h"
+#include "third_party/blink/renderer/core/layout/layout_object_factory.h"
+#include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 
 namespace blink {
@@ -53,7 +56,7 @@ LayoutObject* HTMLButtonElement::CreateLayoutObject(const ComputedStyle& style,
       display == EDisplay::kInlineLayoutCustom ||
       display == EDisplay::kLayoutCustom)
     return HTMLFormControlElement::CreateLayoutObject(style, legacy);
-  return new LayoutButton(this);
+  return LayoutObjectFactory::CreateButton(*this, style, legacy);
 }
 
 const AtomicString& HTMLButtonElement::FormControlType() const {
@@ -152,11 +155,10 @@ void HTMLButtonElement::AppendToFormData(FormData& form_data) {
     form_data.AppendFromElement(GetName(), Value());
 }
 
-void HTMLButtonElement::AccessKeyAction(bool send_mouse_events) {
+void HTMLButtonElement::AccessKeyAction(
+    SimulatedClickCreationScope creation_scope) {
   focus();
-
-  DispatchSimulatedClick(
-      nullptr, send_mouse_events ? kSendMouseUpDownEvents : kSendNoEvents);
+  DispatchSimulatedClick(nullptr, creation_scope);
 }
 
 bool HTMLButtonElement::IsURLAttribute(const Attribute& attribute) const {

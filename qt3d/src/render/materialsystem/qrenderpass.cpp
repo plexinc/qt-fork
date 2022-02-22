@@ -71,8 +71,8 @@ QRenderPassPrivate::QRenderPassPrivate()
 
     RenderPass executes the ShaderProgram using the given RenderState and
     Parameter nodes when at least one of FilterKey nodes being referenced
-    matches any of the FilterKey nodes in RenderPassFilter or when no FilterKey
-    nodes are specified and no RenderPassFilter is present in the FrameGraph.
+    matches any of the FilterKey nodes in RenderPassFilter or when no
+    RenderPassFilter is present in the FrameGraph.
 
     If the RenderPass defines a Parameter, it will be overridden by a Parameter
     with the same name if it exists in any of the Technique, Effect, Material,
@@ -274,7 +274,7 @@ void QRenderPass::addFilterKey(QFilterKey *filterKey)
         if (!filterKey->parent())
             filterKey->setParent(this);
 
-        d->updateNode(filterKey, "filterKeys", Qt3DCore::PropertyValueAdded);
+        d->update();
     }
 }
 
@@ -287,7 +287,7 @@ void QRenderPass::removeFilterKey(QFilterKey *filterKey)
     Q_D(QRenderPass);
     if (!d->m_filterKeyList.removeOne(filterKey))
         return;
-    d->updateNode(filterKey, "filterKeys", Qt3DCore::PropertyValueRemoved);
+    d->update();
     // Remove bookkeeping connection
     d->unregisterDestructionHelper(filterKey);
 }
@@ -296,7 +296,7 @@ void QRenderPass::removeFilterKey(QFilterKey *filterKey)
     Returns the list of Qt3DRender::QFilterKey key objects making up the filter keys
     of the Qt3DRender::QRenderPass.
  */
-QVector<QFilterKey *> QRenderPass::filterKeys() const
+QList<QFilterKey *> QRenderPass::filterKeys() const
 {
     Q_D(const QRenderPass);
     return d->m_filterKeyList;
@@ -323,7 +323,7 @@ void QRenderPass::addRenderState(QRenderState *state)
         if (!state->parent())
             state->setParent(this);
 
-        d->updateNode(state, "renderState", Qt3DCore::PropertyValueAdded);
+        d->update();
     }
 }
 
@@ -336,7 +336,7 @@ void QRenderPass::removeRenderState(QRenderState *state)
     Q_D(QRenderPass);
     if (!d->m_renderStates.removeOne(state))
         return;
-    d->updateNode(state, "renderState", Qt3DCore::PropertyValueRemoved);
+    d->update();
     // Remove bookkeeping connection
     d->unregisterDestructionHelper(state);
 }
@@ -345,7 +345,7 @@ void QRenderPass::removeRenderState(QRenderState *state)
     Returns the list of Qt3DRender::QRenderState state objects making up the render
     state of the Qt3DRender::QRenderPass.
  */
-QVector<QRenderState *> QRenderPass::renderStates() const
+QList<QRenderState *> QRenderPass::renderStates() const
 {
     Q_D(const QRenderPass);
     return d->m_renderStates;
@@ -371,7 +371,7 @@ void QRenderPass::addParameter(QParameter *parameter)
         if (!parameter->parent())
             parameter->setParent(this);
 
-        d->updateNode(parameter, "parameter", Qt3DCore::PropertyValueAdded);
+        d->update();
     }
 }
 
@@ -384,7 +384,7 @@ void QRenderPass::removeParameter(QParameter *parameter)
     Q_D(QRenderPass);
     if (!d->m_parameters.removeOne(parameter))
         return;
-    d->updateNode(parameter, "parameter", Qt3DCore::PropertyValueRemoved);
+    d->update();
     // Remove bookkeeping connection
     d->unregisterDestructionHelper(parameter);
 }
@@ -396,18 +396,6 @@ ParameterList QRenderPass::parameters() const
 {
     Q_D(const QRenderPass);
     return d->m_parameters;
-}
-
-Qt3DCore::QNodeCreatedChangeBasePtr QRenderPass::createNodeCreationChange() const
-{
-    auto creationChange = Qt3DCore::QNodeCreatedChangePtr<QRenderPassData>::create(this);
-    auto &data = creationChange->data;
-    Q_D(const QRenderPass);
-    data.filterKeyIds = qIdsForNodes(d->m_filterKeyList);
-    data.parameterIds = qIdsForNodes(d->m_parameters);
-    data.renderStateIds = qIdsForNodes(d->m_renderStates);
-    data.shaderId = qIdForNode(d->m_shader);
-    return creationChange;
 }
 
 } // namespace Qt3DRender

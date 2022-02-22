@@ -48,8 +48,8 @@
 **
 ****************************************************************************/
 
-import QtQuick3D 1.15
-import QtQuick 2.15
+import QtQuick3D
+import QtQuick
 
 Rectangle {
     id: primitives
@@ -97,7 +97,6 @@ Rectangle {
                 specularRoughness: 0
                 bumpAmount: 0.5
                 translucentFalloff: 1
-                displacementAmount: 20
             }
             materials: [default_]
         }
@@ -117,7 +116,6 @@ Rectangle {
                 specularRoughness: 0
                 bumpAmount: 0.5
                 translucentFalloff: 1
-                displacementAmount: 20
             }
             materials: [default_001]
         }
@@ -137,7 +135,6 @@ Rectangle {
                 specularRoughness: 0
                 bumpAmount: 0.5
                 translucentFalloff: 1
-                displacementAmount: 20
             }
             materials: [default_002]
         }
@@ -157,7 +154,6 @@ Rectangle {
                 specularRoughness: 0
                 bumpAmount: 0.5
                 translucentFalloff: 1
-                displacementAmount: 20
             }
             materials: [default_003]
         }
@@ -177,7 +173,6 @@ Rectangle {
                 specularRoughness: 0
                 bumpAmount: 0.5
                 translucentFalloff: 1
-                displacementAmount: 20
             }
             materials: [default_004]
         }

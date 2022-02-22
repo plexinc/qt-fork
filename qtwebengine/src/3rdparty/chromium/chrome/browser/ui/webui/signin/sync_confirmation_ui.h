@@ -12,6 +12,9 @@
 #include "base/macros.h"
 #include "chrome/browser/ui/webui/signin/signin_web_dialog_ui.h"
 
+class Browser;
+class Profile;
+
 namespace content {
 class WebUIDataSource;
 }
@@ -32,7 +35,18 @@ class SyncConfirmationUI : public SigninWebDialogUI {
   // SigninWebDialogUI:
   void InitializeMessageHandlerWithBrowser(Browser* browser) override;
 
+  // Initializes the message handler for the profile creation flow (when there's
+  // no browser available).
+  void InitializeMessageHandlerForCreationFlow(SkColor profile_color);
+
  private:
+  void Initialize(base::Optional<SkColor> profile_creation_flow_color);
+  void InitializeMessageHandler(Browser* browser);
+  void InitializeForSyncConfirmation(
+      content::WebUIDataSource* source,
+      base::Optional<SkColor> profile_creation_flow_color);
+  void InitializeForSyncDisabled(content::WebUIDataSource* source);
+
   // Adds a string resource with the given GRD |ids| to the WebUI data |source|
   // named as |name|. Also stores a reverse mapping from the localized version
   // of the string to the |ids| in order to later pass it to
@@ -43,6 +57,8 @@ class SyncConfirmationUI : public SigninWebDialogUI {
 
   // For consent auditing.
   std::unordered_map<std::string, int> js_localized_string_to_ids_map_;
+
+  Profile* const profile_;
 
   DISALLOW_COPY_AND_ASSIGN(SyncConfirmationUI);
 };

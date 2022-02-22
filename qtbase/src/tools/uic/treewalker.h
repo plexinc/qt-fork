@@ -29,7 +29,7 @@
 #ifndef TREEWALKER_H
 #define TREEWALKER_H
 
-#include <qvector.h>
+#include <qlist.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -104,7 +104,7 @@ struct TreeWalker
     virtual void acceptTime(DomTime *time);
     virtual void acceptDateTime(DomDateTime *dateTime);
     virtual void acceptProperty(DomProperty *property);
-    using DomWidgets = QVector<DomWidget *>;
+    using DomWidgets = QList<DomWidget *>;
     virtual void acceptIncludes(DomIncludes *includes);
     virtual void acceptInclude(DomInclude *incl);
     virtual void acceptAction(DomAction *action);

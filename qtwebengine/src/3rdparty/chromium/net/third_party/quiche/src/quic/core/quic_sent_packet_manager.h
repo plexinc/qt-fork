@@ -6,6 +6,7 @@
 #define QUICHE_QUIC_CORE_QUIC_SENT_PACKET_MANAGER_H_
 
 #include <cstddef>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <set>
@@ -13,18 +14,20 @@
 #include <utility>
 #include <vector>
 
-#include "net/third_party/quiche/src/quic/core/congestion_control/pacing_sender.h"
-#include "net/third_party/quiche/src/quic/core/congestion_control/rtt_stats.h"
-#include "net/third_party/quiche/src/quic/core/congestion_control/send_algorithm_interface.h"
-#include "net/third_party/quiche/src/quic/core/congestion_control/uber_loss_algorithm.h"
-#include "net/third_party/quiche/src/quic/core/proto/cached_network_parameters_proto.h"
-#include "net/third_party/quiche/src/quic/core/quic_packets.h"
-#include "net/third_party/quiche/src/quic/core/quic_sustained_bandwidth_recorder.h"
-#include "net/third_party/quiche/src/quic/core/quic_transmission_info.h"
-#include "net/third_party/quiche/src/quic/core/quic_types.h"
-#include "net/third_party/quiche/src/quic/core/quic_unacked_packet_map.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_containers.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
+#include "quic/core/congestion_control/pacing_sender.h"
+#include "quic/core/congestion_control/rtt_stats.h"
+#include "quic/core/congestion_control/send_algorithm_interface.h"
+#include "quic/core/congestion_control/uber_loss_algorithm.h"
+#include "quic/core/proto/cached_network_parameters_proto.h"
+#include "quic/core/quic_circular_deque.h"
+#include "quic/core/quic_packets.h"
+#include "quic/core/quic_sustained_bandwidth_recorder.h"
+#include "quic/core/quic_time.h"
+#include "quic/core/quic_transmission_info.h"
+#include "quic/core/quic_types.h"
+#include "quic/core/quic_unacked_packet_map.h"
+#include "quic/platform/api/quic_containers.h"
+#include "quic/platform/api/quic_export.h"
 
 namespace quic {
 
@@ -76,6 +79,8 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
                                            QuicTime::Delta /*rtt*/,
                                            QuicByteCount /*old_cwnd*/,
                                            QuicByteCount /*new_cwnd*/) {}
+
+    virtual void OnOvershootingDetected() {}
   };
 
   // Interface which gets callbacks from the QuicSentPacketManager when
@@ -120,6 +125,12 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
 
   virtual void SetFromConfig(const QuicConfig& config);
 
+  void ReserveUnackedPacketsInitialCapacity(int initial_capacity) {
+    unacked_packets_.ReserveInitialCapacity(initial_capacity);
+  }
+
+  void ApplyConnectionOptions(const QuicTagVector& connection_options);
+
   // Pass the CachedNetworkParameters to the send algorithm.
   void ResumeConnectionState(
       const CachedNetworkParameters& cached_network_params,
@@ -138,15 +149,14 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
   // TODO(fayang): Rename this function to OnHandshakeComplete.
   void SetHandshakeConfirmed();
 
-  // Requests retransmission of all unacked packets of |retransmission_type|.
-  // The behavior of this method depends on the value of |retransmission_type|:
-  // ALL_UNACKED_RETRANSMISSION - All unacked packets will be retransmitted.
-  // This can happen, for example, after a version negotiation packet has been
-  // received and all packets needs to be retransmitted with the new version.
-  // ALL_INITIAL_RETRANSMISSION - Only initially encrypted packets will be
-  // retransmitted. This can happen, for example, when a CHLO has been rejected
-  // and the previously encrypted data needs to be encrypted with a new key.
-  void RetransmitUnackedPackets(TransmissionType retransmission_type);
+  // Requests retransmission of all unacked 0-RTT packets.
+  // Only 0-RTT encrypted packets will be retransmitted. This can happen,
+  // for example, when a CHLO has been rejected and the previously encrypted
+  // data needs to be encrypted with a new key.
+  void MarkZeroRttPacketsForRetransmission();
+
+  // Request retransmission of all unacked INITIAL packets.
+  void MarkInitialPacketsForRetransmission();
 
   // Notify the sent packet manager of an external network measurement or
   // prediction for either |bandwidth| or |rtt|; either can be empty.
@@ -186,12 +196,18 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
   }
 
   // Called when we have sent bytes to the peer.  This informs the manager both
-  // the number of bytes sent and if they were retransmitted.  Returns true if
-  // the sender should reset the retransmission timer.
-  bool OnPacketSent(SerializedPacket* serialized_packet,
+  // the number of bytes sent and if they were retransmitted and if this packet
+  // is used for rtt measuring.  Returns true if the sender should reset the
+  // retransmission timer.
+  bool OnPacketSent(SerializedPacket* mutable_packet,
                     QuicTime sent_time,
                     TransmissionType transmission_type,
-                    HasRetransmittableData has_retransmittable_data);
+                    HasRetransmittableData has_retransmittable_data,
+                    bool measure_rtt);
+
+  bool CanSendAckFrequency() const;
+
+  QuicAckFrequencyFrame GetUpdatedAckFrequencyFrame() const;
 
   // Called when the retransmission timer expires and returns the retransmission
   // mode.
@@ -214,9 +230,19 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
   const QuicTime::Delta GetPathDegradingDelay() const;
 
   // Returns the current delay for detecting network blackhole.
-  const QuicTime::Delta GetNetworkBlackholeDelay() const;
+  const QuicTime::Delta GetNetworkBlackholeDelay(
+      int8_t num_rtos_for_blackhole_detection) const;
+
+  // Returns the delay before reducing max packet size. This delay is guranteed
+  // to be smaller than the network blackhole delay.
+  QuicTime::Delta GetMtuReductionDelay(
+      int8_t num_rtos_for_blackhole_detection) const;
 
   const RttStats* GetRttStats() const { return &rtt_stats_; }
+
+  void SetRttStats(const RttStats& rtt_stats) {
+    rtt_stats_.CloneFrom(rtt_stats);
+  }
 
   // Returns the estimated bandwidth calculated by the congestion algorithm.
   QuicBandwidth BandwidthEstimate() const {
@@ -248,6 +274,10 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
     return send_algorithm_->GetCongestionWindow();
   }
 
+  QuicBandwidth GetPacingRate() const {
+    return send_algorithm_->PacingRate(GetBytesInFlight());
+  }
+
   // Returns the size of the slow start congestion window in nume of 1460 byte
   // TCP segments, aka ssthresh.  Some send algorithms do not define a slow
   // start threshold and will return 0.
@@ -272,8 +302,12 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
     return unacked_packets_.bytes_in_flight();
   }
 
-  // Called when peer address changes and the connection migrates.
-  void OnConnectionMigration(AddressChangeType type);
+  // Called when peer address changes. Must be called IFF the address change is
+  // not NAT rebinding. If reset_send_algorithm is true, switch to a new send
+  // algorithm object and retransmit all the in-flight packets. Return the send
+  // algorithm object used on the previous path.
+  std::unique_ptr<SendAlgorithmInterface> OnConnectionMigration(
+      bool reset_send_algorithm);
 
   // Called when an ack frame is initially parsed.
   void OnAckFrameStart(QuicPacketNumber largest_acked,
@@ -312,12 +346,18 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
     return unacked_packets_.largest_sent_packet();
   }
 
+  // Returns the lowest of the largest acknowledged packet and the least
+  // unacked packet. This is designed to be used when computing the packet
+  // number length to send.
+  QuicPacketNumber GetLeastPacketAwaitedByPeer(
+      EncryptionLevel encryption_level) const;
+
   QuicPacketNumber GetLargestPacketPeerKnowsIsAcked(
       EncryptionLevel decrypted_packet_level) const;
 
   void SetNetworkChangeVisitor(NetworkChangeVisitor* visitor) {
-    DCHECK(!network_change_visitor_);
-    DCHECK(visitor);
+    QUICHE_DCHECK(!network_change_visitor_);
+    QUICHE_DCHECK(visitor);
     network_change_visitor_ = visitor;
   }
 
@@ -339,14 +379,14 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
     unacked_packets_.SetSessionNotifier(session_notifier);
   }
 
-  QuicTime GetNextReleaseTime() const;
+  NextReleaseTimeResult GetNextReleaseTime() const;
 
   QuicPacketCount initial_congestion_window() const {
     return initial_congestion_window_;
   }
 
   QuicPacketNumber largest_packet_peer_knows_is_acked() const {
-    DCHECK(!supports_multiple_packet_number_spaces());
+    QUICHE_DCHECK(!supports_multiple_packet_number_spaces());
     return largest_packet_peer_knows_is_acked_;
   }
 
@@ -358,12 +398,16 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
 
   void set_peer_max_ack_delay(QuicTime::Delta peer_max_ack_delay) {
     // The delayed ack time should never be more than one half the min RTO time.
-    DCHECK_LE(peer_max_ack_delay, (min_rto_timeout_ * 0.5));
+    QUICHE_DCHECK_LE(peer_max_ack_delay, (min_rto_timeout_ * 0.5));
     peer_max_ack_delay_ = peer_max_ack_delay;
   }
 
   const QuicUnackedPacketMap& unacked_packets() const {
     return unacked_packets_;
+  }
+
+  const UberLossAlgorithm* uber_loss_algorithm() const {
+    return &uber_loss_algorithm_;
   }
 
   // Sets the send algorithm to the given congestion control type and points the
@@ -391,6 +435,15 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
   void StartExponentialBackoffAfterNthPto(
       size_t exponential_backoff_start_point);
 
+  // Called to retransmit in flight packet of |space| if any.
+  void RetransmitDataOfSpaceIfAny(PacketNumberSpace space);
+
+  // Returns true if |timeout| is less than 3 * RTO/PTO delay.
+  bool IsLessThanThreePTOs(QuicTime::Delta timeout) const;
+
+  // Returns current PTO delay.
+  QuicTime::Delta GetPtoDelay() const;
+
   bool supports_multiple_packet_number_spaces() const {
     return unacked_packets_.supports_multiple_packet_number_spaces();
   }
@@ -403,7 +456,16 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
     return skip_packet_number_for_pto_;
   }
 
+  bool zero_rtt_packet_acked() const { return zero_rtt_packet_acked_; }
+
   bool one_rtt_packet_acked() const { return one_rtt_packet_acked_; }
+
+  void OnUserAgentIdKnown() { loss_algorithm_->OnUserAgentIdKnown(); }
+
+  // Gets the earliest in flight packet sent time to calculate PTO. Also
+  // updates |packet_number_space| if a PTO timer should be armed.
+  QuicTime GetEarliestPacketSentTimeForPto(
+      PacketNumberSpace* packet_number_space) const;
 
  private:
   friend class test::QuicConnectionPeer;
@@ -431,7 +493,7 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
   const QuicTime::Delta GetRetransmissionDelay() const;
 
   // Returns the probe timeout.
-  const QuicTime::Delta GetProbeTimeoutDelay() const;
+  const QuicTime::Delta GetProbeTimeoutDelay(PacketNumberSpace space) const;
 
   // Update the RTT if the ack is for the largest acked packet number.
   // Returns true if the rtt was updated.
@@ -463,7 +525,8 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
 
   // Request that |packet_number| be retransmitted after the other pending
   // retransmissions.  Does not add it to the retransmissions if it's already
-  // a pending retransmission.
+  // a pending retransmission. Do not reuse iterator of the underlying
+  // unacked_packets_ after calling this function as it can be invalidated.
   void MarkForRetransmission(QuicPacketNumber packet_number,
                              TransmissionType transmission_type);
 
@@ -490,9 +553,6 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
   // Sets the initial RTT of the connection.
   void SetInitialRtt(QuicTime::Delta rtt);
 
-  // Should only be called from constructor.
-  LossDetectionInterface* GetInitialLossAlgorithm();
-
   // Called when handshake is confirmed to remove the retransmittable frames
   // from all packets of HANDSHAKE_DATA packet number space to ensure they don't
   // get retransmitted and will eventually be removed from unacked packets map.
@@ -500,21 +560,24 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
 
   // Indicates whether including peer_max_ack_delay_ when calculating PTO
   // timeout.
-  bool ShouldAddMaxAckDelay() const;
-
-  // Gets the earliest in flight packet sent time to calculate PTO. Also
-  // updates |packet_number_space| if a PTO timer should be armed.
-  QuicTime GetEarliestPacketSentTimeForPto(
-      PacketNumberSpace* packet_number_space) const;
-
-  // Returns true if application data should be used to arm PTO. Only used when
-  // multiple packet number space is enabled.
-  bool ShouldArmPtoForApplicationData() const;
+  bool ShouldAddMaxAckDelay(PacketNumberSpace space) const;
 
   // A helper function to return total delay of |num_timeouts| retransmission
   // timeout with TLP and RTO mode.
   QuicTime::Delta GetNConsecutiveRetransmissionTimeoutDelay(
       int num_timeouts) const;
+
+  // Returns true if peer has finished address validation, such that
+  // retransmission timer is not armed if there is no packets in flight.
+  bool PeerCompletedAddressValidation() const;
+
+  // Called when an AckFrequencyFrame is sent.
+  void OnAckFrequencyFrameSent(
+      const QuicAckFrequencyFrame& ack_frequency_frame);
+
+  // Called when an AckFrequencyFrame is acked.
+  void OnAckFrequencyFrameAcked(
+      const QuicAckFrequencyFrame& ack_frequency_frame);
 
   // Newly serialized retransmittable packets are added to this map, which
   // contains owning pointers to any contained frames.  If a packet is
@@ -595,10 +658,23 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
   QuicPacketNumber
       largest_packets_peer_knows_is_acked_[NUM_PACKET_NUMBER_SPACES];
 
-  // The maximum ACK delay time that the peer uses. Initialized to be the
+  // The maximum ACK delay time that the peer might uses. Initialized to be the
   // same as local_max_ack_delay_, may be changed via transport parameter
-  // negotiation.
+  // negotiation or subsequently by AckFrequencyFrame.
   QuicTime::Delta peer_max_ack_delay_;
+
+  // Peer sends min_ack_delay in TransportParameter to advertise its support for
+  // AckFrequencyFrame.
+  QuicTime::Delta peer_min_ack_delay_ = QuicTime::Delta::Infinite();
+
+  // Use smoothed RTT for computing max_ack_delay in AckFrequency frame.
+  bool use_smoothed_rtt_in_ack_delay_ = false;
+
+  // The history of outstanding max_ack_delays sent to peer. Outstanding means
+  // a max_ack_delay is sent as part of the last acked AckFrequencyFrame or
+  // an unacked AckFrequencyFrame after that.
+  QuicCircularDeque<std::pair<QuicTime::Delta, /*sequence_number=*/uint64_t>>
+      in_use_sent_ack_delays_;
 
   // Latest received ack frame.
   QuicAckFrame last_ack_frame_;
@@ -640,11 +716,14 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
   // Number of PTOs similar to TLPs.
   size_t num_tlp_timeout_ptos_;
 
+  // True if any ENCRYPTION_HANDSHAKE packet gets acknowledged.
+  bool handshake_packet_acked_;
+
+  // True if any 0-RTT packet gets acknowledged.
+  bool zero_rtt_packet_acked_;
+
   // True if any 1-RTT packet gets acknowledged.
   bool one_rtt_packet_acked_;
-
-  // True if any 1-RTT packet gets sent.
-  bool one_rtt_packet_sent_;
 
   // If > 0, arm the 1st PTO with max of earliest in flight sent time + PTO
   // delay and multiplier * srtt from last in flight packet.
@@ -654,8 +733,17 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
   // calculating PTO timeout.
   bool use_standard_deviation_for_pto_;
 
-  const bool avoid_overestimate_bandwidth_with_aggregation_ =
-      GetQuicReloadableFlag(quic_avoid_overestimate_bandwidth_with_aggregation);
+  // The multiplier for caculating PTO timeout before any RTT sample is
+  // available.
+  float pto_multiplier_without_rtt_samples_;
+
+  // The number of PTOs needed for path degrading alarm. If equals to 0, the
+  // traditional path degrading mechanism will be used.
+  int num_ptos_for_path_degrading_;
+
+  // If true, do not use PING only packets for RTT measurement or congestion
+  // control.
+  bool ignore_pings_;
 };
 
 }  // namespace quic

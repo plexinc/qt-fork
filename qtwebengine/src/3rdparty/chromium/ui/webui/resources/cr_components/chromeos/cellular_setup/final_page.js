@@ -13,21 +13,33 @@ Polymer({
   behaviors: [I18nBehavior],
 
   properties: {
+    /** @type {!cellular_setup.CellularSetupDelegate} */
+    delegate: Object,
+
     /**
      * Whether error state should be shown.
      * @type {boolean}
      */
     showError: Boolean,
+
+    /** @type {string} */
+    message: String,
+
+    /** @type {string} */
+    errorMessage: String,
   },
 
   /**
    * @param {boolean} showError
-   * @return {string}
+   * @return {?string}
    * @private
    */
   getTitle_(showError) {
-    return showError ? this.i18n('finalPageErrorTitle') :
-                       this.i18n('finalPageTitle');
+    if (this.delegate.shouldShowPageTitle()) {
+      return showError ? this.i18n('finalPageErrorTitle') :
+                         this.i18n('finalPageTitle');
+    }
+    return null;
   },
 
   /**
@@ -36,8 +48,7 @@ Polymer({
    * @private
    */
   getMessage_(showError) {
-    return showError ? this.i18n('finalPageErrorMessage') :
-                       this.i18n('finalPageMessage');
+    return showError ? this.errorMessage : this.message;
   },
 
   /**

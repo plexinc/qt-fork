@@ -4,6 +4,7 @@
 
 import * as Common from '../common/common.js';
 import * as DataGrid from '../data_grid/data_grid.js';
+import * as i18n from '../i18n/i18n.js';
 import * as SDK from '../sdk/sdk.js';                                  // eslint-disable-line no-unused-vars
 import * as TimelineModel from '../timeline_model/timeline_model.js';  // eslint-disable-line no-unused-vars
 import * as UI from '../ui/ui.js';
@@ -13,9 +14,31 @@ import {TimelineModeViewDelegate, TimelineSelection} from './TimelinePanel.js'; 
 import {TimelineTreeView} from './TimelineTreeView.js';
 import {TimelineUIUtils} from './TimelineUIUtils.js';
 
-/**
- * @unrestricted
- */
+export const UIStrings = {
+  /**
+  *@description Aria-label for filter bar in Event Log view
+  */
+  filterEventLog: 'Filter event log',
+  /**
+  *@description Text for the start time of an activity
+  */
+  startTime: 'Start Time',
+  /**
+  *@description Screen reader label for a select box that filters the Performance panel Event Log by duration.
+  */
+  durationFilter: 'Duration filter',
+  /**
+  *@description Text in Events Timeline Tree View of the Performance panel
+  *@example {2} PH1
+  */
+  Dms: '{PH1} ms',
+  /**
+  *@description Text for everything
+  */
+  all: 'All',
+};
+const str_ = i18n.i18n.registerUIStrings('timeline/EventsTimelineTreeView.js', UIStrings);
+const i18nString = i18n.i18n.getLocalizedString.bind(undefined, str_);
 export class EventsTimelineTreeView extends TimelineTreeView {
   /**
    * @param {!TimelineModeViewDelegate} delegate
@@ -26,8 +49,11 @@ export class EventsTimelineTreeView extends TimelineTreeView {
     this._filtersControl.addEventListener(Filters.Events.FilterChanged, this._onFilterChanged, this);
     this.init();
     this._delegate = delegate;
-    this._dataGrid.markColumnAsSortedBy('startTime', DataGrid.DataGrid.Order.Ascending);
-    this._splitWidget.showBoth();
+    this.dataGrid.markColumnAsSortedBy('startTime', DataGrid.DataGrid.Order.Ascending);
+    this.splitWidget.showBoth();
+
+    /** @type {!TimelineModel.TimelineProfileTree.Node} */
+    this._currentTree;
   }
 
   /**
@@ -56,7 +82,7 @@ export class EventsTimelineTreeView extends TimelineTreeView {
    * @return {string}
    */
   getToolbarInputAccessiblePlaceHolder() {
-    return ls`Filter event log`;
+    return i18nString(UIStrings.filterEventLog);
   }
 
   /**
@@ -69,7 +95,8 @@ export class EventsTimelineTreeView extends TimelineTreeView {
   }
 
   _onFilterChanged() {
-    const selectedEvent = this.lastSelectedNode() && this.lastSelectedNode().event;
+    const lastSelectedNode = this.lastSelectedNode();
+    const selectedEvent = lastSelectedNode && lastSelectedNode.event;
     this.refreshTree();
     if (selectedEvent) {
       this._selectEvent(selectedEvent, false);
@@ -84,7 +111,8 @@ export class EventsTimelineTreeView extends TimelineTreeView {
     const iterators = [this._currentTree.children().values()];
 
     while (iterators.length) {
-      const iterator = iterators.peekLast().next();
+      // @ts-ignore crbug.com/1011811 there is no common iterator type between Closure and TypeScript
+      const iterator = iterators[iterators.length - 1].next();
       if (iterator.done) {
         iterators.pop();
         continue;
@@ -109,7 +137,10 @@ export class EventsTimelineTreeView extends TimelineTreeView {
     }
     this.selectProfileNode(node, false);
     if (expand) {
-      this.dataGridNodeForTreeNode(node).expand();
+      const dataGridNode = this.dataGridNodeForTreeNode(node);
+      if (dataGridNode) {
+        dataGridNode.expand();
+      }
     }
   }
 
@@ -118,15 +149,17 @@ export class EventsTimelineTreeView extends TimelineTreeView {
    * @param {!Array<!DataGrid.DataGrid.ColumnDescriptor>} columns
    */
   populateColumns(columns) {
-    columns.push({
+    columns.push(/** @type {!DataGrid.DataGrid.ColumnDescriptor} */ ({
       id: 'startTime',
-      title: Common.UIString.UIString('Start Time'),
+      title: i18nString(UIStrings.startTime),
       width: '80px',
       fixedWidth: true,
-      sortable: true
-    });
+      sortable: true,
+    }));
     super.populateColumns(columns);
-    columns.filter(c => c.fixedWidth).forEach(c => c.width = '80px');
+    columns.filter(c => c.fixedWidth).forEach(c => {
+      c.width = '80px';
+    });
   }
 
   /**
@@ -148,8 +181,12 @@ export class EventsTimelineTreeView extends TimelineTreeView {
     if (!traceEvent) {
       return false;
     }
-    TimelineUIUtils.buildTraceEventDetails(traceEvent, this.model().timelineModel(), this._linkifier, false)
-        .then(fragment => this._detailsView.element.appendChild(fragment));
+    const model = this.model();
+    if (!model) {
+      return false;
+    }
+    TimelineUIUtils.buildTraceEventDetails(traceEvent, model.timelineModel(), this.linkifier, false)
+        .then(fragment => this.detailsView.element.appendChild(fragment));
     return true;
   }
 
@@ -162,9 +199,6 @@ export class EventsTimelineTreeView extends TimelineTreeView {
   }
 }
 
-/**
- * @unrestricted
- */
 export class Filters extends Common.ObjectWrapper.ObjectWrapper {
   constructor() {
     super();
@@ -184,15 +218,17 @@ export class Filters extends Common.ObjectWrapper.ObjectWrapper {
    * @param {!UI.Toolbar.Toolbar} toolbar
    */
   populateToolbar(toolbar) {
-    const durationFilterUI = new UI.Toolbar.ToolbarComboBox(durationFilterChanged.bind(this), ls`Duration filter`);
+    const durationFilterUI =
+        new UI.Toolbar.ToolbarComboBox(durationFilterChanged.bind(this), i18nString(UIStrings.durationFilter));
     for (const durationMs of Filters._durationFilterPresetsMs) {
       durationFilterUI.addOption(durationFilterUI.createOption(
-          durationMs ? Common.UIString.UIString('\u2265 %d\xa0ms', durationMs) : Common.UIString.UIString('All'),
+          durationMs ? `≥ ${i18nString(UIStrings.Dms, {PH1: durationMs})}` : i18nString(UIStrings.all),
           String(durationMs)));
     }
     toolbar.appendToolbarItem(durationFilterUI);
 
-    const categoryFiltersUI = {};
+    /** @type {!Map<string, !UI.Toolbar.ToolbarCheckbox>} */
+    const categoryFiltersUI = new Map();
     const categories = TimelineUIUtils.categories();
     for (const categoryName in categories) {
       const category = categories[categoryName];
@@ -203,7 +239,7 @@ export class Filters extends Common.ObjectWrapper.ObjectWrapper {
           new UI.Toolbar.ToolbarCheckbox(category.title, undefined, categoriesFilterChanged.bind(this, categoryName));
       checkbox.setChecked(true);
       checkbox.inputElement.style.backgroundColor = category.color;
-      categoryFiltersUI[category.name] = checkbox;
+      categoryFiltersUI.set(category.name, checkbox);
       toolbar.appendToolbarItem(checkbox);
     }
 
@@ -211,7 +247,7 @@ export class Filters extends Common.ObjectWrapper.ObjectWrapper {
      * @this {Filters}
      */
     function durationFilterChanged() {
-      const duration = durationFilterUI.selectedOption().value;
+      const duration = /** @type {!HTMLOptionElement} */ (durationFilterUI.selectedOption()).value;
       const minimumRecordDuration = parseInt(duration, 10);
       this._durationFilter.setMinimumRecordDuration(minimumRecordDuration);
       this._notifyFiltersChanged();
@@ -223,7 +259,8 @@ export class Filters extends Common.ObjectWrapper.ObjectWrapper {
      */
     function categoriesFilterChanged(name) {
       const categories = TimelineUIUtils.categories();
-      categories[name].hidden = !categoryFiltersUI[name].checked();
+      const checkBox = categoryFiltersUI.get(name);
+      categories[name].hidden = !checkBox || !checkBox.checked();
       this._notifyFiltersChanged();
     }
   }

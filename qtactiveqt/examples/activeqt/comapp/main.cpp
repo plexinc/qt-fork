@@ -53,7 +53,7 @@
 #include <QTabWidget>
 #include <QScopedPointer>
 #include <QTimer>
-#include <QVector>
+#include <QList>
 
 class Application;
 class DocumentList;
@@ -105,7 +105,7 @@ public slots:
     Document *item(int index) const;
 
 private:
-    QVector<Document *> m_list;
+    QList<Document *> m_list;
 };
 //! [1]
 
@@ -248,7 +248,6 @@ QAXFACTORY_END()
 //! [6] //! [7]
 int main(int argc, char *argv[])
 {
-    QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
     QApplication app(argc, argv);
     app.setQuitOnLastWindowClosed(false);
 

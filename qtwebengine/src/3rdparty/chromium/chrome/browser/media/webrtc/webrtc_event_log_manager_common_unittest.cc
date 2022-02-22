@@ -15,13 +15,13 @@
 #include "base/rand_util.h"
 #include "base/test/task_environment.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/media/webrtc/webrtc_event_log_manager_unittest_helpers.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/zlib/google/compression_utils.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/account_id/account_id.h"
 #include "components/user_manager/scoped_user_manager.h"
@@ -384,7 +384,7 @@ TEST_P(LogFileWriterTest, CallToWriteWithEmptyStringSucceeds) {
   auto writer = CreateWriter(kMaxRemoteLogFileSizeBytes);
   ASSERT_TRUE(writer);
 
-  const std::string log = "";
+  const std::string log;
   EXPECT_TRUE(writer->Write(log));
 
   ASSERT_TRUE(writer->Close());
@@ -433,7 +433,7 @@ TEST_P(LogFileWriterTest, WriteDoesNotCrashIfFileRemovedExternally) {
   auto writer = CreateWriter(kMaxRemoteLogFileSizeBytes);
   ASSERT_TRUE(writer);
 
-  ASSERT_TRUE(base::DeleteFile(path_, /*recursive=*/false));
+  ASSERT_TRUE(base::DeleteFile(path_));
   ASSERT_FALSE(base::PathExists(path_));  // Sanity on the test itself.
 
   // It's up to the OS whether this will succeed or fail, but it must not crash.
@@ -446,7 +446,7 @@ TEST_P(LogFileWriterTest, CloseDoesNotCrashIfFileRemovedExternally) {
   auto writer = CreateWriter(kMaxRemoteLogFileSizeBytes);
   ASSERT_TRUE(writer);
 
-  ASSERT_TRUE(base::DeleteFile(path_, /*recursive=*/false));
+  ASSERT_TRUE(base::DeleteFile(path_));
   ASSERT_FALSE(base::PathExists(path_));  // Sanity on the test itself.
 
   // It's up to the OS whether this will succeed or fail, but it must not crash.
@@ -459,7 +459,7 @@ TEST_P(LogFileWriterTest, DeleteDoesNotCrashIfFileRemovedExternally) {
   auto writer = CreateWriter(kMaxRemoteLogFileSizeBytes);
   ASSERT_TRUE(writer);
 
-  ASSERT_TRUE(base::DeleteFile(path_, /*recursive=*/false));
+  ASSERT_TRUE(base::DeleteFile(path_));
   ASSERT_FALSE(base::PathExists(path_));  // Sanity on the test itself.
 
   // It's up to the OS whether this will succeed or fail, but it must not crash.
@@ -662,7 +662,7 @@ TEST_F(GzippedLogFileWriterTest,
   EXPECT_FALSE(base::PathExists(path_));  // Errored files deleted by Close().
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 
 struct DoesProfileDefaultToLoggingEnabledForUserTypeTestCase {
   user_manager::UserType user_type;
@@ -701,9 +701,6 @@ TEST_P(DoesProfileDefaultToLoggingEnabledForUserTypeParametrizedTest,
     case user_manager::USER_TYPE_PUBLIC_ACCOUNT:
       fake_user_manager_->AddPublicAccountUser(account_id);
       break;
-    case user_manager::USER_TYPE_SUPERVISED:
-      fake_user_manager_->AddSupervisedUser(account_id);
-      break;
     case user_manager::USER_TYPE_KIOSK_APP:
       fake_user_manager_->AddKioskAppUser(account_id);
       break;
@@ -740,12 +737,11 @@ INSTANTIATE_TEST_CASE_P(
             {user_manager::USER_TYPE_REGULAR, true},
             {user_manager::USER_TYPE_GUEST, false},
             {user_manager::USER_TYPE_PUBLIC_ACCOUNT, false},
-            {user_manager::USER_TYPE_SUPERVISED, false},
             {user_manager::USER_TYPE_KIOSK_APP, false},
             {user_manager::USER_TYPE_CHILD, false},
             {user_manager::USER_TYPE_ARC_KIOSK_APP, false},
             {user_manager::USER_TYPE_ACTIVE_DIRECTORY, false}}));
 
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 }  // namespace webrtc_event_logging

@@ -57,7 +57,7 @@
 #include "private/qdialog_p.h"
 #include "qplatformdefs.h"
 
-#include "qfilesystemmodel_p.h"
+#include <QtGui/private/qfilesystemmodel_p.h>
 #include <qlistview.h>
 #include <qtreeview.h>
 #include <qcombobox.h>
@@ -69,6 +69,7 @@
 #include <qstackedwidget.h>
 #include <qdialogbuttonbox.h>
 #include <qabstractproxymodel.h>
+#include <qfileiconprovider.h>
 #if QT_CONFIG(completer)
 #include <qcompleter.h>
 #endif
@@ -116,7 +117,7 @@ class Q_WIDGETS_EXPORT QFileDialogPrivate : public QDialogPrivate
     Q_DECLARE_PUBLIC(QFileDialog)
 
 public:
-    using PersistentModelIndexList = QVector<QPersistentModelIndex>;
+    using PersistentModelIndexList = QList<QPersistentModelIndex>;
 
     struct HistoryItem
     {
@@ -285,6 +286,7 @@ public:
     QByteArray splitterState;
     QByteArray headerData;
     QList<QUrl> sidebarUrls;
+    QFileIconProvider defaultIconProvider;
 
     ~QFileDialogPrivate();
 
@@ -310,7 +312,8 @@ private:
 class QFileDialogComboBox : public QComboBox
 {
 public:
-    QFileDialogComboBox(QWidget *parent = nullptr) : QComboBox(parent), urlModel(nullptr) {}
+    QFileDialogComboBox(QWidget *parent = nullptr) :
+        QComboBox(parent), urlModel(nullptr), d_ptr(nullptr) {}
     void setFileDialogPrivate(QFileDialogPrivate *d_pointer);
     void showPopup() override;
     void setHistory(const QStringList &paths);
@@ -326,7 +329,7 @@ private:
 class QFileDialogListView : public QListView
 {
 public:
-    QFileDialogListView(QWidget *parent = nullptr);
+    QFileDialogListView(QWidget *parent = nullptr) : QListView(parent), d_ptr(nullptr) {}
     void setFileDialogPrivate(QFileDialogPrivate *d_pointer);
     QSize sizeHint() const override;
 protected:
@@ -338,7 +341,7 @@ private:
 class QFileDialogTreeView : public QTreeView
 {
 public:
-    QFileDialogTreeView(QWidget *parent);
+    QFileDialogTreeView(QWidget *parent) : QTreeView(parent), d_ptr(nullptr) {}
     void setFileDialogPrivate(QFileDialogPrivate *d_pointer);
     QSize sizeHint() const override;
 

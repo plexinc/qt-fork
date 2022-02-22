@@ -46,7 +46,7 @@
 #include <stdio.h>
 #endif
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class Q_CHARTS_PRIVATE_EXPORT ChartThemeSystem: public ChartTheme
 {
@@ -54,7 +54,7 @@ public:
     // System theme not used at the moment (the user is not able to select this theme)
     ChartThemeSystem() : ChartTheme(QChart::ChartThemeLight /*QChart::ChartThemeSystem*/)
     {
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
         // We could also use theme specific window frame color as a series base color (it would give more
         // variation to the base colors in addition to the blue and black used now)
 
@@ -194,6 +194,6 @@ public:
     }
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // CHARTTHEMESYSTEM_P_H

@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
@@ -26,7 +26,8 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QtTest/private/qpropertytesthelper_p.h>
 #include <qabstractproxymodel.h>
 #include <QItemSelection>
 #include <qstandarditemmodel.h>
@@ -60,6 +61,7 @@ private slots:
     void testRoleNames();
     void testSwappingRowsProxy();
     void testDragAndDrop();
+    void sourceModelBinding();
 };
 
 // Subclass that exposes the protected functions.
@@ -67,29 +69,29 @@ class SubQAbstractProxyModel : public QAbstractProxyModel
 {
 public:
     // QAbstractProxyModel::mapFromSource is a pure virtual function.
-    QModelIndex mapFromSource(QModelIndex const& sourceIndex) const
+    QModelIndex mapFromSource(QModelIndex const& sourceIndex) const override
         { Q_UNUSED(sourceIndex); return QModelIndex(); }
 
     // QAbstractProxyModel::mapToSource is a pure virtual function.
-    QModelIndex mapToSource(QModelIndex const& proxyIndex) const
+    QModelIndex mapToSource(QModelIndex const& proxyIndex) const override
         { Q_UNUSED(proxyIndex); return QModelIndex(); }
 
-    QModelIndex index(int, int, const QModelIndex&) const
+    QModelIndex index(int, int, const QModelIndex&) const override
     {
         return QModelIndex();
     }
 
-    QModelIndex parent(const QModelIndex&) const
+    QModelIndex parent(const QModelIndex&) const override
     {
         return QModelIndex();
     }
 
-    int rowCount(const QModelIndex&) const
+    int rowCount(const QModelIndex&) const override
     {
         return 0;
     }
 
-    int columnCount(const QModelIndex&) const
+    int columnCount(const QModelIndex&) const override
     {
         return 0;
     }
@@ -399,7 +401,7 @@ class SwappingProxy : public QAbstractProxyModel
         }
     }
 public:
-    virtual QModelIndex index(int row, int column, const QModelIndex &parentIdx) const
+    virtual QModelIndex index(int row, int column, const QModelIndex &parentIdx) const override
     {
         if (!sourceModel())
             return QModelIndex();
@@ -412,28 +414,28 @@ public:
         return createIndex(row, column, parentIdx.internalPointer());
     }
 
-    virtual QModelIndex parent(const QModelIndex &parentIdx) const
+    virtual QModelIndex parent(const QModelIndex &parentIdx) const override
     {
         // well, we're a 2D model
         Q_UNUSED(parentIdx);
         return QModelIndex();
     }
 
-    virtual int rowCount(const QModelIndex &parentIdx) const
+    virtual int rowCount(const QModelIndex &parentIdx) const override
     {
         if (parentIdx.isValid() || !sourceModel())
             return 0;
         return sourceModel()->rowCount();
     }
 
-    virtual int columnCount(const QModelIndex &parentIdx) const
+    virtual int columnCount(const QModelIndex &parentIdx) const override
     {
         if (parentIdx.isValid() || !sourceModel())
             return 0;
         return sourceModel()->rowCount();
     }
 
-    virtual QModelIndex mapToSource(const QModelIndex &proxyIndex) const
+    virtual QModelIndex mapToSource(const QModelIndex &proxyIndex) const override
     {
         if (!proxyIndex.isValid())
             return QModelIndex();
@@ -443,7 +445,7 @@ public:
         return sourceModel()->index(swapRow(proxyIndex.row()), proxyIndex.column(), QModelIndex());
     }
 
-    virtual QModelIndex mapFromSource(const QModelIndex &sourceIndex) const
+    virtual QModelIndex mapFromSource(const QModelIndex &sourceIndex) const override
     {
         if (!sourceIndex.isValid())
             return QModelIndex();
@@ -485,9 +487,9 @@ void tst_QAbstractProxyModel::testSwappingRowsProxy()
 class StandardItemModelWithCustomDragAndDrop : public QStandardItemModel
 {
 public:
-    QStringList mimeTypes() const { return QStringList() << QStringLiteral("foo/mimetype"); }
-    Qt::DropActions supportedDragActions() const { return Qt::CopyAction | Qt::LinkAction; }
-    Qt::DropActions supportedDropActions() const { return Qt::MoveAction; }
+    QStringList mimeTypes() const override { return QStringList() << QStringLiteral("foo/mimetype"); }
+    Qt::DropActions supportedDragActions() const override { return Qt::CopyAction | Qt::LinkAction; }
+    Qt::DropActions supportedDropActions() const override { return Qt::MoveAction; }
 };
 
 void tst_QAbstractProxyModel::testDragAndDrop()
@@ -500,6 +502,34 @@ void tst_QAbstractProxyModel::testDragAndDrop()
     QCOMPARE(proxy.supportedDropActions(), sourceModel.supportedDropActions());
 }
 
+void tst_QAbstractProxyModel::sourceModelBinding()
+{
+    SubQAbstractProxyModel proxy;
+    QStandardItemModel model1;
+    QStandardItemModel model2;
+    QTestPrivate::testReadWritePropertyBasics<QAbstractProxyModel, QAbstractItemModel *>(
+            proxy, &model1, &model2, "sourceModel");
+    if (QTest::currentTestFailed()) {
+        qDebug("Failed model - model test");
+        return;
+    }
+
+    proxy.setSourceModel(&model2);
+    QTestPrivate::testReadWritePropertyBasics<QAbstractProxyModel, QAbstractItemModel *>(
+            proxy, &model1, nullptr, "sourceModel");
+    if (QTest::currentTestFailed()) {
+        qDebug("Failed model - nullptr test");
+        return;
+    }
+
+    proxy.setSourceModel(&model1);
+    QTestPrivate::testReadWritePropertyBasics<QAbstractProxyModel, QAbstractItemModel *>(
+            proxy, nullptr, &model2, "sourceModel");
+    if (QTest::currentTestFailed()) {
+        qDebug("Failed nullptr - model test");
+        return;
+    }
+}
 
 QTEST_MAIN(tst_QAbstractProxyModel)
 #include "tst_qabstractproxymodel.moc"

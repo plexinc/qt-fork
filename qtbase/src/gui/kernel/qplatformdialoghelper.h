@@ -58,6 +58,8 @@
 #include <QtCore/QDir>
 #include <QtCore/QUrl>
 #include <QtGui/QRgb>
+Q_MOC_INCLUDE(<QFont>)
+Q_MOC_INCLUDE(<QColor>)
 
 QT_BEGIN_NAMESPACE
 
@@ -148,7 +150,6 @@ public:
         MacLayout,
         KdeLayout,
         GnomeLayout,
-        MacModelessLayout,
         AndroidLayout
     };
     Q_ENUM(ButtonLayout)
@@ -313,18 +314,16 @@ public:
     enum DialogLabel { LookIn, FileName, FileType, Accept, Reject, DialogLabelCount };
     Q_ENUM(DialogLabel)
 
+    // keep this in sync with QFileDialog::Options
     enum FileDialogOption
     {
         ShowDirsOnly                = 0x00000001,
         DontResolveSymlinks         = 0x00000002,
         DontConfirmOverwrite        = 0x00000004,
-#if QT_DEPRECATED_SINCE(5, 14)
-        DontUseSheet Q_DECL_ENUMERATOR_DEPRECATED = 0x00000008,
-#endif
-        DontUseNativeDialog         = 0x00000010,
-        ReadOnly                    = 0x00000020,
-        HideNameFilterDetails       = 0x00000040,
-        DontUseCustomDirectoryIcons = 0x00000080
+        DontUseNativeDialog         = 0x00000008,
+        ReadOnly                    = 0x00000010,
+        HideNameFilterDetails       = 0x00000020,
+        DontUseCustomDirectoryIcons = 0x00000040
     };
     Q_DECLARE_FLAGS(FileDialogOptions, FileDialogOption)
     Q_FLAG(FileDialogOptions)
@@ -480,7 +479,7 @@ public:
     int addButton(const QString &label, QPlatformDialogHelper::ButtonRole role,
                   void *buttonImpl = nullptr);
     void removeButton(int id);
-    const QVector<CustomButton> &customButtons();
+    const QList<CustomButton> &customButtons();
     const CustomButton *customButton(int id);
 
 private:

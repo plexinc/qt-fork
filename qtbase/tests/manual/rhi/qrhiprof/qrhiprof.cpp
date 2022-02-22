@@ -92,7 +92,7 @@ public:
             };
         };
 
-        QVector<Param> params;
+        QList<Param> params;
 
         const Param *param(const char *key) const {
             auto it = std::find_if(params.cbegin(), params.cend(), [key](const Param &p) {
@@ -274,10 +274,10 @@ public:
     }
 };
 
-Q_DECLARE_TYPEINFO(Tracker::Buffer, Q_MOVABLE_TYPE);
-Q_DECLARE_TYPEINFO(Tracker::Texture, Q_MOVABLE_TYPE);
-Q_DECLARE_TYPEINFO(Tracker::FrameTime, Q_MOVABLE_TYPE);
-Q_DECLARE_TYPEINFO(Tracker::GpuFrameTime, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(Tracker::Buffer, Q_RELOCATABLE_TYPE);
+Q_DECLARE_TYPEINFO(Tracker::Texture, Q_RELOCATABLE_TYPE);
+Q_DECLARE_TYPEINFO(Tracker::FrameTime, Q_RELOCATABLE_TYPE);
+Q_DECLARE_TYPEINFO(Tracker::GpuFrameTime, Q_RELOCATABLE_TYPE);
 
 void Tracker::handleEvent(const Parser::Event &e)
 {
@@ -578,7 +578,7 @@ int main(int argc, char **argv)
     QLabel *buffersLabel = new QLabel;
     QObject::connect(&tracker, &Tracker::buffersTouched, buffersLabel, [buffersLabel, &tracker] {
         const QString msg = QString::asprintf("%d buffers with ca. %lld bytes of current memory (sub)allocations (peak %lld) + %lld bytes of known staging buffers (peak %lld)",
-                                              tracker.m_buffers.count(),
+                                              int(tracker.m_buffers.count()),
                                               tracker.m_totalBufferApproxByteSize, tracker.m_peakBufferApproxByteSize,
                                               tracker.m_totalStagingBufferApproxByteSize, tracker.m_peakStagingBufferApproxByteSize);
         buffersLabel->setText(msg);
@@ -588,7 +588,7 @@ int main(int argc, char **argv)
     QLabel *texturesLabel = new QLabel;
     QObject::connect(&tracker, &Tracker::texturesTouched, texturesLabel, [texturesLabel, &tracker] {
         const QString msg = QString::asprintf("%d textures with ca. %lld bytes of current memory (sub)allocations (peak %lld) + %lld bytes of known staging buffers (peak %lld)",
-                                              tracker.m_textures.count(),
+                                              int(tracker.m_textures.count()),
                                               tracker.m_totalTextureApproxByteSize, tracker.m_peakTextureApproxByteSize,
                                               tracker.m_totalTextureStagingBufferApproxByteSize, tracker.m_peakTextureStagingBufferApproxByteSize);
         texturesLabel->setText(msg);

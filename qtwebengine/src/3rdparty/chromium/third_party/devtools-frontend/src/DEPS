@@ -2,32 +2,42 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+use_relative_paths = True
+
 vars = {
+  # By default, do not checkout the re-client binaries.
+  'checkout_reclient': False,
+
   'build_url': 'https://chromium.googlesource.com/chromium/src/build.git',
-  'build_revision': 'de373bbc5b9121aff3bcd708c100d96d3b64bae9',
+  'build_revision': '57f6815458fa0e1730b808d2f6af972fce9bf47b',
 
   'buildtools_url': 'https://chromium.googlesource.com/chromium/src/buildtools.git',
-  'buildtools_revision': '7977eb176752aeec29d888cfe8e677ac12ed1c41',
+  'buildtools_revision': '80d14c91e9cf416cdd4faba4b9265191fd6f5a5b',
 
   'depot_tools_url': 'https://chromium.googlesource.com/chromium/tools/depot_tools.git',
-  'depot_tools_revision': 'e3a49aa40576da2427447f7fedb670d5d59216e5',
+  'depot_tools_revision': 'e71d0282d1d2ac6702c317e0d4eab83d57d4ae9d',
 
   'inspector_protocol_url': 'https://chromium.googlesource.com/deps/inspector_protocol',
-  'inspector_protocol_revision': 'b7cda08cd6e522df2159413ba5f29d2a953cc1c4',
+  'inspector_protocol_revision': '62c7be86bf5728a7b18a74408d77c07bd40ef383',
 
-  'clang_format_url': 'https://chromium.googlesource.com/chromium/llvm-project/cfe/tools/clang-format.git',
-  'clang_format_revision': '96636aa0e9f047f17447f2d45a094d0b59ed7917',
+  'clang_format_url': 'https://chromium.googlesource.com/external/github.com/llvm/llvm-project/clang/tools/clang-format.git',
+  'clang_format_revision': '99803d74e35962f63a775f29477882afd4d57d94',
+
+  'emscripten_tag': 'fc5562126762ab26c4757147a3b4c24e85a7289e',
 
   # GN CIPD package version.
-  'gn_version': 'git_revision:5ed3c9cc67b090d5e311e4bd2aba072173e82db9',
+  'gn_version': 'git_revision:dfcbc6fed0a8352696f92d67ccad54048ad182b3',
+
+  # reclient CIPD package version
+  'reclient_version': 're_client_version:0.19.2.319f839',
 
   # Chromium build number for unit tests. It should be regularly updated to
   # the content of https://commondatastorage.googleapis.com/chromium-browser-snapshots/Linux_x64/LAST_CHANGE
-  'chromium_linux': '752719',
+  'chromium_linux': '856180',
   # the content of https://commondatastorage.googleapis.com/chromium-browser-snapshots/Win_x64/LAST_CHANGE
-  'chromium_win': '752710',
+  'chromium_win': '856177',
   # the content of https://commondatastorage.googleapis.com/chromium-browser-snapshots/Mac/LAST_CHANGE
-  'chromium_mac': '752700',
+  'chromium_mac': '856177',
 }
 
 # Only these hosts are allowed for dependencies in this DEPS file.
@@ -35,13 +45,13 @@ vars = {
 allowed_hosts = [ 'chromium.googlesource.com' ]
 
 deps = {
-  'devtools-frontend/buildtools/clang_format/script':
+  'buildtools/clang_format/script':
     Var('clang_format_url') + '@' + Var('clang_format_revision'),
 
-  'devtools-frontend/buildtools':
+  'buildtools':
     Var('buildtools_url') + '@' + Var('buildtools_revision'),
 
-  'devtools-frontend/buildtools/linux64': {
+  'buildtools/linux64': {
     'packages': [
       {
         'package': 'gn/gn/linux-amd64',
@@ -51,7 +61,7 @@ deps = {
     'dep_type': 'cipd',
     'condition': 'host_os == "linux"',
   },
-  'devtools-frontend/buildtools/mac': {
+  'buildtools/mac': {
     'packages': [
       {
         'package': 'gn/gn/mac-amd64',
@@ -61,7 +71,7 @@ deps = {
     'dep_type': 'cipd',
     'condition': 'host_os == "mac"',
   },
-  'devtools-frontend/buildtools/win': {
+  'buildtools/win': {
     'packages': [
       {
         'package': 'gn/gn/windows-amd64',
@@ -71,11 +81,21 @@ deps = {
     'dep_type': 'cipd',
     'condition': 'host_os == "win"',
   },
-  'devtools-frontend/build':
+  'buildtools/reclient': {
+    'packages': [
+      {
+        'package': 'infra/rbe/client/${{platform}}',
+        'version': Var('reclient_version'),
+      }
+    ],
+    'dep_type': 'cipd',
+    'condition': '(host_os == "linux" or host_os == "win") and checkout_reclient',
+  },
+  'build':
     Var('build_url') + '@' + Var('build_revision'),
-  'devtools-frontend/third_party/depot_tools':
+  'third_party/depot_tools':
     Var('depot_tools_url') + '@' + Var('depot_tools_revision'),
-  'devtools-frontend/third_party/inspector_protocol':
+  'third_party/inspector_protocol':
     Var('inspector_protocol_url') + '@' + Var('inspector_protocol_revision'),
 }
 
@@ -86,12 +106,12 @@ hooks = [
     'pattern': '.',
     'condition': 'host_os == "linux"',
     'action': [ 'python',
-                'devtools-frontend/third_party/depot_tools/download_from_google_storage.py',
+                'third_party/depot_tools/download_from_google_storage.py',
                 '--no_resume',
                 '--extract',
                 '--no_auth',
-                '--bucket', 'chromium-nodejs/10.15.3',
-                '-s', 'devtools-frontend/third_party/node/linux/node-linux-x64.tar.gz.sha1',
+                '--bucket', 'chromium-nodejs/14.15.4',
+                '-s', 'third_party/node/linux/node-linux-x64.tar.gz.sha1',
     ],
   },
   {
@@ -99,12 +119,12 @@ hooks = [
     'pattern': '.',
     'condition': 'host_os == "mac"',
     'action': [ 'python',
-                'devtools-frontend/third_party/depot_tools/download_from_google_storage.py',
+                'third_party/depot_tools/download_from_google_storage.py',
                 '--no_resume',
                 '--extract',
                 '--no_auth',
-                '--bucket', 'chromium-nodejs/10.15.3',
-                '-s', 'devtools-frontend/third_party/node/mac/node-darwin-x64.tar.gz.sha1',
+                '--bucket', 'chromium-nodejs/14.15.4',
+                '-s', 'third_party/node/mac/node-darwin-x64.tar.gz.sha1',
     ],
   },
   {
@@ -112,11 +132,11 @@ hooks = [
     'pattern': '.',
     'condition': 'host_os == "win"',
     'action': [ 'python',
-                'devtools-frontend/third_party/depot_tools/download_from_google_storage.py',
+                'third_party/depot_tools/download_from_google_storage.py',
                 '--no_resume',
                 '--no_auth',
-                '--bucket', 'chromium-nodejs/10.15.3',
-                '-s', 'devtools-frontend/third_party/node/win/node.exe.sha1',
+                '--bucket', 'chromium-nodejs/14.15.4',
+                '-s', 'third_party/node/win/node.exe.sha1',
     ],
   },
 
@@ -127,7 +147,7 @@ hooks = [
     'pattern': '.',
     'action': [
         'python',
-        'devtools-frontend/third_party/depot_tools/update_depot_tools_toggle.py',
+        'third_party/depot_tools/update_depot_tools_toggle.py',
         '--disable',
     ],
   },
@@ -138,11 +158,11 @@ hooks = [
     'pattern': '.',
     'condition': 'host_os == "win"',
     'action': [ 'python',
-                'devtools-frontend/third_party/depot_tools/download_from_google_storage.py',
+                'third_party/depot_tools/download_from_google_storage.py',
                 '--no_resume',
                 '--no_auth',
                 '--bucket', 'chromium-clang-format',
-                '-s', 'devtools-frontend/buildtools/win/clang-format.exe.sha1',
+                '-s', 'buildtools/win/clang-format.exe.sha1',
     ],
   },
   {
@@ -150,11 +170,11 @@ hooks = [
     'pattern': '.',
     'condition': 'host_os == "mac"',
     'action': [ 'python',
-                'devtools-frontend/third_party/depot_tools/download_from_google_storage.py',
+                'third_party/depot_tools/download_from_google_storage.py',
                 '--no_resume',
                 '--no_auth',
                 '--bucket', 'chromium-clang-format',
-                '-s', 'devtools-frontend/buildtools/mac/clang-format.sha1',
+                '-s', 'buildtools/mac/clang-format.sha1',
     ],
   },
   {
@@ -162,11 +182,11 @@ hooks = [
     'pattern': '.',
     'condition': 'host_os == "linux"',
     'action': [ 'python',
-                'devtools-frontend/third_party/depot_tools/download_from_google_storage.py',
+                'third_party/depot_tools/download_from_google_storage.py',
                 '--no_resume',
                 '--no_auth',
                 '--bucket', 'chromium-clang-format',
-                '-s', 'devtools-frontend/buildtools/linux64/clang-format.sha1',
+                '-s', 'buildtools/linux64/clang-format.sha1',
     ],
   },
 
@@ -176,9 +196,9 @@ hooks = [
     'pattern': '.',
     'condition': 'host_os == "win"',
     'action': [ 'python',
-                'devtools-frontend/scripts/deps/download_chromium.py',
+                'scripts/deps/download_chromium.py',
                 'https://commondatastorage.googleapis.com/chromium-browser-snapshots/Win_x64/' + Var('chromium_win') + '/chrome-win.zip',
-                'devtools-frontend/third_party/chrome',
+                'third_party/chrome',
                 'chrome-win/chrome.exe',
                 Var('chromium_win'),
     ],
@@ -188,9 +208,9 @@ hooks = [
     'pattern': '.',
     'condition': 'host_os == "mac"',
     'action': [ 'python',
-                'devtools-frontend/scripts/deps/download_chromium.py',
+                'scripts/deps/download_chromium.py',
                 'https://commondatastorage.googleapis.com/chromium-browser-snapshots/Mac/' + Var('chromium_mac') + '/chrome-mac.zip',
-                'devtools-frontend/third_party/chrome',
+                'third_party/chrome',
                 'chrome-mac/Chromium.app/Contents',
                 Var('chromium_mac'),
     ],
@@ -200,12 +220,23 @@ hooks = [
     'pattern': '.',
     'condition': 'host_os == "linux"',
     'action': [ 'python',
-                'devtools-frontend/scripts/deps/download_chromium.py',
+                'scripts/deps/download_chromium.py',
                 'https://commondatastorage.googleapis.com/chromium-browser-snapshots/Linux_x64/' + Var('chromium_linux') + '/chrome-linux.zip',
-                'devtools-frontend/third_party/chrome',
+                'third_party/chrome',
                 'chrome-linux/chrome',
                 Var('chromium_linux'),
     ],
   },
-
+  {
+    'name': 'sysroot_x64',
+    'pattern': '.',
+    'condition': 'checkout_linux and checkout_x64',
+    'action': ['python', 'build/linux/sysroot_scripts/install-sysroot.py',
+               '--arch=x64'],
+  },
+  {
+    'name': 'emscripten',
+    'pattern': '.',
+    'action': ['python', 'scripts/deps/download_emscripten.py', Var('emscripten_tag'), 'third_party/emscripten-releases'],
+  },
 ]

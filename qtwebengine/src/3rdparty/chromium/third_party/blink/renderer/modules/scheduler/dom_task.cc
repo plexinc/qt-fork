@@ -6,10 +6,10 @@
 
 #include <utility>
 
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/metrics/histogram_macros.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
-#include "third_party/blink/renderer/bindings/core/v8/v8_function.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_scheduler_post_task_callback.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
 #include "third_party/blink/renderer/modules/scheduler/dom_scheduler.h"
@@ -33,13 +33,11 @@ namespace blink {
 
 DOMTask::DOMTask(DOMScheduler* scheduler,
                  ScriptPromiseResolver* resolver,
-                 V8Function* callback,
-                 const HeapVector<ScriptValue>& args,
+                 V8SchedulerPostTaskCallback* callback,
                  DOMTaskSignal* signal,
                  base::TimeDelta delay)
     : scheduler_(scheduler),
       callback_(callback),
-      arguments_(args),
       resolver_(resolver),
       signal_(signal),
       // TODO(kdillon): Expose queuing time from base::sequence_manager so we
@@ -62,10 +60,9 @@ DOMTask::DOMTask(DOMScheduler* scheduler,
                             &async_task_id_);
 }
 
-void DOMTask::Trace(Visitor* visitor) {
+void DOMTask::Trace(Visitor* visitor) const {
   visitor->Trace(scheduler_);
   visitor->Trace(callback_);
-  visitor->Trace(arguments_);
   visitor->Trace(resolver_);
   visitor->Trace(signal_);
 }
@@ -87,7 +84,6 @@ void DOMTask::InvokeInternal(ScriptState* script_state) {
   v8::Isolate* isolate = script_state->GetIsolate();
   ScriptState::Scope scope(script_state);
   v8::TryCatch try_catch(isolate);
-  try_catch.SetVerbose(true);
 
   ExecutionContext* context = ExecutionContext::From(script_state);
   DCHECK(context);
@@ -98,7 +94,7 @@ void DOMTask::InvokeInternal(ScriptState* script_state) {
   v8_context->SetContinuationPreservedEmbedderData(
       ToV8(signal_.Get(), v8_context->Global(), isolate));
   ScriptValue result;
-  if (callback_->Invoke(nullptr, arguments_).To(&result))
+  if (callback_->Invoke(nullptr).To(&result))
     resolver_->Resolve(result.V8Value());
   else if (try_catch.HasCaught())
     resolver_->Reject(try_catch.Exception());

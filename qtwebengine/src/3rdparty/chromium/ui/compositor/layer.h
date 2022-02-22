@@ -23,6 +23,7 @@
 #include "cc/layers/surface_layer.h"
 #include "cc/layers/texture_layer_client.h"
 #include "components/viz/common/resources/transferable_resource.h"
+#include "components/viz/common/surfaces/subtree_capture_id.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/compositor/compositor.h"
 #include "ui/compositor/layer_animation_delegate.h"
@@ -169,6 +170,23 @@ class COMPOSITOR_EXPORT Layer : public LayerAnimationDelegate,
   // been set. Will not return NULL.
   LayerAnimator* GetAnimator();
 
+  // Sets the given |subtree_id| on the cc::Layer associated with this, so that
+  // the layer subtree rooted here can be uniquely identified by a
+  // FrameSinkVideoCapturer. The existence of a valid SubtreeCaptureId on this
+  // layer will force it to be drawn into a separate CompositorRenderPass.
+  // Setting a non-valid (i.e. default-constructed SubtreeCaptureId) will clear
+  // this property.
+  // It is not allowed to change this ID from a valid ID to another valid ID,
+  // since a client might already using the existing valid ID to make this layer
+  // subtree identifiable by a capturer.
+  //
+  // Note that this is useful when it's desired to video record a layer subtree
+  // of a non-root layer using a FrameSinkVideoCapturer, since non-root layers
+  // are usually not drawn into their own CompositorRenderPass, while the ui
+  // compositor's root layer always is.
+  void SetSubtreeCaptureId(viz::SubtreeCaptureId subtree_id);
+  viz::SubtreeCaptureId GetSubtreeCaptureId() const;
+
   // The transform, relative to the parent.
   void SetTransform(const gfx::Transform& transform);
   const gfx::Transform& transform() const { return cc_layer_->transform(); }
@@ -203,6 +221,7 @@ class COMPOSITOR_EXPORT Layer : public LayerAnimationDelegate,
   // Sets/gets the clip rect for the layer. |clip_rect| is in layer space and
   // relative to |this| layer. Prefer SetMasksToBounds() to set the clip to the
   // bounds of |this| layer. This clips the subtree rooted at |this| layer.
+  gfx::Rect GetTargetClipRect() const;
   void SetClipRect(const gfx::Rect& clip_rect);
   gfx::Rect clip_rect() const { return cc_layer_->clip_rect(); }
 
@@ -439,11 +458,9 @@ class COMPOSITOR_EXPORT Layer : public LayerAnimationDelegate,
   void SetScrollOffset(const gfx::ScrollOffset& offset);
 
   // ContentLayerClient implementation.
-  gfx::Rect PaintableRegion() override;
-  scoped_refptr<cc::DisplayItemList> PaintContentsToDisplayList(
-      ContentLayerClient::PaintingControlSetting painting_control) override;
+  gfx::Rect PaintableRegion() const override;
+  scoped_refptr<cc::DisplayItemList> PaintContentsToDisplayList() override;
   bool FillsBoundsCompletely() const override;
-  size_t GetApproximateUnsharedMemoryUsage() const override;
 
   cc::MirrorLayer* mirror_layer_for_testing() { return mirror_layer_.get(); }
   cc::Layer* cc_layer_for_testing() { return cc_layer_; }
@@ -458,7 +475,7 @@ class COMPOSITOR_EXPORT Layer : public LayerAnimationDelegate,
   float device_scale_factor() const { return device_scale_factor_; }
 
   // Triggers a call to SwitchToLayer.
-  void SwitchCCLayerForTest();
+  bool SwitchCCLayerForTest();
 
   const cc::Region& damaged_region_for_testing() const {
     return damaged_region_;
@@ -509,6 +526,10 @@ class COMPOSITOR_EXPORT Layer : public LayerAnimationDelegate,
 
   bool ContainsMirrorForTest(Layer* mirror) const;
 
+  void SetCompositorForTesting(Compositor* compositor) {
+    compositor_ = compositor;
+  }
+
  private:
   friend class LayerOwner;
   class LayerMirror;
@@ -527,7 +548,7 @@ class COMPOSITOR_EXPORT Layer : public LayerAnimationDelegate,
   // Implementation of LayerAnimatorDelegate
   void SetBoundsFromAnimation(const gfx::Rect& bounds,
                               PropertyChangeReason reason) override;
-  void SetTransformFromAnimation(const gfx::Transform& transform,
+  void SetTransformFromAnimation(const gfx::Transform& new_transform,
                                  PropertyChangeReason reason) override;
   void SetOpacityFromAnimation(float opacity,
                                PropertyChangeReason reason) override;
@@ -575,8 +596,11 @@ class COMPOSITOR_EXPORT Layer : public LayerAnimationDelegate,
   // Set all filters which got applied to the layer background.
   void SetLayerBackgroundFilters();
 
-  // Cleanup |cc_layer_| and replaces it with |new_layer|.
-  void SwitchToLayer(scoped_refptr<cc::Layer> new_layer);
+  // Cleanup |cc_layer_| and replaces it with |new_layer|. When stopping
+  // animations handled by old cc layer before the switch, |this| could be
+  // released by an animation observer. Returns false when it happens and
+  // callers should take cautions as well. Otherwise returns true.
+  bool SwitchToLayer(scoped_refptr<cc::Layer> new_layer) WARN_UNUSED_RESULT;
 
   void SetCompositorForAnimatorsInTree(Compositor* compositor);
   void ResetCompositorForAnimatorsInTree(Compositor* compositor);

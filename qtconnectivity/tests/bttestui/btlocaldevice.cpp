@@ -27,11 +27,9 @@
 ****************************************************************************/
 
 #include "btlocaldevice.h"
+#include <QCoreApplication>
 #include <QDebug>
 #include <QTimer>
-#ifdef Q_OS_ANDROID
-#include <QtAndroidExtras/QtAndroid>
-#endif
 #include <QtBluetooth/QBluetoothServiceInfo>
 
 #define BTCHAT_DEVICE_ADDR "00:15:83:38:17:C3"
@@ -45,12 +43,12 @@
 #define SOCKET_PROTOCOL QBluetoothServiceInfo::RfcommProtocol
 //#define SOCKET_PROTOCOL QBluetoothServiceInfo::L2capProtocol
 
-BtLocalDevice::BtLocalDevice(QObject *parent) :
-    QObject(parent), securityFlags(QBluetooth::NoSecurity)
+BtLocalDevice::BtLocalDevice(QObject *parent)
+    : QObject(parent), securityFlags(QBluetooth::Security::NoSecurity)
 {
     localDevice = new QBluetoothLocalDevice(this);
-    connect(localDevice, &QBluetoothLocalDevice::error,
-            this, &BtLocalDevice::error);
+    connect(localDevice, &QBluetoothLocalDevice::errorOccurred, this,
+            &BtLocalDevice::errorOccurred);
     connect(localDevice, &QBluetoothLocalDevice::hostModeStateChanged,
             this, &BtLocalDevice::hostModeStateChanged);
     connect(localDevice, &QBluetoothLocalDevice::pairingFinished,
@@ -59,10 +57,6 @@ BtLocalDevice::BtLocalDevice(QObject *parent) :
             this, &BtLocalDevice::connected);
     connect(localDevice, &QBluetoothLocalDevice::deviceDisconnected,
             this, &BtLocalDevice::disconnected);
-    connect(localDevice, &QBluetoothLocalDevice::pairingDisplayConfirmation,
-            this, &BtLocalDevice::pairingDisplayConfirmation);
-    connect(localDevice, &QBluetoothLocalDevice::pairingDisplayPinCode,
-            this, &BtLocalDevice::pairingDisplayPinCode);
 
     if (localDevice->isValid()) {
         deviceAgent = new QBluetoothDeviceDiscoveryAgent(this);
@@ -70,8 +64,8 @@ BtLocalDevice::BtLocalDevice(QObject *parent) :
                 this, &BtLocalDevice::deviceDiscovered);
         connect(deviceAgent, &QBluetoothDeviceDiscoveryAgent::finished,
                 this, &BtLocalDevice::discoveryFinished);
-        connect(deviceAgent, QOverload<QBluetoothDeviceDiscoveryAgent::Error>::of(&QBluetoothDeviceDiscoveryAgent::error),
-                this, &BtLocalDevice::discoveryError);
+        connect(deviceAgent, &QBluetoothDeviceDiscoveryAgent::errorOccurred, this,
+                &BtLocalDevice::discoveryError);
         connect(deviceAgent, &QBluetoothDeviceDiscoveryAgent::canceled,
                 this, &BtLocalDevice::discoveryCanceled);
 
@@ -82,14 +76,13 @@ BtLocalDevice::BtLocalDevice(QObject *parent) :
                 this, &BtLocalDevice::serviceDiscoveryFinished);
         connect(serviceAgent, &QBluetoothServiceDiscoveryAgent::canceled,
                 this, &BtLocalDevice::serviceDiscoveryCanceled);
-        connect(serviceAgent, QOverload<QBluetoothServiceDiscoveryAgent::Error>::of(&QBluetoothServiceDiscoveryAgent::error),
-                this, &BtLocalDevice::serviceDiscoveryError);
+        connect(serviceAgent, &QBluetoothServiceDiscoveryAgent::errorOccurred, this,
+                &BtLocalDevice::serviceDiscoveryError);
 
         socket = new QBluetoothSocket(SOCKET_PROTOCOL, this);
         connect(socket, &QBluetoothSocket::stateChanged,
                 this, &BtLocalDevice::socketStateChanged);
-        connect(socket, QOverload<QBluetoothSocket::SocketError>::of(&QBluetoothSocket::error),
-                this, &BtLocalDevice::socketError);
+        connect(socket, &QBluetoothSocket::errorOccurred, this, &BtLocalDevice::socketError);
         connect(socket, &QBluetoothSocket::connected, this, &BtLocalDevice::socketConnected);
         connect(socket, &QBluetoothSocket::disconnected, this, &BtLocalDevice::socketDisconnected);
         connect(socket, &QIODevice::readyRead, this, &BtLocalDevice::readData);
@@ -100,8 +93,7 @@ BtLocalDevice::BtLocalDevice(QObject *parent) :
 
         server = new QBluetoothServer(SOCKET_PROTOCOL, this);
         connect(server, &QBluetoothServer::newConnection, this, &BtLocalDevice::serverNewConnection);
-        connect(server, QOverload<QBluetoothServer::Error>::of(&QBluetoothServer::error),
-                this, &BtLocalDevice::serverError);
+        connect(server, &QBluetoothServer::errorOccurred, this, &BtLocalDevice::serverError);
     } else {
         deviceAgent = nullptr;
         serviceAgent = nullptr;
@@ -120,9 +112,9 @@ BtLocalDevice::~BtLocalDevice()
     }
 }
 
-int BtLocalDevice::secFlags() const
+QBluetooth::SecurityFlags BtLocalDevice::secFlags() const
 {
-    return static_cast<int>(securityFlags);
+    return securityFlags;
 }
 
 void BtLocalDevice::setSecFlags(int newFlags)
@@ -202,37 +194,18 @@ void BtLocalDevice::disconnected(const QBluetoothAddress &addr)
     qDebug() << "Newly disconnected device" << addr.toString();
 }
 
-void BtLocalDevice::pairingDisplayConfirmation(const QBluetoothAddress &address, const QString &pin)
-{
-    qDebug() << "PairingDisplayConfirmation" << address << pin;
-    QTimer::singleShot(3000, this, SLOT(confirmPairing()));
-}
-
-void BtLocalDevice::pairingDisplayPinCode(const QBluetoothAddress &address, const QString &pin)
-{
-    qDebug() << "PairingDisplayPinCode" << address << pin;
-}
-
-void BtLocalDevice::confirmPairing()
-{
-    static bool confirm = false;
-    confirm = !confirm; //toggle
-    qDebug() << "######" << "Sending pairing confirmation: " << confirm;
-    localDevice->pairingConfirmation(confirm);
-}
-
 void BtLocalDevice::cycleSecurityFlags()
 {
-    if (securityFlags.testFlag(QBluetooth::Secure))
-        setSecFlags(QBluetooth::NoSecurity);
-    else if (securityFlags.testFlag(QBluetooth::Encryption))
-        setSecFlags(secFlags() | QBluetooth::Secure);
-    else if (securityFlags.testFlag(QBluetooth::Authentication))
-        setSecFlags(secFlags() | QBluetooth::Encryption);
-    else if (securityFlags.testFlag(QBluetooth::Authorization))
-        setSecFlags(secFlags() | QBluetooth::Authentication);
+    if (securityFlags.testFlag(QBluetooth::Security::Secure))
+        setSecFlags(QBluetooth::SecurityFlags(QBluetooth::Security::NoSecurity));
+    else if (securityFlags.testFlag(QBluetooth::Security::Encryption))
+        setSecFlags(secFlags() | QBluetooth::Security::Secure);
+    else if (securityFlags.testFlag(QBluetooth::Security::Authentication))
+        setSecFlags(secFlags() | QBluetooth::Security::Encryption);
+    else if (securityFlags.testFlag(QBluetooth::Security::Authorization))
+        setSecFlags(secFlags() | QBluetooth::Security::Authentication);
     else
-        setSecFlags(secFlags() | QBluetooth::Authorization);
+        setSecFlags(secFlags() | QBluetooth::Security::Authorization);
 }
 
 void BtLocalDevice::deviceDiscovered(const QBluetoothDeviceInfo &info)
@@ -347,7 +320,7 @@ void BtLocalDevice::serviceDiscovered(const QBluetoothServiceInfo &info)
     bool matchingService =
             (info.serviceUuid() == QBluetoothUuid(QString(TEST_SERVICE_UUID)));
 #ifdef Q_OS_ANDROID
-    if (QtAndroid::androidSdkVersion() >= 23) //bug introduced by Android 6.0.1
+    if (QNativeInterface::QAndroidApplication::sdkVersion() >= 23) //bug introduced by Android 6.0.1
         matchingService = matchingService
             || (info.serviceUuid() == QBluetoothUuid(QString(TEST_REVERSE_SERVICE_UUID)));
 #endif
@@ -514,13 +487,13 @@ void BtLocalDevice::dumpSocketInformation()
         qDebug() << "socket bytesAvailable()" << socket->bytesAvailable();
         QString tmp;
         switch (socket->error()) {
-            case QBluetoothSocket::NoSocketError: tmp += "NoSocketError"; break;
-            case QBluetoothSocket::UnknownSocketError: tmp += "UnknownSocketError"; break;
-            case QBluetoothSocket::HostNotFoundError: tmp += "HostNotFoundError"; break;
-            case QBluetoothSocket::ServiceNotFoundError: tmp += "ServiceNotFound"; break;
-            case QBluetoothSocket::NetworkError: tmp += "NetworkError"; break;
-            //case QBluetoothSocket::OperationError: tmp+= "OperationError"; break;
-            case QBluetoothSocket::UnsupportedProtocolError: tmp += "UnsupportedProtocolError"; break;
+            case QBluetoothSocket::SocketError::NoSocketError: tmp += "NoSocketError"; break;
+            case QBluetoothSocket::SocketError::UnknownSocketError: tmp += "UnknownSocketError"; break;
+            case QBluetoothSocket::SocketError::HostNotFoundError: tmp += "HostNotFoundError"; break;
+            case QBluetoothSocket::SocketError::ServiceNotFoundError: tmp += "ServiceNotFound"; break;
+            case QBluetoothSocket::SocketError::NetworkError: tmp += "NetworkError"; break;
+            //case QBluetoothSocket::SocketError::OperationError: tmp+= "OperationError"; break;
+            case QBluetoothSocket::SocketError::UnsupportedProtocolError: tmp += "UnsupportedProtocolError"; break;
             default: tmp+= "Undefined"; break;
         }
 
@@ -533,7 +506,7 @@ void BtLocalDevice::dumpSocketInformation()
 void BtLocalDevice::writeData()
 {
     const char * testData = "ABCABC\n";
-    if (socket && socket->state() == QBluetoothSocket::ConnectedState) {
+    if (socket && socket->state() == QBluetoothSocket::SocketState::ConnectedState) {
         socket->write(testData);
     }
     for (QBluetoothSocket* client : serverSockets) {
@@ -581,7 +554,7 @@ void BtLocalDevice::serverListenPort()
 
         QBluetoothServiceInfo::Sequence profileSequence;
         QBluetoothServiceInfo::Sequence classId;
-        classId << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::SerialPort));
+        classId << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::ServiceClassUuid::SerialPort));
         classId << QVariant::fromValue(quint16(0x100));
         profileSequence.append(QVariant::fromValue(classId));
         serviceInfo.setAttribute(QBluetoothServiceInfo::BluetoothProfileDescriptorList,
@@ -589,7 +562,7 @@ void BtLocalDevice::serverListenPort()
 
         classId.clear();
         classId << QVariant::fromValue(QBluetoothUuid(QString(TEST_SERVICE_UUID)));
-        classId << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::SerialPort));
+        classId << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::ServiceClassUuid::SerialPort));
         serviceInfo.setAttribute(QBluetoothServiceInfo::ServiceClassIds, classId);
 
         // Service name, description and provider
@@ -604,20 +577,20 @@ void BtLocalDevice::serverListenPort()
 
         // Service Discoverability
         QBluetoothServiceInfo::Sequence browseSequence;
-        browseSequence << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::PublicBrowseGroup));
+        browseSequence << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::ServiceClassUuid::PublicBrowseGroup));
         serviceInfo.setAttribute(QBluetoothServiceInfo::BrowseGroupList, browseSequence);
 
         // Protocol descriptor list
         QBluetoothServiceInfo::Sequence protocolDescriptorList;
         QBluetoothServiceInfo::Sequence protocol;
-        protocol << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::L2cap));
+        protocol << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::ProtocolUuid::L2cap));
         if (server->serverType() == QBluetoothServiceInfo::L2capProtocol)
             protocol << QVariant::fromValue(server->serverPort());
         protocolDescriptorList.append(QVariant::fromValue(protocol));
 
         if (server->serverType() == QBluetoothServiceInfo::RfcommProtocol) {
             protocol.clear();
-            protocol << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::Rfcomm))
+            protocol << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::ProtocolUuid::Rfcomm))
                      << QVariant::fromValue(quint8(server->serverPort()));
             protocolDescriptorList.append(QVariant::fromValue(protocol));
         }
@@ -682,8 +655,7 @@ void BtLocalDevice::serverNewConnection()
     connect(client, &QIODevice::readyRead, this, &BtLocalDevice::clientSocketReadyRead);
     connect(client, &QBluetoothSocket::stateChanged,
             this, &BtLocalDevice::socketStateChanged);
-    connect(client, QOverload<QBluetoothSocket::SocketError>::of(&QBluetoothSocket::error),
-            this, &BtLocalDevice::socketError);
+    connect(client, &QBluetoothSocket::errorOccurred, this, &BtLocalDevice::socketError);
     connect(client, &QBluetoothSocket::connected, this, &BtLocalDevice::socketConnected);
     connect(client, &QBluetoothSocket::bytesWritten, this, [](qint64 bytesWritten){
         qDebug() << "Bytes Written to Server socket:" << bytesWritten;
@@ -729,7 +701,7 @@ void BtLocalDevice::clientSocketReadyRead()
 
 void BtLocalDevice::dumpServerInformation()
 {
-    static QBluetooth::SecurityFlags secFlag = QBluetooth::Authentication;
+    static QBluetooth::SecurityFlags secFlag = QBluetooth::Security::Authentication;
     if (server) {
         qDebug() << "*******************************";
         qDebug() << "server port:" <<server->serverPort()
@@ -740,10 +712,10 @@ void BtLocalDevice::dumpServerInformation()
                  << "hasPending:" << server->hasPendingConnections()
                  << "maxPending:" << server->maxPendingConnections();
         qDebug() << "security:" << server->securityFlags() << "Togling security flag";
-        if (secFlag == QBluetooth::Authentication)
-            secFlag = QBluetooth::Encryption;
+        if (secFlag == QBluetooth::SecurityFlags(QBluetooth::Security::Authentication))
+            secFlag = QBluetooth::Security::Encryption;
         else
-            secFlag = QBluetooth::Authentication;
+            secFlag = QBluetooth::Security::Authentication;
 
         //server->setSecurityFlags(secFlag);
 
@@ -756,13 +728,13 @@ void BtLocalDevice::dumpServerInformation()
             qDebug() << "Pending bytes: " << client->bytesAvailable();
             QString tmp;
             switch (client->error()) {
-            case QBluetoothSocket::NoSocketError: tmp += "NoSocketError"; break;
-            case QBluetoothSocket::UnknownSocketError: tmp += "UnknownSocketError"; break;
-            case QBluetoothSocket::HostNotFoundError: tmp += "HostNotFoundError"; break;
-            case QBluetoothSocket::ServiceNotFoundError: tmp += "ServiceNotFound"; break;
-            case QBluetoothSocket::NetworkError: tmp += "NetworkError"; break;
-            case QBluetoothSocket::UnsupportedProtocolError: tmp += "UnsupportedProtocolError"; break;
-            //case QBluetoothSocket::OperationError: tmp+= "OperationError"; break;
+            case QBluetoothSocket::SocketError::NoSocketError: tmp += "NoSocketError"; break;
+            case QBluetoothSocket::SocketError::UnknownSocketError: tmp += "UnknownSocketError"; break;
+            case QBluetoothSocket::SocketError::HostNotFoundError: tmp += "HostNotFoundError"; break;
+            case QBluetoothSocket::SocketError::ServiceNotFoundError: tmp += "ServiceNotFound"; break;
+            case QBluetoothSocket::SocketError::NetworkError: tmp += "NetworkError"; break;
+            case QBluetoothSocket::SocketError::UnsupportedProtocolError: tmp += "UnsupportedProtocolError"; break;
+            //case QBluetoothSocket::SocketError::OperationError: tmp+= "OperationError"; break;
             default: tmp += QString::number(static_cast<int>(client->error())); break;
             }
 
@@ -836,7 +808,7 @@ void BtLocalDevice::powerOn()
 
 void BtLocalDevice::reset()
 {
-    emit error(static_cast<QBluetoothLocalDevice::Error>(1000));
+    emit errorOccurred(static_cast<QBluetoothLocalDevice::Error>(1000));
     if (serviceAgent) {
         serviceAgent->clear();
     }

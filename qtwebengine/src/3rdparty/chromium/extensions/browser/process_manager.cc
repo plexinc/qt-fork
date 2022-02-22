@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/feature_list.h"
 #include "base/guid.h"
 #include "base/location.h"
 #include "base/logging.h"
@@ -17,11 +18,11 @@
 #include "base/one_shot_event.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/task/post_task.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
@@ -58,13 +59,38 @@ namespace extensions {
 
 namespace {
 
-// The time to delay between an extension becoming idle and
-// sending a ShouldSuspend message.
-unsigned g_event_page_idle_time_msec = 10000;
+// Feature to control the delay between an extension becoming idle and sending a
+// ShouldSuspend message.
+const base::Feature kChangeExtensionEventPageSuspendDelay{
+    "ChangeExtensionEventPageSuspendDelay", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// The delay between an extension becoming idle and sending a ShouldSuspend
+// message. The default value is used when the
+// |kChangeExtensionEventPageSuspendDelay| feature is disabled.
+//
+// TODO(crbug.com/1144166): Cleanup the feature param after experiments with a
+// longer delay are complete.
+const base::FeatureParam<int> kEventPageSuspendDelayMs{
+    &kChangeExtensionEventPageSuspendDelay, "event-page-suspend-delay-ms",
+    10000};
+
+// Overrides |kEventPageSuspendDelayMs| if not -1. For testing.
+constexpr int kInvalidSuspendDelay = -1;
+int g_event_page_suspend_delay_ms_for_testing = kInvalidSuspendDelay;
 
 // The time to delay between sending a ShouldSuspend message and
 // sending a Suspend message.
 unsigned g_event_page_suspending_time_msec = 5000;
+
+// Returns the delay between an extension becoming idle and sending a
+// ShouldSuspend message, taking into account experiments and testing overrides.
+base::TimeDelta GetEventPageSuspendDelay() {
+  if (g_event_page_suspend_delay_ms_for_testing != kInvalidSuspendDelay) {
+    return base::TimeDelta::FromMilliseconds(
+        g_event_page_suspend_delay_ms_for_testing);
+  }
+  return base::TimeDelta::FromMilliseconds(kEventPageSuspendDelayMs.Get());
+}
 
 std::string GetExtensionIdForSiteInstance(
     content::SiteInstance* site_instance) {
@@ -125,22 +151,6 @@ void PropagateExtensionWakeResult(
     base::OnceCallback<void(bool)> callback,
     std::unique_ptr<LazyContextTaskQueue::ContextInfo> context_info) {
   std::move(callback).Run(context_info != nullptr);
-}
-
-void StartServiceWorkerExternalRequest(content::ServiceWorkerContext* context,
-                                       int64_t service_worker_version_id,
-                                       const std::string& request_uuid) {
-  DCHECK_CURRENTLY_ON(content::ServiceWorkerContext::GetCoreThreadId());
-  context->StartingExternalRequest(service_worker_version_id, request_uuid);
-}
-
-void FinishServiceWorkerExternalRequest(content::ServiceWorkerContext* context,
-                                        int64_t service_worker_version_id,
-                                        const std::string& request_uuid) {
-  DCHECK_CURRENTLY_ON(content::ServiceWorkerContext::GetCoreThreadId());
-  content::ServiceWorkerExternalRequestResult result =
-      context->FinishedExternalRequest(service_worker_version_id, request_uuid);
-  DCHECK_EQ(result, content::ServiceWorkerExternalRequestResult::kOk);
 }
 
 }  // namespace
@@ -256,8 +266,7 @@ ProcessManager::ProcessManager(BrowserContext* context,
     : extension_registry_(extension_registry),
       site_instance_(content::SiteInstance::Create(context)),
       browser_context_(context),
-      worker_task_runner_(
-          base::CreateSingleThreadTaskRunner({content::BrowserThread::IO})),
+      worker_task_runner_(content::GetIOThreadTaskRunner({})),
       startup_background_hosts_created_(false),
       last_background_close_sequence_id_(0) {
   // ExtensionRegistry is shared between incognito and regular contexts.
@@ -269,15 +278,9 @@ ProcessManager::ProcessManager(BrowserContext* context,
   if (!context->IsOffTheRecord()) {
     ExtensionSystem::Get(context)->ready().Post(
         FROM_HERE,
-        base::Bind(&ProcessManager::MaybeCreateStartupBackgroundHosts,
-                   weak_ptr_factory_.GetWeakPtr()));
+        base::BindOnce(&ProcessManager::MaybeCreateStartupBackgroundHosts,
+                       weak_ptr_factory_.GetWeakPtr()));
   }
-  registrar_.Add(this,
-                 extensions::NOTIFICATION_EXTENSION_HOST_DESTROYED,
-                 content::Source<BrowserContext>(context));
-  registrar_.Add(this,
-                 extensions::NOTIFICATION_EXTENSION_HOST_VIEW_SHOULD_CLOSE,
-                 content::Source<BrowserContext>(context));
   content::DevToolsAgentHost::AddObserver(this);
 }
 
@@ -389,7 +392,7 @@ bool ProcessManager::CreateBackgroundHost(const Extension* extension,
   ExtensionHost* host =
       new ExtensionHost(extension, GetSiteInstanceForURL(url).get(), url,
                         VIEW_TYPE_EXTENSION_BACKGROUND_PAGE);
-  host->CreateRenderViewSoon();
+  host->CreateRendererSoon();
   OnBackgroundHostCreated(host);
   return true;
 }
@@ -550,7 +553,7 @@ void ProcessManager::OnSuspendAck(const std::string& extension_id) {
       base::TimeDelta::FromMilliseconds(g_event_page_suspending_time_msec));
 }
 
-void ProcessManager::OnNetworkRequestStarted(
+void ProcessManager::NetworkRequestStarted(
     content::RenderFrameHost* render_frame_host,
     uint64_t request_id) {
   ExtensionHost* host = GetBackgroundHostForExtension(
@@ -567,7 +570,7 @@ void ProcessManager::OnNetworkRequestStarted(
   host->OnNetworkRequestStarted(request_id);
 }
 
-void ProcessManager::OnNetworkRequestDone(
+void ProcessManager::NetworkRequestDone(
     content::RenderFrameHost* render_frame_host,
     uint64_t request_id) {
   auto result = pending_network_requests_.find(request_id);
@@ -613,9 +616,9 @@ void ProcessManager::CloseBackgroundHosts() {
   // callbacks to modify the |background_hosts_| set.
   ExtensionHostSet hosts_copy = background_hosts_;
   for (auto* host : hosts_copy) {
-    // Deleting the host will cause a NOTIFICATION_EXTENSION_HOST_DESTROYED
-    // which will cause the removal of the host from the |background_hosts_| set
-    // in the Observe() method below.
+    // Deleting the host will cause a OnExtensionHostDestroyed which will cause
+    // the removal of the host from the |background_hosts_| set in the
+    // OnExtensionHostDestroyed() method below.
     delete host;
     DCHECK_EQ(0u, background_hosts_.count(host));
   }
@@ -627,7 +630,7 @@ void ProcessManager::CloseBackgroundHosts() {
 // static
 void ProcessManager::SetEventPageIdleTimeForTesting(unsigned idle_time_msec) {
   CHECK_GT(idle_time_msec, 0u);
-  g_event_page_idle_time_msec = idle_time_msec;
+  g_event_page_suspend_delay_ms_for_testing = idle_time_msec;
 }
 
 // static
@@ -638,33 +641,6 @@ void ProcessManager::SetEventPageSuspendingTimeForTesting(
 
 ////////////////////////////////////////////////////////////////////////////////
 // Private
-
-void ProcessManager::Observe(int type,
-                             const content::NotificationSource& source,
-                             const content::NotificationDetails& details) {
-  TRACE_EVENT0("browser,startup", "ProcessManager::Observe");
-  switch (type) {
-    case extensions::NOTIFICATION_EXTENSION_HOST_DESTROYED: {
-      ExtensionHost* host = content::Details<ExtensionHost>(details).ptr();
-      if (background_hosts_.erase(host)) {
-        // Note: |host->extension()| may be null at this point.
-        ClearBackgroundPageData(host->extension_id());
-        background_page_data_[host->extension_id()].since_suspended.reset(
-            new base::ElapsedTimer());
-      }
-      break;
-    }
-    case extensions::NOTIFICATION_EXTENSION_HOST_VIEW_SHOULD_CLOSE: {
-      ExtensionHost* host = content::Details<ExtensionHost>(details).ptr();
-      if (host->extension_host_type() == VIEW_TYPE_EXTENSION_BACKGROUND_PAGE) {
-        CloseBackgroundHost(host);
-      }
-      break;
-    }
-    default:
-      NOTREACHED();
-  }
-}
 
 void ProcessManager::OnExtensionLoaded(BrowserContext* browser_context,
                                        const Extension* extension) {
@@ -697,6 +673,7 @@ void ProcessManager::CreateStartupBackgroundHosts() {
 void ProcessManager::OnBackgroundHostCreated(ExtensionHost* host) {
   DCHECK_EQ(browser_context_, host->browser_context());
   background_hosts_.insert(host);
+  host->AddObserver(this);
 
   if (BackgroundInfo::HasLazyBackgroundPage(host->extension())) {
     std::unique_ptr<base::ElapsedTimer> since_suspended = std::move(
@@ -775,16 +752,8 @@ std::string ProcessManager::IncrementServiceWorkerKeepaliveCount(
       util::GetStoragePartitionForExtensionId(extension->id(), browser_context_)
           ->GetServiceWorkerContext();
 
-  if (content::ServiceWorkerContext::IsServiceWorkerOnUIEnabled()) {
-    StartServiceWorkerExternalRequest(service_worker_context,
-                                      service_worker_version_id, request_uuid);
-  } else {
-    content::ServiceWorkerContext::RunTask(
-        worker_task_runner_, FROM_HERE, service_worker_context,
-        base::BindOnce(&StartServiceWorkerExternalRequest,
-                       service_worker_context, service_worker_version_id,
-                       request_uuid));
-  }
+  service_worker_context->StartingExternalRequest(service_worker_version_id,
+                                                  request_uuid);
   return request_uuid;
 }
 
@@ -817,7 +786,7 @@ void ProcessManager::DecrementLazyKeepaliveCount(
           base::BindOnce(&ProcessManager::OnLazyBackgroundPageIdle,
                          weak_ptr_factory_.GetWeakPtr(), extension_id,
                          last_background_close_sequence_id_),
-          base::TimeDelta::FromMilliseconds(g_event_page_idle_time_msec));
+          GetEventPageSuspendDelay());
     }
   }
 }
@@ -840,16 +809,10 @@ void ProcessManager::DecrementServiceWorkerKeepaliveCount(
       util::GetStoragePartitionForExtensionId(extension->id(), browser_context_)
           ->GetServiceWorkerContext();
 
-  if (content::ServiceWorkerContext::IsServiceWorkerOnUIEnabled()) {
-    FinishServiceWorkerExternalRequest(service_worker_context,
-                                       service_worker_version_id, request_uuid);
-  } else {
-    content::ServiceWorkerContext::RunTask(
-        worker_task_runner_, FROM_HERE, service_worker_context,
-        base::BindOnce(&FinishServiceWorkerExternalRequest,
-                       service_worker_context, service_worker_version_id,
-                       request_uuid));
-  }
+  content::ServiceWorkerExternalRequestResult result =
+      service_worker_context->FinishedExternalRequest(service_worker_version_id,
+                                                      request_uuid);
+  DCHECK_EQ(result, content::ServiceWorkerExternalRequestResult::kOk);
 }
 
 void ProcessManager::OnLazyBackgroundPageIdle(const std::string& extension_id,
@@ -960,7 +923,14 @@ void ProcessManager::UnregisterExtension(const std::string& extension_id) {
 
   background_page_data_.erase(extension_id);
 
-  all_extension_workers_.RemoveAllForExtension(extension_id);
+  for (const WorkerId& worker_id :
+       all_extension_workers_.GetAllForExtension(extension_id)) {
+    UnregisterServiceWorker(worker_id);
+  }
+#if DCHECK_IS_ON()
+  // Sanity check: No worker entry should exist for |extension_id|.
+  DCHECK(all_extension_workers_.GetAllForExtension(extension_id).empty());
+#endif
 }
 
 void ProcessManager::RegisterServiceWorker(const WorkerId& worker_id) {
@@ -979,6 +949,8 @@ void ProcessManager::RegisterServiceWorker(const WorkerId& worker_id) {
       // These will be cleaned up in RenderProcessExited().
       process_observer_.Add(render_process_host);
     }
+    for (auto& observer : observer_list_)
+      observer.OnServiceWorkerRegistered(worker_id);
   }
 }
 
@@ -1001,9 +973,37 @@ void ProcessManager::RenderProcessExited(
   auto iter = worker_process_to_extension_ids_.find(render_process_id);
   if (iter == worker_process_to_extension_ids_.end())
     return;
+  for (const ExtensionId& extension_id : iter->second) {
+    for (const WorkerId& worker_id : all_extension_workers_.GetAllForExtension(
+             extension_id, render_process_id)) {
+      UnregisterServiceWorker(worker_id);
+    }
+  }
+#if DCHECK_IS_ON()
+  // Sanity check: No worker entry should exist for any |extension_id| running
+  // inside the RenderProcessHost that died.
   for (const ExtensionId& extension_id : iter->second)
-    all_extension_workers_.RemoveAllForExtension(extension_id);
+    DCHECK(all_extension_workers_.GetAllForExtension(extension_id).empty());
+#endif
   worker_process_to_extension_ids_.erase(iter);
+}
+
+void ProcessManager::OnExtensionHostDestroyed(ExtensionHost* host) {
+  TRACE_EVENT0("browser,startup", "ProcessManager::OnExtensionHostDestroyed");
+  host->RemoveObserver(this);
+
+  DCHECK(background_hosts_.find(host) != background_hosts_.end());
+  background_hosts_.erase(host);
+  // Note: |host->extension()| may be null at this point.
+  ClearBackgroundPageData(host->extension_id());
+  background_page_data_[host->extension_id()].since_suspended =
+      std::make_unique<base::ElapsedTimer>();
+}
+
+void ProcessManager::OnExtensionHostShouldClose(ExtensionHost* host) {
+  TRACE_EVENT0("browser,startup", "ProcessManager::OnExtensionHostShouldClose");
+  DCHECK(host->extension_host_type() == VIEW_TYPE_EXTENSION_BACKGROUND_PAGE);
+  CloseBackgroundHost(host);
 }
 
 void ProcessManager::UnregisterServiceWorker(const WorkerId& worker_id) {
@@ -1022,6 +1022,11 @@ std::vector<WorkerId> ProcessManager::GetServiceWorkers(
     int render_process_id) const {
   return all_extension_workers_.GetAllForExtension(extension_id,
                                                    render_process_id);
+}
+
+std::vector<WorkerId> ProcessManager::GetServiceWorkersForExtension(
+    const ExtensionId& extension_id) const {
+  return all_extension_workers_.GetAllForExtension(extension_id);
 }
 
 std::vector<WorkerId> ProcessManager::GetAllWorkersIdsForTesting() {

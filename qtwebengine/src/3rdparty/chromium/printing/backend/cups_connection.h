@@ -11,7 +11,6 @@
 #include <string>
 #include <vector>
 
-#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "printing/backend/cups_deleters.h"
 #include "printing/backend/cups_jobs.h"
@@ -35,47 +34,34 @@ struct PRINTING_EXPORT QueueStatus {
 // Represents a connection to a CUPS server.
 class PRINTING_EXPORT CupsConnection {
  public:
-  CupsConnection(const GURL& print_server_url,
-                 http_encryption_t encryption,
-                 bool blocking);
+  virtual ~CupsConnection() = default;
 
-  CupsConnection(CupsConnection&& connection);
-
-  ~CupsConnection();
+  static std::unique_ptr<CupsConnection> Create(const GURL& print_server_url,
+                                                http_encryption_t encryption,
+                                                bool blocking);
 
   // Returns a vector of all the printers configure on the CUPS server.
-  std::vector<CupsPrinter> GetDests();
+  virtual std::vector<std::unique_ptr<CupsPrinter>> GetDests() = 0;
 
   // Returns a printer for |printer_name| from the connected server.
-  std::unique_ptr<CupsPrinter> GetPrinter(const std::string& printer_name);
+  virtual std::unique_ptr<CupsPrinter> GetPrinter(
+      const std::string& printer_name) = 0;
 
   // Queries CUPS for printer queue status for |printer_ids|.  Populates |jobs|
   // with said information with one QueueStatus per printer_id.  Returns true if
   // all the queries were successful.  In the event of failure, |jobs| will be
   // unchanged.
-  bool GetJobs(const std::vector<std::string>& printer_ids,
-               std::vector<QueueStatus>* jobs);
+  virtual bool GetJobs(const std::vector<std::string>& printer_ids,
+                       std::vector<QueueStatus>* jobs) = 0;
 
   // Queries CUPS for printer status for |printer_id|.
   // Returns true if the query was successful.
-  bool GetPrinterStatus(const std::string& printer_id,
-                        PrinterStatus* printer_status);
+  virtual bool GetPrinterStatus(const std::string& printer_id,
+                                PrinterStatus* printer_status) = 0;
 
-  std::string server_name() const;
+  virtual std::string server_name() const = 0;
 
-  int last_error() const;
-
- private:
-  // lazily initialize http connection
-  bool Connect();
-
-  GURL print_server_url_;
-  http_encryption_t cups_encryption_;
-  bool blocking_;
-
-  ScopedHttpPtr cups_http_;
-
-  DISALLOW_COPY_AND_ASSIGN(CupsConnection);
+  virtual int last_error() const = 0;
 };
 
 }  // namespace printing

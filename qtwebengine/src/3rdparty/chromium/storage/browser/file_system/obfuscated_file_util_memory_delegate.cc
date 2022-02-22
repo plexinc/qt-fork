@@ -8,9 +8,32 @@
 
 #include "base/files/file_util.h"
 #include "base/numerics/checked_math.h"
+#include "base/system/sys_info.h"
 #include "build/build_config.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
+
+namespace {
+
+// We are giving a relatively large quota to in-memory filesystem (see
+// quota_settings.cc), but we do not allocate this memory beforehand for the
+// filesystem. Therefore, specially on low-end devices, a website can get to a
+// state where it has not used all its quota, but there is no more memory
+// available and memory allocation fails and results in Chrome crash.
+// By checking for availability of memory before allocating it, we reduce the
+// crash possibility.
+// Note that quota assignment is the same for on-disk filesystem and the
+// assigned quota is not guaranteed to be allocatable later.
+bool IsMemoryAvailable(int64_t required_memory) {
+#if defined(OS_FUCHSIA)
+  // This function is not implemented on FUCHSIA, yet. (crbug.com/986608)
+  return true;
+#else
+  return base::SysInfo::AmountOfAvailablePhysicalMemory() >= required_memory;
+#endif
+}
+
+}  // namespace
 
 namespace storage {
 
@@ -305,6 +328,12 @@ base::File::Error ObfuscatedFileUtilMemoryDelegate::Truncate(
   if (!dp || !dp->entry || dp->entry->type != Entry::kFile)
     return base::File::FILE_ERROR_NOT_FOUND;
 
+  // Fail if enough memory is not available.
+  if (static_cast<size_t>(length) > dp->entry->file_content.capacity() &&
+      !IsMemoryAvailable(length)) {
+    return base::File::FILE_ERROR_NO_SPACE;
+  }
+
   dp->entry->file_content.resize(length);
   return base::File::FILE_OK;
 }
@@ -356,9 +385,13 @@ base::File::Error ObfuscatedFileUtilMemoryDelegate::CopyOrMoveFile(
     case NativeFileUtil::CopyOrMoveMode::COPY_NOSYNC:
     case NativeFileUtil::CopyOrMoveMode::COPY_SYNC:
       DCHECK(!src_is_directory);
+      // Fail if enough memory is not available.
+      if (!IsMemoryAvailable(src_dp->entry->file_content.size()))
+        return base::File::FILE_ERROR_NO_SPACE;
       if (!CopyOrMoveFileInternal(*src_dp, *dest_dp, false))
         return base::File::FILE_ERROR_FAILED;
       break;
+
     case NativeFileUtil::CopyOrMoveMode::MOVE:
       if (src_is_directory) {
         if (!MoveDirectoryInternal(*src_dp, *dest_dp))
@@ -456,8 +489,13 @@ int ObfuscatedFileUtilMemoryDelegate::ReadFile(const base::FilePath& path,
     return net::ERR_FILE_NOT_FOUND;
 
   int64_t remaining = dp->entry->file_content.size() - offset;
-  if (offset < 0 || remaining < 0)
-    return net::ERR_REQUEST_RANGE_NOT_SATISFIABLE;
+  if (offset < 0)
+    return net::ERR_INVALID_ARGUMENT;
+
+  // Seeking past the end of the file is ok, but returns nothing.
+  // This matches FileStream::Context behavior.
+  if (remaining < 0)
+    return 0;
 
   if (buf_len > remaining)
     buf_len = static_cast<int>(remaining);
@@ -467,10 +505,11 @@ int ObfuscatedFileUtilMemoryDelegate::ReadFile(const base::FilePath& path,
   return buf_len;
 }
 
-int ObfuscatedFileUtilMemoryDelegate::WriteFile(const base::FilePath& path,
-                                                int64_t offset,
-                                                scoped_refptr<net::IOBuffer> buf,
-                                                int buf_len) {
+int ObfuscatedFileUtilMemoryDelegate::WriteFile(
+    const base::FilePath& path,
+    int64_t offset,
+    scoped_refptr<net::IOBuffer> buf,
+    int buf_len) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   base::Optional<DecomposedPath> dp = ParsePath(path);
 
@@ -479,13 +518,19 @@ int ObfuscatedFileUtilMemoryDelegate::WriteFile(const base::FilePath& path,
 
   size_t offset_u = static_cast<size_t>(offset);
   // Fail if |offset| or |buf_len| not valid.
-  if (offset < 0 || buf_len < 0 || offset_u > dp->entry->file_content.size())
+  if (offset < 0 || buf_len < 0)
     return net::ERR_REQUEST_RANGE_NOT_SATISFIABLE;
 
   // Fail if result doesn't fit in a std::vector.
   if (std::numeric_limits<size_t>::max() - offset_u <
       static_cast<size_t>(buf_len))
     return net::ERR_REQUEST_RANGE_NOT_SATISFIABLE;
+
+  // Fail if enough memory is not available.
+  if (offset_u + buf_len > dp->entry->file_content.capacity() &&
+      !IsMemoryAvailable(offset_u + buf_len)) {
+    return net::ERR_FILE_NO_SPACE;
+  }
 
   if (offset_u == dp->entry->file_content.size()) {
     dp->entry->file_content.insert(dp->entry->file_content.end(), buf->data(),
@@ -494,6 +539,8 @@ int ObfuscatedFileUtilMemoryDelegate::WriteFile(const base::FilePath& path,
     if (offset_u + buf_len > dp->entry->file_content.size())
       dp->entry->file_content.resize(offset_u + buf_len);
 
+    // if |offset_u| is larger than the original file size, there will be null
+    // bytes between the end of the file and |offset_u|.
     memcpy(dp->entry->file_content.data() + offset, buf->data(), buf_len);
   }
   return buf_len;
@@ -541,6 +588,10 @@ base::File::Error ObfuscatedFileUtilMemoryDelegate::CopyInForeignFile(
       source_info.size > std::numeric_limits<int>::max()) {
     return base::File::FILE_ERROR_NO_SPACE;
   }
+
+  // Fail if enough memory is not available.
+  if (!IsMemoryAvailable(source_info.size))
+    return base::File::FILE_ERROR_NO_SPACE;
 
   // Create file.
   Entry* entry = &dest_dp->parent->directory_content

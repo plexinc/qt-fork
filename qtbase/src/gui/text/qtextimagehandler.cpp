@@ -53,40 +53,21 @@ QT_BEGIN_NAMESPACE
 
 extern QString qt_findAtNxFile(const QString &baseFileName, qreal targetDevicePixelRatio,
                                qreal *sourceDevicePixelRatio);
-static QString resolveFileName(QString fileName, QUrl *url, qreal targetDevicePixelRatio,
-                               qreal *sourceDevicePixelRatio)
+
+static inline QUrl fromLocalfileOrResources(QString path)
 {
-    // We might use the fileName for loading if url loading fails
-    // try to make sure it is a valid file path.
-    // Also, QFile{Info}::exists works only on filepaths (not urls)
-
-    if (url->isValid()) {
-      if (url->scheme() == QLatin1String("qrc")) {
-        fileName = fileName.right(fileName.length() - 3);
-      }
-      else if (url->scheme() == QLatin1String("file")) {
-        fileName = url->toLocalFile();
-      }
-    }
-
-    if (targetDevicePixelRatio <= 1.0)
-        return fileName;
-
-    // try to find a Nx version
-    return qt_findAtNxFile(fileName, targetDevicePixelRatio, sourceDevicePixelRatio);
+    if (path.startsWith(QLatin1String(":/"))) // auto-detect resources and convert them to url
+        path.prepend(QLatin1String("qrc"));
+    return QUrl(path);
 }
-
 
 static QPixmap getPixmap(QTextDocument *doc, const QTextImageFormat &format, const qreal devicePixelRatio = 1.0)
 {
-    QPixmap pm;
-
-    QString name = format.name();
-    if (name.startsWith(QLatin1String(":/"))) // auto-detect resources and convert them to url
-        name.prepend(QLatin1String("qrc"));
-    QUrl url = QUrl(name);
     qreal sourcePixelRatio = 1.0;
-    name = resolveFileName(name, &url, devicePixelRatio, &sourcePixelRatio);
+    const QString name = qt_findAtNxFile(format.name(), devicePixelRatio, &sourcePixelRatio);
+    const QUrl url = fromLocalfileOrResources(name);
+
+    QPixmap pm;
     const QVariant data = doc->resource(QTextDocument::ImageResource, url);
     if (data.userType() == QMetaType::QPixmap || data.userType() == QMetaType::QImage) {
         pm = qvariant_cast<QPixmap>(data);
@@ -95,14 +76,6 @@ static QPixmap getPixmap(QTextDocument *doc, const QTextImageFormat &format, con
     }
 
     if (pm.isNull()) {
-#if 0
-        QString context;
-        // ### Qt5
-        QTextBrowser *browser = qobject_cast<QTextBrowser *>(doc->parent());
-        if (browser)
-            context = browser->source().toString();
-#endif
-        // try direct loading
         QImage img;
         if (name.isEmpty() || !img.load(name))
             return QPixmap(QLatin1String(":/qt-project.org/styles/commonstyle/images/file-16.png"));
@@ -161,14 +134,11 @@ static QSize getPixmapSize(QTextDocument *doc, const QTextImageFormat &format)
 
 static QImage getImage(QTextDocument *doc, const QTextImageFormat &format, const qreal devicePixelRatio = 1.0)
 {
-    QImage image;
-
-    QString name = format.name();
-    if (name.startsWith(QLatin1String(":/"))) // auto-detect resources
-        name.prepend(QLatin1String("qrc"));
-    QUrl url = QUrl(name);
     qreal sourcePixelRatio = 1.0;
-    name = resolveFileName(name, &url, devicePixelRatio, &sourcePixelRatio);
+    const QString name = qt_findAtNxFile(format.name(), devicePixelRatio, &sourcePixelRatio);
+    const QUrl url = fromLocalfileOrResources(name);
+
+    QImage image;
     const QVariant data = doc->resource(QTextDocument::ImageResource, url);
     if (data.userType() == QMetaType::QImage) {
         image = qvariant_cast<QImage>(data);
@@ -177,15 +147,6 @@ static QImage getImage(QTextDocument *doc, const QTextImageFormat &format, const
     }
 
     if (image.isNull()) {
-#if 0
-        QString context;
-        // ### Qt5
-        QTextBrowser *browser = qobject_cast<QTextBrowser *>(doc->parent());
-        if (browser)
-            context = browser->source().toString();
-#endif
-        // try direct loading
-
         if (name.isEmpty() || !image.load(name))
             return QImage(QLatin1String(":/qt-project.org/styles/commonstyle/images/file-16.png"));
 
@@ -236,7 +197,7 @@ QTextImageHandler::QTextImageHandler(QObject *parent)
 
 QSizeF QTextImageHandler::intrinsicSize(QTextDocument *doc, int posInDocument, const QTextFormat &format)
 {
-    Q_UNUSED(posInDocument)
+    Q_UNUSED(posInDocument);
     const QTextImageFormat imageFormat = format.toImageFormat();
 
     if (QCoreApplication::instance()->thread() != QThread::currentThread())
@@ -253,14 +214,14 @@ QImage QTextImageHandler::image(QTextDocument *doc, const QTextImageFormat &imag
 
 void QTextImageHandler::drawObject(QPainter *p, const QRectF &rect, QTextDocument *doc, int posInDocument, const QTextFormat &format)
 {
-    Q_UNUSED(posInDocument)
+    Q_UNUSED(posInDocument);
         const QTextImageFormat imageFormat = format.toImageFormat();
 
     if (QCoreApplication::instance()->thread() != QThread::currentThread()) {
-        const QImage image = getImage(doc, imageFormat, p->device()->devicePixelRatioF());
+        const QImage image = getImage(doc, imageFormat, p->device()->devicePixelRatio());
         p->drawImage(rect, image, image.rect());
     } else {
-        const QPixmap pixmap = getPixmap(doc, imageFormat, p->device()->devicePixelRatioF());
+        const QPixmap pixmap = getPixmap(doc, imageFormat, p->device()->devicePixelRatio());
         p->drawPixmap(rect, pixmap, pixmap.rect());
     }
 }

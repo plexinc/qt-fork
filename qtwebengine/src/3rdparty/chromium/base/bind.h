@@ -15,7 +15,7 @@
 #include "base/template_util.h"
 #include "build/build_config.h"
 
-#if defined(OS_MACOSX) && !HAS_FEATURE(objc_arc)
+#if defined(OS_APPLE) && !HAS_FEATURE(objc_arc)
 #include "base/mac/scoped_block.h"
 #endif
 
@@ -69,41 +69,99 @@ struct IsOnceCallback : std::false_type {};
 template <typename Signature>
 struct IsOnceCallback<OnceCallback<Signature>> : std::true_type {};
 
+// Helpers to make error messages slightly more readable.
+template <int i>
+struct BindArgument {
+  template <typename ForwardingType>
+  struct ForwardedAs {
+    template <typename FunctorParamType>
+    struct ToParamWithType {
+      static constexpr bool kCanBeForwardedToBoundFunctor =
+          std::is_constructible<FunctorParamType, ForwardingType>::value;
+      // Note that this intentionally drops the const qualifier from
+      // `ForwardingType`, to test if it *could* have been successfully
+      // forwarded if `Passed()` had been used.
+      static constexpr bool kMoveOnlyTypeMustUseBasePassed =
+          kCanBeForwardedToBoundFunctor ||
+          !std::is_constructible<FunctorParamType,
+                                 std::decay_t<ForwardingType>&&>::value;
+    };
+  };
+
+  template <typename BoundAsType>
+  struct BoundAs {
+    template <typename StorageType>
+    struct StoredAs {
+      static constexpr bool kBindArgumentCanBeCaptured =
+          std::is_constructible<StorageType, BoundAsType>::value;
+      // Note that this intentionally drops the const qualifier from
+      // `BoundAsType`, to test if it *could* have been successfully bound if
+      // `std::move()` had been used.
+      static constexpr bool kMoveOnlyTypeMustUseStdMove =
+          kBindArgumentCanBeCaptured ||
+          !std::is_constructible<StorageType,
+                                 std::decay_t<BoundAsType>&&>::value;
+    };
+  };
+};
+
 // Helper to assert that parameter |i| of type |Arg| can be bound, which means:
 // - |Arg| can be retained internally as |Storage|.
 // - |Arg| can be forwarded as |Unwrapped| to |Param|.
-template <size_t i,
+template <int i,
           typename Arg,
           typename Storage,
           typename Unwrapped,
           typename Param>
 struct AssertConstructible {
  private:
-  static constexpr bool param_is_forwardable =
-      std::is_constructible<Param, Unwrapped>::value;
-  // Unlike the check for binding into storage below, the check for
-  // forwardability drops the const qualifier for repeating callbacks. This is
-  // to try to catch instances where std::move()--which forwards as a const
-  // reference with repeating callbacks--is used instead of base::Passed().
+  // With `BindRepeating`, there are two decision points for how to handle a
+  // move-only type:
+  //
+  // 1. Whether the move-only argument should be moved into the internal
+  //    `BindState`. Either `std::move()` or `Passed` is sufficient to trigger
+  //    move-only semantics.
+  // 2. Whether or not the bound, move-only argument should be moved to the
+  //    bound functor when invoked. When the argument is bound with `Passed`,
+  //    invoking the callback will destructively move the bound, move-only
+  //    argument to the bound functor. In contrast, if the argument is bound
+  //    with `std::move()`, `RepeatingCallback` will attempt to call the bound
+  //    functor with a constant reference to the bound, move-only argument. This
+  //    will fail if the bound functor accepts that argument by value, since the
+  //    argument cannot be copied. It is this latter case that this
+  //    static_assert aims to catch.
+  //
+  // In contrast, `BindOnce()` only has one decision point. Once a move-only
+  // type is captured by value into the internal `BindState`, the bound,
+  // move-only argument will always be moved to the functor when invoked.
+  // Failure to use std::move will simply fail the `kMoveOnlyTypeMustUseStdMove`
+  // assert below instead.
+  //
+  // Note: `Passed()` is a legacy of supporting move-only types when repeating
+  // callbacks were the only callback type. A `RepeatingCallback` with a
+  // `Passed()` argument is really a `OnceCallback` and should eventually be
+  // migrated.
   static_assert(
-      param_is_forwardable ||
-          !std::is_constructible<Param, std::decay_t<Unwrapped>&&>::value,
-      "Bound argument |i| is move-only but will be forwarded by copy. "
-      "Ensure |Arg| is bound using base::Passed(), not std::move().");
+      BindArgument<i>::template ForwardedAs<Unwrapped>::
+          template ToParamWithType<Param>::kMoveOnlyTypeMustUseBasePassed,
+      "base::BindRepeating() argument is a move-only type. Use base::Passed() "
+      "instead of std::move() to transfer ownership from the callback to the "
+      "bound functor.");
   static_assert(
-      param_is_forwardable,
-      "Bound argument |i| of type |Arg| cannot be forwarded as "
-      "|Unwrapped| to the bound functor, which declares it as |Param|.");
+      BindArgument<i>::template ForwardedAs<Unwrapped>::
+          template ToParamWithType<Param>::kCanBeForwardedToBoundFunctor,
+      "Type mismatch between bound argument and bound functor's parameter.");
 
-  static constexpr bool arg_is_storable =
-      std::is_constructible<Storage, Arg>::value;
-  static_assert(arg_is_storable ||
-                    !std::is_constructible<Storage, std::decay_t<Arg>&&>::value,
-                "Bound argument |i| is move-only but will be bound by copy. "
-                "Ensure |Arg| is mutable and bound using std::move().");
-  static_assert(arg_is_storable,
-                "Bound argument |i| of type |Arg| cannot be converted and "
-                "bound as |Storage|.");
+  static_assert(BindArgument<i>::template BoundAs<Arg>::template StoredAs<
+                    Storage>::kMoveOnlyTypeMustUseStdMove,
+                "Attempting to bind a move-only type. Use std::move() to "
+                "transfer ownership to the created callback.");
+  // In practice, this static_assert should be quite rare as the storage type
+  // is deduced from the arguments passed to `BindOnce()`/`BindRepeating()`.
+  static_assert(
+      BindArgument<i>::template BoundAs<Arg>::template StoredAs<
+          Storage>::kBindArgumentCanBeCaptured,
+      "Cannot capture argument: is the argument copyable or movable?");
 };
 
 // Takes three same-length TypeLists, and applies AssertConstructible for each
@@ -125,6 +183,13 @@ struct AssertBindArgsValidity<std::index_sequence<Ns...>,
     : AssertConstructible<Ns, Args, std::decay_t<Args>, Unwrapped, Params>... {
   static constexpr bool ok = true;
 };
+
+template <typename T>
+struct AssertBindArgIsNotBasePassed : public std::true_type {};
+
+template <typename T>
+struct AssertBindArgIsNotBasePassed<internal::PassedWrapper<T>>
+    : public std::false_type {};
 
 // The implementation of TransformToUnwrappedType below.
 template <bool is_once, typename T>
@@ -248,6 +313,14 @@ inline OnceCallback<MakeUnboundRunType<Functor, Args...>> BindOnce(
                      !std::is_const<std::remove_reference_t<Functor>>()),
                 "BindOnce requires non-const rvalue for OnceCallback binding."
                 " I.e.: base::BindOnce(std::move(callback)).");
+#if defined(OS_LINUX) || defined(OS_WIN) || \
+    defined(NCTEST_BIND_ONCE_WITH_PASSED)
+  // TODO(https://crbug.com/1180750): Enable this everywhere.
+  static_assert(
+      conjunction<
+          internal::AssertBindArgIsNotBasePassed<std::decay_t<Args>>...>::value,
+      "Use std::move() instead of base::Passed() with base::BindOnce()");
+#endif
 
   return internal::BindImpl<OnceCallback>(std::forward<Functor>(functor),
                                           std::forward<Args>(args)...);
@@ -276,24 +349,30 @@ Bind(Functor&& functor, Args&&... args) {
 }
 
 // Special cases for binding to a base::Callback without extra bound arguments.
+// We CHECK() the validity of callback to guard against null pointers
+// accidentally ending up in posted tasks, causing hard-to-debug crashes.
 template <typename Signature>
 OnceCallback<Signature> BindOnce(OnceCallback<Signature> callback) {
+  CHECK(callback);
   return callback;
 }
 
 template <typename Signature>
 OnceCallback<Signature> BindOnce(RepeatingCallback<Signature> callback) {
+  CHECK(callback);
   return callback;
 }
 
 template <typename Signature>
 RepeatingCallback<Signature> BindRepeating(
     RepeatingCallback<Signature> callback) {
+  CHECK(callback);
   return callback;
 }
 
 template <typename Signature>
 Callback<Signature> Bind(Callback<Signature> callback) {
+  CHECK(callback);
   return callback;
 }
 
@@ -316,7 +395,7 @@ Callback<Signature> Bind(Callback<Signature> callback) {
 // Without the Unretained() wrapper on |&foo|, the above call would fail
 // to compile because Foo does not support the AddRef() and Release() methods.
 template <typename T>
-static inline internal::UnretainedWrapper<T> Unretained(T* o) {
+inline internal::UnretainedWrapper<T> Unretained(T* o) {
   return internal::UnretainedWrapper<T>(o);
 }
 
@@ -336,11 +415,11 @@ static inline internal::UnretainedWrapper<T> Unretained(T* o) {
 //
 //    OnceClosure callback = BindOnce(&foo, bytes); // ERROR!
 template <typename T>
-static inline internal::RetainedRefWrapper<T> RetainedRef(T* o) {
+inline internal::RetainedRefWrapper<T> RetainedRef(T* o) {
   return internal::RetainedRefWrapper<T>(o);
 }
 template <typename T>
-static inline internal::RetainedRefWrapper<T> RetainedRef(scoped_refptr<T> o) {
+inline internal::RetainedRefWrapper<T> RetainedRef(scoped_refptr<T> o) {
   return internal::RetainedRefWrapper<T>(std::move(o));
 }
 
@@ -365,12 +444,12 @@ static inline internal::RetainedRefWrapper<T> RetainedRef(scoped_refptr<T> o) {
 // Without Owned(), someone would have to know to delete |pn| when the last
 // reference to the callback is deleted.
 template <typename T>
-static inline internal::OwnedWrapper<T> Owned(T* o) {
+inline internal::OwnedWrapper<T> Owned(T* o) {
   return internal::OwnedWrapper<T>(o);
 }
 
 template <typename T, typename Deleter>
-static inline internal::OwnedWrapper<T, Deleter> Owned(
+inline internal::OwnedWrapper<T, Deleter> Owned(
     std::unique_ptr<T, Deleter>&& ptr) {
   return internal::OwnedWrapper<T, Deleter>(std::move(ptr));
 }
@@ -418,11 +497,11 @@ static inline internal::OwnedWrapper<T, Deleter> Owned(
 // via use of enable_if, and the second takes a T* which will not bind to T&.
 template <typename T,
           std::enable_if_t<!std::is_lvalue_reference<T>::value>* = nullptr>
-static inline internal::PassedWrapper<T> Passed(T&& scoper) {
+inline internal::PassedWrapper<T> Passed(T&& scoper) {
   return internal::PassedWrapper<T>(std::move(scoper));
 }
 template <typename T>
-static inline internal::PassedWrapper<T> Passed(T* scoper) {
+inline internal::PassedWrapper<T> Passed(T* scoper) {
   return internal::PassedWrapper<T>(std::move(*scoper));
 }
 
@@ -442,11 +521,11 @@ static inline internal::PassedWrapper<T> Passed(T* scoper) {
 //   // Prints "2" on |ml|.
 //   ml->PostTask(FROM_HERE, BindOnce(IgnoreResult(&DoSomething), 2);
 template <typename T>
-static inline internal::IgnoreResultHelper<T> IgnoreResult(T data) {
+inline internal::IgnoreResultHelper<T> IgnoreResult(T data) {
   return internal::IgnoreResultHelper<T>(std::move(data));
 }
 
-#if defined(OS_MACOSX) && !HAS_FEATURE(objc_arc)
+#if defined(OS_APPLE) && !HAS_FEATURE(objc_arc)
 
 // RetainBlock() is used to adapt an Objective-C block when Automated Reference
 // Counting (ARC) is disabled. This is unnecessary when ARC is enabled, as the
@@ -464,7 +543,7 @@ base::mac::ScopedBlock<R (^)(Args...)> RetainBlock(R (^block)(Args...)) {
                                                 base::scoped_policy::RETAIN);
 }
 
-#endif  // defined(OS_MACOSX) && !HAS_FEATURE(objc_arc)
+#endif  // defined(OS_APPLE) && !HAS_FEATURE(objc_arc)
 
 }  // namespace base
 

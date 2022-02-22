@@ -46,9 +46,12 @@
 
 #include <qimage.h>
 #include <qiodevice.h>
+#include <qloggingcategory.h>
 #include <qvariant.h>
 
 QT_BEGIN_NAMESPACE
+
+Q_LOGGING_CATEGORY(lcGif, "qt.gui.imageio.gif")
 
 #define Q_TRANSPARENT 0x00ffffff
 
@@ -69,7 +72,7 @@ public:
 
     int decode(QImage *image, const uchar* buffer, int length,
                int *nextFrameDelay, int *loopCount);
-    static void scan(QIODevice *device, QVector<QSize> *imageSizes, int *loopCount);
+    static void scan(QIODevice *device, QList<QSize> *imageSizes, int *loopCount);
 
     bool newFrame;
     bool partialNewFrame;
@@ -249,7 +252,7 @@ int QGIFFormat::decode(QImage *image, const uchar *buffer, int length,
     }
 
     image->detach();
-    int bpl = image->bytesPerLine();
+    qsizetype bpl = image->bytesPerLine();
     unsigned char *bits = image->bits();
 
 #define LM(l, m) (((m)<<8)|l)
@@ -358,7 +361,10 @@ int QGIFFormat::decode(QImage *image, const uchar *buffer, int length,
                         state = Error;
                         return -1;
                     }
-                    (*image) = QImage(swidth, sheight, format);
+                    if (!QImageIOHandler::allocateImage(QSize(swidth, sheight), format, image)) {
+                        state = Error;
+                        return -1;
+                    }
                     bpl = image->bytesPerLine();
                     bits = image->bits();
                     if (bits)
@@ -425,16 +431,15 @@ int QGIFFormat::decode(QImage *image, const uchar *buffer, int length,
                             return -1;
                         }
                         // We just use the backing store as a byte array
-                        backingstore = QImage(qMax(backingstore.width(), w),
-                                              qMax(backingstore.height(), h),
-                                              QImage::Format_RGB32);
-                        if (backingstore.isNull()) {
+                        QSize bsSize(qMax(backingstore.width(), w), qMax(backingstore.height(), h));
+                        if (!QImageIOHandler::allocateImage(bsSize, QImage::Format_RGB32,
+                                                            &backingstore)) {
                             state = Error;
                             return -1;
                         }
                         memset(backingstore.bits(), 0, backingstore.sizeInBytes());
                     }
-                    const int dest_bpl = backingstore.bytesPerLine();
+                    const qsizetype dest_bpl = backingstore.bytesPerLine();
                     unsigned char *dest_data = backingstore.bits();
                     for (int ln=0; ln<h; ln++) {
                         memcpy(FAST_SCAN_LINE(dest_data, dest_bpl, ln),
@@ -688,9 +693,9 @@ int QGIFFormat::decode(QImage *image, const uchar *buffer, int length,
 
 /*!
    Scans through the data stream defined by \a device and returns the image
-   sizes found in the stream in the \a imageSizes vector.
+   sizes found in the stream in the \a imageSizes list.
 */
-void QGIFFormat::scan(QIODevice *device, QVector<QSize> *imageSizes, int *loopCount)
+void QGIFFormat::scan(QIODevice *device, QList<QSize> *imageSizes, int *loopCount)
 {
     if (!device)
         return;
@@ -1119,7 +1124,7 @@ bool QGifHandler::canRead() const
 bool QGifHandler::canRead(QIODevice *device)
 {
     if (!device) {
-        qWarning("QGifHandler::canRead() called with no device");
+        qCWarning(lcGif, "QGifHandler::canRead() called with no device");
         return false;
     }
 

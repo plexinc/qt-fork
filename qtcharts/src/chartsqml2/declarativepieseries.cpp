@@ -32,7 +32,7 @@
 #include <QtCharts/QVPieModelMapper>
 #include <QtCharts/QHPieModelMapper>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 DeclarativePieSlice::DeclarativePieSlice(QObject *parent)
     : QPieSlice(parent)
@@ -64,7 +64,7 @@ void DeclarativePieSlice::handleBrushChanged()
     // the brush file name needs to be cleared.
     if (!m_brushFilename.isEmpty() && QPieSlice::brush().textureImage() != m_brushImage) {
         m_brushFilename.clear();
-        emit brushFilenameChanged(QString(""));
+        emit brushFilenameChanged(QString());
     }
 }
 
@@ -146,18 +146,18 @@ void DeclarativePieSeries::clear()
     QPieSeries::clear();
 }
 
-void DeclarativePieSeries::handleAdded(QList<QPieSlice *> slices)
+void DeclarativePieSeries::handleAdded(const QList<QPieSlice *> &slices)
 {
-    foreach (QPieSlice *slice, slices)
+    for (auto *slice : slices)
         emit sliceAdded(slice);
 }
 
-void DeclarativePieSeries::handleRemoved(QList<QPieSlice *> slices)
+void DeclarativePieSeries::handleRemoved(const QList<QPieSlice *> &slices)
 {
-    foreach (QPieSlice *slice, slices)
+    for (auto *slice : slices)
         emit sliceRemoved(slice);
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_declarativepieseries_p.cpp"

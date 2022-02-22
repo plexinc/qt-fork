@@ -38,13 +38,12 @@
 #ifndef TINYCANBACKEND_H
 #define TINYCANBACKEND_H
 
-#include <QtSerialBus/qcanbusframe.h>
 #include <QtSerialBus/qcanbusdevice.h>
 #include <QtSerialBus/qcanbusdeviceinfo.h>
+#include <QtSerialBus/qcanbusframe.h>
 
-#include <QtCore/qvariant.h>
-#include <QtCore/qvector.h>
 #include <QtCore/qlist.h>
+#include <QtCore/qvariant.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -62,7 +61,7 @@ public:
     bool open() override;
     void close() override;
 
-    void setConfigurationParameter(int key, const QVariant &value) override;
+    void setConfigurationParameter(ConfigurationKey key, const QVariant &value) override;
 
     bool writeFrame(const QCanBusFrame &newData) override;
 
@@ -71,9 +70,10 @@ public:
     static bool canCreate(QString *errorReason);
     static QList<QCanBusDeviceInfo> interfaces();
 
-private:
-    void resetController();
+    void resetController() override;
+    QCanBusDeviceInfo deviceInfo() const override;
 
+private:
     TinyCanBackendPrivate * const d_ptr;
 };
 

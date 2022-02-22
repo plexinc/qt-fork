@@ -30,7 +30,7 @@
 
 #include <qdir.h>
 #include <qfile.h>
-#include <qregexp.h>
+#include <qregularexpression.h>
 
 #ifdef Q_OS_WIN
 #  include <windows.h>
@@ -48,6 +48,40 @@
 QT_BEGIN_NAMESPACE
 
 using namespace QMakeInternal;
+
+QString IoUtils::binaryAbsLocation(const QString &argv0)
+{
+    QString ret;
+    if (!argv0.isEmpty() && isAbsolutePath(argv0)) {
+        ret = argv0;
+    } else if (argv0.contains(QLatin1Char('/'))
+#ifdef Q_OS_WIN
+               || argv0.contains(QLatin1Char('\\'))
+#endif
+    ) { // relative PWD
+        ret = QDir::current().absoluteFilePath(argv0);
+    } else { // in the PATH
+        QByteArray pEnv = qgetenv("PATH");
+        QDir currentDir = QDir::current();
+#ifdef Q_OS_WIN
+        QStringList paths = QString::fromLocal8Bit(pEnv).split(QLatin1String(";"));
+        paths.prepend(QLatin1String("."));
+#else
+        QStringList paths = QString::fromLocal8Bit(pEnv).split(QLatin1String(":"));
+#endif
+        for (QStringList::const_iterator p = paths.constBegin(); p != paths.constEnd(); ++p) {
+            if ((*p).isEmpty())
+                continue;
+            QString candidate = currentDir.absoluteFilePath(*p + QLatin1Char('/') + argv0);
+            if (QFile::exists(candidate)) {
+                ret = candidate;
+                break;
+            }
+        }
+    }
+
+    return QDir::cleanPath(ret);
+}
 
 IoUtils::FileType IoUtils::fileType(const QString &fileName)
 {
@@ -91,14 +125,14 @@ bool IoUtils::isRelativePath(const QString &path)
     return true;
 }
 
-QStringRef IoUtils::pathName(const QString &fileName)
+QStringView IoUtils::pathName(const QString &fileName)
 {
-    return fileName.leftRef(fileName.lastIndexOf(QLatin1Char('/')) + 1);
+    return QStringView{fileName}.left(fileName.lastIndexOf(QLatin1Char('/')) + 1);
 }
 
-QStringRef IoUtils::fileName(const QString &fileName)
+QStringView IoUtils::fileName(const QString &fileName)
 {
-    return fileName.midRef(fileName.lastIndexOf(QLatin1Char('/')) + 1);
+    return QStringView(fileName).mid(fileName.lastIndexOf(QLatin1Char('/')) + 1);
 }
 
 QString IoUtils::resolvePath(const QString &baseDir, const QString &fileName)
@@ -178,9 +212,9 @@ QString IoUtils::shellQuoteWin(const QString &arg)
         // The process-level standard quoting allows escaping quotes with backslashes (note
         // that backslashes don't escape themselves, unless they are followed by a quote).
         // Consequently, quotes are escaped and their preceding backslashes are doubled.
-        ret.replace(QRegExp(QLatin1String("(\\\\*)\"")), QLatin1String("\\1\\1\\\""));
+        ret.replace(QRegularExpression(QLatin1String("(\\\\*)\"")), QLatin1String("\\1\\1\\\""));
         // Trailing backslashes must be doubled as well, as they are followed by a quote.
-        ret.replace(QRegExp(QLatin1String("(\\\\+)$")), QLatin1String("\\1\\1"));
+        ret.replace(QRegularExpression(QLatin1String("(\\\\+)$")), QLatin1String("\\1\\1"));
         // However, the shell also interprets the command, and no backslash-escaping exists
         // there - a quote always toggles the quoting state, but is nonetheless passed down
         // to the called process verbatim. In the unquoted state, the circumflex escapes

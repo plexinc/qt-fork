@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtBluetooth module of the Qt Toolkit.
@@ -51,18 +51,15 @@
 #include "device.h"
 
 #include <QApplication>
+#include <QtCore/QLoggingCategory>
 
 int main(int argc, char *argv[])
 {
-    QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
+    // QLoggingCategory::setFilterRules(QStringLiteral("qt.bluetooth* = true"));
     QApplication app(argc, argv);
 
     DeviceDiscoveryDialog d;
-    QObject::connect(&d, SIGNAL(accepted()), &app, SLOT(quit()));
-    d.show();
-
-    app.exec();
-
+    d.exec();
     return 0;
 }
 

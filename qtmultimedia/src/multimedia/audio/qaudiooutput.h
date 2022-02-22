@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the Qt Toolkit.
@@ -37,76 +37,53 @@
 **
 ****************************************************************************/
 
+#ifndef QAUDIOOUTPUTDEVICE_H
+#define QAUDIOOUTPUTDEVICE_H
 
-#ifndef QAUDIOOUTPUT_H
-#define QAUDIOOUTPUT_H
-
-#include <QtCore/qiodevice.h>
-
+#include <QtCore/qobject.h>
 #include <QtMultimedia/qtmultimediaglobal.h>
-#include <QtMultimedia/qmultimedia.h>
-
 #include <QtMultimedia/qaudio.h>
-#include <QtMultimedia/qaudioformat.h>
-#include <QtMultimedia/qaudiodeviceinfo.h>
-
 
 QT_BEGIN_NAMESPACE
 
-
-
-class QAbstractAudioOutput;
+class QAudioDevice;
+class QPlatformAudioOutput;
 
 class Q_MULTIMEDIA_EXPORT QAudioOutput : public QObject
 {
     Q_OBJECT
+    Q_PROPERTY(QAudioDevice device READ device WRITE setDevice NOTIFY deviceChanged)
+    Q_PROPERTY(float volume READ volume WRITE setVolume NOTIFY volumeChanged)
+    Q_PROPERTY(bool muted READ isMuted WRITE setMuted NOTIFY mutedChanged)
 
 public:
-    explicit QAudioOutput(const QAudioFormat &format = QAudioFormat(), QObject *parent = nullptr);
-    explicit QAudioOutput(const QAudioDeviceInfo &audioDeviceInfo, const QAudioFormat &format = QAudioFormat(), QObject *parent = nullptr);
+    explicit QAudioOutput(QObject *parent = nullptr);
+    explicit QAudioOutput(const QAudioDevice &device, QObject *parent = nullptr);
     ~QAudioOutput();
 
-    QAudioFormat format() const;
+    QAudioDevice device() const;
+    float volume() const;
+    bool isMuted() const;
 
-    void start(QIODevice *device);
-    QIODevice* start();
-
-    void stop();
-    void reset();
-    void suspend();
-    void resume();
-
-    void setBufferSize(int bytes);
-    int bufferSize() const;
-
-    int bytesFree() const;
-    int periodSize() const;
-
-    void setNotifyInterval(int milliSeconds);
-    int notifyInterval() const;
-
-    qint64 processedUSecs() const;
-    qint64 elapsedUSecs() const;
-
-    QAudio::Error error() const;
-    QAudio::State state() const;
-
-    void setVolume(qreal);
-    qreal volume() const;
-
-    QString category() const;
-    void setCategory(const QString &category);
+public Q_SLOTS:
+    void setDevice(const QAudioDevice &device);
+    void setVolume(float volume);
+    void setMuted(bool muted);
 
 Q_SIGNALS:
-    void stateChanged(QAudio::State state);
-    void notify();
+    void deviceChanged();
+    void volumeChanged(float volume);
+    void mutedChanged(bool muted);
 
 private:
+    QPlatformAudioOutput *handle() const { return d; }
+    void setDisconnectFunction(std::function<void()> disconnectFunction);
+    friend class QMediaCaptureSession;
+    friend class QMediaPlayer;
     Q_DISABLE_COPY(QAudioOutput)
-
-    QAbstractAudioOutput* d;
+    QPlatformAudioOutput *d = nullptr;
 };
 
 QT_END_NAMESPACE
 
-#endif // QAUDIOOUTPUT_H
+#endif  // QAUDIOOUTPUTDEVICE_H

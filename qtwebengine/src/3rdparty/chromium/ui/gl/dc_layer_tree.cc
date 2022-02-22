@@ -2,24 +2,60 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <d3d11_1.h>
+
 #include "ui/gl/dc_layer_tree.h"
 
+#include "base/metrics/histogram_functions.h"
 #include "base/trace_event/trace_event.h"
 #include "ui/gl/direct_composition_child_surface_win.h"
+#include "ui/gl/direct_composition_surface_win.h"
 #include "ui/gl/swap_chain_presenter.h"
+
+// Required for SFINAE to check if these Win10 types exist.
+struct IDCompositionInkTrailDevice;
 
 namespace gl {
 namespace {
 bool SizeContains(const gfx::Size& a, const gfx::Size& b) {
   return gfx::Rect(a).Contains(gfx::Rect(b));
 }
+
+// SFINAE used to enable building before Delegated Ink types are available in
+// the Win10 SDK.
+// TODO(1171374) : Remove this when the types are available in the Win10 SDK.
+template <typename InkTrailDevice, typename = void>
+struct DelegatedInk {
+ public:
+  static bool IsSupported(
+      const Microsoft::WRL::ComPtr<IDCompositionDevice2>& dcomp_device) {
+    return false;
+  }
+};
+
+template <typename InkTrailDevice>
+struct DelegatedInk<InkTrailDevice, decltype(typeid(InkTrailDevice), void())> {
+ public:
+  static bool IsSupported(
+      const Microsoft::WRL::ComPtr<IDCompositionDevice2>& dcomp_device) {
+    Microsoft::WRL::ComPtr<InkTrailDevice> ink_trail_device;
+    HRESULT hr = dcomp_device.As(&ink_trail_device);
+    return hr == S_OK;
+  }
+};
+
 }  // namespace
 
+VideoProcessorWrapper::VideoProcessorWrapper() = default;
+VideoProcessorWrapper::~VideoProcessorWrapper() = default;
+VideoProcessorWrapper::VideoProcessorWrapper(VideoProcessorWrapper&& other) =
+    default;
+VideoProcessorWrapper& VideoProcessorWrapper::operator=(
+    VideoProcessorWrapper&& other) = default;
+
 DCLayerTree::DCLayerTree(bool disable_nv12_dynamic_textures,
-                         bool disable_larger_than_screen_overlays,
                          bool disable_vp_scaling)
     : disable_nv12_dynamic_textures_(disable_nv12_dynamic_textures),
-      disable_larger_than_screen_overlays_(disable_larger_than_screen_overlays),
       disable_vp_scaling_(disable_vp_scaling) {}
 
 DCLayerTree::~DCLayerTree() = default;
@@ -28,6 +64,8 @@ bool DCLayerTree::Initialize(
     HWND window,
     Microsoft::WRL::ComPtr<ID3D11Device> d3d11_device,
     Microsoft::WRL::ComPtr<IDCompositionDevice2> dcomp_device) {
+  DCHECK(window);
+  window_ = window;
   DCHECK(d3d11_device);
   d3d11_device_ = std::move(d3d11_device);
   DCHECK(dcomp_device);
@@ -38,7 +76,7 @@ bool DCLayerTree::Initialize(
   DCHECK(desktop_device);
 
   HRESULT hr =
-      desktop_device->CreateTargetForHwnd(window, TRUE, &dcomp_target_);
+      desktop_device->CreateTargetForHwnd(window_, TRUE, &dcomp_target_);
   if (FAILED(hr)) {
     DLOG(ERROR) << "CreateTargetForHwnd failed with error 0x" << std::hex << hr;
     return false;
@@ -54,36 +92,47 @@ bool DCLayerTree::Initialize(
   dcomp_root_visual_->SetBitmapInterpolationMode(
       DCOMPOSITION_BITMAP_INTERPOLATION_MODE_LINEAR);
 
+  hdr_metadata_helper_ = std::make_unique<HDRMetadataHelperWin>(d3d11_device_);
+
   return true;
 }
 
-bool DCLayerTree::InitializeVideoProcessor(const gfx::Size& input_size,
-                                           const gfx::Size& output_size) {
-  if (!video_device_) {
+VideoProcessorWrapper* DCLayerTree::InitializeVideoProcessor(
+    const gfx::Size& input_size,
+    const gfx::Size& output_size,
+    bool is_hdr_output) {
+  VideoProcessorWrapper& video_processor_wrapper =
+      GetOrCreateVideoProcessor(is_hdr_output);
+
+  if (!video_processor_wrapper.video_device) {
     // This can fail if the D3D device is "Microsoft Basic Display Adapter".
-    if (FAILED(d3d11_device_.As(&video_device_))) {
+    if (FAILED(d3d11_device_.As(&video_processor_wrapper.video_device))) {
       DLOG(ERROR) << "Failed to retrieve video device from D3D11 device";
-      return false;
+      DCHECK(false);
+      DirectCompositionSurfaceWin::DisableOverlays();
+      return nullptr;
     }
-    DCHECK(video_device_);
+    DCHECK(video_processor_wrapper.video_device);
 
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> context;
     d3d11_device_->GetImmediateContext(&context);
     DCHECK(context);
-    context.As(&video_context_);
-    DCHECK(video_context_);
+    context.As(&video_processor_wrapper.video_context);
+    DCHECK(video_processor_wrapper.video_context);
   }
 
-  if (video_processor_ && SizeContains(video_input_size_, input_size) &&
-      SizeContains(video_output_size_, output_size))
-    return true;
+  if (video_processor_wrapper.video_processor &&
+      SizeContains(video_processor_wrapper.video_input_size, input_size) &&
+      SizeContains(video_processor_wrapper.video_output_size, output_size))
+    return &video_processor_wrapper;
+
   TRACE_EVENT2("gpu", "DCLayerTree::InitializeVideoProcessor", "input_size",
                input_size.ToString(), "output_size", output_size.ToString());
-  video_input_size_ = input_size;
-  video_output_size_ = output_size;
+  video_processor_wrapper.video_input_size = input_size;
+  video_processor_wrapper.video_output_size = output_size;
 
-  video_processor_.Reset();
-  video_processor_enumerator_.Reset();
+  video_processor_wrapper.video_processor.Reset();
+  video_processor_wrapper.video_processor_enumerator.Reset();
   D3D11_VIDEO_PROCESSOR_CONTENT_DESC desc = {};
   desc.InputFrameFormat = D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE;
   desc.InputFrameRate.Numerator = 60;
@@ -95,26 +144,45 @@ bool DCLayerTree::InitializeVideoProcessor(const gfx::Size& input_size,
   desc.OutputWidth = output_size.width();
   desc.OutputHeight = output_size.height();
   desc.Usage = D3D11_VIDEO_USAGE_PLAYBACK_NORMAL;
-  HRESULT hr = video_device_->CreateVideoProcessorEnumerator(
-      &desc, &video_processor_enumerator_);
+  HRESULT hr =
+      video_processor_wrapper.video_device->CreateVideoProcessorEnumerator(
+          &desc, &video_processor_wrapper.video_processor_enumerator);
+  base::UmaHistogramSparse(
+      "GPU.DirectComposition.CreateVideoProcessorEnumerator", hr);
   if (FAILED(hr)) {
     DLOG(ERROR) << "CreateVideoProcessorEnumerator failed with error 0x"
                 << std::hex << hr;
-    return false;
+    // It might fail again next time. Disable overlay support so
+    // overlay processor will stop sending down overlay frames.
+    DirectCompositionSurfaceWin::DisableOverlays();
+    return nullptr;
   }
-
-  hr = video_device_->CreateVideoProcessor(video_processor_enumerator_.Get(), 0,
-                                           &video_processor_);
+  hr = video_processor_wrapper.video_device->CreateVideoProcessor(
+      video_processor_wrapper.video_processor_enumerator.Get(), 0,
+      &video_processor_wrapper.video_processor);
+  base::UmaHistogramSparse(
+      "GPU.DirectComposition.VideoDeviceCreateVideoProcessor", hr);
   if (FAILED(hr)) {
     DLOG(ERROR) << "CreateVideoProcessor failed with error 0x" << std::hex
                 << hr;
-    return false;
+    // It might fail again next time. Disable overlay support so
+    // overlay processor will stop sending down overlay frames.
+    DirectCompositionSurfaceWin::DisableOverlays();
+    return nullptr;
   }
-
   // Auto stream processing (the default) can hurt power consumption.
-  video_context_->VideoProcessorSetStreamAutoProcessingMode(
-      video_processor_.Get(), 0, FALSE);
-  return true;
+  video_processor_wrapper.video_context
+      ->VideoProcessorSetStreamAutoProcessingMode(
+          video_processor_wrapper.video_processor.Get(), 0, FALSE);
+  return &video_processor_wrapper;
+}
+
+VideoProcessorWrapper& DCLayerTree::GetOrCreateVideoProcessor(bool is_hdr) {
+  VideoProcessorType video_processor_type =
+      is_hdr ? VideoProcessorType::kHDR : VideoProcessorType::kSDR;
+  return video_processor_map_
+      .try_emplace(video_processor_type, VideoProcessorWrapper())
+      .first->second;
 }
 
 Microsoft::WRL::ComPtr<IDXGISwapChain1>
@@ -122,6 +190,16 @@ DCLayerTree::GetLayerSwapChainForTesting(size_t index) const {
   if (index < video_swap_chains_.size())
     return video_swap_chains_[index]->swap_chain();
   return nullptr;
+}
+
+void DCLayerTree::GetSwapChainVisualInfoForTesting(size_t index,
+                                                   gfx::Transform* transform,
+                                                   gfx::Point* offset,
+                                                   gfx::Rect* clip_rect) const {
+  if (index < video_swap_chains_.size()) {
+    video_swap_chains_[index]->GetSwapChainVisualInfoForTesting(  // IN-TEST
+        transform, offset, clip_rect);
+  }
 }
 
 bool DCLayerTree::CommitAndClearPendingOverlays(
@@ -174,7 +252,9 @@ bool DCLayerTree::CommitAndClearPendingOverlays(
         new_video_swap_chains.emplace_back(std::move(video_swap_chains_[i]));
       } else {
         new_video_swap_chains.emplace_back(std::make_unique<SwapChainPresenter>(
-            this, d3d11_device_, dcomp_device_));
+            this, window_, d3d11_device_, dcomp_device_));
+        if (frame_rate_ > 0)
+          new_video_swap_chains.back()->SetFrameRate(frame_rate_);
       }
     }
     video_swap_chains_.swap(new_video_swap_chains);
@@ -239,6 +319,16 @@ bool DCLayerTree::ScheduleDCLayer(const ui::DCRendererLayerParams& params) {
   pending_overlays_.push_back(
       std::make_unique<ui::DCRendererLayerParams>(params));
   return true;
+}
+
+void DCLayerTree::SetFrameRate(float frame_rate) {
+  frame_rate_ = frame_rate;
+  for (size_t ii = 0; ii < video_swap_chains_.size(); ++ii)
+    video_swap_chains_[ii]->SetFrameRate(frame_rate);
+}
+
+bool DCLayerTree::SupportsDelegatedInk() {
+  return DelegatedInk<IDCompositionInkTrailDevice>::IsSupported(dcomp_device_);
 }
 
 }  // namespace gl

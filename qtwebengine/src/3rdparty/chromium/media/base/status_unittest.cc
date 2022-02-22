@@ -65,8 +65,8 @@ class StatusTest : public testing::Test {
     return me;
   }
 
-  // Make sure that the typical usage of ErrorOr actually compiles.
-  ErrorOr<std::unique_ptr<int>> TypicalErrorOrUsage(bool succeed) {
+  // Make sure that the typical usage of StatusOr actually compiles.
+  StatusOr<std::unique_ptr<int>> TypicalStatusOrUsage(bool succeed) {
     if (succeed)
       return std::make_unique<int>(123);
     return Status(StatusCode::kCodeOnlyForTesting);
@@ -192,55 +192,60 @@ TEST_F(StatusTest, CanCopyEasily) {
   ASSERT_EQ(actual.FindDictPath("data")->DictSize(), 1ul);
 }
 
-TEST_F(StatusTest, ErrorOrTypicalUsage) {
+TEST_F(StatusTest, StatusOrTypicalUsage) {
   // Mostly so we have some code coverage on the default usage.
-  EXPECT_TRUE(TypicalErrorOrUsage(true).has_value());
-  EXPECT_FALSE(TypicalErrorOrUsage(true).has_error());
-  EXPECT_FALSE(TypicalErrorOrUsage(false).has_value());
-  EXPECT_TRUE(TypicalErrorOrUsage(false).has_error());
+  EXPECT_TRUE(TypicalStatusOrUsage(true).has_value());
+  EXPECT_FALSE(TypicalStatusOrUsage(true).has_error());
+  EXPECT_FALSE(TypicalStatusOrUsage(false).has_value());
+  EXPECT_TRUE(TypicalStatusOrUsage(false).has_error());
 }
 
-TEST_F(StatusTest, ErrorOrWithMoveOnlyType) {
-  ErrorOr<std::unique_ptr<int>> error_or(std::make_unique<int>(123));
-  EXPECT_TRUE(error_or.has_value());
-  EXPECT_FALSE(error_or.has_error());
-  std::unique_ptr<int> result = std::move(error_or.value());
-  EXPECT_EQ(error_or.value(), nullptr);
+TEST_F(StatusTest, StatusOrWithMoveOnlyType) {
+  StatusOr<std::unique_ptr<int>> status_or(std::make_unique<int>(123));
+  EXPECT_TRUE(status_or.has_value());
+  EXPECT_FALSE(status_or.has_error());
+  std::unique_ptr<int> result = std::move(status_or).value();
   EXPECT_NE(result.get(), nullptr);
   EXPECT_EQ(*result, 123);
 }
 
-TEST_F(StatusTest, ErrorOrWithCopyableType) {
-  ErrorOr<int> error_or(123);
-  EXPECT_TRUE(error_or.has_value());
-  EXPECT_FALSE(error_or.has_error());
-  int result = std::move(error_or.value());
+TEST_F(StatusTest, StatusOrWithCopyableType) {
+  StatusOr<int> status_or(123);
+  EXPECT_TRUE(status_or.has_value());
+  EXPECT_FALSE(status_or.has_error());
+  int result = std::move(status_or).value();
   EXPECT_EQ(result, 123);
-  // Should be unaffected by the move.
-  EXPECT_EQ(error_or.value(), 123);
 }
 
-TEST_F(StatusTest, ErrorOrMoveConstructionAndAssignment) {
+TEST_F(StatusTest, StatusOrMoveConstructionAndAssignment) {
   // Make sure that we can move-construct and move-assign a move-only value.
-  ErrorOr<std::unique_ptr<int>> error_or_0(std::make_unique<int>(123));
+  StatusOr<std::unique_ptr<int>> status_or_0(std::make_unique<int>(123));
 
-  ErrorOr<std::unique_ptr<int>> error_or_1(std::move(error_or_0));
-  EXPECT_EQ(error_or_0.value(), nullptr);
+  StatusOr<std::unique_ptr<int>> status_or_1(std::move(status_or_0));
 
-  ErrorOr<std::unique_ptr<int>> error_or_2 = std::move(error_or_1);
-  EXPECT_EQ(error_or_1.value(), nullptr);
+  StatusOr<std::unique_ptr<int>> status_or_2 = std::move(status_or_1);
 
-  // |error_or_2| should have gotten the original.
-  std::unique_ptr<int> value = std::move(error_or_2.value());
+  // |status_or_2| should have gotten the original.
+  std::unique_ptr<int> value = std::move(status_or_2).value();
   EXPECT_EQ(*value, 123);
 }
 
-TEST_F(StatusTest, ErrorOrCopyWorks) {
+TEST_F(StatusTest, StatusOrCopyWorks) {
   // Make sure that we can move-construct and move-assign a move-only value.
-  ErrorOr<int> error_or_0(123);
-  ErrorOr<int> error_or_1(std::move(error_or_0));
-  ErrorOr<int> error_or_2 = std::move(error_or_1);
-  EXPECT_EQ(error_or_2.value(), 123);
+  StatusOr<int> status_or_0(123);
+  StatusOr<int> status_or_1(std::move(status_or_0));
+  StatusOr<int> status_or_2 = std::move(status_or_1);
+  EXPECT_EQ(std::move(status_or_2).value(), 123);
+}
+
+TEST_F(StatusTest, StatusOrCodeIsOkWithValue) {
+  StatusOr<int> status_or(123);
+  EXPECT_EQ(status_or.code(), StatusCode::kOk);
+}
+
+TEST_F(StatusTest, StatusOrCodeIsNotOkWithoutValue) {
+  StatusOr<int> status_or(StatusCode::kCodeOnlyForTesting);
+  EXPECT_EQ(status_or.code(), StatusCode::kCodeOnlyForTesting);
 }
 
 }  // namespace media

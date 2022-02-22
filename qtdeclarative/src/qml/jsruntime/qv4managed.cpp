@@ -105,6 +105,12 @@ QString Managed::className() const
     case Type_MathObject:
         s = "Math";
         break;
+    case Type_UrlObject:
+        s = "URL";
+        break;
+    case Type_UrlSearchParamsObject:
+        s = "URLSearchParams";
+        break;
 
     case Type_ExecutionContext:
         s = "__ExecutionContext";
@@ -131,8 +137,8 @@ QString Managed::className() const
         s = "__RegExp";
         break;
 
-    case Type_QmlSequence:
-        s = "QmlSequence";
+    case Type_V4Sequence:
+        s = "V4Sequence";
         break;
     }
     return QString::fromLatin1(s);

@@ -4,25 +4,180 @@
 
 #include "content/browser/conversions/conversion_test_utils.h"
 
+#include <limits.h>
+
 #include <tuple>
 
+#include "base/bind.h"
+#include "base/callback.h"
+#include "base/callback_helpers.h"
+#include "base/run_loop.h"
+#include "base/task_runner_util.h"
+#include "base/test/bind.h"
+#include "content/browser/conversions/conversion_storage_context.h"
 #include "url/gurl.h"
 
 namespace content {
 
 namespace {
 
-const char kDefaultImpressionOrigin[] = "https:/impression.test/";
-const char kDefaultConversionOrigin[] = "https:/conversion.test/";
-const char kDefaultReportOrigin[] = "https:/report.test/";
+const char kDefaultImpressionOrigin[] = "https://impression.test/";
+const char kDefaultConversionOrigin[] = "https://sub.conversion.test/";
+const char kDefaultConversionDestination[] = "https://conversion.test/";
+const char kDefaultReportOrigin[] = "https://report.test/";
 
 // Default expiry time for impressions for testing.
 const int64_t kExpiryTime = 30;
 
 }  // namespace
 
-int EmptyStorageDelegate::GetMaxConversionsPerImpression() const {
-  return 1;
+bool ConversionDisallowingContentBrowserClient::IsConversionMeasurementAllowed(
+    content::BrowserContext* browser_context) {
+  return false;
+}
+
+bool ConversionDisallowingContentBrowserClient::
+    IsConversionMeasurementOperationAllowed(
+        content::BrowserContext* browser_context,
+        ConversionMeasurementOperation operation,
+        const url::Origin* impression_origin,
+        const url::Origin* conversion_origin,
+        const url::Origin* reporting_origin) {
+  return false;
+}
+
+ConfigurableConversionTestBrowserClient::
+    ConfigurableConversionTestBrowserClient() = default;
+ConfigurableConversionTestBrowserClient::
+    ~ConfigurableConversionTestBrowserClient() = default;
+
+bool ConfigurableConversionTestBrowserClient::
+    IsConversionMeasurementOperationAllowed(
+        content::BrowserContext* browser_context,
+        ConversionMeasurementOperation operation,
+        const url::Origin* impression_origin,
+        const url::Origin* conversion_origin,
+        const url::Origin* reporting_origin) {
+  if (!!blocked_impression_origin_ != !!impression_origin ||
+      !!blocked_conversion_origin_ != !!conversion_origin ||
+      !!blocked_reporting_origin_ != !!reporting_origin) {
+    return true;
+  }
+
+  // Allow the operation if any rule doesn't match.
+  if ((impression_origin &&
+       *blocked_impression_origin_ != *impression_origin) ||
+      (conversion_origin &&
+       *blocked_conversion_origin_ != *conversion_origin) ||
+      (reporting_origin && *blocked_reporting_origin_ != *reporting_origin)) {
+    return true;
+  }
+
+  return false;
+}
+
+void ConfigurableConversionTestBrowserClient::
+    BlockConversionMeasurementInContext(
+        base::Optional<url::Origin> impression_origin,
+        base::Optional<url::Origin> conversion_origin,
+        base::Optional<url::Origin> reporting_origin) {
+  blocked_impression_origin_ = impression_origin;
+  blocked_conversion_origin_ = conversion_origin;
+  blocked_reporting_origin_ = reporting_origin;
+}
+
+ConfigurableStorageDelegate::ConfigurableStorageDelegate() = default;
+ConfigurableStorageDelegate::~ConfigurableStorageDelegate() = default;
+
+void ConfigurableStorageDelegate::ProcessNewConversionReports(
+    std::vector<ConversionReport>* reports) {
+  // Note: reports are ordered by impression time, descending.
+  for (auto& report : *reports) {
+    report.report_time = report.impression.impression_time() +
+                         base::TimeDelta::FromMilliseconds(report_time_ms_);
+
+    // If attribution credits were provided, associate them with reports
+    // in order.
+    if (!attribution_credits_.empty()) {
+      report.attribution_credit = attribution_credits_.front();
+      attribution_credits_.pop_front();
+    }
+  }
+}
+int ConfigurableStorageDelegate::GetMaxConversionsPerImpression() const {
+  return max_conversions_per_impression_;
+}
+int ConfigurableStorageDelegate::GetMaxImpressionsPerOrigin() const {
+  return max_impressions_per_origin_;
+}
+int ConfigurableStorageDelegate::GetMaxConversionsPerOrigin() const {
+  return max_conversions_per_origin_;
+}
+
+ConversionManager* TestManagerProvider::GetManager(
+    WebContents* web_contents) const {
+  return manager_;
+}
+
+TestConversionManager::TestConversionManager() = default;
+
+TestConversionManager::~TestConversionManager() = default;
+
+void TestConversionManager::HandleImpression(
+    const StorableImpression& impression) {
+  num_impressions_++;
+}
+
+void TestConversionManager::HandleConversion(
+    const StorableConversion& conversion) {
+  num_conversions_++;
+
+  last_conversion_destination_ = conversion.conversion_destination();
+}
+
+void TestConversionManager::GetActiveImpressionsForWebUI(
+    base::OnceCallback<void(std::vector<StorableImpression>)> callback) {
+  std::move(callback).Run(impressions_);
+}
+
+void TestConversionManager::GetReportsForWebUI(
+    base::OnceCallback<void(std::vector<ConversionReport>)> callback,
+    base::Time max_report_time) {
+  std::move(callback).Run(reports_);
+}
+
+void TestConversionManager::SendReportsForWebUI(base::OnceClosure done) {
+  reports_.clear();
+  std::move(done).Run();
+}
+
+const ConversionPolicy& TestConversionManager::GetConversionPolicy() const {
+  return policy_;
+}
+
+void TestConversionManager::ClearData(
+    base::Time delete_begin,
+    base::Time delete_end,
+    base::RepeatingCallback<bool(const url::Origin&)> filter,
+    base::OnceClosure done) {
+  impressions_.clear();
+  reports_.clear();
+  std::move(done).Run();
+}
+
+void TestConversionManager::SetActiveImpressionsForWebUI(
+    std::vector<StorableImpression> impressions) {
+  impressions_ = std::move(impressions);
+}
+
+void TestConversionManager::SetReportsForWebUI(
+    std::vector<ConversionReport> reports) {
+  reports_ = std::move(reports);
+}
+
+void TestConversionManager::Reset() {
+  num_impressions_ = 0u;
+  num_conversions_ = 0u;
 }
 
 // Builds an impression with default values. This is done as a builder because
@@ -76,10 +231,27 @@ StorableImpression ImpressionBuilder::Build() const {
 StorableConversion DefaultConversion() {
   StorableConversion conversion(
       "111" /* conversion_data */,
-      url::Origin::Create(
-          GURL(kDefaultConversionOrigin)) /* conversion_origin */,
+      net::SchemefulSite(
+          GURL(kDefaultConversionDestination)) /* conversion_destination */,
       url::Origin::Create(GURL(kDefaultReportOrigin)) /* reporting_origin */);
   return conversion;
+}
+
+// Custom comparator for StorableImpressions that does not take impression id's
+// into account.
+testing::AssertionResult ImpressionsEqual(const StorableImpression& expected,
+                                          const StorableImpression& actual) {
+  const auto tie = [](const StorableImpression& impression) {
+    return std::make_tuple(
+        impression.impression_data(), impression.impression_origin(),
+        impression.conversion_origin(), impression.reporting_origin(),
+        impression.impression_time(), impression.expiry_time());
+  };
+
+  if (tie(expected) != tie(actual)) {
+    return testing::AssertionFailure();
+  }
+  return testing::AssertionSuccess();
 }
 
 // Custom comparator for comparing two vectors of conversion reports. Does not
@@ -112,6 +284,21 @@ testing::AssertionResult ReportsEqual(
   }
 
   return testing::AssertionSuccess();
+}
+
+std::vector<ConversionReport> GetConversionsToReportForTesting(
+    ConversionManagerImpl* manager,
+    base::Time max_report_time) {
+  base::RunLoop run_loop;
+  std::vector<ConversionReport> conversion_reports;
+  manager->conversion_storage_context_->GetConversionsToReport(
+      max_report_time, base::BindOnce(base::BindLambdaForTesting(
+                           [&](std::vector<ConversionReport> reports) {
+                             conversion_reports = std::move(reports);
+                             run_loop.Quit();
+                           })));
+  run_loop.Run();
+  return conversion_reports;
 }
 
 }  // namespace content

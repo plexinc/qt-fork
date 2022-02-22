@@ -53,6 +53,7 @@
 
 #include <QtCore/private/qglobal_p.h>
 #include <qbytearray.h>
+#include <QtCore/qlist.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -62,18 +63,9 @@ class QByteDataBuffer
 {
 private:
     QList<QByteArray> buffers;
-    qint64 bufferCompleteSize;
-    qint64 firstPos;
+    qint64 bufferCompleteSize = 0;
+    qint64 firstPos = 0;
 public:
-    QByteDataBuffer() : bufferCompleteSize(0), firstPos(0)
-    {
-    }
-
-    ~QByteDataBuffer()
-    {
-        clear();
-    }
-
     static inline void popFront(QByteArray &ba, qint64 n)
     {
         ba = QByteArray(ba.constData() + n, ba.size() - n);
@@ -99,25 +91,48 @@ public:
             popFront(buffers[bufferCount() - other.bufferCount()], other.firstPos);
     }
 
+    inline void append(QByteDataBuffer &&other)
+    {
+        if (other.isEmpty())
+            return;
+
+        auto otherBufferCount = other.bufferCount();
+        auto otherByteAmount = other.byteAmount();
+        buffers.append(std::move(other.buffers));
+        bufferCompleteSize += otherByteAmount;
+
+        if (other.firstPos > 0)
+            popFront(buffers[bufferCount() - otherBufferCount], other.firstPos);
+    }
 
     inline void append(const QByteArray& bd)
+    {
+        append(QByteArray(bd));
+    }
+
+    inline void append(QByteArray &&bd)
     {
         if (bd.isEmpty())
             return;
 
-        buffers.append(bd);
         bufferCompleteSize += bd.size();
+        buffers.append(std::move(bd));
     }
 
     inline void prepend(const QByteArray& bd)
+    {
+        prepend(QByteArray(bd));
+    }
+
+    inline void prepend(QByteArray &&bd)
     {
         if (bd.isEmpty())
             return;
 
         squeezeFirst();
 
-        buffers.prepend(bd);
         bufferCompleteSize += bd.size();
+        buffers.prepend(std::move(bd));
     }
 
     // return the first QByteData. User of this function has to free() its .data!
@@ -178,8 +193,59 @@ public:
         return originalAmount;
     }
 
+    /*!
+        \internal
+        Returns a view into the first QByteArray contained inside,
+        ignoring any already read data. Call advanceReadPointer()
+        to advance the view forward. When a QByteArray is exhausted
+        the view returned by this function will view into another
+        QByteArray if any. Returns a default constructed view if
+        no data is available.
+
+        \sa advanceReadPointer
+    */
+    QByteArrayView readPointer() const
+    {
+        if (isEmpty())
+            return {};
+        return { buffers.first().constData() + qsizetype(firstPos),
+                 buffers.first().size() - qsizetype(firstPos) };
+    }
+
+    /*!
+        \internal
+        Advances the read pointer by \a distance.
+
+        \sa readPointer
+    */
+    void advanceReadPointer(qint64 distance)
+    {
+        qint64 newPos = firstPos + distance;
+        if (isEmpty()) {
+            newPos = 0;
+        } else if (auto size = buffers.first().size(); newPos >= size) {
+            while (newPos >= size) {
+                bufferCompleteSize -= (size - firstPos);
+                newPos -= size;
+                buffers.pop_front();
+                if (isEmpty()) {
+                    size = 0;
+                    newPos = 0;
+                    break;
+                }
+                size = buffers.front().size();
+            }
+            bufferCompleteSize -= newPos;
+        } else {
+            bufferCompleteSize -= newPos - firstPos;
+        }
+        firstPos = newPos;
+    }
+
     inline char getChar()
     {
+        Q_ASSERT_X(!isEmpty(), "QByteDataBuffer::getChar",
+                   "Cannot read a char from an empty buffer!");
         char c;
         read(&c, 1);
         return c;
@@ -211,7 +277,7 @@ public:
 
     inline qint64 sizeNextBlock() const
     {
-        if(buffers.isEmpty())
+        if (buffers.isEmpty())
             return 0;
         else
             return buffers.first().size() - firstPos;

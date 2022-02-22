@@ -22,6 +22,10 @@ class ServiceWorkerContainerHost;
 class ServiceWorkerContextCore;
 class ServiceWorkerVersion;
 
+namespace service_worker_object_host_unittest {
+class ServiceWorkerObjectHostTest;
+}  // namespace service_worker_object_host_unittest
+
 // ServiceWorkerRegistrationObjectHost has a 1:1 correspondence to
 // blink::ServiceWorkerRegistration in the renderer process.
 // The host stays alive while the blink::ServiceWorkerRegistration is alive.
@@ -45,6 +49,7 @@ class CONTENT_EXPORT ServiceWorkerRegistrationObjectHost
 
  private:
   friend class ServiceWorkerRegistrationObjectHostTest;
+  friend class service_worker_object_host_unittest::ServiceWorkerObjectHostTest;
 
   using StatusCallback =
       base::OnceCallback<void(blink::ServiceWorkerStatusCode status)>;
@@ -52,8 +57,7 @@ class CONTENT_EXPORT ServiceWorkerRegistrationObjectHost
   // ServiceWorkerRegistration::Listener overrides.
   void OnVersionAttributesChanged(
       ServiceWorkerRegistration* registration,
-      blink::mojom::ChangedServiceWorkerObjectsMaskPtr changed_mask,
-      const ServiceWorkerRegistrationInfo& info) override;
+      blink::mojom::ChangedServiceWorkerObjectsMaskPtr changed_mask) override;
   void OnUpdateViaCacheChanged(
       ServiceWorkerRegistration* registration) override;
   void OnRegistrationFailed(ServiceWorkerRegistration* registration) override;
@@ -83,11 +87,10 @@ class CONTENT_EXPORT ServiceWorkerRegistrationObjectHost
   //
   // TODO(falken): See if tests can call |Update| directly, then this separate
   // function isn't needed.
-  static void DelayUpdate(
-      blink::mojom::ServiceWorkerContainerType container_type,
-      ServiceWorkerRegistration* registration,
-      ServiceWorkerVersion* version,
-      StatusCallback update_function);
+  static void DelayUpdate(bool is_container_for_client,
+                          ServiceWorkerRegistration* registration,
+                          ServiceWorkerVersion* version,
+                          StatusCallback update_function);
   // Called back from ServiceWorkerContextCore when an update is complete.
   void UpdateComplete(UpdateCallback callback,
                       blink::ServiceWorkerStatusCode status,

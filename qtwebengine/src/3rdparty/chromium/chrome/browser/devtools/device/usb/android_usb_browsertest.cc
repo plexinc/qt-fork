@@ -17,7 +17,6 @@
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/devtools/device/adb/mock_adb_server.h"
 #include "chrome/browser/devtools/device/devtools_android_bridge.h"
@@ -27,6 +26,7 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/test_utils.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
@@ -137,16 +137,12 @@ UsbConfigurationInfoPtr ConstructAndroidConfig(uint8_t class_code,
 class FakeAndroidUsbDeviceInfo : public FakeUsbDeviceInfo {
  public:
   explicit FakeAndroidUsbDeviceInfo(bool is_broken)
-      : FakeUsbDeviceInfo(0x0200,  // usb_version
-                          0,       // device_class
-                          0,       // device_subclass
-                          0,       // device_protocol
-                          0,       // vendor_id
-                          0,       // product_id
-                          0x0100,  // device_version
+      : FakeUsbDeviceInfo(/*vendor_id=*/0,
+                          /*product_id=*/0,
                           kDeviceManufacturer,
                           kDeviceModel,
-                          kDeviceSerial),
+                          kDeviceSerial,
+                          std::vector<UsbConfigurationInfoPtr>()),
         broken_traits_(is_broken) {}
 
   bool broken_traits() const { return broken_traits_; }
@@ -504,10 +500,9 @@ class AndroidUsbDiscoveryTest : public InProcessBrowserTest {
     adb_bridge_ =
         DevToolsAndroidBridge::Factory::GetForProfile(browser()->profile());
     DCHECK(adb_bridge_);
-    adb_bridge_->set_task_scheduler_for_test(base::Bind(
+    adb_bridge_->set_task_scheduler_for_test(base::BindRepeating(
         &AndroidUsbDiscoveryTest::ScheduleDeviceCountRequest,
         base::Unretained(this)));
-
 
     AndroidDeviceManager::DeviceProviders providers;
     providers.push_back(
@@ -523,10 +518,10 @@ class AndroidUsbDiscoveryTest : public InProcessBrowserTest {
     adb_bridge_->set_usb_device_manager_for_test(std::move(manager));
   }
 
-  void ScheduleDeviceCountRequest(const base::Closure& request) {
+  void ScheduleDeviceCountRequest(base::OnceClosure request) {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
     scheduler_invoked_++;
-    base::PostTask(FROM_HERE, {BrowserThread::UI}, request);
+    content::GetUIThreadTaskRunner({})->PostTask(FROM_HERE, std::move(request));
   }
 
   virtual std::unique_ptr<FakeUsbDeviceManager> CreateFakeUsbManager() {

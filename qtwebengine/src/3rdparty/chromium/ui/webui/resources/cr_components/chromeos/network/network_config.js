@@ -19,8 +19,6 @@ const VPNConfigType = {
   OPEN_VPN: 'OpenVPN',
 };
 
-(function() {
-
 // Note: This pattern does not work for elements that are stamped on initial
 // load because chromeos.networkConfig is not defined yet. <network-config>
 // however is always embedded in a <cr-dialog> so it is not stamped immediately.
@@ -597,10 +595,9 @@ Polymer({
     if (this.mojoType_ === mojom.NetworkType.kVPN) {
       let saveCredentials = false;
       const vpn = managedProperties.typeProperties.vpn;
-      const vpnType = vpn.type && vpn.type.value;
-      if (vpnType === mojom.VpnType.kOpenVPN) {
+      if (vpn.type === mojom.VpnType.kOpenVPN) {
         saveCredentials = this.getActiveBoolean_(vpn.openVpn.saveCredentials);
-      } else if (vpnType === mojom.VpnType.kL2TPIPsec) {
+      } else if (vpn.type === mojom.VpnType.kL2TPIPsec) {
         saveCredentials = this.getActiveBoolean_(vpn.ipSec.saveCredentials) ||
             this.getActiveBoolean_(vpn.l2tp.saveCredentials);
       }
@@ -1182,10 +1179,11 @@ Polymer({
         this.selectedServerCaHash_ = DEFAULT_HASH;
       } else if (!this.guid && this.serverCaCerts_[0]) {
         // For unconfigured networks, default to the first available
-        // certificate, or DO_NOT_CHECK (i.e. skip DEFAULT_HASH). See
-        /// onNetworkCertificatesChanged() for how certificates are added.
+        // certificate and fallback to DEFAULT_HASH. See
+        // onNetworkCertificatesChanged() for how certificates are added.
         let cert = this.serverCaCerts_[0];
-        if (cert.hash === DEFAULT_HASH && this.serverCaCerts_[1]) {
+        if (cert.hash === DEFAULT_HASH &&
+            this.isRealCertUsableForNetworkAuth_(this.serverCaCerts_[1])) {
           cert = this.serverCaCerts_[1];
         }
         this.selectedServerCaHash_ = cert.hash;
@@ -1210,7 +1208,17 @@ Polymer({
       }
     }
   },
-
+  /**
+   * Checks that the hash of the certificate is set and not one of the default
+   * special strings.
+   * @param {chromeos.networkConfig.mojom.NetworkCertificate|undefined} cert
+   * @return {boolean}
+   * @private
+   */
+  isRealCertUsableForNetworkAuth_(cert) {
+    return !!cert && cert.hash !== DO_NOT_CHECK_HASH &&
+        cert.hash !== DEFAULT_HASH;
+  },
   /**
    * @return {boolean}
    * @private
@@ -1548,14 +1556,6 @@ Polymer({
   },
 
   /**
-   * @return {string}
-   * @private
-   */
-  getRuntimeError_() {
-    return (chrome.runtime.lastError && chrome.runtime.lastError.message) || '';
-  },
-
-  /**
    * @param {boolean} success
    * @param {string} errorMessage
    * @param {boolean} connect If true, connect after save.
@@ -1748,4 +1748,3 @@ Polymer({
     return undefined;
   },
 });
-})();

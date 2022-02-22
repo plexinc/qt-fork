@@ -56,11 +56,8 @@
 #ifndef QT_QML_BOOTSTRAPPED
 #  include <QtQml/private/qtqml-config_p.h>
 #endif
-#include <private/qqmlapiversion_p.h>
 
 #define Q_QML_PRIVATE_EXPORT Q_QML_EXPORT
-
-void Q_QML_PRIVATE_EXPORT qml_register_types_QtQml();
 
 #if !defined(QT_QMLDEVTOOLS_LIB) && !defined(QT_BUILD_QMLDEVTOOLS_LIB)
 #  define Q_QML_AUTOTEST_EXPORT Q_AUTOTEST_EXPORT

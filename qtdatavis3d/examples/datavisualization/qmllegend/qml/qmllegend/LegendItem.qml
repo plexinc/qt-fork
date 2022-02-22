@@ -27,10 +27,10 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.1
-import QtQuick.Layouts 1.0
-import QtQuick.Window 2.1
-import QtDataVisualization 1.0
+import QtQuick
+import QtQuick.Layouts
+import QtQuick.Window
+import QtDataVisualization 1.2
 
 Rectangle {
     //! [0]
@@ -104,8 +104,8 @@ Rectangle {
     //! [4]
     Connections {
         target: series
-        onSelectedBarChanged: {
-            if (position != series.invalidSelectionPosition) {
+        function onSelectedBarChanged(position) {
+            if (position !== series.invalidSelectionPosition) {
                 previousSelection = position
             }
         }

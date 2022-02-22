@@ -14,7 +14,6 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback_helpers.h"
 #include "base/compiler_specific.h"
 #include "base/files/file_util.h"
@@ -244,14 +243,18 @@ bool StaticSocketDataHelper::VerifyWriteData(const std::string& data,
   std::string expected_data(next_write.data, next_write.data_len);
   std::string actual_data(data.substr(0, next_write.data_len));
   EXPECT_GE(data.length(), expected_data.length());
-  EXPECT_TRUE(actual_data == expected_data)
-      << "Actual write data:\n" << HexDump(data)
-      << "Expected write data:\n" << HexDump(expected_data);
   if (printer) {
     EXPECT_TRUE(actual_data == expected_data)
+        << "Actual formatted write data:\n"
+        << printer->PrintWrite(data) << "Expected formatted write data:\n"
+        << printer->PrintWrite(expected_data) << "Actual raw write data:\n"
+        << HexDump(data) << "Expected raw write data:\n"
+        << HexDump(expected_data);
+  } else {
+    EXPECT_TRUE(actual_data == expected_data)
         << "Actual write data:\n"
-        << printer->PrintWrite(data) << "Expected write data:\n"
-        << printer->PrintWrite(expected_data);
+        << HexDump(data) << "Expected write data:\n"
+        << HexDump(expected_data);
   }
   return expected_data == actual_data;
 }
@@ -749,9 +752,13 @@ MockClientSocketFactory::MockClientSocketFactory()
 
 MockClientSocketFactory::~MockClientSocketFactory() = default;
 
-void MockClientSocketFactory::AddSocketDataProvider(
-    SocketDataProvider* data) {
+void MockClientSocketFactory::AddSocketDataProvider(SocketDataProvider* data) {
   mock_data_.Add(data);
+}
+
+void MockClientSocketFactory::AddTcpSocketDataProvider(
+    SocketDataProvider* data) {
+  mock_tcp_data_.Add(data);
 }
 
 void MockClientSocketFactory::AddSSLSocketDataProvider(
@@ -787,9 +794,12 @@ std::unique_ptr<TransportClientSocket>
 MockClientSocketFactory::CreateTransportClientSocket(
     const AddressList& addresses,
     std::unique_ptr<SocketPerformanceWatcher> socket_performance_watcher,
+    NetworkQualityEstimator* network_quality_estimator,
     NetLog* net_log,
     const NetLogSource& source) {
-  SocketDataProvider* data_provider = mock_data_.GetNext();
+  SocketDataProvider* data_provider = mock_tcp_data_.GetNextWithoutAsserting();
+  if (!data_provider)
+    data_provider = mock_data_.GetNext();
   std::unique_ptr<MockTCPClientSocket> socket(
       new MockTCPClientSocket(addresses, net_log, data_provider));
   if (enable_read_if_ready_)
@@ -2173,7 +2183,7 @@ int MockTransportClientSocketPool::RequestSocket(
   last_request_priority_ = priority;
   std::unique_ptr<StreamSocket> socket =
       client_socket_factory_->CreateTransportClientSocket(
-          AddressList(), nullptr, net_log.net_log(), NetLogSource());
+          AddressList(), nullptr, nullptr, net_log.net_log(), NetLogSource());
   MockConnectJob* job = new MockConnectJob(
       std::move(socket), handle, socket_tag, std::move(callback), priority);
   job_list_.push_back(base::WrapUnique(job));
@@ -2333,11 +2343,13 @@ std::unique_ptr<TransportClientSocket>
 MockTaggingClientSocketFactory::CreateTransportClientSocket(
     const AddressList& addresses,
     std::unique_ptr<SocketPerformanceWatcher> socket_performance_watcher,
+    NetworkQualityEstimator* network_quality_estimator,
     NetLog* net_log,
     const NetLogSource& source) {
   std::unique_ptr<MockTaggingStreamSocket> socket(new MockTaggingStreamSocket(
       MockClientSocketFactory::CreateTransportClientSocket(
-          addresses, std::move(socket_performance_watcher), net_log, source)));
+          addresses, std::move(socket_performance_watcher),
+          network_quality_estimator, net_log, source)));
   tcp_socket_ = socket.get();
   return std::move(socket);
 }

@@ -52,11 +52,11 @@
 #include <Qt3DCore/private/qscene_p.h>
 #include <Qt3DCore/qaspectengine.h>
 #include <Qt3DCore/private/qdownloadhelperservice_p.h>
+#include <Qt3DCore/private/qurlhelper_p.h>
 #include <Qt3DRender/private/qrenderaspect_p.h>
 #include <Qt3DRender/private/nodemanagers_p.h>
 #include <Qt3DRender/private/managers_p.h>
 #include <Qt3DRender/private/texture_p.h>
-#include <Qt3DRender/private/qurlhelper_p.h>
 #include <qmath.h>
 
 QT_BEGIN_NAMESPACE
@@ -1001,7 +1001,7 @@ QTextureImageDataPtr TextureLoadingHelper::loadTextureData(const QUrl &url, bool
             || url.scheme() == QLatin1String("assets")
 #endif
             ) {
-        const QString source = Qt3DRender::QUrlHelper::urlToLocalFileOrQrc(url);
+        const QString source = Qt3DCore::QUrlHelper::urlToLocalFileOrQrc(url);
         QFile f(source);
         if (!f.open(QIODevice::ReadOnly))
             qWarning() << "Failed to open" << source;
@@ -1076,7 +1076,7 @@ QTextureDataPtr QTextureFromSourceGenerator::operator ()()
         QT_PREPEND_NAMESPACE(QBuffer) buffer(&m_sourceData);
         if (buffer.open(QIODevice::ReadOnly)) {
             QString suffix = m_url.toString();
-            suffix = suffix.right(suffix.length() - suffix.lastIndexOf('.'));
+            suffix = suffix.right(suffix.length() - suffix.lastIndexOf(QLatin1Char('.')));
 
             QStringList ext(suffix);
 

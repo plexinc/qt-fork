@@ -2,15 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/crypto/curve25519_key_exchange.h"
+#include "quic/core/crypto/curve25519_key_exchange.h"
 
 #include <memory>
 #include <string>
 #include <utility>
 
-#include "net/third_party/quiche/src/quic/core/crypto/quic_random.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/crypto/quic_random.h"
+#include "quic/platform/api/quic_test.h"
 
 namespace quic {
 namespace test {
@@ -55,8 +55,8 @@ TEST_F(Curve25519KeyExchangeTest, SharedKey) {
     std::unique_ptr<Curve25519KeyExchange> bob(
         Curve25519KeyExchange::New(bob_key));
 
-    const quiche::QuicheStringPiece alice_public(alice->public_value());
-    const quiche::QuicheStringPiece bob_public(bob->public_value());
+    const absl::string_view alice_public(alice->public_value());
+    const absl::string_view bob_public(bob->public_value());
 
     std::string alice_shared, bob_shared;
     ASSERT_TRUE(alice->CalculateSharedKeySync(bob_public, &alice_shared));
@@ -79,8 +79,8 @@ TEST_F(Curve25519KeyExchangeTest, SharedKeyAsync) {
     std::unique_ptr<Curve25519KeyExchange> bob(
         Curve25519KeyExchange::New(bob_key));
 
-    const quiche::QuicheStringPiece alice_public(alice->public_value());
-    const quiche::QuicheStringPiece bob_public(bob->public_value());
+    const absl::string_view alice_public(alice->public_value());
+    const absl::string_view bob_public(bob->public_value());
 
     std::string alice_shared, bob_shared;
     TestCallbackResult alice_result;

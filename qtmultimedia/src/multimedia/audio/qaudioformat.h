@@ -45,72 +45,147 @@
 #include <QtCore/qshareddata.h>
 
 #include <QtMultimedia/qtmultimediaglobal.h>
-#include <QtMultimedia/qmultimedia.h>
 
 QT_BEGIN_NAMESPACE
 
 class QAudioFormatPrivate;
 
-class Q_MULTIMEDIA_EXPORT QAudioFormat
+namespace QtPrivate {
+template <typename... Args>
+constexpr int channelConfig(Args... values) {
+    return (0 | ... | (1u << values));
+}
+}
+
+class QAudioFormat
 {
 public:
-    enum SampleType { Unknown, SignedInt, UnSignedInt, Float };
-    enum Endian { BigEndian = QSysInfo::BigEndian, LittleEndian = QSysInfo::LittleEndian };
+    enum SampleFormat : quint16 {
+        Unknown,
+        UInt8,
+        Int16,
+        Int32,
+        Float,
+        NSampleFormats
+    };
 
-    QAudioFormat();
-    QAudioFormat(const QAudioFormat &other);
-    ~QAudioFormat();
+    // This matches the speaker positions of a 22.2 audio layout. Stereo, Surround 5.1 and Surround 7.1 are subsets of these
+    enum AudioChannelPosition {
+        UnknownPosition,
+        FrontLeft,
+        FrontRight,
+        FrontCenter,
+        LFE,
+        BackLeft,
+        BackRight,
+        FrontLeftOfCenter,
+        FrontRightOfCenter,
+        BackCenter,
+        LFE2,
+        SideLeft,
+        SideRight,
+        TopFrontLeft,
+        TopFrontRight,
+        TopFrontCenter,
+        TopCenter,
+        TopBackLeft,
+        TopBackRight,
+        TopSideLeft,
+        TopSideRight,
+        TopBackCenter,
+        BottomFrontCenter,
+        BottomFrontLeft,
+        BottomFrontRight
+    };
 
-    QAudioFormat& operator=(const QAudioFormat &other);
-    bool operator==(const QAudioFormat &other) const;
-    bool operator!=(const QAudioFormat &other) const;
+    enum ChannelConfig : quint32 {
+        ChannelConfigUnknown = 0,
+        ChannelConfigMono = QtPrivate::channelConfig(FrontCenter),
+        ChannelConfigStereo = QtPrivate::channelConfig(FrontLeft, FrontRight),
+        ChannelConfig2Dot1 = QtPrivate::channelConfig(FrontLeft, FrontRight, LFE),
+        ChannelConfigSurround5Dot0 = QtPrivate::channelConfig(FrontLeft, FrontRight, FrontCenter, BackLeft, BackRight),
+        ChannelConfigSurround5Dot1 = QtPrivate::channelConfig(FrontLeft, FrontRight, FrontCenter, LFE, BackLeft, BackRight),
+        ChannelConfigSurround7Dot0 = QtPrivate::channelConfig(FrontLeft, FrontRight, FrontCenter, BackLeft, BackRight, SideLeft, SideRight),
+        ChannelConfigSurround7Dot1 = QtPrivate::channelConfig(FrontLeft, FrontRight, FrontCenter, LFE, BackLeft, BackRight, SideLeft, SideRight),
+    };
 
-    bool isValid() const;
+    template <typename... Args>
+    static ChannelConfig channelConfig(Args... channels)
+    {
+        return ChannelConfig(QtPrivate::channelConfig(channels...));
+    }
 
-    void setSampleRate(int sampleRate);
-    int sampleRate() const;
+    constexpr bool isValid() const noexcept
+    {
+        return m_sampleRate > 0 && m_channelCount > 0 && m_sampleFormat != Unknown;
+    }
 
-    void setChannelCount(int channelCount);
-    int channelCount() const;
+    constexpr void setSampleRate(int sampleRate) noexcept { m_sampleRate = sampleRate; }
+    constexpr int sampleRate() const noexcept { return m_sampleRate; }
 
-    void setSampleSize(int sampleSize);
-    int sampleSize() const;
+    Q_MULTIMEDIA_EXPORT void setChannelConfig(ChannelConfig config) noexcept;
+    constexpr ChannelConfig channelConfig() const noexcept { return m_channelConfig; }
 
-    void setCodec(const QString &codec);
-    QString codec() const;
+    constexpr void setChannelCount(int channelCount) noexcept { m_channelConfig = ChannelConfigUnknown; m_channelCount = channelCount; }
+    constexpr int channelCount() const noexcept { return m_channelCount; }
 
-    void setByteOrder(QAudioFormat::Endian byteOrder);
-    QAudioFormat::Endian byteOrder() const;
+    Q_MULTIMEDIA_EXPORT int channelOffset(AudioChannelPosition channel) const noexcept;
 
-    void setSampleType(QAudioFormat::SampleType sampleType);
-    QAudioFormat::SampleType sampleType() const;
+    constexpr void setSampleFormat(SampleFormat f) noexcept { m_sampleFormat = f; }
+    constexpr SampleFormat sampleFormat() const noexcept { return m_sampleFormat; }
 
     // Helper functions
-    qint32 bytesForDuration(qint64 duration) const;
-    qint64 durationForBytes(qint32 byteCount) const;
+    Q_MULTIMEDIA_EXPORT qint32 bytesForDuration(qint64 microseconds) const;
+    Q_MULTIMEDIA_EXPORT qint64 durationForBytes(qint32 byteCount) const;
 
-    qint32 bytesForFrames(qint32 frameCount) const;
-    qint32 framesForBytes(qint32 byteCount) const;
+    Q_MULTIMEDIA_EXPORT qint32 bytesForFrames(qint32 frameCount) const;
+    Q_MULTIMEDIA_EXPORT qint32 framesForBytes(qint32 byteCount) const;
 
-    qint32 framesForDuration(qint64 duration) const;
-    qint64 durationForFrames(qint32 frameCount) const;
+    Q_MULTIMEDIA_EXPORT qint32 framesForDuration(qint64 microseconds) const;
+    Q_MULTIMEDIA_EXPORT qint64 durationForFrames(qint32 frameCount) const;
 
-    int bytesPerFrame() const;
+    constexpr int bytesPerFrame() const { return bytesPerSample()*channelCount(); }
+    constexpr int bytesPerSample() const noexcept
+    {
+        switch (m_sampleFormat) {
+        case Unknown:
+        case NSampleFormats: return 0;
+        case UInt8: return 1;
+        case Int16: return 2;
+        case Int32:
+        case Float: return 4;
+        }
+        return 0;
+    }
+
+    Q_MULTIMEDIA_EXPORT float normalizedSampleValue(const void *sample) const;
+
+    friend bool operator==(const QAudioFormat &a, const QAudioFormat &b)
+    {
+        return a.m_sampleRate == b.m_sampleRate &&
+               a.m_channelCount == b.m_channelCount &&
+               a.m_sampleFormat == b.m_sampleFormat;
+    }
+    friend bool operator!=(const QAudioFormat &a, const QAudioFormat &b)
+    {
+        return !(a == b);
+    }
 
 private:
-    QSharedDataPointer<QAudioFormatPrivate> d;
+    SampleFormat m_sampleFormat = SampleFormat::Unknown;
+    short m_channelCount = 0;
+    ChannelConfig m_channelConfig = ChannelConfigUnknown;
+    int m_sampleRate = 0;
+    quint64 reserved = 0;
 };
 
 #ifndef QT_NO_DEBUG_STREAM
 Q_MULTIMEDIA_EXPORT QDebug operator<<(QDebug, const QAudioFormat &);
-Q_MULTIMEDIA_EXPORT QDebug operator<<(QDebug, QAudioFormat::SampleType);
-Q_MULTIMEDIA_EXPORT QDebug operator<<(QDebug, QAudioFormat::Endian);
+Q_MULTIMEDIA_EXPORT QDebug operator<<(QDebug, QAudioFormat::SampleFormat);
 #endif
 
 QT_END_NAMESPACE
 
 Q_DECLARE_METATYPE(QAudioFormat)
-Q_DECLARE_METATYPE(QAudioFormat::SampleType)
-Q_DECLARE_METATYPE(QAudioFormat::Endian)
 
 #endif  // QAUDIOFORMAT_H

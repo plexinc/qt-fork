@@ -48,10 +48,6 @@ private slots:
 
     void defaultHandler();
     void installMessageHandler();
-#if QT_DEPRECATED_SINCE(5, 0)
-    void installMsgHandler();
-    void installBothHandler();
-#endif
 
 #ifdef QT_BUILD_INTERNAL
     void cleanupFuncinfo_data();
@@ -84,15 +80,6 @@ void customMessageHandler(QtMsgType type, const QMessageLogContext &context, con
     s_message = msg;
 }
 
-void customMsgHandler(QtMsgType type, const char *msg)
-{
-    s_type = type;
-    s_file = 0;
-    s_line = 0;
-    s_function = 0;
-    s_message = QString::fromLocal8Bit(msg);
-}
-
 tst_qmessagehandler::tst_qmessagehandler()
 {
     // ensure it's unset, otherwise we'll have trouble
@@ -114,9 +101,6 @@ void tst_qmessagehandler::initTestCase()
 
 void tst_qmessagehandler::cleanup()
 {
-#if QT_DEPRECATED_SINCE(5, 0)
-    qInstallMsgHandler(0);
-#endif
     qInstallMessageHandler((QtMessageHandler)0);
     s_type = QtFatalMsg;
     s_file = 0;
@@ -147,38 +131,6 @@ void tst_qmessagehandler::installMessageHandler()
     QCOMPARE((void*)myHandler, (void*)customMessageHandler);
 }
 
-#if QT_DEPRECATED_SINCE(5, 0)
-void tst_qmessagehandler::installMsgHandler()
-{
-    QtMsgHandler oldHandler = qInstallMsgHandler(customMsgHandler);
-
-    qDebug("installMsgHandler");
-
-    QCOMPARE(s_type, QtDebugMsg);
-    QCOMPARE(s_message, QString::fromLocal8Bit("installMsgHandler"));
-    QCOMPARE(s_file, (const char*)0);
-    QCOMPARE(s_function, (const char*)0);
-    QCOMPARE(s_line, 0);
-
-    QtMsgHandler myHandler = qInstallMsgHandler(oldHandler);
-    QCOMPARE((void*)myHandler, (void*)customMsgHandler);
-}
-
-void tst_qmessagehandler::installBothHandler()
-{
-    qInstallMessageHandler(customMessageHandler);
-    qInstallMsgHandler(customMsgHandler);
-
-    qDebug("installBothHandler"); int line = __LINE__;
-
-    QCOMPARE(s_type, QtDebugMsg);
-    QCOMPARE(s_message, QString::fromLocal8Bit("installBothHandler"));
-    QCOMPARE(s_file, __FILE__);
-    QCOMPARE(s_function, Q_FUNC_INFO);
-    QCOMPARE(s_line, line);
-}
-#endif
-
 # define ADD(x)          QTest::newRow(x) << Q_FUNC_INFO << x;
 
 class TestClass1
@@ -200,7 +152,7 @@ public:
     char *func_Pchar() { ADD("TestClass1::func_Pchar"); return 0; }
     const char *func_KPchar() { ADD("TestClass1::func_KPchar"); return 0; }
     const volatile char *func_VKPchar() { ADD("TestClass1::func_VKPchar"); return 0; }
-    const volatile unsigned long long * const volatile func_KVPKVull() { ADD("TestClass1::func_KVPKVull"); return 0; }
+    const volatile unsigned long long * func_KVPull() { ADD("TestClass1::func_KVPull"); return 0; }
     const void * const volatile *func_KPKVvoid() { ADD("TestClass1::func_KPKVvoid"); return 0; }
 
     QList<int> func_ai() { ADD("TestClass1::func_ai"); return QList<int>(); }
@@ -287,7 +239,7 @@ public:
             func_Pchar();
             func_KPchar();
             func_VKPchar();
-            func_KVPKVull();
+            func_KVPull();
             func_KPKVvoid();
             func_ai();
             func_aptr();
@@ -494,11 +446,11 @@ void tst_qmessagehandler::cleanupFuncinfo_data()
         << "TestClass1::func_VKPchar";
 
     QTest::newRow("msvc_13")
-        << "volatile const unsigned __int64 *volatile const __thiscall TestClass1::func_KVPKVull(void)"
-        << "TestClass1::func_KVPKVull";
+        << "volatile const unsigned __int64 *__thiscall TestClass1::func_KVPull(void)"
+        << "TestClass1::func_KVPull";
     QTest::newRow("gcc_13")
-        << "const volatile long long unsigned int* const volatile TestClass1::func_KVPKVull()"
-        << "TestClass1::func_KVPKVull";
+        << "const volatile long long unsigned int* TestClass1::func_KVPull()"
+        << "TestClass1::func_KVPull";
 
     QTest::newRow("msvc_14")
         << "const void *volatile const *__thiscall TestClass1::func_KPKVvoid(void)"
@@ -785,6 +737,8 @@ void tst_qmessagehandler::qMessagePattern_data()
     QTest::newRow("time-process") << "<%{time process}>%{message}" << true << (QList<QByteArray>()
             << "<     ");
 
+#define BACKTRACE_HELPER_NAME "qlogging_helper"
+
 #ifdef __GLIBC__
 #ifdef QT_NAMESPACE
 #define QT_NAMESPACE_STR QT_STRINGIFY(QT_NAMESPACE::)
@@ -792,16 +746,20 @@ void tst_qmessagehandler::qMessagePattern_data()
 #define QT_NAMESPACE_STR ""
 #endif
 
+#if QT_CONFIG(static)
+    QSKIP("These test cases don't work with static Qt builds");
+#else
 #ifndef QT_NO_DEBUG
     QTest::newRow("backtrace") << "[%{backtrace}] %{message}" << true << (QList<QByteArray>()
             // MyClass::qt_static_metacall is explicitly marked as hidden in the Q_OBJECT macro
-            << "[MyClass::myFunction|MyClass::mySlot1|?helper?|" QT_NAMESPACE_STR "QMetaMethod::invoke|" QT_NAMESPACE_STR "QMetaObject::invokeMethod] from_a_function 34");
+            << "[MyClass::myFunction|MyClass::mySlot1|?" BACKTRACE_HELPER_NAME "?|" QT_NAMESPACE_STR "QMetaMethod::invoke|" QT_NAMESPACE_STR "QMetaObject::invokeMethod] from_a_function 34");
 #endif
 
     QTest::newRow("backtrace depth,separator") << "[%{backtrace depth=2 separator=\"\n\"}] %{message}" << true << (QList<QByteArray>()
             << "[MyClass::myFunction\nMyClass::mySlot1] from_a_function 34"
             << "[T::T\n");
-#endif
+#endif // #if !QT_CONFIG(process)
+#endif // #ifdef __GLIBC__
 
 }
 
@@ -820,9 +778,9 @@ void tst_qmessagehandler::qMessagePattern()
 
     QProcess process;
 #ifndef Q_OS_ANDROID
-    const QString appExe(QLatin1String("helper"));
+    const QString appExe(QLatin1String(HELPER_BINARY));
 #else
-    const QString appExe(QCoreApplication::applicationDirPath() + QLatin1String("/libhelper.so"));
+    const QString appExe(QCoreApplication::applicationDirPath() + QLatin1String("/lib" BACKTRACE_HELPER_NAME ".so"));
 #endif
 
     //
@@ -870,7 +828,7 @@ void tst_qmessagehandler::setMessagePattern()
 
     QProcess process;
 #ifndef Q_OS_ANDROID
-    const QString appExe(QLatin1String("helper"));
+    const QString appExe(QLatin1String(HELPER_BINARY));
 #else
     const QString appExe(QCoreApplication::applicationDirPath() + QLatin1String("/libhelper.so"));
 #endif
@@ -944,7 +902,11 @@ void tst_qmessagehandler::formatLogMessage_data()
             << format << "[F] msg"
             << QtFatalMsg << BA("") << 0 << BA("func") << QByteArray() << "msg";
     QTest::newRow("if_cat")
+#ifndef Q_OS_ANDROID
             << format << "[F] cat: msg"
+#else
+            << format << "[F] : msg"
+#endif
             << QtFatalMsg << BA("") << 0 << BA("func") << BA("cat") << "msg";
 }
 

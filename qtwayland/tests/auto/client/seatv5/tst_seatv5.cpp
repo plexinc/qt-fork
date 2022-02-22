@@ -27,8 +27,9 @@
 ****************************************************************************/
 
 #include "mockcompositor.h"
+#include <QtOpenGL/QOpenGLWindow>
 #include <QtGui/QRasterWindow>
-#include <QtGui/QOpenGLWindow>
+#include <QtGui/QEventPoint>
 
 using namespace MockCompositor;
 
@@ -157,12 +158,12 @@ public:
             , source(event->source())
         {
         }
-        const Qt::ScrollPhase phase{};
-        const QPoint pixelDelta;
-        const QPoint angleDelta; // eights of a degree, positive is upwards, left
-        const Qt::MouseEventSource source{};
+        Qt::ScrollPhase phase{};
+        QPoint pixelDelta;
+        QPoint angleDelta; // eights of a degree, positive is upwards, left
+        Qt::MouseEventSource source{};
     };
-    QVector<Event> m_events;
+    QList<Event> m_events;
 };
 
 void tst_seatv5::simpleAxis_data()
@@ -421,14 +422,14 @@ public:
         explicit Event(const QTouchEvent *event)
             : type(event->type())
             , touchPointStates(event->touchPointStates())
-            , touchPoints(event->touchPoints())
+            , touchPoints(event->points())
         {
         }
-        const QEvent::Type type{};
-        const Qt::TouchPointStates touchPointStates{};
-        const QList<QTouchEvent::TouchPoint> touchPoints;
+        QEvent::Type type{};
+        QEventPoint::States touchPointStates{};
+        QList<QTouchEvent::TouchPoint> touchPoints;
     };
-    QVector<Event> m_events;
+    QList<Event> m_events;
 };
 
 void tst_seatv5::singleTap()
@@ -449,16 +450,16 @@ void tst_seatv5::singleTap()
     {
         auto e = window.m_events.takeFirst();
         QCOMPARE(e.type, QEvent::TouchBegin);
-        QCOMPARE(e.touchPointStates, Qt::TouchPointState::TouchPointPressed);
+        QCOMPARE(e.touchPointStates, QEventPoint::State::Pressed);
         QCOMPARE(e.touchPoints.length(), 1);
-        QCOMPARE(e.touchPoints.first().pos(), QPointF(32-window.frameMargins().left(), 32-window.frameMargins().top()));
+        QCOMPARE(e.touchPoints.first().position(), QPointF(32-window.frameMargins().left(), 32-window.frameMargins().top()));
     }
     {
         auto e = window.m_events.takeFirst();
         QCOMPARE(e.type, QEvent::TouchEnd);
-        QCOMPARE(e.touchPointStates, Qt::TouchPointState::TouchPointReleased);
+        QCOMPARE(e.touchPointStates, QEventPoint::State::Released);
         QCOMPARE(e.touchPoints.length(), 1);
-        QCOMPARE(e.touchPoints.first().pos(), QPointF(32-window.frameMargins().left(), 32-window.frameMargins().top()));
+        QCOMPARE(e.touchPoints.first().position(), QPointF(32-window.frameMargins().left(), 32-window.frameMargins().top()));
     }
 }
 
@@ -480,16 +481,16 @@ void tst_seatv5::singleTapFloat()
     {
         auto e = window.m_events.takeFirst();
         QCOMPARE(e.type, QEvent::TouchBegin);
-        QCOMPARE(e.touchPointStates, Qt::TouchPointState::TouchPointPressed);
+        QCOMPARE(e.touchPointStates, QEventPoint::State::Pressed);
         QCOMPARE(e.touchPoints.length(), 1);
-        QCOMPARE(e.touchPoints.first().pos(), QPointF(32.75-window.frameMargins().left(), 32.25-window.frameMargins().top()));
+        QCOMPARE(e.touchPoints.first().position(), QPointF(32.75-window.frameMargins().left(), 32.25-window.frameMargins().top()));
     }
     {
         auto e = window.m_events.takeFirst();
         QCOMPARE(e.type, QEvent::TouchEnd);
-        QCOMPARE(e.touchPointStates, Qt::TouchPointState::TouchPointReleased);
+        QCOMPARE(e.touchPointStates, QEventPoint::State::Released);
         QCOMPARE(e.touchPoints.length(), 1);
-        QCOMPARE(e.touchPoints.first().pos(), QPointF(32.75-window.frameMargins().left(), 32.25-window.frameMargins().top()));
+        QCOMPARE(e.touchPoints.first().position(), QPointF(32.75-window.frameMargins().left(), 32.25-window.frameMargins().top()));
     }
 }
 
@@ -506,7 +507,7 @@ void tst_seatv5::multiTouch()
         t->sendDown(xdgToplevel()->surface(), {48, 48}, 1);
         t->sendFrame(c);
 
-        // Compositor event order should not change the order of the QTouchEvent::touchPoints()
+        // Compositor event order should not change the order of the QTouchEvent::points()
         // See QTBUG-77014
         t->sendMotion(c, {49, 48}, 1);
         t->sendMotion(c, {33, 32}, 0);
@@ -523,45 +524,45 @@ void tst_seatv5::multiTouch()
     {
         auto e = window.m_events.takeFirst();
         QCOMPARE(e.type, QEvent::TouchBegin);
-        QCOMPARE(e.touchPointStates, Qt::TouchPointState::TouchPointPressed);
+        QCOMPARE(e.touchPointStates, QEventPoint::State::Pressed);
         QCOMPARE(e.touchPoints.length(), 2);
 
-        QCOMPARE(e.touchPoints[0].state(), Qt::TouchPointState::TouchPointPressed);
-        QCOMPARE(e.touchPoints[0].pos(), QPointF(32-window.frameMargins().left(), 32-window.frameMargins().top()));
+        QCOMPARE(e.touchPoints[0].state(), QEventPoint::State::Pressed);
+        QCOMPARE(e.touchPoints[0].position(), QPointF(32-window.frameMargins().left(), 32-window.frameMargins().top()));
 
-        QCOMPARE(e.touchPoints[1].state(), Qt::TouchPointState::TouchPointPressed);
-        QCOMPARE(e.touchPoints[1].pos(), QPointF(48-window.frameMargins().left(), 48-window.frameMargins().top()));
+        QCOMPARE(e.touchPoints[1].state(), QEventPoint::State::Pressed);
+        QCOMPARE(e.touchPoints[1].position(), QPointF(48-window.frameMargins().left(), 48-window.frameMargins().top()));
     }
     {
         auto e = window.m_events.takeFirst();
         QCOMPARE(e.type, QEvent::TouchUpdate);
         QCOMPARE(e.touchPoints.length(), 2);
 
-        QCOMPARE(e.touchPoints[0].state(), Qt::TouchPointState::TouchPointMoved);
-        QCOMPARE(e.touchPoints[0].pos(), QPointF(33-window.frameMargins().left(), 32-window.frameMargins().top()));
+        QCOMPARE(e.touchPoints[0].state(), QEventPoint::State::Updated);
+        QCOMPARE(e.touchPoints[0].position(), QPointF(33-window.frameMargins().left(), 32-window.frameMargins().top()));
 
-        QCOMPARE(e.touchPoints[1].state(), Qt::TouchPointState::TouchPointMoved);
-        QCOMPARE(e.touchPoints[1].pos(), QPointF(49-window.frameMargins().left(), 48-window.frameMargins().top()));
+        QCOMPARE(e.touchPoints[1].state(), QEventPoint::State::Updated);
+        QCOMPARE(e.touchPoints[1].position(), QPointF(49-window.frameMargins().left(), 48-window.frameMargins().top()));
     }
     {
         auto e = window.m_events.takeFirst();
         QCOMPARE(e.type, QEvent::TouchUpdate);
-        QCOMPARE(e.touchPointStates, Qt::TouchPointState::TouchPointReleased | Qt::TouchPointState::TouchPointStationary);
+        QCOMPARE(e.touchPointStates, QEventPoint::State::Released | QEventPoint::State::Stationary);
         QCOMPARE(e.touchPoints.length(), 2);
 
-        QCOMPARE(e.touchPoints[0].state(), Qt::TouchPointState::TouchPointReleased);
-        QCOMPARE(e.touchPoints[0].pos(), QPointF(33-window.frameMargins().left(), 32-window.frameMargins().top()));
+        QCOMPARE(e.touchPoints[0].state(), QEventPoint::State::Released);
+        QCOMPARE(e.touchPoints[0].position(), QPointF(33-window.frameMargins().left(), 32-window.frameMargins().top()));
 
-        QCOMPARE(e.touchPoints[1].state(), Qt::TouchPointState::TouchPointStationary);
-        QCOMPARE(e.touchPoints[1].pos(), QPointF(49-window.frameMargins().left(), 48-window.frameMargins().top()));
+        QCOMPARE(e.touchPoints[1].state(), QEventPoint::State::Stationary);
+        QCOMPARE(e.touchPoints[1].position(), QPointF(49-window.frameMargins().left(), 48-window.frameMargins().top()));
     }
     {
         auto e = window.m_events.takeFirst();
         QCOMPARE(e.type, QEvent::TouchEnd);
-        QCOMPARE(e.touchPointStates, Qt::TouchPointState::TouchPointReleased);
+        QCOMPARE(e.touchPointStates, QEventPoint::State::Released);
         QCOMPARE(e.touchPoints.length(), 1);
-        QCOMPARE(e.touchPoints[0].state(), Qt::TouchPointState::TouchPointReleased);
-        QCOMPARE(e.touchPoints[0].pos(), QPointF(49-window.frameMargins().left(), 48-window.frameMargins().top()));
+        QCOMPARE(e.touchPoints[0].state(), QEventPoint::State::Released);
+        QCOMPARE(e.touchPoints[0].position(), QPointF(49-window.frameMargins().left(), 48-window.frameMargins().top()));
     }
 }
 
@@ -595,21 +596,21 @@ void tst_seatv5::multiTouchUpAndMotionFrame()
     {
         auto e = window.m_events.takeFirst();
         QCOMPARE(e.type, QEvent::TouchBegin);
-        QCOMPARE(e.touchPoints[0].state(), Qt::TouchPointState::TouchPointPressed);
-        QCOMPARE(e.touchPoints[1].state(), Qt::TouchPointState::TouchPointPressed);
+        QCOMPARE(e.touchPoints[0].state(), QEventPoint::State::Pressed);
+        QCOMPARE(e.touchPoints[1].state(), QEventPoint::State::Pressed);
     }
     {
         auto e = window.m_events.takeFirst();
         QCOMPARE(e.type, QEvent::TouchUpdate);
         QCOMPARE(e.touchPoints.length(), 2);
-        QCOMPARE(e.touchPoints[0].state(), Qt::TouchPointState::TouchPointReleased);
-        QCOMPARE(e.touchPoints[1].state(), Qt::TouchPointState::TouchPointMoved);
+        QCOMPARE(e.touchPoints[0].state(), QEventPoint::State::Released);
+        QCOMPARE(e.touchPoints[1].state(), QEventPoint::State::Updated);
     }
     {
         auto e = window.m_events.takeFirst();
         QCOMPARE(e.type, QEvent::TouchEnd);
         QCOMPARE(e.touchPoints.length(), 1);
-        QCOMPARE(e.touchPoints[0].state(), Qt::TouchPointState::TouchPointReleased);
+        QCOMPARE(e.touchPoints[0].state(), QEventPoint::State::Released);
     }
     QVERIFY(window.m_events.empty());
 }
@@ -637,13 +638,13 @@ void tst_seatv5::tapAndMoveInSameFrame()
         auto e = window.m_events.takeFirst();
         QCOMPARE(e.type, QEvent::TouchBegin);
         QCOMPARE(e.touchPoints.size(), 1);
-        QCOMPARE(e.touchPoints[0].state(), Qt::TouchPointState::TouchPointPressed);
+        QCOMPARE(e.touchPoints[0].state(), QEventPoint::State::Pressed);
         // Position isn't that important, we just want to make sure we actually get the pressed event
     }
 
     // Make sure we eventually release
     QTRY_VERIFY(!window.m_events.empty());
-    QTRY_COMPARE(window.m_events.last().touchPoints.first().state(), Qt::TouchPointState::TouchPointReleased);
+    QTRY_COMPARE(window.m_events.last().touchPoints.first().state(), QEventPoint::State::Released);
 }
 
 QCOMPOSITOR_TEST_MAIN(tst_seatv5)

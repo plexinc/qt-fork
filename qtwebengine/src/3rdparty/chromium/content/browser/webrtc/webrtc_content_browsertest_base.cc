@@ -10,6 +10,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/audio_service.h"
 #include "content/public/common/content_switches.h"
@@ -20,8 +21,8 @@
 #include "media/base/media_switches.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 
-#if defined(OS_CHROMEOS)
-#include "chromeos/audio/cras_audio_handler.h"
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/components/audio/cras_audio_handler.h"
 #include "chromeos/dbus/audio/cras_audio_client.h"
 #endif
 
@@ -31,12 +32,6 @@ void WebRtcContentBrowserTestBase::SetUpCommandLine(
     base::CommandLine* command_line) {
   base::CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kEnforceWebRtcIPPermissionCheck);
-#if defined(OS_LINUX)
-  // Due to problems with PulseAudio failing to start, use a fake audio
-  // stream. crbug.com/1047655#c70
-  base::CommandLine::ForCurrentProcess()->AppendSwitch(
-      switches::kDisableAudioOutput);
-#endif
 
   // Loopback interface is the non-default local address. They should only be in
   // the candidate list if the ip handling policy is "default" AND the media
@@ -48,9 +43,9 @@ void WebRtcContentBrowserTestBase::SetUpCommandLine(
 void WebRtcContentBrowserTestBase::SetUp() {
   // We need pixel output when we dig pixels out of video tags for verification.
   EnablePixelOutput();
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   chromeos::CrasAudioClient::InitializeFake();
-  chromeos::CrasAudioHandler::InitializeForTesting();
+  ash::CrasAudioHandler::InitializeForTesting();
 #endif
   ContentBrowserTest::SetUp();
   ASSERT_TRUE(base::CommandLine::ForCurrentProcess()->HasSwitch(
@@ -59,8 +54,8 @@ void WebRtcContentBrowserTestBase::SetUp() {
 
 void WebRtcContentBrowserTestBase::TearDown() {
   ContentBrowserTest::TearDown();
-#if defined(OS_CHROMEOS)
-  chromeos::CrasAudioHandler::Shutdown();
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  ash::CrasAudioHandler::Shutdown();
   chromeos::CrasAudioClient::Shutdown();
 #endif
 }

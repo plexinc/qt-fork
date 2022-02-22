@@ -45,7 +45,8 @@
 #include "qqmlobjectcreator_p.h"
 #include <private/qqmlcomponent_p.h>
 
-void QQmlEnginePrivate::incubate(QQmlIncubator &i, QQmlContextData *forContext)
+void QQmlEnginePrivate::incubate(
+        QQmlIncubator &i, const QQmlRefPointer<QQmlContextData> &forContext)
 {
     QExplicitlySharedDataPointer<QQmlIncubatorPrivate> p(i.d);
 
@@ -59,13 +60,13 @@ void QQmlEnginePrivate::incubate(QQmlIncubator &i, QQmlContextData *forContext)
 
         // Need to find the first constructing context and see if it is asynchronous
         QExplicitlySharedDataPointer<QQmlIncubatorPrivate> parentIncubator;
-        QQmlContextData *cctxt = forContext;
+        QQmlRefPointer<QQmlContextData> cctxt = forContext;
         while (cctxt) {
-            if (!cctxt->hasExtraObject && cctxt->incubator) {
-                parentIncubator = cctxt->incubator;
+            if (QQmlIncubatorPrivate *incubator = cctxt->incubator()) {
+                parentIncubator = incubator;
                 break;
             }
-            cctxt = cctxt->parent;
+            cctxt = cctxt->parent();
         }
 
         if (parentIncubator && parentIncubator->isAsynchronous) {
@@ -149,8 +150,8 @@ void QQmlIncubatorPrivate::clear()
     }
     enginePriv = nullptr;
     if (!rootContext.isNull()) {
-        if (!rootContext->hasExtraObject)
-            rootContext->incubator = nullptr;
+        if (rootContext->incubator())
+            rootContext->setIncubator(nullptr);
         rootContext = nullptr;
     }
 
@@ -330,7 +331,7 @@ void QQmlIncubatorPrivate::incubate(QQmlInstantiationInterrupt &i)
             ddata->rootObjectInCreation = false;
             if (q) {
                 q->setInitialState(result);
-                if (!creator->requiredProperties().empty()) {
+                if (creator && !creator->requiredProperties().empty()) {
                     const auto& unsetRequiredProperties = creator->requiredProperties();
                     for (const auto& unsetRequiredProperty: unsetRequiredProperties)
                         errors << QQmlComponentPrivate::unsetRequiredPropertyToQQmlError(unsetRequiredProperty);
@@ -360,10 +361,8 @@ void QQmlIncubatorPrivate::incubate(QQmlInstantiationInterrupt &i)
             if (watcher.hasRecursed())
                 return;
 
-            QQmlContextData *ctxt = nullptr;
-            ctxt = creator->finalize(i);
-            if (ctxt) {
-                rootContext = ctxt;
+            if (creator->finalize(i)) {
+                rootContext = creator->rootContext();
                 progress = QQmlIncubatorPrivate::Completed;
                 goto finishIncubate;
             }
@@ -409,26 +408,6 @@ void QQmlIncubationController::incubateFor(int msecs)
         static_cast<QQmlIncubatorPrivate*>(d->incubatorList.first())->incubate(i);
     } while (d && d->incubatorCount != 0 && !i.shouldInterrupt());
 }
-
-#if QT_DEPRECATED_SINCE(5, 15)
-/*!
-\obsolete
-
-\warning Do not use this function.
-Use the overload taking a \c{std::atomic<bool>} instead.
-*/
-void QQmlIncubationController::incubateWhile(volatile bool *flag, int msecs)
-{
-    if (!d || !d->incubatorCount)
-        return;
-
-    QQmlInstantiationInterrupt i(flag, msecs * Q_INT64_C(1000000));
-    i.reset();
-    do {
-        static_cast<QQmlIncubatorPrivate*>(d->incubatorList.first())->incubate(i);
-    } while (d && d->incubatorCount != 0 && !i.shouldInterrupt());
-}
-#endif
 
 /*!
 \since 5.15

@@ -127,6 +127,7 @@ class MockPeerConnectionHandler : public RTCPeerConnectionHandler {
             /*force_encoded_audio_insertable_streams=*/false,
             /*force_encoded_video_insertable_streams=*/false) {}
   MOCK_METHOD0(CloseClientPeerConnection, void());
+  MOCK_METHOD1(OnThermalStateChange, void(mojom::blink::DeviceThermalState));
 
  private:
   blink::MockPeerConnectionDependencyFactory dependency_factory_;
@@ -187,6 +188,84 @@ TEST_F(PeerConnectionTrackerTest, OnSuspend) {
   CreateAndRegisterPeerConnectionHandler();
   EXPECT_CALL(*mock_handler_, CloseClientPeerConnection());
   tracker_->OnSuspend();
+}
+
+TEST_F(PeerConnectionTrackerTest, OnThermalStateChange) {
+  CreateTrackerWithMocks();
+  CreateAndRegisterPeerConnectionHandler();
+
+  EXPECT_CALL(*mock_handler_,
+              OnThermalStateChange(mojom::blink::DeviceThermalState::kUnknown))
+      .Times(1);
+  tracker_->OnThermalStateChange(mojom::blink::DeviceThermalState::kUnknown);
+
+  EXPECT_CALL(*mock_handler_,
+              OnThermalStateChange(mojom::blink::DeviceThermalState::kNominal))
+      .Times(1);
+  tracker_->OnThermalStateChange(mojom::blink::DeviceThermalState::kNominal);
+
+  EXPECT_CALL(*mock_handler_,
+              OnThermalStateChange(mojom::blink::DeviceThermalState::kFair))
+      .Times(1);
+  tracker_->OnThermalStateChange(mojom::blink::DeviceThermalState::kFair);
+
+  EXPECT_CALL(*mock_handler_,
+              OnThermalStateChange(mojom::blink::DeviceThermalState::kSerious))
+      .Times(1);
+  tracker_->OnThermalStateChange(mojom::blink::DeviceThermalState::kSerious);
+
+  EXPECT_CALL(*mock_handler_,
+              OnThermalStateChange(mojom::blink::DeviceThermalState::kCritical))
+      .Times(1);
+  tracker_->OnThermalStateChange(mojom::blink::DeviceThermalState::kCritical);
+}
+
+TEST_F(PeerConnectionTrackerTest, ReportInitialThermalState) {
+  MockPeerConnectionHandler handler0;
+  MockPeerConnectionHandler handler1;
+  MockPeerConnectionHandler handler2;
+  CreateTrackerWithMocks();
+
+  // Nothing is reported by default.
+  EXPECT_CALL(handler0, OnThermalStateChange(_)).Times(0);
+  EXPECT_CALL(*mock_host_, AddPeerConnection(_)).Times(1);
+  tracker_->RegisterPeerConnection(
+      &handler0, webrtc::PeerConnectionInterface::RTCConfiguration(),
+      MediaConstraints(), nullptr);
+  base::RunLoop().RunUntilIdle();
+
+  // Report a known thermal state.
+  EXPECT_CALL(handler0,
+              OnThermalStateChange(mojom::blink::DeviceThermalState::kNominal))
+      .Times(1);
+  tracker_->OnThermalStateChange(mojom::blink::DeviceThermalState::kNominal);
+
+  // Handlers registered late will get the event upon registering.
+  EXPECT_CALL(handler1,
+              OnThermalStateChange(mojom::blink::DeviceThermalState::kNominal))
+      .Times(1);
+  EXPECT_CALL(*mock_host_, AddPeerConnection(_)).Times(1);
+  tracker_->RegisterPeerConnection(
+      &handler1, webrtc::PeerConnectionInterface::RTCConfiguration(),
+      MediaConstraints(), nullptr);
+  base::RunLoop().RunUntilIdle();
+
+  // Report the unknown thermal state.
+  EXPECT_CALL(handler0,
+              OnThermalStateChange(mojom::blink::DeviceThermalState::kUnknown))
+      .Times(1);
+  EXPECT_CALL(handler1,
+              OnThermalStateChange(mojom::blink::DeviceThermalState::kUnknown))
+      .Times(1);
+  tracker_->OnThermalStateChange(mojom::blink::DeviceThermalState::kUnknown);
+
+  // Handlers registered late get no event.
+  EXPECT_CALL(handler2, OnThermalStateChange(_)).Times(0);
+  EXPECT_CALL(*mock_host_, AddPeerConnection(_)).Times(1);
+  tracker_->RegisterPeerConnection(
+      &handler2, webrtc::PeerConnectionInterface::RTCConfiguration(),
+      MediaConstraints(), nullptr);
+  base::RunLoop().RunUntilIdle();
 }
 
 TEST_F(PeerConnectionTrackerTest, AddTransceiverWithOptionalValuesPresent) {

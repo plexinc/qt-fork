@@ -58,6 +58,8 @@
 
 #include "qplatformdefs.h"
 
+#include <memory>
+
 //
 //  W A R N I N G
 //  -------------
@@ -108,6 +110,7 @@ public:
         , m_cursor(0)
 #if QT_CONFIG(im)
         , m_preeditCursor(0)
+        , m_undoPreeditState(-1)
 #endif
         , m_blinkEnabled(false)
         , m_blinkTimer(0)
@@ -166,11 +169,11 @@ public:
         // password data to stay in the process memory, therefore we need
         // to zero it out
         if (m_echoMode != QQuickTextInput::Normal)
-            m_text.fill(0);
+            m_text.fill(u'\0');
     }
 
     void init();
-    void resetInputMethod();
+    void cancelInput();
     void startCreatingCursor();
     void ensureVisible(int position, int preeditCursor = 0, int preeditLength = 0);
     void updateHorizontalScroll();
@@ -230,7 +233,7 @@ public:
 
     QQuickItem *cursorItem;
     QQuickTextNode *textNode;
-    MaskInputData *m_maskData;
+    std::unique_ptr<MaskInputData[]> m_maskData;
     QInputControl *m_inputControl;
 
     QList<int> m_transactions;
@@ -246,6 +249,7 @@ public:
     int m_cursor;
 #if QT_CONFIG(im)
     int m_preeditCursor;
+    int m_undoPreeditState;
 #endif
     bool m_blinkEnabled;
     int m_blinkTimer;
@@ -333,7 +337,13 @@ public:
 
     bool isUndoAvailable() const { return !m_readOnly && m_undoState; }
     bool isRedoAvailable() const { return !m_readOnly && m_undoState < (int)m_history.size(); }
-    void clearUndo() { m_history.clear(); m_undoState = 0; }
+    void clearUndo() {
+            m_history.clear();
+            m_undoState = 0;
+#if QT_CONFIG(im)
+            m_undoPreeditState = -1;
+#endif
+    }
 
     bool allSelected() const { return !m_text.isEmpty() && m_selstart == 0 && m_selend == (int)m_text.length(); }
     bool hasSelectedText() const { return !m_text.isEmpty() && m_selend > m_selstart; }
@@ -456,6 +466,7 @@ public:
     void updateLayout();
     void updateBaselineOffset();
 
+    qreal calculateImplicitWidthForText(const QString &text) const;
     qreal getImplicitWidth() const override;
 
     inline qreal padding() const { return extra.isAllocated() ? extra->padding : 0.0; }

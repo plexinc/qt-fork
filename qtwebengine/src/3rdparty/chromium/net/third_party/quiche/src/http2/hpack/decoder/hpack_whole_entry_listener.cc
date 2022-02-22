@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/http2/hpack/decoder/hpack_whole_entry_listener.h"
+#include "http2/hpack/decoder/hpack_whole_entry_listener.h"
 
 namespace http2 {
 
@@ -21,7 +21,8 @@ void HpackWholeEntryNoOpListener::OnLiteralNameAndValue(
     HpackDecoderStringBuffer* /*value_buffer*/) {}
 void HpackWholeEntryNoOpListener::OnDynamicTableSizeUpdate(size_t /*size*/) {}
 void HpackWholeEntryNoOpListener::OnHpackDecodeError(
-    HpackDecodingError /*error*/) {}
+    HpackDecodingError /*error*/,
+    std::string /*detailed_error*/) {}
 
 // static
 HpackWholeEntryNoOpListener* HpackWholeEntryNoOpListener::NoOpListener() {

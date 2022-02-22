@@ -25,7 +25,9 @@
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
-#include <QtTest/QtTest>
+
+
+#include <QTest>
 #include <QMessageBox>
 #include <QDebug>
 #include <QPair>
@@ -35,6 +37,8 @@
 #include <QApplication>
 #include <QPushButton>
 #include <QDialogButtonBox>
+#include <QSignalSpy>
+
 #include <qpa/qplatformtheme.h>
 #include <private/qguiapplication_p.h>
 
@@ -46,6 +50,7 @@ private slots:
     void sanityTest();
     void defaultButton();
     void escapeButton();
+    void clickedButton();
     void button();
     void statics();
     void about();
@@ -80,7 +85,8 @@ public:
     bool resized;
 
 protected:
-    void resizeEvent ( QResizeEvent * event ) {
+    void resizeEvent ( QResizeEvent * event ) override
+    {
         resized = true;
         QMessageBox::resizeEvent(event);
     }
@@ -121,11 +127,20 @@ void ExecCloseHelper::timerEvent(QTimerEvent *te)
         return;
 
     QWidget *modalWidget = QApplication::activeModalWidget();
-
     if (!m_testCandidate && modalWidget)
         m_testCandidate = modalWidget;
 
-    if (m_testCandidate && m_testCandidate == modalWidget) {
+    QWidget *activeWindow = QApplication::activeWindow();
+    if (!m_testCandidate && activeWindow)
+        m_testCandidate = activeWindow;
+
+    if (!m_testCandidate)
+        return;
+
+    bool shouldHelp = (m_testCandidate->isModal() && m_testCandidate == modalWidget)
+        || (!m_testCandidate->isModal() && m_testCandidate == activeWindow);
+
+    if (shouldHelp) {
         if (m_key == CloseWindow) {
             m_testCandidate->close();
         } else {
@@ -150,8 +165,6 @@ void tst_QMessageBox::sanityTest()
         QSKIP("Test hangs on macOS 10.12 -- QTQAINFRA-1362");
         return;
     }
-#elif defined(Q_OS_WINRT)
-    QSKIP("Test hangs on winrt -- QTBUG-68297");
 #endif
     QMessageBox msgBox;
     msgBox.setText("This is insane");
@@ -299,6 +312,28 @@ void tst_QMessageBox::escapeButton()
     QVERIFY(msgBox3.clickedButton() == msgBox3.button(QMessageBox::Ok)); // auto detected
 }
 
+void tst_QMessageBox::clickedButton()
+{
+    QMessageBox msgBox;
+    msgBox.addButton(QMessageBox::Yes);
+    msgBox.addButton(QMessageBox::No);
+    msgBox.addButton(QMessageBox::Retry);
+
+    QVERIFY(!msgBox.clickedButton());
+
+    for (int i = 0; i < 2; ++i) {
+        QAbstractButton *clickedButtonAfterExex = nullptr;
+        QTimer::singleShot(100, [&] {
+            clickedButtonAfterExex = msgBox.clickedButton();
+            msgBox.close();
+        });
+        msgBox.exec();
+
+        QVERIFY(!clickedButtonAfterExex);
+        QVERIFY(msgBox.clickedButton());
+    }
+}
+
 void tst_QMessageBox::statics()
 {
     QMessageBox::StandardButton (*statics[4])(QWidget *, const QString &,
@@ -385,6 +420,8 @@ void tst_QMessageBox::staticSourceCompat()
     int ret;
 
     // source compat tests for < 4.2
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
     ExecCloseHelper closeHelper;
     closeHelper.start(Qt::Key_Enter);
     ret = QMessageBox::information(nullptr, "title", "text", QMessageBox::Yes, QMessageBox::No);
@@ -435,10 +472,13 @@ void tst_QMessageBox::staticSourceCompat()
         QCOMPARE(ret, 1);
         QVERIFY(closeHelper.done());
     }
+QT_WARNING_POP
 }
 
 void tst_QMessageBox::instanceSourceCompat()
 {
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
      QMessageBox mb("Application name here",
                     "Saving the file will overwrite the original file on the disk.\n"
                     "Do you really want to save?",
@@ -458,11 +498,12 @@ void tst_QMessageBox::instanceSourceCompat()
     QCOMPARE(mb.exec(), int(QMessageBox::Cancel));
 #ifndef Q_OS_MAC
     // mnemonics are not used on OS X
-    closeHelper.start(Qt::ALT + Qt::Key_R, &mb);
+    closeHelper.start(QKeyCombination(Qt::ALT | Qt::Key_R).toCombined(), &mb);
     QCOMPARE(mb.exec(), 0);
-    closeHelper.start(Qt::ALT + Qt::Key_Z, &mb);
+    closeHelper.start(QKeyCombination(Qt::ALT | Qt::Key_Z).toCombined(), &mb);
     QCOMPARE(mb.exec(), 1);
 #endif
+QT_WARNING_POP
 }
 
 void tst_QMessageBox::detailsText()
@@ -543,8 +584,11 @@ void tst_QMessageBox::incorrectDefaultButton()
     closeHelper.start(Qt::Key_Escape);
     QTest::ignoreMessage(QtWarningMsg, "QDialogButtonBox::createButton: Invalid ButtonRole, button not added");
     QTest::ignoreMessage(QtWarningMsg, "QDialogButtonBox::createButton: Invalid ButtonRole, button not added");
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
     //do not crash here -> call old function of QMessageBox in this case
     QMessageBox::question(nullptr, "", "I've been hit!",QMessageBox::Ok | QMessageBox::Cancel,QMessageBox::Save | QMessageBox::Cancel,QMessageBox::Ok);
+QT_WARNING_POP
     QVERIFY(closeHelper.done());
 }
 
@@ -587,7 +631,7 @@ using SignalSignature = void(QDialog::*)();
 Q_DECLARE_METATYPE(SignalSignature);
 Q_DECLARE_METATYPE(QMessageBox::ButtonRole)
 
-using ButtonsCreator = std::function<QVector<QPushButton*>(QMessageBox &)>;
+using ButtonsCreator = std::function<QList<QPushButton *>(QMessageBox &)>;
 Q_DECLARE_METATYPE(ButtonsCreator);
 
 using RoleSet = QSet<QMessageBox::ButtonRole>;
@@ -637,7 +681,7 @@ static void addRejectedRow(const char *title, ButtonsCreator bc)
 static void addCustomButtonsData()
 {
     ButtonsCreator buttonsCreator = [](QMessageBox &messageBox) {
-        QVector<QPushButton*> buttons(QMessageBox::NRoles);
+        QList<QPushButton *> buttons(QMessageBox::NRoles);
         for (int i = QMessageBox::AcceptRole; i < QMessageBox::NRoles; ++i) {
             buttons[i] = messageBox.addButton(
                 QString("Button role: %1").arg(i), QMessageBox::ButtonRole(i));
@@ -653,7 +697,7 @@ static void addCustomButtonsData()
 static void addStandardButtonsData()
 {
     ButtonsCreator buttonsCreator = [](QMessageBox &messageBox) {
-        QVector<QPushButton*> buttons;
+        QList<QPushButton *> buttons;
         for (int i = QMessageBox::FirstButton; i <= QMessageBox::LastButton; i <<= 1)
             buttons << messageBox.addButton(QMessageBox::StandardButton(i));
 

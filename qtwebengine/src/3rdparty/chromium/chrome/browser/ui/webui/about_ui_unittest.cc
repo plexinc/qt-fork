@@ -9,7 +9,7 @@
 
 #include "base/base64.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
@@ -19,7 +19,7 @@
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/task/post_task.h"
-#include "chrome/browser/chromeos/login/demo_mode/demo_setup_controller.h"
+#include "chrome/browser/ash/login/demo_mode/demo_setup_controller.h"
 #include "chrome/browser/chromeos/login/ui/fake_login_display_host.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
 #include "chrome/browser/ui/webui/chromeos/login/demo_preferences_screen_handler.h"
@@ -93,11 +93,7 @@ class ChromeOSTermsTest : public testing::Test {
     if (!base::CreateDirectory(dir))
       return false;
 
-    if (base::WriteFile(dir.AppendASCII("terms.html"), locale.c_str(),
-                        locale.length()) != static_cast<int>(locale.length())) {
-      return false;
-    }
-    return true;
+    return base::WriteFile(dir.AppendASCII("terms.html"), locale);
   }
 
   // Creates directory for the given |locale| that contains privacy_policy.pdf.
@@ -107,11 +103,7 @@ class ChromeOSTermsTest : public testing::Test {
     if (!base::CreateDirectory(dir))
       return false;
 
-    if (base::WriteFile(dir.AppendASCII("privacy_policy.pdf"), locale.c_str(),
-                        locale.length()) != static_cast<int>(locale.length())) {
-      return false;
-    }
-    return true;
+    return base::WriteFile(dir.AppendASCII("privacy_policy.pdf"), locale);
   }
 
   // Sets device region in VPD.
@@ -128,8 +120,8 @@ class ChromeOSTermsTest : public testing::Test {
         GURL(base::StrCat(
             {"chrome://", chrome::kChromeUITermsHost, "/", request_url})),
         std::move(wc_getter),
-        base::BindRepeating(&TestDataReceiver::OnDataReceived,
-                            base::Unretained(data_receiver)));
+        base::BindOnce(&TestDataReceiver::OnDataReceived,
+                       base::Unretained(data_receiver)));
     task_environment_.RunUntilIdle();
   }
 

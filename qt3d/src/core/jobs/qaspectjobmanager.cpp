@@ -68,7 +68,7 @@ void QAspectJobManager::initialize()
 }
 
 // Adds all Aspect Jobs to be processed for a frame
-void QAspectJobManager::enqueueJobs(const QVector<QAspectJobPtr> &jobQueue)
+void QAspectJobManager::enqueueJobs(const std::vector<QAspectJobPtr> &jobQueue)
 {
     auto systemService = m_aspectManager ? m_aspectManager->serviceLocator()->systemInformation() : nullptr;
     if (systemService)
@@ -76,7 +76,7 @@ void QAspectJobManager::enqueueJobs(const QVector<QAspectJobPtr> &jobQueue)
 
     // Convert QJobs to Tasks
     QHash<QAspectJob *, AspectTaskRunnable *> tasksMap;
-    QVector<RunnableInterface *> taskList;
+    QList<RunnableInterface *> taskList;
     taskList.reserve(jobQueue.size());
     for (const QAspectJobPtr &job : jobQueue) {
         AspectTaskRunnable *task = new AspectTaskRunnable(systemService);
@@ -87,7 +87,7 @@ void QAspectJobManager::enqueueJobs(const QVector<QAspectJobPtr> &jobQueue)
     }
 
     for (const QAspectJobPtr &job : jobQueue) {
-        const QVector<QWeakPointer<QAspectJob> > &deps = job->dependencies();
+        const std::vector<QWeakPointer<QAspectJob> > &deps = job->dependencies();
         AspectTaskRunnable *taskDepender = tasksMap.value(job.data());
 
         int dependerCount = 0;
@@ -115,10 +115,10 @@ int QAspectJobManager::waitForAllJobs()
 
 void QAspectJobManager::waitForPerThreadFunction(JobFunction func, void *arg)
 {
-    const int threadCount = m_threadPooler->maxThreadCount();
+    const int threadCount = QAspectJobManager::idealThreadCount();
     QAtomicInt atomicCount(threadCount);
 
-    QVector<RunnableInterface *> taskList;
+    QList<RunnableInterface *> taskList;
     for (int i = 0; i < threadCount; ++i) {
         SyncTaskRunnable *syncTask = new SyncTaskRunnable(func, arg, &atomicCount);
         taskList << syncTask;
@@ -126,6 +126,27 @@ void QAspectJobManager::waitForPerThreadFunction(JobFunction func, void *arg)
 
     QFuture<void> future = m_threadPooler->mapDependables(taskList);
     future.waitForFinished();
+}
+
+
+int QAspectJobManager::idealThreadCount()
+{
+    static int jobCount = 0;
+    if (jobCount)
+        return jobCount;
+
+    const QByteArray maxThreadCount = qgetenv("QT3D_MAX_THREAD_COUNT");
+    if (!maxThreadCount.isEmpty()) {
+        bool conversionOK = false;
+        const int maxThreadCountValue = maxThreadCount.toInt(&conversionOK);
+        if (conversionOK) {
+            jobCount = maxThreadCountValue;
+            return jobCount;
+        }
+    }
+
+    jobCount = QThread::idealThreadCount();
+    return jobCount;
 }
 
 } // namespace Qt3DCore

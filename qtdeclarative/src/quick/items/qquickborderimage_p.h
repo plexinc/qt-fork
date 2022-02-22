@@ -58,7 +58,7 @@ QT_BEGIN_NAMESPACE
 class QQuickScaleGrid;
 class QQuickGridScaledImage;
 class QQuickBorderImagePrivate;
-class Q_AUTOTEST_EXPORT QQuickBorderImage : public QQuickImageBase
+class Q_QUICK_PRIVATE_EXPORT QQuickBorderImage : public QQuickImageBase
 {
     Q_OBJECT
 
@@ -68,6 +68,7 @@ class Q_AUTOTEST_EXPORT QQuickBorderImage : public QQuickImageBase
     // read-only for BorderImage
     Q_PROPERTY(QSize sourceSize READ sourceSize NOTIFY sourceSizeChanged)
     QML_NAMED_ELEMENT(BorderImage)
+    QML_ADDED_IN_VERSION(2, 0)
 
 public:
     QQuickBorderImage(QQuickItem *parent=nullptr);

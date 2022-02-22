@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <limits>
 
+#include "base/logging.h"
 #include "base/strings/string_util.h"
 #include "media/base/video_util.h"
 
@@ -69,10 +70,10 @@ CaptureResolutionChooser::~CaptureResolutionChooser() = default;
 void CaptureResolutionChooser::SetConstraints(const gfx::Size& min_frame_size,
                                               const gfx::Size& max_frame_size,
                                               bool use_fixed_aspect_ratio) {
-  DCHECK_LT(0, min_frame_size.width());
-  DCHECK_LT(0, min_frame_size.height());
-  DCHECK_LE(min_frame_size.width(), max_frame_size.width());
-  DCHECK_LE(min_frame_size.height(), max_frame_size.height());
+//  DCHECK_LT(0, min_frame_size.width());
+//  DCHECK_LT(0, min_frame_size.height());
+//  DCHECK_LE(min_frame_size.width(), max_frame_size.width());
+//  DCHECK_LE(min_frame_size.height(), max_frame_size.height());
 
   min_frame_size_ = min_frame_size;
   max_frame_size_ = max_frame_size;

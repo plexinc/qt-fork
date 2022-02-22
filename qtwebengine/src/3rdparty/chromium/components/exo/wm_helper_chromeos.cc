@@ -5,13 +5,16 @@
 #include "components/exo/wm_helper_chromeos.h"
 #include "components/exo/wm_helper.h"
 
+#include "ash/frame_throttler/frame_throttling_controller.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/shell.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "base/memory/singleton.h"
 #include "ui/aura/client/drag_drop_delegate.h"
 #include "ui/aura/client/focus_client.h"
+#include "ui/base/data_transfer_policy/data_transfer_endpoint.h"
 #include "ui/base/dragdrop/drag_drop_types.h"
+#include "ui/base/dragdrop/mojom/drag_drop_types.mojom.h"
 #include "ui/display/manager/display_configurator.h"
 #include "ui/display/manager/display_manager.h"
 #include "ui/display/types/display_snapshot.h"
@@ -61,6 +64,16 @@ void WMHelperChromeOS::RemoveDisplayConfigurationObserver(
   ash::Shell::Get()->window_tree_host_manager()->RemoveObserver(observer);
 }
 
+void WMHelperChromeOS::AddFrameThrottlingObserver() {
+  ash::Shell::Get()->frame_throttling_controller()->AddArcObserver(
+      &vsync_timing_manager_);
+}
+
+void WMHelperChromeOS::RemoveFrameThrottlingObserver() {
+  ash::Shell::Get()->frame_throttling_controller()->RemoveArcObserver(
+      &vsync_timing_manager_);
+}
+
 void WMHelperChromeOS::AddActivationObserver(
     wm::ActivationChangeObserver* observer) {
   ash::Shell::Get()->activation_client()->AddObserver(observer);
@@ -106,11 +119,21 @@ void WMHelperChromeOS::OnDragEntered(const ui::DropTargetEvent& event) {
     observer.OnDragEntered(event);
 }
 
-int WMHelperChromeOS::OnDragUpdated(const ui::DropTargetEvent& event) {
-  int valid_operation = ui::DragDropTypes::DRAG_NONE;
-  for (DragDropObserver& observer : drag_drop_observers_)
-    valid_operation = valid_operation | observer.OnDragUpdated(event);
-  return valid_operation;
+aura::client::DragUpdateInfo WMHelperChromeOS::OnDragUpdated(
+    const ui::DropTargetEvent& event) {
+  aura::client::DragUpdateInfo drag_info(
+      ui::DragDropTypes::DRAG_NONE,
+      ui::DataTransferEndpoint(ui::EndpointType::kUnknownVm));
+
+  for (DragDropObserver& observer : drag_drop_observers_) {
+    auto observer_drag_info = observer.OnDragUpdated(event);
+    drag_info.drag_operation =
+        drag_info.drag_operation | observer_drag_info.drag_operation;
+    if (observer_drag_info.data_endpoint.type() !=
+        drag_info.data_endpoint.type())
+      drag_info.data_endpoint = observer_drag_info.data_endpoint;
+  }
+  return drag_info;
 }
 
 void WMHelperChromeOS::OnDragExited() {
@@ -118,13 +141,16 @@ void WMHelperChromeOS::OnDragExited() {
     observer.OnDragExited();
 }
 
-int WMHelperChromeOS::OnPerformDrop(const ui::DropTargetEvent& event,
-                                    std::unique_ptr<ui::OSExchangeData> data) {
-  for (DragDropObserver& observer : drag_drop_observers_)
-    observer.OnPerformDrop(event);
-  // TODO(hirono): Return the correct result instead of always returning
-  // DRAG_MOVE.
-  return ui::DragDropTypes::DRAG_MOVE;
+ui::mojom::DragOperation WMHelperChromeOS::OnPerformDrop(
+    const ui::DropTargetEvent& event,
+    std::unique_ptr<ui::OSExchangeData> data) {
+  auto operation = ui::mojom::DragOperation::kNone;
+  for (DragDropObserver& observer : drag_drop_observers_) {
+    auto observer_op = observer.OnPerformDrop(event);
+    if (observer_op != ui::mojom::DragOperation::kNone)
+      operation = observer_op;
+  }
+  return operation;
 }
 
 void WMHelperChromeOS::AddVSyncParameterObserver(
@@ -219,6 +245,20 @@ double WMHelperChromeOS::GetDefaultDeviceScaleFactor() const {
       display_manager->GetDisplayInfo(display::Display::InternalDisplayId());
   DCHECK(display_info.display_modes().size());
   return display_info.display_modes()[0].device_scale_factor();
+}
+
+double WMHelperChromeOS::GetDeviceScaleFactorForWindow(
+    aura::Window* window) const {
+  if (default_scale_cancellation_)
+    return GetDefaultDeviceScaleFactor();
+  const display::Screen* screen = display::Screen::GetScreen();
+  display::Display display = screen->GetDisplayNearestWindow(window);
+  return display.device_scale_factor();
+}
+
+void WMHelperChromeOS::SetDefaultScaleCancellation(
+    bool default_scale_cancellation) {
+  default_scale_cancellation_ = default_scale_cancellation;
 }
 
 void WMHelperChromeOS::SetImeBlocked(aura::Window* window, bool ime_blocked) {

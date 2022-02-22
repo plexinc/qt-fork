@@ -45,7 +45,9 @@
 
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 
-#include "base/logging.h"
+#include "base/check_op.h"
+#include "base/notreached.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "net/base/lookup_string_in_fixed_set.h"
@@ -348,8 +350,13 @@ bool SameDomainOrHost(base::StringPiece host1,
 
 std::string GetDomainAndRegistry(const GURL& gurl,
                                  PrivateRegistryFilter filter) {
-  return GetDomainAndRegistryAsStringPiece(gurl.host_piece(), filter)
-      .as_string();
+  return std::string(
+      GetDomainAndRegistryAsStringPiece(gurl.host_piece(), filter));
+}
+
+std::string GetDomainAndRegistry(const url::Origin& origin,
+                                 PrivateRegistryFilter filter) {
+  return std::string(GetDomainAndRegistryAsStringPiece(origin.host(), filter));
 }
 
 std::string GetDomainAndRegistry(base::StringPiece host,
@@ -358,7 +365,7 @@ std::string GetDomainAndRegistry(base::StringPiece host,
   const std::string canon_host(CanonicalizeHost(host, &host_info));
   if (canon_host.empty() || host_info.IsIPAddress())
     return std::string();
-  return GetDomainAndRegistryImpl(canon_host, filter).as_string();
+  return std::string(GetDomainAndRegistryImpl(canon_host, filter));
 }
 
 bool SameDomainOrHost(

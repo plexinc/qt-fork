@@ -43,7 +43,7 @@ class Node;
 class EventDispatchHandlingState
     : public GarbageCollected<EventDispatchHandlingState> {
  public:
-  virtual void Trace(Visitor* visitor) {}
+  virtual void Trace(Visitor* visitor) const {}
 };
 
 enum EventDispatchContinuation { kContinueDispatching, kDoneDispatching };
@@ -57,7 +57,6 @@ class EventDispatcher {
 
   static void DispatchSimulatedClick(Node&,
                                      const Event* underlying_event,
-                                     SimulatedClickMouseEventOptions,
                                      SimulatedClickCreationScope);
 
   DispatchEventResult Dispatch();
@@ -71,7 +70,6 @@ class EventDispatcher {
       Node* activation_target,
       EventDispatchHandlingState*&);
   EventDispatchContinuation DispatchEventAtCapturing();
-  EventDispatchContinuation DispatchEventAtTarget();
   void DispatchEventAtBubbling();
   void DispatchEventPostProcess(Node* activation_target,
                                 EventDispatchHandlingState*);

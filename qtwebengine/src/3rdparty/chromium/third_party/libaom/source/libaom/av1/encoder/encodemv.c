@@ -179,7 +179,7 @@ void av1_encode_mv(AV1_COMP *cpi, aom_writer *w, const MV *mv, const MV *ref,
   const MV_JOINT_TYPE j = av1_get_mv_joint(&diff);
   // If the mv_diff is zero, then we should have used near or nearest instead.
   assert(j != MV_JOINT_ZERO);
-  if (cpi->common.cur_frame_force_integer_mv) {
+  if (cpi->common.features.cur_frame_force_integer_mv) {
     usehp = MV_SUBPEL_NONE;
   }
   aom_write_symbol(w, j, mvctx->joints_cdf, MV_JOINTS);
@@ -193,7 +193,8 @@ void av1_encode_mv(AV1_COMP *cpi, aom_writer *w, const MV *mv, const MV *ref,
   // motion vector component used.
   if (cpi->sf.mv_sf.auto_mv_step_size) {
     int maxv = AOMMAX(abs(mv->row), abs(mv->col)) >> 3;
-    cpi->max_mv_magnitude = AOMMAX(maxv, cpi->max_mv_magnitude);
+    cpi->mv_search_params.max_mv_magnitude =
+        AOMMAX(maxv, cpi->mv_search_params.max_mv_magnitude);
   }
 }
 
@@ -252,7 +253,7 @@ int_mv av1_get_ref_mv(const MACROBLOCK *x, int ref_idx) {
     ref_mv_idx += 1;
   }
   return av1_get_ref_mv_from_stack(ref_idx, mbmi->ref_frame, ref_mv_idx,
-                                   x->mbmi_ext);
+                                   &x->mbmi_ext);
 }
 
 void av1_find_best_ref_mvs_from_stack(int allow_hp,

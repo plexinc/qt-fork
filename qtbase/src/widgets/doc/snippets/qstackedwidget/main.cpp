@@ -53,7 +53,7 @@
 class Widget : public QWidget
 {
 public:
-    Widget(QWidget *parent = 0);
+    Widget(QWidget *parent = nullptr);
 };
 
 Widget::Widget(QWidget *parent)
@@ -74,7 +74,7 @@ Widget::Widget(QWidget *parent)
     pageComboBox->addItem(tr("Page 1"));
     pageComboBox->addItem(tr("Page 2"));
     pageComboBox->addItem(tr("Page 3"));
-    connect(pageComboBox, QOverload<int>::of(&QComboBox::activated),
+    connect(pageComboBox, &QComboBox::activated,
             stackedWidget, &QStackedWidget::setCurrentIndex);
 
 //! [1] //! [2]

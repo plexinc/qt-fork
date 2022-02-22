@@ -5,8 +5,8 @@
 
 def _GenerateTestCommand(input_api, output_api, file_name, affected_list):
     if not input_api.AffectedFiles(
-            file_filter=
-            lambda x: input_api.FilterSourceFile(x, white_list=affected_list)):
+            file_filter=lambda x: input_api.FilterSourceFile(
+                x, files_to_check=affected_list)):
         return None
 
     if input_api.is_committing:
@@ -41,15 +41,16 @@ def _RunTests(input_api, output_api):
     tests = [{
         'file_name': 'json5_generator_unittest.py',
         'affected_list': [r'.*json5_generator.*', r'.*\btests[\\\/].*']
-    },
-             {
-                 'file_name': 'make_runtime_features_utilities_unittest.py',
-                 'affected_list': [r'.*make_runtime_features_utilities.*']
-             },
-             {
-                 'file_name': 'make_document_policy_features_unittest.py',
-                 'affected_list': [r'.*make_document_policy_features.*']
-             }]
+    }, {
+        'file_name': 'make_runtime_features_utilities_unittest.py',
+        'affected_list': [r'.*make_runtime_features_utilities.*']
+    }, {
+        'file_name': 'make_document_policy_features_unittest.py',
+        'affected_list': [r'.*make_document_policy_features.*']
+    }, {
+        'file_name': 'make_document_policy_features_tests.py',
+        'affected_list': [r'.*make_document_policy_features.*']
+    }]
     test_commands = []
     for test in tests:
         test_commands.append(

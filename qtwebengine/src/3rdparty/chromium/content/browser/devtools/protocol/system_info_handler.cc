@@ -12,8 +12,8 @@
 #include "base/command_line.h"
 #include "base/process/process_metrics.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "content/browser/gpu/compositor_util.h"
 #include "content/browser/gpu/gpu_data_manager_impl.h"
 #include "content/browser/gpu/gpu_process_host.h"
@@ -25,7 +25,7 @@
 #include "gpu/config/gpu_feature_type.h"
 #include "gpu/config/gpu_info.h"
 #include "gpu/config/gpu_switches.h"
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "gpu/config/gpu_util.h"
 #endif
 
@@ -46,11 +46,13 @@ std::unique_ptr<SystemInfo::Size> GfxSizeToSystemInfoSize(
       .Build();
 }
 // Give the GPU process a few seconds to provide GPU info.
-// Linux Debug builds need more time -- see Issue 796437.
+// Linux and Mac Debug builds need more time -- see Issue 796437, 1046598, and
+// 1153667.
 // Windows builds need more time -- see Issue 873112 and 1004472.
-#if (defined(OS_LINUX) && !defined(NDEBUG))
-const int kGPUInfoWatchdogTimeoutMs = 20000;
-#elif defined(OS_WIN)
+// ASAN builds need more time -- see Issue 1167875.
+#if ((defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_MAC)) && \
+     !defined(NDEBUG)) ||                                              \
+    defined(OS_WIN) || defined(ADDRESS_SANITIZER)
 const int kGPUInfoWatchdogTimeoutMs = 30000;
 #else
 const int kGPUInfoWatchdogTimeoutMs = 5000;
@@ -108,10 +110,6 @@ class AuxGPUInfoEnumerator : public gpu::GPUInfo::Enumerator {
   void BeginImageDecodeAcceleratorSupportedProfile() override {}
 
   void EndImageDecodeAcceleratorSupportedProfile() override {}
-
-  void BeginDx12VulkanVersionInfo() override {}
-
-  void EndDx12VulkanVersionInfo() override {}
 
   void BeginOverlayInfo() override {}
 
@@ -293,8 +291,8 @@ class SystemInfoHandlerGpuObserver : public content::GpuDataManagerObserver {
   explicit SystemInfoHandlerGpuObserver(
       std::unique_ptr<GetInfoCallback> callback)
       : callback_(std::move(callback)) {
-    base::PostDelayedTask(
-        FROM_HERE, {BrowserThread::UI},
+    GetUIThreadTaskRunner({})->PostDelayedTask(
+        FROM_HERE,
         base::BindOnce(&SystemInfoHandlerGpuObserver::ObserverWatchdogCallback,
                        weak_factory_.GetWeakPtr()),
         base::TimeDelta::FromMilliseconds(kGPUInfoWatchdogTimeoutMs));
@@ -309,7 +307,7 @@ class SystemInfoHandlerGpuObserver : public content::GpuDataManagerObserver {
     base::CommandLine* command = base::CommandLine::ForCurrentProcess();
     // Only wait for DX12/Vulkan info if requested at Chrome start up.
     if (!command->HasSwitch(
-            switches::kDisableGpuProcessForDX12VulkanInfoCollection) &&
+            switches::kDisableGpuProcessForDX12InfoCollection) &&
         command->HasSwitch(switches::kNoDelayForDX12VulkanInfoCollection) &&
         !GpuDataManagerImpl::GetInstance()->IsDx12VulkanVersionAvailable())
       return;
@@ -322,16 +320,8 @@ class SystemInfoHandlerGpuObserver : public content::GpuDataManagerObserver {
 
   void ObserverWatchdogCallback() {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
-#if defined(OS_CHROMEOS)
-    // TODO(zmo): CHECK everywhere once https://crbug.com/796386 is fixed.
-    gpu::GpuFeatureInfo gpu_feature_info =
-        gpu::ComputeGpuFeatureInfoWithHardwareAccelerationDisabled();
-    GpuDataManagerImpl::GetInstance()->UpdateGpuFeatureInfo(gpu_feature_info,
-                                                            base::nullopt);
-    UnregisterAndSendResponse();
-#else
-    CHECK(false) << "Gathering system GPU info took more than 5 seconds.";
-#endif
+    CHECK(false) << "Gathering system GPU info took more than "
+                 << (kGPUInfoWatchdogTimeoutMs / 1000) << " seconds.";
   }
 
   void UnregisterAndSendResponse() {
@@ -349,8 +339,7 @@ SystemInfoHandler::SystemInfoHandler()
     : DevToolsDomainHandler(SystemInfo::Metainfo::domainName) {
 }
 
-SystemInfoHandler::~SystemInfoHandler() {
-}
+SystemInfoHandler::~SystemInfoHandler() = default;
 
 void SystemInfoHandler::Wire(UberDispatcher* dispatcher) {
   SystemInfo::Dispatcher::wire(dispatcher, this);
@@ -367,7 +356,7 @@ namespace {
 
 std::unique_ptr<base::ProcessMetrics> CreateProcessMetrics(
     base::ProcessHandle handle) {
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   return base::ProcessMetrics::CreateProcessMetrics(
       handle, content::BrowserChildProcessHost::GetPortProvider());
 #else
@@ -441,9 +430,8 @@ void SystemInfoHandler::GetProcessInfo(
   AddRendererProcessInfo(process_info.get());
 
   // Collect child processes info on the IO thread.
-  base::PostTaskAndReplyWithResult(
-      FROM_HERE, {BrowserThread::IO},
-      base::BindOnce(&AddChildProcessInfo, std::move(process_info)),
+  GetIOThreadTaskRunner({})->PostTaskAndReplyWithResult(
+      FROM_HERE, base::BindOnce(&AddChildProcessInfo, std::move(process_info)),
       base::BindOnce(&GetProcessInfoCallback::sendSuccess,
                      std::move(callback)));
 }

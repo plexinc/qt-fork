@@ -90,34 +90,28 @@ process2.start("command2");
 
 
 //! [4]
-class SandboxProcess : public QProcess
+void runSandboxed(const QString &name, const QStringList &arguments)
 {
-    ...
- protected:
-     void setupChildProcess() override;
-    ...
-};
-
-void SandboxProcess::setupChildProcess()
-{
-    // Drop all privileges in the child process, and enter
-    // a chroot jail.
-#if defined Q_OS_UNIX
-    ::setgroups(0, 0);
-    ::chroot("/etc/safe");
-    ::chdir("/");
-    ::setgid(safeGid);
-    ::setuid(safeUid);
-    ::umask(0);
-#endif
+    QProcess proc;
+    proc.setChildProcessModifier([] {
+        // Drop all privileges in the child process, and enter
+        // a chroot jail.
+        ::setgroups(0, nullptr);
+        ::chroot("/run/safedir");
+        ::chdir("/");
+        ::setgid(safeGid);
+        ::setuid(safeUid);
+        ::umask(077);
+    });
+    proc.start(name, arguments);
+    proc.waitForFinished();
 }
-
 //! [4]
 
 
 //! [5]
 QProcess process;
-process.start("del /s *.txt");
+process.startCommand("del /s *.txt");
 // same as process.start("del", QStringList() << "/s" << "*.txt");
 ...
 //! [5]
@@ -125,13 +119,13 @@ process.start("del /s *.txt");
 
 //! [6]
 QProcess process;
-process.start("dir \"My Documents\"");
+process.startCommand("dir \"My Documents\"");
 //! [6]
 
 
 //! [7]
 QProcess process;
-process.start("dir \"Epic 12\"\"\" Singles\"");
+process.startCommand("dir \"Epic 12\"\"\" Singles\"");
 //! [7]
 
 

@@ -55,13 +55,14 @@ class OffscreenCanvasTest : public ::testing::Test,
     return ToScriptStateForMainWorld(GetDocument().GetFrame());
   }
 
-  Document& GetDocument() const {
-    return *web_view_helper_.GetWebView()
-                ->MainFrameImpl()
-                ->GetFrame()
-                ->DomWindow()
-                ->document();
+  LocalDOMWindow* GetWindow() const {
+    return web_view_helper_.GetWebView()
+        ->MainFrameImpl()
+        ->GetFrame()
+        ->DomWindow();
   }
+
+  Document& GetDocument() const { return *GetWindow()->document(); }
 
  private:
   frame_test_helpers::WebViewHelper web_view_helper_;
@@ -92,7 +93,7 @@ void OffscreenCanvasTest::SetUp() {
 
   DummyExceptionStateForTesting exception_state;
   offscreen_canvas_ = HTMLCanvasElementModule::transferControlToOffscreen(
-      GetDocument().ToExecutionContext(), *canvas_element, exception_state);
+      GetWindow(), *canvas_element, exception_state);
   // |offscreen_canvas_| should inherit the FrameSinkId from |canvas_element|s
   // SurfaceLayerBridge, but in tests this id is zero; fill it up by hand.
   offscreen_canvas_->SetFrameSinkId(kClientId, kSinkId);
@@ -103,8 +104,8 @@ void OffscreenCanvasTest::SetUp() {
     attrs.desynchronized = GetParam().desynchronized;
   }
   context_ = static_cast<OffscreenCanvasRenderingContext2D*>(
-      offscreen_canvas_->GetCanvasRenderingContext(
-          GetDocument().ToExecutionContext(), String("2d"), attrs));
+      offscreen_canvas_->GetCanvasRenderingContext(GetWindow(), String("2d"),
+                                                   attrs));
 }
 
 void OffscreenCanvasTest::TearDown() {
@@ -147,7 +148,7 @@ TEST_P(OffscreenCanvasTest, CompositorFrameOpacity) {
   const bool context_alpha = GetParam().alpha;
 
   const auto canvas_resource = CanvasResourceSharedBitmap::Create(
-      offscreen_canvas().Size(), CanvasColorParams(), nullptr /* provider */,
+      offscreen_canvas().Size(), CanvasResourceParams(), nullptr /* provider */,
       kLow_SkFilterQuality);
   EXPECT_TRUE(!!canvas_resource);
 

@@ -9,8 +9,9 @@
 #include <string>
 
 #include "base/macros.h"
-#include "chrome/browser/chromeos/app_mode/kiosk_app_manager_base.h"
-#include "chrome/browser/chromeos/login/screens/error_screen.h"
+#include "chrome/browser/ash/app_mode/kiosk_app_launch_error.h"
+#include "chrome/browser/ash/app_mode/kiosk_app_manager_base.h"
+#include "chrome/browser/ash/login/screens/error_screen.h"
 #include "chrome/browser/ui/webui/chromeos/login/base_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/network_state_informer.h"
 
@@ -33,7 +34,7 @@ class AppLaunchSplashScreenView {
     // Invoked when the network config did prepare network and is closed.
     virtual void OnNetworkConfigFinished() {}
 
-    // Invoked when network state is changed. |online| is true if the device
+    // Invoked when network state is changed. `online` is true if the device
     // is connected to the Internet.
     virtual void OnNetworkStateChanged(bool online) {}
 
@@ -42,12 +43,16 @@ class AppLaunchSplashScreenView {
 
     // Returns the data needed to be displayed on the splash screen.
     virtual KioskAppManagerBase::App GetAppData() = 0;
+
+    // Tells whether the network connection is required for app launch.
+    virtual bool IsNetworkRequired() = 0;
   };
 
   enum AppLaunchState {
     APP_LAUNCH_STATE_PREPARING_PROFILE,
     APP_LAUNCH_STATE_PREPARING_NETWORK,
     APP_LAUNCH_STATE_INSTALLING_APPLICATION,
+    APP_LAUNCH_STATE_INSTALLING_EXTENSION,
     APP_LAUNCH_STATE_WAITING_APP_WINDOW,
     APP_LAUNCH_STATE_WAITING_APP_WINDOW_INSTALL_FAILED,
     APP_LAUNCH_STATE_NETWORK_WAIT_TIMEOUT,
@@ -75,6 +80,9 @@ class AppLaunchSplashScreenView {
 
   // Shows the network error and configure UI.
   virtual void ShowNetworkConfigureUI() = 0;
+
+  // Show a notification bar with error message.
+  virtual void ShowErrorMessage(KioskAppLaunchError::Error error) = 0;
 
   // Returns true if the default network has Internet access.
   virtual bool IsNetworkReady() = 0;
@@ -109,6 +117,7 @@ class AppLaunchSplashScreenHandler
   void UpdateAppLaunchState(AppLaunchState state) override;
   void SetDelegate(Delegate* controller) override;
   void ShowNetworkConfigureUI() override;
+  void ShowErrorMessage(KioskAppLaunchError::Error error) override;
   bool IsNetworkReady() override;
 
   // NetworkStateInformer::NetworkStateInformerObserver implementation:
@@ -133,8 +142,6 @@ class AppLaunchSplashScreenHandler
 
   // Whether network configure UI is being shown.
   bool network_config_shown_ = false;
-  // Whether the network is required in order to proceed with app launch.
-  bool network_required_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(AppLaunchSplashScreenHandler);
 };

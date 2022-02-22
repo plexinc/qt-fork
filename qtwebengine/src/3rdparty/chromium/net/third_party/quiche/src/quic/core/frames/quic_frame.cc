@@ -2,12 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/frames/quic_frame.h"
+#include "quic/core/frames/quic_frame.h"
 
-#include "net/third_party/quiche/src/quic/core/quic_buffer_allocator.h"
-#include "net/third_party/quiche/src/quic/core/quic_constants.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_bug_tracker.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
+#include "quic/core/frames/quic_new_connection_id_frame.h"
+#include "quic/core/frames/quic_retire_connection_id_frame.h"
+#include "quic/core/quic_buffer_allocator.h"
+#include "quic/core/quic_constants.h"
+#include "quic/core/quic_types.h"
+#include "quic/platform/api/quic_bug_tracker.h"
+#include "quic/platform/api/quic_logging.h"
 
 namespace quic {
 
@@ -75,6 +78,9 @@ QuicFrame::QuicFrame(QuicMessageFrame* frame)
 QuicFrame::QuicFrame(QuicNewTokenFrame* frame)
     : type(NEW_TOKEN_FRAME), new_token_frame(frame) {}
 
+QuicFrame::QuicFrame(QuicAckFrequencyFrame* frame)
+    : type(ACK_FREQUENCY_FRAME), ack_frequency_frame(frame) {}
+
 void DeleteFrames(QuicFrames* frames) {
   for (QuicFrame& frame : *frames) {
     DeleteFrame(&frame);
@@ -83,6 +89,16 @@ void DeleteFrames(QuicFrames* frames) {
 }
 
 void DeleteFrame(QuicFrame* frame) {
+#if QUIC_FRAME_DEBUG
+  // If the frame is not inlined, check that it can be safely deleted.
+  if (frame->type != PADDING_FRAME && frame->type != MTU_DISCOVERY_FRAME &&
+      frame->type != PING_FRAME && frame->type != MAX_STREAMS_FRAME &&
+      frame->type != STOP_WAITING_FRAME &&
+      frame->type != STREAMS_BLOCKED_FRAME && frame->type != STREAM_FRAME &&
+      frame->type != HANDSHAKE_DONE_FRAME) {
+    QUICHE_CHECK(!frame->delete_forbidden) << *frame;
+  }
+#endif  // QUIC_FRAME_DEBUG
   switch (frame->type) {
     // Frames smaller than a pointer are inlined, so don't need to be deleted.
     case PADDING_FRAME:
@@ -136,9 +152,11 @@ void DeleteFrame(QuicFrame* frame) {
     case NEW_TOKEN_FRAME:
       delete frame->new_token_frame;
       break;
-
+    case ACK_FREQUENCY_FRAME:
+      delete frame->ack_frequency_frame;
+      break;
     case NUM_FRAME_TYPES:
-      DCHECK(false) << "Cannot delete type: " << frame->type;
+      QUICHE_DCHECK(false) << "Cannot delete type: " << frame->type;
   }
 }
 
@@ -163,7 +181,11 @@ bool IsControlFrame(QuicFrameType type) {
     case MAX_STREAMS_FRAME:
     case PING_FRAME:
     case STOP_SENDING_FRAME:
+    case NEW_CONNECTION_ID_FRAME:
+    case RETIRE_CONNECTION_ID_FRAME:
     case HANDSHAKE_DONE_FRAME:
+    case ACK_FREQUENCY_FRAME:
+    case NEW_TOKEN_FRAME:
       return true;
     default:
       return false;
@@ -188,8 +210,16 @@ QuicControlFrameId GetControlFrameId(const QuicFrame& frame) {
       return frame.ping_frame.control_frame_id;
     case STOP_SENDING_FRAME:
       return frame.stop_sending_frame->control_frame_id;
+    case NEW_CONNECTION_ID_FRAME:
+      return frame.new_connection_id_frame->control_frame_id;
+    case RETIRE_CONNECTION_ID_FRAME:
+      return frame.retire_connection_id_frame->control_frame_id;
     case HANDSHAKE_DONE_FRAME:
       return frame.handshake_done_frame.control_frame_id;
+    case ACK_FREQUENCY_FRAME:
+      return frame.ack_frequency_frame->control_frame_id;
+    case NEW_TOKEN_FRAME:
+      return frame.new_token_frame->control_frame_id;
     default:
       return kInvalidControlFrameId;
   }
@@ -221,8 +251,20 @@ void SetControlFrameId(QuicControlFrameId control_frame_id, QuicFrame* frame) {
     case STOP_SENDING_FRAME:
       frame->stop_sending_frame->control_frame_id = control_frame_id;
       return;
+    case NEW_CONNECTION_ID_FRAME:
+      frame->new_connection_id_frame->control_frame_id = control_frame_id;
+      return;
+    case RETIRE_CONNECTION_ID_FRAME:
+      frame->retire_connection_id_frame->control_frame_id = control_frame_id;
+      return;
     case HANDSHAKE_DONE_FRAME:
       frame->handshake_done_frame.control_frame_id = control_frame_id;
+      return;
+    case ACK_FREQUENCY_FRAME:
+      frame->ack_frequency_frame->control_frame_id = control_frame_id;
+      return;
+    case NEW_TOKEN_FRAME:
+      frame->new_token_frame->control_frame_id = control_frame_id;
       return;
     default:
       QUIC_BUG
@@ -251,6 +293,14 @@ QuicFrame CopyRetransmittableControlFrame(const QuicFrame& frame) {
     case STOP_SENDING_FRAME:
       copy = QuicFrame(new QuicStopSendingFrame(*frame.stop_sending_frame));
       break;
+    case NEW_CONNECTION_ID_FRAME:
+      copy = QuicFrame(
+          new QuicNewConnectionIdFrame(*frame.new_connection_id_frame));
+      break;
+    case RETIRE_CONNECTION_ID_FRAME:
+      copy = QuicFrame(
+          new QuicRetireConnectionIdFrame(*frame.retire_connection_id_frame));
+      break;
     case STREAMS_BLOCKED_FRAME:
       copy = QuicFrame(QuicStreamsBlockedFrame(frame.streams_blocked_frame));
       break;
@@ -260,6 +310,12 @@ QuicFrame CopyRetransmittableControlFrame(const QuicFrame& frame) {
     case HANDSHAKE_DONE_FRAME:
       copy = QuicFrame(
           QuicHandshakeDoneFrame(frame.handshake_done_frame.control_frame_id));
+      break;
+    case ACK_FREQUENCY_FRAME:
+      copy = QuicFrame(new QuicAckFrequencyFrame(*frame.ack_frequency_frame));
+      break;
+    case NEW_TOKEN_FRAME:
+      copy = QuicFrame(new QuicNewTokenFrame(*frame.new_token_frame));
       break;
     default:
       QUIC_BUG << "Try to copy a non-retransmittable control frame: " << frame;
@@ -351,6 +407,9 @@ QuicFrame CopyQuicFrame(QuicBufferAllocator* allocator,
     case HANDSHAKE_DONE_FRAME:
       copy = QuicFrame(
           QuicHandshakeDoneFrame(frame.handshake_done_frame.control_frame_id));
+      break;
+    case ACK_FREQUENCY_FRAME:
+      copy = QuicFrame(new QuicAckFrequencyFrame(*frame.ack_frequency_frame));
       break;
     default:
       QUIC_BUG << "Cannot copy frame: " << frame;
@@ -450,6 +509,9 @@ std::ostream& operator<<(std::ostream& os, const QuicFrame& frame) {
       break;
     case HANDSHAKE_DONE_FRAME:
       os << "type { HANDSHAKE_DONE_FRAME } " << frame.handshake_done_frame;
+      break;
+    case ACK_FREQUENCY_FRAME:
+      os << "type { ACK_FREQUENCY_FRAME } " << *(frame.ack_frequency_frame);
       break;
     default: {
       QUIC_LOG(ERROR) << "Unknown frame type: " << frame.type;

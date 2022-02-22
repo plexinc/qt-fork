@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the examples of the Qt Toolkit.
@@ -47,11 +47,12 @@
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
+
 #ifndef BIRTHDAYPARTY_H
 #define BIRTHDAYPARTY_H
 
 #include <QObject>
-#include <QVector>
+#include <QList>
 #include <QQmlListProperty>
 #include "person.h"
 
@@ -69,29 +70,29 @@ class BirthdayParty : public QObject
 // ![3]
     QML_ELEMENT
 public:
-    BirthdayParty(QObject *parent = nullptr);
+    using QObject::QObject;
 
     Person *host() const;
     void setHost(Person *);
 
     QQmlListProperty<Person> guests();
-    void appendGuest(Person*);
-    int guestCount() const;
-    Person *guest(int) const;
+    void appendGuest(Person *);
+    qsizetype guestCount() const;
+    Person *guest(qsizetype) const;
     void clearGuests();
-    void replaceGuest(int, Person*);
+    void replaceGuest(qsizetype, Person *);
     void removeLastGuest();
 
 private:
-    static void appendGuest(QQmlListProperty<Person>*, Person*);
-    static int guestCount(QQmlListProperty<Person>*);
-    static Person* guest(QQmlListProperty<Person>*, int);
-    static void clearGuests(QQmlListProperty<Person>*);
-    static void replaceGuest(QQmlListProperty<Person>*, int, Person*);
-    static void removeLastGuest(QQmlListProperty<Person>*);
+    static void appendGuest(QQmlListProperty<Person> *, Person *);
+    static qsizetype guestCount(QQmlListProperty<Person> *);
+    static Person* guest(QQmlListProperty<Person> *, qsizetype);
+    static void clearGuests(QQmlListProperty<Person> *);
+    static void replaceGuest(QQmlListProperty<Person> *, qsizetype, Person *);
+    static void removeLastGuest(QQmlListProperty<Person> *);
 
-    Person *m_host;
-    QVector<Person *> m_guests;
+    Person *m_host = nullptr;
+    QList<Person *> m_guests;
 };
 // ![3]
 

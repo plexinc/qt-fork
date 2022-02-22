@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <qgraphicslayoutitem.h>
 #include <float.h>
 #include <limits.h>
@@ -72,14 +72,13 @@ public:
         { return QRectF(); }
 
     // QGraphicsLayoutItem::setGeometry is a pure virtual function
-    void setGeometry(QRectF const& rect)
-        { Q_UNUSED(rect); }
+    void setGeometry(QRectF const&) override {}
 
     // QGraphicsLayoutItem::sizeHint is a pure virtual function
-    QSizeF sizeHint(Qt::SizeHint which, QSizeF const& constraint = QSizeF()) const
-        { Q_UNUSED(which); Q_UNUSED(constraint); return QSizeF(); }
+    QSizeF sizeHint(Qt::SizeHint, QSizeF const& = QSizeF()) const override
+        { return QSizeF(); }
 
-    void updateGeometry()
+    void updateGeometry() override
         { updateGeometryCalled++; QGraphicsLayoutItem::updateGeometry(); }
     int updateGeometryCalled;
 

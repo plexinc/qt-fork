@@ -39,6 +39,7 @@ struct hb_subset_plan_t
 {
   hb_object_header_t header;
 
+  bool successful : 1;
   bool drop_hints : 1;
   bool desubroutinize : 1;
   bool retain_gids : 1;
@@ -52,6 +53,9 @@ struct hb_subset_plan_t
 
   // name_languages we would like to retain
   hb_set_t *name_languages;
+
+  //glyph ids requested to retain
+  hb_set_t *glyphs_requested;
 
   // Tables which should be dropped.
   hb_set_t *drop_tables;
@@ -79,7 +83,20 @@ struct hb_subset_plan_t
   hb_map_t *gsub_features;
   hb_map_t *gpos_features;
 
+  //The set of layout item variation store delta set indices to be retained
+  hb_set_t *layout_variation_indices;
+  //Old -> New layout item variation store delta set index mapping
+  hb_map_t *layout_variation_idx_map;
+
  public:
+
+  bool in_error () const { return !successful; }
+
+  bool check_success(bool success)
+  {
+    successful = (successful && success);
+    return successful;
+  }
 
   /*
    * The set of input glyph ids which will be retained in the subset.
@@ -155,12 +172,15 @@ struct hb_subset_plan_t
   add_table (hb_tag_t tag,
 	     hb_blob_t *contents)
   {
-    hb_blob_t *source_blob = source->reference_table (tag);
-    DEBUG_MSG(SUBSET, nullptr, "add table %c%c%c%c, dest %d bytes, source %d bytes",
-	      HB_UNTAG(tag),
-	      hb_blob_get_length (contents),
-	      hb_blob_get_length (source_blob));
-    hb_blob_destroy (source_blob);
+    if (HB_DEBUG_SUBSET)
+    {
+      hb_blob_t *source_blob = source->reference_table (tag);
+      DEBUG_MSG(SUBSET, nullptr, "add table %c%c%c%c, dest %d bytes, source %d bytes",
+		HB_UNTAG(tag),
+		hb_blob_get_length (contents),
+		hb_blob_get_length (source_blob));
+      hb_blob_destroy (source_blob);
+    }
     return hb_face_builder_add_table (dest, tag, contents);
   }
 };

@@ -45,6 +45,7 @@
 #ifdef QT_BUILD_CORE_LIB
 #include <QtCore/private/qresource_p.h>
 #endif
+#include <QtCore/private/qduplicatetracker_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -64,9 +65,9 @@ QString QFileSystemEngine::slowCanonicalized(const QString &path)
     QString tmpPath = path;
     int separatorPos = 0;
     QSet<QString> nonSymlinks;
-    QSet<QString> known;
+    QDuplicateTracker<QString> known;
 
-    known.insert(path);
+    (void)known.hasSeen(path);
     do {
 #ifdef Q_OS_WIN
         if (separatorPos == 0) {
@@ -89,14 +90,13 @@ QString QFileSystemEngine::slowCanonicalized(const QString &path)
                 if (separatorPos != -1) {
                     if (fi.isDir() && !target.endsWith(slash))
                         target.append(slash);
-                    target.append(tmpPath.midRef(separatorPos));
+                    target.append(QStringView{tmpPath}.mid(separatorPos));
                 }
                 tmpPath = QDir::cleanPath(target);
                 separatorPos = 0;
 
-                if (known.contains(tmpPath))
+                if (known.hasSeen(tmpPath))
                     return QString();
-                known.insert(tmpPath);
             } else {
                 nonSymlinks.insert(prefix);
             }
@@ -156,7 +156,7 @@ static bool _q_resolveEntryAndCreateLegacyEngine_recursive(QFileSystemEntry &ent
 
             const QStringList &paths = QDir::searchPaths(filePath.left(prefixSeparator));
             for (int i = 0; i < paths.count(); i++) {
-                entry = QFileSystemEntry(QDir::cleanPath(paths.at(i) % QLatin1Char('/') % filePath.midRef(prefixSeparator + 1)));
+                entry = QFileSystemEntry(QDir::cleanPath(paths.at(i) % QLatin1Char('/') % QStringView{filePath}.mid(prefixSeparator + 1)));
                 // Recurse!
                 if (_q_resolveEntryAndCreateLegacyEngine_recursive(entry, data, engine, true))
                     return true;
@@ -229,6 +229,19 @@ QString QFileSystemEngine::resolveGroupName(const QFileSystemEntry &entry, QFile
     if (!metaData.exists())
         return QString();
     return resolveGroupName(metaData.groupId());
+#endif
+}
+
+//static
+QFileSystemEntry QFileSystemEngine::getJunctionTarget(const QFileSystemEntry &link,
+                                                      QFileSystemMetaData &data)
+{
+#if defined(Q_OS_WIN)
+    return junctionTarget(link, data);
+#else
+    Q_UNUSED(link);
+    Q_UNUSED(data);
+    return {};
 #endif
 }
 

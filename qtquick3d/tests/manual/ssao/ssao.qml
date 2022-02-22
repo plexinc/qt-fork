@@ -48,10 +48,10 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.15
-import QtQuick3D 1.15
-import QtQuick.Controls 2.15
-import QtQuick.Layouts 1.15
+import QtQuick
+import QtQuick3D
+import QtQuick.Controls
+import QtQuick.Layouts
 
 Item {
     id: root
@@ -246,6 +246,30 @@ Item {
                 value: 80
                 stepSize: 1
             }
+            Label {
+                text: "Shaded custom material"
+                color: "red"
+            }
+            CheckBox {
+                id: customMaterialShaded
+                checked: false
+            }
+            Label {
+                text: "Unshaded custom material"
+                color: "red"
+            }
+            CheckBox {
+                id: customMaterialUnshaded
+                checked: false
+            }
+            Label {
+                text: "Instancing"
+                color: "white"
+            }
+            CheckBox {
+                id: instancedRendering
+                checked: false
+            }
         }
     }
 
@@ -269,12 +293,73 @@ Item {
             position: Qt.vector3d(0, 200, 300)
             eulerRotation: Qt.vector3d(-30, 0, 0)
         }
+
+        InstanceList {
+            id: manualInstancing
+            instances: [
+                InstanceListEntry {
+                    position: Qt.vector3d(0, 0, 0)
+                    color: "green"
+                    scale: Qt.vector3d(0.6, 0.6, 0.6)
+                },
+                InstanceListEntry {
+                    position: Qt.vector3d(-100, 0, -100)
+                    color: "red"
+                    scale: Qt.vector3d(0.5, 0.5, 0.5)
+                },
+                InstanceListEntry {
+                    position: Qt.vector3d(100, 100, 0)
+                    scale: Qt.vector3d(0.5, 0.5, 0.5)
+                    color: "blue"
+                },
+                InstanceListEntry {
+                    position: Qt.vector3d(100, 0, 50)
+                    eulerRotation: Qt.vector3d(-10, 0, 30)
+                    color: "orange"
+                    scale: Qt.vector3d(0.3, 0.3, 0.3)
+                }
+
+            ]
+        }
+
         Model {
+            visible:instancedRendering.checked || !customMaterialShaded.checked && !customMaterialUnshaded.checked
             source: "object1.mesh"
+            instancing: instancedRendering.checked ? manualInstancing : null
             scale: Qt.vector3d(scaleSlider.value, scaleSlider.value, scaleSlider.value)
             materials: [ DefaultMaterial {
-                    lighting: DefaultMaterial.FragmentLighting
                     cullMode: Material.NoCulling
+                    diffuseColor: "white"
+                } ]
+            eulerRotation: Qt.vector3d(rotationXSlider.value, rotationYSlider.value, rotationZSlider.value)
+        }
+        Model {
+            visible: customMaterialShaded.checked
+            source: "object1.mesh"
+            scale: Qt.vector3d(scaleSlider.value, scaleSlider.value, scaleSlider.value)
+            materials: [ CustomMaterial {
+                    cullMode: Material.NoCulling
+                    vertexShader: "custom.vert"
+                    fragmentShader: "custom.frag"
+                    property real uTime: 0.0
+                    property real uAmplitude: 0.5
+                    SequentialAnimation on uTime {
+                        loops: -1
+                        NumberAnimation { from: 0.0; to: 10.0; duration: 10000 }
+                        NumberAnimation { from: 10.0; to: 0.0; duration: 10000 }
+                    }
+                } ]
+            eulerRotation: Qt.vector3d(rotationXSlider.value, rotationYSlider.value, rotationZSlider.value)
+        }
+        Model {
+            visible: customMaterialUnshaded.checked
+            source: "object1.mesh"
+            scale: Qt.vector3d(scaleSlider.value, scaleSlider.value, scaleSlider.value)
+            materials: [ CustomMaterial {
+                    shadingMode: CustomMaterial.Unshaded
+                    cullMode: Material.BackFaceCulling // no double sided support in the simple shader here, so just cull
+                    vertexShader: "custom_unshaded.vert"
+                    fragmentShader: "custom_unshaded.frag"
                 } ]
             eulerRotation: Qt.vector3d(rotationXSlider.value, rotationYSlider.value, rotationZSlider.value)
         }

@@ -249,6 +249,7 @@ QWaylandOutput::QWaylandOutput()
 
 /*!
    \qmltype WaylandOutput
+   \instantiates QWaylandOutput
    \inqmlmodule QtWayland.Compositor
    \since 5.8
    \brief Provides access to a displayable area managed by the compositor.
@@ -258,6 +259,9 @@ QWaylandOutput::QWaylandOutput()
    a screen managed by the WaylandCompositor.
 
    The type corresponds to the \c wl_output interface in the Wayland protocol.
+
+   \note If the compositor has multiple Wayland outputs, the \l Qt::AA_ShareOpenGLContexts
+   attribute must be set before the \l QGuiApplication object is constructed.
 */
 
 /*!
@@ -528,7 +532,8 @@ void QWaylandOutput::addMode(const QWaylandOutputMode &mode, bool preferred)
         return;
     }
 
-    d->modes.append(mode);
+    if (d->modes.indexOf(mode) < 0)
+        d->modes.append(mode);
 
     if (preferred)
         d->preferredMode = d->modes.indexOf(mode);

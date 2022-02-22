@@ -4,16 +4,16 @@
 
 import * as Bindings from '../bindings/bindings.js';
 import * as Formatter from '../formatter/formatter.js';
+import * as Platform from '../platform/platform.js';
 import * as SDK from '../sdk/sdk.js';
 import * as TextUtils from '../text_utils/text_utils.js';
 import * as Workspace from '../workspace/workspace.js';  // eslint-disable-line no-unused-vars
 
-export const cachedMapSymbol = Symbol('cache');
-export const cachedIdentifiersSymbol = Symbol('cachedIdentifiers');
+/** @type {!WeakMap<!SDK.DebuggerModel.ScopeChainEntry, !Promise<!Map<string, string>>>} */
+const scopeToCachedIdentifiersMap = new WeakMap();
 
-/**
- * @unrestricted
- */
+/** @type {!WeakMap<!SDK.DebuggerModel.CallFrame, !Map<string,string>>} */
+const cachedMapByCallFrame = new WeakMap();
 export class Identifier {
   /**
    * @param {string} name
@@ -28,141 +28,118 @@ export class Identifier {
 }
 
 /**
- * @param {!SDK.DebuggerModel.Scope} scope
+ * @param {!SDK.DebuggerModel.ScopeChainEntry} scope
  * @return {!Promise<!Array<!Identifier>>}
  */
-export const scopeIdentifiers = function(scope) {
+export const scopeIdentifiers = async function(scope) {
+  if (scope.type() === Protocol.Debugger.ScopeType.Global) {
+    return [];
+  }
   const startLocation = scope.startLocation();
   const endLocation = scope.endLocation();
-
-  if (scope.type() === Protocol.Debugger.ScopeType.Global || !startLocation || !endLocation ||
-      !startLocation.script() || !startLocation.script().sourceMapURL ||
-      (startLocation.script() !== endLocation.script())) {
-    return Promise.resolve(/** @type {!Array<!Identifier>}*/ ([]));
+  if (!startLocation || !endLocation) {
+    return [];
   }
-
   const script = startLocation.script();
-  return script.requestContent().then(onContent);
-
-  /**
-   * @param {!TextUtils.ContentProvider.DeferredContent} deferredContent
-   * @return {!Promise<!Array<!Identifier>>}
-   */
-  function onContent(deferredContent) {
-    if (!deferredContent.content) {
-      return Promise.resolve(/** @type {!Array<!Identifier>}*/ ([]));
-    }
-
-    const content = deferredContent.content;
-    const text = new TextUtils.Text.Text(content);
-    const scopeRange = new TextUtils.TextRange.TextRange(
-        startLocation.lineNumber, startLocation.columnNumber, endLocation.lineNumber, endLocation.columnNumber);
-    const scopeText = text.extract(scopeRange);
-    const scopeStart = text.toSourceRange(scopeRange).offset;
-    const prefix = 'function fui';
-    return Formatter.FormatterWorkerPool.formatterWorkerPool()
-        .javaScriptIdentifiers(prefix + scopeText)
-        .then(onIdentifiers.bind(null, text, scopeStart, prefix));
+  if (!script || !script.sourceMapURL || script !== endLocation.script()) {
+    return [];
+  }
+  const {content} = await script.requestContent();
+  if (!content) {
+    return [];
   }
 
-  /**
-   * @param {!TextUtils.Text.Text} text
-   * @param {number} scopeStart
-   * @param {string} prefix
-   * @param {!Array<!{name: string, offset: number}>} identifiers
-   * @return {!Array<!Identifier>}
-   */
-  function onIdentifiers(text, scopeStart, prefix, identifiers) {
-    const result = [];
-    const cursor = new TextUtils.TextCursor.TextCursor(text.lineEndings());
-    for (let i = 0; i < identifiers.length; ++i) {
-      const id = identifiers[i];
-      if (id.offset < prefix.length) {
-        continue;
-      }
-      const start = scopeStart + id.offset - prefix.length;
-      cursor.resetTo(start);
-      result.push(new Identifier(id.name, cursor.lineNumber(), cursor.columnNumber()));
+  const text = new TextUtils.Text.Text(content);
+  const scopeRange = new TextUtils.TextRange.TextRange(
+      startLocation.lineNumber, startLocation.columnNumber, endLocation.lineNumber, endLocation.columnNumber);
+  const scopeText = text.extract(scopeRange);
+  const scopeStart = text.toSourceRange(scopeRange).offset;
+  const prefix = 'function fui';
+  const identifiers =
+      await Formatter.FormatterWorkerPool.formatterWorkerPool().javaScriptIdentifiers(prefix + scopeText);
+  const result = [];
+  const cursor = new TextUtils.TextCursor.TextCursor(text.lineEndings());
+  for (const id of identifiers) {
+    if (id.offset < prefix.length) {
+      continue;
     }
-    return result;
+    const start = scopeStart + id.offset - prefix.length;
+    cursor.resetTo(start);
+    result.push(new Identifier(id.name, cursor.lineNumber(), cursor.columnNumber()));
   }
+  return result;
 };
 
 /**
- * @param {!SDK.DebuggerModel.Scope} scope
- * @return {!Promise.<!Map<string, string>>}
+ * @param {?SDK.DebuggerModel.CallFrame} callFrame
+ * @return {!Promise<?Array<SDK.DebuggerModel.ScopeChainEntry>>}
  */
-export const resolveScope = function(scope) {
-  let identifiersPromise = scope[cachedIdentifiersSymbol];
-  if (identifiersPromise) {
-    return identifiersPromise;
+export const resolveScopeChain = async function(callFrame) {
+  if (!callFrame) {
+    return null;
   }
-
-  const script = scope.callFrame().script;
-  const sourceMap = Bindings.DebuggerWorkspaceBinding.DebuggerWorkspaceBinding.instance().sourceMapForScript(script);
-  if (!sourceMap) {
-    return Promise.resolve(new Map());
+  const {pluginManager} = Bindings.DebuggerWorkspaceBinding.DebuggerWorkspaceBinding.instance();
+  if (pluginManager) {
+    const scopeChain = await pluginManager.resolveScopeChain(callFrame);
+    if (scopeChain) {
+      return scopeChain;
+    }
   }
+  return callFrame.scopeChain();
+};
 
-  /** @type {!Map<string, !TextUtils.Text.Text>} */
-  const textCache = new Map();
-  identifiersPromise = scopeIdentifiers(scope).then(onIdentifiers);
-  scope[cachedIdentifiersSymbol] = identifiersPromise;
-  return identifiersPromise;
-
-  /**
-   * @param {!Array<!Identifier>} identifiers
-   * @return {!Promise<!Map<string, string>>}
-   */
-  function onIdentifiers(identifiers) {
-    const namesMapping = new Map();
-    // Extract as much as possible from SourceMap.
-    for (let i = 0; i < identifiers.length; ++i) {
-      const id = identifiers[i];
-      const entry = sourceMap.findEntry(id.lineNumber, id.columnNumber);
-      if (entry && entry.name) {
-        namesMapping.set(id.name, entry.name);
+/**
+ * @param {!SDK.DebuggerModel.ScopeChainEntry} scope
+ * @return {!Promise<!Map<string, string>>}
+ */
+export const resolveScope = async scope => {
+  let identifiersPromise = scopeToCachedIdentifiersMap.get(scope);
+  if (!identifiersPromise) {
+    identifiersPromise = (async () => {
+      const namesMapping = new Map();
+      const script = scope.callFrame().script;
+      const sourceMap =
+          Bindings.DebuggerWorkspaceBinding.DebuggerWorkspaceBinding.instance().sourceMapForScript(script);
+      if (sourceMap) {
+        /** @type {!Map<string, !TextUtils.Text.Text>} */
+        const textCache = new Map();
+        // Extract as much as possible from SourceMap and resolve
+        // missing identifier names from SourceMap ranges.
+        const promises = [];
+        for (const id of await scopeIdentifiers(scope)) {
+          const entry = sourceMap.findEntry(id.lineNumber, id.columnNumber);
+          if (entry && entry.name) {
+            namesMapping.set(id.name, entry.name);
+          } else {
+            promises.push(resolveSourceName(script, sourceMap, id, textCache).then(sourceName => {
+              if (sourceName) {
+                namesMapping.set(id.name, sourceName);
+              }
+            }));
+          }
+        }
+        await Promise.all(promises).then(getScopeResolvedForTest());
       }
-    }
-
-    // Resolve missing identifier names from sourcemap ranges.
-    const promises = [];
-    for (let i = 0; i < identifiers.length; ++i) {
-      const id = identifiers[i];
-      if (namesMapping.has(id.name)) {
-        continue;
-      }
-      const promise = resolveSourceName(id).then(onSourceNameResolved.bind(null, namesMapping, id));
-      promises.push(promise);
-    }
-    return Promise.all(promises)
-        .then(() => Sources.SourceMapNamesResolver._scopeResolvedForTest())
-        .then(() => namesMapping);
+      return namesMapping;
+    })();
+    scopeToCachedIdentifiersMap.set(scope, identifiersPromise);
   }
+  return await identifiersPromise;
 
   /**
-   * @param {!Map<string, string>} namesMapping
+   * @param {!SDK.Script.Script} script
+   * @param {!SDK.SourceMap.SourceMap} sourceMap
    * @param {!Identifier} id
-   * @param {?string} sourceName
-   */
-  function onSourceNameResolved(namesMapping, id, sourceName) {
-    if (!sourceName) {
-      return;
-    }
-    namesMapping.set(id.name, sourceName);
-  }
-
-  /**
-   * @param {!Identifier} id
+   * @param {!Map<string, !TextUtils.Text.Text>} textCache
    * @return {!Promise<?string>}
    */
-  function resolveSourceName(id) {
+  async function resolveSourceName(script, sourceMap, id, textCache) {
     const startEntry = sourceMap.findEntry(id.lineNumber, id.columnNumber);
     const endEntry = sourceMap.findEntry(id.lineNumber, id.columnNumber + id.name.length);
     if (!startEntry || !endEntry || !startEntry.sourceURL || startEntry.sourceURL !== endEntry.sourceURL ||
         !startEntry.sourceLineNumber || !startEntry.sourceColumnNumber || !endEntry.sourceLineNumber ||
         !endEntry.sourceColumnNumber) {
-      return Promise.resolve(/** @type {?string} */ (null));
+      return null;
     }
     const sourceTextRange = new TextUtils.TextRange.TextRange(
         startEntry.sourceLineNumber, startEntry.sourceColumnNumber, endEntry.sourceLineNumber,
@@ -171,21 +148,9 @@ export const resolveScope = function(scope) {
         Bindings.DebuggerWorkspaceBinding.DebuggerWorkspaceBinding.instance().uiSourceCodeForSourceMapSourceURL(
             script.debuggerModel, startEntry.sourceURL, script.isContentScript());
     if (!uiSourceCode) {
-      return Promise.resolve(/** @type {?string} */ (null));
+      return null;
     }
-
-    return uiSourceCode.requestContent().then(deferredContent => {
-      const content = deferredContent.content;
-      return onSourceContent(sourceTextRange, content);
-    });
-  }
-
-  /**
-   * @param {!TextUtils.TextRange.TextRange} sourceTextRange
-   * @param {?string} content
-   * @return {?string}
-   */
-  function onSourceContent(sourceTextRange, content) {
+    const {content} = await uiSourceCode.requestContent();
     if (!content) {
       return null;
     }
@@ -201,39 +166,27 @@ export const resolveScope = function(scope) {
 
 /**
  * @param {!SDK.DebuggerModel.CallFrame} callFrame
- * @return {!Promise.<!Map<string, string>>}
+ * @return {!Promise<!Map<string, string>>}
  */
-export const allVariablesInCallFrame = function(callFrame) {
-  const cached = callFrame[cachedMapSymbol];
-  if (cached) {
-    return Promise.resolve(cached);
+export const allVariablesInCallFrame = async callFrame => {
+  const cachedMap = cachedMapByCallFrame.get(callFrame);
+  if (cachedMap) {
+    return cachedMap;
   }
 
-  const promises = [];
   const scopeChain = callFrame.scopeChain();
-  for (let i = 0; i < scopeChain.length; ++i) {
-    promises.push(resolveScope(scopeChain[i]));
-  }
-
-  return Promise.all(promises).then(mergeVariables);
-
-  /**
-   * @param {!Array<!Map<string, string>>} nameMappings
-   * @return {!Map<string, string>}
-   */
-  function mergeVariables(nameMappings) {
-    const reverseMapping = new Map();
-    for (const map of nameMappings) {
-      for (const compiledName of map.keys()) {
-        const originalName = map.get(compiledName);
-        if (!reverseMapping.has(originalName)) {
-          reverseMapping.set(originalName, compiledName);
-        }
+  const nameMappings = await Promise.all(scopeChain.map(resolveScope));
+  /** @type {!Map<string, string>} */
+  const reverseMapping = new Map();
+  for (const map of nameMappings) {
+    for (const [compiledName, originalName] of map) {
+      if (originalName && !reverseMapping.has(originalName)) {
+        reverseMapping.set(originalName, compiledName);
       }
     }
-    callFrame[cachedMapSymbol] = reverseMapping;
-    return reverseMapping;
   }
+  cachedMapByCallFrame.set(callFrame, reverseMapping);
+  return reverseMapping;
 };
 
 /**
@@ -245,43 +198,26 @@ export const allVariablesInCallFrame = function(callFrame) {
  * @param {number} endColumnNumber
  * @return {!Promise<string>}
  */
-export const resolveExpression = function(
-    callFrame, originalText, uiSourceCode, lineNumber, startColumnNumber, endColumnNumber) {
+export const resolveExpression =
+    async (callFrame, originalText, uiSourceCode, lineNumber, startColumnNumber, endColumnNumber) => {
+  if (uiSourceCode.mimeType() === 'application/wasm') {
+    // For WebAssembly disassembly, lookup the different possiblities.
+    return `memories["${originalText}"] ?? locals["${originalText}"] ?? tables["${originalText}"] ?? functions["${
+        originalText}"] ?? globals["${originalText}"]`;
+  }
   if (!uiSourceCode.contentType().isFromSourceMap()) {
-    return Promise.resolve('');
+    return '';
   }
 
-  return allVariablesInCallFrame(callFrame).then(
-      reverseMapping => findCompiledName(callFrame.debuggerModel, reverseMapping));
-
-  /**
-   * @param {!SDK.DebuggerModel.DebuggerModel} debuggerModel
-   * @param {!Map<string, string>} reverseMapping
-   * @return {!Promise<string>}
-   */
-  function findCompiledName(debuggerModel, reverseMapping) {
-    if (reverseMapping.has(originalText)) {
-      return Promise.resolve(reverseMapping.get(originalText) || '');
-    }
-
-    return resolveExpressionAsync(debuggerModel, uiSourceCode, lineNumber, startColumnNumber, endColumnNumber);
+  const reverseMapping = await allVariablesInCallFrame(callFrame);
+  if (reverseMapping.has(originalText)) {
+    return /** @type {string} */ (reverseMapping.get(originalText));
   }
-};
 
-/**
- * @param {!SDK.DebuggerModel.DebuggerModel} debuggerModel
- * @param {!Workspace.UISourceCode.UISourceCode} uiSourceCode
- * @param {number} lineNumber
- * @param {number} startColumnNumber
- * @param {number} endColumnNumber
- * @return {!Promise<string>}
- */
-export const resolveExpressionAsync =
-    async function(debuggerModel, uiSourceCode, lineNumber, startColumnNumber, endColumnNumber) {
   const rawLocations =
       await Bindings.DebuggerWorkspaceBinding.DebuggerWorkspaceBinding.instance().uiLocationToRawLocations(
           uiSourceCode, lineNumber, startColumnNumber);
-  const rawLocation = rawLocations.find(location => location.debuggerModel === debuggerModel);
+  const rawLocation = rawLocations.find(location => location.debuggerModel === callFrame.debuggerModel);
   if (!rawLocation) {
     return '';
   }
@@ -297,99 +233,79 @@ export const resolveExpressionAsync =
     return '';
   }
 
-  return script.requestContent().then(onContent);
-
-  /**
-   * @param {!TextUtils.ContentProvider.DeferredContent} deferredContent
-   * @return {!Promise<string>}
-   */
-  function onContent(deferredContent) {
-    const content = deferredContent.content;
-    if (!content) {
-      return Promise.resolve('');
-    }
-
-    const text = new TextUtils.Text.Text(content);
-    const textRange = sourceMap.reverseMapTextRange(
-        uiSourceCode.url(),
-        new TextUtils.TextRange.TextRange(lineNumber, startColumnNumber, lineNumber, endColumnNumber));
-    const originalText = text.extract(textRange);
-    if (!originalText) {
-      return Promise.resolve('');
-    }
-    return Formatter.FormatterWorkerPool.formatterWorkerPool().evaluatableJavaScriptSubstring(originalText);
+  const {content} = await script.requestContent();
+  if (!content) {
+    return '';
   }
+
+  const text = new TextUtils.Text.Text(content);
+  const textRange = sourceMap.reverseMapTextRange(
+      uiSourceCode.url(),
+      new TextUtils.TextRange.TextRange(lineNumber, startColumnNumber, lineNumber, endColumnNumber));
+  if (!textRange) {
+    return '';
+  }
+  const subjectText = text.extract(textRange);
+  if (!subjectText) {
+    return '';
+  }
+  return await Formatter.FormatterWorkerPool.formatterWorkerPool().evaluatableJavaScriptSubstring(subjectText);
 };
 
 /**
  * @param {?SDK.DebuggerModel.CallFrame} callFrame
  * @return {!Promise<?SDK.RemoteObject.RemoteObject>}
  */
-export const resolveThisObject = function(callFrame) {
+export const resolveThisObject = async callFrame => {
   if (!callFrame) {
-    return Promise.resolve(/** @type {?SDK.RemoteObject.RemoteObject} */ (null));
+    return null;
   }
-  if (!callFrame.scopeChain().length) {
-    return Promise.resolve(callFrame.thisObject());
-  }
-
-  return resolveScope(callFrame.scopeChain()[0]).then(onScopeResolved);
-
-  /**
-   * @param {!Map<string, string>} namesMapping
-   * @return {!Promise<?SDK.RemoteObject.RemoteObject>}
-   */
-  function onScopeResolved(namesMapping) {
-    const thisMappings = namesMapping.inverse().get('this');
-    if (!thisMappings || thisMappings.size !== 1) {
-      return Promise.resolve(callFrame.thisObject());
-    }
-
-    const thisMapping = thisMappings.values().next().value;
-    return callFrame
-        .evaluate({
-          expression: thisMapping,
-          objectGroup: 'backtrace',
-          includeCommandLineAPI: false,
-          silent: true,
-          returnByValue: false,
-          generatePreview: true
-        })
-        .then(onEvaluated);
+  const scopeChain = callFrame.scopeChain();
+  if (scopeChain.length === 0) {
+    return callFrame.thisObject();
   }
 
-  /**
-   * @param {!SDK.RuntimeModel.EvaluationResult} result
-   * @return {?SDK.RemoteObject.RemoteObject}
-   */
-  function onEvaluated(result) {
+  const namesMapping = await resolveScope(scopeChain[0]);
+  const thisMappings = Platform.MapUtilities.inverse(namesMapping).get('this');
+  if (!thisMappings || thisMappings.size !== 1) {
+    return callFrame.thisObject();
+  }
+
+  const [expression] = thisMappings.values();
+  const result = await callFrame.evaluate(/** @type {!SDK.RuntimeModel.EvaluationOptions} */ ({
+    expression,
+    objectGroup: 'backtrace',
+    includeCommandLineAPI: false,
+    silent: true,
+    returnByValue: false,
+    generatePreview: true
+  }));
+  if ('exceptionDetails' in result) {
     return !result.exceptionDetails && result.object ? result.object : callFrame.thisObject();
   }
+  return null;
 };
 
 /**
- * @param {!SDK.DebuggerModel.Scope} scope
+ * @param {!SDK.DebuggerModel.ScopeChainEntry} scope
  * @return {!SDK.RemoteObject.RemoteObject}
  */
 export const resolveScopeInObject = function(scope) {
   const startLocation = scope.startLocation();
   const endLocation = scope.endLocation();
+  const startLocationScript = startLocation ? startLocation.script() : null;
 
-  if (scope.type() === Protocol.Debugger.ScopeType.Global || !startLocation || !endLocation ||
-      !startLocation.script() || !startLocation.script().sourceMapURL ||
-      startLocation.script() !== endLocation.script()) {
+  if (scope.type() === Protocol.Debugger.ScopeType.Global || !startLocationScript || !endLocation ||
+      !startLocationScript.sourceMapURL || startLocationScript !== endLocation.script()) {
     return scope.object();
   }
 
   return new RemoteObject(scope);
 };
 
-/**
- * @unrestricted
- */
 export class RemoteObject extends SDK.RemoteObject.RemoteObject {
   /**
-   * @param {!SDK.DebuggerModel.Scope} scope
+   * @param {!SDK.DebuggerModel.ScopeChainEntry} scope
    */
   constructor(scope) {
     super();
@@ -494,6 +410,9 @@ export class RemoteObject extends SDK.RemoteObject.RemoteObject {
       for (let i = 0; i < properties.length; ++i) {
         const property = properties[i];
         const name = namesMapping.get(property.name) || properties[i].name;
+        if (!property.value) {
+          continue;
+        }
         newProperties.push(new SDK.RemoteObject.RemoteObjectProperty(
             name, property.value, property.enumerable, property.writable, property.isOwn, property.wasThrown,
             property.symbol, property.synthetic));
@@ -539,9 +458,10 @@ export class RemoteObject extends SDK.RemoteObject.RemoteObject {
 
   /**
    * @override
-   * @param {function(this:Object, ...)} functionDeclaration
+   * @param {function(this:Object, ...?):T} functionDeclaration
    * @param {!Array<!Protocol.Runtime.CallArgument>=} args
    * @return {!Promise<!SDK.RemoteObject.CallFunctionResult>}
+   * @template T
    */
   callFunction(functionDeclaration, args) {
     return this._object.callFunction(functionDeclaration, args);
@@ -550,7 +470,7 @@ export class RemoteObject extends SDK.RemoteObject.RemoteObject {
 
   /**
    * @override
-   * @param {function(this:Object, ...):T} functionDeclaration
+   * @param {function(this:Object, ...?):T} functionDeclaration
    * @param {!Array<!Protocol.Runtime.CallArgument>|undefined} args
    * @return {!Promise<T>}
    * @template T
@@ -590,3 +510,23 @@ export class RemoteObject extends SDK.RemoteObject.RemoteObject {
     return this._object.isNode();
   }
 }
+
+/**
+ * @type {function(...*):*} scope
+ */
+let _scopeResolvedForTest = function() {};
+
+
+/**
+ * @return {function(...*):*} scope
+ */
+export const getScopeResolvedForTest = () => {
+  return _scopeResolvedForTest;
+};
+
+/**
+ * @param {function(...*):*} scope
+ */
+export const setScopeResolvedForTest = scope => {
+  _scopeResolvedForTest = scope;
+};

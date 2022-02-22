@@ -78,7 +78,7 @@ class ExampleBubble : public BubbleDialogDelegateView {
   void Init() override {
     SetLayoutManager(std::make_unique<BoxLayout>(
         BoxLayout::Orientation::kVertical, gfx::Insets(50)));
-    AddChildView(new Label(GetArrowName(arrow())));
+    AddChildView(std::make_unique<Label>(GetArrowName(arrow())));
   }
 
  private:
@@ -94,21 +94,31 @@ BubbleExample::~BubbleExample() = default;
 void BubbleExample::CreateExampleView(View* container) {
   container->SetLayoutManager(std::make_unique<BoxLayout>(
       BoxLayout::Orientation::kHorizontal, gfx::Insets(), 10));
-  no_shadow_ = new LabelButton(this, ASCIIToUTF16("No Shadow"));
-  container->AddChildView(no_shadow_);
-  no_shadow_opaque_ = new LabelButton(this, ASCIIToUTF16("Opaque Border"));
-  container->AddChildView(no_shadow_opaque_);
-  big_shadow_ = new LabelButton(this, ASCIIToUTF16("Big Shadow"));
-  container->AddChildView(big_shadow_);
-  small_shadow_ = new LabelButton(this, ASCIIToUTF16("Small Shadow"));
-  container->AddChildView(small_shadow_);
-  no_assets_ = new LabelButton(this, ASCIIToUTF16("No Assets"));
-  container->AddChildView(no_assets_);
-  persistent_ = new LabelButton(this, ASCIIToUTF16("Persistent"));
-  container->AddChildView(persistent_);
+
+  no_shadow_legacy_ = container->AddChildView(std::make_unique<LabelButton>(
+      base::BindRepeating(&BubbleExample::ShowBubble, base::Unretained(this),
+                          &no_shadow_legacy_, BubbleBorder::NO_SHADOW_LEGACY,
+                          false),
+      ASCIIToUTF16("No Shadow Legacy")));
+  standard_shadow_ = container->AddChildView(std::make_unique<LabelButton>(
+      base::BindRepeating(&BubbleExample::ShowBubble, base::Unretained(this),
+                          &standard_shadow_, BubbleBorder::STANDARD_SHADOW,
+                          false),
+      ASCIIToUTF16("Standard Shadow")));
+  no_shadow_ = container->AddChildView(std::make_unique<LabelButton>(
+      base::BindRepeating(&BubbleExample::ShowBubble, base::Unretained(this),
+                          &no_shadow_, BubbleBorder::NO_SHADOW, false),
+      ASCIIToUTF16("No Shadow")));
+  persistent_ = container->AddChildView(std::make_unique<LabelButton>(
+      base::BindRepeating(&BubbleExample::ShowBubble, base::Unretained(this),
+                          &persistent_, BubbleBorder::NO_SHADOW_LEGACY, true),
+      ASCIIToUTF16("Persistent")));
 }
 
-void BubbleExample::ButtonPressed(Button* sender, const ui::Event& event) {
+void BubbleExample::ShowBubble(Button** button,
+                               BubbleBorder::Shadow shadow,
+                               bool persistent,
+                               const ui::Event& event) {
   static int arrow_index = 0, color_index = 0;
   static const int count = base::size(arrows);
   arrow_index = (arrow_index + count + (event.IsShiftDown() ? -1 : 1)) % count;
@@ -118,26 +128,15 @@ void BubbleExample::ButtonPressed(Button* sender, const ui::Event& event) {
   else if (event.IsAltDown())
     arrow = BubbleBorder::FLOAT;
 
-  ExampleBubble* bubble = new ExampleBubble(sender, arrow);
+  // |bubble| will be destroyed by its widget when the widget is destroyed.
+  ExampleBubble* bubble = new ExampleBubble(*button, arrow);
   bubble->set_color(colors[(color_index++) % base::size(colors)]);
-
-  if (sender == no_shadow_)
-    bubble->set_shadow(BubbleBorder::NO_SHADOW);
-  else if (sender == no_shadow_opaque_)
-    bubble->set_shadow(BubbleBorder::NO_SHADOW_OPAQUE_BORDER);
-  else if (sender == big_shadow_)
-    bubble->set_shadow(BubbleBorder::BIG_SHADOW);
-  else if (sender == small_shadow_)
-    bubble->set_shadow(BubbleBorder::SMALL_SHADOW);
-  else if (sender == no_assets_)
-    bubble->set_shadow(BubbleBorder::NO_ASSETS);
-
-  if (sender == persistent_)
+  bubble->set_shadow(shadow);
+  if (persistent)
     bubble->set_close_on_deactivate(false);
 
-  BubbleDialogDelegateView::CreateBubble(bubble);
+  BubbleDialogDelegateView::CreateBubble(bubble)->Show();
 
-  bubble->GetWidget()->Show();
   LogStatus(
       "Click with optional modifiers: [Ctrl] for set_arrow(NONE), "
       "[Alt] for set_arrow(FLOAT), or [Shift] to reverse the arrow iteration.");

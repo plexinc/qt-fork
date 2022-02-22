@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtNfc module.
@@ -65,39 +65,39 @@
 #include <QtCore/QUrl>
 
 AnnotatedUrl::AnnotatedUrl(QObject *parent)
-:   QObject(parent)
+    : QObject(parent),
+      manager(new QNearFieldManager(this))
 {
-    //! [QNearFieldManager register handler]
-    manager = new QNearFieldManager(this);
-    if (!manager->isAvailable()) {
-        qWarning() << "NFC not available";
-        return;
-    }
-
-    QNdefFilter filter;
-    filter.setOrderMatch(false);
-    filter.appendRecord<QNdefNfcTextRecord>(1, UINT_MAX);
-    filter.appendRecord<QNdefNfcUriRecord>();
-    // type parameter cannot specify substring so filter for "image/" below
-    filter.appendRecord(QNdefRecord::Mime, QByteArray(), 0, 1);
-
-    int result = manager->registerNdefMessageHandler(filter, this,
-                                       SLOT(handleMessage(QNdefMessage,QNearFieldTarget*)));
-    //! [QNearFieldManager register handler]
-
-    if (result < 0)
-        qWarning() << "Platform does not support NDEF message handler registration";
-
-    manager->startTargetDetection();
     connect(manager, &QNearFieldManager::targetDetected,
             this, &AnnotatedUrl::targetDetected);
     connect(manager, &QNearFieldManager::targetLost,
             this, &AnnotatedUrl::targetLost);
+    connect(manager, &QNearFieldManager::adapterStateChanged,
+            this, &AnnotatedUrl::handleAdapterStateChange);
+
+//! [populateFilter]
+    messageFilter.setOrderMatch(false);
+    messageFilter.appendRecord<QNdefNfcTextRecord>(1, 100);
+    messageFilter.appendRecord<QNdefNfcUriRecord>(1, 1);
+    messageFilter.appendRecord(QNdefRecord::Mime, "", 0, 1);
+//! [populateFilter]
 }
 
 AnnotatedUrl::~AnnotatedUrl()
 {
 
+}
+
+void AnnotatedUrl::startDetection()
+{
+    if (!manager->isEnabled()) {
+        qWarning() << "NFC not enabled";
+        emit nfcStateChanged(false);
+        return;
+    }
+
+    if (manager->startTargetDetection(QNearFieldTarget::NdefAccess))
+        emit nfcStateChanged(true);
 }
 
 void AnnotatedUrl::targetDetected(QNearFieldTarget *target)
@@ -107,6 +107,8 @@ void AnnotatedUrl::targetDetected(QNearFieldTarget *target)
 
     connect(target, &QNearFieldTarget::ndefMessageRead,
             this, &AnnotatedUrl::handlePolledNdefMessage);
+    connect(target, &QNearFieldTarget::error, this,
+            [this]() { emit tagError("Tag read error"); });
     target->readNdefMessages();
 }
 
@@ -122,11 +124,30 @@ void AnnotatedUrl::handlePolledNdefMessage(QNdefMessage message)
     handleMessage(message, target);
 }
 
+//! [handleAdapterState]
+void AnnotatedUrl::handleAdapterStateChange(QNearFieldManager::AdapterState state)
+{
+    if (state == QNearFieldManager::AdapterState::Online) {
+        startDetection();
+    } else if (state == QNearFieldManager::AdapterState::Offline) {
+        manager->stopTargetDetection();
+        emit nfcStateChanged(false);
+    }
+}
+//! [handleAdapterState]
+
 //! [handleMessage 1]
 void AnnotatedUrl::handleMessage(const QNdefMessage &message, QNearFieldTarget *target)
 {
 //! [handleMessage 1]
     Q_UNUSED(target);
+
+//! [handleMessage 2]
+    if (!messageFilter.match(message)) {
+        emit tagError("Invalid message format");
+        return;
+    }
+//! [handleMessage 2]
 
     enum {
         MatchedNone,
@@ -142,14 +163,14 @@ void AnnotatedUrl::handleMessage(const QNdefMessage &message, QNearFieldTarget *
     QUrl url;
     QPixmap pixmap;
 
-//! [handleMessage 2]
+//! [handleMessage 3]
     for (const QNdefRecord &record : message) {
         if (record.isRecordType<QNdefNfcTextRecord>()) {
             QNdefNfcTextRecord textRecord(record);
 
             title = textRecord.text();
             QLocale locale(textRecord.locale());
-//! [handleMessage 2]
+//! [handleMessage 3]
             // already found best match
             if (bestMatch == MatchedLanguageAndCountry) {
                 // do nothing
@@ -163,7 +184,7 @@ void AnnotatedUrl::handleMessage(const QNdefMessage &message, QNearFieldTarget *
             } else if (bestMatch == MatchedNone) {
                 bestMatch = MatchedFirst;
             }
-//! [handleMessage 3]
+//! [handleMessage 4]
         } else if (record.isRecordType<QNdefNfcUriRecord>()) {
             QNdefNfcUriRecord uriRecord(record);
 
@@ -172,10 +193,10 @@ void AnnotatedUrl::handleMessage(const QNdefMessage &message, QNearFieldTarget *
                    record.type().startsWith("image/")) {
             pixmap = QPixmap::fromImage(QImage::fromData(record.payload()));
         }
-//! [handleMessage 3]
 //! [handleMessage 4]
+//! [handleMessage 5]
     }
 
     emit annotatedUrl(url, title, pixmap);
 }
-//! [handleMessage 4]
+//! [handleMessage 5]

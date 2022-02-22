@@ -53,7 +53,6 @@
 
 #include <qglobal.h>
 #include <QtCore/QQueue>
-#include <QtCore/QVector>
 #include <QtBluetooth/qbluetooth.h>
 #include <QtBluetooth/qlowenergycharacteristic.h>
 #include "qlowenergycontroller.h"
@@ -78,7 +77,8 @@ public:
     void disconnectFromDevice() override;
 
     void discoverServices() override;
-    void discoverServiceDetails(const QBluetoothUuid &service) override;
+    void discoverServiceDetails(const QBluetoothUuid &service,
+                                QLowEnergyService::DiscoveryMode mode) override;
 
     void startAdvertising(const QLowEnergyAdvertisingParameters &params,
                           const QLowEnergyAdvertisingData &advertisingData,
@@ -105,6 +105,8 @@ public:
 
     void addToGenericAttributeList(const QLowEnergyServiceData &service,
                                    QLowEnergyHandle startHandle) override;
+
+    int mtu() const override;
 };
 
 QT_END_NAMESPACE

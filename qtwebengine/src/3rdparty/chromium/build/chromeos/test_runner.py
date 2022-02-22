@@ -22,6 +22,7 @@ import tempfile
 import dateutil.parser  # pylint: disable=import-error
 import jsonlines  # pylint: disable=import-error
 import psutil  # pylint: disable=import-error
+import six
 
 CHROMIUM_SRC_PATH = os.path.abspath(
     os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -30,9 +31,13 @@ CHROMIUM_SRC_PATH = os.path.abspath(
 # output json ourselves.
 sys.path.insert(0, os.path.join(CHROMIUM_SRC_PATH, 'build', 'android'))
 from pylib.base import base_test_result  # pylint: disable=import-error
+from pylib.base import result_sink  # pylint: disable=import-error
 from pylib.results import json_results  # pylint: disable=import-error
 
-import subprocess32 as subprocess  # pylint: disable=import-error
+if six.PY2:
+  import subprocess32 as subprocess  # pylint: disable=import-error
+else:
+  import subprocess  # pylint: disable=import-error,wrong-import-order
 
 DEFAULT_CROS_CACHE = os.path.abspath(
     os.path.join(CHROMIUM_SRC_PATH, 'build', 'cros_cache'))
@@ -41,21 +46,13 @@ CHROMITE_PATH = os.path.abspath(
 CROS_RUN_TEST_PATH = os.path.abspath(
     os.path.join(CHROMITE_PATH, 'bin', 'cros_run_test'))
 
-# GN target that corresponds to the cros browser sanity test.
-SANITY_TEST_TARGET = 'cros_browser_sanity_test'
-
 # This is a special hostname that resolves to a different DUT in the lab
 # depending on which lab machine you're on.
 LAB_DUT_HOSTNAME = 'variable_chromeos_device_hostname'
 
 SYSTEM_LOG_LOCATIONS = [
     '/var/log/chrome/',
-    # Note that journal/ will contain journald's serialized logs, which aren't
-    # human-readable. To inspect them, download the logs locally and run
-    # `journalctl -D ...`.
-    '/var/log/journal/',
     '/var/log/messages',
-    '/var/log/power_manager/',
     '/var/log/ui/',
 ]
 
@@ -88,9 +85,12 @@ class RemoteTest(object):
     self._test_launcher_summary_output = args.test_launcher_summary_output
     self._logs_dir = args.logs_dir
     self._use_vm = args.use_vm
+    self._rdb_client = result_sink.TryInitClient()
 
     self._retries = 0
     self._timeout = None
+    self._test_launcher_shard_index = args.test_launcher_shard_index
+    self._test_launcher_total_shards = args.test_launcher_total_shards
 
     # The location on disk of a shell script that can be optionally used to
     # invoke the test on the device. If it's not set, we assume self._test_cmd
@@ -109,8 +109,6 @@ class RemoteTest(object):
           '--start',
           # Don't persist any filesystem changes after the VM shutsdown.
           '--copy-on-write',
-          '--device',
-          'localhost'
       ]
     else:
       self._test_cmd += [
@@ -119,7 +117,14 @@ class RemoteTest(object):
     if args.logs_dir:
       for log in SYSTEM_LOG_LOCATIONS:
         self._test_cmd += ['--results-src', log]
-      self._test_cmd += ['--results-dest-dir', args.logs_dir]
+      self._test_cmd += [
+          '--results-dest-dir',
+          os.path.join(args.logs_dir, 'system_logs')
+      ]
+    if args.flash:
+      self._test_cmd += ['--flash']
+      if args.public_image:
+        self._test_cmd += ['--public-image']
 
     # This environment variable is set for tests that have been instrumented
     # for code coverage. Its incoming value is expected to be a location
@@ -156,7 +161,7 @@ class RemoteTest(object):
     logging.info('Running the following command on the device:')
     logging.info('\n' + '\n'.join(script_contents))
     fd, tmp_path = tempfile.mkstemp(suffix='.sh', dir=self._path_to_outdir)
-    os.fchmod(fd, 0755)
+    os.fchmod(fd, 0o755)
     with os.fdopen(fd, 'wb') as f:
       f.write('\n'.join(script_contents) + '\n')
     return tmp_path
@@ -181,7 +186,7 @@ class RemoteTest(object):
 
     signal.signal(signal.SIGTERM, _kill_child_procs)
 
-    for i in xrange(self._retries + 1):
+    for i in range(self._retries + 1):
       logging.info('########################################')
       logging.info('Test attempt #%d', i)
       logging.info('########################################')
@@ -192,13 +197,13 @@ class RemoteTest(object):
           env=self._test_env)
       try:
         test_proc.wait(timeout=self._timeout)
-      except subprocess.TimeoutExpired:
+      except subprocess.TimeoutExpired:  # pylint: disable=no-member
         logging.error('Test timed out. Sending SIGTERM.')
         # SIGTERM the proc and wait 10s for it to close.
         test_proc.terminate()
         try:
           test_proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired:  # pylint: disable=no-member
           # If it hasn't closed in 10s, SIGKILL it.
           logging.error('Test did not exit in time. Sending SIGKILL.')
           test_proc.kill()
@@ -230,6 +235,24 @@ class RemoteTest(object):
       with open(self._test_launcher_summary_output, 'w') as f:
         json.dump(json_results.GenerateResultsDict([run_results]), f)
 
+  @staticmethod
+  def get_artifacts(path):
+    """Crawls a given directory for file artifacts to attach to a test.
+
+    Args:
+      path: Path to a directory to search for artifacts.
+    Returns:
+      A dict mapping name of the artifact to its absolute filepath.
+    """
+    artifacts = {}
+    for dirpath, _, filenames in os.walk(path):
+      for f in filenames:
+        artifact_path = os.path.join(dirpath, f)
+        artifacts[os.path.relpath(artifact_path, path)] = {
+            'filePath': artifact_path,
+        }
+    return artifacts
+
 
 class TastTest(RemoteTest):
 
@@ -237,8 +260,20 @@ class TastTest(RemoteTest):
     super(TastTest, self).__init__(args, unknown_args)
 
     self._suite_name = args.suite_name
+    self._tast_vars = args.tast_vars
     self._tests = args.tests
+    # The CQ passes in '--gtest_filter' when specifying tests to skip. Store it
+    # here and parse it later to integrate it into Tast executions.
+    self._gtest_style_filter = args.gtest_filter
     self._conditional = args.conditional
+    self._should_strip = args.strip_chrome
+    self._deploy_lacros = args.deploy_lacros
+
+    if self._deploy_lacros and self._should_strip:
+      raise TestFormatError(
+          '--strip-chrome is only applicable to ash-chrome because '
+          'lacros-chrome deployment uses --nostrip by default, so it cannot '
+          'be specificed with --deploy-lacros.')
 
     if not self._llvm_profile_var and not self._logs_dir:
       # The host-side Tast bin returns 0 when tests fail, so we need to capture
@@ -247,35 +282,38 @@ class TastTest(RemoteTest):
           'When using the host-side Tast bin, "--logs-dir" must be passed in '
           'order to parse its results.')
 
+    # If the first test filter is negative, it should be safe to assume all of
+    # them are, so just test the first filter.
+    if self._gtest_style_filter and self._gtest_style_filter[0] == '-':
+      raise TestFormatError('Negative test filters not supported for Tast.')
+
   @property
   def suite_name(self):
     return self._suite_name
 
   def build_test_command(self):
-    if '--gtest_filter=%s' % self.suite_name in self._additional_args:
-      logging.info('GTest filtering not supported for tast tests. The '
-                   '--gtest_filter arg will be ignored.')
-      self._additional_args.remove('--gtest_filter=%s' % self.suite_name)
-    if any(arg.startswith('--gtest_repeat') for arg in self._additional_args):
-      logging.info(
-          '--gtest_repeat not supported for tast tests. The arg will be '
-          'ignored.')
-      self._additional_args = [
-          arg for arg in self._additional_args
-          if not arg.startswith('--gtest_repeat')
-      ]
-
-    if self._additional_args:
-      logging.error(
-          'Tast tests should not have additional args. These will be '
-          'ignored: %s', self._additional_args)
-
-    self._test_cmd += [
-        '--deploy',
-        '--mount',
-        '--build-dir',
-        os.path.relpath(self._path_to_outdir, CHROMIUM_SRC_PATH),
+    unsupported_args = [
+        '--test-launcher-retry-limit',
+        '--test-launcher-batch-limit',
+        '--gtest_repeat',
     ]
+    for unsupported_arg in unsupported_args:
+      if any(arg.startswith(unsupported_arg) for arg in self._additional_args):
+        logging.info(
+            '%s not supported for Tast tests. The arg will be ignored.',
+            unsupported_arg)
+        self._additional_args = [
+            arg for arg in self._additional_args
+            if not arg.startswith(unsupported_arg)
+        ]
+
+    # Lacros deployment mounts itself by default.
+    self._test_cmd.extend(
+        ['--deploy-lacros'] if self._deploy_lacros else ['--deploy', '--mount'])
+    self._test_cmd += [
+        '--build-dir',
+        os.path.relpath(self._path_to_outdir, CHROMIUM_SRC_PATH)
+    ] + self._additional_args
 
     # Coverage tests require some special pre-test setup, so use an
     # on_device_script in that case. For all other tests, use cros_run_test's
@@ -309,15 +347,29 @@ class TastTest(RemoteTest):
           './' + os.path.relpath(self._on_device_script, self._path_to_outdir)
       ]
     else:
-      # Mounting the browser gives it enough disk space to not need stripping,
-      # but only for browsers not instrumented with code coverage.
-      self._test_cmd.append('--nostrip')
       # Capture tast's results in the logs dir as well.
       if self._logs_dir:
         self._test_cmd += [
             '--results-dir',
             self._logs_dir,
         ]
+      self._test_cmd += [
+          '--tast-total-shards=%d' % self._test_launcher_total_shards,
+          '--tast-shard-index=%d' % self._test_launcher_shard_index,
+      ]
+      # If we're using a test filter, replace the contents of the Tast
+      # conditional with a long list of "name:test" expressions, one for each
+      # test in the filter.
+      if self._gtest_style_filter:
+        if self._conditional or self._tests:
+          logging.warning(
+              'Presence of --gtest_filter will cause the specified Tast '
+              'conditional or test list to be ignored.')
+        names = []
+        for test in self._gtest_style_filter.split(':'):
+          names.append('"name:%s"' % test)
+        self._conditional = '(' + ' || '.join(names) + ')'
+
       if self._conditional:
         # Don't use pipes.quote() here. Something funky happens with the arg
         # as it gets passed down from cros_run_test to tast. (Tast picks up the
@@ -327,6 +379,15 @@ class TastTest(RemoteTest):
       else:
         self._test_cmd.append('--tast')
         self._test_cmd.extend(self._tests)
+
+      for v in self._tast_vars or []:
+        self._test_cmd.extend(['--tast-var', v])
+
+      # Mounting ash-chrome gives it enough disk space to not need stripping,
+      # but only for one not instrumented with code coverage.
+      # Lacros uses --nostrip by default, so there is no need to specify.
+      if not self._deploy_lacros and not self._should_strip:
+        self._test_cmd.append('--nostrip')
 
   def post_run(self, return_code):
     # If we don't need to parse the host-side Tast tool's results, fall back to
@@ -373,6 +434,21 @@ class TastTest(RemoteTest):
           test['name'], result, duration=duration_ms, log=error_log)
       suite_results.AddResult(base_result)
       self._maybe_handle_perf_results(test['name'])
+
+      if self._rdb_client:
+        # Walk the contents of the test's "outDir" and atttach any file found
+        # inside as an RDB 'artifact'. (This could include system logs, screen
+        # shots, etc.)
+        artifacts = self.get_artifacts(test['outDir'])
+        self._rdb_client.Post(test['name'], result, error_log, artifacts)
+
+    if self._rdb_client and self._logs_dir:
+      # Attach artifacts from the device that don't apply to a single test.
+      artifacts = self.get_artifacts(
+          os.path.join(self._logs_dir, 'system_logs'))
+      artifacts.update(
+          self.get_artifacts(os.path.join(self._logs_dir, 'crashes')))
+      self._rdb_client.ReportInvocationLevelArtifacts(artifacts)
 
     if self._test_launcher_summary_output:
       with open(self._test_launcher_summary_output, 'w') as f:
@@ -442,10 +518,8 @@ class GTestTest(RemoteTest):
     self._runtime_deps_path = args.runtime_deps_path
     self._vpython_dir = args.vpython_dir
 
-    self._test_launcher_shard_index = args.test_launcher_shard_index
-    self._test_launcher_total_shards = args.test_launcher_total_shards
-
     self._on_device_script = None
+    self._env_vars = args.env_var
     self._stop_ui = args.stop_ui
     self._trace_dir = args.trace_dir
 
@@ -496,19 +570,32 @@ class GTestTest(RemoteTest):
       ]
 
     # Build the shell script that will be used on the device to invoke the test.
+    # Stored here as a list of lines.
     device_test_script_contents = self.BASIC_SHELL_SCRIPT[:]
     if self._llvm_profile_var:
       device_test_script_contents += [
           'export LLVM_PROFILE_FILE=%s' % self._llvm_profile_var,
       ]
 
+    for var_name, var_val in self._env_vars:
+      device_test_script_contents += ['export %s=%s' % (var_name, var_val)]
+
     if self._vpython_dir:
+      vpython_path = os.path.join(self._path_to_outdir, self._vpython_dir,
+                                  'vpython')
+      cpython_path = os.path.join(self._path_to_outdir, self._vpython_dir,
+                                  'bin', 'python')
+      if not os.path.exists(vpython_path) or not os.path.exists(cpython_path):
+        raise TestFormatError(
+            '--vpython-dir must point to a dir with both infra/python/cpython '
+            'and infra/tools/luci/vpython installed.')
       vpython_spec_path = os.path.relpath(
           os.path.join(CHROMIUM_SRC_PATH, '.vpython'), self._path_to_outdir)
       # Initialize the vpython cache. This can take 10-20s, and some tests
       # can't afford to wait that long on the first invocation.
       device_test_script_contents.extend([
-          'export PATH=$PATH:$PWD/%s' % (self._vpython_dir),
+          'export PATH=$PWD/%s:$PWD/%s/bin/:$PATH' %
+          (self._vpython_dir, self._vpython_dir),
           'vpython -vpython-spec %s -vpython-tool install' %
           (vpython_spec_path),
       ])
@@ -597,70 +684,6 @@ class GTestTest(RemoteTest):
       os.remove(self._on_device_script)
 
 
-class BrowserSanityTest(RemoteTest):
-
-  def __init__(self, args, unknown_args):
-    super(BrowserSanityTest, self).__init__(args, unknown_args)
-
-    # 10 min should be enough time for the sanity test to pass.
-    self._retries = 1
-    self._timeout = 600
-
-  @property
-  def suite_name(self):
-    return SANITY_TEST_TARGET
-
-  def build_test_command(self):
-    if '--gtest_filter=%s' % SANITY_TEST_TARGET in self._additional_args:
-      logging.info('GTest filtering not supported for the sanity test. The '
-                   '--gtest_filter arg will be ignored.')
-      self._additional_args.remove('--gtest_filter=%s' % SANITY_TEST_TARGET)
-    if any(arg.startswith('--gtest_repeat') for arg in self._additional_args):
-      logging.info(
-          '--gtest_repeat not supported for sanity test. The arg will be '
-          'ignored.')
-      self._additional_args = [
-          arg for arg in self._additional_args
-          if not arg.startswith('--gtest_repeat')
-      ]
-
-    if self._additional_args:
-      logging.error(
-          'Sanity test should not have additional args: These will be '
-          'ignored: %s', self._additional_args)
-
-    # VMs don't have the disk space for an unstripped version of Chrome
-    # instrumented for code coverage, so only strip in that case.
-    if not self._use_vm or not os.environ.get('LLVM_PROFILE_FILE'):
-      self._test_cmd.append('--nostrip')
-
-    device_test_script_contents = self.BASIC_SHELL_SCRIPT[:]
-    if self._llvm_profile_var:
-      device_test_script_contents += [
-          'echo "LLVM_PROFILE_FILE=%s" >> /etc/chrome_dev.conf' %
-          (self._llvm_profile_var)
-      ]
-
-    # vm_sanity.py is the sanity test, which is baked into the device image.
-    device_test_script_contents.append('/usr/local/autotest/bin/vm_sanity.py')
-
-    self._on_device_script = self.write_test_script_to_disk(
-        device_test_script_contents)
-
-    self._test_cmd += [
-        '--files',
-        os.path.relpath(self._on_device_script),
-        # The sanity test smoke-checks the system browser, so deploy our
-        # locally-built chrome to the device before testing.
-        '--deploy',
-        '--mount',
-        '--build-dir',
-        os.path.relpath(self._path_to_outdir, CHROMIUM_SRC_PATH),
-        '--',
-        './' + os.path.relpath(self._on_device_script, self._path_to_outdir)
-    ]
-
-
 def device_test(args, unknown_args):
   # cros_run_test has trouble with relative paths that go up directories,
   # so cd to src/, which should be the root of all data deps.
@@ -671,8 +694,6 @@ def device_test(args, unknown_args):
   # fix to https://github.com/PyCQA/pylint/issues/710.
   if args.test_type == 'tast':
     test = TastTest(args, unknown_args)
-  elif args.test_exe == SANITY_TEST_TARGET:
-    test = BrowserSanityTest(args, unknown_args)
   else:
     test = GTestTest(args, unknown_args)
 
@@ -683,13 +704,9 @@ def device_test(args, unknown_args):
   return test.run_test()
 
 
-def host_cmd(args, unknown_args):
-  if not args.cmd:
+def host_cmd(args, cmd_args):
+  if not cmd_args:
     raise TestFormatError('Must specify command to run on the host.')
-  elif unknown_args:
-    raise TestFormatError(
-        'Args "%s" unsupported. Is your host command correctly formatted?' %
-        (' '.join(unknown_args)))
   elif args.deploy_chrome and not args.path_to_outdir:
     raise TestFormatError(
         '--path-to-outdir must be specified if --deploy-chrome is passed.')
@@ -706,8 +723,6 @@ def host_cmd(args, unknown_args):
         '--start',
         # Don't persist any filesystem changes after the VM shutsdown.
         '--copy-on-write',
-        '--device',
-        'localhost',
     ]
   else:
     cros_run_test_cmd += [
@@ -715,19 +730,26 @@ def host_cmd(args, unknown_args):
     ]
   if args.verbose:
     cros_run_test_cmd.append('--debug')
+  if args.flash:
+    cros_run_test_cmd.append('--flash')
+    if args.public_image:
+      cros_run_test_cmd += ['--public-image']
 
   if args.logs_dir:
     for log in SYSTEM_LOG_LOCATIONS:
       cros_run_test_cmd += ['--results-src', log]
-    cros_run_test_cmd += ['--results-dest-dir', args.logs_dir]
+    cros_run_test_cmd += [
+        '--results-dest-dir',
+        os.path.join(args.logs_dir, 'system_logs')
+    ]
 
   test_env = setup_env()
   if args.deploy_chrome:
+    # Mounting ash-chrome gives it enough disk space to not need stripping.
+    cros_run_test_cmd.extend(['--deploy-lacros'] if args.deploy_lacros else
+                             ['--deploy', '--mount', '--nostrip'])
+
     cros_run_test_cmd += [
-        '--deploy',
-        # Mounting the browser gives it enough disk space to not need stripping.
-        '--mount',
-        '--nostrip',
         '--build-dir',
         os.path.abspath(args.path_to_outdir),
     ]
@@ -735,7 +757,7 @@ def host_cmd(args, unknown_args):
   cros_run_test_cmd += [
       '--host-cmd',
       '--',
-  ] + args.cmd
+  ] + cmd_args
 
   logging.info('Running the following command:')
   logging.info(' '.join(cros_run_test_cmd))
@@ -790,14 +812,32 @@ def add_common_args(*parsers):
         'this dir will be added onto PATH in the device. WARNING: The '
         'arch of the device might not match the arch of the host, so '
         'avoid using "${platform}" when downloading vpython via CIPD.')
-    # TODO(bpastene): Switch all uses of "--vm-logs-dir" to "--logs-dir".
     parser.add_argument(
-        '--vm-logs-dir',
         '--logs-dir',
         type=str,
         dest='logs_dir',
         help='Will copy everything under /var/log/ from the device after the '
         'test into the specified dir.')
+    # Shard args are parsed here since we might also specify them via env vars.
+    parser.add_argument(
+        '--test-launcher-shard-index',
+        type=int,
+        default=os.environ.get('GTEST_SHARD_INDEX', 0),
+        help='Index of the external shard to run.')
+    parser.add_argument(
+        '--test-launcher-total-shards',
+        type=int,
+        default=os.environ.get('GTEST_TOTAL_SHARDS', 1),
+        help='Total number of external shards.')
+    parser.add_argument(
+        '--flash',
+        action='store_true',
+        help='Will flash the device to the current SDK version before running '
+        'the test.')
+    parser.add_argument(
+        '--public-image',
+        action='store_true',
+        help='Will flash a public "full" image to the device.')
 
     vm_or_device_group = parser.add_mutually_exclusive_group()
     vm_or_device_group.add_argument(
@@ -824,9 +864,13 @@ def main():
   host_cmd_parser.add_argument(
       '--deploy-chrome',
       action='store_true',
-      help='Will deploy a locally built Chrome binary to the device before '
+      help='Will deploy a locally built ash-chrome binary to the device before '
       'running the host-cmd.')
-  host_cmd_parser.add_argument('cmd', nargs=argparse.REMAINDER)
+  host_cmd_parser.add_argument(
+      '--deploy-lacros',
+      action='store_true',
+      help='Deploy a lacros-chrome instead of ash-chrome.')
+
   # GTest args.
   # TODO(bpastene): Rename 'vm-test' arg to 'gtest'.
   gtest_parser = subparsers.add_parser(
@@ -836,12 +880,7 @@ def main():
       '--test-exe',
       type=str,
       required=True,
-      help='Path to test executable to run inside the device. If the value is '
-      '%s, the sanity test that ships with the device image runs instead. '
-      'This test smokes-check the system browser (eg: loads a simple '
-      'webpage, executes some javascript), so a fully-built Chrome binary '
-      'that can get deployed to the device is expected to be available in '
-      'the out-dir.' % SANITY_TEST_TARGET)
+      help='Path to test executable to run inside the device.')
 
   # GTest args. Some are passed down to the test binary in the device. Others
   # are parsed here since they might need tweaking or special handling.
@@ -850,17 +889,6 @@ def main():
       type=str,
       help='When set, will pass the same option down to the test and retrieve '
       'its result file at the specified location.')
-  # Shard args are parsed here since we might also specify them via env vars.
-  gtest_parser.add_argument(
-      '--test-launcher-shard-index',
-      type=int,
-      default=os.environ.get('GTEST_SHARD_INDEX', 0),
-      help='Index of the external shard to run.')
-  gtest_parser.add_argument(
-      '--test-launcher-total-shards',
-      type=int,
-      default=os.environ.get('GTEST_TOTAL_SHARDS', 1),
-      help='Total number of external shards.')
   gtest_parser.add_argument(
       '--stop-ui',
       action='store_true',
@@ -870,6 +898,14 @@ def main():
       type=str,
       help='When set, will pass down to the test to generate the trace and '
       'retrieve the trace files to the specified location.')
+  gtest_parser.add_argument(
+      '--env-var',
+      nargs=2,
+      action='append',
+      default=[],
+      help='Env var to set on the device for the duration of the test. '
+      'Expected format is "--env-var SOME_VAR_NAME some_var_value". Specify '
+      'multiple times for more than one var.')
 
   # Tast test args.
   # pylint: disable=line-too-long
@@ -899,14 +935,47 @@ def main():
       help='A boolean expression whose matching tests will run '
       '(eg: ("dep:chrome")).')
   tast_test_parser.add_argument(
+      '--strip-chrome',
+      action='store_true',
+      help='Strips symbols from ash-chrome before deploying to the device.')
+  tast_test_parser.add_argument(
+      '--deploy-lacros',
+      action='store_true',
+      help='Deploy a lacros-chrome instead of ash-chrome.')
+  tast_test_parser.add_argument(
+      '--tast-var',
+      action='append',
+      dest='tast_vars',
+      help='Runtime variables for Tast tests, and the format are expected to '
+      'be "key=value" pairs.')
+  tast_test_parser.add_argument(
       '--test',
       '-t',
       action='append',
       dest='tests',
       help='A Tast test to run in the device (eg: "ui.ChromeLogin").')
+  tast_test_parser.add_argument(
+      '--gtest_filter',
+      type=str,
+      help="Similar to GTest's arg of the same name, this will filter out the "
+      "specified tests from the Tast run. However, due to the nature of Tast's "
+      'cmd-line API, this will overwrite the value(s) of "--test" above.')
 
   add_common_args(gtest_parser, tast_test_parser, host_cmd_parser)
-  args, unknown_args = parser.parse_known_args()
+
+  args = sys.argv[1:]
+  unknown_args = []
+  # If a '--' is present in the args, treat everything to the right of it as
+  # args to the test and everything to the left as args to this test runner.
+  # Otherwise treat all known args as args to this test runner and all unknown
+  # args as test args.
+  if '--' in args:
+    unknown_args = args[args.index('--') + 1:]
+    args = args[0:args.index('--')]
+  if unknown_args:
+    args = parser.parse_args(args=args)
+  else:
+    args, unknown_args = parser.parse_known_args()
 
   logging.basicConfig(level=logging.DEBUG if args.verbose else logging.WARN)
 
@@ -921,17 +990,14 @@ def main():
       logging.error('The default DUT hostname of %s is unreachable.',
                     LAB_DUT_HOSTNAME)
       return 1
-  if args.use_vm:
-    if not os.path.exists('/dev/kvm'):
-      logging.error('/dev/kvm is missing. Is KVM installed on this machine?')
-      return 1
-    elif not os.access('/dev/kvm', os.W_OK):
-      logging.error(
-          '/dev/kvm is not writable as current user. Perhaps you should be '
-          'root?')
-      return 1
 
   args.cros_cache = os.path.abspath(args.cros_cache)
+  if args.flash and args.public_image:
+    # The flashing tools depend on being unauthenticated with GS when flashing
+    # public images, so make sure the env var GS uses to locate its creds is
+    # unset in that case.
+    os.environ.pop('BOTO_CONFIG', None)
+
   return args.func(args, unknown_args)
 
 

@@ -2,18 +2,21 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/qpack/qpack_encoder.h"
+#include "quic/core/qpack/qpack_encoder.h"
 
 #include <limits>
 #include <string>
 
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/test_tools/qpack/qpack_encoder_peer.h"
-#include "net/third_party/quiche/src/quic/test_tools/qpack/qpack_encoder_test_utils.h"
-#include "net/third_party/quiche/src/quic/test_tools/qpack/qpack_header_table_peer.h"
-#include "net/third_party/quiche/src/quic/test_tools/qpack/qpack_test_utils.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_text_utils.h"
+#include "absl/strings/escaping.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "quic/platform/api/quic_flags.h"
+#include "quic/platform/api/quic_test.h"
+#include "quic/test_tools/qpack/qpack_encoder_peer.h"
+#include "quic/test_tools/qpack/qpack_encoder_test_utils.h"
+#include "quic/test_tools/qpack/qpack_header_table_peer.h"
+#include "quic/test_tools/qpack/qpack_test_utils.h"
+#include "common/platform/api/quiche_text_utils.h"
 
 using ::testing::_;
 using ::testing::Eq;
@@ -34,7 +37,7 @@ class QpackEncoderTest : public QuicTest {
 
   ~QpackEncoderTest() override = default;
 
-  std::string Encode(const spdy::SpdyHeaderBlock& header_list) {
+  std::string Encode(const spdy::Http2HeaderBlock& header_list) {
     return encoder_.EncodeHeaderList(/* stream_id = */ 1, header_list,
                                      &encoder_stream_sent_byte_count_);
   }
@@ -46,53 +49,53 @@ class QpackEncoderTest : public QuicTest {
 };
 
 TEST_F(QpackEncoderTest, Empty) {
-  spdy::SpdyHeaderBlock header_list;
+  spdy::Http2HeaderBlock header_list;
   std::string output = Encode(header_list);
 
-  EXPECT_EQ(quiche::QuicheTextUtils::HexDecode("0000"), output);
+  EXPECT_EQ(absl::HexStringToBytes("0000"), output);
 }
 
 TEST_F(QpackEncoderTest, EmptyName) {
-  spdy::SpdyHeaderBlock header_list;
+  spdy::Http2HeaderBlock header_list;
   header_list[""] = "foo";
   std::string output = Encode(header_list);
 
-  EXPECT_EQ(quiche::QuicheTextUtils::HexDecode("0000208294e7"), output);
+  EXPECT_EQ(absl::HexStringToBytes("0000208294e7"), output);
 }
 
 TEST_F(QpackEncoderTest, EmptyValue) {
-  spdy::SpdyHeaderBlock header_list;
+  spdy::Http2HeaderBlock header_list;
   header_list["foo"] = "";
   std::string output = Encode(header_list);
 
-  EXPECT_EQ(quiche::QuicheTextUtils::HexDecode("00002a94e700"), output);
+  EXPECT_EQ(absl::HexStringToBytes("00002a94e700"), output);
 }
 
 TEST_F(QpackEncoderTest, EmptyNameAndValue) {
-  spdy::SpdyHeaderBlock header_list;
+  spdy::Http2HeaderBlock header_list;
   header_list[""] = "";
   std::string output = Encode(header_list);
 
-  EXPECT_EQ(quiche::QuicheTextUtils::HexDecode("00002000"), output);
+  EXPECT_EQ(absl::HexStringToBytes("00002000"), output);
 }
 
 TEST_F(QpackEncoderTest, Simple) {
-  spdy::SpdyHeaderBlock header_list;
+  spdy::Http2HeaderBlock header_list;
   header_list["foo"] = "bar";
   std::string output = Encode(header_list);
 
-  EXPECT_EQ(quiche::QuicheTextUtils::HexDecode("00002a94e703626172"), output);
+  EXPECT_EQ(absl::HexStringToBytes("00002a94e703626172"), output);
 }
 
 TEST_F(QpackEncoderTest, Multiple) {
-  spdy::SpdyHeaderBlock header_list;
+  spdy::Http2HeaderBlock header_list;
   header_list["foo"] = "bar";
   // 'Z' would be Huffman encoded to 8 bits, so no Huffman encoding is used.
   header_list["ZZZZZZZ"] = std::string(127, 'Z');
   std::string output = Encode(header_list);
 
   EXPECT_EQ(
-      quiche::QuicheTextUtils::HexDecode(
+      absl::HexStringToBytes(
           "0000"                // prefix
           "2a94e703626172"      // foo: bar
           "27005a5a5a5a5a5a5a"  // 7 octet long header name, the smallest number
@@ -108,63 +111,64 @@ TEST_F(QpackEncoderTest, Multiple) {
 
 TEST_F(QpackEncoderTest, StaticTable) {
   {
-    spdy::SpdyHeaderBlock header_list;
+    spdy::Http2HeaderBlock header_list;
     header_list[":method"] = "GET";
     header_list["accept-encoding"] = "gzip, deflate, br";
     header_list["location"] = "";
 
     std::string output = Encode(header_list);
-    EXPECT_EQ(quiche::QuicheTextUtils::HexDecode("0000d1dfcc"), output);
+    EXPECT_EQ(absl::HexStringToBytes("0000d1dfcc"), output);
   }
   {
-    spdy::SpdyHeaderBlock header_list;
+    spdy::Http2HeaderBlock header_list;
     header_list[":method"] = "POST";
     header_list["accept-encoding"] = "compress";
     header_list["location"] = "foo";
 
     std::string output = Encode(header_list);
-    EXPECT_EQ(
-        quiche::QuicheTextUtils::HexDecode("0000d45f108621e9aec2a11f5c8294e7"),
-        output);
+    EXPECT_EQ(absl::HexStringToBytes("0000d45f108621e9aec2a11f5c8294e7"),
+              output);
   }
   {
-    spdy::SpdyHeaderBlock header_list;
+    spdy::Http2HeaderBlock header_list;
     header_list[":method"] = "TRACE";
     header_list["accept-encoding"] = "";
 
     std::string output = Encode(header_list);
-    EXPECT_EQ(quiche::QuicheTextUtils::HexDecode("00005f000554524143455f1000"),
-              output);
+    EXPECT_EQ(absl::HexStringToBytes("00005f000554524143455f1000"), output);
   }
 }
 
 TEST_F(QpackEncoderTest, DecoderStreamError) {
   EXPECT_CALL(decoder_stream_error_delegate_,
-              OnDecoderStreamError(Eq("Encoded integer too large.")));
+              OnDecoderStreamError(QUIC_QPACK_DECODER_STREAM_INTEGER_TOO_LARGE,
+                                   Eq("Encoded integer too large.")));
 
   QpackEncoder encoder(&decoder_stream_error_delegate_);
   encoder.set_qpack_stream_sender_delegate(&encoder_stream_sender_delegate_);
   encoder.decoder_stream_receiver()->Decode(
-      quiche::QuicheTextUtils::HexDecode("ffffffffffffffffffffff"));
+      absl::HexStringToBytes("ffffffffffffffffffffff"));
 }
 
 TEST_F(QpackEncoderTest, SplitAlongNullCharacter) {
-  spdy::SpdyHeaderBlock header_list;
-  header_list["foo"] = quiche::QuicheStringPiece("bar\0bar\0baz", 11);
+  spdy::Http2HeaderBlock header_list;
+  header_list["foo"] = absl::string_view("bar\0bar\0baz", 11);
   std::string output = Encode(header_list);
 
-  EXPECT_EQ(quiche::QuicheTextUtils::HexDecode("0000"            // prefix
-                                               "2a94e703626172"  // foo: bar
-                                               "2a94e703626172"  // foo: bar
-                                               "2a94e70362617a"  // foo: baz
-                                               ),
+  EXPECT_EQ(absl::HexStringToBytes("0000"            // prefix
+                                   "2a94e703626172"  // foo: bar
+                                   "2a94e703626172"  // foo: bar
+                                   "2a94e70362617a"  // foo: baz
+                                   ),
             output);
 }
 
 TEST_F(QpackEncoderTest, ZeroInsertCountIncrement) {
   // Encoder receives insert count increment with forbidden value 0.
-  EXPECT_CALL(decoder_stream_error_delegate_,
-              OnDecoderStreamError(Eq("Invalid increment value 0.")));
+  EXPECT_CALL(
+      decoder_stream_error_delegate_,
+      OnDecoderStreamError(QUIC_QPACK_DECODER_STREAM_INVALID_ZERO_INCREMENT,
+                           Eq("Invalid increment value 0.")));
   encoder_.OnInsertCountIncrement(0);
 }
 
@@ -174,7 +178,8 @@ TEST_F(QpackEncoderTest, TooLargeInsertCountIncrement) {
   // table insertions sent (zero).
   EXPECT_CALL(
       decoder_stream_error_delegate_,
-      OnDecoderStreamError(Eq("Increment value 1 raises known received count "
+      OnDecoderStreamError(QUIC_QPACK_DECODER_STREAM_IMPOSSIBLE_INSERT_COUNT,
+                           Eq("Increment value 1 raises known received count "
                               "to 1 exceeding inserted entry count 0")));
   encoder_.OnInsertCountIncrement(1);
 }
@@ -196,6 +201,7 @@ TEST_F(QpackEncoderTest, InsertCountIncrementOverflow) {
   // received count.  This must result in an error instead of a crash.
   EXPECT_CALL(decoder_stream_error_delegate_,
               OnDecoderStreamError(
+                  QUIC_QPACK_DECODER_STREAM_INCREMENT_OVERFLOW,
                   Eq("Insert Count Increment instruction causes overflow.")));
   encoder_.OnInsertCountIncrement(std::numeric_limits<uint64_t>::max());
 }
@@ -205,7 +211,8 @@ TEST_F(QpackEncoderTest, InvalidHeaderAcknowledgement) {
   // block with dynamic table entries was ever sent.
   EXPECT_CALL(
       decoder_stream_error_delegate_,
-      OnDecoderStreamError(Eq("Header Acknowledgement received for stream 0 "
+      OnDecoderStreamError(QUIC_QPACK_DECODER_STREAM_INCORRECT_ACKNOWLEDGEMENT,
+                           Eq("Header Acknowledgement received for stream 0 "
                               "with no outstanding header blocks.")));
   encoder_.OnHeaderAcknowledgement(/* stream_id = */ 0);
 }
@@ -213,21 +220,18 @@ TEST_F(QpackEncoderTest, InvalidHeaderAcknowledgement) {
 TEST_F(QpackEncoderTest, DynamicTable) {
   encoder_.SetMaximumBlockedStreams(1);
   encoder_.SetMaximumDynamicTableCapacity(4096);
-
-  // Set Dynamic Table Capacity instruction.
-  EXPECT_CALL(
-      encoder_stream_sender_delegate_,
-      WriteStreamData(Eq(quiche::QuicheTextUtils::HexDecode("3fe11f"))));
   encoder_.SetDynamicTableCapacity(4096);
 
-  spdy::SpdyHeaderBlock header_list;
+  spdy::Http2HeaderBlock header_list;
   header_list["foo"] = "bar";
   header_list.AppendValueOrAddHeader("foo",
                                      "baz");  // name matches dynamic entry
   header_list["cookie"] = "baz";              // name matches static entry
 
+  // Set Dynamic Table Capacity instruction.
+  std::string set_dyanamic_table_capacity = absl::HexStringToBytes("3fe11f");
   // Insert three entries into the dynamic table.
-  std::string insert_entries = quiche::QuicheTextUtils::HexDecode(
+  std::string insert_entries = absl::HexStringToBytes(
       "62"          // insert without name reference
       "94e7"        // Huffman-encoded name "foo"
       "03626172"    // value "bar"
@@ -236,9 +240,10 @@ TEST_F(QpackEncoderTest, DynamicTable) {
       "c5"          // insert with name reference, static index 5
       "0362617a");  // value "baz"
   EXPECT_CALL(encoder_stream_sender_delegate_,
-              WriteStreamData(Eq(insert_entries)));
+              WriteStreamData(Eq(
+                  absl::StrCat(set_dyanamic_table_capacity, insert_entries))));
 
-  EXPECT_EQ(quiche::QuicheTextUtils::HexDecode(
+  EXPECT_EQ(absl::HexStringToBytes(
                 "0400"      // prefix
                 "828180"),  // dynamic entries with relative index 0, 1, and 2
             Encode(header_list));
@@ -250,36 +255,34 @@ TEST_F(QpackEncoderTest, DynamicTable) {
 TEST_F(QpackEncoderTest, SmallDynamicTable) {
   encoder_.SetMaximumBlockedStreams(1);
   encoder_.SetMaximumDynamicTableCapacity(QpackEntry::Size("foo", "bar"));
-
-  // Set Dynamic Table Capacity instruction.
-  EXPECT_CALL(encoder_stream_sender_delegate_,
-              WriteStreamData(Eq(quiche::QuicheTextUtils::HexDecode("3f07"))));
   encoder_.SetDynamicTableCapacity(QpackEntry::Size("foo", "bar"));
 
-  spdy::SpdyHeaderBlock header_list;
+  spdy::Http2HeaderBlock header_list;
   header_list["foo"] = "bar";
   header_list.AppendValueOrAddHeader("foo",
                                      "baz");  // name matches dynamic entry
   header_list["cookie"] = "baz";              // name matches static entry
   header_list["bar"] = "baz";                 // no match
 
+  // Set Dynamic Table Capacity instruction.
+  std::string set_dyanamic_table_capacity = absl::HexStringToBytes("3f07");
   // Insert one entry into the dynamic table.
-  std::string insert_entry = quiche::QuicheTextUtils::HexDecode(
+  std::string insert_entry = absl::HexStringToBytes(
       "62"          // insert without name reference
       "94e7"        // Huffman-encoded name "foo"
       "03626172");  // value "bar"
   EXPECT_CALL(encoder_stream_sender_delegate_,
-              WriteStreamData(Eq(insert_entry)));
+              WriteStreamData(
+                  Eq(absl::StrCat(set_dyanamic_table_capacity, insert_entry))));
 
-  EXPECT_EQ(quiche::QuicheTextUtils::HexDecode(
-                "0200"        // prefix
-                "80"          // dynamic entry 0
-                "40"          // reference to dynamic entry 0 name
-                "0362617a"    // with literal value "baz"
-                "55"          // reference to static entry 5 name
-                "0362617a"    // with literal value "baz"
-                "23626172"    // literal name "bar"
-                "0362617a"),  // with literal value "baz"
+  EXPECT_EQ(absl::HexStringToBytes("0200"  // prefix
+                                   "80"    // dynamic entry 0
+                                   "40"    // reference to dynamic entry 0 name
+                                   "0362617a"  // with literal value "baz"
+                                   "55"  // reference to static entry 5 name
+                                   "0362617a"    // with literal value "baz"
+                                   "23626172"    // literal name "bar"
+                                   "0362617a"),  // with literal value "baz"
             Encode(header_list));
 
   EXPECT_EQ(insert_entry.size(), encoder_stream_sent_byte_count_);
@@ -288,48 +291,45 @@ TEST_F(QpackEncoderTest, SmallDynamicTable) {
 TEST_F(QpackEncoderTest, BlockedStream) {
   encoder_.SetMaximumBlockedStreams(1);
   encoder_.SetMaximumDynamicTableCapacity(4096);
-
-  // Set Dynamic Table Capacity instruction.
-  EXPECT_CALL(
-      encoder_stream_sender_delegate_,
-      WriteStreamData(Eq(quiche::QuicheTextUtils::HexDecode("3fe11f"))));
   encoder_.SetDynamicTableCapacity(4096);
 
-  spdy::SpdyHeaderBlock header_list1;
+  spdy::Http2HeaderBlock header_list1;
   header_list1["foo"] = "bar";
 
+  // Set Dynamic Table Capacity instruction.
+  std::string set_dyanamic_table_capacity = absl::HexStringToBytes("3fe11f");
   // Insert one entry into the dynamic table.
-  std::string insert_entry1 = quiche::QuicheTextUtils::HexDecode(
+  std::string insert_entry1 = absl::HexStringToBytes(
       "62"          // insert without name reference
       "94e7"        // Huffman-encoded name "foo"
       "03626172");  // value "bar"
   EXPECT_CALL(encoder_stream_sender_delegate_,
-              WriteStreamData(Eq(insert_entry1)));
+              WriteStreamData(Eq(
+                  absl::StrCat(set_dyanamic_table_capacity, insert_entry1))));
 
-  EXPECT_EQ(quiche::QuicheTextUtils::HexDecode("0200"  // prefix
-                                               "80"),  // dynamic entry 0
+  EXPECT_EQ(absl::HexStringToBytes("0200"  // prefix
+                                   "80"),  // dynamic entry 0
             encoder_.EncodeHeaderList(/* stream_id = */ 1, header_list1,
                                       &encoder_stream_sent_byte_count_));
   EXPECT_EQ(insert_entry1.size(), encoder_stream_sent_byte_count_);
 
   // Stream 1 is blocked.  Stream 2 is not allowed to block.
-  spdy::SpdyHeaderBlock header_list2;
+  spdy::Http2HeaderBlock header_list2;
   header_list2["foo"] = "bar";  // name and value match dynamic entry
   header_list2.AppendValueOrAddHeader("foo",
                                       "baz");  // name matches dynamic entry
   header_list2["cookie"] = "baz";              // name matches static entry
   header_list2["bar"] = "baz";                 // no match
 
-  EXPECT_EQ(quiche::QuicheTextUtils::HexDecode(
-                "0000"        // prefix
-                "2a94e7"      // literal name "foo"
-                "03626172"    // with literal value "bar"
-                "2a94e7"      // literal name "foo"
-                "0362617a"    // with literal value "baz"
-                "55"          // name of static entry 5
-                "0362617a"    // with literal value "baz"
-                "23626172"    // literal name "bar"
-                "0362617a"),  // with literal value "baz"
+  EXPECT_EQ(absl::HexStringToBytes("0000"        // prefix
+                                   "2a94e7"      // literal name "foo"
+                                   "03626172"    // with literal value "bar"
+                                   "2a94e7"      // literal name "foo"
+                                   "0362617a"    // with literal value "baz"
+                                   "55"          // name of static entry 5
+                                   "0362617a"    // with literal value "baz"
+                                   "23626172"    // literal name "bar"
+                                   "0362617a"),  // with literal value "baz"
             encoder_.EncodeHeaderList(/* stream_id = */ 2, header_list2,
                                       &encoder_stream_sent_byte_count_));
   EXPECT_EQ(0u, encoder_stream_sent_byte_count_);
@@ -339,7 +339,7 @@ TEST_F(QpackEncoderTest, BlockedStream) {
   encoder_.OnInsertCountIncrement(1);
 
   // Insert three entries into the dynamic table.
-  std::string insert_entries = quiche::QuicheTextUtils::HexDecode(
+  std::string insert_entries = absl::HexStringToBytes(
       "80"          // insert with name reference, dynamic index 0
       "0362617a"    // value "baz"
       "c5"          // insert with name reference, static index 5
@@ -350,23 +350,22 @@ TEST_F(QpackEncoderTest, BlockedStream) {
   EXPECT_CALL(encoder_stream_sender_delegate_,
               WriteStreamData(Eq(insert_entries)));
 
-  EXPECT_EQ(quiche::QuicheTextUtils::HexDecode("0500"        // prefix
-                                               "83828180"),  // dynamic entries
+  EXPECT_EQ(absl::HexStringToBytes("0500"        // prefix
+                                   "83828180"),  // dynamic entries
             encoder_.EncodeHeaderList(/* stream_id = */ 3, header_list2,
                                       &encoder_stream_sent_byte_count_));
   EXPECT_EQ(insert_entries.size(), encoder_stream_sent_byte_count_);
 
   // Stream 3 is blocked.  Stream 4 is not allowed to block, but it can
   // reference already acknowledged dynamic entry 0.
-  EXPECT_EQ(quiche::QuicheTextUtils::HexDecode(
-                "0200"        // prefix
-                "80"          // dynamic entry 0
-                "2a94e7"      // literal name "foo"
-                "0362617a"    // with literal value "baz"
-                "2c21cfd4c5"  // literal name "cookie"
-                "0362617a"    // with literal value "baz"
-                "23626172"    // literal name "bar"
-                "0362617a"),  // with literal value "baz"
+  EXPECT_EQ(absl::HexStringToBytes("0200"        // prefix
+                                   "80"          // dynamic entry 0
+                                   "2a94e7"      // literal name "foo"
+                                   "0362617a"    // with literal value "baz"
+                                   "2c21cfd4c5"  // literal name "cookie"
+                                   "0362617a"    // with literal value "baz"
+                                   "23626172"    // literal name "bar"
+                                   "0362617a"),  // with literal value "baz"
             encoder_.EncodeHeaderList(/* stream_id = */ 4, header_list2,
                                       &encoder_stream_sent_byte_count_));
   EXPECT_EQ(0u, encoder_stream_sent_byte_count_);
@@ -377,11 +376,10 @@ TEST_F(QpackEncoderTest, BlockedStream) {
 
   // Stream 5 is not allowed to block, but it can reference already acknowledged
   // dynamic entries 0, 1, and 2.
-  EXPECT_EQ(quiche::QuicheTextUtils::HexDecode(
-                "0400"        // prefix
-                "828180"      // dynamic entries
-                "23626172"    // literal name "bar"
-                "0362617a"),  // with literal value "baz"
+  EXPECT_EQ(absl::HexStringToBytes("0400"        // prefix
+                                   "828180"      // dynamic entries
+                                   "23626172"    // literal name "bar"
+                                   "0362617a"),  // with literal value "baz"
             encoder_.EncodeHeaderList(/* stream_id = */ 5, header_list2,
                                       &encoder_stream_sent_byte_count_));
   EXPECT_EQ(0u, encoder_stream_sent_byte_count_);
@@ -390,15 +388,15 @@ TEST_F(QpackEncoderTest, BlockedStream) {
   // Stream 3 is not blocked any longer.
   encoder_.OnHeaderAcknowledgement(3);
 
-  EXPECT_EQ(quiche::QuicheTextUtils::HexDecode("0500"        // prefix
-                                               "83828180"),  // dynamic entries
+  EXPECT_EQ(absl::HexStringToBytes("0500"        // prefix
+                                   "83828180"),  // dynamic entries
             encoder_.EncodeHeaderList(/* stream_id = */ 6, header_list2,
                                       &encoder_stream_sent_byte_count_));
   EXPECT_EQ(0u, encoder_stream_sent_byte_count_);
 }
 
 TEST_F(QpackEncoderTest, Draining) {
-  spdy::SpdyHeaderBlock header_list1;
+  spdy::Http2HeaderBlock header_list1;
   header_list1["one"] = "foo";
   header_list1["two"] = "foo";
   header_list1["three"] = "foo";
@@ -420,34 +418,30 @@ TEST_F(QpackEncoderTest, Draining) {
   }
   maximum_dynamic_table_capacity += QpackEntry::Size("one", "foo");
   encoder_.SetMaximumDynamicTableCapacity(maximum_dynamic_table_capacity);
-
-  // Set Dynamic Table Capacity instruction.
-  EXPECT_CALL(encoder_stream_sender_delegate_, WriteStreamData(_));
   encoder_.SetDynamicTableCapacity(maximum_dynamic_table_capacity);
 
-  // Insert ten entries into the dynamic table.
+  // Set Dynamic Table Capacity instruction and insert ten entries into the
+  // dynamic table.
   EXPECT_CALL(encoder_stream_sender_delegate_, WriteStreamData(_));
 
-  EXPECT_EQ(quiche::QuicheTextUtils::HexDecode(
-                "0b00"                    // prefix
-                "89888786858483828180"),  // dynamic entries
+  EXPECT_EQ(absl::HexStringToBytes("0b00"                    // prefix
+                                   "89888786858483828180"),  // dynamic entries
             Encode(header_list1));
 
   // Entry is identical to oldest one, which is draining.  It will be
   // duplicated and referenced.
-  spdy::SpdyHeaderBlock header_list2;
+  spdy::Http2HeaderBlock header_list2;
   header_list2["one"] = "foo";
 
   // Duplicate oldest entry.
   EXPECT_CALL(encoder_stream_sender_delegate_,
-              WriteStreamData(Eq(quiche::QuicheTextUtils::HexDecode("09"))));
+              WriteStreamData(Eq(absl::HexStringToBytes("09"))));
 
-  EXPECT_EQ(quiche::QuicheTextUtils::HexDecode(
-                "0c00"  // prefix
-                "80"),  // most recent dynamic table entry
+  EXPECT_EQ(absl::HexStringToBytes("0c00"  // prefix
+                                   "80"),  // most recent dynamic table entry
             Encode(header_list2));
 
-  spdy::SpdyHeaderBlock header_list3;
+  spdy::Http2HeaderBlock header_list3;
   // Entry is identical to second oldest one, which is draining.  There is no
   // room to duplicate, it will be encoded with string literals.
   header_list3.AppendValueOrAddHeader("two", "foo");
@@ -455,21 +449,16 @@ TEST_F(QpackEncoderTest, Draining) {
   // no room to insert new entry, it will be encoded with string literals.
   header_list3.AppendValueOrAddHeader("two", "bar");
 
-  EXPECT_EQ(
-      quiche::QuicheTextUtils::HexDecode("0000"        // prefix
-                                         "2374776f"    // literal name "two"
-                                         "8294e7"      // literal value "foo"
-                                         "2374776f"    // literal name "two"
-                                         "03626172"),  // literal value "bar"
-      Encode(header_list3));
+  EXPECT_EQ(absl::HexStringToBytes("0000"        // prefix
+                                   "2374776f"    // literal name "two"
+                                   "8294e7"      // literal value "foo"
+                                   "2374776f"    // literal name "two"
+                                   "03626172"),  // literal value "bar"
+            Encode(header_list3));
 }
 
 TEST_F(QpackEncoderTest, DynamicTableCapacityLessThanMaximum) {
   encoder_.SetMaximumDynamicTableCapacity(1024);
-
-  // Set Dynamic Table Capacity instruction.
-  EXPECT_CALL(encoder_stream_sender_delegate_,
-              WriteStreamData(Eq(quiche::QuicheTextUtils::HexDecode("3e"))));
   encoder_.SetDynamicTableCapacity(30);
 
   QpackHeaderTable* header_table = QpackEncoderPeer::header_table(&encoder_);

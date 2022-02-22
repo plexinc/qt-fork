@@ -2,11 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/qpack/qpack_header_table.h"
+#include "quic/core/qpack/qpack_header_table.h"
 
-#include "net/third_party/quiche/src/quic/core/qpack/qpack_static_table.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/qpack/qpack_static_table.h"
+#include "quic/platform/api/quic_logging.h"
 
 namespace quic {
 
@@ -51,8 +51,8 @@ const QpackEntry* QpackHeaderTable::LookupEntry(bool is_static,
 }
 
 QpackHeaderTable::MatchType QpackHeaderTable::FindHeaderField(
-    quiche::QuicheStringPiece name,
-    quiche::QuicheStringPiece value,
+    absl::string_view name,
+    absl::string_view value,
     bool* is_static,
     uint64_t* index) const {
   QpackEntry query(name, value);
@@ -60,7 +60,7 @@ QpackHeaderTable::MatchType QpackHeaderTable::FindHeaderField(
   // Look for exact match in static table.
   auto index_it = static_index_.find(&query);
   if (index_it != static_index_.end()) {
-    DCHECK((*index_it)->IsStatic());
+    QUICHE_DCHECK((*index_it)->IsStatic());
     *index = (*index_it)->InsertionIndex();
     *is_static = true;
     return MatchType::kNameAndValue;
@@ -69,7 +69,7 @@ QpackHeaderTable::MatchType QpackHeaderTable::FindHeaderField(
   // Look for exact match in dynamic table.
   index_it = dynamic_index_.find(&query);
   if (index_it != dynamic_index_.end()) {
-    DCHECK(!(*index_it)->IsStatic());
+    QUICHE_DCHECK(!(*index_it)->IsStatic());
     *index = (*index_it)->InsertionIndex();
     *is_static = false;
     return MatchType::kNameAndValue;
@@ -78,7 +78,7 @@ QpackHeaderTable::MatchType QpackHeaderTable::FindHeaderField(
   // Look for name match in static table.
   auto name_index_it = static_name_index_.find(name);
   if (name_index_it != static_name_index_.end()) {
-    DCHECK(name_index_it->second->IsStatic());
+    QUICHE_DCHECK(name_index_it->second->IsStatic());
     *index = name_index_it->second->InsertionIndex();
     *is_static = true;
     return MatchType::kName;
@@ -87,7 +87,7 @@ QpackHeaderTable::MatchType QpackHeaderTable::FindHeaderField(
   // Look for name match in dynamic table.
   name_index_it = dynamic_name_index_.find(name);
   if (name_index_it != dynamic_name_index_.end()) {
-    DCHECK(!name_index_it->second->IsStatic());
+    QUICHE_DCHECK(!name_index_it->second->IsStatic());
     *index = name_index_it->second->InsertionIndex();
     *is_static = false;
     return MatchType::kName;
@@ -96,9 +96,8 @@ QpackHeaderTable::MatchType QpackHeaderTable::FindHeaderField(
   return MatchType::kNoMatch;
 }
 
-const QpackEntry* QpackHeaderTable::InsertEntry(
-    quiche::QuicheStringPiece name,
-    quiche::QuicheStringPiece value) {
+const QpackEntry* QpackHeaderTable::InsertEntry(absl::string_view name,
+                                                absl::string_view value) {
   const uint64_t entry_size = QpackEntry::Size(name, value);
   if (entry_size > dynamic_table_capacity_) {
     return nullptr;
@@ -118,11 +117,11 @@ const QpackEntry* QpackHeaderTable::InsertEntry(
     // An entry with the same name and value already exists.  It needs to be
     // replaced, because |dynamic_index_| tracks the most recent entry for a
     // given name and value.
-    DCHECK_GT(new_entry->InsertionIndex(),
-              (*index_result.first)->InsertionIndex());
+    QUICHE_DCHECK_GT(new_entry->InsertionIndex(),
+                     (*index_result.first)->InsertionIndex());
     dynamic_index_.erase(index_result.first);
     auto result = dynamic_index_.insert(new_entry);
-    CHECK(result.second);
+    QUICHE_CHECK(result.second);
   }
 
   auto name_result = dynamic_name_index_.insert({new_entry->name(), new_entry});
@@ -130,11 +129,11 @@ const QpackEntry* QpackHeaderTable::InsertEntry(
     // An entry with the same name already exists.  It needs to be replaced,
     // because |dynamic_name_index_| tracks the most recent entry for a given
     // name.
-    DCHECK_GT(new_entry->InsertionIndex(),
-              name_result.first->second->InsertionIndex());
+    QUICHE_DCHECK_GT(new_entry->InsertionIndex(),
+                     name_result.first->second->InsertionIndex());
     dynamic_name_index_.erase(name_result.first);
     auto result = dynamic_name_index_.insert({new_entry->name(), new_entry});
-    CHECK(result.second);
+    QUICHE_CHECK(result.second);
   }
 
   // Notify and deregister observers whose threshold is met, if any.
@@ -153,7 +152,7 @@ const QpackEntry* QpackHeaderTable::InsertEntry(
 
 uint64_t QpackHeaderTable::MaxInsertSizeWithoutEvictingGivenEntry(
     uint64_t index) const {
-  DCHECK_LE(dropped_entry_count_, index);
+  QUICHE_DCHECK_LE(dropped_entry_count_, index);
 
   if (index > inserted_entry_count()) {
     // All entries are allowed to be evicted.
@@ -181,26 +180,25 @@ bool QpackHeaderTable::SetDynamicTableCapacity(uint64_t capacity) {
   dynamic_table_capacity_ = capacity;
   EvictDownToCurrentCapacity();
 
-  DCHECK_LE(dynamic_table_size_, dynamic_table_capacity_);
+  QUICHE_DCHECK_LE(dynamic_table_size_, dynamic_table_capacity_);
 
   return true;
 }
 
-void QpackHeaderTable::SetMaximumDynamicTableCapacity(
+bool QpackHeaderTable::SetMaximumDynamicTableCapacity(
     uint64_t maximum_dynamic_table_capacity) {
-  // This method can only be called once: in the decoding context, shortly after
-  // construction; in the encoding context, upon receiving the SETTINGS frame.
-  DCHECK_EQ(0u, dynamic_table_capacity_);
-  DCHECK_EQ(0u, maximum_dynamic_table_capacity_);
-  DCHECK_EQ(0u, max_entries_);
-
-  maximum_dynamic_table_capacity_ = maximum_dynamic_table_capacity;
-  max_entries_ = maximum_dynamic_table_capacity / 32;
+  if (maximum_dynamic_table_capacity_ == 0) {
+    maximum_dynamic_table_capacity_ = maximum_dynamic_table_capacity;
+    max_entries_ = maximum_dynamic_table_capacity / 32;
+    return true;
+  }
+  // If the value is already set, it should not be changed.
+  return maximum_dynamic_table_capacity == maximum_dynamic_table_capacity_;
 }
 
 void QpackHeaderTable::RegisterObserver(uint64_t required_insert_count,
                                         Observer* observer) {
-  DCHECK_GT(required_insert_count, 0u);
+  QUICHE_DCHECK_GT(required_insert_count, 0u);
   observers_.insert({required_insert_count, observer});
 }
 
@@ -220,8 +218,8 @@ void QpackHeaderTable::UnregisterObserver(uint64_t required_insert_count,
 }
 
 uint64_t QpackHeaderTable::draining_index(float draining_fraction) const {
-  DCHECK_LE(0.0, draining_fraction);
-  DCHECK_LE(draining_fraction, 1.0);
+  QUICHE_DCHECK_LE(0.0, draining_fraction);
+  QUICHE_DCHECK_LE(draining_fraction, 1.0);
 
   const uint64_t required_space = draining_fraction * dynamic_table_capacity_;
   uint64_t space_above_draining_index =
@@ -246,12 +244,12 @@ uint64_t QpackHeaderTable::draining_index(float draining_fraction) const {
 
 void QpackHeaderTable::EvictDownToCurrentCapacity() {
   while (dynamic_table_size_ > dynamic_table_capacity_) {
-    DCHECK(!dynamic_entries_.empty());
+    QUICHE_DCHECK(!dynamic_entries_.empty());
 
     QpackEntry* const entry = &dynamic_entries_.front();
     const uint64_t entry_size = entry->Size();
 
-    DCHECK_GE(dynamic_table_size_, entry_size);
+    QUICHE_DCHECK_GE(dynamic_table_size_, entry_size);
     dynamic_table_size_ -= entry_size;
 
     auto index_it = dynamic_index_.find(entry);

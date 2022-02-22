@@ -16,8 +16,8 @@
 #include "core/fpdfapi/parser/cpdf_stream.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
 #include "core/fxcrt/fx_stream.h"
-#include "third_party/base/logging.h"
-#include "third_party/base/ptr_util.h"
+#include "third_party/base/check.h"
+#include "third_party/base/notreached.h"
 #include "third_party/base/stl_util.h"
 
 CPDF_Array::CPDF_Array() = default;
@@ -59,7 +59,7 @@ RetainPtr<CPDF_Object> CPDF_Array::CloneNonCyclic(
   pVisited->insert(this);
   auto pCopy = pdfium::MakeRetain<CPDF_Array>();
   for (const auto& pValue : m_Objects) {
-    if (!pdfium::ContainsKey(*pVisited, pValue.Get())) {
+    if (!pdfium::Contains(*pVisited, pValue.Get())) {
       std::set<const CPDF_Object*> visited(*pVisited);
       if (auto obj = pValue->CloneNonCyclic(bDirect, &visited))
         pCopy->m_Objects.push_back(std::move(obj));
@@ -207,7 +207,7 @@ void CPDF_Array::ConvertToIndirectObjectAt(size_t index,
 
 CPDF_Object* CPDF_Array::SetAt(size_t index, RetainPtr<CPDF_Object> pObj) {
   CHECK(!IsLocked());
-  ASSERT(!pObj || pObj->IsInline());
+  DCHECK(!pObj || pObj->IsInline());
   if (index >= m_Objects.size()) {
     NOTREACHED();
     return nullptr;

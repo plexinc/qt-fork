@@ -42,11 +42,12 @@
 
 #include "qdatavisualizationglobal.h"
 #include <QtGui/QOpenGLFunctions>
+#include <QtOpenGL/QOpenGLFramebufferObject>
 #include <QtGui/QVector3D>
 #include <QtGui/QQuaternion>
 #include <QtCore/QDebug>
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 // Constants used in several files
 // Distance from camera to origin
@@ -83,6 +84,6 @@ static const GLfloat uniformTextureWidth = 2.0f;
 static const GLfloat labelMargin = 0.05f;
 static const GLfloat gridLineWidth = 0.005f;
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

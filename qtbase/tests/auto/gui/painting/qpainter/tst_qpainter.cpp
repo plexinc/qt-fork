@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <qpainter.h>
 #ifndef QT_NO_WIDGETS
 #include <qdrawutil.h>
@@ -124,10 +124,6 @@ private slots:
     void drawPath2();
     void drawPath3();
 
-#if QT_DEPRECATED_SINCE(5, 13)
-    void drawRoundRect_data() { fillData(); }
-    void drawRoundRect();
-#endif
     void drawRoundedRect_data() { fillData(); }
     void drawRoundedRect();
 
@@ -135,13 +131,9 @@ private slots:
     void qimageFormats();
     void textOnTransparentImage();
 
-#if !defined(QT_NO_WIDGETS) && QT_DEPRECATED_SINCE(5, 13)
-    void initFrom();
-#endif
-
     void setWindow();
 
-    void combinedMatrix();
+    void combinedTransform();
     void renderHints();
 
     void disableEnableClipping();
@@ -308,6 +300,7 @@ private slots:
     void fillPolygon();
 
     void drawImageAtPointF();
+    void scaledDashes();
 
 private:
     void fillData();
@@ -607,7 +600,7 @@ QImage tst_QPainter::getResImage( const QString &dir, const QString &addition, c
     QImage res;
     QString resFilename  = dir + QLatin1String("/res_") + addition + QLatin1Char('.') + extension;
     if ( !res.load( resFilename ) ) {
-        QWARN(QString("Could not load result data %s %1").arg(resFilename).toLatin1());
+        qWarning() << "Could not load result data" << resFilename;
         return QImage();
     }
     return res;
@@ -618,14 +611,14 @@ QBitmap tst_QPainter::getBitmap( const QString &dir, const QString &filename, bo
     QBitmap bm;
     QString bmFilename = dir + QLatin1Char('/') + filename + QLatin1String(".xbm");
     if ( !bm.load( bmFilename ) ) {
-        QWARN(QString("Could not load bitmap '%1'").arg(bmFilename).toLatin1());
+        qWarning() << "Could not load bitmap" << bmFilename;
         return QBitmap();
     }
     if ( mask ) {
         QBitmap mask;
         QString maskFilename = dir + QLatin1Char('/') + filename + QLatin1String("-mask.xbm");
         if (!mask.load(maskFilename)) {
-            QWARN(QString("Could not load mask '%1'").arg(maskFilename).toLatin1());
+            qWarning() << "Could not load mask" << maskFilename;
             return QBitmap();
         }
         bm.setMask( mask );
@@ -680,33 +673,6 @@ static QRect getPaintedSize(const QPixmap &pm, const QColor &background)
 }
 
 #ifndef QT_NO_WIDGETS
-
-#if QT_DEPRECATED_SINCE(5, 13)
-void tst_QPainter::initFrom()
-{
-    QWidget *widget = new QWidget();
-    QPalette pal = widget->palette();
-    pal.setColor(QPalette::WindowText, QColor(255, 0, 0));
-    pal.setBrush(QPalette::Window, QColor(0, 255, 0));
-    widget->setPalette(pal);
-    widget->show();
-
-    QFont font = widget->font();
-    font.setPointSize(26);
-    font.setItalic(true);
-    widget->setFont(font);
-
-    QPixmap pm(100, 100);
-    QPainter p(&pm);
-    p.initFrom(widget);
-
-    QCOMPARE(p.font(), font);
-    QCOMPARE(p.pen().color(), pal.color(QPalette::WindowText));
-    QCOMPARE(p.background(), pal.window());
-
-    delete widget;
-}
-#endif
 
 void tst_QPainter::drawBorderPixmap()
 {
@@ -827,7 +793,6 @@ void tst_QPainter::drawLine()
     { // unclipped
         pixmapUnclipped.fill(Qt::white);
         QPainter p(&pixmapUnclipped);
-        p.setRenderHint(QPainter::Qt4CompatiblePainting);
         p.translate(offset, offset);
         p.setPen(QPen(Qt::black));
         p.drawLine(line);
@@ -850,11 +815,10 @@ void tst_QPainter::drawLine()
                           qMin(line.y1(), line.y2())
                           + 2*offset + qAbs(line.dy()));
     { // clipped
-        const QRect clip = QRect(line.p1(), line.p2()).normalized();
+        const QRect clip = QRect::span(line.p1(), line.p2());
 
         pixmapClipped.fill(Qt::white);
         QPainter p(&pixmapClipped);
-        p.setRenderHint(QPainter::Qt4CompatiblePainting);
         p.translate(offset, offset);
         p.setClipRect(clip);
         p.setPen(QPen(Qt::black));
@@ -891,7 +855,6 @@ void tst_QPainter::drawLine_task121143()
     image.fill(0xffffffff);
     QPainter p(&image);
     p.setPen(pen);
-    p.setRenderHint(QPainter::Qt4CompatiblePainting);
     p.drawLine(QLine(0, 0+4, 0+4, 0));
     p.end();
 
@@ -1072,7 +1035,6 @@ void tst_QPainter::drawRect2()
         QTransform transform(0.368567, 0, 0, 0, 0.368567, 0, 0.0289, 0.0289, 1);
 
         QPainter p(&image);
-        p.setRenderHint(QPainter::Qt4CompatiblePainting);
         p.setTransform(transform);
         p.setBrush(Qt::red);
         p.setPen(Qt::NoPen);
@@ -1083,13 +1045,12 @@ void tst_QPainter::drawRect2()
         image.fill(0xffffffff);
 
         p.begin(&image);
-        p.setRenderHint(QPainter::Qt4CompatiblePainting);
         p.setTransform(transform);
         p.drawRect(QRect(14, 14, 39, 39));
         p.end();
 
         QRect stroke = getPaintedSize(image, Qt::white);
-        QCOMPARE(stroke.adjusted(1, 1, 0, 0), fill.adjusted(0, 0, 1, 1));
+        QCOMPARE(stroke.adjusted(1, 1, 0, 0), fill.adjusted(1, 1, 0, 0));
     }
 }
 
@@ -1100,6 +1061,7 @@ void tst_QPainter::fillRect_data()
     QTest::newRow("argb32pm") << QImage::Format_ARGB32_Premultiplied;
     QTest::newRow("rgba8888pm") << QImage::Format_RGBA8888_Premultiplied;
     QTest::newRow("rgba64pm") << QImage::Format_RGBA64_Premultiplied;
+    QTest::newRow("rgbaFP16pm") << QImage::Format_RGBA16FPx4_Premultiplied;
 }
 
 void tst_QPainter::fillRect()
@@ -1299,13 +1261,13 @@ void tst_QPainter::drawPath_data()
     {
         QPainterPath p;
         p.addRect(2.25, 2.25, 10, 10);
-        QTest::newRow("non-aligned rect") << p << QRect(3, 3, 10, 10) << 10 * 10;
+        QTest::newRow("non-aligned rect") << p << QRect(2, 2, 10, 10) << 10 * 10;
     }
 
     {
         QPainterPath p;
         p.addRect(2.25, 2.25, 10.5, 10.5);
-        QTest::newRow("non-aligned rect 2") << p << QRect(3, 3, 10, 10) << 10 * 10;
+        QTest::newRow("non-aligned rect 2") << p << QRect(2, 2, 11, 11) << 11 * 11;
     }
 
     {
@@ -1343,7 +1305,6 @@ void tst_QPainter::drawPath()
     image.fill(QColor(Qt::white).rgb());
 
     QPainter p(&image);
-    p.setRenderHint(QPainter::Qt4CompatiblePainting);
     p.setPen(Qt::NoPen);
     p.setBrush(Qt::black);
     p.translate(offset - expectedBounds.left(), offset - expectedBounds.top());
@@ -1550,43 +1511,6 @@ void tst_QPainter::drawClippedEllipse()
 
 }
 
-#if QT_DEPRECATED_SINCE(5, 13)
-void tst_QPainter::drawRoundRect()
-{
-    QFETCH(QRect, rect);
-    QFETCH(bool, usePen);
-
-#ifdef Q_OS_MAC
-    if (QTest::currentDataTag() == QByteArray("rect(6, 12, 3, 14) with pen") ||
-        QTest::currentDataTag() == QByteArray("rect(6, 17, 3, 25) with pen") ||
-        QTest::currentDataTag() == QByteArray("rect(10, 6, 10, 3) with pen") ||
-        QTest::currentDataTag() == QByteArray("rect(10, 12, 10, 14) with pen") ||
-        QTest::currentDataTag() == QByteArray("rect(13, 45, 17, 80) with pen") ||
-        QTest::currentDataTag() == QByteArray("rect(13, 50, 17, 91) with pen") ||
-        QTest::currentDataTag() == QByteArray("rect(17, 6, 24, 3) with pen") ||
-        QTest::currentDataTag() == QByteArray("rect(24, 12, 38, 14) with pen"))
-        QSKIP("The Mac paint engine is off-by-one on certain rect sizes");
-#endif
-    QPixmap pixmap(rect.x() + rect.width() + 10,
-                   rect.y() + rect.height() + 10);
-    {
-        pixmap.fill(Qt::white);
-        QPainter p(&pixmap);
-        p.setRenderHint(QPainter::Qt4CompatiblePainting);
-        p.setPen(usePen ? QPen(Qt::black) : QPen(Qt::NoPen));
-        p.setBrush(Qt::black);
-        p.drawRoundRect(rect);
-        p.end();
-
-        int increment = usePen ? 1 : 0;
-
-        const QRect painted = getPaintedSize(pixmap, Qt::white);
-        QCOMPARE(painted.width(), rect.width() + increment);
-        QCOMPARE(painted.height(), rect.height() + increment);
-    }
-}
-#endif
-
 void tst_QPainter::drawRoundedRect()
 {
     QFETCH(QRect, rect);
@@ -1608,7 +1532,6 @@ void tst_QPainter::drawRoundedRect()
     {
         pixmap.fill(Qt::white);
         QPainter p(&pixmap);
-        p.setRenderHint(QPainter::Qt4CompatiblePainting);
         p.setPen(usePen ? QPen(Qt::black) : QPen(Qt::NoPen));
         p.setBrush(Qt::black);
         p.drawRoundedRect(rect, 25, 25, Qt::RelativeSize);
@@ -1637,6 +1560,8 @@ void tst_QPainter::qimageFormats_data()
     QTest::newRow("Qimage::Format_BGR888") << QImage::Format_BGR888;
     QTest::newRow("Qimage::Format_A2RGB30_Premultiplied") << QImage::Format_A2RGB30_Premultiplied;
     QTest::newRow("Qimage::Format_RGB30") << QImage::Format_RGB30;
+    QTest::newRow("QImage::Format_RGBX16FPx4") << QImage::Format_RGBX16FPx4;
+    QTest::newRow("QImage::Format_RGBA32FPx4_Premultiplied") << QImage::Format_RGBA32FPx4_Premultiplied;
 }
 
 /*
@@ -1685,16 +1610,15 @@ void tst_QPainter::setWindow()
     pixmap.fill(QColor(Qt::white));
 
     QPainter painter(&pixmap);
-    painter.setRenderHint(QPainter::Qt4CompatiblePainting);
-    painter.setWindow(0, 0, 3, 3);
-    painter.drawLine(1, 1, 2, 2);
+    painter.setWindow(0, 0, 28, 28);
+    painter.drawLine(10, 10, 18, 18);
 
     const QRect painted = getPaintedSize(pixmap, Qt::white);
     QVERIFY(195 < painted.y() && painted.y() < 205); // correct value is around 200
     QVERIFY(195 < painted.height() && painted.height() < 205); // correct value is around 200
 }
 
-void tst_QPainter::combinedMatrix()
+void tst_QPainter::combinedTransform()
 {
     QPixmap pm(64, 64);
 
@@ -1705,15 +1629,7 @@ void tst_QPainter::combinedMatrix()
     p.translate(0.5, 0.5);
 
     QTransform ct = p.combinedTransform();
-#if QT_DEPRECATED_SINCE(5, 13)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-    QMatrix cm = p.combinedMatrix();
-    QCOMPARE(cm, ct.toAffine());
-QT_WARNING_POP
-#endif
-
-    QPointF pt = QPointF(0, 0) * ct.toAffine();
+    QPointF pt = QPointF(0, 0) * ct;
 
     QCOMPARE(pt.x(), 48.0);
     QCOMPARE(pt.y(), 16.0);
@@ -1881,7 +1797,7 @@ void tst_QPainter::setEqualClipRegionAndPath_data()
     QTest::newRow("simple rect") << QSize(100, 100)
                                  << QRegion(QRect(5, 5, 10, 10));
 
-    QVector<QRect> rects;
+    QList<QRect> rects;
     QRegion region;
 
     rects << QRect(5, 5, 10, 10) << QRect(20, 20, 10, 10);
@@ -2182,7 +2098,7 @@ void tst_QPainter::clippedLines_data()
     QPen pen2(QColor(223, 223, 0, 223));
     pen2.setWidth(2);
 
-    QVector<QLineF> lines;
+    QList<QLineF> lines;
     lines << QLineF(15, 15, 65, 65)
           << QLineF(14, 14, 66, 66)
           << QLineF(16, 16, 64, 64)
@@ -2714,17 +2630,17 @@ class DummyPaintEngine : public QPaintEngine, public QPaintDevice
 {
 public:
     DummyPaintEngine() : QPaintEngine(no_porter_duff()) {}
-    virtual bool begin(QPaintDevice *) { return true; }
-    virtual bool end() { return true; }
+    virtual bool begin(QPaintDevice *) override { return true; }
+    virtual bool end() override { return true; }
 
-    virtual void updateState(const QPaintEngineState &) {}
-    virtual void drawPixmap(const QRectF &, const QPixmap &, const QRectF &) {}
+    virtual void updateState(const QPaintEngineState &) override {}
+    virtual void drawPixmap(const QRectF &, const QPixmap &, const QRectF &) override {}
 
-    virtual Type type() const { return User; }
+    virtual Type type() const override { return User; }
 
-    virtual QPaintEngine *paintEngine() const { return (QPaintEngine *)this; }
+    virtual QPaintEngine *paintEngine() const override { return (QPaintEngine *)this; }
 
-    virtual int metric(PaintDeviceMetric metric) const { Q_UNUSED(metric); return 0; };
+    virtual int metric(PaintDeviceMetric metric) const override { Q_UNUSED(metric); return 0; };
 };
 
 static bool success;
@@ -2777,8 +2693,9 @@ void tst_QPainter::drawhelper_blend_color()
 class ViewportTestWidget : public QWidget
 {
 public:
-    ViewportTestWidget(QWidget *parent = 0) : QWidget(parent), hasPainted(false) {}
-    QSize sizeHint() const {
+    ViewportTestWidget(QWidget *parent = nullptr) : QWidget(parent), hasPainted(false) {}
+    QSize sizeHint() const override
+    {
         return QSize(100, 100);
     }
 
@@ -2786,7 +2703,8 @@ public:
     bool hasPainted;
 
 protected:
-    void paintEvent(QPaintEvent *) {
+    void paintEvent(QPaintEvent *) override
+    {
         hasPainted = true;
         QPainter p(this);
         viewport = p.viewport();
@@ -2928,7 +2846,7 @@ void tst_QPainter::monoImages()
     }
 }
 
-#if !defined(Q_OS_AIX) && !defined(Q_CC_MSVC) && !defined(Q_OS_SOLARIS) && !defined(__UCLIBC__)
+#if !defined(Q_OS_AIX) && !defined(Q_CC_MSVC) && !defined(Q_OS_SOLARIS) && !defined(__UCLIBC__) && !defined(Q_OS_INTEGRITY)
 #include <fenv.h>
 
 static const QString fpeExceptionString(int exception)
@@ -3334,11 +3252,6 @@ void tst_QPainter::imageScaling_task206785()
 #define FOR_EACH_NEIGHBOR_8 for (int dx = -1; dx <= 1; ++dx) for (int dy = -1; dy <= 1; ++dy) if (dx != 0 || dy != 0)
 #define FOR_EACH_NEIGHBOR_4 for (int dx = -1; dx <= 1; ++dx) for (int dy = -1; dy <= 1; ++dy) if ((dx == 0) != (dy == 0))
 
-uint qHash(const QPoint &point)
-{
-    return qHash(qMakePair(point.x(), point.y()));
-}
-
 bool verifyOutlineFillConsistency(const QImage &img, QRgb outside, QRgb inside, QRgb outline)
 {
     if (img.pixel(img.width() / 2, img.height() / 2) != inside)
@@ -3356,7 +3269,7 @@ bool verifyOutlineFillConsistency(const QImage &img, QRgb outside, QRgb inside, 
     QQueue<QPoint> discovered;
     discovered.enqueue(QPoint(x, y));
 
-    QVector<bool> visited(img.width() * img.height());
+    QList<bool> visited(img.width() * img.height());
     visited.fill(false);
 
     while (!discovered.isEmpty()) {
@@ -4105,7 +4018,7 @@ void tst_QPainter::drawPolygon()
     path.moveTo(2, 34);
     path.lineTo(34, 2);
 
-    QPolygonF poly = stroker.createStroke(path).toFillPolygon(QTransform());
+    QPolygonF poly = stroker.createStroke(path).toFillPolygon();
 
     img.fill(0xffffffff);
     QPainter p(&img);
@@ -4140,7 +4053,7 @@ void tst_QPainter::inactivePainter()
     QPainter p;
     QPainterPath path;
     QRegion region(QRect(20, 20, 60, 40));
-    QPolygonF polygon(QVector<QPointF>() << QPointF(0, 0) << QPointF(12, 0) << QPointF(8, 6));
+    QPolygonF polygon(QList<QPointF>() << QPointF(0, 0) << QPointF(12, 0) << QPointF(8, 6));
     path.addPolygon(polygon);
 
     p.save();
@@ -4173,24 +4086,12 @@ void tst_QPainter::inactivePainter()
     p.setClipRegion(region);
     p.setClipping(true);
 
-#if QT_DEPRECATED_SINCE(5, 13)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-    p.combinedMatrix();
-QT_WARNING_POP
-#endif
     p.combinedTransform();
 
     p.compositionMode();
     p.setCompositionMode(QPainter::CompositionMode_Plus);
 
     p.device();
-#if QT_DEPRECATED_SINCE(5, 13)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-    p.deviceMatrix();
-QT_WARNING_POP
-#endif
     p.deviceTransform();
 
     p.font();
@@ -4214,12 +4115,6 @@ QT_WARNING_POP
     p.setRenderHint(QPainter::Antialiasing, true);
     p.setRenderHints(QPainter::Antialiasing | QPainter::SmoothPixmapTransform, false);
 
-#if QT_DEPRECATED_SINCE(5, 13)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-    p.resetMatrix();
-QT_WARNING_POP
-#endif
     p.resetTransform();
     p.rotate(1);
     p.scale(2, 2);
@@ -4235,13 +4130,9 @@ QT_WARNING_POP
     p.window();
     p.setWindow(QRect(10, 10, 620, 460));
 
-#if QT_DEPRECATED_SINCE(5, 13)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-    p.worldMatrix();
-    p.setWorldMatrix(QMatrix().translate(43, 21), true);
-QT_WARNING_POP
-#endif
+    p.worldTransform();
+    p.setWorldTransform(QTransform().translate(43, 21), true);
+
     p.setWorldMatrixEnabled(true);
 
     p.transform();
@@ -4553,7 +4444,7 @@ class TestProxy : public QGraphicsProxyWidget
 {
 public:
     TestProxy() : QGraphicsProxyWidget() {}
-    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget)
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override
     {
         QGraphicsProxyWidget::paint(painter, option, widget);
         deviceTransform = painter->deviceTransform();
@@ -4566,7 +4457,7 @@ class TestWidget : public QWidget
 Q_OBJECT
 public:
     TestWidget() : QWidget(), painted(false) {}
-    void paintEvent(QPaintEvent *)
+    void paintEvent(QPaintEvent *) override
     {
         QPainter p(this);
         deviceTransform = p.deviceTransform();
@@ -4699,7 +4590,6 @@ void tst_QPainter::drawText_subPixelPositionsInRaster_qtbug5053()
     baseLine.fill(Qt::white);
     {
         QPainter p(&baseLine);
-        p.setRenderHint(QPainter::Qt4CompatiblePainting);
         p.drawText(0, fm.ascent(), QString::fromLatin1("e"));
     }
 
@@ -4710,7 +4600,6 @@ void tst_QPainter::drawText_subPixelPositionsInRaster_qtbug5053()
 
         {
             QPainter p(&comparison);
-            p.setRenderHint(QPainter::Qt4CompatiblePainting);
             p.drawText(QPointF(i / 12.0, fm.ascent()), QString::fromLatin1("e"));
         }
 
@@ -4747,7 +4636,7 @@ void tst_QPainter::drawPointScaled()
 class GradientProducer : public QThread
 {
 protected:
-    void run();
+    void run() override;
 };
 
 void GradientProducer::run()
@@ -4805,7 +4694,7 @@ void tst_QPainter::QTBUG17053_zeroDashPattern()
 
     QImage original = image;
 
-    QVector<qreal> pattern;
+    QList<qreal> pattern;
     pattern << qreal(0) << qreal(0);
 
     QPainter p(&image);
@@ -4841,7 +4730,7 @@ void tst_QPainter::QTBUG38781_NoBrushAndQBitmap()
 class TextDrawerThread : public QThread
 {
 public:
-    void run();
+    void run() override;
     QImage rendering;
 };
 
@@ -4927,7 +4816,7 @@ void tst_QPainter::QTBUG25153_drawLine()
 {
     QImage image(2, 2, QImage::Format_RGB32);
 
-    QVector<Qt::PenCapStyle> styles;
+    QList<Qt::PenCapStyle> styles;
     styles << Qt::FlatCap << Qt::SquareCap << Qt::RoundCap;
 
     foreach (Qt::PenCapStyle style, styles) {
@@ -5184,17 +5073,23 @@ void tst_QPainter::drawTextNoHinting()
 
 void tst_QPainter::drawPolyline_data()
 {
-    QTest::addColumn< QVector<QPointF> >("points");
+    QTest::addColumn<QList<QPointF>>("points");
 
-    QTest::newRow("basic") << (QVector<QPointF>() << QPointF(10, 10) << QPointF(20, 10) << QPointF(20, 20));
-    QTest::newRow("clipped") << (QVector<QPointF>() << QPoint(-10, 100) << QPoint(-1, 100) << QPoint(-1,  -2) << QPoint(100, -2) << QPoint(100, 40)); // QTBUG-31579
-    QTest::newRow("shortsegment") << (QVector<QPointF>() << QPoint(20, 100) << QPoint(20, 99) << QPoint(21, 99) << QPoint(21, 104)); // QTBUG-42398
-    QTest::newRow("edge") << (QVector<QPointF>() << QPointF(4.5, 121.6) << QPointF(9.4, 150.9) << QPointF(14.2, 184.8) << QPointF(19.1, 130.4));
+    QTest::newRow("basic") << (QList<QPointF>()
+                               << QPointF(10, 10) << QPointF(20, 10) << QPointF(20, 20));
+    QTest::newRow("clipped") << (QList<QPointF>()
+                                 << QPoint(-10, 100) << QPoint(-1, 100) << QPoint(-1, -2)
+                                 << QPoint(100, -2) << QPoint(100, 40)); // QTBUG-31579
+    QTest::newRow("shortsegment") << (QList<QPointF>()
+                                      << QPoint(20, 100) << QPoint(20, 99) << QPoint(21, 99)
+                                      << QPoint(21, 104)); // QTBUG-42398
+    QTest::newRow("edge") << (QList<QPointF>() << QPointF(4.5, 121.6) << QPointF(9.4, 150.9)
+                                               << QPointF(14.2, 184.8) << QPointF(19.1, 130.4));
 }
 
 void tst_QPainter::drawPolyline()
 {
-    QFETCH(QVector<QPointF>, points);
+    QFETCH(QList<QPointF>, points);
     QImage images[2];
 
     for (int r = 0; r < 2; r++) {
@@ -5466,6 +5361,36 @@ void tst_QPainter::drawImageAtPointF()
     paint.drawImage(QPointF(96, std::numeric_limits<int>::max()), image1);
     paint.drawImage(QPointF(std::numeric_limits<int>::min(), 48), image1);
     paint.end();
+}
+
+void tst_QPainter::scaledDashes()
+{
+    // Test that we do not hit the limit-huge-number-of-dashes path
+    QRgb fore = qRgb(0, 0, 0xff);
+    QRgb back = qRgb(0xff, 0xff, 0);
+    QImage image(5, 32, QImage::Format_RGB32);
+    image.fill(back);
+    QPainter p(&image);
+    QPen pen(QColor(fore), 3, Qt::DotLine);
+    p.setPen(pen);
+    p.scale(1, 2);
+    p.drawLine(2, 0, 2, 16);
+    p.end();
+
+    bool foreFound = false;
+    bool backFound = false;
+    int i = 0;
+    while (i < 32 && (!foreFound || !backFound)) {
+        QRgb pix = image.pixel(3, i);
+        if (pix == fore)
+            foreFound = true;
+        else if (pix == back)
+            backFound = true;
+        i++;
+    }
+
+    QVERIFY(foreFound);
+    QVERIFY(backFound);
 }
 
 QTEST_MAIN(tst_QPainter)

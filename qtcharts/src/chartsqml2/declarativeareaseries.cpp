@@ -30,7 +30,7 @@
 #include "declarativeareaseries_p.h"
 #include "declarativelineseries_p.h"
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 DeclarativeAreaSeries::DeclarativeAreaSeries(QObject *parent) :
     QAreaSeries(parent),
@@ -104,7 +104,7 @@ void DeclarativeAreaSeries::handleBrushChanged()
     // the brush file name needs to be cleared.
     if (!m_brushFilename.isEmpty() && QAreaSeries::brush().textureImage() != m_brushImage) {
         m_brushFilename.clear();
-        emit brushFilenameChanged(QString(""));
+        emit brushFilenameChanged(QString());
     }
 }
 
@@ -119,6 +119,6 @@ QBrush DeclarativeAreaSeries::brush() const
     return QAreaSeries::brush();
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_declarativeareaseries_p.cpp"

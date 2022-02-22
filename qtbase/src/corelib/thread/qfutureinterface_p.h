@@ -58,6 +58,8 @@
 #include <QtCore/qwaitcondition.h>
 #include <QtCore/qrunnable.h>
 #include <QtCore/qthreadpool.h>
+#include <QtCore/qfutureinterface.h>
+#include <QtCore/qexception.h>
 
 QT_REQUIRE_CONFIG(future);
 
@@ -65,12 +67,14 @@ QT_BEGIN_NAMESPACE
 
 class QFutureCallOutEvent : public QEvent
 {
+    Q_EVENT_DISABLE_COPY(QFutureCallOutEvent);
 public:
     enum CallOutType {
         Started,
         Finished,
         Canceled,
-        Paused,
+        Suspending,
+        Suspended,
         Resumed,
         Progress,
         ProgressRange,
@@ -100,7 +104,7 @@ public:
     int index2;
     QString text;
 
-    QFutureCallOutEvent *clone() const
+    QEvent *clone() const override
     {
         return new QFutureCallOutEvent(callOutType, index1, index2, text);
     }
@@ -157,23 +161,31 @@ public:
 
     // T: accessed from executing thread
     // Q: accessed from the waiting/querying thread
-    RefCount refCount;
     mutable QMutex m_mutex;
-    QWaitCondition waitCondition;
+    QBasicMutex continuationMutex;
     QList<QFutureCallOutInterface *> outputConnections;
-    int m_progressValue; // TQ
-    int m_progressMinimum; // TQ
-    int m_progressMaximum; // TQ
-    QAtomicInt state; // reads and writes can happen unprotected, both must be atomic
     QElapsedTimer progressTime;
+    QWaitCondition waitCondition;
     QWaitCondition pausedWaitCondition;
+    // ### TODO: put m_results and m_exceptionStore into a union (see QTBUG-92045)
     QtPrivate::ResultStoreBase m_results;
-    bool manualProgress; // only accessed from executing thread
-    int m_expectedResultCount;
     QtPrivate::ExceptionStore m_exceptionStore;
     QString m_progressText;
-    QRunnable *runnable;
-    QThreadPool *m_pool;
+    QRunnable *runnable = nullptr;
+    QThreadPool *m_pool = nullptr;
+    // Wrapper for continuation
+    std::function<void(const QFutureInterfaceBase &)> continuation;
+    QFutureInterfaceBasePrivate *parentData = nullptr;
+
+    RefCount refCount = 1;
+    QAtomicInt state; // reads and writes can happen unprotected, both must be atomic
+    int m_progressValue = 0; // TQ
+    int m_progressMinimum = 0; // TQ
+    int m_progressMaximum = 0; // TQ
+    int m_expectedResultCount = 0;
+    bool manualProgress = false; // only accessed from executing thread
+    bool launchAsync = false;
+    bool isValid = false;
 
     inline QThreadPool *pool() const
     { return m_pool ? m_pool : QThreadPool::globalInstance(); }
@@ -191,6 +203,7 @@ public:
     void disconnectOutputInterface(QFutureCallOutInterface *iface);
 
     void setState(QFutureInterfaceBase::State state);
+
 };
 
 QT_END_NAMESPACE

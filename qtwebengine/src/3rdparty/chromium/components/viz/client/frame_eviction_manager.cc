@@ -7,10 +7,10 @@
 #include <algorithm>
 
 #include "base/bind.h"
-#include "base/logging.h"
+#include "base/check_op.h"
+#include "base/containers/contains.h"
 #include "base/memory/memory_pressure_listener.h"
 #include "base/memory/memory_pressure_monitor.h"
-#include "base/stl_util.h"
 #include "base/system/sys_info.h"
 #include "build/build_config.h"
 
@@ -103,6 +103,7 @@ size_t FrameEvictionManager::GetMaxNumberOfSavedFrames() const {
 
 FrameEvictionManager::FrameEvictionManager()
     : memory_pressure_listener_(new base::MemoryPressureListener(
+          FROM_HERE,
           base::BindRepeating(&FrameEvictionManager::OnMemoryPressure,
                               base::Unretained(this)))) {
   max_number_of_saved_frames_ =

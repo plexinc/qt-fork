@@ -52,7 +52,7 @@
 #include "../shared/cube.h"
 
 struct {
-    QVector<QRhiResource *> releasePool;
+    QList<QRhiResource *> releasePool;
     QRhiBuffer *vbuf = nullptr;
     QRhiBuffer *ubuf = nullptr;
     QRhiTexture *tex = nullptr;
@@ -65,17 +65,18 @@ struct {
 void Window::customInit()
 {
     d.vbuf = m_r->newBuffer(QRhiBuffer::Immutable, QRhiBuffer::VertexBuffer, sizeof(cube));
-    d.vbuf->build();
+    d.vbuf->create();
     d.releasePool << d.vbuf;
 
     d.ubuf = m_r->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, 64);
-    d.ubuf->build();
+    d.ubuf->create();
     d.releasePool << d.ubuf;
 
     const QSize cubeMapSize(512, 512);
-    d.tex = m_r->newTexture(QRhiTexture::RGBA8, cubeMapSize, 1, QRhiTexture::CubeMap);
+    d.tex = m_r->newTexture(QRhiTexture::RGBA8, cubeMapSize, 1, QRhiTexture::CubeMap
+                            | QRhiTexture::MipMapped | QRhiTexture::UsedWithGenerateMips); // exercise mipmap generation as well
     d.releasePool << d.tex;
-    d.tex->build();
+    d.tex->create();
 
     d.initialUpdates = m_r->nextResourceUpdateBatch();
     d.initialUpdates->uploadStaticBuffer(d.vbuf, cube);
@@ -93,10 +94,12 @@ void Window::customInit()
                                       });
     d.initialUpdates->uploadTexture(d.tex, desc);
 
+    d.initialUpdates->generateMips(d.tex);
+
     d.sampler = m_r->newSampler(QRhiSampler::Linear, QRhiSampler::Linear, QRhiSampler::None,
                                 QRhiSampler::Repeat, QRhiSampler::Repeat);
     d.releasePool << d.sampler;
-    d.sampler->build();
+    d.sampler->create();
 
     d.srb = m_r->newShaderResourceBindings();
     d.releasePool << d.srb;
@@ -104,7 +107,7 @@ void Window::customInit()
         QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage, d.ubuf),
         QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, d.tex, d.sampler)
     });
-    d.srb->build();
+    d.srb->create();
 
     d.ps = m_r->newGraphicsPipeline();
     d.releasePool << d.ps;
@@ -137,7 +140,7 @@ void Window::customInit()
     d.ps->setShaderResourceBindings(d.srb);
     d.ps->setRenderPassDescriptor(m_rp);
 
-    d.ps->build();
+    d.ps->create();
 }
 
 void Window::customRelease()

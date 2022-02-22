@@ -377,8 +377,6 @@
     using one of the MIME types that can be used to represent it:
 
     \snippet clipboard/clipwindow.cpp 1
-    \dots
-    \snippet clipboard/clipwindow.cpp 2
 
     The \l{QClipboard::selectionChanged()}{selectionChanged()} signal can
     be used on X11 to monitor the mouse selection.
@@ -395,7 +393,7 @@
 
     \section1 Interoperating with Other Applications
 
-    On X11, the public \l{http://www.newplanetsoftware.com/xdnd/}{XDND
+    On X11, the public \l{https://johnlindal.wixsite.com/xdnd}{XDND
     protocol} is used, while on Windows Qt uses the OLE standard, and
     Qt for \macos uses the Cocoa Drag Manager. On X11, XDND uses MIME,
     so no translation is necessary. The Qt API is the same regardless of

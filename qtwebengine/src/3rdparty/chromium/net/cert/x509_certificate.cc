@@ -386,7 +386,7 @@ bool X509Certificate::GetSubjectAltName(
 
   if (dns_names) {
     for (const auto& dns_name : subject_alt_names->dns_names)
-      dns_names->push_back(dns_name.as_string());
+      dns_names->push_back(std::string(dns_name));
   }
   if (ip_addrs) {
     for (const IPAddress& addr : subject_alt_names->ip_addresses) {
@@ -513,7 +513,7 @@ bool X509Certificate::VerifyHostname(
   SplitOnChar(reference_name, '.', &reference_host, &reference_domain);
   bool allow_wildcards = false;
   if (!reference_domain.empty()) {
-    DCHECK(reference_domain.starts_with("."));
+    DCHECK(base::StartsWith(reference_domain, "."));
 
     // Do not allow wildcards for public/ICANN registry controlled domains -
     // that is, prevent *.com or *.co.uk as valid presented names, but do not

@@ -14,10 +14,14 @@
 
 import * as m from 'mithril';
 
-import {Actions} from '../common/actions';
+import {Actions, PostedTrace} from '../common/actions';
 
 import {globals} from './globals';
 import {showModal} from './modal';
+
+interface PostedTraceWrapped {
+  perfetto: PostedTrace;
+}
 
 // Returns whether incoming traces should be opened automatically or should
 // instead require a user interaction.
@@ -39,17 +43,19 @@ function isTrustedOrigin(origin: string): boolean {
 // ready, so the message handler always replies to a 'PING' message with 'PONG',
 // which indicates it is ready to receive a trace.
 export function postMessageHandler(messageEvent: MessageEvent) {
+  if (messageEvent.origin === 'https://tagassistant.google.com') {
+    // The GA debugger, does a window.open() and sends messages to the GA
+    // script. Ignore them.
+    return;
+  }
+
   if (document.readyState !== 'complete') {
     console.error('Ignoring message - document not ready yet.');
     return;
   }
 
-  if (messageEvent.source === null) {
-    throw new Error('Incoming message has no source');
-  }
-
-  // This can happen if an extension tries to postMessage.
-  if (messageEvent.source !== window.opener) {
+  if (messageEvent.source === null || messageEvent.source !== window.opener) {
+    // This can happen if an extension tries to postMessage.
     return;
   }
 
@@ -66,12 +72,22 @@ export function postMessageHandler(messageEvent: MessageEvent) {
     return;
   }
 
-  if (!(messageEvent.data instanceof ArrayBuffer)) {
-    throw new Error('Incoming message data is not an ArrayBuffer');
+  let postedTrace: PostedTrace;
+
+  if (isPostedTraceWrapped(messageEvent.data)) {
+    postedTrace = sanitizePostedTrace(messageEvent.data.perfetto);
+  } else if (messageEvent.data instanceof ArrayBuffer) {
+    postedTrace = {title: 'External trace', buffer: messageEvent.data};
+  } else {
+    console.warn(
+        'Unknown postMessage() event received. If you are trying to open a ' +
+        'trace via postMessage(), this is a bug in your code. If not, this ' +
+        'could be due to some Chrome extension.');
+    console.log('origin:', messageEvent.origin, 'data:', messageEvent.data);
+    return;
   }
 
-  const buffer = messageEvent.data;
-  if (buffer.byteLength === 0) {
+  if (postedTrace.buffer.byteLength === 0) {
     throw new Error('Incoming message trace buffer is empty');
   }
 
@@ -79,7 +95,7 @@ export function postMessageHandler(messageEvent: MessageEvent) {
     // For external traces, we need to disable other features such as
     // downloading and sharing a trace.
     globals.frontendLocalState.localOnlyMode = true;
-    globals.dispatch(Actions.openTraceFromBuffer({buffer}));
+    globals.dispatch(Actions.openTraceFromBuffer(postedTrace));
   };
 
   // If the origin is trusted open the trace directly.
@@ -100,4 +116,29 @@ export function postMessageHandler(messageEvent: MessageEvent) {
       {text: 'YES', primary: false, id: 'pm_open_trace', action: openTrace},
     ],
   });
+}
+
+function sanitizePostedTrace(postedTrace: PostedTrace): PostedTrace {
+  const result: PostedTrace = {
+    title: sanitizeString(postedTrace.title),
+    buffer: postedTrace.buffer
+  };
+  if (postedTrace.url !== undefined) {
+    result.url = sanitizeString(postedTrace.url);
+  }
+  return result;
+}
+
+function sanitizeString(str: string): string {
+  return str.replace(/[^A-Za-z0-9.\-_#:/?=&;% ]/g, ' ');
+}
+
+// tslint:disable:no-any
+function isPostedTraceWrapped(obj: any): obj is PostedTraceWrapped {
+  const wrapped = obj as PostedTraceWrapped;
+  if (wrapped.perfetto === undefined) {
+    return false;
+  }
+  return wrapped.perfetto.buffer !== undefined &&
+      wrapped.perfetto.title !== undefined;
 }

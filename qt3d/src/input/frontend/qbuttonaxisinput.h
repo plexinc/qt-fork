@@ -53,7 +53,7 @@ class Q_3DINPUTSHARED_EXPORT QButtonAxisInput : public QAbstractAxisInput
 {
     Q_OBJECT
     Q_PROPERTY(float scale READ scale WRITE setScale NOTIFY scaleChanged)
-    Q_PROPERTY(QVector<int> buttons READ buttons WRITE setButtons NOTIFY buttonsChanged)
+    Q_PROPERTY(QList<int> buttons READ buttons WRITE setButtons NOTIFY buttonsChanged)
     Q_PROPERTY(float acceleration READ acceleration WRITE setAcceleration NOTIFY accelerationChanged)
     Q_PROPERTY(float deceleration READ deceleration WRITE setDeceleration NOTIFY decelerationChanged)
 
@@ -62,28 +62,27 @@ public:
     ~QButtonAxisInput();
 
     float scale() const;
-    QVector<int> buttons() const;
+    QList<int> buttons() const;
 
     float acceleration() const;
     float deceleration() const;
 
 public Q_SLOTS:
     void setScale(float scale);
-    void setButtons(const QVector<int> &buttons);
+    void setButtons(const QList<int> &buttons);
 
     void setAcceleration(float acceleration);
     void setDeceleration(float deceleration);
 
 Q_SIGNALS:
     void scaleChanged(float scale);
-    void buttonsChanged(const QVector<int> &buttons);
+    void buttonsChanged(const QList<int> &buttons);
 
     void accelerationChanged(float acceleration);
     void decelerationChanged(float deceleration);
 
 private:
     Q_DECLARE_PRIVATE(QButtonAxisInput)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // Qt3DInput

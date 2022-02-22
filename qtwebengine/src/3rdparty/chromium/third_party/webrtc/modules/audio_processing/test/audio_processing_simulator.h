@@ -24,7 +24,6 @@
 #include "modules/audio_processing/test/api_call_statistics.h"
 #include "modules/audio_processing/test/fake_recording_device.h"
 #include "modules/audio_processing/test/test_utils.h"
-#include "rtc_base/constructor_magic.h"
 #include "rtc_base/task_queue_for_test.h"
 #include "rtc_base/time_utils.h"
 
@@ -107,7 +106,6 @@ struct SimulationSettings {
   absl::optional<bool> use_vad;
   absl::optional<bool> use_le;
   absl::optional<bool> use_all;
-  absl::optional<bool> use_analog_agc_agc2_level_estimator;
   absl::optional<bool> analog_agc_disable_digital_adaptive;
   absl::optional<int> agc_mode;
   absl::optional<int> agc_target_level;
@@ -140,19 +138,29 @@ struct SimulationSettings {
   bool dump_internal_data = false;
   WavFile::SampleFormat wav_output_format = WavFile::SampleFormat::kInt16;
   absl::optional<std::string> dump_internal_data_output_dir;
+  absl::optional<int> dump_set_to_use;
   absl::optional<std::string> call_order_input_filename;
   absl::optional<std::string> call_order_output_filename;
   absl::optional<std::string> aec_settings_filename;
   absl::optional<absl::string_view> aec_dump_input_string;
   std::vector<float>* processed_capture_samples = nullptr;
+  bool analysis_only = false;
+  absl::optional<int> dump_start_frame;
+  absl::optional<int> dump_end_frame;
+  absl::optional<int> init_to_process;
 };
 
 // Provides common functionality for performing audioprocessing simulations.
 class AudioProcessingSimulator {
  public:
-
   AudioProcessingSimulator(const SimulationSettings& settings,
+                           rtc::scoped_refptr<AudioProcessing> audio_processing,
                            std::unique_ptr<AudioProcessingBuilder> ap_builder);
+
+  AudioProcessingSimulator() = delete;
+  AudioProcessingSimulator(const AudioProcessingSimulator&) = delete;
+  AudioProcessingSimulator& operator=(const AudioProcessingSimulator&) = delete;
+
   virtual ~AudioProcessingSimulator();
 
   // Processes the data in the input.
@@ -162,6 +170,9 @@ class AudioProcessingSimulator {
   const ApiCallStatistics& GetApiCallStatistics() const {
     return api_call_statistics_;
   }
+
+  // Analyzes the data in the input and reports the resulting statistics.
+  virtual void Analyze() = 0;
 
   // Reports whether the processed recording was bitexact.
   bool OutputWasBitexact() { return bitexact_output_; }
@@ -174,8 +185,8 @@ class AudioProcessingSimulator {
  protected:
   void ProcessStream(bool fixed_interface);
   void ProcessReverseStream(bool fixed_interface);
-  void CreateAudioProcessor();
-  void DestroyAudioProcessor();
+  void ConfigureAudioProcessor();
+  void DetachAecDump();
   void SetupBuffersConfigsOutputs(int input_sample_rate_hz,
                                   int output_sample_rate_hz,
                                   int reverse_input_sample_rate_hz,
@@ -184,10 +195,11 @@ class AudioProcessingSimulator {
                                   int output_num_channels,
                                   int reverse_input_num_channels,
                                   int reverse_output_num_channels);
+  void SelectivelyToggleDataDumping(int init_index,
+                                    int capture_frames_since_init) const;
 
   const SimulationSettings settings_;
-  std::unique_ptr<AudioProcessing> ap_;
-  std::unique_ptr<AudioProcessingBuilder> ap_builder_;
+  rtc::scoped_refptr<AudioProcessing> ap_;
 
   std::unique_ptr<ChannelBuffer<float>> in_buf_;
   std::unique_ptr<ChannelBuffer<float>> out_buf_;
@@ -223,8 +235,6 @@ class AudioProcessingSimulator {
   FakeRecordingDevice fake_recording_device_;
 
   TaskQueueForTest worker_queue_;
-
-  RTC_DISALLOW_IMPLICIT_CONSTRUCTORS(AudioProcessingSimulator);
 };
 
 }  // namespace test

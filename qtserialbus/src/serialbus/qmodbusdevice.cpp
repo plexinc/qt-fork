@@ -95,11 +95,6 @@ QModbusDevice::~QModbusDevice()
     \value NetworkPortParameter      This parameter holds the network port. \c int
     \value NetworkAddressParameter   This parameter holds the host address for network
                                      communication. \c QString
-
-    User options:
-
-    \value UserParameter             This enum value has been deprecated. There
-                                     will be no replacement.
 */
 
 /*!
@@ -120,7 +115,7 @@ QModbusDevice::~QModbusDevice()
 
     \sa ConnectionParameter
 */
-QVariant QModbusDevice::connectionParameter(int parameter) const
+QVariant QModbusDevice::connectionParameter(ConnectionParameter parameter) const
 {
     Q_D(const QModbusDevice);
     switch (parameter) {
@@ -143,7 +138,7 @@ QVariant QModbusDevice::connectionParameter(int parameter) const
     default:
         break;
     }
-    return d->m_userConnectionParams.value(parameter); // ### Qt6: remove
+    return {};
 }
 
 /*!
@@ -154,7 +149,7 @@ QVariant QModbusDevice::connectionParameter(int parameter) const
     \sa ConnectionParameter
     \sa connectionParameter()
 */
-void QModbusDevice::setConnectionParameter(int parameter, const QVariant &value)
+void QModbusDevice::setConnectionParameter(ConnectionParameter parameter, const QVariant &value)
 {
     Q_D(QModbusDevice);
     switch (parameter) {
@@ -182,7 +177,7 @@ void QModbusDevice::setConnectionParameter(int parameter, const QVariant &value)
         d->m_networkAddress = value.toString();
         break;
     default:
-        d->m_userConnectionParams.insert(parameter, value); // ### Qt6: remove
+        Q_ASSERT_X(false, "", "Connection parameter not supported.");
         break;
     }
 }
@@ -214,6 +209,27 @@ void QModbusDevice::setConnectionParameter(int parameter, const QVariant &value)
     \value ConnectingState  The device is being connected.
     \value ConnectedState   The device is connected to the Modbus network.
     \value ClosingState     The device is being closed.
+*/
+
+/*!
+    \since 6.0
+    \enum QModbusDevice::IntermediateError
+
+    This enum describes possible errors that can happen during a full send and
+    receive cycle for a Modbus reply.
+
+    \value ResponseCrcError         A Modbus response with a wrong CRC was received.
+    \value ResponseRequestMismatch  A Modbus response was received but did not
+                                    match the open request, probably due to the
+                                    PDU's function code not matching.
+
+    If any of the above intermediate errors occurred, the frame is likely
+    resent until the maximum number of retries has been reached.
+
+    The list of intermediate errors can be inspected from the \l QModbusReply
+    intermediate errors function.
+
+    \sa QModbusClient::numberOfRetries(), QModbusReply::intermediateErrors()
 */
 
 /*!

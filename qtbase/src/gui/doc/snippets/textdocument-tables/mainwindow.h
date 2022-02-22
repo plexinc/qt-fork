@@ -47,13 +47,15 @@
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
-
 #ifndef WINDOW_H
 #define WINDOW_H
 
 #include <QMainWindow>
 
 class QTextEdit;
+class QTextFrame;
+class QTextBlock;
+class QTextTable;
 
 class MainWindow : public QMainWindow
 {
@@ -68,8 +70,11 @@ public slots:
 
 private:
     bool writeXml(const QString &fileName);
+    void processFrame(QTextFrame *);
+    void processBlock(QTextBlock);
+    void processTable(QTextTable *table);
 
-    QTextEdit *editor;
+    QTextEdit *editor = nullptr;
 };
 
 #endif

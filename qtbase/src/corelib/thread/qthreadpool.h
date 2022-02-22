@@ -51,7 +51,6 @@ QT_REQUIRE_CONFIG(thread);
 
 QT_BEGIN_NAMESPACE
 
-
 class QThreadPoolPrivate;
 class Q_CORE_EXPORT QThreadPool : public QObject
 {
@@ -61,6 +60,7 @@ class Q_CORE_EXPORT QThreadPool : public QObject
     Q_PROPERTY(int maxThreadCount READ maxThreadCount WRITE setMaxThreadCount)
     Q_PROPERTY(int activeThreadCount READ activeThreadCount)
     Q_PROPERTY(uint stackSize READ stackSize WRITE setStackSize)
+    Q_PROPERTY(QThread::Priority threadPriority READ threadPriority WRITE setThreadPriority)
     friend class QFutureInterfaceBase;
 
 public:
@@ -86,6 +86,9 @@ public:
     void setStackSize(uint stackSize);
     uint stackSize() const;
 
+    void setThreadPriority(QThread::Priority priority);
+    QThread::Priority threadPriority() const;
+
     void reserveThread();
     void releaseThread();
 
@@ -95,11 +98,7 @@ public:
 
     bool contains(const QThread *thread) const;
 
-#if QT_DEPRECATED_SINCE(5, 9)
-    QT_DEPRECATED_X("use tryTake(), but note the different deletion rules")
-    void cancel(QRunnable *runnable);
-#endif
-    Q_REQUIRED_RESULT bool tryTake(QRunnable *runnable);
+    [[nodiscard]] bool tryTake(QRunnable *runnable);
 };
 
 QT_END_NAMESPACE

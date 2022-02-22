@@ -11,6 +11,7 @@
 #include "libANGLE/renderer/driver_utils.h"
 
 #include "common/platform.h"
+#include "common/system_utils.h"
 
 #if defined(ANGLE_PLATFORM_ANDROID)
 #    include <sys/system_properties.h>
@@ -20,12 +21,19 @@
 #    include <sys/utsname.h>
 #endif
 
+#if defined(ANGLE_PLATFORM_WINDOWS)
+#    include <versionhelpers.h>
+#endif
+
 namespace rx
 {
 // Intel
 // Referenced from https://cgit.freedesktop.org/vaapi/intel-driver/tree/src/i965_pciids.h
 namespace
 {
+// gen6
+const uint32_t SandyBridge[] = {0x0102, 0x0106, 0x010A, 0x0112, 0x0122, 0x0116, 0x0126};
+
 // gen7
 const uint32_t IvyBridge[] = {0x0152, 0x0156, 0x015A, 0x0162, 0x0166, 0x016A};
 
@@ -96,6 +104,12 @@ bool IntelDriverVersion::operator>=(const IntelDriverVersion &version)
     return !(*this < version);
 }
 
+bool IsSandyBridge(uint32_t DeviceId)
+{
+    return std::find(std::begin(SandyBridge), std::end(SandyBridge), DeviceId) !=
+           std::end(SandyBridge);
+}
+
 bool IsIvyBridge(uint32_t DeviceId)
 {
     return std::find(std::begin(IvyBridge), std::end(IvyBridge), DeviceId) != std::end(IvyBridge);
@@ -137,7 +151,7 @@ const char *GetVendorString(uint32_t vendorId)
     switch (vendorId)
     {
         case VENDOR_ID_AMD:
-            return "Advanced Micro Devices";
+            return "AMD";
         case VENDOR_ID_ARM:
             return "ARM";
         case VENDOR_ID_BROADCOM:
@@ -148,11 +162,17 @@ const char *GetVendorString(uint32_t vendorId)
             return "Intel";
         case VENDOR_ID_NVIDIA:
             return "NVIDIA";
+        case VENDOR_ID_POWERVR:
+            return "Imagination Technologies";
         case VENDOR_ID_QUALCOMM:
             return "Qualcomm";
+        case 0xba5eba11:  // Mock vendor ID used for tests.
+            return "Test";
+        case 0:
+            return "NULL";
         default:
             // TODO(jmadill): More vendor IDs.
-            ASSERT(vendorId == 0xba5eba11);  // Mock vendor ID used for tests.
+            UNIMPLEMENTED();
             return "Unknown";
     }
 }
@@ -250,6 +270,46 @@ OSVersion GetLinuxOSVersion()
 #endif
 
     return OSVersion(0, 0, 0);
+}
+
+// There are multiple environment variables that may or may not be set during Wayland
+// sessions, including WAYLAND_DISPLAY, XDG_SESSION_TYPE, and DESKTOP_SESSION
+bool IsWayland()
+{
+    static bool checked   = false;
+    static bool isWayland = false;
+    if (!checked)
+    {
+        if (IsLinux())
+        {
+            if (!angle::GetEnvironmentVar("WAYLAND_DISPLAY").empty())
+            {
+                isWayland = true;
+            }
+            else if (angle::GetEnvironmentVar("XDG_SESSION_TYPE") == "wayland")
+            {
+                isWayland = true;
+            }
+            else if (angle::GetEnvironmentVar("DESKTOP_SESSION").find("wayland") !=
+                     std::string::npos)
+            {
+                isWayland = true;
+            }
+        }
+        checked = true;
+    }
+    return isWayland;
+}
+
+bool IsWin10OrGreater()
+{
+#if defined(ANGLE_ENABLE_WINDOWS_UWP)
+    return true;
+#elif defined(ANGLE_PLATFORM_WINDOWS)
+    return IsWindows10OrGreater();
+#else
+    return false;
+#endif
 }
 
 }  // namespace rx

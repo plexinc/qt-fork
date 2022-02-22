@@ -33,7 +33,7 @@
 #include <QtCharts/QCategoryAxis>
 #include <QtCore/QDebug>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 PolarChartCategoryAxisRadial::PolarChartCategoryAxisRadial(QCategoryAxis *axis, QGraphicsItem *item)
     : PolarChartAxisRadial(axis, item, true)
@@ -45,11 +45,11 @@ PolarChartCategoryAxisRadial::~PolarChartCategoryAxisRadial()
 {
 }
 
-QVector<qreal> PolarChartCategoryAxisRadial::calculateLayout() const
+QList<qreal> PolarChartCategoryAxisRadial::calculateLayout() const
 {
     QCategoryAxis *catAxis = static_cast<QCategoryAxis *>(axis());
     int tickCount = catAxis->categoriesLabels().count() + 1;
-    QVector<qreal> points;
+    QList<qreal> points;
 
     if (tickCount < 2)
         return points;
@@ -71,7 +71,7 @@ QVector<qreal> PolarChartCategoryAxisRadial::calculateLayout() const
     return points;
 }
 
-void PolarChartCategoryAxisRadial::createAxisLabels(const QVector<qreal> &layout)
+void PolarChartCategoryAxisRadial::createAxisLabels(const QList<qreal> &layout)
 {
     Q_UNUSED(layout);
     setLabels(static_cast<QCategoryAxis *>(axis())->categoriesLabels() << QString());
@@ -83,6 +83,6 @@ void PolarChartCategoryAxisRadial::handleCategoriesChanged()
     presenter()->layout()->invalidate();
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_polarchartcategoryaxisradial_p.cpp"

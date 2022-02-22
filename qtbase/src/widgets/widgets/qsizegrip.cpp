@@ -48,10 +48,10 @@
 #include "qstyleoption.h"
 #include "qlayout.h"
 #include "qdebug.h"
-#include <QDesktopWidget>
 
 #include <private/qwidget_p.h>
-#include <private/qdesktopwidget_p.h>
+#include "private/qapplication_p.h"
+#include <qpa/qplatformtheme.h>
 #include <QtWidgets/qabstractscrollarea.h>
 
 QT_BEGIN_NAMESPACE
@@ -173,6 +173,10 @@ Qt::Corner QSizeGripPrivate::corner() const
     On some platforms the size grip automatically hides itself when the
     window is shown full screen or maximised.
 
+    \note On macOS, size grips are no longer part of the human interface
+    guideline, and won't show unless used in a QMdiSubWindow. Set another
+    style on size grips that you want to be visible in main windows.
+
     \table 50%
     \row \li \inlineimage fusion-statusbar-sizegrip.png Screenshot of a Fusion style size grip
     \li A size grip widget at the bottom-right corner of a main window, shown in the
@@ -229,9 +233,8 @@ QSizeGrip::~QSizeGrip()
 QSize QSizeGrip::sizeHint() const
 {
     QStyleOption opt(0);
-    opt.init(this);
-    return (style()->sizeFromContents(QStyle::CT_SizeGrip, &opt, QSize(13, 13), this).
-            expandedTo(QApplication::globalStrut()));
+    opt.initFrom(this);
+    return style()->sizeFromContents(QStyle::CT_SizeGrip, &opt, QSize(13, 13), this);
 }
 
 /*!
@@ -247,7 +250,7 @@ void QSizeGrip::paintEvent(QPaintEvent *event)
     Q_D(QSizeGrip);
     QPainter painter(this);
     QStyleOptionSizeGrip opt;
-    opt.init(this);
+    opt.initFrom(this);
     opt.corner = d->m_corner;
     style()->drawControl(QStyle::CE_SizeGrip, &opt, &painter, this);
 }
@@ -271,6 +274,18 @@ static Qt::Edges edgesFromCorner(Qt::Corner corner)
     return Qt::Edges{};
 }
 
+static bool usePlatformSizeGrip(const QWidget *tlw)
+{
+    const QString &platformName = QGuiApplication::platformName();
+    if (platformName.contains(u"xcb")) // ### FIXME QTBUG-69716
+        return false;
+    if (tlw->testAttribute(Qt::WA_TranslucentBackground)
+        && platformName == u"windows") {
+        return false; // QTBUG-90628, flicker when using translucency
+    }
+    return true;
+}
+
 void QSizeGrip::mousePressEvent(QMouseEvent * e)
 {
     if (e->button() != Qt::LeftButton) {
@@ -280,7 +295,7 @@ void QSizeGrip::mousePressEvent(QMouseEvent * e)
 
     Q_D(QSizeGrip);
     QWidget *tlw = qt_sizegrip_topLevelWidget(this);
-    d->p = e->globalPos();
+    d->p = e->globalPosition().toPoint();
     d->gotMousePress = true;
     d->r = tlw->geometry();
 
@@ -290,11 +305,11 @@ void QSizeGrip::mousePressEvent(QMouseEvent * e)
         && tlw->windowHandle()
         && !(tlw->windowFlags() & Qt::X11BypassWindowManagerHint)
         && !tlw->testAttribute(Qt::WA_DontShowOnScreen)
-        && !tlw->hasHeightForWidth()) {
+        && !tlw->hasHeightForWidth()
+        && usePlatformSizeGrip(tlw)) {
         QPlatformWindow *platformWindow = tlw->windowHandle()->handle();
         const Qt::Edges edges = edgesFromCorner(d->m_corner);
-        if (!QGuiApplication::platformName().contains(QStringLiteral("xcb"))) // ### FIXME QTBUG-69716
-            d->m_platformSizeGrip = platformWindow && platformWindow->startSystemResize(edges);
+        d->m_platformSizeGrip = platformWindow->startSystemResize(edges);
     }
 
     if (d->m_platformSizeGrip)
@@ -304,8 +319,12 @@ void QSizeGrip::mousePressEvent(QMouseEvent * e)
     QRect availableGeometry;
     bool hasVerticalSizeConstraint = true;
     bool hasHorizontalSizeConstraint = true;
-    if (tlw->isWindow())
-        availableGeometry = QDesktopWidgetPrivate::availableGeometry(tlw);
+    if (tlw->isWindow()) {
+        if (QGuiApplicationPrivate::platformTheme()->themeHint(QPlatformTheme::InteractiveResizeAcrossScreens).toBool())
+            availableGeometry = tlw->screen()->availableVirtualGeometry();
+        else
+            availableGeometry = QWidgetPrivate::availableScreenGeometry(tlw);
+    }
     else {
         const QWidget *tlwParent = tlw->parentWidget();
         // Check if tlw is inside QAbstractScrollArea/QScrollArea.
@@ -374,7 +393,7 @@ void QSizeGrip::mouseMoveEvent(QMouseEvent * e)
     if (!d->gotMousePress || tlw->testAttribute(Qt::WA_WState_ConfigPending))
         return;
 
-    QPoint np(e->globalPos());
+    QPoint np(e->globalPosition().toPoint());
 
     // Don't extend beyond the available geometry; bound to dyMax and dxMax.
     QSize ns;

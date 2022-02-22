@@ -1,3 +1,4 @@
+set noparent
 skyostil@chromium.org
 eseckler@chromium.org
 
@@ -13,6 +14,3 @@ altimin@chromium.org
 dvallet@chromium.org
 irisu@chromium.org
 jzfeng@chromium.org
-
-# TEAM: headless-dev@chromium.org
-# COMPONENT: Internals>Headless

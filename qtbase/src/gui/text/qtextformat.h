@@ -40,15 +40,16 @@
 #ifndef QTEXTFORMAT_H
 #define QTEXTFORMAT_H
 
-#include <QtGui/qtguiglobal.h>
+#include <QtGui/qbrush.h>
 #include <QtGui/qcolor.h>
 #include <QtGui/qfont.h>
-#include <QtCore/qshareddata.h>
-#include <QtCore/qvector.h>
-#include <QtCore/qvariant.h>
 #include <QtGui/qpen.h>
-#include <QtGui/qbrush.h>
 #include <QtGui/qtextoption.h>
+#include <QtGui/qtguiglobal.h>
+
+#include <QtCore/qlist.h>
+#include <QtCore/qshareddata.h>
+#include <QtCore/qvariant.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -117,7 +118,7 @@ private:
     friend Q_GUI_EXPORT QDataStream &operator<<(QDataStream &, const QTextLength &);
     friend Q_GUI_EXPORT QDataStream &operator>>(QDataStream &, QTextLength &);
 };
-Q_DECLARE_TYPEINFO(QTextLength, QT_VERSION >= QT_VERSION_CHECK(6,0,0) ? Q_PRIMITIVE_TYPE : Q_RELOCATABLE_TYPE);
+Q_DECLARE_TYPEINFO(QTextLength, Q_PRIMITIVE_TYPE);
 
 inline QTextLength::QTextLength(Type atype, qreal avalue)
     : lengthType(atype), fixedValueOrPercentage(avalue) {}
@@ -140,9 +141,6 @@ public:
         BlockFormat = 1,
         CharFormat = 2,
         ListFormat = 3,
-#if QT_DEPRECATED_SINCE(5, 3)
-        TableFormat = 4,
-#endif
         FrameFormat = 5,
 
         UserFormat = 100
@@ -184,17 +182,19 @@ public:
         // character properties
         FirstFontProperty = 0x1FE0,
         FontCapitalization = FirstFontProperty,
-        FontLetterSpacingType = 0x2033,
         FontLetterSpacing = 0x1FE1,
         FontWordSpacing = 0x1FE2,
-        FontStretch = 0x2034,
         FontStyleHint = 0x1FE3,
         FontStyleStrategy = 0x1FE4,
         FontKerning = 0x1FE5,
         FontHintingPreference = 0x1FE6,
         FontFamilies = 0x1FE7,
         FontStyleName = 0x1FE8,
+        FontLetterSpacingType = 0x1FE9,
+        FontStretch = 0x1FEA,
+#if QT_DEPRECATED_SINCE(6, 0)
         FontFamily = 0x2000,
+#endif
         FontPointSize = 0x2001,
         FontSizeAdjustment = 0x2002,
         FontSizeIncrement = FontSizeAdjustment, // old name, compat
@@ -207,15 +207,25 @@ public:
         FontPixelSize = 0x2009,
         LastFontProperty = FontPixelSize,
 
-        TextUnderlineColor = 0x2010,
+        TextUnderlineColor = 0x2020,
         TextVerticalAlignment = 0x2021,
         TextOutline = 0x2022,
         TextUnderlineStyle = 0x2023,
         TextToolTip = 0x2024,
+        TextSuperScriptBaseline = 0x2025,
+        TextSubScriptBaseline = 0x2026,
+        TextBaselineOffset = 0x2027,
 
         IsAnchor = 0x2030,
         AnchorHref = 0x2031,
         AnchorName = 0x2032,
+
+        // Included for backwards compatibility with old QDataStreams.
+        // Should not be referenced in user code.
+        OldFontLetterSpacingType = 0x2033,
+        OldFontStretch = 0x2034,
+        OldTextUnderlineColor = 0x2010,
+
         ObjectType = 0x2f00,
 
         // list properties
@@ -345,9 +355,9 @@ public:
     QPen penProperty(int propertyId) const;
     QBrush brushProperty(int propertyId) const;
     QTextLength lengthProperty(int propertyId) const;
-    QVector<QTextLength> lengthVectorProperty(int propertyId) const;
+    QList<QTextLength> lengthVectorProperty(int propertyId) const;
 
-    void setProperty(int propertyId, const QVector<QTextLength> &lengths);
+    void setProperty(int propertyId, const QList<QTextLength> &lengths);
 
     QMap<int, QVariant> properties() const;
     int propertyCount() const;
@@ -443,14 +453,15 @@ public:
         FontPropertiesSpecifiedOnly,
         FontPropertiesAll
     };
-    void setFont(const QFont &font, FontPropertiesInheritanceBehavior behavior);
-    void setFont(const QFont &font); // ### Qt6: Merge with above
+    void setFont(const QFont &font, FontPropertiesInheritanceBehavior behavior = FontPropertiesAll);
     QFont font() const;
 
-    inline void setFontFamily(const QString &family)
-    { setProperty(FontFamily, family); }
-    inline QString fontFamily() const
-    { return stringProperty(FontFamily); }
+#if QT_DEPRECATED_SINCE(6, 1)
+    QT_DEPRECATED_VERSION_X_6_1("Use setFontFamilies instead") inline void setFontFamily(const QString &family)
+    { setProperty(FontFamilies, QVariant(QStringList(family))); }
+    QT_DEPRECATED_VERSION_X_6_1("Use fontFamilies instead") inline QString fontFamily() const
+    { return property(FontFamilies).toStringList().first(); }
+#endif
 
     inline void setFontFamilies(const QStringList &families)
     { setProperty(FontFamilies, QVariant(families)); }
@@ -564,6 +575,21 @@ public:
     inline QString toolTip() const
     { return stringProperty(TextToolTip); }
 
+    inline void setSuperScriptBaseline(qreal baseline)
+    { setProperty(TextSuperScriptBaseline, baseline); }
+    inline qreal superScriptBaseline() const
+    { return hasProperty(TextSuperScriptBaseline) ? doubleProperty(TextSuperScriptBaseline) : 50.0; }
+
+    inline void setSubScriptBaseline(qreal baseline)
+    { setProperty(TextSubScriptBaseline, baseline); }
+    inline qreal subScriptBaseline() const
+    { return hasProperty(TextSubScriptBaseline) ? doubleProperty(TextSubScriptBaseline) : 100.0 / 6.0; }
+
+    inline void setBaselineOffset(qreal baseline)
+    { setProperty(TextBaselineOffset, baseline); }
+    inline qreal baselineOffset() const
+    { return hasProperty(TextBaselineOffset) ? doubleProperty(TextBaselineOffset) : 0.0; }
+
     inline void setAnchor(bool anchor)
     { setProperty(IsAnchor, anchor); }
     inline bool isAnchor() const
@@ -573,14 +599,6 @@ public:
     { setProperty(AnchorHref, value); }
     inline QString anchorHref() const
     { return stringProperty(AnchorHref); }
-
-#if QT_DEPRECATED_SINCE(5, 13)
-    QT_DEPRECATED_X("Use setAnchorNames() instead")
-    inline void setAnchorName(const QString &name)
-    { setAnchorNames(QStringList(name)); }
-    QT_DEPRECATED_X("Use anchorNames() instead")
-    QString anchorName() const;
-#endif
 
     inline void setAnchorNames(const QStringList &names)
     { setProperty(AnchorName, names); }
@@ -955,10 +973,10 @@ public:
     { int cols = intProperty(TableColumns); if (cols == 0) cols = 1; return cols; }
     inline void setColumns(int columns);
 
-    inline void setColumnWidthConstraints(const QVector<QTextLength> &constraints)
+    inline void setColumnWidthConstraints(const QList<QTextLength> &constraints)
     { setProperty(TableColumnWidthConstraints, constraints); }
 
-    inline QVector<QTextLength> columnWidthConstraints() const
+    inline QList<QTextLength> columnWidthConstraints() const
     { return lengthVectorProperty(TableColumnWidthConstraints); }
 
     inline void clearColumnWidthConstraints()

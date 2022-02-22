@@ -54,10 +54,10 @@
 #include <Qt3DQuick/QQmlAspectEngine>
 #include <Qt3DCore/private/qnode_p.h>
 
-QVector<Qt3DCore::QNode *>lookupNodeByClassName(Qt3DCore::QNode *root, const QString &className)
+QList<Qt3DCore::QNode *>lookupNodeByClassName(Qt3DCore::QNode *root, const QString &className)
 {
     auto children = root->childNodes();
-    QVector<Qt3DCore::QNode *> childrenList;
+    QList<Qt3DCore::QNode *> childrenList;
     for (auto i : children) {
         if (i->metaObject()->className() == className)
             childrenList << i;
@@ -77,7 +77,6 @@ private slots:
 
 void tst_qtext2dentity::checkChangeArbiter()
 {
-#if !defined(QT_OPENGL_ES_2_ANGLE)
     // GIVEN
     Qt3DExtras::Quick::Qt3DQuickWindow view;
     view.setSource(QUrl("qrc:/qtext2dentity.qml"));
@@ -91,7 +90,6 @@ void tst_qtext2dentity::checkChangeArbiter()
     QVERIFY(atlases.length() == 1);
     auto atlas = atlases[0];
     QTRY_VERIFY(Qt3DCore::QNodePrivate::get(atlas)->m_changeArbiter);
-#endif
 }
 
 QTEST_MAIN(tst_qtext2dentity)

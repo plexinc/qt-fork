@@ -31,20 +31,14 @@
   \ingroup modules
   \brief Provides a helper function to set up and use the WebView.
   \qtvariable webview
+  \qtcmakepackage WebView
 
   The Qt WebView module provides functionality to initialize the backend
-  for using the \l [QML] WebView QML type.
+  for using the WebView QML type.
 
   To include the module's definitions, use the following directive:
 
   \code
   #include <QtWebView>
-  \endcode
-
-  To link against the module, add the following line to your project
-  file:
-
-  \badcode
-  QT += webview
   \endcode
 */

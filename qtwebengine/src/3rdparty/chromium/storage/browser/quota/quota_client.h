@@ -7,89 +7,40 @@
 
 #include <stdint.h>
 
-#include <set>
 #include <string>
+#include <vector>
 
 #include "base/callback.h"
 #include "base/component_export.h"
-#include "third_party/blink/public/mojom/quota/quota_types.mojom-forward.h"
+#include "components/services/storage/public/mojom/quota_client.mojom.h"
+#include "storage/browser/quota/quota_client_type.h"
+#include "third_party/blink/public/mojom/quota/quota_types.mojom.h"
 #include "url/origin.h"
 
 namespace storage {
 
-// Interface between each storage API and the quota manager.
+// Interface between the legacy quota clients and the QuotaManager.
 //
-// Each storage API must register an implementation of this interface with
-// the quota manager, by calling QuotaManager::RegisterClient().
+// Implementations of this class will be transitioned to inherit from
+// storage::mojom::QuotaClient and talk to the QuotaManager via mojo.
 //
-// All the methods will be called on the IO thread in the browser.
+// This inherits from storage::mojom::QuotaClient so that MockQuotaClient
+// instances can be passed to QuotaManger::RegisterLegacyClient(),
+// as well as used via mojo with QuotaManager::RegisterClient().
 //
-// When AppCache is deleted, this can become a std::unique_ptr instead
-// of refcounted, and owned by the QuotaManager.
+// TODO(crbug.com/1163009): Remove this class after all QuotaClients have
+//                          been mojofied.
 class COMPONENT_EXPORT(STORAGE_BROWSER) QuotaClient
-    : public base::RefCountedThreadSafe<QuotaClient> {
+    : public base::RefCountedThreadSafe<QuotaClient>,
+      public storage::mojom::QuotaClient {
  public:
-  using GetUsageCallback = base::OnceCallback<void(int64_t usage)>;
-  using GetOriginsCallback =
-      base::OnceCallback<void(const std::set<url::Origin>& origins)>;
-  using DeletionCallback =
-      base::OnceCallback<void(blink::mojom::QuotaStatusCode status)>;
-
-  enum ID {
-    kFileSystem = 1 << 0,
-    kDatabase = 1 << 1,
-    kAppcache = 1 << 2,
-    kIndexedDatabase = 1 << 3,
-    kServiceWorkerCache = 1 << 4,
-    kServiceWorker = 1 << 5,
-    kBackgroundFetch = 1 << 6,
-    kAllClientsMask = -1,
-  };
-
-  virtual ID id() const = 0;
-
   // Called when the QuotaManager is destroyed.
   virtual void OnQuotaManagerDestroyed() = 0;
-
-  // Called by the QuotaManager.
-  // Gets the amount of data stored in the storage specified by
-  // |origin| and |type|.
-  // Note it is safe to fire the callback after the QuotaClient is destructed.
-  virtual void GetOriginUsage(const url::Origin& origin,
-                              blink::mojom::StorageType type,
-                              GetUsageCallback callback) = 0;
-
-  // Called by the QuotaManager.
-  // Returns a list of origins that has data in the |type| storage.
-  // Note it is safe to fire the callback after the QuotaClient is destructed.
-  virtual void GetOriginsForType(blink::mojom::StorageType type,
-                                 GetOriginsCallback callback) = 0;
-
-  // Called by the QuotaManager.
-  // Returns a list of origins that match the |host|.
-  // Note it is safe to fire the callback after the QuotaClient is destructed.
-  virtual void GetOriginsForHost(blink::mojom::StorageType type,
-                                 const std::string& host,
-                                 GetOriginsCallback callback) = 0;
-
-  // Called by the QuotaManager.
-  // Note it is safe to fire the callback after the QuotaClient is destructed.
-  virtual void DeleteOriginData(const url::Origin& origin,
-                                blink::mojom::StorageType type,
-                                DeletionCallback callback) = 0;
-
-  // Called by the QuotaManager.
-  // Gives the QuotaClient an opportunity to perform a cleanup step after major
-  // deletions.
-  virtual void PerformStorageCleanup(blink::mojom::StorageType type,
-                                     base::OnceClosure callback) = 0;
-
-  virtual bool DoesSupport(blink::mojom::StorageType type) const = 0;
 
  protected:
   friend class base::RefCountedThreadSafe<QuotaClient>;
 
-  virtual ~QuotaClient() = default;
+  ~QuotaClient() override = default;
 };
 
 }  // namespace storage

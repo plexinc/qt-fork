@@ -43,7 +43,6 @@
 #include <xcb/shm.h>
 #include <xcb/sync.h>
 #include <xcb/xfixes.h>
-#include <xcb/xinerama.h>
 #include <xcb/render.h>
 #include <xcb/xinput.h>
 #define explicit dont_use_cxx_explicit
@@ -145,8 +144,6 @@ QXcbBasicConnection::QXcbBasicConnection(const char *displayName)
         initializeShm();
     if (!qEnvironmentVariableIsSet("QT_XCB_NO_XRANDR"))
         initializeXRandr();
-    if (!m_hasXRandr)
-        initializeXinerama();
     initializeXFixes();
     initializeXRender();
     if (!qEnvironmentVariableIsSet("QT_XCB_NO_XI2"))
@@ -179,7 +176,13 @@ xcb_atom_t QXcbBasicConnection::internAtom(const char *name)
     if (!name || *name == 0)
         return XCB_NONE;
 
-    return Q_XCB_REPLY(xcb_intern_atom, m_xcbConnection, false, strlen(name), name)->atom;
+    auto reply = Q_XCB_REPLY(xcb_intern_atom, m_xcbConnection, false, strlen(name), name);
+    if (!reply) {
+        qCDebug(lcQpaXcb) << "failed to query intern atom: " << name;
+        return XCB_NONE;
+    }
+
+    return reply->atom;
 }
 
 QByteArray QXcbBasicConnection::atomName(xcb_atom_t atom)
@@ -305,17 +308,6 @@ void QXcbBasicConnection::initializeXRender()
     m_hasXRender = true;
     m_xrenderVersion.first = xrenderQuery->major_version;
     m_xrenderVersion.second = xrenderQuery->minor_version;
-}
-
-void QXcbBasicConnection::initializeXinerama()
-{
-    const xcb_query_extension_reply_t *reply = xcb_get_extension_data(m_xcbConnection, &xcb_xinerama_id);
-    if (!reply || !reply->present)
-        return;
-
-    auto xineramaActive = Q_XCB_REPLY(xcb_xinerama_is_active, m_xcbConnection);
-    if (xineramaActive && xineramaActive->state)
-        m_hasXinerama = true;
 }
 
 void QXcbBasicConnection::initializeXFixes()

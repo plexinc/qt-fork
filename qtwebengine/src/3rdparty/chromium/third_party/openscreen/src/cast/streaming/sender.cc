@@ -5,26 +5,25 @@
 #include "cast/streaming/sender.h"
 
 #include <algorithm>
-#include <ratio>  // NOLINT
+#include <chrono>
+#include <ratio>
 
 #include "cast/streaming/session_config.h"
-#include "util/logging.h"
+#include "util/chrono_helpers.h"
+#include "util/osp_logging.h"
 #include "util/std_util.h"
 
 namespace openscreen {
 namespace cast {
 
-using std::chrono::duration_cast;
-using std::chrono::microseconds;
-using std::chrono::milliseconds;
-
 using openscreen::operator<<;  // For std::chrono::duration logging.
 
 Sender::Sender(Environment* environment,
                SenderPacketRouter* packet_router,
-               const SessionConfig& config,
+               SessionConfig config,
                RtpPayloadType rtp_payload_type)
-    : packet_router_(packet_router),
+    : config_(config),
+      packet_router_(packet_router),
       rtcp_session_(config.sender_ssrc,
                     config.receiver_ssrc,
                     environment->now()),
@@ -171,6 +170,13 @@ Sender::EnqueueFrameResult Sender::EnqueueFrame(const EncodedFrame& frame) {
   return OK;
 }
 
+void Sender::CancelInFlightData() {
+  while (checkpoint_frame_id_ <= last_enqueued_frame_id_) {
+    ++checkpoint_frame_id_;
+    CancelPendingFrame(checkpoint_frame_id_);
+  }
+}
+
 void Sender::OnReceivedRtcpPacket(Clock::time_point arrival_time,
                                   absl::Span<const uint8_t> packet) {
   rtcp_packet_arrival_time_ = arrival_time;
@@ -264,7 +270,7 @@ void Sender::OnReceiverReport(const RtcpReportBlock& receiver_report) {
       sender_report_builder_.GetRecentReportTime(
           receiver_report.last_status_report_id, rtcp_packet_arrival_time_);
   const auto non_network_delay =
-      duration_cast<Clock::duration>(receiver_report.delay_since_last_report);
+      Clock::to_duration(receiver_report.delay_since_last_report);
 
   // Round trip time measurement: This is the time elapsed since the Sender
   // Report was sent, minus the time the Receiver did other stuff before sending
@@ -275,8 +281,7 @@ void Sender::OnReceiverReport(const RtcpReportBlock& receiver_report) {
   // true value is likely very close to zero (i.e., this is ideal network
   // behavior); and so just represent this as 75 µs, an optimistic
   // wired-Ethernet LAN ping time.
-  constexpr auto kNearZeroRoundTripTime =
-      duration_cast<Clock::duration>(microseconds(75));
+  constexpr auto kNearZeroRoundTripTime = Clock::to_duration(microseconds(75));
   static_assert(kNearZeroRoundTripTime > Clock::duration::zero(),
                 "More precision in Clock::duration needed!");
   const Clock::duration measurement =
@@ -412,11 +417,12 @@ void Sender::OnReceiverIsMissingPackets(std::vector<PacketNack> nacks) {
     if (!slot) {
       // TODO(miu): Add tracing event here to record this.
       for (++nack_it; nack_it != nacks.end() && nack_it->frame_id == frame_id;
-           ++nack_it)
-        ;
+           ++nack_it) {
+      }
       continue;
     }
 
+    // NOLINTNEXTLINE
     latest_expected_frame_id_ = std::max(latest_expected_frame_id_, frame_id);
 
     const auto HandleIndividualNack = [&](FramePacketId packet_id) {
@@ -500,8 +506,8 @@ Sender::ChosenPacketAndWhen Sender::ChooseKickstartPacket() {
   // arrivals.
   using kWaitFraction = std::ratio<1, 20>;
   const Clock::duration desired_kickstart_interval =
-      duration_cast<Clock::duration>(target_playout_delay_) *
-      kWaitFraction::num / kWaitFraction::den;
+      Clock::to_duration(target_playout_delay_) * kWaitFraction::num /
+      kWaitFraction::den;
   // The actual interval used is increased, if current network performance
   // warrants waiting longer. Don't send a Kickstart packet until no NACKs
   // have been received for two network round-trip periods.

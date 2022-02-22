@@ -25,9 +25,9 @@
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
-#include "../../shared/util.h"
-#include "../shared/visualtestutil.h"
-#include "../shared/viewtestutil.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
+#include <QtQuickTestUtils/private/visualtestutils_p.h>
+#include <QtQuickTestUtils/private/viewtestutils_p.h>
 
 #include <qtest.h>
 #include <QtCore/qregularexpression.h>
@@ -47,8 +47,8 @@
 #include <math.h>
 #include <QtGui/qstandarditemmodel.h>
 
-using namespace QQuickVisualTestUtil;
-using namespace QQuickViewTestUtil;
+using namespace QQuickVisualTestUtils;
+using namespace QQuickViewTestUtils;
 
 template <typename T, int N> int lengthOf(const T (&)[N]) { return N; }
 
@@ -105,7 +105,7 @@ public:
     }
     ~SingleRoleModel() {}
 
-    QHash<int,QByteArray> roleNames() const
+    QHash<int,QByteArray> roleNames() const override
     {
         QHash<int,QByteArray> roles;
         roles.insert(Qt::DisplayRole, m_role);
@@ -130,7 +130,7 @@ public:
         }
     }
 
-    QModelIndex index(int row, int column, const QModelIndex &parent = QModelIndex()) const {
+    QModelIndex index(int row, int column, const QModelIndex &parent = QModelIndex()) const override {
         if (row < 0 || column != 0)
             return QModelIndex();
         Branch * const branch = branchForIndex(parent);
@@ -139,24 +139,24 @@ public:
                 : QModelIndex();
     }
 
-    QModelIndex parent(const QModelIndex &child) const {
+    QModelIndex parent(const QModelIndex &child) const override {
         Branch * const branch = static_cast<Branch *>(child.internalPointer());
         return branch->parent
                 ? createIndex(branch->parent->indexOf(branch), 0, branch->parent)
                 : QModelIndex();
     }
 
-    int rowCount(const QModelIndex &parent) const {
+    int rowCount(const QModelIndex &parent) const override {
         Branch * const branch = branchForIndex(parent);
         return branch ? branch->children.count() : 0;
     }
 
-    int columnCount(const QModelIndex &parent) const {
+    int columnCount(const QModelIndex &parent) const override {
         Branch * const branch = branchForIndex(parent);
         return branch ? 1 : 0;
     }
 
-    QVariant data(const QModelIndex &index, int role) const {
+    QVariant data(const QModelIndex &index, int role) const override {
         return index.isValid() && role == Qt::DisplayRole
                 ? static_cast<Branch *>(index.internalPointer())->children.at(index.row()).display
                 : QVariant();
@@ -384,7 +384,7 @@ public:
     tst_qquickvisualdatamodel();
 
 private slots:
-    void initTestCase();
+    void initTestCase() override;
     void cleanupTestCase();
     void rootIndex();
     void updateLayout_data();
@@ -502,6 +502,7 @@ void tst_qquickvisualdatamodel::cleanupTestCase()
 }
 
 tst_qquickvisualdatamodel::tst_qquickvisualdatamodel()
+    : QQmlDataTest(QT_QMLTEST_DATADIR)
 {
 }
 
@@ -968,7 +969,7 @@ void tst_qquickvisualdatamodel::packagesDestroyed()
 {
     QStringList list;
     for (int i=0; i<30; i++)
-        list << (QLatin1String("item ") + i);
+        list << (QLatin1String("item ") + QString::number(i));
     SingleRoleModel model(list);
 
     QQuickView view;
@@ -1052,7 +1053,7 @@ void tst_qquickvisualdatamodel::qaimRowsMoved()
 
     QStringList list;
     for (int i=0; i<30; i++)
-        list << (QLatin1String("item ") + i);
+        list << (QLatin1String("item ") + QString::number(i));
     SingleRoleModel model(list);
     engine.rootContext()->setContextProperty("myModel", &model);
 
@@ -4220,18 +4221,22 @@ void tst_qquickvisualdatamodel::invalidContext()
     engine.rootContext()->setContextProperty("myModel", &model);
 
     QScopedPointer<QQmlContext> context(new QQmlContext(engine.rootContext()));
+    QScopedPointer<QObject> obj;
+    {
+        // The component keeps a reference to the root context as long as the engine lives.
+        // In order to drop the root context we need to drop the component first.
+        QQmlComponent c(&engine, testFileUrl("visualdatamodel.qml"));
+        obj.reset(c.create(context.data()));
+    }
 
-    QQmlComponent c(&engine, testFileUrl("visualdatamodel.qml"));
-
-
-    QQmlDelegateModel *visualModel = qobject_cast<QQmlDelegateModel*>(c.create(context.data()));
+    QQmlDelegateModel *visualModel = qobject_cast<QQmlDelegateModel *>(obj.get());
     QVERIFY(visualModel);
 
     QQuickItem *item = qobject_cast<QQuickItem*>(visualModel->object(4));
     QVERIFY(item);
     visualModel->release(item);
 
-    delete context.take();
+    context.reset();
 
     model.insertItem(4, "new item", "");
 
@@ -4270,13 +4275,13 @@ public:
                                          &ObjectsProvider::listAt);
     }
 
-    static int listLength(QQmlListProperty<QObject> *property)
+    static qsizetype listLength(QQmlListProperty<QObject> *property)
     {
         auto objectsProvider = qobject_cast<ObjectsProvider*>(property->object);
         return objectsProvider ? objectsProvider->m_objects.length() : 0;
     }
 
-    static QObject* listAt(QQmlListProperty<QObject> *property, int index)
+    static QObject* listAt(QQmlListProperty<QObject> *property, qsizetype index)
     {
         auto objectsProvider = qobject_cast<ObjectsProvider*>(property->object);
         return objectsProvider ? objectsProvider->m_objects.at(index) : nullptr;
@@ -4369,7 +4374,7 @@ void tst_qquickvisualdatamodel::readFromProxyObject()
     auto *window = qobject_cast<QQuickWindow *>(obj.get());
     QVERIFY(window);
 
-    QCOMPARE(window->property("name").type(), QMetaType::QString);
+    QCOMPARE(window->property("name").metaType(), QMetaType(QMetaType::QString));
     QTRY_VERIFY(window->property("name").toString() != QLatin1String("wrong"));
 }
 

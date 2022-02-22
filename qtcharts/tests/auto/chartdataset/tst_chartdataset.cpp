@@ -33,7 +33,7 @@
 #include <QtCharts/qlogvalueaxis.h>
 #include <QtCharts/qbarcategoryaxis.h>
 #include <QtCharts/qcategoryaxis.h>
-#ifndef QT_QREAL_IS_FLOAT
+#if QT_CONFIG(charts_datetime_axis)
 #include <QtCharts/qdatetimeaxis.h>
 #endif
 #include <QtCharts/qlineseries.h>
@@ -48,7 +48,7 @@
 #include <private/abstractdomain_p.h>
 #include <tst_definitions.h>
 
-QT_CHARTS_USE_NAMESPACE
+QT_USE_NAMESPACE
 
 Q_DECLARE_METATYPE(AbstractDomain *)
 Q_DECLARE_METATYPE(QAbstractAxis *)
@@ -213,7 +213,7 @@ void tst_ChartDataSet::addAxis_data()
     QAbstractAxis* logvalue = new QLogValueAxis(this);
     QAbstractAxis* category = new QCategoryAxis(this);
     QAbstractAxis* barcategory = new QBarCategoryAxis(this);
-#ifndef QT_QREAL_IS_FLOAT
+#if QT_CONFIG(charts_datetime_axis)
     QAbstractAxis* datetime = new QDateTimeAxis(this);
 #endif
 
@@ -221,7 +221,7 @@ void tst_ChartDataSet::addAxis_data()
     QTest::newRow("logvalue") << logvalue;
     QTest::newRow("category") << category;
     QTest::newRow("barcategory") << barcategory;
-#ifndef QT_QREAL_IS_FLOAT
+#if QT_CONFIG(charts_datetime_axis)
     QTest::newRow("datetime") << datetime;
 #endif
 }

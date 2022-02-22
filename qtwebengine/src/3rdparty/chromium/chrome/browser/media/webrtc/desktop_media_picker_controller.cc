@@ -42,9 +42,9 @@ DesktopMediaPickerController::~DesktopMediaPickerController() = default;
 
 void DesktopMediaPickerController::Show(
     const Params& params,
-    const std::vector<content::DesktopMediaID::Type>& sources,
+    const std::vector<DesktopMediaList::Type>& sources,
     DoneCallback done_callback) {
-  DCHECK(!base::Contains(sources, content::DesktopMediaID::TYPE_NONE));
+  DCHECK(!base::Contains(sources, DesktopMediaList::Type::kNone));
   DCHECK(!done_callback_);
 
   done_callback_ = std::move(done_callback);
@@ -53,14 +53,15 @@ void DesktopMediaPickerController::Show(
   Observe(params.web_contents);
 
   // Keep same order as the input |sources| and avoid duplicates.
-  source_lists_ = picker_factory_->CreateMediaList(sources);
+  source_lists_ =
+      picker_factory_->CreateMediaList(sources, params.web_contents);
   if (source_lists_.empty()) {
     OnPickerDialogResults("At least one source type must be specified.", {});
     return;
   }
 
   if (params.select_only_screen && sources.size() == 1 &&
-      sources[0] == content::DesktopMediaID::TYPE_SCREEN) {
+      sources[0] == DesktopMediaList::Type::kScreen) {
     // Try to bypass the picker dialog if possible.
     DCHECK(source_lists_.size() == 1);
     auto* source_list = source_lists_[0].get();
@@ -81,7 +82,19 @@ void DesktopMediaPickerController::OnInitialMediaListFound() {
   DCHECK(source_lists_.size() == 1);
   auto* source_list = source_lists_[0].get();
   if (source_list->GetSourceCount() == 1) {
-    OnPickerDialogResults({}, source_list->GetSource(0).id);
+    // With only one possible source, the picker dialog is being bypassed. Apply
+    // the default value of the "audio checkbox" here for desktop screen share.
+    // Only two platform configurations support desktop audio capture (i.e.,
+    // system-wide audio loopback) at this time.
+    content::DesktopMediaID media_id = source_list->GetSource(0).id;
+    DCHECK_EQ(media_id.type, content::DesktopMediaID::TYPE_SCREEN);
+#if defined(USE_CRAS) || defined(OS_WIN)
+    media_id.audio_share =
+        params_.request_audio && params_.approve_audio_by_default;
+#else
+    media_id.audio_share = false;
+#endif
+    OnPickerDialogResults({}, media_id);
     return;
   }
 
@@ -89,7 +102,7 @@ void DesktopMediaPickerController::OnInitialMediaListFound() {
 }
 
 void DesktopMediaPickerController::ShowPickerDialog() {
-  picker_ = picker_factory_->CreatePicker();
+  picker_ = picker_factory_->CreatePicker(/*request=*/nullptr);
   if (!picker_) {
     OnPickerDialogResults(
         "Desktop Capture API is not yet implemented for this platform.", {});

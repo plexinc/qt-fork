@@ -37,15 +37,19 @@
 **
 ****************************************************************************/
 
-#import "qcocoansmenu.h"
+#include <AppKit/AppKit.h>
+
+#include "qcocoansmenu.h"
 #include "qcocoamenu.h"
 #include "qcocoamenuitem.h"
 #include "qcocoamenubar.h"
 #include "qcocoawindow.h"
-#import "qnsview.h"
+#include "qnsview.h"
+#include "qcocoahelpers.h"
 
 #include <QtCore/qcoreapplication.h>
 #include <QtCore/qcoreevent.h>
+#include <QtGui/private/qapplekeymapper_p.h>
 
 static NSString *qt_mac_removePrivateUnicode(NSString *string)
 {
@@ -250,7 +254,7 @@ static NSString *qt_mac_removePrivateUnicode(NSString *string)
             QChar ch;
             int keyCode;
             ulong nativeModifiers = event.modifierFlags;
-            Qt::KeyboardModifiers modifiers = [QNSView convertKeyModifiers:nativeModifiers];
+            Qt::KeyboardModifiers modifiers = QAppleKeyMapper::fromCocoaModifiers(nativeModifiers);
             NSString *charactersIgnoringModifiers = event.charactersIgnoringModifiers;
             NSString *characters = event.characters;
 
@@ -260,7 +264,7 @@ static NSString *qt_mac_removePrivateUnicode(NSString *string)
                 } else {
                     ch = QChar([charactersIgnoringModifiers characterAtIndex:0]);
                 }
-                keyCode = qt_mac_cocoaKey2QtKey(ch);
+                keyCode = QAppleKeyMapper::fromCocoaKey(ch);
             } else {
                 // might be a dead key
                 ch = QChar::ReplacementCharacter;

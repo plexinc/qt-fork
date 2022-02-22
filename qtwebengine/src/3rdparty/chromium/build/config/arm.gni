@@ -22,11 +22,6 @@ if (current_cpu == "arm" || v8_current_cpu == "arm") {
     # "vfpv3". An empty string means to use the default for the arm_version.
     arm_fpu = ""
 
-    # The ARM floating point mode. This is either the string "hard", "soft", or
-    # "softfp". An empty string means to use the default one for the
-    # arm_version.
-    arm_float_abi = ""
-
     # The ARM variant-specific tuning mode. This will be a string like "armv6"
     # or "cortex-a15". An empty string means to use the default for the
     # arm_version.
@@ -41,8 +36,21 @@ if (current_cpu == "arm" || v8_current_cpu == "arm") {
     # Thumb is a reduced instruction set available on some ARM processors that
     # has increased code density.
     arm_use_thumb = true
+
+    # arch + tune
+    arm_cpu = ""
   }
 
+  if (current_os == "android" || target_os == "android") {
+    arm_float_abi = "softfp"
+  } else {
+    declare_args() {
+      # The ARM floating point mode. This is either the string "hard", "soft",
+      # or "softfp". An empty string means to use the default one for the
+      # arm_version.
+      arm_float_abi = ""
+    }
+  }
   assert(arm_float_abi == "" || arm_float_abi == "hard" ||
          arm_float_abi == "soft" || arm_float_abi == "softfp")
 
@@ -56,7 +64,7 @@ if (current_cpu == "arm" || v8_current_cpu == "arm") {
   }
 
   if (arm_version == 6) {
-    if (arm_arch == "") {
+    if (arm_arch == "" && arm_cpu == "") {
       arm_arch = "armv6"
     }
     if (arm_tune != "") {
@@ -71,17 +79,15 @@ if (current_cpu == "arm" || v8_current_cpu == "arm") {
     arm_use_thumb = false
     arm_use_neon = false
   } else if (arm_version == 7) {
-    if (arm_arch == "") {
+    if (arm_arch == "" && arm_cpu == "") {
       arm_arch = "armv7-a"
     }
-    if (arm_tune == "") {
+    if (arm_tune == "" && arm_cpu == "") {
       arm_tune = "generic-armv7-a"
     }
 
     if (arm_float_abi == "") {
-      if (current_os == "android" || target_os == "android") {
-        arm_float_abi = "softfp"
-      } else if (current_os == "linux" && target_cpu != v8_target_cpu) {
+      if (current_os == "linux" && target_cpu != v8_target_cpu) {
         # Default to the same as Android for V8 simulator builds.
         arm_float_abi = "softfp"
       } else {
@@ -97,19 +103,15 @@ if (current_cpu == "arm" || v8_current_cpu == "arm") {
       }
     }
   } else if (arm_version == 8) {
-    if (arm_arch == "") {
+    if (arm_arch == "" && arm_cpu == "") {
       arm_arch = "armv8-a"
     }
-    if (arm_tune == "") {
+    if (arm_tune == "" && arm_cpu == "") {
       arm_tune = "generic-armv8-a"
     }
 
     if (arm_float_abi == "") {
-      if (current_os == "android" || target_os == "android") {
-        arm_float_abi = "softfp"
-      } else {
-        arm_float_abi = "hard"
-      }
+      arm_float_abi = "hard"
     }
 
     if (arm_fpu == "") {

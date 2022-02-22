@@ -44,9 +44,9 @@
 
 #include <QtCore/qdebug.h>
 #include <QtCore/qsysinfo.h>
+#include <QtGui/qcolorspace.h>
 #include <QtGui/qguiapplication.h>
 #include <qpa/qplatformnativeinterface.h>
-#include <QtPlatformHeaders/qwglnativecontext.h>
 
 #include <algorithm>
 
@@ -225,6 +225,11 @@ QWindowsOpenGLContext *QOpenGLStaticContext::createContext(QOpenGLContext *conte
     return new QWindowsGLContext(this, context);
 }
 
+QWindowsOpenGLContext *QOpenGLStaticContext::createContext(HGLRC context, HWND window)
+{
+    return new QWindowsGLContext(this, context, window);
+}
+
 template <class MaskType, class FlagType> inline bool testFlag(MaskType mask, FlagType flag)
 {
     return (mask & MaskType(flag)) != 0;
@@ -329,7 +334,7 @@ static inline bool
 static void describeFormats(HDC hdc)
 {
     const int pfiMax = QOpenGLStaticContext::opengl32.describePixelFormat(hdc, 0, 0, nullptr);
-    for (int i = 0; i < pfiMax; i++) {
+    for (int i = 1; i <= pfiMax; i++) {
         PIXELFORMATDESCRIPTOR pfd;
         initPixelFormatDescriptor(&pfd);
         QOpenGLStaticContext::opengl32.describePixelFormat(hdc, i, sizeof(PIXELFORMATDESCRIPTOR), &pfd);
@@ -584,7 +589,7 @@ static int choosePixelFormat(HDC hdc,
         iAttributes[i++] = FALSE;
     }
     // must be the last
-    bool srgbRequested = format.colorSpace() == QSurfaceFormat::sRGBColorSpace;
+    bool srgbRequested = format.colorSpace() == QColorSpace::SRgb;
     int srgbValuePosition = 0;
     if (srgbRequested) {
         srgbValuePosition = i;
@@ -706,10 +711,10 @@ static QSurfaceFormat
     if (hasSampleBuffers) {
         result.setSamples(iValues[13]);
         if (hasSrgbSupport && iValues[14])
-            result.setColorSpace(QSurfaceFormat::sRGBColorSpace);
+            result.setColorSpace(QColorSpace::SRgb);
     } else {
         if (hasSrgbSupport && iValues[12])
-            result.setColorSpace(QSurfaceFormat::sRGBColorSpace);
+            result.setColorSpace(QColorSpace::SRgb);
     }
     if (additionalIn) {
         if (iValues[7])
@@ -1051,60 +1056,10 @@ QOpenGLStaticContext *QOpenGLStaticContext::create(bool softwareRendering)
 
 QWindowsGLContext::QWindowsGLContext(QOpenGLStaticContext *staticContext,
                                      QOpenGLContext *context) :
-    m_staticContext(staticContext),
-    m_context(context),
-    m_renderingContext(nullptr),
-    m_pixelFormat(0),
-    m_extensionsUsed(false),
-    m_swapInterval(-1),
-    m_ownsContext(true),
-    m_getGraphicsResetStatus(nullptr),
-    m_lost(false)
+    m_staticContext(staticContext)
 {
     if (!m_staticContext) // Something went very wrong. Stop here, isValid() will return false.
         return;
-
-    QVariant nativeHandle = context->nativeHandle();
-    if (!nativeHandle.isNull()) {
-        // Adopt and existing context.
-        if (!nativeHandle.canConvert<QWGLNativeContext>()) {
-            qWarning("QWindowsGLContext: Requires a QWGLNativeContext");
-            return;
-        }
-        auto handle = nativeHandle.value<QWGLNativeContext>();
-        HGLRC wglcontext = handle.context();
-        HWND wnd = handle.window();
-        if (!wglcontext || !wnd) {
-            qWarning("QWindowsGLContext: No context and window given");
-            return;
-        }
-
-        HDC dc = GetDC(wnd);
-        // A window with an associated pixel format is mandatory.
-        // When no SetPixelFormat() call has been made, the following will fail.
-        m_pixelFormat = GetPixelFormat(dc);
-        bool ok = m_pixelFormat != 0;
-        if (!ok)
-            qWarning("QWindowsGLContext: Failed to get pixel format");
-        ok = DescribePixelFormat(dc, m_pixelFormat, sizeof(PIXELFORMATDESCRIPTOR), &m_obtainedPixelFormatDescriptor);
-        if (!ok) {
-            qWarning("QWindowsGLContext: Failed to describe pixel format");
-        } else {
-            QWindowsOpenGLAdditionalFormat obtainedAdditional;
-            m_obtainedFormat = GDI::qSurfaceFormatFromPixelFormat(m_obtainedPixelFormatDescriptor, &obtainedAdditional);
-            m_renderingContext = wglcontext;
-            ok = updateObtainedParams(dc);
-        }
-
-        ReleaseDC(wnd, dc);
-
-        if (ok)
-            m_ownsContext = false;
-        else
-            m_renderingContext = nullptr;
-
-        return;
-    }
 
     QSurfaceFormat format = context->format();
     if (format.renderableType() == QSurfaceFormat::DefaultRenderableType)
@@ -1207,11 +1162,6 @@ QWindowsGLContext::QWindowsGLContext(QOpenGLStaticContext *staticContext,
 
     } while (false);
 
-    // Make the HGLRC retrievable via QOpenGLContext::nativeHandle().
-    // Do not provide the window since it is the dummy one and it is about to disappear.
-    if (m_renderingContext)
-        context->setNativeHandle(QVariant::fromValue<QWGLNativeContext>(QWGLNativeContext(m_renderingContext, nullptr)));
-
     if (hdc)
         ReleaseDC(dummyWindow, hdc);
     if (dummyWindow)
@@ -1223,6 +1173,37 @@ QWindowsGLContext::QWindowsGLContext(QOpenGLStaticContext *staticContext,
         << "\n    " << m_obtainedPixelFormatDescriptor << " swap interval: " << obtainedSwapInterval
         << "\n    default: " << m_staticContext->defaultFormat
         << "\n    HGLRC=" << m_renderingContext;
+}
+
+QWindowsGLContext::QWindowsGLContext(QOpenGLStaticContext *staticContext, HGLRC wglcontext, HWND wnd)
+    : m_staticContext(staticContext)
+{
+    if (!m_staticContext) // Something went very wrong. Stop here, isValid() will return false.
+        return;
+
+    HDC dc = GetDC(wnd);
+    // A window with an associated pixel format is mandatory.
+    // When no SetPixelFormat() call has been made, the following will fail.
+    m_pixelFormat = GetPixelFormat(dc);
+    bool ok = m_pixelFormat != 0;
+    if (!ok)
+        qWarning("QWindowsGLContext: Failed to get pixel format");
+    ok = DescribePixelFormat(dc, m_pixelFormat, sizeof(PIXELFORMATDESCRIPTOR), &m_obtainedPixelFormatDescriptor);
+    if (!ok) {
+        qWarning("QWindowsGLContext: Failed to describe pixel format");
+    } else {
+        QWindowsOpenGLAdditionalFormat obtainedAdditional;
+        m_obtainedFormat = GDI::qSurfaceFormatFromPixelFormat(m_obtainedPixelFormatDescriptor, &obtainedAdditional);
+        m_renderingContext = wglcontext;
+        ok = updateObtainedParams(dc);
+    }
+
+    ReleaseDC(wnd, dc);
+
+    if (ok)
+        m_ownsContext = false;
+    else
+        m_renderingContext = nullptr;
 }
 
 QWindowsGLContext::~QWindowsGLContext()
@@ -1320,7 +1301,10 @@ bool QWindowsGLContext::makeCurrent(QPlatformSurface *surface)
                 && QOpenGLStaticContext::opengl32.wglGetCurrentDC() == contextData->hdc) {
             return true;
         }
-        return QOpenGLStaticContext::opengl32.wglMakeCurrent(contextData->hdc, contextData->renderingContext);
+        const bool success = QOpenGLStaticContext::opengl32.wglMakeCurrent(contextData->hdc, contextData->renderingContext);
+        if (!success)
+            qErrnoWarning("%s: wglMakeCurrent() failed for existing context data", __FUNCTION__);
+        return success;
     }
     // Create a new entry.
     const QOpenGLContextData newContext(m_renderingContext, hwnd, GetDC(hwnd));
@@ -1348,6 +1332,8 @@ bool QWindowsGLContext::makeCurrent(QPlatformSurface *surface)
             qCDebug(lcQpaGl) << "makeCurrent(): context loss detected" << this;
             // Drop the surface. Will recreate on the next makeCurrent.
             window->invalidateSurface();
+        } else {
+            qErrnoWarning("%s: wglMakeCurrent() failed", __FUNCTION__);
         }
     }
 

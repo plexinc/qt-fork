@@ -80,14 +80,14 @@ Rectangle {
 
     Connections {
         target: device
-        onServicesUpdated: {
+        function onServicesUpdated() {
             if (servicesview.count === 0)
                 info.dialogText = "No services found"
             else
                 info.visible = false;
         }
 
-        onDisconnected: {
+        function onDisconnected() {
             pageLoader.source = "main.qml"
         }
     }
@@ -107,7 +107,7 @@ Rectangle {
             border.width: 2
             border.color: "black"
             radius: 5
-            width: parent.width
+            width: servicesview.width
             Component.onCompleted: {
                 info.visible = false
             }

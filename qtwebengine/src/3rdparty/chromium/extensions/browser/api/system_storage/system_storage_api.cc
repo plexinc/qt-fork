@@ -25,7 +25,7 @@ SystemStorageGetInfoFunction::~SystemStorageGetInfoFunction() {
 }
 
 ExtensionFunction::ResponseAction SystemStorageGetInfoFunction::Run() {
-  StorageInfoProvider::Get()->StartQueryInfo(base::Bind(
+  StorageInfoProvider::Get()->StartQueryInfo(base::BindOnce(
       &SystemStorageGetInfoFunction::OnGetStorageInfoCompleted, this));
   return RespondLater();
 }
@@ -50,9 +50,8 @@ ExtensionFunction::ResponseAction SystemStorageEjectDeviceFunction::Run() {
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
   StorageMonitor::GetInstance()->EnsureInitialized(
-      base::Bind(&SystemStorageEjectDeviceFunction::OnStorageMonitorInit,
-                 this,
-                 params->id));
+      base::BindOnce(&SystemStorageEjectDeviceFunction::OnStorageMonitorInit,
+                     this, params->id));
   // EnsureInitialized() above can result in synchronous Respond().
   return did_respond() ? AlreadyResponded() : RespondLater();
 }
@@ -72,7 +71,7 @@ void SystemStorageEjectDeviceFunction::OnStorageMonitorInit(
 
   monitor->EjectDevice(
       device_id_str,
-      base::Bind(&SystemStorageEjectDeviceFunction::HandleResponse, this));
+      base::BindOnce(&SystemStorageEjectDeviceFunction::HandleResponse, this));
 }
 
 void SystemStorageEjectDeviceFunction::HandleResponse(
@@ -93,8 +92,7 @@ void SystemStorageEjectDeviceFunction::HandleResponse(
       result = api::system_storage::EJECT_DEVICE_RESULT_CODE_FAILURE;
   }
 
-  Respond(OneArgument(
-      std::make_unique<base::Value>(api::system_storage::ToString(result))));
+  Respond(OneArgument(base::Value(api::system_storage::ToString(result))));
 }
 
 SystemStorageGetAvailableCapacityFunction::
@@ -114,9 +112,8 @@ SystemStorageGetAvailableCapacityFunction::Run() {
       GetAvailableCapacity::Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
-  StorageMonitor::GetInstance()->EnsureInitialized(base::Bind(
-      &SystemStorageGetAvailableCapacityFunction::OnStorageMonitorInit,
-      this,
+  StorageMonitor::GetInstance()->EnsureInitialized(base::BindOnce(
+      &SystemStorageGetAvailableCapacityFunction::OnStorageMonitorInit, this,
       params->id));
   return RespondLater();
 }
@@ -141,7 +138,7 @@ void SystemStorageGetAvailableCapacityFunction::OnQueryCompleted(
     api::system_storage::StorageAvailableCapacityInfo result;
     result.id = transient_id;
     result.available_capacity = available_capacity;
-    Respond(OneArgument(result.ToValue()));
+    Respond(OneArgument(base::Value::FromUniquePtrValue(result.ToValue())));
   } else {
     Respond(Error("Error occurred when querying available capacity."));
   }

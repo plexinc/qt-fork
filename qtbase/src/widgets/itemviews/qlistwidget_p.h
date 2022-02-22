@@ -100,9 +100,7 @@ public:
 
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
     bool setData(const QModelIndex &index, const QVariant &value, int role) override;
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     bool clearItemData(const QModelIndex &index) override;
-#endif
 
     QMap<int, QVariant> itemData(const QModelIndex &index) const override;
 
@@ -123,7 +121,7 @@ public:
         const QList<QListWidgetItem*>::iterator &end,
         Qt::SortOrder order, QListWidgetItem *item);
 
-    void itemChanged(QListWidgetItem *item, const QVector<int> &roles = QVector<int>());
+    void itemChanged(QListWidgetItem *item, const QList<int> &roles = QList<int>());
 
     // dnd
     QStringList mimeTypes() const override;
@@ -169,7 +167,7 @@ class QListWidgetItemPrivate
 public:
     QListWidgetItemPrivate(QListWidgetItem *item) : q(item), theid(-1) {}
     QListWidgetItem *q;
-    QVector<QWidgetItemData> values;
+    QList<QWidgetItemData> values;
     int theid;
 };
 

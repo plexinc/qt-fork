@@ -50,6 +50,7 @@
 
 #include <QGuiApplication>
 #include <QQuickView>
+#include <QLoggingCategory>
 
 #define SENSORS_EXAMPLE_MAIN(NAME) int main(int argc, char **argv) \
 {\

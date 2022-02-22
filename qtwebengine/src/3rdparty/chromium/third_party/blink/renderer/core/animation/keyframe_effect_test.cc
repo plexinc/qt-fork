@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/renderer/bindings/core/v8/native_value_traits_impl.h"
 #include "third_party/blink/renderer/bindings/core/v8/unrestricted_double_or_keyframe_effect_options.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_testing.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_effect_timing.h"
@@ -15,7 +16,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/v8_optional_effect_timing.h"
 #include "third_party/blink/renderer/core/animation/animation.h"
 #include "third_party/blink/renderer/core/animation/animation_clock.h"
-#include "third_party/blink/renderer/core/animation/animation_test_helper.h"
+#include "third_party/blink/renderer/core/animation/animation_test_helpers.h"
 #include "third_party/blink/renderer/core/animation/document_timeline.h"
 #include "third_party/blink/renderer/core/animation/keyframe_effect_model.h"
 #include "third_party/blink/renderer/core/animation/timing.h"
@@ -28,6 +29,13 @@
 #include "v8/include/v8.h"
 
 namespace blink {
+
+#define EXPECT_TIMEDELTA(expected, observed)                          \
+  EXPECT_NEAR(expected.InMillisecondsF(), observed.InMillisecondsF(), \
+              Animation::kTimeToleranceMs)
+
+using animation_test_helpers::SetV8ObjectPropertyAsNumber;
+using animation_test_helpers::SetV8ObjectPropertyAsString;
 
 class KeyframeEffectTest : public PageTestBase {
  protected:
@@ -224,8 +232,8 @@ TEST_F(AnimationKeyframeEffectV8Test, CanSetDuration) {
   KeyframeEffect* animation = CreateAnimationFromTiming(
       script_state, element.Get(), js_keyframes, duration);
 
-  EXPECT_EQ(duration / 1000,
-            animation->SpecifiedTiming().iteration_duration->InSecondsF());
+  EXPECT_TIMEDELTA(AnimationTimeDelta::FromMillisecondsD(duration),
+                   animation->SpecifiedTiming().iteration_duration.value());
 }
 
 TEST_F(AnimationKeyframeEffectV8Test, CanOmitSpecifiedDuration) {
@@ -364,35 +372,38 @@ TEST_F(KeyframeEffectTest, TimeToEffectChange) {
   Animation* animation = GetDocument().Timeline().Play(keyframe_effect);
 
   // Beginning of the animation.
-  EXPECT_EQ(AnimationTimeDelta::FromSecondsD(100),
-            keyframe_effect->TimeToForwardsEffectChange());
+  EXPECT_TIMEDELTA(AnimationTimeDelta::FromSecondsD(100),
+                   keyframe_effect->TimeToForwardsEffectChange());
   EXPECT_EQ(AnimationTimeDelta::Max(),
             keyframe_effect->TimeToReverseEffectChange());
 
   // End of the before phase.
-  animation->setCurrentTime(100000, false);
-  EXPECT_EQ(AnimationTimeDelta::FromSecondsD(100),
-            keyframe_effect->TimeToForwardsEffectChange());
-  EXPECT_EQ(AnimationTimeDelta(), keyframe_effect->TimeToReverseEffectChange());
+  animation->setCurrentTime(CSSNumberish::FromDouble(100000));
+  EXPECT_TIMEDELTA(AnimationTimeDelta::FromSecondsD(100),
+                   keyframe_effect->TimeToForwardsEffectChange());
+  EXPECT_TIMEDELTA(AnimationTimeDelta(),
+                   keyframe_effect->TimeToReverseEffectChange());
 
   // Nearing the end of the active phase.
-  animation->setCurrentTime(199000, false);
-  EXPECT_EQ(AnimationTimeDelta::FromSecondsD(1),
-            keyframe_effect->TimeToForwardsEffectChange());
-  EXPECT_EQ(AnimationTimeDelta(), keyframe_effect->TimeToReverseEffectChange());
+  animation->setCurrentTime(CSSNumberish::FromDouble(199000));
+  EXPECT_TIMEDELTA(AnimationTimeDelta::FromSecondsD(1),
+                   keyframe_effect->TimeToForwardsEffectChange());
+  EXPECT_TIMEDELTA(AnimationTimeDelta(),
+                   keyframe_effect->TimeToReverseEffectChange());
 
   // End of the active phase.
-  animation->setCurrentTime(200000, false);
-  EXPECT_EQ(AnimationTimeDelta::FromSecondsD(100),
-            keyframe_effect->TimeToForwardsEffectChange());
-  EXPECT_EQ(AnimationTimeDelta(), keyframe_effect->TimeToReverseEffectChange());
+  animation->setCurrentTime(CSSNumberish::FromDouble(200000));
+  EXPECT_TIMEDELTA(AnimationTimeDelta::FromSecondsD(100),
+                   keyframe_effect->TimeToForwardsEffectChange());
+  EXPECT_TIMEDELTA(AnimationTimeDelta(),
+                   keyframe_effect->TimeToReverseEffectChange());
 
   // End of the animation.
-  animation->setCurrentTime(300000, false);
+  animation->setCurrentTime(CSSNumberish::FromDouble(300000));
   EXPECT_EQ(AnimationTimeDelta::Max(),
             keyframe_effect->TimeToForwardsEffectChange());
-  EXPECT_EQ(AnimationTimeDelta::FromSecondsD(100),
-            keyframe_effect->TimeToReverseEffectChange());
+  EXPECT_TIMEDELTA(AnimationTimeDelta::FromSecondsD(100),
+                   keyframe_effect->TimeToReverseEffectChange());
 }
 
 TEST_F(KeyframeEffectTest, CheckCanStartAnimationOnCompositorNoKeyframes) {
@@ -497,25 +508,27 @@ TEST_F(KeyframeEffectTest, TranslationTransformsPreserveAxisAlignment) {
   auto* effect =
       GetTwoFrameEffect(CSSPropertyID::kTransform, "translate(10px, 10px)",
                         "translate(20px, 20px)");
-  EXPECT_TRUE(effect->AnimationsPreserveAxisAlignment());
+  EXPECT_TRUE(effect->UpdateBoxSizeAndCheckTransformAxisAlignment(FloatSize()));
 }
 
 TEST_F(KeyframeEffectTest, ScaleTransformsPreserveAxisAlignment) {
   auto* effect =
       GetTwoFrameEffect(CSSPropertyID::kTransform, "scale(2)", "scale(3)");
-  EXPECT_TRUE(effect->AnimationsPreserveAxisAlignment());
+  EXPECT_TRUE(effect->UpdateBoxSizeAndCheckTransformAxisAlignment(FloatSize()));
 }
 
 TEST_F(KeyframeEffectTest, RotationTransformsDoNotPreserveAxisAlignment) {
   auto* effect = GetTwoFrameEffect(CSSPropertyID::kTransform, "rotate(10deg)",
                                    "rotate(20deg)");
 
-  EXPECT_FALSE(effect->AnimationsPreserveAxisAlignment());
+  EXPECT_FALSE(
+      effect->UpdateBoxSizeAndCheckTransformAxisAlignment(FloatSize()));
 }
 
 TEST_F(KeyframeEffectTest, RotationsDoNotPreserveAxisAlignment) {
   auto* effect = GetTwoFrameEffect(CSSPropertyID::kRotate, "10deg", "20deg");
-  EXPECT_FALSE(effect->AnimationsPreserveAxisAlignment());
+  EXPECT_FALSE(
+      effect->UpdateBoxSizeAndCheckTransformAxisAlignment(FloatSize()));
 }
 
 }  // namespace blink

@@ -72,27 +72,13 @@ class QXmlStreamReader;
 QT_END_NAMESPACE
 #endif
 
-#ifdef QT_WIN_BLUETOOTH
-#include <QtCore/QVariant>
-
-QT_BEGIN_NAMESPACE
-class QThread;
-
-class ThreadWorkerFind : public QObject
-{
-    Q_OBJECT
-signals:
-    void findFinished(QVariant result);
-};
-QT_END_NAMESPACE
-
-#elif defined(QT_WINRT_BLUETOOTH)
+#ifdef QT_WINRT_BLUETOOTH
 #include <QtCore/QPointer>
 #endif
 
 #ifdef QT_OSX_BLUETOOTH
-#include "osx/btdelegates_p.h"
-#include "osx/btraii_p.h"
+#include "darwin/btdelegates_p.h"
+#include "darwin/btraii_p.h"
 #endif
 
 QT_BEGIN_NAMESPACE
@@ -101,7 +87,7 @@ class QBluetoothDeviceDiscoveryAgent;
 #ifdef QT_ANDROID_BLUETOOTH
 class ServiceDiscoveryBroadcastReceiver;
 class LocalDeviceBroadcastReceiver;
-#include <QtAndroidExtras/QAndroidJniObject>
+#include <QtCore/QJniObject>
 #include <QtBluetooth/QBluetoothLocalDevice>
 #endif
 
@@ -110,7 +96,7 @@ class QWinRTBluetoothServiceDiscoveryWorker;
 #endif
 
 class QBluetoothServiceDiscoveryAgentPrivate
-#if defined QT_WINRT_BLUETOOTH || defined QT_WIN_BLUETOOTH
+#if defined(QT_WINRT_BLUETOOTH)
         : public QObject
 {
     Q_OBJECT
@@ -149,15 +135,6 @@ public:
     void _q_serviceDiscoveryFinished();
     void _q_deviceDiscoveryError(QBluetoothDeviceDiscoveryAgent::Error);
 #if QT_CONFIG(bluez)
-    void _q_discoveredServices(QDBusPendingCallWatcher *watcher);
-    void _q_createdDevice(QDBusPendingCallWatcher *watcher);
-    void _q_foundDevice(QDBusPendingCallWatcher *watcher);
-    //Slots below are used for discovering Bluetooth Low Energy devices. It will be used with Bluez 5.x version.
-    /*
-    void _g_discoveredGattService();
-    void _q_discoverGattCharacteristics(QDBusPendingCallWatcher *watcher);
-    void _q_discoveredGattCharacteristic(QDBusPendingCallWatcher *watcher);
-    */
     void _q_sdpScannerDone(int exitCode, QProcess::ExitStatus status);
     void _q_finishSdpScan(QBluetoothServiceDiscoveryAgent::Error errorCode,
                           const QString &errorDescription,
@@ -170,10 +147,6 @@ public:
                                     const QList<QBluetoothUuid> &uuids);
     void _q_fetchUuidsTimeout();
     void _q_hostModeStateChanged(QBluetoothLocalDevice::HostMode state);
-#endif
-#ifdef QT_WIN_BLUETOOTH
-    void _q_nextSdpScan(const QVariant &input);
-    bool serviceMatches(const QBluetoothServiceInfo &info);
 #endif
 
 private:
@@ -189,7 +162,6 @@ private:
     QVariant readAttributeValue(QXmlStreamReader &xml);
     QBluetoothServiceInfo parseServiceXml(const QString& xml);
     void performMinimalServiceDiscovery(const QBluetoothAddress &deviceAddress);
-    void discoverServices(const QString &deviceObjectPath);
 #endif
 
 public:
@@ -211,10 +183,7 @@ private:
     bool singleDevice;
 #if QT_CONFIG(bluez)
     QString foundHostAdapterPath;
-    OrgBluezManagerInterface *manager = nullptr;
-    OrgFreedesktopDBusObjectManagerInterface *managerBluez5 = nullptr;
-    OrgBluezAdapterInterface *adapter = nullptr;
-    OrgBluezDeviceInterface *device = nullptr;
+    OrgFreedesktopDBusObjectManagerInterface *manager = nullptr;
     QProcess *sdpScannerProcess = nullptr;
 #endif
 
@@ -222,17 +191,8 @@ private:
     ServiceDiscoveryBroadcastReceiver *receiver = nullptr;
     LocalDeviceBroadcastReceiver *localDeviceReceiver = nullptr;
 
-    QAndroidJniObject btAdapter;
+    QJniObject btAdapter;
     QMap<QBluetoothAddress,QPair<QBluetoothDeviceInfo,QList<QBluetoothUuid> > > sdpCache;
-#endif
-
-#ifdef QT_WIN_BLUETOOTH
-private:
-    bool pendingStop;
-    bool pendingFinish;
-
-    QThread *threadFind = nullptr;
-    ThreadWorkerFind *threadWorkerFind = nullptr;
 #endif
 
 #ifdef QT_WINRT_BLUETOOTH

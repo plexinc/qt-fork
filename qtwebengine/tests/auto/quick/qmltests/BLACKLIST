@@ -1,2 +1,8 @@
-[WebEngineViewSource::test_viewSourceURL]
+[NewWindowRequest::test_loadNewWindowRequest]
+macos
+
+[WebEngineViewContextMenu::test_contextMenuLinkAndSelectedText]
+macos
+
+[CertificateError::test_fatalError]
 *

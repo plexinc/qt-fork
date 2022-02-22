@@ -11,18 +11,19 @@
 #include <string>
 
 #include "base/macros.h"
-#include "content/public/renderer/request_peer.h"
 #include "mojo/public/cpp/system/data_pipe.h"
 #include "mojo/public/cpp/system/simple_watcher.h"
 #include "services/network/public/cpp/url_loader_completion_status.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
+#include "third_party/blink/public/mojom/frame/back_forward_cache_controller.mojom.h"
+#include "third_party/blink/public/platform/web_request_peer.h"
 
 namespace IPC {
 class Sender;
 }
 
 // The ExtensionLocalizationPeer is a proxy to a
-// content::RequestPeer instance.  It is used to pre-process
+// blink::WebRequestPeer instance.  It is used to pre-process
 // CSS files requested by extensions to replace localization templates with the
 // appropriate localized strings.
 //
@@ -43,33 +44,31 @@ class Sender;
 //
 // Note that OnCompletedRequest() can be called at any time, even before
 // OnReceivedResponse().
-class ExtensionLocalizationPeer : public content::RequestPeer {
+class ExtensionLocalizationPeer : public blink::WebRequestPeer {
  public:
-  ~ExtensionLocalizationPeer() override;
-
-  static std::unique_ptr<content::RequestPeer> CreateExtensionLocalizationPeer(
-      std::unique_ptr<content::RequestPeer> peer,
+  static scoped_refptr<blink::WebRequestPeer> CreateExtensionLocalizationPeer(
+      scoped_refptr<blink::WebRequestPeer> peer,
       IPC::Sender* message_sender,
       const std::string& mime_type,
       const GURL& request_url);
 
-  // content::RequestPeer methods.
+  // blink::WebRequestPeer methods.
   void OnUploadProgress(uint64_t position, uint64_t size) override;
   bool OnReceivedRedirect(const net::RedirectInfo& redirect_info,
-                          network::mojom::URLResponseHeadPtr head) override;
+                          network::mojom::URLResponseHeadPtr head,
+                          std::vector<std::string>*) override;
   void OnReceivedResponse(network::mojom::URLResponseHeadPtr head) override;
   void OnStartLoadingResponseBody(
       mojo::ScopedDataPipeConsumerHandle body) override;
   void OnTransferSizeUpdated(int transfer_size_diff) override;
   void OnCompletedRequest(
       const network::URLLoaderCompletionStatus& status) override;
-  scoped_refptr<base::TaskRunner> GetTaskRunner() override;
 
  private:
   friend class ExtensionLocalizationPeerTest;
 
   // Use CreateExtensionLocalizationPeer to create an instance.
-  ExtensionLocalizationPeer(std::unique_ptr<content::RequestPeer> peer,
+  ExtensionLocalizationPeer(scoped_refptr<blink::WebRequestPeer> peer,
                             IPC::Sender* message_sender,
                             const GURL& request_url);
 
@@ -83,8 +82,10 @@ class ExtensionLocalizationPeer : public content::RequestPeer {
 
   void CompleteRequest();
 
+  ~ExtensionLocalizationPeer() override;
+
   // Original peer that handles the request once we are done processing data_.
-  std::unique_ptr<content::RequestPeer> original_peer_;
+  scoped_refptr<blink::WebRequestPeer> original_peer_;
 
   // We just pass though the response info. This holds the copy of the original.
   network::mojom::URLResponseHeadPtr response_head_;

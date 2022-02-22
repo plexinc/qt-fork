@@ -44,7 +44,7 @@
 #include <private/boxwhiskersdata_p.h>
 #include <QtCharts/private/qchartglobal_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class BoxPlotChartItem;
 class BoxPlotAnimation;
@@ -59,8 +59,8 @@ public:
     ~BoxWhiskersAnimation();
 
 public: // from QVariantAnimation
-    virtual QVariant interpolated(const QVariant &from, const QVariant &to, qreal progress) const;
-    virtual void updateCurrentValue(const QVariant &value);
+    QVariant interpolated(const QVariant &from, const QVariant &to, qreal progress) const override;
+    void updateCurrentValue(const QVariant &value) override;
 
     void setup(const BoxWhiskersData &startData, const BoxWhiskersData &endData);
     void setEndData(const BoxWhiskersData &endData);
@@ -75,6 +75,6 @@ protected:
     BoxPlotAnimation *m_boxPlotAnimation;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // BOXWHISKERSANIMATION_P_H

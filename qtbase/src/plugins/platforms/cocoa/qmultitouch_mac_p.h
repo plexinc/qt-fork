@@ -52,12 +52,15 @@
 #define QMULTITOUCH_MAC_P_H
 
 #include <QtCore/qglobal.h>
-
-#import <AppKit/AppKit.h>
-
 #include <qpa/qwindowsysteminterface.h>
 #include <qhash.h>
 #include <QtCore>
+#include <QtGui/qpointingdevice.h>
+
+#include <QtCore/private/qcore_mac_p.h>
+
+Q_FORWARD_DECLARE_OBJC_CLASS(NSTouch);
+QT_FORWARD_DECLARE_OBJC_ENUM(NSTouchPhase, unsigned long);
 
 QT_BEGIN_NAMESPACE
 
@@ -66,10 +69,10 @@ class QCocoaTouch
     public:
         static QList<QWindowSystemInterface::TouchPoint> getCurrentTouchPointList(NSEvent *event, bool acceptSingleTouch);
         static void setMouseInDraggingState(bool inDraggingState);
-        static QTouchDevice *getTouchDevice(QTouchDevice::DeviceType type, quint64 id);
+        static QPointingDevice *getTouchDevice(QInputDevice::DeviceType type, quint64 id);
 
     private:
-        static QHash<quint64, QTouchDevice*> _touchDevices;
+        static QHash<quint64, QPointingDevice*> _touchDevices;
         static QHash<qint64, QCocoaTouch*> _currentTouches;
         static QPointF _screenReferencePos;
         static QPointF _trackpadReferencePos;
@@ -85,7 +88,7 @@ class QCocoaTouch
 
         void updateTouchData(NSTouch *nstouch, NSTouchPhase phase);
         static QCocoaTouch *findQCocoaTouch(NSTouch *nstouch);
-        static Qt::TouchPointState toTouchPointState(NSTouchPhase nsState);
+        static QEventPoint::State toTouchPointState(NSTouchPhase nsState);
 };
 
 QT_END_NAMESPACE

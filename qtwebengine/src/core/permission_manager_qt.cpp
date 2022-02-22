@@ -68,8 +68,9 @@ static ProfileAdapter::PermissionType toQt(content::PermissionType type)
     case content::PermissionType::NOTIFICATIONS:
         return ProfileAdapter::NotificationPermission;
     case content::PermissionType::ACCESSIBILITY_EVENTS:
+    case content::PermissionType::CAMERA_PAN_TILT_ZOOM:
+    case content::PermissionType::WINDOW_PLACEMENT:
         return ProfileAdapter::UnsupportedPermission;
-    case content::PermissionType::FLASH:
     case content::PermissionType::MIDI_SYSEX:
     case content::PermissionType::PROTECTED_MEDIA_IDENTIFIER:
     case content::PermissionType::MIDI:
@@ -86,8 +87,10 @@ static ProfileAdapter::PermissionType toQt(content::PermissionType type)
     case content::PermissionType::AR:
     case content::PermissionType::VR:
     case content::PermissionType::STORAGE_ACCESS_GRANT:
+    case content::PermissionType::FONT_ACCESS:
+    case content::PermissionType::DISPLAY_CAPTURE:
     case content::PermissionType::NUM:
-        LOG(INFO) << "Unsupported permission type: " << static_cast<int>(type);
+        LOG(INFO) << "Unexpected unsupported permission type: " << static_cast<int>(type);
         break;
     }
     return ProfileAdapter::UnsupportedPermission;
@@ -119,7 +122,6 @@ static blink::mojom::PermissionStatus toBlink(ProfileAdapter::PermissionState re
 
 PermissionManagerQt::PermissionManagerQt()
     : m_requestIdCount(0)
-    , m_subscriberIdCount(0)
 {
 }
 
@@ -215,8 +217,8 @@ int PermissionManagerQt::RequestPermission(content::PermissionType permission,
     ProfileAdapter::PermissionType permissionType = toQt(permission);
     if (permissionType == ProfileAdapter::ClipboardRead) {
         WebEngineSettings *settings = contentsDelegate->webEngineSettings();
-        if (settings->testAttribute(WebEngineSettings::JavascriptCanAccessClipboard)
-            && settings->testAttribute(WebEngineSettings::JavascriptCanPaste))
+        if (settings->testAttribute(QWebEngineSettings::JavascriptCanAccessClipboard)
+            && settings->testAttribute(QWebEngineSettings::JavascriptCanPaste))
             std::move(callback).Run(blink::mojom::PermissionStatus::GRANTED);
         else
             std::move(callback).Run(blink::mojom::PermissionStatus::DENIED);
@@ -257,8 +259,8 @@ int PermissionManagerQt::RequestPermissions(const std::vector<content::Permissio
             result.push_back(blink::mojom::PermissionStatus::DENIED);
         else if (permissionType == ProfileAdapter::ClipboardRead) {
             WebEngineSettings *settings = contentsDelegate->webEngineSettings();
-            if (settings->testAttribute(WebEngineSettings::JavascriptCanAccessClipboard)
-                && settings->testAttribute(WebEngineSettings::JavascriptCanPaste))
+            if (settings->testAttribute(QWebEngineSettings::JavascriptCanAccessClipboard)
+                && settings->testAttribute(QWebEngineSettings::JavascriptCanPaste))
                 result.push_back(blink::mojom::PermissionStatus::GRANTED);
             else
                 result.push_back(blink::mojom::PermissionStatus::DENIED);
@@ -309,10 +311,12 @@ blink::mojom::PermissionStatus PermissionManagerQt::GetPermissionStatusForFrame(
             permission == content::PermissionType::CLIPBOARD_SANITIZED_WRITE) {
         WebContentsDelegateQt *delegate = static_cast<WebContentsDelegateQt *>(
                 content::WebContents::FromRenderFrameHost(render_frame_host)->GetDelegate());
-        if (!delegate->webEngineSettings()->testAttribute(WebEngineSettings::JavascriptCanAccessClipboard))
+        if (!delegate->webEngineSettings()->testAttribute(
+                    QWebEngineSettings::JavascriptCanAccessClipboard))
             return blink::mojom::PermissionStatus::DENIED;
-        if (permission == content::PermissionType::CLIPBOARD_READ_WRITE &&
-                !delegate->webEngineSettings()->testAttribute(WebEngineSettings::JavascriptCanPaste))
+        if (permission == content::PermissionType::CLIPBOARD_READ_WRITE
+            && !delegate->webEngineSettings()->testAttribute(
+                    QWebEngineSettings::JavascriptCanPaste))
             return blink::mojom::PermissionStatus::DENIED;
         return blink::mojom::PermissionStatus::GRANTED;
     }
@@ -336,19 +340,19 @@ void PermissionManagerQt::ResetPermission(
     m_permissions.remove(key);
 }
 
-int PermissionManagerQt::SubscribePermissionStatusChange(
+content::PermissionControllerDelegate::SubscriptionId PermissionManagerQt::SubscribePermissionStatusChange(
     content::PermissionType permission,
     content::RenderFrameHost * /* render_frame_host */,
     const GURL& requesting_origin,
     base::RepeatingCallback<void(blink::mojom::PermissionStatus)> callback)
 {
-    int subscriber_id = ++m_subscriberIdCount;
+    auto subscriber_id = subscription_id_generator_.GenerateNextId();
     m_subscribers.insert( { subscriber_id,
                             Subscription { toQt(permission), toQt(requesting_origin), std::move(callback) } });
     return subscriber_id;
 }
 
-void PermissionManagerQt::UnsubscribePermissionStatusChange(int subscription_id)
+void PermissionManagerQt::UnsubscribePermissionStatusChange(content::PermissionControllerDelegate::SubscriptionId subscription_id)
 {
     if (!m_subscribers.erase(subscription_id))
         LOG(WARNING) << "PermissionManagerQt::UnsubscribePermissionStatusChange called on unknown subscription id" << subscription_id;

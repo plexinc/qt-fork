@@ -26,28 +26,46 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-import * as Common from '../common/common.js';
+import * as i18n from '../i18n/i18n.js';
 import * as Platform from '../platform/platform.js';
 import * as TextUtils from '../text_utils/text_utils.js';
 import * as UI from '../ui/ui.js';
 
-/**
- * @unrestricted
- */
+export const UIStrings = {
+  /**
+  *@description Text that appears on a button for the font resource type filter.
+  */
+  font: 'Font',
+  /**
+  *@description Aria accessible name in Font View of the Sources panel
+  *@example {https://example.com} PH1
+  */
+  previewOfFontFromS: 'Preview of font from {PH1}',
+};
+const str_ = i18n.i18n.registerUIStrings('source_frame/FontView.js', UIStrings);
+const i18nString = i18n.i18n.getLocalizedString.bind(undefined, str_);
 export class FontView extends UI.View.SimpleView {
   /**
    * @param {string} mimeType
    * @param {!TextUtils.ContentProvider.ContentProvider} contentProvider
    */
   constructor(mimeType, contentProvider) {
-    super(Common.UIString.UIString('Font'));
-    this.registerRequiredCSS('source_frame/fontView.css');
+    super(i18nString(UIStrings.font));
+    this.registerRequiredCSS('source_frame/fontView.css', {enableLegacyPatching: false});
     this.element.classList.add('font-view');
     this._url = contentProvider.contentURL();
-    UI.ARIAUtils.setAccessibleName(this.element, ls`Preview of font from ${this._url}`);
+    UI.ARIAUtils.setAccessibleName(this.element, i18nString(UIStrings.previewOfFontFromS, {PH1: this._url}));
     this._mimeType = mimeType;
     this._contentProvider = contentProvider;
     this._mimeTypeLabel = new UI.Toolbar.ToolbarText(mimeType);
+    /** @type {?HTMLElement} */
+    this.fontPreviewElement;
+    /** @type {?HTMLElement} */
+    this._dummyElement;
+    /** @type {?HTMLStyleElement} */
+    this.fontStyleElement;
+    /** @type {?boolean} */
+    this._inResize;
   }
 
   /**
@@ -65,8 +83,12 @@ export class FontView extends UI.View.SimpleView {
   _onFontContentLoaded(uniqueFontName, deferredContent) {
     const {content} = deferredContent;
     const url = content ? TextUtils.ContentProvider.contentAsDataURL(content, this._mimeType, true) : this._url;
+    if (!this.fontStyleElement) {
+      return;
+    }
     this.fontStyleElement.textContent =
         Platform.StringUtilities.sprintf('@font-face { font-family: "%s"; src: url(%s); }', uniqueFontName, url);
+    this.updateFontPreviewSize();
   }
 
   _createContentIfNeeded() {
@@ -76,20 +98,24 @@ export class FontView extends UI.View.SimpleView {
 
     const uniqueFontName = 'WebInspectorFontPreview' + (++_fontId);
 
-    this.fontStyleElement = createElement('style');
+    this.fontStyleElement = /** @type {!HTMLStyleElement} */ (document.createElement('style'));
     this._contentProvider.requestContent().then(deferredContent => {
       this._onFontContentLoaded(uniqueFontName, deferredContent);
     });
     this.element.appendChild(this.fontStyleElement);
 
-    const fontPreview = createElement('div');
+    const fontPreview = /** @type {!HTMLDivElement} */ (document.createElement('div'));
     for (let i = 0; i < _fontPreviewLines.length; ++i) {
       if (i > 0) {
         fontPreview.createChild('br');
       }
-      fontPreview.createTextChild(_fontPreviewLines[i]);
+      UI.UIUtils.createTextChild(fontPreview, _fontPreviewLines[i]);
     }
-    this.fontPreviewElement = fontPreview.cloneNode(true);
+
+    this.fontPreviewElement = /** @type {!HTMLDivElement} */ (fontPreview.cloneNode(true));
+    if (!this.fontPreviewElement) {
+      return;
+    }
     UI.ARIAUtils.markAsHidden(this.fontPreviewElement);
     this.fontPreviewElement.style.overflow = 'hidden';
     this.fontPreviewElement.style.setProperty('font-family', uniqueFontName);
@@ -127,11 +153,14 @@ export class FontView extends UI.View.SimpleView {
     try {
       this.updateFontPreviewSize();
     } finally {
-      delete this._inResize;
+      this._inResize = null;
     }
   }
 
   _measureElement() {
+    if (!this._dummyElement) {
+      throw new Error('No font preview loaded');
+    }
     this.element.appendChild(this._dummyElement);
     const result = {width: this._dummyElement.offsetWidth, height: this._dummyElement.offsetHeight};
     this.element.removeChild(this._dummyElement);
@@ -163,7 +192,7 @@ export class FontView extends UI.View.SimpleView {
     const heightRatio = containerHeight / height;
     const finalFontSize = Math.floor(_measureFontSize * Math.min(widthRatio, heightRatio)) - 2;
 
-    this.fontPreviewElement.style.setProperty('font-size', finalFontSize + 'px', null);
+    this.fontPreviewElement.style.setProperty('font-size', finalFontSize + 'px', undefined);
   }
 }
 

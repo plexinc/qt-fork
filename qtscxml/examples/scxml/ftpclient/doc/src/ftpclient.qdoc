@@ -67,19 +67,31 @@
     \section1 Compiling the State Machine
 
     We link against the Qt SCXML module by adding the following line to the
-    \e .pro file:
+    project build files.
 
+    With qmake, we add the following to \e ftpclient.pro
     \quotefromfile ftpclient/ftpclient.pro
-    \printuntil scxml
+    \skipto QT
+    \printline scxml
 
     We then specify the state machine to compile:
-
     \skipto STATECHARTS
-    \printuntil simpleftp.scxml
+    \printline scxml
+
+    With CMake, we add the following to \e CMakeLists.txt
+    \quotefromfile ftpclient/CMakeLists.txt
+    \skipto find_package
+    \printline Scxml
+    \skipto target_link_libraries
+    \printuntil )
+
+    We then specify the state machine to compile:
+    \skipto qt6_add_statecharts
+    \printuntil )
 
     The Qt SCXML Compiler, \c qscxmlc, is run automatically to generate
-    \e ftpclient.h and \e ftpclient.cpp, and to add them to the \c HEADERS
-    and \c SOURCES variables for compilation.
+    \e simpleftp.h and \e simpleftp.cpp, and to add them appropriately to
+    the project as headers and sources.
 
     \section1 Instantiating the State Machine
 
@@ -88,7 +100,7 @@
 
     \quotefromfile ftpclient/main.cpp
     \skipto #include
-    \printuntil ftpdatachannel.h
+    \printuntil simpleftp
     \dots
     \skipto int main
     \printuntil {
@@ -115,7 +127,7 @@
     \printuntil }
 
     We send commands to log into the FTP server as an anonymous user, to
-    announce a port for the data connection, and to retrive a file:
+    announce a port for the data connection, and to retrieve a file:
 
     \skipto QList
     \printuntil });

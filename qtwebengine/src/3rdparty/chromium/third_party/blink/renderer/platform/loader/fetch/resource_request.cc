@@ -30,6 +30,7 @@
 
 #include "base/unguessable_token.h"
 #include "services/network/public/mojom/ip_address_space.mojom-blink.h"
+#include "services/network/public/mojom/web_bundle_handle.mojom-blink.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/renderer/platform/network/encoded_form_data.h"
@@ -39,6 +40,42 @@
 #include "third_party/blink/renderer/platform/weborigin/referrer.h"
 
 namespace blink {
+
+ResourceRequestHead::WebBundleTokenParams&
+ResourceRequestHead::WebBundleTokenParams::operator=(
+    const WebBundleTokenParams& other) {
+  bundle_url = other.bundle_url;
+  token = other.token;
+  handle = other.CloneHandle();
+  return *this;
+}
+
+ResourceRequestHead::WebBundleTokenParams::WebBundleTokenParams(
+    const WebBundleTokenParams& other) {
+  *this = other;
+}
+
+ResourceRequestHead::WebBundleTokenParams::WebBundleTokenParams(
+    const KURL& bundle_url,
+    const base::UnguessableToken& web_bundle_token,
+    mojo::PendingRemote<network::mojom::WebBundleHandle> web_bundle_handle)
+    : bundle_url(bundle_url),
+      token(web_bundle_token),
+      handle(std::move(web_bundle_handle)) {}
+
+mojo::PendingRemote<network::mojom::WebBundleHandle>
+ResourceRequestHead::WebBundleTokenParams::CloneHandle() const {
+  if (!handle)
+    return mojo::NullRemote();
+  mojo::Remote<network::mojom::WebBundleHandle> remote(std::move(
+      const_cast<mojo::PendingRemote<network::mojom::WebBundleHandle>&>(
+          handle)));
+  mojo::PendingRemote<network::mojom::WebBundleHandle> new_remote;
+  remote->Clone(new_remote.InitWithNewPipeAndPassReceiver());
+  const_cast<mojo::PendingRemote<network::mojom::WebBundleHandle>&>(handle) =
+      remote.Unbind();
+  return new_remote;
+}
 
 const base::TimeDelta ResourceRequestHead::default_timeout_interval_ =
     base::TimeDelta::Max();
@@ -53,6 +90,7 @@ ResourceRequestHead::ResourceRequestHead(const KURL& url)
       report_upload_progress_(false),
       report_raw_headers_(false),
       has_user_gesture_(false),
+      has_text_fragment_token_(false),
       download_to_blob_(false),
       use_stream_on_response_(false),
       keepalive_(false),
@@ -65,8 +103,8 @@ ResourceRequestHead::ResourceRequestHead(const KURL& url)
       priority_(ResourceLoadPriority::kUnresolved),
       intra_priority_value_(0),
       requestor_id_(0),
-      previews_state_(WebURLRequest::kPreviewsUnspecified),
-      request_context_(mojom::RequestContextType::UNSPECIFIED),
+      previews_state_(PreviewsTypes::kPreviewsUnspecified),
+      request_context_(mojom::blink::RequestContextType::UNSPECIFIED),
       destination_(network::mojom::RequestDestination::kEmpty),
       mode_(network::mojom::RequestMode::kNoCors),
       fetch_importance_mode_(mojom::FetchImportanceMode::kImportanceAuto),
@@ -96,15 +134,25 @@ ResourceRequestBody::ResourceRequestBody(
     scoped_refptr<EncodedFormData> form_body)
     : form_body_(form_body) {}
 
-ResourceRequestBody::ResourceRequestBody(ResourceRequestBody&& src)
-    : ResourceRequestBody(std::move(src.form_body_)) {}
+ResourceRequestBody::ResourceRequestBody(
+    mojo::PendingRemote<network::mojom::blink::ChunkedDataPipeGetter>
+        stream_body)
+    : stream_body_(std::move(stream_body)) {}
 
-ResourceRequestBody& ResourceRequestBody::operator=(ResourceRequestBody&& src) {
-  form_body_ = std::move(src.form_body_);
-  return *this;
-}
+ResourceRequestBody::ResourceRequestBody(ResourceRequestBody&& src)
+    : form_body_(std::move(src.form_body_)),
+      stream_body_(std::move(src.stream_body_)) {}
+
+ResourceRequestBody& ResourceRequestBody::operator=(ResourceRequestBody&& src) =
+    default;
 
 ResourceRequestBody::~ResourceRequestBody() = default;
+
+void ResourceRequestBody::SetStreamBody(
+    mojo::PendingRemote<network::mojom::blink::ChunkedDataPipeGetter>
+        stream_body) {
+  stream_body_ = std::move(stream_body);
+}
 
 ResourceRequest::ResourceRequest() : ResourceRequestHead(NullURL()) {}
 
@@ -116,21 +164,11 @@ ResourceRequest::ResourceRequest(const KURL& url) : ResourceRequestHead(url) {}
 ResourceRequest::ResourceRequest(const ResourceRequestHead& head)
     : ResourceRequestHead(head) {}
 
-ResourceRequest& ResourceRequest::operator=(const ResourceRequest& src) {
-  this->ResourceRequestHead::operator=(src);
-  body_.SetFormBody(src.body_.FormBody());
-  return *this;
-}
-
 ResourceRequest::ResourceRequest(ResourceRequest&&) = default;
 
 ResourceRequest& ResourceRequest::operator=(ResourceRequest&&) = default;
 
 ResourceRequest::~ResourceRequest() = default;
-
-void ResourceRequest::CopyFrom(const ResourceRequest& src) {
-  *this = src;
-}
 
 void ResourceRequest::CopyHeadFrom(const ResourceRequestHead& src) {
   this->ResourceRequestHead::operator=(src);
@@ -154,8 +192,8 @@ std::unique_ptr<ResourceRequest> ResourceRequestHead::CreateRedirectRequest(
   request->SetReferrerString(referrer);
   request->SetReferrerPolicy(new_referrer_policy);
   request->SetSkipServiceWorker(skip_service_worker);
-  request->redirect_chain_ = GetRedirectChain();
-  request->redirect_chain_.push_back(Url());
+  request->redirect_info_ = RedirectInfo(
+      redirect_info_ ? redirect_info_->original_url : Url(), Url());
 
   // Copy from parameters for |this|.
   request->SetDownloadToBlob(DownloadToBlob());
@@ -181,6 +219,8 @@ std::unique_ptr<ResourceRequest> ResourceRequestHead::CreateRedirectRequest(
   request->SetSignedExchangePrefetchCacheEnabled(
       IsSignedExchangePrefetchCacheEnabled());
   request->SetRecursivePrefetchToken(RecursivePrefetchToken());
+  request->SetFetchLikeAPI(IsFetchLikeAPI());
+  request->SetFavicon(IsFavicon());
 
   return request;
 }
@@ -384,6 +424,11 @@ bool ResourceRequestHead::IsConditional() const {
 
 void ResourceRequestHead::SetHasUserGesture(bool has_user_gesture) {
   has_user_gesture_ |= has_user_gesture;
+}
+
+void ResourceRequestHead::SetHasTextFragmentToken(
+    bool has_text_fragment_token) {
+  has_text_fragment_token_ = has_text_fragment_token;
 }
 
 bool ResourceRequestHead::CanDisplay(const KURL& url) const {

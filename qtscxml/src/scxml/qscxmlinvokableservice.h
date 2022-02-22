@@ -76,20 +76,20 @@ class Q_SCXML_EXPORT QScxmlInvokableServiceFactory : public QObject
     Q_OBJECT
     Q_DECLARE_PRIVATE(QScxmlInvokableServiceFactory)
     Q_PROPERTY(QScxmlExecutableContent::InvokeInfo invokeInfo READ invokeInfo CONSTANT)
-    Q_PROPERTY(QVector<QScxmlExecutableContent::ParameterInfo> parameters READ parameters CONSTANT)
-    Q_PROPERTY(QVector<QScxmlExecutableContent::StringId> names READ names CONSTANT)
+    Q_PROPERTY(QList<QScxmlExecutableContent::ParameterInfo> parameters READ parameters CONSTANT)
+    Q_PROPERTY(QList<QScxmlExecutableContent::StringId> names READ names CONSTANT)
 
 public:
     QScxmlInvokableServiceFactory(
             const QScxmlExecutableContent::InvokeInfo &invokeInfo,
-            const QVector<QScxmlExecutableContent::StringId> &names,
-            const QVector<QScxmlExecutableContent::ParameterInfo> &parameters,
+            const QList<QScxmlExecutableContent::StringId> &names,
+            const QList<QScxmlExecutableContent::ParameterInfo> &parameters,
             QObject *parent = nullptr);
 
     virtual QScxmlInvokableService *invoke(QScxmlStateMachine *parentStateMachine) = 0;
     const QScxmlExecutableContent::InvokeInfo &invokeInfo() const;
-    const QVector<QScxmlExecutableContent::ParameterInfo> &parameters() const;
-    const QVector<QScxmlExecutableContent::StringId> &names() const;
+    const QList<QScxmlExecutableContent::ParameterInfo> &parameters() const;
+    const QList<QScxmlExecutableContent::StringId> &names() const;
 
 protected:
     QScxmlInvokableServiceFactory(QScxmlInvokableServiceFactoryPrivate &dd, QObject *parent);
@@ -104,8 +104,8 @@ public:
     QScxmlStaticScxmlServiceFactory(
             const QMetaObject *metaObject,
             const QScxmlExecutableContent::InvokeInfo &invokeInfo,
-            const QVector<QScxmlExecutableContent::StringId> &nameList,
-            const QVector<QScxmlExecutableContent::ParameterInfo> &parameters,
+            const QList<QScxmlExecutableContent::StringId> &nameList,
+            const QList<QScxmlExecutableContent::ParameterInfo> &parameters,
             QObject *parent = nullptr);
 
     QScxmlInvokableService *invoke(QScxmlStateMachine *parentStateMachine) override;
@@ -117,8 +117,8 @@ class Q_SCXML_EXPORT QScxmlDynamicScxmlServiceFactory: public QScxmlInvokableSer
 public:
     QScxmlDynamicScxmlServiceFactory(
             const QScxmlExecutableContent::InvokeInfo &invokeInfo,
-            const QVector<QScxmlExecutableContent::StringId> &names,
-            const QVector<QScxmlExecutableContent::ParameterInfo> &parameters,
+            const QList<QScxmlExecutableContent::StringId> &names,
+            const QList<QScxmlExecutableContent::ParameterInfo> &parameters,
             QObject *parent = nullptr);
 
     QScxmlInvokableService *invoke(QScxmlStateMachine *parentStateMachine) override;

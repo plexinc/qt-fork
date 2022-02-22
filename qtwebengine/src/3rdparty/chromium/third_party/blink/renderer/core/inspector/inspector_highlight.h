@@ -7,6 +7,7 @@
 
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/pseudo_element.h"
+#include "third_party/blink/renderer/core/inspector/node_content_visibility_state.h"
 #include "third_party/blink/renderer/core/inspector/protocol/DOM.h"
 #include "third_party/blink/renderer/platform/geometry/float_quad.h"
 #include "third_party/blink/renderer/platform/geometry/layout_rect.h"
@@ -16,6 +17,101 @@
 namespace blink {
 
 class Color;
+
+enum class ColorFormat { RGB, HEX, HSL };
+enum class ContrastAlgorithm { AA, AAA, APCA };
+
+struct CORE_EXPORT LineStyle {
+  USING_FAST_MALLOC(LineStyle);
+
+ public:
+  LineStyle();
+
+  bool IsTransparent() const { return color == Color::kTransparent; }
+
+  Color color;
+  String pattern;
+};
+
+struct CORE_EXPORT BoxStyle {
+  USING_FAST_MALLOC(BoxStyle);
+
+ public:
+  BoxStyle();
+
+  bool IsTransparent() const {
+    return fill_color == Color::kTransparent &&
+           hatch_color == Color::kTransparent;
+  }
+
+  Color fill_color;
+  Color hatch_color;
+};
+
+struct CORE_EXPORT InspectorSourceOrderConfig {
+  USING_FAST_MALLOC(InspectorSourceOrderConfig);
+
+ public:
+  InspectorSourceOrderConfig();
+
+  Color parent_outline_color;
+  Color child_outline_color;
+};
+
+struct CORE_EXPORT InspectorGridHighlightConfig {
+  USING_FAST_MALLOC(InspectorGridHighlightConfig);
+
+ public:
+  InspectorGridHighlightConfig();
+
+  Color grid_color;
+  Color row_line_color;
+  Color column_line_color;
+  Color row_gap_color;
+  Color column_gap_color;
+  Color row_hatch_color;
+  Color column_hatch_color;
+  Color area_border_color;
+  Color grid_background_color;
+
+  bool show_grid_extension_lines;
+  bool grid_border_dash;
+  bool row_line_dash;
+  bool column_line_dash;
+  bool show_positive_line_numbers;
+  bool show_negative_line_numbers;
+  bool show_area_names;
+  bool show_line_names;
+  bool show_track_sizes;
+};
+
+struct CORE_EXPORT InspectorFlexContainerHighlightConfig {
+  USING_FAST_MALLOC(InspectorFlexContainerHighlightConfig);
+
+ public:
+  InspectorFlexContainerHighlightConfig();
+
+  base::Optional<LineStyle> container_border;
+  base::Optional<LineStyle> line_separator;
+  base::Optional<LineStyle> item_separator;
+
+  base::Optional<BoxStyle> main_distributed_space;
+  base::Optional<BoxStyle> cross_distributed_space;
+  base::Optional<BoxStyle> row_gap_space;
+  base::Optional<BoxStyle> column_gap_space;
+  base::Optional<LineStyle> cross_alignment;
+};
+
+struct CORE_EXPORT InspectorFlexItemHighlightConfig {
+  USING_FAST_MALLOC(InspectorFlexItemHighlightConfig);
+
+ public:
+  InspectorFlexItemHighlightConfig();
+
+  base::Optional<BoxStyle> base_size_box;
+  base::Optional<LineStyle> base_size_border;
+  base::Optional<LineStyle> flexibility_arrow;
+};
 
 struct CORE_EXPORT InspectorHighlightConfig {
   USING_FAST_MALLOC(InspectorHighlightConfig);
@@ -37,17 +133,64 @@ struct CORE_EXPORT InspectorHighlightConfig {
   bool show_styles;
   bool show_rulers;
   bool show_extension_lines;
+  bool show_accessibility_info;
 
   String selector_list;
+  ColorFormat color_format = ColorFormat::HEX;
+  ContrastAlgorithm contrast_algorithm = ContrastAlgorithm::AA;
+
+  std::unique_ptr<InspectorGridHighlightConfig> grid_highlight_config;
+  std::unique_ptr<InspectorFlexContainerHighlightConfig>
+      flex_container_highlight_config;
+  std::unique_ptr<InspectorFlexItemHighlightConfig> flex_item_highlight_config;
 };
 
 struct InspectorHighlightContrastInfo {
   Color background_color;
   String font_size;
   String font_weight;
+  float text_opacity;
 };
 
-class CORE_EXPORT InspectorHighlight {
+class InspectorHighlightBase {
+ public:
+  explicit InspectorHighlightBase(float scale);
+  explicit InspectorHighlightBase(Node*);
+  void AppendPath(std::unique_ptr<protocol::ListValue> path,
+                  const Color& fill_color,
+                  const Color& outline_color,
+                  const String& name = String());
+  void AppendQuad(const FloatQuad&,
+                  const Color& fill_color,
+                  const Color& outline_color = Color::kTransparent,
+                  const String& name = String());
+  virtual std::unique_ptr<protocol::DictionaryValue> AsProtocolValue()
+      const = 0;
+
+ protected:
+  static bool BuildNodeQuads(Node*,
+                             FloatQuad* content,
+                             FloatQuad* padding,
+                             FloatQuad* border,
+                             FloatQuad* margin);
+  std::unique_ptr<protocol::ListValue> highlight_paths_;
+  float scale_;
+};
+
+class CORE_EXPORT InspectorSourceOrderHighlight
+    : public InspectorHighlightBase {
+  STACK_ALLOCATED();
+
+ public:
+  InspectorSourceOrderHighlight(Node*, Color, int source_order_position);
+  static InspectorSourceOrderConfig DefaultConfig();
+  std::unique_ptr<protocol::DictionaryValue> AsProtocolValue() const override;
+
+ private:
+  int source_order_position_;
+};
+
+class CORE_EXPORT InspectorHighlight : public InspectorHighlightBase {
   STACK_ALLOCATED();
 
  public:
@@ -56,7 +199,7 @@ class CORE_EXPORT InspectorHighlight {
                      const InspectorHighlightContrastInfo&,
                      bool append_element_info,
                      bool append_distance_info,
-                     bool is_locked_ancestor);
+                     NodeContentVisibilityState content_visibility_state);
   explicit InspectorHighlight(float scale);
   ~InspectorHighlight();
 
@@ -67,26 +210,15 @@ class CORE_EXPORT InspectorHighlight {
       Node*,
       std::unique_ptr<protocol::Array<protocol::Array<double>>>*);
   static InspectorHighlightConfig DefaultConfig();
-
-  void AppendPath(std::unique_ptr<protocol::ListValue> path,
-                  const Color& fill_color,
-                  const Color& outline_color,
-                  const String& name = String());
-  void AppendQuad(const FloatQuad&,
-                  const Color& fill_color,
-                  const Color& outline_color = Color::kTransparent,
-                  const String& name = String());
+  static InspectorGridHighlightConfig DefaultGridConfig();
+  static InspectorFlexContainerHighlightConfig DefaultFlexContainerConfig();
+  static InspectorFlexItemHighlightConfig DefaultFlexItemConfig();
   void AppendEventTargetQuads(Node* event_target_node,
                               const InspectorHighlightConfig&);
-  std::unique_ptr<protocol::DictionaryValue> AsProtocolValue() const;
+  std::unique_ptr<protocol::DictionaryValue> AsProtocolValue() const override;
 
  private:
   static bool BuildSVGQuads(Node*, Vector<FloatQuad>& quads);
-  static bool BuildNodeQuads(Node*,
-                             FloatQuad* content,
-                             FloatQuad* padding,
-                             FloatQuad* border,
-                             FloatQuad* margin);
   void AppendNodeHighlight(Node*, const InspectorHighlightConfig&);
   void AppendPathsForShapeOutside(Node*, const InspectorHighlightConfig&);
 
@@ -96,17 +228,30 @@ class CORE_EXPORT InspectorHighlight {
                                    LayoutObject* layout_object);
   void AddLayoutBoxToDistanceInfo(LayoutObject* layout_object);
 
+  static LineStyle DefaultLineStyle();
+  static BoxStyle DefaultBoxStyle();
+
   std::unique_ptr<protocol::Array<protocol::Array<double>>> boxes_;
   std::unique_ptr<protocol::DictionaryValue> computed_style_;
   std::unique_ptr<protocol::DOM::BoxModel> model_;
   std::unique_ptr<protocol::DictionaryValue> distance_info_;
   std::unique_ptr<protocol::DictionaryValue> element_info_;
-  std::unique_ptr<protocol::ListValue> highlight_paths_;
   std::unique_ptr<protocol::ListValue> grid_info_;
+  std::unique_ptr<protocol::ListValue> flex_container_info_;
+  std::unique_ptr<protocol::ListValue> flex_item_info_;
   bool show_rulers_;
   bool show_extension_lines_;
-  float scale_;
+  bool show_accessibility_info_;
+  ColorFormat color_format_;
 };
+
+std::unique_ptr<protocol::DictionaryValue> InspectorGridHighlight(
+    Node*,
+    const InspectorGridHighlightConfig& config);
+
+std::unique_ptr<protocol::DictionaryValue> InspectorFlexContainerHighlight(
+    Node* node,
+    const InspectorFlexContainerHighlightConfig& config);
 
 }  // namespace blink
 

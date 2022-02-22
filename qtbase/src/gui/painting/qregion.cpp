@@ -50,6 +50,10 @@
 
 #include <private/qdebug_p.h>
 
+#ifdef Q_OS_WIN
+#  include <qt_windows.h>
+#endif
+
 QT_BEGIN_NAMESPACE
 
 /*!
@@ -296,7 +300,7 @@ void QRegion::exec(const QByteArray &buffer, int ver, QDataStream::ByteOrder byt
             quint32 n;
             s >> n;
             QRect r;
-            for (int i=0; i<(int)n; i++) {
+            for (int i=0; i < static_cast<int>(n); i++) {
                 s >> r;
                 rgn = rgn.united(QRegion(r));
             }
@@ -345,19 +349,19 @@ QDataStream &operator<<(QDataStream &s, const QRegion &r)
 {
     auto b = r.begin(), e = r.end();
     if (b == e) {
-        s << (quint32)0;
+        s << static_cast<quint32>(0);
     } else {
         const auto size = e - b;
         if (s.version() == 1) {
             for (auto i = size - 1; i > 0; --i) {
-                s << (quint32)(12 + i * 24);
-                s << (int)QRGN_OR;
+                s << static_cast<quint32>(12 + i * 24);
+                s << static_cast<int>(QRGN_OR);
             }
             for (auto it = b; it != e; ++it)
-                s << (quint32)(4+8) << (int)QRGN_SETRECT << *it;
+                s << static_cast<quint32>(4+8) << static_cast<int>(QRGN_SETRECT) << *it;
         } else {
             s << quint32(4 + 4 + 16 * size); // 16: storage size of QRect
-            s << (qint32)QRGN_RECTS;
+            s << static_cast<qint32>(QRGN_RECTS);
             s << quint32(size);
             for (auto it = b; it != e; ++it)
                 s << *it;
@@ -429,9 +433,6 @@ QDebug operator<<(QDebug s, const QRegion &r)
 
     \sa united(), operator+()
 */
-#ifdef Q_COMPILER_MANGLES_RETURN_TYPE
-const
-#endif
 QRegion QRegion::operator|(const QRegion &r) const
     { return united(r); }
 
@@ -441,9 +442,6 @@ QRegion QRegion::operator|(const QRegion &r) const
 
     \sa united(), operator|()
 */
-#ifdef Q_COMPILER_MANGLES_RETURN_TYPE
-const
-#endif
 QRegion QRegion::operator+(const QRegion &r) const
     { return united(r); }
 
@@ -451,9 +449,6 @@ QRegion QRegion::operator+(const QRegion &r) const
    \overload
    \since 4.4
  */
-#ifdef Q_COMPILER_MANGLES_RETURN_TYPE
-const
-#endif
 QRegion QRegion::operator+(const QRect &r) const
     { return united(r); }
 
@@ -463,9 +458,6 @@ QRegion QRegion::operator+(const QRect &r) const
 
     \sa intersected()
 */
-#ifdef Q_COMPILER_MANGLES_RETURN_TYPE
-const
-#endif
 QRegion QRegion::operator&(const QRegion &r) const
     { return intersected(r); }
 
@@ -473,9 +465,6 @@ QRegion QRegion::operator&(const QRegion &r) const
    \overload
    \since 4.4
  */
-#ifdef Q_COMPILER_MANGLES_RETURN_TYPE
-const
-#endif
 QRegion QRegion::operator&(const QRect &r) const
 {
     return intersected(r);
@@ -487,9 +476,6 @@ QRegion QRegion::operator&(const QRect &r) const
 
     \sa subtracted()
 */
-#ifdef Q_COMPILER_MANGLES_RETURN_TYPE
-const
-#endif
 QRegion QRegion::operator-(const QRegion &r) const
     { return subtracted(r); }
 
@@ -499,9 +485,6 @@ QRegion QRegion::operator-(const QRegion &r) const
 
     \sa xored()
 */
-#ifdef Q_COMPILER_MANGLES_RETURN_TYPE
-const
-#endif
 QRegion QRegion::operator^(const QRegion &r) const
     { return xored(r); }
 
@@ -600,7 +583,7 @@ QRegion& QRegion::operator^=(const QRegion &r)
 */
 QRegion::operator QVariant() const
 {
-    return QVariant(QMetaType::QRegion, this);
+    return QVariant::fromValue(*this);
 }
 
 /*!
@@ -744,21 +727,6 @@ QRegion QRegion::intersect(const QRect &r) const
 */
 
 /*!
-    \fn QRegion QRegion::unite(const QRegion &r) const
-    \obsolete
-
-    Use united(\a r) instead.
-*/
-
-/*!
-    \fn QRegion QRegion::unite(const QRect &rect) const
-    \since 4.4
-    \obsolete
-
-    Use united(\a rect) instead.
-*/
-
-/*!
     \fn QRegion QRegion::united(const QRect &rect) const
     \since 4.4
 
@@ -778,21 +746,6 @@ QRegion QRegion::intersect(const QRect &r) const
     The figure shows the union of two elliptical regions.
 
     \sa intersected(), subtracted(), xored()
-*/
-
-/*!
-    \fn QRegion QRegion::intersect(const QRegion &r) const
-    \obsolete
-
-    Use intersected(\a r) instead.
-*/
-
-/*!
-    \fn QRegion QRegion::intersect(const QRect &rect) const
-    \since 4.4
-    \obsolete
-
-    Use intersected(\a rect) instead.
 */
 
 /*!
@@ -818,13 +771,6 @@ QRegion QRegion::intersect(const QRect &r) const
 */
 
 /*!
-    \fn QRegion QRegion::subtract(const QRegion &r) const
-    \obsolete
-
-    Use subtracted(\a r) instead.
-*/
-
-/*!
     \fn QRegion QRegion::subtracted(const QRegion &r) const
     \since 4.2
 
@@ -836,13 +782,6 @@ QRegion QRegion::intersect(const QRect &r) const
     subtracted from the ellipse on the left (\c {left - right}).
 
     \sa intersected(), united(), xored()
-*/
-
-/*!
-    \fn QRegion QRegion::eor(const QRegion &r) const
-    \obsolete
-
-    Use xored(\a r) instead.
 */
 
 /*!
@@ -865,20 +804,6 @@ QRegion QRegion::intersect(const QRect &r) const
     Returns the bounding rectangle of this region. An empty region
     gives a rectangle that is QRect::isNull().
 */
-
-#if QT_DEPRECATED_SINCE(5, 11)
-/*!
-    \fn QVector<QRect> QRegion::rects() const
-    \obsolete
-
-    Use begin() and end() instead.
-
-    Returns an array of non-overlapping rectangles that make up the
-    region.
-
-    The union of all the rectangles is equal to the original region.
-*/
-#endif
 
 /*!
     \typedef QRegion::const_iterator
@@ -1180,7 +1105,7 @@ Q_GUI_EXPORT QPainterPath qt_regionToPath(const QRegion &region)
 struct QRegionPrivate {
     int numRects;
     int innerArea;
-    QVector<QRect> rects;
+    QList<QRect> rects;
     QRect extents;
     QRect innerRect;
 
@@ -2252,7 +2177,7 @@ static void miRegionOp(QRegionPrivate &dest,
      * reg1->rects and reg2->rects (if the regions have more than 1 rectangle),
      * take a copy of dest.rects to keep those iteractors valid.
      */
-    const QVector<QRect> destRectsCopy = dest.rects;
+    const QList<QRect> destRectsCopy = dest.rects;
     Q_UNUSED(destRectsCopy);
 
     dest.numRects = 0;
@@ -3561,7 +3486,7 @@ static void PtsToRegion(int numFullPtBlocks, int iCurPtBlock,
     int extendTo = 0;
     bool needsExtend = false;
     QVarLengthArray<QRegionSpan> row;
-    int rowSize = 0;
+    qsizetype rowSize = 0;
 
     reg->extents.setLeft(INT_MAX);
     reg->extents.setRight(INT_MIN);
@@ -3644,6 +3569,7 @@ static QRegionPrivate *PolygonRegion(const QPoint *Pts, int Count, int rule)
     int fixWAET = false;
     POINTBLOCK FirstPtBlock, *curPtBlock; /* PtBlock buffers    */
     FirstPtBlock.pts = reinterpret_cast<QPoint *>(FirstPtBlock.data);
+    FirstPtBlock.next = nullptr;
     POINTBLOCK *tmpPtBlock;
     int numFullPtBlocks = 0;
 
@@ -3919,7 +3845,7 @@ QRegion::QRegion(const QRect &r, RegionType t)
         } else if (t == Ellipse) {
             QPainterPath path;
             path.addEllipse(r.x(), r.y(), r.width(), r.height());
-            QPolygon a = path.toSubpathPolygons(QTransform()).at(0).toPolygon();
+            QPolygon a = path.toSubpathPolygons().at(0).toPolygon();
             d->qt_rgn = PolygonRegion(a.constData(), a.size(), EvenOddRule);
         }
     }
@@ -4314,20 +4240,6 @@ bool qt_region_strictContains(const QRegion &region, const QRect &rect)
             && rect.top() >= r1.top() && rect.bottom() <= r1.bottom());
 }
 
-#if QT_DEPRECATED_SINCE(5, 11)
-QVector<QRect> QRegion::rects() const
-{
-    if (d->qt_rgn) {
-        d->qt_rgn->vectorize();
-        d->qt_rgn->rects.reserve(d->qt_rgn->numRects);
-        d->qt_rgn->rects.resize(d->qt_rgn->numRects);
-        return d->qt_rgn->rects;
-    } else {
-        return QVector<QRect>();
-    }
-}
-#endif
-
 QRegion::const_iterator QRegion::begin() const noexcept
 {
     return d->qt_rgn ? d->qt_rgn->begin() : nullptr;
@@ -4409,4 +4321,65 @@ bool QRegion::intersects(const QRect &rect) const
 
 
 #endif
+
+#if defined(Q_OS_WIN) || defined(Q_QDOC)
+
+static inline HRGN qt_RectToHRGN(const QRect &rc)
+{
+    return CreateRectRgn(rc.left(), rc.top(), rc.right() + 1, rc.bottom() + 1);
+}
+
+/*!
+    \since 6.0
+
+    Returns a HRGN that is equivalent to the given region.
+*/
+HRGN QRegion::toHRGN() const
+{
+    const int size = rectCount();
+    if (size == 0)
+        return nullptr;
+
+    HRGN resultRgn = nullptr;
+    const auto rects = begin();
+    resultRgn = qt_RectToHRGN(rects[0]);
+    for (int i = 1; i < size; ++i) {
+        HRGN tmpRgn = qt_RectToHRGN(rects[i]);
+        int err = CombineRgn(resultRgn, resultRgn, tmpRgn, RGN_OR);
+        if (err == ERROR)
+            qWarning("Error combining HRGNs.");
+        DeleteObject(tmpRgn);
+    }
+    return resultRgn;
+}
+
+/*!
+    \since 6.0
+
+    Returns a QRegion that is equivalent to the given \a hrgn.
+ */
+QRegion QRegion::fromHRGN(HRGN hrgn)
+{
+    DWORD regionDataSize = GetRegionData(hrgn, 0, nullptr);
+    if (regionDataSize == 0)
+        return QRegion();
+
+    auto regionData = reinterpret_cast<LPRGNDATA>(malloc(regionDataSize));
+    if (!regionData)
+        return QRegion();
+
+    QRegion region;
+    if (GetRegionData(hrgn, regionDataSize, regionData) == regionDataSize) {
+        auto pRect = reinterpret_cast<LPRECT>(regionData->Buffer);
+        for (DWORD i = 0; i < regionData->rdh.nCount; ++i)
+            region += QRect(pRect[i].left, pRect[i].top,
+                            pRect[i].right - pRect[i].left,
+                            pRect[i].bottom - pRect[i].top);
+    }
+
+    free(regionData);
+    return region;
+}
+#endif // Q_OS_WIN || Q_QDOC
+
 QT_END_NAMESPACE

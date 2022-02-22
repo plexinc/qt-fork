@@ -128,6 +128,8 @@ class PipelineImplTest : public ::testing::Test {
         .WillRepeatedly(Return(base::TimeDelta()));
 
     EXPECT_CALL(*demuxer_, GetStartTime()).WillRepeatedly(Return(start_time_));
+
+    EXPECT_CALL(*renderer_, SetPreservesPitch(true)).Times(AnyNumber());
   }
 
   ~PipelineImplTest() override {
@@ -262,7 +264,6 @@ class PipelineImplTest : public ::testing::Test {
 
     EXPECT_CALL(*renderer_, OnFlush(_)).WillOnce(RunOnceClosure<0>());
     EXPECT_CALL(*renderer_, SetPlaybackRate(_));
-    EXPECT_CALL(*renderer_, SetVolume(_));
     EXPECT_CALL(*renderer_, StartPlayingFrom(seek_time))
         .WillOnce(SetBufferingState(&renderer_client_, BUFFERING_HAVE_ENOUGH,
                                     BUFFERING_CHANGE_REASON_UNKNOWN));
@@ -302,6 +303,7 @@ class PipelineImplTest : public ::testing::Test {
     // |renderer_| has been deleted, replace it.
     scoped_renderer_.reset(new StrictMock<MockRenderer>());
     renderer_ = scoped_renderer_.get();
+    EXPECT_CALL(*renderer_, SetPreservesPitch(_)).Times(AnyNumber());
   }
 
   void ExpectResume(const base::TimeDelta& seek_time) {
@@ -606,6 +608,10 @@ TEST_F(PipelineImplTest, SuspendResume) {
   EXPECT_EQ(stats.video_memory_usage,
             pipeline_->GetStatistics().video_memory_usage);
 
+  // Make sure the preserves pitch flag is preserved between after resuming.
+  EXPECT_CALL(*renderer_, SetPreservesPitch(false)).Times(1);
+  pipeline_->SetPreservesPitch(false);
+
   ExpectSuspend();
   DoSuspend();
 
@@ -614,6 +620,8 @@ TEST_F(PipelineImplTest, SuspendResume) {
 
   base::TimeDelta expected = base::TimeDelta::FromSeconds(2000);
   ExpectResume(expected);
+  EXPECT_CALL(*renderer_, SetPreservesPitch(false)).Times(1);
+
   DoResume(expected);
 }
 
@@ -628,6 +636,45 @@ TEST_F(PipelineImplTest, SetVolume) {
   // Initialize then set volume!
   StartPipelineAndExpect(PIPELINE_OK);
   pipeline_->SetVolume(expected);
+  base::RunLoop().RunUntilIdle();
+}
+
+TEST_F(PipelineImplTest, SetVolumeDuringStartup) {
+  CreateAudioStream();
+  SetDemuxerExpectations();
+
+  // The audio renderer should receive two calls to SetVolume().
+  float expected = 0.5f;
+  EXPECT_CALL(*renderer_, SetVolume(expected)).Times(2);
+  EXPECT_CALL(callbacks_, OnStart(PIPELINE_OK));
+  EXPECT_CALL(callbacks_, OnMetadata(_))
+      .WillOnce(RunOnceClosure(base::BindOnce(&PipelineImpl::SetVolume,
+                                              base::Unretained(pipeline_.get()),
+                                              expected)));
+  ExpectRendererInitialization();
+  EXPECT_CALL(*renderer_, SetPlaybackRate(0.0));
+  EXPECT_CALL(*renderer_, StartPlayingFrom(start_time_))
+      .WillOnce(SetBufferingState(&renderer_client_, BUFFERING_HAVE_ENOUGH,
+                                  BUFFERING_CHANGE_REASON_UNKNOWN));
+  EXPECT_CALL(callbacks_,
+              OnBufferingStateChange(BUFFERING_HAVE_ENOUGH,
+                                     BUFFERING_CHANGE_REASON_UNKNOWN));
+  StartPipeline();
+  base::RunLoop().RunUntilIdle();
+}
+
+TEST_F(PipelineImplTest, SetPreservesPitch) {
+  CreateAudioStream();
+  SetDemuxerExpectations();
+
+  // The audio renderer preserve pitch by default.
+  EXPECT_CALL(*renderer_, SetPreservesPitch(true));
+  StartPipelineAndExpect(PIPELINE_OK);
+  base::RunLoop().RunUntilIdle();
+
+  // Changes to the preservesPitch flag should be propagated.
+  EXPECT_CALL(*renderer_, SetPreservesPitch(false));
+  pipeline_->SetPreservesPitch(false);
   base::RunLoop().RunUntilIdle();
 }
 
@@ -677,14 +724,14 @@ TEST_F(PipelineImplTest, OnStatisticsUpdate) {
   StartPipelineAndExpect(PIPELINE_OK);
 
   PipelineStatistics stats;
-  stats.audio_decoder_info.decoder_name = "TestAudioDecoderName";
+  stats.audio_decoder_info.decoder_type = AudioDecoderType::kMojo;
   stats.audio_decoder_info.is_platform_decoder = false;
   EXPECT_CALL(callbacks_, OnAudioDecoderChange(_));
   renderer_client_->OnStatisticsUpdate(stats);
   base::RunLoop().RunUntilIdle();
 
   // VideoDecoderInfo changed and we expect OnVideoDecoderChange() to be called.
-  stats.video_decoder_info.decoder_name = "TestVideoDecoderName";
+  stats.video_decoder_info.decoder_type = VideoDecoderType::kMojo;
   stats.video_decoder_info.is_platform_decoder = true;
   EXPECT_CALL(callbacks_, OnVideoDecoderChange(_));
   renderer_client_->OnStatisticsUpdate(stats);
@@ -702,7 +749,7 @@ TEST_F(PipelineImplTest, OnStatisticsUpdate) {
   base::RunLoop().RunUntilIdle();
 
   // Both info changed.
-  stats.audio_decoder_info.decoder_name = "NewTestAudioDecoderName";
+  stats.audio_decoder_info.decoder_type = AudioDecoderType::kFFmpeg;
   stats.video_decoder_info.has_decrypting_demuxer_stream = true;
   EXPECT_CALL(callbacks_, OnAudioDecoderChange(_));
   EXPECT_CALL(callbacks_, OnVideoDecoderChange(_));
@@ -952,6 +999,7 @@ class PipelineTeardownTest : public PipelineImplTest {
     CreateAudioStream();
     CreateVideoStream();
     SetDemuxerExpectations(base::TimeDelta::FromSeconds(3000));
+    EXPECT_CALL(*renderer_, SetVolume(1.0f));
 
     if (state == kInitRenderer) {
       if (stop_or_error == kStop) {
@@ -980,7 +1028,6 @@ class PipelineTeardownTest : public PipelineImplTest {
     EXPECT_CALL(callbacks_, OnMetadata(_));
 
     EXPECT_CALL(*renderer_, SetPlaybackRate(0.0));
-    EXPECT_CALL(*renderer_, SetVolume(1.0f));
     EXPECT_CALL(*renderer_, StartPlayingFrom(base::TimeDelta()))
         .WillOnce(SetBufferingState(&renderer_client_, BUFFERING_HAVE_ENOUGH,
                                     BUFFERING_CHANGE_REASON_UNKNOWN));

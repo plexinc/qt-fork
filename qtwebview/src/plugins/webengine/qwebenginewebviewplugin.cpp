@@ -37,8 +37,6 @@
 #include "qwebenginewebview_p.h"
 #include <private/qwebviewplugin_p.h>
 
-#include <QtWebEngine/qtwebengineglobal.h>
-
 QT_BEGIN_NAMESPACE
 
 class QWebEngineWebViewPlugin : public QWebViewPlugin
@@ -54,7 +52,7 @@ public:
 
     void prepare() const override
     {
-        QtWebEngine::initialize();
+        QtWebEngineQuick::initialize();
     }
 };
 

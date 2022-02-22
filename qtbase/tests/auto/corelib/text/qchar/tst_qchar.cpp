@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
@@ -26,7 +26,7 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <qchar.h>
 #include <qfile.h>
 #include <qstringlist.h>
@@ -37,6 +37,8 @@ class tst_QChar : public QObject
     Q_OBJECT
 private slots:
     void fromChar16_t();
+    void fromUcs4_data();
+    void fromUcs4();
     void fromWchar_t();
     void operator_eqeq_null();
     void operators_data();
@@ -74,27 +76,48 @@ private slots:
     void unicodeVersion();
 };
 
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-
 void tst_QChar::fromChar16_t()
 {
-#if defined(Q_COMPILER_UNICODE_STRINGS)
     QChar aUmlaut = u'\u00E4'; // German small letter a-umlaut
     QCOMPARE(aUmlaut, QChar(0xE4));
     QChar replacementCharacter = u'\uFFFD';
     QCOMPARE(replacementCharacter, QChar(QChar::ReplacementCharacter));
-#else
-    QSKIP("This test requires C++11 char16_t support enabled in the compiler.");
-#endif
+}
+
+void tst_QChar::fromUcs4_data()
+{
+    QTest::addColumn<uint>("ucs4");
+    auto row = [](uint ucs4) {
+        QTest::addRow("0x%08X", ucs4) << ucs4;
+    };
+
+    row(0x2f868);
+    row(0x1D157);
+    row(0x1D157);
+}
+
+void tst_QChar::fromUcs4()
+{
+    QFETCH(const uint, ucs4);
+
+    const auto result = QChar::fromUcs4(ucs4);
+    if (QChar::requiresSurrogates(ucs4)) {
+        QCOMPARE(result.chars[0], QChar::highSurrogate(ucs4));
+        QCOMPARE(result.chars[1], QChar::lowSurrogate(ucs4));
+        QCOMPARE(QStringView{result}.size(), 2);
+    } else {
+        QCOMPARE(result.chars[0], ucs4);
+        QCOMPARE(result.chars[1], 0u);
+        QCOMPARE(QStringView{result}.size(), 1);
+    }
 }
 
 void tst_QChar::fromWchar_t()
 {
 #if defined(Q_OS_WIN)
-    QChar aUmlaut = L'\u00E4'; // German small letter a-umlaut
+    QChar aUmlaut(L'\u00E4'); // German small letter a-umlaut
     QCOMPARE(aUmlaut, QChar(0xE4));
-    QChar replacementCharacter = L'\uFFFD';
+    QChar replacementCharacter(L'\uFFFD');
     QCOMPARE(replacementCharacter, QChar(QChar::ReplacementCharacter));
 #else
     QSKIP("This is a Windows-only test.");
@@ -835,13 +858,7 @@ void tst_QChar::normalization_data()
             for (int j = 0; j < c.size(); ++j) {
                 bool ok;
                 uint uc = c.at(j).toInt(&ok, 16);
-                if (!QChar::requiresSurrogates(uc)) {
-                    columns[i].append(QChar(uc));
-                } else {
-                    // convert to utf16
-                    columns[i].append(QChar(QChar::highSurrogate(uc)));
-                    columns[i].append(QChar(QChar::lowSurrogate(uc)));
-                }
+                columns[i].append(QChar::fromUcs4(uc));
             }
         }
 
@@ -857,7 +874,7 @@ void tst_QChar::normalization()
     QFETCH(QStringList, columns);
     QFETCH(int, part);
 
-    Q_UNUSED(part)
+    Q_UNUSED(part);
 
         // CONFORMANCE:
         // 1. The following invariants must be true for all conformant implementations
@@ -979,6 +996,25 @@ void tst_QChar::normalization_manual()
         QVERIFY(decomposed.normalized(QString::NormalizationForm_C) == composed);
         QVERIFY(decomposed.normalized(QString::NormalizationForm_KD) == decomposed);
         QVERIFY(decomposed.normalized(QString::NormalizationForm_KC) == composed);
+    }
+    // QTBUG-71894 - erratum fixed in Unicode 4.1.0; SCount bounds are < not <=
+    {
+        // Hangul compose, test 0x11a7:
+        const QChar c[] = { QChar(0xae30), QChar(0x11a7), {} };
+        const QChar d[] = { QChar(0x1100), QChar(0x1175), QChar(0x11a7), {} };
+        const QString composed(c, 2);
+        const QString decomposed(d, 3);
+
+        QCOMPARE(decomposed.normalized(QString::NormalizationForm_C), composed);
+    }
+    {
+        // Hangul compose, test 0x11c3:
+        const QChar c[] = { QChar(0xae30), QChar(0x11c3), {} };
+        const QChar d[] = { QChar(0x1100), QChar(0x1175), QChar(0x11c3), {} };
+        const QString composed(c, 2);
+        const QString decomposed(d, 3);
+
+        QCOMPARE(decomposed.normalized(QString::NormalizationForm_C), composed);
     }
 }
 

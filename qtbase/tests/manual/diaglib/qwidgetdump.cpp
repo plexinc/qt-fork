@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
@@ -43,7 +43,7 @@ namespace QtDiag {
 static const char *qtWidgetClasses[] = {
     "QAbstractItemView", "QAbstractScrollArea", "QAbstractSlider", "QAbstractSpinBox",
     "QCalendarWidget", "QCheckBox", "QColorDialog", "QColumnView", "QComboBox",
-    "QCommandLinkButton", "QDateEdit", "QDateTimeEdit", "QDesktopWidget", "QDial",
+    "QCommandLinkButton", "QDateEdit", "QDateTimeEdit", "QDial",
     "QDialog", "QDialogButtonBox", "QDockWidget", "QDoubleSpinBox", "QErrorMessage",
     "QFileDialog", "QFontComboBox", "QFontDialog", "QFrame", "QGraphicsView",
     "QGroupBox", "QHeaderView", "QInputDialog", "QLCDNumber", "QLabel", "QLineEdit",
@@ -86,19 +86,21 @@ static void dumpWidgetRecursion(QTextStream &str, const QWidget *w,
     formatWidgetClass(str, w);
     str << ' ' << (w->isVisible() ? "[visible] " : "[hidden] ");
     if (const WId nativeWinId = w->internalWinId())
-        str << "[native: " << Qt::hex << Qt::showbase << nativeWinId << Qt::dec << Qt::noshowbase << "] ";
+        str << "[native: " << Qt::hex << Qt::showbase << nativeWinId << Qt::dec << Qt::noshowbase
+            << "] ";
     if (w->isWindow())
         str << "[top] ";
     str << (w->testAttribute(Qt::WA_Mapped) ? "[mapped] " : "[not mapped] ");
     if (w->testAttribute(Qt::WA_DontCreateNativeAncestors))
         str << "[NoNativeAncestors] ";
     if (const int states = w->windowState())
-        str << "windowState=" << Qt::hex << Qt::showbase << states << Qt::dec << Qt::noshowbase << ' ';
+        str << "windowState=" << Qt::hex << Qt::showbase << states << Qt::dec << Qt::noshowbase
+            << ' ';
     formatRect(str, w->geometry());
     if (w->isWindow()) {
         str << ' ' << w->logicalDpiX() << "DPI";
 #if QT_VERSION > 0x050600
-        const qreal dpr = w->devicePixelRatioF();
+        const qreal dpr = w->devicePixelRatio();
         if (!qFuzzyCompare(dpr, qreal(1)))
             str << " dpr=" << dpr;
 #endif // Qt 5.6

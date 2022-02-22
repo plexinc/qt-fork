@@ -41,11 +41,12 @@
 #define PLUGIN_RESPONSE_INTERCEPTOR_URL_LOADER_THROTTLE_H_
 
 #include "base/macros.h"
+#include "base/memory/weak_ptr.h"
+#include "services/network/public/mojom/fetch_api.mojom-shared.h"
 #include "third_party/blink/public/common/loader/url_loader_throttle.h"
 
 namespace content {
 class BrowserContext;
-class ResourceContext;
 }
 
 namespace QtWebEngineCore {
@@ -53,20 +54,23 @@ namespace QtWebEngineCore {
 class PluginResponseInterceptorURLLoaderThrottle : public blink::URLLoaderThrottle
 {
 public:
-    PluginResponseInterceptorURLLoaderThrottle(content::ResourceContext *resource_context,
-                                               int resource_type, int frame_tree_node_id);
-    PluginResponseInterceptorURLLoaderThrottle(content::BrowserContext *browser_context,
-                                               int resource_type, int frame_tree_node_id);
+    PluginResponseInterceptorURLLoaderThrottle(network::mojom::RequestDestination request_destination,
+                                               int frame_tree_node_id);
     ~PluginResponseInterceptorURLLoaderThrottle() override = default;
 
 private:
     // content::URLLoaderThrottle overrides;
     void WillProcessResponse(const GURL &response_url, network::mojom::URLResponseHead *response_head, bool *defer) override;
 
-    content::ResourceContext *m_resource_context = nullptr;
-    content::BrowserContext *m_browser_context = nullptr;
-    const int m_resource_type;
+    // Resumes loading for an intercepted response. This would give the extension
+    // layer chance to initialize its browser side state.
+    void ResumeLoad();
+
+    const network::mojom::RequestDestination m_request_destination;
     const int m_frame_tree_node_id;
+
+    base::WeakPtrFactory<PluginResponseInterceptorURLLoaderThrottle>
+        weak_factory_{this};
 
     DISALLOW_COPY_AND_ASSIGN(PluginResponseInterceptorURLLoaderThrottle);
 };

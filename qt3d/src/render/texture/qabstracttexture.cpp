@@ -40,9 +40,6 @@
 #include "qabstracttexture.h"
 #include "qabstracttexture_p.h"
 #include <Qt3DRender/qabstracttextureimage.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
-#include <Qt3DCore/qpropertynodeaddedchange.h>
-#include <Qt3DCore/qpropertynoderemovedchange.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -66,6 +63,7 @@ QAbstractTexturePrivate::QAbstractTexturePrivate()
     , m_comparisonMode(QAbstractTexture::CompareNone)
     , m_layers(1)
     , m_samples(1)
+    , m_mipmapLevels(1)
     , m_sharedTextureId(-1)
     , m_handleType(QAbstractTexture::NoHandle)
     , m_handle(QVariant())
@@ -590,6 +588,15 @@ void QAbstractTexture::setSamples(int samples)
     }
 }
 
+void QAbstractTexture::setMipLevels(int mipLevels)
+{
+    Q_D(QAbstractTexture);
+    if (d->m_mipmapLevels != mipLevels) {
+        d->m_mipmapLevels = mipLevels;
+        emit mipLevelsChanged(mipLevels);
+    }
+}
+
 /*!
     Returns the number of samples per texel for the texture provider.
 
@@ -600,6 +607,17 @@ int QAbstractTexture::samples() const
 {
     Q_D(const QAbstractTexture);
     return d->m_samples;
+}
+
+/*!
+    \property Qt3DRender::QAbstractTexture::mipLevels
+
+    Holds the mipmap levels of the texture provider.
+ */
+int QAbstractTexture::mipLevels() const
+{
+    Q_D(const QAbstractTexture);
+    return d->m_mipmapLevels;
 }
 
 /*!
@@ -780,7 +798,7 @@ void QAbstractTexture::addTextureImage(QAbstractTextureImage *textureImage)
         if (!textureImage->parent())
             textureImage->setParent(this);
 
-        d->updateNode(textureImage, "textureImage", PropertyValueAdded);
+        d->update();
     }
 }
 
@@ -793,7 +811,7 @@ void QAbstractTexture::removeTextureImage(QAbstractTextureImage *textureImage)
     Q_D(QAbstractTexture);
     if (!d->m_textureImages.removeOne(textureImage))
         return;
-    d->updateNode(textureImage, "textureImage", PropertyValueRemoved);
+    d->update();
     // Remove bookkeeping connection
     d->unregisterDestructionHelper(textureImage);
 }
@@ -802,7 +820,7 @@ void QAbstractTexture::removeTextureImage(QAbstractTextureImage *textureImage)
     Returns a list of pointers to QAbstractTextureImage objects contained in
     the texture provider.
  */
-QVector<QAbstractTextureImage *> QAbstractTexture::textureImages() const
+QList<QAbstractTextureImage *> QAbstractTexture::textureImages() const
 {
     Q_D(const QAbstractTexture);
     return d->m_textureImages;
@@ -1041,15 +1059,6 @@ QAbstractTexture::ComparisonMode QAbstractTexture::comparisonMode() const
 }
 
 /*!
- * Returns the current data generator.
- */
-QTextureGeneratorPtr QAbstractTexture::dataGenerator() const
-{
-    Q_D(const QAbstractTexture);
-    return d->m_dataFunctor;
-}
-
-/*!
  * \property Qt3DRender::QAbstractTexture::handleType
  *
  * Holds the current texture handle type.
@@ -1112,80 +1121,6 @@ void QAbstractTexture::updateData(const QTextureDataUpdate &update)
     d->m_pendingDataUpdates.push_back(update);
     d->update();
 }
-
-Qt3DCore::QNodeCreatedChangeBasePtr QAbstractTexture::createNodeCreationChange() const
-{
-    auto creationChange = Qt3DCore::QNodeCreatedChangePtr<QAbstractTextureData>::create(this);
-    auto &data = creationChange->data;
-    Q_D(const QAbstractTexture);
-    data.target = d->m_target;
-    data.format = d->m_format;
-    data.width = d->m_width;
-    data.height = d->m_height;
-    data.depth = d->m_depth;
-    data.autoMipMap = d->m_autoMipMap;
-    data.minFilter = d->m_minFilter;
-    data.magFilter = d->m_magFilter;
-    data.wrapModeX = d->m_wrapMode.x();
-    data.wrapModeY = d->m_wrapMode.y();
-    data.wrapModeZ = d->m_wrapMode.z();
-    data.maximumAnisotropy = d->m_maximumAnisotropy;
-    data.comparisonFunction = d->m_comparisonFunction;
-    data.comparisonMode = d->m_comparisonMode;
-    data.textureImageIds = qIdsForNodes(d->m_textureImages);
-    data.layers = d->m_layers;
-    data.samples = d->m_samples;
-    data.dataFunctor = d->m_dataFunctor;
-    data.sharedTextureId = d->m_sharedTextureId;
-    data.initialDataUpdates = d->m_pendingDataUpdates;
-    return creationChange;
-}
-
-/*!
-    A function for receiving and processing a \a change.
-*/
-void QAbstractTexture::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change)
-{
-    switch (change->type()) {
-    case PropertyUpdated: {
-        Qt3DCore::QPropertyUpdatedChangePtr propertyChange = qSharedPointerCast<Qt3DCore::QPropertyUpdatedChange>(change);
-        if (propertyChange->propertyName() == QByteArrayLiteral("width")) {
-            bool blocked = blockNotifications(true);
-            setWidth(propertyChange->value().toInt());
-            blockNotifications(blocked);
-        } else if (propertyChange->propertyName() == QByteArrayLiteral("height")) {
-            bool blocked = blockNotifications(true);
-            setHeight(propertyChange->value().toInt());
-            blockNotifications(blocked);
-        } else if (propertyChange->propertyName() == QByteArrayLiteral("depth")) {
-            bool blocked = blockNotifications(true);
-            setDepth(propertyChange->value().toInt());
-            blockNotifications(blocked);
-        } else if (propertyChange->propertyName() == QByteArrayLiteral("layers")) {
-            bool blocked = blockNotifications(true);
-            setLayers(propertyChange->value().toInt());
-            blockNotifications(blocked);
-        } else if (propertyChange->propertyName() == QByteArrayLiteral("format")) {
-            bool blocked = blockNotifications(true);
-            setFormat(static_cast<QAbstractTexture::TextureFormat>(propertyChange->value().toInt()));
-            blockNotifications(blocked);
-        } else if (propertyChange->propertyName() == QByteArrayLiteral("status")) {
-            bool blocked = blockNotifications(true);
-            setStatus(static_cast<QAbstractTexture::Status>(propertyChange->value().toInt()));
-            blockNotifications(blocked);
-        } else if (propertyChange->propertyName() == QByteArrayLiteral("handleType")) {
-            setHandleType(static_cast<QAbstractTexture::HandleType>(propertyChange->value().toInt()));
-        } else if (propertyChange->propertyName() == QByteArrayLiteral("handle")) {
-            setHandle(propertyChange->value());
-        }
-        // TODO handle target changes, it's a CONSTANT property but can be affected by loader
-        break;
-    }
-    default:
-        break;
-    }
-}
-
 
 } // namespace Qt3DRender
 

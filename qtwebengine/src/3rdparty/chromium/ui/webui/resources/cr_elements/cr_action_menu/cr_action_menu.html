@@ -2,6 +2,7 @@
 
 <link rel="import" href="../../html/assert.html">
 <link rel="import" href="../../html/cr.html">
+<link rel="import" href="../../html/cr/ui/focus_outline_manager.html">
 <link rel="import" href="../../html/cr/ui/focus_row.html">
 <link rel="import" href="../../html/cr/ui/focus_without_ink.html">
 <link rel="import" href="../../html/util.html">
@@ -19,6 +20,7 @@
         min-width: 128px;
         outline: none;
         padding: 0;
+        position: absolute;
       }
 
       :host dialog::backdrop {
@@ -64,7 +66,7 @@
         padding: 8px 0;
       }
     </style>
-    <dialog id="dialog" on-close="onNativeDialogClose_"
+    <dialog id="dialog" part="dialog" on-close="onNativeDialogClose_"
         role="application" aria-roledescription$="[[roleDescription]]">
       <div id="wrapper" class="item-wrapper" role="menu" tabindex="-1">
         <slot id="contentNode"></slot>

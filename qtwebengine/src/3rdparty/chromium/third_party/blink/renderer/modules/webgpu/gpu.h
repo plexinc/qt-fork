@@ -9,31 +9,37 @@
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
+#include "third_party/blink/renderer/core/execution_context/navigator_base.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
+#include "third_party/blink/renderer/platform/supplementable.h"
 
 struct WGPUDeviceProperties;
 
 namespace blink {
 
+class GPUAdapter;
 class GPURequestAdapterOptions;
+class NavigatorBase;
 class ScriptPromiseResolver;
 class ScriptState;
-class WebGraphicsContext3DProvider;
 class DawnControlClientHolder;
 
 class GPU final : public ScriptWrappable,
+                  public Supplement<NavigatorBase>,
                   public ExecutionContextLifecycleObserver {
   DEFINE_WRAPPERTYPEINFO();
-  USING_GARBAGE_COLLECTED_MIXIN(GPU);
 
  public:
-  static GPU* Create(ExecutionContext& execution_context);
-  explicit GPU(ExecutionContext& execution_context,
-               std::unique_ptr<WebGraphicsContext3DProvider> context_provider);
+  static const char kSupplementName[];
+
+  // Getter for navigator.gpu
+  static GPU* gpu(NavigatorBase&);
+
+  explicit GPU(NavigatorBase&);
   ~GPU() override;
 
   // ScriptWrappable overrides
-  void Trace(Visitor* visitor) override;
+  void Trace(Visitor* visitor) const override;
 
   // ExecutionContextLifecycleObserver overrides
   void ContextDestroyed() override;
@@ -43,9 +49,16 @@ class GPU final : public ScriptWrappable,
                                const GPURequestAdapterOptions* options);
 
  private:
-  void OnRequestAdapterCallback(ScriptPromiseResolver* resolver,
-                                uint32_t adapter_server_id,
-                                const WGPUDeviceProperties& properties);
+  void OnRequestAdapterCallback(ScriptState* script_state,
+                                const GPURequestAdapterOptions* options,
+                                ScriptPromiseResolver* resolver,
+                                int32_t adapter_server_id,
+                                const WGPUDeviceProperties& properties,
+                                const char* error_message);
+
+  void RecordAdapterForIdentifiability(ScriptState* script_state,
+                                       const GPURequestAdapterOptions* options,
+                                       GPUAdapter* adapter) const;
 
   scoped_refptr<DawnControlClientHolder> dawn_control_client_;
 

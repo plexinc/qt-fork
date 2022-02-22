@@ -66,7 +66,7 @@ public:
 
     void addSequence(QAbstractActionInput *input);
     void removeSequence(QAbstractActionInput *input);
-    QVector<QAbstractActionInput *> sequences() const;
+    QList<QAbstractActionInput *> sequences() const;
 
 public Q_SLOTS:
     void setTimeout(int timeout);
@@ -78,7 +78,6 @@ Q_SIGNALS:
 
 private:
     Q_DECLARE_PRIVATE(QInputSequence)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // Qt3DInput

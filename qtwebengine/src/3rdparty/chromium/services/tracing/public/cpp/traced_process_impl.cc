@@ -57,6 +57,11 @@ void TracedProcessImpl::OnTracedProcessRequest(
   receiver_.Bind(std::move(receiver));
 }
 
+void TracedProcessImpl::EnableSystemTracingService(
+    mojo::PendingRemote<mojom::SystemTracingService> remote) {
+  system_tracing_service_.Bind(std::move(remote), nullptr);
+}
+
 // SetTaskRunner must be called before we start receiving
 // any OnTracedProcessRequest calls.
 void TracedProcessImpl::SetTaskRunner(
@@ -95,7 +100,7 @@ void TracedProcessImpl::ConnectToTracingService(
   // Ensure the TraceEventAgent has been created.
   TraceEventAgent::GetInstance();
 
-  PerfettoTracedProcess::Get()->producer_client()->Connect(
+  PerfettoTracedProcess::Get()->ConnectProducer(
       std::move(request->perfetto_service));
 }
 

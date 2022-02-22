@@ -1,8 +1,14 @@
 [microFocusCoordinates]
 osx
 
-[textSelectionOutOfInputField]
-*
-
 [visibilityState3]
 windows
+
+[horizontalScrollbarTest]
+osx
+
+[mixLangLocale:eu_ES]
+*
+
+[reusePage]
+b2qt arm

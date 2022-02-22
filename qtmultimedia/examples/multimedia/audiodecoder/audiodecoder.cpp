@@ -49,30 +49,22 @@
 ****************************************************************************/
 
 #include "audiodecoder.h"
+#include <QFile>
 #include <stdio.h>
 
-AudioDecoder::AudioDecoder(bool isPlayback, bool isDelete)
-    : m_cout(stdout, QIODevice::WriteOnly)
+AudioDecoder::AudioDecoder(bool isPlayback, bool isDelete, const QString &targetFileName)
+    : m_cout(stdout, QIODevice::WriteOnly),
+    m_targetFilename(targetFileName)
 {
     m_isPlayback = isPlayback;
     m_isDelete = isDelete;
-
-    // Make sure the data we receive is in correct PCM format.
-    // Our wav file writer only supports SignedInt sample type.
-    QAudioFormat format;
-    format.setChannelCount(2);
-    format.setSampleSize(16);
-    format.setSampleRate(48000);
-    format.setCodec("audio/pcm");
-    format.setSampleType(QAudioFormat::SignedInt);
-    m_decoder.setAudioFormat(format);
 
     connect(&m_decoder, &QAudioDecoder::bufferReady,
             this, &AudioDecoder::bufferReady);
     connect(&m_decoder, QOverload<QAudioDecoder::Error>::of(&QAudioDecoder::error),
             this, QOverload<QAudioDecoder::Error>::of(&AudioDecoder::error));
-    connect(&m_decoder, &QAudioDecoder::stateChanged,
-            this, &AudioDecoder::stateChanged);
+    connect(&m_decoder, &QAudioDecoder::isDecodingChanged,
+            this, &AudioDecoder::isDecodingChanged);
     connect(&m_decoder, &QAudioDecoder::finished,
             this, &AudioDecoder::finished);
     connect(&m_decoder, &QAudioDecoder::positionChanged,
@@ -88,9 +80,14 @@ AudioDecoder::AudioDecoder(bool isPlayback, bool isDelete)
     m_progress = -1.0;
 }
 
-void AudioDecoder::setSourceFilename(const QString &fileName)
+AudioDecoder::~AudioDecoder()
 {
-    m_decoder.setSourceFilename(fileName);
+    delete m_waveDecoder;
+}
+
+void AudioDecoder::setSource(const QString &fileName)
+{
+    m_decoder.setSource(QUrl::fromLocalFile(fileName));
 }
 
 void AudioDecoder::start()
@@ -101,6 +98,11 @@ void AudioDecoder::start()
 void AudioDecoder::stop()
 {
     m_decoder.stop();
+}
+
+QAudioDecoder::Error AudioDecoder::getError()
+{
+    return m_decoder.error();
 }
 
 void AudioDecoder::setTargetFilename(const QString &fileName)
@@ -115,12 +117,23 @@ void AudioDecoder::bufferReady()
     if (!buffer.isValid())
         return;
 
-    if (!m_fileWriter.isOpen() && !m_fileWriter.open(m_targetFilename, buffer.format())) {
+    if (!m_waveDecoder) {
+        QIODevice* target = new QFile(m_targetFilename, this);
+        if (!target->open(QIODevice::WriteOnly)) {
+            qWarning() << "target file is not writable";
+            m_decoder.stop();
+            return;
+        }
+        m_waveDecoder = new QWaveDecoder(target, buffer.format());
+    }
+
+    if (!m_waveDecoder || (!m_waveDecoder->isOpen()
+                        && !m_waveDecoder->open(QIODevice::WriteOnly))) {
         m_decoder.stop();
         return;
     }
 
-    m_fileWriter.write(buffer);
+    m_waveDecoder->write(buffer.constData<char>(), buffer.byteCount());
 }
 
 void AudioDecoder::error(QAudioDecoder::Error error)
@@ -137,7 +150,7 @@ void AudioDecoder::error(QAudioDecoder::Error error)
     case QAudioDecoder::AccessDeniedError:
         m_cout << "Access denied error\n";
         break;
-    case QAudioDecoder::ServiceMissingError:
+    case QAudioDecoder::NotSupportedError:
         m_cout << "Service missing error\n";
         break;
     }
@@ -145,23 +158,17 @@ void AudioDecoder::error(QAudioDecoder::Error error)
     emit done();
 }
 
-void AudioDecoder::stateChanged(QAudioDecoder::State newState)
+void AudioDecoder::isDecodingChanged(bool isDecoding)
 {
-    switch (newState) {
-    case QAudioDecoder::DecodingState:
+    if (isDecoding)
         m_cout << "Decoding...\n";
-        break;
-    case QAudioDecoder::StoppedState:
+    else
         m_cout << "Decoding stopped\n";
-        break;
-    }
 }
 
 void AudioDecoder::finished()
 {
-    if (!m_fileWriter.close())
-        m_cout << "Failed to finilize output file\n";
-
+    m_waveDecoder->close();
     m_cout << "Decoding finished\n";
 
     if (m_isPlayback) {

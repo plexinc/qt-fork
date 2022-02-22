@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -44,7 +44,7 @@
         \li \c Documentation in \c C++, \c QML, and \c .qdoc files
     \endlist
 
-    \note From Qt 5.11, \l{QDoc Manual}{QDoc} requires \l{http://clang.llvm.org}{Clang}
+    \note \l{QDoc Manual}{QDoc} requires \l{http://clang.llvm.org}{Clang}
     for parsing C++ header and source files, and for parsing the function
     signatures in \l {fn-command} {\\fn} commands. See \l {Installing Clang for QDoc}
     for details.
@@ -68,6 +68,7 @@
         \li \l{C++ Documentation Style}
         \li \l{QML Documentation Style}
         \endlist
+    \li \l{How to Resolve QDoc Warnings}
     \endlist
 
 */
@@ -208,7 +209,7 @@
     \section2 QDoc Index Files
 
     Documentation projects can link to targets in other projects by specifying
-    a set of dependencies, or a set of direct paths to to index file(s) this
+    a set of dependencies, or a set of direct paths to index file(s) this
     project depends on. When QDoc generates documentation for a project,
     it will also generate an \c .index file containing URLs to each linkable
     entity in the project. Other projects can then define a dependency to the
@@ -292,11 +293,42 @@
 
     Example of topic commands:
     \list
-        \li \l{enum-command}{\\enum} - for enumeration documentation
+        \li \l{enum-command}{\\enum} - for enumeration documentation
         \li \l{class-command}{\\class} - for C++ class documentation
         \li \l{qmltype-command}{\\qmltype} - for QML type documentation
         \li \l{page-command}{\\page} - for creating a page.
     \endlist
+
+    A QDoc comment can contain multiple topic commands in the same category, with
+    some restrictions. This way, it's possible to write a single comment that
+    documents all overloads of a function (using multiple \l {fn-command}{\\fn}
+    commands), or all properties in a QML property group (using
+    \l {qmlproperty-command}{\\qmlproperty} commands) in one go.
+
+    If a QDoc comment contains multiple topic commands, it's possible to
+    provide additional \e {context commands} for individual topics in
+    follow-up comments:
+
+    \badcode *
+    /\1!
+        \qmlproperty string Type::element.name
+        \qmlproperty int Type::element.id
+
+        \brief Holds the element name and id.
+    \1/
+
+    /\1!
+        \qmlproperty int Type::element.id
+        \readonly
+    \1/
+    \endcode
+
+    Here, the follow-up comment marks the \e element.id property as read-only,
+    while \e element.name remains writable.
+
+    \note A follow-up comment cannot contain any additional text, only
+          \l {writing-context}{context commands} that document the context of
+          the item.
 
     The \l{page-command}{\\page} command is for creating articles that are not
     part of source documentation. The command can also accept two arguments: the
@@ -306,6 +338,7 @@
     \li \c overview
     \li \c tutorial
     \li \c faq
+    \li \c attribution - used for documenting license attributions
     \li \c article - \e default when there is no type
     \endlist
 
@@ -318,17 +351,17 @@
     \section2 Topic Contexts
 
     Context commands give QDoc a hint about the \e context of the topic. For
-    example, if a C++ function is obsolete, then it should be marked obsolete
-    with the \l{obsolete-command}{\\obsolete} command. Likewise,
-    \l{nextpage-command}{page navigation} and \l{title-command}{page title} 
+    example, if a C++ function is deprecated, then it should be marked as such
+    with the \l{deprecated-command}{\\deprecated} command. Likewise,
+    \l{nextpage-command}{page navigation} and \l{title-command}{page title}
     give extra page information to QDoc.
 
     QDoc will create additional links or pages for these contexts. For example,
-    a group is created using the \l{group-command}{\\group} command and the
+    a group is created using the \l{group-command}{\\group} command and the
     members have the \l{ingroup-command}{\\ingroup} command. The group name is
     supplied as an argument.
 
-    The \l{Context Commands} page has a listing of all the available context
+    The \l{Context Commands} page has a listing of all the available context
     commands.
 
     \target writing-markup
@@ -356,8 +389,8 @@
         \l{Topic Commands}{topic commands}.
 
         \li Give the topic a context - QDoc can associate certain topics to other
-        pages such as associating obsolete functions when the documentation is
-        marked with \l{obsolete-command}{\\obsolete}.
+        pages such as associating deprecated functions when the documentation is
+        marked with \l{deprecated-command}{\\deprecated}.
 
         \li Mark sections of the document with
         \l{Markup Commands}{markup commands} - QDoc can create layouts and
@@ -397,6 +430,7 @@
     \page qdoc-categories.html
     \title Categories of Documentation
     \previouspage Writing Documentation
+    \nextpage How to Resolve QDoc Warnings
     \brief Describes the different types such as How-To's, Tutorials, Overviews,
     Examples, and Class Documentation.
 
@@ -571,7 +605,7 @@
 
     \snippet examples/samples.qdocinc sample-overview
 
-    The \l{writing-topic-commands}{writing topic commands} section has a listing
+    The \l{writing-topic-commands}{writing topic commands} section has a listing
     of the available \\page command arguments.
 
     \section1 Tutorials, How-To's, FAQ's
@@ -589,7 +623,7 @@
     argument, with the file name being the first.
     \snippet examples/samples.qdocinc sample-faq
 
-    The \l{writing-topic-commands}{writing topic commands} section has a listing
+    The \l{writing-topic-commands}{writing topic commands} section has a listing
     of the available \\page command arguments.
 
     \section1 Code Examples
@@ -630,60 +664,24 @@
     \l {fn-command} {\\fn} commands. Clang is part of
     \l {https://llvm.org/}{the LLVM Compiler Infrastructure Project}.
     Therefore, if you are going to build QDoc from source, you need to install
-    \l{http://clang.llvm.org}{LLVM 6.0} or greater first. You can find the
-    required pre-built binaries
-    \l {http://releases.llvm.org/download.html}{here}.
+    \l{http://clang.llvm.org}{LLVM 8.0} or greater first.
 
-    To build QDoc on Debian-based Linux distributions, it is sufficient to
-    install the \c libclang-dev package and its dependencies. For running QDoc,
-    the \c libclang package is required.
+    You can get Clang through various channels:
 
-    \note On Windows, after installing the pre-built LLVM you must restart your
-    build shell to ensure that LLVM's binary directory is added to the PATH
-    variable. This is needed to be able to run qdoc.
+    \list
+    \li Qt provides \l{http://download.qt.io/development_releases/prebuilt/libclang/qt}
+        {prebuilt Clang packages} that are also used for the Qt binaries in the online
+        installer. They allow to link LLVM/clang libraries statically, but only support Release
+        builds on Windows.
+    \li Linux distributions often provide a package called libclang-dev or libclang-devel.
+    \li On macOS, you can also use Homebrew's
+        \l{https://formulae.brew.sh/formula/llvm}{llvm formula}.
+    \endlist
 
-    \section1 Set Clang location automatically
+    \note the prebuilt binaries from \l{http://releases.llvm.org/download.html} cannot
+    be used, as they miss certain components required by QDoc.
 
-    The Qt build system uses the tool \c llvm-config to discover the location
-    of LLVM on your system, and relies on the path to llvm-config being in
-    the \c PATH environment variable to do so. \c llvm-config is commonly
-    installed with LLVM and Clang on Linux systems, and also on macOS if
-    LLVM is installed using Brew.
-
-    On Windows, the installation binaries provided by LLVM do not include
-    \c llvm-config. You may still have it on your system, if you have built
-    LLVM yourself from source. If that is the case, and you want to let the
-    build system find Clang automatically, add the path to \c llvm-config
-    to your \c PATH environment variable. For example:
-
-    \badcode
-        C:\> set PATH=%PATH%;C:\[build directory]\bin\Release"
-    \endcode
-
-    Make sure to set the path to your LLVM build directory. The \c llvm-config
-    executable is located in \c {bin\Release} or \c {bin\Debug}, reflecting the
-    build version.
-
-    \section1 Specify Clang location manually
-
-    If \c llvm-config is not in your \c PATH environment variable, or not
-    installed on your system, you can still build QDoc, by manually setting the
-    environment variable \c LLVM_INSTALL_DIR to point to the directory where
-    the Clang libraries are installed. This directory should be the top level
-    directory. For example, on a Linux or macOS system with LLVM installed to
-    \c /usr/llvm:
-
-    \badcode
-        $ export LLVM_INSTALL_DIR=/usr/llvm
-    \endcode
-
-    Debian-based Linux distributions usually offer multiple versions of the
-    \c libclang packages, such as \c libclang-<VERSION>. In this case,
-    \c LLVM_INSTALL_DIR should contain \c /usr/lib/clang/<VERSION> .
-
-    On a Windows system with LLVM installed to \c {C:\Program Files\LLVM}:
-
-    \badcode
-        C:\> set LLVM_INSTALL_DIR=C:\Program Files\LLVM
-    \endcode
+    If you install Clang in a custom location you need to tell CMake where
+    to find it. This can be done by adding the installation path to
+    the \c CMAKE_PREFIX_PATH CMake cache variable.
 */

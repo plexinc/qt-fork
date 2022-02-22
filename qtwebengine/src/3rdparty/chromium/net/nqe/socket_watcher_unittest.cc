@@ -9,6 +9,7 @@
 #include "base/test/simple_test_tick_clock.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "net/base/address_list.h"
 #include "net/base/ip_address.h"
 #include "net/socket/socket_performance_watcher.h"
@@ -108,8 +109,9 @@ TEST_F(NetworkQualitySocketWatcherTest, NotificationsThrottled) {
   IPAddress ip_address;
   ASSERT_TRUE(ip_address.AssignFromIPLiteral("157.0.0.1"));
   ip_list.push_back(ip_address);
+  std::vector<std::string> aliases({"canonical.example.com"});
   AddressList address_list =
-      AddressList::CreateFromIPAddressList(ip_list, "canonical.example.com");
+      AddressList::CreateFromIPAddressList(ip_list, std::move(aliases));
 
   SocketWatcher socket_watcher(
       SocketPerformanceWatcherFactory::PROTOCOL_TCP, address_list,
@@ -152,8 +154,9 @@ TEST_F(NetworkQualitySocketWatcherTest, QuicFirstNotificationDropped) {
   IPAddress ip_address;
   ASSERT_TRUE(ip_address.AssignFromIPLiteral("157.0.0.1"));
   ip_list.push_back(ip_address);
+  std::vector<std::string> aliases({"canonical.example.com"});
   AddressList address_list =
-      AddressList::CreateFromIPAddressList(ip_list, "canonical.example.com");
+      AddressList::CreateFromIPAddressList(ip_list, std::move(aliases));
 
   SocketWatcher socket_watcher(
       SocketPerformanceWatcherFactory::PROTOCOL_QUIC, address_list,
@@ -189,7 +192,13 @@ TEST_F(NetworkQualitySocketWatcherTest, QuicFirstNotificationDropped) {
   EXPECT_TRUE(socket_watcher.ShouldNotifyUpdatedRTT());
 }
 
-TEST_F(NetworkQualitySocketWatcherTest, PrivateAddressRTTNotNotified) {
+#if defined(OS_IOS)
+// Flaky on iOS: crbug.com/672917.
+#define MAYBE_PrivateAddressRTTNotNotified DISABLED_PrivateAddressRTTNotNotified
+#else
+#define MAYBE_PrivateAddressRTTNotNotified PrivateAddressRTTNotNotified
+#endif
+TEST_F(NetworkQualitySocketWatcherTest, MAYBE_PrivateAddressRTTNotNotified) {
   base::SimpleTestTickClock tick_clock;
   tick_clock.SetNowTicks(base::TimeTicks::Now());
 
@@ -207,8 +216,9 @@ TEST_F(NetworkQualitySocketWatcherTest, PrivateAddressRTTNotNotified) {
     IPAddress ip_address;
     ASSERT_TRUE(ip_address.AssignFromIPLiteral(test.ip_address));
     ip_list.push_back(ip_address);
+    std::vector<std::string> aliases({"canonical.example.com"});
     AddressList address_list =
-        AddressList::CreateFromIPAddressList(ip_list, "canonical.example.com");
+        AddressList::CreateFromIPAddressList(ip_list, std::move(aliases));
 
     SocketWatcher socket_watcher(
         SocketPerformanceWatcherFactory::PROTOCOL_TCP, address_list,
@@ -246,8 +256,9 @@ TEST_F(NetworkQualitySocketWatcherTest, RemoteHostIPHashComputedCorrectly) {
     IPAddress ip_address;
     ASSERT_TRUE(ip_address.AssignFromIPLiteral(test.ip_address));
     ip_list.push_back(ip_address);
+    std::vector<std::string> aliases({"canonical.example.com"});
     AddressList address_list =
-        AddressList::CreateFromIPAddressList(ip_list, "canonical.example.com");
+        AddressList::CreateFromIPAddressList(ip_list, std::move(aliases));
 
     SocketWatcher socket_watcher(
         SocketPerformanceWatcherFactory::PROTOCOL_TCP, address_list,

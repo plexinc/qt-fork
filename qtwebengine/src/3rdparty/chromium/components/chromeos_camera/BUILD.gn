@@ -2,11 +2,12 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/ui.gni")
 import("//media/gpu/args.gni")
 import("//testing/test.gni")
 
-assert(is_chromeos)
+assert(is_chromeos_ash)
 
 source_set("jpeg_encode_accelerator") {
   sources = [
@@ -187,18 +188,6 @@ if (use_v4l2_codec || use_vaapi) {
       deps += [ "//ui/ozone" ]
     }
   }
-}
-
-source_set("camera_app_helper") {
-  sources = [
-    "camera_app_helper_impl.cc",
-    "camera_app_helper_impl.h",
-  ]
-
-  deps = [
-    "common:camera_app_helper",
-    "//ash/public/cpp",
-  ]
 }
 
 test("jpeg_decode_accelerator_unittest") {

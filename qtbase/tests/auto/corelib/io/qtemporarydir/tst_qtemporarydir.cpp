@@ -27,23 +27,27 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QStandardPaths>
 #include <qcoreapplication.h>
 #include <qstring.h>
 #include <qtemporarydir.h>
 #include <qfile.h>
 #include <qdir.h>
 #include <qset.h>
-#include <qtextcodec.h>
 #include <QtTest/private/qtesthelpers_p.h>
 #ifdef Q_OS_WIN
+# include <shlwapi.h>
 # include <windows.h>
 #endif
 #ifdef Q_OS_UNIX // for geteuid()
 # include <sys/types.h>
 # include <unistd.h>
 #endif
-#include "emulationdetector.h"
+
+#ifdef Q_OS_INTEGRITY
+#include "qplatformdefs.h"
+#endif
 
 class tst_QTemporaryDir : public QObject
 {
@@ -158,6 +162,28 @@ void tst_QTemporaryDir::fileTemplate_data()
         prefix = "qt_" + hanTestText();
         QTest::newRow("Chinese") << (prefix + "XXXXXX" + umlautTestText()) << prefix << umlautTestText();
     }
+
+#ifdef Q_OS_WIN
+    auto tmp = QDir::toNativeSeparators(QDir::tempPath());
+    if (PathGetDriveNumber((const wchar_t *) tmp.utf16()) < 0)
+        return; // skip if we have no drive letter
+
+    tmp.data()[1] = u'$';
+    const auto tmpPath = tmp + uR"(\UNC.XXXXXX.tmpDir)"_qs;
+
+    QTest::newRow("UNC-backslash")
+            << uR"(\\localhost\)"_qs + tmpPath << "UNC."
+            << ".tmpDir";
+    QTest::newRow("UNC-prefix")
+            << uR"(\\?\UNC\localhost\)"_qs + tmpPath << "UNC."
+            << ".tmpDir";
+    QTest::newRow("UNC-slash")
+            << u"//localhost/"_qs + QDir::fromNativeSeparators(tmpPath) << "UNC."
+            << ".tmpDir";
+    QTest::newRow("UNC-prefix-slash")
+            << uR"(//?/UNC/localhost/)"_qs + QDir::fromNativeSeparators(tmpPath) << "UNC."
+            << ".tmpDir";
+#endif
 }
 
 void tst_QTemporaryDir::fileTemplate()
@@ -311,12 +337,6 @@ void tst_QTemporaryDir::nonWritableCurrentDir()
     const QFileInfo nonWritableDirFi = QFileInfo(QLatin1String(nonWritableDir));
     QVERIFY(nonWritableDirFi.isDir());
 
-    if (EmulationDetector::isRunningArmOnX86()) {
-        if (nonWritableDirFi.ownerId() == ::geteuid()) {
-            QSKIP("Sysroot directories are owned by the current user");
-        }
-    }
-
     QVERIFY(!nonWritableDirFi.isWritable());
 
     ChdirOnReturn cor(QDir::currentPath());
@@ -333,7 +353,7 @@ void tst_QTemporaryDir::nonWritableCurrentDir()
 
 void tst_QTemporaryDir::openOnRootDrives()
 {
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
     unsigned int lastErrorMode = SetErrorMode(SEM_FAILCRITICALERRORS);
 #endif
     // If it's possible to create a file in the root directory, it
@@ -347,7 +367,7 @@ void tst_QTemporaryDir::openOnRootDrives()
             QVERIFY(dir.isValid());
         }
     }
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
     SetErrorMode(lastErrorMode);
 #endif
 }

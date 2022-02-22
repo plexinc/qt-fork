@@ -41,7 +41,6 @@
 #include "qtechniquefilter_p.h"
 #include <Qt3DRender/qfilterkey.h>
 #include <Qt3DRender/qparameter.h>
-#include <Qt3DRender/qframegraphnodecreatedchange.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -65,8 +64,9 @@ QTechniqueFilterPrivate::QTechniqueFilterPrivate()
     a list of Qt3DRender::QFilterKey objects and Qt3DRender::QParameter objects.
     When QTechniqueFilter is present in the FrameGraph, only the techiques matching
     the keys in the list are used for rendering. The parameters in the list can be used
-    to set values for shader parameters. The parameters in QTechniqueFilter are
-    overridden by parameters in QTechnique and QRenderPass.
+    to set values for shader parameters. The parameters in QTechniqueFilter
+    override parameters in QMaterial, QEffect, QTechnique and QRenderPass, but are overridden
+    by parameters in QRenderPassFilter.
 */
 
 /*!
@@ -82,8 +82,9 @@ QTechniqueFilterPrivate::QTechniqueFilterPrivate()
     a list of FilterKey objects and Parameter objects.
     When TechniqueFilter is present in the FrameGraph, only the techiques matching
     the keys in list are used for rendering. The parameters in the list can be used
-    to set values for shader parameters. The parameters in TechniqueFilter are
-    overridden by parameters in Technique and RenderPass.
+    to set values for shader parameters. The parameters in TechniqueFilter
+    override parameters in Material, Effect, Technique and RenderPass, but are overridden
+    by parameters in RenderPassFilter.
 */
 
 /*!
@@ -118,7 +119,7 @@ QTechniqueFilter::QTechniqueFilter(QTechniqueFilterPrivate &dd, QNode *parent)
 /*!
     Returns a vector of the current keys for the filter.
  */
-QVector<QFilterKey *> QTechniqueFilter::matchAll() const
+QList<QFilterKey *> QTechniqueFilter::matchAll() const
 {
     Q_D(const QTechniqueFilter);
     return d->m_matchList;
@@ -144,7 +145,7 @@ void QTechniqueFilter::addMatch(QFilterKey *filterKey)
         if (!filterKey->parent())
             filterKey->setParent(this);
 
-        d->updateNode(filterKey, "matchAll", Qt3DCore::PropertyValueAdded);
+        d->update();
     }
 }
 
@@ -157,7 +158,7 @@ void QTechniqueFilter::removeMatch(QFilterKey *filterKey)
     Q_D(QTechniqueFilter);
     if (!d->m_matchList.removeOne(filterKey))
         return;
-    d->updateNode(filterKey, "matchAll", Qt3DCore::PropertyValueRemoved);
+    d->update();
     // Remove bookkeeping connection
     d->unregisterDestructionHelper(filterKey);
 }
@@ -182,7 +183,7 @@ void QTechniqueFilter::addParameter(QParameter *parameter)
         if (!parameter->parent())
             parameter->setParent(this);
 
-        d->updateNode(parameter, "parameter", Qt3DCore::PropertyValueAdded);
+        d->update();
     }
 }
 
@@ -195,7 +196,7 @@ void QTechniqueFilter::removeParameter(QParameter *parameter)
     Q_D(QTechniqueFilter);
     if (!d->m_parameters.removeOne(parameter))
         return;
-    d->updateNode(parameter, "parameter", Qt3DCore::PropertyValueRemoved);
+    d->update();
     // Remove bookkeeping connection
     d->unregisterDestructionHelper(parameter);
 }
@@ -203,20 +204,10 @@ void QTechniqueFilter::removeParameter(QParameter *parameter)
 /*!
     Returns the current vector of parameters.
  */
-QVector<QParameter *> QTechniqueFilter::parameters() const
+QList<QParameter *> QTechniqueFilter::parameters() const
 {
     Q_D(const QTechniqueFilter);
     return d->m_parameters;
-}
-
-Qt3DCore::QNodeCreatedChangeBasePtr QTechniqueFilter::createNodeCreationChange() const
-{
-    auto creationChange = QFrameGraphNodeCreatedChangePtr<QTechniqueFilterData>::create(this);
-    auto &data = creationChange->data;
-    Q_D(const QTechniqueFilter);
-    data.matchIds = qIdsForNodes(d->m_matchList);
-    data.parameterIds = qIdsForNodes(d->m_parameters);
-    return creationChange;
 }
 
 } // namespace Qt3DRender

@@ -78,7 +78,7 @@ class TestAnimation : public QAbstractAnimationJob
 {
 public:
     TestAnimation(int duration = 250) : m_duration(duration) {}
-    int duration() const { return m_duration; }
+    int duration() const override { return m_duration; }
 
 private:
     int m_duration;
@@ -92,10 +92,10 @@ public:
     {
     }
 
-    int duration() const { return -1; /* not time driven */ }
+    int duration() const override { return -1; /* not time driven */ }
 
 protected:
-    void timerEvent(QTimerEvent *event)
+    void timerEvent(QTimerEvent *event) override
     {
         if (event->timerId() == id)
             stop();
@@ -118,7 +118,7 @@ private:
 class StateChangeListener: public QAnimationJobChangeListener
 {
 public:
-    virtual void animationStateChanged(QAbstractAnimationJob *, QAbstractAnimationJob::State newState, QAbstractAnimationJob::State)
+    void animationStateChanged(QAbstractAnimationJob *, QAbstractAnimationJob::State newState, QAbstractAnimationJob::State) override
     {
         states << newState;
     }
@@ -134,7 +134,7 @@ class FinishedListener: public QAnimationJobChangeListener
 public:
     FinishedListener() {}
 
-    virtual void animationFinished(QAbstractAnimationJob *) { ++m_count; }
+    void animationFinished(QAbstractAnimationJob *) override { ++m_count; }
     void clear() { m_count = 0; }
     int count() { return m_count; }
 
@@ -321,14 +321,11 @@ void tst_QParallelAnimationGroupJob::clearGroup()
         group.appendAnimation(new QParallelAnimationGroupJob);
     }
 
-    int count = 0;
-    for (QAbstractAnimationJob *anim = group.firstChild(); anim; anim = anim->nextSibling())
-        ++count;
-    QCOMPARE(count, animationCount);
+    QCOMPARE(group.children()->count(), animationCount);
 
     group.clear();
 
-    QVERIFY(!group.firstChild() && !group.lastChild());
+    QVERIFY(group.children()->isEmpty());
     QCOMPARE(group.currentLoopTime(), 0);
 }
 
@@ -432,11 +429,10 @@ void tst_QParallelAnimationGroupJob::deleteChildrenWithRunningGroup()
     QCOMPARE(group.state(), QAnimationGroupJob::Running);
     QCOMPARE(anim1->state(), QAnimationGroupJob::Running);
 
-    QTest::qWait(80);
-    QVERIFY(group.currentLoopTime() > 0);
+    QTRY_VERIFY(group.currentLoopTime() > 0);
 
     delete anim1;
-    QVERIFY(!group.firstChild());
+    QVERIFY(group.children()->isEmpty());
     QCOMPARE(group.duration(), 0);
     QCOMPARE(group.state(), QAnimationGroupJob::Stopped);
     QCOMPARE(group.currentLoopTime(), 0); //that's the invariant

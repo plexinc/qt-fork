@@ -12,7 +12,12 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "chrome/common/buildflags.h"
 #include "chrome/common/extensions/api/developer_private.h"
+
+#if BUILDFLAG(ENABLE_SUPERVISED_USERS)
+class SupervisedUserService;
+#endif  // BUILDFLAG(ENABLE_SUPERVISED_USERS)
 
 namespace content {
 class BrowserContext;
@@ -38,7 +43,7 @@ class ExtensionInfoGenerator {
  public:
   using ExtensionInfoList = std::vector<api::developer_private::ExtensionInfo>;
 
-  using ExtensionInfosCallback = base::Callback<void(ExtensionInfoList)>;
+  using ExtensionInfosCallback = base::OnceCallback<void(ExtensionInfoList)>;
 
   explicit ExtensionInfoGenerator(content::BrowserContext* context);
   ~ExtensionInfoGenerator();
@@ -47,13 +52,13 @@ class ExtensionInfoGenerator {
   // |extension_id|, if the extension can be found.
   // If the extension cannot be found, an empty vector is passed to |callback|.
   void CreateExtensionInfo(const std::string& id,
-                           const ExtensionInfosCallback& callback);
+                           ExtensionInfosCallback callback);
 
   // Creates and asynchronously returns a collection of ExtensionInfos,
   // optionally including disabled and terminated.
   void CreateExtensionsInfo(bool include_disabled,
                             bool include_terminated,
-                            const ExtensionInfosCallback& callback);
+                            ExtensionInfosCallback callback);
 
  private:
   // Creates an ExtensionInfo for the given |extension| and |state|, and
@@ -81,6 +86,9 @@ class ExtensionInfoGenerator {
   WarningService* warning_service_;
   ErrorConsole* error_console_;
   ImageLoader* image_loader_;
+#if BUILDFLAG(ENABLE_SUPERVISED_USERS)
+  SupervisedUserService* supervised_user_service_;
+#endif  // BUILDFLAG(ENABLE_SUPERVISED_USERS)
 
   // The number of pending image loads.
   size_t pending_image_loads_;

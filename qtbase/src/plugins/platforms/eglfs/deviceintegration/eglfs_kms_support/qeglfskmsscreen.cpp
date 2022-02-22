@@ -39,9 +39,9 @@
 **
 ****************************************************************************/
 
-#include "qeglfskmsscreen.h"
-#include "qeglfskmsdevice.h"
-#include "qeglfsintegration_p.h"
+#include "qeglfskmsscreen_p.h"
+#include "qeglfskmsdevice_p.h"
+#include <private/qeglfsintegration_p.h>
 
 #include <QtCore/QLoggingCategory>
 
@@ -160,14 +160,12 @@ QSizeF QEglFSKmsScreen::physicalSize() const
 
 QDpi QEglFSKmsScreen::logicalDpi() const
 {
-    const QSizeF ps = physicalSize();
-    const QSize s = geometry().size();
+    return logicalBaseDpi();
+}
 
-    if (!ps.isEmpty() && !s.isEmpty())
-        return QDpi(25.4 * s.width() / ps.width(),
-                    25.4 * s.height() / ps.height());
-    else
-        return QDpi(100, 100);
+QDpi QEglFSKmsScreen::logicalBaseDpi() const
+{
+    return QDpi(100, 100);
 }
 
 Qt::ScreenOrientation QEglFSKmsScreen::nativeOrientation() const
@@ -218,9 +216,9 @@ qreal QEglFSKmsScreen::refreshRate() const
     return refresh > 0 ? refresh : 60;
 }
 
-QVector<QPlatformScreen::Mode> QEglFSKmsScreen::modes() const
+QList<QPlatformScreen::Mode> QEglFSKmsScreen::modes() const
 {
-    QVector<QPlatformScreen::Mode> list;
+    QList<QPlatformScreen::Mode> list;
     list.reserve(m_output.modes.size());
 
     for (const drmModeModeInfo &info : qAsConst(m_output.modes))

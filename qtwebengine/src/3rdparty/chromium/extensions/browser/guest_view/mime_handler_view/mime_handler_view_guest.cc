@@ -16,7 +16,6 @@
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/common/child_process_host.h"
 #include "content/public/common/url_constants.h"
-#include "content/public/common/web_preferences.h"
 #include "extensions/browser/api/extensions_api_client.h"
 #include "extensions/browser/event_router.h"
 #include "extensions/browser/extension_registry.h"
@@ -35,6 +34,7 @@
 #include "services/service_manager/public/cpp/binder_registry.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
 #include "third_party/blink/public/common/input/web_gesture_event.h"
+#include "third_party/blink/public/common/web_preferences/web_preferences.h"
 
 using content::WebContents;
 using guest_view::GuestViewBase;
@@ -46,7 +46,7 @@ StreamContainer::StreamContainer(
     bool embedded,
     const GURL& handler_url,
     const std::string& extension_id,
-    content::mojom::TransferrableURLLoaderPtr transferrable_loader,
+    blink::mojom::TransferrableURLLoaderPtr transferrable_loader,
     const GURL& original_url)
     : embedded_(embedded),
       tab_id_(tab_id),
@@ -65,7 +65,7 @@ base::WeakPtr<StreamContainer> StreamContainer::GetWeakPtr() {
   return weak_factory_.GetWeakPtr();
 }
 
-content::mojom::TransferrableURLLoaderPtr
+blink::mojom::TransferrableURLLoaderPtr
 StreamContainer::TakeTransferrableURLLoader() {
   return std::move(transferrable_loader_);
 }
@@ -134,14 +134,14 @@ void MimeHandlerViewGuest::SetEmbedderFrame(int process_id, int routing_id) {
         rfh->GetView()->GetRenderWidgetHost()->GetRoutingID();
   }
   auto owner_type = rfh ? rfh->GetFrameOwnerElementType()
-                        : blink::FrameOwnerElementType::kNone;
+                        : blink::mojom::FrameOwnerElementType::kNone;
   // If the embedder frame is the ContentFrame() of a plugin element, then there
   // could be a MimeHandlerViewFrameContainer in the parent frame. Note that
   // the MHVFC is only created through HTMLPlugInElement::UpdatePlugin (manually
   // navigating a plugin element's window would create a MHVFC).
   maybe_has_frame_container_ =
-      owner_type == blink::FrameOwnerElementType::kEmbed ||
-      owner_type == blink::FrameOwnerElementType::kObject;
+      owner_type == blink::mojom::FrameOwnerElementType::kEmbed ||
+      owner_type == blink::mojom::FrameOwnerElementType::kObject;
   DCHECK_NE(MSG_ROUTING_NONE, embedder_widget_routing_id_);
   delegate_->RecordLoadMetric(
       /* in_main_frame */ !GetEmbedderFrame()->GetParent(), mime_type_);
@@ -217,12 +217,13 @@ void MimeHandlerViewGuest::CreateWebContents(
 }
 
 void MimeHandlerViewGuest::DidAttachToEmbedder() {
+  DCHECK(stream_->handler_url().SchemeIs(extensions::kExtensionScheme));
   web_contents()->GetController().LoadURL(
       stream_->handler_url(), content::Referrer(),
       ui::PAGE_TRANSITION_AUTO_TOPLEVEL, std::string());
-  auto prefs = web_contents()->GetRenderViewHost()->GetWebkitPreferences();
+  auto prefs = web_contents()->GetOrCreateWebPreferences();
   prefs.navigate_on_drag_drop = true;
-  web_contents()->GetRenderViewHost()->UpdateWebkitPreferences(prefs);
+  web_contents()->SetWebPreferences(prefs);
 }
 
 void MimeHandlerViewGuest::DidInitialize(
@@ -337,11 +338,12 @@ bool MimeHandlerViewGuest::GuestSaveFrame(
 }
 
 bool MimeHandlerViewGuest::SaveFrame(const GURL& url,
-                                     const content::Referrer& referrer) {
+                                     const content::Referrer& referrer,
+                                     content::RenderFrameHost* rfh) {
   if (!attached())
     return false;
 
-  embedder_web_contents()->SaveFrame(stream_->original_url(), referrer);
+  embedder_web_contents()->SaveFrame(stream_->original_url(), referrer, rfh);
   return true;
 }
 
@@ -354,22 +356,19 @@ void MimeHandlerViewGuest::OnRenderFrameHostDeleted(int process_id,
 }
 
 void MimeHandlerViewGuest::EnterFullscreenModeForTab(
-    content::WebContents*,
-    const GURL& origin,
+    content::RenderFrameHost* requesting_frame,
     const blink::mojom::FullscreenOptions& options) {
   if (SetFullscreenState(true)) {
-    auto* delegate = embedder_web_contents()->GetDelegate();
-    if (delegate) {
-      delegate->EnterFullscreenModeForTab(embedder_web_contents(), origin,
-                                          options);
+    if (auto* delegate = embedder_web_contents()->GetDelegate()) {
+      delegate->EnterFullscreenModeForTab(
+          embedder_web_contents()->GetMainFrame(), options);
     }
   }
 }
 
 void MimeHandlerViewGuest::ExitFullscreenModeForTab(content::WebContents*) {
   if (SetFullscreenState(false)) {
-    auto* delegate = embedder_web_contents()->GetDelegate();
-    if (delegate)
+    if (auto* delegate = embedder_web_contents()->GetDelegate())
       delegate->ExitFullscreenModeForTab(embedder_web_contents());
   }
 }
@@ -444,6 +443,22 @@ void MimeHandlerViewGuest::ReadyToCommitNavigation(
     content::NavigationHandle* navigation_handle) {
   navigation_handle->RegisterSubresourceOverride(
       stream_->TakeTransferrableURLLoader());
+}
+
+void MimeHandlerViewGuest::DidFinishNavigation(
+    content::NavigationHandle* navigation_handle) {
+  guest_view::GuestView<MimeHandlerViewGuest>::DidFinishNavigation(
+      navigation_handle);
+
+  if (navigation_handle->IsInMainFrame()) {
+    // We should not navigate the guest away from the handling extension.
+    const url::Origin handler_origin =
+        url::Origin::Create(stream_->handler_url());
+    const GURL& new_url = navigation_handle->GetURL();
+    const url::Origin new_origin = url::Origin::Create(new_url);
+    CHECK(new_origin.IsSameOriginWith(handler_origin) ||
+          new_url.IsAboutBlank());
+  }
 }
 
 void MimeHandlerViewGuest::FuseBeforeUnloadControl(

@@ -563,7 +563,7 @@ uint ArrayData::append(Object *obj, ArrayObject *otherObj, uint n)
         ScopedValue v(scope);
         for (uint i = 0; i < n; ++i)
             obj->arraySet(oldSize + i, (v = otherObj->get(i)));
-    } else if (other && other->isSparse()) {
+    } else if (other->isSparse()) {
         Heap::SparseArrayData *os = static_cast<Heap::SparseArrayData *>(other->d());
         if (other->hasAttributes()) {
             ScopedValue v(scope);
@@ -586,7 +586,7 @@ uint ArrayData::append(Object *obj, ArrayObject *otherObj, uint n)
         obj->arrayPut(oldSize, os->values.data() + os->offset, chunk);
         toCopy -= chunk;
         if (toCopy)
-            obj->setArrayLength(oldSize + chunk + toCopy);
+            obj->arrayPut(oldSize + chunk, os->values.data(), toCopy);
     }
 
     return oldSize + n;
@@ -650,9 +650,9 @@ bool ArrayElementLessThan::operator()(Value v1, Value v2) const
     if (o) {
         Scope scope(o->engine());
         ScopedValue result(scope);
-        JSCallData jsCallData(scope, 2);
-        jsCallData->args[0] = v1;
-        jsCallData->args[1] = v2;
+        JSCallArguments jsCallData(scope, 2);
+        jsCallData.args[0] = v1;
+        jsCallData.args[1] = v2;
         result = o->call(jsCallData);
         if (scope.hasException())
             return false;

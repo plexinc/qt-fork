@@ -182,8 +182,8 @@ bool QQmlTypeData::tryLoadFromDiskCache()
                 const QV4::CompiledData::Import *import = m_compiledData->importAt(i);
                 if (m_compiledData->stringAt(import->uriIndex) == QLatin1String(".")
                     && import->qualifierIndex == 0
-                    && import->majorVersion == -1
-                    && import->minorVersion == -1) {
+                    && !import->version.hasMajorVersion()
+                    && !import->version.hasMinorVersion()) {
                     QList<QQmlError> errors;
                     auto pendingImport = std::make_shared<PendingImport>(this, import);
                     if (!fetchQmldir(qmldirUrl, pendingImport, 1, &errors)) {
@@ -199,7 +199,7 @@ bool QQmlTypeData::tryLoadFromDiskCache()
     for (int i = 0, count = m_compiledData->importCount(); i < count; ++i) {
         const QV4::CompiledData::Import *import = m_compiledData->importAt(i);
         QList<QQmlError> errors;
-        if (!addImport(import, &errors)) {
+        if (!addImport(import, {}, &errors)) {
             Q_ASSERT(errors.size());
             QQmlError error(errors.takeFirst());
             error.setUrl(m_importCache.baseUrl());
@@ -211,18 +211,12 @@ bool QQmlTypeData::tryLoadFromDiskCache()
         }
     }
 
-    QQmlType containingType;
-    auto containingTypeName = finalUrl().fileName().split(QLatin1Char('.')).first();
-    int major = -1, minor = -1;
-    QQmlImportNamespace *ns = nullptr;
-    m_importCache.resolveType(containingTypeName, &containingType, &major, &minor, &ns);
     for (auto&& ic: ics) {
         QString const nameString = m_compiledData->stringAt(ic.nameIndex);
-        QByteArray const name = nameString.toUtf8();
         auto importUrl = finalUrl();
         importUrl.setFragment(QString::number(ic.objectIndex));
         auto import = new QQmlImportInstance();
-        m_importCache.addInlineComponentImport(import, nameString, importUrl, containingType);
+        m_importCache.addInlineComponentImport(import, nameString, importUrl, QQmlType());
     }
 
     return true;
@@ -283,10 +277,8 @@ void setupICs(const ObjectContainer &container, QHash<int, InlineComponentData> 
     for (int i = 0; i != container->objectCount(); ++i) {
         auto root = container->objectAt(i);
         for (auto it = root->inlineComponentsBegin(); it != root->inlineComponentsEnd(); ++it) {
-            auto url = finalUrl;
-            url.setFragment(QString::number(it->objectIndex));
-            const QByteArray &className = QQmlPropertyCacheCreatorBase::createClassNameTypeByUrl(url);
-            InlineComponentData icDatum(QQmlMetaType::registerInternalCompositeType(className), int(it->objectIndex), int(it->nameIndex), 0, 0, 0);
+            const QByteArray &className = QQmlPropertyCacheCreatorBase::createClassNameForInlineComponent(finalUrl, it->objectIndex);
+            InlineComponentData icDatum(CompositeMetaTypeIds::fromCompositeName(className), int(it->objectIndex), int(it->nameIndex), 0, 0, 0);
             icData->insert(it->objectIndex, icDatum);
         }
     }
@@ -317,8 +309,12 @@ void QQmlTypeData::done()
     auto cleanup = qScopeGuard([this]{
         m_document.reset();
         m_typeReferences.clear();
-        if (isError())
+        if (isError()) {
+            const auto encounteredErrors = errors();
+            for (const QQmlError &e : encounteredErrors)
+                qCDebug(DBG_DISK_CACHE) << e.toString();
             m_compiledData = nullptr;
+        }
     });
 
     if (isError())
@@ -351,14 +347,14 @@ void QQmlTypeData::done()
             auto objectId = containingType.lookupInlineComponentIdByName(type.type.pendingResolutionName());
             if (objectId < 0) { // can be any negative number if we tentatively resolved it in QQmlImport but it actually was not an inline component
                 const QString typeName = stringAt(it.key());
-                int lastDot = typeName.lastIndexOf('.');
+                int lastDot = typeName.lastIndexOf(u'.');
 
                 QList<QQmlError> errors = type.typeData ? type.typeData->errors() : QList<QQmlError>{};
                 QQmlError error;
                 error.setUrl(url());
                 error.setLine(qmlConvertSourceCoordinate<quint32, int>(type.location.line));
                 error.setColumn(qmlConvertSourceCoordinate<quint32, int>(type.location.column));
-                error.setDescription(QQmlTypeLoader::tr("Type %1 has no inline component type called %2").arg(typeName.leftRef(lastDot), type.type.pendingResolutionName()));
+                error.setDescription(QQmlTypeLoader::tr("Type %1 has no inline component type called %2").arg(QStringView{typeName}.left(lastDot), type.type.pendingResolutionName()));
                 errors.prepend(error);
                 setError(errors);
                 return;
@@ -402,21 +398,13 @@ void QQmlTypeData::done()
 
     m_typeClassName = QQmlPropertyCacheCreatorBase::createClassNameTypeByUrl(finalUrl());
     if (!m_typeClassName.isEmpty())
-        m_typeIds = QQmlMetaType::registerInternalCompositeType(m_typeClassName);
+        m_typeIds = CompositeMetaTypeIds::fromCompositeName(m_typeClassName);
 
     if (m_document) {
         setupICs(m_document, &m_inlineComponentData, finalUrl());
     } else {
         setupICs(m_compiledData, &m_inlineComponentData, finalUrl());
     }
-    auto typeCleanupGuard = qScopeGuard([&]() {
-        if (isError() && m_typeIds.isValid()) {
-            QQmlMetaType::unregisterInternalCompositeType(m_typeIds);
-            for (auto&& icData: qAsConst(m_inlineComponentData)) {
-                QQmlMetaType::unregisterInternalCompositeType(icData.typeIds);
-            }
-        }
-    });
 
     QV4::ResolvedTypeReferenceMap resolvedTypeCache;
     QQmlRefPointer<QQmlTypeNameCache> typeNameCache;
@@ -505,7 +493,7 @@ void QQmlTypeData::done()
 
     // associate inline components to root component
     {
-        auto typeName = finalUrlString().splitRef('/').last().split('.').first().toString();
+        auto typeName = QStringView{finalUrlString()}.split(u'/').last().split(u'.').first().toString();
         // typeName can be empty if a QQmlComponent was constructed with an empty QUrl parameter
         if (!typeName.isEmpty() && typeName.at(0).isUpper() && !m_inlineComponentData.isEmpty()) {
             QHashedStringRef const hashedStringRef { typeName };
@@ -529,7 +517,7 @@ void QQmlTypeData::done()
         for (int scriptIndex = 0; scriptIndex < m_scripts.count(); ++scriptIndex) {
             const QQmlTypeData::ScriptReference &script = m_scripts.at(scriptIndex);
 
-            QStringRef qualifier(&script.qualifier);
+            QStringView qualifier(script.qualifier);
             QString enclosingNamespace;
 
             const int lastDotIndex = qualifier.lastIndexOf(QLatin1Char('.'));
@@ -601,14 +589,14 @@ void QQmlTypeData::dataReceived(const SourceCodeData &data)
     continueLoadFromIR();
 }
 
-void QQmlTypeData::initializeFromCachedUnit(const QV4::CompiledData::Unit *unit)
+void QQmlTypeData::initializeFromCachedUnit(const QQmlPrivate::CachedQmlUnit *unit)
 {
     m_document.reset(new QmlIR::Document(isDebugging()));
-    QQmlIRLoader loader(unit, m_document.data());
+    QQmlIRLoader loader(unit->qmlData, m_document.data());
     loader.load();
     m_document->jsModule.fileName = urlString();
     m_document->jsModule.finalUrl = finalUrlString();
-    m_document->javaScriptCompilationUnit = QV4::CompiledData::CompilationUnit(unit);
+    m_document->javaScriptCompilationUnit = QV4::CompiledData::CompilationUnit(unit->qmlData, unit->aotCompiledFunctions);
     continueLoadFromIR();
 }
 
@@ -658,9 +646,9 @@ void QQmlTypeData::continueLoadFromIR()
 {
     QQmlType containingType;
     auto containingTypeName = finalUrl().fileName().split(QLatin1Char('.')).first();
-    int major = -1, minor = -1;
+    QTypeRevision version;
     QQmlImportNamespace *ns = nullptr;
-    m_importCache.resolveType(containingTypeName, &containingType, &major, &minor, &ns);
+    m_importCache.resolveType(containingTypeName, &containingType, &version, &ns);
     for (auto const& object: m_document->objects) {
         for (auto it = object->inlineComponentsBegin(); it != object->inlineComponentsEnd(); ++it) {
             QString const nameString = m_document->stringAt(it->nameIndex);
@@ -686,8 +674,7 @@ void QQmlTypeData::continueLoadFromIR()
             // This qmldir is for the implicit import
             auto implicitImport = std::make_shared<PendingImport>();
             implicitImport->uri = QLatin1String(".");
-            implicitImport->majorVersion = -1;
-            implicitImport->minorVersion = -1;
+            implicitImport->version = QTypeRevision();
             QList<QQmlError> errors;
 
             if (!fetchQmldir(qmldirUrl, implicitImport, 1, &errors)) {
@@ -700,14 +687,17 @@ void QQmlTypeData::continueLoadFromIR()
     QList<QQmlError> errors;
 
     for (const QV4::CompiledData::Import *import : qAsConst(m_document->imports)) {
-        if (!addImport(import, &errors)) {
+        if (!addImport(import, {}, &errors)) {
             Q_ASSERT(errors.size());
-            QQmlError error(errors.takeFirst());
+
+            // We're only interested in the chronoligically last error. The previous
+            // errors might be from unsuccessfully trying to load a module from the
+            // resource file system.
+            QQmlError error = errors.first();
             error.setUrl(m_importCache.baseUrl());
             error.setLine(qmlConvertSourceCoordinate<quint32, int>(import->location.line));
             error.setColumn(qmlConvertSourceCoordinate<quint32, int>(import->location.column));
-            errors.prepend(error); // put it back on the list after filling out information.
-            setError(errors);
+            setError(error);
             return;
         }
     }
@@ -831,11 +821,8 @@ void QQmlTypeData::resolveTypes()
             typeName = csRef.typeName;
         }
 
-        int majorVersion = csRef.majorVersion > -1 ? csRef.majorVersion : -1;
-        int minorVersion = csRef.minorVersion > -1 ? csRef.minorVersion : -1;
-
-        if (!resolveType(typeName, majorVersion, minorVersion, ref, -1, -1, true,
-                         QQmlType::CompositeSingletonType))
+        QTypeRevision version = csRef.version;
+        if (!resolveType(typeName, version, ref, -1, -1, true, QQmlType::CompositeSingletonType))
             return;
 
         if (ref.type.isCompositeSingleton()) {
@@ -859,14 +846,13 @@ void QQmlTypeData::resolveTypes()
 
         const bool reportErrors = unresolvedRef->errorWhenNotFound;
 
-        int majorVersion = -1;
-        int minorVersion = -1;
+        QTypeRevision version;
 
         const QString name = stringAt(unresolvedRef.key());
 
         bool *selfReferenceDetection = unresolvedRef->needsCreation ? nullptr : &ref.selfReference;
 
-        if (!resolveType(name, majorVersion, minorVersion, ref, unresolvedRef->location.line,
+        if (!resolveType(name, version, ref, unresolvedRef->location.line,
                          unresolvedRef->location.column, reportErrors,
                          QQmlType::AnyRegistrationType, selfReferenceDetection) && reportErrors)
             return;
@@ -886,8 +872,7 @@ void QQmlTypeData::resolveTypes()
                 }
             }
         }
-        ref.majorVersion = majorVersion;
-        ref.minorVersion = minorVersion;
+        ref.version = version;
 
         ref.location.line = unresolvedRef->location.line;
         ref.location.column = unresolvedRef->location.column;
@@ -934,49 +919,47 @@ QQmlError QQmlTypeData::buildTypeResolutionCaches(
                     objectId = qmlType.containingType().lookupInlineComponentIdByName(QString::fromUtf8(qmlType.typeName()));
                     qmlType.setInlineComponentObjectId(objectId);
                 } else  {
-                    objectId = resolvedType->type.inlineComponendId();
+                    objectId = resolvedType->type.inlineComponentId();
                 }
                 Q_ASSERT(objectId != -1);
-                ref->typePropertyCache = resolvedType->typeData->compilationUnit()->propertyCaches.at(objectId);
-                ref->type = qmlType;
-                Q_ASSERT(ref->type.isInlineComponentType());
+                ref->setTypePropertyCache(resolvedType->typeData->compilationUnit()->propertyCaches.at(objectId));
+                ref->setType(qmlType);
+                Q_ASSERT(ref->type().isInlineComponentType());
             }
         } else if (resolvedType->type.isInlineComponentType()) {
             // Inline component, defined in the file we are currently compiling
             if (!m_inlineComponentToCompiledData.contains(resolvedType.key())) {
-                ref->type = qmlType;
+                ref->setType(qmlType);
                 if (qmlType.isValid()) {
                     // this is required for inline components in singletons
-                    auto typeID = qmlType.lookupInlineComponentById(qmlType.inlineComponendId()).typeId();
+                    auto type = qmlType.lookupInlineComponentById(qmlType.inlineComponentId()).typeId();
+                    auto typeID = type.isValid() ? type.id() : -1;
                     auto exUnit = engine->obtainExecutableCompilationUnit(typeID);
                     if (exUnit) {
                         ref->setCompilationUnit(exUnit);
-                        ref->typePropertyCache = engine->propertyCacheForType(typeID);
+                        ref->setTypePropertyCache(engine->propertyCacheForType(typeID));
                     }
                 }
             } else {
                 ref->setCompilationUnit(m_inlineComponentToCompiledData[resolvedType.key()]);
-                ref->typePropertyCache = m_inlineComponentToCompiledData[resolvedType.key()]->rootPropertyCache();
+                ref->setTypePropertyCache(m_inlineComponentToCompiledData[resolvedType.key()]->rootPropertyCache());
             }
 
         } else if (qmlType.isValid() && !resolvedType->selfReference) {
-            ref->type = qmlType;
-            Q_ASSERT(ref->type.isValid());
+            ref->setType(qmlType);
+            Q_ASSERT(ref->type().isValid());
 
-            if (resolvedType->needsCreation && !ref->type.isCreatable()) {
-                QString reason = ref->type.noCreationReason();
+            if (resolvedType->needsCreation && !qmlType.isCreatable()) {
+                QString reason = qmlType.noCreationReason();
                 if (reason.isEmpty())
                     reason = tr("Element is not creatable.");
                 return qQmlCompileError(resolvedType->location, reason);
             }
 
-            if (ref->type.containsRevisionedAttributes()) {
-                ref->typePropertyCache = engine->cache(ref->type,
-                                                       resolvedType->minorVersion);
-            }
+            if (qmlType.containsRevisionedAttributes())
+                ref->setTypePropertyCache(engine->cache(qmlType, resolvedType->version));
         }
-        ref->majorVersion = resolvedType->majorVersion;
-        ref->minorVersion = resolvedType->minorVersion;
+        ref->setVersion(resolvedType->version);
         ref->doDynamicTypeCheck();
         resolvedTypeCache->insert(resolvedType.key(), ref.take());
     }
@@ -984,7 +967,7 @@ QQmlError QQmlTypeData::buildTypeResolutionCaches(
     return noError;
 }
 
-bool QQmlTypeData::resolveType(const QString &typeName, int &majorVersion, int &minorVersion,
+bool QQmlTypeData::resolveType(const QString &typeName, QTypeRevision &version,
                                TypeReference &ref, int lineNumber, int columnNumber,
                                bool reportErrors, QQmlType::RegistrationType registrationType,
                                bool *typeRecursionDetected)
@@ -992,7 +975,7 @@ bool QQmlTypeData::resolveType(const QString &typeName, int &majorVersion, int &
     QQmlImportNamespace *typeNamespace = nullptr;
     QList<QQmlError> errors;
 
-    bool typeFound = m_importCache.resolveType(typeName, &ref.type, &majorVersion, &minorVersion,
+    bool typeFound = m_importCache.resolveType(typeName, &ref.type, &version,
                                                &typeNamespace, &errors, registrationType,
                                                typeRecursionDetected);
     if (!typeNamespace && !typeFound && !m_implicitImportLoaded) {
@@ -1000,7 +983,7 @@ bool QQmlTypeData::resolveType(const QString &typeName, int &majorVersion, int &
         if (loadImplicitImport()) {
             // Try again to find the type
             errors.clear();
-            typeFound = m_importCache.resolveType(typeName, &ref.type, &majorVersion, &minorVersion,
+            typeFound = m_importCache.resolveType(typeName, &ref.type, &version,
                                                   &typeNamespace, &errors, registrationType,
                                                   typeRecursionDetected);
         } else {

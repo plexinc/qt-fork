@@ -8,16 +8,25 @@ import {injectCoreStyles} from './inject-core-styles.js';
 
 /**
  * @param {!Element} element
- * @param {string=} cssFile
- * @param {boolean=} delegatesFocus
- * @return {!DocumentFragment}
+ * @param {(!{cssFile:(string|undefined),delegatesFocus:(boolean|undefined),enableLegacyPatching:boolean}|undefined)} options
+ * @return {!ShadowRoot}
  */
-export function createShadowRootWithCoreStyles(element, cssFile, delegatesFocus) {
+export function createShadowRootWithCoreStyles(element, options = {
+  delegatesFocus: undefined,
+  cssFile: undefined,
+  enableLegacyPatching: false,
+}) {
+  const {
+    cssFile,
+    delegatesFocus,
+    enableLegacyPatching,
+  } = options;
+
   const shadowRoot = element.attachShadow({mode: 'open', delegatesFocus});
   injectCoreStyles(shadowRoot);
   if (cssFile) {
-    appendStyle(shadowRoot, cssFile);
+    appendStyle(shadowRoot, cssFile, {enableLegacyPatching});
   }
-  shadowRoot.addEventListener('focus', focusChanged.bind(UI), true);
+  shadowRoot.addEventListener('focus', focusChanged, true);
   return shadowRoot;
 }

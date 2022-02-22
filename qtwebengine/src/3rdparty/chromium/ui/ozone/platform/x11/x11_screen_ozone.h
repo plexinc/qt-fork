@@ -12,8 +12,8 @@
 #include "base/macros.h"
 #include "base/observer_list.h"
 #include "ui/base/x/x11_display_manager.h"
-#include "ui/events/platform/x11/x11_event_source.h"
 #include "ui/gfx/geometry/point.h"
+#include "ui/gfx/x/event.h"
 #include "ui/ozone/public/platform_screen.h"
 
 namespace ui {
@@ -22,7 +22,7 @@ class X11WindowManager;
 
 // A PlatformScreen implementation for X11.
 class X11ScreenOzone : public PlatformScreen,
-                       public XEventDispatcher,
+                       public x11::EventObserver,
                        public XDisplayManager::Delegate {
  public:
   X11ScreenOzone();
@@ -39,16 +39,24 @@ class X11ScreenOzone : public PlatformScreen,
   gfx::Point GetCursorScreenPoint() const override;
   gfx::AcceleratedWidget GetAcceleratedWidgetAtScreenPoint(
       const gfx::Point& point) const override;
+  gfx::AcceleratedWidget GetLocalProcessWidgetAtPoint(
+      const gfx::Point& point,
+      const std::set<gfx::AcceleratedWidget>& ignore) const override;
   display::Display GetDisplayNearestPoint(
       const gfx::Point& point) const override;
   display::Display GetDisplayMatching(
-      const gfx::Rect& match_rect) const override;
+      const gfx::Rect& match_rect_in_pixels) const override;
+  void SetScreenSaverSuspended(bool suspend) override;
+  bool IsScreenSaverActive() const override;
+  base::TimeDelta CalculateIdleTime() const override;
   void AddObserver(display::DisplayObserver* observer) override;
   void RemoveObserver(display::DisplayObserver* observer) override;
   std::string GetCurrentWorkspace() override;
+  base::Value GetGpuExtraInfoAsListValue(
+      const gfx::GpuExtraInfo& gpu_extra_info) override;
 
-  // Overridden from ui::XEventDispatcher:
-  bool DispatchXEvent(XEvent* event) override;
+  // Overridden from x11::EventObserver:
+  void OnEvent(const x11::Event& event) override;
 
  private:
   friend class X11ScreenOzoneTest;

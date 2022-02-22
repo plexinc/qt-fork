@@ -52,7 +52,7 @@ public:
 */
 class WidgetNavigator {
 public:
-    WidgetNavigator() {};
+    WidgetNavigator() {}
     ~WidgetNavigator();
 
     void printAll(QWidget *widget);
@@ -82,7 +82,7 @@ namespace NativeEvents {
 class ColorWidget : public QWidget
 {
 public:
-    ColorWidget(QWidget *parent = 0, QColor color = QColor(Qt::red))
+    ColorWidget(QWidget *parent = nullptr, QColor color = QColor(Qt::red))
        : QWidget(parent), color(color) {}
 
     QColor color;

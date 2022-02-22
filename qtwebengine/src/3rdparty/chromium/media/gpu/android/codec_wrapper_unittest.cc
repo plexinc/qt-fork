@@ -5,7 +5,6 @@
 #include <memory>
 
 #include "base/bind.h"
-#include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/test/mock_callback.h"
@@ -354,6 +353,24 @@ TEST_F(CodecWrapperTest, CodecWrapperPostsReleaseToProvidedThread) {
   // The underlying buffer should not be released until we RunUntilIdle.
   EXPECT_CALL(*codec_, ReleaseOutputBuffer(_, false));
   base::RunLoop().RunUntilIdle();
+}
+
+TEST_F(CodecWrapperTest, RenderCallbackCalledIfRendered) {
+  auto codec_buffer = DequeueCodecOutputBuffer();
+  bool flag = false;
+  codec_buffer->set_render_cb(base::BindOnce([](bool* flag) { *flag = true; },
+                                             base::Unretained(&flag)));
+  codec_buffer->ReleaseToSurface();
+  EXPECT_TRUE(flag);
+}
+
+TEST_F(CodecWrapperTest, RenderCallbackIsNotCalledIfNotRendered) {
+  auto codec_buffer = DequeueCodecOutputBuffer();
+  bool flag = false;
+  codec_buffer->set_render_cb(base::BindOnce([](bool* flag) { *flag = true; },
+                                             base::Unretained(&flag)));
+  codec_buffer.reset();
+  EXPECT_FALSE(flag);
 }
 
 }  // namespace media

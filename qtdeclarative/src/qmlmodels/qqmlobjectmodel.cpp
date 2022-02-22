@@ -75,15 +75,15 @@ public:
     QQmlObjectModelPrivate() : QObjectPrivate(), moveId(0) {}
 
     static void children_append(QQmlListProperty<QObject> *prop, QObject *item) {
-        int index = static_cast<QQmlObjectModelPrivate *>(prop->data)->children.count();
+        qsizetype index = static_cast<QQmlObjectModelPrivate *>(prop->data)->children.count();
         static_cast<QQmlObjectModelPrivate *>(prop->data)->insert(index, item);
     }
 
-    static int children_count(QQmlListProperty<QObject> *prop) {
+    static qsizetype children_count(QQmlListProperty<QObject> *prop) {
         return static_cast<QQmlObjectModelPrivate *>(prop->data)->children.count();
     }
 
-    static QObject *children_at(QQmlListProperty<QObject> *prop, int index) {
+    static QObject *children_at(QQmlListProperty<QObject> *prop, qsizetype index) {
         return static_cast<QQmlObjectModelPrivate *>(prop->data)->children.at(index).item;
     }
 
@@ -91,7 +91,7 @@ public:
         static_cast<QQmlObjectModelPrivate *>(prop->data)->clear();
     }
 
-    static void children_replace(QQmlListProperty<QObject> *prop, int index, QObject *item) {
+    static void children_replace(QQmlListProperty<QObject> *prop, qsizetype index, QObject *item) {
         static_cast<QQmlObjectModelPrivate *>(prop->data)->replace(index, item);
     }
 
@@ -175,7 +175,8 @@ public:
 
     void clear() {
         Q_Q(QQmlObjectModel);
-        for (const Item &child : qAsConst(children))
+        const auto copy = children;
+        for (const Item &child : copy)
             emit q->destroyingItem(child.item);
         remove(0, children.count());
     }
@@ -190,6 +191,8 @@ public:
     uint moveId;
     QList<Item> children;
 };
+
+Q_DECLARE_TYPEINFO(QQmlObjectModelPrivate::Item, Q_PRIMITIVE_TYPE);
 
 
 /*!
@@ -393,7 +396,7 @@ void QQmlObjectModel::insert(int index, QObject *object)
     \qmlmethod QtQml.Models::ObjectModel::move(int from, int to, int n = 1)
     \since 5.6
 
-    Moves \e n items \a from one position \a to another.
+    Moves \a n items \a from one position \a to another.
 
     The from and to ranges must exist; for example, to move the first 3 items
     to the end of the model:
@@ -420,7 +423,7 @@ void QQmlObjectModel::move(int from, int to, int n)
     \qmlmethod QtQml.Models::ObjectModel::remove(int index, int n = 1)
     \since 5.6
 
-    Removes \e n items at \a index from the model.
+    Removes \a n items at \a index from the model.
 
     \sa clear()
 */
@@ -446,6 +449,17 @@ void QQmlObjectModel::clear()
 {
     Q_D(QQmlObjectModel);
     d->clear();
+}
+
+bool QQmlInstanceModel::setRequiredProperty(int index, const QString &name, const QVariant &value)
+{
+    Q_UNUSED(index);
+    Q_UNUSED(name);
+    Q_UNUSED(value);
+    // The view should not call this function, unless
+    // it's actually handled in a subclass.
+    Q_UNREACHABLE();
+    return false;
 }
 
 QT_END_NAMESPACE

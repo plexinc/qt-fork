@@ -47,6 +47,8 @@
 
 #if defined(Q_OS_DARWIN)
 #  include <private/qeventdispatcher_cf_p.h>
+#elif defined(Q_OS_WASM)
+#    include <private/qeventdispatcher_wasm_p.h>
 #else
 #  if !defined(QT_NO_GLIB)
 #    include "../kernel/qeventdispatcher_glib_p.h"
@@ -104,7 +106,7 @@ QT_BEGIN_NAMESPACE
 
 #if QT_CONFIG(thread)
 
-Q_STATIC_ASSERT(sizeof(pthread_t) <= sizeof(Qt::HANDLE));
+static_assert(sizeof(pthread_t) <= sizeof(Qt::HANDLE));
 
 enum { ThreadPriorityResetFlag = 0x80000000 };
 
@@ -235,7 +237,7 @@ void QAdoptedThread::init()
 */
 
 extern "C" {
-typedef void*(*QtThreadCallback)(void*);
+typedef void *(*QtThreadCallback)(void *);
 }
 
 #endif // QT_CONFIG(thread)
@@ -250,6 +252,8 @@ QAbstractEventDispatcher *QThreadPrivate::createEventDispatcher(QThreadData *dat
         return new QEventDispatcherCoreFoundation;
     else
         return new QEventDispatcherUNIX;
+#elif defined(Q_OS_WASM)
+    return new QEventDispatcherWasm();
 #elif !defined(QT_NO_GLIB)
     const bool isQtMainThread = data->thread.loadAcquire() == QCoreApplicationPrivate::mainThread();
     if (qEnvironmentVariableIsEmpty("QT_NO_GLIB")
@@ -278,6 +282,29 @@ static void setCurrentThreadName(const char *name)
 }
 #endif
 
+namespace {
+template <typename T>
+void terminate_on_exception(T &&t)
+{
+#ifndef QT_NO_EXCEPTIONS
+    try {
+#endif
+        std::forward<T>(t)();
+#ifndef QT_NO_EXCEPTIONS
+#ifdef __GLIBCXX__
+    // POSIX thread cancellation under glibc is implemented by throwing an exception
+    // of this type. Do what libstdc++ is doing and handle it specially in order not to
+    // abort the application if user's code calls a cancellation function.
+    } catch (abi::__forced_unwind &) {
+        throw;
+#endif // __GLIBCXX__
+    } catch (...) {
+        qTerminate();
+    }
+#endif // QT_NO_EXCEPTIONS
+}
+} // unnamed namespace
+
 void *QThreadPrivate::start(void *arg)
 {
 #if !defined(Q_OS_ANDROID)
@@ -285,10 +312,7 @@ void *QThreadPrivate::start(void *arg)
 #endif
     pthread_cleanup_push(QThreadPrivate::finish, arg);
 
-#ifndef QT_NO_EXCEPTIONS
-    try
-#endif
-    {
+    terminate_on_exception([&] {
         QThread *thr = reinterpret_cast<QThread *>(arg);
         QThreadData *data = QThreadData::get2(thr);
 
@@ -296,11 +320,13 @@ void *QThreadPrivate::start(void *arg)
             QMutexLocker locker(&thr->d_func()->mutex);
 
             // do we need to reset the thread priority?
-            if (int(thr->d_func()->priority) & ThreadPriorityResetFlag) {
+            if (thr->d_func()->priority & ThreadPriorityResetFlag) {
                 thr->d_func()->setPriority(QThread::Priority(thr->d_func()->priority & ~ThreadPriorityResetFlag));
             }
 
-            data->threadId.storeRelaxed(to_HANDLE(pthread_self()));
+            // threadId is set in QThread::start()
+            Q_ASSERT(pthread_equal(from_HANDLE<pthread_t>(data->threadId.loadRelaxed()),
+                                   pthread_self()));
             set_thread_data(data);
 
             data->ref();
@@ -308,16 +334,23 @@ void *QThreadPrivate::start(void *arg)
         }
 
         data->ensureEventDispatcher();
+        data->eventDispatcher.loadRelaxed()->startingUp();
 
 #if (defined(Q_OS_LINUX) || defined(Q_OS_MAC) || defined(Q_OS_QNX))
         {
             // Sets the name of the current thread. We can only do this
             // when the thread is starting, as we don't have a cross
             // platform way of setting the name of an arbitrary thread.
-            if (Q_LIKELY(thr->objectName().isEmpty()))
+
+            // avoid interacting with the binding system while thread is
+            // not properly running yet
+            auto priv = QObjectPrivate::get(thr);
+            QString objectName = priv->extraData ? priv->extraData->objectName.valueBypassingBindings()
+                                                 : QString();
+            if (Q_LIKELY(objectName.isEmpty()))
                 setCurrentThreadName(thr->metaObject()->className());
             else
-                setCurrentThreadName(thr->objectName().toLocal8Bit());
+                setCurrentThreadName(objectName.toLocal8Bit());
         }
 #endif
 
@@ -327,20 +360,7 @@ void *QThreadPrivate::start(void *arg)
         pthread_testcancel();
 #endif
         thr->run();
-    }
-#ifndef QT_NO_EXCEPTIONS
-#ifdef __GLIBCXX__
-    // POSIX thread cancellation under glibc is implemented by throwing an exception
-    // of this type. Do what libstdc++ is doing and handle it specially in order not to
-    // abort the application if user's code calls a cancellation function.
-    catch (const abi::__forced_unwind &) {
-        throw;
-    }
-#endif // __GLIBCXX__
-    catch (...) {
-        qTerminate();
-    }
-#endif // QT_NO_EXCEPTIONS
+    });
 
     // This pop runs finish() below. It's outside the try/catch (and has its
     // own try/catch) to prevent finish() to be run in case an exception is
@@ -352,10 +372,7 @@ void *QThreadPrivate::start(void *arg)
 
 void QThreadPrivate::finish(void *arg)
 {
-#ifndef QT_NO_EXCEPTIONS
-    try
-#endif
-    {
+    terminate_on_exception([&] {
         QThread *thr = reinterpret_cast<QThread *>(arg);
         QThreadPrivate *d = thr->d_func();
 
@@ -384,33 +401,33 @@ void QThreadPrivate::finish(void *arg)
         d->interruptionRequested = false;
 
         d->isInFinish = false;
+        d->data->threadId.storeRelaxed(nullptr);
+
         d->thread_done.wakeAll();
-    }
-#ifndef QT_NO_EXCEPTIONS
-#ifdef __GLIBCXX__
-    // POSIX thread cancellation under glibc is implemented by throwing an exception
-    // of this type. Do what libstdc++ is doing and handle it specially in order not to
-    // abort the application if user's code calls a cancellation function.
-    catch (const abi::__forced_unwind &) {
-        throw;
-    }
-#endif // __GLIBCXX__
-    catch (...) {
-        qTerminate();
-    }
-#endif // QT_NO_EXCEPTIONS
+    });
 }
-
-
 
 
 /**************************************************************************
  ** QThread
  *************************************************************************/
 
-Qt::HANDLE QThread::currentThreadId() noexcept
+/*
+    CI tests fails on ARM architectures if we try to use the assembler, so
+    stick to the pthread version there. The assembler would be
+
+    // http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ddi0344k/Babeihid.html
+    asm volatile ("mrc p15, 0, %0, c13, c0, 3" : "=r" (tid));
+
+    and
+
+    // see glibc/sysdeps/aarch64/nptl/tls.h
+    asm volatile ("mrs %0, tpidr_el0" : "=r" (tid));
+
+    for 32 and 64bit versions, respectively.
+*/
+Qt::HANDLE QThread::currentThreadIdImpl() noexcept
 {
-    // requires a C cast here otherwise we run into trouble on AIX
     return to_HANDLE(pthread_self());
 }
 
@@ -667,7 +684,7 @@ void QThread::start(Priority priority)
                 // could not set scheduling hints, fallback to inheriting them
                 // we'll try again from inside the thread
                 pthread_attr_setinheritsched(&attr, PTHREAD_INHERIT_SCHED);
-                d->priority = Priority(priority | ThreadPriorityResetFlag);
+                d->priority = qToUnderlying(priority) | ThreadPriorityResetFlag;
             }
             break;
         }
@@ -755,6 +772,8 @@ bool QThread::wait(QDeadlineTimer deadline)
         if (!d->thread_done.wait(locker.mutex(), deadline))
             return false;
     }
+    Q_ASSERT(d->data->threadId.loadRelaxed() == nullptr);
+
     return true;
 }
 
@@ -764,7 +783,7 @@ void QThread::setTerminationEnabled(bool enabled)
     Q_ASSERT_X(thr != nullptr, "QThread::setTerminationEnabled()",
                "Current thread was not started with QThread.");
 
-    Q_UNUSED(thr)
+    Q_UNUSED(thr);
 #if defined(Q_OS_ANDROID)
     Q_UNUSED(enabled);
 #else

@@ -52,7 +52,7 @@
 //
 
 #include <QtCore/QtGlobal>
-#include <private/qnode_p.h>
+#include <Qt3DCore/private/qnode_p.h>
 #include <Qt3DRender/qframegraphnode.h>
 #include <Qt3DRender/private/qt3drender_global_p.h>
 
@@ -66,7 +66,7 @@ class Q_3DRENDERSHARED_PRIVATE_EXPORT QFrameGraphNodePrivate : public Qt3DCore::
 {
 public:
     QFrameGraphNodePrivate();
-    QVector<QFrameGraphNode *> childFrameGraphNodes() const;
+    QList<QFrameGraphNode *> childFrameGraphNodes() const;
 
     static QFrameGraphNodePrivate *get(QFrameGraphNode *node) { return node->d_func(); }
     static const QFrameGraphNodePrivate *get(const QFrameGraphNode *node) { return node->d_func(); }

@@ -52,7 +52,7 @@
 
 #include "customstyle.h"
 
-CustomStyle::CustomStyle()
+CustomStyle::CustomStyle(const QWidget *widget)
 {
 //! [0]
     const QSpinBox *spinBox = qobject_cast<const QSpinBox *>(widget);

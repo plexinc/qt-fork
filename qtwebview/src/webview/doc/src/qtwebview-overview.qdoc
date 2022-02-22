@@ -35,24 +35,53 @@
   necessarily including a full web browser stack by using native APIs where
   it makes sense.
 
-  This is useful on mobile platforms such as \l {Qt for Android}{Android},
-  \l {Qt for iOS}{iOS}, and \l {Qt for UWP}{UWP (Universal Windows Platform)}; especially
-  on iOS, where policy dictates that all web content is displayed using the
-  operating system's web view.
+  This is useful on mobile platforms such as \l {Qt for Android}{Android} and \l {Qt for iOS}{iOS};
+  On iOS the policy dictates that all web content is displayed using the operating system's web view.
 
-  On Windows, Linux, and \macos, Qt \WebView depends on the \l{Qt WebEngine}
-  module to render content.
+  On Windows and Linux, Qt \WebView depends on the \l{Qt WebEngine} module to render
+  content.
+
+  On \macos, the system web view is used in the same manner as iOS.
 
   \section1 Prerequisites
 
-  To make the Qt \WebView module function correctly across all platforms, it's necessary
+  To make the Qt WebView module function correctly across all platforms, it's necessary
   to call \l {qtwebview-initialize}{QtWebView::initialize}() before creating the
   QGuiApplication instance and before window's QPlatformOpenGLContext is created.
 
-  \section1 QML Types
+  \section1 Using The Module
 
-  The module provides a single QML component for displaying web content in
-  the application: \l{WebView}.
+  \section2 QML API
+
+  The QML types in Qt WebView are available through the QtWebView import. To use the types,
+  add the following import statement to your .qml file:
+
+  \badcode
+  import QtWebView
+  \endcode
+
+  \section2 C++ API
+
+  Using the C++ API requires linking against the module library, either directly or through other dependencies.
+
+  \section3 Building with CMake
+
+  Use the \c find_package() command to locate WebView component in the Qt6 package:
+
+  \badcode
+  find_package(Qt6 COMPONENTS WebView)
+  target_link_libraries(target PUBLIC Qt::WebView)
+  \endcode
+
+  For more information, see the \l{Build with CMake} overview page.
+
+  \section3 Building with qmake
+
+  Add the webview module to the \c QT variable in the project's .pro file:
+
+  \badcode
+  QT += webview
+  \endcode
 
   \section1 Limitations
 

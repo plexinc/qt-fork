@@ -66,12 +66,12 @@ WebSourceBufferImpl::WebSourceBufferImpl(const std::string& id,
                                          ChunkDemuxer* demuxer)
     : id_(id),
       demuxer_(demuxer),
-      client_(NULL),
+      client_(nullptr),
       append_window_end_(kInfiniteDuration) {
   DCHECK(demuxer_);
   demuxer_->SetTracksWatcher(
-      id, base::Bind(&WebSourceBufferImpl::InitSegmentReceived,
-                     base::Unretained(this)));
+      id, base::BindRepeating(&WebSourceBufferImpl::InitSegmentReceived,
+                              base::Unretained(this)));
   demuxer_->SetParseWarningCallback(
       id, base::BindRepeating(&WebSourceBufferImpl::NotifyParseWarning,
                               base::Unretained(this)));
@@ -136,10 +136,27 @@ bool WebSourceBufferImpl::Append(const unsigned char* data,
                                       append_window_end_, &timestamp_offset_);
 
   // Coded frame processing may update the timestamp offset. If the caller
-  // provides a non-NULL |timestamp_offset| and frame processing changes the
+  // provides a non-nullptr |timestamp_offset| and frame processing changes the
   // timestamp offset, report the new offset to the caller. Do not update the
   // caller's offset otherwise, to preserve any pre-existing value that may have
   // more than microsecond precision.
+  if (timestamp_offset && old_offset != timestamp_offset_)
+    *timestamp_offset = timestamp_offset_.InSecondsF();
+
+  return success;
+}
+
+bool WebSourceBufferImpl::AppendChunks(
+    std::unique_ptr<media::StreamParser::BufferQueue> buffer_queue,
+    double* timestamp_offset) {
+  base::TimeDelta old_offset = timestamp_offset_;
+  bool success =
+      demuxer_->AppendChunks(id_, std::move(buffer_queue), append_window_start_,
+                             append_window_end_, &timestamp_offset_);
+
+  // Like in ::Append, timestamp_offset may be updated by coded frame
+  // processing.
+  // TODO(crbug.com/1144908): Consider refactoring this common bit into helper.
   if (timestamp_offset && old_offset != timestamp_offset_)
     *timestamp_offset = timestamp_offset_.InSecondsF();
 
@@ -200,8 +217,8 @@ void WebSourceBufferImpl::SetAppendWindowEnd(double end) {
 
 void WebSourceBufferImpl::RemovedFromMediaSource() {
   demuxer_->RemoveId(id_);
-  demuxer_ = NULL;
-  client_ = NULL;
+  demuxer_ = nullptr;
+  client_ = nullptr;
 }
 
 blink::WebMediaPlayer::TrackType mediaTrackTypeToBlink(MediaTrack::Type type) {

@@ -215,7 +215,9 @@ struct
 
   template <typename Pred, typename Val> auto
   impl (Pred&& p, Val &&v, hb_priority<1>) const HB_AUTO_RETURN
-  (hb_deref (hb_forward<Pred> (p)).has (hb_forward<Val> (v)))
+  (
+    hb_deref (hb_forward<Pred> (p)).has (hb_forward<Val> (v))
+  )
 
   template <typename Pred, typename Val> auto
   impl (Pred&& p, Val &&v, hb_priority<0>) const HB_AUTO_RETURN
@@ -269,7 +271,9 @@ struct
 
   template <typename Proj, typename Val> auto
   impl (Proj&& f, Val &&v, hb_priority<2>) const HB_AUTO_RETURN
-  (hb_deref (hb_forward<Proj> (f)).get (hb_forward<Val> (v)))
+  (
+    hb_deref (hb_forward<Proj> (f)).get (hb_forward<Val> (v))
+  )
 
   template <typename Proj, typename Val> auto
   impl (Proj&& f, Val &&v, hb_priority<1>) const HB_AUTO_RETURN
@@ -295,6 +299,40 @@ struct
   )
 }
 HB_FUNCOBJ (hb_get);
+
+struct
+{
+  private:
+
+  template <typename T1, typename T2> auto
+  impl (T1&& v1, T2 &&v2, hb_priority<2>) const HB_AUTO_RETURN
+  (
+    hb_forward<T2> (v2).cmp (hb_forward<T1> (v1)) == 0
+  )
+
+  template <typename T1, typename T2> auto
+  impl (T1&& v1, T2 &&v2, hb_priority<1>) const HB_AUTO_RETURN
+  (
+    hb_forward<T1> (v1).cmp (hb_forward<T2> (v2)) == 0
+  )
+
+  template <typename T1, typename T2> auto
+  impl (T1&& v1, T2 &&v2, hb_priority<0>) const HB_AUTO_RETURN
+  (
+    hb_forward<T1> (v1) == hb_forward<T2> (v2)
+  )
+
+  public:
+
+  template <typename T1, typename T2> auto
+  operator () (T1&& v1, T2 &&v2) const HB_AUTO_RETURN
+  (
+    impl (hb_forward<T1> (v1),
+	  hb_forward<T2> (v2),
+	  hb_prioritize)
+  )
+}
+HB_FUNCOBJ (hb_equal);
 
 
 template <typename T1, typename T2>
@@ -350,14 +388,14 @@ struct
 {
   template <typename T, typename T2> constexpr auto
   operator () (T&& a, T2&& b) const HB_AUTO_RETURN
-  (hb_forward<T> (a) <= hb_forward<T2> (b) ? hb_forward<T> (a) : hb_forward<T2> (b))
+  (a <= b ? hb_forward<T> (a) : hb_forward<T2> (b))
 }
 HB_FUNCOBJ (hb_min);
 struct
 {
   template <typename T, typename T2> constexpr auto
   operator () (T&& a, T2&& b) const HB_AUTO_RETURN
-  (hb_forward<T> (a) >= hb_forward<T2> (b) ? hb_forward<T> (a) : hb_forward<T2> (b))
+  (a >= b ? hb_forward<T> (a) : hb_forward<T2> (b))
 }
 HB_FUNCOBJ (hb_max);
 struct
@@ -577,6 +615,12 @@ static inline unsigned char TOUPPER (unsigned char c)
 { return (c >= 'a' && c <= 'z') ? c - 'a' + 'A' : c; }
 static inline unsigned char TOLOWER (unsigned char c)
 { return (c >= 'A' && c <= 'Z') ? c - 'A' + 'a' : c; }
+static inline bool ISHEX (unsigned char c)
+{ return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'); }
+static inline unsigned char TOHEX (uint8_t c)
+{ return (c & 0xF) <= 9 ? (c & 0xF) + '0' : (c & 0xF) + 'a' - 10; }
+static inline uint8_t FROMHEX (unsigned char c)
+{ return (c >= '0' && c <= '9') ? c - '0' : TOLOWER (c) - 'a' + 10; }
 
 static inline unsigned int DIV_CEIL (const unsigned int a, unsigned int b)
 { return (a + (b - 1)) / b; }
@@ -644,17 +688,6 @@ hb_unsigned_mul_overflows (unsigned int count, unsigned int size)
 {
   return (size > 0) && (count >= ((unsigned int) -1) / size);
 }
-
-/* Right now we only have one use for signed overflow and as it
- * is GCC 5.1 > and clang we don't care about its fallback ATM */
-#ifndef __has_builtin
-# define __has_builtin(x) 0
-#endif
-#if __has_builtin(__builtin_mul_overflow)
-# define hb_signed_mul_overflows(x, y, result) __builtin_mul_overflow(x, y, &result)
-#else
-# define hb_signed_mul_overflows(x, y, result) (result = (x) * (y), false)
-#endif
 
 
 /*
@@ -993,32 +1026,24 @@ hb_codepoint_parse (const char *s, unsigned int len, int base, hb_codepoint_t *o
 
 struct hb_bitwise_and
 { HB_PARTIALIZE(2);
-  static constexpr bool passthru_left = false;
-  static constexpr bool passthru_right = false;
   template <typename T> constexpr auto
   operator () (const T &a, const T &b) const HB_AUTO_RETURN (a & b)
 }
 HB_FUNCOBJ (hb_bitwise_and);
 struct hb_bitwise_or
 { HB_PARTIALIZE(2);
-  static constexpr bool passthru_left = true;
-  static constexpr bool passthru_right = true;
   template <typename T> constexpr auto
   operator () (const T &a, const T &b) const HB_AUTO_RETURN (a | b)
 }
 HB_FUNCOBJ (hb_bitwise_or);
 struct hb_bitwise_xor
 { HB_PARTIALIZE(2);
-  static constexpr bool passthru_left = true;
-  static constexpr bool passthru_right = true;
   template <typename T> constexpr auto
   operator () (const T &a, const T &b) const HB_AUTO_RETURN (a ^ b)
 }
 HB_FUNCOBJ (hb_bitwise_xor);
 struct hb_bitwise_sub
 { HB_PARTIALIZE(2);
-  static constexpr bool passthru_left = true;
-  static constexpr bool passthru_right = false;
   template <typename T> constexpr auto
   operator () (const T &a, const T &b) const HB_AUTO_RETURN (a & ~b)
 }

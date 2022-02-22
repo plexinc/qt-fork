@@ -10,6 +10,7 @@
 
 #include "include/core/SkRect.h"
 #include "include/core/SkRefCnt.h"
+#include "include/core/SkSamplingOptions.h"
 #include "include/core/SkTileMode.h"
 #include "include/core/SkTypes.h"
 
@@ -89,16 +90,9 @@ public:
     */
     class SK_API AbortCallback {
     public:
-
-        /** Has no effect.
-
-            @return  abstract class cannot be instantiated
-        */
-        AbortCallback() {}
-
         /** Has no effect.
         */
-        virtual ~AbortCallback() {}
+        virtual ~AbortCallback() = default;
 
         /** Stops SkPicture playback when some condition is met. A subclass of
             AbortCallback provides an override for abort() that can stop SkPicture::playback.
@@ -115,6 +109,11 @@ public:
         example: https://fiddle.skia.org/c/@Picture_AbortCallback_abort
         */
         virtual bool abort() = 0;
+
+    protected:
+        AbortCallback() = default;
+        AbortCallback(const AbortCallback&) = delete;
+        AbortCallback& operator=(const AbortCallback&) = delete;
     };
 
     /** Replays the drawing commands on the specified canvas. In the case that the
@@ -197,11 +196,13 @@ public:
         recorded: some calls may be recorded as more than one operation, other
         calls may be optimized away.
 
+        @param nested  if true, include the op-counts of nested pictures as well, else
+                       just return count the ops in the top-level picture.
         @return  approximate operation count
 
         example: https://fiddle.skia.org/c/@Picture_approximateOpCount
     */
-    virtual int approximateOpCount() const = 0;
+    virtual int approximateOpCount(bool nested = false) const = 0;
 
     /** Returns the approximate byte size of SkPicture. Does not include large objects
         referenced by SkPicture.
@@ -216,6 +217,7 @@ public:
      *
      *  @param tmx  The tiling mode to use when sampling in the x-direction.
      *  @param tmy  The tiling mode to use when sampling in the y-direction.
+     *  @param mode How to filter the tiles
      *  @param localMatrix Optional matrix used when sampling
      *  @param tile The tile rectangle in picture coordinates: this represents the subset
      *              (or superset) of the picture used when building a tile. It is not
@@ -224,13 +226,17 @@ public:
      *              bounds.
      *  @return     Returns a new shader object. Note: this function never returns null.
      */
+    sk_sp<SkShader> makeShader(SkTileMode tmx, SkTileMode tmy, SkFilterMode mode,
+                               const SkMatrix* localMatrix, const SkRect* tileRect) const;
+
+    // DEPRECATED
     sk_sp<SkShader> makeShader(SkTileMode tmx, SkTileMode tmy,
                                const SkMatrix* localMatrix, const SkRect* tileRect) const;
     sk_sp<SkShader> makeShader(SkTileMode tmx, SkTileMode tmy,
                                const SkMatrix* localMatrix = nullptr) const;
 
 private:
-    // Subclass whitelist.
+    // Allowed subclasses.
     SkPicture();
     friend class SkBigPicture;
     friend class SkEmptyPicture;

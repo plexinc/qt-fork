@@ -9,6 +9,9 @@
 #include <windows.h>
 #endif
 
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+
 #include <memory>
 #include <string>
 #include <vector>
@@ -22,14 +25,9 @@
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/vsync_provider.h"
 #include "ui/gl/egl_timestamps.h"
-#include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_export.h"
 #include "ui/gl/gl_surface.h"
 #include "ui/gl/gl_surface_overlay.h"
-
-#if defined(USE_X11)
-#include "ui/events/platform/x11/x11_event_source.h"  // nogncheck
-#endif
 
 namespace gl {
 
@@ -74,7 +72,9 @@ enum DisplayType {
   ANGLE_SWIFTSHADER = 14,
   ANGLE_OPENGL_EGL = 15,
   ANGLE_OPENGLES_EGL = 16,
-  DISPLAY_TYPE_MAX = 17,
+  ANGLE_METAL = 17,
+  ANGLE_METAL_NULL = 18,
+  DISPLAY_TYPE_MAX = 19,
 };
 
 GL_EXPORT void GetEGLInitDisplays(bool supports_angle_d3d,
@@ -83,6 +83,7 @@ GL_EXPORT void GetEGLInitDisplays(bool supports_angle_d3d,
                                   bool supports_angle_vulkan,
                                   bool supports_angle_swiftshader,
                                   bool supports_angle_egl,
+                                  bool supports_angle_metal,
                                   const base::CommandLine* command_line,
                                   std::vector<DisplayType>* init_displays);
 
@@ -107,9 +108,12 @@ class GL_EXPORT GLSurfaceEGL : public GLSurface {
   // These aren't particularly tied to surfaces, but since we already
   // have the static InitializeOneOff here, it's easiest to reuse its
   // initialization guards.
+  static const char* GetEGLClientExtensions();
   static const char* GetEGLExtensions();
+  static bool HasEGLClientExtension(const char* name);
   static bool HasEGLExtension(const char* name);
   static bool IsCreateContextRobustnessSupported();
+  static bool IsRobustnessVideoMemoryPurgeSupported();
   static bool IsCreateContextBindGeneratesResourceSupported();
   static bool IsCreateContextWebGLCompatabilitySupported();
   static bool IsEGLSurfacelessContextSupported();
@@ -117,10 +121,13 @@ class GL_EXPORT GLSurfaceEGL : public GLSurface {
   static bool IsEGLFlexibleSurfaceCompatibilitySupported();
   static bool IsRobustResourceInitSupported();
   static bool IsDisplayTextureShareGroupSupported();
+  static bool IsDisplaySemaphoreShareGroupSupported();
   static bool IsCreateContextClientArraysSupported();
   static bool IsAndroidNativeFenceSyncSupported();
   static bool IsPixelFormatFloatSupported();
   static bool IsANGLEFeatureControlSupported();
+  static bool IsANGLEPowerPreferenceSupported();
+  static bool IsANGLEExternalContextAndSurfaceSupported();
 
  protected:
   ~GLSurfaceEGL() override;
@@ -136,9 +143,6 @@ class GL_EXPORT GLSurfaceEGL : public GLSurface {
 
 // Encapsulates an EGL surface bound to a view.
 class GL_EXPORT NativeViewGLSurfaceEGL : public GLSurfaceEGL,
-#if defined(USE_X11)
-                                         public ui::XEventDispatcher,
-#endif
                                          public EGLTimestampClient {
  public:
   NativeViewGLSurfaceEGL(EGLNativeWindowType window,
@@ -194,7 +198,6 @@ class GL_EXPORT NativeViewGLSurfaceEGL : public GLSurfaceEGL,
   ~NativeViewGLSurfaceEGL() override;
 
   EGLNativeWindowType window_ = 0;
-  std::vector<EGLNativeWindowType> children_;
   gfx::Size size_ = gfx::Size(1, 1);
   bool enable_fixed_size_angle_ = true;
 
@@ -213,19 +216,13 @@ class GL_EXPORT NativeViewGLSurfaceEGL : public GLSurfaceEGL,
   void UpdateSwapEvents(EGLuint64KHR newFrameId, bool newFrameIdIsValid);
   void TraceSwapEvents(EGLuint64KHR oldFrameId);
 
-#if defined(USE_X11)
-  // XEventDispatcher:
-  bool DispatchXEvent(XEvent* xev) override;
-#endif
+  // Some platforms may provide a custom implementation of vsync provider.
+  virtual std::unique_ptr<gfx::VSyncProvider> CreateVsyncProviderInternal();
 
   EGLSurface surface_ = nullptr;
   bool supports_post_sub_buffer_ = false;
   bool supports_swap_buffer_with_damage_ = false;
   gfx::SurfaceOrigin surface_origin_ = gfx::SurfaceOrigin::kBottomLeft;
-
-#if defined(USE_X11)
-  bool has_swapped_buffers_ = false;
-#endif
 
   std::unique_ptr<gfx::VSyncProvider> vsync_provider_external_;
   std::unique_ptr<gfx::VSyncProvider> vsync_provider_internal_;

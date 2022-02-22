@@ -43,8 +43,6 @@ Throughout our documentation and examples, \l{QML Object Attributes}{QML object 
 \li JavaScript functions
 \li object properties
 \li child objects
-\li states
-\li transitions
 \endlist
 
 For better readability, we separate these different parts with an empty line.
@@ -69,21 +67,26 @@ could be written like this:
 
 \snippet qmlapp/codingconventions/dotproperties.qml 1
 
+\section1 Unqualified access
 
-\section1 Lists
+In order to improve readability and performance always reference properties of parent components by their id explicitly:
 
-If a list contains only one element, we generally omit the square brackets.
+\snippet qmlapp/codingconventions/qualifiedaccess.qml 0
 
-For example, it is very common for a component to only have one state.
+\section1 Required properties
 
-In this case, instead of:
+When requiring data defined outside the component, make this explicit by using \l{Required Properties}.
+Required properties must be set or else the creation of the component will fail.
+These are preferable to unqualified lookups because they are more performant and allow for both
+users and tooling to reason about an external property's type.
+Additionally they remove assumptions that a component otherwise has to make about the environment
+in which it is created.
 
-\snippet qmlapp/codingconventions/lists.qml 0
+\section1 Signal handlers
 
-we will write this:
+When handling parameters in signal handlers use functions which name them explicitly:
 
-\snippet qmlapp/codingconventions/lists.qml 1
-
+\snippet qmlapp/codingconventions/signalhandler.qml 0
 
 \section1 JavaScript Code
 
@@ -98,6 +101,10 @@ If the script is only a couple of lines long, we generally use a block:
 If the script is more than a couple of lines long or can be used by different objects, we recommend creating a function and calling it like this:
 
 \snippet qmlapp/codingconventions/javascript.qml 2
+
+Also note that is recommended to add type annotations to your function in order
+to more easily reason about and refactor your application since both parameter
+and return types are immediately visible from the function signature.
 
 For long scripts, we will put the functions in their own JavaScript file and import it like this:
 

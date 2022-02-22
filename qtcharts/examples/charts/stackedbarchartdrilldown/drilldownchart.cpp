@@ -31,7 +31,7 @@
 #include <QtCharts/QBarCategoryAxis>
 #include <QtCharts/QValueAxis>
 
-QT_CHARTS_USE_NAMESPACE
+QT_USE_NAMESPACE
 
 DrilldownChart::DrilldownChart(QGraphicsItem *parent, Qt::WindowFlags wFlags)
     : QChart(QChart::ChartTypeCartesian, parent, wFlags),
@@ -61,7 +61,7 @@ void DrilldownChart::changeSeries(DrilldownBarSeries *series)
 
 void DrilldownChart::handleClicked(int index, QBarSet *barset)
 {
-    Q_UNUSED(barset)
+    Q_UNUSED(barset);
     DrilldownBarSeries *series = static_cast<DrilldownBarSeries *>(sender());
     changeSeries(series->drilldownSeries(index));
 }

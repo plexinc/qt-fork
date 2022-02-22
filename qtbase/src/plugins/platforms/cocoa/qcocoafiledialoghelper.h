@@ -41,21 +41,14 @@
 #define QCOCOAFILEDIALOGHELPER_H
 
 #include <QObject>
-#include <QtWidgets/qtwidgetsglobal.h>
 #include <qpa/qplatformdialoghelper.h>
 #include <QtCore/private/qcore_mac_p.h>
 
-#import <AppKit/NSSavePanel.h>
-
-QT_REQUIRE_CONFIG(filedialog);
-
-@interface QT_MANGLE_NAMESPACE(QNSOpenSavePanelDelegate) : NSObject<NSOpenSavePanelDelegate>
-@end
-
-QT_NAMESPACE_ALIAS_OBJC_CLASS(QNSOpenSavePanelDelegate);
+QT_DECLARE_NAMESPACED_OBJC_INTERFACE(QNSOpenSavePanelDelegate, NSObject<NSOpenSavePanelDelegate>)
 
 QT_BEGIN_NAMESPACE
 
+class QEventLoop;
 class QFileDialog;
 class QFileDialogPrivate;
 
@@ -79,19 +72,15 @@ public:
     void selectNameFilter(const QString &filter) override;
     QString selectedNameFilter() const override;
 
-public:
-    bool showCocoaFilePanel(Qt::WindowModality windowModality, QWindow *parent);
-    bool hideCocoaFilePanel();
-
-    void createNSOpenSavePanelDelegate();
-    void QNSOpenSavePanelDelegate_selectionChanged(const QString &newPath);
-    void QNSOpenSavePanelDelegate_panelClosed(bool accepted);
-    void QNSOpenSavePanelDelegate_directoryEntered(const QString &newDir);
-    void QNSOpenSavePanelDelegate_filterSelected(int menuIndex);
+public: // for QNSOpenSavePanelDelegate
+    void panelClosed(NSInteger result);
 
 private:
-    QNSOpenSavePanelDelegate *mDelegate;
-    QUrl mDir;
+    void createNSOpenSavePanelDelegate();
+
+    QNSOpenSavePanelDelegate *m_delegate = nil;
+    QUrl m_directory;
+    QEventLoop *m_eventLoop = nullptr;
 };
 
 QT_END_NAMESPACE

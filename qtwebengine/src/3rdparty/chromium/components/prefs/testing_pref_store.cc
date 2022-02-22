@@ -44,7 +44,7 @@ void TestingPrefStore::RemoveObserver(PrefStore::Observer* observer) {
 }
 
 bool TestingPrefStore::HasObservers() const {
-  return observers_.might_have_observers();
+  return !observers_.empty();
 }
 
 bool TestingPrefStore::IsInitializationComplete() const {
@@ -75,6 +75,10 @@ void TestingPrefStore::RemoveValue(const std::string& key, uint32_t flags) {
     committed_ = false;
     NotifyPrefValueChanged(key);
   }
+}
+
+void TestingPrefStore::RemoveValuesByPrefixSilently(const std::string& prefix) {
+  prefs_.ClearWithPrefix(prefix);
 }
 
 bool TestingPrefStore::ReadOnly() const {

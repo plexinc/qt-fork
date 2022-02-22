@@ -19,12 +19,12 @@
 #include "net/base/completion_once_callback.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/request_priority.h"
-#include "net/dns/dns_config.h"
-#include "net/dns/dns_config_overrides.h"
 #include "net/dns/host_cache.h"
 #include "net/dns/host_resolver_source.h"
+#include "net/dns/public/dns_config_overrides.h"
 #include "net/dns/public/dns_query_type.h"
 #include "net/dns/public/resolve_error_info.h"
+#include "net/dns/public/secure_dns_mode.h"
 
 namespace base {
 class Value;
@@ -98,12 +98,22 @@ class NET_EXPORT HostResolver {
     virtual const base::Optional<std::vector<HostPortPair>>&
     GetHostnameResults() const = 0;
 
-    // TLS 1.3 Encrypted Server Name Indication, draft 4 (ESNI,
-    // https://tools.ietf.org/html/draft-ietf-tls-esni-04)
-    // results of the request. Should only be called after
-    // Start() signals completion, either by invoking the callback or by
-    // returning a result other than |ERR_IO_PENDING|.
-    virtual const base::Optional<EsniContent>& GetEsniResults() const = 0;
+    // Any DNS record aliases, such as CNAME aliases, found as a result of an
+    // address query. The alias chain order is preserved in reverse, from
+    // canonical name (i.e. address record name) through to query name. Should
+    // only be called after Start() signals completion, either by invoking the
+    // callback or by returning a result other than `ERR_IO_PENDING`. Returns a
+    // list of aliases that has been sanitized and canonicalized (as URL
+    // hostnames), and thus may differ from the results stored directly in the
+    // AddressList.
+    virtual const base::Optional<std::vector<std::string>>& GetDnsAliasResults()
+        const = 0;
+
+    // Result of an experimental query. Meaning depends on the specific query
+    // type, but each boolean value generally refers to a valid or invalid
+    // record of the experimental type.
+    NET_EXPORT virtual const base::Optional<std::vector<bool>>&
+    GetExperimentalResultsForTesting() const;
 
     // Error info for the request.
     //
@@ -246,9 +256,14 @@ class NET_EXPORT HostResolver {
     // will always be |base::nullopt|.
     bool is_speculative = false;
 
+    // If `true`, resolver may (but is not guaranteed to) take steps to avoid
+    // the name being resolved via LLMNR or mDNS. Useful for requests where it
+    // is not desired to wait for longer timeouts on potential negative results,
+    // as is typically the case for LLMNR or mDNS queries without any results.
+    bool avoid_multicast_resolution = false;
+
     // Set to override the resolver's default secure dns mode for this request.
-    base::Optional<DnsConfig::SecureDnsMode> secure_dns_mode_override =
-        base::nullopt;
+    base::Optional<SecureDnsMode> secure_dns_mode_override = base::nullopt;
   };
 
   // Handler for an ongoing MDNS listening operation. Created by
@@ -312,15 +327,6 @@ class NET_EXPORT HostResolver {
       const NetLogWithSource& net_log,
       const base::Optional<ResolveHostParameters>& optional_parameters) = 0;
 
-  // Deprecated version of above method that uses an empty NetworkIsolationKey.
-  //
-  // TODO(mmenke): Once all consumers have been updated to use the other
-  // overload instead, remove this method and make above method pure virtual.
-  virtual std::unique_ptr<ResolveHostRequest> CreateRequest(
-      const HostPortPair& host,
-      const NetLogWithSource& net_log,
-      const base::Optional<ResolveHostParameters>& optional_parameters);
-
   // Creates a request to probe configured DoH servers to find which can be used
   // successfully.
   virtual std::unique_ptr<ProbeRequest> CreateDohProbeRequest();
@@ -334,9 +340,8 @@ class NET_EXPORT HostResolver {
   // Used primarily to clear the cache and for getting debug information.
   virtual HostCache* GetHostCache();
 
-  // Returns the current DNS configuration |this| is using, as a Value, or
-  // nullptr if it's configured to always use the system host resolver.
-  virtual std::unique_ptr<base::Value> GetDnsConfigAsValue() const;
+  // Returns the current DNS configuration |this| is using, as a Value.
+  virtual base::Value GetDnsConfigAsValue() const;
 
   // Set the associated URLRequestContext, generally expected to be called by
   // URLRequestContextBuilder on passing ownership of |this| to a context. May

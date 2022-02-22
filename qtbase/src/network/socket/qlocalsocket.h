@@ -44,6 +44,10 @@
 #include <QtCore/qiodevice.h>
 #include <QtNetwork/qabstractsocket.h>
 
+#ifndef QT_NO_DEBUG_STREAM
+#include <QtCore/qdebug.h>
+#endif
+
 QT_REQUIRE_CONFIG(localserver);
 
 QT_BEGIN_NAMESPACE
@@ -54,6 +58,8 @@ class Q_NETWORK_EXPORT QLocalSocket : public QIODevice
 {
     Q_OBJECT
     Q_DECLARE_PRIVATE(QLocalSocket)
+    Q_PROPERTY(SocketOptions socketOptions READ socketOptions WRITE setSocketOptions
+               BINDABLE bindableSocketOptions)
 
 public:
     enum LocalSocketError
@@ -78,6 +84,13 @@ public:
         ConnectedState = QAbstractSocket::ConnectedState,
         ClosingState = QAbstractSocket::ClosingState
     };
+
+    enum SocketOption {
+        NoOptions = 0x00,
+        AbstractNamespaceOption = 0x01
+    };
+    Q_DECLARE_FLAGS(SocketOptions, SocketOption)
+    Q_FLAG(SocketOptions)
 
     QLocalSocket(QObject *parent = nullptr);
     ~QLocalSocket();
@@ -108,6 +121,10 @@ public:
                              OpenMode openMode = ReadWrite);
     qintptr socketDescriptor() const;
 
+    void setSocketOptions(SocketOptions option);
+    SocketOptions socketOptions() const;
+    QBindable<SocketOptions> bindableSocketOptions();
+
     LocalSocketState state() const;
     bool waitForBytesWritten(int msecs = 30000) override;
     bool waitForConnected(int msecs = 30000);
@@ -117,15 +134,12 @@ public:
 Q_SIGNALS:
     void connected();
     void disconnected();
-#if QT_DEPRECATED_SINCE(5,15)
-    QT_DEPRECATED_NETWORK_API_5_15_X("Use QLocalSocket::errorOccurred(QLocalSocket::LocalSocketError) instead")
-    void error(QLocalSocket::LocalSocketError socketError);
-#endif
     void errorOccurred(QLocalSocket::LocalSocketError socketError);
     void stateChanged(QLocalSocket::LocalSocketState socketState);
 
 protected:
     virtual qint64 readData(char*, qint64) override;
+    qint64 skipData(qint64 maxSize) override;
     virtual qint64 writeData(const char*, qint64) override;
 
 private:
@@ -134,7 +148,6 @@ private:
     Q_PRIVATE_SLOT(d_func(), void _q_stateChanged(QAbstractSocket::SocketState))
     Q_PRIVATE_SLOT(d_func(), void _q_errorOccurred(QAbstractSocket::SocketError))
 #elif defined(Q_OS_WIN)
-    Q_PRIVATE_SLOT(d_func(), void _q_canWrite())
     Q_PRIVATE_SLOT(d_func(), void _q_pipeClosed())
     Q_PRIVATE_SLOT(d_func(), void _q_winError(ulong, const QString &))
 #else
@@ -146,10 +159,11 @@ private:
 };
 
 #ifndef QT_NO_DEBUG_STREAM
-#include <QtCore/qdebug.h>
 Q_NETWORK_EXPORT QDebug operator<<(QDebug, QLocalSocket::LocalSocketError);
 Q_NETWORK_EXPORT QDebug operator<<(QDebug, QLocalSocket::LocalSocketState);
 #endif
+
+Q_DECLARE_OPERATORS_FOR_FLAGS(QLocalSocket::SocketOptions)
 
 QT_END_NAMESPACE
 

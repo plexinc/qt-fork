@@ -48,6 +48,7 @@
 #include <QtCore/qmetatype.h>
 
 #include <initializer_list>
+#include <limits>
 #include <type_traits>
 
 //
@@ -274,6 +275,7 @@ private:
         if (m_dataType & External) {
             uint length = m_dataLength * (other.m_dataType / 8);
             m_data.external = malloc(length);
+            Q_CHECK_PTR(m_data.external);
             memcpy(m_data.external, other.m_data.external, length);
         } else {
             memcpy(&m_data, &other.m_data, sizeof(m_data));
@@ -317,6 +319,7 @@ private:
                 return;
             m_dataType = static_cast<Type>((sizeof(Number) * 8) | External);
             m_data.external = malloc(m_dataLength * sizeof(Number));
+            Q_CHECK_PTR(m_data.external);
             data = static_cast<Number *>(m_data.external);
         } else {
             m_dataType = static_cast<Type>(sizeof(Number) * 8);
@@ -346,7 +349,7 @@ bool operator!=(const QQmlProfilerEvent &event1, const QQmlProfilerEvent &event2
 QDataStream &operator>>(QDataStream &stream, QQmlProfilerEvent &event);
 QDataStream &operator<<(QDataStream &stream, const QQmlProfilerEvent &event);
 
-Q_DECLARE_TYPEINFO(QQmlProfilerEvent, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QQmlProfilerEvent, Q_RELOCATABLE_TYPE);
 
 QT_END_NAMESPACE
 

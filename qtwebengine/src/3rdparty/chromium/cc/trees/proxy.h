@@ -8,7 +8,6 @@
 #include <memory>
 #include <string>
 
-#include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/threading/platform_thread.h"
 #include "base/time/time.h"
@@ -80,8 +79,6 @@ class CC_EXPORT Proxy {
   virtual void SetPaintWorkletLayerPainter(
       std::unique_ptr<PaintWorkletLayerPainter> painter) = 0;
 
-  virtual bool SupportsImplScrolling() const = 0;
-
   virtual void UpdateBrowserControlsState(BrowserControlsState constraints,
                                           BrowserControlsState current,
                                           bool animate) = 0;
@@ -93,10 +90,16 @@ class CC_EXPORT Proxy {
 
   virtual void SetSourceURL(ukm::SourceId source_id, const GURL& url) = 0;
 
+  virtual void SetUkmSmoothnessDestination(
+      base::WritableSharedMemoryMapping ukm_smoothness_data) = 0;
+
   virtual void ClearHistory() = 0;
 
   virtual void SetRenderFrameObserver(
       std::unique_ptr<RenderFrameMetadataObserver> observer) = 0;
+
+  virtual void SetEnableFrameRateThrottling(
+      bool enable_frame_rate_throttling) = 0;
 };
 
 }  // namespace cc

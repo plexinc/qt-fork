@@ -35,6 +35,9 @@
 #include <QtCore/qdebug.h>
 #include <QtQuickWidgets/qquickwidget.h>
 
+#include <QtQuick/QQuickWindow>
+
+
 QT_BEGIN_NAMESPACE
 
 QQuickWidgetPlugin::QQuickWidgetPlugin(QObject *parent)
@@ -100,22 +103,29 @@ void QQuickWidgetPlugin::initialize(QDesignerFormEditorInterface * /*core*/)
 
 QString QQuickWidgetPlugin::domXml() const
 {
-    return QStringLiteral("\
-    <ui language=\"c++\">\
-        <widget class=\"QQuickWidget\" name=\"quickWidget\">\
-            <property name=\"resizeMode\">\
-                <enum>QQuickWidget::SizeRootObjectToView</enum>\
-            </property>\
-            <property name=\"geometry\">\
-                <rect>\
-                    <x>0</x>\
-                    <y>0</y>\
-                    <width>300</width>\
-                    <height>200</height>\
-                </rect>\
-            </property>\
-        </widget>\
-    </ui>");
+    const auto graphicsApi = QQuickWindow::graphicsApi();
+    if (graphicsApi != QSGRendererInterface::OpenGLRhi) {
+        qWarning("Qt Designer: The QQuickWidget custom widget plugin is disabled because it requires OpenGL RHI (current: %d).",
+                 int(graphicsApi));
+        return {};
+    }
+    return QStringLiteral(R"(
+<ui language="c++">
+    <widget class="QQuickWidget" name="quickWidget">
+        <property name="resizeMode">
+            <enum>QQuickWidget::SizeRootObjectToView</enum>
+        </property>
+        <property name="geometry">
+            <rect>
+                <x>0</x>
+                <y>0</y>
+                <width>300</width>
+                <height>200</height>
+            </rect>
+        </property>
+    </widget>
+</ui>
+)");
 }
 
 void QQuickWidgetPlugin::sceneGraphError(QQuickWindow::SceneGraphError, const QString &message)

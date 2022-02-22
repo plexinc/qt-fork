@@ -2,24 +2,24 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/quic_data_writer.h"
+#include "quic/core/quic_data_writer.h"
 
 #include <cstdint>
 #include <cstring>
 
-#include "net/third_party/quiche/src/quic/core/quic_connection_id.h"
-#include "net/third_party/quiche/src/quic/core/quic_data_reader.h"
-#include "net/third_party/quiche/src/quic/core/quic_types.h"
-#include "net/third_party/quiche/src/quic/core/quic_utils.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_expect_bug.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_arraysize.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_endian.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
-#include "net/third_party/quiche/src/common/test_tools/quiche_test_utils.h"
+#include "absl/base/macros.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/quic_connection_id.h"
+#include "quic/core/quic_data_reader.h"
+#include "quic/core/quic_types.h"
+#include "quic/core/quic_utils.h"
+#include "quic/platform/api/quic_expect_bug.h"
+#include "quic/platform/api/quic_flags.h"
+#include "quic/platform/api/quic_test.h"
+#include "quic/test_tools/quic_test_utils.h"
+#include "common/quiche_endian.h"
+#include "common/test_tools/quiche_test_utils.h"
 
 namespace quic {
 namespace test {
@@ -37,7 +37,7 @@ struct TestParams {
 
 // Used by ::testing::PrintToStringParamName().
 std::string PrintToString(const TestParams& p) {
-  return quiche::QuicheStrCat(
+  return absl::StrCat(
       (p.endianness == quiche::NETWORK_BYTE_ORDER ? "Network" : "Host"),
       "ByteOrder");
 }
@@ -269,7 +269,7 @@ TEST_P(QuicDataWriterTest, WriteConnectionId) {
   char big_endian[] = {
       0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
   };
-  EXPECT_EQ(connection_id.length(), QUICHE_ARRAYSIZE(big_endian));
+  EXPECT_EQ(connection_id.length(), ABSL_ARRAYSIZE(big_endian));
   ASSERT_LE(connection_id.length(), 255);
   char buffer[255];
   QuicDataWriter writer(connection_id.length(), buffer, GetParam().endianness);
@@ -280,8 +280,8 @@ TEST_P(QuicDataWriterTest, WriteConnectionId) {
 
   QuicConnectionId read_connection_id;
   QuicDataReader reader(buffer, connection_id.length(), GetParam().endianness);
-  EXPECT_TRUE(reader.ReadConnectionId(&read_connection_id,
-                                      QUICHE_ARRAYSIZE(big_endian)));
+  EXPECT_TRUE(
+      reader.ReadConnectionId(&read_connection_id, ABSL_ARRAYSIZE(big_endian)));
   EXPECT_EQ(connection_id, read_connection_id);
 }
 
@@ -291,35 +291,35 @@ TEST_P(QuicDataWriterTest, LengthPrefixedConnectionId) {
   char length_prefixed_connection_id[] = {
       0x08, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
   };
-  EXPECT_EQ(QUICHE_ARRAYSIZE(length_prefixed_connection_id),
+  EXPECT_EQ(ABSL_ARRAYSIZE(length_prefixed_connection_id),
             kConnectionIdLengthSize + connection_id.length());
   char buffer[kConnectionIdLengthSize + 255] = {};
-  QuicDataWriter writer(QUICHE_ARRAYSIZE(buffer), buffer);
+  QuicDataWriter writer(ABSL_ARRAYSIZE(buffer), buffer);
   EXPECT_TRUE(writer.WriteLengthPrefixedConnectionId(connection_id));
   quiche::test::CompareCharArraysWithHexError(
       "WriteLengthPrefixedConnectionId", buffer, writer.length(),
       length_prefixed_connection_id,
-      QUICHE_ARRAYSIZE(length_prefixed_connection_id));
+      ABSL_ARRAYSIZE(length_prefixed_connection_id));
 
   // Verify that writing length then connection ID produces the same output.
-  memset(buffer, 0, QUICHE_ARRAYSIZE(buffer));
-  QuicDataWriter writer2(QUICHE_ARRAYSIZE(buffer), buffer);
+  memset(buffer, 0, ABSL_ARRAYSIZE(buffer));
+  QuicDataWriter writer2(ABSL_ARRAYSIZE(buffer), buffer);
   EXPECT_TRUE(writer2.WriteUInt8(connection_id.length()));
   EXPECT_TRUE(writer2.WriteConnectionId(connection_id));
   quiche::test::CompareCharArraysWithHexError(
       "Write length then ConnectionId", buffer, writer2.length(),
       length_prefixed_connection_id,
-      QUICHE_ARRAYSIZE(length_prefixed_connection_id));
+      ABSL_ARRAYSIZE(length_prefixed_connection_id));
 
   QuicConnectionId read_connection_id;
-  QuicDataReader reader(buffer, QUICHE_ARRAYSIZE(buffer));
+  QuicDataReader reader(buffer, ABSL_ARRAYSIZE(buffer));
   EXPECT_TRUE(reader.ReadLengthPrefixedConnectionId(&read_connection_id));
   EXPECT_EQ(connection_id, read_connection_id);
 
   // Verify that reading length then connection ID produces the same output.
   uint8_t read_connection_id_length2 = 33;
   QuicConnectionId read_connection_id2;
-  QuicDataReader reader2(buffer, QUICHE_ARRAYSIZE(buffer));
+  QuicDataReader reader2(buffer, ABSL_ARRAYSIZE(buffer));
   ASSERT_TRUE(reader2.ReadUInt8(&read_connection_id_length2));
   EXPECT_EQ(connection_id.length(), read_connection_id_length2);
   EXPECT_TRUE(reader2.ReadConnectionId(&read_connection_id2,
@@ -330,8 +330,7 @@ TEST_P(QuicDataWriterTest, LengthPrefixedConnectionId) {
 TEST_P(QuicDataWriterTest, EmptyConnectionIds) {
   QuicConnectionId empty_connection_id = EmptyQuicConnectionId();
   char buffer[2];
-  QuicDataWriter writer(QUICHE_ARRAYSIZE(buffer), buffer,
-                        GetParam().endianness);
+  QuicDataWriter writer(ABSL_ARRAYSIZE(buffer), buffer, GetParam().endianness);
   EXPECT_TRUE(writer.WriteConnectionId(empty_connection_id));
   EXPECT_TRUE(writer.WriteUInt8(1));
   EXPECT_TRUE(writer.WriteConnectionId(empty_connection_id));
@@ -344,8 +343,7 @@ TEST_P(QuicDataWriterTest, EmptyConnectionIds) {
 
   QuicConnectionId read_connection_id = TestConnectionId();
   uint8_t read_byte;
-  QuicDataReader reader(buffer, QUICHE_ARRAYSIZE(buffer),
-                        GetParam().endianness);
+  QuicDataReader reader(buffer, ABSL_ARRAYSIZE(buffer), GetParam().endianness);
   EXPECT_TRUE(reader.ReadConnectionId(&read_connection_id, 0));
   EXPECT_EQ(read_connection_id, empty_connection_id);
   EXPECT_TRUE(reader.ReadUInt8(&read_byte));
@@ -663,10 +661,10 @@ TEST_P(QuicDataWriterTest, WriteIntegers) {
 
 TEST_P(QuicDataWriterTest, WriteBytes) {
   char bytes[] = {0, 1, 2, 3, 4, 5, 6, 7, 8};
-  char buf[QUICHE_ARRAYSIZE(bytes)];
-  QuicDataWriter writer(QUICHE_ARRAYSIZE(buf), buf, GetParam().endianness);
-  EXPECT_TRUE(writer.WriteBytes(bytes, QUICHE_ARRAYSIZE(bytes)));
-  for (unsigned int i = 0; i < QUICHE_ARRAYSIZE(bytes); ++i) {
+  char buf[ABSL_ARRAYSIZE(bytes)];
+  QuicDataWriter writer(ABSL_ARRAYSIZE(buf), buf, GetParam().endianness);
+  EXPECT_TRUE(writer.WriteBytes(bytes, ABSL_ARRAYSIZE(bytes)));
+  for (unsigned int i = 0; i < ABSL_ARRAYSIZE(bytes); ++i) {
     EXPECT_EQ(bytes[i], buf[i]);
   }
 }
@@ -1133,6 +1131,21 @@ TEST_P(QuicDataWriterTest, WriteRandomBytes) {
                                               20);
 }
 
+TEST_P(QuicDataWriterTest, WriteInsecureRandomBytes) {
+  char buffer[20];
+  char expected[20];
+  for (size_t i = 0; i < 20; ++i) {
+    expected[i] = 'r';
+  }
+  MockRandom random;
+  QuicDataWriter writer(20, buffer, GetParam().endianness);
+  EXPECT_FALSE(writer.WriteInsecureRandomBytes(&random, 30));
+
+  EXPECT_TRUE(writer.WriteInsecureRandomBytes(&random, 20));
+  quiche::test::CompareCharArraysWithHexError("random", buffer, 20, expected,
+                                              20);
+}
+
 TEST_P(QuicDataWriterTest, PeekVarInt62Length) {
   // In range [0, 63], variable length should be 1 byte.
   char buffer[20];
@@ -1178,14 +1191,13 @@ TEST_P(QuicDataWriterTest, ValidStreamCount) {
 
 TEST_P(QuicDataWriterTest, Seek) {
   char buffer[3] = {};
-  QuicDataWriter writer(QUICHE_ARRAYSIZE(buffer), buffer,
-                        GetParam().endianness);
+  QuicDataWriter writer(ABSL_ARRAYSIZE(buffer), buffer, GetParam().endianness);
   EXPECT_TRUE(writer.WriteUInt8(42));
   EXPECT_TRUE(writer.Seek(1));
   EXPECT_TRUE(writer.WriteUInt8(3));
 
   char expected[] = {42, 0, 3};
-  for (size_t i = 0; i < QUICHE_ARRAYSIZE(expected); ++i) {
+  for (size_t i = 0; i < ABSL_ARRAYSIZE(expected); ++i) {
     EXPECT_EQ(buffer[i], expected[i]);
   }
 }
@@ -1195,7 +1207,7 @@ TEST_P(QuicDataWriterTest, SeekTooFarFails) {
 
   // Check that one can seek to the end of the writer, but not past.
   {
-    QuicDataWriter writer(QUICHE_ARRAYSIZE(buffer), buffer,
+    QuicDataWriter writer(ABSL_ARRAYSIZE(buffer), buffer,
                           GetParam().endianness);
     EXPECT_TRUE(writer.Seek(20));
     EXPECT_FALSE(writer.Seek(1));
@@ -1203,14 +1215,14 @@ TEST_P(QuicDataWriterTest, SeekTooFarFails) {
 
   // Seeking several bytes past the end fails.
   {
-    QuicDataWriter writer(QUICHE_ARRAYSIZE(buffer), buffer,
+    QuicDataWriter writer(ABSL_ARRAYSIZE(buffer), buffer,
                           GetParam().endianness);
     EXPECT_FALSE(writer.Seek(100));
   }
 
   // Seeking so far that arithmetic overflow could occur also fails.
   {
-    QuicDataWriter writer(QUICHE_ARRAYSIZE(buffer), buffer,
+    QuicDataWriter writer(ABSL_ARRAYSIZE(buffer), buffer,
                           GetParam().endianness);
     EXPECT_TRUE(writer.Seek(10));
     EXPECT_FALSE(writer.Seek(std::numeric_limits<size_t>::max()));
@@ -1227,24 +1239,22 @@ TEST_P(QuicDataWriterTest, PayloadReads) {
   quiche::test::CompareCharArraysWithHexError(
       "first read", first_read_buffer, sizeof(first_read_buffer),
       expected_first_read, sizeof(expected_first_read));
-  quiche::QuicheStringPiece peeked_remaining_payload =
-      reader.PeekRemainingPayload();
+  absl::string_view peeked_remaining_payload = reader.PeekRemainingPayload();
   quiche::test::CompareCharArraysWithHexError(
       "peeked_remaining_payload", peeked_remaining_payload.data(),
       peeked_remaining_payload.length(), expected_remaining,
       sizeof(expected_remaining));
-  quiche::QuicheStringPiece full_payload = reader.FullPayload();
+  absl::string_view full_payload = reader.FullPayload();
   quiche::test::CompareCharArraysWithHexError(
       "full_payload", full_payload.data(), full_payload.length(), buffer,
       sizeof(buffer));
-  quiche::QuicheStringPiece read_remaining_payload =
-      reader.ReadRemainingPayload();
+  absl::string_view read_remaining_payload = reader.ReadRemainingPayload();
   quiche::test::CompareCharArraysWithHexError(
       "read_remaining_payload", read_remaining_payload.data(),
       read_remaining_payload.length(), expected_remaining,
       sizeof(expected_remaining));
   EXPECT_TRUE(reader.IsDoneReading());
-  quiche::QuicheStringPiece full_payload2 = reader.FullPayload();
+  absl::string_view full_payload2 = reader.FullPayload();
   quiche::test::CompareCharArraysWithHexError(
       "full_payload2", full_payload2.data(), full_payload2.length(), buffer,
       sizeof(buffer));
@@ -1253,14 +1263,13 @@ TEST_P(QuicDataWriterTest, PayloadReads) {
 TEST_P(QuicDataWriterTest, StringPieceVarInt62) {
   char inner_buffer[16] = {1, 2,  3,  4,  5,  6,  7,  8,
                            9, 10, 11, 12, 13, 14, 15, 16};
-  quiche::QuicheStringPiece inner_payload_write(inner_buffer,
-                                                sizeof(inner_buffer));
+  absl::string_view inner_payload_write(inner_buffer, sizeof(inner_buffer));
   char buffer[sizeof(inner_buffer) + sizeof(uint8_t)] = {};
   QuicDataWriter writer(sizeof(buffer), buffer);
   EXPECT_TRUE(writer.WriteStringPieceVarInt62(inner_payload_write));
   EXPECT_EQ(0u, writer.remaining());
   QuicDataReader reader(buffer, sizeof(buffer));
-  quiche::QuicheStringPiece inner_payload_read;
+  absl::string_view inner_payload_read;
   EXPECT_TRUE(reader.ReadStringPieceVarInt62(&inner_payload_read));
   quiche::test::CompareCharArraysWithHexError(
       "inner_payload", inner_payload_write.data(), inner_payload_write.length(),

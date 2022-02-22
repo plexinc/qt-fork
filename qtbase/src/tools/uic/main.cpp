@@ -35,7 +35,6 @@
 #include <qdir.h>
 #include <qhashfunctions.h>
 #include <qtextstream.h>
-#include <qtextcodec.h>
 #include <qcoreapplication.h>
 #include <qcommandlineoption.h>
 #include <qcommandlineparser.h>
@@ -80,10 +79,6 @@ int runUic(int argc, char *argv[])
     noImplicitIncludesOption.setDescription(QStringLiteral("Disable generation of #include-directives."));
     parser.addOption(noImplicitIncludesOption);
 
-    QCommandLineOption noStringLiteralOption(QStringList() << QStringLiteral("s") << QStringLiteral("no-stringliteral"));
-    noStringLiteralOption.setDescription(QStringLiteral("Deprecated. The use of this option won't take any effect."));
-    parser.addOption(noStringLiteralOption);
-
     QCommandLineOption postfixOption(QStringLiteral("postfix"));
     postfixOption.setDescription(QStringLiteral("Postfix to add to all generated classnames."));
     postfixOption.setValueName(QStringLiteral("postfix"));
@@ -104,6 +99,11 @@ int runUic(int argc, char *argv[])
     generatorOption.setValueName(QStringLiteral("python|cpp"));
     parser.addOption(generatorOption);
 
+    QCommandLineOption connectionsOption(QStringList{QStringLiteral("c"), QStringLiteral("connections")});
+    connectionsOption.setDescription(QStringLiteral("Connection syntax."));
+    connectionsOption.setValueName(QStringLiteral("pmf|string"));
+    parser.addOption(connectionsOption);
+
     QCommandLineOption idBasedOption(QStringLiteral("idbased"));
     idBasedOption.setDescription(QStringLiteral("Use id based function for i18n"));
     parser.addOption(idBasedOption);
@@ -111,6 +111,11 @@ int runUic(int argc, char *argv[])
     QCommandLineOption fromImportsOption(QStringLiteral("from-imports"));
     fromImportsOption.setDescription(QStringLiteral("Python: generate imports relative to '.'"));
     parser.addOption(fromImportsOption);
+
+    // FIXME Qt 7: Remove?
+    QCommandLineOption useStarImportsOption(QStringLiteral("star-imports"));
+    useStarImportsOption.setDescription(QStringLiteral("Python: Use * imports"));
+    parser.addOption(useStarImportsOption);
 
     parser.addPositionalArgument(QStringLiteral("[uifile]"), QStringLiteral("Input file (*.ui), otherwise stdin."));
 
@@ -123,9 +128,17 @@ int runUic(int argc, char *argv[])
     driver.option().implicitIncludes = !parser.isSet(noImplicitIncludesOption);
     driver.option().idBased = parser.isSet(idBasedOption);
     driver.option().fromImports = parser.isSet(fromImportsOption);
+    driver.option().useStarImports = parser.isSet(useStarImportsOption);
     driver.option().postfix = parser.value(postfixOption);
     driver.option().translateFunction = parser.value(translateOption);
     driver.option().includeFile = parser.value(includeOption);
+    if (parser.isSet(connectionsOption)) {
+        const auto value = parser.value(connectionsOption);
+        if (value == QLatin1String("pmf"))
+            driver.option().forceMemberFnPtrConnectionSyntax = 1;
+        else if (value == QLatin1String("string"))
+            driver.option().forceStringConnectionSyntax = 1;
+    }
 
     Language language = Language::Cpp;
     if (parser.isSet(generatorOption)) {
@@ -133,9 +146,6 @@ int runUic(int argc, char *argv[])
             language = Language::Python;
     }
     language::setLanguage(language);
-
-    if (parser.isSet(noStringLiteralOption))
-        fprintf(stderr, "The -s, --no-stringliteral option is deprecated and it won't take any effect.\n");
 
     QString inputFile;
     if (!parser.positionalArguments().isEmpty())
@@ -156,9 +166,7 @@ int runUic(int argc, char *argv[])
             return 1;
         }
         out = new QTextStream(&f);
-#if QT_CONFIG(textcodec)
-        out->setCodec(QTextCodec::codecForName("UTF-8"));
-#endif
+        out->setEncoding(QStringConverter::Utf8);
     }
 
     bool rtn = driver.uic(inputFile, out);

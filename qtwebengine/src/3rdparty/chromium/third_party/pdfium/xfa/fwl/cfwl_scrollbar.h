@@ -11,12 +11,9 @@
 
 #include "core/fxcrt/cfx_timer.h"
 #include "core/fxcrt/fx_system.h"
-#include "core/fxcrt/unowned_ptr.h"
+#include "third_party/base/check.h"
 #include "xfa/fwl/cfwl_eventscroll.h"
 #include "xfa/fwl/cfwl_widget.h"
-#include "xfa/fwl/cfwl_widgetproperties.h"
-
-class CFWL_Widget;
 
 #define FWL_STYLEEXT_SCB_Horz (0L << 0)
 #define FWL_STYLEEXT_SCB_Vert (1L << 0)
@@ -24,25 +21,24 @@ class CFWL_Widget;
 class CFWL_ScrollBar final : public CFWL_Widget,
                              public CFX_Timer::CallbackIface {
  public:
-  CFWL_ScrollBar(const CFWL_App* app,
-                 std::unique_ptr<CFWL_WidgetProperties> properties,
-                 CFWL_Widget* pOuter);
+  CONSTRUCT_VIA_MAKE_GARBAGE_COLLECTED;
   ~CFWL_ScrollBar() override;
 
   // CFWL_Widget:
   FWL_Type GetClassID() const override;
   void Update() override;
-  void DrawWidget(CXFA_Graphics* pGraphics, const CFX_Matrix& matrix) override;
+  void DrawWidget(CFGAS_GEGraphics* pGraphics,
+                  const CFX_Matrix& matrix) override;
   void OnProcessMessage(CFWL_Message* pMessage) override;
-  void OnDrawWidget(CXFA_Graphics* pGraphics,
+  void OnDrawWidget(CFGAS_GEGraphics* pGraphics,
                     const CFX_Matrix& matrix) override;
 
   // CFX_Timer::CallbackIface:
   void OnTimerFired() override;
 
   void GetRange(float* fMin, float* fMax) const {
-    ASSERT(fMin);
-    ASSERT(fMax);
+    DCHECK(fMin);
+    DCHECK(fMax);
     *fMin = m_fRangeMin;
     *fMax = m_fRangeMax;
   }
@@ -59,20 +55,20 @@ class CFWL_ScrollBar final : public CFWL_Widget,
   void SetTrackPos(float fTrackPos);
 
  private:
+  CFWL_ScrollBar(CFWL_App* app,
+                 const Properties& properties,
+                 CFWL_Widget* pOuter);
+
   bool IsVertical() const {
-    return !!(m_pProperties->m_dwStyleExes & FWL_STYLEEXT_SCB_Vert);
+    return !!(m_Properties.m_dwStyleExes & FWL_STYLEEXT_SCB_Vert);
   }
-  void DrawTrack(CXFA_Graphics* pGraphics,
-                 IFWL_ThemeProvider* pTheme,
+  void DrawTrack(CFGAS_GEGraphics* pGraphics,
                  bool bLower,
                  const CFX_Matrix* pMatrix);
-  void DrawArrowBtn(CXFA_Graphics* pGraphics,
-                    IFWL_ThemeProvider* pTheme,
+  void DrawArrowBtn(CFGAS_GEGraphics* pGraphics,
                     bool bMinBtn,
                     const CFX_Matrix* pMatrix);
-  void DrawThumb(CXFA_Graphics* pGraphics,
-                 IFWL_ThemeProvider* pTheme,
-                 const CFX_Matrix* pMatrix);
+  void DrawThumb(CFGAS_GEGraphics* pGraphics, const CFX_Matrix* pMatrix);
   void Layout();
   void CalcButtonLen();
   CFX_RectF CalcMinButtonRect();
@@ -88,7 +84,7 @@ class CFWL_ScrollBar final : public CFWL_Widget,
   void OnLButtonUp(const CFX_PointF& point);
   void OnMouseMove(const CFX_PointF& point);
   void OnMouseLeave();
-  void OnMouseWheel(const CFX_PointF& delta);
+  void OnMouseWheel(const CFX_Vector& delta);
   bool DoScroll(CFWL_EventScroll::Code dwCode, float fPos);
   void DoMouseDown(int32_t iItem,
                    const CFX_RectF& rtItem,
@@ -122,12 +118,12 @@ class CFWL_ScrollBar final : public CFWL_Widget,
   float m_fButtonLen = 0.0f;
   bool m_bMouseDown = false;
   bool m_bMinSize = false;
-  CFX_RectF m_rtClient;
-  CFX_RectF m_rtThumb;
-  CFX_RectF m_rtMinBtn;
-  CFX_RectF m_rtMaxBtn;
-  CFX_RectF m_rtMinTrack;
-  CFX_RectF m_rtMaxTrack;
+  CFX_RectF m_ClientRect;
+  CFX_RectF m_ThumbRect;
+  CFX_RectF m_MinBtnRect;
+  CFX_RectF m_MaxBtnRect;
+  CFX_RectF m_MinTrackRect;
+  CFX_RectF m_MaxTrackRect;
   std::unique_ptr<CFX_Timer> m_pTimer;
 };
 

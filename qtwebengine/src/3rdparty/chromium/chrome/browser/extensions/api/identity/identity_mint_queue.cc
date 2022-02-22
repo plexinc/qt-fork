@@ -4,8 +4,8 @@
 
 #include "chrome/browser/extensions/api/identity/identity_mint_queue.h"
 
-#include "base/logging.h"
-#include "base/stl_util.h"
+#include "base/check_op.h"
+#include "base/containers/contains.h"
 #include "base/trace_event/trace_event.h"
 
 namespace extensions {

@@ -33,7 +33,7 @@
 #include <QtCharts/QBarSet>
 #include <private/qbarset_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 PercentBarChartItem::PercentBarChartItem(QAbstractBarSeries *series, QGraphicsItem* item) :
     AbstractBarChartItem(series, item)
@@ -46,7 +46,7 @@ PercentBarChartItem::PercentBarChartItem(QAbstractBarSeries *series, QGraphicsIt
 
 QString PercentBarChartItem::generateLabelText(int set, int category, qreal value)
 {
-    Q_UNUSED(value)
+    Q_UNUSED(value);
 
     static const QString valueTag(QLatin1String("@value"));
     qreal p = m_series->d_func()->percentageAt(set, category) * 100.0;
@@ -66,8 +66,8 @@ QString PercentBarChartItem::generateLabelText(int set, int category, qreal valu
 void PercentBarChartItem::initializeLayout(int set, int category,
                                            int layoutIndex, bool resetAnimation)
 {
-    Q_UNUSED(set)
-    Q_UNUSED(resetAnimation)
+    Q_UNUSED(set);
+    Q_UNUSED(resetAnimation);
 
     QRectF rect;
 
@@ -99,7 +99,7 @@ void PercentBarChartItem::initializeLayout(int set, int category,
 
 void PercentBarChartItem::markLabelsDirty(QBarSet *barset, int index, int count)
 {
-    Q_UNUSED(barset)
+    Q_UNUSED(barset);
     // Percent series need to dirty all labels of the stack
     QList<QBarSet *> sets = m_barMap.keys();
     for (int set = 0; set < sets.size(); set++)
@@ -118,16 +118,16 @@ QPointF PercentBarChartItem::bottomRightPoint(int category, qreal barWidth, qrea
                 QPointF(m_seriesPosAdjustment + category + (barWidth / 2.0), value), m_validData);
 }
 
-QVector<QRectF> PercentBarChartItem::calculateLayout()
+QList<QRectF> PercentBarChartItem::calculateLayout()
 {
-    QVector<QRectF> layout;
+    QList<QRectF> layout;
     layout.resize(m_layout.size());
 
     const int setCount = m_series->count();
     const qreal barWidth = m_series->d_func()->barWidth() * m_seriesWidth;
 
-    QVector<qreal> categorySums(m_categoryCount);
-    QVector<qreal> tempSums(m_categoryCount, 0.0);
+    QList<qreal> categorySums(m_categoryCount);
+    QList<qreal> tempSums(m_categoryCount, 0.0);
 
     for (int category = 0; category < m_categoryCount; category++)
         categorySums[category] = m_series->d_func()->categorySum(category + m_firstCategory);
@@ -180,6 +180,6 @@ void PercentBarChartItem::positionLabels()
     positionLabelsVertical();
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_percentbarchartitem_p.cpp"

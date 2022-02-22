@@ -39,13 +39,13 @@
 ****************************************************************************/
 
 #include "android/devicediscoverybroadcastreceiver_p.h"
+#include <QCoreApplication>
 #include <QtCore/QtEndian>
 #include <QtCore/QLoggingCategory>
 #include <QtBluetooth/QBluetoothAddress>
 #include <QtBluetooth/QBluetoothDeviceInfo>
 #include <QtBluetooth/QBluetoothUuid>
 #include "android/jni_android_p.h"
-#include <QtCore/private/qjnihelpers_p.h>
 #include <QtCore/QHash>
 #include <QtCore/qbitarray.h>
 #include <algorithm>
@@ -72,7 +72,7 @@ static QBitArray initializeMinorCaches()
     case QBluetoothDeviceInfo::MiscellaneousDevice:
     case QBluetoothDeviceInfo::ComputerDevice:
     case QBluetoothDeviceInfo::PhoneDevice:
-    case QBluetoothDeviceInfo::LANAccessDevice:
+    case QBluetoothDeviceInfo::NetworkDevice:
     case QBluetoothDeviceInfo::AudioVideoDevice:
     case QBluetoothDeviceInfo::PeripheralDevice:
     case QBluetoothDeviceInfo::ImagingDevice:
@@ -114,7 +114,7 @@ static const MajorClassJavaToQtMapping majorMappings[] = {
     { "HEALTH", QBluetoothDeviceInfo::HealthDevice },
     { "IMAGING", QBluetoothDeviceInfo::ImagingDevice },
     { "MISC", QBluetoothDeviceInfo::MiscellaneousDevice },
-    { "NETWORKING", QBluetoothDeviceInfo::LANAccessDevice },
+    { "NETWORKING", QBluetoothDeviceInfo::NetworkDevice },
     { "PERIPHERAL", QBluetoothDeviceInfo::PeripheralDevice },
     { "PHONE", QBluetoothDeviceInfo::PhoneDevice },
     { "TOY", QBluetoothDeviceInfo::ToyDevice },
@@ -130,7 +130,7 @@ static const int minorIndexSizes[] = {
   61,  // QBluetoothDevice::MiscellaneousDevice
   18,  // QBluetoothDevice::ComputerDevice
   35,  // QBluetoothDevice::PhoneDevice
-  62,  // QBluetoothDevice::LANAccessDevice
+  62,  // QBluetoothDevice::NetworkDevice
   0,  // QBluetoothDevice::AudioVideoDevice
   56,  // QBluetoothDevice::PeripheralDevice
   63,  // QBluetoothDevice::ImagingDEvice
@@ -227,7 +227,7 @@ static const MinorClassJavaToQtMapping minorMappings[] = {
     // QBluetoothDevice::Miscellaneous
     { nullptr, 0 }, // index 61 & separator
 
-    // QBluetoothDevice::LANAccessDevice
+    // QBluetoothDevice::NetworkDevice
     { nullptr, 0 }, // index 62 & separator
 
     // QBluetoothDevice::ImagingDevice
@@ -237,7 +237,10 @@ static const MinorClassJavaToQtMapping minorMappings[] = {
     { nullptr, 0 }, // index 64 & separator
 };
 
-/* Advertising Data Type (AD type) for LE scan records, as defined in Bluetooth CSS v6. */
+/*
+    Advertising Data Type (AD type) for LE scan records, as defined in
+    https://www.bluetooth.com/specifications/assigned-numbers/generic-access-profile
+*/
 enum ADType {
     ADType16BitUuidIncomplete = 0x02,
     ADType16BitUuidComplete = 0x03,
@@ -245,13 +248,14 @@ enum ADType {
     ADType32BitUuidComplete = 0x05,
     ADType128BitUuidIncomplete = 0x06,
     ADType128BitUuidComplete = 0x07,
+    ADTypeShortenedLocalName = 0x08,
+    ADTypeCompleteLocalName = 0x09,
     ADTypeManufacturerSpecificData = 0xff,
     // .. more will be added when required
 };
 
-// Endianness conversion for quint128 doesn't (yet) exist in qtendian.h
-template <>
-inline quint128 qbswap<quint128>(const quint128 src)
+// Endianness conversion for quint128 doesn't exist in qtendian.h
+inline quint128 qbswap(const quint128 src)
 {
     quint128 dst;
     for (int i = 0; i < 16; i++)
@@ -263,32 +267,27 @@ QBluetoothDeviceInfo::CoreConfigurations qtBtTypeForJavaBtType(jint javaType)
 {
     const JCachedBtTypes::iterator it = cachedBtTypes()->find(javaType);
     if (it == cachedBtTypes()->end()) {
-        QAndroidJniEnvironment env;
 
-        if (javaType == QAndroidJniObject::getStaticField<jint>(
+        if (javaType == QJniObject::getStaticField<jint>(
                             javaBluetoothDeviceClassName, javaDeviceTypeClassic)) {
             cachedBtTypes()->insert(javaType,
                                     QBluetoothDeviceInfo::BaseRateCoreConfiguration);
             return QBluetoothDeviceInfo::BaseRateCoreConfiguration;
-        } else if (javaType == QAndroidJniObject::getStaticField<jint>(
+        } else if (javaType == QJniObject::getStaticField<jint>(
                         javaBluetoothDeviceClassName, javaDeviceTypeLE)) {
             cachedBtTypes()->insert(javaType,
                                     QBluetoothDeviceInfo::LowEnergyCoreConfiguration);
             return QBluetoothDeviceInfo::LowEnergyCoreConfiguration;
-        } else if (javaType == QAndroidJniObject::getStaticField<jint>(
+        } else if (javaType == QJniObject::getStaticField<jint>(
                             javaBluetoothDeviceClassName, javaDeviceTypeDual)) {
             cachedBtTypes()->insert(javaType,
                                     QBluetoothDeviceInfo::BaseRateAndLowEnergyCoreConfiguration);
             return QBluetoothDeviceInfo::BaseRateAndLowEnergyCoreConfiguration;
-        } else if (javaType == QAndroidJniObject::getStaticField<jint>(
+        } else if (javaType == QJniObject::getStaticField<jint>(
                                 javaBluetoothDeviceClassName, javaDeviceTypeUnknown)) {
             cachedBtTypes()->insert(javaType,
                                 QBluetoothDeviceInfo::UnknownCoreConfiguration);
         } else {
-            if (env->ExceptionCheck()) {
-                env->ExceptionDescribe();
-                env->ExceptionClear();
-            }
             qCWarning(QT_BT_ANDROID) << "Unknown Bluetooth device type value";
         }
 
@@ -300,22 +299,20 @@ QBluetoothDeviceInfo::CoreConfigurations qtBtTypeForJavaBtType(jint javaType)
 
 QBluetoothDeviceInfo::MajorDeviceClass resolveAndroidMajorClass(jint javaType)
 {
-    QAndroidJniEnvironment env;
-
     const JCachedMajorTypes::iterator it = cachedMajorTypes()->find(javaType);
     if (it == cachedMajorTypes()->end()) {
-        QAndroidJniEnvironment env;
+        QJniEnvironment env;
         // precache all major device class fields
         int i = 0;
         jint fieldValue;
         QBluetoothDeviceInfo::MajorDeviceClass result = QBluetoothDeviceInfo::UncategorizedDevice;
+        auto clazz = env->FindClass(javaBluetoothClassDeviceMajorClassName);
         while (majorMappings[i].javaFieldName != nullptr) {
-            fieldValue = QAndroidJniObject::getStaticField<jint>(
-                                    javaBluetoothClassDeviceMajorClassName, majorMappings[i].javaFieldName);
-            if (env->ExceptionCheck()) {
+            auto fieldId = env->GetStaticFieldID(clazz, majorMappings[i].javaFieldName, "I");
+            if (!env->ExceptionCheck())
+                fieldValue = env->GetStaticIntField(clazz, fieldId);
+            if (env.checkAndClearExceptions()) {
                 qCWarning(QT_BT_ANDROID) << "Unknown BluetoothClass.Device.Major field" << javaType;
-                env->ExceptionDescribe();
-                env->ExceptionClear();
 
                 // add fallback value because field not readable
                 cachedMajorTypes()->insert(javaType, QBluetoothDeviceInfo::UncategorizedDevice);
@@ -358,15 +355,10 @@ void triggerCachingOfMinorsForMajor(QBluetoothDeviceInfo::MajorDeviceClass major
     //qCDebug(QT_BT_ANDROID) << "Caching minor values for major" << major;
     int mappingIndex = mappingIndexForMajor(major);
     int sizeIndex = minorIndexSizes[mappingIndex];
-    QAndroidJniEnvironment env;
 
     while (minorMappings[sizeIndex].javaFieldName != nullptr) {
-        jint fieldValue = QAndroidJniObject::getStaticField<jint>(
+        jint fieldValue = QJniObject::getStaticField<jint>(
                     javaBluetoothClassDeviceClassName, minorMappings[sizeIndex].javaFieldName);
-        if (env->ExceptionCheck()) { // field lookup failed? skip it
-            env->ExceptionDescribe();
-            env->ExceptionClear();
-        }
 
         Q_ASSERT(fieldValue >= 0);
         cachedMinorTypes()->insert(fieldValue, minorMappings[sizeIndex].qtMinor);
@@ -408,10 +400,10 @@ DeviceDiscoveryBroadcastReceiver::DeviceDiscoveryBroadcastReceiver(QObject* pare
 // Runs in Java thread
 void DeviceDiscoveryBroadcastReceiver::onReceive(JNIEnv *env, jobject context, jobject intent)
 {
-    Q_UNUSED(context);
-    Q_UNUSED(env);
+    Q_UNUSED(context)
+    Q_UNUSED(env)
 
-    QAndroidJniObject intentObject(intent);
+    QJniObject intentObject(intent);
     const QString action = intentObject.callObjectMethod("getAction", "()Ljava/lang/String;").toString();
 
     qCDebug(QT_BT_ANDROID) << "DeviceDiscoveryBroadcastReceiver::onReceive() - event:" << action;
@@ -425,9 +417,9 @@ void DeviceDiscoveryBroadcastReceiver::onReceive(JNIEnv *env, jobject context, j
     } else if (action == valueForStaticField(JavaNames::BluetoothDevice,
                                              JavaNames::ActionFound).toString()) {
         //get BluetoothDevice
-        QAndroidJniObject keyExtra = valueForStaticField(JavaNames::BluetoothDevice,
+        QJniObject keyExtra = valueForStaticField(JavaNames::BluetoothDevice,
                                                          JavaNames::ExtraDevice);
-        const QAndroidJniObject bluetoothDevice =
+        const QJniObject bluetoothDevice =
                 intentObject.callObjectMethod("getParcelableExtra",
                                               "(Ljava/lang/String;)Landroid/os/Parcelable;",
                                               keyExtra.object<jstring>());
@@ -442,7 +434,7 @@ void DeviceDiscoveryBroadcastReceiver::onReceive(JNIEnv *env, jobject context, j
                                                 keyExtra.object<jstring>(),
                                                 0);
 
-        const QBluetoothDeviceInfo info = retrieveDeviceInfo(env, bluetoothDevice, rssi);
+        const QBluetoothDeviceInfo info = retrieveDeviceInfo(bluetoothDevice, rssi);
         if (info.isValid())
             emit deviceDiscovered(info, false);
     }
@@ -450,23 +442,23 @@ void DeviceDiscoveryBroadcastReceiver::onReceive(JNIEnv *env, jobject context, j
 
 // Runs in Java thread
 void DeviceDiscoveryBroadcastReceiver::onReceiveLeScan(
-        JNIEnv *env, jobject jBluetoothDevice, jint rssi, jbyteArray scanRecord)
+        JNIEnv */*env*/, jobject jBluetoothDevice, jint rssi, jbyteArray scanRecord)
 {
-    const QAndroidJniObject bluetoothDevice(jBluetoothDevice);
+    const QJniObject bluetoothDevice(jBluetoothDevice);
     if (!bluetoothDevice.isValid())
         return;
 
-    const QBluetoothDeviceInfo info = retrieveDeviceInfo(env, bluetoothDevice, rssi, scanRecord);
+    const QBluetoothDeviceInfo info = retrieveDeviceInfo(bluetoothDevice, rssi, scanRecord);
     if (info.isValid())
         emit deviceDiscovered(info, true);
 }
 
-QBluetoothDeviceInfo DeviceDiscoveryBroadcastReceiver::retrieveDeviceInfo(JNIEnv *env, const QAndroidJniObject &bluetoothDevice, int rssi, jbyteArray scanRecord)
+QBluetoothDeviceInfo DeviceDiscoveryBroadcastReceiver::retrieveDeviceInfo(const QJniObject &bluetoothDevice, int rssi, jbyteArray scanRecord)
 {
     const QString deviceName = bluetoothDevice.callObjectMethod<jstring>("getName").toString();
     const QBluetoothAddress deviceAddress(bluetoothDevice.callObjectMethod<jstring>("getAddress").toString());
 
-    const QAndroidJniObject bluetoothClass = bluetoothDevice.callObjectMethod("getBluetoothClass",
+    const QJniObject bluetoothClass = bluetoothDevice.callObjectMethod("getBluetoothClass",
                                                                         "()Landroid/bluetooth/BluetoothClass;");
     if (!bluetoothClass.isValid())
         return QBluetoothDeviceInfo();
@@ -508,7 +500,7 @@ QBluetoothDeviceInfo DeviceDiscoveryBroadcastReceiver::retrieveDeviceInfo(JNIEnv
 
     QBluetoothDeviceInfo info(deviceAddress, deviceName, classType);
     info.setRssi(rssi);
-
+    QJniEnvironment env;
     if (scanRecord != nullptr) {
         // Parse scan record
         jboolean isCopy;
@@ -516,10 +508,11 @@ QBluetoothDeviceInfo DeviceDiscoveryBroadcastReceiver::retrieveDeviceInfo(JNIEnv
         const char *scanRecordBuffer = reinterpret_cast<const char *>(elems);
         const int scanRecordLength = env->GetArrayLength(scanRecord);
 
-        QVector<QBluetoothUuid> serviceUuids;
+        QList<QBluetoothUuid> serviceUuids;
         int i = 0;
 
         // Spec 4.2, Vol 3, Part C, Chapter 11
+        QString localName;
         while (i < scanRecordLength) {
             // sizeof(EIR Data) = sizeof(Length) + sizeof(EIR data Type) + sizeof(EIR Data)
             // Length = sizeof(EIR data Type) + sizeof(EIR Data)
@@ -555,9 +548,19 @@ QBluetoothDeviceInfo DeviceDiscoveryBroadcastReceiver::retrieveDeviceInfo(JNIEnv
                                               QByteArray(dataPtr + 2, nBytes - 3));
                 }
                 break;
+            // According to Spec 5.0, Vol 3, Part C, Chapter 12.1
+            // the device's local  name is utf8 encoded
+            case ADTypeShortenedLocalName:
+                if (localName.isEmpty())
+                    localName = QString::fromUtf8(dataPtr, nBytes - 1);
+                break;
+            case ADTypeCompleteLocalName:
+                localName = QString::fromUtf8(dataPtr, nBytes - 1);
+                break;
             default:
+                // qWarning() << "Unhandled AD Type" << Qt::hex << adType;
                 // no other types supported yet and therefore skipped
-                // https://www.bluetooth.org/en-us/specification/assigned-numbers/generic-access-profile
+                // https://www.bluetooth.com/specifications/assigned-numbers/generic-access-profile
                 break;
             }
 
@@ -567,18 +570,20 @@ QBluetoothDeviceInfo DeviceDiscoveryBroadcastReceiver::retrieveDeviceInfo(JNIEnv
                 serviceUuids.append(foundService);
         }
 
+        if (info.name().isEmpty())
+            info.setName(localName);
+
         info.setServiceUuids(serviceUuids);
 
         env->ReleaseByteArrayElements(scanRecord, elems, JNI_ABORT);
     }
 
-    if (QtAndroidPrivate::androidSdkVersion() >= 18) {
-        jint javaBtType = bluetoothDevice.callMethod<jint>("getType");
-
-        if (env->ExceptionCheck()) {
-            env->ExceptionDescribe();
-            env->ExceptionClear();
-        } else {
+    if (QNativeInterface::QAndroidApplication::sdkVersion() >= 18) {
+        auto methodId = env.findMethod(bluetoothDevice.objectClass(),
+                                       "getType",
+                                       "()I");
+        jint javaBtType = env->CallIntMethod(bluetoothDevice.object(), methodId);
+        if (!env.checkAndClearExceptions()) {
             info.setCoreConfigurations(qtBtTypeForJavaBtType(javaBtType));
         }
     }

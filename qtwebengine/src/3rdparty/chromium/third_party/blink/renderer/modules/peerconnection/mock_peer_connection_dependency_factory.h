@@ -12,6 +12,7 @@
 #include "base/macros.h"
 #include "third_party/blink/renderer/modules/peerconnection/peer_connection_dependency_factory.h"
 #include "third_party/webrtc/api/media_stream_interface.h"
+#include "third_party/webrtc/rtc_base/ref_counted_object.h"
 
 namespace base {
 class SingleThreadTaskRunner;
@@ -65,7 +66,8 @@ class MockWebRtcAudioTrack : public webrtc::AudioTrackInterface {
   ObserverSet observers_;
 };
 
-class MockWebRtcVideoTrackSource : public webrtc::VideoTrackSourceInterface {
+class MockWebRtcVideoTrackSource
+    : public rtc::RefCountedObject<webrtc::VideoTrackSourceInterface> {
  public:
   static scoped_refptr<MockWebRtcVideoTrackSource> Create(
       bool supports_encoded_output);
@@ -91,7 +93,8 @@ class MockWebRtcVideoTrackSource : public webrtc::VideoTrackSourceInterface {
   bool supports_encoded_output_;
 };
 
-class MockWebRtcVideoTrack : public webrtc::VideoTrackInterface {
+class MockWebRtcVideoTrack
+    : public rtc::RefCountedObject<webrtc::VideoTrackInterface> {
  public:
   static scoped_refptr<MockWebRtcVideoTrack> Create(
       const std::string& id,
@@ -168,7 +171,8 @@ class MockPeerConnectionDependencyFactory
   scoped_refptr<webrtc::PeerConnectionInterface> CreatePeerConnection(
       const webrtc::PeerConnectionInterface::RTCConfiguration& config,
       blink::WebLocalFrame* frame,
-      webrtc::PeerConnectionObserver* observer) override;
+      webrtc::PeerConnectionObserver* observer,
+      ExceptionState& exception_state) override;
   scoped_refptr<webrtc::VideoTrackSourceInterface> CreateVideoTrackSourceProxy(
       webrtc::VideoTrackSourceInterface* source) override;
   scoped_refptr<webrtc::MediaStreamInterface> CreateLocalMediaStream(
@@ -176,10 +180,6 @@ class MockPeerConnectionDependencyFactory
   scoped_refptr<webrtc::VideoTrackInterface> CreateLocalVideoTrack(
       const String& id,
       webrtc::VideoTrackSourceInterface* source) override;
-  webrtc::SessionDescriptionInterface* CreateSessionDescription(
-      const String& type,
-      const String& sdp,
-      webrtc::SdpParseError* error) override;
   webrtc::IceCandidateInterface* CreateIceCandidate(const String& sdp_mid,
                                                     int sdp_mline_index,
                                                     const String& sdp) override;

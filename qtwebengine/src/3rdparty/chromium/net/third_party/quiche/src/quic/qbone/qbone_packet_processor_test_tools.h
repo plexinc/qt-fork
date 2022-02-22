@@ -5,9 +5,9 @@
 #ifndef QUICHE_QUIC_QBONE_QBONE_PACKET_PROCESSOR_TEST_TOOLS_H_
 #define QUICHE_QUIC_QBONE_QBONE_PACKET_PROCESSOR_TEST_TOOLS_H_
 
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/qbone/qbone_packet_processor.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/string_view.h"
+#include "quic/platform/api/quic_test.h"
+#include "quic/qbone/qbone_packet_processor.h"
 
 namespace quic {
 
@@ -15,20 +15,34 @@ class MockPacketProcessorOutput : public QbonePacketProcessor::OutputInterface {
  public:
   MockPacketProcessorOutput() {}
 
-  MOCK_METHOD1(SendPacketToClient, void(quiche::QuicheStringPiece));
-  MOCK_METHOD1(SendPacketToNetwork, void(quiche::QuicheStringPiece));
+  MOCK_METHOD(void, SendPacketToClient, (absl::string_view), (override));
+  MOCK_METHOD(void, SendPacketToNetwork, (absl::string_view), (override));
 };
 
 class MockPacketProcessorStats : public QbonePacketProcessor::StatsInterface {
  public:
   MockPacketProcessorStats() {}
 
-  MOCK_METHOD1(OnPacketForwarded, void(QbonePacketProcessor::Direction));
-  MOCK_METHOD1(OnPacketDroppedSilently, void(QbonePacketProcessor::Direction));
-  MOCK_METHOD1(OnPacketDroppedWithIcmp, void(QbonePacketProcessor::Direction));
-  MOCK_METHOD1(OnPacketDroppedWithTcpReset,
-               void(QbonePacketProcessor::Direction));
-  MOCK_METHOD1(OnPacketDeferred, void(QbonePacketProcessor::Direction));
+  MOCK_METHOD(void,
+              OnPacketForwarded,
+              (QbonePacketProcessor::Direction),
+              (override));
+  MOCK_METHOD(void,
+              OnPacketDroppedSilently,
+              (QbonePacketProcessor::Direction),
+              (override));
+  MOCK_METHOD(void,
+              OnPacketDroppedWithIcmp,
+              (QbonePacketProcessor::Direction),
+              (override));
+  MOCK_METHOD(void,
+              OnPacketDroppedWithTcpReset,
+              (QbonePacketProcessor::Direction),
+              (override));
+  MOCK_METHOD(void,
+              OnPacketDeferred,
+              (QbonePacketProcessor::Direction),
+              (override));
 };
 
 std::string PrependIPv6HeaderForTest(const std::string& body, int hops);

@@ -34,7 +34,11 @@
 #include <QtVirtualKeyboard/private/virtualkeyboarddebug_p.h>
 #include <QtVirtualKeyboard/private/enterkeyaction_p.h>
 #include <QtVirtualKeyboard/qvirtualkeyboardinputengine.h>
+#include <QtVirtualKeyboard/qvirtualkeyboardobserver.h>
+#include <QtVirtualKeyboard/private/virtualkeyboardattachedtype_p.h>
+#include <QtVirtualKeyboard/qvirtualkeyboarddictionarymanager.h>
 
+#include <QFile>
 #include <QGuiApplication>
 #include <QtQuick/qquickitem.h>
 #include <QtQuick/qquickwindow.h>
@@ -42,14 +46,6 @@
 #include <QtGui/private/qguiapplication_p.h>
 
 QT_BEGIN_NAMESPACE
-
-bool operator==(const QInputMethodEvent::Attribute &attribute1, const QInputMethodEvent::Attribute &attribute2)
-{
-    return attribute1.start == attribute2.start &&
-           attribute1.length == attribute2.length &&
-           attribute1.type == attribute2.type &&
-           attribute1.value == attribute2.value;
-}
 
 using namespace QtVirtualKeyboard;
 
@@ -199,6 +195,14 @@ QStringList QVirtualKeyboardInputContextPrivate::inputMethods() const
     return platformInputContext ? platformInputContext->inputMethods() : QStringList();
 }
 
+void QVirtualKeyboardInputContextPrivate::setKeyboardObserver(QVirtualKeyboardObserver *keyboardObserver)
+{
+    if (!this->keyboardObserver.isNull())
+        return;
+
+    this->keyboardObserver = keyboardObserver;
+}
+
 bool QVirtualKeyboardInputContextPrivate::fileExists(const QUrl &fileUrl)
 {
     QString fileName;
@@ -220,8 +224,6 @@ void QVirtualKeyboardInputContextPrivate::registerInputPanel(QObject *inputPanel
     VIRTUALKEYBOARD_DEBUG() << "QVirtualKeyboardInputContextPrivate::registerInputPanel():" << inputPanel;
     Q_ASSERT(!this->inputPanel);
     this->inputPanel = inputPanel;
-    if (QQuickItem *item = qobject_cast<QQuickItem *>(inputPanel))
-        item->setZ(std::numeric_limits<qreal>::max());
 }
 
 void QVirtualKeyboardInputContextPrivate::hideInputPanel()
@@ -268,18 +270,56 @@ void QVirtualKeyboardInputContextPrivate::forceCursorPosition(int anchorPosition
     }
 }
 
+/*! \internal
+    The context private becomes a containment mask for a dimmer opened by a
+    modal QQuickPopup. The dimmer eats events, and the virtual keyboard must
+    continue to work during modal sessions as well. This implementation lets
+    all pointer events within the area of the input panel through.
+*/
+bool QVirtualKeyboardInputContextPrivate::contains(const QPointF &point) const
+{
+    bool hit = false;
+    if (dimmer) {
+        const auto scenePoint = dimmer->mapToScene(point);
+        if (keyboardRectangle().contains(scenePoint)) {
+            hit = true;
+        } else if (QQuickItem *vkbPanel = qobject_cast<QQuickItem*>(inputPanel)) {
+            const auto vkbPanelPoint = vkbPanel->mapFromScene(scenePoint);
+            if (vkbPanel->contains(vkbPanelPoint))
+                hit = true;
+        }
+    }
+    // dimmer doesn't contain points that hit the input panel
+    return !hit;
+}
+
 void QVirtualKeyboardInputContextPrivate::onInputItemChanged()
 {
-    if (QObject *item = inputItem()) {
+    QObject *item = inputItem();
+    if (item) {
         if (QQuickItem *vkbPanel = qobject_cast<QQuickItem*>(inputPanel)) {
             if (QQuickItem *quickItem = qobject_cast<QQuickItem*>(item)) {
                 const QVariant isDesktopPanel = vkbPanel->property("desktopPanel");
-                /*
-                    For integrated keyboards, make sure it's a sibling to the overlay. The
-                    high z-order will make sure it gets events also during a modal session.
-                */
-                if (isDesktopPanel.isValid() && !isDesktopPanel.toBool())
-                    vkbPanel->setParentItem(quickItem->window()->contentItem());
+                if (isDesktopPanel.isValid() && !isDesktopPanel.toBool()) {
+                    // Integrated keyboards used in a Qt Quick Controls UI must continue to
+                    // work during a modal session, which is implemented using an overlay
+                    // and dimmer item. So, make use of some QQC2 internals to find out if
+                    // there is a dimmer, and if so, make ourselves the containment mask
+                    // that can let pointer events through to the keyboard.
+                    if (QQuickWindow *quickWindow = quickItem->window()) {
+                        if (QQuickItem *overlay = quickWindow->property("_q_QQuickOverlay").value<QQuickItem*>()) {
+                            if (dimmer && dimmer->containmentMask() == this) {
+                                dimmer->setContainmentMask(nullptr);
+                                dimmer = nullptr;
+                            }
+                            if (overlay && overlay->isVisible()) {
+                                dimmer = overlay->property("_q_dimmerItem").value<QQuickItem*>();
+                                if (dimmer)
+                                    dimmer->setContainmentMask(this);
+                            }
+                        }
+                    }
+                }
             }
         }
     } else {
@@ -290,6 +330,14 @@ void QVirtualKeyboardInputContextPrivate::onInputItemChanged()
         }
     }
     clearState(State::InputMethodClick);
+
+    QStringList extraDictionaries;
+    if (item) {
+        VirtualKeyboardAttachedType *virtualKeyboardAttachedType = static_cast<VirtualKeyboardAttachedType *>(qmlAttachedPropertiesObject<VirtualKeyboard>(item, false));
+        if (virtualKeyboardAttachedType)
+            extraDictionaries = virtualKeyboardAttachedType->extraDictionaries();
+    }
+    QVirtualKeyboardDictionaryManager::instance()->setExtraDictionaries(extraDictionaries);
 }
 
 void QVirtualKeyboardInputContextPrivate::sendPreedit(const QString &text, const QList<QInputMethodEvent::Attribute> &attributes, int replaceFrom, int replaceLength)
@@ -369,6 +417,7 @@ void QVirtualKeyboardInputContextPrivate::update(Qt::InputMethodQueries queries)
                     Qt::ImQueryInput | Qt::ImInputItemClipRectangle));
     platformInputContext->sendEvent(&imQueryEvent);
     Qt::InputMethodHints inputMethodHints = Qt::InputMethodHints(imQueryEvent.value(Qt::ImHints).toInt());
+    inputMethodHints |= Settings::instance()->inputMethodHints();
     const int cursorPosition = imQueryEvent.value(Qt::ImCursorPosition).toInt();
     const int anchorPosition = imQueryEvent.value(Qt::ImAnchorPosition).toInt();
     QRectF anchorRectangle;
@@ -391,7 +440,7 @@ void QVirtualKeyboardInputContextPrivate::update(Qt::InputMethodQueries queries)
     bool newCursorPosition = cursorPosition != this->cursorPosition;
     bool newAnchorRectangle = anchorRectangle != this->anchorRectangle;
     bool newCursorRectangle = cursorRectangle != this->cursorRectangle;
-    bool selectionControlVisible = platformInputContext->isInputPanelVisible() && (cursorPosition != anchorPosition) && !inputMethodHints.testFlag(Qt::ImhNoTextHandles);
+    bool selectionControlVisible = platformInputContext->evaluateInputPanelVisible() && (cursorPosition != anchorPosition) && !inputMethodHints.testFlag(Qt::ImhNoTextHandles);
     bool newSelectionControlVisible = selectionControlVisible != this->selectionControlVisible;
 
     QRectF inputItemClipRect = imQueryEvent.value(Qt::ImInputItemClipRectangle).toRectF();
@@ -505,6 +554,7 @@ bool QVirtualKeyboardInputContextPrivate::filterEvent(const QEvent *event)
     QEvent::Type type = event->type();
     if (type == QEvent::KeyPress || type == QEvent::KeyRelease) {
         const QKeyEvent *keyEvent = static_cast<const QKeyEvent *>(event);
+        const int key = keyEvent->key();
 
         // Keep track of pressed keys update key event state
         if (type == QEvent::KeyPress)
@@ -518,7 +568,6 @@ bool QVirtualKeyboardInputContextPrivate::filterEvent(const QEvent *event)
             setState(State::KeyEvent);
 
 #ifdef QT_VIRTUALKEYBOARD_ARROW_KEY_NAVIGATION
-        int key = keyEvent->key();
         if ((key >= Qt::Key_Left && key <= Qt::Key_Down) || key == Qt::Key_Return) {
             if (type == QEvent::KeyPress && platformInputContext->isInputPanelVisible()) {
                 activeNavigationKeys += key;
@@ -533,8 +582,16 @@ bool QVirtualKeyboardInputContextPrivate::filterEvent(const QEvent *event)
 #endif
 
         // Break composing text since the virtual keyboard does not support hard keyboard events
-        if (!preeditText.isEmpty())
-            commit();
+        if (!preeditText.isEmpty()) {
+            if (type == QEvent::KeyPress && (key == Qt::Key_Delete || key == Qt::Key_Backspace)) {
+                reset();
+                Q_Q(QVirtualKeyboardInputContext);
+                q->clear();
+                return true;
+            } else {
+                commit();
+            }
+        }
     }
 #ifdef QT_VIRTUALKEYBOARD_ARROW_KEY_NAVIGATION
     else if (type == QEvent::ShortcutOverride) {

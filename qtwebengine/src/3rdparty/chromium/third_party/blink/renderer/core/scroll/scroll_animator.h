@@ -42,8 +42,6 @@
 
 namespace blink {
 
-class CompositorAnimationTimeline;
-
 // ScrollAnimator is the Blink-side implementation of user-input scroll offset
 // animations ("smooth scrolling") on all platforms except for Mac.
 //
@@ -128,10 +126,9 @@ class CORE_EXPORT ScrollAnimator : public ScrollAnimatorBase {
   void UpdateCompositorAnimations() override;
   void NotifyCompositorAnimationFinished(int group_id) override;
   void NotifyCompositorAnimationAborted(int group_id) override;
-  void LayerForCompositedScrollingDidChange(
-      CompositorAnimationTimeline*) override;
+  void MainThreadScrollingDidChange() override;
 
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
  protected:
   // Returns whether or not the animation was sent to the compositor.

@@ -67,9 +67,6 @@ class QWaylandCursor;
 class Q_WAYLAND_CLIENT_EXPORT QWaylandXdgOutputManagerV1 : public QtWayland::zxdg_output_manager_v1 {
 public:
     QWaylandXdgOutputManagerV1(QWaylandDisplay *display, uint id, uint version);
-    uint version() const { return m_version; }
-private:
-    uint m_version = 1; // TODO: remove when we upgrade minimum libwayland requriement to 1.10
 };
 
 class Q_WAYLAND_CLIENT_EXPORT QWaylandScreen : public QPlatformScreen, QtWayland::wl_output, QtWayland::zxdg_output_v1
@@ -96,8 +93,6 @@ public:
     QDpi logicalDpi() const override;
     QList<QPlatformScreen *> virtualSiblings() const override;
 
-    void setOrientationUpdateMask(Qt::ScreenOrientations mask) override;
-
     Qt::ScreenOrientation orientation() const override;
     int scale() const;
     qreal devicePixelRatio() const override;
@@ -115,7 +110,14 @@ public:
     static QWaylandScreen *waylandScreenFromWindow(QWindow *window);
     static QWaylandScreen *fromWlOutput(::wl_output *output);
 
-private:
+protected:
+    enum Event : uint {
+        XdgOutputDoneEvent = 0x1,
+        OutputDoneEvent = 0x2,
+        XdgOutputNameEvent = 0x4,
+    };
+    uint requiredEvents() const;
+
     void output_mode(uint32_t flags, int width, int height, int refresh) override;
     void output_geometry(int32_t x, int32_t y,
                          int32_t width, int32_t height,
@@ -148,13 +150,8 @@ private:
     QSize mPhysicalSize;
     QString mOutputName;
     Qt::ScreenOrientation m_orientation = Qt::PrimaryOrientation;
-    bool mOutputDone = false;
-    bool mXdgOutputDone = false;
+    uint mProcessedEvents = 0;
     bool mInitialized = false;
-
-#if QT_CONFIG(cursor)
-    QScopedPointer<QWaylandCursor> mWaylandCursor;
-#endif
 };
 
 }

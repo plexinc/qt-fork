@@ -22,8 +22,8 @@ PhysicalRect ComputeLocalCaretRectByBoxSide(const NGInlineCursor& cursor,
   line_box.MoveToContainingLine();
   DCHECK(line_box);
   const PhysicalOffset offset_to_line_box =
-      cursor.Current().OffsetInContainerBlock() -
-      line_box.Current().OffsetInContainerBlock();
+      cursor.Current().OffsetInContainerFragment() -
+      line_box.Current().OffsetInContainerFragment();
   LayoutUnit caret_height = is_horizontal ? line_box.Current().Size().height
                                           : line_box.Current().Size().width;
   LayoutUnit caret_top =
@@ -52,6 +52,26 @@ PhysicalRect ComputeLocalCaretRectByBoxSide(const NGInlineCursor& cursor,
   return PhysicalRect(caret_location, caret_size);
 }
 
+bool ShouldAlignCaretRight(ETextAlign text_align, TextDirection direction) {
+  switch (text_align) {
+    case ETextAlign::kRight:
+    case ETextAlign::kWebkitRight:
+      return true;
+    case ETextAlign::kLeft:
+    case ETextAlign::kWebkitLeft:
+    case ETextAlign::kCenter:
+    case ETextAlign::kWebkitCenter:
+      return false;
+    case ETextAlign::kJustify:
+    case ETextAlign::kStart:
+      return IsRtl(direction);
+    case ETextAlign::kEnd:
+      return IsLtr(direction);
+  }
+  NOTREACHED();
+  return false;
+}
+
 PhysicalRect ComputeLocalCaretRectAtTextOffset(const NGInlineCursor& cursor,
                                                unsigned offset) {
   DCHECK(cursor.Current().IsText());
@@ -62,7 +82,8 @@ PhysicalRect ComputeLocalCaretRectAtTextOffset(const NGInlineCursor& cursor,
       cursor.Current().GetLayoutObject()->GetDocument().View();
   LayoutUnit caret_width = frame_view->CaretWidth();
 
-  const bool is_horizontal = cursor.Current().Style().IsHorizontalWritingMode();
+  const ComputedStyle& style = cursor.Current().Style();
+  const bool is_horizontal = style.IsHorizontalWritingMode();
 
   LayoutUnit caret_height = is_horizontal ? cursor.Current().Size().height
                                           : cursor.Current().Size().width;
@@ -79,26 +100,41 @@ PhysicalRect ComputeLocalCaretRectAtTextOffset(const NGInlineCursor& cursor,
 
   // Adjust the location to be relative to the inline formatting context.
   PhysicalOffset caret_location = PhysicalOffset(caret_left, caret_top) +
-                                  cursor.Current().OffsetInContainerBlock();
+                                  cursor.Current().OffsetInContainerFragment();
   const PhysicalSize caret_size(caret_width, caret_height);
 
-  const NGPhysicalBoxFragment& fragmentainer =
-      *cursor.Current().GetLayoutObject()->ContainingBlockFlowFragment();
+  const NGPhysicalBoxFragment& fragment = cursor.ContainerFragment();
   NGInlineCursor line_box(cursor);
   line_box.MoveToContainingLine();
   const PhysicalOffset line_box_offset =
-      line_box.Current().OffsetInContainerBlock();
+      line_box.Current().OffsetInContainerFragment();
   const PhysicalRect line_box_rect(line_box_offset, line_box.Current().Size());
+
+  const NGInlineBreakToken* break_token = line_box.Current().InlineBreakToken();
+  const bool is_last_line = !break_token || break_token->IsForcedBreak();
+  const ComputedStyle& block_style = fragment.Style();
+  bool should_align_caret_right =
+      ShouldAlignCaretRight(block_style.GetTextAlign(is_last_line),
+                            line_box.Current().BaseDirection()) &&
+      (style.GetUnicodeBidi() != UnicodeBidi::kPlaintext ||
+       IsLtr(cursor.Current().ResolvedDirection()));
 
   // For horizontal text, adjust the location in the x direction to ensure that
   // it completely falls in the union of line box and containing block, and
   // then round it to the nearest pixel.
   if (is_horizontal) {
-    const LayoutUnit min_x = std::min(LayoutUnit(), line_box_offset.left);
-    caret_location.left = std::max(caret_location.left, min_x);
-    const LayoutUnit max_x =
-        std::max(fragmentainer.Size().width, line_box_rect.Right());
-    caret_location.left = std::min(caret_location.left, max_x - caret_width);
+    if (should_align_caret_right) {
+      const LayoutUnit left_edge = std::min(LayoutUnit(), line_box_rect.X());
+      caret_location.left = std::max(caret_location.left, left_edge);
+      caret_location.left =
+          std::min(caret_location.left, line_box_rect.Right() - caret_width);
+    } else {
+      const LayoutUnit right_edge =
+          std::max(fragment.Size().width, line_box_rect.Right());
+      caret_location.left =
+          std::min(caret_location.left, right_edge - caret_width);
+      caret_location.left = std::max(caret_location.left, line_box_rect.X());
+    }
     caret_location.left = LayoutUnit(caret_location.left.Round());
     return PhysicalRect(caret_location, caret_size);
   }
@@ -107,11 +143,13 @@ PhysicalRect ComputeLocalCaretRectAtTextOffset(const NGInlineCursor& cursor,
   const LayoutUnit min_y = std::min(LayoutUnit(), line_box_offset.top);
   caret_location.top = std::max(caret_location.top, min_y);
   const LayoutUnit max_y =
-      std::max(fragmentainer.Size().height, line_box_rect.Bottom());
+      std::max(fragment.Size().height, line_box_rect.Bottom());
   caret_location.top = std::min(caret_location.top, max_y - caret_height);
   caret_location.top = LayoutUnit(caret_location.top.Round());
   return PhysicalRect(caret_location, caret_size);
 }
+
+}  // namespace
 
 LocalCaretRect ComputeLocalCaretRect(const NGCaretPosition& caret_position) {
   if (caret_position.IsNull())
@@ -154,24 +192,13 @@ LocalCaretRect ComputeLocalSelectionRect(
 
   PhysicalRect rect = caret_rect.rect;
   if (caret_position.cursor.Current().Style().IsHorizontalWritingMode()) {
-    rect.SetY(line_box.Current().OffsetInContainerBlock().top);
+    rect.SetY(line_box.Current().OffsetInContainerFragment().top);
     rect.SetHeight(line_box.Current().Size().height);
   } else {
-    rect.SetX(line_box.Current().OffsetInContainerBlock().left);
+    rect.SetX(line_box.Current().OffsetInContainerFragment().left);
     rect.SetHeight(line_box.Current().Size().width);
   }
   return {caret_rect.layout_object, rect};
-}
-
-}  // namespace
-
-LocalCaretRect ComputeNGLocalCaretRect(const PositionWithAffinity& position) {
-  return ComputeLocalCaretRect(ComputeNGCaretPosition(position));
-}
-
-LocalCaretRect ComputeNGLocalSelectionRect(
-    const PositionWithAffinity& position) {
-  return ComputeLocalSelectionRect(ComputeNGCaretPosition(position));
 }
 
 }  // namespace blink

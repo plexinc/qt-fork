@@ -11,12 +11,13 @@
 
 #include "base/atomic_ref_count.h"
 #include "base/base_export.h"
+#include "base/check_op.h"
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
-#include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/sequence_checker.h"
+#include "base/template_util.h"
 #include "base/threading/thread_collision_warner.h"
 #include "build/build_config.h"
 
@@ -49,10 +50,6 @@ class BASE_EXPORT RefCountedBase {
   }
 
   void AddRef() const {
-    // TODO(maruel): Add back once it doesn't assert 500 times/sec.
-    // Current thread books the critical section "AddRelease"
-    // without release it.
-    // DFAKE_SCOPED_LOCK_THREAD_LOCKED(add_release_);
 #if DCHECK_IS_ON()
     DCHECK(!in_dtor_);
     DCHECK(!needs_adopt_ref_)
@@ -70,11 +67,6 @@ class BASE_EXPORT RefCountedBase {
   // Returns true if the object should self-delete.
   bool Release() const {
     ReleaseImpl();
-
-    // TODO(maruel): Add back once it doesn't assert 500 times/sec.
-    // Current thread books the critical section "AddRelease"
-    // without release it.
-    // DFAKE_SCOPED_LOCK_THREAD_LOCKED(add_release_);
 
 #if DCHECK_IS_ON()
     DCHECK(!in_dtor_);
@@ -277,9 +269,11 @@ class BASE_EXPORT ScopedAllowCrossThreadRefCountAccess final {
 //     ~MyFoo();
 //   };
 //
-// You should always make your destructor non-public, to avoid any code deleting
-// the object accidently while there are references to it.
-//
+// Usage Notes:
+// 1. You should always make your destructor non-public, to avoid any code
+// deleting the object accidentally while there are references to it.
+// 2. You should always make the ref-counted base class a friend of your class,
+// so that it can access the destructor.
 //
 // The ref count manipulation to RefCounted is NOT thread safe and has DCHECKs
 // to trap unsafe cross thread usage. A subclass instance of RefCounted can be
@@ -440,6 +434,9 @@ class RefCountedData
   RefCountedData() : data() {}
   RefCountedData(const T& in_value) : data(in_value) {}
   RefCountedData(T&& in_value) : data(std::move(in_value)) {}
+  template <typename... Args>
+  explicit RefCountedData(in_place_t, Args&&... args)
+      : data(std::forward<Args>(args)...) {}
 
   T data;
 

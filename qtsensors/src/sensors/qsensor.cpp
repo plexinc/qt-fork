@@ -313,7 +313,7 @@ QSensor::~QSensor()
 {
     Q_D(QSensor);
     stop();
-    Q_FOREACH (QSensorFilter *filter, d->filters)
+    for (QSensorFilter *filter : d->filters)
         filter->setSensor(0);
     delete d->backend;
     d->backend = 0;
@@ -364,7 +364,10 @@ void QSensor::setIdentifier(const QByteArray &identifier)
         qWarning() << "ERROR: Cannot call QSensor::setIdentifier while connected to a backend!";
         return;
     }
+    if (d->identifier == identifier)
+        return;
     d->identifier = identifier;
+    emit identifierChanged();
 }
 
 /*!
@@ -1362,7 +1365,7 @@ void QSensorReading::copyValuesFrom(QSensorReading *other)
     \code
     class MyReading : public QSensorReading
     {
-        Q_OBJECT
+        \Q_OBJECT
         Q_PROPERTY(qreal myprop READ myprop)
         DECLARE_READING(MyReading)
     public:
@@ -1390,6 +1393,3 @@ void QSensorReading::copyValuesFrom(QSensorReading *other)
 */
 
 QT_END_NAMESPACE
-
-#include "moc_qsensor.cpp"
-

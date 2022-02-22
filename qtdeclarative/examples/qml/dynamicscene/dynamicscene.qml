@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the examples of the Qt Toolkit.
@@ -48,9 +48,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import QtQuick.Particles 2.0
-import "content"
+import QtQuick
+import QtQuick.Particles
+import QtQuick.Controls
 
 Item {
     id: window
@@ -82,7 +82,7 @@ Item {
             dialogAnim.start();
         }
 
-        Text {
+        Label {
             id: dialogText
             x: 3; y: 3
             font.pixelSize: 14
@@ -119,7 +119,7 @@ Item {
 
         ImageParticle {
             id: stars
-            source: "content/images/star.png"
+            source: "images/star.png"
             groups: ["stars"]
             opacity: .5
         }
@@ -156,7 +156,7 @@ Item {
             anchors.centerIn: parent
             spacing: 8
 
-            Text { text: "Drag an item into the scene." }
+            Label { text: "Drag an item into the scene." }
 
             Rectangle {
                 width: palette.width + 10; height: palette.height + 10
@@ -170,37 +170,37 @@ Item {
                     PaletteItem {
                         anchors.verticalCenter: parent.verticalCenter
                         componentFile: "Sun.qml"
-                        source: "content/images/sun.png"
+                        source: "images/sun.png"
                         image: "images/sun.png"
                     }
                     PaletteItem {
                         anchors.verticalCenter: parent.verticalCenter
                         componentFile: "GenericSceneItem.qml"
-                        source: "content/images/moon.png"
+                        source: "images/moon.png"
                         image: "images/moon.png"
                     }
                     PaletteItem {
                         anchors.verticalCenter: parent.verticalCenter
                         componentFile: "PerspectiveItem.qml"
-                        source: "content/images/tree_s.png"
+                        source: "images/tree_s.png"
                         image: "images/tree_s.png"
                     }
                     PaletteItem {
                         anchors.verticalCenter: parent.verticalCenter
                         componentFile: "PerspectiveItem.qml"
-                        source: "content/images/rabbit_brown.png"
+                        source: "images/rabbit_brown.png"
                         image: "images/rabbit_brown.png"
                     }
                     PaletteItem {
                         anchors.verticalCenter: parent.verticalCenter
                         componentFile: "PerspectiveItem.qml"
-                        source: "content/images/rabbit_bw.png"
+                        source: "images/rabbit_bw.png"
                         image: "images/rabbit_bw.png"
                     }
                 }
             }
 
-            Text { text: "Active Suns: " + window.activeSuns }
+            Label { text: "Active Suns: " + window.activeSuns }
         }
     }
 
@@ -226,7 +226,7 @@ Item {
             Row {
                 height: createButton.height
                 spacing: 8
-                Text { text: "Custom QML:"; anchors.verticalCenter: parent.verticalCenter }
+                Label { text: "Custom QML:"; anchors.verticalCenter: parent.verticalCenter }
                 Button {
                     id: popupButton
                     text: popupToolbox.poppedUp ? "Hide" : "Show"
@@ -249,7 +249,7 @@ Item {
             Rectangle {
                 width: 360; height: 240
 
-                TextEdit {
+                TextArea {
                     id: qmlText
                     anchors.fill: parent; anchors.margins: 5
                     readOnly: false
@@ -257,7 +257,7 @@ Item {
                     selectByMouse: true
                     wrapMode: TextEdit.WordWrap
 
-                    text: "import QtQuick 2.0\nImage {\n    id: smile\n    x: 360 * Math.random()\n    y: 40 * Math.random() \n    source: 'content/images/face-smile.png'\n    NumberAnimation on opacity { \n        to: 0; duration: 1500\n    }\n    Component.onCompleted: smile.destroy(1500);\n}"
+                    text: "import QtQuick 2.0\nImage {\n    id: smile\n    x: 360 * Math.random()\n    y: 40 * Math.random() \n    source: 'images/face-smile.png'\n    NumberAnimation on opacity { \n        to: 0; duration: 1500\n    }\n    Component.onCompleted: smile.destroy(1500);\n}"
                 }
             }
         }

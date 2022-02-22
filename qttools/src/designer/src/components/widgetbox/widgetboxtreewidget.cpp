@@ -43,13 +43,15 @@
 
 #include <QtUiPlugin/customwidget.h>
 
-#include <QtWidgets/qheaderview.h>
 #include <QtWidgets/qapplication.h>
-#include <QtWidgets/qtreewidget.h>
-#include <QtGui/qevent.h>
-#include <QtWidgets/qaction.h>
-#include <QtWidgets/qactiongroup.h>
+#include <QtWidgets/qheaderview.h>
 #include <QtWidgets/qmenu.h>
+#include <QtWidgets/qscrollbar.h>
+#include <QtWidgets/qtreewidget.h>
+
+#include <QtGui/qaction.h>
+#include <QtGui/qactiongroup.h>
+#include <QtGui/qevent.h>
 
 #include <QtCore/qfile.h>
 #include <QtCore/qtimer.h>
@@ -303,7 +305,15 @@ bool WidgetBoxTreeWidget::load(QDesignerWidgetBox::LoadMode loadMode)
         return false;
 
     const QString contents = QString::fromUtf8(f.readAll());
-    return loadContents(contents);
+    if (!loadContents(contents))
+        return false;
+    if (topLevelItemCount() > 0) {
+        // QTBUG-93099: Set the single step to the item height to have some
+        // size-related value.
+        const auto itemHeight = visualItemRect(topLevelItem(0)).height();
+        verticalScrollBar()->setSingleStep(itemHeight);
+    }
+    return true;
 }
 
 bool WidgetBoxTreeWidget::loadContents(const QString &contents)
@@ -966,7 +976,6 @@ void WidgetBoxTreeWidget::dropWidgets(const QList<QDesignerDnDItemInterface*> &i
 void WidgetBoxTreeWidget::filter(const QString &f)
 {
     const bool empty = f.isEmpty();
-    QRegExp re = empty ? QRegExp() : QRegExp(f, Qt::CaseInsensitive, QRegExp::FixedString);
     const int numTopLevels = topLevelItemCount();
     bool changed = false;
     for (int i = 0; i < numTopLevels; i++) {
@@ -974,7 +983,7 @@ void WidgetBoxTreeWidget::filter(const QString &f)
         WidgetBoxCategoryListView *categoryView = categoryViewAt(i);
         // Anything changed? -> Enable the category
         const int oldCount = categoryView->count(WidgetBoxCategoryListView::FilteredAccess);
-        categoryView->filter(re);
+        categoryView->filter(f, Qt::CaseInsensitive);
         const int newCount = categoryView->count(WidgetBoxCategoryListView::FilteredAccess);
         if (oldCount != newCount) {
             changed = true;

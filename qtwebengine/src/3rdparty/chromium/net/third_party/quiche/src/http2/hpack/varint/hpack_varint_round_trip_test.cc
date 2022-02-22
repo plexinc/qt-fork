@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/http2/hpack/varint/hpack_varint_decoder.h"
+#include "http2/hpack/varint/hpack_varint_decoder.h"
 
 // Test HpackVarintDecoder against data encoded via HpackBlockBuilder,
 // which uses HpackVarintEncoder under the hood.
@@ -13,13 +13,13 @@
 #include <set>
 #include <vector>
 
-#include "testing/gtest/include/gtest/gtest.h"
-#include "net/third_party/quiche/src/http2/hpack/tools/hpack_block_builder.h"
-#include "net/third_party/quiche/src/http2/platform/api/http2_logging.h"
-#include "net/third_party/quiche/src/http2/platform/api/http2_string_utils.h"
-#include "net/third_party/quiche/src/http2/tools/random_decoder_test.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "http2/hpack/tools/hpack_block_builder.h"
+#include "http2/platform/api/http2_logging.h"
+#include "http2/platform/api/http2_string_utils.h"
+#include "http2/tools/random_decoder_test.h"
+#include "common/platform/api/quiche_test.h"
 
 using ::testing::AssertionFailure;
 using ::testing::AssertionSuccess;
@@ -41,7 +41,7 @@ class HpackVarintRoundTripTest : public RandomDecoderTest {
   HpackVarintRoundTripTest() : prefix_length_(0) {}
 
   DecodeStatus StartDecoding(DecodeBuffer* b) override {
-    CHECK_LT(0u, b->Remaining());
+    QUICHE_CHECK_LT(0u, b->Remaining());
     uint8_t prefix = b->DecodeUInt8();
     return decoder_.Start(prefix, prefix_length_, b);
   }
@@ -55,8 +55,8 @@ class HpackVarintRoundTripTest : public RandomDecoderTest {
     // DecodeBuffer is decoded, each with a different segmentation of the input.
     // Validate that decoder_.value() matches the expected value.
     Validator validator = [expected_value, this](
-                              const DecodeBuffer& db,
-                              DecodeStatus status) -> AssertionResult {
+                              const DecodeBuffer& /*db*/,
+                              DecodeStatus /*status*/) -> AssertionResult {
       if (decoder_.value() != expected_value) {
         return AssertionFailure()
                << "Value doesn't match expected: " << decoder_.value()
@@ -82,8 +82,8 @@ class HpackVarintRoundTripTest : public RandomDecoderTest {
   }
 
   void EncodeNoRandom(uint64_t value, uint8_t prefix_length) {
-    DCHECK_LE(3, prefix_length);
-    DCHECK_LE(prefix_length, 8);
+    QUICHE_DCHECK_LE(3, prefix_length);
+    QUICHE_DCHECK_LE(prefix_length, 8);
     prefix_length_ = prefix_length;
 
     HpackBlockBuilder bb;
@@ -156,16 +156,16 @@ class HpackVarintRoundTripTest : public RandomDecoderTest {
   void EncodeAndDecodeValues(const std::set<uint64_t>& values,
                              uint8_t prefix_length,
                              size_t expected_bytes) {
-    CHECK(!values.empty());
+    QUICHE_CHECK(!values.empty());
     const uint64_t minimum = *values.begin();
     const uint64_t maximum = *values.rbegin();
     for (const uint64_t value : values) {
       Encode(value, prefix_length);  // Sets buffer_.
 
-      std::string msg = quiche::QuicheStrCat(
-          "value=", value, " (0x", Http2Hex(value),
-          "), prefix_length=", prefix_length,
-          ", expected_bytes=", expected_bytes, "\n", Http2HexDump(buffer_));
+      std::string msg = absl::StrCat("value=", value, " (0x", Http2Hex(value),
+                                     "), prefix_length=", prefix_length,
+                                     ", expected_bytes=", expected_bytes, "\n",
+                                     Http2HexDump(buffer_));
 
       if (value == minimum) {
         HTTP2_LOG(INFO) << "Checking minimum; " << msg;
@@ -292,7 +292,7 @@ TEST_F(HpackVarintRoundTripTest, Encode) {
 }
 
 TEST_F(HpackVarintRoundTripTest, FromSpec1337) {
-  DecodeBuffer b(quiche::QuicheStringPiece("\x1f\x9a\x0a"));
+  DecodeBuffer b(absl::string_view("\x1f\x9a\x0a"));
   uint32_t prefix_length = 5;
   uint8_t p = b.DecodeUInt8();
   EXPECT_EQ(1u, b.Offset());

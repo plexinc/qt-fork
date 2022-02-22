@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -26,10 +26,6 @@
 **
 ****************************************************************************/
 
-/*
-  qmlcodemarker.h
-*/
-
 #ifndef QMLCODEMARKER_H
 #define QMLCODEMARKER_H
 
@@ -41,39 +37,27 @@
 
 QT_BEGIN_NAMESPACE
 
-#ifndef QT_NO_DECLARATIVE
-#    include <private/qqmlapiversion_p.h>
-#    if Q_QML_PRIVATE_API_VERSION < 8
-namespace QQmlJS {
-    using SourceLocation = AST::SourceLocation;
-}
-#    endif
-#endif
-
 class QmlCodeMarker : public CppCodeMarker
 {
-    Q_DECLARE_TR_FUNCTIONS(QDoc::QmlCodeMarker)
-
 public:
-    QmlCodeMarker();
-    ~QmlCodeMarker() override;
+    QmlCodeMarker() = default;
+    ~QmlCodeMarker() override = default;
 
     bool recognizeCode(const QString &code) override;
     bool recognizeExtension(const QString &ext) override;
     bool recognizeLanguage(const QString &language) override;
-    Atom::AtomType atomType() const override;
-    virtual QString markedUpCode(const QString &code, const Node *relative,
-                                 const Location &location) override;
+    [[nodiscard]] Atom::AtomType atomType() const override;
+    QString markedUpCode(const QString &code, const Node *relative,
+                         const Location &location) override;
 
     QString markedUpName(const Node *node) override;
-    QString markedUpFullName(const Node *node, const Node *relative) override;
     QString markedUpIncludes(const QStringList &includes) override;
     QString functionBeginRegExp(const QString &funcName) override;
     QString functionEndRegExp(const QString &funcName) override;
 
     /* Copied from src/declarative/qml/qdeclarativescriptparser.cpp */
 #ifndef QT_NO_DECLARATIVE
-    QVector<QQmlJS::SourceLocation> extractPragmas(QString &script);
+    QList<QQmlJS::SourceLocation> extractPragmas(QString &script);
 #endif
 
 private:

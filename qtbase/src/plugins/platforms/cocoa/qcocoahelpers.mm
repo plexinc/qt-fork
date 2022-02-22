@@ -37,6 +37,8 @@
 **
 ****************************************************************************/
 
+#include <AppKit/AppKit.h>
+
 #include <qpa/qplatformtheme.h>
 
 #include "qcocoahelpers.h"
@@ -49,10 +51,6 @@
 #include <private/qwindow_p.h>
 #include <QtGui/private/qcoregraphics_p.h>
 
-#ifndef QT_NO_WIDGETS
-#include <QtWidgets/QWidget>
-#endif
-
 #include <algorithm>
 
 QT_BEGIN_NAMESPACE
@@ -60,7 +58,12 @@ QT_BEGIN_NAMESPACE
 Q_LOGGING_CATEGORY(lcQpaWindow, "qt.qpa.window");
 Q_LOGGING_CATEGORY(lcQpaDrawing, "qt.qpa.drawing");
 Q_LOGGING_CATEGORY(lcQpaMouse, "qt.qpa.input.mouse", QtCriticalMsg);
+Q_LOGGING_CATEGORY(lcQpaKeys, "qt.qpa.input.keys", QtCriticalMsg);
+Q_LOGGING_CATEGORY(lcQpaInputMethods, "qt.qpa.input.methods")
 Q_LOGGING_CATEGORY(lcQpaScreen, "qt.qpa.screen", QtCriticalMsg);
+Q_LOGGING_CATEGORY(lcQpaApplication, "qt.qpa.application");
+Q_LOGGING_CATEGORY(lcQpaClipboard, "qt.qpa.clipboard")
+Q_LOGGING_CATEGORY(lcInputDevices, "qt.qpa.input.devices")
 
 //
 // Conversion Functions
@@ -154,7 +157,7 @@ Qt::DropActions qt_mac_mapNSDragOperations(NSDragOperation nsActions)
     that the platform window is not a foreign window before using
     this cast, via QPlatformWindow::isForeignWindow().
 
-    Do not use this method soley to check for foreign windows, as
+    Do not use this method solely to check for foreign windows, as
     that will make the code harder to read for people not working
     primarily on macOS, who do not know the difference between the
     NSView and QNSView cases.
@@ -424,8 +427,8 @@ QT_END_NAMESPACE
 - (NSButton *)createButtonWithTitle:(QPlatformDialogHelper::StandardButton)type
 {
     NSButton *button = [[NSButton alloc] initWithFrame:NSZeroRect];
-    button.buttonType = NSMomentaryLightButton;
-    button.bezelStyle = NSRoundedBezelStyle;
+    button.buttonType = NSButtonTypeMomentaryLight;
+    button.bezelStyle = NSBezelStyleRounded;
     const QString &cleanTitle =
          QPlatformTheme::removeMnemonics(QGuiApplicationPrivate::platformTheme()->standardButtonText(type));
     // FIXME: Not obvious, from Cocoa's documentation, that QString::toNSString() makes a deep copy
@@ -492,6 +495,8 @@ QT_END_NAMESPACE
     [super layout];
 }
 
+@end // QNSPanelContentsWrapper
+
 // -------------------------------------------------------------------------
 
 io_object_t q_IOObjectRetain(io_object_t obj)
@@ -507,4 +512,43 @@ void q_IOObjectRelease(io_object_t obj)
     Q_ASSERT(!ret);
 }
 
-@end
+// -------------------------------------------------------------------------
+
+InputMethodQueryResult queryInputMethod(QObject *object, Qt::InputMethodQueries queries)
+{
+    if (object) {
+        QInputMethodQueryEvent queryEvent(queries | Qt::ImEnabled);
+        if (QCoreApplication::sendEvent(object, &queryEvent)) {
+            if (queryEvent.value(Qt::ImEnabled).toBool()) {
+                InputMethodQueryResult result;
+                static QMetaEnum queryEnum = QMetaEnum::fromType<Qt::InputMethodQuery>();
+                for (int i = 0; i < queryEnum.keyCount(); ++i) {
+                    auto query = Qt::InputMethodQuery(queryEnum.value(i));
+                    if (queries & query)
+                        result.insert(query, queryEvent.value(query));
+                }
+                return result;
+            }
+        }
+    }
+    return {};
+}
+
+// -------------------------------------------------------------------------
+
+QDebug operator<<(QDebug debug, const NSRange &range)
+{
+    if (range.location == NSNotFound) {
+        QDebugStateSaver saver(debug);
+        debug.nospace() << "{NSNotFound, " << range.length << "}";
+    } else {
+        debug << NSStringFromRange(range);
+    }
+    return debug;
+}
+
+QDebug operator<<(QDebug debug, SEL selector)
+{
+    debug << NSStringFromSelector(selector);
+    return debug;
+}

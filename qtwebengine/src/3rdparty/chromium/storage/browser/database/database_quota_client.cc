@@ -7,22 +7,25 @@
 #include <stdint.h>
 
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback_helpers.h"
 #include "base/location.h"
+#include "base/sequence_checker.h"
+#include "base/sequenced_task_runner.h"
 #include "base/task_runner_util.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "net/base/completion_once_callback.h"
 #include "net/base/net_errors.h"
-#include "net/base/url_util.h"
 #include "storage/browser/database/database_tracker.h"
 #include "storage/browser/database/database_util.h"
+#include "storage/browser/quota/quota_client_type.h"
 #include "storage/common/database/database_identifier.h"
 #include "third_party/blink/public/mojom/quota/quota_types.mojom.h"
+#include "url/origin.h"
 
 using blink::mojom::StorageType;
 
@@ -38,43 +41,41 @@ int64_t GetOriginUsageOnDBThread(DatabaseTracker* db_tracker,
   return 0;
 }
 
-void GetOriginsOnDBThread(DatabaseTracker* db_tracker,
-                          std::set<url::Origin>* origins_ptr) {
+std::vector<url::Origin> GetOriginsOnDBThread(DatabaseTracker* db_tracker) {
+  std::vector<url::Origin> all_origins;
   std::vector<std::string> origin_identifiers;
   if (db_tracker->GetAllOriginIdentifiers(&origin_identifiers)) {
+    all_origins.reserve(origin_identifiers.size());
     for (const auto& identifier : origin_identifiers) {
-      origins_ptr->insert(GetOriginFromIdentifier(identifier));
+      all_origins.push_back(GetOriginFromIdentifier(identifier));
     }
   }
+  return all_origins;
 }
 
-void GetOriginsForHostOnDBThread(DatabaseTracker* db_tracker,
-                                 std::set<url::Origin>* origins_ptr,
-                                 const std::string& host) {
+std::vector<url::Origin> GetOriginsForHostOnDBThread(
+    DatabaseTracker* db_tracker,
+    const std::string& host) {
+  std::vector<url::Origin> host_origins;
+  // In the vast majority of cases, this vector will end up with exactly one
+  // origin. The origin will be https://host or http://host.
+  host_origins.reserve(1);
+
   std::vector<std::string> origin_identifiers;
   if (db_tracker->GetAllOriginIdentifiers(&origin_identifiers)) {
     for (const auto& identifier : origin_identifiers) {
       url::Origin origin = GetOriginFromIdentifier(identifier);
-      if (host == net::GetHostOrSpecFromURL(origin.GetURL()))
-        origins_ptr->insert(origin);
+      if (host == origin.host())
+        host_origins.push_back(std::move(origin));
     }
   }
+  return host_origins;
 }
 
-void DidGetQuotaClientOrigins(QuotaClient::GetOriginsCallback callback,
-                              std::set<url::Origin>* origins_ptr) {
-  std::move(callback).Run(*origins_ptr);
-}
-
-void DidDeleteOriginData(base::SequencedTaskRunner* original_task_runner,
-                         QuotaClient::DeletionCallback callback,
-                         int result) {
-  if (result == net::ERR_IO_PENDING) {
-    // The callback will be invoked via
-    // DatabaseTracker::ScheduleDatabasesForDeletion.
-    return;
-  }
-
+void DidDeleteOriginData(
+    scoped_refptr<base::SequencedTaskRunner> original_task_runner,
+    QuotaClient::DeleteOriginDataCallback callback,
+    int result) {
   blink::mojom::QuotaStatusCode status;
   if (result == net::OK)
     status = blink::mojom::QuotaStatusCode::kOk;
@@ -89,116 +90,88 @@ void DidDeleteOriginData(base::SequencedTaskRunner* original_task_runner,
 
 DatabaseQuotaClient::DatabaseQuotaClient(
     scoped_refptr<DatabaseTracker> db_tracker)
-    : db_tracker_(std::move(db_tracker)) {}
+    : db_tracker_(std::move(db_tracker)) {
+  DCHECK(db_tracker_.get());
+
+  DETACH_FROM_SEQUENCE(sequence_checker_);
+}
 
 DatabaseQuotaClient::~DatabaseQuotaClient() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!db_tracker_->task_runner()->RunsTasksInCurrentSequence()) {
     db_tracker_->task_runner()->ReleaseSoon(FROM_HERE, std::move(db_tracker_));
   }
 }
 
-QuotaClient::ID DatabaseQuotaClient::id() const {
-  return kDatabase;
+void DatabaseQuotaClient::OnQuotaManagerDestroyed() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 }
-
-void DatabaseQuotaClient::OnQuotaManagerDestroyed() {}
 
 void DatabaseQuotaClient::GetOriginUsage(const url::Origin& origin,
                                          StorageType type,
-                                         GetUsageCallback callback) {
+                                         GetOriginUsageCallback callback) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(!callback.is_null());
-  DCHECK(db_tracker_.get());
+  DCHECK_EQ(type, StorageType::kTemporary);
 
-  // All databases are in the default bucket.
-  if (type != StorageType::kTemporary) {
-    std::move(callback).Run(0);
-    return;
-  }
-
-  base::PostTaskAndReplyWithResult(
-      db_tracker_->task_runner(), FROM_HERE,
+  db_tracker_->task_runner()->PostTaskAndReplyWithResult(
+      FROM_HERE,
       base::BindOnce(&GetOriginUsageOnDBThread, base::RetainedRef(db_tracker_),
                      origin),
       std::move(callback));
 }
 
-void DatabaseQuotaClient::GetOriginsForType(StorageType type,
-                                            GetOriginsCallback callback) {
+void DatabaseQuotaClient::GetOriginsForType(
+    StorageType type,
+    GetOriginsForTypeCallback callback) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(!callback.is_null());
-  DCHECK(db_tracker_.get());
+  DCHECK_EQ(type, StorageType::kTemporary);
 
-  // All databases are in the default bucket.
-  if (type != StorageType::kTemporary) {
-    std::move(callback).Run(std::set<url::Origin>());
-    return;
-  }
-
-  std::set<url::Origin>* origins_ptr = new std::set<url::Origin>();
-  db_tracker_->task_runner()->PostTaskAndReply(
+  db_tracker_->task_runner()->PostTaskAndReplyWithResult(
       FROM_HERE,
-      base::BindOnce(&GetOriginsOnDBThread, base::RetainedRef(db_tracker_),
-                     base::Unretained(origins_ptr)),
-      base::BindOnce(&DidGetQuotaClientOrigins, std::move(callback),
-                     base::Owned(origins_ptr)));
+      base::BindOnce(&GetOriginsOnDBThread, base::RetainedRef(db_tracker_)),
+      std::move(callback));
 }
 
-void DatabaseQuotaClient::GetOriginsForHost(StorageType type,
-                                            const std::string& host,
-                                            GetOriginsCallback callback) {
+void DatabaseQuotaClient::GetOriginsForHost(
+    StorageType type,
+    const std::string& host,
+    GetOriginsForHostCallback callback) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(!callback.is_null());
-  DCHECK(db_tracker_.get());
+  DCHECK_EQ(type, StorageType::kTemporary);
 
-  // All databases are in the default bucket.
-  if (type != StorageType::kTemporary) {
-    std::move(callback).Run(std::set<url::Origin>());
-    return;
-  }
-
-  std::set<url::Origin>* origins_ptr = new std::set<url::Origin>();
-  db_tracker_->task_runner()->PostTaskAndReply(
+  db_tracker_->task_runner()->PostTaskAndReplyWithResult(
       FROM_HERE,
       base::BindOnce(&GetOriginsForHostOnDBThread,
-                     base::RetainedRef(db_tracker_),
-                     base::Unretained(origins_ptr), host),
-      base::BindOnce(&DidGetQuotaClientOrigins, std::move(callback),
-                     base::Owned(origins_ptr)));
+                     base::RetainedRef(db_tracker_), host),
+      std::move(callback));
 }
 
 void DatabaseQuotaClient::DeleteOriginData(const url::Origin& origin,
                                            StorageType type,
-                                           DeletionCallback callback) {
+                                           DeleteOriginDataCallback callback) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(!callback.is_null());
-  DCHECK(db_tracker_.get());
+  DCHECK_EQ(type, StorageType::kTemporary);
 
-  // All databases are in the default bucket.
-  if (type != StorageType::kTemporary) {
-    std::move(callback).Run(blink::mojom::QuotaStatusCode::kOk);
-    return;
-  }
-
-  // DidDeleteOriginData() translates the net::Error response to a
-  // blink::mojom::QuotaStatusCode if necessary, and no-ops as appropriate if
-  // DatabaseTracker::ScheduleDatabasesForDeletion will also invoke the
-  // callback.
-  auto delete_callback = base::BindRepeating(
-      &DidDeleteOriginData,
-      base::RetainedRef(base::SequencedTaskRunnerHandle::Get()),
-      base::AdaptCallbackForRepeating(std::move(callback)));
-
-  base::PostTaskAndReplyWithResult(
-      db_tracker_->task_runner(), FROM_HERE,
+  db_tracker_->task_runner()->PostTask(
+      FROM_HERE,
       base::BindOnce(&DatabaseTracker::DeleteDataForOrigin, db_tracker_, origin,
-                     delete_callback),
-      net::CompletionOnceCallback(delete_callback));
+                     base::BindOnce(&DidDeleteOriginData,
+                                    base::SequencedTaskRunnerHandle::Get(),
+                                    std::move(callback))));
 }
 
-void DatabaseQuotaClient::PerformStorageCleanup(blink::mojom::StorageType type,
-                                                base::OnceClosure callback) {
+void DatabaseQuotaClient::PerformStorageCleanup(
+    blink::mojom::StorageType type,
+    PerformStorageCleanupCallback callback) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(!callback.is_null());
+  DCHECK_EQ(type, StorageType::kTemporary);
+
   std::move(callback).Run();
-}
-
-bool DatabaseQuotaClient::DoesSupport(StorageType type) const {
-  return type == StorageType::kTemporary;
 }
 
 }  // namespace storage

@@ -31,7 +31,7 @@
 #include "qsurface3dseries_p.h"
 #include "qabstract3daxis_p.h"
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 /*!
  * \class QSurfaceDataProxy
@@ -42,7 +42,7 @@ QT_BEGIN_NAMESPACE_DATAVISUALIZATION
  * A surface data proxy handles surface related data in rows. For this it
  * provides two auxiliary typedefs: QtDataVisualization::QSurfaceDataArray and
  * QtDataVisualization::QSurfaceDataRow. \c QSurfaceDataArray is a QList that
- * controls the rows. \c QSurfaceDataRow is a QVector that contains
+ * controls the rows. \c QSurfaceDataRow is a QList that contains
  * QSurfaceDataItem objects. For more information about how to feed the data to
  * the proxy, see the sample code in the Q3DSurface documentation.
  *
@@ -79,7 +79,7 @@ QT_BEGIN_NAMESPACE_DATAVISUALIZATION
  * \typedef QSurfaceDataRow
  * \relates QSurfaceDataProxy
  *
- * A vector of \l {QSurfaceDataItem} objects.
+ * A list of \l {QSurfaceDataItem} objects.
  */
 
 /*!
@@ -475,7 +475,8 @@ void QSurfaceDataProxyPrivate::setItem(int rowIndex, int columnIndex, const QSur
 
 int QSurfaceDataProxyPrivate::addRow(QSurfaceDataRow *row)
 {
-    Q_ASSERT(m_dataArray->at(0)->size() == row->size());
+    Q_ASSERT(m_dataArray->isEmpty()
+             || m_dataArray->at(0)->size() == row->size());
     int currentSize = m_dataArray->size();
     m_dataArray->append(row);
     return currentSize;
@@ -485,7 +486,8 @@ int QSurfaceDataProxyPrivate::addRows(const QSurfaceDataArray &rows)
 {
     int currentSize = m_dataArray->size();
     for (int i = 0; i < rows.size(); i++) {
-        Q_ASSERT(m_dataArray->at(0)->size() == rows.at(i)->size());
+        Q_ASSERT(m_dataArray->isEmpty()
+                 || m_dataArray->at(0)->size() == rows.at(i)->size());
         m_dataArray->append(rows.at(i));
     }
     return currentSize;
@@ -494,7 +496,8 @@ int QSurfaceDataProxyPrivate::addRows(const QSurfaceDataArray &rows)
 void QSurfaceDataProxyPrivate::insertRow(int rowIndex, QSurfaceDataRow *row)
 {
     Q_ASSERT(rowIndex >= 0 && rowIndex <= m_dataArray->size());
-    Q_ASSERT(m_dataArray->at(0)->size() == row->size());
+    Q_ASSERT(m_dataArray->isEmpty()
+             || m_dataArray->at(0)->size() == row->size());
     m_dataArray->insert(rowIndex, row);
 }
 
@@ -503,7 +506,8 @@ void QSurfaceDataProxyPrivate::insertRows(int rowIndex, const QSurfaceDataArray 
     Q_ASSERT(rowIndex >= 0 && rowIndex <= m_dataArray->size());
 
     for (int i = 0; i < rows.size(); i++) {
-        Q_ASSERT(m_dataArray->at(0)->size() == rows.at(i)->size());
+        Q_ASSERT(m_dataArray->isEmpty()
+                 || m_dataArray->at(0)->size() == rows.at(i)->size());
         m_dataArray->insert(rowIndex++, rows.at(i));
     }
 }
@@ -548,9 +552,11 @@ void QSurfaceDataProxyPrivate::limitValues(QVector3D &minValues, QVector3D &maxV
                 float itemValue = m_dataArray->at(i)->at(j).y();
                 if (qIsNaN(itemValue) || qIsInf(itemValue))
                     continue;
-                if (min > itemValue && isValidValue(itemValue, axisY))
+                if ((min > itemValue || (qIsNaN(min) || qIsInf(min)))
+                        && isValidValue(itemValue, axisY)) {
                     min = itemValue;
-                if (max < itemValue)
+                }
+                if (max < itemValue  || (qIsNaN(max) || qIsInf(max)))
                     max = itemValue;
             }
         }
@@ -565,33 +571,59 @@ void QSurfaceDataProxyPrivate::limitValues(QVector3D &minValues, QVector3D &maxV
         float xHigh = m_dataArray->at(0)->last().x();
         float zLow = m_dataArray->at(0)->at(0).z();
         float zHigh = m_dataArray->last()->at(0).z();
-        for (int i = 0; i < columns; i++) {
-            float zItemValue = m_dataArray->at(0)->at(i).z();
-            if (qIsNaN(zItemValue) || qIsInf(zItemValue))
-                continue;
-            else if (isValidValue(zItemValue, axisZ))
-                zLow = qMin(zLow,zItemValue);
-        }
-        for (int i = 0; i < columns; i++) {
-            float zItemValue = m_dataArray->last()->at(i).z();
-            if (qIsNaN(zItemValue) || qIsInf(zItemValue))
-                continue;
-            else if (isValidValue(zItemValue, axisZ))
-                zHigh = qMax(zHigh, zItemValue);
-        }
         for (int i = 0; i < rows; i++) {
-            float xItemValue = m_dataArray->at(i)->at(0).x();
-            if (qIsNaN(xItemValue) || qIsInf(xItemValue))
-                continue;
-            else if (isValidValue(xItemValue, axisX))
-                xLow = qMin(xLow, xItemValue);
+            for (int j = 0; j < columns; j++) {
+                float zItemValue = m_dataArray->at(i)->at(j).z();
+                if (qIsNaN(zItemValue) || qIsInf(zItemValue))
+                    continue;
+                else if (isValidValue(zItemValue, axisZ))
+                    zLow = qMin(zLow,zItemValue);
+            }
+            if (!qIsNaN(zLow) && !qIsInf(zLow))
+                break;
         }
-        for (int i = 0; i < rows; i++) {
-            float xItemValue = m_dataArray->at(i)->last().x();
-            if (qIsNaN(xItemValue) || qIsInf(xItemValue))
-                continue;
-            else if (isValidValue(xItemValue, axisX))
-                xHigh = qMax(xHigh, xItemValue);
+        for (int i = rows - 1; i >= 0; i--) {
+            for (int j = 0; j < columns; j++) {
+                float zItemValue = m_dataArray->at(i)->at(j).z();
+                if (qIsNaN(zItemValue) || qIsInf(zItemValue))
+                    continue;
+                else if (isValidValue(zItemValue, axisZ))
+                {
+                    if (!qIsNaN(zHigh) && !qIsInf(zHigh))
+                        zHigh = qMax(zHigh, zItemValue);
+                    else
+                        zHigh = zItemValue;
+                }
+            }
+            if (!qIsNaN(zHigh) && !qIsInf(zHigh))
+                break;
+        }
+        for (int j = 0; j<columns; j++){
+            for (int i = 0; i < rows; i++) {
+                float xItemValue = m_dataArray->at(i)->at(j).x();
+                if (qIsNaN(xItemValue) || qIsInf(xItemValue))
+                    continue;
+                else if (isValidValue(xItemValue, axisX))
+                    xLow = qMin(xLow, xItemValue);
+            }
+            if (!qIsNaN(xLow) && !qIsInf(xLow))
+                break;
+        }
+        for (int j = columns-1; j >= 0; j--){
+            for (int i = 0; i < rows; i++) {
+                float xItemValue = m_dataArray->at(i)->at(j).x();
+                if (qIsNaN(xItemValue) || qIsInf(xItemValue))
+                    continue;
+                else if (isValidValue(xItemValue, axisX))
+                {
+                    if (!qIsNaN(xHigh) && !qIsInf(xHigh))
+                        xHigh = qMax(xHigh, xItemValue);
+                    else
+                        xHigh = xItemValue;
+                }
+            }
+            if (!qIsNaN(xHigh) && !qIsInf(xHigh))
+                break;
         }
         minValues.setX(xLow);
         minValues.setZ(zLow);
@@ -634,4 +666,4 @@ void QSurfaceDataProxyPrivate::setSeries(QAbstract3DSeries *series)
     emit qptr()->seriesChanged(surfaceSeries);
 }
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE

@@ -9,12 +9,13 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/containers/contains.h"
 #include "base/location.h"
 #include "base/rand_util.h"
 #include "base/single_thread_task_runner.h"
-#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/local_discovery/service_discovery_shared_client.h"
 #include "chrome/browser/notifications/notification_display_service.h"
 #include "chrome/browser/notifications/notification_handler.h"
@@ -27,7 +28,6 @@
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/browser/ui/webui/local_discovery/local_discovery_ui_handler.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
@@ -211,13 +211,6 @@ void PrivetNotificationService::DeviceCacheFlushed() {
 // static
 bool PrivetNotificationService::IsEnabled() {
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-  return !command_line->HasSwitch(
-      switches::kDisableDeviceDiscoveryNotifications);
-}
-
-// static
-bool PrivetNotificationService::IsForced() {
-  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   return command_line->HasSwitch(switches::kEnableDeviceDiscoveryNotifications);
 }
 
@@ -240,10 +233,7 @@ void PrivetNotificationService::AddNotification(
   // existing notification but not add a new one.
   const bool notification_exists =
       base::Contains(displayed_notifications, kPrivetNotificationID);
-  const bool add_new_notification =
-      device_added &&
-      !local_discovery::LocalDiscoveryUIHandler::GetHasVisible();
-  if (!notification_exists && !add_new_notification)
+  if (!notification_exists && !device_added)
     return;
 
   message_center::RichNotificationData rich_notification_data;
@@ -285,7 +275,7 @@ void PrivetNotificationService::PrivetRemoveNotification() {
 }
 
 void PrivetNotificationService::Start() {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   auto* identity_manager = IdentityManagerFactory::GetForProfileIfExists(
       Profile::FromBrowserContext(profile_));
 
@@ -294,7 +284,7 @@ void PrivetNotificationService::Start() {
                                signin::ConsentLevel::kNotRequired)) {
     return;
   }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
   enable_privet_notification_member_.Init(
       prefs::kLocalDiscoveryNotificationsEnabled,
@@ -309,9 +299,7 @@ void PrivetNotificationService::OnNotificationsEnabledChanged() {
 #if BUILDFLAG(ENABLE_MDNS)
   traffic_detector_.reset();
 
-  if (IsForced()) {
-    StartLister();
-  } else if (*enable_privet_notification_member_) {
+  if (*enable_privet_notification_member_) {
     traffic_detector_ = std::make_unique<PrivetTrafficDetector>(
         profile_, base::BindRepeating(&PrivetNotificationService::StartLister,
                                       AsWeakPtr()));
@@ -321,7 +309,7 @@ void PrivetNotificationService::OnNotificationsEnabledChanged() {
     privet_notifications_listener_.reset();
   }
 #else
-  if (IsForced() || *enable_privet_notification_member_) {
+  if (*enable_privet_notification_member_) {
     StartLister();
   } else {
     device_lister_.reset();

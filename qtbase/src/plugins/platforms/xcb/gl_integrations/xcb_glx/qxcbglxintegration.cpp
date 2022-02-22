@@ -48,7 +48,9 @@
 #include "qxcbscreen.h"
 #include "qglxintegration.h"
 
+#include <QtCore/QVersionNumber>
 #include <QtGui/QOpenGLContext>
+#include <QtGui/private/qopenglcontext_p.h>
 
 #include "qxcbglxnativeinterfacehandler.h"
 
@@ -59,6 +61,9 @@
 QT_BEGIN_NAMESPACE
 
 #if QT_CONFIG(xcb_glx)
+  #define QT_XCB_GLX_REQUIRED_MAJOR 1
+  #define QT_XCB_GLX_REQUIRED_MINOR 3
+
   #if XCB_GLX_MAJOR_VERSION == 1 && XCB_GLX_MINOR_VERSION < 4
     #define XCB_GLX_BUFFER_SWAP_COMPLETE 1
     typedef struct xcb_glx_buffer_swap_complete_event_t {
@@ -113,7 +118,9 @@ bool QXcbGlxIntegration::initialize(QXcbConnection *connection)
     auto xglx_query = Q_XCB_REPLY(xcb_glx_query_version, m_connection->xcb_connection(),
                                   XCB_GLX_MAJOR_VERSION,
                                   XCB_GLX_MINOR_VERSION);
-    if (!xglx_query) {
+    if ((!xglx_query)
+        || (QVersionNumber(xglx_query->major_version, xglx_query->minor_version)
+            < QVersionNumber(QT_XCB_GLX_REQUIRED_MAJOR, QT_XCB_GLX_REQUIRED_MINOR))) {
         qCWarning(lcQpaGl) << "QXcbConnection: Failed to initialize GLX";
         return false;
     }
@@ -164,11 +171,7 @@ bool QXcbGlxIntegration::handleXcbEvent(xcb_generic_event_t *event, uint respons
                 XUnlockDisplay(xdisplay);
                 locked = false;
                 auto eventType = m_connection->nativeInterface()->nativeEventType();
-#  if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
                 qintptr result = 0;
-#  else
-                long result = 0;
-#  endif
                 handled = dispatcher->filterNativeEvent(eventType, &ev, &result);
             }
 #endif
@@ -187,10 +190,22 @@ QXcbWindow *QXcbGlxIntegration::createWindow(QWindow *window) const
 QPlatformOpenGLContext *QXcbGlxIntegration::createPlatformOpenGLContext(QOpenGLContext *context) const
 {
     QXcbScreen *screen = static_cast<QXcbScreen *>(context->screen()->handle());
-    QGLXContext *platformContext = new QGLXContext(screen, screen->surfaceFormatFor(context->format()),
-                                                   context->shareHandle(), context->nativeHandle());
-    context->setNativeHandle(platformContext->nativeHandle());
-    return platformContext;
+    return new QGLXContext(static_cast<Display *>(m_connection->xlib_display()),
+        screen, screen->surfaceFormatFor(context->format()), context->shareHandle());
+}
+
+QOpenGLContext *QXcbGlxIntegration::createOpenGLContext(GLXContext glxContext, void *visualInfo, QOpenGLContext *shareContext) const
+{
+    if (!glxContext)
+        return nullptr;
+
+    QPlatformOpenGLContext *shareHandle = shareContext ? shareContext->handle() : nullptr;
+
+    auto *context = new QOpenGLContext;
+    auto *contextPrivate = QOpenGLContextPrivate::get(context);
+    auto *display = static_cast<Display *>(m_connection->xlib_display());
+    contextPrivate->adopt(new QGLXContext(display, glxContext, visualInfo, shareHandle));
+    return context;
 }
 
 QPlatformOffscreenSurface *QXcbGlxIntegration::createPlatformOffscreenSurface(QOffscreenSurface *surface) const

@@ -29,14 +29,14 @@
   \dontdocument (QMacAutoReleasePool QIncompatibleFlag QGenericAtomicOps QAtomicTraits
                  QAtomicOps QBasicAtomicInteger QBasicAtomicPointer QBasicMutex QInternal
                  QArgument QReturnArgument QArrayData QTypedArrayData QStaticByteArrayData
-                 QByteRef QStaticStringData QListSpecialMethods QListData QScopedPointerDeleter
+                 QStaticStringData QListSpecialMethods QListData QScopedPointerDeleter
                  QScopedPointerArrayDeleter QScopedPointerPodDeleter QScopedPointerObjectDeleteLater
                  QMetaTypeId2 QObjectData QObjectUserData QMapNodeBase QMapNode QMapDataBase
                  QMapData QHashData QHashNode QArrayDataPointer QTextStreamManipulator
                  QContiguousCacheData QContiguousCacheTypedData QNoDebug QUrlTwoFlags
                  QCborValueRef QDeferredDeleteEvent QSpecialInteger QLittleEndianStorageType
                  QBigEndianStorageType QFactoryInterface QFutureWatcherBase QJsonValuePtr
-                 QJsonValueRefPtr QLinkedListNode QAbstractConcatenable QStringBuilderCommon
+                 QJsonValueRefPtr QAbstractConcatenable QStringBuilderCommon
                  QTextCodec::ConverterState QThreadStorageData QTextStreamManipulator)
 */
 

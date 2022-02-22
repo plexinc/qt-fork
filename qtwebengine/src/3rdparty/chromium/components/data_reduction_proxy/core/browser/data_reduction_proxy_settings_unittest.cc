@@ -20,12 +20,8 @@
 #include "base/time/clock.h"
 #include "base/time/default_clock.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_compression_stats.h"
-#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_config.h"
-#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_config_test_utils.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_settings_test_utils.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_test_utils.h"
-#include "components/data_reduction_proxy/core/common/data_reduction_proxy_params.h"
-#include "components/data_reduction_proxy/core/common/data_reduction_proxy_params_test_utils.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_pref_names.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_switches.h"
 #include "components/prefs/pref_registry_simple.h"
@@ -48,9 +44,6 @@ class DataReductionProxySettingsTest
                                             bool expected_restricted,
                                             bool expected_fallback_restricted) {
     test_context_->SetDataReductionProxyEnabled(initially_enabled);
-    test_context_->config()->UpdateConfigForTesting(initially_enabled,
-                                                    request_succeeded, true);
-    ExpectSetProxyPrefs(expected_enabled, false);
     settings_->MaybeActivateDataReductionProxy(false);
     test_context_->RunUntilIdle();
   }
@@ -119,33 +112,6 @@ TEST_F(DataReductionProxySettingsTest, TestContentLengths) {
   EXPECT_EQ(expected_total_received_content_length, received_content_length);
 }
 
-TEST(DataReductionProxySettingsStandaloneTest, TestOnProxyEnabledPrefChange) {
-  base::test::SingleThreadTaskEnvironment task_environment{
-      base::test::SingleThreadTaskEnvironment::MainThreadType::IO};
-  std::unique_ptr<DataReductionProxyTestContext> drp_test_context =
-      DataReductionProxyTestContext::Builder()
-          .WithMockConfig()
-          .WithMockDataReductionProxyService()
-          .SkipSettingsInitialization()
-          .Build();
-
-
-  // The proxy is enabled initially.
-  drp_test_context->config()->UpdateConfigForTesting(true, true, true);
-  drp_test_context->InitSettings();
-
-  MockDataReductionProxyService* mock_service =
-      static_cast<MockDataReductionProxyService*>(
-          drp_test_context->data_reduction_proxy_service());
-
-  // The pref is disabled, so correspondingly should be the proxy.
-  EXPECT_CALL(*mock_service, SetProxyPrefs(false, false));
-  drp_test_context->SetDataReductionProxyEnabled(false);
-
-  // The pref is enabled, so correspondingly should be the proxy.
-  EXPECT_CALL(*mock_service, SetProxyPrefs(true, false));
-  drp_test_context->SetDataReductionProxyEnabled(true);
-}
 
 TEST(DataReductionProxySettingsStandaloneTest, TestIsProxyEnabledOrManaged) {
   base::test::SingleThreadTaskEnvironment task_environment{
@@ -184,40 +150,6 @@ TEST(DataReductionProxySettingsStandaloneTest, TestIsProxyEnabledOrManaged) {
   drp_test_context->RunUntilIdle();
 }
 
-TEST(DataReductionProxySettingsStandaloneTest, TestCanUseDataReductionProxy) {
-  base::test::SingleThreadTaskEnvironment task_environment{
-      base::test::SingleThreadTaskEnvironment::MainThreadType::IO};
-  std::unique_ptr<DataReductionProxyTestContext> drp_test_context =
-      DataReductionProxyTestContext::Builder()
-          .WithMockConfig()
-          .WithMockDataReductionProxyService()
-          .SkipSettingsInitialization()
-          .Build();
-
-  drp_test_context->InitSettings();
-
-  MockDataReductionProxyService* mock_service =
-      static_cast<MockDataReductionProxyService*>(
-          drp_test_context->data_reduction_proxy_service());
-
-  DataReductionProxySettings* settings = drp_test_context->settings();
-  GURL http_gurl("http://url.com/");
-  GURL https_gurl("https://url.com/");
-
-  // The pref is disabled, so correspondingly should be the proxy.
-  EXPECT_CALL(*mock_service, SetProxyPrefs(false, false));
-  drp_test_context->SetDataReductionProxyEnabled(false);
-  EXPECT_FALSE(settings->CanUseDataReductionProxy(http_gurl));
-  EXPECT_FALSE(settings->CanUseDataReductionProxy(https_gurl));
-
-  // The pref is enabled, so correspondingly should be the proxy.
-  EXPECT_CALL(*mock_service, SetProxyPrefs(true, false));
-  drp_test_context->SetDataReductionProxyEnabled(true);
-  EXPECT_TRUE(settings->CanUseDataReductionProxy(http_gurl));
-  EXPECT_FALSE(settings->CanUseDataReductionProxy(https_gurl));
-
-  drp_test_context->RunUntilIdle();
-}
 
 TEST_F(DataReductionProxySettingsTest, TestMaybeActivateDataReductionProxy) {
   // Initialize the pref member in |settings_| without the usual callback
@@ -388,8 +320,6 @@ TEST(DataReductionProxySettingsStandaloneTest,
           .SkipSettingsInitialization()
           .Build();
 
-  // The proxy is enabled initially.
-  drp_test_context->config()->UpdateConfigForTesting(true, true, true);
   drp_test_context->InitSettings();
 
   base::HistogramTester histogram_tester;

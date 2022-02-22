@@ -2,26 +2,27 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/test_tools/qpack/qpack_decoder_test_utils.h"
+#include "quic/test_tools/qpack/qpack_decoder_test_utils.h"
 
 #include <algorithm>
 #include <cstddef>
 #include <utility>
 
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/string_view.h"
+#include "quic/platform/api/quic_test.h"
 
 namespace quic {
 namespace test {
 
 void NoopEncoderStreamErrorDelegate::OnEncoderStreamError(
-    quiche::QuicheStringPiece /*error_message*/) {}
+    QuicErrorCode /* error_code */,
+    absl::string_view /*error_message*/) {}
 
 TestHeadersHandler::TestHeadersHandler()
     : decoding_completed_(false), decoding_error_detected_(false) {}
 
-void TestHeadersHandler::OnHeaderDecoded(quiche::QuicheStringPiece name,
-                                         quiche::QuicheStringPiece value) {
+void TestHeadersHandler::OnHeaderDecoded(absl::string_view name,
+                                         absl::string_view value) {
   ASSERT_FALSE(decoding_completed_);
   ASSERT_FALSE(decoding_error_detected_);
 
@@ -36,7 +37,7 @@ void TestHeadersHandler::OnDecodingCompleted() {
 }
 
 void TestHeadersHandler::OnDecodingErrorDetected(
-    quiche::QuicheStringPiece error_message) {
+    absl::string_view error_message) {
   ASSERT_FALSE(decoding_completed_);
   ASSERT_FALSE(decoding_error_detected_);
 
@@ -44,9 +45,9 @@ void TestHeadersHandler::OnDecodingErrorDetected(
   error_message_.assign(error_message.data(), error_message.size());
 }
 
-spdy::SpdyHeaderBlock TestHeadersHandler::ReleaseHeaderList() {
-  DCHECK(decoding_completed_);
-  DCHECK(!decoding_error_detected_);
+spdy::Http2HeaderBlock TestHeadersHandler::ReleaseHeaderList() {
+  QUICHE_DCHECK(decoding_completed_);
+  QUICHE_DCHECK(!decoding_error_detected_);
 
   return std::move(header_list_);
 }
@@ -60,7 +61,7 @@ bool TestHeadersHandler::decoding_error_detected() const {
 }
 
 const std::string& TestHeadersHandler::error_message() const {
-  DCHECK(decoding_error_detected_);
+  QUICHE_DCHECK(decoding_error_detected_);
   return error_message_;
 }
 
@@ -71,7 +72,7 @@ void QpackDecode(
     QpackStreamSenderDelegate* decoder_stream_sender_delegate,
     QpackProgressiveDecoder::HeadersHandlerInterface* handler,
     const FragmentSizeGenerator& fragment_size_generator,
-    quiche::QuicheStringPiece data) {
+    absl::string_view data) {
   QpackDecoder decoder(maximum_dynamic_table_capacity, maximum_blocked_streams,
                        encoder_stream_error_delegate);
   decoder.set_qpack_stream_sender_delegate(decoder_stream_sender_delegate);

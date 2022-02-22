@@ -38,12 +38,22 @@ ListView {
     model: 10
     spacing: 2
 
+    // faster rebound to speed up test runs
+    rebound: Transition {
+        NumberAnimation {
+            properties: "x,y"
+            duration: 30
+            easing.type: Easing.OutBounce
+        }
+    }
+
     delegate: Rectangle {
-        objectName: "itemview delegate"
+        objectName: "itemview delegate " + index
         color: delegateTap.pressed ? "wheat" : "beige"
         width: parent.width; height: 140
+        Text { text: index }
         Rectangle {
-            objectName: "button"
+            objectName: "button " + index
             anchors.centerIn: parent
             border.color: "tomato"
             border.width: 10
@@ -52,16 +62,16 @@ ListView {
             height: 100
             TapHandler {
                 id: innerTap
-                objectName: "buttonTap"
+                objectName: "buttonTap " + index
             }
-            Component.onCompleted: if (!root.buttonUnderTest) {
+            Component.onCompleted: if (!root.buttonUnderTest && index == 2) {
                 root.buttonUnderTest = this
                 root.delegateUnderTest = parent
             }
         }
         TapHandler {
             id: delegateTap
-            objectName: "delegateTap"
+            objectName: "delegateTap " + index
         }
     }
 

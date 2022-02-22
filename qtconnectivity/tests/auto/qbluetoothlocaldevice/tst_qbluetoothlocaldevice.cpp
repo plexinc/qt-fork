@@ -70,11 +70,12 @@ private slots:
 
 private:
     QBluetoothAddress remoteDevice;
+    int numDevices = 0;
     bool expectRemoteDevice;
 };
 
 tst_QBluetoothLocalDevice::tst_QBluetoothLocalDevice()
-    : expectRemoteDevice(false)
+    : numDevices(QBluetoothLocalDevice::allDevices().count()), expectRemoteDevice(false)
 {
     const QString remote = qgetenv("BT_TEST_DEVICE");
     if (!remote.isEmpty()) {
@@ -84,6 +85,9 @@ tst_QBluetoothLocalDevice::tst_QBluetoothLocalDevice()
     } else {
         qWarning() << "Not using any remote device for testing. Set BT_TEST_DEVICE env to run manual tests involving a remote device";
     }
+
+    if (numDevices == 0)
+        return;
 
     // start with host powered off
     QBluetoothLocalDevice *device = new QBluetoothLocalDevice();
@@ -121,7 +125,7 @@ void tst_QBluetoothLocalDevice::tst_powerOn()
     QVERIFY(hostModeSpy.isValid());
     QVERIFY(hostModeSpy.isEmpty());
 
-    if (!QBluetoothLocalDevice::allDevices().count())
+    if (numDevices == 0)
         QSKIP("Skipping test due to missing Bluetooth device");
 
     localDevice.powerOn();
@@ -142,7 +146,7 @@ void tst_QBluetoothLocalDevice::tst_powerOff()
     QSKIP("Not possible on Windows");
 #endif
 
-    if (!QBluetoothLocalDevice::allDevices().count())
+    if (numDevices == 0)
         QSKIP("Skipping test due to missing Bluetooth device");
 
     {
@@ -196,7 +200,7 @@ void tst_QBluetoothLocalDevice::tst_hostModes()
     QFETCH(QBluetoothLocalDevice::HostMode, hostModeExpected);
     QFETCH(bool, expectSignal);
 
-    if (!QBluetoothLocalDevice::allDevices().count())
+    if (numDevices == 0)
         QSKIP("Skipping test due to missing Bluetooth device");
 
     QBluetoothLocalDevice localDevice;
@@ -229,7 +233,7 @@ void tst_QBluetoothLocalDevice::tst_hostModes()
 
 void tst_QBluetoothLocalDevice::tst_address()
 {
-    if (!QBluetoothLocalDevice::allDevices().count())
+    if (numDevices == 0)
         QSKIP("Skipping test due to missing Bluetooth device");
 
     QBluetoothLocalDevice localDevice;
@@ -238,7 +242,7 @@ void tst_QBluetoothLocalDevice::tst_address()
 }
 void tst_QBluetoothLocalDevice::tst_name()
 {
-    if (!QBluetoothLocalDevice::allDevices().count())
+    if (numDevices == 0)
         QSKIP("Skipping test due to missing Bluetooth device");
 
     QBluetoothLocalDevice localDevice;
@@ -250,7 +254,7 @@ void tst_QBluetoothLocalDevice::tst_isValid()
     // On OS X we can have a valid device (device.isValid() == true),
     // that has neither a name nor a valid address - this happens
     // if a Bluetooth adapter is OFF.
-    if (!QBluetoothLocalDevice::allDevices().count())
+    if (numDevices == 0)
         QSKIP("Skipping test due to missing Bluetooth device");
 #endif
 
@@ -296,7 +300,7 @@ void tst_QBluetoothLocalDevice::tst_allDevices()
 }
 void tst_QBluetoothLocalDevice::tst_construction()
 {
-    if (!QBluetoothLocalDevice::allDevices().count())
+    if (numDevices == 0)
         QSKIP("Skipping test due to missing Bluetooth device");
 
     QBluetoothLocalDevice localDevice;
@@ -325,30 +329,37 @@ void tst_QBluetoothLocalDevice::tst_pairDevice_data()
             << QBluetoothLocalDevice::Unpaired << 1000 << true;
 
     if (!remoteDevice.isNull()) {
+        // Unpairing is quick but pairing level upgrade requires manual interaction
+        // on both devices. Therefore the timeouts are higher for the changes
+        // which require manual interaction.
         QTest::newRow("UnParing Test device 1") << QBluetoothAddress(remoteDevice)
-                << QBluetoothLocalDevice::Unpaired << 1000 << false;
+                << QBluetoothLocalDevice::Unpaired << 5000 << false;
         //Bluez5 may have to do a device search which can take up to 20s
         QTest::newRow("Pairing Test Device") << QBluetoothAddress(remoteDevice)
-                << QBluetoothLocalDevice::Paired << 21000 << false;
+                << QBluetoothLocalDevice::Paired << 30000 << false;
         QTest::newRow("Pairing upgrade for Authorization") << QBluetoothAddress(remoteDevice)
-                << QBluetoothLocalDevice::AuthorizedPaired << 1000 << false;
+                << QBluetoothLocalDevice::AuthorizedPaired << 5000 << false;
         QTest::newRow("Unpairing Test device 2") << QBluetoothAddress(remoteDevice)
-                << QBluetoothLocalDevice::Unpaired << 1000 << false;
+                << QBluetoothLocalDevice::Unpaired << 5000 << false;
         QTest::newRow("Authorized Pairing") << QBluetoothAddress(remoteDevice)
-                << QBluetoothLocalDevice::AuthorizedPaired << 10000 << false;
+                << QBluetoothLocalDevice::AuthorizedPaired << 30000 << false;
         QTest::newRow("Pairing Test Device after Authorization Pairing") << QBluetoothAddress(remoteDevice)
-                << QBluetoothLocalDevice::Paired << 1000 << false;
+                << QBluetoothLocalDevice::Paired << 5000 << false;
+
         QTest::newRow("Pairing Test Device after Authorization2") << QBluetoothAddress(remoteDevice)
-                << QBluetoothLocalDevice::Paired << 1000 << false; //same again
+                << QBluetoothLocalDevice::Paired << 5000 << false; //same again
         QTest::newRow("Unpairing Test device 3") << QBluetoothAddress(remoteDevice)
-                << QBluetoothLocalDevice::Unpaired << 1000 << false;
+                << QBluetoothLocalDevice::Unpaired << 5000 << false;
         QTest::newRow("UnParing Test device 4") << QBluetoothAddress(remoteDevice)
-                << QBluetoothLocalDevice::Unpaired << 1000 << false;
+                << QBluetoothLocalDevice::Unpaired << 5000 << false;
     }
 }
 
 void tst_QBluetoothLocalDevice::tst_pairDevice()
 {
+#if defined(Q_OS_MACOS)
+    QSKIP("The pair device test fails on macOS");
+#endif
 #ifdef Q_OS_WIN
     QSKIP("Programmatic pairing not supported on Windows");
 #endif
@@ -358,7 +369,7 @@ void tst_QBluetoothLocalDevice::tst_pairDevice()
     QFETCH(int, pairingWaitTime);
     QFETCH(bool, expectErrorSignal);
 
-    if (!QBluetoothLocalDevice::allDevices().count())
+    if (numDevices == 0)
         QSKIP("Skipping test due to missing Bluetooth device");
 
     QBluetoothLocalDevice localDevice;
@@ -367,7 +378,7 @@ void tst_QBluetoothLocalDevice::tst_pairDevice()
     QVERIFY(localDevice.hostMode() != QBluetoothLocalDevice::HostPoweredOff);
 
     QSignalSpy pairingSpy(&localDevice, SIGNAL(pairingFinished(QBluetoothAddress,QBluetoothLocalDevice::Pairing)) );
-    QSignalSpy errorSpy(&localDevice, SIGNAL(error(QBluetoothLocalDevice::Error)));
+    QSignalSpy errorSpy(&localDevice, SIGNAL(errorOccurred(QBluetoothLocalDevice::Error)));
     // there should be no signals yet
     QVERIFY(pairingSpy.isValid());
     QVERIFY(pairingSpy.isEmpty());
@@ -377,17 +388,18 @@ void tst_QBluetoothLocalDevice::tst_pairDevice()
     QVERIFY(localDevice.isValid());
 
     localDevice.requestPairing(deviceAddress, pairingExpected);
-    // async, wait for it
-    QTest::qWait(pairingWaitTime);
 
+    // The above function triggers async interaction with the user on two machines.
+    // Responding takes time. Let's adjust the subsequent timeout dyncamically based on
+    // the need of the operation
     if (expectErrorSignal) {
-        QTRY_VERIFY(!errorSpy.isEmpty());
+        QTRY_VERIFY_WITH_TIMEOUT(!errorSpy.isEmpty(), pairingWaitTime);
         QVERIFY(pairingSpy.isEmpty());
         QList<QVariant> arguments = errorSpy.first();
         QBluetoothLocalDevice::Error e = qvariant_cast<QBluetoothLocalDevice::Error>(arguments.at(0));
         QCOMPARE(e, QBluetoothLocalDevice::PairingError);
     } else {
-        QTRY_VERIFY(!pairingSpy.isEmpty());
+        QTRY_VERIFY_WITH_TIMEOUT(!pairingSpy.isEmpty(), pairingWaitTime);
         QVERIFY(errorSpy.isEmpty());
 
         // test the actual signal values.
@@ -425,7 +437,7 @@ void tst_QBluetoothLocalDevice::tst_pairingStatus()
     QFETCH(QBluetoothAddress, deviceAddress);
     QFETCH(QBluetoothLocalDevice::Pairing, pairingExpected);
 
-    if (!QBluetoothLocalDevice::allDevices().count())
+    if (numDevices == 0)
         QSKIP("Skipping test due to missing Bluetooth device");
 
     QBluetoothLocalDevice localDevice;

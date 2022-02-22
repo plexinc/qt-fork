@@ -8,10 +8,10 @@
 #include <cstddef>
 #include <string>
 
-#include "net/third_party/quiche/src/quic/core/http/quic_spdy_stream.h"
-#include "net/third_party/quiche/src/quic/core/quic_packets.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
-#include "net/third_party/quiche/src/spdy/core/spdy_framer.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/http/quic_spdy_stream.h"
+#include "quic/core/quic_packets.h"
+#include "spdy/core/spdy_framer.h"
 
 namespace quic {
 
@@ -52,7 +52,7 @@ class QUIC_NO_EXPORT QuicSpdyClientStream : public QuicSpdyStream {
   // Serializes the headers and body, sends it to the server, and
   // returns the number of bytes sent.
   size_t SendRequest(spdy::SpdyHeaderBlock headers,
-                     quiche::QuicheStringPiece body,
+                     absl::string_view body,
                      bool fin);
 
   // Returns the response data.

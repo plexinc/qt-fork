@@ -34,14 +34,20 @@
 #include <QtCore/qjsondocument.h>
 #include <QtCore/qjsonarray.h>
 #include <QDebug>
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+#include <QCborMap>
+#include <QCborValue>
+#endif
+
+#include <QtQuickShapes/private/qquickshapesglobal_p.h>
 
 #if defined(Q_OS_MAC)
 // For _PC_CASE_SENSITIVE
 #include <unistd.h>
 #endif
 
-#include "../../shared/testhttpserver.h"
-#include "../../shared/util.h"
+#include <QtQuickTestUtils/private/testhttpserver_p.h>
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 
 // Note: this test does not use module identifier directives in the qmldir files, because
 // it would result in repeated attempts to insert types into the same namespace.
@@ -52,9 +58,10 @@ class tst_qqmlmoduleplugin : public QQmlDataTest
 {
     Q_OBJECT
 public:
+    tst_qqmlmoduleplugin();
 
 private slots:
-    virtual void initTestCase();
+    void initTestCase() override;
     void importsPlugin();
     void importsPlugin_data();
     void importsMixedQmlCppPlugin();
@@ -79,6 +86,8 @@ private slots:
     void importsChildPlugin21();
     void parallelPluginImport();
     void multiSingleton();
+    void optionalPlugin();
+    void moduleFromQrc();
 
 private:
     QString m_importsDirectory;
@@ -131,8 +140,7 @@ QByteArray SecondStaticPlugin::metaData;
 template <typename PluginType>
 void registerStaticPlugin(const char *uri)
 {
-    QStaticPlugin plugin;
-    plugin.instance = []() {
+    auto instanceFunctor = []() {
         static PluginType plugin;
         return static_cast<QObject*>(&plugin);
     };
@@ -143,14 +151,35 @@ void registerStaticPlugin(const char *uri)
     uris.append(uri);
     md.insert(QStringLiteral("uri"), uris);
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    PluginType::metaData.append(QByteArrayLiteral("QTMETADATA !"));
+    PluginType::metaData.append(char(0)); // current version
+    PluginType::metaData.append(char(QT_VERSION_MAJOR));
+    PluginType::metaData.append(char(QT_VERSION_MINOR));
+    PluginType::metaData.append(char(qPluginArchRequirements()));
+    PluginType::metaData.append(QCborValue(QCborMap::fromJsonObject(md)).toCbor());
+
+    auto rawMetaDataFunctor = []() -> QPluginMetaData {
+        return {reinterpret_cast<const uchar *>(PluginType::metaData.constData()), size_t(PluginType::metaData.length())};
+    };
+    QStaticPlugin plugin(instanceFunctor, rawMetaDataFunctor);
+#else
     PluginType::metaData.append(QLatin1String("QTMETADATA  "));
     PluginType::metaData.append(QJsonDocument(md).toBinaryData());
 
+    QStaticPlugin plugin;
+    plugin.instance = instanceFunctor;
     plugin.rawMetaData = []() {
         return PluginType::metaData.constData();
     };
+#endif
     qRegisterStaticPluginFunction(plugin);
 };
+
+tst_qqmlmoduleplugin::tst_qqmlmoduleplugin()
+    : QQmlDataTest(QT_QMLTEST_DATADIR)
+{
+}
 
 void tst_qqmlmoduleplugin::initTestCase()
 {
@@ -200,7 +229,7 @@ void tst_qqmlmoduleplugin::initTestCase()
             } \
             file.close(); \
         } else { \
-            QCOMPARE(expected, actual); \
+            QCOMPARE(actual, expected); \
         } \
     }
 
@@ -250,14 +279,21 @@ void tst_qqmlmoduleplugin::incorrectPluginCase()
 #if defined(Q_OS_MAC) || defined(Q_OS_WIN32)
     bool caseSensitive = true;
 #if defined(Q_OS_MAC)
-    caseSensitive = pathconf(QDir::currentPath().toLatin1().constData(), _PC_CASE_SENSITIVE);
+    int res = pathconf(QDir::currentPath().toLatin1().constData(), _PC_CASE_SENSITIVE);
+    if (res == -1)
+        QSKIP("Could not establish case sensitivity of file system");
+    caseSensitive = res != 0 && res != -1;
+#ifdef QT_DEBUG
+    QString libname = "libPluGin_debug.dylib";
+#else
     QString libname = "libPluGin.dylib";
+#endif
 #elif defined(Q_OS_WIN32)
     caseSensitive = false;
     QString libname = "PluGin.dll";
 #endif
     if (!caseSensitive) {
-        expectedError = QLatin1String("plugin cannot be loaded for module \"org.qtproject.WrongCase\": File name case mismatch for \"")
+        expectedError = QLatin1String("File name case mismatch for \"")
             + QDir(m_importsDirectory).filePath("org/qtproject/WrongCase/" + libname)
             + QLatin1Char('"');
     }
@@ -609,20 +645,20 @@ void tst_qqmlmoduleplugin::importStrictModule_data()
         << "import org.qtproject.NonstrictModule 1.0\n"
            "MyPluginType {}"
         << "Module 'org.qtproject.NonstrictModule' does not contain a module identifier directive - it cannot be protected from external registrations."
-        << ":1:1: plugin cannot be loaded for module \"org.qtproject.NonstrictModule\": Cannot install element 'MyPluginType' into protected module 'org.qtproject.StrictModule' version '1'";
+        << ":1:1: Cannot install element 'MyPluginType' into protected module 'org.qtproject.StrictModule' version '1'";
 
     QTest::newRow("non-strict preemption")
         << "import org.qtproject.PreemptiveModule 1.0\n"
            "import org.qtproject.PreemptedStrictModule 1.0\n"
            "MyPluginType {}"
         << "Module 'org.qtproject.PreemptiveModule' does not contain a module identifier directive - it cannot be protected from external registrations."
-        << ":2:1: plugin cannot be loaded for module \"org.qtproject.PreemptedStrictModule\": Namespace 'org.qtproject.PreemptedStrictModule' has already been used for type registration";
+        << ":2:1: Namespace 'org.qtproject.PreemptedStrictModule' has already been used for type registration";
 
     QTest::newRow("invalid namespace")
         << "import org.qtproject.InvalidNamespaceModule 1.0\n"
            "MyPluginType {}"
         << QString()
-        << ":1:1: plugin cannot be loaded for module \"org.qtproject.InvalidNamespaceModule\": Module namespace 'org.qtproject.AwesomeModule' does not match import URI 'org.qtproject.InvalidNamespaceModule'";
+        << ":1:1: Module namespace 'org.qtproject.AwesomeModule' does not match import URI 'org.qtproject.InvalidNamespaceModule'";
 
     QTest::newRow("module directive must be first")
         << "import org.qtproject.InvalidFirstCommandModule 1.0\n"
@@ -786,6 +822,30 @@ void tst_qqmlmoduleplugin::multiSingleton()
     delete object;
 }
 
+void tst_qqmlmoduleplugin::optionalPlugin()
+{
+    // Force QtQuickShapes to be linked.
+    volatile auto registration = &qml_register_types_QtQuick_Shapes;
+    Q_UNUSED(registration);
+
+    QQmlEngine engine;
+    engine.setImportPathList({m_importsDirectory});
+    QQmlComponent component(&engine);
+    component.setData("import QtQuick.Shapes\nShapePath {}\n", QUrl());
+    QScopedPointer<QObject> object10(component.create());
+    QVERIFY(!object10.isNull());
+}
+
+void tst_qqmlmoduleplugin::moduleFromQrc()
+{
+    QQmlEngine engine;
+    engine.setImportPathList({ QStringLiteral(":/foo/imports/"), m_dataImportsDirectory });
+    QQmlComponent component(&engine);
+    component.setData("import ModuleFromQrc\nFoo {}\n", QUrl());
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+    QScopedPointer<QObject> object(component.create());
+    QVERIFY(!object.isNull());
+}
 
 QTEST_MAIN(tst_qqmlmoduleplugin)
 

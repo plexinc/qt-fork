@@ -5,17 +5,19 @@
 /**
  * @param {string} localName
  * @param {string} typeExtension
- * @param {function(new:HTMLElement, *)} definition
- * @return {function()}
- * @suppressGlobalPropertiesCheck
+ * @param {function(new:HTMLElement, *):void} definition
+ * @return {function():!Element}
  */
 export function registerCustomElement(localName, typeExtension, definition) {
   self.customElements.define(typeExtension, class extends definition {
     constructor() {
+      // The JSDoc above does not allow the super call to have no params, but
+      // it seems to be the nearest to something both Closure and TS understand.
+      // @ts-ignore crbug.com/1011811: Fix after Closure has been removed.
       super();
       // TODO(einbinder) convert to classes and custom element tags
       this.setAttribute('is', typeExtension);
     }
   }, {extends: localName});
-  return () => createElement(localName, typeExtension);
+  return () => document.createElement(localName, {is: typeExtension});
 }

@@ -7,15 +7,18 @@
 
 #include <dawn/dawn_proc_table.h>
 #include <dawn/webgpu.h>
+#include <memory>
 
 #include "base/callback_helpers.h"
-#include "base/util/type_safety/pass_key.h"
+#include "base/memory/scoped_refptr.h"
+#include "base/types/pass_key.h"
 #include "build/build_config.h"
 #include "components/viz/common/resources/resource_format.h"
 #include "gpu/command_buffer/service/shared_image_backing.h"
 #include "gpu/command_buffer/service/shared_image_manager.h"
 #include "gpu/gpu_gles2_export.h"
 #include "third_party/skia/include/core/SkSurface.h"
+#include "third_party/skia/include/gpu/GrBackendSurfaceMutableState.h"
 #include "ui/gfx/color_space.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
@@ -24,9 +27,23 @@
 typedef unsigned int GLenum;
 class SkPromiseImageTexture;
 
+namespace base {
+namespace android {
+class ScopedHardwareBufferFenceSync;
+}  // namespace android
+}  // namespace base
+
 namespace gl {
 class GLImage;
 }
+
+namespace gfx {
+class NativePixmap;
+}  // namespace gfx
+
+namespace media {
+class VASurface;
+}  // namespace media
 
 namespace gpu {
 class TextureBase;
@@ -57,7 +74,10 @@ class GPU_GLES2_EXPORT SharedImageRepresentation {
   viz::ResourceFormat format() const { return backing_->format(); }
   const gfx::Size& size() const { return backing_->size(); }
   const gfx::ColorSpace& color_space() const { return backing_->color_space(); }
+  GrSurfaceOrigin surface_origin() const { return backing_->surface_origin(); }
+  SkAlphaType alpha_type() const { return backing_->alpha_type(); }
   uint32_t usage() const { return backing_->usage(); }
+  const gpu::Mailbox& mailbox() const { return backing_->mailbox(); }
   MemoryTypeTracker* tracker() { return tracker_; }
   bool IsCleared() const { return backing_->IsCleared(); }
   void SetCleared() { backing_->SetCleared(); }
@@ -95,6 +115,9 @@ class GPU_GLES2_EXPORT SharedImageRepresentation {
     }
 
     RepresentationClass* representation() { return representation_; }
+    const RepresentationClass* representation() const {
+      return representation_;
+    }
 
    private:
     RepresentationClass* const representation_;
@@ -128,6 +151,14 @@ class SharedImageRepresentationFactoryRef : public SharedImageRepresentation {
     return backing()->ProduceLegacyMailbox(mailbox_manager);
   }
   bool PresentSwapChain() { return backing()->PresentSwapChain(); }
+  void RegisterImageFactory(SharedImageFactory* factory) {
+    backing()->RegisterImageFactory(factory);
+  }
+
+#if defined(OS_ANDROID)
+  std::unique_ptr<base::android::ScopedHardwareBufferFenceSync>
+  GetAHardwareBuffer();
+#endif
 };
 
 class GPU_GLES2_EXPORT SharedImageRepresentationGLTextureBase
@@ -136,7 +167,7 @@ class GPU_GLES2_EXPORT SharedImageRepresentationGLTextureBase
   class ScopedAccess
       : public ScopedAccessBase<SharedImageRepresentationGLTextureBase> {
    public:
-    ScopedAccess(util::PassKey<SharedImageRepresentationGLTextureBase> pass_key,
+    ScopedAccess(base::PassKey<SharedImageRepresentationGLTextureBase> pass_key,
                  SharedImageRepresentationGLTextureBase* representation)
         : ScopedAccessBase(representation) {}
     ~ScopedAccess() {
@@ -212,31 +243,46 @@ class GPU_GLES2_EXPORT SharedImageRepresentationSkia
   class GPU_GLES2_EXPORT ScopedWriteAccess
       : public ScopedAccessBase<SharedImageRepresentationSkia> {
    public:
-    ScopedWriteAccess(util::PassKey<SharedImageRepresentationSkia> pass_key,
+    ScopedWriteAccess(base::PassKey<SharedImageRepresentationSkia> pass_key,
                       SharedImageRepresentationSkia* representation,
-                      sk_sp<SkSurface> surface);
+                      sk_sp<SkSurface> surface,
+                      std::unique_ptr<GrBackendSurfaceMutableState> end_state);
+    ScopedWriteAccess(base::PassKey<SharedImageRepresentationSkia> pass_key,
+                      SharedImageRepresentationSkia* representation,
+                      sk_sp<SkPromiseImageTexture> promise_image_texture,
+                      std::unique_ptr<GrBackendSurfaceMutableState> end_state);
     ~ScopedWriteAccess();
 
     SkSurface* surface() const { return surface_.get(); }
+    SkPromiseImageTexture* promise_image_texture() const {
+      return promise_image_texture_.get();
+    }
+    GrBackendSurfaceMutableState* end_state() const { return end_state_.get(); }
 
    private:
     sk_sp<SkSurface> surface_;
+    sk_sp<SkPromiseImageTexture> promise_image_texture_;
+    std::unique_ptr<GrBackendSurfaceMutableState> end_state_;
   };
 
   class GPU_GLES2_EXPORT ScopedReadAccess
       : public ScopedAccessBase<SharedImageRepresentationSkia> {
    public:
-    ScopedReadAccess(util::PassKey<SharedImageRepresentationSkia> pass_key,
+    ScopedReadAccess(base::PassKey<SharedImageRepresentationSkia> pass_key,
                      SharedImageRepresentationSkia* representation,
-                     sk_sp<SkPromiseImageTexture> promise_image_texture);
+                     sk_sp<SkPromiseImageTexture> promise_image_texture,
+                     std::unique_ptr<GrBackendSurfaceMutableState> end_state);
     ~ScopedReadAccess();
 
     SkPromiseImageTexture* promise_image_texture() const {
       return promise_image_texture_.get();
     }
+    sk_sp<SkImage> CreateSkImage(GrDirectContext* context) const;
+    GrBackendSurfaceMutableState* end_state() const { return end_state_.get(); }
 
    private:
     sk_sp<SkPromiseImageTexture> promise_image_texture_;
+    std::unique_ptr<GrBackendSurfaceMutableState> end_state_;
   };
 
   SharedImageRepresentationSkia(SharedImageManager* manager,
@@ -251,12 +297,14 @@ class GPU_GLES2_EXPORT SharedImageRepresentationSkia
       const SkSurfaceProps& surface_props,
       std::vector<GrBackendSemaphore>* begin_semaphores,
       std::vector<GrBackendSemaphore>* end_semaphores,
-      AllowUnclearedAccess allow_uncleared);
+      AllowUnclearedAccess allow_uncleared,
+      bool use_sk_surface = true);
 
   std::unique_ptr<ScopedWriteAccess> BeginScopedWriteAccess(
       std::vector<GrBackendSemaphore>* begin_semaphores,
       std::vector<GrBackendSemaphore>* end_semaphores,
-      AllowUnclearedAccess allow_uncleared);
+      AllowUnclearedAccess allow_uncleared,
+      bool use_sk_surface = true);
 
   // Note: See BeginReadAccess below for a description of the semaphore
   // parameters.
@@ -269,28 +317,49 @@ class GPU_GLES2_EXPORT SharedImageRepresentationSkia
  protected:
   // Begin the write access. The implementations should insert semaphores into
   // begin_semaphores vector which client will wait on before writing the
-  // backing. The ownership of begin_semaphores will be passed to client.
-  // The implementations should also insert semaphores into end_semaphores,
-  // client must submit them with drawing operations which use the backing.
-  // The ownership of end_semaphores are not passed to client. And client must
-  // submit the end_semaphores before calling EndWriteAccess().
+  // backing. The ownership of begin_semaphores is not passed to client.
+  // The implementations can also optionally insert semaphores into
+  // end_semaphores. If using end_semaphores, the client must submit them with
+  // drawing operations which use the backing. The ownership of end_semaphores
+  // are not passed to client. And client must submit the end_semaphores before
+  // calling EndWriteAccess().
+  // The backing can assign end_state, and the caller must reset backing's state
+  // to the end_state before calling EndWriteAccess().
   virtual sk_sp<SkSurface> BeginWriteAccess(
       int final_msaa_count,
       const SkSurfaceProps& surface_props,
       std::vector<GrBackendSemaphore>* begin_semaphores,
-      std::vector<GrBackendSemaphore>* end_semaphores) = 0;
+      std::vector<GrBackendSemaphore>* end_semaphores,
+      std::unique_ptr<GrBackendSurfaceMutableState>* end_state);
+  virtual sk_sp<SkSurface> BeginWriteAccess(
+      int final_msaa_count,
+      const SkSurfaceProps& surface_props,
+      std::vector<GrBackendSemaphore>* begin_semaphores,
+      std::vector<GrBackendSemaphore>* end_semaphores);
+  virtual sk_sp<SkPromiseImageTexture> BeginWriteAccess(
+      std::vector<GrBackendSemaphore>* begin_semaphores,
+      std::vector<GrBackendSemaphore>* end_semaphores,
+      std::unique_ptr<GrBackendSurfaceMutableState>* end_state) = 0;
+  // TODO(jochin): Ensure each implementation accounts for null a SkSurface.
   virtual void EndWriteAccess(sk_sp<SkSurface> surface) = 0;
 
   // Begin the read access. The implementations should insert semaphores into
   // begin_semaphores vector which client will wait on before reading the
-  // backing. The ownership of begin_semaphores will be passed to client.
-  // The implementations should also insert semaphores into end_semaphores,
-  // client must submit them with drawing operations which use the backing.
-  // The ownership of end_semaphores are not passed to client. And client must
-  // submit the end_semaphores before calling EndReadAccess().
+  // backing. The ownership of begin_semaphores is not passed to client.
+  // The implementations can also optionally insert semaphores into
+  // end_semaphores. If using end_semaphores, the client must submit them with
+  // drawing operations which use the backing. The ownership of end_semaphores
+  // are not passed to client. And client must submit the end_semaphores before
+  // calling EndReadAccess().
+  // The backing can assign end_state, and the caller must reset backing's state
+  // to the end_state before calling EndReadAccess().
   virtual sk_sp<SkPromiseImageTexture> BeginReadAccess(
       std::vector<GrBackendSemaphore>* begin_semaphores,
-      std::vector<GrBackendSemaphore>* end_semaphores) = 0;
+      std::vector<GrBackendSemaphore>* end_semaphores,
+      std::unique_ptr<GrBackendSurfaceMutableState>* end_state);
+  virtual sk_sp<SkPromiseImageTexture> BeginReadAccess(
+      std::vector<GrBackendSemaphore>* begin_semaphores,
+      std::vector<GrBackendSemaphore>* end_semaphores);
   virtual void EndReadAccess() = 0;
 };
 
@@ -305,11 +374,13 @@ class GPU_GLES2_EXPORT SharedImageRepresentationDawn
   class GPU_GLES2_EXPORT ScopedAccess
       : public ScopedAccessBase<SharedImageRepresentationDawn> {
    public:
-    ScopedAccess(util::PassKey<SharedImageRepresentationDawn> pass_key,
+    ScopedAccess(base::PassKey<SharedImageRepresentationDawn> pass_key,
                  SharedImageRepresentationDawn* representation,
                  WGPUTexture texture);
     ~ScopedAccess();
 
+    // Get the unowned texture handle. The caller should take a reference
+    // if necessary by doing wgpu::Texture texture(access->texture());
     WGPUTexture texture() const { return texture_; }
 
    private:
@@ -338,20 +409,38 @@ class GPU_GLES2_EXPORT SharedImageRepresentationOverlay
                                    MemoryTypeTracker* tracker)
       : SharedImageRepresentation(manager, backing, tracker) {}
 
-  class ScopedReadAccess
+  class GPU_GLES2_EXPORT ScopedReadAccess
       : public ScopedAccessBase<SharedImageRepresentationOverlay> {
    public:
-    ScopedReadAccess(util::PassKey<SharedImageRepresentationOverlay> pass_key,
+    ScopedReadAccess(base::PassKey<SharedImageRepresentationOverlay> pass_key,
                      SharedImageRepresentationOverlay* representation,
-                     gl::GLImage* gl_image);
-    ~ScopedReadAccess() { representation()->EndReadAccess(); }
+                     gl::GLImage* gl_image,
+                     std::vector<gfx::GpuFence> acquire_fences);
+    ~ScopedReadAccess();
 
-    gl::GLImage* gl_image() const {
-      return gl_image_;
+    gl::GLImage* gl_image() const { return gl_image_; }
+
+#if defined(OS_ANDROID)
+    AHardwareBuffer* GetAHardwareBuffer() {
+      return representation()->GetAHardwareBuffer();
+    }
+#endif
+
+    std::vector<gfx::GpuFence> TakeAcquireFences() {
+      return std::move(acquire_fences_);
+    }
+    void SetReleaseFence(gfx::GpuFenceHandle release_fence) {
+      // Note: We overwrite previous fence. In case if window manager uses fence
+      // for each frame we schedule overlay and the same image is scheduled for
+      // multiple frames this will be updated after each frame. It's safe to
+      // wait only for the last frame's fence.
+      release_fence_ = std::move(release_fence);
     }
 
    private:
-    gl::GLImage* gl_image_;
+    gl::GLImage* const gl_image_;
+    std::vector<gfx::GpuFence> acquire_fences_;
+    gfx::GpuFenceHandle release_fence_;
   };
 
 #if defined(OS_ANDROID)
@@ -364,14 +453,115 @@ class GPU_GLES2_EXPORT SharedImageRepresentationOverlay
  protected:
   // TODO(weiliangc): Currently this only handles Android pre-SurfaceControl
   // case. Add appropriate fence later.
-  virtual bool BeginReadAccess() = 0;
-  virtual void EndReadAccess() = 0;
 
-  // TODO(weiliangc): Add API to backing AHardwareBuffer.
+  // Notifies the backing that an access will start. Returns false if there is a
+  // conflict. Otherwise, returns true and:
+  // - Adds gpu fences to |acquire_fences| that should be waited on before the
+  // SharedImage is ready to be displayed. These fences are fired when the gpu
+  // has finished writing.
+  virtual bool BeginReadAccess(std::vector<gfx::GpuFence>* acquire_fences) = 0;
+
+  // |release_fence| is a fence that will be signaled when the image can be
+  // safely re-used. Note, on some platforms window manager doesn't support
+  // release fences and return image when it's already safe to re-use.
+  // |release_fence| will be null in that case.
+  virtual void EndReadAccess(gfx::GpuFenceHandle release_fence) = 0;
+
+#if defined(OS_ANDROID)
+  virtual AHardwareBuffer* GetAHardwareBuffer();
+#endif
 
   // TODO(penghuang): Refactor it to not depend on GL.
   // Get the backing as GLImage for GLSurface::ScheduleOverlayPlane.
   virtual gl::GLImage* GetGLImage() = 0;
+};
+
+class GPU_GLES2_EXPORT SharedImageRepresentationMemory
+    : public SharedImageRepresentation {
+ public:
+  class GPU_GLES2_EXPORT ScopedReadAccess
+      : public ScopedAccessBase<SharedImageRepresentationMemory> {
+   public:
+    ScopedReadAccess(base::PassKey<SharedImageRepresentationMemory> pass_key,
+                     SharedImageRepresentationMemory* representation,
+                     SkPixmap pixmap);
+    ~ScopedReadAccess();
+
+    SkPixmap pixmap() { return pixmap_; }
+
+   private:
+    SkPixmap pixmap_;
+  };
+
+  SharedImageRepresentationMemory(SharedImageManager* manager,
+                                  SharedImageBacking* backing,
+                                  MemoryTypeTracker* tracker)
+      : SharedImageRepresentation(manager, backing, tracker) {}
+
+  std::unique_ptr<ScopedReadAccess> BeginScopedReadAccess();
+
+ protected:
+  virtual SkPixmap BeginReadAccess() = 0;
+};
+
+// An interface that allows a SharedImageBacking to hold a reference to VA-API
+// surface without depending on //media/gpu/vaapi targets.
+class VaapiDependencies {
+ public:
+  virtual ~VaapiDependencies() = default;
+  virtual const media::VASurface* GetVaSurface() const = 0;
+  virtual bool SyncSurface() = 0;
+};
+
+// Interface that allows a SharedImageBacking to create VaapiDependencies from a
+// NativePixmap without depending on //media/gpu/vaapi targets.
+class VaapiDependenciesFactory {
+ public:
+  virtual ~VaapiDependenciesFactory() = default;
+  // Returns a VaapiDependencies or nullptr on failure.
+  virtual std::unique_ptr<VaapiDependencies> CreateVaapiDependencies(
+      scoped_refptr<gfx::NativePixmap> pixmap) = 0;
+};
+
+// Representation of a SharedImageBacking as a VA-API surface.
+// This representation is currently only supported by SharedImageBackingOzone.
+//
+// Synchronized access is currently not required in this representation because:
+//
+// For reads:
+// We will be using this for the destination of decoding work, so no read access
+// synchronization is needed from the point of view of the VA-API.
+//
+// For writes:
+// Because of the design of the current video pipeline, we don't start the
+// decoding work until we're sure that the destination buffer is not being used
+// by the rest of the pipeline. However, we still need to keep track of write
+// accesses so that other representations can synchronize with the decoder.
+class GPU_GLES2_EXPORT SharedImageRepresentationVaapi
+    : public SharedImageRepresentation {
+ public:
+  class GPU_GLES2_EXPORT ScopedWriteAccess
+      : public ScopedAccessBase<SharedImageRepresentationVaapi> {
+   public:
+    ScopedWriteAccess(base::PassKey<SharedImageRepresentationVaapi> pass_key,
+                      SharedImageRepresentationVaapi* representation);
+
+    ~ScopedWriteAccess();
+
+    const media::VASurface* va_surface();
+  };
+  SharedImageRepresentationVaapi(SharedImageManager* manager,
+                                 SharedImageBacking* backing,
+                                 MemoryTypeTracker* tracker,
+                                 VaapiDependencies* vaapi_dependency);
+  ~SharedImageRepresentationVaapi() override;
+
+  std::unique_ptr<ScopedWriteAccess> BeginScopedWriteAccess();
+
+ private:
+  VaapiDependencies* vaapi_deps_;
+  virtual void EndAccess() = 0;
+  virtual void BeginAccess() = 0;
 };
 
 }  // namespace gpu

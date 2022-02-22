@@ -6,28 +6,28 @@
 
 #include <memory>
 
-#include "ui/base/resource/resource_bundle.h"
+#include "build/chromeos_buildflags.h"
 #include "ui/gfx/canvas.h"
 #include "ui/message_center/public/cpp/message_center_constants.h"
-#include "ui/views/animation/flood_fill_ink_drop_ripple.h"
+#include "ui/native_theme/native_theme.h"
+#include "ui/views/animation/ink_drop.h"
+#include "ui/views/animation/ink_drop_host_view.h"
 #include "ui/views/animation/ink_drop_impl.h"
 #include "ui/views/background.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/button/image_button.h"
-#include "ui/views/painter.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace message_center {
 
-PaddedButton::PaddedButton(views::ButtonListener* listener)
-    : views::ImageButton(listener) {
-  SetFocusForPlatform();
-  SetBackground(views::CreateSolidBackground(kControlButtonBackgroundColor));
+PaddedButton::PaddedButton(PressedCallback callback)
+    : views::ImageButton(std::move(callback)) {
   SetBorder(views::CreateEmptyBorder(gfx::Insets(kControlButtonBorderSize)));
-  set_animate_on_state_change(false);
+  SetAnimateOnStateChange(false);
 
   SetInkDropMode(InkDropMode::ON);
-  set_ink_drop_visible_opacity(0.12f);
-  set_has_ink_drop_action_on_click(true);
+  SetInkDropVisibleOpacity(0.12f);
+  SetHasInkDropActionOnClick(true);
 }
 
 std::unique_ptr<views::InkDrop> PaddedButton::CreateInkDrop() {
@@ -39,8 +39,16 @@ std::unique_ptr<views::InkDrop> PaddedButton::CreateInkDrop() {
 
 void PaddedButton::OnThemeChanged() {
   ImageButton::OnThemeChanged();
-  set_ink_drop_base_color(GetNativeTheme()->GetSystemColor(
+  auto* theme = GetNativeTheme();
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  SetBackground(views::CreateSolidBackground(theme->GetSystemColor(
+      ui::NativeTheme::kColorId_NotificationButtonBackground)));
+#endif
+  SetInkDropBaseColor(theme->GetSystemColor(
       ui::NativeTheme::kColorId_PaddedButtonInkDropColor));
 }
+
+BEGIN_METADATA(PaddedButton, views::ImageButton)
+END_METADATA
 
 }  // namespace message_center

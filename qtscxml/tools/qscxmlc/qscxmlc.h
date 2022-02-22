@@ -43,7 +43,6 @@
 #include <QtCore/qglobal.h>
 
 QT_BEGIN_NAMESPACE
-class QStringList;
 
 int run(const QStringList &arguments);
 

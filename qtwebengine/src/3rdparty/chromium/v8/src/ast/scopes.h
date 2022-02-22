@@ -6,6 +6,7 @@
 #define V8_AST_SCOPES_H_
 
 #include <numeric>
+
 #include "src/ast/ast.h"
 #include "src/base/compiler-specific.h"
 #include "src/base/hashmap.h"
@@ -15,6 +16,7 @@
 #include "src/objects/objects.h"
 #include "src/utils/pointer-with-payload.h"
 #include "src/utils/utils.h"
+#include "src/zone/zone-hashmap.h"
 #include "src/zone/zone.h"
 
 namespace v8 {
@@ -39,6 +41,15 @@ using UnresolvedList =
 class VariableMap : public ZoneHashMap {
  public:
   explicit VariableMap(Zone* zone);
+  VariableMap(const VariableMap& other, Zone* zone);
+
+  VariableMap(VariableMap&& other) V8_NOEXCEPT : ZoneHashMap(std::move(other)) {
+  }
+
+  VariableMap& operator=(VariableMap&& other) V8_NOEXCEPT {
+    static_cast<ZoneHashMap&>(*this) = std::move(other);
+    return *this;
+  }
 
   Variable* Declare(Zone* zone, Scope* scope, const AstRawString* name,
                     VariableMode mode, VariableKind kind,
@@ -48,7 +59,9 @@ class VariableMap : public ZoneHashMap {
 
   V8_EXPORT_PRIVATE Variable* Lookup(const AstRawString* name);
   void Remove(Variable* var);
-  void Add(Zone* zone, Variable* var);
+  void Add(Variable* var);
+
+  Zone* zone() const { return allocator().zone(); }
 };
 
 class Scope;
@@ -102,6 +115,10 @@ class V8_EXPORT_PRIVATE Scope : public NON_EXPORTED_BASE(ZoneObject) {
     }
     inline explicit Snapshot(Scope* scope);
 
+    // Disallow copy and move.
+    Snapshot(const Snapshot&) = delete;
+    Snapshot(Snapshot&&) = delete;
+
     ~Snapshot() {
       // If we're still active, there was no arrow function. In that case outer
       // calls eval if it already called eval before this snapshot started, or
@@ -142,10 +159,6 @@ class V8_EXPORT_PRIVATE Scope : public NON_EXPORTED_BASE(ZoneObject) {
     Scope* top_inner_scope_;
     UnresolvedList::Iterator top_unresolved_;
     base::ThreadedList<Variable>::Iterator top_local_;
-
-    // Disallow copy and move.
-    Snapshot(const Snapshot&) = delete;
-    Snapshot(Snapshot&&) = delete;
   };
 
   enum class DeserializationMode { kIncludingVariables, kScopesOnly };
@@ -166,7 +179,7 @@ class V8_EXPORT_PRIVATE Scope : public NON_EXPORTED_BASE(ZoneObject) {
   // Assumes outer_scope_ is non-null.
   void ReplaceOuterScope(Scope* outer_scope);
 
-  Zone* zone() const { return zone_; }
+  Zone* zone() const { return variables_.zone(); }
 
   void SetMustUsePreparseData() {
     if (must_use_preparsed_scope_data_) {
@@ -211,6 +224,9 @@ class V8_EXPORT_PRIVATE Scope : public NON_EXPORTED_BASE(ZoneObject) {
                                 bool* was_added,
                                 VariableKind kind = NORMAL_VARIABLE);
   Variable* DeclareCatchVariableName(const AstRawString* name);
+
+  Variable* DeclareHomeObjectVariable(AstValueFactory* ast_value_factory);
+  Variable* DeclareStaticHomeObjectVariable(AstValueFactory* ast_value_factory);
 
   // Declarations list.
   base::ThreadedList<Declaration>* declarations() { return &decls_; }
@@ -356,6 +372,18 @@ class V8_EXPORT_PRIVATE Scope : public NON_EXPORTED_BASE(ZoneObject) {
   bool is_with_scope() const { return scope_type_ == WITH_SCOPE; }
   bool is_declaration_scope() const { return is_declaration_scope_; }
   bool is_class_scope() const { return scope_type_ == CLASS_SCOPE; }
+  bool is_home_object_scope() const {
+    return is_class_scope() ||
+           (is_block_scope() && is_block_scope_for_object_literal_);
+  }
+  bool is_block_scope_for_object_literal() const {
+    DCHECK_IMPLIES(is_block_scope_for_object_literal_, is_block_scope());
+    return is_block_scope_for_object_literal_;
+  }
+  void set_is_block_scope_for_object_literal() {
+    DCHECK(is_block_scope());
+    is_block_scope_for_object_literal_ = true;
+  }
 
   bool inner_scope_calls_eval() const { return inner_scope_calls_eval_; }
   bool private_name_lookup_skips_outer_class() const {
@@ -512,6 +540,10 @@ class V8_EXPORT_PRIVATE Scope : public NON_EXPORTED_BASE(ZoneObject) {
   // 'this' is bound, and what determines the function kind.
   DeclarationScope* GetReceiverScope();
 
+  // Find the first class scope or object literal block scope. This is where
+  // 'super' is bound.
+  Scope* GetHomeObjectScope();
+
   DeclarationScope* GetScriptScope();
 
   // Find the innermost outer scope that needs a context.
@@ -555,6 +587,16 @@ class V8_EXPORT_PRIVATE Scope : public NON_EXPORTED_BASE(ZoneObject) {
   }
   bool deserialized_scope_uses_external_cache() const {
     return deserialized_scope_uses_external_cache_;
+  }
+
+  bool needs_home_object() const {
+    DCHECK(is_home_object_scope());
+    return needs_home_object_;
+  }
+
+  void set_needs_home_object() {
+    DCHECK(is_home_object_scope());
+    needs_home_object_ = true;
   }
 
   bool RemoveInnerScope(Scope* inner_scope) {
@@ -678,7 +720,8 @@ class V8_EXPORT_PRIVATE Scope : public NON_EXPORTED_BASE(ZoneObject) {
                                   MaybeHandle<ScopeInfo> outer_scope);
 
   // Construct a scope based on the scope info.
-  Scope(Zone* zone, ScopeType type, Handle<ScopeInfo> scope_info);
+  Scope(Zone* zone, ScopeType type, AstValueFactory* ast_value_factory,
+        Handle<ScopeInfo> scope_info);
 
   // Construct a catch scope with a binding for the name.
   Scope(Zone* zone, const AstRawString* catch_variable_name,
@@ -692,13 +735,10 @@ class V8_EXPORT_PRIVATE Scope : public NON_EXPORTED_BASE(ZoneObject) {
 
   void SetDefaults();
 
-  void set_scope_info(Handle<ScopeInfo> scope_info);
-
   friend class DeclarationScope;
   friend class ClassScope;
   friend class ScopeTestHelper;
-
-  Zone* zone_;
+  friend Zone;
 
   // Scope tree.
   Scope* outer_scope_;  // the immediately enclosing outer scope, or nullptr
@@ -798,6 +838,9 @@ class V8_EXPORT_PRIVATE Scope : public NON_EXPORTED_BASE(ZoneObject) {
   // the compilation of the eval will have the "with" scope as the first scope
   // with this flag enabled.
   bool deserialized_scope_uses_external_cache_ : 1;
+
+  bool needs_home_object_ : 1;
+  bool is_block_scope_for_object_literal_ : 1;
 };
 
 class V8_EXPORT_PRIVATE DeclarationScope : public Scope {
@@ -805,6 +848,7 @@ class V8_EXPORT_PRIVATE DeclarationScope : public Scope {
   DeclarationScope(Zone* zone, Scope* outer_scope, ScopeType scope_type,
                    FunctionKind function_kind = kNormalFunction);
   DeclarationScope(Zone* zone, ScopeType scope_type,
+                   AstValueFactory* ast_value_factory,
                    Handle<ScopeInfo> scope_info);
   // Creates a script scope.
   DeclarationScope(Zone* zone, AstValueFactory* ast_value_factory,
@@ -812,24 +856,21 @@ class V8_EXPORT_PRIVATE DeclarationScope : public Scope {
 
   FunctionKind function_kind() const { return function_kind_; }
 
-  bool is_arrow_scope() const {
-    return is_function_scope() && IsArrowFunction(function_kind_);
-  }
-
   // Inform the scope that the corresponding code uses "super".
   void RecordSuperPropertyUsage() {
     DCHECK(IsConciseMethod(function_kind()) ||
            IsAccessorFunction(function_kind()) ||
            IsClassConstructor(function_kind()));
-    scope_uses_super_property_ = true;
+    uses_super_property_ = true;
+    Scope* home_object_scope = GetHomeObjectScope();
+    DCHECK_NOT_NULL(home_object_scope);
+    home_object_scope->set_needs_home_object();
   }
 
-  // Does this scope access "super" property (super.foo).
-  bool NeedsHomeObject() const {
-    return scope_uses_super_property_ ||
-           (inner_scope_calls_eval_ && (IsConciseMethod(function_kind()) ||
-                                        IsAccessorFunction(function_kind()) ||
-                                        IsClassConstructor(function_kind())));
+  bool uses_super_property() const { return uses_super_property_; }
+
+  bool is_arrow_scope() const {
+    return is_function_scope() && IsArrowFunction(function_kind_);
   }
 
   // Inform the scope and outer scopes that the corresponding code contains an
@@ -896,11 +937,13 @@ class V8_EXPORT_PRIVATE DeclarationScope : public Scope {
   }
   bool is_being_lazily_parsed() const { return is_being_lazily_parsed_; }
 #endif
+
   void set_zone(Zone* zone) {
 #ifdef DEBUG
     needs_migration_ = true;
 #endif
-    zone_ = zone;
+    // Migrate variables_' backing store to new zone.
+    variables_ = VariableMap(variables_, zone);
   }
 
   // ---------------------------------------------------------------------------
@@ -909,7 +952,8 @@ class V8_EXPORT_PRIVATE DeclarationScope : public Scope {
   // Check if the scope has conflicting var
   // declarations, i.e. a var declaration that has been hoisted from a nested
   // scope over a let binding of the same name.
-  Declaration* CheckConflictingVarDeclarations();
+  Declaration* CheckConflictingVarDeclarations(
+      bool* allowed_catch_binding_var_redeclaration);
 
   void set_has_checked_syntax(bool has_checked_syntax) {
     has_checked_syntax_ = has_checked_syntax;
@@ -1206,7 +1250,7 @@ class V8_EXPORT_PRIVATE DeclarationScope : public Scope {
   // This scope has a parameter called "arguments".
   bool has_arguments_parameter_ : 1;
   // This scope uses "super" property ('super.foo').
-  bool scope_uses_super_property_ : 1;
+  bool uses_super_property_ : 1;
   bool should_eager_compile_ : 1;
   // Set to true after we have finished lazy parsing the scope.
   bool was_lazily_parsed_ : 1;
@@ -1257,7 +1301,7 @@ class V8_EXPORT_PRIVATE DeclarationScope : public Scope {
 
   V8_INLINE RareData* EnsureRareData() {
     if (rare_data_ == nullptr) {
-      rare_data_ = new (zone_) RareData;
+      rare_data_ = zone()->New<RareData>();
     }
     return rare_data_;
   }
@@ -1285,6 +1329,14 @@ void Scope::RecordEvalCall() {
   calls_eval_ = true;
   GetDeclarationScope()->RecordDeclarationScopeEvalCall();
   RecordInnerScopeEvalCall();
+  // The eval contents might access "super" (if it's inside a function that
+  // binds super).
+  DeclarationScope* receiver_scope = GetReceiverScope();
+  DCHECK(!receiver_scope->is_arrow_scope());
+  FunctionKind function_kind = receiver_scope->function_kind();
+  if (BindsSuper(function_kind)) {
+    receiver_scope->RecordSuperPropertyUsage();
+  }
 }
 
 Scope::Snapshot::Snapshot(Scope* scope)
@@ -1438,8 +1490,8 @@ class V8_EXPORT_PRIVATE ClassScope : public Scope {
   }
   V8_INLINE RareData* EnsureRareData() {
     if (GetRareData() == nullptr) {
-      rare_data_and_is_parsing_heritage_.SetPointer(new (zone_)
-                                                        RareData(zone_));
+      rare_data_and_is_parsing_heritage_.SetPointer(
+          zone()->New<RareData>(zone()));
     }
     return GetRareData();
   }

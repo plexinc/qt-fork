@@ -3,14 +3,16 @@
 // found in the LICENSE file.
 
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/extensions/api/system_indicator/system_indicator_manager.h"
 #include "chrome/browser/extensions/api/system_indicator/system_indicator_manager_factory.h"
-#include "chrome/browser/extensions/extension_action.h"
-#include "chrome/browser/extensions/extension_action_manager.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/extensions/lazy_background_page_test_util.h"
 #include "chrome/browser/ui/browser.h"
 #include "components/version_info/channel.h"
+#include "content/public/test/browser_test.h"
+#include "extensions/browser/extension_action.h"
+#include "extensions/browser/extension_action_manager.h"
 #include "extensions/browser/process_manager.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/features/feature_channel.h"
@@ -48,7 +50,7 @@ class SystemIndicatorApiTest : public ExtensionApiTest {
 };
 
 // https://crbug.com/960363: Test crashes on ChromeOS.
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #define MAYBE_SystemIndicatorBasic DISABLED_SystemIndicatorBasic
 #else
 #define MAYBE_SystemIndicatorBasic SystemIndicatorBasic

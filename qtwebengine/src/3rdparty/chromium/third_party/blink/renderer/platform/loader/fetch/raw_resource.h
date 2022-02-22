@@ -26,6 +26,7 @@
 #include <memory>
 
 #include "base/optional.h"
+#include "third_party/blink/renderer/platform/blob/blob_data.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_client.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_loader_options.h"
@@ -39,7 +40,6 @@ class BufferingBytesConsumer;
 class FetchParameters;
 class RawResourceClient;
 class ResourceFetcher;
-class SingleCachedMetadataHandler;
 
 class PLATFORM_EXPORT RawResource final : public Resource {
  public:
@@ -65,7 +65,7 @@ class PLATFORM_EXPORT RawResource final : public Resource {
   // Exposed for testing
   static RawResource* CreateForTest(const ResourceRequest& request,
                                     ResourceType type) {
-    ResourceLoaderOptions options;
+    ResourceLoaderOptions options(nullptr /* world */);
     return MakeGarbageCollected<RawResource>(request, type, options);
   }
   static RawResource* CreateForTest(const KURL& url,
@@ -87,18 +87,9 @@ class PLATFORM_EXPORT RawResource final : public Resource {
 
   void SetSerializedCachedMetadata(mojo_base::BigBuffer data) override;
 
-  // Used for code caching of fetched code resources. Returns a cache handler
-  // which can only store a single cache metadata entry. This is valid only if
-  // type is kRaw.
-  SingleCachedMetadataHandler* ScriptCacheHandler();
-
   scoped_refptr<BlobDataHandle> DownloadedBlob() const;
 
-  void Trace(Visitor* visitor) override;
-
- protected:
-  CachedMetadataHandler* CreateCachedMetadataHandler(
-      std::unique_ptr<CachedMetadataSender> send_callback) override;
+  void Trace(Visitor* visitor) const override;
 
  private:
   class RawResourceFactory : public NonTextResourceFactory {
@@ -128,8 +119,7 @@ class PLATFORM_EXPORT RawResource final : public Resource {
                    uint64_t total_bytes_to_be_sent) override;
   void DidDownloadData(uint64_t) override;
   void DidDownloadToBlob(scoped_refptr<BlobDataHandle>) override;
-  bool MatchPreload(const FetchParameters&,
-                    base::SingleThreadTaskRunner*) override;
+  void MatchPreload(const FetchParameters&) override;
 
   scoped_refptr<BlobDataHandle> downloaded_blob_;
 
@@ -185,7 +175,7 @@ class PLATFORM_EXPORT RawResourceClient : public ResourceClient {
                         uint64_t /* totalBytesToBeSent */) {}
   virtual void ResponseBodyReceived(Resource*, BytesConsumer&) {}
   virtual void ResponseReceived(Resource*, const ResourceResponse&) {}
-  virtual void SetSerializedCachedMetadata(Resource*, const uint8_t*, size_t) {}
+  virtual void CachedMetadataReceived(Resource*, mojo_base::BigBuffer) {}
   virtual bool RedirectReceived(Resource*,
                                 const ResourceRequest&,
                                 const ResourceResponse&) {

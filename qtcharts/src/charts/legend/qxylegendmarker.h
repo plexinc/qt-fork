@@ -34,7 +34,7 @@
 #include <QtCharts/QLegendMarker>
 #include <QtCharts/QXYSeries>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class QXYLegendMarkerPrivate;
 
@@ -45,10 +45,10 @@ public:
     explicit QXYLegendMarker(QXYSeries *series, QLegend *legend, QObject *parent = nullptr);
     virtual ~QXYLegendMarker();
 
-    virtual LegendMarkerType type() { return LegendMarkerTypeXY; }
+    LegendMarkerType type() override { return LegendMarkerTypeXY; }
 
     // Related series
-    virtual QXYSeries* series();
+    QXYSeries* series() override;
 
 protected:
     QXYLegendMarker(QXYLegendMarkerPrivate &d, QObject *parent = nullptr);
@@ -59,6 +59,6 @@ private:
 
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // QXYLEGENDMARKER_H

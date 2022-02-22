@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 
 class tst_PrintDataTagsWithGlobalTags: public QObject
 {
@@ -92,7 +92,7 @@ int main(int argc, char *argv[])
 {
     std::vector<const char*> args(argv, argv + argc);
     args.push_back("-datatags");
-    argc = args.size();
+    argc = int(args.size());
     argv = const_cast<char**>(&args[0]);
 
     QTEST_MAIN_IMPL(tst_PrintDataTagsWithGlobalTags)

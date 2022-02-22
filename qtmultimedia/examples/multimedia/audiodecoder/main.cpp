@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the examples of the Qt Toolkit.
@@ -54,13 +54,29 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QTextStream>
+#ifdef Q_OS_ANDROID
+#include <QApplication>
+#include <QFileDialog>
+#include <QMessageBox>
+#include <qstandardpaths.h>
+#endif
 
 #include <stdio.h>
 
 int main(int argc, char *argv[])
 {
+#ifdef Q_OS_ANDROID
+    QApplication app(argc, argv);
+#else
     QCoreApplication app(argc, argv);
+#endif
 
+    QFileInfo sourceFile;
+    QFileInfo targetFile;
+    bool isPlayback = false;
+    bool isDelete = false;
+
+#ifndef Q_OS_ANDROID
     QTextStream cout(stdout, QIODevice::WriteOnly);
     if (app.arguments().size() < 2) {
         cout << "Usage: audiodecoder [-p] [-pd] SOURCEFILE [TARGETFILE]\n";
@@ -70,9 +86,6 @@ int main(int argc, char *argv[])
         return 0;
     }
 
-    bool isPlayback = false;
-    bool isDelete = false;
-
     if (app.arguments().at(1) == "-p")
         isPlayback = true;
     else if (app.arguments().at(1) == "-pd") {
@@ -80,26 +93,37 @@ int main(int argc, char *argv[])
         isDelete = true;
     }
 
-    QFileInfo sourceFile;
-    QFileInfo targetFile;
-
     int sourceFileIndex = (isPlayback || isDelete) ? 2 : 1;
     if (app.arguments().size() <= sourceFileIndex) {
         cout << "Error: source filename is not specified.\n";
         return 0;
     }
+
     sourceFile.setFile(app.arguments().at(sourceFileIndex));
     if (app.arguments().size() > sourceFileIndex + 1)
         targetFile.setFile(app.arguments().at(sourceFileIndex + 1));
     else
         targetFile.setFile(sourceFile.dir().absoluteFilePath("out.wav"));
 
-    AudioDecoder decoder(isPlayback, isDelete);
+#else
+
+    const QString message = "You will be prompted to select an audio file (e.g. mp3 or ogg format) "
+                            "which will be decoded and played back to you.";
+    QMessageBox messageBox(QMessageBox::Information, "Audio Decoder", message, QMessageBox::Ok);
+    messageBox.exec();
+    sourceFile = QFileInfo(QFileDialog::getOpenFileName(messageBox.parentWidget(),
+                                                        "Select Audio File"));
+    auto musicPath = QStandardPaths::writableLocation(QStandardPaths::MusicLocation);
+    targetFile = QFileInfo(musicPath.append("/out.wav"));
+    isPlayback = true;
+#endif
+    AudioDecoder decoder(isPlayback, isDelete, targetFile.absoluteFilePath());
     QObject::connect(&decoder, &AudioDecoder::done,
                      &app, &QCoreApplication::quit);
-    decoder.setSourceFilename(sourceFile.absoluteFilePath());
-    decoder.setTargetFilename(targetFile.absoluteFilePath());
+    decoder.setSource(sourceFile.absoluteFilePath());
     decoder.start();
+    if (decoder.getError() != QAudioDecoder::NoError)
+        return 0;
 
     return app.exec();
 }

@@ -9,7 +9,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/macros.h"
@@ -48,10 +48,8 @@ class AudioManagerHelper {
   }
 #endif
 
-#if defined(OS_LINUX)
   void set_app_name(const std::string& app_name) { app_name_ = app_name; }
   const std::string& app_name() const { return app_name_; }
-#endif
 
   FakeAudioLogFactory fake_log_factory_;
 
@@ -59,9 +57,7 @@ class AudioManagerHelper {
   std::unique_ptr<base::win::ScopedCOMInitializer> com_initializer_for_testing_;
 #endif
 
-#if defined(OS_LINUX)
   std::string app_name_;
-#endif
 
   DISALLOW_COPY_AND_ASSIGN(AudioManagerHelper);
 };
@@ -92,7 +88,7 @@ AudioManager::AudioManager(std::unique_ptr<AudioThread> audio_thread)
     LOG(WARNING) << "Multiple instances of AudioManager detected";
   }
   // We always override |g_last_created| irrespective of whether it is already
-  // set or not becuase it represents the last created instance.
+  // set or not because it represents the last created instance.
   g_last_created = this;
 }
 
@@ -130,7 +126,6 @@ std::unique_ptr<AudioManager> AudioManager::CreateForTesting(
   return Create(std::move(audio_thread), GetHelper()->fake_log_factory());
 }
 
-#if defined(OS_LINUX)
 // static
 void AudioManager::SetGlobalAppName(const std::string& app_name) {
   GetHelper()->set_app_name(app_name);
@@ -140,7 +135,6 @@ void AudioManager::SetGlobalAppName(const std::string& app_name) {
 const std::string& AudioManager::GetGlobalAppName() {
   return GetHelper()->app_name();
 }
-#endif
 
 // static
 AudioManager* AudioManager::Get() {

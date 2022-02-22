@@ -30,7 +30,7 @@
 #include "thememanager_p.h"
 #include "q3dtheme_p.h"
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 const float defaultBuiltInColorLevel = 0.7f; // for built-in gradient themes
 const float defaultColorLevel = 0.5f; // for built-in uniform themes
@@ -101,7 +101,8 @@ void ThemeManager::setActiveTheme(Q3DTheme *theme)
     m_activeTheme = theme;
 
     // Reset all bits to dirty for sync
-    m_activeTheme->d_ptr->resetDirtyBits();
+    if (theme->d_ptr->isForcePredefinedType())
+        m_activeTheme->d_ptr->resetDirtyBits();
 
     // Connect signals from new one
     connectThemeSignals();
@@ -601,4 +602,4 @@ void ThemeManager::setColorStyle(Q3DTheme *theme, Q3DTheme::ColorStyle style)
         theme->setColorStyle(style);
 }
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE

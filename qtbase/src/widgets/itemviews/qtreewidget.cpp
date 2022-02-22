@@ -112,7 +112,7 @@ public:
 */
 
 QTreeModel::QTreeModel(int columns, QTreeWidget *parent)
-    : QAbstractItemModel(parent), rootItem(new QTreeWidgetItem),
+    : QAbstractItemModel(*new QTreeModelPrivate, parent), rootItem(new QTreeWidgetItem),
       headerItem(new QTreeWidgetItem), skipPendingSort(false)
 {
     rootItem->view = parent;
@@ -392,7 +392,6 @@ bool QTreeModel::setData(const QModelIndex &index, const QVariant &value, int ro
     return false;
 }
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 bool QTreeModel::clearItemData(const QModelIndex &index)
 {
     if (!checkIndex(index, CheckIndexOption::IndexIsValid))
@@ -408,10 +407,9 @@ bool QTreeModel::clearItemData(const QModelIndex &index)
     }
     itm->d->display[index.column()] = QVariant();
     itm->values[index.column()].clear();
-    emit dataChanged(index, index, QVector<int>{});
+    emit dataChanged(index, index, QList<int> {});
     return true;
 }
-#endif
 
 QMap<int, QVariant> QTreeModel::itemData(const QModelIndex &index) const
 {
@@ -493,7 +491,7 @@ bool QTreeModel::insertColumns(int column, int count, const QModelIndex &parent)
             QTreeWidgetItem *child = children.at(row);
             if (child->children.count())
                 itemstack.push(child);
-            child->values.insert(column, count, QVector<QWidgetItemData>());
+            child->values.insert(column, count, QList<QWidgetItemData>());
         }
     }
 
@@ -508,22 +506,18 @@ bool QTreeModel::insertColumns(int column, int count, const QModelIndex &parent)
 bool QTreeModel::removeRows(int row, int count, const QModelIndex &parent) {
     if (count < 1 || row < 0 || (row + count) > rowCount(parent))
         return false;
-
-    beginRemoveRows(parent, row, row + count - 1);
-
-    QSignalBlocker blocker(this);
-
-    QTreeWidgetItem *itm = item(parent);
+    QTreeWidgetItem *parentItem = item(parent);
+    // if parentItem is valid, begin/end RemoveRows is handled by takeChild below
+    if (!parentItem)
+        beginRemoveRows(parent, row, row + count - 1);
     for (int i = row + count - 1; i >= row; --i) {
-        QTreeWidgetItem *child = itm ? itm->takeChild(i) : rootItem->children.takeAt(i);
+        QTreeWidgetItem *child = parentItem ? parentItem->takeChild(i) : rootItem->children.takeAt(i);
         Q_ASSERT(child);
         child->view = nullptr;
         delete child;
-        child = nullptr;
     }
-    blocker.unblock();
-
-    endRemoveRows();
+    if (!parentItem)
+        endRemoveRows();
     return true;
 }
 
@@ -624,7 +618,7 @@ void QTreeModel::ensureSorted(int column, Qt::SortOrder order,
     QList<QTreeWidgetItem*> lst = itm->children;
 
     int count = end - start + 1;
-    QVector < QPair<QTreeWidgetItem*,int> > sorting(count);
+    QList<QPair<QTreeWidgetItem *, int>> sorting(count);
     for (int i = 0; i < count; ++i) {
         sorting[i].first = lst.at(start + i);
         sorting[i].second = start + i;
@@ -648,7 +642,7 @@ void QTreeModel::ensureSorted(int column, Qt::SortOrder order,
         lit = lst.begin() + tmpitepos;
 
         lit = sortedInsertionIterator(lit, lst.end(), order, item);
-        int newRow = qMax(lit - lst.begin(), 0);
+        int newRow = qMax<qsizetype>(lit - lst.begin(), 0);
 
         if ((newRow < oldRow) && !(*item < *lst.at(oldRow - 1)) && !(*lst.at(oldRow - 1) < *item ))
             newRow = oldRow;
@@ -785,7 +779,7 @@ Qt::DropActions QTreeModel::supportedDropActions() const
 
 void QTreeModel::itemChanged(QTreeWidgetItem *item)
 {
-    SkipSorting skipSorting(this); //this is kind of wrong, but not doing this would kill performence
+    SkipSorting skipSorting(this); //this is kind of wrong, but not doing this would kill performance
     QModelIndex left = index(item, 0);
     QModelIndex right = index(item, item->columnCount() - 1);
     emit dataChanged(left, right);
@@ -803,7 +797,7 @@ bool QTreeModel::isChanging() const
     if column is -1 then all columns have changed
 */
 
-void QTreeModel::emitDataChanged(QTreeWidgetItem *item, int column, const QVector<int> &roles)
+void QTreeModel::emitDataChanged(QTreeWidgetItem *item, int column, const QList<int> &roles)
 {
     if (signalsBlocked())
         return;
@@ -816,7 +810,7 @@ void QTreeModel::emitDataChanged(QTreeWidgetItem *item, int column, const QVecto
         return;
     }
 
-    SkipSorting skipSorting(this); //This is a little bit wrong, but not doing it would kill performence
+    SkipSorting skipSorting(this); //This is a little bit wrong, but not doing it would kill performance
 
     QModelIndex bottomRight, topLeft;
     if (column == -1) {
@@ -869,7 +863,7 @@ void QTreeModel::sortItems(QList<QTreeWidgetItem*> *items, int column, Qt::SortO
         return;
 
     // store the original order of indexes
-    QVector< QPair<QTreeWidgetItem*,int> > sorting(items->count());
+    QList<QPair<QTreeWidgetItem *, int>> sorting(items->count());
     for (int i = 0; i < sorting.count(); ++i) {
         sorting[i].first = items->at(i);
         sorting[i].second = i;
@@ -1259,22 +1253,6 @@ bool QTreeWidgetItem::isFirstColumnSpanned() const
     \sa font(), setText(), setForeground()
 */
 
-#if QT_DEPRECATED_SINCE(5, 13)
-/*!
-    \fn QColor QTreeWidgetItem::backgroundColor(int column) const
-    \obsolete
-
-    This function is deprecated. Use background() instead.
-*/
-
-/*!
-    \fn void QTreeWidgetItem::setBackgroundColor(int column, const QColor &color)
-    \obsolete
-
-    This function is deprecated. Use setBackground() instead.
-*/
-#endif
-
 /*!
     \fn QBrush QTreeWidgetItem::background(int column) const
     \since 4.2
@@ -1299,21 +1277,6 @@ bool QTreeWidgetItem::isFirstColumnSpanned() const
     \sa setForeground()
 */
 
-#if QT_DEPRECATED_SINCE(5, 13)
-/*!
-    \fn QColor QTreeWidgetItem::textColor(int column) const
-    \obsolete
-
-    This function is deprecated. Use foreground() instead.
-*/
-
-/*!
-    \fn void QTreeWidgetItem::setTextColor(int column, const QColor &color)
-    \obsolete
-
-    This function is deprecated. Use setForeground() instead.
-*/
-#endif
 
 /*!
     \fn QBrush QTreeWidgetItem::foreground(int column) const
@@ -1690,7 +1653,7 @@ QTreeWidgetItem *QTreeWidgetItem::clone() const
 /*!
    Sets the item indicator \a policy. This policy decides when the
    tree branch expand/collapse indicator is shown.
-   The default value is ShowForChildren.
+   The default value is DontShowIndicatorWhenChildless.
 
    \sa childIndicatorPolicy()
 */
@@ -1872,7 +1835,7 @@ void QTreeWidgetItem::setData(int column, int role, const QVariant &value)
     default:
         if (column < values.count()) {
             bool found = false;
-            const QVector<QWidgetItemData> column_values = values.at(column);
+            const QList<QWidgetItemData> column_values = values.at(column);
             for (int i = 0; i < column_values.count(); ++i) {
                 if (column_values.at(i).role == role) {
                     if (column_values.at(i).value == value)
@@ -1894,9 +1857,9 @@ void QTreeWidgetItem::setData(int column, int role, const QVariant &value)
     }
 
     if (model) {
-        const QVector<int> roles((role == Qt::DisplayRole || role == Qt::EditRole) ?
-                                     QVector<int>({Qt::DisplayRole, Qt::EditRole}) :
-                                     QVector<int>({role}));
+        const QList<int> roles((role == Qt::DisplayRole || role == Qt::EditRole)
+                                       ? QList<int>({ Qt::DisplayRole, Qt::EditRole })
+                                       : QList<int>({ role }));
         model->emitDataChanged(this, column, roles);
         if (role == Qt::CheckStateRole) {
             QTreeWidgetItem *p;
@@ -1924,7 +1887,7 @@ QVariant QTreeWidgetItem::data(int column, int role) const
         Q_FALLTHROUGH();
    default:
         if (column >= 0 && column < values.size()) {
-            const QVector<QWidgetItemData> &column_values = values.at(column);
+            const QList<QWidgetItemData> &column_values = values.at(column);
             for (const auto &column_value : column_values) {
                 if (column_value.role == role)
                     return column_value.value;
@@ -2601,9 +2564,6 @@ void QTreeWidgetPrivate::_q_dataChanged(const QModelIndex &topLeft,
     This signal is emitted when the specified \a item is expanded so that
     all of its children are displayed.
 
-    \note This signal will not be emitted if an item changes its state when
-    expandAll() is invoked.
-
     \sa QTreeWidgetItem::isExpanded(), itemCollapsed(), expandItem()
 */
 
@@ -2702,7 +2662,7 @@ QTreeWidget::~QTreeWidget()
 }
 
 /*
-  Retuns the number of header columns in the view.
+  Returns the number of header columns in the view.
 
   \sa sortColumn(), currentColumn(), topLevelItemCount()
 */
@@ -3137,38 +3097,6 @@ void QTreeWidget::setItemWidget(QTreeWidgetItem *item, int column, QWidget *widg
     QAbstractItemView::setIndexWidget(d->index(item, column), widget);
 }
 
-#if QT_DEPRECATED_SINCE(5, 13)
-/*!
-  Returns \c true if the \a item is selected; otherwise returns \c false.
-
-  \sa itemSelectionChanged()
-
-  \obsolete
-
-  This function is deprecated. Use \l{QTreeWidgetItem::isSelected()} instead.
-*/
-bool QTreeWidget::isItemSelected(const QTreeWidgetItem *item) const
-{
-    return ((item && item->treeWidget() == this) ? item->isSelected() : false);
-}
-
-/*!
-  If \a select is true, the given \a item is selected; otherwise it is
-  deselected.
-
-  \sa itemSelectionChanged()
-
-  \obsolete
-
-  This function is deprecated. Use \l{QTreeWidgetItem::setSelected()} instead.
-*/
-void QTreeWidget::setItemSelected(const QTreeWidgetItem *item, bool select)
-{
-    if (item && item->treeWidget() == this)
-        const_cast<QTreeWidgetItem*>(item)->setSelected(select);
-}
-#endif
-
 /*!
   Returns a list of all selected non-hidden items.
 
@@ -3207,99 +3135,6 @@ QList<QTreeWidgetItem*> QTreeWidget::findItems(const QString &text, Qt::MatchFla
     return items;
 }
 
-#if QT_DEPRECATED_SINCE(5, 13)
-/*!
-  Returns \c true if the \a item is explicitly hidden, otherwise returns \c false.
-
-  \obsolete
-
-  This function is deprecated. Use \l{QTreeWidgetItem::isHidden()} instead.
-*/
-bool QTreeWidget::isItemHidden(const QTreeWidgetItem *item) const
-{
-    return ((item && item->treeWidget() == this) ? item->isHidden() : false);
-}
-
-/*!
-  Hides the given \a item if \a hide is true; otherwise shows the item.
-
-  \sa itemChanged()
-
-  \obsolete
-
-  This function is deprecated. Use \l{QTreeWidgetItem::setHidden()} instead.
-*/
-void QTreeWidget::setItemHidden(const QTreeWidgetItem *item, bool hide)
-{
-    if (item && item->treeWidget() == this)
-        const_cast<QTreeWidgetItem*>(item)->setHidden(hide);
-}
-
-/*!
-  Returns \c true if the given \a item is open; otherwise returns \c false.
-
-  \sa itemExpanded()
-
-  \obsolete
-
-  This function is deprecated. Use \l{QTreeWidgetItem::isExpanded()} instead.
-*/
-bool QTreeWidget::isItemExpanded(const QTreeWidgetItem *item) const
-{
-    return ((item && item->treeWidget() == this) ? item->isExpanded() : false);
-}
-
-/*!
-    Sets the item referred to by \a item to either closed or opened,
-    depending on the value of \a expand.
-
-    \sa expandItem(), collapseItem(), itemExpanded()
-
-    \obsolete
-
-    This function is deprecated. Use \l{QTreeWidgetItem::setExpanded()} instead.
-*/
-void QTreeWidget::setItemExpanded(const QTreeWidgetItem *item, bool expand)
-{
-    if (item && item->treeWidget() == this)
-        const_cast<QTreeWidgetItem*>(item)->setExpanded(expand);
-}
-
-/*!
-  \since 4.3
-
-  Returns \c true if the given \a item is set to show only one section over all columns;
-  otherwise returns \c false.
-
-  \sa setFirstItemColumnSpanned()
-
-  \obsolete
-
-  This function is deprecated. Use \l{QTreeWidgetItem::isFirstColumnSpanned()} instead.
-*/
-bool QTreeWidget::isFirstItemColumnSpanned(const QTreeWidgetItem *item) const
-{
-    return ((item && item->treeWidget() == this) ? item->isFirstColumnSpanned() : false);
-}
-
-/*!
-  \since 4.3
-
-  Sets the given \a item to only show one section for all columns if \a span is true;
-  otherwise the item will show one section per column.
-
-  \sa isFirstItemColumnSpanned()
-
-  \obsolete
-
-  This function is deprecated. Use \l{QTreeWidgetItem::setFirstColumnSpanned()} instead.
-*/
-void QTreeWidget::setFirstItemColumnSpanned(const QTreeWidgetItem *item, bool span)
-{
-    if (item && item->treeWidget() == this)
-        const_cast<QTreeWidgetItem*>(item)->setFirstColumnSpanned(span);
-}
-#endif
 
 /*!
   \since 4.3
@@ -3416,11 +3251,7 @@ QStringList QTreeWidget::mimeTypes() const
     If the list of items is empty, \nullptr is returned rather than a
     serialized empty list.
 */
-#if QT_VERSION >= QT_VERSION_CHECK(6,0,0)
 QMimeData *QTreeWidget::mimeData(const QList<QTreeWidgetItem *> &items) const
-#else
-QMimeData *QTreeWidget::mimeData(const QList<QTreeWidgetItem*> items) const
-#endif
 {
     Q_D(const QTreeWidget);
     if (d->treeModel()->cachedIndexes.isEmpty()) {
@@ -3474,18 +3305,6 @@ Qt::DropActions QTreeWidget::supportedDropActions() const
 }
 
 /*!
-  \obsolete
-  Returns an empty list
-
-  \sa mimeData()
-*/
-QList<QTreeWidgetItem*> QTreeWidget::items(const QMimeData *data) const
-{
-    Q_UNUSED(data);
-    return QList<QTreeWidgetItem*>();
-}
-
-/*!
     Returns the QModelIndex associated with the given \a item in the given \a column.
 
     \note In Qt versions prior to 5.7, this function took a non-\c{const} \a item.
@@ -3497,17 +3316,6 @@ QModelIndex QTreeWidget::indexFromItem(const QTreeWidgetItem *item, int column) 
     Q_D(const QTreeWidget);
     return d->index(item, column);
 }
-
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-/*!
-    \overload
-    \internal
-*/
-QModelIndex QTreeWidget::indexFromItem(QTreeWidgetItem *item, int column) const
-{
-    return indexFromItem(const_cast<const QTreeWidgetItem *>(item), column);
-}
-#endif
 
 /*!
     Returns a pointer to the QTreeWidgetItem associated with the given \a index.
@@ -3529,7 +3337,8 @@ void QTreeWidget::dropEvent(QDropEvent *event) {
         QModelIndex topIndex;
         int col = -1;
         int row = -1;
-        if (d->dropOn(event, &row, &col, &topIndex)) {
+        // check whether a subclass has already accepted the event, ie. moved the data
+        if (!event->isAccepted() && d->dropOn(event, &row, &col, &topIndex)) {
             const QList<QModelIndex> idxs = selectedIndexes();
             QList<QPersistentModelIndex> indexes;
             const int indexesCount = idxs.count();
@@ -3576,9 +3385,11 @@ void QTreeWidget::dropEvent(QDropEvent *event) {
             }
 
             event->accept();
-            // Don't want QAbstractItemView to delete it because it was "moved" we already did it
-            d->dropEventMoved = true;
         }
+        // either we or a subclass accepted the move event, so assume that the data was
+        // moved and that QAbstractItemView shouldn't remove the source when QDrag::exec returns
+        if (event->isAccepted())
+            d->dropEventMoved = true;
     }
 
     QTreeView::dropEvent(event);
@@ -3603,6 +3414,14 @@ bool QTreeWidget::event(QEvent *e)
     if (e->type() == QEvent::Polish)
         d->treeModel()->executePendingSort();
     return QTreeView::event(e);
+}
+
+/*!
+    see QTBUG-94546
+*/
+void QTreeModelPrivate::executePendingOperations() const
+{
+    q_func()->executePendingSort();
 }
 
 QT_END_NAMESPACE

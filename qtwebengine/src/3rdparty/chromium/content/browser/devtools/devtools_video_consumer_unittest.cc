@@ -80,8 +80,8 @@ class MockFrameSinkVideoCapturer : public viz::mojom::FrameSinkVideoCapturer {
                     bool use_fixed_aspect_ratio));
   // This is never called.
   MOCK_METHOD1(SetAutoThrottlingEnabled, void(bool));
-  void ChangeTarget(
-      const base::Optional<viz::FrameSinkId>& frame_sink_id) final {
+  void ChangeTarget(const base::Optional<viz::FrameSinkId>& frame_sink_id,
+                    const viz::SubtreeCaptureId& subtree_capture_id) final {
     frame_sink_id_ = frame_sink_id ? *frame_sink_id : viz::FrameSinkId();
     MockChangeTarget(frame_sink_id_);
   }
@@ -140,7 +140,7 @@ class MockFrameSinkVideoConsumerFrameCallbacks
   }
 
   MOCK_METHOD0(Done, void());
-  MOCK_METHOD1(ProvideFeedback, void(double utilization));
+  MOCK_METHOD1(ProvideFeedback, void(const media::VideoFrameFeedback&));
 
  private:
   mojo::Receiver<viz::mojom::FrameSinkVideoConsumerFrameCallbacks> receiver_{
@@ -192,9 +192,8 @@ class DevToolsVideoConsumerTest : public testing::Test {
     callbacks.Bind(callbacks_remote.InitWithNewPipeAndPassReceiver());
 
     media::mojom::VideoFrameInfoPtr info = media::mojom::VideoFrameInfo::New(
-        base::TimeDelta(), base::Value(base::Value::Type::DICTIONARY), kFormat,
-        kResolution, gfx::Rect(kResolution), gfx::ColorSpace::CreateREC709(),
-        nullptr);
+        base::TimeDelta(), media::VideoFrameMetadata(), kFormat, kResolution,
+        gfx::Rect(kResolution), gfx::ColorSpace::CreateREC709(), nullptr);
 
     consumer_->OnFrameCaptured(std::move(data), std::move(info),
                                gfx::Rect(kResolution),

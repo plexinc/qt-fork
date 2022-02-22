@@ -54,6 +54,8 @@
 #include "qquicktableview_p.h"
 
 #include <QtCore/qtimer.h>
+#include <QtCore/private/qflatmap_p.h>
+#include <QtCore/qitemselectionmodel.h>
 #include <QtQmlModels/private/qqmltableinstancemodel_p.h>
 #include <QtQml/private/qqmlincubator_p.h>
 #include <QtQmlModels/private/qqmlchangeset_p.h>
@@ -61,6 +63,7 @@
 
 #include <QtQuick/private/qquickflickable_p_p.h>
 #include <QtQuick/private/qquickitemviewfxitem_p_p.h>
+#include <QtQuick/private/qquickselectable_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -90,7 +93,7 @@ private:
     Q_DECLARE_PRIVATE(QQuickTableSectionSizeProvider)
 };
 
-class Q_QUICK_PRIVATE_EXPORT QQuickTableViewPrivate : public QQuickFlickablePrivate
+class Q_QUICK_PRIVATE_EXPORT QQuickTableViewPrivate : public QQuickFlickablePrivate, public QQuickSelectable
 {
     Q_DECLARE_PUBLIC(QQuickTableView)
 
@@ -119,7 +122,7 @@ public:
             qCDebug(lcTableViewDelegateLifecycle()) << "begin top-left:" << toString();
         }
 
-        void begin(Qt::Edge edgeToLoad, int edgeIndex, const QList<int> visibleCellsInEdge, QQmlIncubator::IncubationMode incubationMode)
+        void begin(Qt::Edge edgeToLoad, int edgeIndex, const QVector<int> visibleCellsInEdge, QQmlIncubator::IncubationMode incubationMode)
         {
             Q_ASSERT(!m_active);
             m_active = true;
@@ -132,20 +135,20 @@ public:
         }
 
         inline void markAsDone() { m_active = false; }
-        inline bool isActive() { return m_active; }
+        inline bool isActive() const { return m_active; }
 
-        inline QPoint currentCell() { return cellAt(m_currentIndex); }
-        inline bool hasCurrentCell() { return m_currentIndex < m_visibleCellsInEdge.count(); }
+        inline QPoint currentCell() const { return cellAt(m_currentIndex); }
+        inline bool hasCurrentCell() const { return m_currentIndex < m_visibleCellsInEdge.count(); }
         inline void moveToNextCell() { ++m_currentIndex; }
 
-        inline Qt::Edge edge() { return m_edge; }
-        inline int row() { return cellAt(0).y(); }
-        inline int column() { return cellAt(0).x(); }
-        inline QQmlIncubator::IncubationMode incubationMode() { return m_mode; }
+        inline Qt::Edge edge() const { return m_edge; }
+        inline int row() const { return cellAt(0).y(); }
+        inline int column() const { return cellAt(0).x(); }
+        inline QQmlIncubator::IncubationMode incubationMode() const { return m_mode; }
 
-        inline QPointF startPosition() { return m_startPos; }
+        inline QPointF startPosition() const { return m_startPos; }
 
-        QString toString()
+        QString toString() const
         {
             QString str;
             QDebug dbg(&str);
@@ -169,14 +172,14 @@ public:
 
     private:
         Qt::Edge m_edge = Qt::Edge(0);
-        QList<int> m_visibleCellsInEdge;
+        QVector<int> m_visibleCellsInEdge;
         int m_edgeIndex = 0;
         int m_currentIndex = 0;
         bool m_active = false;
         QQmlIncubator::IncubationMode m_mode = QQmlIncubator::AsynchronousIfNested;
         QPointF m_startPos;
 
-        inline QPoint cellAt(int index) {
+        inline QPoint cellAt(int index) const {
             return !m_edge || (m_edge & (Qt::LeftEdge | Qt::RightEdge))
                     ? QPoint(m_edgeIndex, m_visibleCellsInEdge[index])
                     : QPoint(m_visibleCellsInEdge[index], m_edgeIndex);
@@ -207,13 +210,15 @@ public:
 
     enum class RebuildOption {
         None = 0,
-        LayoutOnly = 0x1,
-        ViewportOnly = 0x2,
-        CalculateNewTopLeftRow = 0x4,
-        CalculateNewTopLeftColumn = 0x8,
-        CalculateNewContentWidth = 0x10,
-        CalculateNewContentHeight = 0x20,
-        All = 0x40,
+        All = 0x1,
+        LayoutOnly = 0x2,
+        ViewportOnly = 0x4,
+        CalculateNewTopLeftRow = 0x8,
+        CalculateNewTopLeftColumn = 0x10,
+        CalculateNewContentWidth = 0x20,
+        CalculateNewContentHeight = 0x40,
+        PositionViewAtRow = 0x80,
+        PositionViewAtColumn = 0x100,
     };
     Q_DECLARE_FLAGS(RebuildOptions, RebuildOption)
 
@@ -248,8 +253,8 @@ public:
     // we need to fill up with more rows/columns. loadedTableInnerRect describes the pixels
     // that the loaded table covers if you remove one row/column on each side of the table, and
     // is used to determine rows/columns that are no longer visible and can be unloaded.
-    QMap<int, int> loadedColumns;
-    QMap<int, int> loadedRows;
+    QFlatMap<int, int> loadedColumns;
+    QFlatMap<int, int> loadedRows;
     QRectF loadedTableOuterRect;
     QRectF loadedTableInnerRect;
 
@@ -283,6 +288,8 @@ public:
     // Consider making it public.
     bool isTransposed = false;
 
+    bool warnNoSelectionModel = true;
+
     QJSValue rowHeightProvider;
     QJSValue columnWidthProvider;
     QQuickTableSectionSizeProvider rowHeights;
@@ -311,6 +318,24 @@ public:
     QList<QPointer<QQuickTableView> > syncChildren;
     Qt::Orientations assignedSyncDirection = Qt::Horizontal | Qt::Vertical;
 
+    QPointer<QItemSelectionModel> selectionModel;
+
+    int assignedPositionViewAtRow = 0;
+    int assignedPositionViewAtColumn = 0;
+    int positionViewAtRow = 0;
+    int positionViewAtColumn = 0;
+    qreal positionViewAtRowOffset = 0;
+    qreal positionViewAtColumnOffset = 0;
+    Qt::Alignment positionViewAtRowAlignment = Qt::AlignTop;
+    Qt::Alignment positionViewAtColumnAlignment = Qt::AlignLeft;
+
+    QPoint selectionStartCell;
+    QPoint selectionEndCell;
+    QRectF selectionStartCellRect;
+    QRectF selectionEndCellRect;
+
+    QMargins edgesBeforeRebuild;
+
     const static QPoint kLeft;
     const static QPoint kRight;
     const static QPoint kUp;
@@ -325,9 +350,11 @@ public:
 
     int modelIndexAtCell(const QPoint &cell) const;
     QPoint cellAtModelIndex(int modelIndex) const;
+    int modelIndexToCellIndex(const QModelIndex &modelIndex) const;
+    inline bool cellIsValid(const QPoint &cell) const { return cell.x() != -1 && cell.y() != -1; }
 
-    qreal sizeHintForColumn(int column);
-    qreal sizeHintForRow(int row);
+    qreal sizeHintForColumn(int column) const;
+    qreal sizeHintForRow(int row) const;
     QSize calculateTableSize();
     void updateTableSize();
 
@@ -338,11 +365,13 @@ public:
     qreal getRowLayoutHeight(int row);
     qreal getColumnWidth(int column);
     qreal getRowHeight(int row);
+    qreal getEffectiveRowHeight(int row) const;
+    qreal getEffectiveColumnWidth(int column) const;
 
-    inline int topRow() const { return loadedRows.firstKey(); }
-    inline int bottomRow() const { return loadedRows.lastKey(); }
-    inline int leftColumn() const { return loadedColumns.firstKey(); }
-    inline int rightColumn() const { return loadedColumns.lastKey(); }
+    inline int topRow() const { return loadedRows.cbegin().key(); }
+    inline int bottomRow() const { return (--loadedRows.cend()).key(); }
+    inline int leftColumn() const { return loadedColumns.cbegin().key(); }
+    inline int rightColumn() const { return (--loadedColumns.cend()).key(); }
 
     QQuickTableView *rootSyncView() const;
 
@@ -365,9 +394,12 @@ public:
     void updateExtents();
     void syncLoadedTableRectFromLoadedTable();
     void syncLoadedTableFromLoadRequest();
+    void shiftLoadedTableRect(const QPointF newPosition);
 
     int nextVisibleEdgeIndex(Qt::Edge edge, int startIndex);
     int nextVisibleEdgeIndexAroundLoadedTable(Qt::Edge edge);
+    bool allColumnsLoaded();
+    bool allRowsLoaded();
     inline int edgeToArrayIndex(Qt::Edge edge);
     void clearEdgeSizeCache();
 
@@ -376,8 +408,8 @@ public:
     Qt::Edge nextEdgeToLoad(const QRectF rect);
     Qt::Edge nextEdgeToUnload(const QRectF rect);
 
-    qreal cellWidth(const QPoint &cell);
-    qreal cellHeight(const QPoint &cell);
+    qreal cellWidth(const QPoint &cell) const;
+    qreal cellHeight(const QPoint &cell) const;
 
     FxTableItem *loadedTableItem(const QPoint &cell) const;
     FxTableItem *createFxTableItem(const QPoint &cell, QQmlIncubator::IncubationMode incubationMode);
@@ -396,12 +428,15 @@ public:
     void processRebuildTable();
     bool moveToNextRebuildState();
     void calculateTopLeft(QPoint &topLeft, QPointF &topLeftPos);
-    void beginRebuildTable();
+    void loadInitialTable();
+
     void layoutAfterLoadingInitialTable();
+    void adjustViewportXAccordingToAlignment();
+    void adjustViewportYAccordingToAlignment();
 
     void scheduleRebuildTable(QQuickTableViewPrivate::RebuildOptions options);
 
-    int resolveImportVersion();
+    QTypeRevision resolveImportVersion();
     void createWrapperModel();
 
     void initItemCallback(int modelIndex, QObject *item);
@@ -415,8 +450,9 @@ public:
     virtual QVariant modelImpl() const;
     virtual void setModelImpl(const QVariant &newModel);
     virtual void syncModel();
-    inline void syncRebuildOptions();
     virtual void syncSyncView();
+    virtual void syncPositionView();
+    inline void syncRebuildOptions();
 
     void connectToModel();
     void disconnectFromModel();
@@ -436,6 +472,12 @@ public:
     void syncViewportRect();
     void syncViewportPosRecursive();
 
+    bool selectedInSelectionModel(const QPoint &cell) const;
+    void selectionChangedInSelectionModel(const QItemSelection &selected, const QItemSelection &deselected) const;
+    void updateSelectedOnAllDelegateItems() const;
+    void setSelectedOnDelegateItem(const QModelIndex &modelIndex, bool select) const;
+    void setSelectedOnDelegateItem(QQuickItem *delegateItem, bool select) const;
+
     void fetchMoreData();
 
     void _q_componentFinalized();
@@ -443,6 +485,20 @@ public:
 
     inline QString tableLayoutToString() const;
     void dumpTable() const;
+
+    // QQuickSelectable
+    QQuickItem *selectionPointerHandlerTarget() const override;
+    void setSelectionStartPos(const QPointF &pos) override;
+    void setSelectionEndPos(const QPointF &pos) override;
+    void clearSelection() override;
+    void normalizeSelection() override;
+    QRectF selectionRectangle() const override;
+    QSizeF scrollTowardsSelectionPoint(const QPointF &pos, const QSizeF &step) override;
+
+    QPoint clampedCellAtPos(const QPointF &pos) const;
+    void updateSelection(const QRect &oldSelection, const QRect &newSelection);
+    QRect selection() const;
+    // ----------------
 };
 
 class FxTableItem : public QQuickItemViewFxItem

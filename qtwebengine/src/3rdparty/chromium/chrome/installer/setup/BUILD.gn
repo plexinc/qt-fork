@@ -25,7 +25,10 @@ if (is_win) {
       "uninstall.h",
     ]
 
-    configs -= [ "//build/config/win:console" ]
+    configs -= [
+      "//build/config/compiler:cet_shadow_stack",
+      "//build/config/win:console",
+    ]
     configs += [ "//build/config/win:windowed" ]
 
     deps = [
@@ -43,7 +46,7 @@ if (is_win) {
       "//components/crash/core/app:crash_export_thunks",
       "//components/crash/core/app:run_as_crashpad_handler",
       "//content/public/common:static_switches",
-      "//rlz:rlz_lib_no_network",
+#      "//rlz:rlz_lib_no_network",
     ]
 
     libs = [ "netapi32.lib" ]
@@ -57,6 +60,7 @@ if (is_win) {
       "brand_behaviors.h",
       "install.cc",
       "install.h",
+      "install_params.h",
       "install_worker.cc",
       "install_worker.h",
       "installer_crash_reporter_client.cc",
@@ -67,6 +71,7 @@ if (is_win) {
       "installer_state.h",
       "launch_chrome.cc",
       "launch_chrome.h",
+      "modify_params.h",
       "progress_calculator.cc",
       "progress_calculator.h",
       "setup_constants.cc",
@@ -77,8 +82,6 @@ if (is_win) {
       "setup_singleton.h",
       "setup_util.cc",
       "setup_util.h",
-      "uninstall_metrics.cc",
-      "uninstall_metrics.h",
       "update_active_setup_version_work_item.cc",
       "update_active_setup_version_work_item.h",
       "user_experiment.cc",
@@ -132,7 +135,6 @@ if (is_win) {
       "setup_singleton_unittest.cc",
       "setup_util_unittest.cc",
       "setup_util_unittest.h",
-      "uninstall_metrics_unittest.cc",
       "update_active_setup_version_work_item_unittest.cc",
       "user_experiment_unittest.cc",
       "user_hive_visitor_unittest.cc",

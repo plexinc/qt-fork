@@ -32,7 +32,7 @@
 
 #include <QtDataVisualization/q3dinputhandler.h>
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 class QTouch3DInputHandlerPrivate;
 
@@ -45,7 +45,7 @@ public:
     virtual ~QTouch3DInputHandler();
 
     // Input event listeners
-    virtual void touchEvent(QTouchEvent *event);
+    void touchEvent(QTouchEvent *event) override;
 
 private:
     Q_DISABLE_COPY(QTouch3DInputHandler)
@@ -53,6 +53,6 @@ private:
     QScopedPointer<QTouch3DInputHandlerPrivate> d_ptr;
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

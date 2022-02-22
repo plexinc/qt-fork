@@ -10,6 +10,7 @@
 #include "base/memory/ref_counted.h"
 #include "fuchsia/engine/url_request_rewrite.mojom.h"
 #include "fuchsia/engine/web_engine_export.h"
+#include "net/http/http_request_headers.h"
 #include "third_party/blink/public/common/loader/url_loader_throttle.h"
 
 // Implements a URLLoaderThrottle for the WebEngine. Applies network request
@@ -18,22 +19,15 @@ class WEB_ENGINE_EXPORT WebEngineURLLoaderThrottle
     : public blink::URLLoaderThrottle {
  public:
   using UrlRequestRewriteRules =
-      base::RefCountedData<std::vector<mojom::UrlRequestRewriteRulePtr>>;
-
-  // An interface to provide rewrite rules to the throttle. Its
-  // implementation must outlive the WebEngineURLLoaderThrottle.
-  class CachedRulesProvider {
-   public:
-    virtual ~CachedRulesProvider() = default;
-
-    // Gets cached rules. This call can be made on any sequence, as
-    // URLLoaderThrottles are not guaranteed to stay on the same sequence.
-    virtual scoped_refptr<UrlRequestRewriteRules> GetCachedRules() = 0;
-  };
+      base::RefCountedData<std::vector<mojom::UrlRequestRulePtr>>;
 
   explicit WebEngineURLLoaderThrottle(
-      CachedRulesProvider* cached_rules_provider);
+      scoped_refptr<UrlRequestRewriteRules> rules);
   ~WebEngineURLLoaderThrottle() override;
+
+  WebEngineURLLoaderThrottle(const WebEngineURLLoaderThrottle&) = delete;
+  WebEngineURLLoaderThrottle& operator=(const WebEngineURLLoaderThrottle&) =
+      delete;
 
   // blink::URLLoaderThrottle implementation.
   void DetachFromCurrentSequence() override;
@@ -42,9 +36,21 @@ class WEB_ENGINE_EXPORT WebEngineURLLoaderThrottle
   bool makes_unsafe_redirect() override;
 
  private:
-  CachedRulesProvider* const cached_rules_provider_;
+  // Applies transformations specified by |rule| to |request|, conditional on
+  // the matching criteria of |rule|.
+  void ApplyRule(network::ResourceRequest* request,
+                 const mojom::UrlRequestRulePtr& rule);
 
-  DISALLOW_COPY_AND_ASSIGN(WebEngineURLLoaderThrottle);
+  // Applies |rewrite| transformations to |request|.
+  void ApplyRewrite(network::ResourceRequest* request,
+                    const mojom::UrlRequestActionPtr& rewrite);
+
+  // Adds HTTP headers from |add_headers| to |request|.
+  void ApplyAddHeaders(
+      network::ResourceRequest* request,
+      const mojom::UrlRequestRewriteAddHeadersPtr& add_headers);
+
+  scoped_refptr<UrlRequestRewriteRules> rules_;
 };
 
 #endif  // FUCHSIA_ENGINE_COMMON_WEB_ENGINE_URL_LOADER_THROTTLE_H_

@@ -28,6 +28,7 @@
 #ifndef TESTTYPES_H
 #define TESTTYPES_H
 
+#include <QtCore/qiterable.h>
 #include <QtCore/qobject.h>
 #include <QtQml/qqml.h>
 #include <QtQml/qqmlexpression.h>
@@ -44,6 +45,7 @@
 #include <QtCore/qjsonarray.h>
 #include <QtCore/qjsonobject.h>
 #include <QtCore/qjsonvalue.h>
+#include <QtCore/qproperty.h>
 #include <QtQml/qjsvalue.h>
 #include <QtQml/qqmlscriptstring.h>
 #include <QtQml/qqmlcomponent.h>
@@ -102,7 +104,7 @@ class MyQmlObject : public QObject
     Q_PROPERTY(QObject *objectProperty READ objectProperty WRITE setObjectProperty NOTIFY objectChanged)
     Q_PROPERTY(QQmlListProperty<QObject> objectListProperty READ objectListProperty CONSTANT)
     Q_PROPERTY(int resettableProperty READ resettableProperty WRITE setResettableProperty RESET resetProperty)
-    Q_PROPERTY(QRegExp regExp READ regExp WRITE setRegExp)
+    Q_PROPERTY(int resettableProperty2 READ resettableProperty2 WRITE setResettableProperty2 RESET resetProperty2 BINDABLE bindableResetProperty2)
     Q_PROPERTY(QRegularExpression regularExpression READ regularExpression WRITE setRegularExpression)
     Q_PROPERTY(int nonscriptable READ nonscriptable WRITE setNonscriptable SCRIPTABLE false)
     Q_PROPERTY(int intProperty READ intProperty WRITE setIntProperty NOTIFY intChanged)
@@ -149,7 +151,7 @@ public:
         emit objectChanged();
     }
 
-    QQmlListProperty<QObject> objectListProperty() { return QQmlListProperty<QObject>(this, m_objectQList); }
+    QQmlListProperty<QObject> objectListProperty() { return QQmlListProperty<QObject>(this, &m_objectQList); }
 
     bool methodCalled() const { return m_methodCalled; }
     bool methodIntCalled() const { return m_methodIntCalled; }
@@ -168,10 +170,12 @@ public:
 
     int resettableProperty() const { return m_resetProperty; }
     void setResettableProperty(int v) { m_resetProperty = v; }
-    void resetProperty() { m_resetProperty = 13; }
+    void resetProperty() { m_resetProperty = 13; ++m_resetCount; }
 
-    QRegExp regExp() { return m_regExp; }
-    void setRegExp(const QRegExp &regExp) { m_regExp = regExp; }
+    int resettableProperty2() const { return m_resetProperty2; }
+    void setResettableProperty2(int i) { m_resetProperty2 = i; }
+    void resetProperty2(){ m_resetProperty2 = 13; ++ m_resetCount; }
+    QBindable<int> bindableResetProperty2() { return &m_resetProperty2; }
 
     QRegularExpression regularExpression() { return m_regularExpression; }
     void setRegularExpression(const QRegularExpression &regularExpression)
@@ -266,6 +270,7 @@ public slots:
     void v8function(QQmlV4Function*);
     void registeredFlagMethod(Qt::MouseButtons v) { m_buttons = v; }
     QString slotWithReturnValue(const QString &arg) { return arg; }
+    int resetCount() { return m_resetCount; }
 
 private:
     friend class tst_qqmlecmascript;
@@ -277,8 +282,9 @@ private:
     QUrl m_url;
     QList<QObject *> m_objectQList;
     int m_value;
+    Q_OBJECT_BINDABLE_PROPERTY(MyQmlObject, int, m_resetProperty2)
     int m_resetProperty;
-    QRegExp m_regExp;
+    int m_resetCount = 0;
     QRegularExpression m_regularExpression;
     QVariant m_variant;
     QJSValue m_qjsvalue;
@@ -324,7 +330,7 @@ class MyQmlContainer : public QObject
 public:
     MyQmlContainer() {}
 
-    QQmlListProperty<MyQmlObject> children() { return QQmlListProperty<MyQmlObject>(this, m_children); }
+    QQmlListProperty<MyQmlObject> children() { return QQmlListProperty<MyQmlObject>(this, &m_children); }
 
 private:
     QList<MyQmlObject*> m_children;
@@ -612,7 +618,7 @@ public:
     QDate dateProperty() const {
        return datePropertyValue;
     }
-    void setDateProperty(const QDate &v) {
+    void setDateProperty(QDate v) {
         datePropertyValue = v;
     }
 
@@ -620,7 +626,7 @@ public:
     QTime timeProperty() const {
        return timePropertyValue;
     }
-    void setTimeProperty(const QTime &v) {
+    void setTimeProperty(QTime v) {
         timePropertyValue = v;
     }
 
@@ -768,6 +774,8 @@ struct NonRegisteredType
 
 };
 
+struct CompletelyUnknown;
+
 class MyInvokableObject : public MyInvokableBaseObject
 {
     Q_OBJECT
@@ -789,7 +797,7 @@ public:
     Q_INVOKABLE qreal method_NoArgs_real() { invoke(2); return 19.75; }
     Q_INVOKABLE QPointF method_NoArgs_QPointF() { invoke(3); return QPointF(123, 4.5); }
     Q_INVOKABLE QObject *method_NoArgs_QObject() { invoke(4); return this; }
-    Q_INVOKABLE MyInvokableObject *method_NoArgs_unknown() { invoke(5); return this; }
+    Q_INVOKABLE CompletelyUnknown *method_NoArgs_unknown() { invoke(5); return nullptr; }
     Q_INVOKABLE QJSValue method_NoArgs_QScriptValue() { invoke(6); return QJSValue("Hello world"); }
     Q_INVOKABLE QVariant method_NoArgs_QVariant() { invoke(7); return QVariant("QML rocks"); }
 
@@ -1688,8 +1696,8 @@ public:
     QQmlListProperty<QObject> data();
 
     static void children_append(QQmlListProperty<QObject> *prop, QObject *o);
-    static int children_count(QQmlListProperty<QObject> *prop);
-    static QObject *children_at(QQmlListProperty<QObject> *prop, int index);
+    static qsizetype children_count(QQmlListProperty<QObject> *prop);
+    static QObject *children_at(QQmlListProperty<QObject> *prop, qsizetype index);
     static void children_clear(QQmlListProperty<QObject> *prop);
 
     QList<QObject*> dataChildren;
@@ -1717,8 +1725,8 @@ class FloatingQObject : public QObject, public QQmlParserStatus
 public:
     FloatingQObject() {}
 
-    virtual void classBegin();
-    virtual void componentComplete();
+    void classBegin() override;
+    void componentComplete() override;
 };
 
 class ClashingNames : public QObject
@@ -1729,6 +1737,37 @@ public:
     Q_INVOKABLE bool clashes() const { return true; }
 };
 
+struct ClassWithQProperty : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(float value MEMBER value BINDABLE bindableValue RESET resetValue)
+    Q_PROPERTY(float value2 MEMBER value2 BINDABLE bindableValue2)
+public:
+    void resetValue() { value = 2; }
+    QProperty<float> value;
+    QProperty<float> value2;
+    QBindable<float> bindableValue() { return QBindable<float>(&value); }
+    QBindable<float> bindableValue2() { return QBindable<float>(&value2); }
+};
+
+struct ClassWithQObjectProperty : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(int value READ value WRITE setValue BINDABLE bindableValue RESET resetValue)
+    Q_PROPERTY(int value2 READ value2 WRITE setValue2 BINDABLE bindableValue2)
+public:
+    Q_OBJECT_BINDABLE_PROPERTY(ClassWithQObjectProperty, int, m_value);
+    QBindable<int> bindableValue() {return &m_value;}
+    void resetValue() { m_value = 2; }
+    int value() { return m_value; }
+    void setValue(int i) { m_value = i; }
+
+    Q_OBJECT_BINDABLE_PROPERTY(ClassWithQObjectProperty, int, m_value2);
+    QBindable<int> bindableValue2() {return &m_value2;}
+    int value2() { return m_value2; }
+    void setValue2(int i) { m_value2 = i; }
+};
+
 class VariantConvertObject : public QObject
 {
     Q_OBJECT
@@ -1736,8 +1775,76 @@ public:
     QString funcCalled;
 public slots:
     QPersistentModelIndex getIndex() const { return QPersistentModelIndex(QModelIndex()); }
-    void selection(const QModelIndex &mi, int n = 0) { funcCalled = QLatin1String("QModelIndex"); }
-    void selection(const QItemSelection &is, int n = 0) { funcCalled = QLatin1String("QItemSelection"); }
+    void selection(const QModelIndex &, int = 0) { funcCalled = QLatin1String("QModelIndex"); }
+    void selection(const QItemSelection &, int = 0) { funcCalled = QLatin1String("QItemSelection"); }
+};
+
+class SequenceConvertObject : public QObject
+{
+    Q_OBJECT
+
+public:
+    QString funcCalled;
+public slots:
+
+    Q_INVOKABLE QStringList getValues() const {
+        return QStringList() << QStringLiteral("one") << QStringLiteral("two");
+    }
+
+    Q_INVOKABLE void call(const QStringList &) {
+        funcCalled = QLatin1String("stringlist");
+    }
+
+    Q_INVOKABLE void call(const QList<int> &) {
+        funcCalled = QLatin1String("intlist");
+    }
+};
+
+struct ClassWithQProperty2 : public QObject
+{
+    Q_OBJECT
+    // Q_PROPERTY(float value)
+public:
+    void callback();
+    // QNotifiedProperty<float, &ClassWithQProperty2::callback> value;
+};
+
+struct QPropertyQtBindingTester : public QObject
+{
+    Q_OBJECT
+public:
+    Q_PROPERTY(int nonBound READ nonBound WRITE setNonBound BINDABLE bindableNonBound)
+    Q_PROPERTY(int simple MEMBER simple BINDABLE bindableSimple)
+    Q_PROPERTY(int complex MEMBER complex BINDABLE bindableComplex)
+    Q_PROPERTY(int readOnlyBindable MEMBER readOnlyBindable BINDABLE bindableReadOnlyBindable)
+
+    int nonBound() { return m_nonBound; }
+
+    void setNonBound(int i) {m_nonBound = i;}
+
+    QBindable<int> bindableNonBound() { return &m_nonBound; }
+    QBindable<int> bindableSimple() { return &simple; }
+    QBindable<int> bindableComplex() {return &complex; }
+    QBindable<int> bindableReadOnlyBindable() const {return &readOnlyBindable; }
+
+    QProperty<int> readOnlyBindable;
+    QProperty<int> m_nonBound;
+    QProperty<int> simple;
+    QProperty<int> complex;
+};
+
+struct Sender : QObject
+{
+    Q_OBJECT
+signals:
+    void sig1();
+};
+
+struct Receiver : QObject
+{
+    Q_OBJECT
+public slots:
+    int slot1(int i, int j, int k) {return i+j+k;}
 };
 
 void registerTypes();

@@ -60,14 +60,14 @@ QT_BEGIN_NAMESPACE
 
 class QQuickPackagePrivate;
 class QQuickPackageAttached;
-class Q_AUTOTEST_EXPORT QQuickPackage : public QObject
+class Q_QMLMODELS_PRIVATE_EXPORT QQuickPackage : public QObject
 {
     Q_OBJECT
     Q_DECLARE_PRIVATE(QQuickPackage)
 
     Q_CLASSINFO("DefaultProperty", "data")
     QML_NAMED_ELEMENT(Package)
-    QML_ADDED_IN_MINOR_VERSION(14)
+    QML_ADDED_IN_VERSION(2, 0)
     QML_ATTACHED(QQuickPackageAttached)
     Q_PROPERTY(QQmlListProperty<QObject> data READ data)
 

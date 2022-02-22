@@ -51,31 +51,56 @@
 #ifndef QAXOBJECT_H
 #define QAXOBJECT_H
 
-#include <ActiveQt/qaxbase.h>
+#include <QtAxContainer/qaxbase.h>
+#include <QtAxContainer/qaxobjectinterface.h>
 
 QT_BEGIN_NAMESPACE
 
-class QAxObject : public QObject, public QAxBase
+class QAxObjectPrivate;
+
+class QAxBaseObject : public QObject, public QAxObjectInterface
+{
+    Q_OBJECT
+    Q_PROPERTY(ulong classContext READ classContext WRITE setClassContext)
+    Q_PROPERTY(QString control READ control WRITE setControl RESET resetControl)
+
+Q_SIGNALS:
+    void exception(int code, const QString &source, const QString &desc, const QString &help);
+    void propertyChanged(const QString &name);
+    void signal(const QString &name, int argc, void *argv);
+
+protected:
+    using QObject::QObject;
+    QAxBaseObject(QObjectPrivate &d, QObject* parent);
+};
+
+class QAxObject : public QAxBaseObject, public QAxBase
 {
     friend class QAxEventSink;
-    Q_OBJECT_FAKE
+    Q_DECLARE_PRIVATE(QAxObject)
 public:
-    QObject* qObject() const override { return static_cast<QObject *>(const_cast<QAxObject *>(this)); }
-    const char *className() const override;
-
     explicit QAxObject(QObject *parent = nullptr);
     explicit QAxObject(const QString &c, QObject *parent = nullptr);
     explicit QAxObject(IUnknown *iface, QObject *parent = nullptr);
     ~QAxObject() override;
 
+    ulong classContext() const override;
+    void setClassContext(ulong classContext) override;
+
+    QString control() const override;
+    bool setControl(const QString &c) override;
+    void resetControl() override;
+    void clear();
+
     bool doVerb(const QString &verb);
+
+    const QMetaObject *metaObject() const override;
+    int qt_metacall(QMetaObject::Call call, int id, void **v) override;
+    Q_DECL_HIDDEN_STATIC_METACALL static void qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id, void **_a);
+    void *qt_metacast(const char *) override;
 
 protected:
     void connectNotify(const QMetaMethod &signal) override;
-    const QMetaObject *fallbackMetaObject() const override;
-
-private:
-    const QMetaObject *parentMetaObject() const override;
 };
 
 template <> inline QAxObject *qobject_cast<QAxObject*>(const QObject *o)

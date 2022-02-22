@@ -91,9 +91,9 @@ struct BigClass
 {
     double n,i,e,r,o,b;
 };
-Q_STATIC_ASSERT(sizeof(BigClass) > sizeof(QVariant::Private::Data));
+static_assert(sizeof(BigClass) > sizeof(QVariant::Private::MaxInternalSize));
 QT_BEGIN_NAMESPACE
-Q_DECLARE_TYPEINFO(BigClass, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(BigClass, Q_RELOCATABLE_TYPE);
 QT_END_NAMESPACE
 Q_DECLARE_METATYPE(BigClass);
 
@@ -101,9 +101,9 @@ struct SmallClass
 {
     char s;
 };
-Q_STATIC_ASSERT(sizeof(SmallClass) <= sizeof(QVariant::Private::Data));
+static_assert(sizeof(SmallClass) <= sizeof(QVariant::Private::MaxInternalSize));
 QT_BEGIN_NAMESPACE
-Q_DECLARE_TYPEINFO(SmallClass, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(SmallClass, Q_RELOCATABLE_TYPE);
 QT_END_NAMESPACE
 Q_DECLARE_METATYPE(SmallClass);
 
@@ -336,8 +336,10 @@ void tst_qvariant::stringVariantValue()
 void tst_qvariant::createCoreType_data()
 {
     QTest::addColumn<int>("typeId");
-    for (int i = QMetaType::FirstCoreType; i <= QMetaType::LastCoreType; ++i)
-        QTest::newRow(QMetaType::typeName(i)) << i;
+    for (int i = QMetaType::FirstCoreType; i <= QMetaType::LastCoreType; ++i) {
+        if (QMetaType metaType(i); metaType.isValid()) // QMetaType(27) does not exist
+            QTest::newRow(metaType.name()) << i;
+    }
 }
 
 // Tests how fast a Qt core type can be default-constructed by a
@@ -349,7 +351,7 @@ void tst_qvariant::createCoreType()
     QFETCH(int, typeId);
     QBENCHMARK {
         for (int i = 0; i < ITERATION_COUNT; ++i)
-            QVariant(typeId, (void *)0);
+            QVariant(QMetaType(typeId));
     }
 }
 
@@ -365,11 +367,12 @@ void tst_qvariant::createCoreTypeCopy_data()
 void tst_qvariant::createCoreTypeCopy()
 {
     QFETCH(int, typeId);
-    QVariant other(typeId, (void *)0);
+    QMetaType metaType(typeId);
+    QVariant other(metaType);
     const void *copy = other.constData();
     QBENCHMARK {
         for (int i = 0; i < ITERATION_COUNT; ++i)
-            QVariant(typeId, copy);
+            QVariant(metaType, copy);
     }
 }
 

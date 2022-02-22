@@ -14,9 +14,11 @@
 #include <vector>
 
 #include "base/callback.h"
+#include "base/containers/flat_map.h"
 #include "base/macros.h"
 #include "base/time/time.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/gfx/buffer_types.h"
 #include "ui/gfx/swap_result.h"
 #include "ui/ozone/platform/drm/gpu/drm_overlay_plane.h"
 #include "ui/ozone/platform/drm/gpu/hardware_display_plane_manager.h"
@@ -93,15 +95,18 @@ class HardwareDisplayController {
                             const gfx::Point& origin);
   ~HardwareDisplayController();
 
-  // Performs the initial CRTC configuration. If successful, it will display the
-  // framebuffer for |primary| with |mode|.
-  bool Modeset(const DrmOverlayPlane& primary, const drmModeModeInfo& mode);
+  // Gets the props required to modeset a CRTC with a |mode| onto
+  // |commit_request|.
+  void GetModesetProps(CommitRequest* commit_request,
+                       const DrmOverlayPlaneList& modeset_planes,
+                       const drmModeModeInfo& mode);
+  // Gets the props required to enable/disable a CRTC onto |commit_request|.
+  void GetEnableProps(CommitRequest* commit_request,
+                      const DrmOverlayPlaneList& modeset_planes);
+  void GetDisableProps(CommitRequest* commit_request);
 
-  // Performs a CRTC configuration re-using the modes from the CRTCs.
-  bool Enable(const DrmOverlayPlane& primary);
-
-  // Disables the CRTC.
-  void Disable();
+  // Updates state of the controller after modeset/enable/disable is performed.
+  void UpdateState(const CrtcCommitRequest& crtc_request);
 
   // Schedules the |overlays|' framebuffers to be displayed on the next vsync
   // event. The event will be posted on the graphics card file descriptor |fd_|
@@ -125,17 +130,19 @@ class HardwareDisplayController {
   // doesn't change any state.
   bool TestPageFlip(const DrmOverlayPlaneList& plane_list);
 
-  // Return the supported modifiers for |fourcc_format| for this
-  // controller.
-  std::vector<uint64_t> GetFormatModifiers(uint32_t fourcc_format) const;
+  // Return the supported modifiers for |fourcc_format| for this controller.
+  std::vector<uint64_t> GetSupportedModifiers(uint32_t fourcc_format) const;
 
   // Return the supported modifiers for |fourcc_format| for this
   // controller to be used for modeset buffers. Currently, this only exists
   // because we can't provide valid AFBC buffers during modeset.
   // See https://crbug.com/852675
   // TODO: Remove this.
-  std::vector<uint64_t> GetFormatModifiersForModesetting(
-      uint32_t fourcc_format) const;
+  std::vector<uint64_t> GetFormatModifiersForTestModeset(
+      uint32_t fourcc_format);
+
+  void UpdatePreferredModiferForFormat(gfx::BufferFormat buffer_format,
+                                       uint64_t modifier);
 
   // Moves the hardware cursor to |location|.
   void MoveCursor(const gfx::Point& location);
@@ -149,7 +156,7 @@ class HardwareDisplayController {
       uint32_t crtc);
   bool HasCrtc(const scoped_refptr<DrmDevice>& drm, uint32_t crtc) const;
   bool IsMirrored() const;
-  bool IsDisabled() const;
+  bool IsEnabled() const;
   gfx::Size GetModeSize() const;
 
   gfx::Point origin() const { return origin_; }
@@ -169,13 +176,13 @@ class HardwareDisplayController {
       const gfx::PresentationFeedback& presentation_feedback);
 
  private:
-  // If multiple CRTC Controllers exist and they're enabled, each will be
-  // enabled with its own mode. Set |use_current_crtc_mode| to Modeset using
-  // controller's mode instead of |mode|.
-  bool ModesetCrtc(const DrmOverlayPlane& primary,
-                   bool use_current_crtc_mode,
-                   const drmModeModeInfo& mode);
-  void OnModesetComplete(const DrmOverlayPlane& primary);
+  // Loops over |crtc_controllers_| and save their props into |commit_request|
+  // to be enabled/modeset.
+  void GetModesetPropsForCrtcs(CommitRequest* commit_request,
+                               const DrmOverlayPlaneList& modeset_planes,
+                               bool use_current_crtc_mode,
+                               const drmModeModeInfo& mode);
+  void OnModesetComplete(const DrmOverlayPlaneList& modeset_planes);
   bool ScheduleOrTestPageFlip(const DrmOverlayPlaneList& plane_list,
                               scoped_refptr<PageFlipRequest> page_flip_request,
                               std::unique_ptr<gfx::GpuFence>* out_fence);
@@ -185,6 +192,8 @@ class HardwareDisplayController {
   void UpdateCursorLocation();
   void ResetCursor();
   void DisableCursor();
+
+  std::vector<uint64_t> GetFormatModifiers(uint32_t fourcc_format) const;
 
   HardwareDisplayPlaneList owned_hardware_planes_;
 
@@ -204,7 +213,10 @@ class HardwareDisplayController {
   int cursor_frontbuffer_ = 0;
   DrmDumbBuffer* current_cursor_ = nullptr;
 
-  bool is_disabled_;
+  // Maps each fourcc_format to its preferred modifier which was generated
+  // through modeset-test and updated in UpdatePreferredModifierForFormat().
+  base::flat_map<uint32_t /*fourcc_format*/, uint64_t /*preferred_modifier*/>
+      preferred_format_modifier_;
 
   base::WeakPtrFactory<HardwareDisplayController> weak_ptr_factory_{this};
 

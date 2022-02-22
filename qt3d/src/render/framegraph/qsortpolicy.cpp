@@ -38,9 +38,6 @@
 ****************************************************************************/
 
 #include "qsortpolicy_p.h"
-#include <Qt3DCore/qpropertyvalueaddedchange.h>
-#include <Qt3DCore/qpropertyvalueremovedchange.h>
-#include <Qt3DRender/qframegraphnodecreatedchange.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -152,33 +149,24 @@ QSortPolicy::QSortPolicy(QSortPolicyPrivate &dd, QNode *parent)
 {
 }
 
-QNodeCreatedChangeBasePtr QSortPolicy::createNodeCreationChange() const
-{
-    auto creationChange = QFrameGraphNodeCreatedChangePtr<QSortPolicyData>::create(this);
-    QSortPolicyData &data = creationChange->data;
-    Q_D(const QSortPolicy);
-    data.sortTypes = d->m_sortTypes;
-    return creationChange;
-}
-
 /*!
     \return the current sort types in use
  */
-QVector<QSortPolicy::SortType> QSortPolicy::sortTypes() const
+QList<QSortPolicy::SortType> QSortPolicy::sortTypes() const
 {
     Q_D(const QSortPolicy);
     return d->m_sortTypes;
 }
 
-QVector<int> QSortPolicy::sortTypesInt() const
+QList<int> QSortPolicy::sortTypesInt() const
 {
     Q_D(const QSortPolicy);
-    QVector<int> sortTypesInt;
+    QList<int> sortTypesInt;
     transformVector(d->m_sortTypes, sortTypesInt);
     return sortTypesInt;
 }
 
-void QSortPolicy::setSortTypes(const QVector<SortType> &sortTypes)
+void QSortPolicy::setSortTypes(const QList<SortType> &sortTypes)
 {
     Q_D(QSortPolicy);
     if (sortTypes != d->m_sortTypes) {
@@ -191,9 +179,9 @@ void QSortPolicy::setSortTypes(const QVector<SortType> &sortTypes)
     }
 }
 
-void QSortPolicy::setSortTypes(const QVector<int> &sortTypesInt)
+void QSortPolicy::setSortTypes(const QList<int> &sortTypesInt)
 {
-    QVector<SortType> sortTypes;
+    QList<SortType> sortTypes;
     transformVector(sortTypesInt, sortTypes);
     setSortTypes(sortTypes);
 }

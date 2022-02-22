@@ -26,9 +26,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import QtTest 1.0
-import QtWebEngine 1.2
+import QtQuick
+import QtTest
+import QtWebEngine
 
 TestWebEngineView {
     id: webEngineView
@@ -37,10 +37,10 @@ TestWebEngineView {
 
     property var loadRequestArray: []
 
-    onLoadingChanged: {
+    onLoadingChanged: function(load) {
         loadRequestArray.push({
-            "status": loadRequest.status,
-            "url": loadRequest.url,
+            "status": load.status,
+            "url": load.url,
             "activeUrl": webEngineView.url
         });
     }
@@ -52,6 +52,7 @@ TestWebEngineView {
     }
 
     TestCase {
+        id: testCase
         name: "WebEngineViewLoadUrl"
         when: windowShown
 
@@ -79,8 +80,8 @@ TestWebEngineView {
             var aboutBlank = "about:blank";
             webEngineView.url = aboutBlank;
             verify(webEngineView.waitForLoadSucceeded());
-            compare(loadRequestArray[0].status, WebEngineView.LoadStartedStatus);
-            compare(loadRequestArray[1].status, WebEngineView.LoadSucceededStatus);
+            compare(loadRequestArray[0].status, WebEngineLoadingInfo.LoadStartedStatus);
+            compare(loadRequestArray[1].status, WebEngineLoadingInfo.LoadSucceededStatus);
             compare(loadRequestArray.length, 2);
             compare(webEngineView.url, aboutBlank);
             webEngineView.clear();
@@ -133,6 +134,7 @@ TestWebEngineView {
             compare(loadRequest.activeUrl, bogusSite);
             loadRequest = loadRequestArray[1];
             compare(loadRequest.status, WebEngineView.LoadFailedStatus);
+            compare(loadRequest.status, WebEngineLoadingInfo.LoadFailedStatus);
             compare(loadRequest.activeUrl, url);
             webEngineView.clear();
 
@@ -148,10 +150,10 @@ TestWebEngineView {
             compare(loadRequest.status, WebEngineView.LoadSucceededStatus);
             compare(loadRequest.activeUrl, redirectUrl);
             loadRequest = loadRequestArray[2];
-            compare(loadRequest.status, WebEngineView.LoadStartedStatus);
+            compare(loadRequest.status, WebEngineLoadingInfo.LoadStartedStatus);
             compare(loadRequest.activeUrl, redirectUrl);
             loadRequest = loadRequestArray[3];
-            compare(loadRequest.status, WebEngineView.LoadSucceededStatus);
+            compare(loadRequest.status, WebEngineLoadingInfo.LoadSucceededStatus);
             compare(loadRequest.activeUrl, url);
             webEngineView.clear();
 
@@ -173,11 +175,11 @@ TestWebEngineView {
             tryCompare(loadRequestArray, "length", 2);
 
             loadRequest = loadRequestArray[0];
-            compare(loadRequest.status, WebEngineView.LoadStartedStatus);
+            compare(loadRequest.status, WebEngineLoadingInfo.LoadStartedStatus);
             compare(loadRequest.url, url);
             compare(loadRequest.activeUrl, lastUrl);
             loadRequest = loadRequestArray[1];
-            compare(loadRequest.status, WebEngineView.LoadSucceededStatus);
+            compare(loadRequest.status, WebEngineLoadingInfo.LoadSucceededStatus);
             compare(loadRequest.url, url);
             compare(loadRequest.activeUrl, url);
             webEngineView.clear();
@@ -225,15 +227,16 @@ TestWebEngineView {
             compare(loadRequest.activeUrl, bogusSite);
             loadRequest = loadRequestArray[1];
             compare(loadRequest.status, WebEngineView.LoadFailedStatus);
+            compare(loadRequest.status, WebEngineLoadingInfo.LoadFailedStatus);
             // Since the load did not succeed the active url is the
             // URL of the previous successful load.
             compare(loadRequest.activeUrl, aboutBlank);
             loadRequest = loadRequestArray[2];
-            compare(loadRequest.status, WebEngineView.LoadStartedStatus);
+            compare(loadRequest.status, WebEngineLoadingInfo.LoadStartedStatus);
             compare(loadRequest.activeUrl, bogusSite);
             compare(loadRequest.url, "data:text/html;charset=UTF-8,load failed")
             loadRequest = loadRequestArray[3];
-            compare(loadRequest.status, WebEngineView.LoadSucceededStatus);
+            compare(loadRequest.status, WebEngineLoadingInfo.LoadSucceededStatus);
             compare(loadRequest.activeUrl, bogusSite);
             compare(loadRequest.url, bogusSite)
             webEngineView.clear();
@@ -285,6 +288,7 @@ TestWebEngineView {
             compare(loadRequest.activeUrl, stoppedUrl);
             loadRequest = loadRequestArray[1];
             compare(loadRequest.status, WebEngineView.LoadStoppedStatus);
+            compare(loadRequest.status, WebEngineLoadingInfo.LoadStoppedStatus);
             compare(loadRequest.url, stoppedUrl);
             compare(loadRequest.activeUrl, initialUrl);
             webEngineView.clear();
@@ -298,20 +302,19 @@ TestWebEngineView {
             compare(loadRequestArray[0].status, WebEngineView.LoadStartedStatus);
             compare(loadRequestArray[1].status, WebEngineView.LoadSucceededStatus);
 
-            // In-page navigation.
-            webEngineView.url = Qt.resolvedUrl("test4.html#content");
-            // In-page navigation doesn't trigger load succeeded, wait for load progress instead.
-            tryCompare(webEngineView, "loadProgress", 100);
-            compare(loadRequestArray.length, 3);
-            compare(loadRequestArray[2].status, WebEngineView.LoadStartedStatus);
+            // In-page navigation shouldn't trigger load
+            let anchorUrl = Qt.resolvedUrl("test4.html#anchor");
+            let c = webEngineView.getElementCenter('anchor')
+            mouseClick(webEngineView, c.x, c.y)
+            tryCompare(webEngineView, 'url', anchorUrl)
 
             // Load after in-page navigation.
             webEngineView.url = Qt.resolvedUrl("test4.html");
             verify(webEngineView.waitForLoadSucceeded());
             compare(webEngineView.loadProgress, 100);
-            compare(loadRequestArray.length, 5);
-            compare(loadRequestArray[3].status, WebEngineView.LoadStartedStatus);
-            compare(loadRequestArray[4].status, WebEngineView.LoadSucceededStatus);
+            compare(loadRequestArray.length, 4);
+            compare(loadRequestArray[2].status, WebEngineView.LoadStartedStatus);
+            compare(loadRequestArray[3].status, WebEngineView.LoadSucceededStatus);
 
             webEngineView.clear();
         }

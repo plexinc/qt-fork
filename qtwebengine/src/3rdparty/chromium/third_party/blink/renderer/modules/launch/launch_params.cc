@@ -4,17 +4,16 @@
 
 #include "third_party/blink/renderer/modules/launch/launch_params.h"
 
-#include "third_party/blink/renderer/modules/native_file_system/native_file_system_handle.h"
-#include "third_party/blink/renderer/platform/heap/visitor.h"
+#include "third_party/blink/renderer/modules/file_system_access/file_system_handle.h"
 
 namespace blink {
 
-LaunchParams::LaunchParams(HeapVector<Member<NativeFileSystemHandle>> files)
-    : files_(files) {}
+LaunchParams::LaunchParams(HeapVector<Member<FileSystemHandle>> files)
+    : files_(std::move(files)) {}
 
 LaunchParams::~LaunchParams() = default;
 
-void LaunchParams::Trace(Visitor* visitor) {
+void LaunchParams::Trace(Visitor* visitor) const {
   visitor->Trace(files_);
   ScriptWrappable::Trace(visitor);
 }

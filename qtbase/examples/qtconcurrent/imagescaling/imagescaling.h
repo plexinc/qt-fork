@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the examples of the Qt Toolkit.
@@ -52,25 +52,40 @@
 
 #include <QtWidgets>
 #include <QtConcurrent>
+#include <QNetworkAccessManager>
 
+class DownloadDialog;
 class Images : public QWidget
 {
 Q_OBJECT
 public:
     Images(QWidget *parent = nullptr);
     ~Images();
+
+    void initLayout(qsizetype count);
+
+    QFuture<QByteArray> download(const QList<QUrl> &urls);
+    QList<QImage> scaled() const;
+    void updateStatus(const QString &msg);
+    void showImages(const QList<QImage> &images);
+    void abortDownload();
+
 public slots:
-    void open();
-    void showImage(int num);
-    void finished();
+    void process();
+    void cancel();
+
 private:
-    QPushButton *openButton;
+    QPushButton *addUrlsButton;
     QPushButton *cancelButton;
-    QPushButton *pauseButton;
     QVBoxLayout *mainLayout;
     QList<QLabel *> labels;
     QGridLayout *imagesLayout;
-    QFutureWatcher<QImage> *imageScaling;
+    QStatusBar *statusBar;
+    DownloadDialog *downloadDialog;
+
+    QNetworkAccessManager qnam;
+    QList<QSharedPointer<QNetworkReply>> replies;
+    QFuture<QByteArray> downloadFuture;
 };
 
 #endif // IMAGESCALING_H

@@ -4,8 +4,9 @@
 
 /**
  * @fileoverview using private properties isn't a Closure violation in tests.
- * @suppress {accessControls}
  */
+
+self.BindingsTestRunner = self.BindingsTestRunner || {};
 
 Persistence.PersistenceBinding.prototype.toString = function() {
   const lines = ['{', '       network: ' + this.network.url(), '    fileSystem: ' + this.fileSystem.url(), '}'];

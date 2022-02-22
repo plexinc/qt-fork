@@ -10,6 +10,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/strings/string16.h"
@@ -21,6 +22,13 @@
 #include "ui/gfx/geometry/rect_f.h"
 
 namespace ui {
+
+// Defines the type used for AXNode IDs.
+using AXNodeID = int32_t;
+
+// If a node is not yet or no longer valid, its ID should have a value of
+// kInvalidAXNodeID.
+static constexpr AXNodeID kInvalidAXNodeID = 0;
 
 // Return true if |attr| should be interpreted as the id of another node
 // in the same tree.
@@ -34,6 +42,13 @@ AX_BASE_EXPORT bool IsNodeIdIntListAttribute(ax::mojom::IntListAttribute attr);
 // single accessible object, in a form that can be serialized and sent from
 // one process to another.
 struct AX_BASE_EXPORT AXNodeData {
+  // Defines the type used for AXNode IDs.
+  using AXID = AXNodeID;
+
+  // If a node is not yet or no longer valid, its ID should have a value of
+  // kInvalidAXID.
+  static constexpr AXID kInvalidAXID = kInvalidAXNodeID;
+
   AXNodeData();
   virtual ~AXNodeData();
 
@@ -133,7 +148,8 @@ struct AX_BASE_EXPORT AXNodeData {
   // Convenience functions.
   //
 
-  // Adds the name attribute or replaces it if already present.
+  // Adds the name attribute or replaces it if already present. Also sets the
+  // NameFrom attribute if not already set.
   void SetName(const std::string& name);
   void SetName(const base::string16& name);
 
@@ -169,6 +185,7 @@ struct AX_BASE_EXPORT AXNodeData {
   // Please keep in alphabetic order.
   ax::mojom::CheckedState GetCheckedState() const;
   void SetCheckedState(ax::mojom::CheckedState checked_state);
+  bool HasCheckedState() const;
   ax::mojom::DefaultActionVerb GetDefaultActionVerb() const;
   void SetDefaultActionVerb(ax::mojom::DefaultActionVerb default_action_verb);
   ax::mojom::HasPopup GetHasPopup() const;
@@ -185,39 +202,78 @@ struct AX_BASE_EXPORT AXNodeData {
   void SetRestriction(ax::mojom::Restriction restriction);
   ax::mojom::ListStyle GetListStyle() const;
   void SetListStyle(ax::mojom::ListStyle list_style);
-  ax::mojom::TextDirection GetTextDirection() const;
-  void SetTextDirection(ax::mojom::TextDirection text_direction);
+  ax::mojom::TextAlign GetTextAlign() const;
+  void SetTextAlign(ax::mojom::TextAlign text_align);
+  ax::mojom::WritingDirection GetTextDirection() const;
+  void SetTextDirection(ax::mojom::WritingDirection text_direction);
   ax::mojom::ImageAnnotationStatus GetImageAnnotationStatus() const;
   void SetImageAnnotationStatus(ax::mojom::ImageAnnotationStatus status);
+
+  // Helper to determine if the data belongs to a node that gains focus when
+  // clicked, such as a text field or a native HTML list box.
+  bool IsActivatable() const;
+
+  // Helper to determine if the data belongs to a node that is a native button
+  // or ARIA role="button" in a pressed state.
+  bool IsButtonPressed() const;
 
   // Helper to determine if the data belongs to a node that can respond to
   // clicks.
   bool IsClickable() const;
 
+  // Helper to determine if the object is selectable.
+  bool IsSelectable() const;
+
   // Helper to determine if the data has the ignored state or ignored role.
   bool IsIgnored() const;
+
+  // Helper to determine if the data has the invisible state.
+  bool IsInvisible() const;
+
+  // Helper to determine if the data has the ignored state, the invisible state
+  // or the ignored role.
+  bool IsInvisibleOrIgnored() const;
 
   // Helper to determine if the data belongs to a node that is invocable.
   bool IsInvocable() const;
 
-  // Helper to determine if the data belongs to a node that is a plain
-  // textfield.
+  // Helper to determine if the data belongs to a node that is a menu button.
+  bool IsMenuButton() const;
+
+  // This data belongs to a text field. This is any widget in which the user
+  // should be able to enter and edit text.
+  //
+  // Examples include <input type="text">, <input type="password">, <textarea>,
+  // <div contenteditable="true">, <div role="textbox">, <div role="searchbox">
+  // and <div role="combobox">. Note that when an ARIA role that indicates that
+  // the widget is editable is used, such as "role=textbox", the element doesn't
+  // need to be contenteditable for this method to return true, as in theory
+  // JavaScript could be used to implement editing functionality. In practice,
+  // this situation should be rare.
+  bool IsTextField() const;
+
+  // This data belongs to a text field that is used for entering passwords.
+  bool IsPasswordField() const;
+
+  // This data belongs to a text field that doesn't accept rich text content,
+  // such as text with special formatting or styling.
   bool IsPlainTextField() const;
+
+  // This data belongs to a text field that accepts rich text content, such as
+  // text with special formatting or styling.
+  bool IsRichTextField() const;
 
   // Helper to determine if |GetRestriction| is either ReadOnly or Disabled.
   // By default, all nodes that can't be edited are readonly.
   bool IsReadOnlyOrDisabled() const;
 
   // Helper to determine if the data belongs to a node that supports
-  // range-based value.
+  // range-based values.
   bool IsRangeValueSupported() const;
 
   // Helper to determine if the data belongs to a node that supports
   // expand/collapse.
   bool SupportsExpandCollapse() const;
-
-  // Helper to determine if the node is in an active live region.
-  bool IsContainedInActiveLiveRegion() const;
 
   // Return a string representation of this data, for debugging.
   virtual std::string ToString() const;
@@ -229,10 +285,10 @@ struct AX_BASE_EXPORT AXNodeData {
 
   // As much as possible this should behave as a simple, serializable,
   // copyable struct.
-  int32_t id = -1;
+  AXNodeID id = kInvalidAXNodeID;
   ax::mojom::Role role;
-  uint32_t state;
-  uint64_t actions;
+  uint32_t state = 0U;
+  uint64_t actions = 0ULL;
   std::vector<std::pair<ax::mojom::StringAttribute, std::string>>
       string_attributes;
   std::vector<std::pair<ax::mojom::IntAttribute, int32_t>> int_attributes;

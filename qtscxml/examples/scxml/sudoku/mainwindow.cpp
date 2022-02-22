@@ -106,8 +106,8 @@ MainWindow::MainWindow(QScxmlStateMachine *machine, QWidget *parent) :
     QWidget(parent),
     m_machine(machine)
 {
-    const QVector<QToolButton *> initVector(Size, nullptr);
-    m_buttons = QVector<QVector<QToolButton *> >(Size, initVector);
+    const QList<QToolButton *> initVector(Size, nullptr);
+    m_buttons = QList<QList<QToolButton *>>(Size, initVector);
 
     QGridLayout *layout = new QGridLayout(this);
 

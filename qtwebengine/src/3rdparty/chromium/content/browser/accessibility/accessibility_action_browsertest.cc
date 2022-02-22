@@ -4,13 +4,15 @@
 
 #include <string>
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "content/browser/accessibility/browser_accessibility.h"
 #include "content/browser/accessibility/browser_accessibility_manager.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/test/accessibility_notification_waiter.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
@@ -18,7 +20,9 @@
 #include "content/shell/browser/shell.h"
 #include "net/base/data_url.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/accessibility/accessibility_switches.h"
 #include "ui/accessibility/ax_enums.mojom.h"
+#include "ui/accessibility/ax_node_position.h"
 #include "ui/gfx/codec/png_codec.h"
 #include "url/gurl.h"
 
@@ -77,7 +81,9 @@ class AccessibilityActionBrowserTest : public ContentBrowserTest {
 
     AccessibilityNotificationWaiter waiter(
         shell()->web_contents(), ui::kAXModeComplete,
-        ax::mojom::Event::kScrollPositionChanged);
+        horizontal_alignment == ax::mojom::ScrollAlignment::kNone
+            ? ui::AXEventGenerator::Event::SCROLL_VERTICAL_POSITION_CHANGED
+            : ui::AXEventGenerator::Event::SCROLL_HORIZONTAL_POSITION_CHANGED);
     ui::AXActionData action_data;
     action_data.target_node_id = node->GetData().id;
     action_data.action = ax::mojom::Action::kScrollToMakeVisible;
@@ -90,10 +96,12 @@ class AccessibilityActionBrowserTest : public ContentBrowserTest {
       waiter.WaitForNotification();
   }
 
-  void ScrollToTop() {
+  void ScrollToTop(bool will_scroll_horizontally = false) {
     AccessibilityNotificationWaiter waiter(
         shell()->web_contents(), ui::kAXModeComplete,
-        ax::mojom::Event::kScrollPositionChanged);
+        will_scroll_horizontally
+            ? ui::AXEventGenerator::Event::SCROLL_HORIZONTAL_POSITION_CHANGED
+            : ui::AXEventGenerator::Event::SCROLL_VERTICAL_POSITION_CHANGED);
     BrowserAccessibility* document = GetManager()->GetRoot();
     ui::AXActionData action_data;
     action_data.target_node_id = document->GetData().id;
@@ -109,14 +117,14 @@ class AccessibilityActionBrowserTest : public ContentBrowserTest {
                                           const std::string& name_or_value) {
     const std::string& name =
         node.GetStringAttribute(ax::mojom::StringAttribute::kName);
-    // Note that in the case of a text field, "BrowserAccessibility::GetValue"
-    // has the added functionality of computing the value of an ARIA text box
-    // from its inner text.
+    // Note that in the case of a text field,
+    // "BrowserAccessibility::GetValueForControl" has the added functionality
+    // of computing the value of an ARIA text box from its inner text.
     //
     // <div contenteditable="true" role="textbox">Hello world.</div>
     // Will expose no HTML value attribute, but some screen readers, such as
     // Jaws, VoiceOver and Talkback, require one to be computed.
-    const std::string& value = base::UTF16ToUTF8(node.GetValue());
+    const std::string value = base::UTF16ToUTF8(node.GetValueForControl());
     if (node.GetRole() == role &&
         (name == name_or_value || value == name_or_value)) {
       return &node;
@@ -258,7 +266,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest, Scroll) {
 
   AccessibilityNotificationWaiter waiter2(
       shell()->web_contents(), ui::kAXModeComplete,
-      ax::mojom::Event::kScrollPositionChanged);
+      ui::AXEventGenerator::Event::SCROLL_VERTICAL_POSITION_CHANGED);
 
   ui::AXActionData data;
   data.action = ax::mojom::Action::kScrollDown;
@@ -421,8 +429,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest, InputSetValue) {
   BrowserAccessibility* target =
       FindNode(ax::mojom::Role::kTextField, "Answer");
   ASSERT_NE(nullptr, target);
-  EXPECT_EQ("Before",
-            target->GetStringAttribute(ax::mojom::StringAttribute::kValue));
+  EXPECT_EQ(base::ASCIIToUTF16("Before"), target->GetValueForControl());
 
   AccessibilityNotificationWaiter waiter2(shell()->web_contents(),
                                           ui::kAXModeComplete,
@@ -430,8 +437,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest, InputSetValue) {
   GetManager()->SetValue(*target, "After");
   waiter2.WaitForNotification();
 
-  EXPECT_EQ("After",
-            target->GetStringAttribute(ax::mojom::StringAttribute::kValue));
+  EXPECT_EQ(base::ASCIIToUTF16("After"), target->GetValueForControl());
 }
 
 IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest, TextareaSetValue) {
@@ -442,8 +448,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest, TextareaSetValue) {
   BrowserAccessibility* target =
       FindNode(ax::mojom::Role::kTextField, "Answer");
   ASSERT_NE(nullptr, target);
-  EXPECT_EQ("Before",
-            target->GetStringAttribute(ax::mojom::StringAttribute::kValue));
+  EXPECT_EQ(base::ASCIIToUTF16("Before"), target->GetValueForControl());
 
   AccessibilityNotificationWaiter waiter2(shell()->web_contents(),
                                           ui::kAXModeComplete,
@@ -451,8 +456,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest, TextareaSetValue) {
   GetManager()->SetValue(*target, "Line1\nLine2");
   waiter2.WaitForNotification();
 
-  EXPECT_EQ("Line1\nLine2",
-            target->GetStringAttribute(ax::mojom::StringAttribute::kValue));
+  EXPECT_EQ(base::ASCIIToUTF16("Line1\nLine2"), target->GetValueForControl());
 
   // TODO(dmazzoni): On Android we use an ifdef to disable inline text boxes,
   // which contain all of the line break information.
@@ -460,10 +464,11 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest, TextareaSetValue) {
   // We should do it with accessibility flags instead. http://crbug.com/672205
 #if !defined(OS_ANDROID)
   // Check that it really does contain two lines.
-  auto start_pos =
+  BrowserAccessibility::AXPosition start_position =
       target->CreatePositionAt(0, ax::mojom::TextAffinity::kDownstream);
-  auto end_of_line_1 = start_pos->CreateNextLineEndPosition(
-      ui::AXBoundaryBehavior::CrossBoundary);
+  BrowserAccessibility::AXPosition end_of_line_1 =
+      start_position->CreateNextLineEndPosition(
+          ui::AXBoundaryBehavior::CrossBoundary);
   EXPECT_EQ(5, end_of_line_1->text_offset());
 #endif
 }
@@ -477,17 +482,15 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest,
   BrowserAccessibility* target =
       FindNode(ax::mojom::Role::kGenericContainer, "Answer");
   ASSERT_NE(nullptr, target);
-  EXPECT_EQ("Before",
-            target->GetStringAttribute(ax::mojom::StringAttribute::kValue));
+  EXPECT_EQ(base::ASCIIToUTF16("Before"), target->GetValueForControl());
 
-  AccessibilityNotificationWaiter waiter2(shell()->web_contents(),
-                                          ui::kAXModeComplete,
-                                          ax::mojom::Event::kValueChanged);
+  AccessibilityNotificationWaiter waiter2(
+      shell()->web_contents(), ui::kAXModeComplete,
+      ui::AXEventGenerator::Event::VALUE_IN_TEXT_FIELD_CHANGED);
   GetManager()->SetValue(*target, "Line1\nLine2");
   waiter2.WaitForNotification();
 
-  EXPECT_EQ("Line1\nLine2",
-            target->GetStringAttribute(ax::mojom::StringAttribute::kValue));
+  EXPECT_EQ(base::ASCIIToUTF16("Line1\nLine2"), target->GetValueForControl());
 
   // TODO(dmazzoni): On Android we use an ifdef to disable inline text boxes,
   // which contain all of the line break information.
@@ -495,10 +498,11 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest,
   // We should do it with accessibility flags instead. http://crbug.com/672205
 #if !defined(OS_ANDROID)
   // Check that it really does contain two lines.
-  auto start_pos =
+  BrowserAccessibility::AXPosition start_position =
       target->CreatePositionAt(0, ax::mojom::TextAffinity::kDownstream);
-  auto end_of_line_1 = start_pos->CreateNextLineEndPosition(
-      ui::AXBoundaryBehavior::CrossBoundary);
+  BrowserAccessibility::AXPosition end_of_line_1 =
+      start_position->CreateNextLineEndPosition(
+          ui::AXBoundaryBehavior::CrossBoundary);
   EXPECT_EQ(5, end_of_line_1->text_offset());
 #endif
 }
@@ -512,24 +516,127 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest, ShowContextMenu) {
   BrowserAccessibility* target_node = FindNode(ax::mojom::Role::kLink, "2");
   EXPECT_NE(target_node, nullptr);
 
-  // Register a ContextMenuFilter in the render process to wait for the
-  // ShowContextMenu event to be raised.
-  content::RenderProcessHost* render_process_host =
-      shell()->web_contents()->GetMainFrame()->GetProcess();
-  auto context_menu_filter = base::MakeRefCounted<ContextMenuFilter>();
-  render_process_host->AddFilter(context_menu_filter.get());
+  // Create a ContextMenuInterceptor to intercept the ShowContextMenu event
+  // before RenderFrameHost receives.
+  auto context_menu_interceptor = std::make_unique<ContextMenuInterceptor>(
+      ContextMenuInterceptor::ShowBehavior::kPreventShow);
+  context_menu_interceptor->Init(shell()->web_contents()->GetMainFrame());
 
   // Raise the ShowContextMenu event from the second link.
   ui::AXActionData context_menu_action;
   context_menu_action.action = ax::mojom::Action::kShowContextMenu;
   target_node->AccessibilityPerformAction(context_menu_action);
-  context_menu_filter->Wait();
+  context_menu_interceptor->Wait();
 
-  UntrustworthyContextMenuParams context_menu_params =
-      context_menu_filter->get_params();
+  blink::UntrustworthyContextMenuParams context_menu_params =
+      context_menu_interceptor->get_params();
   EXPECT_EQ(base::ASCIIToUTF16("2"), context_menu_params.link_text);
-  EXPECT_EQ(ui::MenuSourceType::MENU_SOURCE_NONE,
+  EXPECT_EQ(ui::MenuSourceType::MENU_SOURCE_KEYBOARD,
             context_menu_params.source_type);
+}
+
+IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest,
+                       ShowContextMenuOnMultilineElement) {
+  LoadInitialAccessibilityTreeFromHtml(R"HTML(
+      <a style="line-height: 16px" href='www.google.com'>
+      This is a <br><br><br><br>multiline link.</a>
+      )HTML");
+
+  BrowserAccessibility* target_node =
+      FindNode(ax::mojom::Role::kLink, "This is a multiline link.");
+  EXPECT_NE(target_node, nullptr);
+
+  // Create a ContextMenuInterceptor to intercept the ShowContextMenu event
+  // before RenderFrameHost receives.
+  auto context_menu_interceptor = std::make_unique<ContextMenuInterceptor>(
+      ContextMenuInterceptor::ShowBehavior::kPreventShow);
+  context_menu_interceptor->Init(shell()->web_contents()->GetMainFrame());
+
+  // Raise the ShowContextMenu event from the link.
+  ui::AXActionData context_menu_action;
+  context_menu_action.action = ax::mojom::Action::kShowContextMenu;
+  target_node->AccessibilityPerformAction(context_menu_action);
+  context_menu_interceptor->Wait();
+
+  blink::UntrustworthyContextMenuParams context_menu_params =
+      context_menu_interceptor->get_params();
+  std::string link_text = base::UTF16ToUTF8(context_menu_params.link_text);
+  base::ReplaceChars(link_text, "\n", "\\n", &link_text);
+  EXPECT_EQ("This is a\\n\\n\\n\\nmultiline link.", link_text);
+  EXPECT_EQ(ui::MenuSourceType::MENU_SOURCE_KEYBOARD,
+            context_menu_params.source_type);
+  // Expect the context menu to open on the same line as the first line of link
+  // text. Check that the y coordinate of the context menu is near the line
+  // height.
+  EXPECT_NEAR(16, context_menu_params.y, 15);
+}
+
+IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest,
+                       ShowContextMenuOnOffscreenElement) {
+  LoadInitialAccessibilityTreeFromHtml(R"HTML(
+      <a href='www.google.com'
+      style='position: absolute; top: -1000px; left: -1000px'>
+      Offscreen</a></div>
+      )HTML");
+
+  BrowserAccessibility* target_node =
+      FindNode(ax::mojom::Role::kLink, "Offscreen");
+  EXPECT_NE(target_node, nullptr);
+
+  // Create a ContextMenuInterceptor to intercept the ShowContextMenu event
+  // before RenderFrameHost receives.
+  auto context_menu_interceptor = std::make_unique<ContextMenuInterceptor>(
+      ContextMenuInterceptor::ShowBehavior::kPreventShow);
+  context_menu_interceptor->Init(shell()->web_contents()->GetMainFrame());
+
+  // Raise the ShowContextMenu event from the link.
+  ui::AXActionData context_menu_action;
+  context_menu_action.action = ax::mojom::Action::kShowContextMenu;
+  target_node->AccessibilityPerformAction(context_menu_action);
+  context_menu_interceptor->Wait();
+
+  blink::UntrustworthyContextMenuParams context_menu_params =
+      context_menu_interceptor->get_params();
+  EXPECT_EQ(base::ASCIIToUTF16("Offscreen"), context_menu_params.link_text);
+  EXPECT_EQ(ui::MenuSourceType::MENU_SOURCE_KEYBOARD,
+            context_menu_params.source_type);
+  // Expect the context menu point to be 0, 0.
+  EXPECT_EQ(0, context_menu_params.x);
+  EXPECT_EQ(0, context_menu_params.y);
+}
+
+IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest,
+                       ShowContextMenuOnObscuredElement) {
+  LoadInitialAccessibilityTreeFromHtml(R"HTML(
+      <a href='www.google.com'>Obscured</a>
+      <div style="position: absolute; height: 100px; width: 100px; top: 0px;
+                  left: 0px; background-color:red; line-height: 16px"></div>
+      )HTML");
+
+  BrowserAccessibility* target_node =
+      FindNode(ax::mojom::Role::kLink, "Obscured");
+  EXPECT_NE(target_node, nullptr);
+
+  // Create a ContextMenuInterceptor to intercept the ShowContextMenu event
+  // before RenderFrameHost receives.
+  auto context_menu_interceptor = std::make_unique<ContextMenuInterceptor>(
+      ContextMenuInterceptor::ShowBehavior::kPreventShow);
+  context_menu_interceptor->Init(shell()->web_contents()->GetMainFrame());
+
+  // Raise the ShowContextMenu event from the link.
+  ui::AXActionData context_menu_action;
+  context_menu_action.action = ax::mojom::Action::kShowContextMenu;
+  target_node->AccessibilityPerformAction(context_menu_action);
+  context_menu_interceptor->Wait();
+
+  blink::UntrustworthyContextMenuParams context_menu_params =
+      context_menu_interceptor->get_params();
+  EXPECT_EQ(base::ASCIIToUTF16("Obscured"), context_menu_params.link_text);
+  EXPECT_EQ(ui::MenuSourceType::MENU_SOURCE_KEYBOARD,
+            context_menu_params.source_type);
+  // Expect the context menu to open on the same line as the link text. Check
+  // that the y coordinate of the context menu is near the line height.
+  EXPECT_NEAR(16, context_menu_params.y, 15);
 }
 
 IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest,
@@ -820,8 +927,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest, ScrollIntoView) {
   EXPECT_GE(bounds.x(), doc_right_third.x());
   EXPECT_LE(bounds.x(), doc_right_third.right());
   EXPECT_FALSE(doc_bounds.Contains(bounds));
-
-  ScrollToTop();
+  ScrollToTop(true /* horizontally scrolls */);
   bounds = target_node->GetUnclippedScreenBoundsRect();
   EXPECT_FALSE(doc_bounds.Contains(bounds));
 
@@ -875,5 +981,49 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest, ClickSVG) {
                                                 "SVG link was clicked!");
 #endif  // !defined(OS_ANDROID)
 }
+
+// This test ony makes sense on platforms where the popup menu is implemented
+// internally as an HTML page in a popup, not where it's a native popup.
+#if defined(OS_WIN) || BUILDFLAG(IS_CHROMEOS_ASH) || defined(USE_ATK)
+IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest,
+                       OpenSelectPopupWithNoAXMenuList) {
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
+      ::switches::kDisableAXMenuList);
+
+  LoadInitialAccessibilityTreeFromHtml(R"HTML(
+      <head><title>No AXMenuList</title></head>
+      <body>
+        <select>
+          <option selected>One</option>
+          <option>Two</option>
+          <option>Three</option>
+        </select>
+      </body>
+      )HTML");
+
+  BrowserAccessibility* target = FindNode(ax::mojom::Role::kPopUpButton, "One");
+  ASSERT_NE(nullptr, target);
+
+  EXPECT_EQ(0U, target->PlatformChildCount());
+  EXPECT_EQ(nullptr, FindNode(ax::mojom::Role::kListBox, ""));
+
+  // Call DoDefaultAction.
+  AccessibilityNotificationWaiter waiter2(
+      shell()->web_contents(), ui::kAXModeComplete, ax::mojom::Event::kClicked);
+  GetManager()->DoDefaultAction(*target);
+  waiter2.WaitForNotification();
+
+  WaitForAccessibilityTreeToContainNodeWithName(shell()->web_contents(),
+                                                "Three");
+
+  ASSERT_EQ(1U, target->PlatformChildCount());
+  BrowserAccessibility* popup_web_area = target->PlatformGetChild(0);
+  EXPECT_EQ(ax::mojom::Role::kRootWebArea, popup_web_area->GetRole());
+
+  BrowserAccessibility* listbox = FindNode(ax::mojom::Role::kListBox, "");
+  ASSERT_TRUE(listbox);
+  EXPECT_EQ(3U, listbox->PlatformChildCount());
+}
+#endif  // defined(OS_WIN) || BUILDFLAG(IS_CHROMEOS_ASH) || defined(USE_ATK)
 
 }  // namespace content

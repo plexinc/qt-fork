@@ -46,7 +46,7 @@
 #include <private/qv4script_p.h>
 #include <private/qv4string_p.h>
 #include <private/qv4objectiterator_p.h>
-#include <private/qv4identifier_p.h>
+#include <private/qv4identifierhash_p.h>
 #include <private/qv4runtime_p.h>
 #include <private/qversionedpacket_p.h>
 #include <private/qqmldebugserviceinterfaces_p.h>
@@ -83,7 +83,7 @@ public:
     int hitCount;
 };
 
-inline uint qHash(const BreakPoint &b, uint seed = 0) Q_DECL_NOTHROW
+inline size_t qHash(const BreakPoint &b, size_t seed = 0) noexcept
 {
     return qHash(b.fileName, seed) ^ b.lineNumber;
 }
@@ -360,7 +360,7 @@ void NativeDebugger::handleBacktrace(QJsonObject *response, const QJsonObject &a
 
         frameArray.push_back(frame);
 
-        f = f->parent;
+        f = f->parentFrame();
     }
 
     response->insert(QStringLiteral("frames"), frameArray);
@@ -479,7 +479,7 @@ void NativeDebugger::handleVariables(QJsonObject *response, const QJsonObject &a
 
     Collector collector(engine);
     const QJsonArray expanded = arguments.value(QLatin1String("expanded")).toArray();
-    for (const QJsonValue &ex : expanded)
+    for (const QJsonValue ex : expanded)
         collector.m_expanded.append(ex.toString());
     TRACE_PROTOCOL("Expanded: " << collector.m_expanded);
 
@@ -522,7 +522,7 @@ void NativeDebugger::handleExpressions(QJsonObject *response, const QJsonObject 
 
     Collector collector(engine);
     const QJsonArray expanded = arguments.value(QLatin1String("expanded")).toArray();
-    for (const QJsonValue &ex : expanded)
+    for (const QJsonValue ex : expanded)
         collector.m_expanded.append(ex.toString());
     TRACE_PROTOCOL("Expanded: " << collector.m_expanded);
 
@@ -530,7 +530,7 @@ void NativeDebugger::handleExpressions(QJsonObject *response, const QJsonObject 
     QV4::Scope scope(engine);
 
     const QJsonArray expressions = arguments.value(QLatin1String("expressions")).toArray();
-    for (const QJsonValue &expr : expressions) {
+    for (const QJsonValue expr : expressions) {
         QString expression = expr.toObject().value(QLatin1String("expression")).toString();
         QString name = expr.toObject().value(QLatin1String("name")).toString();
         TRACE_PROTOCOL("Evaluate expression: " << expression);
@@ -639,7 +639,7 @@ void NativeDebugger::leavingFunction(const QV4::ReturnedValue &retVal)
         return;
 
     if (m_stepping != NotStepping && m_currentFrame == m_engine->currentStackFrame) {
-        m_currentFrame = m_currentFrame->parent;
+        m_currentFrame = m_currentFrame->parentFrame();
         m_stepping = StepOver;
         m_returnedValue.set(m_engine, retVal);
     }

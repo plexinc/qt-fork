@@ -83,7 +83,7 @@ void QCUPSSupport::clearCupsOptions(QPrinter *printer)
     setCupsOptions(printer, QStringList());
 }
 
-static inline QString jobHoldToString(const QCUPSSupport::JobHoldUntil jobHold, const QTime holdUntilTime)
+static inline QString jobHoldToString(const QCUPSSupport::JobHoldUntil jobHold, QTime holdUntilTime)
 {
     switch (jobHold) {
     case QCUPSSupport::Indefinite:
@@ -167,7 +167,7 @@ ppd_option_t *QCUPSSupport::findPpdOption(const char *optionName, QPrintDevice *
     return nullptr;
 }
 
-void QCUPSSupport::setJobHold(QPrinter *printer, const JobHoldUntil jobHold, const QTime &holdUntilTime)
+void QCUPSSupport::setJobHold(QPrinter *printer, const JobHoldUntil jobHold, QTime holdUntilTime)
 {
     const QString jobHoldUntilArgument = jobHoldToString(jobHold, holdUntilTime);
     if (!jobHoldUntilArgument.isEmpty()) {

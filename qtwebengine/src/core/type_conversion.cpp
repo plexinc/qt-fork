@@ -39,9 +39,11 @@
 
 #include "type_conversion.h"
 
+#include <components/favicon_base/favicon_util.h>
 #include <net/cert/x509_certificate.h>
 #include <net/cert/x509_util.h>
 #include <ui/events/event_constants.h>
+#include <ui/gfx/image/image.h>
 #include <ui/gfx/image/image_skia.h>
 #include "third_party/blink/public/mojom/favicon/favicon_url.mojom.h"
 
@@ -133,6 +135,21 @@ QImage toQImage(const SkBitmap &bitmap)
             break;
         }
         break;
+    case kBGR_101010x_SkColorType:
+    case kBGRA_1010102_SkColorType:
+        switch (bitmap.alphaType()) {
+        case kUnknown_SkAlphaType:
+            break;
+        case kUnpremul_SkAlphaType:
+            // not supported - treat as opaque
+        case kOpaque_SkAlphaType:
+            image = toQImage(bitmap, QImage::Format_BGR30);
+            break;
+        case kPremul_SkAlphaType:
+            image = toQImage(bitmap, QImage::Format_A2BGR30_Premultiplied);
+            break;
+        }
+        break;
     case kGray_8_SkColorType:
         image = toQImage(bitmap, QImage::Format_Grayscale8);
         break;
@@ -201,6 +218,23 @@ SkBitmap toSkBitmap(const QImage &image)
     return bitmapCopy;
 }
 
+QIcon toQIcon(const gfx::Image &image)
+{
+    // Based on ExtractSkBitmapsToStore in chromium/components/favicon/core/favicon_service_impl.cc
+    gfx::ImageSkia image_skia = image.AsImageSkia();
+    image_skia.EnsureRepsForSupportedScales();
+    const std::vector<gfx::ImageSkiaRep> &image_reps = image_skia.image_reps();
+    std::vector<SkBitmap> bitmaps;
+    const std::vector<float> favicon_scales = favicon_base::GetFaviconScales();
+    for (size_t i = 0; i < image_reps.size(); ++i) {
+        // Don't save if the scale isn't one of supported favicon scales.
+        if (!base::Contains(favicon_scales, image_reps[i].scale()))
+            continue;
+        bitmaps.push_back(image_reps[i].GetBitmap());
+    }
+    return toQIcon(bitmaps);
+}
+
 QIcon toQIcon(const std::vector<SkBitmap> &bitmaps)
 {
     if (!bitmaps.size())
@@ -242,33 +276,6 @@ int flagsFromModifiers(Qt::KeyboardModifiers modifiers)
     return modifierFlags;
 }
 
-FaviconInfo::FaviconTypeFlags toQt(blink::mojom::FaviconIconType type)
-{
-    switch (type) {
-    case blink::mojom::FaviconIconType::kFavicon:
-        return FaviconInfo::Favicon;
-    case blink::mojom::FaviconIconType::kTouchIcon:
-        return FaviconInfo::TouchIcon;
-    case blink::mojom::FaviconIconType::kTouchPrecomposedIcon:
-        return FaviconInfo::TouchPrecomposedIcon;
-    case blink::mojom::FaviconIconType::kInvalid:
-        return FaviconInfo::InvalidIcon;
-    }
-    Q_UNREACHABLE();
-    return FaviconInfo::InvalidIcon;
-}
-
-FaviconInfo toFaviconInfo(const blink::mojom::FaviconURLPtr &favicon_url)
-{
-    FaviconInfo info;
-    info.url = toQt(favicon_url->icon_url);
-    info.type = toQt(favicon_url->icon_type);
-    // TODO: Add support for rel sizes attribute (favicon_url.icon_sizes):
-    // http://www.w3schools.com/tags/att_link_sizes.asp
-    info.size = QSize(0, 0);
-    return info;
-}
-
 void convertToQt(const SkMatrix44 &m, QMatrix4x4 &c)
 {
     QMatrix4x4 qtMatrix(
@@ -294,6 +301,42 @@ QList<QSslCertificate> toCertificateChain(net::X509Certificate *certificate)
     for (auto &&buffer : certificate->intermediate_buffers())
         chain.append(toCertificate(buffer.get()));
     return chain;
+}
+
+Qt::InputMethodHints toQtInputMethodHints(ui::TextInputType inputType)
+{
+    switch (inputType) {
+    case ui::TEXT_INPUT_TYPE_TEXT:
+        return Qt::ImhPreferLowercase;
+    case ui::TEXT_INPUT_TYPE_SEARCH:
+        return Qt::ImhPreferLowercase | Qt::ImhNoAutoUppercase;
+    case ui::TEXT_INPUT_TYPE_PASSWORD:
+        return Qt::ImhSensitiveData | Qt::ImhNoPredictiveText | Qt::ImhNoAutoUppercase
+                | Qt::ImhHiddenText;
+    case ui::TEXT_INPUT_TYPE_EMAIL:
+        return Qt::ImhEmailCharactersOnly;
+    case ui::TEXT_INPUT_TYPE_NUMBER:
+        return Qt::ImhFormattedNumbersOnly;
+    case ui::TEXT_INPUT_TYPE_TELEPHONE:
+        return Qt::ImhDialableCharactersOnly;
+    case ui::TEXT_INPUT_TYPE_URL:
+        return Qt::ImhUrlCharactersOnly | Qt::ImhNoPredictiveText | Qt::ImhNoAutoUppercase;
+    case ui::TEXT_INPUT_TYPE_DATE_TIME:
+    case ui::TEXT_INPUT_TYPE_DATE_TIME_LOCAL:
+    case ui::TEXT_INPUT_TYPE_DATE_TIME_FIELD:
+        return Qt::ImhDate | Qt::ImhTime;
+    case ui::TEXT_INPUT_TYPE_DATE:
+    case ui::TEXT_INPUT_TYPE_MONTH:
+    case ui::TEXT_INPUT_TYPE_WEEK:
+        return Qt::ImhDate;
+    case ui::TEXT_INPUT_TYPE_TIME:
+        return Qt::ImhTime;
+    case ui::TEXT_INPUT_TYPE_TEXT_AREA:
+    case ui::TEXT_INPUT_TYPE_CONTENT_EDITABLE:
+        return Qt::ImhMultiLine | Qt::ImhPreferLowercase;
+    default:
+        return Qt::ImhNone;
+    }
 }
 
 } // namespace QtWebEngineCore

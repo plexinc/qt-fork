@@ -40,7 +40,7 @@ class QGraphicsScene;
 class QRubberBand;
 QT_END_NAMESPACE
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class QChartViewPrivate;
 
@@ -54,7 +54,8 @@ public:
         NoRubberBand = 0x0,
         VerticalRubberBand = 0x1,
         HorizontalRubberBand = 0x2,
-        RectangleRubberBand = 0x3
+        RectangleRubberBand = 0x3,
+        ClickThroughRubberBand = 0x80
     };
 
     Q_DECLARE_FLAGS(RubberBands, RubberBand)
@@ -86,6 +87,6 @@ private:
     Q_DISABLE_COPY(QChartView)
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // QCHARTVIEW_H

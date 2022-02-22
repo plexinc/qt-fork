@@ -42,6 +42,7 @@
 #include "base/command_line.h"
 #include "base/i18n/rtl.h"
 #include "base/logging.h"
+#include "base/no_destructor.h"
 #include "base/path_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "chrome/grit/generated_resources.h"
@@ -55,8 +56,7 @@
 #include "ui/base/webui/jstemplate_builder.h"
 #include "net/grit/net_resources.h"
 #include "net/base/net_module.h"
-#include "services/service_manager/embedder/switches.h"
-#include "services/service_manager/sandbox/switches.h"
+#include "sandbox/policy/switches.h"
 #include "url/url_util_qt.h"
 
 #include "content_client_qt.h"
@@ -82,7 +82,7 @@
 #include "media/gpu/windows/media_foundation_video_encode_accelerator_win.h"
 #endif
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 #include "content/public/common/content_features.h"
 #include "media/gpu/mac/vt_video_decode_accelerator_mac.h"
 #endif
@@ -178,7 +178,9 @@ void ContentMainDelegateQt::PreSandboxStartup()
 #endif
 
     net::NetModule::SetResourceProvider(PlatformResourceProvider);
-    ui::ResourceBundle::InitSharedInstanceWithLocale(WebEngineLibraryInfo::getApplicationLocale(), nullptr, ui::ResourceBundle::LOAD_COMMON_RESOURCES);
+
+    base::i18n::SetICUDefaultLocale(WebEngineLibraryInfo::getApplicationLocale());
+    ui::ResourceBundle::InitSharedInstanceWithLocale(WebEngineLibraryInfo::getResolvedLocale(), nullptr, ui::ResourceBundle::LOAD_COMMON_RESOURCES);
 
     base::CommandLine* parsedCommandLine = base::CommandLine::ForCurrentProcess();
     logging::LoggingSettings settings;
@@ -193,11 +195,11 @@ void ContentMainDelegateQt::PreSandboxStartup()
                          false //enable_tickcount
                         );
 
-    if (logging::GetMinLogLevel() >= logging::LOG_INFO) {
+    if (logging::GetMinLogLevel() >= logging::LOGGING_INFO) {
         if (parsedCommandLine->HasSwitch(switches::kLoggingLevel)) {
             std::string logLevelValue = parsedCommandLine->GetSwitchValueASCII(switches::kLoggingLevel);
             int level = 0;
-            if (base::StringToInt(logLevelValue, &level) && level >= logging::LOG_INFO && level < logging::LOG_NUM_SEVERITIES)
+            if (base::StringToInt(logLevelValue, &level) && level >= logging::LOGGING_INFO && level < logging::LOGGING_NUM_SEVERITIES)
                 logging::SetMinLogLevel(level);
         }
     }
@@ -216,15 +218,15 @@ void ContentMainDelegateQt::PreSandboxStartup()
     media::MediaFoundationVideoEncodeAccelerator::PreSandboxInitialization();
 #endif
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
     if (base::FeatureList::IsEnabled(features::kMacV2GPUSandbox)) {
         TRACE_EVENT0("gpu", "Initialize VideoToolbox");
         media::InitializeVideoToolbox();
     }
 #endif
 
-    if (parsedCommandLine->HasSwitch(service_manager::switches::kApplicationName)) {
-        std::string appName = parsedCommandLine->GetSwitchValueASCII(service_manager::switches::kApplicationName);
+    if (parsedCommandLine->HasSwitch(switches::kApplicationName)) {
+        std::string appName = parsedCommandLine->GetSwitchValueASCII(switches::kApplicationName);
         appName = QByteArray::fromPercentEncoding(QByteArray::fromStdString(appName)).toStdString();
         QCoreApplication::setApplicationName(QString::fromStdString(appName));
 #if defined(OS_LINUX)
@@ -260,7 +262,7 @@ content::ContentRendererClient *ContentMainDelegateQt::CreateContentRendererClie
 #if defined(OS_LINUX)
     base::CommandLine *parsedCommandLine = base::CommandLine::ForCurrentProcess();
     std::string process_type = parsedCommandLine->GetSwitchValueASCII(switches::kProcessType);
-    bool no_sandbox = parsedCommandLine->HasSwitch(service_manager::switches::kNoSandbox);
+    bool no_sandbox = parsedCommandLine->HasSwitch(sandbox::policy::switches::kNoSandbox);
 
     // Reload locale if the renderer process is sandboxed
     if (process_type == switches::kRendererProcess && !no_sandbox) {

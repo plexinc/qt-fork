@@ -60,13 +60,14 @@ namespace test {
 class SpdyStreamTest;
 }
 
-// This is somewhat arbitrary and not really fixed, but it will always work
-// reasonably with ethernet. Chop the world into 2-packet chunks.  This is
-// somewhat arbitrary, but is reasonably small and ensures that we elicit
-// ACKs quickly from TCP (because TCP tries to only ACK every other packet).
-const int kMss = 1430;
-// The 8 is the size of the SPDY frame header.
-const int kMaxSpdyFrameChunkSize = (2 * kMss) - 8;
+// TLS and other layers will chunk data at 16KB. Making the max frame size too
+// small will lead to increased CPU/byte cost and overhead on both client/server
+// due to excessive frames to process. Making this larger has diminishing
+// returns as the data will be chunked elsewhere. We also want to ensure we are
+// >= 2860B (~2* MSS => 2 packets) to avoid delayed ACKs. We will also account
+// for the frame header size of 9B to prevent fragmentation when this is added.
+// As a result we will use a 16KB - 9B max data frame size.
+const int kMaxSpdyFrameChunkSize = (16 * 1024) - 9;
 
 // Default value of spdy::SETTINGS_INITIAL_WINDOW_SIZE per protocol
 // specification. A session is always created with this initial window size.
@@ -329,7 +330,8 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
                       const SSLInfo& ssl_info,
                       const SSLConfigService& ssl_config_service,
                       const std::string& old_hostname,
-                      const std::string& new_hostname);
+                      const std::string& new_hostname,
+                      const net::NetworkIsolationKey& network_isolation_key);
 
   // Create a new SpdySession.
   // |spdy_session_key| is the host/port that this session connects to, privacy
@@ -350,6 +352,8 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
               const spdy::SettingsMap& initial_settings,
               const base::Optional<SpdySessionPool::GreasedHttp2Frame>&
                   greased_http2_frame,
+              bool http2_end_stream_with_data_frame,
+              bool enable_priority_update,
               TimeFunc time_func,
               ServerPushDelegate* push_delegate,
               NetworkQualityEstimator* network_quality_estimator,
@@ -363,9 +367,7 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
   const HostPortProxyPair& host_port_proxy_pair() const {
     return spdy_session_key_.host_port_proxy_pair();
   }
-  const SpdySessionKey& spdy_session_key() const {
-    return spdy_session_key_;
-  }
+  const SpdySessionKey& spdy_session_key() const { return spdy_session_key_; }
 
   // Get a pushed stream for a given |url| with stream ID |pushed_stream_id|.
   // The caller must have already claimed the stream from Http2PushPromiseIndex.
@@ -430,8 +432,31 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
   // https://tools.ietf.org/html/draft-bishop-httpbis-grease-00.
   bool GreasedFramesEnabled() const;
 
+  // Returns true if HEADERS frames on request streams should not have the
+  // END_STREAM flag set, but instead an empty DATA frame with END_STREAM should
+  // be sent afterwards to close the stream.  Does not apply to bidirectional or
+  // proxy streams.
+  bool EndStreamWithDataFrame() const {
+    return http2_end_stream_with_data_frame_;
+  }
+
   // Send greased frame, that is, a frame of reserved type.
   void EnqueueGreasedFrame(const base::WeakPtr<SpdyStream>& stream);
+
+  // Returns whether HTTP/2 style priority information (stream dependency and
+  // weight fields in HEADERS frames, and PRIORITY frames) should be sent.  True
+  // unless |enable_priority_update_| is true and
+  // SETTINGS_DEPRECATE_HTTP2_PRIORITIES with value 1 has been received from
+  // server.  In particular, if it returns false, it will always return false
+  // afterwards.
+  bool ShouldSendHttp2Priority() const;
+
+  // Returns whether PRIORITY_UPDATE frames should be sent.  False if
+  // |enable_priority_update_| is false.  Otherwise, true before SETTINGS frame
+  // is received from server, and true after SETTINGS frame is received if it
+  // contained SETTINGS_DEPRECATE_HTTP2_PRIORITIES with value 1.  In particular,
+  // if it returns false, it will always return false afterwards.
+  bool ShouldSendPriorityUpdate() const;
 
   // Runs the handshake to completion to confirm the handshake with the server.
   // If ERR_IO_PENDING is returned, then when the handshake is confirmed,
@@ -443,15 +468,19 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
       spdy::SpdyStreamId stream_id,
       RequestPriority priority,
       spdy::SpdyControlFlags flags,
-      spdy::SpdyHeaderBlock headers,
+      spdy::Http2HeaderBlock headers,
       NetLogSource source_dependency);
 
-  // Creates and returns a SpdyBuffer holding a data frame with the
-  // given data. May return NULL if stalled by flow control.
+  // Creates and returns a SpdyBuffer holding a data frame with the given data.
+  // Sets |*effective_len| to number of bytes sent, and |*end_stream| to the
+  // value of the END_STREAM (also known as fin) flag.  Returns nullptr if
+  // session is draining or if session or stream is stalled by flow control.
   std::unique_ptr<SpdyBuffer> CreateDataBuffer(spdy::SpdyStreamId stream_id,
                                                IOBuffer* data,
                                                int len,
-                                               spdy::SpdyDataFlags flags);
+                                               spdy::SpdyDataFlags flags,
+                                               int* effective_len,
+                                               bool* end_stream);
 
   // Send PRIORITY frames according to the new priority of an existing stream.
   void UpdateStreamPriority(SpdyStream* stream,
@@ -696,7 +725,7 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
 
   void TryCreatePushStream(spdy::SpdyStreamId stream_id,
                            spdy::SpdyStreamId associated_stream_id,
-                           spdy::SpdyHeaderBlock headers);
+                           spdy::Http2HeaderBlock headers);
 
   // Close the stream pointed to by the given iterator. Note that that
   // stream may hold the last reference to the session.
@@ -833,7 +862,7 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
   void RecordHistograms();
   void RecordProtocolErrorHistogram(SpdyProtocolErrorDetails details);
   static void RecordPushedStreamVaryResponseHeaderHistogram(
-      const spdy::SpdyHeaderBlock& headers);
+      const spdy::Http2HeaderBlock& headers);
 
   // DCHECKs that |availability_state_| >= STATE_GOING_AWAY, that
   // there are no pending stream creation requests, and that there are
@@ -891,19 +920,19 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
   void OnSettings() override;
   void OnSettingsAck() override;
   void OnSetting(spdy::SpdySettingsId id, uint32_t value) override;
-  void OnSettingsEnd() override {}
+  void OnSettingsEnd() override;
   void OnWindowUpdate(spdy::SpdyStreamId stream_id,
                       int delta_window_size) override;
   void OnPushPromise(spdy::SpdyStreamId stream_id,
                      spdy::SpdyStreamId promised_stream_id,
-                     spdy::SpdyHeaderBlock headers) override;
+                     spdy::Http2HeaderBlock headers) override;
   void OnHeaders(spdy::SpdyStreamId stream_id,
                  bool has_priority,
                  int weight,
                  spdy::SpdyStreamId parent_stream_id,
                  bool exclusive,
                  bool fin,
-                 spdy::SpdyHeaderBlock headers,
+                 spdy::Http2HeaderBlock headers,
                  base::TimeTicks recv_first_byte_time) override;
   void OnAltSvc(spdy::SpdyStreamId stream_id,
                 base::StringPiece origin,
@@ -1106,10 +1135,32 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
   // and maximum HPACK dynamic table size.
   const spdy::SettingsMap initial_settings_;
 
-  // If set, an HTTP/2 frame with a reserved frame type will be sent after every
-  // valid HTTP/2 frame.  See
+  // If set, an HTTP/2 frame with a reserved frame type will be sent after
+  // every HTTP/2 SETTINGS frame and before every HTTP/2 DATA frame. See
   // https://tools.ietf.org/html/draft-bishop-httpbis-grease-00.
   const base::Optional<SpdySessionPool::GreasedHttp2Frame> greased_http2_frame_;
+
+  // If set, the HEADERS frame carrying a request without body will not have the
+  // END_STREAM flag set.  The stream will be closed by a subsequent empty DATA
+  // frame with END_STREAM.  Does not affect bidirectional or proxy streams.
+  // If unset, the HEADERS frame will have the END_STREAM flag set on.
+  // This is useful in conjuction with |greased_http2_frame_| so that a frame
+  // of reserved type can be sent out even on requests without a body.
+  const bool http2_end_stream_with_data_frame_;
+
+  // If true, enable sending PRIORITY_UPDATE frames until SETTINGS frame
+  // arrives.  After SETTINGS frame arrives, do not send PRIORITY_UPDATE frames
+  // any longer if SETTINGS_DEPRECATE_HTTP2_PRIORITIES is missing or has zero 0,
+  // but continue and also stop sending HTTP/2-style priority information in
+  // HEADERS frames and PRIORITY frames if it has value 1.
+  const bool enable_priority_update_;
+
+  // The value of the last received SETTINGS_DEPRECATE_HTTP2_PRIORITIES, with 0
+  // mapping to false and 1 to true.  Initial value is false.
+  bool deprecate_http2_priorities_;
+
+  // True if at least one SETTINGS frame has been received.
+  bool settings_frame_received_;
 
   // The callbacks to notify a request that the handshake has been confirmed.
   std::vector<CompletionOnceCallback> waiting_for_confirmation_callbacks_;

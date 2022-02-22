@@ -56,7 +56,7 @@
 #include <QtQml/qjsengine.h>
 #include <QtQml/qqmlfile.h>
 #include <QtNetwork/qnetworkreply.h>
-#include <QtCore/qtextcodec.h>
+#include <QtCore/qstringconverter.h>
 #include <QtCore/qxmlstream.h>
 #include <QtCore/qstack.h>
 #include <QtCore/qdebug.h>
@@ -702,7 +702,7 @@ ReturnedValue CharacterData::method_length(const FunctionObject *b, const Value 
     if (!r)
         RETURN_UNDEFINED();
 
-    return Encode(r->d()->d->data.length());
+    return Encode(int(r->d()->d->data.length()));
 }
 
 ReturnedValue CharacterData::prototype(ExecutionEngine *v4)
@@ -728,7 +728,7 @@ ReturnedValue Text::method_isElementContentWhitespace(const FunctionObject *b, c
     if (!r)
         RETURN_UNDEFINED();
 
-    return Encode(QStringRef(&r->d()->d->data).trimmed().isEmpty());
+    return Encode(QStringView(r->d()->d->data).trimmed().isEmpty());
 }
 
 ReturnedValue Text::method_wholeText(const FunctionObject *b, const Value *thisObject, const Value *, int)
@@ -1020,7 +1020,8 @@ public:
     QString replyStatusText() const;
 
     ReturnedValue open(Object *thisObject, const QString &, const QUrl &, LoadType);
-    ReturnedValue send(Object *thisObject, QQmlContextData *context, const QByteArray &);
+    ReturnedValue send(Object *thisObject, const QQmlRefPointer<QQmlContextData> &context,
+                       const QByteArray &);
     ReturnedValue abort(Object *thisObject);
 
     void addHeader(const QString &, const QString &);
@@ -1061,14 +1062,11 @@ private:
     bool m_gotXml;
     QByteArray m_mime;
     QByteArray m_charset;
-    QTextCodec *m_textCodec;
-#if QT_CONFIG(textcodec)
-    QTextCodec* findTextCodec() const;
-#endif
+    QStringDecoder findTextDecoder() const;
     void readEncoding();
 
     PersistentValue m_thisObject;
-    QQmlContextDataRef m_qmlContext;
+    QQmlRefPointer<QQmlContextData> m_qmlContext;
     bool m_wasConstructedWithQmlContext = true;
 
     void dispatchCallbackNow(Object *thisObj);
@@ -1091,11 +1089,11 @@ private:
 
 QQmlXMLHttpRequest::QQmlXMLHttpRequest(QNetworkAccessManager *manager, QV4::ExecutionEngine *v4)
     : m_state(Unsent), m_errorFlag(false), m_sendFlag(false)
-    , m_redirectCount(0), m_gotXml(false), m_textCodec(nullptr), m_network(nullptr), m_nam(manager)
+    , m_redirectCount(0), m_gotXml(false), m_network(nullptr), m_nam(manager)
     , m_responseType()
     , m_parsedDocument()
 {
-    m_wasConstructedWithQmlContext = v4->callingQmlContext() != nullptr;
+    m_wasConstructedWithQmlContext = !v4->callingQmlContext().isNull();
 }
 
 QQmlXMLHttpRequest::~QQmlXMLHttpRequest()
@@ -1203,25 +1201,15 @@ void QQmlXMLHttpRequest::requestFromUrl(const QUrl &url)
         if (m_method == QLatin1String("PUT"))
         {
             if (!xhrFileWrite()) {
-                if (qEnvironmentVariableIsSet("QML_XHR_ALLOW_FILE_WRITE")) {
-                    qWarning("XMLHttpRequest: Tried to use PUT on a local file despite being disabled.");
-                    return;
-                } else {
-                    qWarning("XMLHttpRequest: Using PUT on a local file is dangerous "
-                             "and will be disabled by default in a future Qt version."
-                             "Set QML_XHR_ALLOW_FILE_WRITE to 1 if you wish to continue using this feature.");
-                }
+                qWarning("XMLHttpRequest: Using PUT on a local file is disabled by default.\n"
+                         "Set QML_XHR_ALLOW_FILE_WRITE to 1 to enable this feature.");
+                return;
             }
         } else if (m_method == QLatin1String("GET")) {
             if (!xhrFileRead()) {
-                if (qEnvironmentVariableIsSet("QML_XHR_ALLOW_FILE_READ")) {
-                    qWarning("XMLHttpRequest: Tried to use GET on a local file despite being disabled.");
-                    return;
-                } else {
-                    qWarning("XMLHttpRequest: Using GET on a local file is dangerous "
-                             "and will be disabled by default in a future Qt version."
-                             "Set QML_XHR_ALLOW_FILE_READ to 1 if you wish to continue using this feature.");
-                }
+                qWarning("XMLHttpRequest: Using GET on a local file is disabled by default.\n"
+                         "Set QML_XHR_ALLOW_FILE_READ to 1 to enable this feature.");
+                return;
             }
         } else {
             qWarning("XMLHttpRequest: Unsupported method used on a local file");
@@ -1229,6 +1217,7 @@ void QQmlXMLHttpRequest::requestFromUrl(const QUrl &url)
         }
     }
 
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::ManualRedirectPolicy);
     request.setUrl(url);
     if(m_method == QLatin1String("POST") ||
        m_method == QLatin1String("PUT")) {
@@ -1307,7 +1296,8 @@ void QQmlXMLHttpRequest::requestFromUrl(const QUrl &url)
     }
 }
 
-ReturnedValue QQmlXMLHttpRequest::send(Object *thisObject, QQmlContextData *context, const QByteArray &data)
+ReturnedValue QQmlXMLHttpRequest::send(
+        Object *thisObject, const QQmlRefPointer<QQmlContextData> &context, const QByteArray &data)
 {
     m_errorFlag = false;
     m_sendFlag = true;
@@ -1472,7 +1462,7 @@ void QQmlXMLHttpRequest::finished()
     dispatchCallbackSafely();
 
     m_thisObject.clear();
-    m_qmlContext.setContextData(nullptr);
+    m_qmlContext = nullptr;
 }
 
 
@@ -1542,43 +1532,41 @@ QV4::ReturnedValue QQmlXMLHttpRequest::xmlResponseBody(QV4::ExecutionEngine* eng
     return m_parsedDocument.value();
 }
 
-#if QT_CONFIG(textcodec)
-QTextCodec* QQmlXMLHttpRequest::findTextCodec() const
+QStringDecoder QQmlXMLHttpRequest::findTextDecoder() const
 {
-    QTextCodec *codec = nullptr;
+    QStringDecoder decoder;
 
     if (!m_charset.isEmpty())
-        codec = QTextCodec::codecForName(m_charset);
+        decoder = QStringDecoder(m_charset);
 
-    if (!codec && m_gotXml) {
+    if (!decoder.isValid() && m_gotXml) {
         QXmlStreamReader reader(m_responseEntityBody);
         reader.readNext();
-        codec = QTextCodec::codecForName(reader.documentEncoding().toString().toUtf8());
+        decoder = QStringDecoder(reader.documentEncoding().toString().toUtf8());
     }
 
-    if (!codec && m_mime == "text/html")
-        codec = QTextCodec::codecForHtml(m_responseEntityBody, nullptr);
+    if (!decoder.isValid() && m_mime == "text/html") {
+        auto encoding = QStringConverter::encodingForHtml(m_responseEntityBody);
+        if (encoding)
+            decoder = QStringDecoder(*encoding);
+    }
 
-    if (!codec)
-        codec = QTextCodec::codecForUtfText(m_responseEntityBody, nullptr);
+    if (!decoder.isValid()) {
+        auto encoding = QStringConverter::encodingForData(m_responseEntityBody);
+        if (encoding)
+            decoder = QStringDecoder(*encoding);
+    }
 
-    if (!codec)
-        codec = QTextCodec::codecForName("UTF-8");
-    return codec;
+    if (!decoder.isValid())
+        decoder = QStringDecoder(QStringDecoder::Utf8);
+
+    return decoder;
 }
-#endif
-
 
 QString QQmlXMLHttpRequest::responseBody()
 {
-#if QT_CONFIG(textcodec)
-    if (!m_textCodec)
-        m_textCodec = findTextCodec();
-    if (m_textCodec)
-        return m_textCodec->toUnicode(m_responseEntityBody);
-#endif
-
-    return QString::fromUtf8(m_responseEntityBody);
+    QStringDecoder toUtf16 = findTextDecoder();
+    return toUtf16(m_responseEntityBody);
 }
 
 const QByteArray &QQmlXMLHttpRequest::rawResponseBody() const
@@ -1603,7 +1591,7 @@ void QQmlXMLHttpRequest::dispatchCallbackNow(Object *thisObj, bool done, bool er
         if (!callback)
             return;
 
-        QV4::JSCallData jsCallData(scope);
+        QV4::JSCallArguments jsCallData(scope);
         callback->call(jsCallData);
 
         if (scope.engine->hasException) {
@@ -1625,12 +1613,13 @@ void QQmlXMLHttpRequest::dispatchCallbackNow(Object *thisObj, bool done, bool er
 
 void QQmlXMLHttpRequest::dispatchCallbackSafely()
 {
-    if (m_wasConstructedWithQmlContext && !m_qmlContext.contextData())
+    if (m_wasConstructedWithQmlContext && m_qmlContext.isNull()) {
         // if the calling context object is no longer valid, then it has been
         // deleted explicitly (e.g., by a Loader deleting the itemContext when
         // the source is changed).  We do nothing in this case, as the evaluation
         // cannot succeed.
         return;
+    }
 
     dispatchCallbackNow(m_thisObject.as<Object>());
 }
@@ -1801,8 +1790,7 @@ ReturnedValue QQmlXMLHttpRequestCtor::method_open(const FunctionObject *b, const
     QUrl url = QUrl(argv[1].toQStringNoThrow());
 
     if (url.isRelative()) {
-        QQmlContextData *qmlContextData = scope.engine->callingQmlContext();
-        if (qmlContextData)
+        if (QQmlRefPointer<QQmlContextData> qmlContextData = scope.engine->callingQmlContext())
             url = qmlContextData->resolvedUrl(url);
         else
             url = scope.engine->resolvedUrl(url.url());
@@ -1867,7 +1855,6 @@ ReturnedValue QQmlXMLHttpRequestCtor::method_setRequestHeader(const FunctionObje
         nameUpper == QLatin1String("TRAILER") ||
         nameUpper == QLatin1String("TRANSFER-ENCODING") ||
         nameUpper == QLatin1String("UPGRADE") ||
-        nameUpper == QLatin1String("USER-AGENT") ||
         nameUpper == QLatin1String("VIA") ||
         nameUpper.startsWith(QLatin1String("PROXY-")) ||
         nameUpper.startsWith(QLatin1String("SEC-")))

@@ -69,7 +69,7 @@ public:
 
     void addLayer(QLayer *layer);
     void removeLayer(QLayer *layer);
-    QVector<QLayer *> layers() const;
+    QList<QLayer *> layers() const;
 
     FilterMode filterMode() const;
     void setFilterMode(FilterMode filterMode);
@@ -83,7 +83,6 @@ protected:
 
 private:
     Q_DECLARE_PRIVATE(QLayerFilter)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DRender

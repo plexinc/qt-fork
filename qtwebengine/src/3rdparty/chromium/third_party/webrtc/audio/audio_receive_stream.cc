@@ -24,6 +24,7 @@
 #include "audio/conversion.h"
 #include "call/rtp_config.h"
 #include "call/rtp_stream_receiver_controller_interface.h"
+#include "modules/rtp_rtcp/source/rtp_packet_received.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/strings/string_builder.h"
@@ -118,8 +119,8 @@ AudioReceiveStream::AudioReceiveStream(
     webrtc::RtcEventLog* event_log,
     std::unique_ptr<voe::ChannelReceiveInterface> channel_receive)
     : audio_state_(audio_state),
-      channel_receive_(std::move(channel_receive)),
-      source_tracker_(clock) {
+      source_tracker_(clock),
+      channel_receive_(std::move(channel_receive)) {
   RTC_LOG(LS_INFO) << "AudioReceiveStream: " << config.rtp.remote_ssrc;
   RTC_DCHECK(config.decoder_factory);
   RTC_DCHECK(config.rtcp_send_transport);
@@ -132,6 +133,11 @@ AudioReceiveStream::AudioReceiveStream(
   RTC_DCHECK(packet_router);
   // Configure bandwidth estimation.
   channel_receive_->RegisterReceiverCongestionControlObjects(packet_router);
+
+  // When output is muted, ChannelReceive will directly notify the source
+  // tracker of "delivered" frames, so RtpReceiver information will continue to
+  // be updated.
+  channel_receive_->SetSourceTracker(&source_tracker_);
 
   // Register with transport.
   rtp_stream_receiver_ = receiver_controller->CreateReceiver(
@@ -173,7 +179,13 @@ void AudioReceiveStream::Stop() {
   audio_state()->RemoveReceivingStream(this);
 }
 
-webrtc::AudioReceiveStream::Stats AudioReceiveStream::GetStats() const {
+bool AudioReceiveStream::IsRunning() const {
+  RTC_DCHECK_RUN_ON(&worker_thread_checker_);
+  return playing_;
+}
+
+webrtc::AudioReceiveStream::Stats AudioReceiveStream::GetStats(
+    bool get_and_clear_legacy_stats) const {
   RTC_DCHECK_RUN_ON(&worker_thread_checker_);
   webrtc::AudioReceiveStream::Stats stats;
   stats.remote_ssrc = config_.rtp.remote_ssrc;
@@ -210,7 +222,7 @@ webrtc::AudioReceiveStream::Stats AudioReceiveStream::GetStats() const {
           rtc::TimeMillis());
 
   // Get jitter buffer and total delay (alg + jitter + playout) stats.
-  auto ns = channel_receive_->GetNetworkStatistics();
+  auto ns = channel_receive_->GetNetworkStatistics(get_and_clear_legacy_stats);
   stats.fec_packets_received = ns.fecPacketsReceived;
   stats.fec_packets_discarded = ns.fecPacketsDiscarded;
   stats.jitter_buffer_ms = ns.currentBufferSize;
@@ -329,12 +341,13 @@ void AudioReceiveStream::SetEstimatedPlayoutNtpTimestampMs(
                                                       time_ms);
 }
 
-void AudioReceiveStream::SetMinimumPlayoutDelay(int delay_ms) {
+bool AudioReceiveStream::SetMinimumPlayoutDelay(int delay_ms) {
   RTC_DCHECK_RUN_ON(&module_process_thread_checker_);
   return channel_receive_->SetMinimumPlayoutDelay(delay_ms);
 }
 
 void AudioReceiveStream::AssociateSendStream(AudioSendStream* send_stream) {
+  // TODO(bugs.webrtc.org/11993): Expect to be called on the network thread.
   RTC_DCHECK_RUN_ON(&worker_thread_checker_);
   channel_receive_->SetAssociatedSendChannel(
       send_stream ? send_stream->GetChannel() : nullptr);
@@ -349,14 +362,6 @@ void AudioReceiveStream::DeliverRtcp(const uint8_t* packet, size_t length) {
   channel_receive_->ReceivedRTCPPacket(packet, length);
 }
 
-void AudioReceiveStream::OnRtpPacket(const RtpPacketReceived& packet) {
-  // TODO(solenberg): Tests call this function on a network thread, libjingle
-  // calls on the worker thread. We should move towards always using a network
-  // thread. Then this check can be enabled.
-  // RTC_DCHECK(!thread_checker_.IsCurrent());
-  channel_receive_->OnRtpPacket(packet);
-}
-
 const webrtc::AudioReceiveStream::Config& AudioReceiveStream::config() const {
   RTC_DCHECK_RUN_ON(&worker_thread_checker_);
   return config_;
@@ -364,6 +369,8 @@ const webrtc::AudioReceiveStream::Config& AudioReceiveStream::config() const {
 
 const AudioSendStream* AudioReceiveStream::GetAssociatedSendStreamForTesting()
     const {
+  // TODO(bugs.webrtc.org/11993): Expect to be called on the network thread or
+  // remove test method and |associated_send_stream_| variable.
   RTC_DCHECK_RUN_ON(&worker_thread_checker_);
   return associated_send_stream_;
 }

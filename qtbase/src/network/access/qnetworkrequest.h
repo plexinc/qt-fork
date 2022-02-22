@@ -89,18 +89,9 @@ public:
         DownloadBufferAttribute, // internal
         SynchronousRequestAttribute, // internal
         BackgroundRequestAttribute,
-#if QT_DEPRECATED_SINCE(5, 15)
-        SpdyAllowedAttribute,
-        SpdyWasUsedAttribute,
-#endif // QT_DEPRECATED_SINCE(5, 15)
-        EmitAllUploadProgressSignalsAttribute = BackgroundRequestAttribute + 3,
-        FollowRedirectsAttribute Q_DECL_ENUMERATOR_DEPRECATED_X("Use RedirectPolicyAttribute"),
+        EmitAllUploadProgressSignalsAttribute,
         Http2AllowedAttribute,
         Http2WasUsedAttribute,
-#if QT_DEPRECATED_SINCE(5, 15)
-        HTTP2AllowedAttribute Q_DECL_ENUMERATOR_DEPRECATED_X("Use Http2AllowedAttribute") = Http2AllowedAttribute,
-        HTTP2WasUsedAttribute Q_DECL_ENUMERATOR_DEPRECATED_X("Use Http2WasUsedAttribute"),
-#endif // QT_DEPRECATED_SINCE(5, 15)
         OriginalContentLengthAttribute,
         RedirectPolicyAttribute,
         Http2DirectAttribute,
@@ -188,7 +179,11 @@ public:
 #if QT_CONFIG(http) || defined(Q_CLANG_QDOC)
     QHttp2Configuration http2Configuration() const;
     void setHttp2Configuration(const QHttp2Configuration &configuration);
+
+    qint64 decompressedSafetyCheckThreshold() const;
+    void setDecompressedSafetyCheckThreshold(qint64 threshold);
 #endif // QT_CONFIG(http) || defined(Q_CLANG_QDOC)
+
 #if QT_CONFIG(http) || defined(Q_CLANG_QDOC) || defined (Q_OS_WASM)
     int transferTimeout() const;
     void setTransferTimeout(int timeout = DefaultTransferTimeoutConstant);

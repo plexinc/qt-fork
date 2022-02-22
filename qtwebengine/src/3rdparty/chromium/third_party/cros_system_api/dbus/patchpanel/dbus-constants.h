@@ -20,6 +20,15 @@ const char kTerminaVmStartupMethod[] = "TerminaVmStartup";
 const char kTerminaVmShutdownMethod[] = "TerminaVmShutdown";
 const char kPluginVmStartupMethod[] = "PluginVmStartup";
 const char kPluginVmShutdownMethod[] = "PluginVmShutdown";
+const char kSetVpnIntentMethod[] = "SetVpnIntent";
+const char kConnectNamespaceMethod[] = "ConnectNamespace";
+const char kGetTrafficCountersMethod[] = "GetTrafficCounters";
+const char kModifyPortRuleMethod[] = "ModifyPortRule";
+const char kGetDevicesMethod[] = "GetDevices";
+
+// Signals.
+const char kNetworkDeviceChangedSignal[] = "NetworkDeviceChanged";
+const char kNeighborReachabilityEventSignal[] = "NeighborReachabilityEvent";
 
 }  // namespace patchpanel
 

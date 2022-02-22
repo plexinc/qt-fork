@@ -14,18 +14,20 @@
 #include "components/password_manager/core/browser/password_store_change.h"
 #include "components/sync/model/sync_metadata_store.h"
 
-namespace autofill {
-struct PasswordForm;
-}
-
 namespace syncer {
 class MetadataBatch;
 }
 
 namespace password_manager {
 
+struct PasswordForm;
+struct CompromisedCredentials;
+
+using InsecureCredential = CompromisedCredentials;
+using ForceInitialSyncCycle =
+    base::StrongAlias<class ForceInitialSyncCycleTag, bool>;
 using PrimaryKeyToFormMap =
-    std::map<int, std::unique_ptr<autofill::PasswordForm>>;
+    std::map<FormPrimaryKey, std::unique_ptr<PasswordForm>>;
 
 // This enum is used to determine result status when deleting undecryptable
 // logins from database.
@@ -102,52 +104,81 @@ class PasswordStoreSync {
 
     // Deletes all the stored sync metadata for passwords.
     virtual void DeleteAllSyncMetadata() = 0;
+
+    // Registers a callback that will be invoked whenever all pending (unsynced)
+    // deletions are gone. If they were committed to the server (or, rarely, the
+    // entity was undeleted), the |callback| will be run with "true". If the
+    // deletions are gone because Sync was permanently turned off, it'll be run
+    // with "false" instead.
+    // Note that there can be only one such callback; if one was already
+    // registered, it'll be overridden by the new |callback|.
+    virtual void SetDeletionsHaveSyncedCallback(
+        base::RepeatingCallback<void(bool)> callback) = 0;
+
+    // Returns whether there are any pending deletions that have not been sent
+    // to the Sync server yet.
+    virtual bool HasUnsyncedDeletions() = 0;
   };
 
   PasswordStoreSync();
-
-  // TODO(http://crbug.com/925307) Move the following 2 APIs to PasswordStore
-  // upon full migration to USS Sync architecture.
-  // Overwrites |forms| with all stored non-blacklisted credentials. Returns
-  // true on success.
-  virtual bool FillAutofillableLogins(
-      std::vector<std::unique_ptr<autofill::PasswordForm>>* forms)
-      WARN_UNUSED_RESULT = 0;
-
-  // Overwrites |forms| with all stored blacklisted credentials. Returns true on
-  // success.
-  virtual bool FillBlacklistLogins(
-      std::vector<std::unique_ptr<autofill::PasswordForm>>* forms)
-      WARN_UNUSED_RESULT = 0;
 
   // Overwrites |key_to_form_map| with a map from the DB primary key to the
   // corresponding form for all stored credentials. Returns true on success.
   virtual FormRetrievalResult ReadAllLogins(
       PrimaryKeyToFormMap* key_to_form_map) WARN_UNUSED_RESULT = 0;
 
+  // Returns insecure credentials for the provided |parent_key|.
+  virtual std::vector<InsecureCredential> ReadSecurityIssues(
+      FormPrimaryKey parent_key) = 0;
+
   // Deletes logins that cannot be decrypted.
   virtual DatabaseCleanupResult DeleteUndecryptableLogins() = 0;
 
   // Synchronous implementation to add the given login.
   virtual PasswordStoreChangeList AddLoginSync(
-      const autofill::PasswordForm& form,
+      const PasswordForm& form,
       AddLoginError* error = nullptr) = 0;
+
+  // Synchronous implementation to add insecure credentials. Operation will
+  // be terminated if any insertion into the database fails. Returns whether
+  // operation was successful.
+  virtual bool AddInsecureCredentialsSync(
+      base::span<const InsecureCredential> credentials) = 0;
 
   // Synchronous implementation to update the given login.
   virtual PasswordStoreChangeList UpdateLoginSync(
-      const autofill::PasswordForm& form,
+      const PasswordForm& form,
       UpdateLoginError* error = nullptr) = 0;
 
+  // Synchronous implementation to replace existing insecure credentials for
+  // the |form| with |credentials|.
+  virtual bool UpdateInsecureCredentialsSync(
+      const PasswordForm& form,
+      base::span<const InsecureCredential> credentials) = 0;
+
   // Synchronous implementation to remove the given login.
-  virtual PasswordStoreChangeList RemoveLoginSync(
-      const autofill::PasswordForm& form) = 0;
+  virtual PasswordStoreChangeList RemoveLoginSync(const PasswordForm& form) = 0;
 
   // Synchronous implementation to remove the login with the given primary key.
   virtual PasswordStoreChangeList RemoveLoginByPrimaryKeySync(
-      int primary_key) = 0;
+      FormPrimaryKey primary_key) = 0;
 
   // Notifies observers that password store data may have been changed.
   virtual void NotifyLoginsChanged(const PasswordStoreChangeList& changes) = 0;
+
+  // Notifies observers that local list of insecure credentials changed.
+  virtual void NotifyInsecureCredentialsChanged() = 0;
+
+  // Notifies any waiting callback that all pending deletions have been
+  // committed to the Sync server now, or that Sync definitely won't commit
+  // them (because Sync was turned off permanently).
+  virtual void NotifyDeletionsHaveSynced(bool success) = 0;
+
+  // Notifies the UI that some unsynced credentials will be deleted on sign-out
+  // in order to offer the user the option of saving them in the profile store.
+  // Should only be called for the account store.
+  virtual void NotifyUnsyncedCredentialsWillBeDeleted(
+      std::vector<PasswordForm> unsynced_credentials) = 0;
 
   // The methods below adds transaction support to the password store that's
   // required by sync to guarantee atomic writes of data and sync metadata.

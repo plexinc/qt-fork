@@ -27,12 +27,16 @@ namespace internal {
   T(ApplyNonFunction,                                                          \
     "Function.prototype.apply was called on %, which is a % and not a "        \
     "function")                                                                \
-  T(ArgumentsDisallowedInInitializer,                                          \
-    "'arguments' is not allowed in class field initializer")                   \
+  T(ArgumentsDisallowedInInitializerAndStaticBlock,                            \
+    "'arguments' is not allowed in class field initializer or static "         \
+    "initialization block")                                                    \
   T(ArrayBufferTooShort,                                                       \
     "Derived ArrayBuffer constructor created a buffer which was too small")    \
   T(ArrayBufferSpeciesThis,                                                    \
     "ArrayBuffer subclass returned this from species constructor")             \
+  T(AwaitNotInAsyncContext,                                                    \
+    "await is only valid in async functions and the top level bodies of "      \
+    "modules")                                                                 \
   T(AwaitNotInAsyncFunction, "await is only valid in async function")          \
   T(AtomicsWaitNotAllowed, "Atomics.wait cannot be called in this context")    \
   T(BadSortComparisonFunction,                                                 \
@@ -89,6 +93,7 @@ namespace internal {
   T(IllegalInvocation, "Illegal invocation")                                   \
   T(ImmutablePrototypeSet,                                                     \
     "Immutable prototype object '%' cannot have their prototype set")          \
+  T(ImportAssertionDuplicateKey, "Import assertion has duplicate key '%'")     \
   T(ImportCallNotNewExpression, "Cannot use new with import")                  \
   T(ImportOutsideModule, "Cannot use import statement outside a module")       \
   T(ImportMetaOutsideModule, "Cannot use 'import.meta' outside a module")      \
@@ -121,10 +126,14 @@ namespace internal {
   T(NonCoercibleWithProperty,                                                  \
     "Cannot destructure property '%' of '%' as it is %.")                      \
   T(NonExtensibleProto, "% is not extensible")                                 \
+  T(NonObjectAssertOption, "The 'assert' option must be an object")            \
   T(NonObjectInInstanceOfCheck,                                                \
     "Right-hand side of 'instanceof' is not an object")                        \
   T(NonObjectPropertyLoad, "Cannot read property '%' of %")                    \
   T(NonObjectPropertyStore, "Cannot set property '%' of %")                    \
+  T(NonObjectImportArgument,                                                   \
+    "The second argument to import() must be an object")                       \
+  T(NonStringImportAssertionValue, "Import assertion value must be a string")  \
   T(NoSetterInCallback, "Cannot set property % of % which has only a getter")  \
   T(NotAnIterator, "% is not an iterator")                                     \
   T(NotAPromise, "% is not a promise")                                         \
@@ -144,9 +153,10 @@ namespace internal {
   T(NotSuperConstructor, "Super constructor % of % is not a constructor")      \
   T(NotSuperConstructorAnonymousClass,                                         \
     "Super constructor % of anonymous class is not a constructor")             \
-  T(NotIntegerSharedTypedArray, "% is not an integer shared typed array.")     \
-  T(NotInt32OrBigInt64SharedTypedArray,                                        \
-    "% is not an int32 or BigInt64 shared typed array.")                       \
+  T(NotIntegerTypedArray, "% is not an integer typed array.")                  \
+  T(NotInt32OrBigInt64TypedArray,                                              \
+    "% is not an int32 or BigInt64 typed array.")                              \
+  T(NotSharedTypedArray, "% is not a shared typed array.")                     \
   T(ObjectGetterExpectingFunction,                                             \
     "Object.prototype.__defineGetter__: Expecting function")                   \
   T(ObjectGetterCallable, "Getter must be a function: %")                      \
@@ -223,8 +233,6 @@ namespace internal {
   T(ProxyGetPrototypeOfNonExtensible,                                          \
     "'getPrototypeOf' on proxy: proxy target is non-extensible but the "       \
     "trap did not return its actual prototype")                                \
-  T(ProxyHandlerOrTargetRevoked,                                               \
-    "Cannot create proxy with a revoked proxy as target or handler")           \
   T(ProxyHasNonConfigurable,                                                   \
     "'has' on proxy: trap returned falsish for property '%' which exists in "  \
     "the proxy target as non-configurable")                                    \
@@ -316,13 +324,14 @@ namespace internal {
   T(BigIntDivZero, "Division by zero")                                         \
   T(BigIntNegativeExponent, "Exponent must be positive")                       \
   T(BigIntTooBig, "Maximum BigInt size exceeded")                              \
+  T(CantSetOptionXWhenYIsUsed, "Can't set option % when % is used")            \
   T(DateRange, "Provided date is not in valid range.")                         \
   T(ExpectedLocation,                                                          \
     "Expected letters optionally connected with underscores or hyphens for "   \
     "a location, got %")                                                       \
   T(InvalidArrayBufferLength, "Invalid array buffer length")                   \
   T(ArrayBufferAllocationFailed, "Array buffer allocation failed")             \
-  T(Invalid, "Invalid %s : %")                                                 \
+  T(Invalid, "Invalid % : %")                                                  \
   T(InvalidArrayLength, "Invalid array length")                                \
   T(InvalidAtomicAccessIndex, "Invalid atomic access index")                   \
   T(InvalidCodePoint, "Invalid code point %")                                  \
@@ -361,6 +370,8 @@ namespace internal {
   T(ToRadixFormatRange, "toString() radix argument must be between 2 and 36")  \
   T(TypedArraySetOffsetOutOfBounds, "offset is out of bounds")                 \
   T(TypedArraySetSourceTooLarge, "Source is too large")                        \
+  T(TypedArrayTooLargeToSort,                                                  \
+    "Custom comparefn not supported for huge TypedArrays")                     \
   T(ValueOutOfRange, "Value % out of range for % options property %")          \
   /* SyntaxError */                                                            \
   T(AmbiguousExport,                                                           \
@@ -381,6 +392,7 @@ namespace internal {
   T(ForInOfLoopInitializer,                                                    \
     "% loop variable declaration may not have an initializer.")                \
   T(ForOfLet, "The left-hand side of a for-of loop may not start with 'let'.") \
+  T(ForOfAsync, "The left-hand side of a for-of loop may not be 'async'.")     \
   T(ForInOfLoopMultiBindings,                                                  \
     "Invalid left-hand side in % loop: Must have a single binding.")           \
   T(GeneratorInSingleStatementContext,                                         \
@@ -389,6 +401,8 @@ namespace internal {
     "Async functions can only be declared at the top level or inside a "       \
     "block.")                                                                  \
   T(IllegalBreak, "Illegal break statement")                                   \
+  T(ModuleExportNameWithoutFromClause,                                         \
+    "String literal module export names must be followed by a 'from' clause")  \
   T(NoIterationStatement,                                                      \
     "Illegal continue statement: no surrounding iteration statement")          \
   T(IllegalContinue,                                                           \
@@ -413,6 +427,8 @@ namespace internal {
     "Invalid left-hand side expression in postfix operation")                  \
   T(InvalidLhsInPrefixOp,                                                      \
     "Invalid left-hand side expression in prefix operation")                   \
+  T(InvalidModuleExportName,                                                   \
+    "Invalid module export name: contains unpaired surrogate")                 \
   T(InvalidRegExpFlags, "Invalid flags supplied to RegExp constructor '%'")    \
   T(InvalidOrUnexpectedToken, "Invalid or unexpected token")                   \
   T(InvalidPrivateBrand, "Object must be an instance of class %")              \
@@ -484,9 +500,11 @@ namespace internal {
     "Decimals with leading zeros are not allowed in strict mode.")             \
   T(StrictOctalEscape,                                                         \
     "Octal escape sequences are not allowed in strict mode.")                  \
+  T(Strict8Or9Escape, "\\8 and \\9 are not allowed in strict mode.")           \
   T(StrictWith, "Strict mode code may not include a with statement")           \
   T(TemplateOctalLiteral,                                                      \
     "Octal escape sequences are not allowed in template strings.")             \
+  T(Template8Or9Escape, "\\8 and \\9 are not allowed in template strings.")    \
   T(ThisFormalParameter, "'this' is not a valid formal parameter name")        \
   T(AwaitBindingIdentifier,                                                    \
     "'await' is not a valid identifier name in an async function")             \
@@ -500,7 +518,8 @@ namespace internal {
   T(TooManySpreads,                                                            \
     "Literal containing too many nested spreads (up to 65534 allowed)")        \
   T(TooManyVariables, "Too many variables declared (only 4194303 allowed)")    \
-  T(TooManyElementsInPromiseAll, "Too many elements passed to Promise.all")    \
+  T(TooManyElementsInPromiseCombinator,                                        \
+    "Too many elements passed to Promise.%")                                   \
   T(TypedArrayTooShort,                                                        \
     "Derived TypedArray constructor created an array which was too small")     \
   T(UnexpectedEOS, "Unexpected end of input")                                  \
@@ -545,15 +564,16 @@ namespace internal {
   T(WasmTrapDivUnrepresentable, "divide result unrepresentable")               \
   T(WasmTrapRemByZero, "remainder by zero")                                    \
   T(WasmTrapFloatUnrepresentable, "float unrepresentable in integer range")    \
-  T(WasmTrapFuncInvalid, "invalid index into function table")                  \
+  T(WasmTrapTableOutOfBounds, "table index is out of bounds")                  \
   T(WasmTrapFuncSigMismatch, "function signature mismatch")                    \
   T(WasmTrapMultiReturnLengthMismatch, "multi-return length mismatch")         \
-  T(WasmTrapTypeError, "wasm function signature contains illegal type")        \
+  T(WasmTrapJSTypeError, "type incompatibility when transforming from/to JS")  \
   T(WasmTrapDataSegmentDropped, "data segment has been dropped")               \
   T(WasmTrapElemSegmentDropped, "element segment has been dropped")            \
-  T(WasmTrapTableOutOfBounds, "table access out of bounds")                    \
-  T(WasmTrapBrOnExnNullRef, "br_on_exn on nullref value")                      \
-  T(WasmTrapRethrowNullRef, "rethrowing nullref value")                        \
+  T(WasmTrapRethrowNull, "rethrowing null value")                              \
+  T(WasmTrapNullDereference, "dereferencing a null pointer")                   \
+  T(WasmTrapIllegalCast, "illegal cast")                                       \
+  T(WasmTrapArrayOutOfBounds, "array element access out of bounds")            \
   T(WasmExceptionError, "wasm exception")                                      \
   /* Asm.js validation related */                                              \
   T(AsmJsInvalid, "Invalid asm.js: %")                                         \
@@ -565,6 +585,8 @@ namespace internal {
   T(DataCloneErrorOutOfMemory, "Data cannot be cloned, out of memory.")        \
   T(DataCloneErrorDetachedArrayBuffer,                                         \
     "An ArrayBuffer is detached and could not be cloned.")                     \
+  T(DataCloneErrorNonDetachableArrayBuffer,                                    \
+    "ArrayBuffer is not detachable and could not be cloned.")                  \
   T(DataCloneErrorSharedArrayBufferTransferred,                                \
     "A SharedArrayBuffer could not be cloned. SharedArrayBuffer must not be "  \
     "transferred.")                                                            \
@@ -593,7 +615,9 @@ namespace internal {
     "WeakRef: target must be an object")                                       \
   T(OptionalChainingNoNew, "Invalid optional chain from new expression")       \
   T(OptionalChainingNoSuper, "Invalid optional chain from super property")     \
-  T(OptionalChainingNoTemplate, "Invalid tagged template on optional chain")
+  T(OptionalChainingNoTemplate, "Invalid tagged template on optional chain")   \
+  /* AggregateError */                                                         \
+  T(AllPromisesRejected, "All promises were rejected")
 
 enum class MessageTemplate {
 #define TEMPLATE(NAME, STRING) k##NAME,

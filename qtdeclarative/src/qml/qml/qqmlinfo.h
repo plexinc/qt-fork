@@ -49,25 +49,17 @@ QT_BEGIN_NAMESPACE
 
 class QQmlInfo;
 
-// declared in namespace to avoid symbol conflicts with QtDeclarative
-namespace QtQml {
-    Q_QML_EXPORT QQmlInfo qmlDebug(const QObject *me);
-    Q_QML_EXPORT QQmlInfo qmlDebug(const QObject *me, const QQmlError &error);
-    Q_QML_EXPORT QQmlInfo qmlDebug(const QObject *me, const QList<QQmlError> &errors);
+Q_QML_EXPORT QQmlInfo qmlDebug(const QObject *me);
+Q_QML_EXPORT QQmlInfo qmlDebug(const QObject *me, const QQmlError &error);
+Q_QML_EXPORT QQmlInfo qmlDebug(const QObject *me, const QList<QQmlError> &errors);
 
-    Q_QML_EXPORT QQmlInfo qmlInfo(const QObject *me);
-    Q_QML_EXPORT QQmlInfo qmlInfo(const QObject *me, const QQmlError &error);
-    Q_QML_EXPORT QQmlInfo qmlInfo(const QObject *me, const QList<QQmlError> &errors);
+Q_QML_EXPORT QQmlInfo qmlInfo(const QObject *me);
+Q_QML_EXPORT QQmlInfo qmlInfo(const QObject *me, const QQmlError &error);
+Q_QML_EXPORT QQmlInfo qmlInfo(const QObject *me, const QList<QQmlError> &errors);
 
-    Q_QML_EXPORT QQmlInfo qmlWarning(const QObject *me);
-    Q_QML_EXPORT QQmlInfo qmlWarning(const QObject *me, const QQmlError &error);
-    Q_QML_EXPORT QQmlInfo qmlWarning(const QObject *me, const QList<QQmlError> &errors);
-}
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_CLANG("-Wheader-hygiene")
-// This is necessary to allow for QtQuick1 and QtQuick2 scenes in a single application.
-using namespace QtQml;
-QT_WARNING_POP
+Q_QML_EXPORT QQmlInfo qmlWarning(const QObject *me);
+Q_QML_EXPORT QQmlInfo qmlWarning(const QObject *me, const QQmlError &error);
+Q_QML_EXPORT QQmlInfo qmlWarning(const QObject *me, const QList<QQmlError> &errors);
 
 class QQmlInfoPrivate;
 class Q_QML_EXPORT QQmlInfo : public QDebug
@@ -91,7 +83,7 @@ public:
     inline QQmlInfo &operator<<(double t) { QDebug::operator<<(t); return *this; }
     inline QQmlInfo &operator<<(const char* t) { QDebug::operator<<(t); return *this; }
     inline QQmlInfo &operator<<(const QString & t) { QDebug::operator<<(t.toLocal8Bit().constData()); return *this; }
-    inline QQmlInfo &operator<<(const QStringRef & t) { return operator<<(t.toString()); }
+    inline QQmlInfo &operator<<(QStringView t) { return operator<<(t.toString()); }
     inline QQmlInfo &operator<<(const QLatin1String &t) { QDebug::operator<<(t.latin1()); return *this; }
     inline QQmlInfo &operator<<(const QByteArray & t) { QDebug::operator<<(t); return *this; }
     inline QQmlInfo &operator<<(const void * t) { QDebug::operator<<(t); return *this; }
@@ -102,15 +94,15 @@ public:
 #endif
 
 private:
-    friend Q_QML_EXPORT QQmlInfo QtQml::qmlDebug(const QObject *me);
-    friend Q_QML_EXPORT QQmlInfo QtQml::qmlDebug(const QObject *me, const QQmlError &error);
-    friend Q_QML_EXPORT QQmlInfo QtQml::qmlDebug(const QObject *me, const QList<QQmlError> &errors);
-    friend Q_QML_EXPORT QQmlInfo QtQml::qmlInfo(const QObject *me);
-    friend Q_QML_EXPORT QQmlInfo QtQml::qmlInfo(const QObject *me, const QQmlError &error);
-    friend Q_QML_EXPORT QQmlInfo QtQml::qmlInfo(const QObject *me, const QList<QQmlError> &errors);
-    friend Q_QML_EXPORT QQmlInfo QtQml::qmlWarning(const QObject *me);
-    friend Q_QML_EXPORT QQmlInfo QtQml::qmlWarning(const QObject *me, const QQmlError &error);
-    friend Q_QML_EXPORT QQmlInfo QtQml::qmlWarning(const QObject *me, const QList<QQmlError> &errors);
+    friend Q_QML_EXPORT QQmlInfo qmlDebug(const QObject *me);
+    friend Q_QML_EXPORT QQmlInfo qmlDebug(const QObject *me, const QQmlError &error);
+    friend Q_QML_EXPORT QQmlInfo qmlDebug(const QObject *me, const QList<QQmlError> &errors);
+    friend Q_QML_EXPORT QQmlInfo qmlInfo(const QObject *me);
+    friend Q_QML_EXPORT QQmlInfo qmlInfo(const QObject *me, const QQmlError &error);
+    friend Q_QML_EXPORT QQmlInfo qmlInfo(const QObject *me, const QList<QQmlError> &errors);
+    friend Q_QML_EXPORT QQmlInfo qmlWarning(const QObject *me);
+    friend Q_QML_EXPORT QQmlInfo qmlWarning(const QObject *me, const QQmlError &error);
+    friend Q_QML_EXPORT QQmlInfo qmlWarning(const QObject *me, const QList<QQmlError> &errors);
 
     QQmlInfo(QQmlInfoPrivate *);
     QQmlInfoPrivate *d;

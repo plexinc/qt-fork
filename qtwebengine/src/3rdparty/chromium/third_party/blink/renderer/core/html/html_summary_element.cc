@@ -38,8 +38,10 @@ namespace blink {
 
 HTMLSummaryElement::HTMLSummaryElement(Document& document)
     : HTMLElement(html_names::kSummaryTag, document) {
-  SetHasCustomStyleCallbacks();
-  EnsureUserAgentShadowRoot();
+  if (!RuntimeEnabledFeatures::SummaryListItemEnabled()) {
+    SetHasCustomStyleCallbacks();
+    EnsureUserAgentShadowRoot();
+  }
 }
 
 LayoutObject* HTMLSummaryElement::CreateLayoutObject(const ComputedStyle& style,
@@ -57,9 +59,10 @@ LayoutObject* HTMLSummaryElement::CreateLayoutObject(const ComputedStyle& style,
 }
 
 void HTMLSummaryElement::DidAddUserAgentShadowRoot(ShadowRoot& root) {
+  DCHECK(!RuntimeEnabledFeatures::SummaryListItemEnabled());
   auto* marker_control =
       MakeGarbageCollected<DetailsMarkerControl>(GetDocument());
-  marker_control->SetIdAttribute(shadow_element_names::DetailsMarker());
+  marker_control->SetIdAttribute(shadow_element_names::kIdDetailsMarker);
   root.AppendChild(marker_control);
   root.AppendChild(HTMLSlotElement::CreateUserAgentDefaultSlot(GetDocument()));
 }
@@ -73,8 +76,9 @@ HTMLDetailsElement* HTMLSummaryElement::DetailsElement() const {
 }
 
 Element* HTMLSummaryElement::MarkerControl() {
+  DCHECK(!RuntimeEnabledFeatures::SummaryListItemEnabled());
   return EnsureUserAgentShadowRoot().getElementById(
-      shadow_element_names::DetailsMarker());
+      shadow_element_names::kIdDetailsMarker);
 }
 
 bool HTMLSummaryElement::IsMainSummary() const {
@@ -161,6 +165,7 @@ bool HTMLSummaryElement::WillRespondToMouseClickEvents() {
 }
 
 void HTMLSummaryElement::WillRecalcStyle(const StyleRecalcChange) {
+  DCHECK(!RuntimeEnabledFeatures::SummaryListItemEnabled());
   if (GetForceReattachLayoutTree() && IsMainSummary()) {
     if (Element* marker = MarkerControl()) {
       marker->SetNeedsStyleRecalc(

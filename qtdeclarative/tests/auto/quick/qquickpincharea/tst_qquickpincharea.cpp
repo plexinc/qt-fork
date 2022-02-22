@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2018 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
@@ -29,21 +29,21 @@
 #include <QtTest/QtTest>
 #include <QtTest/QSignalSpy>
 #include <QtGui/QStyleHints>
+#include <QtGui/private/qevent_p.h>
 #include <qpa/qwindowsysteminterface.h>
 #include <private/qquickpincharea_p.h>
 #include <QtQuick/private/qquickrectangle_p.h>
 #include <QtQuick/qquickview.h>
 #include <QtQml/qqmlcontext.h>
-#include "../../shared/util.h"
-#include "../shared/viewtestutil.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
+#include <QtQuickTestUtils/private/viewtestutils_p.h>
 
 class tst_QQuickPinchArea: public QQmlDataTest
 {
     Q_OBJECT
 public:
-    tst_QQuickPinchArea() { }
+    tst_QQuickPinchArea() : QQmlDataTest(QT_QMLTEST_DATADIR) { }
 private slots:
-    void initTestCase();
     void cleanupTestCase();
     void pinchProperties();
     void scale();
@@ -52,20 +52,13 @@ private slots:
     void cancel();
     void transformedPinchArea_data();
     void transformedPinchArea();
+    void dragTransformedPinchArea_data();
+    void dragTransformedPinchArea();
 
 private:
     QQuickView *createView();
-    QTouchDevice *device = nullptr;
+    QPointingDevice *device = QTest::createTouchDevice();
 };
-void tst_QQuickPinchArea::initTestCase()
-{
-    QQmlDataTest::initTestCase();
-    if (!device) {
-        device = new QTouchDevice;
-        device->setType(QTouchDevice::TouchScreen);
-        QWindowSystemInterface::registerTouchDevice(device);
-    }
-}
 
 void tst_QQuickPinchArea::cleanupTestCase()
 {
@@ -185,12 +178,12 @@ void tst_QQuickPinchArea::pinchProperties()
     QCOMPARE(rotMaxSpy.count(),1);
 }
 
-QTouchEvent::TouchPoint makeTouchPoint(int id, QPoint p, QQuickView *v, QQuickItem *i)
+QMutableEventPoint makeTouchPoint(int id, QPoint p, QQuickView *v, QQuickItem *i)
 {
-    QTouchEvent::TouchPoint touchPoint(id);
-    touchPoint.setPos(i->mapFromScene(p));
-    touchPoint.setScreenPos(v->mapToGlobal(p));
-    touchPoint.setScenePos(p);
+    QMutableEventPoint touchPoint(id);
+    touchPoint.setPosition(i->mapFromScene(p));
+    touchPoint.setGlobalPosition(v->mapToGlobal(p));
+    touchPoint.setScenePosition(p);
     return touchPoint;
 }
 
@@ -510,8 +503,7 @@ void tst_QQuickPinchArea::cancel()
         QCOMPARE(root->property("center").toPointF(), QPointF(40, 40)); // blackrect is at 50,50
         QCOMPARE(blackRect->scale(), 1.5);
 
-        QTouchEvent cancelEvent(QEvent::TouchCancel);
-        cancelEvent.setDevice(device);
+        QTouchEvent cancelEvent(QEvent::TouchCancel, device);
         QCoreApplication::sendEvent(window, &cancelEvent);
         QQuickTouchUtils::flush(window);
 
@@ -584,6 +576,70 @@ void tst_QQuickPinchArea::transformedPinchArea()
         QQuickTouchUtils::flush(view);
         QCOMPARE(pinchArea->property("pinching").toBool(), false);
     }
+}
+
+void tst_QQuickPinchArea::dragTransformedPinchArea_data()
+{
+    QTest::addColumn<int>("rotation");
+    QTest::addColumn<QPoint>("p1");
+    QTest::addColumn<QPoint>("p2");
+    QTest::addColumn<QPoint>("delta");
+
+    QTest::newRow("unrotated")
+            << 0 << QPoint(100, 100) << QPoint(200, 100) << QPoint(40, 40);
+    QTest::newRow("20 deg")
+            << 20 << QPoint(100, 100) << QPoint(200, 100) << QPoint(40, 40);
+    QTest::newRow("90 deg")
+            << 90 << QPoint(100, 100) << QPoint(200, 100) << QPoint(0, 40);
+    QTest::newRow("180 deg")
+            << 180 << QPoint(100, 100) << QPoint(200, 100) << QPoint(40, 0);
+    QTest::newRow("225 deg")
+            << 210 << QPoint(200, 200) << QPoint(300, 200) << QPoint(80, 80);
+}
+
+void tst_QQuickPinchArea::dragTransformedPinchArea() // QTBUG-63673
+{
+    QFETCH(int, rotation);
+    QFETCH(QPoint, p1);
+    QFETCH(QPoint, p2);
+    QFETCH(QPoint, delta);
+    const int threshold = qApp->styleHints()->startDragDistance();
+
+    QQuickView *view = createView();
+    QScopedPointer<QQuickView> scope(view);
+    view->setSource(testFileUrl("draggablePinchArea.qml"));
+    view->show();
+    QVERIFY(QTest::qWaitForWindowExposed(view));
+    QVERIFY(view->rootObject());
+    QQuickPinchArea *pinchArea = view->rootObject()->findChild<QQuickPinchArea*>();
+    QVERIFY(pinchArea);
+    QQuickItem *pinchAreaTarget = pinchArea->parentItem();
+    QVERIFY(pinchAreaTarget);
+    QQuickItem *pinchAreaContainer = pinchAreaTarget->parentItem();
+    QVERIFY(pinchAreaContainer);
+    pinchAreaContainer->setRotation(rotation);
+
+    QTest::QTouchEventSequence pinchSequence = QTest::touchEvent(view, device);
+    // start pinch
+    pinchSequence.press(1, pinchArea->mapToScene(p1).toPoint(), view)
+                 .press(2, pinchArea->mapToScene(p2).toPoint(), view).commit();
+    QQuickTouchUtils::flush(view);
+    pinchSequence.move(1, pinchArea->mapToScene(p1 + QPoint(threshold, threshold)).toPoint(), view)
+                 .move(2, pinchArea->mapToScene(p2 + QPoint(threshold, threshold)).toPoint(), view).commit();
+    QQuickTouchUtils::flush(view);
+    pinchSequence.move(1, pinchArea->mapToScene(p1 + delta).toPoint(), view)
+                 .move(2, pinchArea->mapToScene(p2 + delta).toPoint(), view).commit();
+    QQuickTouchUtils::flush(view);
+    QCOMPARE(pinchArea->pinch()->active(), true);
+    auto error = delta - QPoint(threshold, threshold) -
+                pinchAreaTarget->position().toPoint(); // expect 0, 0
+    QVERIFY(qAbs(error.x()) <= 1);
+    QVERIFY(qAbs(error.y()) <= 1);
+
+    // release pinch
+    pinchSequence.release(1, p1, view).release(2, p2, view).commit();
+    QQuickTouchUtils::flush(view);
+    QCOMPARE(pinchArea->pinch()->active(), false);
 }
 
 QQuickView *tst_QQuickPinchArea::createView()

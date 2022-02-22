@@ -44,7 +44,7 @@
 #include <QtWaylandCompositor/qtwaylandcompositorglobal.h>
 #if QT_CONFIG(wayland_compositor_quick)
 #include <QtQml/QQmlListProperty>
-#include <QtCore/QVector>
+#include <QtCore/QList>
 #endif
 
 QT_BEGIN_NAMESPACE
@@ -66,11 +66,11 @@ QT_BEGIN_NAMESPACE
         { \
             static_cast<className *>(list->data)->m_children.append(object); \
         } \
-        static int countFunction(QQmlListProperty<QObject> *list) \
+        static qsizetype countFunction(QQmlListProperty<QObject> *list) \
         { \
             return static_cast<className *>(list->data)->m_children.size(); \
         } \
-        static QObject *atFunction(QQmlListProperty<QObject> *list, int index) \
+        static QObject *atFunction(QQmlListProperty<QObject> *list, qsizetype index) \
         { \
             return static_cast<className *>(list->data)->m_children.at(index); \
         } \
@@ -79,7 +79,7 @@ QT_BEGIN_NAMESPACE
             static_cast<className *>(list->data)->m_children.clear(); \
         } \
     private: \
-        QVector<QObject *> m_children;
+        QList<QObject *> m_children;
 #else
 #define Q_WAYLAND_COMPOSITOR_DECLARE_QUICK_CHILDREN(className)
 #endif

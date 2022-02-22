@@ -30,11 +30,25 @@
 
 /*!
     \qmlmodule QDoc.Test \QDocTestVer
+    \title QDoc.Test QML Module
     \brief QML Types for the Test module.
     \since 1.1
     \preliminary
 
     \testnoautolist
+*/
+
+/*!
+    \qmlmodule Test.Empty 1.0
+    \title No QML Types Here
+    \brief A QML module with no member types.
+*/
+
+/*!
+    \qmlmodule Test.NoVer
+    \title Versionless QML Module
+    \brief QML Types for the Test module without version.
+    \since 1.1
 */
 
 /*!
@@ -45,6 +59,13 @@
 */
 
 /*!
+    \qmltype TypeNoVersion
+    \instantiates TestQDoc::TestDerived
+    \inqmlmodule Test.NoVer
+    \brief Another QML type documented in a .cpp file.
+*/
+
+/*!
     \qmlproperty int Type::id
     \readonly
     \brief A read-only property.
@@ -52,11 +73,13 @@
 
 /*!
     \qmlproperty string QDoc.Test::Type::name
+    \required
     \brief Name of the Test.
 */
 
 /*!
     \qmlattachedproperty enumeration Type::type
+    \default Type.NoType
 
     \value Type.NoType
            Nothing
@@ -70,6 +93,12 @@
     \qmlproperty int Type::group.third
 
     \brief A property group.
+*/
+
+/*!
+    \qmlsignal Type::group.created
+
+    This signal is prefixed with \e group.
 */
 
 /*!
@@ -102,4 +131,13 @@
     \qmlattachedsignal Type::configured()
 
     This attached signal is emitted when the type was configured.
+*/
+
+/*!
+    \qmlmethod Type::deprecatedMethod()
+
+    \deprecated [6.2] This method has no replacement //! No full stop for test.
+
+    This is a method that should include information about being deprecated
+    and that it has been so since 6.2 in its docs.
 */

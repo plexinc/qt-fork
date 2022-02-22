@@ -37,23 +37,20 @@ export class ChartViewportDelegate {
   update() {}
 }
 
-/**
- * @unrestricted
- */
 export class ChartViewport extends UI.Widget.VBox {
   /**
    * @param {!ChartViewportDelegate} delegate
    */
   constructor(delegate) {
     super();
-    this.registerRequiredCSS('perf_ui/chartViewport.css');
+    this.registerRequiredCSS('perf_ui/chartViewport.css', {enableLegacyPatching: true});
 
     this._delegate = delegate;
 
     this.viewportElement = this.contentElement.createChild('div', 'fill');
     this.viewportElement.addEventListener('mousemove', this._updateCursorPosition.bind(this), false);
     this.viewportElement.addEventListener('mouseout', this._onMouseOut.bind(this), false);
-    this.viewportElement.addEventListener('mousewheel', this._onMouseWheel.bind(this), false);
+    this.viewportElement.addEventListener('wheel', this._onMouseWheel.bind(this), false);
     this.viewportElement.addEventListener('keydown', this._onChartKeyDown.bind(this), false);
     this.viewportElement.addEventListener('keyup', this._onChartKeyUp.bind(this), false);
 
@@ -76,6 +73,69 @@ export class ChartViewport extends UI.Widget.VBox {
     this._cursorElement = this.contentElement.createChild('div', 'chart-cursor-element hidden');
 
     this.reset();
+
+    /** @type {boolean} */
+    this._isDragging;
+
+    /** @type {number} */
+    this._totalHeight;
+
+    /** @type {number} */
+    this._offsetHeight;
+
+    /** @type {number} */
+    this._vScrollElement.scrollTop;
+
+    /** @type {number} */
+    this._scrollTop;
+
+    /** @type {number|null} */
+    this._rangeSelectionStart = null;
+
+    /** @type {number|null} */
+    this._rangeSelectionEnd = null;
+
+    /** @type {number} */
+    this._dragStartPointX;
+
+    /** @type {number} */
+    this._dragStartPointY;
+
+    /** @type {number} */
+    this._dragStartScrollTop;
+
+    /** @type {number} */
+    this._visibleLeftTime;
+
+    /** @type {number} */
+    this._visibleRightTime;
+
+    /** @type {number} */
+    this._offsetWidth;
+
+    /** @type {number} */
+    this._targetLeftTime;
+
+    /** @type {number} */
+    this._targetRightTime;
+
+    /** @type {number} */
+    this._selectionOffsetShiftX;
+
+    /** @type {number} */
+    this._selectionOffsetShiftY;
+
+    /** @type {number|null} */
+    this._selectionStartX;
+
+    /** @type {number} */
+    this._lastMouseOffsetX;
+
+    /** @type {number} */
+    this._minimumBoundary;
+
+    /** @type {number} */
+    this._totalTime;
   }
 
   alwaysShowVerticalScroll() {
@@ -207,17 +267,18 @@ export class ChartViewport extends UI.Widget.VBox {
    * @param {!Event} e
    */
   _onMouseWheel(e) {
-    const doZoomInstead =
-        e.shiftKey ^ (Common.Settings.Settings.instance().moduleSetting('flamechartMouseWheelAction').get() === 'zoom');
-    const panVertically = !doZoomInstead && (e.wheelDeltaY || Math.abs(e.wheelDeltaX) === 120);
-    const panHorizontally = doZoomInstead && Math.abs(e.wheelDeltaX) > Math.abs(e.wheelDeltaY);
+    const wheelEvent = /** @type {!WheelEvent} */ (e);
+    const doZoomInstead = wheelEvent.shiftKey !==
+        (Common.Settings.Settings.instance().moduleSetting('flamechartMouseWheelAction').get() === 'zoom');
+    const panVertically = !doZoomInstead && (wheelEvent.deltaY || Math.abs(wheelEvent.deltaX) === 53);
+    const panHorizontally = doZoomInstead && Math.abs(wheelEvent.deltaX) > Math.abs(wheelEvent.deltaY);
     if (panVertically) {
-      this._vScrollElement.scrollTop -= (e.wheelDeltaY || e.wheelDeltaX) / 120 * this._offsetHeight / 8;
+      this._vScrollElement.scrollTop += (wheelEvent.deltaY || wheelEvent.deltaX) / 53 * this._offsetHeight / 8;
     } else if (panHorizontally) {
-      this._handlePanGesture(-e.wheelDeltaX, /* animate */ true);
+      this._handlePanGesture(wheelEvent.deltaX, /* animate */ true);
     } else {  // Zoom.
-      const mouseWheelZoomSpeed = 1 / 120;
-      this._handleZoomGesture(Math.pow(1.2, -(e.wheelDeltaY || e.wheelDeltaX) * mouseWheelZoomSpeed) - 1);
+      const wheelZoomSpeed = 1 / 53;
+      this._handleZoomGesture(Math.pow(1.2, (wheelEvent.deltaY || wheelEvent.deltaX) * wheelZoomSpeed) - 1);
     }
 
     // Block swipe gesture.
@@ -304,8 +365,10 @@ export class ChartViewport extends UI.Widget.VBox {
    * @param {!Event} event
    */
   onClick(event) {
-    const time = this.pixelToTime(event.offsetX);
-    if (this._rangeSelectionStart !== null && time >= this._rangeSelectionStart && time <= this._rangeSelectionEnd) {
+    const mouseEvent = /** @type {!MouseEvent} */ (event);
+    const time = this.pixelToTime(mouseEvent.offsetX);
+    if (this._rangeSelectionStart !== null && this._rangeSelectionEnd !== null && time >= this._rangeSelectionStart &&
+        time <= this._rangeSelectionEnd) {
       return;
     }
     this.hideRangeSelection();
@@ -316,21 +379,23 @@ export class ChartViewport extends UI.Widget.VBox {
    */
   _rangeSelectionDragging(event) {
     const x = Platform.NumberUtilities.clamp(event.pageX + this._selectionOffsetShiftX, 0, this._offsetWidth);
-    const start = this.pixelToTime(this._selectionStartX);
+    const start = this.pixelToTime(this._selectionStartX || 0);
     const end = this.pixelToTime(x);
     this.setRangeSelection(start, end);
   }
 
   _updateRangeSelectionOverlay() {
+    const _rangeSelectionStart = this._rangeSelectionStart || 0;
+    const _rangeSelectionEnd = this._rangeSelectionEnd || 0;
     const /** @const */ margin = 100;
-    const left = Platform.NumberUtilities.clamp(
-        this.timeToPosition(this._rangeSelectionStart), -margin, this._offsetWidth + margin);
-    const right = Platform.NumberUtilities.clamp(
-        this.timeToPosition(this._rangeSelectionEnd), -margin, this._offsetWidth + margin);
+    const left =
+        Platform.NumberUtilities.clamp(this.timeToPosition(_rangeSelectionStart), -margin, this._offsetWidth + margin);
+    const right =
+        Platform.NumberUtilities.clamp(this.timeToPosition(_rangeSelectionEnd), -margin, this._offsetWidth + margin);
     const style = this._selectionOverlay.style;
     style.left = left + 'px';
     style.width = (right - left) + 'px';
-    const timeSpan = this._rangeSelectionEnd - this._rangeSelectionStart;
+    const timeSpan = _rangeSelectionEnd - _rangeSelectionStart;
     this._selectedTimeSpanLabel.textContent = Number.preciseMillisToString(timeSpan, 2);
   }
 
@@ -348,9 +413,10 @@ export class ChartViewport extends UI.Widget.VBox {
    * @param {!Event} e
    */
   _updateCursorPosition(e) {
-    this._showCursor(e.shiftKey);
-    this._cursorElement.style.left = e.offsetX + 'px';
-    this._lastMouseOffsetX = e.offsetX;
+    const mouseEvent = /** @type {!MouseEvent} */ (e);
+    this._showCursor(mouseEvent.shiftKey);
+    this._cursorElement.style.left = mouseEvent.offsetX + 'px';
+    this._lastMouseOffsetX = mouseEvent.offsetX;
   }
 
   /**
@@ -396,7 +462,8 @@ export class ChartViewport extends UI.Widget.VBox {
    * @param {!Event} e
    */
   _onChartKeyDown(e) {
-    this._showCursor(e.shiftKey);
+    const mouseEvent = /** @type {!MouseEvent} */ (e);
+    this._showCursor(mouseEvent.shiftKey);
     this._handleZoomPanKeys(e);
   }
 
@@ -404,7 +471,8 @@ export class ChartViewport extends UI.Widget.VBox {
    * @param {!Event} e
    */
   _onChartKeyUp(e) {
-    this._showCursor(e.shiftKey);
+    const mouseEvent = /** @type {!MouseEvent} */ (e);
+    this._showCursor(mouseEvent.shiftKey);
   }
 
   /**
@@ -414,9 +482,10 @@ export class ChartViewport extends UI.Widget.VBox {
     if (!UI.KeyboardShortcut.KeyboardShortcut.hasNoModifiers(e)) {
       return;
     }
-    const zoomFactor = e.shiftKey ? 0.8 : 0.3;
-    const panOffset = e.shiftKey ? 320 : 160;
-    switch (e.code) {
+    const keyboardEvent = /** @type {!KeyboardEvent} */ (e);
+    const zoomFactor = keyboardEvent.shiftKey ? 0.8 : 0.3;
+    const panOffset = keyboardEvent.shiftKey ? 320 : 160;
+    switch (keyboardEvent.code) {
       case 'KeyA':
         this._handlePanGesture(-panOffset, /* animate */ true);
         break;
@@ -457,7 +526,7 @@ export class ChartViewport extends UI.Widget.VBox {
         this._totalTime + this._minimumBoundary - bounds.right);
     bounds.left += timeOffset;
     bounds.right += timeOffset;
-    this._requestWindowTimes(bounds, !!animate);
+    this._requestWindowTimes(bounds, Boolean(animate));
   }
 
   /**
@@ -522,8 +591,9 @@ export class ChartViewport extends UI.Widget.VBox {
     this._targetRightTime = endTime;
     this._cancelWindowTimesAnimation = UI.UIUtils.animateFunction(
         this.element.window(), animateWindowTimes.bind(this),
-        [{from: this._visibleLeftTime, to: startTime}, {from: this._visibleRightTime, to: endTime}], 100,
-        () => this._cancelWindowTimesAnimation = null);
+        [{from: this._visibleLeftTime, to: startTime}, {from: this._visibleRightTime, to: endTime}], 100, () => {
+          this._cancelWindowTimesAnimation = null;
+        });
 
     /**
      * @param {number} startTime

@@ -13,6 +13,8 @@
 #include "chrome/browser/ui/cookie_controls/cookie_controls_service.h"
 #include "chrome/browser/ui/cookie_controls/cookie_controls_service_factory.h"
 #include "chrome/common/chrome_features.h"
+#include "chrome/common/webui_url_constants.h"
+#include "components/content_settings/core/common/cookie_controls_enforcement.h"
 
 namespace {
 static const char* kPolicyIcon = "cr20:domain";
@@ -61,10 +63,9 @@ void CookieControlsHandler::HandleObserveCookieControlsSettingsChanges(
   SendCookieControlsUIChanges();
 }
 
-const char* CookieControlsHandler::GetEnforcementIcon(Profile* profile) {
-  CookieControlsService* service =
-      CookieControlsServiceFactory::GetForProfile(profile);
-  switch (service->GetCookieControlsEnforcement()) {
+const char* CookieControlsHandler::GetEnforcementIcon(
+    CookieControlsEnforcement enforcement) {
+  switch (enforcement) {
     case CookieControlsEnforcement::kEnforcedByPolicy:
       return kPolicyIcon;
     case CookieControlsEnforcement::kEnforcedByExtension:
@@ -85,15 +86,11 @@ void CookieControlsHandler::OnThirdPartyCookieBlockingPolicyChanged() {
 }
 
 void CookieControlsHandler::SendCookieControlsUIChanges() {
-  Profile* profile = Profile::FromWebUI(web_ui());
   base::DictionaryValue dict;
   dict.SetBoolKey("enforced", service_->ShouldEnforceCookieControls());
   dict.SetBoolKey("checked", service_->GetToggleCheckedValue());
-  dict.SetStringKey("icon", CookieControlsHandler::GetEnforcementIcon(profile));
-  bool use_new_cookie_page =
-      base::FeatureList::IsEnabled(features::kPrivacySettingsRedesign);
-  dict.SetString("cookieSettingsUrl",
-                 use_new_cookie_page ? "chrome://settings/cookies"
-                                     : "chrome://settings/content/cookies");
+  dict.SetStringKey(
+      "icon", GetEnforcementIcon(service_->GetCookieControlsEnforcement()));
+  dict.SetString("cookieSettingsUrl", chrome::kChromeUICookieSettingsURL);
   FireWebUIListener("cookie-controls-changed", dict);
 }

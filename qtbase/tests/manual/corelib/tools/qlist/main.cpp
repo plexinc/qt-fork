@@ -26,8 +26,8 @@
 **
 ****************************************************************************/
 #include <QDebug>
-//#define QT_STRICT_ITERATORS
-#include <QVector>
+#include <QList>
+
 void testErase()
 {
     QList<int> a, b;

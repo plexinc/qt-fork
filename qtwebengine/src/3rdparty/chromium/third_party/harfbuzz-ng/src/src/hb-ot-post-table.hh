@@ -87,7 +87,6 @@ struct post
     if (unlikely (!post_prime)) return_trace (false);
 
     serialize (c->serializer);
-    if (c->serializer->in_error () || c->serializer->ran_out_of_room) return_trace (false);
 
     return_trace (true);
   }
@@ -259,7 +258,7 @@ struct post
 					 * 0x00020000 for version 2.0
 					 * 0x00025000 for version 2.5 (deprecated)
 					 * 0x00030000 for version 3.0 */
-  HBFixed		italicAngle;		/* Italic angle in counter-clockwise degrees
+  HBFixed	italicAngle;		/* Italic angle in counter-clockwise degrees
 					 * from the vertical. Zero for upright text,
 					 * negative for text that leans to the right
 					 * (forward). */

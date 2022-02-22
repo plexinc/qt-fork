@@ -43,7 +43,7 @@
 #include "qbardataproxy.h"
 #include "qabstractdataproxy_p.h"
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 class QBarDataProxyPrivate : public QAbstractDataProxyPrivate
 {
@@ -66,7 +66,7 @@ public:
     QPair<GLfloat, GLfloat> limitValues(int startRow, int startColumn, int rowCount,
                                         int columnCount) const;
 
-    virtual void setSeries(QAbstract3DSeries *series);
+    void setSeries(QAbstract3DSeries *series) override;
 
 private:
     QBarDataProxy *qptr();
@@ -82,6 +82,6 @@ private:
     friend class QBarDataProxy;
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

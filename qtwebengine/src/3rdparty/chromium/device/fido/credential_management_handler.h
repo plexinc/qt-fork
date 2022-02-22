@@ -32,6 +32,7 @@ enum class CredentialManagementStatus {
   kHardPINBlock,
   kAuthenticatorMissingCredentialManagement,
   kNoPINSet,
+  kForcePINChange,
 };
 
 // CredentialManagementHandler implements the authenticatorCredentialManagement
@@ -50,7 +51,8 @@ class COMPONENT_EXPORT(DEVICE_FIDO) CredentialManagementHandler
       base::Optional<std::vector<AggregatedEnumerateCredentialsResponse>>,
       base::Optional<size_t>)>;
   using GetPINCallback =
-      base::RepeatingCallback<void(int64_t,
+      base::RepeatingCallback<void(uint32_t min_pin_length,
+                                   int64_t retries,
                                    base::OnceCallback<void(std::string)>)>;
   using ReadyCallback = base::OnceClosure;
 
@@ -127,7 +129,7 @@ class COMPONENT_EXPORT(DEVICE_FIDO) CredentialManagementHandler
 
   State state_ = State::kWaitingForTouch;
   FidoAuthenticator* authenticator_ = nullptr;
-  base::Optional<std::vector<uint8_t>> pin_token_;
+  base::Optional<pin::TokenResponse> pin_token_;
 
   ReadyCallback ready_callback_;
   GetPINCallback get_pin_callback_;

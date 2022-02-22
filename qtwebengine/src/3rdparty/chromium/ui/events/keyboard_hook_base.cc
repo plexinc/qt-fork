@@ -6,8 +6,8 @@
 
 #include <utility>
 
+#include "base/containers/contains.h"
 #include "base/macros.h"
-#include "base/stl_util.h"
 #include "ui/events/event.h"
 #include "ui/events/keycodes/dom/dom_code.h"
 
@@ -25,6 +25,11 @@ KeyboardHookBase::~KeyboardHookBase() = default;
 
 bool KeyboardHookBase::IsKeyLocked(DomCode dom_code) const {
   return ShouldCaptureKeyEvent(dom_code);
+}
+
+bool KeyboardHookBase::RegisterHook() {
+  NOTIMPLEMENTED();
+  return false;
 }
 
 bool KeyboardHookBase::ShouldCaptureKeyEvent(DomCode dom_code) const {

@@ -13,7 +13,6 @@
 #include <limits.h>
 #include <math.h>
 
-#include <algorithm>
 #include <string>
 #include <utility>
 
@@ -29,14 +28,15 @@
 #include "base/metrics/sample_vector.h"
 #include "base/metrics/statistics_recorder.h"
 #include "base/pickle.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/lock.h"
 #include "base/values.h"
 #include "build/build_config.h"
 
 namespace {
-constexpr char kHtmlNewLine[] = "<br>";
 constexpr char kAsciiNewLine[] = "\n";
 }  // namespace
 
@@ -454,13 +454,10 @@ bool Histogram::InspectConstructionArguments(StringPiece name,
     UmaHistogramSparse("Histogram.TooManyBuckets.1000",
                        static_cast<Sample>(HashMetricName(name)));
 
-    // TODO(bcwhite): Clean these up as bugs get fixed. Also look at injecting
-    // whitelist (using hashes) from a higher layer rather than hardcoding
-    // them here.
+    // TODO(bcwhite): Look at injecting allowlist (using hashes) from a higher
+    // layer rather than hardcoding them here.
     // Blink.UseCounter legitimately has more than 1000 entries in its enum.
-    // Arc.OOMKills: https://crbug.com/916757
-    if (!name.starts_with("Blink.UseCounter") &&
-        !name.starts_with("Arc.OOMKills.")) {
+    if (!StartsWith(name, "Blink.UseCounter")) {
       DVLOG(1) << "Histogram: " << name
                << " has bad bucket_count: " << *bucket_count << " (limit "
                << kBucketCount_MAX << ")";
@@ -579,21 +576,6 @@ bool Histogram::AddSamplesFromPickle(PickleIterator* iter) {
   return unlogged_samples_->AddFromPickle(iter);
 }
 
-// The following methods provide a graphical histogram display.
-void Histogram::WriteHTMLGraph(std::string* output) const {
-  // TBD(jar) Write a nice HTML bar chart, with divs an mouse-overs etc.
-
-  // Get local (stack) copies of all effectively volatile class data so that we
-  // are consistent across our output activities.
-  std::unique_ptr<SampleVector> snapshot = SnapshotAllSamples();
-  output->append("<PRE>");
-  output->append("<h4>");
-  WriteAsciiHeader(*snapshot, output);
-  output->append("</h4>");
-  WriteAsciiBody(*snapshot, true, kHtmlNewLine, output);
-  output->append("</PRE>");
-}
-
 void Histogram::WriteAscii(std::string* output) const {
   // Get local (stack) copies of all effectively volatile class data so that we
   // are consistent across our output activities.
@@ -601,6 +583,20 @@ void Histogram::WriteAscii(std::string* output) const {
   WriteAsciiHeader(*snapshot, output);
   output->append(kAsciiNewLine);
   WriteAsciiBody(*snapshot, true, kAsciiNewLine, output);
+}
+
+base::DictionaryValue Histogram::ToGraphDict() const {
+  std::unique_ptr<SampleVector> snapshot = SnapshotAllSamples();
+  std::string header;
+  std::string body;
+  base::DictionaryValue dict;
+
+  WriteAsciiHeader(*snapshot, &header);
+  WriteAsciiBody(*snapshot, true, kAsciiNewLine, &body);
+  dict.SetString("header", header);
+  dict.SetString("body", body);
+
+  return dict;
 }
 
 void Histogram::ValidateHistogramContents() const {
@@ -652,20 +648,6 @@ Histogram::~Histogram() = default;
 
 bool Histogram::PrintEmptyBucket(uint32_t index) const {
   return true;
-}
-
-// Use the actual bucket widths (like a linear histogram) until the widths get
-// over some transition value, and then use that transition width.  Exponentials
-// get so big so fast (and we don't expect to see a lot of entries in the large
-// buckets), so we need this to make it possible to see what is going on and
-// not have 0-graphical-height buckets.
-double Histogram::GetBucketSize(Count current, uint32_t i) const {
-  DCHECK_GT(ranges(i + 1), ranges(i));
-  static const double kTransitionWidth = 5;
-  double denominator = ranges(i + 1) - ranges(i);
-  if (denominator > kTransitionWidth)
-    denominator = kTransitionWidth;  // Stop trying to normalize.
-  return current/denominator;
 }
 
 const std::string Histogram::GetAsciiBucketRange(uint32_t i) const {
@@ -723,8 +705,14 @@ void Histogram::WriteAsciiBody(const SampleVector& snapshot,
 
   // Prepare to normalize graphical rendering of bucket contents.
   double max_size = 0;
+  double scaling_factor = 1;
   if (graph_it)
     max_size = GetPeakBucketSize(snapshot);
+  // Scale histogram bucket counts to take at most 72 characters.
+  // Note: Keep in sync w/ kLineLength sparse_histogram.cc
+  const double kLineLength = 72;
+  if (max_size > kLineLength)
+    scaling_factor = kLineLength / max_size;
 
   // Calculate space needed to print bucket range numbers.  Leave room to print
   // nearly the largest bucket range without sliding over the histogram.
@@ -766,9 +754,9 @@ void Histogram::WriteAsciiBody(const SampleVector& snapshot,
       output->append(newline);
       continue;  // No reason to plot emptiness.
     }
-    double current_size = GetBucketSize(current, i);
+    Count current_size = round(current * scaling_factor);
     if (graph_it)
-      WriteAsciiBucketGraph(current_size, max_size, output);
+      WriteAsciiBucketGraph(current_size, kLineLength, output);
     WriteAsciiBucketContext(past, current, remaining, i, output);
     output->append(newline);
     past += current;
@@ -777,11 +765,11 @@ void Histogram::WriteAsciiBody(const SampleVector& snapshot,
 }
 
 double Histogram::GetPeakBucketSize(const SampleVectorBase& samples) const {
-  double max = 0;
+  Count max = 0;
   for (uint32_t i = 0; i < bucket_count() ; ++i) {
-    double current_size = GetBucketSize(samples.GetCountAtIndex(i), i);
-    if (current_size > max)
-      max = current_size;
+    Count current = samples.GetCountAtIndex(i);
+    if (current > max)
+      max = current;
   }
   return max;
 }
@@ -820,27 +808,6 @@ void Histogram::GetParameters(DictionaryValue* params) const {
   params->SetIntKey("min", declared_min());
   params->SetIntKey("max", declared_max());
   params->SetIntKey("bucket_count", static_cast<int>(bucket_count()));
-}
-
-void Histogram::GetCountAndBucketData(Count* count,
-                                      int64_t* sum,
-                                      ListValue* buckets) const {
-  std::unique_ptr<SampleVector> snapshot = SnapshotAllSamples();
-  *count = snapshot->TotalCount();
-  *sum = snapshot->sum();
-  uint32_t index = 0;
-  for (uint32_t i = 0; i < bucket_count(); ++i) {
-    Sample count_at_index = snapshot->GetCountAtIndex(i);
-    if (count_at_index > 0) {
-      std::unique_ptr<DictionaryValue> bucket_value(new DictionaryValue());
-      bucket_value->SetIntKey("low", ranges(i));
-      if (i != bucket_count() - 1)
-        bucket_value->SetIntKey("high", ranges(i + 1));
-      bucket_value->SetIntKey("count", count_at_index);
-      buckets->Set(index, std::move(bucket_value));
-      ++index;
-    }
-  }
 }
 
 //------------------------------------------------------------------------------
@@ -1005,14 +972,6 @@ LinearHistogram::LinearHistogram(
                 meta,
                 logged_meta) {}
 
-double LinearHistogram::GetBucketSize(Count current, uint32_t i) const {
-  DCHECK_GT(ranges(i + 1), ranges(i));
-  // Adjacent buckets with different widths would have "surprisingly" many (few)
-  // samples in a histogram if we didn't normalize this way.
-  double denominator = ranges(i + 1) - ranges(i);
-  return current/denominator;
-}
-
 const std::string LinearHistogram::GetAsciiBucketRange(uint32_t i) const {
   int range = ranges(i);
   BucketDescriptionMap::const_iterator it = bucket_description_.find(range);
@@ -1080,12 +1039,24 @@ ScaledLinearHistogram::ScaledLinearHistogram(const char* name,
                                              uint32_t bucket_count,
                                              int32_t scale,
                                              int32_t flags)
-    : histogram_(static_cast<LinearHistogram*>(
-          LinearHistogram::FactoryGet(name,
-                                      minimum,
-                                      maximum,
-                                      bucket_count,
-                                      flags))),
+    : ScaledLinearHistogram(std::string(name),
+                            minimum,
+                            maximum,
+                            bucket_count,
+                            scale,
+                            flags) {}
+
+ScaledLinearHistogram::ScaledLinearHistogram(const std::string& name,
+                                             Sample minimum,
+                                             Sample maximum,
+                                             uint32_t bucket_count,
+                                             int32_t scale,
+                                             int32_t flags)
+    : histogram_(LinearHistogram::FactoryGet(name,
+                                             minimum,
+                                             maximum,
+                                             bucket_count,
+                                             flags)),
       scale_(scale) {
   DCHECK(histogram_);
   DCHECK_LT(1, scale);
@@ -1093,20 +1064,31 @@ ScaledLinearHistogram::ScaledLinearHistogram(const char* name,
   CHECK_EQ(static_cast<Sample>(bucket_count), maximum - minimum + 2)
       << " ScaledLinearHistogram requires buckets of size 1";
 
-  remainders_.resize(histogram_->bucket_count(), 0);
+  // Normally, |histogram_| should have type LINEAR_HISTOGRAM or be
+  // inherited from it. However, if it's expired, it will be DUMMY_HISTOGRAM.
+  if (histogram_->GetHistogramType() == DUMMY_HISTOGRAM)
+    return;
+
+  DCHECK_EQ(histogram_->GetHistogramType(), LINEAR_HISTOGRAM);
+  LinearHistogram* histogram = static_cast<LinearHistogram*>(histogram_);
+  remainders_.resize(histogram->bucket_count(), 0);
 }
 
 ScaledLinearHistogram::~ScaledLinearHistogram() = default;
 
 void ScaledLinearHistogram::AddScaledCount(Sample value, int count) {
+  if (histogram_->GetHistogramType() == DUMMY_HISTOGRAM)
+    return;
   if (count == 0)
     return;
   if (count < 0) {
     NOTREACHED();
     return;
   }
-  const int32_t max_value =
-      static_cast<int32_t>(histogram_->bucket_count() - 1);
+
+  DCHECK_EQ(histogram_->GetHistogramType(), LINEAR_HISTOGRAM);
+  LinearHistogram* histogram = static_cast<LinearHistogram*>(histogram_);
+  const int32_t max_value = static_cast<int32_t>(histogram->bucket_count() - 1);
   if (value > max_value)
     value = max_value;
   if (value < 0)
@@ -1132,7 +1114,7 @@ void ScaledLinearHistogram::AddScaledCount(Sample value, int count) {
   }
 
   if (scaled_count > 0)
-    histogram_->AddCount(value, scaled_count);
+    histogram->AddCount(value, scaled_count);
 }
 
 //------------------------------------------------------------------------------
@@ -1247,8 +1229,8 @@ class CustomHistogram::Factory : public Histogram::Factory {
     std::vector<int> ranges = *custom_ranges_;
     ranges.push_back(0);  // Ensure we have a zero value.
     ranges.push_back(HistogramBase::kSampleType_MAX);
-    std::sort(ranges.begin(), ranges.end());
-    ranges.erase(std::unique(ranges.begin(), ranges.end()), ranges.end());
+    ranges::sort(ranges);
+    ranges.erase(ranges::unique(ranges), ranges.end());
 
     BucketRanges* bucket_ranges = new BucketRanges(ranges.size());
     for (uint32_t i = 0; i < ranges.size(); i++) {
@@ -1343,12 +1325,6 @@ void CustomHistogram::SerializeInfoImpl(Pickle* pickle) const {
   // write them.
   for (uint32_t i = 1; i < bucket_ranges()->bucket_count(); ++i)
     pickle->WriteInt(bucket_ranges()->range(i));
-}
-
-double CustomHistogram::GetBucketSize(Count current, uint32_t i) const {
-  // If this is a histogram of enum values, normalizing the bucket count
-  // by the bucket range is not helpful, so just return the bucket count.
-  return current;
 }
 
 // static

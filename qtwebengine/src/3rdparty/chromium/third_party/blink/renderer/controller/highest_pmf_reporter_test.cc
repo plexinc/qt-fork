@@ -5,13 +5,14 @@
 #include "third_party/blink/renderer/controller/highest_pmf_reporter.h"
 
 #include "base/memory/ptr_util.h"
-#include "base/test/scoped_feature_list.h"
 #include "base/test/test_mock_time_task_runner.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/renderer/core/loader/empty_clients.h"
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
+#include "third_party/blink/renderer/platform/scheduler/public/thread.h"
+#include "third_party/blink/renderer/platform/scheduler/public/thread_scheduler.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
 
 namespace blink {
@@ -71,7 +72,9 @@ class MockMemoryUsageMonitor : public MemoryUsageMonitor {
   MockMemoryUsageMonitor(
       scoped_refptr<base::TestMockTimeTaskRunner> task_runner_for_testing,
       const base::TickClock* clock)
-      : MemoryUsageMonitor(task_runner_for_testing, clock) {
+      : MemoryUsageMonitor(task_runner_for_testing, clock),
+        agent_group_scheduler_(
+            Thread::MainThread()->Scheduler()->CreateAgentGroupScheduler()) {
     memset(&mock_memory_usage_, 0, sizeof(mock_memory_usage_));
   }
   ~MockMemoryUsageMonitor() override = default;
@@ -116,11 +119,12 @@ class MockMemoryUsageMonitor : public MemoryUsageMonitor {
   Page* CreateDummyPage() {
     Page::PageClients page_clients;
     FillWithEmptyClients(page_clients);
-    return Page::CreateNonOrdinary(page_clients);
+    return Page::CreateNonOrdinary(page_clients, *agent_group_scheduler_);
   }
 
   MemoryUsage mock_memory_usage_;
   std::vector<Persistent<Page>> dummy_pages_;
+  std::unique_ptr<scheduler::WebAgentGroupScheduler> agent_group_scheduler_;
 };
 
 class HighestPmfReporterTest : public PageTestBase {

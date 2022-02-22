@@ -77,8 +77,8 @@ public:
     uint g_shift;
     uint b_shift;
 
-    QVector<QColor> colors;
-    QVector<int> pixels;
+    QList<QColor> colors;
+    QList<int> pixels;
 };
 
 static uint right_align(uint v)
@@ -320,7 +320,7 @@ static void init_direct(QXcbColormapPrivate *d, bool ownColormap)
     XStoreColors(X11->display, d->colormap, colorTable.data(), colorTable.count());
 }
 
-static QXcbColormap **cmaps = 0;
+static QXcbColormap **cmaps = nullptr;
 
 void QXcbColormap::initialize()
 {
@@ -343,7 +343,7 @@ void QXcbColormap::initialize()
         d->visual = DefaultVisual(display, i);
         d->defaultVisual = true;
 
-        Visual *argbVisual = 0;
+        Visual *argbVisual = nullptr;
 
         if (X11->visual && i == DefaultScreen(display)) {
             // only use the outside colormap on the default screen
@@ -356,7 +356,7 @@ void QXcbColormap::initialize()
             d->visual = find_visual(display, i, X11->visual_class, X11->visual_id,
                                     &d->depth, &d->defaultVisual);
         } else if (!X11->custom_cmap) {
-            XStandardColormap *stdcmap = 0;
+            XStandardColormap *stdcmap = nullptr;
             int ncmaps = 0;
 
 #if QT_CONFIG(xrender)
@@ -638,7 +638,7 @@ const QColor QXcbColormap::colorAt(uint pixel) const
     return QColor(r, g, b);
 }
 
-const QVector<QColor> QXcbColormap::colormap() const
+const QList<QColor> QXcbColormap::colormap() const
 { return d->colors; }
 
 QXcbColormap &QXcbColormap::operator=(const QXcbColormap &colormap)

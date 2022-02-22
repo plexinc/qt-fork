@@ -48,7 +48,6 @@
 
 #include <QtCore/QFile>
 #include <QtCore/QFileInfo>
-#include <QtCore/QSet>
 #include <QtCore/QStandardPaths>
 #include <QtCore/QBuffer>
 #include <QtCore/QUrl>
@@ -91,8 +90,8 @@ bool QMimeDatabasePrivate::shouldCheck()
     return true;
 }
 
-#if defined(Q_OS_UNIX) && !defined(Q_OS_INTEGRITY)
-#define QT_USE_MMAP
+#if defined(Q_OS_UNIX) && !defined(Q_OS_NACL) && !defined(Q_OS_INTEGRITY)
+#  define QT_USE_MMAP
 #endif
 
 void QMimeDatabasePrivate::loadProviders()
@@ -261,7 +260,7 @@ void QMimeDatabasePrivate::loadIcon(QMimeTypePrivate &mimePrivate)
 
 static QString fallbackParent(const QString &mimeTypeName)
 {
-    const QStringRef myGroup = mimeTypeName.leftRef(mimeTypeName.indexOf(QLatin1Char('/')));
+    const QStringView myGroup = QStringView{mimeTypeName}.left(mimeTypeName.indexOf(QLatin1Char('/')));
     // All text/* types are subclasses of text/plain.
     if (myGroup == QLatin1String("text") && mimeTypeName != QLatin1String("text/plain"))
         return QLatin1String("text/plain");
@@ -322,7 +321,7 @@ static inline bool isTextFile(const QByteArray &data)
     const char *p = data.constData();
     const char *e = p + qMin(128, data.size());
     for ( ; p < e; ++p) {
-        if ((unsigned char)(*p) < 32 && *p != 9 && *p !=10 && *p != 13)
+        if (static_cast<unsigned char>(*p) < 32 && *p != 9 && *p !=10 && *p != 13)
             return false;
     }
 
@@ -389,20 +388,23 @@ QMimeType QMimeDatabasePrivate::mimeTypeForFileNameAndData(const QString &fileNa
         // Disambiguate conflicting extensions (if magic matching found something)
         if (candidateByData.isValid() && magicAccuracy > 0) {
             const QString sniffedMime = candidateByData.name();
-            // If the sniffedMime matches a glob match, use it
+            // If the sniffedMime matches a highest-weight glob match, use it
             if (candidatesByName.m_matchingMimeTypes.contains(sniffedMime)) {
                 *accuracyPtr = 100;
                 return candidateByData;
             }
-            for (const QString &m : qAsConst(candidatesByName.m_matchingMimeTypes)) {
+            for (const QString &m : qAsConst(candidatesByName.m_allMatchingMimeTypes)) {
                 if (inherits(m, sniffedMime)) {
                     // We have magic + pattern pointing to this, so it's a pretty good match
                     *accuracyPtr = 100;
                     return mimeTypeForName(m);
                 }
             }
-            *accuracyPtr = magicAccuracy;
-            return candidateByData;
+            if (candidatesByName.m_allMatchingMimeTypes.isEmpty()) {
+                // No glob, use magic
+                *accuracyPtr = magicAccuracy;
+                return candidateByData;
+            }
         }
     }
 

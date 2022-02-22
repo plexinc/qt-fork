@@ -44,6 +44,8 @@
 #include <QtCore/QLocale>
 #include <QtCore/QPointer>
 
+#include <QtCore/private/qcore_mac_p.h>
+
 QT_BEGIN_NAMESPACE
 
 class QCocoaInputContext : public QPlatformInputContext
@@ -55,18 +57,18 @@ public:
 
     bool isValid() const override { return true; }
 
+    void setFocusObject(QObject *object) override;
+
+    void commit() override;
     void reset() override;
 
     QLocale locale() const override { return m_locale; }
     void updateLocale();
 
-private Q_SLOTS:
-    void connectSignals();
-    void focusObjectChanged(QObject *focusObject);
-
 private:
-    QPointer<QWindow> mWindow;
+    QPointer<QWindow> m_focusWindow;
     QLocale m_locale;
+    QMacNotificationObserver m_inputSourceObserver;
 };
 
 QT_END_NAMESPACE

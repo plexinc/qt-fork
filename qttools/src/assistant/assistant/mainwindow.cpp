@@ -58,12 +58,14 @@
 #include <QtCore/QFileInfo>
 #include <QtCore/QDir>
 
-#include <QtWidgets/QAction>
-#include <QtWidgets/QComboBox>
-#include <QtWidgets/QDockWidget>
+#include <QtGui/QAction>
 #include <QtGui/QFontDatabase>
 #include <QtGui/QImageReader>
 #include <QtGui/QScreen>
+#include <QtGui/QShortcut>
+
+#include <QtWidgets/QComboBox>
+#include <QtWidgets/QDockWidget>
 #include <QtWidgets/QFileDialog>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QLayout>
@@ -71,7 +73,6 @@
 #include <QtWidgets/QMenuBar>
 #include <QtWidgets/QMessageBox>
 #include <QtWidgets/QProgressBar>
-#include <QtWidgets/QShortcut>
 #include <QtWidgets/QStatusBar>
 #include <QtWidgets/QToolBar>
 #include <QtWidgets/QToolButton>
@@ -317,45 +318,9 @@ bool MainWindow::initHelpDB(bool registerInternalDoc)
     if (!helpEngineWrapper.setupData())
         return false;
 
-    if (!registerInternalDoc) {
-        if (helpEngineWrapper.defaultHomePage() == QLatin1String("help"))
-            helpEngineWrapper.setDefaultHomePage(QLatin1String("about:blank"));
-        return true;
-    }
-    bool assistantInternalDocRegistered = false;
-    QString intern(QLatin1String("org.qt-project.assistantinternal-"));
-    for (const QString &ns : helpEngineWrapper.registeredDocumentations()) {
-        if (ns.startsWith(intern)) {
-            intern = ns;
-            assistantInternalDocRegistered = true;
-            break;
-        }
-    }
+    if (!registerInternalDoc && helpEngineWrapper.defaultHomePage() == QLatin1String("help"))
+        helpEngineWrapper.setDefaultHomePage(QLatin1String("about:blank"));
 
-    const QString &collectionFile = helpEngineWrapper.collectionFile();
-    QFileInfo fi(collectionFile);
-    QString helpFile;
-    QTextStream(&helpFile) << fi.absolutePath() << QDir::separator()
-        << QLatin1String("assistant.qch.") << (QT_VERSION >> 16)
-        << QLatin1Char('.') << ((QT_VERSION >> 8) & 0xFF);
-
-    bool needsSetup = false;
-    if (!assistantInternalDocRegistered || !QFile::exists(helpFile)) {
-        QFile file(helpFile);
-        if (file.open(QIODevice::WriteOnly)) {
-            QResource res(QLatin1String(":/qt-project.org/assistant/assistant.qch"));
-            if (file.write((const char*)res.data(), res.size()) != res.size())
-                qDebug() << QLatin1String("could not write assistant.qch...");
-
-            file.close();
-        }
-        helpEngineWrapper.unregisterDocumentation(intern);
-        helpEngineWrapper.registerDocumentation(helpFile);
-        needsSetup = true;
-    }
-
-    if (needsSetup)
-        helpEngineWrapper.setupData();
     return true;
 }
 
@@ -417,7 +382,7 @@ static const char *docs[] = {
 static QStringList newQtDocumentation()
 {
     QStringList result;
-    const QDir docDirectory(QLibraryInfo::location(QLibraryInfo::DocumentationPath));
+    const QDir docDirectory(QLibraryInfo::path(QLibraryInfo::DocumentationPath));
     const QFileInfoList entries = docDirectory.entryInfoList(QStringList(QStringLiteral("*.qch")),
                                                              QDir::Files, QDir::Name);
     if (!entries.isEmpty()) {
@@ -466,6 +431,7 @@ void MainWindow::lookForNewQtDocumentation()
 void MainWindow::qtDocumentationInstalled()
 {
     TRACE_OBJ
+    OpenPagesManager::instance()->resetHelpPage();
     statusBar()->clearMessage();
     checkInitState();
 }
@@ -744,7 +710,7 @@ void MainWindow::setupFilterToolbar()
 
     connect(&helpEngine, &HelpEngineWrapper::setupFinished,
             this, &MainWindow::setupFilterCombo, Qt::QueuedConnection);
-    connect(m_filterCombo, QOverload<int>::of(&QComboBox::activated),
+    connect(m_filterCombo, &QComboBox::activated,
             this, &MainWindow::filterDocumentation);
     connect(helpEngine.filterEngine(), &QHelpFilterEngine::filterActivated,
             this, &MainWindow::currentFilterChanged);
@@ -912,7 +878,7 @@ void MainWindow::showAboutDialog()
             "<p>Version %2</p>"
             "<p>Browser: %3</p></center>"
             "<p>Copyright (C) %4 The Qt Company Ltd.</p>")
-            .arg(tr("Qt Assistant"), QLatin1String(QT_VERSION_STR), browser, QStringLiteral("2020")),
+            .arg(tr("Qt Assistant"), QLatin1String(QT_VERSION_STR), browser, QStringLiteral("2022")),
             resources);
         QLatin1String path(":/qt-project.org/assistant/images/assistant-128.png");
         aboutDia.setPixmap(QString(path));

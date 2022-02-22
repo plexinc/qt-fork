@@ -31,10 +31,7 @@ static SkColor floats_to_color(const SkScalar f[4]) {
 }
 
 static bool oval_contains(const SkRect& r, SkScalar x, SkScalar y) {
-    SkMatrix m;
-    m.setRectToRect(r, gUnitSquare, SkMatrix::kFill_ScaleToFit);
-    SkPoint pt;
-    m.mapXY(x, y, &pt);
+    SkPoint pt = SkMatrix::RectToRect(r, gUnitSquare).mapXY(x, y);
     return SkPointPriv::LengthSqd(pt) <= 1;
 }
 
@@ -168,7 +165,7 @@ protected:
     }
 
 private:
-    typedef Sample INHERITED;
+    using INHERITED = Sample;
 };
 
 //////////////////////////////////////////////////////////////////////////////

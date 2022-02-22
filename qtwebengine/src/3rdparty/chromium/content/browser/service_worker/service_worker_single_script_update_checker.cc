@@ -8,7 +8,6 @@
 
 #include "base/bind.h"
 #include "base/trace_event/trace_event.h"
-#include "content/browser/appcache/appcache_disk_cache_ops.h"
 #include "content/browser/loader/browser_initiated_resource_request.h"
 #include "content/browser/service_worker/service_worker_cache_writer.h"
 #include "content/browser/service_worker/service_worker_consts.h"
@@ -17,14 +16,18 @@
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/global_request_id.h"
 #include "content/public/browser/render_frame_host.h"
+#include "content/public/browser/url_loader_throttles.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/referrer.h"
 #include "mojo/public/cpp/system/simple_watcher.h"
 #include "net/base/ip_endpoint.h"
+#include "net/base/isolation_info.h"
 #include "net/base/load_flags.h"
+#include "net/cookies/site_for_cookies.h"
 #include "net/http/http_response_info.h"
 #include "services/network/public/cpp/net_adapters.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
+#include "third_party/blink/public/common/loader/throttling_url_loader.h"
 #include "third_party/blink/public/common/loader/url_loader_throttle.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom.h"
 #include "third_party/blink/public/mojom/loader/resource_load_info.mojom-shared.h"
@@ -58,20 +61,25 @@ constexpr net::NetworkTrafficAnnotationTag kUpdateCheckTrafficAnnotation =
         "site, serviceworkers are disabled for the site only. If they are "
         "totally disabled, all serviceworker requests will be stopped."
       chrome_policy {
-        URLBlacklist {
-          URLBlacklist: { entries: '*' }
+        CookiesBlockedForUrls {
+          CookiesBlockedForUrls: { entries: '*' }
         }
       }
       chrome_policy {
-        URLWhitelist {
-          URLWhitelist { }
+        CookiesAllowedForUrls {
+          CookiesAllowedForUrls { }
+        }
+      }
+      chrome_policy {
+        DefaultCookiesSetting {
+          DefaultCookiesSetting: 2
         }
       }
     }
     comments:
       "Chrome would be unable to update service workers without this type of "
-      "request. Using either URLBlacklist or URLWhitelist policies (or a "
-      "combination of both) limits the scope of these requests."
+      "request. Using either CookiesBlockedForUrls or CookiesAllowedForUrls "
+      "policies (or a combination of both) limits the scope of these requests."
     )");
 
 }  // namespace
@@ -96,17 +104,17 @@ ServiceWorkerSingleScriptUpdateChecker::ServiceWorkerSingleScriptUpdateChecker(
     const GURL& main_script_url,
     const GURL& scope,
     bool force_bypass_cache,
+    blink::mojom::ScriptType worker_script_type,
     blink::mojom::ServiceWorkerUpdateViaCache update_via_cache,
     const blink::mojom::FetchClientSettingsObjectPtr&
         fetch_client_settings_object,
     base::TimeDelta time_since_last_check,
-    const net::HttpRequestHeaders& default_headers,
-    ServiceWorkerUpdatedScriptLoader::BrowserContextGetter
-        browser_context_getter,
+    BrowserContext* browser_context,
     scoped_refptr<network::SharedURLLoaderFactory> loader_factory,
-    std::unique_ptr<ServiceWorkerResponseReader> compare_reader,
-    std::unique_ptr<ServiceWorkerResponseReader> copy_reader,
-    std::unique_ptr<ServiceWorkerResponseWriter> writer,
+    mojo::Remote<storage::mojom::ServiceWorkerResourceReader> compare_reader,
+    mojo::Remote<storage::mojom::ServiceWorkerResourceReader> copy_reader,
+    mojo::Remote<storage::mojom::ServiceWorkerResourceWriter> writer,
+    int64_t writer_resource_id,
     ResultCallback callback)
     : script_url_(script_url),
       is_main_script_(is_main_script),
@@ -118,6 +126,8 @@ ServiceWorkerSingleScriptUpdateChecker::ServiceWorkerSingleScriptUpdateChecker(
                        mojo::SimpleWatcher::ArmingPolicy::MANUAL,
                        base::SequencedTaskRunnerHandle::Get()),
       callback_(std::move(callback)) {
+  DCHECK(browser_context);
+
   TRACE_EVENT_WITH_FLOW2("ServiceWorker",
                          "ServiceWorkerSingleScriptUpdateChecker::"
                          "ServiceWorkerSingleScriptUpdateChecker",
@@ -125,91 +135,23 @@ ServiceWorkerSingleScriptUpdateChecker::ServiceWorkerSingleScriptUpdateChecker(
                          script_url.spec(), "main_script_url",
                          main_script_url.spec());
 
+  network::ResourceRequest resource_request =
+      service_worker_loader_helpers::CreateRequestForServiceWorkerScript(
+          script_url, url::Origin::Create(main_script_url), is_main_script_,
+          worker_script_type, *fetch_client_settings_object, *browser_context);
+
   uint32_t options = network::mojom::kURLLoadOptionNone;
-  network::ResourceRequest resource_request;
-  resource_request.url = script_url;
-  resource_request.site_for_cookies =
-      net::SiteForCookies::FromUrl(main_script_url);
-  resource_request.do_not_prompt_for_login = true;
-  resource_request.headers = default_headers;
-  resource_request.referrer_policy = Referrer::ReferrerPolicyForUrlRequest(
-      fetch_client_settings_object->referrer_policy);
-  // https://w3c.github.io/webappsec-referrer-policy/#determine-requests-referrer
-  resource_request.referrer =
-      Referrer::SanitizeForRequest(
-          script_url, Referrer(fetch_client_settings_object->outgoing_referrer,
-                               fetch_client_settings_object->referrer_policy))
-          .url;
-  resource_request.upgrade_if_insecure =
-      fetch_client_settings_object->insecure_requests_policy ==
-      blink::mojom::InsecureRequestsPolicy::kUpgrade;
-
-  // ResourceRequest::request_initiator is the request's origin in the spec.
-  // https://fetch.spec.whatwg.org/#concept-request-origin
-  // It's needed to be set to the origin of the main script url.
-  // https://github.com/w3c/ServiceWorker/issues/1447
-  const url::Origin origin = url::Origin::Create(main_script_url);
-  resource_request.request_initiator = origin;
-
-  // This key is used to isolate requests from different contexts in accessing
-  // shared network resources like the http cache.
-  resource_request.trusted_params = network::ResourceRequest::TrustedParams();
-  resource_request.trusted_params->network_isolation_key =
-      net::NetworkIsolationKey(origin, origin);
-
   if (is_main_script_) {
-    // Set the "Service-Worker" header for the main script request:
-    // https://w3c.github.io/ServiceWorker/#service-worker-script-request
-    resource_request.headers.SetHeader("Service-Worker", "script");
-
-    // The "Fetch a classic worker script" uses "same-origin" as mode and
-    // credentials mode.
-    // https://html.spec.whatwg.org/C/#fetch-a-classic-worker-script
-    resource_request.mode = network::mojom::RequestMode::kSameOrigin;
-    resource_request.credentials_mode =
-        network::mojom::CredentialsMode::kSameOrigin;
-
-    // |fetch_request_context_type| and |resource_type| roughly correspond to
-    // the request's |destination| in the Fetch spec.
-    // The destination is "serviceworker" for the main script.
-    // https://w3c.github.io/ServiceWorker/#update-algorithm
-    resource_request.fetch_request_context_type =
-        static_cast<int>(blink::mojom::RequestContextType::SERVICE_WORKER);
-    resource_request.destination =
-        network::mojom::RequestDestination::kServiceWorker;
-    resource_request.resource_type =
-        static_cast<int>(blink::mojom::ResourceType::kServiceWorker);
-
     // Request SSLInfo. It will be persisted in service worker storage and
-    // may be used by ServiceWorkerNavigationLoader for navigations handled
+    // may be used by ServiceWorkerMainResourceLoader for navigations handled
     // by this service worker.
     options |= network::mojom::kURLLoadOptionSendSSLInfoWithResponse;
-  } else {
-    // The "fetch a classic worker-imported script" doesn't have any statement
-    // about mode and credentials mode. Use the default value, which is
-    // "no-cors".
-    // https://html.spec.whatwg.org/C/#fetch-a-classic-worker-imported-script
-    DCHECK_EQ(network::mojom::RequestMode::kNoCors, resource_request.mode);
-
-    // |fetch_request_context_type| and |resource_type| roughly correspond to
-    // the request's |destination| in the Fetch spec.
-    // The destination is "script" for the imported script.
-    // https://w3c.github.io/ServiceWorker/#update-algorithm
-    resource_request.fetch_request_context_type =
-        static_cast<int>(blink::mojom::RequestContextType::SCRIPT);
-    resource_request.destination = network::mojom::RequestDestination::kScript;
-    resource_request.resource_type =
-        static_cast<int>(blink::mojom::ResourceType::kScript);
   }
 
   // Upgrade the request to an a priori authenticated URL, if appropriate.
   // https://w3c.github.io/webappsec-upgrade-insecure-requests/#upgrade-request
   // TODO(https://crbug.com/987491): Set |ResourceRequest::upgrade_if_insecure_|
   // appropriately.
-
-  // TODO(https://crbug.com/824647): Support ES modules. Use "cors" as a mode
-  // for service worker served as modules, and "omit" as a credentials mode:
-  // https://html.spec.whatwg.org/C/#fetch-a-single-module-script
 
   if (service_worker_loader_helpers::ShouldValidateBrowserCacheForScript(
           is_main_script_, force_bypass_cache_, update_via_cache_,
@@ -219,17 +161,27 @@ ServiceWorkerSingleScriptUpdateChecker::ServiceWorkerSingleScriptUpdateChecker(
 
   cache_writer_ = ServiceWorkerCacheWriter::CreateForComparison(
       std::move(compare_reader), std::move(copy_reader), std::move(writer),
+      writer_resource_id,
       /*pause_when_not_identical=*/true);
 
-  // Get a unique request id across browser-initiated navigations and navigation
-  // preloads.
-  const int request_id = GlobalRequestID::MakeBrowserInitiated().request_id;
-  network_loader_ = ServiceWorkerUpdatedScriptLoader::
-      ThrottlingURLLoaderCoreWrapper::CreateLoaderAndStart(
-          loader_factory->Clone(), browser_context_getter, MSG_ROUTING_NONE,
-          request_id, options, resource_request,
-          network_client_receiver_.BindNewPipeAndPassRemote(),
-          kUpdateCheckTrafficAnnotation);
+  // Service worker update checking doesn't have a relevant frame and tab, so
+  // that `web_contents_getter` returns nullptr and the frame id is set to
+  // kNoFrameTreeNodeId.
+  base::RepeatingCallback<WebContents*()> web_contents_getter =
+      base::BindRepeating([]() -> WebContents* { return nullptr; });
+  std::vector<std::unique_ptr<blink::URLLoaderThrottle>> throttles =
+      CreateContentBrowserURLLoaderThrottles(
+          resource_request, browser_context, std::move(web_contents_getter),
+          /*navigation_ui_data=*/nullptr, RenderFrameHost::kNoFrameTreeNodeId);
+
+  network_client_remote_.Bind(
+      network_client_receiver_.BindNewPipeAndPassRemote());
+  network_loader_ = blink::ThrottlingURLLoader::CreateLoaderAndStart(
+      network::SharedURLLoaderFactory::Create(loader_factory->Clone()),
+      std::move(throttles), MSG_ROUTING_NONE,
+      GlobalRequestID::MakeBrowserInitiated().request_id, options,
+      &resource_request, network_client_remote_.get(),
+      kUpdateCheckTrafficAnnotation, base::ThreadTaskRunnerHandle::Get());
   DCHECK_EQ(network_loader_state_,
             ServiceWorkerUpdatedScriptLoader::LoaderState::kNotStarted);
   network_loader_state_ =
@@ -253,11 +205,9 @@ void ServiceWorkerSingleScriptUpdateChecker::OnReceiveResponse(
   blink::ServiceWorkerStatusCode service_worker_status;
   network::URLLoaderCompletionStatus completion_status;
   std::string error_message;
-  std::unique_ptr<net::HttpResponseInfo> response_info =
-      service_worker_loader_helpers::CreateHttpResponseInfoAndCheckHeaders(
+  if (!service_worker_loader_helpers::CheckResponseHead(
           *response_head, &service_worker_status, &completion_status,
-          &error_message);
-  if (!response_info) {
+          &error_message)) {
     DCHECK_NE(net::OK, completion_status.error_code);
     Fail(service_worker_status, error_message, completion_status);
     return;
@@ -278,15 +228,19 @@ void ServiceWorkerSingleScriptUpdateChecker::OnReceiveResponse(
            network::URLLoaderCompletionStatus(net::ERR_INSECURE_RESPONSE));
       return;
     }
-    cross_origin_embedder_policy_ = response_head->cross_origin_embedder_policy;
+    // TODO(arthursonzogni): Ensure CrossOriginEmbedderPolicy to be available
+    // here, not matter the URLLoader used to load it.
+    cross_origin_embedder_policy_ =
+        response_head->parsed_headers
+            ? response_head->parsed_headers->cross_origin_embedder_policy
+            : network::CrossOriginEmbedderPolicy();
   }
 
   network_loader_state_ =
       ServiceWorkerUpdatedScriptLoader::LoaderState::kWaitingForBody;
   network_accessed_ = response_head->network_accessed;
 
-  WriteHeaders(
-      base::MakeRefCounted<HttpResponseInfoIOBuffer>(std::move(response_info)));
+  WriteHeaders(std::move(response_head));
 }
 
 void ServiceWorkerSingleScriptUpdateChecker::OnReceiveRedirect(
@@ -428,7 +382,7 @@ const char* ServiceWorkerSingleScriptUpdateChecker::ResultToString(
 //------------------------------------------------------------------------------
 
 void ServiceWorkerSingleScriptUpdateChecker::WriteHeaders(
-    scoped_refptr<HttpResponseInfoIOBuffer> info_buffer) {
+    network::mojom::URLResponseHeadPtr response_head) {
   TRACE_EVENT_WITH_FLOW0(
       "ServiceWorker", "ServiceWorkerSingleScriptUpdateChecker::WriteHeaders",
       this, TRACE_EVENT_FLAG_FLOW_IN | TRACE_EVENT_FLAG_FLOW_OUT);
@@ -441,7 +395,7 @@ void ServiceWorkerSingleScriptUpdateChecker::WriteHeaders(
   // Pass the header to the cache_writer_. This is written to the storage when
   // the body had changes.
   net::Error error = cache_writer_->MaybeWriteHeaders(
-      info_buffer.get(),
+      std::move(response_head),
       base::BindOnce(
           &ServiceWorkerSingleScriptUpdateChecker::OnWriteHeadersComplete,
           weak_factory_.GetWeakPtr()));
@@ -624,8 +578,9 @@ void ServiceWorkerSingleScriptUpdateChecker::OnCompareDataComplete(
     DCHECK_EQ(error, net::ERR_IO_PENDING);
     auto paused_state = std::make_unique<PausedState>(
         std::move(cache_writer_), std::move(network_loader_),
-        network_client_receiver_.Unbind(), std::move(pending_buffer),
-        bytes_written, network_loader_state_, body_writer_state_);
+        std::move(network_client_remote_), network_client_receiver_.Unbind(),
+        std::move(pending_buffer), bytes_written, network_loader_state_,
+        body_writer_state_);
     Succeed(Result::kDifferent, std::move(paused_state));
     return;
   }
@@ -703,9 +658,8 @@ void ServiceWorkerSingleScriptUpdateChecker::Finish(
 
 ServiceWorkerSingleScriptUpdateChecker::PausedState::PausedState(
     std::unique_ptr<ServiceWorkerCacheWriter> cache_writer,
-    std::unique_ptr<
-        ServiceWorkerUpdatedScriptLoader::ThrottlingURLLoaderCoreWrapper>
-        network_loader,
+    std::unique_ptr<blink::ThrottlingURLLoader> network_loader,
+    mojo::Remote<network::mojom::URLLoaderClient> network_client_remote,
     mojo::PendingReceiver<network::mojom::URLLoaderClient>
         network_client_receiver,
     scoped_refptr<network::MojoToNetPendingBuffer> pending_network_buffer,
@@ -714,6 +668,7 @@ ServiceWorkerSingleScriptUpdateChecker::PausedState::PausedState(
     ServiceWorkerUpdatedScriptLoader::WriterState body_writer_state)
     : cache_writer(std::move(cache_writer)),
       network_loader(std::move(network_loader)),
+      network_client_remote(std::move(network_client_remote)),
       network_client_receiver(std::move(network_client_receiver)),
       pending_network_buffer(std::move(pending_network_buffer)),
       consumed_bytes(consumed_bytes),

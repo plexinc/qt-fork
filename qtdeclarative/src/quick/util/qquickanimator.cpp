@@ -57,7 +57,7 @@ QT_BEGIN_NAMESPACE
     directly on Qt Quick's scene graph, rather than the QML objects and their
     properties like regular Animation types do. This has the benefit that
     Animator based animations can animate on the \l
-    {Threaded Render Loop ("threaded")}{scene graph's rendering thread} even when the
+    {Threaded Render Loop ('threaded')}{scene graph's rendering thread} even when the
     UI thread is blocked.
 
     The value of the QML property will be updated after the animation has
@@ -176,7 +176,7 @@ void QQuickAnimator::setTo(qreal to)
     Q_D(QQuickAnimator);
     if (to == d->to)
         return;
-    d->isToDefined = true;
+    d->toIsDefined = true;
     d->to = to;
     Q_EMIT toChanged(d->to);
 }
@@ -202,9 +202,9 @@ qreal QQuickAnimator::to() const
 void QQuickAnimator::setFrom(qreal from)
 {
     Q_D(QQuickAnimator);
+    d->fromIsDefined = true;
     if (from == d->from)
         return;
-    d->isFromDefined = true;
     d->from = from;
     Q_EMIT fromChanged(d->from);
 }
@@ -231,14 +231,14 @@ void QQuickAnimatorPrivate::apply(QQuickAnimatorJob *job,
 
             job->setTarget(qobject_cast<QQuickItem *>(action.property.object()));
 
-            if (isFromDefined)
+            if (fromIsDefined)
                 job->setFrom(from);
             else if (action.fromValue.isValid())
                 job->setFrom(action.fromValue.toReal());
             else
                 job->setFrom(action.property.read().toReal());
 
-            if (isToDefined)
+            if (toIsDefined)
                 job->setTo(to);
             else if (action.toValue.isValid())
                 job->setTo(action.toValue.toReal());
@@ -255,7 +255,8 @@ void QQuickAnimatorPrivate::apply(QQuickAnimatorJob *job,
 
     if (modified.isEmpty()) {
         job->setTarget(target);
-        job->setFrom(from);
+        if (fromIsDefined)
+            job->setFrom(from);
         job->setTo(to);
     }
 
@@ -265,6 +266,9 @@ void QQuickAnimatorPrivate::apply(QQuickAnimatorJob *job,
         else
             job->setTarget(qobject_cast<QQuickItem *>(defaultTarget));
     }
+
+    if (modified.isEmpty() && !fromIsDefined && job->target())
+        job->setFrom(job->target()->property(propertyName.toLatin1()).toReal());
 
     job->setDuration(duration);
     job->setLoopCount(loopCount);
@@ -504,7 +508,6 @@ QQuickRotationAnimator::RotationDirection QQuickRotationAnimator::direction() co
     return d->direction;
 }
 
-#if QT_CONFIG(quick_shadereffect) && QT_CONFIG(opengl)
 /*!
     \qmltype UniformAnimator
     \instantiates QQuickUniformAnimator
@@ -582,7 +585,6 @@ QQuickAnimatorJob *QQuickUniformAnimator::createJob() const
     job->setUniform(u.toLatin1());
     return job;
 }
-#endif
 
 QT_END_NAMESPACE
 

@@ -66,17 +66,11 @@
 
 QT_BEGIN_NAMESPACE
 
-template<typename T> class QList;
 class QSslCertificate;
 class QSslCipher;
 class QSslKey;
 class QSslEllipticCurve;
 class QSslDiffieHellmanParameters;
-
-namespace dtlsopenssl
-{
-class DtlsState;
-}
 
 class QSslConfigurationPrivate;
 class Q_NETWORK_EXPORT QSslConfiguration
@@ -126,6 +120,7 @@ public:
     // Cipher settings
     QList<QSslCipher> ciphers() const;
     void setCiphers(const QList<QSslCipher> &ciphers);
+    void setCiphers(const QString &ciphers);
     static QList<QSslCipher> supportedCiphers();
 
     // Certificate Authority (CA) settings
@@ -149,9 +144,9 @@ public:
     QSslKey ephemeralServerKey() const;
 
     // EC settings
-    QVector<QSslEllipticCurve> ellipticCurves() const;
-    void setEllipticCurves(const QVector<QSslEllipticCurve> &curves);
-    static QVector<QSslEllipticCurve> supportedEllipticCurves();
+    QList<QSslEllipticCurve> ellipticCurves() const;
+    void setEllipticCurves(const QList<QSslEllipticCurve> &curves);
+    static QList<QSslEllipticCurve> supportedEllipticCurves();
 
     QByteArray preSharedKeyIdentityHint() const;
     void setPreSharedKeyIdentityHint(const QByteArray &hint);
@@ -174,6 +169,12 @@ public:
     static void setDefaultDtlsConfiguration(const QSslConfiguration &configuration);
 #endif // dtls
 
+    bool handshakeMustInterruptOnError() const;
+    void setHandshakeMustInterruptOnError(bool interrupt);
+
+    bool missingCertificateIsFatal() const;
+    void setMissingCertificateIsFatal(bool cannotRecover);
+
     void setOcspStaplingEnabled(bool enable);
     bool ocspStaplingEnabled() const;
 
@@ -183,27 +184,20 @@ public:
         NextProtocolNegotiationUnsupported
     };
 
-#if QT_VERSION >= QT_VERSION_CHECK(6,0,0)
     void setAllowedNextProtocols(const QList<QByteArray> &protocols);
-#else
-    void setAllowedNextProtocols(QList<QByteArray> protocols);
-#endif
     QList<QByteArray> allowedNextProtocols() const;
 
     QByteArray nextNegotiatedProtocol() const;
     NextProtocolNegotiationStatus nextProtocolNegotiationStatus() const;
 
     static const char ALPNProtocolHTTP2[];
-    static const char NextProtocolSpdy3_0[];
     static const char NextProtocolHttp1_1[];
 
 private:
     friend class QSslSocket;
     friend class QSslConfigurationPrivate;
-    friend class QSslSocketBackendPrivate;
     friend class QSslContext;
-    friend class QDtlsBasePrivate;
-    friend class dtlsopenssl::DtlsState;
+    friend class QTlsBackend;
     QSslConfiguration(QSslConfigurationPrivate *dd);
     QSharedDataPointer<QSslConfigurationPrivate> d;
 };

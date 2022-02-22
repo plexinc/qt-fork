@@ -2,19 +2,19 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/tools/quic_transport_simple_server_session.h"
+#include "quic/tools/quic_transport_simple_server_session.h"
 
 #include <memory>
 
 #include "url/gurl.h"
 #include "url/origin.h"
-#include "net/third_party/quiche/src/quic/core/quic_buffer_allocator.h"
-#include "net/third_party/quiche/src/quic/core/quic_types.h"
-#include "net/third_party/quiche/src/quic/core/quic_versions.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/quic/quic_transport/quic_transport_protocol.h"
-#include "net/third_party/quiche/src/quic/quic_transport/quic_transport_stream.h"
+#include "quic/core/quic_buffer_allocator.h"
+#include "quic/core/quic_types.h"
+#include "quic/core/quic_versions.h"
+#include "quic/platform/api/quic_flags.h"
+#include "quic/platform/api/quic_logging.h"
+#include "quic/quic_transport/quic_transport_protocol.h"
+#include "quic/quic_transport/quic_transport_stream.h"
 
 namespace quic {
 
@@ -51,7 +51,7 @@ class BidirectionalEchoVisitor : public QuicTransportStream::Visitor {
 
   void OnFinRead() override {
     bool success = stream_->SendFin();
-    DCHECK(success);
+    QUICHE_DCHECK(success);
   }
 
   void OnCanWrite() override {
@@ -79,7 +79,7 @@ class UnidirectionalEchoReadVisitor : public QuicTransportStream::Visitor {
 
   void OnCanRead() override {
     bool success = stream_->Read(&buffer_);
-    DCHECK(success);
+    QUICHE_DCHECK(success);
   }
 
   void OnFinRead() override {
@@ -114,7 +114,7 @@ class UnidirectionalEchoWriteVisitor : public QuicTransportStream::Visitor {
     }
     data_ = "";
     bool fin_sent = stream_->SendFin();
-    DCHECK(fin_sent);
+    QUICHE_DCHECK(fin_sent);
   }
 
  private:
@@ -176,6 +176,12 @@ void QuicTransportSimpleServerSession::OnIncomingDataStream(
           break;
       }
       break;
+
+    case OUTGOING_BIDIRECTIONAL:
+      stream->set_visitor(std::make_unique<DiscardVisitor>(stream));
+      ++pending_outgoing_bidirectional_streams_;
+      MaybeCreateOutgoingBidirectionalStream();
+      break;
   }
 }
 
@@ -183,6 +189,8 @@ void QuicTransportSimpleServerSession::OnCanCreateNewOutgoingStream(
     bool unidirectional) {
   if (mode_ == ECHO && unidirectional) {
     MaybeEchoStreamsBack();
+  } else if (mode_ == OUTGOING_BIDIRECTIONAL && !unidirectional) {
+    MaybeCreateOutgoingBidirectionalStream();
   }
 }
 
@@ -208,13 +216,17 @@ bool QuicTransportSimpleServerSession::ProcessPath(const GURL& url) {
     mode_ = ECHO;
     return true;
   }
+  if (url.path() == "/receive-bidirectional") {
+    mode_ = OUTGOING_BIDIRECTIONAL;
+    return true;
+  }
 
   QUIC_DLOG(WARNING) << "Unknown path requested: " << url.path();
   return false;
 }
 
 void QuicTransportSimpleServerSession::OnMessageReceived(
-    quiche::QuicheStringPiece message) {
+    absl::string_view message) {
   if (mode_ != ECHO) {
     return;
   }
@@ -243,6 +255,23 @@ void QuicTransportSimpleServerSession::MaybeEchoStreamsBack() {
     stream->set_visitor(
         std::make_unique<UnidirectionalEchoWriteVisitor>(stream, data));
     stream->visitor()->OnCanWrite();
+  }
+}
+
+void QuicTransportSimpleServerSession::
+    MaybeCreateOutgoingBidirectionalStream() {
+  while (pending_outgoing_bidirectional_streams_ > 0 &&
+         CanOpenNextOutgoingBidirectionalStream()) {
+    auto stream_owned = std::make_unique<QuicTransportStream>(
+        GetNextOutgoingBidirectionalStreamId(), this, this);
+    QuicTransportStream* stream = stream_owned.get();
+    ActivateStream(std::move(stream_owned));
+    QUIC_DVLOG(1) << "Opened outgoing bidirectional stream " << stream->id();
+    stream->set_visitor(std::make_unique<BidirectionalEchoVisitor>(stream));
+    if (!stream->Write("hello")) {
+      QUIC_DVLOG(1) << "Write failed.";
+    }
+    --pending_outgoing_bidirectional_streams_;
   }
 }
 

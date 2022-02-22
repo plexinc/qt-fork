@@ -152,21 +152,32 @@ No. Chromium once contained a reflected XSS filter called the [XSSAuditor](https
 that was a best-effort second line of defense against reflected XSS flaws found
 in web sites. The XSS Auditor was [removed in Chrome 78](https://groups.google.com/a/chromium.org/forum/#!msg/blink-dev/TuYw-EZhO9g/blGViehIAwAJ).
 
+<a name="TOC-What-if-a-Chrome-component-breaks-an-OS-security-boundary-"</a>
+## What if a Chrome component breaks an OS security boundary?
+
+If Chrome or any of its components (e.g. updater) can be abused to
+perform a local privilege escalation, then it may be treated as a
+valid security vulnerability.
+
+Running any Chrome component with higher privileges than intended is
+not a security bug and we do not recommend running Chrome as an
+Administrator on Windows, or as root on POSIX.
+
 <a name="TOC-Why-aren-t-physically-local-attacks-in-Chrome-s-threat-model-"></a>
 ## Why aren't physically-local attacks in Chrome's threat model?
 
 People sometimes report that they can compromise Chrome by installing a
 malicious DLL in a place where Chrome will load it, by hooking APIs (e.g. [Issue
 130284](https://crbug.com/130284)), or by otherwise altering the configuration
-of the PC.
+of the device.
 
 We consider these attacks outside Chrome's threat model, because there is no way
 for Chrome (or any application) to defend against a malicious user who has
-managed to log into your computer as you, or who can run software with the
+managed to log into your device as you, or who can run software with the
 privileges of your operating system user account. Such an attacker can modify
 executables and DLLs, change environment variables like `PATH`, change
 configuration files, read any data your user account owns, email it to
-themselves, and so on. Such an attacker has total control over your computer,
+themselves, and so on. Such an attacker has total control over your device,
 and nothing Chrome can do would provide a serious guarantee of defense. This
 problem is not special to Chrome ­— all applications must trust the
 physically-local user.
@@ -209,10 +220,14 @@ computer.
 <a name="TOC-Why-aren-t-compromised-infected-machines-in-Chrome-s-threat-model-"></a>
 ## Why aren't compromised/infected machines in Chrome's threat model?
 
-This is essentially the same situation as with physically-local attacks. The
-attacker's code, when it runs as your user account on your machine, can do
-anything you can do. (See also [Microsoft's Ten Immutable Laws Of
+Although the attacker may now be remote, the consequences are essentially the
+same as with physically-local attacks. The attacker's code, when it runs as
+your user account on your machine, can do anything you can do. (See also
+[Microsoft's Ten Immutable Laws Of
 Security](https://web.archive.org/web/20160311224620/https://technet.microsoft.com/en-us/library/hh278941.aspx).)
+
+Other cases covered by this section include leaving a debugger port open to
+the world, remote shells, and so forth.
 
 <a name="TOC-What-about-unmasking-of-passwords-with-the-developer-tools-"></a>
 ## What about unmasking of passwords with the developer tools?
@@ -245,7 +260,10 @@ URLs in the URL bar (to limit
 but users are otherwise free to invoke script against pages using either the URL
 bar or the DevTools console.
 
-Similarly, users may create bookmarks pointed at JavaScript URLs that will run
+<a name="TOC-Does-executing-JavaScript-from-a-bookmark-mean-there-s-an-XSS-vulnerability-"></a>
+## Does executing JavaScript from a bookmark mean there's an XSS vulnerability?
+
+No. Chromium allows users to create bookmarks to JavaScript URLs that will run
 on the currently-loaded page when the user clicks the bookmark; these are called
 [bookmarklets](https://en.wikipedia.org/wiki/Bookmarklet).
 
@@ -692,3 +710,11 @@ No. PDF files have some powerful capabilities including invoking printing or
 posting form data. To mitigate abuse of these capabiliies, such as beaconing
 upon document open, we require interaction with the document (a "user gesture")
 before allowing their use.
+
+<a name="TOC-Why-arent-null-pointer-dereferences-considered-security-bugs-"></a>
+## Why aren't null pointer dereferences considered security bugs?
+
+Null pointer dereferences with consistent, small, fixed offsets are not considered
+security bugs. A read or write to the NULL page results in a non-exploitable crash.
+If the offset is larger than a page, or if there's uncertainty about whether the
+offset is controllable, it is considered a security bug.

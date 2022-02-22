@@ -45,13 +45,8 @@
 #include <QtDesigner/abstractformwindowcursor.h>
 #include <abstractdialoggui_p.h>
 
-#include <QtCore/qabstractitemmodel.h>
-#include <QtCore/qdebug.h>
-#include <QtWidgets/qaction.h>
 #include <QtWidgets/qbuttongroup.h>
 #include <QtWidgets/qmenu.h>
-#include <QtCore/qsortfilterproxymodel.h>
-#include <QtGui/qstandarditemmodel.h>
 #include <QtWidgets/qcombobox.h>
 #include <QtWidgets/qapplication.h>
 #include <QtWidgets/qitemdelegate.h>
@@ -62,6 +57,13 @@
 #include <QtWidgets/qtoolbutton.h>
 #include <QtWidgets/qbuttongroup.h>
 #include <QtWidgets/qtoolbar.h>
+
+#include <QtGui/qaction.h>
+#include <QtGui/qstandarditemmodel.h>
+
+#include <QtCore/qabstractitemmodel.h>
+#include <QtCore/qdebug.h>
+#include <QtCore/qsortfilterproxymodel.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -306,7 +308,7 @@ bool ConnectionModel::setData(const QModelIndex &index, const QVariant &data, in
 {
     if (!index.isValid() || !m_editor)
         return false;
-    if (data.type() != QVariant::String)
+    if (data.metaType().id() != QMetaType::QString)
         return false;
 
     SignalSlotConnection *con = static_cast<SignalSlotConnection*>(m_editor->connection(index.row()));
@@ -516,7 +518,7 @@ InlineEditor::InlineEditor(QWidget *parent) :
     setModel(m_model = new InlineEditorModel(0, 4, this));
     setFrame(false);
     m_idx = -1;
-    connect(this, QOverload<int>::of(&QComboBox::activated),
+    connect(this, &QComboBox::activated,
             this, &InlineEditor::checkSelection);
 }
 
@@ -590,7 +592,7 @@ ConnectionDelegate::ConnectionDelegate(QWidget *parent)
         factory = new QItemEditorFactory;
         QItemEditorCreatorBase *creator
             = new QItemEditorCreator<InlineEditor>("text");
-        factory->registerEditor(QVariant::String, creator);
+        factory->registerEditor(QMetaType::QString, creator);
     }
 
     setItemEditorFactory(factory);
@@ -654,7 +656,7 @@ QWidget *ConnectionDelegate::createEditor(QWidget *parent,
         break;
     }
 
-    connect(inline_editor, QOverload<int>::of(&QComboBox::activated),
+    connect(inline_editor, &QComboBox::activated,
             this, &ConnectionDelegate::emitCommitData);
 
     return inline_editor;
@@ -741,7 +743,7 @@ void SignalSlotEditorWindow::setActiveFormWindow(QDesignerFormWindowInterface *f
         }
     }
 
-    m_editor = form->findChild<SignalSlotEditor*>();
+    m_editor = form ? form->findChild<SignalSlotEditor*>() : nullptr;
     m_model->setEditor(m_editor);
     if (!m_editor.isNull()) {
         ConnectionDelegate *delegate

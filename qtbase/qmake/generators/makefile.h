@@ -36,6 +36,7 @@
 #include <qlist.h>
 #include <qhash.h>
 #include <qfileinfo.h>
+#include <functional>
 
 QT_BEGIN_NAMESPACE
 
@@ -140,10 +141,16 @@ protected:
     //escape
     virtual QString escapeFilePath(const QString &path) const = 0;
     ProString escapeFilePath(const ProString &path) const;
+    template<typename A, typename B>
+    QString escapeFilePath(const QStringBuilder<A, B> &path) const
+    { return escapeFilePath(QString(path)); }
     QStringList escapeFilePaths(const QStringList &paths) const;
     ProStringList escapeFilePaths(const ProStringList &paths) const;
     virtual QString escapeDependencyPath(const QString &path) const;
     ProString escapeDependencyPath(const ProString &path) const;
+    template<typename A, typename B>
+    QString escapeDependencyPath(const QStringBuilder<A, B> &path) const
+    { return escapeDependencyPath(QString(path)); }
     QStringList escapeDependencyPaths(const QStringList &paths) const;
     ProStringList escapeDependencyPaths(const ProStringList &paths) const;
 
@@ -153,6 +160,7 @@ protected:
     void verifyCompilers();
     virtual void init();
     void initOutPaths();
+    virtual bool inhibitMakeDirOutPath(const ProKey &path) const;
     struct Compiler
     {
         QString variable_in;
@@ -194,10 +202,7 @@ protected:
     virtual bool doDepends() const { return Option::mkfile::do_deps; }
 
     void filterIncludedFiles(const char *);
-    void processSources() {
-        filterIncludedFiles("SOURCES");
-        filterIncludedFiles("GENERATED_SOURCES");
-    }
+    void processSources();
 
     //for installs
     virtual QString defaultInstall(const QString &);
@@ -251,14 +256,17 @@ public:
 protected:
     QString fileFixify(const QString &file, FileFixifyTypes fix = FileFixifyDefault, bool canon = true) const;
     QStringList fileFixify(const QStringList &files, FileFixifyTypes fix = FileFixifyDefault, bool canon = true) const;
+    QString createSedArgs(const ProKey &replace_rule, const QString &file_type = QString()) const;
+    QString installMetaFile(const ProKey &replace_rule, const QString &src,
+                            const QString &dst) const;
 
-    QString installMetaFile(const ProKey &replace_rule, const QString &src, const QString &dst);
-
-    virtual bool processPrlFileBase(QString &origFile, const QStringRef &origName,
-                                    const QStringRef &fixedBase, int slashOff);
-    bool processPrlFileCore(QString &origFile, const QStringRef &origName,
+    virtual bool processPrlFileBase(QString &origFile, QStringView origName,
+                                    QStringView fixedBase, int slashOff);
+    bool processPrlFileCore(QString &origFile, QStringView origName,
                             const QString &fixedFile);
-    void createResponseFile(const QString &fileName, const ProStringList &objList);
+    QString createResponseFile(const QString &baseName,
+                               const ProStringList &objList,
+                               const QString &prefix = QString());
 
 public:
     QMakeProject *projectFile() const;
@@ -278,10 +286,10 @@ public:
     virtual bool mergeBuildProject(MakefileGenerator * /*other*/) { return false; }
     virtual bool openOutput(QFile &, const QString &build) const;
     bool isWindowsShell() const { return Option::dir_sep == QLatin1String("\\"); }
-    QString shellQuote(const QString &str);
+    QString shellQuote(const QString &str) const;
     virtual ProKey fullTargetVariable() const;
 };
-Q_DECLARE_TYPEINFO(MakefileGenerator::Compiler, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(MakefileGenerator::Compiler, Q_RELOCATABLE_TYPE);
 Q_DECLARE_OPERATORS_FOR_FLAGS(MakefileGenerator::FileFixifyTypes)
 
 inline void MakefileGenerator::setNoIO(bool o)
@@ -301,18 +309,18 @@ inline bool MakefileGenerator::findLibraries(bool, bool)
 
 struct ReplaceExtraCompilerCacheKey
 {
-    mutable uint hash;
+    mutable size_t hash;
     QString var, in, out, pwd;
     MakefileGenerator::ReplaceFor forShell;
     ReplaceExtraCompilerCacheKey(const QString &v, const QStringList &i, const QStringList &o, MakefileGenerator::ReplaceFor s);
     bool operator==(const ReplaceExtraCompilerCacheKey &f) const;
-    inline uint hashCode() const {
+    inline size_t hashCode() const {
         if (!hash)
-            hash = (uint)forShell ^ qHash(var) ^ qHash(in) ^ qHash(out) /*^ qHash(pwd)*/;
+            hash = (size_t)forShell ^ qHash(var) ^ qHash(in) ^ qHash(out) /*^ qHash(pwd)*/;
         return hash;
     }
 };
-inline uint qHash(const ReplaceExtraCompilerCacheKey &f) { return f.hashCode(); }
+inline size_t qHash(const ReplaceExtraCompilerCacheKey &f) { return f.hashCode(); }
 
 QT_END_NAMESPACE
 

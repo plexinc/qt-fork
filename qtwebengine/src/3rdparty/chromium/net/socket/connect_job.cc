@@ -123,10 +123,9 @@ std::unique_ptr<ConnectJob> ConnectJob::CreateConnectJob(
         proxy_server.host_port_pair(), NetworkIsolationKey(),
         disable_secure_dns, resolution_callback);
 
-    if (proxy_server.is_http() || proxy_server.is_https() ||
-        proxy_server.is_quic()) {
+    if (proxy_server.is_http_like()) {
       scoped_refptr<SSLSocketParams> ssl_params;
-      if (!proxy_server.is_http()) {
+      if (proxy_server.is_secure_http_like()) {
         DCHECK(ssl_config_for_proxy);
         // Set ssl_params, and unset proxy_tcp_params
         ssl_params = base::MakeRefCounted<SSLSocketParams>(
@@ -168,7 +167,7 @@ std::unique_ptr<ConnectJob> ConnectJob::CreateConnectJob(
         std::move(ssl_params), delegate, nullptr /* net_log */);
   }
 
-  if (proxy_server.is_http() || proxy_server.is_https()) {
+  if (proxy_server.is_http_like()) {
     return std::make_unique<HttpProxyConnectJob>(
         request_priority, socket_tag, common_connect_job_params,
         std::move(http_proxy_params), delegate, nullptr /* net_log */);
@@ -226,9 +225,14 @@ scoped_refptr<SSLCertRequestInfo> ConnectJob::GetCertRequestInfo() {
   return nullptr;
 }
 
-void ConnectJob::SetSocket(std::unique_ptr<StreamSocket> socket) {
-  if (socket)
+void ConnectJob::SetSocket(
+    std::unique_ptr<StreamSocket> socket,
+    base::Optional<std::vector<std::string>> dns_aliases) {
+  if (socket) {
     net_log().AddEvent(NetLogEventType::CONNECT_JOB_SET_SOCKET);
+    if (dns_aliases)
+      socket->SetDnsAliases(std::move(dns_aliases.value()));
+  }
   socket_ = std::move(socket);
 }
 
@@ -272,7 +276,7 @@ void ConnectJob::LogConnectCompletion(int net_error) {
 
 void ConnectJob::OnTimeout() {
   // Make sure the socket is NULL before calling into |delegate|.
-  SetSocket(nullptr);
+  SetSocket(nullptr, base::nullopt /* dns_aliases */);
 
   OnTimedOutInternal();
 

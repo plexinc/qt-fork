@@ -8,7 +8,8 @@
 
 #if !defined(TOOLKIT_QT)
 #include "chrome/browser/extensions/extension_tab_util.h"
-#include "chrome/browser/prerender/prerender_contents.h"
+#include "chrome/browser/prefetch/no_state_prefetch/chrome_no_state_prefetch_contents_delegate.h"
+#include "components/no_state_prefetch/browser/no_state_prefetch_contents.h"
 #endif // !defined(TOOLKIT_QT)
 #include "components/sessions/core/session_id.h"
 #include "content/public/browser/browser_thread.h"
@@ -28,12 +29,12 @@ void StreamsPrivateAPI::SendExecuteMimeTypeHandlerEvent(
     int frame_tree_node_id,
     int render_process_id,
     int render_frame_id,
-    content::mojom::TransferrableURLLoaderPtr transferrable_loader,
+    blink::mojom::TransferrableURLLoaderPtr transferrable_loader,
     const GURL& original_url) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   content::WebContents* web_contents = nullptr;
-  if (frame_tree_node_id != -1) {
+  if (frame_tree_node_id != content::RenderFrameHost::kNoFrameTreeNodeId) {
     web_contents =
         content::WebContents::FromFrameTreeNodeId(frame_tree_node_id);
   } else {
@@ -44,13 +45,14 @@ void StreamsPrivateAPI::SendExecuteMimeTypeHandlerEvent(
     return;
 
 #if !defined(TOOLKIT_QT)
-  // If the request was for a prerender, abort the prerender and do not
-  // continue. This is because plugins cancel prerender, see
+  // If the request was for NoStatePrefetch, abort the prefetcher and do not
+  // continue. This is because plugins cancel NoStatePrefetch, see
   // http://crbug.com/343590.
-  prerender::PrerenderContents* prerender_contents =
-      prerender::PrerenderContents::FromWebContents(web_contents);
-  if (prerender_contents) {
-    prerender_contents->Destroy(prerender::FINAL_STATUS_DOWNLOAD);
+  prerender::NoStatePrefetchContents* no_state_prefetch_contents =
+      prerender::ChromeNoStatePrefetchContentsDelegate::FromWebContents(
+          web_contents);
+  if (no_state_prefetch_contents) {
+    no_state_prefetch_contents->Destroy(prerender::FINAL_STATUS_DOWNLOAD);
     return;
   }
 #endif // !defined(TOOLKIT_QT)

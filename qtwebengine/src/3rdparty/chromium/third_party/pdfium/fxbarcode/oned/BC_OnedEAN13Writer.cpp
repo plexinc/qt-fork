@@ -56,10 +56,11 @@ CBC_OnedEAN13Writer::CBC_OnedEAN13Writer() {
   m_bLeftPadding = true;
   m_codeWidth = 3 + (7 * 6) + 5 + (7 * 6) + 3;
 }
-CBC_OnedEAN13Writer::~CBC_OnedEAN13Writer() {}
+CBC_OnedEAN13Writer::~CBC_OnedEAN13Writer() = default;
 
 bool CBC_OnedEAN13Writer::CheckContentValidity(WideStringView contents) {
-  return std::all_of(contents.begin(), contents.end(),
+  return HasValidContentSize(contents) &&
+         std::all_of(contents.begin(), contents.end(),
                      [](wchar_t c) { return FXSYS_IsDecimalDigit(c); });
 }
 
@@ -139,7 +140,7 @@ bool CBC_OnedEAN13Writer::ShowChars(WideStringView contents,
   ByteString str = FX_UTF8Encode(contents);
   size_t length = str.GetLength();
   std::vector<TextCharPos> charpos(length);
-  int32_t iFontSize = (int32_t)fabs(m_fFontSize);
+  int32_t iFontSize = static_cast<int32_t>(fabs(m_fFontSize));
   int32_t iTextHeight = iFontSize + 1;
   ByteString tempStr = str.Substr(1, 6);
   int32_t strWidth = multiple * 42;
@@ -167,7 +168,7 @@ bool CBC_OnedEAN13Writer::ShowChars(WideStringView contents,
 
   float blank = 0.0;
   length = tempStr.GetLength();
-  strWidth = (int32_t)(strWidth * m_outputHScale);
+  strWidth = static_cast<int32_t>(strWidth * m_outputHScale);
 
   CalcTextInfo(tempStr, &charpos[1], m_pFont.Get(), (float)strWidth, iFontSize,
                blank);
@@ -179,7 +180,7 @@ bool CBC_OnedEAN13Writer::ShowChars(WideStringView contents,
       affine_matrix1.Concat(*matrix);
     device->DrawNormalText(length, &charpos[1], m_pFont.Get(),
                            static_cast<float>(iFontSize), affine_matrix1,
-                           m_fontColor, FXTEXT_CLEARTYPE);
+                           m_fontColor, GetTextRenderOptions());
   }
   tempStr = str.Substr(7, 6);
   length = tempStr.GetLength();
@@ -194,12 +195,12 @@ bool CBC_OnedEAN13Writer::ShowChars(WideStringView contents,
       affine_matrix1.Concat(*matrix);
     device->DrawNormalText(length, &charpos[7], m_pFont.Get(),
                            static_cast<float>(iFontSize), affine_matrix1,
-                           m_fontColor, FXTEXT_CLEARTYPE);
+                           m_fontColor, GetTextRenderOptions());
   }
   tempStr = str.First(1);
   length = tempStr.GetLength();
   strWidth = multiple * 7;
-  strWidth = (int32_t)(strWidth * m_outputHScale);
+  strWidth = static_cast<int32_t>(strWidth * m_outputHScale);
 
   CalcTextInfo(tempStr, charpos.data(), m_pFont.Get(), (float)strWidth,
                iFontSize, blank);
@@ -210,7 +211,7 @@ bool CBC_OnedEAN13Writer::ShowChars(WideStringView contents,
       affine_matrix1.Concat(*matrix);
     device->DrawNormalText(length, charpos.data(), m_pFont.Get(),
                            static_cast<float>(iFontSize), affine_matrix1,
-                           m_fontColor, FXTEXT_CLEARTYPE);
+                           m_fontColor, GetTextRenderOptions());
   }
   return true;
 }

@@ -6,8 +6,25 @@
  * @fileoverview certificate-subentry represents an SSL certificate sub-entry.
  */
 
+import '../../cr_elements/cr_action_menu/cr_action_menu.m.js';
+import '../../cr_elements/cr_icon_button/cr_icon_button.m.js';
+import '../../cr_elements/cr_lazy_render/cr_lazy_render.m.js';
+import '../../cr_elements/policy/cr_policy_indicator.m.js';
+import '../../cr_elements/icons.m.js';
+import './certificate_shared_css.js';
+
+import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {CrPolicyIndicatorType} from '../../cr_elements/policy/cr_policy_indicator_behavior.m.js';
+import {I18nBehavior} from '../../js/i18n_behavior.m.js';
+
+import {CertificateAction, CertificateActionEvent, CertificateActionEventDetail} from './certificate_manager_types.js';
+import {CertificatesBrowserProxy, CertificatesBrowserProxyImpl, CertificateSubnode, CertificateType} from './certificates_browser_proxy.js';
+
 Polymer({
   is: 'certificate-subentry',
+
+  _template: html`{__html_template__}`,
 
   behaviors: [I18nBehavior],
 
@@ -19,13 +36,12 @@ Polymer({
     certificateType: String,
   },
 
-  /** @private {certificate_manager.CertificatesBrowserProxy} */
+  /** @private {CertificatesBrowserProxy} */
   browserProxy_: null,
 
   /** @override */
   created() {
-    this.browserProxy_ =
-        certificate_manager.CertificatesBrowserProxyImpl.getInstance();
+    this.browserProxy_ = CertificatesBrowserProxyImpl.getInstance();
   },
 
   /**
@@ -63,38 +79,26 @@ Polymer({
     this.fire('certificates-error', {error: error, anchor: this.$.dots});
   },
 
-  /**
-   * @param {!Event} event
-   * @private
-   */
-  onViewTap_(event) {
+  /** @private */
+  onViewClick_() {
     this.closePopupMenu_();
     this.browserProxy_.viewCertificate(this.model.id);
   },
 
-  /**
-   * @param {!Event} event
-   * @private
-   */
-  onEditTap_(event) {
+  /** @private */
+  onEditClick_() {
     this.closePopupMenu_();
     this.dispatchCertificateActionEvent_(CertificateAction.EDIT);
   },
 
-  /**
-   * @param {!Event} event
-   * @private
-   */
-  onDeleteTap_(event) {
+  /** @private */
+  onDeleteClick_() {
     this.closePopupMenu_();
     this.dispatchCertificateActionEvent_(CertificateAction.DELETE);
   },
 
-  /**
-   * @param {!Event} event
-   * @private
-   */
-  onExportTap_(event) {
+  /** @private */
+  onExportClick_() {
     this.closePopupMenu_();
     if (this.certificateType === CertificateType.PERSONAL) {
       this.browserProxy_.exportPersonalCertificate(this.model.id).then(() => {
@@ -142,7 +146,7 @@ Polymer({
   },
 
   /** @private */
-  onDotsTap_() {
+  onDotsClick_() {
     const actionMenu = /** @type {!CrActionMenuElement} */ (this.$.menu.get());
     actionMenu.showAt(this.$.dots);
   },

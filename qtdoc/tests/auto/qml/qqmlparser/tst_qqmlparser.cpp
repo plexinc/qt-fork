@@ -93,19 +93,19 @@ public:
         }
     }
 
-    virtual bool preVisit(AST::Node *node)
+    bool preVisit(AST::Node *node) override
     {
         checkNode(node);
         nodeStack.append(node);
         return true;
     }
 
-    virtual void postVisit(AST::Node *)
+    void postVisit(AST::Node *) override
     {
         nodeStack.removeLast();
     }
 
-    void throwRecursionDepthError()
+    void throwRecursionDepthError() override
     {
         QFAIL("Maximum statement or expression depth exceeded");
     }
@@ -225,9 +225,9 @@ void tst_qqmlparser::stringLiteral()
     QVERIFY(expression);
     auto *literal = QQmlJS::AST::cast<QQmlJS::AST::StringLiteral *>(expression);
     QVERIFY(literal);
-    QCOMPARE(literal->value, "hello string");
-    QCOMPARE(literal->firstSourceLocation().begin(), 0);
-    QCOMPARE(literal->lastSourceLocation().end(), code.size());
+    QCOMPARE(literal->value, u"hello string");
+    QCOMPARE(literal->firstSourceLocation().begin(), 0u);
+    QCOMPARE(literal->lastSourceLocation().end(), quint32(code.size()));
 }
 
 void tst_qqmlparser::noSubstitutionTemplateLiteral()
@@ -246,9 +246,9 @@ void tst_qqmlparser::noSubstitutionTemplateLiteral()
     auto *literal = QQmlJS::AST::cast<QQmlJS::AST::TemplateLiteral *>(expression);
     QVERIFY(literal);
 
-    QCOMPARE(literal->value, "hello template");
-    QCOMPARE(literal->firstSourceLocation().begin(), 0);
-    QCOMPARE(literal->lastSourceLocation().end(), code.size());
+    QCOMPARE(literal->value, u"hello template");
+    QCOMPARE(literal->firstSourceLocation().begin(), 0u);
+    QCOMPARE(literal->lastSourceLocation().end(), quint32(code.size()));
 }
 
 void tst_qqmlparser::templateLiteral()
@@ -267,7 +267,7 @@ void tst_qqmlparser::templateLiteral()
     auto *templateLiteral = QQmlJS::AST::cast<QQmlJS::AST::TemplateLiteral *>(expression);
     QVERIFY(templateLiteral);
 
-    QCOMPARE(templateLiteral->firstSourceLocation().begin(), 0);
+    QCOMPARE(templateLiteral->firstSourceLocation().begin(), 0u);
     auto *e = templateLiteral->expression;
     QVERIFY(e);
 }

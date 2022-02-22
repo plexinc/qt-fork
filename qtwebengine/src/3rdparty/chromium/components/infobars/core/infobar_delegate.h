@@ -13,8 +13,11 @@
 
 class ConfirmInfoBarDelegate;
 class HungRendererInfoBarDelegate;
-class PopupBlockedInfoBarDelegate;
 class ThemeInstalledInfoBarDelegate;
+
+namespace blocked_content {
+class PopupBlockedInfoBarDelegate;
+}
 
 #if defined(OS_ANDROID)
 namespace offline_pages {
@@ -91,7 +94,7 @@ class InfoBarDelegate {
     // Removed: AUTO_SIGNIN_FIRST_RUN_INFOBAR_DELEGATE = 24,
     GENERATED_PASSWORD_SAVED_INFOBAR_DELEGATE_ANDROID = 25,
     SAVE_PASSWORD_INFOBAR_DELEGATE_MOBILE = 26,
-    PEPPER_BROKER_INFOBAR_DELEGATE = 27,
+    // Removed: PEPPER_BROKER_INFOBAR_DELEGATE = 27,
     PERMISSION_UPDATE_INFOBAR_DELEGATE_ANDROID = 28,
     // Removed: DURABLE_STORAGE_PERMISSION_INFOBAR_DELEGATE_ANDROID = 29,
     // Removed: NPAPI_REMOVAL_INFOBAR_DELEGATE = 30,
@@ -155,13 +158,21 @@ class InfoBarDelegate {
     MODULE_INSTALL_FAILURE_INFOBAR_ANDROID = 88,
     INLINE_UPDATE_READY_INFOBAR_ANDROID = 89,
     INLINE_UPDATE_FAILED_INFOBAR_ANDROID = 90,
-    FLASH_DEPRECATION_INFOBAR_DELEGATE = 91,
+    // Removed: FLASH_DEPRECATION_INFOBAR_DELEGATE = 91,
     SEND_TAB_TO_SELF_INFOBAR_DELEGATE = 92,
     TAB_SHARING_INFOBAR_DELEGATE = 93,
     SAFETY_TIP_INFOBAR_DELEGATE = 94,
-    SMS_RECEIVER_INFOBAR_DELEGATE = 95,
+    WEBOTP_SERVICE_INFOBAR_DELEGATE = 95,
     KNOWN_INTERCEPTION_DISCLOSURE_INFOBAR_DELEGATE = 96,
     SYNC_ERROR_INFOBAR_DELEGATE_ANDROID = 97,
+    MIXED_CONTENT_DOWNLOAD_INFOBAR_DELEGATE_ANDROID = 98,
+    CONDITIONAL_TAB_STRIP_INFOBAR_ANDROID = 99,
+    LITE_MODE_HTTPS_IMAGE_COMPRESSION_INFOBAR_ANDROID = 100,
+    // Removed: SYSTEM_INFOBAR_DELEGATE_MAC = 101,
+    EXPERIMENTAL_INFOBAR_DELEGATE_LACROS = 102,
+    ROSETTA_REQUIRED_INFOBAR_DELEGATE = 103,
+    // Removed: WEBID_PERMISSION_INFOBAR_DELEGATE = 104,
+    AUTOFILL_OFFER_NOTIFICATION_INFOBAR_DELEGATE = 105,
   };
 
   // Describes navigation events, used to decide whether infobars should be
@@ -254,7 +265,8 @@ class InfoBarDelegate {
   // Type-checking downcast routines:
   virtual ConfirmInfoBarDelegate* AsConfirmInfoBarDelegate();
   virtual HungRendererInfoBarDelegate* AsHungRendererInfoBarDelegate();
-  virtual PopupBlockedInfoBarDelegate* AsPopupBlockedInfoBarDelegate();
+  virtual blocked_content::PopupBlockedInfoBarDelegate*
+  AsPopupBlockedInfoBarDelegate();
   virtual ThemeInstalledInfoBarDelegate* AsThemePreviewInfobarDelegate();
   virtual translate::TranslateInfoBarDelegate* AsTranslateInfoBarDelegate();
 #if defined(OS_ANDROID)
@@ -272,10 +284,10 @@ class InfoBarDelegate {
 
  private:
   // The InfoBar associated with us.
-  InfoBar* infobar_;
+  InfoBar* infobar_ = nullptr;
 
   // The ID of the active navigation entry at the time we became owned.
-  int nav_entry_id_;
+  int nav_entry_id_ = 0;
 
   DISALLOW_COPY_AND_ASSIGN(InfoBarDelegate);
 };

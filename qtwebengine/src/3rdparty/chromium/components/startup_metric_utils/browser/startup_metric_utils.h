@@ -34,6 +34,7 @@ void SetBackgroundModeEnabled();
 
 // Call this with the creation time of the startup (initial/main) process.
 void RecordStartupProcessCreationTime(base::Time time);
+void RecordStartupProcessCreationTime(base::TimeTicks ticks);
 
 // Call this with a time recorded as early as possible in the startup process.
 // On Android, the application start is the time at which the Java code starts.
@@ -46,6 +47,8 @@ void RecordApplicationStartTime(base::TimeTicks ticks);
 void RecordChromeMainEntryTime(base::TimeTicks ticks);
 
 // Call this with the time recorded just before the message loop is started.
+// Must be called after RecordApplicationStartTime(), because it computes time
+// deltas based on application start time.
 // |is_first_run| - is the current launch part of a first run.
 void RecordBrowserMainMessageLoopStart(base::TimeTicks ticks,
                                        bool is_first_run);
@@ -54,26 +57,24 @@ void RecordBrowserMainMessageLoopStart(base::TimeTicks ticks,
 void RecordBrowserWindowDisplay(base::TimeTicks ticks);
 
 // Call this with the time when the first web contents had a non-empty paint,
-// only if the first web contents was unimpeded in its attempt to do so.
+// only if the first web contents was unimpeded in its attempt to do so. Must be
+// called after RecordApplicationStartTime(), because it computes time deltas
+// based on application start time.
 void RecordFirstWebContentsNonEmptyPaint(
     base::TimeTicks now,
     base::TimeTicks render_process_host_init_time);
 
 // Call this with the time when the first web contents began navigating its main
-// frame.
+// frame / successfully committed its navigation for the main frame. These
+// functions must be called after RecordApplicationStartTime(), because they
+// compute time deltas based on application start time.
 void RecordFirstWebContentsMainNavigationStart(base::TimeTicks ticks);
-
-// Call this with the time when the first web contents successfully committed
-// its navigation for the main frame.
 void RecordFirstWebContentsMainNavigationFinished(base::TimeTicks ticks);
 
 // Call this with the time when the Browser window painted its children for the
-// first time.
+// first time. Must be called after RecordApplicationStartTime(), because it
+// computes time deltas based on application start time.
 void RecordBrowserWindowFirstPaint(base::TimeTicks ticks);
-
-// Call this with the time when the Browser window painted its children for the
-// first time and we got a CompositingEnded after that.
-void RecordBrowserWindowFirstPaintCompositingEnded(base::TimeTicks ticks);
 
 // Returns the TimeTicks corresponding to main entry as recorded by
 // |RecordMainEntryPointTime|. Returns a null TimeTicks if a value has not been
@@ -81,8 +82,25 @@ void RecordBrowserWindowFirstPaintCompositingEnded(base::TimeTicks ticks);
 base::TimeTicks MainEntryPointTicks();
 
 // Record metrics for the web-footer experiment. See https://crbug.com/993502.
+// These functions must be called after RecordApplicationStartTime(), because
+// they compute time deltas based on application start time.
 void RecordWebFooterDidFirstVisuallyNonEmptyPaint(base::TimeTicks ticks);
 void RecordWebFooterCreation(base::TimeTicks ticks);
+
+// Call this to record an arbitrary startup timing histogram with startup
+// temperature and a trace event. Records the time between `completion_ticks`
+// and the application start.
+// See the `StartupTemperature` enum for definition of the startup temperature.
+// A metric logged using this function must have an affected-histogram entry in
+// the definition of the StartupTemperature suffix in histograms.xml.
+// Set `set_non_browser_ui_displayed` to true if the recorded event blocks the
+// browser UI on user input. In this case any future startup histogram timing
+// would be skewed and will not be recorded.
+// This function must be called after RecordApplicationStartTime(), because it
+// computes time deltas based on application start time.
+void RecordExternalStartupMetric(const std::string& histogram_name,
+                                 base::TimeTicks completion_ticks,
+                                 bool set_non_browser_ui_displayed);
 
 // Records memory pressure events occurring before the first web contents had a
 // non-empty paint.

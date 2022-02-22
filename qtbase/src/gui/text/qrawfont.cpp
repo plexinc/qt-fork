@@ -281,12 +281,12 @@ QImage QRawFont::alphaMapForGlyph(quint32 glyphIndex, AntialiasingType antialias
         return QImage();
 
     if (d->fontEngine->glyphFormat == QFontEngine::Format_ARGB)
-        return d->fontEngine->bitmapForGlyph(glyphIndex, QFixed(), transform);
+        return d->fontEngine->bitmapForGlyph(glyphIndex, QFixedPoint(), transform);
 
     if (antialiasingType == SubPixelAntialiasing)
-        return d->fontEngine->alphaRGBMapForGlyph(glyphIndex, QFixed(), transform);
+        return d->fontEngine->alphaRGBMapForGlyph(glyphIndex, QFixedPoint(), transform);
 
-    return d->fontEngine->alphaMapForGlyph(glyphIndex, QFixed(), transform);
+    return d->fontEngine->alphaMapForGlyph(glyphIndex, QFixedPoint(), transform);
 }
 
 /*!
@@ -323,7 +323,7 @@ bool QRawFont::operator==(const QRawFont &other) const
     \relates QRawFont
     \since 5.8
 */
-uint qHash(const QRawFont &font, uint seed) noexcept
+size_t qHash(const QRawFont &font, size_t seed) noexcept
 {
     return qHash(QRawFontPrivate::get(font)->fontEngine, seed);
 }
@@ -476,7 +476,7 @@ qreal QRawFont::underlinePosition() const
 */
 QString QRawFont::familyName() const
 {
-    return d->isValid() ? d->fontEngine->fontDef.family : QString();
+    return d->isValid() ? d->fontEngine->fontDef.families.first() : QString();
 }
 
 /*!
@@ -511,7 +511,7 @@ int QRawFont::weight() const
 
 /*!
    Converts the string of unicode points given by \a text to glyph indexes
-   using the CMAP table in the underlying font, and returns a vector containing
+   using the CMAP table in the underlying font, and returns a list containing
    the result.
 
    Note that, in cases where there are other tables in the font that affect the
@@ -522,9 +522,9 @@ int QRawFont::weight() const
 
    \sa advancesForGlyphIndexes(), glyphIndexesForChars(), QGlyphRun, QTextLayout::glyphRuns(), QTextFragment::glyphRuns()
 */
-QVector<quint32> QRawFont::glyphIndexesForString(const QString &text) const
+QList<quint32> QRawFont::glyphIndexesForString(const QString &text) const
 {
-    QVector<quint32> glyphIndexes;
+    QList<quint32> glyphIndexes;
     if (!d->isValid() || text.isEmpty())
         return glyphIndexes;
 
@@ -571,7 +571,7 @@ bool QRawFont::glyphIndexesForChars(const QChar *chars, int numChars, quint32 *g
 }
 
 /*!
-   \fn QVector<QPointF> QRawFont::advancesForGlyphIndexes(const QVector<quint32> &glyphIndexes, LayoutFlags layoutFlags) const
+   \fn QList<QPointF> QRawFont::advancesForGlyphIndexes(const QList<quint32> &glyphIndexes, LayoutFlags layoutFlags) const
    \since 5.1
 
    Returns the QRawFont's advances for each of the \a glyphIndexes in pixel units. The advances
@@ -579,11 +579,16 @@ bool QRawFont::glyphIndexesForChars(const QChar *chars, int numChars, quint32 *g
    to make it appear as if the two glyphs are unspaced. How the advances are calculated is
    controlled by \a layoutFlags.
 
-   \sa QTextLine::horizontalAdvance(), QFontMetricsF::width()
+   \note When \c KernedAdvances is requested, this function will apply kerning rules from the
+   TrueType table \c{KERN}, if this is available in the font. In many modern fonts, kerning is
+   handled through OpenType rules or AAT rules, which requires a full shaping step to be applied.
+   To get the results of fully shaping the text, use \l{QTextLayout}.
+
+   \sa QTextLine::horizontalAdvance(), QFontMetricsF::horizontalAdvance(), QTextLayout::glyphRuns()
 */
 
 /*!
-   \fn QVector<QPointF> QRawFont::advancesForGlyphIndexes(const QVector<quint32> &glyphIndexes) const
+   \fn QList<QPointF> QRawFont::advancesForGlyphIndexes(const QList<quint32> &glyphIndexes) const
 
    \overload
 
@@ -592,7 +597,7 @@ bool QRawFont::glyphIndexesForChars(const QChar *chars, int numChars, quint32 *g
    to make it appear as if the two glyphs are unspaced. The advance of each glyph is calculated
    separately.
 
-   \sa QTextLine::horizontalAdvance(), QFontMetricsF::width()
+   \sa QTextLine::horizontalAdvance(), QFontMetricsF::horizontalAdvance()
 */
 
 /*!
@@ -604,13 +609,18 @@ bool QRawFont::glyphIndexesForChars(const QChar *chars, int numChars, quint32 *g
    array \a glyphIndexes while the results are returned through \a advances, both of them must
    have \a numGlyphs elements. How the advances are calculated is controlled by \a layoutFlags.
 
-   \sa QTextLine::horizontalAdvance(), QFontMetricsF::width()
+   \note When \c KernedAdvances is requested, this function will apply kerning rules from the
+   TrueType table \c{KERN}, if this is available in the font. In many modern fonts, kerning is
+   handled through OpenType rules or AAT rules, which requires a full shaping step to be applied.
+   To get the results of fully shaping the text, use \l{QTextLayout}.
+
+   \sa QTextLine::horizontalAdvance(), QFontMetricsF::horizontalAdvance(), QTextLayout::glyphRuns()
 */
 bool QRawFont::advancesForGlyphIndexes(const quint32 *glyphIndexes, QPointF *advances, int numGlyphs, LayoutFlags layoutFlags) const
 {
-    Q_ASSERT(glyphIndexes && advances);
     if (!d->isValid() || numGlyphs <= 0)
         return false;
+    Q_ASSERT(glyphIndexes && advances);
 
     QVarLengthArray<QFixed> tmpAdvances(numGlyphs);
 
@@ -640,7 +650,7 @@ bool QRawFont::advancesForGlyphIndexes(const quint32 *glyphIndexes, QPointF *adv
    array \a glyphIndexes while the results are returned through \a advances, both of them must
    have \a numGlyphs elements. The advance of each glyph is calculated separately
 
-   \sa QTextLine::horizontalAdvance(), QFontMetricsF::width()
+   \sa QTextLine::horizontalAdvance(), QFontMetricsF::horizontalAdvance()
 */
 bool QRawFont::advancesForGlyphIndexes(const quint32 *glyphIndexes, QPointF *advances, int numGlyphs) const
 {
@@ -760,7 +770,7 @@ QRawFont QRawFont::fromFont(const QFont &font, QFontDatabase::WritingSystem writ
             QFontDef request(multiEngine->fontDef);
             request.styleStrategy |= QFont::NoFontMerging;
 
-            if (QFontEngine *engine = QFontDatabase::findFont(request, script)) {
+            if (QFontEngine *engine = QFontDatabasePrivate::findFont(request, script, true)) {
                 if (request.weight > QFont::Normal)
                     engine->fontDef.weight = request.weight;
                 if (request.style > QFont::StyleNormal)

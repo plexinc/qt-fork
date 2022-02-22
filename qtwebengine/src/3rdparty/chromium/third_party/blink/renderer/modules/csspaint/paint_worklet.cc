@@ -4,7 +4,6 @@
 
 #include "third_party/blink/renderer/modules/csspaint/paint_worklet.h"
 
-#include "base/atomic_sequence_num.h"
 #include "base/rand_util.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
 #include "third_party/blink/renderer/core/css/cssom/prepopulated_computed_style_property_map.h"
@@ -16,19 +15,11 @@
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/modules/csspaint/css_paint_definition.h"
 #include "third_party/blink/renderer/modules/csspaint/paint_worklet_global_scope.h"
+#include "third_party/blink/renderer/modules/csspaint/paint_worklet_id_generator.h"
 #include "third_party/blink/renderer/modules/csspaint/paint_worklet_messaging_proxy.h"
 #include "third_party/blink/renderer/platform/graphics/paint_generated_image.h"
 
 namespace blink {
-
-namespace {
-base::AtomicSequenceNumber g_next_worklet_id;
-int NextId() {
-  // Start id from 1. This way it safe to use it as key in hashmap with default
-  // key traits.
-  return g_next_worklet_id.GetNext() + 1;
-}
-}  // namespace
 
 const wtf_size_t PaintWorklet::kNumGlobalScopesPerThread = 2u;
 const size_t kMaxPaintCountToSwitch = 30u;
@@ -38,18 +29,18 @@ PaintWorklet* PaintWorklet::From(LocalDOMWindow& window) {
   PaintWorklet* supplement =
       Supplement<LocalDOMWindow>::From<PaintWorklet>(window);
   if (!supplement && window.GetFrame()) {
-    supplement = MakeGarbageCollected<PaintWorklet>(window.GetFrame());
+    supplement = MakeGarbageCollected<PaintWorklet>(window);
     ProvideTo(window, supplement);
   }
   return supplement;
 }
 
-PaintWorklet::PaintWorklet(LocalFrame* frame)
-    : Worklet(frame->GetDocument()),
-      Supplement<LocalDOMWindow>(*frame->DomWindow()),
+PaintWorklet::PaintWorklet(LocalDOMWindow& window)
+    : Worklet(window),
+      Supplement<LocalDOMWindow>(window),
       pending_generator_registry_(
           MakeGarbageCollected<PaintWorkletPendingGeneratorRegistry>()),
-      worklet_id_(NextId()),
+      worklet_id_(PaintWorkletIdGenerator::NextId()),
       is_paint_off_thread_(
           RuntimeEnabledFeatures::OffMainThreadCSSPaintEnabled() &&
           Thread::CompositorThread()) {}
@@ -71,7 +62,8 @@ void PaintWorklet::ResetIsPaintOffThreadForTesting() {
 // This approach ensures non-deterministic of global scope selecting, and that
 // there is a max of one switching within one frame.
 wtf_size_t PaintWorklet::SelectGlobalScope() {
-  size_t current_paint_frame_count = GetFrame()->View()->PaintFrameCount();
+  size_t current_paint_frame_count =
+      DomWindow()->GetFrame()->View()->PaintFrameCount();
   // Whether a new frame starts or not.
   bool frame_changed = current_paint_frame_count != active_frame_count_;
   if (frame_changed) {
@@ -144,7 +136,7 @@ scoped_refptr<Image> PaintWorklet::Paint(const String& name,
 // static
 const char PaintWorklet::kSupplementName[] = "PaintWorklet";
 
-void PaintWorklet::Trace(Visitor* visitor) {
+void PaintWorklet::Trace(Visitor* visitor) const {
   visitor->Trace(pending_generator_registry_);
   visitor->Trace(proxy_client_);
   Worklet::Trace(visitor);
@@ -250,13 +242,13 @@ WorkletGlobalScopeProxy* PaintWorklet::CreateGlobalScope() {
   if (!is_paint_off_thread_ ||
       GetNumberOfGlobalScopes() < kNumGlobalScopesPerThread) {
     return MakeGarbageCollected<PaintWorkletGlobalScopeProxy>(
-        Document::From(GetExecutionContext())->GetFrame(), ModuleResponsesMap(),
-        GetNumberOfGlobalScopes() + 1);
+        To<LocalDOMWindow>(GetExecutionContext())->GetFrame(),
+        ModuleResponsesMap(), GetNumberOfGlobalScopes() + 1);
   }
 
   if (!proxy_client_) {
     proxy_client_ = PaintWorkletProxyClient::Create(
-        Document::From(GetExecutionContext()), worklet_id_);
+        To<LocalDOMWindow>(GetExecutionContext()), worklet_id_);
   }
 
   auto* worker_clients = MakeGarbageCollected<WorkerClients>();

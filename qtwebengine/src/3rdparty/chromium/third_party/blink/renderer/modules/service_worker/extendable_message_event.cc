@@ -4,6 +4,10 @@
 
 #include "third_party/blink/renderer/modules/service_worker/extendable_message_event.h"
 
+#include "third_party/blink/renderer/core/messaging/message_port.h"
+#include "third_party/blink/renderer/modules/service_worker/service_worker.h"
+#include "third_party/blink/renderer/modules/service_worker/service_worker_client.h"
+
 namespace blink {
 
 ExtendableMessageEvent* ExtendableMessageEvent::Create(
@@ -102,7 +106,7 @@ const AtomicString& ExtendableMessageEvent::InterfaceName() const {
   return event_interface_names::kExtendableMessageEvent;
 }
 
-void ExtendableMessageEvent::Trace(Visitor* visitor) {
+void ExtendableMessageEvent::Trace(Visitor* visitor) const {
   visitor->Trace(data_);
   visitor->Trace(source_as_client_);
   visitor->Trace(source_as_service_worker_);

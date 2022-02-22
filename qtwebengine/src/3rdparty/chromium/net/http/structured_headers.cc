@@ -12,7 +12,9 @@
 #include "base/containers/flat_set.h"
 #include "base/containers/span.h"
 #include "base/logging.h"
+#include "base/notreached.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 
 namespace net {
@@ -178,7 +180,11 @@ class StructuredHeaderParser {
         if (!member)
           return base::nullopt;
       } else {
-        member = ParameterizedMember{Item(true), {}};
+        base::Optional<Parameters> parameters;
+        parameters = ReadParameters();
+        if (!parameters)
+          return base::nullopt;
+        member = ParameterizedMember{Item(true), std::move(*parameters)};
       }
       members[*key] = std::move(*member);
       SkipWhitespaces();
@@ -325,9 +331,17 @@ class StructuredHeaderParser {
 
   // Parses a Key ([SH09] 4.2.2, [SH15] 4.2.3.3).
   base::Optional<std::string> ReadKey() {
-    if (input_.empty() || !base::IsAsciiLower(input_.front())) {
-      LogParseError("ReadKey", "lcalpha");
-      return base::nullopt;
+    if (version_ == kDraft09) {
+      if (input_.empty() || !base::IsAsciiLower(input_.front())) {
+        LogParseError("ReadKey", "lcalpha");
+        return base::nullopt;
+      }
+    } else {
+      if (input_.empty() ||
+          (!base::IsAsciiLower(input_.front()) && input_.front() != '*')) {
+        LogParseError("ReadKey", "lcalpha | *");
+        return base::nullopt;
+      }
     }
     const char* allowed_chars =
         (version_ == kDraft09 ? kKeyChars09 : kKeyChars15);
@@ -522,7 +536,7 @@ class StructuredHeaderParser {
   void LogParseError(const char* func, const char* expected) {
     DVLOG(1) << func << ": " << expected << " expected, got "
              << (input_.empty() ? "EOS"
-                                : "'" + input_.substr(0, 1).as_string() + "'");
+                                : "'" + std::string(input_.substr(0, 1)) + "'");
   }
 
   base::StringPiece input_;
@@ -666,13 +680,16 @@ class StructuredHeaderSerializer {
       if (!WriteKey(dict.first))
         return false;
       first = false;
-      if (dict_member.params.empty() && !dict_member.member_is_inner_list &&
+      if (!dict_member.member_is_inner_list &&
           dict_member.member.front().item.is_boolean() &&
-          dict_member.member.front().item.GetBoolean())
-        continue;
-      output_ << "=";
-      if (!WriteParameterizedMember(dict_member))
-        return false;
+          dict_member.member.front().item.GetBoolean()) {
+        if (!WriteParameters(dict_member.params))
+          return false;
+      } else {
+        output_ << "=";
+        if (!WriteParameterizedMember(dict_member))
+          return false;
+      }
     }
     return true;
   }
@@ -731,7 +748,7 @@ class StructuredHeaderSerializer {
       return false;
     if (value.find_first_not_of(kKeyChars15) != std::string::npos)
       return false;
-    if (!base::IsAsciiLower(value[0]))
+    if (!base::IsAsciiLower(value[0]) && value[0] != '*')
       return false;
     output_ << value;
     return true;

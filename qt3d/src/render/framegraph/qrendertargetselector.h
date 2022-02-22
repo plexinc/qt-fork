@@ -44,13 +44,13 @@
 #include <Qt3DCore/qnode.h>
 #include <Qt3DRender/qframegraphnode.h>
 #include <Qt3DRender/qrendertargetoutput.h>
+#include <Qt3DRender/qrendertarget.h>
 
 QT_BEGIN_NAMESPACE
 
 namespace Qt3DRender {
 
 class QRenderTargetSelectorPrivate;
-class QRenderTarget;
 
 class Q_3DRENDERSHARED_EXPORT QRenderTargetSelector : public QFrameGraphNode
 {
@@ -61,9 +61,6 @@ public:
     ~QRenderTargetSelector();
 
     QRenderTarget *target() const;
-
-    void setOutputs(const QVector<QRenderTargetOutput::AttachmentPoint> &buffers);
-    QVector<QRenderTargetOutput::AttachmentPoint> outputs() const;
 
 public Q_SLOTS:
     void setTarget(QRenderTarget *target);
@@ -76,13 +73,12 @@ protected:
 
 private:
     Q_DECLARE_PRIVATE(QRenderTargetSelector)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DRender
 
 QT_END_NAMESPACE
 
-Q_DECLARE_METATYPE(QVector<Qt3DRender::QRenderTargetOutput::AttachmentPoint>) // LCOV_EXCL_LINE
+Q_DECLARE_METATYPE(QList<Qt3DRender::QRenderTargetOutput::AttachmentPoint>) // LCOV_EXCL_LINE
 
 #endif // QT3DRENDER_QRENDERTARGETSELECTOR_H

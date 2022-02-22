@@ -54,6 +54,7 @@
 #include <QtWidgets/private/qtwidgetsglobal_p.h>
 #include "private/qframe_p.h"
 #include "qabstractscrollarea.h"
+#include <QtGui/private/qgridlayoutengine_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -62,8 +63,7 @@ QT_BEGIN_NAMESPACE
 class QScrollBar;
 class QAbstractScrollAreaScrollBarContainer;
 
-// ### Qt 6: is the export still needed? If not, unexport QFramePrivate, too.
-class Q_WIDGETS_EXPORT QAbstractScrollAreaPrivate: public QFramePrivate
+class QAbstractScrollAreaPrivate: public QFramePrivate
 {
     Q_DECLARE_PUBLIC(QAbstractScrollArea)
 
@@ -73,7 +73,7 @@ public:
 
     void replaceScrollBar(QScrollBar *scrollBar, Qt::Orientation orientation);
 
-    QAbstractScrollAreaScrollBarContainer *scrollBarContainers[Qt::Vertical + 1];
+    QHVContainer<QAbstractScrollAreaScrollBarContainer *> scrollBarContainers;
     QScrollBar *hbar, *vbar;
     Qt::ScrollBarPolicy vbarpolicy, hbarpolicy;
 
@@ -94,9 +94,8 @@ public:
     void init();
     void layoutChildren();
     void layoutChildren_helper(bool *needHorizontalScrollbar, bool *needVerticalScrollbar);
-    // ### Fix for 4.4, talk to Bjoern E or Girish.
     virtual void scrollBarPolicyChanged(Qt::Orientation, Qt::ScrollBarPolicy) {}
-    bool canStartScrollingAt( const QPoint &startPos );
+    virtual bool canStartScrollingAt( const QPoint &startPos ) const;
 
     void flashScrollBars();
     void setScrollBarTransient(QScrollBar *scrollBar, bool transient);

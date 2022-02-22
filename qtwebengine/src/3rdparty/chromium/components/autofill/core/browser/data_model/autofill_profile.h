@@ -7,6 +7,7 @@
 
 #include <stddef.h>
 
+#include <array>
 #include <iosfwd>
 #include <list>
 #include <map>
@@ -77,7 +78,10 @@ class AutofillProfile : public AutofillDataModel {
           matching_types_validities) const;
 
   base::string16 GetRawInfo(ServerFieldType type) const override;
-  void SetRawInfo(ServerFieldType type, const base::string16& value) override;
+  void SetRawInfoWithVerificationStatus(
+      ServerFieldType type,
+      const base::string16& value,
+      structured_address::VerificationStatus status) override;
 
   void GetSupportedTypes(ServerFieldTypeSet* supported_types) const override;
 
@@ -139,6 +143,12 @@ class AutofillProfile : public AutofillDataModel {
   // mergeable by an AutofillProfileComparator.
   bool MergeDataFrom(const AutofillProfile& profile,
                      const std::string& app_locale);
+
+  // Merges structured data from |this| profile and the given |profile| into
+  // |this| profile. Expected to be called if |this| profile is already
+  // verified. Returns true if the profile was modified.
+  bool MergeStructuredDataFrom(const AutofillProfile& profile,
+                               const std::string& app_locale);
 
   // Saves info from |profile| into |this|, provided |this| and |profile| do not
   // have any direct conflicts (i.e. data is present but different). Will not
@@ -270,21 +280,39 @@ class AutofillProfile : public AutofillDataModel {
 
   // Check for the validity of the data. Leave the field empty if the data is
   // invalid and the relevant feature is enabled.
-  bool ShouldSkipFillingOrSuggesting(ServerFieldType type) const override;
+  bool ShouldSkipFillingOrSuggesting(ServerFieldType type) const;
 
   base::WeakPtr<const AutofillProfile> GetWeakPtr() const {
     return weak_ptr_factory_.GetWeakPtr();
   }
 
- private:
-  typedef std::vector<const FormGroup*> FormGroupList;
+  // Calls |FinalizeAfterImport()| on all |FormGroup| members that are
+  // implemented using the hybrid-structure |AddressComponent|.
+  // If possible, this will initiate the completion of the structure tree to
+  // derive all missing values either by parsing their parent node if assigned,
+  // or by formatting the value from their child nodes.
+  // Returns true if all calls yielded true.
+  bool FinalizeAfterImport();
 
+  // Returns a constant reference to the |name_| field.
+  const NameInfo& GetNameInfo() const { return name_; }
+
+  // Returns a constant reference to the |address_| field.
+  const Address& GetAddress() const { return address_; }
+
+ private:
   // FormGroup:
   base::string16 GetInfoImpl(const AutofillType& type,
                              const std::string& app_locale) const override;
-  bool SetInfoImpl(const AutofillType& type,
-                   const base::string16& value,
-                   const std::string& app_locale) override;
+
+  structured_address::VerificationStatus GetVerificationStatusImpl(
+      const ServerFieldType type) const override;
+
+  bool SetInfoWithVerificationStatusImpl(
+      const AutofillType& type,
+      const base::string16& value,
+      const std::string& app_locale,
+      structured_address::VerificationStatus status) override;
 
   // Creates inferred labels for |profiles| at indices corresponding to
   // |indices|, and stores the results to the corresponding elements of
@@ -301,7 +329,11 @@ class AutofillProfile : public AutofillDataModel {
 
   // Utilities for listing and lookup of the data members that constitute
   // user-visible profile information.
-  FormGroupList FormGroups() const;
+  std::array<const FormGroup*, 5> FormGroups() const {
+    // Adjust the return type size as necessary.
+    return {&name_, &email_, &company_, &phone_number_, &address_};
+  }
+
   const FormGroup* FormGroupForType(const AutofillType& type) const;
   FormGroup* MutableFormGroupForType(const AutofillType& type);
 

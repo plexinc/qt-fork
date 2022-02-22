@@ -32,6 +32,7 @@
 #include "qquick3dnode_p_p.h"
 
 #include <QtQuick3DRuntimeRender/private/qssgrenderlight_p.h>
+#include <QtQuick3DUtils/private/qssgutils_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -44,7 +45,9 @@ QT_BEGIN_NAMESPACE
     Light itself is an uncreatable base for all of its subtypes. The subtypes provide multiple
     options to determine the style of the light.
 
-    \sa AreaLight, DirectionalLight, PointLight
+    For usage examples, see \l{Qt Quick 3D - Lights Example}.
+
+    \sa DirectionalLight, PointLight
 */
 
 /*!
@@ -62,7 +65,7 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmlproperty real Light::brightness
     This property defines an overall multiplier for this light’s effects.
-    The default value is 100.
+    The default value is 1.
 */
 
 /*!
@@ -79,8 +82,8 @@ QT_BEGIN_NAMESPACE
 
 /*!
     \qmlproperty real Light::shadowBias
-    This property is used to tweak the shadowing effect when when objects
-    are casting shadows on themselves. The value range is [-1.0, 1.0]. Generally value
+    This property is used to tweak the shadowing effect when objects
+    are casting shadows on themselves. The value range is [-1.0, 1.0]. Generally, a value
     inside [-0.1, 0.1] is sufficient.
     The default value is 0.
 */
@@ -88,7 +91,7 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmlproperty real Light::shadowFactor
     This property determines how dark the cast shadows should be. The value range is [0, 100], where
-    0 mean no shadows and 100 means the light is fully shadowed.
+    0 means no shadows and 100 means the light is fully shadowed.
     The default value is 5.
 */
 
@@ -120,10 +123,12 @@ QT_BEGIN_NAMESPACE
     The default value is 5.
 */
 
-QQuick3DAbstractLight::QQuick3DAbstractLight(QQuick3DNode *parent)
-    : QQuick3DNode(*(new QQuick3DNodePrivate(QQuick3DNodePrivate::Type::Light)), parent)
+QQuick3DAbstractLight::QQuick3DAbstractLight(QQuick3DNodePrivate &dd, QQuick3DNode *parent)
+    : QQuick3DNode(dd, parent)
     , m_color(Qt::white)
     , m_ambientColor(Qt::black) {}
+
+QQuick3DAbstractLight::~QQuick3DAbstractLight() {}
 
 QColor QQuick3DAbstractLight::color() const
 {
@@ -322,10 +327,9 @@ QSSGRenderGraphObject *QQuick3DAbstractLight::updateSpatialNode(QSSGRenderGraphO
 
     if (m_dirtyFlags.testFlag(DirtyFlag::ColorDirty)) {
         m_dirtyFlags.setFlag(DirtyFlag::ColorDirty, false);
-        light->m_diffuseColor = QVector3D(m_color.redF(), m_color.greenF(), m_color.blueF());
+        light->m_diffuseColor = color::sRGBToLinear(m_color).toVector3D();
         light->m_specularColor = light->m_diffuseColor;
-        light->m_ambientColor
-                = QVector3D(m_ambientColor.redF(), m_ambientColor.greenF(), m_ambientColor.blueF());
+        light->m_ambientColor = color::sRGBToLinear(m_ambientColor).toVector3D();
     }
 
     if (m_dirtyFlags.testFlag(DirtyFlag::BrightnessDirty)) {

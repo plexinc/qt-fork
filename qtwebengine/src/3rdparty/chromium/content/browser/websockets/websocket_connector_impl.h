@@ -9,6 +9,7 @@
 #include <vector>
 #include "base/optional.h"
 #include "content/public/browser/content_browser_client.h"
+#include "net/base/isolation_info.h"
 #include "services/network/public/mojom/network_context.mojom.h"
 #include "services/network/public/mojom/websocket.mojom.h"
 #include "third_party/blink/public/mojom/websockets/websocket_connector.mojom.h"
@@ -31,7 +32,7 @@ class WebSocketConnectorImpl final : public blink::mojom::WebSocketConnector {
   WebSocketConnectorImpl(int process_id,
                          int frame_id,
                          const url::Origin& origin,
-                         const net::NetworkIsolationKey& network_isolation_key);
+                         const net::IsolationInfo& isolation_info);
   ~WebSocketConnectorImpl() override;
 
   // WebSocketConnector implementation
@@ -46,7 +47,7 @@ class WebSocketConnectorImpl final : public blink::mojom::WebSocketConnector {
   static void ConnectCalledByContentBrowserClient(
       const std::vector<std::string>& requested_protocols,
       const net::SiteForCookies& site_for_cookies,
-      const net::NetworkIsolationKey& network_isolation_key,
+      const net::IsolationInfo& isolation_info,
       int process_id,
       int frame_id,
       const url::Origin& origin,
@@ -55,14 +56,15 @@ class WebSocketConnectorImpl final : public blink::mojom::WebSocketConnector {
       std::vector<network::mojom::HttpHeaderPtr> additional_headers,
       mojo::PendingRemote<network::mojom::WebSocketHandshakeClient>
           handshake_client,
-      mojo::PendingRemote<network::mojom::AuthenticationHandler> auth_handler,
+      mojo::PendingRemote<network::mojom::WebSocketAuthenticationHandler>
+          auth_handler,
       mojo::PendingRemote<network::mojom::TrustedHeaderClient>
           trusted_header_client);
 
   const int process_id_;
   const int frame_id_;
   const url::Origin origin_;
-  const net::NetworkIsolationKey network_isolation_key_;
+  const net::IsolationInfo isolation_info_;
 };
 
 }  // namespace content

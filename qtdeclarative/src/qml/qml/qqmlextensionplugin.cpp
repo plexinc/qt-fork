@@ -117,6 +117,16 @@ QUrl QQmlExtensionPlugin::baseUrl() const
 }
 
 /*!
+  \since 6.0
+
+  Override this method to unregister types manually registered in registerTypes.
+*/
+void QQmlExtensionPlugin::unregisterTypes()
+{
+
+}
+
+/*!
     \internal
 */
 
@@ -153,6 +163,17 @@ void QQmlEngineExtensionPlugin::initializeEngine(QQmlEngine *engine, const char 
   \class QQmlEngineExtensionInterface
   \internal
   \inmodule QtQml
+*/
+
+
+/*!
+    \macro Q_IMPORT_QML_PLUGIN(PluginName)
+    \relates <QQmlExtensionPlugin>
+
+    Ensures the plugin whose metadata-declaring class is named \a PluginName
+    is linked into static builds.
+
+    \sa Q_IMPORT_PLUGIN
 */
 
 QT_END_NAMESPACE

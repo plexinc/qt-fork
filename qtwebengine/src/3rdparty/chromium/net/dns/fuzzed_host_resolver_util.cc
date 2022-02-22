@@ -16,10 +16,11 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
+#include "base/notreached.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "net/base/address_list.h"
@@ -128,14 +129,13 @@ DnsConfig GetFuzzedDnsConfig(FuzzedDataProvider* data_provider) {
 
   config.unhandled_options = data_provider->ConsumeBool();
   config.append_to_multi_label_name = data_provider->ConsumeBool();
-  config.randomize_ports = data_provider->ConsumeBool();
   config.ndots = data_provider->ConsumeIntegralInRange(0, 3);
   config.attempts = data_provider->ConsumeIntegralInRange(1, 3);
 
-  // Timeouts don't really work for fuzzing. Even a timeout of 0 milliseconds
-  // will be increased after the first timeout, resulting in inconsistent
-  // behavior.
-  config.timeout = base::TimeDelta::FromDays(10);
+  // Fallback periods don't really work for fuzzing. Even a period of 0
+  // milliseconds will be increased after the first expiration, resulting in
+  // inconsistent behavior.
+  config.fallback_period = base::TimeDelta::FromDays(10);
 
   config.rotate = data_provider->ConsumeBool();
 
@@ -200,7 +200,8 @@ class FuzzedHostResolverProc : public HostResolverProc {
 
     if (host_resolver_flags & HOST_RESOLVER_CANONNAME) {
       // Don't bother to fuzz this - almost nothing cares.
-      result.set_canonical_name("foo.com");
+      std::vector<std::string> aliases({"foo.com"});
+      result.SetDnsAliases(std::move(aliases));
     }
 
     *addrlist = result;

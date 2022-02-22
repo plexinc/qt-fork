@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the examples of the Qt Toolkit.
@@ -47,7 +47,7 @@
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
-import QtQuick 2.0
+import QtQuick
 
 Item {
     width: 320
@@ -73,9 +73,9 @@ Item {
         interpolate: false
         goalSprite: ""
 //! [still]
-        Sprite{
+        Sprite {
             name: "still"
-            source: "content/BearSheet.png"
+            source: "pics/BearSheet.png"
             frameCount: 1
             frameWidth: 256
             frameHeight: 256
@@ -83,9 +83,9 @@ Item {
             to: {"still":1, "blink":0.1, "floating":0}
         }
 //! [still]
-        Sprite{
+        Sprite {
             name: "blink"
-            source: "content/BearSheet.png"
+            source: "pics/BearSheet.png"
             frameCount: 3
             frameX: 256
             frameY: 1536
@@ -94,9 +94,9 @@ Item {
             frameDuration: 100
             to: {"still":1}
         }
-        Sprite{
+        Sprite {
             name: "floating"
-            source: "content/BearSheet.png"
+            source: "pics/BearSheet.png"
             frameCount: 9
             frameX: 0
             frameY: 0
@@ -105,9 +105,9 @@ Item {
             frameDuration: 160
             to: {"still":0, "flailing":1}
         }
-        Sprite{
+        Sprite {
             name: "flailing"
-            source: "content/BearSheet.png"
+            source: "pics/BearSheet.png"
             frameCount: 8
             frameX: 0
             frameY: 768
@@ -116,9 +116,9 @@ Item {
             frameDuration: 160
             to: {"falling":1}
         }
-        Sprite{
+        Sprite {
             name: "falling"
-            source: "content/BearSheet.png"
+            source: "pics/BearSheet.png"
             frameCount: 5
             frameY: 1280
             frameWidth: 256

@@ -4,24 +4,6 @@
   <title>Media Feeds</title>
   <meta charset="utf-8">
   <link rel="stylesheet" href="chrome://resources/css/text_defaults.css">
-  <script src="chrome://resources/mojo/mojo/public/js/mojo_bindings_lite.js"></script>
-  <script src="chrome://resources/js/promise_resolver.js"></script>
-  <script src="chrome://resources/mojo/mojo/public/mojom/base/big_buffer.mojom-lite.js"></script>
-  <script src="chrome://resources/mojo/mojo/public/mojom/base/string16.mojom-lite.js"></script>
-  <script src="chrome://resources/mojo/mojo/public/mojom/base/time.mojom-lite.js"></script>
-  <script src="chrome://resources/mojo/url/mojom/url.mojom-lite.js"></script>
-  <script src="ui/gfx/geometry/mojom/geometry.mojom-lite.js"></script>
-  <script src="services/media_session/public/mojom/media_session.mojom-lite.js"></script>
-  <script src="chrome://resources/js/util.js"></script>
-
-  <script src="chrome/browser/media/feeds/media_feeds_store.mojom-lite.js">
-  </script>
-
-  <script src="chrome://resources/js/cr.js"></script>
-  <script src="chrome://resources/js/cr/ui.js"></script>
-
-  <script src="chrome://media-feeds/media-data-table.js"></script>
-  <script src="chrome://media-feeds/media-feeds.js"></script>
   <style>
     body {
       font-family: 'Roboto', 'Noto', sans-serif;
@@ -78,11 +60,29 @@
       content: '▼';
       position: absolute;
     }
+
+    div#fetch-logs-content {
+      color: red;
+    }
   </style>
 </head>
 <body>
   <h1>Media Feeds</h1>
   <button id="copy-all-to-clipboard">Copy all to clipboard</button>
+  <table>
+    <thead>
+      <tr id="config-table-header">
+        <th>
+          Setting Name
+        </th>
+        <th>
+          Setting Value
+        </th>
+      </tr>
+    </thead>
+    <tbody id="config-table-body">
+    </tbody>
+  </table>
   <table id="feeds-table">
     <thead>
       <tr id="feed-table-header">
@@ -104,14 +104,17 @@
         <th sort-key="userStatus">
           User Status
         </th>
+        <th sort-key="userIdentifier">
+          User ID
+        </th>
         <th sort-key="lastFetchResult">
           Last Fetch Result
         </th>
         <th sort-key="fetchFailedCount">
           Fetch Failed Count
         </th>
-        <th sort-key="cacheExpiryTime">
-          Cache Expiry Time
+        <th sort-key="lastFetchTimeNotCacheHit">
+          Last Fetch Time (not cache hit)
         </th>
         <th sort-key="lastFetchItemCount">
           Last Fetch Item Count
@@ -122,8 +125,24 @@
         <th sort-key="lastFetchContentTypes">
           Last Fetch Content Types
         </th>
+        <th sort-key="lastDisplayTime">
+          Last Display Time
+        </th>
+        <th sort-key="resetReason">
+          Reset Reason
+        </th>
+        <th data-key="cookieNameFilter">
+          Cookie Name Filter
+        </th>
+        <th data-key="safeSearchResult">
+          Safe Search Result
+        </th>
+        <th data-key="favicon">
+          Favicon
+        </th>
         <th data-key="logos">
           Logos
+        </th>
         <th data-key="actions">
           Actions
         </th>
@@ -196,11 +215,19 @@
           <th sort-key="safeSearchResult">
             Safe Search Result
           </th>
+          <th sort-key="duration">
+            Duration (secs)
+          </th>
         </tr>
       </thead>
       <tbody>
       </tbody>
     </table>
+    <div id="fetch-logs">
+      <h3>Fetch logs:</h3>
+      <div id="fetch-logs-content"></div>
+    </div>
   </div>
+  <script type="module" src="media_feeds.js"></script>
 </body>
 </html>

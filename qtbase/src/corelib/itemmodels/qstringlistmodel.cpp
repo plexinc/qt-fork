@@ -43,7 +43,7 @@
 
 #include "qstringlistmodel.h"
 
-#include <QtCore/qvector.h>
+#include <QtCore/qlist.h>
 
 #include <algorithm>
 
@@ -231,7 +231,6 @@ bool QStringListModel::setData(const QModelIndex &index, const QVariant &value, 
     return false;
 }
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 /*!
     \reimp
     \since 6.0
@@ -240,7 +239,6 @@ bool QStringListModel::clearItemData(const QModelIndex &index)
 {
     return setData(index, QVariant(), Qt::EditRole);
 }
-#endif
 
 /*!
     Inserts \a count rows into the model, beginning at the given \a row.
@@ -346,7 +344,7 @@ void QStringListModel::sort(int, Qt::SortOrder order)
 {
     emit layoutAboutToBeChanged(QList<QPersistentModelIndex>(), VerticalSortHint);
 
-    QVector<QPair<QString, int> > list;
+    QList<QPair<QString, int>> list;
     const int lstCount = lst.count();
     list.reserve(lstCount);
     for (int i = 0; i < lstCount; ++i)
@@ -358,7 +356,7 @@ void QStringListModel::sort(int, Qt::SortOrder order)
         std::sort(list.begin(), list.end(), decendingLessThan);
 
     lst.clear();
-    QVector<int> forwarding(lstCount);
+    QList<int> forwarding(lstCount);
     for (int i = 0; i < lstCount; ++i) {
         lst.append(list.at(i).first);
         forwarding[list.at(i).second] = i;

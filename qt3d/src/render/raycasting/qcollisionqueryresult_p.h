@@ -54,7 +54,6 @@
 #include <Qt3DRender/qt3drender_global.h>
 #include <Qt3DCore/qnodeid.h>
 #include <Qt3DCore/private/vector3d_p.h>
-#include <QVector>
 #include <QSharedData>
 
 QT_BEGIN_NAMESPACE
@@ -109,21 +108,21 @@ public:
 
     QCollisionQueryResult &operator=(const QCollisionQueryResult &);
 #ifdef Q_COMPILER_RVALUE_REFS
-    QCollisionQueryResult &operator=(QCollisionQueryResult &&other) Q_DECL_NOTHROW
+    QCollisionQueryResult &operator=(QCollisionQueryResult &&other) noexcept
     {
         swap(other);
         return *this;
     }
 #endif
 
-    void swap(QCollisionQueryResult &other) Q_DECL_NOTHROW
+    void swap(QCollisionQueryResult &other) noexcept
     {
         qSwap(d_ptr, other.d_ptr);
     }
 
     QQueryHandle handle() const;
-    QVector<Hit> hits() const;
-    QVector<Qt3DCore::QNodeId> entitiesHit() const;
+    const std::vector<Hit> &hits() const;
+    std::vector<Qt3DCore::QNodeId> entitiesHit() const;
 
 private:
     friend class QAbstractCollisionQueryService;
@@ -152,7 +151,7 @@ public:
                       const Vector3D& uvw);
 
     QQueryHandle m_handle;
-    QVector<QCollisionQueryResult::Hit> m_hits;
+    std::vector<QCollisionQueryResult::Hit> m_hits;
 };
 
 inline bool operator==(const QCollisionQueryResult::Hit& left, const QCollisionQueryResult::Hit& right)

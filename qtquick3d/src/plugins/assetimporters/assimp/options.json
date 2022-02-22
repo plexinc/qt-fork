@@ -36,12 +36,6 @@
             "value": false,
             "type": "Boolean"
         },
-        "limitBoneWeights": {
-            "name": "Limit Bone Weights",
-            "description": "Limits the number of bones simultaneously affecting a single vertex to a maximum value (4).",
-            "value": true,
-            "type": "Boolean"
-        },
         "improveCacheLocality": {
             "name": "Improve Cache Locality",
             "description": "Reorders triangles for better vertex cache locality.",
@@ -51,7 +45,7 @@
         "removeRedundantMaterials": {
             "name": "Remove Redundant Materials",
             "description": "Searches for redundant/unreferenced materials and removes them.",
-            "value": true,
+            "value": false,
             "type": "Boolean"
         },
         "fixInfacingNormals": {
@@ -96,6 +90,12 @@
             "value": false,
             "type": "Boolean"
         },
+        "useFloatJointIndices": {
+            "name": "Use Float Joint Indices",
+            "description": "Stores joint indices as floating point numbers for GLES 2.0.",
+            "value": false,
+            "type": "Boolean"
+        },
         "globalScale": {
             "name": "Enable Global Scale",
             "description": "This step will perform a global scale of the model.",
@@ -105,7 +105,7 @@
         "globalScaleValue": {
             "name": "Global Scale Value",
             "description": "Global Scale factor.",
-            "value": 100,
+            "value": 1,
             "type": "Real",
             "conditions": [
                 {
@@ -166,6 +166,24 @@
         "fbxPreservePivots": {
             "name": "FBX: Preserve Pivot Points",
             "description": "Set whether the fbx importer will preserve pivot points (as extra nodes)",
+            "value": false,
+            "type": "Boolean"
+        },
+        "generateMipMaps": {
+            "name": "Generate Mip Maps",
+            "description": "Force all imported texture components to generate mip maps for mip map texture filtering",
+            "value": true,
+            "type": "Boolean"
+        },
+        "useBinaryKeyframes": {
+            "name": "Use Binary Keyframes",
+            "description": "Record keyframe data as binary files",
+            "value": true,
+            "type": "Boolean"
+        },
+        "generateLightmapUV": {
+            "name": "Generate lightmap UV channel",
+            "description": "Unwrap mesh to generate lightmap UV channel",
             "value": false,
             "type": "Boolean"
         }

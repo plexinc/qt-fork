@@ -21,13 +21,13 @@
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/thread_test_helper.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
 #include "components/services/storage/indexed_db/transactional_leveldb/transactional_leveldb_database.h"
 #include "components/services/storage/public/mojom/indexed_db_control.mojom-test-utils.h"
+#include "components/services/storage/public/mojom/storage_usage_info.mojom.h"
 #include "content/browser/blob_storage/chrome_blob_storage_context.h"
 #include "content/browser/browser_main_loop.h"
 #include "content/browser/web_contents/web_contents_impl.h"
@@ -40,6 +40,7 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/url_constants.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
@@ -182,8 +183,8 @@ class IndexedDBBrowserTest : public ContentBrowserTest,
   static void SetTempQuota(int per_host_quota_kilobytes,
                            scoped_refptr<QuotaManager> qm) {
     if (!BrowserThread::CurrentlyOn(BrowserThread::IO)) {
-      base::PostTask(FROM_HERE, {BrowserThread::IO},
-                     base::BindOnce(&IndexedDBBrowserTest::SetTempQuota,
+      GetIOThreadTaskRunner({})->PostTask(
+          FROM_HERE, base::BindOnce(&IndexedDBBrowserTest::SetTempQuota,
                                     per_host_quota_kilobytes, qm));
       return;
     }
@@ -211,9 +212,9 @@ class IndexedDBBrowserTest : public ContentBrowserTest,
     int64_t size = 0;
     auto& control = GetControl(browser);
     control.GetUsage(base::BindOnce(base::BindLambdaForTesting(
-        [&](std::vector<storage::mojom::IndexedDBStorageUsageInfoPtr> usages) {
+        [&](std::vector<storage::mojom::StorageUsageInfoPtr> usages) {
           for (auto& usage : usages)
-            size += usage->size_in_bytes;
+            size += usage->total_size_bytes;
           loop.Quit();
         })));
     loop.Run();
@@ -325,10 +326,6 @@ IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, CallbackAccounting) {
   SimpleTest(GetTestUrl("indexeddb", "callback_accounting.html"));
 }
 
-IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, GetAllMaxMessageSize) {
-  SimpleTest(GetTestUrl("indexeddb", "getall_max_message_size.html"));
-}
-
 IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, DoesntHangTest) {
   SimpleTest(GetTestUrl("indexeddb", "transaction_run_forever.html"));
   CrashTab(shell()->web_contents());
@@ -423,7 +420,7 @@ IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, NegativeDBDataVersion) {
 
 class IndexedDBBrowserTestWithLowQuota : public IndexedDBBrowserTest {
  public:
-  IndexedDBBrowserTestWithLowQuota() {}
+  IndexedDBBrowserTestWithLowQuota() = default;
 
   void SetUpOnMainThread() override {
     const int kInitialQuotaKilobytes = 5000;
@@ -440,7 +437,7 @@ IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTestWithLowQuota, QuotaTest) {
 
 class IndexedDBBrowserTestWithGCExposed : public IndexedDBBrowserTest {
  public:
-  IndexedDBBrowserTestWithGCExposed() {}
+  IndexedDBBrowserTestWithGCExposed() = default;
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitchASCII(switches::kJavaScriptFlags, "--expose-gc");
@@ -784,8 +781,7 @@ std::unique_ptr<net::test_server::HttpResponse> ServePath(
     std::string request_path) {
   base::FilePath resource_path =
       content::GetTestFilePath("indexeddb", request_path.c_str());
-  std::unique_ptr<net::test_server::BasicHttpResponse> http_response(
-      new net::test_server::BasicHttpResponse);
+  auto http_response = std::make_unique<net::test_server::BasicHttpResponse>();
   http_response->set_code(net::HTTP_OK);
 
   std::string file_contents;
@@ -880,8 +876,8 @@ std::unique_ptr<net::test_server::HttpResponse> CorruptDBRequestHandler(
         }));
     loop.Run();
 
-    std::unique_ptr<net::test_server::BasicHttpResponse> http_response(
-        new net::test_server::BasicHttpResponse);
+    auto http_response =
+        std::make_unique<net::test_server::BasicHttpResponse>();
     http_response->set_code(net::HTTP_OK);
     return std::move(http_response);
   } else if (request_path == "fail" && !request_query.empty()) {
@@ -956,8 +952,8 @@ std::unique_ptr<net::test_server::HttpResponse> CorruptDBRequestHandler(
                        instance_num, call_num, loop.QuitClosure()));
     loop.Run();
 
-    std::unique_ptr<net::test_server::BasicHttpResponse> http_response(
-        new net::test_server::BasicHttpResponse);
+    auto http_response =
+        std::make_unique<net::test_server::BasicHttpResponse>();
     http_response->set_code(net::HTTP_OK);
     return std::move(http_response);
   }
@@ -1013,9 +1009,7 @@ INSTANTIATE_TEST_SUITE_P(IndexedDBBrowserTestInstantiation,
                                            "failTransactionCommit",
                                            "clearObjectStore"));
 
-// TODO(crbug.com/1071292): Make this test less brittle and re-enable it.
-IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest,
-                       DISABLED_DeleteCompactsBackingStore) {
+IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, DeleteCompactsBackingStore) {
   const GURL kTestUrl = GetTestUrl("indexeddb", "delete_compact.html");
   const url::Origin kTestOrigin = url::Origin::Create(kTestUrl);
   SimpleTest(GURL(kTestUrl.spec() + "#fill"));
@@ -1092,9 +1086,9 @@ IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest,
                           "pass - part3 - rolled back");
 }
 
-// crbug.com/427529
-// Disable this test for ASAN on Android because it takes too long to run.
-#if defined(ANDROID) && defined(ADDRESS_SANITIZER)
+// Disable this test on Android due to failures. See crbug.com/427529 and
+// crbug.com/1116464 for details.
+#if defined(ANDROID)
 #define MAYBE_ConnectionsClosedOnTabClose DISABLED_ConnectionsClosedOnTabClose
 #else
 #define MAYBE_ConnectionsClosedOnTabClose ConnectionsClosedOnTabClose
@@ -1182,21 +1176,7 @@ IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTestV2SchemaCorruption, LifecycleTest) {
   SimpleTest(embedded_test_server()->GetURL(test_file));
 }
 
-class IndexedDBBrowserTestSingleProcess : public IndexedDBBrowserTest {
- public:
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    command_line->AppendSwitch(switches::kSingleProcess);
-  }
-};
-
-// https://crbug.com/788788
-#if defined(OS_ANDROID) && defined(ADDRESS_SANITIZER)
-#define MAYBE_RenderThreadShutdownTest DISABLED_RenderThreadShutdownTest
-#else
-#define MAYBE_RenderThreadShutdownTest RenderThreadShutdownTest
-#endif  // defined(OS_ANDROID) && defined(ADDRESS_SANITIZER)
-IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTestSingleProcess,
-                       MAYBE_RenderThreadShutdownTest) {
+IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, ShutdownWithRequests) {
   SimpleTest(GetTestUrl("indexeddb", "shutdown_with_requests.html"));
 }
 

@@ -80,7 +80,7 @@ public:
 
     void addChildJoint(QJoint *joint);
     void removeChildJoint(QJoint *joint);
-    QVector<QJoint *> childJoints() const;
+    QList<QJoint *> childJoints() const;
 
 public Q_SLOTS:
     void setScale(const QVector3D &scale);
@@ -105,7 +105,6 @@ Q_SIGNALS:
 
 private:
     Q_DECLARE_PRIVATE(QJoint)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DCore

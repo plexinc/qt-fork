@@ -26,7 +26,6 @@
 **
 ****************************************************************************/
 
-#include "../../shared/util.h"
 #include <QQmlEngine>
 #include <QQmlContext>
 #include <QNetworkAccessManager>
@@ -44,13 +43,15 @@
 #include <QTemporaryDir>
 #include <private/qqmlengine_p.h>
 #include <private/qqmltypedata_p.h>
+#include <private/qqmlcomponentattached_p.h>
 #include <QQmlAbstractUrlInterceptor>
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 
 class tst_qqmlengine : public QQmlDataTest
 {
     Q_OBJECT
 public:
-    tst_qqmlengine() {}
+    tst_qqmlengine() : QQmlDataTest(QT_QMLTEST_DATADIR) {}
 
 private slots:
     void initTestCase() override;
@@ -85,6 +86,12 @@ private slots:
     void cachedGetterLookup_qtbug_75335();
     void createComponentOnSingletonDestruction();
     void uiLanguage();
+    void executeRuntimeFunction();
+    void captureQProperty();
+    void listWrapperAsListReference();
+    void attachedObjectAsObject();
+    void listPropertyAsQJSValue();
+    void stringToColor();
 
 public slots:
     QObject *createAQObjectForOwnershipTest ()
@@ -118,7 +125,7 @@ class NetworkAccessManagerFactory : public QQmlNetworkAccessManagerFactory
 public:
     NetworkAccessManagerFactory() : manager(nullptr) {}
 
-    QNetworkAccessManager *create(QObject *parent) {
+    QNetworkAccessManager *create(QObject *parent) override {
         manager = new QNetworkAccessManager(parent);
         return manager;
     }
@@ -153,10 +160,10 @@ public:
     ImmediateReply() {
         setFinished(true);
     }
-    virtual qint64 readData(char* , qint64 ) {
+    qint64 readData(char* , qint64 ) override {
         return 0;
     }
-    virtual void abort() { }
+    void abort() override { }
 };
 
 class ImmediateManager : public QNetworkAccessManager {
@@ -167,7 +174,8 @@ public:
     ImmediateManager(QObject *parent = nullptr) : QNetworkAccessManager(parent) {
     }
 
-    QNetworkReply *createRequest(Operation, const QNetworkRequest & , QIODevice * outgoingData = nullptr) {
+    QNetworkReply *createRequest(Operation, const QNetworkRequest & , QIODevice * outgoingData = nullptr) override
+    {
         Q_UNUSED(outgoingData);
         return new ImmediateReply;
     }
@@ -176,9 +184,8 @@ public:
 class ImmediateFactory : public QQmlNetworkAccessManagerFactory {
 
 public:
-    QNetworkAccessManager *create(QObject *) {
-        return new ImmediateManager;
-    }
+    QNetworkAccessManager *create(QObject *) override
+    { return new ImmediateManager; }
 };
 
 void tst_qqmlengine::synchronousNetworkAccessManager()
@@ -272,7 +279,7 @@ void tst_qqmlengine::offlineStoragePath()
 
     QQmlEngine engine;
 
-    QString dataLocation = QStandardPaths::writableLocation(QStandardPaths::DataLocation);
+    QString dataLocation = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
 
     QCOMPARE(dataLocation.isEmpty(), engine.offlineStoragePath().isEmpty());
 
@@ -297,7 +304,7 @@ void tst_qqmlengine::offlineDatabaseStoragePath()
     qApp->setOrganizationDomain("www.qt-project.org");
 
     QQmlEngine engine;
-    QString dataLocation = QStandardPaths::writableLocation(QStandardPaths::DataLocation);
+    QString dataLocation = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     const QString databaseName = QLatin1String("foo");
     QString databaseLocation = engine.offlineStorageDatabaseFilePath(databaseName);
     QCOMPARE(dataLocation.isEmpty(), databaseLocation.isEmpty());
@@ -427,7 +434,7 @@ public:
     }
 
 private:
-    virtual void timerEvent(QTimerEvent *)
+    void timerEvent(QTimerEvent *) override
     {
         incubateFor(1000);
     }
@@ -558,10 +565,10 @@ void tst_qqmlengine::outputWarningsToStandardError()
 
     QQmlTestMessageHandler messageHandler;
 
-    QObject *o = c.create();
+    QScopedPointer<QObject> o(c.create());
 
     QVERIFY(o != nullptr);
-    delete o;
+    o.reset();
 
     QCOMPARE(messageHandler.messages().count(), 1);
     QCOMPARE(messageHandler.messages().at(0), QLatin1String("<Unknown File>:1:32: Unable to assign [undefined] to int"));
@@ -570,10 +577,10 @@ void tst_qqmlengine::outputWarningsToStandardError()
     engine.setOutputWarningsToStandardError(false);
     QCOMPARE(engine.outputWarningsToStandardError(), false);
 
-    o = c.create();
+    o.reset(c.create());
 
     QVERIFY(o != nullptr);
-    delete o;
+    o.reset();
 
     QVERIFY2(messageHandler.messages().isEmpty(), qPrintable(messageHandler.messageString()));
 }
@@ -602,15 +609,15 @@ void tst_qqmlengine::objectOwnership()
     QQmlComponent c(&engine);
     c.setData("import QtQuick 2.0; QtObject { property QtObject object: QtObject {} }", QUrl());
 
-    QObject *o = c.create();
-    QVERIFY(o != nullptr);
+    QScopedPointer<QObject> o(c.create());
+    QVERIFY(!o.isNull());
 
-    QCOMPARE(QQmlEngine::objectOwnership(o), QQmlEngine::CppOwnership);
+    QCOMPARE(QQmlEngine::objectOwnership(o.data()), QQmlEngine::CppOwnership);
 
     QObject *o2 = qvariant_cast<QObject *>(o->property("object"));
     QCOMPARE(QQmlEngine::objectOwnership(o2), QQmlEngine::JavaScriptOwnership);
 
-    delete o;
+    o.reset();
     }
     {
         QObject *ptr = createAQObjectForOwnershipTest();
@@ -621,7 +628,8 @@ void tst_qqmlengine::objectOwnership()
             QQmlEngine::setObjectOwnership(ptr, QQmlEngine::JavaScriptOwnership);
             c.setData("import QtQuick 2.0; Item { required property QtObject test; property int data: test.createAQObjectForOwnershipTest() ? 0 : 1 }", QUrl());
             QVERIFY(c.isReady());
-            QObject *o = c.createWithInitialProperties( {{"test", QVariant::fromValue(this)}} );
+            QScopedPointer<QObject> o(
+                        c.createWithInitialProperties({{"test", QVariant::fromValue(this)}}));
             QVERIFY(o != nullptr);
         }
         QTRY_VERIFY(spy.count());
@@ -635,9 +643,10 @@ void tst_qqmlengine::objectOwnership()
             QQmlEngine::setObjectOwnership(ptr, QQmlEngine::JavaScriptOwnership);
             c.setData("import QtQuick 2.0; QtObject { required property QtObject test; property var object: { var i = test; test ? 0 : 1 }  }", QUrl());
             QVERIFY(c.isReady());
-            QObject *o = c.createWithInitialProperties({{"test", QVariant::fromValue(ptr)}});
+            QScopedPointer<QObject> o(
+                        c.createWithInitialProperties({{"test", QVariant::fromValue(ptr)}}));
             QVERIFY(o != nullptr);
-            QQmlProperty testProp(o, "test");
+            QQmlProperty testProp(o.data(), "test");
             testProp.write(QVariant::fromValue<QObject*>(nullptr));
         }
         QTRY_VERIFY(spy.count());
@@ -700,9 +709,9 @@ void tst_qqmlengine::qtqmlModule_data()
             << QString(testFileUrl("qtqmlModule.3.qml").toString() + QLatin1String(":1 module \"QtQml\" version 1.0 is not installed\n"))
             << QStringList();
 
-    QTest::newRow("import QtQml of incorrect version (2.50)")
+    QTest::newRow("import QtQml of old version (2.50)")
             << testFileUrl("qtqmlModule.4.qml")
-            << QString(testFileUrl("qtqmlModule.4.qml").toString() + QLatin1String(":1 module \"QtQml\" version 2.50 is not installed\n"))
+            << QString()
             << QStringList();
 
     QTest::newRow("QtQml 2.0 module provides Component, QtObject, Connections, Binding and Timer")
@@ -729,6 +738,11 @@ void tst_qqmlengine::qtqmlModule_data()
             << testFileUrl("qtqmlModule.9.qml")
             << QString(testFileUrl("qtqmlModule.9.qml").toString() + QLatin1String(":4 Item is not a type\n"))
             << QStringList();
+
+    QTest::newRow("import QtQml of incorrect version (6.50)")
+            << testFileUrl("qtqmlModule.10.qml")
+            << QString(testFileUrl("qtqmlModule.10.qml").toString() + QLatin1String(":1 module \"QtQml\" version 6.50 is not installed\n"))
+            << QStringList();
 }
 
 // Test that the engine registers the QtQml module
@@ -744,9 +758,8 @@ void tst_qqmlengine::qtqmlModule()
     QQmlEngine e;
     QQmlComponent c(&e, testFile);
     if (expectedError.isEmpty()) {
-        QObject *o = c.create();
+        QScopedPointer<QObject> o(c.create());
         QVERIFY(o);
-        delete o;
     } else {
         QCOMPARE(c.errorString(), expectedError);
     }
@@ -756,7 +769,7 @@ class CustomSelector : public QQmlAbstractUrlInterceptor
 {
 public:
     CustomSelector(const QUrl &base):m_base(base){}
-    virtual QUrl intercept(const QUrl &url, QQmlAbstractUrlInterceptor::DataType d)
+    QUrl intercept(const QUrl &url, QQmlAbstractUrlInterceptor::DataType d) override
     {
         if ((url.scheme() != QStringLiteral("file") && url.scheme() != QStringLiteral("qrc"))
             || url.path().contains("QtQml"))
@@ -793,7 +806,6 @@ void tst_qqmlengine::urlInterceptor_data()
 {
     QTest::addColumn<QUrl>("testFile");
     QTest::addColumn<QList<QQmlAbstractUrlInterceptor::DataType> >("interceptionPoint");
-    QTest::addColumn<QString>("expectedFilePath");
     QTest::addColumn<QString>("expectedChildString");
     QTest::addColumn<QString>("expectedScriptString");
     QTest::addColumn<QString>("expectedResolvedUrl");
@@ -802,7 +814,6 @@ void tst_qqmlengine::urlInterceptor_data()
     QTest::newRow("InterceptTypes")
         << testFileUrl("interception/types/urlInterceptor.qml")
         << (QList<QQmlAbstractUrlInterceptor::DataType>() << QQmlAbstractUrlInterceptor::QmlFile << QQmlAbstractUrlInterceptor::JavaScriptFile << QQmlAbstractUrlInterceptor::UrlString)
-        << testFileUrl("interception/types/intercepted/doesNotExist.file").toString()
         << QStringLiteral("intercepted")
         << QStringLiteral("intercepted")
         << testFileUrl("interception/types/intercepted/doesNotExist.file").toString()
@@ -811,7 +822,6 @@ void tst_qqmlengine::urlInterceptor_data()
     QTest::newRow("InterceptQmlDir")
         << testFileUrl("interception/qmldir/urlInterceptor.qml")
         << (QList<QQmlAbstractUrlInterceptor::DataType>() << QQmlAbstractUrlInterceptor::QmldirFile << QQmlAbstractUrlInterceptor::UrlString)
-        << testFileUrl("interception/qmldir/intercepted/doesNotExist.file").toString()
         << QStringLiteral("intercepted")
         << QStringLiteral("base file")
         << testFileUrl("interception/qmldir/intercepted/doesNotExist.file").toString()
@@ -820,7 +830,6 @@ void tst_qqmlengine::urlInterceptor_data()
     QTest::newRow("InterceptModule")//just a Test{}, needs to intercept the module import for it to work
         << testFileUrl("interception/module/urlInterceptor.qml")
         << (QList<QQmlAbstractUrlInterceptor::DataType>() << QQmlAbstractUrlInterceptor::QmldirFile )
-        << testFileUrl("interception/module/intercepted/doesNotExist.file").toString()
         << QStringLiteral("intercepted")
         << QStringLiteral("intercepted")
         << testFileUrl("interception/module/intercepted/doesNotExist.file").toString()
@@ -829,7 +838,6 @@ void tst_qqmlengine::urlInterceptor_data()
     QTest::newRow("InterceptStrings")
         << testFileUrl("interception/strings/urlInterceptor.qml")
         << (QList<QQmlAbstractUrlInterceptor::DataType>() << QQmlAbstractUrlInterceptor::UrlString)
-        << testFileUrl("interception/strings/intercepted/doesNotExist.file").toString()
         << QStringLiteral("base file")
         << QStringLiteral("base file")
         << testFileUrl("interception/strings/intercepted/doesNotExist.file").toString()
@@ -838,7 +846,6 @@ void tst_qqmlengine::urlInterceptor_data()
     QTest::newRow("InterceptIncludes")
         << testFileUrl("interception/includes/urlInterceptor.qml")
         << (QList<QQmlAbstractUrlInterceptor::DataType>() << QQmlAbstractUrlInterceptor::JavaScriptFile)
-        << testFileUrl("interception/includes/doesNotExist.file").toString()
         << QStringLiteral("base file")
         << QStringLiteral("intercepted include file")
         << testFileUrl("interception/includes/doesNotExist.file").toString()
@@ -850,7 +857,6 @@ void tst_qqmlengine::urlInterceptor()
 
     QFETCH(QUrl, testFile);
     QFETCH(QList<QQmlAbstractUrlInterceptor::DataType>, interceptionPoint);
-    QFETCH(QString, expectedFilePath);
     QFETCH(QString, expectedChildString);
     QFETCH(QString, expectedScriptString);
     QFETCH(QString, expectedResolvedUrl);
@@ -860,14 +866,14 @@ void tst_qqmlengine::urlInterceptor()
     e.addImportPath(testFileUrl("interception/imports").url());
     CustomSelector cs(testFileUrl(""));
     cs.m_interceptionPoints = interceptionPoint;
-    e.setUrlInterceptor(&cs);
+    e.addUrlInterceptor(&cs);
     QQmlComponent c(&e, testFile); //Note that this can get intercepted too
-    QObject *o = c.create();
+    QScopedPointer<QObject> o(c.create());
     if (!o)
         qDebug() << c.errorString();
     QVERIFY(o);
     //Test a URL as a property initialization
-    QCOMPARE(o->property("filePath").toString(), expectedFilePath);
+    QCOMPARE(o->property("filePath").toString(), QUrl("doesNotExist.file").toString());
     //Test a URL as a Type location
     QCOMPARE(o->property("childString").toString(), expectedChildString);
     //Test a URL as a Script location
@@ -882,7 +888,7 @@ void tst_qqmlengine::qmlContextProperties()
     QQmlEngine e;
 
     QQmlComponent c(&e, testFileUrl("TypeofQmlProperty.qml"));
-    QObject *o = c.create();
+    QScopedPointer<QObject> o(c.create());
     if (!o) {
         qDebug() << c.errorString();
     }
@@ -891,14 +897,10 @@ void tst_qqmlengine::qmlContextProperties()
 
 void tst_qqmlengine::testGCCorruption()
 {
-#ifdef SKIP_GCCORRUPTION_TEST
-    QSKIP("Test too heavy for qemu");
-#endif
-
     QQmlEngine e;
 
     QQmlComponent c(&e, testFileUrl("testGCCorruption.qml"));
-    QObject *o = c.create();
+    QScopedPointer<QObject> o(c.create());
     QVERIFY2(o, qPrintable(c.errorString()));
 }
 
@@ -1196,34 +1198,242 @@ void tst_qqmlengine::createComponentOnSingletonDestruction()
 
 void tst_qqmlengine::uiLanguage()
 {
+    {
+        QQmlEngine engine;
+
+        QObject::connect(&engine, &QJSEngine::uiLanguageChanged, [&engine]() {
+            engine.retranslate();
+        });
+
+        QSignalSpy uiLanguageChangeSpy(&engine, SIGNAL(uiLanguageChanged()));
+
+        QQmlComponent component(&engine, testFileUrl("uiLanguage.qml"));
+
+        QTest::ignoreMessage(QtMsgType::QtWarningMsg, (component.url().toString() + ":2:1: QML QtObject: Binding loop detected for property \"textToTranslate\"").toLatin1());
+        QScopedPointer<QObject> object(component.create());
+        QVERIFY(!object.isNull());
+
+        QVERIFY(engine.uiLanguage().isEmpty());
+        QCOMPARE(object->property("numberOfTranslationBindingEvaluations").toInt(), 1);
+
+        QTest::ignoreMessage(QtMsgType::QtWarningMsg, (component.url().toString() + ":2:1: QML QtObject: Binding loop detected for property \"textToTranslate\"").toLatin1());
+        engine.setUiLanguage("TestLanguage");
+        QCOMPARE(object->property("numberOfTranslationBindingEvaluations").toInt(), 2);
+        QCOMPARE(object->property("chosenLanguage").toString(), "TestLanguage");
+
+        QTest::ignoreMessage(QtMsgType::QtWarningMsg, (component.url().toString() + ":2:1: QML QtObject: Binding loop detected for property \"textToTranslate\"").toLatin1());
+        engine.evaluate("Qt.uiLanguage = \"anotherLanguage\"");
+        QCOMPARE(engine.uiLanguage(), QString("anotherLanguage"));
+        QCOMPARE(object->property("numberOfTranslationBindingEvaluations").toInt(), 3);
+        QCOMPARE(object->property("chosenLanguage").toString(), "anotherLanguage");
+    }
+
+    {
+        QQmlEngine engine;
+        QQmlComponent component(&engine, testFileUrl("uiLanguage.qml"));
+
+        QTest::ignoreMessage(QtMsgType::QtWarningMsg, (component.url().toString() + ":2:1: QML QtObject: Binding loop detected for property \"textToTranslate\"").toLatin1());
+        QScopedPointer<QObject> object(component.create());
+        QVERIFY(!object.isNull());
+
+        engine.setUiLanguage("TestLanguage");
+        QCOMPARE(object->property("chosenLanguage").toString(), "TestLanguage");
+    }
+}
+
+void tst_qqmlengine::executeRuntimeFunction()
+{
+    QQmlEngine engine;
+    QQmlEnginePrivate *priv = QQmlEnginePrivate::get(std::addressof(engine));
+
+    const QUrl url = testFileUrl("runtimeFunctions.qml");
+    QQmlComponent component(&engine, url);
+    QScopedPointer<QObject> dummy(component.create());
+
+    // getConstantValue():
+    int constant = 0;
+    void *a0[] = { const_cast<void *>(reinterpret_cast<const void *>(std::addressof(constant))) };
+    QMetaType t0[] = { QMetaType::fromType<int>() };
+    priv->executeRuntimeFunction(url, /* index = */ 0, dummy.get(), /* argc = */ 0, a0, t0);
+    QCOMPARE(constant, 42);
+
+    // squareValue():
+    int squared = 0;
+    int x = 5;
+    void *a1[] = { const_cast<void *>(reinterpret_cast<const void *>(std::addressof(squared))),
+                   const_cast<void *>(reinterpret_cast<const void *>(std::addressof(x))) };
+    QMetaType t1[] = { QMetaType::fromType<int>(), QMetaType::fromType<int>() };
+    priv->executeRuntimeFunction(url, /* index = */ 1, dummy.get(), /* argc = */ 1, a1, t1);
+    QCOMPARE(squared, x * x);
+
+    // concatenate():
+    QString concatenated;
+    QString str1 = QStringLiteral("Hello"); // uses "raw data" storage
+    QString str2 = QLatin1String(", Qml"); // uses own QString storage
+    void *a2[] = { const_cast<void *>(reinterpret_cast<const void *>(std::addressof(concatenated))),
+                   const_cast<void *>(reinterpret_cast<const void *>(std::addressof(str1))),
+                   const_cast<void *>(reinterpret_cast<const void *>(std::addressof(str2))) };
+    QMetaType t2[] = { QMetaType::fromType<QString>(), QMetaType::fromType<QString>(),
+                       QMetaType::fromType<QString>() };
+    priv->executeRuntimeFunction(url, /* index = */ 2, dummy.get(), /* argc = */ 2, a2, t2);
+    QCOMPARE(concatenated, str1 + str2);
+}
+
+class WithQProperty : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(int foo READ foo WRITE setFoo BINDABLE fooBindable)
+
+public:
+    WithQProperty(QObject *parent = nullptr) : QObject(parent) { m_foo.setValue(12); }
+
+    int foo() const { return m_foo.value(); }
+    void setFoo(int foo) { m_foo.setValue(foo); }
+    QBindable<int> fooBindable() { return QBindable<int>(&m_foo); }
+
+    int getFooWithCapture()
+    {
+        const QMetaObject *m = metaObject();
+        currentEngine->captureProperty(this, m->property(m->indexOfProperty("foo")));
+        return m_foo.value();
+    }
+
+    static QQmlEngine *currentEngine;
+
+private:
+    QProperty<int> m_foo;
+};
+
+class WithoutQProperty : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(int foo READ foo WRITE setFoo NOTIFY fooChanged)
+public:
+    WithoutQProperty(QObject *parent = nullptr) : QObject(parent), m_foo(new WithQProperty(this)) {}
+
+    int foo() const { return m_foo->getFooWithCapture(); }
+
+    void setFoo(int foo) {
+        if (foo != m_foo->foo()) {
+            m_foo->setFoo(foo);
+            emit fooChanged();
+        }
+    }
+
+    void triggerBinding(int val)
+    {
+        m_foo->setFoo(val);
+    }
+
+signals:
+    void fooChanged();
+
+private:
+    WithQProperty *m_foo;
+};
+
+QQmlEngine *WithQProperty::currentEngine = nullptr;
+
+void tst_qqmlengine::captureQProperty()
+{
+    qmlRegisterType<WithoutQProperty>("Foo", 1, 0, "WithoutQProperty");
+    QQmlEngine engine;
+    WithQProperty::currentEngine = &engine;
+    QQmlComponent c(&engine);
+    c.setData("import Foo\n"
+              "WithoutQProperty {\n"
+              "    property int x: foo\n"
+              "}", QUrl());
+    QVERIFY2(c.isReady(), c.errorString().toUtf8());
+    QScopedPointer<QObject> o(c.create());
+    QCOMPARE(o->property("x").toInt(), 12);
+    static_cast<WithoutQProperty *>(o.data())->triggerBinding(13);
+    QCOMPARE(o->property("x").toInt(), 13);
+}
+
+void tst_qqmlengine::listWrapperAsListReference()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine);
+    c.setData("import QtQml\nQtObject {\nproperty list<QtObject> c: [ QtObject {} ]\n}", QUrl());
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> o(c.create());
+    QJSManagedValue m = engine.toManagedValue(o.data());
+    QJSValue prop = m.property("c");
+    const QQmlListReference ref = qjsvalue_cast<QQmlListReference>(prop);
+    QCOMPARE(ref.size(), 1);
+}
+
+void tst_qqmlengine::attachedObjectAsObject()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine);
+    c.setData("import QtQml\nQtObject { property var a: Component }", QUrl());
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> o(c.create());
+    QJSManagedValue m = engine.toManagedValue(o.data());
+    QJSValue prop = m.property("a");
+    const QQmlComponentAttached *attached = qjsvalue_cast<QQmlComponentAttached *>(prop);
+    QCOMPARE(attached, qmlAttachedPropertiesObject<QQmlComponent>(o.data()));
+}
+
+class WithListProperty : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(QQmlListProperty<QQmlComponent> components READ components CONSTANT)
+    QML_ELEMENT
+public:
+
+    QQmlListProperty<QQmlComponent> components()
+    {
+        return QQmlListProperty<QQmlComponent>(this, &m_components);
+    }
+
+private:
+    QList<QQmlComponent *> m_components;
+};
+
+void tst_qqmlengine::listPropertyAsQJSValue()
+{
+    qmlRegisterTypesAndRevisions<WithListProperty>("Foo", 1);
+    QQmlEngine engine;
+    QQmlComponent c(&engine);
+    c.setData("import Foo\nWithListProperty {}", QUrl());
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> o(c.create());
+    WithListProperty *parent = qobject_cast<WithListProperty *>(o.data());
+    QVERIFY(parent);
+    QQmlListProperty<QQmlComponent> prop = parent->components();
+    QJSValue val = engine.toScriptValue(prop);
+    QQmlListReference ref = engine.fromScriptValue<QQmlListReference>(val);
+    ref.append(&c);
+    QCOMPARE(prop.count(&prop), 1);
+    QCOMPARE(prop.at(&prop, 0), &c);
+}
+
+void tst_qqmlengine::stringToColor()
+{
     QQmlEngine engine;
 
-    QObject::connect(&engine, &QJSEngine::uiLanguageChanged, [&engine]() {
-        engine.retranslate();
-    });
+    // Make it import QtQuick, so that color becomes available.
+    QQmlComponent c(&engine);
+    c.setData("import QtQuick\nItem {}", QUrl());
+    QVERIFY(c.isReady());
+    QScopedPointer<QObject> o(c.create());
 
-    QSignalSpy uiLanguageChangeSpy(&engine, SIGNAL(uiLanguageChanged()));
+    const QMetaType metaType(QMetaType::QColor);
+    QVariant color(metaType);
+    QVERIFY(engine.handle()->metaTypeFromJS(
+                engine.handle()->newString(QStringLiteral("#abcdef"))->asReturnedValue(),
+                metaType, color.data()));
+    QVERIFY(color.isValid());
+    QCOMPARE(color.metaType(), metaType);
 
-    QQmlComponent component(&engine, testFileUrl("uiLanguage.qml"));
+    QVariant variant(QStringLiteral("#abcdef"));
+    QVERIFY(variant.convert(metaType));
+    QCOMPARE(variant.metaType(), metaType);
 
-    QTest::ignoreMessage(QtMsgType::QtWarningMsg, (component.url().toString() + ":2:1: QML QtObject: Binding loop detected for property \"textToTranslate\"").toLatin1());
-    QScopedPointer<QObject> object(component.create());
-    QVERIFY(!object.isNull());
-
-    QVERIFY(engine.uiLanguage().isEmpty());
-    QCOMPARE(object->property("numberOfTranslationBindingEvaluations").toInt(), 1);
-
-    QTest::ignoreMessage(QtMsgType::QtWarningMsg, (component.url().toString() + ":2:1: QML QtObject: Binding loop detected for property \"textToTranslate\"").toLatin1());
-    engine.setUiLanguage("TestLanguage");
-    QCOMPARE(object->property("numberOfTranslationBindingEvaluations").toInt(), 2);
-    QCOMPARE(object->property("chosenLanguage").toString(), "TestLanguage");
-
-
-    QTest::ignoreMessage(QtMsgType::QtWarningMsg, (component.url().toString() + ":2:1: QML QtObject: Binding loop detected for property \"textToTranslate\"").toLatin1());
-    engine.evaluate("Qt.uiLanguage = \"anotherLanguage\"");
-    QCOMPARE(engine.uiLanguage(), QString("anotherLanguage"));
-    QCOMPARE(object->property("numberOfTranslationBindingEvaluations").toInt(), 3);
-    QCOMPARE(object->property("chosenLanguage").toString(), "anotherLanguage");
+    QCOMPARE(color, variant);
 }
 
 QTEST_MAIN(tst_qqmlengine)

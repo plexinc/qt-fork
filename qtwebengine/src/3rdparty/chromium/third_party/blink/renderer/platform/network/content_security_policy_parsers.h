@@ -17,8 +17,7 @@ enum ContentSecurityPolicyHashAlgorithm {
   kContentSecurityPolicyHashAlgorithmNone = 0,
   kContentSecurityPolicyHashAlgorithmSha256 = 1 << 2,
   kContentSecurityPolicyHashAlgorithmSha384 = 1 << 3,
-  kContentSecurityPolicyHashAlgorithmSha512 = 1 << 4,
-  kContentSecurityPolicyHashAlgorithmEd25519 = 1 << 5,
+  kContentSecurityPolicyHashAlgorithmSha512 = 1 << 4
 };
 
 PLATFORM_EXPORT bool IsCSPDirectiveNameCharacter(UChar);
@@ -35,6 +34,12 @@ PLATFORM_EXPORT bool IsMediaTypeCharacter(UChar);
 // Only checks for general Base64 encoded chars, not '=' chars since '=' is
 // positional and may only appear at the end of a Base64 encoded string.
 PLATFORM_EXPORT bool IsBase64EncodedCharacter(UChar);
+
+// Check if value matches
+// https://w3c.github.io/webappsec-csp/#grammardef-serialized-policy. We also
+// allow a trailing ';', repeated ';'s, and a trailing ';' followed by spaces.
+PLATFORM_EXPORT
+bool MatchesTheSerializedCSPGrammar(const String& value);
 
 }  // namespace blink
 

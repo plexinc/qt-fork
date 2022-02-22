@@ -8,16 +8,20 @@
 #include <memory>
 
 #include "base/component_export.h"
-#include "ui/events/platform/x11/x11_event_source.h"
-#include "ui/gfx/x/x11.h"
+#include "base/memory/weak_ptr.h"
+#include "ui/gfx/x/connection.h"
+#include "ui/gfx/x/event.h"
+#include "ui/gfx/x/xproto.h"
+
+namespace x11 {
+class XScopedEventSelector;
+}
 
 namespace ui {
 
-class XScopedEventSelector;
-
 // Listens for global workspace changes and notifies observers.
 class COMPONENT_EXPORT(UI_BASE_X) X11WorkspaceHandler
-    : public ui::XEventDispatcher {
+    : public x11::EventObserver {
  public:
   class Delegate {
    public:
@@ -37,24 +41,22 @@ class COMPONENT_EXPORT(UI_BASE_X) X11WorkspaceHandler
   std::string GetCurrentWorkspace();
 
  private:
-  // ui::XEventDispatcher
-  bool DispatchXEvent(XEvent* event) override;
+  // x11::EventObserver
+  void OnEvent(const x11::Event& event) override;
 
-  // Makes a round trip to the X server to get the current workspace.
-  bool UpdateWorkspace();
-
-  // The display and the native X window hosting the root window.
-  XDisplay* xdisplay_;
+  void OnWorkspaceResponse(x11::GetPropertyResponse response);
 
   // The native root window.
-  ::Window x_root_window_;
+  x11::Window x_root_window_;
 
   // Events selected on x_root_window_.
-  std::unique_ptr<ui::XScopedEventSelector> x_root_window_events_;
+  std::unique_ptr<x11::XScopedEventSelector> x_root_window_events_;
 
   std::string workspace_;
 
   Delegate* const delegate_;
+
+  base::WeakPtrFactory<X11WorkspaceHandler> weak_factory_{this};
 };
 
 }  // namespace ui

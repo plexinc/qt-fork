@@ -28,6 +28,7 @@ import "ui/gfx/geometry/mojom/geometry.mojom";
 import "ui/gfx/mojom/buffer_types.mojom";
 import "ui/gl/mojom/gpu_preference.mojom";
 import "mojo/public/mojom/base/memory_pressure_level.mojom";
+import "mojo/public/mojom/base/shared_memory.mojom";
 
 interface GpuService {
   // Tells the GPU service to create a new channel for communication with a
@@ -89,6 +90,13 @@ interface GpuService {
                          int32 client_id,
                          gpu.mojom.SyncToken sync_token);
 
+  // Copies GMB pixel data to |shared_memory|.
+  // Returns |true| if the copy has succeeded.
+  CopyGpuMemoryBuffer(gfx.mojom.GpuMemoryBufferHandle buffer_handle,
+                     mojo_base.mojom.UnsafeSharedMemoryRegion shared_memory)
+                     => (bool success);
+
+  // Returns current video memory usage.
   GetVideoMemoryUsageStats() => (gpu.mojom.VideoMemoryUsageStats stats);
 
   // Starts tracking the peak GPU memory until GetPeakMemoryUsage is called.
@@ -101,21 +109,6 @@ interface GpuService {
   GetPeakMemoryUsage(uint32 sequence_num) => (uint64 memory_usage,
       map<gpu.mojom.GpuPeakMemoryAllocationSource, uint64>
           memory_per_allocation_source);
-
-  [EnableIf=is_win]
-  RequestCompleteGpuInfo() => (gpu.mojom.DxDiagNode dx_diagnostics);
-
-  // Requests Vulkan and DX12 supports and device performance info on Windows.
-  // Returning whether Vulkan and DX12 are supported, and if yes, the
-  // supported version/feature level, together with a few metrics related
-  // to the device's performance for about:gpu and histogram recording
-  // purpose.
-  // TODO(crbug.com/1028263): histograms need to be recorded at browser process
-  // for now.
-  [EnableIf=is_win]
-  GetGpuSupportedRuntimeVersionAndDevicePerfInfo()
-      => (gpu.mojom.Dx12VulkanVersionInfo dx12_vulkan_version_info,
-          gpu.mojom.DevicePerfInfo device_perf_info);
 
   // Requests that the GPU process query system availability of HDR output and
   // return it.
@@ -138,6 +131,9 @@ interface GpuService {
 
   // Tells GPU that host has seen a monitor being unplugged.
   DisplayRemoved();
+
+  // Tells GPU that host has seen the display metrics changed.
+  DisplayMetricsChanged();
 
   // Tells GPU that all GPU channels are to be destroyed.
   DestroyAllChannels();
@@ -165,6 +161,11 @@ interface GpuService {
   // completes.
   [EnableIf=is_mac]
   CommitCATransaction() => ();
+
+  // Write out the accumulated code profiling profile to the configured file.
+  // The callback is invoked once the profile has been flushed to disk.
+  [EnableIf=use_clang_profiling_inside_sandbox]
+  WriteClangProfilingProfile() => ();
 
   Crash();
   Hang();

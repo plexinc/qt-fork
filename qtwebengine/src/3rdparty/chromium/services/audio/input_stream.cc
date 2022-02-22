@@ -8,7 +8,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/strings/strcat.h"
 #include "base/strings/stringprintf.h"
 #include "base/trace_event/trace_event.h"
@@ -65,9 +65,7 @@ InputStream::InputStream(
     const std::string& device_id,
     const media::AudioParameters& params,
     uint32_t shared_memory_count,
-    bool enable_agc,
-    StreamMonitorCoordinator* stream_monitor_coordinator,
-    mojom::AudioProcessingConfigPtr processing_config)
+    bool enable_agc)
     : id_(base::UnguessableToken::Create()),
       receiver_(this, std::move(receiver)),
       client_(std::move(client)),
@@ -105,11 +103,8 @@ InputStream::InputStream(
   if (observer_)
     observer_.set_disconnect_handler(std::move(error_handler));
 
-  if (log_) {
+  if (log_)
     log_->OnCreated(params, device_id);
-    if (processing_config)
-      log_->OnProcessingStateChanged(processing_config->settings.ToString());
-  }
 
   // Only MONO, STEREO and STEREO_AND_KEYBOARD_MIC channel layouts are expected,
   // see AudioManagerBase::MakeAudioInputStream().
@@ -123,10 +118,9 @@ InputStream::InputStream(
     return;
   }
 
-  controller_ = InputController::Create(
-      audio_manager, this, writer_.get(), user_input_monitor_.get(), params,
-      device_id, enable_agc, stream_monitor_coordinator,
-      std::move(processing_config));
+  controller_ = InputController::Create(audio_manager, this, writer_.get(),
+                                        user_input_monitor_.get(), params,
+                                        device_id, enable_agc);
 }
 
 InputStream::~InputStream() {

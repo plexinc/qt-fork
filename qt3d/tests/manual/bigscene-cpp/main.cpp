@@ -63,6 +63,7 @@
 #include <Qt3DRender/QParameter>
 #include <Qt3DExtras/QCylinderMesh>
 #include <Qt3DRender/QRenderAspect>
+#include <Qt3DRender/QGeometryRenderer>
 #include <Qt3DRender/QCameraSelector>
 #include <Qt3DExtras/QPhongMaterial>
 #include <Qt3DExtras/QForwardRenderer>

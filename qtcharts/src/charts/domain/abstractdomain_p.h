@@ -44,7 +44,7 @@
 #include <QtCore/QSizeF>
 #include <QtCore/QDebug>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class QAbstractAxis;
 
@@ -104,7 +104,7 @@ public:
 
     virtual QPointF calculateGeometryPoint(const QPointF &point, bool &ok) const = 0;
     virtual QPointF calculateDomainPoint(const QPointF &point) const = 0;
-    virtual QVector<QPointF> calculateGeometryPoints(const QVector<QPointF> &vector) const = 0;
+    virtual QList<QPointF> calculateGeometryPoints(const QList<QPointF> &list) const = 0;
 
     virtual bool attachAxis(QAbstractAxis *axis);
     virtual bool detachAxis(QAbstractAxis *axis);
@@ -148,6 +148,6 @@ protected:
     bool m_reverseY;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // ABSTRACTDOMAIN_H

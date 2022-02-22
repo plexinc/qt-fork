@@ -12,22 +12,29 @@
 
 #include "base/callback.h"
 #include "base/i18n/rtl.h"
+#include "base/optional.h"
 #include "build/build_config.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/native_web_keyboard_event.h"
 #include "content/public/common/drop_data.h"
-#include "content/public/common/input_event_ack_source.h"
-#include "content/public/common/input_event_ack_state.h"
 #include "ipc/ipc_channel.h"
 #include "ipc/ipc_sender.h"
 #include "third_party/blink/public/common/input/web_gesture_event.h"
 #include "third_party/blink/public/common/input/web_input_event.h"
-#include "third_party/blink/public/platform/web_drag_operation.h"
+#include "third_party/blink/public/common/page/drag_operation.h"
+#include "third_party/blink/public/common/widget/screen_info.h"
+#include "third_party/blink/public/mojom/input/input_event_result.mojom-shared.h"
+#include "ui/base/dragdrop/mojom/drag_drop_types.mojom-forward.h"
+#include "ui/base/ui_base_types.h"
 #include "ui/surface/transport_dib.h"
 
 namespace blink {
 class WebMouseEvent;
 class WebMouseWheelEvent;
+}
+
+namespace cc {
+enum class TouchAction;
 }
 
 namespace gfx {
@@ -48,7 +55,6 @@ class RenderProcessHost;
 class RenderWidgetHostIterator;
 class RenderWidgetHostObserver;
 class RenderWidgetHostView;
-struct ScreenInfo;
 
 // A RenderWidgetHost manages the browser side of a browser<->renderer
 // HWND connection.  The HWND lives in the browser process, and
@@ -116,7 +122,7 @@ struct ScreenInfo;
 // messages for select popups. This placement is more out of convenience than
 // anything else. When the view is live, these messages are forwarded to it by
 // the RenderWidgetHost's IPC message map.
-class CONTENT_EXPORT RenderWidgetHost : public IPC::Sender {
+class CONTENT_EXPORT RenderWidgetHost {
  public:
   // Returns the RenderWidgetHost given its ID and the ID of its render process.
   // Returns nullptr if the IDs do not correspond to a live RenderWidgetHost.
@@ -126,7 +132,7 @@ class CONTENT_EXPORT RenderWidgetHost : public IPC::Sender {
   // hosts.
   static std::unique_ptr<RenderWidgetHostIterator> GetRenderWidgetHosts();
 
-  ~RenderWidgetHost() override {}
+  virtual ~RenderWidgetHost() {}
 
   // Returns the viz::FrameSinkId that this object uses to put things on screen.
   // This value is constant throughout the lifetime of this object. Note that
@@ -213,7 +219,7 @@ class CONTENT_EXPORT RenderWidgetHost : public IPC::Sender {
   virtual bool IsCurrentlyUnresponsive() = 0;
 
   // Called to propagate updated visual properties to the renderer. Returns
-  // whether the renderer has been informed of updated properties.
+  // true if visual properties have changed since last call.
   virtual bool SynchronizeVisualProperties() = 0;
 
   // Access to the implementation's IPC::Listener::OnMessageReceived. Intended
@@ -239,8 +245,8 @@ class CONTENT_EXPORT RenderWidgetHost : public IPC::Sender {
     virtual ~InputEventObserver() {}
 
     virtual void OnInputEvent(const blink::WebInputEvent&) {}
-    virtual void OnInputEventAck(InputEventAckSource source,
-                                 InputEventAckState state,
+    virtual void OnInputEventAck(blink::mojom::InputEventResultSource source,
+                                 blink::mojom::InputEventResultState state,
                                  const blink::WebInputEvent&) {}
 
 #if defined(OS_ANDROID)
@@ -276,26 +282,30 @@ class CONTENT_EXPORT RenderWidgetHost : public IPC::Sender {
   virtual void RemoveObserver(RenderWidgetHostObserver* observer) = 0;
 
   // Get the screen info corresponding to this render widget.
-  virtual void GetScreenInfo(ScreenInfo* result) = 0;
+  virtual void GetScreenInfo(blink::ScreenInfo* screen_info) = 0;
+
+  // This must always return the same device scale factor as GetScreenInfo.
+  virtual float GetDeviceScaleFactor() = 0;
+
+  // Get the allowed touch action corresponding to this render widget.
+  virtual base::Optional<cc::TouchAction> GetAllowedTouchAction() = 0;
 
   // Drag-and-drop drop target messages that get sent to Blink.
-  virtual void DragTargetDragEnter(
-      const DropData& drop_data,
-      const gfx::PointF& client_pt,
-      const gfx::PointF& screen_pt,
-      blink::WebDragOperationsMask operations_allowed,
-      int key_modifiers) {}
+  virtual void DragTargetDragEnter(const DropData& drop_data,
+                                   const gfx::PointF& client_pt,
+                                   const gfx::PointF& screen_pt,
+                                   blink::DragOperationsMask operations_allowed,
+                                   int key_modifiers) {}
   virtual void DragTargetDragEnterWithMetaData(
       const std::vector<DropData::Metadata>& metadata,
       const gfx::PointF& client_pt,
       const gfx::PointF& screen_pt,
-      blink::WebDragOperationsMask operations_allowed,
+      blink::DragOperationsMask operations_allowed,
       int key_modifiers) {}
-  virtual void DragTargetDragOver(
-      const gfx::PointF& client_pt,
-      const gfx::PointF& screen_pt,
-      blink::WebDragOperationsMask operations_allowed,
-      int key_modifiers) {}
+  virtual void DragTargetDragOver(const gfx::PointF& client_pt,
+                                  const gfx::PointF& screen_pt,
+                                  blink::DragOperationsMask operations_allowed,
+                                  int key_modifiers) {}
   virtual void DragTargetDragLeave(const gfx::PointF& client_point,
                                    const gfx::PointF& screen_point) {}
   virtual void DragTargetDrop(const DropData& drop_data,
@@ -307,7 +317,7 @@ class CONTENT_EXPORT RenderWidgetHost : public IPC::Sender {
   // either in a drop or by being cancelled.
   virtual void DragSourceEndedAt(const gfx::PointF& client_pt,
                                  const gfx::PointF& screen_pt,
-                                 blink::WebDragOperation operation) {}
+                                 ui::mojom::DragOperation operation) {}
 
   // Notifies the renderer that we're done with the drag and drop operation.
   // This allows the renderer to reset some state.
@@ -318,6 +328,19 @@ class CONTENT_EXPORT RenderWidgetHost : public IPC::Sender {
 
   // Sets cursor to a specified one when it is over this widget.
   virtual void SetCursor(const ui::Cursor& cursor) {}
+
+  // Shows the context menu using the specified point as anchor point.
+  virtual void ShowContextMenuAtPoint(const gfx::Point& point,
+                                      const ui::MenuSourceType source_type) {}
+
+  // Roundtrips through the renderer and compositor pipeline to ensure that any
+  // changes to the contents resulting from operations executed prior to this
+  // call are visible on screen. The call completes asynchronously (if it
+  // succeeds) by running the supplied |callback| with a value of true upon
+  // successful completion and false otherwise when the widget is destroyed.
+  // This can run synchronously on failure.
+  using VisualStateCallback = base::OnceCallback<void(bool)>;
+  virtual void InsertVisualStateCallback(VisualStateCallback callback) {}
 };
 
 }  // namespace content

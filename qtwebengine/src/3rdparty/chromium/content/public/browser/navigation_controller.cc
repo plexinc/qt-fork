@@ -17,6 +17,8 @@ NavigationController::LoadURLParams::LoadURLParams(const GURL& url)
 
 NavigationController::LoadURLParams::LoadURLParams(const OpenURLParams& input)
     : url(input.url),
+      initiator_frame_token(input.initiator_frame_token),
+      initiator_process_id(input.initiator_process_id),
       initiator_origin(input.initiator_origin),
       source_site_instance(input.source_site_instance),
       load_type(input.post_data ? LOAD_TYPE_HTTP_POST : LOAD_TYPE_DEFAULT),
@@ -32,7 +34,8 @@ NavigationController::LoadURLParams::LoadURLParams(const OpenURLParams& input)
       started_from_context_menu(input.started_from_context_menu),
       blob_url_loader_factory(input.blob_url_loader_factory),
       href_translate(input.href_translate),
-      reload_type(input.reload_type) {
+      reload_type(input.reload_type),
+      impression(input.impression) {
 #if DCHECK_IS_ON()
   DCHECK(input.Valid());
 #endif
@@ -58,6 +61,7 @@ NavigationController::LoadURLParams::LoadURLParams(const OpenURLParams& input)
   //     override_user_agent
   //     should_clear_history_list
   //     was_activated
+  //     is_prerendering
   //
   //   The following OpenURLParams don't have an equivalent in LoadURLParams:
   //     disposition

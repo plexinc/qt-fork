@@ -115,12 +115,11 @@ public:
     ~QCocoaEventDispatcher();
 
     bool processEvents(QEventLoop::ProcessEventsFlags flags);
-    bool hasPendingEvents();
 
     void registerSocketNotifier(QSocketNotifier *notifier);
     void unregisterSocketNotifier(QSocketNotifier *notifier);
 
-    void registerTimer(int timerId, int interval, Qt::TimerType timerType, QObject *object);
+    void registerTimer(int timerId, qint64 interval, Qt::TimerType timerType, QObject *object);
     bool unregisterTimer(int timerId);
     bool unregisterTimers(QObject *object);
     QList<TimerInfo> registeredTimers(QObject *object) const;
@@ -129,7 +128,6 @@ public:
 
     void wakeUp();
     void interrupt();
-    void flush();
 
     static void clearCurrentThreadCocoaEventDispatcherInterruptFlag();
 

@@ -4,9 +4,11 @@
 
 #include "chrome/browser/extensions/api/image_writer_private/image_writer_private_api.h"
 
+#include <utility>
+
 #include "base/bind.h"
-#include "base/logging.h"
 #include "base/task/post_task.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/extensions/api/image_writer_private/error_messages.h"
 #include "chrome/browser/extensions/api/image_writer_private/operation_manager.h"
 #include "chrome/browser/profiles/profile.h"
@@ -40,7 +42,7 @@ ImageWriterPrivateWriteFromUrlFunction::
 
 ExtensionFunction::ResponseAction
 ImageWriterPrivateWriteFromUrlFunction::Run() {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   Profile* profile = Profile::FromBrowserContext(browser_context());
   if (profile->GetPrefs()->GetBoolean(prefs::kExternalStorageDisabled) ||
       profile->GetPrefs()->GetBoolean(prefs::kExternalStorageReadOnly)) {
@@ -78,7 +80,7 @@ ImageWriterPrivateWriteFromFileFunction::
 
 ExtensionFunction::ResponseAction
 ImageWriterPrivateWriteFromFileFunction::Run() {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   Profile* profile = Profile::FromBrowserContext(browser_context());
   if (profile->GetPrefs()->GetBoolean(prefs::kExternalStorageDisabled) ||
       profile->GetPrefs()->GetBoolean(prefs::kExternalStorageReadOnly)) {
@@ -99,7 +101,7 @@ ImageWriterPrivateWriteFromFileFunction::Run() {
   if (!extensions::app_file_handler_util::ValidateFileEntryAndGetPath(
           filesystem_name, filesystem_path, source_process_id(), &path,
           &error)) {
-    return RespondNow(Error(error));
+    return RespondNow(Error(std::move(error)));
   }
 
   image_writer::OperationManager::Get(browser_context())
@@ -136,7 +138,7 @@ ImageWriterPrivateDestroyPartitionsFunction::
 
 ExtensionFunction::ResponseAction
 ImageWriterPrivateDestroyPartitionsFunction::Run() {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   Profile* profile = Profile::FromBrowserContext(browser_context());
   if (profile->GetPrefs()->GetBoolean(prefs::kExternalStorageDisabled) ||
       profile->GetPrefs()->GetBoolean(prefs::kExternalStorageReadOnly)) {
@@ -166,7 +168,7 @@ ImageWriterPrivateListRemovableStorageDevicesFunction::
 
 ExtensionFunction::ResponseAction
 ImageWriterPrivateListRemovableStorageDevicesFunction::Run() {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   Profile* profile = Profile::FromBrowserContext(browser_context());
   if (profile->GetPrefs()->GetBoolean(prefs::kExternalStorageDisabled)) {
     // Return an empty device list.

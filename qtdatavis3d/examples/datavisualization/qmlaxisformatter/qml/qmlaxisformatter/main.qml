@@ -27,13 +27,14 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.1
-import QtQuick.Layouts 1.0
-import QtDataVisualization 1.1
-import CustomFormatter 1.0
+import QtQuick
+import QtQuick.Layouts
+import QtQuick.Controls
+import QtDataVisualization 1.2
+import CustomFormatter
 import "."
 
-Rectangle {
+Item {
     id: mainView
     width: 1280
     height: 1024
@@ -134,7 +135,7 @@ Rectangle {
         anchors.left: parent.left
         spacing: 0
 
-        NewButton {
+        Button {
             id: yAxisBaseChange
             Layout.fillHeight: true
             Layout.fillWidth: true
@@ -167,7 +168,7 @@ Rectangle {
             ]
         }
 
-        NewButton {
+        Button {
             id: yAxisToggle
             Layout.fillHeight: true
             Layout.fillWidth: true
@@ -183,12 +184,12 @@ Rectangle {
             }
         }
 
-        NewButton {
+        Button {
             id: exitButton
             Layout.fillHeight: true
             Layout.fillWidth: true
             text: "Quit"
-            onClicked: Qt.quit(0);
+            onClicked: Qt.quit();
         }
     }
 }

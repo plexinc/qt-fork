@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the examples of the Qt Toolkit.
@@ -49,68 +49,100 @@
 ****************************************************************************/
 
 #include "videosettings.h"
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+#include "ui_videosettings_mobile.h"
+#else
 #include "ui_videosettings.h"
+#endif
 
 #include <QComboBox>
+#include <QSpinBox>
 #include <QDebug>
 #include <QMediaRecorder>
-#include <QMediaService>
+#include <QMediaFormat>
+#include <QAudioDevice>
+#include <QMediaCaptureSession>
+#include <QCameraDevice>
+#include <QCamera>
+#include <QAudioInput>
 
+QString toFormattedString(const QCameraFormat &cameraFormat)
+{
+    QString string;
+    const auto &separator = QStringLiteral(" ");
 
-VideoSettings::VideoSettings(QMediaRecorder *mediaRecorder, QWidget *parent) :
-    QDialog(parent),
-    ui(new Ui::VideoSettingsUi),
-    mediaRecorder(mediaRecorder)
+    string.append(QVideoFrameFormat::pixelFormatToString(cameraFormat.pixelFormat()));
+    string.append(separator);
+
+    string.append(QString::number(cameraFormat.resolution().width()));
+    string.append(QStringLiteral("x"));
+    string.append(QString::number(cameraFormat.resolution().height()));
+    string.append(separator);
+
+    string.append(QString::number(cameraFormat.minFrameRate()));
+    string.append(QStringLiteral("-"));
+    string.append(QString::number(cameraFormat.maxFrameRate()));
+    string.append(QStringLiteral("FPS"));
+
+    return string;
+}
+
+VideoSettings::VideoSettings(QMediaRecorder *mediaRecorder, QWidget *parent)
+    : QDialog(parent),
+      ui(new Ui::VideoSettingsUi),
+      mediaRecorder(mediaRecorder)
 {
     ui->setupUi(this);
 
-    //audio codecs
-    ui->audioCodecBox->addItem(tr("Default audio codec"), QVariant(QString()));
-    const QStringList supportedAudioCodecs =  mediaRecorder->supportedAudioCodecs();
-    for (const QString &codecName : supportedAudioCodecs) {
-        QString description = mediaRecorder->audioCodecDescription(codecName);
-        ui->audioCodecBox->addItem(codecName + ": " + description, QVariant(codecName));
-    }
-
     //sample rate:
-    const QList<int>supportedAudioSampleRates = mediaRecorder->supportedAudioSampleRates();
-    for (int sampleRate : supportedAudioSampleRates)
-        ui->audioSampleRateBox->addItem(QString::number(sampleRate), QVariant(sampleRate));
+    auto audioDevice = mediaRecorder->captureSession()->audioInput()->device();
+    ui->audioSampleRateBox->setRange(audioDevice.minimumSampleRate(),
+                                     audioDevice.maximumSampleRate());
 
-    ui->audioQualitySlider->setRange(0, int(QMultimedia::VeryHighQuality));
+    // camera format
+    ui->videoFormatBox->addItem(tr("Default camera format"));
 
-    //video codecs
-    ui->videoCodecBox->addItem(tr("Default video codec"), QVariant(QString()));
-    const QStringList supportedVideoCodecs = mediaRecorder->supportedVideoCodecs();
-    for (const QString &codecName : supportedVideoCodecs) {
-        QString description = mediaRecorder->videoCodecDescription(codecName);
-        ui->videoCodecBox->addItem(codecName + ": " + description, QVariant(codecName));
+    const QList<QCameraFormat> videoFormats =
+            mediaRecorder->captureSession()->camera()->cameraDevice().videoFormats();
+
+    for (const QCameraFormat &format : videoFormats) {
+        ui->videoFormatBox->addItem(toFormattedString(format), QVariant::fromValue(format));
     }
 
-    ui->videoQualitySlider->setRange(0, int(QMultimedia::VeryHighQuality));
+    connect(ui->videoFormatBox, &QComboBox::currentIndexChanged, [this](int /*index*/) {
+        const auto &cameraFormat = boxValue(ui->videoFormatBox).value<QCameraFormat>();
+        ui->fpsSlider->setRange(cameraFormat.minFrameRate(), cameraFormat.maxFrameRate());
+        ui->fpsSpinBox->setRange(cameraFormat.minFrameRate(), cameraFormat.maxFrameRate());
+    });
 
+    auto currentCameraFormat = mediaRecorder->captureSession()->camera()->cameraFormat();
+    ui->fpsSlider->setRange(currentCameraFormat.minFrameRate(), currentCameraFormat.maxFrameRate());
+    ui->fpsSpinBox->setRange(currentCameraFormat.minFrameRate(),
+                             currentCameraFormat.maxFrameRate());
 
-    ui->videoResolutionBox->addItem(tr("Default"));
-    const QList<QSize> supportedResolutions = mediaRecorder->supportedResolutions();
-    for (const QSize &resolution : supportedResolutions) {
-        ui->videoResolutionBox->addItem(QString("%1x%2").arg(resolution.width()).arg(resolution.height()),
-                                        QVariant(resolution));
-    }
+    connect(ui->fpsSlider, &QSlider::valueChanged, ui->fpsSpinBox, &QSpinBox::setValue);
+    connect(ui->fpsSpinBox, &QSpinBox::valueChanged, ui->fpsSlider, &QSlider::setValue);
 
-    ui->videoFramerateBox->addItem(tr("Default"));
-    const QList<qreal> supportedFrameRates = mediaRecorder->supportedFrameRates();
-    for (qreal rate : supportedFrameRates) {
-        QString rateString = QString("%1").arg(rate, 0, 'f', 2);
-        ui->videoFramerateBox->addItem(rateString, QVariant(rate));
-    }
+    updateFormatsAndCodecs();
+    connect(ui->audioCodecBox, &QComboBox::currentIndexChanged, this, &VideoSettings::updateFormatsAndCodecs);
+    connect(ui->videoCodecBox, &QComboBox::currentIndexChanged, this, &VideoSettings::updateFormatsAndCodecs);
+    connect(ui->containerFormatBox, &QComboBox::currentIndexChanged, this, &VideoSettings::updateFormatsAndCodecs);
 
-    //containers
-    ui->containerFormatBox->addItem(tr("Default container"), QVariant(QString()));
-    const QStringList formats = mediaRecorder->supportedContainers();
-    for (const QString &format : formats) {
-        ui->containerFormatBox->addItem(format + ": " + mediaRecorder->containerDescription(format),
-                                        QVariant(format));
-    }
+    ui->qualitySlider->setRange(0, int(QMediaRecorder::VeryHighQuality));
+
+    QMediaFormat format = mediaRecorder->mediaFormat();
+    selectComboBoxItem(ui->containerFormatBox, QVariant::fromValue(format.fileFormat()));
+    selectComboBoxItem(ui->audioCodecBox, QVariant::fromValue(format.audioCodec()));
+    selectComboBoxItem(ui->videoCodecBox, QVariant::fromValue(format.videoCodec()));
+
+    ui->qualitySlider->setValue(mediaRecorder->quality());
+    ui->audioSampleRateBox->setValue(mediaRecorder->audioSampleRate());
+    selectComboBoxItem(
+            ui->videoFormatBox,
+            QVariant::fromValue(mediaRecorder->captureSession()->camera()->cameraFormat()));
+
+    ui->fpsSlider->setValue(mediaRecorder->videoFrameRate());
+    ui->fpsSpinBox->setValue(mediaRecorder->videoFrameRate());
 }
 
 VideoSettings::~VideoSettings()
@@ -130,57 +162,70 @@ void VideoSettings::changeEvent(QEvent *e)
     }
 }
 
-QAudioEncoderSettings VideoSettings::audioSettings() const
+void VideoSettings::applySettings()
 {
-    QAudioEncoderSettings settings = mediaRecorder->audioSettings();
-    settings.setCodec(boxValue(ui->audioCodecBox).toString());
-    settings.setQuality(QMultimedia::EncodingQuality(ui->audioQualitySlider->value()));
-    settings.setSampleRate(boxValue(ui->audioSampleRateBox).toInt());
-    return settings;
+    QMediaFormat format;
+    format.setFileFormat(boxValue(ui->containerFormatBox).value<QMediaFormat::FileFormat>());
+    format.setAudioCodec(boxValue(ui->audioCodecBox).value<QMediaFormat::AudioCodec>());
+    format.setVideoCodec(boxValue(ui->videoCodecBox).value<QMediaFormat::VideoCodec>());
+
+    mediaRecorder->setMediaFormat(format);
+    mediaRecorder->setQuality(QMediaRecorder::Quality(ui->qualitySlider->value()));
+    mediaRecorder->setAudioSampleRate(ui->audioSampleRateBox->value());
+
+    const auto &cameraFormat = boxValue(ui->videoFormatBox).value<QCameraFormat>();
+    mediaRecorder->setVideoResolution(cameraFormat.resolution());
+    mediaRecorder->setVideoFrameRate(ui->fpsSlider->value());
+
+    mediaRecorder->captureSession()->camera()->setCameraFormat(cameraFormat);
 }
 
-void VideoSettings::setAudioSettings(const QAudioEncoderSettings &audioSettings)
+void VideoSettings::updateFormatsAndCodecs()
 {
-    selectComboBoxItem(ui->audioCodecBox, QVariant(audioSettings.codec()));
-    selectComboBoxItem(ui->audioSampleRateBox, QVariant(audioSettings.sampleRate()));
-    ui->audioQualitySlider->setValue(audioSettings.quality());
-}
+    if (m_updatingFormats)
+        return;
+    m_updatingFormats = true;
 
-QVideoEncoderSettings VideoSettings::videoSettings() const
-{
-    QVideoEncoderSettings settings = mediaRecorder->videoSettings();
-    settings.setCodec(boxValue(ui->videoCodecBox).toString());
-    settings.setQuality(QMultimedia::EncodingQuality(ui->videoQualitySlider->value()));
-    settings.setResolution(boxValue(ui->videoResolutionBox).toSize());
-    settings.setFrameRate(boxValue(ui->videoFramerateBox).value<qreal>());
+    QMediaFormat format;
+    if (ui->containerFormatBox->count())
+        format.setFileFormat(boxValue(ui->containerFormatBox).value<QMediaFormat::FileFormat>());
+    if (ui->audioCodecBox->count())
+        format.setAudioCodec(boxValue(ui->audioCodecBox).value<QMediaFormat::AudioCodec>());
+    if (ui->videoCodecBox->count())
+        format.setVideoCodec(boxValue(ui->videoCodecBox).value<QMediaFormat::VideoCodec>());
 
-    return settings;
-}
-
-void VideoSettings::setVideoSettings(const QVideoEncoderSettings &videoSettings)
-{
-    selectComboBoxItem(ui->videoCodecBox, QVariant(videoSettings.codec()));
-    selectComboBoxItem(ui->videoResolutionBox, QVariant(videoSettings.resolution()));
-    ui->videoQualitySlider->setValue(videoSettings.quality());
-
-    //special case for frame rate
-    for (int i = 0; i < ui->videoFramerateBox->count(); ++i) {
-        qreal itemRate = ui->videoFramerateBox->itemData(i).value<qreal>();
-        if (qFuzzyCompare(itemRate, videoSettings.frameRate())) {
-            ui->videoFramerateBox->setCurrentIndex(i);
-            break;
-        }
+    int currentIndex = 0;
+    ui->audioCodecBox->clear();
+    ui->audioCodecBox->addItem(tr("Default audio codec"), QVariant::fromValue(QMediaFormat::AudioCodec::Unspecified));
+    for (auto codec : format.supportedAudioCodecs(QMediaFormat::Encode)) {
+        if (codec == format.audioCodec())
+            currentIndex = ui->audioCodecBox->count();
+        ui->audioCodecBox->addItem(QMediaFormat::audioCodecDescription(codec), QVariant::fromValue(codec));
     }
-}
+    ui->audioCodecBox->setCurrentIndex(currentIndex);
 
-QString VideoSettings::format() const
-{
-    return boxValue(ui->containerFormatBox).toString();
-}
+    currentIndex = 0;
+    ui->videoCodecBox->clear();
+    ui->videoCodecBox->addItem(tr("Default video codec"), QVariant::fromValue(QMediaFormat::VideoCodec::Unspecified));
+    for (auto codec : format.supportedVideoCodecs(QMediaFormat::Encode)) {
+        if (codec == format.videoCodec())
+            currentIndex = ui->videoCodecBox->count();
+        ui->videoCodecBox->addItem(QMediaFormat::videoCodecDescription(codec), QVariant::fromValue(codec));
+    }
+    ui->videoCodecBox->setCurrentIndex(currentIndex);
 
-void VideoSettings::setFormat(const QString &format)
-{
-    selectComboBoxItem(ui->containerFormatBox, QVariant(format));
+    currentIndex = 0;
+    ui->containerFormatBox->clear();
+    ui->containerFormatBox->addItem(tr("Default file format"), QVariant::fromValue(QMediaFormat::UnspecifiedFormat));
+    for (auto container : format.supportedFileFormats(QMediaFormat::Encode)) {
+        if (container == format.fileFormat())
+            currentIndex = ui->containerFormatBox->count();
+        ui->containerFormatBox->addItem(QMediaFormat::fileFormatDescription(container), QVariant::fromValue(container));
+    }
+    ui->containerFormatBox->setCurrentIndex(currentIndex);
+
+    m_updatingFormats = false;
+
 }
 
 QVariant VideoSettings::boxValue(const QComboBox *box) const

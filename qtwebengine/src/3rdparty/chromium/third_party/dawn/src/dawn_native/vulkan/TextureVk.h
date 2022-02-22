@@ -18,6 +18,7 @@
 #include "dawn_native/Texture.h"
 
 #include "common/vulkan_platform.h"
+#include "dawn_native/PassResourceUsage.h"
 #include "dawn_native/ResourceMemoryAllocation.h"
 #include "dawn_native/vulkan/ExternalHandle.h"
 #include "dawn_native/vulkan/external_memory/MemoryService.h"
@@ -26,9 +27,11 @@ namespace dawn_native { namespace vulkan {
 
     struct CommandRecordingContext;
     class Device;
+    class Texture;
 
     VkFormat VulkanImageFormat(const Device* device, wgpu::TextureFormat format);
     VkImageUsageFlags VulkanImageUsage(wgpu::TextureUsage usage, const Format& format);
+    VkImageLayout VulkanImageLayout(const Texture* texture, wgpu::TextureUsage usage);
     VkSampleCountFlagBits VulkanSampleCount(uint32_t sampleCount);
 
     MaybeError ValidateVulkanImageCanBeWrapped(const DeviceBase* device,
@@ -37,59 +40,105 @@ namespace dawn_native { namespace vulkan {
     bool IsSampleCountSupported(const dawn_native::vulkan::Device* device,
                                 const VkImageCreateInfo& imageCreateInfo);
 
-    class Texture : public TextureBase {
+    class Texture final : public TextureBase {
       public:
         // Used to create a regular texture from a descriptor.
-        static ResultOrError<Texture*> Create(Device* device, const TextureDescriptor* descriptor);
+        static ResultOrError<Ref<Texture>> Create(Device* device,
+                                                  const TextureDescriptor* descriptor,
+                                                  VkImageUsageFlags extraUsages = 0);
 
         // Creates a texture and initializes it with a VkImage that references an external memory
         // object. Before the texture can be used, the VkDeviceMemory associated with the external
         // image must be bound via Texture::BindExternalMemory.
         static ResultOrError<Texture*> CreateFromExternal(
             Device* device,
-            const ExternalImageDescriptor* descriptor,
+            const ExternalImageDescriptorVk* descriptor,
             const TextureDescriptor* textureDescriptor,
             external_memory::Service* externalMemoryService);
 
-        Texture(Device* device, const TextureDescriptor* descriptor, VkImage nativeImage);
-        ~Texture();
+        // Creates a texture that wraps a swapchain-allocated VkImage.
+        static Ref<Texture> CreateForSwapChain(Device* device,
+                                               const TextureDescriptor* descriptor,
+                                               VkImage nativeImage);
 
         VkImage GetHandle() const;
-        VkImageAspectFlags GetVkAspectMask() const;
+        VkImageAspectFlags GetVkAspectMask(wgpu::TextureAspect aspect) const;
 
         // Transitions the texture to be used as `usage`, recording any necessary barrier in
         // `commands`.
         // TODO(cwallez@chromium.org): coalesce barriers and do them early when possible.
         void TransitionUsageNow(CommandRecordingContext* recordingContext,
-                                wgpu::TextureUsage usage);
-        void EnsureSubresourceContentInitialized(CommandRecordingContext* recordingContext,
-                                                 uint32_t baseMipLevel,
-                                                 uint32_t levelCount,
-                                                 uint32_t baseArrayLayer,
-                                                 uint32_t layerCount);
+                                wgpu::TextureUsage usage,
+                                const SubresourceRange& range);
+        // TODO(cwallez@chromium.org): This function should be an implementation detail of
+        // vulkan::Texture but it is currently used by the barrier tracking for compute passes.
+        void TransitionUsageAndGetResourceBarrier(wgpu::TextureUsage usage,
+                                                  const SubresourceRange& range,
+                                                  std::vector<VkImageMemoryBarrier>* imageBarriers,
+                                                  VkPipelineStageFlags* srcStages,
+                                                  VkPipelineStageFlags* dstStages);
+        void TransitionUsageForPass(CommandRecordingContext* recordingContext,
+                                    const PassTextureUsage& textureUsages,
+                                    std::vector<VkImageMemoryBarrier>* imageBarriers,
+                                    VkPipelineStageFlags* srcStages,
+                                    VkPipelineStageFlags* dstStages);
 
-        MaybeError SignalAndDestroy(VkSemaphore* outSignalSemaphore);
+        void EnsureSubresourceContentInitialized(CommandRecordingContext* recordingContext,
+                                                 const SubresourceRange& range);
+
+        VkImageLayout GetCurrentLayoutForSwapChain() const;
+
         // Binds externally allocated memory to the VkImage and on success, takes ownership of
         // semaphores.
-        MaybeError BindExternalMemory(const ExternalImageDescriptor* descriptor,
+        MaybeError BindExternalMemory(const ExternalImageDescriptorVk* descriptor,
                                       VkSemaphore signalSemaphore,
                                       VkDeviceMemory externalMemoryAllocation,
                                       std::vector<VkSemaphore> waitSemaphores);
 
-      private:
-        using TextureBase::TextureBase;
-        MaybeError InitializeAsInternalTexture();
+        MaybeError ExportExternalTexture(VkImageLayout desiredLayout,
+                                         VkSemaphore* signalSemaphore,
+                                         VkImageLayout* releasedOldLayout,
+                                         VkImageLayout* releasedNewLayout);
 
-        MaybeError InitializeFromExternal(const ExternalImageDescriptor* descriptor,
+      private:
+        ~Texture() override;
+        Texture(Device* device, const TextureDescriptor* descriptor, TextureState state);
+
+        MaybeError InitializeAsInternalTexture(VkImageUsageFlags extraUsages);
+        MaybeError InitializeFromExternal(const ExternalImageDescriptorVk* descriptor,
                                           external_memory::Service* externalMemoryService);
+        void InitializeForSwapChain(VkImage nativeImage);
 
         void DestroyImpl() override;
         MaybeError ClearTexture(CommandRecordingContext* recordingContext,
-                                uint32_t baseMipLevel,
-                                uint32_t levelCount,
-                                uint32_t baseArrayLayer,
-                                uint32_t layerCount,
+                                const SubresourceRange& range,
                                 TextureBase::ClearValue);
+
+        // Implementation details of the barrier computations for the texture.
+        void TransitionUsageForPassImpl(
+            CommandRecordingContext* recordingContext,
+            const SubresourceStorage<wgpu::TextureUsage>& subresourceUsages,
+            std::vector<VkImageMemoryBarrier>* imageBarriers,
+            VkPipelineStageFlags* srcStages,
+            VkPipelineStageFlags* dstStages);
+        void TransitionUsageAndGetResourceBarrierImpl(
+            wgpu::TextureUsage usage,
+            const SubresourceRange& range,
+            std::vector<VkImageMemoryBarrier>* imageBarriers,
+            VkPipelineStageFlags* srcStages,
+            VkPipelineStageFlags* dstStages);
+        void TweakTransitionForExternalUsage(CommandRecordingContext* recordingContext,
+                                             std::vector<VkImageMemoryBarrier>* barriers,
+                                             size_t transitionBarrierStart);
+        bool CanReuseWithoutBarrier(wgpu::TextureUsage lastUsage, wgpu::TextureUsage usage);
+
+        // In base Vulkan, Depth and stencil can only be transitioned together. This function
+        // indicates whether we should combine depth and stencil barriers to accommodate this
+        // limitation.
+        bool ShouldCombineDepthStencilBarriers() const;
+        // Compute the Aspects of the SubresourceStoage for this texture depending on whether we're
+        // doing the workaround for combined depth and stencil barriers.
+        Aspect ComputeAspectsForSubresourceStorage() const;
 
         VkImage mHandle = VK_NULL_HANDLE;
         ResourceMemoryAllocation mMemoryAllocation;
@@ -99,29 +148,31 @@ namespace dawn_native { namespace vulkan {
             InternalOnly,
             PendingAcquire,
             Acquired,
-            PendingRelease,
             Released
         };
         ExternalState mExternalState = ExternalState::InternalOnly;
         ExternalState mLastExternalState = ExternalState::InternalOnly;
 
+        VkImageLayout mPendingAcquireOldLayout;
+        VkImageLayout mPendingAcquireNewLayout;
+
         VkSemaphore mSignalSemaphore = VK_NULL_HANDLE;
         std::vector<VkSemaphore> mWaitRequirements;
 
-        // A usage of none will make sure the texture is transitioned before its first use as
-        // required by the Vulkan spec.
-        wgpu::TextureUsage mLastUsage = wgpu::TextureUsage::None;
+        // Note that in early Vulkan versions it is not possible to transition depth and stencil
+        // separately so textures with Depth|Stencil aspects will have a single Depth aspect in the
+        // storage.
+        SubresourceStorage<wgpu::TextureUsage> mSubresourceLastUsages;
     };
 
-    class TextureView : public TextureViewBase {
+    class TextureView final : public TextureViewBase {
       public:
         static ResultOrError<TextureView*> Create(TextureBase* texture,
                                                   const TextureViewDescriptor* descriptor);
-        ~TextureView();
-
         VkImageView GetHandle() const;
 
       private:
+        ~TextureView() override;
         using TextureViewBase::TextureViewBase;
         MaybeError Initialize(const TextureViewDescriptor* descriptor);
 

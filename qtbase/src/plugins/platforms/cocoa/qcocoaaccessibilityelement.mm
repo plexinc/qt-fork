@@ -36,6 +36,9 @@
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
+
+#include <AppKit/AppKit.h>
+
 #include "qcocoaaccessibilityelement.h"
 #include "qcocoaaccessibility.h"
 #include "qcocoahelpers.h"
@@ -43,10 +46,8 @@
 #include "qcocoascreen.h"
 
 #include <QtGui/private/qaccessiblecache_p.h>
-#include <QtAccessibilitySupport/private/qaccessiblebridgeutils_p.h>
+#include <QtGui/private/qaccessiblebridgeutils_p.h>
 #include <QtGui/qaccessible.h>
-
-#import <AppKit/NSAccessibility.h>
 
 QT_USE_NAMESPACE
 
@@ -190,7 +191,7 @@ static void convertLineOffset(QAccessibleTextInterface *text, int *line, int *of
 
 + (id) lineNumberForIndex: (int)index forText:(const QString &)text
 {
-    QStringRef textBefore = QStringRef(&text, 0, index);
+    auto textBefore = QStringView(text).left(index);
     int newlines = textBefore.count(QLatin1Char('\n'));
     return @(newlines);
 }
@@ -246,7 +247,7 @@ static void convertLineOffset(QAccessibleTextInterface *text, int *line, int *of
     return iface->text(QAccessible::Name).toNSString();
 }
 
-- (BOOL) accessibilityEnabledAttribute {
+- (BOOL) isAccessibilityEnabled {
     QAccessibleInterface *iface = QAccessible::accessibleInterface(axid);
     if (!iface || !iface->isValid())
         return false;
@@ -637,6 +638,16 @@ static void convertLineOffset(QAccessibleTextInterface *text, int *line, int *of
     }
 
     return NSAccessibilityUnignoredAncestor(self);
+}
+
+- (NSString *) accessibilityHelp {
+    QAccessibleInterface *iface = QAccessible::accessibleInterface(axid);
+    if (iface && iface->isValid()) {
+        const QString helpText = iface->text(QAccessible::Help);
+        if (!helpText.isEmpty())
+            return helpText.toNSString();
+    }
+    return nil;
 }
 
 @end

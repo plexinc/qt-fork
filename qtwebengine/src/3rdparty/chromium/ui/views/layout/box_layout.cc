@@ -16,14 +16,14 @@ namespace {
 // Returns the maximum of the given insets along the given |axis|.
 // NOTE: |axis| is different from |orientation_|; it specifies the actual
 // desired axis.
-enum Axis { HORIZONTAL_AXIS, VERTICAL_AXIS };
+enum class Axis { kHorizontal, kVertical };
 
 gfx::Insets MaxAxisInsets(Axis axis,
                           const gfx::Insets& leading1,
                           const gfx::Insets& leading2,
                           const gfx::Insets& trailing1,
                           const gfx::Insets& trailing2) {
-  if (axis == HORIZONTAL_AXIS) {
+  if (axis == Axis::kHorizontal) {
     return gfx::Insets(0, std::max(leading1.left(), leading2.left()), 0,
                        std::max(trailing1.right(), trailing2.right()));
   }
@@ -99,6 +99,28 @@ BoxLayout::BoxLayout(BoxLayout::Orientation orientation,
 
 BoxLayout::~BoxLayout() = default;
 
+void BoxLayout::SetOrientation(Orientation orientation) {
+  if (orientation_ != orientation) {
+    orientation_ = orientation;
+    InvalidateLayout();
+  }
+}
+
+BoxLayout::Orientation BoxLayout::GetOrientation() const {
+  return orientation_;
+}
+
+void BoxLayout::SetCollapseMarginsSpacing(bool collapse_margins_spacing) {
+  if (collapse_margins_spacing != collapse_margins_spacing_) {
+    collapse_margins_spacing_ = collapse_margins_spacing;
+    InvalidateLayout();
+  }
+}
+
+bool BoxLayout::GetCollapseMarginsSpacing() const {
+  return collapse_margins_spacing_;
+}
+
 void BoxLayout::SetFlexForView(const View* view,
                                int flex_weight,
                                bool use_min_size) {
@@ -118,6 +140,10 @@ void BoxLayout::ClearFlexForView(const View* view) {
 void BoxLayout::SetDefaultFlex(int default_flex) {
   DCHECK_GE(default_flex, 0);
   default_flex_ = default_flex;
+}
+
+int BoxLayout::GetDefaultFlex() const {
+  return default_flex_;
 }
 
 void BoxLayout::Layout(View* host) {
@@ -201,11 +227,11 @@ void BoxLayout::Layout(View* host) {
     gfx::Rect min_child_area(child_area);
     gfx::Insets child_margins;
     if (collapse_margins_spacing_) {
-      child_margins =
-          MaxAxisInsets(orientation_ == Orientation::kVertical ? HORIZONTAL_AXIS
-                                                               : VERTICAL_AXIS,
-                        child.margins(), inside_border_insets_, child.margins(),
-                        inside_border_insets_);
+      child_margins = MaxAxisInsets(orientation_ == Orientation::kVertical
+                                        ? Axis::kHorizontal
+                                        : Axis::kVertical,
+                                    child.margins(), inside_border_insets_,
+                                    child.margins(), inside_border_insets_);
     } else {
       child_margins = child.margins();
     }
@@ -307,7 +333,7 @@ gfx::Size BoxLayout::GetPreferredSize(const View* host) const {
       gfx::Size child_size = child.view()->GetPreferredSize();
       gfx::Insets child_margins;
       if (collapse_margins_spacing_) {
-        child_margins = MaxAxisInsets(HORIZONTAL_AXIS, child.margins(),
+        child_margins = MaxAxisInsets(Axis::kHorizontal, child.margins(),
                                       inside_border_insets_, child.margins(),
                                       inside_border_insets_);
       } else {
@@ -474,14 +500,14 @@ gfx::Insets BoxLayout::MainAxisOuterMargin() const {
     const ViewWrapper first(this, FirstVisibleView());
     const ViewWrapper last(this, LastVisibleView());
     return MaxAxisInsets(orientation_ == Orientation::kHorizontal
-                             ? HORIZONTAL_AXIS
-                             : VERTICAL_AXIS,
+                             ? Axis::kHorizontal
+                             : Axis::kVertical,
                          inside_border_insets_, first.margins(),
                          inside_border_insets_, last.margins());
   }
   return MaxAxisInsets(orientation_ == Orientation::kHorizontal
-                           ? HORIZONTAL_AXIS
-                           : VERTICAL_AXIS,
+                           ? Axis::kHorizontal
+                           : Axis::kVertical,
                        inside_border_insets_, gfx::Insets(),
                        inside_border_insets_, gfx::Insets());
 }
@@ -569,9 +595,9 @@ gfx::Size BoxLayout::GetPreferredSizeForChildWidth(const View* host,
           size.height());
       gfx::Insets child_margins;
       if (collapse_margins_spacing_)
-        child_margins =
-            MaxAxisInsets(VERTICAL_AXIS, child.margins(), inside_border_insets_,
-                          child.margins(), inside_border_insets_);
+        child_margins = MaxAxisInsets(Axis::kVertical, child.margins(),
+                                      inside_border_insets_, child.margins(),
+                                      inside_border_insets_);
       else
         child_margins = child.margins();
 

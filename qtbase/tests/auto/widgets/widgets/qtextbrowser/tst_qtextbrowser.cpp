@@ -27,7 +27,9 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QSignalSpy>
+
 #include <qtextbrowser.h>
 #include <qapplication.h>
 #include <qscrollbar.h>
@@ -163,12 +165,12 @@ void tst_QTextBrowser::forwardButton()
 
     QVERIFY(!forwardEmissions.isEmpty());
     QVariant val = forwardEmissions.takeLast()[0];
-    QCOMPARE(val.type(), QVariant::Bool);
+    QCOMPARE(val.userType(), QMetaType::Bool);
     QVERIFY(!val.toBool());
 
     QVERIFY(!backwardEmissions.isEmpty());
     val = backwardEmissions.takeLast()[0];
-    QCOMPARE(val.type(), QVariant::Bool);
+    QCOMPARE(val.userType(), QMetaType::Bool);
     QVERIFY(!val.toBool());
 
     QVERIFY(browser->historyTitle(-1).isEmpty());
@@ -181,12 +183,12 @@ void tst_QTextBrowser::forwardButton()
 
     QVERIFY(!forwardEmissions.isEmpty());
     val = forwardEmissions.takeLast()[0];
-    QCOMPARE(val.type(), QVariant::Bool);
+    QCOMPARE(val.userType(), QMetaType::Bool);
     QVERIFY(!val.toBool());
 
     QVERIFY(!backwardEmissions.isEmpty());
     val = backwardEmissions.takeLast()[0];
-    QCOMPARE(val.type(), QVariant::Bool);
+    QCOMPARE(val.userType(), QMetaType::Bool);
     QVERIFY(val.toBool());
 
     QCOMPARE(browser->historyTitle(-1), QString("Page With BG"));
@@ -197,12 +199,12 @@ void tst_QTextBrowser::forwardButton()
 
     QVERIFY(!forwardEmissions.isEmpty());
     val = forwardEmissions.takeLast()[0];
-    QCOMPARE(val.type(), QVariant::Bool);
+    QCOMPARE(val.userType(), QMetaType::Bool);
     QVERIFY(val.toBool());
 
     QVERIFY(!backwardEmissions.isEmpty());
     val = backwardEmissions.takeLast()[0];
-    QCOMPARE(val.type(), QVariant::Bool);
+    QCOMPARE(val.userType(), QMetaType::Bool);
     QVERIFY(!val.toBool());
 
     QVERIFY(browser->historyTitle(-1).isEmpty());
@@ -211,17 +213,14 @@ void tst_QTextBrowser::forwardButton()
 
     browser->setSource(QUrl(QFINDTESTDATA("pagewithoutbg.html")));
 
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("", "Fails on WinRT - QTBUG-68297", Abort);
-#endif
     QVERIFY(!forwardEmissions.isEmpty());
     val = forwardEmissions.takeLast()[0];
-    QCOMPARE(val.type(), QVariant::Bool);
+    QCOMPARE(val.userType(), QMetaType::Bool);
     QVERIFY(!val.toBool());
 
     QVERIFY(!backwardEmissions.isEmpty());
     val = backwardEmissions.takeLast()[0];
-    QCOMPARE(val.type(), QVariant::Bool);
+    QCOMPARE(val.userType(), QMetaType::Bool);
     QVERIFY(val.toBool());
 }
 
@@ -438,9 +437,6 @@ void tst_QTextBrowser::clearHistory()
 
 void tst_QTextBrowser::sourceInsideLoadResource()
 {
-#ifdef Q_OS_WINRT
-    QSKIP("Paths cannot be compared if applications are sandboxed.");
-#endif
     QUrl url = QUrl::fromLocalFile("pagewithimage.html"); // "file://pagewithimage.html"
     browser->setSource(url);
     QCOMPARE(browser->lastResource, QUrl::fromLocalFile(QDir::current().filePath("foobar.png")));
@@ -470,11 +466,29 @@ void tst_QTextBrowser::textInteractionFlags_vs_readOnly()
 void tst_QTextBrowser::inputMethodAttribute_vs_readOnly()
 {
     QVERIFY(browser->isReadOnly());
+#if defined(Q_OS_ANDROID)
+    QInputMethodQueryEvent query(Qt::ImReadOnly);
+    QCoreApplication::sendEvent(browser, &query);
+    QVERIFY(query.value(Qt::ImReadOnly).toBool());
+#else
     QVERIFY(!browser->testAttribute(Qt::WA_InputMethodEnabled));
+#endif
+
     browser->setReadOnly(false);
+#if defined(Q_OS_ANDROID)
+    QCoreApplication::sendEvent(browser, &query);
+    QVERIFY(!query.value(Qt::ImReadOnly).toBool());
+#else
     QVERIFY(browser->testAttribute(Qt::WA_InputMethodEnabled));
+#endif
+
     browser->setReadOnly(true);
+#if defined(Q_OS_ANDROID)
+    QCoreApplication::sendEvent(browser, &query);
+    QVERIFY(query.value(Qt::ImReadOnly).toBool());
+#else
     QVERIFY(!browser->testAttribute(Qt::WA_InputMethodEnabled));
+#endif
 }
 
 void tst_QTextBrowser::anchorsWithSelfBuiltHtml()
@@ -489,7 +503,8 @@ void tst_QTextBrowser::anchorsWithSelfBuiltHtml()
 class HelpBrowser : public QTextBrowser
 {
 public:
-    virtual QVariant loadResource(int /*type*/, const QUrl &name) {
+    virtual QVariant loadResource(int /*type*/, const QUrl &name) override
+    {
         QString url = name.toString();
         if(url == "qhelp://docs/index.html") {
             return "index";
@@ -551,7 +566,7 @@ void tst_QTextBrowser::loadResourceOnRelativeLocalFiles()
     QVERIFY(!browser->toPlainText().isEmpty());
     QVariant v = browser->loadResource(QTextDocument::HtmlResource, QUrl("../anchor.html"));
     QVERIFY(v.isValid());
-    QCOMPARE(v.type(), QVariant::ByteArray);
+    QCOMPARE(v.userType(), QMetaType::QByteArray);
     QVERIFY(!v.toByteArray().isEmpty());
 }
 

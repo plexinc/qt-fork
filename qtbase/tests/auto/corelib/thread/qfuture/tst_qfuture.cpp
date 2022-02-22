@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
@@ -25,19 +25,27 @@
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
-#include <QCoreApplication>
-#include <QDebug>
-
 #define QFUTURE_TEST
 
-#include <QtTest/QtTest>
+#include <QCoreApplication>
+#include <QDebug>
+#include <QSemaphore>
+#include <QTestEventLoop>
+#include <QTimer>
+#include <QSignalSpy>
+
+#include <QTest>
 #include <qfuture.h>
 #include <qfuturewatcher.h>
 #include <qresultstore.h>
 #include <qthreadpool.h>
 #include <qexception.h>
 #include <qrandom.h>
+#include <QtConcurrent/qtconcurrentrun.h>
 #include <private/qfutureinterface_p.h>
+
+#include <vector>
+#include <memory>
 
 // COM interface macro.
 #if defined(Q_OS_WIN) && defined(interface)
@@ -47,6 +55,38 @@
 struct ResultStoreInt : QtPrivate::ResultStoreBase
 {
     ~ResultStoreInt() { clear<int>(); }
+};
+
+class SenderObject : public QObject
+{
+    Q_OBJECT
+
+public:
+    void emitNoArg() { emit noArgSignal(); }
+    void emitIntArg(int value) { emit intArgSignal(value); }
+    void emitConstRefArg(const QString &value) { emit constRefArg(value); }
+    void emitMultipleArgs(int value1, double value2, const QString &value3)
+    {
+        emit multipleArgs(value1, value2, value3);
+    }
+
+    void emitNoArgPrivateSignal() { emit noArgPrivateSignal(QPrivateSignal()); }
+    void emitIntArgPrivateSignal(int value) { emit intArgPrivateSignal(value, QPrivateSignal()); }
+    void emitMultiArgsPrivateSignal(int value1, double value2, const QString &value3)
+    {
+        emit multiArgsPrivateSignal(value1, value2, value3, QPrivateSignal());
+    }
+
+signals:
+    void noArgSignal();
+    void intArgSignal(int value);
+    void constRefArg(const QString &value);
+    void multipleArgs(int value1, double value2, const QString &value3);
+
+    // Private signals
+    void noArgPrivateSignal(QPrivateSignal);
+    void intArgPrivateSignal(int value, QPrivateSignal);
+    void multiArgsPrivateSignal(int value1, double value2, const QString &value3, QPrivateSignal);
 };
 
 class LambdaThread : public QThread
@@ -67,12 +107,15 @@ private:
     std::function<void ()> m_fn;
 };
 
+using UniquePtr = std::unique_ptr<int>;
+
 class tst_QFuture: public QObject
 {
     Q_OBJECT
 private slots:
     void resultStore();
     void future();
+    void futureToVoid();
     void futureInterface();
     void refcounting();
     void cancel();
@@ -80,13 +123,18 @@ private slots:
     void multipleResults();
     void indexedResults();
     void progress();
+    void setProgressRange();
+    void progressWithRange();
     void progressText();
     void resultsAfterFinished();
     void resultsAsList();
-    void implicitConversions();
     void iterators();
     void iteratorsThread();
+#if QT_DEPRECATED_SINCE(6, 0)
     void pause();
+    void suspendCheckPaused();
+#endif
+    void suspend();
     void throttling();
     void voidConversions();
 #ifndef QT_NO_EXCEPTIONS
@@ -94,6 +142,52 @@ private slots:
     void nestedExceptions();
 #endif
     void nonGlobalThreadPool();
+
+    void then();
+    void thenForMoveOnlyTypes();
+    void thenOnCanceledFuture();
+#ifndef QT_NO_EXCEPTIONS
+    void thenOnExceptionFuture();
+    void thenThrows();
+    void onFailed();
+    void onFailedTestCallables();
+    void onFailedForMoveOnlyTypes();
+#endif
+    void onCanceled();
+    void cancelContinuations();
+    void continuationsWithContext();
+    void continuationsWithMoveOnlyLambda();
+#if 0
+    // TODO: enable when QFuture::takeResults() is enabled
+    void takeResults();
+#endif
+    void takeResult();
+    void runAndTake();
+    void resultsReadyAt_data();
+    void resultsReadyAt();
+    void takeResultWorksForTypesWithoutDefaultCtor();
+    void canceledFutureIsNotValid();
+    void signalConnect();
+    void waitForFinished();
+
+    void rejectResultOverwrite_data();
+    void rejectResultOverwrite();
+    void rejectPendingResultOverwrite_data() { rejectResultOverwrite_data(); }
+    void rejectPendingResultOverwrite();
+
+    void createReadyFutures();
+
+private:
+    using size_type = std::vector<int>::size_type;
+
+    static void testSingleResult(const UniquePtr &p);
+    static void testSingleResult(const std::vector<int> &v);
+    template<class T>
+    static void testSingleResult(const T &unknown);
+    template<class T>
+    static void testFutureTaken(QFuture<T> &noMoreFuture);
+    template<class T>
+    static  void testTakeResults(QFuture<T> future, size_type resultCount);
 };
 
 void tst_QFuture::resultStore()
@@ -129,8 +223,8 @@ void tst_QFuture::resultStore()
         QVERIFY(it == store.end());
     }
 
-    QVector<int> vec0 = QVector<int>() << 2 << 3;
-    QVector<int> vec1 = QVector<int>() << 4 << 5;
+    QList<int> vec0 = QList<int>() << 2 << 3;
+    QList<int> vec1 = QList<int>() << 4 << 5;
 
     {
         ResultStoreInt store;
@@ -538,6 +632,19 @@ void tst_QFuture::future()
     QCOMPARE(intFuture2.isFinished(), true);
 }
 
+void tst_QFuture::futureToVoid()
+{
+    QPromise<int> p;
+    QFuture<int> future = p.future();
+
+    p.start();
+    p.setProgressValue(42);
+    p.finish();
+
+    QFuture<void> voidFuture = QFuture<void>(future);
+    QCOMPARE(voidFuture.progressValue(), 42);
+}
+
 class IntResult : public QFutureInterface<int>
 {
 public:
@@ -582,7 +689,7 @@ void tst_QFuture::futureInterface()
         {
             QFutureInterface<int> i;
             i.reportStarted();
-            i.reportResult(10);
+            QVERIFY(i.reportResult(10));
             future = i.future();
             i.reportFinished();
         }
@@ -603,7 +710,7 @@ void tst_QFuture::futureInterface()
         QCOMPARE(intFuture.isStarted(), true);
         QCOMPARE(intFuture.isFinished(), false);
 
-        result.reportFinished(&value);
+        QVERIFY(result.reportFinished(&value));
 
         QCOMPARE(intFuture.isStarted(), true);
         QCOMPARE(intFuture.isFinished(), true);
@@ -626,6 +733,36 @@ void tst_QFuture::futureInterface()
 
         VoidResult a;
         a.run().waitForFinished();
+    }
+
+    {
+        QFutureInterface<int> i1;
+        QVERIFY(i1.reportResult(1));
+        QFutureInterface<int> i2;
+        QVERIFY(i2.reportResult(2));
+        swap(i1, i2);  // ADL must resolve this
+        QCOMPARE(i1.resultReference(0), 2);
+        QCOMPARE(i2.resultReference(0), 1);
+    }
+
+    {
+        QFutureInterface<int> fi;
+        fi.reportStarted();
+        QVERIFY(!fi.reportResults(QList<int> {}));
+        fi.reportFinished();
+
+        QVERIFY(fi.results().empty());
+    }
+
+    {
+        QFutureInterface<int> fi;
+        fi.reportStarted();
+        QList<int> values = { 1, 2, 3 };
+        QVERIFY(fi.reportResults(values));
+        QVERIFY(!fi.reportResults(QList<int> {}));
+        fi.reportFinished();
+
+        QCOMPARE(fi.results(), values);
     }
 }
 
@@ -786,15 +923,15 @@ void tst_QFuture::multipleResults()
     int result;
 
     result = 1;
-    a.reportResult(&result);
+    QVERIFY(a.reportResult(&result));
     QCOMPARE(f.resultAt(0), 1);
 
     result = 2;
-    a.reportResult(&result);
+    QVERIFY(a.reportResult(&result));
     QCOMPARE(f.resultAt(1), 2);
 
     result = 3;
-    a.reportResult(&result);
+    QVERIFY(a.reportResult(&result));
 
     result = 4;
     a.reportFinished(&result);
@@ -805,13 +942,13 @@ void tst_QFuture::multipleResults()
     QList<int> fasit = QList<int>() << 1 << 2 << 3 << 4;
     {
         QList<int> results;
-        foreach(int result, f)
+        for (int result : qAsConst(f))
             results.append(result);
         QCOMPARE(results, fasit);
     }
     {
         QList<int> results;
-        foreach(int result, copy)
+        for (int result : qAsConst(copy))
             results.append(result);
         QCOMPARE(results, fasit);
     }
@@ -835,16 +972,16 @@ void tst_QFuture::indexedResults()
         QChar result;
 
         result = 'B';
-        Interface.reportResult(&result, 1);
+        QVERIFY(Interface.reportResult(&result, 1));
 
         QCOMPARE(f.resultAt(1), result);
 
         result = 'A';
-        Interface.reportResult(&result, 0);
+        QVERIFY(Interface.reportResult(&result, 0));
         QCOMPARE(f.resultAt(0), result);
 
         result = 'C';
-        Interface.reportResult(&result); // no index
+        QVERIFY(Interface.reportResult(&result)); // no index
         QCOMPARE(f.resultAt(2), result);
 
         Interface.reportFinished();
@@ -860,22 +997,22 @@ void tst_QFuture::indexedResults()
         int result;
 
         result = 0;
-        Interface.reportResult(&result, 0);
+        QVERIFY(Interface.reportResult(&result, 0));
         QVERIFY(f.isResultReadyAt(0));
         QCOMPARE(f.resultAt(0), 0);
 
         result = 3;
-        Interface.reportResult(&result, 3);
+        QVERIFY(Interface.reportResult(&result, 3));
         QVERIFY(f.isResultReadyAt(3));
         QCOMPARE(f.resultAt(3), 3);
 
         result = 2;
-        Interface.reportResult(&result, 2);
+        QVERIFY(Interface.reportResult(&result, 2));
         QVERIFY(f.isResultReadyAt(2));
         QCOMPARE(f.resultAt(2), 2);
 
         result = 4;
-        Interface.reportResult(&result); // no index
+        QVERIFY(Interface.reportResult(&result)); // no index
         QVERIFY(f.isResultReadyAt(4));
         QCOMPARE(f.resultAt(4), 4);
 
@@ -906,6 +1043,55 @@ void tst_QFuture::progress()
     QCOMPARE (f.progressValue(), 50);
 }
 
+void tst_QFuture::setProgressRange()
+{
+    QFutureInterface<int> i;
+
+    QCOMPARE(i.progressMinimum(), 0);
+    QCOMPARE(i.progressMaximum(), 0);
+
+    i.setProgressRange(10, 5);
+
+    QCOMPARE(i.progressMinimum(), 10);
+    QCOMPARE(i.progressMaximum(), 10);
+
+    i.setProgressRange(5, 10);
+
+    QCOMPARE(i.progressMinimum(), 5);
+    QCOMPARE(i.progressMaximum(), 10);
+}
+
+void tst_QFuture::progressWithRange()
+{
+    QFutureInterface<int> i;
+    QFuture<int> f;
+
+    i.reportStarted();
+    f = i.future();
+
+    QCOMPARE(i.progressValue(), 0);
+
+    i.setProgressRange(5, 10);
+
+    QCOMPARE(i.progressValue(), 5);
+
+    i.setProgressValue(20);
+
+    QCOMPARE(i.progressValue(), 5);
+
+    i.setProgressValue(9);
+
+    QCOMPARE(i.progressValue(), 9);
+
+    i.setProgressRange(5, 7);
+
+    QCOMPARE(i.progressValue(), 5);
+
+    i.reportFinished();
+
+    QCOMPARE(f.progressValue(), 5);
+}
+
 void tst_QFuture::progressText()
 {
     QFutureInterface<void> i;
@@ -932,7 +1118,7 @@ void tst_QFuture::resultsAfterFinished()
         QCOMPARE(f.resultCount(), 0);
 
         result = 1;
-        a.reportResult(&result);
+        QVERIFY(a.reportResult(&result));
         QCOMPARE(f.resultAt(0), 1);
 
         a.reportFinished();
@@ -940,7 +1126,7 @@ void tst_QFuture::resultsAfterFinished()
         QCOMPARE(f.resultAt(0), 1);
         QCOMPARE(f.resultCount(), 1);
         result = 2;
-        a.reportResult(&result);
+        QVERIFY(!a.reportResult(&result));
         QCOMPARE(f.resultCount(), 1);
     }
     // cancel it
@@ -953,7 +1139,7 @@ void tst_QFuture::resultsAfterFinished()
         QCOMPARE(f.resultCount(), 0);
 
         result = 1;
-        a.reportResult(&result);
+        QVERIFY(a.reportResult(&result));
         QCOMPARE(f.resultAt(0), 1);
         QCOMPARE(f.resultCount(), 1);
 
@@ -963,7 +1149,7 @@ void tst_QFuture::resultsAfterFinished()
         QCOMPARE(f.resultCount(), 1);
 
         result = 2;
-        a.reportResult(&result);
+        QVERIFY(!a.reportResult(&result));
         a.reportFinished();
     }
 }
@@ -976,33 +1162,14 @@ void tst_QFuture::resultsAsList()
 
     int result;
     result = 1;
-    a.reportResult(&result);
+    QVERIFY(a.reportResult(&result));
     result = 2;
-    a.reportResult(&result);
+    QVERIFY(a.reportResult(&result));
 
     a.reportFinished();
 
     QList<int> results = f.results();
     QCOMPARE(results, QList<int>() << 1 << 2);
-}
-
-/*
-    Test that QFuture<T> can be implicitly converted to T
-*/
-void tst_QFuture::implicitConversions()
-{
-    QFutureInterface<QString> iface;
-    iface.reportStarted();
-
-    QFuture<QString> f(&iface);
-
-    const QString input("FooBar 2000");
-    iface.reportFinished(&input);
-
-    const QString result = f;
-    QCOMPARE(result, input);
-    QCOMPARE(QString(f), input);
-    QCOMPARE(static_cast<QString>(f), input);
 }
 
 void tst_QFuture::iterators()
@@ -1053,13 +1220,13 @@ void tst_QFuture::iterators()
         QVERIFY(c2 != c1);
 
         int x1 = *i1;
-        Q_UNUSED(x1);
+        Q_UNUSED(x1)
         int x2 = *i2;
-        Q_UNUSED(x2);
+        Q_UNUSED(x2)
         int y1 = *c1;
-        Q_UNUSED(y1);
+        Q_UNUSED(y1)
         int y2 = *c2;
-        Q_UNUSED(y2);
+        Q_UNUSED(y2)
     }
 
     {
@@ -1111,10 +1278,10 @@ void tst_QFuture::iterators()
         QCOMPARE(x1, y1);
         QCOMPARE(x2, y2);
 
-        int i1Size = i1->size();
-        int i2Size = i2->size();
-        int c1Size = c1->size();
-        int c2Size = c2->size();
+        auto i1Size = i1->size();
+        auto i2Size = i2->size();
+        auto c1Size = c1->size();
+        auto c2Size = c2->size();
 
         QCOMPARE(i1Size, c1Size);
         QCOMPARE(i2Size, c2Size);
@@ -1166,7 +1333,6 @@ void tst_QFuture::iterators()
 void tst_QFuture::iteratorsThread()
 {
     const int expectedResultCount = 10;
-    const int delay = 10;
     QFutureInterface<int> futureInterface;
 
     // Create result producer thread. The results are
@@ -1257,6 +1423,9 @@ public:
     QSet<int> reportedProgress;
 };
 
+#if QT_DEPRECATED_SINCE(6, 0)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
 void tst_QFuture::pause()
 {
     QFutureInterface<void> Interface;
@@ -1275,6 +1444,102 @@ void tst_QFuture::pause()
     QVERIFY(!Interface.isPaused());
 
     Interface.reportFinished();
+}
+
+void tst_QFuture::suspendCheckPaused()
+{
+    QFutureInterface<void> interface;
+
+    interface.reportStarted();
+    QFuture<void> f = interface.future();
+    QVERIFY(!f.isSuspended());
+
+    interface.reportSuspended();
+    QVERIFY(!f.isSuspended());
+
+    f.pause();
+    QVERIFY(!f.isSuspended());
+    QVERIFY(f.isPaused());
+
+    // resume when still pausing
+    f.resume();
+    QVERIFY(!f.isSuspended());
+    QVERIFY(!f.isPaused());
+
+    // pause again
+    f.pause();
+    QVERIFY(!f.isSuspended());
+    QVERIFY(f.isPaused());
+
+    interface.reportSuspended();
+    QVERIFY(f.isSuspended());
+    QVERIFY(f.isPaused());
+
+    // resume after suspended
+    f.resume();
+    QVERIFY(!f.isSuspended());
+    QVERIFY(!f.isPaused());
+
+    // pause again and cancel
+    f.pause();
+    interface.reportSuspended();
+
+    interface.reportCanceled();
+    QVERIFY(!f.isSuspended());
+    QVERIFY(!f.isPaused());
+    QVERIFY(f.isCanceled());
+
+    interface.reportFinished();
+}
+
+QT_WARNING_POP
+#endif // QT_DEPRECATED_SINCE(6, 0)
+
+void tst_QFuture::suspend()
+{
+    QFutureInterface<void> interface;
+
+    interface.reportStarted();
+    QFuture<void> f = interface.future();
+    QVERIFY(!f.isSuspended());
+
+    interface.reportSuspended();
+    QVERIFY(!f.isSuspended());
+    QVERIFY(!f.isSuspending());
+
+    f.suspend();
+    QVERIFY(f.isSuspending());
+    QVERIFY(!f.isSuspended());
+
+    // resume when still suspending
+    f.resume();
+    QVERIFY(!f.isSuspending());
+    QVERIFY(!f.isSuspended());
+
+    // suspend again
+    f.suspend();
+    QVERIFY(f.isSuspending());
+    QVERIFY(!f.isSuspended());
+
+    interface.reportSuspended();
+    QVERIFY(!f.isSuspending());
+    QVERIFY(f.isSuspended());
+
+    // resume after suspended
+    f.resume();
+    QVERIFY(!f.isSuspending());
+    QVERIFY(!f.isSuspended());
+
+    // suspend again and cancel
+    f.suspend();
+    interface.reportSuspended();
+
+    interface.reportCanceled();
+    QVERIFY(!f.isSuspending());
+    QVERIFY(!f.isSuspended());
+    QVERIFY(f.isCanceled());
+
+    interface.reportFinished();
 }
 
 class ResultObject : public QObject
@@ -1321,12 +1586,10 @@ void tst_QFuture::voidConversions()
 
         QFuture<int> intFuture(&iface);
         int value = 10;
-        iface.reportFinished(&value);
+        QVERIFY(iface.reportFinished(&value));
 
         QFuture<void> voidFuture(intFuture);
         voidFuture = intFuture;
-
-        QVERIFY(voidFuture == intFuture);
     }
 
     {
@@ -1336,7 +1599,7 @@ void tst_QFuture::voidConversions()
             iface.reportStarted();
 
             QFuture<QList<int> > listFuture(&iface);
-            iface.reportResult(QList<int>() << 1 << 2 << 3);
+            QVERIFY(iface.reportResult(QList<int>() << 1 << 2 << 3));
             voidFuture = listFuture;
         }
         QCOMPARE(voidFuture.resultCount(), 0);
@@ -1387,6 +1650,23 @@ QFuture<void> createDerivedExceptionFuture()
 
     DerivedException e;
     i.reportException(e);
+    i.reportFinished();
+    return f;
+}
+
+struct TestException
+{
+};
+
+QFuture<int> createCustomExceptionFuture()
+{
+    QFutureInterface<int> i;
+    i.reportStarted();
+    QFuture<int> f = i.future();
+    int r = 0;
+    i.reportResult(r);
+    auto exception = std::make_exception_ptr(TestException());
+    i.reportException(exception);
     i.reportFinished();
     return f;
 }
@@ -1446,7 +1726,7 @@ void tst_QFuture::exceptions()
         bool caught = false;
         try {
             foreach (int e, f.results()) {
-                Q_UNUSED(e);
+                Q_UNUSED(e)
                 QFAIL("did not get exception");
             }
         } catch (QException &) {
@@ -1471,6 +1751,18 @@ void tst_QFuture::exceptions()
         try {
             createDerivedExceptionFuture().waitForFinished();
         } catch (DerivedException &) {
+            caught = true;
+        }
+        QVERIFY(caught);
+    }
+
+    // Custom exceptions
+    {
+        QFuture<int> f = createCustomExceptionFuture();
+        bool caught = false;
+        try {
+            f.result();
+        } catch (const TestException &) {
             caught = true;
         }
         QVERIFY(caught);
@@ -1501,7 +1793,7 @@ void tst_QFuture::nestedExceptions()
 {
     try {
         MyClass m;
-        Q_UNUSED(m);
+        Q_UNUSED(m)
         throw 0;
     } catch (int) {}
 
@@ -1512,7 +1804,7 @@ void tst_QFuture::nestedExceptions()
 
 void tst_QFuture::nonGlobalThreadPool()
 {
-    static Q_CONSTEXPR int Answer = 42;
+    static constexpr int Answer = 42;
 
     struct UselessTask : QRunnable, QFutureInterface<int>
     {
@@ -1529,7 +1821,7 @@ void tst_QFuture::nonGlobalThreadPool()
         void run() override
         {
             const int ms = 100 + (QRandomGenerator::global()->bounded(100) - 100/2);
-            QThread::msleep(ms);
+            QThread::msleep(ulong(ms));
             reportResult(Answer);
             reportFinished();
         }
@@ -1539,7 +1831,7 @@ void tst_QFuture::nonGlobalThreadPool()
 
     const int numTasks = QThread::idealThreadCount();
 
-    QVector<QFuture<int> > futures;
+    QList<QFuture<int>> futures;
     futures.reserve(numTasks);
 
     for (int i = 0; i < numTasks; ++i)
@@ -1555,6 +1847,1935 @@ void tst_QFuture::nonGlobalThreadPool()
         QVERIFY(future.isFinished());
         QCOMPARE(future.result(), Answer);
     }
+}
+
+void tst_QFuture::then()
+{
+    {
+        struct Add
+        {
+
+            static int addTwo(int arg) { return arg + 2; }
+
+            int operator()(int arg) const { return arg + 3; }
+        };
+
+        QFutureInterface<int> promise;
+        QFuture<int> then = promise.future()
+                                    .then([](int res) { return res + 1; }) // lambda
+                                    .then(Add::addTwo) // function
+                                    .then(Add()); // functor
+
+        promise.reportStarted();
+        QVERIFY(!then.isStarted());
+        QVERIFY(!then.isFinished());
+
+        const int result = 0;
+        promise.reportResult(result);
+        promise.reportFinished();
+
+        then.waitForFinished();
+
+        QVERIFY(then.isStarted());
+        QVERIFY(then.isFinished());
+        QCOMPARE(then.result(), result + 6);
+    }
+
+    // then() on a ready future
+    {
+        QFutureInterface<int> promise;
+        promise.reportStarted();
+
+        const int result = 0;
+        promise.reportResult(result);
+        promise.reportFinished();
+
+        QFuture<int> then = promise.future()
+                                    .then([](int res1) { return res1 + 1; })
+                                    .then([](int res2) { return res2 + 2; })
+                                    .then([](int res3) { return res3 + 3; });
+
+        then.waitForFinished();
+
+        QVERIFY(then.isStarted());
+        QVERIFY(then.isFinished());
+        QCOMPARE(then.result(), result + 6);
+    }
+
+    // Continuation of QFuture<void>
+    {
+        int result = 0;
+        QFutureInterface<void> promise;
+        QFuture<void> then = promise.future()
+                                     .then([&]() { result += 1; })
+                                     .then([&]() { result += 2; })
+                                     .then([&]() { result += 3; });
+
+        promise.reportStarted();
+        QVERIFY(!then.isStarted());
+        QVERIFY(!then.isFinished());
+        promise.reportFinished();
+
+        then.waitForFinished();
+
+        QVERIFY(then.isStarted());
+        QVERIFY(then.isFinished());
+        QCOMPARE(result, 6);
+    }
+
+    // Continuation returns QFuture<void>
+    {
+        QFutureInterface<int> promise;
+        int value;
+        QFuture<void> then =
+                promise.future().then([](int res) { return res * 2; }).then([&](int prevResult) {
+                    value = prevResult;
+                });
+
+        promise.reportStarted();
+        QVERIFY(!then.isStarted());
+        QVERIFY(!then.isFinished());
+
+        const int result = 5;
+        promise.reportResult(result);
+        promise.reportFinished();
+
+        then.waitForFinished();
+
+        QVERIFY(then.isStarted());
+        QVERIFY(then.isFinished());
+        QCOMPARE(value, result * 2);
+    }
+
+    // Continuations taking a QFuture argument.
+    {
+        int value = 0;
+        QFutureInterface<int> promise;
+        QFuture<void> then = promise.future()
+                                     .then([](QFuture<int> f1) { return f1.result() + 1; })
+                                     .then([&](QFuture<int> f2) { value = f2.result() + 2; })
+                                     .then([&](QFuture<void> f3) {
+                                         QVERIFY(f3.isFinished());
+                                         value += 3;
+                                     });
+
+        promise.reportStarted();
+        QVERIFY(!then.isStarted());
+        QVERIFY(!then.isFinished());
+
+        const int result = 0;
+        promise.reportResult(result);
+        promise.reportFinished();
+
+        then.waitForFinished();
+
+        QVERIFY(then.isStarted());
+        QVERIFY(then.isFinished());
+        QCOMPARE(value, 6);
+    }
+
+    // Continuations use a new thread
+    {
+        Qt::HANDLE threadId1 = nullptr;
+        Qt::HANDLE threadId2 = nullptr;
+        QFutureInterface<void> promise;
+        QFuture<void> then = promise.future()
+                                     .then(QtFuture::Launch::Async,
+                                           [&]() { threadId1 = QThread::currentThreadId(); })
+                                     .then([&]() { threadId2 = QThread::currentThreadId(); });
+
+        promise.reportStarted();
+        QVERIFY(!then.isStarted());
+        QVERIFY(!then.isFinished());
+
+        promise.reportFinished();
+
+        then.waitForFinished();
+
+        QVERIFY(then.isStarted());
+        QVERIFY(then.isFinished());
+        QVERIFY(threadId1 != QThread::currentThreadId());
+        QVERIFY(threadId2 != QThread::currentThreadId());
+        QVERIFY(threadId1 == threadId2);
+    }
+
+    // Continuation inherits the launch policy of its parent (QtFuture::Launch::Sync)
+    {
+        Qt::HANDLE threadId1 = nullptr;
+        Qt::HANDLE threadId2 = nullptr;
+        QFutureInterface<void> promise;
+        QFuture<void> then = promise.future()
+                                     .then(QtFuture::Launch::Sync,
+                                           [&]() { threadId1 = QThread::currentThreadId(); })
+                                     .then(QtFuture::Launch::Inherit,
+                                           [&]() { threadId2 = QThread::currentThreadId(); });
+
+        promise.reportStarted();
+        QVERIFY(!then.isStarted());
+        QVERIFY(!then.isFinished());
+
+        promise.reportFinished();
+
+        then.waitForFinished();
+
+        QVERIFY(then.isStarted());
+        QVERIFY(then.isFinished());
+        QVERIFY(threadId1 == QThread::currentThreadId());
+        QVERIFY(threadId2 == QThread::currentThreadId());
+        QVERIFY(threadId1 == threadId2);
+    }
+
+    // Continuation inherits the launch policy of its parent (QtFuture::Launch::Async)
+    {
+        Qt::HANDLE threadId1 = nullptr;
+        Qt::HANDLE threadId2 = nullptr;
+        QFutureInterface<void> promise;
+        QFuture<void> then = promise.future()
+                                     .then(QtFuture::Launch::Async,
+                                           [&]() { threadId1 = QThread::currentThreadId(); })
+                                     .then(QtFuture::Launch::Inherit,
+                                           [&]() { threadId2 = QThread::currentThreadId(); });
+
+        promise.reportStarted();
+        QVERIFY(!then.isStarted());
+        QVERIFY(!then.isFinished());
+
+        promise.reportFinished();
+
+        then.waitForFinished();
+
+        QVERIFY(then.isStarted());
+        QVERIFY(then.isFinished());
+        QVERIFY(threadId1 != QThread::currentThreadId());
+        QVERIFY(threadId2 != QThread::currentThreadId());
+    }
+
+    // Continuations use a custom thread pool
+    {
+        QFutureInterface<void> promise;
+        QThreadPool pool;
+        QVERIFY(pool.waitForDone(0)); // pool is not busy yet
+        QSemaphore semaphore;
+        QFuture<void> then = promise.future().then(&pool, [&]() { semaphore.acquire(); });
+
+        promise.reportStarted();
+        promise.reportFinished();
+
+        // Make sure the custom thread pool is busy on running the continuation
+        QVERIFY(!pool.waitForDone(0));
+        semaphore.release();
+        then.waitForFinished();
+
+        QVERIFY(then.isStarted());
+        QVERIFY(then.isFinished());
+        QCOMPARE(then.d.threadPool(), &pool);
+    }
+
+    // Continuation inherits parent's thread pool
+    {
+        Qt::HANDLE threadId1 = nullptr;
+        Qt::HANDLE threadId2 = nullptr;
+        QFutureInterface<void> promise;
+
+        QThreadPool pool;
+        QFuture<void> then1 = promise.future().then(&pool, [&]() {
+            threadId1 = QThread::currentThreadId();
+        });
+
+        promise.reportStarted();
+        promise.reportFinished();
+
+        then1.waitForFinished();
+        QVERIFY(pool.waitForDone()); // The pool is not busy after the first continuation is done
+
+        QSemaphore semaphore;
+        QFuture<void> then2 = then1.then(QtFuture::Launch::Inherit, [&]() {
+            semaphore.acquire();
+            threadId2 = QThread::currentThreadId();
+        });
+
+        QVERIFY(!pool.waitForDone(0)); // The pool is busy running the 2nd continuation
+
+        semaphore.release();
+        then2.waitForFinished();
+
+        QVERIFY(then2.isStarted());
+        QVERIFY(then2.isFinished());
+        QCOMPARE(then1.d.threadPool(), then2.d.threadPool());
+        QCOMPARE(then2.d.threadPool(), &pool);
+        QVERIFY(threadId1 != QThread::currentThreadId());
+        QVERIFY(threadId2 != QThread::currentThreadId());
+    }
+}
+
+template<class Type, class Callable>
+bool runThenForMoveOnly(Callable &&callable)
+{
+    QFutureInterface<Type> promise;
+    auto future = promise.future();
+
+    auto then = future.then(std::forward<Callable>(callable));
+
+    promise.reportStarted();
+    if constexpr (!std::is_same_v<Type, void>)
+        promise.reportAndMoveResult(std::make_unique<int>(42));
+    promise.reportFinished();
+    then.waitForFinished();
+
+    bool success = true;
+    if constexpr (!std::is_same_v<decltype(then), QFuture<void>>)
+        success &= *then.takeResult() == 42;
+
+    if constexpr (!std::is_same_v<Type, void>)
+        success &= !future.isValid();
+
+    return success;
+}
+
+void tst_QFuture::thenForMoveOnlyTypes()
+{
+    QVERIFY(runThenForMoveOnly<UniquePtr>([](UniquePtr res) { return res; }));
+    QVERIFY(runThenForMoveOnly<UniquePtr>([](UniquePtr res) { Q_UNUSED(res); }));
+    QVERIFY(runThenForMoveOnly<UniquePtr>([](QFuture<UniquePtr> res) { return res.takeResult(); }));
+    QVERIFY(runThenForMoveOnly<void>([] { return std::make_unique<int>(42); }));
+}
+
+template<class T>
+QFuture<T> createCanceledFuture()
+{
+    QFutureInterface<T> promise;
+    promise.reportStarted();
+    promise.reportCanceled();
+    promise.reportFinished();
+    return promise.future();
+}
+
+void tst_QFuture::thenOnCanceledFuture()
+{
+    // Continuations on a canceled future
+    {
+        int thenResult = 0;
+        QFuture<void> then = createCanceledFuture<void>().then([&]() { ++thenResult; }).then([&]() {
+            ++thenResult;
+        });
+
+        QVERIFY(then.isCanceled());
+        QCOMPARE(thenResult, 0);
+    }
+
+    // QFuture gets canceled after continuations are set
+    {
+        QFutureInterface<void> promise;
+
+        int thenResult = 0;
+        QFuture<void> then =
+                promise.future().then([&]() { ++thenResult; }).then([&]() { ++thenResult; });
+
+        promise.reportStarted();
+        promise.reportCanceled();
+        promise.reportFinished();
+
+        QVERIFY(then.isCanceled());
+        QCOMPARE(thenResult, 0);
+    }
+
+    // Same with QtFuture::Launch::Async
+
+    // Continuations on a canceled future
+    {
+        int thenResult = 0;
+        QFuture<void> then = createCanceledFuture<void>()
+                                     .then(QtFuture::Launch::Async, [&]() { ++thenResult; })
+                                     .then([&]() { ++thenResult; });
+
+        QVERIFY(then.isCanceled());
+        QCOMPARE(thenResult, 0);
+    }
+
+    // QFuture gets canceled after continuations are set
+    {
+        QFutureInterface<void> promise;
+
+        int thenResult = 0;
+        QFuture<void> then =
+                promise.future().then(QtFuture::Launch::Async, [&]() { ++thenResult; }).then([&]() {
+                    ++thenResult;
+                });
+
+        promise.reportStarted();
+        promise.reportCanceled();
+        promise.reportFinished();
+
+        QVERIFY(then.isCanceled());
+        QCOMPARE(thenResult, 0);
+    }
+}
+
+#ifndef QT_NO_EXCEPTIONS
+void tst_QFuture::thenOnExceptionFuture()
+{
+    {
+        QFutureInterface<int> promise;
+
+        int thenResult = 0;
+        QFuture<void> then = promise.future().then([&](int res) { thenResult = res; });
+
+        promise.reportStarted();
+        QException e;
+        promise.reportException(e);
+        promise.reportFinished();
+
+        bool caught = false;
+        try {
+            then.waitForFinished();
+        } catch (QException &) {
+            caught = true;
+        }
+        QVERIFY(caught);
+        QCOMPARE(thenResult, 0);
+    }
+
+    // Exception handled inside the continuation
+    {
+        QFutureInterface<int> promise;
+
+        bool caught = false;
+        bool caughtByContinuation = false;
+        bool success = false;
+        int thenResult = 0;
+        QFuture<void> then = promise.future()
+                                     .then([&](QFuture<int> res) {
+                                         try {
+                                             thenResult = res.result();
+                                         } catch (QException &) {
+                                             caughtByContinuation = true;
+                                         }
+                                     })
+                                     .then([&]() { success = true; });
+
+        promise.reportStarted();
+        QException e;
+        promise.reportException(e);
+        promise.reportFinished();
+
+        try {
+            then.waitForFinished();
+        } catch (QException &) {
+            caught = true;
+        }
+
+        QCOMPARE(thenResult, 0);
+        QVERIFY(!caught);
+        QVERIFY(caughtByContinuation);
+        QVERIFY(success);
+    }
+
+    // Exception future
+    {
+        QFutureInterface<int> promise;
+        promise.reportStarted();
+        QException e;
+        promise.reportException(e);
+        promise.reportFinished();
+
+        int thenResult = 0;
+        QFuture<void> then = promise.future().then([&](int res) { thenResult = res; });
+
+        bool caught = false;
+        try {
+            then.waitForFinished();
+        } catch (QException &) {
+            caught = true;
+        }
+        QVERIFY(caught);
+        QCOMPARE(thenResult, 0);
+    }
+
+    // Same with QtFuture::Launch::Async
+    {
+        QFutureInterface<int> promise;
+
+        int thenResult = 0;
+        QFuture<void> then =
+                promise.future().then(QtFuture::Launch::Async, [&](int res) { thenResult = res; });
+
+        promise.reportStarted();
+        QException e;
+        promise.reportException(e);
+        promise.reportFinished();
+
+        bool caught = false;
+        try {
+            then.waitForFinished();
+        } catch (QException &) {
+            caught = true;
+        }
+        QVERIFY(caught);
+        QCOMPARE(thenResult, 0);
+    }
+
+    // Exception future
+    {
+        QFutureInterface<int> promise;
+        promise.reportStarted();
+        QException e;
+        promise.reportException(e);
+        promise.reportFinished();
+
+        int thenResult = 0;
+        QFuture<void> then =
+                promise.future().then(QtFuture::Launch::Async, [&](int res) { thenResult = res; });
+
+        bool caught = false;
+        try {
+            then.waitForFinished();
+        } catch (QException &) {
+            caught = true;
+        }
+        QVERIFY(caught);
+        QCOMPARE(thenResult, 0);
+    }
+}
+
+template<class Exception, bool hasTestMsg = false>
+QFuture<void> createExceptionContinuation(QtFuture::Launch policy = QtFuture::Launch::Sync)
+{
+    QFutureInterface<void> promise;
+
+    auto then = promise.future().then(policy, [] {
+        if constexpr (hasTestMsg)
+            throw Exception("TEST");
+        else
+            throw Exception();
+    });
+
+    promise.reportStarted();
+    promise.reportFinished();
+
+    return then;
+}
+
+void tst_QFuture::thenThrows()
+{
+    // Continuation throws a QException
+    {
+        auto future = createExceptionContinuation<QException>();
+
+        bool caught = false;
+        try {
+            future.waitForFinished();
+        } catch (const QException &) {
+            caught = true;
+        }
+        QVERIFY(caught);
+    }
+
+    // Continuation throws an exception derived from QException
+    {
+        auto future = createExceptionContinuation<DerivedException>();
+
+        bool caught = false;
+        try {
+            future.waitForFinished();
+        } catch (const QException &) {
+            caught = true;
+        } catch (const std::exception &) {
+            QFAIL("The exception should be caught by the above catch block.");
+        }
+
+        QVERIFY(caught);
+    }
+
+    // Continuation throws std::exception
+    {
+        auto future = createExceptionContinuation<std::runtime_error, true>();
+
+        bool caught = false;
+        try {
+            future.waitForFinished();
+        } catch (const QException &) {
+            QFAIL("The exception should be caught by the below catch block.");
+        } catch (const std::exception &e) {
+            QCOMPARE(e.what(), "TEST");
+            caught = true;
+        }
+
+        QVERIFY(caught);
+    }
+
+    // Same with QtFuture::Launch::Async
+    {
+        auto future = createExceptionContinuation<QException>(QtFuture::Launch::Async);
+
+        bool caught = false;
+        try {
+            future.waitForFinished();
+        } catch (const QException &) {
+            caught = true;
+        }
+        QVERIFY(caught);
+    }
+}
+
+void tst_QFuture::onFailed()
+{
+    // Ready exception void future
+    {
+        int checkpoint = 0;
+        auto future = createExceptionFuture().then([&] { checkpoint = 1; }).onFailed([&] {
+            checkpoint = 2;
+        });
+
+        try {
+            future.waitForFinished();
+        } catch (...) {
+            checkpoint = 3;
+        }
+        QCOMPARE(checkpoint, 2);
+    }
+
+    // std::exception handler
+    {
+        QFutureInterface<int> promise;
+
+        int checkpoint = 0;
+        auto then = promise.future()
+                            .then([&](int res) {
+                                throw std::exception();
+                                return res;
+                            })
+                            .then([&](int res) { return res + 1; })
+                            .onFailed([&](const QException &) {
+                                checkpoint = 1;
+                                return -1;
+                            })
+                            .onFailed([&](const std::exception &) {
+                                checkpoint = 2;
+                                return -1;
+                            })
+                            .onFailed([&] {
+                                checkpoint = 3;
+                                return -1;
+                            });
+
+        promise.reportStarted();
+        promise.reportResult(1);
+        promise.reportFinished();
+
+        int res = 0;
+        try {
+            res = then.result();
+        } catch (...) {
+            checkpoint = 4;
+        }
+        QCOMPARE(checkpoint, 2);
+        QCOMPARE(res, -1);
+    }
+
+    // then() throws an exception derived from QException
+    {
+        QFutureInterface<int> promise;
+
+        int checkpoint = 0;
+        auto then = promise.future()
+                            .then([&](int res) {
+                                throw DerivedException();
+                                return res;
+                            })
+                            .then([&](int res) { return res + 1; })
+                            .onFailed([&](const QException &) {
+                                checkpoint = 1;
+                                return -1;
+                            })
+                            .onFailed([&](const std::exception &) {
+                                checkpoint = 2;
+                                return -1;
+                            })
+                            .onFailed([&] {
+                                checkpoint = 3;
+                                return -1;
+                            });
+
+        promise.reportStarted();
+        promise.reportResult(1);
+        promise.reportFinished();
+
+        int res = 0;
+        try {
+            res = then.result();
+        } catch (...) {
+            checkpoint = 4;
+        }
+        QCOMPARE(checkpoint, 1);
+        QCOMPARE(res, -1);
+    }
+
+    // then() throws a custom exception
+    {
+        QFutureInterface<int> promise;
+
+        int checkpoint = 0;
+        auto then = promise.future()
+                            .then([&](int res) {
+                                throw TestException();
+                                return res;
+                            })
+                            .then([&](int res) { return res + 1; })
+                            .onFailed([&](const QException &) {
+                                checkpoint = 1;
+                                return -1;
+                            })
+                            .onFailed([&](const std::exception &) {
+                                checkpoint = 2;
+                                return -1;
+                            })
+                            .onFailed([&] {
+                                checkpoint = 3;
+                                return -1;
+                            });
+
+        promise.reportStarted();
+        promise.reportResult(1);
+        promise.reportFinished();
+
+        int res = 0;
+        try {
+            res = then.result();
+        } catch (...) {
+            checkpoint = 4;
+        }
+        QCOMPARE(checkpoint, 3);
+        QCOMPARE(res, -1);
+    }
+
+    // Custom exception handler
+    {
+        struct TestException
+        {
+        };
+
+        QFutureInterface<int> promise;
+
+        int checkpoint = 0;
+        auto then = promise.future()
+                            .then([&](int res) {
+                                throw TestException();
+                                return res;
+                            })
+                            .then([&](int res) { return res + 1; })
+                            .onFailed([&](const QException &) {
+                                checkpoint = 1;
+                                return -1;
+                            })
+                            .onFailed([&](const TestException &) {
+                                checkpoint = 2;
+                                return -1;
+                            })
+                            .onFailed([&] {
+                                checkpoint = 3;
+                                return -1;
+                            });
+
+        promise.reportStarted();
+        promise.reportResult(1);
+        promise.reportFinished();
+
+        int res = 0;
+        try {
+            res = then.result();
+        } catch (...) {
+            checkpoint = 4;
+        }
+        QCOMPARE(checkpoint, 2);
+        QCOMPARE(res, -1);
+    }
+
+    // Handle all exceptions
+    {
+        QFutureInterface<int> promise;
+
+        int checkpoint = 0;
+        auto then = promise.future()
+                            .then([&](int res) {
+                                throw QException();
+                                return res;
+                            })
+                            .then([&](int res) { return res + 1; })
+                            .onFailed([&] {
+                                checkpoint = 1;
+                                return -1;
+                            })
+                            .onFailed([&](const QException &) {
+                                checkpoint = 2;
+                                return -1;
+                            });
+
+        promise.reportStarted();
+        promise.reportResult(1);
+        promise.reportFinished();
+
+        int res = 0;
+        try {
+            res = then.result();
+        } catch (...) {
+            checkpoint = 3;
+        }
+        QCOMPARE(checkpoint, 1);
+        QCOMPARE(res, -1);
+    }
+
+    // Handler throws exception
+    {
+        QFutureInterface<int> promise;
+
+        int checkpoint = 0;
+        auto then = promise.future()
+                            .then([&](int res) {
+                                throw QException();
+                                return res;
+                            })
+                            .then([&](int res) { return res + 1; })
+                            .onFailed([&](const QException &) {
+                                checkpoint = 1;
+                                throw QException();
+                                return -1;
+                            })
+                            .onFailed([&] {
+                                checkpoint = 2;
+                                return -1;
+                            });
+
+        promise.reportStarted();
+        promise.reportResult(1);
+        promise.reportFinished();
+
+        int res = 0;
+        try {
+            res = then.result();
+        } catch (...) {
+            checkpoint = 3;
+        }
+        QCOMPARE(checkpoint, 2);
+        QCOMPARE(res, -1);
+    }
+
+    // No handler for exception
+    {
+        QFutureInterface<int> promise;
+
+        int checkpoint = 0;
+        auto then = promise.future()
+                            .then([&](int res) {
+                                throw QException();
+                                return res;
+                            })
+                            .then([&](int res) { return res + 1; })
+                            .onFailed([&](const std::exception &) {
+                                checkpoint = 1;
+                                throw std::exception();
+                                return -1;
+                            })
+                            .onFailed([&](QException &) {
+                                checkpoint = 2;
+                                return -1;
+                            });
+
+        promise.reportStarted();
+        promise.reportResult(1);
+        promise.reportFinished();
+
+        int res = 0;
+        try {
+            res = then.result();
+        } catch (...) {
+            checkpoint = 3;
+        }
+        QCOMPARE(checkpoint, 3);
+        QCOMPARE(res, 0);
+    }
+
+    // onFailed on a canceled future
+    {
+        auto future = createCanceledFuture<int>()
+                              .then([](int) { return 42; })
+                              .onCanceled([] { return -1; })
+                              .onFailed([] { return -2; });
+        QCOMPARE(future.result(), -1);
+    }
+}
+
+template<class Callable>
+bool runForCallable(Callable &&handler)
+{
+    QFuture<int> future = createExceptionResultFuture()
+                                  .then([&](int) { return 1; })
+                                  .onFailed(std::forward<Callable>(handler));
+
+    int res = 0;
+    try {
+        res = future.result();
+    } catch (...) {
+        return false;
+    }
+    return res == -1;
+}
+
+int foo()
+{
+    return -1;
+}
+
+void tst_QFuture::onFailedTestCallables()
+{
+    QVERIFY(runForCallable([&] { return -1; }));
+    QVERIFY(runForCallable(foo));
+    QVERIFY(runForCallable(&foo));
+
+    std::function<int()> func = foo;
+    QVERIFY(runForCallable(func));
+
+    struct Functor1
+    {
+        int operator()() { return -1; }
+        static int foo() { return -1; }
+    };
+    QVERIFY(runForCallable(Functor1()));
+    QVERIFY(runForCallable(Functor1::foo));
+
+    struct Functor2
+    {
+        int operator()() const { return -1; }
+        static int foo() { return -1; }
+    };
+    QVERIFY(runForCallable(Functor2()));
+
+    struct Functor3
+    {
+        int operator()() const noexcept { return -1; }
+        static int foo() { return -1; }
+    };
+    QVERIFY(runForCallable(Functor3()));
+}
+
+template<class Callable>
+bool runOnFailedForMoveOnly(Callable &&callable)
+{
+    QFutureInterface<UniquePtr> promise;
+    auto future = promise.future();
+
+    auto failedFuture = future.onFailed(std::forward<Callable>(callable));
+
+    promise.reportStarted();
+    QException e;
+    promise.reportException(e);
+    promise.reportFinished();
+
+    return *failedFuture.takeResult() == -1;
+}
+
+void tst_QFuture::onFailedForMoveOnlyTypes()
+{
+    QVERIFY(runOnFailedForMoveOnly([](const QException &) { return std::make_unique<int>(-1); }));
+    QVERIFY(runOnFailedForMoveOnly([] { return std::make_unique<int>(-1); }));
+}
+
+#endif // QT_NO_EXCEPTIONS
+
+void tst_QFuture::onCanceled()
+{
+    // Canceled int future
+    {
+        auto future = createCanceledFuture<int>().then([](int) { return 42; }).onCanceled([] {
+            return -1;
+        });
+        QCOMPARE(future.result(), -1);
+    }
+
+    // Canceled void future
+    {
+        int checkpoint = 0;
+        auto future = createCanceledFuture<void>().then([&] { checkpoint = 42; }).onCanceled([&] {
+            checkpoint = -1;
+        });
+        QCOMPARE(checkpoint, -1);
+    }
+
+    // onCanceled propagates result
+    {
+        QFutureInterface<int> promise;
+        auto future =
+                promise.future().then([](int res) { return res; }).onCanceled([] { return -1; });
+
+        promise.reportStarted();
+        promise.reportResult(42);
+        promise.reportFinished();
+        QCOMPARE(future.result(), 42);
+    }
+
+    // onCanceled propagates move-only result
+    {
+        QFutureInterface<UniquePtr> promise;
+        auto future = promise.future().then([](UniquePtr res) { return res; }).onCanceled([] {
+            return std::make_unique<int>(-1);
+        });
+
+        promise.reportStarted();
+        promise.reportAndMoveResult(std::make_unique<int>(42));
+        promise.reportFinished();
+        QCOMPARE(*future.takeResult(), 42);
+    }
+
+#ifndef QT_NO_EXCEPTIONS
+    // onCanceled propagates exceptions
+    {
+        QFutureInterface<int> promise;
+        auto future = promise.future()
+                              .then([](int res) {
+                                  throw std::runtime_error("error");
+                                  return res;
+                              })
+                              .onCanceled([] { return 2; })
+                              .onFailed([] { return 3; });
+
+        promise.reportStarted();
+        promise.reportResult(1);
+        promise.reportFinished();
+        QCOMPARE(future.result(), 3);
+    }
+
+    // onCanceled throws
+    {
+        auto future = createCanceledFuture<int>()
+                              .then([](int) { return 42; })
+                              .onCanceled([] {
+                                  throw std::runtime_error("error");
+                                  return -1;
+                              })
+                              .onFailed([] { return -2; });
+
+        QCOMPARE(future.result(), -2);
+    }
+
+#endif // QT_NO_EXCEPTIONS
+}
+
+void tst_QFuture::cancelContinuations()
+{
+    // The chain is cancelled in the middle of execution of continuations
+    {
+        QPromise<int> promise;
+
+        int checkpoint = 0;
+        auto future = promise.future().then([&](int value) {
+            ++checkpoint;
+            return value + 1;
+        }).then([&](int value) {
+            ++checkpoint;
+            promise.future().cancel();
+            return value + 1;
+        }).then([&](int value) {
+            ++checkpoint;
+            return value + 1;
+        }).onCanceled([] {
+            return -1;
+        });
+
+        promise.start();
+        promise.addResult(42);
+        promise.finish();
+
+        QCOMPARE(future.result(), -1);
+        QCOMPARE(checkpoint, 2);
+    }
+
+    // The chain is cancelled before the execution of continuations
+    {
+        auto f = QtFuture::makeReadyFuture(42);
+        f.cancel();
+
+        int checkpoint = 0;
+        auto future = f.then([&](int value) {
+            ++checkpoint;
+            return value + 1;
+        }).then([&](int value) {
+            ++checkpoint;
+            return value + 1;
+        }).then([&](int value) {
+            ++checkpoint;
+            return value + 1;
+        }).onCanceled([] {
+            return -1;
+        });
+
+        QCOMPARE(future.result(), -1);
+        QCOMPARE(checkpoint, 0);
+    }
+
+    // The chain is canceled partially, through an intermediate future
+    {
+        QPromise<int> promise;
+
+        int checkpoint = 0;
+        auto intermediate = promise.future().then([&](int value) {
+            ++checkpoint;
+            return value + 1;
+        });
+
+        auto future = intermediate.then([&](int value) {
+            ++checkpoint;
+            return value + 1;
+        }).then([&](int value) {
+            ++checkpoint;
+            return value + 1;
+        }).onCanceled([] {
+            return -1;
+        });
+
+        promise.start();
+        promise.addResult(42);
+
+        // This should cancel only the chain starting from intermediate
+        intermediate.cancel();
+
+        promise.finish();
+
+        QCOMPARE(future.result(), -1);
+        QCOMPARE(checkpoint, 1);
+    }
+
+#ifndef QT_NO_EXCEPTIONS
+    // The chain is cancelled in the middle of execution of continuations,
+    // while there's an exception in the chain, which is handeled inside
+    // the continuations.
+    {
+        QPromise<int> promise;
+
+        int checkpoint = 0;
+        auto future = promise.future().then([&](int value) {
+            ++checkpoint;
+            throw QException();
+            return value + 1;
+        }).then([&](QFuture<int> future) {
+            try {
+                auto res = future.result();
+                Q_UNUSED(res);
+            } catch (const QException &) {
+                ++checkpoint;
+            }
+            return 2;
+        }).then([&](int value) {
+            ++checkpoint;
+            promise.future().cancel();
+            return value + 1;
+        }).then([&](int value) {
+            ++checkpoint;
+            return value + 1;
+        }).onCanceled([] {
+            return -1;
+        });
+
+        promise.start();
+        promise.addResult(42);
+        promise.finish();
+
+        QCOMPARE(future.result(), -1);
+        QCOMPARE(checkpoint, 3);
+    }
+#endif // QT_NO_EXCEPTIONS
+}
+
+void tst_QFuture::continuationsWithContext()
+{
+    QThread thread;
+    thread.start();
+
+    auto context = new QObject();
+    context->moveToThread(&thread);
+
+    auto tstThread = QThread::currentThread();
+
+    // .then()
+    {
+        QPromise<int> promise;
+        auto future = promise.future()
+                              .then([&](int val) {
+                                  if (QThread::currentThread() != tstThread)
+                                      return 0;
+                                  return val + 1;
+                              })
+                              .then(context,
+                                    [&](int val) {
+                                        if (QThread::currentThread() != &thread)
+                                            return 0;
+                                        return val + 1;
+                                    })
+                              .then([&](int val) {
+                                  if (QThread::currentThread() != &thread)
+                                      return 0;
+                                  return val + 1;
+                              });
+        promise.start();
+        promise.addResult(0);
+        promise.finish();
+        QCOMPARE(future.result(), 3);
+    }
+
+    // .onCanceled
+    {
+        QPromise<int> promise;
+        auto future = promise.future()
+                              .onCanceled(context,
+                                          [&] {
+                                              if (QThread::currentThread() != &thread)
+                                                  return 0;
+                                              return 1;
+                                          })
+                              .then([&](int val) {
+                                  if (QThread::currentThread() != &thread)
+                                      return 0;
+                                  return val + 1;
+                              });
+        promise.start();
+        promise.future().cancel();
+        promise.finish();
+        QCOMPARE(future.result(), 2);
+    }
+
+#ifndef QT_NO_EXCEPTIONS
+    // .onFaled()
+    {
+        QPromise<void> promise;
+        auto future = promise.future()
+                              .then([&] {
+                                  if (QThread::currentThread() != tstThread)
+                                      return 0;
+                                  throw std::runtime_error("error");
+                              })
+                              .onFailed(context,
+                                        [&] {
+                                            if (QThread::currentThread() != &thread)
+                                                return 0;
+                                            return 1;
+                                        })
+                              .then([&](int val) {
+                                  if (QThread::currentThread() != &thread)
+                                      return 0;
+                                  return val + 1;
+                              });
+        promise.start();
+        promise.finish();
+        QCOMPARE(future.result(), 2);
+    }
+#endif // QT_NO_EXCEPTIONS
+
+    context->deleteLater();
+
+    thread.quit();
+    thread.wait();
+}
+
+void tst_QFuture::continuationsWithMoveOnlyLambda()
+{
+    // .then()
+    {
+        std::unique_ptr<int> uniquePtr(new int(42));
+        auto future = QtFuture::makeReadyFuture().then([p = std::move(uniquePtr)] { return *p; });
+        QCOMPARE(future.result(), 42);
+    }
+    // .then() with thread pool
+    {
+        QThreadPool pool;
+
+        std::unique_ptr<int> uniquePtr(new int(42));
+        auto future =
+                QtFuture::makeReadyFuture().then(&pool, [p = std::move(uniquePtr)] { return *p; });
+        QCOMPARE(future.result(), 42);
+    }
+    // .then() with context
+    {
+        QObject object;
+
+        std::unique_ptr<int> uniquePtr(new int(42));
+        auto future = QtFuture::makeReadyFuture().then(&object,
+                                                       [p = std::move(uniquePtr)] { return *p; });
+        QCOMPARE(future.result(), 42);
+    }
+
+    // .onCanceled()
+    {
+        std::unique_ptr<int> uniquePtr(new int(42));
+        auto future =
+                createCanceledFuture<int>().onCanceled([p = std::move(uniquePtr)] { return *p; });
+        QCOMPARE(future.result(), 42);
+    }
+
+    // .onCanceled() with context
+    {
+        QObject object;
+
+        std::unique_ptr<int> uniquePtr(new int(42));
+        auto future = createCanceledFuture<int>().onCanceled(
+                &object, [p = std::move(uniquePtr)] { return *p; });
+        QCOMPARE(future.result(), 42);
+    }
+
+#ifndef QT_NO_EXCEPTIONS
+    // .onFailed()
+    {
+        std::unique_ptr<int> uniquePtr(new int(42));
+        auto future = QtFuture::makeExceptionalFuture<int>(QException())
+                              .onFailed([p = std::move(uniquePtr)] { return *p; });
+        QCOMPARE(future.result(), 42);
+    }
+    // .onFailed() with context
+    {
+        QObject object;
+
+        std::unique_ptr<int> uniquePtr(new int(42));
+        auto future = QtFuture::makeExceptionalFuture<int>(QException())
+                              .onFailed(&object, [p = std::move(uniquePtr)] { return *p; });
+        QCOMPARE(future.result(), 42);
+    }
+#endif // QT_NO_EXCEPTIONS
+}
+
+void tst_QFuture::testSingleResult(const UniquePtr &p)
+{
+    QVERIFY(p.get() != nullptr);
+}
+
+void tst_QFuture::testSingleResult(const std::vector<int> &v)
+{
+    QVERIFY(!v.empty());
+}
+
+template<class T>
+void tst_QFuture::testSingleResult(const T &unknown)
+{
+    Q_UNUSED(unknown)
+}
+
+
+template<class T>
+void tst_QFuture::testFutureTaken(QFuture<T> &noMoreFuture)
+{
+    QCOMPARE(noMoreFuture.isValid(), false);
+    QCOMPARE(noMoreFuture.resultCount(), 0);
+    QCOMPARE(noMoreFuture.isStarted(), false);
+    QCOMPARE(noMoreFuture.isRunning(), false);
+    QCOMPARE(noMoreFuture.isSuspending(), false);
+    QCOMPARE(noMoreFuture.isSuspended(), false);
+#if QT_DEPRECATED_SINCE(6, 0)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
+    QCOMPARE(noMoreFuture.isPaused(), false);
+QT_WARNING_POP
+#endif
+    QCOMPARE(noMoreFuture.isFinished(), false);
+    QCOMPARE(noMoreFuture.progressValue(), 0);
+}
+
+template<class T>
+void tst_QFuture::testTakeResults(QFuture<T> future, size_type resultCount)
+{
+    auto copy = future;
+    QVERIFY(future.isFinished());
+    QVERIFY(future.isValid());
+    QCOMPARE(size_type(future.resultCount()), resultCount);
+    QVERIFY(copy.isFinished());
+    QVERIFY(copy.isValid());
+    QCOMPARE(size_type(copy.resultCount()), resultCount);
+
+    auto vec = future.takeResults();
+    QCOMPARE(vec.size(), resultCount);
+
+    for (const auto &r : vec) {
+        testSingleResult(r);
+        if (QTest::currentTestFailed())
+            return;
+    }
+
+    testFutureTaken(future);
+    if (QTest::currentTestFailed())
+        return;
+    testFutureTaken(copy);
+}
+
+#if 0
+void tst_QFuture::takeResults()
+{
+    // Test takeResults() for movable types (whether or not copyable).
+
+    // std::unique_ptr<int> supports only move semantics:
+    QFutureInterface<UniquePtr> moveIface;
+    moveIface.reportStarted();
+
+    // std::vector<int> supports both copy and move:
+    QFutureInterface<std::vector<int>> copyIface;
+    copyIface.reportStarted();
+
+    const int expectedCount = 10;
+
+    for (int i = 0; i < expectedCount; ++i) {
+        QVERIFY(moveIface.reportAndMoveResult(UniquePtr{new int(0b101010)}, i));
+        QVERIFY(copyIface.reportAndMoveResult(std::vector<int>{1,2,3,4,5}, i));
+    }
+
+    moveIface.reportFinished();
+    copyIface.reportFinished();
+
+    testTakeResults(moveIface.future(), size_type(expectedCount));
+    if (QTest::currentTestFailed())
+        return;
+
+    testTakeResults(copyIface.future(), size_type(expectedCount));
+}
+#endif
+
+void tst_QFuture::takeResult()
+{
+    QFutureInterface<UniquePtr> iface;
+    iface.reportStarted();
+    QVERIFY(iface.reportAndMoveResult(UniquePtr{new int(0b101010)}, 0));
+    iface.reportFinished();
+
+    auto future = iface.future();
+    QVERIFY(future.isFinished());
+    QVERIFY(future.isValid());
+    QCOMPARE(future.resultCount(), 1);
+
+    auto result = future.takeResult();
+    testFutureTaken(future);
+    if (QTest::currentTestFailed())
+        return;
+    testSingleResult(result);
+}
+
+void tst_QFuture::runAndTake()
+{
+    // Test if a 'moving' future can be used by
+    // QtConcurrent::run.
+
+    auto rabbit = [](){
+        // Let's wait a bit to give the test below some time
+        // to sync up with us with its watcher.
+        QThread::currentThread()->msleep(100);
+        return UniquePtr(new int(10));
+    };
+
+    QTestEventLoop loop;
+    QFutureWatcher<UniquePtr> watcha;
+    connect(&watcha, &QFutureWatcher<UniquePtr>::finished, [&loop](){
+        loop.exitLoop();
+    });
+
+    auto gotcha = QtConcurrent::run(rabbit);
+    watcha.setFuture(gotcha);
+
+    loop.enterLoopMSecs(500);
+    if (loop.timeout())
+        QSKIP("Failed to run the task, nothing to test");
+
+    gotcha = watcha.future();
+#if 0
+    // TODO: enable when QFuture::takeResults() is enabled
+    testTakeResults(gotcha, size_type(1));
+#endif
+}
+
+void tst_QFuture::resultsReadyAt_data()
+{
+    QTest::addColumn<bool>("testMove");
+
+    QTest::addRow("reportResult") << false;
+    QTest::addRow("reportAndMoveResult") << true;
+}
+
+void tst_QFuture::resultsReadyAt()
+{
+    QFETCH(const bool, testMove);
+
+    QFutureInterface<int> iface;
+    QFutureWatcher<int> watcher;
+    watcher.setFuture(iface.future());
+
+    QTestEventLoop eventProcessor;
+    connect(&watcher, &QFutureWatcher<int>::finished, &eventProcessor, &QTestEventLoop::exitLoop);
+
+    const int nExpectedResults = 4;
+    int reported = 0;
+    int taken = 0;
+    connect(&watcher, &QFutureWatcher<int>::resultsReadyAt,
+            [&iface, &reported, &taken](int begin, int end)
+    {
+        auto future = iface.future();
+        QVERIFY(end - begin > 0);
+        for (int i = begin; i < end; ++i, ++reported) {
+            QVERIFY(future.isResultReadyAt(i));
+            taken |= 1 << i;
+        }
+    });
+
+    auto report = [&iface, testMove](int index)
+    {
+        int dummyResult = 0b101010;
+        if (testMove)
+            QVERIFY(iface.reportAndMoveResult(std::move(dummyResult), index));
+        else
+            QVERIFY(iface.reportResult(&dummyResult, index));
+    };
+
+    const QSignalSpy readyCounter(&watcher, &QFutureWatcher<int>::resultsReadyAt);
+    QTimer::singleShot(0, [&iface, &report]{
+        // With filter mode == true, the result may go into the pending results.
+        // Reporting it as ready will allow an application to try and access the
+        // result, crashing on invalid (store.end()) iterator dereferenced.
+        iface.setFilterMode(true);
+        iface.reportStarted();
+        report(0);
+        report(1);
+        // This one - should not be reported (it goes into pending):
+        report(3);
+        // Let's close the 'gap' and make them all ready:
+        report(-1);
+        iface.reportFinished();
+    });
+
+    // Run event loop, QCoreApplication::postEvent is in use
+    // in QFutureInterface:
+    eventProcessor.enterLoopMSecs(2000);
+    QVERIFY(!eventProcessor.timeout());
+    if (QTest::currentTestFailed()) // Failed in our lambda observing 'ready at'
+        return;
+
+    QCOMPARE(reported, nExpectedResults);
+    QCOMPARE(nExpectedResults, iface.future().resultCount());
+    QCOMPARE(readyCounter.count(), 3);
+    QCOMPARE(taken, 0b1111);
+}
+
+template <class T>
+auto makeFutureInterface(T &&result)
+{
+    QFutureInterface<T> f;
+
+    f.reportStarted();
+    f.reportResult(std::forward<T>(result));
+    f.reportFinished();
+
+    return f;
+}
+
+void tst_QFuture::takeResultWorksForTypesWithoutDefaultCtor()
+{
+    struct Foo
+    {
+        Foo() = delete;
+        explicit Foo(int i) : _i(i) {}
+
+        int _i = -1;
+    };
+
+    auto f = makeFutureInterface(Foo(42));
+
+    QCOMPARE(f.takeResult()._i, 42);
+}
+void tst_QFuture::canceledFutureIsNotValid()
+{
+    auto f = makeFutureInterface(42);
+
+    f.cancel();
+
+    QVERIFY(!f.isValid());
+}
+
+void tst_QFuture::signalConnect()
+{
+    // No arg
+    {
+        SenderObject sender;
+        auto future =
+                QtFuture::connect(&sender, &SenderObject::noArgSignal).then([] { return true; });
+        sender.emitNoArg();
+        QCOMPARE(future.result(), true);
+    }
+
+    // One arg
+    {
+        SenderObject sender;
+        auto future = QtFuture::connect(&sender, &SenderObject::intArgSignal).then([](int value) {
+            return value;
+        });
+        sender.emitIntArg(42);
+        QCOMPARE(future.result(), 42);
+    }
+
+    // Const ref arg
+    {
+        SenderObject sender;
+        auto future =
+                QtFuture::connect(&sender, &SenderObject::constRefArg).then([](QString value) {
+                    return value;
+                });
+        sender.emitConstRefArg(QString("42"));
+        QCOMPARE(future.result(), "42");
+    }
+
+    // Multiple args
+    {
+        SenderObject sender;
+        using TupleArgs = std::tuple<int, double, QString>;
+        auto future =
+                QtFuture::connect(&sender, &SenderObject::multipleArgs).then([](TupleArgs values) {
+                    return values;
+                });
+        sender.emitMultipleArgs(42, 42.5, "42");
+        auto result = future.result();
+        QCOMPARE(std::get<0>(result), 42);
+        QCOMPARE(std::get<1>(result), 42.5);
+        QCOMPARE(std::get<2>(result), "42");
+    }
+
+    // No arg private signal
+    {
+        SenderObject sender;
+        auto future = QtFuture::connect(&sender, &SenderObject::noArgPrivateSignal).then([] {
+            return true;
+        });
+        sender.emitNoArgPrivateSignal();
+        QCOMPARE(future.result(), true);
+    }
+
+    // One arg private signal
+    {
+        SenderObject sender;
+        auto future =
+                QtFuture::connect(&sender, &SenderObject::intArgPrivateSignal).then([](int value) {
+                    return value;
+                });
+        sender.emitIntArgPrivateSignal(42);
+        QCOMPARE(future.result(), 42);
+    }
+
+    // Multi-args private signal
+    {
+        SenderObject sender;
+        auto future = QtFuture::connect(&sender, &SenderObject::multiArgsPrivateSignal)
+                              .then([](std::tuple<int, double, QString> values) { return values; });
+        sender.emitMultiArgsPrivateSignal(42, 42.5, "42");
+        const auto [i, d, s] = future.result();
+        QCOMPARE(i, 42);
+        QCOMPARE(d, 42.5);
+        QCOMPARE(s, "42");
+    }
+
+    // Sender destroyed
+    {
+        SenderObject *sender = new SenderObject();
+
+        auto future = QtFuture::connect(sender, &SenderObject::intArgSignal);
+
+        QSignalSpy spy(sender, &QObject::destroyed);
+        sender->deleteLater();
+
+        // emit the signal when sender is being destroyed
+        QObject::connect(sender, &QObject::destroyed, [sender] { sender->emitIntArg(42); });
+        spy.wait();
+
+        QVERIFY(future.isCanceled());
+        QVERIFY(!future.isValid());
+    }
+
+    // Signal emitted, causing Sender to be destroyed
+    {
+        SenderObject *sender = new SenderObject();
+
+        auto future = QtFuture::connect(sender, &SenderObject::intArgSignal);
+        future.then([sender](int) {
+            // Scenario: Sender no longer needed, so it's deleted
+            delete sender;
+        });
+
+        QSignalSpy spy(sender, &SenderObject::destroyed);
+        emit sender->intArgSignal(5);
+        spy.wait();
+
+        QVERIFY(future.isFinished());
+        QVERIFY(!future.isCanceled());
+        QVERIFY(future.isValid());
+    }
+}
+
+void tst_QFuture::waitForFinished()
+{
+#if !QT_CONFIG(cxx11_future)
+    QSKIP("This test requires QThread::create");
+#else
+    QFutureInterface<void> fi;
+    auto future = fi.future();
+
+    QScopedPointer<QThread> waitingThread (QThread::create([&] {
+        future.waitForFinished();
+    }));
+
+    waitingThread->start();
+
+    QVERIFY(!waitingThread->wait(200));
+    QVERIFY(!waitingThread->isFinished());
+
+    fi.reportStarted();
+    QVERIFY(!waitingThread->wait(200));
+    QVERIFY(!waitingThread->isFinished());
+
+    fi.reportFinished();
+
+    QVERIFY(waitingThread->wait());
+    QVERIFY(waitingThread->isFinished());
+#endif
+}
+
+void tst_QFuture::rejectResultOverwrite_data()
+{
+    QTest::addColumn<bool>("filterMode");
+    QTest::addColumn<QList<int>>("initResults");
+
+    QTest::addRow("filter-mode-on-1-result") << true << QList<int>({ 456 });
+    QTest::addRow("filter-mode-on-N-results") << true << QList<int>({ 456, 789 });
+    QTest::addRow("filter-mode-off-1-result") << false << QList<int>({ 456 });
+    QTest::addRow("filter-mode-off-N-results") << false << QList<int>({ 456, 789 });
+}
+
+void tst_QFuture::rejectResultOverwrite()
+{
+    QFETCH(bool, filterMode);
+    QFETCH(QList<int>, initResults);
+
+    QFutureInterface<int> iface;
+    iface.setFilterMode(filterMode);
+    auto f = iface.future();
+    QFutureWatcher<int> watcher;
+    watcher.setFuture(f);
+
+    QTestEventLoop eventProcessor;
+    // control the loop by suspend
+    connect(&watcher, &QFutureWatcher<int>::suspending, &eventProcessor, &QTestEventLoop::exitLoop);
+    // internal machinery always emits resultsReadyAt
+    QSignalSpy resultCounter(&watcher, &QFutureWatcher<int>::resultsReadyAt);
+
+    // init
+    if (initResults.size() == 1)
+        QVERIFY(iface.reportResult(initResults[0]));
+    else
+        QVERIFY(iface.reportResults(initResults));
+    QCOMPARE(f.resultCount(), initResults.size());
+    QCOMPARE(f.resultAt(0), initResults[0]);
+    QCOMPARE(f.results(), initResults);
+
+    QTimer::singleShot(50, [&f]() {
+        f.suspend(); // should exit the loop
+    });
+    // Run event loop, QCoreApplication::postEvent is in use
+    // in QFutureInterface:
+    eventProcessor.enterLoopMSecs(2000);
+    QVERIFY(!eventProcessor.timeout());
+    QCOMPARE(resultCounter.count(), 1);
+    f.resume();
+
+    // overwrite with lvalue
+    {
+        int result = -1;
+        const auto originalCount = f.resultCount();
+        QVERIFY(!iface.reportResult(result, 0));
+        QCOMPARE(f.resultCount(), originalCount);
+        QCOMPARE(f.resultAt(0), initResults[0]);
+    }
+    // overwrite with rvalue
+    {
+        const auto originalCount = f.resultCount();
+        QVERIFY(!iface.reportResult(-1, 0));
+        QCOMPARE(f.resultCount(), originalCount);
+        QCOMPARE(f.resultAt(0), initResults[0]);
+    }
+    // overwrite with array
+    {
+        const auto originalCount = f.resultCount();
+        QVERIFY(!iface.reportResults(QList<int> { -1, -2, -3 }, 0));
+        QCOMPARE(f.resultCount(), originalCount);
+        QCOMPARE(f.resultAt(0), initResults[0]);
+    }
+
+    // special case: add result by different index, overlapping with the vector
+    if (initResults.size() > 1) {
+        const auto originalCount = f.resultCount();
+        QVERIFY(!iface.reportResult(-1, 1));
+        QCOMPARE(f.resultCount(), originalCount);
+        QCOMPARE(f.resultAt(1), initResults[1]);
+    }
+
+    QTimer::singleShot(50, [&f]() {
+        f.suspend(); // should exit the loop
+    });
+    eventProcessor.enterLoopMSecs(2000);
+    QVERIFY(!eventProcessor.timeout());
+    QCOMPARE(resultCounter.count(), 1);
+    f.resume();
+    QCOMPARE(f.results(), initResults);
+}
+
+void tst_QFuture::rejectPendingResultOverwrite()
+{
+    QFETCH(bool, filterMode);
+    QFETCH(QList<int>, initResults);
+
+    QFutureInterface<int> iface;
+    iface.setFilterMode(filterMode);
+    auto f = iface.future();
+    QFutureWatcher<int> watcher;
+    watcher.setFuture(f);
+
+    QTestEventLoop eventProcessor;
+    // control the loop by suspend
+    connect(&watcher, &QFutureWatcher<int>::suspending, &eventProcessor, &QTestEventLoop::exitLoop);
+    // internal machinery always emits resultsReadyAt
+    QSignalSpy resultCounter(&watcher, &QFutureWatcher<int>::resultsReadyAt);
+
+    // init
+    if (initResults.size() == 1)
+        QVERIFY(iface.reportResult(initResults[0], 1));
+    else
+        QVERIFY(iface.reportResults(initResults, 1));
+    QCOMPARE(f.resultCount(), 0); // not visible yet
+    if (!filterMode) {
+        QCOMPARE(f.resultAt(1), initResults[0]);
+        QCOMPARE(f.results(), initResults);
+
+        QTimer::singleShot(50, [&f]() {
+            f.suspend(); // should exit the loop
+        });
+        // Run event loop, QCoreApplication::postEvent is in use
+        // in QFutureInterface:
+        eventProcessor.enterLoopMSecs(2000);
+        QVERIFY(!eventProcessor.timeout());
+        QCOMPARE(resultCounter.count(), 1);
+        f.resume();
+    }
+
+    // overwrite with lvalue
+    {
+        int result = -1;
+        const auto originalCount = f.resultCount();
+        QVERIFY(!iface.reportResult(result, 1));
+        QCOMPARE(f.resultCount(), originalCount);
+        if (!filterMode)
+            QCOMPARE(f.resultAt(1), initResults[0]);
+    }
+    // overwrite with rvalue
+    {
+        const auto originalCount = f.resultCount();
+        QVERIFY(!iface.reportResult(-1, 1));
+        QCOMPARE(f.resultCount(), originalCount);
+        if (!filterMode)
+            QCOMPARE(f.resultAt(1), initResults[0]);
+    }
+    // overwrite with array
+    {
+        const auto originalCount = f.resultCount();
+        QVERIFY(!iface.reportResults(QList<int> { -1, -2 }, 1));
+        QCOMPARE(f.resultCount(), originalCount);
+        if (!filterMode)
+            QCOMPARE(f.resultAt(1), initResults[0]);
+    }
+    // special case: add result by different index, overlapping with the vector
+    if (initResults.size() > 1) {
+        const auto originalCount = f.resultCount();
+        QVERIFY(!iface.reportResult(-1, 2));
+        QCOMPARE(f.resultCount(), originalCount);
+        if (!filterMode)
+            QCOMPARE(f.resultAt(2), initResults[1]);
+    }
+
+    if (!filterMode) {
+        QTimer::singleShot(50, [&f]() {
+            f.suspend(); // should exit the loop
+        });
+        eventProcessor.enterLoopMSecs(2000);
+        QVERIFY(!eventProcessor.timeout());
+        QCOMPARE(resultCounter.count(), 1);
+        f.resume();
+    }
+
+    QVERIFY(iface.reportResult(123, 0)); // make results at 0 and 1 accessible
+    QCOMPARE(f.resultCount(), initResults.size() + 1);
+    QCOMPARE(f.resultAt(1), initResults[0]);
+    initResults.prepend(123);
+    QCOMPARE(f.results(), initResults);
+}
+
+void tst_QFuture::createReadyFutures()
+{
+    // using const T &
+    {
+        const int val = 42;
+        QFuture<int> f = QtFuture::makeReadyFuture(val);
+        QCOMPARE(f.result(), val);
+    }
+
+    // using T
+    {
+        int val = 42;
+        QFuture<int> f = QtFuture::makeReadyFuture(val);
+        QCOMPARE(f.result(), val);
+    }
+
+    // using T &&
+    {
+        auto f = QtFuture::makeReadyFuture(std::make_unique<int>(42));
+        QCOMPARE(*f.takeResult(), 42);
+    }
+
+    // using void
+    {
+        auto f = QtFuture::makeReadyFuture();
+        QVERIFY(f.isStarted());
+        QVERIFY(!f.isRunning());
+        QVERIFY(f.isFinished());
+    }
+
+    // using const QList<T> &
+    {
+        const QList<int> values { 1, 2, 3 };
+        auto f = QtFuture::makeReadyFuture(values);
+        QCOMPARE(f.resultCount(), 3);
+        QCOMPARE(f.results(), values);
+    }
+
+#ifndef QT_NO_EXCEPTIONS
+    // using QException
+    {
+        QException e;
+        auto f = QtFuture::makeExceptionalFuture<int>(e);
+        bool caught = false;
+        try {
+            f.result();
+        } catch (QException &) {
+            caught = true;
+        }
+        QVERIFY(caught);
+    }
+
+    // using std::exception_ptr and QFuture<void>
+    {
+        auto exception = std::make_exception_ptr(TestException());
+        auto f = QtFuture::makeExceptionalFuture(exception);
+        bool caught = false;
+        try {
+            f.waitForFinished();
+        } catch (TestException &) {
+            caught = true;
+        }
+        QVERIFY(caught);
+    }
+#endif
 }
 
 QTEST_MAIN(tst_QFuture)

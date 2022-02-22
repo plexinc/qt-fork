@@ -27,9 +27,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.1
-import QtQuick.Layouts 1.0
-import QtQuick.Controls 1.0
+import QtQuick
+import QtQuick.Layouts
+import QtQuick.Controls
 import QtDataVisualization 1.2
 import "."
 
@@ -50,15 +50,7 @@ Item {
             width: dataView.width
             height: dataView.height
             orthoProjection: true
-            //measureFps: true
-
-            onCurrentFpsChanged: {
-                if (fps > 10)
-                    fpsText.text = "FPS: " + Math.round(surfaceGraph.currentFps)
-                else
-                    fpsText.text = "FPS: " + Math.round(surfaceGraph.currentFps * 10.0) / 10.0
-            }
-
+            measureFps : false
             Surface3DSeries {
                 id: surfaceSeries
                 drawMode: Surface3DSeries.DrawSurface;
@@ -92,12 +84,9 @@ Item {
             anchors.fill: parent
             RowLayout {
                 id: sliderLayout
-                anchors.top: parent.top
-                Layout.fillHeight: true
-                Layout.fillWidth: true
-                Layout.minimumHeight: 150
+                Layout.fillHeight: false
                 spacing: 0
-
+                visible: surfaceGraph.measureFps
                 Rectangle {
                     Layout.fillHeight: true
                     Layout.fillWidth: true
@@ -116,19 +105,21 @@ Item {
                         anchors.fill: parent
                         verticalAlignment: Text.AlignVCenter
                         horizontalAlignment: Text.AlignHCenter
+                        text: {
+                            return "FPS: " + surfaceGraph.currentFps > 10
+                                    ? Math.round(surfaceGraph.currentFps)
+                                    : Math.round(surfaceGraph.currentFps * 10.0) / 10.0
+                        }
                     }
                 }
             }
 
             RowLayout {
                 id: buttonLayout
-                Layout.fillHeight: true
-                Layout.fillWidth: true
                 Layout.minimumHeight: 50
-                anchors.bottom: parent.bottom
                 spacing: 0
 
-                NewButton {
+                Button {
                     id: sliceButton
                     Layout.fillHeight: true
                     Layout.fillWidth: true
@@ -147,14 +138,14 @@ Item {
                         }
                     }
                 }
-                NewButton {
+                Button {
                     id: exitButton
                     Layout.fillHeight: true
                     Layout.fillWidth: true
 
                     text: "Quit"
 
-                    onClicked: Qt.quit(0);
+                    onClicked: Qt.quit();
                 }
             }
         }

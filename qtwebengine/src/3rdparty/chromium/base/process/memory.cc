@@ -6,9 +6,15 @@
 
 #if defined(OS_WIN)
 #include <windows.h>
+#else
+#include <unistd.h>
 #endif  // defined(OS_WIN)
 
+#include <string.h>
+
+#include "base/allocator/buildflags.h"
 #include "base/debug/alias.h"
+#include "base/immediate_crash.h"
 #include "base/logging.h"
 #include "base/partition_alloc_buildflags.h"
 #if BUILDFLAG(USE_PARTITION_ALLOC)
@@ -18,9 +24,13 @@
 
 namespace base {
 
+size_t g_oom_size = 0U;
+
 namespace internal {
 
+// Crash server classifies base::internal::OnNoMemoryInternal as OOM.
 NOINLINE void OnNoMemoryInternal(size_t size) {
+  g_oom_size = size;
 #if defined(OS_WIN)
   // Kill the process. This is important for security since most of code
   // does not check the result of memory allocation.
@@ -35,33 +45,30 @@ NOINLINE void OnNoMemoryInternal(size_t size) {
 #else
   size_t tmp_size = size;
   base::debug::Alias(&tmp_size);
-  LOG(FATAL) << "Out of memory. size=" << tmp_size;
+
+  // Note: Don't add anything that may allocate here. Depending on the
+  // allocator, this may be called from within the allocator (e.g. with
+  // PartitionAlloc), and would deadlock as our locks are not recursive.
+  //
+  // Additionally, this is unlikely to work, since allocating from an OOM
+  // handler is likely to fail.
+  //
+  // Use IMMEDIATE_CRASH() so that the top frame in the crash is our code,
+  // rather than using abort() or similar; this avoids the crash server needing
+  // to be able to successfully unwind through libc to get to the correct
+  // address, which is particularly an issue on Android.
+  IMMEDIATE_CRASH();
 #endif  // defined(OS_WIN)
 }
 
 }  // namespace internal
 
-// Defined in memory_win.cc for Windows.
-#if !defined(OS_WIN)
-
-namespace {
-
-// Breakpad server classifies base::`anonymous namespace'::OnNoMemory as
-// out-of-memory crash.
-NOINLINE void OnNoMemory(size_t size) {
+void TerminateBecauseOutOfMemory(size_t size) {
   internal::OnNoMemoryInternal(size);
 }
 
-}  // namespace
-
-void TerminateBecauseOutOfMemory(size_t size) {
-  OnNoMemory(size);
-}
-
-#endif  // !defined(OS_WIN)
-
 // Defined in memory_mac.mm for Mac.
-#if !defined(OS_MACOSX)
+#if !defined(OS_APPLE)
 
 bool UncheckedCalloc(size_t num_items, size_t size, void** result) {
   const size_t alloc_size = num_items * size;
@@ -79,7 +86,7 @@ bool UncheckedCalloc(size_t num_items, size_t size, void** result) {
   return true;
 }
 
-#endif  // defined(OS_MACOSX)
+#endif  // defined(OS_APPLE)
 
 namespace internal {
 bool ReleaseAddressSpaceReservation() {

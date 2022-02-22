@@ -55,7 +55,7 @@ NDEFMessage* NDEFMessage::Create(const ExecutionContext* execution_context,
 
   if (source.IsArrayBuffer()) {
     WTF::Vector<uint8_t> payload_data;
-    size_t byte_length = source.GetAsArrayBuffer()->ByteLengthAsSizeT();
+    size_t byte_length = source.GetAsArrayBuffer()->ByteLength();
     if (byte_length > std::numeric_limits<wtf_size_t>::max()) {
       exception_state.ThrowRangeError(
           "Buffer size exceeds maximum heap object size.");
@@ -72,8 +72,7 @@ NDEFMessage* NDEFMessage::Create(const ExecutionContext* execution_context,
   }
 
   if (source.IsArrayBufferView()) {
-    size_t byte_length =
-        source.GetAsArrayBufferView().View()->byteLengthAsSizeT();
+    size_t byte_length = source.GetAsArrayBufferView()->byteLength();
     if (byte_length > std::numeric_limits<wtf_size_t>::max()) {
       exception_state.ThrowRangeError(
           "Buffer size exceeds maximum heap object size.");
@@ -81,8 +80,7 @@ NDEFMessage* NDEFMessage::Create(const ExecutionContext* execution_context,
     }
     WTF::Vector<uint8_t> payload_data;
     payload_data.Append(
-        static_cast<uint8_t*>(
-            source.GetAsArrayBufferView().View()->BaseAddress()),
+        static_cast<uint8_t*>(source.GetAsArrayBufferView()->BaseAddress()),
         static_cast<wtf_size_t>(byte_length));
     NDEFMessage* message = MakeGarbageCollected<NDEFMessage>();
     message->records_.push_back(MakeGarbageCollected<NDEFRecord>(
@@ -194,7 +192,7 @@ const HeapVector<Member<NDEFRecord>>& NDEFMessage::records() const {
   return records_;
 }
 
-void NDEFMessage::Trace(Visitor* visitor) {
+void NDEFMessage::Trace(Visitor* visitor) const {
   visitor->Trace(records_);
   ScriptWrappable::Trace(visitor);
 }

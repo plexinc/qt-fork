@@ -7,18 +7,19 @@
 
 #include <set>
 
+#include "base/component_export.h"
 #include "base/macros.h"
 #include "ui/base/accelerators/accelerator.h"
-#include "ui/base/ui_base_export.h"
+#include "ui/events/event_handler.h"
 
 namespace ui {
 
 // Keeps track of the system-wide current and the most recent previous
 // key accelerators.
-class UI_BASE_EXPORT AcceleratorHistory {
+class COMPONENT_EXPORT(UI_BASE) AcceleratorHistory : public ui::EventHandler {
  public:
   AcceleratorHistory();
-  ~AcceleratorHistory();
+  ~AcceleratorHistory() override;
 
   // Returns the most recent recorded accelerator.
   const Accelerator& current_accelerator() const {
@@ -34,6 +35,10 @@ class UI_BASE_EXPORT AcceleratorHistory {
   const std::set<KeyboardCode>& currently_pressed_keys() const {
     return currently_pressed_keys_;
   }
+
+  // ui::EventHandler:
+  void OnKeyEvent(ui::KeyEvent* event) override;
+  void OnMouseEvent(ui::MouseEvent* event) override;
 
   // Stores the given |accelerator| only if it's different than the currently
   // stored one.

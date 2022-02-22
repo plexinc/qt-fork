@@ -8,16 +8,17 @@
 #ifndef QUICHE_QUIC_TOOLS_QUIC_CLIENT_BASE_H_
 #define QUICHE_QUIC_TOOLS_QUIC_CLIENT_BASE_H_
 
+#include <memory>
 #include <string>
 
-#include "net/third_party/quiche/src/quic/core/crypto/crypto_handshake.h"
-#include "net/third_party/quiche/src/quic/core/http/quic_client_push_promise_index.h"
-#include "net/third_party/quiche/src/quic/core/http/quic_spdy_client_session.h"
-#include "net/third_party/quiche/src/quic/core/http/quic_spdy_client_stream.h"
-#include "net/third_party/quiche/src/quic/core/quic_config.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_macros.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_socket_address.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/base/attributes.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/crypto/crypto_handshake.h"
+#include "quic/core/http/quic_client_push_promise_index.h"
+#include "quic/core/http/quic_spdy_client_session.h"
+#include "quic/core/http/quic_spdy_client_stream.h"
+#include "quic/core/quic_config.h"
+#include "quic/platform/api/quic_socket_address.h"
 
 namespace quic {
 
@@ -102,9 +103,14 @@ class QuicClientBase {
   // Wait for events until the stream with the given ID is closed.
   void WaitForStreamToClose(QuicStreamId id);
 
-  // Wait for events until the handshake is confirmed.
-  // Returns true if the crypto handshake succeeds, false otherwise.
-  QUIC_MUST_USE_RESULT bool WaitForCryptoHandshakeConfirmed();
+  // Wait for 1-RTT keys become available.
+  // Returns true once 1-RTT keys are available, false otherwise.
+  ABSL_MUST_USE_RESULT bool WaitForOneRttKeysAvailable();
+
+  // Wait for handshake state proceeds to HANDSHAKE_CONFIRMED.
+  // In QUIC crypto, this does the same as WaitForOneRttKeysAvailable, while in
+  // TLS, this waits for HANDSHAKE_DONE frame is received.
+  ABSL_MUST_USE_RESULT bool WaitForHandshakeConfirmed();
 
   // Wait up to 50ms, and handle any events which occur.
   // Returns true if there are any outstanding requests.
@@ -116,13 +122,19 @@ class QuicClientBase {
   // Migrate to a new socket (new_host, port) during an active connection.
   bool MigrateSocketWithSpecifiedPort(const QuicIpAddress& new_host, int port);
 
+  // Validate the new socket and migrate to it if the validation succeeds.
+  // Otherwise stay on the current socket. Return true if the validation has
+  // started.
+  bool ValidateAndMigrateSocket(const QuicIpAddress& new_host);
+
   // Open a new socket to change to a new ephemeral port.
   bool ChangeEphemeralPort();
 
   QuicSession* session();
+  const QuicSession* session() const;
 
   bool connected() const;
-  bool goaway_received() const;
+  virtual bool goaway_received() const;
 
   const QuicServerId& server_id() const { return server_id_; }
 
@@ -221,13 +233,34 @@ class QuicClientBase {
 
   bool initialized() const { return initialized_; }
 
-  void SetPreSharedKey(quiche::QuicheStringPiece key) {
+  void SetPreSharedKey(absl::string_view key) {
     crypto_config_.set_pre_shared_key(key);
   }
 
   void set_connection_debug_visitor(
       QuicConnectionDebugVisitor* connection_debug_visitor) {
     connection_debug_visitor_ = connection_debug_visitor;
+  }
+
+  void set_server_connection_id_length(uint8_t server_connection_id_length) {
+    server_connection_id_length_ = server_connection_id_length;
+  }
+
+  void set_client_connection_id_length(uint8_t client_connection_id_length) {
+    client_connection_id_length_ = client_connection_id_length;
+  }
+
+  bool HasPendingPathValidation();
+
+  void ValidateNewNetwork(const QuicIpAddress& host);
+
+  void AddValidatedPath(std::unique_ptr<QuicPathValidationContext> context) {
+    validated_paths_.push_back(std::move(context));
+  }
+
+  const std::vector<std::unique_ptr<QuicPathValidationContext>>&
+  validated_paths() const {
+    return validated_paths_;
   }
 
  protected:
@@ -263,10 +296,6 @@ class QuicClientBase {
   // returned.  Otherwise, the next random ID will be returned.
   QuicConnectionId GetNextConnectionId();
 
-  // Returns the next server-designated ConnectionId from the cached config for
-  // |server_id_|, if it exists.  Otherwise, returns 0.
-  QuicConnectionId GetNextServerDesignatedConnectionId();
-
   // Generates a new, random connection ID (as opposed to a server-designated
   // connection ID).
   virtual QuicConnectionId GenerateNewConnectionId();
@@ -288,6 +317,10 @@ class QuicClientBase {
   // Returns true and set |version| if client can reconnect with a different
   // version.
   bool CanReconnectWithDifferentVersion(ParsedQuicVersion* version) const;
+
+  std::unique_ptr<QuicPacketWriter> CreateWriterForNewNetwork(
+      const QuicIpAddress& new_host,
+      int port);
 
   // |server_id_| is a tuple (hostname, port, is_https) of the server.
   QuicServerId server_id_;
@@ -352,6 +385,17 @@ class QuicClientBase {
   // The debug visitor set on the connection right after it is constructed.
   // Not owned, must be valid for the lifetime of the QuicClientBase instance.
   QuicConnectionDebugVisitor* connection_debug_visitor_;
+
+  // GenerateNewConnectionId creates a random connection ID of this length.
+  // Defaults to 8.
+  uint8_t server_connection_id_length_;
+
+  // GetClientConnectionId creates a random connection ID of this length.
+  // Defaults to 0.
+  uint8_t client_connection_id_length_;
+
+  // Stores validated paths.
+  std::vector<std::unique_ptr<QuicPathValidationContext>> validated_paths_;
 };
 
 }  // namespace quic

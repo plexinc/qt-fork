@@ -56,6 +56,8 @@ std::string ClientToString(DownloadClient client) {
       return "MountainInternal";
     case DownloadClient::PLUGIN_VM_IMAGE:
       return "PluginVmImage";
+    case DownloadClient::OPTIMIZATION_GUIDE_PREDICTION_MODELS:
+      return "OptimizationGuidePredictionModels";
     case DownloadClient::BOUNDARY:  // Intentional fallthrough.
     default:
       NOTREACHED();
@@ -241,7 +243,7 @@ base::Value LoggerImpl::GetServiceDownloads() {
 }
 
 void LoggerImpl::OnServiceStatusChanged() {
-  if (!observers_.might_have_observers())
+  if (observers_.empty())
     return;
 
   base::Value service_status = GetServiceStatus();
@@ -251,7 +253,7 @@ void LoggerImpl::OnServiceStatusChanged() {
 }
 
 void LoggerImpl::OnServiceDownloadsAvailable() {
-  if (!observers_.might_have_observers())
+  if (observers_.empty())
     return;
 
   base::Value service_downloads = GetServiceDownloads();
@@ -260,7 +262,7 @@ void LoggerImpl::OnServiceDownloadsAvailable() {
 }
 
 void LoggerImpl::OnServiceDownloadChanged(const std::string& guid) {
-  if (!observers_.might_have_observers())
+  if (observers_.empty())
     return;
 
   auto entry_details = log_source_->GetServiceDownload(guid);
@@ -278,7 +280,7 @@ void LoggerImpl::OnServiceDownloadFailed(CompletionType completion_type,
                                          const Entry& entry) {
   DCHECK_NE(CompletionType::SUCCEED, completion_type);
 
-  if (!observers_.might_have_observers())
+  if (observers_.empty())
     return;
 
   auto serialized_entry = EntryToValue(entry, base::nullopt, completion_type);
@@ -290,7 +292,7 @@ void LoggerImpl::OnServiceRequestMade(
     DownloadClient client,
     const std::string& guid,
     DownloadParams::StartResult start_result) {
-  if (!observers_.might_have_observers())
+  if (observers_.empty())
     return;
 
   base::DictionaryValue serialized_request;

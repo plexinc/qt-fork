@@ -2,17 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/qbone/qbone_packet_processor.h"
+#include "quic/qbone/qbone_packet_processor.h"
 
 #include <cstring>
 
-#include "net/third_party/quiche/src/quic/platform/api/quic_bug_tracker.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/quic/qbone/platform/icmp_packet.h"
-#include "net/third_party/quiche/src/quic/qbone/platform/internet_checksum.h"
-#include "net/third_party/quiche/src/quic/qbone/platform/tcp_packet.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_endian.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/string_view.h"
+#include "quic/platform/api/quic_bug_tracker.h"
+#include "quic/platform/api/quic_logging.h"
+#include "quic/qbone/platform/icmp_packet.h"
+#include "quic/qbone/platform/internet_checksum.h"
+#include "quic/qbone/platform/tcp_packet.h"
+#include "common/quiche_endian.h"
 
 namespace {
 
@@ -38,12 +38,12 @@ QbonePacketProcessor::QbonePacketProcessor(QuicIpAddress self_ip,
       stats_(stats),
       filter_(new Filter) {
   memcpy(self_ip_.s6_addr, self_ip.ToPackedString().data(), kIPv6AddressSize);
-  DCHECK_LE(client_ip_subnet_length, kIPv6AddressSize * 8);
+  QUICHE_DCHECK_LE(client_ip_subnet_length, kIPv6AddressSize * 8);
   client_ip_subnet_length_ = client_ip_subnet_length;
 
-  DCHECK(IpAddressFamily::IP_V6 == self_ip.address_family());
-  DCHECK(IpAddressFamily::IP_V6 == client_ip.address_family());
-  DCHECK(self_ip != kInvalidIpAddress);
+  QUICHE_DCHECK(IpAddressFamily::IP_V6 == self_ip.address_family());
+  QUICHE_DCHECK(IpAddressFamily::IP_V6 == client_ip.address_family());
+  QUICHE_DCHECK(self_ip != kInvalidIpAddress);
 }
 
 QbonePacketProcessor::OutputInterface::~OutputInterface() {}
@@ -51,12 +51,11 @@ QbonePacketProcessor::StatsInterface::~StatsInterface() {}
 QbonePacketProcessor::Filter::~Filter() {}
 
 QbonePacketProcessor::ProcessingResult
-QbonePacketProcessor::Filter::FilterPacket(
-    Direction direction,
-    quiche::QuicheStringPiece full_packet,
-    quiche::QuicheStringPiece payload,
-    icmp6_hdr* icmp_header,
-    OutputInterface* output) {
+QbonePacketProcessor::Filter::FilterPacket(Direction direction,
+                                           absl::string_view full_packet,
+                                           absl::string_view payload,
+                                           icmp6_hdr* icmp_header,
+                                           OutputInterface* output) {
   return ProcessingResult::OK;
 }
 
@@ -128,8 +127,7 @@ QbonePacketProcessor::ProcessIPv6HeaderAndFilter(std::string* packet,
 
     result = filter_->FilterPacket(
         direction, *packet,
-        quiche::QuicheStringPiece(*transport_data,
-                                  packet->size() - header_size),
+        absl::string_view(*transport_data, packet->size() - header_size),
         icmp_header, output_);
   }
 
@@ -203,7 +201,7 @@ QbonePacketProcessor::ProcessingResult QbonePacketProcessor::ProcessIPv6Header(
       address_reject_code = ICMP6_DST_UNREACH_NOROUTE;
       break;
   }
-  DCHECK(ip_parse_result);
+  QUICHE_DCHECK(ip_parse_result);
   if (!client_ip_.InSameSubnet(address_to_check, client_ip_subnet_length_)) {
     QUIC_DVLOG(1)
         << "Dropped packet: source/destination address is not client's";
@@ -237,32 +235,29 @@ QbonePacketProcessor::ProcessingResult QbonePacketProcessor::ProcessIPv6Header(
   return ProcessingResult::OK;
 }
 
-void QbonePacketProcessor::SendIcmpResponse(
-    icmp6_hdr* icmp_header,
-    quiche::QuicheStringPiece original_packet,
-    Direction original_direction) {
+void QbonePacketProcessor::SendIcmpResponse(icmp6_hdr* icmp_header,
+                                            absl::string_view original_packet,
+                                            Direction original_direction) {
   in6_addr dst;
   // TODO(b/70339814): ensure this is actually a unicast address.
   memcpy(dst.s6_addr, &original_packet[8], kIPv6AddressSize);
 
-  CreateIcmpPacket(
-      self_ip_, dst, *icmp_header, original_packet,
-      [this, original_direction](quiche::QuicheStringPiece packet) {
-        SendResponse(original_direction, packet);
-      });
+  CreateIcmpPacket(self_ip_, dst, *icmp_header, original_packet,
+                   [this, original_direction](absl::string_view packet) {
+                     SendResponse(original_direction, packet);
+                   });
 }
 
-void QbonePacketProcessor::SendTcpReset(
-    quiche::QuicheStringPiece original_packet,
-    Direction original_direction) {
-  CreateTcpResetPacket(original_packet, [this, original_direction](
-                                            quiche::QuicheStringPiece packet) {
-    SendResponse(original_direction, packet);
-  });
+void QbonePacketProcessor::SendTcpReset(absl::string_view original_packet,
+                                        Direction original_direction) {
+  CreateTcpResetPacket(original_packet,
+                       [this, original_direction](absl::string_view packet) {
+                         SendResponse(original_direction, packet);
+                       });
 }
 
 void QbonePacketProcessor::SendResponse(Direction original_direction,
-                                        quiche::QuicheStringPiece packet) {
+                                        absl::string_view packet) {
   switch (original_direction) {
     case Direction::FROM_OFF_NETWORK:
       output_->SendPacketToClient(packet);

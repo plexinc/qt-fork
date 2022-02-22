@@ -40,8 +40,8 @@
     file. This enables creating a clear division between the application logic
     and the user interface implementation by using Qt Quick or Qt Widgets.
 
-    The Qt SCXML module differs from the \l {The State Machine Framework}
-    {State Machine framework} in the Qt Core module in that Qt SCXML provides a
+    The Qt SCXML module differs from the \l {Qt State Machine Overview}
+    {State Machine framework} in the Qt StateMachine module in that Qt SCXML provides a
     \e {conforming processor} that can parse and process \e {conforming SCXML
     documents}. In Qt SCXML, state machines are read from separate SCXML files
     and integrated to Qt applications by instantiating the QScxmlStateMachine

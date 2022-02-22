@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtSG module of the Qt Toolkit.
@@ -51,11 +51,13 @@
 // We mean it.
 //
 
+#include <private/qtquickglobal_p.h>
+
 #include "qquickitem.h"
 
 QT_BEGIN_NAMESPACE
 
-class Q_AUTOTEST_EXPORT QQuickPinch : public QObject
+class Q_QUICK_PRIVATE_EXPORT QQuickPinch : public QObject
 {
     Q_OBJECT
 
@@ -71,6 +73,7 @@ class Q_AUTOTEST_EXPORT QQuickPinch : public QObject
     Q_PROPERTY(qreal maximumY READ ymax WRITE setYmax NOTIFY maximumYChanged)
     Q_PROPERTY(bool active READ active NOTIFY activeChanged)
     QML_NAMED_ELEMENT(Pinch)
+    QML_ADDED_IN_VERSION(2, 0)
 
 public:
     QQuickPinch();
@@ -193,7 +196,7 @@ private:
     bool m_active;
 };
 
-class Q_AUTOTEST_EXPORT QQuickPinchEvent : public QObject
+class Q_QUICK_PRIVATE_EXPORT QQuickPinchEvent : public QObject
 {
     Q_OBJECT
 
@@ -212,6 +215,7 @@ class Q_AUTOTEST_EXPORT QQuickPinchEvent : public QObject
     Q_PROPERTY(int pointCount READ pointCount)
     Q_PROPERTY(bool accepted READ accepted WRITE setAccepted)
     QML_ANONYMOUS
+    QML_ADDED_IN_VERSION(2, 0)
 
 public:
     QQuickPinchEvent(QPointF c, qreal s, qreal a, qreal r)
@@ -264,13 +268,14 @@ private:
 
 class QQuickMouseEvent;
 class QQuickPinchAreaPrivate;
-class Q_AUTOTEST_EXPORT QQuickPinchArea : public QQuickItem
+class Q_QUICK_PRIVATE_EXPORT QQuickPinchArea : public QQuickItem
 {
     Q_OBJECT
 
     Q_PROPERTY(bool enabled READ isEnabled WRITE setEnabled NOTIFY enabledChanged)
     Q_PROPERTY(QQuickPinch *pinch READ pinch CONSTANT)
     QML_NAMED_ELEMENT(PinchArea)
+    QML_ADDED_IN_VERSION(2, 0)
 
 public:
     QQuickPinchArea(QQuickItem *parent=nullptr);
@@ -286,24 +291,21 @@ Q_SIGNALS:
     void pinchStarted(QQuickPinchEvent *pinch);
     void pinchUpdated(QQuickPinchEvent *pinch);
     void pinchFinished(QQuickPinchEvent *pinch);
-    Q_REVISION(5) void smartZoom(QQuickPinchEvent *pinch);
+    Q_REVISION(2, 5) void smartZoom(QQuickPinchEvent *pinch);
 
 protected:
     bool childMouseEventFilter(QQuickItem *i, QEvent *e) override;
     void touchEvent(QTouchEvent *event) override;
 
-    void geometryChanged(const QRectF &newGeometry,
-                         const QRectF &oldGeometry) override;
+    void geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry) override;
     void itemChange(ItemChange change, const ItemChangeData& value) override;
     bool event(QEvent *) override;
 
 private:
-    void clearPinch();
-    void cancelPinch();
-    void updatePinch();
+    void clearPinch(QTouchEvent *event);
+    void cancelPinch(QTouchEvent *event);
+    void updatePinch(QTouchEvent *event, bool filtering);
     void updatePinchTarget();
-    void handlePress();
-    void handleRelease();
 
 private:
     Q_DISABLE_COPY(QQuickPinchArea)

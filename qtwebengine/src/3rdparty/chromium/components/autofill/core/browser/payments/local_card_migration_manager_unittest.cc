@@ -110,7 +110,7 @@ class LocalCardMigrationManagerTest : public testing::Test {
   }
 
   void FormsSeen(const std::vector<FormData>& forms) {
-    autofill_manager_->OnFormsSeen(forms, base::TimeTicks());
+    autofill_manager_->OnFormsSeen(forms);
   }
 
   void FormSubmitted(const FormData& form) {
@@ -395,32 +395,10 @@ TEST_F(LocalCardMigrationManagerTest,
   EXPECT_FALSE(local_card_migration_manager_->LocalCardMigrationWasTriggered());
 }
 
-// Do not trigger migration if user only signs in.
-TEST_F(LocalCardMigrationManagerTest, MigrateCreditCard_SignInOnlyWhenExpOff) {
-  scoped_feature_list_.InitWithFeatures(
-      // Enabled
-      {features::kAutofillEnableAccountWalletStorage},
-      // Disabled
-      {features::kAutofillEnableLocalCardMigrationForNonSyncUser});
-
-  // Mock Chrome Sync is disabled.
-  local_card_migration_manager_->ResetSyncState(
-      AutofillSyncSigninState::kSignedInAndWalletSyncTransportEnabled);
-
-  // Use one local card with more valid local cards available.
-  UseLocalCardWithOtherLocalCardsOnFile();
-
-  EXPECT_FALSE(local_card_migration_manager_->LocalCardMigrationWasTriggered());
-}
-
-// Trigger migration if user only signs in and if experiment is enabled.
-TEST_F(LocalCardMigrationManagerTest, MigrateCreditCard_SignInOnlyWhenExpOn) {
-  scoped_feature_list_.InitWithFeatures(
-      // Enabled
-      {features::kAutofillEnableLocalCardMigrationForNonSyncUser,
-       features::kAutofillEnableAccountWalletStorage},
-      // Disabled
-      {});
+// Trigger migration if user only signs in.
+TEST_F(LocalCardMigrationManagerTest, MigrateCreditCard_SignInOnly) {
+  scoped_feature_list_.InitAndEnableFeature(
+      features::kAutofillEnableAccountWalletStorage);
 
   // Mock Chrome Sync is disabled.
   local_card_migration_manager_->ResetSyncState(

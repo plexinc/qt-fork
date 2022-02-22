@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -45,6 +45,9 @@
   is a superior solution; multi-process use cases are supported through
   \l{Qt Wayland Compositor}{Wayland}.
 
+  See \l{Configure an Embedded Linux Device} for an overview of configuring Qt
+  for cross-compilation using an Embedded Linux toolchain.
+
   \section1 Platform Plugins for Embedded Linux Devices
 
   \target embedded eglfs
@@ -63,15 +66,14 @@
     \li \e{EGL device integration} -- dynamically loaded plugins
   \endlist
 
-  EGLFS is a platform plugin for running Qt5 applications on top of EGL and
-  OpenGL ES 2.0, without an actual windowing system like X11 or Wayland. In
-  addition to Qt Quick 2 and native OpenGL applications, EGLFS supports
+  EGLFS is a platform plugin for running Qt applications on top of EGL and
+  OpenGL ES 2.0, without an actual windowing system like X11 or Wayland. It is
+  the recommended plugin for modern Embedded Linux devices that include a GPU.
+
+  In addition to Qt Quick and native OpenGL applications, EGLFS supports
   software-rendered windows, like QWidget, too. For QWidget, the widgets'
   contents are rendered using the CPU into images, which are then
   uploaded into textures and composited by the plugin.
-
-  EGLFS is the recommended plugin for modern Embedded Linux devices that
-  include a GPU.
 
   EGLFS forces the first top-level window - either a QWidget or a QQuickView
   - to become fullscreen. This window is also chosen to be the \e root widget
@@ -88,6 +90,9 @@
   a QQuickView, or a QOpenGLWidget. Opening additional OpenGL windows or mixing
   such windows with QWidget-based content isn't supported; Qt terminates the
   application with an error message.
+
+  Furthermore, APIs designed for desktop platforms or environments with a
+  windowing system, such as \l{Drag and Drop}, are not supported on EGLFS.
 
   If necessary, \c eglfs can be configured using the following environment
   variables:
@@ -117,14 +122,9 @@
           necessary to use EGL with the framebuffer; no plugins must be loaded.
     \row
       \li \c {QT_QPA_EGLFS_PHYSICAL_WIDTH} and \c {QT_QPA_EGLFS_PHYSICAL_HEIGHT}
-      \li Specifies the physical screen's width and height in millimeters. On
-          platforms where the value can't be queried from the framebuffer
-          device \e{/dev/fb0} or via other means, a default DPI of 100 is used.
-          Use this variable to override any such defaults. Setting this variable
-          is important because QWidget- or Qt Quick Controls-based applications
-          rely on these values. Running these applications with the hard-coded
-          settings may result in user interface elements with sizes that are
-          unsuitable for the display in use.
+      \li Specifies the physical screen's width and height in millimeters. Note
+          that since Qt 6 the physical screen size is no longer used to determine
+          logical dpi.
     \row
       \li \c {QT_QPA_EGLFS_ROTATION}
       \li Specifies the rotation applied to software-rendered content in
@@ -820,9 +820,6 @@
    \li \l{Qt for Device Creation}
    \li \l{Configure an Embedded Linux Device}
    \li \l{Inputs on an Embedded Linux Device}
-   \li \l Emulator
-   \li \l{Qt Virtual Keyboard}
-   \li \l{Qt Quick WebGL}
   \endlist
 
 */

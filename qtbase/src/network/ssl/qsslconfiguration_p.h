@@ -118,9 +118,9 @@ public:
 
     QSsl::SslOptions sslOptions;
 
-    Q_AUTOTEST_EXPORT static const QSsl::SslOptions defaultSslOptions;
+    static const QSsl::SslOptions defaultSslOptions;
 
-    QVector<QSslEllipticCurve> ellipticCurves;
+    QList<QSslEllipticCurve> ellipticCurves;
 
     QSslDiffieHellmanParameters dhParams;
 
@@ -148,6 +148,14 @@ public:
 #else
     const bool ocspStaplingEnabled = false;
 #endif
+
+#if QT_CONFIG(openssl)
+    bool reportFromCallback = false;
+    bool missingCertIsFatal = false;
+#else
+    const bool reportFromCallback = false;
+    const bool missingCertIsFatal = false;
+#endif // openssl
 
     // in qsslsocket.cpp:
     static QSslConfiguration defaultConfiguration();

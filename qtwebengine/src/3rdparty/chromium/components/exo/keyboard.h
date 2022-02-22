@@ -5,8 +5,9 @@
 #ifndef COMPONENTS_EXO_KEYBOARD_H_
 #define COMPONENTS_EXO_KEYBOARD_H_
 
-#include <vector>
+#include <memory>
 
+#include "ash/ime/ime_controller_impl.h"
 #include "ash/public/cpp/keyboard/keyboard_controller_observer.h"
 #include "base/containers/flat_map.h"
 #include "base/containers/flat_set.h"
@@ -34,12 +35,13 @@ class Surface;
 class Keyboard : public ui::EventHandler,
                  public SurfaceObserver,
                  public SeatObserver,
-                 public ash::KeyboardControllerObserver {
+                 public ash::KeyboardControllerObserver,
+                 public ash::ImeControllerImpl::Observer {
  public:
-  Keyboard(KeyboardDelegate* delegate, Seat* seat);
+  Keyboard(std::unique_ptr<KeyboardDelegate> delegate, Seat* seat);
   ~Keyboard() override;
 
-  KeyboardDelegate* delegate() const { return delegate_; }
+  KeyboardDelegate* delegate() const { return delegate_.get(); }
 
   bool HasDeviceConfigurationDelegate() const;
   void SetDeviceConfigurationDelegate(
@@ -67,6 +69,14 @@ class Keyboard : public ui::EventHandler,
 
   // Overridden from ash::KeyboardControllerObserver
   void OnKeyboardEnabledChanged(bool is_enabled) override;
+  void OnKeyRepeatSettingsChanged(
+      const ash::KeyRepeatSettings& settings) override;
+
+  // Overridden from ash::ImeControllerImpl::Observer
+  void OnCapsLockChanged(bool enabled) override;
+  void OnKeyboardLayoutNameChanged(const std::string& layout_name) override;
+
+  Surface* focused_surface_for_testing() const { return focus_; }
 
  private:
   // Change keyboard focus to |surface|.
@@ -89,7 +99,7 @@ class Keyboard : public ui::EventHandler,
 
   // The delegate instance that all events except for events about device
   // configuration are dispatched to.
-  KeyboardDelegate* const delegate_;
+  std::unique_ptr<KeyboardDelegate> delegate_;
 
   // Seat that the Keyboard recieves focus events from.
   Seat* const seat_;
@@ -109,9 +119,6 @@ class Keyboard : public ui::EventHandler,
   // details.
   base::flat_map<ui::DomCode, ui::DomCode> pressed_keys_;
 
-  // Current set of modifier flags.
-  int modifier_flags_ = 0;
-
   // Key state changes that are expected to be acknowledged.
   using KeyStateChange = std::pair<ui::KeyEvent, base::TimeTicks>;
   base::flat_map<uint32_t, KeyStateChange> pending_key_acks_;
@@ -125,7 +132,7 @@ class Keyboard : public ui::EventHandler,
   // True when the ARC app window is focused.
   // TODO(yhanada, https://crbug.com/847500): Remove this when we find a way to
   // fix https://crbug.com/847500 without breaking ARC++ apps.
-  bool focus_belongs_to_arc_app_ = false;
+  bool focused_on_ime_supported_surface_ = false;
 
   base::ObserverList<KeyboardObserver>::Unchecked observer_list_;
 

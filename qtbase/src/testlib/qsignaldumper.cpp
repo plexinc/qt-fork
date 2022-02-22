@@ -66,7 +66,9 @@ enum { IndentSpacesCount = 4 };
 
 static void qSignalDumperCallback(QObject *caller, int signal_index, void **argv)
 {
-    Q_ASSERT(caller); Q_ASSERT(argv); Q_UNUSED(argv);
+    Q_ASSERT(caller);
+    Q_ASSERT(argv);
+    Q_UNUSED(argv);
     const QMetaObject *mo = caller->metaObject();
     Q_ASSERT(mo);
     QMetaMethod member = QMetaObjectPrivate::signal(mo, signal_index);
@@ -96,7 +98,7 @@ static void qSignalDumperCallback(QObject *caller, int signal_index, void **argv
     QList<QByteArray> args = member.parameterTypes();
     for (int i = 0; i < args.count(); ++i) {
         const QByteArray &arg = args.at(i);
-        int typeId = QMetaType::type(args.at(i).constData());
+        int typeId = QMetaType::fromName(args.at(i).constData()).id();
         if (arg.endsWith('*') || arg.endsWith('&')) {
             str += '(';
             str += arg;
@@ -110,7 +112,7 @@ static void qSignalDumperCallback(QObject *caller, int signal_index, void **argv
             Q_ASSERT(typeId != QMetaType::Void); // void parameter => metaobject is corrupt
             str.append(arg)
                 .append('(')
-                .append(QVariant(typeId, argv[i + 1]).toString().toLocal8Bit())
+                .append(QVariant(QMetaType(typeId), argv[i + 1]).toString().toLocal8Bit())
                 .append(')');
         }
         str.append(", ");
@@ -123,7 +125,9 @@ static void qSignalDumperCallback(QObject *caller, int signal_index, void **argv
 
 static void qSignalDumperCallbackSlot(QObject *caller, int method_index, void **argv)
 {
-    Q_ASSERT(caller); Q_ASSERT(argv); Q_UNUSED(argv);
+    Q_ASSERT(caller);
+    Q_ASSERT(argv);
+    Q_UNUSED(argv);
     const QMetaObject *mo = caller->metaObject();
     Q_ASSERT(mo);
     QMetaMethod member = mo->method(method_index);
@@ -166,8 +170,16 @@ static void qSignalDumperCallbackEndSignal(QObject *caller, int /*signal_index*/
 
 }
 
+void QSignalDumper::setEnabled(bool enabled)
+{
+    s_isEnabled = enabled;
+}
+
 void QSignalDumper::startDump()
 {
+    if (!s_isEnabled)
+        return;
+
     static QSignalSpyCallbackSet set = { QTest::qSignalDumperCallback,
         QTest::qSignalDumperCallbackSlot, QTest::qSignalDumperCallbackEndSignal, nullptr };
     qt_register_signal_spy_callbacks(&set);
@@ -189,5 +201,7 @@ void QSignalDumper::clearIgnoredClasses()
     if (QTest::ignoreClasses())
         QTest::ignoreClasses()->clear();
 }
+
+bool QSignalDumper::s_isEnabled = false;
 
 QT_END_NAMESPACE

@@ -49,7 +49,7 @@ bool SelectionTemplate<Strategy>::operator!=(
 }
 
 template <typename Strategy>
-void SelectionTemplate<Strategy>::Trace(Visitor* visitor) {
+void SelectionTemplate<Strategy>::Trace(Visitor* visitor) const {
   visitor->Trace(base_);
   visitor->Trace(extent_);
 }
@@ -186,15 +186,6 @@ void SelectionTemplate<Strategy>::ResetDirectionCache() const {
 }
 
 template <typename Strategy>
-SelectionType SelectionTemplate<Strategy>::Type() const {
-  if (base_.IsNull())
-    return kNoSelection;
-  if (base_ == extent_)
-    return kCaretSelection;
-  return kRangeSelection;
-}
-
-template <typename Strategy>
 void SelectionTemplate<Strategy>::PrintTo(std::ostream* ostream,
                                           const char* type) const {
   if (IsNone()) {
@@ -282,6 +273,8 @@ SelectionTemplate<Strategy>::Builder::Extend(
   DCHECK_EQ(selection_.GetDocument(), position.GetDocument());
   DCHECK(selection_.Base().IsConnected()) << selection_.Base();
   DCHECK(selection_.AssertValid());
+  if (selection_.extent_.IsEquivalent(position))
+    return *this;
   selection_.extent_ = position;
   selection_.direction_ = Direction::kNotComputed;
   return *this;
@@ -424,7 +417,7 @@ SelectionInFlatTree ConvertToSelectionInFlatTree(
 
 template <typename Strategy>
 void SelectionTemplate<Strategy>::InvalidSelectionResetter::Trace(
-    blink::Visitor* visitor) {
+    blink::Visitor* visitor) const {
   visitor->Trace(document_);
 }
 

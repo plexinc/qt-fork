@@ -48,13 +48,13 @@
 **
 ****************************************************************************/
 
-in vec3 attr_pos;
-uniform mat4 modelViewProjection;
+VARYING vec3 pos;
+VARYING vec2 coord;
 
-out vec3 pos;
-
-void main() {
-    pos = attr_pos;
+void MAIN()
+{
+    pos = VERTEX;
     pos.x += sin(time * 4.0 + pos.y) * amplitude;
-    gl_Position = modelViewProjection * vec4(pos, 1.0);
+    coord = UV0;
+    POSITION = MODELVIEWPROJECTION_MATRIX * vec4(pos, 1.0);
 }

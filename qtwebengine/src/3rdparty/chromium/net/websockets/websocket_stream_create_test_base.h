@@ -25,6 +25,7 @@ namespace net {
 
 class HttpRequestHeaders;
 class HttpResponseHeaders;
+class IsolationInfo;
 class URLRequest;
 class WebSocketStream;
 class WebSocketStreamRequest;
@@ -40,14 +41,13 @@ class WebSocketStreamCreateTestBase : public WithTaskEnvironment {
 
   // A wrapper for CreateAndConnectStreamForTesting that knows about our default
   // parameters.
-  void CreateAndConnectStream(
-      const GURL& socket_url,
-      const std::vector<std::string>& sub_protocols,
-      const url::Origin& origin,
-      const SiteForCookies& site_for_cookies,
-      const net::NetworkIsolationKey& network_isolation_key,
-      const HttpRequestHeaders& additional_headers,
-      std::unique_ptr<base::OneShotTimer> timer);
+  void CreateAndConnectStream(const GURL& socket_url,
+                              const std::vector<std::string>& sub_protocols,
+                              const url::Origin& origin,
+                              const SiteForCookies& site_for_cookies,
+                              const IsolationInfo& isolation_info,
+                              const HttpRequestHeaders& additional_headers,
+                              std::unique_ptr<base::OneShotTimer> timer);
 
   static std::vector<HeaderKeyValuePair> RequestHeadersToVector(
       const HttpRequestHeaders& headers);
@@ -55,6 +55,7 @@ class WebSocketStreamCreateTestBase : public WithTaskEnvironment {
       const HttpResponseHeaders& headers);
 
   const std::string& failure_message() const { return failure_message_; }
+  int failure_response_code() const { return failure_response_code_; }
   bool has_failed() const { return has_failed_; }
 
   // Runs |connect_run_loop_|. It will stop when the connection establishes or
@@ -75,6 +76,7 @@ class WebSocketStreamCreateTestBase : public WithTaskEnvironment {
   std::unique_ptr<WebSocketStream> stream_;
   // Only set if the connection failed.
   std::string failure_message_;
+  int failure_response_code_ = -1;
   bool has_failed_;
   std::unique_ptr<WebSocketHandshakeRequestInfo> request_info_;
   std::unique_ptr<WebSocketHandshakeResponseInfo> response_info_;

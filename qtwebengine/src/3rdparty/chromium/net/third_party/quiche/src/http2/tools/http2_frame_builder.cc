@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/http2/tools/http2_frame_builder.h"
+#include "http2/tools/http2_frame_builder.h"
 
 #ifdef WIN32
 #include <winsock2.h>  // for htonl() functions
@@ -11,8 +11,8 @@
 #include <netinet/in.h>  // for htonl, htons
 #endif
 
-#include "testing/gtest/include/gtest/gtest.h"
-#include "net/third_party/quiche/src/http2/platform/api/http2_string_utils.h"
+#include "http2/platform/api/http2_string_utils.h"
+#include "common/platform/api/quiche_test.h"
 
 namespace http2 {
 namespace test {
@@ -30,12 +30,12 @@ Http2FrameBuilder::Http2FrameBuilder(const Http2FrameHeader& v) {
   Append(v);
 }
 
-void Http2FrameBuilder::Append(quiche::QuicheStringPiece s) {
+void Http2FrameBuilder::Append(absl::string_view s) {
   Http2StrAppend(&buffer_, s);
 }
 
 void Http2FrameBuilder::AppendBytes(const void* data, uint32_t num_bytes) {
-  Append(quiche::QuicheStringPiece(static_cast<const char*>(data), num_bytes));
+  Append(absl::string_view(static_cast<const char*>(data), num_bytes));
 }
 
 void Http2FrameBuilder::AppendZeroes(size_t num_zero_bytes) {
@@ -141,9 +141,13 @@ void Http2FrameBuilder::Append(const Http2AltSvcFields& v) {
   AppendUInt16(v.origin_length);
 }
 
+void Http2FrameBuilder::Append(const Http2PriorityUpdateFields& v) {
+  AppendUInt31(v.prioritized_stream_id);
+}
+
 // Methods for changing existing buffer contents.
 
-void Http2FrameBuilder::WriteAt(quiche::QuicheStringPiece s, size_t offset) {
+void Http2FrameBuilder::WriteAt(absl::string_view s, size_t offset) {
   ASSERT_LE(offset, buffer_.size());
   size_t len = offset + s.size();
   if (len > buffer_.size()) {
@@ -157,8 +161,7 @@ void Http2FrameBuilder::WriteAt(quiche::QuicheStringPiece s, size_t offset) {
 void Http2FrameBuilder::WriteBytesAt(const void* data,
                                      uint32_t num_bytes,
                                      size_t offset) {
-  WriteAt(quiche::QuicheStringPiece(static_cast<const char*>(data), num_bytes),
-          offset);
+  WriteAt(absl::string_view(static_cast<const char*>(data), num_bytes), offset);
 }
 
 void Http2FrameBuilder::WriteUInt24At(uint32_t value, size_t offset) {

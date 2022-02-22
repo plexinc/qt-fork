@@ -35,6 +35,9 @@ import * as Workspace from '../workspace/workspace.js';
 import {DebuggerWorkspaceBinding} from './DebuggerWorkspaceBinding.js';
 import {LiveLocation, LiveLocationPool} from './LiveLocation.js';  // eslint-disable-line no-unused-vars
 
+/** @type {!WeakMap<!SDK.DebuggerModel.DebuggerModel, !PresentationConsoleMessageHelper>} */
+const debuggerModelToMessageHelperMap = new WeakMap();
+
 /**
  * @implements {SDK.SDKModel.SDKModelObserver<!SDK.DebuggerModel.DebuggerModel>}
  */
@@ -55,7 +58,7 @@ export class PresentationConsoleMessageManager {
    * @param {!SDK.DebuggerModel.DebuggerModel} debuggerModel
    */
   modelAdded(debuggerModel) {
-    debuggerModel[PresentationConsoleMessageManager._symbol] = new PresentationConsoleMessageHelper(debuggerModel);
+    debuggerModelToMessageHelperMap.set(debuggerModel, new PresentationConsoleMessageHelper(debuggerModel));
   }
 
   /**
@@ -63,29 +66,36 @@ export class PresentationConsoleMessageManager {
    * @param {!SDK.DebuggerModel.DebuggerModel} debuggerModel
    */
   modelRemoved(debuggerModel) {
-    debuggerModel[PresentationConsoleMessageManager._symbol]._consoleCleared();
+    const helper = debuggerModelToMessageHelperMap.get(debuggerModel);
+    if (helper) {
+      helper._consoleCleared();
+    }
   }
 
   /**
    * @param {!SDK.ConsoleModel.ConsoleMessage} message
    */
   _consoleMessageAdded(message) {
+    const runtimeModel = message.runtimeModel();
     if (!message.isErrorOrWarning() || !message.runtimeModel() ||
-        message.source === SDK.ConsoleModel.MessageSource.Violation) {
+        message.source === SDK.ConsoleModel.MessageSource.Violation || !runtimeModel) {
       return;
     }
-    const debuggerModel = message.runtimeModel().debuggerModel();
-    debuggerModel[PresentationConsoleMessageManager._symbol]._consoleMessageAdded(message);
+    const helper = debuggerModelToMessageHelperMap.get(runtimeModel.debuggerModel());
+    if (helper) {
+      helper._consoleMessageAdded(message);
+    }
   }
 
   _consoleCleared() {
     for (const debuggerModel of SDK.SDKModel.TargetManager.instance().models(SDK.DebuggerModel.DebuggerModel)) {
-      debuggerModel[PresentationConsoleMessageManager._symbol]._consoleCleared();
+      const helper = debuggerModelToMessageHelperMap.get(debuggerModel);
+      if (helper) {
+        helper._consoleCleared();
+      }
     }
   }
 }
-
-PresentationConsoleMessageManager._symbol = Symbol('PresentationConsoleMessageHelper');
 
 export class PresentationConsoleMessageHelper {
   /**
@@ -94,15 +104,17 @@ export class PresentationConsoleMessageHelper {
   constructor(debuggerModel) {
     this._debuggerModel = debuggerModel;
 
-    /** @type {!Object.<string, !Array.<!SDK.ConsoleModel.ConsoleMessage>>} */
-    this._pendingConsoleMessages = {};
+    /** @type {!Map<string, !Array.<!SDK.ConsoleModel.ConsoleMessage>>} */
+    this._pendingConsoleMessages = new Map();
 
     /** @type {!Array.<!PresentationConsoleMessage>} */
     this._presentationConsoleMessages = [];
 
-    // TODO(dgozman): setImmediate because we race with DebuggerWorkspaceBinding on ParsedScriptSource event delivery.
+    // TODO(dgozman): queueMicrotask because we race with DebuggerWorkspaceBinding on ParsedScriptSource event delivery.
     debuggerModel.addEventListener(SDK.DebuggerModel.Events.ParsedScriptSource, event => {
-      setImmediate(this._parsedScriptSource.bind(this, event));
+      queueMicrotask(() => {
+        this._parsedScriptSource(event);
+      });
     });
     debuggerModel.addEventListener(SDK.DebuggerModel.Events.GlobalObjectCleared, this._debuggerReset, this);
 
@@ -155,10 +167,12 @@ export class PresentationConsoleMessageHelper {
     if (!message.url) {
       return;
     }
-    if (!this._pendingConsoleMessages[message.url]) {
-      this._pendingConsoleMessages[message.url] = [];
+    const pendingMessages = this._pendingConsoleMessages.get(message.url);
+    if (!pendingMessages) {
+      this._pendingConsoleMessages.set(message.url, [message]);
+    } else {
+      pendingMessages.push(message);
     }
-    this._pendingConsoleMessages[message.url].push(message);
   }
 
   /**
@@ -167,19 +181,15 @@ export class PresentationConsoleMessageHelper {
   _parsedScriptSource(event) {
     const script = /** @type {!SDK.Script.Script} */ (event.data);
 
-    const messages = this._pendingConsoleMessages[script.sourceURL];
+    const messages = this._pendingConsoleMessages.get(script.sourceURL);
     if (!messages) {
       return;
     }
 
     const pendingMessages = [];
-    for (let i = 0; i < messages.length; i++) {
-      const message = messages[i];
+    for (const message of messages) {
       const rawLocation = this._rawLocation(message);
-      if (!rawLocation) {
-        continue;
-      }
-      if (script.scriptId === rawLocation.scriptId) {
+      if (rawLocation && script.scriptId === rawLocation.scriptId) {
         this._addConsoleMessageToScript(message, rawLocation);
       } else {
         pendingMessages.push(message);
@@ -187,14 +197,14 @@ export class PresentationConsoleMessageHelper {
     }
 
     if (pendingMessages.length) {
-      this._pendingConsoleMessages[script.sourceURL] = pendingMessages;
+      this._pendingConsoleMessages.set(script.sourceURL, pendingMessages);
     } else {
-      delete this._pendingConsoleMessages[script.sourceURL];
+      this._pendingConsoleMessages.delete(script.sourceURL);
     }
   }
 
   _consoleCleared() {
-    this._pendingConsoleMessages = {};
+    this._pendingConsoleMessages = new Map();
     this._debuggerReset();
   }
 
@@ -207,9 +217,6 @@ export class PresentationConsoleMessageHelper {
   }
 }
 
-/**
- * @unrestricted
- */
 export class PresentationConsoleMessage {
   /**
    * @param {!SDK.ConsoleModel.ConsoleMessage} message

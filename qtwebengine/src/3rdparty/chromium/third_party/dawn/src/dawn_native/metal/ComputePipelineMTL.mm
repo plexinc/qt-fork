@@ -23,10 +23,9 @@ namespace dawn_native { namespace metal {
     ResultOrError<ComputePipeline*> ComputePipeline::Create(
         Device* device,
         const ComputePipelineDescriptor* descriptor) {
-        std::unique_ptr<ComputePipeline> pipeline =
-            std::make_unique<ComputePipeline>(device, descriptor);
+        Ref<ComputePipeline> pipeline = AcquireRef(new ComputePipeline(device, descriptor));
         DAWN_TRY(pipeline->Initialize(descriptor));
-        return pipeline.release();
+        return pipeline.Detach();
     }
 
     MaybeError ComputePipeline::Initialize(const ComputePipelineDescriptor* descriptor) {
@@ -35,29 +34,28 @@ namespace dawn_native { namespace metal {
         ShaderModule* computeModule = ToBackend(descriptor->computeStage.module);
         const char* computeEntryPoint = descriptor->computeStage.entryPoint;
         ShaderModule::MetalFunctionData computeData;
-        DAWN_TRY(computeModule->GetFunction(computeEntryPoint, SingleShaderStage::Compute,
-                                            ToBackend(GetLayout()), &computeData));
+        DAWN_TRY(computeModule->CreateFunction(computeEntryPoint, SingleShaderStage::Compute,
+                                               ToBackend(GetLayout()), &computeData));
 
-        NSError* error = nil;
-        mMtlComputePipelineState =
-            [mtlDevice newComputePipelineStateWithFunction:computeData.function error:&error];
-        if (error != nil) {
+        NSError* error = nullptr;
+        mMtlComputePipelineState.Acquire([mtlDevice
+            newComputePipelineStateWithFunction:computeData.function.Get()
+                                          error:&error]);
+        if (error != nullptr) {
             NSLog(@" error => %@", error);
             return DAWN_INTERNAL_ERROR("Error creating pipeline state");
         }
 
         // Copy over the local workgroup size as it is passed to dispatch explicitly in Metal
-        mLocalWorkgroupSize = computeData.localWorkgroupSize;
+        Origin3D localSize = GetStage(SingleShaderStage::Compute).metadata->localWorkgroupSize;
+        mLocalWorkgroupSize = MTLSizeMake(localSize.x, localSize.y, localSize.z);
+
         mRequiresStorageBufferLength = computeData.needsStorageBufferLength;
         return {};
     }
 
-    ComputePipeline::~ComputePipeline() {
-        [mMtlComputePipelineState release];
-    }
-
     void ComputePipeline::Encode(id<MTLComputeCommandEncoder> encoder) {
-        [encoder setComputePipelineState:mMtlComputePipelineState];
+        [encoder setComputePipelineState:mMtlComputePipelineState.Get()];
     }
 
     MTLSize ComputePipeline::GetLocalWorkGroupSize() const {

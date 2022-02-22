@@ -41,7 +41,6 @@
 
 #include <Qt3DInput/qabstractphysicaldevice.h>
 #include <Qt3DInput/qabstractactioninput.h>
-#include <Qt3DCore/qnodecreatedchange.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -106,7 +105,7 @@ QActionInput::~QActionInput()
 
     Holds the buttons that can trigger this Action.
  */
-QVector<int> QActionInput::buttons() const
+QList<int> QActionInput::buttons() const
 {
     Q_D(const QActionInput);
     return d->m_buttons;
@@ -166,7 +165,7 @@ QAbstractPhysicalDevice *QActionInput::sourceDevice() const
 }
 
 /*!
-  \fn Qt3DInput::QActionInput::buttonsChanged(const QVector<int> &buttons)
+  \fn Qt3DInput::QActionInput::buttonsChanged(const QList<int> &buttons)
 
   This signal is emitted when the buttons associated with the action input is changed.
   The buttons changed are \a buttons
@@ -179,7 +178,7 @@ QAbstractPhysicalDevice *QActionInput::sourceDevice() const
 */
 
 /*!
-    \qmlsignal Qt3D.Input::ActionInput::buttonsChanged(const QVector<int> &buttons)
+    \qmlsignal Qt3D.Input::ActionInput::buttonsChanged(const QList<int> &buttons)
 
     This signal is emitted when the \a buttons associated with the action input is changed.
 
@@ -189,25 +188,13 @@ QAbstractPhysicalDevice *QActionInput::sourceDevice() const
 /*!
     Set the buttons to trigger the QActionInput instance to \a buttons.
  */
-void QActionInput::setButtons(const QVector<int> &buttons)
+void QActionInput::setButtons(const QList<int> &buttons)
 {
     Q_D(QActionInput);
     if (buttons != d->m_buttons) {
         d->m_buttons = buttons;
         emit buttonsChanged(buttons);
     }
-}
-
-Qt3DCore::QNodeCreatedChangeBasePtr QActionInput::createNodeCreationChange() const
-{
-    auto creationChange = Qt3DCore::QNodeCreatedChangePtr<QActionInputData>::create(this);
-    auto &data = creationChange->data;
-
-    Q_D(const QActionInput);
-    data.sourceDeviceId = qIdForNode(d->m_sourceDevice);
-    data.buttons = d->m_buttons;
-
-    return creationChange;
 }
 
 } // Qt3DInput

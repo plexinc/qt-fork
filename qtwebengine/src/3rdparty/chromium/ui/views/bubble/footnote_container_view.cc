@@ -15,6 +15,7 @@
 #include "ui/views/background.h"
 #include "ui/views/border.h"
 #include "ui/views/layout/box_layout.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace views {
 
@@ -57,7 +58,6 @@ FootnoteContainerView::FootnoteContainerView(const gfx::Insets& margins,
   SetLayoutManager(std::make_unique<BoxLayout>(
       BoxLayout::Orientation::kVertical, margins, 0));
   SetCornerRadius(corner_radius);
-  ResetBorder();
   auto* child_view_ptr = AddChildView(std::move(child_view));
   SetVisible(child_view_ptr->GetVisible());
 }
@@ -88,14 +88,12 @@ void FootnoteContainerView::ResetBackground() {
 }
 
 void FootnoteContainerView::ResetBorder() {
-  SetBorder(CreateSolidSidedBorder(1, 0, 0, 0,
-                                   GetNativeTheme()->ShouldUseDarkColors()
-                                       ? gfx::kGoogleGrey900
-                                       : gfx::kGoogleGrey200));
+  SetBorder(CreateSolidSidedBorder(
+      1, 0, 0, 0, GetNativeTheme()->GetSystemColor(
+                ui::NativeTheme::kColorId_FootnoteContainerBorder)));
 }
 
-BEGIN_METADATA(FootnoteContainerView)
-METADATA_PARENT_CLASS(View)
-END_METADATA()
+BEGIN_METADATA(FootnoteContainerView, View)
+END_METADATA
 
 }  // namespace views

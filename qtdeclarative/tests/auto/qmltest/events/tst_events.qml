@@ -60,11 +60,14 @@ Rectangle {
     Window {
         id: sub
         visible: true
+        width: 200
+        height: 200
         property bool clicked: false
         MouseArea {
             anchors.fill: parent
             onClicked: sub.clicked = true
         }
+        Component.onCompleted: show()
     }
 
     MouseArea {
@@ -101,6 +104,8 @@ Rectangle {
         }
 
         function test_mouse_click_subwindow() {
+            compare(sub.width, 200)
+            compare(sub.height, 200)
             mouseClick(sub)
             tryCompare(sub, "clicked", true, 10000)
         }
@@ -115,11 +120,6 @@ Rectangle {
             compare(doubleClickSpy.signalArguments[3][0], "pressed")
             compare(doubleClickSpy.signalArguments[4][0], "doubleClick")
             compare(doubleClickSpy.signalArguments[5][0], "released")
-
-            doubleClickSpy.clear()
-            mouseDoubleClick(top, 25, 30)
-            compare(doubleClickSpy.count, 1)
-            compare(doubleClickSpy.signalArguments[0][0], "doubleClick")
         }
     }
 }

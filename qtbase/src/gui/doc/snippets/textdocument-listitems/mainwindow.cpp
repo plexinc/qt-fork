@@ -47,10 +47,13 @@
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
-
-#include <QtGui>
-
 #include "mainwindow.h"
+
+#include <QMenu>
+#include <QMenuBar>
+#include <QTextEdit>
+#include <QTextList>
+#include <QTreeWidget>
 
 MainWindow::MainWindow()
 {
@@ -127,9 +130,9 @@ void MainWindow::showList()
     headerLabels << tr("Lists");
     treeWidget->setHeaderLabels(headerLabels);
 
-    QTreeWidgetItem *parentItem = 0;
+    QTreeWidgetItem *parentItem = nullptr;
     QTreeWidgetItem *item;
-    QTreeWidgetItem *lastItem = 0;
+    QTreeWidgetItem *lastItem = nullptr;
     parentItems.clear();
     previousItems.clear();
 

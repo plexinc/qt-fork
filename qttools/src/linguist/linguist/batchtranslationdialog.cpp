@@ -50,9 +50,12 @@ BatchTranslationDialog::BatchTranslationDialog(MultiDataModel *dataModel, QWidge
  : QDialog(w), m_model(this), m_dataModel(dataModel)
 {
     m_ui.setupUi(this);
-    connect(m_ui.runButton, SIGNAL(clicked()), this, SLOT(startTranslation()));
-    connect(m_ui.moveUpButton, SIGNAL(clicked()), this, SLOT(movePhraseBookUp()));
-    connect(m_ui.moveDownButton, SIGNAL(clicked()), this, SLOT(movePhraseBookDown()));
+    connect(m_ui.runButton, &QAbstractButton::clicked,
+            this, &BatchTranslationDialog::startTranslation);
+    connect(m_ui.moveUpButton, &QAbstractButton::clicked,
+            this, &BatchTranslationDialog::movePhraseBookUp);
+    connect(m_ui.moveDownButton, &QAbstractButton::clicked,
+            this, &BatchTranslationDialog::movePhraseBookDown);
 
     m_ui.phrasebookList->setModel(&m_model);
     m_ui.phrasebookList->setSelectionBehavior(QAbstractItemView::SelectItems);
@@ -118,7 +121,8 @@ void BatchTranslationDialog::startTranslation()
                     QVariant checkState = m_model.data(idx, Qt::CheckStateRole);
                     if (checkState == Qt::Checked) {
                         PhraseBook *pb = m_phrasebooks[m_model.data(idx, Qt::UserRole).toInt()];
-                        foreach (const Phrase *ph, pb->phrases()) {
+                        const auto phrases = pb->phrases();
+                        for (const Phrase *ph : phrases) {
                             if (ph->source() == m->text()) {
                                 m_dataModel->setTranslation(it, ph->target());
                                 m_dataModel->setFinished(it, m_ui.ckMarkFinished->isChecked());

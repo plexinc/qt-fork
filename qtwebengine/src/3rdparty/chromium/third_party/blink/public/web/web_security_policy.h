@@ -52,7 +52,8 @@ class WebSecurityPolicy {
   BLINK_EXPORT static void RegisterURLSchemeAsAllowingServiceWorkers(
       const WebString&);
 
-  // Registers an URL scheme as allowing 'wasm-eval' CSP source directive.
+  // Registers an URL scheme as allowing the not-yet-standardized 'wasm-eval'
+  // CSP source directive.
   BLINK_EXPORT static void RegisterURLSchemeAsAllowingWasmEvalCSP(
       const WebString&);
 
@@ -64,6 +65,12 @@ class WebSecurityPolicy {
   // loaded in a top-level context.
   BLINK_EXPORT static void RegisterURLSchemeAsFirstPartyWhenTopLevel(
       const WebString&);
+
+  // Registers a URL scheme which will be considered first-party when loaded in
+  // a top-level context for child contexts which were loaded over secure
+  // schemes.
+  BLINK_EXPORT static void
+  RegisterURLSchemeAsFirstPartyWhenTopLevelEmbeddingSecure(const WebString&);
 
   // Support for managing allow/block access lists to origins beyond the
   // same-origin policy. The block list takes priority over the allow list.
@@ -94,11 +101,6 @@ class WebSecurityPolicy {
       const WebURL& source_origin);
   BLINK_EXPORT static void ClearOriginAccessList();
 
-  // Adds an origin or hostname pattern that is always considered trustworthy.
-  // This method does not perform canonicalization; the caller is responsible
-  // for canonicalizing the input.
-  BLINK_EXPORT static void AddOriginToTrustworthySafelist(const WebString&);
-
   // Add a scheme that is always considered a secure context. The caller is
   // responsible for canonicalizing the input.
   BLINK_EXPORT static void AddSchemeToSecureContextSafelist(const WebString&);
@@ -119,6 +121,9 @@ class WebSecurityPolicy {
   // Registers an URL scheme as allowed in referrers.
   BLINK_EXPORT static void RegisterURLSchemeAsAllowedForReferrer(
       const WebString&);
+
+  // Registers an URL scheme as an error page.
+  BLINK_EXPORT static void RegisterURLSchemeAsError(const WebString&);
 
  private:
   WebSecurityPolicy() = delete;

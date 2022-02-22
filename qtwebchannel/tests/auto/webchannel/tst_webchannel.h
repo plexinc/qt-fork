@@ -31,8 +31,9 @@
 #define TST_WEBCHANNEL_H
 
 #include <QObject>
+#include <QProperty>
 #include <QVariant>
-#include <QVector>
+#include <QList>
 #include <QJsonValue>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -68,10 +69,7 @@ public:
         emit messageReceived(message, this);
     }
 
-    QVector<QJsonObject> messagesSent() const
-    {
-        return mMessagesSent;
-    }
+    QList<QJsonObject> messagesSent() const { return mMessagesSent; }
 
 public slots:
     void sendMessage(const QJsonObject &message) override
@@ -79,7 +77,7 @@ public slots:
         mMessagesSent.push_back(message);
     }
 private:
-    QVector<QJsonObject> mMessagesSent;
+    QList<QJsonObject> mMessagesSent;
 };
 
 class TestObject : public QObject
@@ -93,6 +91,7 @@ class TestObject : public QObject
     Q_PROPERTY(QObject * objectProperty READ objectProperty WRITE setObjectProperty NOTIFY objectPropertyChanged)
     Q_PROPERTY(TestObject * returnedObject READ returnedObject WRITE setReturnedObject NOTIFY returnedObjectChanged)
     Q_PROPERTY(QString prop READ prop WRITE setProp NOTIFY propChanged)
+    Q_PROPERTY(QString stringProperty READ readStringProperty WRITE setStringProperty BINDABLE bindableStringProperty)
 
 public:
     explicit TestObject(QObject *parent = 0)
@@ -131,6 +130,8 @@ public:
     {
         return mProp;
     }
+
+    QString readStringProperty() const { return mStringProperty; }
 
     Q_INVOKABLE void method1() {}
 
@@ -178,6 +179,12 @@ public slots:
     QString overload(const QString &str, int i) { return str.toUpper() + QString::number(i + 1); }
     QString overload(const QJsonArray &v) { return QString::number(v[1].toInt()) + v[0].toString(); }
 
+    void setStringProperty(const QString &v) { mStringProperty = v; }
+    QBindable<QString> bindableStringProperty() { return &mStringProperty; }
+    QString getStringProperty() const { return mStringProperty; }
+    void bindStringPropertyToStringProperty2() { bindableStringProperty().setBinding(Qt::makePropertyBinding(mStringProperty2)); }
+    void setStringProperty2(const QString &string) { mStringProperty2 = string; }
+
 protected slots:
     void slot3() {}
 
@@ -188,6 +195,8 @@ public:
     QObject *mObjectProperty;
     TestObject *mReturnedObject;
     QString mProp;
+    Q_OBJECT_BINDABLE_PROPERTY(TestObject, QString, mStringProperty);
+    QProperty<QString> mStringProperty2;
 };
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(TestObject::TestFlags)
@@ -348,6 +357,11 @@ private slots:
     void testJsonToVariant();
     void testInfiniteRecursion();
     void testAsyncObject();
+    void testQProperty();
+    void testPropertyUpdateInterval_data();
+    void testPropertyUpdateInterval();
+    void testPropertyMultipleTransports();
+    void testQPropertyBlockUpdates();
     void testDeletionDuringMethodInvocation_data();
     void testDeletionDuringMethodInvocation();
 

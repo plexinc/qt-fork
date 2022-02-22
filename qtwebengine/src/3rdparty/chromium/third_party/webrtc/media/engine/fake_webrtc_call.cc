@@ -100,7 +100,8 @@ void FakeAudioReceiveStream::Reconfigure(
   config_ = config;
 }
 
-webrtc::AudioReceiveStream::Stats FakeAudioReceiveStream::GetStats() const {
+webrtc::AudioReceiveStream::Stats FakeAudioReceiveStream::GetStats(
+    bool get_and_clear_legacy_stats) const {
   return stats_;
 }
 
@@ -279,6 +280,14 @@ void FakeVideoSendStream::Stop() {
   sending_ = false;
 }
 
+void FakeVideoSendStream::AddAdaptationResource(
+    rtc::scoped_refptr<webrtc::Resource> resource) {}
+
+std::vector<rtc::scoped_refptr<webrtc::Resource>>
+FakeVideoSendStream::GetAdaptationResources() {
+  return {};
+}
+
 void FakeVideoSendStream::SetSource(
     rtc::VideoSourceInterface<webrtc::VideoFrame>* source,
     const webrtc::DegradationPreference& degradation_preference) {
@@ -317,10 +326,7 @@ void FakeVideoSendStream::InjectVideoSinkWants(
 
 FakeVideoReceiveStream::FakeVideoReceiveStream(
     webrtc::VideoReceiveStream::Config config)
-    : config_(std::move(config)),
-      receiving_(false),
-      num_added_secondary_sinks_(0),
-      num_removed_secondary_sinks_(0) {}
+    : config_(std::move(config)), receiving_(false) {}
 
 const webrtc::VideoReceiveStream::Config& FakeVideoReceiveStream::GetConfig()
     const {
@@ -350,24 +356,6 @@ void FakeVideoReceiveStream::Stop() {
 void FakeVideoReceiveStream::SetStats(
     const webrtc::VideoReceiveStream::Stats& stats) {
   stats_ = stats;
-}
-
-void FakeVideoReceiveStream::AddSecondarySink(
-    webrtc::RtpPacketSinkInterface* sink) {
-  ++num_added_secondary_sinks_;
-}
-
-void FakeVideoReceiveStream::RemoveSecondarySink(
-    const webrtc::RtpPacketSinkInterface* sink) {
-  ++num_removed_secondary_sinks_;
-}
-
-int FakeVideoReceiveStream::GetNumAddedSecondarySinks() const {
-  return num_added_secondary_sinks_;
-}
-
-int FakeVideoReceiveStream::GetNumRemovedSecondarySinks() const {
-  return num_removed_secondary_sinks_;
 }
 
 FakeFlexfecReceiveStream::FakeFlexfecReceiveStream(
@@ -569,6 +557,9 @@ void FakeCall::DestroyFlexfecReceiveStream(
     flexfec_receive_streams_.erase(it);
   }
 }
+
+void FakeCall::AddAdaptationResource(
+    rtc::scoped_refptr<webrtc::Resource> resource) {}
 
 webrtc::PacketReceiver* FakeCall::Receiver() {
   return this;

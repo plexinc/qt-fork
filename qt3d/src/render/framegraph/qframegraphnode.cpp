@@ -39,13 +39,12 @@
 
 #include "qframegraphnode.h"
 #include "qframegraphnode_p.h"
-#include <Qt3DRender/qframegraphnodecreatedchange.h>
 #include <Qt3DRender/qfilterkey.h>
 #include <Qt3DRender/qtechniquefilter.h>
 #include <Qt3DRender/qrenderpassfilter.h>
 
 #include <Qt3DCore/QNode>
-#include <QVector>
+#include <QList>
 #include <QQueue>
 
 using namespace Qt3DCore;
@@ -63,7 +62,7 @@ QString dumpNode(const Qt3DRender::QFrameGraphNode *n) {
     return res;
 }
 
-QString dumpNodeFilters(const Qt3DRender::QFrameGraphNode *n, const QVector<Qt3DRender::QFilterKey*> &filters) {
+QString dumpNodeFilters(const Qt3DRender::QFrameGraphNode *n, const QList<Qt3DRender::QFilterKey *> &filters) {
     QString res = QLatin1String(n->metaObject()->className());
     if (!n->objectName().isEmpty())
         res += QString(QLatin1String(" (%1)")).arg(n->objectName());
@@ -84,7 +83,7 @@ QStringList dumpFG(const Qt3DCore::QNode *n, int level = 0)
     const Qt3DRender::QFrameGraphNode *fgNode = qobject_cast<const Qt3DRender::QFrameGraphNode *>(n);
     if (fgNode) {
         QString res = dumpNode(fgNode);
-        reply += res.rightJustified(res.length() + level * 2, ' ');
+        reply += res.rightJustified(res.length() + level * 2, QLatin1Char(' '));
     }
 
     const auto children = n->childNodes();
@@ -101,7 +100,7 @@ QStringList dumpFG(const Qt3DCore::QNode *n, int level = 0)
 struct HierarchyFGNode
 {
     const Qt3DRender::QFrameGraphNode *root;
-    QVector<QSharedPointer<HierarchyFGNode>> children;
+    QList<QSharedPointer<HierarchyFGNode>> children;
 };
 using HierarchyFGNodePtr = QSharedPointer<HierarchyFGNode>;
 
@@ -130,7 +129,7 @@ HierarchyFGNodePtr buildFGHierarchy(const Qt3DCore::QNode *n, HierarchyFGNodePtr
     return lastFGParent;
 }
 
-void findFGLeaves(const HierarchyFGNodePtr root, QVector<const Qt3DRender::QFrameGraphNode *> &fgLeaves)
+void findFGLeaves(const HierarchyFGNodePtr root, QList<const Qt3DRender::QFrameGraphNode *> &fgLeaves)
 {
     const auto children = root->children;
     for (const auto &child : children)
@@ -146,7 +145,7 @@ void dumpFGPaths(const Qt3DRender::QFrameGraphNode *n, QStringList &result)
     const HierarchyFGNodePtr rootHFg = buildFGHierarchy(n);
 
     // Gather FG leaves
-    QVector<const Qt3DRender::QFrameGraphNode *> fgLeaves;
+    QList<const Qt3DRender::QFrameGraphNode *> fgLeaves;
     findFGLeaves(rootHFg, fgLeaves);
 
     // Traverse back to root
@@ -170,7 +169,7 @@ void dumpFGFilterState(const Qt3DRender::QFrameGraphNode *n, QStringList &result
     const HierarchyFGNodePtr rootHFg = buildFGHierarchy(n);
 
     // Gather FG leaves
-    QVector<const Qt3DRender::QFrameGraphNode *> fgLeaves;
+    QList<const Qt3DRender::QFrameGraphNode *> fgLeaves;
     findFGLeaves(rootHFg, fgLeaves);
 
     // Traverse back to root
@@ -375,20 +374,25 @@ QFrameGraphNode *QFrameGraphNode::parentFrameGraphNode() const
  * If any of these are not frame graph nodes, they will be further searched as
  * if they were direct children of this node.
  */
-QVector<QFrameGraphNode *> QFrameGraphNodePrivate::childFrameGraphNodes() const
+QList<QFrameGraphNode *> QFrameGraphNodePrivate::childFrameGraphNodes() const
 {
     Q_Q(const QFrameGraphNode);
-    QVector<QFrameGraphNode *> result;
+    QList<QFrameGraphNode *> result;
     QQueue<QNode *> queue;
-    queue.append(q->childNodes().toList());
+    const auto childNodes = q->childNodes();
+    for (auto c: childNodes)
+        queue.append(c);
     result.reserve(queue.size());
     while (!queue.isEmpty()) {
         auto *child = queue.dequeue();
         auto *childFGNode = qobject_cast<QFrameGraphNode *>(child);
         if (childFGNode != nullptr)
             result.push_back(childFGNode);
-        else
-            queue.append(child->childNodes().toList());
+        else {
+            const auto childNodes = child->childNodes();
+            for (auto c: childNodes)
+                queue.append(c);
+        }
     }
     return result;
 }
@@ -396,7 +400,7 @@ QVector<QFrameGraphNode *> QFrameGraphNodePrivate::childFrameGraphNodes() const
 QString QFrameGraphNodePrivate::dumpFrameGraph() const
 {
     Q_Q(const QFrameGraphNode);
-    return dumpFG(q).join('\n');
+    return dumpFG(q).join(QLatin1Char('\n'));
 }
 
 QStringList QFrameGraphNodePrivate::dumpFrameGraphPaths() const
@@ -419,15 +423,6 @@ QStringList QFrameGraphNodePrivate::dumpFrameGraphFilterState() const
 QFrameGraphNode::QFrameGraphNode(QFrameGraphNodePrivate &dd, QNode *parent)
     : QNode(dd, parent)
 {
-}
-
-Qt3DCore::QNodeCreatedChangeBasePtr QFrameGraphNode::createNodeCreationChange() const
-{
-    // connect to the parentChanged signal here rather than constructor because
-    // until now there's no backend node to notify when parent changes
-    connect(this, &QNode::parentChanged, this, &QFrameGraphNode::onParentChanged);
-
-    return QFrameGraphNodeCreatedChangeBasePtr::create(this);
 }
 
 void QFrameGraphNode::onParentChanged(QObject *)

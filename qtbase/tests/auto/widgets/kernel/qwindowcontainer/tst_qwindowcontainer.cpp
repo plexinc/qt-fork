@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include <qapplication.h>
 #include <qwindow.h>
@@ -49,7 +49,8 @@ public:
     {
     }
 
-    void exposeEvent(QExposeEvent *) {
+    void exposeEvent(QExposeEvent *) override
+    {
         if (isExposed())
             ++numberOfExposes;
         else
@@ -107,9 +108,6 @@ void tst_QWindowContainer::testShow()
 
     root.show();
 
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("", "Fails on WinRT - QTBUG-68297", Abort);
-#endif
     QVERIFY(QTest::qWaitForWindowExposed(window));
 }
 
@@ -149,9 +147,6 @@ void tst_QWindowContainer::testExposeObscure()
 
     container->show();
     QVERIFY(QTest::qWaitForWindowExposed(container.data()));
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("", "Fails on WinRT - QTBUG-68297", Abort);
-#endif
     QVERIFY(QTest::qWaitForWindowExposed(window));
 
     QVERIFY(window->numberOfExposes > 0);
@@ -273,9 +268,6 @@ void tst_QWindowContainer::testUnparentReparent()
     QTRY_VERIFY(!window->isVisible());
 
     container->show();
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("", "Fails on WinRT - QTBUG-68297", Abort);
-#endif
     QVERIFY(QTest::qWaitForWindowExposed(window));
     QTRY_VERIFY(window->isVisible());
 
@@ -383,9 +375,6 @@ void tst_QWindowContainer::testNativeContainerParent()
 
     root.show();
 
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("", "Fails on WinRT - QTBUG-68297", Abort);
-#endif
     QVERIFY(QTest::qWaitForWindowExposed(window));
     QTRY_COMPARE(window->parent(), container->windowHandle());
 }

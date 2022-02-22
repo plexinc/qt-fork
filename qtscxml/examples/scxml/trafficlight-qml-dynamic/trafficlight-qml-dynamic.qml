@@ -48,7 +48,7 @@
 **
 ****************************************************************************/
 
-import QtScxml 5.8
+import QtScxml
 
 TrafficLight {
     StateMachineLoader {

@@ -29,9 +29,11 @@ void DevToolsAgentHost::StartRemoteDebuggingServer(
 }
 
 // static
-void DevToolsAgentHost::StartRemoteDebuggingPipeHandler() {
+void DevToolsAgentHost::StartRemoteDebuggingPipeHandler(
+    base::OnceClosure on_disconnect) {
   DevToolsManager* manager = DevToolsManager::GetInstance();
-  manager->SetPipeHandler(std::make_unique<DevToolsPipeHandler>());
+  manager->SetPipeHandler(
+      std::make_unique<DevToolsPipeHandler>(std::move(on_disconnect)));
 }
 
 // static
@@ -55,8 +57,7 @@ DevToolsManager::DevToolsManager()
     : delegate_(GetContentClient()->browser()->GetDevToolsManagerDelegate()) {
 }
 
-DevToolsManager::~DevToolsManager() {
-}
+DevToolsManager::~DevToolsManager() = default;
 
 void DevToolsManager::SetHttpHandler(
     std::unique_ptr<DevToolsHttpHandler> http_handler) {

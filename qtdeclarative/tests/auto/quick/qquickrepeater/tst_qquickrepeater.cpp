@@ -39,12 +39,12 @@
 #include <QtQmlModels/private/qqmlobjectmodel_p.h>
 #include <QtGui/qstandarditemmodel.h>
 
-#include "../../shared/util.h"
-#include "../shared/viewtestutil.h"
-#include "../shared/visualtestutil.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
+#include <QtQuickTestUtils/private/viewtestutils_p.h>
+#include <QtQuickTestUtils/private/visualtestutils_p.h>
 
-using namespace QQuickViewTestUtil;
-using namespace QQuickVisualTestUtil;
+using namespace QQuickViewTestUtils;
+using namespace QQuickVisualTestUtils;
 
 
 class tst_QQuickRepeater : public QQmlDataTest
@@ -109,6 +109,7 @@ private:
 };
 
 tst_QQuickRepeater::tst_QQuickRepeater()
+    : QQmlDataTest(QT_QMLTEST_DATADIR)
 {
 }
 
@@ -717,14 +718,14 @@ void tst_QQuickRepeater::asynchronous()
     QQuickItem *container = findItem<QQuickItem>(rootObject, "container");
     QVERIFY(!container);
     while (!container) {
-        bool b = false;
+        std::atomic<bool> b = false;
         controller.incubateWhile(&b);
         container = findItem<QQuickItem>(rootObject, "container");
     }
 
     QQuickRepeater *repeater = nullptr;
     while (!repeater) {
-        bool b = false;
+        std::atomic<bool> b = false;
         controller.incubateWhile(&b);
         repeater = findItem<QQuickRepeater>(rootObject, "repeater");
     }
@@ -737,14 +738,14 @@ void tst_QQuickRepeater::asynchronous()
         QVERIFY(findItem<QQuickItem>(container, name) == nullptr);
         QQuickItem *item = nullptr;
         while (!item) {
-            bool b = false;
+            std::atomic<bool> b = false;
             controller.incubateWhile(&b);
             item = findItem<QQuickItem>(container, name);
         }
     }
 
     {
-        bool b = true;
+        std::atomic<bool> b = true;
         controller.incubateWhile(&b);
     }
 
@@ -804,8 +805,8 @@ public:
         endResetModel();
     }
 
-    QVariant data(const QModelIndex &, int) const { return QVariant(); }
-    int rowCount(const QModelIndex &) const { return 0; }
+    QVariant data(const QModelIndex &, int) const override { return QVariant(); }
+    int rowCount(const QModelIndex &) const override { return 0; }
 };
 
 
@@ -1074,40 +1075,40 @@ void tst_QQuickRepeater::ownership()
 
     QQmlComponent component(&engine, testFileUrl("ownership.qml"));
 
-    QScopedPointer<QAbstractItemModel> aim(new QStandardItemModel);
-    QPointer<QAbstractItemModel> modelGuard(aim.data());
-    QQmlEngine::setObjectOwnership(aim.data(), QQmlEngine::JavaScriptOwnership);
+    std::unique_ptr<QAbstractItemModel> aim(new QStandardItemModel);
+    QPointer<QAbstractItemModel> modelGuard(aim.get());
+    QQmlEngine::setObjectOwnership(aim.get(), QQmlEngine::JavaScriptOwnership);
     {
-        QJSValue wrapper = engine.newQObject(aim.data());
+        QJSValue wrapper = engine.newQObject(aim.get());
     }
 
-    QScopedPointer<QObject> repeater(component.create());
-    QVERIFY(!repeater.isNull());
+    std::unique_ptr<QObject> repeater(component.create());
+    QVERIFY(repeater);
 
-    QVERIFY(!QQmlData::keepAliveDuringGarbageCollection(aim.data()));
+    QVERIFY(!QQmlData::keepAliveDuringGarbageCollection(aim.get()));
 
-    repeater->setProperty("model", QVariant::fromValue<QObject*>(aim.data()));
+    repeater->setProperty("model", QVariant::fromValue<QObject*>(aim.get()));
 
-    QVERIFY(!QQmlData::keepAliveDuringGarbageCollection(aim.data()));
+    QVERIFY(!QQmlData::keepAliveDuringGarbageCollection(aim.get()));
 
     engine.collectGarbage();
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
 
     QVERIFY(modelGuard);
 
-    QScopedPointer<QQmlComponent> delegate(new QQmlComponent(&engine));
+    std::unique_ptr<QQmlComponent> delegate(new QQmlComponent(&engine));
     delegate->setData(QByteArrayLiteral("import QtQuick 2.0\nItem{}"), dataDirectoryUrl().resolved(QUrl("inline.qml")));
-    QPointer<QQmlComponent> delegateGuard(delegate.data());
-    QQmlEngine::setObjectOwnership(delegate.data(), QQmlEngine::JavaScriptOwnership);
+    QPointer<QQmlComponent> delegateGuard(delegate.get());
+    QQmlEngine::setObjectOwnership(delegate.get(), QQmlEngine::JavaScriptOwnership);
     {
-        QJSValue wrapper = engine.newQObject(delegate.data());
+        QJSValue wrapper = engine.newQObject(delegate.get());
     }
 
-    QVERIFY(!QQmlData::keepAliveDuringGarbageCollection(delegate.data()));
+    QVERIFY(!QQmlData::keepAliveDuringGarbageCollection(delegate.get()));
 
-    repeater->setProperty("delegate", QVariant::fromValue<QObject*>(delegate.data()));
+    repeater->setProperty("delegate", QVariant::fromValue<QObject*>(delegate.get()));
 
-    QVERIFY(!QQmlData::keepAliveDuringGarbageCollection(delegate.data()));
+    QVERIFY(!QQmlData::keepAliveDuringGarbageCollection(delegate.get()));
 
     engine.collectGarbage();
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
@@ -1120,8 +1121,8 @@ void tst_QQuickRepeater::ownership()
     QVERIFY(delegateGuard);
     QVERIFY(modelGuard);
 
-    delegate.take();
-    aim.take();
+    delegate.release();
+    aim.release();
 
     engine.collectGarbage();
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
@@ -1158,8 +1159,7 @@ void tst_QQuickRepeater::contextProperties()
 
     while (!items.isEmpty()) {
         QQuickItem *item = items.dequeue();
-        QQmlContextData *data = QQmlContextData::get(qmlContext(item));
-        QVERIFY(!data->hasExtraObject);
+        QVERIFY(!QQmlContextData::get(qmlContext(item))->extraObject());
         for (QQuickItem *child : item->childItems())
             items.enqueue(child);
     }

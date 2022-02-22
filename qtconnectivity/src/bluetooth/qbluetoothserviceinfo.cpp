@@ -181,7 +181,7 @@ bool QBluetoothServiceInfo::isRegistered() const
 bool QBluetoothServiceInfo::registerService(const QBluetoothAddress &localAdapter)
 {
 #ifdef QT_OSX_BLUETOOTH
-    Q_UNUSED(localAdapter)
+    Q_UNUSED(localAdapter);
     return d_ptr->registerService(*this);
 #else
     return d_ptr->registerService(localAdapter);
@@ -469,11 +469,11 @@ void QBluetoothServiceInfo::removeAttribute(quint16 attributeId)
 */
 QBluetoothServiceInfo::Protocol QBluetoothServiceInfo::socketProtocol() const
 {
-    QBluetoothServiceInfo::Sequence parameters = protocolDescriptor(QBluetoothUuid::Rfcomm);
+    QBluetoothServiceInfo::Sequence parameters = protocolDescriptor(QBluetoothUuid::ProtocolUuid::Rfcomm);
     if (!parameters.isEmpty())
         return RfcommProtocol;
 
-    parameters = protocolDescriptor(QBluetoothUuid::L2cap);
+    parameters = protocolDescriptor(QBluetoothUuid::ProtocolUuid::L2cap);
     if (!parameters.isEmpty())
         return L2capProtocol;
 
@@ -490,7 +490,7 @@ QBluetoothServiceInfo::Protocol QBluetoothServiceInfo::socketProtocol() const
 */
 int QBluetoothServiceInfo::protocolServiceMultiplexer() const
 {
-    QBluetoothServiceInfo::Sequence parameters = protocolDescriptor(QBluetoothUuid::L2cap);
+    QBluetoothServiceInfo::Sequence parameters = protocolDescriptor(QBluetoothUuid::ProtocolUuid::L2cap);
 
     if (parameters.isEmpty())
         return -1;
@@ -560,7 +560,7 @@ QBluetoothServiceInfo &QBluetoothServiceInfo::operator=(const QBluetoothServiceI
 
 static void dumpAttributeVariant(QDebug dbg, const QVariant &var, const QString& indent)
 {
-    switch (int(var.type())) {
+    switch (var.typeId()) {
     case QMetaType::Void:
         dbg << QString::asprintf("%sEmpty\n", indent.toUtf8().constData());
         break;
@@ -597,8 +597,8 @@ static void dumpAttributeVariant(QDebug dbg, const QVariant &var, const QString&
         dbg << QString::asprintf("%surl %s\n", indent.toUtf8().constData(),
                                  var.toUrl().toString().toUtf8().constData());
         break;
-    case QVariant::UserType:
-        if (var.userType() == qMetaTypeId<QBluetoothUuid>()) {
+    default:
+        if (var.typeId() == qMetaTypeId<QBluetoothUuid>()) {
             QBluetoothUuid uuid = var.value<QBluetoothUuid>();
             switch (uuid.minimumSize()) {
             case 0:
@@ -620,26 +620,24 @@ static void dumpAttributeVariant(QDebug dbg, const QVariant &var, const QString&
             default:
                 dbg << QString::asprintf("%suuid ???\n", indent.toUtf8().constData());
             }
-        } else if (var.userType() == qMetaTypeId<QBluetoothServiceInfo::Sequence>()) {
+        } else if (var.typeId() == qMetaTypeId<QBluetoothServiceInfo::Sequence>()) {
             dbg << QString::asprintf("%sSequence\n", indent.toUtf8().constData());
             const QBluetoothServiceInfo::Sequence *sequence = static_cast<const QBluetoothServiceInfo::Sequence *>(var.data());
             for (const QVariant &v : *sequence)
                 dumpAttributeVariant(dbg, v, indent + QLatin1Char('\t'));
-        } else if (var.userType() == qMetaTypeId<QBluetoothServiceInfo::Alternative>()) {
+        } else if (var.typeId() == qMetaTypeId<QBluetoothServiceInfo::Alternative>()) {
             dbg << QString::asprintf("%sAlternative\n", indent.toUtf8().constData());
             const QBluetoothServiceInfo::Alternative *alternative = static_cast<const QBluetoothServiceInfo::Alternative *>(var.data());
             for (const QVariant &v : *alternative)
                 dumpAttributeVariant(dbg, v, indent + QLatin1Char('\t'));
+        } else {
+            dbg << QString::asprintf("%sunknown variant type %d\n", indent.toUtf8().constData(), var.typeId());
         }
-        break;
-    default:
-        dbg << QString::asprintf("%sunknown variant type %d\n", indent.toUtf8().constData(),
-                                 var.userType());
     }
 }
 
-
-QDebug operator<<(QDebug dbg, const QBluetoothServiceInfo &info)
+#ifndef QT_NO_DEBUG_STREAM
+QDebug QBluetoothServiceInfo::streamingOperator(QDebug dbg, const QBluetoothServiceInfo &info)
 {
     QDebugStateSaver saver(dbg);
     dbg.noquote() << "\n";
@@ -649,6 +647,7 @@ QDebug operator<<(QDebug dbg, const QBluetoothServiceInfo &info)
     }
     return dbg;
 }
+#endif
 
 QBluetoothServiceInfo::Sequence QBluetoothServiceInfoPrivate::protocolDescriptor(QBluetoothUuid::ProtocolUuid protocol) const
 {
@@ -672,7 +671,7 @@ QBluetoothServiceInfo::Sequence QBluetoothServiceInfoPrivate::protocolDescriptor
 
 int QBluetoothServiceInfoPrivate::serverChannel() const
 {
-    QBluetoothServiceInfo::Sequence parameters = protocolDescriptor(QBluetoothUuid::Rfcomm);
+    QBluetoothServiceInfo::Sequence parameters = protocolDescriptor(QBluetoothUuid::ProtocolUuid::Rfcomm);
 
     if (parameters.isEmpty())
         return -1;

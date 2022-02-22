@@ -8,6 +8,7 @@
 #include "third_party/blink/renderer/bindings/modules/v8/v8_picture_in_picture_options.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
+#include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/html/html_element.h"
 #include "third_party/blink/renderer/modules/picture_in_picture/picture_in_picture_controller_impl.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
@@ -25,7 +26,7 @@ const char kMetadataNotLoadedError[] =
 const char kVideoTrackNotAvailableError[] =
     "The video element has no video track.";
 const char kFeaturePolicyBlocked[] =
-    "Access to the feature \"picture-in-picture\" is disallowed by feature "
+    "Access to the feature \"picture-in-picture\" is disallowed by permissions "
     "policy.";
 const char kNotAvailable[] = "Picture-in-Picture is not available.";
 const char kUserGestureRequired[] =

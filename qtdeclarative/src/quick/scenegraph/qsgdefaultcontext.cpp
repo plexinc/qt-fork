@@ -45,7 +45,6 @@
 #include <QtQuick/private/qsgdefaultglyphnode_p.h>
 #include <QtQuick/private/qsgdistancefieldglyphnode_p.h>
 #include <QtQuick/private/qsgdistancefieldglyphnode_p_p.h>
-#include <QtQuick/private/qsgopengllayer_p.h>
 #include <QtQuick/private/qsgrhisupport_p.h>
 #include <QtQuick/private/qsgrhilayer_p.h>
 #include <QtQuick/private/qsgdefaultrendercontext_p.h>
@@ -57,10 +56,10 @@
 #endif
 #include <QtQuick/private/qsgrhishadereffectnode_p.h>
 
-#include <QtGui/QOpenGLContext>
-#include <QtGui/QOpenGLFramebufferObject>
+#include <QOpenGLContext>
 
 #include <QtQuick/private/qquickwindow_p.h>
+#include <QtQuick/private/qquickitem_p.h>
 
 #include <private/qqmlglobal_p.h>
 
@@ -136,46 +135,20 @@ void QSGDefaultContext::renderContextInitialized(QSGRenderContext *renderContext
             m_antialiasingMethod = rc->msaaSampleCount() > 1 ? MsaaAntialiasing : VertexAntialiasing;
     }
 
-    // With OpenGL ES, except for Angle on Windows, use GrayAntialiasing, unless
+#if QT_CONFIG(opengl)
+    // With OpenGL ES, use GrayAntialiasing, unless
     // some value had been requested explicitly. This could not be decided
     // before without a context. Now the context is ready.
     if (!m_distanceFieldAntialiasingDecided) {
         m_distanceFieldAntialiasingDecided = true;
-#ifndef Q_OS_WIN32
-        if (rc->rhi()) {
-            if (rc->rhi()->backend() == QRhi::OpenGLES2
-                    && static_cast<const QRhiGles2NativeHandles *>(rc->rhi()->nativeHandles())->context->isOpenGLES())
-            {
-                    m_distanceFieldAntialiasing = QSGGlyphNode::GrayAntialiasing;
-            }
-        } else {
-            if (rc->openglContext()->isOpenGLES())
-                m_distanceFieldAntialiasing = QSGGlyphNode::GrayAntialiasing;
+        Q_ASSERT(rc->rhi());
+        if (rc->rhi()->backend() == QRhi::OpenGLES2
+                && static_cast<const QRhiGles2NativeHandles *>(rc->rhi()->nativeHandles())->context->isOpenGLES())
+        {
+            m_distanceFieldAntialiasing = QSGGlyphNode::GrayAntialiasing;
         }
+    }
 #endif
-    }
-
-    static bool dumped = false;
-    if (!dumped && QSG_LOG_INFO().isDebugEnabled() && !rc->rhi()) {
-        dumped = true;
-        QSurfaceFormat format = rc->openglContext()->format();
-        QOpenGLFunctions *funcs = QOpenGLContext::currentContext()->functions();
-        qCDebug(QSG_LOG_INFO, "R/G/B/A Buffers:   %d %d %d %d", format.redBufferSize(),
-                format.greenBufferSize(), format.blueBufferSize(), format.alphaBufferSize());
-        qCDebug(QSG_LOG_INFO, "Depth Buffer:      %d", format.depthBufferSize());
-        qCDebug(QSG_LOG_INFO, "Stencil Buffer:    %d", format.stencilBufferSize());
-        qCDebug(QSG_LOG_INFO, "Samples:           %d", format.samples());
-        qCDebug(QSG_LOG_INFO, "GL_VENDOR:         %s", (const char*)funcs->glGetString(GL_VENDOR));
-        qCDebug(QSG_LOG_INFO, "GL_RENDERER:       %s",
-                (const char*)funcs->glGetString(GL_RENDERER));
-        qCDebug(QSG_LOG_INFO, "GL_VERSION:        %s", (const char*)funcs->glGetString(GL_VERSION));
-        QByteArrayList exts = rc->openglContext()->extensions().values();
-        std::sort(exts.begin(), exts.end());
-        qCDebug(QSG_LOG_INFO, "GL_EXTENSIONS:    %s", exts.join(' ').constData());
-        qCDebug(QSG_LOG_INFO, "Max Texture Size: %d", rc->maxTextureSize());
-        qCDebug(QSG_LOG_INFO, "Debug context:    %s",
-                format.testOption(QSurfaceFormat::DebugContext) ? "true" : "false");
-    }
 
     m_mutex.unlock();
 }
@@ -208,29 +181,30 @@ QSGPainterNode *QSGDefaultContext::createPainterNode(QQuickPaintedItem *item)
     return new QSGDefaultPainterNode(item);
 }
 
-QSGGlyphNode *QSGDefaultContext::createGlyphNode(QSGRenderContext *rc, bool preferNativeGlyphNode)
+QSGGlyphNode *QSGDefaultContext::createGlyphNode(QSGRenderContext *rc,
+                                                 bool preferNativeGlyphNode,
+                                                 int renderTypeQuality)
 {
     if (m_distanceFieldDisabled || preferNativeGlyphNode) {
         return new QSGDefaultGlyphNode(rc);
     } else {
         QSGDistanceFieldGlyphNode *node = new QSGDistanceFieldGlyphNode(rc);
         node->setPreferredAntialiasingMode(m_distanceFieldAntialiasing);
+        node->setRenderTypeQuality(renderTypeQuality);
         return node;
     }
 }
 
 QSGLayer *QSGDefaultContext::createLayer(QSGRenderContext *renderContext)
 {
-    auto rc = static_cast<const QSGDefaultRenderContext *>(renderContext);
-    if (rc->rhi())
-        return new QSGRhiLayer(renderContext);
-    else
-        return new QSGOpenGLLayer(renderContext);
+    return new QSGRhiLayer(renderContext);
 }
 
 QSurfaceFormat QSGDefaultContext::defaultSurfaceFormat() const
 {
     QSurfaceFormat format = QSurfaceFormat::defaultFormat();
+    // These depend solely on the env.vars., not QQuickGraphicsConfiguration
+    // since that does not have a flag that maps 100% to QSG_NO_xx_BUFFER.
     static bool useDepth = qEnvironmentVariableIsEmpty("QSG_NO_DEPTH_BUFFER");
     static bool useStencil = qEnvironmentVariableIsEmpty("QSG_NO_STENCIL_BUFFER");
     static bool enableDebug = qEnvironmentVariableIsSet("QSG_OPENGL_DEBUG");
@@ -296,13 +270,10 @@ QSGGuiThreadShaderEffectManager *QSGDefaultContext::createGuiThreadShaderEffectM
     return nullptr;
 }
 
-QSGShaderEffectNode *QSGDefaultContext::createShaderEffectNode(QSGRenderContext *renderContext,
-                                                               QSGGuiThreadShaderEffectManager *mgr)
+QSGShaderEffectNode *QSGDefaultContext::createShaderEffectNode(QSGRenderContext *renderContext)
 {
-    if (QSGRhiSupport::instance()->isRhiEnabled()) {
-        return new QSGRhiShaderEffectNode(static_cast<QSGDefaultRenderContext *>(renderContext),
-                                          static_cast<QSGRhiGuiThreadShaderEffectManager *>(mgr));
-    }
+    if (QSGRhiSupport::instance()->isRhiEnabled())
+        return new QSGRhiShaderEffectNode(static_cast<QSGDefaultRenderContext *>(renderContext));
 
     return nullptr;
 }
@@ -327,19 +298,11 @@ void *QSGDefaultContext::getResource(QQuickWindow *window, Resource resource) co
                 QQuickWindowPrivate::get(window)->context);
     QSGRhiSupport *rhiSupport = QSGRhiSupport::instance();
 
-    switch (resource) {
-    case OpenGLContextResource:
-        if (rhiSupport->graphicsApi() == OpenGL)
-            return rc->openglContext();
-        else
-            return const_cast<void *>(rhiSupport->rifResource(resource, rc));
 #if QT_CONFIG(vulkan)
-    case VulkanInstanceResource:
+    if (resource == VulkanInstanceResource)
         return window->vulkanInstance();
 #endif
-    default:
-        return const_cast<void *>(rhiSupport->rifResource(resource, rc));
-    }
+    return const_cast<void *>(rhiSupport->rifResource(resource, rc, window));
 }
 
 QSGRendererInterface::ShaderType QSGDefaultContext::shaderType() const
@@ -361,7 +324,7 @@ QT_END_NAMESPACE
 
 static void initResources()
 {
-    Q_INIT_RESOURCE(scenegraph);
+    Q_INIT_RESOURCE(scenegraph_shaders);
 }
 
 Q_CONSTRUCTOR_FUNCTION(initResources)

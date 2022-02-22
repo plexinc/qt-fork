@@ -62,6 +62,9 @@ const char kPasswordStore[] = "password-store";
 // Save a pdf file of the loaded page.
 const char kPrintToPDF[] = "print-to-pdf";
 
+// Do not display header and footer in the pdf file.
+const char kPrintToPDFNoHeader[] = "print-to-pdf-no-header";
+
 // Specifies a list of hosts for whom we bypass proxy settings and use direct
 // connections. Ignored unless --proxy-server is also specified. This is a
 // comma-separated list of bypass rules. See:
@@ -71,6 +74,9 @@ const char kProxyBypassList[] = "proxy-bypass-list";
 // Uses a specified proxy server, overrides system settings. This switch only
 // affects HTTP and HTTPS requests.
 const char kProxyServer[] = "proxy-server";
+
+// Do not use system proxy configuration service.
+const char kNoSystemProxyConfigService[] = "no-system-proxy-config-service";
 
 // Use the given address instead of the default loopback for accepting remote
 // debugging connections. Should be used together with --remote-debugging-port.
@@ -116,8 +122,8 @@ const char kVirtualTimeBudget[] = "virtual-time-budget";
 // Sets the initial window size. Provided as string in the format "800,600".
 const char kWindowSize[] = "window-size";
 
-// Whitelist for Negotitate Auth servers.
-const char kAuthServerWhitelist[] = "auth-server-whitelist";
+// Allowlist for Negotiate Auth servers.
+const char kAuthServerAllowlist[] = "auth-server-whitelist";
 
 // Sets font render hinting when running headless, affects Skia rendering and
 // whether glyph subpixel positioning is enabled.

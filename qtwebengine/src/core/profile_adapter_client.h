@@ -51,7 +51,7 @@
 #ifndef PROFILE_ADAPTER_CLIENT_H
 #define PROFILE_ADAPTER_CLIENT_H
 
-#include "qtwebenginecoreglobal_p.h"
+#include "api/qtwebenginecoreglobal_p.h"
 #include <QSharedPointer>
 #include <QString>
 #include <QUrl>
@@ -83,13 +83,6 @@ public:
         SingleHtmlSaveFormat,
         CompleteHtmlSaveFormat,
         MimeHtmlSaveFormat
-    };
-
-    enum DownloadType {
-        Attachment = 0,
-        DownloadAttribute,
-        UserRequested,
-        SavePage
     };
 
     // Keep in sync with content::DownloadInterruptReason
@@ -136,7 +129,7 @@ public:
         bool accepted;
         bool paused;
         bool done;
-        int downloadType;
+        bool isSavePageDownload;
         int downloadInterruptReason;
         WebContentsAdapterClient *page;
         QString suggestedFileName;
@@ -147,7 +140,6 @@ public:
 
     virtual void downloadRequested(DownloadItemInfo &info) = 0;
     virtual void downloadUpdated(const DownloadItemInfo &info) = 0;
-    virtual void useForGlobalCertificateVerificationChanged() {}
     virtual void showNotification(QSharedPointer<UserNotificationController> &) { }
 
     virtual void addWebContentsAdapterClient(WebContentsAdapterClient *adapter) = 0;

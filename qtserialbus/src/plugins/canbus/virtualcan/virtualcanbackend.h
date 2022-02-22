@@ -37,14 +37,13 @@
 #ifndef VIRTUALCANBACKEND_H
 #define VIRTUALCANBACKEND_H
 
-#include <QtSerialBus/qcanbusframe.h>
 #include <QtSerialBus/qcanbusdevice.h>
 #include <QtSerialBus/qcanbusdeviceinfo.h>
+#include <QtSerialBus/qcanbusframe.h>
 
 #include <QtCore/qlist.h>
 #include <QtCore/qurl.h>
 #include <QtCore/qvariant.h>
-#include <QtCore/qvector.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -83,7 +82,7 @@ public:
     bool open() override;
     void close() override;
 
-    void setConfigurationParameter(int key, const QVariant &value) override;
+    void setConfigurationParameter(ConfigurationKey key, const QVariant &value) override;
 
     bool writeFrame(const QCanBusFrame &frame) override;
 
@@ -91,7 +90,11 @@ public:
 
     static QList<QCanBusDeviceInfo> interfaces();
 
+    QCanBusDeviceInfo deviceInfo() const override;
+
 private:
+    static QCanBusDeviceInfo virtualCanDeviceInfo(uint channel);
+
     void clientConnected();
     void clientDisconnected();
     void clientReadyRead();

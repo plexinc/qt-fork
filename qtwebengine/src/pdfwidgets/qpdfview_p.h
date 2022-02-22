@@ -50,19 +50,19 @@
 
 #include "qpdfview.h"
 
+#include <QHash>
 #include <QPointer>
-#include <QtWidgets/private/qabstractscrollarea_p.h>
 
 QT_BEGIN_NAMESPACE
 
 class QPdfPageRenderer;
 
-class QPdfViewPrivate : public QAbstractScrollAreaPrivate
+class QPdfViewPrivate
 {
     Q_DECLARE_PUBLIC(QPdfView)
 
 public:
-    QPdfViewPrivate();
+    QPdfViewPrivate(QPdfView *q);
     void init();
 
     void documentStatusChanged();
@@ -86,6 +86,7 @@ public:
     DocumentLayout calculateDocumentLayout() const;
     void updateDocumentLayout();
 
+    QPdfView *q_ptr;
     QPointer<QPdfDocument> m_document;
     QPdfPageNavigation* m_pageNavigation;
     QPdfPageRenderer *m_pageRenderer;
@@ -104,7 +105,7 @@ public:
     QRect m_viewport;
 
     QHash<int, QImage> m_pageCache;
-    QVector<int> m_cachedPagesLRU;
+    QList<int> m_cachedPagesLRU;
     int m_pageCacheLimit;
 
     DocumentLayout m_documentLayout;
@@ -112,7 +113,7 @@ public:
     qreal m_screenResolution; // pixels per point
 };
 
-Q_DECLARE_TYPEINFO(QPdfViewPrivate::DocumentLayout, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QPdfViewPrivate::DocumentLayout, Q_RELOCATABLE_TYPE);
 
 QT_END_NAMESPACE
 

@@ -14,7 +14,6 @@
 #include "mojo/public/cpp/bindings/interface_request.h"
 #include "mojo/public/cpp/bindings/lib/bindings_internal.h"
 #include "mojo/public/cpp/bindings/lib/pending_receiver_state.h"
-#include "mojo/public/cpp/bindings/lib/serialization_context.h"
 #include "mojo/public/cpp/system/message_pipe.h"
 
 namespace mojo {
@@ -74,7 +73,7 @@ class PendingReceiver {
                                      Interface>)(T&&)>>::value>* = nullptr>
   PendingReceiver(T&& other)
       : PendingReceiver(PendingReceiverConverter<T>::template To<Interface>(
-            std::move(other))) {}
+            std::forward<T>(other))) {}
 #endif  // !defined(OS_NACL)
 
   ~PendingReceiver() = default;

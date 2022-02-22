@@ -5,37 +5,36 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_BINDINGS_UNION_BASE_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_BINDINGS_UNION_BASE_H_
 
+#include "base/containers/span.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
+#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "v8/include/v8.h"
 
 namespace blink {
 
-class Visitor;
+class ScriptState;
 
 namespace bindings {
 
-// This class is the base class for all IDL dictionary implementations.  This
-// is designed to collaborate with NativeValueTraits and ToV8 with supporting
-// type dispatching (SFINAE, etc.).
-class PLATFORM_EXPORT UnionBase {
-  DISALLOW_NEW();
-
+// UnionBase is the common base class of all the IDL union classes.  Most
+// importantly this class provides a way of type dispatching (e.g. overload
+// resolutions, SFINAE technique, etc.) so that it's possible to distinguish
+// IDL unions from anything else.  Also it provides a common implementation of
+// IDL unions.
+class PLATFORM_EXPORT UnionBase : public GarbageCollected<UnionBase> {
  public:
   virtual ~UnionBase() = default;
 
-  virtual v8::Local<v8::Value> CreateV8Object(
-      v8::Isolate* isolate,
-      v8::Local<v8::Object> creation_context) const = 0;
+  virtual v8::MaybeLocal<v8::Value> ToV8Value(ScriptState* script_state) = 0;
 
-  void Trace(Visitor*) {}
+  virtual void Trace(Visitor*) const {}
 
  protected:
+  static String ProduceUnionNameInIDL(
+      const base::span<const char* const>& member_names);
+
   UnionBase() = default;
-  UnionBase(const UnionBase&) = default;
-  UnionBase(UnionBase&&) = default;
-  UnionBase& operator=(const UnionBase&) = default;
-  UnionBase& operator=(UnionBase&&) = default;
 };
 
 }  // namespace bindings

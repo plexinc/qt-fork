@@ -42,7 +42,7 @@
 #include <private/polarchartaxisradial_p.h>
 #include <QtCharts/private/qchartglobal_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class QCategoryAxis;
 
@@ -54,13 +54,13 @@ public:
     PolarChartCategoryAxisRadial(QCategoryAxis *axis, QGraphicsItem *item);
     ~PolarChartCategoryAxisRadial();
 
-    virtual QVector<qreal> calculateLayout() const;
-    virtual void createAxisLabels(const QVector<qreal> &layout);
+    virtual QList<qreal> calculateLayout() const override;
+    virtual void createAxisLabels(const QList<qreal> &layout) override;
 
 public Q_SLOTS:
     void handleCategoriesChanged();
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // POLARCHARTCATEGORYAXISRADIAL_P_H

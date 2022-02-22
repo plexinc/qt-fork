@@ -52,12 +52,13 @@
 //
 
 #include <qglobal.h>
+#include <QtCore/QList>
 #include <QtCore/QQueue>
-#include <QtCore/QVector>
 #include <QtBluetooth/qbluetooth.h>
 #include <QtBluetooth/qlowenergycharacteristic.h>
 #include "qlowenergycontroller.h"
 #include "qlowenergycontrollerbase_p.h"
+#include "bluez/bluez_data_p.h"
 
 #include <QtBluetooth/QBluetoothSocket>
 #include <functional>
@@ -89,7 +90,8 @@ public:
     void disconnectFromDevice() override;
 
     void discoverServices() override;
-    void discoverServiceDetails(const QBluetoothUuid &service) override;
+    void discoverServiceDetails(const QBluetoothUuid &service,
+                                QLowEnergyService::DiscoveryMode mode) override;
 
     void startAdvertising(const QLowEnergyAdvertisingParameters &params,
                           const QLowEnergyAdvertisingData &advertisingData,
@@ -117,6 +119,8 @@ public:
     void addToGenericAttributeList(const QLowEnergyServiceData &service,
                                    QLowEnergyHandle startHandle) override;
 
+    int mtu() const override;
+
     struct Attribute {
         Attribute() : handle(0) {}
 
@@ -130,13 +134,13 @@ public:
         int minLength;
         int maxLength;
     };
-    QVector<Attribute> localAttributes;
+    QList<Attribute> localAttributes;
 
 private:
     quint16 connectionHandle = 0;
     QBluetoothSocket *l2cpSocket = nullptr;
     struct Request {
-        quint8 command;
+        QBluezConst::AttCommand command;
         QByteArray payload;
         // TODO reference below is ugly but until we know all commands and their
         // requirements this is WIP
@@ -153,10 +157,10 @@ private:
         quint16 valueOffset;
         QByteArray value;
     };
-    QVector<WriteRequest> openPrepareWriteRequests;
+    QList<WriteRequest> openPrepareWriteRequests;
 
     // Invariant: !scheduledIndications.isEmpty => indicationInFlight == true
-    QVector<QLowEnergyHandle> scheduledIndications;
+    QList<QLowEnergyHandle> scheduledIndications;
     bool indicationInFlight = false;
 
     struct TempClientConfigurationData {
@@ -179,7 +183,7 @@ private:
         quint16 configValue;
         bool charValueWasUpdated = false;
     };
-    QHash<quint64, QVector<ClientConfigurationData>> clientConfigData;
+    QHash<quint64, QList<ClientConfigurationData>> clientConfigData;
 
     struct SigningData {
         SigningData() = default;
@@ -225,7 +229,7 @@ private:
     void closeServerSocket();
 
     bool isBonded() const;
-    QVector<TempClientConfigurationData> gatherClientConfigData();
+    QList<TempClientConfigurationData> gatherClientConfigData();
     void storeClientConfigurations();
     void restoreClientConfigurations();
 
@@ -262,7 +266,7 @@ private:
                                  bool isCancelation);
     void sendNextPrepareWriteRequest(const QLowEnergyHandle handle,
                                      const QByteArray &newValue, quint16 offset);
-    bool increaseEncryptLevelfRequired(quint8 errorCode);
+    bool increaseEncryptLevelfRequired(QBluezConst::AttError errorCode);
 
     void resetController();
 
@@ -270,7 +274,7 @@ private:
 
     bool checkPacketSize(const QByteArray &packet, int minSize, int maxSize = -1);
     bool checkHandle(const QByteArray &packet, QLowEnergyHandle handle);
-    bool checkHandlePair(quint8 request, QLowEnergyHandle startingHandle,
+    bool checkHandlePair(QBluezConst::AttCommand request, QLowEnergyHandle startingHandle,
                          QLowEnergyHandle endingHandle);
 
     void handleExchangeMtuRequest(const QByteArray &packet);
@@ -285,28 +289,32 @@ private:
     void handlePrepareWriteRequest(const QByteArray &packet);
     void handleExecuteWriteRequest(const QByteArray &packet);
 
-    void sendErrorResponse(quint8 request, quint16 handle, quint8 code);
+    void sendErrorResponse(QBluezConst::AttCommand request, quint16 handle,
+                           QBluezConst::AttError code);
 
     using ElemWriter = std::function<void(const Attribute &, char *&)>;
     void sendListResponse(const QByteArray &packetStart, int elemSize,
-                          const QVector<Attribute> &attributes, const ElemWriter &elemWriter);
+                          const QList<Attribute> &attributes, const ElemWriter &elemWriter);
 
     void sendNotification(QLowEnergyHandle handle);
     void sendIndication(QLowEnergyHandle handle);
-    void sendNotificationOrIndication(quint8 opCode, QLowEnergyHandle handle);
+    void sendNotificationOrIndication(QBluezConst::AttCommand opCode, QLowEnergyHandle handle);
     void sendNextIndication();
 
-    void ensureUniformAttributes(QVector<Attribute> &attributes, const std::function<int(const Attribute &)> &getSize);
-    void ensureUniformUuidSizes(QVector<Attribute> &attributes);
-    void ensureUniformValueSizes(QVector<Attribute> &attributes);
+    void ensureUniformAttributes(QList<Attribute> &attributes,
+                                 const std::function<int(const Attribute &)> &getSize);
+    void ensureUniformUuidSizes(QList<Attribute> &attributes);
+    void ensureUniformValueSizes(QList<Attribute> &attributes);
 
     using AttributePredicate = std::function<bool(const Attribute &)>;
-    QVector<Attribute> getAttributes(QLowEnergyHandle startHandle, QLowEnergyHandle endHandle,
+    QList<Attribute> getAttributes(
+            QLowEnergyHandle startHandle, QLowEnergyHandle endHandle,
             const AttributePredicate &attributePredicate = [](const Attribute &) { return true; });
 
-    int checkPermissions(const Attribute &attr, QLowEnergyCharacteristic::PropertyType type);
-    int checkReadPermissions(const Attribute &attr);
-    int checkReadPermissions(QVector<Attribute> &attributes);
+    QBluezConst::AttError checkPermissions(const Attribute &attr,
+                                           QLowEnergyCharacteristic::PropertyType type);
+    QBluezConst::AttError checkReadPermissions(const Attribute &attr);
+    QBluezConst::AttError checkReadPermissions(QList<Attribute> &attributes);
 
     bool verifyMac(const QByteArray &message, const quint128 &csrk, quint32 signCounter,
                    quint64 expectedMac);
@@ -350,7 +358,7 @@ private slots:
     void activeConnectionTerminationDone();
 };
 
-Q_DECLARE_TYPEINFO(QLowEnergyControllerPrivateBluez::Attribute, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QLowEnergyControllerPrivateBluez::Attribute, Q_RELOCATABLE_TYPE);
 
 QT_END_NAMESPACE
 

@@ -184,6 +184,16 @@ void IndexedDBOriginState::ForceClose() {
     backing_store_->active_blob_registry()->ForceShutdown();
     has_blobs_outstanding_ = false;
   }
+
+  // Don't run the preclosing tasks after a ForceClose, whether or not we've
+  // started them.  Compaction in particular can run long and cannot be
+  // interrupted, so it can cause shutdown hangs.
+  close_timer_.AbandonAndStop();
+  if (pre_close_task_queue_) {
+    pre_close_task_queue_->Stop(
+        IndexedDBPreCloseTaskQueue::StopReason::FORCE_CLOSE);
+    pre_close_task_queue_.reset();
+  }
   skip_closing_sequence_ = true;
 }
 
@@ -215,7 +225,7 @@ IndexedDBOriginState::RunTasks() {
         continue;
       case IndexedDBDatabase::RunTasksResult::kError:
         running_tasks_ = false;
-        return std::make_tuple(RunTasksResult::kError, status);
+        return {RunTasksResult::kError, status};
       case IndexedDBDatabase::RunTasksResult::kCanBeDestroyed:
         db_it = databases_.erase(db_it);
         break;
@@ -223,8 +233,8 @@ IndexedDBOriginState::RunTasks() {
   }
   running_tasks_ = false;
   if (CanCloseFactory() && closing_stage_ == ClosingState::kClosed)
-    return std::make_tuple(RunTasksResult::kCanBeDestroyed, leveldb::Status::OK());
-  return std::make_tuple(RunTasksResult::kDone, leveldb::Status::OK());
+    return {RunTasksResult::kCanBeDestroyed, leveldb::Status::OK()};
+  return {RunTasksResult::kDone, leveldb::Status::OK()};
 }
 
 IndexedDBDatabase* IndexedDBOriginState::AddDatabase(
@@ -242,7 +252,8 @@ IndexedDBOriginStateHandle IndexedDBOriginState::CreateHandle() {
     closing_stage_ = ClosingState::kNotClosing;
     close_timer_.AbandonAndStop();
     if (pre_close_task_queue_) {
-      pre_close_task_queue_->StopForNewConnection();
+      pre_close_task_queue_->Stop(
+          IndexedDBPreCloseTaskQueue::StopReason::NEW_CONNECTION);
       pre_close_task_queue_.reset();
     }
   }

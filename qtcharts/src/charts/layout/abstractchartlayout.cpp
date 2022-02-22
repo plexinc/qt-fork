@@ -35,7 +35,7 @@
 #include <private/chartbackground_p.h>
 #include <QtCore/QDebug>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 static const qreal golden_ratio = 0.4;
 
@@ -53,6 +53,7 @@ void AbstractChartLayout::setGeometry(const QRectF &rect)
 {
     if (!rect.isValid())
         return;
+
     // If the chart has a fixed geometry then don't update visually
     const bool updateLayout = (!m_presenter->isFixedGeometry() || m_presenter->geometry() == rect);
     if (m_presenter->chart()->isVisible()) {
@@ -73,12 +74,14 @@ void AbstractChartLayout::setGeometry(const QRectF &rect)
 
         contentGeometry = calculateAxisGeometry(contentGeometry, axes, updateLayout);
 
-        m_presenter->setGeometry(contentGeometry);
-        if (updateLayout) {
-            if (m_presenter->chart()->chartType() == QChart::ChartTypeCartesian)
-                static_cast<QGraphicsRectItem *>(m_presenter->plotAreaElement())->setRect(contentGeometry);
-            else
-                static_cast<QGraphicsEllipseItem *>(m_presenter->plotAreaElement())->setRect(contentGeometry);
+        if (contentGeometry.isValid()) {
+            m_presenter->setGeometry(contentGeometry);
+            if (updateLayout) {
+                if (m_presenter->chart()->chartType() == QChart::ChartTypeCartesian)
+                    static_cast<QGraphicsRectItem *>(m_presenter->plotAreaElement())->setRect(contentGeometry);
+                else
+                    static_cast<QGraphicsEllipseItem *>(m_presenter->plotAreaElement())->setRect(contentGeometry);
+            }
         }
     }
 
@@ -230,4 +233,4 @@ QMargins AbstractChartLayout::margins() const
     return m_margins;
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE

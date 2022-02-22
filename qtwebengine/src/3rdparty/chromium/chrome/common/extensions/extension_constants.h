@@ -11,6 +11,7 @@
 
 #include "base/files/file_path.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "url/gurl.h"
 
 namespace extension_urls {
@@ -78,26 +79,14 @@ extern const char kGoogleSheetsAppId[];
 // The extension id of the Google Slides application.
 extern const char kGoogleSlidesAppId[];
 
-// The extension id of the HTerm app for ChromeOS.
-extern const char kHTermAppId[];
-
-// The extension id of the HTerm dev app for ChromeOS.
-extern const char kHTermDevAppId[];
-
 // The extension id of the Identity API UI application.
 extern const char kIdentityApiUiAppId[];
-
-// The extension id of the Crosh component app for ChromeOS.
-extern const char kCroshBuiltinAppId[];
 
 // The extension id of the Text Editor application.
 extern const char kTextEditorAppId[];
 
 // The extension id of the in-app payments support application.
 extern const char kInAppPaymentsSupportAppId[];
-
-// The extension id of the stable media router extension.
-extern const char kMediaRouterStableExtensionId[];
 
 // A list of all the first party extension IDs, last entry is null.
 extern const char* const kBuiltInFirstPartyExtensionIds[];
@@ -188,14 +177,18 @@ enum AppLaunchBucket {
   APP_LAUNCH_BUCKET_INVALID
 };
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 // The extension id of the Assessment Assistant extension.
 extern const char kAssessmentAssistantExtensionId[];
-// The extension id of the Automatic Clicks extension.
-extern const char kAutoclickExtensionId[];
-// Path to preinstalled Automatic Clicks extension (relative to
+// The extension id of the Accessibility Common extension.
+extern const char kAccessibilityCommonExtensionId[];
+// Path to preinstalled Accessibility Common extension (relative to
 // |chrome::DIR_RESOURCES|).
-extern const char kAutoclickExtensionPath[];
+extern const char kAccessibilityCommonExtensionPath[];
+// The manifest filename of the Accessibility Common extension.
+extern const char kAccessibilityCommonManifestFilename[];
+// The guest manifest filename of the Accessibility Common extension.
+extern const char kAccessibilityCommonGuestManifestFilename[];
 // Path to preinstalled ChromeVox screen reader extension (relative to
 // |chrome::DIR_RESOURCES|).
 extern const char kChromeVoxExtensionPath[];

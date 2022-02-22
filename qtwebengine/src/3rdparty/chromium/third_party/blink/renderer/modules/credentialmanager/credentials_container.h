@@ -5,9 +5,11 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_CREDENTIALMANAGER_CREDENTIALS_CONTAINER_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_CREDENTIALMANAGER_CREDENTIALS_CONTAINER_H_
 
+#include "third_party/blink/renderer/core/frame/navigator.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
+#include "third_party/blink/renderer/platform/supplementable.h"
 
 namespace blink {
 
@@ -15,14 +17,18 @@ class Credential;
 class CredentialCreationOptions;
 class CredentialRequestOptions;
 class ExceptionState;
+class Navigator;
 class ScriptPromise;
 class ScriptState;
 
-class MODULES_EXPORT CredentialsContainer final : public ScriptWrappable {
+class MODULES_EXPORT CredentialsContainer final : public ScriptWrappable,
+                                                  public Supplement<Navigator> {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  CredentialsContainer();
+  static const char kSupplementName[];
+  static CredentialsContainer* credentials(Navigator&);
+  explicit CredentialsContainer(Navigator&);
 
   // CredentialsContainer.idl
   ScriptPromise get(ScriptState*, const CredentialRequestOptions*);
@@ -31,6 +37,8 @@ class MODULES_EXPORT CredentialsContainer final : public ScriptWrappable {
                        const CredentialCreationOptions*,
                        ExceptionState&);
   ScriptPromise preventSilentAccess(ScriptState*);
+
+  void Trace(Visitor*) const override;
 };
 
 }  // namespace blink

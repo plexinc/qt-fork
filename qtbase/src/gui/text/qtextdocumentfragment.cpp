@@ -224,13 +224,14 @@ QTextDocumentFragmentPrivate::QTextDocumentFragmentPrivate(const QTextCursor &_c
     if (!_cursor.hasSelection())
         return;
 
-    doc->docHandle()->beginEditBlock();
+    QTextDocumentPrivate *p = QTextDocumentPrivate::get(doc);
+    p->beginEditBlock();
     QTextCursor destCursor(doc);
     QTextCopyHelper(_cursor, destCursor).copy();
-    doc->docHandle()->endEditBlock();
+    p->endEditBlock();
 
     if (_cursor.d)
-        doc->docHandle()->mergeCachedResources(_cursor.d->priv);
+        p->mergeCachedResources(_cursor.d->priv);
 }
 
 void QTextDocumentFragmentPrivate::insert(QTextCursor &_cursor) const
@@ -353,7 +354,7 @@ QTextDocumentFragment::~QTextDocumentFragment()
 */
 bool QTextDocumentFragment::isEmpty() const
 {
-    return !d || !d->doc || d->doc->docHandle()->length() <= 1;
+    return d == nullptr || d->doc == nullptr || QTextDocumentPrivate::get(d->doc)->length() <= 1;
 }
 
 /*!
@@ -375,17 +376,16 @@ QString QTextDocumentFragment::toPlainText() const
 /*!
     \since 4.2
 
-    Returns the contents of the document fragment as HTML,
-    using the specified \a encoding (e.g., "UTF-8", "ISO 8859-1").
+    Returns the contents of the document fragment as HTML.
 
-    \sa toPlainText(), QTextDocument::toHtml(), QTextCodec
+    \sa toPlainText(), QTextDocument::toHtml()
 */
-QString QTextDocumentFragment::toHtml(const QByteArray &encoding) const
+QString QTextDocumentFragment::toHtml() const
 {
     if (!d)
         return QString();
 
-    return QTextHtmlExporter(d->doc).toHtml(encoding, QTextHtmlExporter::ExportFragment);
+    return QTextHtmlExporter(d->doc).toHtml(QTextHtmlExporter::ExportFragment);
 }
 
 #endif // QT_NO_TEXTHTMLPARSER
@@ -561,7 +561,7 @@ bool QTextHtmlImporter::appendNodeText()
     const int initialCursorPosition = cursor.position();
     QTextCharFormat format = currentNode->charFormat;
 
-    if(wsm == QTextHtmlParserNode::WhiteSpacePre || wsm == QTextHtmlParserNode::WhiteSpacePreWrap)
+    if (wsm == QTextHtmlParserNode::WhiteSpacePre || wsm == QTextHtmlParserNode::WhiteSpacePreWrap)
         compressNextWhitespace = PreserveWhiteSpace;
 
     QString text = currentNode->text;
@@ -581,7 +581,7 @@ bool QTextHtmlImporter::appendNodeText()
 
             if (compressNextWhitespace == CollapseWhiteSpace)
                 compressNextWhitespace = RemoveWhiteSpace; // allow this one, and remove the ones coming next.
-            else if(compressNextWhitespace == RemoveWhiteSpace)
+            else if (compressNextWhitespace == RemoveWhiteSpace)
                 continue;
 
             if (wsm == QTextHtmlParserNode::WhiteSpacePre
@@ -891,10 +891,10 @@ QTextHtmlImporter::Table QTextHtmlImporter::scanTable(int tableNodeIdx)
     Table table;
     table.columns = 0;
 
-    QVector<QTextLength> columnWidths;
+    QList<QTextLength> columnWidths;
 
     int tableHeaderRowCount = 0;
-    QVector<int> rowNodes;
+    QList<int> rowNodes;
     rowNodes.reserve(at(tableNodeIdx).children.count());
     for (int row : at(tableNodeIdx).children) {
         switch (at(row).id) {
@@ -916,8 +916,8 @@ QTextHtmlImporter::Table QTextHtmlImporter::scanTable(int tableNodeIdx)
         }
     }
 
-    QVector<RowColSpanInfo> rowColSpans;
-    QVector<RowColSpanInfo> rowColSpanForColumn;
+    QList<RowColSpanInfo> rowColSpans;
+    QList<RowColSpanInfo> rowColSpanForColumn;
 
     int effectiveRow = 0;
     for (int row : qAsConst(rowNodes)) {
@@ -1257,22 +1257,7 @@ void QTextHtmlImporter::appendBlock(const QTextBlockFormat &format, QTextCharFor
 
 #endif // QT_NO_TEXTHTMLPARSER
 
-/*!
-    \fn QTextDocumentFragment QTextDocumentFragment::fromHtml(const QString &text)
-
-    Returns a QTextDocumentFragment based on the arbitrary piece of
-    HTML in the given \a text. The formatting is preserved as much as
-    possible; for example, "<b>bold</b>" will become a document
-    fragment with the text "bold" with a bold character format.
-*/
-
 #ifndef QT_NO_TEXTHTMLPARSER
-
-QTextDocumentFragment QTextDocumentFragment::fromHtml(const QString &html)
-{
-    return fromHtml(html, nullptr);
-}
-
 /*!
     \fn QTextDocumentFragment QTextDocumentFragment::fromHtml(const QString &text, const QTextDocument *resourceProvider)
     \since 4.2
@@ -1296,5 +1281,6 @@ QTextDocumentFragment QTextDocumentFragment::fromHtml(const QString &html, const
     return res;
 }
 
-QT_END_NAMESPACE
 #endif // QT_NO_TEXTHTMLPARSER
+
+QT_END_NAMESPACE

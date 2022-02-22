@@ -2,16 +2,73 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/tools/quic_client_base.h"
+#include "quic/tools/quic_client_base.h"
+#include <memory>
 
-#include "net/third_party/quiche/src/quic/core/crypto/quic_random.h"
-#include "net/third_party/quiche/src/quic/core/http/spdy_utils.h"
-#include "net/third_party/quiche/src/quic/core/quic_server_id.h"
-#include "net/third_party/quiche/src/quic/core/quic_utils.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
+#include "quic/core/crypto/quic_random.h"
+#include "quic/core/http/spdy_utils.h"
+#include "quic/core/quic_packet_writer.h"
+#include "quic/core/quic_path_validator.h"
+#include "quic/core/quic_server_id.h"
+#include "quic/core/quic_utils.h"
+#include "quic/platform/api/quic_flags.h"
+#include "quic/platform/api/quic_logging.h"
 
 namespace quic {
+
+// A path context which owns the writer.
+class QUIC_EXPORT_PRIVATE PathMigrationContext
+    : public QuicPathValidationContext {
+ public:
+  PathMigrationContext(std::unique_ptr<QuicPacketWriter> writer,
+                       const QuicSocketAddress& self_address,
+                       const QuicSocketAddress& peer_address)
+      : QuicPathValidationContext(self_address, peer_address),
+        alternative_writer_(std::move(writer)) {}
+
+  QuicPacketWriter* WriterToUse() override { return alternative_writer_.get(); }
+
+  QuicPacketWriter* ReleaseWriter() { return alternative_writer_.release(); }
+
+ private:
+  std::unique_ptr<QuicPacketWriter> alternative_writer_;
+};
+
+// Implements the basic feature of a result delegate for path validation for
+// connection migration. If the validation succeeds, migrate to the alternative
+// path. Otherwise, stay on the current path.
+class QuicClientSocketMigrationValidationResultDelegate
+    : public QuicPathValidator::ResultDelegate {
+ public:
+  QuicClientSocketMigrationValidationResultDelegate(QuicClientBase* client)
+      : QuicPathValidator::ResultDelegate(), client_(client) {}
+
+  // QuicPathValidator::ResultDelegate
+  // Overridden to start migration and takes the ownership of the writer in the
+  // context.
+  void OnPathValidationSuccess(
+      std::unique_ptr<QuicPathValidationContext> context) override {
+    QUIC_DLOG(INFO) << "Successfully validated path from " << *context
+                    << ". Migrate to it now.";
+    auto migration_context = std::unique_ptr<PathMigrationContext>(
+        static_cast<PathMigrationContext*>(context.release()));
+    client_->session()->MigratePath(
+        migration_context->self_address(), migration_context->peer_address(),
+        migration_context->WriterToUse(), /*owns_writer=*/false);
+    QUICHE_DCHECK(migration_context->WriterToUse() != nullptr);
+    // Hand the ownership of the alternative writer to the client.
+    client_->set_writer(migration_context->ReleaseWriter());
+  }
+
+  void OnPathValidationFailure(
+      std::unique_ptr<QuicPathValidationContext> context) override {
+    QUIC_LOG(WARNING) << "Fail to validate path " << *context
+                      << ", stop migrating.";
+  }
+
+ private:
+  QuicClientBase* client_;
+};
 
 QuicClientBase::NetworkHelper::~NetworkHelper() = default;
 
@@ -37,7 +94,9 @@ QuicClientBase::QuicClientBase(
       connection_error_(QUIC_NO_ERROR),
       connected_or_attempting_connect_(false),
       network_helper_(std::move(network_helper)),
-      connection_debug_visitor_(nullptr) {}
+      connection_debug_visitor_(nullptr),
+      server_connection_id_length_(kQuicDefaultConnectionIdLength),
+      client_connection_id_length_(0) {}
 
 QuicClientBase::~QuicClientBase() = default;
 
@@ -87,12 +146,16 @@ bool QuicClientBase::Connect() {
     }
     num_attempts++;
   }
+  if (session() == nullptr) {
+    QUIC_BUG << "Missing session after Connect";
+    return false;
+  }
   return session()->connection()->connected();
 }
 
 void QuicClientBase::StartConnect() {
-  DCHECK(initialized_);
-  DCHECK(!connected());
+  QUICHE_DCHECK(initialized_);
+  QUICHE_DCHECK(!connected());
   QuicPacketWriter* writer = network_helper_->CreateQuicPacketWriter();
   ParsedQuicVersion mutual_version = UnsupportedQuicVersion();
   const bool can_reconnect_with_different_version =
@@ -108,14 +171,17 @@ void QuicClientBase::StartConnect() {
     UpdateStats();
   }
 
+  const quic::ParsedQuicVersionVector client_supported_versions =
+      can_reconnect_with_different_version
+          ? ParsedQuicVersionVector{mutual_version}
+          : supported_versions();
+
   session_ = CreateQuicClientSession(
-      supported_versions(),
-      new QuicConnection(GetNextConnectionId(), server_address(), helper(),
-                         alarm_factory(), writer,
+      client_supported_versions,
+      new QuicConnection(GetNextConnectionId(), QuicSocketAddress(),
+                         server_address(), helper(), alarm_factory(), writer,
                          /* owns_writer= */ false, Perspective::IS_CLIENT,
-                         can_reconnect_with_different_version
-                             ? ParsedQuicVersionVector{mutual_version}
-                             : supported_versions()));
+                         client_supported_versions));
   if (connection_debug_visitor_ != nullptr) {
     session()->connection()->set_debug_visitor(connection_debug_visitor_);
   }
@@ -139,7 +205,7 @@ void QuicClientBase::InitializeSession() {
 }
 
 void QuicClientBase::Disconnect() {
-  DCHECK(initialized_);
+  QUICHE_DCHECK(initialized_);
 
   initialized_ = false;
   if (connected()) {
@@ -163,11 +229,14 @@ bool QuicClientBase::EncryptionBeingEstablished() {
 }
 
 bool QuicClientBase::WaitForEvents() {
-  DCHECK(connected());
+  if (!connected()) {
+    QUIC_BUG << "Cannot call WaitForEvents on non-connected client";
+    return false;
+  }
 
   network_helper_->RunEventLoop();
 
-  DCHECK(session() != nullptr);
+  QUICHE_DCHECK(session() != nullptr);
   ParsedQuicVersion version = UnsupportedQuicVersion();
   if (!connected() && CanReconnectWithDifferentVersion(&version)) {
     QUIC_DLOG(INFO) << "Can reconnect with version: " << version
@@ -191,21 +260,56 @@ bool QuicClientBase::MigrateSocketWithSpecifiedPort(
   }
 
   network_helper_->CleanUpAllUDPSockets();
+  std::unique_ptr<QuicPacketWriter> writer =
+      CreateWriterForNewNetwork(new_host, port);
+  if (writer == nullptr) {
+    return false;
+  }
+  session()->MigratePath(network_helper_->GetLatestClientAddress(),
+                         session()->connection()->peer_address(), writer.get(),
+                         false);
+  set_writer(writer.release());
+  return true;
+}
 
-  set_bind_to_address(new_host);
-  if (!network_helper_->CreateUDPSocketAndBind(server_address_,
-                                               bind_to_address_, port)) {
+bool QuicClientBase::ValidateAndMigrateSocket(const QuicIpAddress& new_host) {
+  QUICHE_DCHECK(VersionHasIetfQuicFrames(
+                    session_->connection()->version().transport_version) &&
+                session_->connection()->use_path_validator());
+  if (!connected()) {
     return false;
   }
 
-  session()->connection()->SetSelfAddress(
-      network_helper_->GetLatestClientAddress());
+  std::unique_ptr<QuicPacketWriter> writer =
+      CreateWriterForNewNetwork(new_host, local_port_);
+  if (writer == nullptr) {
+    return false;
+  }
+  // Asynchronously start migration.
+  session_->ValidatePath(
+      std::make_unique<PathMigrationContext>(
+          std::move(writer), network_helper_->GetLatestClientAddress(),
+          session_->peer_address()),
+      std::make_unique<QuicClientSocketMigrationValidationResultDelegate>(
+          this));
+  return true;
+}
+
+std::unique_ptr<QuicPacketWriter> QuicClientBase::CreateWriterForNewNetwork(
+    const QuicIpAddress& new_host,
+    int port) {
+  set_bind_to_address(new_host);
+  set_local_port(port);
+  if (!network_helper_->CreateUDPSocketAndBind(server_address_,
+                                               bind_to_address_, port)) {
+    return nullptr;
+  }
 
   QuicPacketWriter* writer = network_helper_->CreateQuicPacketWriter();
-  set_writer(writer);
-  session()->connection()->SetQuicPacketWriter(writer, false);
-
-  return true;
+  QUIC_LOG_IF(WARNING, writer == writer_.get())
+      << "The new writer is wrapped in the same wrapper as the old one, thus "
+         "appearing to have the same address as the old one.";
+  return std::unique_ptr<QuicPacketWriter>(writer);
 }
 
 bool QuicClientBase::ChangeEphemeralPort() {
@@ -214,6 +318,10 @@ bool QuicClientBase::ChangeEphemeralPort() {
 }
 
 QuicSession* QuicClientBase::session() {
+  return session_.get();
+}
+
+const QuicSession* QuicClientBase::session() const {
   return session_.get();
 }
 
@@ -226,17 +334,37 @@ const QuicClientBase::NetworkHelper* QuicClientBase::network_helper() const {
 }
 
 void QuicClientBase::WaitForStreamToClose(QuicStreamId id) {
-  DCHECK(connected());
+  if (!connected()) {
+    QUIC_BUG << "Cannot WaitForStreamToClose on non-connected client";
+    return;
+  }
 
   while (connected() && !session_->IsClosedStream(id)) {
     WaitForEvents();
   }
 }
 
-bool QuicClientBase::WaitForCryptoHandshakeConfirmed() {
-  DCHECK(connected());
+bool QuicClientBase::WaitForOneRttKeysAvailable() {
+  if (!connected()) {
+    QUIC_BUG << "Cannot WaitForOneRttKeysAvailable on non-connected client";
+    return false;
+  }
 
   while (connected() && !session_->OneRttKeysAvailable()) {
+    WaitForEvents();
+  }
+
+  // If the handshake fails due to a timeout, the connection will be closed.
+  QUIC_LOG_IF(ERROR, !connected()) << "Handshake with server failed.";
+  return connected();
+}
+
+bool QuicClientBase::WaitForHandshakeConfirmed() {
+  if (!session_->connection()->version().UsesTls()) {
+    return WaitForOneRttKeysAvailable();
+  }
+  // Otherwise, wait for receipt of HANDSHAKE_DONE frame.
+  while (connected() && session_->GetHandshakeState() < HANDSHAKE_CONFIRMED) {
     WaitForEvents();
   }
 
@@ -251,7 +379,7 @@ bool QuicClientBase::connected() const {
 }
 
 bool QuicClientBase::goaway_received() const {
-  return session_ != nullptr && session_->goaway_received();
+  return session_ != nullptr && session_->transport_goaway_received();
 }
 
 int QuicClientBase::GetNumSentClientHellos() {
@@ -288,29 +416,15 @@ QuicErrorCode QuicClientBase::connection_error() const {
 }
 
 QuicConnectionId QuicClientBase::GetNextConnectionId() {
-  QuicConnectionId server_designated_id = GetNextServerDesignatedConnectionId();
-  return !server_designated_id.IsEmpty() ? server_designated_id
-                                         : GenerateNewConnectionId();
-}
-
-QuicConnectionId QuicClientBase::GetNextServerDesignatedConnectionId() {
-  QuicCryptoClientConfig::CachedState* cached =
-      crypto_config_.LookupOrCreate(server_id_);
-  // If the cached state indicates that we should use a server-designated
-  // connection ID, then return that connection ID.
-  CHECK(cached != nullptr) << "QuicClientCryptoConfig::LookupOrCreate returned "
-                           << "unexpected nullptr.";
-  return cached->has_server_designated_connection_id()
-             ? cached->GetNextServerDesignatedConnectionId()
-             : EmptyQuicConnectionId();
+  return GenerateNewConnectionId();
 }
 
 QuicConnectionId QuicClientBase::GenerateNewConnectionId() {
-  return QuicUtils::CreateRandomConnectionId();
+  return QuicUtils::CreateRandomConnectionId(server_connection_id_length_);
 }
 
 QuicConnectionId QuicClientBase::GetClientConnectionId() {
-  return EmptyQuicConnectionId();
+  return QuicUtils::CreateRandomConnectionId(client_connection_id_length_);
 }
 
 bool QuicClientBase::CanReconnectWithDifferentVersion(
@@ -328,6 +442,48 @@ bool QuicClientBase::CanReconnectWithDifferentVersion(
     }
   }
   return false;
+}
+
+bool QuicClientBase::HasPendingPathValidation() {
+  return session()->HasPendingPathValidation();
+}
+
+class ValidationResultDelegate : public QuicPathValidator::ResultDelegate {
+ public:
+  ValidationResultDelegate(QuicClientBase* client)
+      : QuicPathValidator::ResultDelegate(), client_(client) {}
+
+  void OnPathValidationSuccess(
+      std::unique_ptr<QuicPathValidationContext> context) override {
+    QUIC_DLOG(INFO) << "Successfully validated path from " << *context;
+    client_->AddValidatedPath(std::move(context));
+  }
+  void OnPathValidationFailure(
+      std::unique_ptr<QuicPathValidationContext> context) override {
+    QUIC_LOG(WARNING) << "Fail to validate path " << *context
+                      << ", stop migrating.";
+  }
+
+ private:
+  QuicClientBase* client_;
+};
+
+void QuicClientBase::ValidateNewNetwork(const QuicIpAddress& host) {
+  std::unique_ptr<QuicPacketWriter> writer =
+      CreateWriterForNewNetwork(host, local_port_);
+  auto result_delegate = std::make_unique<ValidationResultDelegate>(this);
+  if (writer == nullptr) {
+    result_delegate->OnPathValidationFailure(
+        std::make_unique<PathMigrationContext>(
+            nullptr, network_helper_->GetLatestClientAddress(),
+            session_->peer_address()));
+    return;
+  }
+  session()->ValidatePath(
+      std::make_unique<PathMigrationContext>(
+          std::move(writer), network_helper_->GetLatestClientAddress(),
+          session_->peer_address()),
+      std::move(result_delegate));
 }
 
 }  // namespace quic

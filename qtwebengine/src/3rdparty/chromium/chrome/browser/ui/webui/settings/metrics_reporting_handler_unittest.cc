@@ -3,8 +3,9 @@
 // found in the LICENSE file.
 
 #include "build/branding_buildflags.h"
+#include "build/chromeos_buildflags.h"
 
-#if BUILDFLAG(GOOGLE_CHROME_BRANDING) && !defined(OS_CHROMEOS)
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING) && !BUILDFLAG(IS_CHROMEOS_ASH)
 
 #include "chrome/browser/ui/webui/settings/metrics_reporting_handler.h"
 
@@ -107,8 +108,7 @@ TEST_F(MetricsReportingHandlerTest, PolicyChangesNotifyPage) {
   // Change the policy, check that the page was notified.
   map()->Set(policy::key::kMetricsReportingEnabled,
              policy::POLICY_LEVEL_MANDATORY, policy::POLICY_SCOPE_USER,
-             policy::POLICY_SOURCE_CLOUD, std::make_unique<base::Value>(true),
-             nullptr);
+             policy::POLICY_SOURCE_CLOUD, base::Value(true), nullptr);
   provider()->UpdateChromePolicy(*map());
   EXPECT_EQ(1u, test_web_ui()->call_data().size());
 
@@ -118,12 +118,11 @@ TEST_F(MetricsReportingHandlerTest, PolicyChangesNotifyPage) {
   // Policies changing while JavaScript is disabled shouldn't notify the page.
   map()->Set(policy::key::kMetricsReportingEnabled,
              policy::POLICY_LEVEL_MANDATORY, policy::POLICY_SCOPE_USER,
-             policy::POLICY_SOURCE_CLOUD, std::make_unique<base::Value>(false),
-             nullptr);
+             policy::POLICY_SOURCE_CLOUD, base::Value(false), nullptr);
   provider()->UpdateChromePolicy(*map());
   EXPECT_TRUE(test_web_ui()->call_data().empty());
 }
 
 }  // namespace settings
 
-#endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING) && !defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING) && !BUILDFLAG(IS_CHROMEOS_ASH)

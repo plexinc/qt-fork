@@ -21,7 +21,7 @@ class ExtensionHostObserver {
   // ExtensionHost it's given.
 
   // Called when an ExtensionHost is destroyed.
-  virtual void OnExtensionHostDestroyed(const ExtensionHost* host) {}
+  virtual void OnExtensionHostDestroyed(ExtensionHost* host) {}
 
   // Called when the ExtensionHost has finished the first load.
   virtual void OnExtensionHostDidStopFirstLoad(const ExtensionHost* host) {}
@@ -45,6 +45,9 @@ class ExtensionHostObserver {
   // Called when the network request with |request_id| is done.
   virtual void OnNetworkRequestDone(const ExtensionHost* host,
                                     uint64_t request_id) {}
+
+  // Called when ExtensionHost should be closed.
+  virtual void OnExtensionHostShouldClose(ExtensionHost* host) {}
 };
 
 }  // namespace extensions

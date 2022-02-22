@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/crypto/chacha20_poly1305_encrypter.h"
+#include "quic/core/crypto/chacha20_poly1305_encrypter.h"
 
 #include "third_party/boringssl/src/include/openssl/evp.h"
 
@@ -26,5 +26,12 @@ ChaCha20Poly1305Encrypter::ChaCha20Poly1305Encrypter()
 }
 
 ChaCha20Poly1305Encrypter::~ChaCha20Poly1305Encrypter() {}
+
+QuicPacketCount ChaCha20Poly1305Encrypter::GetConfidentialityLimit() const {
+  // For AEAD_CHACHA20_POLY1305, the confidentiality limit is greater than the
+  // number of possible packets (2^62) and so can be disregarded.
+  // https://quicwg.org/base-drafts/draft-ietf-quic-tls.html#name-limits-on-aead-usage
+  return std::numeric_limits<QuicPacketCount>::max();
+}
 
 }  // namespace quic

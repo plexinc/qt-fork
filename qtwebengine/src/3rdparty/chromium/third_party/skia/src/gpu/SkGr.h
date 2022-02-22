@@ -10,10 +10,8 @@
 
 #include "include/core/SkCanvas.h"
 #include "include/core/SkColor.h"
-#include "include/core/SkFilterQuality.h"
 #include "include/core/SkImageInfo.h"
-#include "include/core/SkMatrix.h"
-#include "include/core/SkVertices.h"
+#include "include/core/SkSamplingOptions.h"
 #include "include/gpu/GrTypes.h"
 #include "include/private/SkColorData.h"
 #include "src/core/SkBlendModePriv.h"
@@ -25,7 +23,7 @@
 class GrCaps;
 class GrColorInfo;
 class GrColorSpaceXform;
-class GrContext;
+class GrDirectContext;
 class GrFragmentProcessor;
 class GrPaint;
 class GrRecordingContext;
@@ -34,6 +32,8 @@ class GrTextureProxy;
 class GrUniqueKey;
 class SkBitmap;
 class SkData;
+class SkMatrix;
+class SkMatrixProvider;
 class SkPaint;
 class SkPixelRef;
 class SkPixmap;
@@ -66,6 +66,19 @@ SkPMColor4f SkColorToPMColor4f(SkColor, const GrColorInfo&);
 SkColor4f SkColor4fPrepForDst(SkColor4f, const GrColorInfo&);
 
 ////////////////////////////////////////////////////////////////////////////////
+// SkTileMode conversion
+
+static constexpr GrSamplerState::WrapMode SkTileModeToWrapMode(SkTileMode tileMode) {
+    switch (tileMode) {
+        case SkTileMode::kClamp:  return GrSamplerState::WrapMode::kClamp;
+        case SkTileMode::kDecal:  return GrSamplerState::WrapMode::kClampToBorder;
+        case SkTileMode::kMirror: return GrSamplerState::WrapMode::kMirrorRepeat;
+        case SkTileMode::kRepeat: return GrSamplerState::WrapMode::kRepeat;
+    }
+    SkUNREACHABLE;
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // Paint conversion
 
 /** Converts an SkPaint to a GrPaint for a given GrRecordingContext. The matrix is required in order
@@ -73,13 +86,14 @@ SkColor4f SkColor4fPrepForDst(SkColor4f, const GrColorInfo&);
 bool SkPaintToGrPaint(GrRecordingContext*,
                       const GrColorInfo& dstColorInfo,
                       const SkPaint& skPaint,
-                      const SkMatrix& viewM,
+                      const SkMatrixProvider& matrixProvider,
                       GrPaint* grPaint);
 
 /** Same as above but ignores the SkShader (if any) on skPaint. */
 bool SkPaintToGrPaintNoShader(GrRecordingContext*,
                               const GrColorInfo& dstColorInfo,
                               const SkPaint& skPaint,
+                              const SkMatrixProvider& matrixProvider,
                               GrPaint* grPaint);
 
 /** Replaces the SkShader (if any) on skPaint with the passed in GrFragmentProcessor. The processor
@@ -88,17 +102,28 @@ bool SkPaintToGrPaintNoShader(GrRecordingContext*,
 bool SkPaintToGrPaintReplaceShader(GrRecordingContext*,
                                    const GrColorInfo& dstColorInfo,
                                    const SkPaint& skPaint,
+                                   const SkMatrixProvider& matrixProvider,
                                    std::unique_ptr<GrFragmentProcessor> shaderFP,
                                    GrPaint* grPaint);
 
 /** Blends the SkPaint's shader (or color if no shader) with the color which specified via a
     GrOp's GrPrimitiveProcesssor. */
-bool SkPaintToGrPaintWithXfermode(GrRecordingContext*,
-                                  const GrColorInfo& dstColorInfo,
-                                  const SkPaint& skPaint,
-                                  const SkMatrix& viewM,
-                                  SkBlendMode primColorMode,
-                                  GrPaint* grPaint);
+bool SkPaintToGrPaintWithBlend(GrRecordingContext*,
+                               const GrColorInfo& dstColorInfo,
+                               const SkPaint& skPaint,
+                               const SkMatrixProvider& matrixProvider,
+                               SkBlendMode primColorMode,
+                               GrPaint* grPaint);
+
+/** Blends the passed-in shader with a per-primitive color which must be setup as a vertex attribute
+    using the specified SkBlendMode. */
+bool SkPaintToGrPaintWithBlendReplaceShader(GrRecordingContext* context,
+                                            const GrColorInfo& dstColorInfo,
+                                            const SkPaint& skPaint,
+                                            const SkMatrixProvider& matrixProvider,
+                                            std::unique_ptr<GrFragmentProcessor> shaderFP,
+                                            SkBlendMode primColorMode,
+                                            GrPaint* grPaint);
 
 /** This is used when there is a primitive color, but the shader should be ignored. Currently,
     the expectation is that the primitive color will be premultiplied, though it really should be
@@ -107,9 +132,10 @@ bool SkPaintToGrPaintWithXfermode(GrRecordingContext*,
 inline bool SkPaintToGrPaintWithPrimitiveColor(GrRecordingContext* context,
                                                const GrColorInfo& dstColorInfo,
                                                const SkPaint& skPaint,
+                                               const SkMatrixProvider& matrixProvider,
                                                GrPaint* grPaint) {
-    return SkPaintToGrPaintWithXfermode(context, dstColorInfo, skPaint, SkMatrix::I(),
-                                        SkBlendMode::kDst, grPaint);
+    return SkPaintToGrPaintWithBlend(context, dstColorInfo, skPaint, matrixProvider,
+                                     SkBlendMode::kDst, grPaint);
 }
 
 /** This is used when there may or may not be a shader, and the caller wants to plugin a texture
@@ -117,7 +143,7 @@ inline bool SkPaintToGrPaintWithPrimitiveColor(GrRecordingContext* context,
 bool SkPaintToGrPaintWithTexture(GrRecordingContext*,
                                  const GrColorInfo& dstColorInfo,
                                  const SkPaint& skPaint,
-                                 const SkMatrix& viewM,
+                                 const SkMatrixProvider& matrixProvider,
                                  std::unique_ptr<GrFragmentProcessor> fp,
                                  bool textureIsAlphaOnly,
                                  GrPaint* grPaint);
@@ -125,39 +151,33 @@ bool SkPaintToGrPaintWithTexture(GrRecordingContext*,
 ////////////////////////////////////////////////////////////////////////////////
 // Misc Sk to Gr type conversions
 
-GrSamplerState::Filter GrSkFilterQualityToGrFilterMode(int imageWidth, int imageHeight,
-                                                       SkFilterQuality paintFilterQuality,
-                                                       const SkMatrix& viewM,
-                                                       const SkMatrix& localM,
-                                                       bool sharpenMipmappedTextures,
-                                                       bool* doBicubic);
+/**
+ * Determines how to interpret SkFilterQuality given draw params and canvas state. If the returned
+ * bool is true then bicubic filtering should be used (and the two other return values can be
+ * ignored).
+ */
+std::tuple<GrSamplerState::Filter,
+           GrSamplerState::MipmapMode,
+           SkCubicResampler>
+GrInterpretSamplingOptions(SkISize imageDims,
+                           const SkSamplingOptions&,
+                           const SkMatrix& viewM,
+                           const SkMatrix& localM,
+                           bool sharpenMipmappedTextures,
+                           bool allowFilterQualityReduction);
 
 //////////////////////////////////////////////////////////////////////////////
 
-static inline GrPrimitiveType SkVertexModeToGrPrimitiveType(SkVertices::VertexMode mode) {
-    switch (mode) {
-        case SkVertices::kTriangles_VertexMode:
-            return GrPrimitiveType::kTriangles;
-        case SkVertices::kTriangleStrip_VertexMode:
-            return GrPrimitiveType::kTriangleStrip;
-        case SkVertices::kTriangleFan_VertexMode:
-            break;
-    }
-    SK_ABORT("Invalid mode");
-}
-
-//////////////////////////////////////////////////////////////////////////////
-
-static_assert((int)kZero_GrBlendCoeff == (int)SkBlendModeCoeff::kZero, "");
-static_assert((int)kOne_GrBlendCoeff == (int)SkBlendModeCoeff::kOne, "");
-static_assert((int)kSC_GrBlendCoeff == (int)SkBlendModeCoeff::kSC, "");
-static_assert((int)kISC_GrBlendCoeff == (int)SkBlendModeCoeff::kISC, "");
-static_assert((int)kDC_GrBlendCoeff == (int)SkBlendModeCoeff::kDC, "");
-static_assert((int)kIDC_GrBlendCoeff == (int)SkBlendModeCoeff::kIDC, "");
-static_assert((int)kSA_GrBlendCoeff == (int)SkBlendModeCoeff::kSA, "");
-static_assert((int)kISA_GrBlendCoeff == (int)SkBlendModeCoeff::kISA, "");
-static_assert((int)kDA_GrBlendCoeff == (int)SkBlendModeCoeff::kDA, "");
-static_assert((int)kIDA_GrBlendCoeff == (int)SkBlendModeCoeff::kIDA, "");
+static_assert((int)kZero_GrBlendCoeff == (int)SkBlendModeCoeff::kZero);
+static_assert((int)kOne_GrBlendCoeff == (int)SkBlendModeCoeff::kOne);
+static_assert((int)kSC_GrBlendCoeff == (int)SkBlendModeCoeff::kSC);
+static_assert((int)kISC_GrBlendCoeff == (int)SkBlendModeCoeff::kISC);
+static_assert((int)kDC_GrBlendCoeff == (int)SkBlendModeCoeff::kDC);
+static_assert((int)kIDC_GrBlendCoeff == (int)SkBlendModeCoeff::kIDC);
+static_assert((int)kSA_GrBlendCoeff == (int)SkBlendModeCoeff::kSA);
+static_assert((int)kISA_GrBlendCoeff == (int)SkBlendModeCoeff::kISA);
+static_assert((int)kDA_GrBlendCoeff == (int)SkBlendModeCoeff::kDA);
+static_assert((int)kIDA_GrBlendCoeff == (int)SkBlendModeCoeff::kIDA);
 // static_assert(SkXfermode::kCoeffCount == 10);
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -178,19 +198,25 @@ enum class GrImageTexGenPolicy : int {
 /**
  * Returns a view that wraps a texture representing the bitmap. The texture is inserted into the
  * cache (unless the bitmap is marked volatile and can be retrieved again via this function.
- * A MIP mapped texture may be returned even when GrMipMapped is kNo. The function will succeed
- * with a non-MIP mapped texture if GrMipMapped is kYes but MIP mapping is not supported.
+ * A MIP mapped texture may be returned even when GrMipmapped is kNo. The function will succeed
+ * with a non-MIP mapped texture if GrMipmapped is kYes but MIP mapping is not supported.
  */
-GrSurfaceProxyView GrRefCachedBitmapView(GrRecordingContext*, const SkBitmap&, GrMipMapped);
+GrSurfaceProxyView GrRefCachedBitmapView(GrRecordingContext*, const SkBitmap&, GrMipmapped);
 
 /**
  * Creates a new texture with mipmap levels and copies the baseProxy into the base layer.
  */
-GrSurfaceProxyView GrCopyBaseMipMapToTextureProxy(GrRecordingContext*,
-                                                  GrSurfaceProxy* baseProxy,
-                                                  GrSurfaceOrigin origin,
-                                                  GrColorType srcColorType,
-                                                  SkBudgeted = SkBudgeted::kYes);
+sk_sp<GrSurfaceProxy> GrCopyBaseMipMapToTextureProxy(GrRecordingContext*,
+                                                     sk_sp<GrSurfaceProxy> baseProxy,
+                                                     GrSurfaceOrigin origin,
+                                                     SkBudgeted = SkBudgeted::kYes);
+/**
+ * Same as GrCopyBaseMipMapToTextureProxy but takes the src as a view and returns a view with same
+ * origin and swizzle as the src view.
+ */
+GrSurfaceProxyView GrCopyBaseMipMapToView(GrRecordingContext*,
+                                          GrSurfaceProxyView,
+                                          SkBudgeted = SkBudgeted::kYes);
 
 /*
  * Create a texture proxy from the provided bitmap and add it to the texture cache
@@ -216,5 +242,11 @@ void GrMakeKeyFromImageID(GrUniqueKey* key, uint32_t imageID, const SkIRect& ima
  * are purged before listeners trigger).
  */
 sk_sp<SkIDChangeListener> GrMakeUniqueKeyInvalidationListener(GrUniqueKey*, uint32_t contextID);
+
+constexpr SkCubicResampler kInvalidCubicResampler{-1.f, -1.f};
+
+static inline bool GrValidCubicResampler(SkCubicResampler cubic) {
+    return cubic.B >= 0 && cubic.C >= 0;
+}
 
 #endif

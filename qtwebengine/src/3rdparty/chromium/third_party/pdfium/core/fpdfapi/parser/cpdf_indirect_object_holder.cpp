@@ -11,8 +11,7 @@
 
 #include "core/fpdfapi/parser/cpdf_object.h"
 #include "core/fpdfapi/parser/cpdf_parser.h"
-#include "third_party/base/logging.h"
-#include "third_party/base/ptr_util.h"
+#include "third_party/base/check.h"
 
 namespace {
 
@@ -23,8 +22,7 @@ CPDF_Object* FilterInvalidObjNum(CPDF_Object* obj) {
 }  // namespace
 
 CPDF_IndirectObjectHolder::CPDF_IndirectObjectHolder()
-    : m_LastObjNum(0),
-      m_pByteStringPool(pdfium::MakeUnique<ByteStringPool>()) {}
+    : m_LastObjNum(0), m_pByteStringPool(std::make_unique<ByteStringPool>()) {}
 
 CPDF_IndirectObjectHolder::~CPDF_IndirectObjectHolder() {
   m_pByteStringPool.DeleteObject();  // Make weak.
@@ -77,7 +75,7 @@ CPDF_Object* CPDF_IndirectObjectHolder::AddIndirectObject(
 bool CPDF_IndirectObjectHolder::ReplaceIndirectObjectIfHigherGeneration(
     uint32_t objnum,
     RetainPtr<CPDF_Object> pObj) {
-  ASSERT(objnum);
+  DCHECK(objnum);
   if (!pObj || objnum == CPDF_Object::kInvalidObjNum)
     return false;
 

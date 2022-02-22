@@ -14,15 +14,16 @@
 #include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/scoped_command_line.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/values.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/common/extension_builder.h"
 #include "extensions/common/features/complex_feature.h"
 #include "extensions/common/features/feature_channel.h"
+#include "extensions/common/features/feature_flags.h"
 #include "extensions/common/features/feature_session_type.h"
 #include "extensions/common/manifest.h"
 #include "extensions/common/manifest_handlers/background_info.h"
-#include "extensions/common/scoped_worker_based_extensions_channel.h"
 #include "extensions/common/switches.h"
 #include "extensions/common/value_builder.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -45,8 +46,8 @@ struct IsAvailableTestData {
 struct FeatureSessionTypeTestData {
   std::string desc;
   Feature::AvailabilityResult expected_availability;
-  FeatureSessionType current_session_type;
-  std::initializer_list<FeatureSessionType> feature_session_types;
+  mojom::FeatureSessionType current_session_type;
+  std::initializer_list<mojom::FeatureSessionType> feature_session_types;
 };
 
 Feature::AvailabilityResult IsAvailableInChannel(Channel channel_for_feature,
@@ -444,79 +445,82 @@ TEST_F(SimpleFeatureTest, SessionType) {
   const FeatureSessionTypeTestData kTestData[] = {
       {"kiosk_feature in kiosk session",
        Feature::IS_AVAILABLE,
-       FeatureSessionType::KIOSK,
-       {FeatureSessionType::KIOSK}},
+       mojom::FeatureSessionType::kKiosk,
+       {mojom::FeatureSessionType::kKiosk}},
       {"kiosk feature in regular session",
        Feature::INVALID_SESSION_TYPE,
-       FeatureSessionType::REGULAR,
-       {FeatureSessionType::KIOSK}},
+       mojom::FeatureSessionType::kRegular,
+       {mojom::FeatureSessionType::kKiosk}},
       {"kiosk feature in unknown session",
        Feature::INVALID_SESSION_TYPE,
-       FeatureSessionType::UNKNOWN,
-       {FeatureSessionType::KIOSK}},
+       mojom::FeatureSessionType::kUnknown,
+       {mojom::FeatureSessionType::kKiosk}},
       {"kiosk feature in initial session",
        Feature::INVALID_SESSION_TYPE,
-       FeatureSessionType::INITIAL,
-       {FeatureSessionType::KIOSK}},
+       mojom::FeatureSessionType::kInitial,
+       {mojom::FeatureSessionType::kKiosk}},
       {"non kiosk feature in kiosk session",
        Feature::INVALID_SESSION_TYPE,
-       FeatureSessionType::KIOSK,
-       {FeatureSessionType::REGULAR}},
+       mojom::FeatureSessionType::kKiosk,
+       {mojom::FeatureSessionType::kRegular}},
       {"non kiosk feature in regular session",
        Feature::IS_AVAILABLE,
-       FeatureSessionType::REGULAR,
-       {FeatureSessionType::REGULAR}},
+       mojom::FeatureSessionType::kRegular,
+       {mojom::FeatureSessionType::kRegular}},
       {"non kiosk feature in unknown session",
        Feature::INVALID_SESSION_TYPE,
-       FeatureSessionType::UNKNOWN,
-       {FeatureSessionType::REGULAR}},
+       mojom::FeatureSessionType::kUnknown,
+       {mojom::FeatureSessionType::kRegular}},
       {"non kiosk feature in initial session",
        Feature::INVALID_SESSION_TYPE,
-       FeatureSessionType::INITIAL,
-       {FeatureSessionType::REGULAR}},
+       mojom::FeatureSessionType::kInitial,
+       {mojom::FeatureSessionType::kRegular}},
       {"session agnostic feature in kiosk session",
        Feature::IS_AVAILABLE,
-       FeatureSessionType::KIOSK,
+       mojom::FeatureSessionType::kKiosk,
        {}},
       {"session agnostic feature in auto-launched kiosk session",
        Feature::IS_AVAILABLE,
-       FeatureSessionType::AUTOLAUNCHED_KIOSK,
+       mojom::FeatureSessionType::kAutolaunchedKiosk,
        {}},
       {"session agnostic feature in regular session",
        Feature::IS_AVAILABLE,
-       FeatureSessionType::REGULAR,
+       mojom::FeatureSessionType::kRegular,
        {}},
       {"session agnostic feature in unknown session",
        Feature::IS_AVAILABLE,
-       FeatureSessionType::UNKNOWN,
+       mojom::FeatureSessionType::kUnknown,
        {}},
       {"feature with multiple session types",
        Feature::IS_AVAILABLE,
-       FeatureSessionType::REGULAR,
-       {FeatureSessionType::REGULAR, FeatureSessionType::KIOSK}},
+       mojom::FeatureSessionType::kRegular,
+       {mojom::FeatureSessionType::kRegular,
+        mojom::FeatureSessionType::kKiosk}},
       {"feature with multiple session types in unknown session",
        Feature::INVALID_SESSION_TYPE,
-       FeatureSessionType::UNKNOWN,
-       {FeatureSessionType::REGULAR, FeatureSessionType::KIOSK}},
+       mojom::FeatureSessionType::kUnknown,
+       {mojom::FeatureSessionType::kRegular,
+        mojom::FeatureSessionType::kKiosk}},
       {"feature with multiple session types in initial session",
        Feature::INVALID_SESSION_TYPE,
-       FeatureSessionType::INITIAL,
-       {FeatureSessionType::REGULAR, FeatureSessionType::KIOSK}},
+       mojom::FeatureSessionType::kInitial,
+       {mojom::FeatureSessionType::kRegular,
+        mojom::FeatureSessionType::kKiosk}},
       {"feature with auto-launched kiosk session type in regular session",
        Feature::INVALID_SESSION_TYPE,
-       FeatureSessionType::AUTOLAUNCHED_KIOSK,
-       {FeatureSessionType::REGULAR}},
+       mojom::FeatureSessionType::kAutolaunchedKiosk,
+       {mojom::FeatureSessionType::kRegular}},
       {"feature with auto-launched kiosk session type in auto-launched kiosk",
        Feature::IS_AVAILABLE,
-       FeatureSessionType::AUTOLAUNCHED_KIOSK,
-       {FeatureSessionType::AUTOLAUNCHED_KIOSK}},
+       mojom::FeatureSessionType::kAutolaunchedKiosk,
+       {mojom::FeatureSessionType::kAutolaunchedKiosk}},
       {"feature with kiosk session type in auto-launched kiosk session",
        Feature::IS_AVAILABLE,
-       FeatureSessionType::AUTOLAUNCHED_KIOSK,
-       {FeatureSessionType::KIOSK}}};
+       mojom::FeatureSessionType::kAutolaunchedKiosk,
+       {mojom::FeatureSessionType::kKiosk}}};
 
   for (size_t i = 0; i < base::size(kTestData); ++i) {
-    std::unique_ptr<base::AutoReset<FeatureSessionType>> current_session(
+    std::unique_ptr<base::AutoReset<mojom::FeatureSessionType>> current_session(
         ScopedCurrentFeatureSessionType(kTestData[i].current_session_type));
 
     SimpleFeature feature;
@@ -713,6 +717,33 @@ TEST_F(SimpleFeatureTest, CommandLineSwitch) {
     EXPECT_EQ(Feature::MISSING_COMMAND_LINE_SWITCH,
               feature.IsAvailableToEnvironment().result());
   }
+}
+
+TEST_F(SimpleFeatureTest, FeatureFlags) {
+  const std::vector<base::Feature> features(
+      {{"stub_feature_1", base::FEATURE_ENABLED_BY_DEFAULT},
+       {"stub_feature_2", base::FEATURE_DISABLED_BY_DEFAULT}});
+  auto scoped_feature_override =
+      CreateScopedFeatureFlagsOverrideForTesting(&features);
+
+  SimpleFeature simple_feature_1;
+  simple_feature_1.set_feature_flag(features[0].name);
+  EXPECT_EQ(Feature::IS_AVAILABLE,
+            simple_feature_1.IsAvailableToEnvironment().result());
+
+  SimpleFeature simple_feature_2;
+  simple_feature_2.set_feature_flag(features[1].name);
+  EXPECT_EQ(Feature::FEATURE_FLAG_DISABLED,
+            simple_feature_2.IsAvailableToEnvironment().result());
+
+  // Ensure we take any base::Feature overrides into account.
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitWithFeatures({features[1]} /* enabled_features */,
+                                       {features[0]} /* disabled_features */);
+  EXPECT_EQ(Feature::FEATURE_FLAG_DISABLED,
+            simple_feature_1.IsAvailableToEnvironment().result());
+  EXPECT_EQ(Feature::IS_AVAILABLE,
+            simple_feature_2.IsAvailableToEnvironment().result());
 }
 
 TEST_F(SimpleFeatureTest, IsIdInArray) {
@@ -1003,8 +1034,6 @@ TEST(SimpleFeatureUnitTest, TestExperimentalExtensionApisSwitch) {
 }
 
 TEST(SimpleFeatureUnitTest, DisallowForServiceWorkers) {
-  ScopedWorkerBasedExtensionsChannel worker_channel_override;
-
   SimpleFeature feature;
   feature.set_name("somefeature");
   feature.set_contexts({Feature::BLESSED_EXTENSION_CONTEXT});

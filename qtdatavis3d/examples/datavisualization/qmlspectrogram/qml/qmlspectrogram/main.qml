@@ -27,9 +27,10 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.1
-import QtQuick.Layouts 1.0
-import QtQuick.Window 2.1
+import QtQuick
+import QtQuick.Layouts
+import QtQuick.Controls
+import QtQuick.Window
 import QtDataVisualization 1.2
 import "."
 
@@ -171,7 +172,7 @@ Window {
         opacity: 0.5
 
         //! [3]
-        NewButton {
+        Button {
             id: polarToggle
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -188,7 +189,7 @@ Window {
         }
         //! [3]
 
-        NewButton {
+        Button {
             id: orthoToggle
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -214,23 +215,21 @@ Window {
             }
         }
 
-        NewButton {
+        Button {
             id: flipGridToggle
             Layout.fillWidth: true
             Layout.fillHeight: true
             text: "Toggle axis grid on top"
             onClicked: {
-                onClicked: {
-                    if (surfaceGraph.flipHorizontalGrid === true) {
-                        surfaceGraph.flipHorizontalGrid = false;
-                    } else {
-                        surfaceGraph.flipHorizontalGrid = true;
-                    }
+                if (surfaceGraph.flipHorizontalGrid === true) {
+                    surfaceGraph.flipHorizontalGrid = false;
+                } else {
+                    surfaceGraph.flipHorizontalGrid = true;
                 }
             }
         }
 
-        NewButton {
+        Button {
             id: labelOffsetToggle
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -245,7 +244,7 @@ Window {
             }
         }
 
-        NewButton {
+        Button {
             id: surfaceGridToggle
             Layout.fillWidth: true
             Layout.fillHeight: true

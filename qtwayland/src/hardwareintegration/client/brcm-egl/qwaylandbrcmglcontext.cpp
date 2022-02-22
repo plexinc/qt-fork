@@ -43,7 +43,7 @@
 #include <QtWaylandClient/private/qwaylandwindow_p.h>
 #include "qwaylandbrcmeglwindow.h"
 
-#include <QtEglSupport/private/qeglconvenience_p.h>
+#include <QtGui/private/qeglconvenience_p.h>
 
 #include <qpa/qplatformopenglcontext.h>
 #include <QtGui/QSurfaceFormat>
@@ -66,7 +66,7 @@ QWaylandBrcmGLContext::QWaylandBrcmGLContext(EGLDisplay eglDisplay, const QSurfa
 
     eglBindAPI(EGL_OPENGL_ES_API);
 
-    QVector<EGLint> eglContextAttrs;
+    QList<EGLint> eglContextAttrs;
     eglContextAttrs.append(EGL_CONTEXT_CLIENT_VERSION);
     eglContextAttrs.append(format.majorVersion() == 1 ? 1 : 2);
     eglContextAttrs.append(EGL_NONE);

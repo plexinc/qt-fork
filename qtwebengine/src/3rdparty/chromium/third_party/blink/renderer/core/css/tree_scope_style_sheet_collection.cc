@@ -53,18 +53,8 @@ void TreeScopeStyleSheetCollection::AddStyleSheetCandidateNode(Node& node) {
 void TreeScopeStyleSheetCollection::ApplyActiveStyleSheetChanges(
     StyleSheetCollection& new_collection) {
   GetDocument().GetStyleEngine().ApplyRuleSetChanges(
-      GetTreeScope(), ActiveAuthorStyleSheets(),
-      new_collection.ActiveAuthorStyleSheets());
+      GetTreeScope(), ActiveStyleSheets(), new_collection.ActiveStyleSheets());
   new_collection.Swap(*this);
-}
-
-bool TreeScopeStyleSheetCollection::HasStyleSheets() const {
-  for (Node* node : style_sheet_candidate_nodes_) {
-    StyleSheetCandidate candidate(*node);
-    if (candidate.Sheet() || candidate.IsEnabledAndLoading())
-      return true;
-  }
-  return false;
 }
 
 void TreeScopeStyleSheetCollection::UpdateStyleSheetList() {
@@ -85,7 +75,7 @@ void TreeScopeStyleSheetCollection::UpdateStyleSheetList() {
   SwapSheetsForSheetList(new_list);
 }
 
-void TreeScopeStyleSheetCollection::Trace(Visitor* visitor) {
+void TreeScopeStyleSheetCollection::Trace(Visitor* visitor) const {
   visitor->Trace(tree_scope_);
   visitor->Trace(style_sheet_candidate_nodes_);
   StyleSheetCollection::Trace(visitor);

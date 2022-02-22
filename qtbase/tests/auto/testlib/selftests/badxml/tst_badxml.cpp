@@ -29,7 +29,7 @@
 
 #include <QtCore/QCoreApplication>
 #include <QtCore/QStringList>
-#include <QtTest/QtTest>
+#include <QTest>
 #include <private/qmetaobjectbuilder_p.h>
 
 /*
@@ -68,7 +68,7 @@ public:
         : className("tst_BadXml"), mo(0) {}
     ~tst_BadXmlSub() { free(mo); }
 
-    const QMetaObject* metaObject() const;
+    const QMetaObject* metaObject() const override;
 
     QByteArray className;
 private:
@@ -178,7 +178,7 @@ int main(int argc, char** argv)
         name.
     */
     int badstring = -1;
-    QVector<char const*> args;
+    QList<char const *> args;
     for (int i = 0; i < argc; ++i) {
         if (!strcmp(argv[i], "-badstring")) {
             bool ok = false;

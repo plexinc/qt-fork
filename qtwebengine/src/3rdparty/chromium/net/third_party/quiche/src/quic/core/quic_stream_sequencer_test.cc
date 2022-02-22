@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/quic_stream_sequencer.h"
+#include "quic/core/quic_stream_sequencer.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -11,16 +11,16 @@
 #include <utility>
 #include <vector>
 
-#include "net/third_party/quiche/src/quic/core/quic_stream.h"
-#include "net/third_party/quiche/src/quic/core/quic_utils.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_expect_bug.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_stream_sequencer_peer.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_arraysize.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/base/macros.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/quic_stream.h"
+#include "quic/core/quic_utils.h"
+#include "quic/platform/api/quic_expect_bug.h"
+#include "quic/platform/api/quic_flags.h"
+#include "quic/platform/api/quic_logging.h"
+#include "quic/platform/api/quic_test.h"
+#include "quic/test_tools/quic_stream_sequencer_peer.h"
+#include "quic/test_tools/quic_test_utils.h"
 
 using testing::_;
 using testing::AnyNumber;
@@ -31,15 +31,25 @@ namespace test {
 
 class MockStream : public QuicStreamSequencer::StreamInterface {
  public:
-  MOCK_METHOD0(OnFinRead, void());
-  MOCK_METHOD0(OnDataAvailable, void());
-  MOCK_METHOD2(OnUnrecoverableError,
-               void(QuicErrorCode error, const std::string& details));
-  MOCK_METHOD1(Reset, void(QuicRstStreamErrorCode error));
-  MOCK_METHOD0(OnCanWrite, void());
-  MOCK_METHOD1(AddBytesConsumed, void(QuicByteCount bytes));
+  MOCK_METHOD(void, OnFinRead, (), (override));
+  MOCK_METHOD(void, OnDataAvailable, (), (override));
+  MOCK_METHOD(void,
+              OnUnrecoverableError,
+              (QuicErrorCode error, const std::string& details),
+              (override));
+  MOCK_METHOD(void,
+              OnUnrecoverableError,
+              (QuicErrorCode error,
+               QuicIetfTransportErrorCodes ietf_error,
+               const std::string& details),
+              (override));
+  MOCK_METHOD(void, Reset, (QuicRstStreamErrorCode error), (override));
+  MOCK_METHOD(void, AddBytesConsumed, (QuicByteCount bytes), (override));
 
   QuicStreamId id() const override { return 1; }
+  ParsedQuicVersion version() const override {
+    return CurrentSupportedVersions()[0];
+  }
 };
 
 namespace {
@@ -51,7 +61,7 @@ class QuicStreamSequencerTest : public QuicTest {
  public:
   void ConsumeData(size_t num_bytes) {
     char buffer[1024];
-    ASSERT_GT(QUICHE_ARRAYSIZE(buffer), num_bytes);
+    ASSERT_GT(ABSL_ARRAYSIZE(buffer), num_bytes);
     struct iovec iov;
     iov.iov_base = buffer;
     iov.iov_len = num_bytes;
@@ -95,7 +105,7 @@ class QuicStreamSequencerTest : public QuicTest {
                              const std::vector<std::string>& expected) {
     iovec iovecs[5];
     size_t num_iovecs =
-        sequencer.GetReadableRegions(iovecs, QUICHE_ARRAYSIZE(iovecs));
+        sequencer.GetReadableRegions(iovecs, ABSL_ARRAYSIZE(iovecs));
     return VerifyReadableRegion(sequencer, expected) &&
            VerifyIovecs(sequencer, iovecs, num_iovecs, expected);
   }
@@ -115,7 +125,7 @@ class QuicStreamSequencerTest : public QuicTest {
     return true;
   }
 
-  bool VerifyIovec(const iovec& iovec, quiche::QuicheStringPiece expected) {
+  bool VerifyIovec(const iovec& iovec, absl::string_view expected) {
     if (iovec.iov_len != expected.length()) {
       QUIC_LOG(ERROR) << "Invalid length: " << iovec.iov_len << " vs "
                       << expected.length();
@@ -242,7 +252,11 @@ TEST_F(QuicStreamSequencerTest, BlockedThenFullFrameAndFinConsumed) {
 }
 
 TEST_F(QuicStreamSequencerTest, EmptyFrame) {
-  EXPECT_CALL(stream_, OnUnrecoverableError(QUIC_EMPTY_STREAM_FRAME_NO_FIN, _));
+  if (!GetQuicReloadableFlag(quic_accept_empty_stream_frame_with_no_fin) ||
+      !stream_.version().HasIetfQuicFrames()) {
+    EXPECT_CALL(stream_,
+                OnUnrecoverableError(QUIC_EMPTY_STREAM_FRAME_NO_FIN, _));
+  }
   OnFrame(0, "");
   EXPECT_EQ(0u, NumBufferedBytes());
   EXPECT_EQ(0u, sequencer_->NumBytesConsumed());
@@ -375,11 +389,11 @@ TEST_F(QuicStreamSequencerTest, MultipleOffsets) {
 
 class QuicSequencerRandomTest : public QuicStreamSequencerTest {
  public:
-  typedef std::pair<int, std::string> Frame;
-  typedef std::vector<Frame> FrameList;
+  using Frame = std::pair<int, std::string>;
+  using FrameList = std::vector<Frame>;
 
   void CreateFrames() {
-    int payload_size = QUICHE_ARRAYSIZE(kPayload) - 1;
+    int payload_size = ABSL_ARRAYSIZE(kPayload) - 1;
     int remaining_payload = payload_size;
     while (remaining_payload != 0) {
       int size = std::min(OneToN(6), remaining_payload);
@@ -402,10 +416,10 @@ class QuicSequencerRandomTest : public QuicStreamSequencerTest {
 
   void ReadAvailableData() {
     // Read all available data
-    char output[QUICHE_ARRAYSIZE(kPayload) + 1];
+    char output[ABSL_ARRAYSIZE(kPayload) + 1];
     iovec iov;
     iov.iov_base = output;
-    iov.iov_len = QUICHE_ARRAYSIZE(output);
+    iov.iov_len = ABSL_ARRAYSIZE(output);
     int bytes_read = sequencer_->Readv(&iov, 1);
     EXPECT_NE(0, bytes_read);
     output_.append(output, bytes_read);
@@ -441,9 +455,9 @@ TEST_F(QuicSequencerRandomTest, RandomFramesNoDroppingNoBackup) {
     list_.erase(list_.begin() + index);
   }
 
-  ASSERT_EQ(QUICHE_ARRAYSIZE(kPayload) - 1, output_.size());
+  ASSERT_EQ(ABSL_ARRAYSIZE(kPayload) - 1, output_.size());
   EXPECT_EQ(kPayload, output_);
-  EXPECT_EQ(QUICHE_ARRAYSIZE(kPayload) - 1, total_bytes_consumed);
+  EXPECT_EQ(ABSL_ARRAYSIZE(kPayload) - 1, total_bytes_consumed);
 }
 
 TEST_F(QuicSequencerRandomTest, RandomFramesNoDroppingBackup) {
@@ -463,7 +477,7 @@ TEST_F(QuicSequencerRandomTest, RandomFramesNoDroppingBackup) {
             total_bytes_consumed += bytes;
           }));
 
-  while (output_.size() != QUICHE_ARRAYSIZE(kPayload) - 1) {
+  while (output_.size() != ABSL_ARRAYSIZE(kPayload) - 1) {
     if (!list_.empty() && OneToN(2) == 1) {  // Send data
       int index = OneToN(list_.size()) - 1;
       OnFrame(list_[index].first, list_[index].second.data());
@@ -479,7 +493,7 @@ TEST_F(QuicSequencerRandomTest, RandomFramesNoDroppingBackup) {
         ASSERT_EQ(0, iovs_peeked);
         ASSERT_FALSE(sequencer_->GetReadableRegion(peek_iov));
       }
-      int total_bytes_to_peek = QUICHE_ARRAYSIZE(buffer);
+      int total_bytes_to_peek = ABSL_ARRAYSIZE(buffer);
       for (int i = 0; i < iovs_peeked; ++i) {
         int bytes_to_peek =
             std::min<int>(peek_iov[i].iov_len, total_bytes_to_peek);
@@ -496,7 +510,7 @@ TEST_F(QuicSequencerRandomTest, RandomFramesNoDroppingBackup) {
   }
   EXPECT_EQ(std::string(kPayload), output_);
   EXPECT_EQ(std::string(kPayload), peeked_);
-  EXPECT_EQ(QUICHE_ARRAYSIZE(kPayload) - 1, total_bytes_consumed);
+  EXPECT_EQ(ABSL_ARRAYSIZE(kPayload) - 1, total_bytes_consumed);
 }
 
 // Same as above, just using a different method for reading.
@@ -599,10 +613,10 @@ TEST_F(QuicStreamSequencerTest, OverlappingFramesReceived) {
   // overlapping byte ranges - if they do, we close the connection.
   QuicStreamId id = 1;
 
-  QuicStreamFrame frame1(id, false, 1, quiche::QuicheStringPiece("hello"));
+  QuicStreamFrame frame1(id, false, 1, absl::string_view("hello"));
   sequencer_->OnStreamFrame(frame1);
 
-  QuicStreamFrame frame2(id, false, 2, quiche::QuicheStringPiece("hello"));
+  QuicStreamFrame frame2(id, false, 2, absl::string_view("hello"));
   EXPECT_CALL(stream_, OnUnrecoverableError(QUIC_OVERLAPPING_STREAM_DATA, _))
       .Times(0);
   sequencer_->OnStreamFrame(frame2);
@@ -634,7 +648,7 @@ TEST_F(QuicStreamSequencerTest, DataAvailableOnOverlappingFrames) {
   EXPECT_EQ(0u, sequencer_->NumBytesBuffered());
 
   // Received [1498, 1503).
-  QuicStreamFrame frame3(id, false, 1498, quiche::QuicheStringPiece("hello"));
+  QuicStreamFrame frame3(id, false, 1498, absl::string_view("hello"));
   EXPECT_CALL(stream_, OnDataAvailable());
   sequencer_->OnStreamFrame(frame3);
   EXPECT_CALL(stream_, AddBytesConsumed(3));
@@ -643,7 +657,7 @@ TEST_F(QuicStreamSequencerTest, DataAvailableOnOverlappingFrames) {
   EXPECT_EQ(0u, sequencer_->NumBytesBuffered());
 
   // Received [1000, 1005).
-  QuicStreamFrame frame4(id, false, 1000, quiche::QuicheStringPiece("hello"));
+  QuicStreamFrame frame4(id, false, 1000, absl::string_view("hello"));
   EXPECT_CALL(stream_, OnDataAvailable()).Times(0);
   sequencer_->OnStreamFrame(frame4);
   EXPECT_EQ(1503u, sequencer_->NumBytesConsumed());

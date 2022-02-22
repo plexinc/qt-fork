@@ -48,10 +48,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.15
-import QtQuick.Window 2.14
-import QtQuick3D 1.15
-import QtQuick3D.Helpers 1.15
+import QtQuick
+import QtQuick3D
+import QtQuick3D.Helpers
 
 Window {
     id: window
@@ -72,12 +71,13 @@ Window {
 
         Doors { id: door }
 
-        MouseArea {
-            anchors.fill: parent
-
-            onClicked: {
-                var result = view.pick(mouse.x, mouse.y);
+        //! [picking]
+        TapHandler {
+            onTapped: {
+                var result = view.pick(point.position.x, point.position.y);
                 if (result.objectHit) {
+                    console.log("pick dist", result.distance, "hit", result.objectHit,
+                                "scene pos", result.scenePosition, "uv", result.uvPosition);
                     var pickedDoor = result.objectHit;
                     if (pickedDoor.state === "")
                         pickedDoor.state = "opened";
@@ -87,6 +87,7 @@ Window {
                 }
             }
         }
+        //! [picking]
     }
 
     //! [2d layer]
@@ -100,6 +101,7 @@ Window {
 
         CorkBoards { }
 
+        clip: true
         layer.enabled: true
     }
     //! [2d layer]

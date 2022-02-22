@@ -37,43 +37,38 @@
 **
 ****************************************************************************/
 
-#include "qquickpixmapcache_p.h"
-#include <qquickimageprovider.h>
-#include "qquickimageprovider_p.h"
-
-#include <qqmlengine.h>
-#include <private/qqmlglobal_p.h>
-#include <private/qqmlengine_p.h>
+#include <QtQuick/private/qquickpixmapcache_p.h>
+#include <QtQuick/private/qquickimageprovider_p.h>
+#include <QtQuick/private/qquickprofiler_p.h>
+#include <QtQuick/private/qsgcontext_p.h>
+#include <QtQuick/private/qsgtexturereader_p.h>
+#include <QtQuick/qquickwindow.h>
 
 #include <QtGui/private/qguiapplication_p.h>
 #include <QtGui/private/qimage_p.h>
-#include <qpa/qplatformintegration.h>
+#include <QtGui/qpa/qplatformintegration.h>
+#include <QtGui/qimagereader.h>
+#include <QtGui/qpixmapcache.h>
 
-#include <QtQuick/private/qsgcontext_p.h>
-#include <QtQuick/private/qsgtexturereader_p.h>
+#include <QtQml/private/qqmlglobal_p.h>
+#include <QtQml/private/qqmlengine_p.h>
+#include <QtQml/qqmlfile.h>
 
-#include <QQuickWindow>
-#include <QCoreApplication>
-#include <QImageReader>
-#include <QHash>
-#include <QPixmapCache>
-#include <QFile>
-#include <QThread>
-#include <QMutex>
-#include <QMutexLocker>
-#include <QBuffer>
+#include <QtCore/private/qobject_p.h>
+#include <QtCore/qcoreapplication.h>
+#include <QtCore/qhash.h>
+#include <QtCore/qfile.h>
+#include <QtCore/qthread.h>
+#include <QtCore/qmutex.h>
+#include <QtCore/qbuffer.h>
 #include <QtCore/qdebug.h>
-#include <private/qobject_p.h>
-#include <QQmlFile>
-#include <QMetaMethod>
+#include <QtCore/qmetaobject.h>
 
 #if QT_CONFIG(qml_network)
-#include <qqmlnetworkaccessmanagerfactory.h>
-#include <QNetworkReply>
-#include <QSslError>
+#include <QtQml/qqmlnetworkaccessmanagerfactory.h>
+#include <QtNetwork/qnetworkreply.h>
+#include <QtNetwork/qsslerror.h>
 #endif
-
-#include <private/qquickprofiler_p.h>
 
 #define IMAGEREQUEST_MAX_NETWORK_REQUEST_COUNT 8
 #define IMAGEREQUEST_MAX_REDIRECT_RECURSION 16
@@ -424,7 +419,8 @@ static void maybeRemoveAlpha(QImage *image)
 
 static bool readImage(const QUrl& url, QIODevice *dev, QImage *image, QString *errorString, QSize *impsize, int *frameCount,
                       const QRect &requestRegion, const QSize &requestSize, const QQuickImageProviderOptions &providerOptions,
-                      QQuickImageProviderOptions::AutoTransform *appliedTransform = nullptr, int frame = 0)
+                      QQuickImageProviderOptions::AutoTransform *appliedTransform = nullptr, int frame = 0,
+                      qreal devicePixelRatio = 1.0)
 {
     QImageReader imgio(dev);
     if (providerOptions.autoTransform() != QQuickImageProviderOptions::UsePluginDefaultTransform)
@@ -438,7 +434,7 @@ static bool readImage(const QUrl& url, QIODevice *dev, QImage *image, QString *e
     if (frameCount)
         *frameCount = imgio.imageCount();
 
-    QSize scSize = QQuickImageProviderWithOptions::loadSize(imgio.size(), requestSize, imgio.format(), providerOptions);
+    QSize scSize = QQuickImageProviderWithOptions::loadSize(imgio.size(), requestSize, imgio.format(), providerOptions, devicePixelRatio);
     if (scSize.isValid())
         imgio.setScaledSize(scSize);
     if (!requestRegion.isNull())
@@ -698,9 +694,9 @@ void QQuickPixmapReader::processJobs()
 
         // Clean cancelled jobs
         if (!cancelled.isEmpty()) {
-#if QT_CONFIG(qml_network)
             for (int i = 0; i < cancelled.count(); ++i) {
                 QQuickPixmapReply *job = cancelled.at(i);
+#if QT_CONFIG(qml_network)
                 QNetworkReply *reply = networkJobs.key(job, 0);
                 if (reply) {
                     networkJobs.remove(reply);
@@ -716,11 +712,11 @@ void QQuickPixmapReader::processJobs()
                     }
                 }
                 PIXMAP_PROFILE(pixmapStateChanged<QQuickProfiler::PixmapLoadingError>(job->url));
+#endif
                 // deleteLater, since not owned by this thread
                 job->deleteLater();
             }
             cancelled.clear();
-#endif
         }
 
         if (!jobs.isEmpty()) {
@@ -1049,13 +1045,9 @@ inline bool operator==(const QQuickPixmapKey &lhs, const QQuickPixmapKey &rhs)
             lhs.options == rhs.options;
 }
 
-inline uint qHash(const QQuickPixmapKey &key)
+inline size_t qHash(const QQuickPixmapKey &key, size_t seed) noexcept
 {
-    return qHash(*key.url) ^ (key.size->width()*7) ^ (key.size->height()*17) ^ (key.frame*23) ^
-            (key.region->x()*29) ^ (key.region->y()*31) ^ (key.options.autoTransform() * 0x5c5c5c5c);
-    // key.region.width() and height() are not included, because the hash function should be simple,
-    // and they are more likely to be held constant for some batches of images
-    // (e.g. tiles, or repeatedly cropping to the same viewport at different positions).
+    return qHashMulti(seed, *key.url, *key.region, *key.size, key.frame, key.options.autoTransform());
 }
 
 class QQuickPixmapStore : public QObject
@@ -1343,14 +1335,15 @@ void QQuickPixmapData::removeFromCache()
 
 static QQuickPixmapData* createPixmapDataSync(QQuickPixmap *declarativePixmap, QQmlEngine *engine, const QUrl &url,
                                               const QRect &requestRegion, const QSize &requestSize,
-                                              const QQuickImageProviderOptions &providerOptions, int frame, bool *ok)
+                                              const QQuickImageProviderOptions &providerOptions, int frame, bool *ok,
+                                              qreal devicePixelRatio)
 {
     if (url.scheme() == QLatin1String("image")) {
         QSize readSize;
 
         QQuickImageProvider::ImageType imageType = QQuickImageProvider::Invalid;
         QQmlEnginePrivate *enginePrivate = QQmlEnginePrivate::get(engine);
-        QSharedPointer<QQuickImageProvider> provider = enginePrivate->imageProvider(imageProviderId(url)).dynamicCast<QQuickImageProvider>();
+        QSharedPointer<QQuickImageProvider> provider = enginePrivate->imageProvider(imageProviderId(url)).objectCast<QQuickImageProvider>();
         // it is safe to use get() as providerV2 does not escape and is outlived by provider
         QQuickImageProviderWithOptions *providerV2 = QQuickImageProviderWithOptions::checkedCast(provider.get());
         if (provider)
@@ -1433,7 +1426,8 @@ static QQuickPixmapData* createPixmapDataSync(QQuickPixmap *declarativePixmap, Q
             QImage image;
             QQuickImageProviderOptions::AutoTransform appliedTransform = providerOptions.autoTransform();
             int frameCount;
-            if (readImage(url, &f, &image, &errorString, &readSize, &frameCount, requestRegion, requestSize, providerOptions, &appliedTransform, frame)) {
+            if (readImage(url, &f, &image, &errorString, &readSize, &frameCount, requestRegion, requestSize,
+                          providerOptions, &appliedTransform, frame, devicePixelRatio)) {
                 *ok = true;
                 return new QQuickPixmapData(declarativePixmap, url, QQuickTextureFactory::textureFactoryForImage(image), readSize, requestRegion, requestSize,
                                             providerOptions, appliedTransform, frame, frameCount);
@@ -1650,7 +1644,8 @@ void QQuickPixmap::load(QQmlEngine *engine, const QUrl &url, const QRect &reques
 }
 
 void QQuickPixmap::load(QQmlEngine *engine, const QUrl &url, const QRect &requestRegion, const QSize &requestSize,
-                        QQuickPixmap::Options options, const QQuickImageProviderOptions &providerOptions, int frame, int frameCount)
+                        QQuickPixmap::Options options, const QQuickImageProviderOptions &providerOptions, int frame, int frameCount,
+                        qreal devicePixelRatio)
 {
     if (d) {
         d->declarativePixmaps.remove(this);
@@ -1700,7 +1695,7 @@ void QQuickPixmap::load(QQmlEngine *engine, const QUrl &url, const QRect &reques
         if (!(options & QQuickPixmap::Asynchronous)) {
             bool ok = false;
             PIXMAP_PROFILE(pixmapStateChanged<QQuickProfiler::PixmapLoadingStarted>(url));
-            d = createPixmapDataSync(this, engine, url, requestRegion, requestSize, providerOptions, frame, &ok);
+            d = createPixmapDataSync(this, engine, url, requestRegion, requestSize, providerOptions, frame, &ok, devicePixelRatio);
             if (ok) {
                 PIXMAP_PROFILE(pixmapLoadingFinished(url, QSize(width(), height())));
                 if (options & QQuickPixmap::Cache)

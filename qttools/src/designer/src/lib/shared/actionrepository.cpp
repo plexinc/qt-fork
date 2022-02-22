@@ -35,16 +35,17 @@
 #include <QtDesigner/propertysheet.h>
 #include <QtDesigner/qextensionmanager.h>
 
-#include <QtGui/qdrag.h>
-#include <QtGui/qevent.h>
-#include <QtGui/qstandarditemmodel.h>
 #include <QtWidgets/qtoolbutton.h>
-#include <QtGui/qpixmap.h>
-#include <QtWidgets/qaction.h>
 #include <QtWidgets/qheaderview.h>
 #include <QtWidgets/qtoolbar.h>
 #include <QtWidgets/qmenu.h>
+
+#include <QtGui/qpixmap.h>
+#include <QtGui/qaction.h>
+#include <QtGui/qdrag.h>
 #include <QtGui/qevent.h>
+#include <QtGui/qstandarditemmodel.h>
+
 #include <QtCore/qset.h>
 #include <QtCore/qdebug.h>
 
@@ -276,6 +277,16 @@ QAction *ActionModel::actionAt(const  QModelIndex &index) const
     return actionOfItem(i);
 }
 
+QModelIndex ActionModel::indexOf(QAction *a) const
+{
+    for (int r = rowCount() - 1; r >= 0; --r) {
+        QStandardItem *stdItem = item(r, 0);
+        if (actionOfItem(stdItem) == a)
+            return indexFromItem(stdItem);
+    }
+    return {};
+}
+
 // helpers
 
 static bool handleImageDragEnterMoveEvent(QDropEvent *event)
@@ -291,7 +302,7 @@ static bool handleImageDragEnterMoveEvent(QDropEvent *event)
 
 static void handleImageDropEvent(const QAbstractItemView *iv, QDropEvent *event, ActionModel *am)
 {
-    const QModelIndex index = iv->indexAt(event->pos());
+    const QModelIndex index = iv->indexAt(event->position().toPoint());
     if (!index.isValid()) {
         event->ignore();
         return;
@@ -561,6 +572,13 @@ void ActionView::selectAll()
 void ActionView::clearSelection()
 {
     m_actionTreeView->selectionModel()->clearSelection();
+}
+
+void ActionView::selectAction(QAction *a)
+{
+    const QModelIndex index = m_model->indexOf(a);
+    if (index.isValid())
+        setCurrentIndex(index);
 }
 
 void ActionView::setCurrentIndex(const QModelIndex &index)

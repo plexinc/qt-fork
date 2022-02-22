@@ -46,9 +46,7 @@
 #include "qvariant.h"
 #include "qbuffer.h"
 #include "qimage.h"
-#if QT_CONFIG(textcodec)
-#include "qtextcodec.h"
-#endif
+#include "private/qstringconverter_p.h"
 
 #include "private/qguiapplication_p.h"
 #include <qpa/qplatformintegration.h>
@@ -85,7 +83,7 @@ QT_BEGIN_NAMESPACE
 
     A typical example of the use of these functions follows:
 
-    \snippet droparea.cpp 0
+    \snippet droparea/droparea.cpp 0
 
     \section1 Notes for X11 Users
 
@@ -136,17 +134,6 @@ QT_BEGIN_NAMESPACE
     \li Windows and \macos does not have the concept of ownership;
     the clipboard is a fully global resource so all applications are
     notified of changes.
-
-    \endlist
-
-    \section1 Notes for Universal Windows Platform Users
-
-    \list
-
-    \li The Universal Windows Platform only allows to query the
-    clipboard in case the application is active and an application
-    window has focus. Accessing the clipboard data when in background
-    will fail due to access denial.
 
     \endlist
 
@@ -299,17 +286,10 @@ QString QClipboard::text(QString &subtype, Mode mode) const
     }
 
     const QByteArray rawData = data->data(QLatin1String("text/") + subtype);
-
-#if QT_CONFIG(textcodec)
-    QTextCodec* codec = QTextCodec::codecForMib(106); // utf-8 is default
-    if (subtype == QLatin1String("html"))
-        codec = QTextCodec::codecForHtml(rawData, codec);
-    else
-        codec = QTextCodec::codecForUtfText(rawData, codec);
-    return codec->toUnicode(rawData);
-#else // textcodec
-    return rawData;
-#endif // textcodec
+    auto encoding = QStringConverter::encodingForData(rawData);
+    if (!encoding)
+        encoding = QStringConverter::Utf8;
+    return QStringDecoder(*encoding).decode(rawData);
 }
 
 /*!

@@ -27,14 +27,15 @@
 **
 ****************************************************************************/
 
-import QtTest 1.0
-import QtQuick 2.0
-import QtQuick.Window 2.3
+import QtTest
+import QtQuick
+import QtQuick.Window
+import "inputpanel/utils.js" as Utils
 
 Rectangle {
     id: container
-    width: 400
-    height: 400
+    width: 800
+    height: 640
     color: "blue"
 
     Component {
@@ -138,6 +139,7 @@ Rectangle {
                 }
                 verify(inputPanel.setInputMode(inputMode))
             }
+            waitForRendering(inputPanel)
             verify(inputPanel.visible === true)
             verify(textInput.activeFocus === true)
         }
@@ -145,65 +147,65 @@ Rectangle {
         function test_versionCheck_data() {
             return [
                 // Note: Add new import versions here
-                { qml: "import QtQuick 2.0; \
-                        import QtQuick.VirtualKeyboard 1.0; \
+                { qml: "import QtQuick; \
+                        import QtQuick.VirtualKeyboard; \
                         Item {}" },
-                { qml: "import QtQuick 2.0; \
-                        import QtQuick.VirtualKeyboard 1.1; \
+                { qml: "import QtQuick; \
+                        import QtQuick.VirtualKeyboard; \
                         Item {}" },
-                { qml: "import QtQuick 2.0; \
-                        import QtQuick.VirtualKeyboard 1.2; \
+                { qml: "import QtQuick; \
+                        import QtQuick.VirtualKeyboard; \
                         Item {}" },
-                { qml: "import QtQuick 2.0; \
-                        import QtQuick.VirtualKeyboard 1.3; \
+                { qml: "import QtQuick; \
+                        import QtQuick.VirtualKeyboard; \
                         Item {}" },
-                { qml: "import QtQuick 2.0; \
-                        import QtQuick.VirtualKeyboard 2.0; \
+                { qml: "import QtQuick; \
+                        import QtQuick.VirtualKeyboard; \
                         Item {}" },
-                { qml: "import QtQuick 2.0; \
-                        import QtQuick.VirtualKeyboard 2.1; \
+                { qml: "import QtQuick; \
+                        import QtQuick.VirtualKeyboard; \
                         Item {}" },
-                { qml: "import QtQuick 2.0; \
-                        import QtQuick.VirtualKeyboard.Styles 1.0; \
+                { qml: "import QtQuick; \
+                        import QtQuick.VirtualKeyboard.Styles; \
                         KeyboardStyle {}" },
-                { qml: "import QtQuick 2.0; \
-                        import QtQuick.VirtualKeyboard.Styles 1.1; \
+                { qml: "import QtQuick; \
+                        import QtQuick.VirtualKeyboard.Styles; \
                         KeyboardStyle {}" },
-                { qml: "import QtQuick 2.0; \
-                        import QtQuick.VirtualKeyboard.Styles 1.2; \
+                { qml: "import QtQuick; \
+                        import QtQuick.VirtualKeyboard.Styles; \
                         KeyboardStyle {}" },
-                { qml: "import QtQuick 2.0; \
-                        import QtQuick.VirtualKeyboard.Styles 1.3; \
+                { qml: "import QtQuick; \
+                        import QtQuick.VirtualKeyboard.Styles; \
                         KeyboardStyle {}" },
-                { qml: "import QtQuick 2.0; \
-                        import QtQuick.VirtualKeyboard.Styles 2.0; \
+                { qml: "import QtQuick; \
+                        import QtQuick.VirtualKeyboard.Styles; \
                         KeyboardStyle {}" },
-                { qml: "import QtQuick 2.0; \
-                        import QtQuick.VirtualKeyboard.Styles 2.1; \
+                { qml: "import QtQuick; \
+                        import QtQuick.VirtualKeyboard.Styles; \
                         KeyboardStyle {}" },
-                { qml: "import QtQuick 2.0; \
-                        import QtQuick.VirtualKeyboard.Settings 1.0; \
+                { qml: "import QtQuick; \
+                        import QtQuick.VirtualKeyboard.Settings; \
                         Item { property var styleName: VirtualKeyboardSettings.styleName }" },
-                { qml: "import QtQuick 2.0; \
-                        import QtQuick.VirtualKeyboard.Settings 1.1; \
+                { qml: "import QtQuick; \
+                        import QtQuick.VirtualKeyboard.Settings; \
                         Item { property var styleName: VirtualKeyboardSettings.styleName }" },
-                { qml: "import QtQuick 2.0; \
-                        import QtQuick.VirtualKeyboard.Settings 1.2; \
+                { qml: "import QtQuick; \
+                        import QtQuick.VirtualKeyboard.Settings; \
                         Item { property var styleName: VirtualKeyboardSettings.styleName }" },
-                { qml: "import QtQuick 2.0; \
-                        import QtQuick.VirtualKeyboard.Settings 2.0; \
+                { qml: "import QtQuick; \
+                        import QtQuick.VirtualKeyboard.Settings; \
                         Item { property var styleName: VirtualKeyboardSettings.styleName; \
                                property var locale: VirtualKeyboardSettings.locale; \
                                property var availableLocales: VirtualKeyboardSettings.availableLocales; \
                                property var activeLocales: VirtualKeyboardSettings.activeLocales }" },
-                { qml: "import QtQuick 2.0; \
-                        import QtQuick.VirtualKeyboard.Settings 2.1; \
+                { qml: "import QtQuick; \
+                        import QtQuick.VirtualKeyboard.Settings; \
                         Item { property var styleName: VirtualKeyboardSettings.styleName; \
                                property var locale: VirtualKeyboardSettings.locale; \
                                property var availableLocales: VirtualKeyboardSettings.availableLocales; \
                                property var activeLocales: VirtualKeyboardSettings.activeLocales }" },
-                { qml: "import QtQuick 2.7; \
-                        import QtQuick.VirtualKeyboard.Settings 2.2; \
+                { qml: "import QtQuick; \
+                        import QtQuick.VirtualKeyboard.Settings; \
                         Item { property var styleName: VirtualKeyboardSettings.styleName; \
                                property var locale: VirtualKeyboardSettings.locale; \
                                property var availableLocales: VirtualKeyboardSettings.availableLocales; \
@@ -251,7 +253,13 @@ Rectangle {
             Qt.inputMethod.hide()
             verify(inputPanel.visible === false)
 
+            // Should not become visible because the active focus is set to container
             Qt.inputMethod.show()
+            waitForRendering(inputPanel)
+            verify(inputPanel.visible === false)
+
+            // Should become visible because of previously called show() and focus set to input control
+            textInput.forceActiveFocus()
             waitForRendering(inputPanel)
             verify(inputPanel.visible === true)
 
@@ -319,6 +327,31 @@ Rectangle {
             Qt.inputMethod.commit()
             waitForRendering(inputPanel)
             compare(textInput.text, "A")
+        }
+
+        function test_hardKeyBackspaceClearsInput_data() {
+            return [
+                { initLocale: "en_GB", initText: "12345", initCursorPosition: 1, inputSequence: "hello", outputText: "12345", expectedCursorPosition: 1 },
+                { initLocale: "ja_JP", initText: "12345", initCursorPosition: 1, inputSequence: "watashi", outputText: "12345", expectedCursorPosition: 1 },
+            ]
+        }
+
+        function test_hardKeyBackspaceClearsInput(data) {
+            prepareTest(data)
+
+            if (!inputPanel.wordCandidateListVisibleHint)
+                skip("Prediction/spell correction not enabled")
+
+            compare(Qt.inputMethod.locale.name, Qt.locale(data.initLocale).name)
+            for (var inputIndex in data.inputSequence) {
+                verify(inputPanel.virtualKeyClick(data.inputSequence[inputIndex]))
+            }
+
+            keyClick(Qt.Key_Backspace)
+            waitForRendering(textInput)
+
+            compare(textInput.text, data.outputText)
+            compare(textInput.cursorPosition, data.expectedCursorPosition)
         }
 
         function test_hardKeyInput() {
@@ -860,16 +893,13 @@ Rectangle {
         function test_spellCorrectionAutomaticSpaceInsertion_data() {
             return [
                 { inputSequence: ['h','e','l','l','o',Qt.Key_Select,'w','o','r','l','d'], outputText: "Hello world" },
-                { inputSequence: ['h','e','l','l','o','\'','s',Qt.Key_Select,'w','o','r','l','d'], outputText: "Hello's world" },
+                { inputSequence: ['k','e','l','l','y','\'','s',Qt.Key_Select,'w','o','r','l','d'], outputText: "Kelly's world" },
                 { inputSequence: ['h','e','l','l','o','s','\'',Qt.Key_Select,'w','o','r','l','d'], outputText: "Hellos' world" },
                 { inputSequence: ['h','e','l','l','o','-','w','o','r','l','d'], outputText: "Hello-world" },
                 { inputSequence: ['h','e','l','l','o',Qt.Key_Select,'.','w','o','r','l','d'], outputText: "Hello. World" },
                 { inputSequence: ['h','e','l','l','o',Qt.Key_Select,',','w','o','r','l','d'], outputText: "Hello, world" },
                 { inputSequence: ['h','e','l','l','o','.',Qt.Key_Backspace,'w','o','r','l','d'], outputText: "Helloworld" },
                 { inputSequence: ['h','e','l','l','o',' ',Qt.Key_Backspace,'w','o','r','l','d'], outputText: "Helloworld" },
-                { inputSequence: ['h','e','l','l','o',Qt.Key_Select,'w','o','r','l','d',':-)'], outputText: "Hello world :-)" },
-                { inputSequence: ['h','e','l','l','o',Qt.Key_Select,'w','o','r','l','d',':-)',':-)'], outputText: "Hello world :-) :-)" },
-                { inputSequence: ['h','e','l','l','o',Qt.Key_Select,':-)'], outputText: "Hello :-)" },
                 { initText: "Hekko world", selectionStart: 2, selectionEnd: 4, inputSequence: ['l','l'], outputText: "Hello world" },
             ]
         }
@@ -915,9 +945,13 @@ Rectangle {
                 { initInputMethodHints: Qt.ImhNone, initLocale: "zh_CN", inputSequence: "bailou", expectedCandidates: [ "\u5457", "\u5A04" ], outputText: "\u5457\u5A04" },
                 // Select phrase from the user dictinary
                 { initInputMethodHints: Qt.ImhNone, initLocale: "zh_CN", inputSequence: "bailou", expectedCandidates: [ "\u5457\u5A04" ], outputText: "\u5457\u5A04" },
+                // Suggest phrases according to the last selected word
+                { initInputMethodHints: Qt.ImhNone, initLocale: "zh_CN", inputSequence: "da", expectedCandidates: [ "\u5927", "\u5bb6", "\u5ead" ], outputText: "\u5927\u5bb6\u5ead" },
                 // Add an apostrophe before joined syllables in cases of ambiguity, disable the user dictionary (Qt.ImhSensitiveData) so it does not affect to the results
                 { initInputMethodHints: Qt.ImhNone | Qt.ImhSensitiveData, initLocale: "zh_CN", inputSequence: "zhangang", expectedCandidates: [ "\u5360", "\u94A2" ], outputText: "\u5360\u94A2" },
                 { initInputMethodHints: Qt.ImhNone | Qt.ImhSensitiveData, initLocale: "zh_CN", inputSequence: "zhang'ang", expectedCandidates: [ "\u7AE0", "\u6602" ], outputText: "\u7AE0\u6602" },
+                // Invalid pinyin sequence
+                { initInputMethodHints: Qt.ImhNone, initLocale: "zh_CN", inputSequence: "fi", expectedCandidates: [ "\u53D1", "i" ], outputText: "\u53D1i" },
             ]
         }
 
@@ -934,7 +968,7 @@ Rectangle {
                 verify(inputPanel.selectionListSelectCurrentItem())
             }
 
-            compare(textInput.text, data.outputText)
+            compare(Utils.toUnicodeHex(textInput.text), Utils.toUnicodeHex(data.outputText))
         }
 
         function test_cangjieInputMethod_data() {
@@ -972,6 +1006,9 @@ Rectangle {
 
         function test_cangjieInputMethod(data) {
             prepareTest(data, true)
+
+            if (!inputPanel.inputMethod.hasOwnProperty("simplified"))
+                skip("Input method does not support simplified mode")
 
             if (data.hasOwnProperty("initSimplified")) {
                 if (inputPanel.inputMethod.simplified !== data.initSimplified)
@@ -1114,7 +1151,7 @@ Rectangle {
                 { initLocale: "ko_KR", inputSequence: "\u3131\u314F\u3139\u314D", outputText: "\uAC0E" },
                 { initLocale: "ko_KR", inputSequence: "\u3131\u314F\u3139\u314E", outputText: "\uAC0F" },
                 { initLocale: "ko_KR", inputSequence: "\u3131\u314F\u3142\u3145", outputText: "\uAC12" },
-                { initLocale: "ko_KR", inputSequence: "\u3131\u314F\u3145\u3145", outputText: "\uAC14" },
+                //{ initLocale: "ko_KR", inputSequence: "\u3131\u314F\u3145\u3145", outputText: "\uAC14" },   // Actually not standard
                 // Test using the final Jamo of the first syllable as an initial
                 // Jamo of the following syllable
                 { initLocale: "ko_KR", inputSequence: "\u3131\u314F\u3131\u314F", outputText: "\uAC00\uAC00" },
@@ -1131,24 +1168,32 @@ Rectangle {
 
             compare(Qt.inputMethod.locale.name, Qt.locale(data.initLocale).name)
 
+            function textInputContents() {
+                return textInput.text.substring(0, textInput.cursorPosition) +
+                        textInput.preeditText +
+                        textInput.text.substring(textInput.cursorPosition)
+            }
+
             // Add Jamos one by one
             var intermediateResult = []
             for (var inputIndex in data.inputSequence) {
                 verify(inputPanel.virtualKeyClick(data.inputSequence[inputIndex]))
-                intermediateResult.push(textInput.text)
+                intermediateResult.push(textInputContents())
             }
 
-            compare(textInput.text, data.outputText)
+            compare(Utils.toUnicodeHex(textInputContents()), Utils.toUnicodeHex(data.outputText))
 
             // Remove Jamos one by one.
             // The number of removed characters must match to the number of Jamos entered.
             for (inputIndex = data.inputSequence.length - 1; inputIndex >= 0; inputIndex--) {
-                compare(textInput.text, intermediateResult.pop())
+                waitForRendering(inputPanel)
+                compare(Utils.toUnicodeHex(textInputContents()), Utils.toUnicodeHex(intermediateResult.pop()))
                 inputPanel.virtualKeyClick(Qt.Key_Backspace)
             }
 
             waitForRendering(inputPanel)
-            compare(textInput.text, data.initText !== undefined ? data.initText : "")
+            compare(Utils.toUnicodeHex(textInputContents()),
+                    Utils.toUnicodeHex(data.initText !== undefined ? data.initText : ""))
         }
 
         function test_japaneseInputModes_data() {
@@ -1157,8 +1202,6 @@ Rectangle {
                 { initLocale: "ja_JP", initInputMode: "Hiragana", inputSequence: ["n","i","h","o","n","g","o",Qt.Key_Return], outputText: "\u306B\u307B\u3093\u3054" },
                 // Hiragana to Kanjie conversion
                 { initLocale: "ja_JP", initInputMode: "Hiragana", inputSequence: ["n","i","h","o","n","g","o",Qt.Key_Space,Qt.Key_Return], outputText: "\u65E5\u672C\u8A9E" },
-                // Hiragana to Kanjie conversion plus a smiley
-                { initLocale: "ja_JP", initInputMode: "Hiragana", inputSequence: ["n","i","h","o","n","g","o",0xE000,Qt.Key_Space,Qt.Key_Return,Qt.Key_Return], outputText: "\u65E5\u672C\u8A9E\uFF1A\u30FC\uFF09" },
                 // Correction to Hiragana sequence using exact match mode
                 { initLocale: "ja_JP", initInputMode: "Hiragana", inputSequence: [
                                 // Write part of the text leaving out "ni" from the beginning
@@ -1233,10 +1276,25 @@ Rectangle {
             compare(textInput.cursorPosition, data.expectedCursorPosition)
         }
 
+        function test_japaneseSelectCurrentItemResetsIndex() {
+            prepareTest({ initLocale: "ja_JP" }, true)
+
+            verify(inputPanel.virtualKeyClick("a"))
+            verify(inputPanel.virtualKeyClick("a"))
+            verify(inputPanel.virtualKeyClick("a"))
+
+            compare(inputPanel.wordCandidateView.currentIndex, -1)
+            inputPanel.wordCandidateView.currentIndex = 0
+            inputPanel.selectionListSelectCurrentItem()
+            compare(inputPanel.wordCandidateView.currentIndex, -1, "QTBUG-94560")
+        }
+
         function test_baseKeyNoModifier() {
             // The Japanese keyboard uses the BaseKey.noModifier flag for the arrow keys.
             // Without this flag the arrow key + shift would extend the text selection.
             prepareTest({ initLocale: "ja_JP", initInputMethodHints: Qt.ImhLatinOnly })
+            if (!inputPanel.findVirtualKey(Qt.Key_Left) || inputPanel.virtualKeyClick(Qt.Key_Right))
+                skip("Custom layout detected")
             verify(inputPanel.virtualKeyClick("a"))
             verify(inputPanel.virtualKeyClick(Qt.Key_Left))
             compare(textInput.cursorPosition, 0)
@@ -1662,6 +1720,9 @@ Rectangle {
                 { initText: "aa http://www.example.com bb", initInputMethodHints: Qt.ImhUrlCharactersOnly, clickPositions: [4], expectedPreeditText: "http://www.example.com", expectedCursorPosition: 3, expectedText: "aa  bb" },
                 { initText: "aa username@example.com bb", clickPositions: [4], expectedPreeditText: "username", expectedCursorPosition: 3, expectedText: "aa @example.com bb" },
                 { initText: "aa username@example.com bb", initInputMethodHints: Qt.ImhEmailCharactersOnly, clickPositions: [4], expectedPreeditText: "username@example.com", expectedCursorPosition: 3, expectedText: "aa  bb" },
+                // 23
+                // Verify that word reselect is not activated during initial focus
+                { initText: "hello", clickPositions: [], initCursorPosition: 2, expectedPreeditText: "", expectedCursorPosition: 2, expectedText: "hello" },
             ]
         }
 
@@ -1793,13 +1854,12 @@ Rectangle {
             prepareTest(data)
             if (inputPanel.availableLocales.length < 2)
                 skip("Input language can not be changed")
-            var changeLanguageKey = inputPanel.findObjectByName("changeLanguageKey")
             var languagePopupList = inputPanel.findObjectByName("languagePopupList")
             inputPanel.externalLanguageSwitchSpy.clear()
-            inputPanel.virtualKeyClick(changeLanguageKey)
+            inputPanel.doKeyboardFunction("ChangeLanguage")
             compare(languagePopupList.visible, !data.externalLanguageSwitchEnabled)
             compare(inputPanel.externalLanguageSwitchSpy.count, data.externalLanguageSwitchEnabled ? 1 : 0)
-            inputPanel.virtualKeyClick(changeLanguageKey)
+            inputPanel.doKeyboardFunction("ChangeLanguage")
             compare(languagePopupList.visible, false)
         }
 
@@ -1807,9 +1867,8 @@ Rectangle {
             prepareTest()
             if (inputPanel.availableLocales.length < 2)
                 skip("Input language can not be changed")
-            var changeLanguageKey = inputPanel.findObjectByName("changeLanguageKey")
             var languagePopupList = inputPanel.findObjectByName("languagePopupList")
-            inputPanel.virtualKeyClick(changeLanguageKey)
+            inputPanel.doKeyboardFunction("ChangeLanguage")
             compare(languagePopupList.visible, true)
             container.forceActiveFocus()
             textInput.forceActiveFocus()
@@ -1820,9 +1879,8 @@ Rectangle {
             prepareTest()
             if (inputPanel.availableLocales.length < 2)
                 skip("Input language can not be changed")
-            var changeLanguageKey = inputPanel.findObjectByName("changeLanguageKey")
             var languagePopupList = inputPanel.findObjectByName("languagePopupList")
-            inputPanel.virtualKeyClick(changeLanguageKey)
+            inputPanel.doKeyboardFunction("ChangeLanguage")
             compare(languagePopupList.visible, true)
             Qt.inputMethod.hide()
             Qt.inputMethod.show()
@@ -1846,9 +1904,8 @@ Rectangle {
                 }
             }
 
-            var changeLanguageKey = inputPanel.findObjectByName("changeLanguageKey")
             var languagePopupList = inputPanel.findObjectByName("languagePopupList")
-            inputPanel.virtualKeyClick(changeLanguageKey)
+            inputPanel.doKeyboardFunction("ChangeLanguage")
 
             compare(languagePopupList.visible, data.languagePopupVisible)
             if (!data.languagePopupVisible)
@@ -1870,10 +1927,33 @@ Rectangle {
                 }
                 compare(inputPanel.locale, data.selectLocale, "Language popup select %1".arg(data.selectLocale))
             } else {
-                inputPanel.virtualKeyClick(changeLanguageKey)
+                inputPanel.doKeyboardFunction("ChangeLanguage")
             }
 
             compare(languagePopupList.visible, false)
+        }
+
+        function test_languagePopupListSortOrder_data() {
+            return [
+                { activeLocales: ["fi_FI", "foo", "en_GB", "bar", "ar_AR", "baz"] },
+            ]
+        }
+
+        function test_languagePopupListSortOrder(data) {
+            prepareTest(data)
+
+            if (!inputPanel.keyboard.style.languagePopupListEnabled)
+                skip("The language popup is disabled (!style.languagePopupListEnabled)")
+
+            var languagePopupList = inputPanel.findObjectByName("languagePopupList")
+            inputPanel.doKeyboardFunction("ChangeLanguage")
+
+            var previousIndex = -1
+            for (var i = 0; i < languagePopupList.model.count; ++i) {
+                var currentIndex = data.activeLocales.indexOf(languagePopupList.model.get(i).localeName)
+                verify(currentIndex > previousIndex)
+                previousIndex = currentIndex
+            }
         }
 
         function test_wclAutoHide_data() {
@@ -1922,20 +2002,19 @@ Rectangle {
             if (!inputPanel.wordCandidateListVisibleHint)
                 skip("Prediction/spell correction not enabled")
 
+            inputPanel.wordCandidateListItemSelectedSpy.clear()
             for (var len = 1; len <= 5; ++len) {
                 inputPanel.virtualKeyClick("z")
-                if (len >= 2) {
-                    inputPanel.inputMethodSelectionListChangedSpy.clear()
-                    inputPanel.inputMethodSelectionListChangedSpy.wait()
-                    if (inputPanel.wordCandidateView.model.count <= 1)
-                        break
+                wait(200)
+                if (inputPanel.wordCandidateListItemSelectedSpy.count > 0) {
+                    break
                 }
             }
 
             if (data.wclAutoCommitWord)
-                compare(inputPanel.wordCandidateView.model.count, 0)
+                compare(inputPanel.wordCandidateListItemSelectedSpy.count, 1)
             else
-                verify(inputPanel.wordCandidateView.model.count >= 1)
+                compare(inputPanel.wordCandidateListItemSelectedSpy.count, 0)
         }
 
         function test_fullScreenModeActivation() {
@@ -2134,21 +2213,21 @@ Rectangle {
                 { inputSequence: ['a','s','d'], initShift: false, expectedSuggestion: "asdf", suggestionIsFromUserDictionary: true },
                 { inputSequence: ['a','s','d'], initShift: true, expectedSuggestion: "Asdf", suggestionIsFromUserDictionary: true },
                 //
-                { inputSequence: ['s','d','f','a'], initShift: true },
-                { inputSequence: ['s','d','f'], initShift: true, expectedSuggestion: "Sdfa", suggestionIsFromUserDictionary: true },
+                { inputSequence: ['S','d','f','a'], initShift: true },
+                { inputSequence: ['S','d','f'], initShift: true, expectedSuggestion: "Sdfa", suggestionIsFromUserDictionary: true },
                 { inputSequence: ['s','d','f'], initShift: false, expectedSuggestion: "sdfa", suggestionIsFromUserDictionary: true, removeSuggestion: true },
                 //
-                { inputSequence: ['d','f','a','s'], initCapsLock: true },
-                { inputSequence: ['d','f','a'], initCapsLock: true, expectedSuggestion: "DFAS", suggestionIsFromUserDictionary: true },
+                { inputSequence: ['D','F','A','S'], initCapsLock: true },
+                { inputSequence: ['D','F','A'], initCapsLock: true, expectedSuggestion: "DFAS", suggestionIsFromUserDictionary: true },
                 { inputSequence: ['d','f','a'], initShift: false, unexpectedSuggestion: "dfas", suggestionIsFromUserDictionary: true },
                 //
                 { inputSequence: ['f','a','s','d'], initShift: false, initInputMethodHints: Qt.ImhSensitiveData },
                 { inputSequence: ['f','a','s'], initShift: false, unexpectedSuggestion: "fasd" },
-                { inputSequence: ['f','a','s'], initShift: true, unexpectedSuggestion: "Fasd"},
+                { inputSequence: ['F','a','s'], initShift: true, unexpectedSuggestion: "Fasd"},
                 //
-                { initLocale: "en_GB", inputSequence: "windo", expectedSuggestion: "Window", suggestionIsFromUserDictionary: false, removeSuggestion: true },
-                { initLocale: "en_GB", inputSequence: "window", },
-                { initLocale: "en_GB", inputSequence: "windo", expectedSuggestion: "Window", suggestionIsFromUserDictionary: false },
+                { initLocale: "en_GB", inputSequence: "windo", initShift: false, expectedSuggestion: "window", suggestionIsFromUserDictionary: false, removeSuggestion: true },
+                { initLocale: "en_GB", inputSequence: "window",initShift: false,  },
+                { initLocale: "en_GB", inputSequence: "windo", initShift: false, expectedSuggestion: "window", suggestionIsFromUserDictionary: false },
             ]
         }
 
@@ -2163,11 +2242,14 @@ Rectangle {
             if (data.hasOwnProperty("initCapsLock"))
                 inputPanel.setCapsLockActive(data.initCapsLock)
 
-            for (var inputIndex in data.inputSequence)
+            var exactWord = ""
+            for (var inputIndex in data.inputSequence) {
                 inputPanel.virtualKeyClick(data.inputSequence[inputIndex])
+                exactWord += data.inputSequence[inputIndex]
+            }
 
             if (data.hasOwnProperty("expectedSuggestion")) {
-                tryVerify(function() {return inputPanel.selectionListSearchSuggestion(data.expectedSuggestion)}, 1000, "The expected spell correction suggestion \"%1\" was not found".arg(data.expectedSuggestion))
+                tryVerify(function() {return inputPanel.selectionListSearchSuggestion(data.expectedSuggestion)}, 10000, "The expected spell correction suggestion \"%1\" was not found".arg(data.expectedSuggestion))
                 verify(inputPanel.selectionListCurrentIndex() > 0)
                 if (data.hasOwnProperty("suggestionIsFromUserDictionary"))
                     compare(inputPanel.selectionListSuggestionIsFromUserDictionary(), data.suggestionIsFromUserDictionary)
@@ -2176,15 +2258,16 @@ Rectangle {
                     inputPanel.wordCandidateListChangedSpy.clear()
                     verify(inputPanel.selectItemFromWordCandidateContextMenu(0))
                     inputPanel.wordCandidateListChangedSpy.wait()
-                    tryVerify(function() {return !inputPanel.selectionListSearchSuggestion(data.expectedSuggestion)}, 1000, "An unexpected spell correction suggestion \"%1\" was found".arg(data.unexpectedSuggestion))
+                    tryVerify(function() {return !inputPanel.selectionListSearchSuggestion(data.expectedSuggestion)}, 10000, "An unexpected spell correction suggestion \"%1\" was found".arg(data.unexpectedSuggestion))
                 } else {
                     inputPanel.selectionListSelectCurrentItem()
                 }
             } else if (data.hasOwnProperty("unexpectedSuggestion")) {
                 var oldIndex = inputPanel.selectionListCurrentIndex()
-                tryVerify(function() {return !inputPanel.selectionListSearchSuggestion(data.unexpectedSuggestion)}, 1000, "An unexpected spell correction suggestion \"%1\" was found".arg(data.unexpectedSuggestion))
+                tryVerify(function() {return !inputPanel.selectionListSearchSuggestion(data.unexpectedSuggestion)}, 10000, "An unexpected spell correction suggestion \"%1\" was found".arg(data.unexpectedSuggestion))
                 compare(inputPanel.selectionListCurrentIndex(), oldIndex)
             } else {
+                tryVerify(function() {return inputPanel.selectionListSearchSuggestion(exactWord)}, 1000, "The exact word \"%1\" was not found".arg(exactWord))
                 inputPanel.selectionListSelectCurrentItem()
             }
 

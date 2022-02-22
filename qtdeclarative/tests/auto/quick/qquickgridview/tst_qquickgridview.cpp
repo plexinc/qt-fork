@@ -41,9 +41,9 @@
 #include <QtQuick/private/qquickgridview_p.h>
 #include <QtQuick/private/qquicktext_p.h>
 #include <QtQmlModels/private/qqmllistmodel_p.h>
-#include "../../shared/util.h"
-#include "../shared/viewtestutil.h"
-#include "../shared/visualtestutil.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
+#include <QtQuickTestUtils/private/viewtestutils_p.h>
+#include <QtQuickTestUtils/private/visualtestutils_p.h>
 #include <QtGui/qguiapplication.h>
 #include "qplatformdefs.h"
 
@@ -55,8 +55,8 @@ Q_DECLARE_METATYPE(QQuickItemView::VerticalLayoutDirection)
 Q_DECLARE_METATYPE(QQuickItemView::PositionMode)
 Q_DECLARE_METATYPE(Qt::Key)
 
-using namespace QQuickViewTestUtil;
-using namespace QQuickVisualTestUtil;
+using namespace QQuickViewTestUtils;
+using namespace QQuickVisualTestUtils;
 
 #define SHARE_VIEWS
 
@@ -213,6 +213,7 @@ private slots:
     void QTBUG_45640();
     void QTBUG_49218();
     void QTBUG_48870_fastModelUpdates();
+    void QTBUG_86255();
 
     void keyNavigationEnabled();
     void releaseItems();
@@ -301,7 +302,7 @@ private:
     }
     void releaseView(QQuickView *view) {
         Q_ASSERT(view == m_view);
-        Q_UNUSED(view)
+        Q_UNUSED(view);
         m_view->setSource(QUrl());
     }
 #else
@@ -317,7 +318,9 @@ private:
     QString testForView;
 };
 
-tst_QQuickGridView::tst_QQuickGridView() : m_view(nullptr)
+tst_QQuickGridView::tst_QQuickGridView()
+     : QQmlDataTest(QT_QMLTEST_DATADIR)
+     , m_view(nullptr)
 {
 }
 
@@ -3724,7 +3727,7 @@ void tst_QQuickGridView::resizeGrid()
     ctxt->setContextProperty("testRightToLeft", layoutDirection == Qt::RightToLeft);
     ctxt->setContextProperty("testBottomToTop", verticalLayoutDirection == QQuickGridView::BottomToTop);
     window->setSource(testFileUrl("resizegrid.qml"));
-    QQuickViewTestUtil::centerOnScreen(window, window->size());
+    QQuickViewTestUtils::centerOnScreen(window, window->size());
     window->show();
     qApp->processEvents();
 
@@ -4331,7 +4334,7 @@ void tst_QQuickGridView::snapToRow()
 
     QQuickView *window = getView();
 
-    QQuickViewTestUtil::moveMouseAway(window);
+    QQuickViewTestUtils::moveMouseAway(window);
     window->setSource(testFileUrl("snapToRow.qml"));
     window->show();
     qApp->processEvents();
@@ -4450,7 +4453,7 @@ void tst_QQuickGridView::snapOneRow()
     qreal flickDuration = 180 * flickSlowdown;
 
     QQuickView *window = getView();
-    QQuickViewTestUtil::moveMouseAway(window);
+    QQuickViewTestUtils::moveMouseAway(window);
 
     window->setSource(testFileUrl("snapOneRow.qml"));
     window->show();
@@ -5932,14 +5935,14 @@ void tst_QQuickGridView::cacheBuffer()
         QVERIFY(findItem<QQuickItem>(gridview, "wrapper", i) == nullptr);
         QQuickItem *item = nullptr;
         while (!item) {
-            bool b = false;
+            std::atomic<bool> b = false;
             controller.incubateWhile(&b);
             item = findItem<QQuickItem>(gridview, "wrapper", i);
         }
     }
 
     {
-        bool b = true;
+        std::atomic<bool> b = true;
         controller.incubateWhile(&b);
     }
 
@@ -5971,14 +5974,14 @@ void tst_QQuickGridView::cacheBuffer()
         QQuickItem *item = nullptr;
         while (!item) {
             qGuiApp->processEvents(); // allow refill to happen
-            bool b = false;
+            std::atomic<bool> b = false;
             controller.incubateWhile(&b);
             item = findItem<QQuickItem>(gridview, "wrapper", i);
         }
     }
 
     {
-        bool b = true;
+        std::atomic<bool> b = true;
         controller.incubateWhile(&b);
     }
 
@@ -5999,7 +6002,7 @@ void tst_QQuickGridView::asynchronous()
 
     QQuickGridView *gridview = nullptr;
     while (!gridview) {
-        bool b = false;
+        std::atomic<bool> b = false;
         controller.incubateWhile(&b);
         gridview = rootObject->findChild<QQuickGridView*>("view");
     }
@@ -6009,14 +6012,14 @@ void tst_QQuickGridView::asynchronous()
         QVERIFY(findItem<QQuickItem>(gridview, "wrapper", i) == nullptr);
         QQuickItem *item = nullptr;
         while (!item) {
-            bool b = false;
+            std::atomic<bool> b = false;
             controller.incubateWhile(&b);
             item = findItem<QQuickItem>(gridview, "wrapper", i);
         }
     }
 
     {
-        bool b = true;
+        std::atomic<bool> b = true;
         controller.incubateWhile(&b);
     }
 
@@ -6446,7 +6449,7 @@ void tst_QQuickGridView::matchIndexLists(const QVariantList &indexLists, const Q
 void tst_QQuickGridView::matchItemsAndIndexes(const QVariantMap &items, const QaimModel &model, const QList<int> &expectedIndexes)
 {
     for (QVariantMap::const_iterator it = items.begin(); it != items.end(); ++it) {
-        QCOMPARE(it.value().type(), QVariant::Int);
+        QCOMPARE(it.value().typeId(), QMetaType::Int);
         QString name = it.key();
         int itemIndex = it.value().toInt();
         QVERIFY2(expectedIndexes.contains(itemIndex), QTest::toString(QString("Index %1 not found in expectedIndexes").arg(itemIndex)));
@@ -6793,6 +6796,18 @@ void tst_QQuickGridView::QTBUG_48870_fastModelUpdates()
                 flick(window.data(), QPoint(100, 200), QPoint(100, 400), 100);
         }
     }
+}
+
+void tst_QQuickGridView::QTBUG_86255()
+{
+    QScopedPointer<QQuickView> window(createView());
+    window->setSource(testFileUrl("qtbug86255.qml"));
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window.data()));
+    QQuickGridView *view = findItem<QQuickGridView>(window->rootObject(), "view");
+    QVERIFY(view != nullptr);
+    QTRY_COMPARE(view->isFlicking(), true);
+    QTRY_COMPARE(view->isFlicking(), false);
 }
 
 void tst_QQuickGridView::releaseItems()

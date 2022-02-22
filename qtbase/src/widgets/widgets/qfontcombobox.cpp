@@ -46,8 +46,6 @@
 #include <qevent.h>
 #include <qapplication.h>
 #include <private/qcombobox_p.h>
-#include <QDesktopWidget>
-#include <private/qdesktopwidget_p.h>
 #include <qdebug.h>
 
 QT_BEGIN_NAMESPACE
@@ -136,8 +134,8 @@ static QFontDatabase::WritingSystem writingSystemFromLocale()
 
 static QFontDatabase::WritingSystem writingSystemForFont(const QFont &font, bool *hasLatin)
 {
-    QList<QFontDatabase::WritingSystem> writingSystems = QFontDatabase().writingSystems(font.family());
-//     qDebug() << font.family() << writingSystems;
+    QList<QFontDatabase::WritingSystem> writingSystems = QFontDatabase::writingSystems(font.families().first());
+//     qDebug() << font.families().first() << writingSystems;
 
     // this just confuses the algorithm below. Vietnamese is Latin with lots of special chars
     writingSystems.removeOne(QFontDatabase::Vietnamese);
@@ -215,7 +213,7 @@ void QFontFamilyDelegate::paint(QPainter *painter,
     QFont font(option.font);
     font.setPointSize(QFontInfo(font).pointSize() * 3 / 2);
     QFont font2 = font;
-    font2.setFamily(text);
+    font2.setFamilies(QStringList{text});
 
     bool hasLatin;
     QFontDatabase::WritingSystem system = writingSystemForFont(font2, &hasLatin);
@@ -233,7 +231,7 @@ void QFontFamilyDelegate::paint(QPainter *painter,
     }
 
     const QIcon *icon = &bitmap;
-    if (QFontDatabase().isSmoothlyScalable(text)) {
+    if (QFontDatabase::isSmoothlyScalable(text)) {
         icon = &truetype;
     }
     const QSize actualSize = icon->actualSize(r.size());
@@ -269,7 +267,7 @@ void QFontFamilyDelegate::paint(QPainter *painter,
     if (system != QFontDatabase::Any) {
         int w = painter->fontMetrics().horizontalAdvance(text + QLatin1String("  "));
         painter->setFont(font2);
-        QString sample = QFontDatabase().writingSystemSample(system);
+        QString sample = QFontDatabase::writingSystemSample(system);
         if (option.direction == Qt::RightToLeft)
             r.setRight(r.right() - w);
         else
@@ -288,7 +286,7 @@ QSize QFontFamilyDelegate::sizeHint(const QStyleOptionViewItem &option,
 {
     QString text = index.data(Qt::DisplayRole).toString();
     QFont font(option.font);
-//     font.setFamily(text);
+//     font.setFamilies(QStringList{text});
     font.setPointSize(QFontInfo(font).pointSize() * 3/2);
     QFontMetrics fontMetrics(font);
     return QSize(fontMetrics.horizontalAdvance(text), fontMetrics.height());
@@ -313,6 +311,10 @@ public:
 void QFontComboBoxPrivate::_q_updateModel()
 {
     Q_Q(QFontComboBox);
+
+    if (QCoreApplication::closingDown())
+        return;
+
     const int scalableMask = (QFontComboBox::ScalableFonts | QFontComboBox::NonScalableFonts);
     const int spacingMask = (QFontComboBox::ProportionalFonts | QFontComboBox::MonospacedFonts);
 
@@ -322,23 +324,22 @@ void QFontComboBoxPrivate::_q_updateModel()
     QFontFamilyDelegate *delegate = qobject_cast<QFontFamilyDelegate *>(q->view()->itemDelegate());
     QFontDatabase::WritingSystem system = delegate ? delegate->writingSystem : QFontDatabase::Any;
 
-    QFontDatabase fdb;
-    QStringList list = fdb.families(system);
+    QStringList list = QFontDatabase::families(system);
     QStringList result;
 
     int offset = 0;
     QFontInfo fi(currentFont);
 
     for (int i = 0; i < list.size(); ++i) {
-        if (fdb.isPrivateFamily(list.at(i)))
+        if (QFontDatabase::isPrivateFamily(list.at(i)))
             continue;
 
         if ((filters & scalableMask) && (filters & scalableMask) != scalableMask) {
-            if (bool(filters & QFontComboBox::ScalableFonts) != fdb.isSmoothlyScalable(list.at(i)))
+            if (bool(filters & QFontComboBox::ScalableFonts) != QFontDatabase::isSmoothlyScalable(list.at(i)))
                 continue;
         }
         if ((filters & spacingMask) && (filters & spacingMask) != spacingMask) {
-            if (bool(filters & QFontComboBox::MonospacedFonts) != fdb.isFixedPitch(list.at(i)))
+            if (bool(filters & QFontComboBox::MonospacedFonts) != QFontDatabase::isFixedPitch(list.at(i)))
                 continue;
         }
         result += list.at(i);
@@ -370,8 +371,9 @@ void QFontComboBoxPrivate::_q_updateModel()
 void QFontComboBoxPrivate::_q_currentChanged(const QString &text)
 {
     Q_Q(QFontComboBox);
-    if (currentFont.family() != text) {
-        currentFont.setFamily(text);
+    QStringList families = currentFont.families();
+    if (families.isEmpty() || families.first() != text) {
+        currentFont.setFamilies(QStringList{text});
         emit q->currentFontChanged(currentFont);
     }
 }
@@ -427,7 +429,7 @@ QFontComboBox::QFontComboBox(QWidget *parent)
         lview->setUniformItemSizes(true);
     setWritingSystem(QFontDatabase::Any);
 
-    connect(this, SIGNAL(currentIndexChanged(QString)),
+    connect(this, SIGNAL(currentTextChanged(QString)),
             this, SLOT(_q_currentChanged(QString)));
 
     connect(qApp, SIGNAL(fontDatabaseChanged()),
@@ -545,7 +547,7 @@ bool QFontComboBox::event(QEvent *e)
         QListView *lview = qobject_cast<QListView*>(view());
         if (lview) {
             lview->window()->setFixedWidth(qMin(width() * 5 / 3,
-                               QDesktopWidgetPrivate::availableGeometry(lview).width()));
+                                           QWidgetPrivate::availableScreenGeometry(lview).width()));
         }
     }
     return QComboBox::event(e);

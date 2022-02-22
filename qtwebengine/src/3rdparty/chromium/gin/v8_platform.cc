@@ -12,15 +12,17 @@
 #include "base/bind.h"
 #include "base/bit_cast.h"
 #include "base/bits.h"
+#include "base/check_op.h"
 #include "base/debug/stack_trace.h"
 #include "base/location.h"
-#include "base/logging.h"
 #include "base/rand_util.h"
 #include "base/system/sys_info.h"
+#include "base/task/post_job.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
 #include "base/trace_event/trace_event.h"
+#include "base/tracing_buildflags.h"
 #include "build/build_config.h"
 #include "gin/per_isolate_data.h"
 
@@ -201,10 +203,10 @@ class PageAllocator : public v8::PageAllocator {
   ~PageAllocator() override = default;
 
   size_t AllocatePageSize() override {
-    return base::kPageAllocationGranularity;
+    return base::PageAllocationGranularity();
   }
 
-  size_t CommitPageSize() override { return base::kSystemPageSize; }
+  size_t CommitPageSize() override { return base::SystemPageSize(); }
 
   void SetRandomMmapSeed(int64_t seed) override {
     base::SetMmapSeedForTesting(seed);
@@ -216,10 +218,16 @@ class PageAllocator : public v8::PageAllocator {
                       size_t length,
                       size_t alignment,
                       v8::PageAllocator::Permission permissions) override {
+    if (permissions == v8::PageAllocator::Permission::kNoAccessWillJitLater) {
+      // We could use this information to conditionally set the MAP_JIT flag
+      // on Mac-arm64; however this permissions value is intended to be a
+      // short-term solution, so we continue to set MAP_JIT for all V8 pages
+      // for now.
+      permissions = v8::PageAllocator::Permission::kNoAccess;
+    }
     base::PageAccessibilityConfiguration config = GetPageConfig(permissions);
-    bool commit = (permissions != v8::PageAllocator::Permission::kNoAccess);
     return base::AllocPages(address, length, alignment, config,
-                            base::PageTag::kV8, commit);
+                            base::PageTag::kV8);
   }
 
   bool FreePages(void* address, size_t length) override {
@@ -238,7 +246,8 @@ class PageAllocator : public v8::PageAllocator {
     // On Windows, we can only de-commit the trailing pages. FreePages() will
     // still free all pages in the region including the released tail, so it's
     // safe to just decommit the tail.
-    base::DecommitSystemPages(release_base, release_size);
+    base::DecommitSystemPages(release_base, release_size,
+                              base::PageUpdatePermissions);
 #else
 #error Unsupported platform
 #endif
@@ -250,7 +259,12 @@ class PageAllocator : public v8::PageAllocator {
                       Permission permissions) override {
     // If V8 sets permissions to none, we can discard the memory.
     if (permissions == v8::PageAllocator::Permission::kNoAccess) {
-      base::DecommitSystemPages(address, length);
+      // Use PageKeepPermissionsIfPossible as an optimization, to avoid perf
+      // regression (see crrev.com/c/2563038 for details). This may cause the
+      // memory region to still be accessible on certain platforms, but at least
+      // the physical pages will be discarded.
+      base::DecommitSystemPages(address, length,
+                                base::PageKeepPermissionsIfPossible);
       return true;
     } else {
       return base::TrySetSystemPagesAccess(address, length,
@@ -269,18 +283,71 @@ base::LazyInstance<PageAllocator>::Leaky g_page_allocator =
 
 #endif  // BUILDFLAG(USE_PARTITION_ALLOC)
 
+class JobDelegateImpl : public v8::JobDelegate {
+ public:
+  explicit JobDelegateImpl(base::JobDelegate* delegate) : delegate_(delegate) {}
+  JobDelegateImpl() = default;
+
+  JobDelegateImpl(const JobDelegateImpl&) = delete;
+  JobDelegateImpl& operator=(const JobDelegateImpl&) = delete;
+
+  // v8::JobDelegate:
+  bool ShouldYield() override { return delegate_->ShouldYield(); }
+  void NotifyConcurrencyIncrease() override {
+    delegate_->NotifyConcurrencyIncrease();
+  }
+  uint8_t GetTaskId() override { return delegate_->GetTaskId(); }
+  bool IsJoiningThread() const override { return delegate_->IsJoiningThread(); }
+
+ private:
+  base::JobDelegate* delegate_;
+};
+
+class JobHandleImpl : public v8::JobHandle {
+ public:
+  explicit JobHandleImpl(base::JobHandle handle) : handle_(std::move(handle)) {}
+  ~JobHandleImpl() override = default;
+
+  JobHandleImpl(const JobHandleImpl&) = delete;
+  JobHandleImpl& operator=(const JobHandleImpl&) = delete;
+
+  // v8::JobHandle:
+  void NotifyConcurrencyIncrease() override {
+    handle_.NotifyConcurrencyIncrease();
+  }
+  bool UpdatePriorityEnabled() const override { return true; }
+  void UpdatePriority(v8::TaskPriority new_priority) override {
+    handle_.UpdatePriority(ToBaseTaskPriority(new_priority));
+  }
+  void Join() override { handle_.Join(); }
+  void Cancel() override { handle_.Cancel(); }
+  void CancelAndDetach() override { handle_.CancelAndDetach(); }
+  bool IsActive() override { return handle_.IsActive(); }
+  bool IsValid() override { return !!handle_; }
+
+ private:
+  static base::TaskPriority ToBaseTaskPriority(v8::TaskPriority priority) {
+    switch (priority) {
+      case v8::TaskPriority::kBestEffort:
+        return base::TaskPriority::BEST_EFFORT;
+      case v8::TaskPriority::kUserVisible:
+        return base::TaskPriority::USER_VISIBLE;
+      case v8::TaskPriority::kUserBlocking:
+        return base::TaskPriority::USER_BLOCKING;
+    }
+  }
+
+  base::JobHandle handle_;
+};
+
 }  // namespace
 
 }  // namespace gin
 
-namespace base {
-
-namespace trace_event {
-
 // Allow std::unique_ptr<v8::ConvertableToTraceFormat> to be a valid
 // initialization value for trace macros.
 template <>
-struct TraceValue::Helper<
+struct base::trace_event::TraceValue::Helper<
     std::unique_ptr<v8::ConvertableToTraceFormat>> {
   static constexpr unsigned char kType = TRACE_VALUE_TYPE_CONVERTABLE;
   static inline void SetValue(
@@ -293,10 +360,6 @@ struct TraceValue::Helper<
   }
 };
 
-} // namespace trace_event
-
-} // namespace base
-
 namespace gin {
 
 class V8Platform::TracingControllerImpl : public v8::TracingController {
@@ -305,6 +368,7 @@ class V8Platform::TracingControllerImpl : public v8::TracingController {
   ~TracingControllerImpl() override = default;
 
   // TracingController implementation.
+#if !BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
   const uint8_t* GetCategoryGroupEnabled(const char* name) override {
     return TRACE_EVENT_API_GET_CATEGORY_GROUP_ENABLED(name);
   }
@@ -372,6 +436,7 @@ class V8Platform::TracingControllerImpl : public v8::TracingController {
     TRACE_EVENT_API_UPDATE_TRACE_EVENT_DURATION(category_enabled_flag, name,
                                                 traceEventHandle);
   }
+#endif  // !BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
   void AddTraceStateObserver(TraceStateObserver* observer) override {
     g_trace_state_dispatcher.Get().AddObserver(observer);
   }
@@ -447,6 +512,42 @@ void V8Platform::CallDelayedOnWorkerThread(std::unique_ptr<v8::Task> task,
       FROM_HERE, kDefaultTaskTraits,
       base::BindOnce(&v8::Task::Run, std::move(task)),
       base::TimeDelta::FromSecondsD(delay_in_seconds));
+}
+
+std::unique_ptr<v8::JobHandle> V8Platform::PostJob(
+    v8::TaskPriority priority,
+    std::unique_ptr<v8::JobTask> job_task) {
+  base::TaskTraits task_traits;
+  switch (priority) {
+    case v8::TaskPriority::kBestEffort:
+      task_traits = kLowPriorityTaskTraits;
+      break;
+    case v8::TaskPriority::kUserVisible:
+      task_traits = kDefaultTaskTraits;
+      break;
+    case v8::TaskPriority::kUserBlocking:
+      task_traits = kBlockingTaskTraits;
+      break;
+  }
+  // Ownership of |job_task| is assumed by |worker_task|, while
+  // |max_concurrency_callback| uses an unretained pointer.
+  auto* job_task_ptr = job_task.get();
+  auto handle =
+      base::PostJob(FROM_HERE, task_traits,
+                    base::BindRepeating(
+                        [](const std::unique_ptr<v8::JobTask>& job_task,
+                           base::JobDelegate* delegate) {
+                          JobDelegateImpl delegate_impl(delegate);
+                          job_task->Run(&delegate_impl);
+                        },
+                        std::move(job_task)),
+                    base::BindRepeating(
+                        [](v8::JobTask* job_task, size_t worker_count) {
+                          return job_task->GetMaxConcurrency(worker_count);
+                        },
+                        base::Unretained(job_task_ptr)));
+
+  return std::make_unique<JobHandleImpl>(std::move(handle));
 }
 
 bool V8Platform::IdleTasksEnabled(v8::Isolate* isolate) {

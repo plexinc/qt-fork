@@ -29,6 +29,8 @@
 
 #include "qquick3dtexture_p.h"
 #include <QtQuick3DRuntimeRender/private/qssgrenderimage_p.h>
+#include <QtQuick3DRuntimeRender/private/qssgrendertexturedata_p.h>
+#include <QtQuick3DRuntimeRender/private/qssgrenderloadedtexture_p.h>
 #include <QtQml/QQmlFile>
 #include <QtQuick/QQuickItem>
 #include <QtQuick/private/qquickitem_p.h>
@@ -46,35 +48,129 @@ QT_BEGIN_NAMESPACE
     \inqmlmodule QtQuick3D
     \brief Defines a texture for use in 3D scenes.
 
-    Texture defines an image and how it is mapped to meshes in a 3d scene.
+    A texture is technically any array of pixels (1D, 2D or 3D) and its related
+    settings, such as minification and magnification filters, scaling and UV
+    transformations.
 
-    Texture components can use image data either from a file using the
-    \l source property, or a Qt Quick item using the sourceItem property.
+    The Texture type in Qt Quick 3D represents a two-dimensional image. Its use
+    is typically to map onto / wrap around three-dimensional geometry to emulate
+    additional detail which cannot be efficiently modelled in 3D. It can also be
+    used to emulate other lighting effects, such as reflections.
+
+    When the geometry is being rendered, each location on its surface will be
+    transformed to a corresponding location in the texture by transforming and
+    interpolating the UV coordinates (texture coordinate) that have been set for
+    the mesh's vertexes. The fragment shader program that is being used to render
+    the active material will then typically sample the material's texture(s) at
+    the given coordinates and use the sampled data in its light calculations.
+
+    \note A Material may use multiple textures to give the desired interaction with
+    light in the 3D scene. It can represent the color of each texel on the geometry
+    surface, but also other attributes of the surface. For instance, a "normal map"
+    can represent the deviation from the geometry normals for each texel on the
+    surface, emulating light interaction with finer details on the surface, such
+    as cracks or bumps. See \l{Qt Quick 3D - Principled Material Example}{the principled
+    material example} for a demonstration of a material with multiple texture maps.
+
+    Texture objects can source image data from:
+    \list
+    \li an image or texture file by using the \l source property,
+    \li a Qt Quick \l Item by using the sourceItem property,
+    \li or by setting the \l textureData property to a \l TextureData item
+    subclass for defining the custom texture contents.
+    \endlist
+
+    The following example maps the image "madewithqt.png" onto the default sphere
+    mesh, and scales the UV coordinates to tile the image on the sphere surface.
+    \qml
+    Model {
+        source: "#Sphere"
+        materials: [ PrincipledMaterial {
+                baseColorMap: Texture {
+                    source: "madewithqt.png"
+                    scaleU: 4.0
+                    scaleV: 4.0
+                }
+            }
+        ]
+    }
+    \endqml
+
+    The result looks as follows:
+    \table
+    \header
+    \li Original image
+    \li Mapped onto a sphere
+    \row
+    \li \image madewithqt.png
+    \li \image spheremap.png
+    \endtable
+
+    \sa {Qt Quick 3D - Dynamic Texture Example}, {Qt Quick 3D - Procedural Texture Example}
 */
 
 QQuick3DTexture::QQuick3DTexture(QQuick3DObject *parent)
-    : QQuick3DObject(*(new QQuick3DObjectPrivate(QQuick3DObjectPrivate::Type::Image)), parent) {}
+    : QQuick3DObject(*(new QQuick3DObjectPrivate(QQuick3DObjectPrivate::Type::Image)), parent)
+{
+    const QMetaObject *mo = metaObject();
+    const int updateSlotIdx = mo->indexOfSlot("update()");
+    if (updateSlotIdx >= 0)
+        m_updateSlot = mo->method(updateSlotIdx);
+    if (!m_updateSlot.isValid())
+        qWarning("QQuick3DTexture: Failed to find update() slot");
+}
 
 QQuick3DTexture::~QQuick3DTexture()
 {
     if (m_layer && m_sceneManagerForLayer) {
         m_sceneManagerForLayer->qsgDynamicTextures.removeAll(m_layer);
-        m_layer->deleteLater();
+        m_layer->deleteLater(); // uhh...
     }
 
     if (m_sourceItem) {
         QQuickItemPrivate *sourcePrivate = QQuickItemPrivate::get(m_sourceItem);
         sourcePrivate->removeItemChangeListener(this, QQuickItemPrivate::Geometry);
     }
+
+    for (const auto &connection : qAsConst(m_connections))
+        disconnect(connection);
 }
 
 /*!
     \qmlproperty url QtQuick3D::Texture::source
 
-    This property holds the location of an image file containing the data used
-    by the texture.
+    This property holds the location of an image or texture file containing the data used by the
+    texture.
 
-    \sa sourceItem
+    The property is a URL, with the same rules as other source properties, such
+    as \l{Image::source}{Image.source}. With Texture, only the \c qrc and \c
+    file schemes are supported. When no scheme is present and the value is a
+    relative path, it is assumed to be relative to the component's (i.e. the
+    \c{.qml} file's) location.
+
+    The source file can have any conventional image file format
+    \l{QImageReader::supportedImageFormats()}{supported by Qt}. In addition, Texture supports the
+    same \l [QtQuick]{Compressed Texture Files}{compressed texture file types} as QtQuick::Image.
+
+    \note Texture data read from image files such as .png or .jpg involves
+    storing the rows of pixels within the texture in an order defined the Qt
+    Quick 3D rendering engine. When the source file is a container for -
+    possibly compressed - texture data, such transformations cannot happen on
+    the pixel data level. Examples of this are .ktx or .pkm files. Instead, the
+    Texture implicitly enables vertical flipping in the fragment shader code in
+    order to get identical on-screen results. This is controlled by the \l
+    autoOrientation property and can be disabled, if desired.
+
+    \note Some texture compression tools may apply automatic vertical mirroring
+    (flipping) on the image data. In modern tools this is often an opt-in
+    setting. It is important to be aware of the settings used in the asset
+    conditioning pipeline, because an unexpectedly flipped texture, and thus
+    incorrect texturing of objects, can have its root cause in the asset
+    itself, outside the application's and rendering engine's control. When the
+    asset requires it, applications can always set the \l flipV property
+    themselves.
+
+    \sa sourceItem, textureData, autoOrientation, flipV
 */
 QUrl QQuick3DTexture::source() const
 {
@@ -86,14 +182,44 @@ QUrl QQuick3DTexture::source() const
 
     This property defines a Item to be used as the source of the texture. Using
     this property allows any 2D Qt Quick content to be used as a texture source
-    by renderind that item as an offscreen layer.
+    by rendering that item as an offscreen layer.
 
-    If this property is used, then the value of \l source will be ignored.
+    If the item is a \l{QQuickItem::textureProvider()}{texture provider}, no
+    additional texture is used.
 
-    \note Currently there is no way to forward input events to the Item used as
-    a texture source.
+    If this property is set, then the value of \l source will be ignored. A
+    Texture should use one method to provide image data, and set only one of
+    source, \l sourceItem, or \l textureData.
 
-    \sa source
+    \note Currently input events are forwarded to the Item used as a texture
+    source only if the user is limited to interacting with one sourceItem
+    instance at a time. In other words: you can share the same Item between
+    multiple Textures, but then you cannot have multi-touch interaction with
+    the same item on multiple textures at the same time. So it's best to use a
+    separate 2D subscene instance for each Texture instance, if you expect to
+    manipulate interactive items inside.
+
+    \note Using this property in a Texture that is referenced from multiple
+    windows is strongly discouraged. This includes usage via
+    \l{View3D::importScene}. As the source texture created by this property is
+    only accessible by one render thread, attempting to share it between
+    multiple QQuickWindow instances is going to fail, unless the \c basic
+    render loop of Qt Quick is used instead of the default \c threaded one. See
+    \l{Qt Quick Scene Graph} on more information about the Qt Quick render
+    loops.
+
+    \note A Texture that contains the results of a Qt Quick offscreen render
+    pass will in effect have an Y axis orientation that is different from what
+    a Texture that receives its content via the source property uses. When used
+    in combination with DefaultMaterial or PrincipledMaterial, this is all
+    transparent to the application as the necessary UV transformations are
+    applied automatically as long as the autoOrientation property is set to
+    true, and so no further action is needed, regardless of how the texture was
+    sourced. However, when developing \l{QtQuick3D::CustomMaterial}{custom
+    materials} this needs to be kept in mind by the shader code author when
+    sampling the texture and working with UV coordinates.
+
+    \sa source, textureData, autoOrientation
 */
 QQuickItem *QQuick3DTexture::sourceItem() const
 {
@@ -108,6 +234,15 @@ QQuickItem *QQuick3DTexture::sourceItem() const
 
     Scaling the U value when using horizontal tiling will define how many times the
     texture is repeated from left to right.
+
+    The default is 1.0.
+
+    \note This property is effective when the Texture is used in combination
+    with a DefaultMaterial or PrincipledMaterial.
+    \l{QtQuick3D::CustomMaterial}{Custom materials} provide their own shader
+    code, and so transformations such as the one configured by this property
+    are ignored and are up to the application-provided shader code to
+    implement.
 
     \sa tilingModeHorizontal
  */
@@ -125,6 +260,15 @@ float QQuick3DTexture::scaleU() const
     Scaling the V value when using vertical tiling will define how many times a
     texture is repeated from bottom to top.
 
+    The default is 1.0.
+
+    \note This property is effective when the Texture is used in combination
+    with a DefaultMaterial or PrincipledMaterial.
+    \l{QtQuick3D::CustomMaterial}{Custom materials} provide their own shader
+    code, and so transformations such as the one configured by this property
+    are ignored and are up to the application-provided shader code to
+    implement.
+
     \sa tilingModeVertical
 */
 float QQuick3DTexture::scaleV() const
@@ -138,15 +282,21 @@ float QQuick3DTexture::scaleV() const
     This property defines which method of mapping to use when sampling this
     texture.
 
-    \value Texture.UV The default for diffuse and opacity maps,
-        this causes the image to be stuck to the mesh. The same portion of the
-        image will always appear on the same vertex (unless the UV properties are
-        animated).
-    \value Texture.Environment The default for specular reflection,
-        this causes the image to be ‘projected’ onto the material as though it is
-        being reflected. Using Environmental Mapping for diffuse maps provides a
-        mirror effect.
-    \value Texture.LightProbe The default for HDRI sphere maps used by light probes.
+    \value Texture.UV The default value. Suitable for base color, diffuse,
+    opacity, and most other texture maps. Performs standard UV mapping. The
+    same portion of the image will always appear on the same vertex, unless the
+    UV coordinates are transformed and animated.
+
+    \value Texture.Environment Used for
+    \l{PrincipledMaterial::specularReflectionMap}{specular reflection}, this
+    causes the image to be projected onto the material as though it was being
+    reflected. Using this mode for other type of texture maps provides a mirror
+    effect.
+
+    \value Texture.LightProbe The default for HDRI sphere maps used by light
+    probes. This mode does not need to be manually set for Texture objects
+    associated with the \l{SceneEnvironment::lightProbe}{lightProbe} property,
+    because it is implied automatically.
 */
 QQuick3DTexture::MappingMode QQuick3DTexture::mappingMode() const
 {
@@ -157,6 +307,8 @@ QQuick3DTexture::MappingMode QQuick3DTexture::mappingMode() const
     \qmlproperty enumeration QtQuick3D::Texture::tilingModeHorizontal
 
     Controls how the texture is mapped when the U scaling value is greater than 1.
+
+    By default, this property is set to \c{Texture.Repeat}.
 
     \value Texture.ClampToEdge Texture is not tiled, but the value on the edge is used instead.
     \value Texture.MirroredRepeat Texture is repeated and mirrored over the X axis.
@@ -175,6 +327,8 @@ QQuick3DTexture::TilingMode QQuick3DTexture::horizontalTiling() const
     This property controls how the texture is mapped when the V scaling value
     is greater than 1.
 
+    By default, this property is set to \c{Texture.Repeat}.
+
     \value Texture.ClampToEdge Texture is not tiled, but the value on the edge is used instead.
     \value Texture.MirroredRepeat Texture is repeated and mirrored over the Y axis.
     \value Texture.Repeat Texture is repeated over the Y axis.
@@ -190,7 +344,16 @@ QQuick3DTexture::TilingMode QQuick3DTexture::verticalTiling() const
     \qmlproperty float QtQuick3D::Texture::rotationUV
 
     This property rotates the texture around the pivot point. This is defined
-    using euler angles and for a positve value rotation is clockwise.
+    using euler angles and for a positive value rotation is clockwise.
+
+    The default is 0.0.
+
+    \note This property is effective when the Texture is used in combination
+    with a DefaultMaterial or PrincipledMaterial.
+    \l{QtQuick3D::CustomMaterial}{Custom materials} provide their own shader
+    code, and so transformations such as the one configured by this property
+    are ignored and are up to the application-provided shader code to
+    implement.
 
     \sa pivotU, pivotV
 */
@@ -203,6 +366,17 @@ float QQuick3DTexture::rotationUV() const
     \qmlproperty float QtQuick3D::Texture::positionU
 
     This property offsets the U coordinate mapping from left to right.
+
+    The default is 0.0.
+
+    \note This property is effective when the Texture is used in combination
+    with a DefaultMaterial or PrincipledMaterial.
+    \l{QtQuick3D::CustomMaterial}{Custom materials} provide their own shader
+    code, and so transformations such as the one configured by this property
+    are ignored and are up to the application-provided shader code to
+    implement.
+
+    \sa positionV
 */
 float QQuick3DTexture::positionU() const
 {
@@ -213,6 +387,21 @@ float QQuick3DTexture::positionU() const
     \qmlproperty float QtQuick3D::Texture::positionV
 
     This property offsets the V coordinate mapping from bottom to top.
+
+    The default is 0.0.
+
+    \note Qt Quick 3D uses OpenGL-style vertex data, regardless of the graphics
+    API used at run time. The UV position \c{(0, 0)} is therefore referring to
+    the bottom-left corner of the image data.
+
+    \note This property is effective when the Texture is used in combination
+    with a DefaultMaterial or PrincipledMaterial.
+    \l{QtQuick3D::CustomMaterial}{Custom materials} provide their own shader
+    code, and so transformations such as the one configured by this property
+    are ignored and are up to the application-provided shader code to
+    implement.
+
+    \sa positionU
 */
 float QQuick3DTexture::positionV() const
 {
@@ -222,7 +411,17 @@ float QQuick3DTexture::positionV() const
 /*!
     \qmlproperty float QtQuick3D::Texture::pivotU
 
-    This property sets the pivot U position.
+    This property sets the pivot U position which is used when applying a
+    \l{QtQuick3D::Texture::rotationUV}{rotationUV}.
+
+    The default is 0.0.
+
+    \note This property is effective when the Texture is used in combination
+    with a DefaultMaterial or PrincipledMaterial.
+    \l{QtQuick3D::CustomMaterial}{Custom materials} provide their own shader
+    code, and so transformations such as the one configured by this property
+    are ignored and are up to the application-provided shader code to
+    implement.
 
     \sa rotationUV
 */
@@ -234,9 +433,19 @@ float QQuick3DTexture::pivotU() const
 /*!
     \qmlproperty float QtQuick3D::Texture::pivotV
 
-    This property sets the pivot V position.
+    This property sets the pivot V position which is used when applying a
+    \l{QtQuick3D::Texture::rotationUV}{rotationUV}.
 
-    \sa rotationUV
+    The default is 0.0.
+
+    \note This property is effective when the Texture is used in combination
+    with a DefaultMaterial or PrincipledMaterial.
+    \l{QtQuick3D::CustomMaterial}{Custom materials} provide their own shader
+    code, and so transformations such as the one configured by this property
+    are ignored and are up to the application-provided shader code to
+    implement.
+
+    \sa pivotU, rotationUV
 */
 float QQuick3DTexture::pivotV() const
 {
@@ -244,9 +453,41 @@ float QQuick3DTexture::pivotV() const
 }
 
 /*!
+    \qmlproperty bool QtQuick3D::Texture::flipU
+
+    This property sets the use of the horizontally flipped texture coordinates.
+
+    The default is false.
+
+    \note This property is effective when the Texture is used in combination
+    with a DefaultMaterial or PrincipledMaterial.
+    \l{QtQuick3D::CustomMaterial}{Custom materials} provide their own shader
+    code, and so transformations such as the one configured by this property
+    are ignored and are up to the application-provided shader code to
+    implement.
+
+    \sa flipV
+*/
+bool QQuick3DTexture::flipU() const
+{
+    return m_flipU;
+}
+
+/*!
     \qmlproperty bool QtQuick3D::Texture::flipV
 
-    This property sets the use of the vertically flipped coordinates.
+    This property sets the use of the vertically flipped texture coordinates.
+
+    The default is false.
+
+    \note This property is effective when the Texture is used in combination
+    with a DefaultMaterial or PrincipledMaterial.
+    \l{QtQuick3D::CustomMaterial}{Custom materials} provide their own shader
+    code, and so transformations such as the one configured by this property
+    are ignored and are up to the application-provided shader code to
+    implement.
+
+    \sa flipU
 */
 bool QQuick3DTexture::flipV() const
 {
@@ -254,50 +495,158 @@ bool QQuick3DTexture::flipV() const
 }
 
 /*!
-    \qmlproperty enumeration QtQuick3D::Texture::format
+    \qmlproperty int QtQuick3D::Texture::indexUV
 
-    This property controls the color format of the texture assigned in \l source property.
+    This property sets the UV coordinate index used by this texture. Since
+    QtQuick3D supports 2 UV sets(0 or 1) for now, the value will be saturated
+    to the range.
 
-    By default, it is automatically determined.
-    However, it can be manually set if the automatic format is not what is wanted.
-
-    \value Texture.Automatic The color format will be automatically determined (default).
-    \value Texture.R8 The color format is considered as 8-bit integer in R channel.
-    \value Texture.R16 The color format is considered as 16-bit integer in R channel.
-    \value Texture.R16F The color format is considered as 16-bit float in R channel.
-    \value Texture.R32I The color format is considered as 32-bit integer in R channel.
-    \value Texture.R32UI The color format is considered as 32-bit unsigned integer in R channel.
-    \value Texture.R32F The color format is considered as 32-bit float R channel.
-    \value Texture.RG8 The color format is considered as 8-bit integer in R and G channels.
-    \value Texture.RGBA8 The color format is considered as 8-bit integer in R, G, B and alpha channels.
-    \value Texture.RGB8 The color format is considered as 8-bit integer in R, G and B channels.
-    \value Texture.SRGB8 The color format is considered as 8-bit integer in R, G and B channels in standard RGB color space.
-    \value Texture.SRGB8A8 The color format is considered as 8-bit integer in R, G, B and alpha channels in standard RGB color space.
-    \value Texture.RGB565 The color format is considered as 5-bit integer in R and B channels and 6-bit integer in G channel.
-    \value Texture.RGBA5551 The color format is considered as 5-bit integer in R, G, B channels and boolean alpha channel.
-    \value Texture.Alpha8 The color format is considered as 8-bit alpha map.
-    \value Texture.Luminance8 The color format is considered as 8-bit luminance map.
-    \value Texture.Luminance16 The color format is considered as 16-bit luminance map.
-    \value Texture.LuminanceAlpha8 The color format is considered as 8-bit luminance and alpha map.
-    \value Texture.RGBA16F The color format is considered as 16-bit float in R,G,B and alpha channels.
-    \value Texture.RG16F The color format is considered as 16-bit float in R and G channels.
-    \value Texture.RG32F The color format is considered as 32-bit float in R and G channels.
-    \value Texture.RGB32F The color format is considered as 32-bit float in R, G and B channels.
-    \value Texture.RGBA32F The color format is considered as 32-bit float in R, G, B and alpha channels.
-    \value Texture.R11G11B10 The color format is considered as 11-bit integer in R and G channels and 10-bit integer in B channel.
-    \value Texture.RGB9E5 The color format is considered as 9-bit mantissa in R, G and B channels and 5-bit shared exponent.
-    \value Texture.RGBA_DXT1 The color format is considered as DXT1 compressed format with R, G, B and alpha channels.
-    \value Texture.RGB_DXT1 The color format is considered as DXT1 compressed format with R, G and B channels.
-    \value Texture.RGBA_DXT3 The color format is considered as DXT3 compressed format with R, G, B and alpha channels.
-    \value Texture.RGBA_DXT5 The color format is considered as DXT5 compressed format with R, G, B and alpha channels.
-    \value Texture.Depth16 The color format is considered as 16-bit depth map.
-    \value Texture.Depth24 The color format is considered as 24-bit depth map.
-    \value Texture.Depth32 The color format is considered as 32-bit depth map.
-    \value Texture.Depth24Stencil8 The color format is considered as 24-bit depth and 8-bit stencil map.
+    The default is 0.
 */
-QQuick3DTexture::Format QQuick3DTexture::format() const
+int QQuick3DTexture::indexUV() const
 {
-    return m_format;
+    return m_indexUV;
+}
+
+/*!
+    \qmlproperty enumeration QtQuick3D::Texture::magFilter
+
+    This property determines how the texture is sampled when a texel covers
+    more than one pixel.
+
+    The default value is \c{Texture.Linear}.
+
+    \value Texture.Nearest uses the value of the closest texel.
+    \value Texture.Linear takes the four closest texels and bilinearly interpolates them.
+
+    \note Using \c Texture.None here will default to \c Texture.Linear instead.
+
+    \sa minFilter, mipFilter
+*/
+QQuick3DTexture::Filter QQuick3DTexture::magFilter() const
+{
+    return m_magFilter;
+}
+
+/*!
+    \qmlproperty enumeration QtQuick3D::Texture::minFilter
+
+    This property determines how the texture is sampled when a texel covers
+    more than one pixel.
+
+    The default value is \c{Texture.Linear}.
+
+    \value Texture.Nearest uses the value of the closest texel.
+    \value Texture.Linear takes the four closest texels and bilinearly interpolates them.
+
+    \note Using \c Texture.None here will default to \c Texture.Linear instead.
+
+    \sa magFilter, mipFilter
+*/
+QQuick3DTexture::Filter QQuick3DTexture::minFilter() const
+{
+    return m_minFilter;
+}
+
+/*!
+    \qmlproperty enumeration QtQuick3D::Texture::mipFilter
+
+    This property determines how the texture mipmaps are sampled when a texel covers
+    less than one pixel.
+
+    The default value is \c{Texture.None}.
+
+    \value Texture.None disables the usage of mipmap sampling.
+    \value Texture.Nearest uses mipmapping and samples the value of the closest texel.
+    \value Texture.Linear uses mipmapping and interpolates between multiple texel values.
+
+    \note This property will have no effect on Textures that do not have mipmaps.
+
+    \sa minFilter, magFilter
+*/
+QQuick3DTexture::Filter QQuick3DTexture::mipFilter() const
+{
+    return m_mipFilter;
+}
+
+/*!
+    \qmlproperty TextureData QtQuick3D::Texture::textureData
+
+    This property holds a reference to a \l TextureData component which
+    defines the contents and properties of raw texture data.
+
+    If this property is used, then the value of \l source will be ignored. A
+    Texture should use one method to provide image data, and set only one of
+    source, \l sourceItem, or \l textureData.
+
+    \sa source, sourceItem, {Qt Quick 3D - Procedural Texture Example}
+*/
+
+QQuick3DTextureData *QQuick3DTexture::textureData() const
+{
+    return m_textureData;
+}
+
+/*!
+    \qmlproperty bool QtQuick3D::Texture::generateMipmaps
+
+    This property determines if mipmaps are generated for textures that
+    do not provide mipmap levels themselves. Using mipmaps along with mip
+    filtering gives better visual quality when viewing textures at a distance
+    compared rendering without them, but it may come at a performance
+    cost (both when initializing the image and during rendering).
+
+    By default, this property is set to false.
+
+    \note It is necessary to set a \l{QtQuick3D::Texture::mipFilter}{mipFilter} mode
+    for the generated mipmaps to be be used.
+
+    \note This property is not applicable when the texture content is based on
+    a Qt Quick item referenced by the \l sourceItem property. Mipmap generation
+    for dynamic textures is not feasible due to the performance implications.
+    Therefore, the value of this property is ignored for such textures.
+
+    \sa mipFilter
+*/
+bool QQuick3DTexture::generateMipmaps() const
+{
+    return m_generateMipmaps;
+}
+
+/*!
+    \qmlproperty bool QtQuick3D::Texture::autoOrientation
+
+    This property determines if a texture transformation, such as flipping the
+    V texture coordinate, is applied automatically for textures where this is
+    typically relevant.
+
+    By default, this property is set to true.
+
+    Certain type of texture data, such as compressed textures loaded via the \l
+    source property from a .ktx or .pkm file, or textures generated by
+    rendering a Qt Quick scene via the \l sourceItem property, often have a
+    different Y axis orientation when compared to textures loaded from image
+    files, such as, .png or .jpg. Therefore, such a Texture would appear
+    "upside down" compared to a Texture with its source set to a regular image
+    file. To remedy this, any qualifying Texture gets an implicit UV
+    transformation as if the flipV property was set to true. If this is not
+    desired, set this property to false.
+
+    \note This property is effective when the Texture is used in combination
+    with a DefaultMaterial or PrincipledMaterial.
+    \l{QtQuick3D::CustomMaterial}{Custom materials} provide their own shader
+    code, and so transformations such as the one configured by this property
+    are ignored and are up to the application-provided shader code to
+    implement.
+
+    \since 6.2
+
+    \sa flipV
+*/
+
+bool QQuick3DTexture::autoOrientation() const
+{
+    return m_autoOrientation;
 }
 
 void QQuick3DTexture::setSource(const QUrl &source)
@@ -307,6 +656,8 @@ void QQuick3DTexture::setSource(const QUrl &source)
 
     m_source = source;
     m_dirtyFlags.setFlag(DirtyFlag::SourceDirty);
+    m_dirtyFlags.setFlag(DirtyFlag::SourceItemDirty);
+    m_dirtyFlags.setFlag(DirtyFlag::TextureDataDirty);
     emit sourceChanged();
     update();
 }
@@ -347,7 +698,8 @@ void QQuick3DTexture::setSourceItem(QQuickItem *sourceItem)
     if (m_sourceItem == sourceItem)
         return;
 
-    //TODO: Also clear the source property?
+    disconnect(m_textureProviderConnection);
+    disconnect(m_textureUpdateConnection);
 
     if (m_sourceItem) {
         QQuickItemPrivate *sourcePrivate = QQuickItemPrivate::get(m_sourceItem);
@@ -358,8 +710,6 @@ void QQuick3DTexture::setSourceItem(QQuickItem *sourceItem)
 
         sourcePrivate->removeItemChangeListener(this, QQuickItemPrivate::Geometry);
         disconnect(m_sourceItem, SIGNAL(destroyed(QObject*)), this, SLOT(sourceItemDestroyed(QObject*)));
-        if (m_sourceItem->window())
-            sourcePrivate->derefWindow();
         if (m_sourceItemReparented) {
             m_sourceItem->setParentItem(nullptr);
             m_sourceItemReparented = false;
@@ -373,8 +723,21 @@ void QQuick3DTexture::setSourceItem(QQuickItem *sourceItem)
         QQuickItemPrivate *sourcePrivate = QQuickItemPrivate::get(m_sourceItem);
         sourcePrivate->addItemChangeListener(this, QQuickItemPrivate::Geometry);
         connect(m_sourceItem, SIGNAL(destroyed(QObject*)), this, SLOT(sourceItemDestroyed(QObject*)));
+        sourcePrivate->ensureSubsceneDeliveryAgent();
     }
 
+    if (m_layer) {
+        const auto &manager = QQuick3DObjectPrivate::get(this)->sceneManager;
+        manager->qsgDynamicTextures.removeAll(m_layer);
+        m_sceneManagerForLayer = nullptr;
+        // cannot touch m_layer here
+    }
+    m_initializedSourceItem = nullptr;
+    m_initializedSourceItemSize = QSize();
+
+    m_dirtyFlags.setFlag(DirtyFlag::SourceDirty);
+    m_dirtyFlags.setFlag(DirtyFlag::SourceItemDirty);
+    m_dirtyFlags.setFlag(DirtyFlag::TextureDataDirty);
     emit sourceItemChanged();
     update();
 }
@@ -486,25 +849,171 @@ void QQuick3DTexture::setPivotV(float pivotV)
     update();
 }
 
+void QQuick3DTexture::setFlipU(bool flipU)
+{
+    if (m_flipU == flipU)
+        return;
+
+    m_flipU = flipU;
+    m_dirtyFlags.setFlag(DirtyFlag::TransformDirty);
+    emit flipUChanged();
+    update();
+}
+
 void QQuick3DTexture::setFlipV(bool flipV)
 {
     if (m_flipV == flipV)
         return;
 
     m_flipV = flipV;
-    m_dirtyFlags.setFlag(DirtyFlag::TransformDirty);
+    m_dirtyFlags.setFlag(DirtyFlag::FlipVDirty);
     emit flipVChanged();
     update();
 }
 
-void QQuick3DTexture::setFormat(QQuick3DTexture::Format format)
+void QQuick3DTexture::setIndexUV(int indexUV)
 {
-    if (m_format == format)
+    if (m_indexUV == indexUV)
         return;
 
-    m_format = format;
-    emit formatChanged();
+    if (indexUV < 0)
+        m_indexUV = 0;
+    else if (indexUV > 1)
+        m_indexUV = 1;
+    else
+        m_indexUV = indexUV;
+
+    m_dirtyFlags.setFlag(DirtyFlag::IndexUVDirty);
+    emit indexUVChanged();
     update();
+}
+
+void QQuick3DTexture::setTextureData(QQuick3DTextureData *textureData)
+{
+    if (m_textureData == textureData)
+        return;
+
+    // Make sure to disconnect if the geometry gets deleted out from under us
+    QQuick3DObjectPrivate::updatePropertyListener(textureData, m_textureData, QQuick3DObjectPrivate::get(this)->sceneManager, QByteArrayLiteral("textureData"), m_connections, [this](QQuick3DObject *n) {
+        setTextureData(qobject_cast<QQuick3DTextureData *>(n));
+    });
+
+    if (m_textureData)
+        QObject::disconnect(m_textureDataConnection);
+    m_textureData = textureData;
+
+    if (m_textureData) {
+        m_textureDataConnection
+                = QObject::connect(m_textureData, &QQuick3DTextureData::textureDataNodeDirty, [this]() {
+            markDirty(DirtyFlag::TextureDataDirty);
+        });
+    }
+
+    m_dirtyFlags.setFlag(DirtyFlag::SourceDirty);
+    m_dirtyFlags.setFlag(DirtyFlag::SourceItemDirty);
+    m_dirtyFlags.setFlag(DirtyFlag::TextureDataDirty);
+    emit textureDataChanged();
+    update();
+}
+
+void QQuick3DTexture::setGenerateMipmaps(bool generateMipmaps)
+{
+    if (m_generateMipmaps == generateMipmaps)
+        return;
+
+    m_generateMipmaps = generateMipmaps;
+    m_dirtyFlags.setFlag(DirtyFlag::SamplerDirty);
+    emit generateMipmapsChanged();
+    update();
+}
+
+void QQuick3DTexture::setAutoOrientation(bool autoOrientation)
+{
+    if (m_autoOrientation == autoOrientation)
+        return;
+
+    m_autoOrientation = autoOrientation;
+    m_dirtyFlags.setFlag(DirtyFlag::FlipVDirty);
+    emit autoOrientationChanged();
+    update();
+}
+
+void QQuick3DTexture::setMagFilter(QQuick3DTexture::Filter magFilter)
+{
+    if (m_magFilter == magFilter)
+        return;
+
+    m_magFilter = magFilter;
+    m_dirtyFlags.setFlag(DirtyFlag::SamplerDirty);
+    emit magFilterChanged();
+    update();
+}
+
+void QQuick3DTexture::setMinFilter(QQuick3DTexture::Filter minFilter)
+{
+    if (m_minFilter == minFilter)
+        return;
+
+    m_minFilter = minFilter;
+    m_dirtyFlags.setFlag(DirtyFlag::SamplerDirty);
+    emit minFilterChanged();
+    update();
+}
+
+void QQuick3DTexture::setMipFilter(QQuick3DTexture::Filter mipFilter)
+{
+    if (m_mipFilter == mipFilter)
+        return;
+
+    m_mipFilter = mipFilter;
+    m_dirtyFlags.setFlag(DirtyFlag::SamplerDirty);
+    emit mipFilterChanged();
+    update();
+}
+
+// this function may involve file system access and hence can be expensive
+bool QQuick3DTexture::effectiveFlipV(const QSSGRenderImage &imageNode) const
+{
+    // No magic when autoOrientation is false.
+    if (!m_autoOrientation)
+        return m_flipV;
+
+    // Keep the same order as in QSSGBufferManager: sourceItem > textureData > source
+
+    // Using sourceItem implies inverting (the effective, internal) flipV,
+    // transparently to the user. Otherwise two #Rectangle models textured with
+    // two Textures where one has its content loaded from an image file via
+    // QImage while the other is generated by Qt Quick rendering into the
+    // texture would appear upside-down relative to each other, and that
+    // discrepancy is not ideal. (that said, this won't help CustomMaterial, as
+    // documented for flipV and co.)
+
+    if (m_sourceItem)
+        return !m_flipV;
+
+    // With textureData we assume the application knows what it is doing,
+    // because there the application is controlling the content itself.
+
+    if (m_textureData)
+        return m_flipV;
+
+    // Compressed textures (or any texture that is coming from the associated
+    // container formats, such as KTX, i.e. not via QImage but through
+    // QTextureFileReader) get the implicit flip, like sourceItem. This is done
+    // mainly for parity with Qt Quick's Image, see QTBUG-93972.
+
+    if (!m_source.isEmpty()) {
+        const QString filePath = imageNode.m_imagePath.path();
+        if (!filePath.isEmpty()) {
+            QSSGInputUtil::FileType fileType = QSSGInputUtil::UnknownFile;
+            if (QSSGInputUtil::getStreamForTextureFile(filePath, true, nullptr, &fileType)) {
+                if (fileType == QSSGInputUtil::TextureFile)
+                    return !m_flipV;
+            }
+        }
+    }
+
+    return m_flipV;
 }
 
 QSSGRenderGraphObject *QQuick3DTexture::updateSpatialNode(QSSGRenderGraphObject *node)
@@ -516,14 +1025,11 @@ QSSGRenderGraphObject *QQuick3DTexture::updateSpatialNode(QSSGRenderGraphObject 
 
     auto imageNode = static_cast<QSSGRenderImage *>(node);
 
-    // When texture is QQuickItem, flip it automatically
-    bool flipTexture = m_flipV;
-    if (m_sourceItem)
-        flipTexture = !flipTexture;
-
     if (m_dirtyFlags.testFlag(DirtyFlag::TransformDirty)) {
         m_dirtyFlags.setFlag(DirtyFlag::TransformDirty, false);
-        imageNode->m_flipV = flipTexture;
+
+        // flipV and indexUV have their own dirty flags, handled separately below
+        imageNode->m_flipU = m_flipU;
         imageNode->m_scale = QVector2D(m_scaleU, m_scaleV);
         imageNode->m_pivot = QVector2D(m_pivotU, m_pivotV);
         imageNode->m_rotation = m_rotationUV;
@@ -535,101 +1041,244 @@ QSSGRenderGraphObject *QQuick3DTexture::updateSpatialNode(QSSGRenderGraphObject 
     bool nodeChanged = false;
     if (m_dirtyFlags.testFlag(DirtyFlag::SourceDirty)) {
         m_dirtyFlags.setFlag(DirtyFlag::SourceDirty, false);
-        imageNode->m_imagePath = QQmlFile::urlToLocalFileOrQrc(m_source);
+        m_dirtyFlags.setFlag(DirtyFlag::FlipVDirty, true);
+        if (!m_source.isEmpty()) {
+            const QQmlContext *context = qmlContext(this);
+            imageNode->m_imagePath = QSSGRenderPath(QQmlFile::urlToLocalFileOrQrc(context ? context->resolvedUrl(m_source) : m_source));
+        } else {
+            imageNode->m_imagePath = QSSGRenderPath();
+        }
         nodeChanged = true;
     }
-
+    if (m_dirtyFlags.testFlag(DirtyFlag::IndexUVDirty)) {
+        m_dirtyFlags.setFlag(DirtyFlag::IndexUVDirty, false);
+        imageNode->m_indexUV = m_indexUV;
+    }
     nodeChanged |= qUpdateIfNeeded(imageNode->m_mappingMode,
                                   QSSGRenderImage::MappingModes(m_mappingMode));
     nodeChanged |= qUpdateIfNeeded(imageNode->m_horizontalTilingMode,
                                   QSSGRenderTextureCoordOp(m_tilingModeHorizontal));
     nodeChanged |= qUpdateIfNeeded(imageNode->m_verticalTilingMode,
                                   QSSGRenderTextureCoordOp(m_tilingModeVertical));
-    QSSGRenderTextureFormat format{QSSGRenderTextureFormat::Format(m_format)};
-    nodeChanged |= qUpdateIfNeeded(imageNode->m_format, format);
 
-    if (m_sourceItem) { // TODO: handle width == 0 || height == 0
-        QQuickWindow *window = m_sourceItem->window();
-        if (!window) {
-            // Do a hack to set the window
-            const auto &manager = QQuick3DObjectPrivate::get(this)->sceneManager;
-            window = manager->window();
-            if (!window) {
-                qWarning() << "Unable to get window, this will probably not work";
-            } else {
-                auto *sourcePrivate = QQuickItemPrivate::get(m_sourceItem);
-                sourcePrivate->refWindow(window); // TODO: deref window as well
+    if (m_dirtyFlags.testFlag(DirtyFlag::SamplerDirty)) {
+        m_dirtyFlags.setFlag(DirtyFlag::SamplerDirty, false);
+        nodeChanged |= qUpdateIfNeeded(imageNode->m_minFilterType,
+                                       QSSGRenderTextureFilterOp(m_minFilter));
+        nodeChanged |= qUpdateIfNeeded(imageNode->m_magFilterType,
+                                       QSSGRenderTextureFilterOp(m_magFilter));
+        nodeChanged |= qUpdateIfNeeded(imageNode->m_mipFilterType,
+                                       QSSGRenderTextureFilterOp(m_mipFilter));
+        nodeChanged |= qUpdateIfNeeded(imageNode->m_generateMipmaps,
+                                       m_generateMipmaps);
+    }
+
+    if (m_dirtyFlags.testFlag(DirtyFlag::TextureDataDirty)) {
+        m_dirtyFlags.setFlag(DirtyFlag::TextureDataDirty, false);
+        m_dirtyFlags.setFlag(DirtyFlag::FlipVDirty, true);
+        if (m_textureData)
+            imageNode->m_rawTextureData = static_cast<QSSGRenderTextureData *>(QQuick3DObjectPrivate::get(m_textureData)->spatialNode);
+        else
+            imageNode->m_rawTextureData = nullptr;
+        nodeChanged = true;
+    }
+
+    if (m_dirtyFlags.testFlag(DirtyFlag::SourceItemDirty)) {
+        m_dirtyFlags.setFlag(DirtyFlag::SourceItemDirty, false);
+        m_dirtyFlags.setFlag(DirtyFlag::FlipVDirty, true);
+        if (m_sourceItem) {
+            QQuickWindow *window = m_sourceItem->window();
+            // If it was an inline declared item (very common, e.g. Texture {
+            // sourceItem: Rectangle { ... } } then it is likely it won't be
+            // associated with a window (Qt Quick scene) unless we help it to
+            // one via refWindow. However, this here is only the last resort,
+            // ideally there is a refWindow upon ItemSceneChange already.
+             if (!window) {
+                window = QQuick3DObjectPrivate::get(this)->sceneManager->window();
+                if (window)
+                    QQuickItemPrivate::get(m_sourceItem)->refWindow(window);
+                else
+                    qWarning("Unable to get window, this will probably not work");
             }
-        }
 
-        // Quick Items are considered to always have transparency
-        imageNode->m_textureData.m_textureFlags.setHasTransparency(true);
-
-        if (QSGTextureProvider *provider = m_sourceItem->textureProvider()) {
-            imageNode->m_qsgTexture = provider->texture();
-            disconnect(m_textureProviderConnection);
-            auto connection = connect(provider, &QSGTextureProvider::textureChanged, this, [provider, imageNode] () {
+            // This assumes that the QSGTextureProvider returned never changes,
+            // which is hopefully the case for both Image and Item layers.
+            if (QSGTextureProvider *provider = m_sourceItem->textureProvider()) {
                 imageNode->m_qsgTexture = provider->texture();
-                imageNode->m_flags.setFlag(QSSGRenderImage::Flag::Dirty);
-            }, Qt::DirectConnection);
-            m_textureProviderConnection = connection;
+
+                disconnect(m_textureProviderConnection);
+                m_textureProviderConnection = connect(provider, &QSGTextureProvider::textureChanged, this, [this, provider, imageNode] () {
+                    // called on the render thread, if there is one; the gui
+                    // thread may or may not be blocked (e.g. if the source is
+                    // a View3D, that emits textureChanged() from preprocess,
+                    // so after sync, whereas an Image emits in
+                    // updatePaintNode() where gui is blocked)
+
+                    imageNode->m_qsgTexture = provider->texture();
+                    // the QSGTexture may be different now, go through loadRenderImage() again
+                    imageNode->m_flags.setFlag(QSSGRenderImage::Flag::Dirty);
+                    // Call update() on the main thread - otherwise we could
+                    // end up in a situation where the 3D scene does not update
+                    // due to nothing else changing, even though the source
+                    // texture is now different.
+                    m_updateSlot.invoke(this, Qt::AutoConnection);
+                }, Qt::DirectConnection);
+
+                disconnect(m_textureUpdateConnection);
+                auto *sourcePrivate = QQuickItemPrivate::get(m_sourceItem);
+                if (sourcePrivate->window) {
+                    QQuickItem *sourceItem = m_sourceItem; // for capturing, recognizing in the lambda that m_sourceItem has changed is essential
+
+                    // Why after, not beforeSynchronizing? Consider the case of an Item layer:
+                    // if the View3D gets to sync (updatePaintNode) first, doing an
+                    // updateTexture() is futile, the QSGLayer is not yet initialized (not
+                    // associated with an Item, has no size, etc.). That happens only once the
+                    // underlying QQuickShaderEffectSource hits its updatePaintNode. And that
+                    // may well happen happen only after the View3D has finished with its sync
+                    // step. By connecting to afterSynchronizing, we still get a chance to
+                    // trigger a layer texture update and so have a QSGTexture with real
+                    // content ready by the time the View3D prepares/renders the 3D scene upon
+                    // the scenegraph's preprocess step (Offscreen) or before/after the
+                    // scenegraph rendering (if Underlay/Overlay).
+                    //
+                    // This eliminates, or in the worst case reduces, the ugly effects of not
+                    // having a texture ready when rendering the 3D scene.
+
+                    m_textureUpdateConnection = connect(sourcePrivate->window, &QQuickWindow::afterSynchronizing, this, [this, imageNode, sourceItem]() {
+                        // Called on the render thread with gui blocked (if there is a render thread, that is).
+                        if (m_sourceItem != sourceItem) {
+                            disconnect(m_textureProviderConnection);
+                            disconnect(m_textureUpdateConnection);
+                            return;
+                        }
+                        if (QSGDynamicTexture *t = qobject_cast<QSGDynamicTexture *>(imageNode->m_qsgTexture)) {
+                            if (t->updateTexture())
+                                update(); // safe because the gui thread is blocked
+                        }
+                    }, Qt::DirectConnection);
+                } else {
+                    qWarning("No window for item, texture updates are doomed");
+                }
+
+                if (m_layer) {
+                    delete m_layer;
+                    m_layer = nullptr;
+                }
+            } else {
+                // Not a texture provider, so not an Image or an Item with
+                // layer.enabled: true, create our own QSGLayer.
+                if (m_initializedSourceItem != m_sourceItem || m_initializedSourceItemSize != m_sourceItem->size()) {
+                    // If there was a previous sourceItem and m_layer is valid
+                    // then set its content to null until we get to
+                    // afterSynchronizing, otherwise things can blow up.
+                    if (m_layer)
+                        m_layer->setItem(nullptr);
+
+                    m_initializedSourceItem = m_sourceItem;
+                    m_initializedSourceItemSize = m_sourceItem->size();
+
+                    // The earliest next point where we can do anything is
+                    // after the scenegraph's QQuickItem sync round has completed.
+                    connect(window, &QQuickWindow::afterSynchronizing, this, [this, imageNode, window]() {
+                        // Called on the render thread with gui blocked (if there is a render thread, that is).
+                        disconnect(window, &QQuickWindow::afterSynchronizing, this, nullptr);
+                        if (m_layer) {
+                            const auto &manager = QQuick3DObjectPrivate::get(this)->sceneManager;
+                            manager->qsgDynamicTextures.removeAll(m_layer);
+                            delete m_layer;
+                            m_layer = nullptr;
+                        }
+
+                        QQuickItemPrivate *sourcePrivate = QQuickItemPrivate::get(m_sourceItem);
+                        QSGRenderContext *rc = sourcePrivate->sceneGraphRenderContext();
+                        Q_ASSERT(QThread::currentThread() == rc->thread()); // must be on the render thread
+                        QSGLayer *layer = rc->sceneGraphContext()->createLayer(rc);
+                        connect(sourcePrivate->window, SIGNAL(sceneGraphInvalidated()), layer, SLOT(invalidated()), Qt::DirectConnection);
+
+                        QQuick3DSceneManager *manager = QQuick3DObjectPrivate::get(this)->sceneManager;
+                        manager->qsgDynamicTextures << layer;
+                        m_sceneManagerForLayer = manager;
+
+                        connect(layer, &QObject::destroyed, manager, [manager, layer]()
+                        {
+                            // this is on the render thread so all borked threading-wise (all data here is gui thread stuff...) but will survive
+                            manager->qsgDynamicTextures.removeAll(layer);
+                        }, Qt::DirectConnection);
+
+                        QQuickItem *sourceItem = m_sourceItem; // for capturing, recognizing in the lambda that m_sourceItem has changed is essential
+                        connect(layer, &QObject::destroyed, this, [this, sourceItem]()
+                        {
+                            // just as dubious as the previous connection
+                            if (m_initializedSourceItem == sourceItem) {
+                                m_sceneManagerForLayer = nullptr;
+                                m_initializedSourceItem = nullptr;
+                            }
+                        }, Qt::DirectConnection);
+
+                        // With every frame try to update the texture. Use
+                        // afterSynchronizing like in the other branch. (why
+                        // after: a property changing something in the 2D
+                        // subtree leading to updates in the content will only
+                        // be "visible" after the (2D item) sync, not before)
+                        //
+                        // If updateTexture() returns false, content hasn't
+                        // changed. This complements qsgDynamicTextures and
+                        // QQuick3DViewport::updateDynamicTextures().
+                        m_textureUpdateConnection = connect(sourcePrivate->window, &QQuickWindow::afterSynchronizing,
+                                                            this, [this, sourceItem]()
+                        {
+                            // Called on the render thread with gui blocked (if there is a render thread, that is).
+                            if (!m_layer)
+                                return;
+                            if (m_sourceItem != sourceItem) {
+                                disconnect(m_textureUpdateConnection);
+                                return;
+                            }
+                            if (m_layer->updateTexture())
+                                update();
+                        }, Qt::DirectConnection);
+
+                        m_layer = layer;
+                        m_layer->setItem(QQuickItemPrivate::get(m_sourceItem)->itemNode());
+
+                        QRectF sourceRect = QRectF(0, 0, m_sourceItem->width(), m_sourceItem->height());
+                        if (qFuzzyIsNull(sourceRect.width()))
+                            sourceRect.setWidth(256);
+                        if (qFuzzyIsNull(sourceRect.height()))
+                            sourceRect.setHeight(256);
+                        m_layer->setRect(sourceRect);
+
+                        QSize textureSize(qCeil(qAbs(sourceRect.width())), qCeil(qAbs(sourceRect.height())));
+                        const QSize minTextureSize = sourcePrivate->sceneGraphContext()->minimumFBOSize();
+                        while (textureSize.width() < minTextureSize.width())
+                            textureSize.rwidth() *= 2;
+                        while (textureSize.height() < minTextureSize.height())
+                            textureSize.rheight() *= 2;
+                        m_layer->setSize(textureSize);
+
+                        // now that the layer has an item and a size, it can render into the texture
+                        m_layer->updateTexture();
+
+                        imageNode->m_qsgTexture = m_layer;
+                        imageNode->m_flags.setFlag(QSSGRenderImage::Flag::Dirty);
+                    }, Qt::DirectConnection);
+                }
+            }
+        } else {
             if (m_layer) {
+                m_layer->setItem(nullptr);
                 delete m_layer;
                 m_layer = nullptr;
             }
-
-            // TODO: handle dynamic textures
-            // TODO: handle textureProvider property changed
-        } else {
-            if (!m_initialized) {
-                m_initialized = true;
-                // When scene has been rendered for the first time, create layer texture.
-                connect(window, &QQuickWindow::afterRendering, this, [this, window]() {
-                    disconnect(window, &QQuickWindow::afterRendering, this, nullptr);
-                    createLayerTexture();
-                });
-            }
-
-            if (!m_layer)
-                return node;
-
-            m_layer->setItem(QQuickItemPrivate::get(m_sourceItem)->itemNode());
-            QRectF sourceRect = QRectF(0, 0, m_sourceItem->width(), m_sourceItem->height());
-
-            // check if the size is null
-            if (sourceRect.width() == 0.0)
-                sourceRect.setWidth(256.0);
-            if (sourceRect.height() == 0.0)
-                sourceRect.setHeight(256.0);
-            m_layer->setRect(sourceRect);
-
-            QSize textureSize(qCeil(qAbs(sourceRect.width())), qCeil(qAbs(sourceRect.height())));
-
-            // TODO: create larger textures on high-dpi displays?
-
-            auto *sourcePrivate = QQuickItemPrivate::get(m_sourceItem);
-            const QSize minTextureSize = sourcePrivate->sceneGraphContext()->minimumFBOSize();
-            // Keep power-of-two by doubling the size.
-            while (textureSize.width() < minTextureSize.width())
-                textureSize.rwidth() *= 2;
-            while (textureSize.height() < minTextureSize.height())
-                textureSize.rheight() *= 2;
-
-            m_layer->setSize(textureSize);
-
-            // TODO: set mipmapFiltering, filtering, hWrap, vWrap?
-
-            imageNode->m_qsgTexture = m_layer;
+            imageNode->m_qsgTexture = nullptr;
         }
-        // TODO: Move inside block above?
-        nodeChanged = true; // @todo: make more granular
-    } else {
-        if (m_layer) {
-            m_layer->setItem(nullptr);
-            delete m_layer;
-            m_layer = nullptr;
-        }
-        nodeChanged |= qUpdateIfNeeded(imageNode->m_qsgTexture, static_cast<QSGTexture *>(nullptr));
+        nodeChanged = true;
+    }
+
+    if (m_dirtyFlags.testFlag(DirtyFlag::FlipVDirty)) {
+        m_dirtyFlags.setFlag(DirtyFlag::FlipVDirty, false);
+        imageNode->m_flipV = effectiveFlipV(*imageNode);
+        imageNode->m_flags.setFlag(QSSGRenderImage::Flag::TransformDirty);
     }
 
     if (nodeChanged)
@@ -641,18 +1290,55 @@ QSSGRenderGraphObject *QQuick3DTexture::updateSpatialNode(QSSGRenderGraphObject 
 void QQuick3DTexture::itemChange(QQuick3DObject::ItemChange change, const QQuick3DObject::ItemChangeData &value)
 {
     QQuick3DObject::itemChange(change, value);
-    if (change == QQuick3DObject::ItemChange::ItemSceneChange && m_sourceItem) {
-        if (m_sceneManagerForLayer) {
-            m_sceneManagerForLayer->qsgDynamicTextures.removeOne(m_layer);
-            m_sceneManagerForLayer = nullptr;
+    if (change == QQuick3DObject::ItemChange::ItemSceneChange) {
+        // Source item
+        if (m_sourceItem) {
+            disconnect(m_sceneManagerWindowChangeConnection);
+
+            if (m_sceneManagerForLayer) {
+                m_sceneManagerForLayer->qsgDynamicTextures.removeOne(m_layer);
+                m_sceneManagerForLayer = nullptr;
+            }
+            trySetSourceParent();
+            const auto &sceneManager = value.sceneManager;
+            Q_ASSERT(QQuick3DObjectPrivate::get(this)->sceneManager == sceneManager);
+            if (m_layer) {
+                if (sceneManager)
+                    sceneManager->qsgDynamicTextures << m_layer;
+                m_sceneManagerForLayer = sceneManager;
+            }
+
+            // If m_sourceItem was an inline declared item (very common, e.g.
+            // Texture { sourceItem: Rectangle { ... } } then it is highly
+            // likely it won't be associated with a window (Qt Quick scene)
+            // yet. Associate with one as soon as possible, do not leave it to
+            // updateSpatialNode, because that, while safe, would defer
+            // rendering into the texture to a future frame (adding a 2 frame
+            // lag for the first rendering of the mesh textured with the 2D
+            // item content), since a refWindow needs to be followed by a
+            // scenegraph sync round to get QSGNodes created (updatePaintNode),
+            // whereas updateSpatialNode is in the middle of a sync round, so
+            // would need to wait for another one, etc.
+            if (sceneManager && m_sourceItem && !m_sourceItem->window()) {
+                if (sceneManager->window()) {
+                    QQuickItemPrivate::get(m_sourceItem)->refWindow(sceneManager->window());
+                } else {
+                    m_sceneManagerWindowChangeConnection = connect(sceneManager, &QQuick3DSceneManager::windowChanged, this,
+                                                                   [this, sceneManager]
+                    {
+                        if (m_sourceItem && !m_sourceItem->window() && sceneManager->window())
+                            QQuickItemPrivate::get(m_sourceItem)->refWindow(sceneManager->window());
+                    });
+                }
+            }
         }
-        trySetSourceParent();
-        const auto &sceneManager = value.sceneManager;
-        Q_ASSERT(QQuick3DObjectPrivate::get(this)->sceneManager == sceneManager);
-        if (m_layer) {
+        // TextureData
+        if (m_textureData) {
+            const auto &sceneManager = value.sceneManager;
             if (sceneManager)
-                sceneManager->qsgDynamicTextures << m_layer;
-            m_sceneManagerForLayer = sceneManager;
+                QQuick3DObjectPrivate::refSceneManager(m_textureData, *sceneManager);
+            else
+                QQuick3DObjectPrivate::derefSceneManager(m_textureData);
         }
     }
 }
@@ -660,12 +1346,10 @@ void QQuick3DTexture::itemChange(QQuick3DObject::ItemChange change, const QQuick
 void QQuick3DTexture::itemGeometryChanged(QQuickItem *item, QQuickGeometryChange change, const QRectF &geometry)
 {
     Q_ASSERT(item == m_sourceItem);
-    Q_UNUSED(item)
-    Q_UNUSED(geometry)
+    Q_UNUSED(item);
+    Q_UNUSED(geometry);
     if (change.sizeChange()) {
-        auto renderImage = getRenderImage();
-        if (renderImage)
-            renderImage->m_flags.setFlag(QSSGRenderImage::Flag::ItemSizeDirty);
+        m_dirtyFlags.setFlag(DirtyFlag::SourceItemDirty);
         update();
     }
 }
@@ -673,52 +1357,23 @@ void QQuick3DTexture::itemGeometryChanged(QQuickItem *item, QQuickGeometryChange
 void QQuick3DTexture::sourceItemDestroyed(QObject *item)
 {
     Q_ASSERT(item == m_sourceItem);
-    Q_UNUSED(item)
+    Q_UNUSED(item);
+
     m_sourceItem = nullptr;
+
+    m_dirtyFlags.setFlag(DirtyFlag::SourceDirty);
+    m_dirtyFlags.setFlag(DirtyFlag::SourceItemDirty);
+    m_dirtyFlags.setFlag(DirtyFlag::TextureDataDirty);
     emit sourceItemChanged();
     update();
 }
 
-// Create layer and update once valid layer texture exists
-void QQuick3DTexture::createLayerTexture()
+void QQuick3DTexture::markDirty(QQuick3DTexture::DirtyFlag type)
 {
-    auto *sourcePrivate = QQuickItemPrivate::get(m_sourceItem);
-//    Q_ASSERT_X(sourcePrivate->window && sourcePrivate->sceneGraphRenderContext()
-//               && QThread::currentThread() == sourcePrivate->sceneGraphRenderContext()->thread(),
-//               Q_FUNC_INFO, "Cannot be used outside the rendering thread");
-
-    QSGRenderContext *rc = sourcePrivate->sceneGraphRenderContext();
-    auto *layer = rc->sceneGraphContext()->createLayer(rc);
-    connect(sourcePrivate->window, SIGNAL(sceneGraphInvalidated()), layer, SLOT(invalidated()), Qt::DirectConnection);
-
-    const auto &manager = QQuick3DObjectPrivate::get(this)->sceneManager;
-    manager->qsgDynamicTextures << layer;
-    m_sceneManagerForLayer = manager;
-    connect(layer, &QObject::destroyed, manager.data(), [this, manager, layer]() {
-        manager->qsgDynamicTextures.removeAll(layer);
-        m_sceneManagerForLayer = nullptr;
-        m_initialized = false;
-    }, Qt::DirectConnection);
-
-    // When layer has been updated, take it into use.
-    connect(layer, &QSGLayer::scheduledUpdateCompleted, this, [this, layer]() {
-        m_layer = layer;
+    if (!m_dirtyFlags.testFlag(type)) {
+        m_dirtyFlags.setFlag(type, true);
         update();
-    });
-
-    // With every frame (even when QQuickWindow isn't dirty so doesn't render),
-    // try to update the texture. If updateTexture() returns false, content hasn't changed.
-    connect(sourcePrivate->window, &QQuickWindow::beforeSynchronizing, [this]() {
-        if (m_layer) {
-            bool textureUpdated = m_layer->updateTexture();
-            if (textureUpdated)
-                update();
-        }
-    });
-
-    layer->markDirtyTexture();
-    layer->scheduleUpdate();
-    update();
+    }
 }
 
 QSSGRenderImage *QQuick3DTexture::getRenderImage()
@@ -729,7 +1384,7 @@ QSSGRenderImage *QQuick3DTexture::getRenderImage()
 
 void QQuick3DTexture::markAllDirty()
 {
-    m_dirtyFlags = DirtyFlags(DirtyFlag::TransformDirty) | DirtyFlags(DirtyFlag::SourceDirty);
+    m_dirtyFlags = DirtyFlags(0xFFFF);
     QQuick3DObject::markAllDirty();
 }
 

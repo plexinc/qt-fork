@@ -60,9 +60,7 @@ class Q_GUI_EXPORT QPagedPaintDevicePrivate
 {
 public:
     QPagedPaintDevicePrivate()
-        : fromPage(0),
-          toPage(0),
-          pageOrderAscending(true),
+        : pageOrderAscending(true),
           printSelectionOnly(false)
     {
     }
@@ -83,8 +81,7 @@ public:
     static inline QPagedPaintDevicePrivate *get(QPagedPaintDevice *pd) { return pd->d; }
 
     // These are currently required to keep QPrinter functionality working in QTextDocument::print()
-    int fromPage;
-    int toPage;
+    QPageRanges pageRanges;
     bool pageOrderAscending;
     bool printSelectionOnly;
 };

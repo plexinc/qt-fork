@@ -31,7 +31,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'tablewidgeteditor.ui'
 **
-** Created by: Qt User Interface Compiler version 5.12.0
+** Created by: Qt User Interface Compiler version 6.0.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -40,6 +40,7 @@
 #define TABLEWIDGETEDITOR_H
 
 #include <QtCore/QVariant>
+#include <QtWidgets/QAbstractButton>
 #include <QtWidgets/QApplication>
 #include <QtWidgets/QDialog>
 #include <QtWidgets/QDialogButtonBox>
@@ -303,8 +304,8 @@ public:
         QWidget::setTabOrder(moveRowUpButton, moveRowDownButton);
 
         retranslateUi(qdesigner_internal__TableWidgetEditor);
-        QObject::connect(buttonBox, SIGNAL(accepted()), qdesigner_internal__TableWidgetEditor, SLOT(accept()));
-        QObject::connect(buttonBox, SIGNAL(rejected()), qdesigner_internal__TableWidgetEditor, SLOT(reject()));
+        QObject::connect(buttonBox, &QDialogButtonBox::accepted, qdesigner_internal__TableWidgetEditor, qOverload<>(&QDialog::accept));
+        QObject::connect(buttonBox, &QDialogButtonBox::rejected, qdesigner_internal__TableWidgetEditor, qOverload<>(&QDialog::reject));
 
         QMetaObject::connectSlotsByName(qdesigner_internal__TableWidgetEditor);
     } // setupUi

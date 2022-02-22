@@ -13,12 +13,11 @@
 #include "include/gpu/GrTypes.h"
 #include "include/gpu/vk/GrVkTypes.h"
 #include "src/gpu/GrColor.h"
-#include "src/gpu/GrTRecorder.h"
 #include "src/gpu/vk/GrVkPipelineState.h"
+#include "src/gpu/vk/GrVkRenderPass.h"
 
 class GrVkGpu;
 class GrVkImage;
-class GrVkRenderPass;
 class GrVkRenderTarget;
 class GrVkSecondaryCommandBuffer;
 
@@ -32,10 +31,14 @@ public:
 
     void onExecuteDrawable(std::unique_ptr<SkDrawable::GpuDrawHandler>) override;
 
-    bool set(GrRenderTarget*, GrSurfaceOrigin, const SkIRect& bounds,
+    bool set(GrRenderTarget*,
+             GrAttachment*,
+             GrSurfaceOrigin,
+             const SkIRect& bounds,
              const GrOpsRenderPass::LoadAndStoreInfo&,
              const GrOpsRenderPass::StencilLoadAndStoreInfo&,
-             const SkTArray<GrSurfaceProxy*, true>& sampledProxies);
+             const SkTArray<GrSurfaceProxy*, true>& sampledProxies,
+             GrXferBarrierFlags renderPassXferBarriers);
     void reset();
 
     void submit();
@@ -45,9 +48,12 @@ public:
 #endif
 
 private:
-    bool init(const GrOpsRenderPass::LoadAndStoreInfo&,
+    bool init(const GrOpsRenderPass::LoadAndStoreInfo& colorInfo,
+              const GrOpsRenderPass::LoadAndStoreInfo& resolveInfo,
               const GrOpsRenderPass::StencilLoadAndStoreInfo&,
-              const SkPMColor4f& clearColor);
+              std::array<float, 4> clearColor,
+              bool withResolve,
+              bool withStencil);
 
     // Called instead of init when we are drawing to a render target that already wraps a secondary
     // command buffer.
@@ -65,8 +71,8 @@ private:
     void onSetScissorRect(const SkIRect&) override;
     bool onBindTextures(const GrPrimitiveProcessor&, const GrSurfaceProxy* const primProcTextures[],
                         const GrPipeline&) override;
-    void onBindBuffers(const GrBuffer* indexBuffer, const GrBuffer* instanceBuffer,
-                       const GrBuffer* vertexBuffer, GrPrimitiveRestart) override;
+    void onBindBuffers(sk_sp<const GrBuffer> indexBuffer, sk_sp<const GrBuffer> instanceBuffer,
+                       sk_sp<const GrBuffer> vertexBuffer, GrPrimitiveRestart) override;
     void onDraw(int vertexCount, int baseVertex) override {
         this->onDrawInstanced(1, 0, vertexCount, baseVertex);
     }
@@ -78,12 +84,25 @@ private:
                          int baseVertex) override;
     void onDrawIndexedInstanced(int indexCount, int baseIndex, int instanceCount, int baseInstance,
                                 int baseVertex) override;
+    void onDrawIndirect(const GrBuffer* drawIndirectBuffer, size_t offset, int drawCount) override;
+    void onDrawIndexedIndirect(const GrBuffer* drawIndirectBuffer, size_t offset,
+                               int drawCount) override;
 
-    void onClear(const GrFixedClip&, const SkPMColor4f& color) override;
+    void onClear(const GrScissorState& scissor, std::array<float, 4> color) override;
 
-    void onClearStencilClip(const GrFixedClip&, bool insideStencilMask) override;
+    void onClearStencilClip(const GrScissorState& scissor, bool insideStencilMask) override;
+
+    using LoadFromResolve = GrVkRenderPass::LoadFromResolve;
+
+    bool beginRenderPass(const VkClearValue& clearColor, LoadFromResolve loadFromResolve);
 
     void addAdditionalRenderPass(bool mustUseSecondaryCommandBuffer);
+
+    void setAttachmentLayouts(LoadFromResolve loadFromResolve);
+
+    void loadResolveIntoMSAA(const SkIRect& nativeBounds);
+
+    using SelfDependencyFlags = GrVkRenderPass::SelfDependencyFlags;
 
     std::unique_ptr<GrVkSecondaryCommandBuffer> fCurrentSecondaryCommandBuffer;
     const GrVkRenderPass*                       fCurrentRenderPass;
@@ -91,6 +110,10 @@ private:
     GrVkPipelineState*                          fCurrentPipelineState = nullptr;
     bool                                        fCurrentCBIsEmpty = true;
     SkIRect                                     fBounds;
+    SelfDependencyFlags                         fSelfDependencyFlags = SelfDependencyFlags::kNone;
+    LoadFromResolve                             fLoadFromResolve = LoadFromResolve::kNo;
+    bool                                        fOverridePipelinesForResolveLoad = false;
+
     GrVkGpu*                                    fGpu;
 
 #ifdef SK_DEBUG
@@ -103,7 +126,7 @@ private:
     bool fIsActive = false;
 #endif
 
-    typedef GrOpsRenderPass INHERITED;
+    using INHERITED = GrOpsRenderPass;
 };
 
 #endif

@@ -10,21 +10,44 @@
 #include "third_party/blink/renderer/bindings/core/v8/v8_trusted_script.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_trusted_script_url.h"
 #include "third_party/blink/renderer/core/dom/document.h"
+#include "third_party/blink/renderer/core/dom/events/event.h"
+#include "third_party/blink/renderer/core/events/before_create_policy_event.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
+#include "third_party/blink/renderer/core/probe/core_probes.h"
 #include "third_party/blink/renderer/core/trustedtypes/trusted_type_policy.h"
 #include "third_party/blink/renderer/core/trustedtypes/trusted_types_util.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/v8_dom_wrapper.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
+#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_hash.h"
 
 namespace blink {
 
 TrustedTypePolicy* TrustedTypePolicyFactory::createPolicy(
     const String& policy_name,
+    ExceptionState& exception_state) {
+  return createPolicy(policy_name,
+                      MakeGarbageCollected<TrustedTypePolicyOptions>(),
+                      exception_state);
+}
+
+TrustedTypePolicy* TrustedTypePolicyFactory::createPolicy(
+    const String& policy_name,
     const TrustedTypePolicyOptions* policy_options,
     ExceptionState& exception_state) {
+  if (RuntimeEnabledFeatures::TrustedTypeBeforePolicyCreationEventEnabled()) {
+    DispatchEventResult result =
+        DispatchEvent(*BeforeCreatePolicyEvent::Create(policy_name));
+    if (result != DispatchEventResult::kNotCanceled) {
+      exception_state.ThrowDOMException(
+          DOMExceptionCode::kNotAllowedError,
+          "The policy creation has been canceled.");
+      return nullptr;
+    }
+  }
   if (!GetExecutionContext()) {
     exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError,
                                       "The document is detached.");
@@ -32,34 +55,48 @@ TrustedTypePolicy* TrustedTypePolicyFactory::createPolicy(
   }
   UseCounter::Count(GetExecutionContext(),
                     WebFeature::kTrustedTypesCreatePolicy);
-  if (RuntimeEnabledFeatures::TrustedDOMTypesEnabled(GetExecutionContext()) &&
-      GetExecutionContext()->GetContentSecurityPolicy() &&
-      !GetExecutionContext()
-           ->GetContentSecurityPolicy()
-           ->AllowTrustedTypePolicy(policy_name,
-                                    policy_map_.Contains(policy_name))) {
-    // For a better error message, we'd like to disambiguate between
-    // "disallowed" and "disallowed because of a duplicate name". Instead of
-    // piping the reason through all the layers, we'll just check whether it
-    // had also been disallowed as a non-duplicate name.
-    bool disallowed_because_of_duplicate_name =
-        policy_map_.Contains(policy_name) &&
-        GetExecutionContext()
-            ->GetContentSecurityPolicy()
-            ->AllowTrustedTypePolicy(policy_name, false);
-    const String message =
-        disallowed_because_of_duplicate_name
-            ? "Policy with name \"" + policy_name + "\" already exists."
-            : "Policy \"" + policy_name + "\" disallowed.";
-    exception_state.ThrowTypeError(message);
-    return nullptr;
-  }
 
+  if (RuntimeEnabledFeatures::TrustedDOMTypesEnabled(GetExecutionContext()) &&
+      GetExecutionContext()->GetContentSecurityPolicy()) {
+    ContentSecurityPolicy::AllowTrustedTypePolicyDetails violation_details =
+        ContentSecurityPolicy::AllowTrustedTypePolicyDetails::kAllowed;
+    bool disallowed = !GetExecutionContext()
+                           ->GetContentSecurityPolicy()
+                           ->AllowTrustedTypePolicy(
+                               policy_name, policy_map_.Contains(policy_name),
+                               violation_details);
+    if (violation_details != ContentSecurityPolicy::ContentSecurityPolicy::
+                                 AllowTrustedTypePolicyDetails::kAllowed) {
+      // We may report a violation here even when disallowed is false
+      // in case policy is a report-only one.
+      probe::OnContentSecurityPolicyViolation(
+          GetExecutionContext(),
+          ContentSecurityPolicy::ContentSecurityPolicyViolationType::
+              kTrustedTypesPolicyViolation);
+    }
+    if (disallowed) {
+      // For a better error message, we'd like to disambiguate between
+      // "disallowed" and "disallowed because of a duplicate name".
+      bool disallowed_because_of_duplicate_name =
+          violation_details ==
+          ContentSecurityPolicy::AllowTrustedTypePolicyDetails::
+              kDisallowedDuplicateName;
+      const String message =
+          disallowed_because_of_duplicate_name
+              ? "Policy with name \"" + policy_name + "\" already exists."
+              : "Policy \"" + policy_name + "\" disallowed.";
+      exception_state.ThrowTypeError(message);
+      return nullptr;
+    }
+  }
+  UseCounter::Count(GetExecutionContext(),
+                    WebFeature::kTrustedTypesPolicyCreated);
   if (policy_name == "default") {
     DCHECK(!policy_map_.Contains("default"));
     UseCounter::Count(GetExecutionContext(),
-                      WebFeature::kTrustedTypesDefaultPolicyUsed);
+                      WebFeature::kTrustedTypesDefaultPolicyCreated);
   }
+
   auto* policy = MakeGarbageCollected<TrustedTypePolicy>(
       policy_name, const_cast<TrustedTypePolicyOptions*>(policy_options));
   policy_map_.insert(policy_name, policy);
@@ -306,8 +343,16 @@ void TrustedTypePolicyFactory::CountTrustedTypeAssignmentError() {
   }
 }
 
-void TrustedTypePolicyFactory::Trace(Visitor* visitor) {
-  ScriptWrappable::Trace(visitor);
+const AtomicString& TrustedTypePolicyFactory::InterfaceName() const {
+  return event_target_names::kTrustedTypePolicyFactory;
+}
+
+ExecutionContext* TrustedTypePolicyFactory::GetExecutionContext() const {
+  return ExecutionContextClient::GetExecutionContext();
+}
+
+void TrustedTypePolicyFactory::Trace(Visitor* visitor) const {
+  EventTargetWithInlineData::Trace(visitor);
   ExecutionContextClient::Trace(visitor);
   visitor->Trace(empty_html_);
   visitor->Trace(empty_script_);

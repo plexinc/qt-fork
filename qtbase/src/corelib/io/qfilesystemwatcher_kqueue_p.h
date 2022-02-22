@@ -55,9 +55,8 @@
 
 #include <QtCore/qhash.h>
 #include <QtCore/qmutex.h>
-#include <QtCore/qthread.h>
-#include <QtCore/qvector.h>
 #include <QtCore/qsocketnotifier.h>
+#include <QtCore/qthread.h>
 
 QT_REQUIRE_CONFIG(filesystemwatcher);
 struct kevent;
@@ -72,8 +71,10 @@ public:
 
     static QKqueueFileSystemWatcherEngine *create(QObject *parent);
 
-    QStringList addPaths(const QStringList &paths, QStringList *files, QStringList *directories);
-    QStringList removePaths(const QStringList &paths, QStringList *files, QStringList *directories);
+    QStringList addPaths(const QStringList &paths, QStringList *files,
+                         QStringList *directories) override;
+    QStringList removePaths(const QStringList &paths, QStringList *files,
+                            QStringList *directories) override;
 
 private Q_SLOTS:
     void readFromKqueue();

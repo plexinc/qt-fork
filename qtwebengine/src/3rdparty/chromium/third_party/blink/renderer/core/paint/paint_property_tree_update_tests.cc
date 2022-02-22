@@ -315,7 +315,7 @@ TEST_P(PaintPropertyTreeUpdateTest, DescendantNeedsUpdateAcrossFrames) {
       "translate3d(4px, 5px, 6px); width: 100px; height: 200px'></div>");
 
   LocalFrameView* frame_view = GetDocument().View();
-  frame_view->UpdateAllLifecyclePhases(DocumentUpdateReason::kTest);
+  frame_view->UpdateAllLifecyclePhasesForTest();
 
   LayoutObject* div_with_transform =
       GetLayoutObjectByElementId("divWithTransform");
@@ -333,15 +333,17 @@ TEST_P(PaintPropertyTreeUpdateTest, DescendantNeedsUpdateAcrossFrames) {
   // Marking the child div as needing a paint property update should propagate
   // up the tree and across frames.
   inner_div_with_transform->SetNeedsPaintPropertyUpdate();
-  EXPECT_TRUE(
+  // DescendantNeedsPaintPropertyUpdate flag is not propagated crossing frame
+  // boundaries until PrePaint.
+  EXPECT_FALSE(
       GetDocument().GetLayoutView()->DescendantNeedsPaintPropertyUpdate());
-  EXPECT_TRUE(div_with_transform->DescendantNeedsPaintPropertyUpdate());
+  EXPECT_FALSE(div_with_transform->DescendantNeedsPaintPropertyUpdate());
   EXPECT_TRUE(child_layout_view->DescendantNeedsPaintPropertyUpdate());
   EXPECT_TRUE(inner_div_with_transform->NeedsPaintPropertyUpdate());
   EXPECT_FALSE(inner_div_with_transform->DescendantNeedsPaintPropertyUpdate());
 
   // After a lifecycle update, no nodes should need a descendant update.
-  frame_view->UpdateAllLifecyclePhases(DocumentUpdateReason::kTest);
+  frame_view->UpdateAllLifecyclePhasesForTest();
   EXPECT_FALSE(
       GetDocument().GetLayoutView()->DescendantNeedsPaintPropertyUpdate());
   EXPECT_FALSE(div_with_transform->DescendantNeedsPaintPropertyUpdate());
@@ -352,9 +354,9 @@ TEST_P(PaintPropertyTreeUpdateTest, DescendantNeedsUpdateAcrossFrames) {
   // skipped if the owning layout tree does not need an update.
   LocalFrameView* child_frame_view = ChildDocument().View();
   child_frame_view->SetNeedsPaintPropertyUpdate();
-  EXPECT_TRUE(
+  EXPECT_FALSE(
       GetDocument().GetLayoutView()->DescendantNeedsPaintPropertyUpdate());
-  frame_view->UpdateAllLifecyclePhases(DocumentUpdateReason::kTest);
+  frame_view->UpdateAllLifecyclePhasesForTest();
   EXPECT_FALSE(
       GetDocument().GetLayoutView()->DescendantNeedsPaintPropertyUpdate());
   EXPECT_FALSE(GetDocument().GetLayoutView()->NeedsPaintPropertyUpdate());
@@ -401,55 +403,45 @@ TEST_P(PaintPropertyTreeUpdateTest, BuildingStopsAtThrottledFrames) {
   auto* iframe = To<HTMLIFrameElement>(GetDocument().getElementById("iframe"));
   iframe->setAttribute(html_names::kStyleAttr, "transform: translateY(5555px)");
   UpdateAllLifecyclePhasesForTest();
-  // Ensure intersection observer notifications get delivered.
-  test::RunPendingTasks();
   EXPECT_FALSE(GetDocument().View()->IsHiddenForThrottling());
+  EXPECT_FALSE(GetDocument().View()->ShouldThrottleRenderingForTest());
   EXPECT_TRUE(ChildDocument().View()->IsHiddenForThrottling());
+  EXPECT_TRUE(ChildDocument().View()->ShouldThrottleRenderingForTest());
 
   auto* transform = GetLayoutObjectByElementId("transform");
   auto* iframe_layout_view = ChildDocument().GetLayoutView();
   auto* iframe_transform =
       ChildDocument().getElementById("iframeTransform")->GetLayoutObject();
 
-  // Invalidate properties in the iframe and ensure ancestors are marked.
+  // Invalidate properties in the iframe; invalidations will not be propagated
+  // into the embedding document while the iframe is throttle-able.
   iframe_transform->SetNeedsPaintPropertyUpdate();
+  iframe_transform->SetShouldCheckForPaintInvalidation();
+  EXPECT_FALSE(GetDocument().GetLayoutView()->NeedsPaintPropertyUpdate());
+  EXPECT_FALSE(
+      GetDocument().GetLayoutView()->DescendantNeedsPaintPropertyUpdate());
+  EXPECT_FALSE(
+      GetDocument().GetLayoutView()->ShouldCheckForPaintInvalidation());
+  EXPECT_FALSE(transform->NeedsPaintPropertyUpdate());
+  EXPECT_FALSE(transform->DescendantNeedsPaintPropertyUpdate());
+  EXPECT_FALSE(transform->ShouldCheckForPaintInvalidation());
+  EXPECT_FALSE(iframe_layout_view->NeedsPaintPropertyUpdate());
+  EXPECT_TRUE(iframe_layout_view->DescendantNeedsPaintPropertyUpdate());
+  EXPECT_TRUE(iframe_layout_view->ShouldCheckForPaintInvalidation());
+  EXPECT_TRUE(iframe_transform->NeedsPaintPropertyUpdate());
+  EXPECT_FALSE(iframe_transform->DescendantNeedsPaintPropertyUpdate());
+  EXPECT_TRUE(iframe_transform->ShouldCheckForPaintInvalidation());
+
+  // Invalidate properties in the top document.
+  transform->SetNeedsPaintPropertyUpdate();
   EXPECT_FALSE(GetDocument().GetLayoutView()->NeedsPaintPropertyUpdate());
   EXPECT_TRUE(
       GetDocument().GetLayoutView()->DescendantNeedsPaintPropertyUpdate());
-  EXPECT_FALSE(transform->NeedsPaintPropertyUpdate());
-  EXPECT_FALSE(transform->DescendantNeedsPaintPropertyUpdate());
-  EXPECT_FALSE(iframe_layout_view->NeedsPaintPropertyUpdate());
-  EXPECT_TRUE(iframe_layout_view->DescendantNeedsPaintPropertyUpdate());
-  EXPECT_TRUE(iframe_transform->NeedsPaintPropertyUpdate());
-  EXPECT_FALSE(iframe_transform->DescendantNeedsPaintPropertyUpdate());
-
-  transform->SetNeedsPaintPropertyUpdate();
   EXPECT_TRUE(transform->NeedsPaintPropertyUpdate());
   EXPECT_FALSE(transform->DescendantNeedsPaintPropertyUpdate());
 
-  {
-    DocumentLifecycle::AllowThrottlingScope throttling_scope(
-        GetDocument().Lifecycle());
-    EXPECT_FALSE(GetDocument().View()->ShouldThrottleRendering());
-    EXPECT_TRUE(ChildDocument().View()->ShouldThrottleRendering());
-
-    // A lifecycle update should update all properties except those with
-    // actively throttled descendants.
-    UpdateAllLifecyclePhasesForTest();
-    EXPECT_FALSE(GetDocument().GetLayoutView()->NeedsPaintPropertyUpdate());
-    EXPECT_FALSE(
-        GetDocument().GetLayoutView()->DescendantNeedsPaintPropertyUpdate());
-    EXPECT_FALSE(transform->NeedsPaintPropertyUpdate());
-    EXPECT_FALSE(transform->DescendantNeedsPaintPropertyUpdate());
-    EXPECT_FALSE(iframe_layout_view->NeedsPaintPropertyUpdate());
-    EXPECT_TRUE(iframe_layout_view->DescendantNeedsPaintPropertyUpdate());
-    EXPECT_TRUE(iframe_transform->NeedsPaintPropertyUpdate());
-    EXPECT_FALSE(iframe_transform->DescendantNeedsPaintPropertyUpdate());
-  }
-
-  EXPECT_FALSE(GetDocument().View()->ShouldThrottleRendering());
-  EXPECT_FALSE(ChildDocument().View()->ShouldThrottleRendering());
-  // Once unthrottled, a lifecycel update should update all properties.
+  // A full lifecycle update with the iframe throttled will clear flags in the
+  // top document, but not in the throttled iframe.
   UpdateAllLifecyclePhasesForTest();
   EXPECT_FALSE(GetDocument().GetLayoutView()->NeedsPaintPropertyUpdate());
   EXPECT_FALSE(
@@ -457,9 +449,24 @@ TEST_P(PaintPropertyTreeUpdateTest, BuildingStopsAtThrottledFrames) {
   EXPECT_FALSE(transform->NeedsPaintPropertyUpdate());
   EXPECT_FALSE(transform->DescendantNeedsPaintPropertyUpdate());
   EXPECT_FALSE(iframe_layout_view->NeedsPaintPropertyUpdate());
+  EXPECT_TRUE(iframe_layout_view->DescendantNeedsPaintPropertyUpdate());
+  EXPECT_TRUE(iframe_layout_view->ShouldCheckForPaintInvalidation());
+  EXPECT_TRUE(iframe_transform->NeedsPaintPropertyUpdate());
+  EXPECT_FALSE(iframe_transform->DescendantNeedsPaintPropertyUpdate());
+  EXPECT_TRUE(iframe_transform->ShouldCheckForPaintInvalidation());
+
+  // Run a force-unthrottled lifecycle update. All flags should be cleared.
+  GetDocument().View()->UpdateLifecycleToPrePaintClean(
+      DocumentUpdateReason::kTest);
+  EXPECT_FALSE(
+      GetDocument().GetLayoutView()->DescendantNeedsPaintPropertyUpdate());
+  EXPECT_FALSE(transform->DescendantNeedsPaintPropertyUpdate());
+  EXPECT_FALSE(iframe_layout_view->NeedsPaintPropertyUpdate());
   EXPECT_FALSE(iframe_layout_view->DescendantNeedsPaintPropertyUpdate());
+  EXPECT_FALSE(iframe_layout_view->ShouldCheckForPaintInvalidation());
   EXPECT_FALSE(iframe_transform->NeedsPaintPropertyUpdate());
   EXPECT_FALSE(iframe_transform->DescendantNeedsPaintPropertyUpdate());
+  EXPECT_FALSE(iframe_transform->ShouldCheckForPaintInvalidation());
 }
 
 TEST_P(PaintPropertyTreeUpdateTest, ClipChangesUpdateOverflowClip) {
@@ -590,14 +597,14 @@ TEST_P(PaintPropertyTreeUpdateTest,
       "<div id='forceScroll' style='height: 3000px;'></div>");
 
   LocalFrameView* frame_view = GetDocument().View();
-  frame_view->UpdateAllLifecyclePhases(DocumentUpdateReason::kTest);
+  frame_view->UpdateAllLifecyclePhasesForTest();
   EXPECT_EQ(nullptr, DocScroll());
   Document* child_doc = &ChildDocument();
   EXPECT_NE(nullptr, DocScroll(child_doc));
 
   auto* iframe_container = GetDocument().getElementById("iframeContainer");
   iframe_container->setAttribute(html_names::kStyleAttr, "visibility: hidden;");
-  frame_view->UpdateAllLifecyclePhases(DocumentUpdateReason::kTest);
+  frame_view->UpdateAllLifecyclePhasesForTest();
 
   EXPECT_EQ(nullptr, DocScroll());
   EXPECT_EQ(nullptr, DocScroll(child_doc));
@@ -1070,7 +1077,8 @@ TEST_P(PaintPropertyTreeUpdateTest, AddRemoveSVGMask) {
   EXPECT_NE(nullptr, properties->Mask());
   const auto* mask_clip = properties->MaskClip();
   ASSERT_NE(nullptr, mask_clip);
-  EXPECT_EQ(FloatRoundedRect(0, 100, 100, 100), mask_clip->UnsnappedClipRect());
+  EXPECT_EQ(FloatRoundedRect(0, 100, 10000, 20000),
+            mask_clip->UnsnappedClipRect());
 
   GetDocument().getElementById("rect")->removeAttribute("mask");
   UpdateAllLifecyclePhasesForTest();
@@ -1097,13 +1105,15 @@ TEST_P(PaintPropertyTreeUpdateTest, SVGMaskTargetBoundsChange) {
   EXPECT_NE(nullptr, properties->Mask());
   const auto* mask_clip = properties->MaskClip();
   ASSERT_NE(nullptr, mask_clip);
-  EXPECT_EQ(FloatRoundedRect(0, 50, 100, 150), mask_clip->UnsnappedClipRect());
+  EXPECT_EQ(FloatRoundedRect(0, 50, 5000, 20000),
+            mask_clip->UnsnappedClipRect());
 
   GetDocument().getElementById("rect")->setAttribute("width", "200");
   UpdateAllLifecyclePhasesForTest();
   EXPECT_NE(nullptr, properties->Effect());
   EXPECT_NE(nullptr, properties->Mask());
-  EXPECT_EQ(FloatRoundedRect(0, 50, 100, 150), mask_clip->UnsnappedClipRect());
+  EXPECT_EQ(FloatRoundedRect(0, 50, 20000, 20000),
+            mask_clip->UnsnappedClipRect());
 }
 
 TEST_P(PaintPropertyTreeUpdateTest, WillTransformChangeAboveFixed) {
@@ -1234,45 +1244,6 @@ TEST_P(PaintPropertyTreeUpdateTest, SVGForeignObjectOverflowChange) {
   ASSERT_NE(nullptr, properties);
   EXPECT_EQ(FloatRect(10, 20, 30, 40),
             properties->OverflowClip()->UnsnappedClipRect().Rect());
-}
-
-TEST_P(PaintPropertyTreeBuilderTest, OmitOverflowClipOnSelectionChange) {
-  SetBodyInnerHTML(R"HTML(
-    <div id="target" style="overflow: hidden">
-      <img style="width: 50px; height: 50px">
-    </div>
-  )HTML");
-
-  EXPECT_FALSE(PaintPropertiesForElement("target")->OverflowClip());
-
-  GetDocument().GetFrame()->Selection().SelectAll();
-  UpdateAllLifecyclePhasesForTest();
-  EXPECT_TRUE(PaintPropertiesForElement("target")->OverflowClip());
-
-  GetDocument().GetFrame()->Selection().Clear();
-  UpdateAllLifecyclePhasesForTest();
-  EXPECT_FALSE(PaintPropertiesForElement("target")->OverflowClip());
-}
-
-TEST_P(PaintPropertyTreeBuilderTest, OmitOverflowClipOnCaretChange) {
-  SetBodyInnerHTML(R"HTML(
-    <div id="target" contentEditable="true" style="overflow: hidden">
-      <img style="width: 50px; height: 50px">
-    </div>
-  )HTML");
-
-  GetDocument().GetPage()->GetFocusController().SetActive(true);
-  GetDocument().GetPage()->GetFocusController().SetFocused(true);
-  auto* target = GetDocument().getElementById("target");
-  EXPECT_FALSE(PaintPropertiesForElement("target")->OverflowClip());
-
-  target->focus();
-  UpdateAllLifecyclePhasesForTest();
-  EXPECT_TRUE(PaintPropertiesForElement("target")->OverflowClip());
-
-  target->blur();
-  UpdateAllLifecyclePhasesForTest();
-  EXPECT_FALSE(PaintPropertiesForElement("target")->OverflowClip());
 }
 
 TEST_P(PaintPropertyTreeUpdateTest,
@@ -1702,8 +1673,7 @@ TEST_P(PaintPropertyTreeUpdateTest, ChangeDuringAnimation) {
   target->SetStyle(std::move(style));
   EXPECT_TRUE(target->NeedsPaintPropertyUpdate());
   GetDocument().Lifecycle().AdvanceTo(DocumentLifecycle::kStyleClean);
-  GetDocument().View()->UpdateAllLifecyclePhasesExceptPaint(
-      DocumentUpdateReason::kTest);
+  UpdateAllLifecyclePhasesExceptPaint();
 
   const auto* transform_node =
       target->FirstFragment().PaintProperties()->Transform();
@@ -1731,8 +1701,7 @@ TEST_P(PaintPropertyTreeUpdateTest, ChangeDuringAnimation) {
   target->SetStyle(std::move(style));
   EXPECT_TRUE(target->NeedsPaintPropertyUpdate());
   GetDocument().Lifecycle().AdvanceTo(DocumentLifecycle::kStyleClean);
-  GetDocument().View()->UpdateAllLifecyclePhasesExceptPaint(
-      DocumentUpdateReason::kTest);
+  UpdateAllLifecyclePhasesExceptPaint();
 
   ASSERT_EQ(transform_node,
             target->FirstFragment().PaintProperties()->Transform());
@@ -1751,8 +1720,7 @@ TEST_P(PaintPropertyTreeUpdateTest, ChangeDuringAnimation) {
   target->SetStyle(std::move(style));
   EXPECT_TRUE(target->NeedsPaintPropertyUpdate());
   GetDocument().Lifecycle().AdvanceTo(DocumentLifecycle::kStyleClean);
-  GetDocument().View()->UpdateAllLifecyclePhasesExceptPaint(
-      DocumentUpdateReason::kTest);
+  UpdateAllLifecyclePhasesExceptPaint();
 
   ASSERT_EQ(transform_node,
             target->FirstFragment().PaintProperties()->Transform());
@@ -1819,6 +1787,56 @@ TEST_P(PaintPropertyTreeUpdateTest, InlineFilterReferenceBoxChange) {
   ASSERT_EQ(properties, PaintPropertiesForElement("span"));
   EXPECT_EQ(FloatPoint(0, 100),
             properties->Filter()->Filter().ReferenceBox().Location());
+}
+
+TEST_P(PaintPropertyTreeUpdateTest, StartSVGAnimation) {
+  SetBodyInnerHTML(R"HTML(
+    <style>line {transition: transform 1s; transform: translateY(1px)}</style>
+    <svg width="200" height="200" stroke="black">
+      <line id="line" x1="0" y1="0" x2="150" y2="50">
+    </svg>
+  )HTML");
+
+  const auto* properties = PaintPropertiesForElement("line");
+  ASSERT_TRUE(properties);
+  ASSERT_TRUE(properties->Transform());
+  EXPECT_FALSE(properties->Transform()->HasDirectCompositingReasons());
+
+  GetDocument().getElementById("line")->setAttribute(
+      html_names::kStyleAttr, "transform: translateY(100px)");
+  UpdateAllLifecyclePhasesForTest();
+  ASSERT_EQ(properties, PaintPropertiesForElement("line"));
+  EXPECT_TRUE(properties->Transform()->HasDirectCompositingReasons());
+}
+
+TEST_P(PaintPropertyTreeUpdateTest, ScrollOriginChange) {
+  SetBodyInnerHTML(R"HTML(
+    <style>
+      ::-webkit-scrollbar {width: 20px; height: 20px}
+    </style>
+    <div id="container" style="width: 100px; height: 100px; overflow: scroll;
+                               writing-mode: vertical-rl">
+      <div id="child1" style="width: 100px"></div>
+      <div id="child2" style="width: 0"></div>
+    </div>
+  )HTML");
+
+  auto* container_properties = PaintPropertiesForElement("container");
+  ASSERT_TRUE(container_properties);
+  auto* child1 = GetLayoutObjectByElementId("child1");
+  auto* child2 = GetLayoutObjectByElementId("child2");
+  EXPECT_EQ(FloatSize(-20, 0),
+            container_properties->ScrollTranslation()->Translation2D());
+  EXPECT_EQ(PhysicalOffset(), child1->FirstFragment().PaintOffset());
+  EXPECT_EQ(PhysicalOffset(), child2->FirstFragment().PaintOffset());
+
+  To<Element>(child2->GetNode())
+      ->setAttribute(html_names::kStyleAttr, "width: 100px");
+  UpdateAllLifecyclePhasesForTest();
+  EXPECT_EQ(FloatSize(-120, 0),
+            container_properties->ScrollTranslation()->Translation2D());
+  EXPECT_EQ(PhysicalOffset(100, 0), child1->FirstFragment().PaintOffset());
+  EXPECT_EQ(PhysicalOffset(), child2->FirstFragment().PaintOffset());
 }
 
 }  // namespace blink

@@ -61,7 +61,7 @@ class TestableGenericAnimation : public QAbstractAnimationJob
 {
 public:
     TestableGenericAnimation(int duration = 250) : m_duration(duration) {}
-    int duration() const { return m_duration; }
+    int duration() const override { return m_duration; }
 
 private:
     int m_duration;
@@ -73,10 +73,10 @@ class UncontrolledAnimation : public QObject, public QAbstractAnimationJob
 public:
     UncontrolledAnimation() { }
 
-    int duration() const { return -1; /* not time driven */ }
+    int duration() const override { return -1; /* not time driven */ }
 
 protected:
-    void timerEvent(QTimerEvent *event)
+    void timerEvent(QTimerEvent *event) override
     {
         if (event->timerId() == id)
             stop();
@@ -99,7 +99,7 @@ private:
 class StateChangeListener: public QAnimationJobChangeListener
 {
 public:
-    virtual void animationStateChanged(QAbstractAnimationJob *, QAbstractAnimationJob::State newState, QAbstractAnimationJob::State)
+    void animationStateChanged(QAbstractAnimationJob *, QAbstractAnimationJob::State newState, QAbstractAnimationJob::State) override
     {
         states << newState;
     }
@@ -266,14 +266,15 @@ void tst_QAnimationGroupJob::addChildTwice()
     subGroup = new QAbstractAnimationJob;
     parent->appendAnimation(subGroup);
     parent->appendAnimation(subGroup);
-    QVERIFY(parent->firstChild());
-    QVERIFY(!parent->firstChild()->nextSibling());
-    QVERIFY(!parent->firstChild()->previousSibling());
+    QVERIFY(!parent->children()->isEmpty());
+    QCOMPARE(parent->children()->count(), 1);
+    QVERIFY(!parent->children()->next(parent->children()->first()));
+    QVERIFY(!parent->children()->prev(parent->children()->last()));
 
     parent->clear();
 
     QCOMPARE(parent->currentAnimation(), nullptr);
-    QVERIFY(!parent->firstChild());
+    QVERIFY(parent->children()->isEmpty());
 
     // adding the same item twice to a group will remove the item from its current position
     // and append it to the end
@@ -282,13 +283,13 @@ void tst_QAnimationGroupJob::addChildTwice()
     subGroup2 = new QAbstractAnimationJob;
     parent->appendAnimation(subGroup2);
 
-    QCOMPARE(parent->firstChild(), subGroup);
-    QCOMPARE(parent->lastChild(), subGroup2);
+    QCOMPARE(parent->children()->first(), subGroup);
+    QCOMPARE(parent->children()->last(), subGroup2);
 
     parent->appendAnimation(subGroup);
 
-    QCOMPARE(parent->firstChild(), subGroup2);
-    QCOMPARE(parent->lastChild(), subGroup);
+    QCOMPARE(parent->children()->first(), subGroup2);
+    QCOMPARE(parent->children()->last(), subGroup);
 
     delete parent;
 }

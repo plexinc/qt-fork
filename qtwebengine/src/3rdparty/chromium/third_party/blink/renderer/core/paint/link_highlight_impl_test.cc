@@ -130,10 +130,11 @@ TEST_P(LinkHighlightImplTest, verifyWebViewImplIntegration) {
   WebViewImpl* web_view_impl = web_view_helper_.GetWebView();
   int page_width = 640;
   int page_height = 480;
-  web_view_impl->MainFrameWidget()->Resize(WebSize(page_width, page_height));
+  web_view_impl->MainFrameViewWidget()->Resize(
+      gfx::Size(page_width, page_height));
   UpdateAllLifecyclePhases();
 
-  WebGestureEvent touch_event(WebInputEvent::kGestureShowPress,
+  WebGestureEvent touch_event(WebInputEvent::Type::kGestureShowPress,
                               WebInputEvent::kNoModifiers,
                               WebInputEvent::GetStaticTimeStampForTests(),
                               WebGestureDevice::kTouchscreen);
@@ -180,10 +181,11 @@ TEST_P(LinkHighlightImplTest, resetDuringNodeRemoval) {
 
   int page_width = 640;
   int page_height = 480;
-  web_view_impl->MainFrameWidget()->Resize(WebSize(page_width, page_height));
+  web_view_impl->MainFrameViewWidget()->Resize(
+      gfx::Size(page_width, page_height));
   UpdateAllLifecyclePhases();
 
-  WebGestureEvent touch_event(WebInputEvent::kGestureShowPress,
+  WebGestureEvent touch_event(WebInputEvent::Type::kGestureShowPress,
                               WebInputEvent::kNoModifiers,
                               WebInputEvent::GetStaticTimeStampForTests(),
                               WebGestureDevice::kTouchscreen);
@@ -212,10 +214,11 @@ TEST_P(LinkHighlightImplTest, resetLayerTreeView) {
 
   int page_width = 640;
   int page_height = 480;
-  web_view_impl->MainFrameWidget()->Resize(WebSize(page_width, page_height));
+  web_view_impl->MainFrameViewWidget()->Resize(
+      gfx::Size(page_width, page_height));
   UpdateAllLifecyclePhases();
 
-  WebGestureEvent touch_event(WebInputEvent::kGestureShowPress,
+  WebGestureEvent touch_event(WebInputEvent::Type::kGestureShowPress,
                               WebInputEvent::kNoModifiers,
                               WebInputEvent::GetStaticTimeStampForTests(),
                               WebGestureDevice::kTouchscreen);
@@ -235,12 +238,13 @@ TEST_P(LinkHighlightImplTest, HighlightLayerEffectNode) {
   int page_width = 640;
   int page_height = 480;
   WebViewImpl* web_view_impl = web_view_helper_.GetWebView();
-  web_view_impl->MainFrameWidget()->Resize(WebSize(page_width, page_height));
+  web_view_impl->MainFrameViewWidget()->Resize(
+      gfx::Size(page_width, page_height));
 
   UpdateAllLifecyclePhases();
   size_t layer_count_before_highlight = LayerCount();
 
-  WebGestureEvent touch_event(WebInputEvent::kGestureShowPress,
+  WebGestureEvent touch_event(WebInputEvent::Type::kGestureShowPress,
                               WebInputEvent::kNoModifiers,
                               WebInputEvent::GetStaticTimeStampForTests(),
                               WebGestureDevice::kTouchscreen);
@@ -297,13 +301,14 @@ TEST_P(LinkHighlightImplTest, MultiColumn) {
   int page_width = 640;
   int page_height = 480;
   WebViewImpl* web_view_impl = web_view_helper_.GetWebView();
-  web_view_impl->MainFrameWidget()->Resize(WebSize(page_width, page_height));
+  web_view_impl->MainFrameViewWidget()->Resize(
+      gfx::Size(page_width, page_height));
   UpdateAllLifecyclePhases();
 
   UpdateAllLifecyclePhases();
   size_t layer_count_before_highlight = LayerCount();
 
-  WebGestureEvent touch_event(WebInputEvent::kGestureShowPress,
+  WebGestureEvent touch_event(WebInputEvent::Type::kGestureShowPress,
                               WebInputEvent::kNoModifiers,
                               WebInputEvent::GetStaticTimeStampForTests(),
                               WebGestureDevice::kTouchscreen);
@@ -384,10 +389,11 @@ TEST_P(LinkHighlightImplTest, DisplayContents) {
 
   int page_width = 640;
   int page_height = 480;
-  web_view_impl->MainFrameWidget()->Resize(WebSize(page_width, page_height));
+  web_view_impl->MainFrameViewWidget()->Resize(
+      gfx::Size(page_width, page_height));
   UpdateAllLifecyclePhases();
 
-  WebGestureEvent touch_event(WebInputEvent::kGestureShowPress,
+  WebGestureEvent touch_event(WebInputEvent::Type::kGestureShowPress,
                               WebInputEvent::kNoModifiers,
                               WebInputEvent::GetStaticTimeStampForTests(),
                               WebGestureDevice::kTouchscreen);

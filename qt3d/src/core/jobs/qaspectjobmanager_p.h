@@ -52,7 +52,6 @@
 //
 
 #include <Qt3DCore/qaspectjob.h>
-#include <QtCore/QVector>
 
 #include <Qt3DCore/private/qabstractaspectjobmanager_p.h>
 #include <Qt3DCore/private/qt3dcore_global_p.h>
@@ -74,11 +73,12 @@ public:
 
     void initialize() override;
 
-    void enqueueJobs(const QVector<QAspectJobPtr> &jobQueue) override;
+    void enqueueJobs(const std::vector<QAspectJobPtr> &jobQueue) override;
 
     int waitForAllJobs() override;
 
     void waitForPerThreadFunction(JobFunction func, void *arg) override;
+    static int idealThreadCount();
 
 private:
     QThreadPooler *m_threadPooler;

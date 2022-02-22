@@ -10,6 +10,7 @@
 #include "base/callback.h"
 #include "base/compiler_specific.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "crypto/scoped_nss_types.h"
 
 class Profile;
@@ -30,10 +31,10 @@ class ResourceContext;
 // Must be called only on the IO thread.
 net::NSSCertDatabase* GetNSSCertDatabaseForResourceContext(
     content::ResourceContext* context,
-    const base::Callback<void(net::NSSCertDatabase*)>& callback)
+    base::OnceCallback<void(net::NSSCertDatabase*)> callback)
     WARN_UNUSED_RESULT;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 // Enables the system key slot in the NSSCertDatabase for the user associated
 // with |context|.
 // Must be called only on the IO thread.
@@ -48,6 +49,6 @@ void EnableNSSSystemKeySlotForResourceContext(
 // It's accessing profile, so it should be called on the UI thread.
 void GetNSSCertDatabaseForProfile(
     Profile* profile,
-    const base::Callback<void(net::NSSCertDatabase*)>& callback);
+    base::OnceCallback<void(net::NSSCertDatabase*)> callback);
 
 #endif  // CHROME_BROWSER_NET_NSS_CONTEXT_H_

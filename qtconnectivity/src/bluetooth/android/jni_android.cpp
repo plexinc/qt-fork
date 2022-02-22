@@ -50,7 +50,7 @@
 
 Q_DECLARE_LOGGING_CATEGORY(QT_BT_ANDROID)
 
-typedef QHash<QByteArray, QAndroidJniObject> JCachedStringFields;
+typedef QHash<QByteArray, QJniObject> JCachedStringFields;
 Q_GLOBAL_STATIC(JCachedStringFields, cachedStringFields)
 
 //Java class names
@@ -64,7 +64,6 @@ static const char * const javaActionBondStateChanged = "ACTION_BOND_STATE_CHANGE
 static const char * const javaActionDiscoveryStarted = "ACTION_DISCOVERY_STARTED";
 static const char * const javaActionDiscoveryFinished = "ACTION_DISCOVERY_FINISHED";
 static const char * const javaActionFound = "ACTION_FOUND";
-static const char * const javaActionPairingRequest = "ACTION_PAIRING_REQUEST";
 static const char * const javaActionScanModeChanged = "ACTION_SCAN_MODE_CHANGED";
 static const char * const javaActionUuid = "ACTION_UUID";
 static const char * const javaExtraBondState = "EXTRA_BOND_STATE";
@@ -79,7 +78,7 @@ static const char * const javaExtraUuid = "EXTRA_UUID";
  * This function operates on the assumption that each
  * field is of type java/lang/String.
  */
-QAndroidJniObject valueForStaticField(JavaNames javaName, JavaNames javaFieldName)
+QJniObject valueForStaticField(JavaNames javaName, JavaNames javaFieldName)
 {
     //construct key
     //the switch statements are used to reduce the number of duplicated strings
@@ -93,7 +92,7 @@ QAndroidJniObject valueForStaticField(JavaNames javaName, JavaNames javaFieldNam
         className = javaBluetoothDeviceClassName; break;
     default:
         qCWarning(QT_BT_ANDROID) << "Unknown java class name passed to valueForStaticField():" << javaName;
-        return QAndroidJniObject();
+        return QJniObject();
     }
 
     const char *fieldName;
@@ -110,8 +109,6 @@ QAndroidJniObject valueForStaticField(JavaNames javaName, JavaNames javaFieldNam
         fieldName = javaActionDiscoveryFinished; break;
     case JavaNames::ActionFound:
         fieldName = javaActionFound; break;
-    case JavaNames::ActionPairingRequest:
-        fieldName = javaActionPairingRequest; break;
     case JavaNames::ActionScanModeChanged:
         fieldName = javaActionScanModeChanged; break;
     case JavaNames::ActionUuid:
@@ -132,7 +129,7 @@ QAndroidJniObject valueForStaticField(JavaNames javaName, JavaNames javaFieldNam
         fieldName = javaExtraUuid; break;
     default:
         qCWarning(QT_BT_ANDROID) << "Unknown java field name passed to valueForStaticField():" << javaFieldName;
-        return QAndroidJniObject();
+        return QJniObject();
     }
 
     int offset_class = qstrlen(className);
@@ -143,14 +140,12 @@ QAndroidJniObject valueForStaticField(JavaNames javaName, JavaNames javaFieldNam
 
     JCachedStringFields::iterator it = cachedStringFields()->find(key);
     if (it == cachedStringFields()->end()) {
-        QAndroidJniEnvironment env;
-        QAndroidJniObject fieldValue = QAndroidJniObject::getStaticObjectField(
+        QJniEnvironment env;
+        QJniObject fieldValue = QJniObject::getStaticObjectField(
                                             className, fieldName, "Ljava/lang/String;");
-        if (env->ExceptionCheck()) {
-            env->ExceptionDescribe();
-            env->ExceptionClear();
-            cachedStringFields()->insert(key, QAndroidJniObject());
-            return QAndroidJniObject();
+        if (!fieldValue.isValid()) {
+            cachedStringFields()->insert(key, QJniObject());
+            return QJniObject();
         }
 
         cachedStringFields()->insert(key, fieldValue);
@@ -212,6 +207,8 @@ static JNINativeMethod methods_le[] = {
                 (void *) QtBluetoothLE_leScanResult},
     {"leConnectionStateChange", "(JII)V",
                 (void *) LowEnergyNotificationHub::lowEnergy_connectionChange},
+    {"leMtuChanged", "(JI)V",
+                (void *) LowEnergyNotificationHub::lowEnergy_mtuChanged},
     {"leServicesDiscovered", "(JILjava/lang/String;)V",
                 (void *) LowEnergyNotificationHub::lowEnergy_servicesDiscovered},
     {"leServiceDetailDiscoveryFinished", "(JLjava/lang/String;II)V",
@@ -233,6 +230,8 @@ static JNINativeMethod methods_le[] = {
 static JNINativeMethod methods_leServer[] = {
     {"leServerConnectionStateChange", "(JII)V",
                 (void *) LowEnergyNotificationHub::lowEnergy_connectionChange},
+    {"leMtuChanged", "(JI)V",
+                (void *) LowEnergyNotificationHub::lowEnergy_mtuChanged},
     {"leServerAdvertisementError", "(JI)V",
                 (void *) LowEnergyNotificationHub::lowEnergy_advertisementError},
     {"leServerCharacteristicChanged", "(JLandroid/bluetooth/BluetoothGattCharacteristic;[B)V",
@@ -268,32 +267,32 @@ if (!clazz) { \
 static bool registerNatives(JNIEnv *env)
 {
     jclass clazz;
-    FIND_AND_CHECK_CLASS("org/qtproject/qt5/android/bluetooth/QtBluetoothBroadcastReceiver");
+    FIND_AND_CHECK_CLASS("org/qtproject/qt/android/bluetooth/QtBluetoothBroadcastReceiver");
 
     if (env->RegisterNatives(clazz, methods, sizeof(methods) / sizeof(methods[0])) < 0) {
         __android_log_print(ANDROID_LOG_FATAL, logTag, "RegisterNatives for BroadcastReceiver failed");
         return false;
     }
 
-    FIND_AND_CHECK_CLASS("org/qtproject/qt5/android/bluetooth/QtBluetoothLE");
+    FIND_AND_CHECK_CLASS("org/qtproject/qt/android/bluetooth/QtBluetoothLE");
     if (env->RegisterNatives(clazz, methods_le, sizeof(methods_le) / sizeof(methods_le[0])) < 0) {
         __android_log_print(ANDROID_LOG_FATAL, logTag, "RegisterNatives for QBLuetoothLE failed");
         return false;
     }
 
-    FIND_AND_CHECK_CLASS("org/qtproject/qt5/android/bluetooth/QtBluetoothLEServer");
+    FIND_AND_CHECK_CLASS("org/qtproject/qt/android/bluetooth/QtBluetoothLEServer");
     if (env->RegisterNatives(clazz, methods_leServer, sizeof(methods_leServer) / sizeof(methods_leServer[0])) < 0) {
         __android_log_print(ANDROID_LOG_FATAL, logTag, "RegisterNatives for QBLuetoothLEServer failed");
         return false;
     }
 
-    FIND_AND_CHECK_CLASS("org/qtproject/qt5/android/bluetooth/QtBluetoothSocketServer");
+    FIND_AND_CHECK_CLASS("org/qtproject/qt/android/bluetooth/QtBluetoothSocketServer");
     if (env->RegisterNatives(clazz, methods_server, sizeof(methods_server) / sizeof(methods_server[0])) < 0) {
         __android_log_print(ANDROID_LOG_FATAL, logTag, "RegisterNatives for SocketServer failed");
         return false;
     }
 
-    FIND_AND_CHECK_CLASS("org/qtproject/qt5/android/bluetooth/QtBluetoothInputStreamThread");
+    FIND_AND_CHECK_CLASS("org/qtproject/qt/android/bluetooth/QtBluetoothInputStreamThread");
     if (env->RegisterNatives(clazz, methods_inputStream,
                              sizeof(methods_inputStream) / sizeof(methods_inputStream[0])) < 0) {
         __android_log_print(ANDROID_LOG_FATAL, logTag, "RegisterNatives for InputStreamThread failed");

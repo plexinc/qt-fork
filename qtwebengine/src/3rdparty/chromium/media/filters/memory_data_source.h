@@ -14,7 +14,7 @@ namespace media {
 
 // Basic data source that treats the URL as a file path, and uses the file
 // system to read data for a media pipeline.
-class MEDIA_EXPORT MemoryDataSource : public DataSource {
+class MEDIA_EXPORT MemoryDataSource final : public DataSource {
  public:
   // Construct MemoryDataSource with |data| and |size|. The data is guaranteed
   // to be valid during the lifetime of MemoryDataSource.
@@ -41,7 +41,10 @@ class MEDIA_EXPORT MemoryDataSource : public DataSource {
   const uint8_t* data_ = nullptr;
   const size_t size_ = 0;
 
-  bool is_stopped_ = false;
+  // Stop may be called from the render thread while this class is being used by
+  // the media thread. It's harmless if we fulfill a read after Stop() has been
+  // called, so an atomic without a lock is safe.
+  std::atomic<bool> is_stopped_{false};
 
   DISALLOW_COPY_AND_ASSIGN(MemoryDataSource);
 };

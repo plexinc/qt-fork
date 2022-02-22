@@ -2,9 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "src/base/logging.h"
 #include "src/builtins/builtins-utils-inl.h"
 #include "src/builtins/builtins.h"
 #include "src/codegen/code-factory.h"
+#include "src/common/assert-scope.h"
 #include "src/debug/debug.h"
 #include "src/execution/isolate.h"
 #include "src/execution/protectors-inl.h"
@@ -41,7 +43,7 @@ inline bool HasOnlySimpleReceiverElements(Isolate* isolate, JSObject receiver) {
 }
 
 inline bool HasOnlySimpleElements(Isolate* isolate, JSReceiver receiver) {
-  DisallowHeapAllocation no_gc;
+  DisallowGarbageCollection no_gc;
   PrototypeIterator iter(isolate, receiver, kStartAtReceiver);
   for (; !iter.IsAtEnd(); iter.Advance()) {
     if (iter.GetCurrent().IsJSProxy()) return false;
@@ -67,7 +69,7 @@ void MatchArrayElementsKindToArguments(Isolate* isolate, Handle<JSArray> array,
 
   ElementsKind target_kind = origin_kind;
   {
-    DisallowHeapAllocation no_gc;
+    DisallowGarbageCollection no_gc;
     int last_arg_index = std::min(first_arg_index + num_arguments, args_length);
     for (int i = first_arg_index; i < last_arg_index; i++) {
       Object arg = (*args)[i];
@@ -111,7 +113,7 @@ inline bool EnsureJSArrayWithWritableFastElements(Isolate* isolate,
 
   // Adding elements to the array prototype would break code that makes sure
   // it has no elements. Handle that elsewhere.
-  if (isolate->IsAnyInitialArrayPrototype(array)) return false;
+  if (isolate->IsAnyInitialArrayPrototype(*array)) return false;
 
   // Need to ensure that the arguments passed in args can be contained in
   // the array.
@@ -456,11 +458,11 @@ BUILTIN(ArrayPop) {
   Handle<JSArray> array = Handle<JSArray>::cast(receiver);
 
   uint32_t len = static_cast<uint32_t>(array->length().Number());
-  if (len == 0) return ReadOnlyRoots(isolate).undefined_value();
 
   if (JSArray::HasReadOnlyLength(array)) {
     return GenericArrayPop(isolate, &args);
   }
+  if (len == 0) return ReadOnlyRoots(isolate).undefined_value();
 
   Handle<Object> result;
   if (IsJSArrayFastElementMovingAllowed(isolate, JSArray::cast(*receiver))) {
@@ -471,6 +473,15 @@ BUILTIN(ArrayPop) {
     uint32_t new_length = len - 1;
     ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
         isolate, result, JSReceiver::GetElement(isolate, array, new_length));
+
+    // The length could have become read-only during the last GetElement() call,
+    // so check again.
+    if (JSArray::HasReadOnlyLength(array)) {
+      THROW_NEW_ERROR_RETURN_FAILURE(
+          isolate, NewTypeError(MessageTemplate::kStrictReadOnlyProperty,
+                                isolate->factory()->length_string(),
+                                Object::TypeOf(isolate, array), array));
+    }
     JSArray::SetLength(array, new_length);
   }
 
@@ -598,7 +609,7 @@ BUILTIN(ArrayUnshift) {
   DCHECK(array->map().is_extensible());
   DCHECK(!IsDictionaryElementsKind(array->GetElementsKind()));
   DCHECK(IsJSArrayFastElementMovingAllowed(isolate, *array));
-  DCHECK(!isolate->IsAnyInitialArrayPrototype(array));
+  DCHECK(!isolate->IsAnyInitialArrayPrototype(*array));
 
   MatchArrayElementsKindToArguments(isolate, array, &args, 1,
                                     args.length() - 1);
@@ -639,11 +650,14 @@ class ArrayConcatVisitor {
         index_offset_(0u),
         bit_field_(FastElementsField::encode(fast_elements) |
                    ExceedsLimitField::encode(false) |
-                   IsFixedArrayField::encode(storage->IsFixedArray()) |
+                   IsFixedArrayField::encode(storage->IsFixedArray(isolate)) |
                    HasSimpleElementsField::encode(
-                       storage->IsFixedArray() ||
-                       !storage->map().IsCustomElementsReceiverMap())) {
-    DCHECK(!(this->fast_elements() && !is_fixed_array()));
+                       storage->IsFixedArray(isolate) ||
+                       // Don't take fast path for storages that might have
+                       // side effects when storing to them.
+                       (!storage->map(isolate).IsCustomElementsReceiverMap() &&
+                        !storage->IsJSTypedArray(isolate)))) {
+    DCHECK_IMPLIES(this->fast_elements(), is_fixed_array());
   }
 
   ~ArrayConcatVisitor() { clear_storage(); }
@@ -808,7 +822,7 @@ class ArrayConcatVisitor {
 };
 
 uint32_t EstimateElementCount(Isolate* isolate, Handle<JSArray> array) {
-  DisallowHeapAllocation no_gc;
+  DisallowGarbageCollection no_gc;
   uint32_t length = static_cast<uint32_t>(array->length().Number());
   int element_count = 0;
   switch (array->GetElementsKind()) {
@@ -892,7 +906,7 @@ void CollectElementIndices(Isolate* isolate, Handle<JSObject> object,
     case HOLEY_SEALED_ELEMENTS:
     case HOLEY_NONEXTENSIBLE_ELEMENTS:
     case HOLEY_ELEMENTS: {
-      DisallowHeapAllocation no_gc;
+      DisallowGarbageCollection no_gc;
       FixedArray elements = FixedArray::cast(object->elements());
       uint32_t length = static_cast<uint32_t>(elements.length());
       if (range < length) length = range;
@@ -921,7 +935,7 @@ void CollectElementIndices(Isolate* isolate, Handle<JSObject> object,
       break;
     }
     case DICTIONARY_ELEMENTS: {
-      DisallowHeapAllocation no_gc;
+      DisallowGarbageCollection no_gc;
       NumberDictionary dict = NumberDictionary::cast(object->elements());
       uint32_t capacity = dict.Capacity();
       ReadOnlyRoots roots(isolate);
@@ -958,7 +972,8 @@ void CollectElementIndices(Isolate* isolate, Handle<JSObject> object,
       }
     case FAST_SLOPPY_ARGUMENTS_ELEMENTS:
     case SLOW_SLOPPY_ARGUMENTS_ELEMENTS: {
-      DisallowHeapAllocation no_gc;
+      DisallowGarbageCollection no_gc;
+      DisableGCMole no_gc_mole;
       FixedArrayBase elements = object->elements();
       JSObject raw_object = *object;
       ElementsAccessor* accessor = object->GetElementsAccessor();
@@ -978,7 +993,7 @@ void CollectElementIndices(Isolate* isolate, Handle<JSObject> object,
       Handle<String> string(String::cast(js_value->value()), isolate);
       uint32_t length = static_cast<uint32_t>(string->length());
       uint32_t i = 0;
-      uint32_t limit = Min(length, range);
+      uint32_t limit = std::min(length, range);
       for (; i < limit; i++) {
         indices->push_back(i);
       }
@@ -1053,8 +1068,8 @@ bool IterateElements(Isolate* isolate, Handle<JSReceiver> receiver,
     return IterateElementsSlow(isolate, receiver, length, visitor);
   }
 
-  if (!HasOnlySimpleElements(isolate, *receiver) ||
-      !visitor->has_simple_elements()) {
+  if (!visitor->has_simple_elements() ||
+      !HasOnlySimpleElements(isolate, *receiver)) {
     return IterateElementsSlow(isolate, receiver, length, visitor);
   }
   Handle<JSObject> array = Handle<JSObject>::cast(receiver);
@@ -1070,6 +1085,9 @@ bool IterateElements(Isolate* isolate, Handle<JSReceiver> receiver,
     case HOLEY_SEALED_ELEMENTS:
     case HOLEY_NONEXTENSIBLE_ELEMENTS:
     case HOLEY_ELEMENTS: {
+      // Disallow execution so the cached elements won't change mid execution.
+      DisallowJavascriptExecution no_js(isolate);
+
       // Run through the elements FixedArray and use HasElement and GetElement
       // to check the prototype for missing elements.
       Handle<FixedArray> elements(FixedArray::cast(array->elements()), isolate);
@@ -1096,6 +1114,9 @@ bool IterateElements(Isolate* isolate, Handle<JSReceiver> receiver,
     }
     case HOLEY_DOUBLE_ELEMENTS:
     case PACKED_DOUBLE_ELEMENTS: {
+      // Disallow execution so the cached elements won't change mid execution.
+      DisallowJavascriptExecution no_js(isolate);
+
       // Empty array is FixedArray but not FixedDoubleArray.
       if (length == 0) break;
       // Run through the elements FixedArray and use HasElement and GetElement
@@ -1132,6 +1153,9 @@ bool IterateElements(Isolate* isolate, Handle<JSReceiver> receiver,
     }
 
     case DICTIONARY_ELEMENTS: {
+      // Disallow execution so the cached dictionary won't change mid execution.
+      DisallowJavascriptExecution no_js(isolate);
+
       Handle<NumberDictionary> dict(array->element_dictionary(), isolate);
       std::vector<uint32_t> indices;
       indices.reserve(dict->Capacity() / 2);
@@ -1274,7 +1298,7 @@ Object Slow_ArrayConcat(BuiltinArguments* args, Handle<Object> species,
           double_storage->set(j, obj->Number());
           j++;
         } else {
-          DisallowHeapAllocation no_gc;
+          DisallowGarbageCollection no_gc;
           JSArray array = JSArray::cast(*obj);
           uint32_t length = static_cast<uint32_t>(array.length().Number());
           switch (array.GetElementsKind()) {
@@ -1389,7 +1413,7 @@ Object Slow_ArrayConcat(BuiltinArguments* args, Handle<Object> species,
 }
 
 bool IsSimpleArray(Isolate* isolate, Handle<JSArray> obj) {
-  DisallowHeapAllocation no_gc;
+  DisallowGarbageCollection no_gc;
   Map map = obj->map();
   // If there is only the 'length' property we are fine.
   if (map.prototype() == isolate->native_context()->initial_array_prototype() &&
@@ -1415,7 +1439,7 @@ MaybeHandle<JSArray> Fast_ArrayConcat(Isolate* isolate,
   int n_arguments = args->length();
   int result_len = 0;
   {
-    DisallowHeapAllocation no_gc;
+    DisallowGarbageCollection no_gc;
     // Iterate through all the arguments performing checks
     // and calculating total length.
     for (int i = 0; i < n_arguments; i++) {
@@ -1439,7 +1463,7 @@ MaybeHandle<JSArray> Fast_ArrayConcat(Isolate* isolate,
       // Throw an Error if we overflow the FixedArray limits
       if (FixedDoubleArray::kMaxLength < result_len ||
           FixedArray::kMaxLength < result_len) {
-        AllowHeapAllocation gc;
+        AllowGarbageCollection gc;
         THROW_NEW_ERROR(isolate,
                         NewRangeError(MessageTemplate::kInvalidArrayLength),
                         JSArray);

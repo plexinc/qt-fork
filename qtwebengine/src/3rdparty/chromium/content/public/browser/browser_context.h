@@ -22,11 +22,10 @@
 #include "content/common/content_export.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
-#include "net/url_request/url_request_interceptor.h"
-#include "net/url_request/url_request_job_factory.h"
-#include "services/content/public/mojom/navigable_contents_factory.mojom-forward.h"
 #include "services/network/public/mojom/cors_origin_pattern.mojom-forward.h"
+#include "services/network/public/mojom/network_context.mojom-forward.h"
 #include "third_party/blink/public/mojom/blob/blob.mojom-forward.h"
+#include "third_party/blink/public/mojom/push_messaging/push_messaging.mojom-forward.h"
 #include "third_party/blink/public/mojom/push_messaging/push_messaging_status.mojom-forward.h"
 
 #if !defined(OS_ANDROID)
@@ -37,16 +36,11 @@ class GURL;
 
 namespace base {
 class FilePath;
-class Token;
 }  // namespace base
 
 namespace download {
 class InProgressDownloadManager;
 }
-
-namespace service_manager {
-class Connector;
-}  // namespace service_manager
 
 namespace storage {
 class ExternalMountPoints;
@@ -74,10 +68,6 @@ class VariationsClient;
 
 namespace content {
 
-namespace mojom {
-enum class PushDeliveryStatus;
-}
-
 class BackgroundFetchDelegate;
 class BackgroundSyncController;
 class BlobHandle;
@@ -88,27 +78,17 @@ class DownloadManager;
 class ClientHintsControllerDelegate;
 class ContentIndexProvider;
 class DownloadManagerDelegate;
-class NativeFileSystemPermissionContext;
+class FileSystemAccessPermissionContext;
 class PermissionController;
 class PermissionControllerDelegate;
 class PushMessagingService;
 class ResourceContext;
-class ServiceManagerConnection;
 class SharedCorsOriginAccessList;
 class SiteInstance;
 class StorageNotificationService;
 class StoragePartition;
+class StoragePartitionConfig;
 class SSLHostStateDelegate;
-
-// A mapping from the scheme name to the protocol handler that services its
-// content.
-using ProtocolHandlerMap =
-    std::map<std::string,
-             std::unique_ptr<net::URLRequestJobFactory::ProtocolHandler>>;
-
-// A owning vector of protocol interceptors.
-using URLRequestInterceptorScopedVector =
-    std::vector<std::unique_ptr<net::URLRequestInterceptor>>;
 
 // This class holds the context needed for a browsing session.
 // It lives on the UI thread. All these methods must only be called on the UI
@@ -136,10 +116,25 @@ class CONTENT_EXPORT BrowserContext : public base::SupportsUserData {
   static StoragePartition* GetStoragePartition(BrowserContext* browser_context,
                                                SiteInstance* site_instance,
                                                bool can_create = true);
+
+  // Returns a StoragePartition for the given StoragePartitionConfig. By
+  // default this will create a new StoragePartition if it doesn't exist,
+  // unless |can_create| is false.
+  static StoragePartition* GetStoragePartition(
+      BrowserContext* browser_context,
+      const StoragePartitionConfig& storage_partition_config,
+      bool can_create = true);
+
+  // Deprecated. Do not add new callers. Use the SiteInstance or
+  // StoragePartitionConfig methods above instead.
+  // Returns a StoragePartition for the given site URL. By default this will
+  // create a new StoragePartition if it doesn't exist, unless |can_create| is
+  // false.
   static StoragePartition* GetStoragePartitionForSite(
       BrowserContext* browser_context,
       const GURL& site,
       bool can_create = true);
+
   using StoragePartitionCallback =
       base::RepeatingCallback<void(StoragePartition*)>;
   static void ForEachStoragePartition(BrowserContext* browser_context,
@@ -197,7 +192,18 @@ class CONTENT_EXPORT BrowserContext : public base::SupportsUserData {
       int64_t service_worker_registration_id,
       const std::string& message_id,
       base::Optional<std::string> payload,
-      base::OnceCallback<void(blink::mojom::PushDeliveryStatus)> callback);
+      base::OnceCallback<void(blink::mojom::PushEventStatus)> callback);
+
+  // Fires a push subscription change event to the Service Worker identified by
+  // |origin| and |service_worker_registration_id| with |new_subscription| and
+  // |old_subscription| as event information.
+  static void FirePushSubscriptionChangeEvent(
+      BrowserContext* browser_context,
+      const GURL& origin,
+      int64_t service_worker_registration_id,
+      blink::mojom::PushSubscriptionPtr new_subscription,
+      blink::mojom::PushSubscriptionPtr old_subscription,
+      base::OnceCallback<void(blink::mojom::PushEventStatus)> callback);
 
   static void NotifyWillBeDestroyed(BrowserContext* browser_context);
 
@@ -220,31 +226,6 @@ class CONTENT_EXPORT BrowserContext : public base::SupportsUserData {
       BrowserContext* browser_context,
       std::unique_ptr<PermissionController> permission_controller);
 
-  // Makes the Service Manager aware of this BrowserContext, and assigns a
-  // instance group ID to it. Should be called for each BrowserContext created.
-  static void Initialize(BrowserContext* browser_context,
-                         const base::FilePath& path);
-
-  // Returns a Service instance group ID associated with this BrowserContext.
-  // This ID is not persistent across runs. See
-  // services/service_manager/public/mojom/connector.mojom. By default,
-  // group ID is randomly generated when Initialize() is called.
-  static const base::Token& GetServiceInstanceGroupFor(
-      BrowserContext* browser_context);
-
-  // Returns the BrowserContext associated with |instance_group|, or nullptr if
-  // no BrowserContext exists for that |instance_group|.
-  static BrowserContext* GetBrowserContextForServiceInstanceGroup(
-      const base::Token& instance_group);
-
-  // Returns a Connector associated with this BrowserContext, which can be used
-  // to connect to service instances bound as this user.
-  static service_manager::Connector* GetConnectorFor(
-      BrowserContext* browser_context);
-
-  static ServiceManagerConnection* GetServiceManagerConnectionFor(
-      BrowserContext* browser_context);
-
   BrowserContext();
 
   ~BrowserContext() override;
@@ -255,6 +236,11 @@ class CONTENT_EXPORT BrowserContext : public base::SupportsUserData {
   // ResourceContext) is posted, so that the classes that hung on
   // StoragePartition can have time to do necessary cleanups on IO thread.
   void ShutdownStoragePartitions();
+
+  // Returns true if shutdown has been initiated via a
+  // NotifyWillBeDestroyed() call. This is a signal that the object will be
+  // destroyed soon and no new references to this object should be created.
+  bool ShutdownStarted() { return was_notify_will_be_destroyed_called_; }
 
 #if !defined(OS_ANDROID)
   // Creates a delegate to initialize a HostZoomMap and persist its information.
@@ -327,7 +313,16 @@ class CONTENT_EXPORT BrowserContext : public base::SupportsUserData {
   virtual BrowsingDataRemoverDelegate* GetBrowsingDataRemoverDelegate() = 0;
 
   // Sets CORS origin access lists.
+  enum class TargetBrowserContexts {
+    // Only modify |this| BrowserContext.
+    kSingleContext,
+
+    // Modify |this| BrowserContext and all related regular/OffTheRecord
+    // BrowserContexts.
+    kAllRelatedContexts,
+  };
   virtual void SetCorsOriginAccessListForOrigin(
+      TargetBrowserContexts target_mode,
       const url::Origin& source_origin,
       std::vector<network::mojom::CorsOriginPatternPtr> allow_patterns,
       std::vector<network::mojom::CorsOriginPatternPtr> block_patterns,
@@ -335,14 +330,6 @@ class CONTENT_EXPORT BrowserContext : public base::SupportsUserData {
 
   // Returns a SharedCorsOriginAccessList instance.
   virtual SharedCorsOriginAccessList* GetSharedCorsOriginAccessList();
-
-  // Returns true if OOR-CORS should be enabled.
-  virtual bool ShouldEnableOutOfBlinkCors();
-
-  // Binds a NavigableContentsFactory interface receiver to this browser
-  // context.
-  virtual void BindNavigableContentsFactory(
-      mojo::PendingReceiver<content::mojom::NavigableContentsFactory> receiver);
 
   // Returns a unique string associated with this browser context.
   virtual const std::string& UniqueId();
@@ -380,10 +367,10 @@ class CONTENT_EXPORT BrowserContext : public base::SupportsUserData {
   virtual download::InProgressDownloadManager*
   RetriveInProgressDownloadManager();
 
-  // Returns the NativeFileSystemPermissionContext associated with this context
+  // Returns the FileSystemAccessPermissionContext associated with this context
   // if any, nullptr otherwise.
-  virtual NativeFileSystemPermissionContext*
-  GetNativeFileSystemPermissionContext();
+  virtual FileSystemAccessPermissionContext*
+  GetFileSystemAccessPermissionContext();
 
   // Returns the ContentIndexProvider associated with that context if any,
   // nullptr otherwise.

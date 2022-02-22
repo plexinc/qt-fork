@@ -71,7 +71,7 @@ public:
 
 private:
     QScxmlStateMachine *m_machine;
-    QVector<QVector<QToolButton *> > m_buttons;
+    QList<QList<QToolButton *>> m_buttons;
     QToolButton *m_startButton;
     QToolButton *m_undoButton;
     QLabel *m_label;

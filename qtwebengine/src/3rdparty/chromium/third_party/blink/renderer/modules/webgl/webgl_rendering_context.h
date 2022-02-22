@@ -59,6 +59,7 @@ class WebGLDepthTexture;
 class WebGLLoseContext;
 class WebGLMultiDraw;
 class WebGLVideoTexture;
+class WebGLWebCodecsVideoFrame;
 
 class WebGLRenderingContext final : public WebGLRenderingContextBase {
   DEFINE_WRAPPERTYPEINFO();
@@ -96,7 +97,7 @@ class WebGLRenderingContext final : public WebGLRenderingContextBase {
   void SetCanvasGetContextResult(RenderingContext&) final;
   void SetOffscreenCanvasGetContextResult(OffscreenRenderingContext&) final;
 
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
  private:
   // Enabled extension objects.
@@ -134,6 +135,7 @@ class WebGLRenderingContext final : public WebGLRenderingContextBase {
   Member<WebGLLoseContext> webgl_lose_context_;
   Member<WebGLMultiDraw> webgl_multi_draw_;
   Member<WebGLVideoTexture> webgl_video_texture_;
+  Member<WebGLWebCodecsVideoFrame> webgl_webcodecs_video_frame_;
 };
 
 }  // namespace blink

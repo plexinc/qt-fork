@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 #include "testwindow.h"
-#include "util.h"
+#include "quickutil.h"
 
 #include <QScopedPointer>
 #include <QtCore/qelapsedtimer.h>
@@ -37,12 +37,14 @@
 #include <QtGui/qpa/qwindowsysteminterface.h>
 #include <QtQml/QQmlEngine>
 #include <QtTest/QtTest>
-#include <QtWebEngine/QQuickWebEngineProfile>
+#include <QtWebEngineQuick/QQuickWebEngineProfile>
 #include <QtGui/private/qinputmethod_p.h>
-#include <QtWebEngine/private/qquickwebengineview_p.h>
-#include <QtWebEngine/private/qquickwebenginesettings_p.h>
+#include <QtWebEngineQuick/private/qquickwebenginescriptcollection_p.h>
+#include <QtWebEngineQuick/private/qquickwebenginesettings_p.h>
+#include <QtWebEngineQuick/private/qquickwebengineview_p.h>
 #include <QtWebEngineCore/private/qtwebenginecore-config_p.h>
 #include <qpa/qplatforminputcontext.h>
+#include <QtTest/private/qemulationdetector_p.h>
 
 #include <functional>
 
@@ -107,17 +109,17 @@ private:
 
 tst_QQuickWebEngineView::tst_QQuickWebEngineView()
 {
-    QtWebEngine::initialize();
+    QtWebEngineQuick::initialize();
     QQuickWebEngineProfile::defaultProfile()->setOffTheRecord(true);
 
-    m_testSourceDirPath = QString::fromLocal8Bit(TESTS_SOURCE_DIR);
+    m_testSourceDirPath = QDir(QT_TESTCASE_SOURCEDIR).canonicalPath();
     if (!m_testSourceDirPath.endsWith(QLatin1Char('/')))
         m_testSourceDirPath.append(QLatin1Char('/'));
 
     static QQmlEngine *engine = new QQmlEngine(this);
     m_component.reset(new QQmlComponent(engine, this));
-    m_component->setData(QByteArrayLiteral("import QtQuick 2.0\n"
-                                           "import QtWebEngine 1.2\n"
+    m_component->setData(QByteArrayLiteral("import QtQuick\n"
+                                           "import QtWebEngine\n"
                                            "WebEngineView {}")
                          , QUrl());
 }
@@ -197,7 +199,7 @@ void tst_QQuickWebEngineView::loadEmptyPageViewVisible()
 
 void tst_QQuickWebEngineView::loadEmptyPageViewHidden()
 {
-    QSignalSpy loadSpy(webEngineView(), SIGNAL(loadingChanged(QQuickWebEngineLoadRequest*)));
+    QSignalSpy loadSpy(webEngineView(), SIGNAL(loadingChanged(QWebEngineLoadingInfo)));
 
     webEngineView()->setUrl(urlFromTestPath("html/basic_page.html"));
     QVERIFY(waitForLoadSucceeded(webEngineView()));
@@ -207,7 +209,7 @@ void tst_QQuickWebEngineView::loadEmptyPageViewHidden()
 
 void tst_QQuickWebEngineView::loadNonexistentFileUrl()
 {
-    QSignalSpy loadSpy(webEngineView(), SIGNAL(loadingChanged(QQuickWebEngineLoadRequest*)));
+    QSignalSpy loadSpy(webEngineView(), SIGNAL(loadingChanged(QWebEngineLoadingInfo)));
 
     webEngineView()->setUrl(urlFromTestPath("html/file_that_does_not_exist.html"));
     QVERIFY(waitForLoadFailed(webEngineView()));
@@ -368,6 +370,9 @@ QImage tryToGrabWindowUntil(QQuickWindow *window, std::function<bool(const QImag
 
 void tst_QQuickWebEngineView::basicRenderingSanity()
 {
+    if (QTestPrivate::isRunningArmOnX86())
+        QSKIP("Grab does not work with QEMU.");
+
     showWebEngineView();
 
     webEngineView()->setUrl(QUrl(QString::fromUtf8("data:text/html,<html><body bgcolor=\"%2300ff00\"></body></html>")));
@@ -407,6 +412,9 @@ void tst_QQuickWebEngineView::titleUpdate()
 
 void tst_QQuickWebEngineView::transparentWebEngineViews()
 {
+    if (QTestPrivate::isRunningArmOnX86())
+        QSKIP("Grab does not work with QEMU.");
+
     showWebEngineView();
 
     // This should not crash.
@@ -509,15 +517,10 @@ public:
         inputMethodPrivate->testContext = 0;
     }
 
-    virtual void commit() {
-        commitCallCount++;
-    }
+    void commit() override { commitCallCount++; }
+    void reset() override { resetCallCount++; }
 
-    virtual void reset() {
-        resetCallCount++;
-    }
-
-    virtual void update(Qt::InputMethodQueries queries)
+    void update(Qt::InputMethodQueries queries) override
     {
         if (!qApp->focusObject())
             return;
@@ -584,7 +587,7 @@ void tst_QQuickWebEngineView::interruptImeTextComposition()
         QTest::mouseClick(view->window(), Qt::LeftButton, {}, textInputCenter);
     } else if (eventType == "Touch") {
         QPoint textInputCenter = elementCenter(view, QStringLiteral("input2"));
-        QTouchDevice *touchDevice = QTest::createTouchDevice();
+        QPointingDevice *touchDevice = QTest::createTouchDevice();
         QTest::touchEvent(view->window(), touchDevice).press(0, textInputCenter, view->window());
         QTest::touchEvent(view->window(), touchDevice).release(0, textInputCenter, view->window());
     }
@@ -770,9 +773,13 @@ void tst_QQuickWebEngineView::inputMethodHints()
     QTRY_COMPARE(input->inputMethodQuery(Qt::ImSurroundingText).toString(), QString("a@b.com"));
     QVERIFY(input->flags().testFlag(QQuickItem::ItemAcceptsInputMethod));
     QVERIFY(view->flags().testFlag(QQuickItem::ItemAcceptsInputMethod));
-    QInputMethodQueryEvent query(Qt::ImHints);
-    QGuiApplication::sendEvent(input, &query);
-    QTRY_COMPARE(Qt::InputMethodHints(query.value(Qt::ImHints).toUInt() & Qt::ImhExclusiveInputMask), Qt::ImhEmailCharactersOnly);
+    {
+        QInputMethodQueryEvent query(Qt::ImHints);
+        QGuiApplication::sendEvent(input, &query);
+        QTRY_COMPARE(
+                Qt::InputMethodHints(query.value(Qt::ImHints).toUInt() & Qt::ImhExclusiveInputMask),
+                Qt::ImhEmailCharactersOnly);
+    }
 
     // The focus of an editable DIV is given directly to it, so no shadow root element
     // is necessary. This tests the WebPage::editorState() method ability to get the
@@ -783,9 +790,13 @@ void tst_QQuickWebEngineView::inputMethodHints()
     QTRY_COMPARE(input->inputMethodQuery(Qt::ImSurroundingText).toString(), QString("bla"));
     QVERIFY(input->flags().testFlag(QQuickItem::ItemAcceptsInputMethod));
     QVERIFY(view->flags().testFlag(QQuickItem::ItemAcceptsInputMethod));
-    query = QInputMethodQueryEvent(Qt::ImHints);
-    QGuiApplication::sendEvent(input, &query);
-    QTRY_COMPARE(Qt::InputMethodHints(query.value(Qt::ImHints).toUInt()), Qt::ImhPreferLowercase | Qt::ImhNoPredictiveText | Qt::ImhMultiLine | Qt::ImhNoEditMenu | Qt::ImhNoTextHandles);
+    {
+        QInputMethodQueryEvent query(Qt::ImHints);
+        QGuiApplication::sendEvent(input, &query);
+        QTRY_COMPARE(Qt::InputMethodHints(query.value(Qt::ImHints).toUInt()),
+                     Qt::ImhPreferLowercase | Qt::ImhNoPredictiveText | Qt::ImhMultiLine
+                             | Qt::ImhNoEditMenu | Qt::ImhNoTextHandles);
+    }
 }
 
 void tst_QQuickWebEngineView::setZoomFactor()
@@ -875,6 +886,7 @@ public:
         QQuickItem(parent), m_eventCounter(0), m_child(child) {
         setFlag(ItemHasContents);
         setAcceptedMouseButtons(Qt::AllButtons);
+        setAcceptTouchEvents(true);
         setAcceptHoverEvents(true);
     }
 
@@ -975,9 +987,7 @@ void tst_QQuickWebEngineView::inputEventForwardingDisabledWhenActiveFocusOnPress
     QTest::mousePress(view->window(), Qt::LeftButton);
     QTest::mouseRelease(view->window(), Qt::LeftButton);
 
-    QTouchDevice *device = new QTouchDevice;
-    device->setType(QTouchDevice::TouchScreen);
-    QWindowSystemInterface::registerTouchDevice(device);
+    QPointingDevice *device = QTest::createTouchDevice();
 
     QTest::touchEvent(view->window(), device).press(0, QPoint(0,0), view->window());
     QTest::touchEvent(view->window(), device).move(0, QPoint(1, 1), view->window());
@@ -993,6 +1003,9 @@ void tst_QQuickWebEngineView::inputEventForwardingDisabledWhenActiveFocusOnPress
 
 void tst_QQuickWebEngineView::changeLocale()
 {
+    if (QTestPrivate::isRunningArmOnX86())
+        QSKIP("Does not work with QEMU. (QTBUG-94911)");
+
     QStringList errorLines;
     QUrl url("http://non.existent/");
 
@@ -1037,10 +1050,10 @@ void tst_QQuickWebEngineView::userScripts()
     QScopedPointer<QQuickWebEngineView> webEngineView2(newWebEngineView());
     webEngineView2->setParentItem(m_window->contentItem());
 
-    QQmlListReference list(webEngineView1->profile(), "userScripts");
-    QQuickWebEngineScript script;
+    QQuickWebEngineScriptCollection *collection = webEngineView1->profile()->userScripts();
+    QWebEngineScript script;
     script.setSourceCode("document.title = 'New title';");
-    list.append(&script);
+    collection->insert(script);
 
     webEngineView1->setUrl(urlFromTestPath("html/basic_page.html"));
     QVERIFY(waitForLoadSucceeded(webEngineView1.data()));
@@ -1050,7 +1063,7 @@ void tst_QQuickWebEngineView::userScripts()
     QVERIFY(waitForLoadSucceeded(webEngineView2.data()));
     QTRY_COMPARE(webEngineView2->title(), QStringLiteral("New title"));
 
-    list.clear();
+    collection->clear();
 }
 
 void tst_QQuickWebEngineView::javascriptClipboard_data()
@@ -1149,7 +1162,7 @@ void tst_QQuickWebEngineView::javascriptClipboard()
 }
 
 void tst_QQuickWebEngineView::setProfile() {
-    QSignalSpy loadSpy(webEngineView(), SIGNAL(loadingChanged(QQuickWebEngineLoadRequest*)));
+    QSignalSpy loadSpy(webEngineView(), SIGNAL(loadingChanged(QWebEngineLoadingInfo)));
     webEngineView()->setUrl(urlFromTestPath("html/basic_page.html"));
     QVERIFY(waitForLoadSucceeded(webEngineView()));
     QCOMPARE(loadSpy.size(), 2);
@@ -1164,17 +1177,17 @@ void tst_QQuickWebEngineView::setProfile() {
 void tst_QQuickWebEngineView::focusChild_data()
 {
     QTest::addColumn<QString>("interfaceName");
-    QTest::addColumn<QVector<QAccessible::Role>>("ancestorRoles");
+    QTest::addColumn<QList<QAccessible::Role>>("ancestorRoles");
 
-    QTest::newRow("QQuickWebEngineView") << QString("QQuickWebEngineView") << QVector<QAccessible::Role>({QAccessible::Client});
-    QTest::newRow("RenderWidgetHostViewQtDelegate") << QString("RenderWidgetHostViewQtDelegate") << QVector<QAccessible::Role>({QAccessible::Client});
-    QTest::newRow("QQuickView") << QString("QQuickView") << QVector<QAccessible::Role>({QAccessible::Window, QAccessible::Client /* view */});
+    QTest::newRow("QQuickWebEngineView") << QString("QQuickWebEngineView") << QList<QAccessible::Role>({QAccessible::Client});
+    QTest::newRow("RenderWidgetHostViewQtDelegate") << QString("RenderWidgetHostViewQtDelegate") << QList<QAccessible::Role>({QAccessible::Client});
+    QTest::newRow("QQuickView") << QString("QQuickView") << QList<QAccessible::Role>({QAccessible::Window, QAccessible::Client /* view */});
 }
 
 void tst_QQuickWebEngineView::focusChild()
 {
     auto traverseToWebDocumentAccessibleInterface = [](QAccessibleInterface *iface) -> QAccessibleInterface * {
-        QFETCH(QVector<QAccessible::Role>, ancestorRoles);
+        QFETCH(QList<QAccessible::Role>, ancestorRoles);
         for (int i = 0; i < ancestorRoles.size(); ++i) {
             if (iface->childCount() == 0 || iface->role() != ancestorRoles[i])
                 return nullptr;
@@ -1229,3 +1242,4 @@ static QByteArrayList params = QByteArrayList()
 
 W_QTEST_MAIN(tst_QQuickWebEngineView, params)
 #include "tst_qquickwebengineview.moc"
+#include "moc_quickutil.cpp"

@@ -33,6 +33,16 @@
 #include <QtRemoteObjects/qremoteobjectnode.h>
 #include <QtTest/QtTest>
 
+static QMap<int, MyPOD> int_map{{1, initialValue},
+                                {16, initialValue}};
+static ParentClassReplica::ActivePositions flags1 = ParentClassReplica::Position::position1;
+static ParentClassReplica::ActivePositions flags2 = ParentClassReplica::Position::position2
+                                                    | ParentClassReplica::Position::position3;
+static QMap<ParentClassReplica::ActivePositions, MyPOD> my_map{{flags1, initialValue},
+                                                               {flags2, initialValue}};
+static QHash<NS2::NamespaceEnum, MyPOD> my_hash{{NS2::NamespaceEnum::Alpha, initialValue},
+                                                {NS2::NamespaceEnum::Charlie, initialValue}};
+
 class tst_Client_Process : public QObject
 {
     Q_OBJECT
@@ -65,6 +75,11 @@ private Q_SLOTS:
             QCOMPARE(m_rep->nsEnum(), NS::Bravo);
             QCOMPARE(m_rep->ns2Enum(), NS2::NamespaceEnum::Bravo);
             QCOMPARE(m_rep->variant(), QVariant::fromValue(42.0f));
+            QCOMPARE(m_rep->simpleList(), QList<QString>() << "one" << "two");
+            QCOMPARE(m_rep->podList(), QList<MyPOD>() << initialValue << initialValue);
+            QCOMPARE(m_rep->intMap(), int_map);
+            QCOMPARE(m_rep->enumMap(), my_map);
+            QCOMPARE(m_rep->podHash(), my_hash);
         } else {
             QVERIFY(m_rep->subClass() == nullptr);
             QVERIFY(m_rep->tracks() == nullptr);
@@ -79,11 +94,11 @@ private Q_SLOTS:
         auto enumReply = m_rep->enumSlot(p, ParentClassReplica::bar);
         QVERIFY(enumReply.waitForFinished());
         QCOMPARE(enumReply.error(), QRemoteObjectPendingCall::NoError);
-        QCOMPARE(enumReply.returnValue(), QVariant::fromValue(ParentClassReplica::foobar));
+        QCOMPARE(enumReply.returnValue(), ParentClassReplica::foobar);
 
         qDebug() << "Verified expected initial states, sending start.";
         QSignalSpy enumSpy(m_rep.data(), &ParentClassReplica::enum2);
-        QSignalSpy advanceSpy(m_rep.data(), SIGNAL(advance()));
+        QSignalSpy advanceSpy(m_rep.data(), &ParentClassReplica::advance);
         auto reply = m_rep->start();
         QVERIFY(reply.waitForFinished());
         QVERIFY(reply.error() == QRemoteObjectPendingCall::NoError);

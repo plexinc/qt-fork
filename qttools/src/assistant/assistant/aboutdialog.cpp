@@ -81,14 +81,15 @@ QVariant AboutLabel::loadResource(int type, const QUrl &name)
     return QVariant();
 }
 
-void AboutLabel::setSource(const QUrl &url)
+void AboutLabel::doSetSource(const QUrl &url, QTextDocument::ResourceType type)
 {
     TRACE_OBJ
+    Q_UNUSED(type);
     if (url.isValid() && (!HelpViewer::isLocalUrl(url)
     || !HelpViewer::canOpenPage(url.path()))) {
         if (!QDesktopServices::openUrl(url)) {
             QMessageBox::warning(this, tr("Warning"),
-                tr("Unable to launch external application."), tr("OK"));
+                tr("Unable to launch external application."), QMessageBox::Close);
         }
     }
 }

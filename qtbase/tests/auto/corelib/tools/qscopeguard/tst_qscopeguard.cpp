@@ -1,7 +1,7 @@
 /****************************************************************************
 **
 ** Copyright (C) 2018 Klarälvdalens Datakonsult AB, a KDAB Group company, info@kdab.com, author Sérgio Martins <sergio.martins@kdab.com>
-** Copyright (C) 2019 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
@@ -27,7 +27,7 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QtCore/QScopeGuard>
 
 /*!
@@ -58,7 +58,7 @@ int intFunc()
     return 0;
 }
 
-Q_REQUIRED_RESULT int noDiscardFunc()
+[[nodiscard]] int noDiscardFunc()
 {
     return 0;
 }
@@ -100,9 +100,11 @@ void tst_QScopeGuard::construction()
     QScopeGuard fromFunctionPointer(&func);
     QScopeGuard fromNonVoidFunction(intFunc);
     QScopeGuard fromNoDiscardFunction(noDiscardFunc);
+#ifndef __apple_build_version__
     QScopeGuard fromStdFunction{std::function<void()>(func)};
     std::function<void()> stdFunction(func);
     QScopeGuard fromNamedStdFunction(stdFunction);
+#endif
 #else
     QSKIP("This test requires C++17 Class Template Argument Deduction support enabled in the compiler.");
 #endif

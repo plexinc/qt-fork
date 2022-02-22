@@ -20,6 +20,7 @@
 #include "base/no_destructor.h"
 #include "base/path_service.h"
 #include "base/stl_util.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
@@ -27,6 +28,7 @@
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/trace_event/trace_event.h"
+#include "base/version.h"
 #include "base/win/registry.h"
 #include "content/browser/renderer_host/dwrite_font_file_util_win.h"
 #include "content/browser/renderer_host/dwrite_font_proxy_impl_win.h"
@@ -94,7 +96,7 @@ bool ExtractCaseFoldedLocalizedStrings(
     // https://dxr.mozilla.org/mozilla-central/source/gfx/thebes/gfxDWriteFontList.cpp#90
     // so we'll assume that.
     localized_strings->push_back(base::UTF16ToUTF8(
-        base::i18n::FoldCase(base::string16(localized_name))));
+        base::i18n::FoldCase(base::WideToUTF16(localized_name))));
   }
   return true;
 }
@@ -204,7 +206,7 @@ std::string DWriteFontLookupTableBuilder::ComputePersistenceHash() {
   DCHECK(dwrite_version_info);
 
   std::string dwrite_version =
-      base::WideToUTF8(dwrite_version_info->product_version());
+      base::UTF16ToUTF8(dwrite_version_info->product_version());
 
   std::string to_hash = dwrite_version;
 
@@ -216,9 +218,14 @@ std::string DWriteFontLookupTableBuilder::ComputePersistenceHash() {
     to_hash.append(base::WideToUTF8(it.Value()));
   }
 
-  DCHECK(GetContentClient());
-  to_hash.append(
-      GetContentClient()->browser()->GetUserAgentMetadata().major_version);
+  // Recreating version_info::GetMajorVersion as it is not linkable here.
+  base::Version full_version = base::Version(
+      GetContentClient()->browser()->GetUserAgentMetadata().full_version);
+
+  // Version can be an empty string on trybots.
+  if (full_version.IsValid()) {
+    to_hash.append(base::NumberToString(full_version.components()[0]));
+  }
 
   uint32_t fonts_changed_hash = base::PersistentHash(to_hash);
   return std::to_string(fonts_changed_hash);
@@ -349,7 +356,7 @@ void DWriteFontLookupTableBuilder::
   scoped_refptr<base::SequencedTaskRunner> results_collection_task_runner =
       base::ThreadPool::CreateSequencedTaskRunner(
           {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
-           base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN});
+           base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN});
 
   results_collection_task_runner->PostTask(
       FROM_HERE,
@@ -483,8 +490,8 @@ DWriteFontLookupTableBuilder::ExtractPathAndNamesFromFamily(
     if (font->GetSimulations() != DWRITE_FONT_SIMULATIONS_NONE)
       continue;
 
-    std::set<base::string16> path_set;
-    std::set<base::string16> custom_font_path_set;
+    std::set<std::wstring> path_set;
+    std::set<std::wstring> custom_font_path_set;
     uint32_t ttc_index = 0;
     {
       base::ScopedBlockingCall scoped_blocking_call(

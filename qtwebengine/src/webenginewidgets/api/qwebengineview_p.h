@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtWebEngine module of the Qt Toolkit.
@@ -51,19 +51,24 @@
 // We mean it.
 //
 
-#include <QtWebEngineWidgets/qwebengineview.h>
-
+#include <QtWebEngineCore/private/qwebenginepage_p.h> // PageView
 #include <QtWidgets/qaccessiblewidget.h>
 
+#include "render_view_context_menu_qt.h"
+
 namespace QtWebEngineCore {
+class QWebEngineContextMenuRequest;
 class RenderWidgetHostViewQtDelegateWidget;
+class RenderWidgetHostViewQtDelegate;
 }
 
 QT_BEGIN_NAMESPACE
 
+class QMenu;
+class QPrinter;
 class QWebEngineView;
 
-class QWebEngineViewPrivate
+class QWebEngineViewPrivate : public PageView
 {
 public:
     Q_DECLARE_PUBLIC(QWebEngineView)
@@ -73,11 +78,43 @@ public:
     void widgetChanged(QtWebEngineCore::RenderWidgetHostViewQtDelegateWidget *oldWidget,
                        QtWebEngineCore::RenderWidgetHostViewQtDelegateWidget *newWidget);
 
-    QWebEngineViewPrivate();
+    void contextMenuRequested(QWebEngineContextMenuRequest *request) override;
+    QStringList chooseFiles(QWebEnginePage::FileSelectionMode mode, const QStringList &oldFiles,
+                            const QStringList &acceptedMimeTypes) override;
+    void
+    showColorDialog(QSharedPointer<QtWebEngineCore::ColorChooserController> controller) override;
+    bool showAuthorizationDialog(const QString &title, const QString &message) override;
+    void javaScriptAlert(const QUrl &url, const QString &msg) override;
+    bool javaScriptConfirm(const QUrl &url, const QString &msg) override;
+    bool javaScriptPrompt(const QUrl &url, const QString &msg, const QString &defaultValue,
+                          QString *result) override;
+    void setToolTip(const QString &toolTipText) override;
+    QtWebEngineCore::RenderWidgetHostViewQtDelegate *CreateRenderWidgetHostViewQtDelegate(
+            QtWebEngineCore::RenderWidgetHostViewQtDelegateClient *client) override;
+    QWebEngineContextMenuRequest *lastContextMenuRequest() const override;
+    QWebEnginePage *createPageForWindow(QWebEnginePage::WebWindowType type) override;
+    QObject *accessibilityParentObject() override;
+    void didPrintPage(QPrinter *&printer, QSharedPointer<QByteArray> result) override;
+    void didPrintPageToPdf(const QString &filePath, bool success) override;
+    void printRequested() override;
 
+    QWebEngineViewPrivate();
+    virtual ~QWebEngineViewPrivate();
+    static void bindPageAndView(QWebEnginePage *page, QWebEngineView *view);
+    static void bindPageAndWidget(QWebEnginePage *page,
+                                  QtWebEngineCore::RenderWidgetHostViewQtDelegateWidget *widget);
+    QIcon webActionIcon(QWebEnginePage::WebAction action);
+    void unhandledKeyEvent(QKeyEvent *event) override;
+    void focusContainer() override;
+    bool passOnFocus(bool reverse) override;
+    bool isEnabled() const override;
+    bool isVisible() const override;
+    QRect viewportRect() const override;
     QWebEnginePage *page;
+    QMetaObject::Connection m_pageConnection;
     bool m_dragEntered;
     mutable bool m_ownsPage;
+    QWebEngineContextMenuRequest *m_contextRequest;
 };
 
 #ifndef QT_NO_ACCESSIBILITY
@@ -94,9 +131,25 @@ public:
     int indexOfChild(const QAccessibleInterface *child) const override;
 
 private:
-    QWebEngineView *view() const { return static_cast<QWebEngineView*>(object()); }
+    QWebEngineView *view() const { return static_cast<QWebEngineView *>(object()); }
 };
 #endif // QT_NO_ACCESSIBILITY
+
+class QContextMenuBuilder : public QtWebEngineCore::RenderViewContextMenuQt
+{
+public:
+    QContextMenuBuilder(QWebEngineContextMenuRequest *request, QWebEngineView *view, QMenu *menu);
+
+private:
+    virtual bool hasInspector() override;
+    virtual bool isFullScreenMode() override;
+
+    virtual void addMenuItem(ContextMenuItem entry) override;
+    virtual bool isMenuItemEnabled(ContextMenuItem entry) override;
+
+    QWebEngineView *m_view;
+    QMenu *m_menu;
+};
 
 QT_END_NAMESPACE
 

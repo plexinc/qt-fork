@@ -49,7 +49,7 @@ QT_BEGIN_NAMESPACE
 class QGraphicsItem;
 QT_END_NAMESPACE
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class ChartPresenter;
 class AbstractDomain;
@@ -69,6 +69,7 @@ public:
     Qt::Alignment alignment() const { return m_alignment; }
     Qt::Orientation orientation() const { return m_orientation; }
     void setAlignment( Qt::Alignment alignment);
+    void setLabelsTruncated(bool labelsTruncated);
 
     virtual void initializeDomain(AbstractDomain *domain) = 0;
     virtual void initializeGraphics(QGraphicsItem *parent) = 0;
@@ -122,6 +123,9 @@ private:
     QFont m_labelsFont;
     int m_labelsAngle = 0;
 
+    bool m_labelsTruncated = false;
+    bool m_truncateLabels = true;
+
     bool m_titleVisible = true;
     QBrush m_titleBrush;
     QFont m_titleFont;
@@ -136,11 +140,13 @@ private:
 
     bool m_reverse = false;
 
+    Q_DECLARE_PUBLIC(QAbstractAxis);
     friend class QAbstractAxis;
+    friend class QColorAxisPrivate;
     friend class ChartDataSet;
     friend class ChartPresenter;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif

@@ -10,6 +10,7 @@
 
 #include "base/strings/string_util.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "ui/events/event.h"
 #include "ui/gfx/geometry/rect.h"
 
@@ -35,13 +36,17 @@ void DummyTextInputClient::SetCompositionText(
   composition_history_.push_back(composition);
 }
 
-void DummyTextInputClient::ConfirmCompositionText(bool keep_selection) {}
+uint32_t DummyTextInputClient::ConfirmCompositionText(bool keep_selection) {
+  return UINT32_MAX;
+}
 
 void DummyTextInputClient::ClearCompositionText() {
   SetCompositionText(CompositionText());
 }
 
-void DummyTextInputClient::InsertText(const base::string16& text) {
+void DummyTextInputClient::InsertText(
+    const base::string16& text,
+    InsertTextCursorBehavior cursor_behavior) {
   insert_text_history_.push_back(text);
 }
 
@@ -144,12 +149,28 @@ bool DummyTextInputClient::ShouldDoLearning() {
   return false;
 }
 
-#if defined(OS_WIN) || defined(OS_CHROMEOS)
+#if defined(OS_WIN) || BUILDFLAG(IS_CHROMEOS_ASH)
 bool DummyTextInputClient::SetCompositionFromExistingText(
     const gfx::Range& range,
     const std::vector<ui::ImeTextSpan>& ui_ime_text_spans) {
   return false;
 }
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+gfx::Range DummyTextInputClient::GetAutocorrectRange() const {
+  return autocorrect_range_;
+}
+gfx::Rect DummyTextInputClient::GetAutocorrectCharacterBounds() const {
+  return gfx::Rect();
+}
+
+bool DummyTextInputClient::SetAutocorrectRange(
+    const gfx::Range& range) {
+  autocorrect_range_ = range;
+  return true;
+}
+
 #endif
 
 #if defined(OS_WIN)

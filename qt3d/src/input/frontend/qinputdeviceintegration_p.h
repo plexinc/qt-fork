@@ -56,7 +56,9 @@
 #include <Qt3DCore/qnodeid.h>
 #include <QtCore/QObject>
 
+#ifndef Q_QDOC
 #include <Qt3DInput/private/qabstractphysicaldevicebackendnode_p.h>
+#endif
 
 QT_BEGIN_NAMESPACE
 
@@ -90,9 +92,9 @@ protected:
 public:
     void initialize(Qt3DInput::QInputAspect *aspect);
 
-    virtual QVector<Qt3DCore::QAspectJobPtr> jobsToExecute(qint64 time) = 0;
+    virtual std::vector<Qt3DCore::QAspectJobPtr> jobsToExecute(qint64 time) = 0;
     virtual QAbstractPhysicalDevice *createPhysicalDevice(const QString &name) = 0;
-    virtual QVector<Qt3DCore::QNodeId> physicalDevices() const = 0;
+    virtual QList<Qt3DCore::QNodeId> physicalDevices() const = 0;
     virtual QAbstractPhysicalDeviceBackendNode *physicalDevice(Qt3DCore::QNodeId id) const = 0;
     virtual QStringList deviceNames() const = 0;
 

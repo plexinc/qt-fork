@@ -7,8 +7,6 @@
 #ifndef XFA_FXFA_CXFA_FFFIELD_H_
 #define XFA_FXFA_CXFA_FFFIELD_H_
 
-#include <memory>
-
 #include "xfa/fwl/cfwl_widget.h"
 #include "xfa/fwl/ifwl_widgetdelegate.h"
 #include "xfa/fxfa/cxfa_ffpageview.h"
@@ -24,15 +22,16 @@ class CXFA_FFField : public CXFA_FFWidget, public IFWL_WidgetDelegate {
  public:
   enum ShapeOption { kSquareShape = 0, kRoundShape };
 
-  explicit CXFA_FFField(CXFA_Node* pNode);
+  CONSTRUCT_VIA_MAKE_GARBAGE_COLLECTED;
   ~CXFA_FFField() override;
 
   virtual CXFA_FFDropDown* AsDropDown();
 
   // CXFA_FFWidget:
+  void Trace(cppgc::Visitor* visitor) const override;
   CXFA_FFField* AsField() override;
   CFX_RectF GetBBox(FocusOption focus) override;
-  void RenderWidget(CXFA_Graphics* pGS,
+  void RenderWidget(CFGAS_GEGraphics* pGS,
                     const CFX_Matrix& matrix,
                     HighlightOption highlight) override;
   bool IsLoaded() override;
@@ -48,8 +47,8 @@ class CXFA_FFField : public CXFA_FFWidget, public IFWL_WidgetDelegate {
   bool OnLButtonDblClk(uint32_t dwFlags, const CFX_PointF& point) override;
   bool OnMouseMove(uint32_t dwFlags, const CFX_PointF& point) override;
   bool OnMouseWheel(uint32_t dwFlags,
-                    int16_t zDelta,
-                    const CFX_PointF& point) override;
+                    const CFX_PointF& point,
+                    const CFX_Vector& delta) override;
   bool OnRButtonDown(uint32_t dwFlags, const CFX_PointF& point) override;
   bool OnRButtonUp(uint32_t dwFlags, const CFX_PointF& point) override;
   bool OnRButtonDblClk(uint32_t dwFlags, const CFX_PointF& point) override;
@@ -63,35 +62,37 @@ class CXFA_FFField : public CXFA_FFWidget, public IFWL_WidgetDelegate {
   // IFWL_WidgetDelegate:
   void OnProcessMessage(CFWL_Message* pMessage) override;
   void OnProcessEvent(CFWL_Event* pEvent) override;
-  void OnDrawWidget(CXFA_Graphics* pGraphics,
+  void OnDrawWidget(CFGAS_GEGraphics* pGraphics,
                     const CFX_Matrix& matrix) override;
 
   void UpdateFWL();
   uint32_t UpdateUIProperty();
 
  protected:
+  explicit CXFA_FFField(CXFA_Node* pNode);
+
   bool PtInActiveRect(const CFX_PointF& point) override;
 
   virtual void SetFWLRect();
-  void SetFWLThemeProvider();
+  virtual bool CommitData();
+  virtual bool IsDataChanged();
+
   CFWL_Widget* GetNormalWidget();
   const CFWL_Widget* GetNormalWidget() const;
-  void SetNormalWidget(std::unique_ptr<CFWL_Widget> widget);
+  void SetNormalWidget(CFWL_Widget* widget);
   CFX_PointF FWLToClient(const CFX_PointF& point);
   void LayoutCaption();
-  void RenderCaption(CXFA_Graphics* pGS, CFX_Matrix* pMatrix);
+  void RenderCaption(CFGAS_GEGraphics* pGS, CFX_Matrix* pMatrix);
 
   int32_t CalculateOverride();
   int32_t CalculateNode(CXFA_Node* pNode);
   bool ProcessCommittedData();
-  virtual bool CommitData();
-  virtual bool IsDataChanged();
-  void DrawHighlight(CXFA_Graphics* pGS,
+  void DrawHighlight(CFGAS_GEGraphics* pGS,
                      CFX_Matrix* pMatrix,
                      HighlightOption highlight,
                      ShapeOption shape);
-  void DrawFocus(CXFA_Graphics* pGS, CFX_Matrix* pMatrix);
-  void SendMessageToFWLWidget(std::unique_ptr<CFWL_Message> pMessage);
+  void DrawFocus(CFGAS_GEGraphics* pGS, CFX_Matrix* pMatrix);
+  void SendMessageToFWLWidget(CFWL_Message* pMessage);
   void CapPlacement();
   void CapTopBottomPlacement(const CXFA_Margin* margin,
                              const CFX_RectF& rtWidget,
@@ -101,11 +102,11 @@ class CXFA_FFField : public CXFA_FFWidget, public IFWL_WidgetDelegate {
                              XFA_AttributeValue iCapPlacement);
   void SetEditScrollOffset();
 
-  CFX_RectF m_rtUI;
-  CFX_RectF m_rtCaption;
+  CFX_RectF m_UIRect;
+  CFX_RectF m_CaptionRect;
 
  private:
-  std::unique_ptr<CFWL_Widget> m_pNormalWidget;
+  cppgc::Member<CFWL_Widget> m_pNormalWidget;
 };
 
 inline CXFA_FFDropDown* ToDropDown(CXFA_FFField* field) {

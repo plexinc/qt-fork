@@ -33,7 +33,7 @@
 #include <QtCore/QStringList>
 #include <QtCharts/QAbstractBarSeries>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class QStackedBarSeriesPrivate;
 
@@ -43,13 +43,13 @@ class Q_CHARTS_EXPORT QStackedBarSeries : public QAbstractBarSeries
 public:
     explicit QStackedBarSeries(QObject *parent = nullptr);
     ~QStackedBarSeries();
-    QAbstractSeries::SeriesType type() const;
+    QAbstractSeries::SeriesType type() const override;
 
 private:
     Q_DECLARE_PRIVATE(QStackedBarSeries)
     Q_DISABLE_COPY(QStackedBarSeries)
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // QSTACKEDBARSERIES_H

@@ -34,6 +34,7 @@
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
+#include "third_party/blink/renderer/platform/heap/heap_test_utilities.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 #include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
@@ -66,7 +67,7 @@ void RunPendingTasks() {
 
   // The following runloop can execute non-nested tasks with heap pointers
   // living on stack, so we force both Oilpan and Unified GC to visit the stack.
-  ThreadState::HeapPointersOnStackScope scan_stack(ThreadState::Current());
+  HeapPointersOnStackScope scan_stack(ThreadState::Current());
   EnterRunLoop();
 }
 
@@ -122,6 +123,12 @@ String AccessibilityTestDataPath(const String& relative_path) {
           .Append(
               FILE_PATH_LITERAL("renderer/modules/accessibility/testing/data"))
           .Append(WebStringToFilePath(relative_path)));
+}
+
+base::FilePath HyphenationDictionaryDir() {
+  base::FilePath exe_dir;
+  base::PathService::Get(base::DIR_EXE, &exe_dir);
+  return exe_dir.AppendASCII("gen/hyphen-data");
 }
 
 scoped_refptr<SharedBuffer> ReadFromFile(const String& path) {

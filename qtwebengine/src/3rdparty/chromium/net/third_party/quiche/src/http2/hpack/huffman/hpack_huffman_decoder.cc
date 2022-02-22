@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/http2/hpack/huffman/hpack_huffman_decoder.h"
+#include "http2/hpack/huffman/hpack_huffman_decoder.h"
 
 #include <bitset>
 #include <limits>
 
-#include "net/third_party/quiche/src/http2/platform/api/http2_logging.h"
+#include "http2/platform/api/http2_logging.h"
 
 // Terminology:
 //
@@ -25,8 +25,6 @@
 //             (uint8 value 0x30), which is the first of the symbols whose code
 //             is 5 bits long, and the last canonical is EOS, which is the last
 //             of the symbols whose code is 30 bits long.
-
-// TODO(jamessynge): Remove use of binary literals, that is a C++ 14 feature.
 
 namespace http2 {
 namespace {
@@ -356,7 +354,7 @@ void HuffmanBitBuffer::Reset() {
   count_ = 0;
 }
 
-size_t HuffmanBitBuffer::AppendBytes(quiche::QuicheStringPiece input) {
+size_t HuffmanBitBuffer::AppendBytes(absl::string_view input) {
   HuffmanAccumulatorBitCount free_cnt = free_count();
   size_t bytes_available = input.size();
   if (free_cnt < 8 || bytes_available == 0) {
@@ -381,7 +379,7 @@ HuffmanAccumulatorBitCount HuffmanBitBuffer::free_count() const {
 }
 
 void HuffmanBitBuffer::ConsumeBits(HuffmanAccumulatorBitCount code_length) {
-  DCHECK_LE(code_length, count_);
+  QUICHE_DCHECK_LE(code_length, count_);
   accumulator_ <<= code_length;
   count_ -= code_length;
 }
@@ -395,7 +393,7 @@ bool HuffmanBitBuffer::InputProperlyTerminated() const {
     HuffmanAccumulator expected = ~(~HuffmanAccumulator() >> cnt);
     // We expect all the bits below the high order |cnt| bits of accumulator_
     // to be cleared as we perform left shift operations while decoding.
-    DCHECK_EQ(accumulator_ & ~expected, 0u)
+    QUICHE_DCHECK_EQ(accumulator_ & ~expected, 0u)
         << "\n  expected: " << HuffmanAccumulatorBitSet(expected) << "\n  "
         << *this;
     return accumulator_ == expected;
@@ -414,8 +412,7 @@ HpackHuffmanDecoder::HpackHuffmanDecoder() = default;
 
 HpackHuffmanDecoder::~HpackHuffmanDecoder() = default;
 
-bool HpackHuffmanDecoder::Decode(quiche::QuicheStringPiece input,
-                                 std::string* output) {
+bool HpackHuffmanDecoder::Decode(absl::string_view input, std::string* output) {
   HTTP2_DVLOG(1) << "HpackHuffmanDecoder::Decode";
 
   // Fill bit_buffer_ from input.
@@ -428,7 +425,7 @@ bool HpackHuffmanDecoder::Decode(quiche::QuicheStringPiece input,
       // code of 5, 6 or 7 bits.
       uint8_t short_code =
           bit_buffer_.value() >> (kHuffmanAccumulatorBitCount - 7);
-      DCHECK_LT(short_code, 128);
+      QUICHE_DCHECK_LT(short_code, 128);
       if (short_code < kShortCodeTableSize) {
         ShortCodeInfo info = kShortCodeTable[short_code];
         bit_buffer_.ConsumeBits(info.length);
@@ -452,8 +449,8 @@ bool HpackHuffmanDecoder::Decode(quiche::QuicheStringPiece input,
 
     PrefixInfo prefix_info = PrefixToInfo(code_prefix);
     HTTP2_DVLOG(3) << "prefix_info: " << prefix_info;
-    DCHECK_LE(kMinCodeBitCount, prefix_info.code_length);
-    DCHECK_LE(prefix_info.code_length, kMaxCodeBitCount);
+    QUICHE_DCHECK_LE(kMinCodeBitCount, prefix_info.code_length);
+    QUICHE_DCHECK_LE(prefix_info.code_length, kMaxCodeBitCount);
 
     if (prefix_info.code_length <= bit_buffer_.count()) {
       // We have enough bits for one code.
@@ -474,7 +471,7 @@ bool HpackHuffmanDecoder::Decode(quiche::QuicheStringPiece input,
     // Append to it as many bytes as are available AND fit.
     size_t byte_count = bit_buffer_.AppendBytes(input);
     if (byte_count == 0) {
-      DCHECK_EQ(input.size(), 0u);
+      QUICHE_DCHECK_EQ(input.size(), 0u);
       return true;
     }
     input.remove_prefix(byte_count);

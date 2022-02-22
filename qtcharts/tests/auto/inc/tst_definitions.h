@@ -34,17 +34,6 @@
 #include <QtTest/QtTest>
 #include <QtWidgets/QPushButton>
 
-QT_BEGIN_NAMESPACE
-namespace QTest
-{
-    // This was deprecated in Qt5. This is a small hack for the sake of compatibility.
-    inline static bool qWaitForWindowShown(QWidget *window)
-    {
-        return QTest::qWaitForWindowExposed(window);
-    }
-}
-QT_END_NAMESPACE
-
 #define TRY_COMPARE(actual, expected) { \
     do { \
         const int timeout(1000); \
@@ -65,7 +54,7 @@ QT_END_NAMESPACE
             QPushButton b; \
             b.resize(120, 100); \
             b.show(); \
-            QTest::qWaitForWindowShown(&b); \
+            QVERIFY(QTest::qWaitForWindowExposed(&b)); \
             QSignalSpy spy(&b, SIGNAL(clicked())); \
             QTest::mouseClick(&b, Qt::LeftButton, {}, b.rect().center()); \
             QApplication::processEvents(); \
@@ -104,12 +93,12 @@ static inline bool isPolarTest()
     return isPolar;
 }
 
-static inline QtCharts::QChart *newQChartOrQPolarChart()
+static inline QChart *newQChartOrQPolarChart()
 {
     if (isPolarTest())
-        return new QtCharts::QPolarChart();
+        return new QPolarChart();
     else
-        return new QtCharts::QChart();
+        return new QChart();
 }
 
 

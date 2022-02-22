@@ -39,7 +39,6 @@
 
 namespace blink {
 
-class V0CustomElementSyncMicrotaskQueue;
 class Document;
 class HTMLImportChild;
 class HTMLImportsController;
@@ -50,8 +49,6 @@ class HTMLImportsController;
 class HTMLImportLoader final : public GarbageCollected<HTMLImportLoader>,
                                public RawResourceClient,
                                public DocumentParserClient {
-  USING_GARBAGE_COLLECTED_MIXIN(HTMLImportLoader);
-
  public:
   enum State {
     kStateLoading,
@@ -85,9 +82,7 @@ class HTMLImportLoader final : public GarbageCollected<HTMLImportLoader>,
   // loading. Called by Document::DidRemoveAllPendingStylesheets.
   void DidRemoveAllPendingStylesheets();
 
-  V0CustomElementSyncMicrotaskQueue* MicrotaskQueue() const;
-
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
  private:
   // RawResourceClient overrides:
@@ -115,7 +110,6 @@ class HTMLImportLoader final : public GarbageCollected<HTMLImportLoader>,
   HeapVector<Member<HTMLImportChild>> imports_;
   State state_;
   Member<Document> document_;
-  Member<V0CustomElementSyncMicrotaskQueue> microtask_queue_;
 };
 
 }  // namespace blink

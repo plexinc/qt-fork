@@ -6,12 +6,13 @@
 #define UI_OZONE_PLATFORM_WAYLAND_HOST_WAYLAND_INPUT_METHOD_CONTEXT_H_
 
 #include <memory>
-#include <string>
+#include <vector>
 
 #include "base/macros.h"
+#include "base/strings/string_piece.h"
 #include "ui/base/ime/character_composer.h"
 #include "ui/base/ime/linux/linux_input_method_context.h"
-#include "ui/events/ozone/evdev/event_dispatch_callback.h"
+#include "ui/ozone/platform/wayland/host/wayland_keyboard.h"
 #include "ui/ozone/platform/wayland/host/zwp_text_input_wrapper.h"
 
 namespace ui {
@@ -22,10 +23,12 @@ class ZWPTextInputWrapper;
 class WaylandInputMethodContext : public LinuxInputMethodContext,
                                   public ZWPTextInputWrapperClient {
  public:
+  class Delegate;
+
   WaylandInputMethodContext(WaylandConnection* connection,
-                            LinuxInputMethodContextDelegate* delegate,
-                            bool is_simple,
-                            const EventDispatchCallback& callback);
+                            WaylandKeyboard::Delegate* key_delegate,
+                            LinuxInputMethodContextDelegate* ime_delegate,
+                            bool is_simple);
   ~WaylandInputMethodContext() override;
 
   void Init(bool initialize_for_testing = false);
@@ -40,20 +43,24 @@ class WaylandInputMethodContext : public LinuxInputMethodContext,
   void Blur() override;
 
   // ui::ZWPTextInputWrapperClient
-  void OnPreeditString(const std::string& text, int preedit_cursor) override;
-  void OnCommitString(const std::string& text) override;
+  void OnPreeditString(base::StringPiece text,
+                       const std::vector<SpanStyle>& spans,
+                       int32_t preedit_cursor) override;
+  void OnCommitString(base::StringPiece text) override;
   void OnDeleteSurroundingText(int32_t index, uint32_t length) override;
-  void OnKeysym(uint32_t key, uint32_t state, uint32_t modifiers) override;
+  void OnKeysym(uint32_t keysym, uint32_t state, uint32_t modifiers) override;
 
  private:
   void UpdatePreeditText(const base::string16& preedit_text);
 
-  WaylandConnection* connection_ = nullptr;  // TODO(jani) Handle this better
+  WaylandConnection* const connection_;  // TODO(jani) Handle this better
 
-  // Delegate interface back to IME code in ui.
-  LinuxInputMethodContextDelegate* delegate_;
+  // Delegate key events to be injected into PlatformEvent system.
+  WaylandKeyboard::Delegate* const key_delegate_;
+
+  // Delegate IME-specific events to be handled by //ui code.
+  LinuxInputMethodContextDelegate* const ime_delegate_;
   bool is_simple_;
-  EventDispatchCallback callback_;
 
   std::unique_ptr<ZWPTextInputWrapper> text_input_;
 

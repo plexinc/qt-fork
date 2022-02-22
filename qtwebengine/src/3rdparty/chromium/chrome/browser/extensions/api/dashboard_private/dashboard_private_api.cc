@@ -15,7 +15,6 @@
 #include "content/public/browser/storage_partition.h"
 #include "extensions/common/extension.h"
 #include "net/base/load_flags.h"
-#include "net/url_request/url_request.h"
 #include "url/gurl.h"
 
 namespace extensions {
@@ -137,7 +136,7 @@ void DashboardPrivateShowPermissionPromptForDelegatedInstallFunction::
 
   install_prompt_.reset(new ExtensionInstallPrompt(web_contents));
   install_prompt_->ShowDialog(
-      base::Bind(
+      base::BindOnce(
           &DashboardPrivateShowPermissionPromptForDelegatedInstallFunction::
               OnInstallPromptDone,
           this),

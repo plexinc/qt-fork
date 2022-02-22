@@ -40,25 +40,25 @@
 // Camera snippets
 // Extracted from src/multimedia/doc/snippets/multimedia-snippets/camera.cpp
 #include "qcamera.h"
-#include "qcameraviewfinder.h"
-#include "qcameraimagecapture.h"
+#include "qvideowidget.h"
+#include "qimagecapture.h"
 
 /* Globals so that everything is consistent. */
 QCamera *camera = 0;
 QCameraViewfinder *viewfinder = 0;
-QCameraImageCapture *imageCapture = 0;
+QImageCapture *imageCapture = 0;
 
 void camera_blah()
 {
     //! [Camera]
     camera = new QCamera;
 
-    viewfinder = new QCameraViewfinder();
+    viewfinder = new QVideoWidget();
     viewfinder->show();
 
     camera->setViewfinder(viewfinder);
 
-    imageCapture = new QCameraImageCapture(camera);
+    imageCapture = new QImageCapture(camera);
 
     camera->setCaptureMode(QCamera::CaptureStillImage);
     camera->start();

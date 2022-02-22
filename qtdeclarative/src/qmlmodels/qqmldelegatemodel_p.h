@@ -86,7 +86,7 @@ class Q_QMLMODELS_PRIVATE_EXPORT QQmlDelegateModel : public QQmlInstanceModel, p
     Q_PROPERTY(QVariant rootIndex READ rootIndex WRITE setRootIndex NOTIFY rootIndexChanged)
     Q_CLASSINFO("DefaultProperty", "delegate")
     QML_NAMED_ELEMENT(DelegateModel)
-    QML_ADDED_IN_MINOR_VERSION(1)
+    QML_ADDED_IN_VERSION(2, 1)
     QML_ATTACHED(QQmlDelegateModelAttached)
     Q_INTERFACES(QQmlParserStatus)
 
@@ -152,6 +152,9 @@ private Q_SLOTS:
     void _q_itemsMoved(int from, int to, int count);
     void _q_modelReset();
     void _q_rowsInserted(const QModelIndex &,int,int);
+    void _q_columnsInserted(const QModelIndex &, int, int);
+    void _q_columnsRemoved(const QModelIndex &, int, int);
+    void _q_columnsMoved(const QModelIndex &, int, int, const QModelIndex &, int);
     void _q_rowsAboutToBeRemoved(const QModelIndex &parent, int begin, int end);
     void _q_rowsRemoved(const QModelIndex &,int,int);
     void _q_rowsMoved(const QModelIndex &, int, int, const QModelIndex &, int);
@@ -172,7 +175,7 @@ class Q_QMLMODELS_PRIVATE_EXPORT QQmlDelegateModelGroup : public QObject
     Q_PROPERTY(QString name READ name WRITE setName NOTIFY nameChanged)
     Q_PROPERTY(bool includeByDefault READ defaultInclude WRITE setDefaultInclude NOTIFY defaultIncludeChanged)
     QML_NAMED_ELEMENT(DelegateModelGroup)
-    QML_ADDED_IN_MINOR_VERSION(1)
+    QML_ADDED_IN_VERSION(2, 1)
 public:
     QQmlDelegateModelGroup(QObject *parent = nullptr);
     QQmlDelegateModelGroup(const QString &name, QQmlDelegateModel *model, int compositorType, QObject *parent = nullptr);

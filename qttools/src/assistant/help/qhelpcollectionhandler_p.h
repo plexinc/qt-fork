@@ -60,12 +60,12 @@
 #include <QtSql/QSqlQuery>
 
 #include "qhelpdbreader_p.h"
+#include "qhelplink.h"
 
 QT_BEGIN_NAMESPACE
 
 class QVersionNumber;
 class QHelpFilterData;
-struct QHelpLink;
 
 class QHelpCollectionHandler : public QObject
 {
@@ -147,20 +147,19 @@ public:
     QList<QStringList> filterAttributeSets(const QString &namespaceName) const;
 
     // use linksForIdentifier(const QString &, const QString &) instead
-    QMap<QString, QUrl> linksForIdentifier(const QString &id,
-                                           const QStringList &filterAttributes) const;
+    QMultiMap<QString, QUrl> linksForIdentifier(const QString &id,
+                                                const QStringList &filterAttributes) const;
 
     // use linksForKeyword(const QString &, const QString &) instead
-    QMap<QString, QUrl> linksForKeyword(const QString &keyword,
-                                        const QStringList &filterAttributes) const;
+    QMultiMap<QString, QUrl> linksForKeyword(const QString &keyword,
+                                             const QStringList &filterAttributes) const;
 
     // use documentsForIdentifier instead
-    QMap<QString, QUrl> linksForIdentifier(const QString &id,
-                                           const QString &filterName) const;
+    QMultiMap<QString, QUrl> linksForIdentifier(const QString &id, const QString &filterName) const;
 
     // use documentsForKeyword instead
-    QMap<QString, QUrl> linksForKeyword(const QString &keyword,
-                                        const QString &filterName) const;
+    QMultiMap<QString, QUrl> linksForKeyword(const QString &keyword,
+                                             const QString &filterName) const;
     // *** Legacy block end ***
 
     QStringList filters() const;
@@ -222,17 +221,16 @@ signals:
 
 private:
     // legacy stuff
-    QMap<QString, QUrl> linksForField(const QString &fieldName,
-                                      const QString &fieldValue,
-                                      const QStringList &filterAttributes) const;
+    QMultiMap<QString, QUrl> linksForField(const QString &fieldName,
+                                           const QString &fieldValue,
+                                           const QStringList &filterAttributes) const;
     QList<QHelpLink> documentsForField(const QString &fieldName,
                                        const QString &fieldValue,
                                        const QStringList &filterAttributes) const;
 
     QString namespaceVersion(const QString &namespaceName) const;
-    QMap<QString, QUrl> linksForField(const QString &fieldName,
-                                      const QString &fieldValue,
-                                      const QString &filterName) const;
+    QMultiMap<QString, QUrl> linksForField(const QString &fieldName, const QString &fieldValue,
+                                           const QString &filterName) const;
     QList<QHelpLink> documentsForField(const QString &fieldName,
                                        const QString &fieldValue,
                                        const QString &filterName) const;
@@ -259,7 +257,7 @@ private:
     QString m_connectionName;
     QSqlQuery *m_query = nullptr;
     bool m_vacuumScheduled = false;
-    bool m_readOnly = false;
+    bool m_readOnly = true;
 };
 
 QT_END_NAMESPACE

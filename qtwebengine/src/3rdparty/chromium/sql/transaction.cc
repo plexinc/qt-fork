@@ -4,13 +4,12 @@
 
 #include "sql/transaction.h"
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "sql/database.h"
 
 namespace sql {
 
-Transaction::Transaction(Database* database)
-    : database_(database), is_open_(false) {}
+Transaction::Transaction(Database* database) : database_(database) {}
 
 Transaction::~Transaction() {
   if (is_open_)

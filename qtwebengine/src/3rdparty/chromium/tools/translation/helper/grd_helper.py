@@ -34,7 +34,9 @@ TAGS_TO_IGNORE = (
 
 
 def GetGrdMessages(grd_path_or_string, dir_path):
-  """Load the grd file and return a dict of message ids to messages."""
+  """Load the grd file and return a dict of message ids to messages.
+
+  Ignores non-translateable messages."""
   doc = grit.grd_reader.Parse(
       grd_path_or_string,
       dir_path,
@@ -46,6 +48,7 @@ def GetGrdMessages(grd_path_or_string, dir_path):
   return {
       msg.attrs['name']: msg
       for msg in doc.GetChildrenOfType(grit.node.message.MessageNode)
+      if msg.IsTranslateable() and not msg.IsAccessibilityWithNoUI()
   }
 
 
@@ -68,7 +71,7 @@ def GetGrdpMessagesFromString(grdp_string):
   replaced_string = grdp_string.replace(
       '<grit-part>',
       """<grit base_dir="." latest_public_release="1" current_release="1">
-            <release seq="1" allow_pseudo="false">
+            <release seq="1">
               <messages fallback_to_english="true">
         """)
   replaced_string = replaced_string.replace(

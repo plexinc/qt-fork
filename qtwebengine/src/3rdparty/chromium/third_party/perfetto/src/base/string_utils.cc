@@ -16,7 +16,13 @@
 
 #include "perfetto/ext/base/string_utils.h"
 
+#include <inttypes.h>
+#include <locale.h>
 #include <string.h>
+
+#if PERFETTO_BUILDFLAG(PERFETTO_OS_APPLE)
+#include <xlocale.h>
+#endif
 
 #include <algorithm>
 
@@ -24,6 +30,54 @@
 
 namespace perfetto {
 namespace base {
+
+// Locale-independant as possible version of strtod.
+double StrToD(const char* nptr, char** endptr) {
+#if PERFETTO_BUILDFLAG(PERFETTO_OS_ANDROID) || \
+    PERFETTO_BUILDFLAG(PERFETTO_OS_LINUX) ||   \
+    PERFETTO_BUILDFLAG(PERFETTO_OS_APPLE)
+  static auto c_locale = newlocale(LC_ALL, "C", nullptr);
+  return strtod_l(nptr, endptr, c_locale);
+#else
+  return strtod(nptr, endptr);
+#endif
+}
+
+std::string QuoteAndEscapeControlCodes(const std::string& raw) {
+  std::string ret;
+  for (auto it = raw.cbegin(); it != raw.cend(); it++) {
+    switch (*it) {
+      case '\\':
+        ret += "\\\\";
+        break;
+      case '"':
+        ret += "\\\"";
+        break;
+      case '/':
+        ret += "\\/";
+        break;
+      case '\b':
+        ret += "\\b";
+        break;
+      case '\f':
+        ret += "\\f";
+        break;
+      case '\n':
+        ret += "\\n";
+        break;
+      case '\r':
+        ret += "\\r";
+        break;
+      case '\t':
+        ret += "\\t";
+        break;
+      default:
+        ret += *it;
+        break;
+    }
+  }
+  return '"' + ret + '"';
+}
 
 bool StartsWith(const std::string& str, const std::string& prefix) {
   return str.compare(0, prefix.length(), prefix) == 0;
@@ -40,7 +94,7 @@ bool Contains(const std::string& haystack, const std::string& needle) {
 }
 
 size_t Find(const StringView& needle, const StringView& haystack) {
-  if (needle.size() == 0)
+  if (needle.empty())
     return 0;
   if (needle.size() > haystack.size())
     return std::string::npos;
@@ -119,13 +173,37 @@ std::string ToHex(const char* data, size_t size) {
   std::string hex(2 * size + 1, 'x');
   for (size_t i = 0; i < size; ++i) {
     // snprintf prints 3 characters, the two hex digits and a null byte. As we
-    // write left to write, we keep overwriting the nullbytes, except for the
+    // write left to right, we keep overwriting the nullbytes, except for the
     // last call to snprintf.
     snprintf(&(hex[2 * i]), 3, "%02hhx", data[i]);
   }
   // Remove the trailing nullbyte produced by the last snprintf.
   hex.resize(2 * size);
   return hex;
+}
+
+std::string IntToHexString(uint32_t number) {
+  size_t max_size = 11;  // Max uint32 is 0xFFFFFFFF + 1 for null byte.
+  std::string buf;
+  buf.resize(max_size);
+  auto final_size = snprintf(&buf[0], max_size, "0x%02x", number);
+  PERFETTO_DCHECK(final_size >= 0);
+  buf.resize(static_cast<size_t>(final_size));  // Cuts off the final null byte.
+  return buf;
+}
+
+std::string Uint64ToHexString(uint64_t number) {
+  return "0x" + Uint64ToHexStringNoPrefix(number);
+}
+
+std::string Uint64ToHexStringNoPrefix(uint64_t number) {
+  size_t max_size = 17;  // Max uint64 is FFFFFFFFFFFFFFFF + 1 for null byte.
+  std::string buf;
+  buf.resize(max_size);
+  auto final_size = snprintf(&buf[0], max_size, "%" PRIx64 "", number);
+  PERFETTO_DCHECK(final_size >= 0);
+  buf.resize(static_cast<size_t>(final_size));  // Cuts off the final null byte.
+  return buf;
 }
 
 std::string StripChars(const std::string& str,
@@ -137,6 +215,23 @@ std::string StripChars(const std::string& str,
   for (const char* c = strpbrk(start, remove); c; c = strpbrk(c + 1, remove))
     res[static_cast<uintptr_t>(c - start)] = replacement;
   return res;
+}
+
+std::string ReplaceAll(std::string str,
+                       const std::string& to_replace,
+                       const std::string& replacement) {
+  PERFETTO_CHECK(!to_replace.empty());
+  size_t pos = 0;
+  while ((pos = str.find(to_replace, pos)) != std::string::npos) {
+    str.replace(pos, to_replace.length(), replacement);
+    pos += replacement.length();
+  }
+  return str;
+}
+
+std::string TrimLeading(const std::string& str) {
+  size_t idx = str.find_first_not_of(' ');
+  return idx == std::string::npos ? str : str.substr(idx);
 }
 
 }  // namespace base

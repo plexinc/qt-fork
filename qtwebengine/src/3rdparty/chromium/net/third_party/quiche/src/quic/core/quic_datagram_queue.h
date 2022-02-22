@@ -5,11 +5,13 @@
 #ifndef QUICHE_QUIC_CORE_QUIC_DATAGRAM_QUEUE_H_
 #define QUICHE_QUIC_CORE_QUIC_DATAGRAM_QUEUE_H_
 
-#include "net/third_party/quiche/src/quic/core/quic_circular_deque.h"
-#include "net/third_party/quiche/src/quic/core/quic_time.h"
-#include "net/third_party/quiche/src/quic/core/quic_types.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_mem_slice.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_optional.h"
+#include <memory>
+
+#include "absl/types/optional.h"
+#include "quic/core/quic_circular_deque.h"
+#include "quic/core/quic_time.h"
+#include "quic/core/quic_types.h"
+#include "quic/platform/api/quic_mem_slice.h"
 
 namespace quic {
 
@@ -20,8 +22,25 @@ class QuicSession;
 // amount of time, and deleted after that time passes.
 class QUIC_EXPORT_PRIVATE QuicDatagramQueue {
  public:
+  // An interface used to monitor events on the associated `QuicDatagramQueue`.
+  class QUIC_EXPORT_PRIVATE Observer {
+   public:
+    virtual ~Observer() = default;
+
+    // Called when a datagram in the associated queue is sent or discarded.
+    // Identity information for the datagram is not given, because the sending
+    // and discarding order is always first-in-first-out.
+    // This function is called synchronously in `QuicDatagramQueue` methods.
+    // `status` is nullopt when the datagram is dropped due to being in the
+    // queue for too long.
+    virtual void OnDatagramProcessed(absl::optional<MessageStatus> status) = 0;
+  };
+
   // |session| is not owned and must outlive this object.
   explicit QuicDatagramQueue(QuicSession* session);
+
+  // |session| is not owned and must outlive this object.
+  QuicDatagramQueue(QuicSession* session, std::unique_ptr<Observer> observer);
 
   // Adds the datagram to the end of the queue.  May send it immediately; if
   // not, MESSAGE_STATUS_BLOCKED is returned.
@@ -29,7 +48,7 @@ class QUIC_EXPORT_PRIVATE QuicDatagramQueue {
 
   // Attempts to send a single datagram from the queue.  Returns the result of
   // SendMessage(), or nullopt if there were no unexpired datagrams to send.
-  quiche::QuicheOptional<MessageStatus> TrySendingNextDatagram();
+  absl::optional<MessageStatus> TrySendingNextDatagram();
 
   // Sends all of the unexpired datagrams until either the connection becomes
   // write-blocked or the queue is empty.  Returns the number of datagrams sent.
@@ -62,6 +81,7 @@ class QUIC_EXPORT_PRIVATE QuicDatagramQueue {
 
   QuicTime::Delta max_time_in_queue_ = QuicTime::Delta::Zero();
   QuicCircularDeque<Datagram> queue_;
+  std::unique_ptr<Observer> observer_;
 };
 
 }  // namespace quic

@@ -41,13 +41,13 @@
 #define QT3DCORE_QSKELETON_H
 
 #include <Qt3DCore/qabstractskeleton.h>
+#include <Qt3DCore/qjoint.h>
 #include <Qt3DCore/qt3dcore_global.h>
 
 QT_BEGIN_NAMESPACE
 
 namespace Qt3DCore {
 
-class QJoint;
 class QSkeletonPrivate;
 
 class Q_3DCORESHARED_EXPORT QSkeleton : public QAbstractSkeleton
@@ -69,7 +69,6 @@ Q_SIGNALS:
 
 private:
     Q_DECLARE_PRIVATE(QSkeleton)
-    QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DCore

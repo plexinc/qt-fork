@@ -6,7 +6,6 @@
 #define COMPONENTS_VARIATIONS_SERVICE_VARIATIONS_SERVICE_H_
 
 #include <memory>
-#include <set>
 #include <string>
 #include <vector>
 
@@ -17,6 +16,7 @@
 #include "base/metrics/field_trial.h"
 #include "base/observer_list.h"
 #include "base/time/time.h"
+#include "build/chromeos_buildflags.h"
 #include "components/variations/client_filterable_state.h"
 #include "components/variations/service/safe_seed_manager.h"
 #include "components/variations/service/ui_string_overrider.h"
@@ -57,7 +57,7 @@ class VariationsSeed;
 
 namespace variations {
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 class DeviceVariationsRestrictionByPolicyApplicator;
 #endif
 
@@ -194,7 +194,6 @@ class VariationsService
       const char* kEnableGpuBenchmarking,
       const char* kEnableFeatures,
       const char* kDisableFeatures,
-      const std::set<std::string>& unforceable_field_trials,
       const std::vector<std::string>& variation_ids,
       const std::vector<base::FeatureList::FeatureOverrideInfo>&
           extra_overrides,
@@ -235,8 +234,7 @@ class VariationsService
                          const std::string& country_code,
                          base::Time date_fetched,
                          bool is_delta_compressed,
-                         bool is_gzip_compressed,
-                         bool fetched_insecurely);
+                         bool is_gzip_compressed);
 
   // Create an entropy provider based on low entropy. This is used to create
   // trials for studies that should only depend on low entropy, such as studies
@@ -434,7 +432,7 @@ class VariationsService
   // server url.
   std::string osname_server_param_override_;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   std::unique_ptr<DeviceVariationsRestrictionByPolicyApplicator>
       device_variations_restrictions_by_policy_applicator_;
 #endif

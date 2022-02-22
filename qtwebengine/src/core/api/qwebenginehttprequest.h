@@ -41,9 +41,9 @@
 #define QWEBENGINEHTTPREQUEST_H
 
 #include <QtWebEngineCore/qtwebenginecoreglobal.h>
-#include <QtCore/qshareddata.h>
-#include <QtCore/qvector.h>
+#include <QtCore/qlist.h>
 #include <QtCore/qmap.h>
+#include <QtCore/qshareddata.h>
 #include <QtCore/qstring.h>
 #include <QtCore/qurl.h>
 
@@ -51,7 +51,8 @@ QT_BEGIN_NAMESPACE
 
 class QWebEngineHttpRequestPrivate;
 
-class Q_WEBENGINECORE_EXPORT QWebEngineHttpRequest {
+class Q_WEBENGINECORE_EXPORT QWebEngineHttpRequest
+{
 public:
     enum Method {
         Get,
@@ -87,14 +88,13 @@ public:
     void setPostData(const QByteArray &postData);
 
     bool hasHeader(const QByteArray &headerName) const;
-    QVector<QByteArray> headers() const;
+    QList<QByteArray> headers() const;
     QByteArray header(const QByteArray &headerName) const;
     void setHeader(const QByteArray &headerName, const QByteArray &value);
     void unsetHeader(const QByteArray &headerName);
 
 private:
     QSharedDataPointer<QWebEngineHttpRequestPrivate> d;
-    friend class QWebEngineHttpRequestPrivate;
 };
 
 Q_DECLARE_SHARED(QWebEngineHttpRequest)

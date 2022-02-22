@@ -41,6 +41,7 @@ public:
 
     static AnalysisProperties SrcOverAnalysisProperties(const GrProcessorAnalysisColor&,
                                                         const GrProcessorAnalysisCoverage&,
+                                                        bool hasMixedSamples,
                                                         const GrCaps&,
                                                         GrClampType);
 
@@ -55,6 +56,7 @@ private:
 
     AnalysisProperties analysisProperties(const GrProcessorAnalysisColor&,
                                           const GrProcessorAnalysisCoverage&,
+                                          bool hasMixedSamples,
                                           const GrCaps&,
                                           GrClampType) const override;
 
@@ -64,7 +66,7 @@ private:
     SkBlendMode fBlendMode;
 
     friend class GrPorterDuffTest; // for TestGetXPOutputTypes()
-    typedef GrXPFactory INHERITED;
+    using INHERITED = GrXPFactory;
 };
 #if defined(__GNUC__)
 #pragma GCC diagnostic pop

@@ -32,6 +32,7 @@
 #include <Qt3DCore/private/qresourcemanager_p.h>
 #include <ctime>
 #include <cstdlib>
+#include <random>
 
 class tst_QResourceManager : public QObject
 {
@@ -84,14 +85,14 @@ template<typename Resource>
 void benchmarkAccessResources()
 {
     Qt3DCore::QResourceManager<Resource, int> manager;
-    const int max = (1 << 16) - 1;
-    QVector<Qt3DCore::QHandle<Resource> > handles(max);
-    for (int i = 0; i < max; i++)
+    const size_t max = (1 << 16) - 1;
+    std::vector<Qt3DCore::QHandle<Resource> > handles(max);
+    for (size_t i = 0; i < max; i++)
         handles[i] = manager.acquire();
 
     volatile Resource *c;
     QBENCHMARK {
-        for (int i = 0; i < max; i++)
+        for (size_t i = 0; i < max; i++)
             c = manager.data(handles[i]);
     }
     Q_UNUSED(c);
@@ -100,16 +101,18 @@ void benchmarkAccessResources()
 template<typename Resource>
 void benchmarkRandomAccessResource() {
     Qt3DCore::QResourceManager<Resource, int> manager;
-    const int max = (1 << 16) - 1;
-    QVector<Qt3DCore::QHandle<Resource> > handles(max);
-    for (int i = 0; i < max; i++)
+    const size_t max = (1 << 16) - 1;
+    std::vector<Qt3DCore::QHandle<Resource> > handles(max);
+    for (size_t i = 0; i < max; i++)
         handles[i] = manager.acquire();
 
-    std::srand(std::time(0));
-    std::random_shuffle(handles.begin(), handles.end());
+    std::random_device rd;
+    std::mt19937 g(rd());
+    std::shuffle(handles.begin(), handles.end(), g);
+
     volatile Resource *c;
     QBENCHMARK {
-        for (int i = 0; i < max; i++)
+        for (size_t i = 0; i < max; i++)
             c = manager.data(handles[i]);
     }
     Q_UNUSED(c);
@@ -141,8 +144,11 @@ void benchmarkRandomLookupResources()
         manager.getOrCreateResource(i);
         resourcesIndices[i] = i;
     }
-    std::srand(std::time(0));
-    std::random_shuffle(resourcesIndices.begin(), resourcesIndices.end());
+
+    std::random_device rd;
+    std::mt19937 g(rd());
+    std::shuffle(resourcesIndices.begin(), resourcesIndices.end(), g);
+
     volatile Resource *c;
     QBENCHMARK {
         for (int i = 0; i < max; i++)
@@ -155,11 +161,11 @@ template<typename Resource>
 void benchmarkReleaseResources()
 {
     Qt3DCore::QResourceManager<Resource, int> manager;
-    const int max = (1 << 16) - 1;
-    QVector<Qt3DCore::QHandle<Resource> > handles(max);
-    for (int i = 0; i < max; i++)
+    const size_t max = (1 << 16) - 1;
+    std::vector<Qt3DCore::QHandle<Resource> > handles(max);
+    for (size_t i = 0; i < max; i++)
         handles[i] = manager.acquire();
-    for (int i = 0; i < max; i++)
+    for (size_t i = 0; i < max; i++)
         manager.release(handles.at(i));
     handles.clear();
 

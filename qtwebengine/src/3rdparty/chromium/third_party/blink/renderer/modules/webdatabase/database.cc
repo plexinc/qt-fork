@@ -26,6 +26,7 @@
 #include "third_party/blink/renderer/modules/webdatabase/database.h"
 
 #include <memory>
+#include <utility>
 
 #include "base/synchronization/waitable_event.h"
 #include "base/thread_annotations.h"
@@ -52,7 +53,9 @@
 #include "third_party/blink/renderer/modules/webdatabase/storage_log.h"
 #include "third_party/blink/renderer/modules/webdatabase/web_database_host.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
+#include "third_party/blink/renderer/platform/scheduler/public/frame_scheduler.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
+#include "third_party/blink/renderer/platform/scheduler/public/scheduling_policy.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 
@@ -232,7 +235,13 @@ Database::Database(DatabaseContext* database_context,
       new_(false),
       database_authorizer_(kInfoTableName),
       transaction_in_progress_(false),
-      is_transaction_queue_enabled_(true) {
+      is_transaction_queue_enabled_(true),
+      feature_handle_for_scheduler_(
+          database_context->GetExecutionContext()
+              ->GetScheduler()
+              ->RegisterFeature(
+                  SchedulingPolicy::Feature::kWebDatabase,
+                  {SchedulingPolicy::DisableBackForwardCache()})) {
   DCHECK(IsMainThread());
   context_thread_security_origin_ =
       database_context_->GetSecurityOrigin()->IsolatedCopy();
@@ -270,7 +279,7 @@ Database::~Database() {
   DCHECK(!Opened());
 }
 
-void Database::Trace(Visitor* visitor) {
+void Database::Trace(Visitor* visitor) const {
   visitor->Trace(database_context_);
   ScriptWrappable::Trace(visitor);
 }
@@ -841,7 +850,7 @@ void Database::RunTransaction(
       GetDatabaseTaskRunner()->PostTask(
           FROM_HERE, WTF::Bind(&CallTransactionErrorCallback,
                                WrapPersistent(transaction_error_callback),
-                               WTF::Passed(std::move(error))));
+                               std::move(error)));
     }
   }
 }

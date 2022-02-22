@@ -55,10 +55,6 @@
 
 #include <qplatformdefs.h>
 
-#ifndef QT_NO_COMPRESS
-struct z_stream_s;
-#endif
-
 #include <QtNetwork/qtcpsocket.h>
 // it's safe to include these even if SSL support is not enabled
 #include <QtNetwork/qsslsocket.h>
@@ -74,6 +70,13 @@ struct z_stream_s;
 #include <private/qauthenticator_p.h>
 #include <private/qringbuffer_p.h>
 #include <private/qbytedata_p.h>
+
+#ifndef QT_NO_NETWORKPROXY
+Q_MOC_INCLUDE(<QtNetwork/QNetworkProxy>)
+#endif
+Q_MOC_INCLUDE(<QtNetwork/QAuthenticator>)
+
+#include <private/qdecompresshelper_p.h>
 
 QT_REQUIRE_CONFIG(http);
 
@@ -139,8 +142,8 @@ public:
     bool isFinished() const;
 
     bool isPipeliningUsed() const;
-    bool isSpdyUsed() const;
-    void setSpdyWasUsed(bool spdy);
+    bool isHttp2Used() const;
+    void setHttp2WasUsed(bool h2Used);
     qint64 removedContentLength() const;
 
     bool isRedirecting() const;
@@ -151,6 +154,8 @@ public:
     void setRedirectUrl(const QUrl &url);
 
     static bool isHttpRedirect(int statusCode);
+
+    bool isCompressed() const;
 
 #ifndef QT_NO_SSL
     QSslConfiguration sslConfiguration() const;
@@ -202,7 +207,6 @@ public:
     qint64 readBodyVeryFast(QAbstractSocket *socket, char *b);
     qint64 readBodyFast(QAbstractSocket *socket, QByteDataBuffer *rb);
     bool findChallenge(bool forProxy, QByteArray &challenge) const;
-    QAuthenticatorPrivate::Method authenticationMethod(bool isProxy) const;
     void clear();
     void clearHttpLayerInformation();
 
@@ -219,7 +223,7 @@ public:
     bool isChunked();
     bool isConnectionCloseEnabled();
 
-    bool isCompressed();
+    bool isCompressed() const;
     void removeAutoDecompressHeader();
 
     enum ReplyState {
@@ -253,11 +257,7 @@ public:
     qint64 currentChunkSize;
     qint64 currentChunkRead;
     qint64 readBufferMaxSize;
-    qint32 windowSizeDownload; // only for SPDY
-    qint32 windowSizeUpload; // only for SPDY
-    qint32 currentlyReceivedDataInWindow; // only for SPDY
-    qint32 currentlyUploadedDataInWindow; // only for SPDY
-    qint64 totallyUploadedData; // only for SPDY
+    qint64 totallyUploadedData; //  HTTP/2
     qint64 removedContentLength;
     QPointer<QHttpNetworkConnection> connection;
     QPointer<QHttpNetworkConnectionChannel> connectionChannel;
@@ -266,21 +266,16 @@ public:
     bool autoDecompress;
 
     QByteDataBuffer responseData; // uncompressed body
-    QByteArray compressedData; // compressed body (temporary)
     bool requestIsPrepared;
 
     bool pipeliningUsed;
-    bool spdyUsed;
+    bool h2Used;
     bool downstreamLimited;
 
     char* userProvidedDownloadBuffer;
     QUrl redirectUrl;
 
-#ifndef QT_NO_COMPRESS
-    z_stream_s *inflateStrm;
-    int initializeInflateStream();
-    qint64 uncompressBodyData(QByteDataBuffer *in, QByteDataBuffer *out);
-#endif
+    QDecompressHelper decompressHelper;
 };
 
 

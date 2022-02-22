@@ -29,17 +29,42 @@
 
 namespace TestQDoc {
 
+/*
+//! [random tag]
+\note This is just a test.
+//! [random tag]
+*/
+
 /*!
     \module TestCPP
     \qtvariable testcpp
+    \qtcmakepackage QDocTest
     \title QDoc Test C++ Classes
     \brief A test module page.
 
     \testnoautolist
 
+    \include testcpp.cpp random tag
+
 \if defined(test_nestedmacro)
     \versionnote {module} {\ver}
 \endif
+
+    \section1 Linking to function-like things
+
+    \list
+        \li \l {TestQDoc::Test::someFunctionDefaultArg}
+               {someFunctionDefaultArg()}
+        \li QDOCTEST_MACRO2()
+        \li \l {TestQDoc::Test::}{QDOCTEST_MACRO2(int &x)}
+        \li \l {section()}
+        \li \l {section()} {section() is a section title}
+        \li \l {TestQDoc::Test::Test()} {open( parenthesis}
+        \li \l {https://en.cppreference.com/w/cpp/utility/move}
+               {C++11 added std::move(T&& t)}
+    \endlist
+
+    \section2 section()
 */
 
 /*!
@@ -61,6 +86,19 @@ namespace TestQDoc {
     //! omitted by ignoresince
     \since 1.1
 \endif
+    \ingroup testgroup
+*/
+
+/*!
+    \fn TestQDoc::Test::Test()
+
+    Default constructor.
+*/
+
+/*!
+    \fn Test &Test::operator=(Test &&other)
+
+    Move-assigns \a other.
 */
 
 /*!
@@ -79,16 +117,15 @@ namespace TestQDoc {
 */
 
 /*!
-    \macro QDOCTEST_MACRO2(x)
+    \macro QDOCTEST_MACRO2(int &x)
     \relates TestQDoc::Test
     \since Test 1.1
     \brief A macro with argument \a x.
+    \ingroup testgroup
 */
 
 /*!
-    \deprecated
-
-    Use someFunction() instead.
+    \deprecated [6.0] Use someFunction() instead.
 */
 void Test::deprecatedMember()
 {
@@ -118,14 +155,32 @@ void Test::anotherObsoleteMember()
 \if defined(test_ignoresince)
     \since 2.0
 \endif
+    \ingroup testgroup
 */
 void Test::someFunctionDefaultArg(int i, bool b = false)
 {
     return;
 }
 
+/*!
+    \fn void Test::func(bool)
+    \internal
+*/
+
+/*!
+    \fn [funcPtr] void (*funcPtr(bool b, const char *s))(bool)
+
+    Returns a pointer to a function that takes a boolean. Uses \a b and \a s.
+*/
+
+/*!
+    \fn [op-inc] Test::operator++()
+    \fn [op-dec] Test::operator--()
+    \deprecated
+*/
+
 // Documented below with an \fn command. Unnecessary but we support it, and it's used.
-int Test::someFunction(int v)
+int Test::someFunction(int, int v)
 {
     return v;
 }
@@ -137,7 +192,7 @@ int Test::someFunction(int v)
 */
 
 /*!
-    \fn int Test::someFunction(int v = 0)
+    \fn int Test::someFunction(int, int v = 0)
 
     Function that takes a parameter \a v.
     Also returns the value of \a v.
@@ -155,6 +210,12 @@ void Test::virtualFun()
 }
 
 /*!
+    \fn bool Test::operator==(const Test &lhs, const Test &rhs)
+
+    Returns true if \a lhs and \a rhs are equal.
+*/
+
+/*!
     \typedef Test::SomeType
     \brief A typedef.
 */
@@ -170,11 +231,15 @@ void TestDerived::virtualFun()
 /*!
     \fn TestQDoc::Test::overload()
     \fn Test::overload(bool b)
-    \since Test 1.2
      //! The second overload should match even without the fully qualified path
 
     Overloads that share a documentation comment, optionally taking
     a parameter \a b.
+*/
+
+/*!
+    \fn Test::overload(bool b)
+    \since Test 1.2
 */
 
 /*!
@@ -185,6 +250,25 @@ void TestDerived::virtualFun()
 /*!
     \typedef TestDerived::NotTypedef
     I'm an alias, not a typedef.
+*/
+
+/*!
+    \obsolete
+
+    Static obsolete method.
+*/
+void TestDerived::staticObsoleteMember()
+{
+    return;
+}
+
+/*!
+\if defined(test_properties)
+    \fn void TestDerived::emitSomething()
+    Emitted when things happen.
+\else
+    \nothing
+\endif
 */
 
 /*!
@@ -214,4 +298,53 @@ void TestDerived::virtualFun()
 \endif
 */
 
+/*!
+\if defined(test_template)
+    \class TestQDoc::Vec
+    \inmodule TestCPP
+    \brief Type alias that has its own reference.
+\else
+    \nothing
+\endif
+*/
+
+/*!
+\if defined(test_template)
+    \macro Q_INVOKABLE
+    \relates TestQDoc::Test
+
+    This is a mock Q_INVOKABLE for the purpose of ensuring QDoc autolink to it
+    as expected.
+\else
+    \nothing
+\endif
+*/
+
 } // namespace TestQDoc
+
+
+/*!
+    \namespace CrossModuleRef
+    \inmodule TestCPP
+    \brief Namespace that has documented functions in multiple modules.
+*/
+namespace CrossModuleRef {
+
+/*!
+    Document me!
+*/
+void documentMe()
+{
+}
+
+} // namespace CrossModuleRef
+
+/*!
+    \class DontLinkToMe
+    \inmodule TestCPP
+    \brief Class that does not generate documentation.
+*/
+
+/*!
+    \dontdocument (DontLinkToMe)
+*/

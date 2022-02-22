@@ -4,14 +4,15 @@
 
 /**
  * @fileoverview using private properties isn't a Closure violation in tests.
- * @suppress {accessControls}
  */
+self.PerformanceTestRunner = self.PerformanceTestRunner || {};
 
 PerformanceTestRunner.timelinePropertyFormatters = {
   children: 'formatAsTypeName',
   endTime: 'formatAsTypeName',
   requestId: 'formatAsTypeName',
   startTime: 'formatAsTypeName',
+  responseTime: 'formatAsTypeName',
   stackTrace: 'formatAsTypeName',
   url: 'formatAsURL',
   fileName: 'formatAsURL',
@@ -246,7 +247,7 @@ PerformanceTestRunner.forAllEvents = async function(events, callback) {
   const eventStack = [];
 
   for (const event of events) {
-    while (eventStack.length && eventStack.peekLast().endTime <= event.startTime) {
+    while (eventStack.length && eventStack[eventStack.length - 1].endTime <= event.startTime) {
       eventStack.pop();
     }
 
@@ -366,7 +367,7 @@ PerformanceTestRunner.dumpFlameChartProvider = function(provider, includeGroups)
   const includeGroupsSet = includeGroups && new Set(includeGroups);
   const timelineData = provider.timelineData();
   const stackDepth = provider.maxStackDepth();
-  const entriesByLevel = new Platform.Multimap();
+  const entriesByLevel = new Platform.MapUtilities.Multimap();
 
   for (let i = 0; i < timelineData.entryLevels.length; ++i) {
     entriesByLevel.set(timelineData.entryLevels[i], i);
@@ -436,7 +437,7 @@ TestRunner.deprecatedInitAsync(`
     let promise = new Promise(fulfill => callback = fulfill);
 
     if (window.testRunner)
-      testRunner.capturePixelsAsyncThen(callback);
+      testRunner.updateAllLifecyclePhasesAndCompositeThen(callback);
     else
       window.requestAnimationFrame(callback);
 

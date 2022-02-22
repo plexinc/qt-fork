@@ -33,7 +33,7 @@
 #include <private/chartpresenter_p.h>
 #include <private/polarchartlogvalueaxisradial_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 PolarChartLogValueAxisRadial::PolarChartLogValueAxisRadial(QLogValueAxis *axis, QGraphicsItem *item)
     : PolarChartAxisRadial(axis, item)
@@ -47,18 +47,18 @@ PolarChartLogValueAxisRadial::~PolarChartLogValueAxisRadial()
 {
 }
 
-QVector<qreal> PolarChartLogValueAxisRadial::calculateLayout() const
+QList<qreal> PolarChartLogValueAxisRadial::calculateLayout() const
 {
     QLogValueAxis *logValueAxis = qobject_cast<QLogValueAxis *>(axis());
 
-    QVector<qreal> points;
+    QList<qreal> points;
     points.resize(logValueAxis->tickCount());
 
     const qreal logMax = std::log10(logValueAxis->max()) / std::log10(logValueAxis->base());
     const qreal logMin = std::log10(logValueAxis->min()) / std::log10(logValueAxis->base());
     const qreal innerEdge = logMin < logMax ? logMin : logMax;
     const qreal delta = (axisGeometry().width() / 2.0) / qAbs(logMax - logMin);
-    const qreal initialSpan = (qCeil(innerEdge) - innerEdge) * delta;
+    const qreal initialSpan = (std::ceil(innerEdge) - innerEdge) * delta;
 
     for (int i = 0; i < logValueAxis->tickCount(); ++i)
         points[i] = initialSpan + (delta * qreal(i));
@@ -66,7 +66,7 @@ QVector<qreal> PolarChartLogValueAxisRadial::calculateLayout() const
     return points;
 }
 
-void PolarChartLogValueAxisRadial::createAxisLabels(const QVector<qreal> &layout)
+void PolarChartLogValueAxisRadial::createAxisLabels(const QList<qreal> &layout)
 {
     QLogValueAxis *logValueAxis = static_cast<QLogValueAxis *>(axis());
     setLabels(createLogValueLabels(logValueAxis->min(),
@@ -92,6 +92,6 @@ void PolarChartLogValueAxisRadial::handleLabelFormatChanged(const QString &forma
         presenter()->layout()->invalidate();
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_polarchartlogvalueaxisradial_p.cpp"

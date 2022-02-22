@@ -47,6 +47,7 @@
 #include <QtGui/qscreen.h>
 #include <QtGui/qwindow.h>
 #include <private/qhighdpiscaling_p.h>
+#include <private/qwindow_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -67,8 +68,6 @@ QPlatformScreen::~QPlatformScreen()
 }
 
 /*!
-    \fn QPixmap QPlatformScreen::grabWindow(WId window, int x, int y, int width, int height) const
-
     This function is called when Qt needs to be able to grab the content of a window.
 
     Returns the content of the window specified with the WId handle within the boundaries of
@@ -176,21 +175,16 @@ QSizeF QPlatformScreen::physicalSize() const
     Reimplement this function in subclass to return the logical horizontal
     and vertical dots per inch metrics of the screen.
 
-    The logical dots per inch metrics are used by QFont to convert point sizes
-    to pixel sizes.
+    The logical dots per inch metrics are used by Qt to scale the user interface.
 
-    The default implementation uses the screen pixel size and physical size to
-    compute the metrics.
+    The default implementation returns logicalBaseDpi(), which results in a
+    UI scale factor of 1.0.
 
     \sa physicalSize
 */
 QDpi QPlatformScreen::logicalDpi() const
 {
-    QSizeF ps = physicalSize();
-    QSize s = geometry().size();
-
-    return QDpi(25.4 * s.width() / ps.width(),
-                25.4 * s.height() / ps.height());
+    return logicalBaseDpi();
 }
 
 // Helper function for accessing the platform screen logical dpi
@@ -207,7 +201,7 @@ QPair<qreal, qreal> QPlatformScreen::overrideDpi(const QPair<qreal, qreal> &in)
     default implementation returns 96.
 
     QtGui will use this value (together with logicalDpi) to compute
-    the scale factor when high-DPI scaling is enabled:
+    the scale factor when high-DPI scaling is enabled, as follows:
         factor = logicalDPI / baseDPI
 */
 QDpi QPlatformScreen::logicalBaseDpi() const
@@ -222,27 +216,8 @@ QDpi QPlatformScreen::logicalBaseDpi() const
     implementation returns 1.0.
 
     \sa QPlatformWindow::devicePixelRatio()
-    \sa QPlatformScreen::pixelDensity()
 */
 qreal QPlatformScreen::devicePixelRatio() const
-{
-    return 1.0;
-}
-
-/*!
-    Reimplement this function in subclass to return the pixel density of the
-    screen. This is the scale factor needed to make a low-dpi application
-    usable on this screen. The default implementation returns 1.0.
-
-    Returning something else than 1.0 from this function causes Qt to
-    apply the scale factor to the application's coordinate system.
-    This is different from devicePixelRatio, which reports a scale
-    factor already applied by the windowing system. A platform plugin
-    typically implements one (or none) of these two functions.
-
-    \sa QPlatformWindow::devicePixelRatio()
-*/
-qreal QPlatformScreen::pixelDensity()  const
 {
     return 1.0;
 }
@@ -280,29 +255,6 @@ Qt::ScreenOrientation QPlatformScreen::nativeOrientation() const
 Qt::ScreenOrientation QPlatformScreen::orientation() const
 {
     return Qt::PrimaryOrientation;
-}
-
-/*
-    Reimplement this function in subclass to filter out unneeded screen
-    orientation updates.
-
-    The orientations will anyway be filtered before QScreen::orientationChanged()
-    is emitted, but the mask can be used by the platform plugin for example to
-    prevent having to have an accelerometer sensor running all the time, or to
-    improve the reported values. As an example of the latter, in case of only
-    Landscape | InvertedLandscape being set in the mask, on a platform that gets
-    its orientation readings from an accelerometer sensor embedded in a handheld
-    device, the platform can report transitions between the two even when the
-    device is held in an orientation that's closer to portrait.
-
-    By default, the orientation update mask is empty, so unless this function
-    has been called with a non-empty mask the platform does not need to report
-    any orientation updates through
-    QWindowSystemInterface::handleScreenOrientationChange().
-*/
-void QPlatformScreen::setOrientationUpdateMask(Qt::ScreenOrientations mask)
-{
-    Q_UNUSED(mask);
 }
 
 QPlatformScreen * QPlatformScreen::platformScreenForWindow(const QWindow *window)
@@ -367,8 +319,6 @@ QString QPlatformScreen::serialNumber() const
     physicalSize() function, since this is the function it uses to calculate the dpi to use when
     converting point sizes to pixels sizes. However, this is unfortunate on some systems, as the
     native system fakes its dpi size.
-
-    QPlatformScreen is also used by the public api QDesktopWidget for information about the desktop.
  */
 
 /*! \fn QRect QPlatformScreen::geometry() const = 0
@@ -404,11 +354,12 @@ QPlatformCursor *QPlatformScreen::cursor() const
 */
 void QPlatformScreen::resizeMaximizedWindows()
 {
-    // 'screen()' still has the old geometry info while 'this' has the new geometry info
+    // 'screen()' still has the old geometry (in device independent pixels),
+    // while 'this' has the new geometry (in native pixels)
     const QRect oldGeometry = screen()->geometry();
     const QRect oldAvailableGeometry = screen()->availableGeometry();
-    const QRect newGeometry = deviceIndependentGeometry();
-    const QRect newAvailableGeometry = QHighDpi::fromNative(availableGeometry(), QHighDpiScaling::factor(this), newGeometry.topLeft());
+    const QRect newNativeGeometry = this->geometry();
+    const QRect newNativeAvailableGeometry = this->availableGeometry();
 
     const bool supportsMaximizeUsingFullscreen = QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::MaximizeUsingFullscreenGeometry);
 
@@ -417,14 +368,19 @@ void QPlatformScreen::resizeMaximizedWindows()
         if (!w->handle())
             continue;
 
+        // Set QPlatformWindow size in native pixels, and let the platform's geometry
+        // change signals update the QWindow geomeyry. This way we make sure that the
+        // platform window geometry covers the entire (available) platform screen geometry,
+        // also when fractional DPRs introduce rounding errors in the device independent
+        // QWindow and QScreen sizes.
         if (supportsMaximizeUsingFullscreen
                 && w->windowState() & Qt::WindowMaximized
                 && w->flags() & Qt::MaximizeUsingFullscreenGeometryHint) {
-            w->setGeometry(newGeometry);
+            w->handle()->setGeometry(newNativeGeometry);
         } else if (w->windowState() & Qt::WindowMaximized || w->geometry() == oldAvailableGeometry) {
-            w->setGeometry(newAvailableGeometry);
+            w->handle()->setGeometry(newNativeAvailableGeometry);
         } else if (w->windowState() & Qt::WindowFullScreen || w->geometry() == oldGeometry) {
-            w->setGeometry(newGeometry);
+            w->handle()->setGeometry(newNativeGeometry);
         }
     }
 }
@@ -579,9 +535,9 @@ void QPlatformScreen::setPowerState(PowerState state)
 
     \since 5.9
 */
-QVector<QPlatformScreen::Mode> QPlatformScreen::modes() const
+QList<QPlatformScreen::Mode> QPlatformScreen::modes() const
 {
-    QVector<QPlatformScreen::Mode> list;
+    QList<QPlatformScreen::Mode> list;
     list.append({geometry().size(), refreshRate()});
     return list;
 }

@@ -47,10 +47,10 @@
 #include <qscrollarea.h>
 #include <qstyle.h>
 #include <qstyleoption.h>
+#if QT_CONFIG(tooltip)
 #include <qtooltip.h>
+#endif
 #include <qabstractbutton.h>
-
-#include <private/qmemory_p.h>
 
 #include "qframe_p.h"
 
@@ -96,7 +96,7 @@ public:
 
         inline void setText(const QString &text) { button->setText(text); }
         inline void setIcon(const QIcon &is) { button->setIcon(is); }
-#ifndef QT_NO_TOOLTIP
+#if QT_CONFIG(tooltip)
         inline void setToolTip(const QString &tip) { button->setToolTip(tip); }
         inline QString toolTip() const { return button->toolTip(); }
 #endif
@@ -189,8 +189,7 @@ QSize QToolBoxButton::sizeHint() const
     }
     QSize textSize = fontMetrics().size(Qt::TextShowMnemonic, text()) + QSize(0, 8);
 
-    QSize total(iconSize.width() + textSize.width(), qMax(iconSize.height(), textSize.height()));
-    return total.expandedTo(QApplication::globalStrut());
+    return QSize(iconSize.width() + textSize.width(), qMax(iconSize.height(), textSize.height()));
 }
 
 QSize QToolBoxButton::minimumSizeHint() const
@@ -348,7 +347,7 @@ int QToolBox::insertItem(int index, QWidget *widget, const QIcon &icon, const QS
     Q_D(QToolBox);
     connect(widget, SIGNAL(destroyed(QObject*)), this, SLOT(_q_widgetDestroyed(QObject*)));
 
-    auto newPage = qt_make_unique<QToolBoxPrivate::Page>();
+    auto newPage = std::make_unique<QToolBoxPrivate::Page>();
     auto &c = *newPage;
     c.widget = widget;
     c.button = new QToolBoxButton(this);
@@ -559,7 +558,7 @@ QWidget *QToolBox::widget(int index) const
     exist.
 */
 
-int QToolBox::indexOf(QWidget *widget) const
+int QToolBox::indexOf(const QWidget *widget) const
 {
     Q_D(const QToolBox);
     const QToolBoxPrivate::Page *c = (widget ? d->page(widget) : nullptr);
@@ -639,7 +638,7 @@ void QToolBox::setItemIcon(int index, const QIcon &icon)
         c->setIcon(icon);
 }
 
-#ifndef QT_NO_TOOLTIP
+#if QT_CONFIG(tooltip)
 /*!
     Sets the tooltip of the item at position \a index to \a toolTip.
 */
@@ -651,7 +650,7 @@ void QToolBox::setItemToolTip(int index, const QString &toolTip)
     if (c)
         c->setToolTip(toolTip);
 }
-#endif // QT_NO_TOOLTIP
+#endif // QT_CONFIG(tooltip)
 
 /*!
     Returns \c true if the item at position \a index is enabled; otherwise returns \c false.
@@ -688,7 +687,7 @@ QIcon QToolBox::itemIcon(int index) const
     return (c ? c->icon() : QIcon());
 }
 
-#ifndef QT_NO_TOOLTIP
+#if QT_CONFIG(tooltip)
 /*!
     Returns the tooltip of the item at position \a index, or an
     empty string if \a index is out of range.
@@ -700,7 +699,7 @@ QString QToolBox::itemToolTip(int index) const
     const QToolBoxPrivate::Page *c = d->page(index);
     return (c ? c->toolTip() : QString());
 }
-#endif // QT_NO_TOOLTIP
+#endif // QT_CONFIG(tooltip)
 
 /*! \reimp */
 void QToolBox::showEvent(QShowEvent *e)
@@ -712,7 +711,7 @@ void QToolBox::showEvent(QShowEvent *e)
 void QToolBox::changeEvent(QEvent *ev)
 {
     Q_D(QToolBox);
-    if(ev->type() == QEvent::StyleChange)
+    if (ev->type() == QEvent::StyleChange)
         d->updateTabs();
     QFrame::changeEvent(ev);
 }
@@ -725,7 +724,7 @@ void QToolBox::changeEvent(QEvent *ev)
  */
 void QToolBox::itemInserted(int index)
 {
-    Q_UNUSED(index)
+    Q_UNUSED(index);
 }
 
 /*!
@@ -736,7 +735,7 @@ void QToolBox::itemInserted(int index)
  */
 void QToolBox::itemRemoved(int index)
 {
-    Q_UNUSED(index)
+    Q_UNUSED(index);
 }
 
 /*! \reimp */

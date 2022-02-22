@@ -39,9 +39,11 @@
 
 #include "qqmlpreviewposition.h"
 
+#include <QtCore/qiodevice.h>
 #include <QtGui/qwindow.h>
 #include <QtGui/qscreen.h>
 #include <QtGui/qguiapplication.h>
+#include <QtCore/QIODevice>
 #include <private/qhighdpiscaling_p.h>
 
 QT_BEGIN_NAMESPACE
@@ -109,7 +111,7 @@ void QQmlPreviewPosition::takePosition(QWindow *window, InitializeState state)
         auto screen = window->screen();
         auto nativePosition = QHighDpiScaling::mapPositionToNative(window->framePosition(),
                                                                    screen->handle());
-        m_lastWindowPosition = {screen->name(), nativePosition};
+        m_lastWindowPosition = { screen->name(), nativePosition, window->size() };
 
         m_savePositionTimer.start();
     }
@@ -164,11 +166,8 @@ QByteArray QQmlPreviewPosition::fromPositionToByteArray(
     const quint16 majorVersion = 1;
     const quint16 minorVersion = 0;
 
-    stream << majorVersion
-           << minorVersion
-           << m_currentInitScreensData
-           << position.screenName
-           << position.nativePosition;
+    stream << majorVersion << minorVersion << m_currentInitScreensData << position.screenName
+           << position.nativePosition << position.size;
     return array;
 }
 
@@ -201,7 +200,11 @@ void QQmlPreviewPosition::readLastPositionFromByteArray(const QByteArray &array)
     stream >> nativePosition;
     if (nativePosition.isNull())
         return;
-    m_lastWindowPosition = {nameOfScreen, nativePosition};
+
+    QSize size;
+    stream >> size;
+
+    m_lastWindowPosition = { nameOfScreen, nativePosition, size };
 }
 
 void QQmlPreviewPosition::setPosition(const QQmlPreviewPosition::Position &position,
@@ -213,7 +216,8 @@ void QQmlPreviewPosition::setPosition(const QQmlPreviewPosition::Position &posit
         window->setScreen(screen);
         const auto point = QHighDpiScaling::mapPositionFromNative(position.nativePosition,
                                                                   screen->handle());
-        const QRect geometry(point, window->size());
+
+        const QRect geometry(point, position.size);
         if (screen->virtualGeometry().contains(geometry))
             window->setFramePosition(point);
         else

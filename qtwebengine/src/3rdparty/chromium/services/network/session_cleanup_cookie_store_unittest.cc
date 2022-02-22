@@ -44,10 +44,9 @@ class SessionCleanupCookieStoreTest : public testing::Test {
   CanonicalCookieVector Load() {
     base::RunLoop run_loop;
     CanonicalCookieVector cookies;
-    store_->Load(
-        base::BindRepeating(&SessionCleanupCookieStoreTest::OnLoaded,
-                            base::Unretained(this), &run_loop, &cookies),
-        net_log_.bound());
+    store_->Load(base::BindOnce(&SessionCleanupCookieStoreTest::OnLoaded,
+                                base::Unretained(this), &run_loop, &cookies),
+                 net_log_.bound());
     run_loop.Run();
     return cookies;
   }
@@ -69,10 +68,10 @@ class SessionCleanupCookieStoreTest : public testing::Test {
                  const std::string& domain,
                  const std::string& path,
                  base::Time creation) {
-    store_->AddCookie(net::CanonicalCookie(name, value, domain, path, creation,
-                                           creation, base::Time(), false, false,
-                                           net::CookieSameSite::NO_RESTRICTION,
-                                           net::COOKIE_PRIORITY_DEFAULT));
+    store_->AddCookie(*net::CanonicalCookie::CreateUnsafeCookieForTesting(
+        name, value, domain, path, creation, creation, base::Time(), false,
+        false, net::CookieSameSite::NO_RESTRICTION,
+        net::COOKIE_PRIORITY_DEFAULT, false));
   }
 
   void DestroyStore() {

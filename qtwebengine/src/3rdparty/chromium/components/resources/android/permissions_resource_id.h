@@ -33,6 +33,8 @@ DECLARE_RESOURCE_ID(IDR_ANDROID_INFOBAR_MEDIA_STREAM_CAMERA,
 DECLARE_RESOURCE_ID(IDR_ANDROID_INFOBAR_MEDIA_STREAM_MIC,
                     R.drawable.infobar_microphone)
 DECLARE_RESOURCE_ID(IDR_ANDROID_INFOBAR_MIDI, R.drawable.infobar_midi)
+DECLARE_RESOURCE_ID(IDR_ANDROID_INFOBAR_MULTIPLE_DOWNLOADS,
+                    R.drawable.infobar_downloading)
 DECLARE_RESOURCE_ID(IDR_ANDROID_INFOBAR_NFC, R.drawable.infobar_nfc)
 DECLARE_RESOURCE_ID(IDR_ANDROID_INFOBAR_NOTIFICATIONS,
                     R.drawable.infobar_desktop_notifications)
@@ -42,3 +44,5 @@ DECLARE_RESOURCE_ID(IDR_ANDROID_INFOBAR_WARNING, R.drawable.infobar_warning)
 DECLARE_RESOURCE_ID(IDR_ANDROID_INFOBAR_VR_HEADSET, R.drawable.vr_headset)
 DECLARE_RESOURCE_ID(IDR_ANDROID_INFOBAR_PERMISSION_COOKIE,
                     R.drawable.permission_cookie)
+DECLARE_RESOURCE_ID(IDR_ANDROID_INFOBAR_IDLE_DETECTION,
+                    R.drawable.permission_idle_detection)

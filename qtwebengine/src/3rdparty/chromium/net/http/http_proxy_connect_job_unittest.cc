@@ -24,6 +24,7 @@
 #include "net/base/network_isolation_key.h"
 #include "net/base/test_proxy_delegate.h"
 #include "net/dns/mock_host_resolver.h"
+#include "net/dns/public/secure_dns_mode.h"
 #include "net/http/http_network_session.h"
 #include "net/nqe/network_quality_estimator_test_util.h"
 #include "net/socket/client_socket_handle.h"
@@ -286,6 +287,9 @@ TEST_P(HttpProxyConnectJobTest, NoTunnel) {
                                           io_mode == SYNCHRONOUS);
     EXPECT_FALSE(proxy_delegate_->on_before_tunnel_request_called());
 
+    // Proxies should not set any DNS aliases.
+    EXPECT_TRUE(test_delegate.socket()->GetDnsAliases().empty());
+
     bool is_secure_proxy = GetParam() == HTTPS || GetParam() == SPDY;
     histogram_tester.ExpectTotalCount(
         "Net.HttpProxy.ConnectLatency.Insecure.Success",
@@ -444,6 +448,9 @@ TEST_P(HttpProxyConnectJobTest, HasEstablishedConnectionTunnel) {
   // Finish the read, and run the job until it's complete.
   sequenced_data->Resume();
   EXPECT_THAT(test_delegate.WaitForResult(), test::IsOk());
+
+  // Proxies should not set any DNS aliases.
+  EXPECT_TRUE(test_delegate.socket()->GetDnsAliases().empty());
 }
 
 TEST_P(HttpProxyConnectJobTest, ProxyDelegateExtraHeaders) {
@@ -886,7 +893,7 @@ TEST_P(HttpProxyConnectJobTest, DisableSecureDns) {
                   .has_value());
     if (disable_secure_dns) {
       EXPECT_EQ(
-          net::DnsConfig::SecureDnsMode::OFF,
+          net::SecureDnsMode::kOff,
           session_deps_.host_resolver->last_secure_dns_mode_override().value());
     }
   }

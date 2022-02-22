@@ -41,6 +41,8 @@
 #include "qwindowscontext.h"
 #include "qwindowsmime.h"
 #include <QtCore/qdebug.h>
+#include <QtCore/qvariant.h>
+
 /*!
     \class QWindowsInternalMimeDataBase
     \brief Base for implementations of QInternalMimeData using a IDataObject COM object.
@@ -88,8 +90,7 @@ QStringList QWindowsInternalMimeData::formats_sys() const
     return fmts;
 }
 
-QVariant QWindowsInternalMimeData::retrieveData_sys(const QString &mimeType,
-                                                        QVariant::Type type) const
+QVariant QWindowsInternalMimeData::retrieveData_sys(const QString &mimeType, QMetaType type) const
 {
     IDataObject *pDataObj = retrieveDataObject();
     if (!pDataObj)
@@ -97,13 +98,13 @@ QVariant QWindowsInternalMimeData::retrieveData_sys(const QString &mimeType,
 
     QVariant result;
     const QWindowsMimeConverter &mc = QWindowsContext::instance()->mimeConverter();
-    if (const QWindowsMime *converter = mc.converterToMime(mimeType, pDataObj))
+    if (auto converter = mc.converterToMime(mimeType, pDataObj))
         result = converter->convertToMime(mimeType, pDataObj, type);
     releaseDataObject(pDataObj);
     if (QWindowsContext::verbose) {
-        qCDebug(lcQpaMime) <<__FUNCTION__ << ' '  << mimeType << ' ' << type
-            << " returns " << result.type()
-            << (result.type() != QVariant::ByteArray ? result.toString() : QStringLiteral("<data>"));
+        qCDebug(lcQpaMime) <<__FUNCTION__ << ' '  << mimeType << ' ' << type.name()
+            << " returns " << result.metaType().name()
+            << (result.metaType().id() != QMetaType::QByteArray ? result.toString() : QStringLiteral("<data>"));
     }
     return result;
 }

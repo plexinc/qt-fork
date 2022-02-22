@@ -16,7 +16,6 @@
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/optional.h"
-#include "base/time/time.h"
 #include "build/build_config.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
 #include "ui/aura/aura_export.h"
@@ -84,9 +83,6 @@ class AURA_EXPORT WindowTreeHost : public ui::internal::InputMethodDelegate,
   Window* window() { return window_; }
   const Window* window() const { return window_; }
 
-  // TODO(msw): Remove this, callers should use GetEventSink().
-  ui::EventSink* event_sink();
-
   WindowEventDispatcher* dispatcher() {
     return const_cast<WindowEventDispatcher*>(
         const_cast<const WindowTreeHost*>(this)->dispatcher());
@@ -137,7 +133,6 @@ class AURA_EXPORT WindowTreeHost : public ui::internal::InputMethodDelegate,
   // root window's.
   virtual void ConvertPixelsToDIP(gfx::Point* point) const;
 
-  // Cursor.
   // Sets the currently-displayed cursor. If the cursor was previously hidden
   // via ShowCursor(false), it will remain hidden until ShowCursor(true) is
   // called, at which point the cursor that was last set via SetCursor() will be
@@ -248,7 +243,10 @@ class AURA_EXPORT WindowTreeHost : public ui::internal::InputMethodDelegate,
   // Requests using unadjusted movement mouse events, i.e. WM_INPUT on Windows.
   // Returns a ScopedEnableUnadjustedMouseEvents instance which stops using
   // unadjusted mouse events when destroyed, returns nullptr if unadjusted mouse
-  // event is not not implemented or failed.
+  // event is not not implemented or failed. On some platforms this function may
+  // temporarily affect the global state of mouse settings.  This function is
+  // currently only intended to be used with PointerLock as it is not set up for
+  // multiple calls.
   virtual std::unique_ptr<ScopedEnableUnadjustedMouseEvents>
   RequestUnadjustedMovement();
 
@@ -271,7 +269,8 @@ class AURA_EXPORT WindowTreeHost : public ui::internal::InputMethodDelegate,
   void CreateCompositor(
       const viz::FrameSinkId& frame_sink_id = viz::FrameSinkId(),
       bool force_software_compositor = false,
-      bool use_external_begin_frame_control = false);
+      bool use_external_begin_frame_control = false,
+      bool enable_compositing_based_throttling = false);
 
   void InitCompositor();
   void OnAcceleratedWidgetAvailable();
@@ -335,10 +334,11 @@ class AURA_EXPORT WindowTreeHost : public ui::internal::InputMethodDelegate,
   void MoveCursorToInternal(const gfx::Point& root_location,
                             const gfx::Point& host_location);
 
-  // Overrided from CompositorObserver:
-  void OnCompositingEnded(ui::Compositor* compositor) override;
-  void OnCompositingChildResizing(ui::Compositor* compositor) override;
-  void OnCompositingShuttingDown(ui::Compositor* compositor) override;
+  // Overridden from CompositorObserver:
+  void OnCompositingEnded(ui::Compositor* compositor) final;
+  void OnCompositingChildResizing(ui::Compositor* compositor) final;
+  void OnFrameSinksToThrottleUpdated(
+      const base::flat_set<viz::FrameSinkId>& ids) final;
 
   // We don't use a std::unique_ptr for |window_| since we need this ptr to be
   // valid during its deletion. (Window's dtor notifies observers that may
@@ -379,9 +379,6 @@ class AURA_EXPORT WindowTreeHost : public ui::internal::InputMethodDelegate,
 
   // Whether the InputMethod instance is owned by this WindowTreeHost.
   bool owned_input_method_;
-
-  // Set to the time the synchronization event began.
-  base::TimeTicks synchronization_start_time_;
 
   // Set to true if this WindowTreeHost is currently holding pointer moves.
   bool holding_pointer_moves_ = false;

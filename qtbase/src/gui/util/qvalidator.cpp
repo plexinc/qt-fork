@@ -58,7 +58,7 @@ QT_BEGIN_NAMESPACE
 
     The class itself is abstract. Two subclasses, \l QIntValidator and
     \l QDoubleValidator, provide basic numeric-range checking, and \l
-    QRegExpValidator provides general checking using a custom regular
+    QRegularExpressionValidator provides general checking using a custom regular
     expression.
 
     If the built-in validators aren't sufficient, you can subclass
@@ -84,8 +84,8 @@ QT_BEGIN_NAMESPACE
     \list
 
     \li For a line edit that accepts integers from 10 to 1000 inclusive,
-    42 and 123 are \l Acceptable, the empty string and 5 are \l
-    Intermediate, and "asdf" and 1114 is \l Invalid.
+    42 and 123 are \l Acceptable, the empty string, 5, or 1234 are \l
+    Intermediate, and "asdf" and 10114 is \l Invalid.
 
     \li For an editable combobox that accepts URLs, any well-formed URL
     is \l Acceptable, "http://example.com/," is \l Intermediate
@@ -114,7 +114,7 @@ QT_BEGIN_NAMESPACE
     QValidator is typically used with QLineEdit, QSpinBox and
     QComboBox.
 
-    \sa QIntValidator, QDoubleValidator, QRegExpValidator, {Line Edits Example}
+    \sa QIntValidator, QDoubleValidator, QRegularExpressionValidator, {Line Edits Example}
 */
 
 
@@ -189,13 +189,6 @@ QT_BEGIN_NAMESPACE
     QDoubleValidator::Notation is not a registered metatype, so for queued connections,
     you will have to register it with Q_DECLARE_METATYPE() and qRegisterMetaType().
 
-    \internal
-*/
-
-/*!
-    \fn void QRegExpValidator::regExpChanged(const QRegExp &regExp)
-
-    This signal is emitted after the regExp property changed.
     \internal
 */
 
@@ -328,7 +321,7 @@ void QValidator::fixup(QString &) const
     is not set by default, the validator will accept group separators. It is thus
     recommended to use QLocale::toInt() to obtain the numeric value.
 
-    \sa QDoubleValidator, QRegExpValidator, QLocale::toInt(), {Line Edits Example}
+    \sa QDoubleValidator, QRegularExpressionValidator, QLocale::toInt(), {Line Edits Example}
 */
 
 /*!
@@ -468,8 +461,6 @@ void QIntValidator::fixup(QString &input) const
         input = locale().toString(entered);
 }
 
-// FIXME: Qt 6: Make QIntValidator::setRange() non-virtual
-
 /*!
     Sets the range of the validator to only accept integers between \a
     bottom and \a top inclusive.
@@ -539,8 +530,6 @@ QValidator::QValidator(QValidatorPrivate &d, QObject *parent)
 {
 }
 
-#ifndef QT_NO_REGEXP
-
 class QDoubleValidatorPrivate : public QValidatorPrivate
 {
     Q_DECLARE_PUBLIC(QDoubleValidator)
@@ -582,7 +571,7 @@ public:
     is not set by default, the validator will accept group separators. It is thus
     recommended to use QLocale::toDouble() to obtain the numeric value.
 
-    \sa QIntValidator, QRegExpValidator, QLocale::toDouble(), {Line Edits Example}
+    \sa QIntValidator, QRegularExpressionValidator, QLocale::toDouble(), {Line Edits Example}
 */
 
  /*!
@@ -694,8 +683,7 @@ QValidator::State QDoubleValidatorPrivate::validateWithLocale(QString &input, QL
 
     bool ok = false;
     double i = locale.toDouble(input, &ok); // returns 0.0 if !ok
-    if (i == qt_qnan())
-        return QValidator::Invalid;
+    Q_ASSERT(!qIsNaN(i)); // Would be caught by validateChars()
     if (!ok)
         return QValidator::Intermediate;
 
@@ -722,8 +710,6 @@ QValidator::State QDoubleValidatorPrivate::validateWithLocale(QString &input, QL
 
     return QValidator::Intermediate;
 }
-
-// FIXME: Qt 6: Make QDoubleValidator::setRange() non-virtual
 
 /*!
     Sets the validator to accept doubles from \a minimum to \a maximum
@@ -824,122 +810,6 @@ QDoubleValidator::Notation QDoubleValidator::notation() const
     return d->notation;
 }
 
-/*!
-    \class QRegExpValidator
-    \brief The QRegExpValidator class is used to check a string
-    against a regular expression.
-    \inmodule QtGui
-
-    QRegExpValidator uses a regular expression (regexp) to
-    determine whether an input string is \l Acceptable, \l
-    Intermediate, or \l Invalid. The regexp can either be supplied
-    when the QRegExpValidator is constructed, or at a later time.
-
-    When QRegExpValidator determines whether a string is \l Acceptable
-    or not, the regexp is treated as if it begins with the start of string
-    assertion (\b{^}) and ends with the end of string assertion
-    (\b{$}); the match is against the entire input string, or from
-    the given position if a start position greater than zero is given.
-
-    If a string is a prefix of an \l Acceptable string, it is considered
-    \l Intermediate. For example, "" and "A" are \l Intermediate for the
-    regexp \b{[A-Z][0-9]} (whereas "_" would be \l Invalid).
-
-    For a brief introduction to Qt's regexp engine, see \l QRegExp.
-
-    Example of use:
-    \snippet code/src_gui_util_qvalidator.cpp 3
-
-    Below we present some examples of validators. In practice they would
-    normally be associated with a widget as in the example above.
-
-    \snippet code/src_gui_util_qvalidator.cpp 4
-
-    \sa QRegExp, QIntValidator, QDoubleValidator, {Settings Editor Example}
-*/
-
-/*!
-    Constructs a validator with a \a parent object that accepts
-    any string (including an empty one) as valid.
-*/
-
-QRegExpValidator::QRegExpValidator(QObject *parent)
-    : QRegExpValidator(QRegExp(QString::fromLatin1(".*")), parent)
-{
-}
-
-/*!
-    Constructs a validator with a \a parent object that
-    accepts all strings that match the regular expression \a rx.
-
-    The match is made against the entire string; e.g. if the regexp is
-    \b{[A-Fa-f0-9]+} it will be treated as \b{^[A-Fa-f0-9]+$}.
-*/
-
-QRegExpValidator::QRegExpValidator(const QRegExp& rx, QObject *parent)
-    : QValidator(parent), r(rx)
-{
-}
-
-
-/*!
-    Destroys the validator.
-*/
-
-QRegExpValidator::~QRegExpValidator()
-{
-}
-
-/*!
-    Returns \l Acceptable if \a input is matched by the regular
-    expression for this validator, \l Intermediate if it has matched
-    partially (i.e. could be a valid match if additional valid
-    characters are added), and \l Invalid if \a input is not matched.
-
-    Additionally, if \a input is not matched, the \a pos parameter is set to
-    the length of the \a input parameter.
-
-    For example, if the regular expression is \b{\\w\\d\\d}
-    (word-character, digit, digit) then "A57" is \l Acceptable,
-    "E5" is \l Intermediate, and "+9" is \l Invalid.
-
-    \sa QRegExp::exactMatch()
-*/
-
-QValidator::State QRegExpValidator::validate(QString &input, int& pos) const
-{
-    QRegExp copy = r;
-    if (copy.exactMatch(input)) {
-        return Acceptable;
-    } else {
-        if (copy.matchedLength() == input.size()) {
-            return Intermediate;
-        } else {
-            pos = input.size();
-            return Invalid;
-        }
-    }
-}
-
-/*!
-    \property QRegExpValidator::regExp
-    \brief the regular expression used for validation
-
-    By default, this property contains a regular expression with the pattern \c{.*}
-    that matches any string.
-*/
-
-void QRegExpValidator::setRegExp(const QRegExp& rx)
-{
-    if (r != rx) {
-        r = rx;
-        emit regExpChanged(r);
-        emit changed();
-    }
-}
-
-#endif
-
 #if QT_CONFIG(regularexpression)
 
 /*!
@@ -970,7 +840,7 @@ void QRegExpValidator::setRegExp(const QRegExp& rx)
 
     \snippet code/src_gui_util_qvalidator.cpp 6
 
-    \sa QRegularExpression, QIntValidator, QDoubleValidator, QRegExpValidator
+    \sa QRegularExpression, QIntValidator, QDoubleValidator
 */
 
 class QRegularExpressionValidatorPrivate : public QValidatorPrivate

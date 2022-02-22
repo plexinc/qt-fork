@@ -52,21 +52,23 @@ public:
     QCanBusDeviceInfo(const QCanBusDeviceInfo &other);
     ~QCanBusDeviceInfo();
 
-    void swap(QCanBusDeviceInfo &other) Q_DECL_NOTHROW
+    void swap(QCanBusDeviceInfo &other) noexcept
     {
          qSwap(d_ptr, other.d_ptr);
     }
 
     QCanBusDeviceInfo &operator=(const QCanBusDeviceInfo &other);
-    QCanBusDeviceInfo &operator=(QCanBusDeviceInfo &&other) Q_DECL_NOTHROW
+    QCanBusDeviceInfo &operator=(QCanBusDeviceInfo &&other) noexcept
     {
         swap(other);
         return *this;
     }
 
+    QString plugin() const;
     QString name() const;
     QString description() const;
     QString serialNumber() const;
+    QString alias() const;
     int channel() const;
 
     bool hasFlexibleDataRate() const;

@@ -44,24 +44,25 @@
 
 #include <QtQuick3DRuntimeRender/private/qssgrendergraphobject_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrendernode_p.h>
-#include <QtQuick3DRuntimeRender/private/qssgrenderimagetexturedata_p.h>
+#include <QtQuick3DRuntimeRender/private/qssgrenderimagetexture_p.h>
+#include <QtQuick3DRuntimeRender/private/qssgrenderbuffermanager_p.h>
 #include <QtQuick3DRuntimeRender/private/qtquick3druntimerenderglobal_p.h>
-#include <QtQuick3DRender/private/qssgrendertexture2d_p.h>
+#include <QtQuick3DRuntimeRender/private/qssgrendererutil_p.h>
+#include <QtQuick3DUtils/private/qssgrenderbasetypes_p.h>
 
 #include <QtGui/QVector2D>
 
 QT_BEGIN_NAMESPACE
 class QSSGRenderContextInterface;
 class QSGTexture;
+class QSSGRenderTextureData;
 
 struct Q_QUICK3DRUNTIMERENDER_EXPORT QSSGRenderImage : public QSSGRenderGraphObject
 {
     enum class Flag
     {
-        Dirty = 1,
-        TransformDirty = 1 << 1,
-        Active = 1 << 2, ///< Is this exact object active
-        ItemSizeDirty = 1 << 3
+        Dirty = 1 << 0,
+        TransformDirty = 1 << 1
     };
     Q_DECLARE_FLAGS(Flags, Flag)
 
@@ -73,42 +74,44 @@ struct Q_QUICK3DRUNTIMERENDER_EXPORT QSSGRenderImage : public QSSGRenderGraphObj
     };
 
     Q_DISABLE_COPY(QSSGRenderImage)
-    // Complete path to the file;
-    //*not* relative to the presentation directory
-    QString m_imagePath;
-    QString m_imageShaderName; ///< for custom materials we don't generate the name
 
     QSSGRenderGraphObject *m_parent = nullptr;
 
-    QSSGRenderImageTextureData m_textureData;
+    QSSGRenderPath m_imagePath;
+    // The QSGTexture (from sourceItem) is not sharable between Qt Quick render
+    // threads, when the threaded render loop is in use. That's why we allow
+    // this exception here; the (per-QQuickWindow, and so per-render-thread)
+    // BufferManager will refuse to use this if the threads don't match.
+    QSGTexture *m_qsgTexture = nullptr; // overrides m_imagePath and m_rawTextureData when non-null
+    QSSGRenderTextureData *m_rawTextureData = nullptr; // overrides m_imagePath and m_qsgTexture when non-null
 
-    QSGTexture *m_qsgTexture = nullptr; // overrides source if available
-
-    Flags m_flags; // only dirty, transform dirty, and active apply
+    Flags m_flags;
 
     QVector2D m_scale { 1.0f, 1.0f };
     QVector2D m_pivot { 0.0f, 0.0f };
     QVector2D m_position { 0.0f, 0.0f };
-    float m_rotation = 0.0f; // Radians.
+    float m_rotation = 0.0f; // degrees
+    bool m_flipU = false;
     bool m_flipV = false;
+    int m_indexUV = 0;
     MappingModes m_mappingMode = MappingModes::Normal;
-    QSSGRenderTextureCoordOp m_horizontalTilingMode = QSSGRenderTextureCoordOp::ClampToEdge;
-    QSSGRenderTextureCoordOp m_verticalTilingMode = QSSGRenderTextureCoordOp::ClampToEdge;
+    QSSGRenderTextureCoordOp m_horizontalTilingMode = QSSGRenderTextureCoordOp::Repeat;
+    QSSGRenderTextureCoordOp m_verticalTilingMode = QSSGRenderTextureCoordOp::Repeat;
+    QSSGRenderTextureFilterOp m_magFilterType = QSSGRenderTextureFilterOp::Linear;
+    QSSGRenderTextureFilterOp m_minFilterType = QSSGRenderTextureFilterOp::Linear;
+    QSSGRenderTextureFilterOp m_mipFilterType = QSSGRenderTextureFilterOp::Linear;
     QSSGRenderTextureFormat m_format = QSSGRenderTextureFormat::Unknown;
+    bool m_generateMipmaps = false;
 
-    // Setting any of the above variables means this object is dirty.
-    // Setting any of the vec2 properties means this object's transform is dirty
+    // Changing any of the above variables is covered by the Dirty flag, while
+    // the texture transform is covered by TransformDirty.
     QMatrix4x4 m_textureTransform;
 
     QSSGRenderImage();
     ~QSSGRenderImage();
-    // Renders the sub presentation
-    // Or finds the image.
-    // and sets up the texture transform
-    bool clearDirty(const QSSGRef<QSSGBufferManager> &inBufferManager, bool forIbl = false);
 
+    bool clearDirty();
     void calculateTextureTransform();
-
     bool isImageTransformIdentity() const;
 };
 

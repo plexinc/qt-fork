@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QAbstractSlider>
 #include <QScrollBar>
 #include <QSlider>
@@ -35,6 +35,7 @@
 #include <QStyleOption>
 #include <QElapsedTimer>
 #include <QDebug>
+#include <QSignalSpy>
 
 #include <QtTest/private/qtesthelpers_p.h>
 
@@ -1678,11 +1679,11 @@ void tst_QAbstractSlider::wheelEvent()
 
     slider->setSliderPosition(initialSliderPosition);
     k = withModifiers ? Qt::ShiftModifier : Qt::NoModifier;
-    event = QWheelEvent(wheelPoint, slider->mapToGlobal(wheelPoint), QPoint(), angleDelta,
-                        Qt::NoButton, k, Qt::NoScrollPhase, false);
+    QWheelEvent event2 = QWheelEvent(wheelPoint, slider->mapToGlobal(wheelPoint), QPoint(), angleDelta,
+                                     Qt::NoButton, k, Qt::NoScrollPhase, false);
     QSignalSpy spy1(slider, SIGNAL(actionTriggered(int)));
     QSignalSpy spy2(slider, SIGNAL(valueChanged(int)));
-    QVERIFY(applicationInstance->sendEvent(slider,&event));
+    QVERIFY(applicationInstance->sendEvent(slider,&event2));
 #ifdef Q_OS_MAC
     QEXPECT_FAIL("Normal data page", "QTBUG-23679", Continue);
     QEXPECT_FAIL("Different orientation", "QTBUG-23679", Continue);
@@ -1818,7 +1819,7 @@ void tst_QAbstractSlider::sliderPressedReleased()
     slider->activateWindow();
 
     QStyleOptionSlider option;
-    option.init(slider);
+    option.initFrom(slider);
     option.upsideDown = control == QStyle::CC_Slider ? !slider->invertedAppearance()
                                                      : slider->invertedAppearance();
     option.subControls = QStyle::SC_None;

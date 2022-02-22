@@ -1086,7 +1086,7 @@ void TorrentClient::scheduleUploads()
     // seeding, we sort by upload speed. Seeds are left out; there's
     // no use in unchoking them.
     QList<PeerWireClient *> allClients = d->connections;
-    QVector<QPair<qint64, PeerWireClient *>> transferSpeeds;
+    QList<QPair<qint64, PeerWireClient *>> transferSpeeds;
     for (PeerWireClient *client : qAsConst(allClients)) {
         if (client->state() == QAbstractSocket::ConnectedState
             && client->availablePieces().count(true) != d->pieceCount) {
@@ -1373,7 +1373,7 @@ void TorrentClient::requestMore(PeerWireClient *client)
 int TorrentClient::requestBlocks(PeerWireClient *client, TorrentPiece *piece, int maxBlocks)
 {
     // Generate the list of incomplete blocks for this piece.
-    QVector<int> bits;
+    QList<int> bits;
     int completedBlocksSize = piece->completedBlocks.size();
     for (int i = 0; i < completedBlocksSize; ++i) {
         if (!piece->completedBlocks.testBit(i) && !piece->requestedBlocks.testBit(i))
@@ -1501,9 +1501,7 @@ void TorrentClient::addToPeerList(const QList<TorrentPeer> &peerList)
         };
         // Remove inactive peers from the peer list until we're below
         // the max connections count.
-        d->peers.erase(std::remove_if(d->peers.begin(), d->peers.end(),
-                                      firstNInactivePeers),
-                       d->peers.end());
+        d->peers.removeIf(firstNInactivePeers);
         // If we still have too many peers, remove the oldest ones.
         d->peers.erase(d->peers.begin(), d->peers.begin() + tooMany);
     }

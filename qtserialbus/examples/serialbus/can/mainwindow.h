@@ -52,10 +52,10 @@
 #define MAINWINDOW_H
 
 #include <QCanBusDevice>
-
 #include <QMainWindow>
 
 class ConnectDialog;
+class ReceivedFramesModel;
 
 QT_BEGIN_NAMESPACE
 
@@ -75,7 +75,7 @@ class MainWindow : public QMainWindow
 
 public:
     explicit MainWindow(QWidget *parent = nullptr);
-    ~MainWindow();
+    ~MainWindow() override;
 
 private slots:
     void processReceivedFrames();
@@ -85,6 +85,7 @@ private slots:
     void busStatus();
     void disconnectDevice();
     void processFramesWritten(qint64);
+    void onAppendFramesTimeout();
 
 protected:
     void closeEvent(QCloseEvent *event) override;
@@ -93,12 +94,16 @@ private:
     void initActionsConnections();
 
     qint64 m_numberFramesWritten = 0;
+    qint64 m_numberFramesReceived = 0;
     Ui::MainWindow *m_ui = nullptr;
     QLabel *m_status = nullptr;
     QLabel *m_written = nullptr;
+    QLabel *m_received = nullptr;
     ConnectDialog *m_connectDialog = nullptr;
     std::unique_ptr<QCanBusDevice> m_canDevice;
     QTimer *m_busStatusTimer = nullptr;
+    QTimer *m_appendTimer = nullptr;
+    ReceivedFramesModel *m_model = nullptr;
 };
 
 #endif // MAINWINDOW_H

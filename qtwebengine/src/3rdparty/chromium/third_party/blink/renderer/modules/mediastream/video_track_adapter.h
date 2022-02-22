@@ -16,7 +16,7 @@
 #include "media/base/video_frame.h"
 #include "third_party/blink/public/platform/modules/mediastream/media_stream_types.h"
 #include "third_party/blink/public/web/modules/mediastream/encoded_video_frame.h"
-#include "third_party/blink/public/web/modules/mediastream/media_stream_video_track.h"
+#include "third_party/blink/renderer/modules/mediastream/media_stream_video_track.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/wtf/thread_safe_ref_counted.h"
@@ -62,8 +62,10 @@ class MODULES_EXPORT VideoTrackAdapter
 
   // Delivers |frame| to all tracks that have registered a callback.
   // Must be called on the IO-thread.
-  void DeliverFrameOnIO(scoped_refptr<media::VideoFrame> frame,
-                        base::TimeTicks estimated_capture_time);
+  void DeliverFrameOnIO(
+      scoped_refptr<media::VideoFrame> video_frame,
+      std::vector<scoped_refptr<media::VideoFrame>> scaled_video_frames,
+      base::TimeTicks estimated_capture_time);
 
   // Delivers |encoded_frame| to all tracks that have registered a callback.
   // Must be called on the IO-thread.
@@ -95,6 +97,10 @@ class MODULES_EXPORT VideoTrackAdapter
                                    const VideoTrackAdapterSettings& settings,
                                    gfx::Size* desired_size);
 
+  base::Optional<gfx::Size> source_frame_size() const {
+    return source_frame_size_;
+  }
+
  private:
   virtual ~VideoTrackAdapter();
   friend class WTF::ThreadSafeRefCounted<VideoTrackAdapter>;
@@ -104,6 +110,7 @@ class MODULES_EXPORT VideoTrackAdapter
   using VideoCaptureDeliverFrameInternalCallback =
       WTF::CrossThreadFunction<void(
           scoped_refptr<media::VideoFrame> video_frame,
+          std::vector<scoped_refptr<media::VideoFrame>> scaled_video_frames,
           base::TimeTicks estimated_capture_time)>;
   using DeliverEncodedVideoFrameInternalCallback =
       WTF::CrossThreadFunction<void(

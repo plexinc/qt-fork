@@ -37,6 +37,7 @@
 **
 ****************************************************************************/
 
+#include "qml/qqmlprivate.h"
 #include "qv4function_p.h"
 #include "qv4functionobject_p.h"
 #include "qv4managed_p.h"
@@ -50,33 +51,62 @@
 #include <assembler/MacroAssemblerCodeRef.h>
 #include <private/qv4vme_moth_p.h>
 #include <private/qqmlglobal_p.h>
+#include <private/qv4jscall_p.h>
 
 QT_BEGIN_NAMESPACE
 
 using namespace QV4;
 
-ReturnedValue Function::call(const Value *thisObject, const Value *argv, int argc, const ExecutionContext *context) {
+bool Function::call(const Value *thisObject, void **a, const QMetaType *types, int argc,
+                    const ExecutionContext *context)
+{
+    if (!aotFunction) {
+        return QV4::convertAndCall(
+                    context->engine(), thisObject, a, types, argc,
+                    [this, context](const Value *thisObject, const Value *argv, int argc) {
+            return call(thisObject, argv, argc, context);
+        });
+    }
+
     ExecutionEngine *engine = context->engine();
-    CppStackFrame frame;
-    frame.init(engine, this, argv, argc);
+    MetaTypesStackFrame frame;
+    frame.init(this, a, types, argc);
     frame.setupJSFrame(engine->jsStackTop, Value::undefinedValue(), context->d(),
-                       thisObject ? *thisObject : Value::undefinedValue(),
-                       Value::undefinedValue());
-
-    frame.push();
+                       thisObject ? *thisObject : Value::undefinedValue());
+    frame.push(engine);
     engine->jsStackTop += frame.requiredJSStackFrameSize();
+    Moth::VME::exec(&frame, engine);
+    frame.pop(engine);
+    return !frame.isReturnValueUndefined();
+}
 
+ReturnedValue Function::call(const Value *thisObject, const Value *argv, int argc, const ExecutionContext *context) {
+    if (aotFunction) {
+        return QV4::convertAndCall(
+                    context->engine(), aotFunction, thisObject, argv, argc,
+                    [this, context](const Value *thisObject,
+                                    void **a, const QMetaType *types, int argc) {
+            call(thisObject, a, types, argc, context);
+        });
+    }
+
+    ExecutionEngine *engine = context->engine();
+    JSTypesStackFrame frame;
+    frame.init(this, argv, argc);
+    frame.setupJSFrame(engine->jsStackTop, Value::undefinedValue(), context->d(),
+                       thisObject ? *thisObject : Value::undefinedValue());
+    engine->jsStackTop += frame.requiredJSStackFrameSize();
+    frame.push(engine);
     ReturnedValue result = Moth::VME::exec(&frame, engine);
-
-    frame.pop();
-
+    frame.pop(engine);
     return result;
 }
 
 Function *Function::create(ExecutionEngine *engine, ExecutableCompilationUnit *unit,
-                           const CompiledData::Function *function)
+                           const CompiledData::Function *function,
+                           const QQmlPrivate::AOTCompiledFunction *aotFunction)
 {
-    return new Function(engine, unit, function);
+    return new Function(engine, unit, function, aotFunction);
 }
 
 void Function::destroy()
@@ -85,12 +115,14 @@ void Function::destroy()
 }
 
 Function::Function(ExecutionEngine *engine, ExecutableCompilationUnit *unit,
-                   const CompiledData::Function *function)
+                   const CompiledData::Function *function,
+                   const QQmlPrivate::AOTCompiledFunction *aotFunction)
     : FunctionData(unit)
     , compiledFunction(function)
     , codeData(function->code())
     , jittedCode(nullptr)
     , codeRef(nullptr)
+    , aotFunction(aotFunction)
 {
     Scope scope(engine);
     Scoped<InternalClass> ic(scope, engine->internalClasses(EngineBase::Class_CallContext));
@@ -139,7 +171,7 @@ void Function::updateInternalClass(ExecutionEngine *engine, const QList<QByteArr
             const QString &dup = parameterNames[duplicate];
             parameterNames.append(dup);
             parameterNames[duplicate] =
-                    QString(0xfffe) + QString::number(duplicate) + dup;
+                    QString(QChar(0xfffe)) + QString::number(duplicate) + dup;
         }
 
     }

@@ -171,14 +171,6 @@ QTextDocument *QTextObject::document() const
 }
 
 /*!
-  \internal
-*/
-QTextDocumentPrivate *QTextObject::docHandle() const
-{
-    return static_cast<const QTextDocument *>(parent())->docHandle();
-}
-
-/*!
     \class QTextBlockGroup
     \reentrant
 
@@ -270,7 +262,7 @@ void QTextBlockGroup::blockRemoved(const QTextBlock &block)
     d->blocks.removeAll(block);
     d->markBlocksDirty();
     if (d->blocks.isEmpty()) {
-        document()->docHandle()->deleteObject(this);
+        QTextDocumentPrivate::get(document())->deleteObject(this);
         return;
     }
 }
@@ -367,14 +359,14 @@ QTextFrameLayoutData::~QTextFrameLayoutData()
 /*!
     \fn bool QTextFrame::iterator::operator==(const iterator &other) const
 
-    Retuns true if the iterator is the same as the \a other iterator;
+    Returns true if the iterator is the same as the \a other iterator;
     otherwise returns \c false.
 */
 
 /*!
     \fn bool QTextFrame::iterator::operator!=(const iterator &other) const
 
-    Retuns true if the iterator is different from the \a other iterator;
+    Returns true if the iterator is different from the \a other iterator;
     otherwise returns \c false.
 */
 
@@ -576,7 +568,7 @@ void QTextFramePrivate::remove_me()
     Q_Q(QTextFrame);
     if (fragment_start == 0 && fragment_end == 0
         && !parentFrame) {
-        q->document()->docHandle()->deleteObject(q);
+        QTextDocumentPrivate::get(q->document())->deleteObject(q);
         return;
     }
 
@@ -630,7 +622,7 @@ void QTextFramePrivate::remove_me()
 */
 QTextFrame::iterator QTextFrame::begin() const
 {
-    const QTextDocumentPrivate *priv = docHandle();
+    const QTextDocumentPrivate *priv = QTextDocumentPrivate::get(this);
     int b = priv->blockMap().findNode(firstPosition());
     int e = priv->blockMap().findNode(lastPosition()+1);
     return iterator(const_cast<QTextFrame *>(this), b, b, e);
@@ -643,76 +635,25 @@ QTextFrame::iterator QTextFrame::begin() const
 */
 QTextFrame::iterator QTextFrame::end() const
 {
-    const QTextDocumentPrivate *priv = docHandle();
+    const QTextDocumentPrivate *priv = QTextDocumentPrivate::get(this);
     int b = priv->blockMap().findNode(firstPosition());
     int e = priv->blockMap().findNode(lastPosition()+1);
     return iterator(const_cast<QTextFrame *>(this), e, b, e);
 }
 
 /*!
+    \fn QTextFrame::iterator::iterator()
+
     Constructs an invalid iterator.
 */
-QTextFrame::iterator::iterator()
-{
-    f = nullptr;
-    b = 0;
-    e = 0;
-    cf = nullptr;
-    cb = 0;
-}
 
 /*!
-  \internal
-*/
-QTextFrame::iterator::iterator(QTextFrame *frame, int block, int begin, int end)
-{
-    f = frame;
-    b = begin;
-    e = end;
-    cf = nullptr;
-    cb = block;
-}
-
-#if QT_VERSION < QT_VERSION_CHECK(6,0,0)
-
-/*!
-    Copy constructor. Constructs a copy of the \a other iterator.
-*/
-QTextFrame::iterator::iterator(const iterator &other) noexcept
-{
-    f = other.f;
-    b = other.b;
-    e = other.e;
-    cf = other.cf;
-    cb = other.cb;
-}
-
-/*!
-    Assigns \a other to this iterator and returns a reference to
-    this iterator.
-*/
-QTextFrame::iterator &QTextFrame::iterator::operator=(const iterator &other) noexcept
-{
-    f = other.f;
-    b = other.b;
-    e = other.e;
-    cf = other.cf;
-    cb = other.cb;
-    return *this;
-}
-
-#endif
-
-/*!
+    \fn QTextFrame *QTextFrame::iterator::currentFrame() const
     Returns the current frame pointed to by the iterator, or \nullptr
     if the iterator currently points to a block.
 
     \sa currentBlock()
 */
-QTextFrame *QTextFrame::iterator::currentFrame() const
-{
-    return cf;
-}
 
 /*!
     Returns the current block the iterator points to. If the iterator
@@ -724,7 +665,7 @@ QTextBlock QTextFrame::iterator::currentBlock() const
 {
     if (!f)
         return QTextBlock();
-    return QTextBlock(f->docHandle(), cb);
+    return QTextBlock(QTextDocumentPrivate::get(f), cb);
 }
 
 /*!
@@ -734,7 +675,7 @@ QTextBlock QTextFrame::iterator::currentBlock() const
 */
 QTextFrame::iterator &QTextFrame::iterator::operator++()
 {
-    const QTextDocumentPrivate *priv = f->docHandle();
+    const QTextDocumentPrivate *priv = QTextDocumentPrivate::get(f);
     const QTextDocumentPrivate::BlockMap &map = priv->blockMap();
     if (cf) {
         int end = cf->lastPosition() + 1;
@@ -772,7 +713,7 @@ QTextFrame::iterator &QTextFrame::iterator::operator++()
 */
 QTextFrame::iterator &QTextFrame::iterator::operator--()
 {
-    const QTextDocumentPrivate *priv = f->docHandle();
+    const QTextDocumentPrivate *priv = QTextDocumentPrivate::get(f);
     const QTextDocumentPrivate::BlockMap &map = priv->blockMap();
     if (cf) {
         int start = cf->firstPosition() - 1;
@@ -973,12 +914,6 @@ bool QTextBlock::isValid() const
 */
 
 /*!
-    \fn QTextBlock::iterator::iterator(const iterator &other)
-
-    Copy constructor. Constructs a copy of the \a other iterator.
-*/
-
-/*!
     \fn bool QTextBlock::iterator::atEnd() const
 
     Returns \c true if the current item is the last item in the text block.
@@ -987,14 +922,14 @@ bool QTextBlock::isValid() const
 /*!
     \fn bool QTextBlock::iterator::operator==(const iterator &other) const
 
-    Retuns true if this iterator is the same as the \a other iterator;
+    Returns true if this iterator is the same as the \a other iterator;
     otherwise returns \c false.
 */
 
 /*!
     \fn bool QTextBlock::iterator::operator!=(const iterator &other) const
 
-    Retuns true if this iterator is different from the \a other iterator;
+    Returns true if this iterator is different from the \a other iterator;
     otherwise returns \c false.
 */
 
@@ -1011,12 +946,6 @@ bool QTextBlock::isValid() const
 
     The postfix -- operator (\c{i--}) makes the preceding item current and
     returns an iterator to the old current item.
-*/
-
-/*!
-    \fn QTextDocumentPrivate *QTextBlock::docHandle() const
-
-    \internal
 */
 
 /*!
@@ -1233,7 +1162,7 @@ QString QTextBlock::text() const
     QTextDocumentPrivate::FragmentIterator end = p->find(pos + length() - 1); // -1 to omit the block separator char
     for (; it != end; ++it) {
         const QTextFragmentData * const frag = it.value();
-        text += QString::fromRawData(buffer.constData() + frag->stringPosition, frag->size_array[0]);
+        text += QStringView(buffer.constData() + frag->stringPosition, frag->size_array[0]);
     }
 
     return text;
@@ -1248,9 +1177,9 @@ QString QTextBlock::text() const
 
     \sa charFormat(), blockFormat()
 */
-QVector<QTextLayout::FormatRange> QTextBlock::textFormats() const
+QList<QTextLayout::FormatRange> QTextBlock::textFormats() const
 {
-    QVector<QTextLayout::FormatRange> formats;
+    QList<QTextLayout::FormatRange> formats;
     if (!p || !n)
         return formats;
 

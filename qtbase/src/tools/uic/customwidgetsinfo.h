@@ -56,10 +56,13 @@ public:
 
     QString realClassName(const QString &className) const;
 
-    bool extends(const QString &className, QLatin1String baseClassName) const;
+    bool extends(const QString &className, QAnyStringView baseClassName) const;
     bool extendsOneOf(const QString &className, const QStringList &baseClassNames) const;
 
     bool isCustomWidgetContainer(const QString &className) const;
+
+    bool isAmbiguousSignal(const QString &className,
+                           const QString &signalSignature) const;
 
 private:
     using NameCustomWidgetMap = QMap<QString, DomCustomWidget*>;

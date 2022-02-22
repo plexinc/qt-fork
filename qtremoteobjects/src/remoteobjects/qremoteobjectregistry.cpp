@@ -50,6 +50,13 @@ class QRemoteObjectRegistryPrivate : public QObjectPrivate
 {
     Q_DECLARE_PUBLIC(QRemoteObjectRegistry)
 
+    QRemoteObjectSourceLocations sourceLocationsActualCalculation() const
+    {
+        return q_func()->propAsVariant(0).value<QRemoteObjectSourceLocations>();
+    }
+    Q_OBJECT_COMPUTED_PROPERTY(QRemoteObjectRegistryPrivate, QRemoteObjectSourceLocations,
+                               sourceLocations,
+                               &QRemoteObjectRegistryPrivate::sourceLocationsActualCalculation)
     QRemoteObjectSourceLocations hostedSources;
 };
 
@@ -100,7 +107,9 @@ QRemoteObjectRegistry::QRemoteObjectRegistry(QRemoteObjectNode *node, const QStr
     \property QRemoteObjectRegistry::sourceLocations
     \brief The set of sources known to the registry.
 
-    This property is a QRemoteObjectSourceLocations, which is a typedef for QHash<QString, QUrl>.  Each known \l Source is the QString key, while the url for the host node is the corresponding value for that key in the hash.
+    This property is a QRemoteObjectSourceLocations, which is a typedef for
+    QHash<QString, QUrl>. Each known \l Source is the QString key, while the
+    url for the host node is the corresponding value for that key in the hash.
 */
 
 /*!
@@ -116,9 +125,7 @@ void QRemoteObjectRegistry::registerMetatypes()
         return;
     initialized = true;
     qRegisterMetaType<QRemoteObjectSourceLocation>();
-    qRegisterMetaTypeStreamOperators<QRemoteObjectSourceLocation>();
     qRegisterMetaType<QRemoteObjectSourceLocations>();
-    qRegisterMetaTypeStreamOperators<QRemoteObjectSourceLocations>();
 }
 
 void QRemoteObjectRegistry::initialize()
@@ -129,7 +136,12 @@ void QRemoteObjectRegistry::initialize()
     properties << QVariant::fromValue(QRemoteObjectSourceLocations());
     properties << QVariant::fromValue(QRemoteObjectSourceLocation());
     properties << QVariant::fromValue(QRemoteObjectSourceLocation());
-    setProperties(properties);
+    setProperties(std::move(properties));
+}
+
+void QRemoteObjectRegistry::notifySourceLocationsChanged()
+{
+    d_func()->sourceLocations.notify();
 }
 
 /*!
@@ -138,7 +150,12 @@ void QRemoteObjectRegistry::initialize()
 */
 QRemoteObjectSourceLocations QRemoteObjectRegistry::sourceLocations() const
 {
-    return propAsVariant(0).value<QRemoteObjectSourceLocations>();
+    return d_func()->sourceLocations.value();
+}
+
+QBindable<QRemoteObjectSourceLocations> QRemoteObjectRegistry::bindableSourceLocations() const
+{
+    return &d_func()->sourceLocations;
 }
 
 /*!

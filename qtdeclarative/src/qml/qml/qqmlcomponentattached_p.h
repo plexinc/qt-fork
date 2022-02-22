@@ -66,28 +66,38 @@ class Q_QML_PRIVATE_EXPORT QQmlComponentAttached : public QObject
     // when registering QQmlComponent, but we cannot #include it from qqmlcomponent.h. Therefore we
     // force an anonymous type registration here.
     QML_ANONYMOUS
+    QML_ADDED_IN_VERSION(2, 0)
 public:
     QQmlComponentAttached(QObject *parent = nullptr);
     ~QQmlComponentAttached();
 
-    void add(QQmlComponentAttached **a) {
-        prev = a; next = *a; *a = this;
-        if (next) next->prev = &next;
+    void insertIntoList(QQmlComponentAttached **listHead)
+    {
+        m_prev = listHead;
+        m_next = *listHead;
+        *listHead = this;
+        if (m_next)
+            m_next->m_prev = &m_next;
     }
-    void rem() {
-        if (next) next->prev = prev;
-        *prev = next;
-        next = nullptr; prev = nullptr;
+
+    void removeFromList()
+    {
+        *m_prev = m_next;
+        if (m_next)
+            m_next->m_prev = m_prev;
+        m_next = nullptr;
+        m_prev = nullptr;
     }
-    QQmlComponentAttached **prev;
-    QQmlComponentAttached *next;
+
+    QQmlComponentAttached *next() const { return m_next; }
 
 Q_SIGNALS:
     void completed();
     void destruction();
 
 private:
-    friend class QQmlContextData;
+    QQmlComponentAttached **m_prev;
+    QQmlComponentAttached *m_next;
 };
 
 QT_END_NAMESPACE

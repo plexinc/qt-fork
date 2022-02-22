@@ -58,7 +58,7 @@
 
 QT_BEGIN_NAMESPACE
 
-class LocalClientIo final : public ClientIoDevice
+class LocalClientIo : public QtROClientIoDevice
 {
     Q_OBJECT
 
@@ -77,11 +77,22 @@ public Q_SLOTS:
 protected:
     void doClose() override;
     void doDisconnectFromServer() override;
-private:
     QLocalSocket* m_socket;
 };
 
-class LocalServerIo final : public ServerIoDevice
+#ifdef Q_OS_LINUX
+
+class AbstractLocalClientIo final : public LocalClientIo
+{
+    Q_OBJECT
+
+public:
+    explicit AbstractLocalClientIo(QObject *parent = nullptr);
+};
+
+#endif // Q_OS_LINUX
+
+class LocalServerIo final : public QtROServerIoDevice
 {
     Q_OBJECT
 public:
@@ -95,7 +106,7 @@ private:
     QLocalSocket *m_connection;
 };
 
-class LocalServerImpl final : public QConnectionAbstractServer
+class LocalServerImpl : public QConnectionAbstractServer
 {
     Q_OBJECT
     Q_DISABLE_COPY(LocalServerImpl)
@@ -105,15 +116,28 @@ public:
     ~LocalServerImpl() override;
 
     bool hasPendingConnections() const override;
-    ServerIoDevice *configureNewConnection() override;
+    QtROServerIoDevice *configureNewConnection() override;
     QUrl address() const override;
     bool listen(const QUrl &address) override;
     QAbstractSocket::SocketError serverError() const override;
     void close() override;
 
-private:
+protected:
     QLocalServer m_server;
 };
+
+#ifdef Q_OS_LINUX
+
+class AbstractLocalServerImpl final : public LocalServerImpl
+{
+    Q_OBJECT
+
+public:
+    explicit AbstractLocalServerImpl(QObject *parent);
+    QUrl address() const override;
+};
+
+#endif // Q_OS_LINUX
 
 QT_END_NAMESPACE
 

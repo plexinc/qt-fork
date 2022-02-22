@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
@@ -26,9 +26,17 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QWaitCondition>
+#include <QMutex>
+#include <QStandardPaths>
 #include <qtranslator.h>
 #include <qfile.h>
+#include <qtemporarydir.h>
+
+#if defined(Q_OS_ANDROID) && !defined(Q_OS_ANDROID_EMBEDDED)
+#include <QDirIterator>
+#endif
 
 class tst_QTranslator : public QObject
 {
@@ -37,12 +45,14 @@ class tst_QTranslator : public QObject
 public:
     tst_QTranslator();
 protected:
-    bool eventFilter(QObject *obj, QEvent *event);
+    bool eventFilter(QObject *obj, QEvent *event) override;
 private slots:
     void initTestCase();
+    void init();
 
     void load_data();
     void load();
+    void loadLocale();
     void threadLoad();
     void testLanguageChange();
     void plural();
@@ -64,38 +74,14 @@ tst_QTranslator::tst_QTranslator()
 
 void tst_QTranslator::initTestCase()
 {
-#if defined(Q_OS_ANDROID) && !defined(Q_OS_ANDROID_EMBEDDED)
-    QString sourceDir(":/android_testdata/");
-    QDirIterator it(sourceDir, QDirIterator::Subdirectories);
-    while (it.hasNext()) {
-        it.next();
-
-        QFileInfo sourceFileInfo = it.fileInfo();
-        if (!sourceFileInfo.isDir()) {
-            QFileInfo destinationFileInfo(QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + QLatin1Char('/') + sourceFileInfo.filePath().mid(sourceDir.length()));
-
-            if (!destinationFileInfo.exists()) {
-                QVERIFY(QDir().mkpath(destinationFileInfo.path()));
-                QVERIFY(QFile::copy(sourceFileInfo.filePath(), destinationFileInfo.filePath()));
-            }
-        }
-    }
-
-    QDir::setCurrent(QStandardPaths::writableLocation(QStandardPaths::CacheLocation));
-#endif
-
-    // chdir into the directory containing our testdata,
-    // to make the code simpler (load testdata via relative paths)
-#ifdef Q_OS_WINRT
-    // ### TODO: Use this for all platforms in 5.7
-    dataDir = QEXTRACTTESTDATA(QStringLiteral("/"));
+    dataDir = QEXTRACTTESTDATA(QStringLiteral("/tst_qtranslator"));
     QVERIFY2(!dataDir.isNull(), qPrintable("Could not extract test data"));
-    QVERIFY2(QDir::setCurrent(dataDir->path()), qPrintable("Could not chdir to " + dataDir->path()));
-#else // !Q_OS_WINRT
-    QString testdata_dir = QFileInfo(QFINDTESTDATA("hellotr_la.qm")).absolutePath();
-    QVERIFY2(QDir::setCurrent(testdata_dir), qPrintable("Could not chdir to " + testdata_dir));
-#endif // !Q_OS_WINRT
+}
 
+void tst_QTranslator::init()
+{
+    QVERIFY2(QDir::setCurrent(dataDir->path()),
+             qPrintable("Could not chdir to " + dataDir->path()));
 }
 
 bool tst_QTranslator::eventFilter(QObject *, QEvent *event)
@@ -155,11 +141,78 @@ void tst_QTranslator::load()
     }
 }
 
+void tst_QTranslator::loadLocale()
+{
+    QLocale locale;
+    auto localeName = locale.uiLanguages().value(0).replace('-', '_');
+    if (localeName.isEmpty())
+        QSKIP("This test requires at least one available UI language.");
+
+    QByteArray ba;
+    {
+        QFile file(":/tst_qtranslator/hellotr_la.qm");
+        QVERIFY2(file.open(QFile::ReadOnly), qPrintable(file.errorString()));
+        ba = file.readAll();
+        QVERIFY(!ba.isEmpty());
+    }
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    auto path = dir.path();
+    QFile file(path + "/dummy");
+    QVERIFY2(file.open(QFile::WriteOnly), qPrintable(file.errorString()));
+    QCOMPARE(file.write(ba), ba.size());
+    file.close();
+
+    /*
+        Test the following order:
+
+        /tmp/tmpDir/foo-en_US.qm
+        /tmp/tmpDir/foo-en_US
+        /tmp/tmpDir/foo-en.qm
+        /tmp/tmpDir/foo-en
+        /tmp/tmpDir/foo.qm
+        /tmp/tmpDir/foo-
+        /tmp/tmpDir/foo
+    */
+
+    QStringList files;
+    while (true) {
+        files.append(path + "/foo-" + localeName + ".qm");
+        QVERIFY2(file.copy(files.last()), qPrintable(file.errorString()));
+
+        files.append(path + "/foo-" + localeName);
+        QVERIFY2(file.copy(files.last()), qPrintable(file.errorString()));
+
+        int rightmost = localeName.lastIndexOf(QLatin1Char('_'));
+        if (rightmost <= 0)
+            break;
+        localeName.truncate(rightmost);
+    }
+
+    files.append(path + "/foo.qm");
+    QVERIFY2(file.copy(files.last()), qPrintable(file.errorString()));
+
+    files.append(path + "/foo-");
+    QVERIFY2(file.copy(files.last()), qPrintable(file.errorString()));
+
+    files.append(path + "/foo");
+    QVERIFY2(file.rename(files.last()), qPrintable(file.errorString()));
+
+    QTranslator tor;
+    for (const auto &filePath : files) {
+        QVERIFY(tor.load(locale, "foo", "-", path, ".qm"));
+        QCOMPARE(tor.filePath(), filePath);
+        QVERIFY2(file.remove(filePath), qPrintable(file.errorString()));
+    }
+}
+
 class TranslatorThread : public QThread
 {
-    void run() {
+    void run() override {
         QTranslator tor( 0 );
-        tor.load("hellotr_la");
+        (void)tor.load("hellotr_la");
 
         if (tor.isEmpty())
             qFatal("Could not load translation");
@@ -181,17 +234,17 @@ void tst_QTranslator::testLanguageChange()
     languageChangeEventCounter = 0;
 
     QTranslator *tor = new QTranslator;
-    tor->load("hellotr_la.qm");
+    QVERIFY(tor->load("hellotr_la.qm"));
     qApp->sendPostedEvents();
     qApp->sendPostedEvents();
     QCOMPARE(languageChangeEventCounter, 0);
 
-    tor->load("doesn't exist, same as clearing");
+    QVERIFY(!tor->load("doesn't exist, same as clearing"));
     qApp->sendPostedEvents();
     qApp->sendPostedEvents();
     QCOMPARE(languageChangeEventCounter, 0);
 
-    tor->load("hellotr_la.qm");
+    QVERIFY(tor->load("hellotr_la.qm"));
     qApp->sendPostedEvents();
     qApp->sendPostedEvents();
     QCOMPARE(languageChangeEventCounter, 0);
@@ -201,12 +254,12 @@ void tst_QTranslator::testLanguageChange()
     qApp->sendPostedEvents();
     QCOMPARE(languageChangeEventCounter, 1);
 
-    tor->load("doesn't exist, same as clearing");
+    QVERIFY(!tor->load("doesn't exist, same as clearing"));
     qApp->sendPostedEvents();
     qApp->sendPostedEvents();
     QCOMPARE(languageChangeEventCounter, 2);
 
-    tor->load("hellotr_la.qm");
+    QVERIFY(tor->load("hellotr_la.qm"));
     qApp->sendPostedEvents();
     qApp->sendPostedEvents();
     QCOMPARE(languageChangeEventCounter, 3);
@@ -216,7 +269,7 @@ void tst_QTranslator::testLanguageChange()
     qApp->sendPostedEvents();
     QCOMPARE(languageChangeEventCounter, 4);
 
-    tor->load("doesn't exist, same as clearing");
+    QVERIFY(!tor->load("doesn't exist, same as clearing"));
     qApp->sendPostedEvents();
     qApp->sendPostedEvents();
     QCOMPARE(languageChangeEventCounter, 4);
@@ -226,7 +279,7 @@ void tst_QTranslator::testLanguageChange()
     qApp->sendPostedEvents();
     QCOMPARE(languageChangeEventCounter, 4);
 
-    tor->load("hellotr_la.qm");
+    QVERIFY(tor->load("hellotr_la.qm"));
     qApp->sendPostedEvents();
     qApp->sendPostedEvents();
     QCOMPARE(languageChangeEventCounter, 5);
@@ -243,7 +296,7 @@ void tst_QTranslator::plural()
 {
 
     QTranslator tor( 0 );
-    tor.load("hellotr_la");
+    QVERIFY(tor.load("hellotr_la"));
     QVERIFY(!tor.isEmpty());
     QCoreApplication::installTranslator(&tor);
     QCOMPARE(QCoreApplication::translate("QPushButton", "Hello %n world(s)!", 0, 0), QLatin1String("Hallo 0 Welten!"));
@@ -254,7 +307,7 @@ void tst_QTranslator::plural()
 void tst_QTranslator::translate_qm_file_generated_with_msgfmt()
 {
     QTranslator translator;
-    translator.load("msgfmt_from_po");
+    QVERIFY(translator.load("msgfmt_from_po"));
     qApp->installTranslator(&translator);
 
     QCOMPARE(QCoreApplication::translate("", "Intro"), QLatin1String("Einleitung"));
@@ -275,7 +328,7 @@ void tst_QTranslator::loadDirectory()
     QVERIFY(QFileInfo("../" + current_base).isDir());
 
     QTranslator tor;
-    tor.load(current_base, "..");
+    QVERIFY(!tor.load(current_base, ".."));
     QVERIFY(tor.isEmpty());
 }
 
@@ -284,7 +337,7 @@ void tst_QTranslator::dependencies()
     {
         // load
         QTranslator tor;
-        tor.load("dependencies_la");
+        QVERIFY(tor.load("dependencies_la"));
         QVERIFY(!tor.isEmpty());
         QCOMPARE(tor.translate("QPushButton", "Hello world!"), QLatin1String("Hallo Welt!"));
 
@@ -303,9 +356,18 @@ void tst_QTranslator::dependencies()
         QFile file("dependencies_la.qm");
         file.open(QFile::ReadOnly);
         QByteArray data = file.readAll();
-        tor.load((const uchar *)data.constData(), data.length());
+        QVERIFY(tor.load((const uchar *)data.constData(), data.length()));
         QVERIFY(!tor.isEmpty());
         QCOMPARE(tor.translate("QPushButton", "Hello world!"), QLatin1String("Hallo Welt!"));
+    }
+
+    {
+        // Test resolution of paths relative to main file
+        const QString absoluteFile = QFileInfo("dependencies_la").absoluteFilePath();
+        QDir::setCurrent(QDir::tempPath());
+        QTranslator tor;
+        QVERIFY(tor.load(absoluteFile));
+        QVERIFY(!tor.isEmpty());
     }
 }
 
@@ -316,7 +378,7 @@ struct TranslateThread : public QThread
     QMutex startupLock;
     QWaitCondition runningCondition;
 
-    void run() {
+    void run() override {
         bool startSignalled = false;
 
         while (terminate.loadRelaxed() == 0) {
@@ -346,9 +408,9 @@ void tst_QTranslator::translationInThreadWhileInstallingTranslator()
 
     thread.runningCondition.wait(&thread.startupLock);
 
-    QTranslator *tor = new QTranslator;
-    tor->load("hellotr_la");
-    QCoreApplication::installTranslator(tor);
+    QTranslator tor;
+    QVERIFY(tor.load("hellotr_la"));
+    QVERIFY(QCoreApplication::installTranslator(&tor));
 
     ++thread.terminate;
 

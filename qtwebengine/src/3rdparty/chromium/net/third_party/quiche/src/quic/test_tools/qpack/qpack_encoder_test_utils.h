@@ -7,11 +7,11 @@
 
 #include <string>
 
-#include "net/third_party/quiche/src/quic/core/qpack/qpack_encoder.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/test_tools/qpack/qpack_test_utils.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
-#include "net/third_party/quiche/src/spdy/core/spdy_header_block.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/qpack/qpack_encoder.h"
+#include "quic/platform/api/quic_test.h"
+#include "quic/test_tools/qpack/qpack_test_utils.h"
+#include "spdy/core/spdy_header_block.h"
 
 namespace quic {
 namespace test {
@@ -22,7 +22,8 @@ class NoopDecoderStreamErrorDelegate
  public:
   ~NoopDecoderStreamErrorDelegate() override = default;
 
-  void OnDecoderStreamError(quiche::QuicheStringPiece error_message) override;
+  void OnDecoderStreamError(QuicErrorCode error_code,
+                            absl::string_view error_message) override;
 };
 
 // Mock QpackEncoder::DecoderStreamErrorDelegate implementation.
@@ -31,8 +32,10 @@ class MockDecoderStreamErrorDelegate
  public:
   ~MockDecoderStreamErrorDelegate() override = default;
 
-  MOCK_METHOD1(OnDecoderStreamError,
-               void(quiche::QuicheStringPiece error_message));
+  MOCK_METHOD(void,
+              OnDecoderStreamError,
+              (QuicErrorCode error_code, absl::string_view error_message),
+              (override));
 };
 
 }  // namespace test

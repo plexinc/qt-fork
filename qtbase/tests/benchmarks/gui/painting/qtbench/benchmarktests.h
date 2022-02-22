@@ -31,7 +31,6 @@
 
 #include <QApplication>
 #include <QTextDocument>
-#include <QDesktopWidget>
 #include <QTextLayout>
 #include <QFontMetrics>
 #include <QDebug>
@@ -129,13 +128,15 @@ public:
     {
     }
 
-    virtual void draw(QPainter *p, const QRect &rect, int iterationCount) {
+    void draw(QPainter *p, const QRect &rect, int iterationCount) override
+    {
         p->fillRect(rect, randomColor(iterationCount));
     }
 
-    virtual QString name() const {
+    QString name() const override
+    {
         return QString::fromLatin1("fillRect(%1)").arg(m_size.width());
-   }
+    }
 };
 
 class ImageFillRectBenchmark : public Benchmark
@@ -155,13 +156,12 @@ public:
         m_brush = QBrush(m_content);
     }
 
-    virtual void draw(QPainter *p, const QRect &rect, int) {
-        p->fillRect(rect, m_brush);
-    }
+    void draw(QPainter *p, const QRect &rect, int) override { p->fillRect(rect, m_brush); }
 
-    virtual QString name() const {
+    QString name() const override
+    {
         return QString::fromLatin1("fillRect with image(%1)").arg(m_size.width());
-   }
+    }
 
 private:
     QImage m_content;
@@ -177,19 +177,18 @@ public:
     {
     }
 
-    virtual void begin(QPainter *p, int) {
+    void begin(QPainter *p, int) override
+    {
         p->setPen(Qt::NoPen);
         p->setBrush(randomColor(m_size.width()));
     }
 
+    void draw(QPainter *p, const QRect &rect, int) override { p->drawRect(rect); }
 
-    virtual void draw(QPainter *p, const QRect &rect, int) {
-        p->drawRect(rect);
-    }
-
-    virtual QString name() const {
+    QString name() const override
+    {
         return QString::fromLatin1("drawRect(%1)").arg(m_size.width());
-   }
+    }
 };
 
 
@@ -201,19 +200,18 @@ public:
     {
     }
 
-    virtual void begin(QPainter *p, int) {
-        p->setPen(Qt::NoPen);
-    }
+    void begin(QPainter *p, int) override { p->setPen(Qt::NoPen); }
 
-
-    virtual void draw(QPainter *p, const QRect &rect, int i) {
+    void draw(QPainter *p, const QRect &rect, int i) override
+    {
         p->setBrush(randomColor(i));
         p->drawRect(rect);
     }
 
-    virtual QString name() const {
+    QString name() const override
+    {
         return QString::fromLatin1("drawRect with brushchange(%1)").arg(m_size.width());
-   }
+    }
 };
 
 class RoundRectBenchmark : public Benchmark
@@ -225,16 +223,19 @@ public:
         m_roundness = size / 4.;
     }
 
-    virtual void begin(QPainter *p, int) {
+    void begin(QPainter *p, int) override
+    {
         p->setPen(Qt::NoPen);
         p->setBrush(Qt::red);
     }
 
-    virtual void draw(QPainter *p, const QRect &rect, int) {
+    void draw(QPainter *p, const QRect &rect, int) override
+    {
         p->drawRoundedRect(rect, m_roundness, m_roundness);
     }
 
-    virtual QString name() const {
+    QString name() const override
+    {
         return QString::fromLatin1("drawRoundedRect(%1)").arg(m_size.width());
     }
 
@@ -263,7 +264,8 @@ public:
     {
     }
 
-    virtual void begin(QPainter *p, int) {
+    void begin(QPainter *p, int) override
+    {
         if (m_type & Stroked)
             p->setPen(Qt::black);
         else
@@ -275,7 +277,8 @@ public:
             p->setBrush(Qt::NoBrush);
     }
 
-    virtual void draw(QPainter *p, const QRect &rect, int) {
+    void draw(QPainter *p, const QRect &rect, int) override
+    {
         switch (m_type & Shapes) {
         case ArcShape:
             p->drawArc(rect, 45*16, 120*16);
@@ -292,7 +295,8 @@ public:
         }
     }
 
-    virtual QString name() const {
+    QString name() const override
+    {
         QString fillStroke;
 
         if ((m_type & (Stroked|Filled)) == (Stroked|Filled)) {
@@ -337,24 +341,24 @@ public:
     {
     }
 
-    virtual void begin(QPainter *p, int) {
-        p->scale(m_scale, m_scale);
-    }
+    void begin(QPainter *p, int) override { p->scale(m_scale, m_scale); }
 
-    virtual void draw(QPainter *p, const QRect &rect, int) {
+    void draw(QPainter *p, const QRect &rect, int) override
+    {
         if (m_as_pixmap)
             p->drawPixmap(rect.topLeft(), m_pixmap);
         else
             p->drawImage(rect.topLeft(), m_image);
     }
 
-    virtual QString name() const {
+    QString name() const override
+    {
         return QString::fromLatin1("draw%4(%1) at scale=%2, depth=%3")
             .arg(m_size.width())
             .arg(m_scale)
             .arg(m_as_pixmap ? m_pixmap.depth() : m_image.depth())
             .arg(m_type);
-   }
+    }
 
 private:
     QImage m_image;
@@ -383,7 +387,8 @@ public:
     {
     }
 
-    virtual void draw(QPainter *p, const QRect &rect, int) {
+    void draw(QPainter *p, const QRect &rect, int) override
+    {
         QTransform oldTransform = p->transform();
         p->translate(0.5 * rect.width() + rect.left(), 0.5 * rect.height() + rect.top());
         p->shear(0.25, 0.0);
@@ -395,12 +400,13 @@ public:
         p->setTransform(oldTransform);
     }
 
-    virtual QString name() const {
+    QString name() const override
+    {
         return QString::fromLatin1("draw%3(%1) w/transform, depth=%2")
             .arg(m_size.width())
             .arg(m_as_pixmap ? m_pixmap.depth() : m_image.depth())
             .arg(m_type);
-   }
+    }
 
 private:
     QImage m_image;
@@ -429,19 +435,21 @@ public:
     {
     }
 
-    virtual void draw(QPainter *p, const QRect &rect, int) {
+    void draw(QPainter *p, const QRect &rect, int) override
+    {
         if (m_as_pixmap)
             p->drawPixmap(rect.topLeft(), m_pixmap);
         else
             p->drawImage(rect.topLeft(), m_image);
     }
 
-    virtual QString name() const {
+    QString name() const override
+    {
         return QString::fromLatin1("draw%2(%1), depth=%3")
             .arg(m_size.width())
             .arg(m_type)
             .arg(m_as_pixmap ? m_pixmap.depth() : m_image.depth());
-   }
+    }
 
 private:
     QImage m_image;
@@ -470,7 +478,8 @@ public:
     {
     }
 
-    virtual void begin(QPainter *p, int iterations) {
+    void begin(QPainter *p, int iterations) override
+    {
         m_staticTexts.clear();
         m_currentStaticText = 0;
         m_pixmaps.clear();
@@ -558,7 +567,7 @@ public:
         }
     }
 
-    virtual void draw(QPainter *p, const QRect &rect, int)
+    void draw(QPainter *p, const QRect &rect, int) override
     {
         switch (m_mode) {
         case PainterMode:
@@ -590,7 +599,8 @@ public:
         }
     }
 
-    virtual QString name() const {
+    QString name() const override
+    {
         int letters = m_text.length();
         int lines = m_text.count('\n');
         if (lines == 0)
@@ -645,7 +655,8 @@ public:
     {
     }
 
-    virtual void begin(QPainter *p, int) {
+    void begin(QPainter *p, int) override
+    {
         QRect m_bounds = QRect(0,0,p->device()->width(), p->device()->height());
         p->setPen(Qt::NoPen);
         p->setBrush(Qt::red);
@@ -707,11 +718,10 @@ public:
         }
     }
 
-    virtual void draw(QPainter *p, const QRect &rect, int) {
-        p->drawRect(rect);
-    }
+    void draw(QPainter *p, const QRect &rect, int) override { p->drawRect(rect); }
 
-    virtual QString name() const {
+    QString name() const override
+    {
         QString namedType;
         switch (m_type) {
         case RectClip:
@@ -740,7 +750,7 @@ public:
             break;
         }
         return QString::fromLatin1("%1-clipped-drawRect(%2)").arg(namedType).arg(m_size.width());
-   }
+    }
 
     ClipType m_type;
 };
@@ -765,7 +775,8 @@ public:
 
     }
 
-    virtual void draw(QPainter *p, const QRect &rect, int) {
+    void draw(QPainter *p, const QRect &rect, int) override
+    {
         switch (m_type) {
         case Horizontal_Integer:
             p->drawLine(QLine(rect.x(), rect.y(), rect.x() + m_length, rect.y()));
@@ -788,7 +799,8 @@ public:
         }
     }
 
-    virtual QString name() const {
+    QString name() const override
+    {
         const char *names[] = {
             "Hor_I",
             "Diag_I",

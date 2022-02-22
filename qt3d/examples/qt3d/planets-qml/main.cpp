@@ -52,6 +52,8 @@
 #include <QQuickView>
 #include <QQmlContext>
 #include <QOpenGLContext>
+#include <Qt3DRender/qt3drender-config.h>
+
 #include "networkcontroller.h"
 
 int main(int argc, char **argv)
@@ -60,12 +62,15 @@ int main(int argc, char **argv)
 
     QSurfaceFormat format;
     if (QOpenGLContext::openGLModuleType() == QOpenGLContext::LibGL) {
-        format.setVersion(3, 2);
+        format.setVersion(4, 5);
         format.setProfile(QSurfaceFormat::CoreProfile);
     }
     format.setDepthBufferSize(24);
     format.setStencilBufferSize(8);
     format.setSamples(4);
+#if !QT_CONFIG(qt3d_rhi_renderer)
+    qputenv("QSG_RHI_BACKEND", "opengl");
+#endif
 
     NetworkController networkController;
 

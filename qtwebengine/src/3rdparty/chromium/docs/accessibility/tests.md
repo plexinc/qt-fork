@@ -25,17 +25,21 @@ Test files:
 Source code to AccessibilityController and WebAXObjectProxy:
 [content/shell/test_runner](https://cs.chromium.org/chromium/src/content/shell/test_runner/)
 
-To run all accessibility web tests:
-
+First, you'll need to build the tests:
 ```
-autoninja -C out/release blink_tests third_party/blink/tools/run_web_tests.py \
-  --build-directory=out --target=release accessibility/
+autoninja -C out/release blink_tests
 ```
 
-To run just one test by itself without the script:
+Then, to run all accessibility web tests:
 
 ```
-autoninja -C out/release blink_tests && out/release/content_shell \
+third_party/blink/tools/run_web_tests.py --build-directory=out --target=release accessibility/
+```
+
+Or, to run just one test by itself, without invoking the `run_web_tests.py` script:
+
+```
+out/release/content_shell \
   --run-web-tests third_party/blink/web_tests/accessibility/name-calc-inputs.html
 ```
 
@@ -126,7 +130,7 @@ codebase. Here are a few other locations to check:
 
 *   [chrome/android/javatests/src/org/chromium/chrome/browser/accessibility](https://cs.chromium.org/chromium/src/chrome/android/javatests/src/org/chromium/chrome/browser/accessibility/)
 *   [chrome/browser/accessibility](https://cs.chromium.org/chromium/src/chrome/browser/accessibility/)
-*   [chrome/browser/chromeos/accessibility/](https://cs.chromium.org/chromium/src/chrome/browser/chromeos/accessibility/)
+*   [chrome/browser/ash/accessibility/](https://cs.chromium.org/chromium/src/chrome/browser/ash/accessibility/)
 *   [ui/chromeos](https://cs.chromium.org/chromium/src/ui/chromeos/)
 *   [ui/views/accessibility](https://cs.chromium.org/chromium/src/ui/views/accessibility/)
 

@@ -60,6 +60,10 @@
 #  define WM_DPICHANGED 0x02E0
 #endif
 
+#ifndef WM_GETDPISCALEDSIZE
+#  define WM_GETDPISCALEDSIZE 0x02E4
+#endif
+
 // WM_POINTER support from Windows 8 onwards (WINVER >= 0x0602)
 #ifndef WM_POINTERUPDATE
 #  define WM_NCPOINTERUPDATE 0x0241
@@ -75,6 +79,14 @@
 #  define WM_POINTERWHEEL    0x024E
 #  define WM_POINTERHWHEEL   0x024F
 #endif // WM_POINTERUPDATE
+
+#if !defined(_DPI_AWARENESS_CONTEXTS_)
+#  define DPI_AWARENESS_CONTEXT_UNAWARE              ((HANDLE)-1)
+#  define DPI_AWARENESS_CONTEXT_SYSTEM_AWARE         ((HANDLE)-2)
+#  define DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE    ((HANDLE)-3)
+#  define DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 ((HANDLE)-4)
+#  define DPI_AWARENESS_CONTEXT_UNAWARE_GDISCALED    ((HANDLE)-5)
+#endif
 
 QT_BEGIN_NAMESPACE
 
@@ -121,6 +133,7 @@ enum WindowsEventType // Simplify event types
     EnterSizeMoveEvent = WindowEventFlag + 22,
     ExitSizeMoveEvent = WindowEventFlag + 23,
     PointerActivateWindowEvent = WindowEventFlag + 24,
+    DpiScaledSizeEvent = WindowEventFlag + 25,
     MouseEvent = MouseEventFlag + 1,
     MouseWheelEvent = MouseEventFlag + 2,
     CursorEvent = MouseEventFlag + 3,
@@ -167,7 +180,8 @@ enum ProcessDpiAwareness
 {
     ProcessDpiUnaware,
     ProcessSystemDpiAware,
-    ProcessPerMonitorDpiAware
+    ProcessPerMonitorDpiAware,
+    ProcessPerMonitorV2DpiAware // Qt extension (not in Process_DPI_Awareness)
 };
 
 } // namespace QtWindows
@@ -307,6 +321,8 @@ inline QtWindows::WindowsEventType windowsEventType(UINT message, WPARAM wParamI
         return HIWORD(wParamIn) ? QtWindows::AcceleratorCommandEvent : QtWindows::MenuCommandEvent;
     case WM_DPICHANGED:
         return QtWindows::DpiChangedEvent;
+    case WM_GETDPISCALEDSIZE:
+        return QtWindows::DpiScaledSizeEvent;
     case WM_ENTERSIZEMOVE:
         return QtWindows::EnterSizeMoveEvent;
     case WM_EXITSIZEMOVE:

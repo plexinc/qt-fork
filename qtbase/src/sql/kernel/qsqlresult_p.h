@@ -79,9 +79,9 @@ class Q_SQL_EXPORT QSqlResultPrivate
 public:
     QSqlResultPrivate(QSqlResult *q, const QSqlDriver *drv)
       : q_ptr(q),
-        sqldriver(const_cast<QSqlDriver*>(drv))
+        sqldriver(const_cast<QSqlDriver *>(drv))
     { }
-    virtual ~QSqlResultPrivate() { }
+    virtual ~QSqlResultPrivate() = default;
 
     void clearValues()
     {
@@ -104,7 +104,7 @@ public:
     void clear()
     {
         clearValues();
-        clearIndex();;
+        clearIndex();
     }
 
     virtual QString fieldSerial(int) const;
@@ -116,22 +116,25 @@ public:
     QPointer<QSqlDriver> sqldriver;
     QString sql;
     QSqlError error;
-    QSql::NumericalPrecisionPolicy precisionPolicy = QSql::LowPrecisionDouble;
+
+    QString executedQuery;
+    QHash<int, QSql::ParamType> types;
+    QList<QVariant> values;
+    using IndexMap = QHash<QString, QList<int>>;
+    IndexMap indexes;
+
+    using QHolderVector = QList<QHolder>;
+    QHolderVector holders;
+
     QSqlResult::BindingSyntax binds = QSqlResult::PositionalBinding;
+    QSql::NumericalPrecisionPolicy precisionPolicy = QSql::LowPrecisionDouble;
     int idx = QSql::BeforeFirstRow;
     int bindCount = 0;
     bool active = false;
     bool isSel = false;
     bool forwardOnly = false;
 
-    QString executedQuery;
-    QHash<int, QSql::ParamType> types;
-    QVector<QVariant> values;
-    typedef QHash<QString, QVector<int> > IndexMap;
-    IndexMap indexes;
-
-    typedef QVector<QHolder> QHolderVector;
-    QHolderVector holders;
+    static bool isVariantNull(const QVariant &variant);
 };
 
 QT_END_NAMESPACE

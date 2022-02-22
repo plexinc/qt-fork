@@ -7,15 +7,16 @@
 #include <string>
 
 #include "base/values.h"
+#include "chrome/browser/ash/login/screens/reset_screen.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/login/help_app_launcher.h"
 #include "chrome/browser/chromeos/login/oobe_screen.h"
-#include "chrome/browser/chromeos/login/screens/reset_screen.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "chromeos/dbus/session_manager/session_manager_client.h"
 #include "components/login/localized_values_builder.h"
 #include "components/strings/grit/components_strings.h"
+#include "ui/chromeos/devicetype_utils.h"
 
 namespace chromeos {
 
@@ -79,17 +80,16 @@ void ResetScreenHandler::DeclareLocalizedValues(
                IDS_RESET_SCREEN_TPM_FIRMWARE_UPDATE_OPTION);
 
   // Variants for screen title.
-  builder->AddF("resetWarningTitle",
-                IDS_RESET_SCREEN_WARNING_MSG,
-                IDS_SHORT_PRODUCT_NAME);
+  builder->AddF("resetWarningTitle", IDS_RESET_SCREEN_WARNING_MSG,
+                ui::GetChromeOSDeviceName());
 
   // Variants for screen message.
   builder->AddF("resetPowerwashWarningDetails",
                 IDS_RESET_SCREEN_WARNING_POWERWASH_MSG,
-                IDS_SHORT_PRODUCT_NAME);
+                ui::GetChromeOSDeviceName());
   builder->AddF("resetPowerwashRollbackWarningDetails",
                 IDS_RESET_SCREEN_WARNING_POWERWASH_AND_ROLLBACK_MSG,
-                IDS_SHORT_PRODUCT_NAME);
+                ui::GetChromeOSDeviceName());
 
   builder->Add("confirmPowerwashTitle", IDS_RESET_SCREEN_POPUP_POWERWASH_TITLE);
   builder->Add("confirmRollbackTitle", IDS_RESET_SCREEN_POPUP_ROLLBACK_TITLE);

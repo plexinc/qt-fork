@@ -10,31 +10,49 @@
 #include "base/containers/unique_ptr_adapters.h"
 #include "base/memory/ptr_util.h"
 #include "base/path_service.h"
+#include "base/stl_util.h"
 #include "components/base32/base32.h"
-#include "content/public/browser/browser_context.h"
+#include "content/public/browser/web_contents.h"
+#include "third_party/blink/public/common/web_preferences/web_preferences.h"
+#include "weblayer/browser/browser_context_impl.h"
+#include "weblayer/browser/browser_list.h"
 #include "weblayer/browser/feature_list_creator.h"
 #include "weblayer/browser/persistence/browser_persister.h"
+#include "weblayer/browser/persistence/browser_persister_file_utils.h"
 #include "weblayer/browser/persistence/minimal_browser_persister.h"
 #include "weblayer/browser/profile_impl.h"
 #include "weblayer/browser/tab_impl.h"
 #include "weblayer/common/weblayer_paths.h"
 #include "weblayer/public/browser_observer.h"
+#include "weblayer/public/browser_restore_observer.h"
 
 #if defined(OS_ANDROID)
 #include "base/android/callback_android.h"
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
 #include "base/json/json_writer.h"
+#include "weblayer/browser/browser_process.h"
 #include "weblayer/browser/java/jni/BrowserImpl_jni.h"
-#endif
 
-#if defined(OS_ANDROID)
 using base::android::AttachCurrentThread;
 using base::android::JavaParamRef;
 using base::android::ScopedJavaLocalRef;
 #endif
 
 namespace weblayer {
+
+#if defined(OS_ANDROID)
+// This MUST match the values defined in
+// org.chromium.weblayer_private.interfaces.DarkModeStrategy.
+enum class DarkModeStrategy {
+  kWebThemeDarkeningOnly = 0,
+  kUserAgentDarkeningOnly = 1,
+  kPreferWebThemeOverUserAgentDarkening = 2,
+};
+#endif
+
+// static
+constexpr char BrowserImpl::kPersistenceFilePrefix[];
 
 std::unique_ptr<Browser> Browser::Create(
     Profile* profile,
@@ -55,48 +73,49 @@ BrowserImpl::~BrowserImpl() {
   DCHECK(tabs_.empty());
 #else
   while (!tabs_.empty())
-    RemoveTab(tabs_.back().get());
+    DestroyTab(tabs_.back().get());
 #endif
-  profile_->DecrementBrowserImplCount();
+  BrowserList::GetInstance()->RemoveBrowser(this);
+
+#if defined(OS_ANDROID)
+  if (BrowserList::GetInstance()->browsers().empty())
+    BrowserProcess::GetInstance()->StopSafeBrowsingService();
+#endif
 }
 
 TabImpl* BrowserImpl::CreateTabForSessionRestore(
     std::unique_ptr<content::WebContents> web_contents,
     const std::string& guid) {
+  if (!web_contents) {
+    content::WebContents::CreateParams create_params(
+        profile_->GetBrowserContext());
+    web_contents = content::WebContents::Create(create_params);
+  }
   std::unique_ptr<TabImpl> tab =
       std::make_unique<TabImpl>(profile_, std::move(web_contents), guid);
 #if defined(OS_ANDROID)
-  Java_BrowserImpl_createTabForSessionRestore(
+  Java_BrowserImpl_createJavaTabForNativeTab(
       AttachCurrentThread(), java_impl_, reinterpret_cast<jlong>(tab.get()));
 #endif
-  TabImpl* tab_ptr = tab.get();
-  AddTab(std::move(tab));
-  return tab_ptr;
+  return AddTab(std::move(tab));
+}
+
+TabImpl* BrowserImpl::CreateTab(
+    std::unique_ptr<content::WebContents> web_contents) {
+  return CreateTabForSessionRestore(std::move(web_contents), std::string());
 }
 
 #if defined(OS_ANDROID)
-void BrowserImpl::AddTab(JNIEnv* env,
-                         const JavaParamRef<jobject>& caller,
-                         long native_tab) {
-  TabImpl* tab = reinterpret_cast<TabImpl*>(native_tab);
-  std::unique_ptr<Tab> owned_tab;
-  if (tab->browser())
-    owned_tab = tab->browser()->RemoveTab(tab);
-  else
-    owned_tab.reset(tab);
-  AddTab(std::move(owned_tab));
+bool BrowserImpl::CompositorHasSurface() {
+  return Java_BrowserImpl_compositorHasSurface(AttachCurrentThread(),
+                                               java_impl_);
 }
 
-void BrowserImpl::RemoveTab(JNIEnv* env,
-                            const JavaParamRef<jobject>& caller,
-                            long native_tab) {
-  // The Java side owns the Tab.
-  RemoveTab(reinterpret_cast<TabImpl*>(native_tab)).release();
+void BrowserImpl::AddTab(JNIEnv* env, long native_tab) {
+  AddTab(reinterpret_cast<TabImpl*>(native_tab));
 }
 
-ScopedJavaLocalRef<jobjectArray> BrowserImpl::GetTabs(
-    JNIEnv* env,
-    const JavaParamRef<jobject>& caller) {
+ScopedJavaLocalRef<jobjectArray> BrowserImpl::GetTabs(JNIEnv* env) {
   ScopedJavaLocalRef<jclass> clazz =
       base::android::GetClass(env, "org/chromium/weblayer_private/TabImpl");
   jobjectArray tabs = env->NewObjectArray(tabs_.size(), clazz.obj(),
@@ -110,41 +129,31 @@ ScopedJavaLocalRef<jobjectArray> BrowserImpl::GetTabs(
   return ScopedJavaLocalRef<jobjectArray>(env, tabs);
 }
 
-void BrowserImpl::SetActiveTab(JNIEnv* env,
-                               const JavaParamRef<jobject>& caller,
-                               long native_tab) {
+void BrowserImpl::SetActiveTab(JNIEnv* env, long native_tab) {
   SetActiveTab(reinterpret_cast<TabImpl*>(native_tab));
 }
 
-ScopedJavaLocalRef<jobject> BrowserImpl::GetActiveTab(
-    JNIEnv* env,
-    const JavaParamRef<jobject>& caller) {
+ScopedJavaLocalRef<jobject> BrowserImpl::GetActiveTab(JNIEnv* env) {
   if (!active_tab_)
     return nullptr;
   return ScopedJavaLocalRef<jobject>(active_tab_->GetJavaTab());
 }
 
-void BrowserImpl::PrepareForShutdown(JNIEnv* env,
-                                     const JavaParamRef<jobject>& caller) {
+void BrowserImpl::PrepareForShutdown(JNIEnv* env) {
   PrepareForShutdown();
 }
 
-ScopedJavaLocalRef<jstring> BrowserImpl::GetPersistenceId(
-    JNIEnv* env,
-    const JavaParamRef<jobject>& caller) {
+ScopedJavaLocalRef<jstring> BrowserImpl::GetPersistenceId(JNIEnv* env) {
   return ScopedJavaLocalRef<jstring>(
       base::android::ConvertUTF8ToJavaString(env, GetPersistenceId()));
 }
 
-void BrowserImpl::SaveBrowserPersisterIfNecessary(
-    JNIEnv* env,
-    const JavaParamRef<jobject>& caller) {
+void BrowserImpl::SaveBrowserPersisterIfNecessary(JNIEnv* env) {
   browser_persister_->SaveIfNecessary();
 }
 
 ScopedJavaLocalRef<jbyteArray> BrowserImpl::GetBrowserPersisterCryptoKey(
-    JNIEnv* env,
-    const JavaParamRef<jobject>& caller) {
+    JNIEnv* env) {
   std::vector<uint8_t> key;
   if (browser_persister_)
     key = browser_persister_->GetCryptoKey();
@@ -152,15 +161,12 @@ ScopedJavaLocalRef<jbyteArray> BrowserImpl::GetBrowserPersisterCryptoKey(
 }
 
 ScopedJavaLocalRef<jbyteArray> BrowserImpl::GetMinimalPersistenceState(
-    JNIEnv* env,
-    const JavaParamRef<jobject>& caller) {
-  auto state = GetMinimalPersistenceState();
-  return base::android::ToJavaByteArray(env, &(state.front()), state.size());
+    JNIEnv* env) {
+  return base::android::ToJavaByteArray(env, GetMinimalPersistenceState());
 }
 
 void BrowserImpl::RestoreStateIfNecessary(
     JNIEnv* env,
-    const JavaParamRef<jobject>& caller,
     const JavaParamRef<jstring>& j_persistence_id,
     const JavaParamRef<jbyteArray>& j_persistence_crypto_key,
     const JavaParamRef<jbyteArray>& j_minimal_persistence_state) {
@@ -194,12 +200,18 @@ void BrowserImpl::WebPreferencesChanged(JNIEnv* env) {
   }
 }
 
-void BrowserImpl::OnFragmentStart(
-    JNIEnv* env,
-    const base::android::JavaParamRef<jobject>& caller) {
+void BrowserImpl::OnFragmentStart(JNIEnv* env) {
   // FeatureListCreator is created before any Browsers.
   DCHECK(FeatureListCreator::GetInstance());
   FeatureListCreator::GetInstance()->OnBrowserFragmentStarted();
+}
+
+void BrowserImpl::OnFragmentResume(JNIEnv* env) {
+  UpdateFragmentResumedState(true);
+}
+
+void BrowserImpl::OnFragmentPause(JNIEnv* env) {
+  UpdateFragmentResumedState(false);
 }
 
 #endif
@@ -209,17 +221,180 @@ std::vector<uint8_t> BrowserImpl::GetMinimalPersistenceState(
   return PersistMinimalState(this, max_size_in_bytes);
 }
 
-bool BrowserImpl::GetPasswordEchoEnabled() {
+void BrowserImpl::SetWebPreferences(blink::web_pref::WebPreferences* prefs) {
 #if defined(OS_ANDROID)
-  return Java_BrowserImpl_getPasswordEchoEnabled(AttachCurrentThread(),
-                                                 java_impl_);
-#else
-  return false;
+  prefs->password_echo_enabled = Java_BrowserImpl_getPasswordEchoEnabled(
+      AttachCurrentThread(), java_impl_);
+  prefs->font_scale_factor =
+      Java_BrowserImpl_getFontScale(AttachCurrentThread(), java_impl_);
+  bool is_dark =
+      Java_BrowserImpl_getDarkThemeEnabled(AttachCurrentThread(), java_impl_);
+  if (is_dark) {
+    DarkModeStrategy dark_strategy =
+        static_cast<DarkModeStrategy>(Java_BrowserImpl_getDarkModeStrategy(
+            AttachCurrentThread(), java_impl_));
+    switch (dark_strategy) {
+      case DarkModeStrategy::kPreferWebThemeOverUserAgentDarkening:
+        // Blink's behavior is that if the preferred color scheme matches the
+        // browser's color scheme, then force dark will be disabled, otherwise
+        // the preferred color scheme will be reset to 'light'. Therefore
+        // when enabling force dark, we also set the preferred color scheme to
+        // dark so that dark themed content will be preferred over force
+        // darkening.
+        prefs->preferred_color_scheme =
+            blink::mojom::PreferredColorScheme::kDark;
+        prefs->force_dark_mode_enabled = true;
+        break;
+      case DarkModeStrategy::kWebThemeDarkeningOnly:
+        prefs->preferred_color_scheme =
+            blink::mojom::PreferredColorScheme::kDark;
+        prefs->force_dark_mode_enabled = false;
+        break;
+      case DarkModeStrategy::kUserAgentDarkeningOnly:
+        prefs->preferred_color_scheme =
+            blink::mojom::PreferredColorScheme::kLight;
+        prefs->force_dark_mode_enabled = true;
+        break;
+    }
+  } else {
+    prefs->preferred_color_scheme = blink::mojom::PreferredColorScheme::kLight;
+    prefs->force_dark_mode_enabled = false;
+  }
 #endif
 }
 
-Tab* BrowserImpl::AddTab(std::unique_ptr<Tab> tab) {
+#if defined(OS_ANDROID)
+void BrowserImpl::RemoveTabBeforeDestroyingFromJava(Tab* tab) {
+  // The java side owns the Tab, and is going to delete it shortly. See
+  // JNI_TabImpl_DeleteTab.
+  RemoveTab(tab).release();
+}
+#endif
+
+void BrowserImpl::AddTab(Tab* tab) {
   DCHECK(tab);
+  TabImpl* tab_impl = static_cast<TabImpl*>(tab);
+  std::unique_ptr<Tab> owned_tab;
+  if (tab_impl->browser())
+    owned_tab = tab_impl->browser()->RemoveTab(tab_impl);
+  else
+    owned_tab.reset(tab_impl);
+  AddTab(std::move(owned_tab));
+}
+
+void BrowserImpl::DestroyTab(Tab* tab) {
+#if defined(OS_ANDROID)
+  // Route destruction through the java side.
+  Java_BrowserImpl_destroyTabImpl(AttachCurrentThread(), java_impl_,
+                                  static_cast<TabImpl*>(tab)->GetJavaTab());
+#else
+  RemoveTab(tab);
+#endif
+}
+
+void BrowserImpl::SetActiveTab(Tab* tab) {
+  if (GetActiveTab() == tab)
+    return;
+  if (active_tab_)
+    active_tab_->OnLosingActive();
+  // TODO: currently the java side sets visibility, this code likely should
+  // too and it should be removed from the java side.
+  active_tab_ = static_cast<TabImpl*>(tab);
+#if defined(OS_ANDROID)
+  Java_BrowserImpl_onActiveTabChanged(
+      AttachCurrentThread(), java_impl_,
+      active_tab_ ? active_tab_->GetJavaTab() : nullptr);
+#endif
+  VisibleSecurityStateOfActiveTabChanged();
+  for (BrowserObserver& obs : browser_observers_)
+    obs.OnActiveTabChanged(active_tab_);
+  if (active_tab_)
+    active_tab_->OnGainedActive();
+}
+
+Tab* BrowserImpl::GetActiveTab() {
+  return active_tab_;
+}
+
+std::vector<Tab*> BrowserImpl::GetTabs() {
+  std::vector<Tab*> tabs(tabs_.size());
+  for (size_t i = 0; i < tabs_.size(); ++i)
+    tabs[i] = tabs_[i].get();
+  return tabs;
+}
+
+Tab* BrowserImpl::CreateTab() {
+  return CreateTab(nullptr);
+}
+
+void BrowserImpl::OnRestoreCompleted() {
+  for (BrowserRestoreObserver& obs : browser_restore_observers_)
+    obs.OnRestoreCompleted();
+#if defined(OS_ANDROID)
+  Java_BrowserImpl_onRestoreCompleted(AttachCurrentThread(), java_impl_);
+#endif
+}
+
+void BrowserImpl::PrepareForShutdown() {
+  browser_persister_.reset();
+}
+
+std::string BrowserImpl::GetPersistenceId() {
+  return persistence_id_;
+}
+
+std::vector<uint8_t> BrowserImpl::GetMinimalPersistenceState() {
+  // 0 means use the default max.
+  return GetMinimalPersistenceState(0);
+}
+
+bool BrowserImpl::IsRestoringPreviousState() {
+  return browser_persister_ && browser_persister_->is_restore_in_progress();
+}
+
+void BrowserImpl::AddObserver(BrowserObserver* observer) {
+  browser_observers_.AddObserver(observer);
+}
+
+void BrowserImpl::RemoveObserver(BrowserObserver* observer) {
+  browser_observers_.RemoveObserver(observer);
+}
+
+void BrowserImpl::AddBrowserRestoreObserver(BrowserRestoreObserver* observer) {
+  browser_restore_observers_.AddObserver(observer);
+}
+
+void BrowserImpl::RemoveBrowserRestoreObserver(
+    BrowserRestoreObserver* observer) {
+  browser_restore_observers_.RemoveObserver(observer);
+}
+
+void BrowserImpl::VisibleSecurityStateOfActiveTabChanged() {
+  if (visible_security_state_changed_callback_for_tests_)
+    std::move(visible_security_state_changed_callback_for_tests_).Run();
+
+#if defined(OS_ANDROID)
+  JNIEnv* env = base::android::AttachCurrentThread();
+  Java_BrowserImpl_onVisibleSecurityStateOfActiveTabChanged(env, java_impl_);
+#endif
+}
+
+BrowserImpl::BrowserImpl(ProfileImpl* profile) : profile_(profile) {
+  BrowserList::GetInstance()->AddBrowser(this);
+}
+
+void BrowserImpl::RestoreStateIfNecessary(
+    const PersistenceInfo& persistence_info) {
+  persistence_id_ = persistence_info.id;
+  if (!persistence_id_.empty()) {
+    browser_persister_ = std::make_unique<BrowserPersister>(
+        GetBrowserPersisterDataPath(), this, persistence_info.last_crypto_key);
+  } else if (!persistence_info.minimal_state.empty()) {
+    RestoreMinimalState(this, persistence_info.minimal_state);
+  }
+}
+
+TabImpl* BrowserImpl::AddTab(std::unique_ptr<Tab> tab) {
   TabImpl* tab_impl = static_cast<TabImpl*>(tab.get());
   DCHECK(!tab_impl->browser());
   tabs_.push_back(std::move(tab));
@@ -244,109 +419,33 @@ std::unique_ptr<Tab> BrowserImpl::RemoveTab(Tab* tab) {
   tabs_.erase(iter);
   const bool active_tab_changed = active_tab_ == tab;
   if (active_tab_changed)
-    active_tab_ = nullptr;
+    SetActiveTab(nullptr);
+
 #if defined(OS_ANDROID)
-  if (active_tab_changed) {
-    Java_BrowserImpl_onActiveTabChanged(
-        AttachCurrentThread(), java_impl_,
-        active_tab_ ? static_cast<TabImpl*>(active_tab_)->GetJavaTab()
-                    : nullptr);
-  }
   Java_BrowserImpl_onTabRemoved(AttachCurrentThread(), java_impl_,
                                 tab ? tab_impl->GetJavaTab() : nullptr);
 #endif
-  if (active_tab_changed) {
-    for (BrowserObserver& obs : browser_observers_)
-      obs.OnActiveTabChanged(active_tab_);
-  }
   for (BrowserObserver& obs : browser_observers_)
     obs.OnTabRemoved(tab, active_tab_changed);
   return owned_tab;
 }
 
-void BrowserImpl::SetActiveTab(Tab* tab) {
-  if (GetActiveTab() == tab)
-    return;
-  // TODO: currently the java side sets visibility, this code likely should
-  // too and it should be removed from the java side.
-  active_tab_ = static_cast<TabImpl*>(tab);
+base::FilePath BrowserImpl::GetBrowserPersisterDataPath() {
+  return BuildBasePathForBrowserPersister(
+      profile_->GetBrowserPersisterDataBaseDir(), GetPersistenceId());
+}
+
 #if defined(OS_ANDROID)
-  Java_BrowserImpl_onActiveTabChanged(
-      AttachCurrentThread(), java_impl_,
-      active_tab_ ? active_tab_->GetJavaTab() : nullptr);
-#endif
-  VisibleSecurityStateOfActiveTabChanged();
-  for (BrowserObserver& obs : browser_observers_)
-    obs.OnActiveTabChanged(active_tab_);
-  if (active_tab_)
-    active_tab_->web_contents()->GetController().LoadIfNecessary();
-}
-
-Tab* BrowserImpl::GetActiveTab() {
-  return active_tab_;
-}
-
-std::vector<Tab*> BrowserImpl::GetTabs() {
-  std::vector<Tab*> tabs(tabs_.size());
-  for (size_t i = 0; i < tabs_.size(); ++i)
-    tabs[i] = tabs_[i].get();
-  return tabs;
-}
-
-void BrowserImpl::PrepareForShutdown() {
-  browser_persister_.reset();
-}
-
-std::string BrowserImpl::GetPersistenceId() {
-  return persistence_id_;
-}
-
-std::vector<uint8_t> BrowserImpl::GetMinimalPersistenceState() {
-  // 0 means use the default max.
-  return GetMinimalPersistenceState(0);
-}
-
-void BrowserImpl::AddObserver(BrowserObserver* observer) {
-  browser_observers_.AddObserver(observer);
-}
-
-void BrowserImpl::RemoveObserver(BrowserObserver* observer) {
-  browser_observers_.RemoveObserver(observer);
-}
-
-BrowserImpl::BrowserImpl(ProfileImpl* profile) : profile_(profile) {
-  profile_->IncrementBrowserImplCount();
-}
-
-void BrowserImpl::RestoreStateIfNecessary(
-    const PersistenceInfo& persistence_info) {
-  persistence_id_ = persistence_info.id;
-  if (!persistence_id_.empty()) {
-    browser_persister_ = std::make_unique<BrowserPersister>(
-        GetBrowserPersisterDataPath(), this, persistence_info.last_crypto_key);
-  } else if (!persistence_info.minimal_state.empty()) {
-    RestoreMinimalState(this, persistence_info.minimal_state);
+void BrowserImpl::UpdateFragmentResumedState(bool state) {
+  const bool old_has_at_least_one_active_browser =
+      BrowserList::GetInstance()->HasAtLeastOneResumedBrowser();
+  fragment_resumed_ = state;
+  if (old_has_at_least_one_active_browser !=
+      BrowserList::GetInstance()->HasAtLeastOneResumedBrowser()) {
+    BrowserList::GetInstance()->NotifyHasAtLeastOneResumedBrowserChanged();
   }
 }
 
-void BrowserImpl::VisibleSecurityStateOfActiveTabChanged() {
-  if (visible_security_state_changed_callback_for_tests_)
-    std::move(visible_security_state_changed_callback_for_tests_).Run();
-
-#if defined(OS_ANDROID)
-  JNIEnv* env = base::android::AttachCurrentThread();
-  Java_BrowserImpl_onVisibleSecurityStateOfActiveTabChanged(env, java_impl_);
-#endif
-}
-
-base::FilePath BrowserImpl::GetBrowserPersisterDataPath() {
-  base::FilePath base_path = profile_->GetBrowserPersisterDataBaseDir();
-  DCHECK(!GetPersistenceId().empty());
-  const std::string encoded_name = base32::Base32Encode(GetPersistenceId());
-  return base_path.AppendASCII("State" + encoded_name);
-}
-
-#if defined(OS_ANDROID)
 // This function is friended. JNI_BrowserImpl_CreateBrowser can not be
 // friended, as it requires browser_impl.h to include BrowserImpl_jni.h, which
 // is problematic (meaning not really supported and generates compile errors).

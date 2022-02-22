@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtNfc module of the Qt Toolkit.
@@ -57,6 +57,7 @@
 
 QT_FORWARD_DECLARE_CLASS(QNearFieldManager)
 QT_FORWARD_DECLARE_CLASS(QNdefMessage)
+QT_FORWARD_DECLARE_CLASS(QScreen)
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -71,6 +72,9 @@ class MainWindow : public QMainWindow
 public:
     explicit MainWindow(QWidget *parent = 0);
     ~MainWindow();
+
+protected:
+    void resizeEvent(QResizeEvent *e) override;
 
 private slots:
     //! [0]
@@ -91,7 +95,7 @@ private slots:
     void targetLost(QNearFieldTarget *target);
 
     void ndefMessageRead(const QNdefMessage &message);
-    void ndefMessageWritten();
+    void ndefMessageWritten(const QNearFieldTarget::RequestId &id);
     void targetError(QNearFieldTarget::Error error, const QNearFieldTarget::RequestId &id);
 
 private:
@@ -102,6 +106,8 @@ private:
     };
 
     QNdefMessage ndefMessage() const;
+    void handleScreenChange();
+    void updateWidgetLayout(Qt::ScreenOrientation orientation);
 
 private:
     Ui::MainWindow *ui;
@@ -109,6 +115,8 @@ private:
     QNearFieldManager *m_manager;
     TouchAction m_touchAction;
     QNearFieldTarget::RequestId m_request;
+    bool m_keyboardVisible = false;
+    QScreen *m_screen = nullptr;
 };
 
 #endif // MAINWINDOW_H

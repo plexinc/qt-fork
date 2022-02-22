@@ -73,28 +73,30 @@ void QQmlApplicationEnginePrivate::init()
                &QCoreApplication::quit, Qt::QueuedConnection);
     q->connect(q, &QQmlApplicationEngine::exit, QCoreApplication::instance(),
                &QCoreApplication::exit, Qt::QueuedConnection);
-    q->connect(q, SIGNAL(uiLanguageChanged()), q_func(), SLOT(_q_loadTranslations()));
+    QObject::connect(q, &QJSEngine::uiLanguageChanged, q, [this](){
+        _q_loadTranslations();
+    });
 #if QT_CONFIG(translation)
     QTranslator* qtTranslator = new QTranslator(q);
-    if (qtTranslator->load(QLocale(), QLatin1String("qt"), QLatin1String("_"), QLibraryInfo::location(QLibraryInfo::TranslationsPath), QLatin1String(".qm")))
+    if (qtTranslator->load(QLocale(), QLatin1String("qt"), QLatin1String("_"), QLibraryInfo::path(QLibraryInfo::TranslationsPath), QLatin1String(".qm")))
         QCoreApplication::installTranslator(qtTranslator);
     else
         delete qtTranslator;
 #endif
-    new QQmlFileSelector(q,q);
+    auto *selector = new QQmlFileSelector(q,q);
+    selector->setExtraSelectors(extraFileSelectors);
     QCoreApplication::instance()->setProperty("__qml_using_qqmlapplicationengine", QVariant(true));
 }
 
 void QQmlApplicationEnginePrivate::_q_loadTranslations()
 {
 #if QT_CONFIG(translation)
+    Q_Q(QQmlApplicationEngine);
     if (translationsDirectory.isEmpty())
         return;
 
-    Q_Q(QQmlApplicationEngine);
-
     QScopedPointer<QTranslator> translator(new QTranslator);
-    if (!uiLanguage.isEmpty()) {
+    if (!uiLanguage.value().isEmpty()) {
         QLocale locale(uiLanguage);
         if (translator->load(locale, QLatin1String("qml"), QLatin1String("_"), translationsDirectory, QLatin1String(".qm"))) {
             if (activeTranslator)
@@ -112,6 +114,11 @@ void QQmlApplicationEnginePrivate::_q_loadTranslations()
 void QQmlApplicationEnginePrivate::startLoad(const QUrl &url, const QByteArray &data, bool dataFlag)
 {
     Q_Q(QQmlApplicationEngine);
+
+    if (!isInitialized) {
+        init();
+        isInitialized = true;
+    }
 
     if (url.scheme() == QLatin1String("file") || url.scheme() == QLatin1String("qrc")) {
         QFileInfo fi(QQmlFile::urlToLocalFileOrQrc(url));
@@ -146,6 +153,14 @@ void QQmlApplicationEnginePrivate::finishLoad(QQmlComponent *c)
         break;
     case QQmlComponent::Ready: {
         auto newObj = initialProperties.empty() ? c->create() : c->createWithInitialProperties(initialProperties);
+
+        if (c->isError()) {
+           qWarning() << "QQmlApplicationEngine failed to create component";
+           warning(c->errors());
+           q->objectCreated(nullptr, c->url());
+           break;
+        }
+
         objects << newObj;
         QObject::connect(newObj, &QObject::destroyed, q, [&](QObject *obj) { objects.removeAll(obj); });
         q->objectCreated(objects.constLast(), c->url());
@@ -225,8 +240,6 @@ void QQmlApplicationEnginePrivate::finishLoad(QQmlComponent *c)
 QQmlApplicationEngine::QQmlApplicationEngine(QObject *parent)
 : QQmlEngine(*(new QQmlApplicationEnginePrivate(this)), parent)
 {
-    Q_D(QQmlApplicationEngine);
-    d->init();
     QJSEnginePrivate::addToDebugServer(this);
 }
 
@@ -321,6 +334,26 @@ void QQmlApplicationEngine::setInitialProperties(const QVariantMap &initialPrope
 }
 
 /*!
+  Sets the \a extraFileSelectors to be passed to the internal QQmlFileSelector
+  used for resolving URLs to local files. The \a extraFileSelectors are applied
+  when the first QML file is loaded. Setting them afterwards has no effect.
+
+  \sa QQmlFileSelector
+  \sa QFileSelector::setExtraSelectors
+  \since 6.0
+*/
+void QQmlApplicationEngine::setExtraFileSelectors(const QStringList &extraFileSelectors)
+{
+    Q_D(QQmlApplicationEngine);
+    if (d->isInitialized) {
+        qWarning() << "QQmlApplicationEngine::setExtraFileSelectors()"
+                   << "called after loading QML files. This has no effect.";
+    } else {
+        d->extraFileSelectors = extraFileSelectors;
+    }
+}
+
+/*!
   Loads the QML given in \a data. The object tree defined by \a data is
   instantiated immediately.
 
@@ -348,17 +381,6 @@ QList<QObject *> QQmlApplicationEngine::rootObjects() const
     Q_D(const QQmlApplicationEngine);
     return d->objects;
 }
-
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-/*!
-    \overload
-    \internal
-*/
-QList<QObject *> QQmlApplicationEngine::rootObjects()
-{
-    return qAsConst(*this).rootObjects();
-}
-#endif // < Qt 6
 
 QT_END_NAMESPACE
 

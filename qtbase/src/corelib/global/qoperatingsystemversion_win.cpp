@@ -46,57 +46,21 @@
 
 QT_BEGIN_NAMESPACE
 
-#ifdef Q_OS_WINRT
-static inline HMODULE moduleHandleForFunction(LPCVOID address)
-{
-    // This is a widely used, decades-old technique for retrieving the handle
-    // of a module and is effectively equivalent to GetModuleHandleEx
-    // (which is unavailable on WinRT)
-    MEMORY_BASIC_INFORMATION mbi = { 0, 0, 0, 0, 0, 0, 0 };
-    if (VirtualQuery(address, &mbi, sizeof(mbi)) == 0)
-        return 0;
-    return reinterpret_cast<HMODULE>(mbi.AllocationBase);
-}
-#endif
-
 static inline OSVERSIONINFOEX determineWinOsVersion()
 {
     OSVERSIONINFOEX result = { sizeof(OSVERSIONINFOEX), 0, 0, 0, 0, {'\0'}, 0, 0, 0, 0, 0};
 
-#define GetProcAddressA GetProcAddress
-
-    // GetModuleHandle is not supported in WinRT and linking to it at load time
-    // will not pass the Windows App Certification Kit... but it exists and is functional,
-    // so use some unusual but widely used techniques to get a pointer to it
-#ifdef Q_OS_WINRT
-    // 1. Get HMODULE of kernel32.dll, using the address of some function exported by that DLL
-    HMODULE kernelModule = moduleHandleForFunction(reinterpret_cast<LPCVOID>(VirtualQuery));
-    if (Q_UNLIKELY(!kernelModule))
-        return result;
-
-    // 2. Get pointer to GetModuleHandle so we can then load other arbitrary modules (DLLs)
-    typedef HMODULE(WINAPI *GetModuleHandleFunction)(LPCWSTR);
-    GetModuleHandleFunction pGetModuleHandle = reinterpret_cast<GetModuleHandleFunction>(
-        GetProcAddressA(kernelModule, "GetModuleHandleW"));
-    if (Q_UNLIKELY(!pGetModuleHandle))
-        return result;
-#else
-#define pGetModuleHandle GetModuleHandleW
-#endif
-
-    HMODULE ntdll = pGetModuleHandle(L"ntdll.dll");
+    HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
     if (Q_UNLIKELY(!ntdll))
         return result;
 
-    // NTSTATUS is not defined on WinRT
-    typedef LONG NTSTATUS;
     typedef NTSTATUS (NTAPI *RtlGetVersionFunction)(LPOSVERSIONINFO);
 
     // RtlGetVersion is documented public API but we must load it dynamically
     // because linking to it at load time will not pass the Windows App Certification Kit
     // https://msdn.microsoft.com/en-us/library/windows/hardware/ff561910.aspx
     RtlGetVersionFunction pRtlGetVersion = reinterpret_cast<RtlGetVersionFunction>(
-        reinterpret_cast<QFunctionPointer>(GetProcAddressA(ntdll, "RtlGetVersion")));
+        reinterpret_cast<QFunctionPointer>(GetProcAddress(ntdll, "RtlGetVersion")));
     if (Q_UNLIKELY(!pRtlGetVersion))
         return result;
 
@@ -123,25 +87,13 @@ OSVERSIONINFOEX qWindowsVersionInfo()
             result.wServicePackMinor = 0;
 
             const QByteArray winVerOverride = qgetenv("QT_WINVER_OVERRIDE");
-            if (winVerOverride == "WINDOWS7" || winVerOverride == "2008_R2") {
-                result.dwMajorVersion = 6;
-                result.dwMinorVersion = 1;
-            } else if (winVerOverride == "WINDOWS8" || winVerOverride == "2012") {
-                result.dwMajorVersion = 6;
-                result.dwMinorVersion = 2;
-            } else if (winVerOverride == "WINDOWS8_1" || winVerOverride == "2012_R2") {
-                result.dwMajorVersion = 6;
-                result.dwMinorVersion = 3;
-            } else if (winVerOverride == "WINDOWS10" || winVerOverride == "2016") {
+            if (winVerOverride == "WINDOWS10" || winVerOverride == "2016") {
                 result.dwMajorVersion = 10;
             } else {
                 return realResult;
             }
 
-            if (winVerOverride == "2008_R2"
-                || winVerOverride == "2012"
-                || winVerOverride == "2012_R2"
-                || winVerOverride == "2016") {
+            if (winVerOverride == "2016") {
                 // If the current host OS is a domain controller and the override OS
                 // is also a server type OS, preserve that information
                 if (result.wProductType == VER_NT_WORKSTATION)
@@ -158,12 +110,15 @@ OSVERSIONINFOEX qWindowsVersionInfo()
 
 QOperatingSystemVersion QOperatingSystemVersion::current()
 {
-    QOperatingSystemVersion v;
-    v.m_os = currentType();
-    const OSVERSIONINFOEX osv = qWindowsVersionInfo();
-    v.m_major = osv.dwMajorVersion;
-    v.m_minor = osv.dwMinorVersion;
-    v.m_micro = osv.dwBuildNumber;
+    static QOperatingSystemVersion v = [](){
+        QOperatingSystemVersion v;
+        v.m_os = currentType();
+        const OSVERSIONINFOEX osv = qWindowsVersionInfo();
+        v.m_major = osv.dwMajorVersion;
+        v.m_minor = osv.dwMinorVersion;
+        v.m_micro = osv.dwBuildNumber;
+        return v;
+    }();
     return v;
 }
 

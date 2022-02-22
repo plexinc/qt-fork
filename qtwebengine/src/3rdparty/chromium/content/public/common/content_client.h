@@ -21,7 +21,7 @@
 #include "url/url_util.h"
 
 namespace base {
-class DictionaryValue;
+class FilePath;
 class RefCountedMemory;
 class SequencedTaskRunner;
 }
@@ -57,7 +57,7 @@ class ContentUtilityClient;
 struct CdmInfo;
 struct PepperPluginInfo;
 
-// Setter and getter for the client.  The client should be set early, before any
+// Setter and getter for the client. The client should be set early, before any
 // content code is called.
 CONTENT_EXPORT void SetContentClient(ContentClient* client);
 
@@ -167,22 +167,19 @@ class CONTENT_EXPORT ContentClient {
   // Returns a native image given its id.
   virtual gfx::Image& GetNativeImageNamed(int resource_id);
 
+#if defined(OS_MAC)
+  // Gets the path for an embedder-specific helper child process. The
+  // |child_flags| is a value greater than
+  // ChildProcessHost::CHILD_EMBEDDER_FIRST. The |helpers_path| is the location
+  // of the known //content Mac helpers in the framework bundle.
+  virtual base::FilePath GetChildProcessPath(
+      int child_flags,
+      const base::FilePath& helpers_path);
+#endif  // defined(OS_MAC)
+
   // Called by content::GetProcessTypeNameInEnglish for process types that it
   // doesn't know about because they're from the embedder.
   virtual std::string GetProcessTypeNameInEnglish(int type);
-
-  // Called once during initialization of NetworkService to provide constants
-  // to NetLog.  (Though it may be called multiples times if NetworkService
-  // crashes and needs to be reinitialized).  The return value is merged with
-  // |GetNetConstants()| and passed to FileNetLogObserver - see documentation
-  // of |FileNetLogObserver::CreateBounded()| for more information.  The
-  // convention is to put new constants under a subdict at the key "clientInfo".
-  virtual base::DictionaryValue GetNetLogConstants();
-
-  // Returns whether or not V8 script extensions should be allowed for a
-  // service worker.
-  virtual bool AllowScriptExtensionForServiceWorker(
-      const url::Origin& script_origin);
 
   // Returns the origin trial policy, or nullptr if origin trials are not
   // supported by the embedder.

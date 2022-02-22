@@ -7,7 +7,7 @@
 .overview-sidebar-panel {
   overflow: auto;
   display: flex;
-  background: #F3F3F3;
+  background: var(--color-background-elevation-1);
 }
 
 .overview-sidebar-panel-item {
@@ -16,18 +16,19 @@
   display: flex;
   align-items: center;
   cursor: pointer;
+  color: var(--color-text-primary);
 }
 
 .overview-sidebar-panel-item:hover,
 .overview-sidebar-panel-item:focus {
-  background: rgb(234, 234, 234);
+  background: var(--color-background-highlight);
 }
 
 .overview-sidebar-panel-item.selected {
-  background: #1A73E8;
-  color: #FFFFFF;
+  background: var(--color-primary);
+  color: var(--color-background);
 }
 
 .overview-toolbar {
-  border-bottom: 1px solid rgb(204, 204, 204);
+  border-bottom: 1px solid var(--color-details-hairline);
 }

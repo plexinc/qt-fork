@@ -2,16 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/qbone/qbone_client.h"
+#include "quic/qbone/qbone_client.h"
 
 #include <utility>
 
-#include "net/third_party/quiche/src/quic/core/quic_epoll_alarm_factory.h"
-#include "net/third_party/quiche/src/quic/core/quic_epoll_connection_helper.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_epoll.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_exported_stats.h"
-#include "net/third_party/quiche/src/quic/qbone/qbone_stream.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/quic_epoll_alarm_factory.h"
+#include "quic/core/quic_epoll_connection_helper.h"
+#include "quic/platform/api/quic_epoll.h"
+#include "quic/platform/api/quic_exported_stats.h"
+#include "quic/qbone/qbone_stream.h"
 
 namespace quic {
 namespace {
@@ -58,7 +58,7 @@ QboneClientSession* QboneClient::qbone_session() {
   return static_cast<QboneClientSession*>(QuicClientBase::session());
 }
 
-void QboneClient::ProcessPacketFromNetwork(quiche::QuicheStringPiece packet) {
+void QboneClient::ProcessPacketFromNetwork(absl::string_view packet) {
   qbone_session()->ProcessPacketFromNetwork(packet);
 }
 

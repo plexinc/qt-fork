@@ -66,7 +66,11 @@ const CSSValue* StyleValueToCSSValue(
     case CSSPropertyID::kBorderBottomLeftRadius:
     case CSSPropertyID::kBorderBottomRightRadius:
     case CSSPropertyID::kBorderTopLeftRadius:
-    case CSSPropertyID::kBorderTopRightRadius: {
+    case CSSPropertyID::kBorderTopRightRadius:
+    case CSSPropertyID::kBorderEndEndRadius:
+    case CSSPropertyID::kBorderEndStartRadius:
+    case CSSPropertyID::kBorderStartEndRadius:
+    case CSSPropertyID::kBorderStartStartRadius: {
       // level 1 only accept single <length-percentages>, but border-radius-*
       // expects pairs.
       const auto* value = style_value.ToCSSValue();
@@ -127,6 +131,18 @@ const CSSValue* StyleValueToCSSValue(
         CSSValueList* list = CSSValueList::CreateSpaceSeparated();
         list->Append(*style_value.ToCSSValue());
         return list;
+      }
+      break;
+    }
+    case CSSPropertyID::kOverflowX:
+    case CSSPropertyID::kOverflowY: {
+      if (!RuntimeEnabledFeatures::OverflowClipEnabled()) {
+        auto* identifier_value =
+            DynamicTo<CSSIdentifierValue>(style_value.ToCSSValue());
+        if (identifier_value &&
+            identifier_value->GetValueID() == CSSValueID::kClip) {
+          return nullptr;
+        }
       }
       break;
     }
@@ -255,13 +271,13 @@ void StylePropertyMap::set(const ExecutionContext* execution_context,
                            const HeapVector<CSSStyleValueOrString>& values,
                            ExceptionState& exception_state) {
   const CSSPropertyID property_id =
-      cssPropertyID(execution_context, property_name);
+      CssPropertyID(execution_context, property_name);
   if (property_id == CSSPropertyID::kInvalid) {
     exception_state.ThrowTypeError("Invalid propertyName: " + property_name);
     return;
   }
 
-  DCHECK(isValidCSSPropertyID(property_id));
+  DCHECK(IsValidCSSPropertyID(property_id));
   const CSSProperty& property = CSSProperty::Get(property_id);
   if (property.IsShorthand()) {
     if (values.size() != 1) {
@@ -320,7 +336,7 @@ void StylePropertyMap::append(const ExecutionContext* execution_context,
     return;
 
   const CSSPropertyID property_id =
-      cssPropertyID(execution_context, property_name);
+      CssPropertyID(execution_context, property_name);
 
   if (property_id == CSSPropertyID::kInvalid) {
     exception_state.ThrowTypeError("Invalid propertyName: " + property_name);
@@ -365,7 +381,7 @@ void StylePropertyMap::append(const ExecutionContext* execution_context,
 void StylePropertyMap::remove(const ExecutionContext* execution_context,
                               const String& property_name,
                               ExceptionState& exception_state) {
-  CSSPropertyID property_id = cssPropertyID(execution_context, property_name);
+  CSSPropertyID property_id = CssPropertyID(execution_context, property_name);
   if (property_id == CSSPropertyID::kInvalid) {
     exception_state.ThrowTypeError("Invalid property name: " + property_name);
     return;

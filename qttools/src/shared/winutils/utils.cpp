@@ -142,7 +142,7 @@ QStringList findSharedLibraries(const QDir &directory, Platform platform,
 QString winErrorMessage(unsigned long error)
 {
     QString rc = QString::fromLatin1("#%1: ").arg(error);
-    ushort *lpMsgBuf;
+    char16_t *lpMsgBuf;
 
     const DWORD len = FormatMessage(
             FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
@@ -304,36 +304,6 @@ bool runProcess(const QString &binary, const QStringList &args,
     return true;
 }
 
-bool runElevatedBackgroundProcess(const QString &binary, const QStringList &args, Qt::HANDLE *processHandle)
-{
-    QScopedArrayPointer<wchar_t> binaryW(new wchar_t[binary.size() + 1]);
-    binary.toWCharArray(binaryW.data());
-    binaryW[binary.size()] = 0;
-
-    const QString arguments = args.join(QLatin1Char(' '));
-    QScopedArrayPointer<wchar_t> argumentsW(new wchar_t[arguments.size() + 1]);
-    arguments.toWCharArray(argumentsW.data());
-    argumentsW[arguments.size()] = 0;
-
-    SHELLEXECUTEINFO shellExecute = {};
-    shellExecute.cbSize = sizeof(shellExecute);
-    shellExecute.fMask = SEE_MASK_NOCLOSEPROCESS;
-    shellExecute.hwnd = 0;
-    shellExecute.lpVerb = L"runas"; // causes elevation
-    shellExecute.lpFile = binaryW.data();
-    shellExecute.lpParameters = argumentsW.data();
-    shellExecute.lpDirectory = 0;
-    shellExecute.nShow = SW_SHOW;
-    shellExecute.hInstApp = 0;
-
-    bool ret = ShellExecuteEx(&shellExecute);
-
-    if (processHandle)
-        *processHandle = shellExecute.hProcess;
-
-    return ret;
-}
-
 #else // Q_OS_WIN
 
 static inline char *encodeFileName(const QString &f)
@@ -463,15 +433,6 @@ bool runProcess(const QString &binary, const QStringList &args,
     return true;
 }
 
-bool runElevatedBackgroundProcess(const QString &binary, const QStringList &args, Qt::HANDLE *processHandle)
-{
-    Q_UNUSED(binary);
-    Q_UNUSED(args);
-    Q_UNUSED(processHandle);
-    Q_UNIMPLEMENTED();
-    return false;
-}
-
 #endif // !Q_OS_WIN
 
 // Find a file in the path using ShellAPI. This can be used to locate DLLs which
@@ -494,12 +455,12 @@ QString findInPath(const QString &file)
 
 const char *qmakeInfixKey = "QT_INFIX";
 
-QMap<QString, QString> queryQMakeAll(QString *errorMessage)
+QMap<QString, QString> queryQMakeAll(const QString &qmakeBinary, QString *errorMessage)
 {
+    const QString binary = !qmakeBinary.isEmpty() ? qmakeBinary : QStringLiteral("qmake");
     QByteArray stdOut;
     QByteArray stdErr;
     unsigned long exitCode = 0;
-    const QString binary = QStringLiteral("qmake");
     if (!runProcess(binary, QStringList(QStringLiteral("-query")), QString(), &exitCode, &stdOut, &stdErr, errorMessage))
         return QMap<QString, QString>();
     if (exitCode) {

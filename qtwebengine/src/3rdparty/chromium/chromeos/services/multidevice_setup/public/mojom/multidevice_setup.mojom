@@ -46,12 +46,17 @@ enum HostStatus {
   kHostVerified = 4
 };
 
-// Individual multi-device features types.
+// Individual multi-device features types. Enums should remain in sync with
+// those in c/b/r/s/chromeos/multidevice_page/multidevice_constants.js
 enum Feature {
-  kBetterTogetherSuite,
-  kInstantTethering,
-  kMessages,
-  kSmartLock
+  kBetterTogetherSuite = 0,
+  kInstantTethering = 1,
+  kMessages = 2,
+  kSmartLock = 3,
+  kPhoneHub = 4,
+  kPhoneHubNotifications = 5,
+  kPhoneHubTaskContinuation = 6,
+  kWifiSync = 7
 };
 
 // This enum is tied directly to a UMA enum defined in
@@ -90,6 +95,12 @@ enum FeatureState {
   // The feature still requires further setup to be ready for use (e.g., Android
   // Messages requires a separate pairing flow after unified setup).
   kFurtherSetupRequired = 8,
+
+  // The feature has been enabled by the user, but it is still unavailable
+  // because it is a sub-feature of a top-level feature, and that top-level
+  // feature has been disabled (e.g., Phone Hub notifications are a sub-feature
+  // of Phone Hub).
+  kUnavailableTopLevelFeatureDisabled = 9
 };
 
 // Metadata describing a device that can used as the host for multidevice
@@ -99,6 +110,9 @@ struct HostDevice {
   chromeos.device_sync.mojom.ConnectivityStatus connectivity_status;
 };
 
+// Delegate used to notify Chrome OS UI (//ash) of multidevice account changes
+// from the multidevice setup service (//chromeos/services/multidevice_setup).
+// Both sides currently live in the Chrome process.
 interface AccountStatusChangeDelegate {
   // Callback which indicates that one or more MultiDevice host phones are
   // available for setup with the MultiDevice setup flow. This function is only
@@ -123,6 +137,11 @@ interface AccountStatusChangeDelegate {
   // the current user. This function is only called if the current user has
   // already set up MultiDevice features.
   OnNewChromebookAddedForExistingUser(string new_host_device_name);
+
+  // Indicates that the existing host has become eligible for Wi-Fi Sync, but
+  // the feature is not yet enabled.  This is called when the announcement
+  // notification should be shown.
+  OnBecameEligibleForWifiSync();
 };
 
 interface HostStatusObserver {

@@ -36,6 +36,8 @@
 #include "base/metrics/histogram_functions.h"
 #include "base/rand_util.h"
 #include "third_party/blink/public/common/features.h"
+#include "third_party/blink/public/common/privacy_budget/identifiability_metric_builder.h"
+#include "third_party/blink/public/common/privacy_budget/identifiability_metrics.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/bindings/modules/v8/rendering_context.h"
@@ -48,6 +50,7 @@
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/events/mouse_event.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
+#include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/html/canvas/canvas_font_cache.h"
 #include "third_party/blink/renderer/core/html/canvas/text_metrics.h"
 #include "third_party/blink/renderer/core/layout/hit_test_canvas_result.h"
@@ -112,6 +115,19 @@ class CanvasRenderingContext2DAutoRestoreSkCanvas {
   int save_count_;
 };
 
+CanvasRenderingContext* CanvasRenderingContext2D::Factory::Create(
+    CanvasRenderingContextHost* host,
+    const CanvasContextCreationAttributesCore& attrs) {
+  DCHECK(!host->IsOffscreenCanvas());
+  CanvasRenderingContext* rendering_context =
+      MakeGarbageCollected<CanvasRenderingContext2D>(
+          static_cast<HTMLCanvasElement*>(host), attrs);
+  DCHECK(rendering_context);
+  rendering_context->RecordUKMCanvasRenderingAPI(
+      CanvasRenderingContext::CanvasRenderingAPI::k2D);
+  return rendering_context;
+}
+
 CanvasRenderingContext2D::CanvasRenderingContext2D(
     HTMLCanvasElement* canvas,
     const CanvasContextCreationAttributesCore& attrs)
@@ -133,7 +149,9 @@ CanvasRenderingContext2D::CanvasRenderingContext2D(
           &CanvasRenderingContext2D::TryRestoreContextEvent),
       should_prune_local_font_cache_(false),
       random_generator_((uint32_t)base::RandUint64()),
-      bernoulli_distribution_(kRasterMetricProbability) {
+      bernoulli_distribution_(kRasterMetricProbability),
+      ukm_recorder_(canvas->GetDocument().UkmRecorder()),
+      ukm_source_id_(canvas->GetDocument().UkmSourceID()) {
   if (canvas->GetDocument().GetSettings() &&
       canvas->GetDocument().GetSettings()->GetAntialiasedClips2dCanvasEnabled())
     clip_antialiasing_ = kAntiAliased;
@@ -223,8 +241,11 @@ void CanvasRenderingContext2D::DidSetSurfaceSize() {
   }
 }
 
-void CanvasRenderingContext2D::Trace(Visitor* visitor) {
+void CanvasRenderingContext2D::Trace(Visitor* visitor) const {
   visitor->Trace(hit_region_manager_);
+  visitor->Trace(dispatch_context_lost_event_timer_);
+  visitor->Trace(dispatch_context_restored_event_timer_);
+  visitor->Trace(try_restore_context_event_timer_);
   visitor->Trace(filter_operations_);
   CanvasRenderingContext::Trace(visitor);
   BaseRenderingContext2D::Trace(visitor);
@@ -287,12 +308,8 @@ void CanvasRenderingContext2D::WillDrawImage(CanvasImageSource* source) const {
   canvas()->WillDrawImageTo2DContext(source);
 }
 
-String CanvasRenderingContext2D::ColorSpaceAsString() const {
-  return CanvasRenderingContext::ColorSpaceAsString();
-}
-
-CanvasColorParams CanvasRenderingContext2D::ColorParams() const {
-  return CanvasRenderingContext::ColorParams();
+CanvasColorParams CanvasRenderingContext2D::GetCanvas2DColorParams() const {
+  return CanvasRenderingContext::CanvasRenderingContextColorParams();
 }
 
 bool CanvasRenderingContext2D::WritePixels(const SkImageInfo& orig_info,
@@ -310,13 +327,9 @@ void CanvasRenderingContext2D::WillOverwriteCanvas() {
     canvas()->GetCanvas2DLayerBridge()->WillOverwriteCanvas();
 }
 
-CanvasPixelFormat CanvasRenderingContext2D::PixelFormat() const {
-  return ColorParams().PixelFormat();
-}
-
 void CanvasRenderingContext2D::Reset() {
   // This is a multiple inheritance bootstrap
-  BaseRenderingContext2D::Reset();
+  BaseRenderingContext2D::reset();
 }
 
 void CanvasRenderingContext2D::RestoreCanvasMatrixClipStack(
@@ -357,7 +370,7 @@ void CanvasRenderingContext2D::ScrollPathIntoViewInternal(const Path& path) {
 
   // Apply transformation and get the bounding rect
   Path transformed_path = path;
-  transformed_path.Transform(GetState().Transform());
+  transformed_path.Transform(GetState().GetAffineTransform());
   FloatRect bounding_rect = transformed_path.BoundingRect();
 
   // We first map canvas coordinates to layout coordinates.
@@ -409,7 +422,8 @@ void CanvasRenderingContext2D::clearRect(double x,
       std::isfinite(width) && std::isfinite(height)) {
     FloatRect rect(clampTo<float>(x), clampTo<float>(y), clampTo<float>(width),
                    clampTo<float>(height));
-    hit_region_manager_->RemoveHitRegionsInRect(rect, GetState().Transform());
+    hit_region_manager_->RemoveHitRegionsInRect(
+        rect, GetState().GetAffineTransform());
   }
 }
 
@@ -497,6 +511,8 @@ void CanvasRenderingContext2D::setFont(const String& new_font) {
   // documents.
   if (!canvas()->GetDocument().GetFrame())
     return;
+  identifiability_study_helper_.MaybeUpdateBuilder(
+      CanvasOps::kSetFont, IdentifiabilityBenignStringToken(new_font));
 
   base::TimeTicks start_time = base::TimeTicks::Now();
   canvas()->GetDocument().UpdateStyleAndLayoutTreeForNode(canvas());
@@ -538,7 +554,7 @@ void CanvasRenderingContext2D::setFont(const String& new_font) {
           element_font_description.SpecifiedSize());
 
       font_style->SetFontDescription(element_font_description);
-      canvas()->GetDocument().EnsureStyleResolver().ComputeFont(
+      canvas()->GetDocument().GetStyleEngine().ComputeFont(
           *canvas(), font_style.get(), *parsed_style);
 
       // We need to reset Computed and Adjusted size so we skip zoom and
@@ -570,9 +586,8 @@ void CanvasRenderingContext2D::setFont(const String& new_font) {
   }
 
   // The parse succeeded.
-  String new_font_safe_copy(
-      new_font);  // Create a string copy since newFont can be
-                  // deleted inside realizeSaves.
+  String new_font_safe_copy(new_font);  // Create a string copy since newFont
+                                        // can be deleted inside realizeSaves.
   ModifiableState().SetUnparsedFont(new_font_safe_copy);
   if (bernoulli_distribution_(random_generator_)) {
     base::TimeDelta elapsed = base::TimeTicks::Now() - start_time;
@@ -633,11 +648,7 @@ void CanvasRenderingContext2D::UpdateFilterReferences(
   filter_operations_ = filters;
 }
 
-void CanvasRenderingContext2D::ResourceContentChanged(InvalidationModeMask) {
-  ResourceElementChanged();
-}
-
-void CanvasRenderingContext2D::ResourceElementChanged() {
+void CanvasRenderingContext2D::ResourceContentChanged(SVGResource*) {
   ClearFilterReferences();
   GetState().ClearResolvedFilter();
 }
@@ -662,11 +673,21 @@ bool CanvasRenderingContext2D::CanCreateCanvas2dResourceProvider() const {
   return canvas()->GetOrCreateCanvas2DLayerBridge();
 }
 
-scoped_refptr<StaticBitmapImage> blink::CanvasRenderingContext2D::GetImage(
-    AccelerationHint hint) {
+scoped_refptr<StaticBitmapImage> blink::CanvasRenderingContext2D::GetImage() {
   if (!IsPaintable())
     return nullptr;
-  return canvas()->GetCanvas2DLayerBridge()->NewImageSnapshot(hint);
+  return canvas()->GetCanvas2DLayerBridge()->NewImageSnapshot();
+}
+
+ImageData* CanvasRenderingContext2D::getImageDataInternal(
+    int sx,
+    int sy,
+    int sw,
+    int sh,
+    ImageDataSettings* image_data_settings,
+    ExceptionState& exception_state) {
+  return BaseRenderingContext2D::getImageDataInternal(
+      sx, sy, sw, sh, image_data_settings, exception_state);
 }
 
 void CanvasRenderingContext2D::FinalizeFrame() {
@@ -770,6 +791,134 @@ void CanvasRenderingContext2D::setDirection(const String& direction_string) {
   ModifiableState().SetDirection(direction);
 }
 
+void CanvasRenderingContext2D::setTextLetterSpacing(
+    const double letter_spacing) {
+  if (!GetState().HasRealizedFont())
+    setFont(font());
+
+  float letter_spacing_float = clampTo<float>(letter_spacing);
+  ModifiableState().SetTextLetterSpacing(letter_spacing_float,
+                                         Host()->GetFontSelector());
+}
+
+void CanvasRenderingContext2D::setTextWordSpacing(const double word_spacing) {
+  if (!GetState().HasRealizedFont())
+    setFont(font());
+
+  float word_spacing_float = clampTo<float>(word_spacing);
+  ModifiableState().SetTextWordSpacing(word_spacing_float,
+                                       Host()->GetFontSelector());
+}
+
+void CanvasRenderingContext2D::setTextRendering(
+    const String& text_rendering_string) {
+  if (!GetState().HasRealizedFont())
+    setFont(font());
+
+  TextRenderingMode text_rendering_mode;
+  String text_rendering = text_rendering_string.LowerASCII();
+
+  if (text_rendering == kAutoRendering)
+    text_rendering_mode = TextRenderingMode::kAutoTextRendering;
+  else if (text_rendering == kOptimizeSpeedRendering)
+    text_rendering_mode = TextRenderingMode::kOptimizeSpeed;
+  else if (text_rendering == kOptimizeLegibilityRendering)
+    text_rendering_mode = TextRenderingMode::kOptimizeLegibility;
+  else if (text_rendering == kGeometricPrecisionRendering)
+    text_rendering_mode = TextRenderingMode::kGeometricPrecision;
+  else
+    return;
+
+  if (GetState().GetTextRendering() == text_rendering_mode)
+    return;
+
+  ModifiableState().SetTextRendering(text_rendering_mode,
+                                     Host()->GetFontSelector());
+}
+
+void CanvasRenderingContext2D::setFontKerning(
+    const String& font_kerning_string) {
+  if (!GetState().HasRealizedFont())
+    setFont(font());
+  FontDescription::Kerning kerning;
+  String font_kerning = font_kerning_string.LowerASCII();
+  if (font_kerning == kAutoKerningString)
+    kerning = FontDescription::kAutoKerning;
+  else if (font_kerning == kNoneKerningString)
+    kerning = FontDescription::kNoneKerning;
+  else if (font_kerning == kNormalKerningString)
+    kerning = FontDescription::kNormalKerning;
+  else
+    return;
+
+  if (GetState().GetFontKerning() == kerning)
+    return;
+
+  ModifiableState().SetFontKerning(kerning, Host()->GetFontSelector());
+}
+
+void CanvasRenderingContext2D::setFontStretch(const String& font_stretch) {
+  if (!GetState().HasRealizedFont())
+    setFont(font());
+
+  String font_stretch_string = font_stretch.LowerASCII();
+  FontSelectionValue stretch_vale;
+  if (font_stretch_string == kUltraCondensedString)
+    stretch_vale = UltraCondensedWidthValue();
+  else if (font_stretch_string == kExtraCondensedString)
+    stretch_vale = ExtraCondensedWidthValue();
+  else if (font_stretch_string == kCondensedString)
+    stretch_vale = CondensedWidthValue();
+  else if (font_stretch_string == kSemiCondensedString)
+    stretch_vale = SemiCondensedWidthValue();
+  else if (font_stretch_string == kNormalStretchString)
+    stretch_vale = NormalWidthValue();
+  else if (font_stretch_string == kSemiExpandedString)
+    stretch_vale = SemiExpandedWidthValue();
+  else if (font_stretch_string == kExpandedString)
+    stretch_vale = ExpandedWidthValue();
+  else if (font_stretch_string == kExtraExpandedString)
+    stretch_vale = ExtraExpandedWidthValue();
+  else if (font_stretch_string == kUltraExpandedString)
+    stretch_vale = UltraExpandedWidthValue();
+  else
+    return;
+
+  if (GetState().GetFontStretch() == stretch_vale)
+    return;
+
+  ModifiableState().SetFontStretch(stretch_vale, Host()->GetFontSelector());
+}
+
+void CanvasRenderingContext2D::setFontVariantCaps(
+    const String& font_variant_caps_string) {
+  if (!GetState().HasRealizedFont())
+    setFont(font());
+  FontDescription::FontVariantCaps variant_caps;
+  String variant_caps_lower = font_variant_caps_string.LowerASCII();
+  if (variant_caps_lower == kNormalVariantString)
+    variant_caps = FontDescription::kCapsNormal;
+  else if (variant_caps_lower == kSmallCapsVariantString)
+    variant_caps = FontDescription::kSmallCaps;
+  else if (variant_caps_lower == kAllSmallCapsVariantString)
+    variant_caps = FontDescription::kAllSmallCaps;
+  else if (variant_caps_lower == kPetiteVariantString)
+    variant_caps = FontDescription::kPetiteCaps;
+  else if (variant_caps_lower == kAllPetiteVariantString)
+    variant_caps = FontDescription::kAllPetiteCaps;
+  else if (variant_caps_lower == kUnicaseVariantString)
+    variant_caps = FontDescription::kUnicase;
+  else if (variant_caps_lower == kTitlingCapsVariantString)
+    variant_caps = FontDescription::kTitlingCaps;
+  else
+    return;
+
+  if (GetState().GetFontVariantCaps() == variant_caps)
+    return;
+
+  ModifiableState().SetFontVariantCaps(variant_caps, Host()->GetFontSelector());
+}
+
 void CanvasRenderingContext2D::fillText(const String& text,
                                         double x,
                                         double y) {
@@ -820,6 +969,28 @@ TextMetrics* CanvasRenderingContext2D::measureText(const String& text) {
                                            GetState().GetTextAlign(), text);
 }
 
+void CanvasRenderingContext2D::fillFormattedText(
+    CanvasFormattedText* formatted_text,
+    double x,
+    double y,
+    double wrap_width) {
+  if (!formatted_text)
+    return;
+
+  if (!GetState().HasRealizedFont())
+    setFont(font());
+
+  FloatRect bounds;
+  sk_sp<PaintRecord> recording = formatted_text->PaintFormattedText(
+      canvas()->GetDocument(), GetState().GetFontDescription(), x, y,
+      wrap_width, bounds);
+  Draw([recording](cc::PaintCanvas* c, const PaintFlags* flags)  // draw lambda
+       { c->drawPicture(recording); },
+       [](const SkIRect& rect) { return false; }, bounds,
+       CanvasRenderingContext2DState::PaintType::kFillPaintType,
+       CanvasRenderingContext2DState::kNoImage);
+}
+
 void CanvasRenderingContext2D::DrawTextInternal(
     const String& text,
     double x,
@@ -845,8 +1016,15 @@ void CanvasRenderingContext2D::DrawTextInternal(
   if (max_width && (!std::isfinite(*max_width) || *max_width <= 0))
     return;
 
+  identifiability_study_helper_.MaybeUpdateBuilder(
+      paint_type == CanvasRenderingContext2DState::kFillPaintType
+          ? CanvasOps::kFillText
+          : CanvasOps::kStrokeText,
+      IdentifiabilitySensitiveStringToken(text), x, y,
+      max_width ? *max_width : -1);
+  identifiability_study_helper_.set_encountered_sensitive_ops();
+
   const Font& font = AccessFont();
-  font.GetFontDescription().SetSubpixelAscentDescent(true);
   const SimpleFontData* font_data = font.PrimaryFont();
   DCHECK(font_data);
   if (!font_data)
@@ -920,14 +1098,14 @@ void CanvasRenderingContext2D::DrawTextInternal(
       },
       [](const SkIRect& rect)  // overdraw test lambda
       { return false; },
-      bounds, paint_type);
+      bounds, paint_type, CanvasRenderingContext2DState::kNoImage);
 }
 
 const Font& CanvasRenderingContext2D::AccessFont() {
   if (!GetState().HasRealizedFont())
     setFont(GetState().UnparsedFont());
   canvas()->GetDocument().GetCanvasFontCache()->WillUseCurrentFont();
-  return ModifiableState().GetFont();
+  return GetState().GetFont();
 }
 
 void CanvasRenderingContext2D::SetIsInHiddenPage(bool hidden) {
@@ -946,8 +1124,8 @@ bool CanvasRenderingContext2D::IsTransformInvertible() const {
   return GetState().IsTransformInvertible();
 }
 
-AffineTransform CanvasRenderingContext2D::Transform() const {
-  return GetState().Transform();
+TransformationMatrix CanvasRenderingContext2D::GetTransform() const {
+  return GetState().GetTransform();
 }
 
 cc::Layer* CanvasRenderingContext2D::CcLayer() const {
@@ -960,10 +1138,12 @@ CanvasRenderingContext2D::getContextAttributes() const {
       CanvasRenderingContext2DSettings::Create();
   settings->setAlpha(CreationAttributes().alpha);
   if (RuntimeEnabledFeatures::CanvasColorManagementEnabled()) {
-    settings->setColorSpace(ColorSpaceAsString());
-    settings->setPixelFormat(PixelFormatAsString());
+    settings->setColorSpace(GetCanvas2DColorParams().GetColorSpaceAsString());
+    settings->setPixelFormat(GetCanvas2DColorParams().GetPixelFormatAsString());
   }
   settings->setDesynchronized(Host()->LowLatencyEnabled());
+  if (RuntimeEnabledFeatures::NewCanvas2DAPIEnabled())
+    settings->setWillReadFrequently(CreationAttributes().will_read_frequently);
   return settings;
 }
 
@@ -1010,7 +1190,11 @@ void CanvasRenderingContext2D::DrawFocusRing(const Path& path) {
   if (!GetOrCreatePaintCanvas())
     return;
 
-  SkColor color = LayoutTheme::GetTheme().FocusRingColor().Rgb();
+  // TODO(crbug.com/929098) Need to pass an appropriate color scheme here.
+  SkColor color =
+      LayoutTheme::GetTheme()
+          .FocusRingColor(ComputedStyle::InitialStyle().UsedColorScheme())
+          .Rgb();
   const int kFocusRingWidth = 5;
   DrawPlatformFocusRing(path.GetSkPath(), GetPaintCanvas(), color,
                         /*width=*/kFocusRingWidth, /*radius=*/kFocusRingWidth);
@@ -1039,7 +1223,7 @@ void CanvasRenderingContext2D::UpdateElementAccessibility(const Path& path,
 
   // Get the transformed path.
   Path transformed_path = path;
-  transformed_path.Transform(GetState().Transform());
+  transformed_path.Transform(GetState().GetAffineTransform());
 
   // Add border and padding to the bounding rect.
   LayoutRect element_rect =
@@ -1079,7 +1263,7 @@ void CanvasRenderingContext2D::addHitRegion(const HitRegionOptions* options,
     return;
   }
 
-  hit_region_path.Transform(GetState().Transform());
+  hit_region_path.Transform(GetState().GetAffineTransform());
 
   if (GetState().HasClip()) {
     hit_region_path.IntersectPath(GetState().GetCurrentClipPath());

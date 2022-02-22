@@ -1,6 +1,6 @@
 ############################################################################
 ##
-## Copyright (C) 2019 The Qt Company Ltd.
+## Copyright (C) 2021 The Qt Company Ltd.
 ## Contact: http://www.qt.io/licensing/
 ##
 ## This file is part of the provisioning scripts of the Qt Toolkit.
@@ -35,90 +35,31 @@
 
 # This script will install emscripten needed by WebAssembly
 
-$version = "1.39.8"
-$versionNode = "12.9.1"
-$versionWinPython = "3.7.4"
-$versionJre = "8_update_152"
+$version = "2.0.14"
+$versionTag="fc5562126762ab26c4757147a3b4c24e85a7289e"
+$versionNode = "14.15.5"
+$versionWinPython = "3.9.2-1"
+$versionJre = "8.152"
 
-$urlEmscripten = "https://storage.googleapis.com/webassembly/emscripten-releases-builds"
+# Make sure python is in the path
+Prepend-Path "C:\Python27"
 
-# cross-platform emscripten SDK
-$urlEmscriptenExternal="https://github.com/emscripten-core/emscripten/archive/$version.zip"
-$urlCache = "http://ci-files01-hki.intra.qt.io/input/emsdk"
-
-$urlEmscriptenCache="$urlCache/emscripten.$version.zip"
-
-$urlWasmBinariesExternal="$urlEmscripten/win/9e60f34accb4627d7358223862a7e74291886ab6/wasm-binaries.zip"
-$urlWasmBinariesCache="$urlCache\windows\wasm-binaries.$version.zip"
-$sha1WasmBinaries="E94DCA7BA0526F88EDDBE45A0A0F61778D173603"
-
-$urlOfficialNode = "$urlEmscripten/deps/node-v$versionNode-win-x64.zip"
-$urlCacheNode = "$urlCache/windows/node-v$versionNode-win-x64.zip"
-$sha1Node = "D064145694578D6617AA99C694772D21480B6B6D"
-
-$urlOfficialWinPython = "$urlEmscripten/deps/python-$versionWinPython-embed-amd64-patched.zip"
-$urlCacheWinPython = "$urlCache/windows/python-$versionWinPython-embed-amd64-patched.zip"
-$sha1WinPython = "27C5A465390167FC03F3DD9075E3FDAAD9FBE104"
-
-$urlOfficialProtableJre = "$urlEmscripten/deps/portable_jre_${versionJre}_64bit.zip"
-$urlCacheProtableJre = "$urlCache/windows/portable_jre_${versionJre}_64bit.zip"
-$sha1ProtableJre = "6830524ec8b16742f956897abb6b6f5ef890a1c2"
-
-$urlOfficialEmscripten = "https://github.com/kripken/emscripten/archive/$version.zip"
-$urlCacheEmscripten = "$urlCache/windows/emscripten-$version.zip"
-$sha1Emscripten = "3721DC133824BA59CDBDFC93704D47CE265F2AFE"
-
+cd "C:\\Utils"
+C:\PROGRA~1\Git\bin\git clone https://github.com/emscripten-core/emsdk.git
 $installLocationEmsdk = "C:\\Utils\\emsdk"
-$temp = "C:\Windows\Temp"
-
-function Install {
-
-    Param (
-        [string] $urlOfficial = $(BadParam("Official url path")),
-        [string] $urlCache = $(BadParam("Cached url path")),
-        [string] $sha1 = $(BadParam("SHA1 checksum of the file")),
-        [string] $location = $(BadParam("Download location")),
-        [string] $installLocation = $(BadParam("Install location"))
-    )
-
-    Download $urlOfficial $urlCache $location
-    Verify-Checksum $location $sha1
-    Extract-7Zip $location $installLocation
-
-}
-
-New-Item -ItemType directory -Force -Path "$installLocationEmsdk"
-
-Install $urlWasmBinariesExternal $urlWasmBinariesCache $sha1WasmBinaries "$temp\wasm-binaries.$version.zip" "$installLocationEmsdk\emscripten-llvm-e$version"
-Install $urlOfficialNode $urlCacheNode $sha1Node "$temp\node-v$versionNode-win-x64.zip" "$installLocationEmsdk"
-Install $urlOfficialWinPython $urlCacheWinPython $sha1WinPython "$temp\python-$versionWinPython-embed-amd64-patched.zip" "$installLocationEmsdk\python-$versionWinPython-embed-amd64-patched"
-Install $urlOfficialProtableJre $urlCacheProtableJre $sha1ProtableJre "$temp\portable_jre_$versionJre_64bit.zip" "$installLocationEmsdk"
-Install $urlOfficialEmscripten $urlCacheEmscripten $sha1Emscripten "$temp\emscripten-$version.zip" "$installLocationEmsdk"
-
 cd $installLocationEmsdk
-"LLVM_ROOT='$installLocationEmsdk\\emscripten-llvm-e$version\\install\\bin'" | Out-File '.emscripten' -Encoding ASCII
-"BINARYEN_ROOT='$installLocationEmsdk\\emscripten-llvm-e$version\\install'" | Out-File '.emscripten' -Append -Encoding ASCII
-"PYTHON='$installLocationEmsdk\\python-$versionWinPython-embed-amd64-patched\\python.exe'" | Out-File '.emscripten' -Append -Encoding ASCII
-"NODE_JS='$installLocationEmsdk\\node-v$versionNode-win-x64\\bin\\node.exe'" | Out-File '.emscripten' -Append -Encoding ASCII
-"EMSCRIPTEN_ROOT='$installLocationEmsdk\\emscripten-llvm-e$version\\install\\emscripten'" | Out-File '.emscripten' -Append -Encoding ASCII
-"JAVA='$installLocationEmsdk\\Java64'" | Out-File '.emscripten' -Append -Encoding ASCII
-"TEMP_DIR = '/tmp'" | Out-File '.emscripten' -Append -Encoding ASCII
-"COMPILER_ENGINE = NODE_JS" | Out-File '.emscripten' -Append -Encoding ASCII
-"JS_ENGINES = [NODE_JS]" | Out-File '.emscripten' -Append -Encoding ASCII
+.\emsdk install $version
+.\emsdk activate $version
 
 Set-EnvironmentVariable "EMSDK" "$installLocationEmsdk"
 Set-EnvironmentVariable "EM_CONFIG" "$installLocationEmsdk\.emscripten"
-Set-EnvironmentVariable "EMSDK_LLVM_ROOT" "$installLocationEmsdk\emscripten-llvm-e$version\install\bin"
-Set-EnvironmentVariable "BINARYEN_ROOT" "$installLocationEmsdk\emscripten-llvm-e$version\install\"
-Set-EnvironmentVariable "EMSDK_NODE" "$installLocationEmsdk\node$versionNode-win-x64\bin\node.exe"
-Set-EnvironmentVariable "EMSDK_PYTHON" "$installLocationEmsdk\python-$versionWinPython-embed-amd64-patched\python.exe"
-Set-EnvironmentVariable "EMSDK_JAVA_HOME" "$installLocationEmsdk\java64"
-Set-EnvironmentVariable "EMSCRIPTEN" "$installLocationEmsdk\emscripten-$version"
-Set-EnvironmentVariable "EMSCRIPTEN_ROOT" "$installLocationEmsdk\emscripten-llvm-e$version\install\emscripten"
-Set-EnvironmentVariable "EMSDK_PATH" "$installLocationEmsdk\emscripten-llvm-e$version\install\emscripten;$installLocationEmsdk\node$versionNode-win-x64\bin;$installLocationEmsdk\emscripten-llvm-e$version\install\bin;$installLocationEmsdk\python-$versionWinPython-embed-amd64-patched;$installLocationEmsdk\java64\bin"
+Set-EnvironmentVariable "EMSDK_NODE" "$installLocationEmsdk\node\${versionNode}_64bit\bin\node.exe"
+Set-EnvironmentVariable "EMSDK_PYTHON" "$installLocationEmsdk\python\${versionWinPython}_64bit\python.exe"
+Set-EnvironmentVariable "EMSDK_JAVA_HOME" "$installLocationEmsdk\java\${versionJre}_64bit"
+Set-EnvironmentVariable "EMSDK_PATH" "$installLocationEmsdk;$installLocationEmsdk\node\${versionNode}_64bit\bin;$installLocationEmsdk\upstream\emscripten;$PATH"
+Add-Path "$env:EMSDK_PATH"
 
 Write-Output "emsdk = $version" >> ~/versions.txt
-Write-Output "emsdk llvm = $version" >> ~/versions.txt
 Write-Output "emsdk NodeJs = $versionNode" >> ~/versions.txt
 Write-Output "emsdk WinPython 64bit = $versionWinPython" >> ~/versions.txt
 Write-Output "emsdk portable jre = $versionJre" >> ~/versions.txt

@@ -22,14 +22,16 @@ enum class TileSource {
   POPULAR_BAKED_IN,
   // Tile is a custom link.
   CUSTOM_LINKS,
-  // Tile is on a custodian-managed whitelist.
-  WHITELIST,
+  // Tile is on a custodian-managed allowlist.
+  ALLOWLIST,
   // Tile containing the user-set home page is replacing the home page button.
   HOMEPAGE,
   // Tile comes from explore sites list.
   EXPLORE,
+  // Tile comes from the repeatable queries service, based on search history.
+  REPEATABLE_QUERIES_SERVICE,
 
-  LAST = EXPLORE
+  LAST = REPEATABLE_QUERIES_SERVICE
 };
 
 }  // namespace ntp_tiles

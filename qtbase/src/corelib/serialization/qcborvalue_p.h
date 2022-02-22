@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2018 Intel Corporation.
+** Copyright (C) 2020 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -53,8 +53,12 @@
 
 #include "qcborvalue.h"
 
+#if QT_CONFIG(cborstreamreader)
+#  include "qcborstreamreader.h"
+#endif
+
 #include <private/qglobal_p.h>
-#include <private/qutfcodec_p.h>
+#include <private/qstringconverter_p.h>
 
 #include <math.h>
 
@@ -95,7 +99,7 @@ struct Element
     }
 };
 Q_DECLARE_OPERATORS_FOR_FLAGS(Element::ValueFlags)
-Q_STATIC_ASSERT(sizeof(Element) == 16);
+static_assert(sizeof(Element) == 16);
 
 struct ByteData
 {
@@ -115,8 +119,8 @@ struct ByteData
     QStringView asStringView() const{ return QStringView(utf16(), len / 2); }
     QString asQStringRaw() const    { return QString::fromRawData(utf16(), len / 2); }
 };
-Q_STATIC_ASSERT(std::is_trivial<ByteData>::value);
-Q_STATIC_ASSERT(std::is_standard_layout<ByteData>::value);
+static_assert(std::is_trivial<ByteData>::value);
+static_assert(std::is_standard_layout<ByteData>::value);
 } // namespace QtCbor
 
 Q_DECLARE_TYPEINFO(QtCbor::Element, Q_PRIMITIVE_TYPE);
@@ -131,7 +135,7 @@ public:
 
     QByteArray::size_type usedData = 0;
     QByteArray data;
-    QVector<QtCbor::Element> elements;
+    QList<QtCbor::Element> elements;
 
     void deref() { if (!ref.deref()) delete this; }
     void compact(qsizetype reserved);
@@ -148,8 +152,8 @@ public:
         qptrdiff offset = data.size();
 
         // align offset
-        offset += Q_ALIGNOF(QtCbor::ByteData) - 1;
-        offset &= ~(Q_ALIGNOF(QtCbor::ByteData) - 1);
+        offset += alignof(QtCbor::ByteData) - 1;
+        offset &= ~(alignof(QtCbor::ByteData) - 1);
 
         qptrdiff increment = qptrdiff(sizeof(QtCbor::ByteData)) + len;
 
@@ -171,7 +175,7 @@ public:
             return nullptr;
 
         size_t offset = size_t(e.value);
-        Q_ASSERT((offset % Q_ALIGNOF(QtCbor::ByteData)) == 0);
+        Q_ASSERT((offset % alignof(QtCbor::ByteData)) == 0);
         Q_ASSERT(offset + sizeof(QtCbor::ByteData) <= size_t(data.size()));
 
         auto b = reinterpret_cast<const QtCbor::ByteData *>(data.constData() + offset);
@@ -215,7 +219,7 @@ public:
     }
     void insertAt(qsizetype idx, const QCborValue &value, ContainerDisposition disp = CopyContainer)
     {
-        replaceAt_internal(*elements.insert(elements.begin() + idx, {}), value, disp);
+        replaceAt_internal(*elements.insert(elements.begin() + int(idx), {}), value, disp);
     }
 
     void append(QtCbor::Undefined)
@@ -235,6 +239,15 @@ public:
     {
         elements.append(QtCbor::Element(addByteData(data, len), type,
                                         QtCbor::Element::HasByteData | extraFlags));
+    }
+    void appendAsciiString(const QString &s);
+    void appendAsciiString(const char *str, qsizetype len)
+    {
+        appendByteData(str, len, QCborValue::String, QtCbor::Element::StringIsAscii);
+    }
+    void appendUtf8String(const char *str, qsizetype len)
+    {
+        appendByteData(str, len, QCborValue::String);
     }
     void append(QLatin1String s)
     {
@@ -355,12 +368,12 @@ public:
 
     static int compareUtf8(const QtCbor::ByteData *b, const QLatin1String &s)
     {
-        return QUtf8::compareUtf8(b->byte(), b->len, s);
+        return QUtf8::compareUtf8(QByteArrayView(b->byte(), b->len), s);
     }
 
     static int compareUtf8(const QtCbor::ByteData *b, QStringView s)
     {
-        return QUtf8::compareUtf8(b->byte(), b->len, s.data(), s.size());
+        return QUtf8::compareUtf8(QByteArrayView(b->byte(), b->len), s);
     }
 
     template<typename String>
@@ -405,9 +418,11 @@ public:
         elements.remove(idx);
     }
 
-    void decodeValueFromCbor(QCborStreamReader &reader, int remainiingStackDepth);
+#if QT_CONFIG(cborstreamreader)
+    void decodeValueFromCbor(QCborStreamReader &reader, int remainingStackDepth);
     void decodeStringFromCbor(QCborStreamReader &reader);
     static inline void setErrorInReader(QCborStreamReader &reader, QCborError error);
+#endif
 };
 
 QT_END_NAMESPACE

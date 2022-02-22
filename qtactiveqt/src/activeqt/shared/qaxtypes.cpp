@@ -48,13 +48,16 @@
 **
 ****************************************************************************/
 
-#define NOMINMAX
+#ifndef NOMINMAX
+#  define NOMINMAX
+#endif
 
 #include <ocidl.h>
 #include <olectl.h>
 
-#include "qaxtypes.h"
-#include "qaxutils_p.h"
+#include "qaxtypes_p.h"
+#include <QtAxBase/private/qaxutils_p.h>
+#include <QtAxBase/private/qaxtypefunctions_p.h>
 
 #include <qcursor.h>
 #include <qpixmap.h>
@@ -266,22 +269,25 @@ bool QVariantToVARIANT(const QVariant &var, VARIANT &arg, const QByteArray &type
 {
     QVariant qvar = var;
     // "type" is the expected type, so coerce if necessary
-    const QVariant::Type proptype = typeName.isEmpty() ? QVariant::Invalid : QVariant::nameToType(typeName);
-    if (proptype != QVariant::Invalid
-        && proptype != QVariant::UserType
-        && proptype != int(QMetaType::QVariant)
-        && proptype != qvar.type()) {
-        if (qvar.canConvert(proptype))
-            qvar.convert(proptype);
+    const int proptype = typeName.isEmpty()
+        ? QMetaType::UnknownType
+        : QMetaType::fromName(typeName).id();
+    if (proptype != QMetaType::UnknownType
+        && proptype != QMetaType::User
+        && proptype != QMetaType::QVariant
+        && proptype != qvar.metaType().id()) {
+        const QMetaType metaType(proptype);
+        if (qvar.canConvert(metaType))
+            qvar.convert(metaType);
         else
-            qvar = QVariant(proptype);
+            qvar = QVariant(metaType);
     }
 
     if (out && arg.vt == (VT_VARIANT|VT_BYREF) && arg.pvarVal) {
         return QVariantToVARIANT(var, *arg.pvarVal, typeName, false);
     }
 
-    if (out && proptype == QVariant::UserType && typeName == "QVariant") {
+    if (out && proptype == QMetaType::User && typeName == "QVariant") {
         VARIANT *pVariant = new VARIANT;
         QVariantToVARIANT(var, *pVariant, QByteArray(), false);
         arg.vt = VT_VARIANT|VT_BYREF;
@@ -289,8 +295,8 @@ bool QVariantToVARIANT(const QVariant &var, VARIANT &arg, const QByteArray &type
         return true;
     }
 
-    switch ((int)qvar.type()) {
-    case QVariant::String:
+    switch (qvar.metaType().id()) {
+    case QMetaType::QString:
         if (out && arg.vt == (VT_BSTR|VT_BYREF)) {
             if (*arg.pbstrVal)
                 SysFreeString(*arg.pbstrVal);
@@ -322,15 +328,15 @@ bool QVariantToVARIANT(const QVariant &var, VARIANT &arg, const QByteArray &type
         QVARIANT_TO_VARIANT_POD(ushort, qvariant_cast<ushort>(qvar), out, VT_UI2, uiVal, puiVal)
         break;
 
-    case QVariant::Int:
+    case QMetaType::Int:
         QVARIANT_TO_VARIANT_POD(long, qvar.toInt(), out, VT_I4, lVal, plVal)
         break;
 
-    case QVariant::UInt:
+    case QMetaType::UInt:
         QVARIANT_TO_VARIANT_POD(uint, qvar.toUInt(), out, VT_UI4, uintVal, puintVal)
         break;
 
-    case QVariant::LongLong:
+    case QMetaType::LongLong:
         if (out && arg.vt == (VT_CY|VT_BYREF)) { // VT_CY: Currency
             arg.pcyVal->int64 = qvar.toLongLong();
         } else {
@@ -338,7 +344,7 @@ bool QVariantToVARIANT(const QVariant &var, VARIANT &arg, const QByteArray &type
         }
         break;
 
-    case QVariant::ULongLong:
+    case QMetaType::ULongLong:
         if (out && arg.vt == (VT_CY|VT_BYREF)) { // VT_CY: Currency
             arg.pcyVal->int64 = qvar.toULongLong();
         } else {
@@ -346,7 +352,7 @@ bool QVariantToVARIANT(const QVariant &var, VARIANT &arg, const QByteArray &type
         }
         break;
 
-    case QVariant::Bool:
+    case QMetaType::Bool:
         QVARIANT_TO_VARIANT_POD(short, short(qvar.toBool() ? VARIANT_TRUE : VARIANT_FALSE),
                                 out, VT_BOOL, boolVal, pboolVal)
         break;
@@ -359,19 +365,19 @@ bool QVariantToVARIANT(const QVariant &var, VARIANT &arg, const QByteArray &type
         QVARIANT_TO_VARIANT_POD(double, qvar.toDouble(), out, VT_R8, dblVal, pdblVal)
         break;
 
-    case QVariant::Color:
+    case QMetaType::QColor:
         QVARIANT_TO_VARIANT_POD(long, QColorToOLEColor(qvariant_cast<QColor>(qvar)),
                                 out, VT_COLOR, lVal, plVal)
         break;
 
-    case QVariant::Date:
-    case QVariant::Time:
-    case QVariant::DateTime: // DATE = double
+    case QMetaType::QDate:
+    case QMetaType::QTime:
+    case QMetaType::QDateTime: // DATE = double
         QVARIANT_TO_VARIANT_POD(DATE, QDateTimeToDATE(qvar.toDateTime()),
                                 out, VT_DATE, date, pdate)
         break;
 
-    case QVariant::Font:
+    case QMetaType::QFont:
         if (out && arg.vt == (VT_DISPATCH|VT_BYREF)) {
             if (*arg.ppdispVal)
                 (*arg.ppdispVal)->Release();
@@ -386,7 +392,7 @@ bool QVariantToVARIANT(const QVariant &var, VARIANT &arg, const QByteArray &type
         }
         break;
 
-    case QVariant::Pixmap:
+    case QMetaType::QPixmap:
         if (out && arg.vt == (VT_DISPATCH|VT_BYREF)) {
             if (*arg.ppdispVal)
                 (*arg.ppdispVal)->Release();
@@ -401,7 +407,7 @@ bool QVariantToVARIANT(const QVariant &var, VARIANT &arg, const QByteArray &type
         }
         break;
 
-    case QVariant::Cursor:
+    case QMetaType::QCursor:
         {
 #ifndef QT_NO_CURSOR
             int shape = qvariant_cast<QCursor>(qvar).shape();
@@ -438,37 +444,37 @@ bool QVariantToVARIANT(const QVariant &var, VARIANT &arg, const QByteArray &type
         }
         break;
 
-    case QVariant::List:
+    case QMetaType::QVariantList:
         {
             const auto list = qvar.toList();
             const int count = list.count();
             VARTYPE vt = VT_VARIANT;
-            QVariant::Type listType = QVariant::Type(QMetaType::QVariant);
+            int listType = QMetaType::QVariant;
             if (!typeName.isEmpty() && typeName.startsWith("QList<")) {
                 const QByteArray listTypeName = typeName.mid(6, typeName.length() - 7); // QList<int> -> int
-                listType = QVariant::nameToType(listTypeName);
+                listType = QMetaType::fromName(listTypeName).id();
             }
 
             VARIANT variant;
             void *pElement = &variant;
             switch(listType) {
-            case QVariant::Int:
+            case QMetaType::Int:
                 vt = VT_I4;
                 pElement = &variant.lVal;
                 break;
-            case QVariant::Double:
+            case QMetaType::Double:
                 vt = VT_R8;
                 pElement = &variant.dblVal;
                 break;
-            case QVariant::DateTime:
+            case QMetaType::QDateTime:
                 vt = VT_DATE;
                 pElement = &variant.date;
                 break;
-            case QVariant::Bool:
+            case QMetaType::Bool:
                 vt = VT_BOOL;
                 pElement = &variant.boolVal;
                 break;
-            case QVariant::LongLong:
+            case QMetaType::LongLong:
                 vt = VT_I8;
                 pElement = &variant.llVal;
                 break;
@@ -509,8 +515,8 @@ bool QVariantToVARIANT(const QVariant &var, VARIANT &arg, const QByteArray &type
                 array = SafeArrayCreateVector(vt, 0, count);
                 for (LONG index = 0; index < count; ++index) {
                     QVariant elem = list.at(index);
-                    if (listType != QVariant::Type(QMetaType::QVariant))
-                        elem.convert(listType);
+                    if (listType != QMetaType::QVariant)
+                        elem.convert(QMetaType(listType));
                     VariantInit(&variant);
                     QVariantToVARIANT(elem, variant, elem.typeName());
                     SafeArrayPutElement(array, &index, pElement);
@@ -532,7 +538,7 @@ bool QVariantToVARIANT(const QVariant &var, VARIANT &arg, const QByteArray &type
         }
         break;
 
-    case QVariant::StringList:
+    case QMetaType::QStringList:
         {
             const QStringList list = qvar.toStringList();
             const int count = list.count();
@@ -559,7 +565,7 @@ bool QVariantToVARIANT(const QVariant &var, VARIANT &arg, const QByteArray &type
         }
         break;
 
-    case QVariant::ByteArray:
+    case QMetaType::QByteArray:
         {
             const QByteArray bytes = qvar.toByteArray();
             const uint count = bytes.count();
@@ -588,9 +594,9 @@ bool QVariantToVARIANT(const QVariant &var, VARIANT &arg, const QByteArray &type
         break;
 
 #ifdef QAX_SERVER
-    case QVariant::Rect:
-    case QVariant::Size:
-    case QVariant::Point:
+    case QMetaType::QRect:
+    case QMetaType::QSize:
+    case QMetaType::QPoint:
         {
             typedef HRESULT(WINAPI* PGetRecordInfoFromTypeInfo)(ITypeInfo *, IRecordInfo **);
             static PGetRecordInfoFromTypeInfo pGetRecordInfoFromTypeInfo = 0;
@@ -605,9 +611,10 @@ bool QVariantToVARIANT(const QVariant &var, VARIANT &arg, const QByteArray &type
 
             ITypeInfo *typeInfo = 0;
             IRecordInfo *recordInfo = 0;
-            CLSID clsid = qvar.type() == QVariant::Rect ? CLSID_QRect
-                :qvar.type() == QVariant::Size ? CLSID_QSize
-                :CLSID_QPoint;
+            const int vType = qvar.metaType().id();
+            CLSID clsid = vType == QMetaType::QRect
+                ? CLSID_QRect
+                : vType == QMetaType::QSize ? CLSID_QSize : CLSID_QPoint;
             qAxTypeLibrary->GetTypeInfoOfGuid(clsid, &typeInfo);
             if (!typeInfo)
                 break;
@@ -617,20 +624,20 @@ bool QVariantToVARIANT(const QVariant &var, VARIANT &arg, const QByteArray &type
                 break;
 
             void *record = 0;
-            switch (qvar.type()) {
-            case QVariant::Rect:
+            switch (qvar.metaType().id()) {
+            case QMetaType::QRect:
                 {
                     QRect qrect(qvar.toRect());
                     recordInfo->RecordCreateCopy(&qrect, &record);
                 }
                 break;
-            case QVariant::Size:
+            case QMetaType::QSize:
                 {
                     QSize qsize(qvar.toSize());
                     recordInfo->RecordCreateCopy(&qsize, &record);
                 }
                 break;
-            case QVariant::Point:
+            case QMetaType::QPoint:
                 {
                     QPoint qpoint(qvar.toPoint());
                     recordInfo->RecordCreateCopy(&qpoint, &record);
@@ -652,8 +659,22 @@ bool QVariantToVARIANT(const QVariant &var, VARIANT &arg, const QByteArray &type
         }
         break;
 #endif // QAX_SERVER
-    case QVariant::UserType:
-        {
+
+    case QMetaType::UnknownType: // default-parameters not set
+        if (out && arg.vt == (VT_ERROR|VT_BYREF)) {
+            *arg.plVal = DISP_E_PARAMNOTFOUND;
+        } else {
+            arg.vt = VT_ERROR;
+            arg.lVal = DISP_E_PARAMNOTFOUND;
+            if (out) {
+                arg.plVal = new long(arg.lVal);
+                arg.vt |= VT_BYREF;
+            }
+        }
+        break;
+
+    default:
+        if (qvar.metaType().id() >= QMetaType::User) {
             QByteArray subType = qvar.typeName();
 #ifdef QAX_SERVER
             if (subType.endsWith('*'))
@@ -703,7 +724,7 @@ bool QVariantToVARIANT(const QVariant &var, VARIANT &arg, const QByteArray &type
                     qAxFactory()->createObjectWrapper(static_cast<QObject*>(user), &arg.pdispVal);
                 }
 #else
-            } else if (QMetaType::type(subType)) {
+            } else if (QMetaType::fromName(subType).id() != QMetaType::UnknownType) {
                 if (out) {
                     qWarning().noquote() << msgOutParameterNotSupported("subtype");
                     arg.vt = VT_EMPTY;
@@ -718,23 +739,10 @@ bool QVariantToVARIANT(const QVariant &var, VARIANT &arg, const QByteArray &type
             } else {
                 return false;
             }
+        } else { // >= User
+            return false;
         }
         break;
-    case QVariant::Invalid: // default-parameters not set
-        if (out && arg.vt == (VT_ERROR|VT_BYREF)) {
-            *arg.plVal = DISP_E_PARAMNOTFOUND;
-        } else {
-            arg.vt = VT_ERROR;
-            arg.lVal = DISP_E_PARAMNOTFOUND;
-            if (out) {
-                arg.plVal = new long(arg.lVal);
-                arg.vt |= VT_BYREF;
-            }
-        }
-        break;
-
-    default:
-        return false;
     }
 
     Q_ASSERT(!out || (arg.vt & VT_BYREF));
@@ -761,8 +769,16 @@ bool QVariantToVARIANT(const QVariant &var, VARIANT &arg, const QByteArray &type
         - QAxBase::dynamicCall(return value)
         - IPropertyBag::Write (QtPropertyBag)
 */
-QVariant VARIANTToQVariant(const VARIANT &arg, const QByteArray &typeName, uint type)
+QVariant VARIANTToQVariant(const VARIANT &arg, const QByteArray &typeName, int type)
 {
+    int nameTypeId = QMetaType::UnknownType;
+    if (type == QMetaType::UnknownType && !typeName.isEmpty()) {
+        auto name = typeName.endsWith('*')
+            ? QByteArrayView{typeName.constData(), typeName.size() - 1}
+            : QByteArrayView{typeName};
+        nameTypeId = QMetaType::fromName(name).id();
+    }
+
     QVariant var;
     switch(arg.vt) {
     case VT_BSTR:
@@ -780,38 +796,38 @@ QVariant VARIANTToQVariant(const VARIANT &arg, const QByteArray &typeName, uint 
     case VT_I1:
         var = arg.cVal;
         if (typeName == "char")
-            type = QVariant::Int;
+            type = QMetaType::Int;
         break;
     case VT_I1|VT_BYREF:
         var = *arg.pcVal;
         if (typeName == "char")
-            type = QVariant::Int;
+            type = QMetaType::Int;
         break;
     case VT_I2:
         var = arg.iVal;
         if (typeName == "short")
-            type = QVariant::Int;
+            type = QMetaType::Int;
         break;
     case VT_I2|VT_BYREF:
         var = *arg.piVal;
         if (typeName == "short")
-            type = QVariant::Int;
+            type = QMetaType::Int;
         break;
     case VT_I4:
-        if (type == QVariant::Color || (!type && typeName == "QColor"))
+        if (type == QMetaType::QColor || nameTypeId == QMetaType::QColor)
             var = QVariant::fromValue(OLEColorToQColor(arg.lVal));
 #ifndef QT_NO_CURSOR
-        else if (type == QVariant::Cursor || (!type && (typeName == "QCursor" || typeName == "QCursor*")))
+        else if (type == QMetaType::QCursor || nameTypeId == QMetaType::QCursor)
             var = QVariant::fromValue(QCursor(static_cast<Qt::CursorShape>(arg.lVal)));
 #endif
         else
             var = (int)arg.lVal;
         break;
     case VT_I4|VT_BYREF:
-        if (type == QVariant::Color || (!type && typeName == "QColor"))
+        if (type == QMetaType::QColor || nameTypeId == QMetaType::QColor)
             var = QVariant::fromValue(OLEColorToQColor((int)*arg.plVal));
 #ifndef QT_NO_CURSOR
-        else if (type == QVariant::Cursor || (!type && (typeName == "QCursor" || typeName == "QCursor*")))
+        else if (type == QMetaType::QCursor || nameTypeId == QMetaType::QCursor)
             var = QVariant::fromValue(QCursor(static_cast<Qt::CursorShape>(*arg.plVal)));
 #endif
         else
@@ -836,20 +852,20 @@ QVariant VARIANTToQVariant(const VARIANT &arg, const QByteArray &typeName, uint 
         var = *arg.puiVal;
         break;
     case VT_UI4:
-        if (type == QVariant::Color || (!type && typeName == "QColor"))
+        if (type == QMetaType::QColor || nameTypeId == QMetaType::QColor)
             var = QVariant::fromValue(OLEColorToQColor(arg.ulVal));
 #ifndef QT_NO_CURSOR
-        else if (type == QVariant::Cursor || (!type && (typeName == "QCursor" || typeName == "QCursor*")))
+        else if (type == QMetaType::QCursor || nameTypeId == QMetaType::QCursor)
             var = QVariant::fromValue(QCursor(static_cast<Qt::CursorShape>(arg.ulVal)));
 #endif
         else
             var = (int)arg.ulVal;
         break;
     case VT_UI4|VT_BYREF:
-        if (type == QVariant::Color || (!type && typeName == "QColor"))
+        if (type == QMetaType::QColor || nameTypeId == QMetaType::QColor)
             var = QVariant::fromValue(OLEColorToQColor((uint)*arg.pulVal));
 #ifndef QT_NO_CURSOR
-        else if (type == QVariant::Cursor || (!type && (typeName == "QCursor" || typeName == "QCursor*")))
+        else if (type == QMetaType::QCursor || nameTypeId == QMetaType::QCursor)
             var = QVariant::fromValue(QCursor(static_cast<Qt::CursorShape>(*arg.pulVal)));
 #endif
         else
@@ -893,18 +909,18 @@ QVariant VARIANTToQVariant(const VARIANT &arg, const QByteArray &typeName, uint 
         break;
     case VT_DATE:
         var = DATEToQDateTime(arg.date);
-        if (type == QVariant::Date || (!type && (typeName == "QDate" || typeName == "QDate*"))) {
-            var.convert(QVariant::Date);
-        } else if (type == QVariant::Time || (!type && (typeName == "QTime" || typeName == "QTime*"))) {
-            var.convert(QVariant::Time);
+        if (type == QMetaType::QDate || nameTypeId == QMetaType::QDate) {
+            var.convert(QMetaType(QMetaType::QDate));
+        } else if (type == QMetaType::QTime || nameTypeId == QMetaType::QTime) {
+            var.convert(QMetaType(QMetaType::QTime));
         }
         break;
     case VT_DATE|VT_BYREF:
         var = DATEToQDateTime(*arg.pdate);
-        if (type == QVariant::Date || (!type && (typeName == "QDate" || typeName == "QDate*"))) {
-            var.convert(QVariant::Date);
-        } else if (type == QVariant::Time || (!type && (typeName == "QTime" || typeName == "QTime*"))) {
-            var.convert(QVariant::Time);
+        if (type == QMetaType::QDate || nameTypeId == QMetaType::QDate) {
+            var.convert(QMetaType(QMetaType::QDate));
+        } else if (type == QMetaType::QTime || nameTypeId == QMetaType::QTime) {
+            var.convert(QMetaType(QMetaType::QTime));
         }
         break;
     case VT_VARIANT:
@@ -922,7 +938,7 @@ QVariant VARIANTToQVariant(const VARIANT &arg, const QByteArray &typeName, uint 
                 disp = *arg.ppdispVal;
             else
                 disp = arg.pdispVal;
-            if (type == QVariant::Font || (!type && (typeName == "QFont" || typeName == "QFont*"))) {
+            if (type == QMetaType::QFont || nameTypeId == QMetaType::QFont) {
                 IFont *ifont = nullptr;
                 if (disp)
                     disp->QueryInterface(IID_IFont, reinterpret_cast<void**>(&ifont));
@@ -932,7 +948,7 @@ QVariant VARIANTToQVariant(const VARIANT &arg, const QByteArray &typeName, uint 
                 } else {
                     var = QVariant::fromValue(QFont());
                 }
-            } else if (type == QVariant::Pixmap || (!type && (typeName == "QPixmap" || typeName == "QPixmap*"))) {
+            } else if (type == QMetaType::QPixmap || nameTypeId == QMetaType::QPixmap) {
                 IPicture *ipic = nullptr;
                 if (disp)
                     disp->QueryInterface(IID_IPicture, reinterpret_cast<void**>(&ipic));
@@ -951,33 +967,38 @@ QVariant VARIANTToQVariant(const VARIANT &arg, const QByteArray &typeName, uint 
                     QObject *qObj = iface->qObject();
                     iface->Release();
                     QByteArray pointerType = qObj ? QByteArray(qObj->metaObject()->className()) + '*' : typeName;
-                    int pointerTypeId = QMetaType::type(pointerType);
-                    if (!pointerTypeId)
-                        pointerTypeId = qRegisterMetaType<QObject *>(pointerType);
-                    var = QVariant(pointerTypeId, &qObj);
+                    QMetaType pointerMetaType = QMetaType::fromName(pointerType);
+                    if (pointerMetaType.id() == QMetaType::UnknownType)
+                        pointerMetaType = QMetaType(qRegisterMetaType<QObject *>(pointerType));
+                    var = QVariant(pointerMetaType, &qObj);
                 } else
 #endif
                 {
                     if (!typeName.isEmpty()) {
                         if (arg.vt & VT_BYREF) {
-                            var = QVariant(qRegisterMetaType<IDispatch**>("IDispatch**"), &arg.ppdispVal);
+                            static const int dispatchId = qRegisterMetaType<IDispatch**>("IDispatch**");
+                            var = QVariant(QMetaType(dispatchId), &arg.ppdispVal);
                         } else {
 #ifndef QAX_SERVER
                             if (typeName == "QVariant") {
                                 QAxObject *object = new QAxObject(disp);
                                 var = QVariant::fromValue<QAxObject*>(object);
-                            } else if (typeName != "IDispatch*" && QMetaType::type(typeName)) {
+                            } else if (typeName != "IDispatch*" &&  QMetaType::fromName(typeName).id() != QMetaType::UnknownType) {
                                 QByteArray typeNameStr = QByteArray(typeName);
                                 int pIndex = typeName.lastIndexOf('*');
                                 if (pIndex != -1)
                                     typeNameStr = typeName.left(pIndex);
-                                int metaType = QMetaType::type(typeNameStr);
-                                Q_ASSERT(metaType != 0);
-                                auto object = static_cast<QAxObject*>(qax_createObjectWrapper(metaType, disp));
-                                var = QVariant(QMetaType::type(typeName), &object);
-                            } else
+                                const QMetaType metaType = QMetaType::fromName(typeNameStr);
+                                Q_ASSERT(metaType.id() != QMetaType::UnknownType);
+                                auto object = static_cast<QAxObject*>(qax_createObjectWrapper(metaType.id(), disp));
+                                var = QVariant(metaType, &object);
+                            } else {
 #endif
-                                var = QVariant(qRegisterMetaType<IDispatch*>(typeName), &disp);
+                                static const int dispatchId = qRegisterMetaType<IDispatch*>(typeName.constData());
+                                var = QVariant(QMetaType(dispatchId), &disp);
+#ifndef QAX_SERVER
+                            }
+#endif
                         }
                     }
                 }
@@ -1218,22 +1239,23 @@ QVariant VARIANTToQVariant(const VARIANT &arg, const QByteArray &typeName, uint 
         break;
     }
 
-    QVariant::Type proptype = (QVariant::Type)type;
-    if (proptype == QVariant::Invalid && !typeName.isEmpty()) {
-        if (typeName != "QVariant")
-            proptype = QVariant::nameToType(typeName);
-    }
-    if (proptype != QVariant::Type(QMetaType::QVariant) && proptype != QVariant::LastType && proptype != QVariant::Invalid && var.type() != proptype) {
-        if (var.canConvert(proptype)) {
+    const int proptype = type != QMetaType::UnknownType || typeName.isEmpty() || typeName == "QVariant"
+        ? type : nameTypeId;
+
+    if (proptype != QMetaType::QVariant && proptype != QMetaType::UnknownType
+        && var.metaType().id() != proptype) {
+        QMetaType propertyMetaType(proptype);
+        if (var.canConvert(propertyMetaType)) {
             QVariant oldvar = var;
-            if (oldvar.convert(proptype))
+            if (oldvar.convert(propertyMetaType))
                 var = oldvar;
-        } else if (proptype == QVariant::StringList && var.type() == QVariant::List) {
+        } else if (proptype == QMetaType::QStringList
+                   && var.metaType().id() == QMetaType::QVariantList) {
             bool allStrings = true;
             QStringList strings;
             const QVariantList list(var.toList());
             for (const QVariant &variant : list) {
-                if (variant.canConvert(QVariant::String))
+                if (variant.canConvert<QString>())
                     strings << variant.toString();
                 else
                     allStrings = false;

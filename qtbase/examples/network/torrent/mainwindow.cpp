@@ -93,7 +93,7 @@ public:
         progressBarOption.state = QStyle::State_Enabled;
         progressBarOption.direction = QApplication::layoutDirection();
         progressBarOption.rect = option.rect;
-        progressBarOption.fontMetrics = QApplication::fontMetrics();
+        progressBarOption.fontMetrics = QFontMetrics(QApplication::font());
         progressBarOption.minimum = 0;
         progressBarOption.maximum = 100;
         progressBarOption.textAlignment = Qt::AlignCenter;
@@ -224,8 +224,7 @@ QSize MainWindow::sizeHint() const
     for (int i = 0; i < header->count() - 1; ++i)
         width += header->sectionSize(i);
 
-    return QSize(width, QMainWindow::sizeHint().height())
-        .expandedTo(QApplication::globalStrut());
+    return QSize(width, QMainWindow::sizeHint().height());
 }
 
 const TorrentClient *MainWindow::clientForRow(int row) const
@@ -406,7 +405,7 @@ bool MainWindow::addTorrent(const QString &fileName, const QString &destinationF
     QTreeWidgetItem *item = new QTreeWidgetItem(torrentView);
 
     QString baseFileName = QFileInfo(fileName).fileName();
-    if (baseFileName.toLower().endsWith(".torrent"))
+    if (baseFileName.endsWith(u".torrent", Qt::CaseInsensitive))
         baseFileName.chop(8);
 
     item->setText(0, baseFileName);

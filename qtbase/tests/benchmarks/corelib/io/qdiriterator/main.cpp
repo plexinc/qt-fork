@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
@@ -44,9 +44,15 @@
 
 #include "qfilesystemiterator.h"
 
+#if QT_CONFIG(cxx17_filesystem)
+#include <filesystem>
+#endif
+
 class tst_qdiriterator : public QObject
 {
     Q_OBJECT
+
+    void data();
 private slots:
     void posix();
     void posix_data() { data(); }
@@ -54,27 +60,26 @@ private slots:
     void diriterator_data() { data(); }
     void fsiterator();
     void fsiterator_data() { data(); }
-    void data();
+    void stdRecursiveDirectoryIterator();
+    void stdRecursiveDirectoryIterator_data() { data(); }
 };
-
 
 void tst_qdiriterator::data()
 {
-#if defined(Q_OS_WIN)
-    const char *qtdir = "C:\\depot\\qt\\main";
-#else
-    const char *qtdir = ::getenv("QTDIR");
-#endif
-    if (!qtdir) {
-        fprintf(stderr, "QTDIR not set\n");
-        exit(1);
-    }
+    const char hereRelative[] = "tests/benchmarks/corelib/io/qdiriterator";
+    QByteArray dir(QT_TESTCASE_SOURCEDIR);
+    // qDebug("Source dir: %s", dir.constData());
+    dir.chop(sizeof(hereRelative)); // Counts the '\0', making up for the omitted leading '/'
+    // qDebug("Root dir: %s", dir.constData());
 
     QTest::addColumn<QByteArray>("dirpath");
-    QByteArray ba = QByteArray(qtdir) + "/src/corelib";
-    QByteArray ba1 = ba + "/io";
-    QTest::newRow(ba) << ba;
-    //QTest::newRow(ba1) << ba1;
+    const QByteArray ba = dir + "/src/corelib";
+
+    if (!QFileInfo(QString::fromLocal8Bit(ba)).isDir())
+        QSKIP("Missing Qt directory");
+
+    QTest::newRow("corelib") << ba;
+    QTest::newRow("corelib/io") << (ba + "/io");
 }
 
 #ifdef Q_OS_WIN
@@ -88,12 +93,7 @@ static int posix_helper(const wchar_t *dirpath, size_t length)
     Q_ASSERT(MAX_PATH > length + 3);
     wcsncpy(appendedPath, dirpath, length);
     wcscpy(appendedPath + length, L"\\*");
-#ifndef Q_OS_WINRT
     hSearch = FindFirstFile(appendedPath, &fd);
-#else
-    hSearch = FindFirstFileEx(appendedPath, FindExInfoStandard, &fd,
-                              FindExSearchNameMatch, NULL, FIND_FIRST_EX_LARGE_FETCH);
-#endif
 
     if (hSearch == INVALID_HANDLE_VALUE) {
         qWarning("FindFirstFile failed");
@@ -233,6 +233,28 @@ void tst_qdiriterator::fsiterator()
         count = c;
     }
     qDebug() << count;
+}
+
+void tst_qdiriterator::stdRecursiveDirectoryIterator()
+{
+#if QT_CONFIG(cxx17_filesystem)
+    QFETCH(QByteArray, dirpath);
+
+    int count = 0;
+
+    QBENCHMARK {
+        int c = 0;
+        for (auto obj : std::filesystem::recursive_directory_iterator(dirpath.data())) {
+            if (obj.is_directory())
+                continue;
+            c++;
+        }
+        count = c;
+    }
+    qDebug() << count;
+#else
+    QSKIP("Not supported.");
+#endif
 }
 
 QTEST_MAIN(tst_qdiriterator)

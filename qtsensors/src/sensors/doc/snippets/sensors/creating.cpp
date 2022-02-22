@@ -57,7 +57,7 @@ QAccelerometer *sensor = new QAccelerometer(this);
 QOrientationSensor orient_sensor;
 //! [Creating a sensor]
 
-    Q_UNUSED(sensor)
+    Q_UNUSED(sensor);
     Q_UNUSED(orient_sensor);
 
 {
@@ -69,7 +69,7 @@ Q_UNUSED(magnetometer);
 
 {
 //! [3]
-QSensor *magnetometer = new QSensor(QMagnetometer::type, this);
+QSensor *magnetometer = new QSensor(QMagnetometer::sensorType, this);
 //! [3]
 Q_UNUSED(magnetometer);
 }

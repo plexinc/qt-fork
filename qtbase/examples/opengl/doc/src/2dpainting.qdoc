@@ -161,11 +161,8 @@
 
     \snippet 2dpainting/glwidget.cpp 0
 
-    As well as initializing the \c elapsed member variable and storing the
-    \c Helper object used to paint the widget, the base class's constructor
-    is called with the format that specifies the \l QGL::SampleBuffers flag.
-    This enables anti-aliasing if it is supported by your system's OpenGL
-    driver.
+    The \c elapsed member variable is initialized and the \c Helper object used
+    to paint the widget is stored.
 
     The \c animate() slot is exactly the same as that provided by the \c Widget
     class:

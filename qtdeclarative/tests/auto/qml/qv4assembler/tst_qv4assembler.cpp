@@ -26,13 +26,12 @@
 **
 ****************************************************************************/
 
-#include <util.h>
-
 #include <QtTest/QtTest>
 #include <QtCore/qprocess.h>
 #include <QtCore/qtemporaryfile.h>
 #include <QtQml/qqml.h>
 #include <QtQml/qqmlapplicationengine.h>
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 
 #include <private/qv4global_p.h>
 
@@ -44,12 +43,20 @@ class tst_QV4Assembler : public QQmlDataTest
 {
     Q_OBJECT
 
+public:
+    tst_QV4Assembler();
+
 private slots:
     void initTestCase() override;
     void perfMapFile();
     void functionTable();
     void jitEnabled();
 };
+
+tst_QV4Assembler::tst_QV4Assembler()
+    : QQmlDataTest(QT_QMLTEST_DATADIR)
+{
+}
 
 void tst_QV4Assembler::initTestCase()
 {
@@ -62,7 +69,7 @@ void tst_QV4Assembler::perfMapFile()
 #if !defined(Q_OS_LINUX) || defined(Q_OS_ANDROID)
     QSKIP("perf map files are only generated on linux");
 #else
-    const QString qmljs = QLibraryInfo::location(QLibraryInfo::BinariesPath) + "/qmljs";
+    const QString qmljs = QLibraryInfo::path(QLibraryInfo::BinariesPath) + "/qmljs";
     QProcess process;
 
     QTemporaryFile infile;
@@ -147,6 +154,9 @@ void tst_QV4Assembler::jitEnabled()
     QVERIFY(!QT_CONFIG(qml_jit));
 #elif defined(Q_OS_WIN) && defined(Q_PROCESSOR_ARM)
     /* JIT should be disabled Windows on ARM/ARM64 for now. */
+    QVERIFY(!QT_CONFIG(qml_jit));
+#elif defined(Q_OS_MACOS) && defined(Q_PROCESSOR_ARM)
+    /* JIT should be disabled on macOS on ARM/ARM64 for now. */
     QVERIFY(!QT_CONFIG(qml_jit));
 #else
     /* JIT should be enabled on all other architectures/OSes tested in CI. */

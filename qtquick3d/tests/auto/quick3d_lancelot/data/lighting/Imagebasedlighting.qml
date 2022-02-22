@@ -48,9 +48,8 @@
 **
 ****************************************************************************/
 
-import QtQuick3D 1.15
-import QtQuick 2.15
-import QtQuick3D.Materials 1.15
+import QtQuick3D
+import QtQuick
 
 import "./materials" as Materials
 
@@ -73,7 +72,7 @@ Rectangle {
             aoDither: true
             depthPrePassEnabled: true
             lightProbe: layer_lightprobe
-            probeBrightness: 1000
+            probeExposure: 10
         }
 
         PerspectiveCamera {
@@ -115,8 +114,9 @@ Rectangle {
                 
                 
 
-                CopperMaterial {
+                PrincipledMaterial {
                     id: default_001
+                    metalness: 1
                 }
                 materials: [default_001]
             }
@@ -136,7 +136,6 @@ Rectangle {
                     specularRoughness: 0
                     bumpAmount: 0.5
                     translucentFalloff: 1
-                    displacementAmount: 20
                 }
                 materials: [default_002]
             }
@@ -157,7 +156,6 @@ Rectangle {
                     bumpAmount: 0.5
                     translucentFalloff: 1
                     lightProbe: default_003_lightProbe
-                    displacementAmount: 20
 
                     Texture {
                         id: default_003_lightProbe
@@ -197,9 +195,10 @@ Rectangle {
                 
                 
 
-                CopperMaterial {
+                PrincipledMaterial {
                     id: default_005
                     lightProbe: default_005_lightProbe
+                    metalness: 1
 
                     Texture {
                         id: default_005_lightProbe
@@ -227,7 +226,6 @@ Rectangle {
                     bumpAmount: 0.5
                     translucentFalloff: 1
                     lightProbe: default_006_lightProbe
-                    displacementAmount: 20
 
                     Texture {
                         id: default_006_lightProbe
@@ -270,9 +268,10 @@ Rectangle {
                 
                 
 
-                CopperMaterial {
+                PrincipledMaterial {
                     id: copper_001
                     lightProbe: copper_001_lightProbe
+                    metalness: 1
 
                     Texture {
                         id: copper_001_lightProbe
@@ -300,7 +299,7 @@ Rectangle {
             aoDither: true
             depthPrePassEnabled: true
             lightProbe: oneLightProbe_lightprobe
-            probeBrightness: 1000
+            probeExposure: 10
         }
 
         PerspectiveCamera {
@@ -342,8 +341,9 @@ Rectangle {
                 
                 
 
-                CopperMaterial {
+                PrincipledMaterial {
                     id: copper_002
+                    metalness: 1
                 }
                 materials: [copper_002]
             }
@@ -363,7 +363,6 @@ Rectangle {
                     specularRoughness: 0
                     bumpAmount: 0.5
                     translucentFalloff: 1
-                    displacementAmount: 20
                 }
                 materials: [default_009]
             }
@@ -384,7 +383,6 @@ Rectangle {
                     bumpAmount: 0.5
                     translucentFalloff: 1
                     lightProbe: default_010_lightProbe
-                    displacementAmount: 20
 
                     Texture {
                         id: default_010_lightProbe
@@ -424,9 +422,10 @@ Rectangle {
                 
                 
 
-                CopperMaterial {
+                PrincipledMaterial {
                     id: copper_003
                     lightProbe: copper_003_lightProbe
+                    metalness: 1
 
                     Texture {
                         id: copper_003_lightProbe
@@ -454,7 +453,6 @@ Rectangle {
                     bumpAmount: 0.5
                     translucentFalloff: 1
                     lightProbe: default_012_lightProbe
-                    displacementAmount: 20
 
                     Texture {
                         id: default_012_lightProbe
@@ -497,8 +495,9 @@ Rectangle {
                 
                 
 
-                CopperMaterial {
+                PrincipledMaterial {
                     id: copper_004
+                    metalness: 1
                     lightProbe: copper_004_lightProbe
 
                     Texture {

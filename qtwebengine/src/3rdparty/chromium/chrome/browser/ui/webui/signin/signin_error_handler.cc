@@ -10,7 +10,7 @@
 #include "chrome/browser/signin/signin_ui_util.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
-#include "chrome/browser/ui/user_manager.h"
+#include "chrome/browser/ui/profile_picker.h"
 #include "chrome/browser/ui/webui/signin/signin_utils.h"
 #include "content/public/browser/web_ui.h"
 #include "url/gurl.h"
@@ -18,7 +18,7 @@
 SigninErrorHandler::SigninErrorHandler(Browser* browser, bool is_system_profile)
     : browser_(browser), is_system_profile_(is_system_profile) {
   // |browser_| must not be null when this dialog is presented from the
-  // user manager.
+  // profile picker.
   DCHECK(browser_ || is_system_profile_);
   BrowserList::AddObserver(this);
 }
@@ -89,18 +89,11 @@ void SigninErrorHandler::HandleInitializedWithSize(
     FireWebUIListener("switch-button-unavailable");
 
   signin::SetInitializedModalHeight(browser_, web_ui(), args);
-
-  // After the dialog is shown, some platforms might have an element focused.
-  // To be consistent, clear the focused element on all platforms.
-  // TODO(anthonyvd): Figure out why this is needed on Mac and not other
-  // platforms and if there's a way to start unfocused while avoiding this
-  // workaround.
-  FireWebUIListener("clear-focus");
 }
 
 void SigninErrorHandler::CloseDialog() {
   if (is_system_profile_) {
-    CloseUserManagerProfileDialog();
+    CloseProfilePickerForceSigninDialog();
   } else if (browser_){
     CloseBrowserModalSigninDialog();
   }
@@ -110,6 +103,6 @@ void SigninErrorHandler::CloseBrowserModalSigninDialog() {
   browser_->signin_view_controller()->CloseModalSignin();
 }
 
-void SigninErrorHandler::CloseUserManagerProfileDialog() {
-  UserManagerProfileDialog::HideDialog();
+void SigninErrorHandler::CloseProfilePickerForceSigninDialog() {
+  ProfilePickerForceSigninDialog::HideDialog();
 }

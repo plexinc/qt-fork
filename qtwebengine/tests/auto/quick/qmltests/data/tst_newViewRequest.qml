@@ -26,9 +26,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import QtTest 1.0
-import QtWebEngine 1.5
+import QtQuick
+import QtTest
+import QtWebEngine
 
 TestWebEngineView {
     id: webEngineView
@@ -38,14 +38,21 @@ TestWebEngineView {
     property var newViewRequest: null
     property var dialog: null
     property string viewType: ""
+    property var loadRequestArray: []
+
+    onLoadingChanged: function(load) {
+        loadRequestArray.push({
+            "status": load.status,
+        });
+    }
 
     SignalSpy {
         id: newViewRequestedSpy
         target: webEngineView
-        signalName: "newViewRequested"
+        signalName: "newWindowRequested"
     }
 
-    onNewViewRequested: {
+    onNewWindowRequested: function(request) {
         newViewRequest = {
             "destination": request.destination,
             "userInitiated": request.userInitiated,
@@ -53,7 +60,7 @@ TestWebEngineView {
         };
 
         dialog = Qt.createQmlObject(
-            "import QtQuick.Window 2.0\n" +
+            "import QtQuick.Window\n" +
             "Window {\n" +
             "    width: 100; height: 100\n" +
             "    visible: true; flags: Qt.Dialog\n" +
@@ -70,8 +77,8 @@ TestWebEngineView {
     }
 
     TestCase {
-        id: test
-        name: "NewViewRequest"
+        id: testCase
+        name: "NewWindowRequest"
         when: windowShown
 
         function init() {
@@ -81,6 +88,7 @@ TestWebEngineView {
             newViewRequestedSpy.clear();
             newViewRequest = null;
             viewType = "";
+            loadRequestArray = [];
         }
 
         function cleanup() {
@@ -88,7 +96,7 @@ TestWebEngineView {
                 dialog.destroy();
         }
 
-        function test_loadNewViewRequest_data() {
+        function test_loadNewWindowRequest_data() {
             return [
                    { tag: "dialog", viewType: "dialog" },
                    { tag: "invalid", viewType: "null" },
@@ -97,7 +105,7 @@ TestWebEngineView {
             ];
         }
 
-        function test_loadNewViewRequest(row) {
+        function test_loadNewWindowRequest(row) {
             viewType = row.viewType;
             var url = 'data:text/html,%3Chtml%3E%3Cbody%3ETest+Page%3C%2Fbody%3E%3C%2Fhtml%3E';
 
@@ -110,11 +118,11 @@ TestWebEngineView {
             verify(webEngineView.waitForLoadSucceeded());
             tryCompare(newViewRequestedSpy, "count", 1);
 
-            compare(newViewRequest.destination, WebEngineView.NewViewInTab);
+            compare(newViewRequest.destination, WebEngineNewWindowRequest.InNewTab);
             verify(!newViewRequest.userInitiated);
 
             if (viewType === "dialog") {
-                verify(dialog.webEngineView.waitForLoadSucceeded());
+                tryVerify(dialog.webEngineView.loadSucceeded)
                 compare(dialog.webEngineView.url, "");
                 dialog.destroy();
             }
@@ -131,11 +139,11 @@ TestWebEngineView {
             verify(webEngineView.waitForLoadSucceeded());
             tryCompare(newViewRequestedSpy, "count", 1);
 
-            compare(newViewRequest.destination, WebEngineView.NewViewInDialog);
+            compare(newViewRequest.destination, WebEngineNewWindowRequest.InNewDialog);
             compare(newViewRequest.requestedUrl, url);
             verify(!newViewRequest.userInitiated);
             if (viewType === "dialog") {
-                verify(dialog.webEngineView.waitForLoadSucceeded());
+                tryVerify(dialog.webEngineView.loadSucceeded)
                 dialog.destroy();
             }
             newViewRequestedSpy.clear();
@@ -150,19 +158,36 @@ TestWebEngineView {
                     "   <button id='popupButton' onclick='popup()'>Pop Up!</button>" +
                     "</body></html>");
                 verify(webEngineView.waitForLoadSucceeded());
-                verifyElementHasFocus("popupButton");
+                webEngineView.verifyElementHasFocus("popupButton");
                 keyPress(Qt.Key_Enter);
                 tryCompare(newViewRequestedSpy, "count", 1);
                 compare(newViewRequest.requestedUrl, url);
 
-                compare(newViewRequest.destination, WebEngineView.NewViewInDialog);
+                compare(newViewRequest.destination, WebEngineNewWindowRequest.InNewDialog);
                 verify(newViewRequest.userInitiated);
                 if (viewType === "dialog") {
-                    verify(dialog.webEngineView.waitForLoadSucceeded());
+                    tryVerify(dialog.webEngineView.loadSucceeded)
                     dialog.destroy();
                 }
                 newViewRequestedSpy.clear();
             }
+
+            loadRequestArray = [];
+            compare(loadRequestArray.length, 0);
+            webEngineView.url = Qt.resolvedUrl("test2.html");
+            verify(webEngineView.waitForLoadSucceeded());
+            var center = webEngineView.getElementCenter("link");
+            mouseClick(webEngineView, center.x, center.y, Qt.LeftButton, Qt.ControlModifier);
+            tryCompare(newViewRequestedSpy, "count", 1);
+            compare(newViewRequest.requestedUrl, Qt.resolvedUrl("test1.html"));
+            compare(newViewRequest.destination, WebEngineNewWindowRequest.InNewBackgroundTab);
+            verify(newViewRequest.userInitiated);
+            if (viewType === "" || viewType === "null") {
+                compare(loadRequestArray[0].status, WebEngineView.LoadStartedStatus);
+                compare(loadRequestArray[1].status, WebEngineView.LoadSucceededStatus);
+                compare(loadRequestArray.length, 2);
+            }
+            newViewRequestedSpy.clear();
         }
     }
 }

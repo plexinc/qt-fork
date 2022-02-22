@@ -10,13 +10,12 @@
 #include "base/barrier_closure.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/simple_test_clock.h"
 #include "base/test/task_environment.h"
@@ -26,6 +25,7 @@
 #include "components/services/storage/indexed_db/leveldb/fake_leveldb_factory.h"
 #include "components/services/storage/indexed_db/transactional_leveldb/transactional_leveldb_database.h"
 #include "components/services/storage/public/mojom/indexed_db_control.mojom-test-utils.h"
+#include "components/services/storage/public/mojom/storage_usage_info.mojom.h"
 #include "content/browser/indexed_db/indexed_db_backing_store.h"
 #include "content/browser/indexed_db/indexed_db_class_factory.h"
 #include "content/browser/indexed_db/indexed_db_connection.h"
@@ -111,32 +111,29 @@ class IndexedDBFactoryTest : public testing::Test {
 
   void SetupContext() {
     context_ = base::MakeRefCounted<IndexedDBContextImpl>(
-        temp_dir_.GetPath(),
-        /*special_storage_policy=*/nullptr, quota_manager_proxy_.get(),
+        temp_dir_.GetPath(), quota_manager_proxy_.get(),
         base::DefaultClock::GetInstance(),
         /*blob_storage_context=*/mojo::NullRemote(),
-        /*native_file_system_context=*/mojo::NullRemote(),
+        /*file_system_access_context=*/mojo::NullRemote(),
         base::SequencedTaskRunnerHandle::Get(),
         base::SequencedTaskRunnerHandle::Get());
   }
 
   void SetupInMemoryContext() {
     context_ = base::MakeRefCounted<IndexedDBContextImpl>(
-        base::FilePath(),
-        /*special_storage_policy=*/nullptr, quota_manager_proxy_.get(),
+        base::FilePath(), quota_manager_proxy_.get(),
         base::DefaultClock::GetInstance(),
         /*blob_storage_context=*/mojo::NullRemote(),
-        /*native_file_system_context=*/mojo::NullRemote(),
+        /*file_system_access_context=*/mojo::NullRemote(),
         base::SequencedTaskRunnerHandle::Get(),
         base::SequencedTaskRunnerHandle::Get());
   }
 
   void SetupContextWithFactories(LevelDBFactory* factory, base::Clock* clock) {
     context_ = base::MakeRefCounted<IndexedDBContextImpl>(
-        temp_dir_.GetPath(),
-        /*special_storage_policy=*/nullptr, quota_manager_proxy_.get(), clock,
+        temp_dir_.GetPath(), quota_manager_proxy_.get(), clock,
         /*blob_storage_context=*/mojo::NullRemote(),
-        /*native_file_system_context=*/mojo::NullRemote(),
+        /*file_system_access_context=*/mojo::NullRemote(),
         base::SequencedTaskRunnerHandle::Get(),
         base::SequencedTaskRunnerHandle::Get());
     if (factory)
@@ -256,7 +253,7 @@ TEST_F(IndexedDBFactoryTest, BasicFactoryCreationAndTearDown) {
   EXPECT_TRUE(origin_state2_handle.IsHeld()) << s.ToString();
   EXPECT_TRUE(s.ok()) << s.ToString();
 
-  std::vector<storage::mojom::IndexedDBStorageUsageInfoPtr> origin_info;
+  std::vector<storage::mojom::StorageUsageInfoPtr> origin_info;
   storage::mojom::IndexedDBControlAsyncWaiter sync_control(context());
   sync_control.GetUsage(&origin_info);
 
@@ -675,7 +672,7 @@ TEST_F(IndexedDBFactoryTest, DeleteDatabaseWithForceClose) {
   EXPECT_TRUE(factory()->GetOriginFactory(origin)->IsClosing());
 }
 
-TEST_F(IndexedDBFactoryTest, GetDatabaseNames) {
+TEST_F(IndexedDBFactoryTest, GetDatabaseNames_NoFactory) {
   SetupContext();
 
   auto callbacks = base::MakeRefCounted<MockIndexedDBCallbacks>(
@@ -686,9 +683,32 @@ TEST_F(IndexedDBFactoryTest, GetDatabaseNames) {
   factory()->GetDatabaseInfo(callbacks, origin, context()->data_path());
 
   EXPECT_TRUE(callbacks->info_called());
-  // Since there are no more references the factory should be closing.
+  // Don't create a factory if one doesn't exist.
+  EXPECT_FALSE(factory()->GetOriginFactory(origin));
+}
+
+TEST_F(IndexedDBFactoryTest, GetDatabaseNames_ExistingFactory) {
+  SetupContext();
+
+  auto callbacks = base::MakeRefCounted<MockIndexedDBCallbacks>(
+      /*expect_connection=*/false);
+
+  const Origin origin = Origin::Create(GURL("http://localhost:81"));
+
+  IndexedDBOriginStateHandle origin_state_handle;
+  leveldb::Status s;
+
+  std::tie(origin_state_handle, s, std::ignore, std::ignore, std::ignore) =
+      factory()->GetOrOpenOriginFactory(origin, context()->data_path(),
+                                        /*create_if_missing=*/true);
+  EXPECT_TRUE(origin_state_handle.IsHeld()) << s.ToString();
+
+  factory()->GetDatabaseInfo(callbacks, origin, context()->data_path());
+
+  EXPECT_TRUE(callbacks->info_called());
   EXPECT_TRUE(factory()->GetOriginFactory(origin));
-  EXPECT_TRUE(factory()->GetOriginFactory(origin)->IsClosing());
+  // GetDatabaseInfo didn't create the factory, so it shouldn't close it.
+  EXPECT_FALSE(factory()->GetOriginFactory(origin)->IsClosing());
 }
 
 class LookingForQuotaErrorMockCallbacks : public IndexedDBCallbacks {
@@ -697,8 +717,7 @@ class LookingForQuotaErrorMockCallbacks : public IndexedDBCallbacks {
       : IndexedDBCallbacks(nullptr,
                            url::Origin(),
                            mojo::NullAssociatedRemote(),
-                           base::SequencedTaskRunnerHandle::Get()),
-        error_called_(false) {}
+                           base::SequencedTaskRunnerHandle::Get()) {}
   void OnError(const IndexedDBDatabaseError& error) override {
     error_called_ = true;
     EXPECT_EQ(blink::mojom::IDBException::kQuotaError, error.code());
@@ -707,7 +726,7 @@ class LookingForQuotaErrorMockCallbacks : public IndexedDBCallbacks {
 
  private:
   ~LookingForQuotaErrorMockCallbacks() override = default;
-  bool error_called_;
+  bool error_called_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(LookingForQuotaErrorMockCallbacks);
 };
@@ -761,7 +780,7 @@ TEST_F(IndexedDBFactoryTest, NotifyQuotaOnDatabaseError) {
 
 class ErrorCallbacks : public MockIndexedDBCallbacks {
  public:
-  ErrorCallbacks() : MockIndexedDBCallbacks(false), saw_error_(false) {}
+  ErrorCallbacks() : MockIndexedDBCallbacks(false) {}
 
   void OnError(const IndexedDBDatabaseError& error) override {
     saw_error_ = true;
@@ -770,7 +789,7 @@ class ErrorCallbacks : public MockIndexedDBCallbacks {
 
  private:
   ~ErrorCallbacks() override = default;
-  bool saw_error_;
+  bool saw_error_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(ErrorCallbacks);
 };

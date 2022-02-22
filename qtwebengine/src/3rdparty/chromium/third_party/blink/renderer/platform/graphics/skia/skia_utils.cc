@@ -196,6 +196,16 @@ BlendMode BlendModeFromSkBlendMode(SkBlendMode blend_mode) {
 }
 
 SkMatrix AffineTransformToSkMatrix(const AffineTransform& source) {
+  // SkMatrices are 3x3, so they have a concept of "perspective" in the bottom
+  // row. blink::AffineTransform is a 2x3 matrix that can encode 2d rotations,
+  // skew and translation, but has no perspective. Those parameters are set to
+  // zero here. i.e.:
+
+  //   INPUT           OUTPUT
+  // | a c e |       | a c e |
+  // | b d f | ----> | b d f |
+  //                 | 0 0 1 |
+
   SkMatrix result;
 
   result.setScaleX(WebCoreDoubleToSkScalar(source.A()));
@@ -206,10 +216,37 @@ SkMatrix AffineTransformToSkMatrix(const AffineTransform& source) {
   result.setSkewY(WebCoreDoubleToSkScalar(source.B()));
   result.setTranslateY(WebCoreDoubleToSkScalar(source.F()));
 
-  // FIXME: Set perspective properly.
   result.setPerspX(0);
   result.setPerspY(0);
   result.set(SkMatrix::kMPersp2, SK_Scalar1);
+
+  return result;
+}
+
+SkMatrix TransformationMatrixToSkMatrix(const TransformationMatrix& source) {
+  // SkMatrix is 3x3, TransformationMatrix is 4x4, this function encodes
+  // assuming that a 2D-transformation with perspective is what's desired,
+  // throwing out the z-dimension values. i.e.:
+
+  //        INPUT                  OUTPUT
+  // | m11 m21 m31 m41 |       | m11 m21 m41 |
+  // | m12 m22 m32 m42 | ----> | m12 m22 m42 |
+  // | m13 m23 m33 m43 |       | m14 m24 m44 |
+  // | m14 m24 m34 m44 |
+
+  SkMatrix result;
+
+  result.setScaleX(WebCoreDoubleToSkScalar(source.M11()));
+  result.setSkewX(WebCoreDoubleToSkScalar(source.M21()));
+  result.setTranslateX(WebCoreDoubleToSkScalar(source.M41()));
+
+  result.setScaleY(WebCoreDoubleToSkScalar(source.M22()));
+  result.setSkewY(WebCoreDoubleToSkScalar(source.M12()));
+  result.setTranslateY(WebCoreDoubleToSkScalar(source.M42()));
+
+  result.setPerspX(source.M14());
+  result.setPerspY(source.M24());
+  result.set(SkMatrix::kMPersp2, source.M44());
 
   return result;
 }
@@ -388,7 +425,7 @@ void DrawPlatformFocusRing(const PrimitiveType& primitive,
     return;
   }
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   flags.setAlpha(64);
   const float corner_radius = (width - 1) * 0.5f;
 #else
@@ -397,7 +434,7 @@ void DrawPlatformFocusRing(const PrimitiveType& primitive,
 
   DrawFocusRingPrimitive(primitive, canvas, flags, corner_radius);
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   // Inner part
   flags.setAlpha(128);
   flags.setStrokeWidth(flags.getStrokeWidth() * 0.5f);

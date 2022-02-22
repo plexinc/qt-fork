@@ -9,13 +9,14 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import {Protocol} from './protocol_schema';
+import {Protocol} from './protocol_schema.js';
 
 const PROTOCOL_JSON_PATH = path.resolve(
     __dirname, path.join('..', '..', 'third_party', 'blink', 'public', 'devtools_protocol', 'browser_protocol.json'));
 
 const protocolJson = require(PROTOCOL_JSON_PATH);
-const protocolDomains: Protocol.Domain[] = protocolJson.domains;
+const removedDomains = new Set(['Console']);
+const protocolDomains: Protocol.Domain[] = protocolJson.domains.filter(({domain}) => !removedDomains.has(domain));
 
 let numIndents = 0;
 let emitStr = '';
@@ -75,6 +76,12 @@ const emitGlobalTypeDefs = () => {
   emitLine();
   emitLine('export type integer = number');
   emitLine('export type binary = string');
+  emitLine('export interface ProtocolResponseWithError {');
+  numIndents++;
+  emitLine('/** Returns an error message if the request failed. */');
+  emitLine('getError(): string|undefined;');
+  numIndents--;
+  emitLine('}');
 };
 
 const emitDomain = (domain: Protocol.Domain) => {
@@ -152,8 +159,8 @@ const emitProperty = (interfaceName: string, prop: Protocol.PropertyType) => {
   emitLine(`${getPropertyDef(interfaceName, prop)};`);
 };
 
-const emitInterface = (interfaceName: string, props?: Protocol.PropertyType[]) => {
-  emitOpenBlock(`export interface ${interfaceName}`);
+const emitInterface = (interfaceName: string, props?: Protocol.PropertyType[], optionalExtendsClause: string = '') => {
+  emitOpenBlock(`export interface ${interfaceName}${optionalExtendsClause}`);
   props ? props.forEach(prop => emitProperty(interfaceName, prop)) : emitLine('[key: string]: string;');
   emitCloseBlock();
 };
@@ -241,7 +248,7 @@ const emitCommand = (command: Protocol.Command) => {
 
   if (command.returns) {
     emitLine();
-    emitInterface(toCmdResponseName(command.name), command.returns);
+    emitInterface(toCmdResponseName(command.name), command.returns, ' extends ProtocolResponseWithError');
   }
 };
 
@@ -273,7 +280,7 @@ const getEventMapping =
     };
 
 const isWeakInterface = (params: Protocol.PropertyType[]): boolean => {
-  return params.every(p => !!p.optional);
+  return params.every(p => Boolean(p.optional));
 };
 
 const getCommandMapping = (command: Protocol.Command, domainName: string,
@@ -336,8 +343,9 @@ const emitApiCommand = (command: Protocol.Command, domainName: string, modulePre
   const prefix = `${modulePrefix}.${domainName}.`;
   emitDescription(command.description);
   const params = command.parameters ? `params: ${prefix}${toCmdRequestName(command.name)}` : '';
-  const response = command.returns ? `${prefix}${toCmdResponseName(command.name)}` : 'void';
-  emitLine(`${command.name}(${params}): Promise<${response}>;`);
+  const response =
+      command.returns ? `${prefix}${toCmdResponseName(command.name)}` : 'Protocol.ProtocolResponseWithError';
+  emitLine(`invoke_${command.name}(${params}): Promise<${response}>;`);
   emitLine();
 };
 
@@ -345,7 +353,7 @@ const emitApiEvent = (event: Protocol.Event, domainName: string, modulePrefix: s
   const prefix = `${modulePrefix}.${domainName}.`;
   emitDescription(event.description);
   const params = event.parameters ? `params: ${prefix}${toEventPayloadName(event.name)}` : '';
-  emitLine(`on(event: '${event.name}', listener: (${params}) => void): void;`);
+  emitLine(`${event.name}(${params}): void;`);
   emitLine();
 };
 
@@ -360,6 +368,8 @@ const emitDomainApi = (domain: Protocol.Domain, modulePrefix: string) => {
   if (domain.commands) {
     domain.commands.forEach(c => emitApiCommand(c, domainName, modulePrefix));
   }
+  emitCloseBlock();
+  emitOpenBlock(`export interface ${domainName}Dispatcher`);
   if (domain.events) {
     domain.events.forEach(e => emitApiEvent(e, domainName, modulePrefix));
   }
@@ -374,7 +384,7 @@ const emitApi = (moduleName: string, protocolModuleName: string, domains: Protoc
   emitOpenBlock(`declare namespace ${moduleName}`);
 
   emitLine();
-  emitOpenBlock('declare interface ProtocolApi');
+  emitOpenBlock('export interface ProtocolApi');
   domains.forEach(d => {
     emitLine(`${d.domain}: ${d.domain}Api;`);
     emitLine();

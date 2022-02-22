@@ -10,9 +10,9 @@
 #include <vector>
 
 #include "base/macros.h"
-#include "chrome/browser/chromeos/login/enrollment/enrollment_screen_view.h"
-#include "chrome/browser/chromeos/login/enrollment/enterprise_enrollment_helper.h"
-#include "chrome/browser/chromeos/login/screens/error_screen.h"
+#include "chrome/browser/ash/login/enrollment/enrollment_screen_view.h"
+#include "chrome/browser/ash/login/enrollment/enterprise_enrollment_helper.h"
+#include "chrome/browser/ash/login/screens/error_screen.h"
 #include "chrome/browser/chromeos/policy/enrollment_config.h"
 #include "chrome/browser/ui/webui/chromeos/login/base_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/network_state_informer.h"
@@ -21,6 +21,7 @@
 
 namespace chromeos {
 
+class CookieWaiter;
 class ErrorScreensHistogramHelper;
 class HelpAppLauncher;
 
@@ -70,9 +71,8 @@ class EnrollmentScreenHandler
   void SetEnrollmentConfig(Controller* controller,
                            const policy::EnrollmentConfig& config) override;
 
-  void SetEnterpriseDomainAndDeviceType(
-      const std::string& domain,
-      const base::string16& device_type) override;
+  void SetEnterpriseDomainInfo(const std::string& manager,
+                               const base::string16& device_type) override;
   void Show() override;
   void Hide() override;
   void ShowSigninScreen() override;
@@ -88,6 +88,7 @@ class EnrollmentScreenHandler
   void ShowEnrollmentStatus(policy::EnrollmentStatus status) override;
   void ShowOtherError(
       EnterpriseEnrollmentHelper::OtherError error_code) override;
+  void Shutdown() override;
 
   // Implements BaseScreenHandler:
   void Initialize() override;
@@ -98,6 +99,9 @@ class EnrollmentScreenHandler
   // Implements NetworkStateInformer::NetworkStateInformerObserver
   void UpdateState(NetworkError::ErrorReason reason) override;
 
+  void ContinueAuthenticationWhenCookiesAvailable(const std::string& user);
+  void OnCookieWaitTimeout();
+
  private:
   // Handlers for WebUI messages.
   void HandleToggleFakeEnrollment();
@@ -105,8 +109,8 @@ class EnrollmentScreenHandler
   void HandleCompleteLogin(const std::string& user);
   void OnGetCookiesForCompleteLogin(
       const std::string& user,
-      const net::CookieStatusList& cookies,
-      const net::CookieStatusList& excluded_cookies);
+      const net::CookieAccessResultList& cookies,
+      const net::CookieAccessResultList& excluded_cookies);
   void HandleAdCompleteLogin(const std::string& machine_name,
                              const std::string& distinguished_name,
                              const std::string& encryption_types,
@@ -177,15 +181,25 @@ class EnrollmentScreenHandler
   // True when signin screen step is shown.
   bool observe_network_failure_ = false;
 
+  // Set true when chrome is being restarted to pick up enrollment changes. The
+  // renderer processes will be destroyed and can no longer be talked to.
+  bool shutdown_ = false;
+
   // Network state informer used to keep signin screen up.
   scoped_refptr<NetworkStateInformer> network_state_informer_;
 
   ErrorScreen* error_screen_ = nullptr;
 
+  std::string signin_partition_name_;
+
   std::unique_ptr<ErrorScreensHistogramHelper> histogram_helper_;
 
   // Help application used for help dialogs.
   scoped_refptr<HelpAppLauncher> help_app_;
+
+  std::unique_ptr<CookieWaiter> oauth_code_waiter_;
+
+  bool use_fake_login_for_testing_ = false;
 
   base::WeakPtrFactory<EnrollmentScreenHandler> weak_ptr_factory_{this};
 

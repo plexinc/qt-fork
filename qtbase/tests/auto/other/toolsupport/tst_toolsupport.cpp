@@ -26,7 +26,7 @@
 **
 ****************************************************************************/
 
-#include <QtTest>
+#include <QTest>
 
 //
 // Note:
@@ -35,6 +35,10 @@
 // intentionally changed a private class, adjust the test here and bump
 // the TypeInformationVersion field in src/corelib/global/qhooks.cpp
 // in the same commit as the modification to the private class.
+//
+// Please also notify downstream users of the information checked here
+// such as Qt Creator developers, of such a change by putting them
+// on Cc: on the respective change on gerrit.
 //
 
 
@@ -64,7 +68,7 @@ size_t pmm_to_offsetof(T K:: *pmm)
 #else
     size_t ret;
 #endif
-    Q_STATIC_ASSERT(sizeof(ret) == sizeof(pmm));
+    static_assert(sizeof(ret) == sizeof(pmm));
     memcpy(&ret, &pmm, sizeof(ret));
     return ret;
 }
@@ -97,25 +101,36 @@ void tst_toolsupport::offsets_data()
     {
         QTestData &data = QTest::newRow("sizeof(QObjectData)")
                 << sizeof(QObjectData);
-        data << 28 << 48; // vptr + 3 ptr + 2 int + ptr
+        // Please heed the comment at the top of this file when changing this line:
+        data << 44 << 80; // vptr + 2 ptr + (2*ptr + int) + 2 int + ptr
+    }
+
+    {
+        QTestData &data = QTest::newRow("sizeof(QObjectPrivate::ExtraData)")
+                << sizeof(QObjectPrivate::ExtraData);
+        // Please heed the comment at the top of this file when changing this line:
+        data << 64 << 128; // 4 * QList + 1 * QString + ptr
     }
 
 #if RUN_MEMBER_OFFSET_TEST
     {
         QTestData &data = QTest::newRow("QObjectPrivate::extraData")
                 << pmm_to_offsetof(&QObjectPrivate::extraData);
-        data << 28 << 48;    // sizeof(QObjectData)
+        // Please heed the comment at the top of this file when changing this line:
+        data << 44 << 80;    // sizeof(QObjectData)
     }
 
     {
         QTestData &data = QTest::newRow("QFileInfoPrivate::fileEntry")
                 << pmm_to_offsetof(&QFileInfoPrivate::fileEntry);
+        // Please heed the comment at the top of this file when changing this line:
         data << 4 << 8;
     }
 
     {
         QTestData &data = QTest::newRow("QFileSystemEntry::filePath")
                 << pmm_to_offsetof(&QFileSystemEntry::m_filePath);
+        // Please heed the comment at the top of this file when changing this line:
         data << 0 << 0;
     }
 
@@ -123,17 +138,19 @@ void tst_toolsupport::offsets_data()
     {
         QTestData &data = QTest::newRow("QFilePrivate::fileName")
                 << pmm_to_offsetof(&QFilePrivate::fileName);
+        // Please heed the comment at the top of this file when changing one of these lines:
 #ifdef Q_PROCESSOR_X86
         // x86 32-bit has weird alignment rules. Refer to QtPrivate::AlignOf in
         // qglobal.h for more details.
-        data << 152 << 224;
+        data << 188 << 304;
 #else
-        data << 156 << 224;
+        data << 196 << 304;
 #endif
     }
 #endif
 
     {
+        // Please heed the comment at the top of this file when changing one of these lines:
         QTest::newRow("QDateTimePrivate::m_msecs")
             << pmm_to_offsetof(&QDateTimePrivate::m_msecs) << 8 << 8;
         QTest::newRow("QDateTimePrivate::m_status")

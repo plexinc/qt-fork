@@ -28,9 +28,8 @@
 ****************************************************************************/
 
 #include <QtCore/QUrl>
-#include <QtTest/QtTest>
+#include <QTest>
 
-#include "private/qtldurl_p.h"
 #include "private/qurl_p.h"
 
 // For testsuites
@@ -42,18 +41,18 @@
 #define STRINGPREP_BIDI_BOTH_L_AND_RAL 4
 #define STRINGPREP_BIDI_LEADTRAIL_NOT_RAL 5
 
-struct ushortarray {
-    ushortarray() {}
+struct char16array {
+    char16array() {}
     template <size_t N>
-    ushortarray(unsigned short (&array)[N])
+    char16array(char16_t (&array)[N])
     {
-        memcpy(points, array, N*sizeof(unsigned short));
+        memcpy(points, array, N*sizeof(char16_t));
     }
 
-    unsigned short points[100];
+    char16_t points[100];
 };
 
-Q_DECLARE_METATYPE(ushortarray)
+Q_DECLARE_METATYPE(char16array)
 Q_DECLARE_METATYPE(QUrl::FormattingOptions)
 Q_DECLARE_METATYPE(QUrl::ComponentFormattingOptions)
 
@@ -85,8 +84,6 @@ private Q_SLOTS:
     void encodingRecode();
     void encodingRecodeInvalidUtf8_data();
     void encodingRecodeInvalidUtf8();
-    void recodeByteArray_data();
-    void recodeByteArray();
 };
 #include "tst_qurlinternal.moc"
 
@@ -94,146 +91,149 @@ private Q_SLOTS:
 void tst_QUrlInternal::idna_testsuite_data()
 {
     QTest::addColumn<int>("numchars");
-    QTest::addColumn<ushortarray>("unicode");
+    QTest::addColumn<char16array>("unicode");
     QTest::addColumn<QByteArray>("punycode");
     QTest::addColumn<int>("allowunassigned");
     QTest::addColumn<int>("usestd3asciirules");
     QTest::addColumn<int>("toasciirc");
     QTest::addColumn<int>("tounicoderc");
 
-    unsigned short d1[] = { 0x0644, 0x064A, 0x0647, 0x0645, 0x0627, 0x0628, 0x062A, 0x0643,
-                            0x0644, 0x0645, 0x0648, 0x0634, 0x0639, 0x0631, 0x0628, 0x064A,
-                            0x061F };
-    QTest::newRow("Arabic (Egyptian)") << 17 << ushortarray(d1)
+    char16_t d1[] = { 0x0644, 0x064A, 0x0647, 0x0645, 0x0627, 0x0628, 0x062A, 0x0643,
+                      0x0644, 0x0645, 0x0648, 0x0634, 0x0639, 0x0631, 0x0628, 0x064A,
+                      0x061F };
+    QTest::newRow("Arabic (Egyptian)") << 17 << char16array(d1)
                                     << QByteArray(IDNA_ACE_PREFIX "egbpdaj6bu4bxfgehfvwxn")
                                     << 0 << 0 << IDNA_SUCCESS << IDNA_SUCCESS;
 
-    unsigned short d2[] = { 0x4ED6, 0x4EEC, 0x4E3A, 0x4EC0, 0x4E48, 0x4E0D, 0x8BF4, 0x4E2D,
-                            0x6587 };
-    QTest::newRow("Chinese (simplified)") << 9 << ushortarray(d2)
+    char16_t d2[] = { 0x4ED6, 0x4EEC, 0x4E3A, 0x4EC0, 0x4E48, 0x4E0D, 0x8BF4, 0x4E2D,
+                      0x6587 };
+    QTest::newRow("Chinese (simplified)") << 9 << char16array(d2)
                                        << QByteArray(IDNA_ACE_PREFIX "ihqwcrb4cv8a8dqg056pqjye")
                                        << 0 << 0 << IDNA_SUCCESS << IDNA_SUCCESS;
 
-    unsigned short d3[] = { 0x4ED6, 0x5011, 0x7232, 0x4EC0, 0x9EBD, 0x4E0D, 0x8AAA, 0x4E2D,
-                            0x6587 };
-    QTest::newRow("Chinese (traditional)") << 9 << ushortarray(d3)
+    char16_t d3[] = { 0x4ED6, 0x5011, 0x7232, 0x4EC0, 0x9EBD, 0x4E0D, 0x8AAA, 0x4E2D,
+                      0x6587 };
+    QTest::newRow("Chinese (traditional)") << 9 << char16array(d3)
                                         << QByteArray(IDNA_ACE_PREFIX "ihqwctvzc91f659drss3x8bo0yb")
                                         << 0 << 0 << IDNA_SUCCESS << IDNA_SUCCESS;
 
-    unsigned short d4[] = { 0x0050, 0x0072, 0x006F, 0x010D, 0x0070, 0x0072, 0x006F, 0x0073,
-                            0x0074, 0x011B, 0x006E, 0x0065, 0x006D, 0x006C, 0x0075, 0x0076,
-                            0x00ED, 0x010D, 0x0065, 0x0073, 0x006B, 0x0079 };
-    QTest::newRow("Czech") << 22 << ushortarray(d4)
+    char16_t d4[] = { 0x0050, 0x0072, 0x006F, 0x010D, 0x0070, 0x0072, 0x006F, 0x0073,
+                      0x0074, 0x011B, 0x006E, 0x0065, 0x006D, 0x006C, 0x0075, 0x0076,
+                      0x00ED, 0x010D, 0x0065, 0x0073, 0x006B, 0x0079 };
+    QTest::newRow("Czech") << 22 << char16array(d4)
                         << QByteArray(IDNA_ACE_PREFIX "Proprostnemluvesky-uyb24dma41a")
                         << 0 << 0 << IDNA_SUCCESS << IDNA_SUCCESS;
 
-    unsigned short d5[] = { 0x05DC, 0x05DE, 0x05D4, 0x05D4, 0x05DD, 0x05E4, 0x05E9, 0x05D5,
-                            0x05D8, 0x05DC, 0x05D0, 0x05DE, 0x05D3, 0x05D1, 0x05E8, 0x05D9,
-                            0x05DD, 0x05E2, 0x05D1, 0x05E8, 0x05D9, 0x05EA };
-    QTest::newRow("Hebrew") << 22 << ushortarray(d5)
+    char16_t d5[] = { 0x05DC, 0x05DE, 0x05D4, 0x05D4, 0x05DD, 0x05E4, 0x05E9, 0x05D5,
+                      0x05D8, 0x05DC, 0x05D0, 0x05DE, 0x05D3, 0x05D1, 0x05E8, 0x05D9,
+                      0x05DD, 0x05E2, 0x05D1, 0x05E8, 0x05D9, 0x05EA };
+    QTest::newRow("Hebrew") << 22 << char16array(d5)
                          << QByteArray(IDNA_ACE_PREFIX "4dbcagdahymbxekheh6e0a7fei0b")
                          << 0 << 0 << IDNA_SUCCESS << IDNA_SUCCESS;
 
-    unsigned short d6[] = { 0x092F, 0x0939, 0x0932, 0x094B, 0x0917, 0x0939, 0x093F, 0x0928,
-                            0x094D, 0x0926, 0x0940, 0x0915, 0x094D, 0x092F, 0x094B, 0x0902,
-                            0x0928, 0x0939, 0x0940, 0x0902, 0x092C, 0x094B, 0x0932, 0x0938,
-                            0x0915, 0x0924, 0x0947, 0x0939, 0x0948, 0x0902 };
-    QTest::newRow("Hindi (Devanagari)") << 30 << ushortarray(d6)
+    char16_t d6[] = { 0x092F, 0x0939, 0x0932, 0x094B, 0x0917, 0x0939, 0x093F, 0x0928,
+                      0x094D, 0x0926, 0x0940, 0x0915, 0x094D, 0x092F, 0x094B, 0x0902,
+                      0x0928, 0x0939, 0x0940, 0x0902, 0x092C, 0x094B, 0x0932, 0x0938,
+                      0x0915, 0x0924, 0x0947, 0x0939, 0x0948, 0x0902 };
+    QTest::newRow("Hindi (Devanagari)") << 30 << char16array(d6)
                                      << QByteArray(IDNA_ACE_PREFIX "i1baa7eci9glrd9b2ae1bj0hfcgg6iyaf8o0a1dig0cd")
                                      << 0 << 0 << IDNA_SUCCESS;
 
-    unsigned short d7[] = { 0x306A, 0x305C, 0x307F, 0x3093, 0x306A, 0x65E5, 0x672C, 0x8A9E,
-                            0x3092, 0x8A71, 0x3057, 0x3066, 0x304F, 0x308C, 0x306A, 0x3044,
-                            0x306E, 0x304B };
-    QTest::newRow("Japanese (kanji and hiragana)") << 18 << ushortarray(d7)
+    char16_t d7[] = { 0x306A, 0x305C, 0x307F, 0x3093, 0x306A, 0x65E5, 0x672C, 0x8A9E,
+                      0x3092, 0x8A71, 0x3057, 0x3066, 0x304F, 0x308C, 0x306A, 0x3044,
+                      0x306E, 0x304B };
+    QTest::newRow("Japanese (kanji and hiragana)") << 18 << char16array(d7)
                                                 << QByteArray(IDNA_ACE_PREFIX "n8jok5ay5dzabd5bym9f0cm5685rrjetr6pdxa")
                                                 << 0 << 0 << IDNA_SUCCESS;
 
-    unsigned short d8[] = { 0x043F, 0x043E, 0x0447, 0x0435, 0x043C, 0x0443, 0x0436, 0x0435,
-                            0x043E, 0x043D, 0x0438, 0x043D, 0x0435, 0x0433, 0x043E, 0x0432,
-                            0x043E, 0x0440, 0x044F, 0x0442, 0x043F, 0x043E, 0x0440, 0x0443,
-                            0x0441, 0x0441, 0x043A, 0x0438 };
-    QTest::newRow("Russian (Cyrillic)") << 28 << ushortarray(d8)
+    char16_t d8[] = { 0x043F, 0x043E, 0x0447, 0x0435, 0x043C, 0x0443, 0x0436, 0x0435,
+                      0x043E, 0x043D, 0x0438, 0x043D, 0x0435, 0x0433, 0x043E, 0x0432,
+                      0x043E, 0x0440, 0x044F, 0x0442, 0x043F, 0x043E, 0x0440, 0x0443,
+                      0x0441, 0x0441, 0x043A, 0x0438 };
+    QTest::newRow("Russian (Cyrillic)") << 28 << char16array(d8)
                                      << QByteArray(IDNA_ACE_PREFIX "b1abfaaepdrnnbgefbadotcwatmq2g4l")
                                      << 0 << 0 << IDNA_SUCCESS << IDNA_SUCCESS;
 
-    unsigned short d9[] = { 0x0050, 0x006F, 0x0072, 0x0071, 0x0075, 0x00E9, 0x006E, 0x006F,
-                            0x0070, 0x0075, 0x0065, 0x0064, 0x0065, 0x006E, 0x0073, 0x0069,
-                            0x006D, 0x0070, 0x006C, 0x0065, 0x006D, 0x0065, 0x006E, 0x0074,
-                            0x0065, 0x0068, 0x0061, 0x0062, 0x006C, 0x0061, 0x0072, 0x0065,
-                            0x006E, 0x0045, 0x0073, 0x0070, 0x0061, 0x00F1, 0x006F, 0x006C };
-    QTest::newRow("Spanish") << 40 << ushortarray(d9)
+    char16_t d9[] = { 0x0050, 0x006F, 0x0072, 0x0071, 0x0075, 0x00E9, 0x006E, 0x006F,
+                      0x0070, 0x0075, 0x0065, 0x0064, 0x0065, 0x006E, 0x0073, 0x0069,
+                      0x006D, 0x0070, 0x006C, 0x0065, 0x006D, 0x0065, 0x006E, 0x0074,
+                      0x0065, 0x0068, 0x0061, 0x0062, 0x006C, 0x0061, 0x0072, 0x0065,
+                      0x006E, 0x0045, 0x0073, 0x0070, 0x0061, 0x00F1, 0x006F, 0x006C };
+    QTest::newRow("Spanish") << 40 << char16array(d9)
                           << QByteArray(IDNA_ACE_PREFIX "PorqunopuedensimplementehablarenEspaol-fmd56a")
                           << 0 << 0 << IDNA_SUCCESS;
 
-    unsigned short d10[] = { 0x0054, 0x1EA1, 0x0069, 0x0073, 0x0061, 0x006F, 0x0068, 0x1ECD,
-                             0x006B, 0x0068, 0x00F4, 0x006E, 0x0067, 0x0074, 0x0068, 0x1EC3,
-                             0x0063, 0x0068, 0x1EC9, 0x006E, 0x00F3, 0x0069, 0x0074, 0x0069,
-                             0x1EBF, 0x006E, 0x0067, 0x0056, 0x0069, 0x1EC7, 0x0074 };
-    QTest::newRow("Vietnamese") << 31 << ushortarray(d10)
+    char16_t d10[] = { 0x0054, 0x1EA1, 0x0069, 0x0073, 0x0061, 0x006F, 0x0068, 0x1ECD,
+                       0x006B, 0x0068, 0x00F4, 0x006E, 0x0067, 0x0074, 0x0068, 0x1EC3,
+                       0x0063, 0x0068, 0x1EC9, 0x006E, 0x00F3, 0x0069, 0x0074, 0x0069,
+                       0x1EBF, 0x006E, 0x0067, 0x0056, 0x0069, 0x1EC7, 0x0074 };
+    QTest::newRow("Vietnamese") << 31 << char16array(d10)
                              << QByteArray(IDNA_ACE_PREFIX "TisaohkhngthchnitingVit-kjcr8268qyxafd2f1b9g")
                              << 0 << 0 << IDNA_SUCCESS;
 
-    unsigned short d11[] = { 0x0033, 0x5E74, 0x0042, 0x7D44, 0x91D1, 0x516B, 0x5148, 0x751F };
-    QTest::newRow("Japanese") << 8 << ushortarray(d11)
+    char16_t d11[] = { 0x0033, 0x5E74, 0x0042, 0x7D44, 0x91D1, 0x516B, 0x5148, 0x751F };
+    QTest::newRow("Japanese") << 8 << char16array(d11)
                            << QByteArray(IDNA_ACE_PREFIX "3B-ww4c5e180e575a65lsy2b")
                            << 0 << 0 << IDNA_SUCCESS << IDNA_SUCCESS;
 
     // this test does NOT include nameprepping, so the capitals will remain
-    unsigned short d12[] = { 0x5B89, 0x5BA4, 0x5948, 0x7F8E, 0x6075, 0x002D, 0x0077, 0x0069,
-                             0x0074, 0x0068, 0x002D, 0x0053, 0x0055, 0x0050, 0x0045, 0x0052,
-                             0x002D, 0x004D, 0x004F, 0x004E, 0x004B, 0x0045, 0x0059, 0x0053 };
-    QTest::newRow("Japanese2") << 24 << ushortarray(d12)
+    char16_t d12[] = { 0x5B89, 0x5BA4, 0x5948, 0x7F8E, 0x6075, 0x002D, 0x0077, 0x0069,
+                       0x0074, 0x0068, 0x002D, 0x0053, 0x0055, 0x0050, 0x0045, 0x0052,
+                       0x002D, 0x004D, 0x004F, 0x004E, 0x004B, 0x0045, 0x0059, 0x0053 };
+    QTest::newRow("Japanese2") << 24 << char16array(d12)
                             << QByteArray(IDNA_ACE_PREFIX "-with-SUPER-MONKEYS-pc58ag80a8qai00g7n9n")
                             << 0 << 0 << IDNA_SUCCESS;
 
-    unsigned short d13[] = { 0x0048, 0x0065, 0x006C, 0x006C, 0x006F, 0x002D, 0x0041, 0x006E,
-                             0x006F, 0x0074, 0x0068, 0x0065, 0x0072, 0x002D, 0x0057, 0x0061,
-                             0x0079, 0x002D, 0x305D, 0x308C, 0x305E, 0x308C, 0x306E, 0x5834,
-                             0x6240 };
-    QTest::newRow("Japanese3") << 25 << ushortarray(d13)
+    char16_t d13[] = { 0x0048, 0x0065, 0x006C, 0x006C, 0x006F, 0x002D, 0x0041, 0x006E,
+                       0x006F, 0x0074, 0x0068, 0x0065, 0x0072, 0x002D, 0x0057, 0x0061,
+                       0x0079, 0x002D, 0x305D, 0x308C, 0x305E, 0x308C, 0x306E, 0x5834,
+                       0x6240 };
+    QTest::newRow("Japanese3") << 25 << char16array(d13)
                             << QByteArray(IDNA_ACE_PREFIX "Hello-Another-Way--fc4qua05auwb3674vfr0b")
                             << 0 << 0 << IDNA_SUCCESS;
 
-    unsigned short d14[] = { 0x3072, 0x3068, 0x3064, 0x5C4B, 0x6839, 0x306E, 0x4E0B, 0x0032 };
-    QTest::newRow("Japanese4") << 8 << ushortarray(d14)
+    char16_t d14[] = { 0x3072, 0x3068, 0x3064, 0x5C4B, 0x6839, 0x306E, 0x4E0B, 0x0032 };
+    QTest::newRow("Japanese4") << 8 << char16array(d14)
                             << QByteArray(IDNA_ACE_PREFIX "2-u9tlzr9756bt3uc0v")
                             << 0 << 0 << IDNA_SUCCESS << IDNA_SUCCESS;
 
-    unsigned short d15[] = { 0x004D, 0x0061, 0x006A, 0x0069, 0x3067, 0x004B, 0x006F, 0x0069,
-                             0x3059, 0x308B, 0x0035, 0x79D2, 0x524D };
-    QTest::newRow("Japanese5") << 13 << ushortarray(d15)
+    char16_t d15[] = { 0x004D, 0x0061, 0x006A, 0x0069, 0x3067, 0x004B, 0x006F, 0x0069,
+                       0x3059, 0x308B, 0x0035, 0x79D2, 0x524D };
+    QTest::newRow("Japanese5") << 13 << char16array(d15)
                             << QByteArray(IDNA_ACE_PREFIX "MajiKoi5-783gue6qz075azm5e")
                             << 0 << 0 << IDNA_SUCCESS << IDNA_SUCCESS;
 
-    unsigned short d16[] = { 0x30D1, 0x30D5, 0x30A3, 0x30FC, 0x0064, 0x0065, 0x30EB, 0x30F3, 0x30D0 };
-    QTest::newRow("Japanese6") << 9 << ushortarray(d16)
+    char16_t d16[] = { 0x30D1, 0x30D5, 0x30A3, 0x30FC, 0x0064, 0x0065, 0x30EB, 0x30F3, 0x30D0 };
+    QTest::newRow("Japanese6") << 9 << char16array(d16)
                             << QByteArray(IDNA_ACE_PREFIX "de-jg4avhby1noc0d")
                             << 0 << 0 << IDNA_SUCCESS << IDNA_SUCCESS;
 
-    unsigned short d17[] = { 0x305D, 0x306E, 0x30B9, 0x30D4, 0x30FC, 0x30C9, 0x3067 };
-    QTest::newRow("Japanese7") << 7 << ushortarray(d17)
+    char16_t d17[] = { 0x305D, 0x306E, 0x30B9, 0x30D4, 0x30FC, 0x30C9, 0x3067 };
+    QTest::newRow("Japanese7") << 7 << char16array(d17)
                             << QByteArray(IDNA_ACE_PREFIX "d9juau41awczczp")
                             << 0 << 0 << IDNA_SUCCESS << IDNA_SUCCESS;
 
-    unsigned short d18[] = { 0x03b5, 0x03bb, 0x03bb, 0x03b7, 0x03bd, 0x03b9, 0x03ba, 0x03ac };
-    QTest::newRow("Greek") << 8 << ushortarray(d18)
+    char16_t d18[] = { 0x03b5, 0x03bb, 0x03bb, 0x03b7, 0x03bd, 0x03b9, 0x03ba, 0x03ac };
+    QTest::newRow("Greek") << 8 << char16array(d18)
                         << QByteArray(IDNA_ACE_PREFIX "hxargifdar")
                         << 0 << 0 << IDNA_SUCCESS << IDNA_SUCCESS;
 
-    unsigned short d19[] = { 0x0062, 0x006f, 0x006e, 0x0121, 0x0075, 0x0073, 0x0061, 0x0127,
-                             0x0127, 0x0061 };
-    QTest::newRow("Maltese (Malti)") << 10 << ushortarray(d19)
+    char16_t d19[] = { 0x0062, 0x006f, 0x006e, 0x0121, 0x0075, 0x0073, 0x0061, 0x0127,
+                       0x0127, 0x0061 };
+    QTest::newRow("Maltese (Malti)") << 10 << char16array(d19)
                                   << QByteArray(IDNA_ACE_PREFIX "bonusaa-5bb1da")
                                   << 0 << 0 << IDNA_SUCCESS << IDNA_SUCCESS;
 
-    unsigned short d20[] = {0x043f, 0x043e, 0x0447, 0x0435, 0x043c, 0x0443, 0x0436, 0x0435,
-                            0x043e, 0x043d, 0x0438, 0x043d, 0x0435, 0x0433, 0x043e, 0x0432,
-                            0x043e, 0x0440, 0x044f, 0x0442, 0x043f, 0x043e, 0x0440, 0x0443,
-                            0x0441, 0x0441, 0x043a, 0x0438 };
-    QTest::newRow("Russian (Cyrillic)") << 28 << ushortarray(d20)
+    char16_t d20[] = {0x043f, 0x043e, 0x0447, 0x0435, 0x043c, 0x0443, 0x0436, 0x0435,
+                      0x043e, 0x043d, 0x0438, 0x043d, 0x0435, 0x0433, 0x043e, 0x0432,
+                      0x043e, 0x0440, 0x044f, 0x0442, 0x043f, 0x043e, 0x0440, 0x0443,
+                      0x0441, 0x0441, 0x043a, 0x0438 };
+    QTest::newRow("Russian (Cyrillic)") << 28 << char16array(d20)
                                      << QByteArray(IDNA_ACE_PREFIX "b1abfaaepdrnnbgefbadotcwatmq2g4l")
                                      << 0 << 0 << IDNA_SUCCESS << IDNA_SUCCESS;
+
+    char16_t d21[] = { 0xd800, 0xdef7 };
+    QTest::newRow("U+102F7") << 2 << char16array(d21) << QByteArray(IDNA_ACE_PREFIX "r97c");
 }
 #endif
 
@@ -241,11 +241,11 @@ void tst_QUrlInternal::idna_testsuite_data()
 void tst_QUrlInternal::idna_testsuite()
 {
     QFETCH(int, numchars);
-    QFETCH(ushortarray, unicode);
+    QFETCH(char16array, unicode);
     QFETCH(QByteArray, punycode);
 
     QString result;
-    qt_punycodeEncoder((QChar*)unicode.points, numchars, &result);
+    qt_punycodeEncoder(QStringView{unicode.points, numchars}, &result);
     QCOMPARE(result.toLatin1(), punycode);
     QCOMPARE(qt_punycodeDecoder(result), QString::fromUtf16(unicode.points, numchars));
 }
@@ -520,23 +520,23 @@ void tst_QUrlInternal::nameprep_highcodes_data()
     QTest::addColumn<int>("rc");
 
     {
-        QChar st[] = { '-', 0xd801, 0xdc1d, 'a' };
-        QChar se[] = { '-', 0xd801, 0xdc45, 'a' };
+        QChar st[] = { '-', QChar(0xd801), QChar(0xdc1d), 'a' };
+        QChar se[] = { '-', QChar(0xd801), QChar(0xdc45), 'a' };
         QTest::newRow("highcodes (U+1041D)")
             << QString(st, sizeof(st)/sizeof(st[0]))
             << QString(se, sizeof(se)/sizeof(se[0]))
             << QString() << 0 << 0;
     }
     {
-        QChar st[] = { 0x011C, 0xd835, 0xdf6e, 0x0110 };
-        QChar se[] = { 0x011D, 0x03C9, 0x0111 };
+        QChar st[] = { QChar(0x011C), QChar(0xd835), QChar(0xdf6e), QChar(0x0110) };
+        QChar se[] = { QChar(0x011D), QChar(0x03C9), QChar(0x0111) };
         QTest::newRow("highcodes (U+1D76E)")
             << QString(st, sizeof(st)/sizeof(st[0]))
             << QString(se, sizeof(se)/sizeof(se[0]))
             << QString() << 0 << 0;
     }
     {
-        QChar st[] = { 'D', 'o', '\'', 0x2060, 'h' };
+        QChar st[] = { 'D', 'o', '\'', QChar(0x2060), 'h' };
         QChar se[] = { 'd', 'o', '\'', 'h' };
         QTest::newRow("highcodes (D, o, ', U+2060, h)")
             << QString(st, sizeof(st)/sizeof(st[0]))
@@ -652,29 +652,41 @@ void tst_QUrlInternal::ace_testsuite_data()
         << taiwaneseIDN;
 
     // violations / invalids
-    QTest::newRow("invalid-punycode") << "xn--z" << "xn--z" << "xn--z" << "xn--z";
+    auto badRow = [](const char *name, const char *text) {
+        QTest::newRow(name) << text << text << text << text;
+    };
+
+    badRow("invalid-punycode", "xn--z");
 
     // U+00A0 NO-BREAK SPACE encodes to Punycode "6a"
     // but it is prohibited and should have caused encoding failure
-    QTest::newRow("invalid-nameprep-prohibited") << "xn--6a" << "xn--6a" << "xn--6a" << "xn--6a";
+    badRow("invalid-nameprep-prohibited", "xn--6a");
 
     // U+00AD SOFT HYPHEN between "a" and "b" encodes to Punycode "ab-5da"
     // but it should have been removed in the nameprep stage
-    QTest::newRow("invalid-nameprep-maptonothing") << "xn-ab-5da" << "xn-ab-5da" << "xn-ab-5da" << "xn-ab-5da";
+    badRow("invalid-nameprep-maptonothing", "xn-ab-5da");
 
     // U+00C1 LATIN CAPITAL LETTER A WITH ACUTE encodes to Punycode "4ba"
     // but it should have nameprepped to lowercase first
-    QTest::newRow("invalid-nameprep-uppercase") << "xn--4ba" << "xn--4ba" << "xn--4ba" << "xn--4ba";
+    badRow("invalid-nameprep-uppercase", "xn--4ba");
 
     // U+00B5 MICRO SIGN encodes to Punycode "sba"
     // but is should have nameprepped to NFKC U+03BC GREEK SMALL LETTER MU
-    QTest::newRow("invalid-nameprep-nonnfkc") << "xn--sba" << "xn--sba" << "xn--sba" << "xn--sba";
+    badRow("invalid-nameprep-nonnfkc", "xn--sba");
 
     // U+04CF CYRILLIC SMALL LETTER PALOCHKA encodes to "s5a"
     // but it's not in RFC 3454's allowed character list (Unicode 3.2)
-    QTest::newRow("invalid-nameprep-unassigned") << "xn--s5a" << "xn--s5a" << "xn--s5a" << "xn--s5a";
+    badRow("invalid-nameprep-unassigned", "xn--s5a");
     // same character, see QTBUG-60364
-    QTest::newRow("invalid-nameprep-unassigned2") << "xn--80ak6aa92e" << "xn--80ak6aa92e" << "xn--80ak6aa92e" << "xn--80ak6aa92e";
+    badRow("invalid-nameprep-unassigned2", "xn--80ak6aa92e");
+
+    // Decodes to "a" in some versions, see QTBUG-95689
+    badRow("punycode-overflow-1", "xn--5p32g");
+    // Decodes to the same string as "xn--097c" in some versions, see QTBUG-95689
+    badRow("punycode-overflow-2", "xn--400595c");
+
+    // Encodes 2**32, decodes to empty string in some versions
+    badRow("punycode-overflow-3", "xn--l0902716a");
 }
 
 void tst_QUrlInternal::ace_testsuite()
@@ -756,7 +768,7 @@ void tst_QUrlInternal::std3violations()
     {
         QString prepped = source;
         qt_nameprep(&prepped, 0);
-        QVERIFY(!qt_check_std3rules(prepped.constData(), prepped.length()));
+        QVERIFY(!qt_check_std3rules(prepped));
     }
 #endif
 
@@ -848,7 +860,7 @@ void tst_QUrlInternal::correctEncodedMistakes()
     QString dataTag = QTest::currentDataTag();
     QString output = dataTag;
 
-    if (!qt_urlRecode(output, input.constData(), input.constData() + input.length(), { }))
+    if (!qt_urlRecode(output, input, { }))
         output += input;
     QCOMPARE(output, dataTag + expected);
 
@@ -856,7 +868,7 @@ void tst_QUrlInternal::correctEncodedMistakes()
     output = dataTag;
     QString expected2 = QUrl::fromPercentEncoding(expected.toLatin1());
 
-    if (!qt_urlRecode(output, input.constData(), input.constData() + input.length(), QUrl::FullyDecoded))
+    if (!qt_urlRecode(output, input, QUrl::FullyDecoded))
         output += input;
     QCOMPARE(output, dataTag + expected2);
 }
@@ -1020,7 +1032,7 @@ void tst_QUrlInternal::encodingRecode()
     QString output = QTest::currentDataTag();
     expected.prepend(output);
 
-    if (!qt_urlRecode(output, input.constData(), input.constData() + input.length(), encodingMode))
+    if (!qt_urlRecode(output, input, encodingMode))
         output += input;
     QCOMPARE(output, expected);
 }
@@ -1048,54 +1060,24 @@ void tst_QUrlInternal::encodingRecodeInvalidUtf8()
     // prepend some data to be sure that it remains there
     QString output = QTest::currentDataTag();
 
-    if (!qt_urlRecode(output, input.constData(), input.constData() + input.length(), QUrl::PrettyDecoded))
+    if (!qt_urlRecode(output, input, QUrl::PrettyDecoded))
         output += input;
     QCOMPARE(output, QTest::currentDataTag() + input);
 
     // this is just control
     output = QTest::currentDataTag();
-    if (!qt_urlRecode(output, input.constData(), input.constData() + input.length(), QUrl::FullyEncoded))
+    if (!qt_urlRecode(output, input, QUrl::FullyEncoded))
         output += input;
     QCOMPARE(output, QTest::currentDataTag() + input);
 
     // verify for security reasons that all bad UTF-8 data got replaced by QChar::ReplacementCharacter
     output = QTest::currentDataTag();
-    if (!qt_urlRecode(output, input.constData(), input.constData() + input.length(), QUrl::FullyEncoded))
+    if (!qt_urlRecode(output, input, QUrl::FullyEncoded))
         output += input;
     for (int i = int(strlen(QTest::currentDataTag())); i < output.length(); ++i) {
         QVERIFY2(output.at(i).unicode() < 0x80 || output.at(i) == QChar::ReplacementCharacter,
                  qPrintable(QString("Character at i == %1 was U+%2").arg(i).arg(output.at(i).unicode(), 4, 16, QLatin1Char('0'))));
     }
-}
-
-void tst_QUrlInternal::recodeByteArray_data()
-{
-    QTest::addColumn<QByteArray>("input");
-    QTest::addColumn<QString>("expected");
-
-    QTest::newRow("null") << QByteArray() << QString();
-    QTest::newRow("empty") << QByteArray("") << QString("");
-    QTest::newRow("normal") << QByteArray("Hello") << "Hello";
-    QTest::newRow("valid-utf8") << QByteArray("\xc3\xa9") << "%C3%A9";
-    QTest::newRow("percent-encoded") << QByteArray("%C3%A9%00%C0%80") << "%C3%A9%00%C0%80";
-    QTest::newRow("invalid-utf8-1") << QByteArray("\xc3\xc3") << "%C3%C3";
-    QTest::newRow("invalid-utf8-2") << QByteArray("\xc0\x80") << "%C0%80";
-
-    // note: percent-encoding the control characters ("\0" -> "%00") would also
-    // be correct, but it's unnecessary for this function
-    QTest::newRow("binary") << QByteArray("\0\x1f", 2) << QString::fromLatin1("\0\x1f", 2);;
-    QTest::newRow("binary+percent-encoded") << QByteArray("\0%25", 4) << QString::fromLatin1("\0%25", 4);
-}
-
-void tst_QUrlInternal::recodeByteArray()
-{
-    QFETCH(QByteArray, input);
-    QFETCH(QString, expected);
-    QString output = qt_urlRecodeByteArray(input);
-
-    QCOMPARE(output.isNull(), input.isNull());
-    QCOMPARE(output.isEmpty(), input.isEmpty());
-    QCOMPARE(output, expected);
 }
 
 QTEST_APPLESS_MAIN(tst_QUrlInternal)

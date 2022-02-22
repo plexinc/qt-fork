@@ -15,6 +15,7 @@
 #include "dawn_native/vulkan/BindGroupVk.h"
 
 #include "common/BitSetIterator.h"
+#include "common/ityp_stack_vec.h"
 #include "dawn_native/vulkan/BindGroupLayoutVk.h"
 #include "dawn_native/vulkan/BufferVk.h"
 #include "dawn_native/vulkan/DeviceVk.h"
@@ -38,11 +39,15 @@ namespace dawn_native { namespace vulkan {
           mDescriptorSetAllocation(descriptorSetAllocation) {
         // Now do a write of a single descriptor set with all possible chained data allocated on the
         // stack.
-        uint32_t numWrites = 0;
-        std::array<VkWriteDescriptorSet, kMaxBindingsPerGroup> writes;
-        std::array<VkDescriptorBufferInfo, kMaxBindingsPerGroup> writeBufferInfo;
-        std::array<VkDescriptorImageInfo, kMaxBindingsPerGroup> writeImageInfo;
+        const uint32_t bindingCount = static_cast<uint32_t>((GetLayout()->GetBindingCount()));
+        ityp::stack_vec<uint32_t, VkWriteDescriptorSet, kMaxOptimalBindingsPerGroup> writes(
+            bindingCount);
+        ityp::stack_vec<uint32_t, VkDescriptorBufferInfo, kMaxOptimalBindingsPerGroup>
+            writeBufferInfo(bindingCount);
+        ityp::stack_vec<uint32_t, VkDescriptorImageInfo, kMaxOptimalBindingsPerGroup>
+            writeImageInfo(bindingCount);
 
+        uint32_t numWrites = 0;
         for (const auto& it : GetLayout()->GetBindingMap()) {
             BindingNumber bindingNumber = it.first;
             BindingIndex bindingIndex = it.second;
@@ -52,47 +57,51 @@ namespace dawn_native { namespace vulkan {
             write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             write.pNext = nullptr;
             write.dstSet = GetHandle();
-            write.dstBinding = bindingNumber;
+            write.dstBinding = static_cast<uint32_t>(bindingNumber);
             write.dstArrayElement = 0;
             write.descriptorCount = 1;
-            write.descriptorType =
-                VulkanDescriptorType(bindingInfo.type, bindingInfo.hasDynamicOffset);
+            write.descriptorType = VulkanDescriptorType(bindingInfo);
 
-            switch (bindingInfo.type) {
-                case wgpu::BindingType::UniformBuffer:
-                case wgpu::BindingType::StorageBuffer:
-                case wgpu::BindingType::ReadonlyStorageBuffer: {
+            switch (bindingInfo.bindingType) {
+                case BindingInfoType::Buffer: {
                     BufferBinding binding = GetBindingAsBufferBinding(bindingIndex);
 
-                    writeBufferInfo[numWrites].buffer = ToBackend(binding.buffer)->GetHandle();
+                    VkBuffer handle = ToBackend(binding.buffer)->GetHandle();
+                    if (handle == VK_NULL_HANDLE) {
+                        // The Buffer was destroyed. Skip this descriptor write since it would be
+                        // a Vulkan Validation Layers error. This bind group won't be used as it
+                        // is an error to submit a command buffer that references destroyed
+                        // resources.
+                        continue;
+                    }
+                    writeBufferInfo[numWrites].buffer = handle;
                     writeBufferInfo[numWrites].offset = binding.offset;
                     writeBufferInfo[numWrites].range = binding.size;
                     write.pBufferInfo = &writeBufferInfo[numWrites];
                     break;
                 }
 
-                case wgpu::BindingType::Sampler: {
+                case BindingInfoType::Sampler: {
                     Sampler* sampler = ToBackend(GetBindingAsSampler(bindingIndex));
                     writeImageInfo[numWrites].sampler = sampler->GetHandle();
                     write.pImageInfo = &writeImageInfo[numWrites];
                     break;
                 }
 
-                case wgpu::BindingType::SampledTexture: {
+                case BindingInfoType::Texture: {
                     TextureView* view = ToBackend(GetBindingAsTextureView(bindingIndex));
 
                     writeImageInfo[numWrites].imageView = view->GetHandle();
-                    // TODO(cwallez@chromium.org): This isn't true in general: if the image has
-                    // two read-only usages one of which is Sampled. Works for now though :)
-                    writeImageInfo[numWrites].imageLayout =
-                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                    // The layout may be GENERAL here because of interactions between the Sampled
+                    // and ReadOnlyStorage usages. See the logic in VulkanImageLayout.
+                    writeImageInfo[numWrites].imageLayout = VulkanImageLayout(
+                        ToBackend(view->GetTexture()), wgpu::TextureUsage::Sampled);
 
                     write.pImageInfo = &writeImageInfo[numWrites];
                     break;
                 }
 
-                case wgpu::BindingType::ReadonlyStorageTexture:
-                case wgpu::BindingType::WriteonlyStorageTexture: {
+                case BindingInfoType::StorageTexture: {
                     TextureView* view = ToBackend(GetBindingAsTextureView(bindingIndex));
 
                     writeImageInfo[numWrites].imageView = view->GetHandle();
@@ -101,8 +110,6 @@ namespace dawn_native { namespace vulkan {
                     write.pImageInfo = &writeImageInfo[numWrites];
                     break;
                 }
-                default:
-                    UNREACHABLE();
             }
 
             numWrites++;
@@ -114,8 +121,7 @@ namespace dawn_native { namespace vulkan {
     }
 
     BindGroup::~BindGroup() {
-        ToBackend(GetLayout())->DeallocateDescriptorSet(&mDescriptorSetAllocation);
-        ToBackend(GetLayout())->DeallocateBindGroup(this);
+        ToBackend(GetLayout())->DeallocateBindGroup(this, &mDescriptorSetAllocation);
     }
 
     VkDescriptorSet BindGroup::GetHandle() const {

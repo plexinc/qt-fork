@@ -48,11 +48,23 @@ class CORE_EXPORT LayoutFlexibleBox : public LayoutBlock {
   explicit LayoutFlexibleBox(Element*);
   ~LayoutFlexibleBox() override;
 
-  const char* GetName() const override { return "LayoutFlexibleBox"; }
+  const char* GetName() const override {
+    NOT_DESTROYED();
+    return "LayoutFlexibleBox";
+  }
 
-  bool IsFlexibleBox() const final { return true; }
-  bool IsFlexibleBoxIncludingNG() const final { return true; }
-  bool IsFlexibleBoxIncludingDeprecatedAndNG() const final { return true; }
+  bool IsFlexibleBox() const final {
+    NOT_DESTROYED();
+    return true;
+  }
+  bool IsFlexibleBoxIncludingNG() const final {
+    NOT_DESTROYED();
+    return true;
+  }
+  bool IsFlexibleBoxIncludingDeprecatedAndNG() const final {
+    NOT_DESTROYED();
+    return true;
+  }
   void UpdateBlockLayout(bool relayout_children) final;
 
   bool IsChildAllowed(LayoutObject* object,
@@ -76,7 +88,10 @@ class CORE_EXPORT LayoutFlexibleBox : public LayoutBlock {
 
   bool IsHorizontalFlow() const;
 
-  const OrderIterator& GetOrderIterator() const { return order_iterator_; }
+  const OrderIterator& GetOrderIterator() const {
+    NOT_DESTROYED();
+    return order_iterator_;
+  }
 
   // These three functions are used when resolving percentages against a
   // flex item's logical height. In flexbox, sometimes a logical height
@@ -98,6 +113,8 @@ class CORE_EXPORT LayoutFlexibleBox : public LayoutBlock {
   // Returns true if the position changed. In that case, the child will have to
   // be laid out again.
   bool SetStaticPositionForPositionedLayout(LayoutBox& child);
+  static bool SetStaticPositionForChildInFlexNGContainer(LayoutBox& child,
+                                                         LayoutBlock* parent);
   LayoutUnit CrossAxisContentExtent() const;
 
  protected:
@@ -149,11 +166,14 @@ class CORE_EXPORT LayoutFlexibleBox : public LayoutBlock {
   bool UseChildAspectRatio(const LayoutBox& child) const;
   LayoutUnit ComputeMainSizeFromAspectRatioUsing(
       const LayoutBox& child,
-      const Length& cross_size_length) const;
+      const Length& cross_size_length,
+      LayoutUnit main_axis_border_and_padding,
+      LayoutUnit cross_axis_border_and_padding) const;
   void SetFlowAwareLocationForChild(LayoutBox& child, const LayoutPoint&);
   LayoutUnit ComputeInnerFlexBaseSizeForChild(
       LayoutBox& child,
       LayoutUnit main_axis_border_and_padding,
+      LayoutUnit cross_axis_border_and_padding,
       ChildLayoutType = kLayoutIfNeeded);
   void ResetAlignmentForChild(LayoutBox& child, LayoutUnit);
   bool MainAxisLengthIsDefinite(const LayoutBox& child,
@@ -180,10 +200,13 @@ class CORE_EXPORT LayoutFlexibleBox : public LayoutBlock {
   MinMaxSizes ComputeMinAndMaxSizesForChild(
       const FlexLayoutAlgorithm& algorithm,
       const LayoutBox& child,
-      LayoutUnit border_and_padding) const;
+      LayoutUnit border_and_padding,
+      LayoutUnit cross_axis_border_and_padding) const;
   LayoutUnit AdjustChildSizeForAspectRatioCrossAxisMinAndMax(
       const LayoutBox& child,
-      LayoutUnit child_size) const;
+      LayoutUnit child_size,
+      LayoutUnit main_axis_border_and_padding,
+      LayoutUnit cross_axis_border_and_padding) const;
   void ConstructAndAppendFlexItem(FlexLayoutAlgorithm* algorithm,
                                   LayoutBox& child,
                                   ChildLayoutType);
@@ -231,7 +254,12 @@ class CORE_EXPORT LayoutFlexibleBox : public LayoutBlock {
   bool in_layout_;
 };
 
-DEFINE_LAYOUT_OBJECT_TYPE_CASTS(LayoutFlexibleBox, IsFlexibleBox());
+template <>
+struct DowncastTraits<LayoutFlexibleBox> {
+  static bool AllowFrom(const LayoutObject& object) {
+    return object.IsFlexibleBox();
+  }
+};
 
 }  // namespace blink
 

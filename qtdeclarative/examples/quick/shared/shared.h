@@ -52,21 +52,30 @@
 #include <QQmlEngine>
 #include <QQmlFileSelector>
 #include <QQuickView> //Not using QQmlApplicationEngine because many examples don't have a Window{}
+
+#ifdef Q_OS_MACOS
+#define ADD_MACOS_BUNDLE_IMPORT_PATH \
+    view.engine()->addImportPath(app.applicationDirPath() + QStringLiteral("/../PlugIns"));
+#else
+#define ADD_MACOS_BUNDLE_IMPORT_PATH
+#endif
+
 #define DECLARATIVE_EXAMPLE_MAIN(NAME) int main(int argc, char* argv[]) \
 {\
-    QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);\
     QGuiApplication app(argc,argv);\
     app.setOrganizationName("QtProject");\
     app.setOrganizationDomain("qt-project.org");\
     app.setApplicationName(QFileInfo(app.applicationFilePath()).baseName());\
     QQuickView view;\
-    if (qgetenv("QT_QUICK_CORE_PROFILE").toInt()) {\
+    ADD_MACOS_BUNDLE_IMPORT_PATH\
+    view.engine()->addImportPath(QStringLiteral(":/"));\
+    if (qEnvironmentVariableIntValue("QT_QUICK_CORE_PROFILE")) {\
         QSurfaceFormat f = view.format();\
         f.setProfile(QSurfaceFormat::CoreProfile);\
         f.setVersion(4, 4);\
         view.setFormat(f);\
     }\
-    if (qgetenv("QT_QUICK_MULTISAMPLE").toInt()) {\
+    if (qEnvironmentVariableIntValue("QT_QUICK_MULTISAMPLE")) {\
         QSurfaceFormat f = view.format();\
         f.setSamples(4);\
         view.setFormat(f);\

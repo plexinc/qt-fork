@@ -5,6 +5,7 @@
 #include "weblayer/common/content_client_impl.h"
 
 #include "build/build_config.h"
+#include "components/embedder_support/origin_trials/origin_trial_policy_impl.h"
 #include "content/app/resources/grit/content_resources.h"
 #include "gpu/config/gpu_info.h"
 #include "gpu/config/gpu_util.h"
@@ -12,11 +13,15 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 
+#if defined(OS_ANDROID)
+#include "components/embedder_support/android/common/url_constants.h"
+#endif
+
 namespace weblayer {
 
-ContentClientImpl::ContentClientImpl() {}
+ContentClientImpl::ContentClientImpl() = default;
 
-ContentClientImpl::~ContentClientImpl() {}
+ContentClientImpl::~ContentClientImpl() = default;
 
 base::string16 ContentClientImpl::GetLocalizedString(int message_id) {
   return l10n_util::GetStringUTF16(message_id);
@@ -48,6 +53,24 @@ void ContentClientImpl::SetGpuInfo(const gpu::GPUInfo& gpu_info) {
 gfx::Image& ContentClientImpl::GetNativeImageNamed(int resource_id) {
   return ui::ResourceBundle::GetSharedInstance().GetNativeImageNamed(
       resource_id);
+}
+
+blink::OriginTrialPolicy* ContentClientImpl::GetOriginTrialPolicy() {
+  // Prevent initialization race (see crbug.com/721144). There may be a
+  // race when the policy is needed for worker startup (which happens on a
+  // separate worker thread).
+  base::AutoLock auto_lock(origin_trial_policy_lock_);
+  if (!origin_trial_policy_)
+    origin_trial_policy_ =
+        std::make_unique<embedder_support::OriginTrialPolicyImpl>();
+  return origin_trial_policy_.get();
+}
+
+void ContentClientImpl::AddAdditionalSchemes(Schemes* schemes) {
+#if defined(OS_ANDROID)
+  schemes->standard_schemes.push_back(embedder_support::kAndroidAppScheme);
+  schemes->referrer_schemes.push_back(embedder_support::kAndroidAppScheme);
+#endif
 }
 
 }  // namespace weblayer

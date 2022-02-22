@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2019 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtWebEngine module of the Qt Toolkit.
@@ -41,8 +41,8 @@
 #define QWEBENGINEFINDTEXTRESULT_H
 
 #include <QtWebEngineCore/qtwebenginecoreglobal.h>
-#include <QtCore/QObject>
-#include <QtCore/QSharedData>
+#include <QtCore/qobject.h>
+#include <QtCore/qshareddata.h>
 
 namespace QtWebEngineCore {
 class FindTextHelper;
@@ -52,7 +52,8 @@ QT_BEGIN_NAMESPACE
 
 class QWebEngineFindTextResultPrivate;
 
-class Q_WEBENGINECORE_EXPORT QWebEngineFindTextResult {
+class Q_WEBENGINECORE_EXPORT QWebEngineFindTextResult
+{
     Q_GADGET
     Q_PROPERTY(int numberOfMatches READ numberOfMatches CONSTANT FINAL)
     Q_PROPERTY(int activeMatch READ activeMatch CONSTANT FINAL)

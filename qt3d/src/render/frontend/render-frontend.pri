@@ -1,7 +1,6 @@
 INCLUDEPATH += $$PWD
 
 HEADERS += \
-    $$PWD/qabstractfunctor.h \
     $$PWD/qrenderaspect.h \
     $$PWD/qrenderaspect_p.h \
     $$PWD/qlayer.h \
@@ -34,7 +33,6 @@ HEADERS += \
     $$PWD/qrendercapabilities_p.h
 
 SOURCES += \
-    $$PWD/qabstractfunctor.cpp \
     $$PWD/qrenderaspect.cpp \
     $$PWD/sphere.cpp \
     $$PWD/qlayer.cpp \

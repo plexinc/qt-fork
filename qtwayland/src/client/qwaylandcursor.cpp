@@ -54,7 +54,7 @@ QT_BEGIN_NAMESPACE
 
 namespace QtWaylandClient {
 
-QWaylandCursorTheme *QWaylandCursorTheme::create(QWaylandShm *shm, int size, const QString &themeName)
+std::unique_ptr<QWaylandCursorTheme> QWaylandCursorTheme::create(QWaylandShm *shm, int size, const QString &themeName)
 {
     QByteArray nameBytes = themeName.toLocal8Bit();
     struct ::wl_cursor_theme *theme = wl_cursor_theme_load(nameBytes.constData(), size, shm->object());
@@ -64,7 +64,7 @@ QWaylandCursorTheme *QWaylandCursorTheme::create(QWaylandShm *shm, int size, con
         return nullptr;
     }
 
-    return new QWaylandCursorTheme(theme);
+    return std::unique_ptr<QWaylandCursorTheme>{new QWaylandCursorTheme(theme)};
 }
 
 QWaylandCursorTheme::~QWaylandCursorTheme()
@@ -74,7 +74,7 @@ QWaylandCursorTheme::~QWaylandCursorTheme()
 
 wl_cursor *QWaylandCursorTheme::requestCursor(WaylandCursor shape)
 {
-    if (struct wl_cursor *cursor = m_cursors.value(shape, nullptr))
+    if (struct wl_cursor *cursor = m_cursors[shape])
         return cursor;
 
     static Q_CONSTEXPR struct ShapeAndName {
@@ -206,7 +206,7 @@ wl_cursor *QWaylandCursorTheme::requestCursor(WaylandCursor shape)
                                     ShapeAndName{shape, ""}, byShape);
     for (auto it = p.first; it != p.second; ++it) {
         if (wl_cursor *cursor = wl_cursor_theme_get_cursor(m_theme, it->name)) {
-            m_cursors.insert(shape, cursor);
+            m_cursors[shape] = cursor;
             return cursor;
         }
     }
@@ -270,7 +270,7 @@ void QWaylandCursor::changeCursor(QCursor *cursor, QWindow *window)
 
 void QWaylandCursor::pointerEvent(const QMouseEvent &event)
 {
-    mLastPos = event.globalPos();
+    mLastPos = event.globalPosition().toPoint();
 }
 
 QPoint QWaylandCursor::pos() const

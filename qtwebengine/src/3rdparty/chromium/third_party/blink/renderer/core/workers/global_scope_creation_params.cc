@@ -15,12 +15,13 @@ namespace blink {
 
 GlobalScopeCreationParams::GlobalScopeCreationParams(
     const KURL& script_url,
-    mojom::ScriptType script_type,
+    mojom::blink::ScriptType script_type,
     const String& global_scope_name,
     const String& user_agent,
     const base::Optional<UserAgentMetadata>& ua_metadata,
     scoped_refptr<WebWorkerFetchContext> web_worker_fetch_context,
-    const Vector<CSPHeaderAndType>& outside_content_security_policy_headers,
+    Vector<network::mojom::blink::ContentSecurityPolicyPtr>
+        outside_content_security_policies,
     network::mojom::ReferrerPolicy referrer_policy,
     const SecurityOrigin* starter_origin,
     bool starter_secure_context,
@@ -31,19 +32,26 @@ GlobalScopeCreationParams::GlobalScopeCreationParams(
     const Vector<String>* origin_trial_tokens,
     const base::UnguessableToken& parent_devtools_token,
     std::unique_ptr<WorkerSettings> worker_settings,
-    V8CacheOptions v8_cache_options,
+    mojom::blink::V8CacheOptions v8_cache_options,
     WorkletModuleResponsesMap* module_responses_map,
     mojo::PendingRemote<mojom::blink::BrowserInterfaceBroker>
         browser_interface_broker,
     BeginFrameProviderParams begin_frame_provider_params,
     const FeaturePolicy* parent_feature_policy,
-    base::UnguessableToken agent_cluster_id)
+    base::UnguessableToken agent_cluster_id,
+    ukm::SourceId ukm_source_id,
+    const base::Optional<ExecutionContextToken>& parent_context_token,
+    bool parent_cross_origin_isolated_capability,
+    scoped_refptr<base::SingleThreadTaskRunner>
+        agent_group_scheduler_compositor_task_runner)
     : script_url(script_url.Copy()),
       script_type(script_type),
       global_scope_name(global_scope_name.IsolatedCopy()),
       user_agent(user_agent.IsolatedCopy()),
       ua_metadata(ua_metadata.value_or(blink::UserAgentMetadata())),
       web_worker_fetch_context(std::move(web_worker_fetch_context)),
+      outside_content_security_policies(
+          std::move(outside_content_security_policies)),
       referrer_policy(referrer_policy),
       starter_origin(starter_origin ? starter_origin->IsolatedCopy() : nullptr),
       starter_secure_context(starter_secure_context),
@@ -63,14 +71,13 @@ GlobalScopeCreationParams::GlobalScopeCreationParams(
           parent_feature_policy,
           ParsedFeaturePolicy() /* container_policy */,
           starter_origin->ToUrlOrigin())),
-      agent_cluster_id(agent_cluster_id) {
-  this->outside_content_security_policy_headers.ReserveInitialCapacity(
-      outside_content_security_policy_headers.size());
-  for (const auto& header : outside_content_security_policy_headers) {
-    this->outside_content_security_policy_headers.emplace_back(
-        header.first.IsolatedCopy(), header.second);
-  }
-
+      agent_cluster_id(agent_cluster_id),
+      ukm_source_id(ukm_source_id),
+      parent_context_token(parent_context_token),
+      parent_cross_origin_isolated_capability(
+          parent_cross_origin_isolated_capability),
+      agent_group_scheduler_compositor_task_runner(
+          std::move(agent_group_scheduler_compositor_task_runner)) {
   this->origin_trial_tokens = std::make_unique<Vector<String>>();
   if (origin_trial_tokens) {
     for (const String& token : *origin_trial_tokens)

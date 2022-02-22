@@ -46,6 +46,9 @@
 #ifdef Q_OS_WIN
 #  include <qt_windows.h>
 #endif
+#ifndef QT_BOOTSTRAPPED
+#  include <qcoreapplication.h>
+#endif
 
 QT_BEGIN_NAMESPACE
 
@@ -61,11 +64,11 @@ namespace {
     // version in portable code. However, it's impossible to do that if
     // _GNU_SOURCE is defined so we use C++ overloading to decide what to do
     // depending on the return type
-    static inline Q_DECL_UNUSED QString fromstrerror_helper(int, const QByteArray &buf)
+    [[maybe_unused]] static inline QString fromstrerror_helper(int, const QByteArray &buf)
     {
         return QString::fromLocal8Bit(buf);
     }
-    static inline Q_DECL_UNUSED QString fromstrerror_helper(const char *str, const QByteArray &)
+    [[maybe_unused]] static inline QString fromstrerror_helper(const char *str, const QByteArray &)
     {
         return QString::fromLocal8Bit(str);
     }
@@ -76,8 +79,7 @@ namespace {
 static QString windowsErrorString(int errorCode)
 {
     QString ret;
-#ifndef Q_OS_WINRT
-    wchar_t *string = 0;
+    wchar_t *string = nullptr;
     FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER|FORMAT_MESSAGE_FROM_SYSTEM,
                   NULL,
                   errorCode,
@@ -87,17 +89,6 @@ static QString windowsErrorString(int errorCode)
                   NULL);
     ret = QString::fromWCharArray(string);
     LocalFree((HLOCAL)string);
-#else
-    wchar_t errorString[1024];
-    FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM,
-                  NULL,
-                  errorCode,
-                  MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-                  (LPWSTR)&errorString,
-                  sizeof(errorString)/sizeof(wchar_t),
-                  NULL);
-    ret = QString::fromWCharArray(errorString);
-#endif  // Q_OS_WINRT
 
     if (ret.isEmpty() && errorCode == ERROR_MOD_NOT_FOUND)
         ret = QString::fromLatin1("The specified module could not be found.");
@@ -139,18 +130,20 @@ static QString standardLibraryErrorString(int errorCode)
     break; }
     }
     if (s) {
-        // ######## this breaks moc build currently
-        // ret = QCoreApplication::translate("QIODevice", s);
+#ifndef QT_BOOTSTRAPPED
+        ret = QCoreApplication::translate("QIODevice", s);
+#else
         ret = QString::fromLatin1(s);
+#endif
     }
     return ret.trimmed();
 }
 
 QString QSystemError::string(ErrorScope errorScope, int errorCode)
 {
-    switch(errorScope) {
+    switch (errorScope) {
     case NativeError:
-#if defined (Q_OS_WIN)
+#if defined(Q_OS_WIN)
         return windowsErrorString(errorCode);
 #endif // else unix: native and standard library are the same
     case StandardLibraryError:

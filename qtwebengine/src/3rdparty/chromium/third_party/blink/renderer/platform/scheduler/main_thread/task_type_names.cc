@@ -4,7 +4,7 @@
 
 #include "third_party/blink/renderer/platform/scheduler/main_thread/task_type_names.h"
 
-#include "base/logging.h"
+#include "base/notreached.h"
 
 namespace blink {
 namespace scheduler {
@@ -23,6 +23,8 @@ const char* TaskTypeNames::TaskTypeToString(TaskType task_type) {
       return "Networking";
     case TaskType::kNetworkingWithURLLoaderAnnotation:
       return "NetworkingWithURLLoaderAnnotation";
+    case TaskType::kNetworkingUnfreezable:
+      return "NetworkingUnfreezable";
     case TaskType::kNetworkingControl:
       return "NetworkingControl";
     case TaskType::kHistoryTraversal:
@@ -35,8 +37,12 @@ const char* TaskTypeNames::TaskTypeToString(TaskType task_type) {
       return "CanvasBlobSerialization";
     case TaskType::kMicrotask:
       return "Microtask";
-    case TaskType::kJavascriptTimer:
-      return "JavascriptTimer";
+    case TaskType::kJavascriptTimerImmediate:
+      return "JavascriptTimerImmediate";
+    case TaskType::kJavascriptTimerDelayedLowNesting:
+      return "JavascriptTimerDelayedLowNesting";
+    case TaskType::kJavascriptTimerDelayedHighNesting:
+      return "JavascriptTimerDelayedHighNesting";
     case TaskType::kRemoteEvent:
       return "RemoteEvent";
     case TaskType::kWebSocket:
@@ -99,12 +105,8 @@ const char* TaskTypeNames::TaskTypeToString(TaskType task_type) {
       return "MainThreadTaskQueueInput";
     case TaskType::kMainThreadTaskQueueIdle:
       return "MainThreadTaskQueueIdle";
-    case TaskType::kMainThreadTaskQueueIPC:
-      return "MainThreadTaskQueueIPC";
     case TaskType::kMainThreadTaskQueueControl:
       return "MainThreadTaskQueueControl";
-    case TaskType::kMainThreadTaskQueueCleanup:
-      return "MainThreadTaskQueueCleanup";
     case TaskType::kMainThreadTaskQueueMemoryPurge:
       return "MainThreadTaskQueueMemoryPurge";
     case TaskType::kMainThreadTaskQueueNonWaking:
@@ -139,6 +141,12 @@ const char* TaskTypeNames::TaskTypeToString(TaskType task_type) {
       return "InternalFrameLifecycleControl";
     case TaskType::kInternalFindInPage:
       return "InternalFindInPage";
+    case TaskType::kInternalHighPriorityLocalFrame:
+      return "InternalHighPriorityLocalFrame";
+    case TaskType::kMainThreadTaskQueueIPCTracking:
+      return "MainThreadTaskQueueIPCTracking";
+    case TaskType::kWakeLock:
+      return "WakeLock";
     case TaskType::kCount:
       return "Count";
   }

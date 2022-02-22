@@ -1,4 +1,5 @@
 flackr@chromium.org
+kevers@chromium.org
 majidvp@chromium.org
 smcgruer@chromium.org
 
@@ -7,6 +8,3 @@ alancutter@chromium.org
 ericwilligers@chromium.org
 
 per-file compositor_*=loyso@chromium.org
-
-# TEAM: animations-dev@chromium.org
-# COMPONENT: Blink>Animation

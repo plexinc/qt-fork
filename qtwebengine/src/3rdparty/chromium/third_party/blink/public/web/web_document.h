@@ -100,12 +100,10 @@ class WebDocument : public WebNode {
   BLINK_EXPORT WebString Title() const;
   BLINK_EXPORT WebString ContentAsTextForTesting() const;
   BLINK_EXPORT WebElementCollection All();
-  BLINK_EXPORT void Forms(WebVector<WebFormElement>&) const;
+  BLINK_EXPORT WebVector<WebFormElement> Forms() const;
   BLINK_EXPORT WebURL CompleteURL(const WebString&) const;
   BLINK_EXPORT WebElement GetElementById(const WebString&) const;
   BLINK_EXPORT WebElement FocusedElement() const;
-  BLINK_EXPORT network::mojom::ReferrerPolicy GetReferrerPolicy() const;
-  BLINK_EXPORT WebString OutgoingReferrer();
 
   // Inserts the given CSS source code as a style sheet in the document.
   BLINK_EXPORT WebStyleSheetKey InsertStyleSheet(
@@ -133,6 +131,8 @@ class WebDocument : public WebNode {
 
   // See cc/paint/element_id.h for the definition of these id.
   BLINK_EXPORT uint64_t GetVisualViewportScrollingElementIdForTesting();
+
+  BLINK_EXPORT bool IsLoaded();
 
 #if INSIDE_BLINK
   BLINK_EXPORT WebDocument(Document*);

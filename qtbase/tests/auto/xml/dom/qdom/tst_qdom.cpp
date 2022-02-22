@@ -33,9 +33,9 @@
 #include <QDebug>
 #include <QFile>
 #include <QList>
-#include <QRegExp>
+#include <QRegularExpression>
 #include <QTextStream>
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QtXml>
 #include <QVariant>
 #include <cmath>
@@ -111,6 +111,7 @@ private slots:
     void checkIntOverflow() const;
     void setContentWhitespace() const;
     void setContentWhitespace_data() const;
+    void setContentUnopenedQIODevice() const;
 
     void taskQTBUG4595_dontAssertWhenDocumentSpecifiesUnknownEncoding() const;
     void cloneDTD_QTBUG8398() const;
@@ -174,65 +175,7 @@ void tst_QDom::setContent_data()
                                    "    </b3>\n"
                                    "</a1>\n");
 
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && QT_DEPRECATED_SINCE(5, 15)
-    // These configurations cannot be supported by the QXmlStreamReader-based implementation
-    QTest::newRow( "02" ) << doc01
-                       << QString("http://trolltech.com/xml/features/report-whitespace-only-CharData").split(' ')
-                       << QStringList()
-                       << QString("<!DOCTYPE a1>\n"
-                                   "<a1>\n"
-                                   " <b1>\n"
-                                   "  <c1>foo</c1>\n"
-                                   "  <c2>bar</c2>\n"
-                                   "  <c3>foo &amp; bar</c3>\n"
-                                   "  <c4>foo and bar</c4>\n"
-                                   " </b1>\n"
-                                   " <b2> </b2>\n"
-                                   " <b3>\n"
-                                   "  <c1/>\n"
-                                   " </b3>\n"
-                                   "</a1>\n");
-
-    QTest::newRow( "03" ) << doc01
-                       << QString("http://trolltech.com/xml/features/report-start-end-entity").split(' ')
-                       << QString("http://trolltech.com/xml/features/report-whitespace-only-CharData").split(' ')
-                       << QString("<!DOCTYPE a1 [\n"
-                                   "<!ENTITY blubber \"and\">\n"
-                                   "]>\n"
-                                   "<a1>\n"
-                                   "    <b1>\n"
-                                   "        <c1>foo</c1>\n"
-                                   "        <c2>bar</c2>\n"
-                                   "        <c3>foo &amp; bar</c3>\n"
-                                   "        <c4>foo &blubber; bar</c4>\n"
-                                   "    </b1>\n"
-                                   "    <b2/>\n"
-                                   "    <b3>\n"
-                                   "        <c1/>\n"
-                                   "    </b3>\n"
-                                   "</a1>\n");
-
-    QTest::newRow( "04" ) << doc01
-                       << QString("http://trolltech.com/xml/features/report-whitespace-only-CharData http://trolltech.com/xml/features/report-start-end-entity").split(' ')
-                       << QStringList()
-                       << QString("<!DOCTYPE a1 [\n"
-                                   "<!ENTITY blubber \"and\">\n"
-                                   "]>\n"
-                                   "<a1>\n"
-                                   " <b1>\n"
-                                   "  <c1>foo</c1>\n"
-                                   "  <c2>bar</c2>\n"
-                                   "  <c3>foo &amp; bar</c3>\n"
-                                   "  <c4>foo &blubber; bar</c4>\n"
-                                   " </b1>\n"
-                                   " <b2> </b2>\n"
-                                   " <b3>\n"
-                                   "  <c1/>\n"
-                                   " </b3>\n"
-                                   "</a1>\n");
-#endif
-
-    QTest::newRow("05") << QString("<message>\n"
+    QTest::newRow("02") << QString("<message>\n"
                                 "    <body>&lt;b&gt;foo&lt;/b&gt;>]]&gt;</body>\n"
                                 "</message>\n")
                      << QStringList() << QStringList()
@@ -247,31 +190,8 @@ void tst_QDom::setContent()
     QFETCH( QString, doc );
 
     QDomDocument domDoc;
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && QT_DEPRECATED_SINCE(5, 15)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-    QXmlInputSource source;
-    source.setData( doc );
-
-    QFETCH( QStringList, featuresTrue );
-    QFETCH( QStringList, featuresFalse );
-    QXmlSimpleReader reader;
-    QStringList::Iterator it;
-    for ( it = featuresTrue.begin(); it != featuresTrue.end(); ++it ) {
-        QVERIFY( reader.hasFeature( *it ) );
-        reader.setFeature( *it, true );
-    }
-    for ( it = featuresFalse.begin(); it != featuresFalse.end(); ++it ) {
-        QVERIFY( reader.hasFeature( *it ) );
-        reader.setFeature( *it, false );
-    }
-
-    QVERIFY( domDoc.setContent( &source, &reader ) );
-QT_WARNING_POP
-#else
     QXmlStreamReader reader(doc);
     QVERIFY(domDoc.setContent(&reader, true));
-#endif
 
     QString eRes;
     QTextStream ts( &eRes, QIODevice::WriteOnly );
@@ -299,8 +219,6 @@ void tst_QDom::toString_01_data()
     QTest::newRow( "04" ) << QString(prefix + "/doc04.xml");
     QTest::newRow( "05" ) << QString(prefix + "/doc05.xml");
 
-    QTest::newRow( "euc-jp" ) << QString(prefix + "/doc_euc-jp.xml");
-    QTest::newRow( "iso-2022-jp" ) << QString(prefix + "/doc_iso-2022-jp.xml");
     QTest::newRow( "little-endian" ) << QString(prefix + "/doc_little-endian.xml");
     QTest::newRow( "utf-16" ) << QString(prefix + "/doc_utf-16.xml");
     QTest::newRow( "utf-8" ) << QString(prefix + "/doc_utf-8.xml");
@@ -527,10 +445,10 @@ void tst_QDom::save_data()
     QTest::addColumn<int>("indent");
     QTest::addColumn<QString>("res");
 
-    QTest::newRow( "01" ) << doc01 << 0 << QString(doc01).replace( QRegExp(" "), "" );
+    QTest::newRow( "01" ) << doc01 << 0 << QString(doc01).replace( QRegularExpression(" "), "" );
     QTest::newRow( "02" ) << doc01 << 1 << doc01;
-    QTest::newRow( "03" ) << doc01 << 2 << QString(doc01).replace( QRegExp(" "), "  " );
-    QTest::newRow( "04" ) << doc01 << 10 << QString(doc01).replace( QRegExp(" "), "          " );
+    QTest::newRow( "03" ) << doc01 << 2 << QString(doc01).replace( QRegularExpression(" "), "  " );
+    QTest::newRow( "04" ) << doc01 << 10 << QString(doc01).replace( QRegularExpression(" "), "          " );
 }
 
 void tst_QDom::save()
@@ -576,48 +494,39 @@ void tst_QDom::saveWithSerialization() const
     // Read the document
     QVERIFY(doc.setContent(&f));
 
-    QByteArray codecName;
 
-    foreach (codecName, m_testCodecs) {
+    QByteArray storage;
+    QBuffer writeDevice(&storage);
+    QVERIFY(writeDevice.open(QIODevice::WriteOnly));
 
-        /* Write out doc in the specified codec. */
-        QByteArray storage;
-        QBuffer writeDevice(&storage);
-        QVERIFY(writeDevice.open(QIODevice::WriteOnly));
+    QTextStream s(&writeDevice);
 
-        QTextStream s(&writeDevice);
-        QTextCodec *codec = QTextCodec::codecForName(codecName);
-        QVERIFY2(codec, qPrintable(QString::fromLatin1("Failed to load codec %1").arg(QString::fromLatin1(codecName.constData()))));
-        s.setCodec(codec);
+    doc.save(s, 0, QDomNode::EncodingFromTextStream);
+    s.flush();
+    writeDevice.close();
 
-        doc.save(s, 0, QDomNode::EncodingFromTextStream);
-        s.flush();
-        writeDevice.close();
+    QBuffer readDevice(&storage);
+    QVERIFY(readDevice.open(QIODevice::ReadOnly));
 
-        QBuffer readDevice(&storage);
-        QVERIFY(readDevice.open(QIODevice::ReadOnly));
+    QDomDocument result;
 
-        QDomDocument result;
+    QString msg;
+    int line = 0;
+    int column = 0;
 
-        QString msg;
-        int line = 0;
-        int column = 0;
+    QVERIFY2(result.setContent(&readDevice, &msg, &line, &column),
+             qPrintable(QString::fromLatin1("Failed: line %2, column %3: %4, content: %5")
+                                            .arg(QString::number(line),
+                                                 QString::number(column),
+                                                 msg,
+                                                 QString::fromUtf8(storage))));
+    if (!compareDocuments(doc, result))
+    {
+        QCOMPARE(doc.toString(), result.toString());
 
-        QVERIFY2(result.setContent(&readDevice, &msg, &line, &column),
-                 qPrintable(QString::fromLatin1("Failed for codec %1: line %2, column %3: %4, content: %5")
-                                                .arg(QString::fromLatin1(codecName.constData()),
-                                                     QString::number(line),
-                                                     QString::number(column),
-                                                     msg,
-                                                     codec->toUnicode(storage))));
-        if(!compareDocuments(doc, result))
-        {
-            QCOMPARE(doc.toString(), result.toString());
-
-            /* We put this one here as well, in case the QCOMPARE above for some strange reason
-             * nevertheless succeeds. */
-            QVERIFY2(false, qPrintable(QString::fromLatin1("Failed for codec %1").arg(QString::fromLatin1(codecName.constData()))));
-        }
+        /* We put this one here as well, in case the QCOMPARE above for some strange reason
+         * nevertheless succeeds. */
+        QVERIFY2(false, qPrintable(QString::fromLatin1("Failed to serialize test data")));
     }
 }
 
@@ -633,8 +542,6 @@ void tst_QDom::saveWithSerialization_data() const
     QTest::newRow("doc04.xml") << QString(prefix + "/doc04.xml");
     QTest::newRow("doc05.xml") << QString(prefix + "/doc05.xml");
 
-    QTest::newRow("doc_euc-jp.xml") << QString(prefix + "/doc_euc-jp.xml");
-    QTest::newRow("doc_iso-2022-jp.xml") << QString(prefix + "/doc_iso-2022-jp.xml");
     QTest::newRow("doc_little-endian.xml") << QString(prefix + "/doc_little-endian.xml");
     QTest::newRow("doc_utf-16.xml") << QString(prefix + "/doc_utf-16.xml");
     QTest::newRow("doc_utf-8.xml") << QString(prefix + "/doc_utf-8.xml");
@@ -1115,6 +1022,10 @@ void tst_QDom::browseElements()
     root.appendChild(doc.createElement("bop"));
     root.appendChild(doc.createElement("bar"));
     root.appendChild(doc.createElement("bop"));
+    root.appendChild(doc.createElementNS("org.example.bar", "bar"));
+    root.appendChild(doc.createElementNS("org.example.foo", "flup"));
+    root.appendChild(doc.createElementNS("org.example.foo2", "flup"));
+    root.appendChild(doc.createElementNS("org.example.bar", "bar2"));
 
     QVERIFY(doc.firstChildElement("ding").isNull());
     QDomElement foo = doc.firstChildElement("foo");
@@ -1127,10 +1038,12 @@ void tst_QDom::browseElements()
 
     QDomElement bar = foo.firstChildElement("bar");
     QVERIFY(!bar.isNull());
+    QCOMPARE(bar.namespaceURI(), QString());
     QVERIFY(bar.previousSiblingElement("bar").isNull());
     QVERIFY(bar.previousSiblingElement().isNull());
     QCOMPARE(bar.nextSiblingElement("bar").tagName(), QLatin1String("bar"));
-    QVERIFY(bar.nextSiblingElement("bar").nextSiblingElement("bar").isNull());
+    QCOMPARE(bar.nextSiblingElement("bar").nextSiblingElement("bar").tagName(), QLatin1String("bar"));
+    QVERIFY(bar.nextSiblingElement("bar").nextSiblingElement("bar").nextSiblingElement("bar").isNull());
 
     QDomElement bop = foo.firstChildElement("bop");
     QVERIFY(!bop.isNull());
@@ -1138,6 +1051,65 @@ void tst_QDom::browseElements()
     QCOMPARE(bop.nextSiblingElement("bop"), foo.lastChildElement("bop"));
     QCOMPARE(bop.previousSiblingElement("bar"), foo.firstChildElement("bar"));
     QCOMPARE(bop.previousSiblingElement("bar"), foo.firstChildElement());
+
+    bar = foo.firstChildElement("bar", "org.example.bar");
+    QVERIFY(!bar.isNull());
+    QCOMPARE(bar.tagName(), QLatin1String("bar"));
+    QCOMPARE(bar.namespaceURI(), QLatin1String("org.example.bar"));
+    QVERIFY(bar.nextSiblingElement("bar", "org.example.bar").isNull());
+    QVERIFY(bar.nextSiblingElement("bar").isNull());
+    QVERIFY(bar.previousSiblingElement("bar", "org.example.bar").isNull());
+    QVERIFY(!bar.previousSiblingElement("bar").isNull());
+
+    bar = foo.firstChildElement("bar", "");
+    QCOMPARE(bar.namespaceURI(), QString());
+    bar = foo.lastChildElement("bar");
+    QCOMPARE(bar.namespaceURI(), QLatin1String("org.example.bar"));
+    bar = foo.lastChildElement("bar", "");
+    QCOMPARE(bar.namespaceURI(), QLatin1String("org.example.bar"));
+
+    QVERIFY(foo.firstChildElement("bar", "abc").isNull());
+    QVERIFY(foo.lastChildElement("bar", "abc").isNull());
+
+    QDomElement barNS = foo.firstChildElement(QString(), "org.example.bar");
+    QVERIFY(!barNS.isNull());
+    QCOMPARE(barNS.tagName(), "bar");
+    QVERIFY(!barNS.nextSiblingElement(QString(), "org.example.bar").isNull());
+    QVERIFY(barNS.previousSiblingElement(QString(), "org.example.bar").isNull());
+
+    barNS = foo.firstChildElement("", "org.example.bar");
+    QVERIFY(!barNS.isNull());
+    QCOMPARE(barNS.tagName(), "bar");
+    QVERIFY(!barNS.nextSiblingElement("", "org.example.bar").isNull());
+    QVERIFY(barNS.previousSiblingElement("", "org.example.bar").isNull());
+
+    barNS = foo.lastChildElement(QString(), "org.example.bar");
+    QVERIFY(!barNS.isNull());
+    QCOMPARE(barNS.tagName(), "bar2");
+    QVERIFY(barNS.nextSiblingElement(QString(), "org.example.bar").isNull());
+    QVERIFY(!barNS.previousSiblingElement(QString(), "org.example.bar").isNull());
+
+    barNS = foo.lastChildElement("", "org.example.bar");
+    QVERIFY(!barNS.isNull());
+    QCOMPARE(barNS.tagName(), "bar2");
+    QVERIFY(barNS.nextSiblingElement("", "org.example.bar").isNull());
+    QVERIFY(!barNS.previousSiblingElement("", "org.example.bar").isNull());
+
+    QDomElement flup = foo.firstChildElement("flup");
+    QVERIFY(!flup.isNull());
+    QCOMPARE(flup.namespaceURI(), QLatin1String("org.example.foo"));
+    QVERIFY(flup.previousSiblingElement("flup").isNull());
+    QVERIFY(!flup.nextSiblingElement("flup").isNull());
+    QVERIFY(flup.previousSiblingElement("flup", "org.example.foo").isNull());
+    QVERIFY(flup.nextSiblingElement("flup", "org.example.foo").isNull());
+    QVERIFY(flup.previousSiblingElement("flup", "org.example.foo2").isNull());
+    QVERIFY(!flup.nextSiblingElement("flup", "org.example.foo2").isNull());
+
+    QDomElement flup2 = flup.nextSiblingElement("flup");
+    QCOMPARE(flup2.namespaceURI(), QLatin1String("org.example.foo2"));
+
+    flup2 = foo.firstChildElement("flup", "org.example.foo2");
+    QCOMPARE(flup2.namespaceURI(), QLatin1String("org.example.foo2"));
 }
 
 void tst_QDom::domNodeMapAndList()
@@ -1495,10 +1467,6 @@ void tst_QDom::normalizeAttributes() const
 
     QDomDocument doc;
     QVERIFY(doc.setContent(&buffer, true));
-
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && QT_DEPRECATED_SINCE(5, 15)
-    QEXPECT_FAIL("", "The parser doesn't perform Attribute Value Normalization. Fixing that would change behavior.", Continue);
-#endif
     QCOMPARE(doc.documentElement().attribute(QLatin1String("attribute")), QString::fromLatin1("a a"));
 }
 
@@ -1541,25 +1509,8 @@ void tst_QDom::serializeNamespaces() const
 
     QDomDocument doc;
     QByteArray ba(input);
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && QT_DEPRECATED_SINCE(5, 15)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-
-    QBuffer buffer(&ba);
-    QVERIFY(buffer.open(QIODevice::ReadOnly));
-
-    QXmlInputSource source(&buffer);
-    QXmlSimpleReader reader;
-    reader.setFeature("http://xml.org/sax/features/namespaces", true);
-    reader.setFeature("http://xml.org/sax/features/namespace-prefixes", false);
-
-    QVERIFY(doc.setContent(&source, &reader));
-QT_WARNING_POP
-#else
     QXmlStreamReader streamReader(input);
     QVERIFY(doc.setContent(&streamReader, true));
-#endif
-
     const QByteArray serialized(doc.toByteArray());
 
     QDomDocument doc2;
@@ -1582,9 +1533,6 @@ void tst_QDom::flagInvalidNamespaces() const
 
     QDomDocument doc;
     QVERIFY(!doc.setContent(QString::fromLatin1(input, true)));
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && QT_DEPRECATED_SINCE(5, 15)
-    QEXPECT_FAIL("", "The parser doesn't flag identical qualified attribute names. Fixing this would change behavior.", Continue);
-#endif
     QVERIFY(!doc.setContent(QString::fromLatin1(input)));
 }
 
@@ -1597,25 +1545,8 @@ void tst_QDom::flagUndeclaredNamespace() const
 
     QDomDocument doc;
     QByteArray ba(input);
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && QT_DEPRECATED_SINCE(5, 15)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-    QBuffer buffer(&ba);
-
-    QVERIFY(buffer.open(QIODevice::ReadOnly));
-
-    QXmlInputSource source(&buffer);
-    QXmlSimpleReader reader;
-    reader.setFeature("http://xml.org/sax/features/namespaces", true);
-    reader.setFeature("http://xml.org/sax/features/namespace-prefixes", false);
-
-    QEXPECT_FAIL("", "The parser doesn't flag not declared prefixes. Fixing this would change behavior.", Continue);
-    QVERIFY(!doc.setContent(&source, &reader));
-QT_WARNING_POP
-#else
     QXmlStreamReader streamReader(ba);
     QVERIFY(!doc.setContent(&streamReader, true));
-#endif
 }
 
 void tst_QDom::indentComments() const
@@ -1681,10 +1612,6 @@ void tst_QDom::reportDuplicateAttributes() const
 {
     QDomDocument dd;
     bool isSuccess = dd.setContent(QLatin1String("<test x=\"1\" x=\"2\"/>"));
-
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && QT_DEPRECATED_SINCE(5, 15)
-    QEXPECT_FAIL("", "The parser doesn't flag duplicate attributes. Fixing this would change behavior.", Continue);
-#endif
     QVERIFY2(!isSuccess, "Duplicate attributes are well-formedness errors, and should be reported as such.");
 }
 
@@ -1781,7 +1708,7 @@ void tst_QDom::appendDocumentNode() const
 
 static const QChar umlautName[] =
 {
-    'a', 0xfc, 'b'
+    'a', '\xfc', 'b'
 };
 
 /*!
@@ -1800,7 +1727,6 @@ void tst_QDom::germanUmlautToByteArray() const
     QBuffer buffer(&data);
     QVERIFY(buffer.open(QIODevice::WriteOnly));
     QTextStream ts(&buffer);
-    ts.setCodec("UTF-8");
     ts << d.toString();
     buffer.close();
 
@@ -1832,7 +1758,6 @@ void tst_QDom::germanUmlautToFile() const
     QTemporaryFile file;
     QVERIFY(file.open());
     QTextStream ts(&file);
-    ts.setCodec("UTF-8");
     ts << d.toString();
     file.close();
 
@@ -1884,18 +1809,8 @@ void tst_QDom::doubleNamespaceDeclarations() const
     QFile file(testFile);
     QVERIFY(file.open(QIODevice::ReadOnly));
 
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && QT_DEPRECATED_SINCE(5, 15)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-    QXmlSimpleReader reader;
-
-    QXmlInputSource source(&file);
-    QVERIFY(doc.setContent(&source, &reader));
-QT_WARNING_POP
-#else
     QXmlStreamReader streamReader(&file);
     QVERIFY(doc.setContent(&streamReader, true));
-#endif
 
     // tst_QDom relies on a specific QHash ordering, see QTBUG-25071
     QString docAsString = doc.toString(0);
@@ -1911,19 +1826,8 @@ QT_WARNING_POP
 void tst_QDom::setContentQXmlReaderOverload() const
 {
     QDomDocument doc;
-
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && QT_DEPRECATED_SINCE(5, 15)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-    QXmlSimpleReader reader;
-    QXmlInputSource data;
-    data.setData(QByteArray("<e/>"));
-    doc.setContent(&data, true);
-QT_WARNING_POP
-#else
     QXmlStreamReader streamReader(QByteArray("<e/>"));
     doc.setContent(&streamReader, true);
-#endif
     QCOMPARE(doc.documentElement().nodeName(), QString::fromLatin1("e"));
 }
 
@@ -2016,22 +1920,37 @@ void tst_QDom::setContentWhitespace_data() const
     QTest::newRow("data25") << QString::fromLatin1("\t\t\t\t<?xml version='1.0' ?><e/>")  << false;
 }
 
+void tst_QDom::setContentUnopenedQIODevice() const
+{
+    QByteArray data("<foo>bar</foo>");
+    QBuffer buffer(&data);
+
+    QDomDocument doc;
+
+    QTest::ignoreMessage(QtWarningMsg,
+                         "QDomDocument called with unopened QIODevice. "
+                         "This will not be supported in future Qt versions");
+
+    // Note: the check below is expected to fail in Qt 7.
+    // Fix the test and remove the obsolete code from setContent().
+    QVERIFY(doc.setContent(&buffer, true));
+    QCOMPARE(doc.toString().trimmed(), data);
+}
+
 void tst_QDom::taskQTBUG4595_dontAssertWhenDocumentSpecifiesUnknownEncoding() const
 {
-    // QXmlStreamReader fails to read XML documents with unknown encoding. It
-    // needs to be modified if we want to support this case with the QXmlStreamReader-based
-    // implementation.
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && QT_DEPRECATED_SINCE(5, 15)
     QString xmlWithUnknownEncoding("<?xml version='1.0' encoding='unknown-encoding'?>"
                                    "<foo>"
                                    " <bar>How will this sentence be handled?</bar>"
                                    "</foo>");
     QDomDocument d;
+    QTest::ignoreMessage(
+                QtWarningMsg,
+                "QDomDocument::save(): Unsupported encoding \"unknown-encoding\" specified.");
     QVERIFY(d.setContent(xmlWithUnknownEncoding));
 
     QString dontAssert = d.toString(); // this should not assert
     QVERIFY(true);
-#endif
 }
 
 void tst_QDom::cloneDTD_QTBUG8398() const

@@ -26,9 +26,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.2
-import QtTest 1.0
-import QtWebEngine 1.1
+import QtQuick
+import QtTest
+import QtWebEngine
 
 TestWebEngineView {
     id: webEngineView
@@ -37,7 +37,6 @@ TestWebEngineView {
 
     property bool deniedGeolocation: false
     property bool geoPermissionRequested: false
-    signal consoleErrorMessage(string message)
 
     SignalSpy {
         id: featurePermissionSpy
@@ -45,13 +44,7 @@ TestWebEngineView {
         signalName: "featurePermissionRequested"
     }
 
-    SignalSpy {
-        id: consoleErrorMessageSpy
-        target: webEngineView
-        signalName: "consoleErrorMessage"
-    }
-
-    onFeaturePermissionRequested: {
+    onFeaturePermissionRequested: function(securityOrigin, feature) {
         if (feature === WebEngineView.Geolocation) {
             geoPermissionRequested = true
             if (deniedGeolocation) {
@@ -63,19 +56,31 @@ TestWebEngineView {
         }
     }
 
-    onJavaScriptConsoleMessage: {
-        if (level === WebEngineView.ErrorMessageLevel)
-            consoleErrorMessage(message)
-    }
-
     TestCase {
         name: "WebViewGeopermission"
         when: windowShown
 
+        function isHandled() {
+            var handled;
+            runJavaScript("handled", function(result) {
+                handled = result;
+            });
+            tryVerify(function() { return handled != undefined; }, 5000);
+            return handled;
+        }
+
+        function getErrorMessage() {
+            var errorMessage;
+            runJavaScript("errorMessage", function(result) {
+                errorMessage = result;
+            });
+            tryVerify(function() { return errorMessage != undefined; }, 5000);
+            return errorMessage;
+        }
+
         function init() {
             deniedGeolocation = false
             featurePermissionSpy.clear()
-            consoleErrorMessageSpy.clear()
         }
 
         function test_geoPermissionRequest() {
@@ -84,17 +89,16 @@ TestWebEngineView {
             featurePermissionSpy.wait()
             verify(geoPermissionRequested)
             compare(featurePermissionSpy.count, 1)
-            consoleErrorMessageSpy.wait()
-            verify(consoleErrorMessageSpy.signalArguments[0][0] === "Success" ||
-                   consoleErrorMessageSpy.signalArguments[0][0] === "")
+            tryVerify(isHandled, 5000)
+            verify(getErrorMessage() === "")
         }
 
         function test_deniedGeolocationByUser() {
             deniedGeolocation = true
             webEngineView.url = Qt.resolvedUrl("geolocation.html")
             featurePermissionSpy.wait()
-            consoleErrorMessageSpy.wait()
-            compare(consoleErrorMessageSpy.signalArguments[0][0], "User denied Geolocation")
+            tryVerify(isHandled, 5000)
+            compare(getErrorMessage(), "User denied Geolocation")
         }
     }
 }

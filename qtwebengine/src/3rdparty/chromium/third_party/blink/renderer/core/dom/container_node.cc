@@ -326,7 +326,7 @@ void ContainerNode::InsertNodeVector(
       Node& child = *target_node;
       mutator(*this, child, next);
       ChildListMutationScope(*this).ChildAdded(child);
-      if (GetDocument().ContainsV1ShadowTree())
+      if (GetDocument().ContainsShadowTree())
         child.CheckSlotChangeAfterInserted();
       probe::DidInsertDOMNode(&child);
       NotifyNodeInsertedInternal(child, *post_insertion_notification_targets);
@@ -658,7 +658,11 @@ void ContainerNode::WillRemoveChildren() {
       ChildFrameDisconnector::kDescendantsOnly);
 }
 
-void ContainerNode::Trace(Visitor* visitor) {
+LayoutBox* ContainerNode::GetLayoutBoxForScrolling() const {
+  return GetLayoutBox();
+}
+
+void ContainerNode::Trace(Visitor* visitor) const {
   visitor->Trace(first_child_);
   visitor->Trace(last_child_);
   Node::Trace(visitor);
@@ -810,11 +814,8 @@ void ContainerNode::RemoveChildren(SubtreeModificationAction action) {
     GetDocument().NodeChildrenWillBeRemoved(*this);
   }
 
-  HeapVector<Member<Node>>* removed_nodes = nullptr;
-  if (ChildrenChangedAllChildrenRemovedNeedsList()) {
-    removed_nodes =
-        MakeGarbageCollected<HeapVector<Member<Node>>>(CountChildren());
-  }
+  HeapVector<Member<Node>> removed_nodes;
+  const bool children_changed = ChildrenChangedAllChildrenRemovedNeedsList();
   {
     HTMLFrameOwnerElement::PluginDisposeSuspendScope suspend_plugin_dispose;
     TreeOrderedMap::RemoveScope tree_remove_scope;
@@ -827,8 +828,8 @@ void ContainerNode::RemoveChildren(SubtreeModificationAction action) {
       while (Node* child = first_child_) {
         RemoveBetween(nullptr, child->nextSibling(), *child);
         NotifyNodeRemoved(*child);
-        if (removed_nodes)
-          removed_nodes->push_back(child);
+        if (children_changed)
+          removed_nodes.push_back(child);
       }
     }
 
@@ -837,7 +838,8 @@ void ContainerNode::RemoveChildren(SubtreeModificationAction action) {
                              nullptr,
                              nullptr,
                              nullptr,
-                             removed_nodes};
+                             std::move(removed_nodes),
+                             String()};
     ChildrenChanged(change);
   }
 
@@ -919,7 +921,7 @@ void ContainerNode::NotifyNodeInserted(Node& root,
 #endif
   DCHECK(!root.IsShadowRoot());
 
-  if (GetDocument().ContainsV1ShadowTree())
+  if (GetDocument().ContainsShadowTree())
     root.CheckSlotChangeAfterInserted();
 
   probe::DidInsertDOMNode(&root);
@@ -990,8 +992,7 @@ void ContainerNode::RemovedFrom(ContainerNode& insertion_point) {
 DISABLE_CFI_PERF
 void ContainerNode::AttachLayoutTree(AttachContext& context) {
   auto* element = DynamicTo<Element>(this);
-  if (element && element->StyleRecalcBlockedByDisplayLock(
-                     DisplayLockLifecycleTarget::kChildren)) {
+  if (element && element->ChildStyleRecalcBlockedByDisplayLock()) {
     // Since we block style recalc on descendants of this node due to display
     // locking, none of its descendants should have the NeedsReattachLayoutTree
     // bit set.
@@ -1047,9 +1048,11 @@ bool ContainerNode::ChildrenChangedAllChildrenRemovedNeedsList() const {
   return false;
 }
 
-void ContainerNode::CloneChildNodesFrom(const ContainerNode& node) {
+void ContainerNode::CloneChildNodesFrom(const ContainerNode& node,
+                                        CloneChildrenFlag flag) {
+  DCHECK_NE(flag, CloneChildrenFlag::kSkip);
   for (const Node& child : NodeTraversal::ChildrenOf(node))
-    AppendChild(child.Clone(GetDocument(), CloneChildrenFlag::kClone));
+    AppendChild(child.Clone(GetDocument(), flag));
 }
 
 PhysicalRect ContainerNode::BoundingBox() const {
@@ -1079,7 +1082,7 @@ void ContainerNode::FocusStateChanged() {
   if (this_element && this_element->ChildrenOrSiblingsAffectedByFocus())
     this_element->PseudoStateChanged(CSSSelector::kPseudoFocus);
 
-  GetLayoutObject()->InvalidateIfControlStateChanged(kFocusControlState);
+  InvalidateIfHasEffectiveAppearance();
   FocusVisibleStateChanged();
   FocusWithinStateChanged();
 }
@@ -1342,7 +1345,9 @@ void ContainerNode::SetRestyleFlag(DynamicRestyleFlags mask) {
   EnsureRareData().SetRestyleFlag(mask);
 }
 
-void ContainerNode::RecalcDescendantStyles(const StyleRecalcChange change) {
+void ContainerNode::RecalcDescendantStyles(
+    const StyleRecalcChange change,
+    const StyleRecalcContext& style_recalc_context) {
   DCHECK(GetDocument().InStyleRecalc());
   DCHECK(!NeedsStyleRecalc());
 
@@ -1353,7 +1358,7 @@ void ContainerNode::RecalcDescendantStyles(const StyleRecalcChange change) {
       child_text_node->RecalcTextStyle(change);
 
     if (auto* child_element = DynamicTo<Element>(child))
-      child_element->RecalcStyle(change);
+      child_element->RecalcStyle(change, style_recalc_context);
   }
 }
 
@@ -1382,12 +1387,9 @@ void ContainerNode::RebuildChildrenLayoutTrees(
     WhitespaceAttacher& whitespace_attacher) {
   DCHECK(!NeedsReattachLayoutTree());
 
-  if (IsActiveSlotOrActiveV0InsertionPoint()) {
+  if (IsActiveSlot()) {
     if (auto* slot = DynamicTo<HTMLSlotElement>(this)) {
       slot->RebuildDistributedChildrenLayoutTrees(whitespace_attacher);
-    } else {
-      To<V0InsertionPoint>(this)->RebuildDistributedChildrenLayoutTrees(
-          whitespace_attacher);
     }
     return;
   }
@@ -1551,6 +1553,12 @@ RadioNodeList* ContainerNode::GetRadioNodeList(const AtomicString& name,
 }
 
 Element* ContainerNode::getElementById(const AtomicString& id) const {
+  // According to https://dom.spec.whatwg.org/#concept-id, empty IDs are
+  // treated as equivalent to the lack of an id attribute.
+  if (id.IsEmpty()) {
+    return nullptr;
+  }
+
   if (IsInTreeScope()) {
     // Fast path if we are in a tree scope: call getElementById() on tree scope
     // and check if the matching element is in our subtree.

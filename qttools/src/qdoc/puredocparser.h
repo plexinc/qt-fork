@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2019 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -37,22 +37,17 @@ class Location;
 
 class PureDocParser : public CppCodeParser
 {
-    Q_DECLARE_TR_FUNCTIONS(QDoc::PureDocParser)
-
 public:
-    PureDocParser() : tokenizer_(nullptr), tok_(0) { pureParser_ = this; }
-    ~PureDocParser() override { pureParser_ = nullptr; }
+    PureDocParser() = default;
+    ~PureDocParser() override = default;
 
     QStringList sourceFileNameFilter() override;
     void parseSourceFile(const Location &location, const QString &filePath) override;
 
-    static PureDocParser *pureDocParser() { return pureParser_; }
-
 private:
     bool processQdocComments();
-    static PureDocParser *pureParser_;
-    Tokenizer *tokenizer_;
-    int tok_;
+    Tokenizer *m_tokenizer { nullptr };
+    int m_token { 0 };
 };
 
 QT_END_NAMESPACE

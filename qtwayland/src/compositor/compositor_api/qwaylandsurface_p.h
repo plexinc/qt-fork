@@ -51,7 +51,7 @@
 
 #include <QtWaylandCompositor/private/qwlregion_p.h>
 
-#include <QtCore/QVector>
+#include <QtCore/QList>
 #include <QtCore/QRect>
 #include <QtGui/QRegion>
 #include <QtGui/QImage>
@@ -71,7 +71,6 @@ QT_BEGIN_NAMESPACE
 class QWaylandCompositor;
 class QWaylandSurface;
 class QWaylandView;
-class QWaylandSurfaceInterface;
 class QWaylandInputMethodControl;
 
 namespace QtWayland {
@@ -116,6 +115,7 @@ protected:
                         struct wl_resource *buffer, int x, int y) override;
     void surface_damage(Resource *resource,
                         int32_t x, int32_t y, int32_t width, int32_t height) override;
+    void surface_damage_buffer(Resource *resource, int32_t x, int32_t y, int32_t width, int32_t height) override;
     void surface_frame(Resource *resource,
                        uint32_t callback) override;
     void surface_set_opaque_region(Resource *resource,
@@ -141,6 +141,7 @@ public: //member variables
     struct {
         QWaylandBufferRef buffer;
         QRegion damage;
+        bool damageInBufferCoordinates = false;
         QPoint offset;
         bool newlyAttached = false;
         QRegion inputRegion;
@@ -158,7 +159,7 @@ public: //member variables
 
     QList<QPointer<QWaylandSurface>> subsurfaceChildren;
 
-    QVector<QWaylandIdleInhibitManagerV1Private::Inhibitor *> idleInhibitors;
+    QList<QWaylandIdleInhibitManagerV1Private::Inhibitor *> idleInhibitors;
 
     QRegion inputRegion;
     QRegion opaqueRegion;

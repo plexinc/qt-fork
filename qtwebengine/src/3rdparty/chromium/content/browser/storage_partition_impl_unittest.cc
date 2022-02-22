@@ -15,41 +15,50 @@
 #include "base/files/file_util.h"
 #include "base/location.h"
 #include "base/run_loop.h"
+#include "base/scoped_observation.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
-#include "base/task/post_task.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "build/build_config.h"
 #include "components/services/storage/dom_storage/async_dom_storage_database.h"
 #include "components/services/storage/dom_storage/dom_storage_database.h"
 #include "components/services/storage/dom_storage/local_storage_database.pb.h"
 #include "components/services/storage/public/cpp/constants.h"
 #include "content/browser/code_cache/generated_code_cache.h"
 #include "content/browser/code_cache/generated_code_cache_context.h"
+#include "content/browser/conversions/conversion_manager_impl.h"
+#include "content/browser/conversions/conversion_test_utils.h"
 #include "content/browser/gpu/shader_cache_factory.h"
 #include "content/browser/storage_partition_impl.h"
 #include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/generated_code_cache_settings.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/storage_usage_info.h"
 #include "content/public/common/content_features.h"
+#include "content/public/common/trust_tokens.mojom.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/test_browser_context.h"
 #include "content/public/test/test_utils.h"
+#include "net/base/schemeful_site.h"
 #include "net/base/test_completion_callback.h"
 #include "net/cookies/canonical_cookie.h"
-#include "net/cookies/cookie_store.h"
-#include "net/url_request/url_request_context.h"
-#include "net/url_request/url_request_context_getter.h"
+#include "net/cookies/cookie_access_result.h"
+#include "net/cookies/cookie_inclusion_status.h"
 #include "ppapi/buildflags/buildflags.h"
 #include "services/network/cookie_manager.h"
+#include "storage/browser/quota/quota_client_type.h"
 #include "storage/browser/quota/quota_manager.h"
+#include "storage/browser/test/mock_quota_client.h"
 #include "storage/browser/test/mock_quota_manager.h"
 #include "storage/browser/test/mock_special_storage_policy.h"
+#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/features.h"
+#include "third_party/blink/public/mojom/quota/quota_types.mojom-shared.h"
 #include "third_party/leveldatabase/env_chromium.h"
 
 #if BUILDFLAG(ENABLE_PLUGINS)
@@ -61,6 +70,11 @@
 #include "storage/common/file_system/file_system_util.h"
 #include "url/origin.h"
 #endif  // BUILDFLAG(ENABLE_PLUGINS)
+
+#if defined(OS_ANDROID)
+#include "content/public/browser/android/java_interfaces.h"
+#include "services/service_manager/public/cpp/interface_provider.h"
+#endif  // defined(OS_ANDROID)
 
 using net::CanonicalCookie;
 using CookieDeletionFilter = network::mojom::CookieDeletionFilter;
@@ -83,7 +97,8 @@ const blink::mojom::StorageType kTemporary =
 const blink::mojom::StorageType kPersistent =
     blink::mojom::StorageType::kPersistent;
 
-const storage::QuotaClient::ID kClientFile = storage::QuotaClient::kFileSystem;
+const storage::QuotaClientType kClientFile =
+    storage::QuotaClientType::kFileSystem;
 
 const uint32_t kAllQuotaRemoveMask =
     StoragePartition::REMOVE_DATA_MASK_APPCACHE |
@@ -144,20 +159,21 @@ class RemoveCookieTester {
   }
 
   void AddCookie(const url::Origin& origin) {
-    CanonicalCookie::CookieInclusionStatus status;
+    net::CookieInclusionStatus status;
     std::unique_ptr<net::CanonicalCookie> cc(
         net::CanonicalCookie::Create(origin.GetURL(), "A=1", base::Time::Now(),
                                      base::nullopt /* server_time */, &status));
     storage_partition_->GetCookieManagerForBrowserProcess()->SetCanonicalCookie(
-        *cc, origin.scheme(), net::CookieOptions::MakeAllInclusive(),
+        *cc, origin.GetURL(), net::CookieOptions::MakeAllInclusive(),
         base::BindOnce(&RemoveCookieTester::SetCookieCallback,
                        base::Unretained(this)));
     await_completion_.BlockUntilNotified();
   }
 
  private:
-  void GetCookieListCallback(const net::CookieStatusList& cookie_list,
-                             const net::CookieStatusList& excluded_cookies) {
+  void GetCookieListCallback(
+      const net::CookieAccessResultList& cookie_list,
+      const net::CookieAccessResultList& excluded_cookies) {
     std::string cookie_line =
         net::CanonicalCookie::BuildCookieLine(cookie_list);
     if (cookie_line == "A=1") {
@@ -169,8 +185,8 @@ class RemoveCookieTester {
     await_completion_.Notify();
   }
 
-  void SetCookieCallback(CanonicalCookie::CookieInclusionStatus result) {
-    ASSERT_TRUE(result.IsInclude());
+  void SetCookieCallback(net::CookieAccessResult result) {
+    ASSERT_TRUE(result.status.IsInclude());
     await_completion_.Notify();
   }
 
@@ -338,9 +354,9 @@ class RemoveCodeCacheTester {
 
   bool ContainsEntry(Cache cache, GURL url, GURL origin_lock) {
     entry_exists_ = false;
-    GeneratedCodeCache::ReadDataCallback callback = base::BindRepeating(
+    GeneratedCodeCache::ReadDataCallback callback = base::BindOnce(
         &RemoveCodeCacheTester::FetchEntryCallback, base::Unretained(this));
-    GetCache(cache)->FetchEntry(url, origin_lock, callback);
+    GetCache(cache)->FetchEntry(url, origin_lock, std::move(callback));
     await_completion_.BlockUntilNotified();
     return entry_exists_;
   }
@@ -560,15 +576,15 @@ class RemovePluginPrivateDataTester {
     storage::FileSystemQuotaUtil* quota_util = backend->GetQuotaUtil();
 
     // Determine the set of origins used.
-    std::set<url::Origin> origins;
-    quota_util->GetOriginsForTypeOnFileTaskRunner(
-        storage::kFileSystemTypePluginPrivate, &origins);
-    *data_exists_for_origin = origins.find(origin) != origins.end();
+    std::vector<url::Origin> origins =
+        quota_util->GetOriginsForTypeOnFileTaskRunner(
+            storage::kFileSystemTypePluginPrivate);
+    *data_exists_for_origin = base::Contains(origins, origin);
 
     // AwaitCompletionHelper and MessageLoop don't work on a
     // SequencedTaskRunner, so post a task on the IO thread.
-    base::PostTask(FROM_HERE, {BrowserThread::IO},
-                   base::BindOnce(&AwaitCompletionHelper::Notify,
+    GetIOThreadTaskRunner({})->PostTask(
+        FROM_HERE, base::BindOnce(&AwaitCompletionHelper::Notify,
                                   base::Unretained(await_completion)));
   }
 
@@ -582,6 +598,24 @@ class RemovePluginPrivateDataTester {
   DISALLOW_COPY_AND_ASSIGN(RemovePluginPrivateDataTester);
 };
 #endif  // BUILDFLAG(ENABLE_PLUGINS)
+
+class MockDataRemovalObserver : public StoragePartition::DataRemovalObserver {
+ public:
+  explicit MockDataRemovalObserver(StoragePartition* partition) {
+    observation_.Observe(partition);
+  }
+
+  MOCK_METHOD4(OnOriginDataCleared,
+               void(uint32_t,
+                    base::RepeatingCallback<bool(const url::Origin&)>,
+                    base::Time,
+                    base::Time));
+
+ private:
+  base::ScopedObservation<StoragePartition,
+                          StoragePartition::DataRemovalObserver>
+      observation_{this};
+};
 
 bool IsWebSafeSchemeForTest(const std::string& scheme) {
   return scheme == url::kHttpScheme;
@@ -718,7 +752,11 @@ void ClearPluginPrivateData(content::StoragePartition* partition,
 
 bool FilterMatchesCookie(const CookieDeletionFilterPtr& filter,
                          const net::CanonicalCookie& cookie) {
-  return network::DeletionFilterToInfo(filter.Clone()).Matches(cookie);
+  return network::DeletionFilterToInfo(filter.Clone())
+      .Matches(cookie,
+               net::CookieAccessParams{
+                   net::CookieAccessSemantics::NONLEGACY, false,
+                   net::CookieSamePartyStatus::kNoSamePartyEnforcement});
 }
 
 }  // namespace
@@ -727,14 +765,30 @@ class StoragePartitionImplTest : public testing::Test {
  public:
   StoragePartitionImplTest()
       : task_environment_(content::BrowserTaskEnvironment::IO_MAINLOOP),
-        browser_context_(new TestBrowserContext()) {}
+        browser_context_(new TestBrowserContext()) {
+    // Configures the Conversion API to run in memory to speed up it's
+    // initialization and avoid timeouts. See https://crbug.com/1080764.
+    ConversionManagerImpl::RunInMemoryForTesting();
+    feature_list_.InitAndEnableFeature(features::kConversionMeasurement);
+  }
 
   storage::MockQuotaManager* GetMockManager() {
     if (!quota_manager_.get()) {
       quota_manager_ = base::MakeRefCounted<storage::MockQuotaManager>(
           browser_context_->IsOffTheRecord(), browser_context_->GetPath(),
-          base::CreateSingleThreadTaskRunner({BrowserThread::IO}).get(),
+          GetIOThreadTaskRunner({}).get(),
           browser_context_->GetSpecialStoragePolicy());
+      mojo::PendingRemote<storage::mojom::QuotaClient> quota_client;
+      mojo::MakeSelfOwnedReceiver(
+          std::make_unique<storage::MockQuotaClient>(
+              quota_manager_->proxy(),
+              base::span<const storage::MockOriginData>(),
+              storage::QuotaClientType::kFileSystem),
+          quota_client.InitWithNewPipeAndPassReceiver());
+      quota_manager_->proxy()->RegisterClient(
+          std::move(quota_client), storage::QuotaClientType::kFileSystem,
+          {blink::mojom::StorageType::kTemporary,
+           blink::mojom::StorageType::kPersistent});
     }
     return quota_manager_.get();
   }
@@ -749,6 +803,8 @@ class StoragePartitionImplTest : public testing::Test {
   content::BrowserTaskEnvironment task_environment_;
   std::unique_ptr<TestBrowserContext> browser_context_;
   scoped_refptr<storage::MockQuotaManager> quota_manager_;
+
+  base::test::ScopedFeatureList feature_list_;
 
   DISALLOW_COPY_AND_ASSIGN(StoragePartitionImplTest);
 };
@@ -812,31 +868,35 @@ TEST_F(StoragePartitionShaderClearTest, ClearShaderCache) {
   EXPECT_EQ(0u, Size());
 }
 
-TEST_F(StoragePartitionImplTest, QuotaClientMaskGeneration) {
-  EXPECT_EQ(storage::QuotaClient::kFileSystem,
-            StoragePartitionImpl::GenerateQuotaClientMask(
-                StoragePartition::REMOVE_DATA_MASK_FILE_SYSTEMS));
-  EXPECT_EQ(storage::QuotaClient::kDatabase,
-            StoragePartitionImpl::GenerateQuotaClientMask(
-                StoragePartition::REMOVE_DATA_MASK_WEBSQL));
-  EXPECT_EQ(storage::QuotaClient::kAppcache,
-            StoragePartitionImpl::GenerateQuotaClientMask(
-                StoragePartition::REMOVE_DATA_MASK_APPCACHE));
-  EXPECT_EQ(storage::QuotaClient::kIndexedDatabase,
-            StoragePartitionImpl::GenerateQuotaClientMask(
-                StoragePartition::REMOVE_DATA_MASK_INDEXEDDB));
-  EXPECT_EQ(storage::QuotaClient::kFileSystem |
-                storage::QuotaClient::kDatabase |
-                storage::QuotaClient::kAppcache |
-                storage::QuotaClient::kIndexedDatabase,
-            StoragePartitionImpl::GenerateQuotaClientMask(kAllQuotaRemoveMask));
+TEST_F(StoragePartitionImplTest, QuotaClientTypesGeneration) {
+  EXPECT_THAT(
+      StoragePartitionImpl::GenerateQuotaClientTypes(
+          StoragePartition::REMOVE_DATA_MASK_FILE_SYSTEMS),
+      testing::UnorderedElementsAre(storage::QuotaClientType::kFileSystem,
+                                    storage::QuotaClientType::kNativeIO));
+  EXPECT_THAT(StoragePartitionImpl::GenerateQuotaClientTypes(
+                  StoragePartition::REMOVE_DATA_MASK_WEBSQL),
+              testing::ElementsAre(storage::QuotaClientType::kDatabase));
+  EXPECT_THAT(StoragePartitionImpl::GenerateQuotaClientTypes(
+                  StoragePartition::REMOVE_DATA_MASK_APPCACHE),
+              testing::ElementsAre(storage::QuotaClientType::kAppcache));
+  EXPECT_THAT(StoragePartitionImpl::GenerateQuotaClientTypes(
+                  StoragePartition::REMOVE_DATA_MASK_INDEXEDDB),
+              testing::ElementsAre(storage::QuotaClientType::kIndexedDatabase));
+  EXPECT_THAT(
+      StoragePartitionImpl::GenerateQuotaClientTypes(kAllQuotaRemoveMask),
+      testing::UnorderedElementsAre(storage::QuotaClientType::kFileSystem,
+                                    storage::QuotaClientType::kDatabase,
+                                    storage::QuotaClientType::kAppcache,
+                                    storage::QuotaClientType::kIndexedDatabase,
+                                    storage::QuotaClientType::kNativeIO));
 }
 
 void PopulateTestQuotaManagedPersistentData(storage::MockQuotaManager* manager,
                                             const url::Origin& origin1,
                                             const url::Origin& origin2) {
-  manager->AddOrigin(origin1, kPersistent, kClientFile, base::Time());
-  manager->AddOrigin(origin2, kPersistent, kClientFile,
+  manager->AddOrigin(origin1, kPersistent, {kClientFile}, base::Time());
+  manager->AddOrigin(origin2, kPersistent, {kClientFile},
                      base::Time::Now() - base::TimeDelta::FromDays(1));
 
   EXPECT_TRUE(manager->OriginHasData(origin1, kPersistent, kClientFile));
@@ -846,8 +906,8 @@ void PopulateTestQuotaManagedPersistentData(storage::MockQuotaManager* manager,
 void PopulateTestQuotaManagedTemporaryData(storage::MockQuotaManager* manager,
                                            const url::Origin& origin1,
                                            const url::Origin& origin2) {
-  manager->AddOrigin(origin1, kTemporary, kClientFile, base::Time::Now());
-  manager->AddOrigin(origin2, kTemporary, kClientFile,
+  manager->AddOrigin(origin1, kTemporary, {kClientFile}, base::Time::Now());
+  manager->AddOrigin(origin2, kTemporary, {kClientFile},
                      base::Time::Now() - base::TimeDelta::FromDays(1));
 
   EXPECT_TRUE(manager->OriginHasData(origin1, kTemporary, kClientFile));
@@ -870,8 +930,8 @@ void PopulateTestQuotaManagedData(storage::MockQuotaManager* manager,
 void PopulateTestQuotaManagedNonBrowsingData(
     const url::Origin& origin,
     storage::MockQuotaManager* manager) {
-  manager->AddOrigin(origin, kTemporary, kClientFile, base::Time());
-  manager->AddOrigin(origin, kPersistent, kClientFile, base::Time());
+  manager->AddOrigin(origin, kTemporary, {kClientFile}, base::Time());
+  manager->AddOrigin(origin, kPersistent, {kClientFile}, base::Time());
 }
 
 TEST_F(StoragePartitionImplTest, RemoveQuotaManagedDataForeverBoth) {
@@ -1662,6 +1722,366 @@ TEST(StoragePartitionImplStaticTest, CreatePredicateForHostCookies) {
     EXPECT_FALSE(FilterMatchesCookie(deletion_filter, *cookie))
         << cookie->DebugString();
   }
+}
+
+TEST_F(StoragePartitionImplTest, ConversionsClearDataForOrigin) {
+  StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
+      BrowserContext::GetDefaultStoragePartition(browser_context()));
+
+  ConversionManagerImpl* conversion_manager = partition->GetConversionManager();
+
+  base::Time now = base::Time::Now();
+  auto impression =
+      ImpressionBuilder(now).SetExpiry(base::TimeDelta::FromDays(2)).Build();
+  conversion_manager->HandleImpression(impression);
+  conversion_manager->HandleConversion(DefaultConversion());
+
+  base::RunLoop run_loop;
+  partition->ClearData(StoragePartition::REMOVE_DATA_MASK_CONVERSIONS, 0,
+                       impression.impression_origin().GetURL(), now, now,
+                       run_loop.QuitClosure());
+  run_loop.Run();
+
+  EXPECT_TRUE(
+      GetConversionsToReportForTesting(conversion_manager, base::Time::Max())
+          .empty());
+}
+
+TEST_F(StoragePartitionImplTest, ConversionsClearDataWrongMask) {
+  StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
+      BrowserContext::GetDefaultStoragePartition(browser_context()));
+
+  ConversionManagerImpl* conversion_manager = partition->GetConversionManager();
+
+  base::Time now = base::Time::Now();
+  auto impression =
+      ImpressionBuilder(now).SetExpiry(base::TimeDelta::FromDays(2)).Build();
+  conversion_manager->HandleImpression(impression);
+  conversion_manager->HandleConversion(DefaultConversion());
+
+  EXPECT_FALSE(
+      GetConversionsToReportForTesting(conversion_manager, base::Time::Max())
+          .empty());
+
+  // Arbitrary non-conversions mask.
+  base::RunLoop run_loop;
+  partition->ClearData(StoragePartition::REMOVE_DATA_MASK_COOKIES, 0,
+                       impression.impression_origin().GetURL(), now, now,
+                       run_loop.QuitClosure());
+  run_loop.Run();
+  EXPECT_FALSE(
+      GetConversionsToReportForTesting(conversion_manager, base::Time::Max())
+          .empty());
+}
+
+TEST_F(StoragePartitionImplTest, ConversionsClearAllData) {
+  StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
+      BrowserContext::GetDefaultStoragePartition(browser_context()));
+
+  ConversionManagerImpl* conversion_manager = partition->GetConversionManager();
+
+  base::Time now = base::Time::Now();
+  for (int i = 0; i < 20; i++) {
+    auto origin = url::Origin::Create(
+        GURL(base::StringPrintf("https://www.%d.test/", i)));
+    auto impression = ImpressionBuilder(now)
+                          .SetExpiry(base::TimeDelta::FromDays(2))
+                          .SetImpressionOrigin(origin)
+                          .SetReportingOrigin(origin)
+                          .SetConversionOrigin(origin)
+                          .Build();
+    conversion_manager->HandleImpression(impression);
+  }
+  base::RunLoop run_loop;
+  partition->ClearData(StoragePartition::REMOVE_DATA_MASK_CONVERSIONS, 0,
+                       GURL(), now, now, run_loop.QuitClosure());
+  run_loop.Run();
+
+  EXPECT_TRUE(
+      GetConversionsToReportForTesting(conversion_manager, base::Time::Max())
+          .empty());
+}
+
+TEST_F(StoragePartitionImplTest, ConversionsClearDataForFilter) {
+  StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
+      BrowserContext::GetDefaultStoragePartition(browser_context()));
+
+  ConversionManagerImpl* conversion_manager = partition->GetConversionManager();
+
+  base::Time now = base::Time::Now();
+  for (int i = 0; i < 5; i++) {
+    auto impression =
+        url::Origin::Create(GURL(base::StringPrintf("https://imp-%d.com/", i)));
+    auto reporter = url::Origin::Create(
+        GURL(base::StringPrintf("https://reporter-%d.com/", i)));
+    auto conv = url::Origin::Create(
+        GURL(base::StringPrintf("https://conv-%d.com/", i)));
+    conversion_manager->HandleImpression(
+        ImpressionBuilder(now)
+            .SetImpressionOrigin(impression)
+            .SetReportingOrigin(reporter)
+            .SetConversionOrigin(conv)
+            .SetExpiry(base::TimeDelta::FromDays(2))
+            .Build());
+    conversion_manager->HandleConversion(
+        StorableConversion("123", net::SchemefulSite(conv), reporter));
+  }
+
+  EXPECT_EQ(5u, GetConversionsToReportForTesting(conversion_manager,
+                                                 base::Time::Max())
+                    .size());
+
+  // Match against enough Origins to delete three of the imp/conv pairs.
+  base::RunLoop run_loop;
+  StoragePartition::OriginMatcherFunction func = base::BindRepeating(
+      [](const url::Origin& origin, storage::SpecialStoragePolicy* policy) {
+        return origin == url::Origin::Create(GURL("https://imp-2.com/")) ||
+               origin == url::Origin::Create(GURL("https://conv-3.com/")) ||
+               origin == url::Origin::Create(GURL("https://rep-4.com/")) ||
+               origin == url::Origin::Create(GURL("https://imp-4.com/"));
+      });
+  partition->ClearData(StoragePartition::REMOVE_DATA_MASK_CONVERSIONS, 0, func,
+                       nullptr, false, now, now, run_loop.QuitClosure());
+  run_loop.Run();
+  EXPECT_EQ(2u, GetConversionsToReportForTesting(conversion_manager,
+                                                 base::Time::Max())
+                    .size());
+}
+
+TEST_F(StoragePartitionImplTest, DataRemovalObserver) {
+  const uint32_t kTestClearMask =
+      content::StoragePartition::REMOVE_DATA_MASK_APPCACHE |
+      content::StoragePartition::REMOVE_DATA_MASK_WEBSQL;
+  const uint32_t kTestQuotaClearMask = 0;
+  const auto kTestOrigin = GURL("https://example.com");
+  const auto kBeginTime = base::Time() + base::TimeDelta::FromHours(1);
+  const auto kEndTime = base::Time() + base::TimeDelta::FromHours(2);
+  const auto origin_callback_valid =
+      [&](base::RepeatingCallback<bool(const url::Origin&)> callback) {
+        return callback.Run(url::Origin::Create(kTestOrigin));
+      };
+
+  StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
+      BrowserContext::GetDefaultStoragePartition(browser_context()));
+  MockDataRemovalObserver observer(partition);
+
+  // Confirm that each of the StoragePartition interfaces for clearing origin
+  // based data notify observers appropriately.
+  EXPECT_CALL(
+      observer,
+      OnOriginDataCleared(kTestClearMask, testing::Truly(origin_callback_valid),
+                          base::Time(), base::Time::Max()));
+  partition->ClearDataForOrigin(kTestClearMask, kTestQuotaClearMask,
+                                kTestOrigin);
+  testing::Mock::VerifyAndClearExpectations(&observer);
+
+  EXPECT_CALL(
+      observer,
+      OnOriginDataCleared(kTestClearMask, testing::Truly(origin_callback_valid),
+                          kBeginTime, kEndTime));
+  partition->ClearData(kTestClearMask, kTestQuotaClearMask, kTestOrigin,
+                       kBeginTime, kEndTime, base::DoNothing());
+  testing::Mock::VerifyAndClearExpectations(&observer);
+
+  EXPECT_CALL(
+      observer,
+      OnOriginDataCleared(kTestClearMask, testing::Truly(origin_callback_valid),
+                          kBeginTime, kEndTime));
+  partition->ClearData(
+      kTestClearMask, kTestQuotaClearMask,
+      base::BindLambdaForTesting([&](const url::Origin& origin,
+                                     storage::SpecialStoragePolicy* policy) {
+        return origin == url::Origin::Create(kTestOrigin);
+      }),
+      /* cookie_deletion_filter */ nullptr, /* perform_storage_cleanup */ false,
+      kBeginTime, kEndTime, base::DoNothing());
+}
+
+namespace {
+
+class MockLocalTrustTokenFulfiller : public mojom::LocalTrustTokenFulfiller {
+ public:
+  enum IgnoreRequestsTag { kIgnoreRequestsIndefinitely };
+  explicit MockLocalTrustTokenFulfiller(IgnoreRequestsTag) {}
+
+  explicit MockLocalTrustTokenFulfiller(
+      const network::mojom::FulfillTrustTokenIssuanceAnswerPtr& answer)
+      : answer_(answer.Clone()) {}
+
+  void FulfillTrustTokenIssuance(
+      network::mojom::FulfillTrustTokenIssuanceRequestPtr request,
+      FulfillTrustTokenIssuanceCallback callback) override {
+    if (answer_)
+      std::move(callback).Run(answer_.Clone());
+
+    // Otherwise, this class was constructed with an IgnoreRequestsTag; drop the
+    // request.
+  }
+
+  void Bind(mojo::ScopedMessagePipeHandle handle) {
+    receiver_.Bind(mojo::PendingReceiver<mojom::LocalTrustTokenFulfiller>(
+        std::move(handle)));
+  }
+
+ private:
+  network::mojom::FulfillTrustTokenIssuanceAnswerPtr answer_;
+  mojo::Receiver<mojom::LocalTrustTokenFulfiller> receiver_{this};
+};
+
+}  // namespace
+
+#if defined(OS_ANDROID)
+TEST_F(StoragePartitionImplTest, BindsTrustTokenFulfiller) {
+  auto expected_answer = network::mojom::FulfillTrustTokenIssuanceAnswer::New();
+  expected_answer->status =
+      network::mojom::FulfillTrustTokenIssuanceAnswer::Status::kOk;
+  expected_answer->response = "Okay, here are some tokens";
+  MockLocalTrustTokenFulfiller mock_fulfiller(expected_answer);
+
+  // On Android, binding a local trust token operation delegate should succeed
+  // by default, but it can be explicitly rejected by the Android-side
+  // implementation code: to avoid making assumptions about that code's
+  // behavior, manually override the bind to make it succeed.
+  service_manager::InterfaceProvider::TestApi interface_overrider(
+      content::GetGlobalJavaInterfaces());
+
+  int num_binds_attempted = 0;
+  interface_overrider.SetBinderForName(
+      mojom::LocalTrustTokenFulfiller::Name_,
+      base::BindLambdaForTesting([&num_binds_attempted, &mock_fulfiller](
+                                     mojo::ScopedMessagePipeHandle handle) {
+        ++num_binds_attempted;
+        mock_fulfiller.Bind(std::move(handle));
+      }));
+
+  StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
+      BrowserContext::GetDefaultStoragePartition(browser_context()));
+
+  auto request = network::mojom::FulfillTrustTokenIssuanceRequest::New();
+  request->request = "Some tokens, please";
+
+  {
+    network::mojom::FulfillTrustTokenIssuanceAnswerPtr received_answer;
+    base::RunLoop run_loop;
+    partition->OnTrustTokenIssuanceDivertedToSystem(
+        request.Clone(),
+        base::BindLambdaForTesting(
+            [&run_loop, &received_answer](
+                network::mojom::FulfillTrustTokenIssuanceAnswerPtr answer) {
+              received_answer = std::move(answer);
+              run_loop.Quit();
+            }));
+
+    run_loop.Run();
+    EXPECT_TRUE(mojo::Equals(received_answer, expected_answer));
+    EXPECT_EQ(num_binds_attempted, 1);
+  }
+  {
+    network::mojom::FulfillTrustTokenIssuanceAnswerPtr received_answer;
+    base::RunLoop run_loop;
+
+    // Execute another operation to cover the case where we've already
+    // successfully bound the fulfiller, ensuring that we don't attempt to bind
+    // it again.
+    partition->OnTrustTokenIssuanceDivertedToSystem(
+        request.Clone(),
+        base::BindLambdaForTesting(
+            [&run_loop, &received_answer](
+                network::mojom::FulfillTrustTokenIssuanceAnswerPtr answer) {
+              received_answer = std::move(answer);
+              run_loop.Quit();
+            }));
+
+    run_loop.Run();
+
+    EXPECT_TRUE(mojo::Equals(received_answer, expected_answer));
+    EXPECT_EQ(num_binds_attempted, 1);
+  }
+}
+#endif  // defined(OS_ANDROID)
+
+#if defined(OS_ANDROID)
+TEST_F(StoragePartitionImplTest, HandlesDisconnectedTrustTokenFulfiller) {
+  // Construct a mock fulfiller that doesn't reply to issuance requests it
+  // receives...
+  MockLocalTrustTokenFulfiller mock_fulfiller(
+      MockLocalTrustTokenFulfiller::kIgnoreRequestsIndefinitely);
+
+  service_manager::InterfaceProvider::TestApi interface_overrider(
+      content::GetGlobalJavaInterfaces());
+  interface_overrider.SetBinderForName(
+      mojom::LocalTrustTokenFulfiller::Name_,
+      base::BindRepeating(&MockLocalTrustTokenFulfiller::Bind,
+                          base::Unretained(&mock_fulfiller)));
+
+  StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
+      BrowserContext::GetDefaultStoragePartition(browser_context()));
+
+  auto request = network::mojom::FulfillTrustTokenIssuanceRequest::New();
+  base::RunLoop run_loop;
+  network::mojom::FulfillTrustTokenIssuanceAnswerPtr received_answer;
+  partition->OnTrustTokenIssuanceDivertedToSystem(
+      std::move(request),
+      base::BindLambdaForTesting(
+          [&run_loop, &received_answer](
+              network::mojom::FulfillTrustTokenIssuanceAnswerPtr answer) {
+            received_answer = std::move(answer);
+            run_loop.Quit();
+          }));
+
+  // ... and, when the pipe disconnects, the disconnection handler should still
+  // ensure we get an error response.
+  partition->OnLocalTrustTokenFulfillerConnectionError();
+  run_loop.Run();
+
+  ASSERT_TRUE(received_answer);
+  EXPECT_EQ(received_answer->status,
+            network::mojom::FulfillTrustTokenIssuanceAnswer::Status::kNotFound);
+}
+#endif  // defined(OS_ANDROID)
+
+TEST_F(StoragePartitionImplTest, HandlesMissingTrustTokenFulfiller) {
+#if defined(OS_ANDROID)
+  // On Android, binding can be explicitly rejected by the Android-side
+  // implementation code: to ensure we can handle the rejection, manually force
+  // the bind to fail.
+  //
+  // On other platforms, local Trust Tokens issuance isn't yet implemented, so
+  // StoragePartitionImpl won't attempt to bind the fulfiller.
+  service_manager::InterfaceProvider::TestApi interface_overrider(
+      content::GetGlobalJavaInterfaces());
+
+  // Instead of using interface_overrider.ClearBinder(name), it's necessary to
+  // provide a callback that explicitly closes the pipe, since
+  // InterfaceProvider's contract requires that it either bind or close pipes
+  // it's given (see its comments in interface_provider.mojom).
+  interface_overrider.SetBinderForName(
+      mojom::LocalTrustTokenFulfiller::Name_,
+      base::BindRepeating([](mojo::ScopedMessagePipeHandle handle) {
+        mojo::Close(std::move(handle));
+      }));
+#endif  // defined(OS_ANDROID)
+
+  StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
+      BrowserContext::GetDefaultStoragePartition(browser_context()));
+
+  auto request = network::mojom::FulfillTrustTokenIssuanceRequest::New();
+  base::RunLoop run_loop;
+  network::mojom::FulfillTrustTokenIssuanceAnswerPtr received_answer;
+  partition->OnTrustTokenIssuanceDivertedToSystem(
+      std::move(request),
+      base::BindLambdaForTesting(
+          [&run_loop, &received_answer](
+              network::mojom::FulfillTrustTokenIssuanceAnswerPtr answer) {
+            received_answer = std::move(answer);
+            run_loop.Quit();
+          }));
+
+  run_loop.Run();
+
+  ASSERT_TRUE(received_answer);
+  EXPECT_EQ(received_answer->status,
+            network::mojom::FulfillTrustTokenIssuanceAnswer::Status::kNotFound);
 }
 
 }  // namespace content

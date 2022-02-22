@@ -2,16 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/spdy/core/hpack/hpack_constants.h"
+#include "spdy/core/hpack/hpack_constants.h"
 
 #include <cstddef>
 #include <memory>
 #include <vector>
 
-#include "net/third_party/quiche/src/common/platform/api/quiche_arraysize.h"
-#include "net/third_party/quiche/src/spdy/core/hpack/hpack_huffman_table.h"
-#include "net/third_party/quiche/src/spdy/core/hpack/hpack_static_table.h"
-#include "net/third_party/quiche/src/spdy/platform/api/spdy_logging.h"
+#include "absl/base/macros.h"
+#include "spdy/core/hpack/hpack_static_table.h"
+#include "spdy/platform/api/spdy_logging.h"
 
 namespace spdy {
 
@@ -290,7 +289,7 @@ const std::vector<HpackHuffmanSymbol>& HpackHuffmanCodeVector() {
 // The "constructor" for a HpackStaticEntry that computes the lengths at
 // compile time.
 #define STATIC_ENTRY(name, value) \
-  { name, QUICHE_ARRAYSIZE(name) - 1, value, QUICHE_ARRAYSIZE(value) - 1 }
+  { name, ABSL_ARRAYSIZE(name) - 1, value, ABSL_ARRAYSIZE(value) - 1 }
 
 const std::vector<HpackStaticEntry>& HpackStaticTableVector() {
   static const auto* kHpackStaticTable = new std::vector<HpackStaticEntry>{
@@ -361,23 +360,12 @@ const std::vector<HpackStaticEntry>& HpackStaticTableVector() {
 
 #undef STATIC_ENTRY
 
-const HpackHuffmanTable& ObtainHpackHuffmanTable() {
-  static const HpackHuffmanTable* const shared_huffman_table = []() {
-    auto* table = new HpackHuffmanTable();
-    CHECK(table->Initialize(HpackHuffmanCodeVector().data(),
-                            HpackHuffmanCodeVector().size()));
-    CHECK(table->IsInitialized());
-    return table;
-  }();
-  return *shared_huffman_table;
-}
-
 const HpackStaticTable& ObtainHpackStaticTable() {
   static const HpackStaticTable* const shared_static_table = []() {
     auto* table = new HpackStaticTable();
     table->Initialize(HpackStaticTableVector().data(),
                       HpackStaticTableVector().size());
-    CHECK(table->IsInitialized());
+    QUICHE_CHECK(table->IsInitialized());
     return table;
   }();
   return *shared_static_table;

@@ -119,7 +119,7 @@ public:
     virtual void clearFocusObject();
     virtual QRectF closestAcceptableGeometry(const QRectF &rect) const;
 
-    virtual void processSafeAreaMarginsChanged() {};
+    virtual void processSafeAreaMarginsChanged() {}
 
     bool isPopup() const { return (windowFlags & Qt::WindowType_Mask) == Qt::Popup; }
     void setAutomaticPositionAndResizeEnabled(bool a)
@@ -129,9 +129,6 @@ public:
 
     static Qt::WindowState effectiveState(Qt::WindowStates);
 
-    // ### Qt6: unused
-    virtual bool allowClickThrough(const QPoint &) const { return true; }
-
     QWindow::SurfaceType surfaceType = QWindow::RasterSurface;
     Qt::WindowFlags windowFlags = Qt::Window;
     QWindow *parentWindow = nullptr;
@@ -139,6 +136,7 @@ public:
     bool visible= false;
     bool visibilityOnDestroy = false;
     bool exposed = false;
+    bool inClose = false;
     QSurfaceFormat requestedFormat;
     QString windowTitle;
     QString windowFilePath;

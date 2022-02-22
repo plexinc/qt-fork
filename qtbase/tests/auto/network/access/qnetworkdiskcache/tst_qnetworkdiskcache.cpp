@@ -26,15 +26,16 @@
 **
 ****************************************************************************/
 
-
-#include <QtTest/QtTest>
 #include <QtNetwork/QtNetwork>
+#include <QTest>
+#include <QTestEventLoop>
 #include <qnetworkdiskcache.h>
 #include <qrandom.h>
 
 #include <algorithm>
 
 #define EXAMPLE_URL "http://user:pass@localhost:4/#foo"
+#define EXAMPLE_URL2 "http://user:pass@localhost:4/bar"
 //cached objects are organized into these many subdirs
 #define NUM_SUBDIRECTORIES 16
 
@@ -129,7 +130,7 @@ public slots:
             if (doClose) {
                 client->disconnectFromHost();
                 disconnect(client, 0, this, 0);
-                client = 0;
+                client = nullptr;
             }
         }
     }
@@ -141,7 +142,7 @@ class SubQNetworkDiskCache : public QNetworkDiskCache
 public:
     ~SubQNetworkDiskCache()
     {
-        if (!cacheDirectory().isEmpty())
+        if (!cacheDirectory().isEmpty() && clearOnDestruction)
             clear();
     }
 
@@ -155,7 +156,7 @@ public:
     {
         setCacheDirectory(path);
 
-        QIODevice *d = 0;
+        QIODevice *d = nullptr;
         if (metaData.isValid()) {
             d = prepare(metaData);
         } else {
@@ -170,6 +171,11 @@ public:
         d->write("Hello World!");
         insert(d);
     }
+
+    void setClearCacheOnDestruction(bool value) { clearOnDestruction = value; }
+
+private:
+    bool clearOnDestruction = true;
 };
 
 tst_QNetworkDiskCache::tst_QNetworkDiskCache()
@@ -241,17 +247,39 @@ void tst_QNetworkDiskCache::prepare()
 // public qint64 cacheSize() const
 void tst_QNetworkDiskCache::cacheSize()
 {
+    qint64 cacheSize = 0;
+    {
+        SubQNetworkDiskCache cache;
+        cache.setCacheDirectory(tempDir.path());
+        QCOMPARE(cache.cacheSize(), qint64(0));
+
+        {
+            QUrl url(EXAMPLE_URL);
+            QNetworkCacheMetaData metaData;
+            metaData.setUrl(url);
+            QIODevice *d = cache.prepare(metaData);
+            cache.insert(d);
+            cacheSize = cache.cacheSize();
+            QVERIFY(cacheSize > qint64(0));
+        }
+        // Add a second item, some difference in behavior when the cache is not empty
+        {
+            QUrl url(EXAMPLE_URL2);
+            QNetworkCacheMetaData metaData;
+            metaData.setUrl(url);
+            QIODevice *d = cache.prepare(metaData);
+            cache.insert(d);
+            QVERIFY(cache.cacheSize() > cacheSize);
+            cacheSize = cache.cacheSize();
+        }
+
+        // Don't clear the cache on destruction so we can re-open the cache and test its size.
+        cache.setClearCacheOnDestruction(false);
+    }
+
     SubQNetworkDiskCache cache;
     cache.setCacheDirectory(tempDir.path());
-    QCOMPARE(cache.cacheSize(), qint64(0));
-
-    QUrl url(EXAMPLE_URL);
-    QNetworkCacheMetaData metaData;
-    metaData.setUrl(url);
-    QIODevice *d = cache.prepare(metaData);
-    cache.insert(d);
-    QVERIFY(cache.cacheSize() > qint64(0));
-
+    QCOMPARE(cache.cacheSize(), cacheSize);
     cache.clear();
     QCOMPARE(cache.cacheSize(), qint64(0));
 }
@@ -402,18 +430,23 @@ void tst_QNetworkDiskCache::setCookieHeader() // QTBUG-41514
     headers.append(QNetworkCacheMetaData::RawHeader("Set-Cookie", "aaa=bbb"));
     metaData.setRawHeaders(headers);
     metaData.setSaveToDisk(true);
+    QDateTime expirationDate = QDateTime::currentDateTime().addSecs(500);
+    metaData.setExpirationDate(expirationDate);
     cache->setupWithOne(tempDir.path(), url, metaData);
 
     manager = new QNetworkAccessManager();
     manager->setCache(cache);
 
     QNetworkRequest request(url);
+    request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::PreferCache);
     QNetworkReply  *reply = manager->get(request);
     connect(reply, SIGNAL(metaDataChanged()), this, SLOT(setCookieHeaderMetaDataChangedSlot()));
     connect(reply, SIGNAL(finished()), &QTestEventLoop::instance(), SLOT(exitLoop()));
 
     QTestEventLoop::instance().enterLoop(5);
     QVERIFY(!QTestEventLoop::instance().timeout());
+
+    QCOMPARE(reply->error(), QNetworkReply::NoError);
 
     reply->deleteLater();
     manager->deleteLater();
@@ -663,7 +696,7 @@ public:
         , cachePath(cachePath)
     {}
 
-    void run()
+    void run() override
     {
         QByteArray longString = "Hello World, this is some long string, well not really that long";
         for (int j = 0; j < 10; ++j)

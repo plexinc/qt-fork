@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -53,6 +53,7 @@
 
 #include <QtCore/private/qglobal_p.h>
 #include <QtCore/qchar.h>
+#include <QtCore/qvarlengtharray.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -71,12 +72,13 @@ Q_DECLARE_TYPEINFO(QCharAttributes, Q_PRIMITIVE_TYPE);
 
 namespace QUnicodeTools {
 
-// ### temporary
 struct ScriptItem
 {
-    int position;
-    int script;
+    qsizetype position;
+    QChar::Script script;
 };
+
+using ScriptItemArray = QVarLengthArray<ScriptItem, 64>;
 
 } // namespace QUnicodeTools
 Q_DECLARE_TYPEINFO(QUnicodeTools::ScriptItem, Q_PRIMITIVE_TYPE);
@@ -89,19 +91,18 @@ enum CharAttributeOption {
     LineBreaks = 0x08,
     WhiteSpaces = 0x10,
     HangulLineBreakTailoring = 0x20,
-    DefaultOptionsCompat = GraphemeBreaks | LineBreaks | WhiteSpaces, // ### remove
 
     DontClearAttributes = 0x1000
 };
 Q_DECLARE_FLAGS(CharAttributeOptions, CharAttributeOption)
 
 // attributes buffer has to have a length of string length + 1
-Q_CORE_EXPORT void initCharAttributes(const ushort *string, int length,
-                                      const ScriptItem *items, int numItems,
-                                      QCharAttributes *attributes, CharAttributeOptions options = DefaultOptionsCompat);
+Q_CORE_EXPORT void initCharAttributes(QStringView str,
+                                      const ScriptItem *items, qsizetype numItems,
+                                      QCharAttributes *attributes, CharAttributeOptions options);
 
 
-Q_CORE_EXPORT void initScripts(const ushort *string, int length, uchar *scripts);
+Q_CORE_EXPORT void initScripts(QStringView str, ScriptItemArray *scripts);
 
 } // namespace QUnicodeTools
 

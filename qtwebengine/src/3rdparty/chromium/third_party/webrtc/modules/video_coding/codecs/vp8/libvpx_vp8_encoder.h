@@ -21,11 +21,12 @@
 #include "api/video_codecs/video_encoder.h"
 #include "api/video_codecs/vp8_frame_buffer_controller.h"
 #include "api/video_codecs/vp8_frame_config.h"
+#include "modules/video_coding/codecs/interface/libvpx_interface.h"
 #include "modules/video_coding/codecs/vp8/include/vp8.h"
-#include "modules/video_coding/codecs/vp8/libvpx_interface.h"
 #include "modules/video_coding/include/video_codec_interface.h"
 #include "modules/video_coding/utility/framerate_controller.h"
 #include "rtc_base/experiments/cpu_speed_experiment.h"
+#include "rtc_base/experiments/encoder_info_settings.h"
 #include "rtc_base/experiments/rate_control_settings.h"
 #include "vpx/vp8cx.h"
 #include "vpx/vpx_encoder.h"
@@ -93,12 +94,14 @@ class LibvpxVp8Encoder : public VideoEncoder {
 
   bool UpdateVpxConfiguration(size_t stream_index);
 
+  void MaybeUpdatePixelFormat(vpx_img_fmt fmt);
+  void PrepareI420Image(const I420BufferInterface* frame);
+  void PrepareNV12Image(const NV12BufferInterface* frame);
+
   const std::unique_ptr<LibvpxInterface> libvpx_;
 
-  const absl::optional<std::vector<CpuSpeedExperiment::Config>>
-      experimental_cpu_speed_config_arm_;
+  const CpuSpeedExperiment experimental_cpu_speed_config_arm_;
   const RateControlSettings rate_control_settings_;
-  const absl::optional<int> screenshare_max_qp_;
 
   EncodedImageCallback* encoded_complete_callback_ = nullptr;
   VideoCodec codec_;
@@ -141,6 +144,8 @@ class LibvpxVp8Encoder : public VideoEncoder {
   int num_steady_state_frames_ = 0;
 
   FecControllerOverride* fec_controller_override_ = nullptr;
+
+  const LibvpxVp8EncoderInfoSettings encoder_info_override_;
 };
 
 }  // namespace webrtc

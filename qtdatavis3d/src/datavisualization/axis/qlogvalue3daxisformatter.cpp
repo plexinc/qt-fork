@@ -31,7 +31,7 @@
 #include "qvalue3daxis_p.h"
 #include <QtCore/qmath.h>
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 /*!
  * \class QLogValue3DAxisFormatter
@@ -399,7 +399,7 @@ void QLogValue3DAxisFormatterPrivate::recalculate()
 
         // Since the logarithm has the same curvature across whole axis range, we can just calculate
         // subgrid positions for the first segment and replicate them to other segments.
-        QVector<float> actualSubSegmentSteps(subGridCount);
+        QList<float> actualSubSegmentSteps(subGridCount);
 
         for (int i = 0; i < subGridCount; i++) {
             float currentSubPosition = positionAt(m_min + ((i + 1) * subSegmentStep));
@@ -452,4 +452,4 @@ QLogValue3DAxisFormatter *QLogValue3DAxisFormatterPrivate::qptr()
     return static_cast<QLogValue3DAxisFormatter *>(q_ptr);
 }
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE

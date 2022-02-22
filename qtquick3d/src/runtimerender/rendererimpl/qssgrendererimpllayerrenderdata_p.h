@@ -43,116 +43,63 @@
 //
 
 #include <QtQuick3DRuntimeRender/private/qssgrendererimpllayerrenderpreparationdata_p.h>
-#include <QtQuick3DRuntimeRender/private/qssgrenderresourcebufferobjects_p.h>
-#include <QtQuick3DRuntimeRender/private/qssgrenderresourcetexture2d_p.h>
+#include <QtQuick3DRuntimeRender/private/qssgrenderer_p.h>
 
 QT_BEGIN_NAMESPACE
 
-struct QSSGLayerRenderData : public QSSGLayerRenderPreparationData
+struct QSSGRhiRenderableTexture
+{
+    QRhiTexture *texture = nullptr;
+    QRhiRenderBuffer *depthStencil = nullptr;
+    QRhiRenderPassDescriptor *rpDesc = nullptr;
+    QRhiTextureRenderTarget *rt = nullptr;
+    bool isValid() const { return texture && rpDesc && rt; }
+    void resetRenderTarget() {
+        delete rt;
+        rt = nullptr;
+        delete rpDesc;
+        rpDesc = nullptr;
+    }
+    void reset() {
+        resetRenderTarget();
+        delete texture;
+        delete depthStencil;
+        *this = QSSGRhiRenderableTexture();
+    }
+};
+
+struct Q_QUICK3DRUNTIMERENDER_EXPORT QSSGLayerRenderData : public QSSGLayerRenderPreparationData
 {
     QAtomicInt ref;
 
-    // Layers can be rendered offscreen for many reasons; effects, progressive aa,
-    // or just because a flag forces it.  If they are rendered offscreen we can then
-    // cache the result so we don't render the layer again if it isn't dirty.
-    QSSGResourceTexture2D m_layerTexture;
-    QSSGResourceTexture2D m_temporalAATexture;
-    QSSGResourceTexture2D m_prevTemporalAATexture;
-    // Sometimes we need to render our depth buffer to a depth texture.
-    QSSGResourceTexture2D m_layerDepthTexture;
-    QSSGResourceTexture2D m_layerPrepassDepthTexture;
-    QSSGResourceTexture2D m_layerSsaoTexture;
-    // if we render multisampled we need resolve buffers
-    QSSGResourceTexture2D m_layerMultisampleTexture;
-    QSSGResourceTexture2D m_layerMultisamplePrepassDepthTexture;
-    QSSGResourceTexture2D m_layerMultisampleWidgetTexture;
+    QSSGRenderTextureFormat m_depthBufferFormat;
 
-    // GPU profiler per layer
-    QScopedPointer<QSSGRenderGPUProfiler> m_layerProfilerGpu;
-
-    QSSGRenderCamera m_sceneCamera;
-    QVector2D m_sceneDimensions;
+    // RHI resources
+    QSSGRhiRenderableTexture m_rhiDepthTexture;
+    QSSGRhiRenderableTexture m_rhiAoTexture;
+    QSSGRhiRenderableTexture m_rhiScreenTexture;
 
     // ProgressiveAA algorithm details.
     quint32 m_progressiveAAPassIndex;
     // Increments every frame regardless to provide appropriate jittering
     quint32 m_temporalAAPassIndex;
-    // Ensures we don't stop on an in-between frame; we will run two frames after the dirty flag
-    // is clear.
-    quint32 m_nonDirtyTemporalAAPassIndex;
-    float m_textScale;
 
-    QSSGOption<QVector3D> m_boundingRectColor;
-    QSSGRenderTextureFormat m_depthBufferFormat;
+    QSize m_previousOutputSize;
 
-    QSize m_previousDimensions;
+    bool m_globalZPrePassActive;
 
-    QSSGLayerRenderData(QSSGRenderLayer &inLayer, const QSSGRef<QSSGRendererImpl> &inRenderer);
+    QSSGLayerRenderData(QSSGRenderLayer &inLayer, const QSSGRef<QSSGRenderer> &inRenderer);
 
     virtual ~QSSGLayerRenderData() override;
 
-    void prepareForRender();
-
     // Internal Call
-    void prepareForRender(const QSize &inViewportDimensions) override;
+    void prepareForRender(const QSize &outputSize) override;
+    void resetForFrame() final;
 
-    QSSGRenderTextureFormat getDepthBufferFormat();
-    QSSGRenderFrameBufferAttachment getFramebufferDepthAttachmentFormat(QSSGRenderTextureFormat depthFormat);
+    // RHI-only
+    void rhiPrepare();
+    void rhiRender();
 
-    // Render this layer assuming viewport and RT are setup.  Just renders exactly this item
-    // no effects.
-    void renderClearPass();
-    void renderDepthPass(bool inEnableTransparentDepthWrite = false);
-    void renderAoPass();
-#ifdef QT_QUICK3D_DEBUG_SHADOWS
-    void renderDebugDepthMap(QSSGRenderTexture2D *theDepthTex, QSSGRenderTextureCube *theDepthCube);
-#endif
-    void renderShadowMapPass(QSSGResourceFrameBuffer *theFB);
-    void renderShadowCubeBlurPass(QSSGResourceFrameBuffer *theFB,
-                                  const QSSGRef<QSSGRenderTextureCube> &target0,
-                                  const QSSGRef<QSSGRenderTextureCube> &target1,
-                                  float filterSz,
-                                  float clipFar);
-    void renderShadowMapBlurPass(QSSGResourceFrameBuffer *theFB,
-                                 const QSSGRef<QSSGRenderTexture2D> &target0,
-                                 const QSSGRef<QSSGRenderTexture2D> &target1,
-                                 float filterSz,
-                                 float clipFar);
-
-    void render(QSSGResourceFrameBuffer *theFB = nullptr);
-    void resetForFrame() override;
-
-    void createGpuProfiler();
-    void startProfiling(QString &nameID, bool sync);
-    void endProfiling(QString &nameID);
-    void startProfiling(const char *nameID, bool sync);
-    void endProfiling(const char *nameID);
-    void addVertexCount(quint32 count);
-
-    void applyLayerPostEffects(const QSSGRef<QSSGRenderFrameBuffer> &theFB);
-    void runnableRenderToViewport(const QSSGRef<QSSGRenderFrameBuffer> &theFB);
-
-    // test method to render this layer to a given view projection without running the entire
-    // layer setup system.  This assumes the client has setup the viewport, scissor, and render
-    // target
-    // the way they want them.
-    void prepareAndRender(const QMatrix4x4 &inViewProjection);
-
-    bool progressiveAARenderRequest() const;
-
-protected:
-    // Used for both the normal passes and the depth pass.
-    // When doing the depth pass, we disable blending completely because it does not really make
-    // sense
-    // to write blend equations into
-    void runRenderPass(TRenderRenderableFunction renderFn,
-                       bool inEnableBlending,
-                       bool inEnableDepthWrite,
-                       bool inEnableTransparentDepthWrite,
-                       bool inSortOpaqueRenderables,
-                       quint32 indexLight,
-                       const QSSGRenderCamera &inCamera,
-                       QSSGResourceFrameBuffer *theFB = nullptr);
 };
 QT_END_NAMESPACE
 #endif

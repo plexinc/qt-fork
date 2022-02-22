@@ -27,7 +27,8 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QRandomGenerator>
 
 #define protected public
 
@@ -110,7 +111,7 @@ tst_QTextPieceTable::tst_QTextPieceTable()
 void tst_QTextPieceTable::init()
 {
     doc = new QTextDocument(0);
-    table = doc->docHandle();
+    table = QTextDocumentPrivate::get(doc);
     blockFormatIndex = table->formatCollection()->indexForFormat(QTextBlockFormat());
     charFormatIndex = table->formatCollection()->indexForFormat(QTextCharFormat());
 }

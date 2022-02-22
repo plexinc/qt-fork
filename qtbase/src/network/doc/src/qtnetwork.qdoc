@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -30,28 +30,30 @@
     \title Qt Network
     \brief Provides networking capabilities
 
-    Qt Network provides a set of APIs for programming applications that use
-    TCP/IP. Operations such as requests, cookies, and sending data over HTTP
-    are handled by various C++ classes.
+    The \l{Qt Network} module provides a set of APIs for programming
+    applications that use TCP/IP. Operations such as requests, cookies, and
+    sending data over HTTP are handled by various C++ classes.
 
     \include module-use.qdocinc using qt module
-    \snippet CMakeLists.txt 0
+    \snippet doc/snippets/CMakeLists.txt 0
 
-    See also the \l{Build with CMake} overview.
+    See also the \l {Build with CMake} overview.
 
     \section2 Building with qmake
 
     Add \c network to the \c QT variable:
 
-    \snippet snippets.pro 0
+    \snippet network/network.pro 0
 
     \section1 Articles and Guides
 
     These articles contain information about Qt Network setup and about
     applications with networking capabilities.
     \list
-    \li \l{Network Programming with Qt} - Programming applications with networking capabilities
-    \li \l{Secure Sockets Layer (SSL) Classes} - Classes for secure communication over network sockets
+    \li \l{Network Programming with Qt} - Programming applications with
+        networking capabilities
+    \li \l{Secure Sockets Layer (SSL) Classes} - Classes for secure
+        communication over network sockets
     \endlist
 
     \section1 API Reference
@@ -59,6 +61,10 @@
     \list
     \li \l{Qt Network C++ Classes}{C++ Classes}
     \endlist
+
+    \section1 Module Evolution
+    \l{Changes to Qt Network} lists important changes in the module API
+    and functionality that were done for the Qt 6 series of Qt.
 
     \section1 Licenses and Attributions
 
@@ -94,9 +100,11 @@
     \module QtNetwork
     \title Qt Network C++ Classes
     \ingroup modules
+    \qtcmakepackage Network
     \qtvariable network
     \brief Provides classes to make network programming easier and portable.
 
-    Qt Network provides a set of APIs for programming applications that use
-    TCP/IP. See the \l{Qt Network} overview for more information.
+
+    The \l{Qt Network} page contains information about how to use the module.
+
 */

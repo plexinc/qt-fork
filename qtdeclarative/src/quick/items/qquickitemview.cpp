@@ -1366,13 +1366,13 @@ void QQuickItemView::trackedPositionChanged()
     }
 }
 
-void QQuickItemView::geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry)
+void QQuickItemView::geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry)
 {
     Q_D(QQuickItemView);
     d->markExtentsDirty();
     if (isComponentComplete() && (d->isValid() || !d->visibleItems.isEmpty()))
         d->forceLayoutPolish();
-    QQuickFlickable::geometryChanged(newGeometry, oldGeometry);
+    QQuickFlickable::geometryChange(newGeometry, oldGeometry);
 }
 
 qreal QQuickItemView::minYExtent() const
@@ -1785,7 +1785,7 @@ void QQuickItemViewPrivate::refill(qreal from, qreal to)
 
     do {
         bufferPause.stop();
-        if (currentChanges.hasPendingChanges() || bufferedChanges.hasPendingChanges()) {
+        if (currentChanges.hasPendingChanges() || bufferedChanges.hasPendingChanges() || currentChanges.active) {
             currentChanges.reset();
             bufferedChanges.reset();
             releaseVisibleItems(reusableFlag);
@@ -2346,7 +2346,9 @@ FxViewItem *QQuickItemViewPrivate::createItem(int modelIndex, QQmlIncubator::Inc
 
     inRequest = true;
 
-    QObject* object = model->object(modelIndex, incubationMode);
+    // The model will run this same range check internally but produce a warning and return nullptr.
+    // Since we handle this result graciously in our code, we preempt this warning by checking the range ourselves.
+    QObject* object = modelIndex < model->count() ? model->object(modelIndex, incubationMode) : nullptr;
     QQuickItem *item = qmlobject_cast<QQuickItem*>(object);
 
     if (!item) {

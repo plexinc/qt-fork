@@ -5,9 +5,9 @@
 #ifndef QUICHE_QUIC_CORE_QPACK_QPACK_RECEIVE_STREAM_H_
 #define QUICHE_QUIC_CORE_QPACK_QPACK_RECEIVE_STREAM_H_
 
-#include "net/third_party/quiche/src/quic/core/qpack/qpack_stream_receiver.h"
-#include "net/third_party/quiche/src/quic/core/quic_stream.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
+#include "quic/core/qpack/qpack_stream_receiver.h"
+#include "quic/core/quic_stream.h"
+#include "quic/platform/api/quic_export.h"
 
 namespace quic {
 
@@ -19,7 +19,9 @@ class QUIC_EXPORT_PRIVATE QpackReceiveStream : public QuicStream {
  public:
   // Construct receive stream from pending stream, the |pending| object needs
   // to be deleted after the construction.
-  QpackReceiveStream(PendingStream* pending, QpackStreamReceiver* receiver);
+  QpackReceiveStream(PendingStream* pending,
+                     QuicSession* session,
+                     QpackStreamReceiver* receiver);
   QpackReceiveStream(const QpackReceiveStream&) = delete;
   QpackReceiveStream& operator=(const QpackReceiveStream&) = delete;
   ~QpackReceiveStream() override = default;

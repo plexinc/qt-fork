@@ -5,7 +5,7 @@
 #include "chrome/browser/ui/webui/print_preview/printer_handler.h"
 
 #include "build/buildflag.h"
-#include "chrome/browser/ui/webui/print_preview/cloud_printer_handler.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/ui/webui/print_preview/extension_printer_handler.h"
 #include "chrome/browser/ui/webui/print_preview/pdf_printer_handler.h"
 #include "chrome/common/buildflags.h"
@@ -14,18 +14,13 @@
 #include "chrome/browser/ui/webui/print_preview/privet_printer_handler.h"
 #endif
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/ui/webui/print_preview/local_printer_handler_chromeos.h"
 #else
 #include "chrome/browser/ui/webui/print_preview/local_printer_handler_default.h"
 #endif
 
 namespace printing {
-
-// static
-std::unique_ptr<PrinterHandler> PrinterHandler::CreateForCloudPrinters() {
-  return std::make_unique<CloudPrinterHandler>();
-}
 
 // static
 std::unique_ptr<PrinterHandler> PrinterHandler::CreateForExtensionPrinters(
@@ -37,7 +32,7 @@ std::unique_ptr<PrinterHandler> PrinterHandler::CreateForExtensionPrinters(
 std::unique_ptr<PrinterHandler> PrinterHandler::CreateForLocalPrinters(
     content::WebContents* preview_web_contents,
     Profile* profile) {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   return LocalPrinterHandlerChromeos::CreateDefault(profile,
                                                     preview_web_contents);
 #else
@@ -71,9 +66,15 @@ void PrinterHandler::StartGrantPrinterAccess(const std::string& printer_id,
   NOTREACHED();
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 void PrinterHandler::StartGetEulaUrl(const std::string& destination_id,
                                      GetEulaUrlCallback callback) {
+  NOTREACHED();
+}
+
+void PrinterHandler::StartPrinterStatusRequest(
+    const std::string& printer_id,
+    PrinterStatusRequestCallback callback) {
   NOTREACHED();
 }
 #endif

@@ -10,8 +10,8 @@
 #include <utility>
 
 #include "base/command_line.h"
+#include "base/containers/contains.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "components/country_codes/country_codes.h"
@@ -316,8 +316,8 @@ TEST_F(TemplateURLPrepopulateDataTest, GetEngineTypeAdvanced) {
 
   // Non-Google URLs.
   const char* kYahooURLs[] = {
-      "http://search.yahoo.com/search?"
-      "ei={inputEncoding}&fr=crmas&p={searchTerms}",
+      ("http://search.yahoo.com/search?"
+       "ei={inputEncoding}&fr=crmas&p={searchTerms}"),
       "http://search.yahoo.com/search?p={searchTerms}",
       // Aggressively match types by checking just TLD+1.
       "http://someothersite.yahoo.com/",

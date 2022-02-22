@@ -52,6 +52,18 @@
 QT_BEGIN_NAMESPACE
 
 class QSSGAssetImporter;
+class QQuick3DNode;
+namespace QSSGSceneDesc { struct Scene; }
+
+struct QSSGAssetImporterPluginInfo
+{
+    QString name;
+    QStringList inputExtensions;
+    QString outputExtension;
+    QString type;
+    QVariantMap importOptions;
+    QString typeDescription;
+};
 
 class Q_QUICK3DASSETIMPORT_EXPORT QSSGAssetImportManager : public QObject
 {
@@ -75,9 +87,13 @@ public:
                            const QDir &outputPath,
                            const QVariantMap &options = QVariantMap(),
                            QString *error = nullptr);
+    ImportState importFile(const QUrl &url,
+                           QSSGSceneDesc::Scene &scene,
+                           QString *error = nullptr);
     QVariantMap getOptionsForFile(const QString &filename);
     QHash<QString, QVariantMap> getAllOptions() const;
     QHash<QString, QStringList> getSupportedExtensions() const;
+    QList<QSSGAssetImporterPluginInfo> getImporterPluginInfos() const;
 
 private:
     QVector<QSSGAssetImporter *> m_assetImporters;

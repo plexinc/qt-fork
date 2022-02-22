@@ -36,7 +36,7 @@ namespace extensions {
 // renderers of new shared memory region when new renderers appear, or when
 // script reloading completes. Script loading lives on the UI thread. Instances
 // of this class are embedded within classes with names ending in
-// UserScriptMaster. These "master" classes implement the strategy for which
+// UserScriptManager. These "manager" classes implement the strategy for which
 // scripts to load/unload on this logical unit of scripts.
 class UserScriptLoader : public content::RenderProcessHostCreationObserver {
  public:
@@ -102,7 +102,7 @@ class UserScriptLoader : public content::RenderProcessHostCreationObserver {
   // This may not be synchronous with the calls to Add/Remove/Clear scripts.
   virtual void LoadScripts(std::unique_ptr<UserScriptList> user_scripts,
                            const std::set<HostID>& changed_hosts,
-                           const std::set<int>& added_script_ids,
+                           const std::set<std::string>& added_script_ids,
                            LoadScriptsCallback callback) = 0;
 
   // Sets the flag if the initial set of hosts has finished loading; if it's
@@ -152,7 +152,7 @@ class UserScriptLoader : public content::RenderProcessHostCreationObserver {
   // The mutually-exclusive information about sets of scripts that were added or
   // removed since the last script load. These maps are keyed by script ids.
   // Note that we only need HostID information for removal.
-  std::map<int, std::unique_ptr<UserScript>> added_scripts_map_;
+  std::map<std::string, std::unique_ptr<UserScript>> added_scripts_map_;
   std::set<UserScriptIDPair> removed_script_hosts_;
 
   // Indicates whether the the collection of scripts should be cleared before

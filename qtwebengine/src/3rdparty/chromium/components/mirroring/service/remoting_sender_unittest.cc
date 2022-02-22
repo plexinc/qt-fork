@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
@@ -117,9 +117,8 @@ class RemotingSenderTest : public ::testing::Test {
         sizeof(MojoCreateDataPipeOptions), MOJO_CREATE_DATA_PIPE_FLAG_NONE, 1,
         kDataPipeCapacity};
     mojo::ScopedDataPipeConsumerHandle consumer_end;
-    CHECK_EQ(MOJO_RESULT_OK,
-             mojo::CreateDataPipe(&data_pipe_options, &producer_end_,
-                                  &consumer_end));
+    CHECK_EQ(MOJO_RESULT_OK, mojo::CreateDataPipe(&data_pipe_options,
+                                                  producer_end_, consumer_end));
 
     media::cast::FrameSenderConfig video_config =
         media::cast::GetDefaultVideoSenderConfig();

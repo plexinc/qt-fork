@@ -195,7 +195,7 @@ QNativeSocketEnginePrivate::QNativeSocketEnginePrivate() :
     writeNotifier(nullptr),
     exceptNotifier(nullptr)
 {
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
     QSysInfo::machineHostName();        // this initializes ws2_32.dll
 #endif
 }
@@ -972,7 +972,7 @@ void QNativeSocketEngine::close()
     if (d->exceptNotifier)
         d->exceptNotifier->setEnabled(false);
 
-    if(d->socketDescriptor != -1) {
+    if (d->socketDescriptor != -1) {
         d->nativeClose();
         d->socketDescriptor = -1;
     }
@@ -1382,3 +1382,5 @@ void QNativeSocketEngine::setExceptionNotificationEnabled(bool enable)
 }
 
 QT_END_NAMESPACE
+
+#include "moc_qnativesocketengine_p.cpp"

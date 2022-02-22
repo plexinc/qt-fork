@@ -2,39 +2,54 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/quic_transmission_info.h"
+#include "quic/core/quic_transmission_info.h"
+#include "absl/strings/str_cat.h"
 
 namespace quic {
 
 QuicTransmissionInfo::QuicTransmissionInfo()
-    : encryption_level(ENCRYPTION_INITIAL),
+    : sent_time(QuicTime::Zero()),
       bytes_sent(0),
-      sent_time(QuicTime::Zero()),
+      encryption_level(ENCRYPTION_INITIAL),
       transmission_type(NOT_RETRANSMISSION),
       in_flight(false),
       state(OUTSTANDING),
       has_crypto_handshake(false),
-      num_padding_bytes(0) {}
+      has_ack_frequency(false) {}
 
-QuicTransmissionInfo::QuicTransmissionInfo(
-    EncryptionLevel level,
-    TransmissionType transmission_type,
-    QuicTime sent_time,
-    QuicPacketLength bytes_sent,
-    bool has_crypto_handshake,
-    int num_padding_bytes)
-    : encryption_level(level),
+QuicTransmissionInfo::QuicTransmissionInfo(EncryptionLevel level,
+                                           TransmissionType transmission_type,
+                                           QuicTime sent_time,
+                                           QuicPacketLength bytes_sent,
+                                           bool has_crypto_handshake,
+                                           bool has_ack_frequency)
+    : sent_time(sent_time),
       bytes_sent(bytes_sent),
-      sent_time(sent_time),
+      encryption_level(level),
       transmission_type(transmission_type),
       in_flight(false),
       state(OUTSTANDING),
       has_crypto_handshake(has_crypto_handshake),
-      num_padding_bytes(num_padding_bytes) {}
+      has_ack_frequency(has_ack_frequency) {}
 
 QuicTransmissionInfo::QuicTransmissionInfo(const QuicTransmissionInfo& other) =
     default;
 
 QuicTransmissionInfo::~QuicTransmissionInfo() {}
+
+std::string QuicTransmissionInfo::DebugString() const {
+  return absl::StrCat(
+      "{sent_time: ", sent_time.ToDebuggingValue(),
+      ", bytes_sent: ", bytes_sent,
+      ", encryption_level: ", EncryptionLevelToString(encryption_level),
+      ", transmission_type: ", TransmissionTypeToString(transmission_type),
+      ", in_flight: ", in_flight, ", state: ", state,
+      ", has_crypto_handshake: ", has_crypto_handshake,
+      ", has_ack_frequency: ", has_ack_frequency,
+      ", first_sent_after_loss: ", first_sent_after_loss.ToString(),
+      ", largest_acked: ", largest_acked.ToString(),
+      ", retransmittable_frames: ", QuicFramesToString(retransmittable_frames),
+      "}");
+}
 
 }  // namespace quic

@@ -64,15 +64,15 @@
     \row
         \li REAL
         \li 32-bit Single-precision floating point
-        \li By default mapping to QString
+        \li typedef qreal
     \row
         \li DOUBLE PRECISION
         \li 64-bit Double-precision floating point
-        \li By default mapping to QString
+        \li Mapped to QString for high precision doubles, otherwise qreal
     \row
         \li FLOAT
         \li 64-bit Double-precision floating point
-        \li By default mapping to QString
+        \li typedef qreal
     \row
         \li CHAR
         \li Fixed-length, null-terminated character string
@@ -139,19 +139,19 @@
     \row
         \li REAL FLOAT
         \li 32-bit floating point
-        \li By default mapping to QString
+        \li typedef qreal
     \row
         \li FLOAT
         \li 64-bit floating point
-        \li By default mapping to QString
+        \li typedef qreal
     \row
         \li DOUBLE
         \li 64-bit floating point
-        \li By default mapping to QString
+        \li typedef qreal
     \row
         \li DOUBLE PRECISION
         \li 64-bit Double-precision floating point
-        \li By default mapping to QString
+        \li Mapped to QString for high precision doubles, otherwise qreal
     \row
         \li VARCHAR STRING
         \li Character string, Unicode
@@ -212,11 +212,11 @@
     \row
         \li FLOAT
         \li 32-bit Floating Point
-        \li By default mapping to QString
+        \li typedef qreal
     \row
         \li DOUBLE
         \li 64-bit Floating Point
-        \li By default mapping to QString
+        \li Mapped to QString for high precision doubles, otherwise qreal
     \row
         \li CHAR
         \li Character string
@@ -285,7 +285,7 @@
     \row
         \li NUMBER
         \li FLOAT, DOUBLE, PRECISIONc REAL
-        \li By default mapping to QString
+        \li Mapped to QString for high precision doubles, otherwise qreal
     \row
         \li NUMBER(38)
         \li INTEGER INT SMALLINT
@@ -353,15 +353,15 @@
     \row
         \li REAL
         \li 32-bit Single-precision floating point
-        \li By default mapping to QString
+        \li typedef qreal
     \row
         \li FLOAT
         \li 64-bit Double floating point
-        \li By default mapping to QString
+        \li typedef qreal
     \row
         \li DOUBLE
         \li 64-bit Double floating point
-        \li By default mapping to QString
+        \li Mapped to QString for high precision doubles, otherwise qreal
     \row
         \li CHAR
         \li Character string
@@ -418,19 +418,19 @@
     \row
         \li REAL
         \li 32-bit variable-precision floating point
-        \li By default mapping to QString
+        \li typedef qreal
     \row
         \li DOUBLE PRECISION
         \li 64-bit variable-precision floating point
-        \li By default mapping to QString
+        \li Mapped to QString for high precision doubles, otherwise qreal
     \row
         \li DECIMAL VARIABLE
         \li user-specified precision, exact
-        \li Mapped to QString
+        \li typedef qreal
     \row
         \li NUMERIC VARIABLE
         \li user-specified precision, exact
-        \li Mapped to QString
+        \li typedef qreal
     \row
         \li VARCHAR
         \li variable-length character string
@@ -488,7 +488,7 @@
     \row
         \li REAL
         \li 64-bit floating point value.
-        \li By default mapping to QString
+        \li typedef qreal
     \row
         \li TEXT
         \li Character string (UTF-8, UTF-16BE or UTF-16-LE).
@@ -502,67 +502,4 @@
         \li The value is a BLOB of data, stored exactly as it was input.
         \li Mapped to QByteArray
   \endtable
-
-  \section2 Sybase Adaptive Server Data Types
-
-  \table 90%
-    \header
-        \li Sybase Adaptive Server data type
-        \li SQL type description
-        \li Recommended input (C++ or Qt data type)
-    \row
-        \li BINARY
-        \li Describes a fixed-length binary value up to 255 bytes in size.
-        \li Mapped to QByteArray
-    \row
-        \li CHAR
-        \li Character String
-        \li Mapped to QString
-    \row
-        \li DATETIME
-        \li Date and time. Range: 1753-01-01 00:00:00 through 9999-12-31 23:59:59.
-        \li Mapped to QDateTime
-    \row
-        \li NCHAR
-        \li Character String of fixed length
-        \li Mapped to QString
-    \row
-        \li NVARACHAR
-        \li Character String of variable length
-        \li Mapped to QString
-    \row
-        \li VARCHAR
-        \li Character String of fixed length
-        \li Mapped to QString
-    \row
-        \li CLOB
-        \li Character large string object
-        \li Mapped to QString
-    \row
-        \li TIMESTAMP
-        \li A unique number within a database
-        \li Mapped to QString
-    \row
-        \li SMALLDATETIME
-        \li Date and time. Range: 1900-01-01 00:00 through 2079-12-31 23:59
-        \li Mapped to QDateTime
-    \row
-        \li UNICHAR
-        \li Character String of fixed length.(Unicode)
-        \li Mapped to QString
-    \row
-        \li UNIVARCHAR
-        \li Character String of variable length.(Unicode)
-        \li Mapped to QString
-    \row
-        \li VARBINARY
-        \li Describes a variable-length binary value up to 255 bytes in size
-        \li Mapped to QByteArray
-  \endtable
-
-  \section2 SQLite Version 2
-
-  SQLite version 2 is "typeless". This means that you can store any kind of
-  data you want in any column of any table, regardless of the declared
-  data type of that column. We recommend that you map the data to QString.
 */

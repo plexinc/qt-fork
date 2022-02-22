@@ -31,17 +31,18 @@
 
 #include <QtGui/QOpenGLContext>
 #include <QtGui/QOpenGLFunctions>
-#include <QtGui/QOpenGLFramebufferObjectFormat>
-#include <QtGui/QOpenGLFramebufferObject>
+#include <QtOpenGL/QOpenGLFramebufferObjectFormat>
+#include <QtOpenGL/QOpenGLFramebufferObject>
 #include <QOpenGLShaderProgram>
-#include <QtGui/QOpenGLBuffer>
+#include <QtOpenGL/QOpenGLBuffer>
+#include <QQuickOpenGLUtils>
 
 //#define QDEBUG_TRACE_GL_FPS
 #ifdef QDEBUG_TRACE_GL_FPS
 #  include <QElapsedTimer>
 #endif
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 // This node draws the xy series data on a transparent background using OpenGL.
 // It is used as a child node of the chart node.
@@ -155,7 +156,7 @@ void DeclarativeOpenGLRenderNode::initGL()
     m_vao.create();
     QOpenGLVertexArrayObject::Binder vaoBinder(&m_vao);
 
-#if !defined(QT_OPENGL_ES_2)
+#if !QT_CONFIG(opengles2)
     if (!QOpenGLContext::currentContext()->isOpenGLES()) {
         // Make it possible to change point primitive size and use textures with them in
         // the shaders. These are implicitly enabled in ES2.
@@ -192,7 +193,8 @@ void DeclarativeOpenGLRenderNode::recreateFBO()
 
     delete m_texture;
     uint textureId = m_resolvedFbo ? m_resolvedFbo->texture() : m_fbo->texture();
-    m_texture = m_window->createTextureFromId(textureId, m_textureSize, m_textureOptions);
+    m_texture = QNativeInterface::QSGOpenGLTexture::fromNative(textureId, m_window, m_textureSize, m_textureOptions);
+
     if (!m_imageNode) {
         m_imageNode = m_window->createImageNode();
         m_imageNode->setFiltering(QSGTexture::Linear);
@@ -229,7 +231,8 @@ void DeclarativeOpenGLRenderNode::setSeriesData(bool mapDirty, const GLXYDataMap
             GLXYSeriesData *data = oldMap.take(i.key());
             const GLXYSeriesData *newData = i.value();
             if (!data || newData->dirty) {
-                data = new GLXYSeriesData;
+                if (!data)
+                    data = new GLXYSeriesData;
                 *data = *newData;
             }
             m_xyDataMap.insert(i.key(), data);
@@ -276,7 +279,7 @@ void DeclarativeOpenGLRenderNode::setAntialiasing(bool enable)
     }
 }
 
-void DeclarativeOpenGLRenderNode::addMouseEvents(const QVector<QMouseEvent *> &events)
+void DeclarativeOpenGLRenderNode::addMouseEvents(const QList<QMouseEvent *> &events)
 {
     if (events.size()) {
         m_mouseEvents.append(events);
@@ -284,7 +287,7 @@ void DeclarativeOpenGLRenderNode::addMouseEvents(const QVector<QMouseEvent *> &e
     }
 }
 
-void DeclarativeOpenGLRenderNode::takeMouseEventResponses(QVector<MouseEventResponse> &responses)
+void DeclarativeOpenGLRenderNode::takeMouseEventResponses(QList<MouseEventResponse> &responses)
 {
     responses.append(m_mouseEventResponses);
     m_mouseEventResponses.clear();
@@ -309,7 +312,7 @@ void DeclarativeOpenGLRenderNode::renderGL(bool selection)
 
         if (data->visible) {
             if (selection) {
-                m_selectionVector[counter] = i.key();
+                m_selectionList[counter] = i.key();
                 m_program->setUniformValue(m_colorUniformLoc, QVector3D((counter & 0xff) / 255.0f,
                                                                         ((counter & 0xff00) >> 8) / 255.0f,
                                                                         ((counter & 0xff0000) >> 16) / 255.0f));
@@ -328,7 +331,7 @@ void DeclarativeOpenGLRenderNode::renderGL(bool selection)
             }
             vbo->bind();
             if (data->dirty) {
-                vbo->allocate(data->array.constData(), data->array.count() * sizeof(GLfloat));
+                vbo->allocate(data->array.constData(), int(data->array.count() * sizeof(GLfloat)));
                 data->dirty = false;
             }
 
@@ -349,7 +352,7 @@ void DeclarativeOpenGLRenderNode::renderSelection()
 {
     m_selectionFbo->bind();
 
-    m_selectionVector.resize(m_xyDataMap.size());
+    m_selectionList.resize(m_xyDataMap.size());
 
     renderGL(true);
 
@@ -410,7 +413,7 @@ void DeclarativeOpenGLRenderNode::render()
         m_renderNeeded = false;
     }
     handleMouseEvents();
-    m_window->resetOpenGLState();
+    QQuickOpenGLUtils::resetOpenGLState();
 }
 
 void DeclarativeOpenGLRenderNode::cleanXYSeriesResources(const QXYSeries *series)
@@ -520,10 +523,10 @@ const QXYSeries *DeclarativeOpenGLRenderNode::findSeriesAtEvent(QMouseEvent *eve
             index = pixel[0] + (pixel[1] << 8) + (pixel[2] << 16);
     }
 
-    if (index >= 0 && index < m_selectionVector.size())
-        series = m_selectionVector.at(index);
+    if (index >= 0 && index < m_selectionList.size())
+        series = m_selectionList.at(index);
 
     return series;
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE

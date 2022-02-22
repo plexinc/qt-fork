@@ -12,14 +12,27 @@
 
 namespace net {
 
-// Default QUIC version used in absence of any external configuration.
-constexpr quic::ParsedQuicVersion kDefaultSupportedQuicVersion{
-    quic::PROTOCOL_QUIC_CRYPTO, quic::QUIC_VERSION_46};
-
-// Returns a list containing only the current default version.
+// Default QUIC supported versions used in absence of any external
+// configuration.
 inline NET_EXPORT_PRIVATE quic::ParsedQuicVersionVector
 DefaultSupportedQuicVersions() {
-  return quic::ParsedQuicVersionVector{kDefaultSupportedQuicVersion};
+  // The ordering of this list does not matter for Chrome because it respects
+  // the ordering received from the server via Alt-Svc. However, cronet offers
+  // an addQuicHint() API which uses the first version from this list until
+  // it receives Alt-Svc from the server. We therefore list Q050 first here
+  // because there are some cronet applications which communicate with servers
+  // that speak Q050 but not Draft29.
+  // TODO(dschinazi) Move Draft29 first once those servers support it.
+  return quic::ParsedQuicVersionVector{quic::ParsedQuicVersion::Q050(),
+                                       quic::ParsedQuicVersion::Draft29()};
+}
+
+// Obsolete QUIC supported versions are versions that are supported by the
+// QUIC shared code but that Chrome refuses to use because modern clients
+// should only use versions at least as recent as the oldest default version.
+inline NET_EXPORT_PRIVATE quic::ParsedQuicVersionVector ObsoleteQuicVersions() {
+  return quic::ParsedQuicVersionVector{quic::ParsedQuicVersion::Q043(),
+                                       quic::ParsedQuicVersion::Q046()};
 }
 
 // When a connection is idle for 30 seconds it will be closed.
@@ -157,8 +170,6 @@ struct NET_EXPORT QuicParams {
   bool go_away_on_path_degrading = false;
   // If true, bidirectional streams over QUIC will be disabled.
   bool disable_bidirectional_streams = false;
-  // If true, race cert verification with host resolution.
-  bool race_cert_verification = false;
   // If true, estimate the initial RTT for QUIC connections based on network.
   bool estimate_initial_rtt = false;
   // If true, client headers will include HTTP/2 stream dependency info
@@ -167,6 +178,13 @@ struct NET_EXPORT QuicParams {
   // The initial rtt that will be used in crypto handshake if no cached
   // smoothed rtt is present.
   base::TimeDelta initial_rtt_for_handshake;
+  // If true, QUIC with TLS will not try 0-RTT connection.
+  bool disable_tls_zero_rtt = true;
+  // If true, gQUIC requests will always require confirmation.
+  bool disable_gquic_zero_rtt = false;
+  // Network Service Type of the socket for iOS. Default is NET_SERVICE_TYPE_BE
+  // (best effort).
+  int ios_network_service_type = 0;
 };
 
 // QuicContext contains QUIC-related variables that are shared across all of the
@@ -187,6 +205,11 @@ class NET_EXPORT_PRIVATE QuicContext {
   }
   const quic::ParsedQuicVersionVector& supported_versions() {
     return params_.supported_versions;
+  }
+
+  void SetHelperForTesting(
+      std::unique_ptr<quic::QuicConnectionHelperInterface> helper) {
+    helper_ = std::move(helper);
   }
 
  private:

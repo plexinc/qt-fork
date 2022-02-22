@@ -43,7 +43,7 @@
 #include <private/piesliceitem_p.h>
 #include <QtCharts/private/qchartglobal_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class PieChartItem;
 
@@ -57,14 +57,14 @@ public:
     PieSliceData currentSliceValue();
 
 protected:
-    QVariant interpolated(const QVariant &start, const QVariant &end, qreal progress) const;
-    void updateCurrentValue(const QVariant &value);
+    QVariant interpolated(const QVariant &start, const QVariant &end, qreal progress) const override;
+    void updateCurrentValue(const QVariant &value) override;
 
 private:
     PieSliceItem *m_sliceItem;
     PieSliceData m_currentValue;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif

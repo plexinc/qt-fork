@@ -37,7 +37,7 @@
 #include <QtCore/QtMath>
 #include <QtCore/QDebug>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 ChartValueAxisY::ChartValueAxisY(QValueAxis *axis, QGraphicsItem *item)
     : VerticalAxis(axis, item),
@@ -57,41 +57,38 @@ ChartValueAxisY::~ChartValueAxisY()
 {
 }
 
-QVector<qreal> ChartValueAxisY::calculateLayout() const
+QList<qreal> ChartValueAxisY::calculateLayout() const
 {
     if (m_axis->tickType() == QValueAxis::TicksFixed) {
         int tickCount = m_axis->tickCount();
 
         Q_ASSERT(tickCount >= 2);
 
-        QVector<qreal> points;
+        QList<qreal> points;
         points.resize(tickCount);
 
         const QRectF &gridRect = gridGeometry();
-
         const qreal deltaY = gridRect.height() / (qreal(tickCount) - 1.0);
         for (int i = 0; i < tickCount; ++i)
             points[i] = qreal(i) * -deltaY + gridRect.bottom();
-
         return points;
     } else {
         const qreal interval = m_axis->tickInterval();
-        qreal value = m_axis->tickAnchor();
+        const qreal anchor = m_axis->tickAnchor();
         const qreal maxValue = max();
         const qreal minValue = min();
 
-        // Find the first major tick right after the min of range
-        if (value > minValue)
-            value = value - int((value - minValue) / interval) * interval;
-        else
-            value = value + qCeil((minValue - value) / interval) * interval;
+        // Find the first major tick right after the min of the range
+        const qreal ticksFromAnchor = (anchor - minValue) / interval;
+        const qreal firstMajorTick = anchor - std::floor(ticksFromAnchor) * interval;
 
         const QRectF &gridRect = gridGeometry();
         const qreal deltaY = gridRect.height() / (maxValue - minValue);
 
-        QVector<qreal> points;
+        QList<qreal> points;
         const qreal bottomPos = gridRect.bottom();
-        while (value <= maxValue || qFuzzyCompare(value, maxValue)) {
+        qreal value = firstMajorTick;
+        while (value <= maxValue) {
             points << (value - minValue) * -deltaY + bottomPos;
             value += interval;
         }
@@ -102,8 +99,8 @@ QVector<qreal> ChartValueAxisY::calculateLayout() const
 
 void ChartValueAxisY::updateGeometry()
 {
-    const QVector<qreal> &layout = ChartAxisElement::layout();
-    const QVector<qreal>& dynamicMinorTicklayout = ChartAxisElement::dynamicMinorTicklayout();
+    const QList<qreal> &layout = ChartAxisElement::layout();
+    const QList<qreal> &dynamicMinorTicklayout = ChartAxisElement::dynamicMinorTicklayout();
     if (layout.isEmpty() && dynamicMinorTicklayout.isEmpty())
         return;
     setLabels(createValueLabels(min(), max(), layout.size(), m_axis->tickInterval(),
@@ -136,28 +133,28 @@ void ChartValueAxisY::handleLabelFormatChanged(const QString &format)
 
 void ChartValueAxisY::handleTickIntervalChanged(qreal interval)
 {
-    Q_UNUSED(interval)
+    Q_UNUSED(interval);
     QGraphicsLayoutItem::updateGeometry();
     if (presenter()) presenter()->layout()->invalidate();
 }
 
 void ChartValueAxisY::handleTickAnchorChanged(qreal anchor)
 {
-    Q_UNUSED(anchor)
+    Q_UNUSED(anchor);
     QGraphicsLayoutItem::updateGeometry();
     if (presenter()) presenter()->layout()->invalidate();
 }
 
 void ChartValueAxisY::handleTickTypeChanged(QValueAxis::TickType type)
 {
-    Q_UNUSED(type)
+    Q_UNUSED(type);
     QGraphicsLayoutItem::updateGeometry();
     if (presenter()) presenter()->layout()->invalidate();
 }
 
 QSizeF ChartValueAxisY::sizeHint(Qt::SizeHint which, const QSizeF &constraint) const
 {
-    Q_UNUSED(constraint)
+    Q_UNUSED(constraint);
 
     QSizeF sh;
     QSizeF base = VerticalAxis::sizeHint(which, constraint);
@@ -200,6 +197,6 @@ QSizeF ChartValueAxisY::sizeHint(Qt::SizeHint which, const QSizeF &constraint) c
     return sh;
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_chartvalueaxisy_p.cpp"

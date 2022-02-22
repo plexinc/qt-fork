@@ -59,20 +59,26 @@ public:
     ~QLowEnergyDescriptor();
 
     QLowEnergyDescriptor &operator=(const QLowEnergyDescriptor &other);
-    bool operator==(const QLowEnergyDescriptor &other) const;
-    bool operator!=(const QLowEnergyDescriptor &other) const;
+    friend bool operator==(const QLowEnergyDescriptor &a, const QLowEnergyDescriptor &b)
+    {
+        return equals(a, b);
+    }
+    friend bool operator!=(const QLowEnergyDescriptor &a, const QLowEnergyDescriptor &b)
+    {
+        return !equals(a, b);
+    }
 
     bool isValid() const;
 
     QByteArray value() const;
 
     QBluetoothUuid uuid() const;
-    QLowEnergyHandle handle() const;
     QString name() const;
 
     QBluetoothUuid::DescriptorType type() const;
 
-protected:
+private:
+    QLowEnergyHandle handle() const;
     QLowEnergyHandle characteristicHandle() const;
     QSharedPointer<QLowEnergyServicePrivate> d_ptr;
 
@@ -83,15 +89,15 @@ protected:
     friend class QLowEnergyControllerPrivateBluez;
     friend class QLowEnergyControllerPrivateBluezDBus;
     friend class QLowEnergyControllerPrivateCommon;
-    friend class QLowEnergyControllerPrivateWin32;
     friend class QLowEnergyControllerPrivateDarwin;
     friend class QLowEnergyControllerPrivateWinRT;
-    friend class QLowEnergyControllerPrivateWinRTNew;
     QLowEnergyDescriptorPrivate *data = nullptr;
 
     QLowEnergyDescriptor(QSharedPointer<QLowEnergyServicePrivate> p,
                              QLowEnergyHandle charHandle,
                              QLowEnergyHandle descHandle);
+
+    static bool equals(const QLowEnergyDescriptor &a, const QLowEnergyDescriptor &b);
 };
 
 QT_END_NAMESPACE

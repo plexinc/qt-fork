@@ -7,17 +7,20 @@
 #include <algorithm>
 #include <cstdio>
 
+#include "ash/constants/ash_switches.h"
 #include "ash/public/cpp/app_types.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
+#include "base/logging.h"
 #include "base/optional.h"
+#include "base/process/launch.h"
 #include "base/strings/string_number_conversions.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/dbus/concierge_client.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/debug_daemon/debug_daemon_client.h"
 #include "chromeos/dbus/session_manager/session_manager_client.h"
+#include "chromeos/dbus/upstart/upstart_client.h"
 #include "components/arc/arc_features.h"
 #include "components/exo/shell_surface_util.h"
 #include "components/user_manager/user_manager.h"
@@ -42,6 +45,8 @@ constexpr char kAvailabilityOfficiallySupported[] = "officially-supported";
 constexpr char kAlwaysStartWithNoPlayStore[] =
     "always-start-with-no-play-store";
 
+constexpr const char kCrosSystemPath[] = "/usr/bin/crossystem";
+
 void SetArcCpuRestrictionCallback(
     login_manager::ContainerCpuRestrictionState state,
     bool success) {
@@ -64,13 +69,7 @@ void OnSetArcVmCpuRestriction(
     LOG(ERROR) << "SetVmCpuRestriction for ARCVM failed";
 }
 
-void DoSetArcVmCpuRestriction(CpuRestrictionState cpu_restriction_state,
-                              bool concierge_started) {
-  if (!concierge_started) {
-    LOG(ERROR) << "Concierge D-Bus service is not available";
-    return;
-  }
-
+void SetArcVmCpuRestriction(CpuRestrictionState cpu_restriction_state) {
   auto* client = chromeos::DBusThreadManager::Get()->GetConciergeClient();
   if (!client) {
     LOG(ERROR) << "ConciergeClient is not available";
@@ -94,17 +93,6 @@ void DoSetArcVmCpuRestriction(CpuRestrictionState cpu_restriction_state,
                               base::BindOnce(&OnSetArcVmCpuRestriction));
 }
 
-void SetArcVmCpuRestriction(CpuRestrictionState cpu_restriction_state) {
-  auto* client = chromeos::DBusThreadManager::Get()->GetDebugDaemonClient();
-  if (!client) {
-    LOG(WARNING) << "DebugDaemonClient is not available";
-    return;
-  }
-  // TODO(wvk): Call StartConcierge() only when the service is not running.
-  client->StartConcierge(
-      base::BindOnce(&DoSetArcVmCpuRestriction, cpu_restriction_state));
-}
-
 void SetArcContainerCpuRestriction(CpuRestrictionState cpu_restriction_state) {
   if (!chromeos::SessionManagerClient::Get()) {
     LOG(WARNING) << "SessionManagerClient is not available";
@@ -122,6 +110,36 @@ void SetArcContainerCpuRestriction(CpuRestrictionState cpu_restriction_state) {
   }
   chromeos::SessionManagerClient::Get()->SetArcCpuRestriction(
       state, base::BindOnce(SetArcCpuRestrictionCallback, state));
+}
+
+// Decodes a job name that may have "_2d" e.g. |kArcCreateDataJobName|
+// and returns a decoded string.
+std::string DecodeJobName(const std::string& raw_job_name) {
+  constexpr const char* kFind = "_2d";
+  std::string decoded(raw_job_name);
+  base::ReplaceSubstringsAfterOffset(&decoded, 0, kFind, "-");
+  return decoded;
+}
+
+// Called when the Upstart operation started in ConfigureUpstartJobs is
+// done. Handles the fatal error (if any) and then starts the next job.
+void OnConfigureUpstartJobs(std::deque<JobDesc> jobs,
+                            chromeos::VoidDBusMethodCallback callback,
+                            bool result) {
+  const std::string job_name = DecodeJobName(jobs.front().job_name);
+  const bool is_start = (jobs.front().operation == UpstartOperation::JOB_START);
+
+  if (!result && is_start) {
+    LOG(ERROR) << "Failed to start " << job_name;
+    // TODO(yusukes): Record UMA for this case.
+    std::move(callback).Run(false);
+    return;
+  }
+
+  VLOG(1) << job_name
+          << (is_start ? " started" : (result ? " stopped " : " not running?"));
+  jobs.pop_front();
+  ConfigureUpstartJobs(std::move(jobs), std::move(callback));
 }
 
 }  // namespace
@@ -151,6 +169,24 @@ bool IsArcAvailable() {
 bool IsArcVmEnabled() {
   return base::CommandLine::ForCurrentProcess()->HasSwitch(
       chromeos::switches::kEnableArcVm);
+}
+
+bool IsArcVmRtVcpuEnabled(uint32_t cpus) {
+  // TODO(kansho): remove switch after tast test use Finch instead.
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          chromeos::switches::kEnableArcVmRtVcpu)) {
+    return true;
+  }
+  if (cpus == 2 && base::FeatureList::IsEnabled(kRtVcpuDualCore))
+    return true;
+  if (cpus > 2 && base::FeatureList::IsEnabled(kRtVcpuQuadCore))
+    return true;
+  return false;
+}
+
+bool IsArcVmDevConfIgnored() {
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      chromeos::switches::kIgnoreArcVmDevConf);
 }
 
 bool ShouldArcAlwaysStart() {
@@ -241,13 +277,6 @@ bool IsArcOptInVerificationDisabled() {
       chromeos::switches::kDisableArcOptInVerification);
 }
 
-bool IsArcAppWindow(const aura::Window* window) {
-  if (!window)
-    return false;
-  return window->GetProperty(aura::client::kAppType) ==
-         static_cast<int>(ash::AppType::ARC_APP);
-}
-
 int GetWindowTaskId(const aura::Window* window) {
   if (!window)
     return kNoTaskId;
@@ -280,7 +309,7 @@ void SetArcCpuRestriction(CpuRestrictionState cpu_restriction_state) {
 
 bool IsArcForceCacheAppIcon() {
   return base::CommandLine::ForCurrentProcess()->HasSwitch(
-      chromeos::switches::kArcForceCacheAppIcons);
+      chromeos::switches::kArcGeneratePlayAutoInstall);
 }
 
 bool IsArcDataCleanupOnStartRequested() {
@@ -303,7 +332,6 @@ bool IsArcPlayAutoInstallDisabled() {
       chromeos::switches::kArcDisablePlayAutoInstall);
 }
 
-// static
 int32_t GetLcdDensityForDeviceScaleFactor(float device_scale_factor) {
   const auto* command_line = base::CommandLine::ForCurrentProcess();
   if (command_line->HasSwitch(chromeos::switches::kArcScale)) {
@@ -319,6 +347,8 @@ int32_t GetLcdDensityForDeviceScaleFactor(float device_scale_factor) {
   constexpr float kEpsilon = 0.001;
   if (std::abs(device_scale_factor - display::kDsf_2_252) < kEpsilon)
     return 280;
+  if (std::abs(device_scale_factor - 2.4f) < kEpsilon)
+    return 280;
   if (std::abs(device_scale_factor - 1.6f) < kEpsilon)
     return 213;  // TVDPI
   if (std::abs(device_scale_factor - display::kDsf_1_777) < kEpsilon)
@@ -331,6 +361,62 @@ int32_t GetLcdDensityForDeviceScaleFactor(float device_scale_factor) {
   return static_cast<int32_t>(
       std::max(1.0f, device_scale_factor * kChromeScaleToAndroidScaleRatio) *
       kDefaultDensityDpi);
+}
+
+int GetSystemPropertyInt(const std::string& property) {
+  std::string output;
+  if (!base::GetAppOutput({kCrosSystemPath, property}, &output))
+    return -1;
+  int output_int;
+  return base::StringToInt(output, &output_int) ? output_int : -1;
+}
+
+JobDesc::JobDesc(const std::string& job_name,
+                 UpstartOperation operation,
+                 const std::vector<std::string>& environment)
+    : job_name(job_name), operation(operation), environment(environment) {}
+
+JobDesc::~JobDesc() = default;
+
+JobDesc::JobDesc(const JobDesc& other) = default;
+
+void ConfigureUpstartJobs(std::deque<JobDesc> jobs,
+                          chromeos::VoidDBusMethodCallback callback) {
+  if (jobs.empty()) {
+    std::move(callback).Run(true);
+    return;
+  }
+
+  if (jobs.front().operation == UpstartOperation::JOB_STOP_AND_START) {
+    // Expand the restart operation into two, stop and start.
+    jobs.front().operation = UpstartOperation::JOB_START;
+    jobs.push_front({jobs.front().job_name, UpstartOperation::JOB_STOP,
+                     jobs.front().environment});
+  }
+
+  const auto& job_name = jobs.front().job_name;
+  const auto& operation = jobs.front().operation;
+  const auto& environment = jobs.front().environment;
+
+  VLOG(1) << (operation == UpstartOperation::JOB_START ? "Starting "
+                                                       : "Stopping ")
+          << DecodeJobName(job_name);
+
+  auto wrapped_callback = base::BindOnce(&OnConfigureUpstartJobs,
+                                         std::move(jobs), std::move(callback));
+  switch (operation) {
+    case UpstartOperation::JOB_START:
+      chromeos::UpstartClient::Get()->StartJob(job_name, environment,
+                                               std::move(wrapped_callback));
+      break;
+    case UpstartOperation::JOB_STOP:
+      chromeos::UpstartClient::Get()->StopJob(job_name, environment,
+                                              std::move(wrapped_callback));
+      break;
+    case UpstartOperation::JOB_STOP_AND_START:
+      NOTREACHED();
+      break;
+  }
 }
 
 }  // namespace arc

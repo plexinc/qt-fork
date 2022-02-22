@@ -15,6 +15,7 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "net/base/completion_once_callback.h"
+#include "net/base/idempotency.h"
 #include "net/base/io_buffer.h"
 #include "net/base/load_timing_info.h"
 #include "net/base/net_export.h"
@@ -66,6 +67,8 @@ class NET_EXPORT_PRIVATE QuicHttpStream : public MultiplexedHttpStream {
       AlternativeService* alternative_service) const override;
   void PopulateNetErrorDetails(NetErrorDetails* details) override;
   void SetPriority(RequestPriority priority) override;
+  void SetRequestIdempotency(Idempotency idempotency) override;
+  const std::vector<std::string>& GetDnsAliases() const override;
 
   static HttpResponseInfo::ConnectionInfo ConnectionInfoFromQuicVersion(
       quic::ParsedQuicVersion quic_version);
@@ -106,7 +109,7 @@ class NET_EXPORT_PRIVATE QuicHttpStream : public MultiplexedHttpStream {
   int DoSendBodyComplete(int rv);
 
   void OnReadResponseHeadersComplete(int rv);
-  int ProcessResponseHeaders(const spdy::SpdyHeaderBlock& headers);
+  int ProcessResponseHeaders(const spdy::Http2HeaderBlock& headers);
   void ReadTrailingHeaders();
   void OnReadTrailingHeadersComplete(int rv);
 
@@ -172,12 +175,12 @@ class NET_EXPORT_PRIVATE QuicHttpStream : public MultiplexedHttpStream {
   int response_status_;
 
   // Serialized request headers.
-  spdy::SpdyHeaderBlock request_headers_;
+  spdy::Http2HeaderBlock request_headers_;
 
-  spdy::SpdyHeaderBlock response_header_block_;
+  spdy::Http2HeaderBlock response_header_block_;
   bool response_headers_received_;
 
-  spdy::SpdyHeaderBlock trailing_header_block_;
+  spdy::Http2HeaderBlock trailing_header_block_;
   bool trailing_headers_received_;
 
   // Number of bytes received by the headers stream on behalf of this stream.

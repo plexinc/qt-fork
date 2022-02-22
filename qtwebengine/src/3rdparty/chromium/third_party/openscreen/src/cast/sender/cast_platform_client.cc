@@ -4,15 +4,16 @@
 
 #include "cast/sender/cast_platform_client.h"
 
+#include <memory>
 #include <random>
+#include <utility>
 
 #include "absl/strings/str_cat.h"
-#include "cast/common/channel/cast_socket.h"
-#include "cast/common/channel/virtual_connection_manager.h"
 #include "cast/common/channel/virtual_connection_router.h"
+#include "cast/common/public/cast_socket.h"
 #include "cast/common/public/service_info.h"
 #include "util/json/json_serialization.h"
-#include "util/logging.h"
+#include "util/osp_logging.h"
 #include "util/stringprintf.h"
 
 namespace openscreen {
@@ -20,33 +21,21 @@ namespace cast {
 
 static constexpr std::chrono::seconds kRequestTimeout = std::chrono::seconds(5);
 
-namespace {
-
-std::string MakeRandomSenderId() {
-  static auto& rd = *new std::random_device();
-  static auto& gen = *new std::mt19937(rd());
-  static auto& dist = *new std::uniform_int_distribution<>(1, 1000000);
-  return absl::StrCat("sender-", dist(gen));
-}
-
-}  // namespace
-
 CastPlatformClient::CastPlatformClient(VirtualConnectionRouter* router,
-                                       VirtualConnectionManager* manager,
                                        ClockNowFunctionPtr clock,
                                        TaskRunner* task_runner)
-    : sender_id_(MakeRandomSenderId()),
+    : sender_id_(MakeUniqueSessionId("sender")),
       virtual_conn_router_(router),
-      virtual_conn_manager_(manager),
       clock_(clock),
       task_runner_(task_runner) {
-  OSP_DCHECK(virtual_conn_manager_);
+  OSP_DCHECK(virtual_conn_router_);
   OSP_DCHECK(clock_);
   OSP_DCHECK(task_runner_);
   virtual_conn_router_->AddHandlerForLocalId(sender_id_, this);
 }
 
 CastPlatformClient::~CastPlatformClient() {
+  virtual_conn_router_->RemoveConnectionsByLocalId(sender_id_);
   virtual_conn_router_->RemoveHandlerForLocalId(sender_id_);
 
   for (auto& pending_requests : pending_requests_by_device_id_) {
@@ -82,13 +71,13 @@ absl::optional<int> CastPlatformClient::RequestAppAvailability(
       request_id, app_id, std::move(timeout), std::move(callback)});
 
   VirtualConnection virtual_conn{sender_id_, kPlatformReceiverId, socket_id};
-  if (!virtual_conn_manager_->GetConnectionData(virtual_conn)) {
-    virtual_conn_manager_->AddConnection(virtual_conn,
-                                         VirtualConnection::AssociatedData{});
+  if (!virtual_conn_router_->GetConnectionData(virtual_conn)) {
+    virtual_conn_router_->AddConnection(virtual_conn,
+                                        VirtualConnection::AssociatedData{});
   }
 
-  virtual_conn_router_->SendMessage(std::move(virtual_conn),
-                                    std::move(message.value()));
+  virtual_conn_router_->Send(std::move(virtual_conn),
+                             std::move(message.value()));
 
   return request_id;
 }
@@ -149,8 +138,9 @@ void CastPlatformClient::OnMessage(VirtualConnectionRouter* router,
   if (request_id) {
     auto entry = std::find_if(
         socket_id_by_device_id_.begin(), socket_id_by_device_id_.end(),
-        [socket](const std::pair<std::string, int>& entry) {
-          return entry.second == socket->socket_id();
+        [socket_id =
+             ToCastSocketId(socket)](const std::pair<std::string, int>& entry) {
+          return entry.second == socket_id;
         });
     if (entry != socket_id_by_device_id_.end()) {
       HandleResponse(entry->first, request_id.value(), dict);

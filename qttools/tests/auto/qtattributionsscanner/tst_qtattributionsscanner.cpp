@@ -56,7 +56,7 @@ private:
 
 tst_qtattributionsscanner::tst_qtattributionsscanner()
 {
-    QString binPath = QLibraryInfo::location(QLibraryInfo::BinariesPath);
+    QString binPath = QLibraryInfo::path(QLibraryInfo::LibraryExecutablesPath);
     m_cmd = binPath + QLatin1String("/qtattributionsscanner");
     m_basePath = QFINDTESTDATA("testdata");
 }
@@ -84,6 +84,9 @@ void tst_qtattributionsscanner::test_data()
             << QStringLiteral("good/minimal/qt_attribution_test.json")
             << QStringLiteral("good/minimal/expected.json")
             << QStringLiteral("good/minimal/expected.error");
+    QTest::newRow("variants") << QStringLiteral("good/variants/qt_attribution_test.json")
+                              << QStringLiteral("good/variants/expected.json")
+                              << QStringLiteral("good/variants/expected.error");
 }
 
 void tst_qtattributionsscanner::readExpectedFile(const QString &baseDir, const QString &fileName, QByteArray *content)

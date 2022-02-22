@@ -36,32 +36,43 @@
 
 #include "qquick3dutils_p.h"
 
+#include "qquick3dnode_p_p.h"
+
 QT_BEGIN_NAMESPACE
 
 /*!
     \qmltype FrustumCamera
     \inherits PerspectiveCamera
     \inqmlmodule QtQuick3D
-    \brief Defines a Perspective Frustum Camera for viewing the content of a 3D scene.
+    \brief Defines a PerspectiveCamera with a custom frustum.
 
-    A Camera is always necessary to view the content of a 3D scene. A camera
-    defines how to project the content of a 3D scene into a 2D coordinate space,
-    which can then be used on a 2D surface. When a camera is present in the scene
-    it can be used to direct what is displayed in a View3D.
+    A \l Camera defines how the content of the 3D scene is projected onto a 2D surface,
+    such as a View3D. A scene needs at least one \l Camera in order to visualize its
+    contents.
 
-    To determine the projection of this camera a high level API is provided.
-    First it is possible to position this Camera like any other spatial Node in
-    the scene. This determines where the Camera is in the scene, and what
-    direction it is facing. The default direction of the camera is such that the
-    forward vector is looking up the +Z axis, and the up direction vector is up
-    the +Y axis. With this in mind any transformation applied to the camera as
-    well as the transformations inherited from it's parent Nodes you can define
-    exactly where and in what direction your camera is facing.
+    It is possible to position and rotate the \l Camera like any other spatial \l{QtQuick3D::Node}{Node} in
+    the scene. The \l{QtQuick3D::Node}{Node}'s location and orientation determines where the \l Camera is in
+    the scene, and what direction it is facing. The default orientation of the \l Camera
+    has its forward vector pointing along the negative Z axis and its up vector along
+    the positive Y axis.
 
-    For finer grain control of how the frustum is defined, this is the camera to use.
-    FrustumCamera allows for setting the FrustumCamera::top, FrustumCamera::bottom,
-    FrustumCamera::right, and FrustumCamera::left properties. This is useful in
-    creating asymmetrical frustums.
+    The FrustumCamera type provides a PerspectiveCamera where the frustum bounds can be
+    customized. This can be useful for creating asymmetrical frustums.
+
+    The following example creates a FrustumCamera at position [0, 200, 300] in the scene, with a
+    30 degree downward pitch, and where the intersection of the frustum and the near plane is
+    given by the rectangle that has a bottom left corner at [-5, -5], and a top right corner
+    at [5, 5].
+    \code
+    FrustumCamera {
+        position: Qt.vector3d(0, 200, 300)
+        eulerRotation.x: -30
+        top: 5
+        bottom: -5
+        left: -5
+        right: 5
+    }
+    \endcode
 
     \sa PerspectiveCamera, OrthographicCamera, CustomCamera
 */
@@ -69,12 +80,14 @@ QT_BEGIN_NAMESPACE
 /*!
  * \internal
  */
-QQuick3DFrustumCamera::QQuick3DFrustumCamera() {}
+QQuick3DFrustumCamera::QQuick3DFrustumCamera(QQuick3DNode *parent)
+    : QQuick3DPerspectiveCamera(*(new QQuick3DNodePrivate(QQuick3DNodePrivate::Type::CustomFrustumCamera)), parent)
+{}
 
 /*!
     \qmlproperty real FrustumCamera::top
 
-    This property defines the top plane of the camera view frustum.
+    This property defines the top of the frustum on the near plane, relative to its center.
 */
 float QQuick3DFrustumCamera::top() const
 {
@@ -84,7 +97,7 @@ float QQuick3DFrustumCamera::top() const
 /*!
     \qmlproperty real FrustumCamera::bottom
 
-    This property defines the bottom plane of the camera view frustum.
+    This property defines the bottom of the frustum on the near plane, relative to its center.
 */
 float QQuick3DFrustumCamera::bottom() const
 {
@@ -94,7 +107,7 @@ float QQuick3DFrustumCamera::bottom() const
 /*!
     \qmlproperty real FrustumCamera::right
 
-    This property defines the right plane of the camera view frustum.
+    This property defines the right side of the frustum on the near plane, relative to its center.
 */
 float QQuick3DFrustumCamera::right() const
 {
@@ -104,7 +117,7 @@ float QQuick3DFrustumCamera::right() const
 /*!
     \qmlproperty real FrustumCamera::left
 
-    This property defines the left plane of the camera view frustum.
+    This property defines the left side of the frustum on the near plane, relative to its center.
 */
 float QQuick3DFrustumCamera::left() const
 {
@@ -151,23 +164,20 @@ void QQuick3DFrustumCamera::setLeft(float left)
     update();
 }
 
-bool QQuick3DFrustumCamera::checkSpatialNode(QSSGRenderCamera *camera)
+QSSGRenderGraphObject *QQuick3DFrustumCamera::updateSpatialNode(QSSGRenderGraphObject *node)
 {
-    camera->flags.setFlag(QSSGRenderNode::Flag::CameraFrustumProjection, true);
+    // NOTE: The frustum camera extends the perspective camera!
+    QSSGRenderCamera *camera = static_cast<QSSGRenderCamera *>(QQuick3DPerspectiveCamera::updateSpatialNode(node));
+    if (camera) {
+        const bool changed = ((qUpdateIfNeeded(camera->top, m_top)
+                              | qUpdateIfNeeded(camera->bottom, m_bottom)
+                              | qUpdateIfNeeded(camera->right, m_right)
+                              | qUpdateIfNeeded(camera->left, m_left)) != 0);
+        if (changed)
+            camera->flags.setFlag(QSSGRenderNode::Flag::CameraDirty);
+    }
 
-    bool changed = false;
-    changed |= qUpdateIfNeeded(camera->clipNear, clipNear());
-    changed |= qUpdateIfNeeded(camera->clipFar, clipFar());
-    changed |= qUpdateIfNeeded(camera->fov, qDegreesToRadians(fieldOfView()));
-    changed |= qUpdateIfNeeded(camera->fovHorizontal, fieldOfViewOrientation()
-                               == QQuick3DCamera::FieldOfViewOrientation::Horizontal);
-    changed |= qUpdateIfNeeded(camera->enableFrustumClipping, frustumCullingEnabled());
-    changed |= qUpdateIfNeeded(camera->top, m_top);
-    changed |= qUpdateIfNeeded(camera->bottom, m_bottom);
-    changed |= qUpdateIfNeeded(camera->right, m_right);
-    changed |= qUpdateIfNeeded(camera->left, m_left);
-
-    return changed;
+    return camera;
 }
 
 QT_END_NAMESPACE

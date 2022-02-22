@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the demonstration applications of the Qt Toolkit.
@@ -48,7 +48,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
+import QtQuick
+import QtQuick.Controls
 
 Rectangle {
     id: window
@@ -63,31 +64,22 @@ Rectangle {
 
     Column {
         id: column
-        opacity: 0.99 // work around QTBUG-29037
 
         y: 50
         width: 200
         anchors.horizontalCenter: parent.horizontalCenter
+        spacing: 4
 
-        TextBox {
-            id: input1
+
+        TextField {
+            text: "A QML text field..."
             width: parent.width
-            height: 30
             focus: true
-
-            label: "A QML text box.."
-
-            nextInFocus: input2;
         }
 
-        TextBox {
-            id: input2
+        TextField {
+            text: "Another QML text field..."
             width: parent.width
-            height: 30
-
-            label: "Another QML text box.."
-
-            nextInFocus: input1;
         }
 
         layer.enabled: true
@@ -103,20 +95,6 @@ Rectangle {
         property variant source: column;
         property size sourceSize: Qt.size(0.5 / column.width, 0.5 / column.height);
 
-        fragmentShader: "
-            varying highp vec2 qt_TexCoord0;
-            uniform lowp sampler2D source;
-            uniform lowp vec2 sourceSize;
-            uniform lowp float qt_Opacity;
-            void main() {
-
-                lowp vec2 tc = qt_TexCoord0 * vec2(1, -1) + vec2(0, 1);
-                lowp vec4 col = 0.25 * (texture2D(source, tc + sourceSize)
-                                        + texture2D(source, tc- sourceSize)
-                                        + texture2D(source, tc + sourceSize * vec2(1, -1))
-                                        + texture2D(source, tc + sourceSize * vec2(-1, 1))
-                                       );
-                gl_FragColor = col * qt_Opacity * (1.0 - qt_TexCoord0.y) * 0.2;
-            }"
+        fragmentShader: "reflect.frag.qsb"
     }
 }

@@ -57,6 +57,7 @@
 #include <QtCore/qrect.h>
 #include <QtCore/qobject.h>
 
+#include <QtGui/qcolorspace.h>
 #include <QtGui/qcursor.h>
 #include <QtGui/qimage.h>
 #include <QtGui/qwindowdefs.h>
@@ -114,18 +115,17 @@ public:
 
     virtual int depth() const = 0;
     virtual QImage::Format format() const = 0;
+    virtual QColorSpace colorSpace() const { return QColorSpace::SRgb; }
 
     virtual QSizeF physicalSize() const;
     virtual QDpi logicalDpi() const;
     virtual QDpi logicalBaseDpi() const;
     virtual qreal devicePixelRatio() const;
-    virtual qreal pixelDensity()  const;
 
     virtual qreal refreshRate() const;
 
     virtual Qt::ScreenOrientation nativeOrientation() const;
     virtual Qt::ScreenOrientation orientation() const;
-    virtual void setOrientationUpdateMask(Qt::ScreenOrientations mask);
 
     virtual QWindow *topLevelAt(const QPoint &point) const;
     QWindowList windows() const;
@@ -151,7 +151,7 @@ public:
     virtual PowerState powerState() const;
     virtual void setPowerState(PowerState state);
 
-    virtual QVector<Mode> modes() const;
+    virtual QList<Mode> modes() const;
 
     virtual int currentMode() const;
     virtual int preferredMode() const;

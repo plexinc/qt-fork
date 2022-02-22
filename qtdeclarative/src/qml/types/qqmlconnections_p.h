@@ -62,16 +62,18 @@ QT_BEGIN_NAMESPACE
 class QQmlBoundSignal;
 class QQmlContext;
 class QQmlConnectionsPrivate;
-class Q_AUTOTEST_EXPORT QQmlConnections : public QObject, public QQmlParserStatus
+class Q_QML_PRIVATE_EXPORT QQmlConnections : public QObject, public QQmlParserStatus
 {
     Q_OBJECT
     Q_DECLARE_PRIVATE(QQmlConnections)
 
     Q_INTERFACES(QQmlParserStatus)
     Q_PROPERTY(QObject *target READ target WRITE setTarget NOTIFY targetChanged)
-    Q_PROPERTY(bool enabled READ isEnabled WRITE setEnabled NOTIFY enabledChanged REVISION 3)
+    Q_PROPERTY(bool enabled READ isEnabled WRITE setEnabled NOTIFY enabledChanged REVISION(2, 3))
     Q_PROPERTY(bool ignoreUnknownSignals READ ignoreUnknownSignals WRITE setIgnoreUnknownSignals)
     QML_NAMED_ELEMENT(Connections)
+    QML_ADDED_IN_VERSION(2, 0)
+    QML_CUSTOMPARSER
 
 public:
     QQmlConnections(QObject *parent=nullptr);
@@ -88,7 +90,7 @@ public:
 
 Q_SIGNALS:
     void targetChanged();
-    Q_REVISION(3) void enabledChanged();
+    Q_REVISION(2, 3) void enabledChanged();
 
 private:
     void connectSignals();

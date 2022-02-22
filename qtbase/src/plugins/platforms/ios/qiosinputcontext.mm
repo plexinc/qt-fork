@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the plugins of the Qt Toolkit.
@@ -297,7 +297,7 @@ QT_BEGIN_NAMESPACE
 Qt::InputMethodQueries ImeState::update(Qt::InputMethodQueries properties)
 {
     if (!properties)
-        return 0;
+        return {};
 
     QInputMethodQueryEvent newState(properties);
 
@@ -499,8 +499,9 @@ void QIOSInputContext::scrollToCursor()
         return;
     }
 
-    QWindow *focusWindow = qApp->focusWindow();
-    QRect cursorRect = qApp->inputMethod()->cursorRectangle().translated(focusWindow->geometry().topLeft()).toRect();
+    QPlatformWindow *focusWindow = qApp->focusWindow()->handle();
+    QRect windowCurosorRect = QPlatformInputContext::cursorRectangle().toRect();
+    QRect cursorRect = QRect(focusWindow->mapToGlobal(windowCurosorRect.topLeft()), windowCurosorRect.size());
 
     // We explicitly ask for the geometry of the screen instead of the availableGeometry,
     // as we hide the status bar when scrolling the screen, so the available geometry will
@@ -667,7 +668,8 @@ void QIOSInputContext::update(Qt::InputMethodQueries updatedProperties)
     // focus object. We try to detect code paths that fail this assertion and smooth
     // over the situation by doing a manual update of the focus object.
     if (qApp->focusObject() != m_imeState.focusObject && updatedProperties != Qt::ImQueryAll) {
-        qWarning() << "stale focus object" << m_imeState.focusObject << ", doing manual update";
+        qWarning() << "stale focus object" << static_cast<void *>(m_imeState.focusObject)
+                   << ", doing manual update";
         setFocusObject(qApp->focusObject());
         return;
     }

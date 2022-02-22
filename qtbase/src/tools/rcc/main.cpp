@@ -180,6 +180,9 @@ int runRcc(int argc, char *argv[])
     QCommandLineOption nocompressOption(QStringLiteral("no-compress"), QStringLiteral("Disable all compression. Same as --compress-algo=none."));
     parser.addOption(nocompressOption);
 
+    QCommandLineOption noZstdOption(QStringLiteral("no-zstd"), QStringLiteral("Disable usage of zstd compression."));
+    parser.addOption(noZstdOption);
+
     QCommandLineOption thresholdOption(QStringLiteral("threshold"), QStringLiteral("Threshold to consider compressing files."), QStringLiteral("level"));
     parser.addOption(thresholdOption);
 
@@ -252,6 +255,8 @@ int runRcc(int argc, char *argv[])
         errorMsg = QLatin1String("Zstandard compression requires format version 3 or higher");
     if (parser.isSet(nocompressOption))
         library.setCompressionAlgorithm(RCCResourceLibrary::CompressionAlgorithm::None);
+    if (parser.isSet(noZstdOption))
+        library.setNoZstd(true);
     if (parser.isSet(compressOption) && errorMsg.isEmpty()) {
         int level = library.parseCompressionLevel(library.compressionAlgorithm(), parser.value(compressOption), &errorMsg);
         library.setCompressLevel(level);
@@ -262,14 +267,16 @@ int runRcc(int argc, char *argv[])
         library.setFormat(RCCResourceLibrary::Binary);
     if (parser.isSet(generatorOption)) {
         auto value = parser.value(generatorOption);
-        if (value == QLatin1String("cpp"))
+        if (value == QLatin1String("cpp")) {
             library.setFormat(RCCResourceLibrary::C_Code);
-        else if (value == QLatin1String("python"))
-            library.setFormat(RCCResourceLibrary::Python3_Code);
-        else if (value == QLatin1String("python2"))
-            library.setFormat(RCCResourceLibrary::Python2_Code);
-        else
+        } else if (value == QLatin1String("python")) {
+            library.setFormat(RCCResourceLibrary::Python_Code);
+        } else if (value == QLatin1String("python2")) { // ### fixme Qt 7: remove
+            qWarning("Format python2 is no longer supported, defaulting to python.");
+            library.setFormat(RCCResourceLibrary::Python_Code);
+        } else {
             errorMsg = QLatin1String("Invalid generator: ") + value;
+        }
     }
 
     if (parser.isSet(passOption)) {
@@ -333,8 +340,7 @@ int runRcc(int argc, char *argv[])
     switch (library.format()) {
         case RCCResourceLibrary::C_Code:
         case RCCResourceLibrary::Pass1:
-        case RCCResourceLibrary::Python3_Code:
-        case RCCResourceLibrary::Python2_Code:
+        case RCCResourceLibrary::Python_Code:
             mode = QIODevice::WriteOnly | QIODevice::Text;
             break;
         case RCCResourceLibrary::Pass2:
@@ -414,7 +420,7 @@ int runRcc(int argc, char *argv[])
         temp.setFileName(tempFilename);
         if (!temp.open(QIODevice::ReadOnly)) {
             const QString msg = QString::fromUtf8("Unable to open temporary file %1 for reading: %2\n")
-                    .arg(outFilename, out.errorString());
+                    .arg(tempFilename, out.errorString());
             errorDevice.write(msg.toUtf8());
             return 1;
         }
@@ -435,9 +441,7 @@ int main(int argc, char *argv[])
     // rcc uses a QHash to store files in the resource system.
     // we must force a certain hash order when testing or tst_rcc will fail, see QTBUG-25078
     // similar requirements exist for reproducibly builds.
-    qSetGlobalQHashSeed(0);
-    if (qGlobalQHashSeed() != 0)
-        qWarning("Cannot force QHash seed");
+    QHashSeed::setDeterministicGlobalSeed();
 
     return QT_PREPEND_NAMESPACE(runRcc)(argc, argv);
 }

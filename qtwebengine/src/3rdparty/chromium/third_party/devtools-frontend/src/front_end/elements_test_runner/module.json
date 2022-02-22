@@ -5,14 +5,8 @@
     "event_listeners",
     "animation"
   ],
-  "scripts": [
-    "ElementsTestRunner.js",
-    "EditDOMTestRunner.js",
-    "SetOuterHTMLTestRunner.js",
-    "ElementsPanelShadowSelectionOnRefreshTestRunner.js",
-    "StylesUpdateLinksTestRunner.js"
-  ],
-  "skip_compilation": [
+  "modules": [
+    "elements_test_runner.js",
     "ElementsTestRunner.js",
     "EditDOMTestRunner.js",
     "SetOuterHTMLTestRunner.js",

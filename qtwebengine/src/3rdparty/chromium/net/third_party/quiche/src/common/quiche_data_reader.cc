@@ -2,16 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/common/quiche_data_reader.h"
+#include "common/quiche_data_reader.h"
 
-#include "net/third_party/quiche/src/common/platform/api/quiche_endian.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_logging.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include <cstring>
+
+#include "absl/strings/numbers.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "common/platform/api/quiche_logging.h"
+#include "common/platform/api/quiche_text_utils.h"
+#include "common/quiche_endian.h"
 
 namespace quiche {
 
-QuicheDataReader::QuicheDataReader(quiche::QuicheStringPiece data)
+QuicheDataReader::QuicheDataReader(absl::string_view data)
     : QuicheDataReader(data.data(), data.length(), quiche::NETWORK_BYTE_ORDER) {
 }
 
@@ -74,7 +78,7 @@ bool QuicheDataReader::ReadBytesToUInt64(size_t num_bytes, uint64_t* result) {
   return true;
 }
 
-bool QuicheDataReader::ReadStringPiece16(quiche::QuicheStringPiece* result) {
+bool QuicheDataReader::ReadStringPiece16(absl::string_view* result) {
   // Read resultant length.
   uint16_t result_len;
   if (!ReadUInt16(&result_len)) {
@@ -85,8 +89,18 @@ bool QuicheDataReader::ReadStringPiece16(quiche::QuicheStringPiece* result) {
   return ReadStringPiece(result, result_len);
 }
 
-bool QuicheDataReader::ReadStringPiece(quiche::QuicheStringPiece* result,
-                                       size_t size) {
+bool QuicheDataReader::ReadStringPiece8(absl::string_view* result) {
+  // Read resultant length.
+  uint8_t result_len;
+  if (!ReadUInt8(&result_len)) {
+    // OnFailure() already called.
+    return false;
+  }
+
+  return ReadStringPiece(result, result_len);
+}
+
+bool QuicheDataReader::ReadStringPiece(absl::string_view* result, size_t size) {
   // Make sure that we have enough data to read.
   if (!CanRead(size)) {
     OnFailure();
@@ -94,7 +108,7 @@ bool QuicheDataReader::ReadStringPiece(quiche::QuicheStringPiece* result,
   }
 
   // Set result.
-  *result = quiche::QuicheStringPiece(data_ + pos_, size);
+  *result = absl::string_view(data_ + pos_, size);
 
   // Iterate.
   pos_ += size;
@@ -106,22 +120,31 @@ bool QuicheDataReader::ReadTag(uint32_t* tag) {
   return ReadBytes(tag, sizeof(*tag));
 }
 
-quiche::QuicheStringPiece QuicheDataReader::ReadRemainingPayload() {
-  quiche::QuicheStringPiece payload = PeekRemainingPayload();
+bool QuicheDataReader::ReadDecimal64(size_t num_digits, uint64_t* result) {
+  absl::string_view digits;
+  if (!ReadStringPiece(&digits, num_digits)) {
+    return false;
+  }
+
+  return absl::SimpleAtoi(digits, result);
+}
+
+absl::string_view QuicheDataReader::ReadRemainingPayload() {
+  absl::string_view payload = PeekRemainingPayload();
   pos_ = len_;
   return payload;
 }
 
-quiche::QuicheStringPiece QuicheDataReader::PeekRemainingPayload() const {
-  return quiche::QuicheStringPiece(data_ + pos_, len_ - pos_);
+absl::string_view QuicheDataReader::PeekRemainingPayload() const {
+  return absl::string_view(data_ + pos_, len_ - pos_);
 }
 
-quiche::QuicheStringPiece QuicheDataReader::FullPayload() const {
-  return quiche::QuicheStringPiece(data_, len_);
+absl::string_view QuicheDataReader::FullPayload() const {
+  return absl::string_view(data_, len_);
 }
 
-quiche::QuicheStringPiece QuicheDataReader::PreviouslyReadPayload() const {
-  return quiche::QuicheStringPiece(data_, pos_);
+absl::string_view QuicheDataReader::PreviouslyReadPayload() const {
+  return absl::string_view(data_, pos_);
 }
 
 bool QuicheDataReader::ReadBytes(void* result, size_t size) {
@@ -186,7 +209,7 @@ uint8_t QuicheDataReader::PeekByte() const {
 }
 
 std::string QuicheDataReader::DebugString() const {
-  return quiche::QuicheStrCat(" { length: ", len_, ", position: ", pos_, " }");
+  return absl::StrCat(" { length: ", len_, ", position: ", pos_, " }");
 }
 
 #undef ENDPOINT  // undef for jumbo builds

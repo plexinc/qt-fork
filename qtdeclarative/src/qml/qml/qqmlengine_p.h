@@ -59,7 +59,7 @@
 #include "qqml.h"
 #include "qqmlvaluetype_p.h"
 #include "qqmlcontext.h"
-#include "qqmlcontext_p.h"
+#include "qqmlcontextdata_p.h"
 #include "qqmlexpression.h"
 #include "qqmlproperty_p.h"
 #include "qqmlmetatype_p.h"
@@ -67,6 +67,7 @@
 #include <private/qrecyclepool_p.h>
 #include <private/qfieldlist_p.h>
 #include <private/qv4engine_p.h>
+#include <private/qjsvalue_p.h>
 
 #include <QtCore/qlist.h>
 #include <QtCore/qpair.h>
@@ -74,11 +75,14 @@
 #include <QtCore/qmutex.h>
 #include <QtCore/qstring.h>
 #include <QtCore/qthread.h>
+#include <QtCore/QMetaProperty>
 
 #include <private/qobject_p.h>
 
 #include <private/qjsengine_p.h>
 #include <private/qqmldirparser_p.h>
+
+#include <qproperty.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -92,7 +96,6 @@ class QNetworkAccessManager;
 class QQmlNetworkAccessManagerFactory;
 class QQmlTypeNameCache;
 class QQmlComponentAttached;
-class QQmlCleanup;
 class QQmlDelayedError;
 class QQmlObjectCreator;
 class QDir;
@@ -105,6 +108,7 @@ struct QObjectForeign {
     Q_GADGET
     QML_FOREIGN(QObject)
     QML_NAMED_ELEMENT(QtObject)
+    QML_ADDED_IN_VERSION(2, 0)
     Q_CLASSINFO("QML.Root", "QML")
 };
 
@@ -123,6 +127,23 @@ public:
     QQmlJavaScriptExpressionGuard *next;
 };
 
+struct QPropertyChangeTrigger : QPropertyObserver {
+    QPropertyChangeTrigger(QQmlJavaScriptExpression *expression) : QPropertyObserver(&QPropertyChangeTrigger::trigger), m_expression(expression) {}
+    QQmlJavaScriptExpression * m_expression;
+    QObject *target = nullptr;
+    int propertyIndex = 0;
+    static void trigger(QPropertyObserver *, QUntypedPropertyData *);
+
+    QMetaProperty property() const;
+};
+
+struct TriggerList : QPropertyChangeTrigger {
+    TriggerList(QQmlJavaScriptExpression *expression)
+        : QPropertyChangeTrigger(expression)
+    {}
+    TriggerList *next = nullptr;
+};
+
 class Q_QML_PRIVATE_EXPORT QQmlEnginePrivate : public QJSEnginePrivate
 {
     Q_DECLARE_PUBLIC(QQmlEngine)
@@ -138,8 +159,10 @@ public:
     QQmlPropertyCapture *propertyCapture;
 
     QRecyclePool<QQmlJavaScriptExpressionGuard> jsExpressionGuardPool;
+    QRecyclePool<TriggerList> qPropertyTriggerPool;
 
     QQmlContext *rootContext;
+    Q_OBJECT_BINDABLE_PROPERTY(QQmlEnginePrivate, QString, translationLanguage);
 
 #if !QT_CONFIG(qml_debug)
     static const quintptr profiler = 0;
@@ -148,9 +171,6 @@ public:
 #endif
 
     bool outputWarningsToMsgLog;
-
-    // Registered cleanup handlers
-    QQmlCleanup *cleanup;
 
     // Bindings that have had errors during startup
     QQmlDelayedError *erroredBindings;
@@ -177,8 +197,7 @@ public:
     QHash<QString,QSharedPointer<QQmlImageProviderBase> > imageProviders;
     QSharedPointer<QQmlImageProviderBase> imageProvider(const QString &providerId) const;
 
-
-    QQmlAbstractUrlInterceptor* urlInterceptor;
+    QList<QQmlAbstractUrlInterceptor *> urlInterceptors;
 
     int scarceResourcesRefCount;
     void referenceScarceResources();
@@ -204,7 +223,7 @@ public:
     QIntrusiveList<Incubator, &Incubator::next> incubatorList;
     unsigned int incubatorCount;
     QQmlIncubationController *incubationController;
-    void incubate(QQmlIncubator &, QQmlContextData *);
+    void incubate(QQmlIncubator &, const QQmlRefPointer<QQmlContextData> &);
 
     // These methods may be called from any thread
     inline bool isEngineThread() const;
@@ -216,19 +235,15 @@ public:
     QString offlineStorageDatabaseDirectory() const;
 
     // These methods may be called from the loader thread
-    inline QQmlPropertyCache *cache(const QQmlType &, int);
+    inline QQmlPropertyCache *cache(const QQmlType &, QTypeRevision version);
     using QJSEnginePrivate::cache;
 
     // These methods may be called from the loader thread
-    bool isQObject(int);
-    QObject *toQObject(const QVariant &, bool *ok = nullptr) const;
-    QQmlMetaType::TypeCategory typeCategory(int) const;
-    bool isList(int) const;
-    int listType(int) const;
     QQmlMetaObject rawMetaObjectForType(int) const;
     QQmlMetaObject metaObjectForType(int) const;
     QQmlPropertyCache *propertyCacheForType(int);
-    QQmlPropertyCache *rawPropertyCacheForType(int, int minorVersion = -1);
+    QQmlPropertyCache *rawPropertyCacheForType(int);
+    QQmlPropertyCache *rawPropertyCacheForType(int, QTypeRevision version);
     void registerInternalCompositeType(QV4::ExecutableCompilationUnit *compilationUnit);
     void unregisterInternalCompositeType(QV4::ExecutableCompilationUnit *compilationUnit);
     QV4::ExecutableCompilationUnit *obtainExecutableCompilationUnit(int typeId);
@@ -253,16 +268,13 @@ public:
     inline static QQmlEnginePrivate *get(QQmlEngine *e);
     inline static const QQmlEnginePrivate *get(const QQmlEngine *e);
     inline static QQmlEnginePrivate *get(QQmlContext *c);
-    inline static QQmlEnginePrivate *get(QQmlContextData *c);
+    inline static QQmlEnginePrivate *get(const QQmlRefPointer<QQmlContextData> &c);
     inline static QQmlEngine *get(QQmlEnginePrivate *p);
     inline static QQmlEnginePrivate *get(QV4::ExecutionEngine *e);
 
     static QList<QQmlError> qmlErrorFromDiagnostics(const QString &fileName, const QList<QQmlJS::DiagnosticMessage> &diagnosticMessages);
 
     static void defineModule();
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-    static void registerQuickTypes();
-#endif
 
     static bool designerMode();
     static void activateDesignerMode();
@@ -271,13 +283,14 @@ public:
 
     mutable QMutex networkAccessManagerMutex;
 
-    QQmlGadgetPtrWrapper *valueTypeInstance(int typeIndex)
+    QQmlGadgetPtrWrapper *valueTypeInstance(QMetaType type)
     {
+        int typeIndex = type.id();
         auto it = cachedValueTypeInstances.find(typeIndex);
         if (it != cachedValueTypeInstances.end())
             return *it;
 
-        if (QQmlValueType *valueType = QQmlValueTypeFactory::valueType(typeIndex)) {
+        if (QQmlValueType *valueType = QQmlMetaType::valueType(type)) {
             QQmlGadgetPtrWrapper *instance = new QQmlGadgetPtrWrapper(valueType, q_func());
             cachedValueTypeInstances.insert(typeIndex, instance);
             return instance;
@@ -286,8 +299,24 @@ public:
         return nullptr;
     }
 
+    void executeRuntimeFunction(const QUrl &url, qsizetype functionIndex, QObject *thisObject,
+                                int argc = 0, void **args = nullptr, QMetaType *types = nullptr);
+
 private:
-    QHash<QQmlType, QJSValue> singletonInstances;
+    class SingletonInstances : private QHash<QQmlType, QJSValue>
+    {
+    public:
+        void convertAndInsert(QV4::ExecutionEngine *engine, const QQmlType &type, QJSValue *value)
+        {
+            QJSValuePrivate::manageStringOnV4Heap(engine, value);
+            insert(type, *value);
+        }
+
+        using QHash<QQmlType, QJSValue>::value;
+        using QHash<QQmlType, QJSValue>::take;
+    };
+
+    SingletonInstances singletonInstances;
     QHash<int, QQmlGadgetPtrWrapper *> cachedValueTypeInstances;
 
     // These members must be protected by a QQmlEnginePrivate::Locker as they are required by
@@ -301,6 +330,7 @@ private:
     void doDeleteInEngineThread();
 
     void cleanupScarceResources();
+    QQmlPropertyCache *findPropertyCacheInCompositeTypes(int t) const;
 };
 
 /*
@@ -399,15 +429,13 @@ Returns a QQmlPropertyCache for \a type with \a minorVersion.
 
 The returned cache is not referenced, so if it is to be stored, call addref().
 */
-QQmlPropertyCache *QQmlEnginePrivate::cache(const QQmlType &type, int minorVersion)
+QQmlPropertyCache *QQmlEnginePrivate::cache(const QQmlType &type, QTypeRevision version)
 {
     Q_ASSERT(type.isValid());
-
-    if (minorVersion == -1 || !type.containsRevisionedAttributes())
-        return cache(type.metaObject(), minorVersion);
+    Q_ASSERT(type.containsRevisionedAttributes());
 
     Locker locker(this);
-    return QQmlMetaType::propertyCache(type, minorVersion);
+    return QQmlMetaType::propertyCache(type, version);
 }
 
 QV4::ExecutionEngine *QQmlEnginePrivate::getV4Engine(QQmlEngine *e)
@@ -431,14 +459,24 @@ const QQmlEnginePrivate *QQmlEnginePrivate::get(const QQmlEngine *e)
     return e ? e->d_func() : nullptr;
 }
 
-QQmlEnginePrivate *QQmlEnginePrivate::get(QQmlContext *c)
+template<typename Context>
+QQmlEnginePrivate *contextEngine(const Context &context)
 {
-    return (c && c->engine()) ? QQmlEnginePrivate::get(c->engine()) : nullptr;
+    if (!context)
+        return nullptr;
+    if (QQmlEngine *engine = context->engine())
+        return QQmlEnginePrivate::get(engine);
+    return nullptr;
 }
 
-QQmlEnginePrivate *QQmlEnginePrivate::get(QQmlContextData *c)
+QQmlEnginePrivate *QQmlEnginePrivate::get(QQmlContext *c)
 {
-    return (c && c->engine) ? QQmlEnginePrivate::get(c->engine) : nullptr;
+    return contextEngine(c);
+}
+
+QQmlEnginePrivate *QQmlEnginePrivate::get(const QQmlRefPointer<QQmlContextData> &c)
+{
+    return contextEngine(c);
 }
 
 QQmlEngine *QQmlEnginePrivate::get(QQmlEnginePrivate *p)

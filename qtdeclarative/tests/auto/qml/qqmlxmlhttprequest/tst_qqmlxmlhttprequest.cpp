@@ -42,17 +42,17 @@
 #include <QProcessEnvironment>
 #endif
 
-#include "testhttpserver.h"
-#include "../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
+#include <QtQuickTestUtils/private/testhttpserver_p.h>
 
 class tst_qqmlxmlhttprequest : public QQmlDataTest
 {
     Q_OBJECT
 public:
-    tst_qqmlxmlhttprequest() {}
+    tst_qqmlxmlhttprequest() : QQmlDataTest(QT_QMLTEST_DATADIR) {}
 
 private slots:
-    void initTestCase();
+    void initTestCase() override;
 
     void domExceptionCodes();
     void callbackException();
@@ -455,7 +455,6 @@ void tst_qqmlxmlhttprequest::setRequestHeader_illegalName_data()
     QTest::newRow("Trailer") << "TraILEr";
     QTest::newRow("Transfer-Encoding") << "tRANsfer-Encoding";
     QTest::newRow("Upgrade") << "UpgrADe";
-    QTest::newRow("User-Agent") << "uSEr-Agent";
     QTest::newRow("Via") << "vIa";
     QTest::newRow("Proxy-") << "ProXy-";
     QTest::newRow("Sec-") << "SeC-";
@@ -663,6 +662,8 @@ void tst_qqmlxmlhttprequest::send_options()
 
 void tst_qqmlxmlhttprequest::send_options_data()
 {
+    if (QLocale::system() != QLocale(QLocale::English, QLocale::UnitedStates))
+        QSKIP("Test is locale dependent");
     QTest::addColumn<QString>("url_suffix");
     QTest::addColumn<QString>("file_expected");
     QTest::addColumn<QString>("file_qml");
@@ -887,6 +888,8 @@ void tst_qqmlxmlhttprequest::getAllResponseHeaders_args()
 
 void tst_qqmlxmlhttprequest::getBinaryData()
 {
+    if (QLocale::system() != QLocale(QLocale::English, QLocale::UnitedStates))
+        QSKIP("Test is locale dependent");
     TestHTTPServer server;
     QVERIFY2(server.listen(), qPrintable(server.errorString()));
     QVERIFY(server.wait(testFileUrl("receive_binary_data.expect"),
@@ -906,6 +909,8 @@ void tst_qqmlxmlhttprequest::getBinaryData()
 
 void tst_qqmlxmlhttprequest::getJsonData()
 {
+    if (QLocale::system() != QLocale(QLocale::English, QLocale::UnitedStates))
+        QSKIP("Test is locale dependent");
     TestHTTPServer server;
     QVERIFY2(server.listen(), qPrintable(server.errorString()));
     QVERIFY(server.wait(testFileUrl("receive_json_data.expect"),
@@ -1132,16 +1137,20 @@ void tst_qqmlxmlhttprequest::sendFileRequest()
 
 #if QT_CONFIG(process)
 void tst_qqmlxmlhttprequest::sendFileRequestNotSet() {
+#ifdef Q_OS_ANDROID
+    QSKIP("Trying to run the main app .so lib crashes on Android (QTBUG-99214)");
+#endif
     if (qEnvironmentVariableIsSet("TEST_CUSTOM_PERMISSIONS")) {
-        // Test with no settings
-        // Should just result in warnings in Qt 5
-        doFileRequest([](QObject* object, QTemporaryFile &writeFile) {
-            QTRY_COMPARE(object->property("readResult").toString(), testString);
+        // Test with no settings, neither reading nor writing should work
+        doFileRequest([](QObject *object, QTemporaryFile &writeFile) {
+            QTest::qWait(1000);
 
-            QTRY_VERIFY(object->property("writeDone").toBool());
+            // Verify that the read has not yielded any value
+            QVERIFY(object->property("readResult").isNull());
 
+            // Check that the file stays empty
             QVERIFY(writeFile.open());
-            QCOMPARE(QString::fromUtf8(writeFile.readAll()), testString);
+            QCOMPARE(QString::fromUtf8(writeFile.readAll()), "");
             writeFile.close();
         });
         return;
@@ -1161,27 +1170,34 @@ void tst_qqmlxmlhttprequest::sendFileRequestNotSet() {
     // Check exit code
     QCOMPARE(child.exitCode(), 0);
 
-    // Check if all warnings were printed
+    // Check if all errors were printed
     QString output = QString::fromUtf8(child.readAllStandardOutput());
 
+    // Due to differences in line endings on Windows, check for the error lines individually
+    const QStringList readingError = {
+        QLatin1String("XMLHttpRequest: Using GET on a local file is disabled by default."),
+        QLatin1String("Set QML_XHR_ALLOW_FILE_READ to 1 to enable this feature.")
+    };
 
-    const QString readingWarning = QLatin1String(
-                "XMLHttpRequest: Using GET on a local file is dangerous "
-                "and will be disabled by default in a future Qt version."
-                "Set QML_XHR_ALLOW_FILE_READ to 1 if you wish to continue using this feature.");
+    const QStringList writingError = {
+        QLatin1String("XMLHttpRequest: Using PUT on a local file is disabled by default."),
+        QLatin1String("Set QML_XHR_ALLOW_FILE_WRITE to 1 to enable this feature.")
+    };
 
-    const QString writingWarning = QLatin1String(
-                "XMLHttpRequest: Using PUT on a local file is dangerous "
-                "and will be disabled by default in a future Qt version."
-                "Set QML_XHR_ALLOW_FILE_WRITE to 1 if you wish to continue using this feature.");
+    for (const auto &readingErrorLine : readingError)
+        QVERIFY(output.contains(readingErrorLine));
 
-    QVERIFY(output.contains(readingWarning));
-    QVERIFY(output.contains(writingWarning));
+    for (const auto &writingErrorLine : writingError)
+        QVERIFY(output.contains(writingErrorLine));
 }
 #endif
 
 #if QT_CONFIG(process)
 void tst_qqmlxmlhttprequest::sendFileRequestNoWrite() {
+#ifdef Q_OS_ANDROID
+    QSKIP("Trying to run the main app .so lib crashes on Android (QTBUG-99214)");
+#endif
+
     if (qEnvironmentVariableIsSet("TEST_CUSTOM_PERMISSIONS")) {
         // Test with no writing enabled
         doFileRequest([](QObject* object, QTemporaryFile &writeFile) {
@@ -1211,6 +1227,10 @@ void tst_qqmlxmlhttprequest::sendFileRequestNoWrite() {
 
 #if QT_CONFIG(process)
 void tst_qqmlxmlhttprequest::sendFileRequestNoRead() {
+#ifdef Q_OS_ANDROID
+    QSKIP("Trying to run the main app .so lib crashes on Android (QTBUG-99214)");
+#endif
+
     if (qEnvironmentVariableIsSet("TEST_CUSTOM_PERMISSIONS")) {
         // Test with no reading enabled
         doFileRequest([](QObject* object, QTemporaryFile &writeFile) {
@@ -1243,6 +1263,8 @@ void tst_qqmlxmlhttprequest::sendFileRequestNoRead() {
 
 void tst_qqmlxmlhttprequest::sendPropfind()
 {
+    if (QLocale::system() != QLocale(QLocale::English, QLocale::UnitedStates))
+        QSKIP("Test is locale dependent");
     const QString prefix = "WebDAV//";
 
     QFETCH(QString, qml);
@@ -1276,9 +1298,15 @@ void tst_qqmlxmlhttprequest::sendPropfind_data()
     QTest::addColumn<QString>("replyHeader");
     QTest::addColumn<QString>("replyBody");
 
-    QTest::newRow("Send PROPFIND for file (bigbox, author, DingALing, Random properties). Get response with responseXML.") << "sendPropfind.responseXML.qml" << "/file" << "propfind.file.expect" << "propfind.file.reply.header" << "propfind.file.reply.body";
-    QTest::newRow("Send PROPFIND for file (bigbox, author, DingALing, Random properties). Get response with response.") << "sendPropfind.response.qml" << "/file" << "propfind.file.expect" << "propfind.file.reply.header" << "propfind.file.reply.body";
-    QTest::newRow("Send PROPFIND \"allprop\" request for collection.") << "sendPropfind.collection.allprop.qml" << "/container/" << "propfind.collection.allprop.expect" << "propfind.file.reply.header" << "propfind.collection.allprop.reply.body";
+    QTest::newRow("Send PROPFIND for file (bigbox, author, DingALing, Random properties). Get response with responseXML.")
+            << "sendPropfind.responseXML.qml" << "/file" << "propfind.file.expect"
+            << "propfind.file.reply.header" << "propfind.file.reply.body";
+    QTest::newRow("Send PROPFIND for file (bigbox, author, DingALing, Random properties). Get response with response.")
+            << "sendPropfind.response.qml" << "/file" << "propfind.file.expect"
+            << "propfind.file.reply.header" << "propfind.file.reply.body";
+    QTest::newRow("Send PROPFIND \"allprop\" request for collection.")
+            << "sendPropfind.collection.allprop.qml" << "/container/" << "propfind.collection.allprop.expect"
+            << "propfind.file.reply.header" << "propfind.collection.allprop.reply.body";
 }
 
 // Test that calling hte XMLHttpRequest methods on a non-XMLHttpRequest object

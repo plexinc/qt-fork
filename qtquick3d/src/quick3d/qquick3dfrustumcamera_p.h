@@ -54,8 +54,10 @@ class Q_QUICK3D_EXPORT QQuick3DFrustumCamera : public QQuick3DPerspectiveCamera
     Q_PROPERTY(float right READ right WRITE setRight NOTIFY rightChanged)
     Q_PROPERTY(float left READ right WRITE setLeft NOTIFY leftChanged)
 
+    QML_NAMED_ELEMENT(FrustumCamera)
+
 public:
-    QQuick3DFrustumCamera();
+    explicit QQuick3DFrustumCamera(QQuick3DNode *parent = nullptr);
 
     float top() const;
     float bottom() const;
@@ -75,7 +77,7 @@ Q_SIGNALS:
     void leftChanged();
 
 protected:
-    bool checkSpatialNode(QSSGRenderCamera *camera) override;
+    QSSGRenderGraphObject *updateSpatialNode(QSSGRenderGraphObject *node) override;
 
 private:
     float m_top = 0.0f;

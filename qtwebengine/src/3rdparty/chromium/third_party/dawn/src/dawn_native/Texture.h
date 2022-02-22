@@ -15,15 +15,19 @@
 #ifndef DAWNNATIVE_TEXTURE_H_
 #define DAWNNATIVE_TEXTURE_H_
 
+#include "common/ityp_array.h"
+#include "common/ityp_bitset.h"
 #include "dawn_native/Error.h"
 #include "dawn_native/Forward.h"
 #include "dawn_native/ObjectBase.h"
+#include "dawn_native/Subresource.h"
 
 #include "dawn_native/dawn_platform.h"
 
 #include <vector>
 
 namespace dawn_native {
+
     MaybeError ValidateTextureDescriptor(const DeviceBase* device,
                                          const TextureDescriptor* descriptor);
     MaybeError ValidateTextureViewDescriptor(const TextureBase* texture,
@@ -35,11 +39,11 @@ namespace dawn_native {
     bool IsValidSampleCount(uint32_t sampleCount);
 
     static constexpr wgpu::TextureUsage kReadOnlyTextureUsages =
-        wgpu::TextureUsage::CopySrc | wgpu::TextureUsage::Sampled | wgpu::TextureUsage::Present;
+        wgpu::TextureUsage::CopySrc | wgpu::TextureUsage::Sampled | kReadOnlyStorageTexture;
 
     static constexpr wgpu::TextureUsage kWritableTextureUsages =
         wgpu::TextureUsage::CopyDst | wgpu::TextureUsage::Storage |
-        wgpu::TextureUsage::OutputAttachment;
+        wgpu::TextureUsage::RenderAttachment;
 
     class TextureBase : public ObjectBase {
       public:
@@ -52,21 +56,19 @@ namespace dawn_native {
         wgpu::TextureDimension GetDimension() const;
         const Format& GetFormat() const;
         const Extent3D& GetSize() const;
+        uint32_t GetWidth() const;
+        uint32_t GetHeight() const;
+        uint32_t GetDepth() const;
         uint32_t GetArrayLayers() const;
         uint32_t GetNumMipLevels() const;
+        SubresourceRange GetAllSubresources() const;
         uint32_t GetSampleCount() const;
+        uint32_t GetSubresourceCount() const;
         wgpu::TextureUsage GetUsage() const;
         TextureState GetTextureState() const;
-        uint32_t GetSubresourceIndex(uint32_t mipLevel, uint32_t arraySlice) const;
-        bool IsSubresourceContentInitialized(uint32_t baseMipLevel,
-                                             uint32_t levelCount,
-                                             uint32_t baseArrayLayer,
-                                             uint32_t layerCount) const;
-        void SetIsSubresourceContentInitialized(bool isInitialized,
-                                                uint32_t baseMipLevel,
-                                                uint32_t levelCount,
-                                                uint32_t baseArrayLayer,
-                                                uint32_t layerCount);
+        uint32_t GetSubresourceIndex(uint32_t mipLevel, uint32_t arraySlice, Aspect aspect) const;
+        bool IsSubresourceContentInitialized(const SubresourceRange& range) const;
+        void SetIsSubresourceContentInitialized(bool isInitialized, const SubresourceRange& range);
 
         MaybeError ValidateCanUseInSubmitNow() const;
 
@@ -79,9 +81,12 @@ namespace dawn_native {
         // required to be a multiple of the block size and used in texture sampling.
         Extent3D GetMipLevelPhysicalSize(uint32_t level) const;
         Extent3D GetMipLevelVirtualSize(uint32_t level) const;
+        Extent3D ClampToMipLevelVirtualSize(uint32_t level,
+                                            const Origin3D& origin,
+                                            const Extent3D& extent) const;
 
         // Dawn API
-        TextureViewBase* CreateView(const TextureViewDescriptor* descriptor);
+        TextureViewBase* CreateView(const TextureViewDescriptor* descriptor = nullptr);
         void Destroy();
 
       protected:
@@ -96,7 +101,6 @@ namespace dawn_native {
         // TODO(cwallez@chromium.org): This should be deduplicated in the Device
         const Format& mFormat;
         Extent3D mSize;
-        uint32_t mArrayLayerCount;
         uint32_t mMipLevelCount;
         uint32_t mSampleCount;
         wgpu::TextureUsage mUsage = wgpu::TextureUsage::None;
@@ -115,12 +119,14 @@ namespace dawn_native {
         const TextureBase* GetTexture() const;
         TextureBase* GetTexture();
 
+        Aspect GetAspects() const;
         const Format& GetFormat() const;
         wgpu::TextureViewDimension GetDimension() const;
         uint32_t GetBaseMipLevel() const;
         uint32_t GetLevelCount() const;
         uint32_t GetBaseArrayLayer() const;
         uint32_t GetLayerCount() const;
+        const SubresourceRange& GetSubresourceRange() const;
 
       private:
         TextureViewBase(DeviceBase* device, ObjectBase::ErrorTag tag);
@@ -130,10 +136,7 @@ namespace dawn_native {
         // TODO(cwallez@chromium.org): This should be deduplicated in the Device
         const Format& mFormat;
         wgpu::TextureViewDimension mDimension;
-        uint32_t mBaseMipLevel;
-        uint32_t mMipLevelCount;
-        uint32_t mBaseArrayLayer;
-        uint32_t mArrayLayerCount;
+        SubresourceRange mRange;
     };
 
 }  // namespace dawn_native

@@ -12,7 +12,6 @@
 #include "chrome/browser/extensions/test_extension_environment.h"
 #include "chrome/test/base/testing_profile.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/frame_navigate_params.h"
 #include "content/public/test/mock_navigation_handle.h"
 #include "content/public/test/test_renderer_host.h"
 #include "extensions/common/extension.h"
@@ -145,9 +144,9 @@ class DeclarativeChromeContentRulesRegistryTest : public testing::Test {
 TEST_F(DeclarativeChromeContentRulesRegistryTest, ActiveRulesDoesntGrow) {
   TestPredicateEvaluator* evaluator = nullptr;
   scoped_refptr<ChromeContentRulesRegistry> registry(
-      new ChromeContentRulesRegistry(env()->profile(), nullptr,
-                                     base::Bind(&CreateTestEvaluator,
-                                                &evaluator)));
+      new ChromeContentRulesRegistry(
+          env()->profile(), nullptr,
+          base::BindOnce(&CreateTestEvaluator, &evaluator)));
 
   EXPECT_EQ(0u, registry->GetActiveRulesCountForTesting());
 
@@ -186,7 +185,10 @@ TEST_F(DeclarativeChromeContentRulesRegistryTest, ActiveRulesDoesntGrow) {
   evaluator->RequestImmediateEvaluation(tab.get(), true);
   EXPECT_EQ(1u, registry->GetActiveRulesCountForTesting());
 
-  // Closing the tab should erase its entry from active_rules_.
+  // Closing the tab should erase its entry from active_rules_. Invoke
+  // WebContentsDestroyed on the registry to mock it being notified that the tab
+  // has closed.
+  registry->WebContentsDestroyed(tab.get());
   tab.reset();
   EXPECT_EQ(0u, registry->GetActiveRulesCountForTesting());
 

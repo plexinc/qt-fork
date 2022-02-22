@@ -31,6 +31,8 @@
 #include "perfetto/ext/base/thread_checker.h"
 #include "perfetto/ext/base/unix_task_runner.h"
 #include "perfetto/ext/tracing/core/basic_types.h"
+#include "src/kallsyms/kernel_symbol_map.h"
+#include "src/kallsyms/lazy_kernel_symbolizer.h"
 #include "src/profiling/common/unwind_support.h"
 #include "src/profiling/perf/common_types.h"
 #include "src/profiling/perf/unwind_queue.h"
@@ -85,7 +87,7 @@ class Unwinder {
 
   ~Unwinder() { PERFETTO_DCHECK_THREAD(thread_checker_); }
 
-  void PostStartDataSource(DataSourceInstanceID ds_id);
+  void PostStartDataSource(DataSourceInstanceID ds_id, bool kernel_frames);
   void PostAdoptProcDescriptors(DataSourceInstanceID ds_id,
                                 pid_t pid,
                                 base::ScopedFile maps_fd,
@@ -93,6 +95,10 @@ class Unwinder {
   void PostRecordTimedOutProcDescriptors(DataSourceInstanceID ds_id, pid_t pid);
   void PostProcessQueue();
   void PostInitiateDataSourceStop(DataSourceInstanceID ds_id);
+  void PostPurgeDataSource(DataSourceInstanceID ds_id);
+
+  void PostClearCachedStatePeriodic(DataSourceInstanceID ds_id,
+                                    uint32_t period_ms);
 
   UnwindQueue<UnwindEntry, kUnwindQueueCapacity>& unwind_queue() {
     return unwind_queue_;
@@ -125,7 +131,8 @@ class Unwinder {
   Unwinder(Delegate* delegate, base::UnixTaskRunner* task_runner);
 
   // Marks the data source as valid and active at the unwinding stage.
-  void StartDataSource(DataSourceInstanceID ds_id);
+  // Initializes kernel address symbolization if needed.
+  void StartDataSource(DataSourceInstanceID ds_id, bool kernel_frames);
 
   void AdoptProcDescriptors(DataSourceInstanceID ds_id,
                             pid_t pid,
@@ -146,6 +153,10 @@ class Unwinder {
                                UnwindingMetadata* unwind_state,
                                bool pid_unwound_before);
 
+  // Returns a list of symbolized kernel frames in the sample (if any).
+  std::vector<unwindstack::FrameData> SymbolizeKernelCallchain(
+      const ParsedSample& sample);
+
   // Marks the data source as shutting down at the unwinding stage. It is known
   // that no new samples for this source will be pushed into the queue, but we
   // need to delay the unwinder state teardown until all previously-enqueued
@@ -157,12 +168,46 @@ class Unwinder {
   // sequence.
   void FinishDataSourceStop(DataSourceInstanceID ds_id);
 
+  // Immediately destroys the data source state, used for abrupt stops.
+  void PurgeDataSource(DataSourceInstanceID ds_id);
+
+  // Clears the parsed maps for all previously-sampled processes, and resets the
+  // libunwindstack cache. This has the effect of deallocating the cached Elf
+  // objects within libunwindstack, which take up non-trivial amounts of memory.
+  //
+  // There are two reasons for having this operation:
+  // * over a longer trace, it's desireable to drop heavy state for processes
+  //   that haven't been sampled recently.
+  // * since libunwindstack's cache is not bounded, it'll tend towards having
+  //   state for all processes that are targeted by the profiling config.
+  //   Clearing the cache periodically helps keep its footprint closer to the
+  //   actual working set (NB: which might still be arbitrarily big, depending
+  //   on the profiling config).
+  //
+  // After this function completes, the next unwind for each process will
+  // therefore incur a guaranteed maps reparse.
+  //
+  // Unwinding for concurrent data sources will *not* be directly affected at
+  // the time of writing, as the non-cleared parsed maps will keep the cached
+  // Elf objects alive through shared_ptrs.
+  //
+  // Note that this operation is heavy in terms of cpu%, and should therefore
+  // be called only for profiling configs that require it.
+  //
+  // TODO(rsavitski): dropping the full parsed maps is somewhat excessive, could
+  // instead clear just the |MapInfo.elf| shared_ptr, but that's considered too
+  // brittle as it's an implementation detail of libunwindstack.
+  // TODO(rsavitski): improve libunwindstack cache's architecture (it is still
+  // worth having at the moment to speed up unwinds across map reparses).
+  void ClearCachedStatePeriodic(DataSourceInstanceID ds_id, uint32_t period_ms);
+
   void ResetAndEnableUnwindstackCache();
 
   base::UnixTaskRunner* const task_runner_;
   Delegate* const delegate_;
   UnwindQueue<UnwindEntry, kUnwindQueueCapacity> unwind_queue_;
   std::map<DataSourceInstanceID, DataSourceState> data_sources_;
+  LazyKernelSymbolizer kernel_symbolizer_;
 
   PERFETTO_THREAD_CHECKER(thread_checker_)
 };
@@ -173,7 +218,7 @@ class Unwinder {
 // owned state, and consolidate.
 class UnwinderHandle {
  public:
-  UnwinderHandle(Unwinder::Delegate* delegate) {
+  explicit UnwinderHandle(Unwinder::Delegate* delegate) {
     std::mutex init_lock;
     std::condition_variable init_cv;
 

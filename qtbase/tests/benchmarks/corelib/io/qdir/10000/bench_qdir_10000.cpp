@@ -26,7 +26,8 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QDirIterator>
 
 #ifdef Q_OS_WIN
 #   include <windows.h>
@@ -129,7 +130,7 @@ private slots:
         QBENCHMARK {
             QStringList fileList = testdir.entryList(QDir::NoFilter, QDir::Unsorted);
             foreach (const QString &filename, fileList) {
-
+                Q_UNUSED(filename);
             }
         }
     }
@@ -149,7 +150,7 @@ private slots:
         QBENCHMARK {
             QStringList fileList = testdir.entryList(QDir::NoFilter, QDir::Time);
             foreach (const QString &filename, fileList) {
-
+                Q_UNUSED(filename);
             }
         }
     }
@@ -163,12 +164,7 @@ private slots:
         wcscat(appendedPath, L"\\*");
 
         WIN32_FIND_DATA fd;
-#ifndef Q_OS_WINRT
         HANDLE hSearch = FindFirstFileW(appendedPath, &fd);
-#else
-        HANDLE hSearch = FindFirstFileEx(appendedPath, FindExInfoStandard, &fd,
-                                         FindExSearchNameMatch, NULL, FIND_FIRST_EX_LARGE_FETCH);
-#endif
         QVERIFY(hSearch != INVALID_HANDLE_VALUE);
 
         QBENCHMARK {

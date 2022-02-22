@@ -33,7 +33,7 @@
 #include <QtCharts/QHBoxPlotModelMapper>
 #include <QtCharts/QVBoxPlotModelMapper>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 /*!
     \qmltype BoxSet
@@ -343,7 +343,7 @@ QVariantList DeclarativeBoxSet::values()
 void DeclarativeBoxSet::setValues(QVariantList values)
 {
     for (int i(0); i < values.count(); i++) {
-        if (values.at(i).canConvert(QVariant::Double))
+        if (values.at(i).canConvert<double>())
             QBoxSet::append(values[i].toDouble());
     }
 }
@@ -372,7 +372,7 @@ void DeclarativeBoxSet::handleBrushChanged()
     // the brush file name needs to be cleared.
     if (!m_brushFilename.isEmpty() && QBoxSet::brush().textureImage() != m_brushImage) {
         m_brushFilename.clear();
-        emit brushFilenameChanged(QString(""));
+        emit brushFilenameChanged(QString());
     }
 }
 
@@ -492,10 +492,10 @@ void DeclarativeBoxPlotSeries::handleBrushChanged()
     // the brush file name needs to be cleared.
     if (!m_brushFilename.isEmpty() && QBoxPlotSeries::brush().textureImage() != m_brushImage) {
         m_brushFilename.clear();
-        emit brushFilenameChanged(QString(""));
+        emit brushFilenameChanged(QString());
     }
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_declarativeboxplotseries_p.cpp"

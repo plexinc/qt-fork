@@ -38,7 +38,6 @@ class ChildProcessHostDelegate;
 class CONTENT_EXPORT ChildProcessHostImpl
     : public ChildProcessHost,
       public IPC::Listener,
-      public mojom::ChildProcessHostBootstrap,
       public mojom::ChildProcessHost {
  public:
   ~ChildProcessHostImpl() override;
@@ -76,9 +75,9 @@ class CONTENT_EXPORT ChildProcessHostImpl
   bool IsChannelOpening() override;
   void AddFilter(IPC::MessageFilter* filter) override;
   void BindReceiver(mojo::GenericPendingReceiver receiver) override;
-  void RunService(
+  void RunServiceDeprecated(
       const std::string& service_name,
-      mojo::PendingReceiver<service_manager::mojom::Service> receiver) override;
+      mojo::ScopedMessagePipeHandle service_pipe) override;
 
   base::Process& peer_process() { return peer_process_; }
   mojom::ChildProcess* child_process() { return child_process_.get(); }
@@ -87,10 +86,6 @@ class CONTENT_EXPORT ChildProcessHostImpl
   friend class content::ChildProcessHost;
 
   ChildProcessHostImpl(ChildProcessHostDelegate* delegate, IpcMode ipc_mode);
-
-  // mojom::ChildProcessHostBootstrap implementation:
-  void BindProcessHost(
-      mojo::PendingReceiver<mojom::ChildProcessHost> receiver) override;
 
   // mojom::ChildProcessHost implementation:
   void BindHostReceiver(mojo::GenericPendingReceiver receiver) override;
@@ -105,6 +100,10 @@ class CONTENT_EXPORT ChildProcessHostImpl
   // non-null.
   bool InitChannel();
 
+#if BUILDFLAG(CLANG_PROFILING_INSIDE_SANDBOX)
+  void DumpProfilingData(base::OnceClosure callback) override;
+#endif
+
   // The outgoing Mojo invitation which must be consumed to bootstrap Mojo IPC
   // to the child process.
   base::Optional<mojo::OutgoingInvitation> mojo_invitation_{base::in_place};
@@ -115,7 +114,6 @@ class CONTENT_EXPORT ChildProcessHostImpl
   bool opening_channel_;  // True while we're waiting the channel to be opened.
   std::unique_ptr<IPC::Channel> channel_;
   mojo::Remote<mojom::ChildProcess> child_process_;
-  mojo::Receiver<mojom::ChildProcessHostBootstrap> bootstrap_receiver_{this};
   mojo::Receiver<mojom::ChildProcessHost> receiver_{this};
 
   // Holds all the IPC message filters.  Since this object lives on the IO

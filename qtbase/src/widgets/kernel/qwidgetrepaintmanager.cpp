@@ -63,8 +63,6 @@
 
 #include <qpa/qplatformbackingstore.h>
 
-#include <private/qmemory_p.h>
-
 QT_BEGIN_NAMESPACE
 
 #ifndef QT_NO_OPENGL
@@ -416,25 +414,6 @@ static bool hasPlatformWindow(QWidget *widget)
     return widget && widget->windowHandle() && widget->windowHandle()->handle();
 }
 
-static QVector<QRect> getSortedRectsToScroll(const QRegion &region, int dx, int dy)
-{
-    QVector<QRect> rects;
-    std::copy(region.begin(), region.end(), std::back_inserter(rects));
-    if (rects.count() > 1) {
-        std::sort(rects.begin(), rects.end(), [=](const QRect &r1, const QRect &r2) {
-            if (r1.y() == r2.y()) {
-                if (dx > 0)
-                    return r1.x() > r2.x();
-                return r1.x() < r2.x();
-            }
-            if (dy > 0)
-                return r1.y() > r2.y();
-            return r1.y() < r2.y();
-        });
-    }
-    return rects;
-}
-
 //parent's coordinates; move whole rect; update parent and widget
 //assume the screen blt has already been done, so we don't need to refresh that part
 void QWidgetPrivate::moveRect(const QRect &rect, int dx, int dy)
@@ -444,14 +423,13 @@ void QWidgetPrivate::moveRect(const QRect &rect, int dx, int dy)
         return;
 
     QWidget *tlw = q->window();
-    QTLWExtra* x = tlw->d_func()->topData();
 
     static const bool accelEnv = qEnvironmentVariableIntValue("QT_NO_FAST_MOVE") == 0;
 
-    QWidget *pw = q->parentWidget();
-    QPoint toplevelOffset = pw->mapTo(tlw, QPoint());
-    QWidgetPrivate *pd = pw->d_func();
-    QRect clipR(pd->clipRect());
+    QWidget *parentWidget = q->parentWidget();
+    QPoint toplevelOffset = parentWidget->mapTo(tlw, QPoint());
+    QWidgetPrivate *parentPrivate = parentWidget->d_func();
+    const QRect clipR(parentPrivate->clipRect());
     const QRect newRect(rect.translated(dx, dy));
     QRect destRect = rect.intersected(clipR);
     if (destRect.isValid())
@@ -460,60 +438,40 @@ void QWidgetPrivate::moveRect(const QRect &rect, int dx, int dy)
     const QRect parentRect(rect & clipR);
     const bool nativeWithTextureChild = textureChildSeen && hasPlatformWindow(q);
 
-    const bool accelerateMove = accelEnv && isOpaque && !nativeWithTextureChild
+    bool accelerateMove = accelEnv && isOpaque && !nativeWithTextureChild && sourceRect.isValid()
 #if QT_CONFIG(graphicsview)
                           // No accelerate move for proxy widgets.
                           && !tlw->d_func()->extra->proxyWidget
 #endif
-            ;
+                          && !isOverlapped(sourceRect) && !isOverlapped(destRect);
 
     if (!accelerateMove) {
-        QRegion parentR(effectiveRectFor(parentRect));
+        QRegion parentRegion(effectiveRectFor(parentRect));
         if (!extra || !extra->hasMask) {
-            parentR -= newRect;
+            parentRegion -= newRect;
         } else {
             // invalidateBackingStore() excludes anything outside the mask
-            parentR += newRect & clipR;
+            parentRegion += newRect & clipR;
         }
-        pd->invalidateBackingStore(parentR);
+        parentPrivate->invalidateBackingStore(parentRegion);
         invalidateBackingStore((newRect & clipR).translated(-data.crect.topLeft()));
     } else {
-
-        QWidgetRepaintManager *repaintManager = x->repaintManager.get();
+        QWidgetRepaintManager *repaintManager = QWidgetPrivate::get(tlw)->maybeRepaintManager();
+        Q_ASSERT(repaintManager);
         QRegion childExpose(newRect & clipR);
-        QRegion overlappedExpose;
 
-        if (sourceRect.isValid()) {
-            overlappedExpose = (overlappedRegion(sourceRect) | overlappedRegion(destRect)) & clipR;
+        if (repaintManager->bltRect(sourceRect, dx, dy, parentWidget))
+            childExpose -= destRect;
 
-            const qreal factor = QHighDpiScaling::factor(q->windowHandle());
-            if (overlappedExpose.isEmpty() || qFloor(factor) == factor) {
-                const QVector<QRect> rectsToScroll
-                        = getSortedRectsToScroll(QRegion(sourceRect) - overlappedExpose, dx, dy);
-                for (QRect rect : rectsToScroll) {
-                    if (repaintManager->bltRect(rect, dx, dy, pw)) {
-                        childExpose -= rect.translated(dx, dy);
-                    }
-                }
-            }
-
-            childExpose -= overlappedExpose;
-        }
-
-        if (!pw->updatesEnabled())
+        if (!parentWidget->updatesEnabled())
             return;
 
         const bool childUpdatesEnabled = q->updatesEnabled();
-        if (childUpdatesEnabled) {
-            if (!overlappedExpose.isEmpty()) {
-                overlappedExpose.translate(-data.crect.topLeft());
-                invalidateBackingStore(overlappedExpose);
-            }
-            if (!childExpose.isEmpty()) {
-                childExpose.translate(-data.crect.topLeft());
-                repaintManager->markDirty(childExpose, q);
-                isMoved = true;
-            }
+
+        if (childUpdatesEnabled && !childExpose.isEmpty()) {
+            childExpose.translate(-data.crect.topLeft());
+            repaintManager->markDirty(childExpose, q);
+            isMoved = true;
         }
 
         QRegion parentExpose(parentRect);
@@ -522,14 +480,14 @@ void QWidgetPrivate::moveRect(const QRect &rect, int dx, int dy)
             parentExpose += QRegion(newRect) - extra->mask.translated(data.crect.topLeft());
 
         if (!parentExpose.isEmpty()) {
-            repaintManager->markDirty(parentExpose, pw);
-            pd->isMoved = true;
+            repaintManager->markDirty(parentExpose, parentWidget);
+            parentPrivate->isMoved = true;
         }
 
         if (childUpdatesEnabled) {
             QRegion needsFlush(sourceRect);
             needsFlush += destRect;
-            repaintManager->markNeedsFlush(pw, needsFlush, toplevelOffset);
+            repaintManager->markNeedsFlush(parentWidget, needsFlush, toplevelOffset);
         }
     }
 }
@@ -539,20 +497,20 @@ void QWidgetPrivate::scrollRect(const QRect &rect, int dx, int dy)
 {
     Q_Q(QWidget);
     QWidget *tlw = q->window();
-    QTLWExtra* x = tlw->d_func()->topData();
 
-    QWidgetRepaintManager *repaintManager = x->repaintManager.get();
+    QWidgetRepaintManager *repaintManager = QWidgetPrivate::get(tlw)->maybeRepaintManager();
     if (!repaintManager)
         return;
 
     static const bool accelEnv = qEnvironmentVariableIntValue("QT_NO_FAST_SCROLL") == 0;
 
-    const QRect clipR = clipRect();
-    const QRect scrollRect = rect & clipR;
-    const bool accelerateScroll = accelEnv && isOpaque && !q_func()->testAttribute(Qt::WA_WState_InPaintEvent);
+    const QRect scrollRect = rect & clipRect();
+    bool overlapped = false;
+    bool accelerateScroll = accelEnv && isOpaque && !q_func()->testAttribute(Qt::WA_WState_InPaintEvent)
+                            && !(overlapped = isOverlapped(scrollRect.translated(data.crect.topLeft())));
 
     if (!accelerateScroll) {
-        if (!overlappedRegion(scrollRect.translated(data.crect.topLeft()), true).isEmpty()) {
+        if (overlapped) {
             QRegion region(scrollRect);
             subtractOpaqueSiblings(region);
             invalidateBackingStore(region);
@@ -564,22 +522,11 @@ void QWidgetPrivate::scrollRect(const QRect &rect, int dx, int dy)
         const QRect destRect = scrollRect.translated(dx, dy) & scrollRect;
         const QRect sourceRect = destRect.translated(-dx, -dy);
 
-        const QRegion overlappedExpose = (overlappedRegion(scrollRect.translated(data.crect.topLeft())))
-                .translated(-data.crect.topLeft()) & clipR;
         QRegion childExpose(scrollRect);
-
-        const qreal factor = QHighDpiScaling::factor(q->windowHandle());
-        if (overlappedExpose.isEmpty() || qFloor(factor) == factor) {
-            const QVector<QRect> rectsToScroll
-                    = getSortedRectsToScroll(QRegion(sourceRect) - overlappedExpose, dx, dy);
-            for (const QRect &rect : rectsToScroll) {
-                if (repaintManager->bltRect(rect, dx, dy, q)) {
-                    childExpose -= rect.translated(dx, dy);
-                }
-            }
+        if (sourceRect.isValid()) {
+            if (repaintManager->bltRect(sourceRect, dx, dy, q))
+                childExpose -= destRect;
         }
-
-        childExpose -= overlappedExpose;
 
         if (inDirtyList) {
             if (rect == q->rect()) {
@@ -597,8 +544,6 @@ void QWidgetPrivate::scrollRect(const QRect &rect, int dx, int dy)
         if (!q->updatesEnabled())
             return;
 
-        if (!overlappedExpose.isEmpty())
-            invalidateBackingStore(overlappedExpose);
         if (!childExpose.isEmpty()) {
             repaintManager->markDirty(childExpose, q);
             isScrolled = true;
@@ -627,7 +572,9 @@ bool QWidgetRepaintManager::bltRect(const QRect &rect, int dx, int dy, QWidget *
 // ---------------------------------------------------------------------------
 
 #ifndef QT_NO_OPENGL
-static void findTextureWidgetsRecursively(QWidget *tlw, QWidget *widget, QPlatformTextureList *widgetTextures, QVector<QWidget *> *nativeChildren)
+static void findTextureWidgetsRecursively(QWidget *tlw, QWidget *widget,
+                                          QPlatformTextureList *widgetTextures,
+                                          QList<QWidget *> *nativeChildren)
 {
     QWidgetPrivate *wd = QWidgetPrivate::get(widget);
     if (wd->renderToTexture) {
@@ -650,8 +597,8 @@ static void findAllTextureWidgetsRecursively(QWidget *tlw, QWidget *widget)
 {
     // textureChildSeen does not take native child widgets into account and that's good.
     if (QWidgetPrivate::get(widget)->textureChildSeen) {
-        QVector<QWidget *> nativeChildren;
-        auto tl = qt_make_unique<QPlatformTextureList>();
+        QList<QWidget *> nativeChildren;
+        auto tl = std::make_unique<QPlatformTextureList>();
         // Look for texture widgets (incl. widget itself) from 'widget' down,
         // but skip subtrees with a parent of a native child widget.
         findTextureWidgetsRecursively(tlw, widget, tl.get(), &nativeChildren);
@@ -801,6 +748,18 @@ bool QWidgetRepaintManager::syncAllowed()
     return true;
 }
 
+static bool isDrawnInEffect(const QWidget *w)
+{
+#if QT_CONFIG(graphicseffect)
+    do {
+        if (w->graphicsEffect())
+            return true;
+        w = w->parentWidget();
+    } while (w);
+#endif
+    return false;
+}
+
 void QWidgetRepaintManager::paintAndFlush()
 {
     qCInfo(lcWidgetPainting) << "Painting and flushing dirty"
@@ -888,7 +847,8 @@ void QWidgetRepaintManager::paintAndFlush()
         }
 #endif
 
-        if (!hasDirtySiblingsAbove && wd->isOpaque && !dirty.intersects(widgetDirty.boundingRect())) {
+        if (!isDrawnInEffect(w) && !hasDirtySiblingsAbove && wd->isOpaque
+                && !dirty.intersects(widgetDirty.boundingRect())) {
             opaqueNonOverlappedWidgets.append(w);
         } else {
             resetWidget(w);

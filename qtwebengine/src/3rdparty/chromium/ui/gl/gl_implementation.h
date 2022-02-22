@@ -13,6 +13,7 @@
 #include "base/native_library.h"
 #include "build/build_config.h"
 #include "ui/gfx/extension_set.h"
+#include "ui/gl/buildflags.h"
 #include "ui/gl/gl_export.h"
 #include "ui/gl/gl_switches.h"
 
@@ -47,7 +48,8 @@ enum class ANGLEImplementation {
   kNull = 5,
   kVulkan = 6,
   kSwiftShader = 7,
-  kMaxValue = kSwiftShader,
+  kMetal = 8,
+  kMaxValue = kMetal,
 };
 
 struct GL_EXPORT GLWindowSystemBindingInfo {
@@ -159,6 +161,11 @@ GL_EXPORT base::NativeLibrary LoadLibraryAndPrintError(
     const base::FilePath::CharType* filename);
 GL_EXPORT base::NativeLibrary LoadLibraryAndPrintError(
     const base::FilePath& filename);
+
+#if BUILDFLAG(USE_OPENGL_APITRACE)
+// Notify end of frame at buffer swap request.
+GL_EXPORT void TerminateFrame();
+#endif
 
 }  // namespace gl
 

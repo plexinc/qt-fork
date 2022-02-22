@@ -35,7 +35,6 @@
 
 #include <QtQuick3DRuntimeRender/private/qssgrendermodel_p.h>
 
-#include <QtQuick3DRuntimeRender/private/qssgrenderer_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrenderbuffermanager_p.h>
 
 QT_BEGIN_NAMESPACE
@@ -49,26 +48,6 @@ QSSGRenderNode::QSSGRenderNode()
 QSSGRenderNode::QSSGRenderNode(Type type)
     : QSSGRenderGraphObject(type) {}
 
-QSSGRenderNode::QSSGRenderNode(const QSSGRenderNode &inCloningObject)
-    : QSSGRenderGraphObject(inCloningObject)
-    , rotation(inCloningObject.rotation) // Radians
-    , position(inCloningObject.position)
-    , scale(inCloningObject.scale)
-    , pivot(inCloningObject.pivot)
-    , localOpacity(inCloningObject.localOpacity)
-    , localTransform(inCloningObject.localTransform)
-    , globalTransform(inCloningObject.globalTransform)
-    , globalOpacity(inCloningObject.globalOpacity)
-    , skeletonId(inCloningObject.skeletonId)
-{
-    // for ( SNode* theChild = m_FirstChild; theChild != nullptr; theChild = theChild->m_NextSibling )
-    //{
-    //	SNode* theClonedChild = static_cast<SNode*>( CGraphObjectFactory::CloneGraphObject(
-    //*theChild, inAllocator ) );
-    //	AddChild( *theClonedChild );
-    //}
-}
-
 // Sets this object dirty and walks down the graph setting all
 // children who are not dirty to be dirty.
 void QSSGRenderNode::markDirty(TransformDirtyFlag inTransformDirty)
@@ -77,8 +56,8 @@ void QSSGRenderNode::markDirty(TransformDirtyFlag inTransformDirty)
         flags.setFlag(Flag::TransformDirty, inTransformDirty != TransformDirtyFlag::TransformNotDirty);
     if (!flags.testFlag(Flag::Dirty)) {
         flags.setFlag(Flag::Dirty, true);
-        for (QSSGRenderNode *child = firstChild; child; child = child->nextSibling)
-            child->markDirty(inTransformDirty);
+        for (auto &cld : children)
+            cld.markDirty(inTransformDirty);
     }
 }
 
@@ -91,8 +70,7 @@ bool QSSGRenderNode::calculateGlobalVariables()
     bool retval = flags.testFlag(Flag::Dirty);
     if (retval) {
         flags.setFlag(Flag::Dirty, false);
-        if (flags.testFlag(Flag::TransformDirty))
-            calculateLocalTransform();
+        calculateLocalTransform();
         globalOpacity = localOpacity;
         if (parent) {
             // Layer transforms do not flow down but affect the final layer's rendered
@@ -104,8 +82,39 @@ bool QSSGRenderNode::calculateGlobalVariables()
                     globalTransform = parent->globalTransform * localTransform;
                 else
                     globalTransform = localTransform;
-            } else
+            } else {
                 globalTransform = localTransform;
+            }
+            if (this == instanceRoot) {
+                globalInstanceTransform = parent->globalTransform;
+                localInstanceTransform = localTransform;
+            } else if (instanceRoot) {
+                globalInstanceTransform = instanceRoot->globalInstanceTransform;
+                //### technically O(n^2) -- we could cache localInstanceTransform if every node in the
+                // tree is guaranteed to have the same instance root. That would require an API change.
+                localInstanceTransform = localTransform;
+                auto *p = parent;
+                while (p) {
+                    if (p == instanceRoot) {
+                        localInstanceTransform = p->localInstanceTransform * localInstanceTransform;
+                        break;
+                    }
+                    localInstanceTransform = p->localTransform * localInstanceTransform;
+                    p = p->parent;
+                }
+            } else {
+                // By default, we do magic: translation is applied to the global instance transform,
+                // while scale/rotation is local
+
+                localInstanceTransform = localTransform;
+                auto &localInstanceMatrix =  *reinterpret_cast<float (*)[4][4]>(localInstanceTransform.data());
+                QVector3D localPos{localInstanceMatrix[3][0], localInstanceMatrix[3][1], localInstanceMatrix[3][2]};
+                localInstanceMatrix[3][0] = 0;
+                localInstanceMatrix[3][1] = 0;
+                localInstanceMatrix[3][2] = 0;
+                globalInstanceTransform = parent->globalTransform;
+                globalInstanceTransform.translate(localPos);
+            }
 
             flags.setFlag(Flag::GloballyActive, (flags.testFlag(Flag::Active) && parent->flags.testFlag(Flag::GloballyActive)));
             flags.setFlag(Flag::GloballyPickable, (flags.testFlag(Flag::LocallyPickable) || parent->flags.testFlag(Flag::GloballyPickable)));
@@ -113,6 +122,8 @@ bool QSSGRenderNode::calculateGlobalVariables()
             globalTransform = localTransform;
             flags.setFlag(Flag::GloballyActive, flags.testFlag(Flag::Active));
             flags.setFlag(Flag::GloballyPickable, flags.testFlag(Flag::LocallyPickable));
+            localInstanceTransform = localTransform;
+            globalInstanceTransform = {};
         }
     }
     // We always clear dirty in a reasonable manner but if we aren't active
@@ -127,27 +138,29 @@ void QSSGRenderNode::calculateRotationMatrix(QMatrix4x4 &outMatrix) const
 
 void QSSGRenderNode::calculateLocalTransform()
 {
-    flags.setFlag(Flag::TransformDirty, false);
-    localTransform = QMatrix4x4();
-    globalTransform = localTransform;
-    float *writePtr = localTransform.data();
-    QVector3D theScaledPivot(-pivot[0] * scale[0], -pivot[1] * scale[1], -pivot[2] * scale[2]);
-    localTransform(0, 0) = scale[0];
-    localTransform(1, 1) = scale[1];
-    localTransform(2, 2) = scale[2];
+    if (flags.testFlag(Flag::TransformDirty)) {
+        flags.setFlag(Flag::TransformDirty, false);
+        localTransform = QMatrix4x4();
+        globalTransform = localTransform;
+        float *writePtr = localTransform.data();
+        QVector3D theScaledPivot(-pivot[0] * scale[0], -pivot[1] * scale[1], -pivot[2] * scale[2]);
+        localTransform(0, 0) = scale[0];
+        localTransform(1, 1) = scale[1];
+        localTransform(2, 2) = scale[2];
 
-    writePtr[12] = theScaledPivot[0];
-    writePtr[13] = theScaledPivot[1];
-    writePtr[14] = theScaledPivot[2];
+        writePtr[12] = theScaledPivot[0];
+        writePtr[13] = theScaledPivot[1];
+        writePtr[14] = theScaledPivot[2];
 
-    QMatrix4x4 theRotationTransform;
-    calculateRotationMatrix(theRotationTransform);
-    // may need column conversion in here somewhere.
-    localTransform = theRotationTransform * localTransform;
+        QMatrix4x4 theRotationTransform;
+        calculateRotationMatrix(theRotationTransform);
+        // may need column conversion in here somewhere.
+        localTransform = theRotationTransform * localTransform;
 
-    writePtr[12] += position[0];
-    writePtr[13] += position[1];
-    writePtr[14] += position[2];
+        writePtr[12] += position[0];
+        writePtr[13] += position[1];
+        writePtr[14] += position[2];
+    }
 }
 
 void QSSGRenderNode::setLocalTransformFromMatrix(QMatrix4x4 &inTransform)
@@ -200,81 +213,23 @@ void QSSGRenderNode::addChild(QSSGRenderNode &inChild)
 {
     // Adding children to a layer does not reset parent
     // because layers can share children over with other layers
-    if (this->type != QSSGRenderNode::Type::Layer) {
-        if (inChild.parent)
+    if (type != QSSGRenderNode::Type::Layer) {
+        if (inChild.parent && inChild.parent != this)
             inChild.parent->removeChild(inChild);
         inChild.parent = this;
     }
-    if (firstChild == nullptr) {
-        firstChild = &inChild;
-        inChild.nextSibling = nullptr;
-        inChild.previousSibling = nullptr;
-    } else {
-        QSSGRenderNode *lastChild = getLastChild();
-        if (lastChild) {
-            lastChild->nextSibling = &inChild;
-            inChild.previousSibling = lastChild;
-            inChild.nextSibling = nullptr;
-        } else {
-            Q_ASSERT(false); // no last child but first child isn't null?
-        }
-    }
+    children.push_back(inChild);
 }
-
-void QSSGRenderNode::addChildrenToLayer(QSSGRenderNode &inChildren)
-{
-    // Adding children to a layer does not reset parent
-    // because layers can share children over with other layers
-    if (firstChild == nullptr) {
-        firstChild = &inChildren;
-        inChildren.previousSibling = nullptr;
-    } else {
-        QSSGRenderNode *lastChild = getLastChild();
-        if (lastChild) {
-            lastChild->nextSibling = &inChildren;
-            inChildren.previousSibling = lastChild;
-        } else {
-            Q_ASSERT(false); // no last child but first child isn't null?
-        }
-    }
-}
-
 
 void QSSGRenderNode::removeChild(QSSGRenderNode &inChild)
 {
-    // Removing children from a layer does not care about parenting
-    // because layers can share children over with other layers
-    if (this->type != QSSGRenderNode::Type::Layer) {
-        if (inChild.parent != this) {
-            Q_ASSERT(false);
-            return;
-        }
+    if (Q_UNLIKELY(type != QSSGRenderNode::Type::Layer && inChild.parent != this)) {
+        Q_ASSERT(inChild.parent == this);
+        return;
     }
 
-    for (QSSGRenderNode *child = firstChild; child; child = child->nextSibling) {
-        if (child == &inChild) {
-            if (child->previousSibling)
-                child->previousSibling->nextSibling = child->nextSibling;
-            if (child->nextSibling)
-                child->nextSibling->previousSibling = child->previousSibling;
-            child->parent = nullptr;
-            if (firstChild == child)
-                firstChild = child->nextSibling;
-            child->nextSibling = nullptr;
-            child->previousSibling = nullptr;
-            return;
-        }
-    }
-    Q_ASSERT(false);
-}
-
-QSSGRenderNode *QSSGRenderNode::getLastChild()
-{
-    QSSGRenderNode *lastChild = nullptr;
-    // empty loop intentional
-    for (lastChild = firstChild; lastChild && lastChild->nextSibling; lastChild = lastChild->nextSibling) {
-    }
-    return lastChild;
+    inChild.parent = nullptr;
+    children.remove(inChild);
 }
 
 void QSSGRenderNode::removeFromGraph()
@@ -282,46 +237,38 @@ void QSSGRenderNode::removeFromGraph()
     if (parent)
         parent->removeChild(*this);
 
-    nextSibling = nullptr;
-
     // Orphan all of my children.
-    QSSGRenderNode *nextSibling = nullptr;
-    for (QSSGRenderNode *child = firstChild; child != nullptr; child = nextSibling) {
-        child->previousSibling = nullptr;
-        child->parent = nullptr;
-        nextSibling = child->nextSibling;
-        child->nextSibling = nullptr;
+    for (auto it = children.begin(), end = children.end(); it != end;) {
+        auto &removedChild = *it++;
+        children.remove(removedChild);
+        removedChild.parent = nullptr;
     }
 }
 
 QSSGBounds3 QSSGRenderNode::getBounds(const QSSGRef<QSSGBufferManager> &inManager,
-                                         bool inIncludeChildren,
-                                         QSSGRenderNodeFilterInterface *inChildFilter) const
+                                      bool inIncludeChildren) const
 {
-    QSSGBounds3 retval = QSSGBounds3::empty();
+    QSSGBounds3 retval;
     if (inIncludeChildren)
-        retval = getChildBounds(inManager, inChildFilter);
+        retval = getChildBounds(inManager);
 
     if (type == QSSGRenderGraphObject::Type::Model)
         retval.include(static_cast<const QSSGRenderModel *>(this)->getModelBounds(inManager));
     return retval;
 }
 
-QSSGBounds3 QSSGRenderNode::getChildBounds(const QSSGRef<QSSGBufferManager> &inManager,
-                                              QSSGRenderNodeFilterInterface *inChildFilter) const
+QSSGBounds3 QSSGRenderNode::getChildBounds(const QSSGRef<QSSGBufferManager> &inManager) const
 {
-    QSSGBounds3 retval = QSSGBounds3::empty();
-    for (QSSGRenderNode *child = firstChild; child != nullptr; child = child->nextSibling) {
-        if (inChildFilter == nullptr || inChildFilter->includeNode(*child)) {
-            QSSGBounds3 childBounds;
-            if (child->flags.testFlag(Flag::TransformDirty))
-                child->calculateLocalTransform();
-            childBounds = child->getBounds(inManager);
-            if (!childBounds.isEmpty()) {
-                // Transform the bounds into our local space.
-                childBounds.transform(child->localTransform);
-                retval.include(childBounds);
-            }
+    QSSGBounds3 retval;
+    QSSGBounds3 childBounds;
+    for (auto &child : children) {
+        if (child.flags.testFlag(Flag::TransformDirty))
+            child.calculateLocalTransform();
+        childBounds = child.getBounds(inManager);
+        if (!childBounds.isEmpty()) {
+            // Transform the bounds into our local space.
+            childBounds.transform(child.localTransform);
+            retval.include(childBounds);
         }
     }
     return retval;

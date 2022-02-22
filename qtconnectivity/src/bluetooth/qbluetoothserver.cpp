@@ -84,11 +84,12 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
-    \fn void QBluetoothServer::error(QBluetoothServer::Error error)
+    \fn void QBluetoothServer::errorOccurred(QBluetoothServer::Error error)
 
     This signal is emitted when an \a error occurs.
 
     \sa error(), QBluetoothServer::Error
+    \since 6.2
 */
 
 /*!
@@ -212,13 +213,13 @@ QBluetoothServiceInfo QBluetoothServer::listen(const QBluetoothUuid &uuid, const
     QBluetoothServiceInfo serviceInfo;
     serviceInfo.setAttribute(QBluetoothServiceInfo::ServiceName, serviceName);
     QBluetoothServiceInfo::Sequence browseSequence;
-    browseSequence << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::PublicBrowseGroup));
+    browseSequence << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::ServiceClassUuid::PublicBrowseGroup));
     serviceInfo.setAttribute(QBluetoothServiceInfo::BrowseGroupList,
                              browseSequence);
 
     QBluetoothServiceInfo::Sequence profileSequence;
     QBluetoothServiceInfo::Sequence classId;
-    classId << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::SerialPort));
+    classId << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::ServiceClassUuid::SerialPort));
     classId << QVariant::fromValue(quint16(0x100));
     profileSequence.append(QVariant::fromValue(classId));
     serviceInfo.setAttribute(QBluetoothServiceInfo::BluetoothProfileDescriptorList,
@@ -227,13 +228,13 @@ QBluetoothServiceInfo QBluetoothServer::listen(const QBluetoothUuid &uuid, const
     classId.clear();
     //Android requires custom uuid to be set as service class
     classId << QVariant::fromValue(uuid);
-    classId << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::SerialPort));
+    classId << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::ServiceClassUuid::SerialPort));
     serviceInfo.setAttribute(QBluetoothServiceInfo::ServiceClassIds, classId);
     serviceInfo.setServiceUuid(uuid);
 
     QBluetoothServiceInfo::Sequence protocolDescriptorList;
     QBluetoothServiceInfo::Sequence protocol;
-    protocol << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::L2cap));
+    protocol << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::ProtocolUuid::L2cap));
     if (d->serverType == QBluetoothServiceInfo::L2capProtocol)
         protocol << QVariant::fromValue(serverPort());
     protocolDescriptorList.append(QVariant::fromValue(protocol));
@@ -241,7 +242,7 @@ QBluetoothServiceInfo QBluetoothServer::listen(const QBluetoothUuid &uuid, const
 //! [listen]
     if (d->serverType == QBluetoothServiceInfo::RfcommProtocol) {
 //! [listen2]
-    protocol << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::Rfcomm))
+    protocol << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::ProtocolUuid::Rfcomm))
              << QVariant::fromValue(quint8(serverPort()));
     protocolDescriptorList.append(QVariant::fromValue(protocol));
 //! [listen2]
@@ -269,7 +270,7 @@ bool QBluetoothServer::isListening() const
     return d->isListening();
 #endif
 
-    return d->socket->state() == QBluetoothSocket::ListeningState;
+    return d->socket->state() == QBluetoothSocket::SocketState::ListeningState;
 }
 
 /*!
@@ -286,13 +287,14 @@ int QBluetoothServer::maxPendingConnections() const
 
 /*!
     \fn QBluetoothServer::setSecurityFlags(QBluetooth::SecurityFlags security)
-    Sets the Bluetooth security flags to \a security. This function must be called before calling listen().
-    The Bluetooth link will always be encrypted when using Bluetooth 2.1 devices as encryption is
-    mandatory.
+    Sets the Bluetooth security flags to \a security. This function must be called
+    before calling listen(). The Bluetooth link will always be encrypted when using
+    Bluetooth 2.1 devices as encryption is mandatory.
 
-    Android only supports two levels of security (secure and non-secure). If this flag is set to
-    \l QBluetooth::NoSecurity the server object will not employ any authentication or encryption.
-    Any other security flag combination will trigger a secure Bluetooth connection.
+    Android only supports two levels of security (secure and non-secure). If this flag
+    is set to \l QBluetooth::Security::NoSecurity the server object will not employ
+    any authentication or encryption. Any other security flag combination will
+    trigger a secure Bluetooth connection.
 
     On \macos, security flags are not supported and will be ignored.
 */

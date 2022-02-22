@@ -45,9 +45,9 @@
 #include <QtQuick3D/private/qquick3dobject_p.h>
 #include <QtQuick3D/private/qquick3dtexture_p.h>
 
-#include <QtQuick3DRender/private/qssgrenderbasetypes_p.h>
+#include <QtQuick3DUtils/private/qssgrenderbasetypes_p.h>
 
-#include <QtQuick3DRuntimeRender/private/qssgrenderdynamicobjectsystemcommands_p.h>
+#include <QtQuick3DRuntimeRender/private/qssgrendercommands_p.h>
 
 #include <QtCore/qvector.h>
 
@@ -59,6 +59,8 @@ class Q_QUICK3D_EXPORT QQuick3DEffect : public QQuick3DObject
 {
     Q_OBJECT
     Q_PROPERTY(QQmlListProperty<QQuick3DShaderUtilsRenderPass> passes READ passes)
+
+    QML_NAMED_ELEMENT(Effect)
 public:
     explicit QQuick3DEffect(QQuick3DObject *parent = nullptr);
 
@@ -68,8 +70,8 @@ public:
     static void qmlAppendPass(QQmlListProperty<QQuick3DShaderUtilsRenderPass> *list,
                               QQuick3DShaderUtilsRenderPass *pass);
     static QQuick3DShaderUtilsRenderPass *qmlPassAt(QQmlListProperty<QQuick3DShaderUtilsRenderPass> *list,
-                                                    int index);
-    static int qmlPassCount(QQmlListProperty<QQuick3DShaderUtilsRenderPass> *list);
+                                                    qsizetype index);
+    static qsizetype qmlPassCount(QQmlListProperty<QQuick3DShaderUtilsRenderPass> *list);
     static void qmlPassClear(QQmlListProperty<QQuick3DShaderUtilsRenderPass> *list);
 
     void setDynamicTextureMap(QQuick3DTexture *textureMap, const QByteArray &name);
@@ -80,7 +82,7 @@ protected:
 
 private Q_SLOTS:
     void onPropertyDirty();
-    void onTextureDirty(QQuick3DShaderUtilsTextureInput *texture);
+    void onTextureDirty();
 private:
     enum Dirty {
         TextureDirty = 0x1,
@@ -91,12 +93,12 @@ private:
 
     quint32 m_dirtyAttributes = 0xffffffff;
 
-    void updateSceneManager(const QSharedPointer<QQuick3DSceneManager> &sceneManager);
+    void updateSceneManager(QQuick3DSceneManager *sceneManager);
 
     friend class QQuick3DSceneRenderer;
     QVector<QQuick3DShaderUtilsRenderPass *> m_passes;
     QVector<QQuick3DTexture *> m_dynamicTextureMaps;
-    ConnectionMap m_connections;
+    QHash<QByteArray, QMetaObject::Connection> m_connections;
 };
 
 QT_END_NAMESPACE

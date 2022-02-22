@@ -43,9 +43,9 @@
 #include <qcoreapplication.h>
 #include <private/qcoreapplication_p.h>
 #include <qhash.h>
-#include <qvector.h>
+#include <qlist.h>
 #include <qdebug.h>
-#if defined(Q_OS_WIN) && !defined(QT_BOOTSTRAPPED) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN) && !defined(QT_BOOTSTRAPPED)
 #  include <qt_windows.h>
 #endif
 #include <stdio.h>
@@ -109,7 +109,7 @@ public:
         QString description;
         QString syntax;
     };
-    QVector<PositionalArgumentDefinition> positionalArgumentDefinitions;
+    QList<PositionalArgumentDefinition> positionalArgumentDefinitions;
 
     //! The parsing mode for "-abc"
     QCommandLineParser::SingleDashWordOptionMode singleDashWordOptionMode;
@@ -126,7 +126,7 @@ public:
     //! True if parse() needs to be called
     bool needsParsing;
 };
-Q_DECLARE_TYPEINFO(QCommandLineParserPrivate::PositionalArgumentDefinition, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QCommandLineParserPrivate::PositionalArgumentDefinition, Q_RELOCATABLE_TYPE);
 
 QStringList QCommandLineParserPrivate::aliases(const QString &optionName) const
 {
@@ -542,7 +542,7 @@ QString QCommandLineParser::errorText() const
 
 enum MessageType { UsageMessage, ErrorMessage };
 
-#if defined(Q_OS_WIN) && !defined(QT_BOOTSTRAPPED) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN) && !defined(QT_BOOTSTRAPPED)
 // Return whether to use a message box. Use handles if a console can be obtained
 // or we are run with redirected handles (for example, by QProcess).
 static inline bool displayMessageBox()
@@ -554,17 +554,11 @@ static inline bool displayMessageBox()
     GetStartupInfo(&startupInfo);
     return !(startupInfo.dwFlags & STARTF_USESTDHANDLES);
 }
-#endif // Q_OS_WIN && !QT_BOOTSTRAPPED && !Q_OS_WIN && !Q_OS_WINRT
+#endif // Q_OS_WIN && !QT_BOOTSTRAPPED
 
 static void showParserMessage(const QString &message, MessageType type)
 {
-#if defined(Q_OS_WINRT)
-    if (type == UsageMessage)
-        qInfo("%ls", qUtf16Printable(message));
-    else
-        qCritical("%ls", qUtf16Printable(message));
-    return;
-#elif defined(Q_OS_WIN) && !defined(QT_BOOTSTRAPPED)
+#if defined(Q_OS_WIN) && !defined(QT_BOOTSTRAPPED)
     if (displayMessageBox()) {
         const UINT flags = MB_OK | MB_TOPMOST | MB_SETFOREGROUND
             | (type == UsageMessage ? MB_ICONINFORMATION : MB_ICONERROR);
@@ -1109,7 +1103,7 @@ static QString wrapText(const QString &names, int optionNameMaxWidth, const QStr
             const int numChars = breakAt - lineStart;
             //qDebug() << "breakAt=" << description.at(breakAt) << "breakAtSpace=" << breakAtSpace << lineStart << "to" << breakAt << description.mid(lineStart, numChars);
             text += indentation + nextNameSection().leftJustified(optionNameMaxWidth) + QLatin1Char(' ');
-            text += description.midRef(lineStart, numChars) + nl;
+            text += QStringView{description}.mid(lineStart, numChars) + nl;
             x = 0;
             lastBreakable = -1;
             lineStart = nextLineStart;
@@ -1131,17 +1125,18 @@ QString QCommandLineParserPrivate::helpText(bool includeQtOptions) const
     const QLatin1Char nl('\n');
     QString text;
     QString usage;
-    usage += QCoreApplication::instance()->arguments().constFirst(); // executable name
+    // executable name
+    usage += qApp ? QCoreApplication::arguments().constFirst() : QStringLiteral("<executable_name>");
     QList<QCommandLineOption> options = commandLineOptionList;
-    if (includeQtOptions)
-        QCoreApplication::instance()->d_func()->addQtOptions(&options);
+    if (includeQtOptions && qApp)
+        qApp->d_func()->addQtOptions(&options);
     if (!options.isEmpty())
         usage += QLatin1Char(' ') + QCommandLineParser::tr("[options]");
     for (const PositionalArgumentDefinition &arg : positionalArgumentDefinitions)
         usage += QLatin1Char(' ') + arg.syntax;
     text += QCommandLineParser::tr("Usage: %1").arg(usage) + nl;
     if (!description.isEmpty())
-       text += description + nl;
+        text += description + nl;
     text += nl;
     if (!options.isEmpty())
         text += QCommandLineParser::tr("Options:") + nl;

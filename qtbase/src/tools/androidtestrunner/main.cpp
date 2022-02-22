@@ -30,7 +30,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QHash>
-#include <QRegExp>
+#include <QRegularExpression>
 #include <QSystemSemaphore>
 #include <QXmlStreamReader>
 
@@ -47,12 +47,24 @@
 #define QT_POPEN_READ "r"
 #endif
 
+static auto junitChecker = [](const QByteArray &data) -> bool {
+    QXmlStreamReader reader{data};
+    while (!reader.atEnd()) {
+        reader.readNext();
+        if (reader.isStartElement() && reader.name() == QStringLiteral("testcase") &&
+                reader.attributes().value(QStringLiteral("result")).toString() == QStringLiteral("fail")) {
+            return false;
+        }
+    }
+    return true;
+};
+
 struct Options
 {
     bool helpRequested = false;
     bool verbose = false;
+    bool skipAddInstallRoot = false;
     std::chrono::seconds timeout{300}; // 5minutes
-    QString androidDeployQtCommand;
     QString buildPath;
     QString adbCommand{QStringLiteral("adb")};
     QString makeCommand;
@@ -84,17 +96,8 @@ struct Options
     {QStringLiteral("lightxml"), [](const QByteArray &data) -> bool {
         return data.indexOf("\n<Incident type=\"fail\" ") < 0;
     }},
-    {QStringLiteral("xunitxml"), [](const QByteArray &data) -> bool {
-        QXmlStreamReader reader{data};
-        while (!reader.atEnd()) {
-            reader.readNext();
-            if (reader.isStartElement() && reader.name() == QStringLiteral("testcase") &&
-                    reader.attributes().value(QStringLiteral("result")).toString() == QStringLiteral("fail")) {
-                return false;
-            }
-        }
-        return true;
-    }},
+    {QStringLiteral("xunitxml"), junitChecker},
+    {QStringLiteral("junitxml"), junitChecker},
     {QStringLiteral("teamcity"), [](const QByteArray &data) -> bool {
         return data.indexOf("' message='Failure! |[Loc: ") < 0;
     }},
@@ -109,11 +112,11 @@ static Options g_options;
 static bool execCommand(const QString &command, QByteArray *output = nullptr, bool verbose = false)
 {
     if (verbose)
-        fprintf(stdout, "Execute %s\n", command.toUtf8().constData());
+        fprintf(stdout, "Execute %s.\n", command.toUtf8().constData());
     FILE *process = popen(command.toUtf8().constData(), QT_POPEN_READ);
 
     if (!process) {
-        fprintf(stderr, "Cannot execute command %s", qPrintable(command));
+        fprintf(stderr, "Cannot execute command %s.\n", qPrintable(command));
         return false;
     }
     char buffer[512];
@@ -176,7 +179,7 @@ static QString shellQuoteWin(const QString &arg)
         // Quotes are escaped and their preceding backslashes are doubled.
         // It's impossible to escape anything inside a quoted string on cmd
         // level, so the outer quoting must be "suspended".
-        ret.replace(QRegExp(QStringLiteral("(\\\\*)\"")), QStringLiteral("\"\\1\\1\\^\"\""));
+        ret.replace(QRegularExpression(QStringLiteral("(\\\\*)\"")), QStringLiteral("\"\\1\\1\\^\"\""));
         // The argument must not end with a \ since this would be interpreted
         // as escaping the quote -- rather put the \ behind the quote: e.g.
         // rather use "foo"\ than "foo\"
@@ -203,12 +206,7 @@ static bool parseOptions()
     int i = 1;
     for (; i < arguments.size(); ++i) {
         const QString &argument = arguments.at(i);
-        if (argument.compare(QStringLiteral("--androiddeployqt"), Qt::CaseInsensitive) == 0) {
-            if (i + 1 == arguments.size())
-                g_options.helpRequested = true;
-            else
-                g_options.androidDeployQtCommand = arguments.at(++i).trimmed();
-        } else if (argument.compare(QStringLiteral("--adb"), Qt::CaseInsensitive) == 0) {
+        if (argument.compare(QStringLiteral("--adb"), Qt::CaseInsensitive) == 0) {
             if (i + 1 == arguments.size())
                 g_options.helpRequested = true;
             else
@@ -233,6 +231,8 @@ static bool parseOptions()
                 g_options.helpRequested = true;
             else
                 g_options.activity = arguments.at(++i);
+        } else if (argument.compare(QStringLiteral("--skip-install-root"), Qt::CaseInsensitive) == 0) {
+            g_options.skipAddInstallRoot = true;
         } else if (argument.compare(QStringLiteral("--timeout"), Qt::CaseInsensitive) == 0) {
             if (i + 1 == arguments.size())
                 g_options.helpRequested = true;
@@ -252,7 +252,7 @@ static bool parseOptions()
     for (;i < arguments.size(); ++i)
         g_options.testArgsList << arguments.at(i);
 
-    if (g_options.helpRequested || g_options.androidDeployQtCommand.isEmpty() || g_options.buildPath.isEmpty())
+    if (g_options.helpRequested || g_options.buildPath.isEmpty() || g_options.apkPath.isEmpty())
         return false;
 
     QString serial = qEnvironmentVariable("ANDROID_DEVICE_SERIAL");
@@ -267,24 +267,32 @@ static void printHelp()
                     "\n"
                     "  Creates an Android package in a temp directory <destination> and\n"
                     "  runs it on the default emulator/device or on the one specified by\n"
-                    "  \"ANDROID_DEVICE_SERIAL\" environment variable.\n\n"
+                    "  \"ANDROID_DEVICE_SERIAL\" environment variable.\n"
+                    "\n"
                     "  Mandatory arguments:\n"
-                    "    --androiddeployqt <androiddeployqt cmd>: The androiddeployqt:\n"
-                    "       path including its additional arguments.\n"
-                    "    --path <path>: The path where androiddeployqt will build the .apk.\n"
+                    "    --path <path>: The path where androiddeployqt builds the android package.\n"
+                    "\n"
+                    "    --apk <apk path>: The test apk path. The apk has to exist already, if it\n"
+                    "       does not exist the make command must be provided for building the apk.\n"
+                    "\n"
                     "  Optional arguments:\n"
+                    "    --make <make cmd>: make command, needed to install the qt library.\n"
+                    "       For Qt 5.14+ this can be \"make apk\".\n"
+                    "\n"
                     "    --adb <adb cmd>: The Android ADB command. If missing the one from\n"
                     "       $PATH will be used.\n"
+                    "\n"
                     "    --activity <acitvity>: The Activity to run. If missing the first\n"
                     "       activity from AndroidManifest.qml file will be used.\n"
-                    "    --timeout <seconds>: Timeout to run the test.\n"
-                    "       Default is 5 minutes.\n"
-                    "    --make <make cmd>: make command, needed to install the qt library.\n"
-                    "       If make is missing make sure the --path is set.\n"
-                    "    --apk <apk path>: If the apk is specified and if exists, we'll skip\n"
-                    "       the package building.\n"
-                    "    -- arguments that will be passed to the test application.\n"
+                    "\n"
+                    "    --timeout <seconds>: Timeout to run the test. Default is 5 minutes.\n"
+                    "\n"
+                    "    --skip-install-root: Do not append INSTALL_ROOT=... to the make command.\n"
+                    "\n"
+                    "    -- Arguments that will be passed to the test application.\n"
+                    "\n"
                     "    --verbose: Prints out information during processing.\n"
+                    "\n"
                     "    --help: Displays this information.\n\n",
                     qPrintable(QCoreApplication::arguments().at(0))
             );
@@ -330,29 +338,35 @@ static void setOutputFile(QString file, QString format)
 
 static bool parseTestArgs()
 {
-    QRegExp newLoggingFormat{QStringLiteral("(.*),(txt|csv|xunitxml|xml|lightxml|teamcity|tap)")};
-    QRegExp oldFormats{QStringLiteral("-(txt|csv|xunitxml|xml|lightxml|teamcity|tap)")};
+    QRegularExpression oldFormats{QStringLiteral("^-(txt|csv|xunitxml|junitxml|xml|lightxml|teamcity|tap)$")};
+    QRegularExpression newLoggingFormat{QStringLiteral("^(.*),(txt|csv|xunitxml|junitxml|xml|lightxml|teamcity|tap)$")};
 
     QString file;
     QString logType;
     QString unhandledArgs;
     for (int i = 0; i < g_options.testArgsList.size(); ++i) {
         const QString &arg = g_options.testArgsList[i].trimmed();
+        if (arg == QStringLiteral("--"))
+            continue;
         if (arg == QStringLiteral("-o")) {
             if (i >= g_options.testArgsList.size() - 1)
                 return false; // missing file argument
 
             const auto &filePath = g_options.testArgsList[++i];
-            if (!newLoggingFormat.exactMatch(filePath)) {
+            const auto match = newLoggingFormat.match(filePath);
+            if (!match.hasMatch()) {
                 file = filePath;
             } else {
-                const auto capturedTexts = newLoggingFormat.capturedTexts();
+                const auto capturedTexts = match.capturedTexts();
                 setOutputFile(capturedTexts.at(1), capturedTexts.at(2));
             }
-        } else if (oldFormats.exactMatch(arg)) {
-            logType = oldFormats.capturedTexts().at(1);
         } else {
-            unhandledArgs += QStringLiteral(" %1").arg(arg);
+            auto match = oldFormats.match(arg);
+            if (match.hasMatch()) {
+                logType = match.capturedTexts().at(1);
+            } else {
+                unhandledArgs += QStringLiteral(" %1").arg(arg);
+            }
         }
     }
     if (g_options.outFiles.isEmpty() || !file.isEmpty() || !logType.isEmpty())
@@ -375,7 +389,7 @@ static bool isRunning() {
 
         return false;
     }
-    return output.indexOf(" " + g_options.package.toUtf8()) > -1;
+    return output.indexOf(QLatin1String(" " + g_options.package.toUtf8())) > -1;
 }
 
 static bool waitToFinish()
@@ -406,7 +420,16 @@ static bool pullFiles()
         QByteArray output;
         if (!execCommand(QStringLiteral("%1 shell run-as %2 cat files/output.%3")
                          .arg(g_options.adbCommand, g_options.package, it.key()), &output)) {
-            return false;
+            // Cannot find output file. Check in path related to current user
+            QByteArray userId;
+            execCommand(QStringLiteral("%1 shell cmd activity get-current-user")
+                        .arg(g_options.adbCommand), &userId);
+            const QString userIdSimplified(QString::fromUtf8(userId).simplified());
+            if (!execCommand(QStringLiteral("%1 shell run-as %2 --user %3 cat files/output.%4")
+                        .arg(g_options.adbCommand, g_options.package, userIdSimplified, it.key()),
+                         &output)) {
+                return false;
+            }
         }
         auto checkerIt = g_options.checkFiles.find(it.key());
         ret = ret && checkerIt != g_options.checkFiles.end() && checkerIt.value()(output);
@@ -444,29 +467,39 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    RunnerLocker lock; // do not install or run packages while another test is running
-    if (!g_options.apkPath.isEmpty() && QFile::exists(g_options.apkPath)) {
-        if (!execCommand(QStringLiteral("%1 install -r %2")
-                         .arg(g_options.adbCommand, g_options.apkPath), nullptr, g_options.verbose)) {
-            return 1;
-        }
-    } else {
-        if (!g_options.makeCommand.isEmpty()) {
+    if (g_options.makeCommand.isEmpty()) {
+        fprintf(stderr,
+                "It is required to provide a make command with the \"--make\" parameter "
+                "to generate the apk.\n");
+        return 1;
+    }
+    if (!execCommand(g_options.makeCommand, nullptr, true)) {
+        if (!g_options.skipAddInstallRoot) {
             // we need to run make INSTALL_ROOT=path install to install the application file(s) first
             if (!execCommand(QStringLiteral("%1 INSTALL_ROOT=%2 install")
                              .arg(g_options.makeCommand, QDir::toNativeSeparators(g_options.buildPath)), nullptr, g_options.verbose)) {
                 return 1;
             }
+        } else {
+            if (!execCommand(QStringLiteral("%1")
+                             .arg(g_options.makeCommand), nullptr, g_options.verbose)) {
+                return 1;
+            }
         }
+    }
 
-        // Run androiddeployqt
-        static auto verbose = g_options.verbose ? QStringLiteral("--verbose") : QString();
-        if (!execCommand(QStringLiteral("%1 %3 --reinstall --output %2 --apk %4").arg(g_options.androidDeployQtCommand,
-                                                                                      g_options.buildPath,
-                                                                                      verbose,
-                                                                                      g_options.apkPath), nullptr, true)) {
-            return 1;
-        }
+    if (!QFile::exists(g_options.apkPath)) {
+        fprintf(stderr,
+                "No apk \"%s\" found after running the make command. Check the provided path and "
+                "the make command.\n",
+                qPrintable(g_options.apkPath));
+        return 1;
+    }
+
+    RunnerLocker lock; // do not install or run packages while another test is running
+    if (!execCommand(QStringLiteral("%1 install -r -g %2")
+                        .arg(g_options.adbCommand, g_options.apkPath), nullptr, g_options.verbose)) {
+        return 1;
     }
 
     QString manifest = g_options.buildPath + QStringLiteral("/AndroidManifest.xml");

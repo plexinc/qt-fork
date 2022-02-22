@@ -501,8 +501,10 @@ bool QuickTestResult::verify
 bool QuickTestResult::fuzzyCompare(const QVariant &actual, const QVariant &expected, qreal delta)
 {
     if (actual.userType() == QMetaType::QColor || expected.userType() == QMetaType::QColor) {
-        if (!actual.canConvert(QMetaType::QColor) || !expected.canConvert(QMetaType::QColor))
+        if (!actual.canConvert(QMetaType(QMetaType::QColor))
+                || !expected.canConvert(QMetaType(QMetaType::QColor))) {
             return false;
+        }
 
         //fuzzy color comparison
         QColor act;
@@ -514,7 +516,7 @@ bool QuickTestResult::fuzzyCompare(const QVariant &actual, const QVariant &expec
             return false;
         act = var.value<QColor>();
 
-        QQml_colorProvider()->colorFromString(expected.toString(), &ok);
+        var = QQml_colorProvider()->colorFromString(expected.toString(), &ok);
         if (!ok)
             return false;
         exp = var.value<QColor>();
@@ -554,7 +556,7 @@ void QuickTestResult::stringify(QQmlV4Function *args)
     if (value->isObject()
         && !value->as<QV4::FunctionObject>()
         && !value->as<QV4::ArrayObject>()) {
-        QVariant v = scope.engine->toVariant(value, QMetaType::UnknownType);
+        QVariant v = scope.engine->toVariant(value, QMetaType {});
         if (v.isValid()) {
             switch (v.userType()) {
             case QMetaType::QVector3D:

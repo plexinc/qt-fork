@@ -11,11 +11,14 @@
 #include "base/bind.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "base/test/values_test_util.h"
 #include "base/time/time.h"
 #include "base/values.h"
+#include "net/base/features.h"
 #include "net/base/network_isolation_key.h"
+#include "net/base/schemeful_site.h"
 #include "net/reporting/mock_persistent_reporting_store.h"
 #include "net/reporting/reporting_cache_impl.h"
 #include "net/reporting/reporting_cache_observer.h"
@@ -57,7 +60,13 @@ class TestReportingCacheObserver : public ReportingCacheObserver {
 class ReportingCacheTest : public ReportingTestBase,
                            public ::testing::WithParamInterface<bool> {
  protected:
-  ReportingCacheTest() : ReportingTestBase() {
+  ReportingCacheTest() {
+    // This is a private API of the reporting service, so no need to test the
+    // case kPartitionNelAndReportingByNetworkIsolationKey is disabled - the
+    // feature is only applied at the entry points of the service.
+    feature_list_.InitAndEnableFeature(
+        features::kPartitionNelAndReportingByNetworkIsolationKey);
+
     ReportingPolicy policy;
     policy.max_report_count = 5;
     policy.max_endpoints_per_origin = 3;
@@ -99,6 +108,7 @@ class ReportingCacheTest : public ReportingTestBase,
 
   // Adds a new report to the cache, and returns it.
   const ReportingReport* AddAndReturnReport(
+      const NetworkIsolationKey& network_isolation_key,
       const GURL& url,
       const std::string& user_agent,
       const std::string& group,
@@ -115,8 +125,8 @@ class ReportingCacheTest : public ReportingTestBase,
     // in test cases, so I've optimized for readability over execution speed.
     std::vector<const ReportingReport*> before;
     cache()->GetReports(&before);
-    cache()->AddReport(url, user_agent, group, type, std::move(body), depth,
-                       queued, attempts);
+    cache()->AddReport(network_isolation_key, url, user_agent, group, type,
+                       std::move(body), depth, queued, attempts);
     std::vector<const ReportingReport*> after;
     cache()->GetReports(&after);
 
@@ -124,6 +134,7 @@ class ReportingCacheTest : public ReportingTestBase,
       // If report isn't in before, we've found the new instance.
       if (std::find(before.begin(), before.end(), report) == before.end()) {
         // Sanity check the result before we return it.
+        EXPECT_EQ(network_isolation_key, report->network_isolation_key);
         EXPECT_EQ(url, report->url);
         EXPECT_EQ(user_agent, report->user_agent);
         EXPECT_EQ(group, report->group);
@@ -168,13 +179,15 @@ class ReportingCacheTest : public ReportingTestBase,
               EndpointGroupExistsInCache(group, OriginSubdomains::DEFAULT));
   }
 
+  base::test::ScopedFeatureList feature_list_;
+
   const GURL kUrl1_ = GURL("https://origin1/path");
   const GURL kUrl2_ = GURL("https://origin2/path");
   const url::Origin kOrigin1_ = url::Origin::Create(GURL("https://origin1/"));
   const url::Origin kOrigin2_ = url::Origin::Create(GURL("https://origin2/"));
   const NetworkIsolationKey kNik_;
   const NetworkIsolationKey kOtherNik_ =
-      NetworkIsolationKey(kOrigin1_, kOrigin2_);
+      NetworkIsolationKey(SchemefulSite(kOrigin1_), SchemefulSite(kOrigin2_));
   const GURL kEndpoint1_ = GURL("https://endpoint1/");
   const GURL kEndpoint2_ = GURL("https://endpoint2/");
   const GURL kEndpoint3_ = GURL("https://endpoint3/");
@@ -222,7 +235,7 @@ TEST_P(ReportingCacheTest, Reports) {
   cache()->GetReports(&reports);
   EXPECT_TRUE(reports.empty());
 
-  cache()->AddReport(kUrl1_, kUserAgent_, kGroup1_, kType_,
+  cache()->AddReport(kNik_, kUrl1_, kUserAgent_, kGroup1_, kType_,
                      std::make_unique<base::DictionaryValue>(), 0, kNowTicks_,
                      0);
   EXPECT_EQ(1, observer()->cached_reports_update_count());
@@ -231,6 +244,7 @@ TEST_P(ReportingCacheTest, Reports) {
   ASSERT_EQ(1u, reports.size());
   const ReportingReport* report = reports[0];
   ASSERT_TRUE(report);
+  EXPECT_EQ(kNik_, report->network_isolation_key);
   EXPECT_EQ(kUrl1_, report->url);
   EXPECT_EQ(kUserAgent_, report->user_agent);
   EXPECT_EQ(kGroup1_, report->group);
@@ -260,10 +274,10 @@ TEST_P(ReportingCacheTest, Reports) {
 TEST_P(ReportingCacheTest, RemoveAllReports) {
   LoadReportingClients();
 
-  cache()->AddReport(kUrl1_, kUserAgent_, kGroup1_, kType_,
+  cache()->AddReport(kNik_, kUrl1_, kUserAgent_, kGroup1_, kType_,
                      std::make_unique<base::DictionaryValue>(), 0, kNowTicks_,
                      0);
-  cache()->AddReport(kUrl1_, kUserAgent_, kGroup1_, kType_,
+  cache()->AddReport(kNik_, kUrl1_, kUserAgent_, kGroup1_, kType_,
                      std::make_unique<base::DictionaryValue>(), 0, kNowTicks_,
                      0);
   EXPECT_EQ(2, observer()->cached_reports_update_count());
@@ -282,7 +296,7 @@ TEST_P(ReportingCacheTest, RemoveAllReports) {
 TEST_P(ReportingCacheTest, RemovePendingReports) {
   LoadReportingClients();
 
-  cache()->AddReport(kUrl1_, kUserAgent_, kGroup1_, kType_,
+  cache()->AddReport(kNik_, kUrl1_, kUserAgent_, kGroup1_, kType_,
                      std::make_unique<base::DictionaryValue>(), 0, kNowTicks_,
                      0);
   EXPECT_EQ(1, observer()->cached_reports_update_count());
@@ -320,7 +334,7 @@ TEST_P(ReportingCacheTest, RemovePendingReports) {
 TEST_P(ReportingCacheTest, RemoveAllPendingReports) {
   LoadReportingClients();
 
-  cache()->AddReport(kUrl1_, kUserAgent_, kGroup1_, kType_,
+  cache()->AddReport(kNik_, kUrl1_, kUserAgent_, kGroup1_, kType_,
                      std::make_unique<base::DictionaryValue>(), 0, kNowTicks_,
                      0);
   EXPECT_EQ(1, observer()->cached_reports_update_count());
@@ -361,11 +375,11 @@ TEST_P(ReportingCacheTest, GetReportsAsValue) {
   // We need a reproducible expiry timestamp for this test case.
   const base::TimeTicks now = base::TimeTicks();
   const ReportingReport* report1 =
-      AddAndReturnReport(kUrl1_, kUserAgent_, kGroup1_, kType_,
+      AddAndReturnReport(kNik_, kUrl1_, kUserAgent_, kGroup1_, kType_,
                          std::make_unique<base::DictionaryValue>(), 0,
                          now + base::TimeDelta::FromSeconds(200), 0);
   const ReportingReport* report2 =
-      AddAndReturnReport(kUrl1_, kUserAgent_, kGroup2_, kType_,
+      AddAndReturnReport(kOtherNik_, kUrl1_, kUserAgent_, kGroup2_, kType_,
                          std::make_unique<base::DictionaryValue>(), 0,
                          now + base::TimeDelta::FromSeconds(100), 1);
   // Mark report1 and report2 as pending.
@@ -375,11 +389,13 @@ TEST_P(ReportingCacheTest, GetReportsAsValue) {
   cache()->RemoveReports({report2}, ReportingReport::Outcome::UNKNOWN);
 
   base::Value actual = cache()->GetReportsAsValue();
-  base::Value expected = base::test::ParseJson(R"json(
+  base::Value expected = base::test::ParseJson(base::StringPrintf(
+      R"json(
       [
         {
           "url": "https://origin1/path",
           "group": "group2",
+          "network_isolation_key": "%s",
           "type": "default",
           "status": "doomed",
           "body": {},
@@ -390,6 +406,7 @@ TEST_P(ReportingCacheTest, GetReportsAsValue) {
         {
           "url": "https://origin1/path",
           "group": "group1",
+          "network_isolation_key": "%s",
           "type": "default",
           "status": "pending",
           "body": {},
@@ -398,24 +415,27 @@ TEST_P(ReportingCacheTest, GetReportsAsValue) {
           "queued": "200000",
         },
       ]
-      )json");
+      )json",
+      kOtherNik_.ToDebugString().c_str(), kNik_.ToDebugString().c_str()));
   EXPECT_EQ(expected, actual);
 
   // Add two new reports that will show up as "queued".
   const ReportingReport* report3 =
-      AddAndReturnReport(kUrl2_, kUserAgent_, kGroup1_, kType_,
+      AddAndReturnReport(kNik_, kUrl2_, kUserAgent_, kGroup1_, kType_,
                          std::make_unique<base::DictionaryValue>(), 2,
                          now + base::TimeDelta::FromSeconds(200), 0);
   const ReportingReport* report4 =
-      AddAndReturnReport(kUrl1_, kUserAgent_, kGroup1_, kType_,
+      AddAndReturnReport(kOtherNik_, kUrl1_, kUserAgent_, kGroup1_, kType_,
                          std::make_unique<base::DictionaryValue>(), 0,
                          now + base::TimeDelta::FromSeconds(300), 0);
   actual = cache()->GetReportsAsValue();
-  expected = base::test::ParseJson(R"json(
+  expected = base::test::ParseJson(base::StringPrintf(
+      R"json(
       [
         {
           "url": "https://origin1/path",
           "group": "group2",
+          "network_isolation_key": "%s",
           "type": "default",
           "status": "doomed",
           "body": {},
@@ -426,6 +446,7 @@ TEST_P(ReportingCacheTest, GetReportsAsValue) {
         {
           "url": "https://origin1/path",
           "group": "group1",
+          "network_isolation_key": "%s",
           "type": "default",
           "status": "pending",
           "body": {},
@@ -436,6 +457,7 @@ TEST_P(ReportingCacheTest, GetReportsAsValue) {
         {
           "url": "https://origin2/path",
           "group": "group1",
+          "network_isolation_key": "%s",
           "type": "default",
           "status": "queued",
           "body": {},
@@ -446,6 +468,7 @@ TEST_P(ReportingCacheTest, GetReportsAsValue) {
         {
           "url": "https://origin1/path",
           "group": "group1",
+          "network_isolation_key": "%s",
           "type": "default",
           "status": "queued",
           "body": {},
@@ -454,7 +477,9 @@ TEST_P(ReportingCacheTest, GetReportsAsValue) {
           "queued": "300000",
         },
       ]
-      )json");
+      )json",
+      kOtherNik_.ToDebugString().c_str(), kNik_.ToDebugString().c_str(),
+      kNik_.ToDebugString().c_str(), kOtherNik_.ToDebugString().c_str()));
   EXPECT_EQ(expected, actual);
 
   // GetReportsToDeliver only returns the non-pending reports.
@@ -911,7 +936,7 @@ TEST_P(ReportingCacheTest, GetClientsAsValue) {
         },
       ]
       )json",
-          kNik_.ToDebugString().data(), kOtherNik_.ToDebugString().data()));
+          kNik_.ToDebugString().c_str(), kOtherNik_.ToDebugString().c_str()));
 
   // Compare disregarding order.
   auto expected_list = expected->TakeList();
@@ -1155,7 +1180,7 @@ TEST_P(ReportingCacheTest, EvictOldestReport) {
 
   // Enqueue the maximum number of reports, spaced apart in time.
   for (size_t i = 0; i < max_report_count; ++i) {
-    cache()->AddReport(kUrl1_, kUserAgent_, kGroup1_, kType_,
+    cache()->AddReport(kNik_, kUrl1_, kUserAgent_, kGroup1_, kType_,
                        std::make_unique<base::DictionaryValue>(), 0,
                        tick_clock()->NowTicks(), 0);
     tick_clock()->Advance(base::TimeDelta::FromMinutes(1));
@@ -1163,7 +1188,7 @@ TEST_P(ReportingCacheTest, EvictOldestReport) {
   EXPECT_EQ(max_report_count, report_count());
 
   // Add one more report to force the cache to evict one.
-  cache()->AddReport(kUrl1_, kUserAgent_, kGroup1_, kType_,
+  cache()->AddReport(kNik_, kUrl1_, kUserAgent_, kGroup1_, kType_,
                      std::make_unique<base::DictionaryValue>(), 0,
                      tick_clock()->NowTicks(), 0);
 
@@ -1188,7 +1213,7 @@ TEST_P(ReportingCacheTest, DontEvictPendingReports) {
   std::vector<const ReportingReport*> reports;
   for (size_t i = 0; i < max_report_count; ++i) {
     reports.push_back(
-        AddAndReturnReport(kUrl1_, kUserAgent_, kGroup1_, kType_,
+        AddAndReturnReport(kNik_, kUrl1_, kUserAgent_, kGroup1_, kType_,
                            std::make_unique<base::DictionaryValue>(), 0,
                            tick_clock()->NowTicks(), 0));
     tick_clock()->Advance(base::TimeDelta::FromMinutes(1));
@@ -1201,7 +1226,7 @@ TEST_P(ReportingCacheTest, DontEvictPendingReports) {
 
   // Add one more report to force the cache to evict one. Since the cache has
   // only pending reports, it will be forced to evict the *new* report!
-  cache()->AddReport(kUrl1_, kUserAgent_, kGroup1_, kType_,
+  cache()->AddReport(kNik_, kUrl1_, kUserAgent_, kGroup1_, kType_,
                      std::make_unique<base::DictionaryValue>(), 0, kNowTicks_,
                      0);
 

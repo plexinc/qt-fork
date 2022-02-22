@@ -73,6 +73,7 @@ class QQmlComponent;
 class QQuickRenderControl;
 class QOpenGLContext;
 class QOffscreenSurface;
+class QOpenGLFramebufferObject;
 
 class QQuickWidgetPrivate
         : public QWidgetPrivate,
@@ -108,6 +109,7 @@ public:
 #endif
 
     void init(QQmlEngine* e = 0);
+    void initOffscreenWindow();
     void ensureEngine() const;
     void handleWindowChange();
     void invalidateRenderControl();
@@ -146,6 +148,14 @@ public:
     QImage softwareImage;
     QRegion updateRegion;
     bool forceFullUpdate;
+};
+
+class QQuickWidgetOffscreenWindow: public QQuickWindow
+{
+    Q_OBJECT
+
+public:
+    QQuickWidgetOffscreenWindow(QQuickWindowPrivate &dd, QQuickRenderControl *control);
 };
 
 QT_END_NAMESPACE

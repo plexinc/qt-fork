@@ -8,6 +8,7 @@ import 'chrome://resources/cr_elements/cr_icons_css.m.js';
 import 'chrome://resources/cr_elements/cr_toggle/cr_toggle.m.js';
 import 'chrome://resources/cr_elements/hidden_style_css.m.js';
 import 'chrome://resources/cr_elements/icons.m.js';
+import 'chrome://resources/cr_elements/shared_style_css.m.js';
 import 'chrome://resources/cr_elements/shared_vars_css.m.js';
 import 'chrome://resources/js/action_link.js';
 import 'chrome://resources/cr_elements/action_link_css.m.js';
@@ -22,11 +23,10 @@ import 'chrome://resources/polymer/v3_0/paper-tooltip/paper-tooltip.js';
 import {getToastManager} from 'chrome://resources/cr_elements/cr_toast/cr_toast_manager.m.js';
 import {assert, assertNotReached} from 'chrome://resources/js/assert.m.js';
 import {I18nBehavior} from 'chrome://resources/js/i18n_behavior.m.js';
-import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 import {flush, html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {ItemBehavior} from './item_behavior.js';
-import {computeInspectableViewLabel, EnableControl, getEnableControl, getItemSource, getItemSourceString, isControlled, isEnabled, SourceType, userCanChangeEnablement} from './item_util.js';
+import {computeInspectableViewLabel, EnableControl, getEnableControl, getItemSource, getItemSourceString, isEnabled, SourceType, userCanChangeEnablement} from './item_util.js';
 import {navigation, Page} from './navigation_helper.js';
 
 /** @interface */
@@ -109,6 +109,11 @@ export class ItemDelegate {
    * @return {!Promise<void>}
    */
   removeRuntimeHostPermission(id, host) {}
+
+  // TODO(tjudkins): This function is not specific to items, so should be pulled
+  // out to a more generic place when we need to access it from elsewhere.
+  /** @param {string} metricName */
+  recordUserAction(metricName) {}
 }
 
 Polymer({
@@ -160,15 +165,6 @@ Polymer({
   /** @return {?HTMLElement} The "Errors" button, if it exists. */
   getErrorsButton() {
     return /** @type {?HTMLElement} */ (this.$$('#errors-button'));
-  },
-
-  /** @private string */
-  a11yAssociation_() {
-    // Don't use I18nBehavior.i18n because of additional checks it performs.
-    // Polymer ensures that this string is not stamped into arbitrary HTML.
-    // |this.data.name| can contain any data including html tags.
-    // ex: "My <video> download extension!"
-    return loadTimeData.getStringF('extensionA11yAssociation', this.data.name);
   },
 
   /** @private */
@@ -269,14 +265,6 @@ Polymer({
   /** @private */
   onRepairTap_() {
     this.delegate.repairItem(this.data.id);
-  },
-
-  /**
-   * @return {boolean}
-   * @private
-   */
-  isControlled_() {
-    return isControlled(this.data);
   },
 
   /**
@@ -416,11 +404,18 @@ Polymer({
    */
   computeDevReloadButtonHidden_() {
     // Only display the reload spinner if the extension is unpacked and
-    // enabled. There's no point in reloading a disabled extension, and we'll
-    // show a crashed reload button if it's terminated.
+    // enabled or disabled for reload. If an extension fails to reload (due to
+    // e.g. a parsing error), it will
+    // remain disabled with the "reloading" reason. We show the reload button
+    // when it's disabled for reload to enable developers to reload the fixed
+    // version. (Note that trying to reload an extension that is currently
+    // trying to reload is a no-op.) For other
+    // disableReasons, there's no point in reloading a disabled extension, and
+    // we'll show a crashed reload button if it's terminated.
     const showIcon =
         this.data.location === chrome.developerPrivate.Location.UNPACKED &&
-        this.data.state === chrome.developerPrivate.ExtensionState.ENABLED;
+        (this.data.state === chrome.developerPrivate.ExtensionState.ENABLED ||
+         this.data.disableReasons.reloading);
     return !showIcon;
   },
 

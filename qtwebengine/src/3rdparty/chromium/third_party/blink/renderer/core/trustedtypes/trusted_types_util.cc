@@ -4,15 +4,17 @@
 
 #include "third_party/blink/renderer/core/trustedtypes/trusted_types_util.h"
 
+#include "third_party/blink/public/mojom/devtools/console_message.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/reporting/reporting.mojom-blink.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
 #include "third_party/blink/renderer/bindings/core/v8/string_or_trusted_html_or_trusted_script_or_trusted_script_url.h"
 #include "third_party/blink/renderer/bindings/core/v8/string_or_trusted_script.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
-#include "third_party/blink/renderer/bindings/core/v8/window_proxy_manager.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
-#include "third_party/blink/renderer/core/frame/local_frame.h"
+#include "third_party/blink/renderer/core/inspector/console_message.h"
+#include "third_party/blink/renderer/core/probe/core_probes.h"
 #include "third_party/blink/renderer/core/script/script_element_base.h"
 #include "third_party/blink/renderer/core/trustedtypes/trusted_html.h"
 #include "third_party/blink/renderer/core/trustedtypes/trusted_script.h"
@@ -43,6 +45,17 @@ enum TrustedTypeViolationKind {
   kScriptExecution,
   kScriptExecutionAndDefaultPolicyFailed,
 };
+
+// String to determine whether an incoming eval-ish call is comig from
+// an actual eval or a Function constructor. The value is derived from
+// from how JS builds up a string in the Function constructor, which in
+// turn is defined in the TC39 spec.
+const char* kAnonymousPrefix = "(function anonymous";
+
+const char kFunctionConstructorFailureConsoleMessage[] =
+    "The JavaScript Function constructor does not accept TrustedString "
+    "arguments. See https://github.com/w3c/webappsec-trusted-types/wiki/"
+    "Trusted-Types-for-function-constructor for more information.";
 
 const char* GetMessage(TrustedTypeViolationKind kind) {
   switch (kind) {
@@ -92,7 +105,8 @@ const char* GetMessage(TrustedTypeViolationKind kind) {
   return "";
 }
 
-String GetSamplePrefix(const ExceptionState& exception_state) {
+String GetSamplePrefix(const ExceptionState& exception_state,
+                       const String& value) {
   const char* interface_name = exception_state.InterfaceName();
   const char* property_name = exception_state.PropertyName();
 
@@ -100,8 +114,18 @@ String GetSamplePrefix(const ExceptionState& exception_state) {
   // If we don't have the required values being passed in, just leave the
   // sample empty.
   StringBuilder sample_prefix;
-  if (interface_name && strcmp("eval", interface_name) == 0) {
-    sample_prefix.Append("eval");
+  if (!interface_name) {
+    // No interface name? Then we have no prefix to use.
+  } else if (strcmp("eval", interface_name) == 0) {
+    // eval? Try to distinguish between eval and Function constructor.
+    sample_prefix.Append(value.StartsWith(kAnonymousPrefix) ? "Function"
+                                                            : "eval");
+  } else if ((strcmp("Worker", interface_name) == 0 ||
+              strcmp("SharedWorker", interface_name) == 0) &&
+             !property_name) {
+    // Worker/SharedWorker constructor has nullptr as property_name.
+    sample_prefix.Append(interface_name);
+    sample_prefix.Append(" constructor");
   } else if (interface_name && property_name) {
     sample_prefix.Append(interface_name);
     sample_prefix.Append(" ");
@@ -124,12 +148,13 @@ const char* GetElementName(const ScriptElementBase::Type type) {
 HeapVector<ScriptValue> GetDefaultCallbackArgs(
     v8::Isolate* isolate,
     const char* type,
-    const ExceptionState& exception_state) {
+    const ExceptionState& exception_state,
+    const String& value = g_empty_string) {
   ScriptState* script_state = ScriptState::Current(isolate);
   HeapVector<ScriptValue> args;
   args.push_back(ScriptValue::From(script_state, type));
   args.push_back(
-      ScriptValue::From(script_state, GetSamplePrefix(exception_state)));
+      ScriptValue::From(script_state, GetSamplePrefix(exception_state, value)));
   return args;
 }
 
@@ -148,16 +173,40 @@ bool TrustedTypeFail(TrustedTypeViolationKind kind,
   if (!execution_context)
     return true;
 
-  // Test case docs (MakeGarbageCollected<Document>()) might not have a window
+  // Test case docs (Document::CreateForTest()) might not have a window
   // and hence no TrustedTypesPolicyFactory.
   if (execution_context->GetTrustedTypes())
     execution_context->GetTrustedTypes()->CountTrustedTypeAssignmentError();
 
+  String prefix = GetSamplePrefix(exception_state, value);
   bool allow =
-      execution_context->GetSecurityContext()
-          .GetContentSecurityPolicy()
-          ->AllowTrustedTypeAssignmentFailure(GetMessage(kind), value,
-                                              GetSamplePrefix(exception_state));
+      execution_context->GetContentSecurityPolicy()
+          ->AllowTrustedTypeAssignmentFailure(
+              GetMessage(kind),
+              prefix == "Function" ? value.Substring(strlen(kAnonymousPrefix))
+                                   : value,
+              prefix);
+
+  // TODO(1087743): Add a console message for Trusted Type-related Function
+  // constructor failures, to warn the developer of the outstanding issues
+  // with TT and Function  constructors. This should be removed once the
+  // underlying issue has been fixed.
+  if (prefix == "Function" && !allow &&
+      !RuntimeEnabledFeatures::TrustedTypesUseCodeLikeEnabled()) {
+    DCHECK(kind == kTrustedScriptAssignment ||
+           kind == kTrustedScriptAssignmentAndDefaultPolicyFailed ||
+           kind == kTrustedScriptAssignmentAndNoDefaultPolicyExisted);
+    execution_context->GetContentSecurityPolicy()->LogToConsole(
+        MakeGarbageCollected<ConsoleMessage>(
+            mojom::blink::ConsoleMessageSource::kRecommendation,
+            mojom::blink::ConsoleMessageLevel::kInfo,
+            kFunctionConstructorFailureConsoleMessage));
+  }
+  probe::OnContentSecurityPolicyViolation(
+      const_cast<ExecutionContext*>(execution_context),
+      ContentSecurityPolicy::ContentSecurityPolicyViolationType::
+          kTrustedTypesSinkViolation);
+
   if (!allow) {
     exception_state.ThrowTypeError(GetMessage(kind));
   }
@@ -177,19 +226,17 @@ TrustedTypePolicy* GetDefaultPolicy(const ExecutionContext* execution_context) {
 // and has a number of additional parameters to enable proper error reporting
 // for each case.
 String GetStringFromScriptHelper(
-    const String& script,
-    Document* doc,
+    String script,
+    ExecutionContext* context,
 
     // Parameters to customize error messages:
     const char* element_name_for_exception,
     const char* attribute_name_for_exception,
     TrustedTypeViolationKind violation_kind,
     TrustedTypeViolationKind violation_kind_when_default_policy_failed) {
-  if (!doc)
+  if (!context)
     return script;
-  bool require_trusted_type =
-      RequireTrustedTypesCheck(doc->ToExecutionContext());
-  if (!require_trusted_type)
+  if (!RequireTrustedTypesCheck(context))
     return script;
 
   // Set up JS context & friends.
@@ -206,21 +253,16 @@ String GetStringFromScriptHelper(
   //   Unlike the various ScriptController::Execute* and ..::Eval* methods,
   //   we are not executing a source String, but an already compiled callback
   //   function.
-  v8::HandleScope handle_scope(doc->GetIsolate());
+  v8::HandleScope handle_scope(context->GetIsolate());
   ScriptState::Scope script_state_scope(
-      ScriptState::From(static_cast<LocalWindowProxyManager*>(
-                            doc->GetFrame()->GetWindowProxyManager())
-                            ->MainWorldProxy()
-                            ->ContextIfInitialized()));
+      ToScriptState(context, DOMWrapperWorld::MainWorld()));
   ExceptionState exception_state(
-      doc->GetIsolate(), ExceptionState::kUnknownContext,
+      context->GetIsolate(), ExceptionState::kUnknownContext,
       element_name_for_exception, attribute_name_for_exception);
 
-  TrustedTypePolicy* default_policy =
-      GetDefaultPolicy(doc->ToExecutionContext());
+  TrustedTypePolicy* default_policy = GetDefaultPolicy(context);
   if (!default_policy) {
-    if (TrustedTypeFail(violation_kind, doc->ToExecutionContext(),
-                        exception_state, script)) {
+    if (TrustedTypeFail(violation_kind, context, exception_state, script)) {
       exception_state.ClearException();
       return String();
     }
@@ -228,9 +270,9 @@ String GetStringFromScriptHelper(
   }
 
   TrustedScript* result = default_policy->CreateScript(
-      doc->GetIsolate(), script,
-      GetDefaultCallbackArgs(doc->GetIsolate(), "TrustedScript",
-                             exception_state),
+      context->GetIsolate(), script,
+      GetDefaultCallbackArgs(context->GetIsolate(), "TrustedScript",
+                             exception_state, script),
       exception_state);
   if (exception_state.HadException()) {
     exception_state.ClearException();
@@ -238,8 +280,8 @@ String GetStringFromScriptHelper(
   }
 
   if (result->toString().IsNull()) {
-    if (TrustedTypeFail(violation_kind_when_default_policy_failed,
-                        doc->ToExecutionContext(), exception_state, script)) {
+    if (TrustedTypeFail(violation_kind_when_default_policy_failed, context,
+                        exception_state, script)) {
       exception_state.ClearException();
       return String();
     }
@@ -255,7 +297,7 @@ bool RequireTrustedTypesCheck(const ExecutionContext* execution_context) {
          !ContentSecurityPolicy::ShouldBypassMainWorld(execution_context);
 }
 
-String TrustedTypesCheckForHTML(const String& html,
+String TrustedTypesCheckForHTML(String html,
                                 const ExecutionContext* execution_context,
                                 ExceptionState& exception_state) {
   bool require_trusted_type = RequireTrustedTypesCheck(execution_context);
@@ -280,6 +322,9 @@ String TrustedTypesCheckForHTML(const String& html,
       return html;
     }
   }
+  // TODO(ajwong): This can be optimized to avoid a AddRef in the
+  // StringCache::CreateStringAndInsertIntoCache() also, but it's a hard mess.
+  // Punt for now.
   TrustedHTML* result = default_policy->CreateHTML(
       execution_context->GetIsolate(), html,
       GetDefaultCallbackArgs(execution_context->GetIsolate(), "TrustedHTML",
@@ -301,15 +346,7 @@ String TrustedTypesCheckForHTML(const String& html,
   return result->toString();
 }
 
-String TrustedTypesCheckForHTML(const String& html,
-                                const Document* document,
-                                ExceptionState& exception_state) {
-  return TrustedTypesCheckForHTML(
-      html, document ? document->GetExecutionContext() : nullptr,
-      exception_state);
-}
-
-String TrustedTypesCheckForScript(const String& script,
+String TrustedTypesCheckForScript(String script,
                                   const ExecutionContext* execution_context,
                                   ExceptionState& exception_state) {
   bool require_trusted_type = RequireTrustedTypesCheck(execution_context);
@@ -334,10 +371,13 @@ String TrustedTypesCheckForScript(const String& script,
       return script;
     }
   }
+  // TODO(ajwong): This can be optimized to avoid a AddRef in the
+  // StringCache::CreateStringAndInsertIntoCache() also, but it's a hard mess.
+  // Punt for now.
   TrustedScript* result = default_policy->CreateScript(
       execution_context->GetIsolate(), script,
       GetDefaultCallbackArgs(execution_context->GetIsolate(), "TrustedScript",
-                             exception_state),
+                             exception_state, script),
       exception_state);
   DCHECK_EQ(!result, exception_state.HadException());
   if (exception_state.HadException()) {
@@ -356,7 +396,7 @@ String TrustedTypesCheckForScript(const String& script,
   return result->toString();
 }
 
-String TrustedTypesCheckForScriptURL(const String& script_url,
+String TrustedTypesCheckForScriptURL(String script_url,
                                      const ExecutionContext* execution_context,
                                      ExceptionState& exception_state) {
   bool require_trusted_type =
@@ -383,6 +423,9 @@ String TrustedTypesCheckForScriptURL(const String& script_url,
       return script_url;
     }
   }
+  // TODO(ajwong): This can be optimized to avoid a AddRef in the
+  // StringCache::CreateStringAndInsertIntoCache() also, but it's a hard mess.
+  // Punt for now.
   TrustedScriptURL* result = default_policy->CreateScriptURL(
       execution_context->GetIsolate(), script_url,
       GetDefaultCallbackArgs(execution_context->GetIsolate(),
@@ -432,7 +475,8 @@ String TrustedTypesCheckFor(
   }
 
   // In all other cases: run the full check against the string value.
-  return TrustedTypesCheckFor(type, value, execution_context, exception_state);
+  return TrustedTypesCheckFor(type, std::move(value), execution_context,
+                              exception_state);
 }
 
 String TrustedTypesCheckForScript(StringOrTrustedScript trusted,
@@ -454,41 +498,41 @@ String TrustedTypesCheckForScript(StringOrTrustedScript trusted,
 }
 
 String TrustedTypesCheckFor(SpecificTrustedType type,
-                            const String& trusted,
+                            String trusted,
                             const ExecutionContext* execution_context,
                             ExceptionState& exception_state) {
   switch (type) {
     case SpecificTrustedType::kHTML:
-      return TrustedTypesCheckForHTML(trusted, execution_context,
+      return TrustedTypesCheckForHTML(std::move(trusted), execution_context,
                                       exception_state);
     case SpecificTrustedType::kScript:
-      return TrustedTypesCheckForScript(trusted, execution_context,
+      return TrustedTypesCheckForScript(std::move(trusted), execution_context,
                                         exception_state);
     case SpecificTrustedType::kScriptURL:
-      return TrustedTypesCheckForScriptURL(trusted, execution_context,
-                                           exception_state);
+      return TrustedTypesCheckForScriptURL(std::move(trusted),
+                                           execution_context, exception_state);
     case SpecificTrustedType::kNone:
       return trusted;
   }
   NOTREACHED();
-  return "";
+  return g_empty_string;
 }
 
 String CORE_EXPORT
-GetStringForScriptExecution(const String& script,
+GetStringForScriptExecution(String script,
                             const ScriptElementBase::Type type,
-                            Document* doc) {
-  return GetStringFromScriptHelper(script, doc, GetElementName(type), "text",
-                                   kScriptExecution,
-                                   kScriptExecutionAndDefaultPolicyFailed);
+                            ExecutionContext* context) {
+  return GetStringFromScriptHelper(
+      std::move(script), context, GetElementName(type), "text",
+      kScriptExecution, kScriptExecutionAndDefaultPolicyFailed);
 }
 
 String TrustedTypesCheckForJavascriptURLinNavigation(
-    const String& javascript_url,
-    Document* doc) {
+    String javascript_url,
+    ExecutionContext* context) {
   return GetStringFromScriptHelper(
-      javascript_url, doc, "Location", "href", kNavigateToJavascriptURL,
-      kNavigateToJavascriptURLAndDefaultPolicyFailed);
+      std::move(javascript_url), context, "Location", "href",
+      kNavigateToJavascriptURL, kNavigateToJavascriptURLAndDefaultPolicyFailed);
 }
 
 }  // namespace blink

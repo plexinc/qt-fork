@@ -37,14 +37,14 @@ const int kProfileImageSize = 128;
 }  // namespace
 
 SyncConfirmationHandler::SyncConfirmationHandler(
-    Browser* browser,
-    const std::unordered_map<std::string, int>& string_to_grd_id_map)
-    : profile_(browser->profile()),
-      browser_(browser),
+    Profile* profile,
+    const std::unordered_map<std::string, int>& string_to_grd_id_map,
+    Browser* browser)
+    : profile_(profile),
       string_to_grd_id_map_(string_to_grd_id_map),
+      browser_(browser),
       identity_manager_(IdentityManagerFactory::GetForProfile(profile_)) {
   DCHECK(profile_);
-  DCHECK(browser_);
   BrowserList::AddObserver(this);
 }
 
@@ -55,8 +55,7 @@ SyncConfirmationHandler::~SyncConfirmationHandler() {
   // Abort signin and prevent sync from starting if none of the actions on the
   // sync confirmation dialog are taken by the user.
   if (!did_user_explicitly_interact_) {
-    HandleUndo(nullptr);
-    base::RecordAction(base::UserMetricsAction("Signin_Abort_Signin"));
+    CloseModalSigninWindow(LoginUIService::UI_CLOSED);
   }
 }
 
@@ -101,7 +100,7 @@ void SyncConfirmationHandler::HandleGoToSettings(const base::ListValue* args) {
 
 void SyncConfirmationHandler::HandleUndo(const base::ListValue* args) {
   did_user_explicitly_interact_ = true;
-  CloseModalSigninWindow(LoginUIService::ABORT_SIGNIN);
+  CloseModalSigninWindow(LoginUIService::ABORT_SYNC);
 }
 
 void SyncConfirmationHandler::HandleAccountImageRequest(
@@ -163,18 +162,16 @@ void SyncConfirmationHandler::SetUserImageURL(const std::string& picture_url) {
     return;
   }
 
-  std::string picture_url_to_load;
   GURL picture_gurl(picture_url);
-  if (picture_gurl.is_valid()) {
-    picture_url_to_load =
-        signin::GetAvatarImageURLWithOptions(picture_gurl, kProfileImageSize,
-                                             false /* no_silhouette */)
-            .spec();
-  } else {
-    // Use the placeholder avatar icon until the account picture URL is fetched.
-    picture_url_to_load = profiles::GetPlaceholderAvatarIconUrl();
+  if (!picture_gurl.is_valid()) {
+    // As long as the provided gaia picture is not valid, stick to the default
+    // avatar provided in the load-time data.
+    return;
   }
-  base::Value picture_url_value(picture_url_to_load);
+
+  GURL picture_gurl_with_options = signin::GetAvatarImageURLWithOptions(
+      picture_gurl, kProfileImageSize, false /* no_silhouette */);
+  base::Value picture_url_value(picture_gurl_with_options.spec());
 
   AllowJavascript();
   FireWebUIListener("account-image-changed", picture_url_value);
@@ -205,8 +202,11 @@ void SyncConfirmationHandler::CloseModalSigninWindow(
       base::RecordAction(
           base::UserMetricsAction("Signin_Signin_WithDefaultSyncSettings"));
       break;
-    case LoginUIService::ABORT_SIGNIN:
+    case LoginUIService::ABORT_SYNC:
       base::RecordAction(base::UserMetricsAction("Signin_Undo_Signin"));
+      break;
+    case LoginUIService::UI_CLOSED:
+      base::RecordAction(base::UserMetricsAction("Signin_Abort_Signin"));
       break;
   }
   LoginUIServiceFactory::GetForProfile(profile_)->SyncConfirmationUIClosed(
@@ -219,9 +219,6 @@ void SyncConfirmationHandler::HandleInitializedWithSize(
     const base::ListValue* args) {
   AllowJavascript();
 
-  if (!browser_)
-    return;
-
   base::Optional<AccountInfo> primary_account_info =
       identity_manager_->FindExtendedAccountInfoForAccountWithRefreshToken(
           identity_manager_->GetPrimaryAccountInfo(ConsentLevel::kNotRequired));
@@ -232,18 +229,11 @@ void SyncConfirmationHandler::HandleInitializedWithSize(
   }
 
   if (!primary_account_info->IsValid()) {
-    SetUserImageURL(kNoPictureURLFound);
     identity_manager_->AddObserver(this);
   } else {
     SetUserImageURL(primary_account_info->picture_url);
   }
 
-  signin::SetInitializedModalHeight(browser_, web_ui(), args);
-
-  // After the dialog is shown, some platforms might have an element focused.
-  // To be consistent, clear the focused element on all platforms.
-  // TODO(anthonyvd): Figure out why this is needed on Mac and not other
-  // platforms and if there's a way to start unfocused while avoiding this
-  // workaround.
-  FireWebUIListener("clear-focus");
+  if (browser_)
+    signin::SetInitializedModalHeight(browser_, web_ui(), args);
 }

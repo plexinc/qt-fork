@@ -1,7 +1,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'chatsetnickname.ui'
 **
-** Created by: Qt User Interface Compiler version 5.12.0
+** Created by: Qt User Interface Compiler version 6.0.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -104,8 +104,8 @@ public:
 
 
         retranslateUi(NicknameDialog);
-        QObject::connect(okButton, SIGNAL(clicked()), NicknameDialog, SLOT(accept()));
-        QObject::connect(cancelButton, SIGNAL(clicked()), NicknameDialog, SLOT(reject()));
+        QObject::connect(okButton, &QPushButton::clicked, NicknameDialog, qOverload<>(&QDialog::accept));
+        QObject::connect(cancelButton, &QPushButton::clicked, NicknameDialog, qOverload<>(&QDialog::reject));
 
         QMetaObject::connectSlotsByName(NicknameDialog);
     } // setupUi

@@ -4,6 +4,7 @@
 
 import * as Coverage from '../coverage/coverage.js';
 import * as Formatter from '../formatter/formatter.js';
+import * as i18n from '../i18n/i18n.js';
 import * as SDK from '../sdk/sdk.js';
 import * as SourceFrame from '../source_frame/source_frame.js';  // eslint-disable-line no-unused-vars
 import * as UI from '../ui/ui.js';
@@ -11,6 +12,27 @@ import * as Workspace from '../workspace/workspace.js';  // eslint-disable-line 
 
 import {Plugin} from './Plugin.js';
 
+export const UIStrings = {
+  /**
+  *@description Text for Coverage Status Bar Item in Sources Panel
+  */
+  clickToShowCoveragePanel: 'Click to show Coverage Panel',
+  /**
+  *@description Text for Coverage Status Bar Item in Sources Panel
+  */
+  showDetails: 'Show Details',
+  /**
+  *@description Text to show in the status bar if coverage data is available
+  *@example {12.3} PH1
+  */
+  coverageS: 'Coverage: {PH1} %',
+  /**
+  *@description Text to be shown in the status bar if no coverage data is available
+  */
+  coverageNa: 'Coverage: n/a',
+};
+const str_ = i18n.i18n.registerUIStrings('sources/CoveragePlugin.js', UIStrings);
+const i18nString = i18n.i18n.getLocalizedString.bind(undefined, str_);
 export class CoveragePlugin extends Plugin {
   /**
    * @param {!SourceFrame.SourcesTextEditor.SourcesTextEditor} textEditor
@@ -23,9 +45,10 @@ export class CoveragePlugin extends Plugin {
     this._uiSourceCode = uiSourceCode;
 
     /** @type {!Workspace.UISourceCode.UISourceCode} */
-    this._originalSourceCode = Formatter.sourceFormatter.getOriginalUISourceCode(this._uiSourceCode);
+    this._originalSourceCode =
+        Formatter.SourceFormatter.SourceFormatter.instance().getOriginalUISourceCode(this._uiSourceCode);
 
-    this._text = new UI.Toolbar.ToolbarButton(ls`Click to show Coverage Panel`);
+    this._text = new UI.Toolbar.ToolbarButton(i18nString(UIStrings.clickToShowCoveragePanel));
     this._text.setSecondary();
     this._text.addEventListener(UI.Toolbar.ToolbarButton.Events.Click, () => {
       UI.ViewManager.ViewManager.instance().showView('coverage');
@@ -34,12 +57,14 @@ export class CoveragePlugin extends Plugin {
     const mainTarget = SDK.SDKModel.TargetManager.instance().mainTarget();
     if (mainTarget) {
       this._model = mainTarget.model(Coverage.CoverageModel.CoverageModel);
-      this._model.addEventListener(Coverage.CoverageModel.Events.CoverageReset, this._handleReset, this);
+      if (this._model) {
+        this._model.addEventListener(Coverage.CoverageModel.Events.CoverageReset, this._handleReset, this);
 
-      this._coverage = this._model.getCoverageForUrl(this._originalSourceCode.url());
-      if (this._coverage) {
-        this._coverage.addEventListener(
-            Coverage.CoverageModel.URLCoverageInfo.Events.SizesChanged, this._handleCoverageSizesChanged, this);
+        this._coverage = this._model.getCoverageForUrl(this._originalSourceCode.url());
+        if (this._coverage) {
+          this._coverage.addEventListener(
+              Coverage.CoverageModel.URLCoverageInfo.Events.SizesChanged, this._handleCoverageSizesChanged, this);
+        }
       }
     }
 
@@ -79,11 +104,11 @@ export class CoveragePlugin extends Plugin {
 
   _updateStats() {
     if (this._coverage) {
-      this._text.setTitle(ls`Show Details`);
-      this._text.setText(ls`Coverage: ${this._coverage.usedPercentage().toFixed(1)} %`);
+      this._text.setTitle(i18nString(UIStrings.showDetails));
+      this._text.setText(i18nString(UIStrings.coverageS, {PH1: this._coverage.usedPercentage().toFixed(1)}));
     } else {
-      this._text.setTitle(ls`Click to show Coverage Panel`);
-      this._text.setText(ls`Coverage: n/a`);
+      this._text.setTitle(i18nString(UIStrings.clickToShowCoveragePanel));
+      this._text.setText(i18nString(UIStrings.coverageNa));
     }
   }
 

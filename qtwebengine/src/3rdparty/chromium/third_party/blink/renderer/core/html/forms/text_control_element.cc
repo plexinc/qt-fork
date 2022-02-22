@@ -30,6 +30,7 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/element_traversal.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
+#include "third_party/blink/renderer/core/dom/focus_params.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/dom/text.h"
@@ -43,6 +44,7 @@
 #include "third_party/blink/renderer/core/editing/selection_template.h"
 #include "third_party/blink/renderer/core/editing/serializers/serialization.h"
 #include "third_party/blink/renderer/core/editing/set_selection_options.h"
+#include "third_party/blink/renderer/core/editing/spellcheck/spell_checker.h"
 #include "third_party/blink/renderer/core/editing/text_affinity.h"
 #include "third_party/blink/renderer/core/editing/visible_position.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
@@ -53,6 +55,9 @@
 #include "third_party/blink/renderer/core/html/shadow/shadow_element_names.h"
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/layout/layout_block_flow.h"
+#include "third_party/blink/renderer/core/layout/ng/inline/ng_fragment_items.h"
+#include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_cursor.h"
+#include "third_party/blink/renderer/core/layout/ng/inline/ng_offset_mapping.h"
 #include "third_party/blink/renderer/core/page/focus_controller.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/platform/bindings/exception_messages.h"
@@ -63,6 +68,25 @@
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 
 namespace blink {
+
+namespace {
+
+Position GetNextSoftBreak(const NGOffsetMapping& mapping,
+                          NGInlineCursor& cursor) {
+  while (cursor) {
+    DCHECK(cursor.Current().IsLineBox()) << cursor;
+    const auto* break_token = cursor.Current().InlineBreakToken();
+    cursor.MoveToNextLine();
+    // We don't need to emit a LF for the last line.
+    if (!cursor)
+      return Position();
+    if (break_token && !break_token->IsForcedBreak())
+      return mapping.GetFirstPosition(break_token->TextOffset());
+  }
+  return Position();
+}
+
+}  // namespace
 
 TextControlElement::TextControlElement(const QualifiedName& tag_name,
                                        Document& doc)
@@ -105,7 +129,7 @@ void TextControlElement::DispatchBlurEvent(
 
 void TextControlElement::DefaultEventHandler(Event& event) {
   if (event.type() == event_type_names::kWebkitEditableContentChanged &&
-      GetLayoutObject() && GetLayoutObject()->IsTextControl()) {
+      GetLayoutObject() && GetLayoutObject()->IsTextControlIncludingNG()) {
     last_change_was_user_edit_ = !GetDocument().IsRunningExecCommand();
     user_has_edited_the_field_ |= last_change_was_user_edit_;
 
@@ -175,7 +199,7 @@ HTMLElement* TextControlElement::PlaceholderElement() const {
     return nullptr;
   DCHECK(UserAgentShadowRoot());
   auto* element = UserAgentShadowRoot()->getElementById(
-      shadow_element_names::Placeholder());
+      shadow_element_names::kIdPlaceholder);
   CHECK(!element || IsA<HTMLElement>(element));
   return To<HTMLElement>(element);
 }
@@ -253,6 +277,9 @@ void TextControlElement::SetFocused(bool flag,
 
   if (!flag)
     DispatchFormControlChangeEvent();
+
+  if (auto* inner_editor = InnerEditorElement())
+    inner_editor->FocusChanged();
 }
 
 void TextControlElement::DispatchFormControlChangeEvent() {
@@ -752,7 +779,7 @@ void TextControlElement::SelectionChanged(bool user_triggered) {
     return;
   const SelectionInDOMTree& selection =
       frame->Selection().GetSelectionInDOMTree();
-  if (selection.Type() != kRangeSelection)
+  if (!selection.IsRange())
     return;
   DispatchEvent(*Event::CreateBubble(event_type_names::kSelect));
 }
@@ -773,6 +800,13 @@ void TextControlElement::ParseAttribute(
              params.name == html_names::kDisabledAttr) {
     DisabledOrReadonlyAttributeChanged(params.name);
     HTMLFormControlElementWithState::ParseAttribute(params);
+    if (params.new_value.IsNull())
+      return;
+
+    if (HTMLElement* inner_editor = InnerEditorElement()) {
+      if (auto* frame = GetDocument().GetFrame())
+        frame->GetSpellChecker().RemoveSpellingAndGrammarMarkers(*inner_editor);
+    }
   } else {
     HTMLFormControlElementWithState::ParseAttribute(params);
   }
@@ -904,6 +938,41 @@ String TextControlElement::ValueWithHardLineBreaks() const {
   if (!layout_object)
     return value();
 
+  if (layout_object->IsLayoutNGObject()) {
+    NGInlineCursor cursor(*layout_object);
+    if (!cursor)
+      return value();
+    const auto* mapping = NGInlineNode::GetOffsetMapping(layout_object);
+    if (!mapping)
+      return value();
+    Position break_position = GetNextSoftBreak(*mapping, cursor);
+    StringBuilder result;
+    for (Node& node : NodeTraversal::DescendantsOf(*inner_text)) {
+      if (IsA<HTMLBRElement>(node)) {
+        DCHECK_EQ(&node, inner_text->lastChild());
+      } else if (auto* text_node = DynamicTo<Text>(node)) {
+        String data = text_node->data();
+        unsigned length = data.length();
+        unsigned position = 0;
+        while (break_position.AnchorNode() == node &&
+               static_cast<unsigned>(break_position.OffsetInContainerNode()) <=
+                   length) {
+          unsigned break_offset = break_position.OffsetInContainerNode();
+          if (break_offset > position) {
+            result.Append(data, position, break_offset - position);
+            position = break_offset;
+            result.Append(kNewlineCharacter);
+          }
+          break_position = GetNextSoftBreak(*mapping, cursor);
+        }
+        result.Append(data, position, length - position);
+      }
+      while (break_position.AnchorNode() == node)
+        break_position = GetNextSoftBreak(*mapping, cursor);
+    }
+    return result.ToString();
+  }
+
   Node* break_node;
   unsigned break_offset;
   RootInlineBox* line = layout_object->FirstRootBox();
@@ -916,8 +985,6 @@ String TextControlElement::ValueWithHardLineBreaks() const {
   for (Node& node : NodeTraversal::DescendantsOf(*inner_text)) {
     if (IsA<HTMLBRElement>(node)) {
       DCHECK_EQ(&node, inner_text->lastChild());
-      if (&node != inner_text->lastChild())
-        result.Append(kNewlineCharacter);
     } else if (auto* text_node = DynamicTo<Text>(node)) {
       String data = text_node->data();
       unsigned length = data.length();
@@ -979,10 +1046,8 @@ String TextControlElement::DirectionForFormData() const {
       return dir_attribute_value;
 
     if (EqualIgnoringASCIICase(dir_attribute_value, "auto")) {
-      bool is_auto;
-      TextDirection text_direction =
-          element->DirectionalityIfhasDirAutoAttribute(is_auto);
-      return text_direction == TextDirection::kRtl ? "rtl" : "ltr";
+      return element->CachedDirectionality() == TextDirection::kRtl ? "rtl"
+                                                                    : "ltr";
     }
   }
 
@@ -1019,10 +1084,12 @@ void TextControlElement::SetSuggestedValue(const String& value) {
 
   if (suggested_value_.IsEmpty()) {
     // Reset the pseudo-id for placeholders to use the appropriated style
-    placeholder->SetShadowPseudoId(AtomicString("-webkit-input-placeholder"));
+    placeholder->SetShadowPseudoId(
+        shadow_element_names::kPseudoInputPlaceholder);
   } else {
     // Set the pseudo-id for suggested values to use the appropriated style.
-    placeholder->SetShadowPseudoId(AtomicString("-internal-input-suggested"));
+    placeholder->SetShadowPseudoId(
+        shadow_element_names::kPseudoInternalInputSuggested);
   }
 }
 
@@ -1037,7 +1104,7 @@ const String& TextControlElement::SuggestedValue() const {
   return suggested_value_;
 }
 
-void TextControlElement::Trace(Visitor* visitor) {
+void TextControlElement::Trace(Visitor* visitor) const {
   visitor->Trace(inner_editor_);
   HTMLFormControlElementWithState::Trace(visitor);
 }

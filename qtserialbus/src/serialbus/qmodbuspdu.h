@@ -37,8 +37,9 @@
 #define QMODBUSPDU_H
 
 #include <QtCore/qdatastream.h>
+#include <QtCore/qiodevice.h>
+#include <QtCore/qlist.h>
 #include <QtCore/qmetatype.h>
-#include <QtCore/qvector.h>
 #include <QtSerialBus/qtserialbusglobal.h>
 
 QT_BEGIN_NAMESPACE
@@ -154,7 +155,9 @@ private:
         static_assert(IsType<T, quint8 *, quint16 *>::value, "Only quint8* and quint16* supported.");
         (*stream) >> *t;
     }
-    template <typename T> void encode(QDataStream *stream, const QVector<T> &vector) {
+    template<typename T>
+    void encode(QDataStream *stream, const QList<T> &vector)
+    {
         static_assert(is_pod<T>::value, "Only POD types supported.");
         static_assert(IsType<T, quint8, quint16>::value, "Only quint8 and quint16 supported.");
         for (int i = 0; i < vector.count(); ++i)
@@ -167,7 +170,7 @@ private:
         if (argCount > 0) {
             QDataStream stream(&m_data, QIODevice::WriteOnly);
             char tmp[argCount] = { (encode(&stream, newData), void(), '0')... };
-            Q_UNUSED(tmp)
+            Q_UNUSED(tmp);
         }
     }
     template<typename ... Args> void decode(Args ... newData) const {
@@ -175,7 +178,7 @@ private:
         if (argCount > 0 && !m_data.isEmpty()) {
             QDataStream stream(m_data);
             char tmp[argCount] = { (decode(&stream, newData), void(), '0')... };
-            Q_UNUSED(tmp)
+            Q_UNUSED(tmp);
         }
     }
 
@@ -183,6 +186,7 @@ private:
     FunctionCode m_code = Invalid;
     QByteArray m_data;
     friend class QModbusSerialAdu;
+    friend struct QModbusPduPrivate;
 };
 Q_SERIALBUS_EXPORT QDebug operator<<(QDebug debug, const QModbusPdu &pdu);
 Q_SERIALBUS_EXPORT QDataStream &operator<<(QDataStream &stream, const QModbusPdu &pdu);
@@ -249,7 +253,7 @@ public:
         : QModbusResponse(FunctionCode(quint8(fc) | ExceptionByte), static_cast<quint8> (ec))
     {}
 
-    void setFunctionCode(FunctionCode c) {
+    void setFunctionCode(FunctionCode c) override {
         QModbusPdu::setFunctionCode(FunctionCode(quint8(c) | ExceptionByte));
     }
     void setExceptionCode(ExceptionCode ec) { QModbusPdu::encodeData(quint8(ec)); }
@@ -258,13 +262,13 @@ Q_SERIALBUS_EXPORT QDataStream &operator>>(QDataStream &stream, QModbusResponse 
 inline QDataStream &operator<<(QDataStream &stream, const QModbusResponse &pdu)
 { return stream << static_cast<const QModbusPdu &>(pdu); }
 
-Q_DECLARE_TYPEINFO(QModbusPdu, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QModbusPdu, Q_RELOCATABLE_TYPE);
 Q_DECLARE_TYPEINFO(QModbusPdu::ExceptionCode, Q_PRIMITIVE_TYPE);
 Q_DECLARE_TYPEINFO(QModbusPdu::FunctionCode, Q_PRIMITIVE_TYPE);
 
-Q_DECLARE_TYPEINFO(QModbusRequest, Q_MOVABLE_TYPE);
-Q_DECLARE_TYPEINFO(QModbusResponse, Q_MOVABLE_TYPE);
-Q_DECLARE_TYPEINFO(QModbusExceptionResponse, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QModbusRequest, Q_RELOCATABLE_TYPE);
+Q_DECLARE_TYPEINFO(QModbusResponse, Q_RELOCATABLE_TYPE);
+Q_DECLARE_TYPEINFO(QModbusExceptionResponse, Q_RELOCATABLE_TYPE);
 
 QT_END_NAMESPACE
 

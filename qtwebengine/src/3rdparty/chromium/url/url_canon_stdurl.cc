@@ -109,9 +109,11 @@ bool DoCanonicalizeStandardURL(const URLComponentSource<CHAR>& source,
 
 }  // namespace
 
-
 // Returns the default port for the given canonical scheme, or PORT_UNSPECIFIED
 // if the scheme is unknown.
+//
+// Please keep blink::DefaultPortForProtocol and url::DefaultPortForProtocol in
+// sync.
 int DefaultPortForScheme(const char* scheme, int scheme_len) {
   int default_port = PORT_UNSPECIFIED;
   switch (scheme_len) {
@@ -137,7 +139,8 @@ int DefaultPortForScheme(const char* scheme, int scheme_len) {
 
   if (default_port == PORT_UNSPECIFIED)
     if (const CustomScheme* cs = CustomScheme::FindScheme(base::StringPiece(scheme, scheme_len)))
-      return cs->default_port;
+      if (cs->has_port_component())
+        return cs->default_port;
 
   return default_port;
 }

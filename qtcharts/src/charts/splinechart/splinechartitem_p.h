@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the Qt Charts module of the Qt Toolkit.
@@ -43,7 +43,7 @@
 #include <private/xychart_p.h>
 #include <QtCharts/private/qchartglobal_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class SplineAnimation;
 
@@ -55,29 +55,29 @@ public:
     SplineChartItem(QSplineSeries *series, QGraphicsItem *item = 0);
 
     //from QGraphicsItem
-    QRectF boundingRect() const;
-    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget);
-    QPainterPath shape() const;
+    QRectF boundingRect() const override;
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
+    QPainterPath shape() const override;
 
-    void setControlGeometryPoints(QVector<QPointF>& points);
-    QVector<QPointF> controlGeometryPoints() const;
+    void setControlGeometryPoints(const QList<QPointF> &points);
+    QList<QPointF> controlGeometryPoints() const;
 
     void setAnimation(SplineAnimation *animation);
-    ChartAnimation *animation() const;
+    ChartAnimation *animation() const override;
 
 public Q_SLOTS:
-    void handleUpdated();
+    void handleSeriesUpdated() override;
 
 protected:
-    void updateGeometry();
-    QVector<QPointF> calculateControlPoints(const QVector<QPointF> &points);
-    QVector<qreal> firstControlPoints(const QVector<qreal>& vector);
-    void updateChart(QVector<QPointF> &oldPoints, QVector<QPointF> &newPoints, int index);
-    void mousePressEvent(QGraphicsSceneMouseEvent *event);
-    void hoverEnterEvent(QGraphicsSceneHoverEvent *event);
-    void hoverLeaveEvent(QGraphicsSceneHoverEvent *event);
-    void mouseReleaseEvent(QGraphicsSceneMouseEvent *event);
-    void mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event);
+    void updateGeometry() override;
+    QList<QPointF> calculateControlPoints(const QList<QPointF> &points);
+    QList<qreal> firstControlPoints(const QList<qreal> &list);
+    void updateChart(const QList<QPointF> &oldPoints, const QList<QPointF> &newPoints, int index) override;
+    void mousePressEvent(QGraphicsSceneMouseEvent *event) override;
+    void hoverEnterEvent(QGraphicsSceneHoverEvent *event) override;
+    void hoverLeaveEvent(QGraphicsSceneHoverEvent *event) override;
+    void mouseReleaseEvent(QGraphicsSceneMouseEvent *event) override;
+    void mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) override;
 
 private:
     QSplineSeries *m_series;
@@ -89,11 +89,12 @@ private:
     QPen m_linePen;
     QPen m_pointPen;
     bool m_pointsVisible;
-    QVector<QPointF> m_controlPoints;
-    QVector<QPointF> m_visiblePoints;
+    QList<QPointF> m_controlPoints;
+    QList<QPointF> m_visiblePoints;
     SplineAnimation *m_animation;
 
     bool m_pointLabelsVisible;
+    qreal m_markerSize;
     QString m_pointLabelsFormat;
     QFont m_pointLabelsFont;
     QColor m_pointLabelsColor;
@@ -105,6 +106,6 @@ private:
     friend class SplineAnimation;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // SPLINECHARTITEM_P_H

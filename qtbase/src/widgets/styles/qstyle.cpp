@@ -91,7 +91,7 @@ static int unpackControlTypes(QSizePolicy::ControlTypes controls, QSizePolicy::C
     look of the different platforms supported by Qt (QWindowsStyle,
     QMacStyle, etc.). These styles are built into the
     Qt GUI module, other styles can be made available using Qt's
-    plugin mechansim.
+    plugin mechanism.
 
     Most functions for drawing style elements take four arguments:
 
@@ -422,6 +422,30 @@ QStyle::~QStyle()
 }
 
 /*!
+    Returns the name of the style.
+
+    This value can be used to create a style with QStyleFactory::create().
+
+    \sa QStyleFactory::create()
+    \since 6.1
+*/
+QString QStyle::name() const
+{
+    Q_D(const QStyle);
+    return d->name;
+}
+
+/*!
+    \internal
+    Set the style name
+*/
+void QStyle::setName(const QString &name)
+{
+    Q_D(QStyle);
+    d->name = name;
+}
+
+/*!
     Initializes the appearance of the given \a widget.
 
     This function is called for every widget at some point after it
@@ -637,9 +661,6 @@ void QStyle::drawItemPixmap(QPainter *painter, const QRect &rect, int alignment,
     primitive element is a common GUI element, such as a checkbox
     indicator or button bevel.
 
-    \omitvalue PE_IndicatorViewItemCheck
-    \value PE_FrameStatusBar  Obsolete. Use PE_FrameStatusBarItem instead.
-
     \value PE_PanelButtonCommand  Button used to initiate an action, for
         example, a QPushButton.
 
@@ -697,7 +718,7 @@ void QStyle::drawItemPixmap(QPainter *painter, const QRect &rect, int alignment,
     \value PE_IndicatorToolBarSeparator  The separator in a toolbar.
     \value PE_PanelToolBar  The panel for a toolbar.
     \value PE_PanelTipLabel The panel for a tip label.
-    \value PE_FrameTabBarBase The frame that is drawn for a tab bar, ususally drawn for a tab bar that isn't part of a tab widget.
+    \value PE_FrameTabBarBase The frame that is drawn for a tab bar, usually drawn for a tab bar that isn't part of a tab widget.
     \value PE_IndicatorTabTear Deprecated. Use \l{PE_IndicatorTabTearLeft} instead.
     \value PE_IndicatorTabTearLeft An indicator that a tab is partially scrolled out on the left side of the visible tab bar when there are many tabs.
     \value PE_IndicatorTabTearRight An indicator that a tab is partially scrolled out on the right side of the visible tab bar when there are many tabs.
@@ -1040,8 +1061,6 @@ void QStyle::drawItemPixmap(QPainter *painter, const QRect &rect, int alignment,
     \value SE_ProgressBarLabel  Area for the text label.
     \value SE_ProgressBarLayoutItem Area that counts for the parent layout.
 
-    \omitvalue SE_ViewItemCheckIndicator
-
     \value SE_FrameContents  Area for a frame's contents.
     \value SE_ShapedFrameContents Area for a frame's contents using the shape in QStyleOptionFrame; see QFrame
     \value SE_FrameLayoutItem  Area that counts for the parent layout.
@@ -1074,8 +1093,6 @@ void QStyle::drawItemPixmap(QPainter *painter, const QRect &rect, int alignment,
     \value SE_TabBarScrollRightButton Area for the scroll right button on a tab bar with scroll buttons.
 
     \value SE_TreeViewDisclosureItem Area for the actual disclosure item in a tree branch.
-
-    \omitvalue SE_DialogButtonBoxLayoutItem
 
     \value SE_GroupBoxLayoutItem  Area that counts for the parent layout.
 
@@ -1360,9 +1377,7 @@ void QStyle::drawItemPixmap(QPainter *painter, const QRect &rect, int alignment,
     \value PM_SpinBoxFrameWidth  Frame width of a spin box, defaults to PM_DefaultFrameWidth.
     \value PM_ComboBoxFrameWidth Frame width of a combo box, defaults to PM_DefaultFrameWidth.
 
-    \value PM_MDIFrameWidth  Obsolete. Use PM_MdiSubWindowFrameWidth instead.
     \value PM_MdiSubWindowFrameWidth  Frame width of an MDI window.
-    \value PM_MDIMinimizedWidth  Obsolete. Use PM_MdiSubWindowMinimizedWidth instead.
     \value PM_MdiSubWindowMinimizedWidth  Width of a minimized MDI window.
 
     \value PM_LayoutLeftMargin  Default \l{QLayout::setContentsMargins()}{left margin} for a
@@ -1501,23 +1516,11 @@ void QStyle::drawItemPixmap(QPainter *painter, const QRect &rect, int alignment,
     \value PM_TitleBarButtonSize The size of buttons on a title bar.
            This enum value has been introduced in Qt 5.8.
 
+    \value PM_LineEditIconSize The default size for icons in a line edit.
+           This enum value has been introduced in Qt 6.2.
+
     \value PM_CustomBase Base value for custom pixel metrics.  Custom
     values must be greater than this value.
-
-    The following values are obsolete:
-
-    \value PM_DefaultTopLevelMargin  Use PM_LayoutLeftMargin,
-                                     PM_LayoutTopMargin,
-                                     PM_LayoutRightMargin, and
-                                     PM_LayoutBottomMargin instead.
-    \value PM_DefaultChildMargin  Use PM_LayoutLeftMargin,
-                                  PM_LayoutTopMargin,
-                                  PM_LayoutRightMargin, and
-                                  PM_LayoutBottomMargin instead.
-    \value PM_DefaultLayoutSpacing  Use PM_LayoutHorizontalSpacing
-                                    and PM_LayoutVerticalSpacing
-                                    instead.
-
 
     \sa pixelMetric()
 */
@@ -1796,7 +1799,7 @@ void QStyle::drawItemPixmap(QPainter *painter, const QRect &rect, int alignment,
         cause a list view expansion to be selected.
 
     \value SH_TabBar_PreferNoArrows  Whether a tab bar should suggest a size
-        to prevent scoll arrows.
+        to prevent scroll arrows.
 
     \value SH_ComboBox_Popup  Allows popups as a combobox drop-down
         menu.
@@ -1807,9 +1810,6 @@ void QStyle::drawItemPixmap(QPainter *painter, const QRect &rect, int alignment,
         maximize the client area.
 
     \value SH_TitleBar_NoBorder  The title bar has no border.
-
-    \value SH_ScrollBar_StopMouseOverSlider  Obsolete. Use
-        SH_Slider_StopMouseOverSlider instead.
 
     \value SH_Slider_StopMouseOverSlider  Stops auto-repeat when
         the slider reaches the mouse position.
@@ -1840,9 +1840,6 @@ void QStyle::drawItemPixmap(QPainter *painter, const QRect &rect, int alignment,
     \value SH_Table_GridLineColor The RGBA value of the grid for a table.
 
     \value SH_UnderlineShortcut  Whether shortcuts are underlined.
-
-    \value SH_SpellCheckUnderlineStyle  Obsolete. Use SpellCheckUnderlineStyle
-    hint in QPlatformTheme instead.
 
     \value SH_SpinBox_AnimateButton  Animate a click when up or down is
     pressed in a spin box.
@@ -2011,6 +2008,11 @@ void QStyle::drawItemPixmap(QPainter *painter, const QRect &rect, int alignment,
            disables this feature.
            This enum value has been introduced in Qt 5.12.
 
+    \value SH_TabBar_AllowWheelScrolling
+           Determines if the mouse wheel can be used to cycle through the tabs
+           of a QTabBar.
+           This enum value has been introduced in Qt 6.1.
+
     \sa styleHint()
 */
 
@@ -2143,7 +2145,7 @@ void QStyle::drawItemPixmap(QPainter *painter, const QRect &rect, int alignment,
 /*!
     \fn QPixmap QStyle::standardPixmap(StandardPixmap standardPixmap, const QStyleOption *option, const QWidget *widget) const
 
-    \obsolete
+    \deprecated
     Returns a pixmap for the given \a standardPixmap.
 
     A standard pixmap is a pixmap that can follow some existing GUI
@@ -2347,8 +2349,8 @@ QPalette QStyle::standardPalette() const
 /*!
     \since 4.1
 
-    \fn QIcon QStyle::standardIcon(StandardPixmap standardIcon, const QStyleOption *option = 0,
-                                   const QWidget *widget = 0) const = 0;
+    \fn QIcon QStyle::standardIcon(StandardPixmap standardIcon, const QStyleOption *option = nullptr,
+                                   const QWidget *widget = nullptr) const = 0;
 
     Returns an icon for the given \a standardIcon.
 
@@ -2418,25 +2420,6 @@ int QStyle::combinedLayoutSpacing(QSizePolicy::ControlTypes controls1,
     return result;
 }
 
-// ### Qt 6: Remove in favor of template<class T> QDebug operator<<(QDebug, const QFlags<T> &).
-#if QT_VERSION < QT_VERSION_CHECK(6,0,0)
-QT_BEGIN_INCLUDE_NAMESPACE
-#  include <QDebug>
-QT_END_INCLUDE_NAMESPACE
-
-#  if !defined(QT_NO_DEBUG_STREAM)
-QDebug operator<<(QDebug debug, QStyle::State state)
-{
-#    if !defined(QT_NO_DEBUG)
-    return operator<< <QStyle::StateFlag>(debug, state);
-#    else
-    Q_UNUSED(state);
-    return debug;
-#    endif
-}
-#  endif // !QT_NO_DEBUG_STREAM
-#endif // QT_VERSION < QT_VERSION_CHECK(6,0,0)
-
 /*!
     \since 4.6
 
@@ -2450,17 +2433,19 @@ QDebug operator<<(QDebug debug, QStyle::State state)
 const QStyle * QStyle::proxy() const
 {
     Q_D(const QStyle);
-    return d->proxyStyle;
+    return d->proxyStyle == this ? this : d->proxyStyle->proxy();
 }
 
 /* \internal
 
     This function sets the base style that style calls will be
-    redirected to. Note that ownership is not transferred.
+    redirected to. Note that ownership is not transferred. \a style
+    must be a valid pointer (not nullptr).
 */
 void QStyle::setProxy(QStyle *style)
 {
     Q_D(QStyle);
+    Q_ASSERT(style);
     d->proxyStyle = style;
 }
 

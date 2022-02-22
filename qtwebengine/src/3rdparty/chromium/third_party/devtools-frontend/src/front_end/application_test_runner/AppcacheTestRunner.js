@@ -4,8 +4,9 @@
 
 /**
  * @fileoverview using private properties isn't a Closure violation in tests.
- * @suppress {accessControls}
  */
+
+self.ApplicationTestRunner = self.ApplicationTestRunner || {};
 
 ApplicationTestRunner.createAndNavigateIFrame = function(url, callback) {
   TestRunner.addSniffer(SDK.ResourceTreeModel.prototype, '_frameNavigated', frameNavigated);

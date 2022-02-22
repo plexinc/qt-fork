@@ -5,6 +5,8 @@
 #ifndef GPU_COMMAND_BUFFER_COMMON_WEBGPU_CMD_FORMAT_H_
 #define GPU_COMMAND_BUFFER_COMMON_WEBGPU_CMD_FORMAT_H_
 
+#include <string.h>
+
 #include "gpu/command_buffer/common/gl2_types.h"
 #include "gpu/command_buffer/common/gles2_cmd_utils.h"
 #include "gpu/command_buffer/common/webgpu_cmd_enums.h"
@@ -25,7 +27,6 @@ static_assert(
 
 struct DawnReturnCommandsInfoHeader {
   DawnReturnDataHeader return_data_header = {DawnReturnDataType::kDawnCommands};
-  DawnDeviceClientID device_client_id;
 };
 
 static_assert(offsetof(DawnReturnCommandsInfoHeader, return_data_header) == 0,
@@ -43,7 +44,7 @@ struct DawnReturnAdapterInfoHeader {
   DawnReturnDataHeader return_data_header = {
       DawnReturnDataType::kRequestedDawnAdapterProperties};
   DawnRequestAdapterSerial request_adapter_serial;
-  uint32_t adapter_service_id;
+  int32_t adapter_service_id;
 };
 
 static_assert(offsetof(DawnReturnAdapterInfoHeader, return_data_header) == 0,
@@ -51,6 +52,11 @@ static_assert(offsetof(DawnReturnAdapterInfoHeader, return_data_header) == 0,
 
 struct DawnReturnAdapterInfo {
   DawnReturnAdapterInfoHeader header;
+  uint32_t adapter_properties_size;
+
+  // |deserialized_buffer| contains the serialized adapter properties if
+  // |adapter_properties_size > 0|. Following it is an optional null-terminated
+  // error message.
   alignas(GPU_DAWN_RETURN_DATA_ALIGNMENT) char deserialized_buffer[];
 };
 
@@ -60,7 +66,7 @@ static_assert(offsetof(DawnReturnAdapterInfo, header) == 0,
 struct DawnReturnRequestDeviceInfo {
   DawnReturnDataHeader return_data_header = {
       DawnReturnDataType::kRequestedDeviceReturnInfo};
-  DawnDeviceClientID device_client_id;
+  DawnRequestDeviceSerial request_device_serial;
   bool is_request_device_success;
 };
 

@@ -47,6 +47,9 @@
 
 #include <QtCore/qcryptographichash.h>
 #include <QtCore/qobject.h>
+#include <QtCore/qcontainerfwd.h>
+
+Q_MOC_INCLUDE(<QtNetwork/QSslPreSharedKeyAuthenticator>)
 
 #ifndef Q_CLANG_QDOC
 QT_REQUIRE_CONFIG(dtls);
@@ -107,7 +110,6 @@ private:
 };
 
 class QSslPreSharedKeyAuthenticator;
-template<class> class QVector;
 class QSslConfiguration;
 class QSslCipher;
 class QSslError;
@@ -166,8 +168,8 @@ public:
     QDtlsError dtlsError() const;
     QString dtlsErrorString() const;
 
-    QVector<QSslError> peerVerificationErrors() const;
-    void ignoreVerificationErrors(const QVector<QSslError> &errorsToIgnore);
+    QList<QSslError> peerVerificationErrors() const;
+    void ignoreVerificationErrors(const QList<QSslError> &errorsToIgnore);
 
 Q_SIGNALS:
 
@@ -180,7 +182,7 @@ private:
     bool continueHandshake(QUdpSocket *socket, const QByteArray &dgram);
 
     Q_DECLARE_PRIVATE(QDtls)
-    Q_DISABLE_COPY(QDtls)
+    Q_DISABLE_COPY_MOVE(QDtls)
 };
 
 QT_END_NAMESPACE

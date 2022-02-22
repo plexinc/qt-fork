@@ -56,6 +56,7 @@
 
 #include <Qt3DExtras/QCuboidMesh>
 #include <Qt3DExtras/QDiffuseMapMaterial>
+#include <Qt3DRender/QGeometryRenderer>
 #include <Qt3DRender/QTextureDataUpdate>
 #include <cstring>
 

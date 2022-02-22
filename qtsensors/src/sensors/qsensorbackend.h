@@ -51,7 +51,7 @@ class Q_SENSORS_EXPORT QSensorBackend : public QObject
 {
     Q_OBJECT
 public:
-    explicit QSensorBackend(QSensor *sensor, QObject *parent = Q_NULLPTR);
+    explicit QSensorBackend(QSensor *sensor, QObject *parent = nullptr);
     virtual ~QSensorBackend();
 
     virtual void start() = 0;
@@ -80,7 +80,7 @@ public:
     // used by the backend to inform us of events
     void newReadingAvailable();
     void sensorStopped();
-    void sensorBusy();
+    void sensorBusy(bool busy = true);
     void sensorError(int error);
 
 private:

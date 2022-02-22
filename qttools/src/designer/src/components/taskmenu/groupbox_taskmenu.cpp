@@ -31,9 +31,10 @@
 
 #include <QtDesigner/abstractformwindow.h>
 
-#include <QtWidgets/qaction.h>
 #include <QtWidgets/qstyle.h>
 #include <QtWidgets/qstyleoption.h>
+
+#include <QtGui/qaction.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -58,7 +59,7 @@ QRect GroupBoxTaskMenuInlineEditor::editRectangle() const
 {
     QWidget *w = widget();
     QStyleOption opt; // ## QStyleOptionGroupBox
-    opt.init(w);
+    opt.initFrom(w);
     return QRect(QPoint(), QSize(w->width(),20));
 }
 

@@ -56,7 +56,6 @@
 #include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QPushButton>
-#include <QDesktopWidget>
 #include <QApplication>
 #include <QMessageBox>
 
@@ -123,8 +122,8 @@ void Window::dockUndock()
     if (parent()) {
         setParent(nullptr);
         setAttribute(Qt::WA_DeleteOnClose);
-        move(QApplication::desktop()->width() / 2 - width() / 2,
-             QApplication::desktop()->height() / 2 - height() / 2);
+        move(QGuiApplication::primaryScreen()->size().width() / 2 - width() / 2,
+             QGuiApplication::primaryScreen()->size().height() / 2 - height() / 2);
         dockBtn->setText(tr("Dock"));
         show();
     } else {

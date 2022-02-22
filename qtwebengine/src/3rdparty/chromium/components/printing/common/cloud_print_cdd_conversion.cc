@@ -9,15 +9,14 @@
 #include <memory>
 #include <utility>
 
+#include "base/check.h"
 #include "base/memory/ptr_util.h"
+#include "base/notreached.h"
 #include "base/strings/string_number_conversions.h"
+#include "build/chromeos_buildflags.h"
 #include "components/cloud_devices/common/printer_description.h"
 #include "printing/backend/print_backend.h"
-
-#if defined(OS_CHROMEOS)
-#include "base/feature_list.h"
-#include "printing/printing_features.h"
-#endif  // defined(OS_CHROMEOS)
+#include "printing/mojom/print.mojom.h"
 
 namespace printer = cloud_devices::printer;
 
@@ -25,13 +24,13 @@ namespace cloud_print {
 
 namespace {
 
-printer::DuplexType ToCloudDuplexType(printing::DuplexMode mode) {
+printer::DuplexType ToCloudDuplexType(printing::mojom::DuplexMode mode) {
   switch (mode) {
-    case printing::SIMPLEX:
+    case printing::mojom::DuplexMode::kSimplex:
       return printer::DuplexType::NO_DUPLEX;
-    case printing::LONG_EDGE:
+    case printing::mojom::DuplexMode::kLongEdge:
       return printer::DuplexType::LONG_EDGE;
-    case printing::SHORT_EDGE:
+    case printing::mojom::DuplexMode::kShortEdge:
       return printer::DuplexType::SHORT_EDGE;
     default:
       NOTREACHED();
@@ -39,24 +38,24 @@ printer::DuplexType ToCloudDuplexType(printing::DuplexMode mode) {
   return printer::DuplexType::NO_DUPLEX;
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 printer::TypedValueVendorCapability::ValueType ToCloudValueType(
-    base::Value::Type type) {
+    printing::AdvancedCapability::Type type) {
   switch (type) {
-    case base::Value::Type::BOOLEAN:
+    case printing::AdvancedCapability::Type::kBoolean:
       return printer::TypedValueVendorCapability::ValueType::BOOLEAN;
-    case base::Value::Type::DOUBLE:
+    case printing::AdvancedCapability::Type::kFloat:
       return printer::TypedValueVendorCapability::ValueType::FLOAT;
-    case base::Value::Type::INTEGER:
+    case printing::AdvancedCapability::Type::kInteger:
       return printer::TypedValueVendorCapability::ValueType::INTEGER;
-    case base::Value::Type::STRING:
+    case printing::AdvancedCapability::Type::kString:
       return printer::TypedValueVendorCapability::ValueType::STRING;
     default:
       NOTREACHED();
   }
   return printer::TypedValueVendorCapability::ValueType::STRING;
 }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 printer::Media ConvertPaperToMedia(
     const printing::PrinterSemanticCapsAndDefaults::Paper& paper) {
@@ -135,7 +134,7 @@ printer::DpiCapability GetDpiCapabilities(
   return dpi_capabilities;
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 printer::VendorCapabilities GetVendorCapabilities(
     const printing::PrinterSemanticCapsAndDefaults& semantic_info) {
   printer::VendorCapabilities vendor_capabilities;
@@ -165,7 +164,7 @@ printer::VendorCapabilities GetVendorCapabilities(
 
   return vendor_capabilities;
 }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 }  // namespace
 
@@ -192,7 +191,7 @@ base::Value PrinterSemanticCapsAndDefaultsToCdd(
 
   if (semantic_info.duplex_modes.size() > 1) {
     printer::DuplexCapability duplex;
-    for (printing::DuplexMode mode : semantic_info.duplex_modes) {
+    for (printing::mojom::DuplexMode mode : semantic_info.duplex_modes) {
       duplex.AddDefaultOption(ToCloudDuplexType(mode),
                               semantic_info.duplex_default == mode);
     }
@@ -202,13 +201,14 @@ base::Value PrinterSemanticCapsAndDefaultsToCdd(
   printer::ColorCapability color;
   if (semantic_info.color_default || semantic_info.color_changeable) {
     printer::Color standard_color(printer::ColorType::STANDARD_COLOR);
-    standard_color.vendor_id = base::NumberToString(semantic_info.color_model);
+    standard_color.vendor_id =
+        base::NumberToString(static_cast<int>(semantic_info.color_model));
     color.AddDefaultOption(standard_color, semantic_info.color_default);
   }
   if (!semantic_info.color_default || semantic_info.color_changeable) {
     printer::Color standard_monochrome(printer::ColorType::STANDARD_MONOCHROME);
     standard_monochrome.vendor_id =
-        base::NumberToString(semantic_info.bw_model);
+        base::NumberToString(static_cast<int>(semantic_info.bw_model));
     color.AddDefaultOption(standard_monochrome, !semantic_info.color_default);
   }
   color.SaveTo(&description);
@@ -231,19 +231,17 @@ base::Value PrinterSemanticCapsAndDefaultsToCdd(
   orientation.AddOption(printer::OrientationType::AUTO_ORIENTATION);
   orientation.SaveTo(&description);
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   printer::PinCapability pin;
   pin.set_value(semantic_info.pin_supported);
   pin.SaveTo(&description);
 
-  if (base::FeatureList::IsEnabled(
-          printing::features::kAdvancedPpdAttributes) &&
-      !semantic_info.advanced_capabilities.empty()) {
+  if (!semantic_info.advanced_capabilities.empty()) {
     printer::VendorCapabilities vendor_capabilities =
         GetVendorCapabilities(semantic_info);
     vendor_capabilities.SaveTo(&description);
   }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
   return std::move(description).ToValue();
 }

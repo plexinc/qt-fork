@@ -9,6 +9,7 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/logging.h"
 #include "base/sequenced_task_runner.h"
 #include "base/strings/string16.h"
 #include "base/threading/sequenced_task_runner_handle.h"
@@ -33,8 +34,8 @@ class HasTypedURLsTask : public history::HistoryDBTask {
     history::URLRows rows;
     backend->GetAllTypedURLs(&rows);
     if (!rows.empty()) {
-      DVLOG(1) << "SigninConfirmationHelper: history contains " << rows.size()
-               << " typed URLs";
+      VLOG(1) << "SigninConfirmationHelper: history contains " << rows.size()
+              << " typed URLs";
       has_typed_urls_ = true;
     }
     return true;
@@ -66,8 +67,8 @@ void SigninConfirmationHelper::OnHistoryQueryResults(
     history::QueryResults results) {
   bool too_much_history = results.size() >= max_entries;
   if (too_much_history) {
-    DVLOG(1) << "SigninConfirmationHelper: profile contains " << results.size()
-             << " history entries";
+    VLOG(1) << "SigninConfirmationHelper: profile contains " << results.size()
+            << " history entries";
   }
   ReturnResult(too_much_history);
 }

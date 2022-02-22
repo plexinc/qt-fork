@@ -52,7 +52,7 @@
 
 class GLStateStore;
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 class AbstractDeclarative : public QQuickItem
 {
@@ -177,11 +177,11 @@ public:
     QQmlListProperty<QCustom3DItem> customItemList();
     static void appendCustomItemFunc(QQmlListProperty<QCustom3DItem> *list,
                                      QCustom3DItem *item);
-    static int countCustomItemFunc(QQmlListProperty<QCustom3DItem> *list);
-    static QCustom3DItem *atCustomItemFunc(QQmlListProperty<QCustom3DItem> *list, int index);
+    static qsizetype countCustomItemFunc(QQmlListProperty<QCustom3DItem> *list);
+    static QCustom3DItem *atCustomItemFunc(QQmlListProperty<QCustom3DItem> *list, qsizetype index);
     static void clearCustomItemFunc(QQmlListProperty<QCustom3DItem> *list);
 
-    virtual void geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry);
+    void geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry) override;
 
     void setSharedController(Abstract3DController *controller);
     // Used to synch up data model from controller to renderer while main thread is locked
@@ -231,6 +231,8 @@ public:
 
     QMutex *mutex() { return &m_mutex; }
 
+    bool isReady() { return isComponentComplete(); }
+
 public Q_SLOTS:
     virtual void handleAxisXChanged(QAbstract3DAxis *axis) = 0;
     virtual void handleAxisYChanged(QAbstract3DAxis *axis) = 0;
@@ -239,22 +241,22 @@ public Q_SLOTS:
     void destroyContext();
 
 protected:
-    virtual void mouseDoubleClickEvent(QMouseEvent *event);
-    virtual void touchEvent(QTouchEvent *event);
-    virtual void mousePressEvent(QMouseEvent *event);
-    virtual void mouseReleaseEvent(QMouseEvent *event);
-    virtual void mouseMoveEvent(QMouseEvent *event);
+    void mouseDoubleClickEvent(QMouseEvent *event) override;
+    void touchEvent(QTouchEvent *event) override;
+    void mousePressEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
 #if QT_CONFIG(wheelevent)
-    virtual void wheelEvent(QWheelEvent *event);
+    void wheelEvent(QWheelEvent *event) override;
 #endif
     virtual void handleWindowChanged(QQuickWindow *win);
-    virtual void itemChange(ItemChange change, const ItemChangeData &value);
+    void itemChange(ItemChange change, const ItemChangeData &value) override;
     virtual void updateWindowParameters();
     virtual void handleSelectionModeChange(QAbstract3DGraph::SelectionFlags mode);
     virtual void handleShadowQualityChange(QAbstract3DGraph::ShadowQuality quality);
     virtual void handleSelectedElementChange(QAbstract3DGraph::ElementType type);
     virtual void handleOptimizationHintChange(QAbstract3DGraph::OptimizationHints hints);
-    virtual QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *);
+    QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) override;
 
 Q_SIGNALS:
     void selectionModeChanged(AbstractDeclarative::SelectionFlags mode);
@@ -305,6 +307,6 @@ private:
 Q_DECLARE_OPERATORS_FOR_FLAGS(AbstractDeclarative::SelectionFlags)
 Q_DECLARE_OPERATORS_FOR_FLAGS(AbstractDeclarative::OptimizationHints)
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

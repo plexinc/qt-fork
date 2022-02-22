@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/strings/string_number_conversions.h"
 #include "components/ssl_errors/error_classification.h"
 #include "net/base/load_flags.h"
@@ -34,9 +34,8 @@ CommonNameMismatchHandler::~CommonNameMismatchHandler() {
 CommonNameMismatchHandler::TestingState
     CommonNameMismatchHandler::testing_state_ = NOT_TESTING;
 
-void CommonNameMismatchHandler::CheckSuggestedUrl(
-    const GURL& url,
-    const CheckUrlCallback& callback) {
+void CommonNameMismatchHandler::CheckSuggestedUrl(const GURL& url,
+                                                  CheckUrlCallback callback) {
   // Should be used only in tests.
   if (testing_state_ == IGNORE_REQUESTS_FOR_TESTING)
     return;
@@ -46,7 +45,7 @@ void CommonNameMismatchHandler::CheckSuggestedUrl(
   DCHECK(check_url_callback_.is_null());
 
   check_url_ = url;
-  check_url_callback_ = callback;
+  check_url_callback_ = std::move(callback);
 
   // Create traffic annotation tag.
   net::NetworkTrafficAnnotationTag traffic_annotation =

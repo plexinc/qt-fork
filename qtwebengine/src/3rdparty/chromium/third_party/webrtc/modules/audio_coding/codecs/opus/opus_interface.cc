@@ -12,6 +12,9 @@
 
 #include <cstdlib>
 
+#include <numeric>
+
+#include "api/array_view.h"
 #include "rtc_base/checks.h"
 #include "system_wrappers/include/field_trial.h"
 
@@ -36,6 +39,9 @@ enum {
 constexpr char kPlcUsePrevDecodedSamplesFieldTrial[] =
     "WebRTC-Audio-OpusPlcUsePrevDecodedSamples";
 
+constexpr char kAvoidNoisePumpingDuringDtxFieldTrial[] =
+    "WebRTC-Audio-OpusAvoidNoisePumpingDuringDtx";
+
 static int FrameSizePerChannel(int frame_size_ms, int sample_rate_hz) {
   RTC_DCHECK_GT(frame_size_ms, 0);
   RTC_DCHECK_EQ(frame_size_ms % 10, 0);
@@ -52,6 +58,46 @@ static int MaxFrameSizePerChannel(int sample_rate_hz) {
 // Default sample count per channel.
 static int DefaultFrameSizePerChannel(int sample_rate_hz) {
   return FrameSizePerChannel(20, sample_rate_hz);
+}
+
+// Returns true if the `encoded` payload corresponds to a refresh DTX packet
+// whose energy is larger than the expected for non activity packets.
+static bool WebRtcOpus_IsHighEnergyRefreshDtxPacket(
+    OpusEncInst* inst,
+    rtc::ArrayView<const int16_t> frame,
+    rtc::ArrayView<const uint8_t> encoded) {
+  if (encoded.size() <= 2) {
+    return false;
+  }
+  int number_frames =
+      frame.size() / DefaultFrameSizePerChannel(inst->sample_rate_hz);
+  if (number_frames > 0 &&
+      WebRtcOpus_PacketHasVoiceActivity(encoded.data(), encoded.size()) == 0) {
+    const float average_frame_energy =
+        std::accumulate(frame.begin(), frame.end(), 0.0f,
+                        [](float a, int32_t b) { return a + b * b; }) /
+        number_frames;
+    if (WebRtcOpus_GetInDtx(inst) == 1 &&
+        average_frame_energy >= inst->smooth_energy_non_active_frames * 0.5f) {
+      // This is a refresh DTX packet as the encoder is in DTX and has
+      // produced a payload > 2 bytes. This refresh packet has a higher energy
+      // than the smooth energy of non activity frames (with a 3 dB negative
+      // margin) and, therefore, it is flagged as a high energy refresh DTX
+      // packet.
+      return true;
+    }
+    // The average energy is tracked in a similar way as the modeling of the
+    // comfort noise in the Silk decoder in Opus
+    // (third_party/opus/src/silk/CNG.c).
+    if (average_frame_energy < inst->smooth_energy_non_active_frames * 0.5f) {
+      inst->smooth_energy_non_active_frames = average_frame_energy;
+    } else {
+      inst->smooth_energy_non_active_frames +=
+          (average_frame_energy - inst->smooth_energy_non_active_frames) *
+          0.25f;
+    }
+  }
+  return false;
 }
 
 int16_t WebRtcOpus_EncoderCreate(OpusEncInst** inst,
@@ -88,6 +134,10 @@ int16_t WebRtcOpus_EncoderCreate(OpusEncInst** inst,
 
   state->in_dtx_mode = 0;
   state->channels = channels;
+  state->sample_rate_hz = sample_rate_hz;
+  state->smooth_energy_non_active_frames = 0.0f;
+  state->avoid_noise_pumping_during_dtx =
+      webrtc::field_trial::IsEnabled(kAvoidNoisePumpingDuringDtxFieldTrial);
 
   *inst = state;
   return 0;
@@ -120,9 +170,10 @@ int16_t WebRtcOpus_MultistreamEncoderCreate(
   RTC_DCHECK(state);
 
   int error;
-  state->multistream_encoder =
-      opus_multistream_encoder_create(48000, channels, streams, coupled_streams,
-                                      channel_mapping, opus_app, &error);
+  const int sample_rate_hz = 48000;
+  state->multistream_encoder = opus_multistream_encoder_create(
+      sample_rate_hz, channels, streams, coupled_streams, channel_mapping,
+      opus_app, &error);
 
   if (error != OPUS_OK || (!state->encoder && !state->multistream_encoder)) {
     WebRtcOpus_EncoderFree(state);
@@ -131,6 +182,9 @@ int16_t WebRtcOpus_MultistreamEncoderCreate(
 
   state->in_dtx_mode = 0;
   state->channels = channels;
+  state->sample_rate_hz = sample_rate_hz;
+  state->smooth_energy_non_active_frames = 0.0f;
+  state->avoid_noise_pumping_during_dtx = false;
 
   *inst = state;
   return 0;
@@ -188,6 +242,15 @@ int WebRtcOpus_Encode(OpusEncInst* inst,
     }
   }
 
+  if (inst->avoid_noise_pumping_during_dtx && WebRtcOpus_GetUseDtx(inst) == 1 &&
+      WebRtcOpus_IsHighEnergyRefreshDtxPacket(
+          inst, rtc::MakeArrayView(audio_in, samples),
+          rtc::MakeArrayView(encoded, res))) {
+    // This packet is a high energy refresh DTX packet. For avoiding an increase
+    // of the energy in the DTX region at the decoder, this packet is dropped.
+    inst->in_dtx_mode = 0;
+    return 0;
+  }
   inst->in_dtx_mode = 0;
   return res;
 }
@@ -314,6 +377,16 @@ int16_t WebRtcOpus_DisableDtx(OpusEncInst* inst) {
   } else {
     return -1;
   }
+}
+
+int16_t WebRtcOpus_GetUseDtx(OpusEncInst* inst) {
+  if (inst) {
+    opus_int32 use_dtx;
+    if (ENCODER_CTL(inst, OPUS_GET_DTX(&use_dtx)) == 0) {
+      return use_dtx;
+    }
+  }
+  return -1;
 }
 
 int16_t WebRtcOpus_EnableCbr(OpusEncInst* inst) {
@@ -678,33 +751,7 @@ int WebRtcOpus_FecDurationEst(const uint8_t* payload,
   return samples;
 }
 
-// This method is based on Definition of the Opus Audio Codec
-// (https://tools.ietf.org/html/rfc6716). Basically, this method is based on
-// parsing the LP layer of an Opus packet, particularly the LBRR flag.
-int WebRtcOpus_PacketHasFec(const uint8_t* payload,
-                            size_t payload_length_bytes) {
-  if (payload == NULL || payload_length_bytes == 0)
-    return 0;
-
-  // In CELT_ONLY mode, packets should not have FEC.
-  if (payload[0] & 0x80)
-    return 0;
-
-  // Max number of frames in an Opus packet is 48.
-  opus_int16 frame_sizes[48];
-  const unsigned char* frame_data[48];
-
-  // Parse packet to get the frames. But we only care about the first frame,
-  // since we can only decode the FEC from the first one.
-  if (opus_packet_parse(payload, static_cast<opus_int32>(payload_length_bytes),
-                        NULL, frame_data, frame_sizes, NULL) < 0) {
-    return 0;
-  }
-
-  if (frame_sizes[0] <= 1) {
-    return 0;
-  }
-
+int WebRtcOpus_NumSilkFrames(const uint8_t* payload) {
   // For computing the payload length in ms, the sample rate is not important
   // since it cancels out. We use 48 kHz, but any valid sample rate would work.
   int payload_length_ms =
@@ -727,9 +774,42 @@ int WebRtcOpus_PacketHasFec(const uint8_t* payload,
     default:
       return 0;  // It is actually even an invalid packet.
   }
+  return silk_frames;
+}
+
+// This method is based on Definition of the Opus Audio Codec
+// (https://tools.ietf.org/html/rfc6716). Basically, this method is based on
+// parsing the LP layer of an Opus packet, particularly the LBRR flag.
+int WebRtcOpus_PacketHasFec(const uint8_t* payload,
+                            size_t payload_length_bytes) {
+  if (payload == NULL || payload_length_bytes == 0)
+    return 0;
+
+  // In CELT_ONLY mode, packets should not have FEC.
+  if (payload[0] & 0x80)
+    return 0;
+
+  int silk_frames = WebRtcOpus_NumSilkFrames(payload);
+  if (silk_frames == 0)
+    return 0;  // Not valid.
 
   const int channels = opus_packet_get_nb_channels(payload);
   RTC_DCHECK(channels == 1 || channels == 2);
+
+  // Max number of frames in an Opus packet is 48.
+  opus_int16 frame_sizes[48];
+  const unsigned char* frame_data[48];
+
+  // Parse packet to get the frames. But we only care about the first frame,
+  // since we can only decode the FEC from the first one.
+  if (opus_packet_parse(payload, static_cast<opus_int32>(payload_length_bytes),
+                        NULL, frame_data, frame_sizes, NULL) < 0) {
+    return 0;
+  }
+
+  if (frame_sizes[0] < 1) {
+    return 0;
+  }
 
   // A frame starts with the LP layer. The LP layer begins with two to eight
   // header bits.These consist of one VAD bit per SILK frame (up to 3),
@@ -743,6 +823,48 @@ int WebRtcOpus_PacketHasFec(const uint8_t* payload,
     // The LBRR bit for channel 1 is on the (|silk_frames| + 1)-th bit, and
     // that of channel 2 is on the |(|silk_frames| + 1) * 2 + 1|-th bit.
     if (frame_data[0][0] & (0x80 >> ((n + 1) * (silk_frames + 1) - 1)))
+      return 1;
+  }
+
+  return 0;
+}
+
+int WebRtcOpus_PacketHasVoiceActivity(const uint8_t* payload,
+                                      size_t payload_length_bytes) {
+  if (payload == NULL || payload_length_bytes == 0)
+    return 0;
+
+  // In CELT_ONLY mode we can not determine whether there is VAD.
+  if (payload[0] & 0x80)
+    return -1;
+
+  int silk_frames = WebRtcOpus_NumSilkFrames(payload);
+  if (silk_frames == 0)
+    return -1;
+
+  const int channels = opus_packet_get_nb_channels(payload);
+  RTC_DCHECK(channels == 1 || channels == 2);
+
+  // Max number of frames in an Opus packet is 48.
+  opus_int16 frame_sizes[48];
+  const unsigned char* frame_data[48];
+
+  // Parse packet to get the frames.
+  int frames =
+      opus_packet_parse(payload, static_cast<opus_int32>(payload_length_bytes),
+                        NULL, frame_data, frame_sizes, NULL);
+  if (frames < 0)
+    return -1;
+
+  // Iterate over all Opus frames which may contain multiple SILK frames.
+  for (int frame = 0; frame < frames; frame++) {
+    if (frame_sizes[frame] < 1) {
+      continue;
+    }
+    if (frame_data[frame][0] >> (8 - silk_frames))
+      return 1;
+    if (channels == 2 &&
+        (frame_data[frame][0] << (silk_frames + 1)) >> (8 - silk_frames))
       return 1;
   }
 

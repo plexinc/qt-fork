@@ -31,15 +31,19 @@
 #define ASSIMPIMPORTER_H
 
 #include <QtQuick3DAssetImport/private/qssgassetimporter_p.h>
-#include <QtQuick3DAssetImport/private/qssgqmlutilities_p.h>
+#include <QtQuick3DAssetUtils/private/qssgqmlutilities_p.h>
 
 #include <QtCore/QVector>
+#include <QtCore/QList>
 #include <QtCore/QStringList>
 #include <QtCore/QTextStream>
 #include <QtCore/QHash>
 #include <QtCore/QTemporaryDir>
 #include <QtCore/QSet>
 #include <QtCore/QVariant>
+#include <QtCore/QCborStreamWriter>
+
+#include "assimputils.h"
 
 #include <assimp/matrix4x4.h>
 #include <assimp/material.h>
@@ -55,6 +59,18 @@ struct aiCamera;
 struct aiLight;
 struct aiScene;
 struct aiMesh;
+struct aiAnimMesh;
+struct aiBone;
+struct weightKey {
+    weightKey(double time, double value) {
+        mTime = time;
+        mValue = value;
+    }
+    double mTime;
+    double mValue;
+};
+
+enum class QSSGRenderComponentType;
 
 QT_BEGIN_NAMESPACE
 
@@ -72,24 +88,35 @@ public:
     const QVariantMap importOptions() const override;
     const QString import(const QString &sourceFile, const QDir &savePath, const QVariantMap &options,
                          QStringList *generatedFiles) override;
+    QString import(const QUrl &sourceFile, const QVariantMap &options, QSSGSceneDesc::Scene &scene) override;
 
 private:
     void writeHeader(QTextStream &output);
     void processNode(aiNode *node, QTextStream &output, int tabLevel = 0);
-    void generateModelProperties(aiNode *modelNode, QTextStream &output, int tabLevel);
+    void generateModelProperties(aiNode *modelNode, QVector<bool> &visited, QTextStream &output, int tabLevel);
     QSSGQmlUtilities::PropertyMap::Type generateLightProperties(aiNode *lightNode, QTextStream &output, int tabLevel);
-    void generateCameraProperties(aiNode *cameraNode, QTextStream &output, int tabLevel);
-    void generateNodeProperties(aiNode *node, QTextStream &output, int tabLevel, const aiMatrix4x4 &transformCorrection = aiMatrix4x4(), bool skipScaling = false);
-    QString generateMeshFile(QIODevice &file, const QVector<aiMesh *> &meshes);
+    QSSGQmlUtilities::PropertyMap::Type generateCameraProperties(aiNode *cameraNode, QTextStream &output, int tabLevel);
+    void generateNodeProperties(aiNode *node, QTextStream &output, int tabLevel, aiMatrix4x4 *transformCorrection = nullptr, bool skipScaling = false);
+    QString generateMeshFile(aiNode *node, QFile &file, const AssimpUtils::MeshList &meshes);
     void generateMaterial(aiMaterial *material, QTextStream &output, int tabLevel);
+    QVector<QString> generateMorphing(aiNode *node, const AssimpUtils::MeshList &meshes, QTextStream &output, int tabLevel);
     QString generateImage(aiMaterial *material, aiTextureType textureType, unsigned index, int tabLevel);
+    void generateSkeletonIdxMap(aiNode *node, quint32 skeletonIdx, quint32 &boneIdx);
+    void processSkeleton(aiNode *node, quint32 idx, QTextStream &output, int tabLevel);
     void processAnimations(QTextStream &output);
     template <typename T>
     void generateKeyframes(const QString &id, const QString &propertyName, uint numKeys, const T *keys,
                            QTextStream &output, qreal &maxKeyframeTime);
+    template <typename T>
+    bool generateAnimationFile(QFile &file, const QList<T> &keyframes);
+    void generateMorphKeyframes(const QString &id,
+                                uint numKeys, const aiMeshMorphKey *keys,
+                                QTextStream &output, qreal &maxKeyframeTime);
+
     bool isModel(aiNode *node);
     bool isLight(aiNode *node);
     bool isCamera(aiNode *node);
+    bool isBone(aiNode *node);
     QString generateUniqueId(const QString &id);
     bool containsNodesOfConsequence(aiNode *node);
     void processOptions(const QVariantMap &options);
@@ -101,17 +128,33 @@ private:
 
     QHash<aiNode *, aiCamera *> m_cameras;
     QHash<aiNode *, aiLight *> m_lights;
+
     QVector<QHash<aiNode *, aiNodeAnim *> *> m_animations;
+    QVector<QHash<aiNode *, aiMeshMorphAnim *> *> m_morphAnimations;
     QHash<aiMaterial *, QString> m_materialIdMap;
     QSet<QString> m_uniqueIds;
     QHash<aiNode *, QString> m_nodeIdMap;
     QHash<aiNode *, QSSGQmlUtilities::PropertyMap::Type> m_nodeTypeMap;
 
+    QHash<QString, aiNode *> m_bones;
+    using SkeletonInfo = QPair<quint32, bool>;
+    QHash<aiNode *, SkeletonInfo> m_skeletonIdxMap; // pair(id, isRootBone)
+    AssimpUtils::BoneIndexMap m_boneIdxMap;
+    QVector<QString> m_skeletonIds;
+    QVector<qint32> m_numBonesInSkeleton;
+
     QDir m_savePath;
     QFileInfo m_sourceFile;
     QStringList m_generatedFiles;
+    QMap<int, QString> m_embeddedTextureSources; // id -> destination path
+
     bool m_gltfMode = false;
     bool m_gltfUsed = false;
+    bool m_binaryKeyframes = false;
+    bool m_forceMipMapGeneration = false;
+    bool m_useFloatJointIndices = false;
+    bool m_generateLightmapUV = false;
+    qreal m_globalScaleValue = 1.0;
 
     QVariantMap m_options;
     aiPostProcessSteps m_postProcessSteps;

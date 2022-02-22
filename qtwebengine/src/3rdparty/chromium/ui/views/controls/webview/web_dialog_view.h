@@ -17,6 +17,7 @@
 #include "ui/views/controls/webview/unhandled_keyboard_event_handler.h"
 #include "ui/views/controls/webview/webview.h"
 #include "ui/views/controls/webview/webview_export.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/widget/widget_delegate.h"
 #include "ui/views/window/client_view.h"
 #include "ui/web_dialogs/web_dialog_delegate.h"
@@ -33,8 +34,12 @@ namespace views {
 // A kind of webview that can notify its delegate when its content is ready.
 class ObservableWebView : public WebView {
  public:
+  METADATA_HEADER(ObservableWebView);
+
   ObservableWebView(content::BrowserContext* browser_context,
                     ui::WebDialogDelegate* delegate);
+  ObservableWebView(const ObservableWebView&) = delete;
+  ObservableWebView& operator=(const ObservableWebView&) = delete;
   ~ObservableWebView() override;
 
   // content::WebContentsObserver
@@ -51,8 +56,6 @@ class ObservableWebView : public WebView {
 
  private:
   ui::WebDialogDelegate* delegate_;
-
-  DISALLOW_COPY_AND_ASSIGN(ObservableWebView);
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -73,13 +76,16 @@ class WEBVIEW_EXPORT WebDialogView : public ClientView,
                                      public ui::WebDialogDelegate,
                                      public WidgetDelegate {
  public:
+  METADATA_HEADER(WebDialogView);
+
   // |handler| must not be nullptr.
   // |use_dialog_frame| indicates whether to use dialog frame view for non
   // client frame view.
   WebDialogView(content::BrowserContext* context,
                 ui::WebDialogDelegate* delegate,
-                std::unique_ptr<WebContentsHandler> handler,
-                bool use_dialog_frame = false);
+                std::unique_ptr<WebContentsHandler> handler);
+  WebDialogView(const WebDialogView&) = delete;
+  WebDialogView& operator=(const WebDialogView&) = delete;
   ~WebDialogView() override;
 
   content::WebContents* web_contents();
@@ -90,19 +96,19 @@ class WEBVIEW_EXPORT WebDialogView : public ClientView,
   bool AcceleratorPressed(const ui::Accelerator& accelerator) override;
   void ViewHierarchyChanged(
       const ViewHierarchyChangedDetails& details) override;
-  bool CanClose() override;
+  views::CloseRequestResult OnWindowCloseRequested() override;
 
   // WidgetDelegate:
   bool OnCloseRequested(Widget::ClosedReason close_reason) override;
-  bool CanResize() const override;
-  ui::ModalType GetModalType() const override;
+  bool CanMaximize() const override;
   base::string16 GetWindowTitle() const override;
   base::string16 GetAccessibleWindowTitle() const override;
   std::string GetWindowName() const override;
   void WindowClosing() override;
   View* GetContentsView() override;
   ClientView* CreateClientView(Widget* widget) override;
-  NonClientFrameView* CreateNonClientFrameView(Widget* widget) override;
+  std::unique_ptr<NonClientFrameView> CreateNonClientFrameView(
+      Widget* widget) override;
   View* GetInitiallyFocusedView() override;
   bool ShouldShowWindowTitle() const override;
   bool ShouldShowCloseButton() const override;
@@ -140,6 +146,7 @@ class WEBVIEW_EXPORT WebDialogView : public ClientView,
       const content::OpenURLParams& params) override;
   void AddNewContents(content::WebContents* source,
                       std::unique_ptr<content::WebContents> new_contents,
+                      const GURL& target_url,
                       WindowOpenDisposition disposition,
                       const gfx::Rect& initial_rect,
                       bool user_gesture,
@@ -155,6 +162,13 @@ class WEBVIEW_EXPORT WebDialogView : public ClientView,
       const GURL& opener_url,
       const std::string& frame_name,
       const GURL& target_url) override;
+  void RequestMediaAccessPermission(
+      content::WebContents* web_contents,
+      const content::MediaStreamRequest& request,
+      content::MediaResponseCallback callback) override;
+  bool CheckMediaAccessPermission(content::RenderFrameHost* render_frame_host,
+                                  const GURL& security_origin,
+                                  blink::mojom::MediaStreamType type) override;
 
  private:
   friend class WebDialogViewUnitTest;
@@ -163,10 +177,18 @@ class WEBVIEW_EXPORT WebDialogView : public ClientView,
   // Initializes the contents of the dialog.
   void InitDialog();
 
+  // Accessor used by metadata only.
+  ObservableWebView* GetWebView() const { return web_view_; }
+
   // This view is a delegate to the HTML content since it needs to get notified
   // about when the dialog is closing. For all other actions (besides dialog
   // closing) we delegate to the creator of this view, which we keep track of
   // using this variable.
+  //
+  // TODO(ellyjones): Having WebDialogView implement all of WebDialogDelegate,
+  // and plumb all the calls through to |delegate_|, is a lot of code overhead
+  // to support having this view know about dialog closure. There is probably a
+  // lighter-weight way to achieve that.
   ui::WebDialogDelegate* delegate_;
 
   ObservableWebView* web_view_;
@@ -192,12 +214,7 @@ class WEBVIEW_EXPORT WebDialogView : public ClientView,
   // Handler for unhandled key events from renderer.
   UnhandledKeyboardEventHandler unhandled_keyboard_event_handler_;
 
-  // Whether to use dialog frame view for non client frame view.
-  bool use_dialog_frame_ = false;
-
   bool disable_url_load_for_test_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(WebDialogView);
 };
 
 }  // namespace views

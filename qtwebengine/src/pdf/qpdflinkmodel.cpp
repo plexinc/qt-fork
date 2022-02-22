@@ -66,7 +66,7 @@ QHash<int, QByteArray> QPdfLinkModel::roleNames() const
 int QPdfLinkModel::rowCount(const QModelIndex &parent) const
 {
     Q_D(const QPdfLinkModel);
-    Q_UNUSED(parent)
+    Q_UNUSED(parent);
     return d->links.count();
 }
 
@@ -239,10 +239,11 @@ void QPdfLinkModelPrivate::update()
                 if (len < 1) {
                     qCWarning(qLcLink) << "skipping link" << i << "with empty URL";
                 } else {
-                    QVector<unsigned short> buf(len);
+                    QList<unsigned short> buf(len);
                     int got = FPDFLink_GetURL(webLinks, i, buf.data(), len);
                     Q_ASSERT(got == len);
-                    linkData.url = QString::fromUtf16(buf.data(), got - 1);
+                    linkData.url = QString::fromUtf16(
+                            reinterpret_cast<const char16_t *>(buf.data()), got - 1);
                 }
                 FPDFLink_GetTextRange(webLinks, i, &linkData.textStart, &linkData.textCharCount);
                 len = FPDFLink_CountRects(webLinks, i);

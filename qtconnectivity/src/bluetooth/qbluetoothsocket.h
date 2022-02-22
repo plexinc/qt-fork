@@ -48,7 +48,6 @@
 #include <QtBluetooth/qbluetoothserviceinfo.h>
 
 #include <QtCore/qiodevice.h>
-#include <QtNetwork/qabstractsocket.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -73,28 +72,26 @@ class Q_BLUETOOTH_EXPORT QBluetoothSocket : public QIODevice
 
 public:
 
-    // TODO Decouple SocketState and SocketError enum values from QAbstractSocket in Qt 6
-    enum SocketState {
-        UnconnectedState = QAbstractSocket::UnconnectedState,
-        ServiceLookupState = QAbstractSocket::HostLookupState,
-        ConnectingState = QAbstractSocket::ConnectingState,
-        ConnectedState = QAbstractSocket::ConnectedState,
-        BoundState = QAbstractSocket::BoundState,
-        ClosingState = QAbstractSocket::ClosingState,
-        ListeningState = QAbstractSocket::ListeningState
+    enum class SocketState {
+        UnconnectedState,
+        ServiceLookupState,
+        ConnectingState,
+        ConnectedState,
+        BoundState,
+        ClosingState,
+        ListeningState
     };
     Q_ENUM(SocketState)
 
-    enum SocketError {
-        NoSocketError = -2,
-        UnknownSocketError = QAbstractSocket::UnknownSocketError, //-1
-        RemoteHostClosedError = QAbstractSocket::RemoteHostClosedError, //1
-        HostNotFoundError = QAbstractSocket::HostNotFoundError, //2
-        ServiceNotFoundError = QAbstractSocket::SocketAddressNotAvailableError, //9
-        NetworkError = QAbstractSocket::NetworkError, //7
-        UnsupportedProtocolError = 8,
-        OperationError = QAbstractSocket::OperationError //19
-        //New enums (independent of QAbstractSocket) should be added from 100 onwards
+    enum class SocketError {
+        NoSocketError,
+        UnknownSocketError,
+        RemoteHostClosedError,
+        HostNotFoundError,
+        ServiceNotFoundError,
+        NetworkError,
+        UnsupportedProtocolError,
+        OperationError
     };
     Q_ENUM(SocketError)
 
@@ -103,14 +100,15 @@ public:
     virtual ~QBluetoothSocket();
 
     void abort();
-    virtual void close();
 
-    bool isSequential() const;
+    void close() override;
 
-    virtual qint64 bytesAvailable() const;
-    virtual qint64 bytesToWrite() const;
+    bool isSequential() const override;
 
-    virtual bool canReadLine() const;
+    qint64 bytesAvailable() const override;
+    qint64 bytesToWrite() const override;
+
+    bool canReadLine() const override;
 
     void connectToService(const QBluetoothServiceInfo &service, OpenMode openMode = ReadWrite);
     void connectToService(const QBluetoothAddress &address, const QBluetoothUuid &uuid, OpenMode openMode = ReadWrite);
@@ -138,7 +136,7 @@ public:
     //void setReadBufferSize(qint64 size);
 
     bool setSocketDescriptor(int socketDescriptor, QBluetoothServiceInfo::Protocol socketType,
-                             SocketState socketState = ConnectedState,
+                             SocketState socketState = SocketState::ConnectedState,
                              OpenMode openMode = ReadWrite);
     int socketDescriptor() const;
 
@@ -157,12 +155,12 @@ public:
 Q_SIGNALS:
     void connected();
     void disconnected();
-    void error(QBluetoothSocket::SocketError error);
+    void errorOccurred(QBluetoothSocket::SocketError error);
     void stateChanged(QBluetoothSocket::SocketState state);
 
 protected:
-    virtual qint64 readData(char *data, qint64 maxSize);
-    virtual qint64 writeData(const char *data, qint64 maxSize);
+    qint64 readData(char *data, qint64 maxSize) override;
+    qint64 writeData(const char *data, qint64 maxSize) override;
 
     void setSocketState(SocketState state);
     void setSocketError(SocketError error);
@@ -188,10 +186,6 @@ private:
     friend class QLowEnergyControllerPrivateBluez;
 };
 
-#ifndef QT_NO_DEBUG_STREAM
-Q_BLUETOOTH_EXPORT QDebug operator<<(QDebug, QBluetoothSocket::SocketError);
-Q_BLUETOOTH_EXPORT QDebug operator<<(QDebug, QBluetoothSocket::SocketState);
-#endif
 
 QT_END_NAMESPACE
 

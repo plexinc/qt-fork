@@ -8,16 +8,23 @@
 
 #include "base/bind.h"
 #include "base/location.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/numerics/ranges.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "services/device/geolocation/position_cache.h"
+#include "services/device/public/cpp/geolocation/geolocation_system_permission_mac.h"
 #include "services/device/public/cpp/geolocation/geoposition.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
+
+#if defined(OS_MAC)
+#include "services/device/public/cpp/device_features.h"
+#endif
 
 namespace device {
 namespace {
@@ -34,6 +41,8 @@ const int kLastPositionMaxAgeSeconds = 10 * 60;  // 10 minutes
 // NetworkLocationProvider
 NetworkLocationProvider::NetworkLocationProvider(
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
+    GeolocationSystemPermissionManager* geolocation_system_permission_manager,
+    const scoped_refptr<base::SingleThreadTaskRunner> main_task_runner,
     const std::string& api_key,
     PositionCache* position_cache)
     : wifi_data_provider_manager_(nullptr),
@@ -50,10 +59,24 @@ NetworkLocationProvider::NetworkLocationProvider(
           base::BindRepeating(&NetworkLocationProvider::OnLocationResponse,
                               base::Unretained(this)))) {
   DCHECK(position_cache_);
+#if defined(OS_MAC)
+  permission_observers_ =
+      geolocation_system_permission_manager->GetObserverList();
+  permission_observers_->AddObserver(this);
+  main_task_runner->PostTaskAndReplyWithResult(
+      FROM_HERE,
+      base::BindOnce(&GeolocationSystemPermissionManager::GetSystemPermission,
+                     base::Unretained(geolocation_system_permission_manager)),
+      base::BindOnce(&NetworkLocationProvider::OnSystemPermissionUpdate,
+                     weak_factory_.GetWeakPtr()));
+#endif
 }
 
 NetworkLocationProvider::~NetworkLocationProvider() {
   DCHECK(thread_checker_.CalledOnValidThread());
+#if defined(OS_MAC)
+  permission_observers_->RemoveObserver(this);
+#endif
   if (IsStarted())
     StopProvider();
 }
@@ -71,9 +94,26 @@ void NetworkLocationProvider::OnPermissionGranted() {
     RequestPosition();
 }
 
+void NetworkLocationProvider::OnSystemPermissionUpdate(
+    LocationSystemPermissionStatus new_status) {
+  const bool was_permission_granted = is_system_permission_granted_;
+  is_system_permission_granted_ =
+      (new_status == LocationSystemPermissionStatus::kAllowed);
+  if (!was_permission_granted && is_system_permission_granted_ && IsStarted()) {
+    wifi_data_provider_manager_->ForceRescan();
+    OnWifiDataUpdate();
+  }
+}
+
 void NetworkLocationProvider::OnWifiDataUpdate() {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(IsStarted());
+#if defined(OS_MAC)
+  if (!is_system_permission_granted_ &&
+      base::FeatureList::IsEnabled(features::kMacCoreLocationImplementation)) {
+    return;
+  }
+#endif
   is_wifi_data_complete_ = wifi_data_provider_manager_->GetData(&wifi_data_);
   if (is_wifi_data_complete_) {
     wifi_timestamp_ = base::Time::Now();
@@ -157,6 +197,13 @@ const mojom::Geoposition& NetworkLocationProvider::GetPosition() {
 void NetworkLocationProvider::RequestPosition() {
   DCHECK(thread_checker_.CalledOnValidThread());
 
+#if defined(OS_MAC)
+  if (!is_system_permission_granted_ &&
+      base::FeatureList::IsEnabled(features::kMacCoreLocationImplementation)) {
+    return;
+  }
+#endif
+
   // The wifi polling policy may require us to wait for several minutes before
   // fresh wifi data is available. To ensure we can return a position estimate
   // quickly when the network location provider is the primary provider, allow
@@ -209,6 +256,7 @@ void NetworkLocationProvider::RequestPosition() {
     // Let listeners know that we now have a position available.
     if (!location_provider_update_callback_.is_null())
       location_provider_update_callback_.Run(this, position);
+
     return;
   }
   // Don't send network requests until authorized. http://crbug.com/39171

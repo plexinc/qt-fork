@@ -70,7 +70,7 @@ Screenshot::Screenshot()
     delaySpinBox->setSuffix(tr(" s"));
     delaySpinBox->setMaximum(60);
 
-    connect(delaySpinBox, QOverload<int>::of(&QSpinBox::valueChanged),
+    connect(delaySpinBox, &QSpinBox::valueChanged,
             this, &Screenshot::updateCheckBox);
 
     hideThisWindowCheckBox = new QCheckBox(tr("Hide This Window"), optionsGroupBox);
@@ -90,7 +90,7 @@ Screenshot::Screenshot()
     connect(saveScreenshotButton, &QPushButton::clicked, this, &Screenshot::saveScreenshot);
     buttonsLayout->addWidget(saveScreenshotButton);
     QPushButton *quitScreenshotButton = new QPushButton(tr("Quit"), this);
-    quitScreenshotButton->setShortcut(Qt::CTRL + Qt::Key_Q);
+    quitScreenshotButton->setShortcut(Qt::CTRL | Qt::Key_Q);
     connect(quitScreenshotButton, &QPushButton::clicked, this, &QWidget::close);
     buttonsLayout->addWidget(quitScreenshotButton);
     buttonsLayout->addStretch();

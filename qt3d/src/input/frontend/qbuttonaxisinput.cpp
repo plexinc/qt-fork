@@ -123,7 +123,7 @@ float QButtonAxisInput::scale() const
     \property QButtonAxisInput::buttons
     Specifies the buttons which control the axis
  */
-void QButtonAxisInput::setButtons(const QVector<int> &buttons)
+void QButtonAxisInput::setButtons(const QList<int> &buttons)
 {
     Q_D(QButtonAxisInput);
     if (buttons != d->m_buttons) {
@@ -132,7 +132,7 @@ void QButtonAxisInput::setButtons(const QVector<int> &buttons)
     }
 }
 
-QVector<int> QButtonAxisInput::buttons() const
+QList<int> QButtonAxisInput::buttons() const
 {
     Q_D(const QButtonAxisInput);
     return d->m_buttons;
@@ -174,21 +174,6 @@ void QButtonAxisInput::setDeceleration(float deceleration)
         d->m_deceleration = deceleration;
         emit decelerationChanged(deceleration);
     }
-}
-
-Qt3DCore::QNodeCreatedChangeBasePtr QButtonAxisInput::createNodeCreationChange() const
-{
-    auto creationChange = Qt3DCore::QNodeCreatedChangePtr<QButtonAxisInputData>::create(this);
-    auto &data = creationChange->data;
-
-    Q_D(const QButtonAxisInput);
-    data.sourceDeviceId = qIdForNode(d->m_sourceDevice);
-    data.buttons = d->m_buttons;
-    data.scale = d->m_scale;
-    data.acceleration = d->m_acceleration;
-    data.deceleration = d->m_deceleration;
-
-    return creationChange;
 }
 
 } // Qt3DInput

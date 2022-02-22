@@ -46,18 +46,21 @@
 #include <QtScxml/qscxmlcompiler.h>
 #include <QtScxml/qscxmlinvokableservice.h>
 
+#include <QtCore/qlist.h>
+#include <QtCore/qpointer.h>
 #include <QtCore/qstring.h>
-#include <QtCore/qvector.h>
 #include <QtCore/qurl.h>
 #include <QtCore/qvariant.h>
-#include <QtCore/qpointer.h>
 
 #include <functional>
+
+Q_MOC_INCLUDE(qscxmltabledata.h)
 
 QT_BEGIN_NAMESPACE
 class QIODevice;
 class QXmlStreamWriter;
 class QTextStream;
+class QScxmlTableData;
 
 class QScxmlStateMachinePrivate;
 class Q_SCXML_EXPORT QScxmlStateMachine: public QObject
@@ -65,16 +68,22 @@ class Q_SCXML_EXPORT QScxmlStateMachine: public QObject
     Q_DECLARE_PRIVATE(QScxmlStateMachine)
     Q_OBJECT
     Q_PROPERTY(bool running READ isRunning WRITE setRunning NOTIFY runningChanged)
-    Q_PROPERTY(bool initialized READ isInitialized NOTIFY initializedChanged)
-    Q_PROPERTY(QScxmlDataModel *dataModel READ dataModel WRITE setDataModel NOTIFY dataModelChanged)
-    Q_PROPERTY(QVariantMap initialValues READ initialValues WRITE setInitialValues NOTIFY initialValuesChanged)
-    Q_PROPERTY(QVector<QScxmlInvokableService*> invokedServices READ invokedServices NOTIFY invokedServicesChanged)
+    Q_PROPERTY(bool initialized READ isInitialized
+               NOTIFY initializedChanged BINDABLE bindableInitialized)
+    Q_PROPERTY(QScxmlDataModel *dataModel READ dataModel WRITE setDataModel
+               NOTIFY dataModelChanged BINDABLE bindableDataModel)
+    Q_PROPERTY(QVariantMap initialValues READ initialValues WRITE setInitialValues
+               NOTIFY initialValuesChanged BINDABLE bindableInitialValues)
+    Q_PROPERTY(QList<QScxmlInvokableService*> invokedServices READ invokedServices
+               NOTIFY invokedServicesChanged BINDABLE bindableInvokedServices)
     Q_PROPERTY(QString sessionId READ sessionId CONSTANT)
     Q_PROPERTY(QString name READ name CONSTANT)
     Q_PROPERTY(bool invoked READ isInvoked CONSTANT)
-    Q_PROPERTY(QVector<QScxmlError> parseErrors READ parseErrors CONSTANT)
-    Q_PROPERTY(QScxmlCompiler::Loader *loader READ loader WRITE setLoader NOTIFY loaderChanged)
-    Q_PROPERTY(QScxmlTableData *tableData READ tableData WRITE setTableData NOTIFY tableDataChanged)
+    Q_PROPERTY(QList<QScxmlError> parseErrors READ parseErrors CONSTANT)
+    Q_PROPERTY(QScxmlCompiler::Loader *loader READ loader WRITE setLoader
+               NOTIFY loaderChanged BINDABLE bindableLoader)
+    Q_PROPERTY(QScxmlTableData *tableData READ tableData WRITE setTableData
+               NOTIFY tableDataChanged BINDABLE bindableTableData)
 
 protected:
     explicit QScxmlStateMachine(const QMetaObject *metaObject, QObject *parent = nullptr);
@@ -83,24 +92,28 @@ protected:
 public:
     static QScxmlStateMachine *fromFile(const QString &fileName);
     static QScxmlStateMachine *fromData(QIODevice *data, const QString &fileName = QString());
-    QVector<QScxmlError> parseErrors() const;
+    QList<QScxmlError> parseErrors() const;
 
     QString sessionId() const;
 
     bool isInvoked() const;
     bool isInitialized() const;
+    QBindable<bool> bindableInitialized() const;
 
     void setDataModel(QScxmlDataModel *model);
     QScxmlDataModel *dataModel() const;
+    QBindable<QScxmlDataModel*> bindableDataModel();
 
     void setLoader(QScxmlCompiler::Loader *loader);
     QScxmlCompiler::Loader *loader() const;
+    QBindable<QScxmlCompiler::Loader*> bindableLoader();
 
     bool isRunning() const;
     void setRunning(bool running);
 
     QVariantMap initialValues();
     void setInitialValues(const QVariantMap &initialValues);
+    QBindable<QVariantMap> bindableInitialValues();
 
     QString name() const;
     Q_INVOKABLE QStringList stateNames(bool compress = true) const;
@@ -129,9 +142,9 @@ public:
 
     // connect state to a functor or function pointer (without context)
     template <typename Functor>
-    inline typename QtPrivate::QEnableIf<
+    inline typename std::enable_if<
             !QtPrivate::FunctionPointer<Functor>::IsPointerToMemberFunction &&
-            !std::is_same<const char*, Functor>::value, QMetaObject::Connection>::Type
+            !std::is_same<const char*, Functor>::value, QMetaObject::Connection>::type
     connectToState(const QString &scxmlStateName, Functor functor,
                    Qt::ConnectionType type = Qt::AutoConnection)
     {
@@ -141,9 +154,9 @@ public:
 
     // connectToState to a functor or function pointer (with context)
     template <typename Functor>
-    inline typename QtPrivate::QEnableIf<
+    inline typename std::enable_if<
             !QtPrivate::FunctionPointer<Functor>::IsPointerToMemberFunction &&
-            !std::is_same<const char*, Functor>::value, QMetaObject::Connection>::Type
+            !std::is_same<const char*, Functor>::value, QMetaObject::Connection>::type
     connectToState(const QString &scxmlStateName, const QObject *context, Functor functor,
                    Qt::ConnectionType type = Qt::AutoConnection)
     {
@@ -153,6 +166,7 @@ public:
                                   slotObj, type);
     }
 
+    //! [onentry]
     static std::function<void(bool)> onEntry(const QObject *receiver, const char *method)
     {
         const QPointer<QObject> receiverPointer(const_cast<QObject *>(receiver));
@@ -162,6 +176,7 @@ public:
         };
     }
 
+    //! [onexit]
     static std::function<void(bool)> onExit(const QObject *receiver, const char *method)
     {
         const QPointer<QObject> receiverPointer(const_cast<QObject *>(receiver));
@@ -171,6 +186,7 @@ public:
         };
     }
 
+    //! [onentry-functor]
     template<typename Functor>
     static std::function<void(bool)> onEntry(Functor functor)
     {
@@ -180,6 +196,7 @@ public:
         };
     }
 
+    //! [onexit-functor]
     template<typename Functor>
     static std::function<void(bool)> onExit(Functor functor)
     {
@@ -189,6 +206,7 @@ public:
         };
     }
 
+    //! [onentry-template]
     template<typename PointerToMemberFunction>
     static std::function<void(bool)> onEntry(
             const typename QtPrivate::FunctionPointer<PointerToMemberFunction>::Object *receiver,
@@ -202,6 +220,7 @@ public:
         };
     }
 
+    //! [onexit-template]
     template<typename PointerToMemberFunction>
     static std::function<void(bool)> onExit(
             const typename QtPrivate::FunctionPointer<PointerToMemberFunction>::Object *receiver,
@@ -237,9 +256,9 @@ public:
 
     // connect state to a functor or function pointer (without context)
     template <typename Functor>
-    inline typename QtPrivate::QEnableIf<
+    inline typename std::enable_if<
             !QtPrivate::FunctionPointer<Functor>::IsPointerToMemberFunction &&
-            !std::is_same<const char*, Functor>::value, QMetaObject::Connection>::Type
+            !std::is_same<const char*, Functor>::value, QMetaObject::Connection>::type
     connectToEvent(const QString &scxmlEventSpec, Functor functor,
                    Qt::ConnectionType type = Qt::AutoConnection)
     {
@@ -249,9 +268,9 @@ public:
 
     // connectToEvent to a functor or function pointer (with context)
     template <typename Functor>
-    inline typename QtPrivate::QEnableIf<
+    inline typename std::enable_if<
             !QtPrivate::FunctionPointer<Functor>::IsPointerToMemberFunction &&
-            !std::is_same<const char*, Functor>::value, QMetaObject::Connection>::Type
+            !std::is_same<const char*, Functor>::value, QMetaObject::Connection>::type
     connectToEvent(const QString &scxmlEventSpec, const QObject *context, Functor functor,
                    Qt::ConnectionType type = Qt::AutoConnection)
     {
@@ -268,14 +287,16 @@ public:
 
     Q_INVOKABLE bool isDispatchableTarget(const QString &target) const;
 
-    QVector<QScxmlInvokableService *> invokedServices() const;
+    QList<QScxmlInvokableService *> invokedServices() const;
+    QBindable<QList<QScxmlInvokableService*>> bindableInvokedServices();
 
     QScxmlTableData *tableData() const;
     void setTableData(QScxmlTableData *tableData);
+    QBindable<QScxmlTableData*> bindableTableData();
 
 Q_SIGNALS:
     void runningChanged(bool running);
-    void invokedServicesChanged(const QVector<QScxmlInvokableService *> &invokedServices);
+    void invokedServicesChanged(const QList<QScxmlInvokableService *> &invokedServices);
     void log(const QString &label, const QString &msg);
     void reachedStableState();
     void finished();
@@ -313,6 +334,6 @@ private:
 QT_END_NAMESPACE
 
 Q_DECLARE_METATYPE(QScxmlStateMachine *)
-Q_DECLARE_METATYPE(QVector<QScxmlInvokableService *>)
+Q_DECLARE_METATYPE(QList<QScxmlInvokableService *>)
 
 #endif // QSCXMLSTATEMACHINE_H

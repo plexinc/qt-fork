@@ -28,7 +28,9 @@
 
 
 #include <QtCore/QCoreApplication>
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QWinEventNotifier>
+#include <QAbstractEventDispatcher>
 
 /* Custom event dispatcher to ensure we don't receive any spontaneous events */
 class TestEventDispatcher : public QAbstractEventDispatcher
@@ -39,18 +41,16 @@ public:
     TestEventDispatcher(QObject* parent =0)
         : QAbstractEventDispatcher(parent)
     {}
-    void flush() {}
-    bool hasPendingEvents() { return false; }
-    void interrupt() {}
-    bool processEvents(QEventLoop::ProcessEventsFlags) { return false; }
-    void registerSocketNotifier(QSocketNotifier*) {}
-    void registerTimer(int,int,Qt::TimerType,QObject*) {}
-    QList<TimerInfo> registeredTimers(QObject*) const { return QList<TimerInfo>(); }
-    void unregisterSocketNotifier(QSocketNotifier*) {}
-    bool unregisterTimer(int) { return false; }
-    bool unregisterTimers(QObject*) { return false; }
-    int remainingTime(int) { return 0; }
-    void wakeUp() {}
+    void interrupt() override {}
+    bool processEvents(QEventLoop::ProcessEventsFlags) override { return false; }
+    void registerSocketNotifier(QSocketNotifier*) override {}
+    void registerTimer(int,qint64,Qt::TimerType,QObject*) override {}
+    QList<TimerInfo> registeredTimers(QObject*) const override { return QList<TimerInfo>(); }
+    void unregisterSocketNotifier(QSocketNotifier*) override {}
+    bool unregisterTimer(int) override { return false; }
+    bool unregisterTimers(QObject*) override { return false; }
+    int remainingTime(int) override { return 0; }
+    void wakeUp() override {}
 
 #ifdef Q_OS_WIN
     bool registerEventNotifier(QWinEventNotifier *) { return false; }
@@ -94,7 +94,7 @@ int main(int argc, char** argv)
     /* Run with no special arguments. */
     {
         tst_BenchlibOptions test;
-        ret += QTest::qExec(&test, args.size(), const_cast<char**>(&args[0]));
+        ret += QTest::qExec(&test, int(args.size()), const_cast<char**>(&args[0]));
     }
 
     /* Run with an exact number of iterations. */
@@ -103,7 +103,7 @@ int main(int argc, char** argv)
         extraArgs.push_back("-iterations");
         extraArgs.push_back("15");
         tst_BenchlibFifteenIterations test;
-        ret += QTest::qExec(&test, extraArgs.size(), const_cast<char**>(&extraArgs[0]));
+        ret += QTest::qExec(&test, int(extraArgs.size()), const_cast<char**>(&extraArgs[0]));
     }
 
     /*
@@ -114,7 +114,7 @@ int main(int argc, char** argv)
         extraArgs.push_back("-minimumvalue");
         extraArgs.push_back("100");
         tst_BenchlibOneHundredMinimum test;
-        ret += QTest::qExec(&test, extraArgs.size(), const_cast<char**>(&extraArgs[0]));
+        ret += QTest::qExec(&test, int(extraArgs.size()), const_cast<char**>(&extraArgs[0]));
     }
 
     return ret;

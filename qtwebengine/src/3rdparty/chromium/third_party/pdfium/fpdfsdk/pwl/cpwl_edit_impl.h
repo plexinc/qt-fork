@@ -9,12 +9,13 @@
 
 #include <deque>
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "core/fpdfdoc/cpdf_variabletext.h"
 #include "core/fpdfdoc/cpvt_wordrange.h"
 #include "core/fxcrt/unowned_ptr.h"
-#include "core/fxge/fx_dib.h"
+#include "core/fxge/dib/fx_dib.h"
 
 #define FX_EDIT_ISLATINWORD(u)                  \
   (u == 0x2D || (u <= 0x005A && u >= 0x0041) || \
@@ -330,7 +331,7 @@ class CPWL_EditImpl {
   WideString GetRangeText(const CPVT_WordRange& range) const;
   float GetCharSpace() const;
   void SetSelection(int32_t nStartChar, int32_t nEndChar);
-  void GetSelection(int32_t& nStartChar, int32_t& nEndChar) const;
+  std::pair<int32_t, int32_t> GetSelection() const;
   void SelectAll();
   void SelectNone();
   bool IsSelected() const;
@@ -447,7 +448,7 @@ class CPWL_EditImpl_Provider final : public CPDF_VariableText::Provider {
   IPVT_FontMap* GetFontMap() const;
 
   // CPDF_VariableText::Provider:
-  uint32_t GetCharWidth(int32_t nFontIndex, uint16_t word) override;
+  int GetCharWidth(int32_t nFontIndex, uint16_t word) override;
   int32_t GetTypeAscent(int32_t nFontIndex) override;
   int32_t GetTypeDescent(int32_t nFontIndex) override;
   int32_t GetWordFontIndex(uint16_t word,

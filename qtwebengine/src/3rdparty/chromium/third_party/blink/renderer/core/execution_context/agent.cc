@@ -10,6 +10,14 @@
 
 namespace blink {
 
+namespace {
+bool is_cross_origin_isolated = false;
+
+#if DCHECK_IS_ON()
+bool is_cross_origin_isolated_set = false;
+#endif
+}  // namespace
+
 Agent::Agent(v8::Isolate* isolate,
              const base::UnguessableToken& cluster_id,
              std::unique_ptr<v8::MicrotaskQueue> microtask_queue)
@@ -19,14 +27,49 @@ Agent::Agent(v8::Isolate* isolate,
 
 Agent::~Agent() = default;
 
-void Agent::Trace(Visitor* visitor) {}
+void Agent::Trace(Visitor* visitor) const {}
 
-void Agent::AttachDocument(Document* document) {
-  event_loop_->AttachScheduler(document->GetScheduler());
+void Agent::AttachContext(ExecutionContext* context) {
+  event_loop_->AttachScheduler(context->GetScheduler());
 }
 
-void Agent::DetachDocument(Document* document) {
-  event_loop_->DetachScheduler(document->GetScheduler());
+void Agent::DetachContext(ExecutionContext* context) {
+  event_loop_->DetachScheduler(context->GetScheduler());
+}
+
+// static
+bool Agent::IsCrossOriginIsolated() {
+  return is_cross_origin_isolated;
+}
+
+// static
+void Agent::SetIsCrossOriginIsolated(bool value) {
+#if DCHECK_IS_ON()
+  if (is_cross_origin_isolated_set)
+    DCHECK_EQ(is_cross_origin_isolated, value);
+  is_cross_origin_isolated_set = true;
+#endif
+  is_cross_origin_isolated = value;
+}
+
+bool Agent::IsOriginKeyed() {
+  if (IsCrossOriginIsolated()) {
+    return true;
+  }
+
+#if DCHECK_IS_ON()
+  DCHECK(is_explicitly_origin_keyed_set_);
+#endif
+  return is_explicitly_origin_keyed_;
+}
+
+void Agent::SetIsExplicitlyOriginKeyed(bool value) {
+#if DCHECK_IS_ON()
+  DCHECK(!is_explicitly_origin_keyed_set_ ||
+         value == is_explicitly_origin_keyed_);
+  is_explicitly_origin_keyed_set_ = true;
+#endif
+  is_explicitly_origin_keyed_ = value;
 }
 
 }  // namespace blink

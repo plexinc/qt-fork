@@ -23,8 +23,10 @@
 #include "ui/views/bubble/footnote_container_view.h"
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/metrics.h"
+#include "ui/views/test/button_test_api.h"
 #include "ui/views/test/test_layout_provider.h"
 #include "ui/views/test/test_views.h"
+#include "ui/views/test/view_metadata_test_utils.h"
 #include "ui/views/test/views_test_base.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
@@ -86,7 +88,7 @@ class TestBubbleFrameView : public BubbleFrameView {
   explicit TestBubbleFrameView(ViewsTestBase* test_base)
       : BubbleFrameView(gfx::Insets(), gfx::Insets(kMargin)) {
     SetBubbleBorder(std::make_unique<BubbleBorder>(
-        kArrow, BubbleBorder::BIG_SHADOW, kColor));
+        kArrow, BubbleBorder::STANDARD_SHADOW, kColor));
     widget_ = std::make_unique<Widget>();
     widget_delegate_ =
         std::make_unique<TestBubbleFrameViewWidgetDelegate>(widget_.get());
@@ -148,7 +150,7 @@ TEST_F(BubbleFrameViewTest, GetBoundsForClientView) {
   EXPECT_EQ(kArrow, frame.GetBorderArrow());
   EXPECT_EQ(kColor, frame.GetBorderBackgroundColor());
 
-  const gfx::Insets content_margins = frame.content_margins();
+  const gfx::Insets content_margins = frame.GetContentMargins();
   const gfx::Insets insets = frame.GetBorderInsets();
   const gfx::Rect client_view_bounds = frame.GetBoundsForClientView();
   EXPECT_EQ(insets.left() + content_margins.left(), client_view_bounds.x());
@@ -162,7 +164,7 @@ TEST_F(BubbleFrameViewTest, GetBoundsForClientViewWithClose) {
   EXPECT_EQ(kArrow, frame.GetBorderArrow());
   EXPECT_EQ(kColor, frame.GetBorderBackgroundColor());
 
-  const gfx::Insets content_margins = frame.content_margins();
+  const gfx::Insets content_margins = frame.GetContentMargins();
   const gfx::Insets insets = frame.GetBorderInsets();
   const int close_margin =
       frame.GetCloseButtonForTesting()->height() +
@@ -205,8 +207,8 @@ TEST_F(BubbleFrameViewTest, GetUpdatedWindowBounds) {
   TestBubbleFrameView frame(this);
   gfx::Rect window_bounds;
 
-  frame.SetBubbleBorder(
-      std::make_unique<BubbleBorder>(kArrow, BubbleBorder::NO_SHADOW, kColor));
+  frame.SetBubbleBorder(std::make_unique<BubbleBorder>(
+      kArrow, BubbleBorder::NO_SHADOW_LEGACY, kColor));
 
   // Test that the info bubble displays normally when it fits.
   frame.SetArrow(BubbleBorder::TOP_LEFT);
@@ -368,7 +370,7 @@ TEST_F(BubbleFrameViewTest, TestMirroringForCenteredArrow) {
 TEST_F(BubbleFrameViewTest, GetUpdatedWindowBoundsDontTryMirror) {
   TestBubbleFrameView frame(this);
   frame.SetBubbleBorder(std::make_unique<BubbleBorder>(
-      BubbleBorder::TOP_RIGHT, BubbleBorder::NO_SHADOW, kColor));
+      BubbleBorder::TOP_RIGHT, BubbleBorder::NO_SHADOW_LEGACY, kColor));
   gfx::Rect window_bounds = frame.GetUpdatedWindowBounds(
       gfx::Rect(100, 900, 0, 0),       // |anchor_rect|
       BubbleBorder::Arrow::TOP_RIGHT,  // |delegate_arrow|
@@ -385,8 +387,8 @@ TEST_F(BubbleFrameViewTest, GetUpdatedWindowBoundsCenterArrows) {
   TestBubbleFrameView frame(this);
   gfx::Rect window_bounds;
 
-  frame.SetBubbleBorder(
-      std::make_unique<BubbleBorder>(kArrow, BubbleBorder::NO_SHADOW, kColor));
+  frame.SetBubbleBorder(std::make_unique<BubbleBorder>(
+      kArrow, BubbleBorder::NO_SHADOW_LEGACY, kColor));
 
   // Some of these tests may go away once --secondary-ui-md becomes the
   // default. Under Material Design mode, the BubbleBorder doesn't support all
@@ -449,8 +451,8 @@ TEST_F(BubbleFrameViewTest, GetUpdatedWindowBoundsForBubbleWithAnchorWindow) {
   frame.SetAvailableAnchorWindowBounds(gfx::Rect(100, 100, 500, 500));
   gfx::Rect window_bounds;
 
-  frame.SetBubbleBorder(
-      std::make_unique<BubbleBorder>(kArrow, BubbleBorder::NO_SHADOW, kColor));
+  frame.SetBubbleBorder(std::make_unique<BubbleBorder>(
+      kArrow, BubbleBorder::NO_SHADOW_LEGACY, kColor));
 
   // Test that the bubble displays normally when it fits.
   frame.SetArrow(BubbleBorder::TOP_LEFT);
@@ -567,8 +569,8 @@ TEST_F(BubbleFrameViewTest,
   TestBubbleFrameView frame(this);
   gfx::Rect window_bounds;
 
-  frame.SetBubbleBorder(
-      std::make_unique<BubbleBorder>(kArrow, BubbleBorder::NO_SHADOW, kColor));
+  frame.SetBubbleBorder(std::make_unique<BubbleBorder>(
+      kArrow, BubbleBorder::NO_SHADOW_LEGACY, kColor));
 
   // Test bubble fitting anchor window and not fitting screen on right.
   //     ________________________
@@ -639,8 +641,8 @@ TEST_F(BubbleFrameViewTest, MirroringNotStickyForGetUpdatedWindowBounds) {
   TestBubbleFrameView frame(this);
   gfx::Rect window_bounds;
 
-  frame.SetBubbleBorder(
-      std::make_unique<BubbleBorder>(kArrow, BubbleBorder::NO_SHADOW, kColor));
+  frame.SetBubbleBorder(std::make_unique<BubbleBorder>(
+      kArrow, BubbleBorder::NO_SHADOW_LEGACY, kColor));
 
   // Test bubble fitting anchor window and not fitting screen on right.
   frame.SetAvailableAnchorWindowBounds(gfx::Rect(700, 200, 400, 400));
@@ -672,12 +674,12 @@ TEST_F(BubbleFrameViewTest, MirroringNotStickyForGetUpdatedWindowBounds) {
 TEST_F(BubbleFrameViewTest, GetUpdatedWindowBoundsForBubbleSetToOffset) {
   TestBubbleFrameView frame(this);
   frame.SetAvailableAnchorWindowBounds(gfx::Rect(100, 100, 500, 500));
-  frame.set_preferred_arrow_adjustment(
+  frame.SetPreferredArrowAdjustment(
       BubbleFrameView::PreferredArrowAdjustment::kOffset);
   gfx::Rect window_bounds;
 
-  frame.SetBubbleBorder(
-      std::make_unique<BubbleBorder>(kArrow, BubbleBorder::NO_SHADOW, kColor));
+  frame.SetBubbleBorder(std::make_unique<BubbleBorder>(
+      kArrow, BubbleBorder::NO_SHADOW_LEGACY, kColor));
 
   // Test that the bubble displays normally when it fits.
   frame.SetArrow(BubbleBorder::TOP_LEFT);
@@ -730,12 +732,12 @@ TEST_F(BubbleFrameViewTest,
        GetUpdatedWindowBoundsForBubbleSetToOffsetLargerThanAvailableBounds) {
   TestBubbleFrameView frame(this);
   frame.SetAvailableAnchorWindowBounds(gfx::Rect(200, 200, 500, 500));
-  frame.set_preferred_arrow_adjustment(
+  frame.SetPreferredArrowAdjustment(
       BubbleFrameView::PreferredArrowAdjustment::kOffset);
   gfx::Rect window_bounds;
 
-  frame.SetBubbleBorder(
-      std::make_unique<BubbleBorder>(kArrow, BubbleBorder::NO_SHADOW, kColor));
+  frame.SetBubbleBorder(std::make_unique<BubbleBorder>(
+      kArrow, BubbleBorder::NO_SHADOW_LEGACY, kColor));
 
   // Test that the bubble exiting right side of anchor window displays against
   // left edge of anchor window bounds if larger than anchor window.
@@ -813,7 +815,7 @@ TEST_F(BubbleFrameViewTest, GetPreferredSizeWithFootnote) {
   gfx::Size with_footnote_size = no_footnote_size;
   constexpr int kFootnoteTopBorderThickness = 1;
   with_footnote_size.Enlarge(0, kFootnoteHeight + kFootnoteTopBorderThickness +
-                                    frame.content_margins().height());
+                                    frame.GetContentMargins().height());
   EXPECT_EQ(with_footnote_size, frame.GetPreferredSize());
 
   footnote_dummy_view->SetVisible(false);
@@ -878,7 +880,7 @@ TEST_F(BubbleFrameViewTest, LayoutWithHeaderAndCloseButton) {
   const int close_margin =
       frame.GetCloseButtonForTesting()->height() +
       LayoutProvider::Get()->GetDistanceMetric(DISTANCE_CLOSE_BUTTON_MARGIN);
-  const gfx::Insets content_margins = frame.content_margins();
+  const gfx::Insets content_margins = frame.GetContentMargins();
   const gfx::Insets insets = frame.GetBorderInsets();
 
   // Header is smaller than close button + margin, expect bounds to be below the
@@ -900,13 +902,19 @@ TEST_F(BubbleFrameViewTest, LayoutWithHeaderAndCloseButton) {
             client_view_bounds.y());
 }
 
+TEST_F(BubbleFrameViewTest, MetadataTest) {
+  TestBubbleFrameView frame(this);
+  TestBubbleFrameView* frame_pointer = &frame;
+  test::TestViewMetadata(frame_pointer);
+}
+
 namespace {
 
 class TestBubbleDialogDelegateView : public BubbleDialogDelegateView {
  public:
   TestBubbleDialogDelegateView()
       : BubbleDialogDelegateView(nullptr, BubbleBorder::NONE) {
-    set_shadow(BubbleBorder::NO_ASSETS);
+    set_shadow(BubbleBorder::NO_SHADOW);
     SetAnchorRect(gfx::Rect());
     DialogDelegate::SetButtons(ui::DIALOG_BUTTON_OK);
   }
@@ -921,13 +929,9 @@ class TestBubbleDialogDelegateView : public BubbleDialogDelegateView {
     SizeToContents();
   }
 
-  void set_icon(const gfx::ImageSkia& icon) { icon_ = icon; }
-
   // BubbleDialogDelegateView:
   using BubbleDialogDelegateView::SetAnchorView;
   using BubbleDialogDelegateView::SizeToContents;
-  gfx::ImageSkia GetWindowIcon() override { return icon_; }
-  bool ShouldShowWindowIcon() const override { return !icon_.isNull(); }
   base::string16 GetWindowTitle() const override { return title_; }
   bool ShouldShowWindowTitle() const override { return !title_.empty(); }
   bool ShouldShowCloseButton() const override { return should_show_close_; }
@@ -951,7 +955,6 @@ class TestBubbleDialogDelegateView : public BubbleDialogDelegateView {
   }
 
  private:
-  gfx::ImageSkia icon_;
   base::string16 title_;
   bool destroyed_ = false;
   bool should_show_close_ = false;
@@ -1166,7 +1169,8 @@ TEST_F(BubbleFrameViewTest, LayoutWithIcon) {
   SkBitmap bitmap;
   bitmap.allocN32Pixels(20, 80);
   bitmap.eraseColor(SK_ColorYELLOW);
-  delegate.set_icon(gfx::ImageSkia::CreateFrom1xBitmap(bitmap));
+  delegate.SetIcon(gfx::ImageSkia::CreateFrom1xBitmap(bitmap));
+  delegate.SetShowIcon(true);
 
   Widget* widget = BubbleDialogDelegateView::CreateBubble(&delegate);
   widget->Show();
@@ -1237,27 +1241,53 @@ TEST_F(BubbleFrameViewTest, NoElideTitle) {
 }
 
 // Ensures that clicks are ignored for short time after view has been shown.
-TEST_F(BubbleFrameViewTest, IgnorePossiblyUnintendedClicks) {
+TEST_F(BubbleFrameViewTest, IgnorePossiblyUnintendedClicksClose) {
   TestBubbleDialogDelegateView delegate;
   TestAnchor anchor(CreateParams(Widget::InitParams::TYPE_WINDOW));
   delegate.SetAnchorView(anchor.widget().GetContentsView());
+  delegate.SetShouldShowCloseButton(true);
   Widget* bubble = BubbleDialogDelegateView::CreateBubble(&delegate);
   bubble->Show();
 
   BubbleFrameView* frame = delegate.GetBubbleFrameView();
-  frame->ButtonPressed(
-      frame->close_,
-      ui::MouseEvent(ui::ET_MOUSE_PRESSED, gfx::Point(), gfx::Point(),
-                     ui::EventTimeForNow(), ui::EF_NONE, ui::EF_NONE));
+  test::ButtonTestApi(frame->close_)
+      .NotifyClick(ui::MouseEvent(ui::ET_MOUSE_PRESSED, gfx::Point(),
+                                  gfx::Point(), ui::EventTimeForNow(),
+                                  ui::EF_NONE, ui::EF_NONE));
   EXPECT_FALSE(bubble->IsClosed());
 
-  frame->ButtonPressed(
-      frame->close_,
-      ui::MouseEvent(ui::ET_MOUSE_PRESSED, gfx::Point(), gfx::Point(),
-                     ui::EventTimeForNow() + base::TimeDelta::FromMilliseconds(
-                                                 GetDoubleClickInterval()),
-                     ui::EF_NONE, ui::EF_NONE));
+  test::ButtonTestApi(frame->close_)
+      .NotifyClick(ui::MouseEvent(
+          ui::ET_MOUSE_PRESSED, gfx::Point(), gfx::Point(),
+          ui::EventTimeForNow() +
+              base::TimeDelta::FromMilliseconds(GetDoubleClickInterval()),
+          ui::EF_NONE, ui::EF_NONE));
   EXPECT_TRUE(bubble->IsClosed());
+}
+
+// Ensures that clicks are ignored for short time after view has been shown.
+TEST_F(BubbleFrameViewTest, IgnorePossiblyUnintendedClicksMinimize) {
+  TestBubbleDialogDelegateView delegate;
+  TestAnchor anchor(CreateParams(Widget::InitParams::TYPE_WINDOW));
+  delegate.SetAnchorView(anchor.widget().GetContentsView());
+  delegate.SetCanMinimize(true);
+  Widget* bubble = BubbleDialogDelegateView::CreateBubble(&delegate);
+  bubble->Show();
+
+  BubbleFrameView* frame = delegate.GetBubbleFrameView();
+  test::ButtonTestApi(frame->minimize_)
+      .NotifyClick(ui::MouseEvent(ui::ET_MOUSE_PRESSED, gfx::Point(),
+                                  gfx::Point(), ui::EventTimeForNow(),
+                                  ui::EF_NONE, ui::EF_NONE));
+  EXPECT_FALSE(bubble->IsClosed());
+
+  test::ButtonTestApi(frame->minimize_)
+      .NotifyClick(ui::MouseEvent(
+          ui::ET_MOUSE_PRESSED, gfx::Point(), gfx::Point(),
+          ui::EventTimeForNow() +
+              base::TimeDelta::FromMilliseconds(GetDoubleClickInterval()),
+          ui::EF_NONE, ui::EF_NONE));
+  EXPECT_TRUE(bubble->IsMinimized());
 }
 
 // Ensures that layout is correct when the progress indicator is visible.

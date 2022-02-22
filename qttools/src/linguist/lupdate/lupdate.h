@@ -29,7 +29,8 @@
 #ifndef LUPDATE_H
 #define LUPDATE_H
 
-#include "qglobal.h"
+#include <QtCore/qtcore-config.h>
+#include <QtTools/private/qttools-config_p.h>
 
 #include <QtCore/QList>
 #include <QtCore/QHash>
@@ -41,7 +42,6 @@
 QT_BEGIN_NAMESPACE
 
 class ConversionData;
-class QStringList;
 class Translator;
 class TranslatorMessage;
 
@@ -69,6 +69,7 @@ Translator merge(
 
 void loadCPP(Translator &translator, const QStringList &filenames, ConversionData &cd);
 bool loadJava(Translator &translator, const QString &filename, ConversionData &cd);
+bool loadPython(Translator &translator, const QString &fileName, ConversionData &cd);
 bool loadUI(Translator &translator, const QString &filename, ConversionData &cd);
 
 #ifndef QT_NO_QML
@@ -120,6 +121,8 @@ public:
         NumTrFunctions
     };
 
+    using NameToTrFunctionMap = QHash<QString, TrFunction>;
+
     enum Operation { AddAlias, SetAlias };
 
     int trFunctionByName(const QString &trFunctionName) const;
@@ -131,16 +134,14 @@ public:
 
     QStringList availableFunctionsWithAliases() const;
 
+    const NameToTrFunctionMap &nameToTrFunctionMap() const;
+
 private:
     void ensureTrFunctionHashUpdated() const;
 
 private:
     QStringList m_trFunctionAliases[NumTrFunctions];
-    mutable QHash<QString,TrFunction> m_nameToTrFunctionMap;
-};
-
-class LU {
-    Q_DECLARE_TR_FUNCTIONS(LUpdate)
+    mutable NameToTrFunctionMap m_nameToTrFunctionMap;
 };
 
 QT_END_NAMESPACE

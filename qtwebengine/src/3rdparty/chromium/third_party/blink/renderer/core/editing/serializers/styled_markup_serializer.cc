@@ -159,19 +159,6 @@ static bool NeedInterchangeNewlineAt(
   return NeedInterchangeNewlineAfter(PreviousPositionOf(v));
 }
 
-template <typename Strategy>
-static bool AreSameRanges(Node* node,
-                          const PositionTemplate<Strategy>& start_position,
-                          const PositionTemplate<Strategy>& end_position) {
-  DCHECK(node);
-  const EphemeralRange range =
-      CreateVisibleSelection(
-          SelectionInDOMTree::Builder().SelectAllChildren(*node).Build())
-          .ToNormalizedEphemeralRange();
-  return ToPositionInDOMTree(start_position) == range.StartPosition() &&
-         ToPositionInDOMTree(end_position) == range.EndPosition();
-}
-
 static EditingStyle* StyleFromMatchedRulesAndInlineDecl(
     const HTMLElement* element) {
   EditingStyle* style =
@@ -267,7 +254,8 @@ String StyledMarkupSerializer<Strategy>::CreateMarkup() {
                       html_names::kBackgroundAttr) +
                   "')",
               /* important */ false,
-              fully_selected_root->GetDocument().GetSecureContextMode());
+              fully_selected_root->GetExecutionContext()
+                  ->GetSecureContextMode());
         }
 
         if (fully_selected_root_style->Style()) {

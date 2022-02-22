@@ -82,7 +82,8 @@ public:
     ~QAbstractItemModelPrivate();
 
     void removePersistentIndexData(QPersistentModelIndexData *data);
-    void movePersistentIndexes(const QVector<QPersistentModelIndexData *> &indexes, int change, const QModelIndex &parent, Qt::Orientation orientation);
+    void movePersistentIndexes(const QList<QPersistentModelIndexData *> &indexes, int change, const QModelIndex &parent,
+                               Qt::Orientation orientation);
     void rowsAboutToBeInserted(const QModelIndex &parent, int first, int last);
     void rowsInserted(const QModelIndex &parent, int first, int last);
     void rowsAboutToBeRemoved(const QModelIndex &parent, int first, int last);
@@ -97,6 +98,9 @@ public:
     void itemsAboutToBeMoved(const QModelIndex &srcParent, int srcFirst, int srcLast, const QModelIndex &destinationParent, int destinationChild, Qt::Orientation);
     void itemsMoved(const QModelIndex &srcParent, int srcFirst, int srcLast, const QModelIndex &destinationParent, int destinationChild, Qt::Orientation orientation);
     bool allowMove(const QModelIndex &srcParent, int srcFirst, int srcLast, const QModelIndex &destinationParent, int destinationChild, Qt::Orientation orientation);
+
+    // ugly hack for QTreeModel, see QTBUG-94546
+    virtual void executePendingOperations() const;
 
     inline QModelIndex createIndex(int row, int column, void *data = nullptr) const {
         return q_func()->createIndex(row, column, data);
@@ -114,8 +118,8 @@ public:
     void invalidatePersistentIndex(const QModelIndex &index);
 
     struct Change {
-        Q_DECL_CONSTEXPR Change() : parent(), first(-1), last(-1), needsAdjust(false) {}
-        Q_DECL_CONSTEXPR Change(const QModelIndex &p, int f, int l) : parent(p), first(f), last(l), needsAdjust(false) {}
+        constexpr Change() : parent(), first(-1), last(-1), needsAdjust(false) {}
+        constexpr Change(const QModelIndex &p, int f, int l) : parent(p), first(f), last(l), needsAdjust(false) {}
 
         QModelIndex parent;
         int first, last;
@@ -135,26 +139,23 @@ public:
         // rowsMoved signal.
         bool needsAdjust;
 
-        Q_DECL_CONSTEXPR bool isValid() const { return first >= 0 && last >= 0; }
+        constexpr bool isValid() const { return first >= 0 && last >= 0; }
     };
     QStack<Change> changes;
 
     struct Persistent {
         Persistent() {}
         QMultiHash<QModelIndex, QPersistentModelIndexData *> indexes;
-        QStack<QVector<QPersistentModelIndexData *> > moved;
-        QStack<QVector<QPersistentModelIndexData *> > invalidated;
+        QStack<QList<QPersistentModelIndexData *>> moved;
+        QStack<QList<QPersistentModelIndexData *>> invalidated;
         void insertMultiAtEnd(const QModelIndex& key, QPersistentModelIndexData *data);
     } persistent;
 
-    Qt::DropActions supportedDragActions;
-
-    QHash<int,QByteArray> roleNames;
     static const QHash<int,QByteArray> &defaultRoleNames();
     static bool isVariantLessThan(const QVariant &left, const QVariant &right,
                                   Qt::CaseSensitivity cs = Qt::CaseSensitive, bool isLocaleAware = false);
 };
-Q_DECLARE_TYPEINFO(QAbstractItemModelPrivate::Change, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QAbstractItemModelPrivate::Change, Q_RELOCATABLE_TYPE);
 
 QT_END_NAMESPACE
 

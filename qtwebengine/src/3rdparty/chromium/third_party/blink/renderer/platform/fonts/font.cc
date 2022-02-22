@@ -29,6 +29,7 @@
 #include "third_party/blink/renderer/platform/fonts/character_range.h"
 #include "third_party/blink/renderer/platform/fonts/font_cache.h"
 #include "third_party/blink/renderer/platform/fonts/font_fallback_list.h"
+#include "third_party/blink/renderer/platform/fonts/font_fallback_map.h"
 #include "third_party/blink/renderer/platform/fonts/ng_text_fragment_paint_info.h"
 #include "third_party/blink/renderer/platform/fonts/shaping/caching_word_shaper.h"
 #include "third_party/blink/renderer/platform/fonts/shaping/shape_result_bloberizer.h"
@@ -48,6 +49,22 @@
 
 namespace blink {
 
+namespace {
+
+FontFallbackMap& GetFontFallbackMap(FontSelector* font_selector) {
+  if (font_selector)
+    return font_selector->GetFontFallbackMap();
+  return FontCache::GetFontCache()->GetFontFallbackMap();
+}
+
+scoped_refptr<FontFallbackList> GetOrCreateFontFallbackList(
+    const FontDescription& font_description,
+    FontSelector* font_selector) {
+  return GetFontFallbackMap(font_selector).Get(font_description);
+}
+
+}  // namespace
+
 Font::Font() = default;
 
 Font::Font(const FontDescription& fd) : font_description_(fd) {}
@@ -55,33 +72,76 @@ Font::Font(const FontDescription& fd) : font_description_(fd) {}
 Font::Font(const FontDescription& font_description, FontSelector* font_selector)
     : font_description_(font_description),
       font_fallback_list_(
-          font_selector ? FontFallbackList::Create(font_selector) : nullptr) {}
+          font_selector
+              ? GetOrCreateFontFallbackList(font_description, font_selector)
+              : nullptr) {}
 
 Font::Font(const Font& other) = default;
 
 Font& Font::operator=(const Font& other) {
+  if (this == &other || *this == other)
+    return *this;
+  ReleaseFontFallbackListRef();
   font_description_ = other.font_description_;
   font_fallback_list_ = other.font_fallback_list_;
   return *this;
 }
 
+Font::~Font() {
+  ReleaseFontFallbackListRef();
+}
+
+// Ensures that FontFallbackMap only keeps FontFallbackLists that are still in
+// use by at least one Font object. If the last Font releases its reference, we
+// should clear the entry from FontFallbackMap.
+// Note that we must not persist a FontFallbackList reference outside Font.
+void Font::ReleaseFontFallbackListRef() const {
+  if (!font_fallback_list_ || !font_fallback_list_->IsValid() ||
+      !font_fallback_list_->HasFontFallbackMap()) {
+    font_fallback_list_.reset();
+    return;
+  }
+
+  FontFallbackList& list_ref = *font_fallback_list_;
+  // Failing this CHECK causes use-after-free below.
+  CHECK(!list_ref.HasOneRef());
+  font_fallback_list_.reset();
+  if (list_ref.HasOneRef())
+    list_ref.GetFontFallbackMap().Remove(font_description_);
+}
+
+void Font::RevalidateFontFallbackList() const {
+  DCHECK(font_fallback_list_);
+  font_fallback_list_ =
+      font_fallback_list_->GetFontFallbackMap().Get(font_description_);
+}
+
+FontFallbackList* Font::EnsureFontFallbackList() const {
+  if (!font_fallback_list_) {
+    font_fallback_list_ =
+        GetOrCreateFontFallbackList(font_description_, nullptr);
+  }
+  if (!font_fallback_list_->IsValid())
+    RevalidateFontFallbackList();
+  return font_fallback_list_.get();
+}
+
 bool Font::operator==(const Font& other) const {
+  // Two Font objects with the same FontDescription and FontSelector should
+  // always hold reference to the same FontFallbackList object, unless
+  // invalidated.
+  if (font_fallback_list_ && font_fallback_list_->IsValid() &&
+      other.font_fallback_list_ && other.font_fallback_list_->IsValid()) {
+    return font_fallback_list_ == other.font_fallback_list_;
+  }
+
   FontSelector* first =
       font_fallback_list_ ? font_fallback_list_->GetFontSelector() : nullptr;
   FontSelector* second = other.font_fallback_list_
                              ? other.font_fallback_list_->GetFontSelector()
                              : nullptr;
 
-  return first == second && font_description_ == other.font_description_ &&
-         (font_fallback_list_
-              ? font_fallback_list_->FontSelectorVersion()
-              : 0) == (other.font_fallback_list_
-                           ? other.font_fallback_list_->FontSelectorVersion()
-                           : 0) &&
-         (font_fallback_list_ ? font_fallback_list_->Generation() : 0) ==
-             (other.font_fallback_list_
-                  ? other.font_fallback_list_->Generation()
-                  : 0);
+  return first == second && font_description_ == other.font_description_;
 }
 
 namespace {
@@ -94,12 +154,45 @@ void DrawBlobs(cc::PaintCanvas* canvas,
   for (const auto& blob_info : blobs) {
     DCHECK(blob_info.blob);
     cc::PaintCanvasAutoRestore auto_restore(canvas, false);
-    if (blob_info.rotation == CanvasRotationInVertical::kRotateCanvasUpright) {
-      canvas->save();
+    switch (blob_info.rotation) {
+      case CanvasRotationInVertical::kRegular:
+        break;
+      case CanvasRotationInVertical::kRotateCanvasUpright: {
+        canvas->save();
 
-      SkMatrix m;
-      m.setSinCos(-1, 0, point.X(), point.Y());
-      canvas->concat(m);
+        SkMatrix m;
+        m.setSinCos(-1, 0, point.X(), point.Y());
+        canvas->concat(m);
+        break;
+      }
+      case CanvasRotationInVertical::kRotateCanvasUprightOblique: {
+        canvas->save();
+
+        SkMatrix m;
+        m.setSinCos(-1, 0, point.X(), point.Y());
+        // TODO(yosin): We should use angle specified in CSS instead of
+        // constant value -15deg.
+        // Note: We draw glyph in right-top corner upper.
+        // See CSS "transform: skew(0, -15deg)"
+        SkMatrix skewY;
+        constexpr SkScalar kSkewY = -0.2679491924311227;  // tan(-15deg)
+        skewY.setSkew(0, kSkewY, point.X(), point.Y());
+        m.preConcat(skewY);
+        canvas->concat(m);
+        break;
+      }
+      case CanvasRotationInVertical::kOblique: {
+        // TODO(yosin): We should use angle specified in CSS instead of
+        // constant value 15deg.
+        // Note: We draw glyph in right-top corner upper.
+        // See CSS "transform: skew(0, -15deg)"
+        canvas->save();
+        SkMatrix skewX;
+        constexpr SkScalar kSkewX = 0.2679491924311227;  // tan(15deg)
+        skewX.setSkew(kSkewX, 0, point.X(), point.Y());
+        canvas->concat(skewX);
+        break;
+      }
     }
     if (node_id != cc::kInvalidNodeId) {
       canvas->drawTextBlob(blob_info.blob, point.X(), point.Y(), node_id,
@@ -298,7 +391,7 @@ unsigned InterceptsFromBlobs(const ShapeResultBloberizer::BlobBuffer& blobs,
     // for a change in font. A TextBlob can contain runs with differing fonts
     // and the getTextBlobIntercepts method handles multiple fonts for us. For
     // upright in vertical blobs we currently have to bail, see crbug.com/655154
-    if (blob_info.rotation == CanvasRotationInVertical::kRotateCanvasUpright)
+    if (IsCanvasRotationInVerticalUpright(blob_info.rotation))
       continue;
 
     SkScalar* offset_intercepts_buffer = nullptr;
@@ -386,14 +479,6 @@ FloatRect Font::SelectionRectForText(const TextRun& run,
 
   return PixelSnappedSelectionRect(
       FloatRect(point.X() + range.start, point.Y(), range.Width(), height));
-}
-
-FloatRect Font::BoundingBox(const TextRun& run, int from, int to) const {
-  to = (to == -1 ? run.length() : to);
-  FontCachePurgePreventer purge_preventer;
-  CachingWordShaper shaper(*this);
-  CharacterRange range = shaper.GetCharacterRange(run, from, to);
-  return FloatRect(range.start, -range.ascent, range.Width(), range.Height());
 }
 
 int Font::OffsetForPosition(const TextRun& run,
@@ -547,10 +632,6 @@ LayoutUnit Font::TabWidth(const TabSize& tab_size, LayoutUnit position) const {
     distance_to_tab_stop += base_tab_width;
 
   return distance_to_tab_stop;
-}
-
-bool Font::LoadingCustomFonts() const {
-  return font_fallback_list_ && font_fallback_list_->LoadingCustomFonts();
 }
 
 bool Font::IsFallbackValid() const {

@@ -31,11 +31,11 @@
 #include <string.h>
 
 #include "base/feature_list.h"
+#include "base/metrics/histogram_macros.h"
 #include "build/build_config.h"
-#include "third_party/blink/renderer/platform/instrumentation/histogram.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+#include "third_party/blink/renderer/platform/wtf/wtf.h"
 #include "third_party/skia/include/core/SkData.h"
-#include "third_party/skia/include/core/SkYUVAIndex.h"
 
 #if defined(ARCH_CPU_BIG_ENDIAN)
 #error Blink assumes a little-endian target.
@@ -113,14 +113,14 @@ void alphaBlendNonPremultiplied(blink::ImageFrame& src,
 
 // Do not rename entries nor reuse numeric values. See the following link for
 // descriptions: https://developers.google.com/speed/webp/docs/riff_container.
-enum WebPFileFormat {
-  kSimpleLossyFileFormat = 0,
-  kSimpleLosslessFileFormat = 1,
-  kExtendedAlphaFileFormat = 2,
-  kExtendedAnimationFileFormat = 3,
-  kExtendedAnimationWithAlphaFileFormat = 4,
-  kUnknownFileFormat = 5,
-  kCountWebPFileFormats
+enum class WebPFileFormat {
+  kSimpleLossy = 0,
+  kSimpleLossless = 1,
+  kExtendedAlpha = 2,
+  kExtendedAnimation = 3,
+  kExtendedAnimationWithAlpha = 4,
+  kUnknown = 5,
+  kMaxValue = kUnknown,
 };
 
 // Validates that |blob| is a simple lossy WebP image. Note that this explicitly
@@ -152,22 +152,19 @@ void UpdateWebPFileFormatUMA(const sk_sp<SkData>& blob) {
   constexpr int kLossyFormat = 1;
   constexpr int kLosslessFormat = 2;
 
-  WebPFileFormat file_format = kUnknownFileFormat;
+  WebPFileFormat file_format = WebPFileFormat::kUnknown;
   if (features.has_alpha && features.has_animation)
-    file_format = kExtendedAnimationWithAlphaFileFormat;
+    file_format = WebPFileFormat::kExtendedAnimationWithAlpha;
   else if (features.has_animation)
-    file_format = kExtendedAnimationFileFormat;
+    file_format = WebPFileFormat::kExtendedAnimation;
   else if (features.has_alpha)
-    file_format = kExtendedAlphaFileFormat;
+    file_format = WebPFileFormat::kExtendedAlpha;
   else if (features.format == kLossyFormat)
-    file_format = kSimpleLossyFileFormat;
+    file_format = WebPFileFormat::kSimpleLossy;
   else if (features.format == kLosslessFormat)
-    file_format = kSimpleLosslessFileFormat;
+    file_format = WebPFileFormat::kSimpleLossless;
 
-  DEFINE_THREAD_SAFE_STATIC_LOCAL(
-      blink::EnumerationHistogram, file_format_histogram,
-      ("Blink.DecodedImage.WebPFileFormat", kCountWebPFileFormats));
-  file_format_histogram.Count(file_format);
+  UMA_HISTOGRAM_ENUMERATION("Blink.DecodedImage.WebPFileFormat", file_format);
 }
 
 }  // namespace
@@ -186,7 +183,7 @@ WEBPImageDecoder::WEBPImageDecoder(AlphaOption alpha_option,
       frame_background_has_alpha_(false),
       demux_(nullptr),
       demux_state_(WEBP_DEMUX_PARSING_HEADER),
-      have_already_parsed_this_data_(false),
+      have_parsed_current_data_(false),
       repetition_count_(kAnimationLoopOnce),
       decoded_height_(0) {
   blend_function_ = (alpha_option == kAlphaPremultiplied)
@@ -259,7 +256,7 @@ bool WEBPImageDecoder::CanAllowYUVDecodingForWebP() {
 }
 
 void WEBPImageDecoder::OnSetData(SegmentReader* data) {
-  have_already_parsed_this_data_ = false;
+  have_parsed_current_data_ = false;
   // TODO(crbug.com/943519): Modify this approach for incremental YUV (when
   // we don't require IsAllDataReceived() to be true before decoding).
   if (IsAllDataReceived()) {
@@ -279,6 +276,11 @@ bool WEBPImageDecoder::FrameIsReceivedAtIndex(size_t index) const {
     return false;
   if (!(format_flags_ & ANIMATION_FLAG))
     return ImageDecoder::FrameIsReceivedAtIndex(index);
+  // frame_buffer_cache_.size() is equal to the return value of
+  // DecodeFrameCount(). WebPDemuxGetI(demux_, WEBP_FF_FRAME_COUNT) returns the
+  // number of ANMF chunks that have been received. (See also the DCHECK on
+  // animated_frame.complete in InitializeNewFrame().) Therefore we can return
+  // true if |index| is valid for frame_buffer_cache_.
   bool frame_is_received_at_index = index < frame_buffer_cache_.size();
   return frame_is_received_at_index;
 }
@@ -297,10 +299,9 @@ bool WEBPImageDecoder::UpdateDemuxer() {
   if (data_->size() < kWebpHeaderSize)
     return IsAllDataReceived() ? SetFailed() : false;
 
-  if (have_already_parsed_this_data_)
+  if (have_parsed_current_data_)
     return true;
-
-  have_already_parsed_this_data_ = true;
+  have_parsed_current_data_ = true;
 
   if (consolidated_data_ && consolidated_data_->size() >= data_->size()) {
     // Less data provided than last time. |consolidated_data_| is guaranteed
@@ -403,6 +404,9 @@ void WEBPImageDecoder::OnInitFrameBuffer(size_t frame_index) {
 void WEBPImageDecoder::DecodeToYUV() {
   DCHECK(IsDoingYuvDecode());
 
+  // Only 8-bit YUV decode is currently supported.
+  DCHECK_EQ(image_planes_->color_type(), kGray_8_SkColorType);
+
   if (Failed())
     return;
 
@@ -421,32 +425,25 @@ void WEBPImageDecoder::DecodeToYUV() {
   }
 }
 
-IntSize WEBPImageDecoder::DecodedYUVSize(int component) const {
-  DCHECK_GE(component, 0);
-  // TODO(crbug.com/910276): Change after alpha support.
-  DCHECK_LE(component, 2);
+IntSize WEBPImageDecoder::DecodedYUVSize(cc::YUVIndex index) const {
   DCHECK(IsDecodedSizeAvailable());
-  switch (component) {
-    case SkYUVAIndex::kY_Index:
+  switch (index) {
+    case cc::YUVIndex::kY:
       return Size();
-    case SkYUVAIndex::kU_Index:
-      FALLTHROUGH;
-    case SkYUVAIndex::kV_Index:
+    case cc::YUVIndex::kU:
+    case cc::YUVIndex::kV:
       return IntSize((Size().Width() + 1) / 2, (Size().Height() + 1) / 2);
   }
   NOTREACHED();
   return IntSize(0, 0);
 }
 
-size_t WEBPImageDecoder::DecodedYUVWidthBytes(int component) const {
-  DCHECK_GE(component, 0);
-  DCHECK_LE(component, 2);
-  switch (component) {
-    case SkYUVAIndex::kY_Index:
+size_t WEBPImageDecoder::DecodedYUVWidthBytes(cc::YUVIndex index) const {
+  switch (index) {
+    case cc::YUVIndex::kY:
       return base::checked_cast<size_t>(Size().Width());
-    case SkYUVAIndex::kU_Index:
-      FALLTHROUGH;
-    case SkYUVAIndex::kV_Index:
+    case cc::YUVIndex::kU:
+    case cc::YUVIndex::kV:
       return base::checked_cast<size_t>((Size().Width() + 1) / 2);
   }
   NOTREACHED();
@@ -690,29 +687,23 @@ bool WEBPImageDecoder::DecodeSingleFrameToYUV(const uint8_t* data_bytes,
   // Even if |decoder_| already exists, we must get most up-to-date pointers
   // because memory location might change e.g. upon tab resume.
   decoder_buffer_.u.YUVA.y =
-      static_cast<uint8_t*>(image_planes->Plane(SkYUVAIndex::kY_Index));
+      static_cast<uint8_t*>(image_planes->Plane(cc::YUVIndex::kY));
   decoder_buffer_.u.YUVA.u =
-      static_cast<uint8_t*>(image_planes->Plane(SkYUVAIndex::kU_Index));
+      static_cast<uint8_t*>(image_planes->Plane(cc::YUVIndex::kU));
   decoder_buffer_.u.YUVA.v =
-      static_cast<uint8_t*>(image_planes->Plane(SkYUVAIndex::kV_Index));
+      static_cast<uint8_t*>(image_planes->Plane(cc::YUVIndex::kV));
 
   if (!decoder_) {
     // libwebp only supports YUV 420 subsampling
-    decoder_buffer_.u.YUVA.y_stride =
-        image_planes->RowBytes(SkYUVAIndex::kY_Index);
-    decoder_buffer_.u.YUVA.y_size =
-        decoder_buffer_.u.YUVA.y_stride *
-        DecodedYUVSize(SkYUVAIndex::kY_Index).Height();
-    decoder_buffer_.u.YUVA.u_stride =
-        image_planes->RowBytes(SkYUVAIndex::kU_Index);
-    decoder_buffer_.u.YUVA.u_size =
-        decoder_buffer_.u.YUVA.u_stride *
-        DecodedYUVSize(SkYUVAIndex::kU_Index).Height();
-    decoder_buffer_.u.YUVA.v_stride =
-        image_planes->RowBytes(SkYUVAIndex::kV_Index);
-    decoder_buffer_.u.YUVA.v_size =
-        decoder_buffer_.u.YUVA.v_stride *
-        DecodedYUVSize(SkYUVAIndex::kV_Index).Height();
+    decoder_buffer_.u.YUVA.y_stride = image_planes->RowBytes(cc::YUVIndex::kY);
+    decoder_buffer_.u.YUVA.y_size = decoder_buffer_.u.YUVA.y_stride *
+                                    DecodedYUVSize(cc::YUVIndex::kY).Height();
+    decoder_buffer_.u.YUVA.u_stride = image_planes->RowBytes(cc::YUVIndex::kU);
+    decoder_buffer_.u.YUVA.u_size = decoder_buffer_.u.YUVA.u_stride *
+                                    DecodedYUVSize(cc::YUVIndex::kU).Height();
+    decoder_buffer_.u.YUVA.v_stride = image_planes->RowBytes(cc::YUVIndex::kV);
+    decoder_buffer_.u.YUVA.v_size = decoder_buffer_.u.YUVA.v_stride *
+                                    DecodedYUVSize(cc::YUVIndex::kV).Height();
 
     decoder_buffer_.is_external_memory = 1;
     decoder_ = WebPINewDecoder(&decoder_buffer_);
@@ -728,6 +719,7 @@ bool WEBPImageDecoder::DecodeSingleFrameToYUV(const uint8_t* data_bytes,
   // TODO(crbug.com/911246): Do post-processing once skcms_Transform
   // supports multiplanar formats.
   ClearDecoder();
+  image_planes->SetHasCompleteScan();
   return true;
 }
 

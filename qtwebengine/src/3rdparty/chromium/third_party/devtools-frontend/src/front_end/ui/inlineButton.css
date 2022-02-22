@@ -5,17 +5,12 @@
  */
 
 :host {
-  display: inline-block;
-  border: 1px solid #ddd;
+  display: inline-flex;
+  border: 1px solid var(--color-details-hairline);
   position: relative;
   top: 7px;
   margin: 2px;
-  background-color: var(--toolbar-bg-color);
-}
-
-:host > * {
-  position: relative;
-  left: -2px;
+  background-color: var(--color-background-elevation-1);
+  justify-content: center;
   width: 28px;
-  height: 26px;
 }

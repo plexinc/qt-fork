@@ -29,6 +29,7 @@
 #include <cmath>
 #include "third_party/blink/renderer/core/svg/svg_circle_element.h"
 #include "third_party/blink/renderer/core/svg/svg_ellipse_element.h"
+#include "third_party/blink/renderer/core/svg/svg_length_context.h"
 
 namespace blink {
 
@@ -38,6 +39,7 @@ LayoutSVGEllipse::LayoutSVGEllipse(SVGGeometryElement* node)
 LayoutSVGEllipse::~LayoutSVGEllipse() = default;
 
 void LayoutSVGEllipse::UpdateShapeFromElement() {
+  NOT_DESTROYED();
   // Before creating a new object we need to clear the cached bounding box
   // to avoid using garbage.
   fill_bounding_box_ = FloatRect();
@@ -78,29 +80,29 @@ void LayoutSVGEllipse::UpdateShapeFromElement() {
 }
 
 void LayoutSVGEllipse::CalculateRadiiAndCenter() {
+  NOT_DESTROYED();
   DCHECK(GetElement());
   SVGLengthContext length_context(GetElement());
   const ComputedStyle& style = StyleRef();
-  const SVGComputedStyle& svg_style = style.SvgStyle();
-  center_ =
-      length_context.ResolveLengthPair(svg_style.Cx(), svg_style.Cy(), style);
+  center_ = length_context.ResolveLengthPair(style.Cx(), style.Cy(), style);
 
   if (IsA<SVGCircleElement>(*GetElement())) {
-    float radius = length_context.ValueForLength(svg_style.R(), style,
-                                                 SVGLengthMode::kOther);
+    float radius =
+        length_context.ValueForLength(style.R(), style, SVGLengthMode::kOther);
     radii_ = FloatSize(radius, radius);
   } else {
-    radii_ = ToFloatSize(length_context.ResolveLengthPair(
-        svg_style.Rx(), svg_style.Ry(), style));
-    if (svg_style.Rx().IsAuto())
+    radii_ = ToFloatSize(
+        length_context.ResolveLengthPair(style.Rx(), style.Ry(), style));
+    if (style.Rx().IsAuto())
       radii_.SetWidth(radii_.Height());
-    else if (svg_style.Ry().IsAuto())
+    else if (style.Ry().IsAuto())
       radii_.SetHeight(radii_.Width());
   }
 }
 
 bool LayoutSVGEllipse::ShapeDependentStrokeContains(
     const HitTestLocation& location) {
+  NOT_DESTROYED();
   if (radii_.Width() < 0 || radii_.Height() < 0)
     return false;
 
@@ -120,6 +122,7 @@ bool LayoutSVGEllipse::ShapeDependentStrokeContains(
 bool LayoutSVGEllipse::ShapeDependentFillContains(
     const HitTestLocation& location,
     const WindRule fill_rule) const {
+  NOT_DESTROYED();
   const FloatPoint& point = location.TransformedPoint();
   const FloatPoint center =
       FloatPoint(center_.X() - point.X(), center_.Y() - point.Y());
@@ -132,8 +135,8 @@ bool LayoutSVGEllipse::ShapeDependentFillContains(
 }
 
 bool LayoutSVGEllipse::HasContinuousStroke() const {
-  const SVGComputedStyle& svg_style = StyleRef().SvgStyle();
-  return svg_style.StrokeDashArray()->data.IsEmpty();
+  NOT_DESTROYED();
+  return !StyleRef().HasDashArray();
 }
 
 }  // namespace blink

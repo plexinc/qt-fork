@@ -18,17 +18,13 @@
 #include "ui/events/platform_event.h"
 #include "ui/gfx/geometry/rect.h"
 
-namespace extensions {
-class InputImeApiTest;
-}  // namespace extensions
-
 namespace ui {
 
 namespace internal {
 class InputMethodDelegate;
 }  // namespace internal
 
-class InputMethodKeyboardController;
+class VirtualKeyboardController;
 class InputMethodObserver;
 class KeyEvent;
 class TextInputClient;
@@ -57,8 +53,6 @@ class TextInputClient;
 // ui::InputMethod and owns it.
 class InputMethod {
  public:
-  InputMethod() : track_key_events_for_testing_(false) {}
-
 #if defined(OS_WIN)
   typedef LRESULT NativeEventResult;
 #else
@@ -173,17 +167,7 @@ class InputMethod {
   virtual void SetOnScreenKeyboardBounds(const gfx::Rect& new_bounds) {}
 
   // Return the keyboard controller; used only on Windows.
-  virtual InputMethodKeyboardController* GetInputMethodKeyboardController() = 0;
-
- protected:
-  friend class extensions::InputImeApiTest;
-
-  // Gets the tracked key events of using input.ime.sendKeyEvents API.
-  virtual const std::vector<std::unique_ptr<ui::KeyEvent>>&
-  GetKeyEventsForTesting() = 0;
-
-  // Whether the key events will be tracked. Only used for testing.
-  bool track_key_events_for_testing_;
+  virtual VirtualKeyboardController* GetVirtualKeyboardController() = 0;
 };
 
 }  // namespace ui

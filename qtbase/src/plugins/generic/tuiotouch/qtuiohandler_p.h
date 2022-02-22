@@ -41,17 +41,17 @@
 #ifndef QTUIOHANDLER_P_H
 #define QTUIOHANDLER_P_H
 
+#include <QList>
 #include <QObject>
 #include <QMap>
 #include <QUdpSocket>
-#include <QVector>
 #include <QTransform>
 
 #include <qpa/qwindowsysteminterface.h>
 
 QT_BEGIN_NAMESPACE
 
-class QTouchDevice;
+class QPointingDevice;
 class QOscMessage;
 class QTuioCursor;
 class QTuioToken;
@@ -59,6 +59,7 @@ class QTuioToken;
 class QTuioHandler : public QObject
 {
     Q_OBJECT
+    Q_MOC_INCLUDE("qoscmessage_p.h")
 
 public:
     explicit QTuioHandler(const QString &specification);
@@ -79,12 +80,12 @@ private:
     QWindowSystemInterface::TouchPoint cursorToTouchPoint(const QTuioCursor &tc, QWindow *win);
     QWindowSystemInterface::TouchPoint tokenToTouchPoint(const QTuioToken &tc, QWindow *win);
 
-    QTouchDevice *m_device;
+    QPointingDevice *m_device = nullptr;
     QUdpSocket m_socket;
     QMap<int, QTuioCursor> m_activeCursors;
-    QVector<QTuioCursor> m_deadCursors;
+    QList<QTuioCursor> m_deadCursors;
     QMap<int, QTuioToken> m_activeTokens;
-    QVector<QTuioToken> m_deadTokens;
+    QList<QTuioToken> m_deadTokens;
     QTransform m_transform;
 };
 

@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2019 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -30,15 +30,15 @@
 
 #include <QtCore/qdebug.h>
 #include <QtCore/qfileinfo.h>
-#include <QtCore/qregexp.h>
+#include <QtCore/qregularexpression.h>
 
 QT_BEGIN_NAMESPACE
 
-QHash<QString, QString> Quoter::commentHash;
+QHash<QString, QString> Quoter::s_commentHash;
 
 static void replaceMultipleNewlines(QString &s)
 {
-    const int n = s.size();
+    const qsizetype n = s.size();
     bool slurping = false;
     int j = -1;
     const QChar newLine = QLatin1Char('\n');
@@ -54,13 +54,13 @@ static void replaceMultipleNewlines(QString &s)
     s.resize(++j);
 }
 
-// This is equivalent to  line.split( QRegExp("\n(?!\n|$)") ) but much faster
+// This is equivalent to  line.split( QRegularExpression("\n(?!\n|$)") ) but much faster
 QStringList Quoter::splitLines(const QString &line)
 {
     QStringList result;
-    int i = line.size();
+    qsizetype i = line.size();
     while (true) {
-        int j = i - 1;
+        qsizetype j = i - 1;
         while (j >= 0 && line.at(j) == QLatin1Char('\n'))
             --j;
         while (j >= 0 && line.at(j) != QLatin1Char('\n'))
@@ -80,7 +80,7 @@ QStringList Quoter::splitLines(const QString &line)
 static void trimWhiteSpace(QString &str)
 {
     enum { Normal, MetAlnum, MetSpace } state = Normal;
-    const int n = str.length();
+    const qsizetype n = str.length();
 
     int j = -1;
     QChar *d = str.data();
@@ -106,41 +106,40 @@ static void trimWhiteSpace(QString &str)
     str.resize(++j);
 }
 
-Quoter::Quoter() : silent(false)
+Quoter::Quoter() : m_silent(false)
 {
     /* We're going to hard code these delimiters:
         * C++, Qt, Qt Script, Java:
           //! [<id>]
         * .pro, .py, CMake files:
           #! [<id>]
-        * .html, .qrc, .ui, .xq, .xml .dita files:
+        * .html, .qrc, .ui, .xq, .xml files:
           <!-- [<id>] -->
     */
-    if (!commentHash.size()) {
-        commentHash["pro"] = "#!";
-        commentHash["py"] = "#!";
-        commentHash["cmake"] = "#!";
-        commentHash["html"] = "<!--";
-        commentHash["qrc"] = "<!--";
-        commentHash["ui"] = "<!--";
-        commentHash["xml"] = "<!--";
-        commentHash["dita"] = "<!--";
-        commentHash["xq"] = "<!--";
+    if (s_commentHash.empty()) {
+        s_commentHash["pro"] = "#!";
+        s_commentHash["py"] = "#!";
+        s_commentHash["cmake"] = "#!";
+        s_commentHash["html"] = "<!--";
+        s_commentHash["qrc"] = "<!--";
+        s_commentHash["ui"] = "<!--";
+        s_commentHash["xml"] = "<!--";
+        s_commentHash["xq"] = "<!--";
     }
 }
 
 void Quoter::reset()
 {
-    silent = false;
-    plainLines.clear();
-    markedLines.clear();
-    codeLocation = Location();
+    m_silent = false;
+    m_plainLines.clear();
+    m_markedLines.clear();
+    m_codeLocation = Location();
 }
 
 void Quoter::quoteFromFile(const QString &userFriendlyFilePath, const QString &plainCode,
                            const QString &markedCode)
 {
-    silent = false;
+    m_silent = false;
 
     /*
       Split the source code into logical lines. Empty lines are
@@ -163,43 +162,44 @@ void Quoter::quoteFromFile(const QString &userFriendlyFilePath, const QString &p
 
       Newlines are preserved because they affect codeLocation.
     */
-    codeLocation = Location(userFriendlyFilePath);
+    m_codeLocation = Location(userFriendlyFilePath);
 
-    plainLines = splitLines(plainCode);
-    markedLines = splitLines(markedCode);
-    if (markedLines.count() != plainLines.count()) {
-        codeLocation.warning(tr("Something is wrong with qdoc's handling of marked code"));
-        markedLines = plainLines;
+    m_plainLines = splitLines(plainCode);
+    m_markedLines = splitLines(markedCode);
+    if (m_markedLines.count() != m_plainLines.count()) {
+        m_codeLocation.warning(
+                QStringLiteral("Something is wrong with qdoc's handling of marked code"));
+        m_markedLines = m_plainLines;
     }
 
     /*
       Squeeze blanks (cat -s).
     */
-    for (auto &line : markedLines)
+    for (auto &line : m_markedLines)
         replaceMultipleNewlines(line);
-    codeLocation.start();
+    m_codeLocation.start();
 }
 
 QString Quoter::quoteLine(const Location &docLocation, const QString &command,
                           const QString &pattern)
 {
-    if (plainLines.isEmpty()) {
+    if (m_plainLines.isEmpty()) {
         failedAtEnd(docLocation, command);
         return QString();
     }
 
     if (pattern.isEmpty()) {
-        docLocation.warning(tr("Missing pattern after '\\%1'").arg(command));
+        docLocation.warning(QStringLiteral("Missing pattern after '\\%1'").arg(command));
         return QString();
     }
 
-    if (match(docLocation, pattern, plainLines.first()))
+    if (match(docLocation, pattern, m_plainLines.first()))
         return getLine();
 
-    if (!silent) {
-        docLocation.warning(tr("Command '\\%1' failed").arg(command));
-        codeLocation.warning(tr("Pattern '%1' didn't match here").arg(pattern));
-        silent = true;
+    if (!m_silent) {
+        docLocation.warning(QStringLiteral("Command '\\%1' failed").arg(command));
+        m_codeLocation.warning(QStringLiteral("Pattern '%1' didn't match here").arg(pattern));
+        m_silent = true;
     }
     return QString();
 }
@@ -211,8 +211,8 @@ QString Quoter::quoteSnippet(const Location &docLocation, const QString &identif
     QString t;
     int indent = 0;
 
-    while (!plainLines.isEmpty()) {
-        if (match(docLocation, delimiter, plainLines.first())) {
+    while (!m_plainLines.isEmpty()) {
+        if (match(docLocation, delimiter, m_plainLines.first())) {
             QString startLine = getLine();
             while (indent < startLine.length() && startLine[indent] == QLatin1Char(' '))
                 indent++;
@@ -220,11 +220,11 @@ QString Quoter::quoteSnippet(const Location &docLocation, const QString &identif
         }
         getLine();
     }
-    while (!plainLines.isEmpty()) {
-        QString line = plainLines.first();
+    while (!m_plainLines.isEmpty()) {
+        QString line = m_plainLines.first();
         if (match(docLocation, delimiter, line)) {
             QString lastLine = getLine(indent);
-            int dIndex = lastLine.indexOf(delimiter);
+            qsizetype dIndex = lastLine.indexOf(delimiter);
             if (dIndex > 0) {
                 // The delimiter might be preceded on the line by other
                 // delimeters, so look for the first comment on the line.
@@ -252,13 +252,13 @@ QString Quoter::quoteTo(const Location &docLocation, const QString &command, con
     QString comment = commentForCode();
 
     if (pattern.isEmpty()) {
-        while (!plainLines.isEmpty()) {
-            QString line = plainLines.first();
+        while (!m_plainLines.isEmpty()) {
+            QString line = m_plainLines.first();
             t += removeSpecialLines(line, comment);
         }
     } else {
-        while (!plainLines.isEmpty()) {
-            if (match(docLocation, pattern, plainLines.first())) {
+        while (!m_plainLines.isEmpty()) {
+            if (match(docLocation, pattern, m_plainLines.first())) {
                 return t;
             }
             t += getLine();
@@ -278,19 +278,19 @@ QString Quoter::quoteUntil(const Location &docLocation, const QString &command,
 
 QString Quoter::getLine(int unindent)
 {
-    if (plainLines.isEmpty())
+    if (m_plainLines.isEmpty())
         return QString();
 
-    plainLines.removeFirst();
+    m_plainLines.removeFirst();
 
-    QString t = markedLines.takeFirst();
+    QString t = m_markedLines.takeFirst();
     int i = 0;
     while (i < unindent && i < t.length() && t[i] == QLatin1Char(' '))
         i++;
 
     t = t.mid(i);
     t += QLatin1Char('\n');
-    codeLocation.advanceLines(t.count(QLatin1Char('\n')));
+    m_codeLocation.advanceLines(t.count(QLatin1Char('\n')));
     return t;
 }
 
@@ -303,10 +303,11 @@ bool Quoter::match(const Location &docLocation, const QString &pattern0, const Q
     QString pattern = pattern0;
     if (pattern.startsWith(QLatin1Char('/')) && pattern.endsWith(QLatin1Char('/'))
         && pattern.length() > 2) {
-        QRegExp rx(pattern.mid(1, pattern.length() - 2));
-        if (!silent && !rx.isValid()) {
-            docLocation.warning(tr("Invalid regular expression '%1'").arg(rx.pattern()));
-            silent = true;
+        QRegularExpression rx(pattern.mid(1, pattern.length() - 2));
+        if (!m_silent && !rx.isValid()) {
+            docLocation.warning(
+                    QStringLiteral("Invalid regular expression '%1'").arg(rx.pattern()));
+            m_silent = true;
         }
         return str.indexOf(rx) != -1;
     }
@@ -317,24 +318,23 @@ bool Quoter::match(const Location &docLocation, const QString &pattern0, const Q
 
 void Quoter::failedAtEnd(const Location &docLocation, const QString &command)
 {
-    if (!silent && !command.isEmpty()) {
-        if (codeLocation.filePath().isEmpty()) {
-            docLocation.warning(tr("Unexpected '\\%1'").arg(command));
+    if (!m_silent && !command.isEmpty()) {
+        if (m_codeLocation.filePath().isEmpty()) {
+            docLocation.warning(QStringLiteral("Unexpected '\\%1'").arg(command));
         } else {
-            docLocation.warning(tr("Command '\\%1' failed at end of file '%2'")
-                                        .arg(command)
-                                        .arg(codeLocation.filePath()));
+            docLocation.warning(QStringLiteral("Command '\\%1' failed at end of file '%2'")
+                                        .arg(command, m_codeLocation.filePath()));
         }
-        silent = true;
+        m_silent = true;
     }
 }
 
 QString Quoter::commentForCode() const
 {
-    QFileInfo fi = QFileInfo(codeLocation.fileName());
+    QFileInfo fi = QFileInfo(m_codeLocation.fileName());
     if (fi.fileName() == "CMakeLists.txt")
         return "#!";
-    return commentHash.value(fi.suffix(), "//!");
+    return s_commentHash.value(fi.suffix(), "//!");
 }
 
 QString Quoter::removeSpecialLines(const QString &line, const QString &comment, int unindent)

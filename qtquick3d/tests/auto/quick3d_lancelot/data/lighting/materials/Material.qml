@@ -48,7 +48,7 @@
 **
 ****************************************************************************/
 
-import QtQuick3D 1.15
+import QtQuick3D
 
 DefaultMaterial {
     id: material
@@ -58,17 +58,4 @@ DefaultMaterial {
     specularRoughness: 0
     bumpAmount: 0.5
     translucentFalloff: 1
-    lightmapRadiosity: material_lightmapradiosity
-    lightmapShadow: material_lightmapshadow
-    displacementAmount: 20
-
-    Texture {
-        id: material_lightmapradiosity
-        source: "../maps/core_lightmap_radiosity.jpg"
-    }
-
-    Texture {
-        id: material_lightmapshadow
-        source: "../maps/core_lightmap_shadow.jpg"
-    }
 }

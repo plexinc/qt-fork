@@ -4,7 +4,7 @@
 
 #include "content/browser/renderer_host/input/synthetic_pointer_action.h"
 
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "ui/latency/latency_info.h"
 
 namespace content {
@@ -12,7 +12,7 @@ namespace content {
 SyntheticPointerAction::SyntheticPointerAction(
     const SyntheticPointerActionListParams& params)
     : params_(params),
-      gesture_source_type_(SyntheticGestureParams::DEFAULT_INPUT),
+      gesture_source_type_(content::mojom::GestureSourceType::kDefaultInput),
       state_(GestureState::UNINITIALIZED),
       num_actions_dispatched_(0U) {}
 
@@ -23,7 +23,8 @@ SyntheticGesture::Result SyntheticPointerAction::ForwardInputEvents(
     SyntheticGestureTarget* target) {
   if (state_ == GestureState::UNINITIALIZED) {
     gesture_source_type_ = params_.gesture_source_type;
-    if (gesture_source_type_ == SyntheticGestureParams::DEFAULT_INPUT)
+    if (gesture_source_type_ ==
+        content::mojom::GestureSourceType::kDefaultInput)
       gesture_source_type_ = target->GetDefaultSyntheticGestureSourceType();
 
     if (!synthetic_pointer_driver_) {
@@ -35,8 +36,9 @@ SyntheticGesture::Result SyntheticPointerAction::ForwardInputEvents(
     state_ = GestureState::RUNNING;
   }
 
-  DCHECK_NE(gesture_source_type_, SyntheticGestureParams::DEFAULT_INPUT);
-  if (gesture_source_type_ == SyntheticGestureParams::DEFAULT_INPUT)
+  DCHECK_NE(gesture_source_type_,
+            content::mojom::GestureSourceType::kDefaultInput);
+  if (gesture_source_type_ == content::mojom::GestureSourceType::kDefaultInput)
     return SyntheticGesture::GESTURE_SOURCE_TYPE_NOT_IMPLEMENTED;
 
   state_ = ForwardTouchOrMouseInputEvents(timestamp, target);

@@ -85,12 +85,17 @@ WebURL WebDocument::Url() const {
 WebSecurityOrigin WebDocument::GetSecurityOrigin() const {
   if (!ConstUnwrap<Document>())
     return WebSecurityOrigin();
-  return WebSecurityOrigin(ConstUnwrap<Document>()->GetSecurityOrigin());
+  ExecutionContext* context = ConstUnwrap<Document>()->GetExecutionContext();
+  if (!context)
+    return WebSecurityOrigin();
+  return WebSecurityOrigin(context->GetSecurityOrigin());
 }
 
 bool WebDocument::IsSecureContext() const {
   const Document* document = ConstUnwrap<Document>();
-  return document && document->IsSecureContext();
+  ExecutionContext* context =
+      document ? document->GetExecutionContext() : nullptr;
+  return context && context->IsSecureContext();
 }
 
 WebString WebDocument::Encoding() const {
@@ -176,19 +181,18 @@ WebElementCollection WebDocument::All() {
   return WebElementCollection(Unwrap<Document>()->all());
 }
 
-void WebDocument::Forms(WebVector<WebFormElement>& results) const {
+WebVector<WebFormElement> WebDocument::Forms() const {
   HTMLCollection* forms =
       const_cast<Document*>(ConstUnwrap<Document>())->forms();
-  size_t source_length = forms->length();
-  Vector<WebFormElement> temp;
-  temp.ReserveCapacity(source_length);
-  for (size_t i = 0; i < source_length; ++i) {
-    Element* element = forms->item(i);
+
+  Vector<WebFormElement> form_elements;
+  form_elements.ReserveCapacity(forms->length());
+  for (Element* element : *forms) {
     // Strange but true, sometimes node can be 0.
     if (auto* html_form_element = DynamicTo<HTMLFormElement>(element))
-      temp.push_back(WebFormElement(html_form_element));
+      form_elements.emplace_back(html_form_element);
   }
-  results.Assign(temp);
+  return form_elements;
 }
 
 WebURL WebDocument::CompleteURL(const WebString& partial_url) const {
@@ -233,14 +237,6 @@ void WebDocument::WatchCSSSelectors(const WebVector<WebString>& web_selectors) {
   CSSSelectorWatch::From(*document).WatchCSSSelectors(selectors);
 }
 
-network::mojom::ReferrerPolicy WebDocument::GetReferrerPolicy() const {
-  return ConstUnwrap<Document>()->GetReferrerPolicy();
-}
-
-WebString WebDocument::OutgoingReferrer() {
-  return WebString(Unwrap<Document>()->OutgoingReferrer());
-}
-
 WebVector<WebDraggableRegion> WebDocument::DraggableRegions() const {
   WebVector<WebDraggableRegion> draggable_regions;
   const Document* document = ConstUnwrap<Document>();
@@ -282,6 +278,10 @@ uint64_t WebDocument::GetVisualViewportScrollingElementIdForTesting() {
       ->GetVisualViewport()
       .GetScrollElementId()
       .GetStableId();
+}
+
+bool WebDocument::IsLoaded() {
+  return !ConstUnwrap<Document>()->Parser();
 }
 
 WebDocument::WebDocument(Document* elem) : WebNode(elem) {}

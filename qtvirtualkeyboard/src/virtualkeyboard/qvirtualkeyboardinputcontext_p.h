@@ -43,9 +43,12 @@
 
 #include <QObject>
 #include <QRectF>
+#include <QSet>
 #include <QInputMethodEvent>
+#include <QQuickItem>
 #include <QtVirtualKeyboard/qvirtualkeyboardinputcontext.h>
 #include <QtVirtualKeyboard/private/shadowinputcontext_p.h>
+#include <QtVirtualKeyboard/qvirtualkeyboardobserver.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -76,6 +79,7 @@ class QVIRTUALKEYBOARD_EXPORT QVirtualKeyboardInputContextPrivate : public QObje
     Q_PROPERTY(QtVirtualKeyboard::ShiftHandler *shiftHandler READ shiftHandler CONSTANT)
     Q_PROPERTY(QtVirtualKeyboard::ShadowInputContext *shadow READ shadow CONSTANT)
     Q_PROPERTY(QStringList inputMethods READ inputMethods CONSTANT)
+    Q_MOC_INCLUDE("shifthandler_p.h")
 
     explicit QVirtualKeyboardInputContextPrivate(QVirtualKeyboardInputContext *q_ptr);
     void init();
@@ -86,7 +90,8 @@ public:
         InputMethodEvent = 0x2,
         KeyEvent = 0x4,
         InputMethodClick = 0x8,
-        SyncShadowInput = 0x10
+        SyncShadowInput = 0x10,
+        SetFocus = 0x20
     };
     Q_FLAG(State)
     Q_DECLARE_FLAGS(StateFlags, QVirtualKeyboardInputContextPrivate::State)
@@ -107,11 +112,13 @@ public:
     QtVirtualKeyboard::ShiftHandler *shiftHandler() const;
     QtVirtualKeyboard::ShadowInputContext *shadow() const;
     QStringList inputMethods() const;
+    Q_INVOKABLE void setKeyboardObserver(QVirtualKeyboardObserver *keyboardObserver);
 
     // Helper functions
     Q_INVOKABLE bool fileExists(const QUrl &fileUrl);
     Q_INVOKABLE bool hasEnterKeyAction(QObject *item) const;
     Q_INVOKABLE void registerInputPanel(QObject *inputPanel);
+    Q_INVOKABLE bool contains(const QPointF &point) const;
 
 Q_SIGNALS:
     void focusChanged();
@@ -153,6 +160,7 @@ private:
     QVirtualKeyboardInputEngine *inputEngine;
     QtVirtualKeyboard::ShiftHandler *_shiftHandler;
     QPointer<QObject> inputPanel;
+    QPointer<QQuickItem> dimmer;
     QRectF keyboardRect;
     QRectF previewRect;
     bool _previewVisible;
@@ -178,6 +186,7 @@ private:
 #endif
     QSet<quint32> activeKeys;
     QtVirtualKeyboard::ShadowInputContext _shadow;
+    QPointer<QVirtualKeyboardObserver> keyboardObserver;
 
     friend class QtVirtualKeyboard::PlatformInputContext;
     friend class QVirtualKeyboardScopedState;

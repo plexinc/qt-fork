@@ -19,7 +19,8 @@
 
 #include "api/audio_options.h"
 #include "api/crypto/crypto_options.h"
-#include "api/transport/media/media_transport_config.h"
+#include "api/rtp_parameters.h"
+#include "api/video/video_bitrate_allocator_factory.h"
 #include "call/call.h"
 #include "media/base/codec.h"
 #include "media/base/media_channel.h"
@@ -30,6 +31,7 @@
 #include "pc/session_description.h"
 #include "rtc_base/system/file_wrapper.h"
 #include "rtc_base/thread.h"
+#include "rtc_base/unique_id_generator.h"
 
 namespace cricket {
 
@@ -97,17 +99,15 @@ class ChannelManager final {
   // call the appropriate Destroy*Channel method when done.
 
   // Creates a voice channel, to be associated with the specified session.
-  VoiceChannel* CreateVoiceChannel(
-      webrtc::Call* call,
-      const cricket::MediaConfig& media_config,
-      webrtc::RtpTransportInternal* rtp_transport,
-      const webrtc::MediaTransportConfig& media_transport_config,
-      rtc::Thread* signaling_thread,
-      const std::string& content_name,
-      bool srtp_required,
-      const webrtc::CryptoOptions& crypto_options,
-      rtc::UniqueRandomIdGenerator* ssrc_generator,
-      const AudioOptions& options);
+  VoiceChannel* CreateVoiceChannel(webrtc::Call* call,
+                                   const cricket::MediaConfig& media_config,
+                                   webrtc::RtpTransportInternal* rtp_transport,
+                                   rtc::Thread* signaling_thread,
+                                   const std::string& content_name,
+                                   bool srtp_required,
+                                   const webrtc::CryptoOptions& crypto_options,
+                                   rtc::UniqueRandomIdGenerator* ssrc_generator,
+                                   const AudioOptions& options);
   // Destroys a voice channel created by CreateVoiceChannel.
   void DestroyVoiceChannel(VoiceChannel* voice_channel);
 
@@ -118,7 +118,6 @@ class ChannelManager final {
       webrtc::Call* call,
       const cricket::MediaConfig& media_config,
       webrtc::RtpTransportInternal* rtp_transport,
-      const webrtc::MediaTransportConfig& media_transport_config,
       rtc::Thread* signaling_thread,
       const std::string& content_name,
       bool srtp_required,

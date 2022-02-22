@@ -104,13 +104,15 @@ QT_BEGIN_NAMESPACE
 /*!
     \fn bool QNdefRecord::isRecordType() const
 
-    Returns true if the NDEF record is of the specified record type; otherwise returns false.
+    Returns \c true if the NDEF record is of the specified record type;
+    otherwise returns \c false.
 */
 
 /*!
     \fn bool QNdefRecord::operator!=(const QNdefRecord &other) const
 
-    Returns true if this NDEF record does not equal \a other; otherwise return false.
+    Returns \c true if this NDEF record does not equal \a other;
+    otherwise return \c false.
 */
 
 /*!
@@ -148,7 +150,7 @@ QT_BEGIN_NAMESPACE
     \sa Q_DECLARE_NDEF_RECORD()
 */
 
-uint qHash(const QNdefRecord &key)
+size_t qHash(const QNdefRecord &key)
 {
     return qHash(key.type() + key.id() + key.payload());
 }
@@ -327,7 +329,8 @@ QByteArray QNdefRecord::payload() const
 }
 
 /*!
-    Returns true if the NDEF record contains an empty payload; otherwise return false.
+    Returns \c true if the NDEF record contains an empty payload;
+    otherwise returns \c false.
 
     This is equivalent to calling \c {payload().isEmpty()}.
 */
@@ -340,7 +343,8 @@ bool QNdefRecord::isEmpty() const
 }
 
 /*!
-    Returns true if \a other and this NDEF record are the same.
+    Returns \c true if \a other and this NDEF record are the same.
+    Otherwise returns \c false.
 */
 bool QNdefRecord::operator==(const QNdefRecord &other) const
 {
@@ -363,6 +367,24 @@ bool QNdefRecord::operator==(const QNdefRecord &other) const
         return false;
 
     return true;
+}
+
+/*!
+    \since 6.2
+
+    Clear the NDEF record.
+
+    An \l isEmpty() call returns \c true for a cleared record. The record
+    \l type() is set to \l {QNdefRecord::}{Empty}.
+*/
+void QNdefRecord::clear()
+{
+    if (d) {
+        d->typeNameFormat = 0;
+        d->type.clear();
+        d->id.clear();
+        d->payload.clear();
+    }
 }
 
 QT_END_NAMESPACE

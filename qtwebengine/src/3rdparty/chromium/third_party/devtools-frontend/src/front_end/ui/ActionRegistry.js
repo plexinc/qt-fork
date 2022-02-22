@@ -2,39 +2,45 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {Action} from './Action.js';
+import * as Root from '../root/root.js';  // eslint-disable-line no-unused-vars
+
+import {Action, getRegisteredActionExtensions} from './ActionRegistration.js';  // eslint-disable-line no-unused-vars
 import {Context} from './Context.js';  // eslint-disable-line no-unused-vars
 
-/**
- * @unrestricted
- */
+/** @type {!ActionRegistry|undefined} */
+let actionRegistryInstance;
+
 export class ActionRegistry {
+  /**
+   * @private
+   */
   constructor() {
     /** @type {!Map.<string, !Action>} */
     this._actionsById = new Map();
     this._registerActions();
   }
 
+  /**
+   * @param {{forceNew: ?boolean}} opts
+   */
+  static instance(opts = {forceNew: null}) {
+    const {forceNew} = opts;
+    if (!actionRegistryInstance || forceNew) {
+      actionRegistryInstance = new ActionRegistry();
+    }
+
+    return actionRegistryInstance;
+  }
+
+  static removeInstance() {
+    actionRegistryInstance = undefined;
+  }
+
   _registerActions() {
-    self.runtime.extensions('action').forEach(registerExtension, this);
-
-    /**
-     * @param {!Root.Runtime.Extension} extension
-     * @this {ActionRegistry}
-     */
-    function registerExtension(extension) {
-      if (!extension.canInstantiate()) {
-        return;
-      }
-      const actionId = extension.descriptor()['actionId'];
-      console.assert(actionId);
-      console.assert(!this._actionsById.get(actionId));
-
-      const action = new Action(extension);
-      if (!action.category() || action.title()) {
-        this._actionsById.set(actionId, action);
-      } else {
-        console.error(`Category actions require a title for command menu: ${actionId}`);
+    for (const action of getRegisteredActionExtensions()) {
+      this._actionsById.set(action.id(), action);
+      if (!action.canInstantiate()) {
+        action.setEnabled(false);
       }
     }
   }
@@ -43,7 +49,7 @@ export class ActionRegistry {
    * @return {!Array.<!Action>}
    */
   availableActions() {
-    return this.applicableActions([...this._actionsById.keys()], self.UI.context);
+    return this.applicableActions([...this._actionsById.keys()], Context.instance());
   }
 
   /**
@@ -59,23 +65,37 @@ export class ActionRegistry {
    * @return {!Array.<!Action>}
    */
   applicableActions(actionIds, context) {
-    const extensions = [];
-    actionIds.forEach(function(actionId) {
+    /** @type {!Array<!Action>} */
+    const applicableActions = [];
+    for (const actionId of actionIds) {
       const action = this._actionsById.get(actionId);
-      if (action) {
-        extensions.push(action.extension());
+      if (action && action.enabled()) {
+        if (isActionApplicableToContextTypes(
+                /** @type {!Action} */ (action), context.flavors())) {
+          applicableActions.push(/** @type {!Action} */ (action));
+        }
       }
-    }, this);
-    return [...context.applicableExtensions(extensions)].map(extensionToAction.bind(this));
+    }
+    return applicableActions;
 
     /**
-     * @param {!Root.Runtime.Extension} extension
-     * @return {!Action}
-     * @this {ActionRegistry}
+     * @param {!Action} action
+     * @param {!Set.<?>} currentContextTypes
+     * @return {boolean}
      */
-    function extensionToAction(extension) {
-      return (
-          /** @type {!Action} */ (this.action(extension.descriptor()['actionId'])));
+    function isActionApplicableToContextTypes(action, currentContextTypes) {
+      const contextTypes = action.contextTypes();
+      if (!contextTypes) {
+        return true;
+      }
+      for (let i = 0; i < contextTypes.length; ++i) {
+        const contextType = contextTypes[i];
+        const isMatching = Boolean(contextType) && currentContextTypes.has(contextType);
+        if (isMatching) {
+          return true;
+        }
+      }
+      return false;
     }
   }
 

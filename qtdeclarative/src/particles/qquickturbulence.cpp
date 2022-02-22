@@ -81,11 +81,11 @@ QT_BEGIN_NAMESPACE
 
 QQuickTurbulenceAffector::QQuickTurbulenceAffector(QQuickItem *parent) :
     QQuickParticleAffector(parent),
-    m_strength(10), m_lastT(0), m_gridSize(0), m_field(nullptr), m_vectorField(nullptr), m_inited(false)
+    m_strength(10), m_gridSize(0), m_field(nullptr), m_vectorField(nullptr), m_inited(false)
 {
 }
 
-void QQuickTurbulenceAffector::geometryChanged(const QRectF &, const QRectF &)
+void QQuickTurbulenceAffector::geometryChange(const QRectF &, const QRectF &)
 {
     initializeGrid();
 }
@@ -180,7 +180,7 @@ void QQuickTurbulenceAffector::affectSystem(qreal dt)
     updateOffsets();//### Needed if an ancestor is transformed.
 
     QRect boundsRect(0,0,m_gridSize,m_gridSize);
-    foreach (QQuickParticleGroupData *gd, m_system->groupData){
+    for (QQuickParticleGroupData *gd : m_system->groupData) {
         if (!activeGroup(gd->index))
             continue;
         foreach (QQuickParticleData *d, gd->data){

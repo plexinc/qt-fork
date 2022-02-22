@@ -56,6 +56,9 @@ class Q_3DINPUTSHARED_EXPORT QKeyboardHandler : public Qt3DCore::QComponent
     Q_OBJECT
     Q_PROPERTY(Qt3DInput::QKeyboardDevice *sourceDevice READ sourceDevice WRITE setSourceDevice NOTIFY sourceDeviceChanged)
     Q_PROPERTY(bool focus READ focus WRITE setFocus NOTIFY focusChanged)
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    Q_MOC_INCLUDE("Qt3DInput/qkeyboarddevice.h")
+#endif
 public:
     explicit QKeyboardHandler(QNode *parent = nullptr);
     ~QKeyboardHandler();
@@ -115,13 +118,8 @@ Q_SIGNALS:
     void pressed(Qt3DInput::QKeyEvent *event);
     void released(Qt3DInput::QKeyEvent *event);
 
-protected:
-    // TODO Unused remove in Qt6
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) override;
-
 private:
     Q_DECLARE_PRIVATE(QKeyboardHandler)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DInput

@@ -54,7 +54,7 @@
 
 #include <QtCore/private/qglobal_p.h>
 #include "qcollator.h"
-#include <QVector>
+#include <QList>
 #if QT_CONFIG(icu)
 #include <unicode/ucol.h>
 #elif defined(Q_OS_MACOS)
@@ -72,19 +72,16 @@ const CollatorType NoCollator = nullptr;
 
 #elif defined(Q_OS_MACOS)
 typedef CollatorRef CollatorType;
-typedef QVector<UCCollationValue> CollatorKeyType;
+typedef QList<UCCollationValue> CollatorKeyType;
 const CollatorType NoCollator = 0;
 
 #elif defined(Q_OS_WIN)
 typedef QString CollatorKeyType;
 typedef int CollatorType;
 const CollatorType NoCollator = 0;
-#  ifdef Q_OS_WINRT
-#    define USE_COMPARESTRINGEX
-#  endif
 
 #else // posix - ignores CollatorType collator, only handles system locale
-typedef QVector<wchar_t> CollatorKeyType;
+typedef QList<wchar_t> CollatorKeyType;
 typedef bool CollatorType;
 const CollatorType NoCollator = false;
 #endif

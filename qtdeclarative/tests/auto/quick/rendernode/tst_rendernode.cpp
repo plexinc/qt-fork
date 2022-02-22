@@ -30,12 +30,12 @@
 
 #include <QtQuick/qquickitem.h>
 #include <QtQuick/qquickview.h>
-#include <QtGui/qopenglcontext.h>
-#include <QtGui/qopenglfunctions.h>
+#include <qopenglcontext.h>
+#include <qopenglfunctions.h>
 #include <QtGui/qscreen.h>
 #include <private/qsgrendernode_p.h>
 
-#include "../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 
 class tst_rendernode: public QQmlDataTest
 {
@@ -103,7 +103,7 @@ public:
     }
 
 protected:
-    virtual QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
+    QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) override
     {
         ClearNode *node = static_cast<ClearNode *>(oldNode);
         if (!node)
@@ -172,7 +172,7 @@ public:
     }
 
 protected:
-    virtual QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
+    QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) override
     {
         MessUpNode *node = static_cast<MessUpNode *>(oldNode);
         if (!node)
@@ -182,6 +182,7 @@ protected:
 };
 
 tst_rendernode::tst_rendernode()
+    : QQmlDataTest(QT_QMLTEST_DATADIR)
 {
     qmlRegisterType<ClearItem>("Test", 1, 0, "ClearItem");
     qmlRegisterType<MessUpItem>("Test", 1, 0, "MessUpItem");
@@ -194,7 +195,7 @@ static bool fuzzyCompareColor(QRgb x, QRgb y, QByteArray *errorMessage)
     enum { fuzz = 4 };
     if (qAbs(qRed(x) - qRed(y)) >= fuzz || qAbs(qGreen(x) - qGreen(y)) >= fuzz || qAbs(qBlue(x) - qBlue(y)) >= fuzz) {
         QString s;
-        QDebug(&s).nospace() << hex << "Color mismatch 0x" << x << " 0x" << y << dec << " (fuzz=" << fuzz << ").";
+        QDebug(&s).nospace() << Qt::hex << "Color mismatch 0x" << x << " 0x" << y << Qt::dec << " (fuzz=" << fuzz << ").";
         *errorMessage = s.toLocal8Bit();
         return false;
     }
@@ -299,7 +300,8 @@ class StateRecordingRenderNodeItem : public QQuickItem
     Q_OBJECT
 public:
     StateRecordingRenderNodeItem() { setFlag(ItemHasContents, true); }
-    QSGNode *updatePaintNode(QSGNode *r, UpdatePaintNodeData *) {
+    QSGNode *updatePaintNode(QSGNode *r, UpdatePaintNodeData *) override
+    {
         if (r)
             return r;
         StateRecordingRenderNode *rn = new StateRecordingRenderNode();

@@ -7,10 +7,11 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback_helpers.h"
 #include "base/location.h"
 #include "base/memory/ptr_util.h"
+#include "base/metrics/histogram_functions.h"
+#include "base/strings/abseil_string_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
@@ -78,6 +79,8 @@ void QuicChromiumClientStream::Handle::OnTrailingHeadersAvailable() {
   if (!stream_->DeliverTrailingHeaders(read_headers_buffer_, &rv))
     rv = ERR_QUIC_PROTOCOL_ERROR;
 
+  base::UmaHistogramBoolean(
+      "Net.QuicChromiumClientStream.TrailingHeadersProcessSuccess", rv >= 0);
   ResetAndRun(std::move(read_headers_callback_), rv);
 }
 
@@ -111,6 +114,13 @@ void QuicChromiumClientStream::Handle::OnClose() {
       net_error_ = ERR_QUIC_PROTOCOL_ERROR;
     }
   }
+  base::UmaHistogramSparse("Net.QuicChromiumClientStream.HandleOnCloseNetError",
+                           -net_error_);
+  base::UmaHistogramSparse(
+      "Net.QuicChromiumClientStream.HandleOnCloseStreamError", stream_error());
+  base::UmaHistogramSparse(
+      "Net.QuicChromiumClientStream.HandleOnCloseConnectionError",
+      connection_error());
   OnError(net_error_);
 }
 
@@ -144,7 +154,7 @@ void QuicChromiumClientStream::Handle::InvokeCallbacksOnClose(int error) {
 }
 
 int QuicChromiumClientStream::Handle::ReadInitialHeaders(
-    spdy::SpdyHeaderBlock* header_block,
+    spdy::Http2HeaderBlock* header_block,
     CompletionOnceCallback callback) {
   ScopedBoolSaver saver(&may_invoke_callbacks_, false);
   if (!stream_)
@@ -182,7 +192,7 @@ int QuicChromiumClientStream::Handle::ReadBody(
 }
 
 int QuicChromiumClientStream::Handle::ReadTrailingHeaders(
-    spdy::SpdyHeaderBlock* header_block,
+    spdy::Http2HeaderBlock* header_block,
     CompletionOnceCallback callback) {
   ScopedBoolSaver saver(&may_invoke_callbacks_, false);
   if (!stream_)
@@ -198,7 +208,7 @@ int QuicChromiumClientStream::Handle::ReadTrailingHeaders(
 }
 
 int QuicChromiumClientStream::Handle::WriteHeaders(
-    spdy::SpdyHeaderBlock header_block,
+    spdy::Http2HeaderBlock header_block,
     bool fin,
     quic::QuicReferenceCountedPointer<quic::QuicAckListenerInterface>
         ack_notifier_delegate) {
@@ -216,7 +226,7 @@ int QuicChromiumClientStream::Handle::WriteStreamData(
   if (!stream_)
     return net_error_;
 
-  if (stream_->WriteStreamData(data, fin))
+  if (stream_->WriteStreamData(base::StringPieceToStringView(data), fin))
     return HandleIOComplete(OK);
 
   SetCallback(std::move(callback), &write_callback_);
@@ -399,6 +409,15 @@ int QuicChromiumClientStream::Handle::HandleIOComplete(int rv) {
   return net_error_;
 }
 
+void QuicChromiumClientStream::Handle::SetRequestIdempotency(
+    Idempotency idempotency) {
+  idempotency_ = idempotency;
+}
+
+Idempotency QuicChromiumClientStream::Handle::GetRequestIdempotency() const {
+  return idempotency_;
+}
+
 QuicChromiumClientStream::QuicChromiumClientStream(
     quic::QuicStreamId id,
     quic::QuicSpdyClientSessionBase* session,
@@ -446,7 +465,7 @@ void QuicChromiumClientStream::OnInitialHeadersComplete(
     const quic::QuicHeaderList& header_list) {
   quic::QuicSpdyStream::OnInitialHeadersComplete(fin, frame_len, header_list);
 
-  spdy::SpdyHeaderBlock header_block;
+  spdy::Http2HeaderBlock header_block;
   int64_t length = -1;
   if (!quic::SpdyUtils::CopyAndValidateHeaders(header_list, &length,
                                                &header_block)) {
@@ -486,7 +505,7 @@ void QuicChromiumClientStream::OnPromiseHeaderList(
     quic::QuicStreamId promised_id,
     size_t frame_len,
     const quic::QuicHeaderList& header_list) {
-  spdy::SpdyHeaderBlock promise_headers;
+  spdy::Http2HeaderBlock promise_headers;
   int64_t content_length = -1;
   if (!quic::SpdyUtils::CopyAndValidateHeaders(header_list, &content_length,
                                                &promise_headers)) {
@@ -534,14 +553,16 @@ void QuicChromiumClientStream::OnCanWrite() {
 }
 
 size_t QuicChromiumClientStream::WriteHeaders(
-    spdy::SpdyHeaderBlock header_block,
+    spdy::Http2HeaderBlock header_block,
     bool fin,
     quic::QuicReferenceCountedPointer<quic::QuicAckListenerInterface>
         ack_listener) {
   if (!session()->OneRttKeysAvailable()) {
     auto entry = header_block.find(":method");
     DCHECK(entry != header_block.end());
-    DCHECK_NE("POST", entry->second);
+    DCHECK(
+        entry->second != "POST" ||
+        (handle_ != nullptr && handle_->GetRequestIdempotency() == IDEMPOTENT));
   }
   net_log_.AddEvent(
       NetLogEventType::QUIC_CHROMIUM_CLIENT_STREAM_SEND_REQUEST_HEADERS,
@@ -555,10 +576,11 @@ size_t QuicChromiumClientStream::WriteHeaders(
   return len;
 }
 
-bool QuicChromiumClientStream::WriteStreamData(quiche::QuicheStringPiece data,
+bool QuicChromiumClientStream::WriteStreamData(absl::string_view data,
                                                bool fin) {
-  // Must not be called when data is buffered.
-  DCHECK(!HasBufferedData());
+  // For gQUIC, this must not be called when data is buffered because headers
+  // are sent on the dedicated header stream.
+  DCHECK(!HasBufferedData() || VersionUsesHttp3(quic_version_));
   // Writes the data, or buffers it.
   WriteOrBufferBody(data, fin);
   return !HasBufferedData();  // Was all data written?
@@ -573,7 +595,7 @@ bool QuicChromiumClientStream::WritevStreamData(
   // Writes the data, or buffers it.
   for (size_t i = 0; i < buffers.size(); ++i) {
     bool is_fin = fin && (i == buffers.size() - 1);
-    quiche::QuicheStringPiece string_data(buffers[i]->data(), lengths[i]);
+    absl::string_view string_data(buffers[i]->data(), lengths[i]);
     WriteOrBufferBody(string_data, is_fin);
   }
   return !HasBufferedData();  // Was all data written?
@@ -658,7 +680,7 @@ void QuicChromiumClientStream::NotifyHandleOfTrailingHeadersAvailable() {
 }
 
 int QuicChromiumClientStream::DeliverInitialHeaders(
-    spdy::SpdyHeaderBlock* headers) {
+    spdy::Http2HeaderBlock* headers) {
   if (!initial_headers_arrived_) {
     return ERR_IO_PENDING;
   }
@@ -681,7 +703,7 @@ int QuicChromiumClientStream::DeliverInitialHeaders(
 }
 
 bool QuicChromiumClientStream::DeliverTrailingHeaders(
-    spdy::SpdyHeaderBlock* headers,
+    spdy::Http2HeaderBlock* headers,
     int* frame_len) {
   if (received_trailers().empty())
     return false;

@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/test_tools/quic_crypto_server_config_peer.h"
+#include "quic/test_tools/quic_crypto_server_config_peer.h"
 
-#include "net/third_party/quiche/src/quic/test_tools/mock_clock.h"
-#include "net/third_party/quiche/src/quic/test_tools/mock_random.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/string_view.h"
+#include "quic/test_tools/mock_clock.h"
+#include "quic/test_tools/mock_random.h"
+#include "quic/test_tools/quic_test_utils.h"
 
 namespace quic {
 namespace test {
@@ -46,20 +46,20 @@ std::string QuicCryptoServerConfigPeer::NewSourceAddressToken(
     QuicRandom* rand,
     QuicWallTime now,
     CachedNetworkParameters* cached_network_params) {
-  return server_config_->NewSourceAddressToken(*GetConfig(config_id),
-                                               previous_tokens, ip, rand, now,
-                                               cached_network_params);
+  return server_config_->NewSourceAddressToken(
+      *GetConfig(config_id)->source_address_token_boxer, previous_tokens, ip,
+      rand, now, cached_network_params);
 }
 
 HandshakeFailureReason QuicCryptoServerConfigPeer::ValidateSourceAddressTokens(
     std::string config_id,
-    quiche::QuicheStringPiece srct,
+    absl::string_view srct,
     const QuicIpAddress& ip,
     QuicWallTime now,
     CachedNetworkParameters* cached_network_params) {
   SourceAddressTokens tokens;
   HandshakeFailureReason reason = server_config_->ParseSourceAddressToken(
-      *GetConfig(config_id), srct, &tokens);
+      *GetConfig(config_id)->source_address_token_boxer, srct, &tokens);
   if (reason != HANDSHAKE_OK) {
     return reason;
   }
@@ -70,12 +70,12 @@ HandshakeFailureReason QuicCryptoServerConfigPeer::ValidateSourceAddressTokens(
 
 HandshakeFailureReason
 QuicCryptoServerConfigPeer::ValidateSingleSourceAddressToken(
-    quiche::QuicheStringPiece token,
+    absl::string_view token,
     const QuicIpAddress& ip,
     QuicWallTime now) {
   SourceAddressTokens tokens;
   HandshakeFailureReason parse_status = server_config_->ParseSourceAddressToken(
-      *GetPrimaryConfig(), token, &tokens);
+      *GetPrimaryConfig()->source_address_token_boxer, token, &tokens);
   if (HANDSHAKE_OK != parse_status) {
     return parse_status;
   }

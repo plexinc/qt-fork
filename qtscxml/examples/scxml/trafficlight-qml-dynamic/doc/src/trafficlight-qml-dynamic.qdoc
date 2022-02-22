@@ -44,12 +44,20 @@
 
     \section1 Dynamically Loading the State Machine
 
-    We link against the Qt SCXML module by adding the following line to the
-    example \e .pro file:
+    We link against the Qt SCXML module by adding the following lines to the
+    example's build files.
 
+    To \e .pro when using qmake:
     \quotefromfile trafficlight-qml-dynamic/trafficlight-qml-dynamic.pro
     \skipto QT
     \printline scxml
+
+    To \e CMakeLists.txt when using cmake:
+    \quotefromfile trafficlight-qml-dynamic/CMakeLists.txt
+    \skipto find_package
+    \printline Scxml
+    \skipto target_link_libraries
+    \printuntil )
 
     We dynamically create the state machine in the main QML file:
 

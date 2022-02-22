@@ -13,14 +13,14 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/files/file_path.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/mock_callback.h"
 #include "base/test/test_mock_time_task_runner.h"
@@ -240,6 +240,7 @@ class DownloadUIAdapterTest : public testing::Test,
   void OnItemUpdated(const OfflineItem& item,
                      const base::Optional<UpdateDelta>& update_delta) override;
   void OnItemRemoved(const ContentId& id) override;
+  void OnContentProviderGoingDown() override;
 
   // Runs until all of the tasks that are not delayed are gone from the task
   // queue.
@@ -313,6 +314,8 @@ void DownloadUIAdapterTest::OnItemUpdated(
 void DownloadUIAdapterTest::OnItemRemoved(const ContentId& id) {
   deleted_guids.push_back(id.id);
 }
+
+void DownloadUIAdapterTest::OnContentProviderGoingDown() {}
 
 void DownloadUIAdapterTest::PumpLoop() {
   task_runner_->RunUntilIdle();

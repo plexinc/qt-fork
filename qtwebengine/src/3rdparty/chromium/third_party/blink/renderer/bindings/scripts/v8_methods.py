@@ -46,6 +46,10 @@ import v8_types
 import v8_utilities
 from v8_utilities import (has_extended_attribute_value, is_unforgeable)
 
+# TODO(crbug.com/1174969): Remove this once Python2 is obsoleted.
+if sys.version_info.major != 2:
+    basestring = str
+
 
 def method_is_visible(method, interface_is_partial):
     if 'overloads' in method:
@@ -126,7 +130,8 @@ def use_local_result(method):
             or 'NewObject' in extended_attributes
             or 'RaisesException' in extended_attributes
             or idl_type.is_union_type or idl_type.is_dictionary
-            or idl_type.is_explicit_nullable)
+            or idl_type.is_explicit_nullable
+            or v8_utilities.high_entropy(method) == 'Direct')
 
 
 def runtime_call_stats_context(interface, method):
@@ -182,14 +187,11 @@ def method_context(interface, method, component_info, is_visible=True):
     is_ce_reactions = 'CEReactions' in extended_attributes
     if is_ce_reactions:
         includes.add('core/html/custom/ce_reactions_scope.h')
-    is_custom_element_callbacks = 'CustomElementCallbacks' in extended_attributes
-    if is_custom_element_callbacks:
-        includes.add('core/html/custom/v0_custom_element_processing_stack.h')
 
     is_raises_exception = 'RaisesException' in extended_attributes
 
-    if 'LenientThis' in extended_attributes:
-        raise Exception('[LenientThis] is not supported for operations.')
+    if 'LegacyLenientThis' in extended_attributes:
+        raise Exception('[LegacyLenientThis] is not supported for operations.')
 
     if has_extended_attribute_value(method, 'Affects', 'Nothing'):
         side_effect_type = 'V8DOMConfiguration::kHasNoSideEffect'
@@ -256,8 +258,6 @@ def method_context(interface, method, component_info, is_visible=True):
         'CrossOrigin' in extended_attributes,
         'is_custom':
         'Custom' in extended_attributes,
-        'is_custom_element_callbacks':
-        is_custom_element_callbacks,
         'is_explicit_nullable':
         idl_type.is_explicit_nullable,
         'is_new_object':
@@ -542,7 +542,7 @@ def v8_value_to_local_cpp_value(interface_name, method, argument, index):
 ################################################################################
 
 
-# [NotEnumerable], [Unforgeable]
+# [NotEnumerable], [LegacyUnforgeable]
 def property_attributes(interface, method):
     extended_attributes = method.extended_attributes
     property_attributes_list = []

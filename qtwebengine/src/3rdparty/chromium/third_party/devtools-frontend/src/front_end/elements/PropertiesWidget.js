@@ -33,13 +33,13 @@ import * as ObjectUI from '../object_ui/object_ui.js';
 import * as SDK from '../sdk/sdk.js';
 import * as UI from '../ui/ui.js';
 
-/**
- * @unrestricted
- */
+/** @type {!PropertiesWidget} */
+let propertiesWidgetInstance;
+
 export class PropertiesWidget extends UI.ThrottledWidget.ThrottledWidget {
   constructor() {
     super(true /* isWebComponent */);
-    this.registerRequiredCSS('elements/propertiesWidget.css');
+    this.registerRequiredCSS('elements/propertiesWidget.css', {enableLegacyPatching: false});
 
     SDK.SDKModel.TargetManager.instance().addModelListener(
         SDK.DOMModel.DOMModel, SDK.DOMModel.Events.AttrModified, this._onNodeChange, this);
@@ -49,8 +49,8 @@ export class PropertiesWidget extends UI.ThrottledWidget.ThrottledWidget {
         SDK.DOMModel.DOMModel, SDK.DOMModel.Events.CharacterDataModified, this._onNodeChange, this);
     SDK.SDKModel.TargetManager.instance().addModelListener(
         SDK.DOMModel.DOMModel, SDK.DOMModel.Events.ChildNodeCountUpdated, this._onNodeChange, this);
-    self.UI.context.addFlavorChangeListener(SDK.DOMModel.DOMNode, this._setNode, this);
-    this._node = self.UI.context.flavor(SDK.DOMModel.DOMNode);
+    UI.Context.Context.instance().addFlavorChangeListener(SDK.DOMModel.DOMNode, this._setNode, this);
+    this._node = UI.Context.Context.instance().flavor(SDK.DOMModel.DOMNode);
 
     this._treeOutline = new ObjectUI.ObjectPropertiesSection.ObjectPropertiesSectionsTreeOutline({readOnly: true});
     this._treeOutline.setShowSelectionOnKeyboardFocus(/* show */ true, /* preventTabOrder */ false);
@@ -64,6 +64,18 @@ export class PropertiesWidget extends UI.ThrottledWidget.ThrottledWidget {
 
     this.update();
   }
+  /**
+   * @param {{forceNew: ?boolean}=} opts
+   * @return {!PropertiesWidget}
+   */
+  static instance(opts = {forceNew: null}) {
+    const {forceNew} = opts;
+    if (!propertiesWidgetInstance || forceNew) {
+      propertiesWidgetInstance = new PropertiesWidget();
+    }
+
+    return propertiesWidgetInstance;
+  }
 
   /**
    * @param {!Common.EventTarget.EventTargetEvent} event
@@ -76,7 +88,7 @@ export class PropertiesWidget extends UI.ThrottledWidget.ThrottledWidget {
   /**
    * @override
    * @protected
-   * @return {!Promise<undefined>}
+   * @return {!Promise<void>}
    */
   async doUpdate() {
     if (this._lastRequestedNode) {
@@ -119,7 +131,13 @@ export class PropertiesWidget extends UI.ThrottledWidget.ThrottledWidget {
         continue;
       }
       const property = properties[i].value;
+      if (!property) {
+        continue;
+      }
       let title = property.description;
+      if (!title) {
+        continue;
+      }
       title = title.replace(/Prototype$/, '');
 
       const section = this._createSectionTreeElement(property, title);
@@ -131,11 +149,11 @@ export class PropertiesWidget extends UI.ThrottledWidget.ThrottledWidget {
     }
 
     /**
-     * @suppressReceiverCheck
      * @this {*}
      */
     function protoList() {
       let proto = this;
+      /** @type {!Object<(number|string), *>} */
       const result = {__proto__: null};
       let counter = 1;
       while (proto) {
@@ -152,7 +170,8 @@ export class PropertiesWidget extends UI.ThrottledWidget.ThrottledWidget {
    * @returns {!ObjectUI.ObjectPropertiesSection.RootElement}
    */
   _createSectionTreeElement(property, title) {
-    const titleElement = createElementWithClass('span', 'tree-element-title');
+    const titleElement = document.createElement('span');
+    titleElement.classList.add('tree-element-title');
     titleElement.textContent = title;
 
     const section = new ObjectUI.ObjectPropertiesSection.RootElement(property);

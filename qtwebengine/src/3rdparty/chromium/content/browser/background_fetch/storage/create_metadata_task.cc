@@ -10,7 +10,7 @@
 
 #include "base/barrier_closure.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "content/browser/background_fetch/background_fetch_data_manager.h"
@@ -18,7 +18,6 @@
 #include "content/browser/background_fetch/storage/database_helpers.h"
 #include "content/browser/background_fetch/storage/image_helpers.h"
 #include "content/browser/background_fetch/storage/mark_registration_for_deletion_task.h"
-#include "content/browser/cache_storage/cache_storage.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/common/background_fetch/background_fetch_types.h"
 #include "content/common/fetch/fetch_api_request_proto.h"
@@ -260,15 +259,15 @@ void CreateMetadataTask::InitializeMetadataProto() {
 
     for (const auto& purpose : icon.purpose) {
       switch (purpose) {
-        case blink::Manifest::ImageResource::Purpose::ANY:
+        case blink::mojom::ManifestImageResource_Purpose::ANY:
           image_resource_proto->add_purpose(
               proto::BackgroundFetchOptions_ImageResource_Purpose_ANY);
           break;
-        case blink::Manifest::ImageResource::Purpose::BADGE:
+        case blink::mojom::ManifestImageResource_Purpose::MONOCHROME:
           image_resource_proto->add_purpose(
-              proto::BackgroundFetchOptions_ImageResource_Purpose_BADGE);
+              proto::BackgroundFetchOptions_ImageResource_Purpose_MONOCHROME);
           break;
-        case blink::Manifest::ImageResource::Purpose::MASKABLE:
+        case blink::mojom::ManifestImageResource_Purpose::MASKABLE:
           image_resource_proto->add_purpose(
               proto::BackgroundFetchOptions_ImageResource_Purpose_MASKABLE);
           break;
@@ -344,7 +343,7 @@ void CreateMetadataTask::StoreMetadata() {
 
   service_worker_context()->StoreRegistrationUserData(
       registration_id_.service_worker_registration_id(),
-      registration_id_.origin().GetURL(), entries,
+      registration_id_.origin(), entries,
       base::BindOnce(&CreateMetadataTask::DidStoreMetadata,
                      weak_factory_.GetWeakPtr()));
 }
@@ -367,15 +366,12 @@ void CreateMetadataTask::DidStoreMetadata(
   }
 
   // Create cache entries.
-  CacheStorageHandle cache_storage = GetOrOpenCacheStorage(registration_id_);
-  cache_storage.value()->OpenCache(
-      /* cache_name= */ registration_id_.unique_id(), trace_id,
-      base::BindOnce(&CreateMetadataTask::DidOpenCache,
-                     weak_factory_.GetWeakPtr(), trace_id));
+  OpenCache(registration_id_, trace_id,
+            base::BindOnce(&CreateMetadataTask::DidOpenCache,
+                           weak_factory_.GetWeakPtr(), trace_id));
 }
 
 void CreateMetadataTask::DidOpenCache(int64_t trace_id,
-                                      CacheStorageCacheHandle handle,
                                       blink::mojom::CacheStorageError error) {
   TRACE_EVENT_WITH_FLOW0("CacheStorage",
                          "CacheStorageMigrationTask::DidReopenCache",
@@ -387,7 +383,10 @@ void CreateMetadataTask::DidOpenCache(int64_t trace_id,
     return;
   }
 
-  DCHECK(handle.value());
+  if (requests_.empty()) {
+    FinishWithError(blink::mojom::BackgroundFetchError::NONE);
+    return;
+  }
 
   // Create batch PUT operations instead of putting them one-by-one.
   std::vector<blink::mojom::BatchOperationPtr> operations;
@@ -400,18 +399,16 @@ void CreateMetadataTask::DidOpenCache(int64_t trace_id,
     operation->request = std::move(requests_[i]);
     // Empty response.
     operation->response = blink::mojom::FetchAPIResponse::New();
-    operations.push_back(std::move(operation));
+    operations.emplace_back(std::move(operation));
   }
 
-  handle.value()->BatchOperation(
+  cache_storage_cache_remote()->Batch(
       std::move(operations), trace_id,
       base::BindOnce(&CreateMetadataTask::DidStoreRequests,
-                     weak_factory_.GetWeakPtr(), handle.Clone()),
-      base::DoNothing());
+                     weak_factory_.GetWeakPtr()));
 }
 
 void CreateMetadataTask::DidStoreRequests(
-    CacheStorageCacheHandle handle,
     blink::mojom::CacheStorageVerboseErrorPtr error) {
   if (error->value != blink::mojom::CacheStorageError::kSuccess) {
     // Delete the metadata in the SWDB.

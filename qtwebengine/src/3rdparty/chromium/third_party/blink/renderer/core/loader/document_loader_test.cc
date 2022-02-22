@@ -5,14 +5,17 @@
 #include "third_party/blink/renderer/core/loader/document_loader.h"
 
 #include <utility>
+
 #include "base/auto_reset.h"
+#include "base/test/scoped_feature_list.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/blink/public/common/frame/frame_owner_element_type.h"
-#include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom-shared.h"
+#include "third_party/blink/public/common/features.h"
+#include "third_party/blink/public/mojom/frame/frame_owner_element_type.mojom-blink.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/web_url_loader_client.h"
 #include "third_party/blink/public/platform/web_url_loader_mock_factory.h"
 #include "third_party/blink/renderer/core/frame/frame_test_helpers.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/web_local_frame_impl.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/core/page/page.h"
@@ -20,6 +23,7 @@
 #include "third_party/blink/renderer/core/testing/sim/sim_request.h"
 #include "third_party/blink/renderer/core/testing/sim/sim_test.h"
 #include "third_party/blink/renderer/platform/loader/static_data_navigation_body_loader.h"
+#include "third_party/blink/renderer/platform/testing/histogram_tester.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
 #include "third_party/blink/renderer/platform/testing/url_test_helpers.h"
 #include "third_party/blink/renderer/platform/wtf/deque.h"
@@ -251,66 +255,10 @@ TEST_F(DocumentLoaderSimTest, FramePolicyIntegrityOnNavigationCommit) {
   iframe_resource.Finish();
 
   auto* child_frame = To<WebLocalFrameImpl>(MainFrame().FirstChild());
-  auto* child_document = child_frame->GetFrame()->GetDocument();
+  auto* child_window = child_frame->GetFrame()->DomWindow();
 
-  EXPECT_TRUE(child_document->IsFeatureEnabled(
+  EXPECT_TRUE(child_window->IsFeatureEnabled(
       blink::mojom::blink::FeaturePolicyFeature::kPayment));
-}
-
-TEST_F(DocumentLoaderSimTest, ReportErrorWhenDocumentPolicyIncompatible) {
-  blink::ScopedDocumentPolicyForTest sdp(true);
-  SimRequest::Params params;
-  params.response_http_headers = {
-      {"Document-Policy", "unoptimized-lossless-images;bpp=1.1"}};
-
-  SimRequest main_resource("https://example.com", "text/html");
-  SimRequest iframe_resource("https://example.com/foo.html", "text/html",
-                             params);
-
-  LoadURL("https://example.com");
-  main_resource.Complete(R"(
-    <iframe
-      src="https://example.com/foo.html"
-      policy="unoptimized-lossless-images;bpp=1.0">
-    </iframe>
-  )");
-
-  // When blocked by document policy, the document should be filled in with an
-  // empty response, with Finish called on |navigation_body_loader| already.
-  // If Finish was not called on the loader, because the document was not
-  // blocked, this test will fail by crashing here.
-  iframe_resource.Finish(true /* body_loader_finished */);
-
-  auto* child_frame = To<WebLocalFrameImpl>(MainFrame().FirstChild());
-  auto* child_document = child_frame->GetFrame()->GetDocument();
-
-  // Should console log a error message.
-  auto& console_messages = static_cast<frame_test_helpers::TestWebFrameClient*>(
-                               child_frame->Client())
-                               ->ConsoleMessages();
-
-  ASSERT_EQ(console_messages.size(), 1u);
-  EXPECT_TRUE(console_messages.front().Contains("document policy"));
-
-  // Should replace the document's origin with an opaque origin.
-  EXPECT_EQ(child_document->Url(), SecurityOrigin::UrlWithUniqueOpaqueOrigin());
-}
-
-// HTTP header Require-Document-Policy should only take effect on subtree of
-// current document, but not on current document.
-TEST_F(DocumentLoaderSimTest,
-       RequireDocumentPolicyHeaderShouldNotAffectCurrentDocument) {
-  blink::ScopedDocumentPolicyForTest sdp(true);
-  SimRequest::Params params;
-  params.response_http_headers = {
-      {"Require-Document-Policy", "unoptimized-lossless-images;bpp=1.0"},
-      {"Document-Policy", "unoptimized-lossless-images;bpp=1.1"}};
-
-  SimRequest main_resource("https://example.com", "text/html", params);
-  LoadURL("https://example.com");
-  // If document is blocked by document policy because of incompatible document
-  // policy, this test will fail by crashing here.
-  main_resource.Finish();
 }
 
 TEST_F(DocumentLoaderTest, CommitsDeferredOnSameOriginNavigation) {
@@ -322,8 +270,8 @@ TEST_F(DocumentLoaderTest, CommitsDeferredOnSameOriginNavigation) {
   const KURL& same_origin_url =
       KURL(NullURL(), "https://www.example.com/bar.html");
   std::unique_ptr<WebNavigationParams> params =
-      WebNavigationParams::CreateWithHTMLBuffer(SharedBuffer::Create(),
-                                                same_origin_url);
+      WebNavigationParams::CreateWithHTMLBufferForTesting(
+          SharedBuffer::Create(), same_origin_url);
   params->requestor_origin = WebSecurityOrigin::Create(WebURL(requestor_url));
   LocalFrame* local_frame =
       To<LocalFrame>(web_view_impl->GetPage()->MainFrame());
@@ -341,14 +289,37 @@ TEST_F(DocumentLoaderTest, CommitsNotDeferredOnDifferentOriginNavigation) {
   const KURL& other_origin_url =
       KURL(NullURL(), "https://www.another.com/bar.html");
   std::unique_ptr<WebNavigationParams> params =
-      WebNavigationParams::CreateWithHTMLBuffer(SharedBuffer::Create(),
-                                                other_origin_url);
+      WebNavigationParams::CreateWithHTMLBufferForTesting(
+          SharedBuffer::Create(), other_origin_url);
   params->requestor_origin = WebSecurityOrigin::Create(WebURL(requestor_url));
   LocalFrame* local_frame =
       To<LocalFrame>(web_view_impl->GetPage()->MainFrame());
   local_frame->Loader().CommitNavigation(std::move(params), nullptr);
 
   EXPECT_FALSE(local_frame->GetDocument()->DeferredCompositorCommitIsAllowed());
+}
+
+TEST_F(DocumentLoaderTest,
+       CommitsDeferredOnDifferentOriginNavigationWithCrossOriginEnabled) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(features::kPaintHoldingCrossOrigin);
+
+  const KURL& requestor_url =
+      KURL(NullURL(), "https://www.example.com/foo.html");
+  WebViewImpl* web_view_impl =
+      web_view_helper_.InitializeAndLoad("https://example.com/foo.html");
+
+  const KURL& other_origin_url =
+      KURL(NullURL(), "https://www.another.com/bar.html");
+  std::unique_ptr<WebNavigationParams> params =
+      WebNavigationParams::CreateWithHTMLBufferForTesting(
+          SharedBuffer::Create(), other_origin_url);
+  params->requestor_origin = WebSecurityOrigin::Create(WebURL(requestor_url));
+  LocalFrame* local_frame =
+      To<LocalFrame>(web_view_impl->GetPage()->MainFrame());
+  local_frame->Loader().CommitNavigation(std::move(params), nullptr);
+
+  EXPECT_TRUE(local_frame->GetDocument()->DeferredCompositorCommitIsAllowed());
 }
 
 TEST_F(DocumentLoaderTest, CommitsNotDeferredOnDifferentPortNavigation) {
@@ -360,14 +331,37 @@ TEST_F(DocumentLoaderTest, CommitsNotDeferredOnDifferentPortNavigation) {
   const KURL& different_port_url =
       KURL(NullURL(), "https://www.example.com:8080/bar.html");
   std::unique_ptr<WebNavigationParams> params =
-      WebNavigationParams::CreateWithHTMLBuffer(SharedBuffer::Create(),
-                                                different_port_url);
+      WebNavigationParams::CreateWithHTMLBufferForTesting(
+          SharedBuffer::Create(), different_port_url);
   params->requestor_origin = WebSecurityOrigin::Create(WebURL(requestor_url));
   LocalFrame* local_frame =
       To<LocalFrame>(web_view_impl->GetPage()->MainFrame());
   local_frame->Loader().CommitNavigation(std::move(params), nullptr);
 
   EXPECT_FALSE(local_frame->GetDocument()->DeferredCompositorCommitIsAllowed());
+}
+
+TEST_F(DocumentLoaderTest,
+       CommitsDeferredOnDifferentPortNavigationWithCrossOriginEnabled) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(features::kPaintHoldingCrossOrigin);
+
+  const KURL& requestor_url =
+      KURL(NullURL(), "https://www.example.com:8000/foo.html");
+  WebViewImpl* web_view_impl =
+      web_view_helper_.InitializeAndLoad("https://example.com:8000/foo.html");
+
+  const KURL& different_port_url =
+      KURL(NullURL(), "https://www.example.com:8080/bar.html");
+  std::unique_ptr<WebNavigationParams> params =
+      WebNavigationParams::CreateWithHTMLBufferForTesting(
+          SharedBuffer::Create(), different_port_url);
+  params->requestor_origin = WebSecurityOrigin::Create(WebURL(requestor_url));
+  LocalFrame* local_frame =
+      To<LocalFrame>(web_view_impl->GetPage()->MainFrame());
+  local_frame->Loader().CommitNavigation(std::move(params), nullptr);
+
+  EXPECT_TRUE(local_frame->GetDocument()->DeferredCompositorCommitIsAllowed());
 }
 
 TEST_F(DocumentLoaderTest, CommitsNotDeferredOnDataURLNavigation) {
@@ -378,8 +372,30 @@ TEST_F(DocumentLoaderTest, CommitsNotDeferredOnDataURLNavigation) {
 
   const KURL& data_url = KURL(NullURL(), "data:,Hello%2C%20World!");
   std::unique_ptr<WebNavigationParams> params =
-      WebNavigationParams::CreateWithHTMLBuffer(SharedBuffer::Create(),
-                                                data_url);
+      WebNavigationParams::CreateWithHTMLBufferForTesting(
+          SharedBuffer::Create(), data_url);
+  params->requestor_origin = WebSecurityOrigin::Create(WebURL(requestor_url));
+  LocalFrame* local_frame =
+      To<LocalFrame>(web_view_impl->GetPage()->MainFrame());
+  local_frame->Loader().CommitNavigation(std::move(params), nullptr);
+
+  EXPECT_FALSE(local_frame->GetDocument()->DeferredCompositorCommitIsAllowed());
+}
+
+TEST_F(DocumentLoaderTest,
+       CommitsNotDeferredOnDataURLNavigationWithCrossOriginEnabled) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(features::kPaintHoldingCrossOrigin);
+
+  const KURL& requestor_url =
+      KURL(NullURL(), "https://www.example.com/foo.html");
+  WebViewImpl* web_view_impl =
+      web_view_helper_.InitializeAndLoad("https://example.com/foo.html");
+
+  const KURL& data_url = KURL(NullURL(), "data:,Hello%2C%20World!");
+  std::unique_ptr<WebNavigationParams> params =
+      WebNavigationParams::CreateWithHTMLBufferForTesting(
+          SharedBuffer::Create(), data_url);
   params->requestor_origin = WebSecurityOrigin::Create(WebURL(requestor_url));
   LocalFrame* local_frame =
       To<LocalFrame>(web_view_impl->GetPage()->MainFrame());
@@ -397,8 +413,8 @@ TEST_F(DocumentLoaderTest, SameOriginNavigation) {
   const KURL& same_origin_url =
       KURL(NullURL(), "https://www.example.com/bar.html");
   std::unique_ptr<WebNavigationParams> params =
-      WebNavigationParams::CreateWithHTMLBuffer(SharedBuffer::Create(),
-                                                same_origin_url);
+      WebNavigationParams::CreateWithHTMLBufferForTesting(
+          SharedBuffer::Create(), same_origin_url);
   params->requestor_origin = WebSecurityOrigin::Create(WebURL(requestor_url));
   LocalFrame* local_frame =
       To<LocalFrame>(web_view_impl->GetPage()->MainFrame());
@@ -417,8 +433,8 @@ TEST_F(DocumentLoaderTest, CrossOriginNavigation) {
   const KURL& other_origin_url =
       KURL(NullURL(), "https://www.another.com/bar.html");
   std::unique_ptr<WebNavigationParams> params =
-      WebNavigationParams::CreateWithHTMLBuffer(SharedBuffer::Create(),
-                                                other_origin_url);
+      WebNavigationParams::CreateWithHTMLBufferForTesting(
+          SharedBuffer::Create(), other_origin_url);
   params->requestor_origin = WebSecurityOrigin::Create(WebURL(requestor_url));
   LocalFrame* local_frame =
       To<LocalFrame>(web_view_impl->GetPage()->MainFrame());

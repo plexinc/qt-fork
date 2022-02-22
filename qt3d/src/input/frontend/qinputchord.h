@@ -64,7 +64,7 @@ public:
 
     void addChord(QAbstractActionInput *input);
     void removeChord(QAbstractActionInput *input);
-    QVector<QAbstractActionInput *> chords() const;
+    QList<QAbstractActionInput *> chords() const;
 
 public Q_SLOTS:
     void setTimeout(int timeout);
@@ -74,7 +74,6 @@ Q_SIGNALS:
 
 private:
     Q_DECLARE_PRIVATE(QInputChord)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // Qt3DInput

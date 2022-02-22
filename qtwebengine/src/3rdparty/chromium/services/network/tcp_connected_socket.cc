@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/numerics/ranges.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/optional.h"
@@ -113,10 +113,13 @@ void TCPConnectedSocket::Connect(
   DCHECK(!socket_);
   DCHECK(callback);
 
+  // TODO(https://crbug.com/1123197): Pass a non-null NetworkQualityEstimator.
+  net::NetworkQualityEstimator* network_quality_estimator = nullptr;
+
   std::unique_ptr<net::TransportClientSocket> socket =
       client_socket_factory_->CreateTransportClientSocket(
-          remote_addr_list, nullptr /*socket_performance_watcher*/, net_log_,
-          net::NetLogSource());
+          remote_addr_list, nullptr /*socket_performance_watcher*/,
+          network_quality_estimator, net_log_, net::NetLogSource());
 
   if (local_addr) {
     int result = socket->Bind(local_addr.value());
@@ -142,7 +145,7 @@ void TCPConnectedSocket::ConnectWithSocket(
     socket_->SetBeforeConnectCallback(base::BindRepeating(
         &ConfigureSocket, socket_.get(), *tcp_connected_socket_options));
   }
-  int result = socket_->Connect(base::BindRepeating(
+  int result = socket_->Connect(base::BindOnce(
       &TCPConnectedSocket::OnConnectCompleted, base::Unretained(this)));
 
   if (result == net::ERR_IO_PENDING)
@@ -232,6 +235,24 @@ void TCPConnectedSocket::OnConnectCompleted(int result) {
   if (result == net::OK)
     result = socket_->GetPeerAddress(&peer_addr);
 
+  mojo::ScopedDataPipeProducerHandle send_producer_handle;
+  mojo::ScopedDataPipeConsumerHandle send_consumer_handle;
+  if (result == net::OK) {
+    if (mojo::CreateDataPipe(nullptr, send_producer_handle,
+                             send_consumer_handle) != MOJO_RESULT_OK) {
+      result = net::ERR_FAILED;
+    }
+  }
+
+  mojo::ScopedDataPipeProducerHandle receive_producer_handle;
+  mojo::ScopedDataPipeConsumerHandle receive_consumer_handle;
+  if (result == net::OK) {
+    if (mojo::CreateDataPipe(nullptr, receive_producer_handle,
+                             receive_consumer_handle) != MOJO_RESULT_OK) {
+      result = net::ERR_FAILED;
+    }
+  }
+
   if (result != net::OK) {
     std::move(connect_callback_)
         .Run(result, base::nullopt, base::nullopt,
@@ -239,15 +260,12 @@ void TCPConnectedSocket::OnConnectCompleted(int result) {
              mojo::ScopedDataPipeProducerHandle());
     return;
   }
-  mojo::DataPipe send_pipe;
-  mojo::DataPipe receive_pipe;
   socket_data_pump_ = std::make_unique<SocketDataPump>(
-      socket_.get(), this /*delegate*/, std::move(receive_pipe.producer_handle),
-      std::move(send_pipe.consumer_handle), traffic_annotation_);
+      socket_.get(), this /*delegate*/, std::move(receive_producer_handle),
+      std::move(send_consumer_handle), traffic_annotation_);
   std::move(connect_callback_)
-      .Run(net::OK, local_addr, peer_addr,
-           std::move(receive_pipe.consumer_handle),
-           std::move(send_pipe.producer_handle));
+      .Run(net::OK, local_addr, peer_addr, std::move(receive_consumer_handle),
+           std::move(send_producer_handle));
 }
 
 void TCPConnectedSocket::OnNetworkReadError(int net_error) {

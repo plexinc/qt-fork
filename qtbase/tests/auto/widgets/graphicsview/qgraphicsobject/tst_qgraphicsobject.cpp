@@ -27,7 +27,9 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QSignalSpy>
+
 #include <qgraphicsitem.h>
 #include <qgraphicsscene.h>
 #include <qgraphicssceneevent.h>
@@ -53,8 +55,8 @@ class MyGraphicsObject : public QGraphicsObject
 {
 public:
     MyGraphicsObject() : QGraphicsObject() {}
-    virtual QRectF boundingRect() const { return QRectF(); }
-    virtual void paint(QPainter *, const QStyleOptionGraphicsItem *, QWidget *) {}
+    virtual QRectF boundingRect() const override { return QRectF(); }
+    virtual void paint(QPainter *, const QStyleOptionGraphicsItem *, QWidget *) override {}
 };
 
 void tst_QGraphicsObject::pos()
@@ -210,7 +212,7 @@ void tst_QGraphicsObject::visible()
 class DeleteTester : public QGraphicsObject
 {
 public:
-    DeleteTester(bool *w, bool *pw, QGraphicsItem *parent = 0)
+    DeleteTester(bool *w, bool *pw, QGraphicsItem *parent = nullptr)
         : QGraphicsObject(parent), wasDeleted(w), parentWasDeleted(pw)
     { }
 
@@ -223,9 +225,9 @@ public:
         }
     }
 
-    void paint(QPainter *, const QStyleOptionGraphicsItem *, QWidget * = 0)
+    void paint(QPainter *, const QStyleOptionGraphicsItem *, QWidget * = nullptr) override
     { }
-    QRectF boundingRect() const
+    QRectF boundingRect() const override
     { return QRectF(); }
 
     bool *wasDeleted;

@@ -274,8 +274,8 @@ bool QGestureManager::filterEventThroughContexts(const QMultiMap<QObject *,
     ContextIterator contextEnd = contexts.end();
     for (ContextIterator context = contexts.begin(); context != contextEnd; ++context) {
         Qt::GestureType gestureType = context.value();
-        const QMap<Qt::GestureType, QGestureRecognizer *> &const_recognizers = m_recognizers;
-        QMap<Qt::GestureType, QGestureRecognizer *>::const_iterator
+        const QMultiMap<Qt::GestureType, QGestureRecognizer *> &const_recognizers = m_recognizers;
+        QMultiMap<Qt::GestureType, QGestureRecognizer *>::const_iterator
                 typeToRecognizerIterator = const_recognizers.lowerBound(gestureType),
                 typeToRecognizerEnd = const_recognizers.upperBound(gestureType);
         for (; typeToRecognizerIterator != typeToRecognizerEnd; ++typeToRecognizerIterator) {
@@ -481,7 +481,7 @@ void QGestureManager::cancelGesturesForChildren(QGesture *original)
 void QGestureManager::cleanupGesturesForRemovedRecognizer(QGesture *gesture)
 {
     QGestureRecognizer *recognizer = m_deletedRecognizers.value(gesture);
-    if(!recognizer) //The Gesture is removed while in the even loop, so the recognizers for this gestures was removed
+    if (!recognizer) //The Gesture is removed while in the even loop, so the recognizers for this gestures was removed
         return;
     m_deletedRecognizers.remove(gesture);
     if (m_deletedRecognizers.keys(recognizer).isEmpty()) {

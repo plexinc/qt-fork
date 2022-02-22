@@ -7,10 +7,11 @@
 
 #include <iostream>
 
-#include "net/third_party/quiche/src/quic/core/crypto/crypto_handshake.h"
-#include "net/third_party/quiche/src/quic/core/crypto/crypto_utils.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_text_utils.h"
+#include "absl/strings/numbers.h"
+#include "quic/core/crypto/crypto_handshake.h"
+#include "quic/core/crypto/crypto_utils.h"
+#include "quic/platform/api/quic_flags.h"
+#include "common/platform/api/quiche_text_utils.h"
 
 using quic::CryptoUtils;
 using quic::HandshakeFailureReason;
@@ -27,7 +28,7 @@ int main(int argc, char* argv[]) {
   }
 
   uint32_t packed_error = 0;
-  if (!quiche::QuicheTextUtils::StringToUint32(args[0], &packed_error)) {
+  if (!absl::SimpleAtoi(args[0], &packed_error)) {
     std::cerr << "Unable to parse: " << args[0] << "\n";
     return 2;
   }

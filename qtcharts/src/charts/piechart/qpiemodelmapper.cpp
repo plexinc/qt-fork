@@ -33,7 +33,7 @@
 #include <QtCharts/QPieSlice>
 #include <QtCore/QAbstractItemModel>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 QPieModelMapper::QPieModelMapper(QObject *parent)
     : QObject(parent),
@@ -291,7 +291,7 @@ bool QPieModelMapperPrivate::isValueIndex(QModelIndex index) const
     return false;
 }
 
-void QPieModelMapperPrivate::slicesAdded(QList<QPieSlice *> slices)
+void QPieModelMapperPrivate::slicesAdded(const QList<QPieSlice *> &slices)
 {
     if (m_seriesSignalsBlock)
         return;
@@ -325,7 +325,7 @@ void QPieModelMapperPrivate::slicesAdded(QList<QPieSlice *> slices)
     blockModelSignals(false);
 }
 
-void QPieModelMapperPrivate::slicesRemoved(QList<QPieSlice *> slices)
+void QPieModelMapperPrivate::slicesRemoved(const QList<QPieSlice *> &slices)
 {
     if (m_seriesSignalsBlock)
         return;
@@ -572,7 +572,7 @@ void QPieModelMapperPrivate::initializePieFromModel()
     blockSeriesSignals(false);
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_qpiemodelmapper_p.cpp"
 #include "moc_qpiemodelmapper.cpp"

@@ -32,7 +32,7 @@
 #include <private/chartaxiselement_p.h>
 #include <QtCore/QDebug>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 static const qreal maxAxisPortion = 0.4;
 
@@ -49,7 +49,7 @@ QRectF CartesianChartLayout::calculateAxisGeometry(const QRectF &geometry,
                                                    const QList<ChartAxisElement *> &axes,
                                                    bool update) const
 {
-    Q_UNUSED(update)
+    Q_UNUSED(update);
     QSizeF left(0,0);
     QSizeF minLeft(0,0);
     QSizeF right(0,0);
@@ -260,4 +260,4 @@ QRectF CartesianChartLayout::calculateAxisMinimum(const QRectF &minimum, const Q
     return minimum.adjusted(0, 0, left.width() + right.width() + qMax(top.width(), bottom.width()), top.height() + bottom.height() + qMax(left.height(), right.height()));
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE

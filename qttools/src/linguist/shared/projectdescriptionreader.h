@@ -32,7 +32,7 @@
 #include <QtCore/qstring.h>
 #include <QtCore/qstringlist.h>
 
-#include <memory>
+#include <optional>
 #include <vector>
 
 struct Project;
@@ -42,19 +42,14 @@ typedef std::vector<Project> Projects;
 struct Project
 {
     QString filePath;
+    QString compileCommands;
     QString codec;
     QStringList excluded;
     QStringList includePaths;
     QStringList sources;
     Projects subProjects;
-    // ### Change type of translations to std::optional<QStringList> once we can.
-    std::unique_ptr<QStringList> translations;
+    std::optional<QStringList> translations;
 };
-
-inline bool hasTranslations(const Project &project)
-{
-    return (bool)project.translations;
-}
 
 Projects readProjectDescription(const QString &filePath, QString *errorString);
 

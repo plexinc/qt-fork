@@ -44,7 +44,7 @@
 #include "abstractdeclarative_p.h"
 #include "bars3dcontroller_p.h"
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 class DeclarativeBars : public AbstractDeclarative
 {
@@ -79,7 +79,7 @@ public:
     void setBarThickness(float thicknessRatio);
     float barThickness() const;
 
-    void setBarSpacing(QSizeF spacing);
+    void setBarSpacing(const QSizeF &spacing);
     QSizeF barSpacing() const;
 
     void setBarSpacingRelative(bool relative);
@@ -87,8 +87,8 @@ public:
 
     QQmlListProperty<QBar3DSeries> seriesList();
     static void appendSeriesFunc(QQmlListProperty<QBar3DSeries> *list, QBar3DSeries *series);
-    static int countSeriesFunc(QQmlListProperty<QBar3DSeries> *list);
-    static QBar3DSeries *atSeriesFunc(QQmlListProperty<QBar3DSeries> *list, int index);
+    static qsizetype countSeriesFunc(QQmlListProperty<QBar3DSeries> *list);
+    static QBar3DSeries *atSeriesFunc(QQmlListProperty<QBar3DSeries> *list, qsizetype index);
     static void clearSeriesFunc(QQmlListProperty<QBar3DSeries> *list);
     Q_INVOKABLE void addSeries(QBar3DSeries *series);
     Q_INVOKABLE void removeSeries(QBar3DSeries *series);
@@ -101,9 +101,9 @@ public:
     float floorLevel() const;
 
 public Q_SLOTS:
-    void handleAxisXChanged(QAbstract3DAxis *axis);
-    void handleAxisYChanged(QAbstract3DAxis *axis);
-    void handleAxisZChanged(QAbstract3DAxis *axis);
+    void handleAxisXChanged(QAbstract3DAxis *axis) override;
+    void handleAxisYChanged(QAbstract3DAxis *axis) override;
+    void handleAxisZChanged(QAbstract3DAxis *axis) override;
 
 Q_SIGNALS:
     void rowAxisChanged(QCategory3DAxis *axis);
@@ -111,9 +111,9 @@ Q_SIGNALS:
     void columnAxisChanged(QCategory3DAxis *axis);
     void multiSeriesUniformChanged(bool uniform);
     void barThicknessChanged(float thicknessRatio);
-    void barSpacingChanged(QSizeF spacing);
+    void barSpacingChanged(const QSizeF &spacing);
     void barSpacingRelativeChanged(bool relative);
-    void meshFileNameChanged(QString filename);
+    void meshFileNameChanged(const QString &filename);
     void primarySeriesChanged(QBar3DSeries *series);
     void selectedSeriesChanged(QBar3DSeries *series);
     Q_REVISION(1) void floorLevelChanged(float level);
@@ -122,6 +122,6 @@ private:
     Bars3DController *m_barsController;
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

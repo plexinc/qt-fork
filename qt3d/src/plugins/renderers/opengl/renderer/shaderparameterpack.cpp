@@ -42,8 +42,6 @@
 #include <graphicscontext_p.h>
 #include <Qt3DRender/private/texture_p.h>
 
-#include <Qt3DCore/private/qframeallocator_p.h>
-
 #include <QOpenGLShaderProgram>
 #include <QDebug>
 #include <QColor>
@@ -73,7 +71,7 @@ void ShaderParameterPack::setUniform(const int glslNameId, const UniformValue &v
 
 void ShaderParameterPack::setTexture(const int glslNameId, int uniformArrayIndex, Qt3DCore::QNodeId texId)
 {
-    for (int t=0; t<m_textures.size(); ++t) {
+    for (size_t t = 0; t < m_textures.size(); ++t) {
         if (m_textures[t].glslNameId != glslNameId || m_textures[t].uniformArrayIndex != uniformArrayIndex)
             continue;
 
@@ -86,7 +84,7 @@ void ShaderParameterPack::setTexture(const int glslNameId, int uniformArrayIndex
 
 void ShaderParameterPack::setImage(const int glslNameId, int uniformArrayIndex, Qt3DCore::QNodeId id)
 {
-    for (int i=0, m = m_images.size(); i < m; ++i) {
+    for (qsizetype i=0, m = m_images.size(); i < m; ++i) {
         if (m_images[i].glslNameId != glslNameId || m_images[i].uniformArrayIndex != uniformArrayIndex)
             continue;
 

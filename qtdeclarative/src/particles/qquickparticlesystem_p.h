@@ -63,7 +63,6 @@
 #include <private/qv4global_p.h>
 #include <private/qv4staticvalue_p.h>
 #include "qtquickparticlesglobal_p.h"
-#include "qquickparticleflatset_p.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -200,10 +199,14 @@ public:
     QQuickParticleGroupData(const QString &name, QQuickParticleSystem* sys);
     ~QQuickParticleGroupData();
 
-    int size()
-    { return m_size; }
+    int size() const
+    {
+        return m_size;
+    }
 
-    QString name();
+    bool isActive() { return freeList.count() > 0; }
+
+    QString name() const;
 
     void setSize(int newSize);
 
@@ -299,7 +302,7 @@ public:
     float yy;
     float rotation;
     float rotationVelocity;
-    float autoRotate;//Assume that GPUs prefer floats to bools
+    uchar autoRotate; // Basically a bool
     //Used by ImageParticle Sprite mode
     float animIdx;
     float frameDuration;
@@ -321,14 +324,8 @@ public:
 
     //Used by ItemParticle
     QQuickItem* delegate;
-    int modelIndex;
     //Used by custom affectors
     float update;
-    //Used by CustomParticle
-    float r;
-
-    // 4 bytes wasted
-
 
     void debugDump(QQuickParticleSystem *particleSystem) const;
     bool stillAlive(QQuickParticleSystem *particleSystem) const; //Only checks end, because usually that's all you need and it's a little faster.
@@ -340,7 +337,7 @@ public:
     QV4::ReturnedValue v4Value(QQuickParticleSystem *particleSystem);
     void extendLife(float time, QQuickParticleSystem *particleSystem);
 
-    static inline Q_DECL_CONSTEXPR float EPSILON() Q_DECL_NOTHROW { return 0.001f; }
+    static inline constexpr float EPSILON() noexcept { return 0.001f; }
 
 private:
     QQuickV4ParticleData* v8Datum;
@@ -353,6 +350,7 @@ class Q_QUICKPARTICLES_PRIVATE_EXPORT QQuickParticleSystem : public QQuickItem
     Q_PROPERTY(bool paused READ isPaused WRITE setPaused NOTIFY pausedChanged)
     Q_PROPERTY(bool empty READ isEmpty NOTIFY emptyChanged)
     QML_NAMED_ELEMENT(ParticleSystem)
+    QML_ADDED_IN_VERSION(2, 0)
 
 public:
     explicit QQuickParticleSystem(QQuickItem *parent = nullptr);
@@ -363,7 +361,10 @@ public:
         return m_running;
     }
 
-    int count(){ return particleCount; }
+    int count() const
+    {
+        return particleCount;
+    }
 
     static const int maxLife = 600000;
 
@@ -410,7 +411,7 @@ public:
     int systemSync(QQuickParticlePainter* p);
 
     //Data members here for ease of related class and auto-test usage. Not "public" API. TODO: d_ptrize
-    QtQuickParticlesPrivate::QFlatSet<QQuickParticleData*> needsReset;
+    QSet<QQuickParticleData*> needsReset;
     QVector<QQuickParticleData*> bySysIdx; //Another reference to the data (data owned by group), but by sysIdx
     QQuickStochasticEngine* stateEngine;
 

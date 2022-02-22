@@ -52,7 +52,7 @@ QV4Debugger::BreakPoint::BreakPoint(const QString &fileName, int line)
     : fileName(fileName), lineNumber(line)
 {}
 
-inline uint qHash(const QV4Debugger::BreakPoint &b, uint seed = 0) Q_DECL_NOTHROW
+inline size_t qHash(const QV4Debugger::BreakPoint &b, size_t seed = 0) noexcept
 {
     return qHash(b.fileName, seed) ^ b.lineNumber;
 }
@@ -230,7 +230,7 @@ void QV4Debugger::leavingFunction(const QV4::ReturnedValue &retVal)
     QMutexLocker locker(&m_lock);
 
     if (m_stepping != NotStepping && m_currentFrame == m_engine->currentStackFrame) {
-        m_currentFrame = m_currentFrame->parent;
+        m_currentFrame = m_currentFrame->parentFrame();
         m_stepping = StepOver;
         m_returnedValue.set(m_engine, retVal);
     }

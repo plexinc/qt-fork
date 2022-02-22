@@ -11,8 +11,6 @@ jumbo_component("wifi") {
     "wifi_export.h",
     "wifi_service.cc",
     "wifi_service.h",
-    "wifi_service_mac.mm",
-    "wifi_service_win.cc",
   ]
 
   defines = [ "WIFI_IMPLEMENTATION" ]
@@ -24,6 +22,7 @@ jumbo_component("wifi") {
   ]
 
   if (is_win) {
+    sources += [ "wifi_service_win.cc" ]
     libs = [ "iphlpapi.lib" ]
     deps += [
       "//third_party/libxml:xml_reader",  # Safe, data come from system.
@@ -32,7 +31,8 @@ jumbo_component("wifi") {
   }
 
   if (is_mac) {
-    libs = [
+    sources += [ "wifi_service_mac.mm" ]
+    frameworks = [
       "CoreWLAN.framework",
       "Foundation.framework",
       "SystemConfiguration.framework",

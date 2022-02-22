@@ -5,7 +5,6 @@ TEMPLATE=subdirs
 
 qtConfig(opengl) {
     SUBDIRS += \
-        qwindow-compositor \
         minimal-cpp
 }
 
@@ -24,8 +23,7 @@ qtHaveModule(quick) {
 
             qtConfig(opengl) {
                 SUBDIRS += \
-                    server-buffer \
-                    texture-sharing
+                    server-buffer
             }
     }
     SUBDIRS += hwlayer-compositor

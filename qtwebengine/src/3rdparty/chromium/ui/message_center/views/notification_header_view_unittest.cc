@@ -9,10 +9,18 @@
 #include "base/time/time.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/gfx/color_palette.h"
+#include "ui/gfx/color_utils.h"
+#include "ui/gfx/image/image.h"
+#include "ui/gfx/image/image_unittest_util.h"
+#include "ui/gfx/paint_vector_icon.h"
+#include "ui/message_center/vector_icons.h"
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
+#include "ui/views/test/view_metadata_test_utils.h"
 #include "ui/views/test/views_test_base.h"
+#include "ui/views/view.h"
 
 namespace message_center {
 
@@ -21,6 +29,9 @@ class NotificationHeaderViewTest : public views::ViewsTestBase {
   NotificationHeaderViewTest()
       : views::ViewsTestBase(
             base::test::TaskEnvironment::TimeSource::MOCK_TIME) {}
+  NotificationHeaderViewTest(const NotificationHeaderViewTest&) = delete;
+  NotificationHeaderViewTest& operator=(const NotificationHeaderViewTest&) =
+      delete;
   ~NotificationHeaderViewTest() override = default;
 
   // ViewsTestBase:
@@ -32,10 +43,11 @@ class NotificationHeaderViewTest : public views::ViewsTestBase {
     params.bounds = gfx::Rect(200, 200);
     params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
     widget_.Init(std::move(params));
-    views::View* container = new views::View();
-    widget_.SetContentsView(container);
+    views::View* container =
+        widget_.SetContentsView(std::make_unique<views::View>());
 
-    notification_header_view_ = new NotificationHeaderView(nullptr);
+    notification_header_view_ =
+        new NotificationHeaderView(views::Button::PressedCallback());
     container->AddChildView(notification_header_view_);
 
     widget_.Show();
@@ -46,13 +58,29 @@ class NotificationHeaderViewTest : public views::ViewsTestBase {
     ViewsTestBase::TearDown();
   }
 
+  bool MatchesAppIconColor(SkColor color) {
+    SkBitmap expected =
+        *gfx::CreateVectorIcon(kProductIcon, kSmallImageSizeMD, color).bitmap();
+    SkBitmap actual =
+        *notification_header_view_->app_icon_for_testing().bitmap();
+    return gfx::test::AreBitmapsEqual(expected, actual);
+  }
+
+  bool MatchesExpandIconColor(SkColor color) {
+    constexpr int kExpandIconSize = 8;
+    SkBitmap expected = *gfx::CreateVectorIcon(kNotificationExpandMoreIcon,
+                                               kExpandIconSize, color)
+                             .bitmap();
+    SkBitmap actual =
+        *notification_header_view_->expand_button()->GetImage().bitmap();
+    return gfx::test::AreBitmapsEqual(expected, actual);
+  }
+
  protected:
   NotificationHeaderView* notification_header_view_ = nullptr;
 
  private:
   views::Widget widget_;
-
-  DISALLOW_COPY_AND_ASSIGN(NotificationHeaderViewTest);
 };
 
 TEST_F(NotificationHeaderViewTest, UpdatesTimestampOverTime) {
@@ -154,6 +182,41 @@ TEST_F(NotificationHeaderViewTest, TimestampHiddenWithProgress) {
   // Make sure we show the timestamp view with summary text.
   notification_header_view_->SetSummaryText(base::ASCIIToUTF16("summary"));
   EXPECT_TRUE(timestamp_view->GetVisible());
+}
+
+TEST_F(NotificationHeaderViewTest, ColorContrastEnforcement) {
+  notification_header_view_->SetSummaryText(base::ASCIIToUTF16("summary"));
+  auto* summary_text = notification_header_view_->summary_text_for_testing();
+  notification_header_view_->ClearAppIcon();
+  notification_header_view_->SetExpandButtonEnabled(true);
+  notification_header_view_->SetExpanded(false);
+
+  // A bright background should enforce dark enough icons.
+  notification_header_view_->SetBackgroundColor(SK_ColorWHITE);
+  notification_header_view_->SetAccentColor(SK_ColorWHITE);
+  SkColor expected_color =
+      color_utils::BlendForMinContrast(SK_ColorWHITE, SK_ColorWHITE).color;
+  EXPECT_EQ(expected_color, summary_text->GetEnabledColor());
+  EXPECT_TRUE(MatchesAppIconColor(expected_color));
+  EXPECT_TRUE(MatchesExpandIconColor(expected_color));
+
+  // A dark background should enforce bright enough icons.
+  notification_header_view_->SetBackgroundColor(SK_ColorBLACK);
+  notification_header_view_->SetAccentColor(SK_ColorBLACK);
+  expected_color =
+      color_utils::BlendForMinContrast(SK_ColorBLACK, SK_ColorBLACK).color;
+  EXPECT_EQ(expected_color, summary_text->GetEnabledColor());
+  EXPECT_TRUE(MatchesAppIconColor(expected_color));
+  EXPECT_TRUE(MatchesExpandIconColor(expected_color));
+}
+
+TEST_F(NotificationHeaderViewTest, DefaultFocusBehavior) {
+  EXPECT_EQ(views::View::FocusBehavior::ACCESSIBLE_ONLY,
+            notification_header_view_->GetFocusBehavior());
+}
+
+TEST_F(NotificationHeaderViewTest, MetadataTest) {
+  views::test::TestViewMetadata(notification_header_view_);
 }
 
 }  // namespace message_center

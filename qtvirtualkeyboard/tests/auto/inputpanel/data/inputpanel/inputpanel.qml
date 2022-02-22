@@ -27,10 +27,10 @@
 **
 ****************************************************************************/
 
-import QtTest 1.0
-import QtQuick 2.0
-import QtQuick.VirtualKeyboard 2.3
-import QtQuick.VirtualKeyboard.Settings 2.2
+import QtTest
+import QtQuick
+import QtQuick.VirtualKeyboard
+import QtQuick.VirtualKeyboard.Settings
 import "handwriting.js" as Handwriting
 import "utils.js" as Utils
 
@@ -89,6 +89,7 @@ InputPanel {
     property alias soundEffectSpy: soundEffectSpy
     property alias inputMethodResultSpy: inputMethodResultSpy
     property alias wordCandidateListChangedSpy: wordCandidateListChangedSpy
+    property alias wordCandidateListItemSelectedSpy: wordCandidateListItemSelectedSpy
     property alias inputMethodSelectionListChangedSpy: inputMethodSelectionListChangedSpy
     property alias wordCandidateListVisibleSpy: wordCandidateListVisibleSpy
     property alias shiftStateSpy: shiftStateSpy
@@ -179,6 +180,12 @@ InputPanel {
     }
 
     SignalSpy {
+        id: wordCandidateListItemSelectedSpy
+        target: wordCandidateView.model
+        signalName: "itemSelected"
+    }
+
+    SignalSpy {
         id: inputMethodSelectionListChangedSpy
         target: InputContext.inputEngine.inputMethod
         signalName: "selectionListChanged"
@@ -252,6 +259,22 @@ InputPanel {
         VirtualKeyboardSettings.activeLocales = activeLocales
     }
 
+    function mapKeyboardFunction(keyboardFunctionName) {
+        if (keyboardFunctionName === "HideInputPanel")
+            return QtVirtualKeyboard.HideInputPanel
+        if (keyboardFunctionName === "ChangeLanguage")
+            return QtVirtualKeyboard.ChangeLanguage
+        if (keyboardFunctionName === "ToggleHandwritingMode")
+            return QtVirtualKeyboard.ToggleHandwritingMode
+        return -1
+    }
+
+    function doKeyboardFunction(keyboardFunctionName) {
+        const keyboardFunction = mapKeyboardFunction(keyboardFunctionName)
+        testcase.verify(keyboardFunction !== -1)
+        keyboard.doKeyboardFunction(keyboardFunction)
+    }
+
     function setWclAutoHideDelay(wclAutoHideDelay) {
         VirtualKeyboardSettings.wordCandidateList.autoHideDelay = wclAutoHideDelay
     }
@@ -305,6 +328,10 @@ InputPanel {
             return InputEngine.InputMode.KoreanHandwriting
         else if (inputModeName === "Thai")
             return InputEngine.InputMode.Thai
+        else if (inputModeName === "Stroke")
+            return InputEngine.InputMode.Stroke
+        else if (inputModeName === "Romaji")
+            return InputEngine.InputMode.Romaji
         else
             return -1
     }
@@ -343,6 +370,8 @@ InputPanel {
         testcase.verify(InputEngine.InputMode.JapaneseHandwriting !== undefined)
         testcase.verify(InputEngine.InputMode.KoreanHandwriting !== undefined)
         testcase.verify(InputEngine.InputMode.Thai !== undefined)
+        testcase.verify(InputEngine.InputMode.Stroke !== undefined)
+        testcase.verify(InputEngine.InputMode.Romaji !== undefined)
         testcase.verify(InputEngine.PatternRecognitionMode.None !== undefined)
         testcase.verify(InputEngine.PatternRecognitionMode.PatternRecognitionDisabled !== undefined)
         testcase.verify(InputEngine.PatternRecognitionMode.Handwriting !== undefined)
@@ -377,6 +406,8 @@ InputPanel {
         testcase.verify(InputEngine.JapaneseHandwriting !== undefined)
         testcase.verify(InputEngine.KoreanHandwriting !== undefined)
         testcase.verify(InputEngine.Thai !== undefined)
+        testcase.verify(InputEngine.Stroke !== undefined)
+        testcase.verify(InputEngine.Romaji !== undefined)
         testcase.verify(InputEngine.None !== undefined)
         testcase.verify(InputEngine.PatternRecognitionDisabled !== undefined)
         testcase.verify(InputEngine.Handwriting !== undefined)
@@ -453,7 +484,7 @@ InputPanel {
 
     function multiLayoutKeyActionHelper(key, keyActionOnCurrentLayoutCb) {
         if (!keyboardLayoutLoader.item) {
-            console.warn("Key not found \\u%1 (keyboard layout not loaded)".arg(key.charCodeAt(0).toString(16)))
+            console.warn("Key not found \\u%1 (keyboard layout not loaded)".arg(typeof key == "string" ? key.charCodeAt(0).toString(16) : key.toString(16)))
             return false
         }
         var success = keyActionOnCurrentLayoutCb(key)
@@ -496,7 +527,7 @@ InputPanel {
             success = keyActionOnCurrentLayoutCb(key)
         }
         if (!success)
-            console.warn("Key not found \\u%1".arg(key.charCodeAt(0).toString(16)))
+            console.warn("Key not found \\u%1".arg(typeof key == "string" ? key.charCodeAt(0).toString(16) : key.toString(16)))
         return success
     }
 
@@ -658,6 +689,9 @@ InputPanel {
             origIndex = inputPanel.wordCandidateView.currentIndex
         }
         if (origIndex !== -1) {
+            while (inputPanel.wordCandidateView.currentIndex > 0) {
+                inputPanel.wordCandidateView.decrementCurrentIndex()
+            }
             while (true) {
                 if (inputPanel.wordCandidateView.model.dataAt(inputPanel.wordCandidateView.currentIndex) === suggestion) {
                     suggestionFound = true

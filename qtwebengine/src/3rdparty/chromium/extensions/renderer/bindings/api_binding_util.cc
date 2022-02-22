@@ -4,10 +4,12 @@
 
 #include "extensions/renderer/bindings/api_binding_util.h"
 
-#include "base/logging.h"
+#include "base/check_op.h"
+#include "base/notreached.h"
 #include "base/observer_list.h"
 #include "base/supports_user_data.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "extensions/renderer/bindings/get_per_context_data.h"
 #include "extensions/renderer/bindings/js_runner.h"
 #include "gin/converter.h"
@@ -121,11 +123,11 @@ void InvalidateContext(v8::Local<v8::Context> context) {
 }
 
 std::string GetPlatformString() {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   return "chromeos";
-#elif defined(OS_LINUX)
+#elif defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
   return "linux";
-#elif defined(OS_MACOSX)
+#elif defined(OS_MAC)
   return "mac";
 #elif defined(OS_WIN)
   return "win";

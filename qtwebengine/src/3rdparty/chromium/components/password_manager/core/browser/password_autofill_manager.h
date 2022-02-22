@@ -12,7 +12,7 @@
 #include "base/i18n/rtl.h"
 #include "base/macros.h"
 #include "base/task/cancelable_task_tracker.h"
-#include "base/util/type_safety/strong_alias.h"
+#include "base/types/strong_alias.h"
 #include "components/autofill/core/browser/autofill_client.h"
 #include "components/autofill/core/browser/ui/autofill_popup_delegate.h"
 #include "components/autofill/core/common/password_form_fill_data.h"
@@ -94,6 +94,10 @@ class PasswordAutofillManager : public autofill::AutofillPopupDelegate {
   // Called when main frame navigates. Not called for in-page navigations.
   void DidNavigateMainFrame();
 
+  // Called if no suggestions were found. Assumed to be mutually exclusive with
+  // |OnAddPasswordFillData|.
+  void OnNoCredentialsFound();
+
   // A public version of FillSuggestion(), only for use in tests.
   bool FillSuggestionForTest(const base::string16& username);
 
@@ -107,11 +111,11 @@ class PasswordAutofillManager : public autofill::AutofillPopupDelegate {
 #endif  // defined(UNIT_TEST)
 
  private:
-  using ForPasswordField = util::StrongAlias<class ForPasswordFieldTag, bool>;
-  using OffersGeneration = util::StrongAlias<class OffersGenerationTag, bool>;
-  using ShowAllPasswords = util::StrongAlias<class ShowAllPasswordsTag, bool>;
+  using ForPasswordField = base::StrongAlias<class ForPasswordFieldTag, bool>;
+  using OffersGeneration = base::StrongAlias<class OffersGenerationTag, bool>;
+  using ShowAllPasswords = base::StrongAlias<class ShowAllPasswordsTag, bool>;
   using ShowPasswordSuggestions =
-      util::StrongAlias<class ShowPasswordSuggestionsTag, bool>;
+      base::StrongAlias<class ShowPasswordSuggestionsTag, bool>;
 
   // Builds the suggestions used to show or update the autofill popup.
   std::vector<autofill::Suggestion> BuildSuggestions(
@@ -165,15 +169,16 @@ class PasswordAutofillManager : public autofill::AutofillPopupDelegate {
   void OnFaviconReady(const favicon_base::FaviconImageResult& result);
 
   // Replaces |unlock_item| with a loading symbol and triggers a reauth flow to
-  // opt in for passwords account storage, with OnUnlockReauthCompleted as
-  // callback.
+  // opt in for the account-scoped password storage, with
+  // OnUnlockReauthCompleted as callback.
   void OnUnlockItemAccepted(autofill::PopupItemId unlock_item);
 
   // If reauth failed, resets the suggestions to show the |unlock_item| again.
-  // Otherwise, unlocks the account store and either triggers generation or
-  // filling based on the |unlock_item| that was clicked.
+  // Otherwise, triggers either generation or filling based on the |unlock_item|
+  // that was clicked.
   void OnUnlockReauthCompleted(
       autofill::PopupItemId unlock_item,
+      autofill::AutofillClient::PopupOpenArgs reopen_args,
       PasswordManagerClient::ReauthSucceeded reauth_succeeded);
 
   std::unique_ptr<autofill::PasswordFormFillData> fill_data_;

@@ -97,8 +97,7 @@ public:
             QString uri;
             QString qualifier;
 
-            int majorVersion = -1;
-            int minorVersion = -1;
+            QTypeRevision version;
 
             QV4::CompiledData::Location location;
 
@@ -110,8 +109,9 @@ public:
         using PendingImportPtr = std::shared_ptr<PendingImport>;
 
     protected:
-        bool addImport(const QV4::CompiledData::Import *import, QList<QQmlError> *errors);
-        bool addImport(PendingImportPtr import, QList<QQmlError> *errors);
+        bool addImport(const QV4::CompiledData::Import *import, uint flags,
+                       QList<QQmlError> *errors);
+        bool addImport(PendingImportPtr import, uint flags, QList<QQmlError> *errors);
 
         bool fetchQmldir(const QUrl &url, PendingImportPtr import, int priority, QList<QQmlError> *errors);
         bool updateQmldir(const QQmlRefPointer<QQmlQmldirData> &data, PendingImportPtr import, QList<QQmlError> *errors);
@@ -168,7 +168,7 @@ public:
 
     void load(QQmlDataBlob *, Mode = PreferSynchronous);
     void loadWithStaticData(QQmlDataBlob *, const QByteArray &, Mode = PreferSynchronous);
-    void loadWithCachedUnit(QQmlDataBlob *blob, const QV4::CompiledData::Unit *unit, Mode mode = PreferSynchronous);
+    void loadWithCachedUnit(QQmlDataBlob *blob, const QQmlPrivate::CachedQmlUnit *unit, Mode mode = PreferSynchronous);
 
     QQmlEngine *engine() const;
     void initializeEngine(QQmlEngineExtensionInterface *, const char *);
@@ -195,7 +195,7 @@ private:
 
     void loadThread(QQmlDataBlob *);
     void loadWithStaticDataThread(QQmlDataBlob *, const QByteArray &);
-    void loadWithCachedUnitThread(QQmlDataBlob *blob, const QV4::CompiledData::Unit *unit);
+    void loadWithCachedUnitThread(QQmlDataBlob *blob, const QQmlPrivate::CachedQmlUnit *unit);
 #if QT_CONFIG(qml_network)
     void networkReplyFinished(QNetworkReply *);
     void networkReplyProgress(QNetworkReply *, qint64, qint64);
@@ -206,7 +206,7 @@ private:
     void setData(QQmlDataBlob *, const QByteArray &);
     void setData(QQmlDataBlob *, const QString &fileName);
     void setData(QQmlDataBlob *, const QQmlDataBlob::SourceCodeData &);
-    void setCachedUnit(QQmlDataBlob *blob, const QV4::CompiledData::Unit *unit);
+    void setCachedUnit(QQmlDataBlob *blob, const QQmlPrivate::CachedQmlUnit *unit);
 
     template<typename T>
     struct TypedCallback

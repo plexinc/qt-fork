@@ -154,21 +154,21 @@ void tst_QBluetoothDeviceInfo::tst_construction_data()
     QTest::newRow("0x000300 COD") << QBluetoothAddress("000000000000") << "My Bluetooth Device"
         << quint32(0x000300)
         << QBluetoothDeviceInfo::ServiceClasses(QBluetoothDeviceInfo::NoService)
-        << QBluetoothDeviceInfo::LANAccessDevice
+        << QBluetoothDeviceInfo::NetworkDevice
         << quint8(QBluetoothDeviceInfo::NetworkFullService)
         << QBluetoothDeviceInfo::BaseRateAndLowEnergyCoreConfiguration
         << leDeviceUuid;
     QTest::newRow("0x000320 COD") << QBluetoothAddress("000000000000") << "My Bluetooth Device"
         << quint32(0x000320)
         << QBluetoothDeviceInfo::ServiceClasses(QBluetoothDeviceInfo::NoService)
-        << QBluetoothDeviceInfo::LANAccessDevice
+        << QBluetoothDeviceInfo::NetworkDevice
         << quint8(QBluetoothDeviceInfo::NetworkLoadFactorOne)
         << QBluetoothDeviceInfo::BaseRateAndLowEnergyCoreConfiguration
         << leDeviceUuid;
     QTest::newRow("0x0003E0 COD") << QBluetoothAddress("000000000000") << "My Bluetooth Device"
         << quint32(0x0003E0)
         << QBluetoothDeviceInfo::ServiceClasses(QBluetoothDeviceInfo::NoService)
-        << QBluetoothDeviceInfo::LANAccessDevice
+        << QBluetoothDeviceInfo::NetworkDevice
         << quint8(QBluetoothDeviceInfo::NetworkNoService)
         << QBluetoothDeviceInfo::BaseRateAndLowEnergyCoreConfiguration
         << leDeviceUuid;
@@ -449,14 +449,14 @@ void tst_QBluetoothDeviceInfo::tst_serviceUuids()
     QBluetoothDeviceInfo deviceInfo;
     QBluetoothDeviceInfo copyInfo = deviceInfo;
 
-    QVector<QBluetoothUuid> servicesList;
-    servicesList.append(QBluetoothUuid::L2cap);
-    servicesList.append(QBluetoothUuid::Rfcomm);
+    QList<QBluetoothUuid> servicesList;
+    servicesList.append(QBluetoothUuid::ProtocolUuid::L2cap);
+    servicesList.append(QBluetoothUuid::ProtocolUuid::Rfcomm);
     QVERIFY(servicesList.count() > 0);
 
     deviceInfo.setServiceUuids(servicesList);
     QVERIFY(deviceInfo.serviceUuids().count() > 0);
-    deviceInfo.setServiceUuids(QVector<QBluetoothUuid>());
+    deviceInfo.setServiceUuids(QList<QBluetoothUuid>());
     QCOMPARE(deviceInfo.serviceUuids().count(), 0);
 }
 

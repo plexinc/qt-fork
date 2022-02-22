@@ -44,9 +44,9 @@
 #include <QtCore/QDebug>
 #include <QtCore/QLibraryInfo>
 #include <QtCore/qt_windows.h>
-#include <ActiveQt/QAxScriptManager>
-#include <ActiveQt/QAxWidget>
-#include <ActiveQt/qaxtypes.h>
+#include <QtAxContainer/QAxScriptManager>
+#include <QtAxContainer/QAxWidget>
+#include <QtAxContainer/private/qaxbase_p.h>
 #include <memory>
 #include <sddl.h>
 
@@ -87,7 +87,7 @@ MainWindow::MainWindow(QWidget *parent)
     QHBoxLayout *layout = new QHBoxLayout(Workbase);
     m_mdiArea = new QMdiArea(Workbase);
     layout->addWidget(m_mdiArea);
-    layout->setMargin(0);
+    layout->setContentsMargins(0, 0, 0, 0);
 
     connect(m_mdiArea, &QMdiArea::subWindowActivated, this, &MainWindow::updateGUI);
     connect(actionFileExit, &QAction::triggered, QCoreApplication::quit);
@@ -105,9 +105,9 @@ QAxWidget *MainWindow::activeAxWidget() const
     return nullptr;
 }
 
-QVector<QAxWidget *> MainWindow::axWidgets() const
+QList<QAxWidget *> MainWindow::axWidgets() const
 {
-    QVector<QAxWidget *> result;
+    QList<QAxWidget *> result;
     const auto mdiSubWindows = m_mdiArea->subWindowList();
     for (const QMdiSubWindow *subWindow : mdiSubWindows)
         if (QAxWidget *axWidget = qobject_cast<QAxWidget *>(subWindow->widget()))
@@ -476,7 +476,7 @@ bool MainWindow::loadScript(const QString &file)
     }
     return script;
 #else // !QT_NO_QAXSCRIPT
-    Q_UNUSED(file)
+    Q_UNUSED(file);
     noScriptMessage(this);
     return false;
 #endif
@@ -549,17 +549,15 @@ void MainWindow::updateGUI()
 
     const auto axw = axWidgets();
     for (QAxWidget *container : axw) {
-        container->disconnect(SIGNAL(signal(QString,int,void*)));
+        disconnect(container, &QAxWidget::signal, this, nullptr);
         if (actionLogSignals->isChecked())
-            connect(container, SIGNAL(signal(QString,int,void*)), this, SLOT(logSignal(QString,int,void*)));
+            connect(container, &QAxWidget::signal, this, &MainWindow::logSignal);
+        disconnect(container, &QAxWidget::exception, this, nullptr);
+        connect(container, &QAxWidget::exception, this, &MainWindow::logException);
 
-        container->disconnect(SIGNAL(exception(int,QString,QString,QString)));
-        connect(container, SIGNAL(exception(int,QString,QString,QString)),
-                this, SLOT(logException(int,QString,QString,QString)));
-
-        container->disconnect(SIGNAL(propertyChanged(QString)));
+        disconnect(container, &QAxWidget::propertyChanged, this, nullptr);
         if (actionLogProperties->isChecked())
-            connect(container, SIGNAL(propertyChanged(QString)), this, SLOT(logPropertyChanged(QString)));
+            connect(container, &QAxWidget::propertyChanged, this, &MainWindow::logPropertyChanged);
         container->blockSignals(actionFreezeEvents->isChecked());
     }
 }
@@ -584,7 +582,7 @@ void MainWindow::logSignal(const QString &signal, int argc, void *argv)
     auto params = static_cast<const VARIANT *>(argv);
     for (int a = argc-1; a >= 0; --a) {
         paramlist += QLatin1Char(' ');
-        paramlist += VARIANTToQVariant(params[a], nullptr).toString();
+        paramlist += QAxBasePrivate::VARIANTToQVariant(params[a], nullptr).toString();
         paramlist += a > 0 ? QLatin1Char(',') : QLatin1Char(' ');
     }
     if (argc)

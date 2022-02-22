@@ -56,7 +56,7 @@
 QT_BEGIN_NAMESPACE
 
 class QQuickLoaderPrivate;
-class Q_AUTOTEST_EXPORT QQuickLoader : public QQuickImplicitSizeItem
+class Q_QUICK_PRIVATE_EXPORT QQuickLoader : public QQuickImplicitSizeItem
 {
     Q_OBJECT
 
@@ -68,6 +68,7 @@ class Q_AUTOTEST_EXPORT QQuickLoader : public QQuickImplicitSizeItem
     Q_PROPERTY(qreal progress READ progress NOTIFY progressChanged)
     Q_PROPERTY(bool asynchronous READ asynchronous WRITE setAsynchronous NOTIFY asynchronousChanged)
     QML_NAMED_ELEMENT(Loader)
+    QML_ADDED_IN_VERSION(2, 0)
 
 public:
     QQuickLoader(QQuickItem *parent = nullptr);
@@ -106,7 +107,7 @@ Q_SIGNALS:
     void asynchronousChanged();
 
 protected:
-    void geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry) override;
+    void geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry) override;
     void componentComplete() override;
     void itemChange(ItemChange change, const ItemChangeData &value) override;
 

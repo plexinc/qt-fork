@@ -101,17 +101,6 @@ Program *GetValidProgram(const Context *context, ShaderProgramID id);
 Shader *GetValidShader(const Context *context, ShaderProgramID id);
 
 bool ValidateAttachmentTarget(const Context *context, GLenum attachment);
-bool ValidateRenderbufferStorageParametersBase(const Context *context,
-                                               GLenum target,
-                                               GLsizei samples,
-                                               GLenum internalformat,
-                                               GLsizei width,
-                                               GLsizei height);
-bool ValidateFramebufferRenderbufferParameters(const Context *context,
-                                               GLenum target,
-                                               GLenum attachment,
-                                               GLenum renderbuffertarget,
-                                               RenderbufferID renderbuffer);
 
 bool ValidateBlitFramebufferParameters(const Context *context,
                                        GLint srcX0,
@@ -124,6 +113,29 @@ bool ValidateBlitFramebufferParameters(const Context *context,
                                        GLint dstY1,
                                        GLbitfield mask,
                                        GLenum filter);
+
+bool ValidateBindFramebufferBase(const Context *context, GLenum target, FramebufferID framebuffer);
+bool ValidateBindRenderbufferBase(const Context *context,
+                                  GLenum target,
+                                  RenderbufferID renderbuffer);
+bool ValidateFramebufferRenderbufferBase(const Context *context,
+                                         GLenum target,
+                                         GLenum attachment,
+                                         GLenum renderbuffertarget,
+                                         RenderbufferID renderbuffer);
+bool ValidateFramebufferTextureBase(const Context *context,
+                                    GLenum target,
+                                    GLenum attachment,
+                                    TextureID texture,
+                                    GLint level);
+bool ValidateGenerateMipmapBase(const Context *context, TextureType target);
+
+bool ValidateRenderbufferStorageParametersBase(const Context *context,
+                                               GLenum target,
+                                               GLsizei samples,
+                                               GLenum internalformat,
+                                               GLsizei width,
+                                               GLsizei height);
 
 bool ValidatePixelPack(const Context *context,
                        GLenum format,
@@ -311,6 +323,23 @@ bool ValidateRobustStateQuery(const Context *context,
                               GLenum *nativeType,
                               unsigned int *numParams);
 
+bool ValidateCopyImageSubDataBase(const Context *context,
+                                  GLuint srcName,
+                                  GLenum srcTarget,
+                                  GLint srcLevel,
+                                  GLint srcX,
+                                  GLint srcY,
+                                  GLint srcZ,
+                                  GLuint dstName,
+                                  GLenum dstTarget,
+                                  GLint dstLevel,
+                                  GLint dstX,
+                                  GLint dstY,
+                                  GLint dstZ,
+                                  GLsizei srcWidth,
+                                  GLsizei srcHeight,
+                                  GLsizei srcDepth);
+
 bool ValidateCopyTexImageParametersBase(const Context *context,
                                         TextureTarget target,
                                         GLint level,
@@ -331,12 +360,6 @@ const char *ValidateDrawElementsStates(const Context *context);
 
 ANGLE_INLINE bool ValidateDrawBase(const Context *context, PrimitiveMode mode)
 {
-    if (!context->getStateCache().isValidDrawMode(mode))
-    {
-        RecordDrawModeError(context, mode);
-        return false;
-    }
-
     intptr_t drawStatesError = context->getStateCache().getBasicDrawStatesError(context);
     if (drawStatesError)
     {
@@ -348,6 +371,12 @@ ANGLE_INLINE bool ValidateDrawBase(const Context *context, PrimitiveMode mode)
         GLenum errorCode =
             isFramebufferIncomplete ? GL_INVALID_FRAMEBUFFER_OPERATION : GL_INVALID_OPERATION;
         context->validationError(errorCode, errorMessage);
+        return false;
+    }
+
+    if (!context->getStateCache().isValidDrawMode(mode))
+    {
+        RecordDrawModeError(context, mode);
         return false;
     }
 
@@ -390,13 +419,6 @@ bool ValidateDrawElementsInstancedEXT(const Context *context,
                                       GLsizei primcount);
 
 bool ValidateDrawInstancedANGLE(const Context *context);
-bool ValidateDrawInstancedEXT(const Context *context);
-
-bool ValidateFramebufferTextureBase(const Context *context,
-                                    GLenum target,
-                                    GLenum attachment,
-                                    TextureID texture,
-                                    GLint level);
 
 bool ValidateGetUniformBase(const Context *context,
                             ShaderProgramID program,
@@ -625,7 +647,7 @@ bool ValidateVertexAttribIndex(const Context *context, GLuint index);
 
 bool ValidateGetActiveUniformBlockivBase(const Context *context,
                                          ShaderProgramID program,
-                                         GLuint uniformBlockIndex,
+                                         UniformBlockIndex uniformBlockIndex,
                                          GLenum pname,
                                          GLsizei *length);
 
@@ -651,7 +673,7 @@ bool ValidateGetInternalFormativBase(const Context *context,
 
 bool ValidateFramebufferNotMultisampled(const Context *context,
                                         const Framebuffer *framebuffer,
-                                        bool needResourceSamples);
+                                        bool checkReadBufferResourceSamples);
 
 bool ValidateMultitextureUnit(const Context *context, GLenum texture);
 
@@ -733,12 +755,6 @@ bool ValidateGetMultisamplefvBase(const Context *context,
                                   const GLfloat *val);
 bool ValidateSampleMaskiBase(const Context *context, GLuint maskNumber, GLbitfield mask);
 
-// Utility macro for handling implementation methods inside Validation.
-#define ANGLE_HANDLE_VALIDATION_ERR(X) \
-    (void)(X);                         \
-    return false
-#define ANGLE_VALIDATION_TRY(EXPR) ANGLE_TRY_TEMPLATE(EXPR, ANGLE_HANDLE_VALIDATION_ERR)
-
 // We should check with Khronos if returning INVALID_FRAMEBUFFER_OPERATION is OK when querying
 // implementation format info for incomplete framebuffers. It seems like these queries are
 // incongruent with the other errors.
@@ -756,6 +772,10 @@ ANGLE_INLINE bool ValidateFramebufferComplete(const Context *context,
     return true;
 }
 
+const char *ValidateProgramPipelineDrawStates(const State &state,
+                                              const Extensions &extensions,
+                                              ProgramPipeline *programPipeline);
+const char *ValidateProgramPipelineAttachedPrograms(ProgramPipeline *programPipeline);
 const char *ValidateDrawStates(const Context *context);
 
 void RecordDrawAttribsError(const Context *context);
@@ -839,7 +859,8 @@ ANGLE_INLINE bool ValidateDrawArraysCommon(const Context *context,
         return false;
     }
 
-    if (context->getStateCache().isTransformFeedbackActiveUnpaused())
+    if (context->getStateCache().isTransformFeedbackActiveUnpaused() &&
+        !context->supportsGeometryOrTesselation())
     {
         const State &state                      = context->getState();
         TransformFeedback *curTransformFeedback = state.getCurrentTransformFeedback();
@@ -976,7 +997,9 @@ ANGLE_INLINE bool ValidateDrawElementsCommon(const Context *context,
             return false;
         }
 
-        if (elementDataSizeWithOffset > static_cast<uint64_t>(elementArrayBuffer->getSize()))
+        // Related to possible test bug: https://github.com/KhronosGroup/WebGL/issues/3064
+        if ((elementDataSizeWithOffset > static_cast<uint64_t>(elementArrayBuffer->getSize())) &&
+            (primcount > 0))
         {
             context->validationError(GL_INVALID_OPERATION, err::kInsufficientBufferSize);
             return false;

@@ -76,10 +76,10 @@ class Q_SENSORS_EXPORT QGyroscope : public QSensor
 {
     Q_OBJECT
 public:
-    explicit QGyroscope(QObject *parent = Q_NULLPTR);
+    explicit QGyroscope(QObject *parent = nullptr);
     virtual ~QGyroscope();
     QGyroscopeReading *reading() const;
-    static char const * const type;
+    static char const * const sensorType;
 
 private:
     Q_DISABLE_COPY(QGyroscope)

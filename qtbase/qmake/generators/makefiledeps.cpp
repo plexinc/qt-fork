@@ -60,19 +60,14 @@ QT_BEGIN_NAMESPACE
 inline bool qmake_endOfLine(const char &c) { return (c == '\r' || c == '\n'); }
 #endif
 
-QMakeLocalFileName::QMakeLocalFileName(const QString &name) : is_null(name.isNull())
+QMakeLocalFileName::QMakeLocalFileName(const QString &name)
+    : real_name(name)
 {
-    if(!name.isEmpty()) {
-        if(name.at(0) == QLatin1Char('"') && name.at(name.length()-2) == QLatin1Char('"'))
-            real_name = name.mid(1, name.length()-2);
-        else
-            real_name = name;
-    }
 }
 const QString
 &QMakeLocalFileName::local() const
 {
-    if(!is_null && local_name.isNull())
+    if (!isNull() && local_name.isNull())
         local_name = Option::normalizePath(real_name);
     return local_name;
 }
@@ -197,10 +192,10 @@ void QMakeSourceFileInfo::dependTreeWalker(SourceFile *node, SourceDependChildre
     }
 }
 
-void QMakeSourceFileInfo::setDependencyPaths(const QVector<QMakeLocalFileName> &l)
+void QMakeSourceFileInfo::setDependencyPaths(const QList<QMakeLocalFileName> &l)
 {
     // Ensure that depdirs does not contain the same paths several times, to minimize the stats
-    QVector<QMakeLocalFileName> ll;
+    QList<QMakeLocalFileName> ll;
     for (int i = 0; i < l.count(); ++i) {
         if (!ll.contains(l.at(i)))
             ll.append(l.at(i));
@@ -251,7 +246,7 @@ bool QMakeSourceFileInfo::mocable(const QString &file)
     return false;
 }
 
-QMakeSourceFileInfo::QMakeSourceFileInfo(const QString &cf)
+QMakeSourceFileInfo::QMakeSourceFileInfo()
 {
     //dep_mode
     dep_mode = Recursive;

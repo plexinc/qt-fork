@@ -30,61 +30,102 @@
 
 import * as Common from '../common/common.js';
 import * as CookieTable from '../cookie_table/cookie_table.js';  // eslint-disable-line no-unused-vars
+import * as i18n from '../i18n/i18n.js';
 import * as SDK from '../sdk/sdk.js';
 import * as UI from '../ui/ui.js';
 
+export const UIStrings = {
+  /**
+  *@description Text in Request Cookies View of the Network panel
+  */
+  thisRequestHasNoCookies: 'This request has no cookies.',
+  /**
+  *@description Text in Request Cookies View of the Network panel
+  */
+  requestCookies: 'Request Cookies',
+  /**
+  *@description Tooltip to explain what request cookies are
+  */
+  cookiesThatWereSentToTheServerIn: 'Cookies that were sent to the server in the \'cookie\' header of the request',
+  /**
+  *@description Label for showing request cookies that were not actually sent
+  */
+  showFilteredOutRequestCookies: 'show filtered out request cookies',
+  /**
+  *@description Text in Request Headers View of the Network Panel
+  */
+  noRequestCookiesWereSent: 'No request cookies were sent.',
+  /**
+  *@description Text in Request Cookies View of the Network panel
+  */
+  responseCookies: 'Response Cookies',
+  /**
+  *@description Tooltip to explain what response cookies are
+  */
+  cookiesThatWereReceivedFromThe:
+      'Cookies that were received from the server in the \'`set-cookie`\' header of the response',
+  /**
+  *@description Label for response cookies with invalid syntax
+  */
+  malformedResponseCookies: 'Malformed Response Cookies',
+  /**
+  * @description Tooltip to explain what malformed response cookies are. Malformed cookies are
+  * cookies that did not match the expected format and could not be interpreted, and are invalid.
+  */
+  cookiesThatWereReceivedFromTheServer:
+      'Cookies that were received from the server in the \'`set-cookie`\' header of the response but were malformed',
+};
+const str_ = i18n.i18n.registerUIStrings('network/RequestCookiesView.js', UIStrings);
+const i18nString = i18n.i18n.getLocalizedString.bind(undefined, str_);
 export class RequestCookiesView extends UI.Widget.Widget {
   /**
    * @param {!SDK.NetworkRequest.NetworkRequest} request
    */
   constructor(request) {
     super();
-    this.registerRequiredCSS('network/requestCookiesView.css');
+    this.registerRequiredCSS('network/requestCookiesView.css', {enableLegacyPatching: false});
     this.element.classList.add('request-cookies-view');
 
     /** @type {!SDK.NetworkRequest.NetworkRequest} */
     this._request = request;
-    /** @type {?Array<!SDK.Cookie.Cookie>} */
-    this._detailedRequestCookies = null;
     this._showFilteredOutCookiesSetting = Common.Settings.Settings.instance().createSetting(
         'show-filtered-out-request-cookies', /* defaultValue */ false);
 
-    this._emptyWidget = new UI.EmptyWidget.EmptyWidget(Common.UIString.UIString('This request has no cookies.'));
+    this._emptyWidget = new UI.EmptyWidget.EmptyWidget(i18nString(UIStrings.thisRequestHasNoCookies));
     this._emptyWidget.show(this.element);
 
     this._requestCookiesTitle = this.element.createChild('div');
     const titleText = this._requestCookiesTitle.createChild('span', 'request-cookies-title');
-    titleText.textContent = ls`Request Cookies`;
-    titleText.title = ls`Cookies that were sent to the server in the 'cookie' header of the request`;
+    titleText.textContent = i18nString(UIStrings.requestCookies);
+    UI.Tooltip.Tooltip.install(titleText, i18nString(UIStrings.cookiesThatWereSentToTheServerIn));
 
-    const requestCookiesCheckbox = UI.SettingsUI.createSettingCheckbox(
-        ls`show filtered out request cookies`, this._showFilteredOutCookiesSetting,
-        /* omitParagraphElement */ true);
+    const requestCookiesCheckbox = /** @type {!UI.UIUtils.CheckboxLabel} */ (UI.SettingsUI.createSettingCheckbox(
+        i18nString(UIStrings.showFilteredOutRequestCookies), this._showFilteredOutCookiesSetting,
+        /* omitParagraphElement */ true));
     requestCookiesCheckbox.checkboxElement.addEventListener('change', () => {
       this._refreshRequestCookiesView();
     });
     this._requestCookiesTitle.appendChild(requestCookiesCheckbox);
 
     this._requestCookiesEmpty = this.element.createChild('div', 'cookies-panel-item');
-    this._requestCookiesEmpty.textContent = ls`No request cookies were sent.`;
+    this._requestCookiesEmpty.textContent = i18nString(UIStrings.noRequestCookiesWereSent);
 
     this._requestCookiesTable = new CookieTable.CookiesTable.CookiesTable(/* renderInline */ true);
     this._requestCookiesTable.contentElement.classList.add('cookie-table', 'cookies-panel-item');
     this._requestCookiesTable.show(this.element);
 
     this._responseCookiesTitle = this.element.createChild('div', 'request-cookies-title');
-    this._responseCookiesTitle.textContent = ls`Response Cookies`;
-    this._responseCookiesTitle.title =
-        ls`Cookies that were received from the server in the 'set-cookie' header of the response`;
+    this._responseCookiesTitle.textContent = i18nString(UIStrings.responseCookies);
+    this._responseCookiesTitle.title = i18nString(UIStrings.cookiesThatWereReceivedFromThe);
 
     this._responseCookiesTable = new CookieTable.CookiesTable.CookiesTable(/* renderInline */ true);
     this._responseCookiesTable.contentElement.classList.add('cookie-table', 'cookies-panel-item');
     this._responseCookiesTable.show(this.element);
 
     this._malformedResponseCookiesTitle = this.element.createChild('div', 'request-cookies-title');
-    this._malformedResponseCookiesTitle.textContent = ls`Malformed Response Cookies`;
-    this._malformedResponseCookiesTitle.title = ls
-    `Cookies that were received from the server in the 'set-cookie' header of the response but were malformed`;
+    this._malformedResponseCookiesTitle.textContent = i18nString(UIStrings.malformedResponseCookies);
+    UI.Tooltip.Tooltip.install(
+        this._malformedResponseCookiesTitle, i18nString(UIStrings.cookiesThatWereReceivedFromTheServer));
 
     this._malformedResponseCookiesList = this.element.createChild('div');
   }
@@ -93,38 +134,9 @@ export class RequestCookiesView extends UI.Widget.Widget {
    * @return {!{requestCookies: !Array<!SDK.Cookie.Cookie>, requestCookieToBlockedReasons: !Map<!SDK.Cookie.Cookie, !Array<!SDK.CookieModel.BlockedReason>>}}
    */
   _getRequestCookies() {
-    let requestCookies = [];
     /** @type {!Map<!SDK.Cookie.Cookie, !Array<!SDK.CookieModel.BlockedReason>>} */
     const requestCookieToBlockedReasons = new Map();
-
-    if (this._request.requestCookies.length) {
-      requestCookies = this._request.requestCookies.slice();
-
-      // request.requestCookies are generated from headers which are missing
-      // cookie attributes that we can fetch from the backend.
-      if (this._detailedRequestCookies) {
-        requestCookies = requestCookies.map(cookie => {
-          for (const detailedCookie of (this._detailedRequestCookies || [])) {
-            if (detailedCookie.name() === cookie.name() && detailedCookie.value() === cookie.value()) {
-              return detailedCookie;
-            }
-          }
-          return cookie;
-        });
-
-      } else {
-        const networkManager = SDK.NetworkManager.NetworkManager.forRequest(this._request);
-        if (networkManager) {
-          const cookieModel = networkManager.target().model(SDK.CookieModel.CookieModel);
-          if (cookieModel) {
-            cookieModel.getCookies([this._request.url()]).then(cookies => {
-              this._detailedRequestCookies = cookies;
-              this._refreshRequestCookiesView();
-            });
-          }
-        }
-      }
-    }
+    const requestCookies = this._request.includedRequestCookies().slice();
 
     if (this._showFilteredOutCookiesSetting.get()) {
       for (const blockedCookie of this._request.blockedRequestCookies()) {
@@ -153,6 +165,7 @@ export class RequestCookiesView extends UI.Widget.Widget {
     const malformedResponseCookies = [];
 
     if (this._request.responseCookies.length) {
+      /** @type {!Array<?string>} */
       const blockedCookieLines = this._request.blockedResponseCookies().map(blockedCookie => blockedCookie.cookieLine);
       responseCookies = this._request.responseCookies.filter(cookie => {
         // remove the regular cookies that would overlap with blocked cookies
@@ -166,13 +179,16 @@ export class RequestCookiesView extends UI.Widget.Widget {
 
       for (const blockedCookie of this._request.blockedResponseCookies()) {
         const parsedCookies = SDK.CookieParser.CookieParser.parseSetCookie(blockedCookie.cookieLine);
-        if (!parsedCookies.length ||
+        if (parsedCookies && !parsedCookies.length ||
             blockedCookie.blockedReasons.includes(Protocol.Network.SetCookieBlockedReason.SyntaxError)) {
           malformedResponseCookies.push(blockedCookie);
           continue;
         }
 
-        const cookie = blockedCookie.cookie || parsedCookies[0];
+        let cookie = blockedCookie.cookie;
+        if (!cookie && parsedCookies) {
+          cookie = parsedCookies[0];
+        }
         if (cookie) {
           responseCookieToBlockedReasons.set(cookie, blockedCookie.blockedReasons.map(blockedReason => {
             return {
@@ -193,7 +209,7 @@ export class RequestCookiesView extends UI.Widget.Widget {
       return;
     }
 
-    const gotCookies = this._request.requestCookies.length || this._request.responseCookies.length;
+    const gotCookies = this._request.hasRequestCookies() || this._request.responseCookies.length;
     if (gotCookies) {
       this._emptyWidget.hideWidget();
     } else {
@@ -238,7 +254,7 @@ export class RequestCookiesView extends UI.Widget.Widget {
         const listItem = this._malformedResponseCookiesList.createChild('span', 'cookie-line source-code');
         const icon = UI.Icon.Icon.create('smallicon-error', 'cookie-warning-icon');
         listItem.appendChild(icon);
-        listItem.createTextChild(malformedCookie.cookieLine);
+        UI.UIUtils.createTextChild(listItem, malformedCookie.cookieLine);
         listItem.title =
             SDK.NetworkRequest.setCookieBlockedReasonToUiString(Protocol.Network.SetCookieBlockedReason.SyntaxError);
       }

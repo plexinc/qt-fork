@@ -171,7 +171,12 @@ WId QWasmWindow::winId() const
 
 void QWasmWindow::propagateSizeHints()
 {
-// get rid of base class warning
+    QRect rect = windowGeometry();
+    if (rect.size().width() < windowMinimumSize().width()
+        && rect.size().height() < windowMinimumSize().height()) {
+        rect.setSize(windowMinimumSize());
+        setGeometry(rect);
+    }
 }
 
 void QWasmWindow::injectMousePressed(const QPoint &local, const QPoint &global,
@@ -404,8 +409,26 @@ void QWasmWindow::requestUpdate()
 
 bool QWasmWindow::hasTitleBar() const
 {
-    return !(m_windowState & Qt::WindowFullScreen) && (window()->flags().testFlag(Qt::WindowTitleHint) && m_needsCompositor)
-            && !window()->flags().testFlag(Qt::Popup);
+    Qt::WindowFlags flags = window()->flags();
+    return !(m_windowState & Qt::WindowFullScreen)
+        && flags.testFlag(Qt::WindowTitleHint)
+        && !(windowIsPopupType(flags))
+        && m_needsCompositor;
+}
+
+bool QWasmWindow::windowIsPopupType(Qt::WindowFlags flags) const
+{
+    if (flags.testFlag(Qt::Tool))
+        return false; // Qt::Tool has the Popup bit set but isn't
+
+    return (flags.testFlag(Qt::Popup));
+}
+
+void QWasmWindow::requestActivateWindow()
+{
+    if (window()->isTopLevel())
+        raise();
+    QPlatformWindow::requestActivateWindow();
 }
 
 QT_END_NAMESPACE

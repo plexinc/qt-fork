@@ -619,6 +619,14 @@ bool AVStreamToVideoDecoderConfig(const AVStream* stream,
       color_space = (natural_size.height() < 720) ? VideoColorSpace::REC601()
                                                   : VideoColorSpace::REC709();
     }
+  } else if (codec_context->codec_id == AV_CODEC_ID_H264 &&
+             codec_context->colorspace == AVCOL_SPC_RGB &&
+             AVPixelFormatToVideoPixelFormat(codec_context->pix_fmt) ==
+                 PIXEL_FORMAT_I420) {
+    // Some H.264 videos contain a VUI that specifies a color matrix of GBR,
+    // when they are actually ordinary YUV. Only 4:2:0 formats are checked,
+    // because GBR is reasonable for 4:4:4 content. See crbug.com/1067377.
+    color_space = VideoColorSpace::REC709();
   }
 
   // AVCodecContext occasionally has invalid extra data. See
@@ -648,7 +656,7 @@ bool AVStreamToVideoDecoderConfig(const AVStream* stream,
       if (side_data.type != AV_PKT_DATA_MASTERING_DISPLAY_METADATA)
         continue;
 
-      HDRMetadata hdr_metadata{};
+      gfx::HDRMetadata hdr_metadata{};
       AVMasteringDisplayMetadata* metadata =
           reinterpret_cast<AVMasteringDisplayMetadata*>(side_data.data);
       if (metadata->has_primaries) {

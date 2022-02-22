@@ -43,7 +43,7 @@
 #include <QtCore/QRectF>
 #include <QtCore/QSizeF>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class Q_CHARTS_PRIVATE_EXPORT LogXYPolarDomain: public PolarDomain
 {
@@ -52,29 +52,29 @@ public:
     explicit LogXYPolarDomain(QObject *object = 0);
     virtual ~LogXYPolarDomain();
 
-    DomainType type() { return AbstractDomain::LogXYPolarDomain; }
+    DomainType type() override { return AbstractDomain::LogXYPolarDomain; }
 
-    void setRange(qreal minX, qreal maxX, qreal minY, qreal maxY);
+    void setRange(qreal minX, qreal maxX, qreal minY, qreal maxY) override;
 
     friend bool Q_AUTOTEST_EXPORT operator== (const LogXYPolarDomain &domain1, const LogXYPolarDomain &domain2);
     friend bool Q_AUTOTEST_EXPORT operator!= (const LogXYPolarDomain &domain1, const LogXYPolarDomain &domain2);
     friend QDebug Q_AUTOTEST_EXPORT operator<<(QDebug dbg, const LogXYPolarDomain &domain);
 
-    void zoomIn(const QRectF &rect);
-    void zoomOut(const QRectF &rect);
-    void move(qreal dx, qreal dy);
+    void zoomIn(const QRectF &rect) override;
+    void zoomOut(const QRectF &rect) override;
+    void move(qreal dx, qreal dy) override;
 
-    QPointF calculateDomainPoint(const QPointF &point) const;
+    QPointF calculateDomainPoint(const QPointF &point) const override;
 
-    bool attachAxis(QAbstractAxis *axis);
-    bool detachAxis(QAbstractAxis *axis);
+    bool attachAxis(QAbstractAxis *axis) override;
+    bool detachAxis(QAbstractAxis *axis) override;
 
 public Q_SLOTS:
     void handleHorizontalAxisBaseChanged(qreal baseX);
 
 protected:
-    qreal toAngularCoordinate(qreal value, bool &ok) const;
-    qreal toRadialCoordinate(qreal value, bool &ok) const;
+    qreal toAngularCoordinate(qreal value, bool &ok) const override;
+    qreal toRadialCoordinate(qreal value, bool &ok) const override;
 
 private:
     qreal m_logLeftX;
@@ -82,6 +82,6 @@ private:
     qreal m_logBaseX;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // LOGXYPOLARDOMAIN_H

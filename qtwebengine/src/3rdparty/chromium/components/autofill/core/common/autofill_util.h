@@ -20,10 +20,6 @@ struct Feature;
 
 namespace autofill {
 
-extern const char kAutofillKeyboardAccessoryAnimationDurationKey[];
-extern const char kAutofillKeyboardAccessoryLimitLabelWidthKey[];
-extern const char kAutofillKeyboardAccessoryHintKey[];
-
 // The length of the GUIDs used for local autofill data. It is different than
 // the length used for server autofill data.
 constexpr int kLocalGuidSize = 36;
@@ -40,17 +36,6 @@ bool IsKeyboardAccessoryEnabled();
 
 // Returns whether the Touch To Fill feature is enabled.
 bool IsTouchToFillEnabled();
-
-// Returns animation duration for keyboard accessory. If 0, we do not animate.
-unsigned int GetKeyboardAccessoryAnimationDuration();
-
-// Returns true if we must limit width of keyboard accessory suggestion label to
-// half of device's pixel width.
-bool ShouldLimitKeyboardAccessorySuggestionLabelWidth();
-
-// Returns true if we show a hint in the keyboard accessory suggestions to call
-// attention to the availability of autofill suggestions.
-bool IsHintEnabledInKeyboardAccessory();
 
 // A token is a sequences of contiguous characters separated by any of the
 // characters that are part of delimiter set {' ', '.', ',', '-', '_', '@'}.
@@ -81,8 +66,6 @@ size_t GetTextSelectionStart(const base::string16& suggestion,
 // Returns true if running on a desktop platform. Any platform that is not
 // Android or iOS is considered desktop.
 bool IsDesktopPlatform();
-
-bool ShouldSkipField(const FormFieldData& field);
 
 bool IsCheckable(const FormFieldData::CheckStatus& check_status);
 bool IsChecked(const FormFieldData::CheckStatus& check_status);

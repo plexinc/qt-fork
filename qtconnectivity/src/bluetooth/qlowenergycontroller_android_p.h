@@ -54,13 +54,12 @@
 
 #include <qglobal.h>
 #include <QtCore/QQueue>
-#include <QtCore/QVector>
 #include <QtBluetooth/qbluetooth.h>
 #include <QtBluetooth/qlowenergycharacteristic.h>
 #include "qlowenergycontroller.h"
 #include "qlowenergycontrollerbase_p.h"
 
-#include <QtAndroidExtras/QAndroidJniObject>
+#include <QtCore/QJniObject>
 #include "android/lowenergynotificationhub_p.h"
 
 #include <functional>
@@ -89,7 +88,8 @@ public:
     void disconnectFromDevice() override;
 
     void discoverServices() override;
-    void discoverServiceDetails(const QBluetoothUuid &service) override;
+    void discoverServiceDetails(const QBluetoothUuid &service,
+                                QLowEnergyService::DiscoveryMode mode) override;
 
     void startAdvertising(const QLowEnergyAdvertisingParameters &params,
                           const QLowEnergyAdvertisingData &advertisingData,
@@ -117,6 +117,8 @@ public:
     void addToGenericAttributeList(const QLowEnergyServiceData &service,
                                    QLowEnergyHandle startHandle) override;
 
+    int mtu() const override;
+
 private:
 
     LowEnergyNotificationHub *hub;
@@ -124,6 +126,7 @@ private:
 private slots:
     void connectionUpdated(QLowEnergyController::ControllerState newState,
                            QLowEnergyController::Error errorCode);
+    void mtuChanged(int mtu);
     void servicesDiscovered(QLowEnergyController::Error errorCode,
                             const QString &foundServices);
     void serviceDetailsDiscoveryFinished(const QString& serviceUuid,
@@ -137,9 +140,9 @@ private slots:
                                QLowEnergyService::ServiceError errorCode);
     void descriptorWritten(int descHandle, const QByteArray &data,
                            QLowEnergyService::ServiceError errorCode);
-    void serverDescriptorWritten(const QAndroidJniObject &jniDesc, const QByteArray &newValue);
+    void serverDescriptorWritten(const QJniObject &jniDesc, const QByteArray &newValue);
     void characteristicChanged(int charHandle, const QByteArray &data);
-    void serverCharacteristicChanged(const QAndroidJniObject &jniChar, const QByteArray &newValue);
+    void serverCharacteristicChanged(const QJniObject &jniChar, const QByteArray &newValue);
     void serviceError(int attributeHandle, QLowEnergyService::ServiceError errorCode);
     void advertisementError(int errorCode);
 

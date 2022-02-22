@@ -59,7 +59,7 @@ static const QChar Space = QLatin1Char(' ');
 static const QChar Tab = QLatin1Char('\t');
 static const QChar Newline = QLatin1Char('\n');
 static const QChar CarriageReturn = QLatin1Char('\r');
-static const QChar LineBreak = QChar(0x2028);
+static const QChar LineBreak = u'\x2028';
 static const QChar DoubleQuote = QLatin1Char('"');
 static const QChar Backtick = QLatin1Char('`');
 static const QChar Backslash = QLatin1Char('\\');
@@ -79,7 +79,7 @@ bool QTextMarkdownWriter::writeAll(const QTextDocument *document)
 #if QT_CONFIG(itemmodel)
 void QTextMarkdownWriter::writeTable(const QAbstractItemModel *table)
 {
-    QVector<int> tableColumnWidths(table->columnCount());
+    QList<int> tableColumnWidths(table->columnCount());
     for (int col = 0; col < table->columnCount(); ++col) {
         tableColumnWidths[col] = table->headerData(col, Qt::Horizontal).toString().length();
         for (int row = 0; row < table->rowCount(); ++row) {
@@ -118,7 +118,7 @@ void QTextMarkdownWriter::writeFrame(const QTextFrame *frame)
     QTextFrame *child = nullptr;
     int tableRow = -1;
     bool lastWasList = false;
-    QVector<int> tableColumnWidths;
+    QList<int> tableColumnWidths;
     if (table) {
         tableColumnWidths.resize(table->columns());
         for (int col = 0; col < table->columns(); ++col) {
@@ -370,8 +370,7 @@ int QTextMarkdownWriter::writeBlock(const QTextBlock &block, bool wrap, bool ign
     const bool codeBlock = blockFmt.hasProperty(QTextFormat::BlockCodeFence) ||
             blockFmt.stringProperty(QTextFormat::BlockCodeLanguage).length() > 0;
     if (m_fencedCodeBlock && !codeBlock) {
-        m_stream << m_linePrefix << QString(m_wrappedLineIndent, Space)
-                 << m_codeBlockFence << Newline;
+        m_stream << m_linePrefix << m_codeBlockFence << Newline;
         m_fencedCodeBlock = false;
         m_codeBlockFence.clear();
     }
@@ -445,8 +444,10 @@ int QTextMarkdownWriter::writeBlock(const QTextBlock &block, bool wrap, bool ign
             if (fenceChar.isEmpty())
                 fenceChar = QLatin1String("`");
             m_codeBlockFence = QString(3, fenceChar.at(0));
+            if (blockFmt.hasProperty(QTextFormat::BlockIndent))
+                m_codeBlockFence = QString(m_wrappedLineIndent, Space) + m_codeBlockFence;
             // A block quote can contain an indented code block, but not vice-versa.
-            m_stream << m_linePrefix << QString(m_wrappedLineIndent, Space) << m_codeBlockFence
+            m_stream << m_linePrefix << m_codeBlockFence
                      << blockFmt.stringProperty(QTextFormat::BlockCodeLanguage) << Newline;
             m_fencedCodeBlock = true;
         }

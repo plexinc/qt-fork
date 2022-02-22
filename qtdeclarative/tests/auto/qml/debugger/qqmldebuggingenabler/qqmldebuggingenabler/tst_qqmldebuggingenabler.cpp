@@ -28,7 +28,7 @@
 
 #include "debugutil_p.h"
 #include "qqmldebugprocess_p.h"
-#include "../../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 
 #include <private/qqmldebugclient_p.h>
 #include <private/qqmldebugconnection_p.h>
@@ -46,6 +46,9 @@
 class tst_QQmlDebuggingEnabler : public QQmlDebugTest
 {
     Q_OBJECT
+
+public:
+    tst_QQmlDebuggingEnabler();
 
 private slots:
     void qmlscene_data();
@@ -91,6 +94,11 @@ void tst_QQmlDebuggingEnabler::data()
     }
 }
 
+tst_QQmlDebuggingEnabler::tst_QQmlDebuggingEnabler()
+    : QQmlDebugTest(QT_QMLTEST_DATADIR)
+{
+}
+
 void tst_QQmlDebuggingEnabler::qmlscene_data()
 {
     data();
@@ -103,7 +111,7 @@ void tst_QQmlDebuggingEnabler::qmlscene()
     QFETCH(QStringList, services);
 
     m_process = new QQmlDebugProcess(
-                QLibraryInfo::location(QLibraryInfo::BinariesPath) + "/qmlscene", this);
+                QLibraryInfo::path(QLibraryInfo::BinariesPath) + "/qmlscene", this);
     m_process->setMaximumBindErrors(1);
     m_process->start(QStringList()
                      << QString::fromLatin1("-qmljsdebugger=connector:%1%2%3%4")

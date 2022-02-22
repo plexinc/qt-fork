@@ -7,7 +7,6 @@
 
 #include <string>
 
-#include "base/strings/string16.h"
 #include "build/build_config.h"
 
 #if !defined(OS_WIN)
@@ -36,7 +35,7 @@ class CrashReporterClient {
   CrashReporterClient();
   virtual ~CrashReporterClient();
 
-#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_ANDROID)
+#if !defined(OS_APPLE) && !defined(OS_WIN) && !defined(OS_ANDROID)
   // Sets the crash reporting client ID, a unique identifier for the client
   // that is sending crash reports. After it is set, it should not be changed.
   // |client_guid| may either be a full GUID or a GUID that was already stripped
@@ -51,34 +50,31 @@ class CrashReporterClient {
   // Returns true if the pipe name to connect to breakpad should be computed and
   // stored in the process's environment block. By default, returns true for the
   // "browser" process.
-  virtual bool ShouldCreatePipeName(const base::string16& process_type);
+  virtual bool ShouldCreatePipeName(const std::wstring& process_type);
 
   // Returns true if an alternative location to store the minidump files was
   // specified. Returns true if |crash_dir| was set.
-  virtual bool GetAlternativeCrashDumpLocation(base::string16* crash_dir);
+  virtual bool GetAlternativeCrashDumpLocation(std::wstring* crash_dir);
 
   // Returns a textual description of the product type and version to include
   // in the crash report.
-  virtual void GetProductNameAndVersion(const base::string16& exe_path,
-                                        base::string16* product_name,
-                                        base::string16* version,
-                                        base::string16* special_build,
-                                        base::string16* channel_name);
+  virtual void GetProductNameAndVersion(const std::wstring& exe_path,
+                                        std::wstring* product_name,
+                                        std::wstring* version,
+                                        std::wstring* special_build,
+                                        std::wstring* channel_name);
 
   // Returns true if a restart dialog should be displayed. In that case,
   // |message| and |title| are set to a message to display in a dialog box with
   // the given title before restarting, and |is_rtl_locale| indicates whether
   // to display the text as RTL.
-  virtual bool ShouldShowRestartDialog(base::string16* title,
-                                       base::string16* message,
+  virtual bool ShouldShowRestartDialog(std::wstring* title,
+                                       std::wstring* message,
                                        bool* is_rtl_locale);
 
   // Returns true if it is ok to restart the application. Invoked right before
   // restarting after a crash.
   virtual bool AboutToRestart();
-
-  // Returns true if the crash report uploader supports deferred uploads.
-  virtual bool GetDeferredUploadsSupported(bool is_per_user_install);
 
   // Returns true if the running binary is a per-user installation.
   virtual bool GetIsPerUserInstall();
@@ -91,7 +87,7 @@ class CrashReporterClient {
   virtual int GetResultCodeRespawnFailed();
 #endif
 
-#if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_IOS)
+#if defined(OS_POSIX) && !defined(OS_MAC)
   // Returns a textual description of the product type and version to include
   // in the crash report. Neither out parameter should be set to NULL.
   // TODO(jperaza): Remove the 2-parameter overload of this method once all
@@ -114,29 +110,24 @@ class CrashReporterClient {
 #endif
 
   // The location where minidump files should be written. Returns true if
-  // |crash_dir| was set. Windows has to use base::string16 because this code
+  // |crash_dir| was set. Windows has to use std::wstring because this code
   // needs to work in chrome_elf, where only kernel32.dll is allowed, and
   // base::FilePath and its dependencies pull in other DLLs.
 #if defined(OS_WIN)
-  virtual bool GetCrashDumpLocation(base::string16* crash_dir);
+  virtual bool GetCrashDumpLocation(std::wstring* crash_dir);
 #else
   virtual bool GetCrashDumpLocation(base::FilePath* crash_dir);
 #endif
 
   // The location where metrics files should be written. Returns true if
-  // |metrics_dir| was set. Windows has to use base::string16 because this code
+  // |metrics_dir| was set. Windows has to use std::wstring because this code
   // needs to work in chrome_elf, where only kernel32.dll is allowed, and
   // base::FilePath and its dependencies pull in other DLLs.
 #if defined(OS_WIN)
-  virtual bool GetCrashMetricsLocation(base::string16* metrics_dir);
+  virtual bool GetCrashMetricsLocation(std::wstring* metrics_dir);
 #else
   virtual bool GetCrashMetricsLocation(base::FilePath* metrics_dir);
 #endif
-
-  virtual bool UseCrashKeysWhiteList();
-
-  // Returns a NULL-terminated array of crash keys to whitelist.
-  virtual const char* const* GetCrashKeyWhiteList();
 
   // Returns true if running in unattended mode (for automated testing).
   virtual bool IsRunningUnattended();
@@ -178,9 +169,9 @@ class CrashReporterClient {
   virtual bool ShouldWriteMinidumpToLog();
 #endif
 
-#if defined(OS_ANDROID) || defined(OS_LINUX)
+#if defined(OS_ANDROID) || defined(OS_LINUX) || defined(OS_CHROMEOS)
   // Configures sanitization of crash dumps.
-  // |annotations_whitelist| is a nullptr terminated array of NUL-terminated
+  // |allowed_annotations| is a nullptr terminated array of NUL-terminated
   // strings of allowed annotation names or nullptr if all annotations are
   // allowed. |target_module| is a pointer to a location inside a module to
   // target or nullptr if there is no target module. Crash dumps are not
@@ -189,10 +180,13 @@ class CrashReporterClient {
   // sanitized for possible PII. If they are sanitized, only small integers and
   // pointers to modules and stacks will be preserved.
   virtual void GetSanitizationInformation(
-      const char* const** annotations_whitelist,
+      const char* const** allowed_annotations,
       void** target_module,
       bool* sanitize_stacks);
 #endif
+
+  // Returns the URL target for crash report uploads.
+  virtual std::string GetUploadUrl();
 
   // This method should return true to configure a crash reporter capable of
   // monitoring itself for its own crashes to do so, even if self-monitoring

@@ -13,14 +13,14 @@
 
 #include "base/bind.h"
 #include "base/memory/free_deleter.h"
-#include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop_current.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/current_thread.h"
 #include "printing/backend/print_backend.h"
 #include "printing/backend/win_helper.h"
 #include "printing/buildflags/buildflags.h"
 #include "printing/metafile_skia.h"
+#include "printing/mojom/print.mojom.h"
 #include "printing/print_settings_initializer_win.h"
 #include "printing/printed_document.h"
 #include "printing/printing_context_system_dialog_win.h"
@@ -44,12 +44,12 @@ void AssignResult(PrintingContext::Result* out, PrintingContext::Result in) {
 // static
 std::unique_ptr<PrintingContext> PrintingContext::Create(Delegate* delegate) {
 #if BUILDFLAG(ENABLE_PRINTING)
-  return base::WrapUnique(new PrintingContextSystemDialogWin(delegate));
+  return std::make_unique<PrintingContextSystemDialogWin>(delegate);
 #else
   // The code in printing/ is still built when the GN |enable_basic_printing|
   // variable is set to false. Just return PrintingContextWin as a dummy
   // context.
-  return base::WrapUnique(new PrintingContextWin(delegate));
+  return std::make_unique<PrintingContextWin>(delegate);
 #endif
 }
 
@@ -60,7 +60,7 @@ PrintingContextWin::~PrintingContextWin() {
   ReleaseContext();
 }
 
-void PrintingContextWin::PrintDocument(const base::string16& device_name,
+void PrintingContextWin::PrintDocument(const std::wstring& device_name,
                                        const MetafileSkia& metafile) {
   // TODO(crbug.com/1008222)
   NOTIMPLEMENTED();
@@ -77,8 +77,8 @@ PrintingContext::Result PrintingContextWin::UseDefaultSettings() {
   DCHECK(!in_print_job_);
 
   scoped_refptr<PrintBackend> backend =
-      PrintBackend::CreateInstance(nullptr, delegate_->GetAppLocale());
-  base::string16 default_printer =
+      PrintBackend::CreateInstance(delegate_->GetAppLocale());
+  std::wstring default_printer =
       base::UTF8ToWide(backend->GetDefaultPrinterName());
   if (!default_printer.empty()) {
     ScopedPrinterHandle printer;
@@ -162,14 +162,15 @@ PrintingContext::Result PrintingContextWin::UpdatePrinterSettings(
   DCHECK(!external_preview) << "Not implemented";
 
   ScopedPrinterHandle printer;
-  if (!printer.OpenPrinterWithName(settings_->device_name().c_str()))
+  if (!printer.OpenPrinterWithName(base::as_wcstr(settings_->device_name())))
     return OnError();
 
   // Make printer changes local to Chrome.
   // See MSDN documentation regarding DocumentProperties.
   std::unique_ptr<DEVMODE, base::FreeDeleter> scoped_dev_mode =
-      CreateDevModeWithColor(printer.Get(), settings_->device_name(),
-                             settings_->color() != GRAY);
+      CreateDevModeWithColor(printer.Get(),
+                             base::UTF16ToWide(settings_->device_name()),
+                             settings_->color() != mojom::ColorModel::kGray);
   if (!scoped_dev_mode)
     return OnError();
 
@@ -183,19 +184,19 @@ PrintingContext::Result PrintingContextWin::UpdatePrinterSettings(
     }
 
     switch (settings_->duplex_mode()) {
-      case LONG_EDGE:
+      case mojom::DuplexMode::kLongEdge:
         dev_mode->dmFields |= DM_DUPLEX;
         dev_mode->dmDuplex = DMDUP_VERTICAL;
         break;
-      case SHORT_EDGE:
+      case mojom::DuplexMode::kShortEdge:
         dev_mode->dmFields |= DM_DUPLEX;
         dev_mode->dmDuplex = DMDUP_HORIZONTAL;
         break;
-      case SIMPLEX:
+      case mojom::DuplexMode::kSimplex:
         dev_mode->dmFields |= DM_DUPLEX;
         dev_mode->dmDuplex = DMDUP_SIMPLEX;
         break;
-      default:  // UNKNOWN_DUPLEX_MODE
+      default:  // kUnknownDuplexMode
         break;
     }
 
@@ -243,10 +244,12 @@ PrintingContext::Result PrintingContextWin::UpdatePrinterSettings(
   // Since CreateDevMode() doesn't honor color settings through the GDI call
   // to DocumentProperties(), ensure the requested values persist here.
   scoped_dev_mode->dmFields |= DM_COLOR;
-  scoped_dev_mode->dmColor =
-      settings_->color() != GRAY ? DMCOLOR_COLOR : DMCOLOR_MONOCHROME;
+  scoped_dev_mode->dmColor = settings_->color() != mojom::ColorModel::kGray
+                                 ? DMCOLOR_COLOR
+                                 : DMCOLOR_MONOCHROME;
 
-  return InitializeSettings(settings_->device_name(), scoped_dev_mode.get());
+  return InitializeSettings(base::UTF16ToWide(settings_->device_name()),
+                            scoped_dev_mode.get());
 }
 
 PrintingContext::Result PrintingContextWin::InitWithSettingsForTest(
@@ -257,13 +260,14 @@ PrintingContext::Result PrintingContextWin::InitWithSettingsForTest(
 
   // TODO(maruel): settings_.ToDEVMODE()
   ScopedPrinterHandle printer;
-  if (!printer.OpenPrinterWithName(settings_->device_name().c_str()))
+  if (!printer.OpenPrinterWithName(base::as_wcstr(settings_->device_name())))
     return FAILED;
 
   std::unique_ptr<DEVMODE, base::FreeDeleter> dev_mode =
       CreateDevMode(printer.Get(), nullptr);
 
-  return InitializeSettings(settings_->device_name(), dev_mode.get());
+  return InitializeSettings(base::UTF16ToWide(settings_->device_name()),
+                            dev_mode.get());
 }
 
 PrintingContext::Result PrintingContextWin::NewDocument(
@@ -288,7 +292,7 @@ PrintingContext::Result PrintingContextWin::NewDocument(
 
   DCHECK(SimplifyDocumentTitle(document_name) == document_name);
   DOCINFO di = {sizeof(DOCINFO)};
-  di.lpszDocName = document_name.c_str();
+  di.lpszDocName = base::as_wcstr(document_name);
 
   // Is there a debug dump directory specified? If so, force to print to a file.
   if (PrintedDocument::HasDebugDumpPath()) {
@@ -299,8 +303,8 @@ PrintingContext::Result PrintingContextWin::NewDocument(
   }
 
   // No message loop running in unit tests.
-  DCHECK(!base::MessageLoopCurrent::Get() ||
-         !base::MessageLoopCurrent::Get()->NestableTasksAllowed());
+  DCHECK(!base::CurrentThread::Get() ||
+         !base::CurrentThread::Get()->NestableTasksAllowed());
 
   // Begin a print job by calling the StartDoc function.
   // NOTE: StartDoc() starts a message loop. That causes a lot of problems with
@@ -390,7 +394,7 @@ PrintingContext::Result PrintingContextWin::InitializeSettings(
   skia::InitializeDC(context_);
 
   DCHECK(!in_print_job_);
-  settings_->set_device_name(device_name);
+  settings_->set_device_name(base::WideToUTF16(device_name));
   PrintSettingsInitializerWin::InitPrintSettings(context_, *dev_mode,
                                                  settings_.get());
 

@@ -142,7 +142,7 @@ Entity
         id: spotLight
         components: [
             SphereMesh {
-                radius: 1
+                radius: 2
             },
             Transform {
                 translation: Qt.vector3d(-20.0, 40.0, 0.0)

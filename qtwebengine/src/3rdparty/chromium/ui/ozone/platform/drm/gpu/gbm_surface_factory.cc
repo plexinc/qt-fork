@@ -12,6 +12,7 @@
 
 #include "base/files/file_path.h"
 #include "base/strings/stringprintf.h"
+#include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
 #include "third_party/khronos/EGL/egl.h"
 #include "ui/gfx/buffer_format_util.h"
@@ -20,10 +21,12 @@
 #include "ui/gfx/linux/gbm_defines.h"
 #include "ui/gfx/linux/scoped_gbm_device.h"
 #include "ui/gfx/native_pixmap.h"
+#include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_surface_egl.h"
 #include "ui/ozone/common/egl_util.h"
 #include "ui/ozone/common/gl_ozone_egl.h"
 #include "ui/ozone/platform/drm/common/drm_util.h"
+#include "ui/ozone/platform/drm/common/scoped_drm_types.h"
 #include "ui/ozone/platform/drm/gpu/drm_gpu_util.h"
 #include "ui/ozone/platform/drm/gpu/drm_thread_proxy.h"
 #include "ui/ozone/platform/drm/gpu/drm_window_proxy.h"
@@ -117,6 +120,7 @@ class GLOzoneEGLGbm : public GLOzoneEGL {
     }
 
     std::vector<EGLDeviceEXT> devices(DRM_MAX_MINOR, EGL_NO_DEVICE_EXT);
+    EGLDeviceEXT virgl_device = EGL_NO_DEVICE_EXT;
     EGLDeviceEXT amdgpu_device = EGL_NO_DEVICE_EXT;
     EGLDeviceEXT i915_device = EGL_NO_DEVICE_EXT;
     EGLint num_devices = 0;
@@ -128,10 +132,18 @@ class GLOzoneEGLGbm : public GLOzoneEGL {
           eglQueryDeviceStringEXT(device, EGL_DRM_DEVICE_FILE_EXT);
       if (!filename)  // Not a DRM device.
         continue;
+      if (IsDriverName(filename, "virtio_gpu"))
+        virgl_device = device;
       if (IsDriverName(filename, "amdgpu"))
         amdgpu_device = device;
       if (IsDriverName(filename, "i915"))
         i915_device = device;
+    }
+
+    if (virgl_device != EGL_NO_DEVICE_EXT) {
+      native_display_ = gl::EGLDisplayPlatform(
+          reinterpret_cast<EGLNativeDisplayType>(virgl_device),
+          EGL_PLATFORM_DEVICE_EXT);
     }
 
     if (amdgpu_device != EGL_NO_DEVICE_EXT) {
@@ -176,16 +188,16 @@ std::vector<gfx::BufferFormat> EnumerateSupportedBufferFormatsForTexturing() {
     if (!dev_path_file.IsValid())
       break;
 
+    // Skip the virtual graphics memory manager device.
+    ScopedDrmVersionPtr version(drmGetVersion(dev_path_file.GetPlatformFile()));
+    if (!version || base::LowerCaseEqualsASCII(version->name, "vgem")) {
+      continue;
+    }
+
     ScopedGbmDevice device(gbm_create_device(dev_path_file.GetPlatformFile()));
     if (!device) {
       LOG(ERROR) << "Couldn't create Gbm Device at " << dev_path.MaybeAsASCII();
       return supported_buffer_formats;
-    }
-
-    // Skip the virtual graphics memory manager device.
-    if (base::LowerCaseEqualsASCII(gbm_device_get_backend_name(device.get()),
-                                   "vgem")) {
-      continue;
     }
 
     for (int i = 0; i <= static_cast<int>(gfx::BufferFormat::LAST); ++i) {
@@ -248,6 +260,7 @@ std::vector<gl::GLImplementation>
 GbmSurfaceFactory::GetAllowedGLImplementations() {
   DCHECK(thread_checker_.CalledOnValidThread());
   return std::vector<gl::GLImplementation>{gl::kGLImplementationEGLGLES2,
+                                           gl::kGLImplementationEGLANGLE,
                                            gl::kGLImplementationSwiftShaderGL};
 }
 
@@ -255,6 +268,7 @@ GLOzone* GbmSurfaceFactory::GetGLOzone(gl::GLImplementation implementation) {
   switch (implementation) {
     case gl::kGLImplementationEGLGLES2:
     case gl::kGLImplementationSwiftShaderGL:
+    case gl::kGLImplementationEGLANGLE:
       return egl_implementation_.get();
     default:
       return nullptr;
@@ -263,8 +277,11 @@ GLOzone* GbmSurfaceFactory::GetGLOzone(gl::GLImplementation implementation) {
 
 #if BUILDFLAG(ENABLE_VULKAN)
 std::unique_ptr<gpu::VulkanImplementation>
-GbmSurfaceFactory::CreateVulkanImplementation(bool allow_protected_memory,
+GbmSurfaceFactory::CreateVulkanImplementation(bool use_swiftshader,
+                                              bool allow_protected_memory,
                                               bool enforce_protected_memory) {
+  DCHECK(!use_swiftshader)
+      << "Vulkan Swiftshader is not supported on this platform.";
   return std::make_unique<ui::VulkanImplementationGbm>();
 }
 
@@ -339,8 +356,7 @@ std::unique_ptr<OverlaySurface> GbmSurfaceFactory::CreateOverlaySurface(
 }
 
 std::unique_ptr<SurfaceOzoneCanvas> GbmSurfaceFactory::CreateCanvasForWidget(
-    gfx::AcceleratedWidget widget,
-    scoped_refptr<base::SequencedTaskRunner> task_runner) {
+    gfx::AcceleratedWidget widget) {
   DCHECK(thread_checker_.CalledOnValidThread());
   LOG(ERROR) << "Software rendering mode is not supported with GBM platform";
   return nullptr;

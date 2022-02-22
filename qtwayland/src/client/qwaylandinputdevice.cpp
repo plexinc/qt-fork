@@ -51,12 +51,14 @@
 #include "qwaylandprimaryselectionv1_p.h"
 #endif
 #include "qwaylandtabletv2_p.h"
+#include "qwaylandpointergestures_p.h"
 #include "qwaylandtouch_p.h"
 #include "qwaylandscreen_p.h"
 #include "qwaylandcursor_p.h"
 #include "qwaylanddisplay_p.h"
 #include "qwaylandshmbackingstore_p.h"
 #include "qwaylandinputcontext_p.h"
+#include "qwaylandinputmethodcontext_p.h"
 
 #include <QtGui/private/qpixmap_raster_p.h>
 #include <QtGui/private/qguiapplication_p.h>
@@ -73,12 +75,17 @@
 #endif
 
 #include <QtGui/QGuiApplication>
+#include <QtGui/QPointingDevice>
 
 QT_BEGIN_NAMESPACE
 
 namespace QtWaylandClient {
 
 Q_LOGGING_CATEGORY(lcQpaWaylandInput, "qt.qpa.wayland.input");
+
+// The maximum number of concurrent touchpoints is not exposed in wayland, so we assume a
+// reasonable number of them. As of 2021 most touchscreen panels support 10 concurrent touchpoints.
+static const int MaxTouchPoints = 10;
 
 QWaylandInputDevice::Keyboard::Keyboard(QWaylandInputDevice *p)
     : mParent(p)
@@ -130,7 +137,7 @@ QWaylandInputDevice::Keyboard::~Keyboard()
 {
     if (mFocus)
         QWindowSystemInterface::handleWindowActivated(nullptr);
-    if (mParent->mVersion >= 3)
+    if (version() >= 3)
         wl_keyboard_release(object());
     else
         wl_keyboard_destroy(object());
@@ -154,7 +161,7 @@ QWaylandInputDevice::Pointer::Pointer(QWaylandInputDevice *seat)
 
 QWaylandInputDevice::Pointer::~Pointer()
 {
-    if (mParent->mVersion >= 3)
+    if (version() >= 3)
         wl_pointer_release(object());
     else
         wl_pointer_destroy(object());
@@ -195,8 +202,6 @@ public:
         : QWaylandSurface(display)
         , m_pointer(pointer)
     {
-        //TODO: When we upgrade to libwayland 1.10, use wl_surface_get_version instead.
-        m_version = display->compositorVersion();
         connect(this, &QWaylandSurface::screensChanged,
                 m_pointer, &QWaylandInputDevice::Pointer::updateCursor);
     }
@@ -213,7 +218,7 @@ public:
     void update(wl_buffer *buffer, const QPoint &hotspot, const QSize &size, int bufferScale, bool animated = false)
     {
         // Calling code needs to ensure buffer scale is supported if != 1
-        Q_ASSERT(bufferScale == 1 || m_version >= 3);
+        Q_ASSERT(bufferScale == 1 || version() >= 3);
 
         auto enterSerial = m_pointer->mEnterSerial;
         if (m_setSerial < enterSerial || m_hotspot != hotspot) {
@@ -222,7 +227,7 @@ public:
             m_hotspot = hotspot;
         }
 
-        if (m_version >= 3)
+        if (version() >= 3)
             set_buffer_scale(bufferScale);
 
         attach(buffer, 0, 0);
@@ -248,7 +253,6 @@ public:
 private:
     QScopedPointer<WlCallback> m_frameCallback;
     QWaylandInputDevice::Pointer *m_pointer = nullptr;
-    uint m_version = 0;
     uint m_setSerial = 0;
     QPoint m_hotspot;
 };
@@ -268,9 +272,9 @@ int QWaylandInputDevice::Pointer::cursorSize() const
 
 int QWaylandInputDevice::Pointer::idealCursorScale() const
 {
-    // set_buffer_scale is not supported on earlier versions
-    if (seat()->mQDisplay->compositorVersion() < 3)
+    if (seat()->mQDisplay->compositor()->version() < 3) {
         return 1;
+    }
 
     if (auto *s = mCursor.surface.data()) {
         if (s->outputScale() > 0)
@@ -392,7 +396,7 @@ QWaylandInputDevice::Touch::Touch(QWaylandInputDevice *p)
 
 QWaylandInputDevice::Touch::~Touch()
 {
-    if (mParent->mVersion >= 3)
+    if (version() >= 3)
         wl_touch_release(object());
     else
         wl_touch_destroy(object());
@@ -402,7 +406,6 @@ QWaylandInputDevice::QWaylandInputDevice(QWaylandDisplay *display, int version, 
     : QtWayland::wl_seat(display->wl_registry(), id, qMin(version, 5))
     , mQDisplay(display)
     , mDisplay(display->wl_display())
-    , mVersion(qMin(version, 5))
 {
 #if QT_CONFIG(wayland_datadevice)
     if (mQDisplay->dndSelectionHandler()) {
@@ -418,6 +421,9 @@ QWaylandInputDevice::QWaylandInputDevice(QWaylandDisplay *display, int version, 
 
     if (mQDisplay->textInputManager())
         mTextInput.reset(new QWaylandTextInput(mQDisplay, mQDisplay->textInputManager()->get_text_input(wl_seat())));
+
+    if (mQDisplay->textInputMethodManager())
+        mTextInputMethod.reset(new QWaylandTextInputMethod(mQDisplay, mQDisplay->textInputMethodManager()->get_text_input_method(wl_seat())));
 
     if (auto *tm = mQDisplay->tabletManager())
         mTabletSeat.reset(new QWaylandTabletSeatV2(tm, this));
@@ -445,9 +451,28 @@ void QWaylandInputDevice::seat_capabilities(uint32_t caps)
     if (caps & WL_SEAT_CAPABILITY_POINTER && !mPointer) {
         mPointer = createPointer(this);
         mPointer->init(get_pointer());
+
+        auto *pointerGestures = mQDisplay->pointerGestures();
+        if (pointerGestures) {
+            // NOTE: The name of the device and its system ID are not exposed on Wayland.
+            mTouchPadDevice = new QPointingDevice(QLatin1String("touchpad"), 0,
+                                                  QInputDevice::DeviceType::TouchPad,
+                                                  QPointingDevice::PointerType::Finger,
+                                                  QInputDevice::Capability::Position,
+                                                  MaxTouchPoints, 0);
+            QWindowSystemInterface::registerInputDevice(mTouchPadDevice);
+            mPointerGesturePinch = pointerGestures->createPointerGesturePinch(this);
+            mPointerGesturePinch->init(pointerGestures->get_pinch_gesture(get_pointer()));
+            mPointerGestureSwipe = pointerGestures->createPointerGestureSwipe(this);
+            mPointerGestureSwipe->init(pointerGestures->get_swipe_gesture(get_pointer()));
+        }
     } else if (!(caps & WL_SEAT_CAPABILITY_POINTER) && mPointer) {
         delete mPointer;
         mPointer = nullptr;
+        delete mPointerGesturePinch;
+        mPointerGesturePinch = nullptr;
+        delete mPointerGestureSwipe;
+        mPointerGestureSwipe = nullptr;
     }
 
     if (caps & WL_SEAT_CAPABILITY_TOUCH && !mTouch) {
@@ -455,10 +480,11 @@ void QWaylandInputDevice::seat_capabilities(uint32_t caps)
         mTouch->init(get_touch());
 
         if (!mTouchDevice) {
-            mTouchDevice = new QTouchDevice;
-            mTouchDevice->setType(QTouchDevice::TouchScreen);
-            mTouchDevice->setCapabilities(QTouchDevice::Position);
-            QWindowSystemInterface::registerTouchDevice(mTouchDevice);
+            // TODO number of touchpoints, actual name and ID
+            mTouchDevice = new QPointingDevice(QLatin1String("some touchscreen"), 0,
+                                               QInputDevice::DeviceType::TouchScreen, QPointingDevice::PointerType::Finger,
+                                               QInputDevice::Capability::Position, MaxTouchPoints, 0);
+            QWindowSystemInterface::registerInputDevice(mTouchDevice);
         }
     } else if (!(caps & WL_SEAT_CAPABILITY_TOUCH) && mTouch) {
         delete mTouch;
@@ -489,6 +515,16 @@ QWaylandInputDevice::Keyboard *QWaylandInputDevice::keyboard() const
 QWaylandInputDevice::Pointer *QWaylandInputDevice::pointer() const
 {
     return mPointer;
+}
+
+QWaylandPointerGestureSwipe *QWaylandInputDevice::pointerGestureSwipe() const
+{
+    return mPointerGestureSwipe;
+}
+
+QWaylandPointerGesturePinch *QWaylandInputDevice::pointerGesturePinch() const
+{
+    return mPointerGesturePinch;
 }
 
 QWaylandInputDevice::Touch *QWaylandInputDevice::touch() const
@@ -533,9 +569,19 @@ void QWaylandInputDevice::setTextInput(QWaylandTextInput *textInput)
     mTextInput.reset(textInput);
 }
 
+void QWaylandInputDevice::setTextInputMethod(QWaylandTextInputMethod *textInputMethod)
+{
+    mTextInputMethod.reset(textInputMethod);
+}
+
 QWaylandTextInput *QWaylandInputDevice::textInput() const
 {
     return mTextInput.data();
+}
+
+QWaylandTextInputMethod *QWaylandInputDevice::textInputMethod() const
+{
+    return mTextInputMethod.data();
 }
 
 void QWaylandInputDevice::removeMouseButtonFromState(Qt::MouseButton button)
@@ -885,7 +931,7 @@ void QWaylandInputDevice::Pointer::pointer_axis(uint32_t time, uint32_t axis, in
 
     mParent->mTime = time;
 
-    if (mParent->mVersion < WL_POINTER_FRAME_SINCE_VERSION) {
+    if (version() < WL_POINTER_FRAME_SINCE_VERSION) {
         qCDebug(lcQpaWaylandInput) << "Flushing new event; no frame event in this version";
         flushFrameEvent();
     }
@@ -984,7 +1030,7 @@ void QWaylandInputDevice::Pointer::setFrameEvent(QWaylandPointerEvent *event)
 
     mFrameData.event = event;
 
-    if (mParent->mVersion < WL_POINTER_FRAME_SINCE_VERSION) {
+    if (version() < WL_POINTER_FRAME_SINCE_VERSION) {
         qCDebug(lcQpaWaylandInput) << "Flushing new event; no frame event in this version";
         flushFrameEvent();
     }
@@ -1201,7 +1247,7 @@ void QWaylandInputDevice::Keyboard::handleKey(ulong timestamp, QEvent::Type type
     QPlatformInputContext *inputContext = QGuiApplicationPrivate::platformIntegration()->inputContext();
     bool filtered = false;
 
-    if (inputContext && !mParent->mQDisplay->usingInputContextFromCompositor()) {
+    if (inputContext) {
         QKeyEvent event(type, key, modifiers, nativeScanCode, nativeVirtualKey,
                         nativeModifiers, text, autorepeat, count);
         event.setTimestamp(timestamp);
@@ -1256,7 +1302,7 @@ void QWaylandInputDevice::Keyboard::keyboard_key(uint32_t serial, uint32_t time,
 
         Qt::KeyboardModifiers modifiers = mParent->modifiers();
 
-        int qtkey = QXkbCommon::keysymToQtKey(sym, modifiers, mXkbState.get(), code);
+        int qtkey = keysymToQtKey(sym, modifiers, mXkbState.get(), code);
         QString text = QXkbCommon::lookupString(mXkbState.get(), code);
 
         QEvent::Type type = isDown ? QEvent::KeyPress : QEvent::KeyRelease;
@@ -1358,14 +1404,14 @@ void QWaylandInputDevice::Touch::touch_down(uint32_t serial,
     mFocus = window;
     mParent->mQDisplay->setLastInputDevice(mParent, serial, mFocus);
     QPointF position(wl_fixed_to_double(x), wl_fixed_to_double(y));
-    mParent->handleTouchPoint(id, Qt::TouchPointPressed, position);
+    mParent->handleTouchPoint(id, QEventPoint::Pressed, position);
 }
 
 void QWaylandInputDevice::Touch::touch_up(uint32_t serial, uint32_t time, int32_t id)
 {
     Q_UNUSED(serial);
     Q_UNUSED(time);
-    mParent->handleTouchPoint(id, Qt::TouchPointReleased);
+    mParent->handleTouchPoint(id, QEventPoint::Released);
 
     if (allTouchPointsReleased()) {
         mFocus = nullptr;
@@ -1385,7 +1431,7 @@ void QWaylandInputDevice::Touch::touch_motion(uint32_t time, int32_t id, wl_fixe
 {
     Q_UNUSED(time);
     QPointF position(wl_fixed_to_double(x), wl_fixed_to_double(y));
-    mParent->handleTouchPoint(id, Qt::TouchPointMoved, position);
+    mParent->handleTouchPoint(id, QEventPoint::Updated, position);
 }
 
 void QWaylandInputDevice::Touch::touch_cancel()
@@ -1399,7 +1445,7 @@ void QWaylandInputDevice::Touch::touch_cancel()
     QWindowSystemInterface::handleTouchCancelEvent(nullptr, mParent->mTouchDevice);
 }
 
-void QWaylandInputDevice::handleTouchPoint(int id, Qt::TouchPointState state, const QPointF &surfacePosition)
+void QWaylandInputDevice::handleTouchPoint(int id, QEventPoint::State state, const QPointF &surfacePosition)
 {
     auto end = mTouch->mPendingTouchPoints.end();
     auto it = std::find_if(mTouch->mPendingTouchPoints.begin(), end, [id](const QWindowSystemInterface::TouchPoint &tp){ return tp.id == id; });
@@ -1407,10 +1453,18 @@ void QWaylandInputDevice::handleTouchPoint(int id, Qt::TouchPointState state, co
         it = mTouch->mPendingTouchPoints.insert(end, QWindowSystemInterface::TouchPoint());
         it->id = id;
     }
+    // If the touch points were up and down in same frame, send out frame right away
+    else if ((it->state == QEventPoint::Pressed && state == QEventPoint::Released)
+            || (it->state == QEventPoint::Released && state == QEventPoint::Pressed)) {
+        mTouch->touch_frame();
+        it = mTouch->mPendingTouchPoints.insert(mTouch->mPendingTouchPoints.end(), QWindowSystemInterface::TouchPoint());
+        it->id = id;
+    }
+
     QWindowSystemInterface::TouchPoint &tp = *it;
 
     // Only moved and pressed needs to update/set position
-    if (state == Qt::TouchPointMoved || state == Qt::TouchPointPressed) {
+    if (state == QEventPoint::Updated || state == QEventPoint::Pressed) {
         // We need a global (screen) position.
         QWaylandWindow *win = mTouch->mFocus;
 
@@ -1432,16 +1486,16 @@ void QWaylandInputDevice::handleTouchPoint(int id, Qt::TouchPointState state, co
     }
 
     // If the touch point was pressed earlier this frame, we don't want to overwrite its state.
-    if (tp.state != Qt::TouchPointPressed)
-        tp.state = state;
+    if (tp.state != QEventPoint::Pressed)
+        tp.state = QEventPoint::State(state);
 
-    tp.pressure = tp.state == Qt::TouchPointReleased ? 0 : 1;
+    tp.pressure = tp.state == QEventPoint::Released ? 0 : 1;
 }
 
 bool QWaylandInputDevice::Touch::allTouchPointsReleased()
 {
     for (const auto &tp : qAsConst(mPendingTouchPoints)) {
-        if (tp.state != Qt::TouchPointReleased)
+        if (tp.state != QEventPoint::Released)
             return false;
     }
     return true;
@@ -1453,7 +1507,7 @@ void QWaylandInputDevice::Touch::releasePoints()
         return;
 
     for (QWindowSystemInterface::TouchPoint &tp : mPendingTouchPoints)
-        tp.state = Qt::TouchPointReleased;
+        tp.state = QEventPoint::Released;
 
     touch_frame();
 }
@@ -1482,9 +1536,9 @@ void QWaylandInputDevice::Touch::touch_frame()
     mPendingTouchPoints.clear();
     for (const auto &prevPoint: prevTouchPoints) {
         // All non-released touch points should be part of the next touch event
-        if (prevPoint.state != Qt::TouchPointReleased) {
+        if (prevPoint.state != QEventPoint::Released) {
             QWindowSystemInterface::TouchPoint tp = prevPoint;
-            tp.state = Qt::TouchPointStationary; // ... as stationary (unless proven otherwise)
+            tp.state = QEventPoint::Stationary; // ... as stationary (unless proven otherwise)
             mPendingTouchPoints.append(tp);
         }
     }

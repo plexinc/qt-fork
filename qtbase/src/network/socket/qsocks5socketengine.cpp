@@ -325,7 +325,7 @@ protected:
     QRecursiveMutex mutex;
     int sweepTimerId = -1;
     //socket descriptor, data, timestamp
-    QHash<int, QSocks5BindData *> store;
+    QHash<qintptr, QSocks5BindData *> store;
 };
 
 Q_GLOBAL_STATIC(QSocks5BindStore, socks5BindStore)
@@ -535,9 +535,6 @@ void QSocks5SocketEnginePrivate::initialize(Socks5Mode socks5Mode)
         udpData = new QSocks5UdpAssociateData;
         data = udpData;
         udpData->udpSocket = new QUdpSocket(q);
-#ifndef QT_NO_BEARERMANAGEMENT // ### Qt6: Remove section
-        udpData->udpSocket->setProperty("_q_networksession", q->property("_q_networksession"));
-#endif
         udpData->udpSocket->setProxy(QNetworkProxy::NoProxy);
         QObject::connect(udpData->udpSocket, SIGNAL(readyRead()),
                          q, SLOT(_q_udpSocketReadNotification()),
@@ -549,9 +546,6 @@ void QSocks5SocketEnginePrivate::initialize(Socks5Mode socks5Mode)
     }
 
     data->controlSocket = new QTcpSocket(q);
-#ifndef QT_NO_BEARERMANAGEMENT // ### Qt6: Remove section
-    data->controlSocket->setProperty("_q_networksession", q->property("_q_networksession"));
-#endif
     data->controlSocket->setProxy(QNetworkProxy::NoProxy);
     QObject::connect(data->controlSocket, SIGNAL(connected()), q, SLOT(_q_controlSocketConnected()),
                      Qt::DirectConnection);
@@ -1296,7 +1290,7 @@ void QSocks5SocketEnginePrivate::_q_udpSocketReadNotification()
         int pos = 0;
         const char *buf = inBuf.constData();
         if (inBuf.size() < 4) {
-            QSOCKS5_D_DEBUG << "bugus udp data, discarding";
+            QSOCKS5_D_DEBUG << "bogus udp data, discarding";
             return;
         }
         QSocks5RevivedDatagram datagram;
@@ -1531,8 +1525,12 @@ qint64 QSocks5SocketEngine::write(const char *data, qint64 len)
         if (!d->data->authenticator->seal(buf, &sealedBuf)) {
             // ### Handle this error.
         }
+        // We pass pointer and size because 'sealedBuf' is (most definitely) raw data:
+        // QIODevice might have to cache the byte array if the socket cannot write the data.
+        // If the _whole_ array needs to be cached then it would simply store a copy of the
+        // array whose data will go out of scope and be deallocated before it can be used.
+        qint64 written = d->data->controlSocket->write(sealedBuf.constData(), sealedBuf.size());
 
-        qint64 written = d->data->controlSocket->write(sealedBuf);
         if (written <= 0) {
             QSOCKS5_Q_DEBUG << "native write returned" << written;
             return written;
@@ -1617,9 +1615,9 @@ qint64 QSocks5SocketEngine::readDatagram(char *data, qint64 maxlen, QIpPacketHea
     }
     return copyLen;
 #else
-    Q_UNUSED(data)
-    Q_UNUSED(maxlen)
-    Q_UNUSED(header)
+    Q_UNUSED(data);
+    Q_UNUSED(maxlen);
+    Q_UNUSED(header);
     return -1;
 #endif // QT_NO_UDPSOCKET
 }
@@ -1641,10 +1639,12 @@ qint64 QSocks5SocketEngine::writeDatagram(const char *data, qint64 len, const QI
 
     QByteArray outBuf;
     outBuf.reserve(270 + len);
-    outBuf[0] = 0x00;
-    outBuf[1] = 0x00;
-    outBuf[2] = 0x00;
+    outBuf.append(3, '\0');
     if (!qt_socks5_set_host_address_and_port(header.destinationAddress, header.destinationPort, &outBuf)) {
+        QSOCKS5_DEBUG << "error setting address" << header.destinationAddress << " : "
+                      << header.destinationPort;
+        //### set error code ....
+        return -1;
     }
     outBuf += QByteArray(data, len);
     QSOCKS5_DEBUG << "sending" << dump(outBuf);
@@ -1664,9 +1664,9 @@ qint64 QSocks5SocketEngine::writeDatagram(const char *data, qint64 len, const QI
 
     return len;
 #else
-    Q_UNUSED(data)
-    Q_UNUSED(len)
-    Q_UNUSED(header)
+    Q_UNUSED(data);
+    Q_UNUSED(len);
+    Q_UNUSED(header);
     return -1;
 #endif // QT_NO_UDPSOCKET
 }
@@ -1927,3 +1927,5 @@ QAbstractSocketEngine *QSocks5SocketEngineHandler::createSocketEngine(qintptr so
 }
 
 QT_END_NAMESPACE
+
+#include "moc_qsocks5socketengine_p.cpp"

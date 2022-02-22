@@ -62,22 +62,22 @@ void KeyboardMouseGenericDeviceIntegration::onInitialize()
 {
 }
 
-QVector<Qt3DCore::QAspectJobPtr> KeyboardMouseGenericDeviceIntegration::jobsToExecute(qint64 time)
+std::vector<Qt3DCore::QAspectJobPtr> KeyboardMouseGenericDeviceIntegration::jobsToExecute(qint64 time)
 {
-    Q_UNUSED(time)
-    return QVector<Qt3DCore::QAspectJobPtr>();
+    Q_UNUSED(time);
+    return {};
 }
 
 QAbstractPhysicalDevice *KeyboardMouseGenericDeviceIntegration::createPhysicalDevice(const QString &name)
 {
-    Q_UNUSED(name)
+    Q_UNUSED(name);
     return nullptr;
 }
 
-QVector<Qt3DCore::QNodeId> KeyboardMouseGenericDeviceIntegration::physicalDevices() const
+QList<Qt3DCore::QNodeId> KeyboardMouseGenericDeviceIntegration::physicalDevices() const
 {
     // TO DO: could return the ids of active KeyboardDevice/MouseDevice
-    return QVector<Qt3DCore::QNodeId>();
+    return { };
 }
 
 QAbstractPhysicalDeviceBackendNode *KeyboardMouseGenericDeviceIntegration::physicalDevice(Qt3DCore::QNodeId id) const

@@ -82,13 +82,8 @@ void QTestJUnitStreamer::formatStart(const QTestElement *element, QTestCharBuffe
     char indent[20];
     indentForElement(element, indent, sizeof(indent));
 
-    // Errors are written as CDATA within system-err, comments elsewhere
-    if (element->elementType() == QTest::LET_Error) {
-        if (element->parentElement()->elementType() == QTest::LET_SystemError) {
-            QTest::qt_asprintf(formatted, "<![CDATA[");
-        } else {
-            QTest::qt_asprintf(formatted, "%s<!--", indent);
-        }
+    if (element->elementType() == QTest::LET_Text) {
+        QTest::qt_asprintf(formatted, "%s<![CDATA[", indent);
         return;
     }
 
@@ -100,7 +95,7 @@ void QTestJUnitStreamer::formatEnd(const QTestElement *element, QTestCharBuffer 
     if (!element || !formatted )
         return;
 
-    if (!element->childElements()) {
+    if (element->childElements().empty()) {
         formatted->data()[0] = '\0';
         return;
     }
@@ -118,29 +113,16 @@ void QTestJUnitStreamer::formatAttributes(const QTestElement* element, const QTe
 
     QTest::AttributeIndex attrindex = attribute->index();
 
-    // For errors within system-err, we only want to output `message'
-    if (element && element->elementType() == QTest::LET_Error
-        && element->parentElement()->elementType() == QTest::LET_SystemError) {
-
-        if (attrindex != QTest::AI_Description) return;
-
+    if (element && element->elementType() == QTest::LET_Text) {
+        QTEST_ASSERT(attrindex == QTest::AI_Value);
         QXmlTestLogger::xmlCdata(formatted, attribute->value());
         return;
     }
 
-    char const* key = nullptr;
-    if (attrindex == QTest::AI_Description)
-        key = "message";
-    else if (attrindex != QTest::AI_File && attrindex != QTest::AI_Line)
-        key = attribute->name();
-
-    if (key) {
-        QTestCharBuffer quotedValue;
-        QXmlTestLogger::xmlQuote(&quotedValue, attribute->value());
-        QTest::qt_asprintf(formatted, " %s=\"%s\"", key, quotedValue.constData());
-    } else {
-        formatted->data()[0] = '\0';
-    }
+    QTestCharBuffer quotedValue;
+    QXmlTestLogger::xmlQuote(&quotedValue, attribute->value());
+    QTest::qt_asprintf(formatted, " %s=\"%s\"",
+        attribute->name(), quotedValue.constData());
 }
 
 void QTestJUnitStreamer::formatAfterAttributes(const QTestElement *element, QTestCharBuffer *formatted) const
@@ -148,17 +130,12 @@ void QTestJUnitStreamer::formatAfterAttributes(const QTestElement *element, QTes
     if (!element || !formatted )
         return;
 
-    // Errors are written as CDATA within system-err, comments elsewhere
-    if (element->elementType() == QTest::LET_Error) {
-        if (element->parentElement()->elementType() == QTest::LET_SystemError) {
-            QTest::qt_asprintf(formatted, "]]>\n");
-        } else {
-            QTest::qt_asprintf(formatted, " -->\n");
-        }
+    if (element->elementType() == QTest::LET_Text) {
+        QTest::qt_asprintf(formatted, "]]>\n");
         return;
     }
 
-    if (!element->childElements())
+    if (element->childElements().empty())
         QTest::qt_asprintf(formatted, "/>\n");
     else
         QTest::qt_asprintf(formatted, ">\n");
@@ -168,50 +145,39 @@ void QTestJUnitStreamer::output(QTestElement *element) const
 {
     QTEST_ASSERT(element);
 
-    outputString("<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n");
-    outputElements(element);
+    if (!element->parentElement())
+        outputString("<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n");
+
+    QTestCharBuffer buf;
+
+    formatStart(element, &buf);
+    outputString(buf.data());
+
+    outputElementAttributes(element, element->attributes());
+
+    formatAfterAttributes(element, &buf);
+    outputString(buf.data());
+
+    if (!element->childElements().empty())
+        outputElements(element->childElements());
+
+    formatEnd(element, &buf);
+    outputString(buf.data());
 }
 
-void QTestJUnitStreamer::outputElements(QTestElement *element, bool) const
+void QTestJUnitStreamer::outputElements(const std::vector<QTestElement*> &elements) const
 {
-    QTestCharBuffer buf;
-    bool hasChildren;
-    /*
-        Elements are in reverse order of occurrence, so start from the end and work
-        our way backwards.
-    */
-    while (element && element->nextElement()) {
-        element = element->nextElement();
-    }
-    while (element) {
-        hasChildren = element->childElements();
-
-        if (element->elementType() != QTest::LET_Benchmark) {
-            formatStart(element, &buf);
-            outputString(buf.data());
-
-            outputElementAttributes(element, element->attributes());
-
-            formatAfterAttributes(element, &buf);
-            outputString(buf.data());
-
-            if (hasChildren)
-                outputElements(element->childElements(), true);
-
-            formatEnd(element, &buf);
-            outputString(buf.data());
-        }
-        element = element->previousElement();
-    }
+    for (auto *element : elements)
+        output(element);
 }
 
-void QTestJUnitStreamer::outputElementAttributes(const QTestElement* element, QTestElementAttribute *attribute) const
+void QTestJUnitStreamer::outputElementAttributes(const QTestElement* element, const std::vector<QTestElementAttribute*> &attributes) const
 {
     QTestCharBuffer buf;
-    while (attribute) {
+
+    for (auto *attribute : attributes) {
         formatAttributes(element, attribute, &buf);
         outputString(buf.data());
-        attribute = attribute->nextElement();
     }
 }
 

@@ -26,9 +26,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import QtTest 1.0
-import QtWebEngine 1.4
+import QtQuick
+import QtTest
+import QtWebEngine
 
 TestWebEngineView {
     id: webEngineView
@@ -36,6 +36,7 @@ TestWebEngineView {
     height: 480
 
     TestCase {
+        id: testCase
         name: "WebEngineViewKeyboardEvents"
         when: windowShown
 

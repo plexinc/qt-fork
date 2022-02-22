@@ -8,6 +8,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <vector>
 
 #include "base/callback.h"
 #include "base/optional.h"
@@ -16,10 +17,6 @@
 
 class GURL;
 struct ExtensionMsg_ExecuteCode_Params;
-
-namespace base {
-class ListValue;
-}  // namespace base
 
 namespace content {
 class WebContents;
@@ -46,15 +43,9 @@ class ScriptExecutor {
   explicit ScriptExecutor(content::WebContents* web_contents);
   ~ScriptExecutor();
 
-  // The type of script being injected.
-  enum ScriptType {
-    JAVASCRIPT,
-    CSS,
-  };
-
   // The scope of the script injection across the frames.
   enum FrameScope {
-    SINGLE_FRAME,
+    SPECIFIED_FRAMES,
     INCLUDE_SUB_FRAMES,
   };
 
@@ -77,36 +68,57 @@ class ScriptExecutor {
     JSON_SERIALIZED_RESULT,
   };
 
-  // Callback from ExecuteScript. The arguments are (error, on_url, result).
-  // Success is implied by an empty error.
-  typedef base::Callback<
-      void(const std::string&, const GURL&, const base::ListValue&)>
-      ScriptFinishedCallback;
+  struct FrameResult {
+    FrameResult();
+    FrameResult(FrameResult&&);
+    FrameResult& operator=(FrameResult&&);
+
+    // The ID of the frame of the injection.
+    int frame_id = -1;
+    // The error associated with the injection, if any. Empty if the injection
+    // succeeded.
+    std::string error;
+    // The URL of the frame from the injection. Only set if the frame exists.
+    GURL url;
+    // The result value from the injection, or null if the injection failed (or
+    // had no result).
+    base::Value value;
+    // Whether the frame responded to the attempted injection (which can fail if
+    // the frame was removed or never existed). Note this doesn't necessarily
+    // mean the injection succeeded, since it could fail due to other reasons
+    // (like permissions).
+    bool frame_responded = false;
+  };
+
+  using ScriptFinishedCallback =
+      base::OnceCallback<void(std::vector<FrameResult> frame_results)>;
 
   // Executes a script. The arguments match ExtensionMsg_ExecuteCode_Params in
   // extension_messages.h (request_id is populated automatically).
   //
-  // The script will be executed in the frame identified by |frame_id| (which is
-  // an extension API frame ID). If |frame_scope| is INCLUDE_SUB_FRAMES, then
-  // the script will also be executed in all descendants of the frame.
+  // The script will be executed in the frames identified by |frame_ids| (which
+  // are extension API frame IDs). If |frame_scope| is INCLUDE_SUB_FRAMES,
+  // then the script will also be executed in all descendants of the specified
+  // frames.
   //
   // |callback| will always be called even if the IPC'd renderer is destroyed
   // before a response is received (in this case the callback will be with a
   // failure and appropriate error message).
+  // TODO(devlin): Make |frame_ids| a std::set<> (since they must be unique).
   void ExecuteScript(const HostID& host_id,
-                     ScriptType script_type,
+                     UserScript::ActionType action_type,
                      const std::string& code,
                      FrameScope frame_scope,
-                     int frame_id,
+                     const std::vector<int>& frame_ids,
                      MatchAboutBlank match_about_blank,
                      UserScript::RunLocation run_at,
                      ProcessType process_type,
                      const GURL& webview_src,
                      const GURL& script_url,
                      bool user_gesture,
-                     base::Optional<CSSOrigin> css_origin,
+                     CSSOrigin css_origin,
                      ResultType result_type,
-                     const ScriptFinishedCallback& callback);
+                     ScriptFinishedCallback callback);
 
   // Set the observer for ScriptsExecutedNotification callbacks.
   void set_observer(ScriptsExecutedNotification observer) {

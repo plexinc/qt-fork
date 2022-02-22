@@ -5,6 +5,8 @@
 #include "third_party/blink/renderer/core/paint/box_painter_base.h"
 
 #include "base/optional.h"
+#include "third_party/blink/renderer/core/animation/element_animations.h"
+#include "third_party/blink/renderer/core/css/background_color_paint_image_generator.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
@@ -17,6 +19,7 @@
 #include "third_party/blink/renderer/core/paint/paint_info.h"
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/core/paint/paint_timing_detector.h"
+#include "third_party/blink/renderer/core/paint/rounded_border_geometry.h"
 #include "third_party/blink/renderer/core/paint/rounded_inner_rect_clipper.h"
 #include "third_party/blink/renderer/core/style/border_edge.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
@@ -57,19 +60,35 @@ void BoxPainterBase::PaintFillLayers(const PaintInfo& paint_info,
     context.EndLayer();
 }
 
+namespace {
+
+void ApplySpreadToShadowShape(FloatRoundedRect& shadow_shape, float spread) {
+  if (spread == 0)
+    return;
+
+  if (spread >= 0)
+    shadow_shape.ExpandRadii(spread);
+  else
+    shadow_shape.ShrinkRadii(-spread);
+
+  if (!shadow_shape.IsRenderable())
+    shadow_shape.AdjustRadii();
+  shadow_shape.ConstrainRadii();
+}
+
+}  // namespace
+
 void BoxPainterBase::PaintNormalBoxShadow(const PaintInfo& info,
                                           const PhysicalRect& paint_rect,
                                           const ComputedStyle& style,
-                                          bool include_logical_left_edge,
-                                          bool include_logical_right_edge,
+                                          PhysicalBoxSides sides_to_include,
                                           bool background_is_skipped) {
   if (!style.BoxShadow())
     return;
   GraphicsContext& context = info.context;
 
-  FloatRoundedRect border = style.GetRoundedBorderFor(
-      paint_rect.ToLayoutRect(), include_logical_left_edge,
-      include_logical_right_edge);
+  FloatRoundedRect border = RoundedBorderGeometry::PixelSnappedRoundedBorder(
+      style, paint_rect, sides_to_include);
 
   bool has_border_radius = style.HasBorderRadius();
   bool has_opaque_background =
@@ -82,7 +101,7 @@ void BoxPainterBase::PaintNormalBoxShadow(const PaintInfo& info,
   const ShadowList* shadow_list = style.BoxShadow();
   for (wtf_size_t i = shadow_list->Shadows().size(); i--;) {
     const ShadowData& shadow = shadow_list->Shadows()[i];
-    if (shadow.Style() != kNormal)
+    if (shadow.Style() != ShadowStyle::kNormal)
       continue;
 
     FloatSize shadow_offset(shadow.X(), shadow.Y());
@@ -93,7 +112,8 @@ void BoxPainterBase::PaintNormalBoxShadow(const PaintInfo& info,
       continue;
 
     const Color& shadow_color = shadow.GetColor().Resolve(
-        style.VisitedDependentColor(GetCSSPropertyColor()));
+        style.VisitedDependentColor(GetCSSPropertyColor()),
+        style.UsedColorScheme());
 
     FloatRect fill_rect = border.Rect();
     fill_rect.Inflate(shadow_spread);
@@ -135,22 +155,18 @@ void BoxPainterBase::PaintNormalBoxShadow(const PaintInfo& info,
       }
     }
 
-    // Draw only the shadow.
-    context.SetShadow(shadow_offset, shadow_blur, shadow_color,
-                      DrawLooperBuilder::kShadowRespectsTransforms,
-                      DrawLooperBuilder::kShadowIgnoresAlpha, kDrawShadowOnly);
+    // Draw only the shadow. If the color of the shadow is transparent we will
+    // set an empty draw looper.
+    DrawLooperBuilder draw_looper_builder;
+    draw_looper_builder.AddShadow(shadow_offset, shadow_blur, shadow_color,
+                                  DrawLooperBuilder::kShadowRespectsTransforms,
+                                  DrawLooperBuilder::kShadowIgnoresAlpha);
+    context.SetDrawLooper(draw_looper_builder.DetachDrawLooper());
 
     if (has_border_radius) {
       FloatRoundedRect rounded_fill_rect = border;
       rounded_fill_rect.Inflate(shadow_spread);
-
-      if (shadow_spread >= 0)
-        rounded_fill_rect.ExpandRadii(shadow_spread);
-      else
-        rounded_fill_rect.ShrinkRadii(-shadow_spread);
-      if (!rounded_fill_rect.IsRenderable())
-        rounded_fill_rect.AdjustRadii();
-      rounded_fill_rect.ConstrainRadii();
+      ApplySpreadToShadowShape(rounded_fill_rect, shadow_spread);
       context.FillRoundedRect(rounded_fill_rect, Color::kBlack);
     } else {
       context.FillRect(fill_rect, Color::kBlack);
@@ -162,15 +178,12 @@ void BoxPainterBase::PaintInsetBoxShadowWithBorderRect(
     const PaintInfo& info,
     const PhysicalRect& border_rect,
     const ComputedStyle& style,
-    bool include_logical_left_edge,
-    bool include_logical_right_edge) {
+    PhysicalBoxSides sides_to_include) {
   if (!style.BoxShadow())
     return;
-  auto bounds = style.GetRoundedInnerBorderFor(border_rect.ToLayoutRect(),
-                                               include_logical_left_edge,
-                                               include_logical_right_edge);
-  PaintInsetBoxShadow(info, bounds, style, include_logical_left_edge,
-                      include_logical_right_edge);
+  auto bounds = RoundedBorderGeometry::PixelSnappedRoundedInnerBorder(
+      style, border_rect, sides_to_include);
+  PaintInsetBoxShadow(info, bounds, style, sides_to_include);
 }
 
 void BoxPainterBase::PaintInsetBoxShadowWithInnerRect(
@@ -179,52 +192,97 @@ void BoxPainterBase::PaintInsetBoxShadowWithInnerRect(
     const ComputedStyle& style) {
   if (!style.BoxShadow())
     return;
-  auto bounds = style.GetRoundedInnerBorderFor(inner_rect.ToLayoutRect(),
-                                               LayoutRectOutsets());
+  auto bounds = RoundedBorderGeometry::PixelSnappedRoundedInnerBorder(
+      style, inner_rect, LayoutRectOutsets());
   PaintInsetBoxShadow(info, bounds, style);
 }
+
+namespace {
+
+inline FloatRect AreaCastingShadowInHole(const FloatRect& hole_rect,
+                                         const ShadowData& shadow) {
+  FloatRect bounds(hole_rect);
+  bounds.Inflate(shadow.Blur());
+
+  if (shadow.Spread() < 0)
+    bounds.Inflate(-shadow.Spread());
+
+  FloatRect offset_bounds = bounds;
+  offset_bounds.MoveBy(-shadow.Location());
+  return UnionRect(bounds, offset_bounds);
+}
+
+void AdjustInnerRectForSideClipping(FloatRect& inner_rect,
+                                    const ShadowData& shadow,
+                                    PhysicalBoxSides sides_to_include) {
+  if (!sides_to_include.left) {
+    float extend_by = std::max(shadow.X(), 0.0f) + shadow.Blur();
+    inner_rect.Move(-extend_by, 0);
+    inner_rect.SetWidth(inner_rect.Width() + extend_by);
+  }
+  if (!sides_to_include.top) {
+    float extend_by = std::max(shadow.Y(), 0.0f) + shadow.Blur();
+    inner_rect.Move(0, -extend_by);
+    inner_rect.SetHeight(inner_rect.Height() + extend_by);
+  }
+  if (!sides_to_include.right) {
+    float shrink_by = std::min(shadow.X(), 0.0f) - shadow.Blur();
+    inner_rect.SetWidth(inner_rect.Width() - shrink_by);
+  }
+  if (!sides_to_include.bottom) {
+    float shrink_by = std::min(shadow.Y(), 0.0f) - shadow.Blur();
+    inner_rect.SetHeight(inner_rect.Height() - shrink_by);
+  }
+}
+
+}  // namespace
 
 void BoxPainterBase::PaintInsetBoxShadow(const PaintInfo& info,
                                          const FloatRoundedRect& bounds,
                                          const ComputedStyle& style,
-                                         bool include_logical_left_edge,
-                                         bool include_logical_right_edge) {
+                                         PhysicalBoxSides sides_to_include) {
   GraphicsContext& context = info.context;
-  bool is_horizontal = style.IsHorizontalWritingMode();
-  GraphicsContextStateSaver state_saver(context, false);
 
   const ShadowList* shadow_list = style.BoxShadow();
   for (wtf_size_t i = shadow_list->Shadows().size(); i--;) {
     const ShadowData& shadow = shadow_list->Shadows()[i];
-    if (shadow.Style() != kInset)
+    if (shadow.Style() != ShadowStyle::kInset)
       continue;
-
-    FloatSize shadow_offset(shadow.X(), shadow.Y());
-    float shadow_blur = shadow.Blur();
-    float shadow_spread = shadow.Spread();
-
-    if (shadow_offset.IsZero() && !shadow_blur && !shadow_spread)
+    if (!shadow.X() && !shadow.Y() && !shadow.Blur() && !shadow.Spread())
       continue;
 
     const Color& shadow_color = shadow.GetColor().Resolve(
-        style.VisitedDependentColor(GetCSSPropertyColor()));
+        style.VisitedDependentColor(GetCSSPropertyColor()),
+        style.UsedColorScheme());
 
-    // The inset shadow case.
-    GraphicsContext::Edges clipped_edges = GraphicsContext::kNoEdge;
-    if (!include_logical_left_edge) {
-      if (is_horizontal)
-        clipped_edges |= GraphicsContext::kLeftEdge;
-      else
-        clipped_edges |= GraphicsContext::kTopEdge;
+    FloatRect inner_rect(bounds.Rect());
+    inner_rect.Inflate(-shadow.Spread());
+    if (inner_rect.IsEmpty()) {
+      context.FillRoundedRect(bounds, shadow_color);
+      continue;
     }
-    if (!include_logical_right_edge) {
-      if (is_horizontal)
-        clipped_edges |= GraphicsContext::kRightEdge;
-      else
-        clipped_edges |= GraphicsContext::kBottomEdge;
+    AdjustInnerRectForSideClipping(inner_rect, shadow, sides_to_include);
+
+    FloatRoundedRect inner_rounded_rect(inner_rect, bounds.GetRadii());
+    GraphicsContextStateSaver state_saver(context);
+    if (bounds.IsRounded()) {
+      context.ClipRoundedRect(bounds);
+      ApplySpreadToShadowShape(inner_rounded_rect, -shadow.Spread());
+    } else {
+      context.Clip(bounds.Rect());
     }
-    context.DrawInnerShadow(bounds, shadow_color, shadow_offset, shadow_blur,
-                            shadow_spread, clipped_edges);
+
+    DrawLooperBuilder draw_looper_builder;
+    draw_looper_builder.AddShadow(ToFloatSize(shadow.Location()), shadow.Blur(),
+                                  shadow_color,
+                                  DrawLooperBuilder::kShadowRespectsTransforms,
+                                  DrawLooperBuilder::kShadowIgnoresAlpha);
+    context.SetDrawLooper(draw_looper_builder.DetachDrawLooper());
+
+    Color fill_color(shadow_color.Red(), shadow_color.Green(),
+                     shadow_color.Blue());
+    FloatRect outer_rect = AreaCastingShadowInHole(bounds.Rect(), shadow);
+    context.FillRectWithRoundedHole(outer_rect, inner_rounded_rect, fill_color);
   }
 }
 
@@ -272,24 +330,23 @@ bool BoxPainterBase::CalculateFillLayerOcclusionCulling(
 BoxPainterBase::FillLayerInfo::FillLayerInfo(
     const Document& doc,
     const ComputedStyle& style,
-    bool has_overflow_clip,
+    bool is_scroll_container,
     Color bg_color,
     const FillLayer& layer,
     BackgroundBleedAvoidance bleed_avoidance,
     RespectImageOrientationEnum respect_image_orientation,
-    bool include_left,
-    bool include_right,
+    PhysicalBoxSides sides_to_include,
     bool is_inline,
     bool is_painting_scrolling_background)
     : image(layer.GetImage()),
       color(bg_color),
       respect_image_orientation(respect_image_orientation),
-      include_left_edge(include_left),
-      include_right_edge(include_right),
+      sides_to_include(sides_to_include),
       is_bottom_layer(!layer.Next()),
       is_border_fill(layer.Clip() == EFillBox::kBorder),
-      is_clipped_with_local_scrolling(
-          has_overflow_clip && layer.Attachment() == EFillAttachment::kLocal) {
+      is_clipped_with_local_scrolling(is_scroll_container &&
+                                      layer.Attachment() ==
+                                          EFillAttachment::kLocal) {
   // When printing backgrounds is disabled or using economy mode,
   // change existing background colors and images to a solid white background.
   // If there's no bg color or image, leave it untouched to avoid affecting
@@ -316,17 +373,22 @@ BoxPainterBase::FillLayerInfo::FillLayerInfo(
     image = nullptr;
 
   const bool has_rounded_border =
-      style.HasBorderRadius() && (include_left_edge || include_right_edge);
+      style.HasBorderRadius() && !sides_to_include.IsEmpty();
   // BorderFillBox radius clipping is taken care of by
   // BackgroundBleedClip{Only,Layer}
   is_rounded_fill =
       has_rounded_border && !is_painting_scrolling_background &&
       !(is_border_fill && BleedAvoidanceIsClipping(bleed_avoidance));
+  is_printing = doc.Printing();
 
   should_paint_image = image && image->CanRender();
   should_paint_color =
       is_bottom_layer && color.Alpha() &&
       (!should_paint_image || !layer.ImageOccludesNextLayers(doc, style));
+  should_paint_color_with_paint_worklet_image =
+      should_paint_color &&
+      RuntimeEnabledFeatures::CompositeBGColorAnimationEnabled() &&
+      style.HasCurrentBackgroundColorAnimation();
 }
 
 namespace {
@@ -416,6 +478,13 @@ void DrawTiledBackground(GraphicsContext& context,
   // Use the intrinsic size of the image if it has one, otherwise force the
   // generated image to be the tile size.
   FloatSize intrinsic_tile_size(image->Size());
+  // image-resolution information is baked into the given parameters, but we
+  // need oriented size. That requires explicitly applying orientation here.
+  if (respect_orientation &&
+      image->CurrentFrameOrientation().UsesWidthAsHeight()) {
+    intrinsic_tile_size = intrinsic_tile_size.TransposedSize();
+  }
+
   FloatSize scale(1, 1);
   if (!image->HasIntrinsicSize() ||
       // TODO(crbug.com/1042783): This is not checking for real empty image
@@ -451,7 +520,7 @@ void DrawTiledBackground(GraphicsContext& context,
     // src rect rotation if necessary.
     if (respect_orientation && !image->HasDefaultOrientation()) {
       visible_src_rect = image->CorrectSrcRectForImageOrientation(
-          visible_src_rect.Size(), visible_src_rect);
+          intrinsic_tile_size, visible_src_rect);
     }
 
     context.DrawImage(image, Image::kSyncDecode, snapped_paint_rect,
@@ -461,7 +530,7 @@ void DrawTiledBackground(GraphicsContext& context,
   }
 
   // At this point we have decided to tile the image to fill the dest rect.
-  // Note that this tile rect the image's pre-scaled size.
+  // Note that this tile rect uses the image's pre-scaled size.
   FloatRect tile_rect(FloatPoint(), intrinsic_tile_size);
 
   // Farther down the pipeline we will use the scaled tile size to determine
@@ -487,7 +556,41 @@ void DrawTiledBackground(GraphicsContext& context,
                          respect_orientation);
 }
 
-inline bool PaintFastBottomLayer(Node* node,
+// Returning false meaning that we need to fall back to the main thread for the
+// background color animation.
+bool GetBGColorPaintWorkletParams(const BoxPainterBase::FillLayerInfo& info,
+                                  const Document* document,
+                                  Node* node,
+                                  Vector<Color>* animated_colors,
+                                  Vector<double>* offsets) {
+  if (!info.should_paint_color_with_paint_worklet_image)
+    return false;
+  BackgroundColorPaintImageGenerator* generator =
+      document->GetFrame()->GetBackgroundColorPaintImageGenerator();
+  return generator->GetBGColorPaintWorkletParams(node, animated_colors,
+                                                 offsets);
+}
+
+void FillRectWithPaintWorklet(const Document* document,
+                              const BoxPainterBase::FillLayerInfo& info,
+                              Node* node,
+                              const FloatRoundedRect& dest_rect,
+                              GraphicsContext& context,
+                              const Vector<Color>& animated_colors,
+                              const Vector<double>& offsets) {
+  FloatRect src_rect(FloatPoint(), dest_rect.Rect().Size());
+  BackgroundColorPaintImageGenerator* generator =
+      document->GetFrame()->GetBackgroundColorPaintImageGenerator();
+  scoped_refptr<Image> paint_worklet_image =
+      generator->Paint(src_rect.Size(), node, animated_colors, offsets);
+  context.DrawImageRRect(
+      paint_worklet_image.get(), Image::kSyncDecode, dest_rect, src_rect,
+      node && node->ComputedStyleRef().HasFilterInducingProperty(),
+      SkBlendMode::kSrcOver, info.respect_image_orientation);
+}
+
+inline bool PaintFastBottomLayer(const Document* document,
+                                 Node* node,
                                  const PaintInfo& paint_info,
                                  const BoxPainterBase::FillLayerInfo& info,
                                  const PhysicalRect& rect,
@@ -520,7 +623,7 @@ inline bool PaintFastBottomLayer(Node* node,
   FloatRoundedRect image_border;
   if (info.should_paint_image) {
     // Avoid image shaders when printing (poorly supported in PDF).
-    if (info.is_rounded_fill && paint_info.IsPrinting())
+    if (info.is_rounded_fill && info.is_printing)
       return false;
 
     // Compute the dest rect we will be using for images.
@@ -531,8 +634,8 @@ inline bool PaintFastBottomLayer(Node* node,
 
     if (!image_border.Rect().IsEmpty()) {
       // We cannot optimize if the tile is too small.
-      if (geometry.TileSize().Width() < image_border.Rect().Width() ||
-          geometry.TileSize().Height() < image_border.Rect().Height())
+      if (geometry.TileSize().width < image_border.Rect().Width() ||
+          geometry.TileSize().height < image_border.Rect().Height())
         return false;
 
       // Phase calculation uses the actual painted location, given by the
@@ -550,7 +653,8 @@ inline bool PaintFastBottomLayer(Node* node,
       // pass. The best way to fix this would be to remove the paint rect offset
       // from the tile computation, because we effectively add it in
       // ComputePhaseForBackground then remove it in ComputeSubsetForBackground.
-      image_tile = FloatRect(LayoutRect(image_tile));
+      image_tile =
+          FloatRect(PhysicalRect::FastAndLossyFromFloatRect(image_tile));
       // We cannot optimize if the tile is misaligned.
       if (!image_tile.Contains(image_border.Rect()))
         return false;
@@ -567,11 +671,21 @@ inline bool PaintFastBottomLayer(Node* node,
     // clipping.
     clipper.emplace(context, rect, color_border);
     color_border.SetRadii(FloatRoundedRect::Radii());
+    image_border.SetRadii(FloatRoundedRect::Radii());
   }
 
   // Paint the color if needed.
-  if (info.should_paint_color)
-    context.FillRoundedRect(color_border, info.color);
+  if (info.should_paint_color) {
+    Vector<Color> animated_colors;
+    Vector<double> offsets;
+    if (GetBGColorPaintWorkletParams(info, document, node, &animated_colors,
+                                     &offsets)) {
+      FillRectWithPaintWorklet(document, info, node, color_border, context,
+                               animated_colors, offsets);
+    } else {
+      context.FillRoundedRect(color_border, info.color);
+    }
+  }
 
   // Paint the image if needed.
   if (!info.should_paint_image || !image || image_tile.IsEmpty())
@@ -612,7 +726,7 @@ inline bool PaintFastBottomLayer(Node* node,
   // rect rotation if necessaary.
   if (info.respect_image_orientation && !image->HasDefaultOrientation()) {
     src_rect =
-        image->CorrectSrcRectForImageOrientation(src_rect.Size(), src_rect);
+        image->CorrectSrcRectForImageOrientation(intrinsic_tile_size, src_rect);
   }
 
   TRACE_EVENT1(TRACE_DISABLED_BY_DEFAULT("devtools.timeline"), "PaintImage",
@@ -628,17 +742,16 @@ inline bool PaintFastBottomLayer(Node* node,
       node && node->ComputedStyleRef().HasFilterInducingProperty(),
       composite_op, info.respect_image_orientation);
 
-  if (info.image && info.image->IsImageResource()) {
+  if (node && info.image && info.image->IsImageResource()) {
     PaintTimingDetector::NotifyBackgroundImagePaint(
-        node, image, To<StyleFetchedImage>(info.image),
+        *node, *image, To<StyleFetchedImage>(*info.image),
         paint_info.context.GetPaintController().CurrentPaintChunkProperties(),
         RoundedIntRect(image_border.Rect()));
-  }
-  if (node && info.image && info.image->IsImageResource()) {
+
     LocalDOMWindow* window = node->GetDocument().domWindow();
     DCHECK(window);
     ImageElementTiming::From(*window).NotifyBackgroundImagePainted(
-        node, To<StyleFetchedImage>(info.image),
+        *node, To<StyleFetchedImage>(*info.image),
         context.GetPaintController().CurrentPaintChunkProperties(),
         RoundedIntRect(image_border.Rect()));
   }
@@ -651,15 +764,13 @@ FloatRoundedRect BackgroundRoundedRectAdjustedForBleedAvoidance(
     const ComputedStyle& style,
     const PhysicalRect& border_rect,
     bool object_has_multiple_boxes,
-    bool include_logical_left_edge,
-    bool include_logical_right_edge,
+    PhysicalBoxSides sides_to_include,
     FloatRoundedRect background_rounded_rect) {
   // TODO(fmalita): we should be able to fold these parameters into
   // BoxBorderInfo or BoxDecorationData and avoid calling getBorderEdgeInfo
   // redundantly here.
   BorderEdge edges[4];
-  style.GetBorderEdgeInfo(edges, include_logical_left_edge,
-                          include_logical_right_edge);
+  style.GetBorderEdgeInfo(edges, sides_to_include);
 
   // Use the most conservative inset to avoid mixed-style corner issues.
   float fractional_inset = 1.0f / 2;
@@ -671,11 +782,14 @@ FloatRoundedRect BackgroundRoundedRectAdjustedForBleedAvoidance(
   }
 
   FloatRectOutsets insets(
-      -fractional_inset * edges[static_cast<unsigned>(BoxSide::kTop)].Width(),
-      -fractional_inset * edges[static_cast<unsigned>(BoxSide::kRight)].Width(),
       -fractional_inset *
-          edges[static_cast<unsigned>(BoxSide::kBottom)].Width(),
-      -fractional_inset * edges[static_cast<unsigned>(BoxSide::kLeft)].Width());
+          edges[static_cast<unsigned>(BoxSide::kTop)].UsedWidth(),
+      -fractional_inset *
+          edges[static_cast<unsigned>(BoxSide::kRight)].UsedWidth(),
+      -fractional_inset *
+          edges[static_cast<unsigned>(BoxSide::kBottom)].UsedWidth(),
+      -fractional_inset *
+          edges[static_cast<unsigned>(BoxSide::kLeft)].UsedWidth());
 
   FloatRect inset_rect(background_rounded_rect.Rect());
   inset_rect.Expand(insets);
@@ -697,36 +811,40 @@ FloatRoundedRect RoundedBorderRectForClip(
   if (!info.is_rounded_fill)
     return FloatRoundedRect();
 
-  FloatRoundedRect border = style.GetRoundedBorderFor(
-      rect.ToLayoutRect(), info.include_left_edge, info.include_right_edge);
+  FloatRoundedRect border = RoundedBorderGeometry::PixelSnappedRoundedBorder(
+      style, rect, info.sides_to_include);
   if (object_has_multiple_boxes) {
-    FloatRoundedRect segment_border = style.GetRoundedBorderFor(
-        LayoutRect(LayoutPoint(), LayoutSize(FlooredIntSize(flow_box_size))),
-        info.include_left_edge, info.include_right_edge);
+    FloatRoundedRect segment_border =
+        RoundedBorderGeometry::PixelSnappedRoundedBorder(
+            style,
+            PhysicalRect(PhysicalOffset(),
+                         PhysicalSize(FlooredIntSize(flow_box_size))),
+            info.sides_to_include);
     border.SetRadii(segment_border.GetRadii());
   }
 
   if (info.is_border_fill &&
       bleed_avoidance == kBackgroundBleedShrinkBackground) {
     border = BackgroundRoundedRectAdjustedForBleedAvoidance(
-        style, rect, object_has_multiple_boxes, info.include_left_edge,
-        info.include_right_edge, border);
+        style, rect, object_has_multiple_boxes, info.sides_to_include, border);
   }
 
   // Clip to the padding or content boxes as necessary.
+  // Use FastAndLossyFromFloatRect because we know it has been pixel snapped.
+  PhysicalRect border_rect =
+      PhysicalRect::FastAndLossyFromFloatRect(border.Rect());
   if (bg_layer.Clip() == EFillBox::kContent) {
-    border = style.GetRoundedInnerBorderFor(
-        LayoutRect(border.Rect()), border_padding_insets,
-        info.include_left_edge, info.include_right_edge);
+    border = RoundedBorderGeometry::PixelSnappedRoundedInnerBorder(
+        style, border_rect, border_padding_insets, info.sides_to_include);
   } else if (bg_layer.Clip() == EFillBox::kPadding) {
-    border = style.GetRoundedInnerBorderFor(LayoutRect(border.Rect()),
-                                            info.include_left_edge,
-                                            info.include_right_edge);
+    border = RoundedBorderGeometry::PixelSnappedRoundedInnerBorder(
+        style, border_rect, info.sides_to_include);
   }
   return border;
 }
 
-void PaintFillLayerBackground(GraphicsContext& context,
+void PaintFillLayerBackground(const Document* document,
+                              GraphicsContext& context,
                               const BoxPainterBase::FillLayerInfo& info,
                               Node* node,
                               Image* image,
@@ -740,7 +858,16 @@ void PaintFillLayerBackground(GraphicsContext& context,
   // painting area.
   if (info.is_bottom_layer && info.color.Alpha() && info.should_paint_color) {
     IntRect background_rect(PixelSnappedIntRect(scrolled_paint_rect));
-    context.FillRect(background_rect, info.color);
+    Vector<Color> animated_colors;
+    Vector<double> offsets;
+    if (GetBGColorPaintWorkletParams(info, document, node, &animated_colors,
+                                     &offsets)) {
+      FillRectWithPaintWorklet(document, info, node,
+                               FloatRoundedRect(background_rect), context,
+                               animated_colors, offsets);
+    } else {
+      context.FillRect(background_rect, info.color);
+    }
   }
 
   // No progressive loading of the background image.
@@ -760,17 +887,16 @@ void PaintFillLayerBackground(GraphicsContext& context,
         FloatSize(geometry.SpaceSize()),
         node && node->ComputedStyleRef().HasFilterInducingProperty(),
         info.respect_image_orientation);
-    if (info.image && info.image->IsImageResource()) {
+    if (node && info.image && info.image->IsImageResource()) {
       PaintTimingDetector::NotifyBackgroundImagePaint(
-          node, image, To<StyleFetchedImage>(info.image),
+          *node, *image, To<StyleFetchedImage>(*info.image),
           context.GetPaintController().CurrentPaintChunkProperties(),
           EnclosingIntRect(geometry.SnappedDestRect()));
-    }
-    if (node && info.image && info.image->IsImageResource()) {
+
       LocalDOMWindow* window = node->GetDocument().domWindow();
       DCHECK(window);
       ImageElementTiming::From(*window).NotifyBackgroundImagePainted(
-          node, To<StyleFetchedImage>(info.image),
+          *node, To<StyleFetchedImage>(*info.image),
           context.GetPaintController().CurrentPaintChunkProperties(),
           EnclosingIntRect(geometry.SnappedDestRect()));
     }
@@ -781,9 +907,13 @@ LayoutRectOutsets AdjustOutsetsForEdgeInclusion(
     const LayoutRectOutsets outsets,
     const BoxPainterBase::FillLayerInfo& info) {
   LayoutRectOutsets adjusted = outsets;
-  if (!info.include_right_edge)
+  if (!info.sides_to_include.top)
+    adjusted.SetTop(LayoutUnit());
+  if (!info.sides_to_include.right)
     adjusted.SetRight(LayoutUnit());
-  if (!info.include_left_edge)
+  if (!info.sides_to_include.bottom)
+    adjusted.SetBottom(LayoutUnit());
+  if (!info.sides_to_include.left)
     adjusted.SetLeft(LayoutUnit());
   return adjusted;
 }
@@ -839,9 +969,6 @@ void BoxPainterBase::PaintFillLayer(const PaintInfo& paint_info,
     interpolation_quality_context.emplace(context,
                                           geometry.ImageInterpolationQuality());
 
-    if (bg_layer.MaskSourceType() == EMaskSourceType::kLuminance)
-      context.SetColorFilter(kColorFilterLuminanceToAlpha);
-
     if (ShouldApplyBlendOperation(info, bg_layer)) {
       composite_op = WebCoreCompositeToSkiaComposite(bg_layer.Composite(),
                                                      bg_layer.GetBlendMode());
@@ -866,8 +993,8 @@ void BoxPainterBase::PaintFillLayer(const PaintInfo& paint_info,
       (bleed_avoidance == kBackgroundBleedShrinkBackground ||
        did_adjust_paint_rect);
   if (!disable_fast_path &&
-      PaintFastBottomLayer(node_, paint_info, info, rect, border_rect, geometry,
-                           image.get(), composite_op)) {
+      PaintFastBottomLayer(document_, node_, paint_info, info, rect,
+                           border_rect, geometry, image.get(), composite_op)) {
     return;
   }
 
@@ -907,8 +1034,8 @@ void BoxPainterBase::PaintFillLayer(const PaintInfo& paint_info,
       break;
   }
 
-  PaintFillLayerBackground(context, info, node_, image.get(), composite_op,
-                           geometry, scrolled_paint_rect);
+  PaintFillLayerBackground(document_, context, info, node_, image.get(),
+                           composite_op, geometry, scrolled_paint_rect);
 }
 
 void BoxPainterBase::PaintFillLayerTextFillBox(
@@ -932,8 +1059,9 @@ void BoxPainterBase::PaintFillLayerTextFillBox(
   context.Clip(mask_rect);
   context.BeginLayer(1, composite_op);
 
-  PaintFillLayerBackground(context, info, node_, image, SkBlendMode::kSrcOver,
-                           geometry, scrolled_paint_rect);
+  PaintFillLayerBackground(document_, context, info, node_, image,
+                           SkBlendMode::kSrcOver, geometry,
+                           scrolled_paint_rect);
 
   // Create the text mask layer and draw the text into the mask. We do this by
   // painting using a special paint phase that signals to InlineTextBoxes that
@@ -954,8 +1082,7 @@ void BoxPainterBase::PaintBorder(const ImageResourceObserver& obj,
                                  const PhysicalRect& rect,
                                  const ComputedStyle& style,
                                  BackgroundBleedAvoidance bleed_avoidance,
-                                 bool include_logical_left_edge,
-                                 bool include_logical_right_edge) {
+                                 PhysicalBoxSides sides_to_include) {
   // border-image is not affected by border-radius.
   if (NinePieceImagePainter::Paint(info.context, obj, document, node, rect,
                                    style, style.BorderImage())) {
@@ -963,8 +1090,7 @@ void BoxPainterBase::PaintBorder(const ImageResourceObserver& obj,
   }
 
   const BoxBorderPainter border_painter(rect, style, bleed_avoidance,
-                                        include_logical_left_edge,
-                                        include_logical_right_edge);
+                                        sides_to_include);
   border_painter.PaintBorder(info, rect);
 }
 
@@ -972,8 +1098,7 @@ void BoxPainterBase::PaintMaskImages(const PaintInfo& paint_info,
                                      const PhysicalRect& paint_rect,
                                      const ImageResourceObserver& obj,
                                      BackgroundImageGeometry& geometry,
-                                     bool include_logical_left_edge,
-                                     bool include_logical_right_edge) {
+                                     PhysicalBoxSides sides_to_include) {
   if (!style_.HasMask() || style_.Visibility() != EVisibility::kVisible)
     return;
 
@@ -981,8 +1106,7 @@ void BoxPainterBase::PaintMaskImages(const PaintInfo& paint_info,
                   paint_rect, geometry);
   NinePieceImagePainter::Paint(paint_info.context, obj, *document_, node_,
                                paint_rect, style_, style_.MaskBoxImage(),
-                               include_logical_left_edge,
-                               include_logical_right_edge);
+                               sides_to_include);
 }
 
 bool BoxPainterBase::ShouldSkipPaintUnderInvalidationChecking(
@@ -1006,7 +1130,7 @@ bool BoxPainterBase::ShouldSkipPaintUnderInvalidationChecking(
   // We paint an indeterminate progress based on the position calculated from
   // the animation progress. Harmless under-invalidatoin may happen during a
   // paint that is not scheduled for animation.
-  if (box.IsProgress() && !ToLayoutProgress(box).IsDeterminate())
+  if (box.IsProgress() && !To<LayoutProgress>(box).IsDeterminate())
     return true;
 
   return false;

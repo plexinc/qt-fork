@@ -27,7 +27,7 @@
 #include "libavutil/imgutils.h"
 
 #include "avcodec.h"
-#include "hwaccel.h"
+#include "hwconfig.h"
 #include "internal.h"
 #include "mathops.h"
 #include "rectangle.h"
@@ -187,7 +187,7 @@ static av_always_inline
 int update_dimensions(VP8Context *s, int width, int height, int is_vp7)
 {
     AVCodecContext *avctx = s->avctx;
-    int i, ret;
+    int i, ret, dim_reset = 0;
 
     if (width  != s->avctx->width || ((width+15)/16 != s->mb_width || (height+15)/16 != s->mb_height) && s->macroblocks_base ||
         height != s->avctx->height) {
@@ -196,9 +196,12 @@ int update_dimensions(VP8Context *s, int width, int height, int is_vp7)
         ret = ff_set_dimensions(s->avctx, width, height);
         if (ret < 0)
             return ret;
+
+        dim_reset = (s->macroblocks_base != NULL);
     }
 
-    if (!s->actually_webp && !is_vp7) {
+    if ((s->pix_fmt == AV_PIX_FMT_NONE || dim_reset) &&
+         !s->actually_webp && !is_vp7) {
         s->pix_fmt = get_pixel_format(s);
         if (s->pix_fmt < 0)
             return AVERROR(EINVAL);
@@ -2853,7 +2856,6 @@ int vp78_decode_init(AVCodecContext *avctx, int is_vp7)
     s->vp7   = avctx->codec->id == AV_CODEC_ID_VP7;
     s->pix_fmt = AV_PIX_FMT_NONE;
     avctx->pix_fmt = AV_PIX_FMT_YUV420P;
-    avctx->internal->allocate_progress = 1;
 
     ff_videodsp_init(&s->vdsp, 8);
 
@@ -2895,21 +2897,6 @@ av_cold int ff_vp8_decode_init(AVCodecContext *avctx)
 
 #if CONFIG_VP8_DECODER
 #if HAVE_THREADS
-static av_cold int vp8_decode_init_thread_copy(AVCodecContext *avctx)
-{
-    VP8Context *s = avctx->priv_data;
-    int ret;
-
-    s->avctx = avctx;
-
-    if ((ret = vp8_init_frames(s)) < 0) {
-        ff_vp8_decode_free(avctx);
-        return ret;
-    }
-
-    return 0;
-}
-
 #define REBASE(pic) ((pic) ? (pic) - &s_src->frames[0] + &s->frames[0] : NULL)
 
 static int vp8_decode_update_thread_context(AVCodecContext *dst,
@@ -2977,7 +2964,6 @@ AVCodec ff_vp8_decoder = {
     .capabilities          = AV_CODEC_CAP_DR1 | AV_CODEC_CAP_FRAME_THREADS |
                              AV_CODEC_CAP_SLICE_THREADS,
     .flush                 = vp8_decode_flush,
-    .init_thread_copy      = ONLY_IF_THREADS_ENABLED(vp8_decode_init_thread_copy),
     .update_thread_context = ONLY_IF_THREADS_ENABLED(vp8_decode_update_thread_context),
     .hw_configs            = (const AVCodecHWConfigInternal*[]) {
 #if CONFIG_VP8_VAAPI_HWACCEL
@@ -2988,5 +2974,6 @@ AVCodec ff_vp8_decoder = {
 #endif
                                NULL
                            },
+    .caps_internal         = FF_CODEC_CAP_ALLOCATE_PROGRESS,
 };
 #endif /* CONFIG_VP7_DECODER */

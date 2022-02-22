@@ -142,7 +142,7 @@ static QString treeAsString(const QAbstractItemModel &model, const QModelIndex &
 static void fillModel(QStandardItemModel &model, const QString &str)
 {
     QCOMPARE(str.count('['), str.count(']'));
-    QStandardItem *item = 0;
+    QStandardItem *item = nullptr;
     QString data;
     for ( int i = 0 ; i < str.length() ; ++i ) {
         const QChar ch = str.at(i);
@@ -713,6 +713,38 @@ private Q_SLOTS:
 
         QCOMPARE(treeAsString(proxy), expectedProxyStr);
 
+    }
+
+    void testChildrenFiltering_data()
+    {
+        QTest::addColumn<QString>("sourceStr");
+        QTest::addColumn<QString>("noChildrenProxyStr");
+        QTest::addColumn<QString>("childrenProxyStr");
+        QTest::addColumn<QString>("noParentProxyStr");
+
+        QTest::newRow("filter_parent") << "[1*[1.1 1.2[1.2.1]]]" << "[1*]" << "[1*[1.1 1.2[1.2.1]]]" << "[1*[1.1 1.2[1.2.1]]]";
+        QTest::newRow("filter_child") << "[1[1.1 1.2*[1.2.1]]]" << "[1[1.2*]]" << "[1[1.2*[1.2.1]]]" << "";
+
+    }
+
+    void testChildrenFiltering()
+    {
+        QFETCH(QString, sourceStr);
+        QFETCH(QString, noChildrenProxyStr);
+        QFETCH(QString, childrenProxyStr);
+        QFETCH(QString, noParentProxyStr);
+
+        QStandardItemModel model;
+        fillModel(model, sourceStr);
+
+        TestModel proxy(&model);
+        QCOMPARE(treeAsString(proxy), noChildrenProxyStr);
+
+        proxy.setAutoAcceptChildRows(true);
+        QCOMPARE(treeAsString(proxy), childrenProxyStr);
+
+        proxy.setRecursiveFilteringEnabled(false);
+        QCOMPARE(treeAsString(proxy), noParentProxyStr);
     }
 
 private:

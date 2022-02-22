@@ -103,6 +103,13 @@ QString QMakeGlobals::cleanSpec(QMakeCmdLineParserState &state, const QString &s
     return ret;
 }
 
+/*
+ * Return value meanings:
+ * ArgumentUnknown    The argument at *pos was not handled by this function.
+ *                    Leave it to the caller to handle this argument.
+ * ArgumentMalformed  There was an error detected.
+ * ArgumentsOk        All arguments were known. There are no arguments left to handle.
+ */
 QMakeGlobals::ArgumentReturn QMakeGlobals::addCommandLineArguments(
         QMakeCmdLineParserState &state, QStringList &args, int *pos)
 {
@@ -311,7 +318,7 @@ QString QMakeGlobals::expandEnvVars(const QString &str) const
 bool QMakeGlobals::initProperties()
 {
     QByteArray data;
-#ifndef QT_BOOTSTRAPPED
+#if QT_CONFIG(process)
     QProcess proc;
     proc.start(qmake_abslocation, QStringList() << QLatin1String("-query"));
     if (!proc.waitForFinished())

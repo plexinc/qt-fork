@@ -38,7 +38,7 @@ message AndroidStartupMetric {
 
   // Timing information spanning the intent received by the
   // activity manager to the first frame drawn.
-  // Next id: 21.
+  // Next id: 22.
   message ToFirstFrame {
     optional int64 dur_ns = 1;
     optional double dur_ms = 17;
@@ -57,6 +57,7 @@ message AndroidStartupMetric {
     optional Slice time_bind_application = 6;
     optional Slice time_activity_start = 7;
     optional Slice time_activity_resume = 8;
+    optional Slice time_activity_restart = 21;
     optional Slice time_choreographer = 9;
 
     // If we are starting a new process, record the duration from the
@@ -80,7 +81,14 @@ message AndroidStartupMetric {
     reserved 13, 14, 15;
   }
 
-  // Next id: 7
+  // Metrics about startup which were developed by looking at experiments using
+  // high-speed cameras (HSC).
+  message HscMetrics {
+    // The duration of the full "startup" as defined by HSC tests.
+    optional Slice full_startup = 1;
+  }
+
+  // Next id: 8
   message Startup {
     // Random id uniquely identifying an app startup in this trace.
     optional uint32 startup_id = 1;
@@ -104,6 +112,13 @@ message AndroidStartupMetric {
 
     // Details about the process (uid, version, etc)
     optional AndroidProcessMetadata process = 7;
+
+    optional HscMetrics hsc = 8;
+
+    // The time taken in the startup from intent recieved to the start time
+    // of the reportFullyDrawn slice. This should be longer than the time to
+    // first frame as the application decides this after it starts rendering.
+    optional Slice report_fully_drawn = 9;
   }
 
   repeated Startup startup = 1;

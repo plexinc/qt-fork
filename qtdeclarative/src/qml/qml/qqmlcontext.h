@@ -81,15 +81,17 @@ public:
     QVariant contextProperty(const QString &) const;
     void setContextProperty(const QString &, QObject *);
     void setContextProperty(const QString &, const QVariant &);
-    void setContextProperties(const QVector<PropertyPair> &properties);
+    void setContextProperties(const QList<PropertyPair> &properties);
 
-    // ### Qt 6: no need for a mutable object, this should become a const QObject pointer
-    QString nameForObject(QObject *) const;
+    QString nameForObject(const QObject *) const;
+    QObject *objectForName(const QString &) const;
 
-    QUrl resolvedUrl(const QUrl &);
+    QUrl resolvedUrl(const QUrl &) const;
 
     void setBaseUrl(const QUrl &);
     QUrl baseUrl() const;
+
+    QJSValue importedScript(const QString &name) const;
 
 private:
     friend class QQmlEngine;
@@ -100,7 +102,7 @@ private:
     friend class QQmlComponentPrivate;
     friend class QQmlScriptPrivate;
     friend class QQmlContextData;
-    QQmlContext(QQmlContextData *);
+    QQmlContext(QQmlContextPrivate &dd, QObject *parent = nullptr);
     QQmlContext(QQmlEngine *, bool);
     Q_DISABLE_COPY(QQmlContext)
 };

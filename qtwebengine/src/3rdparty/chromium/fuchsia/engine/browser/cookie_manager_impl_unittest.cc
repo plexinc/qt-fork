@@ -11,15 +11,18 @@
 #include "base/macros.h"
 #include "base/optional.h"
 #include "base/run_loop.h"
-#include "base/test/bind_test_util.h"
+#include "base/strings/string_piece.h"
+#include "base/test/bind.h"
 #include "base/test/task_environment.h"
 #include "fuchsia/base/fit_adapter.h"
 #include "fuchsia/base/result_receiver.h"
 #include "fuchsia/engine/browser/cookie_manager_impl.h"
 #include "mojo/public/cpp/bindings/remote.h"
+#include "net/cookies/cookie_access_result.h"
 #include "services/network/network_service.h"
 #include "services/network/public/mojom/cookie_manager.mojom.h"
 #include "services/network/public/mojom/network_context.mojom.h"
+#include "services/network/test/fake_test_cert_verifier_params_factory.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
@@ -32,16 +35,17 @@ const char kCookieValue1[] = "Eats";
 const char kCookieValue2[] = "Cookies";
 const char kCookieValue3[] = "Nyom nyom nyom";
 
-// Creates a CanonicalCookie with |name| and |value|, for kTestCookieUrlHost.
+// Creates a CanonicalCookie with |name| and |value|, for kTestCookieUrl.
 std::unique_ptr<net::CanonicalCookie> CreateCookie(base::StringPiece name,
                                                    base::StringPiece value) {
   return net::CanonicalCookie::CreateSanitizedCookie(
-      GURL(kTestCookieUrl), name.as_string(), value.as_string(), /*domain=*/"",
+      GURL(kTestCookieUrl), std::string(name), std::string(value),
+      /*domain=*/"",
       /*path=*/"", /*creation_time=*/base::Time(),
       /*expiration_time=*/base::Time(), /*last_access_time=*/base::Time(),
       /*secure=*/true,
       /*httponly*/ false, net::CookieSameSite::NO_RESTRICTION,
-      net::COOKIE_PRIORITY_MEDIUM);
+      net::COOKIE_PRIORITY_MEDIUM, /*same_party=*/false);
 }
 
 class CookieManagerImplTest : public testing::Test {
@@ -58,28 +62,33 @@ class CookieManagerImplTest : public testing::Test {
  protected:
   network::mojom::NetworkContext* GetNetworkContext() {
     if (!network_context_.is_bound()) {
+      network::mojom::NetworkContextParamsPtr params =
+          network::mojom::NetworkContextParams::New();
+      // Use a dummy CertVerifier that always passes cert verification, since
+      // these unittests don't need to test CertVerifier behavior.
+      params->cert_verifier_params =
+          network::FakeTestCertVerifierParamsFactory::GetCertVerifierParams();
       network_service_->CreateNetworkContext(
-          network_context_.BindNewPipeAndPassReceiver(),
-          network::mojom::NetworkContextParams::New());
+          network_context_.BindNewPipeAndPassReceiver(), std::move(params));
       network_context_.reset_on_disconnect();
     }
     return network_context_.get();
   }
 
-  // Adds the specified cookie under kTestCookieUrlHost.
+  // Adds the specified cookie under kTestCookieUrl.
   void CreateAndSetCookieAsync(base::StringPiece name,
                                base::StringPiece value) {
     EnsureMojoCookieManager();
 
     net::CookieOptions options;
     mojo_cookie_manager_->SetCanonicalCookie(
-        *CreateCookie(name, value), "https", options,
-        base::BindOnce([](net::CanonicalCookie::CookieInclusionStatus status) {
-          EXPECT_TRUE(status.IsInclude());
+        *CreateCookie(name, value), GURL(kTestCookieUrl), options,
+        base::BindOnce([](net::CookieAccessResult result) {
+          EXPECT_TRUE(result.status.IsInclude());
         }));
   }
 
-  // Removes the specified cookie from under kTestCookieUrlHost.
+  // Removes the specified cookie from under kTestCookieUrl.
   void DeleteCookieAsync(base::StringPiece name, base::StringPiece value) {
     EnsureMojoCookieManager();
 

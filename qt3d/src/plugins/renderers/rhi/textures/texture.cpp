@@ -43,6 +43,7 @@
 #include <private/qdebug_p.h>
 #include <private/qrhi_p.h>
 #include <QDebug>
+#include <Qt3DCore/private/vector_helper_p.h>
 #include <Qt3DRender/qtexture.h>
 #include <Qt3DRender/qtexturedata.h>
 #include <Qt3DRender/qtextureimagedata.h>
@@ -78,6 +79,8 @@ QRhiTexture::Format rhiFormatFromTextureFormat(QAbstractTexture::TextureFormat f
 {
     switch (format) {
     case QAbstractTexture::RGBA8_UNorm:
+    case QAbstractTexture::RGBAFormat:
+    case QAbstractTexture::SRGB8_Alpha8:
     case QAbstractTexture::SRGB8:
         return QRhiTexture::RGBA8;
     case QAbstractTexture::R8_UNorm:
@@ -94,6 +97,10 @@ QRhiTexture::Format rhiFormatFromTextureFormat(QAbstractTexture::TextureFormat f
         return QRhiTexture::R32F;
     case QAbstractTexture::D16:
         return QRhiTexture::D16;
+    case QAbstractTexture::D24:
+        return QRhiTexture::D24;
+    case QAbstractTexture::D24S8:
+        return QRhiTexture::D24S8;
     case QAbstractTexture::D32F:
         return QRhiTexture::D32F;
     case QAbstractTexture::RGB_DXT1:
@@ -111,7 +118,10 @@ QRhiTexture::Format rhiFormatFromTextureFormat(QAbstractTexture::TextureFormat f
         return QRhiTexture::ETC2_RGB8A1;
     case QAbstractTexture::RGBA8_ETC2_EAC:
         return QRhiTexture::ETC2_RGBA8;
+    case QAbstractTexture::DepthFormat:
+        return QRhiTexture::D24;
     default:
+        qDebug() << "Unhandled texture format:" << format;
         Q_UNREACHABLE();
         return QRhiTexture::UnknownFormat;
     }
@@ -137,10 +147,14 @@ QRhiSampler::Filter rhiFilterFromTextureFilter(QAbstractTexture::Filter filter) 
 QRhiSampler::Filter rhiMipMapFilterFromTextureFilter(QAbstractTexture::Filter filter) noexcept
 {
     switch (filter) {
+    case QAbstractTexture::Nearest:
+    case QAbstractTexture::Linear:
+        return QRhiSampler::None;
+
     case QAbstractTexture::NearestMipMapNearest:
     case QAbstractTexture::LinearMipMapNearest:
         return QRhiSampler::Nearest;
-    case QAbstractTexture::Linear:
+
     case QAbstractTexture::NearestMipMapLinear:
     case QAbstractTexture::LinearMipMapLinear:
         return QRhiSampler::Linear;
@@ -205,6 +219,7 @@ QRhiTextureUploadEntry createUploadEntry(int level, int layer, const QByteArray 
     return QRhiTextureUploadEntry(layer, level, description);
 }
 
+// For Multiple Texture Image uploads from within a QTextureImageData
 template<typename F>
 void filterLayersAndFaces(const QTextureImageData &data, F f)
 {
@@ -235,6 +250,7 @@ void filterLayersAndFaces(const QTextureImageData &data, F f)
     }
 }
 
+// For a Single Texture Image Upload
 template<typename F>
 void filterLayerAndFace(int layer, int face, F f)
 {
@@ -255,6 +271,8 @@ QRhiTextureUploadEntry createUploadEntry(int mipLevel, int layer, int xOffset, i
                                          int zOffset, const QByteArray &bytes,
                                          const QTextureImageDataPtr &data) noexcept
 {
+    Q_UNUSED(zOffset);
+    Q_UNUSED(data);
     QRhiTextureSubresourceUploadDescription description;
     description.setData(bytes);
     description.setSourceTopLeft(QPoint(xOffset, yOffset));
@@ -281,8 +299,12 @@ RHITexture::~RHITexture() { }
 // Must be called from RenderThread with active GL context
 void RHITexture::destroy()
 {
+    if (m_rhi)
+        m_rhi->destroy();
     delete m_rhi;
     m_rhi = nullptr;
+    if (m_rhiSampler)
+        m_rhiSampler->destroy();
     delete m_rhiSampler;
     m_rhiSampler = nullptr;
     delete m_renderBuffer;
@@ -335,7 +357,7 @@ bool RHITexture::loadTextureDataFromGenerator()
         m_properties.layers = m_textureData->layers();
         m_properties.format = m_textureData->format();
 
-        const QVector<QTextureImageDataPtr> imageData = m_textureData->imageData();
+        const QList<QTextureImageDataPtr> &imageData = m_textureData->imageData();
 
         if (!imageData.empty()) {
             // Set the mips level based on the first image if autoMipMapGeneration is disabled
@@ -444,6 +466,8 @@ RHITexture::TextureUpdateInfo RHITexture::createOrUpdateRhiTexture(SubmissionCon
     // If the properties changed or texture has become a shared texture from a
     // 3rd party engine, we need to destroy and maybe re-allocate the texture
     if (testDirtyFlag(Properties) || testDirtyFlag(SharedTextureId)) {
+        if (m_rhi)
+            m_rhi->destroy();
         delete m_rhi;
         m_rhi = nullptr;
         textureInfo.wasUpdated = true;
@@ -559,12 +583,12 @@ void RHITexture::setProperties(const TextureProperties &props)
     }
 }
 
-void RHITexture::setImages(const QVector<Image> &images)
+void RHITexture::setImages(const std::vector<Image> &images)
 {
     // check if something has changed at all
     bool same = (images.size() == m_images.size());
     if (same) {
-        for (int i = 0; i < images.size(); i++) {
+        for (size_t i = 0; i < images.size(); i++) {
             if (images[i] != m_images[i]) {
                 same = false;
                 break;
@@ -594,9 +618,9 @@ void RHITexture::setSharedTextureId(int textureId)
     }
 }
 
-void RHITexture::addTextureDataUpdates(const QVector<QTextureDataUpdate> &updates)
+void RHITexture::addTextureDataUpdates(const std::vector<QTextureDataUpdate> &updates)
 {
-    m_pendingTextureDataUpdates += updates;
+    Qt3DCore::append(m_pendingTextureDataUpdates, updates);
     requestUpload();
 }
 
@@ -649,7 +673,7 @@ QRhiTexture *RHITexture::buildRhiTexture(SubmissionContext *ctx)
 
     QRhiTexture *rhiTexture = ctx->rhi()->newTexture(rhiFormat, pixelSize, sampleCount, rhiFlags);
 
-    if (!rhiTexture->build()) {
+    if (!rhiTexture->create()) {
         qWarning() << Q_FUNC_INFO << "creating QRhiTexture failed";
         delete rhiTexture;
         return nullptr;
@@ -663,7 +687,7 @@ void RHITexture::uploadRhiTextureData(SubmissionContext *ctx)
 
     // Upload all QTexImageData set by the QTextureGenerator
     if (m_textureData) {
-        const QVector<QTextureImageDataPtr> &imgData = m_textureData->imageData();
+        const auto &imgData = m_textureData->imageData();
 
         for (const QTextureImageDataPtr &data : imgData) {
             const int mipLevels = data->mipLevels();
@@ -676,14 +700,20 @@ void RHITexture::uploadRhiTextureData(SubmissionContext *ctx)
     }
 
     // Upload all QTexImageData references by the TextureImages
-    for (int i = 0; i < std::min(m_images.size(), m_imageData.size()); i++) {
+    for (size_t i = 0; i < std::min(m_images.size(), m_imageData.size()); i++) {
         const QTextureImageDataPtr &imgData = m_imageData.at(i);
         // Here the bytes in the QTextureImageData contain data for a single
         // layer, face or mip level, unlike the QTextureGenerator case where
         // they are in a single blob. Hence QTextureImageData::data() is not suitable.
         const QByteArray bytes(QTextureImageDataPrivate::get(imgData.get())->m_data);
+
+        // Find RHI face index for matching face enum
+        // Note: Default value for face on a QAbstractTextureImage is
+        // CubeMapPositiveX which results in index 0, therefore we don't need
+        // special handling for CubeMap vs 2D textures
+        const int face = int(m_images[i].face) - QAbstractTexture::CubeMapPositiveX;
         const int layer = m_images[i].layer;
-        const int face = m_images[i].face;
+
         filterLayerAndFace(layer, face, [&](int rhiLayer) {
             uploadEntries.push_back(createUploadEntry(m_images[i].mipLevel, rhiLayer, bytes));
         });
@@ -694,7 +724,7 @@ void RHITexture::uploadRhiTextureData(SubmissionContext *ctx)
     m_imageData.clear();
 
     // Update data from TextureUpdates
-    const QVector<QTextureDataUpdate> textureDataUpdates = std::move(m_pendingTextureDataUpdates);
+    const std::vector<QTextureDataUpdate> textureDataUpdates = Qt3DCore::moveAndClear(m_pendingTextureDataUpdates);
     for (const QTextureDataUpdate &update : textureDataUpdates) {
         const QTextureImageDataPtr imgData = update.data();
 
@@ -722,7 +752,7 @@ void RHITexture::uploadRhiTextureData(SubmissionContext *ctx)
         // they are in a single blob. Hence QTextureImageData::data() is not suitable.
 
         const int layer = update.layer();
-        const int face = update.face();
+        const int face = int(update.face()) - QAbstractTexture::CubeMapPositiveX;
         filterLayerAndFace(layer, face, [&](int rhiLayer) {
             const QRhiTextureUploadEntry entry = createUploadEntry(
                     update.mipLevel(), rhiLayer, xOffset, yOffset, 0, bytes, imgData);
@@ -730,10 +760,11 @@ void RHITexture::uploadRhiTextureData(SubmissionContext *ctx)
         });
     }
 
-    QRhiTextureUploadDescription uploadDescription;
-    uploadDescription.setEntries(uploadEntries.begin(), uploadEntries.end());
-
-    ctx->m_currentUpdates->uploadTexture(m_rhi, uploadDescription);
+    if (uploadEntries.size() > 0) {
+        QRhiTextureUploadDescription uploadDescription;
+        uploadDescription.setEntries(uploadEntries.begin(), uploadEntries.end());
+        ctx->m_currentUpdates->uploadTexture(m_rhi, uploadDescription);
+    }
     if (m_properties.generateMipMaps)
         ctx->m_currentUpdates->generateMips(m_rhi);
 }
@@ -744,34 +775,42 @@ void RHITexture::updateRhiTextureParameters(SubmissionContext *ctx)
     const bool isMultisampledTexture =
             (actualTarget == QAbstractTexture::Target2DMultisample
              || actualTarget == QAbstractTexture::Target2DMultisampleArray);
+
     // Multisampled textures can only be accessed by texelFetch in shaders
-    // and don't support wrap modes and mig/mag filtes
-    if (isMultisampledTexture)
-        return;
+    // and don't support wrap modes and mig/mag filters
 
     // TO DO:
     if (m_rhiSampler) {
+        m_rhiSampler->destroy();
         delete m_rhiSampler;
         m_rhiSampler = nullptr;
     }
 
-    const QRhiSampler::Filter magFilter =
-            rhiFilterFromTextureFilter(m_parameters.magnificationFilter);
-    const QRhiSampler::Filter minFilter =
-            rhiFilterFromTextureFilter(m_parameters.minificationFilter);
-    const QRhiSampler::Filter mipMapFilter =
-            rhiMipMapFilterFromTextureFilter(m_parameters.magnificationFilter);
-    const auto wrapMode = rhiWrapModeFromTextureWrapMode(
-            m_parameters.wrapModeX, m_parameters.wrapModeY, m_parameters.wrapModeZ);
-    const QRhiSampler::CompareOp compareOp =
-            rhiCompareOpFromTextureCompareOp(m_parameters.comparisonFunction);
+    const QRhiSampler::Filter magFilter = isMultisampledTexture ?
+                QRhiSampler::Linear :
+                rhiFilterFromTextureFilter(m_parameters.magnificationFilter);
+    const QRhiSampler::Filter minFilter = isMultisampledTexture ?
+                QRhiSampler::Linear :
+                rhiFilterFromTextureFilter(m_parameters.minificationFilter);
+    const QRhiSampler::Filter mipMapFilter = isMultisampledTexture ?
+                QRhiSampler::None :
+                rhiMipMapFilterFromTextureFilter(m_parameters.magnificationFilter);
+    const auto wrapMode = isMultisampledTexture ?
+    std::make_tuple(QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge) :
+                rhiWrapModeFromTextureWrapMode(
+                    m_parameters.wrapModeX, m_parameters.wrapModeY, m_parameters.wrapModeZ);
+    const QRhiSampler::CompareOp compareOp
+            = m_parameters.comparisonMode == QAbstractTexture::CompareNone
+            ? QRhiSampler::CompareOp::Never
+            : rhiCompareOpFromTextureCompareOp(m_parameters.comparisonFunction);
+
     m_rhiSampler = ctx->rhi()->newSampler(magFilter, minFilter, mipMapFilter, std::get<0>(wrapMode),
                                           std::get<1>(wrapMode), std::get<2>(wrapMode));
 
     m_rhiSampler->setTextureCompareOp(compareOp);
 
-    if (!m_rhiSampler->build()) {
-        qDebug("Could not build RHI texture sampler");
+    if (!m_rhiSampler->create()) {
+        qWarning("Could not build RHI texture sampler");
     }
 }
 

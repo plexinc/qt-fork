@@ -3,6 +3,8 @@
 // found in the LICENSE file.
 
 import * as Common from '../common/common.js';  // eslint-disable-line no-unused-vars
+import * as i18n from '../i18n/i18n.js';
+import * as Platform from '../platform/platform.js';  // eslint-disable-line no-unused-vars
 
 import * as ARIAUtils from './ARIAUtils.js';
 import {Size} from './Geometry.js';
@@ -13,6 +15,14 @@ import {Events as ListModelEvents, ListModel} from './ListModel.js';   // eslint
 import {appendStyle} from './utils/append-style.js';
 import {createShadowRootWithCoreStyles} from './utils/create-shadow-root-with-core-styles.js';
 
+export const UIStrings = {
+  /**
+  *@description Placeholder text in Soft Drop Down
+  */
+  noItemSelected: '(no item selected)',
+};
+const str_ = i18n.i18n.registerUIStrings('ui/SoftDropDown.js', UIStrings);
+const i18nString = i18n.i18n.getLocalizedString.bind(undefined, str_);
 /**
  * @template T
  * @implements {ListDelegate<T>}
@@ -27,10 +37,11 @@ export class SoftDropDown {
     this._selectedItem = null;
     this._model = model;
 
-    this._placeholderText = ls`(no item selected)`;
+    this._placeholderText = i18nString(UIStrings.noItemSelected);
 
-    this.element = createElementWithClass('button', 'soft-dropdown');
-    appendStyle(this.element, 'ui/softDropDownButton.css');
+    this.element = document.createElement('button');
+    this.element.classList.add('soft-dropdown');
+    appendStyle(this.element, 'ui/softDropDownButton.css', {enableLegacyPatching: true});
     this._titleElement = this.element.createChild('span', 'title');
     const dropdownArrowIcon = Icon.create('smallicon-triangle-down');
     this.element.appendChild(dropdownArrowIcon);
@@ -45,8 +56,11 @@ export class SoftDropDown {
     this._list.element.classList.add('item-list');
     this._rowHeight = 36;
     this._width = 315;
-    createShadowRootWithCoreStyles(this._glassPane.contentElement, 'ui/softDropDown.css')
-        .appendChild(this._list.element);
+    createShadowRootWithCoreStyles(this._glassPane.contentElement, {
+      cssFile: 'ui/softDropDown.css',
+      enableLegacyPatching: true,
+      delegatesFocus: undefined
+    }).appendChild(this._list.element);
     ARIAUtils.markAsMenu(this._list.element);
 
     this._listWasShowing200msAgo = false;
@@ -91,7 +105,9 @@ export class SoftDropDown {
       this._list.selectItem(this._selectedItem);
     }
     event.consume(true);
-    setTimeout(() => this._listWasShowing200msAgo = true, 200);
+    setTimeout(() => {
+      this._listWasShowing200msAgo = true;
+    }, 200);
   }
 
   _updateGlasspaneSize() {
@@ -104,7 +120,9 @@ export class SoftDropDown {
    * @param {!Event} event
    */
   _hide(event) {
-    setTimeout(() => this._listWasShowing200msAgo = false, 200);
+    setTimeout(() => {
+      this._listWasShowing200msAgo = false;
+    }, 200);
     this._glassPane.hide();
     this._list.selectItem(null);
     ARIAUtils.setExpanded(this.element, false);
@@ -113,9 +131,10 @@ export class SoftDropDown {
   }
 
   /**
-   * @param {!Event} event
+   * @param {!Event} ev
    */
-  _onKeyDownButton(event) {
+  _onKeyDownButton(ev) {
+    const event = /** @type {!KeyboardEvent} */ (ev);
     let handled = false;
     switch (event.key) {
       case 'ArrowUp':
@@ -143,9 +162,10 @@ export class SoftDropDown {
   }
 
   /**
-   * @param {!Event} event
+   * @param {!Event} ev
    */
-  _onKeyDownList(event) {
+  _onKeyDownList(ev) {
+    const event = /** @type {!KeyboardEvent} */ (ev);
     let handled = false;
     switch (event.key) {
       case 'ArrowLeft':
@@ -220,7 +240,7 @@ export class SoftDropDown {
   }
 
   /**
-   * @param {string} text
+   * @param {Platform.UIString.LocalizedString} text
    */
   setPlaceholderText(text) {
     this._placeholderText = text;
@@ -234,7 +254,7 @@ export class SoftDropDown {
    */
   _itemsReplaced(event) {
     const removed = /** @type {!Array<T>} */ (event.data.removed);
-    if (removed.indexOf(this._selectedItem) !== -1) {
+    if (this._selectedItem && removed.indexOf(this._selectedItem) !== -1) {
       this._selectedItem = null;
       this._selectHighlightedItem();
     }
@@ -260,7 +280,8 @@ export class SoftDropDown {
    * @return {!Element}
    */
   createElementForItem(item) {
-    const element = createElementWithClass('div', 'item');
+    const element = document.createElement('div');
+    element.classList.add('item');
     element.addEventListener('mousemove', e => {
       if ((e.movementX || e.movementY) && this._delegate.isItemSelectable(item)) {
         this._list.selectItem(item, false, /* Don't scroll */ true);
@@ -345,6 +366,7 @@ export class Delegate {
    * @return {string}
    */
   titleFor(item) {
+    throw new Error('not implemented yet');
   }
 
   /**
@@ -352,6 +374,7 @@ export class Delegate {
    * @return {!Element}
    */
   createElementForItem(item) {
+    throw new Error('not implemented yet');
   }
 
   /**
@@ -359,6 +382,7 @@ export class Delegate {
    * @return {boolean}
    */
   isItemSelectable(item) {
+    throw new Error('not implemented yet');
   }
 
   /**

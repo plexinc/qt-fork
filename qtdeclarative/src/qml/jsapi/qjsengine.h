@@ -46,7 +46,7 @@
 #include <QtCore/qsharedpointer.h>
 #include <QtCore/qobject.h>
 #include <QtQml/qjsvalue.h>
-
+#include <QtQml/qjsmanagedvalue.h>
 #include <QtQml/qqmldebug.h>
 
 QT_BEGIN_NAMESPACE
@@ -68,11 +68,13 @@ public:
 
     QJSValue globalObject() const;
 
-    QJSValue evaluate(const QString &program, const QString &fileName = QString(), int lineNumber = 1);
+    QJSValue evaluate(const QString &program, const QString &fileName = QString(), int lineNumber = 1, QStringList *exceptionStackTrace = nullptr);
 
     QJSValue importModule(const QString &fileName);
+    bool registerModule(const QString &moduleName, const QJSValue &value);
 
     QJSValue newObject();
+    QJSValue newSymbol(const QString &name);
     QJSValue newArray(uint length = 0);
 
     QJSValue newQObject(QObject *object);
@@ -90,19 +92,32 @@ public:
     template <typename T>
     inline QJSValue toScriptValue(const T &value)
     {
-        return create(qMetaTypeId<T>(), &value);
+        return create(QMetaType::fromType<T>(), &value);
     }
+
+    template <typename T>
+    inline QJSManagedValue toManagedValue(const T &value)
+    {
+        return createManaged(QMetaType::fromType<T>(), &value);
+    }
+
     template <typename T>
     inline T fromScriptValue(const QJSValue &value)
     {
         return qjsvalue_cast<T>(value);
     }
 
+    template <typename T>
+    inline T fromManagedValue(const QJSManagedValue &value)
+    {
+        return qjsvalue_cast<T>(value);
+    }
+
     void collectGarbage();
 
-#if QT_DEPRECATED_SINCE(5, 6)
-    QT_DEPRECATED void installTranslatorFunctions(const QJSValue &object = QJSValue());
-#endif
+    enum ObjectOwnership { CppOwnership, JavaScriptOwnership };
+    static void setObjectOwnership(QObject *, ObjectOwnership);
+    static ObjectOwnership objectOwnership(QObject *);
 
     enum Extension {
         TranslationExtension = 0x1,
@@ -121,6 +136,9 @@ public:
 
     void throwError(const QString &message);
     void throwError(QJSValue::ErrorType errorType, const QString &message = QString());
+    void throwError(const QJSValue &error);
+    bool hasError() const;
+    QJSValue catchError();
 
     QString uiLanguage() const;
     void setUiLanguage(const QString &language);
@@ -129,11 +147,22 @@ Q_SIGNALS:
     void uiLanguageChanged();
 
 private:
-    QJSValue create(int type, const void *ptr);
+    QJSManagedValue createManaged(QMetaType type, const void *ptr);
+    QJSValue create(QMetaType type, const void *ptr);
+#if QT_VERSION < QT_VERSION_CHECK(7,0,0)
+    QJSValue create(int id, const void *ptr); // only there for BC reasons
+#endif
 
+    static bool convertManaged(const QJSManagedValue &value, int type, void *ptr);
+    static bool convertManaged(const QJSManagedValue &value, QMetaType type, void *ptr);
     static bool convertV2(const QJSValue &value, int type, void *ptr);
+    static bool convertV2(const QJSValue &value, QMetaType metaType, void *ptr);
 
-    friend inline bool qjsvalue_cast_helper(const QJSValue &, int, void *);
+    template<typename T>
+    friend inline T qjsvalue_cast(const QJSValue &);
+
+    template<typename T>
+    friend inline T qjsvalue_cast(const QJSManagedValue &);
 
 protected:
     QJSEngine(QJSEnginePrivate &dd, QObject *parent = nullptr);
@@ -146,18 +175,11 @@ private:
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(QJSEngine::Extensions)
 
-inline bool qjsvalue_cast_helper(const QJSValue &value, int type, void *ptr)
-{
-    return QJSEngine::convertV2(value, type, ptr);
-}
-
 template<typename T>
 T qjsvalue_cast(const QJSValue &value)
 {
     T t;
-    const int id = qMetaTypeId<T>();
-
-    if (qjsvalue_cast_helper(value, id, &t))
+    if (QJSEngine::convertV2(value, QMetaType::fromType<T>(), &t))
         return t;
     else if (value.isVariant())
         return qvariant_cast<T>(value.toVariant());
@@ -165,8 +187,26 @@ T qjsvalue_cast(const QJSValue &value)
     return T();
 }
 
+template<typename T>
+T qjsvalue_cast(const QJSManagedValue &value)
+{
+    {
+        T t;
+        if (QJSEngine::convertManaged(value, QMetaType::fromType<T>(), &t))
+            return t;
+    }
+
+    return qvariant_cast<T>(value.toVariant());
+}
+
 template <>
 inline QVariant qjsvalue_cast<QVariant>(const QJSValue &value)
+{
+    return value.toVariant();
+}
+
+template <>
+inline QVariant qjsvalue_cast<QVariant>(const QJSManagedValue &value)
 {
     return value.toVariant();
 }

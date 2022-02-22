@@ -8,9 +8,11 @@
 #include <stddef.h>
 #include <memory>
 
+#include "base/logging.h"
 #include "base/macros.h"
 #include "base/task/sequence_manager/sequence_manager.h"
 #include "base/task/simple_task_executor.h"
+#include "base/threading/thread_checker.h"
 #include "base/time/tick_clock.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
@@ -34,6 +36,10 @@ class PLATFORM_EXPORT SchedulerHelper
       base::sequence_manager::SequenceManager* sequence_manager);
   ~SchedulerHelper() override;
 
+  // Must be invoked before running any task from the scheduler, on the thread
+  // that will run these tasks. Setups the ThreadChecker and the TaskExecutor.
+  void AttachToCurrentThread();
+
   // SequenceManager::Observer implementation:
   void OnBeginNestedRunLoop() override;
   void OnExitNestedRunLoop() override;
@@ -42,18 +48,15 @@ class PLATFORM_EXPORT SchedulerHelper
   base::TimeTicks NowTicks() const;
   void SetTimerSlack(base::TimerSlack timer_slack);
 
-  // Returns the default task queue.
-  virtual scoped_refptr<base::sequence_manager::TaskQueue>
-  DefaultTaskQueue() = 0;
+  // Returns the task runner for the default task queue.
+  virtual const scoped_refptr<base::SingleThreadTaskRunner>&
+  DefaultTaskRunner() = 0;
 
-  // Returns the control task queue.  Tasks posted to this queue are executed
-  // with the highest priority. Care must be taken to avoid starvation of other
-  // task queues.
-  virtual scoped_refptr<base::sequence_manager::TaskQueue>
-  ControlTaskQueue() = 0;
-
-  // Returns task runner for the default queue.
-  scoped_refptr<base::SingleThreadTaskRunner> DefaultTaskRunner();
+  // Returns the task runner for the control task queue.  Tasks posted to this
+  // queue are executed with the highest priority. Care must be taken to avoid
+  // starvation of other task queues.
+  virtual const scoped_refptr<base::SingleThreadTaskRunner>&
+  ControlTaskRunner() = 0;
 
   // Adds or removes a task observer from the scheduler. The observer will be
   // notified before and after every executed task. These functions can only be
@@ -75,7 +78,7 @@ class PLATFORM_EXPORT SchedulerHelper
   bool IsShutdown() const { return !sequence_manager_; }
 
   inline void CheckOnValidThread() const {
-    DCHECK(thread_checker_.CalledOnValidThread());
+    DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   }
 
   class PLATFORM_EXPORT Observer {
@@ -124,7 +127,11 @@ class PLATFORM_EXPORT SchedulerHelper
 
   virtual void ShutdownAllQueues() {}
 
-  base::ThreadChecker thread_checker_;
+  const scoped_refptr<base::SingleThreadTaskRunner>& default_task_runner() {
+    return default_task_runner_;
+  }
+
+  THREAD_CHECKER(thread_checker_);
   base::sequence_manager::SequenceManager* sequence_manager_;  // NOT OWNED
 
  private:

@@ -42,7 +42,7 @@
 #include <private/abstractchartlayout_p.h>
 #include <QtCharts/private/qchartglobal_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class Q_CHARTS_PRIVATE_EXPORT PolarChartLayout : public AbstractChartLayout
 {
@@ -51,11 +51,11 @@ public:
     virtual ~PolarChartLayout();
 
     // from AbstractChartLayout
-    QRectF calculateAxisMinimum(const QRectF &minimum, const QList<ChartAxisElement *> &axes) const;
+    QRectF calculateAxisMinimum(const QRectF &minimum, const QList<ChartAxisElement *> &axes) const override;
     QRectF calculateAxisGeometry(const QRectF &geometry, const QList<ChartAxisElement *> &axes,
-                                 bool update = true) const;
+                                 bool update = true) const override;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // POLARCHARTLAYOUT_H

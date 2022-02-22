@@ -21,18 +21,16 @@ namespace content {
 // attributes that might be relevant for a text search.
 void GetNodeStrings(BrowserAccessibility* node,
                     std::vector<base::string16>* strings) {
-  if (node->HasStringAttribute(ax::mojom::StringAttribute::kName))
-    strings->push_back(
-        node->GetString16Attribute(ax::mojom::StringAttribute::kName));
-  if (node->HasStringAttribute(ax::mojom::StringAttribute::kDescription))
-    strings->push_back(
-        node->GetString16Attribute(ax::mojom::StringAttribute::kDescription));
-  if (node->HasStringAttribute(ax::mojom::StringAttribute::kValue))
-    strings->push_back(
-        node->GetString16Attribute(ax::mojom::StringAttribute::kValue));
-  if (node->HasStringAttribute(ax::mojom::StringAttribute::kPlaceholder))
-    strings->push_back(
-        node->GetString16Attribute(ax::mojom::StringAttribute::kPlaceholder));
+  base::string16 value;
+  if (node->GetString16Attribute(ax::mojom::StringAttribute::kName, &value))
+    strings->push_back(value);
+  if (node->GetString16Attribute(ax::mojom::StringAttribute::kDescription,
+                                 &value)) {
+    strings->push_back(value);
+  }
+  value = node->GetValueForControl();
+  if (!value.empty())
+    strings->push_back(value);
 }
 
 OneShotAccessibilityTreeSearch::OneShotAccessibilityTreeSearch(
@@ -197,7 +195,7 @@ bool OneShotAccessibilityTreeSearch::Matches(BrowserAccessibility* node) {
       return false;
   }
 
-  if (node->HasState(ax::mojom::State::kInvisible))
+  if (node->IsInvisibleOrIgnored())
     return false;  // Programmatically hidden, e.g. aria-hidden or via CSS.
 
   if (onscreen_only_ && node->IsOffscreen())
@@ -236,7 +234,6 @@ bool AccessibilityButtonPredicate(BrowserAccessibility* start,
                                   BrowserAccessibility* node) {
   switch (node->GetRole()) {
     case ax::mojom::Role::kButton:
-    case ax::mojom::Role::kMenuButton:
     case ax::mojom::Role::kPopUpButton:
     case ax::mojom::Role::kSwitch:
     case ax::mojom::Role::kToggleButton:
@@ -273,8 +270,7 @@ bool AccessibilityControlPredicate(BrowserAccessibility* start,
       node->GetRole() != ax::mojom::Role::kIframe &&
       node->GetRole() != ax::mojom::Role::kIframePresentational &&
       !ui::IsLink(node->GetRole()) &&
-      node->GetRole() != ax::mojom::Role::kWebArea &&
-      node->GetRole() != ax::mojom::Role::kRootWebArea) {
+      !ui::IsPlatformDocument(node->GetRole())) {
     return true;
   }
   return false;
@@ -283,12 +279,8 @@ bool AccessibilityControlPredicate(BrowserAccessibility* start,
 bool AccessibilityFocusablePredicate(BrowserAccessibility* start,
                                      BrowserAccessibility* node) {
   bool focusable = node->HasState(ax::mojom::State::kFocusable);
-  if (node->GetRole() == ax::mojom::Role::kIframe ||
-      node->GetRole() == ax::mojom::Role::kIframePresentational ||
-      node->GetRole() == ax::mojom::Role::kWebArea ||
-      node->GetRole() == ax::mojom::Role::kRootWebArea) {
+  if (ui::IsIframe(node->GetRole()) || node->IsPlatformDocument())
     focusable = false;
-  }
   return focusable;
 }
 
@@ -359,8 +351,7 @@ bool AccessibilityFramePredicate(BrowserAccessibility* start,
     return false;
   if (!node->PlatformGetParent())
     return false;
-  return (node->GetRole() == ax::mojom::Role::kWebArea ||
-          node->GetRole() == ax::mojom::Role::kRootWebArea);
+  return ui::IsPlatformDocument(node->GetRole());
 }
 
 bool AccessibilityLandmarkPredicate(BrowserAccessibility* start,
@@ -412,11 +403,6 @@ bool AccessibilityMediaPredicate(BrowserAccessibility* start,
   const std::string& tag =
       node->GetStringAttribute(ax::mojom::StringAttribute::kHtmlTag);
   return tag == "audio" || tag == "video";
-}
-
-bool AccessibilityPopupButtonPredicate(BrowserAccessibility* start,
-                                       BrowserAccessibility* node) {
-  return (node->GetRole() == ax::mojom::Role::kPopUpButton);
 }
 
 bool AccessibilityRadioButtonPredicate(BrowserAccessibility* start,

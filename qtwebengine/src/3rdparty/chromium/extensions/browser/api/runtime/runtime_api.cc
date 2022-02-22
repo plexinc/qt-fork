@@ -8,10 +8,11 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/check.h"
 #include "base/lazy_instance.h"
 #include "base/location.h"
-#include "base/logging.h"
 #include "base/metrics/histogram.h"
+#include "base/notreached.h"
 #include "base/one_shot_event.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
@@ -164,6 +165,9 @@ BrowserContextKeyedAPIFactory<RuntimeAPI>* RuntimeAPI::GetFactoryInstance() {
   return g_factory.Pointer();
 }
 
+constexpr int RuntimeAPI::kFastReloadCount;
+constexpr int RuntimeAPI::kUnpackedFastReloadCount;
+
 // static
 void RuntimeAPI::RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterBooleanPref(kPrefLastRestartWasDueToDelayedRestartApi,
@@ -188,8 +192,8 @@ RuntimeAPI::RuntimeAPI(content::BrowserContext* context)
   DCHECK(!browser_context_->IsOffTheRecord());
 
   ExtensionSystem::Get(context)->ready().Post(
-      FROM_HERE, base::Bind(&RuntimeAPI::OnExtensionsReady,
-                            weak_ptr_factory_.GetWeakPtr()));
+      FROM_HERE, base::BindOnce(&RuntimeAPI::OnExtensionsReady,
+                                weak_ptr_factory_.GetWeakPtr()));
   extension_registry_observer_.Add(ExtensionRegistry::Get(browser_context_));
   process_manager_observer_.Add(ProcessManager::Get(browser_context_));
 
@@ -255,8 +259,8 @@ void RuntimeAPI::ReloadExtension(const std::string& extension_id) {
 
 bool RuntimeAPI::CheckForUpdates(
     const std::string& extension_id,
-    const RuntimeAPIDelegate::UpdateCheckCallback& callback) {
-  return delegate_->CheckForUpdates(extension_id, callback);
+    RuntimeAPIDelegate::UpdateCheckCallback callback) {
+  return delegate_->CheckForUpdates(extension_id, std::move(callback));
 }
 
 void RuntimeAPI::OpenURL(const GURL& update_url) {
@@ -379,8 +383,8 @@ RuntimeAPI::RestartAfterDelayStatus RuntimeAPI::ScheduleDelayedRestart(
 
   restart_after_delay_timer_.Start(
       FROM_HERE, delay_till_restart,
-      base::Bind(&RuntimeAPI::OnDelayedRestartTimerTimeout,
-                 weak_ptr_factory_.GetWeakPtr()));
+      base::BindOnce(&RuntimeAPI::OnDelayedRestartTimerTimeout,
+                     weak_ptr_factory_.GetWeakPtr()));
 
   return was_throttled ? RestartAfterDelayStatus::FAILED_THROTTLED
                        : RestartAfterDelayStatus::SUCCESS_RESTART_SCHEDULED;
@@ -563,8 +567,8 @@ void RuntimeEventRouter::OnExtensionUninstalled(
     return;
   }
 
-  // Blacklisted extensions should not open uninstall_url.
-  if (extensions::ExtensionPrefs::Get(context)->IsExtensionBlacklisted(
+  // Blocklisted extensions should not open uninstall_url.
+  if (extensions::ExtensionPrefs::Get(context)->IsExtensionBlocklisted(
           extension_id)) {
     return;
   }
@@ -641,8 +645,8 @@ ExtensionFunction::ResponseAction RuntimeRequestUpdateCheckFunction::Run() {
            ->Get(browser_context())
            ->CheckForUpdates(
                extension_id(),
-               base::Bind(&RuntimeRequestUpdateCheckFunction::CheckComplete,
-                          this))) {
+               base::BindOnce(&RuntimeRequestUpdateCheckFunction::CheckComplete,
+                              this))) {
     return RespondNow(Error(kUpdatesDisabledError));
   }
   return RespondLater();
@@ -653,11 +657,11 @@ void RuntimeRequestUpdateCheckFunction::CheckComplete(
   if (result.success) {
     std::unique_ptr<base::DictionaryValue> details(new base::DictionaryValue);
     details->SetString("version", result.version);
-    Respond(TwoArguments(std::make_unique<base::Value>(result.response),
-                         std::move(details)));
+    Respond(TwoArguments(base::Value(result.response),
+                         base::Value::FromUniquePtrValue(std::move(details))));
   } else {
     // HMM(kalman): Why does !success not imply Error()?
-    Respond(OneArgument(std::make_unique<base::Value>(result.response)));
+    Respond(OneArgument(base::Value(result.response)));
   }
 }
 
@@ -729,8 +733,7 @@ RuntimeGetPackageDirectoryEntryFunction::Run() {
   base::FilePath path = extension_->path();
   storage::IsolatedContext::ScopedFSHandle filesystem =
       isolated_context->RegisterFileSystemForPath(
-          storage::kFileSystemTypeNativeLocal, std::string(), path,
-          &relative_path);
+          storage::kFileSystemTypeLocal, std::string(), path, &relative_path);
 
   content::ChildProcessSecurityPolicy* policy =
       content::ChildProcessSecurityPolicy::GetInstance();
@@ -738,7 +741,8 @@ RuntimeGetPackageDirectoryEntryFunction::Run() {
   std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
   dict->SetString("fileSystemId", filesystem.id());
   dict->SetString("baseName", relative_path);
-  return RespondNow(OneArgument(std::move(dict)));
+  return RespondNow(
+      OneArgument(base::Value::FromUniquePtrValue(std::move(dict))));
 }
 
 }  // namespace extensions

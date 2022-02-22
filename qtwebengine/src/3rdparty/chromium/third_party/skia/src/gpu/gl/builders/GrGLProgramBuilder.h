@@ -56,6 +56,8 @@ public:
 
     GrGLGpu* gpu() const { return fGpu; }
 
+    SkSL::Compiler* shaderCompiler() const override;
+
 private:
     GrGLProgramBuilder(GrGLGpu*, GrRenderTarget*, const GrProgramDesc&, const GrProgramInfo&);
 
@@ -100,6 +102,6 @@ private:
     // (all remaining bytes) char[] binary
     sk_sp<SkData> fCached;
 
-    typedef GrGLSLProgramBuilder INHERITED;
+    using INHERITED = GrGLSLProgramBuilder;
 };
 #endif

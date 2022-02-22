@@ -5,16 +5,16 @@
 #include "components/language/core/browser/language_prefs.h"
 
 #include <algorithm>
-#include <set>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include "base/stl_util.h"
+#include "base/containers/contains.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
+#include "build/chromeos_buildflags.h"
 #include "components/language/core/browser/pref_names.h"
 #include "components/language/core/common/language_util.h"
 #include "components/language/core/common/locale_util.h"
@@ -33,7 +33,7 @@ void LanguagePrefs::RegisterProfilePrefs(
   registry->RegisterStringPref(language::prefs::kAcceptLanguages,
                                l10n_util::GetStringUTF8(IDS_ACCEPT_LANGUAGES),
                                user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   registry->RegisterStringPref(language::prefs::kPreferredLanguages,
                                kFallbackInputMethodLocale);
 
@@ -50,30 +50,31 @@ LanguagePrefs::LanguagePrefs(PrefService* user_prefs) : prefs_(user_prefs) {
   ResetEmptyFluentLanguagesToDefault();
 }
 
-bool LanguagePrefs::IsFluent(const std::string& language) const {
-  std::string canonical_lang = language;
+bool LanguagePrefs::IsFluent(base::StringPiece language) const {
+  std::string canonical_lang(language);
   language::ToTranslateLanguageSynonym(&canonical_lang);
   const base::Value* fluents =
       prefs_->GetList(language::prefs::kFluentLanguages);
-  return base::Contains(fluents->GetList(), base::Value(canonical_lang));
+  return base::Contains(fluents->GetList(),
+                        base::Value(std::move(canonical_lang)));
 }
 
-void LanguagePrefs::SetFluent(const std::string& language) {
+void LanguagePrefs::SetFluent(base::StringPiece language) {
   if (IsFluent(language))
     return;
-  std::string canonical_lang = language;
+  std::string canonical_lang(language);
   language::ToTranslateLanguageSynonym(&canonical_lang);
   ListPrefUpdate update(prefs_, language::prefs::kFluentLanguages);
   update->Append(std::move(canonical_lang));
 }
 
-void LanguagePrefs::ClearFluent(const std::string& language) {
+void LanguagePrefs::ClearFluent(base::StringPiece language) {
   if (NumFluentLanguages() <= 1)  // Never remove last fluent language.
     return;
-  std::string canonical_lang = language;
+  std::string canonical_lang(language);
   language::ToTranslateLanguageSynonym(&canonical_lang);
   ListPrefUpdate update(prefs_, language::prefs::kFluentLanguages);
-  update->EraseListValue(base::Value(canonical_lang));
+  update->EraseListValue(base::Value(std::move(canonical_lang)));
 }
 
 void LanguagePrefs::ResetFluentLanguagesToDefaults() {
@@ -86,23 +87,48 @@ void LanguagePrefs::ResetEmptyFluentLanguagesToDefault() {
     ResetFluentLanguagesToDefaults();
 }
 
+void LanguagePrefs::GetAcceptLanguagesList(
+    std::vector<std::string>* languages) const {
+  DCHECK(languages);
+  DCHECK(languages->empty());
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  const std::string& key = language::prefs::kPreferredLanguages;
+#else
+  const std::string& key = language::prefs::kAcceptLanguages;
+#endif
+
+  *languages = base::SplitString(prefs_->GetString(key), ",",
+                                 base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
+}
+
+void LanguagePrefs::SetAcceptLanguagesList(
+    const std::vector<std::string>& languages) {
+  std::string languages_str = base::JoinString(languages, ",");
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  prefs_->SetString(language::prefs::kPreferredLanguages, languages_str);
+#endif
+
+  prefs_->SetString(language::prefs::kAcceptLanguages, languages_str);
+}
+
+// static
 base::Value LanguagePrefs::GetDefaultFluentLanguages() {
-  std::set<std::string> languages;
-#if defined(OS_CHROMEOS)
+  typename base::Value::ListStorage languages;
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // Preferred languages.
   std::string language = language::kFallbackInputMethodLocale;
   language::ToTranslateLanguageSynonym(&language);
-  languages.insert(std::move(language));
+  languages.push_back(base::Value(std::move(language)));
 #else
   // Accept languages.
 #pragma GCC diagnostic push
 // See comment above the |break;| in the loop just below for why.
 #pragma GCC diagnostic ignored "-Wunreachable-code"
-  for (std::string language :
+  for (std::string& language :
        base::SplitString(l10n_util::GetStringUTF8(IDS_ACCEPT_LANGUAGES), ",",
                          base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL)) {
     language::ToTranslateLanguageSynonym(&language);
-    languages.insert(std::move(language));
+    languages.push_back(base::Value(std::move(language)));
 
     // crbug.com/958348: The default value for Accept-Language *should* be the
     // same as the one for Fluent Languages. However, Accept-Language contains
@@ -118,11 +144,12 @@ base::Value LanguagePrefs::GetDefaultFluentLanguages() {
 #pragma GCC diagnostic pop
   }
 #endif
-  base::Value language_values(base::Value::Type::LIST);
-  for (const std::string& language : languages)
-    language_values.Append(language);
 
-  return language_values;
+  std::sort(languages.begin(), languages.end());
+  languages.erase(std::unique(languages.begin(), languages.end()),
+                  languages.end());
+
+  return base::Value(std::move(languages));
 }
 
 size_t LanguagePrefs::NumFluentLanguages() const {
@@ -134,10 +161,15 @@ size_t LanguagePrefs::NumFluentLanguages() const {
 void ResetLanguagePrefs(PrefService* prefs) {
   prefs->ClearPref(language::prefs::kAcceptLanguages);
   prefs->ClearPref(language::prefs::kFluentLanguages);
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   prefs->ClearPref(language::prefs::kPreferredLanguages);
   prefs->ClearPref(language::prefs::kPreferredLanguagesSyncable);
 #endif
+}
+
+std::string GetFirstLanguage(base::StringPiece language_list) {
+  auto end = language_list.find(",");
+  return std::string(language_list.substr(0, end));
 }
 
 }  // namespace language

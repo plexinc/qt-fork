@@ -45,7 +45,7 @@
 #include <QtWidgets/QGraphicsItem>
 #include <QtCharts/private/qchartglobal_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class Q_CHARTS_PRIVATE_EXPORT StackedBarChartItem : public AbstractBarChartItem
 {
@@ -55,15 +55,15 @@ public:
 
 private Q_SLOTS:
     void handleLabelsPositionChanged();
-    void positionLabels();
+    void positionLabels() override;
 
 private:
-    virtual QVector<QRectF> calculateLayout();
-    void initializeLayout(int set, int category, int layoutIndex, bool resetAnimation);
+    QList<QRectF> calculateLayout() override;
+    void initializeLayout(int set, int category, int layoutIndex, bool resetAnimation) override;
     QPointF topLeftPoint(int category, qreal barWidth, qreal value);
     QPointF bottomRightPoint(int category, qreal barWidth, qreal value);
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // STACKEDBARCHARTITEM_H

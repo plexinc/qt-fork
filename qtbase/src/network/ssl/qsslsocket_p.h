@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtNetwork module of the Qt Toolkit.
@@ -55,57 +55,26 @@
 //
 
 #include <QtNetwork/private/qtnetworkglobal_p.h>
+
 #include <private/qtcpsocket_p.h>
-#include "qsslkey.h"
-#include "qsslconfiguration_p.h"
+
 #include "qocspresponse.h"
-#ifndef QT_NO_OPENSSL
-#include <private/qsslcontext_openssl_p.h>
-#else
-class QSslContext;
-#endif
+#include "qsslconfiguration_p.h"
+#include "qsslkey.h"
+#include "qtlsbackend_p.h"
 
+#include <QtCore/qlist.h>
+#include <QtCore/qmutex.h>
 #include <QtCore/qstringlist.h>
-#include <QtCore/qvector.h>
-#include <private/qringbuffer_p.h>
 
-#if defined(Q_OS_MAC)
-#include <Security/SecCertificate.h>
-#include <CoreFoundation/CFArray.h>
-#elif defined(Q_OS_WIN)
-#include <QtCore/qt_windows.h>
 #include <memory>
-#ifndef Q_OS_WINRT
-#include <wincrypt.h>
-#endif // !Q_OS_WINRT
-#ifndef HCRYPTPROV_LEGACY
-#define HCRYPTPROV_LEGACY HCRYPTPROV
-#endif // !HCRYPTPROV_LEGACY
-#endif // Q_OS_WIN
 
 QT_BEGIN_NAMESPACE
 
-#if defined(Q_OS_MACX)
-    typedef CFDataRef (*PtrSecCertificateCopyData)(SecCertificateRef);
-    typedef OSStatus (*PtrSecTrustSettingsCopyCertificates)(int, CFArrayRef*);
-    typedef OSStatus (*PtrSecTrustCopyAnchorCertificates)(CFArrayRef*);
-#endif
+class QSslContext;
+class QTlsBackend;
 
-#if defined(Q_OS_WIN)
-
-// Those are needed by both OpenSSL and SChannel back-ends on Windows:
-struct QHCertStoreDeleter {
-    void operator()(HCERTSTORE store)
-    {
-        CertCloseStore(store, 0);
-    }
-};
-
-using QHCertStorePointer = std::unique_ptr<void, QHCertStoreDeleter>;
-
-#endif // Q_OS_WIN
-
-class QSslSocketPrivate : public QTcpSocketPrivate
+class Q_NETWORK_EXPORT QSslSocketPrivate : public QTcpSocketPrivate
 {
     Q_DECLARE_PUBLIC(QSslSocket)
 public:
@@ -119,14 +88,11 @@ public:
     QSslSocket::SslMode mode;
     bool autoStartHandshake;
     bool connectionEncrypted;
-    bool shutdown;
     bool ignoreAllSslErrors;
     QList<QSslError> ignoreErrorsList;
     bool* readyReadEmittedPointer;
 
     QSslConfigurationPrivate configuration;
-    QList<QSslError> sslErrors;
-    QSharedPointer<QSslContext> sslContextPointer;
 
     // if set, this hostname is used for certificate validation instead of the hostname
     // that was used for connecting to.
@@ -137,34 +103,29 @@ public:
     static bool s_loadRootCertsOnDemand;
 
     static bool supportsSsl();
-    static long sslLibraryVersionNumber();
-    static QString sslLibraryVersionString();
-    static long sslLibraryBuildVersionNumber();
-    static QString sslLibraryBuildVersionString();
     static void ensureInitialized();
+
     static QList<QSslCipher> defaultCiphers();
+    static QList<QSslCipher> defaultDtlsCiphers();
     static QList<QSslCipher> supportedCiphers();
     static void setDefaultCiphers(const QList<QSslCipher> &ciphers);
+    static void setDefaultDtlsCiphers(const QList<QSslCipher> &ciphers);
     static void setDefaultSupportedCiphers(const QList<QSslCipher> &ciphers);
-    static void resetDefaultCiphers();
 
-    static QVector<QSslEllipticCurve> supportedEllipticCurves();
-    static void setDefaultSupportedEllipticCurves(const QVector<QSslEllipticCurve> &curves);
+    static QList<QSslEllipticCurve> supportedEllipticCurves();
+    static void setDefaultSupportedEllipticCurves(const QList<QSslEllipticCurve> &curves);
     static void resetDefaultEllipticCurves();
 
     static QList<QSslCertificate> defaultCaCertificates();
     static QList<QSslCertificate> systemCaCertificates();
     static void setDefaultCaCertificates(const QList<QSslCertificate> &certs);
-    static bool addDefaultCaCertificates(const QString &path, QSsl::EncodingFormat format,
-                                         QRegExp::PatternSyntax syntax);
     static void addDefaultCaCertificate(const QSslCertificate &cert);
     static void addDefaultCaCertificates(const QList<QSslCertificate> &certs);
-    Q_AUTOTEST_EXPORT static bool isMatchingHostname(const QSslCertificate &cert,
-                                                     const QString &peerName);
-    Q_AUTOTEST_EXPORT static bool isMatchingHostname(const QString &cn, const QString &hostname);
+    static bool isMatchingHostname(const QSslCertificate &cert, const QString &peerName);
+    static bool isMatchingHostname(const QString &cn, const QString &hostname);
 
     // The socket itself, including private slots.
-    QTcpSocket *plainSocket;
+    QTcpSocket *plainSocket = nullptr;
     void createPlainSocket(QIODevice::OpenMode openMode);
     static void pauseSocketNotifiers(QSslSocket*);
     static void resumeSocketNotifiers(QSslSocket*);
@@ -172,6 +133,7 @@ public:
     static void checkSettingSslContext(QSslSocket*, QSharedPointer<QSslContext>);
     static QSharedPointer<QSslContext> sslContext(QSslSocket *socket);
     bool isPaused() const;
+    void setPaused(bool p);
     bool bind(const QHostAddress &address, quint16, QAbstractSocket::BindMode) override;
     void _q_connectedSlot();
     void _q_hostFoundSlot();
@@ -186,51 +148,57 @@ public:
     void _q_flushWriteBuffer();
     void _q_flushReadBuffer();
     void _q_resumeImplementation();
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT) && !QT_CONFIG(schannel)
-    virtual void _q_caRootLoaded(QSslCertificate,QSslCertificate) = 0;
-#endif
 
     static QList<QByteArray> unixRootCertDirectories(); // used also by QSslContext
 
-    virtual qint64 peek(char *data, qint64 maxSize) override;
-    virtual QByteArray peek(qint64 maxSize) override;
-    qint64 skip(qint64 maxSize) override;
+    qint64 peek(char *data, qint64 maxSize) override;
+    QByteArray peek(qint64 maxSize) override;
     bool flush() override;
 
-    // Platform specific functions
-    virtual void startClientEncryption() = 0;
-    virtual void startServerEncryption() = 0;
-    virtual void transmit() = 0;
-    virtual void disconnectFromHost() = 0;
-    virtual void disconnected() = 0;
-    virtual QSslCipher sessionCipher() const = 0;
-    virtual QSsl::SslProtocol sessionProtocol() const = 0;
-    virtual void continueHandshake() = 0;
+    void startClientEncryption();
+    void startServerEncryption();
+    void transmit();
+    void disconnectFromHost();
+    void disconnected();
+    QSslCipher sessionCipher() const;
+    QSsl::SslProtocol sessionProtocol() const;
+    void continueHandshake();
 
-    Q_AUTOTEST_EXPORT static bool rootCertOnDemandLoadingSupported();
+    static bool rootCertOnDemandLoadingSupported();
+    static void setRootCertOnDemandLoadingSupported(bool supported);
 
-private:
-    static bool ensureLibraryLoaded();
-    static void ensureCiphersAndCertsLoaded();
-#if defined(Q_OS_ANDROID) && !defined(Q_OS_ANDROID_EMBEDDED)
-    static QList<QByteArray> fetchSslCertificateData();
-#endif
+    static QTlsBackend *tlsBackendInUse();
 
-    static bool s_libraryLoaded;
-    static bool s_loadedCiphersAndCerts;
-protected:
+    // Needed by TlsCryptograph:
+    QSslSocket::SslMode tlsMode() const;
+    bool isRootsOnDemandAllowed() const;
+    QString verificationName() const;
+    QString tlsHostName() const;
+    QTcpSocket *plainTcpSocket() const;
     bool verifyErrorsHaveBeenIgnored();
+    bool isAutoStartingHandshake() const;
+    bool isPendingClose() const;
+    void setPendingClose(bool pc);
+    qint64 maxReadBufferSize() const;
+    void setMaxReadBufferSize(qint64 maxSize);
+    void setEncrypted(bool enc);
+    QRingBufferRef &tlsWriteBuffer();
+    QRingBufferRef &tlsBuffer();
+    bool &tlsEmittedBytesWritten();
+    bool *readyReadPointer();
+
+protected:
+
+    bool hasUndecryptedData() const;
     bool paused;
     bool flushTriggered;
-    bool systemOrSslErrorDetected = false;
-    QVector<QOcspResponse> ocspResponses;
-    bool fetchAuthorityInformation = false;
-};
 
-#if QT_CONFIG(securetransport) || QT_CONFIG(schannel)
-// Implemented in qsslsocket_qt.cpp
-QByteArray _q_makePkcs12(const QList<QSslCertificate> &certs, const QSslKey &key, const QString &passPhrase);
-#endif
+    static inline QMutex backendMutex;
+    static inline QString activeBackendName;
+    static inline QTlsBackend *tlsBackend = nullptr;
+
+    std::unique_ptr<QTlsPrivate::TlsCryptograph> backend;
+};
 
 QT_END_NAMESPACE
 

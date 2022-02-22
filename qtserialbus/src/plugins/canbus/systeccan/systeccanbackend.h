@@ -60,7 +60,7 @@ public:
     bool open() override;
     void close() override;
 
-    void setConfigurationParameter(int key, const QVariant &value) override;
+    void setConfigurationParameter(ConfigurationKey key, const QVariant &value) override;
 
     bool writeFrame(const QCanBusFrame &newData) override;
 
@@ -75,10 +75,12 @@ public:
                                               uint deviceNumber,
                                               int channelNumber);
 
-private:
-    void resetController();
-    QCanBusDevice::CanBusStatus busStatus();
+    void resetController() override;
+    bool hasBusStatus() const override;
+    CanBusStatus busStatus() override;
+    QCanBusDeviceInfo deviceInfo() const override;
 
+private:
     SystecCanBackendPrivate * const d_ptr;
 };
 

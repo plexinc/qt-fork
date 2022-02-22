@@ -2,19 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/qpack/qpack_receive_stream.h"
+#include "quic/core/qpack/qpack_receive_stream.h"
 
-#include "net/third_party/quiche/src/quic/core/quic_utils.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_spdy_session_peer.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/quic_utils.h"
+#include "quic/platform/api/quic_test.h"
+#include "quic/test_tools/quic_spdy_session_peer.h"
+#include "quic/test_tools/quic_test_utils.h"
 
 namespace quic {
 namespace test {
 
 namespace {
 using ::testing::_;
+using ::testing::AnyNumber;
 using ::testing::StrictMock;
 
 struct TestParams {
@@ -55,6 +56,7 @@ class QpackReceiveStreamTest : public QuicTestWithParam<TestParams> {
             perspective(),
             SupportedVersions(GetParam().version))),
         session_(connection_) {
+    EXPECT_CALL(session_, OnCongestionWindowChange(_)).Times(AnyNumber());
     session_.Initialize();
     QuicStreamId id = perspective() == Perspective::IS_SERVER
                           ? GetNthClientInitiatedUnidirectionalStreamId(
@@ -62,7 +64,7 @@ class QpackReceiveStreamTest : public QuicTestWithParam<TestParams> {
                           : GetNthServerInitiatedUnidirectionalStreamId(
                                 session_.transport_version(), 3);
     char type[] = {0x03};
-    QuicStreamFrame data1(id, false, 0, quiche::QuicheStringPiece(type, 1));
+    QuicStreamFrame data1(id, false, 0, absl::string_view(type, 1));
     session_.OnStreamFrame(data1);
     qpack_receive_stream_ =
         QuicSpdySessionPeer::GetQpackDecoderReceiveStream(&session_);

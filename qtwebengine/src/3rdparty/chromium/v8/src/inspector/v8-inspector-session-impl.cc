@@ -145,6 +145,7 @@ V8InspectorSessionImpl::V8InspectorSessionImpl(V8InspectorImpl* inspector,
 }
 
 V8InspectorSessionImpl::~V8InspectorSessionImpl() {
+  v8::Isolate::Scope scope(m_inspector->isolate());
   discardInjectedScripts();
   m_consoleAgent->disable();
   m_profilerAgent->disable();
@@ -239,6 +240,8 @@ Response V8InspectorSessionImpl::findInjectedScript(
 
 Response V8InspectorSessionImpl::findInjectedScript(
     RemoteObjectIdBase* objectId, InjectedScript*& injectedScript) {
+  if (objectId->isolateId() != m_inspector->isolateId())
+    return Response::ServerError("Cannot find context with specified id");
   return findInjectedScript(objectId->contextId(), injectedScript);
 }
 
@@ -463,7 +466,7 @@ void V8InspectorSessionImpl::resume(bool terminateOnResume) {
   m_debuggerAgent->resume(terminateOnResume);
 }
 
-void V8InspectorSessionImpl::stepOver() { m_debuggerAgent->stepOver(); }
+void V8InspectorSessionImpl::stepOver() { m_debuggerAgent->stepOver({}); }
 
 std::vector<std::unique_ptr<protocol::Debugger::API::SearchMatch>>
 V8InspectorSessionImpl::searchInTextByLines(StringView text, StringView query,

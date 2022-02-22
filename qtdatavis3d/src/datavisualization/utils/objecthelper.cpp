@@ -31,7 +31,7 @@
 #include "vertexindexer_p.h"
 #include "objecthelper_p.h"
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 ObjectHelper::ObjectHelper(const QString &objectFile)
     : m_objectFile(objectFile)
@@ -136,9 +136,9 @@ void ObjectHelper::load()
         m_normalbuffer = 0;
         m_elementbuffer = 0;
     }
-    QVector<QVector3D> vertices;
-    QVector<QVector2D> uvs;
-    QVector<QVector3D> normals;
+    QList<QVector3D> vertices;
+    QList<QVector2D> uvs;
+    QList<QVector3D> normals;
     bool loadOk = MeshLoader::loadOBJ(m_objectFile, vertices, uvs, normals);
     if (!loadOk)
         qFatal("loading failed");
@@ -177,4 +177,4 @@ void ObjectHelper::load()
     m_meshDataLoaded = true;
 }
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE

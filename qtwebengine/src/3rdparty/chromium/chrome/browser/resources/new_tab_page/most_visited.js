@@ -17,6 +17,7 @@ import './strings.m.js';
 import {assert} from 'chrome://resources/js/assert.m.js';
 import {isMac} from 'chrome://resources/js/cr.m.js';
 import {FocusOutlineManager} from 'chrome://resources/js/cr/ui/focus_outline_manager.m.js';
+import {EventTracker} from 'chrome://resources/js/event_tracker.m.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 import {Debouncer, html, microTask, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
@@ -48,7 +49,7 @@ function resetTilePosition(tile) {
  * @private
  */
 function setTilePosition(tile, {x, y}) {
-  tile.style.position = 'absolute';
+  tile.style.position = 'fixed';
   tile.style.left = `${x}px`;
   tile.style.top = `${y}px`;
 }
@@ -65,6 +66,25 @@ function getHitIndex(rects, x, y) {
       r => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom);
 }
 
+
+/**
+ * Returns null if URL is not valid.
+ * @param {string} urlString
+ * @return {URL}
+ * @private
+ */
+function normalizeUrl(urlString) {
+  try {
+    const url = new URL(
+        urlString.includes('://') ? urlString : `https://${urlString}/`);
+    if (['http:', 'https:'].includes(url.protocol)) {
+      return url;
+    }
+  } catch (e) {
+  }
+  return null;
+}
+
 class MostVisitedElement extends PolymerElement {
   static get is() {
     return 'ntp-most-visited';
@@ -76,11 +96,32 @@ class MostVisitedElement extends PolymerElement {
 
   static get properties() {
     return {
+      /**
+       * When the tile icon background is dark, the add icon color is white for
+       * contrast. This can be used to determine the color of the tile hover as
+       * well.
+       */
+      useWhiteAddIcon: {
+        type: Boolean,
+        reflectToAttribute: true,
+      },
+
+      /* If true wraps the tile titles in white pills. */
+      useTitlePill: {
+        type: Boolean,
+        reflectToAttribute: true,
+      },
+
       /** @private */
       columnCount_: {
-        type: Boolean,
-        computed: `computeColumnCount_(tiles_, screenWidth_, maxTiles_,
-            visible_)`,
+        type: Number,
+        computed: `computeColumnCount_(tiles_, screenWidth_, maxTiles_)`,
+      },
+
+      /** @private */
+      rowCount_: {
+        type: Number,
+        computed: 'computeRowCount_(columnCount_, tiles_)',
       },
 
       /** @private */
@@ -90,10 +131,10 @@ class MostVisitedElement extends PolymerElement {
       dialogTileTitle_: String,
 
       /** @private */
-      dialogTileTitleDirectionClass_: String,
-
-      /** @private */
-      dialogTileUrl_: String,
+      dialogTileUrl_: {
+        type: String,
+        observer: 'onDialogTileUrlChange_',
+      },
 
       /** @private */
       dialogTileUrlInvalid_: {
@@ -105,10 +146,23 @@ class MostVisitedElement extends PolymerElement {
       dialogTitle_: String,
 
       /** @private */
-      isRtl_: {
+      dialogSaveDisabled_: {
         type: Boolean,
-        value: false,
-        reflectToAttribute: true,
+        computed: `computeDialogSaveDisabled_(dialogTitle_, dialogTileUrl_,
+            dialogShortcutAlreadyExists_)`,
+      },
+
+      /** @private */
+      dialogShortcutAlreadyExists_: {
+        type: Boolean,
+        computed: 'computeDialogShortcutAlreadyExists_(tiles_, dialogTileUrl_)',
+      },
+
+      /** @private */
+      dialogTileUrlError_: {
+        type: String,
+        computed: `computeDialogTileUrlError_(dialogTileUrl_,
+            dialogShortcutAlreadyExists_)`,
       },
 
       /**
@@ -125,14 +179,21 @@ class MostVisitedElement extends PolymerElement {
       /** @private */
       maxTiles_: {
         type: Number,
-        computed: 'computeMaxTiles_(visible_, customLinksEnabled_)',
+        computed: 'computeMaxTiles_(customLinksEnabled_)',
+      },
+
+      /** @private */
+      maxVisibleTiles_: {
+        type: Number,
+        computed: 'computeMaxVisibleTiles_(columnCount_, rowCount_)',
       },
 
       /** @private */
       showAdd_: {
         type: Boolean,
         value: false,
-        computed: 'computeShowAdd_(tiles_, columnCount_, customLinksEnabled_)',
+        computed:
+            'computeShowAdd_(tiles_, maxVisibleTiles_, customLinksEnabled_)',
       },
 
       /** @private */
@@ -148,7 +209,10 @@ class MostVisitedElement extends PolymerElement {
       toastContent_: String,
 
       /** @private */
-      visible_: Boolean,
+      visible_: {
+        type: Boolean,
+        reflectToAttribute: true,
+      },
     };
   }
 
@@ -159,6 +223,7 @@ class MostVisitedElement extends PolymerElement {
   }
 
   constructor() {
+    performance.mark('most-visited-creation-start');
     super();
     /** @private {boolean} */
     this.adding_ = false;
@@ -187,12 +252,24 @@ class MostVisitedElement extends PolymerElement {
     super.connectedCallback();
     /** @private {boolean} */
     this.isRtl_ = window.getComputedStyle(this)['direction'] === 'rtl';
+    /** @private {!EventTracker} */
+    this.eventTracker_ = new EventTracker();
+
     this.setMostVisitedInfoListenerId_ =
         this.callbackRouter_.setMostVisitedInfo.addListener(info => {
+          performance.measure('most-visited-mojo', 'most-visited-mojo-start');
           this.visible_ = info.visible;
           this.customLinksEnabled_ = info.customLinksEnabled;
-          this.tiles_ = info.tiles.slice(0, 10);
+          this.tiles_ = info.tiles.slice(0, assert(this.maxTiles_));
         });
+    performance.mark('most-visited-mojo-start');
+    this.eventTracker_.add(document, 'visibilitychange', () => {
+      // This updates the most visited tiles every time the NTP tab gets
+      // activated.
+      if (document.visibilityState === 'visible') {
+        this.pageHandler_.updateMostVisitedInfo();
+      }
+    });
     this.pageHandler_.updateMostVisitedInfo();
     FocusOutlineManager.forDocument(document);
   }
@@ -208,6 +285,7 @@ class MostVisitedElement extends PolymerElement {
         assert(this.boundOnWidthChange_));
     this.ownerDocument.removeEventListener(
         'keydown', this.boundOnDocumentKeyDown_);
+    this.eventTracker_.removeAll();
   }
 
   /** @override */
@@ -229,6 +307,8 @@ class MostVisitedElement extends PolymerElement {
         this.onDocumentKeyDown_(/** @type {!KeyboardEvent} */ (e));
     this.ownerDocument.addEventListener(
         'keydown', this.boundOnDocumentKeyDown_);
+
+    performance.measure('most-visited-creation', 'most-visited-creation-start');
   }
 
   /** @private */
@@ -244,10 +324,6 @@ class MostVisitedElement extends PolymerElement {
    * @private
    */
   computeColumnCount_() {
-    if (!this.visible_) {
-      return 0;
-    }
-
     let maxColumns = 3;
     if (this.screenWidth_ === ScreenWidth.WIDE) {
       maxColumns = 5;
@@ -269,8 +345,29 @@ class MostVisitedElement extends PolymerElement {
    * @return {number}
    * @private
    */
+  computeRowCount_() {
+    if (this.columnCount_ === 0) {
+      return 0;
+    }
+
+    const shortcutCount = this.tiles_ ? this.tiles_.length : 0;
+    return this.columnCount_ <= shortcutCount ? 2 : 1;
+  }
+
+  /**
+   * @return {number}
+   * @private
+   */
   computeMaxTiles_() {
-    return !this.visible_ ? 0 : (this.customLinksEnabled_ ? 10 : 8);
+    return this.customLinksEnabled_ ? 10 : 8;
+  }
+
+  /**
+   * @return {number}
+   * @private
+   */
+  computeMaxVisibleTiles_() {
+    return this.columnCount_ * this.rowCount_;
   }
 
   /**
@@ -279,7 +376,45 @@ class MostVisitedElement extends PolymerElement {
    */
   computeShowAdd_() {
     return this.customLinksEnabled_ && this.tiles_ &&
-        this.tiles_.length < this.columnCount_ * 2;
+        this.tiles_.length < this.maxVisibleTiles_;
+  }
+
+  /**
+   * @return {boolean}
+   * @private
+   */
+  computeDialogSaveDisabled_() {
+    return !this.dialogTileUrl_.trim() ||
+        normalizeUrl(this.dialogTileUrl_) === null ||
+        this.dialogShortcutAlreadyExists_;
+  }
+
+  /**
+   * @return {boolean}
+   * @private
+   */
+  computeDialogShortcutAlreadyExists_() {
+    const dialogTileHref = (normalizeUrl(this.dialogTileUrl_) || {}).href;
+    if (!dialogTileHref) {
+      return false;
+    }
+    return (this.tiles_ || []).some(({url: {url}}, index) => {
+      if (index === this.actionMenuTargetIndex_) {
+        return false;
+      }
+      const otherUrl = normalizeUrl(url);
+      return otherUrl && otherUrl.href === dialogTileHref;
+    });
+  }
+
+  /**
+   * @return {string}
+   * @private
+   */
+  computeDialogTileUrlError_() {
+    return loadTimeData.getString(
+        this.dialogShortcutAlreadyExists_ ? 'shortcutAlreadyExists' :
+                                            'invalidUrl');
   }
 
   /**
@@ -298,6 +433,10 @@ class MostVisitedElement extends PolymerElement {
    * @private
    */
   dragEnd_(x, y) {
+    if (!this.customLinksEnabled_) {
+      this.reordering_ = false;
+      return;
+    }
     this.dragOffset_ = null;
     const dragElement = this.shadowRoot.querySelector('.tile.dragging');
     if (!dragElement) {
@@ -416,8 +555,8 @@ class MostVisitedElement extends PolymerElement {
    */
   getFaviconUrl_(url) {
     const faviconUrl = new URL('chrome://favicon2/');
-    faviconUrl.searchParams.set('size', '32');
-    faviconUrl.searchParams.set('scale_factor', '2x');
+    faviconUrl.searchParams.set('size', '24');
+    faviconUrl.searchParams.set('scale_factor', '1x');
     faviconUrl.searchParams.set('show_fallback_monogram', '');
     faviconUrl.searchParams.set('page_url', url.url);
     return faviconUrl.href;
@@ -445,27 +584,18 @@ class MostVisitedElement extends PolymerElement {
   }
 
   /**
-   * @return {string}
-   * @private
-   */
-  getTileIconButtonIcon_() {
-    return this.customLinksEnabled_ ? 'icon-more-vert' : 'icon-clear';
-  }
-
-  /**
    * @param {number} index
    * @return {boolean}
    * @private
    */
   isHidden_(index) {
-    return index >= this.columnCount_ * 2;
+    return index >= this.maxVisibleTiles_;
   }
 
   /** @private */
   onAdd_() {
     this.dialogTitle_ = loadTimeData.getString('addLinkTitle');
     this.dialogTileTitle_ = '';
-    this.dialogTileTitleDirectionClass_ = '';
     this.dialogTileUrl_ = '';
     this.dialogTileUrlInvalid_ = false;
     this.adding_ = true;
@@ -479,10 +609,6 @@ class MostVisitedElement extends PolymerElement {
   onAddShortcutKeyDown_(e) {
     if (e.altKey || e.shiftKey || e.metaKey || e.ctrlKey) {
       return;
-    }
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      this.onAdd_();
     }
 
     if (!this.tiles_ || this.tiles_.length === 0) {
@@ -508,6 +634,20 @@ class MostVisitedElement extends PolymerElement {
     this.adding_ = false;
   }
 
+  /** @private */
+  onDialogTileUrlBlur_() {
+    if (this.dialogTileUrl_.length > 0 &&
+        (normalizeUrl(this.dialogTileUrl_) === null ||
+         this.dialogShortcutAlreadyExists_)) {
+      this.dialogTileUrlInvalid_ = true;
+    }
+  }
+
+  /** @private */
+  onDialogTileUrlChange_() {
+    this.dialogTileUrlInvalid_ = false;
+  }
+
   /**
    * @param {!KeyboardEvent} e
    * @private
@@ -520,8 +660,7 @@ class MostVisitedElement extends PolymerElement {
     const modifier = isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
     if (modifier && e.key === 'z') {
       e.preventDefault();
-      this.pageHandler_.undoMostVisitedTileAction();
-      this.$.toast.hide();
+      this.onUndoClick_();
     }
   }
 
@@ -530,6 +669,9 @@ class MostVisitedElement extends PolymerElement {
    * @private
    */
   onDragStart_(e) {
+    if (!this.customLinksEnabled_) {
+      return;
+    }
     // |dataTransfer| is null in tests.
     if (e.dataTransfer) {
       // Remove the ghost image that appears when dragging.
@@ -566,8 +708,6 @@ class MostVisitedElement extends PolymerElement {
     this.dialogTitle_ = loadTimeData.getString('editLinkTitle');
     const tile = this.tiles_[this.actionMenuTargetIndex_];
     this.dialogTileTitle_ = tile.title;
-    this.dialogTileTitleDirectionClass_ =
-        this.getTileTitleDirectionClass_(tile);
     this.dialogTileUrl_ = tile.url.url;
     this.dialogTileUrlInvalid_ = false;
     this.$.dialog.showModal();
@@ -575,6 +715,9 @@ class MostVisitedElement extends PolymerElement {
 
   /** @private */
   onRestoreDefaultsClick_() {
+    if (!this.$.toast.open || !this.showToastButtons_) {
+      return;
+    }
     this.$.toast.hide();
     this.pageHandler_.restoreMostVisitedDefaults();
   }
@@ -588,36 +731,21 @@ class MostVisitedElement extends PolymerElement {
 
   /** @private */
   async onSave_() {
-    let newUrl;
-    try {
-      newUrl = new URL(
-          this.dialogTileUrl_.includes('://') ?
-              this.dialogTileUrl_ :
-              `https://${this.dialogTileUrl_}/`);
-      if (!['http:', 'https:'].includes(newUrl.protocol)) {
-        throw new Error();
-      }
-    } catch (e) {
-      this.dialogTileUrlInvalid_ = true;
-      return;
-    }
-
-    this.dialogTileUrlInvalid_ = false;
-
+    const newUrl = {url: normalizeUrl(this.dialogTileUrl_).href};
     this.$.dialog.close();
     let newTitle = this.dialogTileTitle_.trim();
     if (newTitle.length === 0) {
       newTitle = this.dialogTileUrl_;
     }
     if (this.adding_) {
-      const {success} = await this.pageHandler_.addMostVisitedTile(
-          {url: newUrl.href}, newTitle);
+      const {success} =
+          await this.pageHandler_.addMostVisitedTile(newUrl, newTitle);
       this.toast_(success ? 'linkAddedMsg' : 'linkCantCreate', success);
     } else {
       const {url, title} = this.tiles_[this.actionMenuTargetIndex_];
-      if (url.url !== newUrl.href || title !== newTitle) {
+      if (url.url !== newUrl.url || title !== newTitle) {
         const {success} = await this.pageHandler_.updateMostVisitedTile(
-            url, {url: newUrl.href}, newTitle);
+            url, newUrl, newTitle);
         this.toast_(success ? 'linkEditedMsg' : 'linkCantEdit', success);
       }
       this.actionMenuTargetIndex_ = -1;
@@ -628,15 +756,41 @@ class MostVisitedElement extends PolymerElement {
    * @param {!Event} e
    * @private
    */
-  onTileIconButtonClick_(e) {
+  onTileActionButtonClick_(e) {
     e.preventDefault();
     const {index} = this.$.tiles.modelForElement(e.target.parentElement);
-    if (this.customLinksEnabled_) {
-      this.actionMenuTargetIndex_ = index;
-      this.$.actionMenu.showAt(e.target);
-    } else {
-      this.tileRemove_(index);
+    this.actionMenuTargetIndex_ = index;
+    this.$.actionMenu.showAt(e.target);
+  }
+
+  /**
+   * @param {!Event} e
+   * @private
+   */
+  onTileRemoveButtonClick_(e) {
+    e.preventDefault();
+    const {index} = this.$.tiles.modelForElement(e.target.parentElement);
+    this.tileRemove_(index);
+  }
+
+  /**
+   * @param {!Event} e
+   * @private
+   */
+  onTileClick_(e) {
+    if (e.defaultPrevented) {
+      // Ignore previousely handled events.
+      return;
     }
+
+    if (loadTimeData.getBoolean('handleMostVisitedNavigationExplicitly')) {
+      e.preventDefault();  // Prevents default browser action (navigation).
+    }
+
+    this.pageHandler_.onMostVisitedTileNavigation(
+        this.$.tiles.itemForElement(e.target),
+        this.$.tiles.indexForElement(e.target), e.button || 0, e.altKey,
+        e.ctrlKey, e.metaKey, e.shiftKey);
   }
 
   /**
@@ -666,6 +820,9 @@ class MostVisitedElement extends PolymerElement {
 
   /** @private */
   onUndoClick_() {
+    if (!this.$.toast.open || !this.showToastButtons_) {
+      return;
+    }
     this.$.toast.hide();
     this.pageHandler_.undoMostVisitedTileAction();
   }
@@ -675,7 +832,7 @@ class MostVisitedElement extends PolymerElement {
    * @private
    */
   onTouchStart_(e) {
-    if (this.reordering_) {
+    if (this.reordering_ || !this.customLinksEnabled_) {
       return;
     }
     const tileElement = /** @type {HTMLElement} */ (e.composedPath().find(
@@ -683,18 +840,18 @@ class MostVisitedElement extends PolymerElement {
     if (!tileElement) {
       return;
     }
-    const {pageX, pageY} = e.changedTouches[0];
-    this.dragStart_(tileElement, pageX, pageY);
+    const {clientX, clientY} = e.changedTouches[0];
+    this.dragStart_(tileElement, clientX, clientY);
     const touchMove = e => {
-      const {pageX, pageY} = e.changedTouches[0];
-      this.dragOver_(pageX, pageY);
+      const {clientX, clientY} = e.changedTouches[0];
+      this.dragOver_(clientX, clientY);
     };
     const touchEnd = e => {
       this.ownerDocument.removeEventListener('touchmove', touchMove);
       tileElement.removeEventListener('touchend', touchEnd);
       tileElement.removeEventListener('touchcancel', touchEnd);
-      const {pageX, pageY} = e.changedTouches[0];
-      this.dragEnd_(pageX, pageY);
+      const {clientX, clientY} = e.changedTouches[0];
+      this.dragEnd_(clientX, clientY);
       this.reordering_ = false;
     };
     this.ownerDocument.addEventListener('touchmove', touchMove);
@@ -735,9 +892,13 @@ class MostVisitedElement extends PolymerElement {
    * @private
    */
   async tileRemove_(index) {
-    const {title, url} = this.tiles_[index];
+    const {url, isQueryTile} = this.tiles_[index];
     this.pageHandler_.deleteMostVisitedTile(url);
-    this.toast_('linkRemovedMsg', /* showButtons= */ true);
+    // Do not show the toast buttons when a query tile is removed unless it is a
+    // custom link. Removal is not reversible for non custom link query tiles.
+    this.toast_(
+        'linkRemovedMsg',
+        /* showButtons= */ this.customLinksEnabled_ || !isQueryTile);
     this.tileFocus_(index);
   }
 
@@ -750,6 +911,14 @@ class MostVisitedElement extends PolymerElement {
     } else {
       this.screenWidth_ = ScreenWidth.NARROW;
     }
+  }
+
+  /** @private */
+  onTilesRendered_() {
+    performance.measure('most-visited-rendered');
+    this.pageHandler_.onMostVisitedTilesRendered(
+        this.tiles_.slice(0, assert(this.maxVisibleTiles_)),
+        BrowserProxy.getInstance().now());
   }
 }
 

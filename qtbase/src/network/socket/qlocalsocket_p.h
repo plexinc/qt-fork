@@ -73,9 +73,12 @@ QT_REQUIRE_CONFIG(localserver);
 #   include <errno.h>
 #endif
 
+struct sockaddr_un;
+
 QT_BEGIN_NAMESPACE
 
 #if !defined(Q_OS_WIN) || defined(QT_LOCALSOCKET_TCP)
+
 class QLocalUnixSocket : public QTcpSocket
 {
 
@@ -120,7 +123,6 @@ public:
     void init();
 
 #if defined(QT_LOCALSOCKET_TCP)
-    qint64 skip(qint64 maxSize) override;
     QLocalUnixSocket* tcpSocket;
     bool ownsTcpSocket;
     void setSocket(QLocalUnixSocket*);
@@ -131,7 +133,10 @@ public:
 #elif defined(Q_OS_WIN)
     ~QLocalSocketPrivate();
     void destroyPipeHandles();
-    void _q_canWrite();
+    qint64 pipeWriterBytesToWrite() const;
+    void _q_canRead();
+    void _q_bytesWritten(qint64 bytes);
+    void writeToSocket();
     void _q_pipeClosed();
     void _q_winError(ulong windowsError, const QString &function);
     HANDLE handle;
@@ -139,7 +144,6 @@ public:
     QWindowsPipeReader *pipeReader;
     QLocalSocket::LocalSocketError error;
 #else
-    qint64 skip(qint64 maxSize) override;
     QLocalUnixSocket unixSocket;
     QString generateErrorString(QLocalSocket::LocalSocketError, const QString &function) const;
     void setErrorAndEmit(QLocalSocket::LocalSocketError, const QString &function);
@@ -148,16 +152,24 @@ public:
     void _q_connectToSocket();
     void _q_abortConnectionAttempt();
     void cancelDelayedConnect();
+    void describeSocket(qintptr socketDescriptor);
+    static bool parseSockaddr(const sockaddr_un &addr, uint len,
+                              QString &fullServerName, QString &serverName, bool &abstractNamespace);
     QSocketNotifier *delayConnect;
     QTimer *connectTimer;
-    int connectingSocket;
     QString connectingName;
+    int connectingSocket;
     QIODevice::OpenMode connectingOpenMode;
 #endif
-
+    QLocalSocket::LocalSocketState state;
     QString serverName;
     QString fullServerName;
-    QLocalSocket::LocalSocketState state;
+#if defined(Q_OS_WIN) && !defined(QT_LOCALSOCKET_TCP)
+    bool emittedReadyRead;
+    bool emittedBytesWritten;
+#endif
+
+    Q_OBJECT_BINDABLE_PROPERTY(QLocalSocketPrivate, QLocalSocket::SocketOptions, socketOptions)
 };
 
 QT_END_NAMESPACE

@@ -20,39 +20,71 @@
 
 #include <spirv_cross.hpp>
 
+#ifdef DAWN_ENABLE_WGSL
+// Tint include must be after spirv_hlsl.hpp, because spirv-cross has its own
+// version of spirv_headers. We also need to undef SPV_REVISION because SPIRV-Cross
+// is at 3 while spirv-headers is at 4.
+#    undef SPV_REVISION
+#    include <tint/tint.h>
+#endif  // DAWN_ENABLE_WGSL
+
 namespace dawn_native { namespace vulkan {
 
     // static
     ResultOrError<ShaderModule*> ShaderModule::Create(Device* device,
-                                                      const ShaderModuleDescriptor* descriptor) {
-        std::unique_ptr<ShaderModule> module(new ShaderModule(device, descriptor));
-        if (!module)
+                                                      const ShaderModuleDescriptor* descriptor,
+                                                      ShaderModuleParseResult* parseResult) {
+        Ref<ShaderModule> module = AcquireRef(new ShaderModule(device, descriptor));
+        if (module == nullptr) {
             return DAWN_VALIDATION_ERROR("Unable to create ShaderModule");
-        DAWN_TRY(module->Initialize(descriptor));
-        return module.release();
+        }
+        DAWN_TRY(module->Initialize(parseResult));
+        return module.Detach();
     }
 
     ShaderModule::ShaderModule(Device* device, const ShaderModuleDescriptor* descriptor)
         : ShaderModuleBase(device, descriptor) {
     }
 
-    MaybeError ShaderModule::Initialize(const ShaderModuleDescriptor* descriptor) {
-        // Use SPIRV-Cross to extract info from the SPIRV even if Vulkan consumes SPIRV. We want to
-        // have a translation step eventually anyway.
-        if (GetDevice()->IsToggleEnabled(Toggle::UseSpvc)) {
-            shaderc_spvc::CompileOptions options = GetCompileOptions();
+    MaybeError ShaderModule::Initialize(ShaderModuleParseResult* parseResult) {
+        std::vector<uint32_t> spirv;
+        const std::vector<uint32_t>* spirvPtr;
 
-            DAWN_TRY(CheckSpvcSuccess(
-                mSpvcContext.InitializeForVulkan(descriptor->code, descriptor->codeSize, options),
-                "Unable to initialize instance of spvc"));
+        if (GetDevice()->IsToggleEnabled(Toggle::UseTintGenerator)) {
+#ifdef DAWN_ENABLE_WGSL
+            std::ostringstream errorStream;
+            errorStream << "Tint SPIR-V writer failure:" << std::endl;
 
-            spirv_cross::Compiler* compiler;
-            DAWN_TRY(CheckSpvcSuccess(mSpvcContext.GetCompiler(reinterpret_cast<void**>(&compiler)),
-                                      "Unable to get cross compiler"));
-            DAWN_TRY(ExtractSpirvInfo(*compiler));
+            tint::transform::Manager transformManager;
+            transformManager.append(std::make_unique<tint::transform::BoundArrayAccessors>());
+            transformManager.append(std::make_unique<tint::transform::EmitVertexPointSize>());
+            transformManager.append(std::make_unique<tint::transform::Spirv>());
+
+            tint::Program program;
+            DAWN_TRY_ASSIGN(program,
+                            RunTransforms(&transformManager, parseResult->tintProgram.get()));
+
+            tint::writer::spirv::Generator generator(&program);
+            if (!generator.Generate()) {
+                errorStream << "Generator: " << generator.error() << std::endl;
+                return DAWN_VALIDATION_ERROR(errorStream.str().c_str());
+            }
+
+            spirv = generator.result();
+            spirvPtr = &spirv;
+
+            ShaderModuleParseResult transformedParseResult;
+            transformedParseResult.tintProgram =
+                std::make_unique<tint::Program>(std::move(program));
+            transformedParseResult.spirv = spirv;
+
+            DAWN_TRY(InitializeBase(&transformedParseResult));
+#else
+            UNREACHABLE();
+#endif
         } else {
-            spirv_cross::Compiler compiler(descriptor->code, descriptor->codeSize);
-            DAWN_TRY(ExtractSpirvInfo(compiler));
+            DAWN_TRY(InitializeBase(parseResult));
+            spirvPtr = &GetSpirv();
         }
 
         VkShaderModuleCreateInfo createInfo;
@@ -60,18 +92,8 @@ namespace dawn_native { namespace vulkan {
         createInfo.pNext = nullptr;
         createInfo.flags = 0;
         std::vector<uint32_t> vulkanSource;
-        if (GetDevice()->IsToggleEnabled(Toggle::UseSpvc)) {
-            shaderc_spvc::CompilationResult result;
-            DAWN_TRY(CheckSpvcSuccess(mSpvcContext.CompileShader(&result),
-                                      "Unable to generate Vulkan shader"));
-            DAWN_TRY(CheckSpvcSuccess(result.GetBinaryOutput(&vulkanSource),
-                                      "Unable to get binary output of Vulkan shader"));
-            createInfo.codeSize = vulkanSource.size() * sizeof(uint32_t);
-            createInfo.pCode = vulkanSource.data();
-        } else {
-            createInfo.codeSize = descriptor->codeSize * sizeof(uint32_t);
-            createInfo.pCode = descriptor->code;
-        }
+        createInfo.codeSize = spirvPtr->size() * sizeof(uint32_t);
+        createInfo.pCode = spirvPtr->data();
 
         Device* device = ToBackend(GetDevice());
         return CheckVkSuccess(

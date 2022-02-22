@@ -73,7 +73,7 @@ public:
         QVirtualKeyboardInputContext *inputContext = q->inputContext();
 
         // Disable the user dictionary when entering sensitive data
-        if (inputContext) {
+        if (inputContext && pinyinDecoderService) {
             bool userDictionaryEnabled = !inputContext->inputMethodHints().testFlag(Qt::ImhSensitiveData);
             if (userDictionaryEnabled != pinyinDecoderService->isUserDictionaryEnabled())
                 pinyinDecoderService->setUserDictionary(userDictionaryEnabled);
@@ -116,7 +116,7 @@ public:
     {
         if (surface.isEmpty())
             return false;
-        QVector<int> splStart = pinyinDecoderService->spellingStartPositions();
+        QList<int> splStart = pinyinDecoderService->spellingStartPositions();
         isPosInSpl = (surface.length() <= splStart[fixedLen + 1]);
         posDelSpl = isPosInSpl ? fixedLen - 1 : surface.length() - 1;
         return true;
@@ -134,8 +134,8 @@ public:
         if (composingStr.length() > 0) {
             if ((candId >= 0 || finishSelection) && composingStr.length() == fixedLen) {
                 QString resultStr = getComposingStrActivePart();
-                tryPredict();
                 q->inputContext()->commit(resultStr);
+                tryPredict();
             } else if (state == Idle) {
                 state = Input;
             }
@@ -212,7 +212,7 @@ public:
         totalChoicesNum = result;
 
         surface = pinyinDecoderService->pinyinString(false);
-        QVector<int> splStart = pinyinDecoderService->spellingStartPositions();
+        QList<int> splStart = pinyinDecoderService->spellingStartPositions();
         QString fullSent = pinyinDecoderService->candidateAt(0);
         fixedLen = pinyinDecoderService->fixedLength();
         composingStr = fullSent.mid(0, fixedLen) + surface.mid(splStart[fixedLen + 1]);
@@ -229,12 +229,12 @@ public:
             activeCmpsLen = activeCmpsLen - (surface.length() - surfaceDecodedLen);
             composingStrDisplay = fullSent.mid(0, fixedLen);
             for (int pos = fixedLen + 1; pos < splStart.size() - 1; pos++) {
-                composingStrDisplay += surface.mid(splStart[pos], splStart[pos + 1] - splStart[pos]).toUpper();
+                composingStrDisplay += surface.mid(splStart[pos], splStart[pos + 1] - splStart[pos]);
                 if (splStart[pos + 1] < surfaceDecodedLen)
                     composingStrDisplay += QLatin1String(" ");
             }
             if (surfaceDecodedLen < surface.length())
-                composingStrDisplay += surface.mid(surfaceDecodedLen).toLower();
+                composingStrDisplay += surface.mid(surfaceDecodedLen);
         }
         q->inputContext()->setPreeditText(composingStrDisplay);
 
@@ -376,7 +376,7 @@ PinyinInputMethod::~PinyinInputMethod()
 
 QList<QVirtualKeyboardInputEngine::InputMode> PinyinInputMethod::inputModes(const QString &locale)
 {
-    Q_UNUSED(locale)
+    Q_UNUSED(locale);
     Q_D(PinyinInputMethod);
     QList<QVirtualKeyboardInputEngine::InputMode> result;
     if (d->pinyinDecoderService)
@@ -387,7 +387,7 @@ QList<QVirtualKeyboardInputEngine::InputMode> PinyinInputMethod::inputModes(cons
 
 bool PinyinInputMethod::setInputMode(const QString &locale, QVirtualKeyboardInputEngine::InputMode inputMode)
 {
-    Q_UNUSED(locale)
+    Q_UNUSED(locale);
     Q_D(PinyinInputMethod);
     reset();
     if (inputMode == QVirtualKeyboardInputEngine::InputMode::Pinyin && !d->pinyinDecoderService)
@@ -398,17 +398,17 @@ bool PinyinInputMethod::setInputMode(const QString &locale, QVirtualKeyboardInpu
 
 bool PinyinInputMethod::setTextCase(QVirtualKeyboardInputEngine::TextCase textCase)
 {
-    Q_UNUSED(textCase)
+    Q_UNUSED(textCase);
     return true;
 }
 
 bool PinyinInputMethod::keyEvent(Qt::Key key, const QString &text, Qt::KeyboardModifiers modifiers)
 {
-    Q_UNUSED(modifiers)
+    Q_UNUSED(modifiers);
     Q_D(PinyinInputMethod);
     if (d->inputMode == QVirtualKeyboardInputEngine::InputMode::Pinyin) {
         ScopedCandidateListUpdate scopedCandidateListUpdate(d);
-        Q_UNUSED(scopedCandidateListUpdate)
+        Q_UNUSED(scopedCandidateListUpdate);
         if ((key >= Qt::Key_A && key <= Qt::Key_Z) || (key == Qt::Key_Apostrophe)) {
             if (d->state == PinyinInputMethodPrivate::Predict)
                 d->resetToIdleState();
@@ -447,7 +447,7 @@ QList<QVirtualKeyboardSelectionListModel::Type> PinyinInputMethod::selectionList
 
 int PinyinInputMethod::selectionListItemCount(QVirtualKeyboardSelectionListModel::Type type)
 {
-    Q_UNUSED(type)
+    Q_UNUSED(type);
     Q_D(PinyinInputMethod);
     return d->candidatesCount();
 }
@@ -455,7 +455,7 @@ int PinyinInputMethod::selectionListItemCount(QVirtualKeyboardSelectionListModel
 QVariant PinyinInputMethod::selectionListData(QVirtualKeyboardSelectionListModel::Type type, int index, QVirtualKeyboardSelectionListModel::Role role)
 {
     QVariant result;
-    Q_UNUSED(type)
+    Q_UNUSED(type);
     Q_D(PinyinInputMethod);
     switch (role) {
     case QVirtualKeyboardSelectionListModel::Role::Display:
@@ -473,10 +473,10 @@ QVariant PinyinInputMethod::selectionListData(QVirtualKeyboardSelectionListModel
 
 void PinyinInputMethod::selectionListItemSelected(QVirtualKeyboardSelectionListModel::Type type, int index)
 {
-    Q_UNUSED(type)
+    Q_UNUSED(type);
     Q_D(PinyinInputMethod);
     ScopedCandidateListUpdate scopedCandidateListUpdate(d);
-    Q_UNUSED(scopedCandidateListUpdate)
+    Q_UNUSED(scopedCandidateListUpdate);
     d->chooseAndUpdate(index);
 }
 
@@ -484,7 +484,7 @@ void PinyinInputMethod::reset()
 {
     Q_D(PinyinInputMethod);
     ScopedCandidateListUpdate scopedCandidateListUpdate(d);
-    Q_UNUSED(scopedCandidateListUpdate)
+    Q_UNUSED(scopedCandidateListUpdate);
     d->resetToIdleState();
 }
 
@@ -492,7 +492,7 @@ void PinyinInputMethod::update()
 {
     Q_D(PinyinInputMethod);
     ScopedCandidateListUpdate scopedCandidateListUpdate(d);
-    Q_UNUSED(scopedCandidateListUpdate)
+    Q_UNUSED(scopedCandidateListUpdate);
     d->chooseAndFinish();
     d->tryPredict();
 }

@@ -14,7 +14,6 @@
 #include "base/test/scoped_feature_list.h"
 #include "components/security_state/core/features.h"
 #include "components/security_state/core/insecure_input_event_data.h"
-#include "components/security_state/core/security_state.h"
 #include "net/cert/x509_certificate.h"
 #include "net/ssl/ssl_cipher_suite_names.h"
 #include "net/ssl/ssl_connection_status_flags.h"
@@ -303,10 +302,7 @@ TEST(SecurityStateTest, MixedContentWithPolicyCertificate) {
   // Verify that passive mixed content downgrades the security level.
   helper.set_contained_mixed_form(false);
   helper.set_displayed_mixed_content(true);
-  SecurityLevel expected_passive_level =
-      base::FeatureList::IsEnabled(features::kPassiveMixedContentWarning)
-          ? WARNING
-          : NONE;
+  SecurityLevel expected_passive_level = WARNING;
   EXPECT_EQ(expected_passive_level, helper.GetSecurityLevel());
 
   // Ensure that active mixed content downgrades the security level.
@@ -316,69 +312,16 @@ TEST(SecurityStateTest, MixedContentWithPolicyCertificate) {
   EXPECT_EQ(DANGEROUS, helper.GetSecurityLevel());
 }
 
-// Tests that WARNING is set on normal http pages but DANGEROUS on
-// form edits with default feature enabled.
-TEST(SecurityStateTest, WarningAndDangerousOnFormEditsWhenFeatureEnabled) {
+// Tests that WARNING is set on normal http pages regardless of
+// form edits.
+TEST(SecurityStateTest, WarningOnHttpAndFormEdits) {
   TestSecurityStateHelper helper;
   helper.SetUrl(GURL(kHttpUrl));
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      security_state::features::kMarkHttpAsFeature);
-
-  EXPECT_EQ(security_state::WARNING, helper.GetSecurityLevel());
-
-  helper.set_insecure_field_edit(true);
-  EXPECT_EQ(DANGEROUS, helper.GetSecurityLevel());
-}
-
-// Tests that WARNING is set on normal http pages but DANGEROUS on
-// form edits with default feature disabled.
-TEST(SecurityStateTest, WarningAndDangerousOnFormEditsWhenFeatureDisabled) {
-  TestSecurityStateHelper helper;
-  helper.SetUrl(GURL(kHttpUrl));
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndDisableFeature(
-      security_state::features::kMarkHttpAsFeature);
-
-  EXPECT_EQ(WARNING, helper.GetSecurityLevel());
-
-  helper.set_insecure_field_edit(true);
-  EXPECT_EQ(DANGEROUS, helper.GetSecurityLevel());
-}
-
-// Tests that WARNING is set on normal http pages regardless of form edits
-// when kMarkHttpAsFeature is set to mark non-secure connections with grey
-// triangle icon.
-TEST(SecurityStateTest, AlwaysWarningWhenFeatureMarksWithTriangleWarning) {
-  TestSecurityStateHelper helper;
-  helper.SetUrl(GURL(kHttpUrl));
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeatureWithParameters(
-      security_state::features::kMarkHttpAsFeature,
-      {{security_state::features::kMarkHttpAsFeatureParameterName,
-        security_state::features::kMarkHttpAsParameterDangerWarning}});
 
   EXPECT_EQ(WARNING, helper.GetSecurityLevel());
 
   helper.set_insecure_field_edit(true);
   EXPECT_EQ(WARNING, helper.GetSecurityLevel());
-}
-
-// Tests that DANGEROUS is set on normal http pages regardless of form edits
-// when kMarkHttpAsFeature is set to always DANGEROUS
-TEST(SecurityStateTest, AlwaysDangerousWhenFeatureMarksAllAsDangerous) {
-  TestSecurityStateHelper helper;
-  helper.SetUrl(GURL(kHttpUrl));
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeatureWithParameters(
-      security_state::features::kMarkHttpAsFeature,
-      {{security_state::features::kMarkHttpAsFeatureParameterName,
-        security_state::features::kMarkHttpAsParameterDangerous}});
-
-  EXPECT_EQ(DANGEROUS, helper.GetSecurityLevel());
-
-  helper.set_insecure_field_edit(true);
-  EXPECT_EQ(DANGEROUS, helper.GetSecurityLevel());
 }
 
 // Tests that |safety_tip_status| effects security level appropriately.
@@ -433,7 +376,6 @@ TEST(SecurityStateTest, LocalhostOrFileUrl) {
 // Tests IsSslCertificateValid function.
 TEST(SecurityStateTest, SslCertificateValid) {
   EXPECT_TRUE(IsSslCertificateValid(SecurityLevel::SECURE));
-  EXPECT_TRUE(IsSslCertificateValid(SecurityLevel::EV_SECURE));
   EXPECT_TRUE(
       IsSslCertificateValid(SecurityLevel::SECURE_WITH_POLICY_INSTALLED_CERT));
 
@@ -446,19 +388,14 @@ TEST(SecurityStateTest, SslCertificateValid) {
 TEST(SecurityStateTest, LegacyTLSWarningStatus) {
   const struct {
     bool connection_used_legacy_tls;
-    bool should_suppress_legacy_tls_warning;
     bool expected_legacy_tls_warning_status;
   } kTestCases[] = {
-      {true, false, true},
-      {true, true, false},
-      {false, false, false},
-      {false, true, false},
+      {true, true},
+      {false, false},
   };
   for (auto testcase : kTestCases) {
     auto state = VisibleSecurityState();
     state.connection_used_legacy_tls = testcase.connection_used_legacy_tls;
-    state.should_suppress_legacy_tls_warning =
-        testcase.should_suppress_legacy_tls_warning;
     EXPECT_EQ(testcase.expected_legacy_tls_warning_status,
               GetLegacyTLSWarningStatus(state));
   }

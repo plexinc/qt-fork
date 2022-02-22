@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.1.0)
+cmake_minimum_required(VERSION 3.16)
 
 project(network_cppsnippets)
 
@@ -7,6 +7,6 @@ add_executable(mytarget
 )
 
 # ![0]
-find_package(Qt5 COMPONENTS Network REQUIRED)
-target_link_libraries(mytarget Qt5::Network)
+find_package(Qt6 REQUIRED COMPONENTS Network)
+target_link_libraries(mytarget PRIVATE Qt6::Network)
 # ![0]

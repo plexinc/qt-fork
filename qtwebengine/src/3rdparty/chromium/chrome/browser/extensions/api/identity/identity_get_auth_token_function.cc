@@ -10,14 +10,17 @@
 #include "base/bind.h"
 #include "base/feature_list.h"
 #include "base/location.h"
+#include "base/metrics/histogram_functions.h"
+#include "base/notreached.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/task/post_task.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/extensions/api/identity/identity_api.h"
 #include "chrome/browser/extensions/api/identity/identity_constants.h"
+#include "chrome/browser/extensions/api/identity/identity_get_auth_token_error.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/chrome_device_id_helper.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
@@ -34,11 +37,13 @@
 #include "components/version_info/version_info.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
+#include "extensions/common/extension_features.h"
 #include "extensions/common/extension_l10n_util.h"
+#include "extensions/common/manifest_handlers/oauth2_manifest_handler.h"
 #include "google_apis/gaia/gaia_auth_util.h"
 #include "google_apis/gaia/gaia_urls.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/app_mode/app_mode_utils.h"
 #include "chrome/browser/chromeos/login/session/user_session_manager.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
@@ -52,7 +57,7 @@ namespace extensions {
 
 namespace {
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 // The list of apps that are allowed to use the Identity API to retrieve the
 // token from the device robot account in a public session.
 const char* const kPublicSessionAllowedOrigins[] = {
@@ -77,21 +82,25 @@ std::string GetOAuth2MintTokenFlowChannel() {
   return version_info::GetChannelString(chrome::GetChannel());
 }
 
+void RecordFunctionResult(const IdentityGetAuthTokenError& error,
+                          bool remote_consent_approved) {
+  base::UmaHistogramEnumeration("Signin.Extensions.GetAuthTokenResult",
+                                error.state());
+  if (remote_consent_approved) {
+    base::UmaHistogramEnumeration(
+        "Signin.Extensions.GetAuthTokenResult.RemoteConsentApproved",
+        error.state());
+  }
+}
+
 }  // namespace
 
 IdentityGetAuthTokenFunction::IdentityGetAuthTokenFunction()
-    :
-#if defined(OS_CHROMEOS)
-      OAuth2AccessTokenManager::Consumer(
-          kExtensionsIdentityAPIOAuthConsumerName),
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+    : OAuth2AccessTokenManager::Consumer(
+          kExtensionsIdentityAPIOAuthConsumerName)
 #endif
-      interactive_(false),
-      should_prompt_for_scopes_(false),
-      should_prompt_for_signin_(false),
-      token_key_(/*extension_id=*/std::string(),
-                 /*account_id=*/CoreAccountId(),
-                 /*scopes=*/std::set<std::string>()),
-      scoped_identity_manager_observer_(this) {
+{
 }
 
 IdentityGetAuthTokenFunction::~IdentityGetAuthTokenFunction() {
@@ -104,7 +113,10 @@ ExtensionFunction::ResponseAction IdentityGetAuthTokenFunction::Run() {
                                     this, "extension", extension()->id());
 
   if (GetProfile()->IsOffTheRecord()) {
-    return RespondNow(Error(identity_constants::kOffTheRecord));
+    IdentityGetAuthTokenError error(
+        IdentityGetAuthTokenError::State::kOffTheRecord);
+    RecordFunctionResult(error, remote_consent_approved_);
+    return RespondNow(Error(error.ToString()));
   }
 
   std::unique_ptr<api::identity::GetAuthToken::Params> params(
@@ -117,12 +129,20 @@ ExtensionFunction::ResponseAction IdentityGetAuthTokenFunction::Run() {
   should_prompt_for_signin_ =
       interactive_ && IsBrowserSigninAllowed(GetProfile());
 
+  enable_granular_permissions_ =
+      params->details.get() &&
+      params->details->enable_granular_permissions.get() &&
+      *params->details->enable_granular_permissions;
+
   const OAuth2Info& oauth2_info = OAuth2Info::GetOAuth2Info(extension());
 
   // Check that the necessary information is present in the manifest.
   oauth2_client_id_ = GetOAuth2ClientId();
   if (oauth2_client_id_.empty()) {
-    return RespondNow(Error(identity_constants::kInvalidClientId));
+    IdentityGetAuthTokenError error(
+        IdentityGetAuthTokenError::State::kInvalidClientId);
+    RecordFunctionResult(error, remote_consent_approved_);
+    return RespondNow(Error(error.ToString()));
   }
 
   std::set<std::string> scopes(oauth2_info.scopes.begin(),
@@ -140,34 +160,38 @@ ExtensionFunction::ResponseAction IdentityGetAuthTokenFunction::Run() {
   }
 
   if (scopes.empty()) {
-    return RespondNow(Error(identity_constants::kInvalidScopes));
+    IdentityGetAuthTokenError error(
+        IdentityGetAuthTokenError::State::kEmptyScopes);
+    RecordFunctionResult(error, remote_consent_approved_);
+    return RespondNow(Error(error.ToString()));
   }
 
   token_key_.scopes = scopes;
   token_key_.extension_id = extension()->id();
 
-  if (gaia_id.empty()) {
+  if (gaia_id.empty() && !IsPrimaryAccountOnly()) {
     gaia_id = IdentityAPI::GetFactoryInstance()
                   ->Get(GetProfile())
                   ->GetGaiaIdForExtension(token_key_.extension_id)
                   .value_or("");
   }
 
+  selected_gaia_id_ = gaia_id;
   // From here on out, results must be returned asynchronously.
   StartAsyncRun();
 
   if (gaia_id.empty() || IsPrimaryAccountOnly()) {
     // Try the primary account.
     // TODO(https://crbug.com/932400): collapse the asynchronicity
-    base::PostTask(
-        FROM_HERE, {content::BrowserThread::UI},
+    content::GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE,
         base::BindOnce(
             &IdentityGetAuthTokenFunction::GetAuthTokenForPrimaryAccount,
             weak_ptr_factory_.GetWeakPtr(), gaia_id));
   } else {
     // Get the AccountInfo for the account that the extension wishes to use.
-    base::PostTask(
-        FROM_HERE, {content::BrowserThread::UI},
+    content::GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE,
         base::BindOnce(&IdentityGetAuthTokenFunction::FetchExtensionAccountInfo,
                        weak_ptr_factory_.GetWeakPtr(), gaia_id));
   }
@@ -179,15 +203,15 @@ void IdentityGetAuthTokenFunction::GetAuthTokenForPrimaryAccount(
     const std::string& extension_gaia_id) {
   auto* identity_manager = IdentityManagerFactory::GetForProfile(GetProfile());
   CoreAccountInfo primary_account_info =
-      identity_manager->GetPrimaryAccountInfo();
+      identity_manager->GetPrimaryAccountInfo(signin::ConsentLevel::kSync);
   bool primary_account_only = IsPrimaryAccountOnly();
 
   // Detect and handle the case where the extension is using an account other
   // than the primary account.
   if (primary_account_only && !extension_gaia_id.empty() &&
       extension_gaia_id != primary_account_info.gaia) {
-    // TODO(courage): should this be a different error?
-    CompleteFunctionWithError(identity_constants::kUserNotSignedIn);
+    CompleteFunctionWithError(IdentityGetAuthTokenError(
+        IdentityGetAuthTokenError::State::kUserNonPrimary));
     return;
   }
 
@@ -219,10 +243,9 @@ void IdentityGetAuthTokenFunction::FetchExtensionAccountInfo(
 
 void IdentityGetAuthTokenFunction::OnReceivedExtensionAccountInfo(
     const CoreAccountInfo* account_info) {
-  token_key_.account_id =
-      account_info ? account_info->account_id : CoreAccountId();
+  token_key_.account_info = account_info ? *account_info : CoreAccountInfo();
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   policy::BrowserPolicyConnectorChromeOS* connector =
       g_browser_process->platform_part()->browser_policy_connector_chromeos();
   bool is_kiosk = user_manager::UserManager::Get()->IsLoggedInAsKioskApp();
@@ -230,8 +253,9 @@ void IdentityGetAuthTokenFunction::OnReceivedExtensionAccountInfo(
       user_manager::UserManager::Get()->IsLoggedInAsPublicAccount();
 
   if (connector->IsEnterpriseManaged() && (is_kiosk || is_public_session)) {
-    if (is_public_session && !IsOriginWhitelistedInPublicSession()) {
-      CompleteFunctionWithError(identity_constants::kUserNotSignedIn);
+    if (is_public_session && !IsOriginAllowlistedInPublicSession()) {
+      CompleteFunctionWithError(IdentityGetAuthTokenError(
+          IdentityGetAuthTokenError::State::kNotAllowlistedInPublicSession));
       return;
     }
 
@@ -244,10 +268,11 @@ void IdentityGetAuthTokenFunction::OnReceivedExtensionAccountInfo(
       !IdentityManagerFactory::GetForProfile(GetProfile())
            ->HasAccountWithRefreshToken(account_info->account_id)) {
     if (!ShouldStartSigninFlow()) {
-      CompleteFunctionWithError(
+      IdentityGetAuthTokenError error(
           IsBrowserSigninAllowed(GetProfile())
-              ? identity_constants::kUserNotSignedIn
-              : identity_constants::kBrowserSigninNotAllowed);
+              ? IdentityGetAuthTokenError::State::kUserNotSignedIn
+              : IdentityGetAuthTokenError::State::kBrowserSigninNotAllowed);
+      CompleteFunctionWithError(error);
       return;
     }
     // Display a login prompt.
@@ -291,27 +316,38 @@ void IdentityGetAuthTokenFunction::StartAsyncRun() {
   identity_api_shutdown_subscription_ =
       extensions::IdentityAPI::GetFactoryInstance()
           ->Get(GetProfile())
-          ->RegisterOnShutdownCallback(base::Bind(
+          ->RegisterOnShutdownCallback(base::BindOnce(
               &IdentityGetAuthTokenFunction::OnIdentityAPIShutdown, this));
 }
 
 void IdentityGetAuthTokenFunction::CompleteAsyncRun(ResponseValue response) {
-  identity_api_shutdown_subscription_.reset();
+  identity_api_shutdown_subscription_ = {};
 
   Respond(std::move(response));
   Release();  // Balanced in StartAsyncRun
 }
 
 void IdentityGetAuthTokenFunction::CompleteFunctionWithResult(
-    const std::string& access_token) {
-  CompleteAsyncRun(OneArgument(std::make_unique<base::Value>(access_token)));
+    const std::string& access_token,
+    const std::set<std::string>& granted_scopes) {
+  RecordFunctionResult(IdentityGetAuthTokenError(), remote_consent_approved_);
+
+  std::unique_ptr<base::Value> granted_scopes_value =
+      std::make_unique<base::Value>(base::Value::Type::LIST);
+  for (const auto& scope : granted_scopes)
+    granted_scopes_value->Append(scope);
+
+  CompleteAsyncRun(TwoArguments(
+      base::Value(access_token),
+      base::Value::FromUniquePtrValue(std::move(granted_scopes_value))));
 }
 
 void IdentityGetAuthTokenFunction::CompleteFunctionWithError(
-    const std::string& error) {
+    const IdentityGetAuthTokenError& error) {
   TRACE_EVENT_NESTABLE_ASYNC_INSTANT1("identity", "CompleteFunctionWithError",
-                                      this, "error", error);
-  CompleteAsyncRun(Error(error));
+                                      this, "error", error.ToString());
+  RecordFunctionResult(error, remote_consent_approved_);
+  CompleteAsyncRun(Error(error.ToString()));
 }
 
 bool IdentityGetAuthTokenFunction::ShouldStartSigninFlow() {
@@ -320,9 +356,10 @@ bool IdentityGetAuthTokenFunction::ShouldStartSigninFlow() {
 
   auto* identity_manager = IdentityManagerFactory::GetForProfile(GetProfile());
   bool account_needs_reauth =
-      !identity_manager->HasAccountWithRefreshToken(token_key_.account_id) ||
+      !identity_manager->HasAccountWithRefreshToken(
+          token_key_.account_info.account_id) ||
       identity_manager->HasAccountWithRefreshTokenInPersistentErrorState(
-          token_key_.account_id);
+          token_key_.account_info.account_id);
   return account_needs_reauth;
 }
 
@@ -332,12 +369,12 @@ void IdentityGetAuthTokenFunction::StartSigninFlow() {
   // All cached tokens are invalid because the user is not signed in.
   IdentityAPI* id_api =
       extensions::IdentityAPI::GetFactoryInstance()->Get(GetProfile());
-  id_api->EraseAllCachedTokens();
+  id_api->token_cache()->EraseAllTokens();
 
   // If the signin flow fails, don't display the login prompt again.
   should_prompt_for_signin_ = false;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // In normal mode (i.e. non-kiosk mode), the user has to log out to
   // re-establish credentials. Let the global error popup handle everything.
   // In kiosk mode, interactive sign-in is not supported.
@@ -354,16 +391,18 @@ void IdentityGetAuthTokenFunction::StartSigninFlow() {
   auto* identity_manager = IdentityManagerFactory::GetForProfile(GetProfile());
   account_listening_mode_ = AccountListeningMode::kListeningTokens;
   if (IsPrimaryAccountOnly()) {
-    if (!identity_manager->HasPrimaryAccount()) {
+    if (!identity_manager->HasPrimaryAccount(signin::ConsentLevel::kSync)) {
       account_listening_mode_ = AccountListeningMode::kListeningPrimaryAccount;
     } else {
       // Fixing an authentication error. Either there is no token, or it is in
       // error.
-      DCHECK_EQ(token_key_.account_id, identity_manager->GetPrimaryAccountId());
+      DCHECK_EQ(
+          token_key_.account_info.account_id,
+          identity_manager->GetPrimaryAccountId(signin::ConsentLevel::kSync));
       DCHECK(!identity_manager->HasAccountWithRefreshToken(
-                 token_key_.account_id) ||
+                 token_key_.account_info.account_id) ||
              identity_manager->HasAccountWithRefreshTokenInPersistentErrorState(
-                 token_key_.account_id));
+                 token_key_.account_info.account_id));
     }
   }
   scoped_identity_manager_observer_.Add(identity_manager);
@@ -374,11 +413,11 @@ void IdentityGetAuthTokenFunction::StartSigninFlow() {
 
 void IdentityGetAuthTokenFunction::StartMintTokenFlow(
     IdentityMintRequestQueue::MintType type) {
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
   // ChromeOS in kiosk mode may start the mint token flow without account.
-  DCHECK(!token_key_.account_id.empty());
+  DCHECK(!token_key_.account_info.IsEmpty());
   DCHECK(IdentityManagerFactory::GetForProfile(GetProfile())
-             ->HasAccountWithRefreshToken(token_key_.account_id));
+             ->HasAccountWithRefreshToken(token_key_.account_info.account_id));
 #endif
   TRACE_EVENT_NESTABLE_ASYNC_BEGIN1("identity", "MintTokenFlow", this, "type",
                                     type);
@@ -395,15 +434,17 @@ void IdentityGetAuthTokenFunction::StartMintTokenFlow(
 
     if (type == IdentityMintRequestQueue::MINT_TYPE_INTERACTIVE) {
       // GAIA told us to do a consent UI.
-      CompleteFunctionWithError(identity_constants::kNoGrant);
+      CompleteFunctionWithError(IdentityGetAuthTokenError(
+          IdentityGetAuthTokenError::State::kGaiaConsentInteractionRequired));
       return;
     }
-    // TODO(https://crbug.com/1026237): figure out whether this can be ignored
-    // when running the remote consent approval.
+
     if (!id_api->mint_queue()->empty(
             IdentityMintRequestQueue::MINT_TYPE_INTERACTIVE, token_key_)) {
       // Another call is going through a consent UI.
-      CompleteFunctionWithError(identity_constants::kNoGrant);
+      CompleteFunctionWithError(
+          IdentityGetAuthTokenError(IdentityGetAuthTokenError::State::
+                                        kGaiaConsentInteractionAlreadyRunning));
       return;
     }
   }
@@ -429,17 +470,20 @@ void IdentityGetAuthTokenFunction::StartMintToken(
 
   const OAuth2Info& oauth2_info = OAuth2Info::GetOAuth2Info(extension());
   IdentityAPI* id_api = IdentityAPI::GetFactoryInstance()->Get(GetProfile());
-  IdentityTokenCacheValue cache_entry = id_api->GetCachedToken(token_key_);
+  IdentityTokenCacheValue cache_entry =
+      id_api->token_cache()->GetToken(token_key_);
   IdentityTokenCacheValue::CacheValueStatus cache_status = cache_entry.status();
 
   if (type == IdentityMintRequestQueue::MINT_TYPE_NONINTERACTIVE) {
     switch (cache_status) {
       case IdentityTokenCacheValue::CACHE_STATUS_NOTFOUND:
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
         // Always force minting token for ChromeOS kiosk app and public session.
         if (user_manager::UserManager::Get()->IsLoggedInAsPublicAccount() &&
-            !IsOriginWhitelistedInPublicSession()) {
-          CompleteFunctionWithError(identity_constants::kUserNotSignedIn);
+            !IsOriginAllowlistedInPublicSession()) {
+          CompleteFunctionWithError(
+              IdentityGetAuthTokenError(IdentityGetAuthTokenError::State::
+                                            kNotAllowlistedInPublicSession));
           return;
         }
 
@@ -459,7 +503,7 @@ void IdentityGetAuthTokenFunction::StartMintToken(
 #endif
 
         if (oauth2_info.auto_approve)
-          // oauth2_info.auto_approve is protected by a whitelist in
+          // oauth2_info.auto_approve is protected by an allowlist in
           // _manifest_features.json hence only selected extensions take
           // advantage of forcefully minting the token.
           gaia_mint_token_mode_ = OAuth2MintTokenFlow::MODE_MINT_TOKEN_FORCE;
@@ -470,14 +514,8 @@ void IdentityGetAuthTokenFunction::StartMintToken(
 
       case IdentityTokenCacheValue::CACHE_STATUS_TOKEN:
         CompleteMintTokenFlow();
-        CompleteFunctionWithResult(cache_entry.token());
-        break;
-
-      case IdentityTokenCacheValue::CACHE_STATUS_ADVICE:
-        CompleteMintTokenFlow();
-        should_prompt_for_signin_ = false;
-        issue_advice_ = cache_entry.issue_advice();
-        StartMintTokenFlow(IdentityMintRequestQueue::MINT_TYPE_INTERACTIVE);
+        CompleteFunctionWithResult(cache_entry.token(),
+                                   cache_entry.granted_scopes());
         break;
 
       case IdentityTokenCacheValue::CACHE_STATUS_REMOTE_CONSENT:
@@ -489,7 +527,6 @@ void IdentityGetAuthTokenFunction::StartMintToken(
 
       case IdentityTokenCacheValue::CACHE_STATUS_REMOTE_CONSENT_APPROVED:
         consent_result_ = cache_entry.consent_result();
-        should_prompt_for_scopes_ = false;
         should_prompt_for_signin_ = false;
         gaia_mint_token_mode_ = OAuth2MintTokenFlow::MODE_MINT_TOKEN_NO_FORCE;
         StartTokenKeyAccountAccessTokenRequest();
@@ -501,18 +538,15 @@ void IdentityGetAuthTokenFunction::StartMintToken(
     switch (cache_status) {
       case IdentityTokenCacheValue::CACHE_STATUS_TOKEN:
         CompleteMintTokenFlow();
-        CompleteFunctionWithResult(cache_entry.token());
+        CompleteFunctionWithResult(cache_entry.token(),
+                                   cache_entry.granted_scopes());
         break;
       case IdentityTokenCacheValue::CACHE_STATUS_NOTFOUND:
-      case IdentityTokenCacheValue::CACHE_STATUS_ADVICE:
-        ShowOAuthApprovalDialog(issue_advice_);
-        break;
       case IdentityTokenCacheValue::CACHE_STATUS_REMOTE_CONSENT:
         ShowRemoteConsentDialog(resolution_data_);
         break;
       case IdentityTokenCacheValue::CACHE_STATUS_REMOTE_CONSENT_APPROVED:
         consent_result_ = cache_entry.consent_result();
-        should_prompt_for_scopes_ = false;
         should_prompt_for_signin_ = false;
         gaia_mint_token_mode_ = OAuth2MintTokenFlow::MODE_MINT_TOKEN_NO_FORCE;
         StartTokenKeyAccountAccessTokenRequest();
@@ -523,17 +557,19 @@ void IdentityGetAuthTokenFunction::StartMintToken(
 
 void IdentityGetAuthTokenFunction::OnMintTokenSuccess(
     const std::string& access_token,
+    const std::set<std::string>& granted_scopes,
     int time_to_live) {
   TRACE_EVENT_NESTABLE_ASYNC_INSTANT0("identity", "OnMintTokenSuccess", this);
 
   IdentityTokenCacheValue token = IdentityTokenCacheValue::CreateToken(
-      access_token, base::TimeDelta::FromSeconds(time_to_live));
+      access_token, granted_scopes, base::TimeDelta::FromSeconds(time_to_live));
   IdentityAPI::GetFactoryInstance()
       ->Get(GetProfile())
-      ->SetCachedToken(token_key_, token);
+      ->token_cache()
+      ->SetToken(token_key_, token);
 
   CompleteMintTokenFlow();
-  CompleteFunctionWithResult(access_token);
+  CompleteFunctionWithResult(access_token, granted_scopes);
 }
 
 void IdentityGetAuthTokenFunction::OnMintTokenFailure(
@@ -560,29 +596,8 @@ void IdentityGetAuthTokenFunction::OnMintTokenFailure(
       break;
   }
 
-  CompleteFunctionWithError(std::string(identity_constants::kAuthFailure) +
-                            error.ToString());
-}
-
-void IdentityGetAuthTokenFunction::OnIssueAdviceSuccess(
-    const IssueAdviceInfo& issue_advice) {
-  TRACE_EVENT_NESTABLE_ASYNC_INSTANT0("identity", "OnIssueAdviceSuccess", this);
-
-  IdentityAPI* identity_api =
-      IdentityAPI::GetFactoryInstance()->Get(GetProfile());
-  identity_api->SetCachedToken(
-      token_key_, IdentityTokenCacheValue::CreateIssueAdvice(issue_advice));
-  // IssueAdvice doesn't communicate back to Chrome which account has been
-  // chosen by the user. Cached gaia id may contain incorrect information so
-  // it's better to remove it.
-  identity_api->EraseGaiaIdForExtension(token_key_.extension_id);
-  CompleteMintTokenFlow();
-
-  should_prompt_for_signin_ = false;
-  // Existing grant was revoked and we used NO_FORCE, so we got info back
-  // instead. Start a consent UI if we can.
-  issue_advice_ = issue_advice;
-  StartMintTokenFlow(IdentityMintRequestQueue::MINT_TYPE_INTERACTIVE);
+  CompleteFunctionWithError(
+      IdentityGetAuthTokenError::FromMintTokenAuthError(error.ToString()));
 }
 
 void IdentityGetAuthTokenFunction::OnRemoteConsentSuccess(
@@ -592,8 +607,9 @@ void IdentityGetAuthTokenFunction::OnRemoteConsentSuccess(
 
   IdentityAPI::GetFactoryInstance()
       ->Get(GetProfile())
-      ->SetCachedToken(token_key_, IdentityTokenCacheValue::CreateRemoteConsent(
-                                       resolution_data));
+      ->token_cache()
+      ->SetToken(token_key_,
+                 IdentityTokenCacheValue::CreateRemoteConsent(resolution_data));
   should_prompt_for_signin_ = false;
   resolution_data_ = resolution_data;
   CompleteMintTokenFlow();
@@ -606,10 +622,10 @@ void IdentityGetAuthTokenFunction::OnRefreshTokenUpdatedForAccount(
     return;
 
   // No specific account id was requested, use the first one we find.
-  if (token_key_.account_id.empty())
-    token_key_.account_id = account_info.account_id;
+  if (token_key_.account_info.IsEmpty())
+    token_key_.account_info = account_info;
 
-  if (token_key_.account_id == account_info.account_id) {
+  if (token_key_.account_info == account_info) {
     // Stop listening tokens.
     account_listening_mode_ = AccountListeningMode::kNotListening;
     scoped_identity_manager_observer_.RemoveAll();
@@ -618,15 +634,36 @@ void IdentityGetAuthTokenFunction::OnRefreshTokenUpdatedForAccount(
   }
 }
 
-void IdentityGetAuthTokenFunction::OnPrimaryAccountSet(
-    const CoreAccountInfo& primary_account_info) {
+bool IdentityGetAuthTokenFunction::TryRecoverFromServiceAuthError(
+    const GoogleServiceAuthError& error) {
+  // If this is really an authentication error and not just a transient
+  // network error, then we show signin UI if appropriate.
+  if (error.state() != GoogleServiceAuthError::CONNECTION_FAILED &&
+      error.state() != GoogleServiceAuthError::SERVICE_UNAVAILABLE) {
+    if (ShouldStartSigninFlow()) {
+      StartSigninFlow();
+      return true;
+    }
+  }
+  return false;
+}
+
+void IdentityGetAuthTokenFunction::OnPrimaryAccountChanged(
+    const signin::PrimaryAccountChangeEvent& event_details) {
+  if (event_details.GetEventTypeFor(signin::ConsentLevel::kSync) !=
+      signin::PrimaryAccountChangeEvent::Type::kSet)
+    return;
+
   if (account_listening_mode_ != AccountListeningMode::kListeningPrimaryAccount)
     return;
 
-  TRACE_EVENT_NESTABLE_ASYNC_INSTANT0("identity", "OnPrimaryAccountSet", this);
+  TRACE_EVENT_NESTABLE_ASYNC_INSTANT0("identity",
+                                      "OnPrimaryAccountChanged (set)", this);
 
-  DCHECK(token_key_.account_id.empty());
-  token_key_.account_id = primary_account_info.account_id;
+  const CoreAccountInfo& primary_account_info =
+      event_details.GetCurrentState().primary_account;
+  DCHECK(token_key_.account_info.IsEmpty());
+  token_key_.account_info = primary_account_info;
 
   // Stop listening primary account.
   DCHECK(IdentityManagerFactory::GetForProfile(GetProfile())
@@ -639,98 +676,43 @@ void IdentityGetAuthTokenFunction::OnPrimaryAccountSet(
 
 void IdentityGetAuthTokenFunction::SigninFailed() {
   TRACE_EVENT_NESTABLE_ASYNC_INSTANT0("identity", "SigninFailed", this);
-  CompleteFunctionWithError(identity_constants::kUserNotSignedIn);
-}
-
-void IdentityGetAuthTokenFunction::OnGaiaFlowFailure(
-    GaiaWebAuthFlow::Failure failure,
-    GoogleServiceAuthError service_error,
-    const std::string& oauth_error) {
-  CompleteMintTokenFlow();
-  std::string error;
-
-  switch (failure) {
-    case GaiaWebAuthFlow::WINDOW_CLOSED:
-      error = identity_constants::kUserRejected;
-      break;
-
-    case GaiaWebAuthFlow::INVALID_REDIRECT:
-      error = identity_constants::kInvalidRedirect;
-      break;
-
-    case GaiaWebAuthFlow::SERVICE_AUTH_ERROR:
-      // If this is really an authentication error and not just a transient
-      // network error, then we show signin UI if appropriate.
-      if (service_error.state() != GoogleServiceAuthError::CONNECTION_FAILED &&
-          service_error.state() !=
-              GoogleServiceAuthError::SERVICE_UNAVAILABLE) {
-        if (ShouldStartSigninFlow()) {
-          StartSigninFlow();
-          return;
-        }
-      }
-      error = std::string(identity_constants::kAuthFailure) +
-              service_error.ToString();
-      break;
-
-    case GaiaWebAuthFlow::OAUTH_ERROR:
-      error = MapOAuth2ErrorToDescription(oauth_error);
-      break;
-
-    case GaiaWebAuthFlow::LOAD_FAILED:
-      error = identity_constants::kPageLoadFailure;
-      break;
-
-    default:
-      NOTREACHED() << "Unexpected error from gaia web auth flow: " << failure;
-      error = identity_constants::kInvalidRedirect;
-      break;
-  }
-
-  CompleteFunctionWithError(error);
-}
-
-void IdentityGetAuthTokenFunction::OnGaiaFlowCompleted(
-    const std::string& access_token,
-    const std::string& expiration) {
-  TRACE_EVENT_NESTABLE_ASYNC_INSTANT0("identity", "OnGaiaFlowCompleted", this);
-  int time_to_live;
-  if (!expiration.empty() && base::StringToInt(expiration, &time_to_live)) {
-    IdentityTokenCacheValue token_value = IdentityTokenCacheValue::CreateToken(
-        access_token, base::TimeDelta::FromSeconds(time_to_live));
-    IdentityAPI::GetFactoryInstance()
-        ->Get(GetProfile())
-        ->SetCachedToken(token_key_, token_value);
-  }
-
-  CompleteMintTokenFlow();
-  CompleteFunctionWithResult(access_token);
+  CompleteFunctionWithError(IdentityGetAuthTokenError(
+      IdentityGetAuthTokenError::State::kSignInFailed));
 }
 
 void IdentityGetAuthTokenFunction::OnGaiaRemoteConsentFlowFailed(
     GaiaRemoteConsentFlow::Failure failure) {
   CompleteMintTokenFlow();
-  std::string error;
+  IdentityGetAuthTokenError error;
 
   switch (failure) {
     case GaiaRemoteConsentFlow::WINDOW_CLOSED:
-      error = identity_constants::kUserRejected;
+      error = IdentityGetAuthTokenError(
+          IdentityGetAuthTokenError::State::kRemoteConsentFlowRejected);
       break;
 
     case GaiaRemoteConsentFlow::SET_ACCOUNTS_IN_COOKIE_FAILED:
-      error = identity_constants::kSetAccountsInCookieFailure;
+      error = IdentityGetAuthTokenError(
+          IdentityGetAuthTokenError::State::kSetAccountsInCookieFailure);
       break;
 
     case GaiaRemoteConsentFlow::LOAD_FAILED:
-      error = identity_constants::kPageLoadFailure;
+      error = IdentityGetAuthTokenError(
+          IdentityGetAuthTokenError::State::kRemoteConsentPageLoadFailure);
       break;
 
     case GaiaRemoteConsentFlow::INVALID_CONSENT_RESULT:
-      error = identity_constants::kInvalidConsentResult;
+      error = IdentityGetAuthTokenError(
+          IdentityGetAuthTokenError::State::kInvalidConsentResult);
       break;
 
     case GaiaRemoteConsentFlow::NO_GRANT:
-      error = identity_constants::kNoGrant;
+      error =
+          IdentityGetAuthTokenError(IdentityGetAuthTokenError::State::kNoGrant);
+      break;
+
+    case GaiaRemoteConsentFlow::NONE:
+      NOTREACHED();
       break;
   }
 
@@ -743,26 +725,44 @@ void IdentityGetAuthTokenFunction::OnGaiaRemoteConsentFlowApproved(
   TRACE_EVENT_NESTABLE_ASYNC_INSTANT1(
       "identity", "OnGaiaRemoteConsentFlowApproved", this, "gaia_id", gaia_id);
   DCHECK(!consent_result.empty());
+  remote_consent_approved_ = true;
 
-  CompleteMintTokenFlow();
   base::Optional<AccountInfo> account =
       IdentityManagerFactory::GetForProfile(GetProfile())
           ->FindExtendedAccountInfoForAccountWithRefreshTokenByGaiaId(gaia_id);
   if (!account) {
-    CompleteFunctionWithError(identity_constants::kUserNotSignedIn);
+    CompleteMintTokenFlow();
+    CompleteFunctionWithError(IdentityGetAuthTokenError(
+        IdentityGetAuthTokenError::State::kRemoteConsentUserNotSignedIn));
     return;
+  }
+
+  if (IsPrimaryAccountOnly()) {
+    CoreAccountId primary_account_id =
+        IdentityManagerFactory::GetForProfile(GetProfile())
+            ->GetPrimaryAccountId(signin::ConsentLevel::kSync);
+    if (primary_account_id != account->account_id) {
+      CompleteMintTokenFlow();
+      CompleteFunctionWithError(IdentityGetAuthTokenError(
+          IdentityGetAuthTokenError::State::kRemoteConsentUserNonPrimary));
+      return;
+    }
   }
 
   IdentityAPI* id_api = IdentityAPI::GetFactoryInstance()->Get(GetProfile());
   id_api->SetGaiaIdForExtension(token_key_.extension_id, gaia_id);
 
-  token_key_.account_id = account->account_id;
-  consent_result_ = consent_result;
-  should_prompt_for_scopes_ = false;
-  should_prompt_for_signin_ = false;
-  id_api->SetCachedToken(
-      token_key_,
+  // It's important to update the cache before calling CompleteMintTokenFlow()
+  // as this call may start a new request synchronously and query the cache.
+  ExtensionTokenKey new_token_key(token_key_);
+  new_token_key.account_info = account.value();
+  id_api->token_cache()->SetToken(
+      new_token_key,
       IdentityTokenCacheValue::CreateRemoteConsentApproved(consent_result));
+  CompleteMintTokenFlow();
+  token_key_ = new_token_key;
+  consent_result_ = consent_result;
+  should_prompt_for_signin_ = false;
   StartMintTokenFlow(IdentityMintRequestQueue::MINT_TYPE_NONINTERACTIVE);
 }
 
@@ -775,21 +775,26 @@ void IdentityGetAuthTokenFunction::OnGetAccessTokenComplete(
   DCHECK(!device_access_token_request_);
   DCHECK(!token_key_account_access_token_fetcher_);
   if (access_token) {
-    TRACE_EVENT_NESTABLE_ASYNC_END1("identity", "GetAccessToken", this,
-                                    "account",
-                                    token_key_.account_id.ToString());
+    TRACE_EVENT_NESTABLE_ASYNC_END1(
+        "identity", "GetAccessToken", this, "account",
+        token_key_.account_info.account_id.ToString());
 
     StartGaiaRequest(access_token.value());
   } else {
     TRACE_EVENT_NESTABLE_ASYNC_END1("identity", "GetAccessToken", this, "error",
                                     error.ToString());
 
-    OnGaiaFlowFailure(GaiaWebAuthFlow::SERVICE_AUTH_ERROR, error,
-                      std::string());
+    CompleteMintTokenFlow();
+    if (TryRecoverFromServiceAuthError(error)) {
+      return;
+    }
+    CompleteFunctionWithError(
+        IdentityGetAuthTokenError::FromGetAccessTokenAuthError(
+            error.ToString()));
   }
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 void IdentityGetAuthTokenFunction::OnGetTokenSuccess(
     const OAuth2AccessTokenManager::Request* request,
     const OAuth2AccessTokenConsumer::TokenResponse& token_response) {
@@ -821,7 +826,6 @@ void IdentityGetAuthTokenFunction::OnAccessTokenFetchCompleted(
 }
 
 void IdentityGetAuthTokenFunction::OnIdentityAPIShutdown() {
-  gaia_web_auth_flow_.reset();
   device_access_token_request_.reset();
   token_key_account_access_token_fetcher_.reset();
   scoped_identity_manager_observer_.RemoveAll();
@@ -830,10 +834,11 @@ void IdentityGetAuthTokenFunction::OnIdentityAPIShutdown() {
       ->mint_queue()
       ->RequestCancel(token_key_, this);
 
-  CompleteFunctionWithError(identity_constants::kCanceled);
+  CompleteFunctionWithError(
+      IdentityGetAuthTokenError(IdentityGetAuthTokenError::State::kCanceled));
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 // Even though the DeviceOAuth2TokenService may be available on non-ChromeOS
 // platforms, its robot account is not made available because it should only be
 // used for very specific policy-related things. In fact, the device account on
@@ -847,7 +852,7 @@ void IdentityGetAuthTokenFunction::StartDeviceAccessTokenRequest() {
   device_access_token_request_ = service->StartAccessTokenRequest(scopes, this);
 }
 
-bool IdentityGetAuthTokenFunction::IsOriginWhitelistedInPublicSession() {
+bool IdentityGetAuthTokenFunction::IsOriginAllowlistedInPublicSession() {
   DCHECK(extension());
   GURL extension_url = extension()->url();
   for (size_t i = 0; i < base::size(kPublicSessionAllowedOrigins); i++) {
@@ -865,7 +870,7 @@ void IdentityGetAuthTokenFunction::StartTokenKeyAccountAccessTokenRequest() {
   TRACE_EVENT_NESTABLE_ASYNC_BEGIN0("identity", "GetAccessToken", this);
 
   auto* identity_manager = IdentityManagerFactory::GetForProfile(GetProfile());
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   if (chrome::IsRunningInForcedAppMode()) {
     std::string app_client_id;
     std::string app_client_secret;
@@ -874,8 +879,9 @@ void IdentityGetAuthTokenFunction::StartTokenKeyAccountAccessTokenRequest() {
                                               &app_client_secret)) {
       token_key_account_access_token_fetcher_ =
           identity_manager->CreateAccessTokenFetcherForClient(
-              token_key_.account_id, app_client_id, app_client_secret,
-              kExtensionsIdentityAPIOAuthConsumerName, signin::ScopeSet(),
+              token_key_.account_info.account_id, app_client_id,
+              app_client_secret, kExtensionsIdentityAPIOAuthConsumerName,
+              signin::ScopeSet(),
               base::BindOnce(
                   &IdentityGetAuthTokenFunction::OnAccessTokenFetchCompleted,
                   base::Unretained(this)),
@@ -887,8 +893,8 @@ void IdentityGetAuthTokenFunction::StartTokenKeyAccountAccessTokenRequest() {
 
   token_key_account_access_token_fetcher_ =
       identity_manager->CreateAccessTokenFetcherForAccount(
-          token_key_.account_id, kExtensionsIdentityAPIOAuthConsumerName,
-          signin::ScopeSet(),
+          token_key_.account_info.account_id,
+          kExtensionsIdentityAPIOAuthConsumerName, signin::ScopeSet(),
           base::BindOnce(
               &IdentityGetAuthTokenFunction::OnAccessTokenFetchCompleted,
               base::Unretained(this)),
@@ -907,7 +913,7 @@ void IdentityGetAuthTokenFunction::ShowExtensionLoginPrompt() {
   base::Optional<AccountInfo> account =
       IdentityManagerFactory::GetForProfile(GetProfile())
           ->FindExtendedAccountInfoForAccountWithRefreshTokenByAccountId(
-              token_key_.account_id);
+              token_key_.account_info.account_id);
   std::string email_hint =
       account ? account->email : email_for_default_web_account_;
 
@@ -915,15 +921,6 @@ void IdentityGetAuthTokenFunction::ShowExtensionLoginPrompt() {
       LoginUIServiceFactory::GetForProfile(GetProfile());
   login_ui_service->ShowExtensionLoginPrompt(IsPrimaryAccountOnly(),
                                              email_hint);
-}
-
-void IdentityGetAuthTokenFunction::ShowOAuthApprovalDialog(
-    const IssueAdviceInfo& issue_advice) {
-  const std::string locale = extension_l10n_util::CurrentLocaleOrDefault();
-
-  gaia_web_auth_flow_.reset(new GaiaWebAuthFlow(this, GetProfile(), &token_key_,
-                                                oauth2_client_id_, locale));
-  gaia_web_auth_flow_->Start();
 }
 
 void IdentityGetAuthTokenFunction::ShowRemoteConsentDialog(
@@ -938,32 +935,21 @@ IdentityGetAuthTokenFunction::CreateMintTokenFlow() {
   std::string signin_scoped_device_id =
       GetSigninScopedDeviceIdForProfile(GetProfile());
   auto mint_token_flow = std::make_unique<OAuth2MintTokenFlow>(
-      this, OAuth2MintTokenFlow::Parameters(
-                extension()->id(), oauth2_client_id_,
-                std::vector<std::string>(token_key_.scopes.begin(),
-                                         token_key_.scopes.end()),
-                signin_scoped_device_id, consent_result_,
-                GetOAuth2MintTokenFlowVersion(),
-                GetOAuth2MintTokenFlowChannel(), gaia_mint_token_mode_));
+      this,
+      OAuth2MintTokenFlow::Parameters(
+          extension()->id(), oauth2_client_id_,
+          std::vector<std::string>(token_key_.scopes.begin(),
+                                   token_key_.scopes.end()),
+          enable_granular_permissions_, signin_scoped_device_id,
+          GetSelectedUserId(), consent_result_, GetOAuth2MintTokenFlowVersion(),
+          GetOAuth2MintTokenFlowChannel(), gaia_mint_token_mode_));
   return mint_token_flow;
 }
 
 bool IdentityGetAuthTokenFunction::HasRefreshTokenForTokenKeyAccount() const {
   auto* identity_manager = IdentityManagerFactory::GetForProfile(GetProfile());
-  return identity_manager->HasAccountWithRefreshToken(token_key_.account_id);
-}
-
-std::string IdentityGetAuthTokenFunction::MapOAuth2ErrorToDescription(
-    const std::string& error) {
-  const char kOAuth2ErrorAccessDenied[] = "access_denied";
-  const char kOAuth2ErrorInvalidScope[] = "invalid_scope";
-
-  if (error == kOAuth2ErrorAccessDenied)
-    return std::string(identity_constants::kUserRejected);
-  else if (error == kOAuth2ErrorInvalidScope)
-    return std::string(identity_constants::kInvalidScopes);
-  else
-    return std::string(identity_constants::kAuthFailure) + error;
+  return identity_manager->HasAccountWithRefreshToken(
+      token_key_.account_info.account_id);
 }
 
 std::string IdentityGetAuthTokenFunction::GetOAuth2ClientId() const {
@@ -987,6 +973,17 @@ bool IdentityGetAuthTokenFunction::IsPrimaryAccountOnly() const {
 
 Profile* IdentityGetAuthTokenFunction::GetProfile() const {
   return Profile::FromBrowserContext(browser_context());
+}
+
+bool IdentityGetAuthTokenFunction::enable_granular_permissions() const {
+  return enable_granular_permissions_;
+}
+
+std::string IdentityGetAuthTokenFunction::GetSelectedUserId() const {
+  if (selected_gaia_id_ == token_key_.account_info.gaia)
+    return selected_gaia_id_;
+
+  return "";
 }
 
 }  // namespace extensions

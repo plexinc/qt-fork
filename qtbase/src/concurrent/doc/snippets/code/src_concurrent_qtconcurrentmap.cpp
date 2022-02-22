@@ -130,11 +130,13 @@ QFuture<void> squeezedStrings = QtConcurrent::map(strings, &QString::squeeze);
 
 // Swap the rgb values of all pixels on a list of images.
 QList<QImage> images = ...;
-QFuture<QImage> bgrImages = QtConcurrent::mapped(images, &QImage::rgbSwapped);
+QFuture<QImage> bgrImages = QtConcurrent::mapped(images,
+    static_cast<QImage (QImage::*)() const &>(&QImage::rgbSwapped));
 
 // Create a set of the lengths of all strings in a list.
 QStringList strings = ...;
-QFuture<QSet<int> > wordLengths = QtConcurrent::mappedReduced(strings, &QString::length, &QSet<int>::insert);
+QFuture<QSet<int>> wordLengths = QtConcurrent::mappedReduced(strings, &QString::length,
+                                                             qOverload<const int&>(&QSet<int>::insert));
 //! [8]
 
 
@@ -149,7 +151,8 @@ QFuture<int> averageWordLength = QtConcurrent::mappedReduced(strings, &QString::
 // Create a set of the color distribution of all images in a list.
 extern int colorDistribution(const QImage &string);
 QList<QImage> images = ...;
-QFuture<QSet<int> > totalColorDistribution = QtConcurrent::mappedReduced(images, colorDistribution, QSet<int>::insert);
+QFuture<QSet<int>> totalColorDistribution = QtConcurrent::mappedReduced(images, colorDistribution,
+                                                                        qOverload<const int&>(&QSet<int>::insert));
 //! [9]
 
 
@@ -197,3 +200,37 @@ struct Scaled
 QList<QImage> images = ...;
 QFuture<QImage> thumbnails = QtConcurrent::mapped(images, Scaled(100));
 //! [14]
+
+//! [15]
+QList<int> vector { 1, 2, 3, 4 };
+QtConcurrent::blockingMap(vector, [](int &x) { x *= 2; });
+
+int size = 100;
+QList<QImage> images = ...;
+
+QList<QImage> thumbnails = QtConcurrent::mapped(images,
+        [&size](const QImage &image) {
+            return image.scaled(size, size);
+        }
+    ).results();
+//! [15]
+
+//! [16]
+QList<QImage> collage = QtConcurrent::mappedReduced(images,
+        [&size](const QImage &image) {
+            return image.scaled(size, size);
+        },
+        addToCollage
+   ).results();
+//! [16]
+
+//! [17]
+QList<QImage> collage = QtConcurrent::mappedReduced<QImage>(images,
+        [&size](const QImage &image) {
+            return image.scaled(size, size);
+        },
+        [](QImage &result, const QImage &value) {
+            // do some transformation
+        }
+   ).results();
+//! [17]

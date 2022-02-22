@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env vpython
 #
 # Copyright 2019 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
@@ -8,9 +8,11 @@ Used to download a pre-built version of Chrome for running unit tests
 """
 
 import argparse
+import io
 import os
 import shutil
 import stat
+import subprocess
 import sys
 import urllib
 import zipfile
@@ -52,7 +54,13 @@ def download_and_extract(options):
         shutil.rmtree(options.target, ignore_errors=False, onerror=handleAccessDeniedOnWindows)
 
     # Download again and save build number
-    filehandle, headers = urllib.urlretrieve(options.url)
+    try:
+        filehandle, headers = urllib.urlretrieve(options.url)
+    except:
+        print("Using curl as fallback. You should probably update OpenSSL.")
+        filehandle = io.BytesIO(
+            subprocess.check_output(
+                ['curl', '--output', '-', '-sS', options.url]))
     zip_file = zipfile.ZipFile(filehandle, 'r')
     zip_file.extractall(path=options.target)
     # Fix permissions. Do this recursively is necessary for MacOS bundles.

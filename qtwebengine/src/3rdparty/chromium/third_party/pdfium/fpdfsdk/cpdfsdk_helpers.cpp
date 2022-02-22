@@ -14,10 +14,12 @@
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
 #include "core/fpdfapi/parser/cpdf_stream_acc.h"
+#include "core/fpdfapi/render/cpdf_renderoptions.h"
 #include "core/fpdfdoc/cpdf_annot.h"
 #include "core/fpdfdoc/cpdf_interactiveform.h"
 #include "core/fpdfdoc/cpdf_metadata.h"
 #include "fpdfsdk/cpdfsdk_formfillenvironment.h"
+#include "third_party/base/check.h"
 
 namespace {
 
@@ -51,7 +53,7 @@ unsigned long GetStreamMaybeCopyAndReturnLengthImpl(const CPDF_Stream* stream,
                                                     void* buffer,
                                                     unsigned long buflen,
                                                     bool decode) {
-  ASSERT(stream);
+  DCHECK(stream);
   auto stream_acc = pdfium::MakeRetain<CPDF_StreamAcc>(stream);
 
   if (decode)
@@ -70,8 +72,7 @@ unsigned long GetStreamMaybeCopyAndReturnLengthImpl(const CPDF_Stream* stream,
 #ifdef PDF_ENABLE_XFA
 class FPDF_FileHandlerContext final : public IFX_SeekableStream {
  public:
-  template <typename T, typename... Args>
-  friend RetainPtr<T> pdfium::MakeRetain(Args&&... args);
+  CONSTRUCT_VIA_MAKE_RETAIN;
 
   // IFX_SeekableStream:
   FX_FILESIZE GetSize() override;
@@ -239,8 +240,8 @@ bool IsValidQuadPointsIndex(const CPDF_Array* array, size_t index) {
 bool GetQuadPointsAtIndex(const CPDF_Array* array,
                           size_t quad_index,
                           FS_QUADPOINTSF* quad_points) {
-  ASSERT(quad_points);
-  ASSERT(array);
+  DCHECK(quad_points);
+  DCHECK(array);
 
   if (!IsValidQuadPointsIndex(array, quad_index))
     return false;
@@ -275,6 +276,15 @@ CFX_Matrix CFXMatrixFromFSMatrix(const FS_MATRIX& matrix) {
 
 FS_MATRIX FSMatrixFromCFXMatrix(const CFX_Matrix& matrix) {
   return {matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f};
+}
+
+unsigned long NulTerminateMaybeCopyAndReturnLength(const ByteString& text,
+                                                   void* buffer,
+                                                   unsigned long buflen) {
+  unsigned long len = text.GetLength() + 1;
+  if (buffer && len <= buflen)
+    memcpy(buffer, text.c_str(), len);
+  return len;
 }
 
 unsigned long Utf16EncodeMaybeCopyAndReturnLength(const WideString& text,
@@ -430,4 +440,14 @@ void ProcessParseError(CPDF_Parser::Error err) {
       break;
   }
   FXSYS_SetLastError(err_code);
+}
+
+void SetColorFromScheme(const FPDF_COLORSCHEME* pColorScheme,
+                        CPDF_RenderOptions* pRenderOptions) {
+  CPDF_RenderOptions::ColorScheme color_scheme;
+  color_scheme.path_fill_color = pColorScheme->path_fill_color;
+  color_scheme.path_stroke_color = pColorScheme->path_stroke_color;
+  color_scheme.text_fill_color = pColorScheme->text_fill_color;
+  color_scheme.text_stroke_color = pColorScheme->text_stroke_color;
+  pRenderOptions->SetColorScheme(color_scheme);
 }

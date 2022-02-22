@@ -4,13 +4,17 @@
 
 #include "third_party/blink/renderer/core/paint/list_marker_painter.h"
 
+#include "third_party/blink/renderer/core/css/counter_style.h"
 #include "third_party/blink/renderer/core/layout/layout_list_item.h"
 #include "third_party/blink/renderer/core/layout/layout_list_marker.h"
+#include "third_party/blink/renderer/core/layout/list_marker.h"
 #include "third_party/blink/renderer/core/layout/list_marker_text.h"
 #include "third_party/blink/renderer/core/paint/box_model_object_painter.h"
+#include "third_party/blink/renderer/core/paint/box_painter.h"
+#include "third_party/blink/renderer/core/paint/details_marker_painter.h"
+#include "third_party/blink/renderer/core/paint/highlight_painting_utils.h"
 #include "third_party/blink/renderer/core/paint/paint_info.h"
 #include "third_party/blink/renderer/core/paint/scoped_paint_state.h"
-#include "third_party/blink/renderer/core/paint/selection_painting_utils.h"
 #include "third_party/blink/renderer/core/paint/text_painter.h"
 #include "third_party/blink/renderer/platform/fonts/text_run_paint_info.h"
 #include "third_party/blink/renderer/platform/geometry/layout_point.h"
@@ -22,8 +26,10 @@ namespace blink {
 void ListMarkerPainter::PaintSymbol(const PaintInfo& paint_info,
                                     const LayoutObject* object,
                                     const ComputedStyle& style,
-                                    const IntRect& marker) {
+                                    const LayoutRect& marker) {
   DCHECK(object);
+  DCHECK(style.GetListStyleType());
+  DCHECK(style.GetListStyleType()->IsCounterStyle());
   GraphicsContext& context = paint_info.context;
   ScopedDarkModeElementRoleOverride list_symbol(
       &context, DarkModeFilter::ElementRole::kListSymbol);
@@ -36,19 +42,22 @@ void ListMarkerPainter::PaintSymbol(const PaintInfo& paint_info,
   context.SetStrokeColor(color);
   context.SetStrokeStyle(kSolidStroke);
   context.SetStrokeThickness(1.0f);
-  switch (style.ListStyleType()) {
-    case EListStyleType::kDisc:
-      context.FillEllipse(FloatRect(marker));
-      break;
-    case EListStyleType::kCircle:
-      context.StrokeEllipse(FloatRect(marker));
-      break;
-    case EListStyleType::kSquare:
-      context.FillRect(marker);
-      break;
-    default:
-      NOTREACHED();
-      break;
+  IntRect snapped_rect = PixelSnappedIntRect(marker);
+  const AtomicString& type = style.GetListStyleType()->GetCounterStyleName();
+  if (type == "disc") {
+    context.FillEllipse(FloatRect(snapped_rect));
+  } else if (type == "circle") {
+    context.StrokeEllipse(FloatRect(snapped_rect));
+  } else if (type == "square") {
+    context.FillRect(snapped_rect);
+  } else if (type == "disclosure-open" || type == "disclosure-closed") {
+    Path path = DetailsMarkerPainter::GetCanonicalPath(
+        style, type == "disclosure-open");
+    path.Transform(AffineTransform().Scale(marker.Width(), marker.Height()));
+    path.Translate(FloatSize(marker.X(), marker.Y()));
+    context.FillPath(path);
+  } else {
+    NOTREACHED();
   }
 }
 
@@ -71,8 +80,9 @@ void ListMarkerPainter::Paint(const PaintInfo& paint_info) {
   const auto& local_paint_info = paint_state.GetPaintInfo();
   auto box_origin = paint_state.PaintOffset().ToLayoutPoint();
 
-  DrawingRecorder recorder(local_paint_info.context, layout_list_marker_,
-                           local_paint_info.phase);
+  BoxDrawingRecorder recorder(local_paint_info.context, layout_list_marker_,
+                              local_paint_info.phase,
+                              paint_state.PaintOffset());
 
   LayoutRect box(box_origin, layout_list_marker_.Size());
 
@@ -93,14 +103,14 @@ void ListMarkerPainter::Paint(const PaintInfo& paint_info) {
     return;
   }
 
-  LayoutListMarker::ListStyleCategory style_category =
+  ListMarker::ListStyleCategory style_category =
       layout_list_marker_.GetListStyleCategory();
-  if (style_category == LayoutListMarker::ListStyleCategory::kNone)
+  if (style_category == ListMarker::ListStyleCategory::kNone)
     return;
 
-  if (style_category == LayoutListMarker::ListStyleCategory::kSymbol) {
+  if (style_category == ListMarker::ListStyleCategory::kSymbol) {
     PaintSymbol(paint_info, &layout_list_marker_,
-                layout_list_marker_.StyleRef(), PixelSnappedIntRect(marker));
+                layout_list_marker_.StyleRef(), marker);
     return;
   }
 
@@ -156,34 +166,48 @@ void ListMarkerPainter::Paint(const PaintInfo& paint_info) {
     text_run.SetText(reversed_text.ToString());
   }
 
-  if (style_category == LayoutListMarker::ListStyleCategory::kStaticString) {
+  if (style_category == ListMarker::ListStyleCategory::kStaticString) {
     // Don't add a suffix.
     context.DrawText(font, text_run_paint_info, text_origin, kInvalidDOMNodeId);
     context.GetPaintController().SetTextPainted();
     return;
   }
 
-  const UChar suffix =
-      list_marker_text::Suffix(layout_list_marker_.StyleRef().ListStyleType(),
-                               layout_list_marker_.ListItem()->Value());
-  UChar suffix_str[2] = {suffix, static_cast<UChar>(' ')};
+  String prefix_str;
+  String suffix_str;
+  if (RuntimeEnabledFeatures::CSSAtRuleCounterStyleEnabled()) {
+    const CounterStyle& counter_style = layout_list_marker_.GetCounterStyle();
+    prefix_str = counter_style.GetPrefix();
+    suffix_str = counter_style.GetSuffix();
+  } else {
+    UChar chars[] = {
+        list_marker_text::Suffix(layout_list_marker_.StyleRef().ListStyleType(),
+                                 layout_list_marker_.ListItem()->Value()),
+        ' '};
+    suffix_str = String(chars, 2);
+  }
+  TextRun prefix_run =
+      ConstructTextRun(font, prefix_str, layout_list_marker_.StyleRef(),
+                       layout_list_marker_.StyleRef().Direction());
+  TextRunPaintInfo prefix_run_info(prefix_run);
   TextRun suffix_run =
-      ConstructTextRun(font, suffix_str, 2, layout_list_marker_.StyleRef(),
+      ConstructTextRun(font, suffix_str, layout_list_marker_.StyleRef(),
                        layout_list_marker_.StyleRef().Direction());
   TextRunPaintInfo suffix_run_info(suffix_run);
 
   if (layout_list_marker_.StyleRef().IsLeftToRightDirection()) {
+    context.DrawText(font, prefix_run_info, text_origin, kInvalidDOMNodeId);
+    text_origin += FloatSize(IntSize(font.Width(prefix_run), 0));
     context.DrawText(font, text_run_paint_info, text_origin, kInvalidDOMNodeId);
-    context.DrawText(font, suffix_run_info,
-                     text_origin + FloatSize(IntSize(font.Width(text_run), 0)),
-                     kInvalidDOMNodeId);
-  } else {
+    text_origin += FloatSize(IntSize(font.Width(text_run), 0));
     context.DrawText(font, suffix_run_info, text_origin, kInvalidDOMNodeId);
+  } else {
     // Is the truncation to IntSize below meaningful or a bug?
-    context.DrawText(
-        font, text_run_paint_info,
-        text_origin + FloatSize(IntSize(font.Width(suffix_run), 0)),
-        kInvalidDOMNodeId);
+    context.DrawText(font, suffix_run_info, text_origin, kInvalidDOMNodeId);
+    text_origin += FloatSize(IntSize(font.Width(suffix_run), 0));
+    context.DrawText(font, text_run_paint_info, text_origin, kInvalidDOMNodeId);
+    text_origin += FloatSize(IntSize(font.Width(text_run), 0));
+    context.DrawText(font, prefix_run_info, text_origin, kInvalidDOMNodeId);
   }
   // TODO(npm): Check that there are non-whitespace characters. See
   // crbug.com/788444.

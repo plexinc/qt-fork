@@ -15,15 +15,23 @@
     background-color: var(--highlight-color);
   }
 
-  :host([is-selected-item_]) cr-icon-button {
-    --cr-icon-button-fill-color-focus: var(--highlight-color);
-  }
-
   @media (prefers-color-scheme: dark) {
     :host([is-selected-item_]),
     :host([is-selected-item_]) .folder-icon {
       color: var(--google-grey-refresh-700);
     }
+  }
+
+<if expr="is_macosx">
+  .folder-icon {
+    margin: 2px;
+  }
+</if>
+
+  #website-text {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
   }
 
   #website-title {
@@ -87,17 +95,21 @@
   }
 </style>
 <div id="icon"></div>
-<div id="website-title" class="elided-text" title="[[item_.title]]">
-  [[item_.title]]
+<div id="website-text" role="gridcell">
+  <div id="website-title" class="elided-text" title="[[item_.title]]">
+    [[item_.title]]
+  </div>
+  <div id="website-url" class="elided-text" title="[[item_.url]]">
+    [[item_.url]]
+  </div>
 </div>
-<div id="website-url" class="elided-text" title="[[item_.url]]">
-  [[item_.url]]
+<div role="gridcell">
+  <cr-icon-button class="icon-more-vert"
+      id="menuButton"
+      tabindex="[[ironListTabIndex]]"
+      title="$i18n{moreActionsButtonTitle}"
+      aria-label$="[[getButtonAriaLabel_(item_, isSelectedItem_,
+          isMultiSelect_)]]"
+      on-click="onMenuButtonClick_"
+      aria-haspopup="menu"></cr-icon-button>
 </div>
-<cr-icon-button class="icon-more-vert"
-    id="menuButton"
-    tabindex="[[ironListTabIndex]]"
-    title="$i18n{moreActionsButtonTitle}"
-    aria-label$="[[getButtonAriaLabel_(item_, isSelectedItem_,
-        isMultiSelect_)]]"
-    on-click="onMenuButtonClick_"
-    aria-haspopup="menu"></cr-icon-button>

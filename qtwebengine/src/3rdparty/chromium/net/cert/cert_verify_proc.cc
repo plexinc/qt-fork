@@ -47,18 +47,15 @@
 #include "third_party/boringssl/src/include/openssl/pool.h"
 #include "url/url_canon.h"
 
-#if defined(OS_FUCHSIA) || defined(USE_NSS_CERTS) || \
-    (defined(OS_MACOSX) && !defined(OS_IOS))
+#if defined(OS_FUCHSIA) || defined(USE_NSS_CERTS) || defined(OS_MAC)
 #include "net/cert/cert_verify_proc_builtin.h"
 #endif
 
-#if defined(USE_NSS_CERTS)
-#include "net/cert/cert_verify_proc_nss.h"
-#elif defined(OS_ANDROID)
+#if defined(OS_ANDROID)
 #include "net/cert/cert_verify_proc_android.h"
 #elif defined(OS_IOS)
 #include "net/cert/cert_verify_proc_ios.h"
-#elif defined(OS_MACOSX)
+#elif defined(OS_MAC)
 #include "net/cert/cert_verify_proc_mac.h"
 #elif defined(OS_WIN)
 #include "base/win/windows_version.h"
@@ -496,17 +493,15 @@ base::Value CertVerifyParams(X509Certificate* cert,
 
 }  // namespace
 
-#if !defined(OS_FUCHSIA)
+#if !(defined(OS_FUCHSIA) || defined(OS_LINUX) || defined(OS_CHROMEOS))
 // static
 scoped_refptr<CertVerifyProc> CertVerifyProc::CreateSystemVerifyProc(
     scoped_refptr<CertNetFetcher> cert_net_fetcher) {
-#if defined(USE_NSS_CERTS)
-  return new CertVerifyProcNSS();
-#elif defined(OS_ANDROID)
+#if defined(OS_ANDROID)
   return new CertVerifyProcAndroid(std::move(cert_net_fetcher));
 #elif defined(OS_IOS)
   return new CertVerifyProcIOS();
-#elif defined(OS_MACOSX)
+#elif defined(OS_MAC)
   return new CertVerifyProcMac();
 #elif defined(OS_WIN)
   return new CertVerifyProcWin();
@@ -516,8 +511,7 @@ scoped_refptr<CertVerifyProc> CertVerifyProc::CreateSystemVerifyProc(
 }
 #endif
 
-#if defined(OS_FUCHSIA) || defined(USE_NSS_CERTS) || \
-    (defined(OS_MACOSX) && !defined(OS_IOS))
+#if defined(OS_FUCHSIA) || defined(USE_NSS_CERTS) || defined(OS_MAC)
 // static
 scoped_refptr<CertVerifyProc> CertVerifyProc::CreateBuiltinVerifyProc(
     scoped_refptr<CertNetFetcher> cert_net_fetcher) {
@@ -857,7 +851,7 @@ bool CertVerifyProc::HasNameConstraintsViolation(
           {{0x86, 0xc1, 0x3a, 0x34, 0x08, 0xdd, 0x1a, 0xa7, 0x7e, 0xe8, 0xb6,
             0x94, 0x7c, 0x03, 0x95, 0x87, 0x72, 0xf5, 0x31, 0x24, 0x8c, 0x16,
             0x27, 0xbe, 0xfb, 0x2c, 0x4f, 0x4b, 0x04, 0xd0, 0x44, 0x96}},
-          base::span<const base::StringPiece>(kDomainsANSSI),
+          kDomainsANSSI,
       },
       // C=IN, O=India PKI, CN=CCA India 2007
       // Expires: July 4th 2015.
@@ -867,7 +861,7 @@ bool CertVerifyProc::HasNameConstraintsViolation(
           {{0x7e, 0x6a, 0xcd, 0x85, 0x3c, 0xac, 0xc6, 0x93, 0x2e, 0x9b, 0x51,
             0x9f, 0xda, 0xd1, 0xbe, 0xb5, 0x15, 0xed, 0x2a, 0x2d, 0x00, 0x25,
             0xcf, 0xd3, 0x98, 0xc3, 0xac, 0x1f, 0x0d, 0xbb, 0x75, 0x4b}},
-          base::span<const base::StringPiece>(kDomainsIndiaCCA),
+          kDomainsIndiaCCA,
       },
       // C=IN, O=India PKI, CN=CCA India 2011
       // Expires: March 11 2016.
@@ -877,7 +871,7 @@ bool CertVerifyProc::HasNameConstraintsViolation(
           {{0x42, 0xa7, 0x09, 0x84, 0xff, 0xd3, 0x99, 0xc4, 0xea, 0xf0, 0xe7,
             0x02, 0xa4, 0x4b, 0xef, 0x2a, 0xd8, 0xa7, 0x9b, 0x8b, 0xf4, 0x64,
             0x8f, 0x6b, 0xb2, 0x10, 0xe1, 0x23, 0xfd, 0x07, 0x57, 0x93}},
-          base::span<const base::StringPiece>(kDomainsIndiaCCA),
+          kDomainsIndiaCCA,
       },
       // C=IN, O=India PKI, CN=CCA India 2014
       // Expires: March 5 2024.
@@ -887,7 +881,7 @@ bool CertVerifyProc::HasNameConstraintsViolation(
           {{0x9c, 0xf4, 0x70, 0x4f, 0x3e, 0xe5, 0xa5, 0x98, 0x94, 0xb1, 0x6b,
             0xf0, 0x0c, 0xfe, 0x73, 0xd5, 0x88, 0xda, 0xe2, 0x69, 0xf5, 0x1d,
             0xe6, 0x6a, 0x4b, 0xa7, 0x74, 0x46, 0xee, 0x2b, 0xd1, 0xf7}},
-          base::span<const base::StringPiece>(kDomainsIndiaCCA),
+          kDomainsIndiaCCA,
       },
       // Not a real certificate - just for testing.
       // net/data/ssl/certificates/name_constraint_*.pem
@@ -895,7 +889,7 @@ bool CertVerifyProc::HasNameConstraintsViolation(
           {{0x0d, 0x93, 0x13, 0xa7, 0xd7, 0x0d, 0x35, 0x89, 0x33, 0x50, 0x6e,
             0x9b, 0x68, 0x30, 0x7a, 0x4f, 0x7d, 0x3a, 0x7a, 0x42, 0xd4, 0x60,
             0x9a, 0x5e, 0x10, 0x4b, 0x58, 0xa5, 0xa7, 0x90, 0xa5, 0x81}},
-          base::span<const base::StringPiece>(kDomainsTest),
+          kDomainsTest,
       },
   };
 
@@ -939,6 +933,9 @@ bool CertVerifyProc::HasTooLongValidity(const X509Certificate& cert) {
       base::Time::UnixEpoch() + base::TimeDelta::FromSeconds(1519862400);
   const base::Time time_2019_07_01 =
       base::Time::UnixEpoch() + base::TimeDelta::FromSeconds(1561939200);
+  // From Chrome Root Certificate Policy
+  const base::Time time_2020_09_01 =
+      base::Time::UnixEpoch() + base::TimeDelta::FromSeconds(1598918400);
 
   // Compute the maximally permissive interpretations, accounting for leap
   // years.
@@ -961,18 +958,24 @@ bool CertVerifyProc::HasTooLongValidity(const X509Certificate& cert) {
     return true;
   }
 
-  // For certificates issued after the BR effective date of 1 July 2012: 60
-  // months.
+  // For certificates issued on-or-after the BR effective date of 1 July 2012:
+  // 60 months.
   if (start >= time_2012_07_01 && validity_duration > kSixtyMonths)
     return true;
 
-  // For certificates issued after 1 April 2015: 39 months.
+  // For certificates issued on-or-after 1 April 2015: 39 months.
   if (start >= time_2015_04_01 && validity_duration > kThirtyNineMonths)
     return true;
 
-  // For certificates issued after 1 March 2018: 825 days.
+  // For certificates issued on-or-after 1 March 2018: 825 days.
   if (start >= time_2018_03_01 &&
       validity_duration > base::TimeDelta::FromDays(825)) {
+    return true;
+  }
+
+  // For certificates issued on-or-after 1 September 2020: 398 days.
+  if (start >= time_2020_09_01 &&
+      validity_duration > base::TimeDelta::FromDays(398)) {
     return true;
   }
 

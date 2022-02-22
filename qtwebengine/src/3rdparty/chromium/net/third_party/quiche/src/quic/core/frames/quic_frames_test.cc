@@ -2,22 +2,24 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/frames/quic_ack_frame.h"
-#include "net/third_party/quiche/src/quic/core/frames/quic_blocked_frame.h"
-#include "net/third_party/quiche/src/quic/core/frames/quic_connection_close_frame.h"
-#include "net/third_party/quiche/src/quic/core/frames/quic_frame.h"
-#include "net/third_party/quiche/src/quic/core/frames/quic_goaway_frame.h"
-#include "net/third_party/quiche/src/quic/core/frames/quic_mtu_discovery_frame.h"
-#include "net/third_party/quiche/src/quic/core/frames/quic_padding_frame.h"
-#include "net/third_party/quiche/src/quic/core/frames/quic_ping_frame.h"
-#include "net/third_party/quiche/src/quic/core/frames/quic_rst_stream_frame.h"
-#include "net/third_party/quiche/src/quic/core/frames/quic_stop_waiting_frame.h"
-#include "net/third_party/quiche/src/quic/core/frames/quic_stream_frame.h"
-#include "net/third_party/quiche/src/quic/core/frames/quic_window_update_frame.h"
-#include "net/third_party/quiche/src/quic/core/quic_interval.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_expect_bug.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
+#include "quic/core/frames/quic_ack_frame.h"
+#include "quic/core/frames/quic_blocked_frame.h"
+#include "quic/core/frames/quic_connection_close_frame.h"
+#include "quic/core/frames/quic_frame.h"
+#include "quic/core/frames/quic_goaway_frame.h"
+#include "quic/core/frames/quic_mtu_discovery_frame.h"
+#include "quic/core/frames/quic_new_connection_id_frame.h"
+#include "quic/core/frames/quic_padding_frame.h"
+#include "quic/core/frames/quic_ping_frame.h"
+#include "quic/core/frames/quic_rst_stream_frame.h"
+#include "quic/core/frames/quic_stop_waiting_frame.h"
+#include "quic/core/frames/quic_stream_frame.h"
+#include "quic/core/frames/quic_window_update_frame.h"
+#include "quic/core/quic_interval.h"
+#include "quic/core/quic_types.h"
+#include "quic/platform/api/quic_expect_bug.h"
+#include "quic/platform/api/quic_test.h"
+#include "quic/test_tools/quic_test_utils.h"
 
 namespace quic {
 namespace test {
@@ -94,13 +96,49 @@ TEST_F(QuicFramesTest, StopSendingFrameToString) {
   SetControlFrameId(1, &frame);
   EXPECT_EQ(1u, GetControlFrameId(frame));
   stop_sending.stream_id = 321;
-  stop_sending.application_error_code = QUIC_STREAM_CANCELLED;
+  stop_sending.error_code = QUIC_STREAM_CANCELLED;
+  stop_sending.ietf_error_code =
+      static_cast<uint64_t>(QuicHttp3ErrorCode::REQUEST_CANCELLED);
   std::ostringstream stream;
   stream << stop_sending;
   EXPECT_EQ(
-      "{ control_frame_id: 1, stream_id: 321, application_error_code: 6 }\n",
+      "{ control_frame_id: 1, stream_id: 321, error_code: 6, ietf_error_code: "
+      "268 }\n",
       stream.str());
-  EXPECT_TRUE(IsControlFrame(frame.type));
+}
+
+TEST_F(QuicFramesTest, NewConnectionIdFrameToString) {
+  QuicNewConnectionIdFrame new_connection_id_frame;
+  QuicFrame frame(&new_connection_id_frame);
+  SetControlFrameId(1, &frame);
+  QuicFrame frame_copy = CopyRetransmittableControlFrame(frame);
+  EXPECT_EQ(1u, GetControlFrameId(frame_copy));
+  new_connection_id_frame.connection_id = TestConnectionId(2);
+  new_connection_id_frame.sequence_number = 2u;
+  new_connection_id_frame.retire_prior_to = 1u;
+  new_connection_id_frame.stateless_reset_token = MakeQuicUint128(0, 1);
+  std::ostringstream stream;
+  stream << new_connection_id_frame;
+  EXPECT_EQ(
+      "{ control_frame_id: 1, connection_id: 0000000000000002, "
+      "sequence_number: 2, retire_prior_to: 1 }\n",
+      stream.str());
+  EXPECT_TRUE(IsControlFrame(frame_copy.type));
+  DeleteFrame(&frame_copy);
+}
+
+TEST_F(QuicFramesTest, RetireConnectionIdFrameToString) {
+  QuicRetireConnectionIdFrame retire_connection_id_frame;
+  QuicFrame frame(&retire_connection_id_frame);
+  SetControlFrameId(1, &frame);
+  QuicFrame frame_copy = CopyRetransmittableControlFrame(frame);
+  EXPECT_EQ(1u, GetControlFrameId(frame_copy));
+  retire_connection_id_frame.sequence_number = 1u;
+  std::ostringstream stream;
+  stream << retire_connection_id_frame;
+  EXPECT_EQ("{ control_frame_id: 1, sequence_number: 1 }\n", stream.str());
+  EXPECT_TRUE(IsControlFrame(frame_copy.type));
+  DeleteFrame(&frame_copy);
 }
 
 TEST_F(QuicFramesTest, StreamsBlockedFrameToString) {
@@ -147,11 +185,9 @@ TEST_F(QuicFramesTest, ConnectionCloseFrameToString) {
   // indicating that, in fact, no extended error code was available from the
   // underlying frame.
   EXPECT_EQ(
-      "{ Close type: GOOGLE_QUIC_CONNECTION_CLOSE, error_code: 25, "
-      "extracted_error_code: QUIC_NO_ERROR, "
-      "error_details: 'No recent "
-      "network activity.'"
-      "}\n",
+      "{ Close type: GOOGLE_QUIC_CONNECTION_CLOSE, "
+      "quic_error_code: QUIC_NETWORK_IDLE_TIMEOUT, "
+      "error_details: 'No recent network activity.'}\n",
       stream.str());
   QuicFrame quic_frame(&frame);
   EXPECT_FALSE(IsControlFrame(quic_frame.type));
@@ -160,16 +196,16 @@ TEST_F(QuicFramesTest, ConnectionCloseFrameToString) {
 TEST_F(QuicFramesTest, TransportConnectionCloseFrameToString) {
   QuicConnectionCloseFrame frame;
   frame.close_type = IETF_QUIC_TRANSPORT_CONNECTION_CLOSE;
-  frame.transport_error_code = FINAL_SIZE_ERROR;
-  frame.extracted_error_code = QUIC_NETWORK_IDLE_TIMEOUT;
+  frame.wire_error_code = FINAL_SIZE_ERROR;
+  frame.quic_error_code = QUIC_NETWORK_IDLE_TIMEOUT;
   frame.error_details = "No recent network activity.";
   frame.transport_close_frame_type = IETF_STREAM;
   std::ostringstream stream;
   stream << frame;
   EXPECT_EQ(
-      "{ Close type: IETF_QUIC_TRANSPORT_CONNECTION_CLOSE, error_code: "
-      "FINAL_SIZE_ERROR, "
-      "extracted_error_code: QUIC_NETWORK_IDLE_TIMEOUT, "
+      "{ Close type: IETF_QUIC_TRANSPORT_CONNECTION_CLOSE, "
+      "wire_error_code: FINAL_SIZE_ERROR, "
+      "quic_error_code: QUIC_NETWORK_IDLE_TIMEOUT, "
       "error_details: 'No recent "
       "network activity.', "
       "frame_type: IETF_STREAM"
@@ -242,6 +278,25 @@ TEST_F(QuicFramesTest, HandshakeDoneFrameToString) {
   std::ostringstream stream;
   stream << frame.handshake_done_frame;
   EXPECT_EQ("{ control_frame_id: 6 }\n", stream.str());
+  EXPECT_TRUE(IsControlFrame(frame.type));
+}
+
+TEST_F(QuicFramesTest, QuicAckFreuqncyFrameToString) {
+  QuicAckFrequencyFrame ack_frequency_frame;
+  ack_frequency_frame.sequence_number = 1;
+  ack_frequency_frame.packet_tolerance = 2;
+  ack_frequency_frame.max_ack_delay = QuicTime::Delta::FromMilliseconds(25);
+  ack_frequency_frame.ignore_order = false;
+  QuicFrame frame(&ack_frequency_frame);
+  ASSERT_EQ(ACK_FREQUENCY_FRAME, frame.type);
+  SetControlFrameId(6, &frame);
+  EXPECT_EQ(6u, GetControlFrameId(frame));
+  std::ostringstream stream;
+  stream << *frame.ack_frequency_frame;
+  EXPECT_EQ(
+      "{ control_frame_id: 6, sequence_number: 1, packet_tolerance: 2, "
+      "max_ack_delay_ms: 25, ignore_order: 0 }\n",
+      stream.str());
   EXPECT_TRUE(IsControlFrame(frame.type));
 }
 
@@ -559,6 +614,9 @@ TEST_F(QuicFramesTest, CopyQuicFrames) {
         break;
       case HANDSHAKE_DONE_FRAME:
         frames.push_back(QuicFrame(QuicHandshakeDoneFrame()));
+        break;
+      case ACK_FREQUENCY_FRAME:
+        frames.push_back(QuicFrame(new QuicAckFrequencyFrame()));
         break;
       default:
         ASSERT_TRUE(false)

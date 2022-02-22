@@ -185,7 +185,7 @@ class btree_map
   // template <typename K> size_type erase(const K& key):
   //
   //   Erases the element with the matching key, if it exists, returning the
-  //   number of elements erased.
+  //   number of elements erased (0 or 1).
   using Base::erase;
 
   // btree_map::insert()
@@ -325,6 +325,11 @@ class btree_map
   //   does not contain an element with a matching key, this function returns an
   //   empty node handle.
   //
+  // NOTE: when compiled in an earlier version of C++ than C++17,
+  // `node_type::key()` returns a const reference to the key instead of a
+  // mutable reference. We cannot safely return a mutable reference without
+  // std::launder (which is not available before C++17).
+  //
   // NOTE: In this context, `node_type` refers to the C++17 concept of a
   // move-only type that owns and provides access to the elements in associative
   // containers (https://en.cppreference.com/w/cpp/container/node_handle).
@@ -379,9 +384,8 @@ class btree_map
 
   // btree_map::equal_range()
   //
-  // Returns a closed range [first, last], defined by a `std::pair` of two
-  // iterators, containing all elements with the passed key in the
-  // `btree_map`.
+  // Returns a half-open range [first, last), defined by a `std::pair` of two
+  // iterators, containing all elements with the passed key in the `btree_map`.
   using Base::equal_range;
 
   // btree_map::find()
@@ -652,6 +656,11 @@ class btree_multimap
   //   does not contain an element with a matching key, this function returns an
   //   empty node handle.
   //
+  // NOTE: when compiled in an earlier version of C++ than C++17,
+  // `node_type::key()` returns a const reference to the key instead of a
+  // mutable reference. We cannot safely return a mutable reference without
+  // std::launder (which is not available before C++17).
+  //
   // NOTE: In this context, `node_type` refers to the C++17 concept of a
   // move-only type that owns and provides access to the elements in associative
   // containers (https://en.cppreference.com/w/cpp/container/node_handle).
@@ -699,7 +708,7 @@ class btree_multimap
 
   // btree_multimap::equal_range()
   //
-  // Returns a closed range [first, last], defined by a `std::pair` of two
+  // Returns a half-open range [first, last), defined by a `std::pair` of two
   // iterators, containing all elements with the passed key in the
   // `btree_multimap`.
   using Base::equal_range;

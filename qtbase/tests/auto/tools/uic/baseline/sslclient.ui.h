@@ -1,7 +1,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'sslclient.ui'
 **
-** Created by: Qt User Interface Compiler version 5.12.0
+** Created by: Qt User Interface Compiler version 6.0.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -143,8 +143,8 @@ public:
 
 
         retranslateUi(Form);
-        QObject::connect(hostNameEdit, SIGNAL(returnPressed()), connectButton, SLOT(animateClick()));
-        QObject::connect(sessionInput, SIGNAL(returnPressed()), sendButton, SLOT(animateClick()));
+        QObject::connect(hostNameEdit, &QLineEdit::returnPressed, connectButton, qOverload<>(&QPushButton::animateClick));
+        QObject::connect(sessionInput, &QLineEdit::returnPressed, sendButton, qOverload<>(&QPushButton::animateClick));
 
         connectButton->setDefault(true);
         sendButton->setDefault(true);

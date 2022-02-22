@@ -28,8 +28,10 @@ namespace dawn_native { namespace metal {
             uint32_t samplerIndex = 0;
             uint32_t textureIndex = 0;
 
-            for (uint32_t group : IterateBitSet(GetBindGroupLayoutsMask())) {
-                for (BindingIndex bindingIndex = 0;
+            for (BindGroupIndex group : IterateBitSet(GetBindGroupLayoutsMask())) {
+                mIndexInfo[stage][group].resize(GetBindGroupLayout(group)->GetBindingCount());
+
+                for (BindingIndex bindingIndex{0};
                      bindingIndex < GetBindGroupLayout(group)->GetBindingCount(); ++bindingIndex) {
                     const BindingInfo& bindingInfo =
                         GetBindGroupLayout(group)->GetBindingInfo(bindingIndex);
@@ -37,25 +39,21 @@ namespace dawn_native { namespace metal {
                         continue;
                     }
 
-                    switch (bindingInfo.type) {
-                        case wgpu::BindingType::UniformBuffer:
-                        case wgpu::BindingType::StorageBuffer:
-                        case wgpu::BindingType::ReadonlyStorageBuffer:
+                    switch (bindingInfo.bindingType) {
+                        case BindingInfoType::Buffer:
                             mIndexInfo[stage][group][bindingIndex] = bufferIndex;
                             bufferIndex++;
                             break;
-                        case wgpu::BindingType::Sampler:
+
+                        case BindingInfoType::Sampler:
                             mIndexInfo[stage][group][bindingIndex] = samplerIndex;
                             samplerIndex++;
                             break;
-                        case wgpu::BindingType::SampledTexture:
+
+                        case BindingInfoType::Texture:
+                        case BindingInfoType::StorageTexture:
                             mIndexInfo[stage][group][bindingIndex] = textureIndex;
                             textureIndex++;
-                            break;
-                        case wgpu::BindingType::StorageTexture:
-                        case wgpu::BindingType::ReadonlyStorageTexture:
-                        case wgpu::BindingType::WriteonlyStorageTexture:
-                            UNREACHABLE();
                             break;
                     }
                 }

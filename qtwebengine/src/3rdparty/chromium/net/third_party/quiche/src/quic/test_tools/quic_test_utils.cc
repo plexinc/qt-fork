@@ -2,37 +2,42 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
+#include "quic/test_tools/quic_test_utils.h"
 
 #include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <utility>
 
+#include "absl/base/macros.h"
+#include "absl/strings/string_view.h"
 #include "third_party/boringssl/src/include/openssl/chacha.h"
 #include "third_party/boringssl/src/include/openssl/sha.h"
-#include "net/third_party/quiche/src/quic/core/crypto/crypto_framer.h"
-#include "net/third_party/quiche/src/quic/core/crypto/crypto_handshake.h"
-#include "net/third_party/quiche/src/quic/core/crypto/crypto_utils.h"
-#include "net/third_party/quiche/src/quic/core/crypto/null_encrypter.h"
-#include "net/third_party/quiche/src/quic/core/crypto/quic_decrypter.h"
-#include "net/third_party/quiche/src/quic/core/crypto/quic_encrypter.h"
-#include "net/third_party/quiche/src/quic/core/quic_buffer_allocator.h"
-#include "net/third_party/quiche/src/quic/core/quic_data_writer.h"
-#include "net/third_party/quiche/src/quic/core/quic_framer.h"
-#include "net/third_party/quiche/src/quic/core/quic_packet_creator.h"
-#include "net/third_party/quiche/src/quic/core/quic_simple_buffer_allocator.h"
-#include "net/third_party/quiche/src/quic/core/quic_types.h"
-#include "net/third_party/quiche/src/quic/core/quic_utils.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/quic/test_tools/crypto_test_utils.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_config_peer.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_connection_peer.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_arraysize.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_endian.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
-#include "net/third_party/quiche/src/spdy/core/spdy_frame_builder.h"
+#include "quic/core/crypto/crypto_framer.h"
+#include "quic/core/crypto/crypto_handshake.h"
+#include "quic/core/crypto/crypto_utils.h"
+#include "quic/core/crypto/null_decrypter.h"
+#include "quic/core/crypto/null_encrypter.h"
+#include "quic/core/crypto/quic_decrypter.h"
+#include "quic/core/crypto/quic_encrypter.h"
+#include "quic/core/http/quic_spdy_client_session.h"
+#include "quic/core/quic_buffer_allocator.h"
+#include "quic/core/quic_config.h"
+#include "quic/core/quic_data_writer.h"
+#include "quic/core/quic_framer.h"
+#include "quic/core/quic_packet_creator.h"
+#include "quic/core/quic_simple_buffer_allocator.h"
+#include "quic/core/quic_types.h"
+#include "quic/core/quic_utils.h"
+#include "quic/core/quic_versions.h"
+#include "quic/platform/api/quic_error_code_wrappers.h"
+#include "quic/platform/api/quic_flags.h"
+#include "quic/platform/api/quic_logging.h"
+#include "quic/test_tools/crypto_test_utils.h"
+#include "quic/test_tools/quic_config_peer.h"
+#include "quic/test_tools/quic_connection_peer.h"
+#include "common/quiche_endian.h"
+#include "spdy/core/spdy_frame_builder.h"
 
 using testing::_;
 using testing::Invoke;
@@ -66,7 +71,7 @@ QuicConnectionId TestConnectionIdNineBytesLong(uint64_t connection_number) {
 }
 
 uint64_t TestConnectionIdToUInt64(QuicConnectionId connection_id) {
-  DCHECK_EQ(connection_id.length(), kQuicDefaultConnectionIdLength);
+  QUICHE_DCHECK_EQ(connection_id.length(), kQuicDefaultConnectionIdLength);
   uint64_t connection_id64_net = 0;
   memcpy(&connection_id64_net, connection_id.data(),
          std::min<size_t>(static_cast<size_t>(connection_id.length()),
@@ -74,14 +79,31 @@ uint64_t TestConnectionIdToUInt64(QuicConnectionId connection_id) {
   return quiche::QuicheEndian::NetToHost64(connection_id64_net);
 }
 
+std::vector<uint8_t> CreateStatelessResetTokenForTest() {
+  static constexpr uint8_t kStatelessResetTokenDataForTest[16] = {
+      0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97,
+      0x98, 0x99, 0x9A, 0x9B, 0x9C, 0x9D, 0x9E, 0x9F};
+  return std::vector<uint8_t>(kStatelessResetTokenDataForTest,
+                              kStatelessResetTokenDataForTest +
+                                  sizeof(kStatelessResetTokenDataForTest));
+}
+
+std::string TestHostname() {
+  return "test.example.org";
+}
+
+QuicServerId TestServerId() {
+  return QuicServerId(TestHostname(), kTestPort);
+}
+
 QuicAckFrame InitAckFrame(const std::vector<QuicAckBlock>& ack_blocks) {
-  DCHECK_GT(ack_blocks.size(), 0u);
+  QUICHE_DCHECK_GT(ack_blocks.size(), 0u);
 
   QuicAckFrame ack;
   QuicPacketNumber end_of_previous_block(1);
   for (const QuicAckBlock& block : ack_blocks) {
-    DCHECK_GE(block.start, end_of_previous_block);
-    DCHECK_GT(block.limit, block.start);
+    QUICHE_DCHECK_GE(block.start, end_of_previous_block);
+    QUICHE_DCHECK_GT(block.limit, block.start);
     ack.packets.AddRange(block.start, block.limit);
     end_of_previous_block = block.limit;
   }
@@ -148,13 +170,13 @@ std::unique_ptr<QuicPacket> BuildUnsizedDataPacket(
       framer->GetMaxPlaintextSize(kMaxOutgoingPacketSize);
   size_t packet_size = GetPacketHeaderSize(framer->transport_version(), header);
   for (size_t i = 0; i < frames.size(); ++i) {
-    DCHECK_LE(packet_size, max_plaintext_size);
+    QUICHE_DCHECK_LE(packet_size, max_plaintext_size);
     bool first_frame = i == 0;
     bool last_frame = i == frames.size() - 1;
     const size_t frame_size = framer->GetSerializedFrameLength(
         frames[i], max_plaintext_size - packet_size, first_frame, last_frame,
         header.packet_number_length);
-    DCHECK(frame_size);
+    QUICHE_DCHECK(frame_size);
     packet_size += frame_size;
   }
   return BuildUnsizedDataPacket(framer, header, frames, packet_size);
@@ -169,7 +191,7 @@ std::unique_ptr<QuicPacket> BuildUnsizedDataPacket(
   EncryptionLevel level = HeaderToEncryptionLevel(header);
   size_t length =
       framer->BuildDataPacket(header, frames, buffer, packet_size, level);
-  DCHECK_NE(0u, length);
+  QUICHE_DCHECK_NE(0u, length);
   // Re-construct the data packet with data ownership.
   return std::make_unique<QuicPacket>(
       buffer, length, /* owns_buffer */ true,
@@ -180,16 +202,21 @@ std::unique_ptr<QuicPacket> BuildUnsizedDataPacket(
       header.length_length);
 }
 
-std::string Sha1Hash(quiche::QuicheStringPiece data) {
+std::string Sha1Hash(absl::string_view data) {
   char buffer[SHA_DIGEST_LENGTH];
   SHA1(reinterpret_cast<const uint8_t*>(data.data()), data.size(),
        reinterpret_cast<uint8_t*>(buffer));
-  return std::string(buffer, QUICHE_ARRAYSIZE(buffer));
+  return std::string(buffer, ABSL_ARRAYSIZE(buffer));
 }
 
 bool ClearControlFrame(const QuicFrame& frame) {
   DeleteFrame(&const_cast<QuicFrame&>(frame));
   return true;
+}
+
+bool ClearControlFrameWithTransmissionType(const QuicFrame& frame,
+                                           TransmissionType /*type*/) {
+  return ClearControlFrame(frame);
 }
 
 uint64_t SimpleRandom::RandUint64() {
@@ -212,6 +239,14 @@ void SimpleRandom::RandBytes(void* data, size_t len) {
       FillBuffer();
     }
   }
+}
+
+void SimpleRandom::InsecureRandBytes(void* data, size_t len) {
+  RandBytes(data, len);
+}
+
+uint64_t SimpleRandom::InsecureRandUint64() {
+  return RandUint64();
 }
 
 void SimpleRandom::FillBuffer() {
@@ -408,6 +443,11 @@ bool NoOpFramerVisitor::OnHandshakeDoneFrame(
   return true;
 }
 
+bool NoOpFramerVisitor::OnAckFrequencyFrame(
+    const QuicAckFrequencyFrame& /*frame*/) {
+  return true;
+}
+
 bool NoOpFramerVisitor::IsValidStatelessResetToken(
     QuicUint128 /*token*/) const {
   return false;
@@ -498,19 +538,21 @@ MockQuicConnection::MockQuicConnection(
 
 MockQuicConnection::MockQuicConnection(
     QuicConnectionId connection_id,
-    QuicSocketAddress address,
+    QuicSocketAddress initial_peer_address,
     MockQuicConnectionHelper* helper,
     MockAlarmFactory* alarm_factory,
     Perspective perspective,
     const ParsedQuicVersionVector& supported_versions)
-    : QuicConnection(connection_id,
-                     address,
-                     helper,
-                     alarm_factory,
-                     new testing::NiceMock<MockPacketWriter>(),
-                     /* owns_writer= */ true,
-                     perspective,
-                     supported_versions) {
+    : QuicConnection(
+          connection_id,
+          /*initial_self_address=*/QuicSocketAddress(QuicIpAddress::Any4(), 5),
+          initial_peer_address,
+          helper,
+          alarm_factory,
+          new testing::NiceMock<MockPacketWriter>(),
+          /* owns_writer= */ true,
+          perspective,
+          supported_versions) {
   ON_CALL(*this, OnError(_))
       .WillByDefault(
           Invoke(this, &PacketSavingConnection::QuicConnection_OnError));
@@ -549,15 +591,16 @@ PacketSavingConnection::PacketSavingConnection(
 
 PacketSavingConnection::~PacketSavingConnection() {}
 
-void PacketSavingConnection::SendOrQueuePacket(SerializedPacket* packet) {
+void PacketSavingConnection::SendOrQueuePacket(SerializedPacket packet) {
   encrypted_packets_.push_back(std::make_unique<QuicEncryptedPacket>(
-      CopyBuffer(*packet), packet->encrypted_length, true));
+      CopyBuffer(packet), packet.encrypted_length, true));
   clock_.AdvanceTime(QuicTime::Delta::FromMilliseconds(10));
   // Transfer ownership of the packet to the SentPacketManager and the
   // ack notifier to the AckNotifierManager.
+  OnPacketSent(packet.encryption_level, packet.transmission_type);
   QuicConnectionPeer::GetSentPacketManager(this)->OnPacketSent(
-      packet, clock_.ApproximateNow(), NOT_RETRANSMISSION,
-      HAS_RETRANSMITTABLE_DATA);
+      &packet, clock_.ApproximateNow(), NOT_RETRANSMISSION,
+      HAS_RETRANSMITTABLE_DATA, true);
 }
 
 MockQuicSession::MockQuicSession(QuicConnection* connection)
@@ -599,15 +642,15 @@ QuicConsumedData MockQuicSession::ConsumeData(
     QuicStreamOffset offset,
     StreamSendingState state,
     TransmissionType /*type*/,
-    quiche::QuicheOptional<EncryptionLevel> /*level*/) {
+    absl::optional<EncryptionLevel> /*level*/) {
   if (write_length > 0) {
     auto buf = std::make_unique<char[]>(write_length);
     QuicStream* stream = GetOrCreateStream(id);
-    DCHECK(stream);
+    QUICHE_DCHECK(stream);
     QuicDataWriter writer(write_length, buf.get(), quiche::HOST_BYTE_ORDER);
     stream->WriteStreamData(offset, write_length, &writer);
   } else {
-    DCHECK(state != NO_FIN);
+    QUICHE_DCHECK(state != NO_FIN);
   }
   return QuicConsumedData(write_length, state != NO_FIN);
 }
@@ -616,6 +659,10 @@ MockQuicCryptoStream::MockQuicCryptoStream(QuicSession* session)
     : QuicCryptoStream(session), params_(new QuicCryptoNegotiatedParameters) {}
 
 MockQuicCryptoStream::~MockQuicCryptoStream() {}
+
+ssl_early_data_reason_t MockQuicCryptoStream::EarlyDataReason() const {
+  return ssl_early_data_unknown;
+}
 
 bool MockQuicCryptoStream::encryption_established() const {
   return false;
@@ -649,6 +696,17 @@ MockQuicSpdySession::MockQuicSpdySession(QuicConnection* connection,
 
   ON_CALL(*this, WritevData(_, _, _, _, _, _))
       .WillByDefault(testing::Return(QuicConsumedData(0, false)));
+
+  ON_CALL(*this, SendWindowUpdate(_, _))
+      .WillByDefault([this](QuicStreamId id, QuicStreamOffset byte_offset) {
+        return QuicSpdySession::SendWindowUpdate(id, byte_offset);
+      });
+
+  ON_CALL(*this, SendBlocked(_)).WillByDefault([this](QuicStreamId id) {
+    return QuicSpdySession::SendBlocked(id);
+  });
+
+  ON_CALL(*this, OnCongestionWindowChange(_)).WillByDefault(testing::Return());
 }
 
 MockQuicSpdySession::~MockQuicSpdySession() {
@@ -673,15 +731,15 @@ QuicConsumedData MockQuicSpdySession::ConsumeData(
     QuicStreamOffset offset,
     StreamSendingState state,
     TransmissionType /*type*/,
-    quiche::QuicheOptional<EncryptionLevel> /*level*/) {
+    absl::optional<EncryptionLevel> /*level*/) {
   if (write_length > 0) {
     auto buf = std::make_unique<char[]>(write_length);
     QuicStream* stream = GetOrCreateStream(id);
-    DCHECK(stream);
+    QUICHE_DCHECK(stream);
     QuicDataWriter writer(write_length, buf.get(), quiche::HOST_BYTE_ORDER);
     stream->WriteStreamData(offset, write_length, &writer);
   } else {
-    DCHECK(state != NO_FIN);
+    QUICHE_DCHECK(state != NO_FIN);
   }
   return QuicConsumedData(write_length, state != NO_FIN);
 }
@@ -735,10 +793,15 @@ TestQuicSpdyClientSession::TestQuicSpdyClientSession(
                                 &push_promise_index_,
                                 config,
                                 supported_versions) {
+  // TODO(b/153726130): Consider adding SetServerApplicationStateForResumption
+  // calls in tests and set |has_application_state| to true.
   crypto_stream_ = std::make_unique<QuicCryptoClientStream>(
       server_id, this, crypto_test_utils::ProofVerifyContextForTesting(),
-      crypto_config, this);
+      crypto_config, this, /*has_application_state = */ false);
   Initialize();
+  ON_CALL(*this, OnConfigNegotiated())
+      .WillByDefault(
+          Invoke(this, &TestQuicSpdyClientSession::RealOnConfigNegotiated));
 }
 
 TestQuicSpdyClientSession::~TestQuicSpdyClientSession() {}
@@ -754,6 +817,10 @@ QuicCryptoClientStream* TestQuicSpdyClientSession::GetMutableCryptoStream() {
 const QuicCryptoClientStream* TestQuicSpdyClientSession::GetCryptoStream()
     const {
   return crypto_stream_.get();
+}
+
+void TestQuicSpdyClientSession::RealOnConfigNegotiated() {
+  QuicSpdyClientSessionBase::OnConfigNegotiated();
 }
 
 TestPushPromiseDelegate::TestPushPromiseDelegate(bool match)
@@ -777,9 +844,10 @@ MockPacketWriter::MockPacketWriter() {
       .WillByDefault(testing::Return(kMaxOutgoingPacketSize));
   ON_CALL(*this, IsBatchMode()).WillByDefault(testing::Return(false));
   ON_CALL(*this, GetNextWriteLocation(_, _))
-      .WillByDefault(testing::Return(nullptr));
+      .WillByDefault(testing::Return(QuicPacketBuffer()));
   ON_CALL(*this, Flush())
       .WillByDefault(testing::Return(WriteResult(WRITE_STATUS_OK, 0)));
+  ON_CALL(*this, SupportsReleaseTime()).WillByDefault(testing::Return(false));
 }
 
 MockPacketWriter::~MockPacketWriter() {}
@@ -815,6 +883,12 @@ ParsedQuicVersion QuicVersionMax() {
 
 ParsedQuicVersion QuicVersionMin() {
   return AllSupportedVersions().back();
+}
+
+void DisableQuicVersionsWithTls() {
+  for (const ParsedQuicVersion& version : AllSupportedVersionsWithTls()) {
+    QuicDisableVersion(version);
+  }
 }
 
 QuicEncryptedPacket* ConstructEncryptedPacket(
@@ -930,7 +1004,7 @@ QuicEncryptedPacket* ConstructEncryptedPacket(
   if (!QuicVersionUsesCryptoFrames(version.transport_version)) {
     QuicFrame frame(
         QuicStreamFrame(QuicUtils::GetCryptoStreamId(version.transport_version),
-                        false, 0, quiche::QuicheStringPiece(data)));
+                        false, 0, absl::string_view(data)));
     frames.push_back(frame);
   } else {
     QuicFrame frame(new QuicCryptoFrame(level, 0, data));
@@ -960,6 +1034,49 @@ QuicEncryptedPacket* ConstructEncryptedPacket(
   EXPECT_NE(0u, encrypted_length);
   DeleteFrames(&frames);
   return new QuicEncryptedPacket(buffer, encrypted_length, true);
+}
+
+std::unique_ptr<QuicEncryptedPacket> GetUndecryptableEarlyPacket(
+    const ParsedQuicVersion& version,
+    const QuicConnectionId& server_connection_id) {
+  QuicPacketHeader header;
+  header.destination_connection_id = server_connection_id;
+  header.destination_connection_id_included = CONNECTION_ID_PRESENT;
+  header.source_connection_id = EmptyQuicConnectionId();
+  header.source_connection_id_included = CONNECTION_ID_PRESENT;
+  if (!version.SupportsClientConnectionIds()) {
+    header.source_connection_id_included = CONNECTION_ID_ABSENT;
+  }
+  header.version_flag = true;
+  header.reset_flag = false;
+  header.packet_number_length = PACKET_4BYTE_PACKET_NUMBER;
+  header.packet_number = QuicPacketNumber(33);
+  header.long_packet_type = ZERO_RTT_PROTECTED;
+  if (version.HasLongHeaderLengths()) {
+    header.retry_token_length_length = VARIABLE_LENGTH_INTEGER_LENGTH_1;
+    header.length_length = VARIABLE_LENGTH_INTEGER_LENGTH_2;
+  }
+
+  QuicFrames frames;
+  frames.push_back(QuicFrame(QuicPingFrame()));
+  frames.push_back(QuicFrame(QuicPaddingFrame(100)));
+  QuicFramer framer({version}, QuicTime::Zero(), Perspective::IS_CLIENT,
+                    kQuicDefaultConnectionIdLength);
+  framer.SetInitialObfuscators(server_connection_id);
+
+  framer.SetEncrypter(ENCRYPTION_ZERO_RTT,
+                      std::make_unique<NullEncrypter>(Perspective::IS_CLIENT));
+  std::unique_ptr<QuicPacket> packet(
+      BuildUnsizedDataPacket(&framer, header, frames));
+  EXPECT_TRUE(packet != nullptr);
+  char* buffer = new char[kMaxOutgoingPacketSize];
+  size_t encrypted_length =
+      framer.EncryptPayload(ENCRYPTION_ZERO_RTT, header.packet_number, *packet,
+                            buffer, kMaxOutgoingPacketSize);
+  EXPECT_NE(0u, encrypted_length);
+  DeleteFrames(&frames);
+  return std::make_unique<QuicEncryptedPacket>(buffer, encrypted_length,
+                                               /*owns_buffer=*/true);
 }
 
 QuicReceivedPacket* ConstructReceivedPacket(
@@ -998,8 +1115,7 @@ QuicEncryptedPacket* ConstructMisFramedEncryptedPacket(
     header.retry_token_length_length = VARIABLE_LENGTH_INTEGER_LENGTH_1;
     header.length_length = VARIABLE_LENGTH_INTEGER_LENGTH_2;
   }
-  QuicFrame frame(
-      QuicStreamFrame(1, false, 0, quiche::QuicheStringPiece(data)));
+  QuicFrame frame(QuicStreamFrame(1, false, 0, absl::string_view(data)));
   QuicFrames frames;
   frames.push_back(frame);
   QuicFramer framer({version}, QuicTime::Zero(), perspective,
@@ -1085,6 +1201,12 @@ MockPacketCreatorDelegate::~MockPacketCreatorDelegate() {}
 MockSessionNotifier::MockSessionNotifier() {}
 MockSessionNotifier::~MockSessionNotifier() {}
 
+// static
+QuicCryptoClientStream::HandshakerInterface*
+QuicCryptoClientStreamPeer::GetHandshaker(QuicCryptoClientStream* stream) {
+  return stream->handshaker_.get();
+}
+
 void CreateClientSessionForTest(
     QuicServerId server_id,
     QuicTime::Delta connection_start_time,
@@ -1094,10 +1216,10 @@ void CreateClientSessionForTest(
     QuicCryptoClientConfig* crypto_client_config,
     PacketSavingConnection** client_connection,
     TestQuicSpdyClientSession** client_session) {
-  CHECK(crypto_client_config);
-  CHECK(client_connection);
-  CHECK(client_session);
-  CHECK(!connection_start_time.IsZero())
+  QUICHE_CHECK(crypto_client_config);
+  QUICHE_CHECK(client_connection);
+  QUICHE_CHECK(client_session);
+  QUICHE_CHECK(!connection_start_time.IsZero())
       << "Connections must start at non-zero times, otherwise the "
       << "strike-register will be unhappy.";
 
@@ -1120,10 +1242,10 @@ void CreateServerSessionForTest(
     QuicCompressedCertsCache* compressed_certs_cache,
     PacketSavingConnection** server_connection,
     TestQuicSpdyServerSession** server_session) {
-  CHECK(server_crypto_config);
-  CHECK(server_connection);
-  CHECK(server_session);
-  CHECK(!connection_start_time.IsZero())
+  QUICHE_CHECK(server_crypto_config);
+  QUICHE_CHECK(server_connection);
+  QUICHE_CHECK(server_session);
+  QUICHE_CHECK(!connection_start_time.IsZero())
       << "Connections must start at non-zero times, otherwise the "
       << "strike-register will be unhappy.";
 
@@ -1177,17 +1299,17 @@ QuicStreamId GetNthClientInitiatedUnidirectionalStreamId(
 }
 
 StreamType DetermineStreamType(QuicStreamId id,
-                               QuicTransportVersion version,
+                               ParsedQuicVersion version,
                                Perspective perspective,
                                bool is_incoming,
                                StreamType default_type) {
-  return VersionHasIetfQuicFrames(version)
-             ? QuicUtils::GetStreamType(id, perspective, is_incoming)
+  return version.HasIetfQuicFrames()
+             ? QuicUtils::GetStreamType(id, perspective, is_incoming, version)
              : default_type;
 }
 
 QuicMemSliceSpan MakeSpan(QuicBufferAllocator* allocator,
-                          quiche::QuicheStringPiece message_data,
+                          absl::string_view message_data,
                           QuicMemSliceStorage* storage) {
   if (message_data.length() == 0) {
     *storage =
@@ -1200,11 +1322,302 @@ QuicMemSliceSpan MakeSpan(QuicBufferAllocator* allocator,
   return storage->ToSpan();
 }
 
-QuicMemSlice MemSliceFromString(quiche::QuicheStringPiece data) {
+QuicMemSlice MemSliceFromString(absl::string_view data) {
   static SimpleBufferAllocator* allocator = new SimpleBufferAllocator();
   QuicUniqueBufferPtr buffer = MakeUniqueBuffer(allocator, data.size());
   memcpy(buffer.get(), data.data(), data.size());
   return QuicMemSlice(std::move(buffer), data.size());
+}
+
+bool TaggingEncrypter::EncryptPacket(uint64_t /*packet_number*/,
+                                     absl::string_view /*associated_data*/,
+                                     absl::string_view plaintext,
+                                     char* output,
+                                     size_t* output_length,
+                                     size_t max_output_length) {
+  const size_t len = plaintext.size() + kTagSize;
+  if (max_output_length < len) {
+    return false;
+  }
+  // Memmove is safe for inplace encryption.
+  memmove(output, plaintext.data(), plaintext.size());
+  output += plaintext.size();
+  memset(output, tag_, kTagSize);
+  *output_length = len;
+  return true;
+}
+
+bool TaggingDecrypter::DecryptPacket(uint64_t /*packet_number*/,
+                                     absl::string_view /*associated_data*/,
+                                     absl::string_view ciphertext,
+                                     char* output,
+                                     size_t* output_length,
+                                     size_t /*max_output_length*/) {
+  if (ciphertext.size() < kTagSize) {
+    return false;
+  }
+  if (!CheckTag(ciphertext, GetTag(ciphertext))) {
+    return false;
+  }
+  *output_length = ciphertext.size() - kTagSize;
+  memcpy(output, ciphertext.data(), *output_length);
+  return true;
+}
+
+bool TaggingDecrypter::CheckTag(absl::string_view ciphertext, uint8_t tag) {
+  for (size_t i = ciphertext.size() - kTagSize; i < ciphertext.size(); i++) {
+    if (ciphertext.data()[i] != tag) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+TestPacketWriter::TestPacketWriter(ParsedQuicVersion version,
+                                   MockClock* clock,
+                                   Perspective perspective)
+    : version_(version),
+      framer_(SupportedVersions(version_),
+              QuicUtils::InvertPerspective(perspective)),
+      clock_(clock) {
+  QuicFramerPeer::SetLastSerializedServerConnectionId(framer_.framer(),
+                                                      TestConnectionId());
+  framer_.framer()->SetInitialObfuscators(TestConnectionId());
+
+  for (int i = 0; i < 128; ++i) {
+    PacketBuffer* p = new PacketBuffer();
+    packet_buffer_pool_.push_back(p);
+    packet_buffer_pool_index_[p->buffer] = p;
+    packet_buffer_free_list_.push_back(p);
+  }
+}
+
+TestPacketWriter::~TestPacketWriter() {
+  EXPECT_EQ(packet_buffer_pool_.size(), packet_buffer_free_list_.size())
+      << packet_buffer_pool_.size() - packet_buffer_free_list_.size()
+      << " out of " << packet_buffer_pool_.size()
+      << " packet buffers have been leaked.";
+  for (auto p : packet_buffer_pool_) {
+    delete p;
+  }
+}
+
+WriteResult TestPacketWriter::WritePacket(const char* buffer,
+                                          size_t buf_len,
+                                          const QuicIpAddress& self_address,
+                                          const QuicSocketAddress& peer_address,
+                                          PerPacketOptions* /*options*/) {
+  last_write_source_address_ = self_address;
+  last_write_peer_address_ = peer_address;
+  // If the buffer is allocated from the pool, return it back to the pool.
+  // Note the buffer content doesn't change.
+  if (packet_buffer_pool_index_.find(const_cast<char*>(buffer)) !=
+      packet_buffer_pool_index_.end()) {
+    FreePacketBuffer(buffer);
+  }
+
+  QuicEncryptedPacket packet(buffer, buf_len);
+  ++packets_write_attempts_;
+
+  if (packet.length() >= sizeof(final_bytes_of_last_packet_)) {
+    final_bytes_of_previous_packet_ = final_bytes_of_last_packet_;
+    memcpy(&final_bytes_of_last_packet_, packet.data() + packet.length() - 4,
+           sizeof(final_bytes_of_last_packet_));
+  }
+
+  if (use_tagging_decrypter_) {
+    if (framer_.framer()->version().KnowsWhichDecrypterToUse()) {
+      framer_.framer()->InstallDecrypter(ENCRYPTION_INITIAL,
+                                         std::make_unique<TaggingDecrypter>());
+      framer_.framer()->InstallDecrypter(ENCRYPTION_HANDSHAKE,
+                                         std::make_unique<TaggingDecrypter>());
+      framer_.framer()->InstallDecrypter(ENCRYPTION_ZERO_RTT,
+                                         std::make_unique<TaggingDecrypter>());
+      framer_.framer()->InstallDecrypter(ENCRYPTION_FORWARD_SECURE,
+                                         std::make_unique<TaggingDecrypter>());
+    } else {
+      framer_.framer()->SetDecrypter(ENCRYPTION_INITIAL,
+                                     std::make_unique<TaggingDecrypter>());
+    }
+  } else if (framer_.framer()->version().KnowsWhichDecrypterToUse()) {
+    framer_.framer()->InstallDecrypter(
+        ENCRYPTION_HANDSHAKE,
+        std::make_unique<NullDecrypter>(framer_.framer()->perspective()));
+    framer_.framer()->InstallDecrypter(
+        ENCRYPTION_ZERO_RTT,
+        std::make_unique<NullDecrypter>(framer_.framer()->perspective()));
+    framer_.framer()->InstallDecrypter(
+        ENCRYPTION_FORWARD_SECURE,
+        std::make_unique<NullDecrypter>(framer_.framer()->perspective()));
+  }
+  EXPECT_TRUE(framer_.ProcessPacket(packet))
+      << framer_.framer()->detailed_error() << " perspective "
+      << framer_.framer()->perspective();
+  if (block_on_next_write_) {
+    write_blocked_ = true;
+    block_on_next_write_ = false;
+  }
+  if (next_packet_too_large_) {
+    next_packet_too_large_ = false;
+    return WriteResult(WRITE_STATUS_ERROR, QUIC_EMSGSIZE);
+  }
+  if (always_get_packet_too_large_) {
+    return WriteResult(WRITE_STATUS_ERROR, QUIC_EMSGSIZE);
+  }
+  if (IsWriteBlocked()) {
+    return WriteResult(is_write_blocked_data_buffered_
+                           ? WRITE_STATUS_BLOCKED_DATA_BUFFERED
+                           : WRITE_STATUS_BLOCKED,
+                       0);
+  }
+
+  if (ShouldWriteFail()) {
+    return WriteResult(WRITE_STATUS_ERROR, write_error_code_);
+  }
+
+  last_packet_size_ = packet.length();
+  last_packet_header_ = framer_.header();
+  if (!framer_.connection_close_frames().empty()) {
+    ++connection_close_packets_;
+  }
+  if (!write_pause_time_delta_.IsZero()) {
+    clock_->AdvanceTime(write_pause_time_delta_);
+  }
+  if (is_batch_mode_) {
+    bytes_buffered_ += last_packet_size_;
+    return WriteResult(WRITE_STATUS_OK, 0);
+  }
+  return WriteResult(WRITE_STATUS_OK, last_packet_size_);
+}
+
+QuicPacketBuffer TestPacketWriter::GetNextWriteLocation(
+    const QuicIpAddress& /*self_address*/,
+    const QuicSocketAddress& /*peer_address*/) {
+  return {AllocPacketBuffer(), [this](const char* p) { FreePacketBuffer(p); }};
+}
+
+WriteResult TestPacketWriter::Flush() {
+  flush_attempts_++;
+  if (block_on_next_flush_) {
+    block_on_next_flush_ = false;
+    SetWriteBlocked();
+    return WriteResult(WRITE_STATUS_BLOCKED, /*errno*/ -1);
+  }
+  if (write_should_fail_) {
+    return WriteResult(WRITE_STATUS_ERROR, /*errno*/ -1);
+  }
+  int bytes_flushed = bytes_buffered_;
+  bytes_buffered_ = 0;
+  return WriteResult(WRITE_STATUS_OK, bytes_flushed);
+}
+
+char* TestPacketWriter::AllocPacketBuffer() {
+  PacketBuffer* p = packet_buffer_free_list_.front();
+  EXPECT_FALSE(p->in_use);
+  p->in_use = true;
+  packet_buffer_free_list_.pop_front();
+  return p->buffer;
+}
+
+void TestPacketWriter::FreePacketBuffer(const char* buffer) {
+  auto iter = packet_buffer_pool_index_.find(const_cast<char*>(buffer));
+  ASSERT_TRUE(iter != packet_buffer_pool_index_.end());
+  PacketBuffer* p = iter->second;
+  ASSERT_TRUE(p->in_use);
+  p->in_use = false;
+  packet_buffer_free_list_.push_back(p);
+}
+
+bool WriteServerVersionNegotiationProbeResponse(
+    char* packet_bytes,
+    size_t* packet_length_out,
+    const char* source_connection_id_bytes,
+    uint8_t source_connection_id_length) {
+  if (packet_bytes == nullptr) {
+    QUIC_BUG << "Invalid packet_bytes";
+    return false;
+  }
+  if (packet_length_out == nullptr) {
+    QUIC_BUG << "Invalid packet_length_out";
+    return false;
+  }
+  QuicConnectionId source_connection_id(source_connection_id_bytes,
+                                        source_connection_id_length);
+  std::unique_ptr<QuicEncryptedPacket> encrypted_packet =
+      QuicFramer::BuildVersionNegotiationPacket(
+          source_connection_id, EmptyQuicConnectionId(),
+          /*ietf_quic=*/true, /*use_length_prefix=*/true,
+          ParsedQuicVersionVector{});
+  if (!encrypted_packet) {
+    QUIC_BUG << "Failed to create version negotiation packet";
+    return false;
+  }
+  if (*packet_length_out < encrypted_packet->length()) {
+    QUIC_BUG << "Invalid *packet_length_out " << *packet_length_out << " < "
+             << encrypted_packet->length();
+    return false;
+  }
+  *packet_length_out = encrypted_packet->length();
+  memcpy(packet_bytes, encrypted_packet->data(), *packet_length_out);
+  return true;
+}
+
+bool ParseClientVersionNegotiationProbePacket(
+    const char* packet_bytes,
+    size_t packet_length,
+    char* destination_connection_id_bytes,
+    uint8_t* destination_connection_id_length_out) {
+  if (packet_bytes == nullptr) {
+    QUIC_BUG << "Invalid packet_bytes";
+    return false;
+  }
+  if (packet_length < kMinPacketSizeForVersionNegotiation ||
+      packet_length > 65535) {
+    QUIC_BUG << "Invalid packet_length";
+    return false;
+  }
+  if (destination_connection_id_bytes == nullptr) {
+    QUIC_BUG << "Invalid destination_connection_id_bytes";
+    return false;
+  }
+  if (destination_connection_id_length_out == nullptr) {
+    QUIC_BUG << "Invalid destination_connection_id_length_out";
+    return false;
+  }
+
+  QuicEncryptedPacket encrypted_packet(packet_bytes, packet_length);
+  PacketHeaderFormat format;
+  QuicLongHeaderType long_packet_type;
+  bool version_present, has_length_prefix, retry_token_present;
+  QuicVersionLabel version_label;
+  ParsedQuicVersion parsed_version = ParsedQuicVersion::Unsupported();
+  QuicConnectionId destination_connection_id, source_connection_id;
+  absl::string_view retry_token;
+  std::string detailed_error;
+  QuicErrorCode error = QuicFramer::ParsePublicHeaderDispatcher(
+      encrypted_packet,
+      /*expected_destination_connection_id_length=*/0, &format,
+      &long_packet_type, &version_present, &has_length_prefix, &version_label,
+      &parsed_version, &destination_connection_id, &source_connection_id,
+      &retry_token_present, &retry_token, &detailed_error);
+  if (error != QUIC_NO_ERROR) {
+    QUIC_BUG << "Failed to parse packet: " << detailed_error;
+    return false;
+  }
+  if (!version_present) {
+    QUIC_BUG << "Packet is not a long header";
+    return false;
+  }
+  if (*destination_connection_id_length_out <
+      destination_connection_id.length()) {
+    QUIC_BUG << "destination_connection_id_length_out too small";
+    return false;
+  }
+  *destination_connection_id_length_out = destination_connection_id.length();
+  memcpy(destination_connection_id_bytes, destination_connection_id.data(),
+         *destination_connection_id_length_out);
+  return true;
 }
 
 }  // namespace test

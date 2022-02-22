@@ -30,6 +30,7 @@
 #include "google_apis/gaia/oauth2_id_token_decoder.h"
 #include "google_apis/gaia/oauth_multilogin_result.h"
 #include "net/base/escape.h"
+#include "net/base/isolation_info.h"
 #include "net/http/http_response_headers.h"
 #include "net/http/http_status_code.h"
 #include "services/network/public/cpp/resource_request.h"
@@ -307,8 +308,8 @@ void GaiaAuthFetcher::CreateAndStartGaiaFetcher(
         net::SiteForCookies::FromOrigin(origin);
     resource_request->trusted_params =
         network::ResourceRequest::TrustedParams();
-    resource_request->trusted_params->network_isolation_key =
-        net::NetworkIsolationKey(origin, origin);
+    resource_request->trusted_params->isolation_info =
+        net::IsolationInfo::CreateForInternalRequest(origin);
   }
 
   if (!body.empty())
@@ -802,7 +803,7 @@ void GaiaAuthFetcher::StartOAuthMultilogin(
 
   std::string source_string = net::EscapeUrlEncodedData(source_, true);
   std::string parameters = base::StringPrintf(
-      "?source=%s&mlreuse=%i", source_string.c_str(),
+      "?source=%s&reuseCookies=%i", source_string.c_str(),
       mode == gaia::MultiloginMode::MULTILOGIN_PRESERVE_COOKIE_ACCOUNTS_ORDER
           ? 1
           : 0);
@@ -982,12 +983,15 @@ void GaiaAuthFetcher::StartGetCheckConnectionInfo() {
 GoogleServiceAuthError GaiaAuthFetcher::GenerateAuthError(
     const std::string& data,
     net::Error net_error) {
+  VLOG(1) << "Got authentication error";
+  VLOG(1) << "net_error: " << net::ErrorToString(net_error);
+  VLOG(1) << "response body: " << data;
+
   if (net_error != net::OK) {
     if (net_error == net::ERR_ABORTED) {
       return GoogleServiceAuthError(GoogleServiceAuthError::REQUEST_CANCELED);
     }
-    DLOG(WARNING) << "Could not reach Google Accounts servers: errno "
-                  << net_error;
+    DVLOG(1) << "Could not reach Google Accounts servers: errno " << net_error;
     return GoogleServiceAuthError::FromConnectionError(net_error);
   }
 

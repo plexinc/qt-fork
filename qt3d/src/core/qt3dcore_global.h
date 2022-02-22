@@ -55,12 +55,6 @@ QT_BEGIN_NAMESPACE
 #  define Q_3DCORESHARED_EXPORT
 #endif
 
-#ifdef BUILD_QT3D_MODULE
-#define Q3D_DECL_DEPRECATED
-#else
-#define Q3D_DECL_DEPRECATED Q_DECL_DEPRECATED
-#endif
-
 #define QT3D_DECLARE_TYPEINFO(NS, Class, Flags) \
     } /* NS */ \
     Q_DECLARE_TYPEINFO(NS :: Class, Flags); \
@@ -81,17 +75,25 @@ QT_BEGIN_NAMESPACE
 
 #define QT3D_DECLARE_SHARED(NS, Class) \
     inline void swap(Class &lhs, Class &rhs) \
-        Q_DECL_NOEXCEPT_EXPR(noexcept(lhs.swap(rhs))) \
+        noexcept(noexcept(lhs.swap(rhs))) \
     { lhs.swap(rhs); } \
-    QT3D_DECLARE_TYPEINFO(NS, Class, Q_MOVABLE_TYPE) \
+    QT3D_DECLARE_TYPEINFO(NS, Class, Q_RELOCATABLE_TYPE) \
     /*end*/
 
 #define QT3D_DECLARE_SHARED_2(OuterNS, InnerNS, Class) \
     inline void swap(Class &lhs, Class &rhs) \
-        Q_DECL_NOEXCEPT_EXPR(noexcept(lhs.swap(rhs))) \
+        noexcept(noexcept(lhs.swap(rhs))) \
     { lhs.swap(rhs); } \
-    QT3D_DECLARE_TYPEINFO_2(OuterNS, InnerNS, Class, Q_MOVABLE_TYPE) \
+    QT3D_DECLARE_TYPEINFO_2(OuterNS, InnerNS, Class, Q_RELOCATABLE_TYPE) \
     /*end*/
+
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+#define QT3D_REVISION(major, minor) Q_REVISION(minor)
+#define QT3D_PROPERTY_REVISION(major, minor) REVISION minor
+#else
+#define QT3D_REVISION(major, minor) Q_REVISION(major, minor)
+#define QT3D_PROPERTY_REVISION(major, minor) REVISION(major, minor)
+#endif
 
 QT_END_NAMESPACE
 

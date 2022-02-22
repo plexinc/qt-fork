@@ -43,21 +43,22 @@
 #include <QtScxml/qscxmlexecutablecontent.h>
 
 #include <QtCore/qvariant.h>
-#include <QtCore/qvector.h>
+
+Q_MOC_INCLUDE(qscxmlstatemachine.h)
 
 QT_BEGIN_NAMESPACE
 
 class QScxmlEvent;
 
 class QScxmlStateMachine;
-class QScxmlTableData;
 
 class QScxmlDataModelPrivate;
 class Q_SCXML_EXPORT QScxmlDataModel : public QObject
 {
     Q_OBJECT
     Q_DECLARE_PRIVATE(QScxmlDataModel)
-    Q_PROPERTY(QScxmlStateMachine *stateMachine READ stateMachine WRITE setStateMachine NOTIFY stateMachineChanged)
+    Q_PROPERTY(QScxmlStateMachine *stateMachine READ stateMachine WRITE setStateMachine
+               NOTIFY stateMachineChanged BINDABLE bindableStateMachine)
 
 public:
     class Q_SCXML_EXPORT ForeachLoopBody
@@ -72,8 +73,11 @@ public:
 public:
     explicit QScxmlDataModel(QObject *parent = nullptr);
 
+    static QScxmlDataModel *createScxmlDataModel(const QString& pluginKey);
+
     void setStateMachine(QScxmlStateMachine *stateMachine);
     QScxmlStateMachine *stateMachine() const;
+    QBindable<QScxmlStateMachine*> bindableStateMachine();
 
     Q_INVOKABLE virtual bool setup(const QVariantMap &initialDataValues) = 0;
 

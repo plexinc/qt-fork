@@ -60,7 +60,6 @@
 #    include <qt_windows.h> // first to suppress min, max macros.
 #    include <shlobj.h>
 #  else
-#    include "QtCore/qvector.h"
 #    include <qt_windows.h>
 #  endif
 
@@ -82,17 +81,7 @@ static inline QStringList qWinCmdArgs(const QString &cmdLine)
     return result;
 }
 
-#elif defined(Q_OS_WINRT) // Q_OS_WIN32
-
-static inline QStringList qCmdLineArgs(int argc, char *argv[])
-{
-    QStringList args;
-    for (int i = 0; i != argc; ++i)
-        args += QString::fromLocal8Bit(argv[i]);
-    return args;
-}
-
-#endif // Q_OS_WINRT
+#endif // Q_OS_WIN32
 
 QT_END_NAMESPACE
 

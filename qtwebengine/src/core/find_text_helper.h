@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2019 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtWebEngine module of the Qt Toolkit.
@@ -51,10 +51,13 @@
 #ifndef FIND_TEXT_HELPER_H
 #define FIND_TEXT_HELPER_H
 
-#include "qtwebenginecoreglobal_p.h"
+#include <QtWebEngineCore/private/qtwebenginecoreglobal_p.h>
 
-#include "qwebenginecallback_p.h"
 #include <QJSValue>
+#include <QMap>
+#include <QString>
+
+#include <functional>
 
 namespace content {
 class WebContents;
@@ -63,6 +66,8 @@ class WebContents;
 namespace gfx {
 class Rect;
 }
+
+QT_FORWARD_DECLARE_CLASS(QWebEngineFindTextResult)
 
 namespace QtWebEngineCore {
 
@@ -73,7 +78,7 @@ public:
     FindTextHelper(content::WebContents *webContents, WebContentsAdapterClient *viewClient);
     ~FindTextHelper();
 
-    void startFinding(const QString &findText, bool caseSensitively, bool findBackward, const QWebEngineCallback<bool> resultCallback);
+    void startFinding(const QString &findText, bool caseSensitively, bool findBackward, const std::function<void(const QWebEngineFindTextResult &)> &resultCallback);
     void startFinding(const QString &findText, bool caseSensitively, bool findBackward, const QJSValue &resultCallback);
     void startFinding(const QString &findText, bool caseSensitively, bool findBackward);
     void stopFinding();
@@ -82,7 +87,7 @@ public:
     void handleLoadCommitted();
 
 private:
-    void invokeResultCallback(int requestId, int numberOfMatches);
+    void invokeResultCallback(int requestId, int numberOfMatches, int activeMatch);
 
     content::WebContents *m_webContents;
     WebContentsAdapterClient *m_viewClient;
@@ -94,7 +99,7 @@ private:
     QString m_previousFindText;
 
     QMap<int, QJSValue> m_quickCallbacks;
-    CallbackDirectory m_widgetCallbacks;
+    QMap<int, std::function<void(const QWebEngineFindTextResult &)>> m_widgetCallbacks;
 };
 
 } // namespace QtWebEngineCore

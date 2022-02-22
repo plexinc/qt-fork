@@ -40,7 +40,6 @@
 #ifndef QNDEFMESSAGE_H
 #define QNDEFMESSAGE_H
 
-#include <QtCore/QVector>
 #include <QtCore/QSet>
 #include <QtCore/QList>
 #include <QtCore/QMetaType>
@@ -57,6 +56,10 @@ public:
     inline QNdefMessage(const QNdefMessage &message) : QList<QNdefRecord>(message) { }
     inline QNdefMessage(const QList<QNdefRecord> &records) : QList<QNdefRecord>(records) { }
 
+    QNdefMessage &operator=(const QNdefMessage &other)
+    { QList<QNdefRecord>::operator=(other); return *this; }
+    QNdefMessage &operator=(QNdefMessage &&other) noexcept
+    { QList<QNdefRecord>::operator=(std::move(other)); return *this; }
     bool operator==(const QNdefMessage &other) const;
 
     QByteArray toByteArray() const;

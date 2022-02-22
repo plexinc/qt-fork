@@ -5,11 +5,11 @@
 #ifndef QUICHE_QUIC_CORE_QUIC_IDLE_NETWORK_DETECTOR_H_
 #define QUICHE_QUIC_CORE_QUIC_IDLE_NETWORK_DETECTOR_H_
 
-#include "net/third_party/quiche/src/quic/core/quic_alarm.h"
-#include "net/third_party/quiche/src/quic/core/quic_alarm_factory.h"
-#include "net/third_party/quiche/src/quic/core/quic_one_block_arena.h"
-#include "net/third_party/quiche/src/quic/core/quic_time.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
+#include "quic/core/quic_alarm.h"
+#include "quic/core/quic_alarm_factory.h"
+#include "quic/core/quic_one_block_arena.h"
+#include "quic/core/quic_time.h"
+#include "quic/platform/api/quic_export.h"
 
 namespace quic {
 
@@ -49,10 +49,14 @@ class QUIC_EXPORT_PRIVATE QuicIdleNetworkDetector {
   void StopDetection();
 
   // Called when a packet gets sent.
-  void OnPacketSent(QuicTime now);
+  void OnPacketSent(QuicTime now, QuicTime::Delta pto_delay);
 
   // Called when a packet gets received.
   void OnPacketReceived(QuicTime now);
+
+  void enable_shorter_idle_timeout_on_sent_packet() {
+    shorter_idle_timeout_on_sent_packet_ = true;
+  }
 
   QuicTime::Delta handshake_timeout() const { return handshake_timeout_; }
 
@@ -67,11 +71,15 @@ class QUIC_EXPORT_PRIVATE QuicIdleNetworkDetector {
 
   QuicTime::Delta idle_network_timeout() const { return idle_network_timeout_; }
 
+  QuicTime GetIdleNetworkDeadline() const;
+
  private:
   friend class test::QuicConnectionPeer;
   friend class test::QuicIdleNetworkDetectorTestPeer;
 
   void SetAlarm();
+
+  void MaybeSetAlarmOnSentPacket(QuicTime::Delta pto_delay);
 
   Delegate* delegate_;  // Not owned.
 
@@ -96,6 +104,8 @@ class QUIC_EXPORT_PRIVATE QuicIdleNetworkDetector {
   QuicTime::Delta idle_network_timeout_;
 
   QuicArenaScopedPtr<QuicAlarm> alarm_;
+
+  bool shorter_idle_timeout_on_sent_packet_ = false;
 };
 
 }  // namespace quic

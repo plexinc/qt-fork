@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2019 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtNetwork module of the Qt Toolkit.
@@ -72,26 +72,12 @@ namespace QSsl {
         IpAddressEntry
     };
 
-#if QT_DEPRECATED_SINCE(5,0)
-    typedef AlternativeNameEntryType AlternateNameEntryType;
-#endif
-
     enum SslProtocol {
-#if QT_DEPRECATED_SINCE(5, 15)
-        SslV3,
-        SslV2,
-#endif
-        TlsV1_0 = 2,
-#if QT_DEPRECATED_SINCE(5,0)
-        TlsV1 = TlsV1_0,
-#endif
+        TlsV1_0,
         TlsV1_1,
         TlsV1_2,
         AnyProtocol,
-#if QT_DEPRECATED_SINCE(5, 15)
-        TlsV1SslV3,
-#endif
-        SecureProtocols = AnyProtocol + 2,
+        SecureProtocols,
 
         TlsV1_0OrLater,
         TlsV1_1OrLater,
@@ -119,6 +105,71 @@ namespace QSsl {
         SslOptionDisableServerCipherPreference = 0x80
     };
     Q_DECLARE_FLAGS(SslOptions, SslOption)
+
+    enum class AlertLevel {
+        Warning,
+        Fatal,
+        Unknown
+    };
+
+    enum class AlertType {
+        CloseNotify,
+        UnexpectedMessage = 10,
+        BadRecordMac = 20,
+        RecordOverflow = 22,
+        DecompressionFailure = 30, // reserved
+        HandshakeFailure = 40,
+        NoCertificate = 41, // reserved
+        BadCertificate = 42,
+        UnsupportedCertificate = 43,
+        CertificateRevoked = 44,
+        CertificateExpired = 45,
+        CertificateUnknown = 46,
+        IllegalParameter = 47,
+        UnknownCa = 48,
+        AccessDenied = 49,
+        DecodeError = 50,
+        DecryptError = 51,
+        ExportRestriction = 60, // reserved
+        ProtocolVersion = 70,
+        InsufficientSecurity = 71,
+        InternalError = 80,
+        InappropriateFallback = 86,
+        UserCancelled = 90,
+        NoRenegotiation = 100,
+        MissingExtension = 109,
+        UnsupportedExtension = 110,
+        CertificateUnobtainable = 111, // reserved
+        UnrecognizedName = 112,
+        BadCertificateStatusResponse = 113,
+        BadCertificateHashValue = 114, // reserved
+        UnknownPskIdentity = 115,
+        CertificateRequired = 116,
+        NoApplicationProtocol = 120,
+        UnknownAlertMessage = 255
+    };
+
+    enum class ImplementedClass
+    {
+        Key,
+        Certificate,
+        Socket,
+        DiffieHellman,
+        EllipticCurve,
+        Dtls,
+        DtlsCookie
+    };
+
+    enum class SupportedFeature
+    {
+        CertificateVerification,
+        ClientSideAlpn,
+        ServerSideAlpn,
+        Ocsp,
+        Psk,
+        SessionTicket,
+        Alerts
+    };
 }
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(QSsl::SslOptions)

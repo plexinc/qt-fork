@@ -2,13 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/tools/quic_backend_response.h"
+#include "quic/tools/quic_backend_response.h"
 
 namespace quic {
 
 QuicBackendResponse::ServerPushInfo::ServerPushInfo(
     QuicUrl request_url,
-    spdy::SpdyHeaderBlock headers,
+    spdy::Http2HeaderBlock headers,
     spdy::SpdyPriority priority,
     std::string body)
     : request_url(request_url),

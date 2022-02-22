@@ -54,18 +54,31 @@
 #include "qscxmldatamodel.h"
 #include "qscxmlcompiler_p.h"
 #include <private/qobject_p.h>
+#include <private/qproperty_p.h>
 
 QT_BEGIN_NAMESPACE
 
 class QScxmlDataModelPrivate : public QObjectPrivate
 {
+    Q_DECLARE_PUBLIC(QScxmlDataModel)
 public:
-    QScxmlDataModelPrivate() : m_stateMachine(nullptr) {}
+    QScxmlDataModelPrivate() = default;
 
     static QScxmlDataModel *instantiateDataModel(DocumentModel::Scxml::DataModelType type);
 
-public:
-    QScxmlStateMachine *m_stateMachine;
+    void setStateMachine(QScxmlStateMachine* stateMachine)
+    {
+        q_func()->setStateMachine(stateMachine);
+    }
+
+    void emitStateMachineChanged(QScxmlStateMachine* newValue)
+    {
+        emit q_func()->stateMachineChanged(newValue);
+    }
+
+    Q_OBJECT_COMPAT_PROPERTY_WITH_ARGS(QScxmlDataModelPrivate, QScxmlStateMachine*, m_stateMachine,
+                                       &QScxmlDataModelPrivate::setStateMachine,
+                                       &QScxmlDataModelPrivate::emitStateMachineChanged, nullptr)
 };
 
 QT_END_NAMESPACE

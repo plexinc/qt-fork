@@ -106,12 +106,19 @@ Q_STATIC_ASSERT(!0);
 Q_STATIC_ASSERT(!!true);
 Q_STATIC_ASSERT(!!1);
 
+#ifdef __COUNTER__
+// if the compiler supports __COUNTER__, multiple
+// Q_STATIC_ASSERT's on a single line should compile:
+Q_STATIC_ASSERT(true); Q_STATIC_ASSERT_X(!false, "");
+#endif // __COUNTER__
+
 #ifdef Q_COMPILER_THREAD_LOCAL
 static thread_local int gt_var;
 void thread_local_test()
 {
     static thread_local int t_var;
     t_var = gt_var;
+    Q_UNUSED(t_var);
 }
 #endif
 

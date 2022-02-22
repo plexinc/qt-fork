@@ -1,7 +1,7 @@
-#include "net/third_party/quiche/src/http2/test_tools/http2_random.h"
+#include "http2/test_tools/http2_random.h"
 
-#include "net/third_party/quiche/src/http2/platform/api/http2_logging.h"
-#include "net/third_party/quiche/src/http2/platform/api/http2_string_utils.h"
+#include "http2/platform/api/http2_logging.h"
+#include "http2/platform/api/http2_string_utils.h"
 #include "third_party/boringssl/src/include/openssl/chacha.h"
 #include "third_party/boringssl/src/include/openssl/rand.h"
 
@@ -16,9 +16,9 @@ Http2Random::Http2Random() {
   HTTP2_LOG(INFO) << "Initialized test RNG with the following key: " << Key();
 }
 
-Http2Random::Http2Random(quiche::QuicheStringPiece key) {
+Http2Random::Http2Random(absl::string_view key) {
   std::string decoded_key = Http2HexDecode(key);
-  CHECK_EQ(sizeof(key_), decoded_key.size());
+  QUICHE_CHECK_EQ(sizeof(key_), decoded_key.size());
   memcpy(key_, decoded_key.data(), sizeof(key_));
 }
 
@@ -58,9 +58,8 @@ double Http2Random::RandDouble() {
   return value.f - 1.0;
 }
 
-std::string Http2Random::RandStringWithAlphabet(
-    int length,
-    quiche::QuicheStringPiece alphabet) {
+std::string Http2Random::RandStringWithAlphabet(int length,
+                                                absl::string_view alphabet) {
   std::string result;
   result.resize(length);
   for (int i = 0; i < length; i++) {

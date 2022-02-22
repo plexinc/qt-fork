@@ -16,10 +16,12 @@
 #include "cc/layers/layer_collections.h"
 #include "cc/trees/occlusion.h"
 #include "cc/trees/property_tree.h"
-#include "components/viz/common/quads/render_pass.h"
+#include "components/viz/common/quads/compositor_render_pass.h"
 #include "components/viz/common/quads/shared_quad_state.h"
+#include "components/viz/common/surfaces/subtree_capture_id.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_f.h"
+#include "ui/gfx/mask_filter_info.h"
 #include "ui/gfx/transform.h"
 
 namespace cc {
@@ -54,15 +56,14 @@ class CC_EXPORT RenderSurfaceImpl {
   }
   float draw_opacity() const { return draw_properties_.draw_opacity; }
 
-  void SetRoundedCornerRRect(const gfx::RRectF& rounded_corner_bounds) {
-    draw_properties_.rounded_corner_bounds = rounded_corner_bounds;
+  void SetMaskFilterInfo(const gfx::MaskFilterInfo& mask_filter_info) {
+    draw_properties_.mask_filter_info = mask_filter_info;
   }
-  const gfx::RRectF& rounded_corner_bounds() const {
-    return draw_properties_.rounded_corner_bounds;
+  const gfx::MaskFilterInfo& mask_filter_info() const {
+    return draw_properties_.mask_filter_info;
   }
 
   SkBlendMode BlendMode() const;
-  bool UsesDefaultBlendMode() const;
 
   void SetNearestOcclusionImmuneAncestor(const RenderSurfaceImpl* surface) {
     nearest_occlusion_immune_ancestor_ = surface;
@@ -122,14 +123,10 @@ class CC_EXPORT RenderSurfaceImpl {
     return is_render_surface_list_member_;
   }
 
-  void set_can_use_cached_backdrop_filtered_result(
-      bool can_use_cached_backdrop_filtered_result) {
-    can_use_cached_backdrop_filtered_result_ =
-        can_use_cached_backdrop_filtered_result;
+  void set_intersects_damage_under(bool intersects_damage_under) {
+    intersects_damage_under_ = intersects_damage_under;
   }
-  bool can_use_cached_backdrop_filtered_result() const {
-    return can_use_cached_backdrop_filtered_result_;
-  }
+  bool intersects_damage_under() const { return intersects_damage_under_; }
 
   void CalculateContentRectFromAccumulatedContentRect(int max_texture_size);
   void SetContentRectToViewport();
@@ -162,6 +159,9 @@ class CC_EXPORT RenderSurfaceImpl {
   }
 
   uint64_t id() const { return stable_id_; }
+  viz::CompositorRenderPassId render_pass_id() const {
+    return viz::CompositorRenderPassId{id()};
+  }
 
   bool HasMaskingContributingSurface() const;
 
@@ -169,14 +169,20 @@ class CC_EXPORT RenderSurfaceImpl {
   const FilterOperations& BackdropFilters() const;
   base::Optional<gfx::RRectF> BackdropFilterBounds() const;
   LayerImpl* BackdropMaskLayer() const;
-  gfx::PointF FiltersOrigin() const;
   gfx::Transform SurfaceScale() const;
 
   bool TrilinearFiltering() const;
 
   bool HasCopyRequest() const;
 
+  viz::SubtreeCaptureId SubtreeCaptureId() const;
+
   bool ShouldCacheRenderSurface() const;
+
+  // Returns true if it's required to copy the output of this surface (i.e. when
+  // it has copy requests, should be cached, or has a valid subtree capture ID),
+  // and should be e.g. immune from occlusion, etc. Returns false otherise.
+  bool CopyOfOutputRequired() const;
 
   void ResetPropertyChangedFlags();
   bool SurfacePropertyChanged() const;
@@ -188,12 +194,12 @@ class CC_EXPORT RenderSurfaceImpl {
   DamageTracker* damage_tracker() const { return damage_tracker_.get(); }
   gfx::Rect GetDamageRect() const;
 
-  std::unique_ptr<viz::RenderPass> CreateRenderPass();
+  std::unique_ptr<viz::CompositorRenderPass> CreateRenderPass();
   viz::ResourceId GetMaskResourceFromLayer(PictureLayerImpl* mask_layer,
                                            gfx::Size* mask_texture_size,
                                            gfx::RectF* mask_uv_rect) const;
   void AppendQuads(DrawMode draw_mode,
-                   viz::RenderPass* render_pass,
+                   viz::CompositorRenderPass* render_pass,
                    AppendQuadsData* append_quads_data);
 
   int TransformTreeIndex() const;
@@ -209,7 +215,7 @@ class CC_EXPORT RenderSurfaceImpl {
   gfx::Rect CalculateClippedAccumulatedContentRect();
   gfx::Rect CalculateExpandedClipForFilters(
       const gfx::Transform& target_to_surface);
-  void TileMaskLayer(viz::RenderPass* render_pass,
+  void TileMaskLayer(viz::CompositorRenderPass* render_pass,
                      viz::SharedQuadState* shared_quad_state,
                      const gfx::Rect& unoccluded_content_rect);
 
@@ -240,10 +246,10 @@ class CC_EXPORT RenderSurfaceImpl {
     // True if the surface needs to be clipped by clip_rect.
     bool is_clipped : 1;
 
-    // Contains a rounded corner rect to clip this render surface by when
-    // drawing. This rrect is in the target space of the render surface.  The
-    // root render surface will never have this set.
-    gfx::RRectF rounded_corner_bounds;
+    // Contains a mask information applied to the layer. The coordinates is in
+    // the target space of the render surface. The root render surface will
+    // never have this set.
+    gfx::MaskFilterInfo mask_filter_info;
   };
 
   DrawProperties draw_properties_;
@@ -258,7 +264,7 @@ class CC_EXPORT RenderSurfaceImpl {
 
   bool contributes_to_drawn_surface_ : 1;
   bool is_render_surface_list_member_ : 1;
-  bool can_use_cached_backdrop_filtered_result_ : 1;
+  bool intersects_damage_under_ : 1;
 
   Occlusion occlusion_in_content_space_;
 

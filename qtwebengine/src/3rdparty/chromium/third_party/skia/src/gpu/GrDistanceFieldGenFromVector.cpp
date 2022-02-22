@@ -11,6 +11,7 @@
 #include "include/core/SkMatrix.h"
 #include "include/gpu/GrConfig.h"
 #include "include/pathops/SkPathOps.h"
+#include "include/private/SkTPin.h"
 #include "src/core/SkAutoMalloc.h"
 #include "src/core/SkGeometry.h"
 #include "src/core/SkPointPriv.h"
@@ -200,12 +201,12 @@ public:
     void init();
 
     int countPoints() {
-        static_assert(0 == kLine && 1 == kQuad, "");
+        static_assert(0 == kLine && 1 == kQuad);
         return fType + 2;
     }
 
     const SkPoint& endPt() const {
-        static_assert(0 == kLine && 1 == kQuad, "");
+        static_assert(0 == kLine && 1 == kQuad);
         return fPts[fType + 1];
     }
 };

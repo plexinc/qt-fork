@@ -6,15 +6,15 @@
 
 #include <utility>
 
+#include "ash/components/audio/cras_audio_handler.h"
 #include "base/metrics/histogram_macros.h"
 #include "chrome/browser/consent_auditor/consent_auditor_factory.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/ui/webui/chromeos/user_image_source.h"
 #include "chrome/grit/browser_resources.h"
 #include "chrome/grit/generated_resources.h"
-#include "chromeos/audio/cras_audio_handler.h"
 #include "chromeos/services/assistant/public/cpp/assistant_prefs.h"
-#include "chromeos/services/assistant/public/features.h"
+#include "chromeos/services/assistant/public/cpp/features.h"
 #include "components/arc/arc_prefs.h"
 #include "components/consent_auditor/consent_auditor.h"
 #include "components/prefs/pref_service.h"
@@ -184,6 +184,9 @@ base::Value GetSettingsUiStrings(const assistant::SettingsUi& settings_ui,
   auto third_party_disclosure_ui = consent_ui.third_party_disclosure_ui();
   base::Value dictionary(base::Value::Type::DICTIONARY);
 
+  dictionary.SetKey("activityControlNeeded",
+                    base::Value(activity_control_needed));
+
   // Add activity control string constants.
   if (activity_control_needed) {
     scoped_refptr<base::RefCountedMemory> image =
@@ -200,6 +203,11 @@ base::Value GetSettingsUiStrings(const assistant::SettingsUi& settings_ui,
       dictionary.SetKey(
           "valuePropIntro",
           base::Value(activity_control_ui.intro_text_paragraph(0)));
+      if (activity_control_ui.intro_text_paragraph_size() > 1) {
+        dictionary.SetKey(
+            "valuePropIntroTitle",
+            base::Value(activity_control_ui.intro_text_paragraph(1)));
+      }
     }
     if (activity_control_ui.footer_paragraph_size()) {
       dictionary.SetKey("valuePropFooter",

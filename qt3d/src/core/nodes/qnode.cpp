@@ -43,12 +43,7 @@
 
 #include <Qt3DCore/QComponent>
 #include <Qt3DCore/qaspectengine.h>
-#include <Qt3DCore/qdynamicpropertyupdatedchange.h>
 #include <Qt3DCore/qentity.h>
-#include <Qt3DCore/qnodedestroyedchange.h>
-#include <Qt3DCore/qpropertynodeaddedchange.h>
-#include <Qt3DCore/qpropertynoderemovedchange.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include <QtCore/QChildEvent>
 #include <QtCore/QEvent>
 #include <QtCore/QMetaObject>
@@ -57,7 +52,6 @@
 #include <Qt3DCore/private/corelogging_p.h>
 #include <Qt3DCore/private/qdestructionidandtypecollector_p.h>
 #include <Qt3DCore/private/qnodevisitor_p.h>
-#include <Qt3DCore/private/qpostman_p.h>
 #include <Qt3DCore/private/qscene_p.h>
 #include <Qt3DCore/private/qaspectengine_p.h>
 #include <Qt3DCore/private/qaspectmanager_p.h>
@@ -77,7 +71,6 @@ QNodePrivate::QNodePrivate()
     , m_hasBackendNode(false)
     , m_enabled(true)
     , m_notifiedParent(false)
-    , m_defaultPropertyTrackMode(QNode::TrackFinalValues)
     , m_propertyChangesSetup(false)
     , m_signals(this)
 {
@@ -145,13 +138,6 @@ void QNodePrivate::notifyDestructionChangesAndRemoveFromScene()
     // to avoid crashing when the event loop spins.
     if (m_scene && m_scene->postConstructorInit())
         m_scene->postConstructorInit()->removeNode(q);
-
-    // We notify the backend that the parent lost us as a child
-    if (m_changeArbiter != nullptr && !m_parentId.isNull()) {
-        const auto change = QPropertyNodeRemovedChangePtr::create(m_parentId, q);
-        change->setPropertyName("children");
-        notifyObservers(change);
-    }
 
     // Tell the backend we are about to be destroyed
     if (m_hasBackendNode && m_scene && m_scene->engine())
@@ -243,9 +229,7 @@ void QNodePrivate::_q_addChild(QNode *childNode)
         // we need to catch that to avoid sending more than one new child event
         // to the backend.
         childD->m_notifiedParent = true;
-        const auto change = QPropertyNodeAddedChangePtr::create(m_id, childNode);
-        change->setPropertyName("children");
-        notifyObservers(change);
+        update();
     }
 
     // Update the scene
@@ -266,13 +250,7 @@ void QNodePrivate::_q_removeChild(QNode *childNode)
     Q_ASSERT_X(childNode->parent() == q_func(), Q_FUNC_INFO, "not a child of this node");
 
     QNodePrivate::get(childNode)->m_parentId = QNodeId();
-
-    // We notify the backend that we lost a child
-    if (m_changeArbiter != nullptr) {
-        const auto change = QPropertyNodeRemovedChangePtr::create(m_id, childNode);
-        change->setPropertyName("children");
-        notifyObservers(change);
-    }
+    update();
 }
 
 /*!
@@ -387,7 +365,7 @@ void QNodePrivate::unregisterNotifiedProperties()
 
 void QNodePrivate::propertyChanged(int propertyIndex)
 {
-    Q_UNUSED(propertyIndex)
+    Q_UNUSED(propertyIndex);
 
     // Bail out early if we can to avoid the cost below
     if (m_blockNotifications)
@@ -410,7 +388,7 @@ void QNodePrivate::setSceneHelper(QNode *root)
 
     // We also need to handle QEntity <-> QComponent relationships
     if (QComponent *c = qobject_cast<QComponent *>(root)) {
-        const QVector<QEntity *> entities = c->entities();
+        const QList<QEntity *> entities = c->entities();
         for (QEntity *entity : entities) {
             if (!m_scene->hasEntityForComponent(c->id(), entity->id())) {
                 if (!c->isShareable() && !m_scene->entitiesForComponent(c->id()).isEmpty())
@@ -433,7 +411,7 @@ void QNodePrivate::unsetSceneHelper(QNode *node)
 
     // We also need to handle QEntity <-> QComponent relationships removal
     if (QComponent *c = qobject_cast<QComponent *>(node)) {
-        const QVector<QEntity *> entities = c->entities();
+        const QList<QEntity *> entities = c->entities();
         for (QEntity *entity : entities) {
             if (nodePrivate->m_scene)
                 nodePrivate->m_scene->removeEntityForComponent(c->id(), entity->id());
@@ -463,7 +441,7 @@ void QNodePrivate::addEntityComponentToScene(QNode *root)
     \internal
  */
 // Called in the main thread by QScene -> following QEvent::childAdded / addChild
-void QNodePrivate::setArbiter(QLockableObserverInterface *arbiter)
+void QNodePrivate::setArbiter(QChangeArbiter *arbiter)
 {
     if (m_changeArbiter && m_changeArbiter != arbiter) {
         unregisterNotifiedProperties();
@@ -472,7 +450,7 @@ void QNodePrivate::setArbiter(QLockableObserverInterface *arbiter)
         Q_Q(QNode);
         m_changeArbiter->removeDirtyFrontEndNode(q);
     }
-    m_changeArbiter = static_cast<QAbstractArbiter *>(arbiter);
+    m_changeArbiter = arbiter;
     if (m_changeArbiter)
         registerNotifiedProperties();
 }
@@ -528,63 +506,12 @@ void QNodePrivate::_q_ensureBackendNodeCreated()
 */
 
 /*!
- * Sends the \a change QSceneChangePtr to any QBackendNodes in the registered
- * aspects that correspond to this QNode.
- *
- * You only need to call this function if you wish to send a specific type of
- * change in place of the automatic handling.
- *
- * Note: as of Qt 5.14, change messages are deprecated and should not be used,
- * in particular for properties.
- */
-void QNode::notifyObservers(const QSceneChangePtr &change)
-{
-    Q_D(QNode);
-    d->notifyObservers(change);
-}
-
-/*!
-    \obsolete
-
-    Called when one or more backend aspects sends a notification \a change to the
-    current Qt3DCore::QNode instance.
-
-    \note This method should be reimplemented in your subclasses to properly
-    handle the \a change.
-*/
-void QNode::sceneChangeEvent(const QSceneChangePtr &change)
-{
-    Q_UNUSED(change)
-    if (change->type() == Qt3DCore::PropertyUpdated) {
-        // TODO: Do this more efficiently. We could pass the metaobject and property
-        //       index to the animation aspect via the QChannelMapping. This would
-        //       allow us to avoid the propertyIndex lookup here by sending them in
-        //       a new subclass of QPropertyUpdateChange.
-        // Try to find property and call setter
-        auto e = qSharedPointerCast<Qt3DCore::QPropertyUpdatedChange>(change);
-        const QMetaObject *mo = metaObject();
-        const int propertyIndex = mo->indexOfProperty(e->propertyName());
-        QMetaProperty mp = mo->property(propertyIndex);
-        bool wasBlocked = blockNotifications(true);
-        mp.write(this, e->value());
-        blockNotifications(wasBlocked);
-    } else {
-        // Nothing is handling this change, warn the user.
-        qWarning() << Q_FUNC_INFO << "sceneChangeEvent should have been subclassed";
-    }
-}
-
-/*!
     \internal
  */
 void QNodePrivate::setScene(QScene *scene)
 {
     if (m_scene != scene) {
-        if (m_scene != nullptr)
-            m_scene->removePropertyTrackDataForNode(m_id);
         m_scene = scene;
-        // set PropertyTrackData in the scene
-        updatePropertyTrackMode();
     }
 }
 
@@ -601,8 +528,8 @@ QScene *QNodePrivate::scene() const
  */
 void QNodePrivate::notifyPropertyChange(const char *name, const QVariant &value)
 {
-    Q_UNUSED(name)
-    Q_UNUSED(value)
+    Q_UNUSED(name);
+    Q_UNUSED(value);
 
     // Bail out early if we can to avoid operator new
     if (m_blockNotifications)
@@ -613,33 +540,14 @@ void QNodePrivate::notifyPropertyChange(const char *name, const QVariant &value)
 
 void QNodePrivate::notifyDynamicPropertyChange(const QByteArray &name, const QVariant &value)
 {
-    Q_UNUSED(name)
-    Q_UNUSED(value)
+    Q_UNUSED(name);
+    Q_UNUSED(value);
 
     // Bail out early if we can to avoid operator new
     if (m_blockNotifications)
         return;
 
     update();
-}
-
-/*!
-    \internal
- */
-// Called by the main thread
-void QNodePrivate::notifyObservers(const QSceneChangePtr &change)
-{
-    Q_ASSERT(change);
-
-    // Don't send notifications if we are blocking
-    if (m_blockNotifications && change->type() == PropertyUpdated)
-        return;
-
-    if (m_changeArbiter != nullptr) {
-        QAbstractPostman *postman = m_changeArbiter->postman();
-        if (postman != nullptr)
-            postman->notifyBackend(change);
-    }
 }
 
 // Inserts this tree into the main Scene tree.
@@ -669,16 +577,6 @@ void QNodePrivate::insertTree(QNode *treeRoot, int depth)
         treeRoot->setParent(q_func());
 }
 
-void QNodePrivate::updatePropertyTrackMode()
-{
-    if (m_scene != nullptr) {
-        QScene::NodePropertyTrackData trackData;
-        trackData.defaultTrackMode = m_defaultPropertyTrackMode;
-        trackData.trackedPropertiesOverrides = m_trackedPropertiesOverrides;
-        m_scene->setPropertyTrackDataForNode(m_id, trackData);
-    }
-}
-
 void QNodePrivate::update()
 {
     if (m_changeArbiter) {
@@ -687,17 +585,10 @@ void QNodePrivate::update()
     }
 }
 
-void QNodePrivate::updateNode(QNode *node, const char *property, ChangeFlag change)
+void QNodePrivate::markDirty(QScene::DirtyNodeSet changes)
 {
-    if (m_changeArbiter) {
-        // Ensure node has its postConstructorInit called if we reach this
-        // point, we could otherwise endup referencing a node that has yet
-        // to be created in the backend
-        QNodePrivate::get(node)->_q_ensureBackendNodeCreated();
-
-        Q_Q(QNode);
-        m_changeArbiter->addDirtyFrontEndNode(q, node, property, change);
-    }
+    if (m_scene)
+        m_scene->markDirty(changes);
 }
 
 /*!
@@ -737,36 +628,6 @@ void QNodePrivate::nodePtrDeleter(QNode *q)
     \fn template<typename T> Qt3DCore::QNodeIdVector Qt3DCore::qIdsForNodes(const T &nodes)
     \relates Qt3DCore::QNode
     \return vector of node ids for \a nodes.
-*/
-
-/*!
-    \fn void Qt3DCore::QNodeCommand::setReplyToCommandId(CommandId id)
-
-    Sets the command \a id to which the message is a reply.
-
-*/
-/*!
-    \fn  Qt3DCore::QNode::PropertyTrackingMode Qt3DCore::QNode::defaultPropertyTrackingMode() const
-
-    Returns the default property tracking mode which determines whether a
-    QNode should be listening for property updates.
-
-*/
-/*!
-    \fn Qt3DCore::QNode::clearPropertyTracking(const QString &propertyName)
-
-    Clears the tracking property called \a propertyName.
-*/
-/*!
-    \fn Qt3DCore::QNode::PropertyTrackingMode Qt3DCore::QNode::propertyTracking(const QString &propertyName) const
-
-    Returns the tracking mode of \a propertyName.
-*/
-
-/*!
-    \fn Qt3DCore::QNode::setPropertyTracking(const QString &propertyName, Qt3DCore::QNode::PropertyTrackingMode trackMode)
-
-    Sets the property tracking for \a propertyName and \a trackMode.
 */
 
 /*!
@@ -932,20 +793,6 @@ void QNode::setEnabled(bool isEnabled)
     emit enabledChanged(isEnabled);
 }
 
-void QNode::setDefaultPropertyTrackingMode(QNode::PropertyTrackingMode mode)
-{
-    Q_D(QNode);
-    if (d->m_defaultPropertyTrackMode == mode)
-        return;
-
-    d->m_defaultPropertyTrackMode = mode;
-    // The backend doesn't care about such notification
-    const bool blocked = blockNotifications(true);
-    emit defaultPropertyTrackingModeChanged(mode);
-    blockNotifications(blocked);
-    d->updatePropertyTrackMode();
-}
-
 /*!
     \property Qt3DCore::QNode::enabled
 
@@ -961,148 +808,6 @@ bool QNode::isEnabled() const
     Q_D(const QNode);
     return d->m_enabled;
 }
-
-/*!
-    \property Qt3DCore::QNode::defaultPropertyTrackingMode
-
-    Holds the default property tracking mode which determines whether a QNode should
-    be listening for property updates. This only applies to properties which
-    haven't been overridden by a call to setPropertyTracking.
-
-    By default it is set to QNode::TrackFinalValues
-*/
-QNode::PropertyTrackingMode QNode::defaultPropertyTrackingMode() const
-{
-    Q_D(const QNode);
-    return d->m_defaultPropertyTrackMode;
-}
-
-void QNode::setPropertyTracking(const QString &propertyName, QNode::PropertyTrackingMode trackMode)
-{
-    Q_D(QNode);
-    d->m_trackedPropertiesOverrides.insert(propertyName, trackMode);
-    d->updatePropertyTrackMode();
-}
-
-QNode::PropertyTrackingMode QNode::propertyTracking(const QString &propertyName) const
-{
-    Q_D(const QNode);
-    return d->m_trackedPropertiesOverrides.value(propertyName, d->m_defaultPropertyTrackMode);
-}
-
-void QNode::clearPropertyTracking(const QString &propertyName)
-{
-    Q_D(QNode);
-    d->m_trackedPropertiesOverrides.remove(propertyName);
-    d->updatePropertyTrackMode();
-}
-
-void QNode::clearPropertyTrackings()
-{
-    Q_D(QNode);
-    d->m_trackedPropertiesOverrides.clear();
-    d->updatePropertyTrackMode();
-}
-
-/*!
- * \obsolete
- */
-QNodeCreatedChangeBasePtr QNode::createNodeCreationChange() const
-{
-    // Uncomment this when implementing new frontend and backend types.
-    // Any classes that don't override this function will be noticeable here.
-    // Note that some classes actually don't need to override as they have
-    // no additional data to send. In those cases this default implementation
-    // is perfectly fine.
-    // const QMetaObject *mo = metaObject();
-    // qDebug() << Q_FUNC_INFO << mo->className();
-    return QNodeCreatedChangeBasePtr::create(this);
-}
-
-/*!
-   \fn Qt3DCore::QNodeCommand::CommandId Qt3DCore::QNodeCommand::inReplyTo() const
-
-   Returns the id of the original QNodeCommand message that
-   was sent to the backend.
-
-*/
-/*!
-    \fn void Qt3DCore::QNodeCommand::setData(const QVariant &data)
-
-    Sets the data (\a data) in the backend node to perform
-    the operations requested.
-*/
-/*!
-    \fn void Qt3DCore::QNodeCommand::setName(const QString &name)
-
-
-    Sets the data (\a name) in the backend node to perform
-    the operations requested.
-*/
-
-/*!
-    \enum Qt3DCore::QNode::PropertyTrackingMode
-
-    Indicates how a QNode listens for property updates.
-
-    \value TrackFinalValues
-           Tracks final values
-    \value DontTrackValues
-           Does not track values
-    \value TrackAllValues
-           Tracks all values
-*/
-/*!
-    \fn Qt3DCore::QNode::clearPropertyTrackings()
-
-    Erases all values that have been saved by the property tracking.
-*/
-/*!
- * \brief Sends a command message to the backend node
- * \obsolete
- *
- * Creates a QNodeCommand message and dispatches it to the backend node. The
- * command is given and a \a name and some \a data which can be used in the
- * backend node to perform various operations.
- * This returns a CommandId which can be used to identify the initial command
- * when receiving a message in reply. If the command message is to be sent in
- * reply to another command, \a replyTo contains the id of that command.
- *
- * \sa QNodeCommand, QNode::sendReply
- */
-QNodeCommand::CommandId QNode::sendCommand(const QString &name,
-                                           const QVariant &data,
-                                           QNodeCommand::CommandId replyTo)
-{
-    Q_D(QNode);
-
-    // Bail out early, if we can, to avoid operator new
-    if (d->m_blockNotifications)
-        return QNodeCommand::CommandId(0);
-
-    auto e = QNodeCommandPtr::create(d->m_id);
-    e->setName(name);
-    e->setData(data);
-    e->setReplyToCommandId(replyTo);
-    d->notifyObservers(e);
-    return e->commandId();
-}
-
-/*!
- * \brief Send a \a command back to the backend node.
- * \obsolete
- *
- * Assumes the command is to be to sent back in reply to itself to the backend node.
- *
- * \sa QNodeCommand, QNode::sendCommand
- */
-void QNode::sendReply(const QNodeCommandPtr &command)
-{
-    Q_D(QNode);
-    command->setDeliveryFlags(QSceneChange::BackendNodes);
-    d->notifyObservers(command);
-}
-
 
 namespace {
 

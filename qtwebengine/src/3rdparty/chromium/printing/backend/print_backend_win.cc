@@ -15,12 +15,15 @@
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
+#include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/threading/scoped_blocking_call.h"
 #include "base/win/scoped_bstr.h"
 #include "base/win/scoped_hglobal.h"
 #include "printing/backend/print_backend_consts.h"
 #include "printing/backend/printing_info_win.h"
 #include "printing/backend/win_helper.h"
+#include "printing/mojom/print.mojom.h"
 
 namespace printing {
 
@@ -102,7 +105,7 @@ void LoadPaper(const wchar_t* printer,
     paper.size_um.SetSize(sizes[i].x * kToUm, sizes[i].y * kToUm);
     if (!names.empty()) {
       const wchar_t* name_start = names[i].chars;
-      base::string16 tmp_name(name_start, kMaxPaperName);
+      std::wstring tmp_name(name_start, kMaxPaperName);
       // Trim trailing zeros.
       tmp_name = tmp_name.c_str();
       paper.display_name = base::WideToUTF8(tmp_name);
@@ -222,6 +225,8 @@ std::string PrintBackendWin::GetDefaultPrinterName() {
   DWORD size = MAX_PATH;
   TCHAR default_printer_name[MAX_PATH];
   std::string ret;
+  base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
+                                                base::BlockingType::MAY_BLOCK);
   if (::GetDefaultPrinter(default_printer_name, &size))
     ret = base::WideToUTF8(default_printer_name);
   return ret;
@@ -255,7 +260,7 @@ bool PrintBackendWin::GetPrinterSemanticCapsAndDefaults(
     return false;
   const wchar_t* name = info_5.get()->pPrinterName;
   const wchar_t* port = info_5.get()->pPortName;
-  DCHECK_EQ(name, base::UTF8ToUTF16(printer_name));
+  DCHECK_EQ(name, base::UTF8ToWide(printer_name));
 
   PrinterSemanticCapsAndDefaults caps;
 
@@ -267,13 +272,13 @@ bool PrintBackendWin::GetPrinterSemanticCapsAndDefaults(
     if (user_settings->dmFields & DM_DUPLEX) {
       switch (user_settings->dmDuplex) {
         case DMDUP_SIMPLEX:
-          caps.duplex_default = SIMPLEX;
+          caps.duplex_default = mojom::DuplexMode::kSimplex;
           break;
         case DMDUP_VERTICAL:
-          caps.duplex_default = LONG_EDGE;
+          caps.duplex_default = mojom::DuplexMode::kLongEdge;
           break;
         case DMDUP_HORIZONTAL:
-          caps.duplex_default = SHORT_EDGE;
+          caps.duplex_default = mojom::DuplexMode::kShortEdge;
           break;
         default:
           NOTREACHED();
@@ -285,20 +290,20 @@ bool PrintBackendWin::GetPrinterSemanticCapsAndDefaults(
   } else {
     LOG(WARNING) << "Fallback to color/simplex mode.";
     caps.color_default = caps.color_changeable;
-    caps.duplex_default = SIMPLEX;
+    caps.duplex_default = mojom::DuplexMode::kSimplex;
   }
 
   // Get printer capabilities. For more info see here:
   // http://msdn.microsoft.com/en-us/library/windows/desktop/dd183552(v=vs.85).aspx
   caps.color_changeable =
       (DeviceCapabilities(name, port, DC_COLORDEVICE, nullptr, nullptr) == 1);
-  caps.color_model = printing::COLOR;
-  caps.bw_model = printing::GRAY;
+  caps.color_model = mojom::ColorModel::kColor;
+  caps.bw_model = mojom::ColorModel::kGray;
 
-  caps.duplex_modes.push_back(SIMPLEX);
+  caps.duplex_modes.push_back(mojom::DuplexMode::kSimplex);
   if (DeviceCapabilities(name, port, DC_DUPLEX, nullptr, nullptr) == 1) {
-    caps.duplex_modes.push_back(LONG_EDGE);
-    caps.duplex_modes.push_back(SHORT_EDGE);
+    caps.duplex_modes.push_back(mojom::DuplexMode::kLongEdge);
+    caps.duplex_modes.push_back(mojom::DuplexMode::kShortEdge);
   }
 
   caps.collate_capable =
@@ -326,15 +331,14 @@ bool PrintBackendWin::GetPrinterCapsAndDefaults(
     return false;
 
   HPTPROVIDER provider = nullptr;
-  std::wstring printer_name_wide = base::UTF8ToWide(printer_name);
-  HRESULT hr = XPSModule::OpenProvider(printer_name_wide, 1, &provider);
+  std::wstring wide_printer_name = base::UTF8ToWide(printer_name);
+  HRESULT hr = XPSModule::OpenProvider(wide_printer_name, 1, &provider);
   if (!provider)
     return true;
 
   {
     Microsoft::WRL::ComPtr<IStream> print_capabilities_stream;
-    hr = CreateStreamOnHGlobal(nullptr, TRUE,
-                               print_capabilities_stream.GetAddressOf());
+    hr = CreateStreamOnHGlobal(nullptr, TRUE, &print_capabilities_stream);
     DCHECK(SUCCEEDED(hr));
     if (print_capabilities_stream.Get()) {
       base::win::ScopedBstr error;
@@ -350,14 +354,13 @@ bool PrintBackendWin::GetPrinterCapsAndDefaults(
       printer_info->caps_mime_type = "text/xml";
     }
     ScopedPrinterHandle printer_handle;
-    if (printer_handle.OpenPrinterWithName(printer_name_wide.c_str())) {
+    if (printer_handle.OpenPrinterWithName(wide_printer_name.c_str())) {
       std::unique_ptr<DEVMODE, base::FreeDeleter> devmode_out(
           CreateDevMode(printer_handle.Get(), nullptr));
       if (!devmode_out)
         return false;
       Microsoft::WRL::ComPtr<IStream> printer_defaults_stream;
-      hr = CreateStreamOnHGlobal(nullptr, TRUE,
-                                 printer_defaults_stream.GetAddressOf());
+      hr = CreateStreamOnHGlobal(nullptr, TRUE, &printer_defaults_stream);
       DCHECK(SUCCEEDED(hr));
       if (printer_defaults_stream.Get()) {
         DWORD dm_size = devmode_out->dmSize + devmode_out->dmDriverExtra;

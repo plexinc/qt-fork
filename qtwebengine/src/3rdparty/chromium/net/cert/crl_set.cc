@@ -8,6 +8,7 @@
 
 #include "base/base64.h"
 #include "base/json/json_reader.h"
+#include "base/strings/string_piece.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
 #include "base/values.h"
@@ -301,9 +302,18 @@ bool CRLSet::Parse(base::StringPiece data, scoped_refptr<CRLSet>* out_crl_set) {
   return true;
 }
 
+// static
+bool CRLSet::ParseAndStoreUnparsedData(std::string data,
+                                       scoped_refptr<CRLSet>* out_crl_set) {
+  if (!Parse(data, out_crl_set))
+    return false;
+  (*out_crl_set)->unparsed_crl_set_ = std::move(data);
+  return true;
+}
+
 CRLSet::Result CRLSet::CheckSPKI(const base::StringPiece& spki_hash) const {
   if (std::binary_search(blocked_spkis_.begin(), blocked_spkis_.end(),
-                         spki_hash))
+                         spki_hash.data()))
     return REVOKED;
   return GOOD;
 }
@@ -340,7 +350,7 @@ CRLSet::Result CRLSet::CheckSerial(
   while (serial.size() > 1 && serial[0] == 0x00)
     serial.remove_prefix(1);
 
-  auto it = crls_.find(issuer_spki_hash.as_string());
+  auto it = crls_.find(std::string(issuer_spki_hash));
   if (it == crls_.end())
     return UNKNOWN;
 
@@ -367,6 +377,10 @@ bool CRLSet::IsExpired() const {
 
 uint32_t CRLSet::sequence() const {
   return sequence_;
+}
+
+const std::string& CRLSet::unparsed_crl_set() const {
+  return unparsed_crl_set_;
 }
 
 const CRLSet::CRLList& CRLSet::CrlsForTesting() const {
@@ -398,10 +412,10 @@ scoped_refptr<CRLSet> CRLSet::ForTesting(
     bool is_expired,
     const SHA256HashValue* issuer_spki,
     const std::string& serial_number,
-    const std::string common_name,
+    const std::string utf8_common_name,
     const std::vector<std::string> acceptable_spki_hashes_for_cn) {
   std::string subject_hash;
-  if (!common_name.empty()) {
+  if (!utf8_common_name.empty()) {
     CBB cbb, top_level, set, inner_seq, oid, cn;
     uint8_t* x501_data;
     size_t x501_len;
@@ -415,10 +429,10 @@ scoped_refptr<CRLSet> CRLSet::ForTesting(
         !CBB_add_asn1(&set, &inner_seq, CBS_ASN1_SEQUENCE) ||
         !CBB_add_asn1(&inner_seq, &oid, CBS_ASN1_OBJECT) ||
         !CBB_add_bytes(&oid, kCommonNameOID, sizeof(kCommonNameOID)) ||
-        !CBB_add_asn1(&inner_seq, &cn, CBS_ASN1_PRINTABLESTRING) ||
-        !CBB_add_bytes(&cn,
-                       reinterpret_cast<const uint8_t*>(common_name.data()),
-                       common_name.size()) ||
+        !CBB_add_asn1(&inner_seq, &cn, CBS_ASN1_UTF8STRING) ||
+        !CBB_add_bytes(
+            &cn, reinterpret_cast<const uint8_t*>(utf8_common_name.data()),
+            utf8_common_name.size()) ||
         !CBB_finish(&cbb, &x501_data, &x501_len)) {
       CBB_cleanup(&cbb);
       return nullptr;

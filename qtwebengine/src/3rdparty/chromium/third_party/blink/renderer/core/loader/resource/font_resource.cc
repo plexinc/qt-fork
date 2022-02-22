@@ -27,6 +27,7 @@
 #include "third_party/blink/renderer/core/loader/resource/font_resource.h"
 
 #include "base/metrics/histogram_functions.h"
+#include "base/trace_event/memory_dump_manager.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
 #include "third_party/blink/public/mojom/loader/request_context_frame_type.mojom-blink.h"
 #include "third_party/blink/renderer/platform/fonts/font_custom_platform_data.h"
@@ -52,9 +53,9 @@ constexpr base::TimeDelta kFontLoadWaitLong =
 FontResource* FontResource::Fetch(FetchParameters& params,
                                   ResourceFetcher* fetcher,
                                   FontResourceClient* client) {
-  params.SetRequestContext(mojom::RequestContextType::FONT);
+  params.SetRequestContext(mojom::blink::RequestContextType::FONT);
   params.SetRequestDestination(network::mojom::RequestDestination::kFont);
-  return ToFontResource(
+  return To<FontResource>(
       fetcher->RequestResource(params, FontResourceFactory(), client));
 }
 
@@ -117,8 +118,16 @@ scoped_refptr<FontCustomPlatformData> FontResource::GetCustomFontData() {
     if (Data())
       font_data_ = FontCustomPlatformData::Create(Data(), ots_parsing_message_);
 
-    if (!font_data_)
+    if (!font_data_) {
       SetStatus(ResourceStatus::kDecodeError);
+    } else {
+      // Call observers once and remove them.
+      HeapHashSet<WeakMember<FontResourceClearDataObserver>> observers;
+      observers.swap(clear_data_observers_);
+      for (const auto& observer : observers)
+        observer->FontResourceDataWillBeCleared();
+      ClearData();
+    }
   }
   return font_data_;
 }
@@ -173,11 +182,6 @@ void FontResource::NotifyClientsLongLimitExceeded() {
     client->FontLoadLongLimitExceeded(this);
 }
 
-void FontResource::AllClientsAndObserversRemoved() {
-  font_data_ = nullptr;
-  Resource::AllClientsAndObserversRemoved();
-}
-
 void FontResource::NotifyFinished() {
   font_load_short_limit_.Cancel();
   font_load_long_limit_.Cancel();
@@ -206,7 +210,23 @@ void FontResource::OnMemoryDump(WebMemoryDumpLevelOfDetail level,
   const String name = GetMemoryDumpName() + "/decoded_webfont";
   WebMemoryAllocatorDump* dump = memory_dump->CreateMemoryAllocatorDump(name);
   dump->AddScalar("size", "bytes", font_data_->DataSize());
-  memory_dump->AddSuballocation(dump->Guid(), "malloc");
+
+  const char* system_allocator_name =
+      base::trace_event::MemoryDumpManager::GetInstance()
+          ->system_allocator_pool_name();
+  if (system_allocator_name) {
+    memory_dump->AddSuballocation(dump->Guid(), system_allocator_name);
+  }
+}
+
+void FontResource::AddClearDataObserver(
+    FontResourceClearDataObserver* observer) const {
+  clear_data_observers_.insert(observer);
+}
+
+void FontResource::Trace(Visitor* visitor) const {
+  visitor->Trace(clear_data_observers_);
+  Resource::Trace(visitor);
 }
 
 }  // namespace blink

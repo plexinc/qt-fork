@@ -27,6 +27,7 @@
 ****************************************************************************/
 
 #include "cppwriteinitialization.h"
+#include "customwidgetsinfo.h"
 #include "driver.h"
 #include "ui4.h"
 #include "utils.h"
@@ -136,8 +137,29 @@ namespace {
     // Check on properties. Filter out empty legacy pixmap/icon properties
     // as Designer pre 4.4 used to remove missing resource references.
     // This can no longer be handled by the code as we have 'setIcon(QIcon())' as well as 'QIcon icon'
-    static bool checkProperty(const QString &fileName, const DomProperty *p) {
+    static bool checkProperty(const CustomWidgetsInfo *customWidgetsInfo,
+                              const QString &fileName, const QString &className,
+                              const DomProperty *p) {
         switch (p->kind()) {
+        // ### fixme Qt 7 remove this: Exclude deprecated properties of Qt 5.
+        case DomProperty::Set:
+            if (p->attributeName() == u"features"
+                && customWidgetsInfo->extends(className, "QDockWidget")
+                && p->elementSet() == u"QDockWidget::AllDockWidgetFeatures") {
+                const QString msg = fileName + QLatin1String(": Warning: Deprecated enum value QDockWidget::AllDockWidgetFeatures was encountered.");
+                qWarning("%s", qPrintable(msg));
+                return false;
+            }
+            break;
+        case DomProperty::Enum:
+            if (p->attributeName() == u"sizeAdjustPolicy"
+                && customWidgetsInfo->extends(className, "QComboBox")
+                && p->elementEnum() == u"QComboBox::AdjustToMinimumContentsLength") {
+                const QString msg = fileName + QLatin1String(": Warning: Deprecated enum value QComboBox::AdjustToMinimumContentsLength was encountered.");
+                qWarning("%s", qPrintable(msg));
+                return false;
+            }
+            break;
         case DomProperty::IconSet:
             if (const DomResourceIcon *dri = p->elementIconSet()) {
                 if (!isIconFormat44(dri)) {
@@ -470,6 +492,11 @@ void WriteInitialization::acceptUI(DomUI *node)
     if (node->hasAttributeConnectslotsbyname())
         m_connectSlotsByName = node->attributeConnectslotsbyname();
 
+    if (auto customSlots = node->elementSlots()) {
+        m_customSlots = customSlots->elementSlot();
+        m_customSignals = customSlots->elementSignal();
+    }
+
     acceptLayoutDefault(node->elementLayoutDefault());
     acceptLayoutFunction(node->elementLayoutFunction());
 
@@ -623,13 +650,13 @@ void WriteInitialization::acceptWidget(DomWidget *node)
     parentWidget = savedParentWidget;
 
 
-    if (cwi->extends(className, QLatin1String("QComboBox"))) {
+    if (cwi->extends(className, "QComboBox")) {
         initializeComboBox(node);
-    } else if (cwi->extends(className, QLatin1String("QListWidget"))) {
+    } else if (cwi->extends(className, "QListWidget")) {
         initializeListWidget(node);
-    } else if (cwi->extends(className, QLatin1String("QTreeWidget"))) {
+    } else if (cwi->extends(className, "QTreeWidget")) {
         initializeTreeWidget(node);
-    } else if (cwi->extends(className, QLatin1String("QTableWidget"))) {
+    } else if (cwi->extends(className, "QTableWidget")) {
         initializeTableWidget(node);
     }
 
@@ -639,12 +666,12 @@ void WriteInitialization::acceptWidget(DomWidget *node)
     writeProperties(varName, className, node->elementProperty());
 
     if (!parentWidget.isEmpty()
-        && cwi->extends(className, QLatin1String("QMenu"))) {
+        && cwi->extends(className, "QMenu")) {
         initializeMenu(node, parentWidget);
     }
 
     if (node->elementLayout().isEmpty())
-        m_layoutChain.push(0);
+        m_layoutChain.push(nullptr);
 
     m_layoutWidget = false;
     if (className == QLatin1String("QWidget") && !node->hasAttributeNative()) {
@@ -657,7 +684,7 @@ void WriteInitialization::acceptWidget(DomWidget *node)
         }
     }
     m_widgetChain.push(node);
-    m_layoutChain.push(0);
+    m_layoutChain.push(nullptr);
     TreeWalker::acceptWidget(node);
     m_layoutChain.pop();
     m_widgetChain.pop();
@@ -667,11 +694,11 @@ void WriteInitialization::acceptWidget(DomWidget *node)
 
     const QString pageDefaultString = QLatin1String("Page");
 
-    if (cwi->extends(parentClass, QLatin1String("QMainWindow"))) {
-        if (cwi->extends(className, QLatin1String("QMenuBar"))) {
+    if (cwi->extends(parentClass, "QMainWindow")) {
+        if (cwi->extends(className, "QMenuBar")) {
             m_output << m_indent << parentWidget << language::derefPointer
                 << "setMenuBar(" << varName << ')' << language::eol;
-        } else if (cwi->extends(className, QLatin1String("QToolBar"))) {
+        } else if (cwi->extends(className, "QToolBar")) {
             m_output << m_indent << parentWidget << language::derefPointer << "addToolBar("
                 << language::enumValue(toolBarAreaStringFromDOMAttributes(attributes)) << varName
                 << ')' << language::eol;
@@ -683,14 +710,14 @@ void WriteInitialization::acceptWidget(DomWidget *node)
                 }
             }
 
-        } else if (cwi->extends(className, QLatin1String("QDockWidget"))) {
+        } else if (cwi->extends(className, "QDockWidget")) {
             m_output << m_indent << parentWidget << language::derefPointer << "addDockWidget(";
             if (DomProperty *pstyle = attributes.value(QLatin1String("dockWidgetArea"))) {
                 m_output << "Qt" << language::qualifier
                     << language::dockWidgetArea(pstyle->elementNumber()) << ", ";
             }
             m_output << varName << ")" << language::eol;
-        } else if (m_uic->customWidgetsInfo()->extends(className, QLatin1String("QStatusBar"))) {
+        } else if (m_uic->customWidgetsInfo()->extends(className, "QStatusBar")) {
             m_output << m_indent << parentWidget << language::derefPointer
                 << "setStatusBar(" << varName << ')' << language::eol;
         } else {
@@ -706,9 +733,9 @@ void WriteInitialization::acceptWidget(DomWidget *node)
     if (!addPageMethod.isEmpty()) {
         m_output << m_indent << parentWidget << language::derefPointer
             << addPageMethod << '(' << varName << ')' << language::eol;
-    } else if (m_uic->customWidgetsInfo()->extends(parentClass, QLatin1String("QWizard"))) {
+    } else if (m_uic->customWidgetsInfo()->extends(parentClass, "QWizard")) {
         addWizardPage(varName, node, parentWidget);
-    } else if (m_uic->customWidgetsInfo()->extends(parentClass, QLatin1String("QToolBox"))) {
+    } else if (m_uic->customWidgetsInfo()->extends(parentClass, "QToolBox")) {
         const DomProperty *plabel = attributes.value(QLatin1String("label"));
         DomString *plabelString = plabel ? plabel->elementString() : nullptr;
         QString icon;
@@ -731,7 +758,7 @@ void WriteInitialization::acceptWidget(DomWidget *node)
                 << autoTrCall(ptoolTip->elementString()) << ')' << language::eol
                 << language::closeQtConfig(toolTipConfigKey());
         }
-    } else if (m_uic->customWidgetsInfo()->extends(parentClass, QLatin1String("QTabWidget"))) {
+    } else if (m_uic->customWidgetsInfo()->extends(parentClass, "QTabWidget")) {
         const DomProperty *ptitle = attributes.value(QLatin1String("title"));
         DomString *ptitleString = ptitle ? ptitle->elementString() : nullptr;
         QString icon;
@@ -1164,7 +1191,7 @@ void WriteInitialization::writeProperties(const QString &varName,
 {
     const bool isTopLevel = m_widgetChain.count() == 1;
 
-    if (m_uic->customWidgetsInfo()->extends(className, QLatin1String("QAxWidget"))) {
+    if (m_uic->customWidgetsInfo()->extends(className, "QAxWidget")) {
         DomPropertyMap properties = propertyMap(lst);
         if (DomProperty *p = properties.value(QLatin1String("control"))) {
             m_output << m_indent << varName << language::derefPointer << "setControl("
@@ -1199,7 +1226,7 @@ void WriteInitialization::writeProperties(const QString &varName,
     bool frameShadowEncountered = false;
 
     for (const DomProperty *p : lst) {
-        if (!checkProperty(m_option.inputFile, p))
+        if (!checkProperty(m_uic->customWidgetsInfo(), m_option.inputFile, className, p))
             continue;
         QString propertyName = p->attributeName();
         QString propertyValue;
@@ -1213,7 +1240,7 @@ void WriteInitialization::writeProperties(const QString &varName,
             continue;
         }
         if (propertyName == QLatin1String("currentRow") // QListWidget::currentRow
-                && m_uic->customWidgetsInfo()->extends(className, QLatin1String("QListWidget"))) {
+                && m_uic->customWidgetsInfo()->extends(className, "QListWidget")) {
             m_delayedOut << m_indent << varName << language::derefPointer
                 << "setCurrentRow(" << p->elementNumber() << ')' << language::eol;
             continue;
@@ -1229,19 +1256,19 @@ void WriteInitialization::writeProperties(const QString &varName,
             continue;
         }
         if (propertyName == QLatin1String("tabSpacing")
-            && m_uic->customWidgetsInfo()->extends(className, QLatin1String("QToolBox"))) {
+            && m_uic->customWidgetsInfo()->extends(className, "QToolBox")) {
             m_delayedOut << m_indent << varName << language::derefPointer
                 << "layout()" << language::derefPointer << "setSpacing("
                 << p->elementNumber() << ')' << language::eol;
             continue;
         }
         if (propertyName == QLatin1String("control") // ActiveQt support
-            && m_uic->customWidgetsInfo()->extends(className, QLatin1String("QAxWidget"))) {
+            && m_uic->customWidgetsInfo()->extends(className, "QAxWidget")) {
             // already done ;)
             continue;
         }
         if (propertyName == QLatin1String("default")
-            && m_uic->customWidgetsInfo()->extends(className, QLatin1String("QPushButton"))) {
+            && m_uic->customWidgetsInfo()->extends(className, "QPushButton")) {
             // QTBUG-44406: Setting of QPushButton::default needs to be delayed until the parent is set
             delayProperty = true;
         } else if (propertyName == QLatin1String("database")
@@ -1253,7 +1280,7 @@ void WriteInitialization::writeProperties(const QString &varName,
             // Sql support
             continue;
         } else if (propertyName == QLatin1String("orientation")
-                    && m_uic->customWidgetsInfo()->extends(className, QLatin1String("Line"))) {
+                    && m_uic->customWidgetsInfo()->extends(className, "Line")) {
             // Line support
             QString shape = QLatin1String("QFrame::HLine");
             if (p->elementEnum() == QLatin1String("Qt::Vertical"))
@@ -1286,12 +1313,13 @@ void WriteInitialization::writeProperties(const QString &varName,
             bottomMargin = p->elementNumber();
             continue;
         } else if (propertyName == QLatin1String("numDigits") // Deprecated in Qt 4, removed in Qt 5.
-                   && m_uic->customWidgetsInfo()->extends(className, QLatin1String("QLCDNumber"))) {
+                   && m_uic->customWidgetsInfo()->extends(className, "QLCDNumber")) {
             qWarning("Widget '%s': Deprecated property QLCDNumber::numDigits encountered. It has been replaced by QLCDNumber::digitCount.",
                      qPrintable(varName));
             propertyName = QLatin1String("digitCount");
-        } else if (propertyName == QLatin1String("frameShadow"))
+        } else if (propertyName == QLatin1String("frameShadow")) {
             frameShadowEncountered = true;
+        }
 
         bool stdset = m_stdsetdef;
         if (p->hasAttributeStdset())
@@ -1303,7 +1331,7 @@ void WriteInitialization::writeProperties(const QString &varName,
             QTextStream str(&setFunction);
             if (stdset) {
                 str << language::derefPointer <<"set" << propertyName.at(0).toUpper()
-                    << propertyName.midRef(1) << '(';
+                    << QStringView{propertyName}.mid(1) << '(';
             } else {
                 str << language::derefPointer << QLatin1String("setProperty(\"")
                     << propertyName << "\", ";
@@ -1327,7 +1355,7 @@ void WriteInitialization::writeProperties(const QString &varName,
             propertyValue = domColor2QString(p->elementColor());
             break;
         case DomProperty::Cstring:
-            if (propertyName == QLatin1String("buddy") && m_uic->customWidgetsInfo()->extends(className, QLatin1String("QLabel"))) {
+            if (propertyName == QLatin1String("buddy") && m_uic->customWidgetsInfo()->extends(className, "QLabel")) {
                 Buddy buddy = { varName, p->elementCstring() };
                 m_buddies.append(std::move(buddy));
             } else {
@@ -1597,8 +1625,10 @@ QString WriteInitialization::writeFontProperties(const DomFont *f)
     m_output << m_indent << language::stackVariable("QFont", fontName)
         << language::eol;
     if (f->hasElementFamily() && !f->elementFamily().isEmpty()) {
-        m_output << m_indent << fontName << ".setFamily("
-            << language::qstring(f->elementFamily(), m_dindent) << ")" << language::eol;
+        m_output << m_indent << fontName << ".setFamilies("
+            << language::listStart
+            << language::qstring(f->elementFamily(), m_dindent)
+            << language::listEnd << ')' << language::eol;
     }
     if (f->hasElementPointSize() && f->elementPointSize() > 0) {
          m_output << m_indent << fontName << ".setPointSize(" << f->elementPointSize()
@@ -1616,10 +1646,6 @@ QString WriteInitialization::writeFontProperties(const DomFont *f)
     if (f->hasElementUnderline()) {
         m_output << m_indent << fontName << ".setUnderline("
             << language::boolValue(f->elementUnderline()) << ')' << language::eol;
-    }
-    if (f->hasElementWeight() && f->elementWeight() > 0) {
-        m_output << m_indent << fontName << ".setWeight("
-            << f->elementWeight() << ")" << language::eol;
     }
     if (f->hasElementStrikeOut()) {
          m_output << m_indent << fontName << ".setStrikeOut("
@@ -2151,7 +2177,7 @@ void WriteInitialization::addInitializer(Item *item,
     if (!value.isEmpty()) {
         QString setter;
         QTextStream str(&setter);
-        str << language::derefPointer << "set" << name.at(0).toUpper() << name.midRef(1) << '(';
+        str << language::derefPointer << "set" << name.at(0).toUpper() << QStringView{name}.mid(1) << '(';
         if (column >= 0)
             str << column << ", ";
         str << value << ");";
@@ -2333,7 +2359,7 @@ void WriteInitialization::initializeTreeWidget(DomWidget *w)
     conditions an item is needed needs to be done bottom-up, the whole process makes
     two passes, storing the intermediate result in a recursive StringInitializerListMap.
 */
-WriteInitialization::Items WriteInitialization::initializeTreeWidgetItems(const QVector<DomItem *> &domItems)
+WriteInitialization::Items WriteInitialization::initializeTreeWidgetItems(const QList<DomItem *> &domItems)
 {
     // items
     Items items;
@@ -2568,6 +2594,36 @@ WriteInitialization::Declaration WriteInitialization::findDeclaration(const QStr
     return {};
 }
 
+bool WriteInitialization::isCustomWidget(const QString &className) const
+{
+    return m_uic->customWidgetsInfo()->customWidget(className) != nullptr;
+}
+
+ConnectionSyntax WriteInitialization::connectionSyntax(const language::SignalSlot &sender,
+                                                       const language::SignalSlot &receiver) const
+{
+    if (m_option.forceMemberFnPtrConnectionSyntax)
+        return ConnectionSyntax::MemberFunctionPtr;
+    if (m_option.forceStringConnectionSyntax)
+        return ConnectionSyntax::StringBased;
+    // Auto mode: Use Qt 5 connection syntax for Qt classes and parameterless
+    // connections. QAxWidget is special though since it has a fake Meta object.
+    static const QStringList requiresStringSyntax{QStringLiteral("QAxWidget")};
+    if (requiresStringSyntax.contains(sender.className)
+        || requiresStringSyntax.contains(receiver.className)) {
+        return ConnectionSyntax::StringBased;
+    }
+
+    if ((sender.name == m_mainFormVarName && m_customSignals.contains(sender.signature))
+         || (receiver.name == m_mainFormVarName && m_customSlots.contains(receiver.signature))) {
+        return ConnectionSyntax::StringBased;
+    }
+
+    return sender.signature.endsWith(QLatin1String("()"))
+        || (!isCustomWidget(sender.className) && !isCustomWidget(receiver.className))
+        ? ConnectionSyntax::MemberFunctionPtr : ConnectionSyntax::StringBased;
+}
+
 void WriteInitialization::acceptConnection(DomConnection *connection)
 {
     const QString senderName = connection->elementSender();
@@ -2584,14 +2640,19 @@ void WriteInitialization::acceptConnection(DomConnection *connection)
         fprintf(stderr, "%s\n", qPrintable(message));
         return;
     }
+    const QString senderSignature = connection->elementSignal();
+    language::SignalSlotOptions signalOptions;
+    if (m_uic->customWidgetsInfo()->isAmbiguousSignal(senderDecl.className, senderSignature))
+        signalOptions.setFlag(language::SignalSlotOption::Ambiguous);
 
-    language::SignalSlot theSignal{senderDecl.name, connection->elementSignal(),
-                                   senderDecl.className};
+    language::SignalSlot theSignal{senderDecl.name, senderSignature,
+                                   senderDecl.className, signalOptions};
     language::SignalSlot theSlot{receiverDecl.name, connection->elementSlot(),
-                                 receiverDecl.className};
+                                 receiverDecl.className, {}};
 
     m_output << m_indent;
-    language::formatConnection(m_output, theSignal, theSlot);
+    language::formatConnection(m_output, theSignal, theSlot,
+                               connectionSyntax(theSignal, theSlot));
     m_output << language::eol;
 }
 

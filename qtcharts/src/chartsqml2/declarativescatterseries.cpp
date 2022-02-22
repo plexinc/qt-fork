@@ -29,7 +29,7 @@
 
 #include "declarativescatterseries_p.h"
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 DeclarativeScatterSeries::DeclarativeScatterSeries(QObject *parent) :
     QScatterSeries(parent),
@@ -49,7 +49,7 @@ DeclarativeScatterSeries::DeclarativeScatterSeries(QObject *parent) :
 
 void DeclarativeScatterSeries::handleCountChanged(int index)
 {
-    Q_UNUSED(index)
+    Q_UNUSED(index);
     emit countChanged(QScatterSeries::count());
 }
 
@@ -75,8 +75,8 @@ QQmlListProperty<QObject> DeclarativeScatterSeries::declarativeChildren()
 
 void DeclarativeScatterSeries::appendDeclarativeChildren(QQmlListProperty<QObject> *list, QObject *element)
 {
-    Q_UNUSED(list)
-    Q_UNUSED(element)
+    Q_UNUSED(list);
+    Q_UNUSED(element);
     // Empty implementation, children are parsed in componentComplete
 }
 
@@ -115,10 +115,10 @@ void DeclarativeScatterSeries::handleBrushChanged()
     // the brush file name needs to be cleared.
     if (!m_brushFilename.isEmpty() && QScatterSeries::brush().textureImage() != m_brushImage) {
         m_brushFilename.clear();
-        emit brushFilenameChanged(QString(""));
+        emit brushFilenameChanged(QString());
     }
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_declarativescatterseries_p.cpp"

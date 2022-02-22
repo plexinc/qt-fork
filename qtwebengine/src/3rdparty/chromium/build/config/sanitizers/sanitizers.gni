@@ -5,6 +5,7 @@
 import("//build/config/chrome_build.gni")
 import("//build/config/chromecast_build.gni")
 import("//build/config/chromeos/args.gni")
+import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/profiling/profiling.gni")
 import("//build/toolchain/toolchain.gni")
 
@@ -55,15 +56,20 @@ declare_args() {
   #
   # Disable this on linux-chromeos to avoid using ThinLTO there;
   # crbug.com/1033839. Similarly, don't use this on ARC builds.
-  is_cfi = is_official_build &&
-           ((target_os == "linux" && !is_chromeos && target_cpu == "x64") ||
-            (target_os == "chromeos" && is_chromeos_device && !is_android))
+  #
+  # TODO(crbug.com/1159424): Reassess the validity of the next expression.
+  is_cfi =
+      is_official_build &&
+      (((target_os == "linux" || is_chromeos_lacros) && target_cpu == "x64") ||
+       ((is_chromeos_ash || is_chromeos_lacros) && is_chromeos_device))
 
   # Enable checks for indirect function calls via a function pointer.
   # TODO(pcc): remove this when we're ready to add these checks by default.
   # https://crbug.com/701919
-  use_cfi_icall = target_os == "linux" && !is_chromeos && target_cpu == "x64" &&
-                  is_official_build
+  #
+  # TODO(crbug.com/1159424): Reassess the validity of the next expression.
+  use_cfi_icall = (target_os == "linux" || is_chromeos_lacros) &&
+                  target_cpu == "x64" && is_official_build
 
   # Print detailed diagnostics when Control Flow Integrity detects a violation.
   use_cfi_diag = false
@@ -78,6 +84,9 @@ declare_args() {
 
   # Compile for fuzzing with AFL.
   use_afl = false
+
+  # Compile for fuzzing with an external engine (e.g., Grammarinator).
+  use_external_fuzzing_engine = false
 
   # Enables core ubsan security features. Will later be removed once it matches
   # is_ubsan.
@@ -101,9 +110,6 @@ declare_args() {
   #     trace-pc-guard,indirect-calls
   sanitizer_coverage_flags = ""
 
-  # Use blacklists from tools/memory/asan when compiling with asan.
-  asan_use_blacklist = true
-
   # When enabled, only relevant sanitizer defines are set, but compilation
   # happens with no extra flags. This is useful when in component build
   # enabling sanitizers only in some of the components.
@@ -117,7 +123,7 @@ declare_args() {
   # Enable checks for bad casts: derived cast and unrelated cast.
   # TODO(krasin): remove this, when we're ready to add these checks by default.
   # https://crbug.com/626794
-  use_cfi_cast = is_cfi && target_os == "chromeos"
+  use_cfi_cast = is_cfi && (is_chromeos_ash || is_chromeos_lacros)
 }
 
 # Disable sanitizers for non-target toolchains.
@@ -152,7 +158,7 @@ use_prebuilt_instrumented_libraries = is_msan
 # Whether we are doing a fuzzer build. Normally this should be checked instead
 # of checking "use_libfuzzer || use_afl" because often developers forget to
 # check for "use_afl".
-use_fuzzing_engine = use_libfuzzer || use_afl
+use_fuzzing_engine = use_libfuzzer || use_afl || use_external_fuzzing_engine
 
 # Args that are in turn dependent on other args must be in a separate
 # declare_args block. User overrides are only applied at the end of a
@@ -169,11 +175,6 @@ declare_args() {
   # builds.
   use_clang_profiling_inside_sandbox =
       use_clang_profiling && !use_fuzzing_engine
-
-  # Detect overflow/underflow for global objects.
-  #
-  # Mac: http://crbug.com/352073
-  asan_globals = !is_mac
 }
 
 if (use_fuzzing_engine && sanitizer_coverage_flags == "") {
@@ -198,7 +199,7 @@ assert(!is_cfi || is_clang,
 prebuilt_instrumented_libraries_available =
     is_msan && (msan_track_origins == 0 || msan_track_origins == 2)
 
-if (use_libfuzzer && is_linux) {
+if (use_libfuzzer && (is_linux || is_chromeos)) {
   if (is_asan) {
     # We do leak checking with libFuzzer on Linux. Set is_lsan for code that
     # relies on LEAK_SANITIZER define to avoid false positives.
@@ -225,7 +226,7 @@ assert(!is_debug || !(is_msan || is_ubsan || is_ubsan_null || is_ubsan_vptr),
 assert(!is_hwasan || (is_android && current_cpu == "arm64"),
        "HWASan only supported on Android ARM64 builds.")
 
-assert(!is_msan || (is_linux && current_cpu == "x64"),
+assert(!is_msan || ((is_linux || is_chromeos) && current_cpu == "x64"),
        "MSan currently only works on 64-bit Linux and ChromeOS builds.")
 
 assert(!is_lsan || is_asan, "is_lsan = true requires is_asan = true also.")

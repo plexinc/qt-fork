@@ -8,9 +8,8 @@
 
 #include "absl/types/span.h"
 #include "cast/streaming/encoded_frame.h"
-#include "util/logging.h"
-
-using std::chrono::microseconds;
+#include "util/chrono_helpers.h"
+#include "util/osp_logging.h"
 
 namespace openscreen {
 namespace cast {

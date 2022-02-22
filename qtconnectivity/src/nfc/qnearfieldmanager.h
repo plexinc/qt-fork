@@ -63,51 +63,29 @@ public:
         TurningOff = 4
     };
     Q_ENUM(AdapterState)
-    enum TargetAccessMode {
-        NoTargetAccess = 0x00,
-        NdefReadTargetAccess = 0x01,
-        NdefWriteTargetAccess = 0x02,
-        TagTypeSpecificTargetAccess = 0x04
-    };
-    Q_ENUM(TargetAccessMode)
-    Q_DECLARE_FLAGS(TargetAccessModes, TargetAccessMode)
 
     explicit QNearFieldManager(QObject *parent = nullptr);
     explicit QNearFieldManager(QNearFieldManagerPrivate *backend, QObject *parent = nullptr);
     ~QNearFieldManager();
 
-    bool isAvailable() const;
-    bool isSupported() const;
+    bool isEnabled() const;
+    bool isSupported(QNearFieldTarget::AccessMethod accessMethod
+                     = QNearFieldTarget::AnyAccess) const;
 
-    void setTargetAccessModes(TargetAccessModes accessModes);
-    TargetAccessModes targetAccessModes() const;
+    bool startTargetDetection(QNearFieldTarget::AccessMethod accessMethod);
+    void stopTargetDetection(const QString &errorMessage = QString());
 
-    bool startTargetDetection();
-    void stopTargetDetection();
-
-    //TODO Qt 6 Consider removal of this registration mechanism
-    //None of the currently supported platforms supports the feature
-    //or in fact the implementation (on Android) is not what the
-    //function is supposed to do.
-    int registerNdefMessageHandler(QObject *object, const char *method);
-    int registerNdefMessageHandler(QNdefRecord::TypeNameFormat typeNameFormat,
-                                   const QByteArray &type,
-                                   QObject *object, const char *method);
-    int registerNdefMessageHandler(const QNdefFilter &filter,
-                                   QObject *object, const char *method);
-
-    bool unregisterNdefMessageHandler(int handlerId);
+    void setUserInformation(const QString &message);
 
 Q_SIGNALS:
     void adapterStateChanged(QNearFieldManager::AdapterState state);
+    void targetDetectionStopped();
     void targetDetected(QNearFieldTarget *target);
     void targetLost(QNearFieldTarget *target);
 
 private:
     QNearFieldManagerPrivate *d_ptr;
 };
-
-Q_DECLARE_OPERATORS_FOR_FLAGS(QNearFieldManager::TargetAccessModes)
 
 QT_END_NAMESPACE
 

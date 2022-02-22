@@ -90,6 +90,7 @@ ListPicker.prototype._handleWindowMessage = function(event) {
   if (window.updateData.type === 'update') {
     this._config.baseStyle = window.updateData.baseStyle;
     this._config.children = window.updateData.children;
+    const prev_children_count = this._selectElement.children.length;
     this._update();
     if (this._config.anchorRectInScreen.x !==
             window.updateData.anchorRectInScreen.x ||
@@ -98,13 +99,10 @@ ListPicker.prototype._handleWindowMessage = function(event) {
         this._config.anchorRectInScreen.width !==
             window.updateData.anchorRectInScreen.width ||
         this._config.anchorRectInScreen.height !==
-            window.updateData.anchorRectInScreen.height) {
-      // TODO(tkent): Don't fix window size here due to a bug of Aura or
-      // compositor. crbug.com/863770
-      if (!navigator.platform.startsWith('Win')) {
-        this._config.anchorRectInScreen = window.updateData.anchorRectInScreen;
-        this._fixWindowSize();
-      }
+            window.updateData.anchorRectInScreen.height ||
+        prev_children_count !== window.updateData.children.length) {
+      this._config.anchorRectInScreen = window.updateData.anchorRectInScreen;
+      this._fixWindowSize();
     }
   }
   delete window.updateData;
@@ -448,7 +446,8 @@ ListPicker.prototype._applyItemStyle = function(element, styleConfig) {
   style.color = styleConfig.color ? styleConfig.color : '';
   style.backgroundColor =
       styleConfig.backgroundColor ? styleConfig.backgroundColor : '';
-  style.fontSize = styleConfig.fontSize ? styleConfig.fontSize + 'px' : '';
+  style.fontSize =
+      styleConfig.fontSize !== undefined ? styleConfig.fontSize + 'px' : '';
   style.fontWeight = styleConfig.fontWeight ? styleConfig.fontWeight : '';
   style.fontFamily = styleConfig.fontFamily ?
       styleConfig.fontFamily.map(s => '"' + s + '"').join(',') :

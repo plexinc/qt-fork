@@ -67,6 +67,9 @@ QT_BEGIN_NAMESPACE
     desktop environment's settings panel, to let the user globally control UI
     and font sizes in different applications.
 
+    \note Both physical and logical DPI are expressed in device-independent dots.
+    Multiply by QScreen::devicePixelRatio() to get device-dependent density.
+
     \inmodule QtGui
 */
 
@@ -119,12 +122,7 @@ void QScreenPrivate::setPlatformScreen(QPlatformScreen *screen)
         refreshRate = 60.0;
 
     updateHighDpi();
-
     updatePrimaryOrientation(); // derived from the geometry
-
-    filteredOrientation = orientation;
-    if (filteredOrientation == Qt::PrimaryOrientation)
-        filteredOrientation = primaryOrientation;
 }
 
 
@@ -259,6 +257,9 @@ QSize QScreen::size() const
   Depending on what information the underlying system provides the value might not be
   entirely accurate.
 
+  \note Physical DPI is expressed in device-independent dots. Multiply by QScreen::devicePixelRatio()
+  to get device-dependent density.
+
   \sa physicalDotsPerInchY()
 */
 qreal QScreen::physicalDotsPerInchX() const
@@ -273,6 +274,9 @@ qreal QScreen::physicalDotsPerInchX() const
   This value represents the actual vertical pixel density on the screen's display.
   Depending on what information the underlying system provides the value might not be
   entirely accurate.
+
+  \note Physical DPI is expressed in device-independent dots. Multiply by QScreen::devicePixelRatio()
+  to get device-dependent density.
 
   \sa physicalDotsPerInchX()
 */
@@ -291,6 +295,9 @@ qreal QScreen::physicalDotsPerInchY() const
 
   This is a convenience property that's simply the average of the physicalDotsPerInchX
   and physicalDotsPerInchY properties.
+
+  \note Physical DPI is expressed in device-independent dots. Multiply by QScreen::devicePixelRatio()
+  to get device-dependent density.
 
   \sa physicalDotsPerInchX()
   \sa physicalDotsPerInchY()
@@ -517,57 +524,24 @@ QRect QScreen::availableVirtualGeometry() const
 }
 
 /*!
-    Sets the orientations that the application is interested in receiving
-    updates for in conjunction with this screen.
-
-    For example, to receive orientation() updates and thus have
-    orientationChanged() signals being emitted for LandscapeOrientation and
-    InvertedLandscapeOrientation, call setOrientationUpdateMask() with
-    \a{mask} set to Qt::LandscapeOrientation | Qt::InvertedLandscapeOrientation.
-
-    The default, 0, means no orientationChanged() signals are fired.
-*/
-void QScreen::setOrientationUpdateMask(Qt::ScreenOrientations mask)
-{
-    Q_D(QScreen);
-    d->orientationUpdateMask = mask;
-    d->platformScreen->setOrientationUpdateMask(mask);
-    QGuiApplicationPrivate::updateFilteredScreenOrientation(this);
-}
-
-/*!
-    Returns the currently set orientation update mask.
-
-    \sa setOrientationUpdateMask()
-*/
-Qt::ScreenOrientations QScreen::orientationUpdateMask() const
-{
-    Q_D(const QScreen);
-    return d->orientationUpdateMask;
-}
-
-/*!
     \property QScreen::orientation
     \brief the screen orientation
 
-    The screen orientation represents the physical orientation
-    of the display. For example, the screen orientation of a mobile device
-    will change based on how it is being held. A change to the orientation
-    might or might not trigger a change to the primary orientation of the screen.
+    The \c orientation property tells the orientation of the screen from the
+    window system perspective.
 
-    Changes to this property will be filtered by orientationUpdateMask(),
-    so in order to receive orientation updates the application must first
-    call setOrientationUpdateMask() with a mask of the orientations it wants
-    to receive.
+    Most mobile devices and tablet computers contain accelerometer sensors.
+    The Qt Sensors module provides the ability to read this sensor directly.
+    However, the windowing system may rotate the entire screen automatically
+    based on how it is being held; in that case, this \c orientation property
+    will change.
 
-    Qt::PrimaryOrientation is never returned.
-
-    \sa primaryOrientation()
+    \sa primaryOrientation(), QWindow::contentOrientation()
 */
 Qt::ScreenOrientation QScreen::orientation() const
 {
     Q_D(const QScreen);
-    return d->filteredOrientation;
+    return d->orientation;
 }
 
 /*!
@@ -747,10 +721,11 @@ QScreen *QScreen::virtualSiblingAt(QPoint point)
 /*!
     Creates and returns a pixmap constructed by grabbing the contents
     of the given \a window restricted by QRect(\a x, \a y, \a width,
-    \a height).
+    \a height). If \a window is 0, then the entire screen will be
+    grabbed.
 
     The arguments (\a{x}, \a{y}) specify the offset in the window,
-    whereas (\a{width}, \a{height}) specify the area to be copied.  If
+    whereas (\a{width}, \a{height}) specify the area to be copied. If
     \a width is negative, the function copies everything to the right
     border of the window. If \a height is negative, the function
     copies everything to the bottom of the window.
@@ -809,6 +784,29 @@ QPixmap QScreen::grabWindow(WId window, int x, int y, int width, int height)
                                    nativeSize.width(), nativeSize.height());
     result.setDevicePixelRatio(result.devicePixelRatio() * factor);
     return result;
+}
+void *QScreen::resolveInterface(const char *name, int revision) const
+{
+    using namespace QNativeInterface::Private;
+
+    auto *platformScreen = handle();
+    Q_UNUSED(platformScreen);
+    Q_UNUSED(name);
+    Q_UNUSED(revision);
+
+#if QT_CONFIG(xcb)
+    QT_NATIVE_INTERFACE_RETURN_IF(QXcbScreen, platformScreen);
+#endif
+
+#if QT_CONFIG(vsp2)
+    QT_NATIVE_INTERFACE_RETURN_IF(QVsp2Screen, platformScreen);
+#endif
+
+#if defined(Q_OS_WEBOS)
+    QT_NATIVE_INTERFACE_RETURN_IF(QWebOSScreen, platformScreen);
+#endif
+
+    return nullptr;
 }
 
 #ifndef QT_NO_DEBUG_STREAM

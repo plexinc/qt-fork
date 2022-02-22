@@ -150,7 +150,7 @@ void ProcessingInstruction::Process(const String& href, const String& charset) {
   if (is_xsl_ && !RuntimeEnabledFeatures::XSLTEnabled())
     return;
 
-  ResourceLoaderOptions options;
+  ResourceLoaderOptions options(GetExecutionContext()->GetCurrentWorld());
   options.initiator_info.name =
       fetch_initiator_type_names::kProcessinginstruction;
   FetchParameters params(ResourceRequest(GetDocument().CompleteURL(href)),
@@ -199,14 +199,18 @@ void ProcessingInstruction::NotifyFinished(Resource* resource) {
     sheet_ = MakeGarbageCollected<XSLStyleSheet>(
         this, resource->Url(), resource->GetResponse().ResponseUrl(), false);
     To<XSLStyleSheet>(sheet_.Get())
-        ->ParseString(ToXSLStyleSheetResource(resource)->Sheet());
+        ->ParseString(To<XSLStyleSheetResource>(resource)->Sheet());
   } else {
     DCHECK(is_css_);
-    CSSStyleSheetResource* style_resource = ToCSSStyleSheetResource(resource);
+    auto* style_resource = To<CSSStyleSheetResource>(resource);
     auto* parser_context = MakeGarbageCollected<CSSParserContext>(
         GetDocument(), style_resource->GetResponse().ResponseUrl(),
         style_resource->GetResponse().IsCorsSameOrigin(),
-        style_resource->GetReferrerPolicy(), style_resource->Encoding());
+        Referrer(style_resource->GetResponse().ResponseUrl(),
+                 style_resource->GetReferrerPolicy()),
+        style_resource->Encoding());
+    if (style_resource->GetResourceRequest().IsAdResource())
+      parser_context->SetIsAdRelated();
 
     auto* new_sheet = MakeGarbageCollected<StyleSheetContents>(
         parser_context, style_resource->Url());
@@ -290,7 +294,7 @@ void ProcessingInstruction::RemovePendingSheet() {
                                                     style_engine_context_);
 }
 
-void ProcessingInstruction::Trace(Visitor* visitor) {
+void ProcessingInstruction::Trace(Visitor* visitor) const {
   visitor->Trace(sheet_);
   visitor->Trace(listener_for_xslt_);
   CharacterData::Trace(visitor);

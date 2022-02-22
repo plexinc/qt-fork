@@ -145,7 +145,7 @@ QDataStream &operator>>(QDataStream &ds, QCborSimpleType &st)
    \value PositiveBignum        A positive number of arbitrary length, encoded as a byte array in
                                 network byte order. For example, the number 2\sup{64} is represented by
                                 a byte array containing the byte value 0x01 followed by 8 zero bytes.
-   \value NegativeBignum        A negative number of arbirary length, encoded as the absolute value
+   \value NegativeBignum        A negative number of arbitrary length, encoded as the absolute value
                                 of that number, minus one. For example, a byte array containing
                                 byte value 0x02 followed by 8 zero bytes represents the number
                                 -2\sup{65} - 1.
@@ -153,11 +153,11 @@ QDataStream &operator>>(QDataStream &ds, QCborSimpleType &st)
                                 is the exponent of the power of 10, the second the integral
                                 mantissa. The value 273.15 would be encoded as array \c{[-2, 27315]}.
    \value Bigfloat              Similar to Decimal, but the exponent is a power of 2 instead.
-   \value COSE_Encrypt0         An \c Encrypt0 map as specified by \l{https://tools.ietf.org/html/rfc8152}{RFC 8152}
+   \value COSE_Encrypt0         An \c Encrypt0 map as specified by \l{RFC 8152}
                                 (CBOR Object Signing and Encryption).
-   \value COSE_Mac0             A \c Mac0 map as specified by \l{https://tools.ietf.org/html/rfc8152}{RFC 8152}
+   \value COSE_Mac0             A \c Mac0 map as specified by \l{RFC 8152}
                                 (CBOR Object Signing and Encryption).
-   \value COSE_Sign1            A \c Sign1 map as specified by \l{https://tools.ietf.org/html/rfc8152}{RFC 8152}
+   \value COSE_Sign1            A \c Sign1 map as specified by \l{RFC 8152}
                                 (CBOR Object Signing and Encryption).
    \value ExpectedBase64url     Indicates that the byte array should be encoded using Base64url
                                 if the stream is converted to JSON.
@@ -172,13 +172,13 @@ QDataStream &operator>>(QDataStream &ds, QCborSimpleType &st)
    \value RegularExpression     Indicates that the string contains a Perl-Compatible Regular
                                 Expression pattern.
    \value MimeMessage           Indicates that the string contains a MIME message (according to
-                                \l{https://tools.ietf.org/html/rfc2045}){RFC 2045}.
+                                \l{RFC 2045}).
    \value Uuid                  Indicates that the byte array contains a UUID.
-   \value COSE_Encrypt          An \c Encrypt map as specified by \l{https://tools.ietf.org/html/rfc8152}{RFC 8152}
+   \value COSE_Encrypt          An \c Encrypt map as specified by \l{RFC 8152}
                                 (CBOR Object Signing and Encryption).
-   \value COSE_Mac              A \c Mac map as specified by \l{https://tools.ietf.org/html/rfc8152}{RFC 8152}
+   \value COSE_Mac              A \c Mac map as specified by \l{RFC 8152}
                                 (CBOR Object Signing and Encryption).
-   \value COSE_Sign             A \c Sign map as specified by \l{https://tools.ietf.org/html/rfc8152}{RFC 8152}
+   \value COSE_Sign             A \c Sign map as specified by \l{RFC 8152}
                                 (CBOR Object Signing and Encryption).
    \value Signature             No change in interpretation; this tag can be used as the outermost
                                 tag in a CBOR stream as the file header.
@@ -230,7 +230,7 @@ QDataStream &operator>>(QDataStream &ds, QCborSimpleType &st)
                             element.
    \value UnexpectedBreak   The CBOR stream contains a Break where it is not allowed (data is
                             corrupt and the error is not recoverable).
-   \value UnknownType       The CBOR stream contains an unknown/unparseable Type (data is corrupt
+   \value UnknownType       The CBOR stream contains an unknown/unparsable Type (data is corrupt
                             and the and the error is not recoverable).
    \value IllegalType       The CBOR stream contains a known type in a position it is not allowed
                             to exist (data is corrupt and the error is not recoverable).
@@ -271,50 +271,50 @@ QString QCborError::toString() const
 {
     switch (c) {
     case NoError:
-        Q_STATIC_ASSERT(int(NoError) == int(CborNoError));
+        static_assert(int(NoError) == int(CborNoError));
         return QString();
 
     case UnknownError:
-        Q_STATIC_ASSERT(int(UnknownError) == int(CborUnknownError));
+        static_assert(int(UnknownError) == int(CborUnknownError));
         return QStringLiteral("Unknown error");
     case AdvancePastEnd:
-        Q_STATIC_ASSERT(int(AdvancePastEnd) == int(CborErrorAdvancePastEOF));
+        static_assert(int(AdvancePastEnd) == int(CborErrorAdvancePastEOF));
         return QStringLiteral("Read past end of buffer (more bytes needed)");
     case InputOutputError:
-        Q_STATIC_ASSERT(int(InputOutputError) == int(CborErrorIO));
+        static_assert(int(InputOutputError) == int(CborErrorIO));
         return QStringLiteral("Input/Output error");
     case GarbageAtEnd:
-        Q_STATIC_ASSERT(int(GarbageAtEnd) == int(CborErrorGarbageAtEnd));
+        static_assert(int(GarbageAtEnd) == int(CborErrorGarbageAtEnd));
         return QStringLiteral("Data found after the end of the stream");
     case EndOfFile:
-        Q_STATIC_ASSERT(int(EndOfFile) == int(CborErrorUnexpectedEOF));
+        static_assert(int(EndOfFile) == int(CborErrorUnexpectedEOF));
         return QStringLiteral("Unexpected end of input data (more bytes needed)");
     case UnexpectedBreak:
-        Q_STATIC_ASSERT(int(UnexpectedBreak) == int(CborErrorUnexpectedBreak));
+        static_assert(int(UnexpectedBreak) == int(CborErrorUnexpectedBreak));
         return QStringLiteral("Invalid CBOR stream: unexpected 'break' byte");
     case UnknownType:
-        Q_STATIC_ASSERT(int(UnknownType) == int(CborErrorUnknownType));
+        static_assert(int(UnknownType) == int(CborErrorUnknownType));
         return QStringLiteral("Invalid CBOR stream: unknown type");
     case IllegalType:
-        Q_STATIC_ASSERT(int(IllegalType) == int(CborErrorIllegalType));
+        static_assert(int(IllegalType) == int(CborErrorIllegalType));
         return QStringLiteral("Invalid CBOR stream: illegal type found");
     case IllegalNumber:
-        Q_STATIC_ASSERT(int(IllegalNumber) == int(CborErrorIllegalNumber));
+        static_assert(int(IllegalNumber) == int(CborErrorIllegalNumber));
         return QStringLiteral("Invalid CBOR stream: illegal number encoding (future extension)");
     case IllegalSimpleType:
-        Q_STATIC_ASSERT(int(IllegalSimpleType) == int(CborErrorIllegalSimpleType));
+        static_assert(int(IllegalSimpleType) == int(CborErrorIllegalSimpleType));
         return QStringLiteral("Invalid CBOR stream: illegal simple type");
     case InvalidUtf8String:
-        Q_STATIC_ASSERT(int(InvalidUtf8String) == int(CborErrorInvalidUtf8TextString));
+        static_assert(int(InvalidUtf8String) == int(CborErrorInvalidUtf8TextString));
         return QStringLiteral("Invalid CBOR stream: invalid UTF-8 text string");
     case DataTooLarge:
-        Q_STATIC_ASSERT(int(DataTooLarge) == int(CborErrorDataTooLarge));
+        static_assert(int(DataTooLarge) == int(CborErrorDataTooLarge));
         return QStringLiteral("Internal limitation: data set too large");
     case NestingTooDeep:
-        Q_STATIC_ASSERT(int(NestingTooDeep) == int(CborErrorNestingTooDeep));
+        static_assert(int(NestingTooDeep) == int(CborErrorNestingTooDeep));
         return QStringLiteral("Internal limitation: data nesting too deep");
     case UnsupportedType:
-        Q_STATIC_ASSERT(int(UnsupportedType) == int(CborErrorUnsupportedType));
+        static_assert(int(UnsupportedType) == int(CborErrorUnsupportedType));
         return QStringLiteral("Internal limitation: unsupported type");
     }
 

@@ -46,6 +46,7 @@
 #include <QtCore/qcoreapplication.h>
 #include <QtCore/qvariant.h>
 #include <QtCore/QSysInfo>
+#include <QtCore/QOperatingSystemVersion>
 
 #include <set>
 
@@ -58,7 +59,8 @@ QT_BEGIN_NAMESPACE
   referring to this documentation is kind to readers.  Comments can also be used
   to indicate the reasons for ignoring particular cases.
 
-  The key "ci" applies only when run by COIN.  Other keys name platforms,
+  The key "ci" applies only when run by COIN.
+  The key "cmake" applies when Qt is built using CMake. Other keys name platforms,
   operating systems, distributions, tool-chains or architectures; a !  prefix
   reverses what it checks.  A version, joined to a key (at present, only for
   distributions and for msvc) with a hyphen, limits the key to the specific
@@ -124,7 +126,7 @@ static QSet<QByteArray> keywords()
             << "osx"
             << "macos"
 #endif
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
             << "windows"
 #endif
 #ifdef Q_OS_IOS
@@ -141,9 +143,6 @@ static QSet<QByteArray> keywords()
 #endif
 #ifdef Q_OS_QNX
             << "qnx"
-#endif
-#ifdef Q_OS_WINRT
-            << "winrt"
 #endif
 
 #if QT_POINTER_SIZE == 8
@@ -185,6 +184,8 @@ static QSet<QByteArray> keywords()
 #ifdef QT_BUILD_INTERNAL
             << "developer-build"
 #endif
+
+            << "cmake"
             ;
 
 #if QT_CONFIG(properties)
@@ -208,10 +209,23 @@ static QSet<QByteArray> activeConditions()
     if (!distributionName.isEmpty()) {
         if (result.find(distributionName) == result.end())
             result.insert(distributionName);
+        // backwards compatibility with Qt 5
+        if (distributionName == "macos") {
+            if (result.find(distributionName) == result.end())
+                result.insert("osx");
+            const auto version = QOperatingSystemVersion::current();
+            if (version.majorVersion() >= 11)
+                distributionRelease = QByteArray::number(version.majorVersion());
+        }
         if (!distributionRelease.isEmpty()) {
             QByteArray versioned = distributionName + "-" + distributionRelease;
             if (result.find(versioned) == result.end())
                 result.insert(versioned);
+            if (distributionName == "macos") {
+                QByteArray versioned = "osx-" + distributionRelease;
+                if (result.find(versioned) == result.end())
+                    result.insert(versioned);
+            }
         }
     }
 

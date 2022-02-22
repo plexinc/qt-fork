@@ -5,9 +5,9 @@
 #include "services/network/p2p/socket_udp.h"
 
 #include "base/bind.h"
+#include "base/containers/contains.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
@@ -129,7 +129,8 @@ P2PSocketUdp::~P2PSocketUdp() = default;
 void P2PSocketUdp::Init(const net::IPEndPoint& local_address,
                         uint16_t min_port,
                         uint16_t max_port,
-                        const P2PHostAndIPEndPoint& remote_address) {
+                        const P2PHostAndIPEndPoint& remote_address,
+                        const net::NetworkIsolationKey& network_isolation_key) {
   DCHECK(!socket_);
   DCHECK((min_port == 0 && max_port == 0) || min_port > 0);
   DCHECK_LE(min_port, max_port);

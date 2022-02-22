@@ -1,5 +1,6 @@
-QT += core-private gui-private 3dcore 3dcore-private 3drender 3drender-private
-QT_PRIVATE = openglextensions
+QT += core-private gui-private 3dcore 3dcore-private 3drender 3drender-private opengl-private
+
+CONFIG += c++17
 
 # Qt3D is free of Q_FOREACH - make sure it stays that way:
 DEFINES += QT_NO_FOREACH
@@ -12,7 +13,6 @@ DISTFILES += \
     openglrenderer.json
 
 include (renderer/renderer.pri)
-include (jobs/jobs.pri)
 include (io/io.pri)
 include (textures/textures.pri)
 include (graphicshelpers/graphicshelpers.pri)

@@ -51,7 +51,7 @@
 #include <QtGui/qguiapplication.h>
 #include <qpa/qwindowsysteminterface.h>
 #include <private/qhighdpiscaling_p.h>
-#include <private/qwindowsfontdatabase_p.h>
+#include <private/qwindowsfontdatabasebase_p.h>
 #include <QtGui/qscreen.h>
 
 #include <QtCore/qdebug.h>
@@ -74,7 +74,71 @@ static inline QDpi monitorDPI(HMONITOR hMonitor)
     return {0, 0};
 }
 
-using WindowsScreenDataList = QVector<QWindowsScreenData>;
+static bool getPathInfo(const MONITORINFOEX &viewInfo, DISPLAYCONFIG_PATH_INFO *pathInfo)
+{
+    // We might want to consider storing adapterId/id from DISPLAYCONFIG_PATH_TARGET_INFO.
+    std::vector<DISPLAYCONFIG_PATH_INFO> pathInfos;
+    std::vector<DISPLAYCONFIG_MODE_INFO> modeInfos;
+
+    // Fetch paths
+    LONG result;
+    UINT32 numPathArrayElements;
+    UINT32 numModeInfoArrayElements;
+    do {
+        // QueryDisplayConfig documentation doesn't say the number of needed elements is updated
+        // when the call fails with ERROR_INSUFFICIENT_BUFFER, so we need a separate call to
+        // look up the needed buffer sizes.
+        if (GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &numPathArrayElements,
+                                        &numModeInfoArrayElements) != ERROR_SUCCESS) {
+            return false;
+        }
+        pathInfos.resize(numPathArrayElements);
+        modeInfos.resize(numModeInfoArrayElements);
+        result = QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &numPathArrayElements, pathInfos.data(),
+                                    &numModeInfoArrayElements, modeInfos.data(), nullptr);
+    } while (result == ERROR_INSUFFICIENT_BUFFER);
+
+    if (result != ERROR_SUCCESS)
+        return false;
+
+    // Find path matching monitor name
+    for (uint32_t p = 0; p < numPathArrayElements; p++) {
+        DISPLAYCONFIG_SOURCE_DEVICE_NAME deviceName;
+        deviceName.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
+        deviceName.header.size = sizeof(DISPLAYCONFIG_SOURCE_DEVICE_NAME);
+        deviceName.header.adapterId = pathInfos[p].sourceInfo.adapterId;
+        deviceName.header.id = pathInfos[p].sourceInfo.id;
+        if (DisplayConfigGetDeviceInfo(&deviceName.header) == ERROR_SUCCESS) {
+            if (wcscmp(viewInfo.szDevice, deviceName.viewGdiDeviceName) == 0) {
+                *pathInfo = pathInfos[p];
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+#if 0
+// Needed later for HDR support
+static float getMonitorSDRWhiteLevel(DISPLAYCONFIG_PATH_TARGET_INFO *targetInfo)
+{
+    const float defaultSdrWhiteLevel = 200.0;
+    if (!targetInfo)
+        return defaultSdrWhiteLevel;
+
+    DISPLAYCONFIG_SDR_WHITE_LEVEL whiteLevel = {};
+    whiteLevel.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SDR_WHITE_LEVEL;
+    whiteLevel.header.size = sizeof(DISPLAYCONFIG_SDR_WHITE_LEVEL);
+    whiteLevel.header.adapterId = targetInfo->adapterId;
+    whiteLevel.header.id = targetInfo->id;
+    if (DisplayConfigGetDeviceInfo(&whiteLevel.header) != ERROR_SUCCESS)
+        return defaultSdrWhiteLevel;
+    return whiteLevel.SDRWhiteLevel * 80.0 / 1000.0;
+}
+#endif
+
+using WindowsScreenDataList = QList<QWindowsScreenData>;
 
 static bool monitorData(HMONITOR hMonitor, QWindowsScreenData *data)
 {
@@ -107,8 +171,36 @@ static bool monitorData(HMONITOR hMonitor, QWindowsScreenData *data)
                      data->dpi.first);
         } // CreateDC() failed
     } // not lock screen
-    data->orientation = data->geometry.height() > data->geometry.width() ?
-                       Qt::PortraitOrientation : Qt::LandscapeOrientation;
+
+    // ### We might want to consider storing adapterId/id from DISPLAYCONFIG_PATH_TARGET_INFO,
+    // if we are going to use DISPLAYCONFIG lookups more.
+    DISPLAYCONFIG_PATH_INFO pathInfo = {};
+    if (getPathInfo(info, &pathInfo)) {
+        switch (pathInfo.targetInfo.rotation) {
+        case DISPLAYCONFIG_ROTATION_IDENTITY:
+            data->orientation = Qt::LandscapeOrientation;
+            break;
+        case DISPLAYCONFIG_ROTATION_ROTATE90:
+            data->orientation = Qt::PortraitOrientation;
+            break;
+        case DISPLAYCONFIG_ROTATION_ROTATE180:
+            data->orientation = Qt::InvertedLandscapeOrientation;
+            break;
+        case DISPLAYCONFIG_ROTATION_ROTATE270:
+            data->orientation = Qt::InvertedPortraitOrientation;
+            break;
+        case DISPLAYCONFIG_ROTATION_FORCE_UINT32:
+            Q_UNREACHABLE();
+            break;
+        }
+        if (pathInfo.targetInfo.refreshRate.Numerator && pathInfo.targetInfo.refreshRate.Denominator)
+            data->refreshRateHz = static_cast<qreal>(pathInfo.targetInfo.refreshRate.Numerator)
+                                / pathInfo.targetInfo.refreshRate.Denominator;
+    } else {
+        data->orientation = data->geometry.height() > data->geometry.width()
+                          ? Qt::PortraitOrientation
+                          : Qt::LandscapeOrientation;
+    }
     // EnumDisplayMonitors (as opposed to EnumDisplayDevices) enumerates only
     // virtual desktop screens.
     data->flags |= QWindowsScreenData::VirtualDesktop;
@@ -120,7 +212,7 @@ static bool monitorData(HMONITOR hMonitor, QWindowsScreenData *data)
     return true;
 }
 
-// from QDesktopWidget, taking WindowsScreenDataList as LPARAM
+// from monitorData, taking WindowsScreenDataList as LPARAM
 BOOL QT_WIN_CALLBACK monitorEnumCallback(HMONITOR hMonitor, HDC, LPRECT, LPARAM p)
 {
     QWindowsScreenData data;
@@ -443,30 +535,6 @@ QWindowsScreenManager::QWindowsScreenManager() = default;
 bool QWindowsScreenManager::isSingleScreen()
 {
     return QWindowsContext::instance()->screenManager().screens().size() < 2;
-}
-
-/*!
-    \brief Triggers synchronization of screens (WM_DISPLAYCHANGE).
-
-    Subsequent events are compressed since WM_DISPLAYCHANGE is sent to
-    each top level window.
-*/
-
-bool QWindowsScreenManager::handleDisplayChange(WPARAM wParam, LPARAM lParam)
-{
-    const int newDepth = int(wParam);
-    const WORD newHorizontalResolution = LOWORD(lParam);
-    const WORD newVerticalResolution = HIWORD(lParam);
-    if (newDepth != m_lastDepth || newHorizontalResolution != m_lastHorizontalResolution
-        || newVerticalResolution != m_lastVerticalResolution) {
-        m_lastDepth = newDepth;
-        m_lastHorizontalResolution = newHorizontalResolution;
-        m_lastVerticalResolution = newVerticalResolution;
-        qCDebug(lcQpaWindows) << __FUNCTION__ << "Depth=" << newDepth
-            << ", resolution " << newHorizontalResolution << 'x' << newVerticalResolution;
-        handleScreenChanges();
-    }
-    return false;
 }
 
 static inline int indexOfMonitor(const QWindowsScreenManager::WindowsScreenList &screens,

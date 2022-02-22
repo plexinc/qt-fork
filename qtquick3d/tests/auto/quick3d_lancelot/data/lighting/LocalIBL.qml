@@ -48,9 +48,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.15
-import QtQuick3D 1.15
-import QtQuick3D.Materials 1.15
+import QtQuick
+import QtQuick3D
 
 Rectangle {
     width: 400
@@ -68,11 +67,10 @@ Rectangle {
         DirectionalLight {
             rotation: Quaternion.fromEulerAngles(-30, -70, 0)
             ambientColor: Qt.rgba(0.8, 0.8, 0.8, 1.0);
-            brightness: 100
         }
 
         environment: SceneEnvironment {
-            probeBrightness: 750
+            probeExposure: 7.5
         }
 
         Texture {
@@ -80,11 +78,6 @@ Rectangle {
             source: "maps/OpenfootageNET_Gerlos-512.hdr"
             mappingMode: Texture.LightProbe
             tilingModeHorizontal: Texture.ClampToEdge
-        }
-
-        Texture {
-            id: lightmap_radiosity
-            source: "maps/core_lightmap_radiosity.jpg"
         }
 
         Model {
@@ -97,7 +90,6 @@ Rectangle {
                     metalness: 0.7
                     roughness: 0.3
                     specularAmount: 0.2
-                    indexOfRefraction: 1.8
                     specularTint: 0.0
                     opacity: 1.0
                     lighting: DefaultMaterial.FragmentLighting
@@ -115,29 +107,11 @@ Rectangle {
                     metalness: 1.0
                     roughness: 0.3
                     specularAmount: 0.2
-                    indexOfRefraction: 1.8
                     specularTint: 0.0
                     opacity: 1.0
                     lighting: DefaultMaterial.FragmentLighting
 
                     lightProbe: lightprobe_texture
-                }
-            ]
-        }
-
-        Model {
-            id: radiosity_lightmap
-            position: Qt.vector3d(0, 0, -100)
-            rotation: Quaternion.fromEulerAngles(30, -40, 0)
-            scale: Qt.vector3d(30, 30, 30)
-            source: "models/testCube/meshes/Cube.mesh"
-
-            materials: [
-                DefaultMaterial {
-                    diffuseColor: "blue"
-                    lighting: DefaultMaterial.FragmentLighting
-
-                    lightmapRadiosity: lightmap_radiosity
                 }
             ]
         }

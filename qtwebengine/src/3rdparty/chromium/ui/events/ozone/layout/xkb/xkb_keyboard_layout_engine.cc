@@ -21,6 +21,7 @@
 #include "base/task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "ui/events/event_constants.h"
 #include "ui/events/keycodes/dom/dom_code.h"
 #include "ui/events/keycodes/dom/dom_key.h"
@@ -610,7 +611,7 @@ const PrintableSimpleEntry kSimpleMap[] = {
     {0x0259, VKEY_OEM_3},      // schwa
 };
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || defined(TOOLKIT_QT)
 void LoadKeymap(const std::string& layout_name,
                 scoped_refptr<base::SingleThreadTaskRunner> reply_runner,
                 LoadKeymapCallback reply_callback) {
@@ -669,7 +670,7 @@ XkbKeyboardLayoutEngine::~XkbKeyboardLayoutEngine() {
 }
 
 bool XkbKeyboardLayoutEngine::CanSetCurrentLayout() const {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   return true;
 #else
   return false;
@@ -678,7 +679,7 @@ bool XkbKeyboardLayoutEngine::CanSetCurrentLayout() const {
 
 bool XkbKeyboardLayoutEngine::SetCurrentLayoutByName(
     const std::string& layout_name) {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || defined(TOOLKIT_QT)
   current_layout_name_ = layout_name;
   for (const auto& entry : xkb_keymaps_) {
     if (entry.layout_name == layout_name) {
@@ -696,7 +697,7 @@ bool XkbKeyboardLayoutEngine::SetCurrentLayoutByName(
                      std::move(reply_callback)));
 #else
   NOTIMPLEMENTED();
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
   return true;
 }
 
@@ -816,6 +817,10 @@ bool XkbKeyboardLayoutEngine::SetCurrentLayoutFromBuffer(
     return false;
 
   SetKeymap(keymap);
+
+  // Store the keymap that will be unrefed either on dtor or if a new keymap is
+  // created.
+  key_map_from_buffer_.reset(keymap);
   return true;
 }
 
@@ -848,8 +853,32 @@ void XkbKeyboardLayoutEngine::SetKeymap(xkb_keymap* keymap) {
         num_lock_mask = flag;
     }
   }
+
+  // Reconstruct keysym map.
+  xkb_keysym_map_.clear();
+  const xkb_keycode_t min_key = xkb_keymap_min_keycode(keymap);
+  const xkb_keycode_t max_key = xkb_keymap_max_keycode(keymap);
+  for (xkb_keycode_t keycode = min_key; keycode <= max_key; ++keycode) {
+    const xkb_layout_index_t num_layouts =
+        xkb_keymap_num_layouts_for_key(keymap, keycode);
+    for (xkb_layout_index_t layout = 0; layout < num_layouts; ++layout) {
+      const xkb_level_index_t num_levels =
+          xkb_keymap_num_levels_for_key(keymap, keycode, layout);
+      for (xkb_level_index_t level = 0; level < num_levels; ++level) {
+        const xkb_keysym_t* keysyms;
+        int num_syms = xkb_keymap_key_get_syms_by_level(keymap, keycode, layout,
+                                                        level, &keysyms);
+        for (int i = 0; i < num_syms; ++i) {
+          // Ignore if there already an entry for the current keysym.
+          // Iterating keycode from min to max, so the minimum value wins.
+          xkb_keysym_map_.emplace(keysyms[i], keycode);
+        }
+      }
+    }
+  }
+
   layout_index_ = 0;
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // Update num lock mask.
   num_lock_mod_mask_ = num_lock_mask;
 #endif
@@ -864,7 +893,7 @@ xkb_mod_mask_t XkbKeyboardLayoutEngine::EventFlagsToXkbFlags(
     if (ui_flags & entry.ui_flag)
       xkb_flags |= entry.xkb_flag;
   }
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // In ChromeOS NumLock is always on.
   xkb_flags |= num_lock_mod_mask_;
 #endif
@@ -887,6 +916,15 @@ int XkbKeyboardLayoutEngine::UpdateModifiers(uint32_t depressed,
   }
   layout_index_ = group;
   return ui_flags;
+}
+
+DomCode XkbKeyboardLayoutEngine::GetDomCodeByKeysym(uint32_t keysym) const {
+  auto iter = xkb_keysym_map_.find(keysym);
+  if (iter == xkb_keysym_map_.end()) {
+    VLOG(1) << "No Keycode found for the keysym: " << keysym;
+    return DomCode::NONE;
+  }
+  return KeycodeConverter::NativeKeycodeToDomCode(iter->second);
 }
 
 bool XkbKeyboardLayoutEngine::XkbLookup(xkb_keycode_t xkb_keycode,

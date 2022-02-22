@@ -35,7 +35,7 @@
 #include <QCommandLineParser>
 #include <QFile>
 #include <QFileInfo>
-#include <QTextCodec>
+#include <QStringConverter>
 
 QT_BEGIN_NAMESPACE
 
@@ -68,17 +68,17 @@ int write(TranslationUnit *tu)
     }
 
     // Make sure it outputs UTF-8, as that is what C++ expects.
-    QTextCodec *utf8 = QTextCodec::codecForName("UTF-8");
+    auto utf8 = QStringConverter::encodingForName("UTF-8");
     if (!utf8) {
-        errs << QStringLiteral("Error: cannot find a QTextCodec for generating UTF-8.");
+        errs << QStringLiteral("Error: cannot find a QStringConverter for generating UTF-8.");
         return NoTextCodecError;
     }
 
     QTextStream h(&outH);
-    h.setCodec(utf8);
+    h.setEncoding(utf8.value());
     h.setGenerateByteOrderMark(true);
     QTextStream c(&outCpp);
-    c.setCodec(utf8);
+    c.setEncoding(utf8.value());
     c.setGenerateByteOrderMark(true);
     CppDumper dumper(h, c);
     dumper.dump(tu);

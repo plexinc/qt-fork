@@ -217,8 +217,8 @@ public:
     void createCursors();
 
     // IDropSource methods
-    STDMETHOD(QueryContinueDrag)(BOOL fEscapePressed, DWORD grfKeyState);
-    STDMETHOD(GiveFeedback)(DWORD dwEffect);
+    STDMETHOD(QueryContinueDrag)(BOOL fEscapePressed, DWORD grfKeyState) override;
+    STDMETHOD(GiveFeedback)(DWORD dwEffect) override;
 
 private:
     struct CursorEntry {
@@ -420,7 +420,7 @@ QWindowsOleDropSource::QueryContinueDrag(BOOL fEscapePressed, DWORD grfKeyState)
 }
 
 /*!
-    \brief Give feedback: Change cursor accoding to action.
+    \brief Give feedback: Change cursor according to action.
 */
 
 QT_ENSURE_STACK_ALIGNED_FOR_SSE STDMETHODIMP

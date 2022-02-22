@@ -24,6 +24,7 @@
 #include <string>
 #include <vector>
 
+#include "api/transport/field_trial_based_config.h"
 #include "api/video/video_frame.h"
 #include "call/audio_receive_stream.h"
 #include "call/audio_send_stream.h"
@@ -103,8 +104,10 @@ class FakeAudioReceiveStream final : public webrtc::AudioReceiveStream {
   void Reconfigure(const webrtc::AudioReceiveStream::Config& config) override;
   void Start() override { started_ = true; }
   void Stop() override { started_ = false; }
+  bool IsRunning() const override { return started_; }
 
-  webrtc::AudioReceiveStream::Stats GetStats() const override;
+  webrtc::AudioReceiveStream::Stats GetStats(
+      bool get_and_clear_legacy_stats) const override;
   void SetSink(webrtc::AudioSinkInterface* sink) override;
   void SetGain(float gain) override;
   bool SetBaseMinimumPlayoutDelayMs(int delay_ms) override {
@@ -173,6 +176,10 @@ class FakeVideoSendStream final
       const std::vector<bool> active_layers) override;
   void Start() override;
   void Stop() override;
+  void AddAdaptationResource(
+      rtc::scoped_refptr<webrtc::Resource> resource) override;
+  std::vector<rtc::scoped_refptr<webrtc::Resource>> GetAdaptationResources()
+      override;
   void SetSource(
       rtc::VideoSourceInterface<webrtc::VideoFrame>* source,
       const webrtc::DegradationPreference& degradation_preference) override;
@@ -211,12 +218,6 @@ class FakeVideoReceiveStream final : public webrtc::VideoReceiveStream {
   void InjectFrame(const webrtc::VideoFrame& frame);
 
   void SetStats(const webrtc::VideoReceiveStream::Stats& stats);
-
-  void AddSecondarySink(webrtc::RtpPacketSinkInterface* sink) override;
-  void RemoveSecondarySink(const webrtc::RtpPacketSinkInterface* sink) override;
-
-  int GetNumAddedSecondarySinks() const;
-  int GetNumRemovedSecondarySinks() const;
 
   std::vector<webrtc::RtpSource> GetSources() const override {
     return std::vector<webrtc::RtpSource>();
@@ -260,9 +261,6 @@ class FakeVideoReceiveStream final : public webrtc::VideoReceiveStream {
   webrtc::VideoReceiveStream::Stats stats_;
 
   int base_mininum_playout_delay_ms_ = 0;
-
-  int num_added_secondary_sinks_;
-  int num_removed_secondary_sinks_;
 };
 
 class FakeFlexfecReceiveStream final : public webrtc::FlexfecReceiveStream {
@@ -341,6 +339,9 @@ class FakeCall final : public webrtc::Call, public webrtc::PacketReceiver {
   void DestroyFlexfecReceiveStream(
       webrtc::FlexfecReceiveStream* receive_stream) override;
 
+  void AddAdaptationResource(
+      rtc::scoped_refptr<webrtc::Resource> resource) override;
+
   webrtc::PacketReceiver* Receiver() override;
 
   DeliveryStatus DeliverPacket(webrtc::MediaType media_type,
@@ -353,6 +354,10 @@ class FakeCall final : public webrtc::Call, public webrtc::PacketReceiver {
   }
 
   webrtc::Call::Stats GetStats() const override;
+
+  const webrtc::WebRtcKeyValueConfig& trials() const override {
+    return trials_;
+  }
 
   void SignalChannelNetworkState(webrtc::MediaType media,
                                  webrtc::NetworkState state) override;
@@ -377,6 +382,7 @@ class FakeCall final : public webrtc::Call, public webrtc::PacketReceiver {
 
   int num_created_send_streams_;
   int num_created_receive_streams_;
+  webrtc::FieldTrialBasedConfig trials_;
 };
 
 }  // namespace cricket

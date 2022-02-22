@@ -42,161 +42,58 @@
 // We mean it.
 //
 
-#include <QtQuick3DRender/private/qssgrendervertexbuffer_p.h>
-#include <QtQuick3DRender/private/qssgrenderindexbuffer_p.h>
-#include <QtQuick3DRender/private/qssgrenderinputassembler_p.h>
+#include <QtQuick3DRuntimeRender/private/qssgrhicontext_p.h>
 
 #include <QtQuick3DUtils/private/qssgbounds3_p.h>
 #include <QtQuick3DUtils/private/qssgmeshbvh_p.h>
 
 QT_BEGIN_NAMESPACE
 
-struct QSSGRenderSubsetBase
+struct QSSGRenderSubset
 {
     quint32 count;
     quint32 offset;
     QSSGBounds3 bounds; // Vertex buffer bounds
     QSSGMeshBVHNode *bvhRoot = nullptr;
-    QSSGRenderSubsetBase() = default;
-    QSSGRenderSubsetBase(const QSSGRenderSubsetBase &inOther)
+    struct {
+        QSSGRef<QSSGRhiBuffer> vertexBuffer;
+        QSSGRef<QSSGRhiBuffer> indexBuffer;
+        QSSGRhiInputAssemblerState ia;
+    } rhi;
+
+    QSSGRenderSubset() = default;
+    QSSGRenderSubset(const QSSGRenderSubset &inOther)
         : count(inOther.count)
         , offset(inOther.offset)
         , bounds(inOther.bounds)
         , bvhRoot(inOther.bvhRoot)
+        , rhi(inOther.rhi)
     {
     }
-
-    QSSGRenderSubsetBase &operator=(const QSSGRenderSubsetBase &inOther)
-    {
-        count = inOther.count;
-        offset = inOther.offset;
-        bounds = inOther.bounds;
-        bvhRoot = inOther.bvhRoot;
-        return *this;
-    }
-};
-
-struct QSSGRenderJoint
-{
-    qint32 jointID;
-    qint32 parentID;
-    float invBindPose[16];
-    float localToGlobalBoneSpace[16];
-};
-
-struct QSSGRenderSubset : public QSSGRenderSubsetBase
-{
-    QSSGRef<QSSGRenderInputAssembler> inputAssembler;
-    QSSGRef<QSSGRenderInputAssembler> inputAssemblerDepth;
-    QSSGRef<QSSGRenderInputAssembler> inputAssemblerPoints; ///< similar to depth but ignores index buffer.
-    QSSGRef<QSSGRenderVertexBuffer> vertexBuffer;
-    QSSGRef<QSSGRenderVertexBuffer> posVertexBuffer; ///< separate position buffer for fast depth path rendering
-    QSSGRef<QSSGRenderIndexBuffer> indexBuffer;
-    QSSGRenderDrawMode primitiveType; ///< primitive type used for drawing
-    float edgeTessFactor = 1.0f; ///< edge tessellation amount used for tessellation shaders
-    float innerTessFactor = 1.0f; ///< inner tessellation amount used for tessellation shaders
-    bool wireframeMode; ///< true if we should draw the object as wireframe ( currently ony if
-    /// tessellation is enabled )
-    QVector<QSSGRenderJoint> joints;
-    QString name;
-    QVector<QSSGRenderSubsetBase> subSubsets;
-
-    QSSGRenderSubset() = default;
-    QSSGRenderSubset(const QSSGRenderSubset &inOther)
-        : QSSGRenderSubsetBase(inOther)
-        , inputAssembler(inOther.inputAssembler)
-        , inputAssemblerDepth(inOther.inputAssemblerDepth)
-        , inputAssemblerPoints(inOther.inputAssemblerPoints)
-        , vertexBuffer(inOther.vertexBuffer)
-        , posVertexBuffer(inOther.posVertexBuffer)
-        , indexBuffer(inOther.indexBuffer)
-        , primitiveType(inOther.primitiveType)
-        , edgeTessFactor(inOther.edgeTessFactor)
-        , innerTessFactor(inOther.innerTessFactor)
-        , wireframeMode(inOther.wireframeMode)
-        , joints(inOther.joints)
-        , name(inOther.name)
-        , subSubsets(inOther.subSubsets)
-    {
-    }
-    // Note that subSubsets is *not* copied.
-    QSSGRenderSubset(const QSSGRenderSubset &inOther, const QSSGRenderSubsetBase &inBase)
-        : QSSGRenderSubsetBase(inBase)
-        , inputAssembler(inOther.inputAssembler)
-        , inputAssemblerDepth(inOther.inputAssemblerDepth)
-        , inputAssemblerPoints(inOther.inputAssemblerPoints)
-        , vertexBuffer(inOther.vertexBuffer)
-        , posVertexBuffer(inOther.posVertexBuffer)
-        , indexBuffer(inOther.indexBuffer)
-        , primitiveType(inOther.primitiveType)
-        , edgeTessFactor(inOther.edgeTessFactor)
-        , innerTessFactor(inOther.innerTessFactor)
-        , wireframeMode(inOther.wireframeMode)
-        , name(inOther.name)
-    {
-    }
-
     QSSGRenderSubset &operator=(const QSSGRenderSubset &inOther)
     {
         if (this != &inOther) {
-            QSSGRenderSubsetBase::operator=(inOther);
-            inputAssembler = inOther.inputAssembler;
-            inputAssemblerDepth = inOther.inputAssemblerDepth;
-            vertexBuffer = inOther.vertexBuffer;
-            posVertexBuffer = inOther.posVertexBuffer;
-            indexBuffer = inOther.indexBuffer;
-            primitiveType = inOther.primitiveType;
-            edgeTessFactor = inOther.edgeTessFactor;
-            innerTessFactor = inOther.innerTessFactor;
-            wireframeMode = inOther.wireframeMode;
-            joints = inOther.joints;
-            name = inOther.name;
-            subSubsets = inOther.subSubsets;
+            count = inOther.count;
+            offset = inOther.offset;
+            bounds = inOther.bounds;
+            bvhRoot = inOther.bvhRoot;
+            rhi = inOther.rhi;
         }
         return *this;
     }
 };
-
-struct QSSGRenderMeshPath
-{
-    QString path;
-    uint key = 0;
-
-    inline bool isNull() const { return path.isNull(); }
-
-    static QSSGRenderMeshPath create(const QString &path)
-    {
-        QSSGRenderMeshPath p;
-        p.path = path;
-        p.key = qHash(path);
-        return p;
-    }
-};
-
-inline bool operator==(const QSSGRenderMeshPath &p1, const QSSGRenderMeshPath &p2)
-{
-    return (p1.path == p2.path);
-}
-
-inline uint qHash(const QSSGRenderMeshPath &path, uint seed) Q_DECL_NOTHROW
-{
-    return (path.key) ? path.key : qHash(path.path, seed);
-}
 
 struct QSSGRenderMesh
 {
     Q_DISABLE_COPY(QSSGRenderMesh)
 
     QVector<QSSGRenderSubset> subsets;
-    QVector<QSSGRenderJoint> joints;
     QSSGRenderDrawMode drawMode;
-    QSSGRenderWinding winding; // counterclockwise
-    quint32 meshId; // Id from the file of this mesh.
+    QSSGRenderWinding winding;
     QSSGMeshBVH *bvh = nullptr;
-    QVector<QByteArray> inputLayoutInputNames;
 
-    QSSGRenderMesh(QSSGRenderDrawMode inDrawMode, QSSGRenderWinding inWinding, quint32 inMeshId)
-        : drawMode(inDrawMode), winding(inWinding), meshId(inMeshId)
+    QSSGRenderMesh(QSSGRenderDrawMode inDrawMode, QSSGRenderWinding inWinding)
+        : drawMode(inDrawMode), winding(inWinding)
     {
     }
 

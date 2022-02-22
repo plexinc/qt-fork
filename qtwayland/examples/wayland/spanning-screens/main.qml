@@ -48,9 +48,10 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.6
-import QtQuick.Window 2.3
-import QtWayland.Compositor 1.3
+import QtQuick
+import QtQuick.Window
+import QtWayland.Compositor
+import QtWayland.Compositor.XdgShell
 
 WaylandCompositor {
     WaylandOutput {
@@ -68,10 +69,12 @@ WaylandCompositor {
 
             Text { text: "Top screen" }
 
+            // ![enable screens]
             // Enable the following to make the output target an actual screen,
             // for example when running on eglfs in a multi-display embedded system.
 
             // screen: Qt.application.screens[0]
+            // ![enable screens]
         }
     }
 
@@ -99,9 +102,12 @@ WaylandCompositor {
 
     Component {
         id: chromeComponent
-        ShellSurfaceItem {
-            autoCreatePopupItems: true
-            onSurfaceDestroyed: destroy()
+        Item {
+            property alias shellSurface: ssi.shellSurface
+            ShellSurfaceItem {
+                id: ssi
+                onSurfaceDestroyed: destroy()
+            }
         }
     }
 
@@ -109,6 +115,7 @@ WaylandCompositor {
         onToplevelCreated: {
             const shellSurface = xdgSurface;
 
+            // ![create items]
             const topItem = chromeComponent.createObject(topSurfaceArea, {
                 shellSurface
             });
@@ -117,11 +124,14 @@ WaylandCompositor {
                 shellSurface,
                 y: Qt.binding(function() { return -topSurfaceArea.height;})
             });
+            // ![create items]
 
+            // ![size]
             const height = topSurfaceArea.pixelHeight + bottomSurfaceArea.pixelHeight;
             const width = Math.max(bottomSurfaceArea.pixelWidth, topSurfaceArea.pixelWidth);
             const size = Qt.size(width, height);
             toplevel.sendFullscreen(size);
+            // ![size]
         }
     }
 }

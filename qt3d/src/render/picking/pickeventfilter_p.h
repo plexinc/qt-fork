@@ -61,25 +61,22 @@ QT_BEGIN_NAMESPACE
 
 namespace Qt3DRender {
 
+class QRenderAspectPrivate;
+
 namespace Render {
 
 class Q_3DRENDERSHARED_PRIVATE_EXPORT PickEventFilter : public QObject
 {
     Q_OBJECT
 public:
-    explicit PickEventFilter(QObject *parent = nullptr);
+    explicit PickEventFilter(QRenderAspectPrivate *aspect, QObject *parent = nullptr);
     ~PickEventFilter();
-
-    QList<QPair<QObject*, QMouseEvent>> pendingMouseEvents();
-    QList<QKeyEvent> pendingKeyEvents();
 
 protected:
     bool eventFilter(QObject *obj, QEvent *e) final;
 
 private:
-    QList<QPair<QObject*, QMouseEvent>> m_pendingMouseEvents;
-    QList<QKeyEvent> m_pendingKeyEvents;
-    QMutex m_mutex;
+    QRenderAspectPrivate *m_aspect;
 };
 
 } // Render

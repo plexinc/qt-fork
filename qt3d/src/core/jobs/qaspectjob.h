@@ -42,14 +42,13 @@
 
 #include <Qt3DCore/qt3dcore_global.h>
 #include <QtCore/QSharedPointer>
-#include <QtCore/QVector>
 
 QT_BEGIN_NAMESPACE
 
 namespace Qt3DCore {
 
 class QAspectJobPrivate;
-class QAspectManager;
+class QAspectEngine;
 
 class Q_3DCORESHARED_EXPORT QAspectJob
 {
@@ -60,10 +59,11 @@ public:
     void addDependency(QWeakPointer<QAspectJob> dependency);
     void removeDependency(QWeakPointer<QAspectJob> dependency);
 
-    QVector<QWeakPointer<QAspectJob> > dependencies() const;
+    const std::vector<QWeakPointer<QAspectJob>> &dependencies() const;
 
     virtual void run() = 0;
-    void postFrame(QAspectManager *aspectManager);
+    virtual void postFrame(QAspectEngine *aspectEngine);
+    virtual bool isRequired();
 
 protected:
     explicit QAspectJob(QAspectJobPrivate &dd);

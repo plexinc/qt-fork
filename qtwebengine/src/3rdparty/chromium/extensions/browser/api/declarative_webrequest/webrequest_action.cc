@@ -7,8 +7,9 @@
 #include <limits>
 #include <utility>
 
+#include "base/check_op.h"
 #include "base/lazy_instance.h"
-#include "base/logging.h"
+#include "base/notreached.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
@@ -498,8 +499,8 @@ bool WebRequestAction::HasPermission(ApplyInfo* apply_info,
   return WebRequestPermissions::CanExtensionAccessURL(
              permission_helper, extension_id, request->url, -1,
              apply_info->crosses_incognito, permission_check,
-             request->initiator,
-             request->type) == PermissionsData::PageAccess::kAllowed;
+             request->initiator, request->web_request_type) ==
+         PermissionsData::PageAccess::kAllowed;
 }
 
 // static
@@ -576,7 +577,7 @@ base::Optional<EventResponseDelta> WebRequestCancelAction::CreateDelta(
   CHECK(request_data.stage & stages());
   EventResponseDelta result(extension_id, extension_install_time);
   result.cancel = true;
-  return std::move(result);
+  return result;
 }
 
 //
@@ -611,7 +612,7 @@ base::Optional<EventResponseDelta> WebRequestRedirectAction::CreateDelta(
     return base::nullopt;
   EventResponseDelta result(extension_id, extension_install_time);
   result.new_url = redirect_url_;
-  return std::move(result);
+  return result;
 }
 
 //
@@ -640,7 +641,7 @@ WebRequestRedirectToTransparentImageAction::CreateDelta(
   CHECK(request_data.stage & stages());
   EventResponseDelta result(extension_id, extension_install_time);
   result.new_url = GURL(kTransparentImageUrl);
-  return std::move(result);
+  return result;
 }
 
 //
@@ -669,7 +670,7 @@ WebRequestRedirectToEmptyDocumentAction::CreateDelta(
   CHECK(request_data.stage & stages());
   EventResponseDelta result(extension_id, extension_install_time);
   result.new_url = GURL(kEmptyDocumentUrl);
-  return std::move(result);
+  return result;
 }
 
 //
@@ -771,7 +772,7 @@ base::Optional<EventResponseDelta> WebRequestRedirectByRegExAction::CreateDelta(
 
   EventResponseDelta result(extension_id, extension_install_time);
   result.new_url = GURL(new_url);
-  return std::move(result);
+  return result;
 }
 
 //
@@ -811,7 +812,7 @@ WebRequestSetRequestHeaderAction::CreateDelta(
   CHECK(request_data.stage & stages());
   EventResponseDelta result(extension_id, extension_install_time);
   result.modified_request_headers.SetHeader(name_, value_);
-  return std::move(result);
+  return result;
 }
 
 //
@@ -849,7 +850,7 @@ WebRequestRemoveRequestHeaderAction::CreateDelta(
   CHECK(request_data.stage & stages());
   EventResponseDelta result(extension_id, extension_install_time);
   result.deleted_request_headers.push_back(name_);
-  return std::move(result);
+  return result;
 }
 
 //
@@ -898,7 +899,7 @@ WebRequestAddResponseHeaderAction::CreateDelta(
 
   EventResponseDelta result(extension_id, extension_install_time);
   result.added_response_headers.push_back(make_pair(name_, value_));
-  return std::move(result);
+  return result;
 }
 
 //
@@ -952,7 +953,7 @@ WebRequestRemoveResponseHeaderAction::CreateDelta(
       continue;
     result.deleted_response_headers.push_back(make_pair(name_, current_value));
   }
-  return std::move(result);
+  return result;
 }
 
 //
@@ -1037,7 +1038,7 @@ base::Optional<EventResponseDelta> WebRequestRequestCookieAction::CreateDelta(
   EventResponseDelta result(extension_id, extension_install_time);
   result.request_cookie_modifications.push_back(
       request_cookie_modification_.Clone());
-  return std::move(result);
+  return result;
 }
 
 //
@@ -1085,7 +1086,7 @@ base::Optional<EventResponseDelta> WebRequestResponseCookieAction::CreateDelta(
   EventResponseDelta result(extension_id, extension_install_time);
   result.response_cookie_modifications.push_back(
       response_cookie_modification_.Clone());
-  return std::move(result);
+  return result;
 }
 
 //
@@ -1125,7 +1126,7 @@ WebRequestSendMessageToExtensionAction::CreateDelta(
   CHECK(request_data.stage & stages());
   EventResponseDelta result(extension_id, extension_install_time);
   result.messages_to_extension.insert(message_);
-  return std::move(result);
+  return result;
 }
 
 }  // namespace extensions

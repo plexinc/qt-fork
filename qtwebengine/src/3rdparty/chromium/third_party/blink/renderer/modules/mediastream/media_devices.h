@@ -11,6 +11,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
+#include "third_party/blink/renderer/core/frame/navigator.h"
 #include "third_party/blink/renderer/modules/event_target_modules.h"
 #include "third_party/blink/renderer/modules/mediastream/media_device_info.h"
 #include "third_party/blink/renderer/modules/mediastream/user_media_request.h"
@@ -18,11 +19,13 @@
 #include "third_party/blink/renderer/platform/heap/heap_allocator.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_receiver.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cancellable_task.h"
+#include "third_party/blink/renderer/platform/supplementable.h"
 
 namespace blink {
 
 class ExceptionState;
 class LocalFrame;
+class Navigator;
 class MediaStreamConstraints;
 class MediaTrackSupportedConstraints;
 class ScriptPromise;
@@ -32,13 +35,15 @@ class ScriptState;
 class MODULES_EXPORT MediaDevices final
     : public EventTargetWithInlineData,
       public ActiveScriptWrappable<MediaDevices>,
+      public Supplement<Navigator>,
       public ExecutionContextLifecycleObserver,
       public mojom::blink::MediaDevicesListener {
-  USING_GARBAGE_COLLECTED_MIXIN(MediaDevices);
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  explicit MediaDevices(ExecutionContext*);
+  static const char kSupplementName[];
+  static MediaDevices* mediaDevices(Navigator&);
+  explicit MediaDevices(Navigator&);
   ~MediaDevices() override;
 
   ScriptPromise enumerateDevices(ScriptState*, ExceptionState&);
@@ -55,6 +60,10 @@ class MODULES_EXPORT MediaDevices final
                                 const MediaStreamConstraints*,
                                 ExceptionState&);
 
+  ScriptPromise getCurrentBrowsingContextMedia(ScriptState*,
+                                               const MediaStreamConstraints*,
+                                               ExceptionState&);
+
   // EventTarget overrides.
   const AtomicString& InterfaceName() const override;
   ExecutionContext* GetExecutionContext() const override;
@@ -67,7 +76,7 @@ class MODULES_EXPORT MediaDevices final
   void ContextDestroyed() override;
 
   // mojom::blink::MediaDevicesListener implementation.
-  void OnDevicesChanged(MediaDeviceType,
+  void OnDevicesChanged(mojom::blink::MediaDeviceType,
                         const Vector<WebMediaDeviceInfo>&) override;
 
   // Callback for testing only.
@@ -90,7 +99,7 @@ class MODULES_EXPORT MediaDevices final
     device_change_test_callback_ = std::move(test_callback);
   }
 
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
   DEFINE_ATTRIBUTE_EVENT_LISTENER(devicechange, kDevicechange)
 
@@ -121,7 +130,7 @@ class MODULES_EXPORT MediaDevices final
   TaskHandle dispatch_scheduled_events_task_handle_;
   HeapVector<Member<Event>> scheduled_events_;
   mojo::Remote<mojom::blink::MediaDevicesDispatcherHost> dispatcher_host_;
-  HeapMojoReceiver<mojom::blink::MediaDevicesListener> receiver_;
+  HeapMojoReceiver<mojom::blink::MediaDevicesListener, MediaDevices> receiver_;
   HeapHashSet<Member<ScriptPromiseResolver>> requests_;
 
   EnumerateDevicesTestCallback enumerate_devices_test_callback_;

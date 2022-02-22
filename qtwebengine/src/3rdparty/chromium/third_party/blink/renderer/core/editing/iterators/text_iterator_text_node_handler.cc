@@ -26,7 +26,6 @@ const unsigned kMaxOffset = std::numeric_limits<unsigned>::max();
 bool ShouldSkipInvisibleTextAt(const Text& text,
                                unsigned offset,
                                bool ignores_visibility) {
-  // TODO(xiaochengh): Get style from NGInlineItem or NGPhysicalTextFragment.
   const LayoutObject* layout_object = AssociatedLayoutObjectOf(text, offset);
   if (!layout_object)
     return true;
@@ -38,7 +37,7 @@ bool ShouldSkipInvisibleTextAt(const Text& text,
 }
 
 EVisibility FirstLetterVisibilityOf(const LayoutObject* layout_object) {
-  const LayoutTextFragment* text_fragment = ToLayoutTextFragment(layout_object);
+  const auto* text_fragment = To<LayoutTextFragment>(layout_object);
   DCHECK(text_fragment->IsRemainingTextLayoutObject());
   return text_fragment->GetFirstLetterPseudoElement()
       ->ComputedStyleRef()
@@ -96,6 +95,7 @@ bool TextIteratorTextNodeHandler::HandleRemainingTextRuns() {
 void TextIteratorTextNodeHandler::HandleTextNodeWithLayoutNG() {
   DCHECK_LE(offset_, end_offset_);
   DCHECK_LE(end_offset_, text_node_->data().length());
+  DCHECK_LE(mapping_units_index_, mapping_units_.size());
 
   while (offset_ < end_offset_ && !text_state_.PositionNode()) {
     const EphemeralRange range_to_emit(Position(text_node_, offset_),
@@ -109,9 +109,18 @@ void TextIteratorTextNodeHandler::HandleTextNodeWithLayoutNG() {
       return;
     }
 
+    if (mapping_units_index_ >= mapping_units_.size()) {
+      // mapping_units_ got in HandleTextNodeInRange() ran out. It was for
+      // :first-letter. We call GetMappingUnitsForDOMRange() again for the
+      // remaining part of |text_node_|.
+      mapping_units_ = mapping->GetMappingUnitsForDOMRange(range_to_emit);
+      mapping_units_index_ = 0;
+    }
+
     const unsigned initial_offset = offset_;
-    for (const NGOffsetMappingUnit& unit :
-         mapping->GetMappingUnitsForDOMRange(range_to_emit)) {
+    for (; mapping_units_index_ < mapping_units_.size();
+         ++mapping_units_index_) {
+      const auto& unit = mapping_units_[mapping_units_index_];
       if (unit.TextContentEnd() == unit.TextContentStart() ||
           ShouldSkipInvisibleTextAt(*text_node_, unit.DOMStart(),
                                     IgnoresStyleVisibility())) {
@@ -127,6 +136,7 @@ void TextIteratorTextNodeHandler::HandleTextNodeWithLayoutNG() {
       text_state_.EmitText(*text_node_, unit.DOMStart(), unit.DOMEnd(), string,
                            text_content_start, text_content_end);
       offset_ = unit.DOMEnd();
+      ++mapping_units_index_;
       return;
     }
 
@@ -146,7 +156,7 @@ bool TextIteratorTextNodeHandler::ShouldHandleFirstLetter(
     return false;
   if (!layout_text.IsTextFragment())
     return false;
-  const LayoutTextFragment& text_fragment = ToLayoutTextFragment(layout_text);
+  const auto& text_fragment = To<LayoutTextFragment>(layout_text);
   return offset_ < text_fragment.TextStartOffset();
 }
 
@@ -157,7 +167,7 @@ static bool HasVisibleTextNode(const LayoutText* layout_object) {
   if (!layout_object->IsTextFragment())
     return false;
 
-  const LayoutTextFragment* fragment = ToLayoutTextFragment(layout_object);
+  const auto* fragment = To<LayoutTextFragment>(layout_object);
   if (!fragment->IsRemainingTextLayoutObject())
     return false;
 
@@ -178,15 +188,12 @@ void TextIteratorTextNodeHandler::HandlePreFormattedTextNode() {
 
   if (last_text_node_ended_with_collapsed_space_ &&
       HasVisibleTextNode(layout_object)) {
-    if (!behavior_.CollapseTrailingSpace() ||
-        (offset_ > 0 && str[offset_ - 1] == ' ')) {
-      EmitChar16Before(kSpaceCharacter, offset_);
-      needs_handle_pre_formatted_text_node_ = true;
-      return;
-    }
+    EmitChar16Before(kSpaceCharacter, offset_);
+    needs_handle_pre_formatted_text_node_ = true;
+    return;
   }
   if (ShouldHandleFirstLetter(*layout_object)) {
-    LayoutTextFragment* remaining_text = ToLayoutTextFragment(layout_object);
+    auto* remaining_text = To<LayoutTextFragment>(layout_object);
     const bool stops_in_first_letter =
         end_offset_ <= remaining_text->TextStartOffset();
 
@@ -241,12 +248,16 @@ void TextIteratorTextNodeHandler::HandleTextNodeInRange(const Text* node,
   handled_first_letter_ = false;
   first_letter_text_ = nullptr;
   uses_layout_ng_ = false;
+  mapping_units_.clear();
 
-  if (NGOffsetMapping::GetFor(Position(node, offset_))) {
+  if (auto* mapping = NGOffsetMapping::GetFor(Position(node, offset_))) {
     // Restore end offset from magic value.
     if (end_offset_ == kMaxOffset)
       end_offset_ = node->data().length();
     uses_layout_ng_ = true;
+    mapping_units_ = mapping->GetMappingUnitsForDOMRange(
+        EphemeralRange(Position(node, offset_), Position(node, end_offset_)));
+    mapping_units_index_ = 0;
     HandleTextNodeWithLayoutNG();
     return;
   }
@@ -270,7 +281,7 @@ void TextIteratorTextNodeHandler::HandleTextNodeInRange(const Text* node,
   const bool should_handle_first_letter =
       ShouldHandleFirstLetter(*layout_object);
   if (should_handle_first_letter)
-    HandleTextNodeFirstLetter(ToLayoutTextFragment(layout_object));
+    HandleTextNodeFirstLetter(To<LayoutTextFragment>(layout_object));
 
   if (!layout_object->FirstTextBox() && str.length() > 0 &&
       !should_handle_first_letter) {
@@ -533,7 +544,7 @@ void TextIteratorTextNodeHandler::HandleTextNodeFirstLetter(
   sorted_text_boxes_.clear();
   remaining_text_box_ = text_box_;
   CHECK(first_letter && first_letter->IsText());
-  first_letter_text_ = ToLayoutText(first_letter);
+  first_letter_text_ = To<LayoutText>(first_letter);
   text_box_ = first_letter_text_->FirstTextBox();
 }
 
@@ -545,12 +556,7 @@ bool TextIteratorTextNodeHandler::ShouldFixLeadingWhiteSpaceForReplacedElement()
     return false;
   if (!last_text_node_ended_with_collapsed_space_)
     return false;
-  if (!behavior_.CollapseTrailingSpace())
-    return true;
-  if (!text_node_)
-    return false;
-  const String str = text_node_->GetLayoutObject()->GetText();
-  return offset_ > 0 && str[offset_ - 1] == ' ';
+  return true;
 }
 
 bool TextIteratorTextNodeHandler::FixLeadingWhiteSpaceForReplacedElement() {

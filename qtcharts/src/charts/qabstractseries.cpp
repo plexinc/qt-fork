@@ -38,7 +38,7 @@
 #include <private/logxydomain_p.h>
 #include <private/logxlogydomain_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 /*!
     \class QAbstractSeries
@@ -181,7 +181,7 @@ QT_CHARTS_BEGIN_NAMESPACE
     \list
     \li Series animations are not supported for accelerated series.
     \li Point labels are not supported for accelerated series.
-    \li Pen styles and marker shapes are ignored for accelerated series.
+    \li Pen styles, marker shapes and light markers are ignored for accelerated series.
         Only solid lines and plain scatter dots are supported.
         The scatter dots may be circular or rectangular, depending on the underlying graphics
         hardware and drivers.
@@ -234,7 +234,7 @@ QT_CHARTS_BEGIN_NAMESPACE
     \list
     \li Series animations are not supported for accelerated series.
     \li Point labels are not supported for accelerated series.
-    \li Pen styles and marker shapes are ignored for accelerated series.
+    \li Pen styles, marker shapes and light markers are ignored for accelerated series.
         Only solid lines and plain scatter dots are supported.
         The scatter dots may be circular or rectangular, depending on the underlying graphics
         hardware and drivers.
@@ -314,7 +314,7 @@ void QAbstractSeries::setOpacity(qreal opacity)
 void QAbstractSeries::setUseOpenGL(bool enable)
 {
 #ifdef QT_NO_OPENGL
-    Q_UNUSED(enable)
+    Q_UNUSED(enable);
 #else
     bool polarChart = d_ptr->m_chart && d_ptr->m_chart->chartType() == QChart::ChartTypePolar;
     bool supportedSeries = (type() == SeriesTypeLine || type() == SeriesTypeScatter);
@@ -477,7 +477,7 @@ void QAbstractSeriesPrivate::setBlockOpenGL(bool enable)
         q_ptr->setUseOpenGL(false);
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_qabstractseries.cpp"
 #include "moc_qabstractseries_p.cpp"

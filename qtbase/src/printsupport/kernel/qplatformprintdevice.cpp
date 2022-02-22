@@ -259,9 +259,9 @@ QMarginsF QPlatformPrintDevice::printableMargins(const QPageSize &pageSize,
                                                  QPageLayout::Orientation orientation,
                                                  int resolution) const
 {
-    Q_UNUSED(pageSize)
-    Q_UNUSED(orientation)
-    Q_UNUSED(resolution)
+    Q_UNUSED(pageSize);
+    Q_UNUSED(orientation);
+    Q_UNUSED(resolution);
     return QMarginsF(0, 0, 0, 0);
 }
 
@@ -294,7 +294,7 @@ QPrint::InputSlot QPlatformPrintDevice::defaultInputSlot() const
     return input;
 }
 
-QVector<QPrint::InputSlot> QPlatformPrintDevice::supportedInputSlots() const
+QList<QPrint::InputSlot> QPlatformPrintDevice::supportedInputSlots() const
 {
     if (!m_haveInputSlots)
         loadInputSlots();
@@ -314,7 +314,7 @@ QPrint::OutputBin QPlatformPrintDevice::defaultOutputBin() const
     return output;
 }
 
-QVector<QPrint::OutputBin> QPlatformPrintDevice::supportedOutputBins() const
+QList<QPrint::OutputBin> QPlatformPrintDevice::supportedOutputBins() const
 {
     if (!m_haveOutputBins)
         loadOutputBins();
@@ -330,7 +330,7 @@ QPrint::DuplexMode QPlatformPrintDevice::defaultDuplexMode() const
     return QPrint::DuplexNone;
 }
 
-QVector<QPrint::DuplexMode> QPlatformPrintDevice::supportedDuplexModes() const
+QList<QPrint::DuplexMode> QPlatformPrintDevice::supportedDuplexModes() const
 {
     if (!m_haveDuplexModes)
         loadDuplexModes();
@@ -346,7 +346,7 @@ QPrint::ColorMode QPlatformPrintDevice::defaultColorMode() const
     return QPrint::GrayScale;
 }
 
-QVector<QPrint::ColorMode> QPlatformPrintDevice::supportedColorModes() const
+QList<QPrint::ColorMode> QPlatformPrintDevice::supportedColorModes() const
 {
     if (!m_haveColorModes)
         loadColorModes();
@@ -361,23 +361,23 @@ void QPlatformPrintDevice::loadMimeTypes() const
 
 QVariant QPlatformPrintDevice::property(QPrintDevice::PrintDevicePropertyKey key) const
 {
-    Q_UNUSED(key)
+    Q_UNUSED(key);
 
     return QVariant();
 }
 
 bool QPlatformPrintDevice::setProperty(QPrintDevice::PrintDevicePropertyKey key, const QVariant &value)
 {
-    Q_UNUSED(key)
-    Q_UNUSED(value)
+    Q_UNUSED(key);
+    Q_UNUSED(value);
 
     return false;
 }
 
 bool QPlatformPrintDevice::isFeatureAvailable(QPrintDevice::PrintDevicePropertyKey key, const QVariant &params) const
 {
-    Q_UNUSED(key)
-    Q_UNUSED(params)
+    Q_UNUSED(key);
+    Q_UNUSED(params);
 
     return false;
 }

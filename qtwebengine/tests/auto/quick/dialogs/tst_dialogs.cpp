@@ -27,23 +27,24 @@
 ****************************************************************************/
 
 #include "testhandler.h"
-#include "server.h"
-#include "util.h"
-#include <QtWebEngine/private/qquickwebenginedialogrequests_p.h>
-#include <QtWebEngine/private/qquickwebenginecontextmenurequest_p.h>
+#include <quickutil.h>
+#include <httpserver.h>
+
+#include <QtWebEngineQuick/private/qquickwebenginedialogrequests_p.h>
+#include <QtWebEngineCore/qwebenginecontextmenurequest.h>
 #include <QQuickWebEngineProfile>
+
+#include <QNetworkProxy>
 #include <QQmlApplicationEngine>
 #include <QQuickWindow>
-#include <QTest>
 #include <QSignalSpy>
-#include <QNetworkProxy>
+#include <QTest>
 
-
-class tst_Dialogs : public QObject {
+class tst_Dialogs : public QObject
+{
     Q_OBJECT
 public:
     tst_Dialogs(){}
-
 
 private slots:
     void initTestCase();
@@ -57,11 +58,11 @@ private slots:
     void authenticationDialogRequested();
 
 private:
-    void createDialog(const QLatin1String& dialog, bool &ok);
+    void createDialog(const QLatin1String &dialog, bool &ok);
 private:
     QScopedPointer<QQmlApplicationEngine> m_engine;
-    QQuickWindow *m_widnow;
-    TestHandler *m_listner;
+    QQuickWindow *m_window;
+    TestHandler *m_listener;
 };
 
 void tst_Dialogs::initTestCase()
@@ -70,10 +71,10 @@ void tst_Dialogs::initTestCase()
     qmlRegisterType<TestHandler>("io.qt.tester", 1, 0, "TestHandler");
     m_engine.reset(new QQmlApplicationEngine());
     m_engine->load(QUrl(QStringLiteral("qrc:/WebView.qml")));
-    m_widnow = qobject_cast<QQuickWindow*>(m_engine->rootObjects().first());
-    Q_ASSERT(m_widnow);
-    m_listner = m_widnow->findChild<TestHandler*>(QStringLiteral("TestListner"));
-    Q_ASSERT(m_listner);
+    m_window = qobject_cast<QQuickWindow*>(m_engine->rootObjects().first());
+    Q_ASSERT(m_window);
+    m_listener = m_window->findChild<TestHandler*>(QStringLiteral("TestListener"));
+    Q_ASSERT(m_listener);
 
     QNetworkProxy proxy;
     proxy.setType(QNetworkProxy::HttpProxy);
@@ -84,29 +85,29 @@ void tst_Dialogs::initTestCase()
 
 void tst_Dialogs::init()
 {
-     m_listner->setRequest(nullptr);
-     m_listner->setReady(false);
+     m_listener->setRequest(nullptr);
+     m_listener->setReady(false);
 }
 
-void tst_Dialogs::createDialog(const QLatin1String& dialog, bool &ok)
+void tst_Dialogs::createDialog(const QLatin1String &dialog, bool &ok)
 {
     QString trigger = QStringLiteral("document.getElementById('buttonOne').onclick = function() {document.getElementById('%1').click()}");
-    QSignalSpy dialogSpy(m_listner, &TestHandler::requestChanged);
-    m_listner->runJavaScript(trigger.arg(dialog));
-    QTRY_VERIFY(m_listner->ready());
-    QTest::mouseClick(m_widnow, Qt::LeftButton);
+    QSignalSpy dialogSpy(m_listener, &TestHandler::requestChanged);
+    m_listener->runJavaScript(trigger.arg(dialog));
+    QTRY_VERIFY(m_listener->ready());
+    QTest::mouseClick(m_window, Qt::LeftButton);
     QTRY_COMPARE(dialogSpy.count(), 1);
     ok = true;
 }
 
 void tst_Dialogs::colorDialogRequested()
 {
-    m_listner->load(QUrl("qrc:/index.html"));
-    QTRY_VERIFY(m_listner->ready());
+    m_listener->load(QUrl("qrc:/index.html"));
+    QTRY_VERIFY(m_listener->ready());
     bool ok = false;
     createDialog(QLatin1String("colorpicker"), ok);
     if (ok) {
-        auto dialog = qobject_cast<QQuickWebEngineColorDialogRequest*>(m_listner->request());
+        auto *dialog = qobject_cast<QQuickWebEngineColorDialogRequest*>(m_listener->request());
         QVERIFY2(dialog, "Incorrect dialog requested");
         dialog->dialogReject();
         QVERIFY2(dialog->isAccepted(), "Dialog is not accepted");
@@ -116,23 +117,23 @@ void tst_Dialogs::colorDialogRequested()
 
 void tst_Dialogs::contextMenuRequested()
 {
-    m_listner->load(QUrl("qrc:/index.html"));
-    QTRY_COMPARE_WITH_TIMEOUT(m_listner->ready(), true, 20000);
-    QSignalSpy dialogSpy(m_listner, &TestHandler::requestChanged);
-    QTest::mouseClick(m_widnow, Qt::RightButton);
+    m_listener->load(QUrl("qrc:/index.html"));
+    QTRY_COMPARE_WITH_TIMEOUT(m_listener->ready(), true, 20000);
+    QSignalSpy dialogSpy(m_listener, &TestHandler::requestChanged);
+    QTest::mouseClick(m_window, Qt::RightButton);
     QTRY_COMPARE(dialogSpy.count(), 1);
-    auto dialog = qobject_cast<QQuickWebEngineContextMenuRequest*>(m_listner->request());
+    auto dialog = qobject_cast<QWebEngineContextMenuRequest *>(m_listener->request());
     QVERIFY2(dialog, "Incorrect dialog requested");
 }
 
 void tst_Dialogs::fileDialogRequested()
 {
-    m_listner->load(QUrl("qrc:/index.html"));
-    QTRY_VERIFY(m_listner->ready());
+    m_listener->load(QUrl("qrc:/index.html"));
+    QTRY_VERIFY(m_listener->ready());
     bool ok = false;
     createDialog(QLatin1String("filepicker"), ok);
     if (ok) {
-        auto dialog = qobject_cast<QQuickWebEngineFileDialogRequest*>(m_listner->request());
+        auto dialog = qobject_cast<QQuickWebEngineFileDialogRequest*>(m_listener->request());
         QVERIFY2(dialog, "Incorrect dialog requested");
         dialog->dialogReject();
         QVERIFY2(dialog->isAccepted(), "Dialog is not accepted");
@@ -146,7 +147,7 @@ void tst_Dialogs::authenticationDialogRequested_data()
     QTest::addColumn<QUrl>("url");
     QTest::addColumn<QQuickWebEngineAuthenticationDialogRequest::AuthenticationType>("type");
     QTest::addColumn<QString>("realm");
-    QTest::addColumn<QByteArray>("reply");
+    QTest::addColumn<QByteArray>("response");
     QTest::newRow("Http Authentication Dialog") << QUrl("http://localhost:5555/")
                                                 << QQuickWebEngineAuthenticationDialogRequest::AuthenticationTypeHTTP
                                                 << QStringLiteral("Very Restricted Area")
@@ -166,18 +167,19 @@ void tst_Dialogs::authenticationDialogRequested()
     QFETCH(QUrl, url);
     QFETCH(QQuickWebEngineAuthenticationDialogRequest::AuthenticationType, type);
     QFETCH(QString, realm);
+    QFETCH(QByteArray, response);
 
-    QFETCH(QByteArray, reply);
-    Server server;
-    server.setReply(reply);
-    server.run();
-    QTRY_VERIFY2(server.isListening(), "Could not setup authentication server");
+    HttpServer server(QHostAddress::LocalHost, 5555);
+    connect(&server, &HttpServer::newRequest, [url, response](HttpReqRep *rr) {
+        rr->sendResponse(response);
+    });
+    QVERIFY(server.start());
 
-    QSignalSpy dialogSpy(m_listner, &TestHandler::requestChanged);
-    m_listner->load(url);
+    QSignalSpy dialogSpy(m_listener, &TestHandler::requestChanged);
+    m_listener->load(url);
 
     QTRY_COMPARE(dialogSpy.count(), 1);
-    auto dialog = qobject_cast<QQuickWebEngineAuthenticationDialogRequest*>(m_listner->request());
+    auto *dialog = qobject_cast<QQuickWebEngineAuthenticationDialogRequest*>(m_listener->request());
     QVERIFY2(dialog, "Incorrect dialog requested");
     dialog->dialogReject();
     QVERIFY2(dialog->isAccepted(), "Dialog is not accepted");
@@ -185,6 +187,7 @@ void tst_Dialogs::authenticationDialogRequested()
     QCOMPARE(dialog->realm(),realm);
     QCOMPARE(dialog->url(), url);
     QCOMPARE(dialog->proxyHost(), QStringLiteral("localhost"));
+    QVERIFY(server.stop());
 }
 
 void tst_Dialogs::javaScriptDialogRequested_data()
@@ -214,20 +217,20 @@ void tst_Dialogs::javaScriptDialogRequested()
     QFETCH(QString, message);
     QFETCH(QString, defaultText);
 
-    m_listner->load(QUrl("qrc:/index.html"));
-    QTRY_VERIFY(m_listner->ready());
+    m_listener->load(QUrl("qrc:/index.html"));
+    QTRY_VERIFY(m_listener->ready());
 
-    QSignalSpy dialogSpy(m_listner, &TestHandler::requestChanged);
-    m_listner->runJavaScript(script);
+    QSignalSpy dialogSpy(m_listener, &TestHandler::requestChanged);
+    m_listener->runJavaScript(script);
     QTRY_COMPARE(dialogSpy.count(), 1);
-    auto dialog = qobject_cast<QQuickWebEngineJavaScriptDialogRequest*>(m_listner->request());
+    auto *dialog = qobject_cast<QQuickWebEngineJavaScriptDialogRequest*>(m_listener->request());
     QVERIFY2(dialog, "Incorrect dialog requested");
     dialog->dialogReject();
     QVERIFY2(dialog->isAccepted(), "Dialog is not accepted");
     QCOMPARE(dialog->type(), type);
     QCOMPARE(dialog->message(), message);
     QCOMPARE(dialog->defaultText(), defaultText);
-    QTRY_VERIFY(m_listner->ready()); // make sure javascript executes no longer
+    QTRY_VERIFY(m_listener->ready()); // make sure javascript executes no longer
 }
 
 static QByteArrayList params;

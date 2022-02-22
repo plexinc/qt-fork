@@ -11,7 +11,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/test/simple_test_tick_clock.h"
@@ -47,10 +47,10 @@ class FakePacketSender : public PacketTransport {
  public:
   FakePacketSender() : paused_(false), packets_sent_(0), bytes_sent_(0) {}
 
-  bool SendPacket(PacketRef packet, const base::Closure& cb) final {
+  bool SendPacket(PacketRef packet, base::OnceClosure cb) final {
     if (paused_) {
       stored_packet_ = packet;
-      callback_ = cb;
+      callback_ = std::move(cb);
       return false;
     }
     ++packets_sent_;
@@ -67,8 +67,8 @@ class FakePacketSender : public PacketTransport {
   void SetPaused(bool paused) {
     paused_ = paused;
     if (!paused && stored_packet_.get()) {
-      SendPacket(stored_packet_, callback_);
-      callback_.Run();
+      SendPacket(stored_packet_, base::OnceClosure());
+      std::move(callback_).Run();
     }
   }
 
@@ -76,7 +76,7 @@ class FakePacketSender : public PacketTransport {
 
  private:
   bool paused_;
-  base::Closure callback_;
+  base::OnceClosure callback_;
   PacketRef stored_packet_;
   int packets_sent_;
   int64_t bytes_sent_;

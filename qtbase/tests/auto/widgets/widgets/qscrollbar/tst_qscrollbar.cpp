@@ -27,11 +27,12 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QScrollBar>
 #include <QStyleOptionSlider>
 #include <QScrollArea>
 #include <QScreen>
+#include <QSignalSpy>
 
 #include <QtTest/private/qtesthelpers_p.h>
 
@@ -52,7 +53,7 @@ private slots:
 class SingleStepTestScrollBar : public QScrollBar {
     Q_OBJECT
 public:
-    explicit SingleStepTestScrollBar(Qt::Orientation o, QWidget *parent = 0) : QScrollBar(o, parent) {}
+    explicit SingleStepTestScrollBar(Qt::Orientation o, QWidget *parent = nullptr) : QScrollBar(o, parent) {}
 
 public slots:
     void hideAndShow()
@@ -99,10 +100,10 @@ void tst_QScrollBar::task_209492()
     {
     public:
         int scrollCount;
-        MyScrollArea(QWidget *parent = 0) : QScrollArea(parent), scrollCount(0) {}
+        MyScrollArea(QWidget *parent = nullptr) : QScrollArea(parent), scrollCount(0) {}
     protected:
-        void paintEvent(QPaintEvent *) { QTest::qSleep(600); }
-        void scrollContentsBy(int, int) { ++scrollCount; viewport()->update(); }
+        void paintEvent(QPaintEvent *) override { QTest::qSleep(600); }
+        void scrollContentsBy(int, int) override { ++scrollCount; viewport()->update(); }
     };
 
     MyScrollArea scrollArea;
@@ -118,7 +119,7 @@ void tst_QScrollBar::task_209492()
 
     // Simulate a mouse click on the "scroll down button".
     const QPoint pressPoint(verticalScrollBar->width() / 2, verticalScrollBar->height() - 10);
-    const QPoint globalPressPoint = verticalScrollBar->mapToGlobal(globalPressPoint);
+    const QPoint globalPressPoint = verticalScrollBar->mapToGlobal(pressPoint);
     QMouseEvent mousePressEvent(QEvent::MouseButtonPress, pressPoint, globalPressPoint,
                                 Qt::LeftButton, Qt::LeftButton, {});
     QApplication::sendEvent(verticalScrollBar, &mousePressEvent);

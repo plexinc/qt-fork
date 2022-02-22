@@ -11,7 +11,6 @@
 #include "content/common/content_export.h"
 #include "content/common/input/synthetic_gesture_params.h"
 #include "content/common/input/synthetic_pointer_action_params.h"
-#include "content/common/input/synthetic_web_input_event_builders.h"
 
 namespace content {
 
@@ -23,7 +22,7 @@ class CONTENT_EXPORT SyntheticPointerDriver {
   virtual ~SyntheticPointerDriver();
 
   static std::unique_ptr<SyntheticPointerDriver> Create(
-      SyntheticGestureParams::GestureSourceType gesture_source_type);
+      content::mojom::GestureSourceType gesture_source_type);
 
   virtual void DispatchEvent(SyntheticGestureTarget* target,
                              const base::TimeTicks& timestamp) = 0;

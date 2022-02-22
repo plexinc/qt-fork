@@ -1,6 +1,6 @@
 CONFIG += metatypes
 
-qtPrepareTool(QML_TYPEREGISTRAR, qmltyperegistrar)
+qtPrepareLibExecTool(QML_TYPEREGISTRAR, qmltyperegistrar)
 
 isEmpty(QML_IMPORT_VERSION): \
     QML_IMPORT_VERSION = $$IMPORT_VERSION
@@ -44,7 +44,8 @@ qt_module_deps = $$replace(qt_module_deps, _private$, '')
 qt_module_deps = $$unique(qt_module_deps)
 
 for(dep, qt_module_deps) {
-    METATYPES_FILENAME = $$lower($$eval(QT.$${dep}.module))_metatypes.json
+    android:ABI = _$${ANDROID_TARGET_ARCH}
+    METATYPES_FILENAME = $$lower($$eval(QT.$${dep}.module))$${ABI}_metatypes.json
     INSTALLED_METATYPES = $$[QT_INSTALL_LIBS]/metatypes/$$METATYPES_FILENAME
     isEmpty(MODULE_BASE_OUTDIR) {
         QML_FOREIGN_METATYPES += $$INSTALLED_METATYPES
@@ -63,8 +64,9 @@ QML_TYPEREGISTRAR_FLAGS = \
     --minor-version=$$QML_IMPORT_MINOR_VERSION \
     --foreign-types=$$join(QML_FOREIGN_METATYPES, ',')
 
-DEPENDENCIESFILE = $$_PRO_FILE_PWD_/dependencies.json
-exists($$DEPENDENCIESFILE): QML_TYPEREGISTRAR_FLAGS += --dependencies=$$DEPENDENCIESFILE
+!isEmpty(QML_PAST_MAJOR_VERSIONS) {
+    for(past_major_version,QML_PAST_MAJOR_VERSIONS): QML_TYPEREGISTRAR_FLAGS += --past-major-version $$past_major_version
+}
 
 !isEmpty(MODULE_PRIVATE_INCLUDES): QML_TYPEREGISTRAR_FLAGS += --private-includes
 
@@ -80,12 +82,18 @@ qmltyperegistrar_compiler.output = $$TYPEREGISTRATIONS
 qmltyperegistrar_compiler.variable_out = SOURCES
 qmltyperegistrar_compiler.name = Automatic QML type registration
 qmltyperegistrar_compiler.dependency_type = TYPE_C
+QMAKE_EXTRA_COMPILERS += qmltyperegistrar_compiler
 
-qmltyperegistrar_qmltypes.input = METATYPES_JSON
-qmltyperegistrar_qmltypes.depends = $$TYPEREGISTRATIONS
-qmltyperegistrar_qmltypes.output = $$QMLTYPES_FILENAME
-qmltyperegistrar_qmltypes.CONFIG = no_link
-qmltyperegistrar_qmltypes.commands = $$escape_expand(\\n)  # force creation of rule
+!contains(TEMPLATE, "vc.*") {  # work around QTBUG-91033
+    # Create a fake extra compiler to announce that we generate $$QMLTYPES_FILENAME.
+    # This allows us to use $$QMLTYPES_FILENAME as input in other extra compilers.
+    qmltyperegistrar_qmltypes.input = METATYPES_JSON
+    qmltyperegistrar_qmltypes.depends = $$TYPEREGISTRATIONS
+    qmltyperegistrar_qmltypes.output = $$QMLTYPES_FILENAME
+    qmltyperegistrar_qmltypes.CONFIG = no_link
+    qmltyperegistrar_qmltypes.commands = $$escape_expand(\\n)  # force creation of rule
+    QMAKE_EXTRA_COMPILERS += qmltyperegistrar_qmltypes
+}
 
 install_qmltypes {
     INSTALL_QML_FILES = false
@@ -108,5 +116,3 @@ install_qmltypes {
         else: COPIES += do_install_qmltypes
     }
 }
-
-QMAKE_EXTRA_COMPILERS += qmltyperegistrar_compiler qmltyperegistrar_qmltypes

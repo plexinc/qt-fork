@@ -16,8 +16,8 @@ MenuListInnerElement::MenuListInnerElement(Document& document)
   SetHasCustomStyleCallbacks();
 }
 
-scoped_refptr<ComputedStyle>
-MenuListInnerElement::CustomStyleForLayoutObject() {
+scoped_refptr<ComputedStyle> MenuListInnerElement::CustomStyleForLayoutObject(
+    const StyleRecalcContext& style_recalc_context) {
   const ComputedStyle& parent_style = OwnerShadowHost()->ComputedStyleRef();
   scoped_refptr<ComputedStyle> style =
       ComputedStyle::CreateAnonymousStyleWithDisplay(parent_style,
@@ -32,6 +32,16 @@ MenuListInnerElement::CustomStyleForLayoutObject() {
   style->SetShouldIgnoreOverflowPropertyForInlineBlockBaseline();
   style->SetTextOverflow(parent_style.TextOverflow());
   style->SetUserModify(EUserModify::kReadOnly);
+
+  if (style->LineHeight() == ComputedStyleInitialValues::InitialLineHeight()) {
+    // line-height should be consistent with MenuListIntrinsicBlockSize()
+    // in layout_box.cc.
+    const SimpleFontData* font_data = style->GetFont().PrimaryFont();
+    if (font_data)
+      style->SetLineHeight(Length::Fixed(font_data->GetFontMetrics().Height()));
+    else
+      style->SetLineHeight(Length::Fixed(style->FontSize()));
+  }
 
   // Use margin:auto instead of align-items:center to get safe centering, i.e.
   // when the content overflows, treat it the same as align-items: flex-start.

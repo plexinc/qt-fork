@@ -60,7 +60,9 @@ public:
 
     QVariant value(const QString &key) const;
     void insert(const QString &key, const QVariant &value);
+    void insert(const QVariantHash &values);
     void clear(const QString &key);
+    void freeze();
 
     Q_INVOKABLE QStringList keys() const;
 
@@ -82,7 +84,7 @@ protected:
     QQmlPropertyMap(DerivedType *derived, QObject *parentObj)
         : QQmlPropertyMap(&DerivedType::staticMetaObject, parentObj)
     {
-        Q_UNUSED(derived)
+        Q_UNUSED(derived);
     }
 
 private:

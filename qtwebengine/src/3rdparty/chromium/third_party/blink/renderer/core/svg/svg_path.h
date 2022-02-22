@@ -44,14 +44,14 @@ class SVGPath final : public SVGPropertyBase {
   typedef void TearOffType;
 
   SVGPath();
-  explicit SVGPath(cssvalue::CSSPathValue*);
+  explicit SVGPath(const cssvalue::CSSPathValue&);
   ~SVGPath() override;
 
   const SVGPathByteStream& ByteStream() const {
     return path_value_->ByteStream();
   }
   StylePath* GetStylePath() const { return path_value_->GetStylePath(); }
-  cssvalue::CSSPathValue* PathValue() const { return path_value_.Get(); }
+  const cssvalue::CSSPathValue& PathValue() const { return *path_value_; }
 
   // SVGPropertyBase:
   SVGPath* Clone() const;
@@ -59,23 +59,25 @@ class SVGPath final : public SVGPropertyBase {
   String ValueAsString() const override;
   SVGParsingError SetValueAsString(const String&);
 
-  void Add(SVGPropertyBase*, SVGElement*) override;
-  void CalculateAnimatedValue(const SVGAnimateElement&,
-                              float percentage,
-                              unsigned repeat_count,
-                              SVGPropertyBase* from_value,
-                              SVGPropertyBase* to_value,
-                              SVGPropertyBase* to_at_end_of_duration_value,
-                              SVGElement*) override;
-  float CalculateDistance(SVGPropertyBase* to, SVGElement*) override;
+  void Add(const SVGPropertyBase*, const SVGElement*) override;
+  void CalculateAnimatedValue(
+      const SMILAnimationEffectParameters&,
+      float percentage,
+      unsigned repeat_count,
+      const SVGPropertyBase* from_value,
+      const SVGPropertyBase* to_value,
+      const SVGPropertyBase* to_at_end_of_duration_value,
+      const SVGElement*) override;
+  float CalculateDistance(const SVGPropertyBase* to,
+                          const SVGElement*) const override;
 
   static AnimatedPropertyType ClassType() { return kAnimatedPath; }
   AnimatedPropertyType GetType() const override { return ClassType(); }
 
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
  private:
-  Member<cssvalue::CSSPathValue> path_value_;
+  Member<const cssvalue::CSSPathValue> path_value_;
 };
 
 template <>

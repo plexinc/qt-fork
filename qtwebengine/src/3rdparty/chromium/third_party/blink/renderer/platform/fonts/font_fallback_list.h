@@ -36,35 +36,46 @@
 namespace blink {
 
 class FontDescription;
+class FontFallbackMap;
 
 const int kCAllFamiliesScanned = -1;
 
+// FontFallbackList caches FontData from FontSelector and FontCache. If font
+// updates occur (e.g., @font-face rule changes, web font is loaded, etc.),
+// the cached data becomes stale and hence, invalid.
 class PLATFORM_EXPORT FontFallbackList : public RefCounted<FontFallbackList> {
   USING_FAST_MALLOC(FontFallbackList);
 
  public:
-  static scoped_refptr<FontFallbackList> Create(FontSelector* font_selector) {
-    return base::AdoptRef(new FontFallbackList(font_selector));
+  static scoped_refptr<FontFallbackList> Create(
+      FontFallbackMap& font_fallback_map) {
+    return base::AdoptRef(new FontFallbackList(font_fallback_map));
   }
 
-  ~FontFallbackList() { ReleaseFontData(); }
-  bool IsValid() const;
-  void Invalidate();
+  ~FontFallbackList();
 
-  bool LoadingCustomFonts() const;
+  // Returns whether the cached data is valid. We can use a FontFallbackList
+  // only when it's valid.
+  bool IsValid() const { return !is_invalid_; }
+
+  // Called when font updates (see class comment) have made the cached data
+  // invalid. Once marked, a Font object cannot reuse |this|, but have to work
+  // on a new instance obtained from FontFallbackMap.
+  void MarkInvalid() {
+    is_invalid_ = true;
+  }
+
   bool ShouldSkipDrawing() const;
 
-  FontSelector* GetFontSelector() const { return font_selector_.Get(); }
-  // FIXME: It should be possible to combine fontSelectorVersion and generation.
-  unsigned FontSelectorVersion() const { return font_selector_version_; }
+  // Returns false only after the WeakPersistent to FontFallbackMap is turned to
+  // nullptr due to GC.
+  bool HasFontFallbackMap() const { return font_fallback_map_; }
+  FontFallbackMap& GetFontFallbackMap() const { return *font_fallback_map_; }
+
+  FontSelector* GetFontSelector() const;
   uint16_t Generation() const { return generation_; }
 
   ShapeCache* GetShapeCache(const FontDescription& font_description) {
-    if (RuntimeEnabledFeatures::CSSReducedFontLoadingInvalidationsEnabled()) {
-      if (!IsValid())
-        Invalidate();
-    }
-
     if (!shape_cache_) {
       FallbackListCompositeKey key = CompositeKey(font_description);
       shape_cache_ =
@@ -78,11 +89,6 @@ class PLATFORM_EXPORT FontFallbackList : public RefCounted<FontFallbackList> {
 
   const SimpleFontData* PrimarySimpleFontData(
       const FontDescription& font_description) {
-    if (RuntimeEnabledFeatures::CSSReducedFontLoadingInvalidationsEnabled()) {
-      if (!IsValid())
-        Invalidate();
-    }
-
     if (!cached_primary_simple_font_data_) {
       cached_primary_simple_font_data_ =
           DeterminePrimarySimpleFontData(font_description);
@@ -99,10 +105,14 @@ class PLATFORM_EXPORT FontFallbackList : public RefCounted<FontFallbackList> {
     can_shape_word_by_word_computed_ = true;
   }
 
- private:
-  explicit FontFallbackList(FontSelector* font_selector);
+  bool HasLoadingFallback() const { return has_loading_fallback_; }
+  bool HasCustomFont() const { return has_custom_font_; }
+  bool HasAdvanceOverride() const { return has_advance_override_; }
 
-  scoped_refptr<FontData> GetFontData(const FontDescription&, int& family_index) const;
+ private:
+  explicit FontFallbackList(FontFallbackMap& font_fallback_map);
+
+  scoped_refptr<FontData> GetFontData(const FontDescription&);
 
   const SimpleFontData* DeterminePrimarySimpleFontData(const FontDescription&);
 
@@ -113,13 +123,16 @@ class PLATFORM_EXPORT FontFallbackList : public RefCounted<FontFallbackList> {
 
   Vector<scoped_refptr<FontData>, 1> font_list_;
   const SimpleFontData* cached_primary_simple_font_data_;
-  const Persistent<FontSelector> font_selector_;
-  unsigned font_selector_version_;
+  const WeakPersistent<FontFallbackMap> font_fallback_map_;
   int family_index_;
   uint16_t generation_;
   bool has_loading_fallback_ : 1;
+  bool has_custom_font_ : 1;
+  bool has_advance_override_ : 1;
   bool can_shape_word_by_word_ : 1;
   bool can_shape_word_by_word_computed_ : 1;
+  bool is_invalid_ : 1;
+
   base::WeakPtr<ShapeCache> shape_cache_;
 
   DISALLOW_COPY_AND_ASSIGN(FontFallbackList);

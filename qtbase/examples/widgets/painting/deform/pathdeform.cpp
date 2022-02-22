@@ -60,7 +60,6 @@
 #include <QPainter>
 #include <QSlider>
 #include <QLabel>
-#include <QDesktopWidget>
 #include <qmath.h>
 
 PathDeformControls::PathDeformControls(QWidget *parent,
@@ -482,7 +481,7 @@ void PathDeformRenderer::timerEvent(QTimerEvent *e)
 
 void PathDeformRenderer::mousePressEvent(QMouseEvent *e)
 {
-    if (m_show_doc) {
+    if (m_showDoc) {
         setDescriptionEnabled(false);
         return;
     }
@@ -490,10 +489,10 @@ void PathDeformRenderer::mousePressEvent(QMouseEvent *e)
 
     m_repaintTimer.stop();
     m_offset = QPointF();
-    if (QLineF(m_pos, e->pos()).length() <= m_radius)
-        m_offset = m_pos - e->pos();
+    if (QLineF(m_pos, e->position().toPoint()).length() <= m_radius)
+        m_offset = m_pos - e->position().toPoint();
 
-    m_mousePress = e->pos();
+    m_mousePress = e->position().toPoint();
 
     // If we're not running in small screen mode, always assume we're dragging
     m_mouseDrag = !m_smallScreen;
@@ -514,18 +513,18 @@ void PathDeformRenderer::mouseReleaseEvent(QMouseEvent *e)
 
 void PathDeformRenderer::mouseMoveEvent(QMouseEvent *e)
 {
-    if (!m_mouseDrag && (QLineF(m_mousePress, e->pos()).length() > 25.0) )
+    if (!m_mouseDrag && (QLineF(m_mousePress, e->position().toPoint()).length() > 25.0) )
         m_mouseDrag = true;
 
     if (m_mouseDrag) {
         QRect rectBefore = circle_bounds(m_pos, m_radius, m_fontSize);
         if (e->type() == QEvent::MouseMove) {
-            QLineF line(m_pos, e->pos() + m_offset);
+            QLineF line(m_pos, e->position().toPoint() + m_offset);
             line.setLength(line.length() * .1);
             QPointF dir(line.dx(), line.dy());
             m_direction = (m_direction + dir) / 2;
         }
-        m_pos = e->pos() + m_offset;
+        m_pos = e->position().toPoint() + m_offset;
 #if QT_CONFIG(opengl)
         if (usesOpenGL()) {
             update();

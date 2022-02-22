@@ -639,19 +639,6 @@ static int flac_decode_frame(AVCodecContext *avctx, void *data,
     return bytes_read;
 }
 
-#if HAVE_THREADS
-static int init_thread_copy(AVCodecContext *avctx)
-{
-    FLACContext *s = avctx->priv_data;
-    s->decoded_buffer = NULL;
-    s->decoded_buffer_size = 0;
-    s->avctx = avctx;
-    if (s->flac_stream_info.max_blocksize)
-        return allocate_buffers(s);
-    return 0;
-}
-#endif
-
 static av_cold int flac_decode_close(AVCodecContext *avctx)
 {
     FLACContext *s = avctx->priv_data;
@@ -667,10 +654,10 @@ static const AVOption options[] = {
 };
 
 static const AVClass flac_decoder_class = {
-    "FLAC decoder",
-    av_default_item_name,
-    options,
-    LIBAVUTIL_VERSION_INT,
+    .class_name = "FLAC decoder",
+    .item_name  = av_default_item_name,
+    .option     = options,
+    .version    = LIBAVUTIL_VERSION_INT,
 };
 
 AVCodec ff_flac_decoder = {
@@ -682,8 +669,9 @@ AVCodec ff_flac_decoder = {
     .init           = flac_decode_init,
     .close          = flac_decode_close,
     .decode         = flac_decode_frame,
-    .init_thread_copy = ONLY_IF_THREADS_ENABLED(init_thread_copy),
-    .capabilities   = AV_CODEC_CAP_DR1 | AV_CODEC_CAP_FRAME_THREADS,
+    .capabilities   = AV_CODEC_CAP_CHANNEL_CONF |
+                      AV_CODEC_CAP_DR1 |
+                      AV_CODEC_CAP_FRAME_THREADS,
     .sample_fmts    = (const enum AVSampleFormat[]) { AV_SAMPLE_FMT_S16,
                                                       AV_SAMPLE_FMT_S16P,
                                                       AV_SAMPLE_FMT_S32,

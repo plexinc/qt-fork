@@ -91,23 +91,23 @@ public: // methods
 
     QScxmlStateMachine *stateMachine() const;
 
-    QVector<StateId> allStates() const;
-    QVector<TransitionId> allTransitions() const;
+    QList<StateId> allStates() const;
+    QList<TransitionId> allTransitions() const;
     QString stateName(int stateId) const;
     StateId stateParent(StateId stateId) const;
     StateType stateType(int stateId) const;
-    QVector<StateId> stateChildren(StateId stateId) const;
+    QList<StateId> stateChildren(StateId stateId) const;
     TransitionId initialTransition(StateId stateId) const;
     TransitionType transitionType(TransitionId transitionId) const;
     StateId transitionSource(TransitionId transitionId) const;
-    QVector<StateId> transitionTargets(TransitionId transitionId) const;
-    QVector<QString> transitionEvents(TransitionId transitionId) const;
-    QVector<StateId> configuration() const;
+    QList<StateId> transitionTargets(TransitionId transitionId) const;
+    QList<QString> transitionEvents(TransitionId transitionId) const;
+    QList<StateId> configuration() const;
 
 Q_SIGNALS:
-    void statesEntered(const QVector<QScxmlStateMachineInfo::StateId> &states);
-    void statesExited(const QVector<QScxmlStateMachineInfo::StateId> &states);
-    void transitionsTriggered(const QVector<QScxmlStateMachineInfo::TransitionId> &transitions);
+    void statesEntered(const QList<QScxmlStateMachineInfo::StateId> &states);
+    void statesExited(const QList<QScxmlStateMachineInfo::StateId> &states);
+    void transitionsTriggered(const QList<QScxmlStateMachineInfo::TransitionId> &transitions);
 
 private:
     Q_DECLARE_PRIVATE(QScxmlStateMachineInfo)

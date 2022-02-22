@@ -25,28 +25,12 @@
 
 namespace base {
 
-size_t g_oom_size = 0U;
-
 namespace {
-
-void OnNoMemorySize(size_t size) {
-  g_oom_size = size;
-
-  if (size != 0)
-    LOG(FATAL) << "Out of memory, size = " << size;
-  LOG(FATAL) << "Out of memory.";
-}
-
-// NOINLINE as base::`anonymous namespace`::OnNoMemory() is recognized by the
-// crash server.
-NOINLINE void OnNoMemory() {
-  OnNoMemorySize(0);
-}
 
 void ReleaseReservationOrTerminate() {
   if (internal::ReleaseAddressSpaceReservation())
     return;
-  OnNoMemory();
+  TerminateBecauseOutOfMemory(0);
 }
 
 }  // namespace
@@ -133,11 +117,11 @@ bool UncheckedMalloc(size_t size, void** result) {
   *result = allocator::UncheckedAlloc(size);
 #elif defined(MEMORY_TOOL_REPLACES_ALLOCATOR) || \
     defined(TOOLKIT_QT) || \
-    (!defined(LIBC_GLIBC) && !defined(USE_TCMALLOC))
+    (!defined(LIBC_GLIBC) && !BUILDFLAG(USE_TCMALLOC))
   *result = malloc(size);
-#elif defined(LIBC_GLIBC) && !defined(USE_TCMALLOC)
+#elif defined(LIBC_GLIBC) && !BUILDFLAG(USE_TCMALLOC)
   *result = __libc_malloc(size);
-#elif defined(USE_TCMALLOC)
+#elif BUILDFLAG(USE_TCMALLOC)
   *result = tc_malloc_skip_new_handler(size);
 #endif
   return *result != nullptr;

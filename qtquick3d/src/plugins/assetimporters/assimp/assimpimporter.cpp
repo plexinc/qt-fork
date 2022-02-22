@@ -35,8 +35,10 @@
 #include <assimp/DefaultLogger.hpp>
 #include <assimp/postprocess.h>
 #include <assimp/pbrmaterial.h>
+#include <assimp/importerdesc.h>
 
-#include <QtQuick3DAssetImport/private/qssgmeshutilities_p.h>
+#include <QtQuick3DUtils/private/qssgmesh_p.h>
+#include <QtQuick3DAssetImport/private/qssglightmapuvgenerator_p.h>
 
 #include <QtGui/QImage>
 #include <QtGui/QImageReader>
@@ -48,6 +50,7 @@
 #include <QtCore/QList>
 #include <QtCore/QJsonDocument>
 #include <QtCore/QJsonObject>
+#include <QtCore/QEasingCurve>
 
 #include <qmath.h>
 
@@ -56,12 +59,53 @@
 
 QT_BEGIN_NAMESPACE
 
+static const char *getShortFilename(const char *filename)
+{
+    const char *lastSlash = strrchr(filename, '/');
+    if (!lastSlash)
+        lastSlash = strrchr(filename, '\\');
+    return lastSlash ? lastSlash + 1 : filename;
+}
+
+static int textureNameToInt(const char *filename)
+{
+    if (!filename || *filename == '\0' || *filename != '*')
+        return -1;
+    bool ok = false;
+    const uint number = QVariant(filename + 1).toUInt(&ok);
+    return ok ? int(number) : -1;
+}
+
+// Returns the full path of the texture file in the 'maps' directory
+static QString getEmbeddedTexturePath(const char *filename, QString fallback)
+{
+    QString imageName;
+
+    const int asInt = textureNameToInt(filename);
+    if (asInt != -1) {
+        // Embedded texture is a number of the form '*123'
+        imageName = QString::number(asInt);
+    } else if (filename && *filename != '\0') {
+        // Embedded texture is a filename, strip the stem
+        imageName = getShortFilename(filename);
+    } else {
+        // Not a number nor a filename
+        imageName = fallback;
+    }
+
+    return QStringLiteral("maps/") + imageName + QStringLiteral(".png");
+}
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+// QTextStream functions are moved to a namespace in Qt6
+using Qt::endl;
+#endif
+
 #define demonPostProcessPresets ( \
     aiProcess_CalcTangentSpace              |  \
     aiProcess_GenSmoothNormals              |  \
     aiProcess_JoinIdenticalVertices         |  \
     aiProcess_ImproveCacheLocality          |  \
-    aiProcess_LimitBoneWeights              |  \
     aiProcess_RemoveRedundantMaterials      |  \
     aiProcess_SplitLargeMeshes              |  \
     aiProcess_Triangulate                   |  \
@@ -104,9 +148,9 @@ const QStringList AssimpImporter::inputExtensions() const
     extensions.append(QStringLiteral("fbx"));
     extensions.append(QStringLiteral("dae"));
     extensions.append(QStringLiteral("obj"));
-    extensions.append(QStringLiteral("blend"));
     extensions.append(QStringLiteral("gltf"));
     extensions.append(QStringLiteral("glb"));
+    extensions.append(QStringLiteral("stl"));
     return extensions;
 }
 
@@ -129,10 +173,25 @@ const QVariantMap AssimpImporter::importOptions() const
 {
     return m_options;
 }
+namespace {
+bool fuzzyCompare(const aiVector3D &v1, const aiVector3D &v2)
+{
+    return qFuzzyCompare(v1.x, v2.x) && qFuzzyCompare(v1.y, v2.y)
+        && qFuzzyCompare(v1.z, v2.z);
+}
+
+bool fuzzyCompare(const aiQuaternion &q1, const aiQuaternion &q2)
+{
+    return (qFuzzyCompare(q1.x, q2.x) && qFuzzyCompare(q1.y, q2.y)
+            && qFuzzyCompare(q1.z, q2.z) && qFuzzyCompare(q1.w, q2.w))
+        || (qFuzzyCompare(q1.x, -q2.x) && qFuzzyCompare(q1.y, -q2.y)
+            && qFuzzyCompare(q1.z, -q2.z) && qFuzzyCompare(q1.w, -q2.w));
+}
+}
 
 const QString AssimpImporter::import(const QString &sourceFile, const QDir &savePath, const QVariantMap &options, QStringList *generatedFiles)
 {
-    Q_UNUSED(options)
+    Q_UNUSED(options);
 
     QString errorString;
     m_savePath = savePath;
@@ -166,8 +225,7 @@ const QString AssimpImporter::import(const QString &sourceFile, const QDir &save
             m_gltfUsed = true;
         }
         m_gltfMode = true;
-    }
-    else {
+    } else {
         m_gltfMode = false;
     }
 
@@ -179,39 +237,50 @@ const QString AssimpImporter::import(const QString &sourceFile, const QDir &save
         return QString::fromLocal8Bit(m_importer->GetErrorString());
     }
 
+    if (m_gltfMode) {
+        // gltf 1.x version's material will use DefaultMaterial
+        int impIndex = m_importer->GetPropertyInteger("importerIndex");
+        const aiImporterDesc *impInfo = m_importer->GetImporterInfo(impIndex);
+
+        // It's a very tricky method but pretty simple.
+        // The name must be either "glTF Importer" or "glTF2 Importer"
+        if (impInfo->mName[4] != '2')
+            m_gltfMode = false;
+    }
+
     // Generate Embedded Texture Sources
     if (m_scene->mNumTextures)
         m_savePath.mkdir(QStringLiteral("./maps"));
     for (uint i = 0; i < m_scene->mNumTextures; ++i) {
         aiTexture *texture = m_scene->mTextures[i];
+        QImage image;
+
+        // Note: if texture->mFilename is not set the texture could still be referenced by its index so we use that as a fallback.
+        const QString imagePath = getEmbeddedTexturePath(texture->mFilename.C_Str(), QString::number(i));
+
         if (texture->mHeight == 0) {
             // compressed format, try to load with Image Loader
             QByteArray data(reinterpret_cast<char *>(texture->pcData), texture->mWidth);
             QBuffer readBuffer(&data);
             QByteArray format = texture->achFormatHint;
             QImageReader imageReader(&readBuffer, format);
-            QImage image = imageReader.read();
+            image = imageReader.read();
             if (image.isNull()) {
                 qWarning() << imageReader.errorString();
                 continue;
             }
-
-            // ### maybe dont always use png
-            const QString saveFileName = savePath.absolutePath() +
-                    QStringLiteral("/maps/") +
-                    QString::number(i) +
-                    QStringLiteral(".png");
-            image.save(saveFileName);
-
         } else {
             // Raw format, just convert data to QImage
-            QImage rawImage(reinterpret_cast<uchar *>(texture->pcData), texture->mWidth, texture->mHeight, QImage::Format_RGBA8888);
-            const QString saveFileName = savePath.absolutePath() +
-                    QStringLiteral("/maps/") +
-                    QString::number(i) +
-                    QStringLiteral(".png");
-            rawImage.save(saveFileName);
+            image = QImage(reinterpret_cast<uchar *>(texture->pcData), texture->mWidth, texture->mHeight, QImage::Format_RGBA8888);
         }
+
+        const QString saveFileName = savePath.absolutePath() + "/" + imagePath;
+        image.save(saveFileName);
+
+        // Note: We need to store both the index and the imagePath since the texture can be referenced later either by index or by filename.
+        m_embeddedTextureSources.insert(i, imagePath);
+        if (generatedFiles)
+            generatedFiles->push_back(saveFileName);
     }
 
     // Check for Cameras
@@ -234,9 +303,98 @@ const QString AssimpImporter::import(const QString &sourceFile, const QDir &save
         }
     }
 
+    // Check for Bones
+    if (m_scene->HasMeshes()) {
+        for (uint i = 0; i < m_scene->mNumMeshes; ++i) {
+            aiMesh *mesh = m_scene->mMeshes[i];
+            if (mesh->HasBones()) {
+                for (uint j = 0; j < mesh->mNumBones; ++j) {
+                    aiBone *bone = mesh->mBones[j];
+                    Q_ASSERT(bone);
+                    aiNode *node = m_scene->mRootNode->FindNode(bone->mName);
+                    if (node) {
+                        QString boneName = QString::fromUtf8(bone->mName.C_Str());
+                        m_bones.insert(boneName, node);
+                    }
+                }
+            }
+        }
+        // make m_skeletonIdxMap
+        for (uint i = 0; i < m_scene->mNumMeshes; ++i) {
+            aiMesh *mesh = m_scene->mMeshes[i];
+            if (mesh->HasBones()) {
+                aiBone *bone = mesh->mBones[0];
+                Q_ASSERT(bone);
+                aiNode *node = m_scene->mRootNode->FindNode(bone->mName);
+                if (m_skeletonIdxMap.contains(node))
+                    continue;
+
+                aiNode *boneRootNode = node->mParent;
+                while (isBone(boneRootNode))
+                    boneRootNode = boneRootNode->mParent;
+
+                QString id = generateUniqueId(QSSGQmlUtilities::sanitizeQmlId(QStringLiteral("qmlskeleton")));
+                quint32 skeletonIdx = m_skeletonIds.size();
+                m_skeletonIds.append(id);
+                quint32 numBones = 0;
+
+                for (uint j = 0; j < boneRootNode->mNumChildren; ++j) {
+                    aiNode *cNode = boneRootNode->mChildren[j];
+                    // assumes that all the Joints have children which are Joints
+                    if (!isBone(cNode))
+                        continue;
+
+                    QString boneName = QString::fromUtf8(cNode->mName.C_Str());
+                    m_nodeTypeMap.insert(cNode, QSSGQmlUtilities::PropertyMap::Joint);
+                    m_skeletonIdxMap.insert(cNode, qMakePair(skeletonIdx, true));
+                    m_boneIdxMap.insert(boneName, numBones++);
+                    generateSkeletonIdxMap(cNode, skeletonIdx, numBones);
+                }
+                m_numBonesInSkeleton.append(numBones);
+            }
+        }
+     }
+
     // Materials
 
     // Traverse Node Tree
+    auto findAnimationNodes = [](const aiString& name, const QMap<QString, aiNode *> &nodeMap) {
+        QList<aiNode*> nodes;
+
+        QString originalName(name.C_Str());
+        if (originalName.contains('*')) { // ###TODO also check '?' single character wildcard
+            auto parts = originalName.split('*');
+            bool isAnInt = false;
+            int geometryIndex = parts.last().toInt(&isAnInt);
+            if (isAnInt)
+                originalName.chop(QString::number(geometryIndex).size());
+            QRegularExpression searchPattern(originalName);
+
+            const QList<QString> &nodeNames = nodeMap.keys();
+            for (const auto &key : nodeNames) {
+                QRegularExpressionMatch match = searchPattern.match(key);
+                if (match.hasMatch())
+                    nodes.append(nodeMap.value(key));
+            }
+
+        } else {
+            // There should only be a single node
+            nodes.append(nodeMap.value(originalName));
+        }
+
+        return nodes;
+    };
+
+    std::function<void(aiNode*, QMap<QString, aiNode *>&)> createNodeNameMap = [&createNodeNameMap](aiNode *node, QMap<QString, aiNode *> &map) {
+        if (!node)
+            return;
+        map.insert(QString(node->mName.C_Str()), node);
+        for (unsigned int i = 0; i < node->mNumChildren; ++i)
+            createNodeNameMap(node->mChildren[i], map);
+    };
+    // Create a mapping of node names to nodes
+    QMap<QString, aiNode *> nodeMap;
+    createNodeNameMap(m_scene->mRootNode, nodeMap);
 
     // Animations (timeline based)
     if (m_scene->HasAnimations()) {
@@ -247,16 +405,56 @@ const QString AssimpImporter::import(const QString &sourceFile, const QDir &save
             m_animations.push_back(new QHash<aiNode *, aiNodeAnim *>());
             for (uint j = 0; j < animation->mNumChannels; ++j) {
                 aiNodeAnim *channel = animation->mChannels[j];
-                aiNode *node = m_scene->mRootNode->FindNode(channel->mNodeName);
-                if (channel && node)
+                auto nodes = findAnimationNodes(channel->mNodeName, nodeMap);
+                // ### TODO Support more than one node
+                aiNode *node = nodes.length() >= 1 ? nodes.first() : nullptr;
+                if (channel && node) {
+                    // remove redundant animations
+                    // assimp generates animation keys with the transformation
+                    // of a current node.
+                    aiMatrix4x4 transformMatrix = node->mTransformation;
+                    aiVector3D scaling;
+                    aiQuaternion rotation;
+                    aiVector3D translation;
+                    if (channel->mNumPositionKeys == 1 ||
+                            channel->mNumRotationKeys == 1 ||
+                            channel->mNumScalingKeys == 1)
+                        transformMatrix.Decompose(scaling, rotation, translation);
+                    if (channel->mNumPositionKeys == 1 &&
+                            fuzzyCompare(translation, channel->mPositionKeys[0].mValue))
+                        channel->mNumPositionKeys = 0;
+
+                    if (channel->mNumRotationKeys == 1 &&
+                            fuzzyCompare(rotation, channel->mRotationKeys[0].mValue))
+                        channel->mNumRotationKeys = 0;
+
+                    if (channel->mNumScalingKeys == 1 &&
+                            fuzzyCompare(scaling, channel->mScalingKeys[0].mValue))
+                        channel->mNumScalingKeys = 0;
+
+                    if (channel->mNumPositionKeys == 0 &&
+                            channel->mNumRotationKeys == 0 &&
+                            channel->mNumScalingKeys == 0)
+                        continue;
+
                     m_animations.back()->insert(node, channel);
+                }
+            }
+            m_morphAnimations.push_back(new QHash<aiNode *, aiMeshMorphAnim *>());
+            for (uint j = 0; j < animation->mNumMorphMeshChannels; ++j) {
+                aiMeshMorphAnim *channel = animation->mMorphMeshChannels[j];
+                auto nodes = findAnimationNodes(channel->mName, nodeMap);
+                // ### TODO Support more than one node
+                aiNode *node = nodes.length() >= 1 ? nodes.first() : nullptr;
+                if (channel && node)
+                    m_morphAnimations.back()->insert(node, channel);
             }
         }
+        // Morph Animations (timeline based)
     }
 
     // Create QML Component
     QFileInfo sourceFileInfo(sourceFile);
-
 
     QString targetFileName = savePath.absolutePath() + QDir::separator() +
             QSSGQmlUtilities::qmlComponentName(sourceFileInfo.completeBaseName()) +
@@ -274,31 +472,70 @@ const QString AssimpImporter::import(const QString &sourceFile, const QDir &save
         processNode(m_scene->mRootNode, output);
 
         targetFile.close();
-        if (generatedFiles)
+        if (generatedFiles) {
             *generatedFiles += targetFileName;
+            generatedFiles->append(m_generatedFiles);
+        }
     }
 
     return errorString;
 }
 
+void AssimpImporter::generateSkeletonIdxMap(aiNode *node, quint32 skeletonIdx, quint32 &boneIdx)
+{
+    Q_ASSERT(node != nullptr);
+    for (uint i = 0; i < node->mNumChildren; ++i) {
+        aiNode *cNode = node->mChildren[i];
+
+        if (!isModel(cNode) && !isCamera(cNode) && !isLight(cNode)) {
+            // assumes that all the Joints have children which are Joints
+            QString boneName = QString::fromUtf8(cNode->mName.C_Str());
+            if (!isBone(cNode)) {
+                m_bones.insert(boneName, cNode);
+            }
+            m_nodeTypeMap.insert(cNode, QSSGQmlUtilities::PropertyMap::Joint);
+            m_skeletonIdxMap.insert(cNode, qMakePair(skeletonIdx, false));
+            m_boneIdxMap.insert(boneName, boneIdx++);
+        }
+        generateSkeletonIdxMap(cNode, skeletonIdx, boneIdx);
+    }
+}
+
 void AssimpImporter::writeHeader(QTextStream &output)
 {
-    output << "import QtQuick 2.15\n";
-    output << "import QtQuick3D 1.15\n";
+    output << "import QtQuick\n";
+    output << "import QtQuick3D\n";
     if (m_scene->HasAnimations())
-        output << "import QtQuick.Timeline 1.0\n";
+        output << "import QtQuick.Timeline\n";
+
 }
 
 void AssimpImporter::processNode(aiNode *node, QTextStream &output, int tabLevel)
 {
     aiNode *currentNode = node;
     if (currentNode) {
-        output << QStringLiteral("\n");
         // Figure out what kind of node this is
         if (isModel(currentNode)) {
             // Model
-            output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("Model {\n");
-            generateModelProperties(currentNode, output, tabLevel + 1);
+            int numMeshes = currentNode->mNumMeshes;
+
+            // The following code is to merge submeshes
+            // but assimp makes submeshes with primitives in GLTF2
+            // It means that they could be merged always.
+            // After checking it for other formats, then remove
+            // this checking processes
+            // Now, we will merge submeshes without checking for morphing
+            QVector<bool> visited(numMeshes, false);
+            const QVector<bool> visitedAll(numMeshes, true);
+
+            while (true) {
+                output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("Model {\n");
+                generateModelProperties(currentNode, visited, output, tabLevel + 1);
+                if (visited == visitedAll)
+                    break;
+                else
+                    output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("}\n");
+            }
             m_nodeTypeMap.insert(node, QSSGQmlUtilities::PropertyMap::Model);
         } else if (isLight(currentNode)) {
             // Light
@@ -307,10 +544,36 @@ void AssimpImporter::processNode(aiNode *node, QTextStream &output, int tabLevel
             auto type = generateLightProperties(currentNode, output, tabLevel);
             m_nodeTypeMap.insert(node, type);
         } else if (isCamera(currentNode)) {
-            // Camera (always assumed to be perspective for some reason)
-            output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("PerspectiveCamera {\n");
-            generateCameraProperties(currentNode, output, tabLevel + 1);
-            m_nodeTypeMap.insert(node, QSSGQmlUtilities::PropertyMap::Camera);
+            // Camera
+            auto type = generateCameraProperties(currentNode, output, tabLevel);
+            m_nodeTypeMap.insert(node, type);
+        } else if (isBone(currentNode)) {
+            SkeletonInfo skeletonInfo = m_skeletonIdxMap[currentNode];
+            QString nodeName = QString::fromUtf8(currentNode->mName.C_Str());
+            qint32 boneIdx = m_boneIdxMap[nodeName];
+            quint32 skeletonIdx = skeletonInfo.first;
+            QString skeletonId = m_skeletonIds[skeletonIdx];
+            if (boneIdx == 0) {
+                output << QSSGQmlUtilities::insertTabs(tabLevel)
+                       << QStringLiteral("Skeleton {\n");
+                output << QSSGQmlUtilities::insertTabs(tabLevel + 1)
+                       << QStringLiteral("id: ") << skeletonId << QStringLiteral("\n");
+                processSkeleton(currentNode->mParent, skeletonIdx, output, tabLevel + 1);
+                output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("}\n");
+                return;
+            } else if (!skeletonInfo.second) {
+                output << QSSGQmlUtilities::insertTabs(tabLevel)
+                       << QStringLiteral("Joint {\n");
+                generateNodeProperties(currentNode, output, tabLevel + 1);
+                output << QSSGQmlUtilities::insertTabs(tabLevel + 1)
+                       << QStringLiteral("index: ") << QString::number(boneIdx)
+                       << QStringLiteral("\n");
+                output << QSSGQmlUtilities::insertTabs(tabLevel + 1)
+                       << QStringLiteral("skeletonRoot: ") << skeletonId << QStringLiteral("\n");
+            } else {
+                // isRootBone but it should be processed when making Skeleton with processSkeleton.
+                return;
+            }
         } else {
             // Transform Node
 
@@ -337,19 +600,122 @@ void AssimpImporter::processNode(aiNode *node, QTextStream &output, int tabLevel
     }
 }
 
-void AssimpImporter::generateModelProperties(aiNode *modelNode, QTextStream &output, int tabLevel)
+void AssimpImporter::generateModelProperties(aiNode *modelNode, QVector<bool> &visited, QTextStream &output, int tabLevel)
 {
     generateNodeProperties(modelNode, output, tabLevel);
 
     // source
     // Combine all the meshes referenced by this model into a single MultiMesh file
-    QVector<aiMesh *> meshes;
+    // For the morphing, the target mesh must have the same AnimMeshes.
+    // It means if only one mesh has a morphing animation, the other sub-meshes will
+    // get null target attributes. However this case might not be common.
+    // These submeshes will animate with the same morphing weight!
+    AssimpUtils::MeshList meshes;
     QVector<aiMaterial *> materials;
+    QVector<aiMatrix4x4 *> inverseBindPoses;
+
+    // First, check skinning
+    aiBone *bone = nullptr;
     for (uint i = 0; i < modelNode->mNumMeshes; ++i) {
+        if (visited[i])
+            continue;
+
         aiMesh *mesh = m_scene->mMeshes[modelNode->mMeshes[i]];
-        aiMaterial *material = m_scene->mMaterials[mesh->mMaterialIndex];
+        if (mesh->HasBones()) {
+            bone = mesh->mBones[0];
+            visited[i] = true;
+            meshes.append(mesh);
+            aiMaterial *material = m_scene->mMaterials[mesh->mMaterialIndex];
+            materials.append(material);
+            break;
+        }
+    }
+
+    // skeletonRoot
+    quint32 skeletonIdx = 0xffffffff;
+    if (bone != nullptr) {
+        QString id;
+        QString boneName = QString::fromUtf8(bone->mName.C_Str());
+        aiNode *boneNode = m_bones[boneName];
+        Q_ASSERT(m_skeletonIdxMap.contains(boneNode));
+        skeletonIdx = m_skeletonIdxMap[boneNode].first;
+        id = m_skeletonIds[skeletonIdx];
+        output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("skeleton: ")
+               << id << QStringLiteral("\n");
+
+        inverseBindPoses.resize(m_numBonesInSkeleton[skeletonIdx]);
+        const aiMesh *mesh = meshes[0];
+        for (uint i = 0; i < mesh->mNumBones; ++i) {
+            QString boneName = QString::fromUtf8(mesh->mBones[i]->mName.C_Str());
+            Q_ASSERT(m_boneIdxMap.contains(boneName));
+            qint32 boneIndex = m_boneIdxMap[boneName];
+            inverseBindPoses[boneIndex] = &(mesh->mBones[i]->mOffsetMatrix);
+        }
+    }
+
+    for (uint i = 0; i < modelNode->mNumMeshes; ++i) {
+        if (visited[i])
+            continue;
+        aiMesh *mesh = m_scene->mMeshes[modelNode->mMeshes[i]];
+        if (mesh->HasBones()) {
+            bone = mesh->mBones[0];
+            QString boneName = QString::fromUtf8(bone->mName.C_Str());
+            aiNode *boneNode = m_bones[boneName];
+            Q_ASSERT(m_skeletonIdxMap.contains(boneNode));
+            // check this skinned mesh can be merged with previous one
+            if (skeletonIdx != m_skeletonIdxMap[boneNode].first) {
+                // This node will be processed at the next time.
+                continue;
+            }
+            bool canBeMerged = true;
+            for (uint i = 0; i < mesh->mNumBones; ++i) {
+                QString boneName = QString::fromUtf8(mesh->mBones[i]->mName.C_Str());
+                Q_ASSERT(m_boneIdxMap.contains(boneName));
+                qint32 boneIndex = m_boneIdxMap[boneName];
+                if (inverseBindPoses[boneIndex] != nullptr
+                        && *(inverseBindPoses[boneIndex]) != mesh->mBones[i]->mOffsetMatrix) {
+                    canBeMerged = false;
+                    break;
+                }
+            }
+            if (!canBeMerged)
+                continue;
+
+            // Add additional inverseBindPoses
+            for (uint i = 0; i < mesh->mNumBones; ++i) {
+                QString boneName = QString::fromUtf8(mesh->mBones[i]->mName.C_Str());
+                qint32 boneIndex = m_boneIdxMap[boneName];
+                inverseBindPoses[boneIndex] = &(mesh->mBones[i]->mOffsetMatrix);
+            }
+        }
         meshes.append(mesh);
+        aiMaterial *material = m_scene->mMaterials[mesh->mMaterialIndex];
         materials.append(material);
+
+        visited[i] = true;
+    }
+
+    if (inverseBindPoses.size() > 0) {
+        output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("inverseBindPoses: [\n");
+        for (uint i = 0; i < inverseBindPoses.size(); ++i) {
+            aiMatrix4x4 *osMat = inverseBindPoses[i];
+            if (osMat) {
+                output << QSSGQmlUtilities::insertTabs(tabLevel + 1)
+                       << QStringLiteral("Qt.matrix4x4(")
+                       << QString("%1, %2, %3, %4, ").arg((*osMat)[0][0]).arg((*osMat)[0][1]).arg((*osMat)[0][2]).arg((*osMat)[0][3])
+                       << QString("%1, %2, %3, %4, ").arg((*osMat)[1][0]).arg((*osMat)[1][1]).arg((*osMat)[1][2]).arg((*osMat)[1][3])
+                       << QString("%1, %2, %3, %4, ").arg((*osMat)[2][0]).arg((*osMat)[2][1]).arg((*osMat)[2][2]).arg((*osMat)[2][3])
+                       << QString("%1, %2, %3, %4)").arg((*osMat)[3][0]).arg((*osMat)[3][1]).arg((*osMat)[3][2]).arg((*osMat)[3][3]);
+            } else {
+                output << QSSGQmlUtilities::insertTabs(tabLevel + 1)
+                       << QStringLiteral("Qt.matrix4x4()");
+            }
+
+            if (i != inverseBindPoses.size() - 1)
+                output << ",\n";
+            else
+                output << "\n" << QSSGQmlUtilities::insertTabs(tabLevel) << "]\n";
+        }
     }
 
     // Model name can contain invalid characters for filename, so just to be safe, convert the name
@@ -367,13 +733,26 @@ void AssimpImporter::generateModelProperties(aiNode *modelNode, QTextStream &out
         meshFilePath = m_savePath.absolutePath() + QLatin1Char('/') + outputMeshFile;
     }
     QFile meshFile(meshFilePath);
-    if (generateMeshFile(meshFile, meshes).isEmpty())
+    const QString errMsg = generateMeshFile(modelNode, meshFile, meshes);
+    if (errMsg.isEmpty())
         m_generatedFiles << meshFilePath;
+    else
+        qWarning("%s", qPrintable(errMsg));
+    meshFile.close();
 
     output << QSSGQmlUtilities::insertTabs(tabLevel) << "source: \"" << outputMeshFile
            << QStringLiteral("\"") << QStringLiteral("\n");
 
-    // skeletonRoot
+    // Morphing
+    const QVector<QString> targets = generateMorphing(modelNode, meshes, output, tabLevel);
+
+    if (targets.size() > 0) {
+        output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("morphTargets: [\n");
+        for (int i = 0; i < targets.size() - 1; ++i)
+            output << QSSGQmlUtilities::insertTabs(tabLevel + 1) << targets[i] << QStringLiteral(",\n");
+        output << QSSGQmlUtilities::insertTabs(tabLevel + 1) << targets.back() << QStringLiteral("\n");
+        output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("]\n");
+    }
 
     // materials
     // If there are any new materials, add them as children of the Model first
@@ -403,9 +782,11 @@ QSSGQmlUtilities::PropertyMap::Type AssimpImporter::generateLightProperties(aiNo
     // so if the direction vector is non-null, but not (0, 0, -1) we
     // need to correct the translation
     aiMatrix4x4 correctionMatrix;
+    bool needsCorrection = false;
     if (light->mDirection != aiVector3D(0, 0, 0)) {
         if (light->mDirection != aiVector3D(0, 0, -1)) {
-            aiMatrix4x4::FromToMatrix(light->mDirection, aiVector3D(0, 0, -1), correctionMatrix);
+            aiMatrix4x4::FromToMatrix(aiVector3D(0, 0, -1), light->mDirection, correctionMatrix);
+            needsCorrection = true;
         }
     }
 
@@ -418,9 +799,6 @@ QSSGQmlUtilities::PropertyMap::Type AssimpImporter::generateLightProperties(aiNo
     } else if (light->mType == aiLightSource_POINT) {
         lightType = QSSGQmlUtilities::PropertyMap::PointLight;
         output << QSSGQmlUtilities::insertTabs(tabLevel++) << QStringLiteral("PointLight {\n");
-    } else if (light->mType == aiLightSource_AREA) {
-        lightType = QSSGQmlUtilities::PropertyMap::AreaLight;
-        output << QSSGQmlUtilities::insertTabs(tabLevel++) << QStringLiteral("AreaLight {\n");
     } else if (light->mType == aiLightSource_SPOT) {
         lightType = QSSGQmlUtilities::PropertyMap::SpotLight;
         output << QSSGQmlUtilities::insertTabs(tabLevel++) << QStringLiteral("SpotLight {\n");
@@ -430,48 +808,62 @@ QSSGQmlUtilities::PropertyMap::Type AssimpImporter::generateLightProperties(aiNo
         output << QSSGQmlUtilities::insertTabs(tabLevel++) << QStringLiteral("PointLight {\n");
     }
 
-    generateNodeProperties(lightNode, output, tabLevel, correctionMatrix, true);
+    if (needsCorrection)
+        generateNodeProperties(lightNode, output, tabLevel, &correctionMatrix, true);
+    else
+        generateNodeProperties(lightNode, output, tabLevel, nullptr, true);
 
-    // diffuseColor
-    QColor diffuseColor = QColor::fromRgbF(light->mColorDiffuse.r, light->mColorDiffuse.g, light->mColorDiffuse.b);
-    QSSGQmlUtilities::writeQmlPropertyHelper(output,tabLevel, lightType, QStringLiteral("color"), diffuseColor);
+    // brightness
+    // Assimp has no property related to brightness or intensity.
+    // They are multiplied to diffuse, ambient and specular colors.
+    // For extracting the property value, we will check the maximum value of them.
+    // (In most cases, Assimp uses the same specular values with diffuse values,
+    // so we will compare just components of the diffuse and the ambient)
+    float brightness = qMax(qMax(1.0f, light->mColorDiffuse.r),
+                            qMax(light->mColorDiffuse.g, light->mColorDiffuse.b));
 
     // ambientColor
     if (light->mType == aiLightSource_AMBIENT) {
+        brightness = qMax(qMax(brightness, light->mColorAmbient.r),
+                          qMax(light->mColorAmbient.g, light->mColorAmbient.b));
+
         // We only want ambient light color if it is explicit
-        QColor ambientColor = QColor::fromRgbF(light->mColorAmbient.r, light->mColorAmbient.g, light->mColorAmbient.b);
-        QSSGQmlUtilities::writeQmlPropertyHelper(output,tabLevel, lightType, QStringLiteral("ambientColor"), ambientColor);
+        QColor ambientColor = QColor::fromRgbF(light->mColorAmbient.r / brightness,
+                                               light->mColorAmbient.g / brightness,
+                                               light->mColorAmbient.b / brightness);
+        QSSGQmlUtilities::writeQmlPropertyHelper(output, tabLevel, lightType, QStringLiteral("ambientColor"), ambientColor);
     }
-    // brightness
-    // Its default value is 100 and the normalized value 1 will be used.
+
+    // diffuseColor
+    QColor diffuseColor = QColor::fromRgbF(light->mColorDiffuse.r / brightness,
+                                           light->mColorDiffuse.g / brightness,
+                                           light->mColorDiffuse.b / brightness);
+    QSSGQmlUtilities::writeQmlPropertyHelper(output, tabLevel, lightType, QStringLiteral("color"), diffuseColor);
+
+    // describe brightness here
+    QSSGQmlUtilities::writeQmlPropertyHelper(output, tabLevel, lightType, QStringLiteral("brightness"), brightness);
 
     if (light->mType == aiLightSource_POINT || light->mType == aiLightSource_SPOT) {
         // constantFade
-        QSSGQmlUtilities::writeQmlPropertyHelper(output,tabLevel, lightType, QStringLiteral("constantFade"), light->mAttenuationConstant);
+        // Some assets have this constant attenuation value as 0.0f and it makes light attenuation makes infinite at distance 0.
+        // In that case, we will use the default constant attenuation, 1.0f.
+        if (light->mAttenuationConstant != 0.0f)
+            QSSGQmlUtilities::writeQmlPropertyHelper(output, tabLevel, lightType, QStringLiteral("constantFade"), light->mAttenuationConstant);
 
         // linearFade
-        QSSGQmlUtilities::writeQmlPropertyHelper(output,tabLevel, lightType, QStringLiteral("linearFade"), light->mAttenuationLinear);
+        QSSGQmlUtilities::writeQmlPropertyHelper(output, tabLevel, lightType, QStringLiteral("linearFade"), light->mAttenuationLinear * 100);
 
         // exponentialFade
-        QSSGQmlUtilities::writeQmlPropertyHelper(output,tabLevel, lightType, QStringLiteral("quadraticFade"), light->mAttenuationQuadratic);
+        QSSGQmlUtilities::writeQmlPropertyHelper(output, tabLevel, lightType, QStringLiteral("quadraticFade"), light->mAttenuationQuadratic * 10000);
 
         if (light->mType == aiLightSource_SPOT) {
             // coneAngle
-            QSSGQmlUtilities::writeQmlPropertyHelper(output,tabLevel, lightType, QStringLiteral("coneAngle"), qRadiansToDegrees(light->mAngleOuterCone));
+            QSSGQmlUtilities::writeQmlPropertyHelper(output, tabLevel, lightType, QStringLiteral("coneAngle"), qRadiansToDegrees(light->mAngleOuterCone) * 2);
 
             // innerConeAngle
-            QSSGQmlUtilities::writeQmlPropertyHelper(output,tabLevel, lightType, QStringLiteral("innerConeAngle"), qRadiansToDegrees(light->mAngleInnerCone));
+            QSSGQmlUtilities::writeQmlPropertyHelper(output, tabLevel, lightType, QStringLiteral("innerConeAngle"), qRadiansToDegrees(light->mAngleInnerCone) * 2);
         }
     }
-
-    if (light->mType == aiLightSource_AREA) {
-        // areaWidth
-        QSSGQmlUtilities::writeQmlPropertyHelper(output,tabLevel, lightType, QStringLiteral("width"), light->mSize.x);
-
-        // areaHeight
-        QSSGQmlUtilities::writeQmlPropertyHelper(output,tabLevel, lightType, QStringLiteral("height"), light->mSize.y);
-    }
-
     // castShadow
 
     // shadowBias
@@ -489,41 +881,65 @@ QSSGQmlUtilities::PropertyMap::Type AssimpImporter::generateLightProperties(aiNo
     return lightType;
 }
 
-void AssimpImporter::generateCameraProperties(aiNode *cameraNode, QTextStream &output, int tabLevel)
+QSSGQmlUtilities::PropertyMap::Type AssimpImporter::generateCameraProperties(aiNode *cameraNode, QTextStream &output, int tabLevel)
 {
+    QSSGQmlUtilities::PropertyMap::Type type;
+
     aiCamera *camera = m_cameras.value(cameraNode);
+
+    // assimp does not have a camera type but it works for gltf2 format.
+    if (camera->mHorizontalFOV == 0.0) {
+        type = QSSGQmlUtilities::PropertyMap::OrthographicCamera;
+        output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("OrthographicCamera {\n");
+    } else {
+        type = QSSGQmlUtilities::PropertyMap::PerspectiveCamera;
+        output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("PerspectiveCamera {\n");
+    }
 
     // We assume these default forward and up vectors, so if this isn't
     // the case we have to do additional transform
     aiMatrix4x4 correctionMatrix;
+    bool needsCorrection = false;
     if (camera->mLookAt != aiVector3D(0, 0, -1))
     {
         aiMatrix4x4 lookAtCorrection;
-        aiMatrix4x4::FromToMatrix(camera->mLookAt, aiVector3D(0, 0, -1), lookAtCorrection);
+        aiMatrix4x4::FromToMatrix(aiVector3D(0, 0, -1), camera->mLookAt, lookAtCorrection);
         correctionMatrix *= lookAtCorrection;
+        needsCorrection = true;
     }
-
     if (camera->mUp != aiVector3D(0, 1, 0)) {
         aiMatrix4x4 upCorrection;
-        aiMatrix4x4::FromToMatrix(camera->mUp, aiVector3D(0, 1, 0), upCorrection);
+        aiMatrix4x4::FromToMatrix(aiVector3D(0, 1, 0), camera->mUp, upCorrection);
         correctionMatrix *= upCorrection;
+        needsCorrection = true;
     }
 
-    generateNodeProperties(cameraNode, output, tabLevel, correctionMatrix, true);
+    if (needsCorrection)
+        generateNodeProperties(cameraNode, output, tabLevel + 1, &correctionMatrix, true);
+    else
+        generateNodeProperties(cameraNode, output, tabLevel + 1, nullptr, true);
 
     // clipNear
-    QSSGQmlUtilities::writeQmlPropertyHelper(output,tabLevel, QSSGQmlUtilities::PropertyMap::Camera, QStringLiteral("clipNear"), camera->mClipPlaneNear);
+    QSSGQmlUtilities::writeQmlPropertyHelper(output, tabLevel + 1, type, QStringLiteral("clipNear"), camera->mClipPlaneNear);
 
     // clipFar
-    QSSGQmlUtilities::writeQmlPropertyHelper(output,tabLevel, QSSGQmlUtilities::PropertyMap::Camera, QStringLiteral("clipFar"), camera->mClipPlaneFar);
+    QSSGQmlUtilities::writeQmlPropertyHelper(output, tabLevel + 1, type, QStringLiteral("clipFar"), camera->mClipPlaneFar);
 
-    // fieldOfView
-    float fov = qRadiansToDegrees(camera->mHorizontalFOV);
-    QSSGQmlUtilities::writeQmlPropertyHelper(output,tabLevel, QSSGQmlUtilities::PropertyMap::Camera, QStringLiteral("fieldOfView"), fov);
+    if (type == QSSGQmlUtilities::PropertyMap::PerspectiveCamera) {
+        // fieldOfView
+        // mHorizontalFOV is defined as a half horizontal fov
+        // in the assimp header but it seems not half now.
+        float fov = qRadiansToDegrees(camera->mHorizontalFOV);
+        QSSGQmlUtilities::writeQmlPropertyHelper(output, tabLevel + 1, type, QStringLiteral("fieldOfView"), fov);
 
-    // isFieldOfViewHorizontal
-    QSSGQmlUtilities::writeQmlPropertyHelper(output,tabLevel, QSSGQmlUtilities::PropertyMap::Camera, QStringLiteral("fieldOfViewOrientation"), "Camera.Horizontal");
-
+        // isFieldOfViewHorizontal
+        QSSGQmlUtilities::writeQmlPropertyHelper(output, tabLevel + 1, type, QStringLiteral("fieldOfViewOrientation"), "PerspectiveCamera.Horizontal");
+    } else { //OrthographicCamera
+        float width = camera->mOrthographicWidth * 2;
+        float height = width / camera->mAspect;
+        QSSGQmlUtilities::writeQmlPropertyHelper(output, tabLevel + 1, type, QStringLiteral("horizontalMagnification"), width);
+        QSSGQmlUtilities::writeQmlPropertyHelper(output, tabLevel + 1, type, QStringLiteral("verticalMagnification"), height);
+    }
     // projectionMode
 
     // scaleMode
@@ -534,9 +950,11 @@ void AssimpImporter::generateCameraProperties(aiNode *cameraNode, QTextStream &o
 
     // frustomScaleY
 
+
+    return type;
 }
 
-void AssimpImporter::generateNodeProperties(aiNode *node, QTextStream &output, int tabLevel, const aiMatrix4x4 &transformCorrection, bool skipScaling)
+void AssimpImporter::generateNodeProperties(aiNode *node, QTextStream &output, int tabLevel, aiMatrix4x4 *transformCorrection, bool skipScaling)
 {
     // id
     QString name = QString::fromUtf8(node->mName.C_Str());
@@ -547,16 +965,22 @@ void AssimpImporter::generateNodeProperties(aiNode *node, QTextStream &output, i
         output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("id: ") << id << QStringLiteral("\n");
     }
 
-    // Apply correction if necessary
     aiMatrix4x4 transformMatrix = node->mTransformation;
-    if (!transformCorrection.IsIdentity())
-        transformMatrix *= transformCorrection;
 
     // Decompose Transform Matrix to get properties
     aiVector3D scaling;
-    aiVector3D rotation;
+    aiQuaternion rotation;
     aiVector3D translation;
     transformMatrix.Decompose(scaling, rotation, translation);
+
+    // Apply correction if necessary
+    // transformCorrection is just for cameras and lights
+    // and its factor just contains rotation.
+    // In this case, this rotation will replace previous rotation.
+    if (transformCorrection) {
+        aiVector3D dummyTrans;
+        transformCorrection->DecomposeNoScaling(rotation, dummyTrans);
+    }
 
     // translate
     QSSGQmlUtilities::writeQmlPropertyHelper(output, tabLevel, QSSGQmlUtilities::PropertyMap::Node, QStringLiteral("x"), translation.x);
@@ -564,12 +988,15 @@ void AssimpImporter::generateNodeProperties(aiNode *node, QTextStream &output, i
     QSSGQmlUtilities::writeQmlPropertyHelper(output, tabLevel, QSSGQmlUtilities::PropertyMap::Node, QStringLiteral("z"), translation.z);
 
     // rotation
-    QSSGQmlUtilities::writeQmlPropertyHelper(output, tabLevel, QSSGQmlUtilities::PropertyMap::Node, QStringLiteral("eulerRotation.x"), qRadiansToDegrees(rotation.x));
-    QSSGQmlUtilities::writeQmlPropertyHelper(output, tabLevel, QSSGQmlUtilities::PropertyMap::Node, QStringLiteral("eulerRotation.y"), qRadiansToDegrees(rotation.y));
-    QSSGQmlUtilities::writeQmlPropertyHelper(output, tabLevel, QSSGQmlUtilities::PropertyMap::Node, QStringLiteral("eulerRotation.z"), qRadiansToDegrees(rotation.z));
+    QQuaternion rot(rotation.w, rotation.x, rotation.y, rotation.z);
+    QSSGQmlUtilities::writeQmlPropertyHelper(output, tabLevel, QSSGQmlUtilities::PropertyMap::Node, QStringLiteral("rotation"), rot);
 
     // scale
     if (!skipScaling) {
+        // Apply the global scale for a root node
+        if (tabLevel == 1)
+            scaling *= m_globalScaleValue;
+
         QSSGQmlUtilities::writeQmlPropertyHelper(output, tabLevel, QSSGQmlUtilities::PropertyMap::Node, QStringLiteral("scale.x"), scaling.x);
         QSSGQmlUtilities::writeQmlPropertyHelper(output, tabLevel, QSSGQmlUtilities::PropertyMap::Node, QStringLiteral("scale.y"), scaling.y);
         QSSGQmlUtilities::writeQmlPropertyHelper(output, tabLevel, QSSGQmlUtilities::PropertyMap::Node, QStringLiteral("scale.z"), scaling.z);
@@ -584,225 +1011,110 @@ void AssimpImporter::generateNodeProperties(aiNode *node, QTextStream &output, i
 
 }
 
-QString AssimpImporter::generateMeshFile(QIODevice &file, const QVector<aiMesh *> &meshes)
+QString AssimpImporter::generateMeshFile(aiNode *, QFile &file, const AssimpUtils::MeshList &meshes)
 {
     if (!file.open(QIODevice::WriteOnly))
         return QStringLiteral("Could not open device to write mesh file");
 
+    QString errorString;
+    const auto mesh = AssimpUtils::generateMeshData(*m_scene, meshes, m_boneIdxMap, m_generateLightmapUV, m_useFloatJointIndices, errorString);
 
-    auto meshBuilder = QSSGMeshUtilities::QSSGMeshBuilder::createMeshBuilder();
+    if (mesh.isValid()) {
+        if (!mesh.save(&file))
+            return QString::asprintf("Failed to serialize mesh to %s", qPrintable(file.fileName()));
+    } else {
+        return QString::asprintf("Mesh building failed for %s", qPrintable(file.fileName()));
+    }
 
-    struct SubsetEntryData {
-        QString name;
-        int indexLength;
-        int indexOffset;
-    };
+    return errorString;
+}
 
-    // Check if we need placeholders in certain channels
-    bool needsPositionData = false;
-    bool needsNormalData = false;
-    bool needsUV1Data = false;
-    bool needsUV2Data = false;
-    bool needsTangentData = false;
-    bool needsVertexColorData = false;
-    unsigned uv1Components = 0;
-    unsigned uv2Components = 0;
-    unsigned totalVertices = 0;
+QVector<QString> AssimpImporter::generateMorphing(aiNode *, const AssimpUtils::MeshList &meshes, QTextStream &output, int tabLevel)
+{
+    QVector<QString> targets;
+    quint32 numMorphTargets = 0;
+    QVector<bool> needsTargetPosition;
+    QVector<bool> needsTargetNormal;
+    QVector<bool> needsTargetTangent;
+    QVector<float> targetWeights;
+    QVector<QString> targetNames;
+    unsigned int morphingMethod = UINT_MAX;
     for (const auto *mesh : meshes) {
-        totalVertices += mesh->mNumVertices;
-        uv1Components = qMax(mesh->mNumUVComponents[0], uv1Components);
-        uv2Components = qMax(mesh->mNumUVComponents[1], uv2Components);
-        needsPositionData |= mesh->HasPositions();
-        needsNormalData |= mesh->HasNormals();
-        needsUV1Data |= mesh->HasTextureCoords(0);
-        needsUV2Data |= mesh->HasTextureCoords(1);
-        needsTangentData |= mesh->HasTangentsAndBitangents();
-        needsVertexColorData |=mesh->HasVertexColors(0);
-    }
-
-    QByteArray positionData;
-    QByteArray normalData;
-    QByteArray uv1Data;
-    QByteArray uv2Data;
-    QByteArray tangentData;
-    QByteArray binormalData;
-    QByteArray vertexColorData;
-    QByteArray indexBufferData;
-    QVector<SubsetEntryData> subsetData;
-    quint32 baseIndex = 0;
-    QSSGRenderComponentType indexType = QSSGRenderComponentType::UnsignedInteger32;
-    if ((totalVertices / 3) > std::numeric_limits<quint16>::max())
-        indexType = QSSGRenderComponentType::UnsignedInteger32;
-
-    for (const auto *mesh : meshes) {
-        // Position
-        if (mesh->HasPositions())
-            positionData += QByteArray(reinterpret_cast<char*>(mesh->mVertices), mesh->mNumVertices * 3 * getSizeOfType(QSSGRenderComponentType::Float32));
-        else if (needsPositionData)
-            positionData += QByteArray(mesh->mNumVertices * 3 * getSizeOfType(QSSGRenderComponentType::Float32), '\0');
-
-        // Normal
-        if (mesh->HasNormals())
-            normalData += QByteArray(reinterpret_cast<char*>(mesh->mNormals), mesh->mNumVertices * 3 * getSizeOfType(QSSGRenderComponentType::Float32));
-        else if (needsNormalData)
-            normalData += QByteArray(mesh->mNumVertices * 3 * getSizeOfType(QSSGRenderComponentType::Float32), '\0');
-
-        // UV1
-        if (mesh->HasTextureCoords(0)) {
-            QVector<float> uvCoords;
-            uvCoords.resize(uv1Components * mesh->mNumVertices);
-            for (uint i = 0; i < mesh->mNumVertices; ++i) {
-                int offset = i * uv1Components;
-                aiVector3D *textureCoords = mesh->mTextureCoords[0];
-                uvCoords[offset] = textureCoords[i].x;
-                uvCoords[offset + 1] = textureCoords[i].y;
-                if (uv1Components == 3)
-                    uvCoords[offset + 2] = textureCoords[i].z;
+        if (mesh->mNumAnimMeshes && mesh->mAnimMeshes) {
+            // According to the gltf2 spec, numMorphTargets should be the same
+            // for all the submeshes. Other formats?
+            const quint32 numAnimMeshes = qMin(8U, mesh->mNumAnimMeshes);
+            if (numMorphTargets < numAnimMeshes) {
+                numMorphTargets = numAnimMeshes;
+                needsTargetPosition.resize(numMorphTargets);
+                needsTargetNormal.resize(numMorphTargets);
+                needsTargetTangent.resize(numMorphTargets);
+                targetWeights.resize(numMorphTargets);
+                targetNames.resize(numMorphTargets);
             }
-            uv1Data += QByteArray(reinterpret_cast<const char*>(uvCoords.constData()), uvCoords.size() * sizeof(float));
-        } else {
-            uv1Data += QByteArray(mesh->mNumVertices * uv1Components * getSizeOfType(QSSGRenderComponentType::Float32), '\0');
-        }
-
-        // UV2
-        if (mesh->HasTextureCoords(1)) {
-            QVector<float> uvCoords;
-            uvCoords.resize(uv2Components * mesh->mNumVertices);
-            for (uint i = 0; i < mesh->mNumVertices; ++i) {
-                int offset = i * uv2Components;
-                aiVector3D *textureCoords = mesh->mTextureCoords[1];
-                uvCoords[offset] = textureCoords[i].x;
-                uvCoords[offset + 1] = textureCoords[i].y;
-                if (uv2Components == 3)
-                    uvCoords[offset + 2] = textureCoords[i].z;
+            if (morphingMethod == UINT_MAX) {
+                // These values for all the submeshes should be the same.
+                morphingMethod = mesh->mMethod;
+                for (quint32 i = 0; i < numAnimMeshes; ++i) {
+                    auto animMesh = mesh->mAnimMeshes[i];
+                    targetWeights[i] = animMesh->mWeight;
+                    targetNames[i] = QString::fromUtf8(animMesh->mName.C_Str());
+                }
             }
-            uv2Data += QByteArray(reinterpret_cast<const char*>(uvCoords.constData()), uvCoords.size() * sizeof(float));
+            for (quint32 i = 0; i < numAnimMeshes; ++i) {
+                auto animMesh = mesh->mAnimMeshes[i];
+                needsTargetPosition[i] |= animMesh->HasPositions();
+                needsTargetNormal[i] |= animMesh->HasNormals();
+                needsTargetTangent[i] |= animMesh->HasTangentsAndBitangents();
+            }
+        }
+    }
+
+    // Meshes do not have any morphing targets
+    if (numMorphTargets == 0)
+        return targets;
+
+    // We will support gltf's morphing method now.
+    // If we need to support collada's morphing,
+    // we need to check the morphing methods and implement them in backend
+    //QSSGQmlUtilities::writeQmlPropertyHelper(output,
+    //                                         tabLevel,
+    //                                         QSSGQmlUtilities::PropertyMap::Model,
+    //                                         QStringLiteral("morphingMode"),
+    //                                         morphingMethod);
+
+    QString id;
+    for (unsigned i = 0; i < numMorphTargets; ++i) {
+        id = generateUniqueId(QSSGQmlUtilities::sanitizeQmlId(targetNames[i]));
+        targets.push_back(id);
+        output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("MorphTarget {\n");
+        output << QSSGQmlUtilities::insertTabs(tabLevel + 1) << QStringLiteral("id: ")
+               << id << QStringLiteral("\n");
+        output << QSSGQmlUtilities::insertTabs(tabLevel + 1) << QStringLiteral("weight: ")
+               << targetWeights[i] << QStringLiteral("\n");
+        output << QSSGQmlUtilities::insertTabs(tabLevel + 1) << QStringLiteral("attributes: ");
+        bool needsOring = false;
+        if (needsTargetPosition[i]) {
+            output << QStringLiteral("MorphTarget.Position");
+            needsOring = true;
+        }
+        if (needsTargetNormal[i]) {
+            if (needsOring)
+                output << QStringLiteral(" | ");
+            output << QStringLiteral("MorphTarget.Normal");
+            needsOring = true;
+        }
+        if (needsTargetTangent[i]) {
+            if (needsOring)
+                output << QStringLiteral(" | ");
+            // assimp always has tangent and binormal together.
+            output << QStringLiteral("MorphTarget.Tangent | MorphTarget.Binormal\n");
         } else {
-            uv2Data += QByteArray(mesh->mNumVertices * uv2Components * getSizeOfType(QSSGRenderComponentType::Float32), '\0');
+            output << QStringLiteral("\n");
         }
-
-        if (mesh->HasTangentsAndBitangents()) {
-            // Tangents
-            tangentData += QByteArray(reinterpret_cast<char*>(mesh->mTangents), mesh->mNumVertices * 3 * getSizeOfType(QSSGRenderComponentType::Float32));
-            // Binormals (They are actually supposed to be Bitangents despite what they are called)
-            binormalData += QByteArray(reinterpret_cast<char*>(mesh->mBitangents), mesh->mNumVertices * 3 * getSizeOfType(QSSGRenderComponentType::Float32));
-        } else if (needsTangentData) {
-            tangentData += QByteArray(mesh->mNumVertices * 3 * getSizeOfType(QSSGRenderComponentType::Float32), '\0');
-            binormalData += QByteArray(mesh->mNumVertices * 3 * getSizeOfType(QSSGRenderComponentType::Float32), '\0');
-        }
-        // ### Bones + Weights
-
-        // Color
-        if (mesh->HasVertexColors(0))
-            vertexColorData += QByteArray(reinterpret_cast<char*>(mesh->mColors[0]), mesh->mNumVertices * 4 * getSizeOfType(QSSGRenderComponentType::Float32));
-        else if (needsVertexColorData)
-            vertexColorData += QByteArray(mesh->mNumVertices * 4 * getSizeOfType(QSSGRenderComponentType::Float32), '\0');
-        // Index Buffer
-        QVector<quint32> indexes;
-        indexes.reserve(mesh->mNumFaces * 3);
-
-        for (unsigned int faceIndex = 0;faceIndex < mesh->mNumFaces; ++faceIndex) {
-            const auto face = mesh->mFaces[faceIndex];
-            // Faces should always have 3 indicides
-            Q_ASSERT(face.mNumIndices == 3);
-            indexes.append(quint32(face.mIndices[0]) + baseIndex);
-            indexes.append(quint32(face.mIndices[1]) + baseIndex);
-            indexes.append(quint32(face.mIndices[2]) + baseIndex);
-        }
-        // Since we might be combining multiple meshes together, we also need to change the index offset
-        baseIndex = *std::max_element(indexes.constBegin(), indexes.constEnd()) + 1;
-
-        SubsetEntryData subsetEntry;
-        subsetEntry.indexOffset = indexBufferData.length() / getSizeOfType(indexType);
-        subsetEntry.indexLength = indexes.length();
-        if (indexType == QSSGRenderComponentType::UnsignedInteger32) {
-            indexBufferData += QByteArray(reinterpret_cast<const char *>(indexes.constData()), indexes.length() * getSizeOfType(indexType));
-        } else {
-            // convert data to quint16
-            QVector<quint16> shortIndexes;
-            shortIndexes.resize(indexes.length());
-            for (int i = 0; i < shortIndexes.length(); ++i)
-                shortIndexes[i] = quint16(indexes[i]);
-            indexBufferData += QByteArray(reinterpret_cast<const char *>(shortIndexes.constData()), shortIndexes.length() * getSizeOfType(indexType));
-        }
-
-        // Subset
-        subsetEntry.name = QString::fromUtf8(m_scene->mMaterials[mesh->mMaterialIndex]->GetName().C_Str());
-        subsetData.append(subsetEntry);
+        output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("}\n");
     }
-
-    // Vertex Buffer Entries
-    QVector<QSSGMeshUtilities::MeshBuilderVBufEntry> entries;
-    if (positionData.length() > 0) {
-        QSSGMeshUtilities::MeshBuilderVBufEntry positionAttribute( QSSGMeshUtilities::Mesh::getPositionAttrName(),
-                                                                     positionData,
-                                                                     QSSGRenderComponentType::Float32,
-                                                                     3);
-        entries.append(positionAttribute);
-    }
-    if (normalData.length() > 0) {
-        QSSGMeshUtilities::MeshBuilderVBufEntry normalAttribute( QSSGMeshUtilities::Mesh::getNormalAttrName(),
-                                                                   normalData,
-                                                                   QSSGRenderComponentType::Float32,
-                                                                   3);
-        entries.append(normalAttribute);
-    }
-    if (uv1Data.length() > 0) {
-        QSSGMeshUtilities::MeshBuilderVBufEntry uv1Attribute( QSSGMeshUtilities::Mesh::getUVAttrName(),
-                                                                uv1Data,
-                                                                QSSGRenderComponentType::Float32,
-                                                                uv1Components);
-        entries.append(uv1Attribute);
-    }
-    if (uv2Data.length() > 0) {
-        QSSGMeshUtilities::MeshBuilderVBufEntry uv2Attribute( QSSGMeshUtilities::Mesh::getUV2AttrName(),
-                                                                uv2Data,
-                                                                QSSGRenderComponentType::Float32,
-                                                                uv2Components);
-        entries.append(uv2Attribute);
-    }
-
-    if (tangentData.length() > 0) {
-        QSSGMeshUtilities::MeshBuilderVBufEntry tangentsAttribute( QSSGMeshUtilities::Mesh::getTexTanAttrName(),
-                                                                     tangentData,
-                                                                     QSSGRenderComponentType::Float32,
-                                                                     3);
-        entries.append(tangentsAttribute);
-    }
-
-    if (binormalData.length() > 0) {
-        QSSGMeshUtilities::MeshBuilderVBufEntry binormalAttribute( QSSGMeshUtilities::Mesh::getTexBinormalAttrName(),
-                                                                     binormalData,
-                                                                     QSSGRenderComponentType::Float32,
-                                                                     3);
-        entries.append(binormalAttribute);
-    }
-
-    if (vertexColorData.length() > 0) {
-        QSSGMeshUtilities::MeshBuilderVBufEntry vertexColorAttribute( QSSGMeshUtilities::Mesh::getColorAttrName(),
-                                                                        vertexColorData,
-                                                                        QSSGRenderComponentType::Float32,
-                                                                        4);
-        entries.append(vertexColorAttribute);
-    }
-
-    meshBuilder->setVertexBuffer(entries);
-    meshBuilder->setIndexBuffer(indexBufferData, indexType);
-
-    // Subsets
-    for (const auto &subset : subsetData)
-        meshBuilder->addMeshSubset(reinterpret_cast<const char16_t *>(subset.name.utf16()),
-                                   subset.indexLength,
-                                   subset.indexOffset,
-                                   0);
-
-
-
-    auto &outputMesh = meshBuilder->getMesh();
-    outputMesh.saveMulti(file, 0);
-
-    file.close();
-    return QString();
+    return targets;
 }
 
 namespace {
@@ -872,14 +1184,20 @@ void AssimpImporter::generateMaterial(aiMaterial *material, QTextStream &output,
         if (!emissiveMapImage.isNull())
             output << QSSGQmlUtilities::insertTabs(tabLevel + 1) << QStringLiteral("emissiveMap: ") << emissiveMapImage << QStringLiteral("\n");
 
-        // emissiveColor AI_MATKEY_COLOR_EMISSIVE
-        aiColor3D emissiveColor;
-        result = material->Get(AI_MATKEY_COLOR_EMISSIVE, emissiveColor);
+        // emissiveFactor AI_MATKEY_COLOR_EMISSIVE
+        aiColor3D emissiveFactor;
+        result = material->Get(AI_MATKEY_COLOR_EMISSIVE, emissiveFactor);
         if (result == aiReturn_SUCCESS) {
-            // ### set emissive color
+            QVector3D emissive = {emissiveFactor.r, emissiveFactor.g, emissiveFactor.b};
+            // ### set emissive factor
+            QSSGQmlUtilities::writeQmlPropertyHelper(output,
+                                                     tabLevel + 1,
+                                                     QSSGQmlUtilities::PropertyMap::DefaultMaterial,
+                                                     QStringLiteral("emissiveFactor"),
+                                                     emissive);
         }
-        // specularReflectionMap
 
+        // specularReflectionMap
         QString specularMapImage = generateImage(material, aiTextureType_SPECULAR, 0, tabLevel + 1);
         if (!specularMapImage.isNull())
             output << QSSGQmlUtilities::insertTabs(tabLevel + 1) << QStringLiteral("specularMap: ") << specularMapImage << QStringLiteral("\n");
@@ -921,11 +1239,19 @@ void AssimpImporter::generateMaterial(aiMaterial *material, QTextStream &output,
 
         // bumpMap aiTextureType_HEIGHT 0
         QString bumpMapImage = generateImage(material, aiTextureType_HEIGHT, 0, tabLevel + 1);
-        if (!bumpMapImage.isNull())
+        if (!bumpMapImage.isNull()) {
             output << QSSGQmlUtilities::insertTabs(tabLevel + 1) << QStringLiteral("bumpMap: ") << bumpMapImage;
-
-        // bumpAmount AI_MATKEY_BUMPSCALING
-
+            // bumpAmount AI_MATKEY_BUMPSCALING
+            ai_real bumpAmount;
+            result = material->Get(AI_MATKEY_BUMPSCALING, bumpAmount);
+            if (result == aiReturn_SUCCESS) {
+                QSSGQmlUtilities::writeQmlPropertyHelper(output,
+                                                         tabLevel + 1,
+                                                         QSSGQmlUtilities::PropertyMap::DefaultMaterial,
+                                                         QStringLiteral("bumpAmount"),
+                                                         bumpAmount);
+            }
+        }
         // normalMap aiTextureType_NORMALS 0
         QString normalMapImage = generateImage(material, aiTextureType_NORMALS, 0, tabLevel + 1);
         if (!normalMapImage.isNull())
@@ -938,13 +1264,6 @@ void AssimpImporter::generateMaterial(aiMaterial *material, QTextStream &output,
         // diffuseLightWrap
 
         // (enable) vertexColors
-
-        // displacementMap aiTextureType_DISPLACEMENT 0
-        QString displacementMapImage = generateImage(material, aiTextureType_DISPLACEMENT, 0, tabLevel + 1);
-        if (!displacementMapImage.isNull())
-            output << QSSGQmlUtilities::insertTabs(tabLevel + 1) << QStringLiteral("displacementMap: ") << displacementMapImage;
-
-        // displacementAmount
     } else {
         // GLTF Mode
         {
@@ -997,8 +1316,18 @@ void AssimpImporter::generateMaterial(aiMaterial *material, QTextStream &output,
 
         {
             QString normalTextureImage = generateImage(material, aiTextureType_NORMALS, 0, tabLevel + 1);
-            if (!normalTextureImage.isNull())
+            if (!normalTextureImage.isNull()) {
                 output << QSSGQmlUtilities::insertTabs(tabLevel + 1) << QStringLiteral("normalMap: ") << normalTextureImage << QStringLiteral("\n");
+                ai_real normalScale;
+                result = material->Get(AI_MATKEY_GLTF_TEXTURE_SCALE(aiTextureType_NORMALS, 0), normalScale);
+                if (result == aiReturn_SUCCESS) {
+                    QSSGQmlUtilities::writeQmlPropertyHelper(output,
+                                                             tabLevel + 1,
+                                                             QSSGQmlUtilities::PropertyMap::PrincipledMaterial,
+                                                             QStringLiteral("normalStrength"),
+                                                             normalScale);
+                }
+            }
         }
 
         // Occlusion Textures are not implimented (yet)
@@ -1007,6 +1336,15 @@ void AssimpImporter::generateMaterial(aiMaterial *material, QTextStream &output,
             if (!occlusionTextureImage.isNull()) {
                 output << QSSGQmlUtilities::insertTabs(tabLevel + 1) << QStringLiteral("occlusionMap: ") << occlusionTextureImage << QStringLiteral("\n");
                 output << QSSGQmlUtilities::insertTabs(tabLevel + 1) << QStringLiteral("occlusionChannel: Material.R\n");
+                ai_real occlusionAmount;
+                result = material->Get(AI_MATKEY_GLTF_TEXTURE_STRENGTH(aiTextureType_LIGHTMAP, 0), occlusionAmount);
+                if (result == aiReturn_SUCCESS) {
+                    QSSGQmlUtilities::writeQmlPropertyHelper(output,
+                                                             tabLevel + 1,
+                                                             QSSGQmlUtilities::PropertyMap::PrincipledMaterial,
+                                                             QStringLiteral("occlusionAmount"),
+                                                             occlusionAmount);
+                }
             }
         }
 
@@ -1017,14 +1355,15 @@ void AssimpImporter::generateMaterial(aiMaterial *material, QTextStream &output,
         }
 
         {
-            aiColor3D emissiveColorFactor;
-            result = material->Get(AI_MATKEY_COLOR_EMISSIVE, emissiveColorFactor);
+            aiColor3D emissiveFactor;
+            result = material->Get(AI_MATKEY_COLOR_EMISSIVE, emissiveFactor);
             if (result == aiReturn_SUCCESS) {
+                QVector3D emissive = {emissiveFactor.r, emissiveFactor.g, emissiveFactor.b};
                 QSSGQmlUtilities::writeQmlPropertyHelper(output,
                                                          tabLevel + 1,
                                                          QSSGQmlUtilities::PropertyMap::PrincipledMaterial,
-                                                         QStringLiteral("emissiveColor"),
-                                                         aiColorToQColor(emissiveColorFactor));
+                                                         QStringLiteral("emissiveFactor"),
+                                                         emissive);
             }
         }
 
@@ -1142,34 +1481,60 @@ QString aiTilingMode(int tilingMode) {
     if (tilingMode == aiTextureMapMode_Wrap)
         return QStringLiteral("Texture.Repeat");
     if (tilingMode == aiTextureMapMode_Mirror)
-        return QStringLiteral("Texture.Mirror");
+        return QStringLiteral("Texture.MirroredRepeat");
+    if (tilingMode == aiTextureMapMode_Clamp)
+        return QStringLiteral("Texture.ClampToEdge");
 
-    return QStringLiteral("Texture.ClampToEdge");
+    return QStringLiteral("Texture.Repeat");
 }
 }
+
+#define AI_GLTF_FILTER_NEAREST                  0x2600
+#define AI_GLTF_FILTER_LINEAR                   0x2601
+#define AI_GLTF_FILTER_NEAREST_MIPMAP_NEAREST   0x2700
+#define AI_GLTF_FILTER_LINEAR_MIPMAP_NEAREST    0x2701
+#define AI_GLTF_FILTER_NEAREST_MIPMAP_LINEAR    0x2702
+#define AI_GLTF_FILTER_LINEAR_MIPMAP_LINEAR     0x2703
 
 QString AssimpImporter::generateImage(aiMaterial *material, aiTextureType textureType, unsigned index, int tabLevel)
 {
     // Figure out if there is actually something to generate
     aiString texturePath;
-    material->Get(AI_MATKEY_TEXTURE(textureType, index), texturePath);
+    aiTextureMapping textureMapping = aiTextureMapping::aiTextureMapping_OTHER;
+    uint uvIndex = 0;
+    aiTextureMapMode modes[3];
+    aiReturn result = material->GetTexture(textureType, index,
+                                           &texturePath,
+                                           &textureMapping,
+                                           &uvIndex,
+                                           nullptr,
+                                           nullptr,
+                                           modes);
+    if (result != aiReturn_SUCCESS)
+        return QString();
+
     // If there is no texture, then there is nothing to generate
     if (texturePath.length == 0)
         return QString();
-    QString texture = QString::fromUtf8(texturePath.C_Str());
+    QString textureName = QString::fromUtf8(texturePath.C_Str());
+    const QString embeddedTexturePath = getEmbeddedTexturePath(texturePath.C_Str(), "");
+
     // Replace Windows separator to Unix separator
     // so that assets including Windows relative path can be converted on Unix.
-    texture.replace("\\","/");
+    textureName.replace("\\","/");
     QString targetFileName;
+
+    const int texId = textureNameToInt(texturePath.C_Str());
+
     // Is this an embedded texture or a file
-    if (texture.startsWith("*")) {
-        // Embedded Texture (already exists)
-        texture.remove(0, 1);
-        targetFileName =  QStringLiteral("maps/") + texture + QStringLiteral(".png");
+    if (m_embeddedTextureSources.contains(texId)) {
+        targetFileName = m_embeddedTextureSources.value(texId);
+    } else if (m_embeddedTextureSources.key(embeddedTexturePath, -1) != -1) {
+        targetFileName = embeddedTexturePath;
     } else {
         // File Reference (needs to be copied into component)
         // Check that this file exists
-        QString sourcePath(m_sourceFile.absolutePath() + "/" + texture);
+        QString sourcePath(m_sourceFile.absolutePath() + "/" + textureName);
         QFileInfo sourceFile(sourcePath);
         // If it doesn't exist, there is nothing to generate
         if (!sourceFile.exists()) {
@@ -1180,7 +1545,7 @@ QString AssimpImporter::generateImage(aiMaterial *material, aiTextureType textur
         targetFileName = QStringLiteral("maps/") + sourceFile.fileName();
         // Copy the file to the maps directory
         m_savePath.mkdir(QStringLiteral("./maps"));
-        QFileInfo targetFile = m_savePath.absolutePath() + QDir::separator() + targetFileName;
+        QFileInfo targetFile(QString(m_savePath.absolutePath() + QDir::separator() + targetFileName));
         if (QFile::copy(sourceFile.absoluteFilePath(), targetFile.absoluteFilePath()))
             m_generatedFiles += targetFile.absoluteFilePath();
     }
@@ -1189,102 +1554,117 @@ QString AssimpImporter::generateImage(aiMaterial *material, aiTextureType textur
     QTextStream output(&outputString, QIODevice::WriteOnly);
     output << QStringLiteral("Texture {\n");
 
-    output << QSSGQmlUtilities::insertTabs(tabLevel + 1) << QStringLiteral("source: \"")
-        << targetFileName << QStringLiteral("\"\n");
+    output << QSSGQmlUtilities::insertTabs(tabLevel + 1)
+           << QStringLiteral("source: \"")
+           << targetFileName << QStringLiteral("\"\n");
+
+    if (m_gltfMode) {
+        uint gltfUvIndex = 0;
+        result = material->Get(AI_MATKEY_GLTF_TEXTURE_TEXCOORD(textureType, index), gltfUvIndex);
+        if (result == aiReturn_SUCCESS)
+            uvIndex = gltfUvIndex;
+    }
+
+    if (uvIndex > 0) {
+        // Quick3D supports 2 tex coords.
+        // According to gltf's khronos default implementation,
+        // the index will be selected to the nearest one.
+        output << QSSGQmlUtilities::insertTabs(tabLevel + 1)
+               << QStringLiteral("indexUV: 1\n");
+    }
 
     // mapping
-    int textureMapping;
-    aiReturn result = material->Get(AI_MATKEY_MAPPING(textureType, index), textureMapping);
-    if (result == aiReturn_SUCCESS) {
-        if (textureMapping == aiTextureMapping_UV) {
-            // So we should be able to always hit this case by passing the right flags
-            // at import.
-            QSSGQmlUtilities::writeQmlPropertyHelper(output,
-                                                       tabLevel + 1,
-                                                       QSSGQmlUtilities::PropertyMap::Texture,
-                                                       QStringLiteral("mappingMode"),
-                                                       QStringLiteral("Texture.Normal"));
-            // It would be possible to use another channel than UV0 to map texture data
-            // but for now we force everything to use UV0
-            //int uvSource;
-            //material->Get(AI_MATKEY_UVWSRC(textureType, index), uvSource);
-        } else if (textureMapping == aiTextureMapping_SPHERE) {
-            // (not supported)
-        } else if (textureMapping == aiTextureMapping_CYLINDER) {
-            // (not supported)
-        } else if (textureMapping == aiTextureMapping_BOX) {
-            // (not supported)
-        } else if (textureMapping == aiTextureMapping_PLANE) {
-            // (not supported)
-        } else {
-            // other... (not supported)
-        }
+    if (textureMapping == aiTextureMapping_UV) {
+        // So we should be able to always hit this case by passing the right flags
+        // at import.
+        QSSGQmlUtilities::writeQmlPropertyHelper(output,
+                                                   tabLevel + 1,
+                                                   QSSGQmlUtilities::PropertyMap::Texture,
+                                                   QStringLiteral("mappingMode"),
+                                                   QStringLiteral("Texture.UV"));
+        // It would be possible to use another channel than UV0 to map texture data
+        // but for now we force everything to use UV0
+        //int uvSource;
+        //material->Get(AI_MATKEY_UVWSRC(textureType, index), uvSource);
+    } else if (textureMapping == aiTextureMapping_SPHERE) {
+        // (not supported)
+    } else if (textureMapping == aiTextureMapping_CYLINDER) {
+        // (not supported)
+    } else if (textureMapping == aiTextureMapping_BOX) {
+        // (not supported)
+    } else if (textureMapping == aiTextureMapping_PLANE) {
+        // (not supported)
+    } else {
+        // other... (not supported)
     }
 
     // mapping mode U
-    int mappingModeU;
-    result = material->Get(AI_MATKEY_MAPPINGMODE_U(textureType, index), mappingModeU);
-    if (result == aiReturn_SUCCESS) {
-        QSSGQmlUtilities::writeQmlPropertyHelper(output,
-                                                   tabLevel + 1,
-                                                   QSSGQmlUtilities::PropertyMap::Texture,
-                                                   QStringLiteral("tilingModeHorizontal"),
-                                                   aiTilingMode(mappingModeU));
-    } else {
-        // import formats seem to think repeat is the default
-        QSSGQmlUtilities::writeQmlPropertyHelper(output,
-                                                   tabLevel + 1,
-                                                   QSSGQmlUtilities::PropertyMap::Texture,
-                                                   QStringLiteral("tilingModeHorizontal"),
-                                                   QStringLiteral("Texture.Repeat"));
-    }
+    QSSGQmlUtilities::writeQmlPropertyHelper(output,
+                                               tabLevel + 1,
+                                               QSSGQmlUtilities::PropertyMap::Texture,
+                                               QStringLiteral("tilingModeHorizontal"),
+                                               aiTilingMode(modes[0]));
 
     // mapping mode V
-    int mappingModeV;
-    result = material->Get(AI_MATKEY_MAPPINGMODE_V(textureType, index), mappingModeV);
-    if (result == aiReturn_SUCCESS) {
-        QSSGQmlUtilities::writeQmlPropertyHelper(output,
-                                                   tabLevel + 1,
-                                                   QSSGQmlUtilities::PropertyMap::Texture,
-                                                   QStringLiteral("tilingModeVertical"),
-                                                   aiTilingMode(mappingModeV));
-    } else {
-        // import formats seem to think repeat is the default
-        QSSGQmlUtilities::writeQmlPropertyHelper(output,
-                                                   tabLevel + 1,
-                                                   QSSGQmlUtilities::PropertyMap::Texture,
-                                                   QStringLiteral("tilingModeVertical"),
-                                                   QStringLiteral("Texture.Repeat"));
-    }
+    QSSGQmlUtilities::writeQmlPropertyHelper(output,
+                                               tabLevel + 1,
+                                               QSSGQmlUtilities::PropertyMap::Texture,
+                                               QStringLiteral("tilingModeVertical"),
+                                               aiTilingMode(modes[1]));
 
     aiUVTransform transforms;
     result = material->Get(AI_MATKEY_UVTRANSFORM(textureType, index), transforms);
     if (result == aiReturn_SUCCESS) {
+        // UV origins -
+        //      glTF: 0, 1 (top left of texture)
+        //      Assimp, Collada?, FBX?: 0.5, 0.5
+        //      Quick3D: 0, 0 (bottom left of texture)
+        // Assimp already tries to fix it but it's not correct.
+        // So, we restore original values and then use pivot
+        float rotation = -transforms.mRotation;
+        float rotationUV = qRadiansToDegrees(rotation);
+        float posU = transforms.mTranslation.x;
+        float posV = transforms.mTranslation.y;
+        if (m_gltfUsed) {
+            float rcos = std::cos(rotation);
+            float rsin = std::sin(rotation);
+            posU -= 0.5 * transforms.mScaling.x * (-rcos + rsin + 1);
+            posV -= (0.5 * transforms.mScaling.y * (rcos + rsin - 1) + 1 - transforms.mScaling.y);
+
+            output << QSSGQmlUtilities::insertTabs(tabLevel + 1)
+                   << QStringLiteral("pivotV: 1\n");
+        } else {
+            output << QSSGQmlUtilities::insertTabs(tabLevel + 1)
+                   << QStringLiteral("pivotU: 0.5\n");
+            output << QSSGQmlUtilities::insertTabs(tabLevel + 1)
+                   << QStringLiteral("pivotV: 0.5\n");
+        }
+
         QSSGQmlUtilities::writeQmlPropertyHelper(output,
-                                                   tabLevel + 1,
-                                                   QSSGQmlUtilities::PropertyMap::Texture,
-                                                   QStringLiteral("rotationUV"),
-                                                   transforms.mRotation);
+                                                 tabLevel + 1,
+                                                 QSSGQmlUtilities::PropertyMap::Texture,
+                                                 QStringLiteral("positionU"),
+                                                 posU);
         QSSGQmlUtilities::writeQmlPropertyHelper(output,
-                                                   tabLevel + 1,
-                                                   QSSGQmlUtilities::PropertyMap::Texture,
-                                                   QStringLiteral("positionU"),
-                                                   transforms.mTranslation.x);
+                                                 tabLevel + 1,
+                                                 QSSGQmlUtilities::PropertyMap::Texture,
+                                                 QStringLiteral("positionV"),
+                                                 posV);
         QSSGQmlUtilities::writeQmlPropertyHelper(output,
-                                                   tabLevel + 1,
-                                                   QSSGQmlUtilities::PropertyMap::Texture,
-                                                   QStringLiteral("positionV"),
-                                                   transforms.mTranslation.y);
+                                                 tabLevel + 1,
+                                                 QSSGQmlUtilities::PropertyMap::Texture,
+                                                 QStringLiteral("rotationUV"),
+                                                 rotationUV);
         QSSGQmlUtilities::writeQmlPropertyHelper(output,
-                                                   tabLevel + 1,
-                                                   QSSGQmlUtilities::PropertyMap::Texture,
-                                                   QStringLiteral("scaleU"),
-                                                   transforms.mScaling.x);
+                                                 tabLevel + 1,
+                                                 QSSGQmlUtilities::PropertyMap::Texture,
+                                                 QStringLiteral("scaleU"),
+                                                 transforms.mScaling.x);
         QSSGQmlUtilities::writeQmlPropertyHelper(output,
-                                                   tabLevel + 1,
-                                                   QSSGQmlUtilities::PropertyMap::Texture,
-                                                   QStringLiteral("scaleV"),
-                                                   transforms.mScaling.y);
+                                                 tabLevel + 1,
+                                                 QSSGQmlUtilities::PropertyMap::Texture,
+                                                 QStringLiteral("scaleV"),
+                                                 transforms.mScaling.y);
     }
     // We don't make use of the data here, but there are additional flags
     // available for example the usage of the alpha channel
@@ -1292,15 +1672,122 @@ QString AssimpImporter::generateImage(aiMaterial *material, aiTextureType textur
     //int textureFlags;
     //material->Get(AI_MATKEY_TEXFLAGS(textureType, index), textureFlags);
 
+    bool isMipmapGenerated = false;
+    const QString texLinear = QStringLiteral("Texture.Linear");
+    const QString texNearest = QStringLiteral("Texture.Nearest");
+    const QString texNone = QStringLiteral("Texture.None");
+    if (m_gltfMode) {
+        // magFilter
+        unsigned int filterValue;
+        result = material->Get(AI_MATKEY_GLTF_MAPPINGFILTER_MAG(textureType, index), filterValue);
+        if (result == aiReturn_SUCCESS) {
+            QString filterStr = texLinear;
+            if (filterValue == AI_GLTF_FILTER_NEAREST)
+                filterStr = texNearest;
+            QSSGQmlUtilities::writeQmlPropertyHelper(output,
+                                                     tabLevel + 1,
+                                                     QSSGQmlUtilities::PropertyMap::Texture,
+                                                     QStringLiteral("magFilter"),
+                                                     filterStr);
+        }
+        // minFilter
+        result = material->Get(AI_MATKEY_GLTF_MAPPINGFILTER_MIN(textureType, index), filterValue);
+        if (result == aiReturn_SUCCESS) {
+            QString minFilterStr = texLinear;
+            QString mipFilterStr = texNone;
+            if (filterValue == AI_GLTF_FILTER_NEAREST) {
+                minFilterStr = texNearest;
+            } else if (filterValue == AI_GLTF_FILTER_NEAREST_MIPMAP_NEAREST) {
+                minFilterStr = texNearest;
+                mipFilterStr = texNearest;
+            } else if (filterValue == AI_GLTF_FILTER_LINEAR_MIPMAP_NEAREST) {
+                mipFilterStr = texNearest;
+            } else if (filterValue == AI_GLTF_FILTER_NEAREST_MIPMAP_LINEAR) {
+                minFilterStr = texNearest;
+                mipFilterStr = texLinear;
+            } else if (filterValue == AI_GLTF_FILTER_LINEAR_MIPMAP_LINEAR) {
+                mipFilterStr = texLinear;
+            }
+            QSSGQmlUtilities::writeQmlPropertyHelper(output,
+                                                     tabLevel + 1,
+                                                     QSSGQmlUtilities::PropertyMap::Texture,
+                                                     QStringLiteral("minFilter"),
+                                                     minFilterStr);
+            // mipFilter
+            if (mipFilterStr != texNone) {
+                QSSGQmlUtilities::writeQmlPropertyHelper(output,
+                                                         tabLevel + 1,
+                                                         QSSGQmlUtilities::PropertyMap::Texture,
+                                                         QStringLiteral("generateMipmaps"),
+                                                         true);
+                isMipmapGenerated = true;
+                QSSGQmlUtilities::writeQmlPropertyHelper(output,
+                                                         tabLevel + 1,
+                                                         QSSGQmlUtilities::PropertyMap::Texture,
+                                                         QStringLiteral("mipFilter"),
+                                                         mipFilterStr);
+            }
+        }
+    }
+
+    // Always generate and use mipmaps for imported assets
+    if (m_forceMipMapGeneration && !isMipmapGenerated) {
+        QSSGQmlUtilities::writeQmlPropertyHelper(output,
+                                                 tabLevel + 1,
+                                                 QSSGQmlUtilities::PropertyMap::Texture,
+                                                 QStringLiteral("generateMipmaps"),
+                                                 true);
+        QSSGQmlUtilities::writeQmlPropertyHelper(output,
+                                                 tabLevel + 1,
+                                                 QSSGQmlUtilities::PropertyMap::Texture,
+                                                 QStringLiteral("mipFilter"),
+                                                 QStringLiteral("Texture.Linear"));
+    }
+
     output << QSSGQmlUtilities::insertTabs(tabLevel) << QStringLiteral("}");
 
     return outputString;
 }
 
+void AssimpImporter::processSkeleton(aiNode *node, quint32 idx, QTextStream &output, int tabLevel)
+{
+    if (!node)
+        return;
+
+    for (uint i = 0; i < node->mNumChildren; ++i) {
+        aiNode *cNode = node->mChildren[i];
+        if (!isBone(cNode))
+            continue;
+
+        QString id = m_skeletonIds[idx];
+        QString nodeName = QString::fromUtf8(cNode->mName.C_Str());
+        qint32 boneIdx = m_boneIdxMap[nodeName];
+        output << QSSGQmlUtilities::insertTabs(tabLevel)
+               << QStringLiteral("Joint {\n");
+        generateNodeProperties(cNode, output, tabLevel + 1);
+        output << QSSGQmlUtilities::insertTabs(tabLevel + 1)
+               << QStringLiteral("index: ") << QString::number(boneIdx)
+               << QStringLiteral("\n");
+        output << QSSGQmlUtilities::insertTabs(tabLevel + 1)
+               << QStringLiteral("skeletonRoot: ") << id << QStringLiteral("\n");
+
+        for (uint j = 0; j < cNode->mNumChildren; ++j)
+            processNode(cNode->mChildren[j], output, tabLevel + 1);
+
+        output << QSSGQmlUtilities::insertTabs(tabLevel)
+               << QStringLiteral("}\n");
+    }
+}
+
 void AssimpImporter::processAnimations(QTextStream &output)
 {
+    bool isFirstAnimation = true;
     for (int idx = 0; idx < m_animations.size(); ++idx) {
         QHash<aiNode *, aiNodeAnim *> *animation = m_animations[idx];
+        QHash<aiNode *, aiMeshMorphAnim *> *morphAnimation = m_morphAnimations[idx];
+        // skip empty animations
+        if (animation->count() == 0 && morphAnimation->count() == 0)
+            continue;
         output << QStringLiteral("\n");
         output << QSSGQmlUtilities::insertTabs(1) << "Timeline {\n";
         output << QSSGQmlUtilities::insertTabs(2) << "id: timeline" << idx << "\n";
@@ -1310,48 +1797,85 @@ void AssimpImporter::processAnimations(QTextStream &output)
         QTextStream keyframeStream(&keyframeString);
         qreal endFrameTime = 0;
 
+        for (auto itr = morphAnimation->begin(); itr != morphAnimation->end(); ++itr) {
+            aiNode *node = itr.key();
+
+            // We cannot set keyframes to nodes which do not have id.
+            const auto idItr = m_nodeIdMap.constFind(node);
+            if (idItr == m_nodeIdMap.cend())
+                continue;
+
+            // We can set morph animation only on Model.
+            const auto typeItr = m_nodeTypeMap.constFind(node);
+            if (typeItr == m_nodeTypeMap.cend())
+                continue;
+            if (*typeItr != QSSGQmlUtilities::PropertyMap::Model)
+                continue;
+
+            aiMeshMorphAnim *morphAnim = itr.value();
+            generateMorphKeyframes(*idItr, morphAnim->mNumKeys, morphAnim->mKeys,
+                                   keyframeStream, endFrameTime);
+        }
         for (auto itr = animation->begin(); itr != animation->end(); ++itr) {
             aiNode *node = itr.key();
 
             // We cannot set keyframes to nodes which do not have id.
-            if (!m_nodeIdMap.contains(node))
+            const auto idItr = m_nodeIdMap.constFind(node);
+            if (idItr == m_nodeIdMap.cend())
                 continue;
-            QString id = m_nodeIdMap[node];
-
             // We can set animation only on Node, Model, Camera or Light.
-            if (!m_nodeTypeMap.contains(node))
+            const auto typeItr = m_nodeTypeMap.constFind(node);
+            if (typeItr == m_nodeTypeMap.cend())
                 continue;
-            QSSGQmlUtilities::PropertyMap::Type type = m_nodeTypeMap[node];
+            const auto type = typeItr.value();
             if (type != QSSGQmlUtilities::PropertyMap::Node
                 && type != QSSGQmlUtilities::PropertyMap::Model
-                && type != QSSGQmlUtilities::PropertyMap::Camera
+                && type != QSSGQmlUtilities::PropertyMap::Joint
+                && type != QSSGQmlUtilities::PropertyMap::PerspectiveCamera
+                && type != QSSGQmlUtilities::PropertyMap::OrthographicCamera
                 && type != QSSGQmlUtilities::PropertyMap::DirectionalLight
                 && type != QSSGQmlUtilities::PropertyMap::PointLight
-                && type != QSSGQmlUtilities::PropertyMap::AreaLight
                 && type != QSSGQmlUtilities::PropertyMap::SpotLight)
                 continue;
 
             aiNodeAnim *nodeAnim = itr.value();
-            generateKeyframes(id, "position", nodeAnim->mNumPositionKeys, nodeAnim->mPositionKeys,
-                              keyframeStream, endFrameTime);
-            generateKeyframes(id, "eulerRotation", nodeAnim->mNumRotationKeys, nodeAnim->mRotationKeys,
-                              keyframeStream, endFrameTime);
-            generateKeyframes(id, "scale", nodeAnim->mNumScalingKeys, nodeAnim->mScalingKeys,
-                              keyframeStream, endFrameTime);
+            if (nodeAnim->mNumPositionKeys > 0) {
+                generateKeyframes(*idItr, "position", nodeAnim->mNumPositionKeys,
+                                  nodeAnim->mPositionKeys,
+                                  keyframeStream, endFrameTime);
+            }
+            if (nodeAnim->mNumRotationKeys > 0) {
+                generateKeyframes(*idItr, "rotation", nodeAnim->mNumRotationKeys,
+                                  nodeAnim->mRotationKeys,
+                                  keyframeStream, endFrameTime);
+            }
+            if (nodeAnim->mNumScalingKeys > 0) {
+                generateKeyframes(*idItr, "scale", nodeAnim->mNumScalingKeys,
+                                  nodeAnim->mScalingKeys,
+                                  keyframeStream, endFrameTime);
+            }
         }
 
         int endFrameTimeInt = qCeil(endFrameTime);
         output << QSSGQmlUtilities::insertTabs(2) << QStringLiteral("endFrame: ") << endFrameTimeInt << QStringLiteral("\n");
         output << QSSGQmlUtilities::insertTabs(2) << QStringLiteral("currentFrame: 0\n");
-        // only the first set of animations is enabled for now.
-        output << QSSGQmlUtilities::insertTabs(2) << QStringLiteral("enabled: ")
-               << (animation == *m_animations.begin() ? QStringLiteral("true\n") : QStringLiteral("false\n"));
+
+        // Usually it makes sense to only enable 1 timeline at a time
+        // so for now we just enable the first one.
+        QString isEnabledString = QStringLiteral("false");
+        if (isFirstAnimation) {
+            isEnabledString = QStringLiteral("true");
+            isFirstAnimation = false;
+        }
+        output << QSSGQmlUtilities::insertTabs(2) << QStringLiteral("enabled: ") << isEnabledString << QStringLiteral("\n");
+
         output << QSSGQmlUtilities::insertTabs(2) << QStringLiteral("animations: [\n");
         output << QSSGQmlUtilities::insertTabs(3) << QStringLiteral("TimelineAnimation {\n");
         output << QSSGQmlUtilities::insertTabs(4) << QStringLiteral("duration: ") << endFrameTimeInt << QStringLiteral("\n");
         output << QSSGQmlUtilities::insertTabs(4) << QStringLiteral("from: 0\n");
         output << QSSGQmlUtilities::insertTabs(4) << QStringLiteral("to: ") << endFrameTimeInt << QStringLiteral("\n");
         output << QSSGQmlUtilities::insertTabs(4) << QStringLiteral("running: true\n");
+        output << QSSGQmlUtilities::insertTabs(4) << QStringLiteral("loops: Animation.Infinite\n");
         output << QSSGQmlUtilities::insertTabs(3) << QStringLiteral("}\n");
         output << QSSGQmlUtilities::insertTabs(2) << QStringLiteral("]\n");
 
@@ -1362,15 +1886,55 @@ void AssimpImporter::processAnimations(QTextStream &output)
 }
 
 namespace {
-
-QVector3D convertToQVector3D(const aiVector3D &vec)
+QString convertToQString(const aiVector3D &vec)
 {
-    return QVector3D(vec.x, vec.y, vec.z);
+    return QString("Qt.vector3d(%1, %2, %3)").arg(vec.x).arg(vec.y).arg(vec.z);
 }
 
-QVector3D convertToQVector3D(const aiQuaternion &q)
+QString convertToQString(const aiQuaternion &q)
 {
-    return QQuaternion(q.w, q.x, q.y, q.z).toEulerAngles();
+    return QString("Qt.quaternion(%1, %2, %3, %4)").arg(q.w).arg(q.x).arg(q.y).arg(q.z);
+}
+
+// Add Vector3D into CBOR
+void appendData(QCborStreamWriter &writer, const aiVector3D &vec)
+{
+    writer.append(vec.x);
+    writer.append(vec.y);
+    writer.append(vec.z);
+}
+
+// Add Quaternion into CBOR
+void appendData(QCborStreamWriter &writer, const aiQuaternion &q)
+{
+    writer.append(q.w);
+    writer.append(q.x);
+    writer.append(q.y);
+    writer.append(q.z);
+}
+
+// Add weight into CBOR
+void appendData(QCborStreamWriter &writer, const double &data)
+{
+    writer.append(data);
+}
+
+int getTypeValue(const aiVector3D &vec)
+{
+    Q_UNUSED(vec)
+    return int(QMetaType::QVector3D);
+}
+
+int getTypeValue(const aiQuaternion &q)
+{
+    Q_UNUSED(q)
+    return int(QMetaType::QQuaternion);
+}
+
+int getTypeValue(const double &data)
+{
+    Q_UNUSED(data)
+    return int(QMetaType::Double);
 }
 
 }
@@ -1383,42 +1947,161 @@ void AssimpImporter::generateKeyframes(const QString &id, const QString &propert
     output << QSSGQmlUtilities::insertTabs(2) << QStringLiteral("KeyframeGroup {\n");
     output << QSSGQmlUtilities::insertTabs(3) << QStringLiteral("target: ") << id << QStringLiteral("\n");
     output << QSSGQmlUtilities::insertTabs(3) << QStringLiteral("property: \"") << propertyName << QStringLiteral("\"\n");
-    output << QStringLiteral("\n");
 
-    struct Keyframe {
-        qreal time;
-        QVector3D value;
-    };
-
-    // First, convert all the keyframe values to QVector3D
-    // so that adjacent keyframes can be compared with qFuzzyCompare.
-    QList<Keyframe> keyframes;
-    for (uint i = 0; i < numKeys; ++i) {
-        T key = keys[i];
-        Keyframe keyframe = {key.mTime, convertToQVector3D(key.mValue)};
-        keyframes.push_back(keyframe);
-        if (i == numKeys-1)
-            maxKeyframeTime = qMax(maxKeyframeTime, keyframe.time);
+    QList<T> keyframes;
+    keyframes.push_back(keys[0]);
+    for (uint i = 1; i < numKeys; ++i) {
+        if (fuzzyCompare(keyframes.back().mValue, keys[i].mValue)) {
+            if (i == numKeys - 1 || fuzzyCompare(keys[i].mValue, keys[i+1].mValue))
+                continue;
+        }
+        keyframes.push_back(keys[i]);
     }
 
-    // Output all the Keyframes except similar ones.
-    for (int i = 0; i < keyframes.size(); ++i) {
-        const Keyframe &keyframe = keyframes[i];
-        // Skip keyframes if those are very similar to adjacent ones.
-        if (i > 0 && i < keyframes.size()-1
-           && qFuzzyCompare(keyframe.value, keyframes[i-1].value)
-           && qFuzzyCompare(keyframe.value, keyframes[i+1].value)) {
-            keyframes.removeAt(i--);
-            continue;
-        }
+    if (numKeys > 0)
+        maxKeyframeTime = qMax(maxKeyframeTime, keys[numKeys - 1].mTime);
 
-        output << QSSGQmlUtilities::insertTabs(3) << QStringLiteral("Keyframe {\n");
-        output << QSSGQmlUtilities::insertTabs(4) << QStringLiteral("frame: ") << keyframe.time << QStringLiteral("\n");
-        output << QSSGQmlUtilities::insertTabs(4) << QStringLiteral("value: ")
-               << QSSGQmlUtilities::variantToQml(keyframe.value) << QStringLiteral("\n");
-        output << QSSGQmlUtilities::insertTabs(3) << QStringLiteral("}\n");
+
+    if (!keyframes.isEmpty()) {
+        // If keyframe values are fixed, it will not be generated into binary
+        if (m_binaryKeyframes && keyframes.size() != 1) {
+            // Generate animations file
+            QString outputAnimationFile = QStringLiteral("animations/") + id + QStringLiteral("_")
+                    + propertyName + QStringLiteral(".qad");
+            m_savePath.mkdir(QStringLiteral("./animations"));
+            QString animationFilePath = m_savePath.absolutePath() + QLatin1Char('/') + outputAnimationFile;
+            int index = 0;
+            while (m_generatedFiles.contains(animationFilePath)) {
+                outputAnimationFile = QStringLiteral("animations/") + id
+                    + QStringLiteral("_") + propertyName + QStringLiteral("_")
+                    + QString::number(index++) + QStringLiteral(".qad");
+                animationFilePath = m_savePath.absolutePath() + QLatin1Char('/') + outputAnimationFile;
+            }
+            QFile animationFile(animationFilePath);
+            // Write the binary content
+            if (generateAnimationFile(animationFile, keyframes))
+                m_generatedFiles << animationFilePath;
+
+            output << QSSGQmlUtilities::insertTabs(3) << QStringLiteral("keyframeSource: \"")
+                   << outputAnimationFile << QStringLiteral("\"\n");
+
+        } else {
+            // Output all the Keyframes except similar ones.
+            for (int i = 0; i < keyframes.size(); ++i) {
+                output << QSSGQmlUtilities::insertTabs(3) << QStringLiteral("Keyframe {\n");
+                output << QSSGQmlUtilities::insertTabs(4) << QStringLiteral("frame: ") << keyframes[i].mTime << QStringLiteral("\n");
+                output << QSSGQmlUtilities::insertTabs(4) << QStringLiteral("value: ")
+                       << convertToQString(keyframes[i].mValue) << QStringLiteral("\n");
+                output << QSSGQmlUtilities::insertTabs(3) << QStringLiteral("}\n");
+            }
+        }
     }
     output << QSSGQmlUtilities::insertTabs(2) << QStringLiteral("}\n");
+}
+
+// Generates binary keyframes
+// For format specification, see Qt Quick Timeline module.
+template<typename T>
+bool AssimpImporter::generateAnimationFile(QFile &file, const QList<T> &keyframes)
+{
+    if (!file.open(QIODevice::WriteOnly)) {
+        qWarning() << "Could not open keyframes file:" << file.fileName();
+        return false;
+    }
+
+    QCborStreamWriter writer(&file);
+    // Start root array
+    writer.startArray();
+    // header name
+    writer.append("QTimelineKeyframes");
+    // file version. Increase this if the format changes.
+    const int keyframesDataVersion = 1;
+    writer.append(keyframesDataVersion);
+    // property type (here Vector3D or Quaternion)
+    writer.append(getTypeValue(keyframes[0].mValue));
+
+    // Start Keyframes array
+    writer.startArray();
+    for (int i = 0; i < keyframes.size(); ++i) {
+        writer.append(keyframes[i].mTime);
+        // Easing always linear
+        writer.append(QEasingCurve::Linear);
+        appendData(writer, keyframes[i].mValue);
+    }
+    // End Keyframes array
+    writer.endArray();
+    // End root array
+    writer.endArray();
+    file.close();
+
+    return true;
+}
+
+// This function is made based on GLTF2
+void AssimpImporter::generateMorphKeyframes(const QString &id,
+                                            uint numKeys, const aiMeshMorphKey *keys,
+                                            QTextStream &output, qreal &maxKeyframeTime)
+{
+    Q_ASSERT(numKeys > 0);
+
+    const uint numMorphTargets = (keys[0].mNumValuesAndWeights > 8) ? 8: keys[0].mNumValuesAndWeights;
+
+    output << QStringLiteral("\n");
+    for (uint i = 0; i < numMorphTargets; ++i) {
+        output << QSSGQmlUtilities::insertTabs(2) << QStringLiteral("KeyframeGroup {\n");
+        output << QSSGQmlUtilities::insertTabs(3) << QStringLiteral("target: ") << id
+               << QStringLiteral(".morphTargets[") << QString::number(i)
+               << QStringLiteral("]\n");
+        output << QSSGQmlUtilities::insertTabs(3) << QStringLiteral("property: \"weight\"\n");
+        QList<weightKey> keyframes;
+        keyframes.push_back(weightKey(keys[0].mTime, keys[0].mWeights[i]));
+        for (uint j = 1; j < numKeys; ++j) {
+            if (qFuzzyCompare(keyframes.back().mValue, keys[j].mWeights[i])) {
+                if (j == numKeys - 1 || qFuzzyCompare(keys[j].mWeights[i], keys[j+1].mWeights[i]))
+                    continue;
+            }
+
+            keyframes.push_back(weightKey(keys[j].mTime, keys[j].mWeights[i]));
+        }
+        if (numKeys > 0)
+            maxKeyframeTime = qMax(maxKeyframeTime, keys[numKeys - 1].mTime);
+
+        if (!keyframes.isEmpty()) {
+            if (m_binaryKeyframes && keyframes.size() != 1) {
+                // Generate animations file
+                QString outputAnimationFile = QStringLiteral("animations/") + id
+                        + QStringLiteral("_morphTarget_") + QString::number(i)
+                        + QStringLiteral("_weight.qad");
+                m_savePath.mkdir(QStringLiteral("./animations"));
+                QString animationFilePath = m_savePath.absolutePath() + QLatin1Char('/') + outputAnimationFile;
+                int index = 0;
+                while (m_generatedFiles.contains(animationFilePath)) {
+                    outputAnimationFile = QStringLiteral("animations/") + id
+                        + QStringLiteral("_morphTarget_%1_%2").arg(i).arg(index++)
+                        + QStringLiteral("_weight.qad");
+                    animationFilePath = m_savePath.absolutePath() + QLatin1Char('/') + outputAnimationFile;
+                }
+                QFile animationFile(animationFilePath);
+                // Write the binary content
+                if (generateAnimationFile(animationFile, keyframes))
+                    m_generatedFiles << animationFilePath;
+
+                output << QSSGQmlUtilities::insertTabs(3) << QStringLiteral("keyframeSource: \"")
+                       << outputAnimationFile << QStringLiteral("\"\n");
+
+            } else {
+                // Output all the Keyframes except similar ones.
+                for (int j = 0; j < keyframes.size(); ++j) {
+                    output << QSSGQmlUtilities::insertTabs(3) << QStringLiteral("Keyframe {\n");
+                    output << QSSGQmlUtilities::insertTabs(4) << QStringLiteral("frame: ") << keyframes[j].mTime << QStringLiteral("\n");
+                    output << QSSGQmlUtilities::insertTabs(4) << QStringLiteral("value: ")
+                           << QString::number(keyframes[j].mValue) << QStringLiteral("\n");
+                    output << QSSGQmlUtilities::insertTabs(3) << QStringLiteral("}\n");
+                }
+            }
+        }
+        output << QSSGQmlUtilities::insertTabs(2) << QStringLiteral("}\n");
+    }
 }
 
 bool AssimpImporter::isModel(aiNode *node)
@@ -1434,6 +2117,14 @@ bool AssimpImporter::isLight(aiNode *node)
 bool AssimpImporter::isCamera(aiNode *node)
 {
     return node && m_cameras.contains(node);
+}
+
+bool AssimpImporter::isBone(aiNode *node)
+{
+    if (!node)
+        return false;
+    QString boneName = QString::fromUtf8(node->mName.C_Str());
+    return m_bones.contains(boneName);
 }
 
 QString AssimpImporter::generateUniqueId(const QString &id)
@@ -1457,6 +2148,7 @@ bool AssimpImporter::containsNodesOfConsequence(aiNode *node)
     isUseful |= isLight(node);
     isUseful |= isModel(node);
     isUseful |= isCamera(node);
+    isUseful |= isBone(node);
 
     // Return early if we know already
     if (isUseful)
@@ -1502,9 +2194,6 @@ void AssimpImporter::processOptions(const QVariantMap &options)
     if (checkBooleanOption(QStringLiteral("preTransformVertices"), optionsObject))
         m_postProcessSteps = aiPostProcessSteps(m_postProcessSteps | aiProcess_PreTransformVertices);
 
-    if (checkBooleanOption(QStringLiteral("limitBoneWeights"), optionsObject))
-        m_postProcessSteps = aiPostProcessSteps(m_postProcessSteps | aiProcess_LimitBoneWeights);
-
     if (checkBooleanOption(QStringLiteral("improveCacheLocality"), optionsObject))
         m_postProcessSteps = aiPostProcessSteps(m_postProcessSteps | aiProcess_ImproveCacheLocality);
 
@@ -1533,11 +2222,9 @@ void AssimpImporter::processOptions(const QVariantMap &options)
         m_postProcessSteps = aiPostProcessSteps(m_postProcessSteps | aiProcess_OptimizeGraph);
 
     if (checkBooleanOption(QStringLiteral("globalScale"), optionsObject)) {
-        m_postProcessSteps = aiPostProcessSteps(m_postProcessSteps | aiProcess_GlobalScale);
-        qreal globalScaleValue = getRealOption(QStringLiteral("globalScaleValue"), optionsObject);
-        if (globalScaleValue == 0.0)
-            globalScaleValue = 1.0;
-        m_importer->SetPropertyFloat(AI_CONFIG_GLOBAL_SCALE_FACTOR_KEY, ai_real(globalScaleValue));
+        m_globalScaleValue = getRealOption(QStringLiteral("globalScaleValue"), optionsObject);
+        if (m_globalScaleValue == 0.0)
+            m_globalScaleValue = 1.0;
     }
 
     if (checkBooleanOption(QStringLiteral("dropNormals"), optionsObject))
@@ -1573,6 +2260,12 @@ void AssimpImporter::processOptions(const QVariantMap &options)
 
     bool preservePivots = checkBooleanOption(QStringLiteral("fbxPreservePivots"), optionsObject);
     m_importer->SetPropertyBool(AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS, preservePivots);
+
+    m_useFloatJointIndices = checkBooleanOption(QStringLiteral("useFloatJointIndices"), optionsObject);
+    m_forceMipMapGeneration = checkBooleanOption(QStringLiteral("generateMipMaps"), optionsObject);
+    m_binaryKeyframes = checkBooleanOption(QStringLiteral("useBinaryKeyframes"), optionsObject);
+
+    m_generateLightmapUV = checkBooleanOption(QStringLiteral("generateLightmapUV"), optionsObject);
 }
 
 bool AssimpImporter::checkBooleanOption(const QString &optionName, const QJsonObject &options)

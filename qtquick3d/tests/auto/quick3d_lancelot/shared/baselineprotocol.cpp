@@ -39,6 +39,7 @@
 #include <QThread>
 #include <QTime>
 #include <QPointer>
+#include <QRegularExpression>
 
 const QString PI_Project(QLS("Project"));
 const QString PI_TestCase(QLS("TestCase"));
@@ -67,7 +68,7 @@ PlatformInfo PlatformInfo::localHostInfo()
     PlatformInfo pi;
     pi.insert(PI_HostName, QHostInfo::localHostName());
     pi.insert(PI_QtVersion, QLS(qVersion()));
-    pi.insert(PI_QMakeSpec, QString(QLS(QMAKESPEC)).remove(QRegExp(QLS("^.*mkspecs/"))));
+    pi.insert(PI_QMakeSpec, QString(QLS(QMAKESPEC)).remove(QRegularExpression(QLS("^.*mkspecs/"))));
 #if QT_VERSION >= 0x050000
     pi.insert(PI_QtBuildMode, QLibraryInfo::isDebugBuild() ? QLS("QtDebug") : QLS("QtRelease"));
 #endif
@@ -272,7 +273,7 @@ void ImageItem::writeImageToStream(QDataStream &out) const
     out << quint8('Q') << quint8(image.format());
     out << quint8(QSysInfo::ByteOrder) << quint8(0);       // pad to multiple of 4 bytes
     out << quint32(image.width()) << quint32(image.height()) << quint32(image.bytesPerLine());
-    out << qCompress((const uchar *)image.constBits(), image.byteCount());
+    out << qCompress((const uchar *)image.constBits(), image.sizeInBytes());
     //# can be followed by colormap for formats that use it
 }
 

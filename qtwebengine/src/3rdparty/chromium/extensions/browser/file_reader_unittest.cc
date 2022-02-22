@@ -5,7 +5,7 @@
 #include "extensions/browser/file_reader.h"
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/path_service.h"
@@ -35,7 +35,7 @@ class Receiver {
         file_reader_(new FileReader(
             resource,
             FileReader::OptionalFileSequenceTask(),
-            base::Bind(&Receiver::DidReadFile, base::Unretained(this)))) {}
+            base::BindOnce(&Receiver::DidReadFile, base::Unretained(this)))) {}
 
   void Run() {
     file_reader_->Start();
@@ -86,7 +86,7 @@ TEST_F(FileReaderTest, BiggerFile) {
   RunBasicTest("bigfile");
 }
 
-TEST_F(FileReaderTest, NonExistantFile) {
+TEST_F(FileReaderTest, NonExistentFile) {
   base::FilePath path;
   base::PathService::Get(DIR_TEST_DATA, &path);
   std::string extension_id = crx_file::id_util::GenerateId("test");

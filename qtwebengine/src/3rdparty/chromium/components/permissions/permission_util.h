@@ -6,7 +6,6 @@
 #define COMPONENTS_PERMISSIONS_PERMISSION_UTIL_H_
 
 #include <string>
-#include <vector>
 
 #include "base/macros.h"
 #include "build/build_config.h"
@@ -27,6 +26,7 @@ enum class PermissionAction {
   DISMISSED = 2,
   IGNORED = 3,
   REVOKED = 4,
+  GRANTED_ONCE = 5,
 
   // Always keep this at the end.
   NUM,
@@ -37,9 +37,6 @@ class PermissionUtil {
  public:
   // Returns the permission string for the given permission.
   static std::string GetPermissionString(ContentSettingsType);
-
-  // Returns the request type corresponding to a permission type.
-  static PermissionRequestType GetRequestType(ContentSettingsType permission);
 
   // Returns the gesture type corresponding to whether a permission request is
   // made with or without a user gesture.
@@ -57,14 +54,6 @@ class PermissionUtil {
   // to determine whether a specific ContentSettingsType is supported by the
   // PermissionManager.
   static bool IsPermission(ContentSettingsType type);
-
-#if defined(OS_ANDROID)
-  // Populate the list of corresponding Android permissions associated with the
-  // ContentSettingsType specified.
-  static void GetAndroidPermissionsForContentSetting(
-      ContentSettingsType content_type,
-      std::vector<std::string>* out);
-#endif
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(PermissionUtil);

@@ -5,6 +5,7 @@
 #include "src/runtime/runtime.h"
 
 #include "src/base/hashmap.h"
+#include "src/base/platform/wrappers.h"
 #include "src/codegen/reloc-info.h"
 #include "src/execution/isolate.h"
 #include "src/handles/handles-inl.h"
@@ -65,9 +66,7 @@ struct IntrinsicFunctionIdentifier {
     const IntrinsicFunctionIdentifier* rhs =
         static_cast<IntrinsicFunctionIdentifier*>(key2);
     if (lhs->length_ != rhs->length_) return false;
-    return CompareCharsUnsigned(reinterpret_cast<const uint8_t*>(lhs->data_),
-                                reinterpret_cast<const uint8_t*>(rhs->data_),
-                                rhs->length_) == 0;
+    return CompareCharsEqual(lhs->data_, rhs->data_, rhs->length_);
   }
 
   uint32_t Hash() {
@@ -192,10 +191,10 @@ bool Runtime::MayAllocate(FunctionId id) {
   }
 }
 
-bool Runtime::IsWhitelistedForFuzzing(FunctionId id) {
-  CHECK(FLAG_allow_natives_for_fuzzing);
+bool Runtime::IsAllowListedForFuzzing(FunctionId id) {
+  CHECK(FLAG_fuzzing);
   switch (id) {
-    // Runtime functions whitelisted for all fuzzers. Only add functions that
+    // Runtime functions allowlisted for all fuzzers. Only add functions that
     // help increase coverage.
     case Runtime::kArrayBufferDetach:
     case Runtime::kDeoptimizeFunction:
@@ -212,6 +211,7 @@ bool Runtime::IsWhitelistedForFuzzing(FunctionId id) {
     // Runtime functions only permitted for non-differential fuzzers.
     // This list may contain functions performing extra checks or returning
     // different values in the context of different flags passed to V8.
+    case Runtime::kGetOptimizationStatus:
     case Runtime::kHeapObjectVerify:
     case Runtime::kIsBeingInterpreted:
       return !FLAG_allow_natives_for_differential_fuzzing;
@@ -255,8 +255,8 @@ const Runtime::Function* Runtime::RuntimeFunctionTable(Isolate* isolate) {
   if (!isolate->runtime_state()->redirected_intrinsic_functions()) {
     size_t function_count = arraysize(kIntrinsicFunctions);
     Function* redirected_functions = new Function[function_count];
-    memcpy(redirected_functions, kIntrinsicFunctions,
-           sizeof(kIntrinsicFunctions));
+    base::Memcpy(redirected_functions, kIntrinsicFunctions,
+                 sizeof(kIntrinsicFunctions));
     for (size_t i = 0; i < function_count; i++) {
       ExternalReference redirected_entry =
           ExternalReference::Create(static_cast<Runtime::FunctionId>(i));

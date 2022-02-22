@@ -50,7 +50,7 @@
 
     \brief If you know the name of the class you want, find it here.
 
-    This is a list of all Qt 5 classes. The following pages contain different
+    This is a list of all Qt classes. The following pages contain different
     API listings in different categories:
 
     \list
@@ -58,7 +58,7 @@
     \li \l{All Namespaces}
     \li \l{All Classes by Module}
     \li \l{Obsolete Classes}
-    \li \l{New Classes and Functions in Qt 5.15}
+    \li \l{New Classes and Functions}
     \endlist
 
     For more reference pages including QML types, visit \l{Qt Reference Pages}.
@@ -82,7 +82,7 @@
     \li \l{All QML Types}
     \li \l{All QML APIs by Module}
     \li \l{Obsolete QML Types}
-    \li \l{New Classes and Functions in Qt 5.15}
+    \li \l{New Classes and Functions}
     \endlist
 
     For more reference pages including C++ APIs, visit \l{Qt Reference Pages}.
@@ -105,7 +105,7 @@
     \li \l{All QML Basic Types}
     \li \l{All QML APIs by Module}
     \li \l{Obsolete QML Types}
-    \li \l{New Classes and Functions in Qt 5.15}
+    \li \l{New Classes and Functions}
     \endlist
 
     For more reference pages including C++ APIs, visit \l{Qt Reference Pages}.

@@ -58,10 +58,7 @@
 #include <QtBluetooth/QLowEnergyCharacteristic>
 
 #if defined(QT_ANDROID_BLUETOOTH)
-#include <QtAndroidExtras/QAndroidJniObject>
-#endif
-#if defined(QT_WIN_BLUETOOTH)
-#include <qt_windows.h>
+#include <QtCore/QJniObject>
 #endif
 
 QT_BEGIN_NAMESPACE
@@ -86,9 +83,6 @@ public:
         QLowEnergyCharacteristic::PropertyTypes properties;
         QByteArray value;
         QHash<QLowEnergyHandle, DescData> descriptorList;
-#ifdef QT_WIN_BLUETOOTH
-        Qt::HANDLE hValueChangeEvent;
-#endif
     };
 
     enum GattAttributeTypes {
@@ -104,7 +98,7 @@ public:
 
 signals:
     void stateChanged(QLowEnergyService::ServiceState newState);
-    void error(QLowEnergyService::ServiceError error);
+    void errorOccurred(QLowEnergyService::ServiceError error);
     void characteristicChanged(const QLowEnergyCharacteristic &characteristic,
                                const QByteArray &newValue);
     void characteristicRead(const QLowEnergyCharacteristic &info,
@@ -117,14 +111,15 @@ signals:
                            const QByteArray &newValue);
 
 public:
-    QLowEnergyHandle startHandle;
-    QLowEnergyHandle endHandle;
+    QLowEnergyHandle startHandle = 0;
+    QLowEnergyHandle endHandle = 0;
 
     QBluetoothUuid uuid;
     QList<QBluetoothUuid> includedServices;
-    QLowEnergyService::ServiceTypes type;
-    QLowEnergyService::ServiceState state;
-    QLowEnergyService::ServiceError lastError;
+    QLowEnergyService::ServiceTypes type = QLowEnergyService::PrimaryService;
+    QLowEnergyService::ServiceState state = QLowEnergyService::InvalidService;
+    QLowEnergyService::ServiceError lastError = QLowEnergyService::NoError;
+    QLowEnergyService::DiscoveryMode mode = QLowEnergyService::FullDiscovery;
 
     QHash<QLowEnergyHandle, CharData> characteristicList;
 
@@ -132,10 +127,7 @@ public:
 
 #if defined(QT_ANDROID_BLUETOOTH)
     // reference to the BluetoothGattService object
-    QAndroidJniObject androidService;
-#endif
-#if defined(QT_WIN_BLUETOOTH)
-    Qt::HANDLE hService = nullptr;
+    QJniObject androidService;
 #endif
 
 };

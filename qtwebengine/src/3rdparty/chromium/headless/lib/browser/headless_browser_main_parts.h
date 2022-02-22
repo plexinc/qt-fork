@@ -8,9 +8,15 @@
 #include <memory>
 
 #include "base/files/file_path.h"
+#include "build/build_config.h"
 #include "content/public/browser/browser_main_parts.h"
 #include "content/public/common/main_function_params.h"
 #include "headless/public/headless_browser.h"
+
+#if defined(HEADLESS_USE_PREFS)
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
+#endif
 
 namespace headless {
 
@@ -28,15 +34,25 @@ class HeadlessBrowserMainParts : public content::BrowserMainParts {
   void PreDefaultMainMessageLoopRun(base::OnceClosure quit_closure) override;
   bool MainMessageLoopRun(int* result_code) override;
   void PostMainMessageLoopRun() override;
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   void PreMainMessageLoopStart() override;
 #endif
-
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
+  void PostMainMessageLoopStart() override;
+#endif
   void QuitMainMessageLoop();
 
  private:
+#if defined(HEADLESS_USE_PREFS)
+  void CreatePrefService();
+#endif
+
   const content::MainFunctionParams parameters_;  // For running browser tests.
   HeadlessBrowserImpl* browser_;  // Not owned.
+
+#if defined(HEADLESS_USE_PREFS)
+  std::unique_ptr<PrefService> local_state_;
+#endif
 
   bool run_message_loop_ = true;
   bool devtools_http_handler_started_ = false;

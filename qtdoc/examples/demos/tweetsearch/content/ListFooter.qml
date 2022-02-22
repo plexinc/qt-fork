@@ -48,7 +48,7 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
+import QtQuick
 
 Rectangle {
     color: "#d6d6d6"
@@ -57,7 +57,7 @@ Rectangle {
     z: 2
     Connections {
         target: mainListView
-        onAutoSearch: {
+        function onAutoSearch() {
             if (type == 'tag') {
                 tagSearch.open()
                 tagSearch.searchText = str

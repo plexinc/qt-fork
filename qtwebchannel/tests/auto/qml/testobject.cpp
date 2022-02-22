@@ -49,6 +49,11 @@ QVariantMap TestObject::objectMap() const
     return map;
 }
 
+QString TestObject::stringProperty() const
+{
+    return m_stringProperty;
+}
+
 void TestObject::triggerSignals()
 {
     emit testSignalBool(true);
@@ -75,6 +80,24 @@ QString TestObject::testOverload(const QString &str, int i)
 {
     emit testOverloadSignal(str, i);
     return str.toUpper() + QString::number(i + 1);
+}
+
+int TestObject::testVariantType(const QVariant &val)
+{
+    return val.metaType().id();
+}
+
+bool TestObject::testEmbeddedObjects(const QVariantList &list)
+{
+    return list.size() == 2 &&
+            list[0].metaType().id() == QMetaType::QObjectStar &&
+            list[1].metaType().id() == QMetaType::QVariantMap &&
+            list[1].toMap()["obj"].metaType().id() == QMetaType::QObjectStar;
+}
+
+void TestObject::setStringProperty(const QString &stringProperty)
+{
+    m_stringProperty = stringProperty;
 }
 
 QT_END_NAMESPACE

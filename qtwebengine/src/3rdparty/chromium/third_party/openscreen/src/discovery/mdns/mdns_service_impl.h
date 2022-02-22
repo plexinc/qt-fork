@@ -5,6 +5,9 @@
 #ifndef DISCOVERY_MDNS_MDNS_SERVICE_IMPL_H_
 #define DISCOVERY_MDNS_MDNS_SERVICE_IMPL_H_
 
+#include <memory>
+
+#include "discovery/common/config.h"
 #include "discovery/mdns/mdns_domain_confirmed_provider.h"
 #include "discovery/mdns/mdns_probe_manager.h"
 #include "discovery/mdns/mdns_publisher.h"
@@ -26,7 +29,6 @@ class TaskRunner;
 
 namespace discovery {
 
-struct Config;
 class NetworkConfig;
 class ReportingClient;
 
@@ -38,8 +40,7 @@ class MdnsServiceImpl : public MdnsService, public UdpSocket::Client {
                   ClockNowFunctionPtr now_function,
                   ReportingClient* reporting_client,
                   const Config& config,
-                  NetworkInterfaceIndex network_interface,
-                  SupportedNetworkAddressFamily supported_address_types);
+                  const Config::NetworkInfo& network_info);
   ~MdnsServiceImpl() override;
 
   // MdnsService Overrides.
@@ -65,6 +66,7 @@ class MdnsServiceImpl : public MdnsService, public UdpSocket::Client {
   void OnError(UdpSocket* socket, Error error) override;
   void OnSendError(UdpSocket* socket, Error error) override;
   void OnRead(UdpSocket* socket, ErrorOr<UdpPacket> packet) override;
+  void OnBound(UdpSocket* socket) override;
 
  private:
   TaskRunner* const task_runner_;
@@ -74,7 +76,8 @@ class MdnsServiceImpl : public MdnsService, public UdpSocket::Client {
   MdnsRandom random_delay_;
   MdnsReceiver receiver_;
 
-  // Sockets to send and receive mDNS Data according to RFC 6762.
+  // Sockets to send and receive mDNS data.
+  NetworkInterfaceIndex interface_;
   std::unique_ptr<UdpSocket> socket_v4_;
   std::unique_ptr<UdpSocket> socket_v6_;
 

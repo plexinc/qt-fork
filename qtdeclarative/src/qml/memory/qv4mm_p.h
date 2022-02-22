@@ -156,7 +156,7 @@ public:
 
     // TODO: this is only for 64bit (and x86 with SSE/AVX), so exend it for other architectures to be slightly more efficient (meaning, align on 8-byte boundaries).
     // Note: all occurrences of "16" in alloc/dealloc are also due to the alignment.
-    Q_DECL_CONSTEXPR static inline std::size_t align(std::size_t size)
+    constexpr static inline std::size_t align(std::size_t size)
     { return (size + Chunk::SlotSize - 1) & ~(Chunk::SlotSize - 1); }
 
     template<typename ManagedType>
@@ -212,46 +212,46 @@ public:
     }
 
     template <typename ManagedType, typename Arg1>
-    typename ManagedType::Data *allocWithStringData(std::size_t unmanagedSize, Arg1 arg1)
+    typename ManagedType::Data *allocWithStringData(std::size_t unmanagedSize, Arg1 &&arg1)
     {
         typename ManagedType::Data *o = reinterpret_cast<typename ManagedType::Data *>(allocString(unmanagedSize));
         o->internalClass.set(engine, ManagedType::defaultInternalClass(engine));
         Q_ASSERT(o->internalClass && o->internalClass->vtable);
-        o->init(arg1);
+        o->init(std::forward<Arg1>(arg1));
         return o;
     }
 
     template <typename ObjectType, typename... Args>
-    typename ObjectType::Data *allocObject(Heap::InternalClass *ic, Args... args)
+    typename ObjectType::Data *allocObject(Heap::InternalClass *ic, Args&&... args)
     {
         typename ObjectType::Data *d = allocateObject<ObjectType>(ic);
-        d->init(args...);
+        d->init(std::forward<Args>(args)...);
         return d;
     }
 
     template <typename ObjectType, typename... Args>
-    typename ObjectType::Data *allocObject(InternalClass *ic, Args... args)
+    typename ObjectType::Data *allocObject(InternalClass *ic, Args&&... args)
     {
         typename ObjectType::Data *d = allocateObject<ObjectType>(ic);
-        d->init(args...);
+        d->init(std::forward<Args>(args)...);
         return d;
     }
 
     template <typename ObjectType, typename... Args>
-    typename ObjectType::Data *allocate(Args... args)
+    typename ObjectType::Data *allocate(Args&&... args)
     {
         Scope scope(engine);
         Scoped<ObjectType> t(scope, allocateObject<ObjectType>());
-        t->d_unchecked()->init(args...);
+        t->d_unchecked()->init(std::forward<Args>(args)...);
         return t->d();
     }
 
     template <typename ManagedType, typename... Args>
-    typename ManagedType::Data *alloc(Args... args)
+    typename ManagedType::Data *alloc(Args&&... args)
     {
         Scope scope(engine);
         Scoped<ManagedType> t(scope, allocManaged<ManagedType>(sizeof(typename ManagedType::Data)));
-        t->d_unchecked()->init(args...);
+        t->d_unchecked()->init(std::forward<Args>(args)...);
         return t->d();
     }
 

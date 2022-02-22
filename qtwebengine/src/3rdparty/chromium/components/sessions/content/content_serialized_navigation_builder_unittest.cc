@@ -18,11 +18,11 @@
 #include "components/sessions/core/serialized_navigation_entry_test_helper.h"
 #include "content/public/browser/favicon_status.h"
 #include "content/public/browser/navigation_entry.h"
-#include "content/public/common/page_state.h"
 #include "content/public/common/referrer.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/test_browser_context.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/page_state/page_state.h"
 
 namespace sessions {
 
@@ -94,8 +94,6 @@ std::unique_ptr<content::NavigationEntry> MakeNavigationEntryForTest() {
       ->set_parent_id(test_data::kParentTaskId);
   NavigationTaskId::Get(navigation_entry.get())
       ->set_root_id(test_data::kRootTaskId);
-  NavigationTaskId::Get(navigation_entry.get())
-      ->set_children_ids(test_data::kChildrenTaskIds);
   return navigation_entry;
 }
 
@@ -181,7 +179,6 @@ TEST_F(ContentSerializedNavigationBuilderTest, FromNavigationEntry) {
   EXPECT_EQ(test_data::kTaskId, navigation.task_id());
   EXPECT_EQ(test_data::kParentTaskId, navigation.parent_task_id());
   EXPECT_EQ(test_data::kRootTaskId, navigation.root_task_id());
-  EXPECT_EQ(test_data::kChildrenTaskIds, navigation.children_task_ids());
 }
 
 // Test effect of the navigation serialization options.

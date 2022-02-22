@@ -66,7 +66,6 @@ class WebIDBCallbacksImpl final : public WebIDBCallbacks {
   void Error(mojom::blink::IDBException code, const String& message) override;
   void SuccessNamesAndVersionsList(
       Vector<mojom::blink::IDBNameAndVersionPtr>) override;
-  void SuccessStringList(const Vector<String>&) override;
   void SuccessCursor(
       mojo::PendingAssociatedRemote<mojom::blink::IDBCursor> cursor_info,
       std::unique_ptr<IDBKey> key,
@@ -87,6 +86,11 @@ class WebIDBCallbacksImpl final : public WebIDBCallbacks {
       std::unique_ptr<IDBKey>,
       std::unique_ptr<IDBKey> primary_key,
       base::Optional<std::unique_ptr<IDBValue>>) override;
+  void ReceiveGetAllResults(
+      bool key_only,
+      mojo::PendingReceiver<mojom::blink::IDBDatabaseGetAllResultSink> receiver)
+      override;
+
   void Blocked(int64_t old_version) override;
   void UpgradeNeeded(
       mojo::PendingAssociatedRemote<mojom::blink::IDBDatabase> pending_database,

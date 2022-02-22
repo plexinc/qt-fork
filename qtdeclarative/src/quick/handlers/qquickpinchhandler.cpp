@@ -85,12 +85,21 @@ Q_LOGGING_CATEGORY(lcPinchHandler, "qt.quick.handler.pinch")
 
     \image touchpoints-pinchhandler.png
 
-    \sa PinchArea
+    \note The pinch begins when the number of fingers pressed is between
+    \l {MultiPointHandler::minimumPointCount}{minimumPointCount} and
+    \l {MultiPointHandler::maximumPointCount}{maximumPointCount}, inclusive.
+    Until then, PinchHandler tracks the positions of any pressed fingers,
+    but if it's a disallowed number, it does not scale or rotate
+    its \l target, and the \l active property remains \c false.
+
+    \sa PinchArea, QPointerEvent::pointCount(), QNativeGestureEvent::fingerCount()
 */
 
 QQuickPinchHandler::QQuickPinchHandler(QQuickItem *parent)
     : QQuickMultiPointHandler(parent, 2)
 {
+    // Tell QQuickPointerDeviceHandler::wantsPointerEvent() to ignore button state
+    d_func()->acceptedButtons = Qt::NoButton;
 }
 
 /*!
@@ -153,58 +162,17 @@ void QQuickPinchHandler::setMaximumRotation(qreal maximumRotation)
     emit maximumRotationChanged();
 }
 
-#if QT_DEPRECATED_SINCE(5, 12)
-void QQuickPinchHandler::warnAboutMinMaxDeprecated() const
-{
-    qmlWarning(this) << "min and max constraints are now part of the xAxis and yAxis properties";
-}
-
-void QQuickPinchHandler::setMinimumX(qreal minX)
-{
-    warnAboutMinMaxDeprecated();
-    if (qFuzzyCompare(m_minimumX, minX))
-        return;
-    m_minimumX = minX;
-    emit minimumXChanged();
-}
-
-void QQuickPinchHandler::setMaximumX(qreal maxX)
-{
-    warnAboutMinMaxDeprecated();
-    if (qFuzzyCompare(m_maximumX, maxX))
-        return;
-    m_maximumX = maxX;
-    emit maximumXChanged();
-}
-
-void QQuickPinchHandler::setMinimumY(qreal minY)
-{
-    warnAboutMinMaxDeprecated();
-    if (qFuzzyCompare(m_minimumY, minY))
-        return;
-    m_minimumY = minY;
-    emit minimumYChanged();
-}
-
-void QQuickPinchHandler::setMaximumY(qreal maxY)
-{
-    warnAboutMinMaxDeprecated();
-    if (qFuzzyCompare(m_maximumY, maxY))
-        return;
-    m_maximumY = maxY;
-    emit maximumYChanged();
-}
-#endif
-
-bool QQuickPinchHandler::wantsPointerEvent(QQuickPointerEvent *event)
+bool QQuickPinchHandler::wantsPointerEvent(QPointerEvent *event)
 {
     if (!QQuickMultiPointHandler::wantsPointerEvent(event))
         return false;
 
 #if QT_CONFIG(gestures)
-    if (const auto gesture = event->asPointerNativeGestureEvent()) {
-        if (minimumPointCount() == 2) {
-            switch (gesture->type()) {
+    if (event->type() == QEvent::NativeGesture) {
+        const auto gesture = static_cast<const QNativeGestureEvent *>(event);
+        if (!gesture->fingerCount() || (gesture->fingerCount() >= minimumPointCount() &&
+                                        gesture->fingerCount() <= maximumPointCount())) {
+            switch (gesture->gestureType()) {
             case Qt::BeginNativeGesture:
             case Qt::EndNativeGesture:
             case Qt::ZoomNativeGesture:
@@ -249,19 +217,13 @@ bool QQuickPinchHandler::wantsPointerEvent(QQuickPointerEvent *event)
  */
 
 /*!
-    \qmlproperty int QtQuick::PinchHandler::minimumTouchPoints
-
-    The pinch begins when this number of fingers are pressed.
-    Until then, PinchHandler tracks the positions of any pressed fingers,
-    but if it's an insufficient number, it does not scale or rotate
-    its \l target, and the \l active property will remain false.
-*/
-
-/*!
+    \readonly
     \qmlproperty bool QtQuick::PinchHandler::active
 
-    This property is true when all the constraints (epecially \l minimumTouchPoints)
-    are satisfied and the \l target, if any, is being manipulated.
+    This property is \c true when all the constraints (epecially
+    \l {MultiPointHandler::minimumPointCount}{minimumPointCount} and
+    \l {MultiPointHandler::maximumPointCount}{maximumPointCount}) are satisfied
+    and the \l target, if any, is being manipulated.
 */
 
 void QQuickPinchHandler::onActiveChanged()
@@ -277,7 +239,7 @@ void QQuickPinchHandler::onActiveChanged()
             m_startRotation = t->rotation();
             m_startPos = t->position();
         } else {
-            m_startScale = m_accumulatedScale;
+            m_startScale = 1;
             m_startRotation = 0;
         }
         qCDebug(lcPinchHandler) << "activated with starting scale" << m_startScale << "rotation" << m_startRotation;
@@ -286,19 +248,20 @@ void QQuickPinchHandler::onActiveChanged()
     }
 }
 
-void QQuickPinchHandler::handlePointerEventImpl(QQuickPointerEvent *event)
+void QQuickPinchHandler::handlePointerEventImpl(QPointerEvent *event)
 {
+    QQuickMultiPointHandler::handlePointerEventImpl(event);
     if (Q_UNLIKELY(lcPinchHandler().isDebugEnabled())) {
         for (const QQuickHandlerPoint &p : currentPoints())
             qCDebug(lcPinchHandler) << Qt::hex << p.id() << p.sceneGrabPosition() << "->" << p.scenePosition();
     }
-    QQuickMultiPointHandler::handlePointerEventImpl(event);
 
     qreal dist = 0;
 #if QT_CONFIG(gestures)
-    if (const auto gesture = event->asPointerNativeGestureEvent()) {
-        mutableCentroid().reset(event->point(0));
-        switch (gesture->type()) {
+    if (event->type() == QEvent::NativeGesture) {
+        const auto gesture = static_cast<const QNativeGestureEvent *>(event);
+        mutableCentroid().reset(event, event->point(0));
+        switch (gesture->gestureType()) {
         case Qt::EndNativeGesture:
             m_activeScale = 1;
             m_activeRotation = 0;
@@ -326,11 +289,12 @@ void QQuickPinchHandler::handlePointerEventImpl(QQuickPointerEvent *event)
     } else
 #endif // QT_CONFIG(gestures)
     {
-        const bool containsReleasedPoints = event->isReleaseEvent();
-        QVector<QQuickEventPoint *> chosenPoints;
+        const bool containsReleasedPoints = event->isEndEvent();
+        QVector<QEventPoint> chosenPoints;
         for (const QQuickHandlerPoint &p : currentPoints()) {
-            QQuickEventPoint *ep = event->pointById(p.id());
-            chosenPoints << ep;
+            auto ep = event->pointById(p.id());
+            Q_ASSERT(ep);
+            chosenPoints << *ep;
         }
         if (!active()) {
             // Verify that at least one of the points has moved beyond threshold needed to activate the handler
@@ -343,14 +307,14 @@ void QQuickPinchHandler::handlePointerEventImpl(QQuickPointerEvent *event)
             const int dragThresholdSquared = dragThreshold * dragThreshold;
 
             double accumulatedCentroidDistance = 0;     // Used to detect scale
-            if (event->isPressEvent())
+            if (event->isBeginEvent())
                 m_accumulatedStartCentroidDistance = 0;   // Used to detect scale
 
             float accumulatedMovementMagnitude = 0;
 
-            for (QQuickEventPoint *point : qAsConst(chosenPoints)) {
+            for (auto &point : chosenPoints) {
                 if (!containsReleasedPoints) {
-                    accumulatedDrag += QVector2D(point->scenePressPosition() - point->scenePosition());
+                    accumulatedDrag += QVector2D(point.scenePressPosition() - point.scenePosition());
                     /*
                        In order to detect a drag, we want to check if all points have moved more or
                        less in the same direction.
@@ -384,20 +348,20 @@ void QQuickPinchHandler::handlePointerEventImpl(QQuickPointerEvent *event)
                          was moved, but the relative position between each finger remained very much
                          the same). This is then used to rule out if there is a rotation or scale.
                     */
-                    QVector2D pressCentroidRelativePosition = QVector2D(point->scenePosition()) - currentCentroid;
-                    QVector2D currentCentroidRelativePosition = QVector2D(point->scenePressPosition()) - pressCentroid;
+                    QVector2D pressCentroidRelativePosition = QVector2D(point.scenePosition()) - currentCentroid;
+                    QVector2D currentCentroidRelativePosition = QVector2D(point.scenePressPosition()) - pressCentroid;
                     QVector2D centroidRelativeMovement = currentCentroidRelativePosition - pressCentroidRelativePosition;
                     accumulatedMovementMagnitude += centroidRelativeMovement.length();
 
                     accumulatedCentroidDistance += qreal(pressCentroidRelativePosition.length());
-                    if (event->isPressEvent())
-                        m_accumulatedStartCentroidDistance += qreal((QVector2D(point->scenePressPosition()) - pressCentroid).length());
+                    if (event->isBeginEvent())
+                        m_accumulatedStartCentroidDistance += qreal((QVector2D(point.scenePressPosition()) - pressCentroid).length());
                 } else {
-                    setPassiveGrab(point);
+                    setPassiveGrab(event, point);
                 }
-                if (point->state() == QQuickEventPoint::Pressed) {
-                    point->setAccepted(false); // don't stop propagation
-                    setPassiveGrab(point);
+                if (point.state() == QEventPoint::Pressed) {
+                    point.setAccepted(false); // don't stop propagation
+                    setPassiveGrab(event, point);
                 }
                 Q_D(QQuickMultiPointHandler);
                 if (d->dragOverThreshold(point))
@@ -419,17 +383,17 @@ void QQuickPinchHandler::handlePointerEventImpl(QQuickPointerEvent *event)
             if (numberOfPointsDraggedOverThreshold >= 1) {
                 if (requiredNumberOfPointsDraggedOverThreshold && avgDrag.lengthSquared() >= dragThresholdSquared && accumulatedMovementMagnitude < dragThreshold) {
                     // Drag
-                    if (grabPoints(chosenPoints))
+                    if (grabPoints(event, chosenPoints))
                         setActive(true);
                 } else if (distanceToCentroidDelta > dragThreshold) {    // all points should in accumulation have been moved beyond threshold (?)
                     // Scale
-                    if (grabPoints(chosenPoints))
+                    if (grabPoints(event, chosenPoints))
                         setActive(true);
                 } else if (distanceToCentroidDelta < dragThreshold && (centroidMovementDelta < dragThreshold)) {
                     // Rotate
                     // Since it wasn't a scale and if we exceeded the dragthreshold, and the
                     // centroid didn't moved much, the points must have been moved around the centroid.
-                    if (grabPoints(chosenPoints))
+                    if (grabPoints(event, chosenPoints))
                         setActive(true);
                 }
             }
@@ -488,7 +452,7 @@ void QQuickPinchHandler::handlePointerEventImpl(QQuickPointerEvent *event)
 
     qCDebug(lcPinchHandler) << "centroid" << centroid().scenePressPosition() << "->"  << centroid().scenePosition()
                             << ", distance" << m_startDistance << "->" << dist
-                            << ", startScale" << m_startScale << "->" << m_accumulatedScale
+                            << ", scale" << m_startScale << "->" << m_accumulatedScale
                             << ", activeRotation" << m_activeRotation
                             << ", rotation" << rotation
                             << " from " << event->device()->type();

@@ -181,6 +181,8 @@ void DriverEGL::InitializeExtensionBindings() {
       gfx::HasExtension(extensions, "EGL_ANDROID_native_fence_sync");
   ext.b_EGL_ANGLE_d3d_share_handle_client_buffer =
       gfx::HasExtension(extensions, "EGL_ANGLE_d3d_share_handle_client_buffer");
+  ext.b_EGL_ANGLE_power_preference =
+      gfx::HasExtension(extensions, "EGL_ANGLE_power_preference");
   ext.b_EGL_ANGLE_query_surface_pointer =
       gfx::HasExtension(extensions, "EGL_ANGLE_query_surface_pointer");
   ext.b_EGL_ANGLE_stream_producer_d3d_texture =
@@ -303,6 +305,12 @@ void DriverEGL::InitializeExtensionBindings() {
             GetGLProcAddress("eglGetSyncValuesCHROMIUM"));
   }
 
+  if (ext.b_EGL_ANGLE_power_preference) {
+    fn.eglHandleGPUSwitchANGLEFn =
+        reinterpret_cast<eglHandleGPUSwitchANGLEProc>(
+            GetGLProcAddress("eglHandleGPUSwitchANGLE"));
+  }
+
   if (ext.b_EGL_EXT_image_flush_external) {
     fn.eglImageFlushExternalEXTFn =
         reinterpret_cast<eglImageFlushExternalEXTProc>(
@@ -328,6 +336,18 @@ void DriverEGL::InitializeExtensionBindings() {
     fn.eglQuerySurfacePointerANGLEFn =
         reinterpret_cast<eglQuerySurfacePointerANGLEProc>(
             GetGLProcAddress("eglQuerySurfacePointerANGLE"));
+  }
+
+  if (ext.b_EGL_ANGLE_power_preference) {
+    fn.eglReacquireHighPowerGPUANGLEFn =
+        reinterpret_cast<eglReacquireHighPowerGPUANGLEProc>(
+            GetGLProcAddress("eglReacquireHighPowerGPUANGLE"));
+  }
+
+  if (ext.b_EGL_ANGLE_power_preference) {
+    fn.eglReleaseHighPowerGPUANGLEFn =
+        reinterpret_cast<eglReleaseHighPowerGPUANGLEProc>(
+            GetGLProcAddress("eglReleaseHighPowerGPUANGLE"));
   }
 
   if (ext.b_EGL_ANDROID_blob_cache) {
@@ -649,6 +669,10 @@ EGLBoolean EGLApiBase::eglGetSyncValuesCHROMIUMFn(EGLDisplay dpy,
   return driver_->fn.eglGetSyncValuesCHROMIUMFn(dpy, surface, ust, msc, sbc);
 }
 
+void EGLApiBase::eglHandleGPUSwitchANGLEFn(EGLDisplay dpy) {
+  driver_->fn.eglHandleGPUSwitchANGLEFn(dpy);
+}
+
 EGLBoolean EGLApiBase::eglImageFlushExternalEXTFn(
     EGLDisplay dpy,
     EGLImageKHR image,
@@ -756,6 +780,15 @@ EGLBoolean EGLApiBase::eglQuerySurfacePointerANGLEFn(EGLDisplay dpy,
                                                    value);
 }
 
+void EGLApiBase::eglReacquireHighPowerGPUANGLEFn(EGLDisplay dpy,
+                                                 EGLContext ctx) {
+  driver_->fn.eglReacquireHighPowerGPUANGLEFn(dpy, ctx);
+}
+
+void EGLApiBase::eglReleaseHighPowerGPUANGLEFn(EGLDisplay dpy, EGLContext ctx) {
+  driver_->fn.eglReleaseHighPowerGPUANGLEFn(dpy, ctx);
+}
+
 EGLBoolean EGLApiBase::eglReleaseTexImageFn(EGLDisplay dpy,
                                             EGLSurface surface,
                                             EGLint buffer) {
@@ -858,14 +891,14 @@ EGLint EGLApiBase::eglWaitSyncKHRFn(EGLDisplay dpy,
 }
 
 EGLBoolean TraceEGLApi::eglBindAPIFn(EGLenum api) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglBindAPI")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglBindAPI");
   return egl_api_->eglBindAPIFn(api);
 }
 
 EGLBoolean TraceEGLApi::eglBindTexImageFn(EGLDisplay dpy,
                                           EGLSurface surface,
                                           EGLint buffer) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglBindTexImage")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglBindTexImage");
   return egl_api_->eglBindTexImageFn(dpy, surface, buffer);
 }
 
@@ -874,7 +907,7 @@ EGLBoolean TraceEGLApi::eglChooseConfigFn(EGLDisplay dpy,
                                           EGLConfig* configs,
                                           EGLint config_size,
                                           EGLint* num_config) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglChooseConfig")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglChooseConfig");
   return egl_api_->eglChooseConfigFn(dpy, attrib_list, configs, config_size,
                                      num_config);
 }
@@ -883,14 +916,14 @@ EGLint TraceEGLApi::eglClientWaitSyncKHRFn(EGLDisplay dpy,
                                            EGLSyncKHR sync,
                                            EGLint flags,
                                            EGLTimeKHR timeout) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglClientWaitSyncKHR")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglClientWaitSyncKHR");
   return egl_api_->eglClientWaitSyncKHRFn(dpy, sync, flags, timeout);
 }
 
 EGLBoolean TraceEGLApi::eglCopyBuffersFn(EGLDisplay dpy,
                                          EGLSurface surface,
                                          EGLNativePixmapType target) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglCopyBuffers")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglCopyBuffers");
   return egl_api_->eglCopyBuffersFn(dpy, surface, target);
 }
 
@@ -898,7 +931,7 @@ EGLContext TraceEGLApi::eglCreateContextFn(EGLDisplay dpy,
                                            EGLConfig config,
                                            EGLContext share_context,
                                            const EGLint* attrib_list) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglCreateContext")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglCreateContext");
   return egl_api_->eglCreateContextFn(dpy, config, share_context, attrib_list);
 }
 
@@ -907,7 +940,7 @@ EGLImageKHR TraceEGLApi::eglCreateImageKHRFn(EGLDisplay dpy,
                                              EGLenum target,
                                              EGLClientBuffer buffer,
                                              const EGLint* attrib_list) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglCreateImageKHR")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglCreateImageKHR");
   return egl_api_->eglCreateImageKHRFn(dpy, ctx, target, buffer, attrib_list);
 }
 
@@ -917,8 +950,8 @@ EGLSurface TraceEGLApi::eglCreatePbufferFromClientBufferFn(
     void* buffer,
     EGLConfig config,
     const EGLint* attrib_list) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu",
-                                "TraceEGLAPI::eglCreatePbufferFromClientBuffer")
+  TRACE_EVENT_BINARY_EFFICIENT0(
+      "gpu", "TraceEGLAPI::eglCreatePbufferFromClientBuffer");
   return egl_api_->eglCreatePbufferFromClientBufferFn(dpy, buftype, buffer,
                                                       config, attrib_list);
 }
@@ -926,7 +959,7 @@ EGLSurface TraceEGLApi::eglCreatePbufferFromClientBufferFn(
 EGLSurface TraceEGLApi::eglCreatePbufferSurfaceFn(EGLDisplay dpy,
                                                   EGLConfig config,
                                                   const EGLint* attrib_list) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglCreatePbufferSurface")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglCreatePbufferSurface");
   return egl_api_->eglCreatePbufferSurfaceFn(dpy, config, attrib_list);
 }
 
@@ -934,13 +967,13 @@ EGLSurface TraceEGLApi::eglCreatePixmapSurfaceFn(EGLDisplay dpy,
                                                  EGLConfig config,
                                                  EGLNativePixmapType pixmap,
                                                  const EGLint* attrib_list) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglCreatePixmapSurface")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglCreatePixmapSurface");
   return egl_api_->eglCreatePixmapSurfaceFn(dpy, config, pixmap, attrib_list);
 }
 
 EGLStreamKHR TraceEGLApi::eglCreateStreamKHRFn(EGLDisplay dpy,
                                                const EGLint* attrib_list) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglCreateStreamKHR")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglCreateStreamKHR");
   return egl_api_->eglCreateStreamKHRFn(dpy, attrib_list);
 }
 
@@ -949,7 +982,7 @@ EGLBoolean TraceEGLApi::eglCreateStreamProducerD3DTextureANGLEFn(
     EGLStreamKHR stream,
     EGLAttrib* attrib_list) {
   TRACE_EVENT_BINARY_EFFICIENT0(
-      "gpu", "TraceEGLAPI::eglCreateStreamProducerD3DTextureANGLE")
+      "gpu", "TraceEGLAPI::eglCreateStreamProducerD3DTextureANGLE");
   return egl_api_->eglCreateStreamProducerD3DTextureANGLEFn(dpy, stream,
                                                             attrib_list);
 }
@@ -957,7 +990,7 @@ EGLBoolean TraceEGLApi::eglCreateStreamProducerD3DTextureANGLEFn(
 EGLSyncKHR TraceEGLApi::eglCreateSyncKHRFn(EGLDisplay dpy,
                                            EGLenum type,
                                            const EGLint* attrib_list) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglCreateSyncKHR")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglCreateSyncKHR");
   return egl_api_->eglCreateSyncKHRFn(dpy, type, attrib_list);
 }
 
@@ -965,48 +998,49 @@ EGLSurface TraceEGLApi::eglCreateWindowSurfaceFn(EGLDisplay dpy,
                                                  EGLConfig config,
                                                  EGLNativeWindowType win,
                                                  const EGLint* attrib_list) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglCreateWindowSurface")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglCreateWindowSurface");
   return egl_api_->eglCreateWindowSurfaceFn(dpy, config, win, attrib_list);
 }
 
 EGLint TraceEGLApi::eglDebugMessageControlKHRFn(EGLDEBUGPROCKHR callback,
                                                 const EGLAttrib* attrib_list) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglDebugMessageControlKHR")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu",
+                                "TraceEGLAPI::eglDebugMessageControlKHR");
   return egl_api_->eglDebugMessageControlKHRFn(callback, attrib_list);
 }
 
 EGLBoolean TraceEGLApi::eglDestroyContextFn(EGLDisplay dpy, EGLContext ctx) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglDestroyContext")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglDestroyContext");
   return egl_api_->eglDestroyContextFn(dpy, ctx);
 }
 
 EGLBoolean TraceEGLApi::eglDestroyImageKHRFn(EGLDisplay dpy,
                                              EGLImageKHR image) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglDestroyImageKHR")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglDestroyImageKHR");
   return egl_api_->eglDestroyImageKHRFn(dpy, image);
 }
 
 EGLBoolean TraceEGLApi::eglDestroyStreamKHRFn(EGLDisplay dpy,
                                               EGLStreamKHR stream) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglDestroyStreamKHR")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglDestroyStreamKHR");
   return egl_api_->eglDestroyStreamKHRFn(dpy, stream);
 }
 
 EGLBoolean TraceEGLApi::eglDestroySurfaceFn(EGLDisplay dpy,
                                             EGLSurface surface) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglDestroySurface")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglDestroySurface");
   return egl_api_->eglDestroySurfaceFn(dpy, surface);
 }
 
 EGLBoolean TraceEGLApi::eglDestroySyncKHRFn(EGLDisplay dpy, EGLSyncKHR sync) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglDestroySyncKHR")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglDestroySyncKHR");
   return egl_api_->eglDestroySyncKHRFn(dpy, sync);
 }
 
 EGLint TraceEGLApi::eglDupNativeFenceFDANDROIDFn(EGLDisplay dpy,
                                                  EGLSyncKHR sync) {
   TRACE_EVENT_BINARY_EFFICIENT0("gpu",
-                                "TraceEGLAPI::eglDupNativeFenceFDANDROID")
+                                "TraceEGLAPI::eglDupNativeFenceFDANDROID");
   return egl_api_->eglDupNativeFenceFDANDROIDFn(dpy, sync);
 }
 
@@ -1015,7 +1049,7 @@ EGLBoolean TraceEGLApi::eglExportDMABUFImageMESAFn(EGLDisplay dpy,
                                                    int* fds,
                                                    EGLint* strides,
                                                    EGLint* offsets) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglExportDMABUFImageMESA")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglExportDMABUFImageMESA");
   return egl_api_->eglExportDMABUFImageMESAFn(dpy, image, fds, strides,
                                               offsets);
 }
@@ -1027,7 +1061,7 @@ EGLBoolean TraceEGLApi::eglExportDMABUFImageQueryMESAFn(
     int* num_planes,
     EGLuint64KHR* modifiers) {
   TRACE_EVENT_BINARY_EFFICIENT0("gpu",
-                                "TraceEGLAPI::eglExportDMABUFImageQueryMESA")
+                                "TraceEGLAPI::eglExportDMABUFImageQueryMESA");
   return egl_api_->eglExportDMABUFImageQueryMESAFn(dpy, image, fourcc,
                                                    num_planes, modifiers);
 }
@@ -1039,7 +1073,7 @@ EGLBoolean TraceEGLApi::eglGetCompositorTimingANDROIDFn(
     EGLint* names,
     EGLnsecsANDROID* values) {
   TRACE_EVENT_BINARY_EFFICIENT0("gpu",
-                                "TraceEGLAPI::eglGetCompositorTimingANDROID")
+                                "TraceEGLAPI::eglGetCompositorTimingANDROID");
   return egl_api_->eglGetCompositorTimingANDROIDFn(dpy, surface, numTimestamps,
                                                    names, values);
 }
@@ -1049,7 +1083,7 @@ EGLBoolean TraceEGLApi::eglGetCompositorTimingSupportedANDROIDFn(
     EGLSurface surface,
     EGLint timestamp) {
   TRACE_EVENT_BINARY_EFFICIENT0(
-      "gpu", "TraceEGLAPI::eglGetCompositorTimingSupportedANDROID")
+      "gpu", "TraceEGLAPI::eglGetCompositorTimingSupportedANDROID");
   return egl_api_->eglGetCompositorTimingSupportedANDROIDFn(dpy, surface,
                                                             timestamp);
 }
@@ -1058,7 +1092,7 @@ EGLBoolean TraceEGLApi::eglGetConfigAttribFn(EGLDisplay dpy,
                                              EGLConfig config,
                                              EGLint attribute,
                                              EGLint* value) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglGetConfigAttrib")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglGetConfigAttrib");
   return egl_api_->eglGetConfigAttribFn(dpy, config, attribute, value);
 }
 
@@ -1066,32 +1100,32 @@ EGLBoolean TraceEGLApi::eglGetConfigsFn(EGLDisplay dpy,
                                         EGLConfig* configs,
                                         EGLint config_size,
                                         EGLint* num_config) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglGetConfigs")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglGetConfigs");
   return egl_api_->eglGetConfigsFn(dpy, configs, config_size, num_config);
 }
 
 EGLContext TraceEGLApi::eglGetCurrentContextFn(void) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglGetCurrentContext")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglGetCurrentContext");
   return egl_api_->eglGetCurrentContextFn();
 }
 
 EGLDisplay TraceEGLApi::eglGetCurrentDisplayFn(void) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglGetCurrentDisplay")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglGetCurrentDisplay");
   return egl_api_->eglGetCurrentDisplayFn();
 }
 
 EGLSurface TraceEGLApi::eglGetCurrentSurfaceFn(EGLint readdraw) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglGetCurrentSurface")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglGetCurrentSurface");
   return egl_api_->eglGetCurrentSurfaceFn(readdraw);
 }
 
 EGLDisplay TraceEGLApi::eglGetDisplayFn(EGLNativeDisplayType display_id) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglGetDisplay")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglGetDisplay");
   return egl_api_->eglGetDisplayFn(display_id);
 }
 
 EGLint TraceEGLApi::eglGetErrorFn(void) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglGetError")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglGetError");
   return egl_api_->eglGetErrorFn();
 }
 
@@ -1103,7 +1137,7 @@ EGLBoolean TraceEGLApi::eglGetFrameTimestampsANDROIDFn(
     EGLint* timestamps,
     EGLnsecsANDROID* values) {
   TRACE_EVENT_BINARY_EFFICIENT0("gpu",
-                                "TraceEGLAPI::eglGetFrameTimestampsANDROID")
+                                "TraceEGLAPI::eglGetFrameTimestampsANDROID");
   return egl_api_->eglGetFrameTimestampsANDROIDFn(
       dpy, surface, frameId, numTimestamps, timestamps, values);
 }
@@ -1113,7 +1147,7 @@ EGLBoolean TraceEGLApi::eglGetFrameTimestampSupportedANDROIDFn(
     EGLSurface surface,
     EGLint timestamp) {
   TRACE_EVENT_BINARY_EFFICIENT0(
-      "gpu", "TraceEGLAPI::eglGetFrameTimestampSupportedANDROID")
+      "gpu", "TraceEGLAPI::eglGetFrameTimestampSupportedANDROID");
   return egl_api_->eglGetFrameTimestampSupportedANDROIDFn(dpy, surface,
                                                           timestamp);
 }
@@ -1122,35 +1156,35 @@ EGLBoolean TraceEGLApi::eglGetMscRateANGLEFn(EGLDisplay dpy,
                                              EGLSurface surface,
                                              EGLint* numerator,
                                              EGLint* denominator) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglGetMscRateANGLE")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglGetMscRateANGLE");
   return egl_api_->eglGetMscRateANGLEFn(dpy, surface, numerator, denominator);
 }
 
 EGLClientBuffer TraceEGLApi::eglGetNativeClientBufferANDROIDFn(
     const struct AHardwareBuffer* ahardwarebuffer) {
   TRACE_EVENT_BINARY_EFFICIENT0("gpu",
-                                "TraceEGLAPI::eglGetNativeClientBufferANDROID")
+                                "TraceEGLAPI::eglGetNativeClientBufferANDROID");
   return egl_api_->eglGetNativeClientBufferANDROIDFn(ahardwarebuffer);
 }
 
 EGLBoolean TraceEGLApi::eglGetNextFrameIdANDROIDFn(EGLDisplay dpy,
                                                    EGLSurface surface,
                                                    EGLuint64KHR* frameId) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglGetNextFrameIdANDROID")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglGetNextFrameIdANDROID");
   return egl_api_->eglGetNextFrameIdANDROIDFn(dpy, surface, frameId);
 }
 
 EGLDisplay TraceEGLApi::eglGetPlatformDisplayFn(EGLenum platform,
                                                 void* native_display,
                                                 const EGLAttrib* attrib_list) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglGetPlatformDisplay")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglGetPlatformDisplay");
   return egl_api_->eglGetPlatformDisplayFn(platform, native_display,
                                            attrib_list);
 }
 
 __eglMustCastToProperFunctionPointerType TraceEGLApi::eglGetProcAddressFn(
     const char* procname) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglGetProcAddress")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglGetProcAddress");
   return egl_api_->eglGetProcAddressFn(procname);
 }
 
@@ -1158,7 +1192,7 @@ EGLBoolean TraceEGLApi::eglGetSyncAttribKHRFn(EGLDisplay dpy,
                                               EGLSyncKHR sync,
                                               EGLint attribute,
                                               EGLint* value) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglGetSyncAttribKHR")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglGetSyncAttribKHR");
   return egl_api_->eglGetSyncAttribKHRFn(dpy, sync, attribute, value);
 }
 
@@ -1167,22 +1201,27 @@ EGLBoolean TraceEGLApi::eglGetSyncValuesCHROMIUMFn(EGLDisplay dpy,
                                                    EGLuint64CHROMIUM* ust,
                                                    EGLuint64CHROMIUM* msc,
                                                    EGLuint64CHROMIUM* sbc) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglGetSyncValuesCHROMIUM")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglGetSyncValuesCHROMIUM");
   return egl_api_->eglGetSyncValuesCHROMIUMFn(dpy, surface, ust, msc, sbc);
+}
+
+void TraceEGLApi::eglHandleGPUSwitchANGLEFn(EGLDisplay dpy) {
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglHandleGPUSwitchANGLE");
+  egl_api_->eglHandleGPUSwitchANGLEFn(dpy);
 }
 
 EGLBoolean TraceEGLApi::eglImageFlushExternalEXTFn(
     EGLDisplay dpy,
     EGLImageKHR image,
     const EGLAttrib* attrib_list) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglImageFlushExternalEXT")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglImageFlushExternalEXT");
   return egl_api_->eglImageFlushExternalEXTFn(dpy, image, attrib_list);
 }
 
 EGLBoolean TraceEGLApi::eglInitializeFn(EGLDisplay dpy,
                                         EGLint* major,
                                         EGLint* minor) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglInitialize")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglInitialize");
   return egl_api_->eglInitializeFn(dpy, major, minor);
 }
 
@@ -1190,7 +1229,7 @@ EGLint TraceEGLApi::eglLabelObjectKHRFn(EGLDisplay display,
                                         EGLenum objectType,
                                         EGLObjectKHR object,
                                         EGLLabelKHR label) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglLabelObjectKHR")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglLabelObjectKHR");
   return egl_api_->eglLabelObjectKHRFn(display, objectType, object, label);
 }
 
@@ -1198,7 +1237,7 @@ EGLBoolean TraceEGLApi::eglMakeCurrentFn(EGLDisplay dpy,
                                          EGLSurface draw,
                                          EGLSurface read,
                                          EGLContext ctx) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglMakeCurrent")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglMakeCurrent");
   return egl_api_->eglMakeCurrentFn(dpy, draw, read, ctx);
 }
 
@@ -1208,12 +1247,12 @@ EGLBoolean TraceEGLApi::eglPostSubBufferNVFn(EGLDisplay dpy,
                                              EGLint y,
                                              EGLint width,
                                              EGLint height) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglPostSubBufferNV")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglPostSubBufferNV");
   return egl_api_->eglPostSubBufferNVFn(dpy, surface, x, y, width, height);
 }
 
 EGLenum TraceEGLApi::eglQueryAPIFn(void) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglQueryAPI")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglQueryAPI");
   return egl_api_->eglQueryAPIFn();
 }
 
@@ -1221,25 +1260,25 @@ EGLBoolean TraceEGLApi::eglQueryContextFn(EGLDisplay dpy,
                                           EGLContext ctx,
                                           EGLint attribute,
                                           EGLint* value) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglQueryContext")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglQueryContext");
   return egl_api_->eglQueryContextFn(dpy, ctx, attribute, value);
 }
 
 EGLBoolean TraceEGLApi::eglQueryDebugKHRFn(EGLint attribute, EGLAttrib* value) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglQueryDebugKHR")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglQueryDebugKHR");
   return egl_api_->eglQueryDebugKHRFn(attribute, value);
 }
 
 EGLBoolean TraceEGLApi::eglQueryDevicesEXTFn(EGLint max_devices,
                                              EGLDeviceEXT* devices,
                                              EGLint* num_devices) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglQueryDevicesEXT")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglQueryDevicesEXT");
   return egl_api_->eglQueryDevicesEXTFn(max_devices, devices, num_devices);
 }
 
 const char* TraceEGLApi::eglQueryDeviceStringEXTFn(EGLDeviceEXT device,
                                                    EGLint name) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglQueryDeviceStringEXT")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglQueryDeviceStringEXT");
   return egl_api_->eglQueryDeviceStringEXTFn(device, name);
 }
 
@@ -1247,7 +1286,7 @@ EGLBoolean TraceEGLApi::eglQueryDisplayAttribANGLEFn(EGLDisplay dpy,
                                                      EGLint attribute,
                                                      EGLAttrib* value) {
   TRACE_EVENT_BINARY_EFFICIENT0("gpu",
-                                "TraceEGLAPI::eglQueryDisplayAttribANGLE")
+                                "TraceEGLAPI::eglQueryDisplayAttribANGLE");
   return egl_api_->eglQueryDisplayAttribANGLEFn(dpy, attribute, value);
 }
 
@@ -1255,7 +1294,7 @@ EGLBoolean TraceEGLApi::eglQueryStreamKHRFn(EGLDisplay dpy,
                                             EGLStreamKHR stream,
                                             EGLenum attribute,
                                             EGLint* value) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglQueryStreamKHR")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglQueryStreamKHR");
   return egl_api_->eglQueryStreamKHRFn(dpy, stream, attribute, value);
 }
 
@@ -1263,19 +1302,19 @@ EGLBoolean TraceEGLApi::eglQueryStreamu64KHRFn(EGLDisplay dpy,
                                                EGLStreamKHR stream,
                                                EGLenum attribute,
                                                EGLuint64KHR* value) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglQueryStreamu64KHR")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglQueryStreamu64KHR");
   return egl_api_->eglQueryStreamu64KHRFn(dpy, stream, attribute, value);
 }
 
 const char* TraceEGLApi::eglQueryStringFn(EGLDisplay dpy, EGLint name) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglQueryString")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglQueryString");
   return egl_api_->eglQueryStringFn(dpy, name);
 }
 
 const char* TraceEGLApi::eglQueryStringiANGLEFn(EGLDisplay dpy,
                                                 EGLint name,
                                                 EGLint index) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglQueryStringiANGLE")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglQueryStringiANGLE");
   return egl_api_->eglQueryStringiANGLEFn(dpy, name, index);
 }
 
@@ -1283,7 +1322,7 @@ EGLBoolean TraceEGLApi::eglQuerySurfaceFn(EGLDisplay dpy,
                                           EGLSurface surface,
                                           EGLint attribute,
                                           EGLint* value) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglQuerySurface")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglQuerySurface");
   return egl_api_->eglQuerySurfaceFn(dpy, surface, attribute, value);
 }
 
@@ -1292,20 +1331,34 @@ EGLBoolean TraceEGLApi::eglQuerySurfacePointerANGLEFn(EGLDisplay dpy,
                                                       EGLint attribute,
                                                       void** value) {
   TRACE_EVENT_BINARY_EFFICIENT0("gpu",
-                                "TraceEGLAPI::eglQuerySurfacePointerANGLE")
+                                "TraceEGLAPI::eglQuerySurfacePointerANGLE");
   return egl_api_->eglQuerySurfacePointerANGLEFn(dpy, surface, attribute,
                                                  value);
+}
+
+void TraceEGLApi::eglReacquireHighPowerGPUANGLEFn(EGLDisplay dpy,
+                                                  EGLContext ctx) {
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu",
+                                "TraceEGLAPI::eglReacquireHighPowerGPUANGLE");
+  egl_api_->eglReacquireHighPowerGPUANGLEFn(dpy, ctx);
+}
+
+void TraceEGLApi::eglReleaseHighPowerGPUANGLEFn(EGLDisplay dpy,
+                                                EGLContext ctx) {
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu",
+                                "TraceEGLAPI::eglReleaseHighPowerGPUANGLE");
+  egl_api_->eglReleaseHighPowerGPUANGLEFn(dpy, ctx);
 }
 
 EGLBoolean TraceEGLApi::eglReleaseTexImageFn(EGLDisplay dpy,
                                              EGLSurface surface,
                                              EGLint buffer) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglReleaseTexImage")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglReleaseTexImage");
   return egl_api_->eglReleaseTexImageFn(dpy, surface, buffer);
 }
 
 EGLBoolean TraceEGLApi::eglReleaseThreadFn(void) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglReleaseThread")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglReleaseThread");
   return egl_api_->eglReleaseThreadFn();
 }
 
@@ -1313,7 +1366,7 @@ void TraceEGLApi::eglSetBlobCacheFuncsANDROIDFn(EGLDisplay dpy,
                                                 EGLSetBlobFuncANDROID set,
                                                 EGLGetBlobFuncANDROID get) {
   TRACE_EVENT_BINARY_EFFICIENT0("gpu",
-                                "TraceEGLAPI::eglSetBlobCacheFuncsANDROID")
+                                "TraceEGLAPI::eglSetBlobCacheFuncsANDROID");
   egl_api_->eglSetBlobCacheFuncsANDROIDFn(dpy, set, get);
 }
 
@@ -1321,14 +1374,14 @@ EGLBoolean TraceEGLApi::eglStreamAttribKHRFn(EGLDisplay dpy,
                                              EGLStreamKHR stream,
                                              EGLenum attribute,
                                              EGLint value) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglStreamAttribKHR")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglStreamAttribKHR");
   return egl_api_->eglStreamAttribKHRFn(dpy, stream, attribute, value);
 }
 
 EGLBoolean TraceEGLApi::eglStreamConsumerAcquireKHRFn(EGLDisplay dpy,
                                                       EGLStreamKHR stream) {
   TRACE_EVENT_BINARY_EFFICIENT0("gpu",
-                                "TraceEGLAPI::eglStreamConsumerAcquireKHR")
+                                "TraceEGLAPI::eglStreamConsumerAcquireKHR");
   return egl_api_->eglStreamConsumerAcquireKHRFn(dpy, stream);
 }
 
@@ -1337,7 +1390,7 @@ EGLBoolean TraceEGLApi::eglStreamConsumerGLTextureExternalAttribsNVFn(
     EGLStreamKHR stream,
     EGLAttrib* attrib_list) {
   TRACE_EVENT_BINARY_EFFICIENT0(
-      "gpu", "TraceEGLAPI::eglStreamConsumerGLTextureExternalAttribsNV")
+      "gpu", "TraceEGLAPI::eglStreamConsumerGLTextureExternalAttribsNV");
   return egl_api_->eglStreamConsumerGLTextureExternalAttribsNVFn(dpy, stream,
                                                                  attrib_list);
 }
@@ -1346,14 +1399,14 @@ EGLBoolean TraceEGLApi::eglStreamConsumerGLTextureExternalKHRFn(
     EGLDisplay dpy,
     EGLStreamKHR stream) {
   TRACE_EVENT_BINARY_EFFICIENT0(
-      "gpu", "TraceEGLAPI::eglStreamConsumerGLTextureExternalKHR")
+      "gpu", "TraceEGLAPI::eglStreamConsumerGLTextureExternalKHR");
   return egl_api_->eglStreamConsumerGLTextureExternalKHRFn(dpy, stream);
 }
 
 EGLBoolean TraceEGLApi::eglStreamConsumerReleaseKHRFn(EGLDisplay dpy,
                                                       EGLStreamKHR stream) {
   TRACE_EVENT_BINARY_EFFICIENT0("gpu",
-                                "TraceEGLAPI::eglStreamConsumerReleaseKHR")
+                                "TraceEGLAPI::eglStreamConsumerReleaseKHR");
   return egl_api_->eglStreamConsumerReleaseKHRFn(dpy, stream);
 }
 
@@ -1363,7 +1416,7 @@ EGLBoolean TraceEGLApi::eglStreamPostD3DTextureANGLEFn(
     void* texture,
     const EGLAttrib* attrib_list) {
   TRACE_EVENT_BINARY_EFFICIENT0("gpu",
-                                "TraceEGLAPI::eglStreamPostD3DTextureANGLE")
+                                "TraceEGLAPI::eglStreamPostD3DTextureANGLE");
   return egl_api_->eglStreamPostD3DTextureANGLEFn(dpy, stream, texture,
                                                   attrib_list);
 }
@@ -1372,12 +1425,12 @@ EGLBoolean TraceEGLApi::eglSurfaceAttribFn(EGLDisplay dpy,
                                            EGLSurface surface,
                                            EGLint attribute,
                                            EGLint value) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglSurfaceAttrib")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglSurfaceAttrib");
   return egl_api_->eglSurfaceAttribFn(dpy, surface, attribute, value);
 }
 
 EGLBoolean TraceEGLApi::eglSwapBuffersFn(EGLDisplay dpy, EGLSurface surface) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglSwapBuffers")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglSwapBuffers");
   return egl_api_->eglSwapBuffersFn(dpy, surface);
 }
 
@@ -1386,39 +1439,39 @@ EGLBoolean TraceEGLApi::eglSwapBuffersWithDamageKHRFn(EGLDisplay dpy,
                                                       EGLint* rects,
                                                       EGLint n_rects) {
   TRACE_EVENT_BINARY_EFFICIENT0("gpu",
-                                "TraceEGLAPI::eglSwapBuffersWithDamageKHR")
+                                "TraceEGLAPI::eglSwapBuffersWithDamageKHR");
   return egl_api_->eglSwapBuffersWithDamageKHRFn(dpy, surface, rects, n_rects);
 }
 
 EGLBoolean TraceEGLApi::eglSwapIntervalFn(EGLDisplay dpy, EGLint interval) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglSwapInterval")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglSwapInterval");
   return egl_api_->eglSwapIntervalFn(dpy, interval);
 }
 
 EGLBoolean TraceEGLApi::eglTerminateFn(EGLDisplay dpy) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglTerminate")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglTerminate");
   return egl_api_->eglTerminateFn(dpy);
 }
 
 EGLBoolean TraceEGLApi::eglWaitClientFn(void) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglWaitClient")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglWaitClient");
   return egl_api_->eglWaitClientFn();
 }
 
 EGLBoolean TraceEGLApi::eglWaitGLFn(void) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglWaitGL")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglWaitGL");
   return egl_api_->eglWaitGLFn();
 }
 
 EGLBoolean TraceEGLApi::eglWaitNativeFn(EGLint engine) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglWaitNative")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglWaitNative");
   return egl_api_->eglWaitNativeFn(engine);
 }
 
 EGLint TraceEGLApi::eglWaitSyncKHRFn(EGLDisplay dpy,
                                      EGLSyncKHR sync,
                                      EGLint flags) {
-  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglWaitSyncKHR")
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglWaitSyncKHR");
   return egl_api_->eglWaitSyncKHRFn(dpy, sync, flags);
 }
 
@@ -1901,6 +1954,12 @@ EGLBoolean LogEGLApi::eglGetSyncValuesCHROMIUMFn(EGLDisplay dpy,
   return result;
 }
 
+void LogEGLApi::eglHandleGPUSwitchANGLEFn(EGLDisplay dpy) {
+  GL_SERVICE_LOG("eglHandleGPUSwitchANGLE"
+                 << "(" << dpy << ")");
+  egl_api_->eglHandleGPUSwitchANGLEFn(dpy);
+}
+
 EGLBoolean LogEGLApi::eglImageFlushExternalEXTFn(EGLDisplay dpy,
                                                  EGLImageKHR image,
                                                  const EGLAttrib* attrib_list) {
@@ -2096,6 +2155,19 @@ EGLBoolean LogEGLApi::eglQuerySurfacePointerANGLEFn(EGLDisplay dpy,
       egl_api_->eglQuerySurfacePointerANGLEFn(dpy, surface, attribute, value);
   GL_SERVICE_LOG("GL_RESULT: " << result);
   return result;
+}
+
+void LogEGLApi::eglReacquireHighPowerGPUANGLEFn(EGLDisplay dpy,
+                                                EGLContext ctx) {
+  GL_SERVICE_LOG("eglReacquireHighPowerGPUANGLE"
+                 << "(" << dpy << ", " << ctx << ")");
+  egl_api_->eglReacquireHighPowerGPUANGLEFn(dpy, ctx);
+}
+
+void LogEGLApi::eglReleaseHighPowerGPUANGLEFn(EGLDisplay dpy, EGLContext ctx) {
+  GL_SERVICE_LOG("eglReleaseHighPowerGPUANGLE"
+                 << "(" << dpy << ", " << ctx << ")");
+  egl_api_->eglReleaseHighPowerGPUANGLEFn(dpy, ctx);
 }
 
 EGLBoolean LogEGLApi::eglReleaseTexImageFn(EGLDisplay dpy,

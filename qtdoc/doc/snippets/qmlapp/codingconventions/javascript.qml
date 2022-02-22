@@ -48,7 +48,7 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.3
+import QtQuick
 
 Rectangle {
 
@@ -68,7 +68,7 @@ Rectangle {
 //![1]
 
 //![2]
-function calculateWidth(object)
+function calculateWidth(object : Item) : double
 {
     var w = object.width / 3
     // ...

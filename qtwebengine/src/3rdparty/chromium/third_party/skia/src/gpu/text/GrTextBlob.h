@@ -8,31 +8,343 @@
 #ifndef GrTextBlob_DEFINED
 #define GrTextBlob_DEFINED
 
-#include "include/core/SkPathEffect.h"
+#include <algorithm>
+#include <limits>
+
 #include "include/core/SkPoint3.h"
-#include "include/core/SkSurfaceProps.h"
-#include "src/core/SkDescriptor.h"
+#include "include/core/SkRefCnt.h"
+#include "src/core/SkGlyphRunPainter.h"
+#include "src/core/SkIPoint16.h"
 #include "src/core/SkMaskFilterBase.h"
 #include "src/core/SkOpts.h"
 #include "src/core/SkRectPriv.h"
-#include "src/core/SkStrikeCache.h"
 #include "src/core/SkStrikeSpec.h"
-#include "src/core/SkTInternalLList.h"
+#include "src/core/SkTLazy.h"
 #include "src/gpu/GrColor.h"
 #include "src/gpu/GrDrawOpAtlas.h"
+#include "src/gpu/ops/GrMeshDrawOp.h"
 #include "src/gpu/text/GrStrikeCache.h"
-#include "src/gpu/text/GrTextContext.h"
-#include "src/gpu/text/GrTextTarget.h"
-
-#include <limits>
 
 class GrAtlasManager;
 class GrAtlasTextOp;
+class GrDeferredUploadTarget;
+class GrDrawOp;
 class GrGlyph;
+class GrStrikeCache;
+class GrSubRun;
 
+class SkMatrixProvider;
+class SkSurfaceProps;
 class SkTextBlob;
 class SkTextBlobRunIterator;
 
+// GrBagOfBytes parcels out bytes with a given size and alignment.
+class GrBagOfBytes {
+public:
+    GrBagOfBytes(char* block, size_t blockSize, size_t firstHeapAllocation);
+    explicit GrBagOfBytes(size_t firstHeapAllocation = 0);
+    ~GrBagOfBytes();
+
+    // Given a requestedSize round up to the smallest size that accounts for all the per block
+    // overhead and alignment. It crashes if requestedSize is negative or too big.
+    static constexpr int PlatformMinimumSizeWithOverhead(int requestedSize, int assumedAlignment) {
+        return MinimumSizeWithOverhead(
+                requestedSize, assumedAlignment, sizeof(Block), kMaxAlignment);
+    }
+
+    static constexpr int MinimumSizeWithOverhead(
+            int requestedSize, int assumedAlignment, int blockSize, int maxAlignment) {
+        SkASSERT_RELEASE(0 <= requestedSize && requestedSize < kMaxByteSize);
+        SkASSERT_RELEASE(SkIsPow2(assumedAlignment) && SkIsPow2(maxAlignment));
+
+        auto alignUp = [](int size, int alignment) {return (size + (alignment - 1)) & -alignment;};
+
+        const int minAlignment = std::min(maxAlignment, assumedAlignment);
+        // There are two cases, one easy and one subtle. The easy case is when minAlignment ==
+        // maxAlignment. When that happens, the term maxAlignment - minAlignment is zero, and the
+        // block will be placed at the proper alignment because alignUp is properly
+        // aligned.
+        // The subtle case is where minAlignment < maxAlignment. Because
+        // minAlignment < maxAlignment, alignUp(requestedSize, minAlignment) + blockSize does not
+        // guarantee that block can be placed at a maxAlignment address. Block can be placed at
+        // maxAlignment/minAlignment different address to achieve alignment, so we need
+        // to add memory to allow the block to be placed on a maxAlignment address.
+        // For example, if assumedAlignment = 4 and maxAlignment = 16 then block can be placed at
+        // the following address offsets at the end of minimumSize bytes.
+        //   0 * minAlignment =  0
+        //   1 * minAlignment =  4
+        //   2 * minAlignment =  8
+        //   3 * minAlignment = 12
+        // Following this logic, the equation for the additional bytes is
+        //   (maxAlignment/minAlignment - 1) * minAlignment
+        //     = maxAlignment - minAlignment.
+        int minimumSize = alignUp(requestedSize, minAlignment)
+                        + blockSize
+                        + maxAlignment - minAlignment;
+
+        // If minimumSize is > 32k then round to a 4K boundary unless it is too close to the
+        // maximum int. The > 32K heuristic is from the JEMalloc behavior.
+        constexpr int k32K = (1 << 15);
+        if (minimumSize >= k32K && minimumSize < std::numeric_limits<int>::max() - k4K) {
+            minimumSize = alignUp(minimumSize, k4K);
+        }
+
+        return minimumSize;
+    }
+
+    template <int size>
+    using Storage = std::array<char, PlatformMinimumSizeWithOverhead(size, 1)>;
+
+    // Returns a pointer to memory suitable for holding n Ts.
+    template <typename T> char* allocateBytesFor(int n = 1) {
+        static_assert(alignof(T) <= kMaxAlignment, "Alignment is too big for arena");
+        static_assert(sizeof(T) < kMaxByteSize, "Size is too big for arena");
+        constexpr int kMaxN = kMaxByteSize / sizeof(T);
+        SkASSERT_RELEASE(0 <= n && n < kMaxN);
+
+        int size = n ? n * sizeof(T) : 1;
+        return this->allocateBytes(size, alignof(T));
+    }
+
+    void* alignedBytes(int unsafeSize, int unsafeAlignment);
+
+private:
+    // 16 seems to be a good number for alignment. If a use case for larger alignments is found,
+    // we can turn this into a template parameter.
+    static constexpr int kMaxAlignment = std::max(16, (int)alignof(max_align_t));
+    // The largest size that can be allocated. In larger sizes, the block is rounded up to 4K
+    // chunks. Leave a 4K of slop.
+    static constexpr int k4K = (1 << 12);
+    // This should never overflow with the calculations done on the code.
+    static constexpr int kMaxByteSize = std::numeric_limits<int>::max() - k4K;
+
+    // The Block starts at the location pointed to by fEndByte.
+    // Beware. Order is important here. The destructor for fPrevious must be called first because
+    // the Block is embedded in fBlockStart. Destructors are run in reverse order.
+    struct Block {
+        Block(char* previous, char* startOfBlock);
+        // The start of the originally allocated bytes. This is the thing that must be deleted.
+        char* const fBlockStart;
+        Block* const fPrevious;
+    };
+
+    // Note: fCapacity is the number of bytes remaining, and is subtracted from fEndByte to
+    // generate the location of the object.
+    char* allocateBytes(int size, int alignment) {
+        fCapacity = fCapacity & -alignment;
+        if (fCapacity < size) {
+            this->needMoreBytes(size, alignment);
+        }
+        char* const ptr = fEndByte - fCapacity;
+        SkASSERT(((intptr_t)ptr & (alignment - 1)) == 0);
+        SkASSERT(fCapacity >= size);
+        fCapacity -= size;
+        return ptr;
+    }
+
+    // Adjust fEndByte and fCapacity give a new block starting at bytes with size.
+    void setupBytesAndCapacity(char* bytes, int size);
+
+    // Adjust fEndByte and fCapacity to satisfy the size and alignment request.
+    void needMoreBytes(int size, int alignment);
+
+    // This points to the highest kMaxAlignment address in the allocated block. The address of
+    // the current end of allocated data is given by fEndByte - fCapacity. While the negative side
+    // of this pointer are the bytes to be allocated. The positive side points to the Block for
+    // this memory. In other words, the pointer to the Block structure for these bytes is
+    // reinterpret_cast<Block*>(fEndByte).
+    char* fEndByte{nullptr};
+
+    // The number of bytes remaining in this block.
+    int fCapacity{0};
+
+    SkFibBlockSizes<kMaxByteSize> fFibProgression;
+};
+
+// GrSubRunAllocator provides fast allocation where the user takes care of calling the destructors
+// of the returned pointers, and GrSubRunAllocator takes care of deleting the storage. The
+// unique_ptrs returned, are to assist in assuring the object's destructor is called.
+// A note on zero length arrays: according to the standard a pointer must be returned, and it
+// can't be a nullptr. In such a case, SkArena allocates one byte, but does not initialize it.
+class GrSubRunAllocator {
+public:
+    struct Destroyer {
+        template <typename T>
+        void operator()(T* ptr) { ptr->~T(); }
+    };
+
+    struct ArrayDestroyer {
+        int n;
+        template <typename T>
+        void operator()(T* ptr) {
+            for (int i = 0; i < n; i++) { ptr[i].~T(); }
+        }
+    };
+
+    template<class T>
+    inline static constexpr bool HasNoDestructor = std::is_trivially_destructible<T>::value;
+
+    GrSubRunAllocator(char* block, int blockSize, int firstHeapAllocation);
+    explicit GrSubRunAllocator(int firstHeapAllocation = 0);
+
+    template <typename T, typename... Args> T* makePOD(Args&&... args) {
+        static_assert(HasNoDestructor<T>, "This is not POD. Use makeUnique.");
+        char* bytes = fAlloc.template allocateBytesFor<T>();
+        return new (bytes) T(std::forward<Args>(args)...);
+    }
+
+    template <typename T, typename... Args>
+    std::unique_ptr<T, Destroyer> makeUnique(Args&&... args) {
+        static_assert(!HasNoDestructor<T>, "This is POD. Use makePOD.");
+        char* bytes = fAlloc.template allocateBytesFor<T>();
+        return std::unique_ptr<T, Destroyer>{new (bytes) T(std::forward<Args>(args)...)};
+    }
+
+    template<typename T> T* makePODArray(int n) {
+        static_assert(HasNoDestructor<T>, "This is not POD. Use makeUniqueArray.");
+        return reinterpret_cast<T*>(fAlloc.template allocateBytesFor<T>(n));
+    }
+
+    template<typename T, typename Src, typename Map>
+    SkSpan<T> makePODArray(const Src& src, Map map) {
+        static_assert(HasNoDestructor<T>, "This is not POD. Use makeUniqueArray.");
+        int size = SkTo<int>(src.size());
+        T* result = this->template makePODArray<T>(size);
+        for (int i = 0; i < size; i++) {
+            new (&result[i]) T(map(src[i]));
+        }
+        return {result, src.size()};
+    }
+
+    template<typename T>
+    std::unique_ptr<T[], ArrayDestroyer> makeUniqueArray(int n) {
+        static_assert(!HasNoDestructor<T>, "This is POD. Use makePODArray.");
+        T* array = reinterpret_cast<T*>(fAlloc.template allocateBytesFor<T>(n));
+        for (int i = 0; i < n; i++) {
+            new (&array[i]) T{};
+        }
+        return std::unique_ptr<T[], ArrayDestroyer>{array, ArrayDestroyer{n}};
+    }
+
+    template<typename T, typename I>
+    std::unique_ptr<T[], ArrayDestroyer> makeUniqueArray(int n, I initializer) {
+        static_assert(!HasNoDestructor<T>, "This is POD. Use makePODArray.");
+        T* array = reinterpret_cast<T*>(fAlloc.template allocateBytesFor<T>(n));
+        for (int i = 0; i < n; i++) {
+            new (&array[i]) T(initializer(i));
+        }
+        return std::unique_ptr<T[], ArrayDestroyer>{array, ArrayDestroyer{n}};
+    }
+
+    void* alignedBytes(int size, int alignment);
+
+private:
+    GrBagOfBytes fAlloc;
+};
+
+// -- GrAtlasSubRun --------------------------------------------------------------------------------
+// GrAtlasSubRun is the API that GrAtlasTextOp uses to generate vertex data for drawing.
+//     There are three different ways GrAtlasSubRun is specialized.
+//      * DirectMaskSubRun - this is by far the most common type of SubRun. The mask pixels are
+//        in 1:1 correspondence with the pixels on the device. The destination rectangles in this
+//        SubRun are in device space. This SubRun handles color glyphs.
+//      * TransformedMaskSubRun - handles glyph where the image in the atlas needs to be
+//        transformed to the screen. It is usually used for large color glyph which can't be
+//        drawn with paths or scaled distance fields. The destination rectangles are in source
+//        space.
+//      * SDFTSubRun - scaled distance field text handles largish single color glyphs that still
+//        can fit in the atlas; the sizes between direct SubRun, and path SubRun. The destination
+class GrAtlasSubRun  {
+public:
+    static constexpr int kVerticesPerGlyph = 4;
+
+    virtual ~GrAtlasSubRun() = default;
+
+    virtual size_t vertexStride(const SkMatrix& drawMatrix) const = 0;
+    virtual int glyphCount() const = 0;
+
+    virtual std::tuple<const GrClip*, GrOp::Owner>
+    makeAtlasTextOp(const GrClip* clip,
+                    const SkMatrixProvider& viewMatrix,
+                    const SkGlyphRunList& glyphRunList,
+                    GrSurfaceDrawContext* rtc) const = 0;
+    virtual void fillVertexData(
+            void* vertexDst, int offset, int count,
+            GrColor color, const SkMatrix& positionMatrix,
+            SkIRect clip) const = 0;
+
+    virtual void testingOnly_packedGlyphIDToGrGlyph(GrStrikeCache* cache) = 0;
+
+    // This call is not thread safe. It should only be called from GrDrawOp::onPrepare which
+    // is single threaded.
+    virtual std::tuple<bool, int> regenerateAtlas(
+            int begin, int end, GrMeshDrawOp::Target* target) const = 0;
+};
+
+// -- GrSubRun -------------------------------------------------------------------------------------
+// GrSubRun is the API the GrTextBlob uses for the SubRun.
+// There are several types of SubRun, which can be broken into five classes:
+//   * PathSubRun - handle very large single color glyphs using paths to render the glyph.
+//   * DirectMaskSubRun - handle the majority of the glyphs where the cache entry's pixels are in
+//     1:1 correspondence to the device pixels.
+//   * TransformedMaskSubRun - handle large bitmap/argb glyphs that need to be scaled to the screen.
+//   * SDFTSubRun - use signed distance fields to draw largish glyphs to the screen.
+//   * GrAtlasSubRun - this is an abstract class used for atlas drawing.
+class GrSubRun {
+public:
+    virtual ~GrSubRun() = default;
+
+    // Produce GPU ops for this subRun.
+    virtual void draw(const GrClip* clip,
+                      const SkMatrixProvider& viewMatrix,
+                      const SkGlyphRunList& glyphRunList,
+                      GrSurfaceDrawContext* rtc) const = 0;
+
+    // Given an already cached subRun, can this subRun handle this combination paint, matrix, and
+    // position.
+    virtual bool canReuse(const SkPaint& paint, const SkMatrix& drawMatrix) const = 0;
+
+    // Return the underlying atlas SubRun if it exists. Otherwise, return nullptr.
+    // * Don't use this API. It is only to support testing.
+    virtual GrAtlasSubRun* testingOnly_atlasSubRun() = 0;
+
+    std::unique_ptr<GrSubRun, GrSubRunAllocator::Destroyer> fNext;
+};
+
+struct GrSubRunList {
+    class Iterator {
+    public:
+        using value_type = GrSubRun;
+        using difference_type = ptrdiff_t;
+        using pointer = value_type*;
+        using reference = value_type&;
+        using iterator_category = std::input_iterator_tag;
+        Iterator(GrSubRun* subRun) : fPtr{subRun} { }
+        Iterator& operator++() { fPtr = fPtr->fNext.get(); return *this; }
+        Iterator operator++(int) { Iterator tmp(*this); operator++(); return tmp; }
+        bool operator==(const Iterator& rhs) const { return fPtr == rhs.fPtr; }
+        bool operator!=(const Iterator& rhs) const { return fPtr != rhs.fPtr; }
+        reference operator*() { return *fPtr; }
+
+    private:
+        GrSubRun* fPtr;
+    };
+
+    void append(std::unique_ptr<GrSubRun, GrSubRunAllocator::Destroyer> subRun) {
+        std::unique_ptr<GrSubRun, GrSubRunAllocator::Destroyer>* newTail = &subRun->fNext;
+        *fTail = std::move(subRun);
+        fTail = newTail;
+    }
+    bool isEmpty() const { return fHead == nullptr; }
+    Iterator begin() { return Iterator{ fHead.get()}; }
+    Iterator end() { return Iterator{nullptr}; }
+    Iterator begin() const { return Iterator{ fHead.get()}; }
+    Iterator end() const { return Iterator{nullptr}; }
+    GrSubRun& front() const {return *fHead; }
+
+    std::unique_ptr<GrSubRun, GrSubRunAllocator::Destroyer> fHead{nullptr};
+    std::unique_ptr<GrSubRun, GrSubRunAllocator::Destroyer>* fTail{&fHead};
+};
 
 // A GrTextBlob contains a fully processed SkTextBlob, suitable for nearly immediate drawing
 // on the GPU.  These are initially created with valid positions and colors, but invalid
@@ -46,27 +358,12 @@ class SkTextBlobRunIterator;
 //
 // In these classes, I'm trying to follow the convention about matrices and origins.
 // * draw Matrix|Origin    - describes the current draw command.
-// * initial Matrix|Origin - describes the matrix and origin the GrTextBlob was created with.
-// * current Matrix|Origin - describes the matrix and origin that are currently in the SubRun's
-//                           vertex data.
+// * initial Matrix - describes the combined initial matrix and origin the GrTextBlob was created
+//   with.
 //
-// When handling repeated drawing using the same GrTextBlob initial data are compared to drawing
-// data to see if this blob can service this drawing. If it can, but small changes are needed to
-// the vertex data, the current data of the SubRuns is adjusted to conform to the drawing data
-// from the op using the VertexRegenerator.
 //
 class GrTextBlob final : public SkNVRefCnt<GrTextBlob>, public SkGlyphRunPainterInterface {
 public:
-    class SubRun;
-    class VertexRegenerator;
-
-    enum SubRunType {
-        kDirectMask,
-        kTransformedMask,
-        kTransformedPath,
-        kTransformedSDFT
-    };
-
     struct Key {
         Key();
         uint32_t fUniqueID;
@@ -76,22 +373,25 @@ public:
         // represents the bucket.  This functionality is currently only supported for A8
         SkColor fCanonicalColor;
         SkPaint::Style fStyle;
+        SkScalar fFrameWidth;
+        SkScalar fMiterLimit;
+        SkPaint::Join fJoin;
         SkPixelGeometry fPixelGeometry;
         bool fHasBlur;
+        SkMaskFilterBase::BlurRec fBlurRec;
         uint32_t fScalerContextFlags;
 
         bool operator==(const Key& other) const;
     };
 
-    // Any glyphs that can't be rendered with the base or override descriptor
-    // are rendered as paths
-    struct PathGlyph {
-        PathGlyph(const SkPath& path, SkPoint origin);
-        SkPath fPath;
-        SkPoint fOrigin;
-    };
-
     SK_DECLARE_INTERNAL_LLIST_INTERFACE(GrTextBlob);
+
+    // Make an empty GrTextBlob, with all the invariants set to make the right decisions when
+    // adding SubRuns.
+    static sk_sp<GrTextBlob> Make(const SkGlyphRunList& glyphRunList,
+                                  const SkMatrix& drawMatrix);
+
+    ~GrTextBlob() override;
 
     // Change memory management to handle the data after GrTextBlob, but in the same allocation
     // of memory. Only allow placement new.
@@ -99,127 +399,44 @@ public:
     void* operator new(size_t);
     void* operator new(size_t, void* p);
 
-    ~GrTextBlob() override;
+    void makeSubRuns(
+            SkGlyphRunListPainter* painter,
+            const SkGlyphRunList& glyphRunList,
+            const SkMatrix& drawMatrix,
+            SkPoint drawOrigin,
+            const SkPaint& runPaint,
+            const SkSurfaceProps& props,
+            bool contextSupportsDistanceFieldText,
+            const GrSDFTOptions& options) SK_EXCLUDES(fSpinLock);
 
-    // Make an empty GrTextBlob, with all the invariants set to make the right decisions when
-    // adding SubRuns.
-    static sk_sp<GrTextBlob> Make(const SkGlyphRunList& glyphRunList,
-                                  GrStrikeCache* strikeCache,
-                                  const SkMatrix& drawMatrix,
-                                  GrColor color,
-                                  bool forceWForDistanceFields);
-
-    // Key manipulation functions
-    void setupKey(const GrTextBlob::Key& key,
-                  const SkMaskFilterBase::BlurRec& blurRec,
-                  const SkPaint& paint);
     static const Key& GetKey(const GrTextBlob& blob);
     static uint32_t Hash(const Key& key);
 
-    bool hasDistanceField() const;
-    bool hasBitmap() const;
+    void addKey(const Key& key);
     bool hasPerspective() const;
+    const SkMatrix& initialMatrix() const { return fInitialMatrix; }
 
-    void setHasDistanceField();
-    void setHasBitmap();
-    void setMinAndMaxScale(SkScalar scaledMin, SkScalar scaledMax);
+    std::tuple<SkScalar, SkScalar> scaleBounds() const {
+        return {fMaxMinScale, fMinMaxScale};
+    }
 
-    static size_t GetVertexStride(GrMaskFormat maskFormat, bool hasWCoord);
-
-    bool mustRegenerate(const SkPaint&, bool, const SkMaskFilterBase::BlurRec& blurRec,
-                        const SkMatrix& drawMatrix, SkPoint drawOrigin);
-
-    void flush(GrTextTarget*, const SkSurfaceProps& props,
-               const SkPaint& paint, const SkPMColor4f& filteredColor, const GrClip& clip,
-               const SkMatrix& drawMatrix, SkPoint drawOrigin);
-
-    void computeSubRunBounds(SkRect* outBounds, const SubRun& subRun,
-                             const SkMatrix& drawMatrix, SkPoint drawOrigin,
-                             bool needsGlyphTransform);
-
-    // Normal text mask, SDFT, or color.
-    struct Mask2DVertex {
-        SkPoint devicePos;
-        GrColor color;
-        SkIPoint16 atlasPos;
-    };
-    struct ARGB2DVertex {
-        SkPoint devicePos;
-        SkIPoint16 atlasPos;
-    };
-
-    // Perspective SDFT or SDFT forced to 3D or perspective color.
-    struct SDFT3DVertex {
-        SkPoint3 devicePos;
-        GrColor color;
-        SkIPoint16 atlasPos;
-    };
-    struct ARGB3DVertex {
-        SkPoint3 devicePos;
-        SkIPoint16 atlasPos;
-    };
-
-    static const int kVerticesPerGlyph = 4;
+    bool canReuse(const SkPaint& paint, const SkMatrix& drawMatrix) const;
 
     const Key& key() const;
     size_t size() const;
 
-    // Internal test methods
-    std::unique_ptr<GrDrawOp> test_makeOp(int glyphCount, const SkMatrix& drawMatrix,
-                                          SkPoint drawOrigin, const SkPaint& paint,
-                                          const SkPMColor4f& filteredColor, const SkSurfaceProps&,
-                                          GrTextTarget*);
-
-    bool hasW(SubRunType type) const;
-
-    SubRun* makeSubRun(SubRunType type,
-                       const SkZip<SkGlyphVariant, SkPoint>& drawables,
-                       const SkStrikeSpec& strikeSpec,
-                       GrMaskFormat format);
-
-    void addSingleMaskFormat(
-            SubRunType type,
-            const SkZip<SkGlyphVariant, SkPoint>& drawables,
-            const SkStrikeSpec& strikeSpec,
-            GrMaskFormat format);
-
-    void addMultiMaskFormat(
-            SubRunType type,
-            const SkZip<SkGlyphVariant, SkPoint>& drawables,
-            const SkStrikeSpec& strikeSpec);
-
-    void addSDFT(const SkZip<SkGlyphVariant, SkPoint>& drawables,
-                 const SkStrikeSpec& strikeSpec,
-                 const SkFont& runFont,
-                 SkScalar minScale,
-                 SkScalar maxScale);
+    const GrSubRunList& subRunList() const {
+        return fSubRunList;
+    }
 
 private:
-    enum TextType {
-        kHasDistanceField_TextType = 0x1,
-        kHasBitmap_TextType = 0x2,
-    };
+    GrTextBlob(int allocSize, const SkMatrix& drawMatrix, SkColor initialLuminance);
 
-    struct StrokeInfo {
-        SkScalar fFrameWidth;
-        SkScalar fMiterLimit;
-        SkPaint::Join fJoin;
-    };
-
-    GrTextBlob(size_t allocSize,
-               GrStrikeCache* strikeCache,
-               const SkMatrix& drawMatrix,
-               SkPoint origin,
-               GrColor color,
-               SkColor initialLuminance,
-               bool forceWForDistanceFields);
-
-    void insertSubRun(SubRun* subRun);
-
-    std::unique_ptr<GrAtlasTextOp> makeOp(SubRun& info, int glyphCount, const SkMatrix& drawMatrix,
-                                          SkPoint drawOrigin, const SkIRect& clipRect,
-                                          const SkPaint& paint, const SkPMColor4f& filteredColor,
-                                          const SkSurfaceProps&, GrTextTarget*);
+    template<typename AddSingleMaskFormat>
+    void addMultiMaskFormat(
+            AddSingleMaskFormat addSingle,
+            const SkZip<SkGlyphVariant, SkPoint>& drawables,
+            const SkStrikeSpec& strikeSpec);
 
     // Methods to satisfy SkGlyphRunPainterInterface
     void processDeviceMasks(const SkZip<SkGlyphVariant, SkPoint>& drawables,
@@ -235,33 +452,30 @@ private:
     void processSourceMasks(const SkZip<SkGlyphVariant, SkPoint>& drawables,
                             const SkStrikeSpec& strikeSpec) override;
 
+    // The run must be created only once.
+    bool fSubRunsCreated SK_GUARDED_BY(fSpinLock) {false};
+
+    // This lock guards makeSubRuns, but also guards addMultiMaskFormat, processDeviceMasks,
+    // processSourcePaths, processSourceSDFT, and processSourceMasks. These are callbacks, and
+    // there is no way for the annotation system to track the lock through processGlyphRun.
+    mutable SkSpinlock fSpinLock;
+
+    // The allocator must come first because it needs to be destroyed last. Other fields of this
+    // structure may have pointers into it.
+    GrSubRunAllocator fAlloc;
+
+    // Owner and list of the SubRun.
+    GrSubRunList fSubRunList;
+
     // Overall size of this struct plus vertices and glyphs at the end.
-    const size_t fSize;
+    const int fSize;
 
-    // Lifetime: The GrStrikeCache is owned by and has the same lifetime as the GrRecordingContext.
-    // The GrRecordingContext also owns the GrTextBlob cache which owns this GrTextBlob.
-    GrStrikeCache* const fStrikeCache;
-
-    // The initial view matrix and its inverse. This is used for moving additional draws of this
-    // same text blob. We record the initial view matrix and initial offsets(x,y), because we
-    // record vertex bounds relative to these numbers.  When blobs are reused with new matrices,
-    // we need to return to source space so we can update the vertex bounds appropriately.
+    // The initial view matrix combined with the initial origin. Used to determine if a cached
+    // subRun can be used in this draw situation.
     const SkMatrix fInitialMatrix;
-    const SkMatrix fInitialMatrixInverse;
 
-    // Initial position of this blob. Used for calculating position differences when reusing this
-    // blob.
-    const SkPoint fInitialOrigin;
-
-    // From the distance field options to force distance fields to have a W coordinate.
-    const bool fForceWForDistanceFields;
-
-    // The color of the text to draw for solid colors.
-    const GrColor fColor;
     const SkColor fInitialLuminance;
 
-    SkMaskFilterBase::BlurRec fBlurRec;
-    StrokeInfo fStrokeInfo;
     Key fKey;
 
     // We can reuse distance field text, but only if the new view matrix would not result in
@@ -270,119 +484,6 @@ private:
     SkScalar fMaxMinScale{-SK_ScalarMax};
     SkScalar fMinMaxScale{SK_ScalarMax};
 
-    uint8_t fTextType{0};
-
-    SubRun* fFirstSubRun{nullptr};
-    SubRun* fLastSubRun{nullptr};
-    SkArenaAlloc fAlloc;
+    bool fSomeGlyphsExcluded{false};
 };
-
-/**
- * Used to produce vertices for a subrun of a blob. The vertices are cached in the blob itself.
- * This is invoked each time a sub run is drawn. It regenerates the vertex data as required either
- * because of changes to the atlas or because of different draw parameters (e.g. color change). In
- * rare cases the draw may have to interrupted and flushed in the middle of the sub run in order to
- * free up atlas space. Thus, this generator is stateful and should be invoked in a loop until the
- * entire sub run has been completed.
- */
-class GrTextBlob::VertexRegenerator {
-public:
-    /**
-     * Consecutive VertexRegenerators often use the same SkGlyphCache. If the same instance of
-     * SkAutoGlyphCache is reused then it can save the cost of multiple detach/attach operations of
-     * SkGlyphCache.
-     */
-    VertexRegenerator(GrResourceProvider*, GrTextBlob::SubRun* subRun,
-                      GrDeferredUploadTarget*, GrAtlasManager*);
-
-    // Return {success, number of glyphs regenerated}
-    std::tuple<bool, int> regenerate(int begin, int end);
-
-private:
-    // Return {success, number of glyphs regenerated}
-    std::tuple<bool, int> updateTextureCoordinates(int begin, int end);
-
-    GrResourceProvider* fResourceProvider;
-    GrDeferredUploadTarget* fUploadTarget;
-    GrAtlasManager* fFullAtlasManager;
-    SkTLazy<SkBulkGlyphMetricsAndImages> fMetricsAndImages;
-    SubRun* fSubRun;
-};
-
-// -- GrTextBlob::SubRun ---------------------------------------------------------------------------
-// Hold data to draw the different types of sub run. SubRuns are produced knowing all the
-// glyphs that are included in them.
-class GrTextBlob::SubRun {
-public:
-    // SubRun for masks
-    SubRun(SubRunType type,
-           GrTextBlob* textBlob,
-           const SkStrikeSpec& strikeSpec,
-           GrMaskFormat format,
-           const SkSpan<GrGlyph*>& glyphs, const SkSpan<char>& vertexData,
-           sk_sp<GrTextStrike>&& grStrike);
-
-    // SubRun for paths
-    SubRun(GrTextBlob* textBlob, const SkStrikeSpec& strikeSpec);
-
-    void appendGlyphs(const SkZip<SkGlyphVariant, SkPoint>& drawables);
-
-    // TODO when this object is more internal, drop the privacy
-    void resetBulkUseToken();
-    GrDrawOpAtlas::BulkUseTokenUpdater* bulkUseToken();
-    void setStrike(sk_sp<GrTextStrike> strike);
-    GrTextStrike* strike() const;
-
-    GrMaskFormat maskFormat() const;
-
-    size_t vertexStride() const;
-    size_t colorOffset() const;
-    size_t texCoordOffset() const;
-    char* quadStart(size_t index) const;
-    size_t quadOffset(size_t index) const;
-
-    const SkRect& vertexBounds() const;
-    void joinGlyphBounds(const SkRect& glyphBounds);
-
-    bool drawAsDistanceFields() const;
-    bool drawAsPaths() const;
-    bool needsTransform() const;
-
-    void translateVerticesIfNeeded(const SkMatrix& drawMatrix, SkPoint drawOrigin);
-    void updateVerticesColorIfNeeded(GrColor newColor);
-    void updateTexCoords(int begin, int end);
-
-    // df properties
-    void setUseLCDText(bool useLCDText);
-    bool hasUseLCDText() const;
-    void setAntiAliased(bool antiAliased);
-    bool isAntiAliased() const;
-
-    const SkStrikeSpec& strikeSpec() const;
-
-    SubRun* fNextSubRun{nullptr};
-    const SubRunType fType;
-    GrTextBlob* const fBlob;
-    const GrMaskFormat fMaskFormat;
-    const SkSpan<GrGlyph*> fGlyphs;
-    const SkSpan<char> fVertexData;
-    const SkStrikeSpec fStrikeSpec;
-    sk_sp<GrTextStrike> fStrike;
-    struct {
-        bool useLCDText:1;
-        bool antiAliased:1;
-    } fFlags{false, false};
-    GrDrawOpAtlas::BulkUseTokenUpdater fBulkUseToken;
-    SkRect fVertexBounds = SkRectPriv::MakeLargestInverted();
-    uint64_t fAtlasGeneration{GrDrawOpAtlas::kInvalidAtlasGeneration};
-    GrColor fCurrentColor;
-    SkPoint fCurrentOrigin;
-    SkMatrix fCurrentMatrix;
-    std::vector<PathGlyph> fPaths;
-
-private:
-    bool hasW() const;
-
-};  // SubRun
-
 #endif  // GrTextBlob_DEFINED

@@ -33,7 +33,7 @@
 #include <QtQml/QQmlEngine>
 #include <QtTest/QtTest>
 #include <QQuickWebEngineProfile>
-#include <QtWebEngine/private/qquickwebengineview_p.h>
+#include <QtWebEngineQuick/private/qquickwebengineview_p.h>
 
 #define INSPECTOR_SERVER_PORT "23654"
 static const QUrl s_inspectorServerHttpBaseUrl("http://localhost:" INSPECTOR_SERVER_PORT);
@@ -62,7 +62,7 @@ private:
 tst_InspectorServer::tst_InspectorServer()
 {
     qputenv("QTWEBENGINE_REMOTE_DEBUGGING", INSPECTOR_SERVER_PORT);
-    QtWebEngine::initialize();
+    QtWebEngineQuick::initialize();
     QQuickWebEngineProfile::defaultProfile()->setOffTheRecord(true);
     prepareWebViewComponent();
 }
@@ -70,12 +70,10 @@ tst_InspectorServer::tst_InspectorServer()
 void tst_InspectorServer::prepareWebViewComponent()
 {
     static QQmlEngine* engine = new QQmlEngine(this);
-    engine->addImportPath(QString::fromUtf8(IMPORT_DIR));
-
     m_component.reset(new QQmlComponent(engine, this));
 
-    m_component->setData(QByteArrayLiteral("import QtQuick 2.0\n"
-                                           "import QtWebEngine 1.2\n"
+    m_component->setData(QByteArrayLiteral("import QtQuick\n"
+                                           "import QtWebEngine\n"
                                            "WebEngineView { }")
                         , QUrl());
 }
@@ -105,17 +103,25 @@ inline QQuickWebEngineView* tst_InspectorServer::webView() const
 QJsonArray tst_InspectorServer::fetchPageList() const
 {
     QNetworkAccessManager qnam;
-    QScopedPointer<QNetworkReply> reply(qnam.get(QNetworkRequest(s_inspectorServerHttpBaseUrl.resolved(QUrl("json/list")))));
-    QSignalSpy(reply.data(), SIGNAL(finished())).wait();
+    QSignalSpy spy(&qnam, &QNetworkAccessManager::finished);;
+    QNetworkRequest request(s_inspectorServerHttpBaseUrl.resolved(QUrl("json/list")));
+    QScopedPointer<QNetworkReply> reply(qnam.get(request));
+    spy.wait();
+    // Work-around a network bug in Qt6:
+    if (reply->error() == QNetworkReply::ContentNotFoundError) {
+        reply.reset(qnam.get(request));
+        spy.wait();
+    }
     return QJsonDocument::fromJson(reply->readAll()).array();
 }
 
 void tst_InspectorServer::testPageList()
 {
-    const QUrl testPageUrl = QUrl::fromLocalFile(QLatin1String(TESTS_SOURCE_DIR "/html/basic_page.html"));
-    QSignalSpy loadSpy(webView(), SIGNAL(loadingChanged(QQuickWebEngineLoadRequest*)));
+    const QUrl testPageUrl = QUrl::fromLocalFile(QDir(QT_TESTCASE_SOURCEDIR).canonicalPath()
+                                                 + QLatin1String("/html/basic_page.html"));
+    QSignalSpy loadSpy(webView(), SIGNAL(loadingChanged(QWebEngineLoadingInfo)));
     webView()->setUrl(testPageUrl);
-    QTRY_VERIFY(loadSpy.size() && !webView()->isLoading());
+    QTRY_VERIFY_WITH_TIMEOUT(loadSpy.size() && !webView()->isLoading(), 10000);
 
     // Our page has developerExtrasEnabled and should be the only one in the list.
     QJsonArray pageList = fetchPageList();
@@ -125,10 +131,11 @@ void tst_InspectorServer::testPageList()
 
 void tst_InspectorServer::testRemoteDebuggingMessage()
 {
-    const QUrl testPageUrl = QUrl::fromLocalFile(QLatin1String(TESTS_SOURCE_DIR "/html/basic_page.html"));
-    QSignalSpy loadSpy(webView(), SIGNAL(loadingChanged(QQuickWebEngineLoadRequest*)));
+    const QUrl testPageUrl = QUrl::fromLocalFile(QDir(QT_TESTCASE_SOURCEDIR).canonicalPath()
+                                                 + QLatin1String("/html/basic_page.html"));
+    QSignalSpy loadSpy(webView(), SIGNAL(loadingChanged(QWebEngineLoadingInfo)));
     webView()->setUrl(testPageUrl);
-    QTRY_VERIFY(loadSpy.size() && !webView()->isLoading());
+    QTRY_VERIFY_WITH_TIMEOUT(loadSpy.size() && !webView()->isLoading(), 10000);
 
     QJsonArray pageList = fetchPageList();
     QCOMPARE(pageList.size(), 1);
@@ -159,10 +166,11 @@ void tst_InspectorServer::testRemoteDebuggingMessage()
 
 void tst_InspectorServer::openRemoteDebuggingSession()
 {
-    const QUrl testPageUrl = QUrl::fromLocalFile(QLatin1String(TESTS_SOURCE_DIR "/html/basic_page.html"));
-    QSignalSpy loadSpy(webView(), SIGNAL(loadingChanged(QQuickWebEngineLoadRequest*)));
+    const QUrl testPageUrl = QUrl::fromLocalFile(QDir(QT_TESTCASE_SOURCEDIR).canonicalPath()
+                                                 + QLatin1String("/html/basic_page.html"));
+    QSignalSpy loadSpy(webView(), SIGNAL(loadingChanged(QWebEngineLoadingInfo)));
     webView()->setUrl(testPageUrl);
-    QTRY_VERIFY(loadSpy.size() && !webView()->isLoading());
+    QTRY_VERIFY_WITH_TIMEOUT(loadSpy.size() && !webView()->isLoading(), 10000);
 
     QJsonArray pageList = fetchPageList();
     QCOMPARE(pageList.size(), 1);

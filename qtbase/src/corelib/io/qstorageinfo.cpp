@@ -413,9 +413,7 @@ QStorageInfo QStorageInfo::root()
 }
 
 /*!
-    \fn inline bool operator==(const QStorageInfo &first, const QStorageInfo &second)
-
-    \relates QStorageInfo
+    \fn bool QStorageInfo::operator==(const QStorageInfo &first, const QStorageInfo &second)
 
     Returns true if the \a first QStorageInfo object refers to the same drive or volume
     as the \a second; otherwise it returns false.
@@ -425,9 +423,7 @@ QStorageInfo QStorageInfo::root()
 */
 
 /*!
-    \fn inline bool operator!=(const QStorageInfo &first, const QStorageInfo &second)
-
-    \relates QStorageInfo
+    \fn bool QStorageInfo::operator!=(const QStorageInfo &first, const QStorageInfo &second)
 
     Returns true if the \a first QStorageInfo object refers to a different drive or
     volume than the \a second; otherwise returns false.
@@ -456,12 +452,12 @@ QDebug operator<<(QDebug debug, const QStorageInfo &s)
         debug << (d->ready ? " [ready]" : " [not ready]");
         if (d->bytesTotal > 0) {
             debug << ", bytesTotal=" << d->bytesTotal << ", bytesFree=" << d->bytesFree
-                << ", bytesAvailable=" << d->bytesAvailable;
+                  << ", bytesAvailable=" << d->bytesAvailable;
         }
     } else {
         debug << "invalid";
     }
-    debug<< ')';
+    debug << ')';
     return debug;
 }
 #endif // !QT_NO_DEBUG_STREAM

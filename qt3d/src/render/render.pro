@@ -1,9 +1,10 @@
 TARGET   = Qt3DRender
 MODULE   = 3drender
 
-QT = core-private 3dcore-private
+QT = core-private 3dcore-private opengl
 QT_FOR_PRIVATE = concurrent
 DEFINES += BUILD_QT3D_MODULE
+CONFIG += c++17
 
 include (backend/render-backend.pri)
 include (geometry/geometry.pri)
@@ -40,7 +41,6 @@ HEADERS += \
     renderlogging_p.h \
     qt3drender_global.h \
     qt3drender_global_p.h \
-    aligned_malloc_p.h \
     qrendererplugin_p.h \
     qrendererpluginfactory_p.h
 

@@ -60,18 +60,21 @@
 #include <QtDesigner/private/shared_settings_p.h>
 #include <QtDesigner/private/formwindowbase_p.h>
 
-#include <QtWidgets/qaction.h>
-#include <QtWidgets/qactiongroup.h>
 #include <QtWidgets/qstylefactory.h>
 #include <QtWidgets/qfiledialog.h>
 #include <QtWidgets/qmenu.h>
 #include <QtWidgets/qmessagebox.h>
 #include <QtWidgets/qmdisubwindow.h>
 #include <QtWidgets/qpushbutton.h>
+#include <QtWidgets/qstatusbar.h>
+
+#include <QtGui/qaction.h>
+#include <QtGui/qactiongroup.h>
 #include <QtGui/qevent.h>
 #include <QtGui/qicon.h>
 #include <QtGui/qimage.h>
 #include <QtGui/qpixmap.h>
+#include <QtGui/qscreen.h>
 #if defined(QT_PRINTSUPPORT_LIB) // Some platforms may not build QtPrintSupport
 #  include <QtPrintSupport/qtprintsupportglobal.h>
 #  if QT_CONFIG(printer) && QT_CONFIG(printdialog)
@@ -83,8 +86,8 @@
 #include <QtGui/qpainter.h>
 #include <QtGui/qtransform.h>
 #include <QtGui/qcursor.h>
-#include <QtCore/qsize.h>
 
+#include <QtCore/qsize.h>
 #include <QtCore/qlibraryinfo.h>
 #include <QtCore/qbuffer.h>
 #include <QtCore/qpluginloader.h>
@@ -94,8 +97,6 @@
 #include <QtCore/qfileinfo.h>
 #include <QtCore/qsavefile.h>
 #include <QtCore/qscopedpointer.h>
-#include <QtWidgets/qstatusbar.h>
-#include <QtWidgets/qdesktopwidget.h>
 #include <QtXml/qdom.h>
 
 QT_BEGIN_NAMESPACE
@@ -1142,7 +1143,7 @@ QString QDesignerActions::fixResourceFileBackupPath(QDesignerFormWindowInterface
 QRect QDesignerActions::fixDialogRect(const QRect &rect) const
 {
     QRect frameGeometry;
-    const QRect availableGeometry = QApplication::desktop()->availableGeometry(core()->topLevel());
+    const QRect availableGeometry = core()->topLevel()->screen()->geometry();
 
     if (workbench()->mode() == DockedMode) {
         frameGeometry = core()->topLevel()->frameGeometry();

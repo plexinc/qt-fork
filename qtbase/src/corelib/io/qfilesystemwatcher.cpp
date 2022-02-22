@@ -105,7 +105,7 @@ void QFileSystemWatcherPrivate::init()
                          SIGNAL(directoryChanged(QString,bool)),
                          q,
                          SLOT(_q_directoryChanged(QString,bool)));
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
         QObject::connect(static_cast<QWindowsFileSystemWatcherEngine *>(native),
                          &QWindowsFileSystemWatcherEngine::driveLockForRemoval,
                          q, [this] (const QString &p) { _q_winDriveLockForRemoval(p); });
@@ -115,13 +115,13 @@ void QFileSystemWatcherPrivate::init()
         QObject::connect(static_cast<QWindowsFileSystemWatcherEngine *>(native),
                          &QWindowsFileSystemWatcherEngine::driveRemoved,
                          q, [this] (const QString &p) { _q_winDriveRemoved(p); });
-#endif  // !Q_OS_WINRT
+#endif  // Q_OS_WIN
     }
 }
 
 void QFileSystemWatcherPrivate::initPollerEngine()
 {
-    if(poller)
+    if (poller)
         return;
 
     Q_Q(QFileSystemWatcher);
@@ -162,7 +162,7 @@ void QFileSystemWatcherPrivate::_q_directoryChanged(const QString &path, bool re
     emit q->directoryChanged(path, QFileSystemWatcher::QPrivateSignal());
 }
 
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
 
 void QFileSystemWatcherPrivate::_q_winDriveLockForRemoval(const QString &path)
 {
@@ -201,7 +201,7 @@ void  QFileSystemWatcherPrivate::_q_winDriveRemoved(const QString &path)
     if (!path.isEmpty())
         temporarilyRemovedPaths.remove(path.at(0));
 }
-#endif // Q_OS_WIN && !Q_OS_WINRT
+#endif // Q_OS_WIN
 
 /*!
     \class QFileSystemWatcher
@@ -366,7 +366,7 @@ QStringList QFileSystemWatcher::addPaths(const QStringList &paths)
 
         if (Q_UNLIKELY(on.startsWith(QLatin1String("_qt_autotest_force_engine_")))) {
             // Autotest override case - use the explicitly selected engine only
-            const QStringRef forceName = on.midRef(26);
+            const auto forceName = QStringView{on}.mid(26);
             if (forceName == QLatin1String("poller")) {
                 qCDebug(lcWatcher, "QFileSystemWatcher: skipping native engine, using only polling engine");
                 d_func()->initPollerEngine();
@@ -379,7 +379,7 @@ QStringList QFileSystemWatcher::addPaths(const QStringList &paths)
         }
 #endif
         // Normal runtime case - search intelligently for best engine
-        if(d->native) {
+        if (d->native) {
             return d->native;
         } else {
             d_func()->initPollerEngine();

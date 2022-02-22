@@ -38,13 +38,12 @@
 #ifndef PEAKCANBACKEND_H
 #define PEAKCANBACKEND_H
 
-#include <QtSerialBus/qcanbusframe.h>
 #include <QtSerialBus/qcanbusdevice.h>
 #include <QtSerialBus/qcanbusdeviceinfo.h>
+#include <QtSerialBus/qcanbusframe.h>
 
-#include <QtCore/qvariant.h>
-#include <QtCore/qvector.h>
 #include <QtCore/qlist.h>
+#include <QtCore/qvariant.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -62,7 +61,7 @@ public:
     bool open() override;
     void close() override;
 
-    void setConfigurationParameter(int key, const QVariant &value) override;
+    void setConfigurationParameter(ConfigurationKey key, const QVariant &value) override;
 
     bool writeFrame(const QCanBusFrame &newData) override;
 
@@ -71,9 +70,19 @@ public:
     static bool canCreate(QString *errorReason);
     static QList<QCanBusDeviceInfo> interfaces();
 
+    void resetController() override;
+    bool hasBusStatus() const override;
+    CanBusStatus busStatus() override;
+    QCanBusDeviceInfo deviceInfo() const override;
+
 private:
-    void resetController();
-    CanBusStatus busStatus() const;
+    enum class Availability {
+        Available = 1U, // matches PCAN_CHANNEL_AVAILABLE
+        Occupied  = 2U  // matches PCAN_CHANNEL_OCCUPIED
+    };
+    static QList<QCanBusDeviceInfo> interfacesByChannelCondition(Availability available);
+    static QList<QCanBusDeviceInfo> interfacesByAttachedChannels(Availability available, bool *ok);
+    static QList<QCanBusDeviceInfo> attachedInterfaces(Availability available);
 
     PeakCanBackendPrivate * const d_ptr;
 };

@@ -46,6 +46,9 @@ struct Option
     unsigned int implicitIncludes: 1;
     unsigned int idBased: 1;
     unsigned int fromImports: 1;
+    unsigned int forceMemberFnPtrConnectionSyntax: 1;
+    unsigned int forceStringConnectionSyntax: 1;
+    unsigned int useStarImports: 1;
 
     QString inputFile;
     QString outputFile;
@@ -67,6 +70,9 @@ struct Option
           implicitIncludes(1),
           idBased(0),
           fromImports(0),
+          forceMemberFnPtrConnectionSyntax(0),
+          forceStringConnectionSyntax(0),
+          useStarImports(0),
           prefix(QLatin1String("Ui_"))
     { indent.fill(QLatin1Char(' '), 4); }
 

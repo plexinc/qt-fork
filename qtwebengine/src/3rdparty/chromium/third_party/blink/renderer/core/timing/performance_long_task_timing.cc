@@ -15,13 +15,13 @@ namespace blink {
 
 PerformanceLongTaskTiming::PerformanceLongTaskTiming(
     double start_time,
-    double end_time,
+    int duration,
     const AtomicString& name,
     const AtomicString& culprit_type,
-    const String& culprit_src,
-    const String& culprit_id,
-    const String& culprit_name)
-    : PerformanceEntry(name, start_time, end_time) {
+    const AtomicString& culprit_src,
+    const AtomicString& culprit_id,
+    const AtomicString& culprit_name)
+    : PerformanceEntry(duration, name, start_time) {
   auto* attribution_entry = MakeGarbageCollected<TaskAttributionTiming>(
       "unknown", culprit_type, culprit_src, culprit_id, culprit_name);
   attribution_.push_back(*attribution_entry);
@@ -48,7 +48,7 @@ void PerformanceLongTaskTiming::BuildJSONValue(V8ObjectBuilder& builder) const {
                                             script_state->GetIsolate()));
 }
 
-void PerformanceLongTaskTiming::Trace(Visitor* visitor) {
+void PerformanceLongTaskTiming::Trace(Visitor* visitor) const {
   visitor->Trace(attribution_);
   PerformanceEntry::Trace(visitor);
 }

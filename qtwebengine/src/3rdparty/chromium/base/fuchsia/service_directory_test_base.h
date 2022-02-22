@@ -12,13 +12,12 @@
 
 #include "base/fuchsia/scoped_service_binding.h"
 #include "base/fuchsia/test_interface_impl.h"
-#include "base/fuchsia/testfidl/cpp/fidl.h"
 #include "base/test/scoped_run_loop_timeout.h"
 #include "base/test/task_environment.h"
+#include "base/testfidl/cpp/fidl.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace base {
-namespace fuchsia {
 
 class ServiceDirectoryTestBase : public testing::Test {
  public:
@@ -46,7 +45,6 @@ class ServiceDirectoryTestBase : public testing::Test {
   DISALLOW_COPY_AND_ASSIGN(ServiceDirectoryTestBase);
 };
 
-}  // namespace fuchsia
 }  // namespace base
 
 #endif  // BASE_FUCHSIA_SERVICE_DIRECTORY_TEST_BASE_H_

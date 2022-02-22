@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "src/common/globals.h"
+#include "src/logging/metrics.h"
 #include "src/wasm/function-body-decoder.h"
 #include "src/wasm/wasm-constants.h"
 #include "src/wasm/wasm-features.h"
@@ -125,11 +126,21 @@ class LocalNames {
   std::vector<LocalNamesPerFunction> functions_;
 };
 
+enum class DecodingMethod {
+  kSync,
+  kAsync,
+  kSyncStream,
+  kAsyncStream,
+  kDeserialize
+};
+
 // Decodes the bytes of a wasm module between {module_start} and {module_end}.
 V8_EXPORT_PRIVATE ModuleResult DecodeWasmModule(
     const WasmFeatures& enabled, const byte* module_start,
     const byte* module_end, bool verify_functions, ModuleOrigin origin,
-    Counters* counters, AccountingAllocator* allocator);
+    Counters* counters, std::shared_ptr<metrics::Recorder> metrics_recorder,
+    v8::metrics::Recorder::ContextId context_id, DecodingMethod decoding_method,
+    AccountingAllocator* allocator);
 
 // Exposed for testing. Decodes a single function signature, allocating it
 // in the given zone. Returns {nullptr} upon failure.
@@ -168,13 +179,6 @@ void DecodeFunctionNames(const byte* module_start, const byte* module_end,
                          std::unordered_map<uint32_t, WireBytesRef>* names,
                          const Vector<const WasmExport> export_table);
 
-// Decode the global names from import table and export table. Returns the
-// result as an unordered map.
-void DecodeGlobalNames(
-    const Vector<const WasmImport> import_table,
-    const Vector<const WasmExport> export_table,
-    std::unordered_map<uint32_t, std::pair<WireBytesRef, WireBytesRef>>* names);
-
 // Decode the local names assignment from the name section.
 // The result will be empty if no name section is present. On encountering an
 // error in the name section, returns all information decoded up to the first
@@ -188,7 +192,10 @@ class ModuleDecoder {
   explicit ModuleDecoder(const WasmFeatures& enabled);
   ~ModuleDecoder();
 
-  void StartDecoding(Counters* counters, AccountingAllocator* allocator,
+  void StartDecoding(Counters* counters,
+                     std::shared_ptr<metrics::Recorder> metrics_recorder,
+                     v8::metrics::Recorder::ContextId context_id,
+                     AccountingAllocator* allocator,
                      ModuleOrigin origin = ModuleOrigin::kWasmOrigin);
 
   void DecodeModuleHeader(Vector<const uint8_t> bytes, uint32_t offset);
@@ -196,7 +203,9 @@ class ModuleDecoder {
   void DecodeSection(SectionCode section_code, Vector<const uint8_t> bytes,
                      uint32_t offset, bool verify_functions = true);
 
-  bool CheckFunctionsCount(uint32_t functions_count, uint32_t offset);
+  void StartCodeSection();
+
+  bool CheckFunctionsCount(uint32_t functions_count, uint32_t error_offset);
 
   void DecodeFunctionBody(uint32_t index, uint32_t size, uint32_t offset,
                           bool verify_functions = true);
@@ -206,6 +215,7 @@ class ModuleDecoder {
   void set_code_section(uint32_t offset, uint32_t size);
 
   const std::shared_ptr<WasmModule>& shared_module() const;
+
   WasmModule* module() const { return shared_module().get(); }
 
   bool ok();

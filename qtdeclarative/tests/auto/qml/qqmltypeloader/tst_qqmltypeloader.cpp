@@ -38,12 +38,17 @@
 #include <QtQml/private/qqmlengine_p.h>
 #include <QtQml/private/qqmltypedata_p.h>
 #include <QtQml/private/qqmltypeloader_p.h>
-#include "../../shared/testhttpserver.h"
-#include "../../shared/util.h"
+#include <QtQml/private/qqmlirbuilder_p.h>
+#include <QtQml/private/qqmlirloader_p.h>
+#include <QtQuickTestUtils/private/testhttpserver_p.h>
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 
 class tst_QQMLTypeLoader : public QQmlDataTest
 {
     Q_OBJECT
+
+public:
+    tst_QQMLTypeLoader();
 
 private slots:
     void testLoadComplete();
@@ -64,10 +69,23 @@ private slots:
     void compositeSingletonCycle();
     void declarativeCppType();
     void circularDependency();
+    void declarativeCppAndQmlDir();
+    void signalHandlersAreCompatible();
+
+private:
+    void checkSingleton(const QString & dataDirectory);
 };
+
+tst_QQMLTypeLoader::tst_QQMLTypeLoader()
+    : QQmlDataTest(QT_QMLTEST_DATADIR)
+{
+}
 
 void tst_QQMLTypeLoader::testLoadComplete()
 {
+#ifdef Q_OS_ANDROID
+    QSKIP("Loading dynamic plugins does not work on Android");
+#endif
     QQuickView *window = new QQuickView();
     window->engine()->addImportPath(QT_TESTCASE_BUILDDIR);
     qDebug() << window->engine()->importPathList();
@@ -171,7 +189,7 @@ void tst_QQMLTypeLoader::trimCache3()
     QCOMPARE(loader.isTypeLoaded(testFileUrl("ComponentWithIncubator.qml")), false);
 }
 
-static void checkSingleton(const QString &dataDirectory)
+void tst_QQMLTypeLoader::checkSingleton(const QString &dataDirectory)
 {
     QQmlEngine engine;
     engine.addImportPath(dataDirectory);
@@ -180,8 +198,8 @@ static void checkSingleton(const QString &dataDirectory)
                       "import QtQuick 2.6\n"
                       "import \"..\"\n"
                       "Item { property int t: ValueSource.something }",
-                      QUrl::fromLocalFile(dataDirectory + "/abc/Xyz.qml"));
-    QCOMPARE(component.status(), QQmlComponent::Ready);
+                      testFileUrl("abc/Xyz.qml"));
+    QVERIFY2(component.status() == QQmlComponent::Ready, qPrintable(component.errorString()));
     QScopedPointer<QObject> o(component.create());
     QVERIFY(o.data());
     QCOMPARE(o->property("t").toInt(), 10);
@@ -265,7 +283,7 @@ public:
             return;
         m_buffer.clear();
         setError(ContentNotFoundError, "content not found");
-        emit error(ContentNotFoundError);
+        emit errorOccurred(ContentNotFoundError);
         setFinished(true);
         emit finished();
     }
@@ -319,7 +337,8 @@ public:
 
         NetworkReply *reply = new NetworkReply;
         QString filename = QQmlFile::urlToLocalFileOrQrc(url);
-        QTimer::singleShot(10, reply, [this, reply, filename]() {
+        QTimer::singleShot(QRandomGenerator::global()->bounded(20), reply,
+                           [this, reply, filename]() {
             if (filename.isEmpty()) {
                 reply->fail();
             } else {
@@ -347,6 +366,10 @@ public:
             if (line.isEmpty())
                 continue;
             QList<QByteArray> segments = line.split(' ');
+            if (segments.startsWith("optional")) {
+                result.append("optional ");
+                segments.removeFirst();
+            }
             if (segments.startsWith("plugin")) {
                 if (segments.length() == 2) {
                     segments.append(path);
@@ -384,6 +407,19 @@ public:
     }
 };
 
+class ManualRedirectNetworkAccessManagerFactory : public QQmlNetworkAccessManagerFactory
+{
+public:
+    QStringList loadedFiles;
+
+    QNetworkAccessManager *create(QObject *parent) override
+    {
+        NetworkAccessManager *manager = new NetworkAccessManager(parent);
+        manager->setRedirectPolicy(QNetworkRequest::ManualRedirectPolicy);
+        return manager;
+    }
+};
+
 class UrlInterceptor : public QQmlAbstractUrlInterceptor
 {
 public:
@@ -403,6 +439,9 @@ public:
 
 void tst_QQMLTypeLoader::intercept()
 {
+#ifdef Q_OS_ANDROID
+    QSKIP("Loading dynamic plugins does not work on Android");
+#endif
     qmlClearTypeRegistrations();
 
     QQmlEngine engine;
@@ -412,7 +451,7 @@ void tst_QQMLTypeLoader::intercept()
     UrlInterceptor interceptor;
     NetworkAccessManagerFactory factory;
 
-    engine.setUrlInterceptor(&interceptor);
+    engine.addUrlInterceptor(&interceptor);
     engine.setNetworkAccessManagerFactory(&factory);
 
     QQmlComponent component(&engine, testFileUrl("test_intercept.qml"));
@@ -443,7 +482,9 @@ void tst_QQMLTypeLoader::redirect()
     QVERIFY(server.serveDirectory(dataDirectory()));
     server.addRedirect("Base.qml", server.urlString("/redirected/Redirected.qml"));
 
+    ManualRedirectNetworkAccessManagerFactory factory;
     QQmlEngine engine;
+    engine.setNetworkAccessManagerFactory(&factory);
     QQmlComponent component(&engine);
     component.loadUrl(server.urlString("/Load.qml"), QQmlComponent::Asynchronous);
     QTRY_VERIFY2(component.isReady(), qPrintable(component.errorString()));
@@ -492,6 +533,9 @@ static void checkCleanCacheLoad(const QString &testCase)
 
 void tst_QQMLTypeLoader::multiSingletonModule()
 {
+#ifdef Q_OS_ANDROID
+    QSKIP("Android seems to have problems with QProcess");
+#endif
     qmlClearTypeRegistrations();
     QQmlEngine engine;
     engine.addImportPath(testFile("imports"));
@@ -512,6 +556,9 @@ void tst_QQMLTypeLoader::multiSingletonModule()
 
 void tst_QQMLTypeLoader::implicitComponentModule()
 {
+#ifdef Q_OS_ANDROID
+    QSKIP("Android seems to have problems with QProcess");
+#endif
     QQmlEngine engine;
     QQmlComponent component(&engine, testFileUrl("implicitcomponent.qml"));
     QCOMPARE(component.status(), QQmlComponent::Ready);
@@ -561,10 +608,25 @@ void tst_QQMLTypeLoader::implicitImport()
 {
     QQmlEngine engine;
     engine.addImportPath(testFile("imports"));
-    QQmlComponent component(&engine, testFileUrl("implicitimporttest.qml"));
-    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
-    QScopedPointer<QObject> obj(component.create());
-    QVERIFY(!obj.isNull());
+    {
+        QQmlComponent component(&engine, testFileUrl("implicitimporttest.qml"));
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+        QScopedPointer<QObject> obj(component.create());
+        QVERIFY(!obj.isNull());
+    }
+    {
+        QQmlComponent component(&engine, testFileUrl("implicitautoimporttest.qml"));
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+        QScopedPointer<QObject> obj(component.create());
+        QVERIFY(!obj.isNull());
+    }
+    {
+        QQmlComponent component(&engine, testFileUrl("implicitversionedimporttest.qml"));
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+        QScopedPointer<QObject> obj(component.create());
+        QVERIFY(!obj.isNull());
+    }
+
 }
 
 void tst_QQMLTypeLoader::compositeSingletonCycle()
@@ -599,6 +661,79 @@ void tst_QQMLTypeLoader::circularDependency()
     QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Cyclic dependency detected between (.*) and (.*)"));
     QQmlComponent component(&engine, testFileUrl("CircularDependency.qml"));
     QCOMPARE(component.status(), QQmlComponent::Null);
+}
+
+void tst_QQMLTypeLoader::declarativeCppAndQmlDir()
+{
+    QQmlEngine engine;
+    engine.addImportPath("qrc:/");
+    QQmlComponent component(&engine, testFileUrl("cppAndQmlDir.qml"));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    QScopedPointer<QObject> root(component.create());
+    QCOMPARE(root->objectName(), "Singleton");
+}
+
+static void getCompilationUnitAndRuntimeInfo(QQmlRefPointer<QV4::ExecutableCompilationUnit> &unit,
+                                             QList<int> &runtimeFunctionIndices, const QUrl &url,
+                                             QQmlEngine *engine)
+{
+    QQmlTypeLoader &loader = QQmlEnginePrivate::get(engine)->typeLoader;
+    auto typeData = loader.getType(url);
+    QVERIFY(typeData);
+
+    if (typeData->isError()) {
+        const auto errors = typeData->errors();
+        for (const QQmlError &e : errors)
+            qDebug().noquote() << e.toString();
+        QVERIFY(!typeData->isError()); // this returns
+    }
+
+    unit = typeData->compilationUnit();
+    QVERIFY(unit);
+
+    // the QmlIR::Document is deleted once loader.getType() is complete, so
+    // restore it
+    QmlIR::Document restoredIrDocument(false);
+    QQmlIRLoader irLoader(unit->unitData(), &restoredIrDocument);
+    irLoader.load();
+    QCOMPARE(restoredIrDocument.objects.size(), 1);
+
+    const QmlIR::Object *irRoot = restoredIrDocument.objects.at(0);
+    runtimeFunctionIndices = QList<int>(irRoot->runtimeFunctionIndices.begin(),
+                                        irRoot->runtimeFunctionIndices.end());
+}
+
+void tst_QQMLTypeLoader::signalHandlersAreCompatible()
+{
+    QQmlEngine engine;
+
+    QQmlRefPointer<QV4::ExecutableCompilationUnit> unitFromCachegen;
+    QList<int> runtimeFunctionIndicesFromCachegen;
+    getCompilationUnitAndRuntimeInfo(unitFromCachegen, runtimeFunctionIndicesFromCachegen,
+                                     // use qmlcachegen version
+                                     QUrl("qrc:/data/compilercompatibility/signalHandlers.qml"),
+                                     &engine);
+    if (QTest::currentTestFailed())
+        return;
+
+    QQmlRefPointer<QV4::ExecutableCompilationUnit> unitFromTypeCompiler;
+    QList<int> runtimeFunctionIndicesFromTypeCompiler;
+    getCompilationUnitAndRuntimeInfo(unitFromTypeCompiler, runtimeFunctionIndicesFromTypeCompiler,
+                                     // use qqmltypecompiler version
+                                     testFileUrl("compilercompatibility/signalHandlers.qml"),
+                                     &engine);
+    if (QTest::currentTestFailed())
+        return;
+
+    // this is a "bare minimum" test, but if this succeeds, we could test other
+    // things elsewhere
+    QCOMPARE(runtimeFunctionIndicesFromCachegen, runtimeFunctionIndicesFromTypeCompiler);
+    QCOMPARE(unitFromCachegen->runtimeFunctions.size(),
+             unitFromTypeCompiler->runtimeFunctions.size());
+    // make sure that units really come from different places (the machinery
+    // could in theory be smart enough to figure the qmlcachegen cached
+    // version), fairly questionable check but better than nothing
+    QVERIFY(unitFromCachegen->url() != unitFromTypeCompiler->url());
 }
 
 QTEST_MAIN(tst_QQMLTypeLoader)

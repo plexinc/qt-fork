@@ -48,10 +48,7 @@ QT_BEGIN_NAMESPACE
 namespace Qt3DInput {
 
 class QMouseDevicePrivate;
-class QMouseHandler;
-
 class QMouseInput;
-
 
 class Q_3DINPUTSHARED_EXPORT QMouseDevice : public Qt3DInput::QAbstractPhysicalDevice
 {
@@ -88,12 +85,8 @@ Q_SIGNALS:
     void sensitivityChanged(float value);
     void updateAxesContinuouslyChanged(bool updateAxesContinuously);
 
-protected:
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) override;
-
 private:
     Q_DECLARE_PRIVATE(QMouseDevice)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DInput

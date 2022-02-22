@@ -900,8 +900,9 @@ void BasicPortAllocatorSession::AddAllocatedPort(Port* port,
       this, &BasicPortAllocatorSession::OnCandidateError);
   port->SignalPortComplete.connect(this,
                                    &BasicPortAllocatorSession::OnPortComplete);
-  port->SignalDestroyed.connect(this,
-                                &BasicPortAllocatorSession::OnPortDestroyed);
+  port->SubscribePortDestroyed(
+      [this](PortInterface* port) { OnPortDestroyed(port); });
+
   port->SignalPortError.connect(this, &BasicPortAllocatorSession::OnPortError);
   RTC_LOG(LS_INFO) << port->ToString() << ": Added port to allocator";
 
@@ -979,8 +980,11 @@ void BasicPortAllocatorSession::OnCandidateError(
     const IceCandidateErrorEvent& event) {
   RTC_DCHECK_RUN_ON(network_thread_);
   RTC_DCHECK(FindPort(port));
-
-  SignalCandidateError(this, event);
+  if (event.address.empty()) {
+    candidate_error_events_.push_back(event);
+  } else {
+    SignalCandidateError(this, event);
+  }
 }
 
 Port* BasicPortAllocatorSession::GetBestTurnPortForNetwork(
@@ -1140,6 +1144,10 @@ void BasicPortAllocatorSession::MaybeSignalCandidatesAllocationDone() {
       RTC_LOG(LS_INFO) << "All candidates gathered for " << content_name()
                        << ":" << component() << ":" << generation();
     }
+    for (const auto& event : candidate_error_events_) {
+      SignalCandidateError(this, event);
+    }
+    candidate_error_events_.clear();
     SignalCandidatesAllocationDone(this);
   }
 }
@@ -1416,7 +1424,8 @@ void AllocationSequence::CreateUDPPorts() {
     // UDPPort.
     if (IsFlagSet(PORTALLOCATOR_ENABLE_SHARED_SOCKET)) {
       udp_port_ = port.get();
-      port->SignalDestroyed.connect(this, &AllocationSequence::OnPortDestroyed);
+      port->SubscribePortDestroyed(
+          [this](PortInterface* port) { OnPortDestroyed(port); });
 
       // If STUN is not disabled, setting stun server address to port.
       if (!IsFlagSet(PORTALLOCATOR_DISABLE_STUN)) {
@@ -1554,8 +1563,10 @@ void AllocationSequence::CreateTurnPort(const RelayServerConfig& config) {
 
       relay_ports_.push_back(port.get());
       // Listen to the port destroyed signal, to allow AllocationSequence to
-      // remove entrt from it's map.
-      port->SignalDestroyed.connect(this, &AllocationSequence::OnPortDestroyed);
+      // remove the entry from it's map.
+      port->SubscribePortDestroyed(
+          [this](PortInterface* port) { OnPortDestroyed(port); });
+
     } else {
       port = session_->allocator()->relay_port_factory()->Create(
           args, session_->allocator()->min_port(),

@@ -29,7 +29,7 @@
 
 #include "scatteritemmodelhandler_p.h"
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 static const int noRoleIndex = -1;
 
@@ -54,7 +54,7 @@ ScatterItemModelHandler::~ScatterItemModelHandler()
 
 void ScatterItemModelHandler::handleDataChanged(const QModelIndex &topLeft,
                                                 const QModelIndex &bottomRight,
-                                                const QVector<int> &roles)
+                                                const QList<int> &roles)
 {
     // Do nothing if full reset already pending
     if (!m_fullReset) {
@@ -97,7 +97,7 @@ void ScatterItemModelHandler::handleRowsInserted(const QModelIndex &parent, int 
 
 void ScatterItemModelHandler::handleRowsRemoved(const QModelIndex &parent, int start, int end)
 {
-    Q_UNUSED(parent)
+    Q_UNUSED(parent);
 
     // Do nothing if full reset already pending
     if (!m_fullReset) {
@@ -211,10 +211,10 @@ void ScatterItemModelHandler::resolveModel()
     m_yPosReplace = m_proxy->yPosRoleReplace();
     m_zPosReplace = m_proxy->zPosRoleReplace();
     m_rotationReplace = m_proxy->rotationRoleReplace();
-    m_haveXPosPattern = !m_xPosPattern.isEmpty() && m_xPosPattern.isValid();
-    m_haveYPosPattern = !m_yPosPattern.isEmpty() && m_yPosPattern.isValid();
-    m_haveZPosPattern = !m_zPosPattern.isEmpty() && m_zPosPattern.isValid();
-    m_haveRotationPattern = !m_rotationPattern.isEmpty() && m_rotationPattern.isValid();
+    m_haveXPosPattern = !m_xPosPattern.namedCaptureGroups().isEmpty() && m_xPosPattern.isValid();
+    m_haveYPosPattern = !m_yPosPattern.namedCaptureGroups().isEmpty() && m_yPosPattern.isValid();
+    m_haveZPosPattern = !m_zPosPattern.namedCaptureGroups().isEmpty() && m_zPosPattern.isValid();
+    m_haveRotationPattern = !m_rotationPattern.namedCaptureGroups().isEmpty() && m_rotationPattern.isValid();
 
     QHash<int, QByteArray> roleHash = m_itemModel->roleNames();
     m_xPosRole = roleHash.key(m_proxy->xPosRole().toLatin1(), noRoleIndex);
@@ -241,4 +241,4 @@ void ScatterItemModelHandler::resolveModel()
     m_proxy->resetArray(m_proxyArray);
 }
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE

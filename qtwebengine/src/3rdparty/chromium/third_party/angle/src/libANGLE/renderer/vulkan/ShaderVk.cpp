@@ -17,7 +17,7 @@
 namespace rx
 {
 
-ShaderVk::ShaderVk(const gl::ShaderState &data) : ShaderImpl(data) {}
+ShaderVk::ShaderVk(const gl::ShaderState &state) : ShaderImpl(state) {}
 
 ShaderVk::~ShaderVk() {}
 
@@ -25,14 +25,22 @@ std::shared_ptr<WaitableCompileEvent> ShaderVk::compile(const gl::Context *conte
                                                         gl::ShCompilerInstance *compilerInstance,
                                                         ShCompileOptions options)
 {
-    ShCompileOptions compileOptions = SH_INITIALIZE_UNINITIALIZED_LOCALS;
+    ShCompileOptions compileOptions = 0;
 
     ContextVk *contextVk = vk::GetImpl(context);
 
     bool isWebGL = context->getExtensions().webglCompatibility;
-    if (isWebGL && mData.getShaderType() != gl::ShaderType::Compute)
+
+    if (isWebGL)
     {
-        compileOptions |= SH_INIT_OUTPUT_VARIABLES;
+        // Only webgl requires initialization of local variables, others don't.
+        // Extra initialization in spirv shader may affect performance.
+        compileOptions |= SH_INITIALIZE_UNINITIALIZED_LOCALS;
+
+        if (mState.getShaderType() != gl::ShaderType::Compute)
+        {
+            compileOptions |= SH_INIT_OUTPUT_VARIABLES;
+        }
     }
 
     if (contextVk->getFeatures().clampPointSize.enabled)
@@ -50,22 +58,46 @@ std::shared_ptr<WaitableCompileEvent> ShaderVk::compile(const gl::Context *conte
         compileOptions |= SH_EMULATE_SEAMFUL_CUBE_MAP_SAMPLING;
     }
 
-    if (contextVk->useOldRewriteStructSamplers())
-    {
-        compileOptions |= SH_USE_OLD_REWRITE_STRUCT_SAMPLERS;
-    }
-
     if (!contextVk->getFeatures().enablePrecisionQualifiers.enabled)
     {
         compileOptions |= SH_IGNORE_PRECISION_QUALIFIERS;
     }
 
-    return compileImpl(context, compilerInstance, mData.getSource(), compileOptions | options);
+    // Let compiler detect and emit early fragment test execution mode. We will remove it if
+    // context state does not allow it
+    compileOptions |= SH_EARLY_FRAGMENT_TESTS_OPTIMIZATION;
+
+    // Let compiler use specialized constant for pre-rotation.
+    if (!contextVk->getFeatures().forceDriverUniformOverSpecConst.enabled)
+    {
+        compileOptions |= SH_USE_SPECIALIZATION_CONSTANT;
+    }
+
+    if (contextVk->getFeatures().enablePreRotateSurfaces.enabled ||
+        contextVk->getFeatures().emulatedPrerotation90.enabled ||
+        contextVk->getFeatures().emulatedPrerotation180.enabled ||
+        contextVk->getFeatures().emulatedPrerotation270.enabled)
+    {
+        // Let compiler insert pre-rotation code.
+        compileOptions |= SH_ADD_PRE_ROTATION;
+    }
+
+    if (contextVk->getFeatures().supportsTransformFeedbackExtension.enabled)
+    {
+        compileOptions |= SH_ADD_VULKAN_XFB_EXTENSION_SUPPORT_CODE;
+    }
+    else if (mState.getShaderType() == gl::ShaderType::Vertex &&
+             contextVk->getFeatures().emulateTransformFeedback.enabled)
+    {
+        compileOptions |= SH_ADD_VULKAN_XFB_EMULATION_SUPPORT_CODE;
+    }
+
+    return compileImpl(context, compilerInstance, mState.getSource(), compileOptions | options);
 }
 
 std::string ShaderVk::getDebugInfo() const
 {
-    return mData.getTranslatedSource();
+    return mState.getTranslatedSource();
 }
 
 }  // namespace rx

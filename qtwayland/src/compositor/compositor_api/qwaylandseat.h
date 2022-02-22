@@ -35,8 +35,10 @@
 #include <QtCore/QString>
 
 #include <QtWaylandCompositor/qtwaylandcompositorglobal.h>
+#include <QtWaylandCompositor/qtwaylandqmlinclude.h>
 #include <QtWaylandCompositor/qwaylandcompositorextension.h>
 #include <QtWaylandCompositor/qwaylandkeyboard.h>
+#include <QtWaylandCompositor/qwaylandview.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -44,7 +46,6 @@ class QWaylandCompositor;
 class QWaylandSurface;
 class QKeyEvent;
 class QTouchEvent;
-class QWaylandView;
 class QInputEvent;
 class QWaylandSeatPrivate;
 class QWaylandDrag;
@@ -59,8 +60,15 @@ class Q_WAYLAND_COMPOSITOR_EXPORT QWaylandSeat : public QWaylandObject
 
 #if QT_CONFIG(draganddrop)
     Q_PROPERTY(QWaylandDrag *drag READ drag CONSTANT)
+    Q_MOC_INCLUDE("qwaylanddrag.h")
 #endif
     Q_PROPERTY(QWaylandKeymap *keymap READ keymap CONSTANT)
+    Q_MOC_INCLUDE("qwaylandkeymap.h")
+    Q_MOC_INCLUDE("qwaylandview.h")
+
+    QML_NAMED_ELEMENT(WaylandSeat)
+    QML_ADDED_IN_VERSION(1, 0)
+    QML_UNCREATABLE("")
 public:
     enum CapabilityFlag {
         // The order should match the enum WL_SEAT_CAPABILITY_*
@@ -126,7 +134,10 @@ public:
 Q_SIGNALS:
     void mouseFocusChanged(QWaylandView *newFocus, QWaylandView *oldFocus);
     void keyboardFocusChanged(QWaylandSurface *newFocus, QWaylandSurface *oldFocus);
+#if QT_DEPRECATED_SINCE(6, 1)
     void cursorSurfaceRequest(QWaylandSurface *surface, int hotspotX, int hotspotY);
+#endif
+    void cursorSurfaceRequested(QWaylandSurface *surface, int hotspotX, int hotspotY, QWaylandClient *client);
 
 private:
     void handleMouseFocusDestroyed();

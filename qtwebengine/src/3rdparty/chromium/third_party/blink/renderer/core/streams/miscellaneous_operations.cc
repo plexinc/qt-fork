@@ -7,7 +7,7 @@
 
 #include "third_party/blink/renderer/core/streams/miscellaneous_operations.h"
 
-#include <cmath>
+#include <math.h>
 
 #include "base/optional.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_readable_stream.h"
@@ -94,7 +94,7 @@ class JavaScriptSizeAlgorithm final : public StrategySizeAlgorithm {
     return number->Value();
   }
 
-  void Trace(Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(function_);
     StrategySizeAlgorithm::Trace(visitor);
   }
@@ -138,7 +138,7 @@ class JavaScriptStreamAlgorithmWithoutExtraArg final : public StreamAlgorithm {
                        recv_.NewLocal(isolate), argc, argv);
   }
 
-  void Trace(Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(recv_);
     visitor->Trace(method_);
     StreamAlgorithm::Trace(visitor);
@@ -183,7 +183,7 @@ class JavaScriptStreamAlgorithmWithExtraArg final : public StreamAlgorithm {
                        recv_.NewLocal(isolate), full_argc, full_argv);
   }
 
-  void Trace(Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(recv_);
     visitor->Trace(method_);
     visitor->Trace(extra_arg_);
@@ -194,6 +194,48 @@ class JavaScriptStreamAlgorithmWithExtraArg final : public StreamAlgorithm {
   TraceWrapperV8Reference<v8::Object> recv_;
   TraceWrapperV8Reference<v8::Function> method_;
   TraceWrapperV8Reference<v8::Value> extra_arg_;
+};
+
+class JavaScriptByteStreamStartAlgorithm : public StreamStartAlgorithm {
+ public:
+  JavaScriptByteStreamStartAlgorithm(v8::Isolate* isolate,
+                                     v8::Local<v8::Function> method,
+                                     v8::Local<v8::Object> recv,
+                                     v8::Local<v8::Value> controller)
+      : recv_(isolate, recv),
+        method_(isolate, method),
+        controller_(isolate, controller) {}
+
+  v8::MaybeLocal<v8::Promise> Run(ScriptState* script_state,
+                                  ExceptionState& exception_state) override {
+    auto* isolate = script_state->GetIsolate();
+
+    auto value_maybe =
+        Call1(script_state, method_.NewLocal(isolate), recv_.NewLocal(isolate),
+              controller_.NewLocal(isolate), exception_state);
+    if (exception_state.HadException()) {
+      return v8::MaybeLocal<v8::Promise>();
+    }
+
+    v8::Local<v8::Value> value;
+    if (!value_maybe.ToLocal(&value)) {
+      exception_state.ThrowTypeError("internal error");
+      return v8::MaybeLocal<v8::Promise>();
+    }
+    return PromiseResolve(script_state, value);
+  }
+
+  void Trace(Visitor* visitor) const override {
+    visitor->Trace(recv_);
+    visitor->Trace(method_);
+    visitor->Trace(controller_);
+    StreamStartAlgorithm::Trace(visitor);
+  }
+
+ private:
+  TraceWrapperV8Reference<v8::Object> recv_;
+  TraceWrapperV8Reference<v8::Function> method_;
+  TraceWrapperV8Reference<v8::Value> controller_;
 };
 
 class JavaScriptStreamStartAlgorithm : public StreamStartAlgorithm {
@@ -226,7 +268,7 @@ class JavaScriptStreamStartAlgorithm : public StreamStartAlgorithm {
     return PromiseResolve(script_state, value);
   }
 
-  void Trace(Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(recv_);
     visitor->Trace(controller_);
     StreamStartAlgorithm::Trace(visitor);
@@ -343,8 +385,22 @@ CORE_EXPORT StreamStartAlgorithm* CreateStartAlgorithm(
       controller);
 }
 
+CORE_EXPORT StreamStartAlgorithm* CreateByteStreamStartAlgorithm(
+    ScriptState* script_state,
+    v8::Local<v8::Object> underlying_object,
+    v8::Local<v8::Value> method,
+    v8::Local<v8::Value> controller) {
+  return MakeGarbageCollected<JavaScriptByteStreamStartAlgorithm>(
+      script_state->GetIsolate(), method.As<v8::Function>(), underlying_object,
+      controller);
+}
+
 CORE_EXPORT StreamStartAlgorithm* CreateTrivialStartAlgorithm() {
   return MakeGarbageCollected<TrivialStartAlgorithm>();
+}
+
+CORE_EXPORT StreamAlgorithm* CreateTrivialStreamAlgorithm() {
+  return MakeGarbageCollected<TrivialStreamAlgorithm>();
 }
 
 CORE_EXPORT v8::MaybeLocal<v8::Value> CallOrNoop1(
@@ -374,6 +430,21 @@ CORE_EXPORT v8::MaybeLocal<v8::Value> CallOrNoop1(
   v8::TryCatch try_catch(script_state->GetIsolate());
   v8::MaybeLocal<v8::Value> result = method.As<v8::Function>()->Call(
       script_state->GetContext(), object, 1, &arg0);
+  if (result.IsEmpty()) {
+    exception_state.RethrowV8Exception(try_catch.Exception());
+    return v8::MaybeLocal<v8::Value>();
+  }
+  return result;
+}
+
+CORE_EXPORT v8::MaybeLocal<v8::Value> Call1(ScriptState* script_state,
+                                            v8::Local<v8::Function> method,
+                                            v8::Local<v8::Object> object,
+                                            v8::Local<v8::Value> arg0,
+                                            ExceptionState& exception_state) {
+  v8::TryCatch try_catch(script_state->GetIsolate());
+  v8::MaybeLocal<v8::Value> result =
+      method->Call(script_state->GetContext(), object, 1, &arg0);
   if (result.IsEmpty()) {
     exception_state.RethrowV8Exception(try_catch.Exception());
     return v8::MaybeLocal<v8::Value>();
@@ -411,7 +482,7 @@ CORE_EXPORT double ValidateAndNormalizeHighWaterMark(
   // https://streams.spec.whatwg.org/#validate-and-normalize-high-water-mark
   // 2. If highWaterMark is NaN or highWaterMark < 0, throw a RangeError
   //    exception.
-  if (std::isnan(high_water_mark) || high_water_mark < 0) {
+  if (isnan(high_water_mark) || high_water_mark < 0) {
     exception_state.ThrowRangeError(
         "A queuing strategy's highWaterMark property must be a nonnegative, "
         "non-NaN number");
@@ -485,7 +556,7 @@ void ScriptValueToObject(ScriptState* script_state,
                          v8::Local<v8::Object>* object,
                          ExceptionState& exception_state) {
   auto* isolate = script_state->GetIsolate();
-  CHECK(!value.IsEmpty());
+  DCHECK(!value.IsEmpty());
   auto v8_value = value.V8Value();
   // All the object parameters in the standard are default-initialised to an
   // empty object.
@@ -560,6 +631,10 @@ double StrategyUnpacker::GetHighWaterMark(
   // 8. Set highWaterMark to ? ValidateAndNormalizeHighWaterMark(highWaterMark)
   return ValidateAndNormalizeHighWaterMark(high_water_mark_as_number->Value(),
                                            exception_state);
+}
+
+bool StrategyUnpacker::IsSizeUndefined() const {
+  return size_->IsUndefined();
 }
 
 }  // namespace blink

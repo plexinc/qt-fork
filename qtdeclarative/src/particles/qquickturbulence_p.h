@@ -63,6 +63,7 @@ class QQuickTurbulenceAffector : public QQuickParticleAffector
     Q_PROPERTY(qreal strength READ strength WRITE setStrength NOTIFY strengthChanged)
     Q_PROPERTY(QUrl noiseSource READ noiseSource WRITE setNoiseSource NOTIFY noiseSourceChanged)
     QML_NAMED_ELEMENT(Turbulence)
+    QML_ADDED_IN_VERSION(2, 0)
 
 public:
     explicit QQuickTurbulenceAffector(QQuickItem *parent = 0);
@@ -82,7 +83,7 @@ Q_SIGNALS:
 
     void strengthChanged(qreal arg);
 
-    void noiseSourceChanged(QUrl arg);
+    void noiseSourceChanged(const QUrl &arg);
 
 public Q_SLOTS:
 
@@ -94,7 +95,7 @@ public Q_SLOTS:
         }
     }
 
-    void setNoiseSource(QUrl arg)
+    void setNoiseSource(const QUrl &arg)
     {
         if (m_noiseSource != arg) {
             m_noiseSource = arg;
@@ -104,15 +105,13 @@ public Q_SLOTS:
     }
 
 protected:
-    void geometryChanged(const QRectF &newGeometry,
-                         const QRectF &oldGeometry) override;
+    void geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry) override;
 private:
     void ensureInit();
     void mapUpdate();
     void initializeGrid();
     qreal boundsRespectingField(int x, int y);
     qreal m_strength;
-    qreal m_lastT;
     int m_gridSize;
     qreal** m_field;
     QPointF** m_vectorField;

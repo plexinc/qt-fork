@@ -46,16 +46,16 @@
 #include <limits.h>
 #include <math.h>
 
-#include "../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 
 class tst_qquickanimations : public QQmlDataTest
 {
     Q_OBJECT
 public:
-    tst_qquickanimations() {}
+    tst_qquickanimations() : QQmlDataTest(QT_QMLTEST_DATADIR) {}
 
 private slots:
-    void initTestCase()
+    void initTestCase() override
     {
         QQmlEngine engine;  // ensure types are registered
         QQmlDataTest::initTestCase();
@@ -116,6 +116,7 @@ private slots:
     void fastFlickingBug();
     void opacityAnimationFromZero();
     void alwaysRunToEndInSequentialAnimationBug();
+    void cleanupWhenRenderThreadStops();
 };
 
 #define QTIMED_COMPARE(lhs, rhs) do { \
@@ -217,7 +218,7 @@ void tst_qquickanimations::simpleColor()
     QVERIFY(animation.isPaused());
     animation.setCurrentTime(125);
     QCOMPARE(animation.currentTime(), 125);
-    QCOMPARE(rect.color(), QColor::fromRgbF(0.498039, 0, 0.498039, 1));
+    QCOMPARE(rect.color(), QColor::fromRgbF(0.498039f, 0, 0.498039f, 1));
 
     rect.setColor(QColor("green"));
     animation.setFrom(QColor("blue"));
@@ -228,7 +229,7 @@ void tst_qquickanimations::simpleColor()
     QCOMPARE(rect.color(), QColor("blue"));
     QVERIFY(animation.isRunning());
     animation.setCurrentTime(125);
-    QCOMPARE(rect.color(), QColor::fromRgbF(0.498039, 0, 0.498039, 1));
+    QCOMPARE(rect.color(), QColor::fromRgbF(0.498039f, 0, 0.498039f, 1));
 }
 
 void tst_qquickanimations::simpleRotation()
@@ -1235,7 +1236,7 @@ void tst_qquickanimations::easingProperties()
 
     {
         QQmlEngine engine;
-        QString componentStr = "import QtQuick 2.0\nPropertyAnimation { easing.type: \"Bezier\"; easing.bezierCurve: [0.5, 0.2, 0.13, 0.65, 1.0, 1.0] }";
+        QString componentStr = "import QtQuick 2.0\nPropertyAnimation { easing.type: \"BezierSpline\"; easing.bezierCurve: [0.5, 0.2, 0.13, 0.65, 1.0, 1.0] }";
         QQmlComponent animationComponent(&engine);
         animationComponent.setData(componentStr.toLatin1(), QUrl::fromLocalFile(""));
         QScopedPointer<QObject> obj(animationComponent.create());
@@ -1543,7 +1544,7 @@ void tst_qquickanimations::loopingBug()
     QVERIFY(anim != nullptr);
     QCOMPARE(anim->qtAnimation()->totalDuration(), 300);
     QCOMPARE(anim->isRunning(), true);
-    QTRY_COMPARE(static_cast<QAnimationGroupJob*>(anim->qtAnimation())->firstChild()->currentLoop(), 2);
+    QTRY_COMPARE(static_cast<QAnimationGroupJob*>(anim->qtAnimation())->children()->first()->currentLoop(), 2);
     QTRY_COMPARE(anim->isRunning(), false);
 
     QQuickRectangle *rect = obj->findChild<QQuickRectangle*>();
@@ -1996,6 +1997,19 @@ void tst_qquickanimations::alwaysRunToEndInSequentialAnimationBug()
     QVERIFY(root->property("onStoppedCalled").value<bool>());
     QVERIFY(root->property("onFinishedCalled").value<bool>());
     QCOMPARE(whiteRect->property("opacity").value<qreal>(),1.0);
+}
+
+void tst_qquickanimations::cleanupWhenRenderThreadStops()
+{
+    QQuickView view(QUrl::fromLocalFile("data/cleanupWhenRenderThreadStops.qml"));
+    view.show();
+    view.setPersistentGraphics(false);
+    view.setPersistentSceneGraph(false);
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
+    QTest::qWait(50);
+    view.hide();
+    view.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
 }
 
 QTEST_MAIN(tst_qquickanimations)

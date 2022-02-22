@@ -15,6 +15,7 @@
 #include "base/memory/scoped_refptr.h"
 #include "base/sequence_checker.h"
 #include "media/base/media_export.h"
+#include "media/base/supported_video_decoder_config.h"
 #include "media/base/video_decoder_config.h"
 #include "media/base/video_frame_pool.h"
 #include "media/filters/offloading_video_decoder.h"
@@ -28,6 +29,8 @@ class MediaLog;
 
 class MEDIA_EXPORT Gav1VideoDecoder : public OffloadableVideoDecoder {
  public:
+  static SupportedVideoDecoderConfigs SupportedConfigs();
+
   explicit Gav1VideoDecoder(MediaLog* media_log,
                             OffloadState offload_state = OffloadState::kNormal);
   ~Gav1VideoDecoder() override;
@@ -36,7 +39,7 @@ class MEDIA_EXPORT Gav1VideoDecoder : public OffloadableVideoDecoder {
 
   // VideoDecoder implementation.
   std::string GetDisplayName() const override;
-  int GetMaxDecodeRequests() const override;
+  VideoDecoderType GetDecoderType() const override;
   void Initialize(const VideoDecoderConfig& config,
                   bool low_delay,
                   CdmContext* cdm_context,
@@ -60,22 +63,10 @@ class MEDIA_EXPORT Gav1VideoDecoder : public OffloadableVideoDecoder {
     kError,
   };
 
-  struct DecodeRequest {
-    DecodeRequest(scoped_refptr<DecoderBuffer> buffer, DecodeCB decode_cb);
-    ~DecodeRequest();
-    DecodeRequest() = delete;
-    DecodeRequest(const DecodeRequest&) = delete;
-    DecodeRequest& operator=(const DecodeRequest&) = delete;
-    DecodeRequest(DecodeRequest&& other);
-
-    const scoped_refptr<DecoderBuffer> buffer;
-    DecodeCB decode_cb;
-  };
-
   void CloseDecoder();
-  void SetError();
-  bool EnqueueRequest(DecodeRequest request);
-  bool MaybeDequeueFrames();
+
+  // Invokes the decoder and calls |output_cb_| for any returned frames.
+  bool DecodeBuffer(scoped_refptr<DecoderBuffer> buffer);
 
   // Used to report error messages to the client.
   MediaLog* const media_log_;
@@ -89,10 +80,8 @@ class MEDIA_EXPORT Gav1VideoDecoder : public OffloadableVideoDecoder {
 
   // A decoded buffer used in libgav1 is allocated and managed by
   // |frame_pool_|. The buffer can be reused only if libgav1's decoder doesn't
-  //  use the buffer and rendering the frame is complete.
+  // use the buffer and rendering the frame is complete.
   VideoFramePool frame_pool_;
-
-  base::queue<DecodeRequest> decode_queue_;
 
   OutputCB output_cb_;
   std::unique_ptr<libgav1::Decoder> libgav1_decoder_;

@@ -51,12 +51,12 @@
 // We mean it.
 //
 
-#include "QtCore/qiodevice.h"
 #include "QtCore/qbytearray.h"
+#include "QtCore/qiodevice.h"
+#include "QtCore/qlist.h"
 #include "QtCore/qobjectdefs.h"
 #include "QtCore/qstring.h"
 #include "private/qringbuffer_p.h"
-#include "QtCore/qvector.h"
 #ifndef QT_NO_QOBJECT
 #include "private/qobject_p.h"
 #endif
@@ -80,13 +80,17 @@ public:
     QIODevicePrivate();
     virtual ~QIODevicePrivate();
 
-    QIODevice::OpenMode openMode;
-    QString errorString;
+    // The size of this class is a subject of the library hook data.
+    // When adding a new member, do not make gaps and be aware
+    // about the padding. Accordingly, adjust offsets in
+    // tests/auto/other/toolsupport and bump the TypeInformationVersion
+    // field in src/corelib/global/qhooks.cpp, to notify the developers.
+    qint64 pos = 0;
+    qint64 devicePos = 0;
+    qint64 transactionPos = 0;
 
-    QVector<QRingBuffer> readBuffers;
-    QVector<QRingBuffer> writeBuffers;
-
-    class QRingBufferRef {
+    class QRingBufferRef
+    {
         QRingBuffer *m_buf;
         inline QRingBufferRef() : m_buf(nullptr) { }
         friend class QIODevicePrivate;
@@ -122,26 +126,30 @@ public:
 
     QRingBufferRef buffer;
     QRingBufferRef writeBuffer;
-    qint64 pos;
-    qint64 devicePos;
-    int readChannelCount;
-    int writeChannelCount;
-    int currentReadChannel;
-    int currentWriteChannel;
-    int readBufferChunkSize;
-    int writeBufferChunkSize;
-    qint64 transactionPos;
-    bool transactionStarted;
-    bool baseReadLineDataCalled;
+    const QByteArray *currentWriteChunk = nullptr;
+    int readChannelCount = 0;
+    int writeChannelCount = 0;
+    int currentReadChannel = 0;
+    int currentWriteChannel = 0;
+    int readBufferChunkSize = QIODEVICE_BUFFERSIZE;
+    int writeBufferChunkSize = 0;
+
+    QList<QRingBuffer> readBuffers;
+    QList<QRingBuffer> writeBuffers;
+    QString errorString;
+    QIODevice::OpenMode openMode = QIODevice::NotOpen;
+
+    bool transactionStarted = false;
+    bool baseReadLineDataCalled = false;
 
     virtual bool putCharHelper(char c);
 
-    enum AccessMode {
+    enum AccessMode : quint8 {
         Unset,
         Sequential,
         RandomAccess
     };
-    mutable AccessMode accessMode;
+    mutable AccessMode accessMode = Unset;
     inline bool isSequential() const
     {
         if (accessMode == Unset)
@@ -175,11 +183,10 @@ public:
     virtual qint64 peek(char *data, qint64 maxSize);
     virtual QByteArray peek(qint64 maxSize);
     qint64 skipByReading(qint64 maxSize);
-    // ### Qt6: consider replacing with a protected virtual QIODevice::skipData().
-    virtual qint64 skip(qint64 maxSize);
+    void write(const char *data, qint64 size);
 
 #ifdef QT_NO_QOBJECT
-    QIODevice *q_ptr;
+    QIODevice *q_ptr = nullptr;
 #endif
 };
 

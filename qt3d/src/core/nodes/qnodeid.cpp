@@ -93,7 +93,7 @@ namespace Qt3DCore {
  */
 
 /*!
- * \fn uint Qt3DCore::qHash(QNodeId id, uint seed = 0)
+ * \fn [nodeid-qhash] constexpr size_t Qt3DCore::qHash(QNodeId id, uint seed)
  * \relates Qt3DCore::QNodeId
  * \return hash of node with \a id and optional \a seed.
  */
@@ -101,7 +101,7 @@ namespace Qt3DCore {
 /*!
  * \return node id.
  */
-QNodeId QNodeId::createId() Q_DECL_NOTHROW
+QNodeId QNodeId::createId() noexcept
 {
     typedef
 #if defined(Q_ATOMIC_INT64_IS_SUPPORTED)

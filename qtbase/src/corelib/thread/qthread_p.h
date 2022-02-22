@@ -67,16 +67,6 @@
 #include <algorithm>
 #include <atomic>
 
-#ifdef Q_OS_WINRT
-namespace ABI {
-    namespace Windows {
-        namespace Foundation {
-            struct IAsyncAction;
-        }
-    }
-}
-#endif // Q_OS_WINRT
-
 QT_BEGIN_NAMESPACE
 
 class QAbstractEventDispatcher;
@@ -95,7 +85,7 @@ public:
         : receiver(r), event(e), priority(p)
     { }
 };
-Q_DECLARE_TYPEINFO(QPostEvent, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QPostEvent, Q_RELOCATABLE_TYPE);
 
 inline bool operator<(const QPostEvent &first, const QPostEvent &second)
 {
@@ -104,7 +94,7 @@ inline bool operator<(const QPostEvent &first, const QPostEvent &second)
 
 // This class holds the list of posted events.
 //  The list has to be kept sorted by priority
-class QPostEventList : public QVector<QPostEvent>
+class QPostEventList : public QList<QPostEvent>
 {
 public:
     // recursion == recursion count for sendPostedEvents()
@@ -117,11 +107,10 @@ public:
 
     QMutex mutex;
 
-    inline QPostEventList()
-        : QVector<QPostEvent>(), recursion(0), startOffset(0), insertionOffset(0)
-    { }
+    inline QPostEventList() : QList<QPostEvent>(), recursion(0), startOffset(0), insertionOffset(0) { }
 
-    void addEvent(const QPostEvent &ev) {
+    void addEvent(const QPostEvent &ev)
+    {
         int priority = ev.priority;
         if (isEmpty() ||
             constLast().priority >= priority ||
@@ -137,10 +126,11 @@ public:
             insert(at, ev);
         }
     }
+
 private:
     //hides because they do not keep that list sorted. addEvent must be used
-    using QVector<QPostEvent>::append;
-    using QVector<QPostEvent>::insert;
+    using QList<QPostEvent>::append;
+    using QList<QPostEvent>::insert;
 };
 
 #if QT_CONFIG(thread)
@@ -174,7 +164,7 @@ public:
     int returnCode;
 
     uint stackSize;
-    QThread::Priority priority;
+    std::underlying_type_t<QThread::Priority> priority;
 
     static QThread *threadForId(int id);
 
@@ -188,7 +178,7 @@ public:
 
 #ifdef Q_OS_WIN
     static unsigned int __stdcall start(void *) noexcept;
-    static void finish(void *, bool lockAnyway=true) noexcept;
+    static void finish(void *, bool lockAnyway = true) noexcept;
 
     Qt::HANDLE handle;
     unsigned int id;
@@ -220,14 +210,14 @@ public:
 class QThreadPrivate : public QObjectPrivate
 {
 public:
-    QThreadPrivate(QThreadData *d = 0);
+    QThreadPrivate(QThreadData *d = nullptr);
     ~QThreadPrivate();
 
     mutable QMutex mutex;
     QThreadData *data;
     bool running = false;
 
-    static void setCurrentThread(QThread*) {}
+    static void setCurrentThread(QThread *) { }
     static QThread *threadForId(int) { return QThread::currentThread(); }
     static QAbstractEventDispatcher *createEventDispatcher(QThreadData *data);
 
@@ -246,9 +236,6 @@ public:
     ~QThreadData();
 
     static Q_AUTOTEST_EXPORT QThreadData *current(bool createIfNecessary = true);
-#ifdef Q_OS_WINRT
-    static void setMainThread();
-#endif
     static void clearCurrentThreadData();
     static QThreadData *get2(QThread *thread)
     { Q_ASSERT_X(thread != nullptr, "QThread", "internal error"); return thread->d_func()->data; }
@@ -280,7 +267,7 @@ public:
         static const uint Count = 2;
 
         uint idx;
-        const char* locations[Count];
+        const char *locations[Count];
 
     public:
         FlaggedDebugSignatures() : idx(0)
@@ -305,7 +292,7 @@ public:
     QAtomicPointer<QThread> thread;
     QAtomicPointer<void> threadId;
     QAtomicPointer<QAbstractEventDispatcher> eventDispatcher;
-    QVector<void *> tls;
+    QList<void *> tls;
     FlaggedDebugSignatures flaggedSignatures;
 
     bool quitNow;

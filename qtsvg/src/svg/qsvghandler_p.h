@@ -73,8 +73,8 @@ class QXmlStreamReader;
 
 struct QSvgCssAttribute
 {
-    QXmlStreamStringRef name;
-    QXmlStreamStringRef value;
+    QString name;
+    QString value;
 };
 
 #endif
@@ -128,7 +128,7 @@ public:
     int animationDuration() const;
 
 #ifndef QT_NO_CSSPARSER
-    void parseCSStoXMLAttrs(const QString &css, QVector<QSvgCssAttribute> *attributes);
+    void parseCSStoXMLAttrs(const QString &css, QList<QSvgCssAttribute> *attributes);
 #endif
 
     inline QPen defaultPen() const
@@ -136,17 +136,18 @@ public:
 
 public:
     bool startElement(const QString &localName, const QXmlStreamAttributes &attributes);
-    bool endElement(const QStringRef &localName);
-    bool characters(const QStringRef &str);
+    bool endElement(QStringView localName);
+    bool characters(QStringView str);
     bool processingInstruction(const QString &target, const QString &data);
 
 private:
     void init();
 
     QSvgTinyDocument *m_doc;
-    QStack<QSvgNode*> m_nodes;
-
-    QList<QSvgNode*>  m_resolveNodes;
+    QStack<QSvgNode *> m_nodes;
+    // TODO: This is only needed during parsing, so it unnecessarily takes up space after that.
+    // Temporary container for <use> nodes which haven't been resolved yet.
+    QList<QSvgUse *> m_toBeResolved;
 
     enum CurrentNode
     {

@@ -58,8 +58,7 @@ RemoteDeviceManager::RemoteDeviceManager(
         const QBluetoothAddress &address, QObject *parent)
     : QObject(parent), localAddress(address)
 {
-    if (!isBluez5())
-        return;
+    initializeBluez5();
 
     bool ok = false;
     adapterPath = findAdapterForAddress(address, &ok);
@@ -68,8 +67,7 @@ RemoteDeviceManager::RemoteDeviceManager(
     }
 }
 
-bool RemoteDeviceManager::scheduleJob(
-        JobType job, const QVector<QBluetoothAddress> &remoteDevices)
+bool RemoteDeviceManager::scheduleJob(JobType job, const QList<QBluetoothAddress> &remoteDevices)
 {
     if (adapterPath.isEmpty())
         return false;
@@ -106,7 +104,7 @@ void RemoteDeviceManager::prepareNextJob()
     jobQueue.pop_front();
     jobInProgress = false;
 
-    qDebug(QT_BT_BLUEZ) << "RemoteDeviceManager job queue status:" << jobQueue.empty();
+    qCDebug(QT_BT_BLUEZ) << "RemoteDeviceManager job queue status:" << jobQueue.empty();
     if (jobQueue.empty())
         emit finished();
     else
@@ -165,7 +163,7 @@ void RemoteDeviceManager::disconnectDevice(const QBluetoothAddress &remote)
     }
 
     if (!jobStarted) {
-        qDebug(QT_BT_BLUEZ) << "RemoteDeviceManager JobDisconnectDevice failed";
+        qCDebug(QT_BT_BLUEZ) << "RemoteDeviceManager JobDisconnectDevice failed";
         QTimer::singleShot(0, this, [this](){ prepareNextJob(); });
     }
 }

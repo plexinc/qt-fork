@@ -48,9 +48,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.15
-import QtQuick.Window 2.12
-import QtQuick3D 1.15
+import QtQuick
+import QtQuick3D
+import QtQuick.Controls
 
 Window {
     width: 1280
@@ -128,36 +128,6 @@ Window {
         }
         //! [point light]
 
-        //! [area light]
-        AreaLight {
-            id: light3
-            color: Qt.rgba(0.1, 0.1, 1.0, 1.0)
-            ambientColor: Qt.rgba(0.1, 0.1, 0.1, 1.0)
-            position: Qt.vector3d(-50, 250, 150)
-            eulerRotation.x: -90
-            width: 1000
-            height: 200
-            shadowMapFar: 2000
-            shadowMapQuality: Light.ShadowMapQualityHigh
-            visible: checkBox3.checked
-            castsShadow: checkBoxShadows.checked
-            brightness: slider3.sliderValue
-            SequentialAnimation on z {
-                loops: Animation.Infinite
-                NumberAnimation {
-                    to: -150
-                    duration: 2000
-                    easing.type: Easing.InOutQuad
-                }
-                NumberAnimation {
-                    to: 150
-                    duration: 2000
-                    easing.type: Easing.InOutQuad
-                }
-            }
-        }
-        //! [area light]
-
         //! [spot light]
         SpotLight {
             id: light4
@@ -205,25 +175,28 @@ Window {
         }
         //! [rectangle models]
 
-        //! [teapot model]
-        Model {
-            source: "teapot.mesh"
-            y: -100
-            scale: Qt.vector3d(75, 75, 75)
-            materials: [
-                DefaultMaterial {
-                    diffuseColor: Qt.rgba(0.9, 0.9, 0.9, 1.0)
-                }
-            ]
-
-            NumberAnimation  on eulerRotation.y {
-                loops: Animation.Infinite
-                duration: 5000
-                from: 0
-                to: -360
+        RotatingTeaPot {
+            visible: !checkBoxCustomMaterial.checked
+            material: DefaultMaterial {
+                diffuseColor: Qt.rgba(0.9, 0.9, 0.9, 1.0)
             }
+            animate: checkBoxAnimate.checked
         }
-        //! [teapot model]
+
+        RotatingTeaPot {
+            visible: checkBoxCustomMaterial.checked
+            material: CustomMaterial {
+                vertexShader: "custom.vert"
+                property real uAmplitude: 0.5
+                property real uTime: 0.0
+                SequentialAnimation on uTime {
+                    loops: -1
+                    NumberAnimation { from: 0.0; to: 10.0; duration: 10000 }
+                    NumberAnimation { from: 10.0; to: 0.0; duration: 10000 }
+                }
+            }
+            animate: checkBoxAnimate.checked
+        }
 
         //! [light models]
         Model {
@@ -254,19 +227,6 @@ Window {
         }
         Model {
             source: "#Cube"
-            position: light3.position
-            rotation: light3.rotation
-            property real size: slider3.highlight ? 0.2 : 0.1
-            scale: Qt.vector3d(size, size, size)
-            materials: [
-                DefaultMaterial {
-                    diffuseColor: light3.color
-                    opacity: 0.4
-                }
-            ]
-        }
-        Model {
-            source: "#Cube"
             position: light4.position
             rotation: light4.rotation
             property real size: slider4.highlight ? 0.2 : 0.1
@@ -281,73 +241,72 @@ Window {
         //! [light models]
     }
 
-    Rectangle {
-        anchors.fill: settingsArea
-        anchors.margins: -10
-        color: "#e0e0e0"
-        border.color: "#000000"
-        border.width: 1
-        opacity: 0.8
-    }
-
-    Column {
-        id: settingsArea
+    Frame {
         anchors.top: parent.top
         anchors.topMargin: 20
         anchors.left: parent.left
-        anchors.leftMargin: 20
-        CustomCheckBox {
-            id: checkBoxShadows
-            text: qsTr("Enable Shadows")
-            checked: true
+        anchors.leftMargin: 10
+        background: Rectangle {
+            color: "#e0e0e0"
+            border.color: "#000000"
+            border.width: 1
+            opacity: 0.8
         }
-        Item { width: 1; height: 40 }
-        CustomCheckBox {
-            id: checkBox1
-            text: qsTr("Directional Light")
-            checked: true
-        }
-        CustomSlider {
-            id: slider1
-            sliderValue: 50
-            fromValue: 0
-            toValue: 100
-        }
-        Item { width: 1; height: 40 }
-        CustomCheckBox {
-            id: checkBox2
-            text: qsTr("Point Light")
-            checked: true
-        }
-        CustomSlider {
-            id: slider2
-            sliderValue: 600
-            fromValue: 0
-            toValue: 1000
-        }
-        Item { width: 1; height: 40 }
-        CustomCheckBox {
-            id: checkBox3
-            text: qsTr("Area Light")
-            checked: true
-        }
-        CustomSlider {
-            id: slider3
-            sliderValue: 200
-            fromValue: 0
-            toValue: 500
-        }
-        Item { width: 1; height: 40 }
-        CustomCheckBox {
-            id: checkBox4
-            text: qsTr("Spot Light")
-            checked: true
-        }
-        CustomSlider {
-            id: slider4
-            sliderValue: 1000
-            fromValue: 0
-            toValue: 3000
+        Column {
+            id: settingsArea
+            CustomCheckBox {
+                id: checkBoxShadows
+                text: qsTr("Enable Shadows")
+                checked: true
+            }
+            Item { width: 1; height: 20 }
+            CustomCheckBox {
+                id: checkBoxAnimate
+                text: qsTr("Rotate Teapot")
+                checked: true
+            }
+            Item { width: 1; height: 20 }
+            CustomCheckBox {
+                id: checkBoxCustomMaterial
+                text: qsTr("Custom Material")
+                checked: false
+            }
+            Item { width: 1; height: 40 }
+            CustomCheckBox {
+                id: checkBox1
+                text: qsTr("Directional Light")
+                checked: true
+            }
+            CustomSlider {
+                id: slider1
+                sliderValue: 0.5
+                fromValue: 0
+                toValue: 1
+            }
+            Item { width: 1; height: 40 }
+            CustomCheckBox {
+                id: checkBox2
+                text: qsTr("Point Light")
+                checked: false
+            }
+            CustomSlider {
+                id: slider2
+                sliderValue: 6
+                fromValue: 0
+                toValue: 10
+            }
+            Item { width: 1; height: 40 }
+            CustomCheckBox {
+                id: checkBox4
+                text: qsTr("Spot Light")
+                checked: false
+            }
+            CustomSlider {
+                id: slider4
+                sliderValue: 10
+                fromValue: 0
+                toValue: 30
+            }
         }
     }
 }

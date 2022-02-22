@@ -31,6 +31,7 @@
 
 #include <QtQuick3DRuntimeRender/private/qssgrenderlayer_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrendereffect_p.h>
+#include <QtQuick3DRuntimeRender/private/qssgrendererimpllayerrenderdata_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -40,7 +41,6 @@ QSSGRenderLayer::QSSGRenderLayer()
     , antialiasingMode(QSSGRenderLayer::AAMode::NoAA)
     , antialiasingQuality(QSSGRenderLayer::AAQuality::High)
     , background(QSSGRenderLayer::Background::Transparent)
-    , blendType(QSSGRenderLayer::BlendMode::SourceOver)
     , horizontalFieldValues(QSSGRenderLayer::HorizontalField::LeftWidth)
     , m_left(0)
     , leftUnits(QSSGRenderLayer::UnitType::Percent)
@@ -61,28 +61,39 @@ QSSGRenderLayer::QSSGRenderLayer()
     , aoBias(0)
     , aoSamplerate(2)
     , aoDither(false)
-    , shadowStrength(0)
-    , shadowDist(10)
-    , shadowSoftness(100.0f)
-    , shadowBias(0)
     , lightProbe(nullptr)
-    , probeBright(100.0f)
-    , fastIbl(false)
+    , probeExposure(1.0f)
     , probeHorizon(-1.0f)
-    , probeFov(180.0f)
-    , lightProbe2(nullptr)
-    , probe2Fade(1.0f)
-    , probe2Window(1.0f)
-    , probe2Pos(0.5f)
     , temporalAAEnabled(false)
     , temporalAAStrength(0.3f)
     , ssaaMultiplier(1.5f)
-    , activeCamera(nullptr)
+    , explicitCamera(nullptr)
     , renderedCamera(nullptr)
+    , tonemapMode(TonemapMode::Linear)
 {
     flags.setFlag(Flag::LayerRenderToTarget);
     flags.setFlag(Flag::LayerEnableDepthTest);
     flags.setFlag(Flag::LayerEnableDepthPrePass);
+}
+
+QSSGRenderLayer::~QSSGRenderLayer()
+{
+    if (importSceneNode) {
+        // Remove the dummy from the list or it's siblings will still link to it.
+        children.remove(*importSceneNode);
+        importSceneNode->children.clear();
+        delete importSceneNode;
+        importSceneNode = nullptr;
+    }
+    delete renderData;
+}
+
+void QSSGRenderLayer::setProbeOrientation(const QVector3D &angles)
+{
+    if (angles != probeOrientationAngles) {
+        probeOrientationAngles = angles;
+        probeOrientation = QMatrix4x4(QQuaternion::fromEulerAngles(probeOrientationAngles).toRotationMatrix());
+    }
 }
 
 void QSSGRenderLayer::addEffect(QSSGRenderEffect &inEffect)
@@ -91,6 +102,33 @@ void QSSGRenderLayer::addEffect(QSSGRenderEffect &inEffect)
     inEffect.m_nextEffect = firstEffect;
     firstEffect = &inEffect;
     inEffect.m_layer = this;
+}
+
+void QSSGRenderLayer::setImportScene(QSSGRenderNode &rootNode)
+{
+    // We create a dummy node to represent the imported scene tree, as we
+    // do absolutely not want to change the node links in that tree!
+    if (importSceneNode == nullptr) {
+        importSceneNode = new QSSGRenderNode(QSSGRenderGraphObject::Type::ImportScene);
+        // Now we can add the dummy node to the layers child list
+        children.push_back(*importSceneNode);
+    } else {
+        importSceneNode->children.clear(); // Clear the list (or the list will modify the rootNode)
+    }
+
+    // The imported scene root node is now a child of the dummy node
+    auto &importChildren = importSceneNode->children;
+    Q_ASSERT(importChildren.isEmpty());
+    // We don't want the list to modify our node, so we set the tail and head manually.
+    importChildren.m_head = children.m_tail = &rootNode;
+}
+
+void QSSGRenderLayer::removeImportScene(QSSGRenderNode &rootNode)
+{
+    if (importSceneNode && !importSceneNode->children.isEmpty()) {
+        if (&importSceneNode->children.back() == &rootNode)
+            importSceneNode->children.clear();
+    }
 }
 
 QSSGRenderEffect *QSSGRenderLayer::getLastEffect()

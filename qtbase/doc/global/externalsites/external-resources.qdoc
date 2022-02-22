@@ -41,6 +41,30 @@
     \title Android: App Versioning
 */
 /*!
+    \externalpage https://developer.android.com/studio/command-line/adb#devicestatus
+    \title Android: Query for devices
+*/
+/*!
+    \externalpage https://developer.android.com/training/app-links/deep-linking
+    \title Android: Create Deep Links to App Content
+*/
+/*!
+    \externalpage https://developer.android.com/training/app-links/verify-site-associations
+    \title Android: Verify Android App Links
+*/
+/*!
+    \externalpage https://developer.apple.com/documentation/uikit/uiapplication/1622952-canopenurl
+    \title iOS: canOpenURL:
+*/
+/*!
+    \externalpage https://developer.apple.com/documentation/xcode/defining-a-custom-url-scheme-for-your-app
+    \title iOS: Defining a Custom URL Scheme for Your App
+*/
+/*!
+    \externalpage https://developer.apple.com/documentation/xcode/supporting-associated-domains
+    \title iOS: Supporting Associated Domains
+*/
+/*!
     \externalpage http://www.freedesktop.org/
     \title freedesktop.org
 */
@@ -110,6 +134,11 @@
 /*!
     \externalpage https://cmake.org/cmake/help/latest/command/target_link_libraries.html
     \title CMake target_link_libraries Documentation
+*/
+
+/*!
+    \externalpage https://conan.io/
+    \title Conan
 */
 
 /*!
@@ -204,8 +233,8 @@
 */
 
 /*!
-    \externalpage http://msdn.microsoft.com/en-us/directx/default.aspx
-    \title Direct X SDK
+    \externalpage https://docs.microsoft.com/en-us/windows/win32/winsock/socket-handles-2
+    \title Winsock 2 Socket Handle
 */
 
 /*!
@@ -319,12 +348,12 @@
 */
 
 /*!
-    \externalpage http://cgi.netscape.com/newsref/std/cookie_spec.html
+    \externalpage https://web.archive.org/web/20020803110822/http://wp.netscape.com/newsref/std/cookie_spec.html
     \title Netscape Cookie Specification
 */
 
 /*!
-    \externalpage http://msdn.microsoft.com/en-us/library/ms533046(VS.85).aspx
+    \externalpage https://docs.microsoft.com/en-us/previous-versions//ms533046(v=vs.85)
     \title Mitigating Cross-site Scripting With HTTP-only Cookies
 */
 
@@ -479,7 +508,7 @@
 */
 
 /*!
-    \externalpage http://msdn.microsoft.com/en-us/library/dd318066.aspx
+    \externalpage https://docs.microsoft.com/en-us/windows/win32/winauto/event-constants
     \title Microsoft Active Accessibility Event Constants
 */
 
@@ -521,4 +550,14 @@
 /*!
     \externalpage https://login.qt.io/
     \title Qt Account Sign-up
+*/
+
+/*!
+   \externalpage http://facebook.github.io/zstd/
+   \title Zstandard Site
+*/
+
+/*!
+    \externalpage https://www.unicode.org/
+    \title Unicode standard
 */

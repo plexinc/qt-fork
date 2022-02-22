@@ -7,7 +7,7 @@
 #include <string>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/compiler_specific.h"
 #include "base/i18n/time_formatting.h"
 #include "base/json/json_reader.h"
@@ -16,6 +16,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_avatar_icon_util.h"
@@ -30,6 +31,7 @@
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/chrome_pages.h"
+#include "chrome/browser/ui/signin_view_controller.h"
 #include "chrome/browser/ui/singleton_tabs.h"
 #include "chrome/browser/ui/webui/signin/login_ui_service.h"
 #include "chrome/browser/ui/webui/signin/login_ui_service_factory.h"
@@ -48,7 +50,6 @@
 #include "components/strings/grit/components_strings.h"
 #include "components/sync/base/passphrase_enums.h"
 #include "components/sync/base/user_selectable_type.h"
-#include "components/sync/driver/sync_service_utils.h"
 #include "components/sync/driver/sync_user_settings.h"
 #include "components/unified_consent/unified_consent_metrics.h"
 #include "content/public/browser/render_view_host.h"
@@ -60,7 +61,7 @@
 #include "ui/base/webui/web_ui_util.h"
 #include "ui/gfx/image/image.h"
 
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/ui/webui/profile_helper.h"
 #endif
 
@@ -80,12 +81,9 @@ struct SyncConfigInfo {
   SyncConfigInfo();
   ~SyncConfigInfo();
 
-  bool encrypt_all;
   bool sync_everything;
   syncer::UserSelectableTypeSet selected_types;
   bool payments_integration_enabled;
-  std::string passphrase;
-  bool set_new_passphrase;
 };
 
 bool IsSyncSubpage(const GURL& current_url) {
@@ -93,10 +91,7 @@ bool IsSyncSubpage(const GURL& current_url) {
 }
 
 SyncConfigInfo::SyncConfigInfo()
-    : encrypt_all(false),
-      sync_everything(false),
-      payments_integration_enabled(false),
-      set_new_passphrase(false) {}
+    : sync_everything(false), payments_integration_enabled(false) {}
 
 SyncConfigInfo::~SyncConfigInfo() {}
 
@@ -133,19 +128,6 @@ bool GetConfiguration(const std::string& json, SyncConfigInfo* config) {
       config->selected_types.Put(type);
   }
 
-  // Encryption settings.
-  if (!result->GetBoolean("encryptAllData", &config->encrypt_all)) {
-    DLOG(ERROR) << "GetConfiguration() not passed a value for encryptAllData";
-    return false;
-  }
-
-  // Passphrase settings.
-  if (result->GetString("passphrase", &config->passphrase) &&
-      !config->passphrase.empty() &&
-      !result->GetBoolean("setNewPassphrase", &config->set_new_passphrase)) {
-    DLOG(ERROR) << "GetConfiguration() not passed a set_new_passphrase value";
-    return false;
-  }
   return true;
 }
 
@@ -174,9 +156,12 @@ std::string GetSyncErrorAction(sync_ui_util::ActionType action_type) {
       return "retrieveTrustedVaultKeys";
     case sync_ui_util::CONFIRM_SYNC_SETTINGS:
       return "confirmSyncSettings";
-    default:
+    case sync_ui_util::NO_ACTION:
       return "noAction";
   }
+
+  NOTREACHED();
+  return std::string();
 }
 
 // Returns the base::Value associated with the account, to use in the stored
@@ -261,6 +246,10 @@ PeopleHandler::~PeopleHandler() {
   if (!web_ui())
     return;
 
+  // Remove this class as an observer to prevent calls back into this class
+  // while destroying.
+  OnJavascriptDisallowed();
+
   // If unified consent is enabled and the user left the sync page by closing
   // the tab, refresh, or via the back navigation, the sync setup needs to be
   // closed. If this was the first time setup, sync will be cancelled.
@@ -280,12 +269,16 @@ void PeopleHandler::RegisterMessages() {
       base::BindRepeating(&PeopleHandler::HandleSetDatatypes,
                           base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
-      "SyncSetupSetEncryption",
-      base::BindRepeating(&PeopleHandler::HandleSetEncryption,
+      "SyncSetupSetEncryptionPassphrase",
+      base::BindRepeating(&PeopleHandler::HandleSetEncryptionPassphrase,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "SyncSetupSetDecryptionPassphrase",
+      base::BindRepeating(&PeopleHandler::HandleSetDecryptionPassphrase,
                           base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
       "SyncSetupShowSetupUI",
-      base::BindRepeating(&PeopleHandler::HandleShowSetupUI,
+      base::BindRepeating(&PeopleHandler::HandleShowSyncSetupUI,
                           base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
       "SyncSetupGetSyncStatus",
@@ -295,7 +288,7 @@ void PeopleHandler::RegisterMessages() {
       "SyncPrefsDispatch",
       base::BindRepeating(&PeopleHandler::HandleSyncPrefsDispatch,
                           base::Unretained(this)));
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   web_ui()->RegisterMessageCallback(
       "AttemptUserExit",
       base::BindRepeating(&PeopleHandler::HandleAttemptUserExit,
@@ -337,28 +330,29 @@ void PeopleHandler::OnJavascriptAllowed() {
   profile_pref_registrar_.Init(prefs);
   profile_pref_registrar_.Add(
       prefs::kSigninAllowed,
-      base::Bind(&PeopleHandler::UpdateSyncStatus, base::Unretained(this)));
+      base::BindRepeating(&PeopleHandler::UpdateSyncStatus,
+                          base::Unretained(this)));
 
   signin::IdentityManager* identity_manager(
       IdentityManagerFactory::GetInstance()->GetForProfile(profile_));
   if (identity_manager)
-    identity_manager_observer_.Add(identity_manager);
+    identity_manager_observation_.Observe(identity_manager);
 
   // This is intentionally not using GetSyncService(), to go around the
   // Profile::IsSyncAllowed() check.
   syncer::SyncService* sync_service =
       ProfileSyncServiceFactory::GetForProfile(profile_);
   if (sync_service)
-    sync_service_observer_.Add(sync_service);
+    sync_service_observation_.Observe(sync_service);
 }
 
 void PeopleHandler::OnJavascriptDisallowed() {
   profile_pref_registrar_.RemoveAll();
-  identity_manager_observer_.RemoveAll();
-  sync_service_observer_.RemoveAll();
+  identity_manager_observation_.Reset();
+  sync_service_observation_.Reset();
 }
 
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
 void PeopleHandler::DisplayGaiaLogin(signin_metrics::AccessPoint access_point) {
   // Advanced options are no longer being configured if the login screen is
   // visible. If the user exits the signin wizard after this without
@@ -378,12 +372,11 @@ void PeopleHandler::DisplayGaiaLoginInNewTabOrWindow(
       IdentityManagerFactory::GetForProfile(browser->profile());
 
   syncer::SyncService* service = GetSyncService();
-  if (service && service->HasUnrecoverableError()) {
+  if (service && service->HasUnrecoverableError() &&
+      identity_manager->HasPrimaryAccount(signin::ConsentLevel::kSync)) {
     // When the user has an unrecoverable error, they first have to sign out and
     // then sign in again.
-
-    identity_manager->GetPrimaryAccountMutator()->ClearPrimaryAccount(
-        signin::PrimaryAccountMutator::ClearAccountsAction::kDefault,
+    identity_manager->GetPrimaryAccountMutator()->RevokeSyncConsent(
         signin_metrics::USER_CLICKED_SIGNOUT_SETTINGS,
         signin_metrics::SignoutDelete::IGNORE_METRIC);
   }
@@ -391,7 +384,7 @@ void PeopleHandler::DisplayGaiaLoginInNewTabOrWindow(
   // If the identity manager already has a primary account, this is a
   // re-auth scenario, and we need to ensure that the user signs in with the
   // same email address.
-  if (identity_manager->HasPrimaryAccount()) {
+  if (identity_manager->HasPrimaryAccount(signin::ConsentLevel::kSync)) {
     UMA_HISTOGRAM_ENUMERATION("Signin.Reauth",
                               signin_metrics::HISTOGRAM_REAUTH_SHOWN,
                               signin_metrics::HISTOGRAM_REAUTH_MAX);
@@ -520,7 +513,7 @@ void PeopleHandler::HandleStartSyncingWithEmail(const base::ListValue* args) {
           ->FindExtendedAccountInfoForAccountWithRefreshTokenByEmailAddress(
               email->GetString());
 
-  signin_ui_util::EnableSyncFromPromo(
+  signin_ui_util::EnableSyncFromMultiAccountPromo(
       browser,
       maybe_account.has_value() ? maybe_account.value() : AccountInfo(),
       signin_metrics::AccessPoint::ACCESS_POINT_SETTINGS,
@@ -531,90 +524,75 @@ void PeopleHandler::HandleStartSyncingWithEmail(const base::ListValue* args) {
 #endif
 }
 
-void PeopleHandler::HandleSetEncryption(const base::ListValue* args) {
-  SyncConfigInfo configuration;
-  const base::Value* callback_id = nullptr;
-  ParseConfigurationArguments(args, &configuration, &callback_id);
+void PeopleHandler::HandleSetEncryptionPassphrase(const base::ListValue* args) {
+  const base::Value& callback_id = args->GetList()[0];
 
-  // Start configuring the SyncService using the configuration passed to us from
-  // the JS layer.
-  syncer::SyncService* service = GetSyncService();
-
-  // If the sync engine has shutdown for some reason, just close the sync
-  // dialog.
-  if (!service || !service->IsEngineInitialized()) {
+  // Check the SyncService is up and running before retrieving SyncUserSettings,
+  // which contains the encryption-related APIs.
+  if (!GetSyncService() || !GetSyncService()->IsEngineInitialized()) {
+    // TODO(crbug.com/1139060): HandleSetDatatypes() also returns a success
+    // status in this case. Consider returning a failure in both methods. Maybe
+    // the CloseSyncSetup() call can also be removed.
     CloseSyncSetup();
-    ResolveJavascriptCallback(*callback_id, base::Value(kDonePageStatus));
+    ResolveJavascriptCallback(callback_id, base::Value(true));
     return;
   }
+  syncer::SyncUserSettings* sync_user_settings =
+      GetSyncService()->GetUserSettings();
 
-  // Don't allow "encrypt all" if the SyncService doesn't allow it.
-  // The UI is hidden, but the user may have enabled it e.g. by fiddling with
-  // the web inspector.
-  if (!service->GetUserSettings()->IsEncryptEverythingAllowed()) {
-    configuration.encrypt_all = false;
-    configuration.set_new_passphrase = false;
-  }
-
-  // Note: Data encryption will not occur until configuration is complete
-  // (when the PSS receives its CONFIGURE_DONE notification from the sync
-  // engine), so the user still has a chance to cancel out of the operation
-  // if (for example) some kind of passphrase error is encountered.
-  if (configuration.encrypt_all)
-    service->GetUserSettings()->EnableEncryptEverything();
-
-  bool passphrase_failed = false;
-  if (!configuration.passphrase.empty()) {
-    // We call IsPassphraseRequired() here (instead of
-    // IsPassphraseRequiredForPreferredDataTypes()) because the user may try to
-    // enter a passphrase even though no encrypted data types are enabled.
-    if (service->GetUserSettings()->IsPassphraseRequired()) {
-      // If we have pending keys, try to decrypt them with the provided
-      // passphrase. We track if this succeeds or fails because a failed
-      // decryption should result in an error even if there aren't any encrypted
-      // data types.
-      passphrase_failed = !service->GetUserSettings()->SetDecryptionPassphrase(
-          configuration.passphrase);
-    } else if (service->GetUserSettings()->IsTrustedVaultKeyRequired()) {
-      // There are pending keys due to trusted vault keys being required, likely
-      // because something changed since the UI was displayed. A passphrase
-      // cannot be set in such circumstances.
-      passphrase_failed = true;
-    } else {
-      // OK, the user sent us a passphrase, but we don't have pending keys. So
-      // it either means that the pending keys were resolved somehow since the
-      // time the UI was displayed (re-encryption, pending passphrase change,
-      // etc) or the user wants to re-encrypt.
-      if (configuration.set_new_passphrase &&
-          !service->GetUserSettings()->IsUsingSecondaryPassphrase()) {
-        service->GetUserSettings()->SetEncryptionPassphrase(
-            configuration.passphrase);
-      }
-    }
-  }
-
-  if (passphrase_failed ||
-      service->GetUserSettings()->IsPassphraseRequiredForPreferredDataTypes()) {
-    // If the user doesn't enter any passphrase, we won't call
-    // SetDecryptionPassphrase() (passphrase_failed == false), but we still
-    // want to display an error message to let the user know that their blank
-    // passphrase entry is not acceptable.
-
-    // TODO(tommycli): Switch this to RejectJavascriptCallback once the
-    // Sync page JavaScript has been further refactored.
-    ResolveJavascriptCallback(*callback_id,
-                              base::Value(kPassphraseFailedPageStatus));
+  const std::string& passphrase = args->GetList()[1].GetString();
+  bool successfully_set = false;
+  if (passphrase.empty()) {
+    successfully_set = false;
+  } else if (!sync_user_settings->IsEncryptEverythingAllowed()) {
+    successfully_set = false;
+  } else if (sync_user_settings->IsUsingSecondaryPassphrase()) {
+    // In case a passphrase is already being used, changing to a new one isn't
+    // currently supported (one must reset all the Sync data).
+    successfully_set = false;
+  } else if (sync_user_settings->IsPassphraseRequired() ||
+             sync_user_settings->IsTrustedVaultKeyRequired()) {
+    // Can't re-encrypt the data with |passphrase| if some of it hasn't even
+    // been decrypted yet due to a pending passphrase / trusted vault key.
+    successfully_set = false;
   } else {
-    ResolveJavascriptCallback(*callback_id, base::Value(kConfigurePageStatus));
+    sync_user_settings->SetEncryptionPassphrase(passphrase);
+    successfully_set = true;
+    ProfileMetrics::LogProfileSyncInfo(
+        ProfileMetrics::SYNC_CREATED_NEW_PASSPHRASE);
   }
-
-  if (configuration.encrypt_all)
-    ProfileMetrics::LogProfileSyncInfo(ProfileMetrics::SYNC_ENCRYPT);
-  if (!configuration.set_new_passphrase && !configuration.passphrase.empty())
-    ProfileMetrics::LogProfileSyncInfo(ProfileMetrics::SYNC_PASSPHRASE);
+  ResolveJavascriptCallback(callback_id, base::Value(successfully_set));
 }
 
-void PeopleHandler::HandleShowSetupUI(const base::ListValue* args) {
+void PeopleHandler::HandleSetDecryptionPassphrase(const base::ListValue* args) {
+  const base::Value& callback_id = args->GetList()[0];
+
+  // Check the SyncService is up and running before retrieving SyncUserSettings,
+  // which contains the encryption-related APIs.
+  if (!GetSyncService() || !GetSyncService()->IsEngineInitialized()) {
+    // TODO(crbug.com/1139060): HandleSetDatatypes() also returns a success
+    // status in this case. Consider returning a failure in both methods. Maybe
+    // the CloseSyncSetup() call can also be removed.
+    CloseSyncSetup();
+    ResolveJavascriptCallback(callback_id, base::Value(true));
+    return;
+  }
+  syncer::SyncUserSettings* sync_user_settings =
+      GetSyncService()->GetUserSettings();
+
+  const std::string& passphrase = args->GetList()[1].GetString();
+  bool successfully_set = false;
+  if (!passphrase.empty() && sync_user_settings->IsPassphraseRequired()) {
+    successfully_set = sync_user_settings->SetDecryptionPassphrase(passphrase);
+    if (successfully_set) {
+      ProfileMetrics::LogProfileSyncInfo(
+          ProfileMetrics::SYNC_ENTERED_EXISTING_PASSPHRASE);
+    }
+  }
+  ResolveJavascriptCallback(callback_id, base::Value(successfully_set));
+}
+
+void PeopleHandler::HandleShowSyncSetupUI(const base::ListValue* args) {
   AllowJavascript();
 
   syncer::SyncService* service = GetSyncService();
@@ -634,6 +612,8 @@ void PeopleHandler::HandleShowSetupUI(const base::ListValue* args) {
   // Observe the web contents for a before unload event.
   Observe(web_ui()->GetWebContents());
 
+  MaybeMarkSyncConfiguring();
+
   PushSyncPrefs();
 
   // Focus the web contents in case the location bar was focused before. This
@@ -641,7 +621,7 @@ void PeopleHandler::HandleShowSetupUI(const base::ListValue* args) {
   web_ui()->GetWebContents()->Focus();
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 // On ChromeOS, we need to sign out the user session to fix an auth error, so
 // the user goes through the real signin flow to generate a new auth token.
 void PeopleHandler::HandleAttemptUserExit(const base::ListValue* args) {
@@ -659,14 +639,13 @@ void PeopleHandler::HandleTurnOffSync(const base::ListValue* args) {
   DCHECK(identity_manager->HasPrimaryAccount(ConsentLevel::kSync));
   DCHECK(signin_util::IsUserSignoutAllowedForProfile(profile_));
 
-  if (GetSyncService())
-    syncer::RecordSyncEvent(syncer::STOP_FROM_OPTIONS);
-
-  identity_manager->GetPrimaryAccountMutator()->RevokeSyncConsent();
+  identity_manager->GetPrimaryAccountMutator()->RevokeSyncConsent(
+      signin_metrics::USER_CLICKED_SIGNOUT_SETTINGS,
+      signin_metrics::SignoutDelete::IGNORE_METRIC);
 }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
 void PeopleHandler::HandleStartSignin(const base::ListValue* args) {
   AllowJavascript();
 
@@ -682,34 +661,46 @@ void PeopleHandler::HandleStartSignin(const base::ListValue* args) {
 void PeopleHandler::HandleSignout(const base::ListValue* args) {
   bool delete_profile = false;
   args->GetBoolean(0, &delete_profile);
+  base::FilePath profile_path = profile_->GetPath();
 
   if (!signin_util::IsUserSignoutAllowedForProfile(profile_)) {
     // If the user cannot signout, the profile must be destroyed.
     DCHECK(delete_profile);
   } else {
-    auto* identity_manager = IdentityManagerFactory::GetForProfile(profile_);
-    if (identity_manager->HasPrimaryAccount()) {
-      if (GetSyncService())
-        syncer::RecordSyncEvent(syncer::STOP_FROM_OPTIONS);
+    Browser* browser =
+        chrome::FindBrowserWithWebContents(web_ui()->GetWebContents());
+    if (browser) {
+      browser->signin_view_controller()->ShowGaiaLogoutTab(
+          signin_metrics::SourceForRefreshTokenOperation::kSettings_Signout);
+    }
 
+    auto* identity_manager = IdentityManagerFactory::GetForProfile(profile_);
+    if (identity_manager->HasPrimaryAccount(signin::ConsentLevel::kSync)) {
       signin_metrics::SignoutDelete delete_metric =
           delete_profile ? signin_metrics::SignoutDelete::DELETED
                          : signin_metrics::SignoutDelete::KEEPING;
 
-      identity_manager->GetPrimaryAccountMutator()->ClearPrimaryAccount(
-          signin::PrimaryAccountMutator::ClearAccountsAction::kRemoveAll,
+      // Only revoke the sync consent.
+      // * If the primary account is still valid, then it will be removed by
+      // the Gaia logout tab (see http://crbug.com/1068978).
+      // * If the account is already invalid, drop the token now because it's
+      // already invalid on the web, so the Gaia logout tab won't affect it
+      // (see http://crbug.com/1114646).
+      //
+      // This operation may delete the current browser that owns |this| if force
+      // signin is enabled (see https://crbug.com/1153120).
+      identity_manager->GetPrimaryAccountMutator()->RevokeSyncConsent(
           signin_metrics::USER_CLICKED_SIGNOUT_SETTINGS, delete_metric);
     } else {
       DCHECK(!delete_profile)
           << "Deleting the profile should only be offered the user is syncing.";
-
-      identity_manager->GetAccountsMutator()->RemoveAllAccounts(
-          signin_metrics::SourceForRefreshTokenOperation::kSettings_Signout);
     }
   }
 
+  // CAUTION: |this| may be deleted at this point.
+
   if (delete_profile) {
-    webui::DeleteProfileAtPath(profile_->GetPath(),
+    webui::DeleteProfileAtPath(profile_path,
                                ProfileMetrics::DELETE_PROFILE_SETTINGS);
   }
 }
@@ -717,7 +708,7 @@ void PeopleHandler::HandleSignout(const base::ListValue* args) {
 void PeopleHandler::HandlePauseSync(const base::ListValue* args) {
   DCHECK(AccountConsistencyModeManager::IsDiceEnabledForProfile(profile_));
   auto* identity_manager = IdentityManagerFactory::GetForProfile(profile_);
-  DCHECK(identity_manager->HasPrimaryAccount());
+  DCHECK(identity_manager->HasPrimaryAccount(signin::ConsentLevel::kSync));
 
   identity_manager->GetAccountsMutator()
       ->InvalidateRefreshTokenForPrimaryAccount(
@@ -731,7 +722,8 @@ void PeopleHandler::HandleStartKeyRetrieval(const base::ListValue* args) {
   if (!browser)
     return;
 
-  sync_ui_util::OpenTabForSyncKeyRetrieval(browser);
+  sync_ui_util::OpenTabForSyncKeyRetrieval(
+      browser, syncer::KeyRetrievalTriggerForUMA::kSettings);
 }
 
 void PeopleHandler::HandleGetSyncStatus(const base::ListValue* args) {
@@ -767,8 +759,6 @@ void PeopleHandler::CloseSyncSetup() {
           sync_service->GetAuthError().state() ==
               GoogleServiceAuthError::NONE))) {
       if (configuring_sync_) {
-        syncer::RecordSyncEvent(syncer::CANCEL_DURING_CONFIGURE);
-
         // If the user clicked "Cancel" while setting up sync, disable sync
         // because we don't want the sync engine to remain in the
         // first-setup-incomplete state.
@@ -778,15 +768,13 @@ void PeopleHandler::CloseSyncSetup() {
         if (sync_service) {
           DVLOG(1) << "Sync setup aborted by user action";
           sync_service->StopAndClear();
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
           // Sign out the user on desktop Chrome if they click cancel during
           // initial setup.
           if (!sync_service->GetUserSettings()->IsFirstSetupComplete()) {
             IdentityManagerFactory::GetForProfile(profile_)
                 ->GetPrimaryAccountMutator()
-                ->ClearPrimaryAccount(
-                    signin::PrimaryAccountMutator::ClearAccountsAction::
-                        kDefault,
+                ->RevokeSyncConsent(
                     signin_metrics::ABORT_SIGNIN,
                     signin_metrics::SignoutDelete::IGNORE_METRIC);
           }
@@ -833,35 +821,41 @@ void PeopleHandler::FocusUI() {
   web_contents->GetDelegate()->ActivateContents(web_contents);
 }
 
-void PeopleHandler::OnPrimaryAccountSet(
-    const CoreAccountInfo& primary_account_info) {
-  // After a primary account was set, the Sync setup will start soon. Grab a
-  // SetupInProgressHandle right now to avoid a temporary "missing Sync
-  // confirmation" error in the avatar menu. See crbug.com/928696.
-  syncer::SyncService* service = GetSyncService();
-  if (service && !sync_blocker_)
-    sync_blocker_ = service->GetSetupInProgressHandle();
-
-  UpdateSyncStatus();
-}
-
-void PeopleHandler::OnPrimaryAccountCleared(
-    const CoreAccountInfo& previous_primary_account_info) {
-  sync_blocker_.reset();
-  UpdateSyncStatus();
+void PeopleHandler::OnPrimaryAccountChanged(
+    const signin::PrimaryAccountChangeEvent& event) {
+  switch (event.GetEventTypeFor(signin::ConsentLevel::kSync)) {
+    case signin::PrimaryAccountChangeEvent::Type::kSet: {
+      // After a primary account was set, the Sync setup will start soon. Grab a
+      // SetupInProgressHandle right now to avoid a temporary "missing Sync
+      // confirmation" error in the avatar menu. See crbug.com/928696.
+      syncer::SyncService* service = GetSyncService();
+      if (service && !sync_blocker_)
+        sync_blocker_ = service->GetSetupInProgressHandle();
+      UpdateSyncStatus();
+      return;
+    }
+    case signin::PrimaryAccountChangeEvent::Type::kCleared:
+      sync_blocker_.reset();
+      UpdateSyncStatus();
+      return;
+    case signin::PrimaryAccountChangeEvent::Type::kNone:
+      return;
+  }
 }
 
 void PeopleHandler::OnStateChanged(syncer::SyncService* sync) {
   UpdateSyncStatus();
-
-  // When the SyncService changes its state, we should also push the updated
-  // sync preferences.
+  // TODO(crbug.com/1106764): Re-evaluate marking sync as configuring here,
+  // since this gets called whenever ProfileSyncService changes state. Inline
+  // MaybeMarkSyncConfiguring() then.
+  MaybeMarkSyncConfiguring();
   PushSyncPrefs();
 }
 
 void PeopleHandler::BeforeUnloadDialogCancelled() {
   // The before unload dialog is only shown during the first sync setup.
-  DCHECK(IdentityManagerFactory::GetForProfile(profile_)->HasPrimaryAccount());
+  DCHECK(IdentityManagerFactory::GetForProfile(profile_)->HasPrimaryAccount(
+      signin::ConsentLevel::kSync));
   syncer::SyncService* service = GetSyncService();
   DCHECK(service && service->IsSetupInProgress() &&
          !service->GetUserSettings()->IsFirstSetupComplete());
@@ -887,7 +881,9 @@ std::unique_ptr<base::DictionaryValue> PeopleHandler::GetSyncStatusDictionary()
 
   // Signout is not allowed if the user has policy (crbug.com/172204).
   if (!signin_util::IsUserSignoutAllowedForProfile(profile_)) {
-    std::string username = identity_manager->GetPrimaryAccountInfo().email;
+    std::string username =
+        identity_manager->GetPrimaryAccountInfo(signin::ConsentLevel::kSync)
+            .email;
 
     // If there is no one logged in or if the profile name is empty then the
     // domain name is empty. This happens in browser tests.
@@ -908,7 +904,7 @@ std::unique_ptr<base::DictionaryValue> PeopleHandler::GetSyncStatusDictionary()
       "firstSetupInProgress",
       service && !disallowed_by_policy && service->IsSetupInProgress() &&
           !service->GetUserSettings()->IsFirstSetupComplete() &&
-          identity_manager->HasPrimaryAccount());
+          identity_manager->HasPrimaryAccount(signin::ConsentLevel::kSync));
 
   const sync_ui_util::StatusLabels status_labels =
       sync_ui_util::GetStatusLabels(profile_);
@@ -929,12 +925,14 @@ std::unique_ptr<base::DictionaryValue> PeopleHandler::GetSyncStatusDictionary()
                          GetSyncErrorAction(status_labels.action_type));
 
   sync_status->SetBoolean("managed", disallowed_by_policy);
-  sync_status->SetBoolean(
-      "disabled", !service || disallowed_by_policy ||
-                      !service->GetUserSettings()->IsSyncAllowedByPlatform());
+  // TODO(crbug.com/1171279): audit js usages of |disabled| and |signedIn|
+  // fields, update it to use the right field, comments around and conditions
+  // here. Perhaps removal of one of these to fields is possible.
+  sync_status->SetBoolean("disabled", !service || disallowed_by_policy);
   // NOTE: This means signed-in for *sync*. It can be false when the user is
   // signed-in to the content area or to the browser.
-  sync_status->SetBoolean("signedIn", identity_manager->HasPrimaryAccount());
+  sync_status->SetBoolean("signedIn", identity_manager->HasPrimaryAccount(
+                                          signin::ConsentLevel::kSync));
   sync_status->SetString("signedInUsername",
                          signin_ui_util::GetAuthenticatedUsername(profile_));
   sync_status->SetBoolean("hasUnrecoverableError",
@@ -943,21 +941,13 @@ std::unique_ptr<base::DictionaryValue> PeopleHandler::GetSyncStatusDictionary()
 }
 
 void PeopleHandler::PushSyncPrefs() {
-#if !defined(OS_CHROMEOS)
-  // Early exit if the user has not signed in yet.
-  if (IsProfileAuthNeededOrHasErrors())
-    return;
-#endif
-
   syncer::SyncService* service = GetSyncService();
   // The sync service may be nullptr if it has been just disabled by policy.
   if (!service || !service->IsEngineInitialized()) {
     return;
   }
 
-  configuring_sync_ = true;
-
-  // Setup args for the sync configure screen:
+  // Setup values for the JSON response:
   //   syncAllDataTypes: true if the user wants to sync everything
   //   <data_type>Registered: true if the associated data type is supported
   //   <data_type>Synced: true if the user wants to sync that specific data type
@@ -1055,9 +1045,20 @@ void PeopleHandler::MarkFirstSetupComplete() {
   FireWebUIListener("sync-settings-saved");
 }
 
+void PeopleHandler::MaybeMarkSyncConfiguring() {
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
+  if (IsProfileAuthNeededOrHasErrors())
+    return;
+#endif
+  syncer::SyncService* service = GetSyncService();
+  // The sync service may be nullptr if it has been just disabled by policy.
+  if (service && service->IsEngineInitialized())
+    configuring_sync_ = true;
+}
+
 bool PeopleHandler::IsProfileAuthNeededOrHasErrors() {
-  return !IdentityManagerFactory::GetForProfile(profile_)
-              ->HasPrimaryAccount() ||
+  return !IdentityManagerFactory::GetForProfile(profile_)->HasPrimaryAccount(
+             signin::ConsentLevel::kSync) ||
          SigninErrorControllerFactory::GetForProfile(profile_)->HasError();
 }
 

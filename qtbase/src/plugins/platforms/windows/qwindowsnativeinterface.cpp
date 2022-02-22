@@ -38,15 +38,12 @@
 ****************************************************************************/
 
 #include "qwindowsnativeinterface.h"
-#include "qwindowsclipboard.h"
 #include "qwindowswindow.h"
 #include "qwindowsscreen.h"
 #include "qwindowscontext.h"
 #include "qwindowscursor.h"
 #include "qwindowsopenglcontext.h"
-#include "qwindowsopengltester.h"
 #include "qwindowsintegration.h"
-#include "qwindowsmime.h"
 #include "qwindowstheme.h"
 #include "qwin10helpers.h"
 
@@ -54,15 +51,11 @@
 #include <QtGui/qopenglcontext.h>
 #include <QtGui/qscreen.h>
 #include <qpa/qplatformscreen.h>
-#include <QtFontDatabaseSupport/private/qwindowsfontdatabase_p.h>
 
 QT_BEGIN_NAMESPACE
 
 enum ResourceType {
     RenderingContextType,
-    EglContextType,
-    EglDisplayType,
-    EglConfigType,
     HandleType,
     GlHandleType,
     GetDCType,
@@ -74,9 +67,6 @@ static int resourceType(const QByteArray &key)
 {
     static const char *names[] = { // match ResourceType
         "renderingcontext",
-        "eglcontext",
-        "egldisplay",
-        "eglconfig",
         "handle",
         "glhandle",
         "getdc",
@@ -89,9 +79,6 @@ static int resourceType(const QByteArray &key)
         result = std::find(names, end, key.toLower());
     return int(result - names);
 }
-
-QWindowsWindowFunctions::WindowActivationBehavior QWindowsNativeInterface::m_windowActivationBehavior =
-    QWindowsWindowFunctions::DefaultActivateWindow;
 
 void *QWindowsNativeInterface::nativeResourceForWindow(const QByteArray &resource, QWindow *window)
 {
@@ -154,41 +141,10 @@ void *QWindowsNativeInterface::nativeResourceForCursor(const QByteArray &resourc
 }
 #endif // !QT_NO_CURSOR
 
-static const char customMarginPropertyC[] = "WindowsCustomMargins";
-
-QVariant QWindowsNativeInterface::windowProperty(QPlatformWindow *window, const QString &name) const
-{
-    auto *platformWindow = static_cast<QWindowsWindow *>(window);
-    if (name == QLatin1String(customMarginPropertyC))
-        return QVariant::fromValue(platformWindow->customMargins());
-    return QVariant();
-}
-
-QVariant QWindowsNativeInterface::windowProperty(QPlatformWindow *window, const QString &name, const QVariant &defaultValue) const
-{
-    const QVariant result = windowProperty(window, name);
-    return result.isValid() ? result : defaultValue;
-}
-
-void QWindowsNativeInterface::setWindowProperty(QPlatformWindow *window, const QString &name, const QVariant &value)
-{
-    auto *platformWindow = static_cast<QWindowsWindow *>(window);
-    if (name == QLatin1String(customMarginPropertyC))
-        platformWindow->setCustomMargins(qvariant_cast<QMargins>(value));
-}
-
-QVariantMap QWindowsNativeInterface::windowProperties(QPlatformWindow *window) const
-{
-    QVariantMap result;
-    const QString customMarginProperty = QLatin1String(customMarginPropertyC);
-    result.insert(customMarginProperty, windowProperty(window, customMarginProperty));
-    return result;
-}
-
 void *QWindowsNativeInterface::nativeResourceForIntegration(const QByteArray &resource)
 {
 #ifdef QT_NO_OPENGL
-    Q_UNUSED(resource)
+    Q_UNUSED(resource);
 #else
     if (resourceType(resource) == GlHandleType) {
         if (const QWindowsStaticOpenGLContext *sc = QWindowsIntegration::staticOpenGLContext())
@@ -207,125 +163,9 @@ void *QWindowsNativeInterface::nativeResourceForContext(const QByteArray &resour
         return nullptr;
     }
 
-    auto *glcontext = static_cast<QWindowsOpenGLContext *>(context->handle());
-    switch (resourceType(resource)) {
-    case RenderingContextType: // Fall through.
-    case EglContextType:
-        return glcontext->nativeContext();
-    case EglDisplayType:
-        return glcontext->nativeDisplay();
-    case EglConfigType:
-        return glcontext->nativeConfig();
-    default:
-        break;
-    }
-
     qWarning("%s: Invalid key '%s' requested.", __FUNCTION__, resource.constData());
     return nullptr;
 }
 #endif // !QT_NO_OPENGL
-
-/*!
-    \brief Creates a non-visible window handle for filtering messages.
-*/
-
-void *QWindowsNativeInterface::createMessageWindow(const QString &classNameTemplate,
-                                                   const QString &windowName,
-                                                   void *eventProc) const
-{
-    QWindowsContext *ctx = QWindowsContext::instance();
-    const HWND hwnd = ctx->createDummyWindow(classNameTemplate,
-                                             (wchar_t*)windowName.utf16(),
-                                             (WNDPROC)eventProc);
-    return hwnd;
-}
-
-/*!
-    \brief Registers a unique window class with a callback function based on \a classNameIn.
-*/
-
-QString QWindowsNativeInterface::registerWindowClass(const QString &classNameIn, void *eventProc) const
-{
-    return QWindowsContext::instance()->registerWindowClass(classNameIn, (WNDPROC)eventProc);
-}
-
-bool QWindowsNativeInterface::asyncExpose() const
-{
-    return QWindowsContext::instance()->asyncExpose();
-}
-
-void QWindowsNativeInterface::setAsyncExpose(bool value)
-{
-    QWindowsContext::instance()->setAsyncExpose(value);
-}
-
-void QWindowsNativeInterface::registerWindowsMime(void *mimeIn)
-{
-    QWindowsContext::instance()->mimeConverter().registerMime(reinterpret_cast<QWindowsMime *>(mimeIn));
-}
-
-void QWindowsNativeInterface::unregisterWindowsMime(void *mimeIn)
-{
-    QWindowsContext::instance()->mimeConverter().unregisterMime(reinterpret_cast<QWindowsMime *>(mimeIn));
-}
-
-int QWindowsNativeInterface::registerMimeType(const QString &mimeType)
-{
-    return QWindowsMime::registerMimeType(mimeType);
-}
-
-QFont QWindowsNativeInterface::logFontToQFont(const void *logFont, int verticalDpi)
-{
-    return QWindowsFontDatabase::LOGFONT_to_QFont(*reinterpret_cast<const LOGFONT *>(logFont), verticalDpi);
-}
-
-bool QWindowsNativeInterface::isTabletMode()
-{
-#if QT_CONFIG(clipboard)
-    if (const QWindowsClipboard *clipboard = QWindowsClipboard::instance())
-        return qt_windowsIsTabletMode(clipboard->clipboardViewer());
-#endif
-    return false;
-}
-
-QFunctionPointer QWindowsNativeInterface::platformFunction(const QByteArray &function) const
-{
-    if (function == QWindowsWindowFunctions::setTouchWindowTouchTypeIdentifier())
-        return QFunctionPointer(QWindowsWindow::setTouchWindowTouchTypeStatic);
-    if (function == QWindowsWindowFunctions::setHasBorderInFullScreenIdentifier())
-        return QFunctionPointer(QWindowsWindow::setHasBorderInFullScreenStatic);
-    if (function == QWindowsWindowFunctions::setHasBorderInFullScreenDefaultIdentifier())
-        return QFunctionPointer(QWindowsWindow::setHasBorderInFullScreenDefault);
-    if (function == QWindowsWindowFunctions::setWindowActivationBehaviorIdentifier())
-        return QFunctionPointer(QWindowsNativeInterface::setWindowActivationBehavior);
-    if (function == QWindowsWindowFunctions::isTabletModeIdentifier())
-        return QFunctionPointer(QWindowsNativeInterface::isTabletMode);
-    return nullptr;
-}
-
-QVariant QWindowsNativeInterface::gpu() const
-{
-    return GpuDescription::detect().toVariant();
-}
-
-QVariant QWindowsNativeInterface::gpuList() const
-{
-    QVariantList result;
-    const auto gpus = GpuDescription::detectAll();
-    for (const auto &gpu : gpus)
-        result.append(gpu.toVariant());
-    return result;
-}
-
-bool QWindowsNativeInterface::isDarkMode() const
-{
-    return QWindowsContext::isDarkMode();
-}
-
-// Dark mode support level 2 (style)
-bool QWindowsNativeInterface::isDarkModeStyle() const
-{
-    return (QWindowsIntegration::instance()->options() & QWindowsIntegration::DarkModeStyle) != 0;
-}
 
 QT_END_NAMESPACE

@@ -30,7 +30,7 @@
 #ifndef QWASMFONTDATABASE_H
 #define QWASMFONTDATABASE_H
 
-#include <QtFontDatabaseSupport/private/qfreetypefontdatabase_p.h>
+#include <QtGui/private/qfreetypefontdatabase_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -42,7 +42,6 @@ public:
     QStringList fallbacksForFamily(const QString &family, QFont::Style style,
                                    QFont::StyleHint styleHint,
                                    QChar::Script script) const override;
-    QStringList addApplicationFont(const QByteArray &fontData, const QString &fileName) override;
     void releaseHandle(void *handle) override;
     QFont defaultFont() const override;
 };

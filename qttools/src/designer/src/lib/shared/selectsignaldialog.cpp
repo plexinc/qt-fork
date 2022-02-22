@@ -38,12 +38,14 @@
 #include "widgetdatabase_p.h"
 
 #include <QtWidgets/qapplication.h>
-#include <QtWidgets/qdesktopwidget.h>
 #include <QtWidgets/qpushbutton.h>
+
+#include <QtGui/qscreen.h>
 #include <QtGui/qstandarditemmodel.h>
+
 #include <QtCore/qitemselectionmodel.h>
+#include <QtCore/qlist.h>
 #include <QtCore/qvariant.h>
-#include <QtCore/qvector.h>
 
 #include <algorithm>
 
@@ -53,7 +55,7 @@ namespace qdesigner_internal {
 
 enum { MethodRole = Qt::UserRole + 1 };
 
-using Methods = QVector<SelectSignalDialog::Method>;
+using Methods = QList<SelectSignalDialog::Method>;
 
 SelectSignalDialog::SelectSignalDialog(QWidget *parent)
     : QDialog(parent)
@@ -69,7 +71,7 @@ SelectSignalDialog::SelectSignalDialog(QWidget *parent)
             this, &SelectSignalDialog::currentChanged);
     connect(m_ui->signalList, &QTreeView::activated,
             this, &SelectSignalDialog::activated);
-    const QRect availableGeometry = QApplication::desktop()->availableGeometry(this);
+    const QRect availableGeometry = screen()->geometry();
     resize(availableGeometry.width() / 5, availableGeometry.height() / 2);
 }
 
@@ -240,3 +242,5 @@ void SelectSignalDialog::currentChanged(const QModelIndex &current, const QModel
 } // namespace qdesigner_internal
 
 QT_END_NAMESPACE
+
+#include "moc_selectsignaldialog_p.cpp"

@@ -2,25 +2,16 @@
   "dependencies": [
     "test_runner",
     "sources",
-    "workspace",
     "source_frame",
-    "text_utils",
-    "cm_modes",
+    "text_editor",
     "browser_debugger"
   ],
-  "scripts": [
+  "modules": [
+    "sources_test_runner.js",
     "SourcesTestRunner.js",
     "DebuggerTestRunner.js",
     "LiveEditTestRunner.js",
     "SearchTestRunner.js",
-    "EditorTestRunner.js",
-    "AutocompleteTestRunner.js"
-  ],
-  "skip_compilation": [
-    "DebuggerTestRunner.js",
-    "LiveEditTestRunner.js",
-    "SearchTestRunner.js",
-    "SourcesTestRunner.js",
     "EditorTestRunner.js",
     "AutocompleteTestRunner.js"
   ]

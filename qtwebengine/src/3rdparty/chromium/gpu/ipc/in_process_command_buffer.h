@@ -41,6 +41,7 @@
 #include "gpu/config/gpu_feature_info.h"
 #include "gpu/config/gpu_preferences.h"
 #include "gpu/ipc/command_buffer_task_executor.h"
+#include "gpu/ipc/display_compositor_memory_and_task_controller_on_gpu.h"
 #include "gpu/ipc/gl_in_process_context_export.h"
 #include "gpu/ipc/gpu_task_scheduler_helper.h"
 #include "gpu/ipc/service/context_url.h"
@@ -64,6 +65,10 @@ struct GpuFenceHandle;
 class Size;
 }
 
+namespace ui {
+class PlatformWindowSurface;
+}
+
 namespace viz {
 class GpuTaskSchedulerHelper;
 }
@@ -79,6 +84,10 @@ class SharedImageInterfaceInProcess;
 class SyncPointClientState;
 struct ContextCreationAttribs;
 struct SwapBuffersCompleteParams;
+
+namespace webgpu {
+class WebGPUDecoder;
+}
 
 namespace raster {
 class GrShaderCache;
@@ -117,6 +126,7 @@ class GL_IN_PROCESS_CONTEXT_EXPORT InProcessCommandBuffer
       GpuChannelManagerDelegate* gpu_channel_manager_delegate,
       scoped_refptr<base::SingleThreadTaskRunner> task_runner,
       SingleTaskSequence* task_sequence,
+      DisplayCompositorMemoryAndTaskControllerOnGpu* gpu_dependency,
       gpu::raster::GrShaderCache* gr_shader_cache,
       GpuProcessActivityFlags* activity_flags);
 
@@ -129,8 +139,11 @@ class GL_IN_PROCESS_CONTEXT_EXPORT InProcessCommandBuffer
                                 int32_t start,
                                 int32_t end) override;
   void SetGetBuffer(int32_t shm_id) override;
-  scoped_refptr<Buffer> CreateTransferBuffer(uint32_t size,
-                                             int32_t* id) override;
+  scoped_refptr<Buffer> CreateTransferBuffer(
+      uint32_t size,
+      int32_t* id,
+      TransferBufferAllocationOption option =
+          TransferBufferAllocationOption::kLoseContextOnOOM) override;
   void DestroyTransferBuffer(int32_t id) override;
 
   // GpuControl implementation (called on client thread):
@@ -158,6 +171,7 @@ class GL_IN_PROCESS_CONTEXT_EXPORT InProcessCommandBuffer
   void WaitSyncToken(const SyncToken& sync_token) override;
   bool CanWaitUnverifiedSyncToken(const SyncToken& sync_token) override;
   void SetDisplayTransform(gfx::OverlayTransform transform) override;
+  void SetFrameRate(float frame_rate) override;
 
   // CommandBufferServiceClient implementation (called on gpu thread):
   CommandBatchProcessedResult OnCommandBatchProcessed() override;
@@ -200,9 +214,11 @@ class GL_IN_PROCESS_CONTEXT_EXPORT InProcessCommandBuffer
   void SetGpuVSyncEnabled(bool enabled);
 
   void SetGpuVSyncEnabledOnThread(bool enabled);
+  void SetNeedsMeasureNextDrawLatency();
 
   gpu::ServiceTransferCache* GetTransferCacheForTest() const;
   int GetRasterDecoderIdForTest() const;
+  webgpu::WebGPUDecoder* GetWebGPUDecoderForTest() const;
 
   CommandBufferTaskExecutor* service_for_testing() const {
     return task_executor_;
@@ -234,16 +250,6 @@ class GL_IN_PROCESS_CONTEXT_EXPORT InProcessCommandBuffer
   // and |surface_handle| provided in Initialize outlive this callback.
   base::ScopedClosureRunner GetCacheBackBufferCb();
 
-  gpu::SharedImageManager* GetSharedImageManager() {
-    return task_executor_->shared_image_manager();
-  }
-
-  gpu::MemoryTracker* GetMemoryTracker() {
-    // Should only be called after initialization.
-    DCHECK(context_group_);
-    return context_group_->memory_tracker();
-  }
-
 #ifdef TOOLKIT_QT
   using GetTextureCallback = base::OnceCallback<void(unsigned int, std::unique_ptr<gl::GLFence>)>;
   void GetTextureQt(unsigned int client_id,
@@ -258,19 +264,23 @@ class GL_IN_PROCESS_CONTEXT_EXPORT InProcessCommandBuffer
     const ContextCreationAttribs& attribs;
     Capabilities* capabilities;  // Ouptut.
     ImageFactory* image_factory;
+    DisplayCompositorMemoryAndTaskControllerOnGpu* gpu_dependency;
     gpu::raster::GrShaderCache* gr_shader_cache;
     GpuProcessActivityFlags* activity_flags;
 
-    InitializeOnGpuThreadParams(SurfaceHandle surface_handle,
-                                const ContextCreationAttribs& attribs,
-                                Capabilities* capabilities,
-                                ImageFactory* image_factory,
-                                gpu::raster::GrShaderCache* gr_shader_cache,
-                                GpuProcessActivityFlags* activity_flags)
+    InitializeOnGpuThreadParams(
+        SurfaceHandle surface_handle,
+        const ContextCreationAttribs& attribs,
+        Capabilities* capabilities,
+        ImageFactory* image_factory,
+        DisplayCompositorMemoryAndTaskControllerOnGpu* gpu_dependency,
+        gpu::raster::GrShaderCache* gr_shader_cache,
+        GpuProcessActivityFlags* activity_flags)
         : surface_handle(surface_handle),
           attribs(attribs),
           capabilities(capabilities),
           image_factory(image_factory),
+          gpu_dependency(gpu_dependency),
           gr_shader_cache(gr_shader_cache),
           activity_flags(activity_flags) {}
   };
@@ -285,7 +295,8 @@ class GL_IN_PROCESS_CONTEXT_EXPORT InProcessCommandBuffer
   // Flush up to put_offset. If execution is deferred either by yielding, or due
   // to a sync token wait, HasUnprocessedCommandsOnGpuThread() returns true.
   void FlushOnGpuThread(int32_t put_offset,
-                        const std::vector<SyncToken>& sync_token_fences);
+                        const std::vector<SyncToken>& sync_token_fences,
+                        base::TimeTicks flush_timestamp);
   bool HasUnprocessedCommandsOnGpuThread();
   void UpdateLastStateOnGpuThread();
 
@@ -324,11 +335,12 @@ class GL_IN_PROCESS_CONTEXT_EXPORT InProcessCommandBuffer
   void SetGetBufferOnGpuThread(int32_t shm_id, base::WaitableEvent* completion);
 
   void CreateGpuFenceOnGpuThread(uint32_t gpu_fence_id,
-                                 const gfx::GpuFenceHandle& handle);
+                                 gfx::GpuFenceHandle handle);
   void GetGpuFenceOnGpuThread(
       uint32_t gpu_fence_id,
       base::OnceCallback<void(std::unique_ptr<gfx::GpuFence>)> callback);
   void SetDisplayTransformOnGpuThread(gfx::OverlayTransform transform);
+  void SetFrameRateOnGpuThread(float frame_rate);
 
   // Sets |active_url_| as the active GPU process URL. Should be called on GPU
   // thread only.
@@ -348,13 +360,20 @@ class GL_IN_PROCESS_CONTEXT_EXPORT InProcessCommandBuffer
   void HandleGpuVSyncOnOriginThread(base::TimeTicks vsync_time,
                                     base::TimeDelta vsync_interval);
 
-  const CommandBufferId command_buffer_id_;
   const ContextUrl active_url_;
 
   bool is_offscreen_ = false;
 
+#if defined(USE_OZONE)
+  // Accessed on GPU thread. Should outlive |surface_|.
+  std::unique_ptr<ui::PlatformWindowSurface> window_surface_;
+#endif
+
   // Members accessed on the gpu thread (possibly with the exception of
   // creation):
+  DisplayCompositorMemoryAndTaskControllerOnGpu* gpu_dependency_;
+  std::unique_ptr<DisplayCompositorMemoryAndTaskControllerOnGpu>
+      gpu_dependency_holder_;
   bool use_virtualized_gl_context_ = false;
   raster::GrShaderCache* gr_shader_cache_ = nullptr;
   scoped_refptr<base::SingleThreadTaskRunner> origin_task_runner_;
@@ -394,7 +413,7 @@ class GL_IN_PROCESS_CONTEXT_EXPORT InProcessCommandBuffer
   CommandBufferTaskExecutor* const task_executor_;
 
   // If no SingleTaskSequence is passed in, create our own.
-  scoped_refptr<GpuTaskSchedulerHelper> task_scheduler_holder_;
+  std::unique_ptr<GpuTaskSchedulerHelper> task_scheduler_holder_;
 
   // Pointer to the SingleTaskSequence that actually does the scheduling.
   SingleTaskSequence* task_sequence_;
@@ -415,9 +434,14 @@ class GL_IN_PROCESS_CONTEXT_EXPORT InProcessCommandBuffer
   struct SwapBufferParams {
     uint64_t swap_id;
     uint32_t flags;
+    base::TimeTicks viz_scheduled_draw;
+    base::TimeTicks gpu_started_draw;
   };
   base::circular_deque<SwapBufferParams> pending_presented_params_;
   base::circular_deque<SwapBufferParams> pending_swap_completed_params_;
+  bool should_measure_next_flush_ = false;
+  base::TimeTicks viz_scheduled_draw_;
+  base::TimeTicks gpu_started_draw_;
 
   scoped_refptr<SharedContextState> context_state_;
 

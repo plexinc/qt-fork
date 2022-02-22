@@ -52,7 +52,6 @@
 //
 
 #include <Qt3DCore/qnodeid.h>
-#include <Qt3DRender/QAttribute>
 #include <Qt3DRender/private/bufferutils_p.h>
 #include <Qt3DCore/private/vector3d_p.h>
 #include <Qt3DCore/private/vector4d_p.h>
@@ -70,6 +69,7 @@ namespace Qt3DRender {
 namespace Render {
 
 class GeometryRenderer;
+class PickingProxy;
 class NodeManagers;
 class Attribute;
 class Buffer;
@@ -82,6 +82,7 @@ public:
 
     void apply(const Qt3DCore::QEntity *entity);
     void apply(const GeometryRenderer *renderer, const Qt3DCore::QNodeId id);
+    void apply(const PickingProxy *proxy, const Qt3DCore::QNodeId id);
 
     virtual void visit(uint andx, const Vector3D &a,
                        uint bndx, const Vector3D &b,

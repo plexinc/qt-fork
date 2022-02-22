@@ -13,6 +13,7 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/html/media/html_media_element.h"
 #include "third_party/blink/renderer/core/html/media/html_video_element.h"
 #include "third_party/blink/renderer/core/html/media/remote_playback_observer.h"
@@ -23,6 +24,7 @@
 #include "third_party/blink/renderer/modules/presentation/presentation_availability_state.h"
 #include "third_party/blink/renderer/modules/presentation/presentation_controller.h"
 #include "third_party/blink/renderer/modules/remoteplayback/availability_callback_wrapper.h"
+#include "third_party/blink/renderer/modules/remoteplayback/remote_playback_metrics.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/instrumentation/memory_pressure_listener.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
@@ -96,7 +98,9 @@ RemotePlayback::RemotePlayback(HTMLMediaElement& element)
       state_(mojom::blink::PresentationConnectionState::CLOSED),
       availability_(mojom::ScreenAvailability::UNKNOWN),
       media_element_(&element),
-      is_listening_(false) {}
+      is_listening_(false),
+      presentation_connection_receiver_(this, element.GetExecutionContext()),
+      target_presentation_connection_(element.GetExecutionContext()) {}
 
 const AtomicString& RemotePlayback::InterfaceName() const {
   return event_target_names::kRemotePlayback;
@@ -202,7 +206,8 @@ ScriptPromise RemotePlayback::prompt(ScriptState* script_state) {
     return promise;
   }
 
-  if (!LocalFrame::HasTransientUserActivation(media_element_->GetFrame())) {
+  if (!LocalFrame::HasTransientUserActivation(
+          media_element_->DomWindow()->GetFrame())) {
     resolver->Reject(MakeGarbageCollected<DOMException>(
         DOMExceptionCode::kInvalidAccessError,
         "RemotePlayback::prompt() requires user gesture."));
@@ -231,7 +236,8 @@ ScriptPromise RemotePlayback::prompt(ScriptState* script_state) {
 
   prompt_promise_resolver_ = resolver;
   PromptInternal();
-
+  RemotePlaybackMetrics::RecordRemotePlaybackLocation(
+      RemotePlaybackInitiationLocation::REMOTE_PLAYBACK_API);
   return promise;
 }
 
@@ -244,11 +250,10 @@ bool RemotePlayback::HasPendingActivity() const {
          prompt_promise_resolver_;
 }
 
-void RemotePlayback::ContextDestroyed() {
-  CleanupConnections();
-}
-
 void RemotePlayback::PromptInternal() {
+  if (!GetExecutionContext())
+    return;
+
   PresentationController* controller =
       PresentationController::FromContext(GetExecutionContext());
   if (controller && !availability_urls_.IsEmpty()) {
@@ -272,8 +277,7 @@ void RemotePlayback::PromptInternal() {
         ->GetTaskRunner(TaskType::kMediaElementEvent)
         ->PostTask(FROM_HERE, WTF::Bind(RunRemotePlaybackTask,
                                         WrapPersistent(GetExecutionContext()),
-                                        WTF::Passed(std::move(task)),
-                                        WTF::Passed(std::move(task_id))));
+                                        std::move(task), std::move(task_id)));
   }
 }
 
@@ -306,8 +310,7 @@ int RemotePlayback::WatchAvailabilityInternal(
       ->GetTaskRunner(TaskType::kMediaElementEvent)
       ->PostTask(FROM_HERE, WTF::Bind(RunRemotePlaybackTask,
                                       WrapPersistent(GetExecutionContext()),
-                                      WTF::Passed(std::move(task)),
-                                      WTF::Passed(std::move(task_id))));
+                                      std::move(task), std::move(task_id)));
 
   MaybeStartListeningForAvailability();
   return id;
@@ -530,9 +533,12 @@ void RemotePlayback::OnConnectionSuccess(
     return;
 
   // Note: Messages on |connection_receiver| are ignored.
-  target_presentation_connection_.Bind(std::move(result->connection_remote));
+  target_presentation_connection_.Bind(
+      std::move(result->connection_remote),
+      GetExecutionContext()->GetTaskRunner(TaskType::kMediaElementEvent));
   presentation_connection_receiver_.Bind(
-      std::move(result->connection_receiver));
+      std::move(result->connection_receiver),
+      GetExecutionContext()->GetTaskRunner(TaskType::kMediaElementEvent));
 }
 
 void RemotePlayback::OnConnectionError(
@@ -606,10 +612,12 @@ void RemotePlayback::MaybeStartListeningForAvailability() {
   is_listening_ = true;
 }
 
-void RemotePlayback::Trace(Visitor* visitor) {
+void RemotePlayback::Trace(Visitor* visitor) const {
   visitor->Trace(availability_callbacks_);
   visitor->Trace(prompt_promise_resolver_);
   visitor->Trace(media_element_);
+  visitor->Trace(presentation_connection_receiver_);
+  visitor->Trace(target_presentation_connection_);
   visitor->Trace(observers_);
   EventTargetWithInlineData::Trace(visitor);
   ExecutionContextLifecycleObserver::Trace(visitor);

@@ -39,9 +39,8 @@
 
 #include "private/qsqlcachedresult_p.h"
 
-#include <qvariant.h>
 #include <qdatetime.h>
-#include <qvector.h>
+#include <qvariant.h>
 #include <QtSql/private/qsqldriver_p.h>
 
 QT_BEGIN_NAMESPACE
@@ -59,14 +58,6 @@ QT_BEGIN_NAMESPACE
 */
 
 static const uint initial_cache_size = 128;
-
-QSqlCachedResultPrivate::QSqlCachedResultPrivate(QSqlCachedResult *q, const QSqlDriver *drv)
-    : QSqlResultPrivate(q, drv),
-      rowCacheEnd(0),
-      colCount(0),
-      atEnd(false)
-{
-}
 
 void QSqlCachedResultPrivate::cleanup()
 {
@@ -266,7 +257,7 @@ bool QSqlCachedResult::cacheNext()
     if (d->atEnd)
         return false;
 
-    if(isForwardOnly()) {
+    if (isForwardOnly()) {
         d->cache.resize(d->colCount);
     }
 

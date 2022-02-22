@@ -2,11 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/profiles/profile.h"
@@ -24,13 +24,16 @@
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "content/public/test/test_utils.h"
 #include "content/public/test/url_loader_interceptor.h"
+#include "content/public/test/url_loader_monitor.h"
 #include "net/base/features.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
+#include "services/network/public/cpp/resource_request.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
@@ -338,7 +341,18 @@ IN_PROC_BROWSER_TEST_F(ViewSourceTest, HttpPostInMainframe) {
                             "document.getElementById('form').submit();"));
   form_post_observer.Wait();
   GURL target_url(embedded_test_server()->GetURL("a.com", "/echoall"));
-  EXPECT_EQ(target_url, original_main_frame->GetLastCommittedURL());
+
+  content::RenderFrameHost* current_main_frame =
+      original_contents->GetMainFrame();
+  if (content::CanSameSiteMainFrameNavigationsChangeRenderFrameHosts()) {
+    // When ProactivelySwapBrowsingInstance or RenderDocument is enabled on
+    // same-site main frame navigations, the form submission above will result
+    // in a change of RFH.
+    EXPECT_NE(current_main_frame, original_main_frame);
+  } else {
+    EXPECT_EQ(current_main_frame, original_main_frame);
+  }
+  EXPECT_EQ(target_url, current_main_frame->GetLastCommittedURL());
 
   // Extract the response nonce.
   std::string response_nonce;
@@ -346,13 +360,13 @@ IN_PROC_BROWSER_TEST_F(ViewSourceTest, HttpPostInMainframe) {
       domAutomationController.send(
           document.getElementById('response-nonce').innerText); )";
   EXPECT_TRUE(ExecuteScriptAndExtractString(
-      original_main_frame, response_nonce_extraction_script, &response_nonce));
+      current_main_frame, response_nonce_extraction_script, &response_nonce));
 
   // Open view-source mode tab for the main frame.  This tries to mimic the
   // behavior of RenderViewContextMenu::ExecuteCommand when it handles
   // IDC_CONTENT_CONTEXT_VIEWFRAMESOURCE.
   content::WebContentsAddedObserver view_source_contents_observer;
-  original_main_frame->ViewSource();
+  current_main_frame->ViewSource();
   content::WebContents* view_source_contents =
       view_source_contents_observer.GetWebContents();
   EXPECT_TRUE(WaitForLoadStop(view_source_contents));
@@ -389,7 +403,7 @@ IN_PROC_BROWSER_TEST_F(ViewSourceTest, HttpPostInMainframe) {
 
   // Verify that the original contents and the view-source contents are in a
   // different process - see https://crbug.com/699493.
-  EXPECT_NE(original_main_frame->GetSiteInstance(),
+  EXPECT_NE(current_main_frame->GetSiteInstance(),
             view_source_contents->GetMainFrame()->GetSiteInstance());
 
   // Verify the title of view-source is derived from the URL (not from the title
@@ -398,11 +412,75 @@ IN_PROC_BROWSER_TEST_F(ViewSourceTest, HttpPostInMainframe) {
   EXPECT_EQ("EmbeddedTestServer - EchoAll",
             base::UTF16ToUTF8(original_contents->GetTitle()));
   EXPECT_THAT(title, Not(HasSubstr("EmbeddedTestServer - EchoAll")));
-  GURL original_url = original_main_frame->GetLastCommittedURL();
+  GURL original_url = current_main_frame->GetLastCommittedURL();
   EXPECT_THAT(title, HasSubstr(content::kViewSourceScheme));
   EXPECT_THAT(title, HasSubstr(original_url.host()));
   EXPECT_THAT(title, HasSubstr(original_url.port()));
   EXPECT_THAT(title, HasSubstr(original_url.path()));
+}
+
+// Test the case where ViewSource() is called on a top-level RenderFrameHost
+// that has never had a commit, so has an empty IsolationInfo. For ViewSource()
+// to do anything, the NavigationController for the tab must have a
+// LastCommittedEntry(). This sounds like a contradiction of requirements, but
+// can happen when a tab is cloned, and possibly other cases as well, like
+// session restore.
+//
+// The main concern here is that the source RenderFrameHost has an empty
+// IsolationInfo, and accessing it would DCHECK, so this path should mint a new
+// one.
+IN_PROC_BROWSER_TEST_F(ViewSourceTest,
+                       ViewSourceWithRenderFrameHostWithoutCommit) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+
+  // Navigate to a URL, it doesn't matter which, just need the tab to have a
+  // committed entry other than about:blank or the NTP.
+  GURL url(embedded_test_server()->GetURL(kTestHtml));
+  ui_test_utils::NavigateToURL(browser(), url);
+  EXPECT_EQ(0, browser()->tab_strip_model()->active_index());
+
+  // Duplicate the tab. The newly created tab should be active.
+  chrome::DuplicateTab(browser());
+  EXPECT_EQ(1, browser()->tab_strip_model()->active_index());
+
+  // Check preconditions.
+  EXPECT_TRUE(browser()
+                  ->tab_strip_model()
+                  ->GetActiveWebContents()
+                  ->GetController()
+                  .GetLastCommittedEntry());
+  EXPECT_EQ(GURL(), browser()
+                        ->tab_strip_model()
+                        ->GetActiveWebContents()
+                        ->GetMainFrame()
+                        ->GetLastCommittedURL());
+
+  // Open a view source tab, and watch for its main network request.
+  content::URLLoaderMonitor loader_monitor({url});
+  content::WebContentsAddedObserver view_source_contents_observer;
+  browser()
+      ->tab_strip_model()
+      ->GetActiveWebContents()
+      ->GetMainFrame()
+      ->ViewSource();
+  content::WebContents* view_source_contents =
+      view_source_contents_observer.GetWebContents();
+  EXPECT_TRUE(WaitForLoadStop(view_source_contents));
+  GURL view_source_url(content::kViewSourceScheme + std::string(":") +
+                       url.spec());
+  EXPECT_EQ(view_source_url, view_source_contents->GetLastCommittedURL());
+
+  // Verify the request for the view-source tab had the correct IsolationInfo.
+  base::Optional<network::ResourceRequest> request =
+      loader_monitor.GetRequestInfo(url);
+  ASSERT_TRUE(request);
+  ASSERT_TRUE(request->trusted_params);
+  url::Origin origin = url::Origin::Create(url);
+  EXPECT_TRUE(request->trusted_params->isolation_info.IsEqualForTesting(
+      net::IsolationInfo::Create(net::IsolationInfo::RequestType::kMainFrame,
+                                 origin, origin,
+                                 net::SiteForCookies::FromOrigin(origin),
+                                 std::set<net::SchemefulSite>())));
 }
 
 class ViewSourceWithSplitCacheTest

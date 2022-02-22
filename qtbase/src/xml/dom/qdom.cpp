@@ -52,11 +52,7 @@
 #if QT_CONFIG(regularexpression)
 #include <qregularexpression.h>
 #endif
-#if QT_CONFIG(textcodec)
-#include <qtextcodec.h>
-#endif
 #include <qtextstream.h>
-#include <qxml.h>
 #include <qvariant.h>
 #include <qshareddata.h>
 #include <qdebug.h>
@@ -66,6 +62,7 @@
 
 #include <stdio.h>
 #include <limits>
+#include <memory>
 
 QT_BEGIN_NAMESPACE
 
@@ -83,7 +80,7 @@ QT_BEGIN_NAMESPACE
 
 /* ##### new TODOs:
 
-  Remove emtpy emthods in the *Private classes
+  Remove empty emthods in the *Private classes
 
   Make a lot of the (mostly empty) methods in the public classes inline.
   Specially constructors assignment operators and comparison operators are candidates.
@@ -305,7 +302,7 @@ static QString fixedPubidLiteral(const QString &data, bool *ok)
 
     QString result;
 
-    if(QXmlUtils::isPublicID(data))
+    if (QXmlUtils::isPublicID(data))
         result = data;
     else if (QDomImplementationPrivate::invalidDataPolicy == QDomImplementation::ReturnNullNode) {
         *ok = false;
@@ -1035,7 +1032,7 @@ QDomNodePrivate* QDomNodePrivate::insertBefore(QDomNodePrivate* newChild, QDomNo
 
     // "mark lists as dirty"
     QDomDocumentPrivate *const doc = ownerDocument();
-    if(doc)
+    if (doc)
         doc->nodeListTime++;
 
     // Special handling for inserting a fragment. We just insert
@@ -1130,7 +1127,7 @@ QDomNodePrivate* QDomNodePrivate::insertAfter(QDomNodePrivate* newChild, QDomNod
 
     // "mark lists as dirty"
     QDomDocumentPrivate *const doc = ownerDocument();
-    if(doc)
+    if (doc)
         doc->nodeListTime++;
 
     // Special handling for inserting a fragment. We just insert
@@ -1221,7 +1218,7 @@ QDomNodePrivate* QDomNodePrivate::replaceChild(QDomNodePrivate* newChild, QDomNo
 
     // mark lists as dirty
     QDomDocumentPrivate *const doc = ownerDocument();
-    if(doc)
+    if (doc)
         doc->nodeListTime++;
 
     // Special handling for inserting a fragment. We just insert
@@ -1264,8 +1261,7 @@ QDomNodePrivate* QDomNodePrivate::replaceChild(QDomNodePrivate* newChild, QDomNo
         newChild->last = nullptr;
 
         // We are no longer interested in the old node
-        if (oldChild)
-            oldChild->ref.deref();
+        oldChild->ref.deref();
 
         return oldChild;
     }
@@ -1298,8 +1294,7 @@ QDomNodePrivate* QDomNodePrivate::replaceChild(QDomNodePrivate* newChild, QDomNo
     oldChild->prev = nullptr;
 
     // We are no longer interested in the old node
-    if (oldChild)
-        oldChild->ref.deref();
+    oldChild->ref.deref();
 
     return oldChild;
 }
@@ -1312,7 +1307,7 @@ QDomNodePrivate* QDomNodePrivate::removeChild(QDomNodePrivate* oldChild)
 
     // "mark lists as dirty"
     QDomDocumentPrivate *const doc = ownerDocument();
-    if(doc)
+    if (doc)
         doc->nodeListTime++;
 
     // Perhaps oldChild was just created with "createElement" or that. In this case
@@ -1726,7 +1721,7 @@ QDomNode QDomNode::parentNode() const
 
     For example, if the XML document looks like this:
 
-    \snippet code/src_xml_dom_qdom.cpp 4
+    \snippet code/src_xml_dom_qdom_snippet.cpp 4
 
     Then the list of child nodes for the "body"-element will contain
     the node created by the &lt;h1&gt; tag and the node created by the
@@ -1778,7 +1773,7 @@ QDomNode QDomNode::lastChild() const
 
     For example, if you have XML like this:
 
-    \snippet code/src_xml_dom_qdom.cpp 5
+    \snippet code/src_xml_dom_qdom_snippet.cpp 5
 
     and this QDomNode represents the &lt;p&gt; tag, previousSibling()
     will return the node representing the &lt;h1&gt; tag.
@@ -1798,7 +1793,7 @@ QDomNode QDomNode::previousSibling() const
 
     If you have XML like this:
 
-    \snippet code/src_xml_dom_qdom.cpp 6
+    \snippet code/src_xml_dom_qdom_snippet.cpp 6
 
     and this QDomNode represents the <p> tag, nextSibling() will
     return the node representing the <h2> tag.
@@ -2190,7 +2185,7 @@ void QDomNode::save(QTextStream& stream, int indent, EncodingPolicy encodingPoli
     if (!impl)
         return;
 
-    if(isDocument())
+    if (isDocument())
         static_cast<const QDomDocumentPrivate *>(impl)->saveDocument(stream, indent, encodingPolicy);
     else
         IMPL->save(stream, 1, indent);
@@ -2220,7 +2215,7 @@ QTextStream& operator<<(QTextStream& str, const QDomNode& node)
 */
 bool QDomNode::isAttr() const
 {
-    if(impl)
+    if (impl)
         return impl->isAttr();
     return false;
 }
@@ -2237,7 +2232,7 @@ bool QDomNode::isAttr() const
 */
 bool QDomNode::isCDATASection() const
 {
-    if(impl)
+    if (impl)
         return impl->isCDATASection();
     return false;
 }
@@ -2254,7 +2249,7 @@ bool QDomNode::isCDATASection() const
 */
 bool QDomNode::isDocumentFragment() const
 {
-    if(impl)
+    if (impl)
         return impl->isDocumentFragment();
     return false;
 }
@@ -2269,7 +2264,7 @@ bool QDomNode::isDocumentFragment() const
 */
 bool QDomNode::isDocument() const
 {
-    if(impl)
+    if (impl)
         return impl->isDocument();
     return false;
 }
@@ -2286,7 +2281,7 @@ bool QDomNode::isDocument() const
 */
 bool QDomNode::isDocumentType() const
 {
-    if(impl)
+    if (impl)
         return impl->isDocumentType();
     return false;
 }
@@ -2301,7 +2296,7 @@ bool QDomNode::isDocumentType() const
 */
 bool QDomNode::isElement() const
 {
-    if(impl)
+    if (impl)
         return impl->isElement();
     return false;
 }
@@ -2318,7 +2313,7 @@ bool QDomNode::isElement() const
 */
 bool QDomNode::isEntityReference() const
 {
-    if(impl)
+    if (impl)
         return impl->isEntityReference();
     return false;
 }
@@ -2333,7 +2328,7 @@ bool QDomNode::isEntityReference() const
 */
 bool QDomNode::isText() const
 {
-    if(impl)
+    if (impl)
         return impl->isText();
     return false;
 }
@@ -2348,7 +2343,7 @@ bool QDomNode::isText() const
 */
 bool QDomNode::isEntity() const
 {
-    if(impl)
+    if (impl)
         return impl->isEntity();
     return false;
 }
@@ -2363,7 +2358,7 @@ bool QDomNode::isEntity() const
 */
 bool QDomNode::isNotation() const
 {
-    if(impl)
+    if (impl)
         return impl->isNotation();
     return false;
 }
@@ -2380,7 +2375,7 @@ bool QDomNode::isNotation() const
 */
 bool QDomNode::isProcessingInstruction() const
 {
-    if(impl)
+    if (impl)
         return impl->isProcessingInstruction();
     return false;
 }
@@ -2420,17 +2415,19 @@ bool QDomNode::isComment() const
 #undef IMPL
 
 /*!
-    Returns the first child element with tag name \a tagName if tagName is non-empty;
-    otherwise returns the first child element.  Returns a null element if no
-    such child exists.
+    Returns the first child element with tag name \a tagName and namespace URI
+    \a namespaceURI. If \a tagName is empty, returns the first child element
+    with \a namespaceURI, and if \a namespaceURI is empty, returns the first
+    child element with \a tagName. If the both parameters are empty, returns
+    the first child element. Returns a null element if no such child exists.
 
     \sa lastChildElement(), previousSiblingElement(), nextSiblingElement()
 */
 
-QDomElement QDomNode::firstChildElement(const QString &tagName) const
+QDomElement QDomNode::firstChildElement(const QString &tagName, const QString &namespaceURI) const
 {
     for (QDomNode child = firstChild(); !child.isNull(); child = child.nextSibling()) {
-        if (child.isElement()) {
+        if (child.isElement() && (namespaceURI.isEmpty() || child.namespaceURI() == namespaceURI)) {
             QDomElement elt = child.toElement();
             if (tagName.isEmpty() || elt.tagName() == tagName)
                 return elt;
@@ -2440,17 +2437,19 @@ QDomElement QDomNode::firstChildElement(const QString &tagName) const
 }
 
 /*!
-    Returns the last child element with tag name \a tagName if tagName is non-empty;
-    otherwise returns the last child element. Returns a null element if no
-    such child exists.
+    Returns the last child element with tag name \a tagName and namespace URI
+    \a namespaceURI. If \a tagName is empty, returns the last child element
+    with \a namespaceURI, and if \a namespaceURI is empty, returns the last
+    child element with \a tagName. If the both parameters are empty, returns
+    the last child element. Returns a null element if no such child exists.
 
     \sa firstChildElement(), previousSiblingElement(), nextSiblingElement()
 */
 
-QDomElement QDomNode::lastChildElement(const QString &tagName) const
+QDomElement QDomNode::lastChildElement(const QString &tagName, const QString &namespaceURI) const
 {
     for (QDomNode child = lastChild(); !child.isNull(); child = child.previousSibling()) {
-        if (child.isElement()) {
+        if (child.isElement() && (namespaceURI.isEmpty() || child.namespaceURI() == namespaceURI)) {
             QDomElement elt = child.toElement();
             if (tagName.isEmpty() || elt.tagName() == tagName)
                 return elt;
@@ -2460,17 +2459,20 @@ QDomElement QDomNode::lastChildElement(const QString &tagName) const
 }
 
 /*!
-    Returns the next sibling element with tag name \a tagName if \a tagName
-    is non-empty; otherwise returns any next sibling element.
-    Returns a null element if no such sibling exists.
+    Returns the next sibling element with tag name \a tagName and namespace URI
+    \a namespaceURI. If \a tagName is empty, returns the next sibling element
+    with \a namespaceURI, and if \a namespaceURI is empty, returns the next
+    sibling child element with \a tagName. If the both parameters are empty,
+    returns the next sibling element. Returns a null element if no such sibling
+    exists.
 
     \sa firstChildElement(), previousSiblingElement(), lastChildElement()
 */
 
-QDomElement QDomNode::nextSiblingElement(const QString &tagName) const
+QDomElement QDomNode::nextSiblingElement(const QString &tagName, const QString &namespaceURI) const
 {
     for (QDomNode sib = nextSibling(); !sib.isNull(); sib = sib.nextSibling()) {
-        if (sib.isElement()) {
+        if (sib.isElement() && (namespaceURI.isEmpty() || sib.namespaceURI() == namespaceURI)) {
             QDomElement elt = sib.toElement();
             if (tagName.isEmpty() || elt.tagName() == tagName)
                 return elt;
@@ -2480,17 +2482,20 @@ QDomElement QDomNode::nextSiblingElement(const QString &tagName) const
 }
 
 /*!
-    Returns the previous sibilng element with tag name \a tagName if \a tagName
-    is non-empty; otherwise returns any previous sibling element.
-    Returns a null element if no such sibling exists.
+    Returns the previous sibling element with tag name \a tagName and namespace
+    URI \a namespaceURI. If \a tagName is empty, returns the previous sibling
+    element with \a namespaceURI, and if \a namespaceURI is empty, returns the
+    previous sibling element with \a tagName. If the both parameters are empty,
+    returns the previous sibling element. Returns a null element if no such
+    sibling exists.
 
     \sa firstChildElement(), nextSiblingElement(), lastChildElement()
 */
 
-QDomElement QDomNode::previousSiblingElement(const QString &tagName) const
+QDomElement QDomNode::previousSiblingElement(const QString &tagName, const QString &namespaceURI) const
 {
     for (QDomNode sib = previousSibling(); !sib.isNull(); sib = sib.previousSibling()) {
-        if (sib.isElement()) {
+        if (sib.isElement() && (namespaceURI.isEmpty() || sib.namespaceURI() == namespaceURI)) {
             QDomElement elt = sib.toElement();
             if (tagName.isEmpty() || elt.tagName() == tagName)
                 return elt;
@@ -2548,11 +2553,11 @@ QDomNamedNodeMapPrivate::~QDomNamedNodeMapPrivate()
 
 QDomNamedNodeMapPrivate* QDomNamedNodeMapPrivate::clone(QDomNodePrivate* p)
 {
-    QScopedPointer<QDomNamedNodeMapPrivate> m(new QDomNamedNodeMapPrivate(p));
+    std::unique_ptr<QDomNamedNodeMapPrivate> m(new QDomNamedNodeMapPrivate(p));
     m->readonly = readonly;
     m->appendToParent = appendToParent;
 
-    QHash<QString, QDomNodePrivate*>::const_iterator it = map.constBegin();
+    auto it = map.constBegin();
     for (; it != map.constEnd(); ++it) {
         QDomNodePrivate *new_node = (*it)->cloneNode();
         new_node->setParent(p);
@@ -2561,14 +2566,14 @@ QDomNamedNodeMapPrivate* QDomNamedNodeMapPrivate::clone(QDomNodePrivate* p)
 
     // we are no longer interested in ownership
     m->ref.deref();
-    return m.take();
+    return m.release();
 }
 
 void QDomNamedNodeMapPrivate::clearMap()
 {
     // Dereference all of our children if we took references
     if (!appendToParent) {
-        QHash<QString, QDomNodePrivate *>::const_iterator it = map.constBegin();
+        auto it = map.constBegin();
         for (; it != map.constEnd(); ++it)
             if (!(*it)->ref.deref())
                 delete *it;
@@ -2584,7 +2589,7 @@ QDomNodePrivate* QDomNamedNodeMapPrivate::namedItem(const QString& name) const
 
 QDomNodePrivate* QDomNamedNodeMapPrivate::namedItemNS(const QString& nsURI, const QString& localName) const
 {
-    QHash<QString, QDomNodePrivate *>::const_iterator it = map.constBegin();
+    auto it = map.constBegin();
     QDomNodePrivate *n;
     for (; it != map.constEnd(); ++it) {
         n = *it;
@@ -3011,7 +3016,7 @@ QDomNodePrivate* QDomDocumentTypePrivate::cloneNode(bool deep)
 
 QDomNodePrivate* QDomDocumentTypePrivate::insertBefore(QDomNodePrivate* newChild, QDomNodePrivate* refChild)
 {
-    // Call the origianl implementation
+    // Call the original implementation
     QDomNodePrivate* p = QDomNodePrivate::insertBefore(newChild, refChild);
     // Update the maps
     if (p && p->isEntity())
@@ -3024,7 +3029,7 @@ QDomNodePrivate* QDomDocumentTypePrivate::insertBefore(QDomNodePrivate* newChild
 
 QDomNodePrivate* QDomDocumentTypePrivate::insertAfter(QDomNodePrivate* newChild, QDomNodePrivate* refChild)
 {
-    // Call the origianl implementation
+    // Call the original implementation
     QDomNodePrivate* p = QDomNodePrivate::insertAfter(newChild, refChild);
     // Update the maps
     if (p && p->isEntity())
@@ -3037,7 +3042,7 @@ QDomNodePrivate* QDomDocumentTypePrivate::insertAfter(QDomNodePrivate* newChild,
 
 QDomNodePrivate* QDomDocumentTypePrivate::replaceChild(QDomNodePrivate* newChild, QDomNodePrivate* oldChild)
 {
-    // Call the origianl implementation
+    // Call the original implementation
     QDomNodePrivate* p = QDomNodePrivate::replaceChild(newChild, oldChild);
     // Update the maps
     if (p) {
@@ -3057,7 +3062,7 @@ QDomNodePrivate* QDomDocumentTypePrivate::replaceChild(QDomNodePrivate* newChild
 
 QDomNodePrivate* QDomDocumentTypePrivate::removeChild(QDomNodePrivate* oldChild)
 {
-    // Call the origianl implementation
+    // Call the original implementation
     QDomNodePrivate* p = QDomNodePrivate::removeChild( oldChild);
     // Update the maps
     if (p && p->isEntity())
@@ -3100,11 +3105,11 @@ void QDomDocumentTypePrivate::save(QTextStream& s, int, int indent) const
     if (entities->length()>0 || notations->length()>0) {
         s << " [" << Qt::endl;
 
-        QHash<QString, QDomNodePrivate *>::const_iterator it2 = notations->map.constBegin();
+        auto it2 = notations->map.constBegin();
         for (; it2 != notations->map.constEnd(); ++it2)
             (*it2)->save(s, 0, indent);
 
-        QHash<QString, QDomNodePrivate *>::const_iterator it = entities->map.constBegin();
+        auto it = entities->map.constBegin();
         for (; it != entities->map.constEnd(); ++it)
             (*it)->save(s, 0, indent);
 
@@ -3650,17 +3655,10 @@ bool QDomAttrPrivate::specified() const
   If \a encodeEOLs is true, characters will be escaped to survive End-of-Line Handling.
 */
 static QString encodeText(const QString &str,
-                          QTextStream &s,
                           const bool encodeQuotes = true,
                           const bool performAVN = false,
                           const bool encodeEOLs = false)
 {
-#if !QT_CONFIG(textcodec)
-    Q_UNUSED(s);
-#else
-    const QTextCodec *const codec = s.codec();
-    Q_ASSERT(codec);
-#endif
     QString retval(str);
     int len = retval.length();
     int i = 0;
@@ -3697,19 +3695,7 @@ static QString encodeText(const QString &str,
             len += 4;
             i += 5;
         } else {
-#if QT_CONFIG(textcodec)
-            if(codec->canEncode(ati))
-                ++i;
-            else
-#endif
-            {
-                // We have to use a character reference to get it through.
-                const ushort codepoint(ati.unicode());
-                const QString replacement(QLatin1String("&#x") + QString::number(codepoint, 16) + QLatin1Char(';'));
-                retval.replace(i, 1, replacement);
-                i += replacement.length();
-                len += replacement.length() - 1;
-            }
+            ++i;
         }
     }
 
@@ -3719,9 +3705,9 @@ static QString encodeText(const QString &str,
 void QDomAttrPrivate::save(QTextStream& s, int, int) const
 {
     if (namespaceURI.isNull()) {
-        s << name << "=\"" << encodeText(value, s, true, true) << '\"';
+        s << name << "=\"" << encodeText(value, true, true) << '\"';
     } else {
-        s << prefix << ':' << name << "=\"" << encodeText(value, s, true, true) << '\"';
+        s << prefix << ':' << name << "=\"" << encodeText(value, true, true) << '\"';
         /* This is a fix for 138243, as good as it gets.
          *
          * QDomElementPrivate::save() output a namespace declaration if
@@ -3733,9 +3719,9 @@ void QDomAttrPrivate::save(QTextStream& s, int, int) const
          * a different namespace. However, this can only occur by the user modifying the element,
          * and we don't do fixups by that anyway, and hence it's the user responsibility to not
          * arrive in those situations. */
-        if(!ownerNode ||
+        if (!ownerNode ||
            ownerNode->prefix != prefix) {
-            s << " xmlns:" << prefix << "=\"" << encodeText(namespaceURI, s, true, true) << '\"';
+            s << " xmlns:" << prefix << "=\"" << encodeText(namespaceURI, true, true) << '\"';
         }
     }
 }
@@ -3759,7 +3745,7 @@ void QDomAttrPrivate::save(QTextStream& s, int, int) const
     For example, the following piece of XML produces an element with
     no children, but two attributes:
 
-    \snippet code/src_xml_dom_qdom.cpp 7
+    \snippet code/src_xml_dom_qdom_snippet.cpp 7
 
     You can access the attributes of an element with code like this:
 
@@ -4084,7 +4070,7 @@ void QDomElementPrivate::save(QTextStream& s, int depth, int indent) const
             qName = prefix + QLatin1Char(':') + name;
             nsDecl = QLatin1String(" xmlns:") + prefix;
         }
-        nsDecl += QLatin1String("=\"") + encodeText(namespaceURI, s) + QLatin1Char('\"');
+        nsDecl += QLatin1String("=\"") + encodeText(namespaceURI) + QLatin1Char('\"');
     }
     s << '<' << qName << nsDecl;
 
@@ -4092,13 +4078,13 @@ void QDomElementPrivate::save(QTextStream& s, int depth, int indent) const
     /* Write out attributes. */
     if (!m_attr->map.isEmpty()) {
         QDuplicateTracker<QString> outputtedPrefixes;
-        QHash<QString, QDomNodePrivate *>::const_iterator it = m_attr->map.constBegin();
+        auto it = m_attr->map.constBegin();
         for (; it != m_attr->map.constEnd(); ++it) {
             s << ' ';
             if (it.value()->namespaceURI.isNull()) {
-                s << it.value()->name << "=\"" << encodeText(it.value()->value, s, true, true) << '\"';
+                s << it.value()->name << "=\"" << encodeText(it.value()->value, true, true) << '\"';
             } else {
-                s << it.value()->prefix << ':' << it.value()->name << "=\"" << encodeText(it.value()->value, s, true, true) << '\"';
+                s << it.value()->prefix << ':' << it.value()->name << "=\"" << encodeText(it.value()->value, true, true) << '\"';
                 /* This is a fix for 138243, as good as it gets.
                  *
                  * QDomElementPrivate::save() output a namespace declaration if
@@ -4110,10 +4096,10 @@ void QDomElementPrivate::save(QTextStream& s, int depth, int indent) const
                  * a different namespace. However, this can only occur by the user modifying the element,
                  * and we don't do fixups by that anyway, and hence it's the user responsibility to not
                  * arrive in those situations. */
-                if((!it.value()->ownerNode ||
+                if ((!it.value()->ownerNode ||
                    it.value()->ownerNode->prefix != it.value()->prefix) &&
                    !outputtedPrefixes.hasSeen(it.value()->prefix)) {
-                    s << " xmlns:" << it.value()->prefix << "=\"" << encodeText(it.value()->namespaceURI, s, true, true) << '\"';
+                    s << " xmlns:" << it.value()->prefix << "=\"" << encodeText(it.value()->namespaceURI, true, true) << '\"';
                 }
             }
         }
@@ -4173,7 +4159,7 @@ void QDomElementPrivate::save(QTextStream& s, int depth, int indent) const
 
     If you want to access the text of a node use text(), e.g.
 
-    \snippet code/src_xml_dom_qdom.cpp 9
+    \snippet code/src_xml_dom_qdom_snippet.cpp 9
 
     The text() function operates recursively to find the text (since
     not all elements contain text). If you want to find all the text
@@ -4195,7 +4181,7 @@ void QDomElementPrivate::save(QTextStream& s, int depth, int indent) const
     nextSiblingElement() and previousSiblingElement(). For example, to iterate over all
     child elements called "entry" in a root element called "database", you can use:
 
-    \snippet code/src_xml_dom_qdom.cpp 11
+    \snippet code/src_xml_dom_qdom_snippet.cpp 11
 
    For further information about the Document Object Model see
     \l{W3C DOM Level 1}{Level 1} and
@@ -4262,7 +4248,7 @@ void QDomElement::setTagName(const QString& name)
 /*!
     Returns the tag name of this element. For an XML element like this:
 
-    \snippet code/src_xml_dom_qdom.cpp 12
+    \snippet code/src_xml_dom_qdom_snippet.cpp 12
 
     the tagname would return "img".
 
@@ -4480,7 +4466,7 @@ bool QDomElement::hasAttribute(const QString& name) const
 
     \sa setAttributeNS(), attributeNodeNS(), setAttributeNodeNS(), attribute()
 */
-QString QDomElement::attributeNS(const QString nsURI, const QString& localName, const QString& defValue) const
+QString QDomElement::attributeNS(const QString& nsURI, const QString& localName, const QString& defValue) const
 {
     if (!impl)
         return defValue;
@@ -4491,7 +4477,7 @@ QString QDomElement::attributeNS(const QString nsURI, const QString& localName, 
     Adds an attribute with the qualified name \a qName and the
     namespace URI \a nsURI with the value \a value. If an attribute
     with the same local name and namespace URI exists, its prefix is
-    replaced by the prefix of \a qName and its value is repaced by \a
+    replaced by the prefix of \a qName and its value is replaced by \a
     value.
 
     Although \a qName is the qualified name, the local name is used to
@@ -4499,7 +4485,7 @@ QString QDomElement::attributeNS(const QString nsURI, const QString& localName, 
 
     \sa attributeNS(), setAttributeNodeNS(), setAttribute()
 */
-void QDomElement::setAttributeNS(const QString nsURI, const QString& qName, const QString& value)
+void QDomElement::setAttributeNS(const QString& nsURI, const QString& qName, const QString& value)
 {
     if (!impl)
         return;
@@ -4507,13 +4493,13 @@ void QDomElement::setAttributeNS(const QString nsURI, const QString& qName, cons
 }
 
 /*!
-  \fn void QDomElement::setAttributeNS(const QString nsURI, const QString& qName, int value)
+  \fn void QDomElement::setAttributeNS(const QString& nsURI, const QString& qName, int value)
 
     \overload
 */
 
 /*!
-  \fn void QDomElement::setAttributeNS(const QString nsURI, const QString& qName, uint value)
+  \fn void QDomElement::setAttributeNS(const QString& nsURI, const QString& qName, uint value)
 
     \overload
 */
@@ -4521,7 +4507,7 @@ void QDomElement::setAttributeNS(const QString nsURI, const QString& qName, cons
 /*!
     \overload
 */
-void QDomElement::setAttributeNS(const QString nsURI, const QString& qName, qlonglong value)
+void QDomElement::setAttributeNS(const QString& nsURI, const QString& qName, qlonglong value)
 {
     if (!impl)
         return;
@@ -4533,7 +4519,7 @@ void QDomElement::setAttributeNS(const QString nsURI, const QString& qName, qlon
 /*!
     \overload
 */
-void QDomElement::setAttributeNS(const QString nsURI, const QString& qName, qulonglong value)
+void QDomElement::setAttributeNS(const QString& nsURI, const QString& qName, qulonglong value)
 {
     if (!impl)
         return;
@@ -4545,7 +4531,7 @@ void QDomElement::setAttributeNS(const QString nsURI, const QString& qName, qulo
 /*!
     \overload
 */
-void QDomElement::setAttributeNS(const QString nsURI, const QString& qName, double value)
+void QDomElement::setAttributeNS(const QString& nsURI, const QString& qName, double value)
 {
     if (!impl)
         return;
@@ -4632,12 +4618,12 @@ bool QDomElement::hasAttributeNS(const QString& nsURI, const QString& localName)
     Returns the element's text or an empty string.
 
     Example:
-    \snippet code/src_xml_dom_qdom.cpp 13
+    \snippet code/src_xml_dom_qdom_snippet.cpp 13
 
     The function text() of the QDomElement for the \c{<h1>} tag,
     will return the following text:
 
-    \snippet code/src_xml_dom_qdom.cpp 14
+    \snippet code/src_xml_dom_qdom_snippet.cpp 14
 
     Comments are ignored by this function. It only evaluates QDomText
     and QDomCDATASection objects.
@@ -4694,7 +4680,7 @@ QDomTextPrivate* QDomTextPrivate::splitText(int offset)
 void QDomTextPrivate::save(QTextStream& s, int, int) const
 {
     QDomTextPrivate *that = const_cast<QDomTextPrivate*>(this);
-    s << encodeText(value, s, !(that->parent() && that->parent()->isElement()), false, true);
+    s << encodeText(value, !(that->parent() && that->parent()->isElement()), false, true);
 }
 
 /**************************************************************
@@ -4714,7 +4700,7 @@ void QDomTextPrivate::save(QTextStream& s, int, int) const
     \ingroup xml-tools
 
     You can split the text in a QDomText object over two QDomText
-    objecs with splitText().
+    objects with splitText().
 
    For further information about the Document Object Model see
     \l{http://www.w3.org/TR/REC-DOM-Level-1/}{Level 1} and
@@ -4844,7 +4830,7 @@ void QDomCommentPrivate::save(QTextStream& s, int depth, int indent) const
 
     A comment in the parsed XML such as this:
 
-    \snippet code/src_xml_dom_qdom.cpp 15
+    \snippet code/src_xml_dom_qdom_snippet.cpp 15
 
     is represented by QDomComment objects in the parsed Dom tree.
 
@@ -5697,57 +5683,6 @@ void QDomDocumentPrivate::clear()
     QDomNodePrivate::clear();
 }
 
-#if QT_DEPRECATED_SINCE(5, 15)
-
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-static void initializeReader(QXmlSimpleReader &reader, bool namespaceProcessing)
-{
-    reader.setFeature(QLatin1String("http://xml.org/sax/features/namespaces"), namespaceProcessing);
-    reader.setFeature(QLatin1String("http://xml.org/sax/features/namespace-prefixes"), !namespaceProcessing);
-    reader.setFeature(QLatin1String("http://trolltech.com/xml/features/report-whitespace-only-CharData"), false); // Shouldn't change in Qt 4
-}
-
-bool QDomDocumentPrivate::setContent(QXmlInputSource *source, bool namespaceProcessing, QString *errorMsg, int *errorLine, int *errorColumn)
-{
-    QXmlSimpleReader reader;
-    initializeReader(reader, namespaceProcessing);
-    return setContent(source, &reader, &reader, errorMsg, errorLine, errorColumn);
-}
-
-bool QDomDocumentPrivate::setContent(QXmlInputSource *source, QXmlReader *reader, QXmlSimpleReader *simpleReader, QString *errorMsg, int *errorLine, int *errorColumn)
-{
-    clear();
-    impl = new QDomImplementationPrivate;
-    type = new QDomDocumentTypePrivate(this, this);
-    type->ref.deref();
-
-    bool namespaceProcessing = reader->feature(QLatin1String("http://xml.org/sax/features/namespaces"))
-        && !reader->feature(QLatin1String("http://xml.org/sax/features/namespace-prefixes"));
-
-    QDomHandler hnd(this, simpleReader, namespaceProcessing);
-    reader->setContentHandler(&hnd);
-    reader->setErrorHandler(&hnd);
-    reader->setLexicalHandler(&hnd);
-    reader->setDeclHandler(&hnd);
-    reader->setDTDHandler(&hnd);
-
-    if (!reader->parse(source)) {
-        if (errorMsg)
-            *errorMsg = std::get<0>(hnd.errorInfo());
-        if (errorLine)
-            *errorLine = std::get<1>(hnd.errorInfo());
-        if (errorColumn)
-            *errorColumn = std::get<2>(hnd.errorInfo());
-        return false;
-    }
-
-    return true;
-}
-QT_WARNING_POP
-
-#endif // QT_DEPRECATED_SINCE(5, 15)
-
 bool QDomDocumentPrivate::setContent(QXmlStreamReader *reader, bool namespaceProcessing,
                                      QString *errorMsg, int *errorLine, int *errorColumn)
 {
@@ -5962,11 +5897,9 @@ void QDomDocumentPrivate::saveDocument(QTextStream& s, const int indent, QDomNod
 {
     const QDomNodePrivate* n = first;
 
-    if(encUsed == QDomNode::EncodingFromDocument) {
-#if QT_CONFIG(textcodec) && QT_CONFIG(regularexpression)
+    if (encUsed == QDomNode::EncodingFromDocument) {
+#if QT_CONFIG(regularexpression)
         const QDomNodePrivate* n = first;
-
-        QTextCodec *codec = nullptr;
 
         if (n && n->isProcessingInstruction() && n->nodeName() == QLatin1String("xml")) {
             // we have an XML declaration
@@ -5976,13 +5909,14 @@ void QDomDocumentPrivate::saveDocument(QTextStream& s, const int indent, QDomNod
             QString enc = match.captured(3);
             if (enc.isEmpty())
                 enc = match.captured(5);
-            if (!enc.isEmpty())
-                codec = QTextCodec::codecForName(std::move(enc).toLatin1());
+            if (!enc.isEmpty()) {
+                auto encoding = QStringConverter::encodingForName(enc.toUtf8().constData());
+                if (!encoding)
+                    qWarning() << "QDomDocument::save(): Unsupported encoding" << enc << "specified.";
+                else
+                    s.setEncoding(encoding.value());
+            }
         }
-        if (!codec)
-            codec = QTextCodec::codecForName("UTF-8");
-        if (codec)
-            s.setCodec(codec);
 #endif
         bool doc = false;
 
@@ -5999,13 +5933,7 @@ void QDomDocumentPrivate::saveDocument(QTextStream& s, const int indent, QDomNod
     else {
 
         // Write out the XML declaration.
-#if !QT_CONFIG(textcodec)
-        const QLatin1String codecName("iso-8859-1");
-#else
-        const QTextCodec *const codec = s.codec();
-        Q_ASSERT_X(codec, "QDomNode::save()", "A codec must be specified in the text stream.");
-        const QByteArray codecName = codec->name();
-#endif
+        const QByteArray codecName = QStringConverter::nameForEncoding(s.encoding());
 
         s << "<?xml version=\"1.0\" encoding=\""
           << codecName
@@ -6016,7 +5944,7 @@ void QDomDocumentPrivate::saveDocument(QTextStream& s, const int indent, QDomNod
 
         // First, we try to find the PI and sets the startNode to the one appearing after it.
         while (n) {
-            if(n->isProcessingInstruction() && n->nodeName() == QLatin1String("xml")) {
+            if (n->isProcessingInstruction() && n->nodeName() == QLatin1String("xml")) {
                 startNode = n->next;
                 break;
             }
@@ -6196,18 +6124,9 @@ bool QDomDocument::setContent(const QString& text, bool namespaceProcessing, QSt
     if (!impl)
         impl = new QDomDocumentPrivate();
 
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && QT_DEPRECATED_SINCE(5, 15)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-    QXmlInputSource source;
-    source.setData(text);
-    return IMPL->setContent(&source, namespaceProcessing, errorMsg, errorLine, errorColumn);
-QT_WARNING_POP
-#else
     QXmlStreamReader streamReader(text);
     streamReader.setNamespaceProcessing(namespaceProcessing);
     return IMPL->setContent(&streamReader, namespaceProcessing, errorMsg, errorLine, errorColumn);
-#endif
 }
 
 /*!
@@ -6268,19 +6187,9 @@ bool QDomDocument::setContent(const QByteArray &data, bool namespaceProcessing, 
     if (!impl)
         impl = new QDomDocumentPrivate();
 
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && QT_DEPRECATED_SINCE(5, 15)
-    QBuffer buf;
-    buf.setData(data);
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-    QXmlInputSource source(&buf);
-QT_WARNING_POP
-    return IMPL->setContent(&source, namespaceProcessing, errorMsg, errorLine, errorColumn);
-#else
     QXmlStreamReader streamReader(data);
     streamReader.setNamespaceProcessing(namespaceProcessing);
     return IMPL->setContent(&streamReader, namespaceProcessing, errorMsg, errorLine, errorColumn);
-#endif
 }
 
 /*!
@@ -6288,48 +6197,32 @@ QT_WARNING_POP
 
     This function reads the XML document from the IO device \a dev, returning
     true if the content was successfully parsed; otherwise returns \c false.
+
+    \note This method will try to open \a dev in read-only mode if it is not
+    already open. In that case, the caller is responsible for calling close.
+    This will change in Qt 7, which will no longer open \a dev. Applications
+    shoul therefore open the device themselves before calling setContent.
 */
 bool QDomDocument::setContent(QIODevice* dev, bool namespaceProcessing, QString *errorMsg, int *errorLine, int *errorColumn)
 {
     if (!impl)
         impl = new QDomDocumentPrivate();
 
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && QT_DEPRECATED_SINCE(5, 15)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-    QXmlInputSource source(dev);
-QT_WARNING_POP
-    return IMPL->setContent(&source, namespaceProcessing, errorMsg, errorLine, errorColumn);
-#else
+#if QT_VERSION < QT_VERSION_CHECK(7, 0, 0)
+    if (!dev->isOpen()) {
+        qWarning("QDomDocument called with unopened QIODevice. "
+                 "This will not be supported in future Qt versions");
+        if (!dev->open(QIODevice::ReadOnly)) {
+            qWarning("QDomDocument::setContent: Failed to open device");
+            return false;
+        }
+    }
+#endif
+
     QXmlStreamReader streamReader(dev);
     streamReader.setNamespaceProcessing(namespaceProcessing);
     return IMPL->setContent(&streamReader, namespaceProcessing, errorMsg, errorLine, errorColumn);
-#endif
 }
-
-#if QT_DEPRECATED_SINCE(5, 15)
-/*!
-    \overload
-    \obsolete
-    \since 4.5
-
-    This function reads the XML document from the QXmlInputSource \a source,
-    returning true if the content was successfully parsed; otherwise returns \c false.
-
-*/
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-bool QDomDocument::setContent(QXmlInputSource *source, bool namespaceProcessing, QString *errorMsg, int *errorLine, int *errorColumn )
-{
-    if (!impl)
-        impl = new QDomDocumentPrivate();
-    QXmlSimpleReader reader;
-    initializeReader(reader, namespaceProcessing);
-    return IMPL->setContent(source, &reader, &reader, errorMsg, errorLine, errorColumn);
-}
-QT_WARNING_POP
-
-#endif
 
 /*!
     \overload
@@ -6362,7 +6255,7 @@ bool QDomDocument::setContent(const QByteArray& buffer, QString *errorMsg, int *
 
 /*!
     \overload
-    \obsolete
+    \deprecated
 
     This function reads the XML document from the IO device \a dev, returning
     true if the content was successfully parsed; otherwise returns \c false.
@@ -6373,33 +6266,6 @@ bool QDomDocument::setContent(QIODevice* dev, QString *errorMsg, int *errorLine,
 {
     return setContent(dev, false, errorMsg, errorLine, errorColumn);
 }
-
-#if QT_DEPRECATED_SINCE(5, 15)
-/*!
-    \overload
-    \obsolete
-
-    This function reads the XML document from the QXmlInputSource \a source and
-    parses it with the QXmlReader \a reader, returning true if the content was
-    successfully parsed; otherwise returns \c false.
-
-    This function doesn't change the features of the \a reader. If you want to
-    use certain features for parsing you can use this function to set up the
-    reader appropriately.
-
-    \sa QXmlSimpleReader
-*/
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-bool QDomDocument::setContent(QXmlInputSource *source, QXmlReader *reader, QString *errorMsg, int *errorLine, int *errorColumn )
-{
-    if (!impl)
-        impl = new QDomDocumentPrivate();
-    return IMPL->setContent(source, reader, nullptr, errorMsg, errorLine, errorColumn);
-}
-QT_WARNING_POP
-
-#endif
 
 /*!
     \overload

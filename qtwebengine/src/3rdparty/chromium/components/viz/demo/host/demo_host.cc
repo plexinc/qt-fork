@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "base/rand_util.h"
+#include "base/time/time.h"
 #include "components/viz/demo/client/demo_client.h"
 #include "components/viz/host/renderer_settings_creation.h"
 #include "mojo/public/cpp/bindings/pending_associated_remote.h"
@@ -42,7 +43,7 @@ void DemoHost::ResizeOnThread(const gfx::Size& size) {
 
   // Every size change for a client needs a new LocalSurfaceId.
   allocator_.GenerateId();
-  root_client_->Resize(size_, allocator_.GetCurrentLocalSurfaceIdAllocation());
+  root_client_->Resize(size_, allocator_.GetCurrentLocalSurfaceId());
 }
 
 void DemoHost::EmbedClients(DemoClient* embedder_client,
@@ -153,7 +154,7 @@ void DemoHost::Initialize(
   // device-scale-factor etc.).
   allocator_.GenerateId();
   root_client_ = std::make_unique<DemoClient>(
-      root_frame_sink_id, allocator_.GetCurrentLocalSurfaceIdAllocation(),
+      root_frame_sink_id, allocator_.GetCurrentLocalSurfaceId(),
       gfx::Rect(size_));
   root_client_->Initialize(std::move(client_receiver), std::move(sink_remote));
 
@@ -167,6 +168,7 @@ void DemoHost::Initialize(
 
 void DemoHost::OnFirstSurfaceActivation(const viz::SurfaceInfo& surface_info) {}
 
-void DemoHost::OnFrameTokenChanged(uint32_t frame_token) {}
+void DemoHost::OnFrameTokenChanged(uint32_t frame_token,
+                                   base::TimeTicks activation_time) {}
 
 }  // namespace demo

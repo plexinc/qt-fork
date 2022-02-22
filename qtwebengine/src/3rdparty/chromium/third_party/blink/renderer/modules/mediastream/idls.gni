@@ -10,6 +10,8 @@ modules_idl_files = [
   "media_stream_event.idl",
   "media_stream_track.idl",
   "media_stream_track_event.idl",
+  "media_stream_track_generator.idl",
+  "media_stream_track_processor.idl",
   "overconstrained_error.idl",
 ]
 
@@ -23,6 +25,9 @@ modules_dictionary_idl_files = [
   "media_stream_constraints.idl",
   "media_stream_event_init.idl",
   "media_stream_track_event_init.idl",
+  "media_stream_track_generator_init.idl",
+  "media_stream_track_processor_init.idl",
+  "media_stream_track_signal.idl",
   "media_track_capabilities.idl",
   "media_track_constraint_set.idl",
   "media_track_constraints.idl",
@@ -34,7 +39,6 @@ modules_dependency_idl_files = [
   "media_stream_track_content_hint.idl",
   "navigator_media_stream.idl",
   "navigator_user_media.idl",
-  "window_media_stream.idl",
 ]
 
 modules_testing_dependency_idl_files = [ "testing/internals_media_stream.idl" ]

@@ -4,6 +4,7 @@ include($QT_INSTALL_DOCS/config/exampleurl-qtwayland.qdocconf)
 project                                                     = QtWaylandCompositor
 description                                                 = Qt Wayland Compositor Reference Documentation
 version                                                     = $QT_VERSION
+buildversion                                                = Qt Wayland Compositor | Commercial or GPLv3
 
 qhp.projects                                                = QtWaylandCompositor
 
@@ -30,7 +31,7 @@ qhp.QtWaylandCompositor.subprojects.examples.indexTitle     = Qt Wayland Composi
 qhp.QtWaylandCompositor.subprojects.examples.selectors      = fake:example
 qhp.QtWaylandCompositor.subprojects.examples.sortPages      = true
 
-depends += qtcore qtqml qtquick qtdoc qtquickcontrols qmake qtgui
+depends += qtcore qtqml qtquick qtdoc qtquickcontrols qmake qtgui qtqmlmodels qtwidgets qtvirtualkeyboard
 
 exampledirs += ../../../examples/wayland
 headerdirs += ..
@@ -38,6 +39,9 @@ sourcedirs += ..
 imagedirs  += images
 
 examplesinstallpath = wayland
+
+# Add generic thumbnail for all examples
+manifestmeta.thumbnail.names = *
 
 Cpp.ignoretokens         += Q_WAYLAND_COMPOSITOR_EXPORT
 Cpp.ignoredirectives     += Q_DECLARE_LOGGING_CATEGORY

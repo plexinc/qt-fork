@@ -152,6 +152,7 @@ class WorkerThreadSchedulerTest : public testing::Test {
             task_environment_.GetMockTickClock(),
             &timeline_)) {
     scheduler_->Init();
+    scheduler_->AttachToCurrentThread();
     default_task_queue_ = scheduler_->CreateTaskQueue("test_tq");
     default_task_runner_ = default_task_queue_->CreateTaskRunner(0);
     idle_task_runner_ = scheduler_->IdleTaskRunner();
@@ -505,6 +506,7 @@ class WorkerThreadSchedulerWithProxyTest : public testing::Test {
     task_environment_.FastForwardBy(base::TimeDelta::FromMilliseconds(5));
 
     scheduler_->Init();
+    scheduler_->AttachToCurrentThread();
   }
 
   ~WorkerThreadSchedulerWithProxyTest() override = default;
@@ -539,7 +541,7 @@ TEST_F(WorkerThreadSchedulerWithProxyTest, UkmTaskRecording) {
   scheduler_->SetUkmRecorderForTest(std::move(owned_ukm_recorder));
 
   base::sequence_manager::FakeTask task(
-      static_cast<int>(TaskType::kJavascriptTimer));
+      static_cast<int>(TaskType::kJavascriptTimerDelayedLowNesting));
   base::sequence_manager::FakeTaskTiming task_timing(
       base::TimeTicks() + base::TimeDelta::FromMilliseconds(200),
       base::TimeTicks() + base::TimeDelta::FromMilliseconds(700),
@@ -557,7 +559,8 @@ TEST_F(WorkerThreadSchedulerWithProxyTest, UkmTaskRecording) {
   ukm::TestUkmRecorder::ExpectEntryMetric(entries[0], "RendererBackgrounded",
                                           true);
   ukm::TestUkmRecorder::ExpectEntryMetric(
-      entries[0], "TaskType", static_cast<int>(TaskType::kJavascriptTimer));
+      entries[0], "TaskType",
+      static_cast<int>(TaskType::kJavascriptTimerDelayedLowNesting));
   ukm::TestUkmRecorder::ExpectEntryMetric(
       entries[0], "FrameStatus",
       static_cast<int>(FrameStatus::kCrossOriginBackground));

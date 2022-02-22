@@ -31,15 +31,16 @@
 #include "tracer.h"
 #include "xbelsupport.h"
 
+#include <QtWidgets/QFileDialog>
+#include <QtWidgets/QMessageBox>
+
+#include <QtGui/QCloseEvent>
+#include <QtGui/QKeySequence>
+#include <QtGui/QShortcut>
+
 #include <QtCore/QCoreApplication>
 #include <QtCore/QFile>
 #include <QtCore/QUrl>
-
-#include <QtGui/QCloseEvent>
-#include <QtWidgets/QFileDialog>
-#include <QtGui/QKeySequence>
-#include <QtWidgets/QMessageBox>
-#include <QtWidgets/QShortcut>
 
 QT_BEGIN_NAMESPACE
 
@@ -217,7 +218,7 @@ void BookmarkManagerWidget::exportBookmarks()
         writer.writeToFile(&file);
     } else {
         QMessageBox::information(this, tr("Qt Assistant"),
-            tr("Unable to save bookmarks."), tr("OK"));
+            tr("Unable to save bookmarks."), QMessageBox::Ok);
     }
 }
 

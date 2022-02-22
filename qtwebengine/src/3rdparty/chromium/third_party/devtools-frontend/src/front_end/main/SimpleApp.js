@@ -7,26 +7,41 @@ import * as UI from '../ui/ui.js';
 
 /**
  * @implements {Common.App.App}
- * @unrestricted
  */
-export default class SimpleApp {
+export class SimpleApp {
   /**
    * @override
    * @param {!Document} document
    */
   presentUI(document) {
     const rootView = new UI.RootView.RootView();
-    self.UI.inspectorView.show(rootView.element);
+    UI.InspectorView.InspectorView.instance().show(rootView.element);
     rootView.attachToDocument(document);
     rootView.focus();
   }
 }
 
+
+/** @type {!SimpleAppProvider} */
+let simpleAppProviderInstance;
+
+
 /**
  * @implements {Common.AppProvider.AppProvider}
- * @unrestricted
  */
 export class SimpleAppProvider {
+  /**
+   * @param {{forceNew: ?boolean}} opts
+   */
+  static instance(opts = {forceNew: null}) {
+    const {forceNew} = opts;
+    if (!simpleAppProviderInstance || forceNew) {
+      simpleAppProviderInstance = new SimpleAppProvider();
+    }
+
+    return simpleAppProviderInstance;
+  }
+
   /**
    * @override
    * @return {!Common.App.App}

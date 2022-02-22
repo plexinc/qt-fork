@@ -47,7 +47,7 @@
 #include <QtGui/qguiapplication.h>
 
 #ifdef Q_OS_WIN
-#include <Winsock2.h>
+#include <winsock2.h>
 #else
 #include <arpa/inet.h>
 #endif
@@ -97,10 +97,8 @@ void QVncClient::setDirty(const QRegion &region)
     }
 }
 
-void QVncClient::convertPixels(char *dst, const char *src, int count) const
+void QVncClient::convertPixels(char *dst, const char *src, int count, int screendepth) const
 {
-    const int screendepth = m_server->screen()->depth();
-
     // cutoffs
 #if Q_BYTE_ORDER == Q_BIG_ENDIAN
     if (!m_swapBytes)
@@ -617,7 +615,7 @@ void QVncClient::keyEvent()
             m_keymod = ev.down ? m_keymod | Qt::AltModifier :
                                  m_keymod & ~Qt::AltModifier;
         if (ev.unicode || ev.keycode)
-            QWindowSystemInterface::handleKeyEvent(nullptr, ev.down ? QEvent::KeyPress : QEvent::KeyRelease, ev.keycode, m_keymod, QString(ev.unicode));
+            QWindowSystemInterface::handleKeyEvent(nullptr, ev.down ? QEvent::KeyPress : QEvent::KeyRelease, ev.keycode, m_keymod, QString(QChar::fromUcs2(ev.unicode)));
         m_handleMsg = false;
     }
 }

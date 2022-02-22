@@ -30,7 +30,7 @@
 #include "option.h"
 #include "meta.h"
 #include <qdir.h>
-#include <qregexp.h>
+#include <qregularexpression.h>
 #include <qcryptographichash.h>
 #include <qdebug.h>
 #include <qsettings.h>
@@ -499,9 +499,14 @@ static QList<QVariantMap> provisioningTeams()
     QList<QVariantMap> flatTeams;
     for (QVariantMap::const_iterator it = teamMap.begin(), end = teamMap.end(); it != end; ++it) {
         const QString emailAddress = it.key();
-        QVariantMap team = it.value().toMap();
-        team[QLatin1String("emailAddress")] = emailAddress;
-        flatTeams.append(team);
+        const QVariantList emailTeams = it.value().toList();
+
+        for (QVariantList::const_iterator teamIt = emailTeams.begin(),
+             teamEnd = emailTeams.end(); teamIt != teamEnd; ++teamIt) {
+            QVariantMap team = teamIt->toMap();
+            team[QLatin1String("emailAddress")] = emailAddress;
+            flatTeams.append(team);
+        }
     }
 
     // Sort teams so that Free Provisioning teams come last
@@ -644,7 +649,7 @@ ProjectBuilderMakefileGenerator::writeMakeParts(QTextStream &t)
                 bool isObj = project->values(ProKey(*it + ".CONFIG")).indexOf("no_link") == -1;
                 if (!isObj) {
                     for (int i = 0; i < sources.size(); ++i) {
-                        if (sources.at(i).keyName() == inputs.at(input)) {
+                        if (sources.at(i).keyName() == inputs.at(input).toQStringView()) {
                             duplicate = true;
                             break;
                         }
@@ -778,6 +783,8 @@ ProjectBuilderMakefileGenerator::writeMakeParts(QTextStream &t)
     {
         QString mkfile = pbx_dir + Option::dir_sep + "qt_preprocess.mak";
         QFile mkf(mkfile);
+        ProStringList outputPaths;
+        ProStringList inputPaths;
         if(mkf.open(QIODevice::WriteOnly | QIODevice::Text)) {
             writingUnixMakefileGenerator = true;
             debug_msg(1, "pbuilder: Creating file: %s", mkfile.toLatin1().constData());
@@ -827,8 +834,11 @@ ProjectBuilderMakefileGenerator::writeMakeParts(QTextStream &t)
                             ++added;
                             const QString file_name = fileFixify(fn, FileFixifyFromOutdir);
                             const QString tmpOut = fileFixify(tmp_out.first().toQString(), FileFixifyFromOutdir);
-                            mkt << ' ' << escapeDependencyPath(Option::fixPathToTargetOS(
+                            QString path = escapeDependencyPath(Option::fixPathToTargetOS(
                                     replaceExtraCompilerVariables(tmpOut, file_name, QString(), NoShell)));
+                            mkt << ' ' << path;
+                            inputPaths << fn;
+                            outputPaths << path;
                         }
                     }
                 }
@@ -839,6 +849,14 @@ ProjectBuilderMakefileGenerator::writeMakeParts(QTextStream &t)
             mkt.flush();
             mkf.close();
         }
+        // Remove duplicates from build steps with "combine"
+        outputPaths.removeDuplicates();
+
+        // Don't create cycles. We only have one qt_preprocess.mak which runs different compilers
+        // whose inputs may depend on the output of another. The "compilers" step will run all
+        // compilers anyway
+        inputPaths.removeEach(outputPaths);
+
         mkfile = fileFixify(mkfile);
         QString phase_key = keyFor("QMAKE_PBX_PREPROCESS_TARGET");
 //        project->values("QMAKE_PBX_BUILDPHASES").append(phase_key);
@@ -849,10 +867,13 @@ ProjectBuilderMakefileGenerator::writeMakeParts(QTextStream &t)
           << "\t\t\t" << writeSettings("isa", "PBXShellScriptBuildPhase", SettingsNoQuote) << ";\n"
           << "\t\t\t" << writeSettings("runOnlyForDeploymentPostprocessing", "0", SettingsNoQuote) << ";\n"
           << "\t\t\t" << writeSettings("name", "Qt Preprocessors") << ";\n"
+          << "\t\t\t" << writeSettings("inputPaths", inputPaths, SettingsAsList, 4) << ";\n"
+          << "\t\t\t" << writeSettings("outputPaths", outputPaths, SettingsAsList, 4) << ";\n"
           << "\t\t\t" << writeSettings("shellPath", "/bin/sh") << ";\n"
           << "\t\t\t" << writeSettings("shellScript", "make -C " + IoUtils::shellQuoteUnix(Option::output_dir)
                                                       + " -f " + IoUtils::shellQuoteUnix(mkfile)) << ";\n"
           << "\t\t\t" << writeSettings("showEnvVarsInLog", "0") << ";\n"
+          << "\t\t\t" << writeSettings("alwaysOutOfDate", "1") << ";\n"
           << "\t\t};\n";
    }
 
@@ -1615,6 +1636,12 @@ ProjectBuilderMakefileGenerator::writeMakeParts(QTextStream &t)
                             plist_in_text.replace(QLatin1String("@TYPEINFO@"),
                                 (project->isEmpty("QMAKE_PKGINFO_TYPEINFO")
                                     ? QString::fromLatin1("????") : project->first("QMAKE_PKGINFO_TYPEINFO").left(4).toQString()));
+                            QString launchScreen = var("QMAKE_IOS_LAUNCH_SCREEN");
+                            if (launchScreen.isEmpty())
+                                launchScreen = QLatin1String("LaunchScreen");
+                            else
+                                launchScreen = QFileInfo(launchScreen).baseName();
+                            plist_in_text.replace(QLatin1String("${IOS_LAUNCH_SCREEN}"), launchScreen);
                             QFile plist_out_file(Option::output_dir + "/Info.plist");
                             if (plist_out_file.open(QIODevice::WriteOnly | QIODevice::Text)) {
                                 QTextStream plist_out(&plist_out_file);
@@ -1865,11 +1892,12 @@ QString
 ProjectBuilderMakefileGenerator::fixForOutput(const QString &values)
 {
     //get the environment variables references
-    QRegExp reg_var("\\$\\((.*)\\)");
-    for(int rep = 0; (rep = reg_var.indexIn(values, rep)) != -1;) {
-        if(project->values("QMAKE_PBX_VARS").indexOf(reg_var.cap(1)) == -1)
-            project->values("QMAKE_PBX_VARS").append(reg_var.cap(1));
-        rep += reg_var.matchedLength();
+    QRegularExpression reg_var("\\$\\((.*)\\)");
+    QRegularExpressionMatch match;
+    for (int rep = 0; (match = reg_var.match(values, rep)).hasMatch();) {
+        if (project->values("QMAKE_PBX_VARS").indexOf(match.captured(1)) == -1)
+            project->values("QMAKE_PBX_VARS").append(match.captured(1));
+        rep = match.capturedEnd();
     }
 
     return values;
@@ -2019,7 +2047,7 @@ ProjectBuilderMakefileGenerator::writeSettings(const QString &var, const ProStri
     for(int i = 0; i < indent_level; ++i)
         newline += "\t";
 
-    static QRegExp allowedVariableCharacters("^[a-zA-Z0-9_]*$");
+    static QRegularExpression allowedVariableCharacters("^[a-zA-Z0-9_]*$");
     ret += var.contains(allowedVariableCharacters) ? var : quotedStringLiteral(var);
 
     ret += " = ";
@@ -2044,6 +2072,12 @@ ProjectBuilderMakefileGenerator::writeSettings(const QString &var, const ProStri
         ret += val;
     }
     return ret;
+}
+
+bool
+ProjectBuilderMakefileGenerator::inhibitMakeDirOutPath(const ProKey &path) const
+{
+    return path == "OBJECTS_DIR";
 }
 
 QT_END_NAMESPACE

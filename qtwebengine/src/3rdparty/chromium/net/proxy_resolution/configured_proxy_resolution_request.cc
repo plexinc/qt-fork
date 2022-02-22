@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "net/base/net_errors.h"
 #include "net/log/net_log_event_type.h"
 #include "net/proxy_resolution/configured_proxy_resolution_service.h"
@@ -97,7 +97,6 @@ int ConfiguredProxyResolutionRequest::QueryDidComplete(int result_code) {
 
   // Make a note in the results which configuration was in use at the
   // time of the resolve.
-  results_->set_did_use_pac_script(true);
   results_->set_proxy_resolve_start_time(creation_time_);
   results_->set_proxy_resolve_end_time(base::TimeTicks::Now());
 

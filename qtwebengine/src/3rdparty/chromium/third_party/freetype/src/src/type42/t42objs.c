@@ -4,7 +4,7 @@
  *
  *   Type 42 objects manager (body).
  *
- * Copyright (C) 2002-2020 by
+ * Copyright (C) 2002-2021 by
  * Roberto Alameda.
  *
  * This file is part of the FreeType project, and may only be used,
@@ -19,9 +19,9 @@
 #include "t42objs.h"
 #include "t42parse.h"
 #include "t42error.h"
-#include FT_INTERNAL_DEBUG_H
-#include FT_LIST_H
-#include FT_TRUETYPE_IDS_H
+#include <freetype/internal/ftdebug.h>
+#include <freetype/ftlist.h>
+#include <freetype/ttnameid.h>
 
 
 #undef  FT_COMPONENT
@@ -510,7 +510,8 @@
 
 
     error = FT_New_Size( t42face->ttf_face, &ttsize );
-    t42size->ttsize = ttsize;
+    if ( !error )
+      t42size->ttsize = ttsize;
 
     FT_Activate_Size( ttsize );
 
@@ -593,7 +594,8 @@
     else
     {
       error = FT_New_GlyphSlot( t42face->ttf_face, &ttslot );
-      slot->ttslot = ttslot;
+      if ( !error )
+        slot->ttslot = ttslot;
     }
 
     return error;

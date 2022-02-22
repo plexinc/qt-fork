@@ -33,7 +33,9 @@
 #include "base/single_thread_task_runner.h"
 #include "third_party/blink/renderer/core/core_probe_sink.h"
 #include "third_party/blink/renderer/core/inspector/devtools_session.h"
+#include "third_party/blink/renderer/core/inspector/inspector_audits_agent.h"
 #include "third_party/blink/renderer/core/inspector/inspector_emulation_agent.h"
+#include "third_party/blink/renderer/core/inspector/inspector_issue_reporter.h"
 #include "third_party/blink/renderer/core/inspector/inspector_log_agent.h"
 #include "third_party/blink/renderer/core/inspector/inspector_network_agent.h"
 #include "third_party/blink/renderer/core/inspector/inspector_trace_events.h"
@@ -72,13 +74,21 @@ WorkerInspectorController::WorkerInspectorController(
     : debugger_(debugger),
       thread_(thread),
       inspected_frames_(nullptr),
-      probe_sink_(MakeGarbageCollected<CoreProbeSink>()) {
+      probe_sink_(MakeGarbageCollected<CoreProbeSink>()),
+      worker_thread_id_(base::PlatformThread::CurrentId()) {
+  // The constructor must run on the backing thread of |thread|. Otherwise, it
+  // would be incorrect to initialize |worker_thread_id_| with the current
+  // thread id.
+  DCHECK(thread->IsCurrentThread());
+
+  probe_sink_->AddInspectorIssueReporter(
+      MakeGarbageCollected<InspectorIssueReporter>(
+          thread->GetInspectorIssueStorage()));
   probe_sink_->AddInspectorTraceEvents(
       MakeGarbageCollected<InspectorTraceEvents>());
   worker_devtools_token_ = devtools_params->devtools_worker_token;
   parent_devtools_token_ = thread->GlobalScope()->GetParentDevToolsToken();
   url_ = url;
-  worker_thread_id_ = thread->GetPlatformThreadId();
   scoped_refptr<base::SingleThreadTaskRunner> io_task_runner =
       Platform::Current()->GetIOTaskRunner();
   if (!parent_devtools_token_.is_empty() && io_task_runner) {
@@ -110,9 +120,12 @@ void WorkerInspectorController::AttachSession(DevToolsSession* session,
   session->Append(MakeGarbageCollected<InspectorLogAgent>(
       thread_->GetConsoleMessageStorage(), nullptr, session->V8Session()));
   if (auto* scope = DynamicTo<WorkerGlobalScope>(thread_->GlobalScope())) {
-    session->Append(MakeGarbageCollected<InspectorNetworkAgent>(
-        inspected_frames_.Get(), scope, session->V8Session()));
+    auto* network_agent = MakeGarbageCollected<InspectorNetworkAgent>(
+        inspected_frames_.Get(), scope, session->V8Session());
+    session->Append(network_agent);
     session->Append(MakeGarbageCollected<InspectorEmulationAgent>(nullptr));
+    session->Append(MakeGarbageCollected<InspectorAuditsAgent>(
+        network_agent, thread_->GetInspectorIssueStorage(), nullptr));
   }
   ++session_count_;
 }
@@ -179,7 +192,7 @@ void WorkerInspectorController::EmitTraceEvent() {
                            worker_thread_id_));
 }
 
-void WorkerInspectorController::Trace(Visitor* visitor) {
+void WorkerInspectorController::Trace(Visitor* visitor) const {
   visitor->Trace(agent_);
   visitor->Trace(inspected_frames_);
   visitor->Trace(probe_sink_);

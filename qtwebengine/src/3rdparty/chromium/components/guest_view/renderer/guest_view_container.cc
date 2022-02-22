@@ -51,8 +51,7 @@ void GuestViewContainer::RenderFrameLifetimeObserver::OnDestruct() {
 }
 
 GuestViewContainer::GuestViewContainer(content::RenderFrame* render_frame)
-    : ready_(false),
-      element_instance_id_(guest_view::kInstanceIDNone),
+    : element_instance_id_(guest_view::kInstanceIDNone),
       render_frame_(render_frame),
       in_destruction_(false),
       destruction_isolate_(nullptr),
@@ -142,7 +141,7 @@ void GuestViewContainer::EnqueueRequest(
 }
 
 void GuestViewContainer::PerformPendingRequest() {
-  if (!ready_ || pending_requests_.empty() || pending_response_.get())
+  if (pending_requests_.empty() || pending_response_.get())
     return;
 
   std::unique_ptr<GuestViewRequest> pending_request =
@@ -186,7 +185,7 @@ void GuestViewContainer::RunDestructionCallback(bool embedder_frame_destroyed) {
 }
 
 void GuestViewContainer::OnHandleCallback(const IPC::Message& message) {
-  base::WeakPtr<content::BrowserPluginDelegate> weak_ptr(GetWeakPtr());
+  base::WeakPtr<GuestViewContainer> weak_ptr(weak_ptr_factory_.GetWeakPtr());
 
   // Handle the callback for the current request with a pending response.
   HandlePendingResponseCallback(message);
@@ -211,16 +210,6 @@ bool GuestViewContainer::OnMessageReceived(const IPC::Message& message) {
   return true;
 }
 
-void GuestViewContainer::Ready() {
-  ready_ = true;
-  CHECK(!pending_response_);
-  PerformPendingRequest();
-
-  // Give the derived type an opportunity to perform some actions when the
-  // container acquires a geometry.
-  OnReady();
-}
-
 void GuestViewContainer::SetElementInstanceID(int element_instance_id) {
   DCHECK_EQ(element_instance_id_, guest_view::kInstanceIDNone);
   element_instance_id_ = element_instance_id;
@@ -228,10 +217,6 @@ void GuestViewContainer::SetElementInstanceID(int element_instance_id) {
   DCHECK(!g_guest_view_container_map.Get().count(element_instance_id));
   g_guest_view_container_map.Get().insert(
       std::make_pair(element_instance_id, this));
-}
-
-void GuestViewContainer::DidDestroyElement() {
-  Destroy(false);
 }
 
 void GuestViewContainer::RegisterElementResizeCallback(
@@ -272,10 +257,6 @@ void GuestViewContainer::CallElementResizeCallback(
 
   callback->Call(context, context->Global(), argc, argv)
       .FromMaybe(v8::Local<v8::Value>());
-}
-
-base::WeakPtr<content::BrowserPluginDelegate> GuestViewContainer::GetWeakPtr() {
-  return weak_ptr_factory_.GetWeakPtr();
 }
 
 }  // namespace guest_view

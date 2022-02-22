@@ -134,7 +134,7 @@ class DonutsUI : public content::WebUIController {
     content::WebUIDataSource* source =
         content::WebUIDataSource::Create("donuts");  // "donuts" == hostname
     source->AddString("mmmDonuts", "Mmm, donuts!");  // Translations.
-    source->SetDefaultResource(IDR_DONUTS_HTML);  // Home page.
+    source->AddResourcePath("", IDR_DONUTS_HTML);  // Home page.
     content::WebUIDataSource::Add(source);
 
     // Handles messages from JavaScript to C++ via chrome.send().
@@ -207,7 +207,45 @@ an existing [`WebUI`](#WebUI) when the correct one is determined via URL
 inspection (i.e. chrome://settings creates a generic [`WebUI`](#WebUI) with a
 settings-specific `WebUIController`).
 
+<a name="WebUIDataSource"></a>
 ### WebUIDataSource
+
+The `WebUIDataSource` class provides a place for data to live for WebUI pages.
+
+Examples types of data stored in this class are:
+
+* static resources (i.e. .html files packed into bundles and pulled off of disk)
+* translations
+* dynamic feature values (i.e. whether a feature is enabled)
+
+Data sources are set up in the browser process (in C++) and are accessed by
+loading URLs from the renderer.
+
+Below is an example of a simple data source (in this case, Chrome's history
+page):
+
+```c++
+content::WebUIDataSource* source = content::WebUIDataSource::Create("history");
+
+source->AddResourcePath("sign_in_promo.svg", IDR_HISTORY_SIGN_IN_PROMO_SVG);
+source->AddResourcePath("synced_tabs.html", IDR_HISTORY_SYNCED_TABS_HTML);
+
+source->AddString("title", IDS_HISTORY_TITLE);
+source->AddString("moreFromThisSite", IDS_HISTORY_MORE_FROM_THIS_SITE);
+
+source->AddBoolean("showDateRanges",
+    base::FeatureList::IsEnabled(features::kHistoryShowDateRanges));
+
+webui::SetupWebUIDataSource(
+    source, base::make_span(kHistoryResources, kHistoryResourcesSize),
+    kGeneratedPath, IDR_HISTORY_HISTORY_HTML);
+
+content::WebUIDataSource::Add(source);
+```
+
+For more about each of the methods called on `WebUIDataSource` and the utility
+method that performs additional configuration, see [DataSources](#DataSources)
+and [WebUIDataSourceUtils](#WebUIDataSourceUtils)
 
 <a name="WebUIMessageHandler"></a>
 ### WebUIMessageHandler
@@ -220,8 +258,10 @@ So, the given C++ code:
 
 ```c++
 void OvenHandler::RegisterMessages() {
-  web_ui()->RegisterMessageHandler("bakeDonuts",
-      base::Bind(&OvenHandler::HandleBakeDonuts, base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "bakeDonuts",
+      base::BindRepeating(&OvenHandler::HandleBakeDonuts,
+                          base::Unretained(this)));
 }
 
 void OvenHandler::HandleBakeDonuts(const base::ListValue* args) {
@@ -241,6 +281,147 @@ $('bakeDonutsButton').onclick = function() {
   chrome.send('bakeDonuts', [5]);  // bake 5 donuts!
 };
 ```
+
+<a name="DataSources">
+## Data Sources
+
+<a name="Create"></a>
+### WebUIDataSource::Create()
+
+This is a factory method required to create a WebUIDataSource instance. The
+argument to `Create()` is typically the host name of the page. Caller owns the
+result.
+
+<a name="Add"></a>
+### WebUIDataSource::Add()
+
+Once you've created and added some things to a data source, it'll need to be
+"added". This means transferring ownership. In practice, the data source is
+created in the browser process on the UI thread and transferred to the IO
+thread. Additionally, calling `Add()` will overwrite any existing data source
+with the same name.
+
+<div class="note">
+It's unsafe to keep references to a <code>WebUIDataSource</code> after calling
+<code>Add()</code>. Don't do this.
+</div>
+
+<a name="AddLocalizedString"></a>
+### WebUIDataSource::AddLocalizedString()
+
+Using an int reference to a grit string (starts with "IDS" and lives in a .grd
+or .grdp file), adding a string with a key name will be possible to reference
+via the `$i18n{}` syntax (and will be replaced when requested) or later
+dynamically in JavaScript via `loadTimeData.getString()` (or `getStringF`).
+
+<a name="AddResourcePath"></a>
+### WebUIDataSource::AddResourcePath()
+
+Using an int reference to a grit resource (starts with "IDR" and lives in a .grd
+or .grdp file), adds a resource to the UI with the specified path.
+
+It's generally a good idea to call <code>AddResourcePath()</code> with the empty
+path and a resource ID that should be served as the "catch all" resource to
+respond with. This resource will be served for requests like "chrome://history",
+or "chrome://history/pathThatDoesNotExist". It will not be served for requests
+that look like they are attempting to fetch a specific file, like
+"chrome://history/file\_that\_does\_not\_exist.js". This is so that if a user
+enters a typo when trying to load a subpage like "chrome://history/syncedTabs"
+they will be redirected to the main history page, instead of seeing an error,
+but incorrect imports in the source code will fail, so that they can be more
+easily found and corrected.
+
+<a name="AddBoolean"></a>
+### WebUIDataSource::AddBoolean()
+
+Often a page needs to know whether a feature is enabled. This is a good use case
+for `WebUIDataSource::AddBoolean()`.  Then, in the Javascript, one can write
+code like this:
+
+```js
+if (loadTimeData.getBoolean('myFeatureIsEnabled')) {
+  ...
+}
+```
+
+<div class="note">
+Data sources are not recreated on refresh, and therefore values that are dynamic
+(i.e. that can change while Chrome is running) may easily become stale. It may
+be preferable to use <code>cr.sendWithPromise()</code> to initialize dynamic
+values and call <code>FireWebUIListener()</code> to update them.
+
+If you really want or need to use <code>AddBoolean()</code> for a dynamic value,
+make sure to call <code>WebUIDataSource::Update()</code> when the value changes.
+</div>
+
+<a name="WebUIDataSourceUtils"></a>
+## WebUI utils for working with data sources
+
+chrome/browser/ui/webui/webui\_util.\* contains a number of methods to simplify
+common configuration tasks.
+
+<a name="AddLocalizedStringsBulk"></a>
+### WebUIDataSource::AddLocalizedStrings()
+
+Many Web UI data sources need to be set up with a large number of localized
+strings. Instead of repeatedly calling <code>AddLocalizedString()</code>, create
+an array of all the strings and use <code>AddLocalizedStrings()</code>:
+
+```c++
+  static constexpr webui::LocalizedString kStrings[] = {
+      // Localized strings (alphabetical order).
+      {"actionMenuDescription", IDS_HISTORY_ACTION_MENU_DESCRIPTION},
+      {"ariaRoleDescription", IDS_HISTORY_ARIA_ROLE_DESCRIPTION},
+      {"bookmarked", IDS_HISTORY_ENTRY_BOOKMARKED},
+  };
+  source->AddLocalizedStrings(kStrings);
+```
+
+<a name="AddResourcePaths"></a>
+### WebUIDataSource::AddResourcePaths()
+
+Similar to the localized strings, many Web UIs need to add a large number of
+resource paths. In this case, use <code>AddResourcePaths()</code> to
+replace repeated calls to <code>AddResourcePath()</code>.
+
+```c++
+  static constexpr webui::ResourcePath kPdfResources[] = {
+      {"pdf/browser_api.js", IDR_PDF_BROWSER_API_JS},
+      {"pdf/constants.js", IDR_PDF_CONSTANTS_JS},
+      {"pdf/controller.js", IDR_PDF_CONTROLLER_JS},
+  };
+  source->AddResourcePaths(kStrings);
+```
+
+The same method can be leveraged for cases that directly use constants defined
+by autogenerated grit resources map header files. For example, the autogenerated
+print\_preview\_resources\_map.h header defines a
+<code>webui::ResourcePath</code> array named <code>kPrintPreviewResources</code>
+and a <code>size\_t kPrintPreviewResourcesSize</code>. All the resources in this
+resource map can be added as follows:
+
+```c++
+  source->AddResourcePaths(
+      base::make_span(kPrintPreviewResources, kPrintPreviewResourcesSize));
+```
+
+<a name="SetupWebUIDataSource"></a>
+### webui::SetupWebUIDataSource()
+
+This method performs common configuration tasks on a data source for a Web UI
+that uses JS modules. When creating a Web UI that uses JS modules, use this
+utility instead of duplicating the configuration steps it performs elsewhere.
+Specific setup steps include:
+
+* Setting the content security policy to allow the data source to load only
+  resources from its own host (e.g. chrome://history), chrome://resources, and
+  chrome://test (used to load test files).
+* Enabling i18n template replacements by calling <code>UseStringsJs()</code> and
+  <code>EnableReplaceI18nInJS()</code> on the data source.
+* Adding the test loader files to the data source, so that test files can be
+  loaded as JS modules.
+* Setting the resource to load for the empty path.
+* Adding all resources from a GritResourceMap.
 
 ## Browser (C++) &rarr; Renderer (JS)
 
@@ -545,7 +726,8 @@ renderer:
 v8::Local<v8::Object> chrome = GetOrCreateChromeObject(isolate, context);
 chrome->Set(gin::StringToSymbol(isolate, "send"),
             gin::CreateFunctionTemplate(
-                isolate, base::Bind(&WebUIExtension::Send))->GetFunction());
+                isolate,
+                base::BindRepeating(&WebUIExtension::Send))->GetFunction());
 ```
 
 The `chrome.send()` method takes a message name and argument list.
@@ -583,7 +765,7 @@ WebUI listeners are a convenient way for C++ to inform JavaScript of events.
 
 Older WebUI code exposed public methods for event notification, similar to how
 responses to [chrome.send()](#chrome_send) used to work. They both
-resulted in global namespace polution, but it was additionally hard to stop
+resulted in global namespace pollution, but it was additionally hard to stop
 listening for events in some cases. **cr.addWebUIListener** is preferred in new
 code.
 
@@ -701,28 +883,34 @@ since taking control of a WebUI page can sometimes be sufficient to escape
 Chrome's sandbox.  To make sure that the special powers granted to WebUI pages
 are safe, WebUI pages are restricted in what they can do:
 
-* WebUI pages cannot embed http/https resources or frames
+* WebUI pages cannot embed http/https resources
 * WebUI pages cannot issue http/https fetches
 
 In the rare case that a WebUI page really needs to include web content, the safe
-way to do this is by using a `<webview>` tag.  Using a `<webview>` tag is more
-secure than using an iframe for multiple reasons, even if Site Isolation and
-out-of-process iframes keep the web content out of the privileged WebUI process.
+way to do this is by using an `<iframe>` tag. Chrome's security model gives
+process isolation between the WebUI and the web content. However, some extra
+precautions need to be taken, because there are properties of the page that are
+accessible cross-origin and malicious code can take advantage of such data to
+attack the WebUI. Here are some things to keep in mind:
 
-First, the content inside the `<webview>` tag has a much reduced attack surface,
-since it does not have a window reference to its embedder or any other frames.
-Only postMessage channel is supported, and this needs to be initiated by the
-embedder, not the guest.
+* The WebUI page can receive postMessage payloads from the web and should
+  ensure it verifies any messages as they are not trustworthy.
+* The entire frame tree is visible to the embedded web content, including
+  ancestor origins.
+* The web content runs in the same StoragePartition and Profile as the WebUI,
+  which reflect where the WebUI page was loaded (e.g., the default profile,
+  Incognito, etc). The corresponding user credentials will thus be available to
+  the web content inside the WebUI, possibly showing the user as signed in.
 
-Second, the content inside the `<webview>` tag is hosted in a separate
-StoragePartition. Thus, cookies and other persistent storage for both the WebUI
-page and other browser tabs are inaccessible to it.
+Note: WebUIs have a default Content Security Policy which disallows embedding
+any frames. If you want to include any web content in an <iframe> you will need
+to update the policy for your WebUI. When doing so, allow only known origins and
+avoid making the policy more permissive than strictly necessary.
 
-This greater level of isolation makes it safer to load possibly untrustworthy or
-compromised web content, reducing the risk of sandbox escapes.
-
-For an example of switching from iframe to webview tag see
-https://crrev.com/c/710738.
+Alternatively, a `<webview>` tag can be used, which runs in a separate
+StoragePartition, a separate frame tree, and restricts postMessage communication
+by default. However, `<webview>` does not support Site Isolation and
+therefore it is not advisable to use for any sensitive content.
 
 
 ## See also

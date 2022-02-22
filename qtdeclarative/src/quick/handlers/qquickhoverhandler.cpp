@@ -83,18 +83,40 @@ QQuickHoverHandler::~QQuickHoverHandler()
         QQuickItemPrivate::get(parent)->setHasHoverInChild(false);
 }
 
-void QQuickHoverHandler::componentComplete()
+bool QQuickHoverHandler::event(QEvent *event)
 {
-    parentItem()->setAcceptHoverEvents(true);
-    QQuickItemPrivate::get(parentItem())->setHasHoverInChild(true);
+    switch (event->type())
+    {
+    case QEvent::HoverLeave:
+        setHovered(false);
+        setActive(false);
+        break;
+    default:
+        return QQuickSinglePointHandler::event(event);
+        break;
+    }
+
+    return true;
 }
 
-bool QQuickHoverHandler::wantsPointerEvent(QQuickPointerEvent *event)
+void QQuickHoverHandler::componentComplete()
 {
-    QQuickEventPoint *point = event->point(0);
-    if (QQuickPointerDeviceHandler::wantsPointerEvent(event) && wantsEventPoint(point) && parentContains(point)) {
+    QQuickSinglePointHandler::componentComplete();
+    if (auto par = parentItem()) {
+        par->setAcceptHoverEvents(true);
+        QQuickItemPrivate::get(par)->setHasHoverInChild(true);
+    }
+}
+
+bool QQuickHoverHandler::wantsPointerEvent(QPointerEvent *event)
+{
+    // No state change should occur if a button is being pressed or released.
+    if (event->isSinglePointEvent() && static_cast<QSinglePointEvent *>(event)->button())
+        return false;
+    auto &point = event->point(0);
+    if (QQuickPointerDeviceHandler::wantsPointerEvent(event) && wantsEventPoint(event, point) && parentContains(point)) {
         // assume this is a mouse or tablet event, so there's only one point
-        setPointId(point->pointId());
+        setPointId(point.id());
         return true;
     }
 
@@ -106,22 +128,21 @@ bool QQuickHoverHandler::wantsPointerEvent(QQuickPointerEvent *event)
     // the hovered property to transition to false prematurely.
     // If a QQuickPointerTabletEvent caused the hovered property to become true,
     // then only another QQuickPointerTabletEvent can make it become false.
-    if (!(m_hoveredTablet && event->asPointerMouseEvent()))
+    if (!(m_hoveredTablet && QQuickDeliveryAgentPrivate::isMouseEvent(event)))
         setHovered(false);
 
     return false;
 }
 
-void QQuickHoverHandler::handleEventPoint(QQuickEventPoint *point)
+void QQuickHoverHandler::handleEventPoint(QPointerEvent *ev, QEventPoint &point)
 {
     bool hovered = true;
-    if (point->state() == QQuickEventPoint::Released &&
-            point->pointerEvent()->device()->pointerType() == QQuickPointerDevice::Finger)
+    if (point.state() == QEventPoint::Released &&
+            ev->pointingDevice()->pointerType() == QPointingDevice::PointerType::Finger)
         hovered = false;
-    else if (point->pointerEvent()->asPointerTabletEvent())
+    else if (QQuickDeliveryAgentPrivate::isTabletEvent(ev))
         m_hoveredTablet = true;
     setHovered(hovered);
-    setPassiveGrab(point);
 }
 
 /*!
@@ -176,14 +197,14 @@ void QQuickHoverHandler::setHovered(bool hovered)
     \endlist
 
     The default value of this property is not set, which allows any active
-    handler on the same \l parentItem to determine the cursor shape.
+    handler on the same \e parent item to determine the cursor shape.
     This property can be reset to the initial condition by setting it to
     \c undefined.
 
     If any handler with defined \c cursorShape is
     \l {PointerHandler::active}{active}, that cursor will appear.
     Else if the HoverHandler has a defined \c cursorShape, that cursor will appear.
-    Otherwise, the \l {QQuickItem::cursor()}{cursor} of \l parentItem will appear.
+    Otherwise, the \l {QQuickItem::cursor()}{cursor} of \e parent item will appear.
 
     \note When this property has not been set, or has been set to \c undefined,
     if you read the value it will return \c Qt.ArrowCursor.

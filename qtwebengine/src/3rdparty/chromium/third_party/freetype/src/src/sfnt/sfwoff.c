@@ -4,7 +4,7 @@
  *
  *   WOFF format management (base).
  *
- * Copyright (C) 1996-2020 by
+ * Copyright (C) 1996-2021 by
  * David Turner, Robert Wilhelm, and Werner Lemberg.
  *
  * This file is part of the FreeType project, and may only be used,
@@ -16,12 +16,11 @@
  */
 
 
-#include <ft2build.h>
 #include "sfwoff.h"
-#include FT_TRUETYPE_TAGS_H
-#include FT_INTERNAL_DEBUG_H
-#include FT_INTERNAL_STREAM_H
-#include FT_GZIP_H
+#include <freetype/tttags.h>
+#include <freetype/internal/ftdebug.h>
+#include <freetype/internal/ftstream.h>
+#include <freetype/ftgzip.h>
 
 
   /**************************************************************************
@@ -67,7 +66,7 @@
   }
 
 
-  FT_CALLBACK_DEF( int )
+  FT_COMPARE_DEF( int )
   compare_offsets( const void*  a,
                    const void*  b )
   {
@@ -199,9 +198,9 @@
          FT_NEW_ARRAY( indices, woff.num_tables ) )
       goto Exit;
 
-    FT_TRACE2(( "\n"
-                "  tag    offset    compLen  origLen  checksum\n"
-                "  -------------------------------------------\n" ));
+    FT_TRACE2(( "\n" ));
+    FT_TRACE2(( "  tag    offset    compLen  origLen  checksum\n" ));
+    FT_TRACE2(( "  -------------------------------------------\n" ));
 
     if ( FT_FRAME_ENTER( 20L * woff.num_tables ) )
       goto Exit;

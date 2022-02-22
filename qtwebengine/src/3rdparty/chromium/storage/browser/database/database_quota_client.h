@@ -11,8 +11,11 @@
 #include "base/component_export.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/sequence_checker.h"
 #include "base/single_thread_task_runner.h"
+#include "base/thread_annotations.h"
 #include "storage/browser/quota/quota_client.h"
+#include "storage/browser/quota/quota_client_type.h"
 #include "third_party/blink/public/mojom/quota/quota_types.mojom.h"
 #include "url/origin.h"
 
@@ -28,30 +31,35 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) DatabaseQuotaClient
  public:
   explicit DatabaseQuotaClient(scoped_refptr<DatabaseTracker> tracker);
 
+  DatabaseQuotaClient(const DatabaseQuotaClient&) = delete;
+  DatabaseQuotaClient& operator=(const DatabaseQuotaClient&) = delete;
+
   // QuotaClient method overrides
-  ID id() const override;
   void OnQuotaManagerDestroyed() override;
   void GetOriginUsage(const url::Origin& origin,
                       blink::mojom::StorageType type,
-                      GetUsageCallback callback) override;
+                      GetOriginUsageCallback callback) override;
   void GetOriginsForType(blink::mojom::StorageType type,
-                         GetOriginsCallback callback) override;
+                         GetOriginsForTypeCallback callback) override;
   void GetOriginsForHost(blink::mojom::StorageType type,
                          const std::string& host,
-                         GetOriginsCallback callback) override;
+                         GetOriginsForHostCallback callback) override;
   void DeleteOriginData(const url::Origin& origin,
                         blink::mojom::StorageType type,
-                        DeletionCallback callback) override;
+                        DeleteOriginDataCallback callback) override;
   void PerformStorageCleanup(blink::mojom::StorageType type,
-                             base::OnceClosure callback) override;
-  bool DoesSupport(blink::mojom::StorageType type) const override;
+                             PerformStorageCleanupCallback callback) override;
 
  private:
   ~DatabaseQuotaClient() override;
 
-  scoped_refptr<DatabaseTracker> db_tracker_;  // only used on its sequence
+  SEQUENCE_CHECKER(sequence_checker_);
 
-  DISALLOW_COPY_AND_ASSIGN(DatabaseQuotaClient);
+  // The scoped_refptr is only be dereferenced on the QuotaClient's sequence.
+  // However, the DatabaseTracker it points to must only be used on the database
+  // sequence.
+  scoped_refptr<DatabaseTracker> db_tracker_
+      GUARDED_BY_CONTEXT(sequence_checker_);
 };
 
 }  // namespace storage

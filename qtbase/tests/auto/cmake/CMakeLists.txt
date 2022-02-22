@@ -1,10 +1,13 @@
+# special case skip regeneration
 
 # This is an automatic test for the CMake configuration files.
 # To run it manually,
 # 1) mkdir build   # Create a build directory
 # 2) cd build
-# 3) cmake ..      # Run cmake on this directory.
+# 3) # Run cmake on this directory
+#    `$qt_prefix/bin/qt-cmake ..` or `cmake -DCMAKE_PREFIX_PATH=/path/to/qt ..`
 # 4) ctest         # Run ctest
+# 5) ctest -V -R test_wrap_cpp_options # Run single test
 #
 # The expected output is something like:
 #
@@ -37,65 +40,142 @@
 # needs to be set to the installation prefix or build prefix of Qt
 # before running these tests.
 
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 3.16)
 
-project(qmake_cmake_files)
+project(cmake_usage_tests)
+
+# Building the CMake tests as part of a Qt prefix build + in-tree tests, currently doesn't work.
+# Each CMake test will fail with a message like
+#
+# CMake Error at qtbase/lib/cmake/Qt6/Qt6Config.cmake:33 (include):
+#   include could not find load file:
+#    qtbase/lib/cmake/Qt6/Qt6Targets.cmake
+#
+# That's because the Qt packages are not installed, and we try to load the Config files from the
+# build dir, but they can't work in a prefix build without installation.
+# Configuring the tests as standalone tests or as a separate project works fine.
+# Configuring the tests in-tree also works fine in a non-prefix build.
+if(QT_REPO_MODULE_VERSION AND NOT QT_BUILD_STANDALONE_TESTS AND QT_WILL_INSTALL)
+    message(WARNING
+        "Skipping building CMake build tests because they don't work in a prefix in-tree config")
+endif()
 
 enable_testing()
 
-find_package(Qt5Core REQUIRED)
-
-include("${_Qt5CTestMacros}")
-
-expect_pass(test_use_modules_function)
-expect_pass(test_umbrella_config)
-expect_pass(test_wrap_cpp_and_resources)
-if (NOT NO_WIDGETS)
-    expect_pass(test_dependent_modules)
-    expect_pass("test(needsquoting)dirname")
+# Most of the tests fail to build on Boot2qt / qemu with undefined references to QtDBus because
+# it's a private dependency of QtGui, and CMake for some reason doesn't generate an -rpath-link
+# flag. Notably -rpath is specified which should implicitly enable -rpath-link, but that
+# doesn't seem to be the case.
+# Until this is figured out, disable the tests when cross-compiling to Linux.
+if(UNIX AND NOT APPLE AND NOT WIN32 AND CMAKE_CROSSCOMPILING AND NOT QT_ENABLE_CMAKE_BOOT2QT_TESTS)
+    message(STATUS "Running CMake tests is disabled when cross-compiling to Linux / Boot2Qt.")
+    return()
 endif()
-expect_fail(test_add_resource_options)
-expect_fail(test_wrap_cpp_options)
-expect_pass(test_platform_defs_include)
-expect_pass(test_qtmainwin_library)
 
-if (HAVE_NINJA)
-    make_directory("${CMAKE_CURRENT_SOURCE_DIR}/test_QFINDTESTDATA/build")
-    add_test(test_QFINDTESTDATA ${CMAKE_CTEST_COMMAND}
-      --build-and-test
-      "${CMAKE_CURRENT_SOURCE_DIR}/test_QFINDTESTDATA"
-      # Build in a subdir of the source dir.
-      # This causes Ninja to use relative paths.
-      "${CMAKE_CURRENT_SOURCE_DIR}/test_QFINDTESTDATA/build"
-      --build-generator Ninja
-      --build-options "-DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}"
-    )
-    add_test(NAME run_test_QFINDTESTDATA COMMAND sh -c "cd \"${CMAKE_SOURCE_DIR}/test_QFINDTESTDATA/build/tests\" && ./test_QFINDTESTDATA -v2")
+set(required_packages Core Network Xml Sql Test)
+set(optional_packages DBus Gui Widgets PrintSupport OpenGL Concurrent)
 
-    set_property(TEST run_test_QFINDTESTDATA
-        PROPERTY DEPENDS test_QFINDTESTDATA
+# Setup the test when called as a completely standalone project.
+if(TARGET Qt6::Core)
+    # Tests are built as part of the qtbase build tree.
+    # Setup paths so that the Qt packages are found, similar to examples.
+    qt_internal_set_up_build_dir_package_paths()
+endif()
+find_package(Qt6 REQUIRED COMPONENTS ${required_packages})
+find_package(Qt6 OPTIONAL_COMPONENTS ${optional_packages})
+
+# Setup common test variables which were previously set by ctest_testcase_common.prf.
+set(CMAKE_MODULES_UNDER_TEST "${required_packages}" ${optional_packages})
+
+foreach(qt_package ${CMAKE_MODULES_UNDER_TEST})
+    set(package_name "${QT_CMAKE_EXPORT_NAMESPACE}${qt_package}")
+    if(${package_name}_FOUND)
+        set(CMAKE_${qt_package}_MODULE_MAJOR_VERSION "${${package_name}_VERSION_MAJOR}")
+        set(CMAKE_${qt_package}_MODULE_MINOR_VERSION "${${package_name}_VERSION_MINOR}")
+        set(CMAKE_${qt_package}_MODULE_PATCH_VERSION "${${package_name}_VERSION_PATCH}")
+    endif()
+endforeach()
+
+# Qt6CTestMacros.cmake also expects some of these variables to be set.
+if(NOT TARGET Qt::Gui)
+    set(NO_GUI TRUE)
+endif()
+if(NOT TARGET Qt::DBus)
+    set(NO_DBUS TRUE)
+endif()
+if(NOT TARGET Qt::Widgets)
+    set(NO_WIDGETS TRUE)
+endif()
+
+include("${_Qt6CTestMacros}")
+
+if(NOT NO_WIDGETS)
+    _qt_internal_test_expect_pass(test_build_simple_widget_app)
+endif()
+
+# We only support a limited subset of cmake tests when targeting iOS:
+# - Only those that use qt_add_executable (but not add_executable)
+# - and don't try to run the built binaries via BINARY_ARGS option
+# - and don't use internal API like qt_internal_add_*
+#
+# So we can't run binaries in the simulator or on-device, but we at least
+# want build coverage (app linking succeeds).
+if(IOS)
+    return()
+endif()
+
+_qt_internal_test_expect_pass(test_umbrella_config)
+_qt_internal_test_expect_pass(test_wrap_cpp_and_resources)
+if (NOT NO_WIDGETS)
+    _qt_internal_test_expect_pass(test_dependent_modules)
+    _qt_internal_test_expect_pass("test(needsquoting)dirname")
+endif()
+_qt_internal_test_expect_build_fail(test_add_resource_options)
+_qt_internal_test_expect_build_fail(test_wrap_cpp_options)
+_qt_internal_test_expect_pass(test_platform_defs_include)
+_qt_internal_test_expect_pass(test_qtmainwin_library)
+
+if (CMAKE_GENERATOR STREQUAL Ninja AND UNIX AND NOT WIN32)
+    _qt_internal_test_expect_pass(test_QFINDTESTDATA
+        BINARY "tests/test_QFINDTESTDATA"
+        SIMULATE_IN_SOURCE
     )
+    # TODO: Decide if there's a reason to keep this test. With CMake 3.21.0 which passes absolute
+    # source file paths to the compiler (instead of relative ones), specifying a custom
+    # QT_TESTCASE_BUILDDIR is a no-op, which fails the test's preconditions.
+    # See QTBUG-95268.
+    #_qt_internal_test_expect_pass(test_QT_TESTCASE_BUILDDIR
+    #    BINARY "test_qt_testcase_builddir"
+    #    SIMULATE_IN_SOURCE
+    #)
 endif()
 
 if (NOT NO_DBUS)
-    expect_pass(test_dbus_module)
+    _qt_internal_test_expect_pass(test_dbus_module)
 endif()
-expect_pass(test_multiple_find_package)
-expect_pass(test_add_resources_delayed_file)
-expect_pass(test_add_binary_resources_delayed_file BINARY test_add_binary_resources_delayed_file)
-expect_pass(test_private_includes)
-expect_pass(test_private_targets)
-expect_pass(test_testlib_definitions)
-expect_pass(test_json_plugin_includes)
+_qt_internal_test_expect_pass(test_multiple_find_package)
+_qt_internal_test_expect_pass(test_add_resources_delayed_file)
+_qt_internal_test_expect_pass(test_add_binary_resources_delayed_file BINARY test_add_binary_resources_delayed_file)
 
-expect_fail(test_testlib_no_link_gui)
+if(NOT NO_GUI)
+    _qt_internal_test_expect_pass(test_private_includes)
+    _qt_internal_test_expect_pass(test_private_targets)
+endif()
+
+_qt_internal_test_expect_pass(test_testlib_definitions)
+_qt_internal_test_expect_pass(test_json_plugin_includes)
+
+if(NOT NO_GUI)
+    _qt_internal_test_expect_build_fail(test_testlib_no_link_gui)
+endif()
+
 execute_process(COMMAND ${CMAKE_COMMAND} -E copy
     "${CMAKE_CURRENT_SOURCE_DIR}/test_testlib_definitions/main.cpp"
     "${CMAKE_CURRENT_BINARY_DIR}/failbuild/test_testlib_no_link_gui/test_testlib_no_link_gui/"
 )
 
 if (NOT NO_WIDGETS)
-    expect_fail(test_testlib_no_link_widgets)
+    _qt_internal_test_expect_build_fail(test_testlib_no_link_widgets)
     execute_process(COMMAND ${CMAKE_COMMAND} -E copy
         "${CMAKE_CURRENT_SOURCE_DIR}/test_testlib_definitions/main.cpp"
         "${CMAKE_CURRENT_BINARY_DIR}/failbuild/test_testlib_no_link_widgets/test_testlib_no_link_widgets/"
@@ -119,7 +199,7 @@ endif()
 if (NOT NO_WIDGETS)
   list(APPEND qt_module_includes
     Widgets QWidget
-    OpenGL QGLBuffer
+    OpenGL QOpenGLBuffer
     PrintSupport QPrinter
   )
 endif()
@@ -130,36 +210,74 @@ if (NOT NO_DBUS)
   )
 endif()
 
-test_module_includes(
+_qt_internal_test_module_includes(
   ${qt_module_includes}
 )
-expect_pass(test_concurrent_module)
-expect_pass(test_openglextensions_module)
-if (QT_WITH_ANGLE OR (NOT WIN32 AND NOT APPLE AND NOT NO_EGL))
-    expect_pass(test_egl_lib)
+_qt_internal_test_expect_pass(test_concurrent_module)
+
+if(NOT NO_GUI)
+    _qt_internal_test_expect_pass(test_opengl_lib)
 endif()
-expect_pass(test_opengl_lib)
 
 if (NOT NO_WIDGETS)
-    expect_pass(test_interface)
+    _qt_internal_test_expect_pass(test_interface)
 endif()
 
-expect_pass(test_interface_link_libraries)
-expect_pass(test_moc_macro_target)
+if(NOT NO_GUI)
+    _qt_internal_test_expect_pass(test_interface_link_libraries)
+endif()
+_qt_internal_test_expect_pass(test_moc_macro_target)
 
-if (NOT CMAKE_VERSION VERSION_LESS 3.9)
-    # The modification of TARGET_OBJECTS needs the following change in cmake
-    # https://gitlab.kitware.com/cmake/cmake/commit/93c89bc75ceee599ba7c08b8fe1ac5104942054f
-    expect_pass(test_add_big_resource)
+# The modification of TARGET_OBJECTS needs the following change in cmake
+# https://gitlab.kitware.com/cmake/cmake/commit/93c89bc75ceee599ba7c08b8fe1ac5104942054f
+_qt_internal_test_expect_pass(test_add_big_resource)
+
+# With earlier CMake versions, this test would simply run moc multiple times and lead to:
+# /usr/bin/ld: error: CMakeFiles/mywidget.dir/mywidget_automoc.cpp.o: multiple definition of 'MyWidget::qt_static_metacall(QObject*, QMetaObject::Call, int, void**)'
+# /usr/bin/ld: CMakeFiles/mywidget.dir/moc_mywidget.cpp.o: previous definition here
+# Reason: SKIP_* properties were added in CMake 3.8 only
+if(NOT NO_WIDGETS)
+    _qt_internal_test_expect_pass(test_QTBUG-63422)
 endif()
 
-if (NOT CMAKE_VERSION VERSION_LESS 3.8)
-    # With earlier CMake versions, this test would simply run moc multiple times and lead to:
-    # /usr/bin/ld: error: CMakeFiles/mywidget.dir/mywidget_automoc.cpp.o: multiple definition of 'MyWidget::qt_static_metacall(QObject*, QMetaObject::Call, int, void**)'
-    # /usr/bin/ld: CMakeFiles/mywidget.dir/moc_mywidget.cpp.o: previous definition here
-    # Reason: SKIP_* properties were added in CMake 3.8 only
-    expect_pass(test_QTBUG-63422)
+# Find main Qt installation location and bin dir.
+if(QT_BUILD_INTERNALS_RELOCATABLE_INSTALL_PREFIX)
+    set(qt_install_prefix "${QT_BUILD_INTERNALS_RELOCATABLE_INSTALL_PREFIX}")
+elseif(QT6_INSTALL_PREFIX)
+    set(qt_install_prefix "${QT6_INSTALL_PREFIX}")
+endif()
+if(INSTALL_BINDIR)
+    set(qt_install_bin_dir "${INSTALL_BINDIR}")
+elseif(QT6_INSTALL_BINS)
+    set(qt_install_bin_dir "${QT6_INSTALL_BINS}")
 endif()
 
-expect_pass(test_import_plugins BINARY ${CMAKE_CTEST_COMMAND})
-expect_pass(test_versionless_targets)
+# Test building and installing a few dummy Qt modules and plugins.
+_qt_internal_test_expect_pass(mockplugins
+    BINARY "${CMAKE_COMMAND}"
+    BINARY_ARGS
+    "-DQT_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}/mockplugins"
+    -P "${qt_install_prefix}/${qt_install_bin_dir}/qt-cmake-private-install.cmake")
+set_tests_properties(mockplugins PROPERTIES FIXTURES_SETUP build_mockplugins)
+
+# Test importing the plugins built in the project above.
+_qt_internal_test_expect_pass(test_import_plugins BINARY ${CMAKE_CTEST_COMMAND} BINARY_ARGS -V)
+set_tests_properties(test_import_plugins PROPERTIES FIXTURES_REQUIRED build_mockplugins)
+
+_qt_internal_test_expect_pass(test_versionless_targets)
+
+if(NOT NO_GUI)
+  _qt_internal_test_expect_pass(test_global_promotion)
+endif()
+
+_qt_internal_test_expect_pass(test_add_resources_binary_generated
+                              BINARY test_add_resources_binary_generated)
+
+include(test_plugin_shared_static_flavor.cmake)
+_qt_internal_test_expect_pass(tst_qaddpreroutine
+                              BINARY tst_qaddpreroutine)
+
+_qt_internal_test_expect_pass(test_static_resources
+                              BINARY "${CMAKE_CTEST_COMMAND}"
+                              BINARY_ARGS "-V")
+_qt_internal_test_expect_pass(test_qt_extract_metatypes)

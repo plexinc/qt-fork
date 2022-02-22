@@ -4,6 +4,9 @@
 #include "qtqmlglobal.h"
 #include "qtqmlcompilerglobal.h"
 #include "qjsengine.h"
+#include "qjsmanagedvalue.h"
+#include "qjsnumbercoercion.h"
+#include "qjsprimitivevalue.h"
 #include "qjsvalue.h"
 #include "qjsvalueiterator.h"
 #include "qqml.h"
@@ -29,6 +32,7 @@
 #include "qqmlproperty.h"
 #include "qqmlpropertymap.h"
 #include "qqmlpropertyvaluesource.h"
+#include "qqmlregistration.h"
 #include "qqmlscriptstring.h"
 #include "qtqmlversion.h"
 #endif

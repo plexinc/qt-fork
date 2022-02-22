@@ -68,6 +68,7 @@ ONC_EXPORT extern const char kIPConfigTypeStatic[];
 ONC_EXPORT extern const char kSavedIPConfig[];
 ONC_EXPORT extern const char kStaticIPConfig[];
 ONC_EXPORT extern const char kMacAddress[];
+ONC_EXPORT extern const char kMetered[];
 ONC_EXPORT extern const char kNameServersConfigType[];
 ONC_EXPORT extern const char kName[];
 ONC_EXPORT extern const char kPriority[];
@@ -125,6 +126,7 @@ ONC_EXPORT extern const char kFirmwareRevision[];
 ONC_EXPORT extern const char kFoundNetworks[];
 ONC_EXPORT extern const char kHardwareRevision[];
 ONC_EXPORT extern const char kHomeProvider[];
+ONC_EXPORT extern const char kEID[];
 ONC_EXPORT extern const char kICCID[];
 ONC_EXPORT extern const char kIMEI[];
 ONC_EXPORT extern const char kIMSI[];
@@ -235,7 +237,6 @@ ONC_EXPORT extern const char kBSSID[];
 ONC_EXPORT extern const char kEAP[];
 ONC_EXPORT extern const char kFrequency[];
 ONC_EXPORT extern const char kFrequencyList[];
-ONC_EXPORT extern const char kFTEnabled[];
 ONC_EXPORT extern const char kHexSSID[];
 ONC_EXPORT extern const char kHiddenSSID[];
 ONC_EXPORT extern const char kPassphrase[];
@@ -243,7 +244,6 @@ ONC_EXPORT extern const char kSSID[];
 ONC_EXPORT extern const char kSecurity[];
 ONC_EXPORT extern const char kSecurityNone[];
 ONC_EXPORT extern const char kSignalStrength[];
-ONC_EXPORT extern const char kTetheringState[];
 ONC_EXPORT extern const char kWEP_PSK[];
 ONC_EXPORT extern const char kWEP_8021X[];
 ONC_EXPORT extern const char kWPA_PSK[];
@@ -491,7 +491,8 @@ namespace global_network_config {
 ONC_EXPORT extern const char kAllowOnlyPolicyNetworksToAutoconnect[];
 ONC_EXPORT extern const char kAllowOnlyPolicyNetworksToConnect[];
 ONC_EXPORT extern const char kAllowOnlyPolicyNetworksToConnectIfAvailable[];
-ONC_EXPORT extern const char kBlacklistedHexSSIDs[];
+ONC_EXPORT extern const char kBlacklistedHexSSIDs[];  // Deprecated
+ONC_EXPORT extern const char kBlockedHexSSIDs[];
 ONC_EXPORT extern const char kDisableNetworkTypes[];
 }  // global_network_config
 
@@ -501,12 +502,6 @@ ONC_EXPORT extern const char kDisabled[];
 ONC_EXPORT extern const char kEnabling[];
 ONC_EXPORT extern const char kEnabled[];
 }  // device_state
-
-namespace tethering_state {
-ONC_EXPORT extern const char kTetheringConfirmedState[];
-ONC_EXPORT extern const char kTetheringNotDetectedState[];
-ONC_EXPORT extern const char kTetheringSuspectedState[];
-}  // namespace tethering_state
 
 }  // namespace onc
 

@@ -47,12 +47,23 @@ Polymer({
   },
 
   listeners: {
+    blur: 'onBlur_',
     click: 'onClick_',
     keydown: 'onKeyDown_',
     keyup: 'onKeyUp_',
     pointerdown: 'onPointerDown_',
-    tap: 'onTap_',
   },
+
+  /**
+   * It is possible to activate a tab when the space key is pressed down. When
+   * this element has focus, the keyup event for the space key should not
+   * perform a 'click'. |spaceKeyDown_| tracks when a space pressed and handled
+   * by this element. Space keyup will only result in a 'click' when
+   * |spaceKeyDown_| is true. |spaceKeyDown_| is set to false when element loses
+   * focus.
+   * @private {boolean}
+   */
+  spaceKeyDown_: false,
 
   /** @private {Set<number>} */
   timeoutIds_: null,
@@ -113,6 +124,11 @@ Polymer({
     this.setAttribute('tabindex', value);
   },
 
+  /** @private */
+  onBlur_() {
+    this.spaceKeyDown_ = false;
+  },
+
   /**
    * @param {!Event} e
    * @private
@@ -136,6 +152,7 @@ Polymer({
     e.stopPropagation();
 
     if (e.repeat) {
+      this.lastKeyDownKey_ = null;
       return;
     }
 
@@ -145,6 +162,8 @@ Polymer({
       // Delay was chosen manually as a good time period for the ripple to be
       // visible.
       this.setTimeout_(() => this.getRipple().uiUpAction(), 100);
+    } else if (e.key === ' ') {
+      this.spaceKeyDown_ = true;
     }
   },
 
@@ -160,7 +179,8 @@ Polymer({
     e.preventDefault();
     e.stopPropagation();
 
-    if (e.key === ' ') {
+    if (this.spaceKeyDown_ && e.key === ' ') {
+      this.spaceKeyDown_ = false;
       this.click();
       this.getRipple().uiUpAction();
     }
@@ -170,15 +190,6 @@ Polymer({
   onPointerDown_() {
     this.ensureRipple();
   },
-
-  /**
-   * Need to handle tap events to enable tap events for where they are still
-   * used with |button.addEventListener('tap', handler)|.
-   * TODO(crbug.com/812035): Remove function and listener after Chrome OS no
-   *     longer uses tap event at least with addEventListener().
-   * @private
-   */
-  onTap_() {},
 
   /**
    * Customize the element's ripple. Overriding the '_createRipple' function
@@ -196,3 +207,4 @@ Polymer({
     return ripple;
   },
 });
+/* #ignore */ console.warn('crbug/1173575, non-JS module files deprecated.');

@@ -45,8 +45,8 @@
 #include <QtQuick/private/qquicklistview_p.h>
 #include <QtQuick/private/qquicktext_p.h>
 
-#include "../../shared/util.h"
-#include "../shared/visualtestutil.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
+#include <QtQuickTestUtils/private/visualtestutils_p.h>
 
 #define EXPECT(cond) \
     do { \
@@ -67,7 +67,7 @@ public:
     virtual ~tst_QQuickAccessible();
 
 public slots:
-    void initTestCase();
+    void initTestCase() override;
     void cleanupTestCase();
     void init();
     void cleanup();
@@ -84,6 +84,7 @@ private slots:
 };
 
 tst_QQuickAccessible::tst_QQuickAccessible()
+    : QQmlDataTest(QT_QMLTEST_DATADIR)
 {
 
 }
@@ -117,11 +118,17 @@ void tst_QQuickAccessible::cleanup()
 {
     const EventList list = QTestAccessibility::events();
     if (!list.isEmpty()) {
-        qWarning("%d accessibility event(s) were not handled in testfunction '%s':", list.count(),
-                 QString(QTest::currentTestFunction()).toLatin1().constData());
-        for (int i = 0; i < list.count(); ++i)
-            qWarning(" %d: Object: %p Event: '%s' Child: %d", i + 1, list.at(i)->object(),
-                     qAccessibleEventString(list.at(i)->type()), list.at(i)->child());
+        qWarning().noquote() << list.count()
+                             << "accessibility event(s) were not handled in testfunction '"
+                             << QTest::currentTestFunction() << "':";
+        for (int i = 0; i < list.count(); ++i) {
+            auto object = list.at(i)->object();
+            QString objectInfo = object ? QDebug::toString(object)
+                                        : u"[deleted object]"_qs;
+            qWarning().noquote() << " " << (i + 1) << objectInfo
+                       << "Event: '" << qAccessibleEventString(list.at(i)->type())
+                       << "' Child: " << list.at(i)->child();
+        }
     }
     QTestAccessibility::clearEvents();
 }
@@ -206,9 +213,11 @@ void tst_QQuickAccessible::quickAttachedProperties()
             QCOMPARE(p.isNull(), false);
             QCOMPARE(p.toInt(), int(QAccessible::PushButton));
             p = attachedObject->property("name");
-            QCOMPARE(p.isNull(), true);
+            QCOMPARE(p.typeId(), QMetaType::QString);
+            QVERIFY2(p.value<QString>().isEmpty(), QTest::toString(p));
             p = attachedObject->property("description");
-            QCOMPARE(p.isNull(), true);
+            QCOMPARE(p.typeId(), QMetaType::QString);
+            QVERIFY2(p.value<QString>().isEmpty(), QTest::toString(p));
             QCOMPARE(attachedObject->wasNameExplicitlySet(), false);
         }
         delete object;
@@ -291,7 +300,7 @@ void tst_QQuickAccessible::quickAttachedProperties()
         QQuickListView *listview = qobject_cast<QQuickListView *>(object);
         QVERIFY(listview != nullptr);
         QQuickItem *contentItem = listview->contentItem();
-        QQuickText *childItem = QQuickVisualTestUtil::findItem<QQuickText>(contentItem, "acc_text");
+        QQuickText *childItem = QQuickVisualTestUtils::findItem<QQuickText>(contentItem, "acc_text");
         QVERIFY(childItem != nullptr);
 
         QObject *attachedObject = QQuickAccessibleAttached::attachedProperties(childItem);
@@ -355,7 +364,7 @@ void tst_QQuickAccessible::basicPropertiesTest()
 
     QAccessibleInterface *item = iface->child(0);
     QVERIFY(item);
-    QCOMPARE(item->childCount(), 5);
+    QCOMPARE(item->childCount(), 6);
     QCOMPARE(item->rect().size(), QSize(400, 400));
     QCOMPARE(item->role(), QAccessible::Client);
     QCOMPARE(iface->indexOfChild(item), 0);
@@ -381,8 +390,8 @@ void tst_QQuickAccessible::basicPropertiesTest()
     QCOMPARE(text2->rect().y(), item->rect().y() + 40);
     QCOMPARE(text2->role(), QAccessible::StaticText);
     QCOMPARE(item->indexOfChild(text2), 1);
-    QCOMPARE(text2->state().editable, 0u);
-    QCOMPARE(text2->state().readOnly, 1);
+    QVERIFY(!text2->state().editable);
+    QVERIFY(text2->state().readOnly);
 
     QCOMPARE(iface->indexOfChild(text2), -1);
     QCOMPARE(text2->indexOfChild(item), -1);
@@ -392,10 +401,10 @@ void tst_QQuickAccessible::basicPropertiesTest()
     QVERIFY(textInput);
     QCOMPARE(textInput->childCount(), 0);
     QCOMPARE(textInput->role(), QAccessible::EditableText);
-    QCOMPARE(textInput->state().editable, 1);
-    QCOMPARE(textInput->state().readOnly, 0);
-    QCOMPARE(textInput->state().multiLine, 0);
-    QCOMPARE(textInput->state().focusable, 1);
+    QVERIFY(textInput->state().editable);
+    QVERIFY(!textInput->state().readOnly);
+    QVERIFY(!textInput->state().multiLine);
+    QVERIFY(textInput->state().focusable);
     QCOMPARE(textInput->text(QAccessible::Value), "A text input");
     auto textInterface = textInput->textInterface();
     QVERIFY(textInterface);
@@ -411,9 +420,9 @@ void tst_QQuickAccessible::basicPropertiesTest()
     QVERIFY(textEdit);
     QCOMPARE(textEdit->childCount(), 0);
     QCOMPARE(textEdit->role(), QAccessible::EditableText);
-    QCOMPARE(textEdit->state().editable, 1);
-    QCOMPARE(textEdit->state().readOnly, 0);
-    QCOMPARE(textEdit->state().focusable, 1);
+    QVERIFY(textEdit->state().editable);
+    QVERIFY(!textEdit->state().readOnly);
+    QVERIFY(textEdit->state().focusable);
     QCOMPARE(textEdit->text(QAccessible::Value), "A multi-line text edit\nTesting Accessibility.");
     auto textEditTextInterface = textEdit->textInterface();
     QVERIFY(textEditTextInterface);
@@ -423,7 +432,7 @@ void tst_QQuickAccessible::basicPropertiesTest()
     textEdit->setText(QAccessible::Value, newText);
     QCOMPARE(textEdit->text(QAccessible::Value), newText);
     QEXPECT_FAIL("", "multi line is not implemented", Continue);
-    QCOMPARE(textInput->state().multiLine, 1);
+    QVERIFY(textInput->state().multiLine);
 
     // Text "Hello 3"
     QAccessibleInterface *text3 = item->child(4);
@@ -432,22 +441,47 @@ void tst_QQuickAccessible::basicPropertiesTest()
     QCOMPARE(text3->text(QAccessible::Name), QLatin1String("Hello 3"));
     QCOMPARE(text3->role(), QAccessible::StaticText);
     QCOMPARE(item->indexOfChild(text3), 4);
-    QCOMPARE(text3->state().editable, 0);
-    QCOMPARE(text3->state().readOnly, 0);
+    QVERIFY(!text3->state().editable);
+    QVERIFY(!text3->state().readOnly);
     // test implicit state values due to role change
     QQuickAccessibleAttached *attached = QQuickAccessibleAttached::attachedProperties(text3->object());
     attached->setRole(QAccessible::StaticText);
     QCOMPARE(text3->role(), QAccessible::StaticText);
-    QCOMPARE(text3->state().readOnly, 1);
+    QVERIFY(text3->state().readOnly);
+
+    // Text "Rich text"
+    QAccessibleInterface *richText = item->child(5);
+    QVERIFY(text3);
+    QCOMPARE(richText->childCount(), 2);
+    QCOMPARE(richText->text(QAccessible::Name), QLatin1String("Rich text with links:\nWebsite or blog"));
+    QCOMPARE(richText->role(), QAccessible::StaticText);
+    QCOMPARE(item->indexOfChild(richText), 5);
+    QVERIFY(!richText->state().editable);
+    QVERIFY(!richText->state().readOnly);
+
+    // Check for hyperlink child nodes
+    for (int i = 0; i < richText->childCount(); ++i) {
+        static const char *linkUrls[2][2] = {
+            {"Website", "https://qt.io"},
+            {"blog", "https://qt.io/blog"}
+        };
+        QAccessibleInterface *link1 = richText->child(i);
+        QVERIFY(link1);
+        QCOMPARE(link1->role(), QAccessible::Link);
+        QAccessibleHyperlinkInterface *link = link1->hyperlinkInterface();
+        QVERIFY(link);
+        QCOMPARE(link->anchor(), QLatin1String(linkUrls[i][0]));
+        QCOMPARE(link->anchorTarget(), QLatin1String(linkUrls[i][1]));
+    }
 
     // see if implicit changes back
     attached->setRole(QAccessible::EditableText);
     QEXPECT_FAIL("", "EditableText does not implicitly set readOnly to false", Continue);
-    QCOMPARE(text3->state().readOnly, 0);
+    QVERIFY(!text3->state().readOnly);
     // explicitly set state
     attached->set_readOnly(false);
     attached->setRole(QAccessible::StaticText);
-    QCOMPARE(text3->state().readOnly, 0);
+    QVERIFY(!text3->state().readOnly);
 
     delete window;
     QTestAccessibility::clearEvents();

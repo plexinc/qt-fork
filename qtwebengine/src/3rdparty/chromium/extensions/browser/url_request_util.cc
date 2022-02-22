@@ -15,26 +15,29 @@
 #include "extensions/common/manifest_handlers/icons_handler.h"
 #include "extensions/common/manifest_handlers/web_accessible_resources_info.h"
 #include "extensions/common/manifest_handlers/webview_info.h"
+#include "services/network/public/cpp/resource_request.h"
 #include "third_party/blink/public/common/loader/resource_type_util.h"
 
 namespace extensions {
 namespace url_request_util {
 
-bool AllowCrossRendererResourceLoad(const GURL& url,
-                                    blink::mojom::ResourceType resource_type,
-                                    ui::PageTransition page_transition,
-                                    int child_id,
-                                    bool is_incognito,
-                                    const Extension* extension,
-                                    const ExtensionSet& extensions,
-                                    const ProcessMap& process_map,
-                                    bool* allowed) {
+bool AllowCrossRendererResourceLoad(
+    const network::ResourceRequest& request,
+    network::mojom::RequestDestination destination,
+    ui::PageTransition page_transition,
+    int child_id,
+    bool is_incognito,
+    const Extension* extension,
+    const ExtensionSet& extensions,
+    const ProcessMap& process_map,
+    bool* allowed) {
+  const GURL& url = request.url;
   base::StringPiece resource_path = url.path_piece();
 
   // This logic is performed for main frame requests in
   // ExtensionNavigationThrottle::WillStartRequest.
   if (child_id != -1 ||
-      resource_type != blink::mojom::ResourceType::kMainFrame) {
+      destination != network::mojom::RequestDestination::kDocument) {
     // Extensions with webview: allow loading certain resources by guest
     // renderers with privileged partition IDs as specified in owner's extension
     // the manifest file.
@@ -81,31 +84,25 @@ bool AllowCrossRendererResourceLoad(const GURL& url,
 
   // Navigating the main frame to an extension URL is allowed, even if not
   // explicitly listed as web_accessible_resource.
-  if (resource_type == blink::mojom::ResourceType::kMainFrame) {
+  if (destination == network::mojom::RequestDestination::kDocument) {
     *allowed = true;
     return true;
-  } else if (resource_type == blink::mojom::ResourceType::kSubFrame) {
-    // When navigating in subframe, allow if it is the same origin
-    // as the top-level frame. This can only be the case if the subframe
-    // request is coming from the extension process.
-    if (process_map.Contains(child_id)) {
-      *allowed = true;
-      return true;
-    }
-
-    // Also allow if the file is explicitly listed as a web_accessible_resource.
-    if (WebAccessibleResourcesInfo::IsResourceWebAccessible(
-            extension, resource_path.as_string())) {
-      *allowed = true;
-      return true;
-    }
   }
 
-  // Since not all subresources are required to be listed in a v2
-  // manifest, we must allow all subresource loads if there are any web
-  // accessible resources. See http://crbug.com/179127.
-  if (!blink::IsResourceTypeFrame(resource_type) &&
-      WebAccessibleResourcesInfo::HasWebAccessibleResources(extension)) {
+  // When navigating in subframe, allow if it is the same origin
+  // as the top-level frame. This can only be the case if the subframe
+  // request is coming from the extension process.
+  if ((destination == network::mojom::RequestDestination::kIframe ||
+       destination == network::mojom::RequestDestination::kFrame) &&
+      process_map.Contains(child_id)) {
+    *allowed = true;
+    return true;
+  }
+
+  // Allow web accessible extension resources to be loaded as
+  // subresources/sub-frames.
+  if (WebAccessibleResourcesInfo::IsResourceWebAccessible(
+          extension, resource_path.as_string(), request.request_initiator)) {
     *allowed = true;
     return true;
   }

@@ -52,10 +52,6 @@ class PLATFORM_EXPORT MatrixTransformOperation final
     return TransformationMatrix(a_, b_, c_, d_, e_, f_);
   }
 
-  bool CanBlendWith(const TransformOperation& other) const override {
-    return false;
-  }
-
   static bool IsMatchingOperationType(OperationType type) {
     return type == kMatrix;
   }
@@ -89,6 +85,9 @@ class PLATFORM_EXPORT MatrixTransformOperation final
 
   bool PreservesAxisAlignment() const final {
     return Matrix().Preserves2dAxisAlignment();
+  }
+  bool IsIdentityOrTranslation() const final {
+    return Matrix().IsIdentityOr2DTranslation();
   }
 
   MatrixTransformOperation(double a,

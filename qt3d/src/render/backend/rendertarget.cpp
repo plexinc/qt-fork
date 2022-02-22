@@ -53,6 +53,7 @@ namespace Render {
 
 RenderTarget::RenderTarget()
     : BackendNode()
+    , m_dirty(false)
 {
 }
 
@@ -69,6 +70,7 @@ void RenderTarget::syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firstT
 
     if (m_renderOutputs != outputIds) {
         m_renderOutputs = outputIds;
+        m_dirty = true;
         markDirty(AbstractRenderer::AllDirty);
     }
 }
@@ -76,23 +78,23 @@ void RenderTarget::syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firstT
 void RenderTarget::cleanup()
 {
     m_renderOutputs.clear();
+    m_dirty = false;
     QBackendNode::setEnabled(false);
 }
 
-void RenderTarget::appendRenderOutput(QNodeId outputId)
-{
-    if (!m_renderOutputs.contains(outputId))
-        m_renderOutputs.append(outputId);
-}
-
-void RenderTarget::removeRenderOutput(QNodeId outputId)
-{
-    m_renderOutputs.removeOne(outputId);
-}
-
-QVector<Qt3DCore::QNodeId> RenderTarget::renderOutputs() const
+QList<Qt3DCore::QNodeId> RenderTarget::renderOutputs() const
 {
     return m_renderOutputs;
+}
+
+bool RenderTarget::isDirty() const
+{
+    return m_dirty;
+}
+
+void RenderTarget::unsetDirty()
+{
+    m_dirty = false;
 }
 
 RenderTargetFunctor::RenderTargetFunctor(AbstractRenderer *renderer, RenderTargetManager *manager)
@@ -101,11 +103,11 @@ RenderTargetFunctor::RenderTargetFunctor(AbstractRenderer *renderer, RenderTarge
 {
 }
 
-QBackendNode *RenderTargetFunctor::create(const QNodeCreatedChangeBasePtr &change) const
+QBackendNode *RenderTargetFunctor::create(QNodeId id) const
 {
-    RenderTarget *backend = m_renderTargetManager->getOrCreateResource(change->subjectId());
+    RenderTarget *backend = m_renderTargetManager->getOrCreateResource(id);
     // Remove from the list of ids to destroy in case we were added to it
-    m_renderTargetManager->removeRenderTargetToCleanup(change->subjectId());
+    m_renderTargetManager->removeRenderTargetToCleanup(id);
     backend->setRenderer(m_renderer);
     return backend;
 }

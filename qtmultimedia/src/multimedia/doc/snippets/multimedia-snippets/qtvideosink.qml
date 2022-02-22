@@ -37,19 +37,23 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import QtMultimedia 5.12
+import QtQuick
+import QtMultimedia
 
 //! [complete]
 Item {
     MediaPlayer {
         id: mediaplayer
-        source: "gst-pipeline: videotestsrc ! qtvideosink"
+        source: "file:///test.mp4"
+        videoOutput: videoOutput
+        audioOutput: AudioOutput {
+
+        }
     }
 
     VideoOutput {
+        id: videoOutput
         anchors.fill: parent
-        source: mediaplayer
     }
 
     MouseArea {

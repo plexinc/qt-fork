@@ -2,22 +2,22 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/http2/decoder/http2_frame_decoder.h"
+#include "http2/decoder/http2_frame_decoder.h"
 
 // Tests of Http2FrameDecoder.
 
 #include <string>
 #include <vector>
 
-#include "testing/gtest/include/gtest/gtest.h"
-#include "net/third_party/quiche/src/http2/http2_constants.h"
-#include "net/third_party/quiche/src/http2/platform/api/http2_logging.h"
-#include "net/third_party/quiche/src/http2/platform/api/http2_test_helpers.h"
-#include "net/third_party/quiche/src/http2/test_tools/frame_parts.h"
-#include "net/third_party/quiche/src/http2/test_tools/frame_parts_collector_listener.h"
-#include "net/third_party/quiche/src/http2/test_tools/http2_random.h"
-#include "net/third_party/quiche/src/http2/tools/random_decoder_test.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/string_view.h"
+#include "http2/http2_constants.h"
+#include "http2/platform/api/http2_flags.h"
+#include "http2/platform/api/http2_logging.h"
+#include "http2/platform/api/http2_test_helpers.h"
+#include "http2/test_tools/frame_parts.h"
+#include "http2/test_tools/frame_parts_collector_listener.h"
+#include "http2/test_tools/http2_random.h"
+#include "http2/tools/random_decoder_test.h"
 
 using ::testing::AssertionResult;
 using ::testing::AssertionSuccess;
@@ -115,9 +115,8 @@ class Http2FrameDecoderTest : public RandomDecoderTest {
     VERIFY_AND_RETURN_SUCCESS(expected.VerifyEquals(*collector_.frame(0)));
   }
 
-  AssertionResult DecodePayloadAndValidateSeveralWays(
-      quiche::QuicheStringPiece payload,
-      Validator validator) {
+  AssertionResult DecodePayloadAndValidateSeveralWays(absl::string_view payload,
+                                                      Validator validator) {
     DecodeBuffer db(payload);
     bool start_decoding_requires_non_empty = false;
     return DecodeAndValidateSeveralWays(&db, start_decoding_requires_non_empty,
@@ -129,7 +128,7 @@ class Http2FrameDecoderTest : public RandomDecoderTest {
   // payload will be decoded several times with different partitionings
   // of the payload, and after each the validator will be called.
   AssertionResult DecodePayloadAndValidateSeveralWays(
-      quiche::QuicheStringPiece payload,
+      absl::string_view payload,
       const FrameParts& expected) {
     auto validator = [&expected, this](const DecodeBuffer& /*input*/,
                                        DecodeStatus status) -> AssertionResult {
@@ -160,16 +159,16 @@ class Http2FrameDecoderTest : public RandomDecoderTest {
   AssertionResult DecodePayloadAndValidateSeveralWays(
       const char (&buf)[N],
       const FrameParts& expected) {
-    return DecodePayloadAndValidateSeveralWays(
-        quiche::QuicheStringPiece(buf, N), expected);
+    return DecodePayloadAndValidateSeveralWays(absl::string_view(buf, N),
+                                               expected);
   }
 
   template <size_t N>
   AssertionResult DecodePayloadAndValidateSeveralWays(
       const char (&buf)[N],
       const Http2FrameHeader& header) {
-    return DecodePayloadAndValidateSeveralWays(
-        quiche::QuicheStringPiece(buf, N), FrameParts(header));
+    return DecodePayloadAndValidateSeveralWays(absl::string_view(buf, N),
+                                               FrameParts(header));
   }
 
   template <size_t N>
@@ -546,6 +545,29 @@ TEST_F(Http2FrameDecoderTest, AltSvcPayload) {
   FrameParts expected(header);
   expected.SetAltSvcExpected("abc", "def");
   EXPECT_TRUE(DecodePayloadAndValidateSeveralWays(kFrameData, expected));
+}
+
+TEST_F(Http2FrameDecoderTest, PriorityUpdatePayload) {
+  const char kFrameData[] = {
+      '\x00', '\x00', '\x07',          // Payload length: 7
+      '\x10',                          // PRIORITY_UPDATE
+      '\x00',                          // Flags: none
+      '\x00', '\x00', '\x00', '\x00',  // Stream ID: 0
+      '\x00', '\x00', '\x00', '\x05',  // Prioritized Stream ID: 5
+      'a',    'b',    'c',             // Priority Field Value
+  };
+  Http2FrameHeader header(7, Http2FrameType::PRIORITY_UPDATE, 0, 0);
+
+  if (GetHttp2RestartFlag(http2_parse_priority_update_frame)) {
+    FrameParts expected(header, "abc");
+    expected.SetOptPriorityUpdate(Http2PriorityUpdateFields{5});
+    EXPECT_TRUE(DecodePayloadAndValidateSeveralWays(kFrameData, expected));
+  } else {
+    FrameParts expected(header, absl::string_view("\x00\x00\x00\x05"
+                                                  "abc",
+                                                  7));
+    EXPECT_TRUE(DecodePayloadAndValidateSeveralWays(kFrameData, expected));
+  }
 }
 
 TEST_F(Http2FrameDecoderTest, UnknownPayload) {

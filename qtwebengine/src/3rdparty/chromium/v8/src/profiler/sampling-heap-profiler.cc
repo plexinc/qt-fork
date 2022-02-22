@@ -72,16 +72,14 @@ SamplingHeapProfiler::~SamplingHeapProfiler() {
 }
 
 void SamplingHeapProfiler::SampleObject(Address soon_object, size_t size) {
-  DisallowHeapAllocation no_allocation;
+  DisallowGarbageCollection no_gc;
+
+  // Check if the area is iterable by confirming that it starts with a map.
+  DCHECK((*ObjectSlot(soon_object)).IsMap());
 
   HandleScope scope(isolate_);
   HeapObject heap_object = HeapObject::FromAddress(soon_object);
   Handle<Object> obj(heap_object, isolate_);
-
-  // Mark the new block as FreeSpace to make sure the heap is iterable while we
-  // are taking the sample.
-  heap_->CreateFillerObjectAt(soon_object, static_cast<int>(size),
-                              ClearRecordedSlots::kNo);
 
   Local<v8::Value> loc = v8::Utils::ToLocal(obj);
 
@@ -192,7 +190,7 @@ SamplingHeapProfiler::AllocationNode* SamplingHeapProfiler::AddStack() {
   // the first element in the list.
   for (auto it = stack.rbegin(); it != stack.rend(); ++it) {
     SharedFunctionInfo shared = *it;
-    const char* name = this->names()->GetName(shared.DebugName());
+    const char* name = this->names()->GetCopy(shared.DebugNameCStr().get());
     int script_id = v8::UnboundScript::kNoScriptId;
     if (shared.script().IsScript()) {
       Script script = Script::cast(shared.script());

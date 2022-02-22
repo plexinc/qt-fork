@@ -5,7 +5,6 @@
 import("//build/config/jumbo.gni")
 import("//media/gpu/args.gni")
 import("//media/media_options.gni")
-import("//third_party/libaom/options.gni")
 
 jumbo_source_set("filters") {
   # Do not expand the visibility here without double-checking with OWNERS, this
@@ -85,6 +84,8 @@ jumbo_source_set("filters") {
   ]
 
   deps = [
+    "//base/util/type_safety:type_safety",
+    "//build:chromeos_buildflags",
     "//cc/base",  # For MathUtil.
     "//media:media_buildflags",
     "//media/base",
@@ -140,14 +141,6 @@ jumbo_source_set("filters") {
     deps += [ "//third_party/libvpx" ]
   }
 
-  if (enable_libaom) {
-    sources += [
-      "aom_video_decoder.cc",
-      "aom_video_decoder.h",
-    ]
-    deps += [ "//third_party/libaom" ]
-  }
-
   if (enable_dav1d_decoder) {
     sources += [
       "dav1d_video_decoder.cc",
@@ -187,6 +180,13 @@ jumbo_source_set("filters") {
         "ffmpeg_video_decoder.h",
       ]
     }
+
+    if (is_android) {
+      sources += [
+        "android/video_frame_extractor.cc",
+        "android/video_frame_extractor.h",
+      ]
+    }
   }
 
   if (is_android) {
@@ -199,8 +199,6 @@ jumbo_source_set("filters") {
     sources += [
       "android/media_codec_audio_decoder.cc",
       "android/media_codec_audio_decoder.h",
-      "android/video_frame_extractor.cc",
-      "android/video_frame_extractor.h",
     ]
     deps += [ "//media/base/android" ]
   }
@@ -218,6 +216,7 @@ jumbo_source_set("filters") {
       "fuchsia/fuchsia_video_decoder.h",
     ]
     deps += [
+      "//components/viz/common",
       "//gpu/command_buffer/client",
       "//gpu/command_buffer/common",
       "//gpu/ipc/common",
@@ -256,6 +255,8 @@ static_library("test_support") {
   visibility = [ "//media:test_support" ]
 
   sources = [
+    "fake_video_decoder.cc",
+    "fake_video_decoder.h",
     "ivf_parser.cc",
     "ivf_parser.h",
   ]
@@ -284,8 +285,6 @@ source_set("unit_tests") {
     "decrypting_demuxer_stream_unittest.cc",
     "decrypting_media_resource_unittest.cc",
     "decrypting_video_decoder_unittest.cc",
-    "fake_video_decoder.cc",
-    "fake_video_decoder.h",
     "fake_video_decoder_unittest.cc",
     "file_data_source_unittest.cc",
     "frame_buffer_pool_unittest.cc",
@@ -301,10 +300,12 @@ source_set("unit_tests") {
     "video_renderer_algorithm_unittest.cc",
     "vp9_parser_unittest.cc",
     "vp9_raw_bits_reader_unittest.cc",
+    "vp9_uncompressed_header_parser_unittest.cc",
   ]
 
   deps = [
     "//base/test:test_support",
+    "//build:chromeos_buildflags",
     "//media:test_support",
     "//testing/gmock",
     "//testing/gtest",
@@ -329,8 +330,10 @@ source_set("unit_tests") {
   if (is_fuchsia) {
     sources += [ "fuchsia/fuchsia_video_decoder_unittest.cc" ]
     deps += [
+      "//components/viz/common",
       "//components/viz/test:test_support",
       "//gpu/command_buffer/client",
+      "//gpu/config",
       "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.sysmem",
       "//third_party/fuchsia-sdk/sdk/pkg/sys_cpp",
     ]
@@ -373,10 +376,6 @@ source_set("unit_tests") {
 
   if (media_use_libvpx) {
     sources += [ "vpx_video_decoder_unittest.cc" ]
-  }
-
-  if (enable_libaom) {
-    sources += [ "aom_video_decoder_unittest.cc" ]
   }
 
   if (enable_dav1d_decoder) {

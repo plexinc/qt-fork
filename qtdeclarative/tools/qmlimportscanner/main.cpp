@@ -29,10 +29,9 @@
 #include <private/qqmljslexer_p.h>
 #include <private/qqmljsparser_p.h>
 #include <private/qqmljsast_p.h>
-#include <private/qv4codegen_p.h>
-#include <private/qv4staticvalue_p.h>
-#include <private/qqmlirbuilder_p.h>
 #include <private/qqmljsdiagnosticmessage_p.h>
+#include <private/qqmldirparser_p.h>
+#include <private/qqmljsresourcefilemapper_p.h>
 
 #include <QtCore/QCoreApplication>
 #include <QtCore/QDir>
@@ -49,8 +48,6 @@
 #include <QtCore/QJsonDocument>
 #include <QtCore/QLibraryInfo>
 
-#include <resourcefilemapper.h>
-
 #include <iostream>
 #include <algorithm>
 
@@ -65,27 +62,32 @@ inline QString versionLiteral()      { return QStringLiteral("version"); }
 inline QString nameLiteral()         { return QStringLiteral("name"); }
 inline QString relativePathLiteral() { return QStringLiteral("relativePath"); }
 inline QString pluginsLiteral()      { return QStringLiteral("plugins"); }
+inline QString pluginIsOptionalLiteral() { return QStringLiteral("pluginIsOptional"); }
 inline QString pathLiteral()         { return QStringLiteral("path"); }
 inline QString classnamesLiteral()   { return QStringLiteral("classnames"); }
 inline QString dependenciesLiteral() { return QStringLiteral("dependencies"); }
 inline QString moduleLiteral()       { return QStringLiteral("module"); }
 inline QString javascriptLiteral()   { return QStringLiteral("javascript"); }
 inline QString directoryLiteral()    { return QStringLiteral("directory"); }
+inline QString linkTargetLiteral()
+{
+    return QStringLiteral("linkTarget");
+}
 
 void printUsage(const QString &appNameIn)
 {
-    const std::wstring appName = appNameIn.toStdWString();
+    const std::string appName = appNameIn.toStdString();
 #ifndef QT_BOOTSTRAPPED
-    const QString qmlPath = QLibraryInfo::location(QLibraryInfo::Qml2ImportsPath);
+    const QString qmlPath = QLibraryInfo::path(QLibraryInfo::QmlImportsPath);
 #else
     const QString qmlPath = QStringLiteral("/home/user/dev/qt-install/qml");
 #endif
-    std::wcerr
+    std::cerr
         << "Usage: " << appName << " -rootPath path/to/app/qml/directory -importPath path/to/qt/qml/directory\n"
            "       " << appName << " -qmlFiles file1 file2 -importPath path/to/qt/qml/directory\n"
            "       " << appName << " -qrcFiles file1.qrc file2.qrc -importPath path/to/qt/qml/directory\n\n"
            "Example: " << appName << " -rootPath . -importPath "
-        << QDir::toNativeSeparators(qmlPath).toStdWString()
+        << QDir::toNativeSeparators(qmlPath).toStdString()
         << '\n';
 }
 
@@ -127,8 +129,13 @@ QVariantList findImportsInAst(QQmlJS::AST::UiHeaderItemList *headerItemList, con
             if (!name.isEmpty())
                 import[nameLiteral()] = name;
             import[typeLiteral()] = moduleLiteral();
-            auto versionString = importNode->version ? QString::number(importNode->version->majorVersion) + QLatin1Char('.') + QString::number(importNode->version->minorVersion) : QString();
-            import[versionLiteral()] = versionString;
+            auto versionString = importNode->version
+                    ? QString::number(importNode->version->version.majorVersion())
+                      + QLatin1Char('.')
+                      + QString::number(importNode->version->version.minorVersion())
+                    : QString();
+            if (!versionString.isEmpty())
+                import[versionLiteral()] = versionString;
         }
 
         imports.append(import);
@@ -137,43 +144,107 @@ QVariantList findImportsInAst(QQmlJS::AST::UiHeaderItemList *headerItemList, con
     return imports;
 }
 
+QVariantList findQmlImportsInQmlFile(const QString &filePath);
+QVariantList findQmlImportsInJavascriptFile(const QString &filePath);
+
+static QString versionSuffix(QTypeRevision version)
+{
+    return QLatin1Char(' ') + QString::number(version.majorVersion()) + QLatin1Char('.')
+            + QString::number(version.minorVersion());
+}
+
 // Read the qmldir file, extract a list of plugins by
-// parsing the "plugin"  and "classname" lines.
-QVariantMap pluginsForModulePath(const QString &modulePath) {
+// parsing the "plugin", "import", and "classname" directives.
+QVariantMap pluginsForModulePath(const QString &modulePath, const QString &version) {
     QFile qmldirFile(modulePath + QLatin1String("/qmldir"));
-    if (!qmldirFile.exists())
+    if (!qmldirFile.exists()) {
+        qWarning() << "qmldir file not found at" << modulePath;
         return QVariantMap();
+    }
 
-    qmldirFile.open(QIODevice::ReadOnly | QIODevice::Text);
+    if (!qmldirFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        qWarning() << "qmldir file not found at" << modulePath;
+        return QVariantMap();
+    }
 
-    // A qml import may contain several plugins
-    QString plugins;
-    QString classnames;
-    QStringList dependencies;
-    QByteArray line;
-    do {
-        line = qmldirFile.readLine();
-        if (line.startsWith("plugin")) {
-            plugins += QString::fromUtf8(line.split(' ').at(1));
-            plugins += QLatin1Char(' ');
-        } else if (line.startsWith("classname")) {
-            classnames += QString::fromUtf8(line.split(' ').at(1));
-            classnames += QLatin1Char(' ');
-        } else if (line.startsWith("depends")) {
-            const QList<QByteArray> dep = line.split(' ');
-            if (dep.length() != 3)
-                std::cerr << "depends: expected 2 arguments: module identifier and version" << std::endl;
-            else
-                dependencies << QString::fromUtf8(dep[1]) + QLatin1Char(' ') + QString::fromUtf8(dep[2]).simplified();
-        }
-
-    } while (line.length() > 0);
+    QQmlDirParser parser;
+    parser.parse(QString::fromUtf8(qmldirFile.readAll()));
+    if (parser.hasError()) {
+        qWarning() << "qmldir file malformed at" << modulePath;
+        for (const auto &error : parser.errors(QLatin1String("qmldir")))
+            qWarning() << error.message;
+        return QVariantMap();
+    }
 
     QVariantMap pluginInfo;
-    pluginInfo[pluginsLiteral()] = plugins.simplified();
-    pluginInfo[classnamesLiteral()] = classnames.simplified();
-    if (dependencies.length())
-        pluginInfo[dependenciesLiteral()] = dependencies;
+
+    QStringList pluginNameList;
+    bool isOptional = false;
+    const auto plugins = parser.plugins();
+    for (const auto &plugin : plugins) {
+        pluginNameList.append(plugin.name);
+        isOptional = plugin.optional;
+    }
+
+    pluginInfo[pluginsLiteral()] = pluginNameList.join(QLatin1Char(' '));
+
+    if (plugins.size() > 1) {
+        qWarning() << QStringLiteral("Warning: \"%1\" contains multiple plugin entries. This is discouraged and does not support marking plugins as optional.").arg(modulePath);
+        isOptional = false;
+    }
+
+    if (isOptional) {
+        pluginInfo[pluginIsOptionalLiteral()] = true;
+    }
+
+    if (!parser.linkTarget().isEmpty()) {
+        pluginInfo[linkTargetLiteral()] = parser.linkTarget();
+    }
+
+    pluginInfo[classnamesLiteral()] = parser.classNames().join(QLatin1Char(' '));
+
+    QStringList importsAndDependencies;
+    const auto dependencies = parser.dependencies();
+    for (const auto &dependency : dependencies)
+        importsAndDependencies.append(dependency.module + versionSuffix(dependency.version));
+
+    const auto imports = parser.imports();
+    for (const auto &import : imports) {
+        if (import.flags & QQmlDirParser::Import::Auto) {
+            importsAndDependencies.append(
+                        import.module + QLatin1Char(' ')
+                        + (version.isEmpty() ? QString::fromLatin1("auto") : version));
+        } else if (import.version.isValid()) {
+            importsAndDependencies.append(import.module + versionSuffix(import.version));
+        } else {
+            importsAndDependencies.append(import.module);
+        }
+    }
+
+    QVariantList importsFromFiles;
+    const auto components = parser.components();
+    for (const auto &component : components) {
+        importsFromFiles
+                += findQmlImportsInQmlFile(modulePath + QLatin1Char('/') + component.fileName);
+    }
+    const auto scripts = parser.scripts();
+    for (const auto &script : scripts) {
+        importsFromFiles
+                += findQmlImportsInJavascriptFile(modulePath + QLatin1Char('/') + script.fileName);
+    }
+
+    for (const QVariant &import : importsFromFiles) {
+        const QVariantMap details = qvariant_cast<QVariantMap>(import);
+        if (details.value(typeLiteral()) != moduleLiteral())
+            continue;
+        const QString name = details.value(nameLiteral()).toString();
+        const QString version = details.value(versionLiteral()).toString();
+        importsAndDependencies.append(
+                    version.isEmpty() ? name : (name + QLatin1Char(' ') + version));
+    }
+
+    if (!importsAndDependencies.isEmpty())
+        pluginInfo[dependenciesLiteral()] = importsAndDependencies;
     return pluginInfo;
 }
 
@@ -186,6 +257,7 @@ QPair<QString, QString> resolveImportPath(const QString &uri, const QString &ver
     const QStringList parts = uri.split(dot, Qt::SkipEmptyParts);
 
     QString ver = version;
+    QPair<QString, QString> candidate;
     while (true) {
         for (const QString &qmlImportPath : qAsConst(g_qmlImportPaths)) {
             // Search for the most specific version first, and search
@@ -200,8 +272,15 @@ QPair<QString, QString> resolveImportPath(const QString &uri, const QString &ver
                 if (relativePath.endsWith(slash))
                     relativePath.chop(1);
                 const QString candidatePath = QDir::cleanPath(qmlImportPath + slash + relativePath);
-                if (QDir(candidatePath).exists())
-                    return qMakePair(candidatePath, relativePath); // import found
+                const QDir candidateDir(candidatePath);
+                if (candidateDir.exists()) {
+                    const auto newCandidate = qMakePair(candidatePath, relativePath); // import found
+                    if (candidateDir.exists(u"qmldir"_qs)) // if it has a qmldir, we are fine
+                        return newCandidate;
+                    else if (candidate.first.isEmpty())
+                        candidate = newCandidate;
+                    // otherwise we keep looking if we can find the module again (with a qmldir this time)
+                }
             } else {
                 for (int index = parts.count() - 1; index >= 0; --index) {
                     QString relativePath = parts.mid(0, index + 1).join(slash)
@@ -209,8 +288,14 @@ QPair<QString, QString> resolveImportPath(const QString &uri, const QString &ver
                     if (relativePath.endsWith(slash))
                         relativePath.chop(1);
                     const QString candidatePath = QDir::cleanPath(qmlImportPath + slash + relativePath);
-                    if (QDir(candidatePath).exists())
-                        return qMakePair(candidatePath, relativePath); // import found
+                    const QDir candidateDir(candidatePath);
+                    if (candidateDir.exists()) {
+                        const auto newCandidate = qMakePair(candidatePath, relativePath); // import found
+                        if (candidateDir.exists(u"qmldir"_qs))
+                            return newCandidate;
+                        else if (candidate.first.isEmpty())
+                            candidate = newCandidate;
+                    }
                 }
             }
         }
@@ -226,7 +311,7 @@ QPair<QString, QString> resolveImportPath(const QString &uri, const QString &ver
             ver = ver.mid(0, lastDot);
     }
 
-    return QPair<QString, QString>(); // not found
+    return candidate;
 }
 
 // Find absolute file system paths and plugins for a list of modules.
@@ -238,31 +323,44 @@ QVariantList findPathsForModuleImports(const QVariantList &imports)
     for (int i = 0; i < importsCopy.length(); ++i) {
         QVariantMap import = qvariant_cast<QVariantMap>(importsCopy.at(i));
         if (import.value(typeLiteral()) == moduleLiteral()) {
+            const QString version = import.value(versionLiteral()).toString();
             const QPair<QString, QString> paths =
-                resolveImportPath(import.value(nameLiteral()).toString(), import.value(versionLiteral()).toString());
+                resolveImportPath(import.value(nameLiteral()).toString(), version);
+            QVariantMap plugininfo;
             if (!paths.first.isEmpty()) {
                 import.insert(pathLiteral(), paths.first);
                 import.insert(relativePathLiteral(), paths.second);
+                plugininfo = pluginsForModulePath(paths.first, version);
             }
-            QVariantMap plugininfo = pluginsForModulePath(import.value(pathLiteral()).toString());
+            QString linkTarget = plugininfo.value(linkTargetLiteral()).toString();
             QString plugins = plugininfo.value(pluginsLiteral()).toString();
+            bool isOptional = plugininfo.value(pluginIsOptionalLiteral(), QVariant(false)).toBool();
             QString classnames = plugininfo.value(classnamesLiteral()).toString();
+            if (!linkTarget.isEmpty())
+                import.insert(linkTargetLiteral(), linkTarget);
             if (!plugins.isEmpty())
                 import.insert(QStringLiteral("plugin"), plugins);
+            if (isOptional)
+                import.insert(pluginIsOptionalLiteral(), true);
             if (!classnames.isEmpty())
                 import.insert(QStringLiteral("classname"), classnames);
             if (plugininfo.contains(dependenciesLiteral())) {
                 const QStringList dependencies = plugininfo.value(dependenciesLiteral()).toStringList();
                 for (const QString &line : dependencies) {
-                    const auto dep = line.splitRef(QLatin1Char(' '));
+                    const auto dep = QStringView{line}.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+                    const QString name = dep[0].toString();
                     QVariantMap depImport;
                     depImport[typeLiteral()] = moduleLiteral();
-                    depImport[nameLiteral()] = dep[0].toString();
-                    depImport[versionLiteral()] = dep[1].toString();
-                    importsCopy.append(depImport);
+                    depImport[nameLiteral()] = name;
+                    if (dep.length() > 1)
+                        depImport[versionLiteral()] = dep[1].toString();
+
+                    if (!importsCopy.contains(depImport))
+                        importsCopy.append(depImport);
                 }
             }
         }
+        import.remove(versionLiteral());
         done.append(import);
     }
     return done;
@@ -326,7 +424,8 @@ struct ImportCollector : public QQmlJS::Directives
         } else {
             entry[typeLiteral()] = moduleLiteral();
             entry[nameLiteral()] = uri;
-            entry[versionLiteral()] = version;
+            if (!version.isEmpty())
+                entry[versionLiteral()] = version;
         }
         imports << entry;
 
@@ -418,7 +517,7 @@ QVariantList findQmlImportsInDirectory(const QString &qmlDir)
     if (qmlDir.isEmpty())
         return ret;
 
-    QDirIterator iterator(qmlDir, QDir::AllDirs | QDir::NoDotDot, QDirIterator::Subdirectories);
+    QDirIterator iterator(qmlDir, QDir::AllDirs | QDir::NoDotDot, QDirIterator::Subdirectories | QDirIterator::FollowSymlinks);
     QStringList blacklist;
 
     while (iterator.hasNext()) {
@@ -452,18 +551,6 @@ QVariantList findQmlImportsInDirectory(const QString &qmlDir)
      return ret;
 }
 
-QSet<QString> importModulePaths(const QVariantList &imports) {
-    QSet<QString> ret;
-    for (const QVariant &importVariant : imports) {
-        QVariantMap import = qvariant_cast<QVariantMap>(importVariant);
-        QString path = import.value(pathLiteral()).toString();
-        QString type = import.value(typeLiteral()).toString();
-        if (type == moduleLiteral() && !path.isEmpty())
-            ret.insert(QDir(path).canonicalPath());
-    }
-    return ret;
-}
-
 // Find qml imports recursively from a root set of qml files.
 // The directories in qmlDirs are searched recursively.
 // The files in qmlFiles parsed directly.
@@ -483,23 +570,6 @@ QVariantList findQmlImportsRecursively(const QStringList &qmlDirs, const QString
         ret = mergeImports(ret, imports);
     }
 
-    // Get the paths to the imports found in the app qml
-    QSet<QString> toVisit = importModulePaths(ret);
-
-    // Recursively scan for import dependencies.
-    QSet<QString> visited;
-    while (!toVisit.isEmpty()) {
-        QString qmlDir = *toVisit.begin();
-        toVisit.erase(toVisit.begin());
-        visited.insert(qmlDir);
-
-        QVariantList imports = findQmlImportsInDirectory(qmlDir);
-        ret = mergeImports(ret, imports);
-
-        QSet<QString> candidatePaths = importModulePaths(ret);
-        candidatePaths.subtract(visited);
-        toVisit.unite(candidatePaths);
-    }
     return ret;
 }
 
@@ -533,13 +603,44 @@ QString generateCmakeIncludeFileContent(const QVariantList &importList) {
     return content;
 }
 
+bool argumentsFromCommandLineAndFile(QStringList &allArguments, const QStringList &arguments)
+{
+    allArguments.reserve(arguments.size());
+    for (const QString &argument : arguments) {
+        // "@file" doesn't start with a '-' so we can't use QCommandLineParser for it
+        if (argument.startsWith(QLatin1Char('@'))) {
+            QString optionsFile = argument;
+            optionsFile.remove(0, 1);
+            if (optionsFile.isEmpty()) {
+                fprintf(stderr, "The @ option requires an input file");
+                return false;
+            }
+            QFile f(optionsFile);
+            if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                fprintf(stderr, "Cannot open options file specified with @");
+                return false;
+            }
+            while (!f.atEnd()) {
+                QString line = QString::fromLocal8Bit(f.readLine().trimmed());
+                if (!line.isEmpty())
+                    allArguments << line;
+            }
+        } else {
+            allArguments << argument;
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 int main(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
     QCoreApplication::setApplicationVersion(QLatin1String(QT_VERSION_STR));
-    QStringList args = app.arguments();
+    QStringList args;
+    if (!argumentsFromCommandLineAndFile(args, app.arguments()))
+        return EXIT_FAILURE;
     const QString appName = QFileInfo(app.applicationFilePath()).baseName();
     if (args.size() < 2) {
         printUsage(appName);
@@ -600,8 +701,10 @@ int main(int argc, char *argv[])
         }
     }
 
-    if (!qrcFiles.isEmpty())
-        scanFiles << ResourceFileMapper(qrcFiles).qmlCompilerFiles(ResourceFileMapper::FileOutput::AbsoluteFilePath);
+    if (!qrcFiles.isEmpty()) {
+        scanFiles << QQmlJSResourceFileMapper(qrcFiles).filePaths(
+                         QQmlJSResourceFileMapper::allQmlJSFilter());
+    }
 
     g_qmlImportPaths = qmlImportPaths;
 

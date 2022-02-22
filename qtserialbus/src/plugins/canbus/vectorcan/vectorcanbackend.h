@@ -37,13 +37,12 @@
 #ifndef VECTORCANBACKEND_H
 #define VECTORCANBACKEND_H
 
-#include <QtSerialBus/qcanbusframe.h>
 #include <QtSerialBus/qcanbusdevice.h>
 #include <QtSerialBus/qcanbusdeviceinfo.h>
+#include <QtSerialBus/qcanbusframe.h>
 
-#include <QtCore/qvariant.h>
-#include <QtCore/qvector.h>
 #include <QtCore/qlist.h>
+#include <QtCore/qvariant.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -61,7 +60,7 @@ public:
     bool open() override;
     void close() override;
 
-    void setConfigurationParameter(int key, const QVariant &value) override;
+    void setConfigurationParameter(ConfigurationKey key, const QVariant &value) override;
 
     bool writeFrame(const QCanBusFrame &newData) override;
 
@@ -70,9 +69,11 @@ public:
     static bool canCreate(QString *errorReason);
     static QList<QCanBusDeviceInfo> interfaces();
 
-private:
-    QCanBusDevice::CanBusStatus busStatus();
+    bool hasBusStatus() const override;
+    CanBusStatus busStatus() override;
+    QCanBusDeviceInfo deviceInfo() const override;
 
+private:
     VectorCanBackendPrivate * const d_ptr;
 };
 

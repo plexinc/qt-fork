@@ -53,11 +53,6 @@
 #include "slippymap.h"
 #include "qmath.h"
 
-uint qHash(const QPoint& p)
-{
-    return p.x() * 17 ^ p.y();
-}
-
 // tile size in pixels
 const int tdim = 256;
 

@@ -406,6 +406,11 @@ void TestWebChannel::testInfoForObject()
         addMethod(QStringLiteral("overload"), "overload(QString)", false);
         addMethod(QStringLiteral("overload"), "overload(QString,int)", false);
         addMethod(QStringLiteral("overload"), "overload(QJsonArray)", false);
+        addMethod(QStringLiteral("setStringProperty"), "setStringProperty(QString)");
+        addMethod(QStringLiteral("bindableStringProperty"), "bindableStringProperty()");
+        addMethod(QStringLiteral("getStringProperty"), "getStringProperty()");
+        addMethod(QStringLiteral("bindStringPropertyToStringProperty2"), "bindStringPropertyToStringProperty2()");
+        addMethod(QStringLiteral("setStringProperty2"), "setStringProperty2(QString)");
         addMethod(QStringLiteral("method1"), "method1()");
         QCOMPARE(info["methods"].toArray(), expected);
     }
@@ -513,6 +518,17 @@ void TestWebChannel::testInfoForObject()
             property.append(QJsonValue::fromVariant(QVariant::fromValue(obj.prop())));
             expected.append(property);
         }
+        {
+            QJsonArray property;
+            property.append(obj.metaObject()->indexOfProperty("stringProperty"));
+            property.append(QStringLiteral("stringProperty"));
+            {
+                QJsonArray signal;
+                property.append(signal);
+            }
+            property.append(QJsonValue::fromVariant(QVariant::fromValue(obj.readStringProperty())));
+            expected.append(property);
+        }
         QCOMPARE(info["properties"].toArray(), expected);
     }
 }
@@ -565,7 +581,7 @@ void TestWebChannel::testInvokeMethodConversion()
         int getterMethod = metaObject()->indexOfMethod("readJsonValue()");
         QVERIFY(getterMethod != -1);
         auto retVal = channel.d_func()->publisher->invokeMethod(this, getterMethod, {});
-        QCOMPARE(retVal, args.at(0).toVariant());
+        QCOMPARE(retVal, QVariant(args.at(0)));
     }
     {
         QJsonObject object;
@@ -785,7 +801,7 @@ void TestWebChannel::testTransportWrapObjectProperties()
     DummyTransport *dummyTransport = new DummyTransport(this);
     channel.connectTo(dummyTransport);
     channel.d_func()->publisher->initializeClient(dummyTransport);
-    channel.d_func()->publisher->setClientIsIdle(true);
+    channel.d_func()->publisher->setClientIsIdle(true, dummyTransport);
 
     QCOMPARE(channel.d_func()->publisher->transportedWrappedObjects.size(), 0);
 
@@ -875,8 +891,8 @@ void TestWebChannel::testWrapValues()
         QCOMPARE(value.toInt(), (int) flags);
     }
     {
-        QVector<int> vec{1, 2, 3};
-        QVariant variant = QVariant::fromValue(vec);
+        QList<int> list { 1, 2, 3 };
+        QVariant variant = QVariant::fromValue(list);
         QJsonValue value = channel.d_func()->publisher->wrapResult(variant, m_dummyTransport);
         QVERIFY(value.isArray());
         QCOMPARE(value.toArray(), QJsonArray({1, 2, 3}));
@@ -888,6 +904,37 @@ void TestWebChannel::testWrapValues()
         QVERIFY(value.isArray());
         QCOMPARE(value.toArray(), QJsonArray({QJsonObject{{"foo", 1}, {"bar", 2}},
                                              QJsonObject{{"foo", 3}, {"bar", 4}}}));
+    }
+    {
+        QVariant variant = QVariant::fromValue(nullptr);
+        QJsonValue value = channel.d_func()->publisher->wrapResult(variant, m_dummyTransport);
+        QVERIFY(value.isNull());
+    }
+    {
+        QVariantHash hash;
+        hash["One"] = 1;
+        hash["Two"] = 2;
+        QVariant variant = QVariant::fromValue(hash);
+        QJsonValue value = channel.d_func()->publisher->wrapResult(variant, m_dummyTransport);
+        QVERIFY(value.isObject());
+        QVERIFY(value["One"].isDouble());
+        QCOMPARE(value["One"].toInt(), 1);
+        QVERIFY(value["Two"].isDouble());
+        QCOMPARE(value["Two"].toInt(), 2);
+        QVERIFY(value["Three"].isUndefined());
+    }
+    {
+        QVariantMap map;
+        map["One"] = 1;
+        map["Two"] = 2;
+        QVariant variant = QVariant::fromValue(map);
+        QJsonValue value = channel.d_func()->publisher->wrapResult(variant, m_dummyTransport);
+        QVERIFY(value.isObject());
+        QVERIFY(value["One"].isDouble());
+        QCOMPARE(value["One"].toInt(), 1);
+        QVERIFY(value["Two"].isDouble());
+        QCOMPARE(value["Two"].toInt(), 2);
+        QVERIFY(value["Three"].isUndefined());
     }
 }
 
@@ -943,8 +990,6 @@ void TestWebChannel::testInfiniteRecursion()
 
 void TestWebChannel::testAsyncObject()
 {
-    QSKIP("This test is broken. See QTBUG-80729");
-
     QWebChannel channel;
     channel.connectTo(m_dummyTransport);
 
@@ -964,6 +1009,15 @@ void TestWebChannel::testAsyncObject()
             ++received;
         });
         channel.d_func()->publisher->invokeMethod(&obj, "setProp", args);
+        QTRY_COMPARE(received, 1);
+    }
+
+    {
+        int received = 0;
+        auto handler = obj.bindableStringProperty().onValueChanged([&] {
+            ++received;
+        });
+        channel.d_func()->publisher->invokeMethod(&obj, "setStringProperty", args);
         QTRY_COMPARE(received, 1);
     }
 
@@ -988,6 +1042,219 @@ void TestWebChannel::testAsyncObject()
 
     thread.quit();
     thread.wait();
+}
+
+void TestWebChannel::testQProperty()
+{
+    static const int IndexOfStringProperty =
+            TestObject::staticMetaObject.indexOfProperty("stringProperty");
+
+    DummyTransport transport;
+    QWebChannel channel;
+    QMetaObjectPublisher *publisher = channel.d_func()->publisher;
+
+    {
+        TestObject testObj;
+        testObj.setObjectName("testObject");
+
+        QProperty<QString> obj1("Hello");
+        testObj.bindableStringProperty().setBinding([&](){ return obj1.value(); });
+
+        QCOMPARE(obj1.value(), testObj.readStringProperty());
+
+        channel.registerObject(testObj.objectName(), &testObj);
+        channel.connectTo(&transport);
+
+        publisher->initializeClient(&transport);
+        // One bindable property should result in one observer
+        QCOMPARE(publisher->propertyObservers.count(&testObj), 1u);
+
+        QVariant result;
+        publisher->setClientIsIdle(true, &transport);
+        result = publisher->invokeMethod(&testObj, "getStringProperty", {});
+        QCOMPARE(result.toString(), obj1.value());
+
+        obj1 = "world";
+        result = publisher->invokeMethod(&testObj, "getStringProperty", {});
+        QCOMPARE(result.toString(), obj1.value());
+
+        publisher->sendPendingPropertyUpdates();
+        QVERIFY(!transport.messagesSent().isEmpty());
+        const QJsonObject updateMessage = transport.messagesSent().last()["data"][0].toObject();
+        QCOMPARE(updateMessage["object"], testObj.objectName());
+        QCOMPARE(updateMessage["properties"][QString::number(IndexOfStringProperty)], obj1.value());
+
+        publisher->invokeMethod(&testObj, "setStringProperty2", {"Hey"});
+        publisher->invokeMethod(&testObj, "bindStringPropertyToStringProperty2", {});
+        obj1 = "This should not affect getStringProperty";
+        result = publisher->invokeMethod(&testObj, "getStringProperty", {});
+        QCOMPARE(result.toString(), "Hey");
+
+        publisher->invokeMethod(&testObj, "setStringProperty2", {"again"});
+        result = publisher->invokeMethod(&testObj, "getStringProperty", {});
+        QCOMPARE(result.toString(), "again");
+    }
+
+    // Ensure that the observer has been removed after the object has been
+    // destroyed
+    QCOMPARE(publisher->propertyObservers.size(), 0u);
+}
+
+void TestWebChannel::testPropertyUpdateInterval_data()
+{
+    QTest::addColumn<int>("firstUpdateInterval");
+    QTest::addColumn<int>("firstUpdateWithin");
+    QTest::addColumn<int>("secondUpdateInterval");
+    QTest::addColumn<int>("secondUpdateWithin");
+
+    QTest::newRow("1500ms") << 1500 << 2000 << 1500 << 2000;
+    QTest::newRow("Next event") << 0 << 0 << 0 << 0;
+    QTest::newRow("Immediately") << -1 << 0 << -1 << 0;
+    QTest::newRow("1500ms then next event") << 1500 << 2000 << 0 << 0;
+    QTest::newRow("Next event then 1500ms") << 0 << 0 << 1500 << 2000;
+    QTest::newRow("Immediately the next event") << -1 << 0 << 0 << 0;
+    QTest::newRow("Next event then immediately") << 0 << 0 << -1 << 0;
+    QTest::newRow("Immediately then 1500ms") << -1 << 0 << 1500 << 2000;
+    QTest::newRow("1500ms then immediately") << 1500 << 2000 << -1 << 0;
+}
+
+void TestWebChannel::testPropertyUpdateInterval()
+{
+    DummyTransport transport;
+    QWebChannel channel;
+    QMetaObjectPublisher *publisher = channel.d_func()->publisher;
+
+    QFETCH(int, firstUpdateInterval);
+    QFETCH(int, firstUpdateWithin);
+
+    QProperty<int> propertyUpdateInterval(firstUpdateInterval);
+    channel.bindablePropertyUpdateInterval().setBinding(
+            Qt::makePropertyBinding(propertyUpdateInterval));
+    QCOMPARE(channel.propertyUpdateInterval(), firstUpdateInterval);
+
+    TestObject testObj;
+    testObj.setObjectName("testObject");
+    channel.registerObject(testObj.objectName(), &testObj);
+    channel.connectTo(&transport);
+    QProperty<QString> obj1("Hello");
+    testObj.bindableStringProperty().setBinding([&]() { return obj1.value(); });
+    publisher->initializeClient(&transport);
+    publisher->setClientIsIdle(true, &transport);
+    QVERIFY(transport.messagesSent().isEmpty());
+
+    // First update
+    obj1 = "world";
+    if (firstUpdateInterval > 0) {
+        QCoreApplication::processEvents();
+        QVERIFY(transport.messagesSent().isEmpty());
+        QTRY_COMPARE_WITH_TIMEOUT(transport.messagesSent().size(), 1u, firstUpdateWithin);
+    } else if (firstUpdateInterval == 0) {
+        QCOMPARE(transport.messagesSent().size(), 0u);
+        QCoreApplication::processEvents();
+        QCOMPARE(transport.messagesSent().size(), 1u);
+    } else {
+        QCOMPARE(transport.messagesSent().size(), 1u);
+    }
+
+    QFETCH(int, secondUpdateInterval);
+    QFETCH(int, secondUpdateWithin);
+    propertyUpdateInterval = secondUpdateInterval;
+    publisher->setClientIsIdle(true, &transport);
+    obj1 = "!!!";
+
+    if (secondUpdateInterval > 0) {
+        QCoreApplication::processEvents();
+        QCOMPARE(transport.messagesSent().size(), 1u);
+        QCOMPARE(channel.propertyUpdateInterval(), secondUpdateInterval);
+        QVERIFY(publisher->timer.isActive());
+        QTRY_COMPARE_WITH_TIMEOUT(transport.messagesSent().size(), 2u, secondUpdateWithin);
+    } else if (secondUpdateInterval == 0) {
+        QCOMPARE(transport.messagesSent().size(), 1u);
+        QCoreApplication::processEvents();
+        QCOMPARE(transport.messagesSent().size(), 2u);
+    } else {
+        QCOMPARE(transport.messagesSent().size(), 2u);
+    }
+}
+
+void TestWebChannel::testQPropertyBlockUpdates()
+{
+    DummyTransport transport;
+    QWebChannel channel;
+    QMetaObjectPublisher *publisher = channel.d_func()->publisher;
+    publisher->setPropertyUpdateInterval(0);
+    QProperty<bool> blockUpdates(false);
+    channel.bindableBlockUpdates().setBinding(Qt::makePropertyBinding(blockUpdates));
+    QCOMPARE(channel.blockUpdates(), false);
+    bool blockedSignalled(false);
+    connect(&channel, &QWebChannel::blockUpdatesChanged, this,
+            [&](bool block) { blockedSignalled = block; });
+
+    TestObject testObj;
+    testObj.setObjectName("testObject");
+    channel.registerObject(testObj.objectName(), &testObj);
+    channel.connectTo(&transport);
+    QProperty<QString> obj1("Hello");
+    testObj.bindableStringProperty().setBinding(Qt::makePropertyBinding(obj1));
+    publisher->initializeClient(&transport);
+    QVERIFY(transport.messagesSent().isEmpty());
+
+    blockUpdates = true;
+    QCOMPARE(blockedSignalled, true);
+    publisher->setClientIsIdle(true, &transport);
+    obj1 = "world";
+
+    QTest::qWait(0);
+    QCOMPARE(transport.messagesSent().size(), 0u);
+
+    blockUpdates = false;
+    QCOMPARE(blockedSignalled, false);
+    QCOMPARE(transport.messagesSent().size(), 1u);
+}
+
+void TestWebChannel::testPropertyMultipleTransports()
+{
+    DummyTransport transport1;
+    DummyTransport transport2;
+
+    QWebChannel channel;
+    QMetaObjectPublisher *publisher = channel.d_func()->publisher;
+
+    TestObject testObj;
+    testObj.setObjectName("testObject");
+    channel.registerObject(testObj.objectName(), &testObj);
+    channel.connectTo(&transport1);
+    channel.connectTo(&transport2);
+    QProperty<QString> obj1("Hello");
+    testObj.bindableStringProperty().setBinding([&]() { return obj1.value(); });
+
+    publisher->initializeClient(&transport1);
+    publisher->initializeClient(&transport2);
+    publisher->setClientIsIdle(true, &transport1);
+    QCOMPARE(publisher->isClientIdle(&transport1), true);
+    QCOMPARE(publisher->isClientIdle(&transport2), false);
+    channel.setPropertyUpdateInterval(1000);
+    QVERIFY(transport1.messagesSent().isEmpty());
+    QVERIFY(transport2.messagesSent().isEmpty());
+
+    obj1 = "World";
+    QTRY_COMPARE_WITH_TIMEOUT(transport1.messagesSent().size(), 1u, 2000);
+    QCOMPARE(transport2.messagesSent().size(), 0u);
+    publisher->setClientIsIdle(true, &transport2);
+    QTRY_COMPARE_WITH_TIMEOUT(transport2.messagesSent().size(), 1u, 2000);
+    QCOMPARE(publisher->isClientIdle(&transport1), false);
+    QCOMPARE(publisher->isClientIdle(&transport2), false);
+
+    obj1 = "!!!";
+    publisher->setClientIsIdle(true, &transport2);
+    QCOMPARE(publisher->isClientIdle(&transport2), true);
+    QCOMPARE(publisher->isClientIdle(&transport1), false);
+    QTRY_COMPARE_WITH_TIMEOUT(transport2.messagesSent().size(), 2u, 2000);
+    QCOMPARE(transport1.messagesSent().size(), 1u);
+    publisher->setClientIsIdle(true, &transport1);
+    QTRY_COMPARE_WITH_TIMEOUT(transport1.messagesSent().size(), 2u, 2000);
+    QCOMPARE(publisher->isClientIdle(&transport1), false);
+    QCOMPARE(publisher->isClientIdle(&transport2), false);
 }
 
 class FunctionWrapper : public QObject
@@ -1082,7 +1349,7 @@ void TestWebChannel::benchInitializeClients()
 
         publisher->propertyUpdatesInitialized = false;
         publisher->signalToPropertyMap.clear();
-        publisher->signalHandler.clear();
+        publisher->signalHandlers.clear();
     }
 }
 
@@ -1093,7 +1360,7 @@ void TestWebChannel::benchPropertyUpdates()
 
     QObject parent;
     const QHash<QString, QObject*> objects = createObjects(&parent);
-    QVector<BenchObject*> objectList;
+    QList<BenchObject *> objectList;
     objectList.reserve(objects.size());
     foreach (QObject *obj, objects) {
         objectList << qobject_cast<BenchObject*>(obj);
@@ -1107,7 +1374,7 @@ void TestWebChannel::benchPropertyUpdates()
             obj->change();
         }
 
-        channel.d_func()->publisher->clientIsIdle = true;
+        channel.d_func()->publisher->setClientIsIdle(true, m_dummyTransport);
         channel.d_func()->publisher->sendPendingPropertyUpdates();
     }
 }

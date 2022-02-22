@@ -8,6 +8,9 @@
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "build/build_config.h"
+#include "third_party/blink/public/common/privacy_budget/identifiability_metric_builder.h"
+#include "third_party/blink/public/common/privacy_budget/identifiability_metrics.h"
+#include "third_party/blink/public/common/privacy_budget/identifiability_study_settings.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/core/dom/document.h"
@@ -40,7 +43,8 @@ constexpr base::TimeDelta kEncodeRowSlackBeforeDeadline =
     base::TimeDelta::FromMicroseconds(100);
 
 /* The value is based on user statistics on Nov 2017. */
-#if (defined(OS_LINUX) || defined(OS_MACOSX) || defined(OS_WIN))
+#if (defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_MAC) || \
+     defined(OS_WIN))
 const double kIdleTaskStartTimeoutDelayMs = 1000.0;
 #else
 const double kIdleTaskStartTimeoutDelayMs = 4000.0;  // For ChromeOS, Mobile
@@ -82,24 +86,23 @@ void RecordIdleTaskStatusHistogram(
 
 void RecordInitiateEncodingTimeHistogram(ImageEncodingMimeType mime_type,
                                          base::TimeDelta elapsed_time) {
-  // TODO(crbug.com/983261) Change this to use UmaHistogramMicrosecondsTimes.
   if (mime_type == kMimeTypePng) {
-    UmaHistogramMicrosecondsTimesUnderTenMilliseconds(
-        "Blink.Canvas.ToBlob.InitiateEncodingDelay.PNG", elapsed_time);
+    UmaHistogramMicrosecondsTimes(
+        "Blink.Canvas.ToBlob.InitialEncodingDelay.PNG", elapsed_time);
   } else if (mime_type == kMimeTypeJpeg) {
-    UmaHistogramMicrosecondsTimesUnderTenMilliseconds(
-        "Blink.Canvas.ToBlob.InitiateEncodingDelay.JPEG", elapsed_time);
+    UmaHistogramMicrosecondsTimes(
+        "Blink.Canvas.ToBlob.InitialEncodingDelay.JPEG", elapsed_time);
   }
 }
 
 void RecordCompleteEncodingTimeHistogram(ImageEncodingMimeType mime_type,
                                          base::TimeDelta elapsed_time) {
   if (mime_type == kMimeTypePng) {
-    UmaHistogramMicrosecondsTimesUnderTenMilliseconds(
-        "Blink.Canvas.ToBlob.CompleteEncodingDelay.PNG", elapsed_time);
+    UmaHistogramMicrosecondsTimes("Blink.Canvas.ToBlob.TotalEncodingDelay.PNG",
+                                  elapsed_time);
   } else if (mime_type == kMimeTypeJpeg) {
-    UmaHistogramMicrosecondsTimesUnderTenMilliseconds(
-        "Blink.Canvas.ToBlob.CompleteEncodingDelay.JPEG", elapsed_time);
+    UmaHistogramMicrosecondsTimes("Blink.Canvas.ToBlob.TotalEncodingDelay.JPEG",
+                                  elapsed_time);
   }
 }
 
@@ -146,6 +149,7 @@ CanvasAsyncBlobCreator::CanvasAsyncBlobCreator(
     ToBlobFunctionType function_type,
     base::TimeTicks start_time,
     ExecutionContext* context,
+    const IdentifiableToken& input_digest,
     ScriptPromiseResolver* resolver)
     : CanvasAsyncBlobCreator(image,
                              options,
@@ -153,6 +157,7 @@ CanvasAsyncBlobCreator::CanvasAsyncBlobCreator(
                              nullptr,
                              start_time,
                              context,
+                             input_digest,
                              resolver) {}
 
 CanvasAsyncBlobCreator::CanvasAsyncBlobCreator(
@@ -162,6 +167,7 @@ CanvasAsyncBlobCreator::CanvasAsyncBlobCreator(
     V8BlobCallback* callback,
     base::TimeTicks start_time,
     ExecutionContext* context,
+    const IdentifiableToken& input_digest,
     ScriptPromiseResolver* resolver)
     : fail_encoder_initialization_for_test_(false),
       enforce_idle_encoding_for_test_(false),
@@ -171,9 +177,11 @@ CanvasAsyncBlobCreator::CanvasAsyncBlobCreator(
       function_type_(function_type),
       start_time_(start_time),
       static_bitmap_image_loaded_(false),
+      input_digest_(input_digest),
       callback_(callback),
       script_promise_resolver_(resolver) {
   DCHECK(image);
+  DCHECK(context);
 
   mime_type_ = ImageEncoderUtils::ToEncodingMimeType(
       encode_options_->type(),
@@ -183,7 +191,8 @@ CanvasAsyncBlobCreator::CanvasAsyncBlobCreator(
   // necessary.
   image_ = image_->MakeUnaccelerated();
 
-  sk_sp<SkImage> skia_image = image_->PaintImageForCurrentFrame().GetSkImage();
+  sk_sp<SkImage> skia_image =
+      image_->PaintImageForCurrentFrame().GetSwSkImage();
   DCHECK(skia_image);
   DCHECK(!skia_image->isTextureBacked());
 
@@ -195,23 +204,26 @@ CanvasAsyncBlobCreator::CanvasAsyncBlobCreator(
   }
 
   // For kHTMLCanvasToBlobCallback and kOffscreenCanvasConvertToBlobPromise
-  // to-blob function types, we color convert to sRGB and do not tag the image
-  // with any color space info.
+  // to-blob function types, we keep the color space of the image and save
+  // it in the info if color management is enabled; otherwise, we color convert
+  // to sRGB and do not tag the image with any color space info.
   // For kHTMLCanvasConvertToBlobPromise to-blob function type, we color
   // covnert to the requested color space and pixel format.
   if (function_type_ != kHTMLCanvasConvertToBlobPromise) {
-    if (skia_image->colorSpace()) {
+    bool isColorManagementEnabled =
+        RuntimeEnabledFeatures::CanvasColorManagementEnabled();
+    if (skia_image->colorSpace() && !isColorManagementEnabled) {
       image_ = image_->ConvertToColorSpace(
           SkColorSpace::MakeSRGB(),
           GetColorTypeForConversion(skia_image->colorType()));
-      skia_image = image_->PaintImageForCurrentFrame().GetSkImage();
+      skia_image = image_->PaintImageForCurrentFrame().GetSwSkImage();
     }
 
     if (skia_image->peekPixels(&src_data_)) {
-      src_data_.setColorSpace(nullptr);
       static_bitmap_image_loaded_ = true;
+      if (!isColorManagementEnabled)
+        src_data_.setColorSpace(nullptr);
     }
-    DCHECK(!src_data_.colorSpace());
   } else {
     sk_sp<SkColorSpace> blob_color_space =
         BlobColorSpaceToSkColorSpace(encode_options_->colorSpace());
@@ -232,7 +244,7 @@ CanvasAsyncBlobCreator::CanvasAsyncBlobCreator(
     if (needs_color_space_conversion) {
       image_ = UnacceleratedStaticBitmapImage::Create(skia_image);
       image_ = image_->ConvertToColorSpace(blob_color_space, target_color_type);
-      skia_image = image_->PaintImageForCurrentFrame().GetSkImage();
+      skia_image = image_->PaintImageForCurrentFrame().GetSwSkImage();
     } else if (skia_image->colorType() != target_color_type) {
       size_t data_length = skia_image->width() * skia_image->height() *
                            SkColorTypeBytesPerPixel(target_color_type);
@@ -265,7 +277,7 @@ CanvasAsyncBlobCreator::CanvasAsyncBlobCreator(
 
   idle_task_status_ = kIdleTaskNotSupported;
   num_rows_completed_ = 0;
-  if (context->IsDocument()) {
+  if (context->IsWindow()) {
     parent_frame_task_runner_ =
         context->GetTaskRunner(TaskType::kCanvasBlobSerialization);
   }
@@ -309,8 +321,9 @@ void CanvasAsyncBlobCreator::ScheduleAsyncBlobCreation(const double& quality) {
   // deadlines (6.7s or 13s) bypass the web test running deadline (6s)
   // and result in timeouts on different tests. We use
   // enforce_idle_encoding_for_test_ to test idle encoding in unit tests.
-  // We also don't use idle tasks in workers because there's no proper idle
-  // queue there and tasks can take too long without requestAnimationFrame.
+  // We also don't use idle tasks in workers because the short idle periods are
+  // not implemented, so the idle task can take a long time even when the thread
+  // is not busy.
   bool use_idle_encoding =
       WTF::IsMainThread() && (mime_type_ != kMimeTypeWebp) &&
       (enforce_idle_encoding_for_test_ ||
@@ -469,6 +482,43 @@ void CanvasAsyncBlobCreator::CreateBlobAndReturnResult() {
   RecordScaledDurationHistogram(mime_type_,
                                 base::TimeTicks::Now() - start_time_,
                                 image_->width(), image_->height());
+
+  if (IdentifiabilityStudySettings::Get()->IsTypeAllowed(
+          blink::IdentifiableSurface::Type::kCanvasReadback)) {
+    // Creating this ImageDataBuffer has some overhead, namely getting the
+    // SkImage and computing the pixmap. We need the StaticBitmapImage to be
+    // deleted on the same thread on which it was created, so we use the same
+    // TaskType here in order to get the same TaskRunner.
+
+    // TODO(crbug.com/1143737) WrapPersistent(this) stores more data than is
+    // needed by the function. It would be good to find a way to wrap only the
+    // objects needed (image_, ukm_source_id_, input_digest_, context_)
+    context_->GetTaskRunner(TaskType::kCanvasBlobSerialization)
+        ->PostTask(
+            FROM_HERE,
+            WTF::Bind(&CanvasAsyncBlobCreator::RecordIdentifiabilityMetric,
+                      WrapPersistent(this)));
+  } else {
+    // RecordIdentifiabilityMetric needs a reference to image_, and will run
+    // dispose itself. So here we only call dispose if not recording the metric.
+    Dispose();
+  }
+}
+
+void CanvasAsyncBlobCreator::RecordIdentifiabilityMetric() {
+  std::unique_ptr<ImageDataBuffer> data_buffer =
+      ImageDataBuffer::Create(image_);
+
+  if (data_buffer) {
+    blink::IdentifiabilityMetricBuilder(context_->UkmSourceID())
+        .Set(blink::IdentifiableSurface::FromTypeAndToken(
+                 blink::IdentifiableSurface::Type::kCanvasReadback,
+                 input_digest_),
+             blink::IdentifiabilityDigestOfBytes(base::make_span(
+                 data_buffer->Pixels(), data_buffer->ComputeByteSize())))
+        .Record(context_->UkmRecorder());
+  }
+
   // Avoid unwanted retention, see dispose().
   Dispose();
 }
@@ -603,7 +653,7 @@ void CanvasAsyncBlobCreator::PostDelayedTaskToCurrentThread(
                         base::TimeDelta::FromMillisecondsD(delay_ms));
 }
 
-void CanvasAsyncBlobCreator::Trace(Visitor* visitor) {
+void CanvasAsyncBlobCreator::Trace(Visitor* visitor) const {
   visitor->Trace(context_);
   visitor->Trace(encode_options_);
   visitor->Trace(callback_);
@@ -614,7 +664,7 @@ sk_sp<SkColorSpace> CanvasAsyncBlobCreator::BlobColorSpaceToSkColorSpace(
     String blob_color_space) {
   skcms_Matrix3x3 gamut = SkNamedGamut::kSRGB;
   if (blob_color_space == kDisplayP3ImageColorSpaceName)
-    gamut = SkNamedGamut::kDCIP3;
+    gamut = SkNamedGamut::kDisplayP3;
   else if (blob_color_space == kRec2020ImageColorSpaceName)
     gamut = SkNamedGamut::kRec2020;
   return SkColorSpace::MakeRGB(SkNamedTransferFn::kSRGB, gamut);

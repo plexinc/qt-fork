@@ -44,13 +44,15 @@
 
 #include <qimage.h>
 #include <qiodevice.h>
-#include <qregexp.h>
+#include <qloggingcategory.h>
 #include <qvariant.h>
 
 #include <stdio.h>
 #include <ctype.h>
 
 QT_BEGIN_NAMESPACE
+
+Q_DECLARE_LOGGING_CATEGORY(lcImageIo)
 
 /*****************************************************************************
   X bitmap image read/write functions
@@ -67,8 +69,6 @@ static bool read_xbm_header(QIODevice *device, int& w, int& h)
     const int buflen = 300;
     const int maxlen = 4096;
     char buf[buflen + 1];
-    QRegExp r1(QLatin1String("^#define[ \t]+[a-zA-Z0-9._]+[ \t]+"));
-    QRegExp r2(QLatin1String("[0-9]+"));
 
     qint64 readBytes = 0;
     qint64 totalReadBytes = 0;
@@ -90,30 +90,38 @@ static bool read_xbm_header(QIODevice *device, int& w, int& h)
             return false;
     }
 
-    buf[readBytes - 1] = '\0';
-    QString sbuf;
-    sbuf = QString::fromLatin1(buf);
+    auto parseDefine = [] (const char *buf, int len) -> int {
+        auto isAsciiLetterOrNumber = [] (char ch) -> bool {
+            return (ch >= '0' && ch <= '9') ||
+                    (ch >= 'A' && ch <= 'Z') ||
+                    (ch >= 'a' && ch <= 'z') ||
+                    ch == '_' || ch == '.';
+        };
+        auto isAsciiSpace = [] (char ch) -> bool {
+            return ch == ' ' || ch == '\t';
+        };
+        const char define[] = "#define";
+        constexpr size_t defineLen = sizeof(define) - 1;
+        if (strncmp(buf, define, defineLen) != 0)
+            return 0;
+        int index = defineLen;
+        while (buf[index] && isAsciiSpace(buf[index]))
+            ++index;
+        while (buf[index] && isAsciiLetterOrNumber(buf[index]))
+            ++index;
+        while (buf[index] && isAsciiSpace(buf[index]))
+            ++index;
+
+        return QByteArray(buf + index, len - index).toInt();
+    };
+
 
     // "#define .._width <num>"
-    if (r1.indexIn(sbuf) == 0 &&
-         r2.indexIn(sbuf, r1.matchedLength()) == r1.matchedLength())
-        w = QByteArray(&buf[r1.matchedLength()]).trimmed().toInt();
-    else
-        return false;
+    w = parseDefine(buf, readBytes - 1);
 
-    // "#define .._height <num>"
     readBytes = device->readLine(buf, buflen);
-    if (readBytes <= 0)
-        return false;
-    buf[readBytes - 1] = '\0';
-
-    sbuf = QString::fromLatin1(buf);
-
-    if (r1.indexIn(sbuf) == 0 &&
-         r2.indexIn(sbuf, r1.matchedLength()) == r1.matchedLength())
-        h = QByteArray(&buf[r1.matchedLength()]).trimmed().toInt();
-    else
-        return false;
+    // "#define .._height <num>"
+    h = parseDefine(buf, readBytes - 1);
 
     // format error
     if (w <= 0 || w > 32767 || h <= 0 || h > 32767)
@@ -142,11 +150,8 @@ static bool read_xbm_body(QIODevice *device, int w, int h, QImage *outImage)
         p = strstr(buf, "0x");
     } while (!p);
 
-    if (outImage->size() != QSize(w, h) || outImage->format() != QImage::Format_MonoLSB) {
-        *outImage = QImage(w, h, QImage::Format_MonoLSB);
-        if (outImage->isNull())
-            return false;
-    }
+    if (!QImageIOHandler::allocateImage(QSize(w, h), QImage::Format_MonoLSB, outImage))
+        return false;
 
     outImage->fill(Qt::color0);       // in case the image data does not cover the full image
 
@@ -291,7 +296,10 @@ bool QXbmHandler::canRead() const
 
 bool QXbmHandler::canRead(QIODevice *device)
 {
-    QImage image;
+    if (!device) {
+        qCWarning(lcImageIo, "QXbmHandler::canRead() called with no device");
+        return false;
+    }
 
     // it's impossible to tell whether we can load an XBM or not when
     // it's from a sequential device, as the only way to do it is to
@@ -299,6 +307,7 @@ bool QXbmHandler::canRead(QIODevice *device)
     if (device->isSequential())
         return false;
 
+    QImage image;
     qint64 oldPos = device->pos();
     bool success = read_xbm_image(device, &image);
     device->seek(oldPos);

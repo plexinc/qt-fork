@@ -11,7 +11,7 @@
 #include "base/auto_reset.h"
 #include "base/bind.h"
 #include "storage/browser/quota/quota_macros.h"
-#include "storage/browser/quota/quota_manager.h"
+#include "storage/browser/quota/quota_manager_impl.h"
 #include "third_party/blink/public/mojom/quota/quota_types.mojom.h"
 #include "url/gurl.h"
 
@@ -22,11 +22,11 @@
       base::TimeDelta::FromDays(1), 50)
 
 namespace {
-const int64_t kMBytes = 1024 * 1024;
-const double kUsageRatioToStartEviction = 0.7;
-const int kThresholdOfErrorsToStopEviction = 5;
-const int kHistogramReportIntervalMinutes = 60;
-const double kDiskSpaceShortageAllowanceRatio = 0.5;
+constexpr int64_t kMBytes = 1024 * 1024;
+constexpr double kUsageRatioToStartEviction = 0.7;
+constexpr int kThresholdOfErrorsToStopEviction = 5;
+constexpr int kHistogramReportIntervalMinutes = 60;
+constexpr double kDiskSpaceShortageAllowanceRatio = 0.5;
 }
 
 namespace storage {

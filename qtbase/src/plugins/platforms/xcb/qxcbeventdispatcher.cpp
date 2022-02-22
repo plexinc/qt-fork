@@ -63,18 +63,6 @@ bool QXcbUnixEventDispatcher::processEvents(QEventLoop::ProcessEventsFlags flags
     return QWindowSystemInterface::sendWindowSystemEvents(flags) || didSendEvents;
 }
 
-bool QXcbUnixEventDispatcher::hasPendingEvents()
-{
-    extern uint qGlobalPostedEventsCount();
-    return qGlobalPostedEventsCount() || QWindowSystemInterface::windowSystemEventsQueued();
-}
-
-void QXcbUnixEventDispatcher::flush()
-{
-    if (qApp)
-        qApp->sendPostedEvents();
-}
-
 #if QT_CONFIG(glib)
 struct XcbEventSource
 {
@@ -86,7 +74,7 @@ struct XcbEventSource
 
 static gboolean xcbSourcePrepare(GSource *source, gint *timeout)
 {
-    Q_UNUSED(timeout)
+    Q_UNUSED(timeout);
     auto xcbEventSource = reinterpret_cast<XcbEventSource *>(source);
     return xcbEventSource->dispatcher_p->wakeUpCalled;
 }
@@ -116,8 +104,9 @@ QXcbGlibEventDispatcher::QXcbGlibEventDispatcher(QXcbConnection *connection, QOb
     m_xcbEventSourceFuncs.dispatch = xcbSourceDispatch;
     m_xcbEventSourceFuncs.finalize = nullptr;
 
-    m_xcbEventSource = reinterpret_cast<XcbEventSource *>(
-                g_source_new(&m_xcbEventSourceFuncs, sizeof(XcbEventSource)));
+    GSource *source = g_source_new(&m_xcbEventSourceFuncs, sizeof(XcbEventSource));
+    g_source_set_name(source, "[Qt] XcbEventSource");
+    m_xcbEventSource = reinterpret_cast<XcbEventSource *>(source);
 
     m_xcbEventSource->dispatcher = this;
     m_xcbEventSource->dispatcher_p = d_func();

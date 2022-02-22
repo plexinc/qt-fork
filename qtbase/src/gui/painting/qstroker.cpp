@@ -295,7 +295,7 @@ void QStrokerOps::strokePath(const QPainterPath &path, void *customData, const Q
 /*!
     Convenience function for stroking a polygon of the \a pointCount
     first points in \a points. If \a implicit_close is set to true a
-    line is implictly drawn between the first and last point in the
+    line is implicitly drawn between the first and last point in the
     polygon. Typically true for polygons and false for polylines.
 
     The \a matrix is used to transform the points before they enter the
@@ -1028,13 +1028,13 @@ QDashStroker::~QDashStroker()
 {
 }
 
-QVector<qfixed> QDashStroker::patternForStyle(Qt::PenStyle style)
+QList<qfixed> QDashStroker::patternForStyle(Qt::PenStyle style)
 {
     const qfixed space = 2;
     const qfixed dot = 1;
     const qfixed dash = 4;
 
-    QVector<qfixed> pattern;
+    QList<qfixed> pattern;
 
     switch (style) {
     case Qt::DashLine:
@@ -1133,7 +1133,9 @@ void QDashStroker::processCurrentSubpath()
     qreal doffset = m_dashOffset * m_stroke_width;
 
     // make sure doffset is in range [0..sumLength)
-    doffset -= qFloor(doffset * invSumLength) * sumLength;
+    doffset = std::fmod(doffset, sumLength);
+    if (doffset < 0)
+        doffset += sumLength;
 
     while (doffset >= dashes[idash]) {
         doffset -= dashes[idash];
@@ -1179,32 +1181,41 @@ void QDashStroker::processCurrentSubpath()
 
         bool done = pos >= estop;
 
-        if (clipping) {
-            // Check if the entire line can be clipped away.
-            if (!lineIntersectsRect(prev, e, clip_tl, clip_br)) {
-                // Cut away full dash sequences.
-                elen -= qFloor(elen * invSumLength) * sumLength;
-                // Update dash offset.
-                while (!done) {
-                    qreal dpos = pos + dashes[idash] - doffset - estart;
+        // Check if the entire line should be clipped away or simplified
+        bool clipIt = clipping && !lineIntersectsRect(prev, e, clip_tl, clip_br);
+        bool skipDashing = elen * invSumLength > repetitionLimit();
+        if (skipDashing || clipIt) {
+            // Cut away full dash sequences.
+            elen -= std::floor(elen * invSumLength) * sumLength;
+            // Update dash offset.
+            while (!done) {
+                qreal dpos = pos + dashes[idash] - doffset - estart;
 
-                    Q_ASSERT(dpos >= 0);
+                Q_ASSERT(dpos >= 0);
 
-                    if (dpos > elen) { // dash extends this line
-                        doffset = dashes[idash] - (dpos - elen); // subtract the part already used
-                        pos = estop; // move pos to next path element
-                        done = true;
-                    } else { // Dash is on this line
-                        pos = dpos + estart;
-                        done = pos >= estop;
-                        if (++idash >= dashCount)
-                            idash = 0;
-                        doffset = 0; // full segment so no offset on next.
-                    }
+                if (dpos > elen) { // dash extends this line
+                    doffset = dashes[idash] - (dpos - elen); // subtract the part already used
+                    pos = estop; // move pos to next path element
+                    done = true;
+                } else { // Dash is on this line
+                    pos = dpos + estart;
+                    done = pos >= estop;
+                    if (++idash >= dashCount)
+                        idash = 0;
+                    doffset = 0; // full segment so no offset on next.
                 }
-                hasMoveTo = false;
-                move_to_pos = e;
             }
+            if (clipIt) {
+                hasMoveTo = false;
+            } else {
+                // skip costly dashing, just draw solid line
+                if (!hasMoveTo) {
+                    emitMoveTo(move_to_pos.x, move_to_pos.y);
+                    hasMoveTo = true;
+                }
+                emitLineTo(e.x, e.y);
+            }
+            move_to_pos = e;
         }
 
         // Dash away...

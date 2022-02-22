@@ -1,7 +1,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'bookmarkdialog.ui'
 **
-** Created by: Qt User Interface Compiler version 5.12.0
+** Created by: Qt User Interface Compiler version 6.0.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -10,6 +10,7 @@
 #define BOOKMARKDIALOG_H
 
 #include <QtCore/QVariant>
+#include <QtWidgets/QAbstractButton>
 #include <QtWidgets/QApplication>
 #include <QtWidgets/QComboBox>
 #include <QtWidgets/QDialog>
@@ -140,8 +141,8 @@ public:
 
 
         retranslateUi(BookmarkDialog);
-        QObject::connect(buttonBox, SIGNAL(accepted()), BookmarkDialog, SLOT(accept()));
-        QObject::connect(buttonBox, SIGNAL(rejected()), BookmarkDialog, SLOT(reject()));
+        QObject::connect(buttonBox, &QDialogButtonBox::accepted, BookmarkDialog, qOverload<>(&QDialog::accept));
+        QObject::connect(buttonBox, &QDialogButtonBox::rejected, BookmarkDialog, qOverload<>(&QDialog::reject));
 
         QMetaObject::connectSlotsByName(BookmarkDialog);
     } // setupUi

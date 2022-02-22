@@ -31,6 +31,8 @@
 #include "services/network/public/mojom/fetch_api.mojom-blink-forward.h"
 #include "services/network/public/mojom/ip_address_space.mojom-blink-forward.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
+#include "third_party/blink/public/common/loader/worker_main_script_load_parameters.h"
+#include "third_party/blink/public/common/tokens/tokens.h"
 #include "third_party/blink/public/mojom/script/script_type.mojom-blink-forward.h"
 #include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
 #include "third_party/blink/renderer/core/core_export.h"
@@ -50,9 +52,9 @@ namespace blink {
 
 struct BlinkTransferableMessage;
 class ConsoleMessage;
-class ExceptionState;
 class FetchClientSettingsObjectSnapshot;
 class FontFaceSet;
+class FontMatchingMetrics;
 class InstalledScriptsManager;
 class OffscreenFontSelector;
 class WorkerResourceTimingNotifier;
@@ -67,7 +69,6 @@ class CORE_EXPORT WorkerGlobalScope
       public ActiveScriptWrappable<WorkerGlobalScope>,
       public Supplementable<WorkerGlobalScope> {
   DEFINE_WRAPPERTYPEINFO();
-  USING_GARBAGE_COLLECTED_MIXIN(WorkerGlobalScope);
 
  public:
   ~WorkerGlobalScope() override;
@@ -83,6 +84,8 @@ class CORE_EXPORT WorkerGlobalScope
   bool IsClosing() const final { return closing_; }
   void Dispose() override;
   WorkerThread* GetThread() const final { return thread_; }
+  const base::UnguessableToken& GetDevToolsToken() const override;
+  bool IsInitialized() const final { return !url_.IsNull(); }
 
   void ExceptionUnhandled(int exception_id);
 
@@ -103,8 +106,9 @@ class CORE_EXPORT WorkerGlobalScope
   DEFINE_ATTRIBUTE_EVENT_LISTENER(timezonechange, kTimezonechange)
   DEFINE_ATTRIBUTE_EVENT_LISTENER(unhandledrejection, kUnhandledrejection)
 
-  // WorkerUtils
-  virtual void importScripts(const Vector<String>& urls, ExceptionState&);
+  // This doesn't take an ExceptionState argument, but actually can throw
+  // exceptions directly to V8 (crbug/1114610).
+  virtual void importScripts(const Vector<String>& urls);
 
   // ExecutionContext
   const KURL& Url() const final;
@@ -113,12 +117,16 @@ class CORE_EXPORT WorkerGlobalScope
   bool IsContextThread() const final;
   const KURL& BaseURL() const final;
   String UserAgent() const final { return user_agent_; }
-  const UserAgentMetadata& GetUserAgentMetadata() const { return ua_metadata_; }
+  UserAgentMetadata GetUserAgentMetadata() const override {
+    return ua_metadata_;
+  }
   HttpsState GetHttpsState() const override { return https_state_; }
   scheduler::WorkerScheduler* GetScheduler() final;
+  ukm::UkmRecorder* UkmRecorder() final;
+  ScriptWrappable* ToScriptWrappable() final { return this; }
 
   void AddConsoleMessageImpl(ConsoleMessage*, bool discard_duplicates) final;
-  BrowserInterfaceBrokerProxy& GetBrowserInterfaceBroker() final;
+  const BrowserInterfaceBrokerProxy& GetBrowserInterfaceBroker() const final;
 
   OffscreenFontSelector* GetFontSelector() { return font_selector_; }
 
@@ -140,7 +148,7 @@ class CORE_EXPORT WorkerGlobalScope
       const KURL& response_url,
       network::mojom::ReferrerPolicy response_referrer_policy,
       network::mojom::IPAddressSpace response_address_space,
-      const Vector<CSPHeaderAndType>& response_csp_headers,
+      Vector<network::mojom::blink::ContentSecurityPolicyPtr> response_csp,
       const Vector<String>* response_origin_trial_tokens,
       int64_t appcache_id) = 0;
 
@@ -163,6 +171,8 @@ class CORE_EXPORT WorkerGlobalScope
   // Fetches and evaluates the top-level classic script.
   virtual void FetchAndRunClassicScript(
       const KURL& script_url,
+      std::unique_ptr<WorkerMainScriptLoadParameters>
+          worker_main_script_load_params_for_modules,
       const FetchClientSettingsObjectSnapshot& outside_settings_object,
       WorkerResourceTimingNotifier& outside_resource_timing_notifier,
       const v8_inspector::V8StackTraceId& stack_id) = 0;
@@ -170,6 +180,8 @@ class CORE_EXPORT WorkerGlobalScope
   // Fetches and evaluates the top-level module script.
   virtual void FetchAndRunModuleScript(
       const KURL& module_url_record,
+      std::unique_ptr<WorkerMainScriptLoadParameters>
+          worker_main_script_load_params_for_modules,
       const FetchClientSettingsObjectSnapshot& outside_settings_object,
       WorkerResourceTimingNotifier& outside_resource_timing_notifier,
       network::mojom::CredentialsMode,
@@ -179,7 +191,7 @@ class CORE_EXPORT WorkerGlobalScope
   base::TimeTicks TimeOrigin() const { return time_origin_; }
   WorkerSettings* GetWorkerSettings() const { return worker_settings_.get(); }
 
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
   virtual InstalledScriptsManager* GetInstalledScriptsManager() {
     return nullptr;
@@ -198,6 +210,28 @@ class CORE_EXPORT WorkerGlobalScope
   // TODO(https://crbug.com/835717): Remove this function after dedicated
   // workers support off-the-main-thread script fetch by default.
   virtual bool IsOffMainThreadScriptFetchDisabled() { return false; }
+
+  // Takes the ownership of the parameters used to load the worker main module
+  // script in renderer process.
+  std::unique_ptr<WorkerMainScriptLoadParameters>
+  TakeWorkerMainScriptLoadingParametersForModules();
+
+  ukm::SourceId UkmSourceID() const override { return ukm_source_id_; }
+
+  // Returns the token uniquely identifying this worker. The token type will
+  // match the actual worker type.
+  virtual WorkerToken GetWorkerToken() const = 0;
+
+  // Tracks and reports metrics of attempted font match attempts (both
+  // successful and not successful) by the worker.
+  FontMatchingMetrics* GetFontMatchingMetrics();
+
+  scoped_refptr<base::SingleThreadTaskRunner>
+  GetAgentGroupSchedulerCompositorTaskRunner() {
+    return agent_group_scheduler_compositor_task_runner_;
+  }
+
+  bool IsUrlValid() { return url_.IsValid(); }
 
  protected:
   WorkerGlobalScope(std::unique_ptr<GlobalScopeCreationParams>,
@@ -221,7 +255,13 @@ class CORE_EXPORT WorkerGlobalScope
 
   void InitializeURL(const KURL& url);
 
-  mojom::ScriptType GetScriptType() const { return script_type_; }
+  mojom::blink::ScriptType GetScriptType() const { return script_type_; }
+
+  // Sets the parameters for the worker main module script loaded by the browser
+  // process.
+  void SetWorkerMainScriptLoadingParametersForModules(
+      std::unique_ptr<WorkerMainScriptLoadParameters>
+          worker_main_script_load_params_for_modules);
 
  private:
   void SetWorkerSettings(std::unique_ptr<WorkerSettings>);
@@ -230,12 +270,13 @@ class CORE_EXPORT WorkerGlobalScope
   void RunWorkerScript();
 
   // Used for importScripts().
-  void ImportScriptsInternal(const Vector<String>& urls, ExceptionState&);
+  void ImportScriptsInternal(const Vector<String>& urls);
   // ExecutionContext
+  void AddInspectorIssue(mojom::blink::InspectorIssueInfoPtr) final;
   EventTarget* ErrorEventTarget() final { return this; }
 
   KURL url_;
-  const mojom::ScriptType script_type_;
+  const mojom::blink::ScriptType script_type_;
   const String user_agent_;
   const UserAgentMetadata ua_metadata_;
   std::unique_ptr<WorkerSettings> worker_settings_;
@@ -246,6 +287,11 @@ class CORE_EXPORT WorkerGlobalScope
 
   WorkerThread* thread_;
 
+  // The compositor task runner associated with the |AgentGroupScheduler| this
+  // worker belongs to.
+  scoped_refptr<base::SingleThreadTaskRunner>
+      agent_group_scheduler_compositor_task_runner_;
+
   bool closing_ = false;
 
   const base::TimeTicks time_origin_;
@@ -254,6 +300,10 @@ class CORE_EXPORT WorkerGlobalScope
   int last_pending_error_event_id_ = 0;
 
   Member<OffscreenFontSelector> font_selector_;
+
+  // Tracks and reports UKM metrics of the number of attempted font family match
+  // attempts (both successful and not successful) by the worker.
+  std::unique_ptr<FontMatchingMetrics> font_matching_metrics_;
 
   blink::BrowserInterfaceBrokerProxy browser_interface_broker_proxy_;
 
@@ -275,6 +325,16 @@ class CORE_EXPORT WorkerGlobalScope
   base::Optional<v8_inspector::V8StackTraceId> stack_id_;
 
   HttpsState https_state_;
+
+  std::unique_ptr<ukm::UkmRecorder> ukm_recorder_;
+
+  // |worker_main_script_load_params_for_modules_| is used to load a root module
+  // script for dedicated workers (when PlzDedicatedWorker is enabled) and
+  // shared workers.
+  std::unique_ptr<WorkerMainScriptLoadParameters>
+      worker_main_script_load_params_for_modules_;
+
+  const ukm::SourceId ukm_source_id_;
 };
 
 template <>

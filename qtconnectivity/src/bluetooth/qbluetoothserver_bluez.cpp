@@ -68,8 +68,11 @@ QBluetoothSocket *QBluetoothServerPrivate::createSocketForServer(
 
 QBluetoothServerPrivate::QBluetoothServerPrivate(QBluetoothServiceInfo::Protocol sType,
                                                  QBluetoothServer *parent)
-    :   maxPendingConnections(1), securityFlags(QBluetooth::Authorization), serverType(sType),
-        q_ptr(parent), m_lastError(QBluetoothServer::NoError)
+    : maxPendingConnections(1),
+      securityFlags(QBluetooth::Security::Authorization),
+      serverType(sType),
+      q_ptr(parent),
+      m_lastError(QBluetoothServer::NoError)
 {
     if (sType == QBluetoothServiceInfo::RfcommProtocol)
         socket = createSocketForServer(QBluetoothServiceInfo::RfcommProtocol);
@@ -95,7 +98,7 @@ void QBluetoothServerPrivate::_q_newConnection()
 void QBluetoothServerPrivate::setSocketSecurityLevel(
         QBluetooth::SecurityFlags requestedSecLevel, int *errnoCode)
 {
-    if (requestedSecLevel == QBluetooth::NoSecurity) {
+    if (requestedSecLevel == QBluetooth::SecurityFlags(QBluetooth::Security::NoSecurity)) {
         qCWarning(QT_BT_BLUEZ) << "Cannot set NoSecurity on server socket";
         return;
     }
@@ -103,12 +106,12 @@ void QBluetoothServerPrivate::setSocketSecurityLevel(
     struct bt_security security;
     memset(&security, 0, sizeof(security));
 
-    // ignore QBluetooth::Authentication -> not used anymore
-    if (requestedSecLevel & QBluetooth::Authorization)
+    // ignore QBluetooth::Security::Authentication -> not used anymore
+    if (requestedSecLevel & QBluetooth::Security::Authorization)
         security.level = BT_SECURITY_LOW;
-    if (requestedSecLevel & QBluetooth::Encryption)
+    if (requestedSecLevel & QBluetooth::Security::Encryption)
         security.level = BT_SECURITY_MEDIUM;
-    if (requestedSecLevel & QBluetooth::Secure)
+    if (requestedSecLevel & QBluetooth::Security::Secure)
         security.level = BT_SECURITY_HIGH;
 
     if (setsockopt(socket->socketDescriptor(), SOL_BLUETOOTH, BT_SECURITY,
@@ -127,19 +130,19 @@ QBluetooth::SecurityFlags QBluetoothServerPrivate::socketSecurityLevel() const
     if (getsockopt(socket->socketDescriptor(), SOL_BLUETOOTH, BT_SECURITY,
                    &security, &length) != 0) {
         qCWarning(QT_BT_BLUEZ) << "Failed to get security flags" << qt_error_string(errno);
-        return QBluetooth::NoSecurity;
+        return QBluetooth::Security::NoSecurity;
     }
 
     switch (security.level) {
     case BT_SECURITY_LOW:
-        return QBluetooth::Authorization;
+        return QBluetooth::Security::Authorization;
     case BT_SECURITY_MEDIUM:
-        return QBluetooth::Encryption;
+        return QBluetooth::Security::Encryption;
     case BT_SECURITY_HIGH:
-        return QBluetooth::Secure;
+        return QBluetooth::Security::Secure;
     default:
         qCWarning(QT_BT_BLUEZ) << "Unknown server socket security level" << security.level;
-        return QBluetooth::NoSecurity;
+        return QBluetooth::Security::NoSecurity;
     }
 }
 
@@ -157,7 +160,7 @@ bool QBluetoothServer::listen(const QBluetoothAddress &address, quint16 port)
 {
     Q_D(QBluetoothServer);
 
-    if (d->socket->state() == QBluetoothSocket::ListeningState) {
+    if (d->socket->state() == QBluetoothSocket::SocketState::ListeningState) {
         qCWarning(QT_BT_BLUEZ) << "Socket already in listen mode, close server first";
         return false; //already listening, nothing to do
     }
@@ -167,14 +170,14 @@ bool QBluetoothServer::listen(const QBluetoothAddress &address, quint16 port)
         qCWarning(QT_BT_BLUEZ) << "Device does not support Bluetooth or"
                                  << address.toString() << "is not a valid local adapter";
         d->m_lastError = QBluetoothServer::UnknownError;
-        emit error(d->m_lastError);
+        emit errorOccurred(d->m_lastError);
         return false;
     }
 
     QBluetoothLocalDevice::HostMode hostMode = device.hostMode();
     if (hostMode == QBluetoothLocalDevice::HostPoweredOff) {
         d->m_lastError = QBluetoothServer::PoweredOffError;
-        emit error(d->m_lastError);
+        emit errorOccurred(d->m_lastError);
         qCWarning(QT_BT_BLUEZ) << "Bluetooth device is powered off";
         return false;
     }
@@ -197,7 +200,7 @@ bool QBluetoothServer::listen(const QBluetoothAddress &address, quint16 port)
         sock = d->socket->socketDescriptor();
         if (sock < 0) {
             d->m_lastError = InputOutputError;
-            emit error(d->m_lastError);
+            emit errorOccurred(d->m_lastError);
             return false;
         }
     }
@@ -218,7 +221,7 @@ bool QBluetoothServer::listen(const QBluetoothAddress &address, quint16 port)
                 d->m_lastError = ServiceAlreadyRegisteredError;
             else
                 d->m_lastError = InputOutputError;
-            emit error(d->m_lastError);
+            emit errorOccurred(d->m_lastError);
             return false;
         }
     } else {
@@ -235,7 +238,7 @@ bool QBluetoothServer::listen(const QBluetoothAddress &address, quint16 port)
 
         if (::bind(sock, reinterpret_cast<sockaddr *>(&addr), sizeof(sockaddr_l2)) < 0) {
             d->m_lastError = InputOutputError;
-            emit error(d->m_lastError);
+            emit errorOccurred(d->m_lastError);
             return false;
         }
     }
@@ -244,11 +247,11 @@ bool QBluetoothServer::listen(const QBluetoothAddress &address, quint16 port)
 
     if (::listen(sock, d->maxPendingConnections) < 0) {
         d->m_lastError = InputOutputError;
-        emit error(d->m_lastError);
+        emit errorOccurred(d->m_lastError);
         return false;
     }
 
-    d->socket->setSocketState(QBluetoothSocket::ListeningState);
+    d->socket->setSocketState(QBluetoothSocket::SocketState::ListeningState);
 
     if (!d->socketNotifier) {
         d->socketNotifier = new QSocketNotifier(d->socket->socketDescriptor(),
@@ -266,7 +269,7 @@ void QBluetoothServer::setMaxPendingConnections(int numConnections)
 {
     Q_D(QBluetoothServer);
 
-    if (d->socket->state() == QBluetoothSocket::UnconnectedState)
+    if (d->socket->state() == QBluetoothSocket::SocketState::UnconnectedState)
         d->maxPendingConnections = numConnections;
 }
 
@@ -336,7 +339,7 @@ void QBluetoothServer::setSecurityFlags(QBluetooth::SecurityFlags security)
 {
     Q_D(QBluetoothServer);
 
-    if (d->socket->state() == QBluetoothSocket::UnconnectedState) {
+    if (d->socket->state() == QBluetoothSocket::SocketState::UnconnectedState) {
         // nothing to set beyond the fact to remember the sec level for the next listen()
         d->securityFlags = security;
         return;
@@ -348,7 +351,7 @@ void QBluetoothServer::setSecurityFlags(QBluetooth::SecurityFlags security)
         qCWarning(QT_BT_BLUEZ) << "Failed to set socket option, closing socket for safety" << errorCode;
         qCWarning(QT_BT_BLUEZ) << "Error: " << qt_error_string(errorCode);
         d->m_lastError = InputOutputError;
-        emit error(d->m_lastError);
+        emit errorOccurred(d->m_lastError);
         d->socket->close();
     }
 }
@@ -357,7 +360,7 @@ QBluetooth::SecurityFlags QBluetoothServer::securityFlags() const
 {
     Q_D(const QBluetoothServer);
 
-    if (d->socket->state() == QBluetoothSocket::UnconnectedState)
+    if (d->socket->state() == QBluetoothSocket::SocketState::UnconnectedState)
         return d->securityFlags;
 
     return d->socketSecurityLevel();

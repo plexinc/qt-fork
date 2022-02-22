@@ -54,12 +54,11 @@
 #include <graphicshelperinterface_p.h>
 #include <QtCore/qscopedpointer.h>
 
-#ifndef QT_OPENGL_ES_2
+#if !QT_CONFIG(opengles2)
 
 QT_BEGIN_NAMESPACE
 
 class QOpenGLFunctions_3_2_Core;
-class QOpenGLExtension_ARB_tessellation_shader;
 
 namespace Qt3DRender {
 namespace Render {
@@ -119,10 +118,10 @@ public:
     void pointSize(bool programmable, GLfloat value) override;
     GLint maxClipPlaneCount() override;
     void memoryBarrier(QMemoryBarrier::Operations barriers) override;
-    QVector<ShaderUniformBlock> programUniformBlocks(GLuint programId) override;
-    QVector<ShaderAttribute> programAttributesAndLocations(GLuint programId) override;
-    QVector<ShaderUniform> programUniformsAndLocations(GLuint programId) override;
-    QVector<ShaderStorageBlock> programShaderStorageBlocks(GLuint programId) override;
+    std::vector<ShaderUniformBlock> programUniformBlocks(GLuint programId) override;
+    std::vector<ShaderAttribute> programAttributesAndLocations(GLuint programId) override;
+    std::vector<ShaderUniform> programUniformsAndLocations(GLuint programId) override;
+    std::vector<ShaderStorageBlock> programShaderStorageBlocks(GLuint programId) override;
     void releaseFrameBufferObject(GLuint frameBufferId) override;
     void setMSAAEnabled(bool enable) override;
     void setAlphaCoverageEnabled(bool enable) override;
@@ -173,7 +172,6 @@ public:
 
 private:
     QOpenGLFunctions_3_2_Core *m_funcs;
-    QScopedPointer<QOpenGLExtension_ARB_tessellation_shader> m_tessFuncs;
 };
 
 } // namespace OpenGL

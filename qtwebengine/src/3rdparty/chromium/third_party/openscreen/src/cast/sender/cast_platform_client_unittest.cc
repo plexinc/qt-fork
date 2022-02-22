@@ -4,9 +4,10 @@
 
 #include "cast/sender/cast_platform_client.h"
 
+#include <utility>
+
 #include "cast/common/channel/testing/fake_cast_socket.h"
 #include "cast/common/channel/testing/mock_socket_error_handler.h"
-#include "cast/common/channel/virtual_connection_manager.h"
 #include "cast/common/channel/virtual_connection_router.h"
 #include "cast/common/public/service_info.h"
 #include "cast/sender/testing/test_helpers.h"
@@ -46,12 +47,10 @@ class CastPlatformClientTest : public ::testing::Test {
   FakeCastSocketPair fake_cast_socket_pair_;
   CastSocket* socket_ = nullptr;
   MockSocketErrorHandler mock_error_handler_;
-  VirtualConnectionManager manager_;
-  VirtualConnectionRouter router_{&manager_};
+  VirtualConnectionRouter router_;
   FakeClock clock_{Clock::now()};
   FakeTaskRunner task_runner_{&clock_};
-  CastPlatformClient platform_client_{&router_, &manager_, &FakeClock::now,
-                                      &task_runner_};
+  CastPlatformClient platform_client_{&router_, &FakeClock::now, &task_runner_};
   ServiceInfo receiver_;
 };
 
@@ -74,12 +73,12 @@ TEST_F(CastPlatformClientTest, AppAvailability) {
 
   CastMessage availability_response =
       CreateAppAvailableResponseChecked(request_id, sender_id, "AAA");
-  EXPECT_TRUE(peer_socket().SendMessage(availability_response).ok());
+  EXPECT_TRUE(peer_socket().Send(availability_response).ok());
   EXPECT_TRUE(ran);
 
   // NOTE: Callback should only fire once, so it should not fire again here.
   ran = false;
-  EXPECT_TRUE(peer_socket().SendMessage(availability_response).ok());
+  EXPECT_TRUE(peer_socket().Send(availability_response).ok());
   EXPECT_FALSE(ran);
 }
 
@@ -103,7 +102,7 @@ TEST_F(CastPlatformClientTest, CancelRequest) {
 
   CastMessage availability_response =
       CreateAppAvailableResponseChecked(request_id, sender_id, "AAA");
-  EXPECT_TRUE(peer_socket().SendMessage(availability_response).ok());
+  EXPECT_TRUE(peer_socket().Send(availability_response).ok());
 }
 
 }  // namespace cast

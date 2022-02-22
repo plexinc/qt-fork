@@ -54,13 +54,18 @@
 
 #include <qpa/qplatforminputcontext.h>
 
+#include <QList>
 #include <QLoggingCategory>
 #include <QPointer>
 #include <QRectF>
-#include <QVector>
+#include <QLocale>
 
 #include <QtWaylandClient/private/qwayland-text-input-unstable-v2.h>
 #include <qwaylandinputmethodeventbuilder_p.h>
+#include <qtwaylandclientglobal_p.h>
+#if QT_CONFIG(xkbcommon)
+#include <xkbcommon/xkbcommon-compose.h>
+#endif
 
 struct wl_callback;
 struct wl_callback_listener;
@@ -113,7 +118,7 @@ private:
     QWaylandDisplay *m_display = nullptr;
     QWaylandInputMethodEventBuilder m_builder;
 
-    QVector<Qt::KeyboardModifier> m_modifiersMap;
+    QList<Qt::KeyboardModifier> m_modifiersMap;
 
     uint32_t m_serial = 0;
     struct ::wl_surface *m_surface = nullptr;
@@ -155,11 +160,28 @@ public:
 
     void setFocusObject(QObject *object) override;
 
+#if QT_CONFIG(xkbcommon)
+    bool filterEvent(const QEvent *event) override;
+
+    // This invokable is called from QXkbCommon::setXkbContext().
+    Q_INVOKABLE void setXkbContext(struct xkb_context *context) { m_XkbContext = context; }
+#endif
+
 private:
     QWaylandTextInput *textInput() const;
 
     QWaylandDisplay *mDisplay = nullptr;
     QPointer<QWindow> mCurrentWindow;
+
+#if QT_CONFIG(xkbcommon)
+    void ensureInitialized();
+
+    bool m_initialized = false;
+    QObject *m_focusObject = nullptr;
+    xkb_compose_table *m_composeTable = nullptr;
+    xkb_compose_state *m_composeState = nullptr;
+    struct xkb_context *m_XkbContext = nullptr;
+#endif
 };
 
 }

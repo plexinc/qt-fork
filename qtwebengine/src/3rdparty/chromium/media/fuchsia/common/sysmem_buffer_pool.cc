@@ -8,8 +8,9 @@
 #include <algorithm>
 
 #include "base/bind.h"
-#include "base/fuchsia/default_context.h"
 #include "base/fuchsia/fuchsia_logging.h"
+#include "base/fuchsia/process_context.h"
+#include "base/process/process_handle.h"
 #include "media/fuchsia/common/sysmem_buffer_reader.h"
 #include "media/fuchsia/common/sysmem_buffer_writer.h"
 
@@ -33,6 +34,13 @@ SysmemBufferPool::Creator::Creator(
 
 SysmemBufferPool::Creator::~Creator() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+}
+
+void SysmemBufferPool::Creator::SetName(uint32_t priority,
+                                        base::StringPiece name) {
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  DCHECK(!create_cb_);
+  collection_->SetName(priority, std::string(name));
 }
 
 void SysmemBufferPool::Creator::Create(
@@ -125,10 +133,13 @@ void SysmemBufferPool::OnError() {
     std::move(create_writer_cb_).Run(nullptr);
 }
 
-BufferAllocator::BufferAllocator() {
-  allocator_ = base::fuchsia::ComponentContextForCurrentProcess()
+BufferAllocator::BufferAllocator(base::StringPiece client_name) {
+  allocator_ = base::ComponentContextForProcess()
                    ->svc()
                    ->Connect<fuchsia::sysmem::Allocator>();
+
+  allocator_->SetDebugClientInfo(std::string(client_name),
+                                 base::GetCurrentProcId());
 
   allocator_.set_error_handler([](zx_status_t status) {
     // Just log a warning. We will handle BufferCollection the failure when
@@ -140,13 +151,18 @@ BufferAllocator::BufferAllocator() {
 
 BufferAllocator::~BufferAllocator() = default;
 
+fuchsia::sysmem::BufferCollectionTokenPtr BufferAllocator::CreateNewToken() {
+  fuchsia::sysmem::BufferCollectionTokenPtr collection_token;
+  allocator_->AllocateSharedCollection(collection_token.NewRequest());
+  return collection_token;
+}
+
 std::unique_ptr<SysmemBufferPool::Creator>
 BufferAllocator::MakeBufferPoolCreator(size_t num_of_tokens) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
   // Create a new sysmem buffer collection token for the allocated buffers.
-  fuchsia::sysmem::BufferCollectionTokenPtr collection_token;
-  allocator_->AllocateSharedCollection(collection_token.NewRequest());
+  fuchsia::sysmem::BufferCollectionTokenPtr collection_token = CreateNewToken();
 
   // Create collection token for sharing with other components.
   std::vector<fuchsia::sysmem::BufferCollectionTokenPtr> shared_tokens;
@@ -164,6 +180,17 @@ BufferAllocator::MakeBufferPoolCreator(size_t num_of_tokens) {
 
   return std::make_unique<SysmemBufferPool::Creator>(
       std::move(buffer_collection), std::move(shared_tokens));
+}
+
+std::unique_ptr<SysmemBufferPool::Creator>
+BufferAllocator::MakeBufferPoolCreatorFromToken(
+    fuchsia::sysmem::BufferCollectionTokenPtr token) {
+  fuchsia::sysmem::BufferCollectionPtr buffer_collection;
+  allocator_->BindSharedCollection(std::move(token),
+                                   buffer_collection.NewRequest());
+  return std::make_unique<SysmemBufferPool::Creator>(
+      std::move(buffer_collection),
+      std::vector<fuchsia::sysmem::BufferCollectionTokenPtr>{});
 }
 
 }  // namespace media

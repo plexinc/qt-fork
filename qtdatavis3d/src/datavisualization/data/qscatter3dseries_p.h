@@ -43,7 +43,7 @@
 #include "qscatter3dseries.h"
 #include "qabstract3dseries_p.h"
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 class QScatter3DSeriesPrivate : public QAbstract3DSeriesPrivate
 {
@@ -52,9 +52,9 @@ public:
     QScatter3DSeriesPrivate(QScatter3DSeries *q);
     virtual ~QScatter3DSeriesPrivate();
 
-    virtual void setDataProxy(QAbstractDataProxy *proxy);
-    virtual void connectControllerAndProxy(Abstract3DController *newController);
-    virtual void createItemLabel();
+    void setDataProxy(QAbstractDataProxy *proxy) override;
+    void connectControllerAndProxy(Abstract3DController *newController) override;
+    void createItemLabel() override;
 
     void setSelectedItem(int index);
     void setItemSize(float size);
@@ -68,6 +68,6 @@ private:
     friend class QScatter3DSeries;
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

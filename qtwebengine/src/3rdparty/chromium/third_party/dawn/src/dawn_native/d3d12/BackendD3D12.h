@@ -30,15 +30,23 @@ namespace dawn_native { namespace d3d12 {
         MaybeError Initialize();
 
         ComPtr<IDXGIFactory4> GetFactory() const;
+        ResultOrError<IDxcLibrary*> GetOrCreateDxcLibrary();
+        ResultOrError<IDxcCompiler*> GetOrCreateDxcCompiler();
+        ResultOrError<IDxcValidator*> GetOrCreateDxcValidator();
         const PlatformFunctions* GetFunctions() const;
 
         std::vector<std::unique_ptr<AdapterBase>> DiscoverDefaultAdapters() override;
+        ResultOrError<std::vector<std::unique_ptr<AdapterBase>>> DiscoverAdapters(
+            const AdapterDiscoveryOptionsBase* optionsBase) override;
 
       private:
         // Keep mFunctions as the first member so that in the destructor it is freed last. Otherwise
         // the D3D12 DLLs are unloaded before we are done using them.
         std::unique_ptr<PlatformFunctions> mFunctions;
         ComPtr<IDXGIFactory4> mFactory;
+        ComPtr<IDxcLibrary> mDxcLibrary;
+        ComPtr<IDxcCompiler> mDxcCompiler;
+        ComPtr<IDxcValidator> mDxcValidator;
     };
 
 }}  // namespace dawn_native::d3d12

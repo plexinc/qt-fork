@@ -58,6 +58,7 @@ class QHELP_EXPORT QHelpEngineCore : public QObject
     Q_OBJECT
     Q_PROPERTY(bool autoSaveFilter READ autoSaveFilter WRITE setAutoSaveFilter)
     Q_PROPERTY(QString collectionFile READ collectionFile WRITE setCollectionFile)
+    Q_PROPERTY(bool readOnly READ isReadOnly WRITE setReadOnly)
 #if QT_DEPRECATED_SINCE(5, 15)
     Q_PROPERTY(QString currentFilter READ currentFilter WRITE setCurrentFilter)
 #endif
@@ -65,6 +66,9 @@ class QHELP_EXPORT QHelpEngineCore : public QObject
 public:
     explicit QHelpEngineCore(const QString &collectionFile, QObject *parent = nullptr);
     virtual ~QHelpEngineCore();
+
+    bool isReadOnly() const;
+    void setReadOnly(bool enable);
 
     QHelpFilterEngine *filterEngine() const;
 
@@ -104,13 +108,6 @@ public:
                       const QString &filterName,
                       const QString &extensionFilter = QString());
     QUrl findFile(const QUrl &url) const;
-
-#if QT_DEPRECATED_SINCE(5, 15)
-    QT_DEPRECATED_X("Use documentsForIdentifier() instead")
-    QMap<QString, QUrl> linksForIdentifier(const QString &id) const;
-    QT_DEPRECATED_X("Use documentsForKeyword() instead")
-    QMap<QString, QUrl> linksForKeyword(const QString &keyword) const;
-#endif
 
     QList<QHelpLink> documentsForIdentifier(const QString &id) const;
     QList<QHelpLink> documentsForIdentifier(const QString &id, const QString &filterName) const;

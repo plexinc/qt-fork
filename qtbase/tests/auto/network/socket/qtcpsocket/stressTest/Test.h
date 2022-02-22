@@ -53,10 +53,10 @@ class My4Server : public QTcpServer
 {
     Q_OBJECT
 public:
-    My4Server(QObject *parent = 0);
+    My4Server(QObject *parent = nullptr);
 
 protected:
-    void incomingConnection(qintptr socket);
+    void incomingConnection(qintptr socket) override;
 
 private slots:
     void stopServer();

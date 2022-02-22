@@ -157,9 +157,8 @@ void AppendProgressCallbackResult(std::vector<ProgressInfo>* progress_values,
 }
 
 TestGetContentCallback::TestGetContentCallback()
-    : callback_(base::Bind(&TestGetContentCallback::OnGetContent,
-                           base::Unretained(this))) {
-}
+    : callback_(base::BindRepeating(&TestGetContentCallback::OnGetContent,
+                                    base::Unretained(this))) {}
 
 TestGetContentCallback::~TestGetContentCallback() {
 }
@@ -173,7 +172,8 @@ std::string TestGetContentCallback::GetConcatenatedData() const {
 }
 
 void TestGetContentCallback::OnGetContent(google_apis::DriveApiErrorCode error,
-                                          std::unique_ptr<std::string> data) {
+                                          std::unique_ptr<std::string> data,
+                                          bool first_chunk) {
   data_.push_back(std::move(data));
 }
 

@@ -47,7 +47,6 @@
 #include "qstyle.h"
 #include "qstyleoption.h"
 #include <limits.h>
-#include "qaction.h"
 #include "qclipboard.h"
 #include <qdebug.h>
 #include <qurl.h>
@@ -101,7 +100,8 @@ QLabelPrivate::QLabelPrivate()
       validCursor(false),
       onAnchor(false),
 #endif
-      openExternalLinks(false)
+      openExternalLinks(false),
+      resourceProvider(nullptr)
 {
 }
 
@@ -188,53 +188,31 @@ QLabelPrivate::~QLabelPrivate()
 */
 
 #ifndef QT_NO_PICTURE
-#if QT_DEPRECATED_SINCE(5, 15)
 /*!
-    \deprecated
-
-    New code should use the other overload which returns QPicture by-value.
-
-    This function returns the label's picture or \c nullptr if the label doesn't have a
-    picture.
-*/
-
-const QPicture *QLabel::picture() const
-{
-    Q_D(const QLabel);
-    return d->picture;
-}
-#endif // QT_DEPRECATED_SINCE(5, 15)
-
-/*!
+    \fn QPicture QLabel::picture(Qt::ReturnByValueConstant) const
+    \deprecated Use the overload without argument instead.
     \since 5.15
+
     Returns the label's picture.
 
     Previously, Qt provided a version of \c picture() which returned the picture
-    by-pointer. That version is now deprecated. To maintain compatibility
-    with old code, you can explicitly differentiate between the by-pointer
-    function and the by-value function:
-
-    \code
-    const QPicture *picPtr = label->picture();
-    QPicture picVal = label->picture(Qt::ReturnByValue);
-    \endcode
-
-    If you disable the deprecated version using the QT_DISABLE_DEPRECATED_BEFORE
-    macro, then you can omit \c Qt::ReturnByValue as shown below:
-
-    \code
-    QPicture picVal = label->picture();
-    \endcode
+    by-pointer. That version is now removed. This overload allowed to
+    explicitly differentiate between the by-pointer function and the by-value.
 */
 
-QPicture QLabel::picture(Qt::ReturnByValueConstant) const
+/*!
+    \since 6.0
+
+    Returns the label's picture.
+*/
+QPicture QLabel::picture() const
 {
     Q_D(const QLabel);
     if (d->picture)
         return *(d->picture);
     return QPicture();
 }
-#endif
+#endif // QT_NO_PICTURE
 
 
 /*!
@@ -390,26 +368,6 @@ void QLabel::clear()
     \property QLabel::pixmap
     \brief the label's pixmap.
 
-    Previously, Qt provided a version of \c pixmap() which returned the pixmap
-    by-pointer. That version is now deprecated. To maintain compatibility
-    with old code, you can explicitly differentiate between the by-pointer
-    function and the by-value function:
-
-    \code
-    const QPixmap *pixmapPtr = label->pixmap();
-    QPixmap pixmapVal = label->pixmap(Qt::ReturnByValue);
-    \endcode
-
-    If you disable the deprecated version using the QT_DISABLE_DEPRECATED_BEFORE
-    macro, then you can omit \c Qt::ReturnByValue as shown below:
-
-    \code
-    QPixmap pixmapVal = label->pixmap();
-    \endcode
-
-    If no pixmap has been set, the deprecated getter function will return
-    \c nullptr.
-
     Setting the pixmap clears any previous content. The buddy
     shortcut, if any, is disabled.
 */
@@ -427,29 +385,30 @@ void QLabel::setPixmap(const QPixmap &pixmap)
     d->updateLabel();
 }
 
-#if QT_DEPRECATED_SINCE(5, 15)
-/*!
-    \deprecated
-
-    New code should use the other overload which returns QPixmap by-value.
-*/
-const QPixmap *QLabel::pixmap() const
-{
-    Q_D(const QLabel);
-    return d->pixmap;
-}
-#endif // QT_DEPRECATED_SINCE(5, 15)
-
-/*!
-    \since 5.15
-*/
-QPixmap QLabel::pixmap(Qt::ReturnByValueConstant) const
+QPixmap QLabel::pixmap() const
 {
     Q_D(const QLabel);
     if (d->pixmap)
         return *(d->pixmap);
     return QPixmap();
 }
+
+/*!
+    \fn QPixmap QLabel::pixmap(Qt::ReturnByValueConstant) const
+
+    \deprecated Use the overload without argument instead.
+    \since 5.15
+
+    Returns the label's pixmap.
+
+    Previously, Qt provided a version of \c pixmap() which returned the pixmap
+    by-pointer. That version has now been removed. This overload allowed to
+    explicitly differentiate between the by-pointer function and the by-value.
+
+    \code
+    QPixmap pixmapVal = label->pixmap(Qt::ReturnByValue);
+    \endcode
+*/
 
 #ifndef QT_NO_PICTURE
 /*!
@@ -633,7 +592,7 @@ void QLabel::setMargin(int margin)
 QSize QLabelPrivate::sizeForWidth(int w) const
 {
     Q_Q(const QLabel);
-    if(q->minimumWidth() > 0)
+    if (q->minimumWidth() > 0)
         w = qMax(w, q->minimumWidth());
     QSize contentsMargin(leftmargin + rightmargin, topmargin + bottommargin);
 
@@ -1171,7 +1130,7 @@ void QLabel::paintEvent(QPaintEvent *)
     if (d->pixmap && !d->pixmap->isNull()) {
         QPixmap pix;
         if (d->scaledcontents) {
-            QSize scaledSize = cr.size() * devicePixelRatioF();
+            QSize scaledSize = cr.size() * devicePixelRatio();
             if (!d->scaledpixmap || d->scaledpixmap->size() != scaledSize) {
                 if (!d->cachedimage)
                     d->cachedimage = new QImage(d->pixmap->toImage());
@@ -1180,7 +1139,7 @@ void QLabel::paintEvent(QPaintEvent *)
                     d->cachedimage->scaled(scaledSize,
                                            Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
                 d->scaledpixmap = new QPixmap(QPixmap::fromImage(std::move(scaledImage)));
-                d->scaledpixmap->setDevicePixelRatio(devicePixelRatioF());
+                d->scaledpixmap->setDevicePixelRatio(devicePixelRatio());
             }
             pix = *d->scaledpixmap;
         } else
@@ -1331,7 +1290,7 @@ void QLabelPrivate::_q_movieUpdated(const QRect& rect)
 void QLabelPrivate::_q_movieResized(const QSize& size)
 {
     Q_Q(QLabel);
-    q->update(); //we need to refresh the whole background in case the new size is smaler
+    q->update(); //we need to refresh the whole background in case the new size is smaller
     valid_hints = false;
     _q_movieUpdated(QRect(QPoint(0,0), size));
     q->updateGeometry();
@@ -1466,12 +1425,38 @@ void QLabel::setTextFormat(Qt::TextFormat format)
 }
 
 /*!
+    \since 6.1
+
+    Returns the resource provider for rich text of this label.
+*/
+QTextDocument::ResourceProvider QLabel::resourceProvider() const
+{
+    Q_D(const QLabel);
+    return d->control ? d->control->document()->resourceProvider() : d->resourceProvider;
+}
+
+/*!
+    \since 6.1
+
+    Sets the \a provider of resources for rich text of this label.
+
+    \note The label \e{does not} take ownership of the \a provider.
+*/
+void QLabel::setResourceProvider(const QTextDocument::ResourceProvider &provider)
+{
+    Q_D(QLabel);
+    d->resourceProvider = provider;
+    if (d->control != nullptr)
+        d->control->document()->setResourceProvider(provider);
+}
+
+/*!
   \reimp
 */
 void QLabel::changeEvent(QEvent *ev)
 {
     Q_D(QLabel);
-    if(ev->type() == QEvent::FontChange || ev->type() == QEvent::ApplicationFontChange) {
+    if (ev->type() == QEvent::FontChange || ev->type() == QEvent::ApplicationFontChange) {
         if (d->isTextLabel) {
             if (d->control)
                 d->control->document()->setDefaultFont(font());
@@ -1631,6 +1616,8 @@ void QLabelPrivate::ensureTextControl() const
         control = new QWidgetTextControl(const_cast<QLabel *>(q));
         control->document()->setUndoRedoEnabled(false);
         control->document()->setDefaultFont(q->font());
+        if (resourceProvider != nullptr)
+            control->document()->setResourceProvider(resourceProvider);
         control->setTextInteractionFlags(textInteractionFlags);
         control->setOpenExternalLinks(openExternalLinks);
         control->setPalette(q->palette());
@@ -1687,7 +1674,7 @@ QRectF QLabelPrivate::layoutRect() const
     if (!control)
         return cr;
     ensureTextLayouted();
-    // Caculate y position manually
+    // Calculate y position manually
     qreal rh = control->document()->documentLayout()->documentSize().height();
     qreal yo = 0;
     if (align & Qt::AlignVCenter)
@@ -1707,14 +1694,13 @@ QPoint QLabelPrivate::layoutPoint(const QPoint& p) const
 #ifndef QT_NO_CONTEXTMENU
 QMenu *QLabelPrivate::createStandardContextMenu(const QPoint &pos)
 {
-    QString linkToCopy;
-    QPoint p;
-    if (control && effectiveTextFormat != Qt::PlainText) {
-        p = layoutPoint(pos);
-        linkToCopy = control->document()->documentLayout()->anchorAt(p);
-    }
+    if (!control || effectiveTextFormat == Qt::PlainText)
+        return nullptr;
 
-    if (linkToCopy.isEmpty() && !control)
+    const QPoint p = layoutPoint(pos);
+    QString linkToCopy = control->document()->documentLayout()->anchorAt(p);
+
+    if (linkToCopy.isEmpty())
         return nullptr;
 
     return control->createStandardContextMenu(p, q_func());

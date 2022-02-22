@@ -37,6 +37,8 @@
 **
 ****************************************************************************/
 
+#include <AppKit/AppKit.h>
+
 #include <QtCore/qdebug.h>
 #include <QtCore/qtimer.h>
 #include <qpa/qplatformtheme.h>
@@ -44,8 +46,7 @@
 #include "qcocoacolordialoghelper.h"
 #include "qcocoahelpers.h"
 #include "qcocoaeventdispatcher.h"
-
-#import <AppKit/AppKit.h>
+#include "private/qcoregraphics_p.h"
 
 QT_USE_NAMESPACE
 
@@ -235,6 +236,11 @@ QT_NAMESPACE_ALIAS_OBJC_CLASS(QNSColorPanelDelegate);
 
     [NSApp runModalForWindow:mColorPanel];
     mDialogIsExecuting = false;
+
+    // Wake up the event dispatcher so it can check whether the
+    // current event loop should continue spinning or not.
+    QCoreApplication::eventDispatcher()->wakeUp();
+
     return (mResultCode == NSModalResponseOK);
 }
 
@@ -324,9 +330,9 @@ public:
     bool show(Qt::WindowModality windowModality, QWindow *parent)
     {
         Q_UNUSED(parent);
-        if (windowModality != Qt::WindowModal)
+        if (windowModality != Qt::ApplicationModal)
             [mDelegate showModelessPanel];
-        // no need to show a Qt::WindowModal dialog here, because it's necessary to call exec() in that case
+        // no need to show a Qt::ApplicationModal dialog here, because it will be shown in runApplicationModalPanel
         return true;
     }
 
@@ -390,9 +396,8 @@ void QCocoaColorDialogHelper::exec()
 
 bool QCocoaColorDialogHelper::show(Qt::WindowFlags, Qt::WindowModality windowModality, QWindow *parent)
 {
-    if (windowModality == Qt::WindowModal)
-        windowModality = Qt::ApplicationModal;
-
+    if (windowModality == Qt::ApplicationModal)
+        windowModality = Qt::WindowModal;
     // Workaround for Apple rdar://25792119: If you invoke
     // -setShowsAlpha: multiple times before showing the color
     // picker, its height grows irrevocably.  Instead, only

@@ -31,6 +31,8 @@
 #include <QtQml/private/qparallelanimationgroupjob_p.h>
 #include <QtQml/private/qpauseanimationjob_p.h>
 
+#include <memory>
+
 Q_DECLARE_METATYPE(QAbstractAnimationJob::State)
 Q_DECLARE_METATYPE(QAbstractAnimationJob*)
 
@@ -68,6 +70,7 @@ private slots:
     void insertAnimation();
     void clear();
     void pauseResume();
+    void deleteFromListener();
 };
 
 void tst_QSequentialAnimationGroupJob::initTestCase()
@@ -85,7 +88,7 @@ class TestAnimation : public QAbstractAnimationJob
 {
 public:
     TestAnimation(int duration = 250) : m_duration(duration) {}
-    int duration() const { return m_duration; }
+    int duration() const override { return m_duration; }
 
 private:
     int m_duration;
@@ -97,7 +100,7 @@ public:
     TestValueAnimation(int duration = 250)
         : TestAnimation(duration) {}
 
-    void updateCurrentTime(int msecs)
+    void updateCurrentTime(int msecs) override
     {
         if (msecs >= duration())
             value = end;
@@ -113,10 +116,10 @@ class UncontrolledAnimation : public QObject, public QAbstractAnimationJob
 {
     Q_OBJECT
 public:
-    int duration() const { return -1; /* not time driven */ }
+    int duration() const override { return -1; /* not time driven */ }
 
 protected:
-    void updateCurrentTime(int currentTime)
+    void updateCurrentTime(int currentTime) override
     {
         if (currentTime >= 250)
             stop();
@@ -126,15 +129,23 @@ protected:
 class StateChangeListener: public QAnimationJobChangeListener
 {
 public:
-    virtual void animationStateChanged(QAbstractAnimationJob *, QAbstractAnimationJob::State newState, QAbstractAnimationJob::State)
+    void animationStateChanged(
+            QAbstractAnimationJob *job, QAbstractAnimationJob::State newState,
+            QAbstractAnimationJob::State) override
     {
         states << newState;
+        if (beEvil) {
+            delete job->group();
+            groupDeleted = true;
+        }
     }
 
     void clear() { states.clear(); }
     int count() const { return states.count(); }
 
     QList<QAbstractAnimationJob::State> states;
+    bool beEvil = false;
+    bool groupDeleted = false;
 };
 
 class FinishedListener: public QAnimationJobChangeListener
@@ -142,7 +153,7 @@ class FinishedListener: public QAnimationJobChangeListener
 public:
     FinishedListener() {}
 
-    virtual void animationFinished(QAbstractAnimationJob *) { ++m_count; }
+    void animationFinished(QAbstractAnimationJob *) override { ++m_count; }
     void clear() { m_count = 0; }
     int count() { return m_count; }
 
@@ -610,9 +621,8 @@ static bool compareStates(const StateChangeListener& spy, const StateList &expec
             }
 
         }
-        qDebug("\n"
-               "expected (count == %d): %s\n"
-               "actual   (count == %d): %s\n", expectedStates.count(), qPrintable(e), spy.count(), qPrintable(a));
+        qDebug().noquote() << "\nexpected (count == " << expectedStates.count() << "): " << e
+                           << "\nactual   (count == " << spy.count() << "): " << a << "\n";
     }
     return equals;
 }
@@ -734,12 +744,13 @@ void tst_QSequentialAnimationGroupJob::restart()
     sequence->addAnimationChangeListener(&seqStateChangedSpy, QAbstractAnimationJob::StateChange);
 
     TestAnimation *anims[3];
-    StateChangeListener *animsStateChanged[3];
+    QScopedPointer<StateChangeListener> animsStateChanged[3];
 
     for (int i = 0; i < 3; i++) {
         anims[i] = new TestAnimation(100);
-        animsStateChanged[i] = new StateChangeListener;
-        anims[i]->addAnimationChangeListener(animsStateChanged[i], QAbstractAnimationJob::StateChange);
+        animsStateChanged[i].reset(new StateChangeListener);
+        anims[i]->addAnimationChangeListener(animsStateChanged[i].data(),
+                                             QAbstractAnimationJob::StateChange);
     }
 
     anims[1]->setLoopCount(2);
@@ -922,14 +933,11 @@ void tst_QSequentialAnimationGroupJob::clearGroup()
         subGroup->appendAnimation(new QPauseAnimationJob(10));
     }
 
-    int count = 0;
-    for (QAbstractAnimationJob *anim = group.firstChild(); anim; anim = anim->nextSibling())
-        ++count;
-    QCOMPARE(count, animationCount);
+    QCOMPARE(group.children()->count(), animationCount);
 
     group.clear();
 
-    QVERIFY(!group.firstChild() && !group.lastChild());
+    QVERIFY(group.children()->isEmpty());
     QCOMPARE(group.currentLoopTime(), 0);
 }
 
@@ -1120,7 +1128,7 @@ void tst_QSequentialAnimationGroupJob::deleteChildrenWithRunningGroup()
     QTRY_VERIFY(group.currentLoopTime() > 0);
 
     delete anim1;
-    QVERIFY(!group.firstChild());
+    QVERIFY(group.children()->isEmpty());
     QCOMPARE(group.duration(), 0);
     QCOMPARE(group.state(), QAnimationGroupJob::Stopped);
     QCOMPARE(group.currentLoopTime(), 0); //that's the invariant
@@ -1332,6 +1340,8 @@ void tst_QSequentialAnimationGroupJob::stopUncontrolledAnimations()
 
 void tst_QSequentialAnimationGroupJob::finishWithUncontrolledAnimation()
 {
+    const int targetDuration = 300;
+
     //1st case:
     //first we test a group with one uncontrolled animation
     QSequentialAnimationGroupJob group;
@@ -1346,7 +1356,7 @@ void tst_QSequentialAnimationGroupJob::finishWithUncontrolledAnimation()
     QCOMPARE(group.currentLoopTime(), 0);
     QCOMPARE(notTimeDriven.currentLoopTime(), 0);
 
-    QTest::qWait(300); //wait for the end of notTimeDriven
+    QTest::qWait(targetDuration); //wait for the end of notTimeDriven
     QTRY_COMPARE(notTimeDriven.state(), QAnimationGroupJob::Stopped);
     const int actualDuration = notTimeDriven.currentLoopTime();
     QCOMPARE(group.state(), QAnimationGroupJob::Stopped);
@@ -1361,10 +1371,15 @@ void tst_QSequentialAnimationGroupJob::finishWithUncontrolledAnimation()
     StateChangeListener animStateChangedSpy;
     anim.addAnimationChangeListener(&animStateChangedSpy, QAbstractAnimationJob::StateChange);
 
-    group.setCurrentTime(300);
+    group.setCurrentTime(targetDuration);
     QCOMPARE(group.state(), QAnimationGroupJob::Stopped);
-    QCOMPARE(notTimeDriven.currentLoopTime(), actualDuration);
-    QCOMPARE(group.currentAnimation(), static_cast<QAbstractAnimationJob*>(&anim));
+    if (actualDuration > targetDuration) {
+        QCOMPARE(notTimeDriven.currentLoopTime(), targetDuration);
+        QCOMPARE(group.currentAnimation(), &notTimeDriven);
+    } else {
+        QCOMPARE(notTimeDriven.currentLoopTime(), actualDuration);
+        QCOMPARE(group.currentAnimation(), &anim);
+    }
 
     //3rd case:
     //now let's add a perfectly defined animation at the end
@@ -1377,13 +1392,13 @@ void tst_QSequentialAnimationGroupJob::finishWithUncontrolledAnimation()
 
     QCOMPARE(animStateChangedSpy.count(), 0);
 
-    QTest::qWait(300); //wait for the end of notTimeDriven
+    QTest::qWait(targetDuration); //wait for the end of notTimeDriven
     QTRY_COMPARE(notTimeDriven.state(), QAnimationGroupJob::Stopped);
     QCOMPARE(group.state(), QAnimationGroupJob::Running);
     QCOMPARE(anim.state(), QAnimationGroupJob::Running);
     QCOMPARE(group.currentAnimation(), static_cast<QAbstractAnimationJob*>(&anim));
     QCOMPARE(animStateChangedSpy.count(), 1);
-    QTest::qWait(300); //wait for the end of anim
+    QTest::qWait(targetDuration); //wait for the end of anim
 
     QTRY_COMPARE(anim.state(), QAnimationGroupJob::Stopped);
     QCOMPARE(anim.currentLoopTime(), anim.duration());
@@ -1430,18 +1445,20 @@ void tst_QSequentialAnimationGroupJob::addRemoveAnimation()
     QCOMPARE(group.currentAnimation(), anim1);
     QCOMPARE(anim1->currentLoopTime(), 50);
 
+    std::unique_ptr<QAbstractAnimationJob> anim0Guard(anim0);
     group.removeAnimation(anim0); //anim1 | anim2
     QCOMPARE(group.currentLoopTime(), 50);
     QCOMPARE(group.currentAnimation(), anim1);
     QCOMPARE(anim1->currentLoopTime(), 50);
 
     group.setCurrentTime(0);
-    group.prependAnimation(anim0); //anim0 | anim1 | anim2
+    group.prependAnimation(anim0Guard.release()); //anim0 | anim1 | anim2
     group.setCurrentTime(300);
     QCOMPARE(group.currentLoopTime(), 300);
     QCOMPARE(group.currentAnimation(), anim1);
     QCOMPARE(anim1->currentLoopTime(), 50);
 
+    std::unique_ptr<QAbstractAnimationJob> anim1Guard(anim1);
     group.removeAnimation(anim1); //anim0 | anim2
     QCOMPARE(group.currentLoopTime(), 250);
     QCOMPARE(group.currentAnimation(), anim2);
@@ -1513,7 +1530,7 @@ class ClearFinishedListener: public QAnimationJobChangeListener
 public:
     ClearFinishedListener(QSequentialAnimationGroupJob *g) : group(g) {}
 
-    virtual void animationFinished(QAbstractAnimationJob *)
+    void animationFinished(QAbstractAnimationJob *) override
     {
         group->clear();
     }
@@ -1526,7 +1543,7 @@ class RefillFinishedListener: public QAnimationJobChangeListener
 public:
     RefillFinishedListener(QSequentialAnimationGroupJob *g) : group(g) {}
 
-    virtual void animationFinished(QAbstractAnimationJob *)
+    void animationFinished(QAbstractAnimationJob *) override
     {
         group->stop();
         group->clear();
@@ -1548,12 +1565,12 @@ void tst_QSequentialAnimationGroupJob::clear()
 
     TestAnimation *anim2 = new TestAnimation;
     group.appendAnimation(anim2);
-    QCOMPARE(group.firstChild(), anim1);
-    QCOMPARE(group.lastChild(), anim2);
+    QCOMPARE(group.children()->first(), anim1);
+    QCOMPARE(group.children()->last(), anim2);
 
     group.start();
     QTest::qWait(anim1->duration() + 100);
-    QTRY_VERIFY(!group.firstChild());
+    QTRY_VERIFY(group.children()->isEmpty());
     QCOMPARE(group.state(), QAbstractAnimationJob::Stopped);
     QCOMPARE(group.currentLoopTime(), 0);
 
@@ -1644,6 +1661,37 @@ void tst_QSequentialAnimationGroupJob::uncontrolledWithLoops()
     QTRY_COMPARE(group.state(), QAbstractAnimationJob::Stopped);
 }
 
+void tst_QSequentialAnimationGroupJob::deleteFromListener()
+{
+    QSequentialAnimationGroupJob *group = new QSequentialAnimationGroupJob;
+
+    UncontrolledAnimation *uncontrolled = new UncontrolledAnimation();
+    TestAnimation *shortLoop = new TestAnimation(100);
+    UncontrolledAnimation *more = new UncontrolledAnimation();
+
+    shortLoop->setLoopCount(-1);
+
+    group->appendAnimation(uncontrolled);
+    group->appendAnimation(shortLoop);
+    group->appendAnimation(more);
+
+    StateChangeListener listener;
+    listener.beEvil = true;
+    shortLoop->addAnimationChangeListener(&listener, QAbstractAnimationJob::StateChange);
+    group->setLoopCount(2);
+
+    group->start();
+
+    QCOMPARE(group->currentLoop(), 0);
+    QCOMPARE(group->state(), QAbstractAnimationJob::Running);
+    QTRY_COMPARE(uncontrolled->state(), QAbstractAnimationJob::Running);
+
+    QVERIFY(!listener.groupDeleted);
+    uncontrolled->stop();
+
+    QTRY_VERIFY(listener.groupDeleted);
+    // It's dead, Jim.
+}
 
 QTEST_MAIN(tst_QSequentialAnimationGroupJob)
 #include "tst_qsequentialanimationgroupjob.moc"

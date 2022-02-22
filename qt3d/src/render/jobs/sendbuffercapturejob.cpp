@@ -44,7 +44,8 @@
 #include <Qt3DRender/private/buffer_p.h>
 #include <Qt3DRender/private/buffermanager_p.h>
 #include <Qt3DCore/private/qaspectmanager_p.h>
-#include <Qt3DRender/private/qbuffer_p.h>
+#include <Qt3DCore/private/qbuffer_p.h>
+#include <Qt3DCore/private/vector_helper_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -61,8 +62,8 @@ public:
     void postFrame(Qt3DCore::QAspectManager *aspectManager) override;
 
     mutable QMutex m_mutex;
-    QVector<QPair<Qt3DCore::QNodeId, QByteArray>> m_buffersToCapture;
-    QVector<QPair<Qt3DCore::QNodeId, QByteArray>> m_buffersToNotify;
+    QList<QPair<Qt3DCore::QNodeId, QByteArray>> m_buffersToCapture;
+    QList<QPair<Qt3DCore::QNodeId, QByteArray>> m_buffersToNotify;
 };
 
 SendBufferCaptureJob::SendBufferCaptureJob()
@@ -104,18 +105,18 @@ void SendBufferCaptureJob::run()
         if (buffer != nullptr)
             buffer->updateDataFromGPUToCPU(pendingCapture.second);
     }
-    d->m_buffersToNotify = std::move(d->m_buffersToCapture);
+    d->m_buffersToNotify = Qt3DCore::moveAndClear(d->m_buffersToCapture);
 }
 
 void SendBufferCaptureJobPrivate::postFrame(Qt3DCore::QAspectManager *aspectManager)
 {
     QMutexLocker locker(&m_mutex);
-    const QVector<QPair<Qt3DCore::QNodeId, QByteArray>> pendingSendBufferCaptures = std::move(m_buffersToNotify);
+    const QList<QPair<Qt3DCore::QNodeId, QByteArray>> pendingSendBufferCaptures = Qt3DCore::moveAndClear(m_buffersToNotify);
     for (const auto &bufferDataPair : pendingSendBufferCaptures) {
-        QBuffer *frontendBuffer = static_cast<decltype(frontendBuffer)>(aspectManager->lookupNode(bufferDataPair.first));
+        Qt3DCore::QBuffer *frontendBuffer = static_cast<decltype(frontendBuffer)>(aspectManager->lookupNode(bufferDataPair.first));
         if (!frontendBuffer)
             continue;
-        QBufferPrivate *dFrontend = static_cast<decltype(dFrontend)>(Qt3DCore::QNodePrivate::get(frontendBuffer));
+        Qt3DCore::QBufferPrivate *dFrontend = static_cast<decltype(dFrontend)>(Qt3DCore::QNodePrivate::get(frontendBuffer));
         // Calling frontendBuffer->setData would result in forcing a sync against the backend
         // which isn't necessary
         dFrontend->setData(bufferDataPair.second);

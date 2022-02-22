@@ -52,21 +52,23 @@
 //
 
 #include <QtGui/private/qtguiglobal_p.h>
-#include "QtCore/qstring.h"
-#include "QtCore/qvector.h"
-#include "QtCore/qlist.h"
-#include "private/qobject_p.h"
-#include "private/qfragmentmap_p.h"
-#include "QtGui/qtextlayout.h"
-#include "QtGui/qtextoption.h"
-#include "private/qtextformat_p.h"
-#include "QtGui/qtextdocument.h"
-#include "QtGui/qtextobject.h"
 #include "QtGui/qtextcursor.h"
+#include "QtGui/qtextdocument.h"
+#include "QtGui/qtextlayout.h"
+#include "QtGui/qtextobject.h"
+#include "QtGui/qtextoption.h"
+
+#include "QtCore/qlist.h"
 #include "QtCore/qmap.h"
-#include "QtCore/qvariant.h"
+#include "QtCore/qset.h"
+#include "QtCore/qstring.h"
 #include "QtCore/qurl.h"
+#include "QtCore/qvariant.h"
+
 #include "private/qcssparser_p.h"
+#include "private/qfragmentmap_p.h"
+#include "private/qobject_p.h"
+#include "private/qtextformat_p.h"
 
 // #define QT_QMAP_DEBUG
 
@@ -84,8 +86,8 @@ class QAbstractTextDocumentLayout;
 class QTextDocument;
 class QTextFrame;
 
-#define QTextBeginningOfFrame QChar(0xfdd0)
-#define QTextEndOfFrame QChar(0xfdd1)
+#define QTextBeginningOfFrame QChar(u'\xfdd0')
+#define QTextEndOfFrame QChar(u'\xfdd1')
 
 class QTextFragmentData : public QFragment<>
 {
@@ -295,6 +297,36 @@ public:
 
     bool ensureMaximumBlockCount();
 
+    static inline const QTextDocumentPrivate *get(const QTextDocument *document)
+    {
+        return document->d_func();
+    }
+
+    static inline QTextDocumentPrivate *get(QTextDocument *document)
+    {
+        return document->d_func();
+    }
+
+    static inline QTextDocumentPrivate *get(QTextBlock &block)
+    {
+        return block.p;
+    }
+
+    static inline const QTextDocumentPrivate *get(const QTextBlock &block)
+    {
+        return block.p;
+    }
+
+    static inline QTextDocumentPrivate *get(QTextObject *object)
+    {
+        return get(object->document());
+    }
+
+    static inline const QTextDocumentPrivate *get(const QTextObject *object)
+    {
+        return get(object->document());
+    }
+
 private:
     QTextDocumentPrivate(const QTextDocumentPrivate& m);
     QTextDocumentPrivate& operator= (const QTextDocumentPrivate& m);
@@ -308,7 +340,7 @@ private:
     QString text;
     uint unreachableCharacterCount;
 
-    QVector<QTextUndoCommand> undoStack;
+    QList<QTextUndoCommand> undoStack;
     bool undoEnabled;
     int undoState;
     int revision;
@@ -334,6 +366,7 @@ private:
     QMap<int, QTextObject *> objects;
     QMap<QUrl, QVariant> resources;
     QMap<QUrl, QVariant> cachedResources;
+    QTextDocument::ResourceProvider resourceProvider;
     QString defaultStyleSheet;
 
     int lastBlockCount;
@@ -373,7 +406,7 @@ public:
         ExportFragment
     };
 
-    QString toHtml(const QByteArray &encoding, ExportMode mode = ExportEntireDocument);
+    QString toHtml(ExportMode mode = ExportEntireDocument);
 
 private:
     enum StyleMode { EmitStyleTag, OmitStyleTag };
@@ -405,6 +438,7 @@ private:
     QTextCharFormat defaultCharFormat;
     const QTextDocument *doc;
     bool fragmentMarkers;
+    QStringList closingTags;
 };
 
 QT_END_NAMESPACE

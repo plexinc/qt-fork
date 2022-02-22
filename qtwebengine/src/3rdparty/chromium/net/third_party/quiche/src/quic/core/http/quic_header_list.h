@@ -10,12 +10,12 @@
 #include <string>
 #include <utility>
 
-#include "net/third_party/quiche/src/quic/core/quic_circular_deque.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_bug_tracker.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
-#include "net/third_party/quiche/src/spdy/core/spdy_header_block.h"
-#include "net/third_party/quiche/src/spdy/core/spdy_headers_handler_interface.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/quic_circular_deque.h"
+#include "quic/platform/api/quic_bug_tracker.h"
+#include "quic/platform/api/quic_export.h"
+#include "spdy/core/spdy_header_block.h"
+#include "spdy/core/spdy_headers_handler_interface.h"
 
 namespace quic {
 
@@ -36,8 +36,7 @@ class QUIC_EXPORT_PRIVATE QuicHeaderList
 
   // From SpdyHeadersHandlerInteface.
   void OnHeaderBlockStart() override;
-  void OnHeader(quiche::QuicheStringPiece name,
-                quiche::QuicheStringPiece value) override;
+  void OnHeader(absl::string_view name, absl::string_view value) override;
   void OnHeaderBlockEnd(size_t uncompressed_header_bytes,
                         size_t compressed_header_bytes) override;
 

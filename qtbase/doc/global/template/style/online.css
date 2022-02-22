@@ -489,17 +489,12 @@ h1,h2,h3,h4,h5,h6 {
   text-align:left;
   padding:5px 0 0 0
 }
-.qmlreadonly,.qmldefault {
+.qmlreadonly,.qmldefault,.qmlextra {
+  color:#414141;
   padding:0 5px 0 5px;
   font-size:0.75em;
   background-color:#eee;
   float:right
-}
-.qmlreadonly {
-  color:#414141
-}
-.qmldefault {
-  color:#D14141
 }
 .rightAlign {
   padding:3px 5px 3px 10px;
@@ -563,7 +558,6 @@ blockquote:before,blockquote:after,q:before,q:after {
 table {
   border-collapse:collapse;
   border-spacing:0;
-  margin-bottom:5px;
   width:100%
 }
 a {
@@ -881,6 +875,9 @@ li a.active {
   margin-left:3px;
   font-style:italic
 }
+.context table p.figCaption {
+  transform:initial;
+}
 .context table {
   vertical-align:initial
 }
@@ -942,7 +939,8 @@ div.main_index .row:after {
   background-color:#f3f3f4
 }
 div.table {
-  overflow-x:auto
+  overflow-x:auto;
+  margin-bottom:1.5em;
 }
 .context tr > td > pre {
   font-size:0.75em
@@ -988,6 +986,25 @@ pre, .LegaleseLeft {
 .mainContent .LegaleseLeft p {
   color:#fff;
   white-space: pre-wrap
+}
+div.admonition {
+  margin:1.5em 0 1.5em;
+  padding:12px;
+}
+div.admonition.note {
+  background-color:#c5d3f4;
+  border-left:5px solid #7a9ae5;
+}
+div.admonition.warning {
+  background-color:#ffe4e4;
+  border-left:5px solid #ff8383;
+}
+div.admonition.important {
+  background-color:#fef9f3;
+  border-left:5px solid #f6cb97;
+}
+.mainContent .admonition p {
+  margin:0;
 }
 pre .str,code .str {
   color:#aaaaaa
@@ -1215,7 +1232,7 @@ pre:hover>.copy_text {
     width:initial
   }
 }
-[id]:target,[name]:target,[name]:target+* {
+[id]:target,[name]:target,[name]:target+*,span:target+* {
   -webkit-animation:highlighter 3s;
   animation:highlighter 3s
 }

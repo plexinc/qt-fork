@@ -18,10 +18,10 @@
 #include "components/autofill/core/browser/autofill_type.h"
 #include "components/autofill/core/browser/data_model/autofill_profile.h"
 #include "components/autofill/core/browser/field_types.h"
+#include "components/autofill/core/browser/proto/api_v1.pb.h"
 #include "components/autofill/core/browser/proto/password_requirements.pb.h"
-#include "components/autofill/core/browser/proto/server.pb.h"
 #include "components/autofill/core/common/form_field_data.h"
-#include "components/autofill/core/common/signatures_util.h"
+#include "components/autofill/core/common/signatures.h"
 
 namespace autofill {
 
@@ -40,6 +40,7 @@ class AutofillField : public FormFieldData {
   };
 
   AutofillField();
+  explicit AutofillField(const FormFieldData& field);
   AutofillField(const FormFieldData& field, const base::string16& unique_name);
   virtual ~AutofillField();
 
@@ -49,13 +50,23 @@ class AutofillField : public FormFieldData {
   static std::unique_ptr<AutofillField> CreateForPasswordManagerUpload(
       FieldSignature field_signature);
 
+  // Unique names are not stable across dynamic change. Use renderer IDs instead
+  // if possible.
+  // TODO(crbug/896689): Remove unique_name.
   const base::string16& unique_name() const { return unique_name_; }
 
   ServerFieldType heuristic_type() const { return heuristic_type_; }
   ServerFieldType server_type() const { return server_type_; }
-  const std::vector<AutofillQueryResponseContents::Field::FieldPrediction>&
+  bool server_type_prediction_is_override() const {
+    return server_type_prediction_is_override_;
+  }
+  const std::vector<
+      AutofillQueryResponse::FormSuggestion::FieldSuggestion::FieldPrediction>&
   server_predictions() const {
     return server_predictions_;
+  }
+  bool may_use_prefilled_placeholder() const {
+    return may_use_prefilled_placeholder_;
   }
   HtmlFieldType html_type() const { return html_type_; }
   HtmlFieldMode html_mode() const { return html_mode_; }
@@ -66,17 +77,25 @@ class AutofillField : public FormFieldData {
   PhonePart phone_part() const { return phone_part_; }
   bool previously_autofilled() const { return previously_autofilled_; }
   const base::string16& parseable_name() const { return parseable_name_; }
+  const base::string16& parseable_label() const { return parseable_label_; }
   bool only_fill_when_focused() const { return only_fill_when_focused_; }
 
   // Setters for the detected types.
   void set_heuristic_type(ServerFieldType type);
   void set_server_type(ServerFieldType type);
+  // Setter for the indicator that the server prediction is an override.
+  void set_server_type_prediction_is_override(bool is_override) {
+    server_type_prediction_is_override_ = is_override;
+  }
   void add_possible_types_validities(
       const ServerFieldTypeValidityStateMap& possible_types_validities);
   void set_server_predictions(
-      const std::vector<AutofillQueryResponseContents::Field::FieldPrediction>
-          predictions) {
+      std::vector<AutofillQueryResponse::FormSuggestion::FieldSuggestion::
+                      FieldPrediction> predictions) {
     server_predictions_ = std::move(predictions);
+  }
+  void set_may_use_prefilled_placeholder(bool may_use_prefilled_placeholder) {
+    may_use_prefilled_placeholder_ = may_use_prefilled_placeholder;
   }
   void set_possible_types(const ServerFieldTypeSet& possible_types) {
     possible_types_ = possible_types;
@@ -89,11 +108,15 @@ class AutofillField : public FormFieldData {
       get_validities_for_possible_type(ServerFieldType);
 
   void SetHtmlType(HtmlFieldType type, HtmlFieldMode mode);
+
   void set_previously_autofilled(bool previously_autofilled) {
     previously_autofilled_ = previously_autofilled;
   }
   void set_parseable_name(const base::string16& parseable_name) {
     parseable_name_ = parseable_name;
+  }
+  void set_parseable_label(const base::string16& parseable_label) {
+    parseable_label_ = parseable_label;
   }
 
   void set_only_fill_when_focused(bool fill_when_focused) {
@@ -174,6 +197,14 @@ class AutofillField : public FormFieldData {
     return password_requirements_;
   }
 
+  // Getter and Setter methods for |state_is_a_matching_type_|.
+  void set_state_is_a_matching_type(bool value = true) {
+    state_is_a_matching_type_ = value;
+  }
+  const bool& state_is_a_matching_type() const {
+    return state_is_a_matching_type_;
+  }
+
   // For each type in |possible_types_| that's missing from
   // |possible_types_validities_|, will add it to the
   // |possible_types_validities_| and will set its validity to UNVALIDATED. This
@@ -196,10 +227,18 @@ class AutofillField : public FormFieldData {
   // The type of the field, as determined by the Autofill server.
   ServerFieldType server_type_ = NO_SERVER_DATA;
 
+  // Indicates if the server type prediction is an override.
+  bool server_type_prediction_is_override_ = false;
+
   // The possible types of the field, as determined by the Autofill server,
   // including |server_type_| as the first item.
-  std::vector<AutofillQueryResponseContents::Field::FieldPrediction>
+  std::vector<
+      AutofillQueryResponse::FormSuggestion::FieldSuggestion::FieldPrediction>
       server_predictions_;
+
+  // Whether the server-side classification believes that the field
+  // may be pre-filled with a placeholder in the value attribute.
+  bool may_use_prefilled_placeholder_ = false;
 
   // Requirements the site imposes to passwords (for password generation).
   // Corresponds to the requirements determined by the Autofill server.
@@ -249,6 +288,10 @@ class AutofillField : public FormFieldData {
   // parsing.
   base::string16 parseable_name_;
 
+  // The parseable label attribute is potentially only a part of the original
+  // label when the label is divided between subsequent fields.
+  base::string16 parseable_label_;
+
   // The type of password generation event, if it happened.
   AutofillUploadContents::Field::PasswordGenerationType generation_type_ =
       AutofillUploadContents::Field::NO_GENERATION;
@@ -261,6 +304,9 @@ class AutofillField : public FormFieldData {
   // triggered the vote.
   AutofillUploadContents::Field::VoteType vote_type_ =
       AutofillUploadContents::Field::NO_INFORMATION;
+
+  // Denotes if |ADDRESS_HOME_STATE| should be added to |possible_types_|.
+  bool state_is_a_matching_type_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(AutofillField);
 };

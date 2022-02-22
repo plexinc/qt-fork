@@ -52,8 +52,8 @@ package_exists() {
     echo "Call build_apt_package_list() prior to calling package_exists()" >&2
     apt_package_list=$(build_apt_package_list)
   fi
-  # 'apt-cache search' takes a regex string, so eg. the +'s in packages like
-  # "libstdc++" need to be escaped.
+  # `grep` takes a regex string, so the +'s in package names, e.g. "libstdc++",
+  # need to be escaped.
   local escaped="$(echo $1 | sed 's/[\~\+\.\:-]/\\&/g')"
   [ ! -z "$(grep "^${escaped}$" <<< "${apt_package_list}")" ]
 }
@@ -97,12 +97,13 @@ fi
 # Check for lsb_release command in $PATH
 if ! which lsb_release > /dev/null; then
   echo "ERROR: lsb_release not found in \$PATH" >&2
+  echo "try: sudo apt-get install lsb-release" >&2
   exit 1;
 fi
 
 distro_codename=$(lsb_release --codename --short)
 distro_id=$(lsb_release --id --short)
-supported_codenames="(trusty|xenial|bionic|disco|eoan)"
+supported_codenames="(trusty|xenial|bionic|disco|eoan|focal|groovy)"
 supported_ids="(Debian)"
 if [ 0 -eq "${do_unsupported-0}" ] && [ 0 -eq "${do_quick_check-0}" ] ; then
   if [[ ! $distro_codename =~ $supported_codenames &&
@@ -111,8 +112,8 @@ if [ 0 -eq "${do_unsupported-0}" ] && [ 0 -eq "${do_quick_check-0}" ] ; then
       "\tUbuntu 14.04 LTS (trusty with EoL April 2022)\n" \
       "\tUbuntu 16.04 LTS (xenial with EoL April 2024)\n" \
       "\tUbuntu 18.04 LTS (bionic with EoL April 2028)\n" \
-      "\tUbuntu 19.04 (disco)\n" \
-      "\tUbuntu 19.10 (eoan)\n" \
+      "\tUbuntu 20.04 LTS (focal with Eol April 2030)\n" \
+      "\tUbuntu 20.10 (groovy)\n" \
       "\tDebian 8 (jessie) or later" >&2
     exit 1
   fi
@@ -129,10 +130,12 @@ if [ "x$(id -u)" != x0 ] && [ 0 -eq "${do_quick_check-0}" ]; then
   echo
 fi
 
-if [ "$do_inst_lib32" = "1" ] || [ "$do_inst_nacl" = "1" ]; then
-  sudo dpkg --add-architecture i386
+if [ 0 -eq "${do_quick_check-0}" ] ; then
+  if [ "$do_inst_lib32" = "1" ] || [ "$do_inst_nacl" = "1" ]; then
+    sudo dpkg --add-architecture i386
+  fi
+  sudo apt-get update
 fi
-sudo apt-get update
 
 # Populate ${apt_package_list} for package_exists() parsing.
 apt_package_list=$(build_apt_package_list)
@@ -200,14 +203,8 @@ dev_list="\
   perl
   pkg-config
   python
-  python-cherrypy3
-  python-crypto
   python-dev
-  python-numpy
-  python-opencv
-  python-openssl
-  python-psutil
-  python-yaml
+  python-setuptools
   rpm
   ruby
   subversion
@@ -223,7 +220,14 @@ dev_list="\
 # 64-bit systems need a minimum set of 32-bit compat packages for the pre-built
 # NaCl binaries.
 if file -L /sbin/init | grep -q 'ELF 64-bit'; then
-  dev_list="${dev_list} libc6-i386 lib32gcc1 lib32stdc++6"
+  dev_list="${dev_list} libc6-i386 lib32stdc++6"
+
+  # lib32gcc-s1 used to be called lib32gcc1 in older distros.
+  if package_exists lib32gcc-s1; then
+    dev_list="${dev_list} lib32gcc-s1"
+  elif package_exists lib32gcc1; then
+    dev_list="${dev_list} lib32gcc1"
+  fi
 fi
 
 # Run-time libraries required by chromeos only
@@ -242,14 +246,13 @@ common_lib_list="\
   libdrm2
   libevdev2
   libexpat1
-  libffi6
   libfontconfig1
   libfreetype6
   libgbm1
   libglib2.0-0
   libgtk-3-0
   libpam0g
-  libpango1.0-0
+  libpango-1.0-0
   libpci3
   libpcre3
   libpixman-1-0
@@ -275,6 +278,12 @@ common_lib_list="\
   libxtst6
   zlib1g
 "
+
+if package_exists libffi7; then
+  common_lib_list="${common_lib_list} libffi7"
+elif package_exists libffi6; then
+  common_lib_list="${common_lib_list} libffi6"
+fi
 
 # Full list of required run-time libraries
 lib_list="\
@@ -410,6 +419,18 @@ case $distro_codename in
                 gcc-9-multilib-arm-linux-gnueabihf
                 gcc-arm-linux-gnueabihf"
     ;;
+  focal)
+    arm_list+=" g++-10-multilib-arm-linux-gnueabihf
+                gcc-10-multilib-arm-linux-gnueabihf
+                gcc-arm-linux-gnueabihf"
+    ;;
+  groovy)
+    arm_list+=" g++-10-multilib-arm-linux-gnueabihf
+                gcc-10-multilib-arm-linux-gnueabihf
+                gcc-arm-linux-gnueabihf
+                g++-10-arm-linux-gnueabihf
+                gcc-10-arm-linux-gnueabihf"
+    ;;
 esac
 
 # Packages to build NaCl, its toolchains, and its ports.
@@ -426,7 +447,7 @@ nacl_list="\
   libncurses5:i386
   lib32ncurses5-dev
   libnss3:i386
-  libpango1.0-0:i386
+  libpango-1.0-0:i386
   libssl-dev:i386
   libtinfo-dev
   libtinfo-dev:i386
@@ -452,6 +473,9 @@ elif package_exists libssl1.0.2; then
 else
   nacl_list="${nacl_list} libssl1.0.0:i386"
 fi
+if package_exists libtinfo5; then
+  nacl_list="${nacl_list} libtinfo5"
+fi
 if package_exists libpng16-16; then
   lib_list="${lib_list} libpng16-16"
 else
@@ -474,7 +498,9 @@ else
   dev_list="${dev_list} libudev0"
   nacl_list="${nacl_list} libudev0:i386"
 fi
-if package_exists libbrlapi0.7; then
+if package_exists libbrlapi0.8; then
+  dev_list="${dev_list} libbrlapi0.8"
+elif package_exists libbrlapi0.7; then
   dev_list="${dev_list} libbrlapi0.7"
 elif package_exists libbrlapi0.6; then
   dev_list="${dev_list} libbrlapi0.6"
@@ -489,7 +515,9 @@ fi
 if package_exists libav-tools; then
   dev_list="${dev_list} libav-tools"
 fi
-if package_exists php7.3-cgi; then
+if package_exists php7.4-cgi; then
+  dev_list="${dev_list} php7.4-cgi libapache2-mod-php7.4"
+elif package_exists php7.3-cgi; then
   dev_list="${dev_list} php7.3-cgi libapache2-mod-php7.3"
 elif package_exists php7.2-cgi; then
   dev_list="${dev_list} php7.2-cgi libapache2-mod-php7.2"
@@ -499,6 +527,24 @@ elif package_exists php7.0-cgi; then
   dev_list="${dev_list} php7.0-cgi libapache2-mod-php7.0"
 else
   dev_list="${dev_list} php5-cgi libapache2-mod-php5"
+fi
+
+# Most python 2 packages are removed in Ubuntu 20.10, but the build doesn't seem
+# to need them, so only install them if they're available.
+if package_exists python-crypto; then
+  dev_list="${dev_list} python-crypto"
+fi
+if package_exists python-numpy; then
+  dev_list="${dev_list} python-numpy"
+fi
+if package_exists python-openssl; then
+  dev_list="${dev_list} python-openssl"
+fi
+if package_exists python-psutil; then
+  dev_list="${dev_list} python-psutil"
+fi
+if package_exists python-yaml; then
+  dev_list="${dev_list} python-yaml"
 fi
 
 # Some packages are only needed if the distribution actually supports
@@ -597,7 +643,7 @@ if [ "$do_inst_syms" = "1" ]; then
   if [ "$(dbg_package_name libatk1.0-0)" == "" ]; then
     dbg_list="$dbg_list $(dbg_package_name libatk1.0)"
   fi
-  if [ "$(dbg_package_name libpango1.0-0)" == "" ]; then
+  if [ "$(dbg_package_name libpango-1.0-0)" == "" ]; then
     dbg_list="$dbg_list $(dbg_package_name libpango1.0-dev)"
   fi
 else

@@ -18,8 +18,6 @@ class ClientStatus;
 // This action performs a click on a given element.
 class ClickAction : public Action {
  public:
-  enum ClickType { TAP = 0, JAVASCRIPT = 1, CLICK = 2 };
-
   explicit ClickAction(ActionDelegate* delegate, const ActionProto& proto);
   ~ClickAction() override;
 
@@ -33,6 +31,7 @@ class ClickAction : public Action {
   void OnClick(ProcessActionCallback callback, const ClientStatus& status);
 
   ClickType click_type_;
+  OptionalStep on_top_;
   base::WeakPtrFactory<ClickAction> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(ClickAction);

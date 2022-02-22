@@ -38,7 +38,7 @@
 #include <float.h>
 #include <cmath>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 /*!
     \class QDateTimeAxis
     \inmodule QtCharts
@@ -344,7 +344,7 @@ void QDateTimeAxisPrivate::setRange(qreal min,qreal max)
 void QDateTimeAxisPrivate::setMin(const QVariant &min)
 {
     Q_Q(QDateTimeAxis);
-    if (min.canConvert(QVariant::DateTime))
+    if (min.canConvert<QDateTime>())
         q->setMin(min.toDateTime());
 }
 
@@ -352,14 +352,14 @@ void QDateTimeAxisPrivate::setMax(const QVariant &max)
 {
 
     Q_Q(QDateTimeAxis);
-    if (max.canConvert(QVariant::DateTime))
+    if (max.canConvert<QDateTime>())
         q->setMax(max.toDateTime());
 }
 
 void QDateTimeAxisPrivate::setRange(const QVariant &min, const QVariant &max)
 {
     Q_Q(QDateTimeAxis);
-    if (min.canConvert(QVariant::DateTime) && max.canConvert(QVariant::DateTime))
+    if (min.canConvert<QDateTime>() && max.canConvert<QDateTime>())
         q->setRange(min.toDateTime(), max.toDateTime());
 }
 
@@ -401,7 +401,7 @@ void QDateTimeAxisPrivate::initializeDomain(AbstractDomain *domain)
     }
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_qdatetimeaxis.cpp"
 #include "moc_qdatetimeaxis_p.cpp"

@@ -9,13 +9,11 @@
 
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
+#include "base/timer/timer.h"
 #include "media/base/audio_renderer.h"
 #include "media/base/buffering_state.h"
 #include "media/base/demuxer_stream.h"
 #include "media/base/time_source.h"
-#include "media/fuchsia/mojom/fuchsia_media_resource_provider.mojom.h"
-#include "mojo/public/cpp/bindings/pending_remote.h"
-#include "mojo/public/cpp/bindings/remote.h"
 
 namespace media {
 
@@ -27,10 +25,9 @@ class MediaLog;
 // sends encoded stream directly to AudioConsumer provided by the platform.
 class FuchsiaAudioRenderer : public AudioRenderer, public TimeSource {
  public:
-  FuchsiaAudioRenderer(
-      MediaLog* media_log,
-      mojo::PendingRemote<media::mojom::FuchsiaMediaResourceProvider>
-          media_resource_provider);
+  FuchsiaAudioRenderer(MediaLog* media_log,
+                       fidl::InterfaceHandle<fuchsia::media::AudioConsumer>
+                           audio_consumer_handle);
   ~FuchsiaAudioRenderer() final;
 
   // AudioRenderer implementation.
@@ -43,6 +40,8 @@ class FuchsiaAudioRenderer : public AudioRenderer, public TimeSource {
   void StartPlaying() final;
   void SetVolume(float volume) final;
   void SetLatencyHint(base::Optional<base::TimeDelta> latency_hint) final;
+  void SetPreservesPitch(bool preserves_pitch) final;
+  void SetAutoplayInitiated(bool autoplay_initiated) final;
 
   // TimeSource implementation.
   void StartTicking() final;
@@ -61,11 +60,9 @@ class FuchsiaAudioRenderer : public AudioRenderer, public TimeSource {
     // should not be used yet.
     kStarting,
 
+    // Playback is active. When the stream reaches EOS it stays in the kPlaying
+    // state.
     kPlaying,
-
-    // Received end-of-stream packet from the |demuxer_stream_|. Waiting for
-    // EndOfStream event from |audio_consumer_|.
-    kEndOfStream,
   };
 
   // Struct used to store state of an input buffer shared with the
@@ -86,6 +83,10 @@ class FuchsiaAudioRenderer : public AudioRenderer, public TimeSource {
 
   // Resets AudioConsumer and reports error to the |client_|.
   void OnError(PipelineStatus Status);
+
+  // Connects |volume_control_|, if it hasn't been connected, and then sets
+  // |volume_|.
+  void UpdateVolume();
 
   // Initializes |stream_sink_|. Called during initialization and every time
   // configuration changes.
@@ -116,8 +117,18 @@ class FuchsiaAudioRenderer : public AudioRenderer, public TimeSource {
   // End-of-stream event handler for |audio_consumer_|.
   void OnEndOfStream();
 
+  // Returns true if media clock is ticking and the rate is above 0.0.
+  bool IsTimeMoving() EXCLUSIVE_LOCKS_REQUIRED(timeline_lock_);
+
+  // Updates TimelineFunction parameters after StopTicking() or
+  // SetPlaybackRate(0.0). Normally these parameters are provided by
+  // AudioConsumer, but this happens asynchronously and we need to make sure
+  // that StopTicking() and SetPlaybackRate(0.0) stop the media clock
+  // synchronously. Must be called before updating the |state_|.
+  void UpdateTimelineOnStop() EXCLUSIVE_LOCKS_REQUIRED(timeline_lock_);
+
   // Calculates media position based on the TimelineFunction returned from
-  // AudioConsumer.
+  // AudioConsumer. Must be called only when IsTimeMoving() is true.
   base::TimeDelta CurrentMediaTimeLocked()
       EXCLUSIVE_LOCKS_REQUIRED(timeline_lock_);
 
@@ -131,7 +142,12 @@ class FuchsiaAudioRenderer : public AudioRenderer, public TimeSource {
   fuchsia::media::StreamSinkPtr stream_sink_;
   fuchsia::media::audio::VolumeControlPtr volume_control_;
 
+  float volume_ = 1.0;
+
   DemuxerStream* demuxer_stream_ = nullptr;
+  bool is_demuxer_read_pending_ = false;
+  bool drop_next_demuxer_read_result_ = false;
+
   RendererClient* client_ = nullptr;
 
   // Initialize() completion callback.
@@ -151,6 +167,10 @@ class FuchsiaAudioRenderer : public AudioRenderer, public TimeSource {
   // the initial AudioConsumerStatus is received.
   base::TimeDelta min_lead_time_;
   base::TimeDelta max_lead_time_;
+
+  // Set to true after we've received end-of-stream from the |demuxer_stream_|.
+  // The renderer may be restarted after Flush().
+  bool is_at_end_of_stream_ = false;
 
   // TimeSource interface is not single-threaded. The lock is used to guard
   // fields that are accessed in the TimeSource implementation. Note that these

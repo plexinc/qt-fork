@@ -7,6 +7,7 @@
 #include <limits>
 #include <memory>
 
+#include "base/test/gtest_util.h"
 #include "media/base/audio_buffer.h"
 #include "media/base/audio_bus.h"
 #include "media/base/test_helpers.h"
@@ -14,25 +15,42 @@
 
 namespace media {
 
-static const int kSampleRate = 4800;
+constexpr int kSampleRate = 4800;
 
+enum class ValueType { kNormal, kFloat };
 static void VerifyBusWithOffset(AudioBus* bus,
                                 int offset,
                                 int frames,
                                 float start,
                                 float start_offset,
-                                float increment) {
+                                float increment,
+                                ValueType type = ValueType::kNormal) {
   for (int ch = 0; ch < bus->channels(); ++ch) {
     const float v = start_offset + start + ch * bus->frames() * increment;
     for (int i = offset; i < offset + frames; ++i) {
-      ASSERT_FLOAT_EQ(v + i * increment, bus->channel(ch)[i]) << "i=" << i
-                                                              << ", ch=" << ch;
+      float expected_value = v + i * increment;
+      if (type == ValueType::kFloat)
+        expected_value /= std::numeric_limits<uint16_t>::max();
+      ASSERT_FLOAT_EQ(expected_value, bus->channel(ch)[i])
+          << "i=" << i << ", ch=" << ch;
     }
   }
 }
 
-static void VerifyBus(AudioBus* bus, int frames, float start, float increment) {
-  VerifyBusWithOffset(bus, 0, frames, start, 0, increment);
+static std::vector<float*> WrapChannelsAsVector(AudioBus* bus) {
+  std::vector<float*> channels(bus->channels());
+  for (size_t ch = 0; ch < channels.size(); ++ch)
+    channels[ch] = bus->channel(ch);
+
+  return channels;
+}
+
+static void VerifyBus(AudioBus* bus,
+                      int frames,
+                      float start,
+                      float increment,
+                      ValueType type = ValueType::kNormal) {
+  VerifyBusWithOffset(bus, 0, frames, start, 0, increment, type);
 }
 
 static void TrimRangeTest(SampleFormat sample_format) {
@@ -57,7 +75,7 @@ static void TrimRangeTest(SampleFormat sample_format) {
 
   // Verify all frames before trimming.
   buffer->ReadFrames(frames, 0, 0, bus.get());
-  VerifyBus(bus.get(), frames, 0, 1);
+  VerifyBus(bus.get(), frames, 0, 1, ValueType::kFloat);
 
   // Trim 10ms of frames from the middle of the buffer.
   int trim_start = frames / 2;
@@ -69,13 +87,9 @@ static void TrimRangeTest(SampleFormat sample_format) {
   EXPECT_EQ(duration - trim_duration, buffer->duration());
   bus->Zero();
   buffer->ReadFrames(buffer->frame_count(), 0, 0, bus.get());
-  VerifyBus(bus.get(), trim_start, 0, 1);
-  VerifyBusWithOffset(bus.get(),
-                      trim_start,
-                      buffer->frame_count() - trim_start,
-                      0,
-                      trim_length,
-                      1);
+  VerifyBus(bus.get(), trim_start, 0, 1, ValueType::kFloat);
+  VerifyBusWithOffset(bus.get(), trim_start, buffer->frame_count() - trim_start,
+                      0, trim_length, 1, ValueType::kFloat);
 
   // Trim 10ms of frames from the start, which just adjusts the buffer's
   // internal start offset.
@@ -86,13 +100,9 @@ static void TrimRangeTest(SampleFormat sample_format) {
   EXPECT_EQ(duration - 2 * trim_duration, buffer->duration());
   bus->Zero();
   buffer->ReadFrames(buffer->frame_count(), 0, 0, bus.get());
-  VerifyBus(bus.get(), trim_start, trim_length, 1);
-  VerifyBusWithOffset(bus.get(),
-                      trim_start,
-                      buffer->frame_count() - trim_start,
-                      trim_length,
-                      trim_length,
-                      1);
+  VerifyBus(bus.get(), trim_start, trim_length, 1, ValueType::kFloat);
+  VerifyBusWithOffset(bus.get(), trim_start, buffer->frame_count() - trim_start,
+                      trim_length, trim_length, 1, ValueType::kFloat);
 
   // Trim 10ms of frames from the end, which just adjusts the buffer's frame
   // count.
@@ -102,13 +112,9 @@ static void TrimRangeTest(SampleFormat sample_format) {
   EXPECT_EQ(duration - 3 * trim_duration, buffer->duration());
   bus->Zero();
   buffer->ReadFrames(buffer->frame_count(), 0, 0, bus.get());
-  VerifyBus(bus.get(), trim_start, trim_length, 1);
-  VerifyBusWithOffset(bus.get(),
-                      trim_start,
-                      buffer->frame_count() - trim_start,
-                      trim_length,
-                      trim_length,
-                      1);
+  VerifyBus(bus.get(), trim_start, trim_length, 1, ValueType::kFloat);
+  VerifyBusWithOffset(bus.get(), trim_start, buffer->frame_count() - trim_start,
+                      trim_length, trim_length, 1, ValueType::kFloat);
 
   // Trim another 10ms from the inner portion of the buffer.
   buffer->TrimRange(trim_start, trim_start + trim_length);
@@ -117,13 +123,9 @@ static void TrimRangeTest(SampleFormat sample_format) {
   EXPECT_EQ(duration - 4 * trim_duration, buffer->duration());
   bus->Zero();
   buffer->ReadFrames(buffer->frame_count(), 0, 0, bus.get());
-  VerifyBus(bus.get(), trim_start, trim_length, 1);
-  VerifyBusWithOffset(bus.get(),
-                      trim_start,
-                      buffer->frame_count() - trim_start,
-                      trim_length,
-                      trim_length * 2,
-                      1);
+  VerifyBus(bus.get(), trim_start, trim_length, 1, ValueType::kFloat);
+  VerifyBusWithOffset(bus.get(), trim_start, buffer->frame_count() - trim_start,
+                      trim_length, trim_length * 2, 1, ValueType::kFloat);
 
   // Trim off the end using TrimRange() to ensure end index is exclusive.
   buffer->TrimRange(buffer->frame_count() - trim_length, buffer->frame_count());
@@ -132,13 +134,9 @@ static void TrimRangeTest(SampleFormat sample_format) {
   EXPECT_EQ(duration - 5 * trim_duration, buffer->duration());
   bus->Zero();
   buffer->ReadFrames(buffer->frame_count(), 0, 0, bus.get());
-  VerifyBus(bus.get(), trim_start, trim_length, 1);
-  VerifyBusWithOffset(bus.get(),
-                      trim_start,
-                      buffer->frame_count() - trim_start,
-                      trim_length,
-                      trim_length * 2,
-                      1);
+  VerifyBus(bus.get(), trim_start, trim_length, 1, ValueType::kFloat);
+  VerifyBusWithOffset(bus.get(), trim_start, buffer->frame_count() - trim_start,
+                      trim_length, trim_length * 2, 1, ValueType::kFloat);
 
   // Trim off the start using TrimRange() to ensure start index is inclusive.
   buffer->TrimRange(0, trim_length);
@@ -148,13 +146,9 @@ static void TrimRangeTest(SampleFormat sample_format) {
   EXPECT_EQ(duration - 6 * trim_duration, buffer->duration());
   bus->Zero();
   buffer->ReadFrames(buffer->frame_count(), 0, 0, bus.get());
-  VerifyBus(bus.get(), trim_start, 2 * trim_length, 1);
-  VerifyBusWithOffset(bus.get(),
-                      trim_start,
-                      buffer->frame_count() - trim_start,
-                      trim_length * 2,
-                      trim_length * 2,
-                      1);
+  VerifyBus(bus.get(), trim_start, 2 * trim_length, 1, ValueType::kFloat);
+  VerifyBusWithOffset(bus.get(), trim_start, buffer->frame_count() - trim_start,
+                      trim_length * 2, trim_length * 2, 1, ValueType::kFloat);
 }
 
 TEST(AudioBufferTest, CopyFrom) {
@@ -268,6 +262,15 @@ TEST(AudioBufferTest, ReadBitstream) {
   EXPECT_EQ(frames, bus->GetBitstreamFrames());
   EXPECT_EQ(data_size, bus->GetBitstreamDataSize());
   VerifyBitstreamAudioBus(bus.get(), data_size, 1, 1);
+
+#if GTEST_HAS_DEATH_TEST
+  auto vector_backing = AudioBus::Create(channels, frames);
+  std::vector<float*> wrapped_channels =
+      WrapChannelsAsVector(vector_backing.get());
+
+  // ReadAllFrames() does not support bitstream formats.
+  EXPECT_DCHECK_DEATH(buffer->ReadAllFrames(wrapped_channels));
+#endif  // GTEST_HAS_DEATH_TEST
 }
 
 TEST(AudioBufferTest, ReadU8) {
@@ -286,6 +289,12 @@ TEST(AudioBufferTest, ReadU8) {
   bus->Zero();
   for (int i = 0; i < frames; ++i)
     buffer->ReadFrames(1, i, i, bus.get());
+  VerifyBus(bus.get(), frames, 0, 1.0f / 127.0f);
+
+  // Verify ReadAllFrames() works for U8.
+  bus->Zero();
+  std::vector<float*> wrapped_channels = WrapChannelsAsVector(bus.get());
+  buffer->ReadAllFrames(wrapped_channels);
   VerifyBus(bus.get(), frames, 0, 1.0f / 127.0f);
 }
 
@@ -308,6 +317,13 @@ TEST(AudioBufferTest, ReadS16) {
     buffer->ReadFrames(1, i, i, bus.get());
   VerifyBus(bus.get(), frames, 1.0f / std::numeric_limits<int16_t>::max(),
             1.0f / std::numeric_limits<int16_t>::max());
+
+  // Verify ReadAllFrames() works for S16.
+  bus->Zero();
+  std::vector<float*> wrapped_channels = WrapChannelsAsVector(bus.get());
+  buffer->ReadAllFrames(wrapped_channels);
+  VerifyBus(bus.get(), frames, 1.0f / std::numeric_limits<int16_t>::max(),
+            1.0f / std::numeric_limits<int16_t>::max());
 }
 
 TEST(AudioBufferTest, ReadS32) {
@@ -328,6 +344,13 @@ TEST(AudioBufferTest, ReadS32) {
   buffer->ReadFrames(10, 10, 0, bus.get());
   VerifyBus(bus.get(), 10, 11.0f / std::numeric_limits<int32_t>::max(),
             1.0f / std::numeric_limits<int32_t>::max());
+
+  // Verify ReadAllFrames() works for S32.
+  bus->Zero();
+  std::vector<float*> wrapped_channels = WrapChannelsAsVector(bus.get());
+  buffer->ReadAllFrames(wrapped_channels);
+  VerifyBus(bus.get(), frames, 1.0f / std::numeric_limits<int32_t>::max(),
+            1.0f / std::numeric_limits<int32_t>::max());
 }
 
 TEST(AudioBufferTest, ReadF32) {
@@ -345,12 +368,18 @@ TEST(AudioBufferTest, ReadF32) {
                                                              start_time);
   std::unique_ptr<AudioBus> bus = AudioBus::Create(channels, frames);
   buffer->ReadFrames(10, 0, 0, bus.get());
-  VerifyBus(bus.get(), 10, 1, 1);
+  VerifyBus(bus.get(), 10, 1, 1, ValueType::kFloat);
 
   // Read second 10 frames.
   bus->Zero();
   buffer->ReadFrames(10, 10, 0, bus.get());
-  VerifyBus(bus.get(), 10, 11, 1);
+  VerifyBus(bus.get(), 10, 11, 1, ValueType::kFloat);
+
+  // Verify ReadAllFrames() works for F32.
+  bus->Zero();
+  std::vector<float*> wrapped_channels = WrapChannelsAsVector(bus.get());
+  buffer->ReadAllFrames(wrapped_channels);
+  VerifyBus(bus.get(), frames, 1, 1, ValueType::kFloat);
 }
 
 TEST(AudioBufferTest, ReadS16Planar) {
@@ -384,6 +413,13 @@ TEST(AudioBufferTest, ReadS16Planar) {
   buffer->ReadFrames(0, 10, 0, bus.get());
   VerifyBus(bus.get(), frames, 1.0f / std::numeric_limits<int16_t>::max(),
             1.0f / std::numeric_limits<int16_t>::max());
+
+  // Verify ReadAllFrames() works for S16Planar.
+  bus->Zero();
+  std::vector<float*> wrapped_channels = WrapChannelsAsVector(bus.get());
+  buffer->ReadAllFrames(wrapped_channels);
+  VerifyBus(bus.get(), frames, 1.0f / std::numeric_limits<int16_t>::max(),
+            1.0f / std::numeric_limits<int16_t>::max());
 }
 
 TEST(AudioBufferTest, ReadF32Planar) {
@@ -406,12 +442,18 @@ TEST(AudioBufferTest, ReadF32Planar) {
   // channels.
   std::unique_ptr<AudioBus> bus = AudioBus::Create(channels, 100);
   buffer->ReadFrames(frames, 0, 0, bus.get());
-  VerifyBus(bus.get(), frames, 1, 1);
+  VerifyBus(bus.get(), frames, 1, 1, ValueType::kFloat);
 
   // Now read 20 frames from the middle of the buffer.
   bus->Zero();
   buffer->ReadFrames(20, 50, 0, bus.get());
-  VerifyBus(bus.get(), 20, 51, 1);
+  VerifyBus(bus.get(), 20, 51, 1, ValueType::kFloat);
+
+  // Verify ReadAllFrames() works for F32Planar.
+  bus->Zero();
+  std::vector<float*> wrapped_channels = WrapChannelsAsVector(bus.get());
+  buffer->ReadAllFrames(wrapped_channels);
+  VerifyBus(bus.get(), frames, 1, 1, ValueType::kFloat);
 }
 
 TEST(AudioBufferTest, EmptyBuffer) {
@@ -426,9 +468,18 @@ TEST(AudioBufferTest, EmptyBuffer) {
   EXPECT_EQ(base::TimeDelta::FromMilliseconds(10), buffer->duration());
   EXPECT_FALSE(buffer->end_of_stream());
 
-  // Read all 100 frames from the buffer. All data should be 0.
+  // Read all frames from the buffer. All data should be 0.
   std::unique_ptr<AudioBus> bus = AudioBus::Create(channels, frames);
   buffer->ReadFrames(frames, 0, 0, bus.get());
+  VerifyBus(bus.get(), frames, 0, 0);
+
+  // Set some data to confirm the overwrite.
+  std::vector<float*> wrapped_channels = WrapChannelsAsVector(bus.get());
+  for (float* wrapped_channel : wrapped_channels)
+    memset(wrapped_channel, 123, frames * sizeof(float));
+
+  // Verify ReadAllFrames() overrites empty buffers.
+  buffer->ReadAllFrames(wrapped_channels);
   VerifyBus(bus.get(), frames, 0, 0);
 }
 
@@ -487,7 +538,7 @@ TEST(AudioBufferTest, Trim) {
 
   std::unique_ptr<AudioBus> bus = AudioBus::Create(channels, frames);
   buffer->ReadFrames(buffer->frame_count(), 0, 0, bus.get());
-  VerifyBus(bus.get(), buffer->frame_count(), 0.0f, 1.0f);
+  VerifyBus(bus.get(), buffer->frame_count(), 0.0f, 1.0f, ValueType::kFloat);
 
   // Trim off 10ms of frames from the start.
   buffer->TrimStart(ten_ms_of_frames);
@@ -495,7 +546,8 @@ TEST(AudioBufferTest, Trim) {
   EXPECT_EQ(frames - ten_ms_of_frames, buffer->frame_count());
   EXPECT_EQ(duration - ten_ms, buffer->duration());
   buffer->ReadFrames(buffer->frame_count(), 0, 0, bus.get());
-  VerifyBus(bus.get(), buffer->frame_count(), ten_ms_of_frames, 1.0f);
+  VerifyBus(bus.get(), buffer->frame_count(), ten_ms_of_frames, 1.0f,
+            ValueType::kFloat);
 
   // Trim off 10ms of frames from the end.
   buffer->TrimEnd(ten_ms_of_frames);
@@ -503,7 +555,8 @@ TEST(AudioBufferTest, Trim) {
   EXPECT_EQ(frames - 2 * ten_ms_of_frames, buffer->frame_count());
   EXPECT_EQ(duration - 2 * ten_ms, buffer->duration());
   buffer->ReadFrames(buffer->frame_count(), 0, 0, bus.get());
-  VerifyBus(bus.get(), buffer->frame_count(), ten_ms_of_frames, 1.0f);
+  VerifyBus(bus.get(), buffer->frame_count(), ten_ms_of_frames, 1.0f,
+            ValueType::kFloat);
 
   // Trim off 40ms more from the start.
   buffer->TrimStart(4 * ten_ms_of_frames);
@@ -511,7 +564,8 @@ TEST(AudioBufferTest, Trim) {
   EXPECT_EQ(frames - 6 * ten_ms_of_frames, buffer->frame_count());
   EXPECT_EQ(duration - 6 * ten_ms, buffer->duration());
   buffer->ReadFrames(buffer->frame_count(), 0, 0, bus.get());
-  VerifyBus(bus.get(), buffer->frame_count(), 5 * ten_ms_of_frames, 1.0f);
+  VerifyBus(bus.get(), buffer->frame_count(), 5 * ten_ms_of_frames, 1.0f,
+            ValueType::kFloat);
 
   // Trim off the final 40ms from the end.
   buffer->TrimEnd(4 * ten_ms_of_frames);

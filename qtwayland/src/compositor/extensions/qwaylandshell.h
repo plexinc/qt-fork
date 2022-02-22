@@ -30,7 +30,8 @@
 #ifndef QWAYLANDSHELL_H
 #define QWAYLANDSHELL_H
 
-#include <QtWaylandCompositor/QWaylandCompositorExtension>
+#include <QtWaylandCompositor/qtwaylandqmlinclude.h>
+#include <QtWaylandCompositor/qwaylandcompositorextension.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -41,6 +42,10 @@ class Q_WAYLAND_COMPOSITOR_EXPORT QWaylandShell : public QWaylandCompositorExten
     Q_OBJECT
     Q_DECLARE_PRIVATE(QWaylandShell)
     Q_PROPERTY(FocusPolicy focusPolicy READ focusPolicy WRITE setFocusPolicy NOTIFY focusPolicyChanged)
+
+    QML_NAMED_ELEMENT(Shell)
+    QML_UNCREATABLE("")
+    QML_ADDED_IN_VERSION(1, 0)
 public:
     enum FocusPolicy {
         AutomaticFocus,
@@ -60,10 +65,6 @@ Q_SIGNALS:
 protected:
     explicit QWaylandShell(QWaylandShellPrivate &dd);
     explicit QWaylandShell(QWaylandObject *container, QWaylandShellPrivate &dd);
-
-    //Qt 6: remove
-    Q_DECL_DEPRECATED QWaylandShell(QWaylandCompositorExtensionPrivate &dd);
-    Q_DECL_DEPRECATED QWaylandShell(QWaylandObject *container, QWaylandCompositorExtensionPrivate &dd);
 };
 
 template <typename T>

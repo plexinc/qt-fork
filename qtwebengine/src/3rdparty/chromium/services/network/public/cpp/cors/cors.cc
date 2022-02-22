@@ -392,16 +392,8 @@ bool IsCorsSafelistedContentType(const std::string& media_type) {
   return IsCorsSafelistedLowerCaseContentType(base::ToLowerASCII(media_type));
 }
 
-bool IsCorsSafelistedHeader(
-    const std::string& name,
-    const std::string& value,
-    const base::flat_set<std::string>& extra_safelisted_header_names) {
+bool IsCorsSafelistedHeader(const std::string& name, const std::string& value) {
   const std::string lower_name = base::ToLowerASCII(name);
-
-  if (extra_safelisted_header_names.find(lower_name) !=
-      extra_safelisted_header_names.end()) {
-    return true;
-  }
 
   // If |value|’s length is greater than 128, then return false.
   if (value.size() > 128)
@@ -456,6 +448,7 @@ bool IsCorsSafelistedHeader(
       "sec-ch-ua-model",
       "sec-ch-ua-mobile",
       "sec-ch-ua-full-version",
+      "sec-ch-ua-platform-version",
   };
   if (std::find(std::begin(safe_names), std::end(safe_names), lower_name) ==
       std::end(safe_names))
@@ -480,10 +473,11 @@ bool IsCorsSafelistedHeader(
   }
 
   if (lower_name == "accept-language" || lower_name == "content-language") {
-    return (value.end() == std::find_if(value.begin(), value.end(), [](char c) {
-              return !isalnum(c) && c != 0x20 && c != 0x2a && c != 0x2c &&
-                     c != 0x2d && c != 0x2e && c != 0x3b && c != 0x3d;
-            }));
+    return std::all_of(value.begin(), value.end(), [](char c) {
+      return (0x30 <= c && c <= 0x39) || (0x41 <= c && c <= 0x5a) ||
+             (0x61 <= c && c <= 0x7a) || c == 0x20 || c == 0x2a || c == 0x2c ||
+             c == 0x2d || c == 0x2e || c == 0x3b || c == 0x3d;
+    });
   }
 
   if (lower_name == "content-type")
@@ -497,7 +491,14 @@ bool IsNoCorsSafelistedHeaderName(const std::string& name) {
 }
 
 bool IsPrivilegedNoCorsHeaderName(const std::string& name) {
-  return base::ToLowerASCII(name) == "range";
+  const std::string lower_name = base::ToLowerASCII(name);
+  const std::vector<std::string> privileged_no_cors_header_names =
+      PrivilegedNoCorsHeaderNames();
+  for (const auto& header : privileged_no_cors_header_names) {
+    if (lower_name == header)
+      return true;
+  }
+  return false;
 }
 
 bool IsNoCorsSafelistedHeader(const std::string& name,
@@ -534,8 +535,7 @@ std::vector<std::string> CorsUnsafeRequestHeaderNames(
 
 std::vector<std::string> CorsUnsafeNotForbiddenRequestHeaderNames(
     const net::HttpRequestHeaders::HeaderVector& headers,
-    bool is_revalidating,
-    const base::flat_set<std::string>& extra_safelisted_header_names) {
+    bool is_revalidating) {
   std::vector<std::string> header_names;
   std::vector<std::string> potentially_unsafe_names;
 
@@ -554,8 +554,7 @@ std::vector<std::string> CorsUnsafeNotForbiddenRequestHeaderNames(
         continue;
       }
     }
-    if (!IsCorsSafelistedHeader(name, header.value,
-                                extra_safelisted_header_names)) {
+    if (!IsCorsSafelistedHeader(name, header.value)) {
       header_names.push_back(name);
     } else {
       potentially_unsafe_names.push_back(name);
@@ -567,6 +566,10 @@ std::vector<std::string> CorsUnsafeNotForbiddenRequestHeaderNames(
                         potentially_unsafe_names.end());
   }
   return header_names;
+}
+
+std::vector<std::string> PrivilegedNoCorsHeaderNames() {
+  return {"range"};
 }
 
 bool IsForbiddenMethod(const std::string& method) {
@@ -615,11 +618,27 @@ bool CalculateCredentialsFlag(mojom::CredentialsMode credentials_mode,
   // is true, and unset otherwise.
   switch (credentials_mode) {
     case network::mojom::CredentialsMode::kOmit:
+    case network::mojom::CredentialsMode::kOmitBug_775438_Workaround:
       return false;
     case network::mojom::CredentialsMode::kSameOrigin:
       return response_tainting == network::mojom::FetchResponseType::kBasic;
     case network::mojom::CredentialsMode::kInclude:
       return true;
+  }
+}
+
+mojom::FetchResponseType CalculateResponseType(
+    mojom::RequestMode mode,
+    bool is_request_considered_same_origin) {
+  if (is_request_considered_same_origin ||
+      mode == network::mojom::RequestMode::kNavigate ||
+      mode == network::mojom::RequestMode::kSameOrigin) {
+    return network::mojom::FetchResponseType::kBasic;
+  } else if (mode == network::mojom::RequestMode::kNoCors) {
+    return network::mojom::FetchResponseType::kOpaque;
+  } else {
+    DCHECK(network::cors::IsCorsEnabledRequestMode(mode)) << mode;
+    return network::mojom::FetchResponseType::kCors;
   }
 }
 

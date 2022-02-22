@@ -43,12 +43,16 @@
 #include <QtQml/qtqmlglobal.h>
 #include <QtCore/qlist.h>
 #include <QtCore/qvariant.h>
+#include <QtCore/QMetaType>
 
 QT_BEGIN_NAMESPACE
 
-
 class QObject;
 struct QMetaObject;
+
+#define QML_LIST_PROPERTY_ASSIGN_BEHAVIOR_APPEND Q_CLASSINFO("QML.ListPropertyAssignBehavior", "Append")
+#define QML_LIST_PROPERTY_ASSIGN_BEHAVIOR_REPLACE_IF_NOT_DEFAULT Q_CLASSINFO("QML.ListPropertyAssignBehavior", "ReplaceIfNotDefault")
+#define QML_LIST_PROPERTY_ASSIGN_BEHAVIOR_REPLACE Q_CLASSINFO("QML.ListPropertyAssignBehavior", "Replace")
 
 #ifndef QQMLLISTPROPERTY
 #define QQMLLISTPROPERTY
@@ -56,21 +60,13 @@ template<typename T>
 class QQmlListProperty {
 public:
     using AppendFunction = void (*)(QQmlListProperty<T> *, T *);
-    using CountFunction = int (*)(QQmlListProperty<T> *);
-    using AtFunction = T *(*)(QQmlListProperty<T> *, int);
+    using CountFunction = qsizetype (*)(QQmlListProperty<T> *);
+    using AtFunction = T *(*)(QQmlListProperty<T> *, qsizetype);
     using ClearFunction = void (*)(QQmlListProperty<T> *);
-    using ReplaceFunction = void (*)(QQmlListProperty<T> *, int, T *);
+    using ReplaceFunction = void (*)(QQmlListProperty<T> *, qsizetype, T *);
     using RemoveLastFunction = void (*)(QQmlListProperty<T> *);
 
     QQmlListProperty() = default;
-
-#if QT_DEPRECATED_SINCE(5,15)
-    QT_DEPRECATED_X("Use constructor taking QList pointer, and gain improved performance")
-    QQmlListProperty(QObject *o, QList<T *> &list)
-        : object(o), data(&list), append(qlist_append), count(qlist_count), at(qlist_at),
-          clear(qlist_clear), replace(qslow_replace), removeLast(qslow_removeLast)
-    {}
-#endif
 
     QQmlListProperty(QObject *o, QList<T *> *list)
         : object(o), data(list), append(qlist_append), count(qlist_count), at(qlist_at),
@@ -130,39 +126,39 @@ private:
     static void qlist_append(QQmlListProperty *p, T *v) {
         reinterpret_cast<QList<T *> *>(p->data)->append(v);
     }
-    static int qlist_count(QQmlListProperty *p) {
+    static qsizetype qlist_count(QQmlListProperty *p) {
         return reinterpret_cast<QList<T *> *>(p->data)->count();
     }
-    static T *qlist_at(QQmlListProperty *p, int idx) {
+    static T *qlist_at(QQmlListProperty *p, qsizetype idx) {
         return reinterpret_cast<QList<T *> *>(p->data)->at(idx);
     }
     static void qlist_clear(QQmlListProperty *p) {
         return reinterpret_cast<QList<T *> *>(p->data)->clear();
     }
-    static void qlist_replace(QQmlListProperty *p, int idx, T *v) {
+    static void qlist_replace(QQmlListProperty *p, qsizetype idx, T *v) {
         return reinterpret_cast<QList<T *> *>(p->data)->replace(idx, v);
     }
     static void qlist_removeLast(QQmlListProperty *p) {
         return reinterpret_cast<QList<T *> *>(p->data)->removeLast();
     }
 
-    static void qslow_replace(QQmlListProperty<T> *list, int idx, T *v)
+    static void qslow_replace(QQmlListProperty<T> *list, qsizetype idx, T *v)
     {
-        const int length = list->count(list);
+        const qsizetype length = list->count(list);
         if (idx < 0 || idx >= length)
             return;
 
         QVector<T *> stash;
         if (list->clear != qslow_clear) {
             stash.reserve(length);
-            for (int i = 0; i < length; ++i)
+            for (qsizetype i = 0; i < length; ++i)
                 stash.append(i == idx ? v : list->at(list, i));
             list->clear(list);
             for (T *item : qAsConst(stash))
                 list->append(list, item);
         } else {
             stash.reserve(length - idx - 1);
-            for (int i = length - 1; i > idx; --i) {
+            for (qsizetype i = length - 1; i > idx; --i) {
                 stash.append(list->at(list, i));
                 list->removeLast(list);
             }
@@ -175,18 +171,18 @@ private:
 
     static void qslow_clear(QQmlListProperty<T> *list)
     {
-        for (int i = 0, end = list->count(list); i < end; ++i)
+        for (qsizetype i = 0, end = list->count(list); i < end; ++i)
             list->removeLast(list);
     }
 
     static void qslow_removeLast(QQmlListProperty<T> *list)
     {
-        const int length = list->count(list) - 1;
+        const qsizetype length = list->count(list) - 1;
         if (length < 0)
             return;
         QVector<T *> stash;
         stash.reserve(length);
-        for (int i = 0; i < length; ++i)
+        for (qsizetype i = 0; i < length; ++i)
             stash.append(list->at(list, i));
         list->clear(list);
         for (T *item : qAsConst(stash))
@@ -201,6 +197,7 @@ class Q_QML_EXPORT QQmlListReference
 {
 public:
     QQmlListReference();
+    explicit QQmlListReference(const QVariant &variant, QQmlEngine *engine = nullptr);
     QQmlListReference(QObject *, const char *property, QQmlEngine * = nullptr);
     QQmlListReference(const QQmlListReference &);
     QQmlListReference &operator=(const QQmlListReference &);
@@ -222,16 +219,23 @@ public:
     bool isReadable() const;
 
     bool append(QObject *) const;
-    QObject *at(int) const;
+    QObject *at(qsizetype) const;
     bool clear() const;
-    int count() const;
-    bool replace(int, QObject *) const;
+    qsizetype count() const;
+    qsizetype size() const { return count(); }
+    bool replace(qsizetype, QObject *) const;
     bool removeLast() const;
+    bool operator==(const QQmlListReference &other) const {return d == other.d;}
 
 private:
     friend class QQmlListReferencePrivate;
     QQmlListReferencePrivate* d;
 };
+
+namespace QtPrivate {
+template<typename T>
+inline constexpr bool IsQmlListType<QQmlListProperty<T>> = true;
+}
 
 QT_END_NAMESPACE
 

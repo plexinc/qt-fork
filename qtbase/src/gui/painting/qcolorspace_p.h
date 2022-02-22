@@ -91,35 +91,36 @@ class QColorSpacePrivate : public QSharedData
 public:
     QColorSpacePrivate();
     QColorSpacePrivate(QColorSpace::NamedColorSpace namedColorSpace);
-    QColorSpacePrivate(QColorSpace::Primaries primaries, QColorSpace::TransferFunction fun, float gamma);
-    QColorSpacePrivate(const QColorSpacePrimaries &primaries, QColorSpace::TransferFunction fun, float gamma);
+    QColorSpacePrivate(QColorSpace::Primaries primaries, QColorSpace::TransferFunction transferFunction, float gamma);
+    QColorSpacePrivate(QColorSpace::Primaries primaries, const QList<uint16_t> &transferFunctionTable);
+    QColorSpacePrivate(const QColorSpacePrimaries &primaries, QColorSpace::TransferFunction transferFunction, float gamma);
+    QColorSpacePrivate(const QColorSpacePrimaries &primaries, const QList<uint16_t> &transferFunctionTable);
+    QColorSpacePrivate(const QColorSpacePrimaries &primaries,
+                       const QList<uint16_t> &redTransferFunctionTable,
+                       const QList<uint16_t> &greenTransferFunctionTable,
+                       const QList<uint16_t> &blueRransferFunctionTable);
     QColorSpacePrivate(const QColorSpacePrivate &other) = default;
-
-    // named different from get to avoid accidental detachs
-    static QColorSpacePrivate *getWritable(QColorSpace &colorSpace)
-    {
-        if (!colorSpace.d_ptr) {
-            colorSpace.d_ptr = new QColorSpacePrivate;
-            colorSpace.d_ptr->ref.ref();
-        } else if (colorSpace.d_ptr->ref.loadRelaxed() != 1) {
-            colorSpace.d_ptr->ref.deref();
-            colorSpace.d_ptr = new QColorSpacePrivate(*colorSpace.d_ptr);
-            colorSpace.d_ptr->ref.ref();
-        }
-        Q_ASSERT(colorSpace.d_ptr->ref.loadRelaxed() == 1);
-        return colorSpace.d_ptr;
-    }
 
     static const QColorSpacePrivate *get(const QColorSpace &colorSpace)
     {
-        return colorSpace.d_ptr;
+        return colorSpace.d_ptr.get();
+    }
+
+    static QColorSpacePrivate *get(QColorSpace &colorSpace)
+    {
+        return colorSpace.d_ptr.get();
     }
 
     void initialize();
     void setToXyzMatrix();
     void setTransferFunction();
     void identifyColorSpace();
+    void setTransferFunctionTable(const QList<uint16_t> &transferFunctionTable);
+    void setTransferFunctionTables(const QList<uint16_t> &redTransferFunctionTable,
+                                   const QList<uint16_t> &greenTransferFunctionTable,
+                                   const QList<uint16_t> &blueTransferFunctionTable);
     QColorTransform transformationToColorSpace(const QColorSpacePrivate *out) const;
+    QColorTransform transformationToXYZ() const;
 
     static constexpr QColorSpace::NamedColorSpace Unknown = QColorSpace::NamedColorSpace(0);
     QColorSpace::NamedColorSpace namedColorSpace = Unknown;
@@ -133,6 +134,7 @@ public:
     QColorMatrix toXyz;
 
     QString description;
+    QString userDescription;
     QByteArray iccProfile;
 
     static QBasicMutex s_lutWriteLock;

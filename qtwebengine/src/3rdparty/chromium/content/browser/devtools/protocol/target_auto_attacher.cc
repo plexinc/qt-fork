@@ -8,10 +8,10 @@
 #include "content/browser/devtools/devtools_renderer_channel.h"
 #include "content/browser/devtools/render_frame_devtools_agent_host.h"
 #include "content/browser/devtools/service_worker_devtools_agent_host.h"
-#include "content/browser/frame_host/frame_tree.h"
-#include "content/browser/frame_host/frame_tree_node.h"
-#include "content/browser/frame_host/navigation_request.h"
-#include "content/browser/frame_host/render_frame_host_impl.h"
+#include "content/browser/renderer_host/frame_tree.h"
+#include "content/browser/renderer_host/frame_tree_node.h"
+#include "content/browser/renderer_host/navigation_request.h"
+#include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 
 namespace content {
@@ -94,17 +94,17 @@ base::flat_set<GURL> GetFrameUrls(RenderFrameHostImpl* render_frame_host) {
   //    (from WorkerCreated). See also https://crbug.com/907072
   //
   // We are not attaching in the following case:
-  // 4. Frame is trying to navigate and we _should_ pick up an existing SW but we don't.
-  //    We _could_ do this, but since we are not pausing the navigation, there
-  //    is no principal difference between picking up SW earlier or later.
+  // 4. Frame is trying to navigate and we _should_ pick up an existing SW but
+  //    we don't. We _could_ do this, but since we are not pausing the
+  //    navigation, there is no principal difference between picking up SW
+  //    earlier or later.
   //
   // We also try to detach from SW picked up for [3] if navigation has failed
   // (from DidFinishNavigation).
 
   base::flat_set<GURL> frame_urls;
   if (render_frame_host) {
-    for (FrameTreeNode* node :
-         render_frame_host->frame_tree_node()->frame_tree()->Nodes()) {
+    for (FrameTreeNode* node : render_frame_host->frame_tree()->Nodes()) {
       frame_urls.insert(node->current_url());
       // We use both old and new frame urls to support [3], where we attach while
       // navigation is still ongoing.
@@ -127,7 +127,7 @@ TargetAutoAttacher::TargetAutoAttacher(
       auto_attach_(false),
       wait_for_debugger_on_start_(false) {}
 
-TargetAutoAttacher::~TargetAutoAttacher() {}
+TargetAutoAttacher::~TargetAutoAttacher() = default;
 
 void TargetAutoAttacher::SetRenderFrameHost(
     RenderFrameHostImpl* render_frame_host) {
@@ -180,8 +180,8 @@ void TargetAutoAttacher::UpdateFrames() {
     while (!queue.empty()) {
       FrameTreeNode* node = queue.front();
       queue.pop();
-      bool cross_process = node->current_frame_host()->IsCrossProcessSubframe();
-      if (node != root && cross_process) {
+      bool should_create = node->current_frame_host()->is_local_root_subframe();
+      if (node != root && should_create) {
         scoped_refptr<DevToolsAgentHost> new_host =
             RenderFrameDevToolsAgentHost::GetOrCreateFor(node);
         new_hosts.insert(new_host);
@@ -228,25 +228,26 @@ DevToolsAgentHost* TargetAutoAttacher::AutoAttachToFrame(
   scoped_refptr<DevToolsAgentHost> agent_host =
       RenderFrameDevToolsAgentHost::FindForDangling(frame_tree_node);
 
-  bool old_cross_process = !!agent_host;
+  bool has_host_attached = !!agent_host;
   bool is_portal_main_frame =
       frame_tree_node->IsMainFrame() &&
       static_cast<WebContentsImpl*>(WebContents::FromRenderFrameHost(new_host))
           ->IsPortal();
-  bool new_cross_process =
-      new_host->IsCrossProcessSubframe() || is_portal_main_frame;
+  bool needs_host_attached =
+      new_host->is_local_root_subframe() || is_portal_main_frame;
 
-  if (old_cross_process == new_cross_process)
+  if (has_host_attached == needs_host_attached)
     return nullptr;
 
-  if (new_cross_process) {
-    agent_host = RenderFrameDevToolsAgentHost::CreateForCrossProcessNavigation(
-        navigation_request);
+  if (needs_host_attached) {
+    agent_host =
+        RenderFrameDevToolsAgentHost::CreateForLocalRootOrPortalNavigation(
+            navigation_request);
     AttachToAgentHost(agent_host.get());
     return wait_for_debugger_on_start_ ? agent_host.get() : nullptr;
   }
 
-  DCHECK(old_cross_process);
+  DCHECK(has_host_attached);
   auto it = auto_attached_hosts_.find(agent_host);
   // This should not happen in theory, but error pages are sometimes not
   // picked up. See https://crbug.com/836511 and https://crbug.com/817881.
@@ -360,16 +361,6 @@ void TargetAutoAttacher::WorkerCreated(ServiceWorkerDevToolsAgentHost* host,
                             wait_for_debugger_on_start_);
     }
   }
-}
-
-void TargetAutoAttacher::WorkerVersionInstalled(
-    ServiceWorkerDevToolsAgentHost* host) {
-  ReattachServiceWorkers(false);
-}
-
-void TargetAutoAttacher::WorkerVersionDoomed(
-    ServiceWorkerDevToolsAgentHost* host) {
-  ReattachServiceWorkers(false);
 }
 
 void TargetAutoAttacher::WorkerDestroyed(ServiceWorkerDevToolsAgentHost* host) {

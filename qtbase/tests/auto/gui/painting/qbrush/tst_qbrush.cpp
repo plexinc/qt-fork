@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include "qbrush.h"
 #include <QPainter>
@@ -341,12 +341,6 @@ void tst_QBrush::gradientPresets()
     QCOMPARE(lg->stops().at(0), QGradientStop(0, QColor(QLatin1String("#ff9a9e"))));
     QCOMPARE(lg->stops().at(1), QGradientStop(0.99, QColor(QLatin1String("#fad0c4"))));
     QCOMPARE(lg->stops().at(2), QGradientStop(1, QColor(QLatin1String("#fad0c4"))));
-
-
-    QGradient invalidPreset(QGradient::Preset(-1));
-    QCOMPARE(invalidPreset.type(), QGradient::NoGradient);
-    QBrush brush(invalidPreset);
-    QCOMPARE(brush.style(), Qt::NoBrush);
 }
 
 void fill(QPaintDevice *pd) {
@@ -462,10 +456,9 @@ void tst_QBrush::textureBrushStream()
 
     QCOMPARE(loadedBrush1.style(), Qt::TexturePattern);
     QCOMPARE(loadedBrush2.style(), Qt::TexturePattern);
-#ifdef Q_OS_ANDROID
-    QEXPECT_FAIL("", "QTBUG-69193", Continue);
-#endif
-    QCOMPARE(loadedBrush1.texture(), pixmap_source);
+    // pixmaps may have been converted to system format
+    QCOMPARE(loadedBrush1.texture().toImage().convertToFormat(QImage::Format_ARGB32_Premultiplied),
+             pixmap_source.toImage().convertToFormat(QImage::Format_ARGB32_Premultiplied));
     QCOMPARE(loadedBrush2.textureImage(), image_source);
 }
 

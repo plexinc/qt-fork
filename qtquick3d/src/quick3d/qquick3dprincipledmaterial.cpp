@@ -31,6 +31,7 @@
 #include "qquick3dobject_p.h"
 
 #include <QtQuick3DRuntimeRender/private/qssgrenderdefaultmaterial_p.h>
+#include <QtQuick3DUtils/private/qssgutils_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -38,19 +39,61 @@ QT_BEGIN_NAMESPACE
     \qmltype PrincipledMaterial
     \inherits Material
     \inqmlmodule QtQuick3D
-    \brief Lets you define a material for 3D items.
+    \brief Lets you define a material for 3D items using the metal/roughness workflow.
 
-    Before a Model can be rendered in a scene, it must have at least one
-    material to define how the mesh is shaded. The PrincipledMaterial aims to be
-    easy to use and with as few parameters as possible. In addition to having few
-    parameters, all input values are strictly normalized between 0 and 1.
-    Even if you define a PrincipledMaterial with no properties set, a valid mesh will be rendered,
-    because the mesh defines some sensible defaults.
+    Before a Model can be rendered in a scene, it must have at least one material attached
+    to it that describes how the mesh should be shaded. The PrincipledMaterial is a PBR
+    metal/roughness material that aims at being an easy to use material with a minimal
+    set of parameters.
+    In addition to having few parameters, all input values are strictly normalized
+    between 0 and 1 and have sensible defaults, meaning even without changing any values,
+    the material can be used to shader a model. For an introduction on how the
+    different properties of the principled material affects how a model is shaded,
+    see the \l{Qt Quick 3D - Principled Material Example}{Principled Material example}.
 
-    As you change the properties of the PrincipledMaterial, behind the scenes
-    new shaders are generated, and the property values are bound. The
-    complexity of a shader depends on a combination of the properties that
-    are set on it, and the context of the scene itself.
+    \section1 Metal/Roughness workflow
+
+    The Principled material is what's known as a metal/roughness material, in essence
+    that means the main characteristics of the material is controlled through
+    the \l {PrincipledMaterial::metalnessMap} {metallness}, \l {PrincipledMaterial::roughnessMap} {roughness},
+    and the \l {PrincipledMaterial::baseColorMap} {base color} property.
+
+    \section2 Metalness
+
+    Real world materials are put into two main categories, metals and dielectrics (non-metals).
+    In the Principled material, the category a material belongs to is decided by the
+    \c metalness value. Setting the \c metalness value to 0, means the material is a dialectric,
+    while everything above 0 is a considered to be a metal. In reality metals will have
+    a \c metalness value of 1, but values between 0 and 1 are possible, and usually used
+    for metals with reduced reflectance. For example, to render corrosion, or similar,
+    on a material, the \c metalness of the material should be reduced to give the output
+    properties more similar to a dielectric material.
+    Since the \c metalness value affects the reflectance of the material it might be tempting to
+    use the metalness to adjust glossiness, but consider what type of material you want
+    to describe first. Increasing the \c metalness value to give a dielectric material
+    a more polished look, will introduce properties that are not accurate for a dielectric
+    material, so consider if it would be more appropriate to adjust, for example,
+    the \c roughness value instead.
+
+    \section2 Roughness
+
+    The \c roughness of a material describes the condition of an object's surface.
+    A low \c roughness value means the object has a smooth surface and therefore be more
+    reflective then a material with a higher \c roughness value.
+
+    \section2 Base color
+
+    The \l {PrincipledMaterial::baseColorMap} {base color} of a metal/roughness material
+    contains both the diffuse and the specular data, how much the base color is interpreted
+    as one or the other is primarily dictated by the \c metalness value. For example,
+    a material with a metalness value of 1, will have most of its base color interpreted
+    as specular color, while the diffuse color would be a black tint. The opposite would
+    happen for a material with a metalness value of 0. This is of course a bit simplified,
+    but gives a rough idea how the \l {PrincipledMaterial::baseColor} {base color} and
+    \c metalness value interacts. For those more familiar with a Specular/Glossiness workflow,
+    there's a clear difference here which is worth noting, namely that the color data of the
+    two materials are not directly compatible, since in a Specular/Glossiness
+    \l {DefaultMaterial} {material}, the diffuse and specular color comes from separate inputs.
 */
 
 /*!
@@ -67,7 +110,9 @@ QT_BEGIN_NAMESPACE
 
     When using \c PrincipledMaterial.NoLighting no lighting is calculated. This
     mode is (predictably) very fast, and is quite effective when image maps are
-    used that you do not need to be shaded by lighting.
+    used that you do not need to be shaded by lighting. All other shading
+    properties except baseColor values, alpha values, and vertex colors will be
+    ignored.
 
     \value PrincipledMaterial.NoLighting
     \value PrincipledMaterial.FragmentLighting
@@ -79,23 +124,29 @@ QT_BEGIN_NAMESPACE
     This property determines how the colors of the model rendered blends with
     those behind it.
 
-    \value PrincipledMaterial.SourceOver
-        Default blend mode. Opaque objects occlude objects behind them.
-    \value PrincipledMaterial.Screen
-        Colors are blended using an inverted multiply, producing a lighter result. This blend mode
-        is order-independent; if you are using semi-opaque objects and experiencing 'popping'
-        as faces or models sort differently, using Screen blending is one way to produce results
-        without popping.
-    \value PrincipledMaterial.Multiply
-        Colors are blended using a multiply, producing a darker result. This blend mode is also
-        order-independent.
-    \value PrincipledMaterial.Overlay
-        A mix of Multiply and Screen modes, producing a result with higher contrast.
-    \value PrincipledMaterial.ColorBurn
-        Colors are blended by inverted division where the result also is inverted, producing
-        a darker result. Darker than Multiply.
-    \value PrincipledMaterial.ColorDodge
-        Colors are blended by inverted division, producing a lighter result. Lighter than Screen.
+    \value PrincipledMaterial.SourceOver Default blend mode. Opaque objects
+    occlude objects behind them. This default mode does not guarantee alpha
+    blending in the rendering pipeline on its own for models that use this
+    material, but rather makes the decision dependent on a number of factors:
+    if the object's and material's total opacity is \c{1.0}, there is no
+    opacity map in the material, and \l alphaMode is not set to a value that
+    enforces alpha blending, then the model is treated as opaque, meaning it is
+    rendered with depth testing and depth write enabled, together with other
+    opaque objects, with blending disabled. Otherwise the model is treated as
+    semi-transparent, and is rendered after the opaque objects, together with
+    other semi-transparent objects in a back-to-front order based on their
+    center's distance from the camera, with alpha blending enabled.
+
+    \value PrincipledMaterial.Screen Colors are blended using an inverted
+    multiply, producing a lighter result. This blend mode is order-independent;
+    if you are using semi-opaque objects and experiencing 'popping' as faces or
+    models sort differently, using Screen blending is one way to produce
+    results without popping.
+
+    \value PrincipledMaterial.Multiply Colors are blended using a multiply,
+    producing a darker result. This blend mode is also order-independent.
+
+    \sa alphaMode, {Qt Quick 3D Architecture}
 */
 
 /*!
@@ -107,6 +158,8 @@ QT_BEGIN_NAMESPACE
     the base color, while it's specular color, depending on the specular amount, will have a
     bright specular color. For metals the diffuse and specular channels will be mixed from
     the base color and have a dark diffuse channel and a specular channel close to the base color.
+
+    \sa baseColorMap, alphaMode
 */
 
 /*!
@@ -114,7 +167,7 @@ QT_BEGIN_NAMESPACE
 
     This property defines the texture used to set the base color of the material.
 
-    \sa baseColor
+    \sa baseColor, alphaMode
 */
 
 /*!
@@ -127,6 +180,8 @@ QT_BEGIN_NAMESPACE
     \note In principle, materials are either dielectrics with a metalness of 0, or metals with a
     metalness of 1. Metalness values between 0 and 1 are still allowed and will give a material that
     is a blend between the different models.
+
+    The range is [0.0, 1.0]. The default value is 0.
 */
 
 /*!
@@ -151,42 +206,49 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmlproperty Texture PrincipledMaterial::emissiveMap
 
-    This property sets a Texture to be used to set the emissive factor for
-    different parts of the material. Using a grayscale image will not affect the
-    color of the result, while using a color image will produce glowing regions
-    with the color affected by the emissive map.
+    This property sets a RGB Texture to be used to specify the intensity of the
+    emissive color.
 */
 
 /*!
-    \qmlproperty color PrincipledMaterial::emissiveColor
+    \qmlproperty vector3d PrincipledMaterial::emissiveFactor
 
     This property determines the color of self-illumination for this material.
-    If an emissive map is set, this property is used as a factor for the RGB channels
-    of the texture.
+    If an emissive map is set, the x, y, and z components are used as factors
+    (multipliers) for the R, G and B channels of the texture, respectively.
+    The default value is (0, 0, 0) and it means no emissive contribution at all.
 
-    \note In a scene with black ambient lighting a material with a emissive factor of 0 will
-    appear black wherever the light does not shine on it; turning the emissive
-    factor to 1 will cause the material to appear as its diffuse color instead.
-
-    \note When you want a material to not be affected by lighting, instead of
-    using 100% emissiveFactor consider setting the lightingMode to
-    \c PrincipledMaterial.NoLighting for a performance benefit.
+    \note Setting the lightingMode to DefaultMaterial.NoLighting means emissive
+    Factor does not have an effect on the scene.
 */
 
 /*!
     \qmlproperty Texture PrincipledMaterial::specularReflectionMap
 
     This property sets a Texture used for specular highlights on the material.
-    By default the Texture is applied using environmental mapping (not UV
-    mapping): as you rotate the model the map will appear as though it is
-    reflecting from the environment. Specular Reflection maps are an easy way to
-    add a high-quality look with relatively low cost.
 
-    \note Using a Light Probe in your \l SceneEnvironment for image-based lighting
-    will automatically use that image as the specular reflection.
+    This is typically used to perform environment mapping: as the model is
+    rotated, the map will appear as though it is reflecting from the
+    environment. For this to work as expected, the Texture's
+    \l{Texture::mappingMode}{mappingMode} needs to be set to
+    Texture.Environment. Specular reflection maps are an easy way to add a
+    high-quality look with a relatively low cost.
+
+    \note Associating a \l{SceneEnvironment::lightProbe}{light probe} with the
+    \l SceneEnvironment, and thus relying on image-based lighting, can achieve
+    similar environmental reflection effects. Light probes are however a
+    conceptually different, and when it comes to performance, potentially more
+    expensive solution. Each approaches have their own specific uses, and the
+    one to use needs to be decided on a case by case basis. When it comes to
+    the Texture set to the property, specularReflectionMap has an advantage,
+    because it presents no limitations and supports all types of textures,
+    including ones that source their data from a Qt Quick sub-scene via
+    \l{Texture::sourceItem}{sourceItem}.
 
     \note Crisp images cause your material to look very glossy; the more you
     blur your image the softer your material will appear.
+
+    \sa Texture::mappingMode
 */
 
 /*!
@@ -208,16 +270,12 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
-    \qmlproperty real PrincipledMaterial::indexOfRefraction
-
-    This property controls how fast light travels through the material.
-*/
-
-/*!
     \qmlproperty real PrincipledMaterial::specularAmount
 
     This property controls the strength of specularity (highlights and
     reflections).
+
+    The range is [0.0, 1.0]. The default value is \c 0.5.
 
     \note For non-dielectrics (metals) this property has no effect.
 
@@ -235,6 +293,7 @@ QT_BEGIN_NAMESPACE
     This property controls the size of the specular highlight generated from
     lights, and the clarity of reflections in general. Larger values increase
     the roughness, softening specular highlights and blurring reflections.
+    The range is [0.0, 1.0]. The default value is 0.
 */
 
 /*!
@@ -330,28 +389,160 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmlproperty enumeration PrincipledMaterial::alphaMode
 
-    This property sets the mode for how the alpha channel of material color is used.
+    This property specifies how the alpha color value from \l baseColor and the
+    alpha channel of a \l{baseColorMap}{base color map} are used.
 
-    \value PrincipledMaterial.Opaque The alpha channel is ignored and the output is rendered
-            fully opaque. This is the default.
-    \value PrincipledMaterial.Mask The output is either fully transparent of fully opaque depending
-            on the alpha value and the specified \l alphaCutoff value.
-    \value PrincipledMaterial.Blend The output is blended with the background.
+    \note The alpha cutoff test only considers the base color alpha. \l opacity
+    and \l [QtQuick3D] {Node::opacity} are not taken into account there.
 
-    \note These modes only consider the alpha channel of the material's
-    \l {baseColor} {color} or \l {baseColorMap}{color map}.
-    The general \l opacity of the material does therefore not affect
-    how the \c alphaMode or \c alphaCutoff is interpreted.
+    \note When sampling a base color map, the effective alpha value is the
+    sampled alpha multiplied by the \l baseColor alpha.
+
+    \value PrincipledMaterial.Default No test is applied, the effective alpha
+    value is passed on as-is. Note that a \l baseColor or \l baseColorMap alpha
+    less than \c 1.0 does not automatically imply alpha blending, the object
+    with the material may still be treated as opaque, if no other relevant
+    properties (such as, an opacity less than 1, the presence of an opacity
+    map, or a non-default \l blendMode value) trigger treating the object as
+    semi-transparent. To ensure alpha blending happens regardless of any other
+    object or material property, set \c Blend instead.
+
+    \value PrincipledMaterial.Blend No cutoff test is applied, but guarantees
+    that alpha blending happens. The object with this material will therefore
+    never be treated as opaque by the renderer.
+
+    \value PrincipledMaterial.Opaque No cutoff test is applied and the rendered
+    object is assumed to be fully opaque, meaning the alpha values in the
+    vertex color, base color, and base color map are ignored and a value of 1.0
+    is substituted instead. This mode does not guarantee alpha blending does
+    not happen. If relevant properties (such as, an opacity less than 1, an
+    opacity map, or a non-default \l blendMode) say so, then the object will
+    still be treated as semi-transparent by the rendering pipeline, just like
+    with the \c Default alphaMode.
+
+    \value PrincipledMaterial.Mask A test based on \l alphaCutoff is applied.
+    If the effective alpha value falls below \l alphaCutoff, the fragment is
+    changed to fully transparent and is discarded (with all implications of
+    discarding: the depth buffer is not written for that fragment). Otherwise
+    the alpha is changed to 1.0, so that the fragment will become fully opaque.
+    When it comes to alpha blending, the behavior of this mode is identical to
+    \c Opaque, regardless of the cutoff test's result. This means that the
+    \l{https://github.com/KhronosGroup/glTF/tree/master/specification/2.0#alpha-coverage}{glTF
+    2 spec's alpha coverage} Implementation Notes are fulfilled. Objects with
+    alpha cutoff tests can also cast shadows since they behave like opaque
+    objects by default, unless the relevant properties (such as, an opacity
+    less than 1, an opacity map, or a non-default \l blendMode) imply otherwise
+    (in which case casting shadows will not be possible).
+
+    \sa alphaCutoff, blendMode
 */
 
 /*!
     \qmlproperty real PrincipledMaterial::alphaCutoff
 
-    The alphaCutoff property can be used to specify the cutoff value when using the
-    \l {alphaMode} {Mask alphaMode}. Alpha values below the threshold will be rendered
-    fully transparent, everything else will be fully opaque. The default value is 0.5
+    The alphaCutoff property can be used to specify the cutoff value when using
+    the \l{alphaMode}{Mask alphaMode}. Fragments where the alpha value falls
+    below the threshold will be rendered fully transparent (\c{0.0} for all
+    color channels). When the alpha value is equal or greater than the cutoff
+    value, the color will not be affected in any way.
+
+    The default value is 0.5.
 
     \sa alphaMode
+*/
+
+/*!
+    \qmlproperty real PrincipledMaterial::pointSize
+
+    This property determines the size of the points rendered, when the geometry
+    is using a primitive type of points. The default value is 1.0. This
+    property is not relevant when rendering other types of geometry, such as,
+    triangle meshes.
+
+    \warning Point sizes other than 1 may not be supported at run time,
+    depending on the underyling graphics API. For example, setting a size other
+    than 1 has no effect with Direct 3D.
+*/
+
+/*!
+    \qmlproperty real PrincipledMaterial::lineWidth
+
+    This property determines the width of the lines rendered, when the geometry
+    is using a primitive type of lines or line strips. The default value is
+    1.0. This property is not relevant when rendering other types of geometry,
+    such as, triangle meshes.
+
+    \warning Line widths other than 1 may not be suported at run time,
+    depending on the underlying graphics API. When that is the case, the
+    request to change the width is ignored. For example, none of the following
+    can be expected to support wide lines: Direct3D, Metal, OpenGL with core
+    profile contexts.
+*/
+
+/*!
+    \qmlproperty Texture PrincipledMaterial::heightMap
+
+    This property defines a texture used to determine the height the texture
+    will be displaced when rendered through the use of Parallax Mapping. Values
+    are expected to be linear from 0.0 to 1.0, where 0.0 means no displacement
+    and 1.0 means means maximum displacement.
+
+*/
+
+/*!
+    \qmlproperty enumeration PrincipledMaterial::heightChannel
+
+    This property defines the texture channel used to read the height value
+    from heightMap. The default value is \c Material.R.
+
+    \value Material.R Read value from texture R channel.
+    \value Material.G Read value from texture G channel.
+    \value Material.B Read value from texture B channel.
+    \value Material.A Read value from texture A channel.
+
+*/
+
+/*!
+    \qmlproperty real PrincipledMaterial::heightAmount
+
+    This property contains the factor used to modify the values from the
+    \l heightMap texture. The value should be between 0.0 to 1.0. The default
+    value is 0.0 which means that height displacement will be disabled, even
+    if a height map set.
+*/
+
+/*!
+    \qmlproperty int PrincipledMaterial::minHeightMapSamples
+
+    This property defines the minimum number of samples used for performing
+    Parallex Occlusion Mapping using the \l heightMap. The minHeightMapSamples
+    value is the number of samples of the heightMap are used when looking directly
+    at a surface (when the camera view is perpendicular to the fragment).
+    The default value is 8.
+
+    The actual number of samples used for each fragment will be between
+    \l minHeightMapSamples and \l maxHeightMapSamples depending on the angle of
+    the camera relative to the surface being rendered.
+
+    \note This value should only be adjusted to fine tune materials using a
+    \l heightMap in the case undesired artifacts are present.
+*/
+
+/*!
+    \qmlproperty int PrincipledMaterial::maxHeightMapSamples
+
+    This property defines the maximum number of samples used for performing
+    Parallex Occlusion Mapping using the \l heightMap. The maxHeightMapSamples
+    value is the number of samples of the heightMap are used when looking
+    parallel to a surface.
+    The default value is 32.
+
+    The actual number of samples used for each fragment will be between
+    \l minHeightMapSamples and \l maxHeightMapSamples depending on the angle of
+    the camera relative to the surface being rendered.
+
+    \note This value should only be adjusted to fine tune materials using a
+    \l heightMap in the case undesired artifacts are present.
 */
 
 inline static float ensureNormalized(float val) { return qBound(0.0f, val, 1.0f); }
@@ -362,8 +553,6 @@ QQuick3DPrincipledMaterial::QQuick3DPrincipledMaterial(QQuick3DObject *parent)
 
 QQuick3DPrincipledMaterial::~QQuick3DPrincipledMaterial()
 {
-    for (auto cit = m_connections.cbegin(), end = m_connections.cend(); cit != end; ++cit)
-        disconnect(*cit);
 }
 
 QQuick3DPrincipledMaterial::Lighting QQuick3DPrincipledMaterial::lighting() const
@@ -391,9 +580,9 @@ QQuick3DTexture *QQuick3DPrincipledMaterial::emissiveMap() const
     return m_emissiveMap;
 }
 
-QColor QQuick3DPrincipledMaterial::emissiveColor() const
+QVector3D QQuick3DPrincipledMaterial::emissiveFactor() const
 {
-    return m_emissiveColor;
+    return m_emissiveFactor;
 }
 
 QQuick3DTexture *QQuick3DPrincipledMaterial::specularReflectionMap() const
@@ -409,11 +598,6 @@ QQuick3DTexture *QQuick3DPrincipledMaterial::specularMap() const
 float QQuick3DPrincipledMaterial::specularTint() const
 {
     return m_specularTint;
-}
-
-float QQuick3DPrincipledMaterial::indexOfRefraction() const
-{
-    return m_indexOfRefraction;
 }
 
 float QQuick3DPrincipledMaterial::specularAmount() const
@@ -501,6 +685,41 @@ QQuick3DMaterial::TextureChannelMapping QQuick3DPrincipledMaterial::occlusionCha
     return m_occlusionChannel;
 }
 
+float QQuick3DPrincipledMaterial::pointSize() const
+{
+    return m_pointSize;
+}
+
+float QQuick3DPrincipledMaterial::lineWidth() const
+{
+    return m_lineWidth;
+}
+
+QQuick3DTexture *QQuick3DPrincipledMaterial::heightMap() const
+{
+    return m_heightMap;
+}
+
+QQuick3DMaterial::TextureChannelMapping QQuick3DPrincipledMaterial::heightChannel() const
+{
+    return m_heightChannel;
+}
+
+float QQuick3DPrincipledMaterial::heightAmount() const
+{
+    return m_heightAmount;
+}
+
+int QQuick3DPrincipledMaterial::minHeightMapSamples() const
+{
+    return m_minHeightMapSamples;
+}
+
+int QQuick3DPrincipledMaterial::maxHeightMapSamples() const
+{
+    return m_maxHeightMapSamples;
+}
+
 void QQuick3DPrincipledMaterial::markAllDirty()
 {
     m_dirtyAttributes = 0xffffffff;
@@ -542,7 +761,7 @@ void QQuick3DPrincipledMaterial::setBaseColorMap(QQuick3DTexture *baseColorMap)
     if (m_baseColorMap == baseColorMap)
         return;
 
-    updatePropertyListener(baseColorMap, m_baseColorMap, QQuick3DObjectPrivate::get(this)->sceneManager, QByteArrayLiteral("baseColorMap"), m_connections, [this](QQuick3DObject *n) {
+    QQuick3DObjectPrivate::updatePropertyListener(baseColorMap, m_baseColorMap, QQuick3DObjectPrivate::get(this)->sceneManager, QByteArrayLiteral("baseColorMap"), m_connections, [this](QQuick3DObject *n) {
         setBaseColorMap(qobject_cast<QQuick3DTexture *>(n));
     });
 
@@ -556,7 +775,7 @@ void QQuick3DPrincipledMaterial::setEmissiveMap(QQuick3DTexture *emissiveMap)
     if (m_emissiveMap == emissiveMap)
         return;
 
-    updatePropertyListener(emissiveMap, m_emissiveMap, QQuick3DObjectPrivate::get(this)->sceneManager, QByteArrayLiteral("emissiveMap"), m_connections, [this](QQuick3DObject *n) {
+    QQuick3DObjectPrivate::updatePropertyListener(emissiveMap, m_emissiveMap, QQuick3DObjectPrivate::get(this)->sceneManager, QByteArrayLiteral("emissiveMap"), m_connections, [this](QQuick3DObject *n) {
         setEmissiveMap(qobject_cast<QQuick3DTexture *>(n));
     });
 
@@ -565,13 +784,13 @@ void QQuick3DPrincipledMaterial::setEmissiveMap(QQuick3DTexture *emissiveMap)
     markDirty(EmissiveDirty);
 }
 
-void QQuick3DPrincipledMaterial::setEmissiveColor(QColor emissiveColor)
+void QQuick3DPrincipledMaterial::setEmissiveFactor(QVector3D emissiveFactor)
 {
-    if (m_emissiveColor == emissiveColor)
+    if (m_emissiveFactor == emissiveFactor)
         return;
 
-    m_emissiveColor = emissiveColor;
-    emit emissiveColorChanged(m_emissiveColor);
+    m_emissiveFactor = emissiveFactor;
+    emit emissiveFactorChanged(m_emissiveFactor);
     markDirty(EmissiveDirty);
 }
 
@@ -580,7 +799,7 @@ void QQuick3DPrincipledMaterial::setSpecularReflectionMap(QQuick3DTexture *specu
     if (m_specularReflectionMap == specularReflectionMap)
         return;
 
-    updatePropertyListener(specularReflectionMap, m_specularReflectionMap, QQuick3DObjectPrivate::get(this)->sceneManager, QByteArrayLiteral("specularReflectionMap"), m_connections, [this](QQuick3DObject *n) {
+    QQuick3DObjectPrivate::updatePropertyListener(specularReflectionMap, m_specularReflectionMap, QQuick3DObjectPrivate::get(this)->sceneManager, QByteArrayLiteral("specularReflectionMap"), m_connections, [this](QQuick3DObject *n) {
         setSpecularReflectionMap(qobject_cast<QQuick3DTexture *>(n));
     });
 
@@ -594,7 +813,7 @@ void QQuick3DPrincipledMaterial::setSpecularMap(QQuick3DTexture *specularMap)
     if (m_specularMap == specularMap)
         return;
 
-    updatePropertyListener(specularMap, m_specularMap, QQuick3DObjectPrivate::get(this)->sceneManager, QByteArrayLiteral("specularMap"), m_connections, [this](QQuick3DObject *n) {
+    QQuick3DObjectPrivate::updatePropertyListener(specularMap, m_specularMap, QQuick3DObjectPrivate::get(this)->sceneManager, QByteArrayLiteral("specularMap"), m_connections, [this](QQuick3DObject *n) {
         setSpecularMap(qobject_cast<QQuick3DTexture *>(n));
     });
 
@@ -612,16 +831,6 @@ void QQuick3DPrincipledMaterial::setSpecularTint(float specularTint)
     m_specularTint = specularTint;
     emit specularTintChanged(m_specularTint);
     markDirty(SpecularDirty);
-}
-
-void QQuick3DPrincipledMaterial::setIndexOfRefraction(float indexOfRefraction)
-{
-    if (qFuzzyCompare(m_indexOfRefraction, indexOfRefraction))
-        return;
-
-    m_indexOfRefraction = indexOfRefraction;
-    emit indexOfRefractionChanged(m_indexOfRefraction);
-    markDirty(IorDirty);
 }
 
 void QQuick3DPrincipledMaterial::setSpecularAmount(float specularAmount)
@@ -651,7 +860,7 @@ void QQuick3DPrincipledMaterial::setRoughnessMap(QQuick3DTexture *roughnessMap)
     if (m_roughnessMap == roughnessMap)
         return;
 
-    updatePropertyListener(roughnessMap, m_roughnessMap, QQuick3DObjectPrivate::get(this)->sceneManager, QByteArrayLiteral("roughnessMap"), m_connections, [this](QQuick3DObject *n) {
+    QQuick3DObjectPrivate::updatePropertyListener(roughnessMap, m_roughnessMap, QQuick3DObjectPrivate::get(this)->sceneManager, QByteArrayLiteral("roughnessMap"), m_connections, [this](QQuick3DObject *n) {
         setRoughnessMap(qobject_cast<QQuick3DTexture *>(n));
     });
 
@@ -676,7 +885,7 @@ void QQuick3DPrincipledMaterial::setOpacityMap(QQuick3DTexture *opacityMap)
     if (m_opacityMap == opacityMap)
         return;
 
-    updatePropertyListener(opacityMap, m_opacityMap, QQuick3DObjectPrivate::get(this)->sceneManager, QByteArrayLiteral("opacityMap"), m_connections, [this](QQuick3DObject *n) {
+    QQuick3DObjectPrivate::updatePropertyListener(opacityMap, m_opacityMap, QQuick3DObjectPrivate::get(this)->sceneManager, QByteArrayLiteral("opacityMap"), m_connections, [this](QQuick3DObject *n) {
         setOpacityMap(qobject_cast<QQuick3DTexture *>(n));
     });
 
@@ -690,7 +899,7 @@ void QQuick3DPrincipledMaterial::setNormalMap(QQuick3DTexture *normalMap)
     if (m_normalMap == normalMap)
         return;
 
-    updatePropertyListener(normalMap, m_normalMap, QQuick3DObjectPrivate::get(this)->sceneManager, QByteArrayLiteral("normalMap"), m_connections, [this](QQuick3DObject *n) {
+    QQuick3DObjectPrivate::updatePropertyListener(normalMap, m_normalMap, QQuick3DObjectPrivate::get(this)->sceneManager, QByteArrayLiteral("normalMap"), m_connections, [this](QQuick3DObject *n) {
         setNormalMap(qobject_cast<QQuick3DTexture *>(n));
     });
 
@@ -715,7 +924,7 @@ void QQuick3DPrincipledMaterial::setMetalnessMap(QQuick3DTexture *metallicMap)
     if (m_metalnessMap == metallicMap)
         return;
 
-    updatePropertyListener(metallicMap, m_metalnessMap, QQuick3DObjectPrivate::get(this)->sceneManager, QByteArrayLiteral("metalnessMap"), m_connections, [this](QQuick3DObject *n) {
+    QQuick3DObjectPrivate::updatePropertyListener(metallicMap, m_metalnessMap, QQuick3DObjectPrivate::get(this)->sceneManager, QByteArrayLiteral("metalnessMap"), m_connections, [this](QQuick3DObject *n) {
         setMetalnessMap(qobject_cast<QQuick3DTexture *>(n));
     });
 
@@ -740,7 +949,7 @@ void QQuick3DPrincipledMaterial::setOcclusionMap(QQuick3DTexture *occlusionMap)
     if (m_occlusionMap == occlusionMap)
         return;
 
-    updatePropertyListener(occlusionMap, m_occlusionMap, QQuick3DObjectPrivate::get(this)->sceneManager, QByteArrayLiteral("occlusionMap"), m_connections, [this](QQuick3DObject *n) {
+    QQuick3DObjectPrivate::updatePropertyListener(occlusionMap, m_occlusionMap, QQuick3DObjectPrivate::get(this)->sceneManager, QByteArrayLiteral("occlusionMap"), m_connections, [this](QQuick3DObject *n) {
         setOcclusionMap(qobject_cast<QQuick3DTexture *>(n));
     });
 
@@ -819,12 +1028,80 @@ void QQuick3DPrincipledMaterial::setOcclusionChannel(TextureChannelMapping chann
     markDirty(OcclusionDirty);
 }
 
+void QQuick3DPrincipledMaterial::setPointSize(float size)
+{
+    if (qFuzzyCompare(m_pointSize, size))
+        return;
+    m_pointSize = size;
+    emit pointSizeChanged();
+    markDirty(PointSizeDirty);
+}
+
+void QQuick3DPrincipledMaterial::setLineWidth(float width)
+{
+    if (qFuzzyCompare(m_lineWidth, width))
+        return;
+    m_lineWidth = width;
+    emit lineWidthChanged();
+    markDirty(LineWidthDirty);
+}
+
+void QQuick3DPrincipledMaterial::setHeightMap(QQuick3DTexture *heightMap)
+{
+    if (m_heightMap == heightMap)
+        return;
+
+    QQuick3DObjectPrivate::updatePropertyListener(heightMap, m_heightMap, QQuick3DObjectPrivate::get(this)->sceneManager, QByteArrayLiteral("heightMap"), m_connections, [this](QQuick3DObject *n) {
+        setHeightMap(qobject_cast<QQuick3DTexture *>(n));
+    });
+
+    m_heightMap = heightMap;
+    emit heightMapChanged(m_heightMap);
+    markDirty(HeightDirty);
+}
+
+void QQuick3DPrincipledMaterial::setHeightChannel(QQuick3DMaterial::TextureChannelMapping channel)
+{
+    if (m_heightChannel == channel)
+        return;
+
+    m_heightChannel = channel;
+    emit heightChannelChanged(m_heightChannel);
+    markDirty(HeightDirty);
+}
+
+void QQuick3DPrincipledMaterial::setHeightAmount(float heightAmount)
+{
+    if (m_heightAmount == heightAmount)
+        return;
+
+    m_heightAmount = heightAmount;
+    emit heightAmountChanged(m_heightAmount);
+    markDirty(HeightDirty);
+}
+
+void QQuick3DPrincipledMaterial::setMinHeightMapSamples(int samples)
+{
+    if (m_minHeightMapSamples == samples)
+        return;
+
+    m_minHeightMapSamples = samples;
+    emit minHeightMapSamplesChanged(samples);
+    markDirty(HeightDirty);
+}
+
+void QQuick3DPrincipledMaterial::setMaxHeightMapSamples(int samples)
+{
+    if (m_maxHeightMapSamples == samples)
+        return;
+
+    m_maxHeightMapSamples = samples;
+    emit maxHeightMapSamplesChanged(samples);
+    markDirty(HeightDirty);
+}
+
 QSSGRenderGraphObject *QQuick3DPrincipledMaterial::updateSpatialNode(QSSGRenderGraphObject *node)
 {
-    static const auto colorToVec3 = [](const QColor &c) {
-        return QVector3D{float(c.redF()), float(c.greenF()), float(c.blueF())};
-    };
-
     static const auto channelMapping = [](TextureChannelMapping mapping) {
         return QSSGRenderDefaultMaterial::TextureChannelMapping(mapping);
     };
@@ -839,6 +1116,8 @@ QSSGRenderGraphObject *QQuick3DPrincipledMaterial::updateSpatialNode(QSSGRenderG
 
     QSSGRenderDefaultMaterial *material = static_cast<QSSGRenderDefaultMaterial *>(node);
 
+    material->specularModel = QSSGRenderDefaultMaterial::MaterialSpecularModel::KGGX;
+
     if (m_dirtyAttributes & LightingModeDirty)
         material->lighting = QSSGRenderDefaultMaterial::MaterialLighting(m_lighting);
 
@@ -851,7 +1130,7 @@ QSSGRenderGraphObject *QQuick3DPrincipledMaterial::updateSpatialNode(QSSGRenderG
         else
             material->colorMap = m_baseColorMap->getRenderImage();
 
-        material->color = QVector4D{colorToVec3(m_baseColor), float(m_baseColor.alphaF())};
+        material->color = color::sRGBToLinear(m_baseColor);
     }
 
     if (m_dirtyAttributes & EmissiveDirty) {
@@ -860,13 +1139,11 @@ QSSGRenderGraphObject *QQuick3DPrincipledMaterial::updateSpatialNode(QSSGRenderG
         else
             material->emissiveMap = m_emissiveMap->getRenderImage();
 
-        material->emissiveColor = colorToVec3(m_emissiveColor);
+        material->emissiveColor = m_emissiveFactor;
     }
 
     material->fresnelPower = 5.0f;
-
-    if (m_dirtyAttributes & IorDirty)
-        material->ior = m_indexOfRefraction;
+    material->vertexColorsEnabled = false;
 
     if (m_dirtyAttributes & RoughnessDirty) {
         if (!m_roughnessMap)
@@ -887,18 +1164,9 @@ QSSGRenderGraphObject *QQuick3DPrincipledMaterial::updateSpatialNode(QSSGRenderG
         material->metalnessAmount = m_metalnessAmount;
         material->metalnessChannel = channelMapping(m_metalnessChannel);
 
-        // Update specular values if needed.
-        if (!material->isMetalnessEnabled()) {
-            m_dirtyAttributes |= SpecularDirty;
-        } else {
-            material->specularAmount = m_specularAmount;
-            material->specularTint = colorToVec3(Qt::white);
-        }
     }
 
-    // This test here is intentional, as we want to make sure we match the backend!
-    const bool isDielectric = !material->isMetalnessEnabled();
-    if (isDielectric && m_dirtyAttributes & SpecularDirty) {
+    if (m_dirtyAttributes & SpecularDirty) {
         if (!m_specularReflectionMap)
             material->specularReflection = nullptr;
         else
@@ -948,6 +1216,23 @@ QSSGRenderGraphObject *QQuick3DPrincipledMaterial::updateSpatialNode(QSSGRenderG
         material->alphaCutoff = m_alphaCutoff;
     }
 
+    if (m_dirtyAttributes & PointSizeDirty)
+        material->pointSize = m_pointSize;
+
+    if (m_dirtyAttributes & LineWidthDirty)
+        material->lineWidth = m_lineWidth;
+
+    if (m_dirtyAttributes & HeightDirty) {
+        if (!m_heightMap)
+            material->heightMap = nullptr;
+        else
+            material->heightMap = m_heightMap->getRenderImage();
+        material->heightAmount = m_heightAmount;
+        material->minHeightSamples = m_minHeightMapSamples;
+        material->maxHeightSamples = m_maxHeightMapSamples;
+        material->heightChannel = channelMapping(m_heightChannel);
+    }
+
     m_dirtyAttributes = 0;
 
     return node;
@@ -959,19 +1244,19 @@ void QQuick3DPrincipledMaterial::itemChange(QQuick3DObject::ItemChange change, c
         updateSceneManager(value.sceneManager);
 }
 
-void QQuick3DPrincipledMaterial::updateSceneManager(const QSharedPointer<QQuick3DSceneManager> &window)
+void QQuick3DPrincipledMaterial::updateSceneManager(QQuick3DSceneManager *sceneManager)
 {
-    // Check all the resource value's windows, and update as necessary
-    if (window) {
-        QQuick3DObjectPrivate::refSceneManager(m_baseColorMap, window);
-        QQuick3DObjectPrivate::refSceneManager(m_emissiveMap, window);
-        QQuick3DObjectPrivate::refSceneManager(m_specularReflectionMap, window);
-        QQuick3DObjectPrivate::refSceneManager(m_specularMap, window);
-        QQuick3DObjectPrivate::refSceneManager(m_roughnessMap, window);
-        QQuick3DObjectPrivate::refSceneManager(m_opacityMap, window);
-        QQuick3DObjectPrivate::refSceneManager(m_normalMap, window);
-        QQuick3DObjectPrivate::refSceneManager(m_metalnessMap, window);
-        QQuick3DObjectPrivate::refSceneManager(m_occlusionMap, window);
+    // Check all the resource value's scene manager, and update as necessary.
+    if (sceneManager) {
+        QQuick3DObjectPrivate::refSceneManager(m_baseColorMap, *sceneManager);
+        QQuick3DObjectPrivate::refSceneManager(m_emissiveMap, *sceneManager);
+        QQuick3DObjectPrivate::refSceneManager(m_specularReflectionMap, *sceneManager);
+        QQuick3DObjectPrivate::refSceneManager(m_specularMap, *sceneManager);
+        QQuick3DObjectPrivate::refSceneManager(m_roughnessMap, *sceneManager);
+        QQuick3DObjectPrivate::refSceneManager(m_opacityMap, *sceneManager);
+        QQuick3DObjectPrivate::refSceneManager(m_normalMap, *sceneManager);
+        QQuick3DObjectPrivate::refSceneManager(m_metalnessMap, *sceneManager);
+        QQuick3DObjectPrivate::refSceneManager(m_occlusionMap, *sceneManager);
     } else {
         QQuick3DObjectPrivate::derefSceneManager(m_baseColorMap);
         QQuick3DObjectPrivate::derefSceneManager(m_emissiveMap);

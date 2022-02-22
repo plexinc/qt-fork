@@ -6,19 +6,20 @@
 
 #include <stddef.h>
 
-#include "base/logging.h"
+#include "base/check.h"
+#include "base/notreached.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "components/autofill/core/browser/autofill_data_util.h"
+#include "components/autofill/core/browser/autofill_regex_constants.h"
+#include "components/autofill/core/browser/autofill_regexes.h"
 #include "components/autofill/core/browser/data_model/credit_card.h"
 #include "components/autofill/core/browser/geo/phone_number_i18n.h"
 #include "components/autofill/core/browser/geo/state_names.h"
 #include "components/autofill/core/common/autofill_clock.h"
-#include "components/autofill/core/common/autofill_regex_constants.h"
-#include "components/autofill/core/common/autofill_regexes.h"
 #include "components/strings/grit/components_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -79,6 +80,8 @@ bool HasCorrectLength(const base::string16& number) {
   if (type == kMasterCard && number.size() != 16)
     return false;
   if (type == kMirCard && number.size() != 16)
+    return false;
+  if (type == kTroyCard && number.size() != 16)
     return false;
   if (type == kUnionPay && (number.size() < 16 || number.size() > 19))
     return false;
@@ -201,9 +204,9 @@ bool IsSSN(const base::string16& text) {
     return false;
 
   int area;
-  if (!base::StringToInt(
-          base::StringPiece16(number_string.begin(), number_string.begin() + 3),
-          &area)) {
+  if (!base::StringToInt(base::MakeStringPiece16(number_string.begin(),
+                                                 number_string.begin() + 3),
+                         &area)) {
     return false;
   }
   if (area < 1 || area == 666 || area >= 900) {
@@ -211,16 +214,16 @@ bool IsSSN(const base::string16& text) {
   }
 
   int group;
-  if (!base::StringToInt(base::StringPiece16(number_string.begin() + 3,
-                                             number_string.begin() + 5),
+  if (!base::StringToInt(base::MakeStringPiece16(number_string.begin() + 3,
+                                                 number_string.begin() + 5),
                          &group) ||
       group == 0) {
     return false;
   }
 
   int serial;
-  if (!base::StringToInt(base::StringPiece16(number_string.begin() + 5,
-                                             number_string.begin() + 9),
+  if (!base::StringToInt(base::MakeStringPiece16(number_string.begin() + 5,
+                                                 number_string.begin() + 9),
                          &serial) ||
       serial == 0) {
     return false;

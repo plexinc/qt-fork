@@ -8,10 +8,12 @@
 #include <memory>
 
 #include "base/macros.h"
+#include "build/build_config.h"
 #include "cc/paint/paint_flags.h"
 #include "third_party/skia/include/core/SkPath.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
+#include "ui/base/dragdrop/mojom/drag_drop_types.mojom.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/views/border.h"
@@ -21,7 +23,10 @@
 #include "ui/views/controls/menu/menu_item_view.h"
 #include "ui/views/controls/menu/submenu_view.h"
 #include "ui/views/layout/flex_layout.h"
+#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/round_rect_painter.h"
+#include "ui/views/view.h"
 #include "ui/views/view_class_properties.h"
 
 using ui::NativeTheme;
@@ -40,15 +45,24 @@ static constexpr int kBorderPaddingDueToRoundedCorners = 1;
 
 class MenuScrollButton : public View {
  public:
+  METADATA_HEADER(MenuScrollButton);
   MenuScrollButton(SubmenuView* host, bool is_up)
       : host_(host),
         is_up_(is_up),
         // Make our height the same as that of other MenuItemViews.
         pref_height_(MenuItemView::pref_menu_height()) {}
+  MenuScrollButton(const MenuScrollButton&) = delete;
+  MenuScrollButton& operator=(const MenuScrollButton&) = delete;
 
   gfx::Size CalculatePreferredSize() const override {
     return gfx::Size(MenuConfig::instance().scroll_arrow_height * 2 - 1,
                      pref_height_);
+  }
+
+  void OnThemeChanged() override {
+    View::OnThemeChanged();
+    arrow_color_ = GetNativeTheme()->GetSystemColor(
+        ui::NativeTheme::kColorId_EnabledMenuItemForegroundColor);
   }
 
   bool CanDrop(const OSExchangeData& data) override {
@@ -71,8 +85,9 @@ class MenuScrollButton : public View {
     host_->GetMenuItem()->GetMenuController()->OnDragExitedScrollButton(host_);
   }
 
-  int OnPerformDrop(const ui::DropTargetEvent& event) override {
-    return ui::DragDropTypes::DRAG_NONE;
+  ui::mojom::DragOperation OnPerformDrop(
+      const ui::DropTargetEvent& event) override {
+    return ui::mojom::DragOperation::kNone;
   }
 
   void OnPaint(gfx::Canvas* canvas) override {
@@ -108,7 +123,7 @@ class MenuScrollButton : public View {
     cc::PaintFlags flags;
     flags.setStyle(cc::PaintFlags::kFill_Style);
     flags.setAntiAlias(true);
-    flags.setColor(config.arrow_color);
+    flags.setColor(arrow_color_);
     canvas->DrawPath(path, flags);
   }
 
@@ -122,8 +137,12 @@ class MenuScrollButton : public View {
   // Preferred height.
   int pref_height_;
 
-  DISALLOW_COPY_AND_ASSIGN(MenuScrollButton);
+  // Color for the arrow to scroll.
+  SkColor arrow_color_;
 };
+
+BEGIN_METADATA(MenuScrollButton, View)
+END_METADATA
 
 }  // namespace
 
@@ -139,7 +158,10 @@ class MenuScrollButton : public View {
 
 class MenuScrollViewContainer::MenuScrollView : public View {
  public:
+  METADATA_HEADER(MenuScrollView);
   explicit MenuScrollView(View* child) { AddChildView(child); }
+  MenuScrollView(const MenuScrollView&) = delete;
+  MenuScrollView& operator=(const MenuScrollView&) = delete;
 
   void ScrollRectToVisible(const gfx::Rect& rect) override {
     // NOTE: this assumes we only want to scroll in the y direction.
@@ -165,10 +187,10 @@ class MenuScrollViewContainer::MenuScrollView : public View {
 
   // Returns the contents, which is the SubmenuView.
   View* GetContents() { return children().front(); }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MenuScrollView);
 };
+
+BEGIN_METADATA(MenuScrollViewContainer, MenuScrollView, View)
+END_METADATA
 
 // MenuScrollViewContainer ----------------------------------------------------
 
@@ -242,7 +264,16 @@ void MenuScrollViewContainer::OnPaintBackground(gfx::Canvas* canvas) {
 void MenuScrollViewContainer::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   // Get the name from the submenu view.
   content_view_->GetAccessibleNodeData(node_data);
+
+  // On macOS, NSMenus are not supposed to have anything wrapped around them. To
+  // allow VoiceOver to recognize this as a menu and to read aloud the total
+  // number of items inside it, we ignore the MenuScrollViewContainer (which
+  // holds the menu itself: the SubmenuView).
+#if defined(OS_MAC)
+  node_data->role = ax::mojom::Role::kIgnored;
+#else
   node_data->role = ax::mojom::Role::kMenuBar;
+#endif
 }
 
 void MenuScrollViewContainer::OnBoundsChanged(
@@ -272,7 +303,7 @@ void MenuScrollViewContainer::CreateDefaultBorder() {
   const ui::NativeTheme* native_theme = GetNativeTheme();
   bool use_outer_border =
       menu_config.use_outer_border ||
-      (native_theme && native_theme->UsesHighContrastColors());
+      (native_theme && native_theme->UserHasContrastPreference());
   corner_radius_ = menu_config.CornerRadiusForMenu(
       content_view_->GetMenuItem()->GetMenuController());
   int padding = use_outer_border && corner_radius_ > 0
@@ -306,7 +337,8 @@ void MenuScrollViewContainer::CreateDefaultBorder() {
 void MenuScrollViewContainer::CreateBubbleBorder() {
   const SkColor color = GetNativeTheme()->GetSystemColor(
       ui::NativeTheme::kColorId_MenuBackgroundColor);
-  bubble_border_ = new BubbleBorder(arrow_, BubbleBorder::SMALL_SHADOW, color);
+  bubble_border_ =
+      new BubbleBorder(arrow_, BubbleBorder::STANDARD_SHADOW, color);
   if (content_view_->GetMenuItem()
           ->GetMenuController()
           ->use_touchable_layout()) {
@@ -330,6 +362,7 @@ BubbleBorder::Arrow MenuScrollViewContainer::BubbleBorderTypeFromAnchor(
     MenuAnchorPosition anchor) {
   switch (anchor) {
     case MenuAnchorPosition::kBubbleAbove:
+    case MenuAnchorPosition::kBubbleBelow:
     case MenuAnchorPosition::kBubbleLeft:
     case MenuAnchorPosition::kBubbleRight:
       return BubbleBorder::FLOAT;
@@ -338,8 +371,7 @@ BubbleBorder::Arrow MenuScrollViewContainer::BubbleBorderTypeFromAnchor(
   }
 }
 
-BEGIN_METADATA(MenuScrollViewContainer)
-METADATA_PARENT_CLASS(View)
-END_METADATA()
+BEGIN_METADATA(MenuScrollViewContainer, View)
+END_METADATA
 
 }  // namespace views

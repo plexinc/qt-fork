@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QtSql/QtSql>
 
 #include "../qsqldatabase/tst_databases.h"
@@ -91,6 +91,8 @@ void tst_QSqlDriver::recreateTestTables(QSqlDatabase db)
         doubleField = "more_data number(8,7)";
     else if (dbType == QSqlDriver::PostgreSQL)
         doubleField = "more_data double precision";
+    else if (dbType == QSqlDriver::Interbase)
+        doubleField = "more_data numeric(8,7)";
     else
         doubleField = "more_data double(8,7)";
     const QString defValue(driverSupportsDefaultValues(dbType) ? QStringLiteral("DEFAULT 'defaultVal'") : QString());
@@ -143,7 +145,7 @@ void tst_QSqlDriver::record()
     QCOMPARE(rec.count(), fields.size());
 
     QSqlDriver::DbmsType dbType = tst_Databases::getDatabaseType(db);
-    // QTBUG-1363: QSqlField::length() always return -1 when using QODBC3 driver and QSqlDatabase::record()
+    // QTBUG-1363: QSqlField::length() always return -1 when using QODBC driver and QSqlDatabase::record()
     if (dbType == QSqlDriver::MSSqlServer && db.driverName().startsWith("QODBC"))
         QCOMPARE(rec.field(1).length(), 20);
 
@@ -157,7 +159,7 @@ void tst_QSqlDriver::record()
     if (driverSupportsDefaultValues(dbType))
         QCOMPARE(rec.field(QStringLiteral("name")).defaultValue().toString(), QStringLiteral("defaultVal"));
 
-    if (dbType == QSqlDriver::Interbase || dbType == QSqlDriver::Oracle || dbType == QSqlDriver::DB2)
+    if (dbType == QSqlDriver::Oracle || dbType == QSqlDriver::DB2)
         tablename = tablename.toUpper();
     else if (dbType == QSqlDriver::PostgreSQL)
         tablename = tablename.toLower();
@@ -205,7 +207,7 @@ void tst_QSqlDriver::primaryIndex()
 
 
     //check that we can get the primary index using a quoted tablename
-    if (dbType == QSqlDriver::Interbase || dbType == QSqlDriver::Oracle || dbType == QSqlDriver::DB2)
+    if (dbType == QSqlDriver::Oracle || dbType == QSqlDriver::DB2)
         tablename = tablename.toUpper();
     else if (dbType == QSqlDriver::PostgreSQL)
         tablename = tablename.toLower();

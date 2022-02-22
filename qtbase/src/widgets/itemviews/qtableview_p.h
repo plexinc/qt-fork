@@ -127,7 +127,7 @@ private:
     bool cleanSpanSubIndex(SubIndex &subindex, int end, bool update = false);
 };
 
-Q_DECLARE_TYPEINFO ( QSpanCollection::Span, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO ( QSpanCollection::Span, Q_RELOCATABLE_TYPE);
 
 
 class QTableViewPrivate : public QAbstractItemViewPrivate
@@ -136,7 +136,6 @@ class QTableViewPrivate : public QAbstractItemViewPrivate
 public:
     QTableViewPrivate()
         : showGrid(true), gridStyle(Qt::SolidLine),
-          rowSectionAnchor(-1), columnSectionAnchor(-1),
           columnResizeTimerID(0), rowResizeTimerID(0),
           horizontalHeader(nullptr), verticalHeader(nullptr),
           sortingEnabled(false), geometryRecursionBlock(false),
@@ -149,6 +148,7 @@ public:
  }
     void init();
     void trimHiddenSelections(QItemSelectionRange *range) const;
+    QRect intersectedRect(const QRect rect, const QModelIndex &topLeft, const QModelIndex &bottomRight) const override;
 
     inline bool isHidden(int row, int col) const {
         return verticalHeader->isSectionHidden(row)
@@ -185,12 +185,10 @@ public:
 
     bool showGrid;
     Qt::PenStyle gridStyle;
-    int rowSectionAnchor;
-    int columnSectionAnchor;
     int columnResizeTimerID;
     int rowResizeTimerID;
-    QVector<int> columnsToUpdate;
-    QVector<int> rowsToUpdate;
+    QList<int> columnsToUpdate;
+    QList<int> rowsToUpdate;
     QHeaderView *horizontalHeader;
     QHeaderView *verticalHeader;
 #if QT_CONFIG(abstractbutton)

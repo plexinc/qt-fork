@@ -52,16 +52,30 @@
 //
 
 #include <qglobal.h>
+#include <QtCore/QList>
 #include <QtCore/QQueue>
-#include <QtCore/QVector>
 #include <QtBluetooth/qbluetooth.h>
 #include <QtBluetooth/qlowenergycharacteristic.h>
 #include <QtBluetooth/qlowenergyservicedata.h>
 #include "qlowenergycontroller.h"
 #include "qlowenergycontrollerbase_p.h"
 
+namespace ABI {
+    namespace Windows {
+        namespace Devices {
+            namespace Bluetooth {
+                struct IBluetoothLEDevice;
+            }
+        }
+        namespace Foundation {
+            template <typename T> struct IAsyncOperation;
+            enum class AsyncStatus;
+        }
+    }
+}
+
 #include <wrl.h>
-#include <windows.devices.bluetooth.h>
+#include <windows.devices.bluetooth.genericattributeprofile.h>
 
 #include <functional>
 
@@ -69,7 +83,6 @@ QT_BEGIN_NAMESPACE
 
 class QLowEnergyServiceData;
 class QTimer;
-class QWinRTLowEnergyServiceHandler;
 
 extern void registerQLowEnergyControllerMetaType();
 
@@ -86,7 +99,8 @@ public:
     void disconnectFromDevice() override;
 
     void discoverServices() override;
-    void discoverServiceDetails(const QBluetoothUuid &service) override;
+    void discoverServiceDetails(const QBluetoothUuid &service,
+                                QLowEnergyService::DiscoveryMode mode) override;
 
     void startAdvertising(const QLowEnergyAdvertisingParameters &params,
                           const QLowEnergyAdvertisingData &advertisingData,
@@ -114,15 +128,24 @@ public:
     void addToGenericAttributeList(const QLowEnergyServiceData &service,
                                    QLowEnergyHandle startHandle) override;
 
+    int mtu() const override;
+
 signals:
     void characteristicChanged(quint16 charHandle, const QByteArray &data);
+    void abortConnection();
 
 private slots:
     void handleCharacteristicChanged(quint16 charHandle, const QByteArray &data);
+    void handleServiceHandlerError(const QString &error);
 
 private:
+    void handleConnectionError(const char *logMessage);
+
     Microsoft::WRL::ComPtr<ABI::Windows::Devices::Bluetooth::IBluetoothLEDevice> mDevice;
+    Microsoft::WRL::ComPtr<ABI::Windows::Devices::Bluetooth::GenericAttributeProfile::IGattSession>
+            mGattSession;
     EventRegistrationToken mStatusChangedToken;
+    EventRegistrationToken mMtuChangedToken;
     struct ValueChangedEntry {
         ValueChangedEntry() {}
         ValueChangedEntry(Microsoft::WRL::ComPtr<ABI::Windows::Devices::Bluetooth::GenericAttributeProfile::IGattCharacteristic> c,
@@ -135,17 +158,28 @@ private:
         Microsoft::WRL::ComPtr<ABI::Windows::Devices::Bluetooth::GenericAttributeProfile::IGattCharacteristic> characteristic;
         EventRegistrationToken token;
     };
-    QVector<ValueChangedEntry> mValueChangedTokens;
+    QList<ValueChangedEntry> mValueChangedTokens;
 
     Microsoft::WRL::ComPtr<ABI::Windows::Devices::Bluetooth::GenericAttributeProfile::IGattDeviceService> getNativeService(const QBluetoothUuid &serviceUuid);
     Microsoft::WRL::ComPtr<ABI::Windows::Devices::Bluetooth::GenericAttributeProfile::IGattCharacteristic> getNativeCharacteristic(const QBluetoothUuid &serviceUuid, const QBluetoothUuid &charUuid);
 
     void registerForValueChanges(const QBluetoothUuid &serviceUuid, const QBluetoothUuid &charUuid);
     void unregisterFromValueChanges();
+    HRESULT onValueChange(ABI::Windows::Devices::Bluetooth::GenericAttributeProfile::IGattCharacteristic *characteristic,
+                          ABI::Windows::Devices::Bluetooth::GenericAttributeProfile::IGattValueChangedEventArgs *args);
+    HRESULT onMtuChange(ABI::Windows::Devices::Bluetooth::GenericAttributeProfile::IGattSession *session,
+                        IInspectable *args);
+    bool registerForMtuChanges();
+    void unregisterFromMtuChanges();
+
+    bool registerForStatusChanges();
+    void unregisterFromStatusChanges();
+    HRESULT onStatusChange(ABI::Windows::Devices::Bluetooth::IBluetoothLEDevice *dev, IInspectable *);
 
     void obtainIncludedServices(QSharedPointer<QLowEnergyServicePrivate> servicePointer,
         Microsoft::WRL::ComPtr<ABI::Windows::Devices::Bluetooth::GenericAttributeProfile::IGattDeviceService> nativeService);
-
+    HRESULT onServiceDiscoveryFinished(ABI::Windows::Foundation::IAsyncOperation<ABI::Windows::Devices::Bluetooth::GenericAttributeProfile::GattDeviceServicesResult *> *op,
+                                       ABI::Windows::Foundation::AsyncStatus status);
 };
 
 QT_END_NAMESPACE

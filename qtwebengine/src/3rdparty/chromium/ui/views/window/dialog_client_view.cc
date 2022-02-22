@@ -20,6 +20,8 @@
 #include "ui/views/controls/button/md_text_button.h"
 #include "ui/views/layout/grid_layout.h"
 #include "ui/views/layout/layout_provider.h"
+#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/style/platform_style.h"
 #include "ui/views/view_observer.h"
 #include "ui/views/view_tracker.h"
@@ -53,7 +55,10 @@ gfx::Size GetBoundingSizeForVerticalStack(const gfx::Size& size1,
 // Simple container to bubble child view changes up the view hierarchy.
 class DialogClientView::ButtonRowContainer : public View {
  public:
+  METADATA_HEADER(ButtonRowContainer);
   explicit ButtonRowContainer(DialogClientView* owner) : owner_(owner) {}
+  ButtonRowContainer(const ButtonRowContainer&) = delete;
+  ButtonRowContainer& operator=(const ButtonRowContainer&) = delete;
 
   // View:
   void ChildPreferredSizeChanged(View* child) override {
@@ -65,12 +70,10 @@ class DialogClientView::ButtonRowContainer : public View {
 
  private:
   DialogClientView* const owner_;
-
-  DISALLOW_COPY_AND_ASSIGN(ButtonRowContainer);
 };
 
-///////////////////////////////////////////////////////////////////////////////
-// DialogClientView, public:
+BEGIN_METADATA(DialogClientView, ButtonRowContainer, View)
+END_METADATA
 
 DialogClientView::DialogClientView(Widget* owner, View* contents_view)
     : ClientView(owner, contents_view),
@@ -95,18 +98,31 @@ void DialogClientView::SetButtonRowInsets(const gfx::Insets& insets) {
     UpdateDialogButtons();
 }
 
-////////////////////////////////////////////////////////////////////////////////
-// DialogClientView, View overrides:
-
 gfx::Size DialogClientView::CalculatePreferredSize() const {
-  gfx::Size contents_size = ClientView::CalculatePreferredSize();
   const gfx::Insets& content_margins = GetDialogDelegate()->margins();
+
+  gfx::Size contents_size;
+  const int fixed_width = GetDialogDelegate()->fixed_width();
+  if (fixed_width) {
+    const int content_width = fixed_width - content_margins.width();
+    contents_size = gfx::Size(content_width,
+                              ClientView::GetHeightForWidth(content_width));
+  } else {
+    contents_size = ClientView::CalculatePreferredSize();
+  }
   contents_size.Enlarge(content_margins.width(), content_margins.height());
   return GetBoundingSizeForVerticalStack(
       contents_size, button_row_container_->GetPreferredSize());
 }
 
 gfx::Size DialogClientView::GetMinimumSize() const {
+  // TODO(pbos): Try to find a way for ClientView::GetMinimumSize() to be
+  // fixed-width aware. For now this uses min-size = preferred size for
+  // fixed-width dialogs (even though min height might not be preferred height).
+  // Fixing this might require View::GetMinHeightForWidth().
+  if (GetDialogDelegate()->fixed_width())
+    return CalculatePreferredSize();
+
   return GetBoundingSizeForVerticalStack(
       ClientView::GetMinimumSize(), button_row_container_->GetMinimumSize());
 }
@@ -149,7 +165,9 @@ void DialogClientView::Layout() {
 bool DialogClientView::AcceleratorPressed(const ui::Accelerator& accelerator) {
   DCHECK_EQ(accelerator.key_code(), ui::VKEY_ESCAPE);
 
-  GetWidget()->CloseWithReason(Widget::ClosedReason::kEscKeyPressed);
+  if (DialogDelegate* delegate = GetDialogDelegate())
+    delegate->CancelDialog();
+
   return true;
 }
 
@@ -198,31 +216,9 @@ void DialogClientView::OnThemeChanged() {
   }
 }
 
-////////////////////////////////////////////////////////////////////////////////
-// DialogClientView, ButtonListener implementation:
-
-void DialogClientView::ButtonPressed(Button* sender, const ui::Event& event) {
-  // Check for a valid delegate to avoid handling events after destruction.
-  if (!GetDialogDelegate())
-    return;
-
-  if (input_protector_.IsPossiblyUnintendedInteraction(event))
-    return;
-
-  if (sender == ok_button_)
-    GetDialogDelegate()->AcceptDialog();
-  else if (sender == cancel_button_)
-    GetDialogDelegate()->CancelDialog();
-  else
-    NOTREACHED();
-}
-
 void DialogClientView::ResetViewShownTimeStampForTesting() {
   input_protector_.ResetForTesting();
 }
-
-////////////////////////////////////////////////////////////////////////////////
-// DialogClientView, private:
 
 DialogDelegate* DialogClientView::GetDialogDelegate() const {
   return GetWidget()->widget_delegate()->AsDialogDelegate();
@@ -266,10 +262,11 @@ void DialogClientView::UpdateDialogButton(LabelButton** member,
     return;
   }
 
-  std::unique_ptr<LabelButton> button =
-      is_default ? MdTextButton::CreateSecondaryUiBlueButton(this, title)
-                 : MdTextButton::CreateSecondaryUiButton(this, title);
-
+  auto button = std::make_unique<MdTextButton>(
+      base::BindRepeating(&DialogClientView::ButtonPressed,
+                          base::Unretained(this), type),
+      title);
+  button->SetProminent(is_default);
   button->SetIsDefault(is_default);
   button->SetEnabled(delegate->IsDialogButtonEnabled(type));
 
@@ -280,6 +277,15 @@ void DialogClientView::UpdateDialogButton(LabelButton** member,
   button->SetGroup(kButtonGroup);
 
   *member = button_row_container_->AddChildView(std::move(button));
+}
+
+void DialogClientView::ButtonPressed(ui::DialogButton type,
+                                     const ui::Event& event) {
+  DialogDelegate* const delegate = GetDialogDelegate();
+  if (delegate && !input_protector_.IsPossiblyUnintendedInteraction(event)) {
+    (type == ui::DIALOG_BUTTON_OK) ? delegate->AcceptDialog()
+                                   : delegate->CancelDialog();
+  }
 }
 
 int DialogClientView::GetExtraViewSpacing() const {
@@ -352,13 +358,13 @@ void DialogClientView::SetupLayout() {
   // into the layout. This simplifies min/max size calculations.
   column_set->AddPaddingColumn(kFixed, button_row_insets_.left());
   column_set->AddColumn(GridLayout::FILL, GridLayout::FILL, kFixed,
-                        GridLayout::USE_PREF, 0, 0);
+                        GridLayout::ColumnSize::kUsePreferred, 0, 0);
   column_set->AddPaddingColumn(kStretchy, GetExtraViewSpacing());
   column_set->AddColumn(GridLayout::FILL, GridLayout::FILL, kFixed,
-                        GridLayout::USE_PREF, 0, 0);
+                        GridLayout::ColumnSize::kUsePreferred, 0, 0);
   column_set->AddPaddingColumn(kFixed, button_spacing);
   column_set->AddColumn(GridLayout::FILL, GridLayout::FILL, kFixed,
-                        GridLayout::USE_PREF, 0, 0);
+                        GridLayout::ColumnSize::kUsePreferred, 0, 0);
   column_set->AddPaddingColumn(kFixed, button_row_insets_.right());
 
   // Track which columns to link sizes under MD.
@@ -419,8 +425,7 @@ void DialogClientView::SetupViews() {
     extra_view_->SetGroup(kButtonGroup);
 }
 
-BEGIN_METADATA(DialogClientView)
-METADATA_PARENT_CLASS(ClientView)
-END_METADATA()
+BEGIN_METADATA(DialogClientView, ClientView)
+END_METADATA
 
 }  // namespace views

@@ -7,6 +7,8 @@
 #include <memory>
 
 #include "base/metrics/histogram_macros.h"
+#include "third_party/blink/public/common/feature_policy/policy_value.h"
+#include "third_party/blink/public/mojom/feature_policy/document_policy_feature.mojom-blink.h"
 #include "third_party/blink/public/mojom/feature_policy/feature_policy_feature.mojom-blink.h"
 #include "third_party/blink/public/mojom/feature_policy/policy_value.mojom-blink.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
@@ -16,7 +18,6 @@
 #include "third_party/blink/renderer/core/svg/graphics/svg_image.h"
 #include "third_party/blink/renderer/platform/geometry/int_size.h"
 #include "third_party/blink/renderer/platform/graphics/bitmap_image.h"
-#include "third_party/blink/renderer/platform/graphics/placeholder_image.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 #include "third_party/blink/renderer/platform/network/http_parsers.h"
 #include "third_party/blink/renderer/platform/network/mime/mime_type_registry.h"
@@ -32,24 +33,18 @@ namespace {
 class NullImageResourceInfo final
     : public GarbageCollected<NullImageResourceInfo>,
       public ImageResourceInfo {
-  USING_GARBAGE_COLLECTED_MIXIN(NullImageResourceInfo);
-
  public:
   NullImageResourceInfo() = default;
 
-  void Trace(Visitor* visitor) override { ImageResourceInfo::Trace(visitor); }
+  void Trace(Visitor* visitor) const override {
+    ImageResourceInfo::Trace(visitor);
+  }
 
  private:
   const KURL& Url() const override { return url_; }
   base::TimeTicks LoadResponseEnd() const override { return base::TimeTicks(); }
-  bool IsSchedulingReload() const override { return false; }
   const ResourceResponse& GetResponse() const override { return response_; }
-  bool ShouldShowPlaceholder() const override { return false; }
-  bool ShouldShowLazyImagePlaceholder() const override { return false; }
   bool IsCacheValidator() const override { return false; }
-  bool SchedulingReloadOrShouldReloadBrokenPlaceholder() const override {
-    return false;
-  }
   bool IsAccessAllowed(
       DoesCurrentFrameHaveSingleSecurityOrigin) const override {
     return true;
@@ -71,34 +66,13 @@ class NullImageResourceInfo final
 
   bool IsAdResource() const override { return false; }
 
+  const HashSet<String>* GetUnsupportedImageMimeTypes() const override {
+    return nullptr;
+  }
+
   const KURL url_;
   const ResourceResponse response_;
 };
-
-int64_t EstimateOriginalImageSizeForPlaceholder(
-    const ResourceResponse& response) {
-  if (response.HttpHeaderField("chrome-proxy-content-transform") ==
-      "empty-image") {
-    const String& str = response.HttpHeaderField("chrome-proxy");
-    wtf_size_t index = str.Find("ofcl=");
-    if (index != kNotFound) {
-      bool ok = false;
-      int bytes = str.Substring(index + (sizeof("ofcl=") - 1)).ToInt(&ok);
-      if (ok && bytes >= 0)
-        return bytes;
-    }
-  }
-
-  int64_t first = -1, last = -1, length = -1;
-  if (response.HttpStatusCode() == 206 &&
-      ParseContentRangeHeaderFor206(response.HttpHeaderField("content-range"),
-                                    &first, &last, &length) &&
-      length >= 0) {
-    return length;
-  }
-
-  return response.EncodedBodyLength();
-}
 
 }  // namespace
 
@@ -121,14 +95,6 @@ ImageResourceContent* ImageResourceContent::CreateLoaded(
   return content;
 }
 
-ImageResourceContent* ImageResourceContent::CreateLazyImagePlaceholder() {
-  ImageResourceContent* content = MakeGarbageCollected<ImageResourceContent>();
-  content->content_status_ = ResourceStatus::kCached;
-  content->image_ =
-      PlaceholderImage::CreateForLazyImages(content, IntSize(1, 1));
-  return content;
-}
-
 ImageResourceContent* ImageResourceContent::Fetch(FetchParameters& params,
                                                   ResourceFetcher* fetcher) {
   // TODO(hiroshige): Remove direct references to ImageResource by making
@@ -143,15 +109,13 @@ void ImageResourceContent::SetImageResourceInfo(ImageResourceInfo* info) {
   info_ = info;
 }
 
-void ImageResourceContent::Trace(Visitor* visitor) {
+void ImageResourceContent::Trace(Visitor* visitor) const {
   visitor->Trace(info_);
   ImageObserver::Trace(visitor);
 }
 
 void ImageResourceContent::HandleObserverFinished(
     ImageResourceObserver* observer) {
-  if (info_->SchedulingReloadOrShouldReloadBrokenPlaceholder())
-    return;
   {
     ProhibitAddRemoveObserverInScope prohibit_add_remove_observer_in_scope(
         this);
@@ -266,7 +230,16 @@ IntSize ImageResourceContent::IntrinsicSize(
     RespectImageOrientationEnum should_respect_image_orientation) const {
   if (!image_)
     return IntSize();
-  return image_->Size(should_respect_image_orientation);
+  RespectImageOrientationEnum respect_orientation =
+      ForceOrientationIfNecessary(should_respect_image_orientation);
+  return image_->Size(respect_orientation);
+}
+
+RespectImageOrientationEnum ImageResourceContent::ForceOrientationIfNecessary(
+    RespectImageOrientationEnum default_orientation) const {
+  if (image_ && image_->IsBitmapImage() && !IsAccessAllowed())
+    return kRespectImageOrientation;
+  return default_orientation;
 }
 
 void ImageResourceContent::NotifyObservers(
@@ -449,19 +422,13 @@ ImageResourceContent::UpdateImageResult ImageResourceContent::UpdateImage(
       if (size_available_ == Image::kSizeUnavailable && !all_data_received)
         return UpdateImageResult::kNoDecodeError;
 
-      if ((info_->ShouldShowPlaceholder() ||
-           info_->ShouldShowLazyImagePlaceholder()) &&
-          all_data_received) {
-        if (image_ && !image_->IsNull()) {
-          IntSize dimensions = image_->Size();
-          ClearImage();
-          if (info_->ShouldShowLazyImagePlaceholder()) {
-            image_ = PlaceholderImage::CreateForLazyImages(this, dimensions);
-          } else {
-            image_ = PlaceholderImage::Create(
-                this, dimensions,
-                EstimateOriginalImageSizeForPlaceholder(info_->GetResponse()));
-          }
+      if (image_ && info_->GetUnsupportedImageMimeTypes()) {
+        // Filename extension is set by the image decoder based on the actual
+        // image content.
+        String file_extension = image_->FilenameExtension();
+        if (info_->GetUnsupportedImageMimeTypes()->Contains(
+                String("image/" + file_extension))) {
+          return UpdateImageResult::kShouldDecodeError;
         }
       }
 
@@ -537,23 +504,30 @@ bool ImageResourceContent::IsAcceptableCompressionRatio(
   // Pass image url to reporting API.
   const String& image_url = Url().GetString();
 
+  const char* message_format =
+      "Image bpp (byte per pixel) exceeds max value set in %s.";
+
   if (compression_format == ImageDecoder::kLossyFormat) {
     // Enforce the lossy image policy.
     return context.IsFeatureEnabled(
-        mojom::blink::DocumentPolicyFeature::kUnoptimizedLossyImages,
-        PolicyValue(compression_ratio_1k), ReportOptions::kReportOnFailure,
-        g_empty_string, image_url);
+        mojom::blink::DocumentPolicyFeature::kLossyImagesMaxBpp,
+        PolicyValue::CreateDecDouble(compression_ratio_1k),
+        ReportOptions::kReportOnFailure,
+        String::Format(message_format, "lossy-images-max-bpp"), image_url);
   }
   if (compression_format == ImageDecoder::kLosslessFormat) {
     // Enforce the lossless image policy.
     bool enabled_by_10k_policy = context.IsFeatureEnabled(
-        mojom::blink::DocumentPolicyFeature::kUnoptimizedLosslessImages,
-        PolicyValue(compression_ratio_10k), ReportOptions::kReportOnFailure,
-        g_empty_string, image_url);
+        mojom::blink::DocumentPolicyFeature::kLosslessImagesMaxBpp,
+        PolicyValue::CreateDecDouble(compression_ratio_10k),
+        ReportOptions::kReportOnFailure,
+        String::Format(message_format, "lossless-images-max-bpp"), image_url);
     bool enabled_by_1k_policy = context.IsFeatureEnabled(
-        mojom::blink::DocumentPolicyFeature::kUnoptimizedLosslessImagesStrict,
-        PolicyValue(compression_ratio_1k), ReportOptions::kReportOnFailure,
-        g_empty_string, image_url);
+        mojom::blink::DocumentPolicyFeature::kLosslessImagesStrictMaxBpp,
+        PolicyValue::CreateDecDouble(compression_ratio_1k),
+        ReportOptions::kReportOnFailure,
+        String::Format(message_format, "lossless-images-strict-max-bpp"),
+        image_url);
     return enabled_by_10k_policy && enabled_by_1k_policy;
   }
 
@@ -591,7 +565,8 @@ void ImageResourceContent::UpdateImageAnimationPolicy() {
   if (!image_)
     return;
 
-  ImageAnimationPolicy new_policy = kImageAnimationPolicyAllowed;
+  mojom::blink::ImageAnimationPolicy new_policy =
+      mojom::blink::ImageAnimationPolicy::kImageAnimationPolicyAllowed;
   {
     ProhibitAddRemoveObserverInScope prohibit_add_remove_observer_in_scope(
         this);
@@ -614,7 +589,7 @@ void ImageResourceContent::Changed(const blink::Image* image) {
   NotifyObservers(kDoNotNotifyFinish, CanDeferInvalidation::kYes);
 }
 
-bool ImageResourceContent::IsAccessAllowed() {
+bool ImageResourceContent::IsAccessAllowed() const {
   return info_->IsAccessAllowed(
       GetImage()->CurrentFrameHasSingleSecurityOrigin()
           ? ImageResourceInfo::kHasSingleSecurityOrigin
@@ -689,6 +664,11 @@ void ImageResourceContent::LoadDeferredImage(ResourceFetcher* fetcher) {
 
 bool ImageResourceContent::IsAdResource() const {
   return info_->IsAdResource();
+}
+
+void ImageResourceContent::RecordDecodedImageType(UseCounter* use_counter) {
+  if (auto* bitmap_image = DynamicTo<BitmapImage>(image_.get()))
+    bitmap_image->RecordDecodedImageType(use_counter);
 }
 
 }  // namespace blink

@@ -66,43 +66,6 @@ template <> struct QFlagPointerAlignment<void>
 };
 }
 
-template<typename T>
-class QFlagPointer {
-public:
-    inline QFlagPointer();
-    inline QFlagPointer(T *);
-    inline QFlagPointer(const QFlagPointer<T> &o);
-
-    inline bool isNull() const;
-
-    inline bool flag() const;
-    inline void setFlag();
-    inline void clearFlag();
-    inline void setFlagValue(bool);
-
-    inline bool flag2() const;
-    inline void setFlag2();
-    inline void clearFlag2();
-    inline void setFlag2Value(bool);
-
-    inline QFlagPointer<T> &operator=(const QFlagPointer &o);
-    inline QFlagPointer<T> &operator=(T *);
-
-    inline T *operator->() const;
-    inline T *operator*() const;
-
-    inline T *data() const;
-
-    inline explicit operator bool() const;
-
-private:
-    quintptr ptr_value = 0;
-
-    static const quintptr FlagBit = 0x1;
-    static const quintptr Flag2Bit = 0x2;
-    static const quintptr FlagsMask = FlagBit | Flag2Bit;
-};
-
 template<typename T, typename T2>
 class QBiPointer {
 public:
@@ -124,6 +87,26 @@ public:
     inline QBiPointer<T, T2> &operator=(T *);
     inline QBiPointer<T, T2> &operator=(T2 *);
 
+    friend inline bool operator==(QBiPointer<T, T2> ptr1, QBiPointer<T, T2> ptr2)
+    {
+        if (ptr1.isNull() && ptr2.isNull())
+            return true;
+        if (ptr1.isT1() && ptr2.isT1())
+            return ptr1.asT1() == ptr2.asT1();
+        if (ptr1.isT2() && ptr2.isT2())
+            return ptr1.asT2() == ptr2.asT2();
+        return false;
+    }
+    friend inline bool operator!=(QBiPointer<T, T2> ptr1, QBiPointer<T, T2> ptr2)
+    {
+        return !(ptr1 == ptr2);
+    }
+
+    friend inline void swap(QBiPointer<T, T2> ptr1, QBiPointer<T, T2> ptr2)
+    {
+        qSwap(ptr1.ptr_value, ptr2.ptr_value);
+    }
+
     inline T *asT1() const;
     inline T2 *asT2() const;
 
@@ -134,121 +117,6 @@ private:
     static const quintptr Flag2Bit = 0x2;
     static const quintptr FlagsMask = FlagBit | Flag2Bit;
 };
-
-template<typename T>
-QFlagPointer<T>::QFlagPointer()
-{
-}
-
-template<typename T>
-QFlagPointer<T>::QFlagPointer(T *v)
-: ptr_value(quintptr(v))
-{
-    Q_STATIC_ASSERT_X(Q_ALIGNOF(T) >= 4, "Type T does not have sufficient alignment");
-    Q_ASSERT((ptr_value & FlagsMask) == 0);
-}
-
-template<typename T>
-QFlagPointer<T>::QFlagPointer(const QFlagPointer<T> &o)
-: ptr_value(o.ptr_value)
-{
-}
-
-template<typename T>
-bool QFlagPointer<T>::isNull() const
-{
-    return 0 == (ptr_value & (~FlagsMask));
-}
-
-template<typename T>
-bool QFlagPointer<T>::flag() const
-{
-    return ptr_value & FlagBit;
-}
-
-template<typename T>
-void QFlagPointer<T>::setFlag()
-{
-    ptr_value |= FlagBit;
-}
-
-template<typename T>
-void QFlagPointer<T>::clearFlag()
-{
-    ptr_value &= ~FlagBit;
-}
-
-template<typename T>
-void QFlagPointer<T>::setFlagValue(bool v)
-{
-    if (v) setFlag();
-    else clearFlag();
-}
-
-template<typename T>
-bool QFlagPointer<T>::flag2() const
-{
-    return ptr_value & Flag2Bit;
-}
-
-template<typename T>
-void QFlagPointer<T>::setFlag2()
-{
-    ptr_value|= Flag2Bit;
-}
-
-template<typename T>
-void QFlagPointer<T>::clearFlag2()
-{
-    ptr_value &= ~Flag2Bit;
-}
-
-template<typename T>
-void QFlagPointer<T>::setFlag2Value(bool v)
-{
-    if (v) setFlag2();
-    else clearFlag2();
-}
-
-template<typename T>
-QFlagPointer<T> &QFlagPointer<T>::operator=(const QFlagPointer &o)
-{
-    ptr_value = o.ptr_value;
-    return *this;
-}
-
-template<typename T>
-QFlagPointer<T> &QFlagPointer<T>::operator=(T *o)
-{
-    Q_ASSERT((quintptr(o) & FlagsMask) == 0);
-
-    ptr_value = quintptr(o) | (ptr_value & FlagsMask);
-    return *this;
-}
-
-template<typename T>
-T *QFlagPointer<T>::operator->() const
-{
-    return (T *)(ptr_value & ~FlagsMask);
-}
-
-template<typename T>
-T *QFlagPointer<T>::operator*() const
-{
-    return (T *)(ptr_value & ~FlagsMask);
-}
-
-template<typename T>
-T *QFlagPointer<T>::data() const
-{
-    return (T *)(ptr_value & ~FlagsMask);
-}
-
-template<typename T>
-QFlagPointer<T>::operator bool() const
-{
-    return data() != nullptr;
-}
 
 template<typename T, typename T2>
 QBiPointer<T, T2>::QBiPointer()

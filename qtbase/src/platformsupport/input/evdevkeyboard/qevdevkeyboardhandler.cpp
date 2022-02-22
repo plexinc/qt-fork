@@ -38,6 +38,7 @@
 ****************************************************************************/
 
 #include "qevdevkeyboardhandler_p.h"
+#include "qoutputmapping_p.h"
 
 #include <qplatformdefs.h>
 
@@ -120,8 +121,8 @@ std::unique_ptr<QEvdevKeyboardHandler> QEvdevKeyboardHandler::create(const QStri
     bool enableCompose = false;
     int grab = 0;
 
-    const auto args = specification.splitRef(QLatin1Char(':'));
-    for (const QStringRef &arg : args) {
+    const auto args = QStringView{specification}.split(QLatin1Char(':'));
+    for (const auto &arg : args) {
         if (arg.startsWith(QLatin1String("keymap=")))
             keymapFile = arg.mid(7).toString();
         else if (arg == QLatin1String("disable-zap"))
@@ -138,7 +139,11 @@ std::unique_ptr<QEvdevKeyboardHandler> QEvdevKeyboardHandler::create(const QStri
 
     qCDebug(qLcEvdevKey, "Opening keyboard at %ls", qUtf16Printable(device));
 
-    QFdContainer fd(qt_safe_open(device.toLocal8Bit().constData(), O_RDONLY | O_NDELAY, 0));
+    QFdContainer fd(qt_safe_open(device.toLocal8Bit().constData(), O_RDWR | O_NDELAY, 0));
+    if (fd.get() < 0) {
+        qCDebug(qLcEvdevKey, "Keyboard device could not be opened as read-write, trying read-only");
+        fd.reset(qt_safe_open(device.toLocal8Bit().constData(), O_RDONLY | O_NDELAY, 0));
+    }
     if (fd.get() >= 0) {
         ::ioctl(fd.get(), EVIOCGRAB, grab);
         if (repeatDelay > 0 && repeatRate > 0) {
@@ -240,7 +245,11 @@ void QEvdevKeyboardHandler::processKeyEvent(int nativecode, int unicode, int qtc
     if (!autoRepeat)
         QGuiApplicationPrivate::inputDeviceManager()->setKeyboardModifiers(QEvdevKeyboardHandler::toQtModifiers(m_modifiers));
 
-    QWindowSystemInterface::handleExtendedKeyEvent(0, (isPress ? QEvent::KeyPress : QEvent::KeyRelease),
+    QWindow *window = nullptr;
+#ifdef Q_OS_WEBOS
+    window = QOutputMapping::get()->windowForDeviceNode(m_device);
+#endif
+    QWindowSystemInterface::handleExtendedKeyEvent(window, (isPress ? QEvent::KeyPress : QEvent::KeyRelease),
                                                    qtcode, modifiers, nativecode + 8, 0, int(modifiers),
                                                    (unicode != 0xffff ) ? QString(QChar(unicode)) : QString(), autoRepeat);
 }
@@ -250,8 +259,8 @@ QEvdevKeyboardHandler::KeycodeAction QEvdevKeyboardHandler::processKeycode(quint
     KeycodeAction result = None;
     bool first_press = pressed && !autorepeat;
 
-    const QEvdevKeyboardMap::Mapping *map_plain = 0;
-    const QEvdevKeyboardMap::Mapping *map_withmod = 0;
+    const QEvdevKeyboardMap::Mapping *map_plain = nullptr;
+    const QEvdevKeyboardMap::Mapping *map_withmod = nullptr;
 
     quint8 modifiers = m_modifiers;
 

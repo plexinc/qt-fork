@@ -10,7 +10,6 @@
 #include "base/command_line.h"
 #include "base/strings/string_number_conversions.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_compression_stats.h"
-#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_config_test_utils.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_test_utils.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_headers_test_utils.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_params.h"
@@ -79,7 +78,6 @@ void DataReductionProxySettingsTestBase::ResetSettings(base::Clock* clock) {
     settings->data_reduction_proxy_service_ = test_context_->TakeService();
   }
   settings->data_reduction_proxy_service_->SetSettingsForTesting(settings);
-  settings->config_ = test_context_->config();
   settings->prefs_ = test_context_->pref_service();
   if (clock)
     settings->clock_ = clock;
@@ -96,21 +94,10 @@ void DataReductionProxySettingsTestBase::ResetSettings(base::Clock* clock) {
 template void DataReductionProxySettingsTestBase::ResetSettings<
     DataReductionProxySettings>(base::Clock* clock);
 
-void DataReductionProxySettingsTestBase::ExpectSetProxyPrefs(
-    bool expected_enabled,
-    bool expected_at_startup) {
-  MockDataReductionProxyService* mock_service =
-      static_cast<MockDataReductionProxyService*>(
-          settings_->data_reduction_proxy_service());
-  EXPECT_CALL(*mock_service,
-              SetProxyPrefs(expected_enabled, expected_at_startup));
-}
-
 void DataReductionProxySettingsTestBase::CheckOnPrefChange(
     bool enabled,
     bool expected_enabled,
     bool managed) {
-  ExpectSetProxyPrefs(expected_enabled, false);
   if (managed) {
     test_context_->pref_service()->SetManagedPref(
         prefs::kDataSaverEnabled, std::make_unique<base::Value>(enabled));

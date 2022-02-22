@@ -77,9 +77,7 @@ void ChatClient::startClient(const QBluetoothServiceInfo &remoteService)
     connect(socket, &QBluetoothSocket::readyRead, this, &ChatClient::readSocket);
     connect(socket, &QBluetoothSocket::connected, this, QOverload<>::of(&ChatClient::connected));
     connect(socket, &QBluetoothSocket::disconnected, this, &ChatClient::disconnected);
-    connect(socket, QOverload<QBluetoothSocket::SocketError>::of(&QBluetoothSocket::error),
-            this, &ChatClient::onSocketErrorOccurred);
-
+    connect(socket, &QBluetoothSocket::errorOccurred, this, &ChatClient::onSocketErrorOccurred);
 }
 //! [startClient]
 
@@ -98,7 +96,7 @@ void ChatClient::readSocket()
         return;
 
     while (socket->canReadLine()) {
-        QByteArray line = socket->readLine();
+        QByteArray line = socket->readLine().trimmed();
         emit messageReceived(socket->peerName(),
                              QString::fromUtf8(line.constData(), line.length()));
     }
@@ -115,12 +113,12 @@ void ChatClient::sendMessage(const QString &message)
 
 void ChatClient::onSocketErrorOccurred(QBluetoothSocket::SocketError error)
 {
-    if (error == QBluetoothSocket::NoSocketError)
+    if (error == QBluetoothSocket::SocketError::NoSocketError)
         return;
 
     QMetaEnum metaEnum = QMetaEnum::fromType<QBluetoothSocket::SocketError>();
     QString errorString = socket->peerName() + QLatin1Char(' ')
-            + metaEnum.valueToKey(error) + QLatin1String(" occurred");
+            + metaEnum.valueToKey(static_cast<int>(error)) + QLatin1String(" occurred");
 
     emit socketErrorOccurred(errorString);
 }

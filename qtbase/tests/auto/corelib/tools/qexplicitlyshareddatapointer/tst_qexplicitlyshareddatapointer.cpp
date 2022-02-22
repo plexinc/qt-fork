@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QtCore/QSharedData>
 
 /*!
@@ -79,8 +79,8 @@ public:
 class Derived : public Base
 {
 public:
-    virtual Base *clone() { return new Derived(*this); }
-    virtual bool isBase() const { return false; }
+    virtual Base *clone() override { return new Derived(*this); }
+    virtual bool isBase() const override { return false; }
 };
 
 QT_BEGIN_NAMESPACE
@@ -169,7 +169,7 @@ void tst_QExplicitlySharedDataPointer::data() const
         pointer.data();
 
         /* Check that this cast is possible. */
-        static_cast<const MyClass *>(pointer.data());
+        Q_UNUSED(static_cast<const MyClass *>(pointer.data()));
 
         QVERIFY(! (pointer == nullptr));
         QVERIFY(! (nullptr == pointer));
@@ -181,7 +181,7 @@ void tst_QExplicitlySharedDataPointer::data() const
         pointer.data();
 
         /* Check that this cast is possible. */
-        static_cast<const MyClass *>(pointer.data());
+        Q_UNUSED(static_cast<const MyClass *>(pointer.data()));
     }
 
     /* Must not mutate the pointer. */
@@ -190,8 +190,8 @@ void tst_QExplicitlySharedDataPointer::data() const
         pointer.data();
 
         /* Check that these casts are possible. */
-        static_cast<MyClass *>(pointer.data());
-        static_cast<const MyClass *>(pointer.data());
+        Q_UNUSED(static_cast<MyClass *>(pointer.data()));
+        Q_UNUSED(static_cast<const MyClass *>(pointer.data()));
     }
 
     /* Must not mutate the pointer. */
@@ -200,8 +200,8 @@ void tst_QExplicitlySharedDataPointer::data() const
         pointer.data();
 
         /* Check that these casts are possible. */
-        static_cast<MyClass *>(pointer.data());
-        static_cast<const MyClass *>(pointer.data());
+        Q_UNUSED(static_cast<MyClass *>(pointer.data()));
+        Q_UNUSED(static_cast<const MyClass *>(pointer.data()));
     }
 }
 

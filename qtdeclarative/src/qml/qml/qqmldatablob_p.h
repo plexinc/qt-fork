@@ -59,8 +59,10 @@
 #include <QtNetwork/qnetworkreply.h>
 #endif
 
+#include <QtQml/qqmlprivate.h>
 #include <QtQml/qqmlerror.h>
 #include <QtQml/qqmlabstracturlinterceptor.h>
+#include <QtQml/qqmlprivate.h>
 
 #include <QtCore/qdatetime.h>
 #include <QtCore/qfileinfo.h>
@@ -132,13 +134,12 @@ protected:
     void setError(const QQmlError &);
     void setError(const QList<QQmlError> &errors);
     void setError(const QQmlJS::DiagnosticMessage &error);
-    void setError(const QVector<QQmlError> &errors);
     void setError(const QString &description);
     void addDependency(QQmlDataBlob *);
 
     // Callbacks made in load thread
     virtual void dataReceived(const SourceCodeData &) = 0;
-    virtual void initializeFromCachedUnit(const QV4::CompiledData::Unit*) = 0;
+    virtual void initializeFromCachedUnit(const QQmlPrivate::CachedQmlUnit *) = 0;
     virtual void done();
 #if QT_CONFIG(qml_network)
     virtual void networkError(QNetworkReply::NetworkError);

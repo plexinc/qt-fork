@@ -1,6 +1,7 @@
 /****************************************************************************
 **
 ** Copyright (C) 2019 Klaralvdalens Datakonsult AB (KDAB)
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the plugins of the Qt Toolkit.
@@ -40,11 +41,12 @@
 #include "qandroidplatformfiledialoghelper.h"
 
 #include <androidjnimain.h>
-#include <jni.h>
+#include <QtCore/QJniObject>
 
-#include <QMimeType>
 #include <QMimeDatabase>
+#include <QMimeType>
 #include <QRegularExpression>
+#include <QUrl>
 
 QT_BEGIN_NAMESPACE
 
@@ -71,9 +73,9 @@ bool QAndroidPlatformFileDialogHelper::handleActivityResult(jint requestCode, ji
         return true;
     }
 
-    const QJNIObjectPrivate intent = QJNIObjectPrivate::fromLocalRef(data);
+    const QJniObject intent = QJniObject::fromLocalRef(data);
 
-    const QJNIObjectPrivate uri = intent.callObjectMethod("getData", "()Landroid/net/Uri;");
+    const QJniObject uri = intent.callObjectMethod("getData", "()Landroid/net/Uri;");
     if (uri.isValid()) {
         takePersistableUriPermission(uri);
         m_selectedFile.append(QUrl(uri.toString()));
@@ -83,15 +85,15 @@ bool QAndroidPlatformFileDialogHelper::handleActivityResult(jint requestCode, ji
         return true;
     }
 
-    const QJNIObjectPrivate uriClipData =
+    const QJniObject uriClipData =
             intent.callObjectMethod("getClipData", "()Landroid/content/ClipData;");
     if (uriClipData.isValid()) {
         const int size = uriClipData.callMethod<jint>("getItemCount");
         for (int i = 0; i < size; ++i) {
-            QJNIObjectPrivate item = uriClipData.callObjectMethod(
+            QJniObject item = uriClipData.callObjectMethod(
                     "getItemAt", "(I)Landroid/content/ClipData$Item;", i);
 
-            QJNIObjectPrivate itemUri = item.callObjectMethod("getUri", "()Landroid/net/Uri;");
+            QJniObject itemUri = item.callObjectMethod("getUri", "()Landroid/net/Uri;");
             takePersistableUriPermission(itemUri);
             m_selectedFile.append(itemUri.toString());
         }
@@ -102,34 +104,34 @@ bool QAndroidPlatformFileDialogHelper::handleActivityResult(jint requestCode, ji
     return true;
 }
 
-void QAndroidPlatformFileDialogHelper::takePersistableUriPermission(const QJNIObjectPrivate &uri)
+void QAndroidPlatformFileDialogHelper::takePersistableUriPermission(const QJniObject &uri)
 {
-    int modeFlags = QJNIObjectPrivate::getStaticField<jint>(
+    int modeFlags = QJniObject::getStaticField<jint>(
             JniIntentClass, "FLAG_GRANT_READ_URI_PERMISSION");
 
     if (options()->acceptMode() == QFileDialogOptions::AcceptSave) {
-        modeFlags |= QJNIObjectPrivate::getStaticField<jint>(
+        modeFlags |= QJniObject::getStaticField<jint>(
                 JniIntentClass, "FLAG_GRANT_WRITE_URI_PERMISSION");
     }
 
-    QJNIObjectPrivate contentResolver = m_activity.callObjectMethod(
+    QJniObject contentResolver = m_activity.callObjectMethod(
             "getContentResolver", "()Landroid/content/ContentResolver;");
     contentResolver.callMethod<void>("takePersistableUriPermission", "(Landroid/net/Uri;I)V",
                                      uri.object(), modeFlags);
 }
 
-void QAndroidPlatformFileDialogHelper::setIntentTitle(const QString &title)
+void QAndroidPlatformFileDialogHelper::setInitialFileName(const QString &title)
 {
-    const QJNIObjectPrivate extraTitle = QJNIObjectPrivate::getStaticObjectField(
+    const QJniObject extraTitle = QJniObject::getStaticObjectField(
             JniIntentClass, "EXTRA_TITLE", "Ljava/lang/String;");
     m_intent.callObjectMethod("putExtra",
                               "(Ljava/lang/String;Ljava/lang/String;)Landroid/content/Intent;",
-                              extraTitle.object(), QJNIObjectPrivate::fromString(title).object());
+                              extraTitle.object(), QJniObject::fromString(title).object());
 }
 
 void QAndroidPlatformFileDialogHelper::setOpenableCategory()
 {
-    const QJNIObjectPrivate CATEGORY_OPENABLE = QJNIObjectPrivate::getStaticObjectField(
+    const QJniObject CATEGORY_OPENABLE = QJniObject::getStaticObjectField(
             JniIntentClass, "CATEGORY_OPENABLE", "Ljava/lang/String;");
     m_intent.callObjectMethod("addCategory", "(Ljava/lang/String;)Landroid/content/Intent;",
                               CATEGORY_OPENABLE.object());
@@ -137,7 +139,7 @@ void QAndroidPlatformFileDialogHelper::setOpenableCategory()
 
 void QAndroidPlatformFileDialogHelper::setAllowMultipleSelections(bool allowMultiple)
 {
-    const QJNIObjectPrivate allowMultipleSelections = QJNIObjectPrivate::getStaticObjectField(
+    const QJniObject allowMultipleSelections = QJniObject::getStaticObjectField(
             JniIntentClass, "EXTRA_ALLOW_MULTIPLE", "Ljava/lang/String;");
     m_intent.callObjectMethod("putExtra", "(Ljava/lang/String;Z)Landroid/content/Intent;",
                               allowMultipleSelections.object(), allowMultiple);
@@ -147,10 +149,10 @@ QStringList nameFilterExtensions(const QString nameFilters)
 {
     QStringList ret;
 #if QT_CONFIG(regularexpression)
-    QRegularExpression re("(\\*\\.?\\w*)");
+    QRegularExpression re("(\\*\\.[a-z .]+)");
     QRegularExpressionMatchIterator i = re.globalMatch(nameFilters);
     while (i.hasNext())
-        ret << i.next().captured(1);
+        ret << i.next().captured(1).trimmed();
 #endif // QT_CONFIG(regularexpression)
     ret.removeAll("*");
     return ret;
@@ -159,27 +161,28 @@ QStringList nameFilterExtensions(const QString nameFilters)
 void QAndroidPlatformFileDialogHelper::setMimeTypes()
 {
     QStringList mimeTypes = options()->mimeTypeFilters();
-    const QString nameFilter = options()->initiallySelectedNameFilter();
+    const QStringList nameFilters = options()->nameFilters();
+    const QString nameFilter = nameFilters.isEmpty() ? QString() : nameFilters.first();
 
-    if (mimeTypes.isEmpty() && !nameFilter.isEmpty()) {
+    if (!nameFilter.isEmpty()) {
         QMimeDatabase db;
         for (const QString &filter : nameFilterExtensions(nameFilter))
-            mimeTypes.append(db.mimeTypeForFile(filter).name());
+            mimeTypes.append(db.mimeTypeForFile(filter, QMimeDatabase::MatchExtension).name());
     }
 
-    QString type = !mimeTypes.isEmpty() ? mimeTypes.at(0) : QLatin1String("*/*");
+    const QString initialType = mimeTypes.size() == 1 ? mimeTypes.at(0) : QLatin1String("*/*");
     m_intent.callObjectMethod("setType", "(Ljava/lang/String;)Landroid/content/Intent;",
-                              QJNIObjectPrivate::fromString(type).object());
+                              QJniObject::fromString(initialType).object());
 
     if (!mimeTypes.isEmpty()) {
-        const QJNIObjectPrivate extraMimeType = QJNIObjectPrivate::getStaticObjectField(
+        const QJniObject extraMimeType = QJniObject::getStaticObjectField(
                 JniIntentClass, "EXTRA_MIME_TYPES", "Ljava/lang/String;");
 
-        QJNIObjectPrivate mimeTypesArray = QJNIObjectPrivate::callStaticObjectMethod(
-                "org/qtproject/qt5/android/QtNative",
+        const QJniObject mimeTypesArray = QJniObject::callStaticObjectMethod(
+                "org/qtproject/qt/android/QtNative",
                 "getStringArray",
                 "(Ljava/lang/String;)[Ljava/lang/String;",
-                QJNIObjectPrivate::fromString(mimeTypes.join(",")).object());
+                QJniObject::fromString(mimeTypes.join(",")).object());
 
         m_intent.callObjectMethod(
                 "putExtra", "(Ljava/lang/String;[Ljava/lang/String;)Landroid/content/Intent;",
@@ -187,19 +190,19 @@ void QAndroidPlatformFileDialogHelper::setMimeTypes()
     }
 }
 
-QJNIObjectPrivate QAndroidPlatformFileDialogHelper::getFileDialogIntent(const QString &intentType)
+QJniObject QAndroidPlatformFileDialogHelper::getFileDialogIntent(const QString &intentType)
 {
-    const QJNIObjectPrivate ACTION_OPEN_DOCUMENT = QJNIObjectPrivate::getStaticObjectField(
+    const QJniObject ACTION_OPEN_DOCUMENT = QJniObject::getStaticObjectField(
             JniIntentClass, intentType.toLatin1(), "Ljava/lang/String;");
-    return QJNIObjectPrivate(JniIntentClass, "(Ljava/lang/String;)V",
+    return QJniObject(JniIntentClass, "(Ljava/lang/String;)V",
                              ACTION_OPEN_DOCUMENT.object());
 }
 
 bool QAndroidPlatformFileDialogHelper::show(Qt::WindowFlags windowFlags, Qt::WindowModality windowModality, QWindow *parent)
 {
-    Q_UNUSED(windowFlags)
-    Q_UNUSED(windowModality)
-    Q_UNUSED(parent)
+    Q_UNUSED(windowFlags);
+    Q_UNUSED(windowModality);
+    Q_UNUSED(parent);
 
     bool isDirDialog = false;
 
@@ -207,6 +210,12 @@ bool QAndroidPlatformFileDialogHelper::show(Qt::WindowFlags windowFlags, Qt::Win
 
     if (options()->acceptMode() == QFileDialogOptions::AcceptSave) {
         m_intent = getFileDialogIntent("ACTION_CREATE_DOCUMENT");
+        const QList<QUrl> selectedFiles = options()->initiallySelectedFiles();
+        if (selectedFiles.size() > 0) {
+            // TODO: The initial folder to show at the start should be handled by EXTRA_INITIAL_URI
+            // Take only the file name.
+            setInitialFileName(selectedFiles.first().fileName());
+        }
     } else if (options()->acceptMode() == QFileDialogOptions::AcceptOpen) {
         switch (options()->fileMode()) {
         case QFileDialogOptions::FileMode::DirectoryOnly:
@@ -229,8 +238,6 @@ bool QAndroidPlatformFileDialogHelper::show(Qt::WindowFlags windowFlags, Qt::Win
         setOpenableCategory();
         setMimeTypes();
     }
-
-    setIntentTitle(options()->windowTitle());
 
     QtAndroidPrivate::registerActivityResultListener(this);
     m_activity.callMethod<void>("startActivityForResult", "(Landroid/content/Intent;I)V",

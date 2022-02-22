@@ -33,7 +33,7 @@
 #include <private/candlestick_p.h>
 #include <private/qchart_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 Candlestick::Candlestick(QCandlestickSet *set, AbstractDomain *domain, QGraphicsObject *parent)
     : QGraphicsObject(parent),
@@ -146,7 +146,7 @@ void Candlestick::mousePressEvent(QGraphicsSceneMouseEvent *event)
 
 void Candlestick::hoverEnterEvent(QGraphicsSceneHoverEvent *event)
 {
-    Q_UNUSED(event)
+    Q_UNUSED(event);
 
     m_hovering = true;
     emit hovered(m_hovering, m_set);
@@ -154,7 +154,7 @@ void Candlestick::hoverEnterEvent(QGraphicsSceneHoverEvent *event)
 
 void Candlestick::hoverLeaveEvent(QGraphicsSceneHoverEvent *event)
 {
-    Q_UNUSED(event)
+    Q_UNUSED(event);
 
     m_hovering = false;
     emit hovered(m_hovering, m_set);
@@ -184,8 +184,8 @@ QRectF Candlestick::boundingRect() const
 
 void Candlestick::paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget)
 {
-    Q_UNUSED(option)
-    Q_UNUSED(widget)
+    Q_UNUSED(option);
+    Q_UNUSED(widget);
 
     bool increasingTrend = (m_data.m_open < m_data.m_close);
     QColor color = increasingTrend ? m_increasingColor : m_decreasingColor;
@@ -346,6 +346,6 @@ void Candlestick::updateGeometry(AbstractDomain *domain)
     m_boundingRect.adjust(-extra, -extra, extra, extra);
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_candlestick_p.cpp"

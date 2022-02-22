@@ -29,20 +29,34 @@
  */
 
 import * as Common from '../common/common.js';  // eslint-disable-line no-unused-vars
+import * as i18n from '../i18n/i18n.js';
 import * as TextUtils from '../text_utils/text_utils.js';
 
+import {PageResourceLoader, PageResourceLoadInitiator} from './PageResourceLoader.js';  // eslint-disable-line no-unused-vars
+
+export const UIStrings = {
+  /**
+  *@description Error message when failing to fetch a resource referenced in a source map
+  *@example {https://example.com/sourcemap.map} PH1
+  *@example {An error occurred} PH2
+  */
+  couldNotLoadContentForSS: 'Could not load content for {PH1} ({PH2})',
+};
+const str_ = i18n.i18n.registerUIStrings('sdk/CompilerSourceMappingContentProvider.js', UIStrings);
+const i18nString = i18n.i18n.getLocalizedString.bind(undefined, str_);
 /**
  * @implements {TextUtils.ContentProvider.ContentProvider}
- * @unrestricted
  */
 export class CompilerSourceMappingContentProvider {
   /**
    * @param {string} sourceURL
    * @param {!Common.ResourceType.ResourceType} contentType
+   * @param {!PageResourceLoadInitiator} initiator
    */
-  constructor(sourceURL, contentType) {
+  constructor(sourceURL, contentType, initiator) {
     this._sourceURL = sourceURL;
     this._contentType = contentType;
+    this._initiator = initiator;
   }
 
   /**
@@ -65,27 +79,23 @@ export class CompilerSourceMappingContentProvider {
    * @override
    * @return {!Promise<boolean>}
    */
-  contentEncoded() {
-    return Promise.resolve(false);
+  async contentEncoded() {
+    return false;
   }
 
   /**
    * @override
    * @return {!Promise<!TextUtils.ContentProvider.DeferredContent>}
    */
-  requestContent() {
-    return new Promise(resolve => {
-      self.SDK.multitargetNetworkManager.loadResource(
-          this._sourceURL, (success, _headers, content, errorDescription) => {
-            if (!success) {
-              const error = ls`Could not load content for ${this._sourceURL} (${errorDescription.message})`;
-              console.error(error);
-              resolve({error, isEncoded: false});
-            } else {
-              resolve({content, isEncoded: false});
-            }
-          });
-    });
+  async requestContent() {
+    try {
+      const {content} = await PageResourceLoader.instance().loadResource(this._sourceURL, this._initiator);
+      return {content, isEncoded: false};
+    } catch (e) {
+      const error = i18nString(UIStrings.couldNotLoadContentForSS, {PH1: this._sourceURL, PH2: e.message});
+      console.error(error);
+      return {content: null, error, isEncoded: false};
+    }
   }
 
   /**

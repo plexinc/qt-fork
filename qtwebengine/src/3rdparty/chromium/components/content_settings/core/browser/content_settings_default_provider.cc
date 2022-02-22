@@ -12,6 +12,7 @@
 #include "base/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
+#include "build/build_config.h"
 #include "components/content_settings/core/browser/content_settings_info.h"
 #include "components/content_settings/core/browser/content_settings_registry.h"
 #include "components/content_settings/core/browser/content_settings_rule.h"
@@ -39,6 +40,10 @@ const char kObsoleteFullscreenDefaultPref[] =
 #if !defined(OS_ANDROID)
 const char kObsoleteMouseLockDefaultPref[] =
     "profile.default_content_setting_values.mouselock";
+const char kObsoletePluginsDefaultPref[] =
+    "profile.default_content_setting_values.plugins";
+const char kObsoletePluginsDataDefaultPref[] =
+    "profile.default_content_setting_values.flash_data";
 #endif  // !defined(OS_ANDROID)
 #endif  // !defined(OS_IOS)
 
@@ -77,7 +82,8 @@ class DefaultRuleIterator : public RuleIterator {
     DCHECK(HasNext());
     is_done_ = true;
     return Rule(ContentSettingsPattern::Wildcard(),
-                ContentSettingsPattern::Wildcard(), std::move(value_));
+                ContentSettingsPattern::Wildcard(), std::move(value_),
+                base::Time(), SessionModel::Durable);
   }
 
  private:
@@ -103,8 +109,8 @@ void DefaultProvider::RegisterProfilePrefs(
 
   // Obsolete prefs -------------------------------------------------------
 
-  // These prefs have been removed, but need to be registered so they can
-  // be deleted on startup.
+  // These prefs have been deprecated, but need to be registered so they can
+  // be deleted on startup (see DiscardOrMigrateObsoletePreferences).
 #if !defined(OS_IOS)
   registry->RegisterIntegerPref(
       kObsoleteFullscreenDefaultPref, 0,
@@ -113,18 +119,20 @@ void DefaultProvider::RegisterProfilePrefs(
   registry->RegisterIntegerPref(
       kObsoleteMouseLockDefaultPref, 0,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
+  registry->RegisterIntegerPref(kObsoletePluginsDataDefaultPref, 0);
+  registry->RegisterIntegerPref(kObsoletePluginsDefaultPref, 0);
 #endif  // !defined(OS_ANDROID)
 #endif  // !defined(OS_IOS)
 }
 
-DefaultProvider::DefaultProvider(PrefService* prefs, bool incognito)
+DefaultProvider::DefaultProvider(PrefService* prefs, bool off_the_record)
     : prefs_(prefs),
-      is_incognito_(incognito),
+      is_off_the_record_(off_the_record),
       updating_preferences_(false) {
   DCHECK(prefs_);
 
   // Remove the obsolete preferences from the pref file.
-  DiscardObsoletePreferences();
+  DiscardOrMigrateObsoletePreferences();
 
   // Read global defaults.
   ReadDefaultSettings();
@@ -141,10 +149,6 @@ DefaultProvider::DefaultProvider(PrefService* prefs, bool incognito)
   UMA_HISTOGRAM_ENUMERATION("ContentSettings.DefaultImagesSetting",
                             IntToContentSetting(prefs_->GetInteger(
                                 GetPrefName(ContentSettingsType::IMAGES))),
-                            CONTENT_SETTING_NUM_SETTINGS);
-  UMA_HISTOGRAM_ENUMERATION("ContentSettings.DefaultPluginsSetting",
-                            IntToContentSetting(prefs_->GetInteger(
-                                GetPrefName(ContentSettingsType::PLUGINS))),
                             CONTENT_SETTING_NUM_SETTINGS);
 #endif
 
@@ -195,6 +199,10 @@ DefaultProvider::DefaultProvider(PrefService* prefs, bool incognito)
                             IntToContentSetting(prefs_->GetInteger(
                                 GetPrefName(ContentSettingsType::USB_GUARD))),
                             CONTENT_SETTING_NUM_SETTINGS);
+  UMA_HISTOGRAM_ENUMERATION("ContentSettings.DefaultIdleDetectionSetting",
+                            IntToContentSetting(prefs_->GetInteger(GetPrefName(
+                                ContentSettingsType::IDLE_DETECTION))),
+                            CONTENT_SETTING_NUM_SETTINGS);
 #endif
   pref_change_registrar_.Init(prefs_);
   PrefChangeRegistrar::NamedChangeCallback callback = base::BindRepeating(
@@ -212,8 +220,8 @@ bool DefaultProvider::SetWebsiteSetting(
     const ContentSettingsPattern& primary_pattern,
     const ContentSettingsPattern& secondary_pattern,
     ContentSettingsType content_type,
-    const ResourceIdentifier& resource_identifier,
-    std::unique_ptr<base::Value>&& in_value) {
+    std::unique_ptr<base::Value>&& in_value,
+    const ContentSettingConstraints& constraints) {
   DCHECK(CalledOnValidThread());
   DCHECK(prefs_);
 
@@ -229,7 +237,7 @@ bool DefaultProvider::SetWebsiteSetting(
 
   // The default settings may not be directly modified for OTR sessions.
   // Instead, they are synced to the main profile's setting.
-  if (is_incognito_)
+  if (is_off_the_record_)
     return true;
 
   {
@@ -245,26 +253,20 @@ bool DefaultProvider::SetWebsiteSetting(
     WriteToPref(content_type, value.get());
   }
 
-  NotifyObservers(ContentSettingsPattern(),
-                  ContentSettingsPattern(),
-                  content_type,
-                  ResourceIdentifier());
+  NotifyObservers(ContentSettingsPattern(), ContentSettingsPattern(),
+                  content_type);
 
   return true;
 }
 
 std::unique_ptr<RuleIterator> DefaultProvider::GetRuleIterator(
     ContentSettingsType content_type,
-    const ResourceIdentifier& resource_identifier,
-    bool incognito) const {
-  // The default provider never has incognito-specific settings.
-  if (incognito)
+    bool off_the_record) const {
+  // The default provider never has off-the-record-specific settings.
+  if (off_the_record)
     return nullptr;
 
   base::AutoLock lock(lock_);
-  if (!resource_identifier.empty())
-    return nullptr;
-
   auto it = default_settings_.find(content_type);
   if (it == default_settings_.end()) {
     NOTREACHED();
@@ -363,10 +365,8 @@ void DefaultProvider::OnPreferenceChanged(const std::string& name) {
     }
   }
 
-  NotifyObservers(ContentSettingsPattern(),
-                  ContentSettingsPattern(),
-                  content_type,
-                  ResourceIdentifier());
+  NotifyObservers(ContentSettingsPattern(), ContentSettingsPattern(),
+                  content_type);
 }
 
 std::unique_ptr<base::Value> DefaultProvider::ReadFromPref(
@@ -375,8 +375,8 @@ std::unique_ptr<base::Value> DefaultProvider::ReadFromPref(
   return ContentSettingToValue(IntToContentSetting(int_value));
 }
 
-void DefaultProvider::DiscardObsoletePreferences() {
-  if (is_incognito_)
+void DefaultProvider::DiscardOrMigrateObsoletePreferences() {
+  if (is_off_the_record_)
     return;
   // These prefs were never stored on iOS/Android so they don't need to be
   // deleted.
@@ -384,14 +384,8 @@ void DefaultProvider::DiscardObsoletePreferences() {
   prefs_->ClearPref(kObsoleteFullscreenDefaultPref);
 #if !defined(OS_ANDROID)
   prefs_->ClearPref(kObsoleteMouseLockDefaultPref);
-
-  // ALLOW-by-default is an obsolete pref value for plugins (Flash). Erase that
-  // pref and fall back to the default behavior - but preserve other values.
-  const std::string& plugins_pref = GetPrefName(ContentSettingsType::PLUGINS);
-  if (IntToContentSetting(prefs_->GetInteger(plugins_pref)) ==
-      ContentSetting::CONTENT_SETTING_ALLOW) {
-    prefs_->ClearPref(plugins_pref);
-  }
+  prefs_->ClearPref(kObsoletePluginsDefaultPref);
+  prefs_->ClearPref(kObsoletePluginsDataDefaultPref);
 #endif  // !defined(OS_ANDROID)
 #endif  // !defined(OS_IOS)
 }

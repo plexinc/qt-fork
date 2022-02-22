@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <utility>
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "components/web_modal/web_contents_modal_dialog_manager_delegate.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/web_contents.h"
@@ -134,7 +134,8 @@ void WebContentsModalDialogManager::DidFinishNavigation(
 
   // Close constrained windows if necessary.
   if (!net::registry_controlled_domains::SameDomainOrHost(
-          navigation_handle->GetPreviousURL(), navigation_handle->GetURL(),
+          navigation_handle->GetPreviousMainFrameURL(),
+          navigation_handle->GetURL(),
           net::registry_controlled_domains::INCLUDE_PRIVATE_REGISTRIES))
     CloseAllDialogs();
 }
@@ -167,10 +168,6 @@ void WebContentsModalDialogManager::WebContentsDestroyed() {
   // TODO(mpcomplete): handle case if MaybeCloseChildWindows() already asked
   // some of these to close.  CloseAllDialogs is async, so it might get called
   // twice before it runs.
-  CloseAllDialogs();
-}
-
-void WebContentsModalDialogManager::DidAttachInterstitialPage() {
   CloseAllDialogs();
 }
 

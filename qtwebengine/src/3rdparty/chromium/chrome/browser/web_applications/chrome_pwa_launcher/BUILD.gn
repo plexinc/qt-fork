@@ -21,12 +21,16 @@ executable("chrome_pwa_launcher") {
     ":chrome_pwa_launcher_version",
     ":util",
     "//base",
+    "//build:branding_buildflags",
     "//chrome/common:non_code_constants",
     "//chrome/install_static:install_static_util",
     "//components/version_info:generate_version_info",
   ]
 
-  configs -= [ "//build/config/win:console" ]
+  configs -= [
+    "//build/config/compiler:cet_shadow_stack",
+    "//build/config/win:console",
+  ]
   configs += [ "//build/config/win:windowed" ]
 }
 
@@ -39,6 +43,7 @@ source_set("util") {
   public = [
     "chrome_pwa_launcher_util.h",
     "last_browser_file_util.h",
+    "launcher_log_reporter.h",
     "launcher_update.h",
   ]
 
@@ -47,6 +52,9 @@ source_set("util") {
     "last_browser_file_util.cc",
     "launcher_log.cc",
     "launcher_log.h",
+    "launcher_log_reporter.cc",
+    "launcher_log_util.cc",
+    "launcher_log_util.h",
     "launcher_update.cc",
   ]
 

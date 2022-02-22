@@ -1,11 +1,11 @@
 /****************************************************************************
 **
-** Copyright (C) 2018 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:BSD$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
@@ -14,35 +14,24 @@
 ** and conditions see https://www.qt.io/terms-conditions. For further
 ** information use the contact form at https://www.qt.io/contact-us.
 **
-** BSD License Usage
-** Alternatively, you may use this file under the terms of the BSD license
-** as follows:
+** GNU Lesser General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU Lesser
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
-** "Redistribution and use in source and binary forms, with or without
-** modification, are permitted provided that the following conditions are
-** met:
-**   * Redistributions of source code must retain the above copyright
-**     notice, this list of conditions and the following disclaimer.
-**   * Redistributions in binary form must reproduce the above copyright
-**     notice, this list of conditions and the following disclaimer in
-**     the documentation and/or other materials provided with the
-**     distribution.
-**   * Neither the name of The Qt Company Ltd nor the names of its
-**     contributors may be used to endorse or promote products derived
-**     from this software without specific prior written permission.
-**
-**
-** THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-** "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-** LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-** A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-** OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-** SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-** LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-** DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-** THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-** (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-** OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE."
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -631,7 +620,7 @@ void DomIncludes::write(QXmlStreamWriter &writer, const QString &tagName) const
     writer.writeEndElement();
 }
 
-void DomIncludes::setElementInclude(const QVector<DomInclude *> &a)
+void DomIncludes::setElementInclude(const QList<DomInclude *> &a)
 {
     m_children |= Include;
     m_include = a;
@@ -742,7 +731,7 @@ void DomResources::write(QXmlStreamWriter &writer, const QString &tagName) const
     writer.writeEndElement();
 }
 
-void DomResources::setElementInclude(const QVector<DomResource *> &a)
+void DomResources::setElementInclude(const QList<DomResource *> &a)
 {
     m_children |= Include;
     m_include = a;
@@ -872,13 +861,13 @@ void DomActionGroup::write(QXmlStreamWriter &writer, const QString &tagName) con
     writer.writeEndElement();
 }
 
-void DomActionGroup::setElementAction(const QVector<DomAction *> &a)
+void DomActionGroup::setElementAction(const QList<DomAction *> &a)
 {
     m_children |= Action;
     m_action = a;
 }
 
-void DomActionGroup::setElementActionGroup(const QVector<DomActionGroup *> &a)
+void DomActionGroup::setElementActionGroup(const QList<DomActionGroup *> &a)
 {
     m_children |= ActionGroup;
     m_actionGroup = a;
@@ -1131,7 +1120,7 @@ void DomButtonGroups::write(QXmlStreamWriter &writer, const QString &tagName) co
     writer.writeEndElement();
 }
 
-void DomButtonGroups::setElementButtonGroup(const QVector<DomButtonGroup *> &a)
+void DomButtonGroups::setElementButtonGroup(const QList<DomButtonGroup *> &a)
 {
     m_children |= ButtonGroup;
     m_buttonGroup = a;
@@ -1176,7 +1165,7 @@ void DomCustomWidgets::write(QXmlStreamWriter &writer, const QString &tagName) c
     writer.writeEndElement();
 }
 
-void DomCustomWidgets::setElementCustomWidget(const QVector<DomCustomWidget *> &a)
+void DomCustomWidgets::setElementCustomWidget(const QList<DomCustomWidget *> &a)
 {
     m_children |= CustomWidget;
     m_customWidget = a;
@@ -1751,7 +1740,7 @@ void DomLayout::setElementAttribute(const QList<DomProperty *> &a)
     m_attribute = a;
 }
 
-void DomLayout::setElementItem(const QVector<DomLayoutItem *> &a)
+void DomLayout::setElementItem(const QList<DomLayoutItem *> &a)
 {
     m_children |= Item;
     m_item = a;
@@ -2087,7 +2076,7 @@ void DomItem::setElementProperty(const QList<DomProperty *> &a)
     m_property = a;
 }
 
-void DomItem::setElementItem(const QVector<DomItem *> &a)
+void DomItem::setElementItem(const QList<DomItem *> &a)
 {
     m_children |= Item;
     m_item = a;
@@ -2302,49 +2291,49 @@ void DomWidget::setElementAttribute(const QList<DomProperty *> &a)
     m_attribute = a;
 }
 
-void DomWidget::setElementRow(const QVector<DomRow *> &a)
+void DomWidget::setElementRow(const QList<DomRow *> &a)
 {
     m_children |= Row;
     m_row = a;
 }
 
-void DomWidget::setElementColumn(const QVector<DomColumn *> &a)
+void DomWidget::setElementColumn(const QList<DomColumn *> &a)
 {
     m_children |= Column;
     m_column = a;
 }
 
-void DomWidget::setElementItem(const QVector<DomItem *> &a)
+void DomWidget::setElementItem(const QList<DomItem *> &a)
 {
     m_children |= Item;
     m_item = a;
 }
 
-void DomWidget::setElementLayout(const QVector<DomLayout *> &a)
+void DomWidget::setElementLayout(const QList<DomLayout *> &a)
 {
     m_children |= Layout;
     m_layout = a;
 }
 
-void DomWidget::setElementWidget(const QVector<DomWidget *> &a)
+void DomWidget::setElementWidget(const QList<DomWidget *> &a)
 {
     m_children |= Widget;
     m_widget = a;
 }
 
-void DomWidget::setElementAction(const QVector<DomAction *> &a)
+void DomWidget::setElementAction(const QList<DomAction *> &a)
 {
     m_children |= Action;
     m_action = a;
 }
 
-void DomWidget::setElementActionGroup(const QVector<DomActionGroup *> &a)
+void DomWidget::setElementActionGroup(const QList<DomActionGroup *> &a)
 {
     m_children |= ActionGroup;
     m_actionGroup = a;
 }
 
-void DomWidget::setElementAddAction(const QVector<DomActionRef *> &a)
+void DomWidget::setElementAddAction(const QList<DomActionRef *> &a)
 {
     m_children |= AddAction;
     m_addAction = a;
@@ -2716,7 +2705,7 @@ void DomGradient::write(QXmlStreamWriter &writer, const QString &tagName) const
     writer.writeEndElement();
 }
 
-void DomGradient::setElementGradientStop(const QVector<DomGradientStop *> &a)
+void DomGradient::setElementGradientStop(const QList<DomGradientStop *> &a)
 {
     m_children |= GradientStop;
     m_gradientStop = a;
@@ -2981,13 +2970,13 @@ void DomColorGroup::write(QXmlStreamWriter &writer, const QString &tagName) cons
     writer.writeEndElement();
 }
 
-void DomColorGroup::setElementColorRole(const QVector<DomColorRole *> &a)
+void DomColorGroup::setElementColorRole(const QList<DomColorRole *> &a)
 {
     m_children |= ColorRole;
     m_colorRole = a;
 }
 
-void DomColorGroup::setElementColor(const QVector<DomColor *> &a)
+void DomColorGroup::setElementColor(const QList<DomColor *> &a)
 {
     m_children |= Color;
     m_color = a;
@@ -5709,7 +5698,7 @@ void DomConnections::write(QXmlStreamWriter &writer, const QString &tagName) con
     writer.writeEndElement();
 }
 
-void DomConnections::setElementConnection(const QVector<DomConnection *> &a)
+void DomConnections::setElementConnection(const QList<DomConnection *> &a)
 {
     m_children |= Connection;
     m_connection = a;
@@ -5886,7 +5875,7 @@ void DomConnectionHints::write(QXmlStreamWriter &writer, const QString &tagName)
     writer.writeEndElement();
 }
 
-void DomConnectionHints::setElementHint(const QVector<DomConnectionHint *> &a)
+void DomConnectionHints::setElementHint(const QList<DomConnectionHint *> &a)
 {
     m_children |= Hint;
     m_hint = a;
@@ -6118,13 +6107,13 @@ void DomPropertySpecifications::write(QXmlStreamWriter &writer, const QString &t
     writer.writeEndElement();
 }
 
-void DomPropertySpecifications::setElementTooltip(const QVector<DomPropertyToolTip *> &a)
+void DomPropertySpecifications::setElementTooltip(const QList<DomPropertyToolTip *> &a)
 {
     m_children |= Tooltip;
     m_tooltip = a;
 }
 
-void DomPropertySpecifications::setElementStringpropertyspecification(const QVector<DomStringPropertySpecification *> &a)
+void DomPropertySpecifications::setElementStringpropertyspecification(const QList<DomStringPropertySpecification *> &a)
 {
     m_children |= Stringpropertyspecification;
     m_stringpropertyspecification = a;

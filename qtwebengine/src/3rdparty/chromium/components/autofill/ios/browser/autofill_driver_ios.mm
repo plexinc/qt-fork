@@ -54,10 +54,8 @@ AutofillDriverIOS::AutofillDriverIOS(
     AutofillManager::AutofillDownloadManagerState enable_download_manager)
     : web_state_(web_state),
       bridge_(bridge),
-      autofill_manager_(this, client, app_locale, enable_download_manager),
-      autofill_external_delegate_(&autofill_manager_, this) {
+      autofill_manager_(this, client, app_locale, enable_download_manager) {
   web_frame_id_ = web::GetWebFrameId(web_frame);
-  autofill_manager_.SetExternalDelegate(&autofill_external_delegate_);
 }
 
 AutofillDriverIOS::~AutofillDriverIOS() {}
@@ -107,12 +105,22 @@ void AutofillDriverIOS::PropagateAutofillPredictions(
 }
 
 void AutofillDriverIOS::HandleParsedForms(
-    const std::vector<FormStructure*>& forms) {
+    const std::vector<const FormData*>& forms) {
+  const std::map<FormRendererId, std::unique_ptr<FormStructure>>& map =
+      autofill_manager_.form_structures();
+  std::vector<FormStructure*> form_structures;
+  form_structures.reserve(forms.size());
+  for (const FormData* form : forms) {
+    auto it = map.find(form->unique_renderer_id);
+    if (it != map.end())
+      form_structures.push_back(it->second.get());
+  }
+
   web::WebFrame* web_frame = web::GetWebFrameWithId(web_state_, web_frame_id_);
   if (!web_frame) {
     return;
   }
-  [bridge_ handleParsedForms:forms inFrame:web_frame];
+  [bridge_ handleParsedForms:form_structures inFrame:web_frame];
 }
 
 void AutofillDriverIOS::SendAutofillTypePredictionsToRenderer(
@@ -153,20 +161,22 @@ gfx::RectF AutofillDriverIOS::TransformBoundingBoxToViewportCoordinates(
   return bounding_box;
 }
 
-net::NetworkIsolationKey AutofillDriverIOS::NetworkIsolationKey() {
+net::IsolationInfo AutofillDriverIOS::IsolationInfo() {
   std::string main_web_frame_id = web::GetMainWebFrameId(web_state_);
   web::WebFrame* main_web_frame =
       web::GetWebFrameWithId(web_state_, main_web_frame_id);
   if (!main_web_frame)
-    return net::NetworkIsolationKey();
+    return net::IsolationInfo();
 
   web::WebFrame* web_frame = web::GetWebFrameWithId(web_state_, web_frame_id_);
   if (!web_frame)
-    return net::NetworkIsolationKey();
+    return net::IsolationInfo();
 
-  return net::NetworkIsolationKey(
+  return net::IsolationInfo::Create(
+      net::IsolationInfo::RequestType::kOther,
       url::Origin::Create(main_web_frame->GetSecurityOrigin()),
-      url::Origin::Create(web_frame->GetSecurityOrigin()));
+      url::Origin::Create(web_frame->GetSecurityOrigin()),
+      net::SiteForCookies());
 }
 
 }  // namespace autofill

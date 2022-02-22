@@ -9,6 +9,7 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/editing/frame_selection.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/html/html_area_element.h"
 #include "third_party/blink/renderer/core/html/html_image_element.h"
@@ -18,6 +19,7 @@
 #include "third_party/blink/renderer/core/layout/text_run_constructor.h"
 #include "third_party/blink/renderer/core/page/chrome_client.h"
 #include "third_party/blink/renderer/core/page/page.h"
+#include "third_party/blink/renderer/core/paint/box_painter.h"
 #include "third_party/blink/renderer/core/paint/image_element_timing.h"
 #include "third_party/blink/renderer/core/paint/paint_info.h"
 #include "third_party/blink/renderer/core/paint/paint_timing_detector.h"
@@ -39,8 +41,8 @@ namespace {
 bool CheckForOversizedImagesPolicy(const LayoutImage& layout_image,
                                    scoped_refptr<Image> image) {
   DCHECK(image);
-  if (!RuntimeEnabledFeatures::UnoptimizedImagePoliciesEnabled(
-          &layout_image.GetDocument()))
+  if (!RuntimeEnabledFeatures::ExperimentalPoliciesEnabled(
+          layout_image.GetDocument().GetExecutionContext()))
     return false;
 
   DoubleSize layout_size(layout_image.ContentSize());
@@ -48,11 +50,16 @@ bool CheckForOversizedImagesPolicy(const LayoutImage& layout_image,
   if (layout_size.IsEmpty() || image_size.IsEmpty())
     return false;
 
-  double dpr = layout_image.GetDocument().GetFrame()->DevicePixelRatio();
-  double downscale_ratio_width =
-      image_size.Width() / (dpr * layout_size.Width());
-  double downscale_ratio_height =
-      image_size.Height() / (dpr * layout_size.Height());
+  // Note: Do not use frame->GetDevicePixelRatio() here, because it
+  // leads to different behaviour on MacOS platform. https://crbug.com/716231.
+  // virtual/scalefactor200/http/tests/images/document-policy/document-policy-oversized-images-edge-cases.html
+  // verifies the behaviour.
+  const double dsf =
+      layout_image.GetDocument().GetPage()->DeviceScaleFactorDeprecated();
+  const double downscale_ratio_width =
+      image_size.Width() / layout_size.Width() / dsf;
+  const double downscale_ratio_height =
+      image_size.Height() / layout_size.Height() / dsf;
 
   const LayoutImageResource* image_resource = layout_image.ImageResource();
   const ImageResourceContent* cached_image =
@@ -60,11 +67,10 @@ bool CheckForOversizedImagesPolicy(const LayoutImage& layout_image,
   const String& image_url =
       cached_image ? cached_image->Url().GetString() : g_empty_string;
 
-  return !layout_image.GetDocument().IsFeatureEnabled(
+  return !layout_image.GetDocument().domWindow()->IsFeatureEnabled(
       mojom::blink::DocumentPolicyFeature::kOversizedImages,
-      blink::PolicyValue(
-          std::max(downscale_ratio_width, downscale_ratio_height),
-          blink::mojom::PolicyValueType::kDecDouble),
+      blink::PolicyValue::CreateDecDouble(
+          std::max(downscale_ratio_width, downscale_ratio_height)),
       ReportOptions::kReportOnFailure, g_empty_string, image_url);
 }
 
@@ -80,7 +86,7 @@ void ImagePainter::Paint(const PaintInfo& paint_info) {
 void ImagePainter::PaintAreaElementFocusRing(const PaintInfo& paint_info) {
   Document& document = layout_image_.GetDocument();
 
-  if (paint_info.IsPrinting() ||
+  if (document.Printing() ||
       !document.GetFrame()->Selection().FrameIsFocusedAndActive())
     return;
 
@@ -90,10 +96,6 @@ void ImagePainter::PaintAreaElementFocusRing(const PaintInfo& paint_info) {
 
   if (area_element->ImageElement() != layout_image_.GetNode())
     return;
-
-  // Even if the theme handles focus ring drawing for entire elements, it won't
-  // do it for an area within an image, so we don't call
-  // LayoutTheme::themeDrawsFocusRing here.
 
   // We use EnsureComputedStyle() instead of GetComputedStyle() here because
   // <area> is used and its style applied even if it has display:none.
@@ -115,8 +117,8 @@ void ImagePainter::PaintAreaElementFocusRing(const PaintInfo& paint_info) {
           paint_info.context, layout_image_, DisplayItem::kImageAreaFocusRing))
     return;
 
-  DrawingRecorder recorder(paint_info.context, layout_image_,
-                           DisplayItem::kImageAreaFocusRing);
+  BoxDrawingRecorder recorder(paint_info.context, layout_image_,
+                              DisplayItem::kImageAreaFocusRing, paint_offset);
 
   // FIXME: Clip path instead of context when Skia pathops is ready.
   // https://crbug.com/251206
@@ -127,7 +129,7 @@ void ImagePainter::PaintAreaElementFocusRing(const PaintInfo& paint_info) {
   paint_info.context.Clip(PixelSnappedIntRect(focus_rect));
   paint_info.context.DrawFocusRing(
       path, area_element_style->GetOutlineStrokeWidthForFocusRing(),
-      area_element_style->OutlineOffset(),
+      area_element_style->OutlineOffsetInt(),
       layout_image_.ResolveColor(*area_element_style,
                                  GetCSSPropertyOutlineColor()));
   paint_info.context.Restore();
@@ -168,7 +170,8 @@ void ImagePainter::PaintReplaced(const PaintInfo& paint_info,
   if (!has_image) {
     // Draw an outline rect where the image should be.
     IntRect paint_rect = PixelSnappedIntRect(content_rect);
-    DrawingRecorder recorder(context, layout_image_, paint_info.phase);
+    BoxDrawingRecorder recorder(context, layout_image_, paint_info.phase,
+                                paint_offset);
     context.SetStrokeStyle(kSolidStroke);
     context.SetStrokeColor(Color::kLightGray);
     context.SetFillColor(Color::kTransparent);
@@ -179,7 +182,8 @@ void ImagePainter::PaintReplaced(const PaintInfo& paint_info,
   PhysicalRect paint_rect = layout_image_.ReplacedContentRect();
   paint_rect.offset += paint_offset;
 
-  DrawingRecorder recorder(context, layout_image_, paint_info.phase);
+  BoxDrawingRecorder recorder(context, layout_image_, paint_info.phase,
+                              paint_offset);
   DCHECK(paint_info.PaintContainer());
   PaintIntoRect(context, paint_rect, content_rect);
 }
@@ -201,10 +205,13 @@ void ImagePainter::PaintIntoRect(GraphicsContext& context,
   if (!image || image->IsNull())
     return;
 
-  // Do not respect the image orientation when computing the source rect. It is
-  // in the un-orientated dimensions.
-  FloatRect src_rect(FloatPoint(),
-                     image->SizeAsFloat(kDoNotRespectImageOrientation));
+  // Get the oriented source rect in order to correctly clip. We check the
+  // default orientation first to avoid expensive transform operations.
+  auto respect_orientation = image->HasDefaultOrientation()
+                                 ? kDoNotRespectImageOrientation
+                                 : image_resource.ImageOrientation();
+  FloatRect src_rect(FloatPoint(), image->SizeAsFloat(respect_orientation));
+
   // If the content rect requires clipping, adjust |srcRect| and
   // |pixelSnappedDestRect| over using a clip.
   if (!content_rect.Contains(dest_rect)) {
@@ -215,6 +222,13 @@ void ImagePainter::PaintIntoRect(GraphicsContext& context,
     src_rect = MapRect(FloatRect(pixel_snapped_content_rect),
                        FloatRect(pixel_snapped_dest_rect), src_rect);
     pixel_snapped_dest_rect = pixel_snapped_content_rect;
+  }
+
+  // Undo the image orientation in the source rect because subsequent code
+  // expects the source rect in unoriented image space.
+  if (respect_orientation == kRespectImageOrientation) {
+    src_rect = image->CorrectSrcRectForImageOrientation(
+        image->SizeAsFloat(respect_orientation), src_rect);
   }
 
   TRACE_EVENT1(TRACE_DISABLED_BY_DEFAULT("devtools.timeline"), "PaintImage",
@@ -247,24 +261,26 @@ void ImagePainter::PaintIntoRect(GraphicsContext& context,
     }
   }
 
-  context.DrawImage(
-      image.get(), decode_mode, FloatRect(pixel_snapped_dest_rect), &src_rect,
-      layout_image_.StyleRef().HasFilterInducingProperty(),
-      SkBlendMode::kSrcOver,
-      LayoutObject::ShouldRespectImageOrientation(&layout_image_));
+  context.DrawImage(image.get(), decode_mode,
+                    FloatRect(pixel_snapped_dest_rect), &src_rect,
+                    layout_image_.StyleRef().HasFilterInducingProperty(),
+                    SkBlendMode::kSrcOver, respect_orientation);
 
-  ImageResourceContent* image_content = image_resource.CachedImage();
-  if ((IsA<HTMLImageElement>(node) || IsA<HTMLVideoElement>(node)) &&
-      image_content && image_content->IsLoaded()) {
-    LocalDOMWindow* window = layout_image_.GetDocument().domWindow();
-    DCHECK(window);
-    ImageElementTiming::From(*window).NotifyImagePainted(
-        &layout_image_, image_content,
-        context.GetPaintController().CurrentPaintChunkProperties());
+  if (ImageResourceContent* image_content = image_resource.CachedImage()) {
+    if ((IsA<HTMLImageElement>(node) || IsA<HTMLVideoElement>(node)) &&
+        image_content->IsLoaded()) {
+      LocalDOMWindow* window = layout_image_.GetDocument().domWindow();
+      DCHECK(window);
+      ImageElementTiming::From(*window).NotifyImagePainted(
+          layout_image_, *image_content,
+          context.GetPaintController().CurrentPaintChunkProperties(),
+          pixel_snapped_dest_rect);
+    }
+    PaintTimingDetector::NotifyImagePaint(
+        layout_image_, image->Size(), *image_content,
+        context.GetPaintController().CurrentPaintChunkProperties(),
+        pixel_snapped_dest_rect);
   }
-  PaintTimingDetector::NotifyImagePaint(
-      layout_image_, image->Size(), image_content,
-      context.GetPaintController().CurrentPaintChunkProperties());
 }
 
 }  // namespace blink

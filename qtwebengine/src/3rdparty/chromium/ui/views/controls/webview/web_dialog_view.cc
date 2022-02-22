@@ -20,6 +20,7 @@
 #include "ui/events/keycodes/keyboard_codes.h"
 #include "ui/views/controls/webview/webview.h"
 #include "ui/views/layout/fill_layout.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/widget/native_widget_private.h"
 #include "ui/views/widget/root_view.h"
 #include "ui/views/widget/widget.h"
@@ -69,18 +70,22 @@ void ObservableWebView::ResetDelegate() {
   delegate_ = nullptr;
 }
 
+BEGIN_METADATA(ObservableWebView, WebView)
+END_METADATA
+
 ////////////////////////////////////////////////////////////////////////////////
 // WebDialogView, public:
 
 WebDialogView::WebDialogView(content::BrowserContext* context,
                              WebDialogDelegate* delegate,
-                             std::unique_ptr<WebContentsHandler> handler,
-                             bool use_dialog_frame)
+                             std::unique_ptr<WebContentsHandler> handler)
     : ClientView(nullptr, nullptr),
       WebDialogWebContentsDelegate(context, std::move(handler)),
       delegate_(delegate),
-      web_view_(new ObservableWebView(context, delegate)),
-      use_dialog_frame_(use_dialog_frame) {
+      web_view_(new ObservableWebView(context, delegate)) {
+  SetCanMinimize(!delegate_ || delegate_->can_minimize());
+  SetCanResize(!delegate_ || delegate_->can_resize());
+  SetModalType(GetDialogModalType());
   web_view_->set_allow_accelerators(true);
   AddChildView(web_view_);
   set_contents_view(web_view_);
@@ -140,12 +145,18 @@ void WebDialogView::ViewHierarchyChanged(
     InitDialog();
 }
 
-bool WebDialogView::CanClose() {
+views::CloseRequestResult WebDialogView::OnWindowCloseRequested() {
   // Don't close UI if |delegate_| does not allow users to close it by
   // clicking on "x" button or pressing Escape shortcut key on hosting
   // dialog.
-  if (!delegate_->CanCloseDialog() && !close_contents_called_)
-    return false;
+  if (!is_attempting_close_dialog_ && !delegate_->OnDialogCloseRequested()) {
+    if (!close_contents_called_)
+      return views::CloseRequestResult::kCannotClose;
+    // This is a web dialog, if the WebContents has been closed, there is no
+    // reason to keep the dialog alive.
+    LOG(ERROR) << "delegate tries to stop closing when CloseContents() has "
+                  "been called";
+  }
 
   // If CloseContents() is called before CanClose(), which is called by
   // RenderViewHostImpl::ClosePageIgnoringUnloadEvents, it indicates
@@ -154,7 +165,7 @@ bool WebDialogView::CanClose() {
       close_contents_called_) {
     is_attempting_close_dialog_ = false;
     before_unload_fired_ = false;
-    return true;
+    return views::CloseRequestResult::kCanClose;
   }
 
   if (!is_attempting_close_dialog_) {
@@ -162,24 +173,20 @@ bool WebDialogView::CanClose() {
     is_attempting_close_dialog_ = true;
     web_view_->web_contents()->DispatchBeforeUnload(false /* auto_cancel */);
   }
-  return false;
+  return views::CloseRequestResult::kCannotClose;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // WebDialogView, views::WidgetDelegate implementation:
 
 bool WebDialogView::OnCloseRequested(Widget::ClosedReason close_reason) {
-  return !delegate_ || delegate_->OnDialogCloseRequested();
+  return !delegate_ || delegate_->DeprecatedOnDialogCloseRequested();
 }
 
-bool WebDialogView::CanResize() const {
+bool WebDialogView::CanMaximize() const {
   if (delegate_)
-    return delegate_->CanResizeDialog();
-  return true;
-}
-
-ui::ModalType WebDialogView::GetModalType() const {
-  return GetDialogModalType();
+    return delegate_->CanMaximizeDialog();
+  return false;
 }
 
 base::string16 WebDialogView::GetWindowTitle() const {
@@ -216,10 +223,20 @@ views::ClientView* WebDialogView::CreateClientView(views::Widget* widget) {
   return this;
 }
 
-NonClientFrameView* WebDialogView::CreateNonClientFrameView(Widget* widget) {
-  if (use_dialog_frame_)
-    return DialogDelegate::CreateDialogFrameView(widget);
-  return WidgetDelegate::CreateNonClientFrameView(widget);
+std::unique_ptr<NonClientFrameView> WebDialogView::CreateNonClientFrameView(
+    Widget* widget) {
+  if (!delegate_)
+    return WidgetDelegate::CreateNonClientFrameView(widget);
+
+  switch (delegate_->GetWebDialogFrameKind()) {
+    case WebDialogDelegate::FrameKind::kNonClient:
+      return WidgetDelegate::CreateNonClientFrameView(widget);
+    case WebDialogDelegate::FrameKind::kDialog:
+      return DialogDelegate::CreateDialogFrameView(widget);
+    default:
+      NOTREACHED() << "Unknown frame kind type enum specified.";
+      return std::unique_ptr<NonClientFrameView>{};
+  }
 }
 
 views::View* WebDialogView::GetInitiallyFocusedView() {
@@ -387,13 +404,14 @@ content::WebContents* WebDialogView::OpenURLFromTab(
 void WebDialogView::AddNewContents(
     content::WebContents* source,
     std::unique_ptr<content::WebContents> new_contents,
+    const GURL& target_url,
     WindowOpenDisposition disposition,
     const gfx::Rect& initial_rect,
     bool user_gesture,
     bool* was_blocked) {
-  WebDialogWebContentsDelegate::AddNewContents(source, std::move(new_contents),
-                                               disposition, initial_rect,
-                                               user_gesture, was_blocked);
+  WebDialogWebContentsDelegate::AddNewContents(
+      source, std::move(new_contents), target_url, disposition, initial_rect,
+      user_gesture, was_blocked);
 }
 
 void WebDialogView::LoadingStateChanged(content::WebContents* source,
@@ -420,6 +438,27 @@ bool WebDialogView::IsWebContentsCreationOverridden(
   return false;
 }
 
+void WebDialogView::RequestMediaAccessPermission(
+    content::WebContents* web_contents,
+    const content::MediaStreamRequest& request,
+    content::MediaResponseCallback callback) {
+  if (delegate_) {
+    delegate_->RequestMediaAccessPermission(web_contents, request,
+                                            std::move(callback));
+  }
+}
+
+bool WebDialogView::CheckMediaAccessPermission(
+    content::RenderFrameHost* render_frame_host,
+    const GURL& security_origin,
+    blink::mojom::MediaStreamType type) {
+  if (delegate_) {
+    return delegate_->CheckMediaAccessPermission(render_frame_host,
+                                                 security_origin, type);
+  }
+  return false;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // WebDialogView, private:
 
@@ -437,5 +476,9 @@ void WebDialogView::InitDialog() {
   if (!disable_url_load_for_test_)
     web_view_->LoadInitialURL(GetDialogContentURL());
 }
+
+BEGIN_METADATA(WebDialogView, ClientView)
+ADD_READONLY_PROPERTY_METADATA(ObservableWebView*, WebView);
+END_METADATA
 
 }  // namespace views

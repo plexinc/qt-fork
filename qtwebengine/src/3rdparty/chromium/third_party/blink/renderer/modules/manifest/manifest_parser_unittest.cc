@@ -10,7 +10,11 @@
 
 #include "base/macros.h"
 #include "base/optional.h"
+#include "base/test/scoped_feature_list.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/features.h"
+#include "third_party/blink/public/platform/web_security_origin.h"
+#include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 
 namespace blink {
@@ -100,7 +104,8 @@ TEST_F(ManifestParserTest, ValidNoContentParses) {
   ASSERT_TRUE(manifest->short_name.IsNull());
   ASSERT_TRUE(manifest->start_url.IsEmpty());
   ASSERT_EQ(manifest->display, blink::mojom::DisplayMode::kUndefined);
-  ASSERT_EQ(manifest->orientation, kWebScreenOrientationLockDefault);
+  ASSERT_EQ(manifest->orientation,
+            device::mojom::ScreenOrientationLockType::DEFAULT);
   ASSERT_FALSE(manifest->has_theme_color);
   ASSERT_FALSE(manifest->has_background_color);
   ASSERT_TRUE(manifest->gcm_sender_id.IsNull());
@@ -164,6 +169,50 @@ TEST_F(ManifestParserTest, NameParseRules) {
     EXPECT_EQ(1u, GetErrorCount());
     EXPECT_EQ("property 'name' ignored, type string expected.", errors()[0]);
   }
+
+  // Test stripping out of \t \r and \n.
+  {
+    auto& manifest = ParseManifest("{ \"name\": \"abc\\t\\r\\ndef\" }");
+    ASSERT_EQ(manifest->name, "abcdef");
+    ASSERT_FALSE(IsManifestEmpty(manifest));
+    EXPECT_EQ(0u, GetErrorCount());
+  }
+}
+
+TEST_F(ManifestParserTest, DescriptionParseRules) {
+  // Smoke test.
+  {
+    auto& manifest =
+        ParseManifest(R"({ "description": "foo is the new black" })");
+    ASSERT_EQ(manifest->description, "foo is the new black");
+    ASSERT_FALSE(IsManifestEmpty(manifest));
+    EXPECT_EQ(0u, GetErrorCount());
+  }
+
+  // Trim whitespaces.
+  {
+    auto& manifest = ParseManifest(R"({ "description": "  foo  " })");
+    ASSERT_EQ(manifest->description, "foo");
+    EXPECT_EQ(0u, GetErrorCount());
+  }
+
+  // Don't parse if description isn't a string.
+  {
+    auto& manifest = ParseManifest(R"({ "description": {} })");
+    ASSERT_TRUE(manifest->description.IsNull());
+    ASSERT_EQ(1u, GetErrorCount());
+    EXPECT_EQ("property 'description' ignored, type string expected.",
+              errors()[0]);
+  }
+
+  // Don't parse if description isn't a string.
+  {
+    auto& manifest = ParseManifest(R"({ "description": 42 })");
+    ASSERT_TRUE(manifest->description.IsNull());
+    ASSERT_EQ(1u, GetErrorCount());
+    EXPECT_EQ("property 'description' ignored, type string expected.",
+              errors()[0]);
+  }
 }
 
 TEST_F(ManifestParserTest, ShortNameParseRules) {
@@ -198,6 +247,14 @@ TEST_F(ManifestParserTest, ShortNameParseRules) {
     EXPECT_EQ(1u, GetErrorCount());
     EXPECT_EQ("property 'short_name' ignored, type string expected.",
               errors()[0]);
+  }
+
+  // Test stripping out of \t \r and \n.
+  {
+    auto& manifest = ParseManifest("{ \"short_name\": \"abc\\t\\r\\ndef\" }");
+    ASSERT_EQ(manifest->short_name, "abcdef");
+    ASSERT_FALSE(IsManifestEmpty(manifest));
+    EXPECT_EQ(0u, GetErrorCount());
   }
 }
 
@@ -372,16 +429,18 @@ TEST_F(ManifestParserTest, ScopeParseRules) {
     EXPECT_EQ(
         "property 'start_url' ignored, should be same origin as document.",
         errors()[0]);
-    EXPECT_EQ("property 'scope' ignored, should be same origin as document.",
-              errors()[1]);
+    EXPECT_EQ(
+        "property 'scope' ignored. Start url should be within scope "
+        "of scope URL.",
+        errors()[1]);
   }
 
-  // No start URL. Document URL is in scope.
+  // No start URL. Document URL is in a subdirectory of scope.
   {
     auto& manifest =
         ParseManifestWithURLs("{ \"scope\": \"http://foo.com/land\" }",
                               KURL("http://foo.com/manifest.json"),
-                              KURL("http://foo.com/land/index.html"));
+                              KURL("http://foo.com/land/site/index.html"));
     ASSERT_EQ(manifest->scope.GetString(), "http://foo.com/land");
     ASSERT_EQ(0u, GetErrorCount());
   }
@@ -503,7 +562,7 @@ TEST_F(ManifestParserTest, DisplayParseRules) {
     EXPECT_EQ(0u, GetErrorCount());
   }
 
-  // Accept 'fullscreen'.
+  // Accept 'standalone'.
   {
     auto& manifest = ParseManifest("{ \"display\": \"standalone\" }");
     EXPECT_EQ(manifest->display, blink::mojom::DisplayMode::kStandalone);
@@ -530,13 +589,182 @@ TEST_F(ManifestParserTest, DisplayParseRules) {
     EXPECT_EQ(manifest->display, blink::mojom::DisplayMode::kBrowser);
     EXPECT_EQ(0u, GetErrorCount());
   }
+
+  // Parsing fails for 'window-controls-overlay' when WCO flag is disabled.
+  {
+    auto& manifest =
+        ParseManifest("{ \"display\": \"window-controls-overlay\" }");
+    EXPECT_EQ(manifest->display, blink::mojom::DisplayMode::kUndefined);
+    EXPECT_EQ(1u, GetErrorCount());
+    EXPECT_EQ("inapplicable 'display' value ignored.", errors()[0]);
+  }
+
+  // Parsing fails for 'window-controls-overlay' when WCO flag is enabled.
+  {
+    ScopedWebAppWindowControlsOverlayForTest window_controls_overlay(true);
+    auto& manifest =
+        ParseManifest("{ \"display\": \"window-controls-overlay\" }");
+    EXPECT_EQ(manifest->display, blink::mojom::DisplayMode::kUndefined);
+    EXPECT_EQ(1u, GetErrorCount());
+    EXPECT_EQ("inapplicable 'display' value ignored.", errors()[0]);
+  }
+}
+
+TEST_F(ManifestParserTest, DisplayOverrideParseRules) {
+  ScopedWebAppManifestDisplayOverrideForTest display_override(true);
+
+  // Smoke test: if no display_override, no value.
+  {
+    auto& manifest = ParseManifest("{ \"display_override\": [] }");
+    EXPECT_TRUE(manifest->display_override.IsEmpty());
+    EXPECT_EQ(0u, GetErrorCount());
+  }
+
+  // Smoke test: if not array, value will be ignored
+  {
+    auto& manifest = ParseManifest("{ \"display_override\": 23 }");
+    EXPECT_TRUE(manifest->display_override.IsEmpty());
+    EXPECT_EQ(1u, GetErrorCount());
+    EXPECT_EQ("property 'display_override' ignored, type array expected.",
+              errors()[0]);
+  }
+
+  // Smoke test: if array value is not a string, it will be ignored
+  {
+    auto& manifest = ParseManifest("{ \"display_override\": [ 23 ] }");
+    EXPECT_TRUE(manifest->display_override.IsEmpty());
+    EXPECT_EQ(0u, GetErrorCount());
+  }
+
+  // Smoke test: if array value is not not recognized, it will be ignored
+  {
+    auto& manifest = ParseManifest("{ \"display_override\": [ \"test\" ] }");
+    EXPECT_TRUE(manifest->display_override.IsEmpty());
+    EXPECT_EQ(0u, GetErrorCount());
+  }
+
+  // Case insensitive
+  {
+    auto& manifest = ParseManifest("{ \"display_override\": [ \"BROWSER\" ] }");
+    EXPECT_FALSE(manifest->display_override.IsEmpty());
+    EXPECT_EQ(manifest->display_override[0],
+              blink::mojom::DisplayMode::kBrowser);
+    EXPECT_FALSE(IsManifestEmpty(manifest));
+    EXPECT_EQ(0u, GetErrorCount());
+  }
+
+  // Trim whitespace
+  {
+    auto& manifest =
+        ParseManifest("{ \"display_override\": [ \" browser \" ] }");
+    EXPECT_FALSE(manifest->display_override.IsEmpty());
+    EXPECT_EQ(manifest->display_override[0],
+              blink::mojom::DisplayMode::kBrowser);
+    EXPECT_FALSE(IsManifestEmpty(manifest));
+    EXPECT_EQ(0u, GetErrorCount());
+  }
+
+  // Accept 'browser'
+  {
+    auto& manifest = ParseManifest("{ \"display_override\": [ \"browser\" ] }");
+    EXPECT_FALSE(manifest->display_override.IsEmpty());
+    EXPECT_EQ(manifest->display_override[0],
+              blink::mojom::DisplayMode::kBrowser);
+    EXPECT_FALSE(IsManifestEmpty(manifest));
+    EXPECT_EQ(0u, GetErrorCount());
+  }
+
+  // Accept 'browser', 'minimal-ui'
+  {
+    auto& manifest = ParseManifest(
+        "{ \"display_override\": [ \"browser\", \"minimal-ui\" ] }");
+    EXPECT_FALSE(manifest->display_override.IsEmpty());
+    EXPECT_EQ(manifest->display_override[0],
+              blink::mojom::DisplayMode::kBrowser);
+    EXPECT_EQ(manifest->display_override[1],
+              blink::mojom::DisplayMode::kMinimalUi);
+    EXPECT_FALSE(IsManifestEmpty(manifest));
+    EXPECT_EQ(0u, GetErrorCount());
+  }
+
+  // if array value is not not recognized, it will be ignored
+  // Accept 'browser', 'minimal-ui'
+  {
+    auto& manifest = ParseManifest(
+        "{ \"display_override\": [ 3, \"browser\", \"invalid-display\", "
+        "\"minimal-ui\" ] }");
+    EXPECT_FALSE(manifest->display_override.IsEmpty());
+    EXPECT_EQ(manifest->display_override[0],
+              blink::mojom::DisplayMode::kBrowser);
+    EXPECT_EQ(manifest->display_override[1],
+              blink::mojom::DisplayMode::kMinimalUi);
+    EXPECT_FALSE(IsManifestEmpty(manifest));
+    EXPECT_EQ(0u, GetErrorCount());
+  }
+
+  // validate both display and display-override fields are parsed
+  // if array value is not not recognized, it will be ignored
+  // Accept 'browser', 'minimal-ui', 'standalone'
+  {
+    auto& manifest = ParseManifest(
+        "{ \"display\": \"standalone\", \"display_override\": [ \"browser\", "
+        "\"minimal-ui\", \"standalone\" ] }");
+    EXPECT_EQ(manifest->display, blink::mojom::DisplayMode::kStandalone);
+    EXPECT_EQ(0u, GetErrorCount());
+    EXPECT_FALSE(manifest->display_override.IsEmpty());
+    EXPECT_EQ(manifest->display_override[0],
+              blink::mojom::DisplayMode::kBrowser);
+    EXPECT_EQ(manifest->display_override[1],
+              blink::mojom::DisplayMode::kMinimalUi);
+    EXPECT_EQ(manifest->display_override[2],
+              blink::mojom::DisplayMode::kStandalone);
+    EXPECT_FALSE(IsManifestEmpty(manifest));
+  }
+
+  // validate duplicate entries.
+  // Accept 'browser', 'minimal-ui', 'browser'
+  {
+    auto& manifest = ParseManifest(
+        "{ \"display_override\": [ \"browser\", \"minimal-ui\", "
+        "\"browser\" ] }");
+    EXPECT_FALSE(manifest->display_override.IsEmpty());
+    EXPECT_EQ(manifest->display_override[0],
+              blink::mojom::DisplayMode::kBrowser);
+    EXPECT_EQ(manifest->display_override[1],
+              blink::mojom::DisplayMode::kMinimalUi);
+    EXPECT_EQ(manifest->display_override[2],
+              blink::mojom::DisplayMode::kBrowser);
+    EXPECT_FALSE(IsManifestEmpty(manifest));
+    EXPECT_EQ(0u, GetErrorCount());
+  }
+
+  // Reject 'window-controls-overlay' when WCO flag is disabled.
+  {
+    auto& manifest = ParseManifest(
+        "{ \"display_override\": [ \"window-controls-overlay\" ] }");
+    EXPECT_TRUE(manifest->display_override.IsEmpty());
+    EXPECT_EQ(0u, GetErrorCount());
+  }
+
+  // Accept 'window-controls-overlay' when WCO flag is enabled.
+  {
+    ScopedWebAppWindowControlsOverlayForTest window_controls_overlay(true);
+    auto& manifest = ParseManifest(
+        "{ \"display_override\": [ \"window-controls-overlay\" ] }");
+    EXPECT_FALSE(manifest->display_override.IsEmpty());
+    EXPECT_EQ(manifest->display_override[0],
+              blink::mojom::DisplayMode::kWindowControlsOverlay);
+    EXPECT_FALSE(IsManifestEmpty(manifest));
+    EXPECT_EQ(0u, GetErrorCount());
+  }
 }
 
 TEST_F(ManifestParserTest, OrientationParseRules) {
   // Smoke test.
   {
     auto& manifest = ParseManifest("{ \"orientation\": \"natural\" }");
-    EXPECT_EQ(manifest->orientation, kWebScreenOrientationLockNatural);
+    EXPECT_EQ(manifest->orientation,
+              device::mojom::ScreenOrientationLockType::NATURAL);
     EXPECT_FALSE(IsManifestEmpty(manifest));
     EXPECT_EQ(0u, GetErrorCount());
   }
@@ -544,14 +772,16 @@ TEST_F(ManifestParserTest, OrientationParseRules) {
   // Trim whitespaces.
   {
     auto& manifest = ParseManifest("{ \"orientation\": \"natural\" }");
-    EXPECT_EQ(manifest->orientation, kWebScreenOrientationLockNatural);
+    EXPECT_EQ(manifest->orientation,
+              device::mojom::ScreenOrientationLockType::NATURAL);
     EXPECT_EQ(0u, GetErrorCount());
   }
 
   // Don't parse if name isn't a string.
   {
     auto& manifest = ParseManifest("{ \"orientation\": {} }");
-    EXPECT_EQ(manifest->orientation, kWebScreenOrientationLockDefault);
+    EXPECT_EQ(manifest->orientation,
+              device::mojom::ScreenOrientationLockType::DEFAULT);
     EXPECT_EQ(1u, GetErrorCount());
     EXPECT_EQ("property 'orientation' ignored, type string expected.",
               errors()[0]);
@@ -560,7 +790,8 @@ TEST_F(ManifestParserTest, OrientationParseRules) {
   // Don't parse if name isn't a string.
   {
     auto& manifest = ParseManifest("{ \"orientation\": 42 }");
-    EXPECT_EQ(manifest->orientation, kWebScreenOrientationLockDefault);
+    EXPECT_EQ(manifest->orientation,
+              device::mojom::ScreenOrientationLockType::DEFAULT);
     EXPECT_EQ(1u, GetErrorCount());
     EXPECT_EQ("property 'orientation' ignored, type string expected.",
               errors()[0]);
@@ -569,7 +800,8 @@ TEST_F(ManifestParserTest, OrientationParseRules) {
   // Parse fails if string isn't known.
   {
     auto& manifest = ParseManifest("{ \"orientation\": \"naturalish\" }");
-    EXPECT_EQ(manifest->orientation, kWebScreenOrientationLockDefault);
+    EXPECT_EQ(manifest->orientation,
+              device::mojom::ScreenOrientationLockType::DEFAULT);
     EXPECT_EQ(1u, GetErrorCount());
     EXPECT_EQ("unknown 'orientation' value ignored.", errors()[0]);
   }
@@ -577,21 +809,24 @@ TEST_F(ManifestParserTest, OrientationParseRules) {
   // Accept 'any'.
   {
     auto& manifest = ParseManifest("{ \"orientation\": \"any\" }");
-    EXPECT_EQ(manifest->orientation, kWebScreenOrientationLockAny);
+    EXPECT_EQ(manifest->orientation,
+              device::mojom::ScreenOrientationLockType::ANY);
     EXPECT_EQ(0u, GetErrorCount());
   }
 
   // Accept 'natural'.
   {
     auto& manifest = ParseManifest("{ \"orientation\": \"natural\" }");
-    EXPECT_EQ(manifest->orientation, kWebScreenOrientationLockNatural);
+    EXPECT_EQ(manifest->orientation,
+              device::mojom::ScreenOrientationLockType::NATURAL);
     EXPECT_EQ(0u, GetErrorCount());
   }
 
   // Accept 'landscape'.
   {
     auto& manifest = ParseManifest("{ \"orientation\": \"landscape\" }");
-    EXPECT_EQ(manifest->orientation, kWebScreenOrientationLockLandscape);
+    EXPECT_EQ(manifest->orientation,
+              device::mojom::ScreenOrientationLockType::LANDSCAPE);
     EXPECT_EQ(0u, GetErrorCount());
   }
 
@@ -599,7 +834,8 @@ TEST_F(ManifestParserTest, OrientationParseRules) {
   {
     auto& manifest =
         ParseManifest("{ \"orientation\": \"landscape-primary\" }");
-    EXPECT_EQ(manifest->orientation, kWebScreenOrientationLockLandscapePrimary);
+    EXPECT_EQ(manifest->orientation,
+              device::mojom::ScreenOrientationLockType::LANDSCAPE_PRIMARY);
     EXPECT_EQ(0u, GetErrorCount());
   }
 
@@ -608,21 +844,23 @@ TEST_F(ManifestParserTest, OrientationParseRules) {
     auto& manifest =
         ParseManifest("{ \"orientation\": \"landscape-secondary\" }");
     EXPECT_EQ(manifest->orientation,
-              kWebScreenOrientationLockLandscapeSecondary);
+              device::mojom::ScreenOrientationLockType::LANDSCAPE_SECONDARY);
     EXPECT_EQ(0u, GetErrorCount());
   }
 
   // Accept 'portrait'.
   {
     auto& manifest = ParseManifest("{ \"orientation\": \"portrait\" }");
-    EXPECT_EQ(manifest->orientation, kWebScreenOrientationLockPortrait);
+    EXPECT_EQ(manifest->orientation,
+              device::mojom::ScreenOrientationLockType::PORTRAIT);
     EXPECT_EQ(0u, GetErrorCount());
   }
 
   // Accept 'portrait-primary'.
   {
     auto& manifest = ParseManifest("{ \"orientation\": \"portrait-primary\" }");
-    EXPECT_EQ(manifest->orientation, kWebScreenOrientationLockPortraitPrimary);
+    EXPECT_EQ(manifest->orientation,
+              device::mojom::ScreenOrientationLockType::PORTRAIT_PRIMARY);
     EXPECT_EQ(0u, GetErrorCount());
   }
 
@@ -631,14 +869,15 @@ TEST_F(ManifestParserTest, OrientationParseRules) {
     auto& manifest =
         ParseManifest("{ \"orientation\": \"portrait-secondary\" }");
     EXPECT_EQ(manifest->orientation,
-              kWebScreenOrientationLockPortraitSecondary);
+              device::mojom::ScreenOrientationLockType::PORTRAIT_SECONDARY);
     EXPECT_EQ(0u, GetErrorCount());
   }
 
   // Case insensitive.
   {
     auto& manifest = ParseManifest("{ \"orientation\": \"LANDSCAPE\" }");
-    EXPECT_EQ(manifest->orientation, kWebScreenOrientationLockLandscape);
+    EXPECT_EQ(manifest->orientation,
+              device::mojom::ScreenOrientationLockType::LANDSCAPE);
     EXPECT_EQ(0u, GetErrorCount());
   }
 }
@@ -685,6 +924,55 @@ TEST_F(ManifestParserTest, IconsParseRules) {
     auto& icons = manifest->icons;
     EXPECT_EQ(icons.size(), 1u);
     EXPECT_EQ(icons[0]->src.GetString(), "http://foo.com/foo.jpg");
+    EXPECT_FALSE(IsManifestEmpty(manifest));
+    EXPECT_EQ(0u, GetErrorCount());
+  }
+}
+
+TEST_F(ManifestParserTest, ScreenshotsParseRules) {
+  // Smoke test: if no screenshot, no value.
+  {
+    auto& manifest = ParseManifest(R"({ "screenshots": [] })");
+    EXPECT_TRUE(manifest->screenshots.IsEmpty());
+    EXPECT_EQ(0u, GetErrorCount());
+  }
+
+  // Smoke test: if empty screenshot, no value.
+  {
+    auto& manifest = ParseManifest(R"({ "screenshots": [ {} ] })");
+    EXPECT_TRUE(manifest->screenshots.IsEmpty());
+    EXPECT_EQ(0u, GetErrorCount());
+  }
+
+  // Smoke test: screenshot with invalid src, no value.
+  {
+    auto& manifest =
+        ParseManifest(R"({ "screenshots": [ { "screenshots": [] } ] })");
+    EXPECT_TRUE(manifest->screenshots.IsEmpty());
+    EXPECT_EQ(0u, GetErrorCount());
+  }
+
+  // Smoke test: if screenshot with empty src, it will be present in the list.
+  {
+    auto& manifest = ParseManifest(R"({ "screenshots": [ { "src": "" } ] })");
+    EXPECT_FALSE(manifest->screenshots.IsEmpty());
+
+    auto& screenshots = manifest->screenshots;
+    EXPECT_EQ(screenshots.size(), 1u);
+    EXPECT_EQ(screenshots[0]->src.GetString(), "http://foo.com/manifest.json");
+    EXPECT_FALSE(IsManifestEmpty(manifest));
+    EXPECT_EQ(0u, GetErrorCount());
+  }
+
+  // Smoke test: if one icons has valid src, it will be present in the list.
+  {
+    auto& manifest =
+        ParseManifest(R"({ "screenshots": [{ "src": "foo.jpg" }] })");
+    EXPECT_FALSE(manifest->screenshots.IsEmpty());
+
+    auto& screenshots = manifest->screenshots;
+    EXPECT_EQ(screenshots.size(), 1u);
+    EXPECT_EQ(screenshots[0]->src.GetString(), "http://foo.com/foo.jpg");
     EXPECT_FALSE(IsManifestEmpty(manifest));
     EXPECT_EQ(0u, GetErrorCount());
   }
@@ -988,7 +1276,7 @@ TEST_F(ManifestParserTest, IconPurposeParseRules) {
   {
     auto& manifest = ParseManifest(
         "{ \"icons\": [ {\"src\": \"\","
-        "\"purpose\": \"Any Badge Maskable\" } ] }");
+        "\"purpose\": \"Any Monochrome Maskable\" } ] }");
     EXPECT_FALSE(manifest->icons.IsEmpty());
 
     auto& icons = manifest->icons;
@@ -996,7 +1284,7 @@ TEST_F(ManifestParserTest, IconPurposeParseRules) {
     EXPECT_EQ(icons[0]->purpose[0],
               mojom::blink::ManifestImageResource::Purpose::ANY);
     EXPECT_EQ(icons[0]->purpose[1],
-              mojom::blink::ManifestImageResource::Purpose::BADGE);
+              mojom::blink::ManifestImageResource::Purpose::MONOCHROME);
     EXPECT_EQ(icons[0]->purpose[2],
               mojom::blink::ManifestImageResource::Purpose::MASKABLE);
     EXPECT_EQ(0u, GetErrorCount());
@@ -1006,7 +1294,7 @@ TEST_F(ManifestParserTest, IconPurposeParseRules) {
   {
     auto& manifest = ParseManifest(
         "{ \"icons\": [ {\"src\": \"\","
-        "\"purpose\": \"  Any   Badge  \" } ] }");
+        "\"purpose\": \"  Any   Monochrome  \" } ] }");
     EXPECT_FALSE(manifest->icons.IsEmpty());
 
     auto& icons = manifest->icons;
@@ -1014,7 +1302,7 @@ TEST_F(ManifestParserTest, IconPurposeParseRules) {
     EXPECT_EQ(icons[0]->purpose[0],
               mojom::blink::ManifestImageResource::Purpose::ANY);
     EXPECT_EQ(icons[0]->purpose[1],
-              mojom::blink::ManifestImageResource::Purpose::BADGE);
+              mojom::blink::ManifestImageResource::Purpose::MONOCHROME);
     EXPECT_EQ(0u, GetErrorCount());
   }
 
@@ -1022,15 +1310,15 @@ TEST_F(ManifestParserTest, IconPurposeParseRules) {
   {
     auto& manifest = ParseManifest(
         "{ \"icons\": [ {\"src\": \"\","
-        "\"purpose\": \"badge badge\" } ] }");
+        "\"purpose\": \"monochrome monochrome\" } ] }");
     EXPECT_FALSE(manifest->icons.IsEmpty());
 
     auto& icons = manifest->icons;
     ASSERT_EQ(icons[0]->purpose.size(), 2u);
     EXPECT_EQ(icons[0]->purpose[0],
-              mojom::blink::ManifestImageResource::Purpose::BADGE);
+              mojom::blink::ManifestImageResource::Purpose::MONOCHROME);
     EXPECT_EQ(icons[0]->purpose[1],
-              mojom::blink::ManifestImageResource::Purpose::BADGE);
+              mojom::blink::ManifestImageResource::Purpose::MONOCHROME);
     EXPECT_EQ(0u, GetErrorCount());
   }
 
@@ -1038,13 +1326,13 @@ TEST_F(ManifestParserTest, IconPurposeParseRules) {
   {
     auto& manifest = ParseManifest(
         "{ \"icons\": [ {\"src\": \"\","
-        "\"purpose\": \"badge fizzbuzz\" } ] }");
+        "\"purpose\": \"monochrome fizzbuzz\" } ] }");
     EXPECT_FALSE(manifest->icons.IsEmpty());
 
     auto& icons = manifest->icons;
     ASSERT_EQ(icons[0]->purpose.size(), 1u);
     EXPECT_EQ(icons[0]->purpose[0],
-              mojom::blink::ManifestImageResource::Purpose::BADGE);
+              mojom::blink::ManifestImageResource::Purpose::MONOCHROME);
     ASSERT_EQ(1u, GetErrorCount());
     EXPECT_EQ(kSomeInvalidPurposeError, errors()[0]);
   }
@@ -1388,7 +1676,7 @@ TEST_F(ManifestParserTest, ShortcutUrlParseRules) {
         KURL("http://foo.com/landing/manifest.json"), DefaultDocumentUrl());
     EXPECT_TRUE(manifest->shortcuts.IsEmpty());
     EXPECT_EQ(2u, GetErrorCount());
-    EXPECT_EQ("property 'url' ignored, should be same origin as document.",
+    EXPECT_EQ("property 'url' ignored, should be within scope of the manifest.",
               errors()[0]);
     EXPECT_EQ("property 'url' of 'shortcut' not present.", errors()[1]);
   }
@@ -1404,11 +1692,10 @@ TEST_F(ManifestParserTest, ShortcutUrlParseRules) {
         KURL("http://foo.com/landing/index.html"));
     EXPECT_TRUE(manifest->shortcuts.IsEmpty());
     ASSERT_EQ(manifest->scope.GetString(), "http://foo.com/landing");
-    EXPECT_EQ(1u, GetErrorCount());
-    EXPECT_EQ(
-        "property 'url' of 'shortcut' ignored. url should be within scope of "
-        "the manifest.",
-        errors()[0]);
+    EXPECT_EQ(2u, GetErrorCount());
+    EXPECT_EQ("property 'url' ignored, should be within scope of the manifest.",
+              errors()[0]);
+    EXPECT_EQ("property 'url' of 'shortcut' not present.", errors()[1]);
   }
 
   // Shortcut url should be within the manifest scope.
@@ -1493,6 +1780,7 @@ TEST_F(ManifestParserTest, ShortcutIconsParseRules) {
     EXPECT_EQ(0u, GetErrorCount());
   }
 }
+
 TEST_F(ManifestParserTest, FileHandlerParseRules) {
   // Does not contain file_handlers field.
   {
@@ -1568,8 +1856,36 @@ TEST_F(ManifestParserTest, FileHandlerParseRules) {
         "  ]"
         "}");
     ASSERT_EQ(2u, GetErrorCount());
-    EXPECT_EQ("property 'action' ignored, should be same origin as document.",
-              errors()[0]);
+    EXPECT_EQ(
+        "property 'action' ignored, should be within scope of the manifest.",
+        errors()[0]);
+    EXPECT_EQ("FileHandler ignored. Property 'action' is invalid.",
+              errors()[1]);
+    EXPECT_EQ(0u, manifest->file_handlers.size());
+  }
+
+  // Entry with an action outside of the manifest scope is invalid.
+  {
+    auto& manifest = ParseManifest(
+        "{"
+        "  \"start_url\": \"/app/\","
+        "  \"scope\": \"/app/\","
+        "  \"file_handlers\": ["
+        "    {"
+        "      \"name\": \"name\","
+        "      \"action\": \"/files\","
+        "      \"accept\": {"
+        "        \"image/png\": ["
+        "          \".png\""
+        "        ]"
+        "      }"
+        "    }"
+        "  ]"
+        "}");
+    ASSERT_EQ(2u, GetErrorCount());
+    EXPECT_EQ(
+        "property 'action' ignored, should be within scope of the manifest.",
+        errors()[0]);
     EXPECT_EQ("FileHandler ignored. Property 'action' is invalid.",
               errors()[1]);
     EXPECT_EQ(0u, manifest->file_handlers.size());
@@ -1867,6 +2183,375 @@ TEST_F(ManifestParserTest, FileHandlerParseRules) {
   }
 }
 
+TEST_F(ManifestParserTest, ProtocolHandlerParseRules) {
+  // Does not contain protocol_handlers field.
+  {
+    auto& manifest = ParseManifest("{ }");
+    ASSERT_EQ(0u, GetErrorCount());
+    EXPECT_EQ(0u, manifest->protocol_handlers.size());
+  }
+
+  // protocol_handlers is not an array.
+  {
+    auto& manifest = ParseManifest("{ \"protocol_handlers\": { } }");
+    EXPECT_EQ(1u, GetErrorCount());
+    EXPECT_EQ("property 'protocol_handlers' ignored, type array expected.",
+              errors()[0]);
+    EXPECT_EQ(0u, manifest->protocol_handlers.size());
+  }
+
+  // Contains protocol_handlers field but no protocol handlers.
+  {
+    auto& manifest = ParseManifest("{ \"protocol_handlers\": [ ] }");
+    ASSERT_EQ(0u, GetErrorCount());
+    EXPECT_EQ(0u, manifest->protocol_handlers.size());
+  }
+
+  // Entries must be objects
+  {
+    auto& manifest = ParseManifest(
+        "{"
+        "  \"protocol_handlers\": ["
+        "    \"hello world\""
+        "  ]"
+        "}");
+    ASSERT_EQ(1u, GetErrorCount());
+    EXPECT_EQ("protocol_handlers entry ignored, type object expected.",
+              errors()[0]);
+    EXPECT_EQ(0u, manifest->protocol_handlers.size());
+  }
+
+  // A valid protocol handler.
+  {
+    auto& manifest = ParseManifest(
+        "{"
+        "  \"protocol_handlers\": ["
+        "    {"
+        "      \"protocol\": \"web+github\","
+        "      \"url\": \"http://foo.com/?profile=%s\""
+        "    }"
+        "  ]"
+        "}");
+    auto& protocol_handlers = manifest->protocol_handlers;
+
+    ASSERT_EQ(0u, GetErrorCount());
+    ASSERT_EQ(1u, protocol_handlers.size());
+
+    ASSERT_EQ("web+github", protocol_handlers[0]->protocol);
+    ASSERT_EQ("http://foo.com/?profile=%s", protocol_handlers[0]->url);
+  }
+
+  // An invalid protocol handler with the URL not being from the same origin.
+  {
+    auto& manifest = ParseManifest(
+        "{"
+        "  \"protocol_handlers\": ["
+        "    {"
+        "      \"protocol\": \"web+github\","
+        "      \"url\": \"http://bar.com/?profile=%s\""
+        "    }"
+        "  ]"
+        "}");
+    auto& protocol_handlers = manifest->protocol_handlers;
+
+    ASSERT_EQ(2u, GetErrorCount());
+    EXPECT_EQ("property 'url' ignored, should be within scope of the manifest.",
+              errors()[0]);
+    EXPECT_EQ(
+        "protocol_handlers entry ignored, required property 'url' is invalid.",
+        errors()[1]);
+    ASSERT_EQ(0u, protocol_handlers.size());
+  }
+
+  // An invalid protocol handler with the URL not being within manifest scope.
+  {
+    auto& manifest = ParseManifest(
+        "{"
+        "  \"start_url\": \"/app/\","
+        "  \"scope\": \"/app/\","
+        "  \"protocol_handlers\": ["
+        "    {"
+        "      \"protocol\": \"web+github\","
+        "      \"url\": \"/?profile=%s\""
+        "    }"
+        "  ]"
+        "}");
+    auto& protocol_handlers = manifest->protocol_handlers;
+
+    ASSERT_EQ(2u, GetErrorCount());
+    EXPECT_EQ("property 'url' ignored, should be within scope of the manifest.",
+              errors()[0]);
+    EXPECT_EQ(
+        "protocol_handlers entry ignored, required property 'url' is invalid.",
+        errors()[1]);
+    ASSERT_EQ(0u, protocol_handlers.size());
+  }
+
+  // An invalid protocol handler with no value for protocol.
+  {
+    auto& manifest = ParseManifest(
+        "{"
+        "  \"protocol_handlers\": ["
+        "    {"
+        "      \"url\": \"http://foo.com/?profile=%s\""
+        "    }"
+        "  ]"
+        "}");
+    auto& protocol_handlers = manifest->protocol_handlers;
+
+    ASSERT_EQ(1u, GetErrorCount());
+    EXPECT_EQ(
+        "protocol_handlers entry ignored, required property 'protocol' is "
+        "missing.",
+        errors()[0]);
+    ASSERT_EQ(0u, protocol_handlers.size());
+  }
+
+  // An invalid protocol handler with no url.
+  {
+    auto& manifest = ParseManifest(
+        "{"
+        "  \"protocol_handlers\": ["
+        "    {"
+        "      \"protocol\": \"web+github\""
+        "    }"
+        "  ]"
+        "}");
+    auto& protocol_handlers = manifest->protocol_handlers;
+
+    ASSERT_EQ(1u, GetErrorCount());
+    EXPECT_EQ(
+        "protocol_handlers entry ignored, required property 'url' is missing.",
+        errors()[0]);
+    ASSERT_EQ(0u, protocol_handlers.size());
+  }
+
+  // An invalid protocol handler with a url that doesn't contain the %s token.
+  {
+    auto& manifest = ParseManifest(
+        "{"
+        "  \"protocol_handlers\": ["
+        "    {"
+        "      \"protocol\": \"web+github\","
+        "      \"url\": \"http://foo.com/?profile=\""
+        "    }"
+        "  ]"
+        "}");
+    auto& protocol_handlers = manifest->protocol_handlers;
+
+    ASSERT_EQ(2u, GetErrorCount());
+    EXPECT_EQ(
+        "The url provided ('http://foo.com/?profile=') does not contain '%s'.",
+        errors()[0]);
+    EXPECT_EQ(
+        "protocol_handlers entry ignored, required property 'url' is invalid.",
+        errors()[1]);
+    ASSERT_EQ(0u, protocol_handlers.size());
+  }
+
+  // An invalid protocol handler with a non-allowed protocol.
+  {
+    auto& manifest = ParseManifest(
+        "{"
+        "  \"protocol_handlers\": ["
+        "    {"
+        "      \"protocol\": \"github\","
+        "      \"url\": \"http://foo.com/?profile=\""
+        "    }"
+        "  ]"
+        "}");
+    auto& protocol_handlers = manifest->protocol_handlers;
+
+    ASSERT_EQ(2u, GetErrorCount());
+    EXPECT_EQ(
+        "The scheme 'github' doesn't belong to the scheme allowlist. Please "
+        "prefix non-allowlisted schemes with the string 'web+'.",
+        errors()[0]);
+    EXPECT_EQ(
+        "protocol_handlers entry ignored, required property 'protocol' is "
+        "invalid.",
+        errors()[1]);
+    ASSERT_EQ(0u, protocol_handlers.size());
+  }
+
+  // Multiple valid protocol handlers
+  {
+    auto& manifest = ParseManifest(
+        "{"
+        "  \"protocol_handlers\": ["
+        "    {"
+        "      \"protocol\": \"web+github\","
+        "      \"url\": \"http://foo.com/?profile=%s\""
+        "    },"
+        "    {"
+        "      \"protocol\": \"web+test\","
+        "      \"url\": \"http://foo.com/?test=%s\""
+        "    },"
+        "    {"
+        "      \"protocol\": \"web+relative\","
+        "      \"url\": \"relativeURL=%s\""
+        "    }"
+        "  ]"
+        "}");
+    auto& protocol_handlers = manifest->protocol_handlers;
+
+    ASSERT_EQ(0u, GetErrorCount());
+    ASSERT_EQ(3u, protocol_handlers.size());
+
+    ASSERT_EQ("web+github", protocol_handlers[0]->protocol);
+    ASSERT_EQ("http://foo.com/?profile=%s", protocol_handlers[0]->url);
+    ASSERT_EQ("web+test", protocol_handlers[1]->protocol);
+    ASSERT_EQ("http://foo.com/?test=%s", protocol_handlers[1]->url);
+    ASSERT_EQ("web+relative", protocol_handlers[2]->protocol);
+    ASSERT_EQ("http://foo.com/relativeURL=%s", protocol_handlers[2]->url);
+  }
+}
+
+TEST_F(ManifestParserTest, UrlHandlerParseRules) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(blink::features::kWebAppEnableUrlHandlers);
+
+  // Manifest does not contain a 'url_handlers' field.
+  {
+    auto& manifest = ParseManifest("{ }");
+    ASSERT_EQ(0u, GetErrorCount());
+    EXPECT_EQ(0u, manifest->url_handlers.size());
+  }
+
+  // 'url_handlers' is not an array.
+  {
+    auto& manifest = ParseManifest("{ \"url_handlers\": { } }");
+    EXPECT_EQ(1u, GetErrorCount());
+    EXPECT_EQ("property 'url_handlers' ignored, type array expected.",
+              errors()[0]);
+    EXPECT_EQ(0u, manifest->url_handlers.size());
+  }
+
+  // Contains 'url_handlers' field but no URL handler entries.
+  {
+    auto& manifest = ParseManifest("{ \"url_handlers\": [ ] }");
+    ASSERT_EQ(0u, GetErrorCount());
+    EXPECT_EQ(0u, manifest->url_handlers.size());
+  }
+
+  // 'url_handlers' array entries must be objects.
+  {
+    auto& manifest = ParseManifest(
+        "{"
+        "  \"url_handlers\": ["
+        "    \"foo.com\""
+        "  ]"
+        "}");
+    ASSERT_EQ(1u, GetErrorCount());
+    EXPECT_EQ("url_handlers entry ignored, type object expected.", errors()[0]);
+    EXPECT_EQ(0u, manifest->url_handlers.size());
+  }
+
+  // A valid url handler.
+  {
+    auto& manifest = ParseManifest(
+        "{"
+        "  \"url_handlers\": ["
+        "    {"
+        "      \"origin\": \"https://foo.com\""
+        "    }"
+        "  ]"
+        "}");
+    auto& url_handlers = manifest->url_handlers;
+
+    ASSERT_EQ(0u, GetErrorCount());
+    ASSERT_EQ(1u, url_handlers.size());
+    ASSERT_TRUE(blink::SecurityOrigin::CreateFromString("https://foo.com")
+                    ->IsSameOriginWith(url_handlers[0]->origin.get()));
+  }
+
+  // Scheme must be https.
+  {
+    auto& manifest = ParseManifest(
+        "{"
+        "  \"url_handlers\": ["
+        "    {"
+        "      \"origin\": \"http://foo.com\""
+        "    }"
+        "  ]"
+        "}");
+    auto& url_handlers = manifest->url_handlers;
+
+    ASSERT_EQ(1u, GetErrorCount());
+    EXPECT_EQ(
+        "url_handlers entry ignored, required property 'origin' must use the "
+        "https scheme.",
+        errors()[0]);
+    ASSERT_EQ(0u, url_handlers.size());
+  }
+
+  // Origin must be valid.
+  {
+    auto& manifest = ParseManifest(
+        "{"
+        "  \"url_handlers\": ["
+        "    {"
+        "      \"origin\": \"https:///////\""
+        "    }"
+        "  ]"
+        "}");
+    auto& url_handlers = manifest->url_handlers;
+
+    ASSERT_EQ(1u, GetErrorCount());
+    EXPECT_EQ(
+        "url_handlers entry ignored, required property 'origin' is invalid.",
+        errors()[0]);
+    ASSERT_EQ(0u, url_handlers.size());
+  }
+
+  // Parse multiple valid handlers.
+  {
+    auto& manifest = ParseManifest(
+        "{"
+        "  \"url_handlers\": ["
+        "    {"
+        "      \"origin\": \"https://foo.com\""
+        "    },"
+        "    {"
+        "      \"origin\": \"https://bar.com\""
+        "    }"
+        "  ]"
+        "}");
+    auto& url_handlers = manifest->url_handlers;
+
+    ASSERT_EQ(0u, GetErrorCount());
+    ASSERT_EQ(2u, url_handlers.size());
+    ASSERT_TRUE(blink::SecurityOrigin::CreateFromString("https://foo.com")
+                    ->IsSameOriginWith(url_handlers[0]->origin.get()));
+    ASSERT_TRUE(blink::SecurityOrigin::CreateFromString("https://bar.com")
+                    ->IsSameOriginWith(url_handlers[1]->origin.get()));
+  }
+
+  // Parse both valid and invalid handlers.
+  {
+    auto& manifest = ParseManifest(
+        "{"
+        "  \"url_handlers\": ["
+        "    {"
+        "      \"origin\": \"https://foo.com\""
+        "    },"
+        "    {"
+        "      \"origin\": \"about:\""
+        "    }"
+        "  ]"
+        "}");
+    auto& url_handlers = manifest->url_handlers;
+
+    ASSERT_EQ(1u, GetErrorCount());
+    EXPECT_EQ(
+        "url_handlers entry ignored, required property 'origin' is invalid.",
+        errors()[0]);
+    ASSERT_EQ(1u, url_handlers.size());
+    ASSERT_TRUE(blink::SecurityOrigin::CreateFromString("https://foo.com")
+                    ->IsSameOriginWith(url_handlers[0]->origin.get()));
+  }
+}
+
 TEST_F(ManifestParserTest, ShareTargetParseRules) {
   // Contains share_target field but no keys.
   {
@@ -2128,13 +2813,33 @@ TEST_F(ManifestParserTest, ShareTargetUrlTemplateParseRules) {
   // manifest.
   {
     auto& manifest = ParseManifestWithURLs(
-        "{ \"share_target\": { \"action\": \"https://foo2.com/\" }, "
-        "\"params\": {} }",
+        "{ \"share_target\": { \"action\": \"https://foo2.com/\", "
+        "\"params\": {} } }",
         manifest_url, document_url);
     EXPECT_FALSE(manifest->share_target.get());
     EXPECT_EQ(2u, GetErrorCount());
-    EXPECT_EQ("property 'action' ignored, should be same origin as document.",
-              errors()[0]);
+    EXPECT_EQ(
+        "property 'action' ignored, should be within scope of the manifest.",
+        errors()[0]);
+    EXPECT_EQ(
+        "property 'share_target' ignored. Property 'action' is "
+        "invalid.",
+        errors()[1]);
+  }
+
+  // Fail parsing if action is not within scope of the manifest.
+  {
+    auto& manifest = ParseManifestWithURLs(
+        "{ \"start_url\": \"/app/\","
+        "  \"scope\": \"/app/\","
+        "  \"share_target\": { \"action\": \"/\", "
+        "\"params\": {} } }",
+        manifest_url, document_url);
+    EXPECT_FALSE(manifest->share_target.get());
+    EXPECT_EQ(2u, GetErrorCount());
+    EXPECT_EQ(
+        "property 'action' ignored, should be within scope of the manifest.",
+        errors()[0]);
     EXPECT_EQ(
         "property 'share_target' ignored. Property 'action' is "
         "invalid.",
@@ -3311,6 +4016,122 @@ TEST_F(ManifestParserTest, GCMSenderIDParseRules) {
     EXPECT_EQ(1u, GetErrorCount());
     EXPECT_EQ("property 'gcm_sender_id' ignored, type string expected.",
               errors()[0]);
+  }
+}
+
+TEST_F(ManifestParserTest, CaptureLinksParseRules) {
+  // Feature not enabled, should not be parsed.
+  {
+    auto& manifest = ParseManifest(R"({ "capture_links": "none" })");
+    EXPECT_EQ(manifest->capture_links, mojom::blink::CaptureLinks::kUndefined);
+    EXPECT_EQ(0u, GetErrorCount());
+  }
+}
+
+class ManifestCaptureLinksParserTest : public ManifestParserTest {
+ public:
+  ManifestCaptureLinksParserTest() {
+    scoped_feature_list_.InitAndEnableFeature(
+        features::kWebAppEnableLinkCapturing);
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+TEST_F(ManifestCaptureLinksParserTest, CaptureLinksParseRules) {
+  // Smoke test.
+  {
+    auto& manifest = ParseManifest(R"({ "capture_links": "none" })");
+    EXPECT_EQ(manifest->capture_links, mojom::blink::CaptureLinks::kNone);
+    EXPECT_EQ(0u, GetErrorCount());
+  }
+  {
+    auto& manifest = ParseManifest(R"({ "capture_links": ["new-client"] })");
+    EXPECT_EQ(manifest->capture_links, mojom::blink::CaptureLinks::kNewClient);
+    EXPECT_EQ(0u, GetErrorCount());
+  }
+
+  // Empty array is fine.
+  {
+    auto& manifest = ParseManifest(R"({ "capture_links": [] })");
+    EXPECT_EQ(manifest->capture_links, mojom::blink::CaptureLinks::kUndefined);
+    EXPECT_EQ(0u, GetErrorCount());
+  }
+
+  // Unknown single string.
+  {
+    auto& manifest = ParseManifest(R"({ "capture_links": "unknown" })");
+    EXPECT_EQ(manifest->capture_links, mojom::blink::CaptureLinks::kUndefined);
+    EXPECT_EQ(1u, GetErrorCount());
+    EXPECT_EQ("capture_links value 'unknown' ignored, unknown value.",
+              errors()[0]);
+  }
+
+  // First known value in array is used.
+  {
+    auto& manifest = ParseManifest(
+        R"({ "capture_links": ["none", "existing-client-navigate"] })");
+    EXPECT_EQ(manifest->capture_links, mojom::blink::CaptureLinks::kNone);
+    EXPECT_EQ(0u, GetErrorCount());
+  }
+  {
+    auto& manifest = ParseManifest(R"({
+      "capture_links": [
+        "unknown",
+        "existing-client-navigate",
+        "also-unknown",
+        "none"
+      ]
+    })");
+    EXPECT_EQ(manifest->capture_links,
+              mojom::blink::CaptureLinks::kExistingClientNavigate);
+    EXPECT_EQ(1u, GetErrorCount());
+    EXPECT_EQ("capture_links value 'unknown' ignored, unknown value.",
+              errors()[0]);
+  }
+  {
+    auto& manifest = ParseManifest(R"({
+      "capture_links": [
+        1234,
+        "new-client",
+        null,
+        "none"
+      ]
+    })");
+    EXPECT_EQ(manifest->capture_links, mojom::blink::CaptureLinks::kNewClient);
+    EXPECT_EQ(1u, GetErrorCount());
+    EXPECT_EQ("capture_links value '1234' ignored, string expected.",
+              errors()[0]);
+  }
+
+  // Don't parse if the property isn't a string or array of strings.
+  {
+    auto& manifest = ParseManifest(R"({ "capture_links": null })");
+    EXPECT_EQ(manifest->capture_links, mojom::blink::CaptureLinks::kUndefined);
+    EXPECT_EQ(1u, GetErrorCount());
+    EXPECT_EQ(
+        "property 'capture_links' ignored, type string or array of strings "
+        "expected.",
+        errors()[0]);
+  }
+  {
+    auto& manifest = ParseManifest(R"({ "capture_links": 1234 })");
+    EXPECT_EQ(manifest->capture_links, mojom::blink::CaptureLinks::kUndefined);
+    EXPECT_EQ(1u, GetErrorCount());
+    EXPECT_EQ(
+        "property 'capture_links' ignored, type string or array of strings "
+        "expected.",
+        errors()[0]);
+  }
+  {
+    auto& manifest = ParseManifest(R"({ "capture_links": [12, 34] })");
+    EXPECT_EQ(manifest->capture_links, mojom::blink::CaptureLinks::kUndefined);
+    EXPECT_EQ(2u, GetErrorCount());
+    EXPECT_EQ("capture_links value '12' ignored, string expected.",
+              errors()[0]);
+    EXPECT_EQ("capture_links value '34' ignored, string expected.",
+              errors()[1]);
   }
 }
 

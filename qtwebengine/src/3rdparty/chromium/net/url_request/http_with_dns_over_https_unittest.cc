@@ -4,8 +4,8 @@
 
 #include "base/big_endian.h"
 #include "base/bind.h"
-#include "base/logging.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/strings/string_piece.h"
 #include "net/base/privacy_mode.h"
 #include "net/base/proxy_server.h"
 #include "net/cert/mock_cert_verifier.h"
@@ -18,6 +18,7 @@
 #include "net/dns/host_resolver_manager.h"
 #include "net/dns/host_resolver_proc.h"
 #include "net/dns/public/dns_over_https_server_config.h"
+#include "net/dns/public/secure_dns_mode.h"
 #include "net/http/http_stream_factory_test_util.h"
 #include "net/log/net_log.h"
 #include "net/socket/transport_client_socket_pool.h"
@@ -97,7 +98,7 @@ class HttpWithDnsOverHttpsTest : public TestWithTaskEnvironment {
     DnsConfigOverrides overrides;
     overrides.dns_over_https_servers.emplace(
         {DnsOverHttpsServerConfig(url.spec(), true /* use_post */)});
-    overrides.secure_dns_mode = DnsConfig::SecureDnsMode::SECURE;
+    overrides.secure_dns_mode = SecureDnsMode::kSecure;
     overrides.use_local_ipv6 = true;
     resolver_->GetManagerForTesting()->SetDnsConfigOverrides(
         std::move(overrides));
@@ -150,7 +151,7 @@ class HttpWithDnsOverHttpsTest : public TestWithTaskEnvironment {
                                   0x00, 0x01};
       http_response->set_content(
           std::string(header_data, sizeof(header_data)) +
-          query.question().as_string() +
+          std::string(query.question()) +
           std::string((char*)answer_data, sizeof(answer_data)));
       http_response->set_content_type("application/dns-message");
       return std::move(http_response);

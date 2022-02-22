@@ -45,7 +45,7 @@
 #include "surface3dcontroller_p.h"
 #include "qsurface3dseries.h"
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 class DeclarativeSurface : public AbstractDeclarative
 {
@@ -71,8 +71,8 @@ public:
 
     QQmlListProperty<QSurface3DSeries> seriesList();
     static void appendSeriesFunc(QQmlListProperty<QSurface3DSeries> *list, QSurface3DSeries *series);
-    static int countSeriesFunc(QQmlListProperty<QSurface3DSeries> *list);
-    static QSurface3DSeries *atSeriesFunc(QQmlListProperty<QSurface3DSeries> *list, int index);
+    static qsizetype countSeriesFunc(QQmlListProperty<QSurface3DSeries> *list);
+    static QSurface3DSeries *atSeriesFunc(QQmlListProperty<QSurface3DSeries> *list, qsizetype index);
     static void clearSeriesFunc(QQmlListProperty<QSurface3DSeries> *list);
     Q_INVOKABLE void addSeries(QSurface3DSeries *series);
     Q_INVOKABLE void removeSeries(QSurface3DSeries *series);
@@ -82,9 +82,9 @@ public:
     bool flipHorizontalGrid() const;
 
 public Q_SLOTS:
-    void handleAxisXChanged(QAbstract3DAxis *axis);
-    void handleAxisYChanged(QAbstract3DAxis *axis);
-    void handleAxisZChanged(QAbstract3DAxis *axis);
+    void handleAxisXChanged(QAbstract3DAxis *axis) override;
+    void handleAxisYChanged(QAbstract3DAxis *axis) override;
+    void handleAxisZChanged(QAbstract3DAxis *axis) override;
 
 Q_SIGNALS:
     void axisXChanged(QValue3DAxis *axis);
@@ -97,6 +97,6 @@ private:
     Surface3DController *m_surfaceController;
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

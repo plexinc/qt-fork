@@ -15,6 +15,7 @@
 #ifndef DAWNNATIVE_PASSRESOURCEUSAGE_H
 #define DAWNNATIVE_PASSRESOURCEUSAGE_H
 
+#include "dawn_native/SubresourceStorage.h"
 #include "dawn_native/dawn_platform.h"
 
 #include <set>
@@ -23,17 +24,24 @@
 namespace dawn_native {
 
     class BufferBase;
+    class QuerySetBase;
     class TextureBase;
+
+    enum class PassType { Render, Compute };
+
+    // The texture usage inside passes must be tracked per-subresource.
+    using PassTextureUsage = SubresourceStorage<wgpu::TextureUsage>;
 
     // Which resources are used by pass and how they are used. The command buffer validation
     // pre-computes this information so that backends with explicit barriers don't have to
     // re-compute it.
     struct PassResourceUsage {
+        PassType passType;
         std::vector<BufferBase*> buffers;
         std::vector<wgpu::BufferUsage> bufferUsages;
 
         std::vector<TextureBase*> textures;
-        std::vector<wgpu::TextureUsage> textureUsages;
+        std::vector<PassTextureUsage> textureUsages;
     };
 
     using PerPassUsages = std::vector<PassResourceUsage>;
@@ -42,6 +50,7 @@ namespace dawn_native {
         PerPassUsages perPass;
         std::set<BufferBase*> topLevelBuffers;
         std::set<TextureBase*> topLevelTextures;
+        std::set<QuerySetBase*> usedQuerySets;
     };
 
 }  // namespace dawn_native

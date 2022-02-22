@@ -68,36 +68,36 @@ bool XmlParser::parse()
     return true;
 }
 
-bool XmlParser::startElement(const QStringRef &namespaceURI, const QStringRef &localName,
-                             const QStringRef &qName, const QXmlStreamAttributes &atts)
+bool XmlParser::startElement(QStringView namespaceURI, QStringView localName,
+                             QStringView qName, const QXmlStreamAttributes &atts)
 {
-    Q_UNUSED(namespaceURI)
-    Q_UNUSED(localName)
-    Q_UNUSED(qName)
-    Q_UNUSED(atts)
+    Q_UNUSED(namespaceURI);
+    Q_UNUSED(localName);
+    Q_UNUSED(qName);
+    Q_UNUSED(atts);
     return true;
 }
 
-bool XmlParser::endElement(const QStringRef &namespaceURI, const QStringRef &localName,
-                           const QStringRef &qName)
+bool XmlParser::endElement(QStringView namespaceURI, QStringView localName,
+                           QStringView qName)
 {
-    Q_UNUSED(namespaceURI)
-    Q_UNUSED(localName)
-    Q_UNUSED(qName)
+    Q_UNUSED(namespaceURI);
+    Q_UNUSED(localName);
+    Q_UNUSED(qName);
     return true;
 }
 
-bool XmlParser::characters(const QStringRef &text)
+bool XmlParser::characters(QStringView text)
 {
-    Q_UNUSED(text)
+    Q_UNUSED(text);
     return true;
 }
 
 bool XmlParser::fatalError(qint64 line, qint64 column, const QString &message)
 {
-    Q_UNUSED(line)
-    Q_UNUSED(column)
-    Q_UNUSED(message)
+    Q_UNUSED(line);
+    Q_UNUSED(column);
+    Q_UNUSED(message);
     return true;
 }
 

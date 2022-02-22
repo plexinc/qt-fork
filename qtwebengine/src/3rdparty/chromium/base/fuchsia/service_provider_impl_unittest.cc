@@ -11,13 +11,12 @@
 
 #include "base/fuchsia/scoped_service_binding.h"
 #include "base/fuchsia/test_interface_impl.h"
-#include "base/fuchsia/testfidl/cpp/fidl.h"
 #include "base/run_loop.h"
 #include "base/test/task_environment.h"
+#include "base/testfidl/cpp/fidl.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace base {
-namespace fuchsia {
 
 class ServiceProviderImplTest : public testing::Test {
  public:
@@ -92,5 +91,4 @@ TEST_F(ServiceProviderImplTest, NoService) {
   VerifyTestInterface(&stub, ZX_ERR_PEER_CLOSED);
 }
 
-}  // namespace fuchsia
 }  // namespace base

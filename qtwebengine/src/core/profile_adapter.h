@@ -51,22 +51,25 @@
 #ifndef PROFILE_ADAPTER_H
 #define PROFILE_ADAPTER_H
 
-#include "qtwebenginecoreglobal_p.h"
+#include <QtWebEngineCore/private/qtwebenginecoreglobal_p.h>
 
 #include <QEnableSharedFromThis>
 #include <QList>
 #include <QPointer>
 #include <QScopedPointer>
 #include <QString>
-#include <QVector>
 
-#include "api/qwebengineclientcertificatestore.h"
-#include "api/qwebenginecookiestore.h"
-#include "api/qwebengineurlrequestinterceptor.h"
-#include "api/qwebengineurlschemehandler.h"
+#include <QtWebEngineCore/qwebengineclientcertificatestore.h>
+#include <QtWebEngineCore/qwebenginecookiestore.h>
+#include <QtWebEngineCore/qwebengineurlrequestinterceptor.h>
+#include <QtWebEngineCore/qwebengineurlschemehandler.h>
 #include "net/qrc_url_scheme_handler.h"
 
 QT_FORWARD_DECLARE_CLASS(QObject)
+
+namespace base {
+class CancelableTaskTracker;
+}
 
 namespace QtWebEngineCore {
 
@@ -202,9 +205,6 @@ public:
 
     void clearHttpCache();
 
-    void setUseForGlobalCertificateVerification(bool enable = true);
-    bool isUsedForGlobalCertificateVerification() const;
-
 #if QT_CONFIG(ssl)
     QWebEngineClientCertificateStore *clientCertificateStore();
 #endif
@@ -216,14 +216,20 @@ public:
 
     QString determineDownloadPath(const QString &downloadDirectory, const QString &suggestedFilename, const time_t &startTime);
 
+    void requestIconForPageURL(const QUrl &pageUrl, int desiredSizeInPixel, bool touchIconsEnabled,
+                               std::function<void (const QIcon &, const QUrl &, const QUrl &)> iconAvailableCallback);
+    void requestIconForIconURL(const QUrl &iconUrl, int desiredSizeInPixel, bool touchIconsEnabled,
+                               std::function<void (const QIcon &, const QUrl &)> iconAvailableCallback);
+    base::CancelableTaskTracker *cancelableTaskTracker() { return m_cancelableTaskTracker.get(); }
+
 private:
     void updateCustomUrlSchemeHandlers();
     void resetVisitedLinksManager();
     bool persistVisitedLinks() const;
+    void reinitializeHistoryService();
 
     QString m_name;
     bool m_offTheRecord;
-    bool m_usedForGlobalCertificateVerification = false;
     QScopedPointer<ProfileQt> m_profile;
     QScopedPointer<VisitedLinksManagerQt> m_visitedLinksManager;
     QScopedPointer<DownloadManagerDelegateQt> m_downloadManagerDelegate;
@@ -247,9 +253,10 @@ private:
     QHash<QByteArray, QSharedPointer<UserNotificationController>> m_persistentNotifications;
 
     QList<ProfileAdapterClient*> m_clients;
-    QVector<WebContentsAdapterClient *> m_webContentsAdapterClients;
+    QList<WebContentsAdapterClient *> m_webContentsAdapterClients;
     int m_httpCacheMaxSize;
     QrcUrlSchemeHandler m_qrcHandler;
+    std::unique_ptr<base::CancelableTaskTracker> m_cancelableTaskTracker;
 
     Q_DISABLE_COPY(ProfileAdapter)
 };

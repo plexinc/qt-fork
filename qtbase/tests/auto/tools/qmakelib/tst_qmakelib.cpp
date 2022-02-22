@@ -56,7 +56,7 @@ void tst_qmakelib::cleanupTestCase()
 
 void tst_qmakelib::proString()
 {
-    QString qs1(QStringLiteral("this is a string"));
+    QString qs1(QString::fromUtf8("this is a string"));
 
     ProString s1(qs1);
     QCOMPARE(s1.toQString(), QStringLiteral("this is a string"));
@@ -76,13 +76,12 @@ void tst_qmakelib::proString()
     QCOMPARE(ProString(qs2, 3, 13).trimmed().toQString(), QStringLiteral("spacy  string"));
     QCOMPARE(ProString(qs2, 1, 17).trimmed().toQString(), QStringLiteral("spacy  string"));
 
-    QVERIFY(s2.toQStringRef().string()->isSharedWith(qs1));
     s2.prepend(ProString("there "));
     QCOMPARE(s2.toQString(), QStringLiteral("there is a str"));
-    QVERIFY(!s2.toQStringRef().string()->isSharedWith(qs1));
 
     ProString s3("this is a longish string with bells and whistles");
     s3 = s3.mid(18, 17);
+    QCOMPARE(s3.toQString(), QStringLiteral("string with bells"));
     // Prepend to detached string with lots of spare space in it.
     s3.prepend(ProString("another "));
     QCOMPARE(s3.toQString(), QStringLiteral("another string with bells"));
@@ -129,7 +128,6 @@ void tst_qmakelib::proString()
     ProString s5;
     s5.append(sl2);
     QCOMPARE(s5.toQString(), QStringLiteral("foo"));
-    QVERIFY(s5.toQStringRef().string()->isSharedWith(*sl2.first().toQStringRef().string()));
 
     QCOMPARE(ProString("one") + ProString(" more"), QStringLiteral("one more"));
 }

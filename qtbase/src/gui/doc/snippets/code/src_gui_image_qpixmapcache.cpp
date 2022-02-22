@@ -47,19 +47,13 @@
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
+#include <QPainter>
+#include <QPixmap>
+#include <QPixmapCache>
 
-//! [0]
-QPixmap p;
-if (QPixmap *pp = QPixmapCache::find("my_big_image"))) {
-    p = *pp;
-} else {
-    p.load("bigimage.png");
-    QPixmapCache::insert("my_big_image", new QPixmap(p));
-}
-painter->drawPixmap(0, 0, p);
-//! [0]
+namespace src_gui_image_qpixmapcache {
 
-
+void wrapper0(QPainter *painter) {
 //! [1]
 QPixmap pm;
 if (!QPixmapCache::find("my_big_image", &pm)) {
@@ -68,3 +62,6 @@ if (!QPixmapCache::find("my_big_image", &pm)) {
 }
 painter->drawPixmap(0, 0, pm);
 //! [1]
+
+} // wrapper0
+} // src_gui_image_qpixmapcache

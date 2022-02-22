@@ -5,13 +5,10 @@
 #include "components/permissions/permissions_client.h"
 
 #include "base/callback.h"
-#include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/permissions/notification_permission_ui_selector.h"
 
-#if defined(OS_ANDROID)
-#include "base/android/jni_android.h"
-#include "components/permissions/android/jni_headers/PermissionsClient_jni.h"
-#else
+#if !defined(OS_ANDROID)
 #include "ui/gfx/paint_vector_icon.h"
 #endif
 
@@ -48,6 +45,14 @@ void PermissionsClient::AreSitesImportant(
     entry.second = false;
 }
 
+#if defined(OS_ANDROID) || BUILDFLAG(IS_CHROMEOS_ASH)
+bool PermissionsClient::IsCookieDeletionDisabled(
+    content::BrowserContext* browser_context,
+    const GURL& origin) {
+  return false;
+}
+#endif
+
 void PermissionsClient::GetUkmSourceId(content::BrowserContext* browser_context,
                                        const content::WebContents* web_contents,
                                        const GURL& requesting_origin,
@@ -55,8 +60,7 @@ void PermissionsClient::GetUkmSourceId(content::BrowserContext* browser_context,
   std::move(callback).Run(base::nullopt);
 }
 
-PermissionRequest::IconId PermissionsClient::GetOverrideIconId(
-    ContentSettingsType type) {
+IconId PermissionsClient::GetOverrideIconId(RequestType request_type) {
 #if defined(OS_ANDROID)
   return 0;
 #else
@@ -64,18 +68,33 @@ PermissionRequest::IconId PermissionsClient::GetOverrideIconId(
 #endif
 }
 
-std::unique_ptr<NotificationPermissionUiSelector>
-PermissionsClient::CreateNotificationPermissionUiSelector(
+std::vector<std::unique_ptr<NotificationPermissionUiSelector>>
+PermissionsClient::CreateNotificationPermissionUiSelectors(
     content::BrowserContext* browser_context) {
-  return nullptr;
+  return std::vector<std::unique_ptr<NotificationPermissionUiSelector>>();
 }
 
 void PermissionsClient::OnPromptResolved(
     content::BrowserContext* browser_context,
-    PermissionRequestType request_type,
-    PermissionAction action) {}
+    RequestType request_type,
+    PermissionAction action,
+    const GURL& origin,
+    base::Optional<QuietUiReason> quiet_ui_reason) {}
+
+base::Optional<bool>
+PermissionsClient::HadThreeConsecutiveNotificationPermissionDenies(
+    content::BrowserContext* browser_context) {
+  return base::nullopt;
+}
 
 base::Optional<url::Origin> PermissionsClient::GetAutoApprovalOrigin() {
+  return base::nullopt;
+}
+
+base::Optional<bool> PermissionsClient::HasPreviouslyAutoRevokedPermission(
+    content::BrowserContext* browser_context,
+    const GURL& origin,
+    ContentSettingsType permission) {
   return base::nullopt;
 }
 
@@ -118,8 +137,11 @@ infobars::InfoBar* PermissionsClient::MaybeCreateInfoBar(
   return nullptr;
 }
 
-base::android::ScopedJavaLocalRef<jobject> PermissionsClient::GetJavaObject() {
-  return Java_PermissionsClient_get(base::android::AttachCurrentThread());
+void PermissionsClient::RepromptForAndroidPermissions(
+    content::WebContents* web_contents,
+    const std::vector<ContentSettingsType>& content_settings_types,
+    PermissionsUpdatedCallback callback) {
+  std::move(callback).Run(false);
 }
 
 int PermissionsClient::MapToJavaDrawableId(int resource_id) {

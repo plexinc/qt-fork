@@ -40,7 +40,7 @@
 #include "qsgrhishadereffectnode_p.h"
 #include "qsgdefaultrendercontext_p.h"
 #include "qsgrhisupport_p.h"
-#include <qsgmaterialrhishader.h>
+#include <qsgmaterialshader.h>
 #include <qsgtextureprovider.h>
 #include <private/qsgplaintexture_p.h>
 #include <QtGui/private/qshaderdescription_p.h>
@@ -62,6 +62,7 @@ void QSGRhiShaderLinker::reset(const QShader &vs, const QShader &fs)
     m_constants.clear();
     m_samplers.clear();
     m_samplerNameMap.clear();
+    m_subRectBindings.clear();
 }
 
 void QSGRhiShaderLinker::feedConstants(const QSGShaderEffectNode::ShaderData &shader, const QSet<int> *dirtyIndices)
@@ -140,7 +141,9 @@ void QSGRhiShaderLinker::linkTextureSubRects()
                 const QByteArray name = c.value.toByteArray();
                 if (!m_samplerNameMap.contains(name))
                     qWarning("ShaderEffect: qt_SubRect_%s refers to unknown source texture", name.constData());
-                c.value = m_samplerNameMap[name];
+                const int binding = m_samplerNameMap[name];
+                c.value = binding;
+                m_subRectBindings.insert(binding);
             }
         }
     }
@@ -185,9 +188,9 @@ struct QSGRhiShaderMaterialTypeCache
     QHash<Key, QSGMaterialType *> m_types;
 };
 
-uint qHash(const QSGRhiShaderMaterialTypeCache::Key &key, uint seed = 0)
+size_t qHash(const QSGRhiShaderMaterialTypeCache::Key &key, size_t seed = 0)
 {
-    uint hash = seed;
+    size_t hash = seed;
     for (int i = 0; i < 2; ++i)
         hash = hash * 31337 + qHash(key.blob[i]);
     return hash;
@@ -206,7 +209,7 @@ QSGMaterialType *QSGRhiShaderMaterialTypeCache::get(const QShader &vs, const QSh
 
 static QSGRhiShaderMaterialTypeCache shaderMaterialTypeCache;
 
-class QSGRhiShaderEffectMaterialShader : public QSGMaterialRhiShader
+class QSGRhiShaderEffectMaterialShader : public QSGMaterialShader
 {
 public:
     QSGRhiShaderEffectMaterialShader(const QSGRhiShaderEffectMaterial *material);
@@ -393,8 +396,9 @@ void QSGRhiShaderEffectMaterialShader::updateSampledImage(RenderState &state, in
     QSGTextureProvider *tp = mat->m_textureProviders.at(binding);
     if (tp) {
         if (QSGTexture *t = tp->texture()) {
-            t->updateRhiTexture(state.rhi(), state.resourceUpdateBatch());
-            if (t->isAtlasTexture() && !mat->m_geometryUsesTextureSubRect) {
+            t->commitTextureOperations(state.rhi(), state.resourceUpdateBatch());
+
+            if (t->isAtlasTexture() && !mat->m_geometryUsesTextureSubRect && !mat->usesSubRectUniform(binding)) {
                 // Why the hassle with the batch: while removedFromAtlas() is
                 // able to operate with its own resource update batch (which is
                 // then committed immediately), that approach is wrong when the
@@ -402,11 +406,11 @@ void QSGRhiShaderEffectMaterialShader::updateSampledImage(RenderState &state, in
                 // committed operations to state.resourceUpdateBatch()... The
                 // only safe way then is to use the same batch the atlas'
                 // updateRhiTexture() used.
-                t->setWorkResourceUpdateBatch(state.resourceUpdateBatch());
-                QSGTexture *newTexture = t->removedFromAtlas();
-                t->setWorkResourceUpdateBatch(nullptr);
-                if (newTexture)
+                QSGTexture *newTexture = t->removedFromAtlas(state.resourceUpdateBatch());
+                if (newTexture) {
                     t = newTexture;
+                    t->commitTextureOperations(state.rhi(), state.resourceUpdateBatch());
+                }
             }
             *texture = t;
             return;
@@ -421,7 +425,7 @@ void QSGRhiShaderEffectMaterialShader::updateSampledImage(RenderState &state, in
         QImage img(128, 128, QImage::Format_ARGB32_Premultiplied);
         img.fill(0);
         mat->m_dummyTexture->setImage(img);
-        mat->m_dummyTexture->updateRhiTexture(state.rhi(), state.resourceUpdateBatch());
+        mat->m_dummyTexture->commitTextureOperations(state.rhi(), state.resourceUpdateBatch());
     }
     *texture = mat->m_dummyTexture;
 }
@@ -448,7 +452,7 @@ bool QSGRhiShaderEffectMaterialShader::updateGraphicsPipelineState(RenderState &
 QSGRhiShaderEffectMaterial::QSGRhiShaderEffectMaterial(QSGRhiShaderEffectNode *node)
     : m_node(node)
 {
-    setFlag(SupportsRhiShader | Blending | RequiresFullMatrix, true); // may be changed in syncMaterial()
+    setFlag(Blending | RequiresFullMatrix, true); // may be changed in syncMaterial()
 }
 
 QSGRhiShaderEffectMaterial::~QSGRhiShaderEffectMaterial()
@@ -492,8 +496,9 @@ int QSGRhiShaderEffectMaterial::compare(const QSGMaterial *other) const
             QSGTexture *t1 = tp1->texture();
             QSGTexture *t2 = tp2->texture();
             if (t1 && t2) {
-                if (int diff = t1->comparisonKey() - t2->comparisonKey())
-                    return diff;
+                const qint64 diff = t1->comparisonKey() - t2->comparisonKey();
+                if (diff != 0)
+                    return diff < 0 ? -1 : 1;
             } else {
                 if (!t1 && t2)
                     return -1;
@@ -516,9 +521,9 @@ QSGMaterialType *QSGRhiShaderEffectMaterial::type() const
     return m_materialType;
 }
 
-QSGMaterialShader *QSGRhiShaderEffectMaterial::createShader() const
+QSGMaterialShader *QSGRhiShaderEffectMaterial::createShader(QSGRendererInterface::RenderMode renderMode) const
 {
-    Q_ASSERT(flags().testFlag(RhiShaderWanted));
+    Q_UNUSED(renderMode);
     return new QSGRhiShaderEffectMaterialShader(this);
 }
 
@@ -570,10 +575,8 @@ void QSGRhiShaderEffectMaterial::updateTextureProviders(bool layoutChange)
     }
 }
 
-QSGRhiShaderEffectNode::QSGRhiShaderEffectNode(QSGDefaultRenderContext *rc, QSGRhiGuiThreadShaderEffectManager *mgr)
-    : QSGShaderEffectNode(mgr),
-      m_rc(rc),
-      m_mgr(mgr),
+QSGRhiShaderEffectNode::QSGRhiShaderEffectNode(QSGDefaultRenderContext *rc)
+    : m_rc(rc),
       m_material(this)
 {
     setFlag(UsePreprocess, true);
@@ -610,7 +613,7 @@ QRectF QSGRhiShaderEffectNode::updateNormalizedTextureSubRect(bool supportsAtlas
     return srcRect;
 }
 
-static QShader loadShader(const QString &filename)
+static QShader loadShaderFromFile(const QString &filename)
 {
     QFile f(filename);
     if (!f.open(QIODevice::ReadOnly)) {
@@ -641,7 +644,7 @@ void QSGRhiShaderEffectNode::syncMaterial(SyncData *syncData)
             m_material.m_vertexShader = syncData->vertex.shader->shaderInfo.rhiShader;
         } else {
             if (!defaultVertexShader.isValid())
-                defaultVertexShader = loadShader(QStringLiteral(":/qt-project.org/scenegraph/shaders_ng/shadereffect.vert.qsb"));
+                defaultVertexShader = loadShaderFromFile(QStringLiteral(":/qt-project.org/scenegraph/shaders_ng/shadereffect.vert.qsb"));
             m_material.m_vertexShader = defaultVertexShader;
         }
 
@@ -650,7 +653,7 @@ void QSGRhiShaderEffectNode::syncMaterial(SyncData *syncData)
             m_material.m_fragmentShader = syncData->fragment.shader->shaderInfo.rhiShader;
         } else {
             if (!defaultFragmentShader.isValid())
-                defaultFragmentShader = loadShader(QStringLiteral(":/qt-project.org/scenegraph/shaders_ng/shadereffect.frag.qsb"));
+                defaultFragmentShader = loadShaderFromFile(QStringLiteral(":/qt-project.org/scenegraph/shaders_ng/shadereffect.frag.qsb"));
             m_material.m_fragmentShader = defaultFragmentShader;
         }
 
@@ -751,7 +754,7 @@ void QSGRhiShaderEffectNode::syncMaterial(SyncData *syncData)
 void QSGRhiShaderEffectNode::handleTextureChange()
 {
     markDirty(QSGNode::DirtyMaterial);
-    emit m_mgr->textureChanged();
+    emit textureChanged();
 }
 
 void QSGRhiShaderEffectNode::handleTextureProviderDestroyed(QObject *object)
@@ -792,27 +795,22 @@ QSGGuiThreadShaderEffectManager::Status QSGRhiGuiThreadShaderEffectManager::stat
     return m_status;
 }
 
-void QSGRhiGuiThreadShaderEffectManager::prepareShaderCode(ShaderInfo::Type typeHint, const QByteArray &src, ShaderInfo *result)
+void QSGRhiGuiThreadShaderEffectManager::prepareShaderCode(ShaderInfo::Type typeHint, const QUrl &src, ShaderInfo *result)
 {
-    QUrl srcUrl(QString::fromUtf8(src));
-    if (!srcUrl.scheme().compare(QLatin1String("qrc"), Qt::CaseInsensitive) || srcUrl.isLocalFile()) {
+    if (!src.scheme().compare(QLatin1String("qrc"), Qt::CaseInsensitive) || src.isLocalFile()) {
         if (!m_fileSelector) {
             m_fileSelector = new QFileSelector(this);
             m_fileSelector->setExtraSelectors(QStringList() << QStringLiteral("qsb"));
         }
-        const QString fn = m_fileSelector->select(QQmlFile::urlToLocalFileOrQrc(srcUrl));
-        QFile f(fn);
-        if (!f.open(QIODevice::ReadOnly)) {
-            qWarning("ShaderEffect: Failed to read %s", qPrintable(fn));
-            m_status = Error;
-            emit shaderCodePrepared(false, typeHint, src, result);
-            emit logAndStatusChanged();
-            return;
-        }
-        const QShader s = QShader::fromSerialized(f.readAll());
-        f.close();
+        const QString fn = m_fileSelector->select(QQmlFile::urlToLocalFileOrQrc(src));
+        const QShader s = loadShaderFromFile(fn);
         if (!s.isValid()) {
-            qWarning("ShaderEffect: Failed to deserialize QShader from %s", qPrintable(fn));
+            qWarning("ShaderEffect: Failed to deserialize QShader from %s. "
+                     "Either the filename is incorrect, or it is not a valid .qsb file. "
+                     "In Qt 6 shaders must be preprocessed using the Qt Shader Tools infrastructure. "
+                     "The vertexShader and fragmentShader properties are now URLs that are expected to point to .qsb files generated by the qsb tool. "
+                     "See https://doc.qt.io/qt-6/qtshadertools-index.html for more information.",
+                     qPrintable(fn));
             m_status = Error;
             emit shaderCodePrepared(false, typeHint, src, result);
             emit logAndStatusChanged();
@@ -859,13 +857,14 @@ bool QSGRhiGuiThreadShaderEffectManager::reflect(ShaderInfo *result)
             for (const QShaderDescription::BlockVariable &member : ubuf.members) {
                 ShaderInfo::Variable v;
                 v.type = ShaderInfo::Constant;
-                v.name = member.name.toUtf8();
+                v.name = member.name;
                 v.offset = member.offset;
                 v.size = member.size;
                 result->variables.append(v);
             }
         } else {
-            qWarning("Uniform block %s (binding %d) ignored", qPrintable(ubuf.blockName), ubuf.binding);
+            qWarning("Uniform block %s (binding %d) ignored", ubuf.blockName.constData(),
+                     ubuf.binding);
         }
     }
 
@@ -875,7 +874,7 @@ bool QSGRhiGuiThreadShaderEffectManager::reflect(ShaderInfo *result)
         const QShaderDescription::InOutVariable &combinedImageSampler(combinedImageSamplers[i]);
         ShaderInfo::Variable v;
         v.type = ShaderInfo::Sampler;
-        v.name = combinedImageSampler.name.toUtf8();
+        v.name = combinedImageSampler.name;
         v.bindPoint = combinedImageSampler.binding;
         result->variables.append(v);
     }

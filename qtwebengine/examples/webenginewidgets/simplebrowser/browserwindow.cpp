@@ -55,7 +55,6 @@
 #include "webview.h"
 #include <QApplication>
 #include <QCloseEvent>
-#include <QDesktopWidget>
 #include <QEvent>
 #include <QFileDialog>
 #include <QInputDialog>
@@ -66,9 +65,7 @@
 #include <QStatusBar>
 #include <QToolBar>
 #include <QVBoxLayout>
-#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
 #include <QWebEngineFindTextResult>
-#endif
 #include <QWebEngineProfile>
 
 BrowserWindow::BrowserWindow(Browser *browser, QWebEngineProfile *profile, bool forDevTools)
@@ -132,9 +129,7 @@ BrowserWindow::BrowserWindow(Browser *browser, QWebEngineProfile *profile, bool 
         connect(m_urlLineEdit, &QLineEdit::returnPressed, [this]() {
             m_tabWidget->setUrl(QUrl::fromUserInput(m_urlLineEdit->text()));
         });
-#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
         connect(m_tabWidget, &TabWidget::findTextFinished, this, &BrowserWindow::handleFindTextFinished);
-#endif
 
         QAction *focusUrlLineEditAction = new QAction(this);
         addAction(focusUrlLineEditAction);
@@ -316,7 +311,7 @@ QMenu *BrowserWindow::createWindowMenu(TabWidget *tabWidget)
         menu->addAction(previousTabAction);
         menu->addSeparator();
 
-        QVector<BrowserWindow*> windows = m_browser->windows();
+        QList<BrowserWindow*> windows = m_browser->windows();
         int index(-1);
         for (auto window : windows) {
             QAction *action = menu->addAction(window->windowTitle(), this, &BrowserWindow::handleShowWindowTriggered);
@@ -346,7 +341,7 @@ QToolBar *BrowserWindow::createToolBar()
     QList<QKeySequence> backShortcuts = QKeySequence::keyBindings(QKeySequence::Back);
     for (auto it = backShortcuts.begin(); it != backShortcuts.end();) {
         // Chromium already handles navigate on backspace when appropriate.
-        if ((*it)[0] == Qt::Key_Backspace)
+        if ((*it)[0].key() == Qt::Key_Backspace)
             it = backShortcuts.erase(it);
         else
             ++it;
@@ -365,7 +360,7 @@ QToolBar *BrowserWindow::createToolBar()
     m_historyForwardAction = new QAction(this);
     QList<QKeySequence> fwdShortcuts = QKeySequence::keyBindings(QKeySequence::Forward);
     for (auto it = fwdShortcuts.begin(); it != fwdShortcuts.end();) {
-        if (((*it)[0] & Qt::Key_unknown) == Qt::Key_Backspace)
+        if (((*it)[0].key() & Qt::Key_unknown) == Qt::Key_Backspace)
             it = fwdShortcuts.erase(it);
         else
             ++it;
@@ -466,14 +461,7 @@ void BrowserWindow::handleFindActionTriggered()
                                            m_lastSearch, &ok);
     if (ok && !search.isEmpty()) {
         m_lastSearch = search;
-#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
         currentTab()->findText(m_lastSearch);
-#else
-        currentTab()->findText(m_lastSearch, 0, [this](bool found) {
-            if (!found)
-                statusBar()->showMessage(tr("\"%1\" not found.").arg(m_lastSearch));
-        });
-#endif
     }
 }
 
@@ -525,7 +513,7 @@ void BrowserWindow::handleShowWindowTriggered()
 {
     if (QAction *action = qobject_cast<QAction*>(sender())) {
         int offset = action->data().toInt();
-        QVector<BrowserWindow*> windows = m_browser->windows();
+        QList<BrowserWindow*> windows = m_browser->windows();
         windows.at(offset)->activateWindow();
         windows.at(offset)->currentTab()->setFocus();
     }
@@ -537,7 +525,6 @@ void BrowserWindow::handleDevToolsRequested(QWebEnginePage *source)
     source->triggerAction(QWebEnginePage::InspectElement);
 }
 
-#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
 void BrowserWindow::handleFindTextFinished(const QWebEngineFindTextResult &result)
 {
     if (result.numberOfMatches() == 0) {
@@ -548,4 +535,3 @@ void BrowserWindow::handleFindTextFinished(const QWebEngineFindTextResult &resul
                                                                QString::number(result.numberOfMatches())));
     }
 }
-#endif

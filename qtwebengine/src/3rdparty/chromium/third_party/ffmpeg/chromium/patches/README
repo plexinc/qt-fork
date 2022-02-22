@@ -720,25 +720,6 @@ Affects:
     libavutil/avsscanf.c
 
 ------------------------------------------------------------------
-commit 7262141e8c14462f47e79ed6ba457321dea9cc5d
-Author: Dale Curtis <dalecurtis@chromium.org>
-Date:   Thu Feb 28 13:51:30 2019 -0800
-
-    Don't trigger errors for multiple id3 tags.
-
-    Such errors may make sense for specific formats, but general parsing
-    logic shouldn't be treating these as errors regardless of the error
-    recognition mode.
-
-    Fixes loading of the following wave when using -err_detect explode:
-    https://cs.chromium.org/chromium/src/third_party/blink/web_tests/external/wpt/webaudio/resources/4ch-440.wav
-
-    Signed-off-by: Dale Curtis <dalecurtis@chromium.org>
-
-Affects:
-    libavformat/utils.c
-
-------------------------------------------------------------------
 commit b62555c76193045c2e3643c626e8e8d7a8f4b93f
 Author: liberato@chromium.org <liberato@chromium.org>
 Date:   Mon Mar 4 14:01:22 2019 -0800
@@ -856,11 +837,108 @@ Affects:
     libavutil/log.h
 
 ------------------------------------------------------------------
-Basically reapplying commit 7262141e8c14462f47e79ed6ba457321dea9cc5d
+commit 587a3f48499df05d3c65f1529fd08b0783217b39
+Author: Dale Curtis <dalecurtis@chromium.org>
+Date:   Tue Apr 28 16:40:05 2020 -0700
 
-    Don't trigger errors for multiple id3 tags.
-    Fixes loading of the following wave when using -err_detect explode:
-    https://cs.chromium.org/chromium/src/third_party/blink/web_tests/external/wpt/webaudio/resources/4ch-440.wav
+    Updated ffmpeg for M84.
+
+    - README.chromium file
+    - Chromium patches file
+    - GN Configuration
+    - Fix mismerge in MIPS code.
+
+    Bug: 1061648
+
+    Change-Id: I7f91b326e87d1ab17dcf93356e8c0888b30ab967
+    Reviewed-on: https://chromium-review.googlesource.com/c/chromium/third_party/ffmpeg/+/2171422
+    Reviewed-by: John Rummell <jrummell@chromium.org>
 
 Affects:
-    libavformat/utils.c
+    libavcodec/mips/aacdec_mips.c
+
+------------------------------------------------------------------
+commit a3009baf841ca86aab37210dbec5e6d65b85d197
+Author: Nico Weber <thakis@chromium.org>
+Date:   Fri Jul 10 11:21:38 2020 -0400
+
+    Make sure arm assembly functions have hidden visibility.
+
+    This is the ARM port of 58315b1a02fa9761d0.
+
+    Bug: chromium:1103879
+    Change-Id: I470e62d7e49d547c4d12428f748e0d524fd3cdd8
+    Reviewed-on: https://chromium-review.googlesource.com/c/chromium/third_party/ffmpeg/+/2290844
+    Reviewed-by: Dale Curtis <dalecurtis@chromium.org>
+
+Affects:
+    libavutil/aarch64/asm.S
+
+------------------------------------------------------------------
+commit d2dd36c03501e995e8ce2d792d834392b2e62bfe
+Author: Nico Weber <thakis@chromium.org>
+Date:   Fri Jul 10 14:23:02 2020 -0400
+
+    Use correct comment syntax for arm assembly.
+
+    Apparently clang accepts ';' as comment character in arm64
+    assembly when targeting macOS, but not when targeting Android.
+
+    Bug: chromium:1103879
+    Change-Id: I23d1e6facbe3eddd25e58762de096fb9c1ffda15
+    Reviewed-on: https://chromium-review.googlesource.com/c/chromium/third_party/ffmpeg/+/2292785
+    Reviewed-by: Dale Curtis <dalecurtis@chromium.org>
+
+Affects:
+    libavutil/aarch64/asm.S
+
+------------------------------------------------------------------
+commit 45b753b2d1d27b673a14419070ccc9558774efc2
+Author: Dan Sanders <sandersd@chromium.org>
+Date:   Mon Aug 17 15:55:19 2020 -0700
+
+    Always use av_realloc() for ogg_stream |buf|.
+
+    Mixing av_malloc() with av_realloc() does not work when posix_memalign()
+    is available.
+
+    Bug: 721872
+    Change-Id: I3d6a9dc6a638ff210c5f32a99beff26f11d65b33
+    Reviewed-on: https://chromium-review.googlesource.com/c/chromium/third_party/ffmpeg/+/2358822
+    Reviewed-by: John Rummell <jrummell@chromium.org>
+
+Affects:
+    libavformat/oggdec.c
+
+------------------------------------------------------------------
+commit 0ef84f22f26645569fdaf886258c018fd0738f95
+Author: Will Cassella <cassew@google.com>
+Date:   Fri Oct 2 16:39:15 2020 -0700
+
+    Roll FFMPEG 2-10-20
+
+    git diff origin/master configure | grep '\+.*\[autodetect\]':
+    (empty)
+
+    Change-Id: Id9d6f0b2dfe1cee6f178dc07df943048e6eb3f08
+    Reviewed-on: https://chromium-review.googlesource.com/c/chromium/third_party/ffmpeg/+/2447032
+    Reviewed-by: Xiaohan Wang <xhwang@chromium.org>
+
+Affects:
+    libavcodec/fraps.c
+    libavcodec/smacker.c
+
+------------------------------------------------------------------
+commit 2e5e8668e9e636c5bebbb2bb68b751133830af7f
+Merge: a54c8b6b9e adf72718a4
+Author: Eugene Zemtsov <eugene@chromium.org>
+Date:   Fri Dec 11 14:28:26 2020 -0800
+
+    Merge remote-tracking branch 'upstream/master' into sushi-2020-12-11-14-24-46
+
+    Conflicts:
+       libavformat/mp3dec.c - change in the code that was commented out
+
+Affects:
+    libavformat/mp3dec.c
+

@@ -49,7 +49,7 @@ QT_BEGIN_NAMESPACE
 class QGraphicsItem;
 QT_END_NAMESPACE
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 class QPieSlice;
 class ChartPresenter;
 class PieAnimation;
@@ -63,32 +63,32 @@ public:
     ~PieChartItem();
 
     // from QGraphicsItem
-    QRectF boundingRect() const { return m_rect; }
-    void paint(QPainter *, const QStyleOptionGraphicsItem *, QWidget *) {}
+    QRectF boundingRect() const override { return m_rect; }
+    void paint(QPainter *, const QStyleOptionGraphicsItem *, QWidget *) override {}
 
 protected:
-    void hoverEnterEvent(QGraphicsSceneHoverEvent *event);
-    void hoverLeaveEvent(QGraphicsSceneHoverEvent *event);
-    void mousePressEvent(QGraphicsSceneMouseEvent *event);
-    void mouseReleaseEvent(QGraphicsSceneMouseEvent *event);
-    void mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event);
+    void hoverEnterEvent(QGraphicsSceneHoverEvent *event) override;
+    void hoverLeaveEvent(QGraphicsSceneHoverEvent *event) override;
+    void mousePressEvent(QGraphicsSceneMouseEvent *event) override;
+    void mouseReleaseEvent(QGraphicsSceneMouseEvent *event) override;
+    void mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) override;
 
 public Q_SLOTS:
     // from Chart
-    virtual void handleDomainUpdated();
+    void handleDomainUpdated() override;
 
     void updateLayout();
-    void handleSlicesAdded(QList<QPieSlice *> slices);
-    void handleSlicesRemoved(QList<QPieSlice *> slices);
+    void handleSlicesAdded(const QList<QPieSlice *> &slices);
+    void handleSlicesRemoved(const QList<QPieSlice *> &slices);
     void handleSliceChanged();
     void handleSeriesVisibleChanged();
     void handleOpacityChanged();
 
     void setAnimation(PieAnimation *animation);
-    ChartAnimation *animation() const;
+    ChartAnimation *animation() const override;
 
     // From ChartItem
-    void cleanup();
+    void cleanup() override;
 private:
     PieSliceData updateSliceGeometry(QPieSlice *slice);
 
@@ -103,6 +103,6 @@ private:
 
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // PIECHARTITEM_H

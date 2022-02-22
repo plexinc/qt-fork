@@ -10,6 +10,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/optional.h"
 #include "content/common/content_export.h"
+#include "device/fido/public_key_credential_descriptor.h"
 #include "third_party/blink/public/mojom/webauthn/authenticator.mojom.h"
 
 namespace url {
@@ -20,18 +21,6 @@ namespace content {
 
 class RenderFrameHost;
 
-// The following enums correspond to UMA histograms and should not be
-// reassigned.
-enum class RelyingPartySecurityCheckFailure {
-  kOpaqueOrNonSecureOrigin = 0,
-  kRelyingPartyIdInvalid = 1,
-  kAppIdExtensionInvalid = 2,
-  kAppIdExtensionDomainMismatch = 3,
-  kIconUrlInvalid = 4,
-  kCrossOriginMismatch = 5,
-  kMaxValue = kCrossOriginMismatch,
-};
-
 // A centralized class for enforcing security policies that apply to
 // Web Authentication requests to create credentials or get authentication
 // assertions. For security reasons it is important that these checks are
@@ -41,24 +30,30 @@ enum class RelyingPartySecurityCheckFailure {
 class CONTENT_EXPORT WebAuthRequestSecurityChecker
     : public base::RefCounted<WebAuthRequestSecurityChecker> {
  public:
+  enum class RequestType {
+    kMakeCredential,
+    kMakePaymentCredential,
+    kGetAssertion
+  };
+
   explicit WebAuthRequestSecurityChecker(RenderFrameHost* host);
   WebAuthRequestSecurityChecker(const WebAuthRequestSecurityChecker&) = delete;
 
   WebAuthRequestSecurityChecker& operator=(
       const WebAuthRequestSecurityChecker&) = delete;
 
-  static void ReportSecurityCheckFailure(
-      RelyingPartySecurityCheckFailure error);
   static bool OriginIsCryptoTokenExtension(const url::Origin& origin);
 
   // Returns blink::mojom::AuthenticatorStatus::SUCCESS if |origin| is
   // same-origin with all ancestors in the frame tree, or else if
-  // requests from cross-origin embeddings are allowed by policy.
+  // requests from cross-origin embeddings are allowed by policy and the
+  // RequestType is |kGetAssertion| or |kMakePaymentCredential|.
   // Returns blink::mojom::AuthenticatorStatus::NOT_ALLOWED_ERROR otherwise.
   // |is_cross_origin| is an output parameter that is set to true if there is
   // a cross-origin embedding, regardless of policy, and false otherwise.
   blink::mojom::AuthenticatorStatus ValidateAncestorOrigins(
       const url::Origin& origin,
+      RequestType type,
       bool* is_cross_origin);
 
   // Returns AuthenticatorStatus::SUCCESS if the origin domain is valid under
@@ -76,6 +71,10 @@ class CONTENT_EXPORT WebAuthRequestSecurityChecker
   // https://w3c.github.io/webappsec-credential-management/#dom-credentialuserdata-iconurl
   blink::mojom::AuthenticatorStatus ValidateAPrioriAuthenticatedUrl(
       const GURL& url);
+
+  bool DeduplicateCredentialDescriptorListAndValidateLength(
+      std::vector<device::PublicKeyCredentialDescriptor>* list)
+      WARN_UNUSED_RESULT;
 
  protected:
   friend class base::RefCounted<WebAuthRequestSecurityChecker>;

@@ -37,7 +37,6 @@
 #include <Qt3DRender/qcamera.h>
 #include <Qt3DRender/private/shaderdata_p.h>
 #include <Qt3DRender/private/qrenderaspect_p.h>
-#include <Qt3DCore/private/qnodecreatedchangegenerator_p.h>
 #include <Qt3DCore/private/qnodevisitor_p.h>
 #include "qmlscenereader.h"
 
@@ -45,11 +44,11 @@ QT_BEGIN_NAMESPACE
 
 namespace Qt3DRender {
 
-QVector<Qt3DCore::QNode *> getNodesForCreation(Qt3DCore::QNode *root)
+QList<Qt3DCore::QNode *> getNodesForCreation(Qt3DCore::QNode *root)
 {
     using namespace Qt3DCore;
 
-    QVector<QNode *> nodes;
+    QList<QNode *> nodes;
     Qt3DCore::QNodeVisitor visitor;
     visitor.traverse(root, [&nodes](QNode *node) {
         nodes.append(node);
@@ -69,9 +68,9 @@ QVector<Qt3DCore::QNode *> getNodesForCreation(Qt3DCore::QNode *root)
     return nodes;
 }
 
-QVector<Qt3DCore::NodeTreeChange> nodeTreeChangesForNodes(const QVector<Qt3DCore::QNode *> nodes)
+QList<Qt3DCore::NodeTreeChange> nodeTreeChangesForNodes(const QList<Qt3DCore::QNode *> nodes)
 {
-    QVector<Qt3DCore::NodeTreeChange> nodeTreeChanges;
+    QList<Qt3DCore::NodeTreeChange> nodeTreeChanges;
     nodeTreeChanges.reserve(nodes.size());
 
     for (Qt3DCore::QNode *n : nodes) {
@@ -90,12 +89,12 @@ class TestAspect : public Qt3DRender::QRenderAspect
 {
 public:
     TestAspect(Qt3DCore::QNode *root)
-        : Qt3DRender::QRenderAspect(Qt3DRender::QRenderAspect::Synchronous)
+        : Qt3DRender::QRenderAspect()
         , m_sceneRoot(nullptr)
     {
         Qt3DRender::QRenderAspect::onRegistered();
 
-        const QVector<Qt3DCore::QNode *> nodes = getNodesForCreation(root);
+        const QList<Qt3DCore::QNode *> nodes = getNodesForCreation(root);
         d_func()->setRootAndCreateNodes(qobject_cast<Qt3DCore::QEntity *>(root), nodeTreeChangesForNodes(nodes));
 
         Qt3DRender::Render::Entity *rootEntity = nodeManagers()->lookupResource<Qt3DRender::Render::Entity, Render::EntityManager>(rootEntityId());
@@ -108,8 +107,8 @@ public:
         QRenderAspect::onUnregistered();
     }
 
-    void onRegistered() { Qt3DRender::QRenderAspect::onRegistered(); }
-    void onUnregistered() { Qt3DRender::QRenderAspect::onUnregistered(); }
+    void onRegistered() override { Qt3DRender::QRenderAspect::onRegistered(); }
+    void onUnregistered() override { Qt3DRender::QRenderAspect::onUnregistered(); }
 
     Qt3DRender::Render::NodeManagers *nodeManagers() const { return d_func()->m_renderer->nodeManagers(); }
     Qt3DRender::Render::FrameGraphNode *frameGraphRoot() const { return d_func()->m_renderer->frameGraphRoot(); }
@@ -140,7 +139,7 @@ struct NodeCollection
         : shaderData(frontendRoot->findChildren<Qt3DRender::QShaderData *>())
     {
         // THEN
-        QCOMPARE(aspect->nodeManagers()->shaderDataManager()->activeHandles().size(), shaderData.size());
+        QCOMPARE(aspect->nodeManagers()->shaderDataManager()->activeHandles().size(), size_t(shaderData.size()));
 
         for (const Qt3DRender::QShaderData *s : qAsConst(shaderData)) {
             Qt3DRender::Render::ShaderData *backend = aspect->nodeManagers()->shaderDataManager()->lookupResource(s->id());
@@ -150,7 +149,7 @@ struct NodeCollection
     }
 
     QList<Qt3DRender::QShaderData *> shaderData;
-    QVector<Qt3DRender::Render::ShaderData *> backendShaderData;
+    QList<Qt3DRender::Render::ShaderData *> backendShaderData;
 };
 
 } // anonymous
@@ -204,14 +203,15 @@ private Q_SLOTS:
 
         // WHEN
         Qt3DRender::Render::ShaderData *backendShaderData = collection.backendShaderData.first();
+        const QHash<QString, Qt3DRender::Render::ShaderData::PropertyValue> &props = backendShaderData->properties();
 
         // THEN
-        QCOMPARE(backendShaderData->properties().size(), 3);
-        QVERIFY(backendShaderData->properties().contains(QStringLiteral("eyePosition")));
-        QVERIFY(backendShaderData->properties().contains(QStringLiteral("eyePositionTransformed")));
+        QCOMPARE(props.size(), 2);
+        QVERIFY(props.contains(QStringLiteral("eyePosition")));
+        QVERIFY(props.contains(QStringLiteral("eyePositionTransformed")));
 
-        QCOMPARE(backendShaderData->properties()[QStringLiteral("eyePosition")].value.value<QVector3D>(), QVector3D(1.0f, 1.0f, 1.0f));
-        QCOMPARE(backendShaderData->properties()[QStringLiteral("eyePositionTransformed")].value.toInt(), int(Qt3DRender::Render::ShaderData::ModelToEye));
+        QCOMPARE(props[QStringLiteral("eyePosition")].value.value<QVector3D>(), QVector3D(1.0f, 1.0f, 1.0f));
+        QCOMPARE(props[QStringLiteral("eyePositionTransformed")].value.toInt(), int(Qt3DRender::Render::ShaderData::ModelToEye));
 
         // WHEN
         Qt3DRender::Render::UpdateShaderDataTransformJob backendUpdateShaderDataTransformJob;
@@ -220,7 +220,8 @@ private Q_SLOTS:
 
         // THEN
         // See scene file to find translation
-        QCOMPARE(backendShaderData->getTransformedProperty(QStringLiteral("eyePosition"), Matrix4x4(camera->viewMatrix())).value<Vector3D>(),
+        const Qt3DRender::Render::ShaderData::PropertyValue propertyValue = props[QStringLiteral("eyePosition")];
+        QCOMPARE(backendShaderData->getTransformedProperty(&propertyValue, Matrix4x4(camera->viewMatrix())).value<Vector3D>(),
                  Matrix4x4(camera->viewMatrix()) * (Vector3D(1.0f, 1.0f, 1.0f) + Vector3D(0.0f, 5.0f, 0.0f)));
     }
 
@@ -245,14 +246,15 @@ private Q_SLOTS:
 
         // WHEN
         Qt3DRender::Render::ShaderData *backendShaderData = collection.backendShaderData.first();
+        const QHash<QString, Qt3DRender::Render::ShaderData::PropertyValue> &props = backendShaderData->properties();
 
         // THEN
-        QCOMPARE(backendShaderData->properties().size(), 3);
-        QVERIFY(backendShaderData->properties().contains(QStringLiteral("position")));
-        QVERIFY(backendShaderData->properties().contains(QStringLiteral("positionTransformed")));
+        QCOMPARE(props.size(), 2);
+        QVERIFY(props.contains(QStringLiteral("position")));
+        QVERIFY(props.contains(QStringLiteral("positionTransformed")));
 
-        QCOMPARE(backendShaderData->properties()[QStringLiteral("position")].value.value<QVector3D>(), QVector3D(1.0f, 1.0f, 1.0f));
-        QCOMPARE(backendShaderData->properties()[QStringLiteral("positionTransformed")].value.toInt(), int(Qt3DRender::Render::ShaderData::ModelToWorld));
+        QCOMPARE(props[QStringLiteral("position")].value.value<QVector3D>(), QVector3D(1.0f, 1.0f, 1.0f));
+        QCOMPARE(props[QStringLiteral("positionTransformed")].value.toInt(), int(Qt3DRender::Render::ShaderData::ModelToWorld));
 
         // WHEN
         Qt3DRender::Render::UpdateShaderDataTransformJob backendUpdateShaderDataTransformJob;
@@ -261,7 +263,8 @@ private Q_SLOTS:
 
         // THEN
         // See scene file to find translation
-        QCOMPARE(backendShaderData->getTransformedProperty(QStringLiteral("position"), Matrix4x4(camera->viewMatrix())).value<Vector3D>(),
+        const Qt3DRender::Render::ShaderData::PropertyValue propertyValue = props[QStringLiteral("position")];
+        QCOMPARE(backendShaderData->getTransformedProperty(&propertyValue, Matrix4x4(camera->viewMatrix())).value<Vector3D>(),
                  Vector3D(1.0f, 1.0f, 1.0f) + Vector3D(5.0f, 5.0f, 5.0f));
     }
 };

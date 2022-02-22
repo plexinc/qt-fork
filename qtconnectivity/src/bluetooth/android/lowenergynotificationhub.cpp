@@ -39,10 +39,11 @@
 
 #include "lowenergynotificationhub_p.h"
 
+#include <QCoreApplication>
 #include <QtCore/QHash>
 #include <QtCore/QLoggingCategory>
 #include <QtCore/QRandomGenerator>
-#include <QtAndroidExtras/QAndroidJniEnvironment>
+#include <QtCore/QJniEnvironment>
 
 QT_BEGIN_NAMESPACE
 
@@ -57,28 +58,23 @@ LowEnergyNotificationHub::LowEnergyNotificationHub(const QBluetoothAddress &remo
                                                    bool isPeripheral, QObject *parent)
     :   QObject(parent), javaToCtoken(0)
 {
-    QAndroidJniEnvironment env;
+    QJniEnvironment env;
 
     if (isPeripheral) {
         qCDebug(QT_BT_ANDROID) << "Creating Android Peripheral/Server support for BTLE";
-        jBluetoothLe = QAndroidJniObject("org/qtproject/qt5/android/bluetooth/QtBluetoothLEServer",
-                                         "(Landroid/content/Context;)V", QtAndroidPrivate::context());
+        jBluetoothLe = QJniObject("org/qtproject/qt/android/bluetooth/QtBluetoothLEServer",
+                                         "(Landroid/content/Context;)V", QNativeInterface::QAndroidApplication::context());
     } else {
         qCDebug(QT_BT_ANDROID) << "Creating Android Central/Client support for BTLE";
-        const QAndroidJniObject address =
-            QAndroidJniObject::fromString(remote.toString());
-        jBluetoothLe = QAndroidJniObject("org/qtproject/qt5/android/bluetooth/QtBluetoothLE",
+        const QJniObject address =
+            QJniObject::fromString(remote.toString());
+        jBluetoothLe = QJniObject("org/qtproject/qt/android/bluetooth/QtBluetoothLE",
                                      "(Ljava/lang/String;Landroid/content/Context;)V",
                                      address.object<jstring>(),
-                                     QtAndroidPrivate::context());
+                                     QNativeInterface::QAndroidApplication::context());
     }
 
-    if (env->ExceptionCheck() || !jBluetoothLe.isValid()) {
-        env->ExceptionDescribe();
-        env->ExceptionClear();
-        jBluetoothLe = QAndroidJniObject();
-        return;
-    }
+    if (!jBluetoothLe.isValid()) return;
 
     // register C++ class pointer in Java
     lock.lockForWrite();
@@ -118,6 +114,18 @@ void LowEnergyNotificationHub::lowEnergy_connectionChange(JNIEnv *, jobject, jlo
                                     (QLowEnergyController::Error)errorCode));
 }
 
+void LowEnergyNotificationHub::lowEnergy_mtuChanged(
+        JNIEnv *, jobject, jlong qtObject, jint mtu)
+{
+    lock.lockForRead();
+    LowEnergyNotificationHub *hub = hubMap()->value(qtObject);
+    lock.unlock();
+    if (!hub)
+        return;
+
+    QMetaObject::invokeMethod(hub, "mtuChanged", Qt::QueuedConnection, Q_ARG(int, mtu));
+}
+
 void LowEnergyNotificationHub::lowEnergy_servicesDiscovered(
         JNIEnv *, jobject, jlong qtObject, jint errorCode, jobject uuidList)
 {
@@ -127,7 +135,7 @@ void LowEnergyNotificationHub::lowEnergy_servicesDiscovered(
     if (!hub)
         return;
 
-    const QString uuids = QAndroidJniObject(uuidList).toString();
+    const QString uuids = QJniObject(uuidList).toString();
     QMetaObject::invokeMethod(hub, "servicesDiscovered", Qt::QueuedConnection,
                               Q_ARG(QLowEnergyController::Error,
                                     (QLowEnergyController::Error)errorCode),
@@ -144,7 +152,7 @@ void LowEnergyNotificationHub::lowEnergy_serviceDetailsDiscovered(
     if (!hub)
         return;
 
-    const QString serviceUuid = QAndroidJniObject(uuid).toString();
+    const QString serviceUuid = QJniObject(uuid).toString();
     QMetaObject::invokeMethod(hub, "serviceDetailsDiscoveryFinished",
                               Qt::QueuedConnection,
                               Q_ARG(QString, serviceUuid),
@@ -162,11 +170,11 @@ void LowEnergyNotificationHub::lowEnergy_characteristicRead(
     if (!hub)
         return;
 
-    const QBluetoothUuid serviceUuid(QAndroidJniObject(sUuid).toString());
+    const QBluetoothUuid serviceUuid(QJniObject(sUuid).toString());
     if (serviceUuid.isNull())
         return;
 
-    const QBluetoothUuid charUuid(QAndroidJniObject(cUuid).toString());
+    const QBluetoothUuid charUuid(QJniObject(cUuid).toString());
     if (charUuid.isNull())
         return;
 
@@ -197,12 +205,12 @@ void LowEnergyNotificationHub::lowEnergy_descriptorRead(
     if (!hub)
         return;
 
-    const QBluetoothUuid serviceUuid(QAndroidJniObject(sUuid).toString());
+    const QBluetoothUuid serviceUuid(QJniObject(sUuid).toString());
     if (serviceUuid.isNull())
         return;
 
-    const QBluetoothUuid charUuid(QAndroidJniObject(cUuid).toString());
-    const QBluetoothUuid descUuid(QAndroidJniObject(dUuid).toString());
+    const QBluetoothUuid charUuid(QJniObject(cUuid).toString());
+    const QBluetoothUuid descUuid(QJniObject(dUuid).toString());
     if (charUuid.isNull() || descUuid.isNull())
         return;
 
@@ -290,7 +298,7 @@ void LowEnergyNotificationHub::lowEnergy_serverDescriptorWritten(
     }
 
     QMetaObject::invokeMethod(hub, "serverDescriptorWritten", Qt::QueuedConnection,
-                              Q_ARG(QAndroidJniObject, descriptor),
+                              Q_ARG(QJniObject, descriptor),
                               Q_ARG(QByteArray, payload));
 }
 
@@ -333,7 +341,7 @@ void LowEnergyNotificationHub::lowEnergy_serverCharacteristicChanged(
     }
 
     QMetaObject::invokeMethod(hub, "serverCharacteristicChanged", Qt::QueuedConnection,
-                              Q_ARG(QAndroidJniObject, characteristic),
+                              Q_ARG(QJniObject, characteristic),
                               Q_ARG(QByteArray, payload));
 }
 

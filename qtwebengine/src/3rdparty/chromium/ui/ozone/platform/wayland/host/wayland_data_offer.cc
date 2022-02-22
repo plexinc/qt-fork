@@ -4,12 +4,8 @@
 
 #include "ui/ozone/platform/wayland/host/wayland_data_offer.h"
 
-#include <fcntl.h>
-#include <algorithm>
-
+#include "base/check.h"
 #include "base/files/file_util.h"
-#include "base/logging.h"
-#include "base/stl_util.h"
 #include "ui/base/clipboard/clipboard_constants.h"
 
 namespace ui {
@@ -26,14 +22,6 @@ WaylandDataOffer::WaylandDataOffer(wl_data_offer* data_offer)
 
 WaylandDataOffer::~WaylandDataOffer() {
   data_offer_.reset();
-}
-
-void WaylandDataOffer::SetAction(uint32_t dnd_actions,
-                                 uint32_t preferred_action) {
-  if (wl_data_offer_get_version(data_offer_.get()) >=
-      WL_DATA_OFFER_SET_ACTIONS_SINCE_VERSION) {
-    wl_data_offer_set_actions(data_offer_.get(), dnd_actions, preferred_action);
-  }
 }
 
 void WaylandDataOffer::Accept(uint32_t serial, const std::string& mime_type) {
@@ -66,17 +54,27 @@ base::ScopedFD WaylandDataOffer::Receive(const std::string& mime_type) {
 }
 
 void WaylandDataOffer::FinishOffer() {
-  if (wl_data_offer_get_version(data_offer_.get()) >=
-      WL_DATA_OFFER_FINISH_SINCE_VERSION)
+  if (wl::get_version_of_object(data_offer_.get()) >=
+      WL_DATA_OFFER_FINISH_SINCE_VERSION) {
     wl_data_offer_finish(data_offer_.get());
+  }
 }
 
-uint32_t WaylandDataOffer::source_actions() const {
-  return source_actions_;
-}
+void WaylandDataOffer::SetActions(uint32_t dnd_actions) {
+  if (wl::get_version_of_object(data_offer_.get()) <
+      WL_DATA_OFFER_SET_ACTIONS_SINCE_VERSION) {
+    return;
+  }
 
-uint32_t WaylandDataOffer::dnd_action() const {
-  return dnd_action_;
+  // Determine preferred action based on the given |dnd_actions|, prioritizing
+  // "copy" over "move", if both are set.
+  uint32_t preferred_action = WL_DATA_DEVICE_MANAGER_DND_ACTION_NONE;
+  if (dnd_actions & WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY)
+    preferred_action = WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY;
+  else if (dnd_actions & WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE)
+    preferred_action = WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE;
+
+  wl_data_offer_set_actions(data_offer_.get(), dnd_actions, preferred_action);
 }
 
 // static

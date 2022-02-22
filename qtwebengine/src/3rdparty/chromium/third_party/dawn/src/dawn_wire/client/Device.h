@@ -17,28 +17,57 @@
 
 #include <dawn/webgpu.h>
 
+#include "common/LinkedList.h"
+#include "dawn_wire/WireCmd_autogen.h"
+#include "dawn_wire/client/ApiObjects_autogen.h"
 #include "dawn_wire/client/ObjectBase.h"
 
 #include <map>
+#include <memory>
 
 namespace dawn_wire { namespace client {
 
     class Client;
+    class Queue;
 
-    class Device : public ObjectBase {
+    class Device final : public ObjectBase {
       public:
         Device(Client* client, uint32_t refcount, uint32_t id);
         ~Device();
 
-        Client* GetClient();
-        void HandleError(WGPUErrorType errorType, const char* message);
-        void HandleDeviceLost(const char* message);
         void SetUncapturedErrorCallback(WGPUErrorCallback errorCallback, void* errorUserdata);
         void SetDeviceLostCallback(WGPUDeviceLostCallback errorCallback, void* errorUserdata);
-
+        void InjectError(WGPUErrorType type, const char* message);
         void PushErrorScope(WGPUErrorFilter filter);
-        bool RequestPopErrorScope(WGPUErrorCallback callback, void* userdata);
-        bool PopErrorScope(uint64_t requestSerial, WGPUErrorType type, const char* message);
+        bool PopErrorScope(WGPUErrorCallback callback, void* userdata);
+        WGPUBuffer CreateBuffer(const WGPUBufferDescriptor* descriptor);
+        WGPUBuffer CreateErrorBuffer();
+        void CreateComputePipelineAsync(WGPUComputePipelineDescriptor const* descriptor,
+                                        WGPUCreateComputePipelineAsyncCallback callback,
+                                        void* userdata);
+        void CreateRenderPipelineAsync(WGPURenderPipelineDescriptor const* descriptor,
+                                       WGPUCreateRenderPipelineAsyncCallback callback,
+                                       void* userdata);
+
+        void HandleError(WGPUErrorType errorType, const char* message);
+        void HandleDeviceLost(const char* message);
+        bool OnPopErrorScopeCallback(uint64_t requestSerial,
+                                     WGPUErrorType type,
+                                     const char* message);
+        bool OnCreateComputePipelineAsyncCallback(uint64_t requestSerial,
+                                                  WGPUCreatePipelineAsyncStatus status,
+                                                  const char* message);
+        bool OnCreateRenderPipelineAsyncCallback(uint64_t requestSerial,
+                                                 WGPUCreatePipelineAsyncStatus status,
+                                                 const char* message);
+
+        // TODO(dawn:22): Remove once the deprecation period is finished.
+        WGPUQueue GetDefaultQueue();
+        WGPUQueue GetQueue();
+
+        void CancelCallbacksForDisconnect() override;
+
+        std::weak_ptr<bool> GetAliveWeakPtr();
 
       private:
         struct ErrorScopeData {
@@ -49,11 +78,24 @@ namespace dawn_wire { namespace client {
         uint64_t mErrorScopeRequestSerial = 0;
         uint64_t mErrorScopeStackSize = 0;
 
-        Client* mClient = nullptr;
+        struct CreatePipelineAsyncRequest {
+            WGPUCreateComputePipelineAsyncCallback createComputePipelineAsyncCallback = nullptr;
+            WGPUCreateRenderPipelineAsyncCallback createRenderPipelineAsyncCallback = nullptr;
+            void* userdata = nullptr;
+            ObjectId pipelineObjectID;
+        };
+        std::map<uint64_t, CreatePipelineAsyncRequest> mCreatePipelineAsyncRequests;
+        uint64_t mCreatePipelineAsyncRequestSerial = 0;
+
         WGPUErrorCallback mErrorCallback = nullptr;
         WGPUDeviceLostCallback mDeviceLostCallback = nullptr;
-        void* mErrorUserdata;
-        void* mDeviceLostUserdata;
+        bool mDidRunLostCallback = false;
+        void* mErrorUserdata = nullptr;
+        void* mDeviceLostUserdata = nullptr;
+
+        Queue* mQueue = nullptr;
+
+        std::shared_ptr<bool> mIsAlive;
     };
 
 }}  // namespace dawn_wire::client

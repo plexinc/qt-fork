@@ -1,12 +1,10 @@
 TEMPLATE      = subdirs
 SUBDIRS       = \
-                codecs \
                 completer \
                 customcompleter \
                 echoplugin \
                 i18n \
                 plugandpaint \
-                regexp \
                 regularexpression \
                 settingseditor \
                 styleplugin \

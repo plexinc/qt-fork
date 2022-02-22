@@ -13,7 +13,7 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/guid.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
@@ -185,9 +185,8 @@ class BackgroundFetchJobControllerTest : public BackgroundFetchTestBase {
         std::make_unique<BackgroundFetchDelegateProxy>(browser_context());
 
     context_ = base::MakeRefCounted<BackgroundFetchContext>(
-        browser_context(),
+        browser_context(), partition,
         base::WrapRefCounted(embedded_worker_test_helper()->context_wrapper()),
-        base::WrapRefCounted(partition->GetCacheStorageContext()),
         /* quota_manager_proxy= */ nullptr, devtools_context());
   }
 

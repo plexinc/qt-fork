@@ -1,16 +1,17 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<testsuite errors="0" failures="0" tests="5" name="tst_QExecStringList">
+<testsuite name="tst_QExecStringList" timestamp="@TEST_START_TIME@" hostname="@HOSTNAME@" tests="7" failures="0" errors="0" skipped="0" time="@TEST_DURATION@">
   <properties>
-    <property value="@INSERT_QT_VERSION_HERE@" name="QTestVersion"/>
-    <property value="@INSERT_QT_VERSION_HERE@" name="QtVersion"/>
-    <property value="" name="QtBuild"/>
+    <property name="QTestVersion" value="@INSERT_QT_VERSION_HERE@"/>
+    <property name="QtVersion" value="@INSERT_QT_VERSION_HERE@"/>
+    <property name="QtBuild" value=""/>
   </properties>
-  <testcase result="pass" name="initTestCase"/>
-  <testcase result="pass" name="testA"/>
-  <testcase result="pass" name="testB"/>
-  <testcase result="pass" name="testC"/>
-  <testcase result="pass" name="cleanupTestCase"/>
-  <system-err/>
+  <testcase name="initTestCase" classname="tst_QExecStringList" time="@TEST_DURATION@"/>
+  <testcase name="testA" classname="tst_QExecStringList" time="@TEST_DURATION@"/>
+  <testcase name="testB(Data1)" classname="tst_QExecStringList" time="@TEST_DURATION@"/>
+  <testcase name="testB(Data2)" classname="tst_QExecStringList" time="@TEST_DURATION@"/>
+  <testcase name="testB(Data3)" classname="tst_QExecStringList" time="@TEST_DURATION@"/>
+  <testcase name="testC" classname="tst_QExecStringList" time="@TEST_DURATION@"/>
+  <testcase name="cleanupTestCase" classname="tst_QExecStringList" time="@TEST_DURATION@"/>
 </testsuite>
 ********* Start testing of tst_QExecStringList *********
 Config: Using QtTest library

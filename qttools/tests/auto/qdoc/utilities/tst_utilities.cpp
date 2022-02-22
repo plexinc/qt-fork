@@ -30,10 +30,6 @@
 
 #include <QtTest/QtTest>
 
-QT_BEGIN_NAMESPACE
-Q_LOGGING_CATEGORY(lcQdoc, "qt.test")
-QT_END_NAMESPACE
-
 class tst_Utilities : public QObject
 {
     Q_OBJECT
@@ -44,11 +40,16 @@ private slots:
     void startDebugging();
     void stopDebugging();
     void debugging();
+    void callSeparatorForOneWord();
+    void callSeparatorForMoreThanOneWord();
+    void callCommaForOneWord();
+    void callCommaForTwoWords();
+    void callCommaForThreeWords();
 };
 
 void tst_Utilities::loggingCategoryName()
 {
-    const QString expected = "qt.test";
+    const QString expected = "qt.qdoc";
     QCOMPARE(lcQdoc().categoryName(), expected);
 }
 
@@ -82,6 +83,75 @@ void tst_Utilities::debugging()
     Utilities::startDebugging("test");
     QVERIFY(lcQdoc().isDebugEnabled());
     QVERIFY(Utilities::debugging());
+}
+
+void tst_Utilities::callSeparatorForOneWord()
+{
+    const QStringList listOfWords { "one" };
+    const QString expected = QStringLiteral("one.");
+
+    int index = 0;
+    QString result;
+    for (const auto &word : listOfWords) {
+        result.append(word);
+        result.append(Utilities::separator(index++, listOfWords.size()));
+    }
+    QCOMPARE(result, expected);
+}
+
+void tst_Utilities::callSeparatorForMoreThanOneWord()
+{
+    const QStringList listOfWords { "one", "two" };
+    const QString expected = QStringLiteral("one and two.");
+
+    int index = 0;
+    QString result;
+    for (const auto &word : listOfWords) {
+        result.append(word);
+        result.append(Utilities::separator(index++, listOfWords.size()));
+    }
+    QCOMPARE(result, expected);
+}
+
+void tst_Utilities::callCommaForOneWord()
+{
+    const QStringList listOfWords { "one" };
+    const QString expected = QStringLiteral("one");
+
+    int index = 0;
+    QString result;
+    for (const auto &word : listOfWords) {
+        result.append(word);
+        result.append(Utilities::comma(index++, listOfWords.size()));
+    }
+    QCOMPARE(result, expected);
+}
+void tst_Utilities::callCommaForTwoWords()
+{
+    const QStringList listOfWords { "one", "two" };
+    const QString expected = QStringLiteral("one and two");
+
+    int index = 0;
+    QString result;
+    for (const auto &word : listOfWords) {
+        result.append(word);
+        result.append(Utilities::comma(index++, listOfWords.size()));
+    }
+    QCOMPARE(result, expected);
+}
+
+void tst_Utilities::callCommaForThreeWords()
+{
+    const QStringList listOfWords { "one", "two", "three" };
+    const QString expected = QStringLiteral("one, two, and three");
+
+    int index = 0;
+    QString result;
+    for (const auto &word : listOfWords) {
+        result.append(word);
+        result.append(Utilities::comma(index++, listOfWords.size()));
+    }
+    QCOMPARE(result, expected);
 }
 
 QTEST_APPLESS_MAIN(tst_Utilities)

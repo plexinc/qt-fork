@@ -27,9 +27,9 @@
 #include "third_party/blink/renderer/core/layout/geometry/physical_offset.h"
 #include "third_party/blink/renderer/core/layout/hit_test_location.h"
 #include "third_party/blink/renderer/core/layout/hit_test_request.h"
-#include "third_party/blink/renderer/core/page/chrome_client.h"
 #include "third_party/blink/renderer/platform/geometry/float_quad.h"
 #include "third_party/blink/renderer/platform/geometry/float_rect.h"
+#include "third_party/blink/renderer/platform/graphics/compositor_element_id.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/text/text_direction.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
@@ -45,8 +45,8 @@ class HTMLMediaElement;
 class Image;
 class KURL;
 class MediaStreamDescriptor;
+class NGPhysicalBoxFragment;
 class Node;
-class LayoutObject;
 class Region;
 class Scrollbar;
 struct PhysicalOffset;
@@ -67,7 +67,7 @@ class CORE_EXPORT HitTestResult {
   HitTestResult(const HitTestResult&);
   ~HitTestResult();
   HitTestResult& operator=(const HitTestResult&);
-  void Trace(Visitor*);
+  void Trace(Visitor*) const;
 
   bool EqualForCacheability(const HitTestResult&) const;
   void CacheValues(const HitTestResult& other);
@@ -113,15 +113,26 @@ class CORE_EXPORT HitTestResult {
   }
   LocalFrame* InnerNodeFrame() const;
 
-  // The hit-tested point in the coordinates of the inner node.
+  // The hit-tested point in the coordinates of the
+  // |inner_possibly_pseudo_node_|.
   const PhysicalOffset& LocalPoint() const { return local_point_; }
   void SetNodeAndPosition(Node* node, const PhysicalOffset& p) {
     local_point_ = p;
     SetInnerNode(node);
   }
+  void SetNodeAndPosition(Node*,
+                          scoped_refptr<const NGPhysicalBoxFragment>,
+                          const PhysicalOffset&);
+
+  // Override an inner node previously set. The new node needs to be monolithic
+  // (or at least only consist of one fragment).
+  //
+  // TODO(layout-dev): Figure out if we really need this. Why can't we just
+  // hit-test correctly in the first place instead?
+  void OverrideNodeAndPosition(Node*, PhysicalOffset);
 
   PositionWithAffinity GetPosition() const;
-  LayoutObject* GetLayoutObject() const;
+  PositionWithAffinity GetPositionForInnerNodeOrImageMapImage() const;
 
   void SetToShadowHostIfInRestrictedShadowRoot();
 
@@ -139,8 +150,10 @@ class CORE_EXPORT HitTestResult {
   bool IsSelected(const HitTestLocation& location) const;
   String Title(TextDirection&) const;
   const AtomicString& AltDisplayString() const;
+  static Image* GetImage(const Node* node);
   Image* GetImage() const;
   IntRect ImageRect() const;
+  static KURL AbsoluteImageURL(const Node* node);
   KURL AbsoluteImageURL() const;
   KURL AbsoluteMediaURL() const;
   MediaStreamDescriptor* GetMediaStreamDescriptor() const;
@@ -199,7 +212,8 @@ class CORE_EXPORT HitTestResult {
   // FIXME: Nothing changes this to a value different from m_hitTestLocation!
   // The hit-tested point in innerNode frame coordinates.
   PhysicalOffset point_in_inner_node_frame_;
-  // A point in the local coordinate space of m_innerNode's layoutObject.Allows
+  // A point in the local coordinate space of |inner_possibly_pseudo_node_|'s
+  // layoutObject, or its containing block when it is an inline object. Allows
   // us to efficiently determine where inside the layoutObject we hit on
   // subsequent operations.
   PhysicalOffset local_point_;

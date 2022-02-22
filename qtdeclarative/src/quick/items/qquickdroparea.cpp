@@ -91,6 +91,7 @@ QQuickDropAreaPrivate::~QQuickDropAreaPrivate()
 /*!
     \qmltype DropArea
     \instantiates QQuickDropArea
+    \inherits Item
     \inqmlmodule QtQuick
     \ingroup qtquick-input
     \brief For specifying drag and drop handling in an area.
@@ -220,12 +221,12 @@ void QQuickDropArea::dragMoveEvent(QDragMoveEvent *event)
     if (!d->containsDrag)
         return;
 
-    d->dragPosition = event->pos();
+    d->dragPosition = event->position().toPoint();
     if (d->drag)
         emit d->drag->positionChanged();
 
     event->accept();
-    QQuickDropEvent dragTargetEvent(d, event);
+    QQuickDragEvent dragTargetEvent(d, event);
     emit positionChanged(&dragTargetEvent);
 }
 
@@ -261,21 +262,28 @@ void QQuickDropArea::dragEnterEvent(QDragEnterEvent *event)
     if (!d->effectiveEnable || d->containsDrag || !mimeData || !d->hasMatchingKey(d->getKeys(mimeData)))
         return;
 
-    d->dragPosition = event->pos();
+    const QQuickDragMimeData *dragMime = qobject_cast<const QQuickDragMimeData *>(mimeData);
+    auto dragSource = dragMime ? dragMime->source() : event->source();
+
+    // if the source of the drag is an ancestor of the drop area, then dragging
+    // also drags the drop area; see QTBUG-64128
+    if (QQuickItem *dragSourceItem = qobject_cast<QQuickItem *>(dragSource)) {
+        if (dragSourceItem->isAncestorOf(this))
+            return;
+    }
+
+    d->dragPosition = event->position().toPoint();
 
     event->accept();
 
-    QQuickDropEvent dragTargetEvent(d, event);
+    QQuickDragEvent dragTargetEvent(d, event);
     emit entered(&dragTargetEvent);
     if (!event->isAccepted())
         return;
 
     d->containsDrag = true;
-    if (QQuickDragMimeData *dragMime = qobject_cast<QQuickDragMimeData *>(const_cast<QMimeData *>(mimeData)))
-        d->source = dragMime->source();
-    else
-        d->source = event->source();
-    d->dragPosition = event->pos();
+    d->source = dragSource;
+    d->dragPosition = event->position().toPoint();
     if (d->drag) {
         emit d->drag->positionChanged();
         emit d->drag->sourceChanged();
@@ -317,7 +325,7 @@ void QQuickDropArea::dropEvent(QDropEvent *event)
     if (!d->containsDrag)
         return;
 
-    QQuickDropEvent dragTargetEvent(d, event);
+    QQuickDragEvent dragTargetEvent(d, event);
     emit dropped(&dragTargetEvent);
 
     d->containsDrag = false;
@@ -329,7 +337,7 @@ void QQuickDropArea::dropEvent(QDropEvent *event)
 
 /*!
     \qmltype DragEvent
-    \instantiates QQuickDropEvent
+    \instantiates QQuickDragEvent
     \inqmlmodule QtQuick
     \ingroup qtquick-input-events
     \brief Provides information about a drag event.
@@ -506,7 +514,7 @@ void QQuickDropArea::dropEvent(QDropEvent *event)
     easily be translated into a QByteArray. \a format should be one contained in the \l formats property.
 */
 
-QObject *QQuickDropEvent::source() const
+QObject *QQuickDragEvent::source() const
 {
     if (const QQuickDragMimeData *dragMime = qobject_cast<const QQuickDragMimeData *>(event->mimeData()))
         return dragMime->source();
@@ -514,57 +522,57 @@ QObject *QQuickDropEvent::source() const
         return event->source();
 }
 
-QStringList QQuickDropEvent::keys() const
+QStringList QQuickDragEvent::keys() const
 {
     return d->getKeys(event->mimeData());
 }
 
-bool QQuickDropEvent::hasColor() const
+bool QQuickDragEvent::hasColor() const
 {
     return event->mimeData()->hasColor();
 }
 
-bool QQuickDropEvent::hasHtml() const
+bool QQuickDragEvent::hasHtml() const
 {
     return event->mimeData()->hasHtml();
 }
 
-bool QQuickDropEvent::hasText() const
+bool QQuickDragEvent::hasText() const
 {
     return event->mimeData()->hasText();
 }
 
-bool QQuickDropEvent::hasUrls() const
+bool QQuickDragEvent::hasUrls() const
 {
     return event->mimeData()->hasUrls();
 }
 
-QVariant QQuickDropEvent::colorData() const
+QVariant QQuickDragEvent::colorData() const
 {
     return event->mimeData()->colorData();
 }
 
-QString QQuickDropEvent::html() const
+QString QQuickDragEvent::html() const
 {
     return event->mimeData()->html();
 }
 
-QString QQuickDropEvent::text() const
+QString QQuickDragEvent::text() const
 {
     return event->mimeData()->text();
 }
 
-QList<QUrl> QQuickDropEvent::urls() const
+QList<QUrl> QQuickDragEvent::urls() const
 {
     return event->mimeData()->urls();
 }
 
-QStringList QQuickDropEvent::formats() const
+QStringList QQuickDragEvent::formats() const
 {
     return event->mimeData()->formats();
 }
 
-void QQuickDropEvent::getDataAsString(QQmlV4Function *args)
+void QQuickDragEvent::getDataAsString(QQmlV4Function *args)
 {
     if (args->length() != 0) {
         QV4::ExecutionEngine *v4 = args->v4engine();
@@ -576,7 +584,7 @@ void QQuickDropEvent::getDataAsString(QQmlV4Function *args)
     }
 }
 
-void QQuickDropEvent::getDataAsArrayBuffer(QQmlV4Function *args)
+void QQuickDragEvent::getDataAsArrayBuffer(QQmlV4Function *args)
 {
     if (args->length() != 0) {
         QV4::ExecutionEngine *v4 = args->v4engine();
@@ -587,12 +595,12 @@ void QQuickDropEvent::getDataAsArrayBuffer(QQmlV4Function *args)
     }
 }
 
-void QQuickDropEvent::acceptProposedAction(QQmlV4Function *)
+void QQuickDragEvent::acceptProposedAction(QQmlV4Function *)
 {
     event->acceptProposedAction();
 }
 
-void QQuickDropEvent::accept(QQmlV4Function *args)
+void QQuickDragEvent::accept(QQmlV4Function *args)
 {
     Qt::DropAction action = event->dropAction();
 

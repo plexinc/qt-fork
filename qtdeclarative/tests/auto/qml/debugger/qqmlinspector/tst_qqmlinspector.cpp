@@ -28,7 +28,7 @@
 
 #include "../shared/debugutil_p.h"
 #include "../shared/qqmldebugprocess_p.h"
-#include "../../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 
 #include <private/qqmldebugconnection_p.h>
 #include <private/qqmlinspectorclient_p.h>
@@ -44,6 +44,9 @@
 class tst_QQmlInspector : public QQmlDebugTest
 {
     Q_OBJECT
+
+public:
+    tst_QQmlInspector();
 
 private:
     ConnectResult startQmlProcess(const QString &qmlFile, bool restrictMode = true);
@@ -61,10 +64,15 @@ private slots:
     void showAppOnTop();
 };
 
+tst_QQmlInspector::tst_QQmlInspector()
+    : QQmlDebugTest(QT_QMLTEST_DATADIR)
+{
+}
+
 QQmlDebugTest::ConnectResult tst_QQmlInspector::startQmlProcess(const QString &qmlFile,
                                                                 bool restrictServices)
 {
-    return QQmlDebugTest::connectTo(QLibraryInfo::location(QLibraryInfo::BinariesPath) + "/qml",
+    return QQmlDebugTest::connectTo(QLibraryInfo::path(QLibraryInfo::BinariesPath) + "/qml",
                                   restrictServices ? QStringLiteral("QmlInspector") : QString(),
                                   testFile(qmlFile), true);
 }

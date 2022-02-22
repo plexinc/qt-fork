@@ -21,6 +21,11 @@ class PLATFORM_EXPORT DocumentResourceCoordinator final {
   USING_FAST_MALLOC(DocumentResourceCoordinator);
 
  public:
+  using WebMemoryMeasurementMode =
+      ::performance_manager::mojom::blink::WebMemoryMeasurement::Mode;
+  using OnWebMemoryMeasurementRequestedCallback = ::performance_manager::mojom::
+      blink::DocumentCoordinationUnit::OnWebMemoryMeasurementRequestedCallback;
+
   // Returns nullptr if instrumentation is not enabled.
   static std::unique_ptr<DocumentResourceCoordinator> MaybeCreate(
       const BrowserInterfaceBrokerProxy&);
@@ -29,12 +34,15 @@ class PLATFORM_EXPORT DocumentResourceCoordinator final {
   void SetNetworkAlmostIdle();
   void SetLifecycleState(performance_manager::mojom::LifecycleState);
   void SetHasNonEmptyBeforeUnload(bool has_nonempty_beforeunload);
-  void SetOriginTrialFreezePolicy(
-      performance_manager::mojom::InterventionPolicy policy);
+  void SetViewportIntersection(const gfx::Rect& viewport_intersection);
   // A one way switch that marks a frame as being an adframe.
   void SetIsAdFrame();
   void OnNonPersistentNotificationCreated();
   void SetHadFormInteraction();
+  void OnFirstContentfulPaint(base::TimeDelta time_since_navigation_start);
+  void OnWebMemoryMeasurementRequested(
+      WebMemoryMeasurementMode mode,
+      OnWebMemoryMeasurementRequestedCallback callback);
 
  private:
   explicit DocumentResourceCoordinator(const BrowserInterfaceBrokerProxy&);

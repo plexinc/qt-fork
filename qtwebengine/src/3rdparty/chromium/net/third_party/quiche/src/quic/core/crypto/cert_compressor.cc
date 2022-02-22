@@ -2,15 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/crypto/cert_compressor.h"
+#include "quic/core/crypto/cert_compressor.h"
 
 #include <cstdint>
 #include <memory>
 #include <string>
 #include <utility>
 
-#include "net/third_party/quiche/src/quic/core/quic_utils.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/quic_utils.h"
 #include "third_party/zlib/zlib.h"
 
 namespace quic {
@@ -175,11 +175,10 @@ struct CertEntry {
 // efficiently represent |certs| to a peer who has the common sets identified
 // by |client_common_set_hashes| and who has cached the certificates with the
 // 64-bit, FNV-1a hashes in |client_cached_cert_hashes|.
-std::vector<CertEntry> MatchCerts(
-    const std::vector<std::string>& certs,
-    quiche::QuicheStringPiece client_common_set_hashes,
-    quiche::QuicheStringPiece client_cached_cert_hashes,
-    const CommonCertSets* common_sets) {
+std::vector<CertEntry> MatchCerts(const std::vector<std::string>& certs,
+                                  absl::string_view client_common_set_hashes,
+                                  absl::string_view client_cached_cert_hashes,
+                                  const CommonCertSets* common_sets) {
   std::vector<CertEntry> entries;
   entries.reserve(certs.size());
 
@@ -309,7 +308,7 @@ std::string ZlibDictForEntries(const std::vector<CertEntry>& entries,
   zlib_dict += std::string(reinterpret_cast<const char*>(kCommonCertSubstrings),
                            sizeof(kCommonCertSubstrings));
 
-  DCHECK_EQ(zlib_dict.size(), zlib_dict_size);
+  QUICHE_DCHECK_EQ(zlib_dict.size(), zlib_dict_size);
 
   return zlib_dict;
 }
@@ -330,12 +329,12 @@ std::vector<uint64_t> HashCerts(const std::vector<std::string>& certs) {
 // |in_out| and writes them to |out_entries|. CACHED and COMMON entries are
 // resolved using |cached_certs| and |common_sets| and written to |out_certs|.
 // |in_out| is updated to contain the trailing data.
-bool ParseEntries(quiche::QuicheStringPiece* in_out,
+bool ParseEntries(absl::string_view* in_out,
                   const std::vector<std::string>& cached_certs,
                   const CommonCertSets* common_sets,
                   std::vector<CertEntry>* out_entries,
                   std::vector<std::string>* out_certs) {
-  quiche::QuicheStringPiece in = *in_out;
+  absl::string_view in = *in_out;
   std::vector<uint64_t> cached_hashes;
 
   out_entries->clear();
@@ -394,7 +393,7 @@ bool ParseEntries(quiche::QuicheStringPiece* in_out,
         memcpy(&entry.index, in.data(), sizeof(uint32_t));
         in.remove_prefix(sizeof(uint32_t));
 
-        quiche::QuicheStringPiece cert =
+        absl::string_view cert =
             common_sets->GetCert(entry.set_hash, entry.index);
         if (cert.empty()) {
           return false;
@@ -452,12 +451,12 @@ class ScopedZLib {
 // static
 std::string CertCompressor::CompressChain(
     const std::vector<std::string>& certs,
-    quiche::QuicheStringPiece client_common_set_hashes,
-    quiche::QuicheStringPiece client_cached_cert_hashes,
+    absl::string_view client_common_set_hashes,
+    absl::string_view client_cached_cert_hashes,
     const CommonCertSets* common_sets) {
   const std::vector<CertEntry> entries = MatchCerts(
       certs, client_common_set_hashes, client_cached_cert_hashes, common_sets);
-  DCHECK_EQ(entries.size(), certs.size());
+  QUICHE_DCHECK_EQ(entries.size(), certs.size());
 
   size_t uncompressed_size = 0;
   for (size_t i = 0; i < entries.size(); i++) {
@@ -473,7 +472,7 @@ std::string CertCompressor::CompressChain(
   if (uncompressed_size > 0) {
     memset(&z, 0, sizeof(z));
     int rv = deflateInit(&z, Z_DEFAULT_COMPRESSION);
-    DCHECK_EQ(Z_OK, rv);
+    QUICHE_DCHECK_EQ(Z_OK, rv);
     if (rv != Z_OK) {
       return "";
     }
@@ -483,7 +482,7 @@ std::string CertCompressor::CompressChain(
 
     rv = deflateSetDictionary(
         &z, reinterpret_cast<const uint8_t*>(&zlib_dict[0]), zlib_dict.size());
-    DCHECK_EQ(Z_OK, rv);
+    QUICHE_DCHECK_EQ(Z_OK, rv);
     if (rv != Z_OK) {
       return "";
     }
@@ -523,8 +522,8 @@ std::string CertCompressor::CompressChain(
     z.next_in = reinterpret_cast<uint8_t*>(&length32);
     z.avail_in = sizeof(length32);
     rv = deflate(&z, Z_NO_FLUSH);
-    DCHECK_EQ(Z_OK, rv);
-    DCHECK_EQ(0u, z.avail_in);
+    QUICHE_DCHECK_EQ(Z_OK, rv);
+    QUICHE_DCHECK_EQ(0u, z.avail_in);
     if (rv != Z_OK || z.avail_in) {
       return "";
     }
@@ -533,8 +532,8 @@ std::string CertCompressor::CompressChain(
         const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(certs[i].data()));
     z.avail_in = certs[i].size();
     rv = deflate(&z, Z_NO_FLUSH);
-    DCHECK_EQ(Z_OK, rv);
-    DCHECK_EQ(0u, z.avail_in);
+    QUICHE_DCHECK_EQ(Z_OK, rv);
+    QUICHE_DCHECK_EQ(0u, z.avail_in);
     if (rv != Z_OK || z.avail_in) {
       return "";
     }
@@ -542,7 +541,7 @@ std::string CertCompressor::CompressChain(
 
   z.avail_in = 0;
   rv = deflate(&z, Z_FINISH);
-  DCHECK_EQ(Z_STREAM_END, rv);
+  QUICHE_DCHECK_EQ(Z_STREAM_END, rv);
   if (rv != Z_STREAM_END) {
     return "";
   }
@@ -553,7 +552,7 @@ std::string CertCompressor::CompressChain(
 
 // static
 bool CertCompressor::DecompressChain(
-    quiche::QuicheStringPiece in,
+    absl::string_view in,
     const std::vector<std::string>& cached_certs,
     const CommonCertSets* common_sets,
     std::vector<std::string>* out_certs) {
@@ -561,10 +560,10 @@ bool CertCompressor::DecompressChain(
   if (!ParseEntries(&in, cached_certs, common_sets, &entries, out_certs)) {
     return false;
   }
-  DCHECK_EQ(entries.size(), out_certs->size());
+  QUICHE_DCHECK_EQ(entries.size(), out_certs->size());
 
   std::unique_ptr<uint8_t[]> uncompressed_data;
-  quiche::QuicheStringPiece uncompressed;
+  absl::string_view uncompressed;
 
   if (!in.empty()) {
     if (in.size() < sizeof(uint32_t)) {
@@ -609,7 +608,7 @@ bool CertCompressor::DecompressChain(
       return false;
     }
 
-    uncompressed = quiche::QuicheStringPiece(
+    uncompressed = absl::string_view(
         reinterpret_cast<char*>(uncompressed_data.get()), uncompressed_size);
   }
 

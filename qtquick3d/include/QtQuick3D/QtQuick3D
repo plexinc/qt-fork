@@ -4,6 +4,8 @@
 #include "qtquick3dglobal.h"
 #include "qquick3d.h"
 #include "qquick3dgeometry.h"
+#include "qquick3dinstancing.h"
 #include "qquick3dobject.h"
+#include "qquick3dtexturedata.h"
 #include "qtquick3dversion.h"
 #endif

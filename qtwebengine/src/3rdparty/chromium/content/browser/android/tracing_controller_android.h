@@ -23,11 +23,13 @@ class TracingControllerAndroid {
   bool StartTracing(JNIEnv* env,
                     const base::android::JavaParamRef<jobject>& obj,
                     const base::android::JavaParamRef<jstring>& categories,
-                    const base::android::JavaParamRef<jstring>& trace_options);
+                    const base::android::JavaParamRef<jstring>& trace_options,
+                    bool use_protobuf);
   void StopTracing(JNIEnv* env,
                    const base::android::JavaParamRef<jobject>& obj,
                    const base::android::JavaParamRef<jstring>& jfilepath,
-                   bool compressfile,
+                   bool compress_file,
+                   bool use_protobuf,
                    const base::android::JavaParamRef<jobject>& callback);
   bool GetKnownCategoriesAsync(
       JNIEnv* env,
@@ -37,7 +39,11 @@ class TracingControllerAndroid {
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& obj,
       const base::android::JavaParamRef<jobject>& callback);
-  static void GenerateTracingFilePath(base::FilePath* file_path);
+
+  // Locate the appropriate directory to write the trace to and use it to
+  // generate the path. |basename| might be empty, then TracingControllerAndroid
+  // will generate an appropriate one as well.
+  static base::FilePath GenerateTracingFilePath(const std::string& basename);
 
  private:
   ~TracingControllerAndroid();

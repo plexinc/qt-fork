@@ -23,14 +23,14 @@
 
 #include <cstdint>
 
-#include "net/third_party/quiche/src/http2/decoder/decode_buffer.h"
-#include "net/third_party/quiche/src/http2/hpack/decoder/hpack_block_decoder.h"
-#include "net/third_party/quiche/src/http2/hpack/decoder/hpack_decoder_listener.h"
-#include "net/third_party/quiche/src/http2/hpack/decoder/hpack_decoder_state.h"
-#include "net/third_party/quiche/src/http2/hpack/decoder/hpack_decoder_tables.h"
-#include "net/third_party/quiche/src/http2/hpack/decoder/hpack_decoding_error.h"
-#include "net/third_party/quiche/src/http2/hpack/decoder/hpack_whole_entry_buffer.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_export.h"
+#include "http2/decoder/decode_buffer.h"
+#include "http2/hpack/decoder/hpack_block_decoder.h"
+#include "http2/hpack/decoder/hpack_decoder_listener.h"
+#include "http2/hpack/decoder/hpack_decoder_state.h"
+#include "http2/hpack/decoder/hpack_decoder_tables.h"
+#include "http2/hpack/decoder/hpack_decoding_error.h"
+#include "http2/hpack/decoder/hpack_whole_entry_buffer.h"
+#include "common/platform/api/quiche_export.h"
 
 namespace http2 {
 namespace test {
@@ -103,11 +103,13 @@ class QUICHE_EXPORT_PRIVATE HpackDecoder {
   // Returns the estimate of dynamically allocated memory in bytes.
   size_t EstimateMemoryUsage() const;
 
+  std::string detailed_error() const { return detailed_error_; }
+
  private:
   friend class test::HpackDecoderPeer;
 
   // Reports an error to the listener IF this is the first error detected.
-  void ReportError(HpackDecodingError error);
+  void ReportError(HpackDecodingError error, std::string detailed_error);
 
   // The decompressor state, as defined by HPACK (i.e. the static and dynamic
   // tables).
@@ -121,9 +123,7 @@ class QUICHE_EXPORT_PRIVATE HpackDecoder {
 
   // Error code if an error has occurred, HpackDecodingError::kOk otherwise.
   HpackDecodingError error_;
-
-  // Latched value of reloadable_flag_http2_skip_querying_entry_buffer_error.
-  const bool http2_skip_querying_entry_buffer_error_;
+  std::string detailed_error_;
 };
 
 }  // namespace http2

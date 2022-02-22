@@ -39,7 +39,6 @@
 #include <QAction>
 #include <QStatusBar>
 #include <QLineEdit>
-#include <QDesktopWidget>
 #include <QPushButton>
 #include <QLabel>
 #include <QMouseEvent>
@@ -172,15 +171,15 @@ ScreenWatcherMainWindow::ScreenWatcherMainWindow(QScreen *screen)
 
     QMenu *fileMenu = menuBar()->addMenu(QLatin1String("&File"));
     QAction *a = fileMenu->addAction(QLatin1String("Close"));
-    a->setShortcut(QKeySequence(Qt::CTRL + Qt::Key_W));
+    a->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_W));
     connect(a, SIGNAL(triggered()), this, SLOT(close()));
     a = fileMenu->addAction(QLatin1String("Quit"));
-    a->setShortcut(QKeySequence(Qt::CTRL + Qt::Key_Q));
+    a->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Q));
     connect(a, SIGNAL(triggered()), qApp, SLOT(quit()));
 
     QMenu *toolsMenu = menuBar()->addMenu(QLatin1String("&Tools"));
     a = toolsMenu->addAction(QLatin1String("Mouse Monitor"));
-    a->setShortcut(QKeySequence(Qt::CTRL + Qt::Key_M));
+    a->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_M));
     connect(a, &QAction::triggered, this, &ScreenWatcherMainWindow::startMouseMonitor);
 }
 
@@ -192,15 +191,15 @@ static inline QString msgScreenChange(const QWidget *w, const QScreen *oldScreen
     if (!newScreen) {
         result = QLatin1String("Screen changed --> null");
     } else if (!oldScreen) {
-        QTextStream(&result) << "Screen changed null --> \""
-            << newScreen->name() << "\" at " << pos.x() << ',' << pos.y() << " geometry: "
-            << geometry.width() << 'x' << geometry.height() << forcesign << geometry.x()
-            << geometry.y() << '.';
+        QTextStream(&result) << "Screen changed null --> \"" << newScreen->name() << "\" at "
+                             << pos.x() << ',' << pos.y() << " geometry: " << geometry.width()
+                             << 'x' << geometry.height() << Qt::forcesign << geometry.x()
+                             << geometry.y() << '.';
     } else {
         QTextStream(&result) << "Screen changed \"" << oldScreen->name() << "\" --> \""
-            << newScreen->name() << "\" at " << pos.x() << ',' << pos.y() << " geometry: "
-            << geometry.width() << 'x' << geometry.height() << forcesign << geometry.x()
-            << geometry.y() << '.';
+                             << newScreen->name() << "\" at " << pos.x() << ',' << pos.y()
+                             << " geometry: " << geometry.width() << 'x' << geometry.height()
+                             << Qt::forcesign << geometry.x() << geometry.y() << '.';
     }
     return result;
 }
@@ -225,20 +224,11 @@ void ScreenWatcherMainWindow::startMouseMonitor()
 
 void screenAdded(QScreen* screen)
 {
-    screen->setOrientationUpdateMask((Qt::ScreenOrientations)0x0F);
-    qDebug("\nscreenAdded %s siblings %d first %s", qPrintable(screen->name()), screen->virtualSiblings().count(),
+    qDebug("\nscreenAdded %s siblings %d fast %s", qPrintable(screen->name()), screen->virtualSiblings().count(),
         (screen->virtualSiblings().isEmpty() ? "none" : qPrintable(screen->virtualSiblings().first()->name())));
     ScreenWatcherMainWindow *w = new ScreenWatcherMainWindow(screen);
 
-    // Set the screen via QDesktopWidget. This corresponds to setScreen() for the underlying
-    // QWindow. This is essential when having separate X screens since the the positioning below is
-    // not sufficient to get the windows show up on the desired screen.
-    QList<QScreen *> screens = QGuiApplication::screens();
-    int screenNumber = screens.indexOf(screen);
-    Q_ASSERT(screenNumber >= 0);
-    // ### Qt 6: Find a replacement for QDesktopWidget::screen()
-    w->setParent(qApp->desktop()->screen(screenNumber));
-
+    w->setScreen(screen);
     w->show();
 
     // Position the windows so that they end up at the center of the corresponding screen.

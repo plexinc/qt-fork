@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
+#include "chrome/browser/ash/accessibility/accessibility_manager.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/chrome_pages.h"
@@ -11,11 +11,24 @@
 #include "chrome/browser/web_applications/system_web_app_manager.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/common/webui_url_constants.h"
+#include "content/public/test/browser_test.h"
+#include "ui/accessibility/accessibility_features.h"
 #include "ui/base/ui_base_features.h"
 
 namespace extensions {
 
-using AccessibilityPrivateApiTest = ExtensionApiTest;
+using ::ash::AccessibilityManager;
+
+class AccessibilityPrivateApiTest : public ExtensionApiTest {
+ public:
+  void SetUp() override {
+    scoped_feature_list_.InitAndDisableFeature(
+        ::features::kSelectToSpeakNavigationControl);
+    ExtensionApiTest::SetUp();
+  }
+
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
 
 IN_PROC_BROWSER_TEST_F(AccessibilityPrivateApiTest, SendSyntheticKeyEvent) {
   ASSERT_TRUE(RunExtensionSubtest("accessibility_private/",
@@ -37,7 +50,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityPrivateApiTest,
 #define MAYBE_OpenSettingsSubpage OpenSettingsSubpage
 #endif
 IN_PROC_BROWSER_TEST_F(AccessibilityPrivateApiTest, MAYBE_OpenSettingsSubpage) {
-  Profile* profile = chromeos::AccessibilityManager::Get()->profile();
+  Profile* profile = AccessibilityManager::Get()->profile();
 
   // Install the Settings App.
   web_app::WebAppProvider::Get(profile)
@@ -57,7 +70,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityPrivateApiTest, MAYBE_OpenSettingsSubpage) {
   content::WebContents* web_contents =
       settings_browser->tab_strip_model()->GetWebContentsAt(0);
 
-  WaitForLoadStop(web_contents);
+  EXPECT_TRUE(WaitForLoadStop(web_contents));
 
   EXPECT_EQ(GURL(chrome::GetOSSettingsUrl("manageAccessibility/tts")),
             web_contents->GetLastCommittedURL());
@@ -65,7 +78,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityPrivateApiTest, MAYBE_OpenSettingsSubpage) {
 
 IN_PROC_BROWSER_TEST_F(AccessibilityPrivateApiTest,
                        OpenSettingsSubpage_InvalidSubpage) {
-  Profile* profile = chromeos::AccessibilityManager::Get()->profile();
+  Profile* profile = AccessibilityManager::Get()->profile();
 
   // Install the Settings App.
   web_app::WebAppProvider::Get(profile)
@@ -82,6 +95,31 @@ IN_PROC_BROWSER_TEST_F(AccessibilityPrivateApiTest,
   // Invalid subpage should not open settings window.
   Browser* settings_browser = settings_manager->FindBrowserForProfile(profile);
   EXPECT_EQ(nullptr, settings_browser);
+}
+
+IN_PROC_BROWSER_TEST_F(AccessibilityPrivateApiTest,
+                       IsFeatureEnabled_FeatureDisabled) {
+  ASSERT_TRUE(RunExtensionSubtest("accessibility_private/",
+                                  "is_feature_enabled_feature_disabled.html"))
+      << message_;
+}
+
+class AccessibilityPrivateApiFeatureEnabledTest : public ExtensionApiTest {
+ public:
+  void SetUp() override {
+    scoped_feature_list_.InitAndEnableFeature(
+        ::features::kSelectToSpeakNavigationControl);
+    ExtensionApiTest::SetUp();
+  }
+
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+IN_PROC_BROWSER_TEST_F(AccessibilityPrivateApiFeatureEnabledTest,
+                       IsFeatureEnabled_FeatureEnabled) {
+  ASSERT_TRUE(RunExtensionSubtest("accessibility_private/",
+                                  "is_feature_enabled_feature_enabled.html"))
+      << message_;
 }
 
 }  // namespace extensions

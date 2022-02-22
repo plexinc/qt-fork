@@ -29,7 +29,11 @@ const char kSetDraggableAreaFailed[] =
     "Setting draggable area of virtual keyboard failed.";
 const char kSetAreaToRemainOnScreenFailed[] =
     "Setting area to remain on screen of virtual keyboard failed.";
+const char kSetWindowBoundsInScreenFailed[] =
+    "Setting bounds of the virtual keyboard failed";
 const char kUnknownError[] = "Unknown error.";
+const char kPasteClipboardItemFailed[] = "Pasting the clipboard item failed";
+const char kDeleteClipboardItemFailed[] = "Deleting the clipboard item failed";
 
 namespace keyboard = api::virtual_keyboard_private;
 
@@ -113,7 +117,7 @@ VirtualKeyboardPrivateKeyboardLoadedFunction::Run() {
 
 ExtensionFunction::ResponseAction
 VirtualKeyboardPrivateGetKeyboardConfigFunction::Run() {
-  delegate()->GetKeyboardConfig(base::Bind(
+  delegate()->GetKeyboardConfig(base::BindOnce(
       &VirtualKeyboardPrivateGetKeyboardConfigFunction::OnKeyboardConfig,
       this));
   return RespondLater();
@@ -121,13 +125,23 @@ VirtualKeyboardPrivateGetKeyboardConfigFunction::Run() {
 
 void VirtualKeyboardPrivateGetKeyboardConfigFunction::OnKeyboardConfig(
     std::unique_ptr<base::DictionaryValue> results) {
-  Respond(results ? OneArgument(std::move(results)) : Error(kUnknownError));
+  Respond(results
+              ? OneArgument(base::Value::FromUniquePtrValue(std::move(results)))
+              : Error(kUnknownError));
 }
 
 ExtensionFunction::ResponseAction
 VirtualKeyboardPrivateOpenSettingsFunction::Run() {
-  if (!delegate()->IsLanguageSettingsEnabled() ||
-      !delegate()->ShowLanguageSettings()) {
+  if (!delegate()->IsSettingsEnabled() || !delegate()->ShowLanguageSettings()) {
+    return RespondNow(Error(kUnknownError));
+  }
+  return RespondNow(NoArguments());
+}
+
+ExtensionFunction::ResponseAction
+VirtualKeyboardPrivateOpenSuggestionSettingsFunction::Run() {
+  if (!delegate()->IsSettingsEnabled() ||
+      !delegate()->ShowSuggestionSettings()) {
     return RespondNow(Error(kUnknownError));
   }
   return RespondNow(NoArguments());
@@ -138,10 +152,8 @@ VirtualKeyboardPrivateSetContainerBehaviorFunction::Run() {
   std::unique_ptr<keyboard::SetContainerBehavior::Params> params =
       keyboard::SetContainerBehavior::Params::Create(*args_);
   EXTENSION_FUNCTION_VALIDATE(params);
-  base::Optional<gfx::Rect> target_bounds(base::nullopt);
-  if (params->options.bounds)
-    target_bounds = KeyboardBoundsToRect(*params->options.bounds);
 
+  gfx::Rect target_bounds = KeyboardBoundsToRect(params->options.bounds);
   if (!delegate()->SetVirtualKeyboardMode(
           params->options.mode, std::move(target_bounds),
           base::BindOnce(&VirtualKeyboardPrivateSetContainerBehaviorFunction::
@@ -153,7 +165,7 @@ VirtualKeyboardPrivateSetContainerBehaviorFunction::Run() {
 
 void VirtualKeyboardPrivateSetContainerBehaviorFunction::OnSetContainerBehavior(
     bool success) {
-  Respond(OneArgument(std::make_unique<base::Value>(success)));
+  Respond(OneArgument(base::Value(success)));
 }
 
 ExtensionFunction::ResponseAction
@@ -219,6 +231,77 @@ VirtualKeyboardPrivateSetAreaToRemainOnScreenFunction::Run() {
     return RespondNow(Error(kSetAreaToRemainOnScreenFailed));
   return RespondNow(NoArguments());
 }
+
+ExtensionFunction::ResponseAction
+VirtualKeyboardPrivateSetWindowBoundsInScreenFunction::Run() {
+  std::unique_ptr<keyboard::SetWindowBoundsInScreen::Params> params =
+      keyboard::SetWindowBoundsInScreen::Params::Create(*args_);
+  EXTENSION_FUNCTION_VALIDATE(params);
+
+  const gfx::Rect bounds_in_screen = KeyboardBoundsToRect(params->bounds);
+  if (!delegate()->SetWindowBoundsInScreen(bounds_in_screen))
+    return RespondNow(Error(kSetWindowBoundsInScreenFailed));
+  return RespondNow(NoArguments());
+}
+
+VirtualKeyboardPrivateSetWindowBoundsInScreenFunction ::
+    ~VirtualKeyboardPrivateSetWindowBoundsInScreenFunction() = default;
+
+ExtensionFunction::ResponseAction
+VirtualKeyboardPrivateGetClipboardHistoryFunction::Run() {
+  std::unique_ptr<keyboard::GetClipboardHistory::Params> params =
+      keyboard::GetClipboardHistory::Params::Create(*args_);
+  EXTENSION_FUNCTION_VALIDATE(params);
+  std::set<std::string> item_id_filter;
+  if (params->options.item_ids) {
+    for (const auto& id : *(params->options.item_ids)) {
+      item_id_filter.insert(id);
+    }
+  }
+
+  delegate()->GetClipboardHistory(
+      item_id_filter,
+      base::Bind(&VirtualKeyboardPrivateGetClipboardHistoryFunction::
+                     OnGetClipboardHistory,
+                 this));
+  return did_respond() ? AlreadyResponded() : RespondLater();
+}
+
+void VirtualKeyboardPrivateGetClipboardHistoryFunction::OnGetClipboardHistory(
+    base::Value results) {
+  Respond(OneArgument(std::move(results)));
+}
+
+VirtualKeyboardPrivateGetClipboardHistoryFunction ::
+    ~VirtualKeyboardPrivateGetClipboardHistoryFunction() = default;
+
+ExtensionFunction::ResponseAction
+VirtualKeyboardPrivatePasteClipboardItemFunction::Run() {
+  std::unique_ptr<keyboard::PasteClipboardItem::Params> params =
+      keyboard::PasteClipboardItem::Params::Create(*args_);
+  EXTENSION_FUNCTION_VALIDATE(params);
+
+  if (!delegate()->PasteClipboardItem(params->item_id))
+    return RespondNow(Error(kPasteClipboardItemFailed));
+  return RespondNow(NoArguments());
+}
+
+VirtualKeyboardPrivatePasteClipboardItemFunction ::
+    ~VirtualKeyboardPrivatePasteClipboardItemFunction() = default;
+
+ExtensionFunction::ResponseAction
+VirtualKeyboardPrivateDeleteClipboardItemFunction::Run() {
+  std::unique_ptr<keyboard::DeleteClipboardItem::Params> params =
+      keyboard::DeleteClipboardItem::Params::Create(*args_);
+  EXTENSION_FUNCTION_VALIDATE(params);
+
+  if (!delegate()->DeleteClipboardItem(params->item_id))
+    return RespondNow(Error(kDeleteClipboardItemFailed));
+  return RespondNow(NoArguments());
+}
+
+VirtualKeyboardPrivateDeleteClipboardItemFunction ::
+    ~VirtualKeyboardPrivateDeleteClipboardItemFunction() = default;
 
 VirtualKeyboardAPI::VirtualKeyboardAPI(content::BrowserContext* context) {
   delegate_ =

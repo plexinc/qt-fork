@@ -41,6 +41,7 @@
 #define QT3DRENDER_QWAITFENCE_H
 
 #include <Qt3DRender/QFrameGraphNode>
+#include <QtCore/QVariant>
 
 QT_BEGIN_NAMESPACE
 
@@ -88,7 +89,6 @@ protected:
 
 private:
     Q_DECLARE_PRIVATE(QWaitFence)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // Qt3DRender

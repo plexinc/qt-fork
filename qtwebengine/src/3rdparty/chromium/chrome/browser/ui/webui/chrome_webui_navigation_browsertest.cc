@@ -9,12 +9,14 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "content/public/common/url_constants.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "content/public/test/web_ui_browsertest_util.h"
 #include "ipc/ipc_security_test_util.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
+#include "ui/webui/untrusted_web_ui_browsertest_util.h"
 #include "url/url_constants.h"
 
 // Tests embedder specific behavior of WebUIs.
@@ -22,9 +24,12 @@ class ChromeWebUINavigationBrowserTest : public InProcessBrowserTest {
  public:
   ChromeWebUINavigationBrowserTest() {
     content::WebUIControllerFactory::RegisterFactory(&factory_);
+    content::WebUIControllerFactory::RegisterFactory(&untrusted_factory_);
   }
 
   ~ChromeWebUINavigationBrowserTest() override {
+    content::WebUIControllerFactory::UnregisterFactoryForTesting(
+        &untrusted_factory_);
     content::WebUIControllerFactory::UnregisterFactoryForTesting(&factory_);
   }
 
@@ -34,8 +39,13 @@ class ChromeWebUINavigationBrowserTest : public InProcessBrowserTest {
     ASSERT_TRUE(embedded_test_server()->Start());
   }
 
+  ui::TestUntrustedWebUIControllerFactory& untrusted_factory() {
+    return untrusted_factory_;
+  }
+
  private:
   content::TestWebUIControllerFactory factory_;
+  ui::TestUntrustedWebUIControllerFactory untrusted_factory_;
 };
 
 // Verify that a browser check stops websites from embeding chrome:// iframes.
@@ -60,9 +70,8 @@ IN_PROC_BROWSER_TEST_F(ChromeWebUINavigationBrowserTest,
   EXPECT_EQ("about:blank", child->GetLastCommittedURL());
 
   content::TestNavigationObserver observer(web_contents);
-  GURL webui_url(content::GetWebUIURL("web-ui/title1.html?noxfo=true"));
-  content::PwnMessageHelper::OpenURL(child->GetProcess(), child->GetRoutingID(),
-                                     webui_url);
+  content::PwnMessageHelper::OpenURL(
+      child, content::GetWebUIURL("web-ui/title1.html?noxfo=true"));
   observer.Wait();
 
   // Retrieve the RenderFrameHost again since it might have been swapped.
@@ -96,13 +105,11 @@ IN_PROC_BROWSER_TEST_F(
   content::TestNavigationObserver observer(web_contents);
   content::TestUntrustedDataSourceCSP csp;
   csp.no_xfo = true;
-  content::AddUntrustedDataSource(browser()->profile(), "test-iframe-host",
-                                  csp);
+  untrusted_factory().add_web_ui_config(
+      std::make_unique<ui::TestUntrustedWebUIConfig>("test-iframe-host", csp));
 
-  GURL untrusted_url(
-      content::GetChromeUntrustedUIURL("test-iframe-host/title1.html"));
-  content::PwnMessageHelper::OpenURL(child->GetProcess(), child->GetRoutingID(),
-                                     untrusted_url);
+  content::PwnMessageHelper::OpenURL(
+      child, content::GetChromeUntrustedUIURL("test-iframe-host/title1.html"));
   observer.Wait();
 
   // Retrieve the RenderFrameHost again since it might have been swapped.

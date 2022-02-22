@@ -15,9 +15,10 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "base/sequence_checker.h"
 #include "base/sequenced_task_runner.h"
-#include "components/feedback/anonymizer_tool.h"
 #include "components/feedback/feedback_common.h"
+#include "components/feedback/redaction_tool.h"
 #include "components/feedback/system_logs/system_logs_source.h"
 
 namespace system_logs {
@@ -43,7 +44,7 @@ using SysLogsFetcherCallback =
 // };
 class SystemLogsFetcher {
  public:
-  // If |scrub_data| is true, logs will be anonymized.
+  // If |scrub_data| is true, logs will be redacted.
   // |first_party_extension_ids| is a null terminated array of all the 1st
   // party extension IDs whose URLs won't be redacted. It is OK to pass null for
   // that value if it's OK to redact those URLs or they won't be present.
@@ -70,8 +71,18 @@ class SystemLogsFetcher {
   void AddResponse(const std::string& source_name,
                    std::unique_ptr<SystemLogsResponse> response);
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  // Merges the log entries of crash report ids of Ash and Lacros in
+  // |response_|, so that lacros crash ids could be processed by the feedback
+  // pre-processor at the server side in the same way it does for ash crash ids.
+  // See details in crbug.com/1129051.
+  void MergeAshAndLacrosCrashReportIdsInReponse();
+#endif
+
   // Runs the callback provided to Fetch and posts a task to delete |this|.
   void RunCallbackAndDeleteSoon();
+
+  SEQUENCE_CHECKER(sequence_checker_);
 
   std::vector<std::unique_ptr<SystemLogsSource>> data_sources_;
   SysLogsFetcherCallback callback_;
@@ -79,8 +90,8 @@ class SystemLogsFetcher {
   std::unique_ptr<SystemLogsResponse> response_;  // The actual response data.
   size_t num_pending_requests_;  // The number of callbacks it should get.
 
-  scoped_refptr<base::SequencedTaskRunner> task_runner_for_anonymizer_;
-  std::unique_ptr<feedback::AnonymizerTool> anonymizer_;
+  scoped_refptr<base::SequencedTaskRunner> task_runner_for_redactor_;
+  std::unique_ptr<feedback::RedactionTool> redactor_;
 
   base::WeakPtrFactory<SystemLogsFetcher> weak_ptr_factory_{this};
 

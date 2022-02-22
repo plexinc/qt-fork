@@ -5,10 +5,10 @@
 #ifndef QUICHE_QUIC_MASQUE_MASQUE_SERVER_SESSION_H_
 #define QUICHE_QUIC_MASQUE_MASQUE_SERVER_SESSION_H_
 
-#include "net/third_party/quiche/src/quic/masque/masque_compression_engine.h"
-#include "net/third_party/quiche/src/quic/masque/masque_server_backend.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
-#include "net/third_party/quiche/src/quic/tools/quic_simple_server_session.h"
+#include "quic/masque/masque_compression_engine.h"
+#include "quic/masque/masque_server_backend.h"
+#include "quic/platform/api/quic_export.h"
+#include "quic/tools/quic_simple_server_session.h"
 
 namespace quic {
 
@@ -48,7 +48,7 @@ class QUIC_NO_EXPORT MasqueServerSession
   MasqueServerSession& operator=(const MasqueServerSession&) = delete;
 
   // From QuicSession.
-  void OnMessageReceived(quiche::QuicheStringPiece message) override;
+  void OnMessageReceived(absl::string_view message) override;
   void OnMessageAcked(QuicMessageId message_id,
                       QuicTime receive_timestamp) override;
   void OnMessageLost(QuicMessageId message_id) override;
@@ -58,7 +58,7 @@ class QUIC_NO_EXPORT MasqueServerSession
   // From MasqueServerBackend::BackendClient.
   std::unique_ptr<QuicBackendResponse> HandleMasqueRequest(
       const std::string& masque_path,
-      const spdy::SpdyHeaderBlock& request_headers,
+      const spdy::Http2HeaderBlock& request_headers,
       const std::string& request_body,
       QuicSimpleServerBackend::RequestHandler* request_handler) override;
 

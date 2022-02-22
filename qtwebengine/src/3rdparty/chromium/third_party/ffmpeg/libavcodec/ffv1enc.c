@@ -31,7 +31,6 @@
 #include "libavutil/opt.h"
 #include "libavutil/imgutils.h"
 #include "libavutil/pixdesc.h"
-#include "libavutil/timer.h"
 
 #include "avcodec.h"
 #include "internal.h"
@@ -287,7 +286,6 @@ static int encode_plane(FFV1Context *s, uint8_t *src, int w, int h,
 
         sample[0][-1]= sample[1][0  ];
         sample[1][ w]= sample[1][w-1];
-// { START_TIMER
         if (s->bits_per_raw_sample <= 8) {
             for (x = 0; x < w; x++)
                 sample[0][x] = src[x * pixel_stride + stride * y];
@@ -306,7 +304,6 @@ static int encode_plane(FFV1Context *s, uint8_t *src, int w, int h,
             if((ret = encode_line(s, w, sample, plane_index, s->bits_per_raw_sample)) < 0)
                 return ret;
         }
-// STOP_TIMER("encode line") }
     }
     return 0;
 }
@@ -1357,4 +1354,5 @@ AVCodec ff_ffv1_encoder = {
     .defaults       = ffv1_defaults,
 #endif
     .priv_class     = &ffv1_class,
+    .caps_internal  = FF_CODEC_CAP_INIT_CLEANUP,
 };

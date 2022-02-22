@@ -41,6 +41,7 @@
 // We mean it.
 //
 
+#include <QMetaType>
 #include <QPainterPath>
 
 QT_BEGIN_NAMESPACE
@@ -83,11 +84,11 @@ private:
     void appendElementRange(QPainterPath *to, int first, int last) const;
 
     QPainterPath mPath;
-    mutable QVector<qreal> mLens;
+    mutable QList<qreal> mLens;
 };
 
 QT_END_NAMESPACE
 
-Q_DECLARE_METATYPE(TrimPath);
+Q_DECLARE_METATYPE(TrimPath)
 
 #endif // TRIMPATH_P_H

@@ -15,6 +15,10 @@
 #include "net/base/host_port_pair.h"
 #include "url/gurl.h"
 
+namespace net {
+class NetworkIsolationKey;
+}  // namespace net
+
 namespace domain_reliability {
 
 // A simple test callback that remembers whether it's been called.
@@ -37,10 +41,12 @@ class TestCallback {
 
 class MockUploader : public DomainReliabilityUploader {
  public:
-  typedef base::OnceCallback<void(const std::string& report_json,
-                                  int max_upload_depth,
-                                  const GURL& upload_url,
-                                  UploadCallback upload_callback)>
+  typedef base::RepeatingCallback<void(
+      const std::string& report_json,
+      int max_upload_depth,
+      const GURL& upload_url,
+      const net::NetworkIsolationKey& network_isolation_key,
+      UploadCallback upload_callback)>
       UploadRequestCallback;
 
   explicit MockUploader(UploadRequestCallback callback);
@@ -50,14 +56,13 @@ class MockUploader : public DomainReliabilityUploader {
   virtual bool discard_uploads() const;
 
   // DomainReliabilityUploader implementation:
-
   void UploadReport(const std::string& report_json,
                     int max_upload_depth,
                     const GURL& upload_url,
+                    const net::NetworkIsolationKey& network_isolation_key,
                     UploadCallback callback) override;
-
+  void Shutdown() override;
   void SetDiscardUploads(bool discard_uploads) override;
-
   int GetDiscardedUploadCount() const override;
 
  private:

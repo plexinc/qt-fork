@@ -36,12 +36,13 @@
 
 int main(int argc, char *argv[])
 {
+    qputenv("QSG_RHI_BACKEND", "opengl");
     QGuiApplication app(argc, argv);
 
     QQuickView viewer;
 
     // Enable antialiasing in direct rendering mode
-    viewer.setFormat(QtDataVisualization::qDefaultSurfaceFormat());
+    viewer.setFormat(qDefaultSurfaceFormat(true));
 
     // The following are needed to make examples run without having to install the module
     // in desktop environments.

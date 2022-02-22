@@ -41,19 +41,18 @@
 #define QXCBSCREEN_H
 
 #include <qpa/qplatformscreen.h>
+#include <qpa/qplatformscreen_p.h>
 #include <QtCore/QString>
 
 #include <xcb/xcb.h>
 #include <xcb/randr.h>
 #include <xcb/xfixes.h>
-#include <xcb/xinerama.h>
 
 #include "qxcbobject.h"
-#include "qxcbscreen.h"
 
 #include <private/qfontengine_p.h>
 
-#include <QtEdidSupport/private/qedidparser_p.h>
+#include <QtGui/private/qedidparser_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -88,8 +87,8 @@ public:
 
     bool compositingActive() const;
 
-    QRect workArea() const { return m_workArea; }
     void updateWorkArea();
+    QRect availableGeometry(const QRect &screenGeometry) const;
 
     void handleXFixesSelectionNotify(xcb_xfixes_selection_notify_event_t *notify_event);
     void subscribeToXFixesSelectionNotify();
@@ -118,6 +117,8 @@ private:
                           QByteArray &stringValue);
     void readXResources();
 
+    bool setDpiFromXSettings(const QVariant &property);
+
     xcb_screen_t *m_screen;
     const int m_number;
     QList<QPlatformScreen *> m_screens;
@@ -140,11 +141,11 @@ private:
 };
 
 class Q_XCB_EXPORT QXcbScreen : public QXcbObject, public QPlatformScreen
+                              , public QNativeInterface::Private::QXcbScreen
 {
 public:
     QXcbScreen(QXcbConnection *connection, QXcbVirtualDesktop *virtualDesktop,
-               xcb_randr_output_t outputId, xcb_randr_get_output_info_reply_t *outputInfo,
-               const xcb_xinerama_screen_info_t *xineramaScreenInfo = nullptr, int xineramaScreenIdx = -1);
+               xcb_randr_output_t outputId, xcb_randr_get_output_info_reply_t *outputInfo);
     ~QXcbScreen();
 
     QString getOutputName(xcb_randr_get_output_info_reply_t *outputInfo);
@@ -161,9 +162,10 @@ public:
     QRect availableGeometry() const override;
     int depth() const override { return screen()->root_depth; }
     QImage::Format format() const override;
+    QColorSpace colorSpace() const override { return m_colorSpace; }
     QSizeF physicalSize() const override { return m_sizeMillimeters; }
     QDpi logicalDpi() const override;
-    QDpi logicalBaseDpi() const override { return QDpi(96, 96); };
+    QDpi logicalBaseDpi() const override { return QDpi(96, 96); }
     QPlatformCursor *cursor() const override;
     qreal refreshRate() const override { return m_refreshRate; }
     Qt::ScreenOrientation orientation() const override { return m_orientation; }
@@ -174,7 +176,7 @@ public:
     bool isPrimary() const { return m_primary; }
 
     int screenNumber() const { return m_virtualDesktop->number(); }
-    static int virtualDesktopNumberStatic(const QScreen *screen);
+    int virtualDesktopNumber() const override { return screenNumber(); }
 
     xcb_screen_t *screen() const { return m_virtualDesktop->screen(); }
     xcb_window_t root() const { return screen()->root; }
@@ -227,6 +229,7 @@ private:
     QSizeF m_sizeMillimeters;
     QRect m_geometry;
     QRect m_availableGeometry;
+    QColorSpace m_colorSpace;
     Qt::ScreenOrientation m_orientation = Qt::PrimaryOrientation;
     QXcbCursor *m_cursor;
     qreal m_refreshRate = 60.0;

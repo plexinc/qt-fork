@@ -21,7 +21,6 @@
 #include "qchannelmapper.h"
 #include "qchannelmapping.h"
 #include "qclipanimator.h"
-#include "qclipblendnodecreatedchange.h"
 #include "qclipblendvalue.h"
 #include "qclock.h"
 #include "qkeyframe.h"

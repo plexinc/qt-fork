@@ -195,7 +195,7 @@ static QVariant mapFromXml(QXmlStreamReader &xml, Converter::Options options)
 
 static QVariant variantFromXml(QXmlStreamReader &xml, Converter::Options options)
 {
-    QStringRef name = xml.name();
+    QStringView name = xml.name();
     if (name == QLatin1String("list"))
         return listFromXml(xml, options);
     if (name == QLatin1String("map"))
@@ -207,7 +207,7 @@ static QVariant variantFromXml(QXmlStreamReader &xml, Converter::Options options
     }
 
     QXmlStreamAttributes attrs = xml.attributes();
-    QStringRef type = attrs.value(QLatin1String("type"));
+    QStringView type = attrs.value(QLatin1String("type"));
 
     forever {
         xml.readNext();
@@ -222,7 +222,7 @@ static QVariant variantFromXml(QXmlStreamReader &xml, Converter::Options options
         exit(EXIT_FAILURE);
     }
 
-    QStringRef text = xml.text();
+    QStringView text = xml.text();
     if (!xml.isCDATA())
         text = text.trimmed();
 
@@ -247,7 +247,7 @@ static QVariant variantFromXml(QXmlStreamReader &xml, Converter::Options options
         }
     } else if (type == QLatin1String("bytes")) {
         QByteArray data = text.toLatin1();
-        QStringRef encoding = attrs.value("encoding");
+        QStringView encoding = attrs.value("encoding");
         if (encoding == QLatin1String("base64url")) {
             result = QByteArray::fromBase64(data, QByteArray::Base64UrlEncoding);
         } else if (encoding == QLatin1String("hex")) {
@@ -294,7 +294,7 @@ static QVariant variantFromXml(QXmlStreamReader &xml, Converter::Options options
         else if (type == QLatin1String("regex"))
             id = QMetaType::QRegularExpression;
         else
-            id = QMetaType::type(type.toLatin1());
+            id = QMetaType::fromName(type.toLatin1()).id();
         if (id == QMetaType::UnknownType) {
             fprintf(stderr, "%lld:%lld: Invalid XML: unknown type '%s'.\n",
                     xml.lineNumber(), xml.columnNumber(), qPrintable(type.toString()));
@@ -302,7 +302,7 @@ static QVariant variantFromXml(QXmlStreamReader &xml, Converter::Options options
         }
 
         result = text.toString();
-        if (!result.convert(id)) {
+        if (!result.convert(QMetaType(id))) {
             fprintf(stderr, "%lld:%lld: Invalid XML: could not parse content as type '%s'.\n",
                     xml.lineNumber(), xml.columnNumber(), qPrintable(type.toString()));
             exit(EXIT_FAILURE);
@@ -433,7 +433,7 @@ static void variantToXml(QXmlStreamWriter &xml, const QVariant &v)
                 // does this convert to string?
                 const char *typeName = v.typeName();
                 QVariant copy = v;
-                if (copy.convert(QMetaType::QString)) {
+                if (copy.convert(QMetaType(QMetaType::QString))) {
                     xml.writeAttribute(typeString, QString::fromLatin1(typeName));
                     xml.writeCharacters(copy.toString());
                 } else {

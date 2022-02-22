@@ -39,10 +39,11 @@
 **
 ****************************************************************************/
 
-#include "qeglfskmsgbmcursor.h"
-#include "qeglfskmsgbmscreen.h"
-#include "qeglfskmsgbmdevice.h"
+#include "qeglfskmsgbmcursor_p.h"
+#include "qeglfskmsgbmscreen_p.h"
+#include "qeglfskmsgbmdevice_p.h"
 
+#include <QtCore/QFile>
 #include <QtCore/QJsonDocument>
 #include <QtCore/QJsonObject>
 #include <QtCore/QJsonArray>
@@ -111,7 +112,7 @@ QEglFSKmsGbmCursor::~QEglFSKmsGbmCursor()
 {
     delete m_deviceListener;
 
-    Q_FOREACH (QPlatformScreen *screen, m_screen->virtualSiblings()) {
+    for (QPlatformScreen *screen : m_screen->virtualSiblings()) {
         QEglFSKmsScreen *kmsScreen = static_cast<QEglFSKmsScreen *>(screen);
         drmModeSetCursor(kmsScreen->device()->fd(), kmsScreen->output().crtc_id, 0, 0, 0);
         drmModeMoveCursor(kmsScreen->device()->fd(), kmsScreen->output().crtc_id, 0, 0);
@@ -150,7 +151,7 @@ void QEglFSKmsGbmCursorDeviceListener::onDeviceListChanged(QInputDeviceManager::
 
 void QEglFSKmsGbmCursor::pointerEvent(const QMouseEvent &event)
 {
-    setPos(event.screenPos().toPoint());
+    setPos(event.globalPosition().toPoint());
 }
 
 #ifndef QT_NO_CURSOR
@@ -163,7 +164,7 @@ void QEglFSKmsGbmCursor::changeCursor(QCursor *windowCursor, QWindow *window)
 
     if (m_state == CursorPendingHidden) {
         m_state = CursorHidden;
-        Q_FOREACH (QPlatformScreen *screen, m_screen->virtualSiblings()) {
+        for (QPlatformScreen *screen : m_screen->virtualSiblings()) {
             QEglFSKmsScreen *kmsScreen = static_cast<QEglFSKmsScreen *>(screen);
             drmModeSetCursor(kmsScreen->device()->fd(), kmsScreen->output().crtc_id, 0, 0, 0);
         }
@@ -212,7 +213,7 @@ void QEglFSKmsGbmCursor::changeCursor(QCursor *windowCursor, QWindow *window)
     if (m_state == CursorPendingVisible)
         m_state = CursorVisible;
 
-    Q_FOREACH (QPlatformScreen *screen, m_screen->virtualSiblings()) {
+    for (QPlatformScreen *screen : m_screen->virtualSiblings()) {
         QEglFSKmsScreen *kmsScreen = static_cast<QEglFSKmsScreen *>(screen);
         if (kmsScreen->isCursorOutOfRange())
             continue;
@@ -231,7 +232,7 @@ QPoint QEglFSKmsGbmCursor::pos() const
 
 void QEglFSKmsGbmCursor::setPos(const QPoint &pos)
 {
-    Q_FOREACH (QPlatformScreen *screen, m_screen->virtualSiblings()) {
+    for (QPlatformScreen *screen : m_screen->virtualSiblings()) {
         QEglFSKmsScreen *kmsScreen = static_cast<QEglFSKmsScreen *>(screen);
         const QRect screenGeom = kmsScreen->geometry();
         const QPoint origin = screenGeom.topLeft();
@@ -276,7 +277,7 @@ void QEglFSKmsGbmCursor::initCursorAtlas()
 
     QFile file(QString::fromUtf8(json));
     if (!file.open(QFile::ReadOnly)) {
-        Q_FOREACH (QPlatformScreen *screen, m_screen->virtualSiblings()) {
+        for (QPlatformScreen *screen : m_screen->virtualSiblings()) {
             QEglFSKmsScreen *kmsScreen = static_cast<QEglFSKmsScreen *>(screen);
             drmModeSetCursor(kmsScreen->device()->fd(), kmsScreen->output().crtc_id, 0, 0, 0);
             drmModeMoveCursor(kmsScreen->device()->fd(), kmsScreen->output().crtc_id, 0, 0);

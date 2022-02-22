@@ -191,7 +191,7 @@ base::TimeDelta AudioFileReader::GetDuration() const {
 }
 
 int AudioFileReader::GetNumberOfFrames() const {
-  return static_cast<int>(ceil(GetDuration().InSecondsF() * sample_rate()));
+  return base::ClampCeil(GetDuration().InSecondsF() * sample_rate());
 }
 
 bool AudioFileReader::OpenDemuxerForTesting() {
@@ -249,8 +249,8 @@ bool AudioFileReader::OnNewFrame(
         frames_read / static_cast<double>(sample_rate_));
 
     if (pkt_duration < frame_duration && pkt_duration > base::TimeDelta()) {
-      const int new_frames_read = frames_read * (pkt_duration.InSecondsF() /
-                                                 frame_duration.InSecondsF());
+      const int new_frames_read =
+          base::ClampFloor(frames_read * (pkt_duration / frame_duration));
       DVLOG(2) << "Shrinking AAC frame from " << frames_read << " to "
                << new_frames_read << " based on packet duration.";
       frames_read = new_frames_read;
@@ -276,9 +276,25 @@ bool AudioFileReader::OnNewFrame(
              sizeof(float) * frames_read);
     }
   } else {
-    audio_bus->FromInterleaved(
-        frame->data[0], frames_read,
-        av_get_bytes_per_sample(codec_context_->sample_fmt));
+    int bytes_per_sample = av_get_bytes_per_sample(codec_context_->sample_fmt);
+    switch (bytes_per_sample) {
+      case 1:
+        audio_bus->FromInterleaved<UnsignedInt8SampleTypeTraits>(
+            reinterpret_cast<const uint8_t*>(frame->data[0]), frames_read);
+        break;
+      case 2:
+        audio_bus->FromInterleaved<SignedInt16SampleTypeTraits>(
+            reinterpret_cast<const int16_t*>(frame->data[0]), frames_read);
+        break;
+      case 4:
+        audio_bus->FromInterleaved<SignedInt32SampleTypeTraits>(
+            reinterpret_cast<const int32_t*>(frame->data[0]), frames_read);
+        break;
+      default:
+        NOTREACHED() << "Unsupported bytes per sample encountered: "
+                     << bytes_per_sample;
+        audio_bus->ZeroFrames(frames_read);
+    }
   }
 
   (*total_frames) += frames_read;

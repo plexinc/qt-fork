@@ -53,7 +53,7 @@ QT_BEGIN_NAMESPACE
 typedef QHash<QByteArray,QSensorBackendFactory*> FactoryForIdentifierMap;
 typedef QHash<QByteArray,FactoryForIdentifierMap> BackendIdentifiersForTypeMap;
 
-static QLoggingCategory sensorsCategory("qt.sensors");
+Q_LOGGING_CATEGORY(lcSensorManager, "qt.sensors");
 
 class QSensorManagerPrivate : public QObject
 {
@@ -96,19 +96,21 @@ public:
         QString config = QString::fromLocal8Bit(QTSENSORS_CONFIG_PATH);
 #else
         QStringList configs = QStandardPaths::standardLocations(QStandardPaths::ConfigLocation);
-        if (configs.count() == 0) return; // QStandardPaths is broken?
-        QString config = configs.at(configs.count()-1);
-        if (config.isEmpty()) return; // QStandardPaths is broken?
-        config += QLatin1String("/QtProject/Sensors.conf");
+        QString config;
+        for (const QString& c : configs) {
+            config = c + QLatin1String("/QtProject/Sensors.conf");
+            if (QFile::exists(config))
+                break;
+        }
 #endif
-        qCDebug(sensorsCategory) << "Loading config from" << config;
+        qCDebug(lcSensorManager) << "Loading config from" << config;
         if (!QFile::exists(config)) {
-            qCDebug(sensorsCategory) << "There is no config file" << config;
+            qCDebug(lcSensorManager) << "There is no config file" << config;
             return;
         }
         QFile cfgfile(config);
         if (!cfgfile.open(QFile::ReadOnly)) {
-            qCWarning(sensorsCategory) << "Can't open config file" << config;
+            qCWarning(lcSensorManager) << "Can't open config file" << config;
             return;
         }
 
@@ -121,8 +123,8 @@ public:
                 isconfig = true;
             else if (isconfig) {
                 //read out setting line
-                line.remove(' ');
-                QStringList pair = line.split('=');
+                line.remove(QLatin1String(" "));
+                QStringList pair = line.split(QStringLiteral("="));
                 if (pair.count() == 2)
                     defaultIdentifierForType.insert(pair[0].toLatin1(), pair[1].toLatin1());
             }
@@ -159,9 +161,8 @@ public Q_SLOTS:
         // until things stop changing.
         do {
             sensorsChanged = false;
-            Q_FOREACH (QSensorChangesInterface *changes, changeListeners) {
+            for (QSensorChangesInterface *changes : changeListeners)
                 changes->sensorsChanged();
-            }
         } while (sensorsChanged);
 
         // We're going away now so clear the flag
@@ -176,9 +177,9 @@ Q_GLOBAL_STATIC(QSensorManagerPrivate, sensorManagerPrivate)
 
 static void initPlugin(QObject *o, bool warnOnFail = true)
 {
-    qCDebug(sensorsCategory) << "Init plugin" << o;
+    qCDebug(lcSensorManager) << "Init plugin" << o;
     if (!o) {
-        qCWarning(sensorsCategory) << "Null plugin" << o;
+        qCWarning(lcSensorManager) << "Null plugin" << o;
         return;
     }
 
@@ -186,7 +187,7 @@ static void initPlugin(QObject *o, bool warnOnFail = true)
     if (!d) return; // hardly likely but just in case...
 
     if (d->seenPlugins.contains(o)) {
-        qCDebug(sensorsCategory) << "Plugin is seen" << o;
+        qCDebug(lcSensorManager) << "Plugin is seen" << o;
         return;
     }
 
@@ -197,11 +198,11 @@ static void initPlugin(QObject *o, bool warnOnFail = true)
     QSensorPluginInterface *plugin = qobject_cast<QSensorPluginInterface*>(o);
 
     if (plugin) {
-        qCDebug(sensorsCategory) << "Register sensors for " << plugin;
+        qCDebug(lcSensorManager) << "Register sensors for " << plugin;
         d->seenPlugins.insert(o);
         plugin->registerSensors();
     } else if (warnOnFail) {
-        qCWarning(sensorsCategory) << "Can't cast to plugin" << o;
+        qCWarning(lcSensorManager) << "Can't cast to plugin" << o;
     }
 }
 
@@ -213,10 +214,8 @@ void QSensorManagerPrivate::loadPlugins()
 
     SENSORLOG() << "initializing static plugins";
     // Qt-style static plugins
-    Q_FOREACH (QObject *plugin, QPluginLoader::staticInstances()) {
-        initPlugin(plugin, false/*do not warn on fail*/);
-    }
-
+    for (QObject *plugin : QPluginLoader::staticInstances())
+        initPlugin(plugin, false /*do not warn on fail*/);
     if (d->loadExternalPlugins) {
         SENSORLOG() << "initializing plugins";
         QList<QJsonObject> meta = d->loader->metaData();
@@ -253,6 +252,9 @@ void QSensorManagerPrivate::loadPlugins()
     Register a sensor for \a type. The \a identifier must be unique.
 
     The \a factory will be asked to create instances of the backend.
+
+    Sensor identifiers starting with \c generic or \c dummy are given lower
+    priority when choosing the default sensor if other sensors are found.
 */
 void QSensorManager::registerBackend(const QByteArray &type, const QByteArray &identifier, QSensorBackendFactory *factory)
 {
@@ -264,8 +266,9 @@ void QSensorManager::registerBackend(const QByteArray &type, const QByteArray &i
     if (!d->backendsByType.contains(type)) {
         (void)d->backendsByType[type];
         d->firstIdentifierForType[type] = identifier;
-    } else if (d->firstIdentifierForType[type].startsWith("generic.")) {
-        // Don't let a generic backend be the default when some other backend exists!
+    } else if (d->firstIdentifierForType[type].startsWith("generic.") ||
+        d->firstIdentifierForType[type].startsWith("dummy.")) {
+        // Don't let a generic or dummy backend be the default when some other backend exists!
         d->firstIdentifierForType[type] = identifier;
     }
     FactoryForIdentifierMap &factoryByIdentifier = d->backendsByType[type];
@@ -361,7 +364,7 @@ QSensorBackend *QSensorManager::createBackend(QSensor *sensor)
         if (backend) return backend; // Got it!
 
         // The default failed to instantiate so try any other registered sensors for this type
-        Q_FOREACH (const QByteArray &identifier, factoryByIdentifier.keys()) {
+        for (const QByteArray &identifier : factoryByIdentifier.keys()) {
             SENSORLOG() << "Trying" << identifier;
             if (identifier == defaultIdentifier) continue; // Don't do the default one again
             factory = factoryByIdentifier[identifier];

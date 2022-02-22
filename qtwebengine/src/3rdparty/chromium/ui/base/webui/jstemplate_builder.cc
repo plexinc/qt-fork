@@ -7,13 +7,15 @@
 
 #include "ui/base/webui/jstemplate_builder.h"
 
+#include "base/check.h"
 #include "base/json/json_file_value_serializer.h"
 #include "base/json/json_string_value_serializer.h"
-#include "base/logging.h"
+#include "base/notreached.h"
 #include "base/strings/string_util.h"
 #include "ui/base/layout.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/template_expressions.h"
+#include "ui/resources/grit/webui_generated_resources.h"
 #include "ui/resources/grit/webui_resources.h"
 
 namespace webui {
@@ -40,7 +42,7 @@ void AppendLoadTimeData(std::string* output) {
   // fetch and cache the pointer of the jstemplate resource source text.
   std::string load_time_data_src =
       ui::ResourceBundle::GetSharedInstance().LoadDataResourceString(
-          IDR_WEBUI_JS_LOAD_TIME_DATA);
+          IDR_WEBUI_JS_LOAD_TIME_DATA_JS);
 
   if (load_time_data_src.empty()) {
     NOTREACHED() << "Unable to get loadTimeData src";
@@ -57,7 +59,7 @@ void AppendJsTemplateSourceHtml(std::string* output) {
   // fetch and cache the pointer of the jstemplate resource source text.
   std::string jstemplate_src =
       ui::ResourceBundle::GetSharedInstance().LoadDataResourceString(
-          IDR_WEBUI_JSTEMPLATE_JS);
+          IDR_WEBUI_JS_JSTEMPLATE_COMPILED_JS);
 
   if (jstemplate_src.empty()) {
     NOTREACHED() << "Unable to get jstemplate src";
@@ -122,7 +124,7 @@ void AppendJsonJS(const base::DictionaryValue* json,
     // If the script is being imported as a module, import |loadTimeData| in
     // order to allow assigning the localized strings to loadTimeData.data.
     output->append("import {loadTimeData} from ");
-    output->append("'chrome://resources/js/load_time_data.m.js';\n");
+    output->append("'//resources/js/load_time_data.m.js';\n");
   }
 
   std::string jstext;

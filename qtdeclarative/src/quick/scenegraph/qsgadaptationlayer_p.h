@@ -142,7 +142,7 @@ public:
     virtual void setGradientStops(const QGradientStops &stops) = 0;
     virtual void setGradientVertical(bool vertical) = 0;
     virtual void setRadius(qreal radius) = 0;
-    virtual void setAntialiasing(bool antialiasing) { Q_UNUSED(antialiasing) }
+    virtual void setAntialiasing(bool antialiasing) { Q_UNUSED(antialiasing); }
     virtual void setAligned(bool aligned) = 0;
 
     virtual void update() = 0;
@@ -162,8 +162,8 @@ public:
     // in the inner source rect maps to the upper-left corner of the inner target rect.
     virtual void setSubSourceRect(const QRectF &rect) = 0;
     virtual void setTexture(QSGTexture *texture) = 0;
-    virtual void setAntialiasing(bool antialiasing) { Q_UNUSED(antialiasing) }
-    virtual void setMirror(bool mirror) = 0;
+    virtual void setAntialiasing(bool antialiasing) { Q_UNUSED(antialiasing); }
+    virtual void setMirror(bool horizontally, bool vertically) = 0;
     virtual void setMipmapFiltering(QSGTexture::Filtering filtering) = 0;
     virtual void setFiltering(QSGTexture::Filtering filtering) = 0;
     virtual void setHorizontalWrapMode(QSGTexture::WrapMode wrapMode) = 0;
@@ -283,7 +283,6 @@ public:
         };
 
         QString name; // optional, f.ex. the filename, used for debugging purposes only
-        QByteArray blob; // source or bytecode (when not using QRhi)
         QShader rhiShader;
         Type type;
         QVector<Variable> variables;
@@ -295,11 +294,10 @@ public:
         // QSGGeometry::defaultAttributes_TexturedPoint2D()).
     };
 
-    virtual void prepareShaderCode(ShaderInfo::Type typeHint, const QByteArray &src, ShaderInfo *result) = 0;
+    virtual void prepareShaderCode(ShaderInfo::Type typeHint, const QUrl &src, ShaderInfo *result) = 0;
 
 Q_SIGNALS:
-    void shaderCodePrepared(bool ok, ShaderInfo::Type typeHint, const QByteArray &src, ShaderInfo *result);
-    void textureChanged();
+    void shaderCodePrepared(bool ok, ShaderInfo::Type typeHint, const QUrl &src, ShaderInfo *result);
     void logAndStatusChanged();
 };
 
@@ -307,8 +305,10 @@ Q_SIGNALS:
 Q_QUICK_PRIVATE_EXPORT QDebug operator<<(QDebug debug, const QSGGuiThreadShaderEffectManager::ShaderInfo::Variable &v);
 #endif
 
-class Q_QUICK_PRIVATE_EXPORT QSGShaderEffectNode : public QSGVisitableNode
+class Q_QUICK_PRIVATE_EXPORT QSGShaderEffectNode : public QObject, public QSGVisitableNode
 {
+    Q_OBJECT
+
 public:
     enum DirtyShaderFlag {
         DirtyShaders = 0x01,
@@ -332,6 +332,7 @@ public:
 
         QVariant value;
         SpecialType specialType;
+        int propertyIndex = -1;
     };
 
     struct ShaderData {
@@ -355,12 +356,14 @@ public:
     };
 
     // Each ShaderEffect item has one node (render thread) and one manager (gui thread).
-    QSGShaderEffectNode(QSGGuiThreadShaderEffectManager *) { }
 
     virtual QRectF updateNormalizedTextureSubRect(bool supportsAtlasTextures) = 0;
     virtual void syncMaterial(SyncData *syncData) = 0;
 
     void accept(QSGNodeVisitorEx *visitor) override { if (visitor->visit(this)) visitor->visitChildren(this); visitor->endVisit(this); }
+
+Q_SIGNALS:
+    void textureChanged();
 };
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(QSGShaderEffectNode::DirtyShaderFlags)
@@ -392,6 +395,7 @@ public:
     virtual void setBoundingRect(const QRectF &bounds) { m_bounding_rect = bounds; }
 
     virtual void setPreferredAntialiasingMode(AntialiasingMode) = 0;
+    virtual void setRenderTypeQuality(int renderTypeQuality) { Q_UNUSED(renderTypeQuality) }
 
     virtual void update() = 0;
 
@@ -417,7 +421,8 @@ typedef QIntrusiveList<QSGDistanceFieldGlyphConsumer, &QSGDistanceFieldGlyphCons
 class Q_QUICK_PRIVATE_EXPORT QSGDistanceFieldGlyphCache
 {
 public:
-    QSGDistanceFieldGlyphCache(const QRawFont &font);
+    QSGDistanceFieldGlyphCache(const QRawFont &font,
+                               int renderTypeQuality);
     virtual ~QSGDistanceFieldGlyphCache();
 
     struct Metrics {
@@ -444,18 +449,11 @@ public:
     };
 
     struct Texture {
-        uint textureId = 0;
         QRhiTexture *texture = nullptr;
         QSize size;
-        bool rhiBased = false;
 
         bool operator == (const Texture &other) const {
-            if (rhiBased != other.rhiBased)
-                return false;
-            if (rhiBased)
-                return texture == other.texture;
-            else
-                return textureId == other.textureId;
+            return texture == other.texture;
         }
     };
 
@@ -463,14 +461,15 @@ public:
 
     qreal fontScale(qreal pixelSize) const
     {
-        return pixelSize / QT_DISTANCEFIELD_BASEFONTSIZE(m_doubleGlyphResolution);
+        return pixelSize / baseFontSize();
     }
-    int distanceFieldRadius() const
+    qreal distanceFieldRadius() const
     {
-        return QT_DISTANCEFIELD_RADIUS(m_doubleGlyphResolution) / QT_DISTANCEFIELD_SCALE(m_doubleGlyphResolution);
+        return QT_DISTANCEFIELD_RADIUS(m_doubleGlyphResolution) / qreal(QT_DISTANCEFIELD_SCALE(m_doubleGlyphResolution));
     }
     int glyphCount() const { return m_glyphCount; }
     bool doubleGlyphResolution() const { return m_doubleGlyphResolution; }
+    int renderTypeQuality() const { return m_renderTypeQuality; }
 
     Metrics glyphMetrics(glyph_t glyph, qreal pixelSize);
     inline TexCoord glyphTexCoord(glyph_t glyph);
@@ -489,6 +488,7 @@ public:
     virtual void processPendingGlyphs();
 
     virtual bool eightBitFormatIsAlphaSwizzled() const = 0;
+    virtual bool screenSpaceDerivativesSupported() const = 0;
 
 protected:
     struct GlyphPosition {
@@ -516,20 +516,21 @@ protected:
     void markGlyphsToRender(const QVector<glyph_t> &glyphs);
     inline void removeGlyph(glyph_t glyph);
 
-    void updateTexture(uint oldTex, uint newTex, const QSize &newTexSize);
     void updateRhiTexture(QRhiTexture *oldTex, QRhiTexture *newTex, const QSize &newTexSize);
 
     inline bool containsGlyph(glyph_t glyph);
-    uint textureIdForGlyph(glyph_t glyph) const;
 
     GlyphData &glyphData(glyph_t glyph);
     GlyphData &emptyData(glyph_t glyph);
 
+    int baseFontSize() const;
+
 #if defined(QSG_DISTANCEFIELD_CACHE_DEBUG)
-    void saveTexture(GLuint textureId, int width, int height) const;
+    virtual void saveTexture(QRhiTexture *texture, const QString &nameBase) const = 0;
 #endif
 
     bool m_doubleGlyphResolution;
+    int m_renderTypeQuality;
 
 protected:
     QRawFont m_referenceFont;

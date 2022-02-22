@@ -20,6 +20,7 @@
 #include "extensions/common/api/messaging/messaging_endpoint.h"
 #include "extensions/common/api/messaging/port_id.h"
 #include "extensions/common/extension_messages.h"
+#include "extensions/common/features/feature.h"
 #include "extensions/common/manifest_handlers/externally_connectable.h"
 #include "extensions/renderer/api_activity_logger.h"
 #include "extensions/renderer/bindings/api_binding_util.h"
@@ -35,10 +36,13 @@
 #include "gin/data_object_builder.h"
 #include "gin/handle.h"
 #include "gin/per_context_data.h"
+#include "third_party/blink/public/mojom/frame/user_activation_notification_type.mojom.h"
 #include "third_party/blink/public/web/web_document.h"
 #include "third_party/blink/public/web/web_local_frame.h"
 #include "third_party/blink/public/web/web_scoped_window_focus_allowed_indicator.h"
 #include "v8/include/v8.h"
+
+using blink::mojom::UserActivationNotificationType;
 
 namespace extensions {
 
@@ -91,8 +95,9 @@ void NativeRendererMessagingService::ValidateMessagePort(
   // synchronous.
   context_set->ForEach(
       render_frame,
-      base::Bind(&NativeRendererMessagingService::ValidateMessagePortInContext,
-                 base::Unretained(this), port_id, &has_port));
+      base::BindRepeating(
+          &NativeRendererMessagingService::ValidateMessagePortInContext,
+          base::Unretained(this), port_id, &has_port));
 
   // A reply is only sent if the port is missing, because the port is assumed to
   // exist unless stated otherwise.
@@ -116,7 +121,7 @@ void NativeRendererMessagingService::DispatchOnConnect(
   bool port_created = false;
   context_set->ForEach(
       info.target_id, restrict_to_render_frame,
-      base::Bind(
+      base::BindRepeating(
           &NativeRendererMessagingService::DispatchOnConnectToScriptContext,
           base::Unretained(this), target_port_id, channel_name, &source, info,
           &port_created));
@@ -137,8 +142,9 @@ void NativeRendererMessagingService::DeliverMessage(
     content::RenderFrame* restrict_to_render_frame) {
   context_set->ForEach(
       restrict_to_render_frame,
-      base::Bind(&NativeRendererMessagingService::DeliverMessageToScriptContext,
-                 base::Unretained(this), message, target_port_id));
+      base::BindRepeating(
+          &NativeRendererMessagingService::DeliverMessageToScriptContext,
+          base::Unretained(this), message, target_port_id));
 }
 
 void NativeRendererMessagingService::DispatchOnDisconnect(
@@ -148,7 +154,7 @@ void NativeRendererMessagingService::DispatchOnDisconnect(
     content::RenderFrame* restrict_to_render_frame) {
   context_set->ForEach(
       restrict_to_render_frame,
-      base::Bind(
+      base::BindRepeating(
           &NativeRendererMessagingService::DispatchOnDisconnectToScriptContext,
           base::Unretained(this), port_id, error_message));
 }
@@ -316,7 +322,27 @@ void NativeRendererMessagingService::DeliverMessageToScriptContext(
   std::unique_ptr<blink::WebScopedWindowFocusAllowedIndicator>
       allow_window_focus;
   if (message.user_gesture && script_context->web_frame()) {
-    script_context->web_frame()->NotifyUserActivation();
+    bool sender_is_privileged = message.from_privileged_context;
+    bool receiver_is_privileged =
+        script_context->context_type() ==
+        extensions::Feature::BLESSED_EXTENSION_CONTEXT;
+    UserActivationNotificationType notification_type;
+    if (sender_is_privileged && receiver_is_privileged) {
+      notification_type =
+          UserActivationNotificationType::kExtensionMessagingBothPrivileged;
+    } else if (sender_is_privileged && !receiver_is_privileged) {
+      notification_type =
+          UserActivationNotificationType::kExtensionMessagingSenderPrivileged;
+    } else if (!sender_is_privileged && receiver_is_privileged) {
+      notification_type =
+          UserActivationNotificationType::kExtensionMessagingReceiverPrivileged;
+    } else /* !sender_is_privileged && !receiver_is_privileged */ {
+      notification_type =
+          UserActivationNotificationType::kExtensionMessagingNeitherPrivileged;
+    }
+
+    script_context->web_frame()->NotifyUserActivation(notification_type);
+
     blink::WebDocument document = script_context->web_frame()->GetDocument();
     allow_window_focus =
         std::make_unique<blink::WebScopedWindowFocusAllowedIndicator>(

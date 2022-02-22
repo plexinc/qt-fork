@@ -43,6 +43,7 @@
 #include <Qt3DCore/qcomponent.h>
 #include <Qt3DRender/qt3drender_global.h>
 #include <Qt3DRender/qlevelofdetailboundingsphere.h>
+#include <Qt3DRender/qcamera.h>
 
 #include <QtGui/QVector3D>
 
@@ -50,7 +51,6 @@ QT_BEGIN_NAMESPACE
 
 namespace Qt3DRender {
 
-class QCamera;
 class QLevelOfDetailPrivate;
 
 class Q_3DRENDERSHARED_EXPORT QLevelOfDetail : public Qt3DCore::QComponent
@@ -59,7 +59,7 @@ class Q_3DRENDERSHARED_EXPORT QLevelOfDetail : public Qt3DCore::QComponent
     Q_PROPERTY(Qt3DRender::QCamera *camera READ camera WRITE setCamera NOTIFY cameraChanged)
     Q_PROPERTY(int currentIndex READ currentIndex WRITE setCurrentIndex NOTIFY currentIndexChanged)
     Q_PROPERTY(ThresholdType thresholdType READ thresholdType WRITE setThresholdType NOTIFY thresholdTypeChanged)
-    Q_PROPERTY(QVector<qreal> thresholds READ thresholds WRITE setThresholds NOTIFY thresholdsChanged)
+    Q_PROPERTY(QList<qreal> thresholds READ thresholds WRITE setThresholds NOTIFY thresholdsChanged)
     Q_PROPERTY(Qt3DRender::QLevelOfDetailBoundingSphere volumeOverride READ volumeOverride WRITE setVolumeOverride NOTIFY volumeOverrideChanged)
 
 public:
@@ -75,7 +75,7 @@ public:
     QCamera *camera() const;
     int currentIndex() const;
     ThresholdType thresholdType() const;
-    QVector<qreal> thresholds() const;
+    QList<qreal> thresholds() const;
     QLevelOfDetailBoundingSphere volumeOverride() const;
 
     Q_INVOKABLE Qt3DRender::QLevelOfDetailBoundingSphere createBoundingSphere(const QVector3D &center, float radius);
@@ -84,21 +84,18 @@ public Q_SLOTS:
     void setCamera(QCamera *camera);
     void setCurrentIndex(int currentIndex);
     void setThresholdType(ThresholdType thresholdType);
-    void setThresholds(const QVector<qreal> &thresholds);
+    void setThresholds(const QList<qreal> &thresholds);
     void setVolumeOverride(const QLevelOfDetailBoundingSphere &volumeOverride);
 
 Q_SIGNALS:
     void cameraChanged(QCamera *camera);
     void currentIndexChanged(int currentIndex);
     void thresholdTypeChanged(ThresholdType thresholdType);
-    void thresholdsChanged(const QVector<qreal> &thresholds);
+    void thresholdsChanged(const QList<qreal> &thresholds);
     void volumeOverrideChanged(const QLevelOfDetailBoundingSphere &volumeOverride);
 
 protected:
     explicit QLevelOfDetail(QLevelOfDetailPrivate &dd, Qt3DCore::QNode *parent = nullptr);
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
-    // TODO Unused remove in Qt6
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) override;
 
 private:
     Q_DECLARE_PRIVATE(QLevelOfDetail)
@@ -107,7 +104,5 @@ private:
 } // namespace Qt3DRender
 
 QT_END_NAMESPACE
-
-Q_DECLARE_METATYPE(Qt3DRender::QLevelOfDetailBoundingSphere)
 
 #endif // QT3DRENDER_QLEVELOFDETAIL_H

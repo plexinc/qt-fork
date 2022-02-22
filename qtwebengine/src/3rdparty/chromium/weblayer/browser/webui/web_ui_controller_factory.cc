@@ -49,9 +49,9 @@ WebUIControllerFactory* WebUIControllerFactory::GetInstance() {
   return instance.get();
 }
 
-WebUIControllerFactory::WebUIControllerFactory() {}
+WebUIControllerFactory::WebUIControllerFactory() = default;
 
-WebUIControllerFactory::~WebUIControllerFactory() {}
+WebUIControllerFactory::~WebUIControllerFactory() = default;
 
 content::WebUI::TypeID WebUIControllerFactory::GetWebUIType(
     content::BrowserContext* browser_context,
@@ -63,12 +63,6 @@ bool WebUIControllerFactory::UseWebUIForURL(
     content::BrowserContext* browser_context,
     const GURL& url) {
   return GetWebUIType(browser_context, url) != content::WebUI::kNoWebUI;
-}
-
-bool WebUIControllerFactory::UseWebUIBindingsForURL(
-    content::BrowserContext* browser_context,
-    const GURL& url) {
-  return UseWebUIForURL(browser_context, url);
 }
 
 std::unique_ptr<content::WebUIController>

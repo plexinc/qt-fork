@@ -42,22 +42,23 @@
 #include "qoffscreencommon.h"
 
 #if defined(Q_OS_UNIX)
-#include <QtEventDispatcherSupport/private/qgenericunixeventdispatcher_p.h>
+#include <QtGui/private/qgenericunixeventdispatcher_p.h>
 #if defined(Q_OS_MAC)
 #include <qpa/qplatformfontdatabase.h>
-#include <QtFontDatabaseSupport/private/qcoretextfontdatabase_p.h>
+#include <QtGui/private/qcoretextfontdatabase_p.h>
 #else
-#include <QtFontDatabaseSupport/private/qgenericunixfontdatabase_p.h>
+#include <QtGui/private/qgenericunixfontdatabase_p.h>
 #endif
 #elif defined(Q_OS_WIN)
-#include <QtFontDatabaseSupport/private/qfreetypefontdatabase_p.h>
-#ifndef Q_OS_WINRT
+#include <QtGui/private/qfreetypefontdatabase_p.h>
 #include <QtCore/private/qeventdispatcher_win_p.h>
-#else
-#include <QtCore/private/qeventdispatcher_winrt_p.h>
-#endif
 #endif
 
+#include <QtCore/qfile.h>
+#include <QtCore/qjsonarray.h>
+#include <QtCore/qjsondocument.h>
+#include <QtCore/qjsonobject.h>
+#include <QtCore/qjsonvalue.h>
 #include <QtGui/private/qpixmap_raster_p.h>
 #include <QtGui/private/qguiapplication_p.h>
 #include <qpa/qplatforminputcontextfactory_p.h>
@@ -84,24 +85,11 @@ public:
     {
     }
 
-    bool processEvents(QEventLoop::ProcessEventsFlags flags)
+    bool processEvents(QEventLoop::ProcessEventsFlags flags) override
     {
         bool didSendEvents = BaseEventDispatcher::processEvents(flags);
 
         return QWindowSystemInterface::sendWindowSystemEvents(flags) || didSendEvents;
-    }
-
-    bool hasPendingEvents()
-    {
-        return BaseEventDispatcher::hasPendingEvents()
-            || QWindowSystemInterface::windowSystemEventsQueued();
-    }
-
-    void flush()
-    {
-        if (qApp)
-            qApp->sendPostedEvents();
-        BaseEventDispatcher::flush();
     }
 };
 
@@ -121,12 +109,98 @@ QOffscreenIntegration::QOffscreenIntegration()
     m_drag.reset(new QOffscreenDrag);
 #endif
     m_services.reset(new QPlatformServices);
-
-    QWindowSystemInterface::handleScreenAdded(new QOffscreenScreen);
 }
 
 QOffscreenIntegration::~QOffscreenIntegration()
 {
+    for (auto screen : std::as_const(m_screens))
+        QWindowSystemInterface::handleScreenRemoved(screen);
+}
+
+/*
+    The offscren platform plugin is configurable with a JSON configuration
+    file. Write the config to disk and pass the file path as a platform argument:
+
+        ./myapp -platform offscreen:configfile=/path/to/config.json
+
+    The supported top-level config keys are:
+    {
+        "synchronousWindowSystemEvents": <bool>
+        "windowFrameMargins": <bool>,
+        "screens": [<screens>],
+    }
+
+    Screen:
+    {
+        "name" : string,
+        "x": int,
+        "y": int,
+        "width": int,
+        "height": int,
+        "logicalDpi": int,
+        "logicalBaseDpi": int,
+        "dpr": double,
+    }
+*/
+void QOffscreenIntegration::configure(const QStringList& paramList)
+{
+    // Use config file configuring platform plugin, if one was specified
+    bool hasConfigFile = false;
+    QString configFilePath;
+    for (const QString &param : paramList) {
+        // Look for "configfile=/path/to/file/"
+        QString configPrefix(QLatin1String("configfile="));
+        if (param.startsWith(configPrefix)) {
+            hasConfigFile = true;
+            configFilePath= param.mid(configPrefix.length());
+        }
+    }
+
+    // Create the default screen if there was no config file
+    if (!hasConfigFile) {
+        QOffscreenScreen *offscreenScreen = new QOffscreenScreen(this);
+        m_screens.append(offscreenScreen);
+        QWindowSystemInterface::handleScreenAdded(offscreenScreen);
+        return;
+    }
+
+    // Read config file
+    if (configFilePath.isEmpty())
+        qFatal("Missing file path for -configfile platform option");
+    QFile configFile(configFilePath);
+    if (!configFile.exists())
+        qFatal("Could not find platform config file %s", qPrintable(configFilePath));
+    if (!configFile.open(QIODevice::ReadOnly))
+        qFatal("Could not open platform config file for reading %s, %s", qPrintable(configFilePath), qPrintable(configFile.errorString()));
+
+    QByteArray json = configFile.readAll();
+    QJsonParseError error;
+    QJsonDocument config = QJsonDocument::fromJson(json, &error);
+    if (config.isNull())
+        qFatal("Platform config file parse error: %s", qPrintable(error.errorString()));
+
+    // Apply configuration (create screens)
+    bool synchronousWindowSystemEvents = config["synchronousWindowSystemEvents"].toBool(false);
+    QWindowSystemInterface::setSynchronousWindowSystemEvents(synchronousWindowSystemEvents);
+    m_windowFrameMarginsEnabled = config["windowFrameMargins"].toBool(true);
+    QJsonArray screens = config["screens"].toArray();
+    for (QJsonValue screenValue : screens) {
+        QJsonObject screen  = screenValue.toObject();
+        if (screen.isEmpty()) {
+            qWarning("QOffscreenIntegration::initializeWithPlatformArguments: empty screen object");
+            continue;
+        }
+        QOffscreenScreen *offscreenScreen = new QOffscreenScreen(this);
+        offscreenScreen->m_name = screen["name"].toString();
+        offscreenScreen->m_geometry = QRect(screen["x"].toInt(0), screen["y"].toInt(0),
+                                            screen["width"].toInt(640), screen["height"].toInt(480));
+        offscreenScreen->m_logicalDpi = screen["logicalDpi"].toInt(96);
+        offscreenScreen->m_logicalBaseDpi = screen["logicalBaseDpi"].toInt(96);
+        offscreenScreen->m_dpr = screen["dpr"].toDouble(1.0);
+
+        m_screens.append(offscreenScreen);
+        QWindowSystemInterface::handleScreenAdded(offscreenScreen);
+    }
 }
 
 void QOffscreenIntegration::initialize()
@@ -144,6 +218,7 @@ bool QOffscreenIntegration::hasCapability(QPlatformIntegration::Capability cap) 
     switch (cap) {
     case ThreadedPixmaps: return true;
     case MultipleWindows: return true;
+    case RhiBasedRendering: return false;
     default: return QPlatformIntegration::hasCapability(cap);
     }
 }
@@ -151,7 +226,7 @@ bool QOffscreenIntegration::hasCapability(QPlatformIntegration::Capability cap) 
 QPlatformWindow *QOffscreenIntegration::createPlatformWindow(QWindow *window) const
 {
     Q_UNUSED(window);
-    QPlatformWindow *w = new QOffscreenWindow(window);
+    QPlatformWindow *w = new QOffscreenWindow(window, m_windowFrameMarginsEnabled);
     w->requestActivateWindow();
     return w;
 }
@@ -166,14 +241,17 @@ QAbstractEventDispatcher *QOffscreenIntegration::createEventDispatcher() const
 #if defined(Q_OS_UNIX)
     return createUnixEventDispatcher();
 #elif defined(Q_OS_WIN)
-#ifndef Q_OS_WINRT
     return new QOffscreenEventDispatcher<QEventDispatcherWin32>();
-#else // !Q_OS_WINRT
-    return new QOffscreenEventDispatcher<QEventDispatcherWinRT>();
-#endif // Q_OS_WINRT
 #else
     return 0;
 #endif
+}
+
+QPlatformNativeInterface *QOffscreenIntegration::nativeInterface() const
+{
+    if (!m_nativeInterface)
+        m_nativeInterface.reset(new QOffscreenPlatformNativeInterface);
+    return m_nativeInterface.get();
 }
 
 static QString themeName() { return QStringLiteral("offscreen"); }
@@ -194,11 +272,25 @@ public:
     {
         switch (h) {
         case StyleNames:
-            return QVariant(QStringList(QStringLiteral("fusion")));
+            return QVariant(QStringList(QStringLiteral("Fusion")));
         default:
             break;
         }
         return QPlatformTheme::themeHint(h);
+    }
+
+    virtual const QFont *font(Font type = SystemFont) const override
+    {
+        static QFont systemFont(QLatin1String("Sans Serif"), 9);
+        static QFont fixedFont(QLatin1String("monospace"), 9);
+        switch (type) {
+        case QPlatformTheme::SystemFont:
+            return &systemFont;
+        case QPlatformTheme::FixedFont:
+            return &fixedFont;
+        default:
+            return nullptr;
+        }
     }
 };
 
@@ -224,14 +316,26 @@ QPlatformServices *QOffscreenIntegration::services() const
     return m_services.data();
 }
 
-QOffscreenIntegration *QOffscreenIntegration::createOffscreenIntegration()
+QOffscreenIntegration *QOffscreenIntegration::createOffscreenIntegration(const QStringList& paramList)
 {
+    QOffscreenIntegration *offscreenIntegration = nullptr;
+
 #if QT_CONFIG(xlib) && QT_CONFIG(opengl) && !QT_CONFIG(opengles2)
     QByteArray glx = qgetenv("QT_QPA_OFFSCREEN_NO_GLX");
     if (glx.isEmpty())
-        return new QOffscreenX11Integration;
+        offscreenIntegration = new QOffscreenX11Integration;
 #endif
-    return new QOffscreenIntegration;
+
+     if (!offscreenIntegration)
+        offscreenIntegration = new QOffscreenIntegration;
+
+    offscreenIntegration->configure(paramList);
+    return offscreenIntegration;
+}
+
+QList<QPlatformScreen *> QOffscreenIntegration::screens() const
+{
+    return m_screens;
 }
 
 QT_END_NAMESPACE

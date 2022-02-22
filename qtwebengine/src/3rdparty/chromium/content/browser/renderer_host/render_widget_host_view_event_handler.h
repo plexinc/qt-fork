@@ -13,10 +13,11 @@
 #include "content/browser/renderer_host/input/mouse_wheel_phase_handler.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/native_web_keyboard_event.h"
+#include "mojo/public/cpp/bindings/remote.h"
+#include "services/viz/public/mojom/compositing/delegated_ink_point.mojom.h"
 #include "third_party/blink/public/mojom/input/pointer_lock_result.mojom.h"
 #include "ui/aura/scoped_enable_unadjusted_mouse_events.h"
 #include "ui/aura/scoped_keyboard_hook.h"
-#include "ui/aura/window_tracker.h"
 #include "ui/events/event_handler.h"
 #include "ui/events/gestures/motion_event_aura.h"
 #include "ui/latency/latency_info.h"
@@ -78,7 +79,6 @@ class CONTENT_EXPORT RenderWidgetHostViewEventHandler
     // Returns whether the widget needs to grab mouse capture to work properly.
     virtual bool NeedsMouseCapture() = 0;
     virtual void SetTooltipsEnabled(bool enable) = 0;
-    virtual void ShowContextMenu(const ContextMenuParams& params) = 0;
     // Sends shutdown request.
     virtual void Shutdown() = 0;
 
@@ -163,7 +163,7 @@ class CONTENT_EXPORT RenderWidgetHostViewEventHandler
   void OnGestureEvent(ui::GestureEvent* event) override;
 
   void GestureEventAck(const blink::WebGestureEvent& event,
-                       InputEventAckState ack_result);
+                       blink::mojom::InputEventResultState ack_result);
 
   // Used to set the mouse_wheel_phase_handler_ timer timeout for testing.
   void set_mouse_wheel_wheel_phase_handler_timeout(base::TimeDelta timeout) {
@@ -194,6 +194,7 @@ class CONTENT_EXPORT RenderWidgetHostViewEventHandler
       RenderWidgetHostViewAuraTest,
       KeyEventRoutingKeyboardLockAndChildPopupWithoutInputGrab);
   friend class MockPointerLockRenderWidgetHostView;
+  friend class FakeRenderWidgetHostViewAura;
 
   // Returns true if the |event| passed in can be forwarded to the renderer.
   bool CanRendererHandleEvent(const ui::MouseEvent* event,
@@ -251,6 +252,17 @@ class CONTENT_EXPORT RenderWidgetHostViewEventHandler
   // Returns true if event is a reserved key for an active KeyboardLock request.
   bool IsKeyLocked(const ui::KeyEvent& event);
 
+  void HandleMouseWheelEvent(ui::MouseEvent* event);
+
+  // Forward the location and timestamp of the event to viz if a delegated ink
+  // trail is requested.
+  void ForwardDelegatedInkPoint(ui::LocatedEvent* event,
+                                bool hovering,
+                                int32_t pointer_id);
+
+  // Flush the remote for testing purposes.
+  void FlushForTest() { delegated_ink_point_renderer_.FlushForTesting(); }
+
   // Whether return characters should be passed on to the RenderWidgetHostImpl.
   bool accept_return_character_ = false;
 
@@ -278,10 +290,6 @@ class CONTENT_EXPORT RenderWidgetHostViewEventHandler
   // This flag when set ensures that we send over a notification to blink that
   // the current view has focus.
   bool set_focus_on_mouse_down_or_key_event_ = false;
-
-  // Used to track the state of the window we're created from. Only used when
-  // created fullscreen.
-  std::unique_ptr<aura::WindowTracker> host_tracker_;
 
   // Used to record the last position of the mouse.
   // While the mouse is locked, they store the last known position just as mouse
@@ -316,6 +324,18 @@ class CONTENT_EXPORT RenderWidgetHostViewEventHandler
   MouseWheelPhaseHandler mouse_wheel_phase_handler_;
 
   std::unique_ptr<HitTestDebugKeyEventObserver> debug_observer_;
+
+  // Remote end of the connection for sending delegated ink points to viz to
+  // support the delegated ink trails feature.
+  mojo::Remote<viz::mojom::DelegatedInkPointRenderer>
+      delegated_ink_point_renderer_;
+  // Used to know if we have already told viz to reset prediction because the
+  // final point of the delegated ink trail has been sent. True when prediction
+  // has already been reset for the most recent trail, false otherwise. This
+  // flag helps make sure that we don't send more IPCs than necessary to viz to
+  // reset prediction. Sending extra IPCs wouldn't impact correctness, but can
+  // impact performance due to the IPC overhead.
+  bool ended_delegated_ink_trail_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(RenderWidgetHostViewEventHandler);
 };

@@ -29,6 +29,7 @@
 #ifndef MESSAGEEDITORWIDGETS_H
 #define MESSAGEEDITORWIDGETS_H
 
+#include <QAbstractButton>
 #include <QIcon>
 #include <QImage>
 #include <QLabel>
@@ -39,7 +40,6 @@
 
 QT_BEGIN_NAMESPACE
 
-class QAbstractButton;
 class QAction;
 class QContextMenuEvent;
 class QKeyEvent;
@@ -59,8 +59,8 @@ class ExpandingTextEdit : public QTextEdit
 
 public:
     ExpandingTextEdit(QWidget *parent = 0);
-    QSize sizeHint() const;
-    QSize minimumSizeHint() const;
+    QSize sizeHint() const override;
+    QSize minimumSizeHint() const override;
 
 private slots:
     void updateHeight(const QSizeF &documentSize);
@@ -147,7 +147,7 @@ signals:
     void cursorPositionChanged();
 
 protected:
-    bool eventFilter(QObject *watched, QEvent *event);
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private slots:
     void slotTextChanged();
@@ -158,7 +158,16 @@ private slots:
 private:
     void addEditor(int idx);
     void updateLayout();
-    QAbstractButton *makeButton(const QIcon &icon, const char *slot);
+
+    template<typename Func>
+    QAbstractButton *makeButton(const QIcon &icon, Func slot)
+    {
+        auto *button = makeButton(icon);
+        connect(button, &QAbstractButton::clicked,
+                this, slot);
+        return button;
+    }
+    QAbstractButton *makeButton(const QIcon &icon);
     void insertEditor(int idx);
     void deleteEditor(int idx);
 

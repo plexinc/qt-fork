@@ -31,6 +31,10 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_CLIPBOARD_DATA_OBJECT_ITEM_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_CLIPBOARD_DATA_OBJECT_ITEM_H_
 
+#include "base/optional.h"
+#include "mojo/public/cpp/bindings/remote.h"
+#include "third_party/blink/public/mojom/file_system_access/file_system_access_data_transfer_token.mojom-blink.h"
+#include "third_party/blink/public/platform/web_drag_data.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/fileapi/file.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
@@ -54,7 +58,9 @@ class CORE_EXPORT DataObjectItem final
   // webkitGetAsEntry.
   static DataObjectItem* CreateFromFileWithFileSystemId(
       File*,
-      const String& file_system_id);
+      const String& file_system_id,
+      scoped_refptr<FileSystemAccessDropData> file_system_access_entry =
+          nullptr);
   static DataObjectItem* CreateFromURL(const String& url, const String& title);
   static DataObjectItem* CreateFromHTML(const String& html,
                                         const KURL& base_url);
@@ -89,14 +95,19 @@ class CORE_EXPORT DataObjectItem final
   bool HasFileSystemId() const;
   String FileSystemId() const;
 
-  void Trace(Visitor*);
+  bool HasFileSystemAccessEntry() const;
+  mojo::PendingRemote<mojom::blink::FileSystemAccessDataTransferToken>
+  CloneFileSystemAccessEntryToken() const;
+
+  void Trace(Visitor*) const;
 
  private:
-  enum DataSource {
+  enum class DataSource {
     kClipboardSource,
     kInternalSource,
   };
 
+  scoped_refptr<FileSystemAccessDropData> file_system_access_entry_;
   DataSource source_;
   ItemKind kind_;
   String type_;
@@ -109,7 +120,8 @@ class CORE_EXPORT DataObjectItem final
   String title_;
   KURL base_url_;
 
-  uint64_t sequence_number_;  // Only valid when |source_| == PasteboardSource.
+  uint64_t sequence_number_;  // Only valid when |source_| ==
+                              // DataSource::kClipboardSource.
   String file_system_id_;     // Only valid when |file_| is backed by FileEntry.
 
   // Access to the global system clipboard.

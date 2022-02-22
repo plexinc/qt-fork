@@ -5,7 +5,6 @@
 #ifndef CONTENT_BROWSER_SERVICE_WORKER_SERVICE_WORKER_SINGLE_SCRIPT_UPDATE_CHECKER_H_
 #define CONTENT_BROWSER_SERVICE_WORKER_SERVICE_WORKER_SINGLE_SCRIPT_UPDATE_CHECKER_H_
 
-#include "content/browser/service_worker/service_worker_disk_cache.h"
 #include "content/browser/service_worker/service_worker_updated_script_loader.h"
 #include "content/common/content_export.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
@@ -22,7 +21,7 @@ class SharedURLLoaderFactory;
 
 namespace content {
 
-struct HttpResponseInfoIOBuffer;
+class BrowserContext;
 class ServiceWorkerCacheWriter;
 
 // Executes byte-for-byte update check of one script. This loads the script from
@@ -60,9 +59,8 @@ class CONTENT_EXPORT ServiceWorkerSingleScriptUpdateChecker
   struct CONTENT_EXPORT PausedState {
     PausedState(
         std::unique_ptr<ServiceWorkerCacheWriter> cache_writer,
-        std::unique_ptr<
-            ServiceWorkerUpdatedScriptLoader::ThrottlingURLLoaderCoreWrapper>
-            network_loader,
+        std::unique_ptr<blink::ThrottlingURLLoader> network_loader,
+        mojo::Remote<network::mojom::URLLoaderClient> network_client_remote,
         mojo::PendingReceiver<network::mojom::URLLoaderClient>
             network_client_receiver,
         scoped_refptr<network::MojoToNetPendingBuffer> pending_network_buffer,
@@ -74,9 +72,22 @@ class CONTENT_EXPORT ServiceWorkerSingleScriptUpdateChecker
     ~PausedState();
 
     std::unique_ptr<ServiceWorkerCacheWriter> cache_writer;
-    std::unique_ptr<
-        ServiceWorkerUpdatedScriptLoader::ThrottlingURLLoaderCoreWrapper>
-        network_loader;
+    std::unique_ptr<blink::ThrottlingURLLoader> network_loader;
+    // The endpoint called by `network_loader`. That needs to be alive while
+    // `network_loader` is alive.
+    //
+    // We need to keep the mojo::Remote<network::mojom::URLLoaderClient> because
+    // `network_loader` keeps a pointer to the mojo::Remote. This means
+    // when ServiceWorkerSingleScriptUpdateChecker pauses loading the script
+    // and passes the state to SWUpdatedScriptLoader, the Mojo's pipe works as
+    // a queue that stores incoming method calls by ThrottlingURLLoader.
+    // Once the Mojo's receiver for network::mojom::URLLoaderClient is re-bound
+    // to SWUpdatedScriptLoader, the queued method calls are invoked.
+    // Note that this can't be mojo::PendingRemote because `network_loader`
+    // holds a raw pointer to the instance of `network_client_remote`.
+    mojo::Remote<network::mojom::URLLoaderClient> network_client_remote;
+    // The other side of endpoint for `network_loader`. This is connected to
+    // `network_client_remote`.
     mojo::PendingReceiver<network::mojom::URLLoaderClient>
         network_client_receiver;
 
@@ -114,17 +125,17 @@ class CONTENT_EXPORT ServiceWorkerSingleScriptUpdateChecker
       const GURL& main_script_url,
       const GURL& scope,
       bool force_bypass_cache,
+      blink::mojom::ScriptType worker_script_type,
       blink::mojom::ServiceWorkerUpdateViaCache update_via_cache,
       const blink::mojom::FetchClientSettingsObjectPtr&
           fetch_client_settings_object,
       base::TimeDelta time_since_last_check,
-      const net::HttpRequestHeaders& default_headers,
-      ServiceWorkerUpdatedScriptLoader::BrowserContextGetter
-          browser_context_getter,
+      BrowserContext* browser_context,
       scoped_refptr<network::SharedURLLoaderFactory> loader_factory,
-      std::unique_ptr<ServiceWorkerResponseReader> compare_reader,
-      std::unique_ptr<ServiceWorkerResponseReader> copy_reader,
-      std::unique_ptr<ServiceWorkerResponseWriter> writer,
+      mojo::Remote<storage::mojom::ServiceWorkerResourceReader> compare_reader,
+      mojo::Remote<storage::mojom::ServiceWorkerResourceReader> copy_reader,
+      mojo::Remote<storage::mojom::ServiceWorkerResourceWriter> writer,
+      int64_t write_resource_id,
       ResultCallback callback);
 
   ~ServiceWorkerSingleScriptUpdateChecker() override;
@@ -155,7 +166,7 @@ class CONTENT_EXPORT ServiceWorkerSingleScriptUpdateChecker
  private:
   class WrappedIOBuffer;
 
-  void WriteHeaders(scoped_refptr<HttpResponseInfoIOBuffer> info_buffer);
+  void WriteHeaders(network::mojom::URLResponseHeadPtr response_head);
   void OnWriteHeadersComplete(net::Error error);
 
   void MaybeStartNetworkConsumerHandleWatcher();
@@ -190,9 +201,10 @@ class CONTENT_EXPORT ServiceWorkerSingleScriptUpdateChecker
   bool network_accessed_ = false;
   network::CrossOriginEmbedderPolicy cross_origin_embedder_policy_;
 
-  std::unique_ptr<
-      ServiceWorkerUpdatedScriptLoader::ThrottlingURLLoaderCoreWrapper>
-      network_loader_;
+  std::unique_ptr<blink::ThrottlingURLLoader> network_loader_;
+  // The endpoint called by `network_loader_`. That needs to be alive while
+  // `network_loader_` is alive.
+  mojo::Remote<network::mojom::URLLoaderClient> network_client_remote_;
   mojo::Receiver<network::mojom::URLLoaderClient> network_client_receiver_{
       this};
   mojo::ScopedDataPipeConsumerHandle network_consumer_;

@@ -13,16 +13,30 @@
 #include "ui/base/clipboard/custom_data_helper.h"
 #include "ui/base/cocoa/cocoa_base_utils.h"
 #include "ui/base/dragdrop/cocoa_dnd_util.h"
+#include "ui/base/dragdrop/drag_drop_types.h"
 
 using remote_cocoa::mojom::DraggingInfo;
 using remote_cocoa::mojom::SelectionDirection;
 using remote_cocoa::mojom::Visibility;
 using content::DropData;
 
+// Ensure that the ui::DragDropTypes::DragOperation enum values stay in sync
+// with NSDragOperation constants, since the code below uses
+// NSDragOperationToDragOperation to filter invalid values.
+#define STATIC_ASSERT_ENUM(a, b)                            \
+  static_assert(static_cast<int>(a) == static_cast<int>(b), \
+                "enum mismatch: " #a)
+STATIC_ASSERT_ENUM(NSDragOperationNone, ui::DragDropTypes::DRAG_NONE);
+STATIC_ASSERT_ENUM(NSDragOperationCopy, ui::DragDropTypes::DRAG_COPY);
+STATIC_ASSERT_ENUM(NSDragOperationLink, ui::DragDropTypes::DRAG_LINK);
+STATIC_ASSERT_ENUM(NSDragOperationMove, ui::DragDropTypes::DRAG_MOVE);
+
 ////////////////////////////////////////////////////////////////////////////////
 // WebContentsViewCocoa
 
-@implementation WebContentsViewCocoa
+@implementation WebContentsViewCocoa {
+  BOOL _inFullScreenTransition;
+}
 
 - (id)initWithViewsHostableView:(ui::ViewsHostableView*)v {
   self = [super initWithFrame:NSZeroRect];
@@ -70,7 +84,8 @@ using content::DropData;
     ui::PopulateURLAndTitleFromPasteboard(&url, NULL, pboard, YES);
     info->url.emplace(url);
   }
-  info->operation_mask = [nsInfo draggingSourceOperationMask];
+  info->operation_mask = ui::DragDropTypes::NSDragOperationToDragOperation(
+      [nsInfo draggingSourceOperationMask]);
 }
 
 - (BOOL)allowsVibrancy {
@@ -150,7 +165,9 @@ using content::DropData;
 - (void)draggedImage:(NSImage*)anImage
              endedAt:(NSPoint)screenPoint
            operation:(NSDragOperation)operation {
-  [_dragSource endDragAt:screenPoint operation:operation];
+  [_dragSource
+      endDragAt:screenPoint
+      operation:ui::DragDropTypes::NSDragOperationToDragOperation(operation)];
 
   // Might as well throw out this object now.
   _dragSource.reset();
@@ -257,7 +274,7 @@ using content::DropData;
 }
 
 - (void)updateWebContentsVisibility {
-  if (!_host)
+  if (!_host || _inFullScreenTransition)
     return;
   Visibility visibility = Visibility::kVisible;
   if ([self isHiddenOrHasHiddenAncestor] || ![self window])
@@ -291,21 +308,55 @@ using content::DropData;
       [NSNotificationCenter defaultCenter];
 
   if (oldWindow) {
-    [notificationCenter
-        removeObserver:self
-                  name:NSWindowDidChangeOcclusionStateNotification
-                object:oldWindow];
+    NSArray* notificationsToRemove = @[
+      NSWindowDidChangeOcclusionStateNotification,
+      NSWindowWillEnterFullScreenNotification,
+      NSWindowDidEnterFullScreenNotification,
+      NSWindowWillExitFullScreenNotification,
+      NSWindowDidExitFullScreenNotification
+    ];
+    for (NSString* notificationName in notificationsToRemove) {
+      [notificationCenter removeObserver:self
+                                    name:notificationName
+                                  object:oldWindow];
+    }
   }
   if (newWindow) {
     [notificationCenter addObserver:self
                            selector:@selector(windowChangedOcclusionState:)
                                name:NSWindowDidChangeOcclusionStateNotification
                              object:newWindow];
+    // The fullscreen transition causes spurious occlusion notifications.
+    // See https://crbug.com/1081229
+    [notificationCenter addObserver:self
+                           selector:@selector(fullscreenTransitionStarted:)
+                               name:NSWindowWillEnterFullScreenNotification
+                             object:newWindow];
+    [notificationCenter addObserver:self
+                           selector:@selector(fullscreenTransitionComplete:)
+                               name:NSWindowDidEnterFullScreenNotification
+                             object:newWindow];
+    [notificationCenter addObserver:self
+                           selector:@selector(fullscreenTransitionStarted:)
+                               name:NSWindowWillExitFullScreenNotification
+                             object:newWindow];
+    [notificationCenter addObserver:self
+                           selector:@selector(fullscreenTransitionComplete:)
+                               name:NSWindowDidExitFullScreenNotification
+                             object:newWindow];
   }
 }
 
 - (void)windowChangedOcclusionState:(NSNotification*)notification {
   [self updateWebContentsVisibility];
+}
+
+- (void)fullscreenTransitionStarted:(NSNotification*)notification {
+  _inFullScreenTransition = YES;
+}
+
+- (void)fullscreenTransitionComplete:(NSNotification*)notification {
+  _inFullScreenTransition = NO;
 }
 
 - (void)viewDidMoveToWindow {

@@ -26,7 +26,6 @@
 #include "content/browser/indexed_db/indexed_db_connection.h"
 #include "content/browser/indexed_db/indexed_db_database_error.h"
 #include "content/browser/indexed_db/indexed_db_external_object_storage.h"
-#include "content/browser/indexed_db/indexed_db_observer.h"
 #include "content/browser/indexed_db/indexed_db_task_helper.h"
 #include "third_party/blink/public/common/indexeddb/web_idb_types.h"
 #include "third_party/blink/public/mojom/indexeddb/indexeddb.mojom-forward.h"
@@ -47,7 +46,6 @@ FORWARD_DECLARE_TEST(IndexedDBTransactionTestMode, ScheduleNormalTask);
 FORWARD_DECLARE_TEST(IndexedDBTransactionTestMode, TaskFails);
 FORWARD_DECLARE_TEST(IndexedDBTransactionTest, Timeout);
 FORWARD_DECLARE_TEST(IndexedDBTransactionTest, TimeoutPreemptive);
-FORWARD_DECLARE_TEST(IndexedDBTransactionTest, IndexedDBObserver);
 }  // namespace indexed_db_transaction_unittest
 
 class CONTENT_EXPORT IndexedDBTransaction {
@@ -68,6 +66,14 @@ class CONTENT_EXPORT IndexedDBTransaction {
 
   // Signals the transaction for commit.
   void SetCommitFlag();
+
+  // Returns false if the transaction has been signalled to commit, is in the
+  // process of committing, or finished committing or was aborted. Essentially
+  // when this returns false no tasks should be scheduled that try to modify
+  // the transaction.
+  bool IsAcceptingRequests() {
+    return !is_commit_pending_ && state_ != COMMITTING && state_ != FINISHED;
+  }
 
   // This transaction is ultimately backed by a LevelDBScope. Aborting a
   // transaction rolls back the LevelDBScopes, which (if LevelDBScopes is in
@@ -94,19 +100,7 @@ class CONTENT_EXPORT IndexedDBTransaction {
     DCHECK_GE(pending_preemptive_events_, 0);
   }
 
-  void AddPendingObserver(int32_t observer_id,
-                          const IndexedDBObserver::Options& options);
-  // Delete pending observers with ID's listed in |pending_observer_ids|.
-  void RemovePendingObservers(const std::vector<int32_t>& pending_observer_ids);
-
-  // Adds observation for the connection.
-  void AddObservation(int32_t connection_id,
-                      blink::mojom::IDBObservationPtr observation);
-
   void EnsureBackingStoreTransactionBegun();
-
-  blink::mojom::IDBObserverChangesPtr* GetPendingChangesForConnection(
-      int32_t connection_id);
 
   enum class RunTasksResult { kError, kNotFinished, kCommitted, kAborted };
   std::tuple<RunTasksResult, leveldb::Status> RunTasks();
@@ -151,10 +145,7 @@ class CONTENT_EXPORT IndexedDBTransaction {
 
   // in_flight_memory() is used to keep track of all memory scheduled to be
   // written using ScheduleTask. This is reported to memory dumps.
-  int64_t in_flight_memory() const { return in_flight_memory_; }
-  void set_in_flight_memory(int64_t in_flight_memory) {
-    in_flight_memory_ = in_flight_memory;
-  }
+  base::CheckedNumeric<size_t>& in_flight_memory() { return in_flight_memory_; }
 
  protected:
   // Test classes may derive, but most creation should be done via
@@ -200,9 +191,6 @@ class CONTENT_EXPORT IndexedDBTransaction {
   FRIEND_TEST_ALL_PREFIXES(
       indexed_db_transaction_unittest::IndexedDBTransactionTest,
       TimeoutPreemptive);
-  FRIEND_TEST_ALL_PREFIXES(
-      indexed_db_transaction_unittest::IndexedDBTransactionTest,
-      IndexedDBObserver);
 
   leveldb::Status Commit();
 
@@ -214,7 +202,9 @@ class CONTENT_EXPORT IndexedDBTransaction {
   bool IsTaskQueueEmpty() const;
   bool HasPendingTasks() const;
 
-  leveldb::Status BlobWriteComplete(BlobWriteResult result);
+  leveldb::Status BlobWriteComplete(
+      BlobWriteResult result,
+      storage::mojom::WriteBlobToFileResult error);
   void CloseOpenCursorBindings();
   void CloseOpenCursors();
   leveldb::Status CommitPhaseTwo();
@@ -239,15 +229,10 @@ class CONTENT_EXPORT IndexedDBTransaction {
   // destroy this object).
   TearDownCallback tear_down_callback_;
 
-  // Observers in pending queue do not listen to changes until activated.
-  std::vector<std::unique_ptr<IndexedDBObserver>> pending_observers_;
-  std::map<int32_t, blink::mojom::IDBObserverChangesPtr>
-      connection_changes_map_;
-
   // Metrics for quota.
   int64_t size_ = 0;
 
-  int64_t in_flight_memory_ = 0;
+  base::CheckedNumeric<size_t> in_flight_memory_ = 0;
 
   class TaskQueue {
    public:

@@ -31,11 +31,11 @@
 #define SYMBOLS_H
 
 #include "token.h"
-#include <qstring.h>
-#include <qhash.h>
-#include <qvector.h>
-#include <qstack.h>
 #include <qdebug.h>
+#include <qhash.h>
+#include <qlist.h>
+#include <qstack.h>
+#include <qstring.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -59,7 +59,7 @@ struct SubArray
     }
 };
 
-inline uint qHash(const SubArray &key)
+inline size_t qHash(const SubArray &key)
 {
     return qHash(QLatin1String(key.array.constData() + key.from, key.len));
 }
@@ -118,9 +118,9 @@ struct Symbol
 
 #endif
 };
-Q_DECLARE_TYPEINFO(Symbol, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(Symbol, Q_RELOCATABLE_TYPE);
 
-typedef QVector<Symbol> Symbols;
+typedef QList<Symbol> Symbols;
 
 struct SafeSymbols {
     Symbols symbols;
@@ -128,7 +128,7 @@ struct SafeSymbols {
     QSet<QByteArray> excludedSymbols;
     int index;
 };
-Q_DECLARE_TYPEINFO(SafeSymbols, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(SafeSymbols, Q_RELOCATABLE_TYPE);
 
 class SymbolStack : public QStack<SafeSymbols>
 {

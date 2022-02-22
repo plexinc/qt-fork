@@ -6,7 +6,7 @@
 
 #include <cstdint>
 
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/optional.h"
 #include "third_party/blink/renderer/platform/scheduler/common/throttling/task_queue_throttler.h"
 
@@ -23,7 +23,6 @@ CPUTimeBudgetPool::CPUTimeBudgetPool(
     : BudgetPool(name, budget_pool_controller),
       current_budget_level_(base::TimeDelta(),
                             "RendererScheduler.BackgroundBudgetMs",
-                            budget_pool_controller,
                             tracing_controller,
                             TimeDeltaToMilliseconds),
       last_checkpoint_(now),
@@ -82,11 +81,11 @@ bool CPUTimeBudgetPool::CanRunTasksAt(base::TimeTicks moment,
   return moment >= GetNextAllowedRunTime(moment);
 }
 
-base::Optional<base::TimeTicks> CPUTimeBudgetPool::GetTimeTasksCanRunUntil(
+base::TimeTicks CPUTimeBudgetPool::GetTimeTasksCanRunUntil(
     base::TimeTicks now,
     bool is_wake_up) const {
   if (CanRunTasksAt(now, is_wake_up))
-    return base::nullopt;
+    return base::TimeTicks::Max();
   return base::TimeTicks();
 }
 
@@ -116,7 +115,7 @@ void CPUTimeBudgetPool::RecordTaskRunTime(TaskQueue* queue,
   }
 
   if (current_budget_level_->InSecondsF() < 0)
-    BlockThrottledQueues(end_time);
+    UpdateThrottlingStateForAllQueues(end_time);
 }
 
 void CPUTimeBudgetPool::OnQueueNextWakeUpChanged(
@@ -128,37 +127,27 @@ void CPUTimeBudgetPool::OnQueueNextWakeUpChanged(
 
 void CPUTimeBudgetPool::OnWakeUp(base::TimeTicks now) {}
 
-void CPUTimeBudgetPool::AsValueInto(base::trace_event::TracedValue* state,
-                                    base::TimeTicks now) const {
-  current_budget_level_.Trace();
-  state->BeginDictionary(name_);
+void CPUTimeBudgetPool::WriteIntoTracedValue(perfetto::TracedValue context,
+                                             base::TimeTicks now) const {
+  auto dict = std::move(context).WriteDictionary();
 
-  state->SetString("name", name_);
-  state->SetDouble("time_budget", cpu_percentage_);
-  state->SetDouble("time_budget_level_in_seconds",
-                   current_budget_level_->InSecondsF());
-  state->SetDouble("last_checkpoint_seconds_ago",
-                   (now - last_checkpoint_).InSecondsF());
-  state->SetBoolean("is_enabled", is_enabled_);
-  state->SetDouble("min_budget_level_to_run_in_seconds",
-                   min_budget_level_to_run_.InSecondsF());
+  dict.Add("name", name_);
+  dict.Add("time_budget", cpu_percentage_);
+  dict.Add("time_budget_level_in_seconds", current_budget_level_->InSecondsF());
+  dict.Add("last_checkpoint_seconds_ago",
+           (now - last_checkpoint_).InSecondsF());
+  dict.Add("is_enabled", is_enabled_);
+  dict.Add("min_budget_level_to_run_in_seconds",
+           min_budget_level_to_run_.InSecondsF());
 
   if (max_throttling_delay_) {
-    state->SetDouble("max_throttling_delay_in_seconds",
-                     max_throttling_delay_.value().InSecondsF());
+    dict.Add("max_throttling_delay_in_seconds",
+             max_throttling_delay_.value().InSecondsF());
   }
   if (max_budget_level_) {
-    state->SetDouble("max_budget_level_in_seconds",
-                     max_budget_level_.value().InSecondsF());
+    dict.Add("max_budget_level_in_seconds",
+             max_budget_level_.value().InSecondsF());
   }
-
-  state->BeginArray("task_queues");
-  for (TaskQueue* queue : associated_task_queues_) {
-    state->AppendString(PointerToString(queue));
-  }
-  state->EndArray();
-
-  state->EndDictionary();
 }
 
 void CPUTimeBudgetPool::Advance(base::TimeTicks now) {

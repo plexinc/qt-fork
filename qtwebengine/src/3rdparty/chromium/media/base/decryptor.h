@@ -44,19 +44,6 @@ class MEDIA_EXPORT Decryptor {
   Decryptor();
   virtual ~Decryptor();
 
-  // Indicates that a new key has been added to the ContentDecryptionModule
-  // object associated with the Decryptor.
-  using NewKeyCB = base::RepeatingClosure;
-
-  // Registers a NewKeyCB which should be called when a new key is added to the
-  // decryptor. Only one NewKeyCB can be registered for one |stream_type|.
-  // If this function is called multiple times for the same |stream_type|, the
-  // previously registered callback will be replaced. In other words,
-  // registering a null callback cancels the originally registered callback.
-  // TODO(crbug.com/821288): Replace this with CdmContext::RegisterEventCB().
-  virtual void RegisterNewKeyCB(StreamType stream_type,
-                                NewKeyCB key_added_cb) = 0;
-
   // Indicates completion of a decryption operation.
   //
   // First parameter: The status of the decryption operation.
@@ -122,10 +109,9 @@ class MEDIA_EXPORT Decryptor {
   // - Set to kError if unexpected error has occurred. In this case the
   //   returned frame(s) must be NULL/empty.
   // Second parameter: The decoded video frame or audio buffers.
-  typedef base::RepeatingCallback<void(Status, const AudioFrames&)>
-      AudioDecodeCB;
-  typedef base::RepeatingCallback<void(Status, scoped_refptr<VideoFrame>)>
-      VideoDecodeCB;
+  using AudioDecodeCB = base::OnceCallback<void(Status, const AudioFrames&)>;
+  using VideoDecodeCB =
+      base::OnceCallback<void(Status, scoped_refptr<VideoFrame>)>;
 
   // Decrypts and decodes the |encrypted| buffer. The status and the decrypted
   // buffer are returned via the provided callback.
@@ -138,9 +124,9 @@ class MEDIA_EXPORT Decryptor {
   // AudioDecodeCB has completed. Thus, only one AudioDecodeCB may be pending at
   // any time. Same for DecryptAndDecodeVideo();
   virtual void DecryptAndDecodeAudio(scoped_refptr<DecoderBuffer> encrypted,
-                                     const AudioDecodeCB& audio_decode_cb) = 0;
+                                     AudioDecodeCB audio_decode_cb) = 0;
   virtual void DecryptAndDecodeVideo(scoped_refptr<DecoderBuffer> encrypted,
-                                     const VideoDecodeCB& video_decode_cb) = 0;
+                                     VideoDecodeCB video_decode_cb) = 0;
 
   // Resets the decoder to an initialized clean state, cancels any scheduled
   // decrypt-and-decode operations, and fires any pending

@@ -49,7 +49,6 @@
 #include <QPointer>
 
 #include <QGuiApplication>
-#include <QDebug>
 #include <QtMath>
 
 QT_BEGIN_NAMESPACE
@@ -59,7 +58,6 @@ using namespace QtAndroid;
 namespace QtAndroidInput
 {
     static bool m_ignoreMouseEvents = false;
-    static bool m_softwareKeyboardVisible = false;
     static QRect m_softwareKeyboardRect;
 
     static QList<QWindowSystemInterface::TouchPoint> m_touchPoints;
@@ -71,27 +69,26 @@ namespace QtAndroidInput
 #ifdef QT_DEBUG_ANDROID_IM_PROTOCOL
         qDebug() << ">>> UPDATESELECTION" << selStart << selEnd << candidatesStart << candidatesEnd;
 #endif
-        QJNIObjectPrivate::callStaticMethod<void>(applicationClass(),
-                                                  "updateSelection",
-                                                  "(IIII)V",
-                                                  selStart,
-                                                  selEnd,
-                                                  candidatesStart,
-                                                  candidatesEnd);
+        QJniObject::callStaticMethod<void>(applicationClass(),
+                                           "updateSelection",
+                                           "(IIII)V",
+                                           selStart,
+                                           selEnd,
+                                           candidatesStart,
+                                           candidatesEnd);
     }
 
     void showSoftwareKeyboard(int left, int top, int width, int height, int inputHints, int enterKeyType)
     {
-        QJNIObjectPrivate::callStaticMethod<void>(applicationClass(),
-                                                  "showSoftwareKeyboard",
-                                                  "(IIIIII)V",
-                                                  left,
-                                                  top,
-                                                  width,
-                                                  height,
-                                                  inputHints,
-                                                  enterKeyType
-                                                 );
+        QJniObject::callStaticMethod<void>(applicationClass(),
+                                           "showSoftwareKeyboard",
+                                           "(IIIIII)V",
+                                           left,
+                                           top,
+                                           width,
+                                           height,
+                                           inputHints,
+                                           enterKeyType);
 #ifdef QT_DEBUG_ANDROID_IM_PROTOCOL
         qDebug() << "@@@ SHOWSOFTWAREKEYBOARD" << left << top << width << height << inputHints << enterKeyType;
 #endif
@@ -99,7 +96,7 @@ namespace QtAndroidInput
 
     void resetSoftwareKeyboard()
     {
-        QJNIObjectPrivate::callStaticMethod<void>(applicationClass(), "resetSoftwareKeyboard");
+        QJniObject::callStaticMethod<void>(applicationClass(), "resetSoftwareKeyboard");
 #ifdef QT_DEBUG_ANDROID_IM_PROTOCOL
         qDebug("@@@ RESETSOFTWAREKEYBOARD");
 #endif
@@ -107,7 +104,7 @@ namespace QtAndroidInput
 
     void hideSoftwareKeyboard()
     {
-        QJNIObjectPrivate::callStaticMethod<void>(applicationClass(), "hideSoftwareKeyboard");
+        QJniObject::callStaticMethod<void>(applicationClass(), "hideSoftwareKeyboard");
 #ifdef QT_DEBUG_ANDROID_IM_PROTOCOL
         qDebug("@@@ HIDESOFTWAREKEYBOARD");
 #endif
@@ -115,7 +112,7 @@ namespace QtAndroidInput
 
     bool isSoftwareKeyboardVisible()
     {
-        return m_softwareKeyboardVisible;
+        return QJniObject::callStaticMethod<jboolean>(applicationClass(), "isSoftwareKeyboardVisible");
     }
 
     QRect softwareKeyboardRect()
@@ -123,12 +120,17 @@ namespace QtAndroidInput
         return m_softwareKeyboardRect;
     }
 
+    int getSelectHandleWidth()
+    {
+        return QJniObject::callStaticMethod<jint>(applicationClass(), "getSelectHandleWidth");
+    }
+
     void updateHandles(int mode, QPoint editMenuPos, uint32_t editButtons, QPoint cursor, QPoint anchor, bool rtl)
     {
-        QJNIObjectPrivate::callStaticMethod<void>(applicationClass(), "updateHandles", "(IIIIIIIIZ)V",
-                                                  mode, editMenuPos.x(), editMenuPos.y(), editButtons,
-                                                  cursor.x(), cursor.y(),
-                                                  anchor.x(), anchor.y(), rtl);
+        QJniObject::callStaticMethod<void>(applicationClass(), "updateHandles", "(IIIIIIIIZ)V",
+                                           mode, editMenuPos.x(), editMenuPos.y(), editButtons,
+                                           cursor.x(), cursor.y(),
+                                           anchor.x(), anchor.y(), rtl);
     }
 
     static void mouseDown(JNIEnv */*env*/, jobject /*thiz*/, jint /*winId*/, jint x, jint y)
@@ -228,24 +230,24 @@ namespace QtAndroidInput
     static void touchAdd(JNIEnv */*env*/, jobject /*thiz*/, jint /*winId*/, jint id, jint action, jboolean /*primary*/, jint x, jint y,
         jfloat major, jfloat minor, jfloat rotation, jfloat pressure)
     {
-        Qt::TouchPointState state = Qt::TouchPointStationary;
+        QEventPoint::State state = QEventPoint::State::Stationary;
         switch (action) {
         case 0:
-            state = Qt::TouchPointPressed;
+            state = QEventPoint::State::Pressed;
             break;
         case 1:
-            state = Qt::TouchPointMoved;
+            state = QEventPoint::State::Updated;
             break;
         case 2:
-            state = Qt::TouchPointStationary;
+            state = QEventPoint::State::Stationary;
             break;
         case 3:
-            state = Qt::TouchPointReleased;
+            state = QEventPoint::State::Released;
             break;
         }
 
-        const int dw = desktopWidthPixels();
-        const int dh = desktopHeightPixels();
+        const int dw = availableWidthPixels();
+        const int dh = availableHeightPixels();
         QWindowSystemInterface::TouchPoint touchPoint;
         touchPoint.id = id;
         touchPoint.pressure = pressure;
@@ -258,37 +260,62 @@ namespace QtAndroidInput
                                  double(major * 2));
         m_touchPoints.push_back(touchPoint);
 
-        if (state == Qt::TouchPointPressed) {
+        if (state == QEventPoint::State::Pressed) {
             QAndroidInputContext *inputContext = QAndroidInputContext::androidInputContext();
             if (inputContext && qGuiApp)
                 QMetaObject::invokeMethod(inputContext, "touchDown", Q_ARG(int, x), Q_ARG(int, y));
         }
     }
 
-    static void touchEnd(JNIEnv */*env*/, jobject /*thiz*/, jint /*winId*/, jint /*action*/)
+    static QPointingDevice *getTouchDevice()
+    {
+        QAndroidPlatformIntegration *platformIntegration = QtAndroid::androidPlatformIntegration();
+        if (!platformIntegration)
+            return nullptr;
+
+        QPointingDevice *touchDevice = platformIntegration->touchDevice();
+        if (!touchDevice) {
+            touchDevice = new QPointingDevice("Android touchscreen", 1,
+                                              QInputDevice::DeviceType::TouchScreen,
+                                              QPointingDevice::PointerType::Finger,
+                                              QPointingDevice::Capability::Position
+                                                    | QPointingDevice::Capability::Area
+                                                    | QPointingDevice::Capability::Pressure
+                                                    | QPointingDevice::Capability::NormalizedPosition,
+                                              10, 0);
+            QWindowSystemInterface::registerInputDevice(touchDevice);
+            platformIntegration->setTouchDevice(touchDevice);
+        }
+
+        return touchDevice;
+    }
+
+    static void touchEnd(JNIEnv * /*env*/, jobject /*thiz*/, jint /*winId*/, jint /*action*/)
     {
         if (m_touchPoints.isEmpty())
             return;
 
         QMutexLocker lock(QtAndroid::platformInterfaceMutex());
-        QAndroidPlatformIntegration *platformIntegration = QtAndroid::androidPlatformIntegration();
-        if (!platformIntegration)
+        QPointingDevice *touchDevice = getTouchDevice();
+        if (!touchDevice)
             return;
-
-        QTouchDevice *touchDevice = platformIntegration->touchDevice();
-        if (touchDevice == 0) {
-            touchDevice = new QTouchDevice;
-            touchDevice->setType(QTouchDevice::TouchScreen);
-            touchDevice->setCapabilities(QTouchDevice::Position
-                                         | QTouchDevice::Area
-                                         | QTouchDevice::Pressure
-                                         | QTouchDevice::NormalizedPosition);
-            QWindowSystemInterface::registerTouchDevice(touchDevice);
-            platformIntegration->setTouchDevice(touchDevice);
-        }
 
         QWindow *window = QtAndroid::topLevelWindowAt(m_touchPoints.at(0).area.center().toPoint());
         QWindowSystemInterface::handleTouchEvent(window, touchDevice, m_touchPoints);
+    }
+
+    static void touchCancel(JNIEnv * /*env*/, jobject /*thiz*/, jint /*winId*/)
+    {
+        if (m_touchPoints.isEmpty())
+            return;
+
+        QMutexLocker lock(QtAndroid::platformInterfaceMutex());
+        QPointingDevice *touchDevice = getTouchDevice();
+        if (!touchDevice)
+            return;
+
+        QWindow *window = QtAndroid::topLevelWindowAt(m_touchPoints.at(0).area.center().toPoint());
+        QWindowSystemInterface::handleTouchCancelEvent(window, touchDevice);
     }
 
     static bool isTabletEventSupported(JNIEnv */*env*/, jobject /*thiz*/)
@@ -343,28 +370,28 @@ namespace QtAndroidInput
 #endif
 
         QWindowSystemInterface::handleTabletEvent(tlw, ulong(time),
-            localPos, globalPosF, QTabletEvent::Stylus, pointerType,
+            localPos, globalPosF, int(QInputDevice::DeviceType::Stylus), pointerType,
             buttons, pressure, 0, 0, 0., 0., 0, deviceId, Qt::NoModifier);
 #endif // QT_CONFIG(tabletevent)
     }
 
-    static int mapAndroidKey(int key)
+    static QKeyCombination mapAndroidKey(int key)
     {
         // 0--9        0x00000007 -- 0x00000010
         if (key >= 0x00000007 && key <= 0x00000010)
-            return Qt::Key_0 + key - 0x00000007;
+            return QKeyCombination::fromCombined(Qt::Key_0 + key - 0x00000007);
 
         // A--Z        0x0000001d -- 0x00000036
         if (key >= 0x0000001d && key <= 0x00000036)
-            return Qt::Key_A + key - 0x0000001d;
+            return QKeyCombination::fromCombined(Qt::Key_A + key - 0x0000001d);
 
         // F1--F12     0x00000083 -- 0x0000008e
         if (key >= 0x00000083 && key <= 0x0000008e)
-            return Qt::Key_F1 + key - 0x00000083;
+            return QKeyCombination::fromCombined(Qt::Key_F1 + key - 0x00000083);
 
         // NUMPAD_0--NUMPAD_9     0x00000090 -- 0x00000099
         if (key >= 0x00000090 && key <= 0x00000099)
-            return Qt::KeypadModifier + Qt::Key_0 + key - 0x00000090;
+            return QKeyCombination::fromCombined(Qt::KeypadModifier | Qt::Key_0 + key - 0x00000090);
 
         // BUTTON_1--KEYCODE_BUTTON_16 0x000000bc -- 0x000000cb
 
@@ -498,7 +525,7 @@ namespace QtAndroidInput
             return Qt::Key_Alt;
 
         case 0x0000004f: // KEYCODE_HEADSETHOOK
-            return 0;
+            return QKeyCombination::fromCombined(0);
 
         case 0x00000050: // KEYCODE_FOCUS
             return Qt::Key_CameraFocus;
@@ -510,13 +537,13 @@ namespace QtAndroidInput
             return Qt::Key_Menu;
 
         case 0x00000053: // KEYCODE_NOTIFICATION
-            return 0;
+            return QKeyCombination::fromCombined(0);
 
         case 0x00000054: // KEYCODE_SEARCH
             return Qt::Key_Search;
 
         case 0x00000055: // KEYCODE_MEDIA_PLAY_PAUSE
-            return Qt::Key_MediaPlay;
+            return Qt::Key_MediaTogglePlayPause;
 
         case 0x00000056: // KEYCODE_MEDIA_STOP
             return Qt::Key_MediaStop;
@@ -543,7 +570,7 @@ namespace QtAndroidInput
             return Qt::Key_PageDown;
 
         case 0x0000005e: // KEYCODE_PICTSYMBOLS
-            return 0;
+            return QKeyCombination::fromCombined(0);
 
         case 0x00000060: // KEYCODE_BUTTON_A
         case 0x00000061: // KEYCODE_BUTTON_B
@@ -560,7 +587,7 @@ namespace QtAndroidInput
         case 0x0000006c: // KEYCODE_BUTTON_START
         case 0x0000006d: // KEYCODE_BUTTON_SELECT
         case 0x0000006e: // KEYCODE_BUTTON_MODE
-            return 0;
+            return QKeyCombination::fromCombined(0);
 
         case 0x0000006f: // KEYCODE_ESCAPE
             return Qt::Key_Escape;
@@ -583,7 +610,7 @@ namespace QtAndroidInput
             return Qt::Key_Meta;
 
         case 0x00000077: // KEYCODE_FUNCTION
-            return 0;
+            return QKeyCombination::fromCombined(0);
 
         case 0x00000078: // KEYCODE_SYSRQ
             return Qt::Key_Print;
@@ -624,28 +651,28 @@ namespace QtAndroidInput
         // NUMPAD_0--NUMPAD_9     0x00000090 -- 0x00000099
 
         case 0x0000009a: // KEYCODE_NUMPAD_DIVIDE
-            return Qt::KeypadModifier + Qt::Key_Slash;
+            return Qt::KeypadModifier | Qt::Key_Slash;
 
         case 0x0000009b: // KEYCODE_NUMPAD_MULTIPLY
-            return Qt::KeypadModifier + Qt::Key_Asterisk;
+            return Qt::KeypadModifier | Qt::Key_Asterisk;
 
         case 0x0000009c: // KEYCODE_NUMPAD_SUBTRACT
-            return Qt::KeypadModifier + Qt::Key_Minus;
+            return Qt::KeypadModifier | Qt::Key_Minus;
 
         case 0x0000009d: // KEYCODE_NUMPAD_ADD
-            return Qt::KeypadModifier + Qt::Key_Plus;
+            return Qt::KeypadModifier | Qt::Key_Plus;
 
         case 0x0000009e: // KEYCODE_NUMPAD_DOT
-            return Qt::KeypadModifier + Qt::Key_Period;
+            return Qt::KeypadModifier | Qt::Key_Period;
 
         case 0x0000009f: // KEYCODE_NUMPAD_COMMA
-            return Qt::KeypadModifier + Qt::Key_Comma;
+            return Qt::KeypadModifier | Qt::Key_Comma;
 
         case 0x000000a0: // KEYCODE_NUMPAD_ENTER
             return Qt::Key_Enter;
 
         case 0x000000a1: // KEYCODE_NUMPAD_EQUALS
-            return Qt::KeypadModifier + Qt::Key_Equal;
+            return Qt::KeypadModifier | Qt::Key_Equal;
 
         case 0x000000a2: // KEYCODE_NUMPAD_LEFT_PAREN
             return Qt::Key_ParenLeft;
@@ -673,13 +700,13 @@ namespace QtAndroidInput
 
         case 0x000000aa: // KEYCODE_TV
         case 0x000000ab: // KEYCODE_WINDOW
-            return 0;
+            return QKeyCombination::fromCombined(0);
 
         case 0x000000ac: // KEYCODE_GUIDE
             return Qt::Key_Guide;
 
         case 0x000000ad: // KEYCODE_DVR
-            return 0;
+            return QKeyCombination::fromCombined(0);
 
         case 0x000000ae: // KEYCODE_BOOKMARK
             return Qt::Key_AddFavorite;
@@ -696,7 +723,7 @@ namespace QtAndroidInput
         case 0x000000b4: // KEYCODE_STB_INPUT
         case 0x000000b5: // KEYCODE_AVR_POWER
         case 0x000000b6: // KEYCODE_AVR_INPUT
-            return 0;
+            return QKeyCombination::fromCombined(0);
 
         case 0x000000b7: // KEYCODE_PROG_RED
             return Qt::Key_Red;
@@ -718,7 +745,7 @@ namespace QtAndroidInput
         case 0x000000cd: // KEYCODE_MANNER_MODE do we need such a thing?
         case 0x000000ce: // KEYCODE_3D_MODE
         case 0x000000cf: // KEYCODE_CONTACTS
-            return 0;
+            return QKeyCombination::fromCombined(0);
 
         case 0x000000d0: // KEYCODE_CALENDAR
             return Qt::Key_Calendar;
@@ -744,7 +771,7 @@ namespace QtAndroidInput
 
         default:
             qWarning() << "Unhandled key code " << key << '!';
-            return 0;
+            return QKeyCombination::fromCombined(0);
         }
     }
 
@@ -777,7 +804,7 @@ namespace QtAndroidInput
     {
         QWindowSystemInterface::handleKeyEvent(0,
                                                QEvent::KeyPress,
-                                               mapAndroidKey(key),
+                                               mapAndroidKey(key).toCombined(),
                                                mapAndroidModifiers(modifier),
                                                toString(unicode),
                                                autoRepeat);
@@ -787,7 +814,7 @@ namespace QtAndroidInput
     {
         QWindowSystemInterface::handleKeyEvent(0,
                                                QEvent::KeyRelease,
-                                               mapAndroidKey(key),
+                                               mapAndroidKey(key).toCombined(),
                                                mapAndroidModifiers(modifier),
                                                toString(unicode),
                                                autoRepeat);
@@ -795,7 +822,6 @@ namespace QtAndroidInput
 
     static void keyboardVisibilityChanged(JNIEnv */*env*/, jobject /*thiz*/, jboolean visibility)
     {
-        m_softwareKeyboardVisible = visibility;
         if (!visibility)
             m_softwareKeyboardRect = QRect();
 
@@ -843,6 +869,7 @@ namespace QtAndroidInput
         {"touchBegin","(I)V",(void*)touchBegin},
         {"touchAdd","(IIIZIIFFFF)V",(void*)touchAdd},
         {"touchEnd","(II)V",(void*)touchEnd},
+        {"touchCancel", "(I)V", (void *)touchCancel},
         {"mouseDown", "(III)V", (void *)mouseDown},
         {"mouseUp", "(III)V", (void *)mouseUp},
         {"mouseMove", "(III)V", (void *)mouseMove},

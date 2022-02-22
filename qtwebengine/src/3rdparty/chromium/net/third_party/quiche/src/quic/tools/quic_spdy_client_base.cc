@@ -2,19 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/tools/quic_spdy_client_base.h"
+#include "quic/tools/quic_spdy_client_base.h"
 
 #include <utility>
 
-#include "net/third_party/quiche/src/quic/core/crypto/quic_random.h"
-#include "net/third_party/quiche/src/quic/core/http/spdy_utils.h"
-#include "net/third_party/quiche/src/quic/core/quic_server_id.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_text_utils.h"
+#include "absl/strings/numbers.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/crypto/quic_random.h"
+#include "quic/core/http/spdy_utils.h"
+#include "quic/core/quic_server_id.h"
+#include "quic/platform/api/quic_flags.h"
+#include "quic/platform/api/quic_logging.h"
+#include "common/platform/api/quiche_text_utils.h"
 
-using spdy::SpdyHeaderBlock;
+using spdy::Http2HeaderBlock;
 
 namespace quic {
 
@@ -24,8 +25,8 @@ void QuicSpdyClientBase::ClientQuicDataToResend::Resend() {
 }
 
 QuicSpdyClientBase::QuicDataToResend::QuicDataToResend(
-    std::unique_ptr<SpdyHeaderBlock> headers,
-    quiche::QuicheStringPiece body,
+    std::unique_ptr<Http2HeaderBlock> headers,
+    absl::string_view body,
     bool fin)
     : headers_(std::move(headers)), body_(body), fin_(fin) {}
 
@@ -50,8 +51,7 @@ QuicSpdyClientBase::QuicSpdyClientBase(
                      std::move(session_cache)),
       store_response_(false),
       latest_response_code_(-1),
-      max_allowed_push_id_(0),
-      disable_qpack_dynamic_table_(false) {}
+      max_allowed_push_id_(0) {}
 
 QuicSpdyClientBase::~QuicSpdyClientBase() {
   // We own the push promise index. We need to explicitly kill
@@ -63,11 +63,11 @@ QuicSpdyClientSession* QuicSpdyClientBase::client_session() {
   return static_cast<QuicSpdyClientSession*>(QuicClientBase::session());
 }
 
+const QuicSpdyClientSession* QuicSpdyClientBase::client_session() const {
+  return static_cast<const QuicSpdyClientSession*>(QuicClientBase::session());
+}
+
 void QuicSpdyClientBase::InitializeSession() {
-  if (disable_qpack_dynamic_table_) {
-    client_session()->set_qpack_maximum_dynamic_table_capacity(0);
-    client_session()->set_qpack_maximum_blocked_streams(0);
-  }
   client_session()->Initialize();
   client_session()->CryptoConnect();
   if (max_allowed_push_id_ > 0 &&
@@ -77,11 +77,11 @@ void QuicSpdyClientBase::InitializeSession() {
 }
 
 void QuicSpdyClientBase::OnClose(QuicSpdyStream* stream) {
-  DCHECK(stream != nullptr);
+  QUICHE_DCHECK(stream != nullptr);
   QuicSpdyClientStream* client_stream =
       static_cast<QuicSpdyClientStream*>(stream);
 
-  const SpdyHeaderBlock& response_headers = client_stream->response_headers();
+  const Http2HeaderBlock& response_headers = client_stream->response_headers();
   if (response_listener_ != nullptr) {
     response_listener_->OnCompleteResponse(stream->id(), response_headers,
                                            client_stream->data());
@@ -92,8 +92,7 @@ void QuicSpdyClientBase::OnClose(QuicSpdyStream* stream) {
     auto status = response_headers.find(":status");
     if (status == response_headers.end()) {
       QUIC_LOG(ERROR) << "Missing :status response header";
-    } else if (!quiche::QuicheTextUtils::StringToInt(status->second,
-                                                     &latest_response_code_)) {
+    } else if (!absl::SimpleAtoi(status->second, &latest_response_code_)) {
       QUIC_LOG(ERROR) << "Invalid :status response header: " << status->second;
     }
     latest_response_headers_ = response_headers.DebugString();
@@ -114,12 +113,12 @@ std::unique_ptr<QuicSession> QuicSpdyClientBase::CreateQuicClientSession(
       &push_promise_index_);
 }
 
-void QuicSpdyClientBase::SendRequest(const SpdyHeaderBlock& headers,
-                                     quiche::QuicheStringPiece body,
+void QuicSpdyClientBase::SendRequest(const Http2HeaderBlock& headers,
+                                     absl::string_view body,
                                      bool fin) {
   if (GetQuicFlag(FLAGS_quic_client_convert_http_header_name_to_lowercase)) {
     QUIC_CODE_COUNT(quic_client_convert_http_header_name_to_lowercase);
-    SpdyHeaderBlock sanitized_headers;
+    Http2HeaderBlock sanitized_headers;
     for (const auto& p : headers) {
       sanitized_headers[quiche::QuicheTextUtils::ToLower(p.first)] = p.second;
     }
@@ -130,8 +129,8 @@ void QuicSpdyClientBase::SendRequest(const SpdyHeaderBlock& headers,
   }
 }
 
-void QuicSpdyClientBase::SendRequestInternal(SpdyHeaderBlock sanitized_headers,
-                                             quiche::QuicheStringPiece body,
+void QuicSpdyClientBase::SendRequestInternal(Http2HeaderBlock sanitized_headers,
+                                             absl::string_view body,
                                              bool fin) {
   QuicClientPushPromiseIndex::TryHandle* handle;
   QuicAsyncStatus rv =
@@ -154,8 +153,8 @@ void QuicSpdyClientBase::SendRequestInternal(SpdyHeaderBlock sanitized_headers,
 }
 
 void QuicSpdyClientBase::SendRequestAndWaitForResponse(
-    const SpdyHeaderBlock& headers,
-    quiche::QuicheStringPiece body,
+    const Http2HeaderBlock& headers,
+    absl::string_view body,
     bool fin) {
   SendRequest(headers, body, fin);
   while (WaitForEvents()) {
@@ -165,7 +164,7 @@ void QuicSpdyClientBase::SendRequestAndWaitForResponse(
 void QuicSpdyClientBase::SendRequestsAndWaitForResponse(
     const std::vector<std::string>& url_list) {
   for (size_t i = 0; i < url_list.size(); ++i) {
-    SpdyHeaderBlock headers;
+    Http2HeaderBlock headers;
     if (!SpdyUtils::PopulateHeaderBlockFromUrl(url_list[i], &headers)) {
       QUIC_BUG << "Unable to create request";
       continue;
@@ -181,7 +180,7 @@ QuicSpdyClientStream* QuicSpdyClientBase::CreateClientStream() {
     return nullptr;
   }
   if (VersionHasIetfQuicFrames(client_session()->transport_version())) {
-    // Process MAX_STREAMS from peer.
+    // Process MAX_STREAMS from peer or wait for liveness testing succeeds.
     while (!client_session()->CanOpenNextOutgoingBidirectionalStream()) {
       network_helper()->RunEventLoop();
     }
@@ -189,11 +188,13 @@ QuicSpdyClientStream* QuicSpdyClientBase::CreateClientStream() {
   auto* stream = static_cast<QuicSpdyClientStream*>(
       client_session()->CreateOutgoingBidirectionalStream());
   if (stream) {
-    stream->SetPriority(
-        spdy::SpdyStreamPrecedence(QuicStream::kDefaultPriority));
     stream->set_visitor(this);
   }
   return stream;
+}
+
+bool QuicSpdyClientBase::goaway_received() const {
+  return client_session() && client_session()->goaway_received();
 }
 
 bool QuicSpdyClientBase::EarlyDataAccepted() {
@@ -231,19 +232,19 @@ void QuicSpdyClientBase::ResendSavedData() {
   }
 }
 
-void QuicSpdyClientBase::AddPromiseDataToResend(const SpdyHeaderBlock& headers,
-                                                quiche::QuicheStringPiece body,
+void QuicSpdyClientBase::AddPromiseDataToResend(const Http2HeaderBlock& headers,
+                                                absl::string_view body,
                                                 bool fin) {
-  std::unique_ptr<SpdyHeaderBlock> new_headers(
-      new SpdyHeaderBlock(headers.Clone()));
+  std::unique_ptr<Http2HeaderBlock> new_headers(
+      new Http2HeaderBlock(headers.Clone()));
   push_promise_data_to_resend_.reset(
       new ClientQuicDataToResend(std::move(new_headers), body, fin, this));
 }
 
 bool QuicSpdyClientBase::CheckVary(
-    const SpdyHeaderBlock& /*client_request*/,
-    const SpdyHeaderBlock& /*promise_request*/,
-    const SpdyHeaderBlock& /*promise_response*/) {
+    const Http2HeaderBlock& /*client_request*/,
+    const Http2HeaderBlock& /*promise_request*/,
+    const Http2HeaderBlock& /*promise_response*/) {
   return true;
 }
 
@@ -273,7 +274,7 @@ const std::string& QuicSpdyClientBase::preliminary_response_headers() const {
   return preliminary_response_headers_;
 }
 
-const SpdyHeaderBlock& QuicSpdyClientBase::latest_response_header_block()
+const Http2HeaderBlock& QuicSpdyClientBase::latest_response_header_block()
     const {
   QUIC_BUG_IF(!store_response_) << "Response not stored!";
   return latest_response_header_block_;

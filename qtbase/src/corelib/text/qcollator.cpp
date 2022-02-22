@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Copyright (C) 2013 Aleix Pol Gonzalez <aleixpol@kde.org>
 ** Contact: https://www.qt.io/licensing/
 **
@@ -58,35 +58,44 @@ QT_BEGIN_NAMESPACE
     \ingroup string-processing
     \ingroup shared
 
-    QCollator is initialized with a QLocale and an optional collation strategy.
-    It tries to initialize the collator with the specified values. The collator
-    can then be used to compare and sort strings in a locale dependent fashion.
+    QCollator is initialized with a QLocale. It can then be used to compare and
+    sort strings in using the ordering appropriate to the locale.
 
-    A QCollator object can be used together with template based sorting
-    algorithms such as std::sort to sort a list of QStrings.
+    A QCollator object can be used together with template-based sorting
+    algorithms, such as std::sort(), to sort a list with QString entries.
 
-    In addition to the locale and collation strategy, several optional flags can
-    be set that influence the result of the collation.
+    \snippet code/src_corelib_text_qcollator.cpp 0
+
+    In addition to the locale, several optional flags can be set that influence
+    the result of the collation.
+
+    \note On Linux, Qt is normally compiled to use ICU. When it isn't, all
+    options are ignored and the only supported locales are the system default
+    (that \c{setlocale(LC_COLLATE, nullptr)} would report) and the "C" locale.
 */
 
 /*!
   \since 5.13
 
-  Constructs a QCollator using the system's default collation locale.
+  Constructs a QCollator using the default locale's collation locale.
 
-  \sa setLocale(), QLocale::collation()
+  The system locale, when used as default locale, may have a collation locale
+  other than itself (e.g. on Unix, if LC_COLLATE is set differently to LANG in
+  the environment). All other locales are their own collation locales.
+
+  \sa setLocale(), QLocale::collation(), QLocale::setDefault()
 */
 QCollator::QCollator()
-    : d(new QCollatorPrivate(QLocale::system().collation()))
+    : d(new QCollatorPrivate(QLocale().collation()))
 {
     d->init();
 }
 
 /*!
-    Constructs a QCollator from \a locale.
+    Constructs a QCollator using the given \a locale.
 
     \sa setLocale()
- */
+*/
 QCollator::QCollator(const QLocale &locale)
     : d(new QCollatorPrivate(locale))
 {
@@ -94,7 +103,7 @@ QCollator::QCollator(const QLocale &locale)
 
 /*!
     Creates a copy of \a other.
- */
+*/
 QCollator::QCollator(const QCollator &other)
     : d(other.d)
 {
@@ -107,8 +116,8 @@ QCollator::QCollator(const QCollator &other)
 }
 
 /*!
-    Destroys the collator.
- */
+    Destroys this collator.
+*/
 QCollator::~QCollator()
 {
     if (d && !d->ref.deref())
@@ -117,7 +126,7 @@ QCollator::~QCollator()
 
 /*!
     Assigns \a other to this collator.
- */
+*/
 QCollator &QCollator::operator=(const QCollator &other)
 {
     if (this != &other) {
@@ -163,7 +172,7 @@ QCollator &QCollator::operator=(const QCollator &other)
 
 /*!
     \internal
- */
+*/
 void QCollator::detach()
 {
     if (d->ref.loadRelaxed() != 1) {
@@ -178,7 +187,9 @@ void QCollator::detach()
 
 /*!
     Sets the locale of the collator to \a locale.
- */
+
+    \sa locale()
+*/
 void QCollator::setLocale(const QLocale &locale)
 {
     if (locale == d->locale)
@@ -190,19 +201,22 @@ void QCollator::setLocale(const QLocale &locale)
 
 /*!
     Returns the locale of the collator.
- */
+
+    Unless supplied to the constructor or by calling setLocale(), the system's
+    default collation locale is used.
+
+    \sa setLocale(), QLocale::collation()
+*/
 QLocale QCollator::locale() const
 {
     return d->locale;
 }
 
 /*!
-    \fn void QCollator::setCaseSensitivity(Qt::CaseSensitivity sensitivity)
-
-    Sets the case \a sensitivity of the collator.
+    Sets the case-sensitivity of the collator to \a cs.
 
     \sa caseSensitivity()
- */
+*/
 void QCollator::setCaseSensitivity(Qt::CaseSensitivity cs)
 {
     if (d->caseSensitivity == cs)
@@ -213,29 +227,27 @@ void QCollator::setCaseSensitivity(Qt::CaseSensitivity cs)
 }
 
 /*!
-    \fn Qt::CaseSensitivity QCollator::caseSensitivity() const
-
     Returns case sensitivity of the collator.
 
+    This defaults to case-sensitive until set.
+
+    \note In the C locale, when case-sensitive, all lower-case letters sort
+    after all upper-case letters, where most locales sort each lower-case letter
+    either immediately before or immediately after its upper-case partner.  Thus
+    "Zap" sorts before "ape" in the C locale but after in most others.
+
     \sa setCaseSensitivity()
- */
+*/
 Qt::CaseSensitivity QCollator::caseSensitivity() const
 {
     return d->caseSensitivity;
 }
 
 /*!
-    \fn void QCollator::setNumericMode(bool on)
-
-    Enables numeric sorting mode when \a on is set to true.
-
-    This will enable proper sorting of numeric digits, so that e.g. 100 sorts
-    after 99.
-
-    By default this mode is off.
+    Enables numeric sorting mode when \a on is \c true.
 
     \sa numericMode()
- */
+*/
 void QCollator::setNumericMode(bool on)
 {
     if (d->numericMode == on)
@@ -246,30 +258,25 @@ void QCollator::setNumericMode(bool on)
 }
 
 /*!
-    \fn bool QCollator::numericMode() const
+    Returns \c true if numeric sorting is enabled, \c false otherwise.
 
-    Returns \c true if numeric sorting is enabled, false otherwise.
+    When \c true, numerals are recognized as numbers and sorted in arithmetic
+    order; for example, 100 sortes after 99. When \c false, numbers are sorted
+    in lexical order, so that 100 sorts before 99 (because 1 is before 9). By
+    default, this option is disabled.
 
     \sa setNumericMode()
- */
+*/
 bool QCollator::numericMode() const
 {
     return d->numericMode;
 }
 
 /*!
-    \fn void QCollator::setIgnorePunctuation(bool on)
-
-    If \a on is set to true, punctuation characters and symbols are ignored when
-    determining sort order.
-
-    The default is locale dependent.
-
-    \note This method is not currently supported if Qt is configured to not use
-    ICU on Linux.
+    Ignores punctuation and symbols if \a on is \c true, attends to them if \c false.
 
     \sa ignorePunctuation()
- */
+*/
 void QCollator::setIgnorePunctuation(bool on)
 {
     if (d->ignorePunctuation == on)
@@ -280,13 +287,13 @@ void QCollator::setIgnorePunctuation(bool on)
 }
 
 /*!
-    \fn bool QCollator::ignorePunctuation() const
+    Returns whether punctuation and symbols are ignored when collating.
 
-    Returns \c true if punctuation characters and symbols are ignored when
-    determining sort order.
+    When \c true, strings are compared as if all punctuation and symbols were
+    removed from each string.
 
     \sa setIgnorePunctuation()
- */
+*/
 bool QCollator::ignorePunctuation() const
 {
     return d->ignorePunctuation;
@@ -295,7 +302,11 @@ bool QCollator::ignorePunctuation() const
 /*!
     \since 5.13
     \fn bool QCollator::operator()(QStringView s1, QStringView s2) const
-    \internal
+
+    A QCollator can be used as the comparison function of a sorting algorithm.
+    It returns \c true if \a s1 sorts before \a s2, otherwise \c false.
+
+    \sa compare()
 */
 
 /*!
@@ -310,37 +321,20 @@ bool QCollator::ignorePunctuation() const
 #if QT_STRINGVIEW_LEVEL < 2
 /*!
     \fn bool QCollator::operator()(const QString &s1, const QString &s2) const
-    \internal
+    \overload
+    \since 5.2
 */
 
 /*!
+    \fn int QCollator::compare(const QString &s1, const QString &s2) const
     \overload
-
-    Compares \a s1 with \a s2.
-
-    Returns an integer less than, equal to, or greater than zero depending on
-    whether \a s1 sorts before, with or after \a s2.
+    \since 5.2
 */
-int QCollator::compare(const QString &s1, const QString &s2) const
-{
-    return compare(QStringView(s1), QStringView(s2));
-}
 
 /*!
+    \fn int QCollator::compare(const QChar *s1, int len1, const QChar *s2, int len2) const
     \overload
-
-    Compares \a s1 with \a s2.
-
-    Returns an integer less than, equal to, or greater than zero depending on
-    whether \a s1 sorts before, with or after \a s2.
- */
-int QCollator::compare(const QStringRef &s1, const QStringRef &s2) const
-{
-    return compare(QStringView(s1), QStringView(s2));
-}
-
-/*!
-    \overload
+    \since 5.2
 
     Compares \a s1 with \a s2. \a len1 and \a len2 specify the lengths of the
     QChar arrays pointed to by \a s1 and \a s2.
@@ -348,10 +342,6 @@ int QCollator::compare(const QStringRef &s1, const QStringRef &s2) const
     Returns an integer less than, equal to, or greater than zero depending on
     whether \a s1 sorts before, with or after \a s2.
 */
-int QCollator::compare(const QChar *s1, int len1, const QChar *s2, int len2) const
-{
-    return compare(QStringView(s1, len1), QStringView(s2, len2));
-}
 #endif // QT_STRINGVIEW_LEVEL < 2
 
 /*!
@@ -365,7 +355,7 @@ int QCollator::compare(const QChar *s1, int len1, const QChar *s2, int len2) con
     keys for each string and then sort using the keys.
 
     \note Not supported with the C (a.k.a. POSIX) locale on Darwin.
- */
+*/
 
 /*!
     \class QCollatorSortKey
@@ -382,12 +372,12 @@ int QCollator::compare(const QChar *s1, int len1, const QChar *s2, int len2) con
     \ingroup string-processing
     \ingroup shared
 
-    \sa QCollator, QCollator::sortKey()
+    \sa QCollator, QCollator::sortKey(), compare()
 */
 
 /*!
     \internal
- */
+*/
 QCollatorSortKey::QCollatorSortKey(QCollatorSortKeyPrivate *d)
     : d(d)
 {
@@ -403,14 +393,14 @@ QCollatorSortKey::QCollatorSortKey(const QCollatorSortKey &other)
 
 /*!
     Destroys the collator key.
- */
+*/
 QCollatorSortKey::~QCollatorSortKey()
 {
 }
 
 /*!
     Assigns \a other to this collator key.
- */
+*/
 QCollatorSortKey& QCollatorSortKey::operator=(const QCollatorSortKey &other)
 {
     if (this != &other) {
@@ -426,14 +416,14 @@ QCollatorSortKey& QCollatorSortKey::operator=(const QCollatorSortKey &other)
 */
 
 /*!
-    \fn bool operator<(const QCollatorSortKey &lhs, const QCollatorSortKey &rhs)
-    \relates QCollatorSortKey
+    \fn bool QCollatorSortKey::operator<(const QCollatorSortKey &lhs, const QCollatorSortKey &rhs)
 
-    According to the QCollator that created the keys, returns \c true if \a lhs
-    should be sorted before \a rhs; otherwise returns \c false.
+    Both keys must have been created by the same QCollator's sortKey(). Returns
+    \c true if \a lhs should be sorted before \a rhs, according to the QCollator
+    that created them; otherwise returns \c false.
 
     \sa QCollatorSortKey::compare()
- */
+*/
 
 /*!
     \fn void QCollatorSortKey::swap(QCollatorSortKey & other)
@@ -444,13 +434,14 @@ QCollatorSortKey& QCollatorSortKey::operator=(const QCollatorSortKey &other)
 /*!
     \fn int QCollatorSortKey::compare(const QCollatorSortKey &otherKey) const
 
-    Compares this key to \a otherKey.
+    Compares this key to \a otherKey, which must have been created by the same
+    QCollator's sortKey() as this key. The comparison is performed in accordance
+    with that QCollator's sort order.
 
-    Returns a negative value if the key is less than \a otherKey, 0 if the key
-    is equal to \a otherKey or a positive value if the key is greater than \a
-    otherKey.
+    Returns a negative value if this key sorts before \a otherKey, 0 if the two
+    keys are equal or a positive value if this key sorts after \a otherKey.
 
     \sa operator<()
- */
+*/
 
 QT_END_NAMESPACE

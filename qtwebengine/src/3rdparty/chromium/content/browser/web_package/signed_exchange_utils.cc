@@ -21,6 +21,7 @@
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "net/http/http_util.h"
+#include "net/url_request/redirect_info.h"
 #include "services/network/public/cpp/features.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
 
@@ -28,8 +29,6 @@ namespace content {
 namespace signed_exchange_utils {
 
 namespace {
-constexpr char kContentTypeOptionsHeaderName[] = "x-content-type-options";
-constexpr char kNoSniffHeaderValue[] = "nosniff";
 base::Optional<base::Time> g_verification_time_for_testing;
 }  // namespace
 
@@ -76,13 +75,6 @@ bool ShouldHandleAsSignedHTTPExchange(
     return false;
   }
   return true;
-}
-
-bool HasNoSniffHeader(const network::mojom::URLResponseHead& response) {
-  std::string content_type_options;
-  response.headers->EnumerateHeader(nullptr, kContentTypeOptionsHeaderName,
-                                    &content_type_options);
-  return base::LowerCaseEqualsASCII(content_type_options, kNoSniffHeaderValue);
 }
 
 base::Optional<SignedExchangeVersion> GetSignedExchangeVersion(
@@ -215,9 +207,8 @@ net::RedirectInfo CreateRedirectInfo(
   return net::RedirectInfo::ComputeRedirectInfo(
       "GET", outer_request.url, outer_request.site_for_cookies,
       outer_request.update_first_party_url_on_redirect
-          ? net::URLRequest::FirstPartyURLPolicy::
-                UPDATE_FIRST_PARTY_URL_ON_REDIRECT
-          : net::URLRequest::FirstPartyURLPolicy::NEVER_CHANGE_FIRST_PARTY_URL,
+          ? net::RedirectInfo::FirstPartyURLPolicy::UPDATE_URL_ON_REDIRECT
+          : net::RedirectInfo::FirstPartyURLPolicy::NEVER_CHANGE_URL,
       outer_request.referrer_policy, outer_request.referrer.spec(), 303,
       new_url,
       net::RedirectUtil::GetReferrerPolicyHeader(outer_response.headers.get()),

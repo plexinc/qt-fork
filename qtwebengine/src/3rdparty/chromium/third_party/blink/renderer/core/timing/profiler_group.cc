@@ -6,6 +6,7 @@
 
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/bindings/core/v8/profiler_trace_builder.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_profiler_init_options.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_profiler_trace.h"
@@ -14,7 +15,9 @@
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+#include "third_party/blink/renderer/platform/scheduler/public/thread_scheduler.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
+#include "third_party/blink/renderer/platform/wtf/functional.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 #include "v8/include/v8-profiler.h"
 #include "v8/include/v8.h"
@@ -81,40 +84,56 @@ Profiler* ProfilerGroup::CreateProfiler(ScriptState* script_state,
   DCHECK(cpu_profiler_);
 
   String profiler_id = NextProfilerId();
-  v8::CpuProfilingOptions options(
-      v8::kLeafNodeLineNumbers,
-      init_options.hasMaxBufferSize() ? init_options.maxBufferSize()
+  v8::CpuProfilingOptions options(v8::kLeafNodeLineNumbers,
+                                  init_options.hasMaxBufferSize()
+                                      ? init_options.maxBufferSize()
                                       : v8::CpuProfilingOptions::kNoSampleLimit,
-      static_cast<int>(sample_interval_us), script_state->GetContext());
+                                  static_cast<int>(sample_interval_us));
 
-  cpu_profiler_->StartProfiling(V8String(isolate_, profiler_id), options);
+  v8::CpuProfilingStatus status =
+      cpu_profiler_->StartProfiling(V8String(isolate_, profiler_id), options);
 
-  // Limit non-crossorigin script frames to the origin that started the
-  // profiler.
-  auto* execution_context = ExecutionContext::From(script_state);
-  scoped_refptr<const SecurityOrigin> source_origin(
-      execution_context->GetSecurityOrigin());
+  switch (status) {
+    case v8::CpuProfilingStatus::kErrorTooManyProfilers: {
+      exception_state.ThrowTypeError(
+          "Reached maximum concurrent amount of profilers");
+      return nullptr;
+    }
+    case v8::CpuProfilingStatus::kAlreadyStarted: {
+      // Since we increment the profiler id for every invocation of
+      // StartProfiling, we do not expect to hit kAlreadyStarted status
+      DCHECK(false);
+      return nullptr;
+    }
+    case v8::CpuProfilingStatus::kStarted: {
+      // Limit non-crossorigin script frames to the origin that started the
+      // profiler.
+      auto* execution_context = ExecutionContext::From(script_state);
+      scoped_refptr<const SecurityOrigin> source_origin(
+          execution_context->GetSecurityOrigin());
 
-  // The V8 CPU profiler ticks in multiples of the base sampling interval. This
-  // effectively means that we gather samples at the multiple of the base
-  // sampling interval that's greater than or equal to the requested interval.
-  int effective_sample_interval_ms =
-      static_cast<int>(sample_interval.InMilliseconds());
-  if (effective_sample_interval_ms % kBaseSampleIntervalMs != 0 ||
-      effective_sample_interval_ms == 0) {
-    effective_sample_interval_ms +=
-        (kBaseSampleIntervalMs -
-         effective_sample_interval_ms % kBaseSampleIntervalMs);
+      // The V8 CPU profiler ticks in multiples of the base sampling interval.
+      // This effectively means that we gather samples at the multiple of the
+      // base sampling interval that's greater than or equal to the requested
+      // interval.
+      int effective_sample_interval_ms =
+          static_cast<int>(sample_interval.InMilliseconds());
+      if (effective_sample_interval_ms % kBaseSampleIntervalMs != 0 ||
+          effective_sample_interval_ms == 0) {
+        effective_sample_interval_ms +=
+            (kBaseSampleIntervalMs -
+             effective_sample_interval_ms % kBaseSampleIntervalMs);
+      }
+
+      auto* profiler = MakeGarbageCollected<Profiler>(
+          this, script_state, profiler_id, effective_sample_interval_ms,
+          source_origin, time_origin);
+      profilers_.insert(profiler);
+
+      num_active_profilers_++;
+      return profiler;
+    }
   }
-
-  auto* profiler = MakeGarbageCollected<Profiler>(this, profiler_id,
-                                                  effective_sample_interval_ms,
-                                                  source_origin, time_origin);
-  profilers_.insert(profiler);
-
-  num_active_profilers_++;
-
-  return profiler;
 }
 
 ProfilerGroup::~ProfilerGroup() {
@@ -123,17 +142,20 @@ ProfilerGroup::~ProfilerGroup() {
 }
 
 void ProfilerGroup::WillBeDestroyed() {
-  for (auto& profiler : profilers_) {
+  while (!profilers_.IsEmpty()) {
+    Profiler* profiler = profilers_.begin()->Get();
     DCHECK(profiler);
-    profiler->Dispose();
+    CancelProfiler(profiler);
+    profiler->RemovedFromProfilerGroup();
     DCHECK(profiler->stopped());
+    DCHECK(!profilers_.Contains(profiler));
   }
 
   if (cpu_profiler_)
     TeardownV8Profiler();
 }
 
-void ProfilerGroup::Trace(Visitor* visitor) {
+void ProfilerGroup::Trace(Visitor* visitor) const {
   visitor->Trace(profilers_);
   V8PerIsolateData::GarbageCollectedData::Trace(visitor);
 }
@@ -176,6 +198,8 @@ void ProfilerGroup::StopProfiler(ScriptState* script_state,
   if (profile)
     profile->Delete();
 
+  profilers_.erase(profiler);
+
   if (--num_active_profilers_ == 0)
     TeardownV8Profiler();
 }
@@ -183,11 +207,31 @@ void ProfilerGroup::StopProfiler(ScriptState* script_state,
 void ProfilerGroup::CancelProfiler(Profiler* profiler) {
   DCHECK(cpu_profiler_);
   DCHECK(!profiler->stopped());
+  profilers_.erase(profiler);
+  CancelProfilerImpl(profiler->ProfilerId());
+}
+
+void ProfilerGroup::CancelProfilerAsync(ScriptState* script_state,
+                                        Profiler* profiler) {
+  DCHECK(cpu_profiler_);
+  DCHECK(!profiler->stopped());
+  profilers_.erase(profiler);
+
+  // Since it's possible for the profiler to get destructed along with its
+  // associated context, dispatch a task to cleanup context-independent isolate
+  // resources (rather than use the context's task runner).
+  ThreadScheduler::Current()->V8TaskRunner()->PostTask(
+      FROM_HERE, WTF::Bind(&ProfilerGroup::CancelProfilerImpl,
+                           WrapPersistent(this), profiler->ProfilerId()));
+}
+
+void ProfilerGroup::CancelProfilerImpl(String profiler_id) {
+  if (!cpu_profiler_)
+    return;
 
   v8::HandleScope scope(isolate_);
-  v8::Local<v8::String> profiler_id =
-      V8String(isolate_, profiler->ProfilerId());
-  auto* profile = cpu_profiler_->StopProfiling(profiler_id);
+  v8::Local<v8::String> v8_profiler_id = V8String(isolate_, profiler_id);
+  auto* profile = cpu_profiler_->StopProfiling(v8_profiler_id);
 
   profile->Delete();
 

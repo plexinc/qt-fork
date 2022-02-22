@@ -36,7 +36,7 @@
 #include "chart.h"
 #include "chartview.h"
 
-QT_CHARTS_USE_NAMESPACE
+QT_USE_NAMESPACE
 
 int main(int argc, char *argv[])
 {
@@ -52,7 +52,7 @@ int main(int argc, char *argv[])
     series->append(10, 5);
     *series << QPointF(11, 1) << QPointF(13, 3) << QPointF(17, 6) << QPointF(18, 3) << QPointF(20, 2);
 
-    Chart *chart = new Chart(0, 0, series);
+    Chart *chart = new Chart(0, {}, series);
     chart->legend()->hide();
     chart->addSeries(series);
     QPen p = series->pen();

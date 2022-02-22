@@ -12,7 +12,8 @@
 #include <ws2tcpip.h>
 #endif
 
-#include "base/logging.h"
+#include "base/check_op.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -23,6 +24,7 @@
 #include "url/url_canon.h"
 #include "url/url_canon_ip.h"
 #include "url/url_constants.h"
+#include "url/url_util.h"
 
 namespace net {
 
@@ -35,7 +37,7 @@ bool IsHostCharAlphanumeric(char c) {
 }
 
 bool IsNormalizedLocalhostTLD(const std::string& host) {
-  return base::EndsWith(host, ".localhost", base::CompareCase::SENSITIVE);
+  return base::EndsWith(host, ".localhost");
 }
 
 // Helper function used by GetIdentityFromURL. If |escaped_text| can be "safely
@@ -44,7 +46,7 @@ bool IsNormalizedLocalhostTLD(const std::string& host) {
 // escaped character between '0x00' and '0x1F', inclusive.
 base::string16 UnescapeIdentityString(base::StringPiece escaped_text) {
   std::string unescaped_text;
-  if (UnescapeBinaryURLComponentSafe(
+  if (base::UnescapeBinaryURLComponentSafe(
           escaped_text, false /* fail_on_path_separators */, &unescaped_text)) {
     base::string16 result;
     if (base::UTF8ToUTF16(unescaped_text.data(), unescaped_text.length(),
@@ -140,7 +142,7 @@ std::string QueryIterator::GetValue() const {
 const std::string& QueryIterator::GetUnescapedValue() {
   DCHECK(!at_end_);
   if (value_.is_nonempty() && unescaped_value_.empty()) {
-    unescaped_value_ = UnescapeURLComponent(
+    unescaped_value_ = base::UnescapeURLComponent(
         GetValue(), UnescapeRule::SPACES | UnescapeRule::PATH_SEPARATORS |
                         UnescapeRule::URL_SPECIAL_CHARS_EXCEPT_PATH_SEPARATORS |
                         UnescapeRule::REPLACE_PLUS_WITH_SPACE);
@@ -252,7 +254,7 @@ std::string TrimEndingDot(base::StringPiece host) {
   if (len > 1 && host_trimmed[len - 1] == '.') {
     host_trimmed.remove_suffix(1);
   }
-  return host_trimmed.as_string();
+  return std::string(host_trimmed);
 }
 
 std::string GetHostOrSpecFromURL(const GURL& url) {
@@ -263,7 +265,21 @@ std::string GetSuperdomain(base::StringPiece domain) {
   size_t dot_pos = domain.find('.');
   if (dot_pos == std::string::npos)
     return "";
-  return domain.substr(dot_pos + 1).as_string();
+  return std::string(domain.substr(dot_pos + 1));
+}
+
+bool IsSubdomainOf(base::StringPiece subdomain, base::StringPiece superdomain) {
+  // Subdomain must be identical or have strictly more labels than the
+  // superdomain.
+  if (subdomain.length() <= superdomain.length())
+    return subdomain == superdomain;
+
+  // Superdomain must be suffix of subdomain, and the last character not
+  // included in the matching substring must be a dot.
+  if (!base::EndsWith(subdomain, superdomain))
+    return false;
+  subdomain.remove_suffix(superdomain.length());
+  return subdomain.back() == '.';
 }
 
 std::string CanonicalizeHost(base::StringPiece host,
@@ -366,7 +382,7 @@ bool HostStringIsLocalhost(base::StringPiece host) {
   IPAddress ip_address;
   if (ip_address.AssignFromIPLiteral(host))
     return ip_address.IsLoopback();
-  return IsLocalHostname(host, nullptr);
+  return IsLocalHostname(host);
 }
 
 GURL SimplifyUrlForRequest(const GURL& url) {
@@ -387,6 +403,20 @@ GURL ChangeWebSocketSchemeToHttpScheme(const GURL& url) {
   replace_scheme.SetSchemeStr(url.SchemeIs(url::kWssScheme) ? url::kHttpsScheme
                                                             : url::kHttpScheme);
   return url.ReplaceComponents(replace_scheme);
+}
+
+bool IsStandardSchemeWithNetworkHost(base::StringPiece scheme) {
+  // file scheme is special. Windows file share origins can have network hosts.
+  if (scheme == url::kFileScheme)
+    return true;
+
+  url::SchemeType scheme_type;
+  if (!url::GetStandardSchemeType(
+          scheme.data(), url::Component(0, scheme.length()), &scheme_type)) {
+    return false;
+  }
+  return scheme_type == url::SCHEME_WITH_HOST_PORT_AND_USER_INFORMATION ||
+         scheme_type == url::SCHEME_WITH_HOST_AND_PORT;
 }
 
 void GetIdentityFromURL(const GURL& url,
@@ -419,7 +449,7 @@ bool IsGoogleHost(base::StringPiece host) {
     // Here it's possible to get away with faster case-sensitive comparisons
     // because the list above is all lowercase, and a GURL's host name will
     // always be canonicalized to lowercase as well.
-    if (base::EndsWith(host, suffix, base::CompareCase::SENSITIVE))
+    if (base::EndsWith(host, suffix))
       return true;
   }
   return false;
@@ -430,23 +460,13 @@ bool IsTLS13ExperimentHost(base::StringPiece host) {
          host == "gmail.com";
 }
 
-bool IsLocalHostname(base::StringPiece host, bool* is_local6) {
+bool IsLocalHostname(base::StringPiece host) {
   std::string normalized_host = base::ToLowerASCII(host);
   // Remove any trailing '.'.
   if (!normalized_host.empty() && *normalized_host.rbegin() == '.')
     normalized_host.resize(normalized_host.size() - 1);
 
-  if (normalized_host == "localhost6" ||
-      normalized_host == "localhost6.localdomain6") {
-    if (is_local6)
-      *is_local6 = true;
-    return true;
-  }
-
-  if (is_local6)
-    *is_local6 = false;
   return normalized_host == "localhost" ||
-         normalized_host == "localhost.localdomain" ||
          IsNormalizedLocalhostTLD(normalized_host);
 }
 

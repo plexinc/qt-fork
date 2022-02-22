@@ -59,7 +59,7 @@ QT_BEGIN_NAMESPACE
 
 #define PMDEBUG if(0) qDebug
 
-// The VxWorks DIAB compiler crashes when initializing the anonymouse union with { a7 }
+// The VxWorks DIAB compiler crashes when initializing the anonymous union with { a7 }
 #if !defined(Q_CC_DIAB)
 #  define QT_INIT_TEXTUNDOCOMMAND(c, a1, a2, a3, a4, a5, a6, a7, a8) \
           QTextUndoCommand c = { a1, a2, 0, 0, quint8(a3), a4, quint32(a5), quint32(a6), { int(a7) }, quint32(a8) }
@@ -132,7 +132,7 @@ static bool isValidBlockSeparator(QChar ch)
         || ch == QTextEndOfFrame;
 }
 
-static bool noBlockInString(const QStringRef &str)
+static bool noBlockInString(QStringView str)
 {
     return !str.contains(QChar::ParagraphSeparator)
         && !str.contains(QTextBeginningOfFrame)
@@ -186,7 +186,8 @@ QTextDocumentPrivate::QTextDocumentPrivate()
     docChangeLength(0),
     framesDirty(true),
     rtFrame(nullptr),
-    initialBlockCharFormatIndex(-1) // set correctly later in init()
+    initialBlockCharFormatIndex(-1), // set correctly later in init()
+    resourceProvider(nullptr)
 {
     editBlock = 0;
     editBlockCursorPosition = -1;
@@ -323,7 +324,7 @@ void QTextDocumentPrivate::setLayout(QAbstractTextDocumentLayout *layout)
 void QTextDocumentPrivate::insert_string(int pos, uint strPos, uint length, int format, QTextUndoCommand::Operation op)
 {
     // ##### optimize when only appending to the fragment!
-    Q_ASSERT(noBlockInString(text.midRef(strPos, length)));
+    Q_ASSERT(noBlockInString(QStringView{text}.mid(strPos, length)));
 
     split(pos);
     uint x = fragments.insert_single(pos, length);
@@ -381,8 +382,11 @@ int QTextDocumentPrivate::insert_block(int pos, uint strPos, int format, int blo
     Q_ASSERT(blocks.length() == fragments.length());
 
     QTextBlockGroup *group = qobject_cast<QTextBlockGroup *>(objectForFormat(blockFormat));
-    if (group)
+    if (group) {
         group->blockInserted(QTextBlock(this, b));
+        docChangeOldLength--;
+        docChangeLength--;
+    }
 
     QTextFrame *frame = qobject_cast<QTextFrame *>(objectForFormat(formats.format(format)));
     if (frame) {
@@ -479,7 +483,7 @@ void QTextDocumentPrivate::insert(int pos, const QString &str, int format)
     if (str.size() == 0)
         return;
 
-    Q_ASSERT(noBlockInString(QStringRef(&str)));
+    Q_ASSERT(noBlockInString(str));
 
     int strPos = text.length();
     text.append(str);
@@ -497,7 +501,7 @@ int QTextDocumentPrivate::remove_string(int pos, uint length, QTextUndoCommand::
 
     Q_ASSERT(blocks.size(b) > length);
     Q_ASSERT(x && fragments.position(x) == (uint)pos && fragments.size(x) == length);
-    Q_ASSERT(noBlockInString(text.midRef(fragments.fragment(x)->stringPosition, length)));
+    Q_ASSERT(noBlockInString(QStringView{text}.mid(fragments.fragment(x)->stringPosition, length)));
 
     blocks.setSize(b, blocks.size(b)-length);
 
@@ -632,7 +636,7 @@ void QTextDocumentPrivate::move(int pos, int to, int length, QTextUndoCommand::O
 
         if (key+1 != blocks.position(b)) {
 //          qDebug("remove_string from %d length %d", key, X->size_array[0]);
-            Q_ASSERT(noBlockInString(text.midRef(X->stringPosition, X->size_array[0])));
+            Q_ASSERT(noBlockInString(QStringView{text}.mid(X->stringPosition, X->size_array[0])));
             w = remove_string(key, X->size_array[0], op);
 
             if (needsInsert) {
@@ -877,7 +881,7 @@ bool QTextDocumentPrivate::unite(uint f)
 
 int QTextDocumentPrivate::undoRedo(bool undo)
 {
-    PMDEBUG("%s, undoState=%d, undoStack size=%d", undo ? "undo:" : "redo:", undoState, undoStack.size());
+    PMDEBUG("%s, undoState=%d, undoStack size=%d", undo ? "undo:" : "redo:", undoState, int(undoStack.size()));
     if (!undoEnabled || (undo && undoState == 0) || (!undo && undoState == undoStack.size()))
         return -1;
 
@@ -1601,7 +1605,7 @@ QTextObject *QTextDocumentPrivate::objectForIndex(int objectIndex) const
     if (objectIndex < 0)
         return nullptr;
 
-    QTextObject *object = objects.value(objectIndex, 0);
+    QTextObject *object = objects.value(objectIndex, nullptr);
     if (!object) {
         QTextDocumentPrivate *that = const_cast<QTextDocumentPrivate *>(this);
         QTextFormat fmt = formats.objectFormat(objectIndex);

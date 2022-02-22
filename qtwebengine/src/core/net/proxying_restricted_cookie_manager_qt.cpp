@@ -61,9 +61,6 @@ namespace QtWebEngineCore {
 // static
 void ProxyingRestrictedCookieManagerQt::CreateAndBind(ProfileIODataQt *profileIoData,
                                                       mojo::PendingRemote<network::mojom::RestrictedCookieManager> underlying_rcm,
-                                                      bool is_service_worker,
-                                                      int process_id,
-                                                      int frame_id,
                                                       mojo::PendingReceiver<network::mojom::RestrictedCookieManager> receiver)
 {
     DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
@@ -72,7 +69,6 @@ void ProxyingRestrictedCookieManagerQt::CreateAndBind(ProfileIODataQt *profileIo
                    base::BindOnce(&ProxyingRestrictedCookieManagerQt::CreateAndBindOnIoThread,
                                   profileIoData,
                                   std::move(underlying_rcm),
-                                  is_service_worker, process_id, frame_id,
                                   std::move(receiver)));
 }
 
@@ -80,31 +76,21 @@ void ProxyingRestrictedCookieManagerQt::CreateAndBind(ProfileIODataQt *profileIo
 // static
 void ProxyingRestrictedCookieManagerQt::CreateAndBindOnIoThread(ProfileIODataQt *profileIoData,
                                                                 mojo::PendingRemote<network::mojom::RestrictedCookieManager> underlying_rcm,
-                                                                bool is_service_worker,
-                                                                int process_id,
-                                                                int frame_id,
                                                                 mojo::PendingReceiver<network::mojom::RestrictedCookieManager> receiver)
 {
     DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
 
     auto wrapper = base::WrapUnique(new ProxyingRestrictedCookieManagerQt(
                                         profileIoData->getWeakPtrOnIOThread(),
-                                        std::move(underlying_rcm),
-                                        is_service_worker, process_id, frame_id));
+                                        std::move(underlying_rcm)));
     mojo::MakeSelfOwnedReceiver(std::move(wrapper), std::move(receiver));
 }
 
 ProxyingRestrictedCookieManagerQt::ProxyingRestrictedCookieManagerQt(
         base::WeakPtr<ProfileIODataQt> profileIoData,
-        mojo::PendingRemote<network::mojom::RestrictedCookieManager> underlyingRestrictedCookieManager,
-        bool is_service_worker,
-        int32_t process_id,
-        int32_t frame_id)
+        mojo::PendingRemote<network::mojom::RestrictedCookieManager> underlyingRestrictedCookieManager)
         : m_profileIoData(std::move(profileIoData))
         , underlying_restricted_cookie_manager_(std::move(underlyingRestrictedCookieManager))
-        , is_service_worker_(is_service_worker)
-        , process_id_(process_id)
-        , frame_id_(frame_id)
         , weak_factory_(this)
 {
     DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
@@ -126,7 +112,7 @@ void ProxyingRestrictedCookieManagerQt::GetAllForUrl(const GURL &url,
     if (allowCookies(url, site_for_cookies)) {
         underlying_restricted_cookie_manager_->GetAllForUrl(url, site_for_cookies, top_frame_origin, std::move(options), std::move(callback));
     } else {
-        std::move(callback).Run(std::vector<net::CanonicalCookie>());
+        std::move(callback).Run(std::vector<net::CookieWithAccessResult>());
     }
 }
 
@@ -197,7 +183,7 @@ bool ProxyingRestrictedCookieManagerQt::allowCookies(const GURL &url, const net:
 {
     if (!m_profileIoData)
         return false;
-    return m_profileIoData->canGetCookies(toQt(site_for_cookies.RepresentativeUrl()), toQt(url));
+    return m_profileIoData->canGetCookies(toQt(site_for_cookies.first_party_url()), toQt(url));
 }
 
 }  // namespace QtWebEngineCore

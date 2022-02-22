@@ -19,6 +19,7 @@
 namespace blink {
 
 class WebContentDecryptionModuleResult;
+class WebContentSettingsClient;
 struct WebMediaKeySystemConfiguration;
 class WebSecurityOrigin;
 
@@ -33,8 +34,10 @@ class MediaPermission;
 class MEDIA_BLINK_EXPORT WebEncryptedMediaClientImpl
     : public blink::WebEncryptedMediaClient {
  public:
-  WebEncryptedMediaClientImpl(CdmFactory* cdm_factory,
-                              MediaPermission* media_permission);
+  WebEncryptedMediaClientImpl(
+      CdmFactory* cdm_factory,
+      MediaPermission* media_permission,
+      blink::WebContentSettingsClient* content_settings_client);
   ~WebEncryptedMediaClientImpl() override;
 
   // WebEncryptedMediaClient implementation.
@@ -56,15 +59,14 @@ class MEDIA_BLINK_EXPORT WebEncryptedMediaClientImpl
   // Each stat is only reported once per renderer frame per key system.
   class Reporter;
 
-  // Complete a requestMediaKeySystemAccess() request with a supported
-  // accumulated configuration.
-  void OnRequestSucceeded(
+  // Callback for `KeySystemConfigSelector::SelectConfig()`.
+  // `accumulated_configuration` and `cdm_config` are non-null iff `status` is
+  // `kSupported`.
+  void OnConfigSelected(
       blink::WebEncryptedMediaRequest request,
-      const blink::WebMediaKeySystemConfiguration& accumulated_configuration,
-      const CdmConfig& cdm_config);
-
-  // Complete a requestMediaKeySystemAccess() request with a NotSupportedError.
-  void OnRequestNotSupported(blink::WebEncryptedMediaRequest request);
+      KeySystemConfigSelector::Status status,
+      blink::WebMediaKeySystemConfiguration* accumulated_configuration,
+      CdmConfig* cdm_config);
 
   // Gets the Reporter for |key_system|. If it doesn't already exist,
   // create one.

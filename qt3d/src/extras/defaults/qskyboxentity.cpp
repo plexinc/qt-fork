@@ -54,6 +54,7 @@
 #include <Qt3DRender/qgraphicsapifilter.h>
 #include <Qt3DRender/qseamlesscubemap.h>
 #include <Qt3DRender/qshaderprogram.h>
+#include <Qt3DRender/qgeometryrenderer.h>
 
 QT_BEGIN_NAMESPACE
 

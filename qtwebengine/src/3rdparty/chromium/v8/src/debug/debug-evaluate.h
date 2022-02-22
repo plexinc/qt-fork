@@ -14,7 +14,7 @@
 #include "src/execution/frames.h"
 #include "src/objects/objects.h"
 #include "src/objects/shared-function-info.h"
-#include "src/objects/string-table.h"
+#include "src/objects/string-set.h"
 
 namespace v8 {
 namespace internal {
@@ -32,6 +32,9 @@ class DebugEvaluate : public AllStatic {
   // - Parameters and stack-allocated locals need to be materialized.  Altered
   //   values need to be written back to the stack afterwards.
   // - The arguments object needs to materialized.
+  // The stack frame can be either a JavaScript stack frame or a Wasm
+  // stack frame. In the latter case, a special Debug Proxy API is
+  // provided to peek into the Wasm state.
   static MaybeHandle<Object> Local(Isolate* isolate, StackFrameId frame_id,
                                    int inlined_jsframe_index,
                                    Handle<String> source,
@@ -84,7 +87,7 @@ class DebugEvaluate : public AllStatic {
     struct ContextChainElement {
       Handle<Context> wrapped_context;
       Handle<JSObject> materialized_object;
-      Handle<StringSet> blacklist;
+      Handle<StringSet> blocklist;
     };
 
     Handle<Context> evaluation_context_;
@@ -101,7 +104,6 @@ class DebugEvaluate : public AllStatic {
                                       Handle<String> source,
                                       bool throw_on_side_effect);
 };
-
 
 }  // namespace internal
 }  // namespace v8

@@ -317,7 +317,7 @@ void QSizePolicy::setControlType(ControlType type) noexcept
 */
 
 /*!
-    \fn uint qHash(QSizePolicy key, uint seed = 0)
+    \fn size_t qHash(QSizePolicy key, size_t seed = 0)
     \since 5.6
     \relates QSizePolicy
 
@@ -439,7 +439,7 @@ void QSizePolicy::setControlType(ControlType type) noexcept
 */
 QSizePolicy::operator QVariant() const
 {
-    return QVariant(QMetaType::QSizePolicy, this);
+    return QVariant::fromValue(*this);
 }
 
 #ifndef QT_NO_DATASTREAM

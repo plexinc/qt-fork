@@ -56,33 +56,29 @@ class QSensorReading;
 class QSensorReadingPrivate;
 class QSensorFilter;
 
-// This type is no longer used in the API but third party apps may be using it
-typedef quint64 qtimestamp;
+using qrange = QPair<int,int>;
+using qrangelist = QList<qrange>;
 
-typedef QPair<int,int> qrange;
-typedef QList<qrange> qrangelist;
 struct qoutputrange
 {
     qreal minimum;
     qreal maximum;
     qreal accuracy;
 };
-typedef QList<qoutputrange> qoutputrangelist;
+
+using qoutputrangelist = QList<qoutputrange>;
 
 class Q_SENSORS_EXPORT QSensor : public QObject
 {
     friend class QSensorBackend;
-
     Q_OBJECT
-    Q_ENUMS(Feature)
-    Q_ENUMS(AxesOrientationMode)
-    Q_PROPERTY(QByteArray identifier READ identifier WRITE setIdentifier)
-    Q_PROPERTY(QByteArray type READ type)
+    Q_PROPERTY(QByteArray identifier READ identifier WRITE setIdentifier NOTIFY identifierChanged)
+    Q_PROPERTY(QByteArray type READ type CONSTANT)
     Q_PROPERTY(bool connectedToBackend READ isConnectedToBackend)
     Q_PROPERTY(qrangelist availableDataRates READ availableDataRates)
     Q_PROPERTY(int dataRate READ dataRate WRITE setDataRate NOTIFY dataRateChanged)
     Q_PROPERTY(QSensorReading* reading READ reading NOTIFY readingChanged)
-    Q_PROPERTY(bool busy READ isBusy)
+    Q_PROPERTY(bool busy READ isBusy NOTIFY busyChanged)
     Q_PROPERTY(bool active READ isActive WRITE setActive NOTIFY activeChanged)
     Q_PROPERTY(qoutputrangelist outputRanges READ outputRanges)
     Q_PROPERTY(int outputRange READ outputRange WRITE setOutputRange)
@@ -108,6 +104,7 @@ public:
         PressureSensorTemperature,
         Reserved = 257 // Make sure at least 2 bytes are used for the enum to avoid breaking BC later
     };
+    Q_ENUM(Feature)
 
     // Keep in sync with QmlSensor::AxesOrientationMode
     enum AxesOrientationMode {
@@ -115,8 +112,9 @@ public:
         AutomaticOrientation,
         UserOrientation
     };
+    Q_ENUM(AxesOrientationMode)
 
-    explicit QSensor(const QByteArray &type, QObject *parent = Q_NULLPTR);
+    explicit QSensor(const QByteArray &type, QObject *parent = nullptr);
     virtual ~QSensor();
 
     QByteArray identifier() const;
@@ -205,9 +203,10 @@ Q_SIGNALS:
     void maxBufferSizeChanged(int maxBufferSize);
     void efficientBufferSizeChanged(int efficientBufferSize);
     void bufferSizeChanged(int bufferSize);
+    void identifierChanged();
 
 protected:
-    explicit QSensor(const QByteArray &type, QSensorPrivate &dd, QObject* parent = Q_NULLPTR);
+    explicit QSensor(const QByteArray &type, QSensorPrivate &dd, QObject* parent = nullptr);
     QSensorBackend *backend() const;
 
 private:
@@ -261,7 +260,7 @@ private:
 
 #define DECLARE_READING_D(classname, pclassname)\
     public:\
-        classname(QObject *parent = Q_NULLPTR);\
+        classname(QObject *parent = nullptr);\
         virtual ~classname();\
         void copyValuesFrom(QSensorReading *other) override;\
     private:\
@@ -272,7 +271,7 @@ private:
 
 #define IMPLEMENT_READING_D(classname, pclassname)\
     classname::classname(QObject *parent)\
-        : QSensorReading(parent, Q_NULLPTR)\
+        : QSensorReading(parent, nullptr)\
         , d(new pclassname)\
         {}\
     classname::~classname() {}\
@@ -296,4 +295,3 @@ Q_DECLARE_METATYPE(qrangelist)
 Q_DECLARE_METATYPE(qoutputrangelist)
 
 #endif
-

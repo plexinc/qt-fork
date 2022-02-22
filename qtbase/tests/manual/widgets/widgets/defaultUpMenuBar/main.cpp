@@ -54,12 +54,13 @@
 // secondary is above it).
 
 #include <QtWidgets>
-#include <QtPlatformHeaders/QWindowsWindowFunctions>
+#include <QtGui/qpa/qplatformwindow.h>
+#include <QtGui/qpa/qplatformwindow_p.h>
 
 class MainWindow : public QMainWindow
 {
 public:
-    MainWindow(QWidget *parent = 0) : QMainWindow(parent)
+    MainWindow(QWidget *parent = nullptr) : QMainWindow(parent)
     {
         auto *menu1Act1 = new QAction("Action 1");
         auto *menu1Act2 = new QAction("Action 2");
@@ -116,7 +117,10 @@ int main(int argc, char **argv)
     for (QScreen *screen : QApplication::screens()) {
         MainWindow *mainWindow = new MainWindow;
         mainWindow->setGeometry(screen->geometry());
-        QWindowsWindowFunctions::setHasBorderInFullScreen(mainWindow->windowHandle(), true);
+        mainWindow->winId();
+        using namespace QNativeInterface::Private;
+        if (auto *windowsWindow = dynamic_cast<QWindowsWindow *>(mainWindow->windowHandle()->handle()))
+            windowsWindow->setHasBorderInFullScreen(true);
         mainWindow->showMaximized();
     }
     int ret = a.exec();

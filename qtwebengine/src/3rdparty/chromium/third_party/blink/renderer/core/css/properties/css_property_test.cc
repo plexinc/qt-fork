@@ -7,13 +7,47 @@
 #include "third_party/blink/renderer/core/css/css_property_names.h"
 #include "third_party/blink/renderer/core/css/css_test_helpers.h"
 #include "third_party/blink/renderer/core/css/properties/css_property_instances.h"
+#include "third_party/blink/renderer/core/css/properties/css_property_ref.h"
+#include "third_party/blink/renderer/core/css/resolver/style_builder.h"
+#include "third_party/blink/renderer/core/css/resolver/style_resolver_state.h"
+#include "third_party/blink/renderer/core/css/scoped_css_value.h"
+#include "third_party/blink/renderer/core/html/html_element.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/core/style/data_equivalency.h"
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
 
 namespace blink {
 
-class CSSPropertyTest : public PageTestBase {};
+class CSSPropertyTest : public PageTestBase {
+ public:
+  const CSSValue* Parse(String name, String value) {
+    auto* set = css_test_helpers::ParseDeclarationBlock(name + ":" + value);
+    DCHECK(set);
+    if (set->PropertyCount() != 1)
+      return nullptr;
+    return &set->PropertyAt(0).Value();
+  }
+
+  scoped_refptr<ComputedStyle> ComputedStyleWithValue(
+      const CSSProperty& property,
+      const CSSValue& value) {
+    StyleResolverState state(GetDocument(), *GetDocument().body());
+    state.SetStyle(ComputedStyle::Create());
+
+    // The border-style needs to be non-hidden and non-none, otherwise
+    // the computed values of border-width properties are always zero.
+    //
+    // https://drafts.csswg.org/css-backgrounds-3/#the-border-width
+    state.Style()->SetBorderBottomStyle(EBorderStyle::kSolid);
+    state.Style()->SetBorderLeftStyle(EBorderStyle::kSolid);
+    state.Style()->SetBorderRightStyle(EBorderStyle::kSolid);
+    state.Style()->SetBorderTopStyle(EBorderStyle::kSolid);
+
+    StyleBuilder::ApplyProperty(property, state,
+                                ScopedCSSValue(value, &GetDocument()));
+    return state.TakeStyle();
+  }
+};
 
 TEST_F(CSSPropertyTest, VisitedPropertiesAreNotWebExposed) {
   for (CSSPropertyID property_id : CSSPropertyIDList()) {
@@ -39,16 +73,9 @@ TEST_F(CSSPropertyTest, GetUnvisitedPropertyFromVisited) {
   }
 }
 
-TEST_F(CSSPropertyTest, InternalEffectiveZoomNotWebExposed) {
-  const CSSProperty& property = GetCSSPropertyInternalEffectiveZoom();
-  EXPECT_FALSE(property.IsWebExposed(GetDocument().GetExecutionContext()));
-}
-
-TEST_F(CSSPropertyTest, InternalEffectiveZoomCanBeParsed) {
-  const CSSValue* value = css_test_helpers::ParseLonghand(
-      GetDocument(), GetCSSPropertyInternalEffectiveZoom(), "1.2");
-  ASSERT_TRUE(value);
-  EXPECT_EQ("1.2", value->CssText());
+TEST_F(CSSPropertyTest, InternalFontSizeDeltaNotWebExposed) {
+  ASSERT_FALSE(
+      CSSProperty::Get(CSSPropertyID::kInternalFontSizeDelta).IsWebExposed());
 }
 
 TEST_F(CSSPropertyTest, VisitedPropertiesCanParseValues) {
@@ -100,6 +127,20 @@ TEST_F(CSSPropertyTest, Surrogates) {
                 TextDirection::kLtr, WritingMode::kHorizontalTb));
   EXPECT_FALSE(GetCSSPropertyWidth().SurrogateFor(TextDirection::kLtr,
                                                   WritingMode::kHorizontalTb));
+}
+
+TEST_F(CSSPropertyTest, PairsWithIdenticalValues) {
+  const CSSValue* border_radius = css_test_helpers::ParseLonghand(
+      GetDocument(), GetCSSPropertyBorderTopLeftRadius(), "1% 1%");
+  const CSSValue* perspective_origin = css_test_helpers::ParseLonghand(
+      GetDocument(), GetCSSPropertyPerspectiveOrigin(), "1% 1%");
+
+  // Border radius drops identical values
+  EXPECT_EQ("1%", border_radius->CssText());
+  // Perspective origin keeps identical values
+  EXPECT_EQ("1% 1%", perspective_origin->CssText());
+  // Therefore, the values are different
+  EXPECT_NE(*border_radius, *perspective_origin);
 }
 
 }  // namespace blink

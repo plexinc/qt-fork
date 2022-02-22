@@ -12,7 +12,6 @@
 #include "base/time/time.h"
 #include "media/base/audio_decoder_config.h"
 #include "media/base/buffering_state.h"
-#include "media/base/cdm_context.h"
 #include "media/base/media_export.h"
 #include "media/base/media_status.h"
 #include "media/base/media_track.h"
@@ -27,6 +26,7 @@
 
 namespace media {
 
+class CdmContext;
 class Demuxer;
 
 class MEDIA_EXPORT Pipeline {
@@ -79,8 +79,8 @@ class MEDIA_EXPORT Pipeline {
 
     // Executed whenever the underlying AudioDecoder or VideoDecoder changes
     // during playback.
-    virtual void OnAudioDecoderChange(const PipelineDecoderInfo& info) = 0;
-    virtual void OnVideoDecoderChange(const PipelineDecoderInfo& info) = 0;
+    virtual void OnAudioDecoderChange(const AudioDecoderInfo& info) = 0;
+    virtual void OnVideoDecoderChange(const VideoDecoderInfo& info) = 0;
 
     // Executed whenever the video frame rate changes.  |fps| will be unset if
     // the frame rate is unstable.  The duration used for the frame rate is
@@ -225,6 +225,13 @@ class MEDIA_EXPORT Pipeline {
   // can choose its own default.
   virtual void SetLatencyHint(base::Optional<base::TimeDelta> latency_hint) = 0;
 
+  // Sets whether pitch adjustment should be applied when the playback rate is
+  // different than 1.0.
+  virtual void SetPreservesPitch(bool preserves_pitch) = 0;
+
+  // Sets a flag indicating whether the audio stream was initiated by autoplay.
+  virtual void SetAutoplayInitiated(bool autoplay_initiated) = 0;
+
   // Returns the current media playback time, which progresses from 0 until
   // GetMediaDuration().
   virtual base::TimeDelta GetMediaTime() const = 0;
@@ -243,6 +250,7 @@ class MEDIA_EXPORT Pipeline {
   // Gets the current pipeline statistics.
   virtual PipelineStatistics GetStatistics() const = 0;
 
+  using CdmAttachedCB = base::OnceCallback<void(bool)>;
   virtual void SetCdm(CdmContext* cdm_context,
                       CdmAttachedCB cdm_attached_cb) = 0;
 };

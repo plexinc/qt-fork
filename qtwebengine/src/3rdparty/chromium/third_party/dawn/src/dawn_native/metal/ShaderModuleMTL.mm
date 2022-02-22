@@ -15,122 +15,156 @@
 #include "dawn_native/metal/ShaderModuleMTL.h"
 
 #include "dawn_native/BindGroupLayout.h"
+#include "dawn_native/SpirvUtils.h"
 #include "dawn_native/metal/DeviceMTL.h"
 #include "dawn_native/metal/PipelineLayoutMTL.h"
+#include "dawn_native/metal/RenderPipelineMTL.h"
 
 #include <spirv_msl.hpp>
+
+#ifdef DAWN_ENABLE_WGSL
+// Tint include must be after spirv_msl.hpp, because spirv-cross has its own
+// version of spirv_headers. We also need to undef SPV_REVISION because SPIRV-Cross
+// is at 3 while spirv-headers is at 4.
+#    undef SPV_REVISION
+#    include <tint/tint.h>
+#endif  // DAWN_ENABLE_WGSL
 
 #include <sstream>
 
 namespace dawn_native { namespace metal {
 
-    namespace {
-
-        spv::ExecutionModel SpirvExecutionModelForStage(SingleShaderStage stage) {
-            switch (stage) {
-                case SingleShaderStage::Vertex:
-                    return spv::ExecutionModelVertex;
-                case SingleShaderStage::Fragment:
-                    return spv::ExecutionModelFragment;
-                case SingleShaderStage::Compute:
-                    return spv::ExecutionModelGLCompute;
-                default:
-                    UNREACHABLE();
-            }
-        }
-
-        shaderc_spvc_execution_model ToSpvcExecutionModel(SingleShaderStage stage) {
-            switch (stage) {
-                case SingleShaderStage::Vertex:
-                    return shaderc_spvc_execution_model_vertex;
-                case SingleShaderStage::Fragment:
-                    return shaderc_spvc_execution_model_fragment;
-                case SingleShaderStage::Compute:
-                    return shaderc_spvc_execution_model_glcompute;
-                default:
-                    UNREACHABLE();
-                    return shaderc_spvc_execution_model_invalid;
-            }
-        }
-    }  // namespace
-
     // static
     ResultOrError<ShaderModule*> ShaderModule::Create(Device* device,
-                                                      const ShaderModuleDescriptor* descriptor) {
-        std::unique_ptr<ShaderModule> module(new ShaderModule(device, descriptor));
-        if (!module)
-            return DAWN_VALIDATION_ERROR("Unable to create ShaderModule");
-        DAWN_TRY(module->Initialize(descriptor));
-        return module.release();
+                                                      const ShaderModuleDescriptor* descriptor,
+                                                      ShaderModuleParseResult* parseResult) {
+        Ref<ShaderModule> module = AcquireRef(new ShaderModule(device, descriptor));
+        DAWN_TRY(module->Initialize(parseResult));
+        return module.Detach();
     }
 
     ShaderModule::ShaderModule(Device* device, const ShaderModuleDescriptor* descriptor)
         : ShaderModuleBase(device, descriptor) {
     }
 
-    MaybeError ShaderModule::Initialize(const ShaderModuleDescriptor* descriptor) {
-        mSpirv.assign(descriptor->code, descriptor->code + descriptor->codeSize);
-        if (GetDevice()->IsToggleEnabled(Toggle::UseSpvc)) {
-            shaderc_spvc::CompileOptions options = GetMSLCompileOptions();
-
-            DAWN_TRY(CheckSpvcSuccess(
-                mSpvcContext.InitializeForMsl(descriptor->code, descriptor->codeSize, options),
-                "Unable to initialize instance of spvc"));
-
-            spirv_cross::CompilerMSL* compiler;
-            DAWN_TRY(CheckSpvcSuccess(mSpvcContext.GetCompiler(reinterpret_cast<void**>(&compiler)),
-                                      "Unable to get cross compiler"));
-            DAWN_TRY(ExtractSpirvInfo(*compiler));
-        } else {
-            spirv_cross::CompilerMSL compiler(mSpirv);
-            DAWN_TRY(ExtractSpirvInfo(compiler));
-        }
+    MaybeError ShaderModule::Initialize(ShaderModuleParseResult* parseResult) {
+        DAWN_TRY(InitializeBase(parseResult));
+#ifdef DAWN_ENABLE_WGSL
+        mTintProgram = std::move(parseResult->tintProgram);
+#endif
         return {};
     }
 
-    MaybeError ShaderModule::GetFunction(const char* functionName,
-                                         SingleShaderStage functionStage,
-                                         const PipelineLayout* layout,
-                                         ShaderModule::MetalFunctionData* out) {
-        ASSERT(!IsError());
-        ASSERT(out);
-        std::unique_ptr<spirv_cross::CompilerMSL> compiler_impl;
-        spirv_cross::CompilerMSL* compiler;
-        if (GetDevice()->IsToggleEnabled(Toggle::UseSpvc)) {
-            // Initializing the compiler is needed every call, because this method uses reflection
-            // to mutate the compiler's IR.
-            DAWN_TRY(CheckSpvcSuccess(
-                mSpvcContext.InitializeForMsl(mSpirv.data(), mSpirv.size(), GetMSLCompileOptions()),
-                "Unable to initialize instance of spvc"));
-            DAWN_TRY(CheckSpvcSuccess(mSpvcContext.GetCompiler(reinterpret_cast<void**>(&compiler)),
-                                      "Unable to get cross compiler"));
-        } else {
-            // If these options are changed, the values in DawnSPIRVCrossMSLFastFuzzer.cpp need to
-            // be updated.
-            spirv_cross::CompilerMSL::Options options_msl;
+    ResultOrError<std::string> ShaderModule::TranslateToMSLWithTint(
+        const char* entryPointName,
+        SingleShaderStage stage,
+        const PipelineLayout* layout,
+        // TODO(crbug.com/tint/387): AND in a fixed sample mask in the shader.
+        uint32_t sampleMask,
+        const RenderPipeline* renderPipeline,
+        std::string* remappedEntryPointName,
+        bool* needsStorageBufferLength) {
+#if DAWN_ENABLE_WGSL
+        // TODO(crbug.com/tint/256): Set this accordingly if arrayLength(..) is used.
+        *needsStorageBufferLength = false;
 
-            // Disable PointSize builtin for https://bugs.chromium.org/p/dawn/issues/detail?id=146
-            // Because Metal will reject PointSize builtin if the shader is compiled into a render
-            // pipeline that uses a non-point topology.
-            // TODO (hao.x.li@intel.com): Remove this once WebGPU requires there is no
-            // gl_PointSize builtin (https://github.com/gpuweb/gpuweb/issues/332).
-            options_msl.enable_point_size_builtin = false;
+        std::ostringstream errorStream;
+        errorStream << "Tint MSL failure:" << std::endl;
 
-            // Always use vertex buffer 30 (the last one in the vertex buffer table) to contain
-            // the shader storage buffer lengths.
-            options_msl.buffer_size_buffer_index = kBufferLengthBufferSlot;
+        tint::transform::Manager transformManager;
+        if (stage == SingleShaderStage::Vertex &&
+            GetDevice()->IsToggleEnabled(Toggle::MetalEnableVertexPulling)) {
+            transformManager.append(
+                MakeVertexPullingTransform(*renderPipeline->GetVertexStateDescriptor(),
+                                           entryPointName, kPullingBufferBindingSet));
 
-            compiler_impl = std::make_unique<spirv_cross::CompilerMSL>(mSpirv);
-            compiler = compiler_impl.get();
-            compiler->set_msl_options(options_msl);
+            for (VertexBufferSlot slot :
+                 IterateBitSet(renderPipeline->GetVertexBufferSlotsUsed())) {
+                uint32_t metalIndex = renderPipeline->GetMtlVertexBufferIndex(slot);
+                DAWN_UNUSED(metalIndex);
+                // TODO(crbug.com/tint/104): Tell Tint to map (kPullingBufferBindingSet, slot) to
+                // this MSL buffer index.
+            }
         }
+        transformManager.append(std::make_unique<tint::transform::BoundArrayAccessors>());
+
+        tint::Program program;
+        DAWN_TRY_ASSIGN(program, RunTransforms(&transformManager, mTintProgram.get()));
+
+        ASSERT(remappedEntryPointName != nullptr);
+        tint::inspector::Inspector inspector(&program);
+        *remappedEntryPointName = inspector.GetRemappedNameForEntryPoint(entryPointName);
+
+        tint::writer::msl::Generator generator(&program);
+        if (!generator.Generate()) {
+            errorStream << "Generator: " << generator.error() << std::endl;
+            return DAWN_VALIDATION_ERROR(errorStream.str().c_str());
+        }
+
+        std::string msl = generator.result();
+        return std::move(msl);
+#else
+        UNREACHABLE();
+#endif
+    }
+
+    ResultOrError<std::string> ShaderModule::TranslateToMSLWithSPIRVCross(
+        const char* entryPointName,
+        SingleShaderStage stage,
+        const PipelineLayout* layout,
+        uint32_t sampleMask,
+        const RenderPipeline* renderPipeline,
+        std::string* remappedEntryPointName,
+        bool* needsStorageBufferLength) {
+        const std::vector<uint32_t>* spirv = &GetSpirv();
+        spv::ExecutionModel executionModel = ShaderStageToExecutionModel(stage);
+
+#ifdef DAWN_ENABLE_WGSL
+        std::vector<uint32_t> pullingSpirv;
+        if (GetDevice()->IsToggleEnabled(Toggle::MetalEnableVertexPulling) &&
+            stage == SingleShaderStage::Vertex) {
+            if (mTintProgram) {
+                DAWN_TRY_ASSIGN(pullingSpirv,
+                                GeneratePullingSpirv(mTintProgram.get(),
+                                                     *renderPipeline->GetVertexStateDescriptor(),
+                                                     entryPointName, kPullingBufferBindingSet));
+            } else {
+                DAWN_TRY_ASSIGN(
+                    pullingSpirv,
+                    GeneratePullingSpirv(GetSpirv(), *renderPipeline->GetVertexStateDescriptor(),
+                                         entryPointName, kPullingBufferBindingSet));
+            }
+            spirv = &pullingSpirv;
+        }
+#endif
+
+        // If these options are changed, the values in DawnSPIRVCrossMSLFastFuzzer.cpp need to
+        // be updated.
+        spirv_cross::CompilerMSL::Options options_msl;
+
+        // Disable PointSize builtin for https://bugs.chromium.org/p/dawn/issues/detail?id=146
+        // Because Metal will reject PointSize builtin if the shader is compiled into a render
+        // pipeline that uses a non-point topology.
+        // TODO (hao.x.li@intel.com): Remove this once WebGPU requires there is no
+        // gl_PointSize builtin (https://github.com/gpuweb/gpuweb/issues/332).
+        options_msl.enable_point_size_builtin = false;
+
+        // Always use vertex buffer 30 (the last one in the vertex buffer table) to contain
+        // the shader storage buffer lengths.
+        options_msl.buffer_size_buffer_index = kBufferLengthBufferSlot;
+
+        options_msl.additional_fixed_sample_mask = sampleMask;
+
+        spirv_cross::CompilerMSL compiler(*spirv);
+        compiler.set_msl_options(options_msl);
+        compiler.set_entry_point(entryPointName, executionModel);
 
         // By default SPIRV-Cross will give MSL resources indices in increasing order.
         // To make the MSL indices match the indices chosen in the PipelineLayout, we build
         // a table of MSLResourceBinding to give to SPIRV-Cross.
 
         // Create one resource binding entry per stage per binding.
-        for (uint32_t group : IterateBitSet(layout->GetBindGroupLayoutsMask())) {
+        for (BindGroupIndex group : IterateBitSet(layout->GetBindGroupLayoutsMask())) {
             const BindGroupLayoutBase::BindingMap& bindingMap =
                 layout->GetBindGroupLayout(group)->GetBindingMap();
 
@@ -141,116 +175,110 @@ namespace dawn_native { namespace metal {
                 const BindingInfo& bindingInfo =
                     layout->GetBindGroupLayout(group)->GetBindingInfo(bindingIndex);
 
-                for (auto stage : IterateStages(bindingInfo.visibility)) {
-                    uint32_t shaderIndex = layout->GetBindingIndexInfo(stage)[group][bindingIndex];
-                    if (GetDevice()->IsToggleEnabled(Toggle::UseSpvc)) {
-                        shaderc_spvc_msl_resource_binding mslBinding;
-                        mslBinding.stage = ToSpvcExecutionModel(stage);
-                        mslBinding.desc_set = group;
-                        mslBinding.binding = bindingNumber;
-                        mslBinding.msl_buffer = mslBinding.msl_texture = mslBinding.msl_sampler =
-                            shaderIndex;
-                        DAWN_TRY(CheckSpvcSuccess(mSpvcContext.AddMSLResourceBinding(mslBinding),
-                                                  "Unable to add MSL Resource Binding"));
-                    } else {
-                        spirv_cross::MSLResourceBinding mslBinding;
-                        mslBinding.stage = SpirvExecutionModelForStage(stage);
-                        mslBinding.desc_set = group;
-                        mslBinding.binding = bindingNumber;
-                        mslBinding.msl_buffer = mslBinding.msl_texture = mslBinding.msl_sampler =
-                            shaderIndex;
-
-                        compiler->add_msl_resource_binding(mslBinding);
-                    }
+                if (!(bindingInfo.visibility & StageBit(stage))) {
+                    continue;
                 }
+
+                uint32_t shaderIndex = layout->GetBindingIndexInfo(stage)[group][bindingIndex];
+
+                spirv_cross::MSLResourceBinding mslBinding;
+                mslBinding.stage = executionModel;
+                mslBinding.desc_set = static_cast<uint32_t>(group);
+                mslBinding.binding = static_cast<uint32_t>(bindingNumber);
+                mslBinding.msl_buffer = mslBinding.msl_texture = mslBinding.msl_sampler =
+                    shaderIndex;
+
+                compiler.add_msl_resource_binding(mslBinding);
             }
         }
 
-        {
-            if (GetDevice()->IsToggleEnabled(Toggle::UseSpvc)) {
-                shaderc_spvc_execution_model executionModel = ToSpvcExecutionModel(functionStage);
-                shaderc_spvc_workgroup_size size;
-                DAWN_TRY(CheckSpvcSuccess(
-                    mSpvcContext.GetWorkgroupSize(functionName, executionModel, &size),
-                    "Unable to get workgroup size for shader"));
-                out->localWorkgroupSize = MTLSizeMake(size.x, size.y, size.z);
-            } else {
-                spv::ExecutionModel executionModel = SpirvExecutionModelForStage(functionStage);
-                auto size = compiler->get_entry_point(functionName, executionModel).workgroup_size;
-                out->localWorkgroupSize = MTLSizeMake(size.x, size.y, size.z);
+#ifdef DAWN_ENABLE_WGSL
+        // Add vertex buffers bound as storage buffers
+        if (GetDevice()->IsToggleEnabled(Toggle::MetalEnableVertexPulling) &&
+            stage == SingleShaderStage::Vertex) {
+            for (VertexBufferSlot slot :
+                 IterateBitSet(renderPipeline->GetVertexBufferSlotsUsed())) {
+                uint32_t metalIndex = renderPipeline->GetMtlVertexBufferIndex(slot);
+
+                spirv_cross::MSLResourceBinding mslBinding;
+
+                mslBinding.stage = spv::ExecutionModelVertex;
+                mslBinding.desc_set = static_cast<uint32_t>(kPullingBufferBindingSet);
+                mslBinding.binding = static_cast<uint8_t>(slot);
+                mslBinding.msl_buffer = metalIndex;
+                compiler.add_msl_resource_binding(mslBinding);
             }
         }
+#endif
 
-        {
-            // SPIRV-Cross also supports re-ordering attributes but it seems to do the correct thing
-            // by default.
-            NSString* mslSource;
-            if (GetDevice()->IsToggleEnabled(Toggle::UseSpvc)) {
-                shaderc_spvc::CompilationResult result;
-                DAWN_TRY(CheckSpvcSuccess(mSpvcContext.CompileShader(&result),
-                                          "Unable to compile MSL shader"));
-                std::string result_str;
-                DAWN_TRY(CheckSpvcSuccess(result.GetStringOutput(&result_str),
-                                          "Unable to get MSL shader text"));
-                mslSource = [NSString stringWithFormat:@"%s", result_str.c_str()];
-            } else {
-                std::string msl = compiler->compile();
-                mslSource = [NSString stringWithFormat:@"%s", msl.c_str()];
-            }
-            auto mtlDevice = ToBackend(GetDevice())->GetMTLDevice();
-            NSError* error = nil;
-            id<MTLLibrary> library = [mtlDevice newLibraryWithSource:mslSource
-                                                             options:nil
-                                                               error:&error];
-            if (error != nil) {
-                // TODO(cwallez@chromium.org): Switch that NSLog to use dawn::InfoLog or even be
-                // folded in the DAWN_VALIDATION_ERROR
-                NSLog(@"MTLDevice newLibraryWithSource => %@", error);
-                if (error.code != MTLLibraryErrorCompileWarning) {
-                    return DAWN_VALIDATION_ERROR("Unable to create library object");
-                }
-            }
+        // SPIRV-Cross also supports re-ordering attributes but it seems to do the correct thing
+        // by default.
+        std::string msl = compiler.compile();
 
-            // TODO(kainino@chromium.org): make this somehow more robust; it needs to behave like
-            // clean_func_name:
-            // https://github.com/KhronosGroup/SPIRV-Cross/blob/4e915e8c483e319d0dd7a1fa22318bef28f8cca3/spirv_msl.cpp#L1213
-            if (strcmp(functionName, "main") == 0) {
-                functionName = "main0";
-            }
+        // Some entry point names are forbidden in MSL so SPIRV-Cross modifies them. Query the
+        // modified entryPointName from it.
+        *remappedEntryPointName = compiler.get_entry_point(entryPointName, executionModel).name;
+        *needsStorageBufferLength = compiler.needs_buffer_size_buffer();
 
-            NSString* name = [NSString stringWithFormat:@"%s", functionName];
-            out->function = [library newFunctionWithName:name];
-            [library release];
-        }
+        return std::move(msl);
+    }
 
-        if (GetDevice()->IsToggleEnabled(Toggle::UseSpvc)) {
-            DAWN_TRY(
-                CheckSpvcSuccess(mSpvcContext.NeedsBufferSizeBuffer(&out->needsStorageBufferLength),
-                                 "Unable to determine if shader needs buffer size buffer"));
+    MaybeError ShaderModule::CreateFunction(const char* entryPointName,
+                                            SingleShaderStage stage,
+                                            const PipelineLayout* layout,
+                                            ShaderModule::MetalFunctionData* out,
+                                            uint32_t sampleMask,
+                                            const RenderPipeline* renderPipeline) {
+        ASSERT(!IsError());
+        ASSERT(out);
+
+        std::string remappedEntryPointName;
+        std::string msl;
+        if (GetDevice()->IsToggleEnabled(Toggle::UseTintGenerator)) {
+            DAWN_TRY_ASSIGN(msl, TranslateToMSLWithTint(entryPointName, stage, layout, sampleMask,
+                                                        renderPipeline, &remappedEntryPointName,
+                                                        &out->needsStorageBufferLength));
         } else {
-            out->needsStorageBufferLength = compiler->needs_buffer_size_buffer();
+            DAWN_TRY_ASSIGN(msl, TranslateToMSLWithSPIRVCross(
+                                     entryPointName, stage, layout, sampleMask, renderPipeline,
+                                     &remappedEntryPointName, &out->needsStorageBufferLength));
+        }
+
+        // Metal uses Clang to compile the shader as C++14. Disable everything in the -Wall
+        // category. -Wunused-variable in particular comes up a lot in generated code, and some
+        // (old?) Metal drivers accidentally treat it as a MTLLibraryErrorCompileError instead
+        // of a warning.
+        msl = R"(\
+#ifdef __clang__
+#pragma clang diagnostic ignored "-Wall"
+#endif
+)" + msl;
+
+        NSRef<NSString> mslSource = AcquireNSRef([[NSString alloc] initWithUTF8String:msl.c_str()]);
+
+        auto mtlDevice = ToBackend(GetDevice())->GetMTLDevice();
+        NSError* error = nullptr;
+        NSPRef<id<MTLLibrary>> library =
+            AcquireNSPRef([mtlDevice newLibraryWithSource:mslSource.Get()
+                                                  options:nullptr
+                                                    error:&error]);
+        if (error != nullptr) {
+            if (error.code != MTLLibraryErrorCompileWarning) {
+                const char* errorString = [error.localizedDescription UTF8String];
+                return DAWN_VALIDATION_ERROR(std::string("Unable to create library object: ") +
+                                             errorString);
+            }
+        }
+
+        NSRef<NSString> name =
+            AcquireNSRef([[NSString alloc] initWithUTF8String:remappedEntryPointName.c_str()]);
+        out->function = AcquireNSPRef([*library newFunctionWithName:name.Get()]);
+
+        if (GetDevice()->IsToggleEnabled(Toggle::MetalEnableVertexPulling) &&
+            GetEntryPoint(entryPointName).usedVertexAttributes.any()) {
+            out->needsStorageBufferLength = true;
         }
 
         return {};
     }
-
-    shaderc_spvc::CompileOptions ShaderModule::GetMSLCompileOptions() {
-        // If these options are changed, the values in DawnSPIRVCrossGLSLFastFuzzer.cpp need to
-        // be updated.
-        shaderc_spvc::CompileOptions options = GetCompileOptions();
-
-        // Disable PointSize builtin for https://bugs.chromium.org/p/dawn/issues/detail?id=146
-        // Because Metal will reject PointSize builtin if the shader is compiled into a render
-        // pipeline that uses a non-point topology.
-        // TODO (hao.x.li@intel.com): Remove this once WebGPU requires there is no
-        // gl_PointSize builtin (https://github.com/gpuweb/gpuweb/issues/332).
-        options.SetMSLEnablePointSizeBuiltIn(false);
-
-        // Always use vertex buffer 30 (the last one in the vertex buffer table) to contain
-        // the shader storage buffer lengths.
-        options.SetMSLBufferSizeBufferIndex(kBufferLengthBufferSlot);
-
-        return options;
-    }
-
 }}  // namespace dawn_native::metal

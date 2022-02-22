@@ -5,6 +5,7 @@
 #import "components/remote_cocoa/app_shim/native_widget_mac_nswindow.h"
 
 #include "base/mac/foundation_util.h"
+#include "base/trace_event/trace_event.h"
 #import "components/remote_cocoa/app_shim/native_widget_ns_window_bridge.h"
 #include "components/remote_cocoa/app_shim/native_widget_ns_window_host_helper.h"
 #import "components/remote_cocoa/app_shim/views_nswindow_delegate.h"
@@ -18,10 +19,6 @@
 - (BOOL)hasKeyAppearance;
 - (long long)_resizeDirectionForMouseLocation:(CGPoint)location;
 - (BOOL)_isConsideredOpenForPersistentState;
-
-// Available in later point releases of 10.10. On 10.11+, use the public
-// -performWindowDragWithEvent: instead.
-- (void)beginWindowDragWithEvent:(NSEvent*)event;
 @end
 
 @interface NativeWidgetMacNSWindow () <NSKeyedArchiverDelegate>
@@ -46,13 +43,7 @@
   if ([self.window _resizeDirectionForMouseLocation:event.locationInWindow] !=
       -1)
     return;
-  if (@available(macOS 10.11, *))
-    [self.window performWindowDragWithEvent:event];
-  else if ([self.window
-               respondsToSelector:@selector(beginWindowDragWithEvent:)])
-    [self.window beginWindowDragWithEvent:event];
-  else
-    NOTREACHED();
+  [self.window performWindowDragWithEvent:event];
 }
 @end
 
@@ -234,9 +225,15 @@
 // forwarded to a toolkit-views menu while it is active, and while still
 // allowing any native subview to retain firstResponder status.
 - (void)sendEvent:(NSEvent*)event {
+  // TODO(bokan): Tracing added temporarily to diagnose crbug.com/1039833.
+  TRACE_EVENT1("browser", "NSWindow::sendEvent", "WindowNum",
+               [self windowNumber]);
+
   // Let CommandDispatcher check if this is a redispatched event.
-  if ([_commandDispatcher preSendEvent:event])
+  if ([_commandDispatcher preSendEvent:event]) {
+    TRACE_EVENT_INSTANT0("browser", "StopSendEvent", TRACE_EVENT_SCOPE_THREAD);
     return;
+  }
 
   NSEventType type = [event type];
 
@@ -282,6 +279,9 @@
 // NSResponder implementation.
 
 - (BOOL)performKeyEquivalent:(NSEvent*)event {
+  // TODO(bokan): Tracing added temporarily to diagnose crbug.com/1039833.
+  TRACE_EVENT1("browser", "NSWindow::performKeyEquivalent", "WindowNum",
+               [self windowNumber]);
   return [_commandDispatcher performKeyEquivalent:event];
 }
 
@@ -377,6 +377,9 @@
 }
 
 - (BOOL)defaultPerformKeyEquivalent:(NSEvent*)event {
+  // TODO(bokan): Tracing added temporarily to diagnose crbug.com/1039833.
+  TRACE_EVENT1("browser", "NSWindow::defaultPerformKeyEquivalent", "WindowNum",
+               [self windowNumber]);
   return [super performKeyEquivalent:event];
 }
 

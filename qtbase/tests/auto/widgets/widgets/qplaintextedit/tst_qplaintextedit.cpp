@@ -27,8 +27,8 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
-
+#include <QTest>
+#include <QSignalSpy>
 
 #include <qtextedit.h>
 #include <qtextcursor.h>
@@ -135,11 +135,6 @@ private slots:
     void insertAndScrollToBottom();
     void inputMethodQueryImHints_data();
     void inputMethodQueryImHints();
-#ifndef QT_NO_REGEXP
-    void findWithRegExp();
-    void findBackwardWithRegExp();
-    void findWithRegExpReturnsFalseIfNoMoreResults();
-#endif
 #if QT_CONFIG(regularexpression)
     void findWithRegularExpression();
     void findBackwardWithRegularExpression();
@@ -155,7 +150,10 @@ private slots:
 #if QT_CONFIG(scrollbar)
     void updateAfterChangeCenterOnScroll();
 #endif
+#ifndef QT_NO_CLIPBOARD
     void updateCursorPositionAfterEdit();
+#endif
+    void appendTextWhenInvisible();
 
 private:
     void createSelection();
@@ -225,18 +223,18 @@ public:
     inline QtTestDocumentLayout(QPlainTextEdit *edit, QTextDocument *doc, int &itCount)
         : QAbstractTextDocumentLayout(doc), useBiggerSize(false), ed(edit), iterationCounter(itCount) {}
 
-    virtual void draw(QPainter *, const QAbstractTextDocumentLayout::PaintContext &)  {}
+    virtual void draw(QPainter *, const QAbstractTextDocumentLayout::PaintContext &) override {}
 
-    virtual int hitTest(const QPointF &, Qt::HitTestAccuracy ) const { return 0; }
+    virtual int hitTest(const QPointF &, Qt::HitTestAccuracy ) const override { return 0; }
 
-    virtual void documentChanged(int, int, int) {}
+    virtual void documentChanged(int, int, int) override {}
 
-    virtual int pageCount() const { return 1; }
+    virtual int pageCount() const override { return 1; }
 
-    virtual QSizeF documentSize() const { return usedSize; }
+    virtual QSizeF documentSize() const override { return usedSize; }
 
-    virtual QRectF frameBoundingRect(QTextFrame *) const { return QRectF(); }
-    virtual QRectF blockBoundingRect(const QTextBlock &) const { return QRectF(); }
+    virtual QRectF frameBoundingRect(QTextFrame *) const override { return QRectF(); }
+    virtual QRectF blockBoundingRect(const QTextBlock &) const override { return QRectF(); }
 
     bool useBiggerSize;
     QSize usedSize;
@@ -1107,15 +1105,15 @@ public:
     mutable int canInsertCallCount;
     mutable int insertCallCount;
 
-    virtual QMimeData *createMimeDataFromSelection() const {
+    virtual QMimeData *createMimeDataFromSelection() const override {
         createMimeDataCallCount++;
         return QPlainTextEdit::createMimeDataFromSelection();
     }
-    virtual bool canInsertFromMimeData(const QMimeData *source) const {
+    virtual bool canInsertFromMimeData(const QMimeData *source) const override {
         canInsertCallCount++;
         return QPlainTextEdit::canInsertFromMimeData(source);
     }
-    virtual void insertFromMimeData(const QMimeData *source) {
+    virtual void insertFromMimeData(const QMimeData *source) override {
         insertCallCount++;
         QPlainTextEdit::insertFromMimeData(source);
     }
@@ -1255,7 +1253,7 @@ public:
     bool resizeEventCalled;
 
 protected:
-    virtual void resizeEvent(QResizeEvent *e)
+    virtual void resizeEvent(QResizeEvent *e) override
     {
         QPlainTextEdit::resizeEvent(e);
         setPlainText("<img src=qtextbrowser-resizeevent.png width=" + QString::number(size().width()) + "><br>Size is " + QString::number(size().width()) + " x " + QString::number(size().height()));
@@ -1374,9 +1372,6 @@ void tst_QPlainTextEdit::adjustScrollbars()
     QLatin1String txt("\nabc def ghi jkl mno pqr stu vwx");
     ed->setPlainText(txt + txt + txt + txt);
 
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("", "WinRT does not support setMinimum/MaximumSize", Abort);
-#endif
     QVERIFY(ed->verticalScrollBar()->maximum() > 0);
 
     ed->moveCursor(QTextCursor::End);
@@ -1562,45 +1557,6 @@ void tst_QPlainTextEdit::inputMethodQueryImHints()
     QCOMPARE(static_cast<Qt::InputMethodHints>(value.toInt()), hints);
 }
 
-#ifndef QT_NO_REGEXP
-void tst_QPlainTextEdit::findWithRegExp()
-{
-    ed->setPlainText(QStringLiteral("arbitrary text"));
-    QRegExp rx("\\w{2}xt");
-
-    bool found = ed->find(rx);
-
-    QVERIFY(found);
-    QCOMPARE(ed->textCursor().selectedText(), QStringLiteral("text"));
-}
-
-void tst_QPlainTextEdit::findBackwardWithRegExp()
-{
-    ed->setPlainText(QStringLiteral("arbitrary text"));
-    QTextCursor cursor = ed->textCursor();
-    cursor.movePosition(QTextCursor::End);
-    ed->setTextCursor(cursor);
-    QRegExp rx("a\\w*t");
-
-    bool found = ed->find(rx, QTextDocument::FindBackward);
-
-    QVERIFY(found);
-    QCOMPARE(ed->textCursor().selectedText(), QStringLiteral("arbit"));
-}
-
-void tst_QPlainTextEdit::findWithRegExpReturnsFalseIfNoMoreResults()
-{
-    ed->setPlainText(QStringLiteral("arbitrary text"));
-    QRegExp rx("t.xt");
-    ed->find(rx);
-
-    bool found = ed->find(rx);
-
-    QVERIFY(!found);
-    QCOMPARE(ed->textCursor().selectedText(), QStringLiteral("text"));
-}
-#endif
-
 #if QT_CONFIG(regularexpression)
 void tst_QPlainTextEdit::findWithRegularExpression()
 {
@@ -1784,7 +1740,7 @@ void tst_QPlainTextEdit::inputMethodCursorRect()
     ed->moveCursor(QTextCursor::End);
     const QRectF cursorRect = ed->cursorRect();
     const QVariant cursorRectV = ed->inputMethodQuery(Qt::ImCursorRectangle);
-    QCOMPARE(cursorRectV.type(), QVariant::RectF);
+    QCOMPARE(cursorRectV.userType(), QMetaType::QRectF);
     QCOMPARE(cursorRectV.toRect(), cursorRect.toRect());
 }
 
@@ -1803,6 +1759,7 @@ void tst_QPlainTextEdit::updateAfterChangeCenterOnScroll()
 
 #endif
 
+#ifndef QT_NO_CLIPBOARD
 void tst_QPlainTextEdit::updateCursorPositionAfterEdit()
 {
     QPlainTextEdit plaintextEdit;
@@ -1846,6 +1803,38 @@ void tst_QPlainTextEdit::updateCursorPositionAfterEdit()
 
     // The curser should move back to the end of the copied text
     QCOMPARE(plaintextEdit.textCursor().position(), initialPosition + txt.length());
+}
+#endif
+
+void tst_QPlainTextEdit::appendTextWhenInvisible()
+{
+    QWidget window;
+    window.resize(640, 480);
+
+    QPlainTextEdit *plainTextEdit = new QPlainTextEdit(&window);
+    plainTextEdit->resize(320, 240);
+
+    window.show();
+    QVERIFY(QTest::qWaitForWindowActive(&window));
+
+    // this should be long enough to let vertical scroll bar show up
+    const QString baseText("text\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\ntext");
+    const QString textToAppend("aaa");
+
+    plainTextEdit->setPlainText(baseText + "\n" + textToAppend);
+    const auto maxAfterSet = plainTextEdit->verticalScrollBar()->maximum();
+    // make sure the vertical scroll bar is visible
+    QVERIFY(maxAfterSet != 0);
+
+    plainTextEdit->clear();
+    plainTextEdit->setPlainText(baseText);
+    plainTextEdit->hide();
+    plainTextEdit->appendPlainText(textToAppend);
+    plainTextEdit->show();
+    const auto maxAfterAppend = plainTextEdit->verticalScrollBar()->maximum();
+    QVERIFY(maxAfterAppend != 0);
+
+    QCOMPARE(maxAfterAppend, maxAfterSet);
 }
 
 QTEST_MAIN(tst_QPlainTextEdit)

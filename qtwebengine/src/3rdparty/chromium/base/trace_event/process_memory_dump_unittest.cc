@@ -25,10 +25,6 @@
 #include <sys/mman.h>
 #endif
 
-#if defined(OS_IOS)
-#include "base/ios/ios_util.h"
-#endif
-
 namespace base {
 namespace trace_event {
 
@@ -490,17 +486,20 @@ TEST(ProcessMemoryDumpTest, MAYBE_CountResidentBytes) {
   const size_t size1 = 5 * page_size;
   void* memory1 = Map(size1);
   memset(memory1, 0, size1);
-  size_t res1 = ProcessMemoryDump::CountResidentBytes(memory1, size1);
-  ASSERT_EQ(res1, size1);
+  base::Optional<size_t> res1 =
+      ProcessMemoryDump::CountResidentBytes(memory1, size1);
+  ASSERT_TRUE(res1.has_value());
+  ASSERT_EQ(res1.value(), size1);
   Unmap(memory1, size1);
 
   // Allocate a large memory segment (> 8Mib).
   const size_t kVeryLargeMemorySize = 15 * 1024 * 1024;
   void* memory2 = Map(kVeryLargeMemorySize);
   memset(memory2, 0, kVeryLargeMemorySize);
-  size_t res2 =
+  base::Optional<size_t> res2 =
       ProcessMemoryDump::CountResidentBytes(memory2, kVeryLargeMemorySize);
-  ASSERT_EQ(res2, kVeryLargeMemorySize);
+  ASSERT_TRUE(res2.has_value());
+  ASSERT_EQ(res2.value(), kVeryLargeMemorySize);
   Unmap(memory2, kVeryLargeMemorySize);
 }
 
@@ -512,13 +511,6 @@ TEST(ProcessMemoryDumpTest, MAYBE_CountResidentBytes) {
 #define MAYBE_CountResidentBytesInSharedMemory CountResidentBytesInSharedMemory
 #endif
 TEST(ProcessMemoryDumpTest, MAYBE_CountResidentBytesInSharedMemory) {
-#if defined(OS_IOS)
-  // TODO(crbug.com/748410): Reenable this test.
-  if (!base::ios::IsRunningOnIOS10OrLater()) {
-    return;
-  }
-#endif
-
   const size_t page_size = ProcessMemoryDump::GetSystemPageSize();
 
   // Allocate few page of dirty memory and check if it is resident.

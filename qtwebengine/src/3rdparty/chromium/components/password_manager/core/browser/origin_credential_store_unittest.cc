@@ -20,7 +20,7 @@ namespace {
 using base::ASCIIToUTF16;
 using testing::ElementsAre;
 
-using BlacklistedStatus = OriginCredentialStore::BlacklistedStatus;
+using BlocklistedStatus = OriginCredentialStore::BlocklistedStatus;
 using IsPublicSuffixMatch = UiCredential::IsPublicSuffixMatch;
 using IsAffiliationBasedMatch = UiCredential::IsAffiliationBasedMatch;
 
@@ -35,7 +35,7 @@ UiCredential MakeUiCredential(
         IsAffiliationBasedMatch(false)) {
   return UiCredential(base::UTF8ToUTF16(username), base::UTF8ToUTF16(password),
                       url::Origin::Create(GURL(origin)), is_public_suffix_match,
-                      is_affiliation_based_match);
+                      is_affiliation_based_match, base::Time());
 }
 
 }  // namespace
@@ -102,18 +102,45 @@ TEST_F(OriginCredentialStoreTest, ClearsCredentials) {
   EXPECT_EQ(store()->GetCredentials().size(), 0u);
 }
 
-TEST_F(OriginCredentialStoreTest, InitializesBlacklistedStatus) {
-  store()->InitializeBlacklistedStatus(true);
-  EXPECT_EQ(BlacklistedStatus::kIsBlacklisted, store()->GetBlacklistedStatus());
+TEST_F(OriginCredentialStoreTest, SetBlocklistedAfterNeverBlocklisted) {
+  store()->SetBlocklistedStatus(true);
+  EXPECT_EQ(BlocklistedStatus::kIsBlocklisted, store()->GetBlocklistedStatus());
 }
 
-TEST_F(OriginCredentialStoreTest, CorrectlyUpdatesBlacklistedStatus) {
-  store()->InitializeBlacklistedStatus(true);
-  EXPECT_EQ(BlacklistedStatus::kIsBlacklisted, store()->GetBlacklistedStatus());
+TEST_F(OriginCredentialStoreTest, CorrectlyUpdatesBlocklistedStatus) {
+  store()->SetBlocklistedStatus(true);
+  ASSERT_EQ(BlocklistedStatus::kIsBlocklisted, store()->GetBlocklistedStatus());
 
-  store()->UpdateBlacklistedStatus(false);
-  EXPECT_EQ(BlacklistedStatus::kWasBlacklisted,
-            store()->GetBlacklistedStatus());
+  store()->SetBlocklistedStatus(false);
+  EXPECT_EQ(BlocklistedStatus::kWasBlocklisted,
+            store()->GetBlocklistedStatus());
+
+  store()->SetBlocklistedStatus(true);
+  EXPECT_EQ(BlocklistedStatus::kIsBlocklisted, store()->GetBlocklistedStatus());
+}
+
+TEST_F(OriginCredentialStoreTest, WasBlocklistedStaysTheSame) {
+  store()->SetBlocklistedStatus(true);
+  ASSERT_EQ(BlocklistedStatus::kIsBlocklisted, store()->GetBlocklistedStatus());
+
+  store()->SetBlocklistedStatus(false);
+  ASSERT_EQ(BlocklistedStatus::kWasBlocklisted,
+            store()->GetBlocklistedStatus());
+
+  // If unblocklisting is communicated twice in a row, the status shouldn't
+  // change.
+  store()->SetBlocklistedStatus(false);
+  EXPECT_EQ(BlocklistedStatus::kWasBlocklisted,
+            store()->GetBlocklistedStatus());
+}
+
+TEST_F(OriginCredentialStoreTest, NeverBlocklistedStaysTheSame) {
+  ASSERT_EQ(BlocklistedStatus::kNeverBlocklisted,
+            store()->GetBlocklistedStatus());
+
+  store()->SetBlocklistedStatus(false);
+  EXPECT_EQ(BlocklistedStatus::kNeverBlocklisted,
+            store()->GetBlocklistedStatus());
 }
 
 }  // namespace password_manager

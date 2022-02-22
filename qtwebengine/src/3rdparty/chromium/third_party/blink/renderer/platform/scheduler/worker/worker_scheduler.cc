@@ -4,6 +4,8 @@
 
 #include "third_party/blink/renderer/platform/scheduler/public/worker_scheduler.h"
 
+#include "third_party/blink/public/common/features.h"
+#include "third_party/blink/renderer/platform/back_forward_cache_utils.h"
 #include "third_party/blink/renderer/platform/scheduler/common/throttling/task_queue_throttler.h"
 #include "third_party/blink/renderer/platform/scheduler/common/throttling/wake_up_budget_pool.h"
 #include "third_party/blink/renderer/platform/scheduler/worker/worker_scheduler_proxy.h"
@@ -133,7 +135,9 @@ void WorkerScheduler::Dispose() {
 scoped_refptr<base::SingleThreadTaskRunner> WorkerScheduler::GetTaskRunner(
     TaskType type) const {
   switch (type) {
-    case TaskType::kJavascriptTimer:
+    case TaskType::kJavascriptTimerImmediate:
+    case TaskType::kJavascriptTimerDelayedLowNesting:
+    case TaskType::kJavascriptTimerDelayedHighNesting:
     case TaskType::kPostedMessage:
     case TaskType::kWorkerAnimation:
       return throttleable_task_queue_->CreateTaskRunner(type);
@@ -171,6 +175,7 @@ scoped_refptr<base::SingleThreadTaskRunner> WorkerScheduler::GetTaskRunner(
     case TaskType::kInternalIntersectionObserver:
     case TaskType::kInternalNavigationAssociated:
     case TaskType::kInternalContinueScriptLoading:
+    case TaskType::kWakeLock:
       // UnthrottledTaskRunner is generally discouraged in future.
       // TODO(nhiroki): Identify which tasks can be throttled / suspendable and
       // move them into other task runners. See also comments in
@@ -188,14 +193,16 @@ scoped_refptr<base::SingleThreadTaskRunner> WorkerScheduler::GetTaskRunner(
       // move them into other task runners. See also comments in
       // Get(LocalFrame). (https://crbug.com/670534)
       return unpausable_task_queue_->CreateTaskRunner(type);
+    case TaskType::kNetworkingUnfreezable:
+      return IsInflightNetworkRequestBackForwardCacheSupportEnabled()
+                 ? unpausable_task_queue_->CreateTaskRunner(type)
+                 : pausable_task_queue_->CreateTaskRunner(type);
     case TaskType::kMainThreadTaskQueueV8:
     case TaskType::kMainThreadTaskQueueCompositor:
     case TaskType::kMainThreadTaskQueueDefault:
     case TaskType::kMainThreadTaskQueueInput:
     case TaskType::kMainThreadTaskQueueIdle:
-    case TaskType::kMainThreadTaskQueueIPC:
     case TaskType::kMainThreadTaskQueueControl:
-    case TaskType::kMainThreadTaskQueueCleanup:
     case TaskType::kMainThreadTaskQueueMemoryPurge:
     case TaskType::kMainThreadTaskQueueNonWaking:
     case TaskType::kCompositorThreadTaskQueueDefault:
@@ -209,6 +216,8 @@ scoped_refptr<base::SingleThreadTaskRunner> WorkerScheduler::GetTaskRunner(
     case TaskType::kExperimentalWebScheduling:
     case TaskType::kInternalFrameLifecycleControl:
     case TaskType::kInternalFindInPage:
+    case TaskType::kInternalHighPriorityLocalFrame:
+    case TaskType::kMainThreadTaskQueueIPCTracking:
     case TaskType::kCount:
       NOTREACHED();
       break;

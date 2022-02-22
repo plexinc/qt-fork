@@ -31,6 +31,7 @@
 
 /*!
  * \qmltype ShellSurface
+ * \instantiates QWaylandShellSurface
  * \inqmlmodule QtWayland.Compositor
  * \since 5.8
  * \brief Provides a common interface for surface roles specified by shell extensions.
@@ -44,7 +45,7 @@
  * directly on the ShellSurface. See the various implementations for additional properties and
  * signals.
  *
- * \sa WaylandSurface, ShellSurfaceItem, WlShellSurface, XdgSurfaceV5, IviSurface
+ * \sa WaylandSurface, ShellSurfaceItem, WlShellSurface, IviSurface
  */
 
 /*!
@@ -56,7 +57,7 @@
  * This interface represents a Wayland surface role given by a Wayland protocol extension that
  * defines how the QWaylandSurface should map onto the screen.
  *
- * \sa QWaylandSurface, QWaylandWlShellSurface, QWaylandXdgSurfaceV5, QWaylandIviSurface
+ * \sa QWaylandSurface, QWaylandWlShellSurface, QWaylandIviSurface
  */
 
 #if QT_CONFIG(wayland_compositor_quick)

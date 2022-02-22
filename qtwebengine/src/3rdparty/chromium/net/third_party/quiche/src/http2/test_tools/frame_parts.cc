@@ -2,16 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/http2/test_tools/frame_parts.h"
+#include "http2/test_tools/frame_parts.h"
 
 #include <type_traits>
 
-#include "testing/gmock/include/gmock/gmock.h"
-#include "testing/gtest/include/gtest/gtest.h"
-#include "net/third_party/quiche/src/http2/http2_structures_test_util.h"
-#include "net/third_party/quiche/src/http2/platform/api/http2_logging.h"
-#include "net/third_party/quiche/src/http2/platform/api/http2_string_utils.h"
-#include "net/third_party/quiche/src/http2/platform/api/http2_test_helpers.h"
+#include "http2/http2_structures_test_util.h"
+#include "http2/platform/api/http2_logging.h"
+#include "http2/platform/api/http2_string_utils.h"
+#include "http2/platform/api/http2_test_helpers.h"
+#include "common/platform/api/quiche_test.h"
 
 using ::testing::AssertionFailure;
 using ::testing::AssertionResult;
@@ -52,14 +51,14 @@ FrameParts::FrameParts(const Http2FrameHeader& header) : frame_header_(header) {
 }
 
 FrameParts::FrameParts(const Http2FrameHeader& header,
-                       quiche::QuicheStringPiece payload)
+                       absl::string_view payload)
     : FrameParts(header) {
   HTTP2_VLOG(1) << "FrameParts with payload.size() = " << payload.size();
   this->payload_.append(payload.data(), payload.size());
   opt_payload_length_ = payload.size();
 }
 FrameParts::FrameParts(const Http2FrameHeader& header,
-                       quiche::QuicheStringPiece payload,
+                       absl::string_view payload,
                        size_t total_pad_length)
     : FrameParts(header, payload) {
   HTTP2_VLOG(1) << "FrameParts with total_pad_length=" << total_pad_length;
@@ -85,6 +84,7 @@ AssertionResult FrameParts::VerifyEquals(const FrameParts& that) const {
 
   VERIFY_OPTIONAL_FIELD(opt_altsvc_origin_length_) << COMMON_MESSAGE;
   VERIFY_OPTIONAL_FIELD(opt_altsvc_value_length_) << COMMON_MESSAGE;
+  VERIFY_OPTIONAL_FIELD(opt_priority_update_) << COMMON_MESSAGE;
   VERIFY_OPTIONAL_FIELD(opt_goaway_) << COMMON_MESSAGE;
   VERIFY_OPTIONAL_FIELD(opt_missing_length_) << COMMON_MESSAGE;
   VERIFY_OPTIONAL_FIELD(opt_pad_length_) << COMMON_MESSAGE;
@@ -118,8 +118,8 @@ void FrameParts::SetTotalPadLength(size_t total_pad_length) {
   }
 }
 
-void FrameParts::SetAltSvcExpected(quiche::QuicheStringPiece origin,
-                                   quiche::QuicheStringPiece value) {
+void FrameParts::SetAltSvcExpected(absl::string_view origin,
+                                   absl::string_view value) {
   altsvc_origin_.append(origin.data(), origin.size());
   altsvc_value_.append(value.data(), value.size());
   opt_altsvc_origin_length_ = origin.size();
@@ -141,7 +141,7 @@ void FrameParts::OnDataPayload(const char* data, size_t len) {
   HTTP2_VLOG(1) << "OnDataPayload: len=" << len
                 << "; frame_header_: " << frame_header_;
   ASSERT_TRUE(InFrameOfType(Http2FrameType::DATA)) << *this;
-  ASSERT_TRUE(AppendString(quiche::QuicheStringPiece(data, len), &payload_,
+  ASSERT_TRUE(AppendString(absl::string_view(data, len), &payload_,
                            &opt_payload_length_));
 }
 
@@ -173,7 +173,7 @@ void FrameParts::OnHpackFragment(const char* data, size_t len) {
   ASSERT_TRUE(got_start_callback_);
   ASSERT_FALSE(got_end_callback_);
   ASSERT_TRUE(FrameCanHaveHpackPayload(frame_header_)) << *this;
-  ASSERT_TRUE(AppendString(quiche::QuicheStringPiece(data, len), &payload_,
+  ASSERT_TRUE(AppendString(absl::string_view(data, len), &payload_,
                            &opt_payload_length_));
 }
 
@@ -217,8 +217,8 @@ void FrameParts::OnPadding(const char* pad, size_t skipped_length) {
   HTTP2_VLOG(1) << "OnPadding: skipped_length=" << skipped_length;
   ASSERT_TRUE(InPaddedFrame()) << *this;
   ASSERT_TRUE(opt_pad_length_);
-  ASSERT_TRUE(AppendString(quiche::QuicheStringPiece(pad, skipped_length),
-                           &padding_, &opt_pad_length_));
+  ASSERT_TRUE(AppendString(absl::string_view(pad, skipped_length), &padding_,
+                           &opt_pad_length_));
 }
 
 void FrameParts::OnRstStream(const Http2FrameHeader& header,
@@ -314,7 +314,7 @@ void FrameParts::OnGoAwayStart(const Http2FrameHeader& header,
 void FrameParts::OnGoAwayOpaqueData(const char* data, size_t len) {
   HTTP2_VLOG(1) << "OnGoAwayOpaqueData: len=" << len;
   ASSERT_TRUE(InFrameOfType(Http2FrameType::GOAWAY)) << *this;
-  ASSERT_TRUE(AppendString(quiche::QuicheStringPiece(data, len), &payload_,
+  ASSERT_TRUE(AppendString(absl::string_view(data, len), &payload_,
                            &opt_payload_length_));
 }
 
@@ -349,20 +349,45 @@ void FrameParts::OnAltSvcStart(const Http2FrameHeader& header,
 void FrameParts::OnAltSvcOriginData(const char* data, size_t len) {
   HTTP2_VLOG(1) << "OnAltSvcOriginData: len=" << len;
   ASSERT_TRUE(InFrameOfType(Http2FrameType::ALTSVC)) << *this;
-  ASSERT_TRUE(AppendString(quiche::QuicheStringPiece(data, len),
-                           &altsvc_origin_, &opt_altsvc_origin_length_));
+  ASSERT_TRUE(AppendString(absl::string_view(data, len), &altsvc_origin_,
+                           &opt_altsvc_origin_length_));
 }
 
 void FrameParts::OnAltSvcValueData(const char* data, size_t len) {
   HTTP2_VLOG(1) << "OnAltSvcValueData: len=" << len;
   ASSERT_TRUE(InFrameOfType(Http2FrameType::ALTSVC)) << *this;
-  ASSERT_TRUE(AppendString(quiche::QuicheStringPiece(data, len), &altsvc_value_,
+  ASSERT_TRUE(AppendString(absl::string_view(data, len), &altsvc_value_,
                            &opt_altsvc_value_length_));
 }
 
 void FrameParts::OnAltSvcEnd() {
   HTTP2_VLOG(1) << "OnAltSvcEnd; frame_header_: " << frame_header_;
   ASSERT_TRUE(EndFrameOfType(Http2FrameType::ALTSVC)) << *this;
+}
+
+void FrameParts::OnPriorityUpdateStart(
+    const Http2FrameHeader& header,
+    const Http2PriorityUpdateFields& priority_update) {
+  HTTP2_VLOG(1) << "OnPriorityUpdateStart: " << header
+                << "    prioritized_stream_id: "
+                << priority_update.prioritized_stream_id;
+  ASSERT_TRUE(StartFrameOfType(header, Http2FrameType::PRIORITY_UPDATE))
+      << *this;
+  ASSERT_FALSE(opt_priority_update_);
+  opt_priority_update_ = priority_update;
+  opt_payload_length_ =
+      header.payload_length - Http2PriorityUpdateFields::EncodedSize();
+}
+
+void FrameParts::OnPriorityUpdatePayload(const char* data, size_t len) {
+  HTTP2_VLOG(1) << "OnPriorityUpdatePayload: len=" << len;
+  ASSERT_TRUE(InFrameOfType(Http2FrameType::PRIORITY_UPDATE)) << *this;
+  payload_.append(data, len);
+}
+
+void FrameParts::OnPriorityUpdateEnd() {
+  HTTP2_VLOG(1) << "OnPriorityUpdateEnd; frame_header_: " << frame_header_;
+  ASSERT_TRUE(EndFrameOfType(Http2FrameType::PRIORITY_UPDATE)) << *this;
 }
 
 void FrameParts::OnUnknownStart(const Http2FrameHeader& header) {
@@ -379,7 +404,7 @@ void FrameParts::OnUnknownPayload(const char* data, size_t len) {
   ASSERT_FALSE(IsSupportedHttp2FrameType(frame_header_.type)) << *this;
   ASSERT_TRUE(got_start_callback_);
   ASSERT_FALSE(got_end_callback_);
-  ASSERT_TRUE(AppendString(quiche::QuicheStringPiece(data, len), &payload_,
+  ASSERT_TRUE(AppendString(absl::string_view(data, len), &payload_,
                            &opt_payload_length_));
 }
 
@@ -461,6 +486,9 @@ void FrameParts::OutputTo(std::ostream& out) const {
   if (opt_altsvc_value_length_) {
     out << "  value_length=" << opt_altsvc_value_length_.value() << "\n";
   }
+  if (opt_priority_update_) {
+    out << "  prioritized_stream_id_=" << opt_priority_update_.value() << "\n";
+  }
   if (has_frame_size_error_) {
     out << "  has_frame_size_error\n";
   }
@@ -507,10 +535,9 @@ AssertionResult FrameParts::InPaddedFrame() {
   return AssertionSuccess();
 }
 
-AssertionResult FrameParts::AppendString(
-    quiche::QuicheStringPiece source,
-    std::string* target,
-    quiche::QuicheOptional<size_t>* opt_length) {
+AssertionResult FrameParts::AppendString(absl::string_view source,
+                                         std::string* target,
+                                         absl::optional<size_t>* opt_length) {
   target->append(source.data(), source.size());
   if (opt_length != nullptr) {
     VERIFY_TRUE(*opt_length) << "Length is not set yet\n" << *this;

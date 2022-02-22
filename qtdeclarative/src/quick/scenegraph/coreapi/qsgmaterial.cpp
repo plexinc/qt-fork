@@ -98,54 +98,43 @@ static void qt_print_material_count()
     \inmodule QtQuick
     \ingroup qtquick-scenegraph-materials
 
-    The QSGMaterial, QSGMaterialShader and QSGMaterialRhiShader subclasses
-    form a tight relationship. For one scene graph (including nested graphs),
-    there is one unique QSGMaterialShader or QSGMaterialRhiShader instance
-    which encapsulates the shaders the scene graph uses to render that
-    material, such as a shader to flat coloring of geometry. Each
-    QSGGeometryNode can have a unique QSGMaterial containing the how the shader
-    should be configured when drawing that node, such as the actual color to
-    used to render the geometry.
+    QSGMaterial and QSGMaterialShader subclasses form a tight relationship. For
+    one scene graph (including nested graphs), there is one unique
+    QSGMaterialShader instance which encapsulates the shaders the scene graph
+    uses to render that material, such as a shader to flat coloring of
+    geometry. Each QSGGeometryNode can have a unique QSGMaterial containing the
+    how the shader should be configured when drawing that node, such as the
+    actual color to used to render the geometry.
 
     QSGMaterial has two virtual functions that both need to be implemented. The
     function type() should return a unique instance for all instances of a
     specific subclass. The createShader() function should return a new instance
-    of QSGMaterialShader or QSGMaterialRhiShader, specific to that subclass of
-    QSGMaterial.
+    of QSGMaterialShader, specific to that subclass of QSGMaterial.
 
     A minimal QSGMaterial implementation could look like this:
     \code
         class Material : public QSGMaterial
         {
         public:
-            QSGMaterialType *type() const { static QSGMaterialType type; return &type; }
-            QSGMaterialShader *createShader() const { return new Shader; }
+            QSGMaterialType *type() const override { static QSGMaterialType type; return &type; }
+            QSGMaterialShader *createShader(QSGRendererInterface::RenderMode) const override { return new Shader; }
         };
     \endcode
 
-    This is suitable only for the OpenGL-based, traditional renderer of the
-    scene graph. When using the new, graphics API abstracted renderer,
-    materials must create QSGMaterialRhiShader instances instead, or in
-    addition:
-    \code
-        class Material : public QSGMaterial
-        {
-        public:
-            Material() { setFlag(SupportsRhiShader, true); }
-            QSGMaterialType *type() const { static QSGMaterialType type; return &type; }
-            QSGMaterialShader *createShader() {
-                if (flags().testFlag(RhiShaderWanted)) {
-                    return new RhiShader;
-                } else {
-                    // this is optional, relevant for materials that intend to be usable with the legacy OpenGL renderer as well
-                    return new Shader;
-                }
-            }
-        };
-    \endcode
+    See the \l{Scene Graph - Custom Material}{Custom Material example} for an introduction
+    on implementing a QQuickItem subclass backed by a QSGGeometryNode and a custom
+    material.
+
+    \note createShader() is called only once per QSGMaterialType, to reduce
+    redundant work with shader preparation. If a QSGMaterial is backed by
+    multiple sets of vertex and fragment shader combinations, the implementation
+    of type() must return a different, unique QSGMaterialType pointer for each
+    combination of shaders.
 
     \note All classes with QSG prefix should be used solely on the scene graph's
     rendering thread. See \l {Scene Graph and Rendering} for more information.
+
+    \sa QSGMaterialShader, {Scene Graph - Custom Material}, {Scene Graph - Two Texture Providers}, {Scene Graph - Graph}
  */
 
 /*!
@@ -203,17 +192,6 @@ QSGMaterial::~QSGMaterial()
     \value CustomCompileStep Starting with Qt 5.2, the scene graph will not always call
     QSGMaterialShader::compile() when its shader program is compiled and linked.
     Set this flag to enforce that the function is called.
-
-    \value SupportsRhiShader Starting with Qt 5.14, the scene graph supports
-    QSGMaterialRhiShader as an alternative to the OpenGL-specific
-    QSGMaterialShader. Set this flag to indicate createShader() is capable of
-    returning QSGMaterialRhiShader instances when the RhiShaderWanted flag is
-    set.
-
-    \value RhiShaderWanted This flag is set by the scene graph, not by the
-    QSGMaterial. When set, and that can only happen when SupportsRhiShader was
-    set by the material, it indicates that createShader() must return a
-    QSGMaterialRhiShader instance instead of QSGMaterialShader.
  */
 
 /*!
@@ -255,34 +233,47 @@ void QSGMaterial::setFlag(Flags flags, bool on)
 int QSGMaterial::compare(const QSGMaterial *other) const
 {
     Q_ASSERT(other && type() == other->type());
-    return qint64(this) - qint64(other);
+    const qintptr diff = qintptr(this) - qintptr(other);
+    return diff < 0 ? -1 : (diff > 0 ? 1 : 0);
 }
 
 
 
 /*!
-    \fn QSGMaterialType QSGMaterial::type() const
+    \fn QSGMaterialType *QSGMaterial::type() const
 
-    This function is called by the scene graph to return a unique instance
-    per subclass.
+    This function is called by the scene graph to query an identifier that is
+    unique to the QSGMaterialShader instantiated by createShader().
+
+    For many materials, the typical approach will be to return a pointer to a
+    static, and so globally available, QSGMaterialType instance. The
+    QSGMaterialType is an opaque object. Its purpose is only to serve as a
+    type-safe, simple way to generate unique material identifiers.
+    \code
+        QSGMaterialType *type() const override
+        {
+            static QSGMaterialType type;
+            return &type;
+        }
+    \endcode
  */
 
 
 
 /*!
-    \fn QSGMaterialShader *QSGMaterial::createShader() const
+    \fn QSGMaterialShader *QSGMaterial::createShader(QSGRendererInterface::RenderMode renderMode) const
 
     This function returns a new instance of a the QSGMaterialShader
-    implementatation used to render geometry for a specific implementation
+    implementation used to render geometry for a specific implementation
     of QSGMaterial.
 
-    The function will be called only once for each material type that
-    exists in the scene graph and will be cached internally.
+    The function will be called only once for each combination of material type and \a renderMode
+    and will be cached internally.
 
-    When the QSGMaterial reports SupportsRhiShader in flags(), the scene graph
-    may request a QSGMaterialRhiShader instead of QSGMaterialShader. This is
-    indicated by having the RhiShaderWanted flag set. In this case the return
-    value must be a QSGRhiMaterialShader subclass.
+    For most materials, the \a renderMode can be ignored. A few materials may need
+    custom handling for specific render modes. For instance if the material implements
+    antialiasing in a way that needs to account for perspective transformations when
+    RenderMode3D is in use.
 */
 
 QT_END_NAMESPACE

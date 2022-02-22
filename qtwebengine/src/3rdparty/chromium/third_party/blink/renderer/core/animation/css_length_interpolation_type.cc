@@ -13,6 +13,7 @@
 #include "third_party/blink/renderer/core/css/css_identifier_value.h"
 #include "third_party/blink/renderer/core/css/resolver/style_builder.h"
 #include "third_party/blink/renderer/core/css/resolver/style_resolver_state.h"
+#include "third_party/blink/renderer/core/css/scoped_css_value.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/platform/geometry/length_functions.h"
 
@@ -145,25 +146,29 @@ void CSSLengthInterpolationType::ApplyStandardPropertyValue(
     Length before;
     Length after;
     DCHECK(LengthPropertyFunctions::GetLength(CssProperty(), style, before));
-    StyleBuilder::ApplyProperty(GetProperty().GetCSSProperty(), state,
-                                *CSSValue::Create(length, zoom));
+    StyleBuilder::ApplyProperty(
+        GetProperty().GetCSSProperty(), state,
+        ScopedCSSValue(*CSSValue::Create(length, zoom), nullptr));
     DCHECK(LengthPropertyFunctions::GetLength(CssProperty(), style, after));
     DCHECK(before.IsSpecified());
     DCHECK(after.IsSpecified());
     const float kSlack = 1e-6;
     const float before_length = FloatValueForLength(before, 100);
     const float after_length = FloatValueForLength(after, 100);
-    // Test relative difference for large values to avoid floating point
-    // inaccuracies tripping the check.
-    const float delta = std::abs(before_length) < kSlack
-                            ? after_length - before_length
-                            : (after_length - before_length) / before_length;
-    DCHECK_LT(std::abs(delta), kSlack);
+    if (std::isfinite(before_length) && std::isfinite(after_length)) {
+      // Test relative difference for large values to avoid floating point
+      // inaccuracies tripping the check.
+      const float delta = std::abs(before_length) < kSlack
+                              ? after_length - before_length
+                              : (after_length - before_length) / before_length;
+      DCHECK_LT(std::abs(delta), kSlack);
+    }
 #endif
     return;
   }
-  StyleBuilder::ApplyProperty(GetProperty().GetCSSProperty(), state,
-                              *CSSValue::Create(length, zoom));
+  StyleBuilder::ApplyProperty(
+      GetProperty().GetCSSProperty(), state,
+      ScopedCSSValue(*CSSValue::Create(length, zoom), nullptr));
 }
 
 }  // namespace blink

@@ -2,11 +2,11 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/jumbo.gni")
 import("//build/config/ui.gni")
 import("//gpu/vulkan/features.gni")
 import("//media/media_options.gni")
-import("//ui/ozone/ozone.gni")
 
 # See //content/BUILD.gn for how this works.
 group("gpu") {
@@ -39,8 +39,6 @@ target(link_target_type, "gpu_sources") {
     "gpu_main.cc",
     "gpu_process.cc",
     "gpu_process.h",
-    "gpu_sandbox_hook_linux.cc",
-    "gpu_sandbox_hook_linux.h",
     "gpu_service_factory.cc",
     "gpu_service_factory.h",
     "in_process_gpu_thread.cc",
@@ -52,6 +50,8 @@ target(link_target_type, "gpu_sources") {
   deps = [
     "//base",
     "//base/third_party/dynamic_annotations",
+    "//build:branding_buildflags",
+    "//build:chromeos_buildflags",
     "//components/viz/service",
     "//content:export",
     "//content/child",
@@ -71,14 +71,12 @@ target(link_target_type, "gpu_sources") {
     # component build, determine if it should not be included here.
     # http://crbug.com/702833.
     "//components/viz/service/main",
+    "//components/services/quarantine/public/mojom",
     "//media/gpu/ipc/service",
     "//media/mojo/clients:clients",
-    "//services/service_manager/embedder",
+    "//sandbox/policy:chromecast_sandbox_allowlist_buildflags",
     "//services/service_manager/public/cpp",
     "//services/service_manager/public/mojom",
-    "//services/service_manager/sandbox:chromecast_sandbox_whitelist_buildflags",
-    "//services/shape_detection:lib",
-    "//services/shape_detection/public/mojom",
     "//services/tracing/public/cpp",
     "//services/viz/privileged/mojom",
     "//skia",
@@ -89,6 +87,20 @@ target(link_target_type, "gpu_sources") {
     "//ui/latency/ipc",
   ]
 
+  if (!is_chromeos_ash || !is_chrome_branded) {
+    deps += [
+      "//services/shape_detection:lib",
+      "//services/shape_detection/public/mojom",
+    ]
+  }
+
+  if (is_linux || is_chromeos) {
+    sources += [
+      "gpu_sandbox_hook_linux.cc",
+      "gpu_sandbox_hook_linux.h",
+    ]
+  }
+
   if (is_android) {
     deps += [
       "//components/tracing:graphics_provider",
@@ -96,15 +108,11 @@ target(link_target_type, "gpu_sources") {
     ]
   }
 
-  if (is_linux) {
-    deps += [ "//services/service_manager/zygote" ]
-  }
-
   if (mojo_media_host == "gpu") {
     deps += [ "//media/mojo/services" ]
   }
 
-  if (is_linux || is_mac || is_win) {
+  if (is_linux || is_chromeos || is_mac || is_win) {
     deps += [ "//sandbox" ]
   }
 
@@ -129,8 +137,9 @@ target(link_target_type, "gpu_sources") {
   }
 
   # Use DRI on desktop Linux builds.
-  if (current_cpu != "s390x" && current_cpu != "ppc64" && is_desktop_linux &&
-      (!is_chromecast || is_cast_desktop_build) && !use_qt) {
+  if (current_cpu != "s390x" && current_cpu != "ppc64" &&
+      (is_linux || is_chromeos_lacros) &&
+      ((!is_chromecast || is_cast_desktop_build) && !use_qt)) {
     configs += [ "//build/config/linux/dri" ]
   }
 }

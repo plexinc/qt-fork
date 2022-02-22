@@ -52,7 +52,7 @@
 //
 
 #include <QtCore/QThread>
-#include <QtGui/QOpenGLContext>
+#include <QtCore/QElapsedTimer>
 #include <private/qsgcontext_p.h>
 
 #include "qsgrenderloop_p.h"
@@ -101,6 +101,7 @@ private:
         QQuickWindow *window;
         QSGRenderThread *thread;
         QSurfaceFormat actualWindowFormat;
+        QElapsedTimer timeBetweenPolishAndSyncs;
         uint updateDuringSync : 1;
         uint forceRenderPass : 1;
     };
@@ -114,7 +115,7 @@ private:
     void initialize();
 
     void startOrStopAnimationTimer();
-    void maybePostPolishRequest(Window *w);
+    void postUpdateRequest(Window *w);
     void waitForReleaseComplete();
     void polishAndSync(Window *w, bool inExpose = false);
     void maybeUpdate(Window *window);
@@ -135,9 +136,8 @@ private:
     int m_animation_timer;
 
     bool m_lockedForSync;
+    bool m_inPolish = false;
 };
-
-
 
 QT_END_NAMESPACE
 

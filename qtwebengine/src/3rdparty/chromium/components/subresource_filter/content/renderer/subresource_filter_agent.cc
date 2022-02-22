@@ -8,12 +8,12 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/check.h"
 #include "base/feature_list.h"
-#include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/time/time.h"
-#include "components/subresource_filter/content/common/subresource_filter_messages.h"
+#include "components/subresource_filter/content/common/ad_evidence.h"
 #include "components/subresource_filter/content/common/subresource_filter_utils.h"
 #include "components/subresource_filter/content/renderer/unverified_ruleset_dealer.h"
 #include "components/subresource_filter/content/renderer/web_document_subresource_filter_impl.h"
@@ -44,12 +44,60 @@ SubresourceFilterAgent::SubresourceFilterAgent(
       ruleset_dealer_(ruleset_dealer),
       ad_resource_tracker_(std::move(ad_resource_tracker)) {
   DCHECK(ruleset_dealer);
-  // |render_frame| can be nullptr in unit tests.
-  if (render_frame) {
-    render_frame->GetAssociatedInterfaceRegistry()->AddInterface(
+}
+
+void SubresourceFilterAgent::Initialize() {
+  const GURL& url = GetDocumentURL();
+  // The initial empty document will always inherit activation.
+  DCHECK(ShouldInheritActivation(url));
+
+  // We must check for provisional here because in that case 2 RenderFrames will
+  // be created for the same FrameTreeNode in the browser. The browser service
+  // only expects us to call SendSubframeWasCreatedByAdScript() and
+  // SendFrameIsAdSubframe() a single time each for a newly created RenderFrame,
+  // so we must choose one. A provisional frame is created when a navigation is
+  // performed cross-site and the navigation is done there to isolate it from
+  // the previous frame tree. We choose to send this message from the initial
+  // (non-provisional) "about:blank" frame that is created before the navigation
+  // to match previous behaviour, and because this frame will always exist.
+  // Whereas the provisional frame would only be created to perform the
+  // navigation conditionally, so we ignore sending the IPC there.
+  if (!IsMainFrame() && !IsProvisional()) {
+    if (IsSubframeCreatedByAdScript())
+      SendSubframeWasCreatedByAdScript();
+
+    // As this is the initial empty document, we won't have received any message
+    // from the browser and so we must calculate the ad status here.
+    SetIsAdSubframeIfNecessary();
+  }
+
+  // `render_frame()` can be null in unit tests.
+  if (render_frame()) {
+    render_frame()->GetAssociatedInterfaceRegistry()->AddInterface(
         base::BindRepeating(
             &SubresourceFilterAgent::OnSubresourceFilterAgentRequest,
             base::Unretained(this)));
+
+    if (IsMainFrame()) {
+      // If a main frame has an activated opener, we will activate the
+      // subresource filter for the initial empty document, which was created
+      // before the constructor for `this`. This ensures that a popup's final
+      // document is appropriately activated, even when the the initial
+      // navigation is aborted and there are no further documents created.
+      // TODO(dcheng): Navigation is an asynchronous operation, and the opener
+      // frame may have been destroyed between the time the window is opened
+      // and the RenderFrame in the window is constructed leading us to here.
+      // To avoid that race condition the activation state would need to be
+      // determined without the use of the opener frame.
+      if (GetInheritedActivationState(render_frame()).activation_level !=
+          mojom::ActivationLevel::kDisabled) {
+        ConstructFilter(GetInheritedActivationStateForNewDocument(), url);
+      }
+    } else {
+      // Child frames always have a parent, so the empty initial document can
+      // always inherit activation.
+      ConstructFilter(GetInheritedActivationStateForNewDocument(), url);
+    }
   }
 }
 
@@ -65,6 +113,18 @@ GURL SubresourceFilterAgent::GetDocumentURL() {
 
 bool SubresourceFilterAgent::IsMainFrame() {
   return render_frame()->IsMainFrame();
+}
+
+bool SubresourceFilterAgent::IsParentAdSubframe() {
+  return render_frame()->GetWebFrame()->Parent()->IsAdSubframe();
+}
+
+bool SubresourceFilterAgent::IsProvisional() {
+  return render_frame()->GetWebFrame()->IsProvisional();
+}
+
+bool SubresourceFilterAgent::IsSubframeCreatedByAdScript() {
+  return render_frame()->GetWebFrame()->IsSubframeCreatedByAdScript();
 }
 
 bool SubresourceFilterAgent::HasDocumentLoader() {
@@ -92,6 +152,10 @@ void SubresourceFilterAgent::SendFrameIsAdSubframe() {
   GetSubresourceFilterHost()->FrameIsAdSubframe();
 }
 
+void SubresourceFilterAgent::SendSubframeWasCreatedByAdScript() {
+  GetSubresourceFilterHost()->SubframeWasCreatedByAdScript();
+}
+
 bool SubresourceFilterAgent::IsAdSubframe() {
   return render_frame()->GetWebFrame()->IsAdSubframe();
 }
@@ -101,16 +165,33 @@ void SubresourceFilterAgent::SetIsAdSubframe(
   render_frame()->GetWebFrame()->SetIsAdSubframe(ad_frame_type);
 }
 
-mojom::ActivationState SubresourceFilterAgent::GetParentActivationState(
+// static
+mojom::ActivationState SubresourceFilterAgent::GetInheritedActivationState(
     content::RenderFrame* render_frame) {
-  blink::WebFrame* parent =
-      render_frame ? render_frame->GetWebFrame()->Parent() : nullptr;
-  if (parent && parent->IsWebLocalFrame()) {
-    auto* agent = SubresourceFilterAgent::Get(
-        content::RenderFrame::FromWebFrame(parent->ToWebLocalFrame()));
+  if (!render_frame)
+    return mojom::ActivationState();
+
+  blink::WebFrame* frame_to_inherit_from =
+      render_frame->IsMainFrame() ? render_frame->GetWebFrame()->Opener()
+                                  : render_frame->GetWebFrame()->Parent();
+
+  if (!frame_to_inherit_from || !frame_to_inherit_from->IsWebLocalFrame())
+    return mojom::ActivationState();
+
+  blink::WebSecurityOrigin render_frame_origin =
+      render_frame->GetWebFrame()->GetSecurityOrigin();
+  blink::WebSecurityOrigin inherited_origin =
+      frame_to_inherit_from->GetSecurityOrigin();
+
+  // Only inherit from same-origin frames.
+  if (render_frame_origin.IsSameOriginWith(inherited_origin)) {
+    auto* agent =
+        SubresourceFilterAgent::Get(content::RenderFrame::FromWebFrame(
+            frame_to_inherit_from->ToWebLocalFrame()));
     if (agent && agent->filter_for_last_created_document_)
       return agent->filter_for_last_created_document_->activation_state();
   }
+
   return mojom::ActivationState();
 }
 
@@ -148,6 +229,7 @@ SubresourceFilterAgent::GetSubresourceFilterHost() {
 
 void SubresourceFilterAgent::OnSubresourceFilterAgentRequest(
     mojo::PendingAssociatedReceiver<mojom::SubresourceFilterAgent> receiver) {
+  receiver_.reset();
   receiver_.Bind(std::move(receiver));
 }
 
@@ -164,53 +246,63 @@ void SubresourceFilterAgent::OnDestruct() {
   delete this;
 }
 
-void SubresourceFilterAgent::DidCreateNewDocument() {
-  // TODO(csharrison): Use WebURL and WebSecurityOrigin for efficiency here and
-  // in MaybeCreateFilterForDocument, which requires changes to the unit tests.
-  const GURL& url = GetDocumentURL();
-  if (first_document_) {
-    first_document_ = false;
-    DCHECK(!filter_for_last_created_document_);
+void SubresourceFilterAgent::SetIsAdSubframeIfNecessary() {
+  DCHECK(!IsAdSubframe());
 
-    // Local subframes will first create an initial empty document (with url
-    // kAboutBlankURL) no matter what the src is set to (or if it is not set).
-    // There is then a second document created with url equal to the set src (or
-    // kAboutBlankURL if unset). See DidFailProvisionalLoad for handling a
-    // failure in the load of this second document. Frames created by the
-    // browser initialize the LocalFrame before creating RenderFrameObservers,
-    // so the initial empty document isn't observed. We only care about local
-    // subframes.
-    if (url == url::kAboutBlankURL) {
-      if (IsAdSubframe())
-        SendFrameIsAdSubframe();
-      return;
-    }
+  // TODO(alexmt): Store FrameAdEvidence on each frame, typically updated by the
+  // browser but also populated here when the browser has not informed the
+  // renderer.
+  FrameAdEvidence ad_evidence(IsParentAdSubframe());
+  ad_evidence.set_created_by_ad_script(
+      IsSubframeCreatedByAdScript()
+          ? ScriptHeuristicEvidence::kCreatedByAdScript
+          : ScriptHeuristicEvidence::kNotCreatedByAdScript);
+  ad_evidence.set_is_complete();
+
+  if (ad_evidence.IndicatesAdSubframe()) {
+    blink::mojom::AdFrameType ad_frame_type =
+        ad_evidence.parent_is_ad() ? blink::mojom::AdFrameType::kChildAd
+                                   : blink::mojom::AdFrameType::kRootAd;
+    SetIsAdSubframe(ad_frame_type);
+    SendFrameIsAdSubframe();
   }
-
-  MaybeCreateFilterForDocument(ShouldUseParentActivation(url));
 }
 
-void SubresourceFilterAgent::MaybeCreateFilterForDocument(
-    bool should_use_parent_activation) {
+void SubresourceFilterAgent::DidCreateNewDocument() {
+  // TODO(csharrison): Use WebURL and WebSecurityOrigin for efficiency here,
+  // which requires changes to the unit tests.
+  const GURL& url = GetDocumentURL();
+
+  const mojom::ActivationState activation_state =
+      ShouldInheritActivation(url) ? GetInheritedActivationStateForNewDocument()
+                                   : activation_state_for_next_document_;
+
+  ResetInfoForNextDocument();
+
+  // Do not pollute the histograms with uninteresting main frame documents.
+  const bool should_record_histograms =
+      !IsMainFrame() || url.SchemeIsHTTPOrHTTPS() || url.SchemeIsFile();
+  if (should_record_histograms) {
+    RecordHistogramsOnFilterCreation(activation_state);
+  }
+
+  ConstructFilter(activation_state, url);
+}
+
+const mojom::ActivationState
+SubresourceFilterAgent::GetInheritedActivationStateForNewDocument() {
+  DCHECK(ShouldInheritActivation(GetDocumentURL()));
+  return GetInheritedActivationState(render_frame());
+}
+
+void SubresourceFilterAgent::ConstructFilter(
+    const mojom::ActivationState activation_state,
+    const GURL& url) {
   // Filter may outlive us, so reset the ad tracker.
   if (filter_for_last_created_document_)
     filter_for_last_created_document_->set_ad_resource_tracker(nullptr);
   filter_for_last_created_document_.reset();
 
-  const GURL& url = GetDocumentURL();
-
-  const mojom::ActivationState activation_state =
-      (!IsMainFrame() && should_use_parent_activation)
-          ? GetParentActivationState(render_frame())
-          : activation_state_for_next_document_;
-
-  ResetInfoForNextDocument();
-
-  // Do not pollute the histograms for empty main frame documents.
-  if (IsMainFrame() && !url.SchemeIsHTTPOrHTTPS() && !url.SchemeIsFile())
-    return;
-
-  RecordHistogramsOnFilterCreation(activation_state);
   if (activation_state.activation_level == mojom::ActivationLevel::kDisabled ||
       !ruleset_dealer_->IsRulesetFileAvailable())
     return;
@@ -235,17 +327,6 @@ void SubresourceFilterAgent::MaybeCreateFilterForDocument(
 void SubresourceFilterAgent::DidFailProvisionalLoad() {
   // TODO(engedy): Add a test with `frame-ancestor` violation to exercise this.
   ResetInfoForNextDocument();
-
-  // This is necessary to account for when an initial frame load is aborted,
-  // for example due to a document.write or window.stop. We skip this if
-  // |filter_for_last_created_document_|, maintaining the prior behavior when a
-  // filter has already been created. We also skip if there is no document
-  // loader as it may have been detached due to a cross-origin navigation.
-  if (!filter_for_last_created_document_ && HasDocumentLoader()) {
-    // Use the parent as a committed load has not occurred so an activation
-    // state won't have been sent.
-    MaybeCreateFilterForDocument(true);
-  }
 }
 
 void SubresourceFilterAgent::DidFinishLoad() {
@@ -274,6 +355,15 @@ void SubresourceFilterAgent::WillCreateWorkerFetchContext(
           base::BindOnce(&SubresourceFilterAgent::
                              SignalFirstSubresourceDisallowedForCurrentDocument,
                          AsWeakPtr())));
+}
+
+void SubresourceFilterAgent::OnOverlayPopupAdDetected() {
+  GetSubresourceFilterHost()->OnAdsViolationTriggered(
+      subresource_filter::mojom::AdsViolation::kOverlayPopupAd);
+}
+void SubresourceFilterAgent::OnLargeStickyAdDetected() {
+  GetSubresourceFilterHost()->OnAdsViolationTriggered(
+      subresource_filter::mojom::AdsViolation::kLargeStickyAd);
 }
 
 }  // namespace subresource_filter

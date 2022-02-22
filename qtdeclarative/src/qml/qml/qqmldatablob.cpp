@@ -105,9 +105,8 @@ QQmlDataBlob::QQmlDataBlob(const QUrl &url, Type type, QQmlTypeLoader *manager)
   m_inCallback(false), m_isDone(false)
 {
     //Set here because we need to get the engine from the manager
-    if (m_typeLoader->engine() && m_typeLoader->engine()->urlInterceptor())
-        m_url = m_typeLoader->engine()->urlInterceptor()->intercept(m_url,
-                    (QQmlAbstractUrlInterceptor::DataType)m_type);
+    if (const QQmlEngine *qmlEngine = m_typeLoader->engine())
+        m_url = qmlEngine->interceptUrl(m_url, (QQmlAbstractUrlInterceptor::DataType)m_type);
 }
 
 /*!  \internal */
@@ -290,7 +289,18 @@ void QQmlDataBlob::setError(const QList<QQmlError> &errors)
     Q_ASSERT(status() != Error);
     Q_ASSERT(m_errors.isEmpty());
 
-    m_errors = errors; // Must be set before the m_data fence
+    // m_errors must be set before the m_data fence
+    m_errors.reserve(errors.count());
+    for (const QQmlError &error : errors) {
+        if (error.url().isEmpty()) {
+            QQmlError mutableError = error;
+            mutableError.setUrl(url());
+            m_errors.append(mutableError);
+        } else {
+            m_errors.append(error);
+        }
+    }
+
     m_data.setStatus(Error);
 
     if (dumpErrors()) {
@@ -312,18 +322,6 @@ void QQmlDataBlob::setError(const QQmlJS::DiagnosticMessage &error)
     e.setDescription(error.message);
     e.setUrl(url());
     setError(e);
-}
-
-void QQmlDataBlob::setError(const QVector<QQmlError> &errors)
-{
-    QList<QQmlError> finalErrors;
-    finalErrors.reserve(errors.count());
-    for (const auto &error : errors) {
-        QQmlError e = error;
-        e.setUrl(url());
-        finalErrors << e;
-    }
-    setError(finalErrors);
 }
 
 void QQmlDataBlob::setError(const QString &description)

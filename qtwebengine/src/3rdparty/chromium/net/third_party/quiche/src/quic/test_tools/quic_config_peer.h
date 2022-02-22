@@ -5,9 +5,10 @@
 #ifndef QUICHE_QUIC_TEST_TOOLS_QUIC_CONFIG_PEER_H_
 #define QUICHE_QUIC_TEST_TOOLS_QUIC_CONFIG_PEER_H_
 
-#include "net/third_party/quiche/src/quic/core/quic_config.h"
-#include "net/third_party/quiche/src/quic/core/quic_packets.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_uint128.h"
+#include "quic/core/quic_config.h"
+#include "quic/core/quic_connection_id.h"
+#include "quic/core/quic_packets.h"
+#include "quic/platform/api/quic_uint128.h"
 
 namespace quic {
 
@@ -57,11 +58,27 @@ class QuicConfigPeer {
                                              QuicUint128 token);
 
   static void SetReceivedMaxPacketSize(QuicConfig* config,
-                                       uint32_t max_packet_size);
+                                       uint32_t max_udp_payload_size);
 
-  static void ReceiveIdleNetworkTimeout(QuicConfig* config,
-                                        HelloType hello_type,
-                                        uint32_t idle_timeout_seconds);
+  static void SetReceivedMinAckDelayMs(QuicConfig* config,
+                                       uint32_t min_ack_delay_ms);
+
+  static void SetNegotiated(QuicConfig* config, bool negotiated);
+
+  static void SetReceivedOriginalConnectionId(
+      QuicConfig* config,
+      const QuicConnectionId& original_destination_connection_id);
+
+  static void SetReceivedInitialSourceConnectionId(
+      QuicConfig* config,
+      const QuicConnectionId& initial_source_connection_id);
+
+  static void SetReceivedRetrySourceConnectionId(
+      QuicConfig* config,
+      const QuicConnectionId& retry_source_connection_id);
+
+  static void SetReceivedMaxDatagramFrameSize(QuicConfig* config,
+                                              uint64_t max_datagram_frame_size);
 };
 
 }  // namespace test

@@ -13,15 +13,14 @@
 
 #include <cstdint>  // for uintptr_t
 
-#include "net/third_party/quiche/src/quic/platform/api/quic_aligned.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
+#include "quic/platform/api/quic_export.h"
+#include "quic/platform/api/quic_logging.h"
 
 namespace quic {
 
 template <typename T>
 class QUIC_NO_EXPORT QuicArenaScopedPtr {
-  static_assert(QUIC_ALIGN_OF(T*) > 1,
+  static_assert(alignof(T*) > 1,
                 "QuicArenaScopedPtr can only store objects that are aligned to "
                 "greater than 1 byte.");
 
@@ -186,14 +185,14 @@ void QuicArenaScopedPtr<T>::reset(T* value) {
       delete get();
     }
   }
-  DCHECK_EQ(0u, reinterpret_cast<uintptr_t>(value) & kFromArenaMask);
+  QUICHE_DCHECK_EQ(0u, reinterpret_cast<uintptr_t>(value) & kFromArenaMask);
   value_ = value;
 }
 
 template <typename T>
 QuicArenaScopedPtr<T>::QuicArenaScopedPtr(void* value, ConstructFrom from_arena)
     : value_(value) {
-  DCHECK_EQ(0u, reinterpret_cast<uintptr_t>(value_) & kFromArenaMask);
+  QUICHE_DCHECK_EQ(0u, reinterpret_cast<uintptr_t>(value_) & kFromArenaMask);
   switch (from_arena) {
     case ConstructFrom::kHeap:
       break;

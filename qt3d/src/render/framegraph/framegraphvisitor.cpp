@@ -59,7 +59,7 @@ FrameGraphVisitor::FrameGraphVisitor(const FrameGraphManager *manager)
     m_leaves.reserve(8);
 }
 
-QVector<FrameGraphNode *> FrameGraphVisitor::traverse(FrameGraphNode *root)
+std::vector<FrameGraphNode *> &&FrameGraphVisitor::traverse(FrameGraphNode *root)
 {
     m_leaves.clear();
     m_enablersToDisable.clear();
@@ -71,12 +71,12 @@ QVector<FrameGraphNode *> FrameGraphVisitor::traverse(FrameGraphNode *root)
     if (node == nullptr)
         qCritical() << Q_FUNC_INFO << "FrameGraph is null";
     visit(node);
-    return m_leaves;
+    return std::move(m_leaves);
 }
 
 // intended to be called after traverse
 // (returns data that is captured during the traverse)
-QVector<FrameGraphNode *> &&FrameGraphVisitor::takeEnablersToDisable()
+std::vector<FrameGraphNode *> &&FrameGraphVisitor::takeEnablersToDisable()
 {
     return std::move(m_enablersToDisable);
 }
@@ -94,9 +94,9 @@ void FrameGraphVisitor::visit(Render::FrameGraphNode *node)
 
     // Recurse to children (if we have any), otherwise if this is a leaf node,
     // initiate a rendering from the current camera
-    const QVector<Qt3DCore::QNodeId> fgChildIds = node->childrenIds();
+    const QList<Qt3DCore::QNodeId> fgChildIds = node->childrenIds();
 
-    for (const Qt3DCore::QNodeId fgChildId : fgChildIds)
+    for (const Qt3DCore::QNodeId &fgChildId : fgChildIds)
         visit(m_manager->lookupNode(fgChildId));
 
     // Leaf node - create a RenderView ready to be populated

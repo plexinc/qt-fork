@@ -293,12 +293,17 @@ QPauseAnimation *QSequentialAnimationGroup::insertPause(int index, int msecs)
 
 /*!
     \property QSequentialAnimationGroup::currentAnimation
-    Returns the animation in the current time.
+    \brief the animation in the current time.
 */
 QAbstractAnimation *QSequentialAnimationGroup::currentAnimation() const
 {
     Q_D(const QSequentialAnimationGroup);
     return d->currentAnimation;
+}
+
+QBindable<QAbstractAnimation *> QSequentialAnimationGroup::bindableCurrentAnimation() const
+{
+    return &d_func()->currentAnimation;
 }
 
 /*!
@@ -424,6 +429,8 @@ bool QSequentialAnimationGroup::event(QEvent *event)
 void QSequentialAnimationGroupPrivate::setCurrentAnimation(int index, bool intermediate)
 {
     Q_Q(QSequentialAnimationGroup);
+    // currentAnimation.removeBindingUnlessInWrapper()
+    // is not necessary here, since it is read only
 
     index = qMin(index, animations.count() - 1);
 
@@ -443,8 +450,8 @@ void QSequentialAnimationGroupPrivate::setCurrentAnimation(int index, bool inter
     if (currentAnimation)
         currentAnimation->stop();
 
-    currentAnimation = animations.at(index);
     currentAnimationIndex = index;
+    currentAnimation = animations.at(index);
 
     emit q->currentAnimationChanged(currentAnimation);
 
@@ -503,8 +510,10 @@ void QSequentialAnimationGroupPrivate::_q_uncontrolledAnimationFinished()
 */
 void QSequentialAnimationGroupPrivate::animationInsertedAt(int index)
 {
-    if (currentAnimation == nullptr)
+    if (currentAnimation == nullptr) {
         setCurrentAnimation(0); // initialize the current animation
+        Q_ASSERT(currentAnimation);
+    }
 
     if (currentAnimationIndex == index
         && currentAnimation->currentTime() == 0 && currentAnimation->currentLoop() == 0) {

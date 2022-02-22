@@ -96,28 +96,24 @@ QQuickDragHandler::QQuickDragHandler(QQuickItem *parent)
 {
 }
 
-bool QQuickDragHandler::targetContainsCentroid()
-{
-    Q_ASSERT(parentItem() && target());
-    return target()->contains(targetCentroidPosition());
-}
-
 QPointF QQuickDragHandler::targetCentroidPosition()
 {
     QPointF pos = centroid().position();
-    if (target() != parentItem())
-        pos = parentItem()->mapToItem(target(), pos);
+    if (auto par = parentItem()) {
+        if (target() != par)
+            pos = par->mapToItem(target(), pos);
+    }
     return pos;
 }
 
-void QQuickDragHandler::onGrabChanged(QQuickPointerHandler *grabber, QQuickEventPoint::GrabTransition transition, QQuickEventPoint *point)
+void QQuickDragHandler::onGrabChanged(QQuickPointerHandler *grabber, QPointingDevice::GrabTransition transition, QPointerEvent *event, QEventPoint &point)
 {
-    QQuickMultiPointHandler::onGrabChanged(grabber, transition, point);
-    if (grabber == this && transition == QQuickEventPoint::GrabExclusive && target()) {
+    QQuickMultiPointHandler::onGrabChanged(grabber, transition, event, point);
+    if (grabber == this && transition == QPointingDevice::GrabExclusive && target()) {
         // In case the grab got handed over from another grabber, we might not get the Press.
 
         auto isDescendant = [](QQuickItem *parent, QQuickItem *target) {
-            return (target != parent) && !target->isAncestorOf(parent);
+            return parent && (target != parent) && !target->isAncestorOf(parent);
         };
         if (m_snapMode == SnapAlways
             || (m_snapMode == SnapIfPressedOutsideTarget && !m_pressedInsideTarget)
@@ -162,13 +158,14 @@ void QQuickDragHandler::onActiveChanged()
     QQuickMultiPointHandler::onActiveChanged();
     if (active()) {
         if (auto parent = parentItem()) {
-            if (currentEvent()->asPointerTouchEvent())
+            if (QQuickDeliveryAgentPrivate::isTouchEvent(currentEvent()))
                 parent->setKeepTouchGrab(true);
             // tablet and mouse are treated the same by Item's legacy event handling, and
             // touch becomes synth-mouse for Flickable, so we need to prevent stealing
             // mouse grab too, whenever dragging occurs in an enabled direction
             parent->setKeepMouseGrab(true);
         }
+        m_startTranslation = m_persistentTranslation;
     } else {
         m_pressTargetPos = QPointF();
         m_pressedInsideTarget = false;
@@ -179,8 +176,30 @@ void QQuickDragHandler::onActiveChanged()
     }
 }
 
-void QQuickDragHandler::handlePointerEventImpl(QQuickPointerEvent *event)
+bool QQuickDragHandler::wantsPointerEvent(QPointerEvent *event)
 {
+    if (!QQuickMultiPointHandler::wantsPointerEvent(event))
+        /* Do handle other events than we would normally care about
+           while we are still doing a drag; otherwise we would suddenly
+           become inactive when a wheel event arrives during dragging.
+           This extra condition needs to be kept in sync with
+           handlePointerEventImpl */
+        if (!active())
+            return false;
+
+#if QT_CONFIG(gestures)
+    if (event->type() == QEvent::NativeGesture)
+       return false;
+#endif
+
+    return true;
+}
+
+void QQuickDragHandler::handlePointerEventImpl(QPointerEvent *event)
+{
+    if (active() && !QQuickMultiPointHandler::wantsPointerEvent(event))
+        return; // see QQuickDragHandler::wantsPointerEvent; we don't want to handle those events
+
     QQuickMultiPointHandler::handlePointerEventImpl(event);
     event->setAccepted(true);
 
@@ -192,25 +211,26 @@ void QQuickDragHandler::handlePointerEventImpl(QQuickPointerEvent *event)
             accumulatedDragDelta.setX(0);
         if (!m_yAxis.enabled())
             accumulatedDragDelta.setY(0);
-        setTranslation(accumulatedDragDelta);
+        setActiveTranslation(accumulatedDragDelta);
     } else {
         // Check that all points have been dragged past the drag threshold,
         // to the extent that the constraints allow,
         // and in approximately the same direction
         qreal minAngle =  361;
         qreal maxAngle = -361;
-        bool allOverThreshold = !event->isReleaseEvent();
-        QVector <QQuickEventPoint *> chosenPoints;
+        bool allOverThreshold = !event->isEndEvent();
+        QVector<QEventPoint> chosenPoints;
 
-        if (event->isPressEvent())
+        if (event->isBeginEvent())
             m_pressedInsideTarget = target() && currentPoints().count() > 0;
 
         for (const QQuickHandlerPoint &p : currentPoints()) {
             if (!allOverThreshold)
                 break;
-            QQuickEventPoint *point = event->pointById(p.id());
-            chosenPoints << point;
-            setPassiveGrab(point);
+            auto point = event->pointById(p.id());
+            Q_ASSERT(point);
+            chosenPoints << *point;
+            setPassiveGrab(event, *point);
             // Calculate drag delta, taking into account the axis enabled constraint
             // i.e. if xAxis is not enabled, then ignore the horizontal component of the actual movement
             QVector2D accumulatedDragDelta = QVector2D(point->scenePosition() - point->scenePressPosition());
@@ -237,7 +257,7 @@ void QQuickDragHandler::handlePointerEventImpl(QQuickPointerEvent *event)
             if (allOverThreshold && !overThreshold)
                 allOverThreshold = false;
 
-            if (event->isPressEvent()) {
+            if (event->isBeginEvent()) {
                 // m_pressedInsideTarget should stay true iff ALL points in which DragHandler is interested
                 // have been pressed inside the target() Item.  (E.g. in a Slider the parent might be the
                 // whole control while the target is just the knob.)
@@ -246,11 +266,11 @@ void QQuickDragHandler::handlePointerEventImpl(QQuickPointerEvent *event)
                     m_pressedInsideTarget &= target()->contains(localPressPos);
                     m_pressTargetPos = targetCentroidPosition();
                 }
-                // QQuickWindowPrivate::deliverToPassiveGrabbers() skips subsequent delivery if the event is filtered.
+                // QQuickDeliveryAgentPrivate::deliverToPassiveGrabbers() skips subsequent delivery if the event is filtered.
                 // (That affects behavior for mouse but not for touch, because Flickable only handles mouse.)
                 // So we have to compensate by accepting the event here to avoid any parent Flickable from
                 // getting the event via direct delivery and grabbing too soon.
-                point->setAccepted(event->asPointerMouseEvent()); // stop propagation iff it's a mouse event
+                point->setAccepted(QQuickDeliveryAgentPrivate::isMouseEvent(event)); // stop propagation iff it's a mouse event
             }
         }
         if (allOverThreshold) {
@@ -258,7 +278,7 @@ void QQuickDragHandler::handlePointerEventImpl(QQuickPointerEvent *event)
             if (angleDiff > 180)
                 angleDiff = 360 - angleDiff;
             qCDebug(lcDragHandler) << "angle min" << minAngle << "max" << maxAngle << "range" << angleDiff;
-            if (angleDiff < DragAngleToleranceDegrees && grabPoints(chosenPoints))
+            if (angleDiff < DragAngleToleranceDegrees && grabPoints(event, chosenPoints))
                 setActive(true);
         }
     }
@@ -297,11 +317,24 @@ void QQuickDragHandler::enforceAxisConstraints(QPointF *localPos)
         localPos->setY(qBound(m_yAxis.minimum(), localPos->y(), m_yAxis.maximum()));
 }
 
-void QQuickDragHandler::setTranslation(const QVector2D &trans)
+void QQuickDragHandler::setPersistentTranslation(const QVector2D &trans)
 {
-    if (trans == m_translation) // fuzzy compare?
+    if (trans == m_persistentTranslation)
         return;
-    m_translation = trans;
+
+    m_persistentTranslation = trans;
+    emit translationChanged();
+}
+
+void QQuickDragHandler::setActiveTranslation(const QVector2D &trans)
+{
+    if (trans == m_activeTranslation)
+        return;
+
+    m_activeTranslation = trans;
+    m_persistentTranslation = m_startTranslation + trans;
+    qCDebug(lcDragHandler) << "translation: start" << m_startTranslation
+                           << "active" << m_activeTranslation << "accumulated" << m_persistentTranslation;
     emit translationChanged();
 }
 
@@ -338,8 +371,27 @@ void QQuickDragHandler::setTranslation(const QVector2D &trans)
 /*!
     \readonly
     \qmlproperty QVector2D QtQuick::DragHandler::translation
+    \deprecated [6.2] Use activeTranslation
+*/
 
-    The translation since the gesture began.
+/*!
+    \qmlproperty QVector2D QtQuick::DragHandler::persistentTranslation
+
+    The translation to be applied to the \l target if it is not \c null.
+    Otherwise, bindings can be used to do arbitrary things with this value.
+    While the drag gesture is being performed, \l activeTranslation is
+    continuously added to it; after the gesture ends, it stays the same.
+*/
+
+/*!
+    \readonly
+    \qmlproperty QVector2D QtQuick::DragHandler::activeTranslation
+
+    The translation while the drag gesture is being performed.
+    It is \c {0, 0} when the gesture begins, and increases as the event
+    point(s) are dragged downward and to the right. After the gesture ends, it
+    stays the same; and when the next drag gesture begins, it is reset to
+    \c {0, 0} again.
 */
 
 QT_END_NAMESPACE

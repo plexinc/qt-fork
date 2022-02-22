@@ -12,8 +12,8 @@
 #include "components/zucchini/imposed_ensemble_matcher.h"
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
-#include "base/logging.h"
+#include "base/callback_helpers.h"
+#include "base/check_op.h"
 #include "base/optional.h"
 #include "components/zucchini/buffer_view.h"
 #include "components/zucchini/disassembler.h"

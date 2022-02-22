@@ -170,8 +170,10 @@
     the transformation metadata of an image. A handler that supports this option
     should not apply the transformation itself.
 
+\if !defined(qt6)
     \value TransformedByDefault. A handler that reports support for this feature
     will have image transformation metadata applied by default on read.
+\endif
 */
 
 /*! \enum QImageIOHandler::Transformation
@@ -224,7 +226,7 @@
 
     An image format plugin can support three capabilities: reading (\l
     CanRead), writing (\l CanWrite) and \e incremental reading (\l
-    CanReadIncremental). Reimplement capabilities() in you subclass to
+    CanReadIncremental). Reimplement capabilities() in your subclass to
     expose the capabilities of your image format.
 
     create() should create an instance of your QImageIOHandler
@@ -264,12 +266,16 @@
 */
 
 #include "qimageiohandler.h"
+#include "qimage_p.h"
 
 #include <qbytearray.h>
-#include <qimage.h>
+#include <qimagereader.h>
+#include <qloggingcategory.h>
 #include <qvariant.h>
 
 QT_BEGIN_NAMESPACE
+
+Q_LOGGING_CATEGORY(lcImageIo, "qt.gui.imageio")
 
 class QIODevice;
 
@@ -417,17 +423,6 @@ QByteArray QImageIOHandler::format() const
 */
 
 /*!
-    \obsolete
-
-    Use format() instead.
-*/
-
-QByteArray QImageIOHandler::name() const // ### Qt6: remove
-{
-    return format();
-}
-
-/*!
     Writes the image \a image to the assigned device. Returns \c true on
     success; otherwise returns \c false.
 
@@ -561,6 +556,45 @@ int QImageIOHandler::loopCount() const
 int QImageIOHandler::nextImageDelay() const
 {
     return 0;
+}
+
+/*!
+    \since 6.0
+
+    This is a convenience method for the reading function in subclasses. Image
+    format handlers must reject loading an image if the required allocation
+    would exceeed the current allocation limit. This function checks the
+    parameters and limit, and does the allocation if it is valid and required.
+    Upon successful return, \a image will be a valid, detached QImage of the
+    given \a size and \a format.
+
+    \sa QImageReader::allocationLimit()
+*/
+bool QImageIOHandler::allocateImage(QSize size, QImage::Format format, QImage *image)
+{
+    Q_ASSERT(image);
+    if (size.isEmpty() || format <= QImage::Format_Invalid || format >= QImage::NImageFormats)
+        return false;
+
+    if (image->size() == size && image->format() == format) {
+        image->detach();
+    } else {
+        if (const int mbLimit = QImageReader::allocationLimit()) {
+            qsizetype depth = qMax(qt_depthForFormat(format), 32); // Effective gui depth = 32
+            QImageData::ImageSizeParameters szp =
+                    QImageData::calculateImageParameters(size.width(), size.height(), depth);
+            if (!szp.isValid())
+                return false;
+            const qsizetype mb = szp.totalSize >> 20;
+            if (mb > mbLimit || (mb == mbLimit && szp.totalSize % (1 << 20))) {
+                qCWarning(lcImageIo, "QImageIOHandler: Rejecting image as it exceeds the current "
+                                     "allocation limit of %i megabytes", mbLimit);
+                return false;
+            }
+        }
+        *image = QImage(size, format);
+    }
+    return !image->isNull();
 }
 
 #ifndef QT_NO_IMAGEFORMATPLUGIN

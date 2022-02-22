@@ -15,10 +15,10 @@
 #ifndef DAWNNATIVE_INSTANCE_H_
 #define DAWNNATIVE_INSTANCE_H_
 
+#include "common/RefCounted.h"
 #include "dawn_native/Adapter.h"
 #include "dawn_native/BackendConnection.h"
 #include "dawn_native/Extensions.h"
-#include "dawn_native/RefCounted.h"
 #include "dawn_native/Toggles.h"
 #include "dawn_native/dawn_platform.h"
 
@@ -30,6 +30,7 @@
 namespace dawn_native {
 
     class Surface;
+    class XlibXcbFunctions;
 
     // This is called InstanceBase for consistency across the frontend, even if the backends don't
     // specialize this class.
@@ -57,14 +58,18 @@ namespace dawn_native {
         ExtensionsSet ExtensionNamesToExtensionsSet(
             const std::vector<const char*>& requiredExtensions);
 
-        void EnableBackendValidation(bool enableBackendValidation);
         bool IsBackendValidationEnabled() const;
+        void SetBackendValidationLevel(BackendValidationLevel level);
+        BackendValidationLevel GetBackendValidationLevel() const;
 
         void EnableBeginCaptureOnStartup(bool beginCaptureOnStartup);
         bool IsBeginCaptureOnStartupEnabled() const;
 
         void SetPlatform(dawn_platform::Platform* platform);
         dawn_platform::Platform* GetPlatform() const;
+
+        // Get backend-independent libraries that need to be loaded dynamically.
+        const XlibXcbFunctions* GetOrCreateXlibXcbFunctions();
 
         // Dawn API
         Surface* CreateSurface(const SurfaceDescriptor* descriptor);
@@ -81,16 +86,13 @@ namespace dawn_native {
         // Lazily creates connections to all backends that have been compiled.
         void EnsureBackendConnections();
 
-        // Finds the BackendConnection for `type` or returns an error.
-        ResultOrError<BackendConnection*> FindBackend(wgpu::BackendType type);
-
         MaybeError DiscoverAdaptersInternal(const AdapterDiscoveryOptionsBase* options);
 
         bool mBackendsConnected = false;
         bool mDiscoveredDefaultAdapters = false;
 
-        bool mEnableBackendValidation = false;
         bool mBeginCaptureOnStartup = false;
+        BackendValidationLevel mBackendValidationLevel = BackendValidationLevel::Disabled;
 
         dawn_platform::Platform* mPlatform = nullptr;
 
@@ -99,6 +101,10 @@ namespace dawn_native {
 
         ExtensionsInfo mExtensionsInfo;
         TogglesInfo mTogglesInfo;
+
+#if defined(DAWN_USE_X11)
+        std::unique_ptr<XlibXcbFunctions> mXlibXcbFunctions;
+#endif  // defined(DAWN_USE_X11)
     };
 
 }  // namespace dawn_native

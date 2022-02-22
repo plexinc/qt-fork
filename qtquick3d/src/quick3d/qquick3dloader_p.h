@@ -77,6 +77,8 @@ class Q_QUICK3D_EXPORT QQuick3DLoader : public QQuick3DNode
     Q_PROPERTY(qreal progress READ progress NOTIFY progressChanged)
     Q_PROPERTY(bool asynchronous READ asynchronous WRITE setAsynchronous NOTIFY asynchronousChanged)
 
+    QML_NAMED_ELEMENT(Loader3D)
+
 public:
     explicit QQuick3DLoader(QQuick3DNode *parent = nullptr);
     ~QQuick3DLoader() override;
@@ -134,6 +136,8 @@ private:
     static QUrl resolveSourceUrl(QQmlV4Function *args);
     QV4::ReturnedValue extractInitialPropertyValues(QQmlV4Function *args, bool *error);
 
+    void createComponent();
+
     QUrl m_source;
     QQuick3DNode *m_item;
     QObject *m_object;
@@ -142,7 +146,6 @@ private:
     QQuick3DLoaderIncubator *m_incubator;
     QV4::PersistentValue m_initialPropertyValues;
     QV4::PersistentValue m_qmlCallingContext;
-    bool m_updatingSize: 1;
     bool m_active : 1;
     bool m_loadingFromSource : 1;
     bool m_asynchronous : 1;

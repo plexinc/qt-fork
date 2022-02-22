@@ -5,9 +5,12 @@
 #include "osp/impl/testing/fake_mdns_responder_adapter.h"
 
 #include <algorithm>
+#include <map>
+#include <string>
+#include <utility>
 
 #include "platform/base/error.h"
-#include "util/logging.h"
+#include "util/osp_logging.h"
 
 namespace openscreen {
 namespace osp {
@@ -233,15 +236,19 @@ Error FakeMdnsResponderAdapter::DeregisterInterface(UdpSocket* socket) {
 
 void FakeMdnsResponderAdapter::OnRead(UdpSocket* socket,
                                       ErrorOr<UdpPacket> packet) {
-  OSP_NOTREACHED() << "Tests should not drive this class with packets";
+  OSP_NOTREACHED();
 }
 
 void FakeMdnsResponderAdapter::OnSendError(UdpSocket* socket, Error error) {
-  OSP_NOTREACHED() << "Tests should not drive this class with packets";
+  OSP_NOTREACHED();
 }
 
 void FakeMdnsResponderAdapter::OnError(UdpSocket* socket, Error error) {
-  OSP_NOTREACHED() << "Tests should not drive this class with packets";
+  OSP_NOTREACHED();
+}
+
+void FakeMdnsResponderAdapter::OnBound(UdpSocket* socket) {
+  OSP_NOTREACHED();
 }
 
 Clock::duration FakeMdnsResponderAdapter::RunTasks() {
@@ -271,7 +278,7 @@ std::vector<PtrEvent> FakeMdnsResponderAdapter::TakePtrResponses() {
     }
     ptr_events_.erase(query_it, ptr_events_.end());
   }
-  OSP_LOG << "taking " << result.size() << " ptr response(s)";
+  OSP_LOG_INFO << "taking " << result.size() << " ptr response(s)";
   return result;
 }
 
@@ -293,7 +300,7 @@ std::vector<SrvEvent> FakeMdnsResponderAdapter::TakeSrvResponses() {
     }
     srv_events_.erase(query_it, srv_events_.end());
   }
-  OSP_LOG << "taking " << result.size() << " srv response(s)";
+  OSP_LOG_INFO << "taking " << result.size() << " srv response(s)";
   return result;
 }
 
@@ -316,7 +323,7 @@ std::vector<TxtEvent> FakeMdnsResponderAdapter::TakeTxtResponses() {
     }
     txt_events_.erase(query_it, txt_events_.end());
   }
-  OSP_LOG << "taking " << result.size() << " txt response(s)";
+  OSP_LOG_INFO << "taking " << result.size() << " txt response(s)";
   return result;
 }
 
@@ -338,7 +345,7 @@ std::vector<AEvent> FakeMdnsResponderAdapter::TakeAResponses() {
     }
     a_events_.erase(query_it, a_events_.end());
   }
-  OSP_LOG << "taking " << result.size() << " a response(s)";
+  OSP_LOG_INFO << "taking " << result.size() << " a response(s)";
   return result;
 }
 
@@ -361,7 +368,7 @@ std::vector<AaaaEvent> FakeMdnsResponderAdapter::TakeAaaaResponses() {
     }
     aaaa_events_.erase(query_it, aaaa_events_.end());
   }
-  OSP_LOG << "taking " << result.size() << " a response(s)";
+  OSP_LOG_INFO << "taking " << result.size() << " a response(s)";
   return result;
 }
 

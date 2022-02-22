@@ -38,7 +38,13 @@ bool SyscallSets::IsAllowedGettime(int sysno) {
     case __NR_clock_getres:     // Allowed only on Android with parameters
                                 // filtered by RestrictClokID().
     case __NR_clock_gettime:    // Parameters filtered by RestrictClockID().
+#if defined(__NR_clock_gettime64)
+    case __NR_clock_gettime64:  // Parameters filtered by RestrictClockID().
+#endif
     case __NR_clock_nanosleep:  // Parameters filtered by RestrictClockID().
+#if defined(__NR_clock_nanosleep_time64)
+    case __NR_clock_nanosleep_time64:  // Parameters filtered by RestrictClockID().
+#endif
     case __NR_clock_settime:    // Privileged.
 #if defined(__i386__) || \
     (defined(ARCH_CPU_MIPS_FAMILY) && defined(ARCH_CPU_32_BITS))
@@ -168,9 +174,11 @@ bool SyscallSets::IsFileSystem(int sysno) {
 bool SyscallSets::IsAllowedFileSystemAccessViaFd(int sysno) {
   switch (sysno) {
     case __NR_fstat:
+    case __NR_ftruncate:
 #if defined(__i386__) || defined(__arm__) || \
     (defined(ARCH_CPU_MIPS_FAMILY) && defined(ARCH_CPU_32_BITS))
     case __NR_fstat64:
+    case __NR_ftruncate64:
 #endif
       return true;
 // TODO(jln): these should be denied gracefully as well (moved below).
@@ -211,13 +219,8 @@ bool SyscallSets::IsDeniedFileSystemAccessViaFd(int sysno) {
     case __NR_fallocate:
     case __NR_fchmod:
     case __NR_fchown:
-    case __NR_ftruncate:
 #if defined(__i386__) || defined(__arm__)
     case __NR_fchown32:
-#endif
-#if defined(__i386__) || defined(__arm__) || \
-    (defined(ARCH_CPU_MIPS_FAMILY) && defined(ARCH_CPU_32_BITS))
-    case __NR_ftruncate64:
 #endif
 #if !defined(__aarch64__)
     case __NR_getdents:    // EPERM not a valid errno.
@@ -972,6 +975,22 @@ bool SyscallSets::IsAdvancedTimer(int sysno) {
     case __NR_timerfd_create:
     case __NR_timerfd_gettime:
     case __NR_timerfd_settime:
+      return true;
+    default:
+      return false;
+  }
+}
+
+bool SyscallSets::IsClockApi(int sysno) {
+  switch (sysno) {
+    case __NR_clock_gettime:
+#if defined(__NR_clock_gettime64)
+    case __NR_clock_gettime64:
+#endif
+    case __NR_clock_nanosleep:
+#if defined(__NR_clock_nanosleep_time64)
+    case __NR_clock_nanosleep_time64:
+#endif
       return true;
     default:
       return false;

@@ -26,6 +26,7 @@ class HttpAuthHandlerFactory;
 class HttpResponseHeaders;
 class HostResolver;
 class NetLogWithSource;
+class NetworkIsolationKey;
 class SSLInfo;
 
 // Utility class for http authentication.
@@ -173,6 +174,7 @@ class NET_EXPORT_PRIVATE HttpAuth {
       HttpAuthHandlerFactory* http_auth_handler_factory,
       const HttpResponseHeaders& response_headers,
       const SSLInfo& ssl_info,
+      const NetworkIsolationKey& network_isolation_key,
       Target target,
       const GURL& origin,
       const std::set<Scheme>& disabled_schemes,

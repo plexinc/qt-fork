@@ -192,7 +192,7 @@ bool QMimeType::operator==(const QMimeType &other) const
     Returns the hash value for \a key, using
     \a seed to seed the calculation.
  */
-uint qHash(const QMimeType &key, uint seed) noexcept
+size_t qHash(const QMimeType &key, size_t seed) noexcept
 {
     return qHash(key.d->name, seed);
 }
@@ -302,7 +302,7 @@ QString QMimeType::genericIconName() const
         // media type (e.g.  "video" in "video/ogg") and appending "-x-generic"
         // (i.e. "video-x-generic" in the previous example).
         const QString group = name();
-        QStringRef groupRef(&group);
+        QStringView groupRef(group);
         const int slashindex = groupRef.indexOf(QLatin1Char('/'));
         if (slashindex != -1)
             groupRef = groupRef.left(slashindex);

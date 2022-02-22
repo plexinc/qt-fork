@@ -9,33 +9,33 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/containers/contains.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/optional.h"
-#include "base/stl_util.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/mock_callback.h"
-#include "base/test/scoped_feature_list.h"
 #include "base/time/time.h"
 #include "chrome/browser/extensions/api/passwords_private/passwords_private_event_router.h"
 #include "chrome/browser/extensions/api/passwords_private/passwords_private_event_router_factory.h"
 #include "chrome/browser/password_manager/bulk_leak_check_service_factory.h"
-#include "chrome/browser/password_manager/password_store_factory.h"
+#include "chrome/browser/password_manager/password_manager_test_util.h"
 #include "chrome/common/extensions/api/passwords_private.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/password_manager/core/browser/bulk_leak_check_service.h"
-#include "components/password_manager/core/browser/compromised_credentials_table.h"
+#include "components/password_manager/core/browser/insecure_credentials_table.h"
 #include "components/password_manager/core/browser/leak_detection/bulk_leak_check.h"
 #include "components/password_manager/core/browser/leak_detection/leak_detection_delegate_interface.h"
 #include "components/password_manager/core/browser/password_manager_test_utils.h"
 #include "components/password_manager/core/browser/test_password_store.h"
-#include "components/password_manager/core/common/password_manager_features.h"
+#include "components/password_manager/core/browser/ui/saved_passwords_presenter.h"
+#include "components/password_manager/core/browser/well_known_change_password_util.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/testing_pref_service.h"
@@ -55,8 +55,8 @@ namespace extensions {
 
 namespace {
 
-constexpr char kExampleCom[] = "https://example.com";
-constexpr char kExampleOrg[] = "http://www.example.org";
+constexpr char kExampleCom[] = "https://example.com/";
+constexpr char kExampleOrg[] = "http://www.example.org/";
 constexpr char kExampleApp[] = "com.example.app";
 
 constexpr char kTestEmail[] = "user@gmail.com";
@@ -66,16 +66,22 @@ constexpr char kUsername2[] = "bob";
 
 constexpr char kPassword1[] = "s3cre3t";
 constexpr char kPassword2[] = "f00b4r";
+constexpr char kWeakPassword1[] = "123456";
+constexpr char kWeakPassword2[] = "111111";
 
-using api::passwords_private::CompromisedCredential;
+using api::passwords_private::CompromisedInfo;
+using api::passwords_private::InsecureCredential;
 using api::passwords_private::PasswordCheckStatus;
-using autofill::PasswordForm;
 using password_manager::BulkLeakCheckDelegateInterface;
 using password_manager::BulkLeakCheckService;
 using password_manager::CompromisedCredentials;
-using password_manager::CompromiseType;
+using password_manager::InsecureCredentialTypeFlags;
+using password_manager::InsecureType;
 using password_manager::IsLeaked;
+using password_manager::IsMuted;
 using password_manager::LeakCheckCredential;
+using password_manager::PasswordForm;
+using password_manager::SavedPasswordsPresenter;
 using password_manager::TestPasswordStore;
 using password_manager::prefs::kLastTimePasswordCheckCompleted;
 using signin::IdentityTestEnvironment;
@@ -115,17 +121,6 @@ EventRouter* CreateAndUseEventRouter(Profile* profile) {
           })));
 }
 
-scoped_refptr<TestPasswordStore> CreateAndUseTestPasswordStore(
-    Profile* profile) {
-  return base::WrapRefCounted(static_cast<TestPasswordStore*>(
-      PasswordStoreFactory::GetInstance()
-          ->SetTestingFactoryAndUse(
-              profile,
-              base::BindRepeating(&password_manager::BuildPasswordStore<
-                                  content::BrowserContext, TestPasswordStore>))
-          .get()));
-}
-
 BulkLeakCheckService* CreateAndUseBulkLeakCheckService(
     signin::IdentityManager* identity_manager,
     Profile* profile) {
@@ -144,13 +139,10 @@ CompromisedCredentials MakeCompromised(
     base::StringPiece signon_realm,
     base::StringPiece username,
     base::TimeDelta time_since_creation = base::TimeDelta(),
-    CompromiseType compromise_type = CompromiseType::kLeaked) {
-  return {
-      std::string(signon_realm),
-      base::ASCIIToUTF16(username),
-      base::Time::Now() - time_since_creation,
-      compromise_type,
-  };
+    InsecureType compromise_type = InsecureType::kLeaked) {
+  return CompromisedCredentials(
+      std::string(signon_realm), base::ASCIIToUTF16(username),
+      base::Time::Now() - time_since_creation, compromise_type, IsMuted(false));
 }
 
 PasswordForm MakeSavedPassword(base::StringPiece signon_realm,
@@ -159,6 +151,7 @@ PasswordForm MakeSavedPassword(base::StringPiece signon_realm,
                                base::StringPiece username_element = "") {
   PasswordForm form;
   form.signon_realm = std::string(signon_realm);
+  form.url = GURL(signon_realm);
   form.username_value = base::ASCIIToUTF16(username);
   form.password_value = base::ASCIIToUTF16(password);
   form.username_element = base::ASCIIToUTF16(username_element);
@@ -173,13 +166,45 @@ PasswordForm MakeSavedAndroidPassword(
     base::StringPiece package_name,
     base::StringPiece username,
     base::StringPiece app_display_name = "",
-    base::StringPiece affiliated_web_realm = "") {
+    base::StringPiece affiliated_web_realm = "",
+    base::StringPiece password = kPassword1) {
   PasswordForm form;
   form.signon_realm = MakeAndroidRealm(package_name);
   form.username_value = base::ASCIIToUTF16(username);
   form.app_display_name = std::string(app_display_name);
   form.affiliated_web_realm = std::string(affiliated_web_realm);
+  form.password_value = base::ASCIIToUTF16(password);
   return form;
+}
+
+// Creates matcher for a given insecure credential.
+auto ExpectInsecureCredential(
+    const std::string& formatted_origin,
+    const std::string& detailed_origin,
+    const base::Optional<std::string>& change_password_url,
+    const std::string& username) {
+  auto change_password_url_field_matcher =
+      change_password_url.has_value()
+          ? Field(&InsecureCredential::change_password_url,
+                  Pointee(change_password_url.value()))
+          : Field(&InsecureCredential::change_password_url, IsNull());
+  return AllOf(Field(&InsecureCredential::formatted_origin, formatted_origin),
+               Field(&InsecureCredential::detailed_origin, detailed_origin),
+               change_password_url_field_matcher,
+               Field(&InsecureCredential::username, username));
+}
+
+// Creates matcher for a given compromised info.
+auto ExpectCompromisedInfo(
+    base::TimeDelta elapsed_time_since_compromise,
+    const std::string& elapsed_time_since_compromise_str,
+    api::passwords_private::CompromiseType compromise_type) {
+  return AllOf(Field(&CompromisedInfo::compromise_time,
+                     (base::Time::Now() - elapsed_time_since_compromise)
+                         .ToJsTimeIgnoringNull()),
+               Field(&CompromisedInfo::elapsed_time_since_compromise,
+                     elapsed_time_since_compromise_str),
+               Field(&CompromisedInfo::compromise_type, compromise_type));
 }
 
 // Creates matcher for a given compromised credential
@@ -191,30 +216,19 @@ auto ExpectCompromisedCredential(
     base::TimeDelta elapsed_time_since_compromise,
     const std::string& elapsed_time_since_compromise_str,
     api::passwords_private::CompromiseType compromise_type) {
-  auto change_password_url_field_matcher =
-      change_password_url.has_value()
-          ? Field(&CompromisedCredential::change_password_url,
-                  Pointee(change_password_url.value()))
-          : Field(&CompromisedCredential::change_password_url, IsNull());
-  return AllOf(
-      Field(&CompromisedCredential::formatted_origin, formatted_origin),
-      Field(&CompromisedCredential::detailed_origin, detailed_origin),
-      change_password_url_field_matcher,
-      Field(&CompromisedCredential::username, username),
-      Field(&CompromisedCredential::compromise_time,
-            (base::Time::Now() - elapsed_time_since_compromise)
-                .ToJsTimeIgnoringNull()),
-      Field(&CompromisedCredential::elapsed_time_since_compromise,
-            elapsed_time_since_compromise_str),
-      Field(&CompromisedCredential::compromise_type, compromise_type));
+  return AllOf(ExpectInsecureCredential(formatted_origin, detailed_origin,
+                                        change_password_url, username),
+               Field(&InsecureCredential::compromised_info,
+                     Pointee(ExpectCompromisedInfo(
+                         elapsed_time_since_compromise,
+                         elapsed_time_since_compromise_str, compromise_type))));
 }
 
 class PasswordCheckDelegateTest : public ::testing::Test {
  public:
   PasswordCheckDelegateTest() {
     prefs_.registry()->RegisterDoublePref(kLastTimePasswordCheckCompleted, 0.0);
-    scoped_feature_list_.InitAndEnableFeature(
-        password_manager::features::kPasswordCheck);
+    presenter_.Init();
   }
 
   void RunUntilIdle() { task_env_.RunUntilIdle(); }
@@ -226,6 +240,7 @@ class PasswordCheckDelegateTest : public ::testing::Test {
   TestingProfile& profile() { return profile_; }
   TestPasswordStore& store() { return *store_; }
   BulkLeakCheckService* service() { return bulk_leak_check_service_; }
+  SavedPasswordsPresenter& presenter() { return presenter_; }
   PasswordCheckDelegate& delegate() { return delegate_; }
 
  private:
@@ -242,11 +257,83 @@ class PasswordCheckDelegateTest : public ::testing::Test {
                                        &profile_);
   scoped_refptr<TestPasswordStore> store_ =
       CreateAndUseTestPasswordStore(&profile_);
-  base::test::ScopedFeatureList scoped_feature_list_;
-  PasswordCheckDelegate delegate_{&profile_};
+  SavedPasswordsPresenter presenter_{store_};
+  PasswordCheckDelegate delegate_{&profile_, &presenter_};
 };
 
 }  // namespace
+
+TEST_F(PasswordCheckDelegateTest, VerifyCastingOfCompromisedCredentialTypes) {
+  static_assert(
+      static_cast<int>(api::passwords_private::COMPROMISE_TYPE_NONE) ==
+          static_cast<int>(InsecureCredentialTypeFlags::kSecure),
+      "");
+  static_assert(
+      static_cast<int>(api::passwords_private::COMPROMISE_TYPE_LEAKED) ==
+          static_cast<int>(InsecureCredentialTypeFlags::kCredentialLeaked),
+      "");
+  static_assert(
+      static_cast<int>(api::passwords_private::COMPROMISE_TYPE_PHISHED) ==
+          static_cast<int>(InsecureCredentialTypeFlags::kCredentialPhished),
+      "");
+  static_assert(
+      static_cast<int>(
+          api::passwords_private::COMPROMISE_TYPE_PHISHED_AND_LEAKED) ==
+          static_cast<int>(InsecureCredentialTypeFlags::kCredentialLeaked |
+                           InsecureCredentialTypeFlags::kCredentialPhished),
+      "");
+}
+
+// Verify that GetWeakCredentials() correctly represents weak credentials.
+TEST_F(PasswordCheckDelegateTest, GetWeakCredentialsFillsFieldsCorrectly) {
+  store().AddLogin(MakeSavedPassword(kExampleCom, kUsername1, kWeakPassword1));
+  store().AddLogin(MakeSavedAndroidPassword(
+      kExampleApp, kUsername2, "Example App", kExampleCom, kWeakPassword2));
+  RunUntilIdle();
+  delegate().StartPasswordCheck();
+  RunUntilIdle();
+
+  EXPECT_THAT(
+      delegate().GetWeakCredentials(),
+      UnorderedElementsAre(
+          ExpectInsecureCredential(
+              "example.com", "https://example.com",
+              "https://example.com/.well-known/change-password", kUsername1),
+          ExpectInsecureCredential(
+              "Example App", "Example App",
+              "https://example.com/.well-known/change-password", kUsername2)));
+}
+
+// Verify that computation of weak credentials notifies observers.
+TEST_F(PasswordCheckDelegateTest, WeakCheckNotifiesObservers) {
+  const char* const kEventName =
+      api::passwords_private::OnWeakCredentialsChanged::kEventName;
+
+  // Verify that the event was not fired during construction.
+  EXPECT_FALSE(base::Contains(event_router_observer().events(), kEventName));
+
+  // Verify that the event gets fired after weak check is complete.
+  delegate().StartPasswordCheck();
+  RunUntilIdle();
+  EXPECT_EQ(events::PASSWORDS_PRIVATE_ON_WEAK_CREDENTIALS_CHANGED,
+            event_router_observer().events().at(kEventName)->histogram_value);
+}
+
+// Verifies that the weak check will be run if the user is signed out.
+TEST_F(PasswordCheckDelegateTest, WeakCheckWhenUserSignedOut) {
+  store().AddLogin(MakeSavedPassword(kExampleCom, kUsername1, kWeakPassword1));
+  RunUntilIdle();
+  delegate().StartPasswordCheck();
+  RunUntilIdle();
+
+  EXPECT_THAT(
+      delegate().GetWeakCredentials(),
+      ElementsAre(ExpectInsecureCredential(
+          "example.com", "https://example.com",
+          "https://example.com/.well-known/change-password", kUsername1)));
+  EXPECT_EQ(api::passwords_private::PASSWORD_CHECK_STATE_SIGNED_OUT,
+            delegate().GetPasswordCheckStatus().state);
+}
 
 // Sets up the password store with a couple of passwords and compromised
 // credentials. Verifies that the result is ordered in such a way that phished
@@ -258,38 +345,43 @@ TEST_F(PasswordCheckDelegateTest, GetCompromisedCredentialsOrders) {
   store().AddLogin(MakeSavedPassword(kExampleOrg, kUsername1));
   store().AddLogin(MakeSavedPassword(kExampleOrg, kUsername2));
 
-  store().AddCompromisedCredentials(
-      MakeCompromised(kExampleCom, kUsername1, base::TimeDelta::FromMinutes(1),
-                      CompromiseType::kLeaked));
-  store().AddCompromisedCredentials(
-      MakeCompromised(kExampleCom, kUsername2, base::TimeDelta::FromMinutes(2),
-                      CompromiseType::kPhished));
-  store().AddCompromisedCredentials(
-      MakeCompromised(kExampleOrg, kUsername2, base::TimeDelta::FromMinutes(3),
-                      CompromiseType::kLeaked));
-  store().AddCompromisedCredentials(
-      MakeCompromised(kExampleOrg, kUsername1, base::TimeDelta::FromMinutes(4),
-                      CompromiseType::kPhished));
+  store().AddInsecureCredential(MakeCompromised(kExampleCom, kUsername1,
+                                                base::TimeDelta::FromMinutes(1),
+                                                InsecureType::kLeaked));
+  store().AddInsecureCredential(MakeCompromised(kExampleCom, kUsername2,
+                                                base::TimeDelta::FromMinutes(2),
+                                                InsecureType::kPhished));
+  store().AddInsecureCredential(MakeCompromised(kExampleOrg, kUsername2,
+                                                base::TimeDelta::FromMinutes(3),
+                                                InsecureType::kLeaked));
+  store().AddInsecureCredential(MakeCompromised(kExampleOrg, kUsername1,
+                                                base::TimeDelta::FromMinutes(4),
+                                                InsecureType::kPhished));
   RunUntilIdle();
 
   EXPECT_THAT(
       delegate().GetCompromisedCredentials(),
-      ElementsAre(ExpectCompromisedCredential(
-                      "example.com", kExampleCom, kExampleCom, kUsername2,
-                      base::TimeDelta::FromMinutes(2), "2 minutes ago",
-                      api::passwords_private::COMPROMISE_TYPE_PHISHED),
-                  ExpectCompromisedCredential(
-                      "example.org", kExampleOrg, kExampleOrg, kUsername1,
-                      base::TimeDelta::FromMinutes(4), "4 minutes ago",
-                      api::passwords_private::COMPROMISE_TYPE_PHISHED),
-                  ExpectCompromisedCredential(
-                      "example.com", kExampleCom, kExampleCom, kUsername1,
-                      base::TimeDelta::FromMinutes(1), "1 minute ago",
-                      api::passwords_private::COMPROMISE_TYPE_LEAKED),
-                  ExpectCompromisedCredential(
-                      "example.org", kExampleOrg, kExampleOrg, kUsername2,
-                      base::TimeDelta::FromMinutes(3), "3 minutes ago",
-                      api::passwords_private::COMPROMISE_TYPE_LEAKED)));
+      ElementsAre(
+          ExpectCompromisedCredential(
+              "example.com", "https://example.com",
+              "https://example.com/.well-known/change-password", kUsername2,
+              base::TimeDelta::FromMinutes(2), "2 minutes ago",
+              api::passwords_private::COMPROMISE_TYPE_PHISHED),
+          ExpectCompromisedCredential(
+              "example.org", "http://www.example.org",
+              "http://www.example.org/.well-known/change-password", kUsername1,
+              base::TimeDelta::FromMinutes(4), "4 minutes ago",
+              api::passwords_private::COMPROMISE_TYPE_PHISHED),
+          ExpectCompromisedCredential(
+              "example.com", "https://example.com",
+              "https://example.com/.well-known/change-password", kUsername1,
+              base::TimeDelta::FromMinutes(1), "1 minute ago",
+              api::passwords_private::COMPROMISE_TYPE_LEAKED),
+          ExpectCompromisedCredential(
+              "example.org", "http://www.example.org",
+              "http://www.example.org/.well-known/change-password", kUsername2,
+              base::TimeDelta::FromMinutes(3), "3 minutes ago",
+              api::passwords_private::COMPROMISE_TYPE_LEAKED)));
 }
 
 // Verifies that the formatted timestamp associated with a compromised
@@ -301,38 +393,43 @@ TEST_F(PasswordCheckDelegateTest, GetCompromisedCredentialsHandlesTimes) {
   store().AddLogin(MakeSavedPassword(kExampleOrg, kUsername1));
   store().AddLogin(MakeSavedPassword(kExampleOrg, kUsername2));
 
-  store().AddCompromisedCredentials(
+  store().AddInsecureCredential(
       MakeCompromised(kExampleCom, kUsername1, base::TimeDelta::FromSeconds(59),
-                      CompromiseType::kLeaked));
-  store().AddCompromisedCredentials(
+                      InsecureType::kLeaked));
+  store().AddInsecureCredential(
       MakeCompromised(kExampleCom, kUsername2, base::TimeDelta::FromSeconds(60),
-                      CompromiseType::kLeaked));
-  store().AddCompromisedCredentials(
-      MakeCompromised(kExampleOrg, kUsername1, base::TimeDelta::FromDays(100),
-                      CompromiseType::kLeaked));
-  store().AddCompromisedCredentials(
-      MakeCompromised(kExampleOrg, kUsername2, base::TimeDelta::FromDays(800),
-                      CompromiseType::kLeaked));
+                      InsecureType::kLeaked));
+  store().AddInsecureCredential(MakeCompromised(kExampleOrg, kUsername1,
+                                                base::TimeDelta::FromDays(100),
+                                                InsecureType::kLeaked));
+  store().AddInsecureCredential(MakeCompromised(kExampleOrg, kUsername2,
+                                                base::TimeDelta::FromDays(800),
+                                                InsecureType::kLeaked));
   RunUntilIdle();
 
   EXPECT_THAT(
       delegate().GetCompromisedCredentials(),
-      ElementsAre(ExpectCompromisedCredential(
-                      "example.com", kExampleCom, kExampleCom, kUsername1,
-                      base::TimeDelta::FromSeconds(59), "Just now",
-                      api::passwords_private::COMPROMISE_TYPE_LEAKED),
-                  ExpectCompromisedCredential(
-                      "example.com", kExampleCom, kExampleCom, kUsername2,
-                      base::TimeDelta::FromSeconds(60), "1 minute ago",
-                      api::passwords_private::COMPROMISE_TYPE_LEAKED),
-                  ExpectCompromisedCredential(
-                      "example.org", kExampleOrg, kExampleOrg, kUsername1,
-                      base::TimeDelta::FromDays(100), "3 months ago",
-                      api::passwords_private::COMPROMISE_TYPE_LEAKED),
-                  ExpectCompromisedCredential(
-                      "example.org", kExampleOrg, kExampleOrg, kUsername2,
-                      base::TimeDelta::FromDays(800), "2 years ago",
-                      api::passwords_private::COMPROMISE_TYPE_LEAKED)));
+      ElementsAre(
+          ExpectCompromisedCredential(
+              "example.com", "https://example.com",
+              "https://example.com/.well-known/change-password", kUsername1,
+              base::TimeDelta::FromSeconds(59), "Just now",
+              api::passwords_private::COMPROMISE_TYPE_LEAKED),
+          ExpectCompromisedCredential(
+              "example.com", "https://example.com",
+              "https://example.com/.well-known/change-password", kUsername2,
+              base::TimeDelta::FromSeconds(60), "1 minute ago",
+              api::passwords_private::COMPROMISE_TYPE_LEAKED),
+          ExpectCompromisedCredential(
+              "example.org", "http://www.example.org",
+              "http://www.example.org/.well-known/change-password", kUsername1,
+              base::TimeDelta::FromDays(100), "3 months ago",
+              api::passwords_private::COMPROMISE_TYPE_LEAKED),
+          ExpectCompromisedCredential(
+              "example.org", "http://www.example.org",
+              "http://www.example.org/.well-known/change-password", kUsername2,
+              base::TimeDelta::FromDays(800), "2 years ago",
+              api::passwords_private::COMPROMISE_TYPE_LEAKED)));
 }
 
 // Verifies that both leaked and phished credentials are ordered correctly
@@ -346,43 +443,47 @@ TEST_F(PasswordCheckDelegateTest,
   store().AddLogin(MakeSavedPassword(kExampleOrg, kUsername1));
   store().AddLogin(MakeSavedPassword(kExampleOrg, kUsername2));
 
-  store().AddCompromisedCredentials(
-      MakeCompromised(kExampleCom, kUsername1, base::TimeDelta::FromMinutes(1),
-                      CompromiseType::kLeaked));
-  store().AddCompromisedCredentials(
-      MakeCompromised(kExampleCom, kUsername2, base::TimeDelta::FromMinutes(2),
-                      CompromiseType::kLeaked));
-  store().AddCompromisedCredentials(
-      MakeCompromised(kExampleOrg, kUsername1, base::TimeDelta::FromMinutes(3),
-                      CompromiseType::kPhished));
-  store().AddCompromisedCredentials(
-      MakeCompromised(kExampleOrg, kUsername2, base::TimeDelta::FromMinutes(4),
-                      CompromiseType::kPhished));
-  store().AddCompromisedCredentials(
-      MakeCompromised(kExampleCom, kUsername1, base::TimeDelta::FromMinutes(5),
-                      CompromiseType::kPhished));
-  store().AddCompromisedCredentials(
-      MakeCompromised(kExampleOrg, kUsername2, base::TimeDelta::FromMinutes(6),
-                      CompromiseType::kLeaked));
+  store().AddInsecureCredential(MakeCompromised(kExampleCom, kUsername1,
+                                                base::TimeDelta::FromMinutes(1),
+                                                InsecureType::kLeaked));
+  store().AddInsecureCredential(MakeCompromised(kExampleCom, kUsername2,
+                                                base::TimeDelta::FromMinutes(2),
+                                                InsecureType::kLeaked));
+  store().AddInsecureCredential(MakeCompromised(kExampleOrg, kUsername1,
+                                                base::TimeDelta::FromMinutes(3),
+                                                InsecureType::kPhished));
+  store().AddInsecureCredential(MakeCompromised(kExampleOrg, kUsername2,
+                                                base::TimeDelta::FromMinutes(4),
+                                                InsecureType::kPhished));
+  store().AddInsecureCredential(MakeCompromised(kExampleCom, kUsername1,
+                                                base::TimeDelta::FromMinutes(5),
+                                                InsecureType::kPhished));
+  store().AddInsecureCredential(MakeCompromised(kExampleOrg, kUsername2,
+                                                base::TimeDelta::FromMinutes(6),
+                                                InsecureType::kLeaked));
   RunUntilIdle();
 
   EXPECT_THAT(
       delegate().GetCompromisedCredentials(),
       ElementsAre(
           ExpectCompromisedCredential(
-              "example.com", kExampleCom, kExampleCom, kUsername1,
+              "example.com", "https://example.com",
+              "https://example.com/.well-known/change-password", kUsername1,
               base::TimeDelta::FromMinutes(1), "1 minute ago",
               api::passwords_private::COMPROMISE_TYPE_PHISHED_AND_LEAKED),
           ExpectCompromisedCredential(
-              "example.org", kExampleOrg, kExampleOrg, kUsername1,
+              "example.org", "http://www.example.org",
+              "http://www.example.org/.well-known/change-password", kUsername1,
               base::TimeDelta::FromMinutes(3), "3 minutes ago",
               api::passwords_private::COMPROMISE_TYPE_PHISHED),
           ExpectCompromisedCredential(
-              "example.org", kExampleOrg, kExampleOrg, kUsername2,
+              "example.org", "http://www.example.org",
+              "http://www.example.org/.well-known/change-password", kUsername2,
               base::TimeDelta::FromMinutes(4), "4 minutes ago",
               api::passwords_private::COMPROMISE_TYPE_PHISHED_AND_LEAKED),
           ExpectCompromisedCredential(
-              "example.com", kExampleCom, kExampleCom, kUsername2,
+              "example.com", "https://example.com",
+              "https://example.com/.well-known/change-password", kUsername2,
               base::TimeDelta::FromMinutes(2), "2 minutes ago",
               api::passwords_private::COMPROMISE_TYPE_LEAKED)));
 }
@@ -393,33 +494,36 @@ TEST_F(PasswordCheckDelegateTest, GetCompromisedCredentialsInjectsAndroid) {
                                             "Example App", kExampleCom));
   // Test Android credential without affiliation information.
   store().AddLogin(MakeSavedAndroidPassword(kExampleApp, kUsername1));
-  store().AddCompromisedCredentials(
-      MakeCompromised(kExampleCom, kUsername1, base::TimeDelta::FromMinutes(5),
-                      CompromiseType::kLeaked));
-  store().AddCompromisedCredentials(
+  store().AddInsecureCredential(MakeCompromised(kExampleCom, kUsername1,
+                                                base::TimeDelta::FromMinutes(5),
+                                                InsecureType::kLeaked));
+  store().AddInsecureCredential(
       MakeCompromised(MakeAndroidRealm(kExampleApp), kUsername2,
-                      base::TimeDelta::FromDays(3), CompromiseType::kPhished));
-  store().AddCompromisedCredentials(
+                      base::TimeDelta::FromDays(3), InsecureType::kPhished));
+  store().AddInsecureCredential(
       MakeCompromised(MakeAndroidRealm(kExampleApp), kUsername1,
-                      base::TimeDelta::FromDays(4), CompromiseType::kPhished));
+                      base::TimeDelta::FromDays(4), InsecureType::kPhished));
   RunUntilIdle();
 
   // Verify that the compromised credentials match what is stored in the
   // password store.
   EXPECT_THAT(
       delegate().GetCompromisedCredentials(),
-      ElementsAre(ExpectCompromisedCredential(
-                      "Example App", "Example App", kExampleCom, kUsername2,
-                      base::TimeDelta::FromDays(3), "3 days ago",
-                      api::passwords_private::COMPROMISE_TYPE_PHISHED),
-                  ExpectCompromisedCredential(
-                      "App (com.example.app)", kExampleApp, base::nullopt,
-                      kUsername1, base::TimeDelta::FromDays(4), "4 days ago",
-                      api::passwords_private::COMPROMISE_TYPE_PHISHED),
-                  ExpectCompromisedCredential(
-                      "example.com", kExampleCom, kExampleCom, kUsername1,
-                      base::TimeDelta::FromMinutes(5), "5 minutes ago",
-                      api::passwords_private::COMPROMISE_TYPE_LEAKED)));
+      ElementsAre(
+          ExpectCompromisedCredential(
+              "Example App", "Example App",
+              "https://example.com/.well-known/change-password", kUsername2,
+              base::TimeDelta::FromDays(3), "3 days ago",
+              api::passwords_private::COMPROMISE_TYPE_PHISHED),
+          ExpectCompromisedCredential(
+              "App (com.example.app)", "com.example.app", base::nullopt,
+              kUsername1, base::TimeDelta::FromDays(4), "4 days ago",
+              api::passwords_private::COMPROMISE_TYPE_PHISHED),
+          ExpectCompromisedCredential(
+              "example.com", "https://example.com",
+              "https://example.com/.well-known/change-password", kUsername1,
+              base::TimeDelta::FromMinutes(5), "5 minutes ago",
+              api::passwords_private::COMPROMISE_TYPE_LEAKED)));
 }
 
 // Test that a change to compromised credential notifies observers.
@@ -437,21 +541,22 @@ TEST_F(PasswordCheckDelegateTest, OnGetCompromisedCredentials) {
             event_router_observer().events().at(kEventName)->histogram_value);
   event_router_observer().ClearEvents();
 
-  // Verify that a subsequent call to AddCompromisedCredentials results in the
+  // Verify that a subsequent call to AddInsecureCredential results in the
   // expected event.
-  store().AddCompromisedCredentials(MakeCompromised(kExampleCom, kUsername1));
+  store().AddLogin(MakeSavedPassword(kExampleCom, kUsername1));
+  RunUntilIdle();
+  store().AddInsecureCredential(MakeCompromised(kExampleCom, kUsername1));
   RunUntilIdle();
   EXPECT_EQ(events::PASSWORDS_PRIVATE_ON_COMPROMISED_CREDENTIALS_INFO_CHANGED,
             event_router_observer().events().at(kEventName)->histogram_value);
 }
 
-TEST_F(PasswordCheckDelegateTest,
-       GetPlaintextCompromisedPasswordRejectsWrongId) {
+TEST_F(PasswordCheckDelegateTest, GetPlaintextInsecurePasswordRejectsWrongId) {
   store().AddLogin(MakeSavedPassword(kExampleCom, kUsername1));
-  store().AddCompromisedCredentials(MakeCompromised(kExampleCom, kUsername1));
+  store().AddInsecureCredential(MakeCompromised(kExampleCom, kUsername1));
   RunUntilIdle();
 
-  CompromisedCredential credential =
+  InsecureCredential credential =
       std::move(delegate().GetCompromisedCredentials().at(0));
   EXPECT_EQ(0, credential.id);
 
@@ -459,16 +564,16 @@ TEST_F(PasswordCheckDelegateTest,
   // password fails.
   credential.id = 1;
   EXPECT_EQ(base::nullopt,
-            delegate().GetPlaintextCompromisedPassword(std::move(credential)));
+            delegate().GetPlaintextInsecurePassword(std::move(credential)));
 }
 
 TEST_F(PasswordCheckDelegateTest,
-       GetPlaintextCompromisedPasswordRejectsWrongSignonRealm) {
+       GetPlaintextInsecurePasswordRejectsWrongSignonRealm) {
   store().AddLogin(MakeSavedPassword(kExampleCom, kUsername1));
-  store().AddCompromisedCredentials(MakeCompromised(kExampleCom, kUsername1));
+  store().AddInsecureCredential(MakeCompromised(kExampleCom, kUsername1));
   RunUntilIdle();
 
-  CompromisedCredential credential =
+  InsecureCredential credential =
       std::move(delegate().GetCompromisedCredentials().at(0));
   EXPECT_EQ(kExampleCom, credential.signon_realm);
 
@@ -476,16 +581,16 @@ TEST_F(PasswordCheckDelegateTest,
   // plaintext password fails.
   credential.signon_realm = kExampleOrg;
   EXPECT_EQ(base::nullopt,
-            delegate().GetPlaintextCompromisedPassword(std::move(credential)));
+            delegate().GetPlaintextInsecurePassword(std::move(credential)));
 }
 
 TEST_F(PasswordCheckDelegateTest,
-       GetPlaintextCompromisedPasswordRejectsWrongUsername) {
+       GetPlaintextInsecurePasswordRejectsWrongUsername) {
   store().AddLogin(MakeSavedPassword(kExampleCom, kUsername1));
-  store().AddCompromisedCredentials(MakeCompromised(kExampleCom, kUsername1));
+  store().AddInsecureCredential(MakeCompromised(kExampleCom, kUsername1));
   RunUntilIdle();
 
-  CompromisedCredential credential =
+  InsecureCredential credential =
       std::move(delegate().GetCompromisedCredentials().at(0));
   EXPECT_EQ(kUsername1, credential.username);
 
@@ -493,24 +598,24 @@ TEST_F(PasswordCheckDelegateTest,
   // plaintext password fails.
   credential.signon_realm = kUsername2;
   EXPECT_EQ(base::nullopt,
-            delegate().GetPlaintextCompromisedPassword(std::move(credential)));
+            delegate().GetPlaintextInsecurePassword(std::move(credential)));
 }
 
 TEST_F(PasswordCheckDelegateTest,
-       GetPlaintextCompromisedPasswordReturnsCorrectPassword) {
+       GetPlaintextInsecurePasswordReturnsCorrectPassword) {
   store().AddLogin(MakeSavedPassword(kExampleCom, kUsername1, kPassword1));
-  store().AddCompromisedCredentials(MakeCompromised(kExampleCom, kUsername1));
+  store().AddInsecureCredential(MakeCompromised(kExampleCom, kUsername1));
   RunUntilIdle();
 
-  CompromisedCredential credential =
+  InsecureCredential credential =
       std::move(delegate().GetCompromisedCredentials().at(0));
   EXPECT_EQ(0, credential.id);
   EXPECT_EQ(kExampleCom, credential.signon_realm);
   EXPECT_EQ(kUsername1, credential.username);
   EXPECT_EQ(nullptr, credential.password);
 
-  base::Optional<CompromisedCredential> opt_credential =
-      delegate().GetPlaintextCompromisedPassword(std::move(credential));
+  base::Optional<InsecureCredential> opt_credential =
+      delegate().GetPlaintextInsecurePassword(std::move(credential));
   ASSERT_TRUE(opt_credential.has_value());
   EXPECT_EQ(0, opt_credential->id);
   EXPECT_EQ(kExampleCom, opt_credential->signon_realm);
@@ -518,43 +623,43 @@ TEST_F(PasswordCheckDelegateTest,
   EXPECT_EQ(kPassword1, *opt_credential->password);
 }
 
-// Test that changing a compromised password fails if the ids don't match.
-TEST_F(PasswordCheckDelegateTest, ChangeCompromisedCredentialIdMismatch) {
+// Test that changing a insecure password fails if the ids don't match.
+TEST_F(PasswordCheckDelegateTest, ChangeInsecureCredentialIdMismatch) {
   store().AddLogin(MakeSavedPassword(kExampleCom, kUsername1));
-  store().AddCompromisedCredentials(MakeCompromised(kExampleCom, kUsername1));
+  store().AddInsecureCredential(MakeCompromised(kExampleCom, kUsername1));
   RunUntilIdle();
 
-  CompromisedCredential credential =
+  InsecureCredential credential =
       std::move(delegate().GetCompromisedCredentials().at(0));
   EXPECT_EQ(0, credential.id);
   credential.id = 1;
 
-  EXPECT_FALSE(delegate().ChangeCompromisedCredential(credential, "new_pass"));
+  EXPECT_FALSE(delegate().ChangeInsecureCredential(credential, "new_pass"));
 }
 
-// Test that changing a compromised password fails if the underlying compromised
+// Test that changing a insecure password fails if the underlying insecure
 // credential no longer exists.
-TEST_F(PasswordCheckDelegateTest, ChangeCompromisedCredentialStaleData) {
+TEST_F(PasswordCheckDelegateTest, ChangeInsecureCredentialStaleData) {
   store().AddLogin(MakeSavedPassword(kExampleCom, kUsername1));
-  store().AddCompromisedCredentials(MakeCompromised(kExampleCom, kUsername1));
+  store().AddInsecureCredential(MakeCompromised(kExampleCom, kUsername1));
   RunUntilIdle();
 
-  CompromisedCredential credential =
+  InsecureCredential credential =
       std::move(delegate().GetCompromisedCredentials().at(0));
 
   store().RemoveLogin(MakeSavedPassword(kExampleCom, kUsername1));
   RunUntilIdle();
 
-  EXPECT_FALSE(delegate().ChangeCompromisedCredential(credential, "new_pass"));
+  EXPECT_FALSE(delegate().ChangeInsecureCredential(credential, "new_pass"));
 }
 
-// Test that changing a compromised password succeeds.
-TEST_F(PasswordCheckDelegateTest, ChangeCompromisedCredentialSuccess) {
+// Test that changing a insecure password succeeds.
+TEST_F(PasswordCheckDelegateTest, ChangeInsecureCredentialSuccess) {
   store().AddLogin(MakeSavedPassword(kExampleCom, kUsername1, kPassword1));
-  store().AddCompromisedCredentials(MakeCompromised(kExampleCom, kUsername1));
+  store().AddInsecureCredential(MakeCompromised(kExampleCom, kUsername1));
   RunUntilIdle();
 
-  CompromisedCredential credential =
+  InsecureCredential credential =
       std::move(delegate().GetCompromisedCredentials().at(0));
   EXPECT_EQ(0, credential.id);
   EXPECT_EQ(kExampleCom, credential.signon_realm);
@@ -562,26 +667,26 @@ TEST_F(PasswordCheckDelegateTest, ChangeCompromisedCredentialSuccess) {
   EXPECT_EQ(base::UTF8ToUTF16(kPassword1),
             store().stored_passwords().at(kExampleCom).at(0).password_value);
 
-  EXPECT_TRUE(delegate().ChangeCompromisedCredential(credential, kPassword2));
+  EXPECT_TRUE(delegate().ChangeInsecureCredential(credential, kPassword2));
   RunUntilIdle();
 
   EXPECT_EQ(base::UTF8ToUTF16(kPassword2),
             store().stored_passwords().at(kExampleCom).at(0).password_value);
 }
 
-// Test that changing a compromised password removes duplicates from store.
-TEST_F(PasswordCheckDelegateTest, ChangeCompromisedCredentialRemovesDupes) {
+// Test that changing a insecure password removes duplicates from store.
+TEST_F(PasswordCheckDelegateTest, ChangeInsecureCredentialRemovesDupes) {
   store().AddLogin(MakeSavedPassword(kExampleCom, kUsername1, kPassword1));
   store().AddLogin(MakeSavedPassword(kExampleCom, kUsername1, kPassword1,
                                      "different_element"));
-  store().AddCompromisedCredentials(MakeCompromised(kExampleCom, kUsername1));
+  store().AddInsecureCredential(MakeCompromised(kExampleCom, kUsername1));
   RunUntilIdle();
 
   EXPECT_EQ(2u, store().stored_passwords().at(kExampleCom).size());
 
-  CompromisedCredential credential =
+  InsecureCredential credential =
       std::move(delegate().GetCompromisedCredentials().at(0));
-  EXPECT_TRUE(delegate().ChangeCompromisedCredential(credential, kPassword2));
+  EXPECT_TRUE(delegate().ChangeInsecureCredential(credential, kPassword2));
   RunUntilIdle();
 
   EXPECT_EQ(1u, store().stored_passwords().at(kExampleCom).size());
@@ -591,49 +696,49 @@ TEST_F(PasswordCheckDelegateTest, ChangeCompromisedCredentialRemovesDupes) {
           store().stored_passwords().at(kExampleCom).at(0).password_value));
 }
 
-// Test that removing a compromised password fails if the ids don't match.
-TEST_F(PasswordCheckDelegateTest, RemoveCompromisedCredentialIdMismatch) {
+// Test that removing a insecure password fails if the ids don't match.
+TEST_F(PasswordCheckDelegateTest, RemoveInsecureCredentialIdMismatch) {
   store().AddLogin(MakeSavedPassword(kExampleCom, kUsername1));
-  store().AddCompromisedCredentials(MakeCompromised(kExampleCom, kUsername1));
+  store().AddInsecureCredential(MakeCompromised(kExampleCom, kUsername1));
   RunUntilIdle();
 
-  CompromisedCredential credential =
+  InsecureCredential credential =
       std::move(delegate().GetCompromisedCredentials().at(0));
   EXPECT_EQ(0, credential.id);
   credential.id = 1;
 
-  EXPECT_FALSE(delegate().RemoveCompromisedCredential(credential));
+  EXPECT_FALSE(delegate().RemoveInsecureCredential(credential));
 }
 
-// Test that removing a compromised password fails if the underlying compromised
+// Test that removing a insecure password fails if the underlying insecure
 // credential no longer exists.
-TEST_F(PasswordCheckDelegateTest, RemoveCompromisedCredentialStaleData) {
+TEST_F(PasswordCheckDelegateTest, RemoveInsecureCredentialStaleData) {
   store().AddLogin(MakeSavedPassword(kExampleCom, kUsername1));
-  store().AddCompromisedCredentials(MakeCompromised(kExampleCom, kUsername1));
+  store().AddInsecureCredential(MakeCompromised(kExampleCom, kUsername1));
   RunUntilIdle();
 
-  CompromisedCredential credential =
+  InsecureCredential credential =
       std::move(delegate().GetCompromisedCredentials().at(0));
   store().RemoveLogin(MakeSavedPassword(kExampleCom, kUsername1));
   RunUntilIdle();
 
-  EXPECT_FALSE(delegate().RemoveCompromisedCredential(credential));
+  EXPECT_FALSE(delegate().RemoveInsecureCredential(credential));
 }
 
-// Test that removing a compromised password succeeds.
-TEST_F(PasswordCheckDelegateTest, RemoveCompromisedCredentialSuccess) {
+// Test that removing a insecure password succeeds.
+TEST_F(PasswordCheckDelegateTest, RemoveInsecureCredentialSuccess) {
   store().AddLogin(MakeSavedPassword(kExampleCom, kUsername1, kPassword1));
-  store().AddCompromisedCredentials(MakeCompromised(kExampleCom, kUsername1));
+  store().AddInsecureCredential(MakeCompromised(kExampleCom, kUsername1));
   RunUntilIdle();
 
-  CompromisedCredential credential =
+  InsecureCredential credential =
       std::move(delegate().GetCompromisedCredentials().at(0));
-  EXPECT_TRUE(delegate().RemoveCompromisedCredential(credential));
+  EXPECT_TRUE(delegate().RemoveInsecureCredential(credential));
   RunUntilIdle();
   EXPECT_TRUE(store().IsEmpty());
 
   // Expect another removal of the same credential to fail.
-  EXPECT_FALSE(delegate().RemoveCompromisedCredential(credential));
+  EXPECT_FALSE(delegate().RemoveInsecureCredential(credential));
 }
 
 // Tests that we don't create an entry in the database if there is no matching
@@ -651,7 +756,7 @@ TEST_F(PasswordCheckDelegateTest, OnLeakFoundDoesNotCreateCredential) {
       IsLeaked(true));
   RunUntilIdle();
 
-  EXPECT_THAT(store().compromised_credentials(), IsEmpty());
+  EXPECT_THAT(store().insecure_credentials(), IsEmpty());
 }
 
 // Test that we don't create an entry in the password store if IsLeaked is
@@ -666,7 +771,7 @@ TEST_F(PasswordCheckDelegateTest, NoLeakedFound) {
       IsLeaked(false));
   RunUntilIdle();
 
-  EXPECT_THAT(store().compromised_credentials(), IsEmpty());
+  EXPECT_THAT(store().insecure_credentials(), IsEmpty());
 }
 
 // Test that a found leak creates a compromised credential in the password
@@ -683,13 +788,10 @@ TEST_F(PasswordCheckDelegateTest, OnLeakFoundCreatesCredential) {
       IsLeaked(true));
   RunUntilIdle();
 
-  EXPECT_THAT(store().compromised_credentials(),
-              ElementsAre(CompromisedCredentials{
-                  .signon_realm = kExampleCom,
-                  .username = base::ASCIIToUTF16(kUsername1),
-                  .create_time = base::Time::Now(),
-                  .compromise_type = CompromiseType::kLeaked,
-              }));
+  EXPECT_THAT(store().insecure_credentials(),
+              ElementsAre(CompromisedCredentials(
+                  kExampleCom, base::ASCIIToUTF16(kUsername1),
+                  base::Time::Now(), InsecureType::kLeaked, IsMuted(false))));
 }
 
 // Test that a found leak creates a compromised credential in the password
@@ -716,32 +818,21 @@ TEST_F(PasswordCheckDelegateTest, OnLeakFoundCreatesMultipleCredential) {
       IsLeaked(true));
   RunUntilIdle();
 
-  EXPECT_THAT(store().compromised_credentials(),
-              UnorderedElementsAre(
-                  CompromisedCredentials{
-                      .signon_realm = kExampleCom,
-                      .username = base::ASCIIToUTF16(kUsername1),
-                      .create_time = base::Time::Now(),
-                      .compromise_type = CompromiseType::kLeaked,
-                  },
-                  CompromisedCredentials{
-                      .signon_realm = kExampleOrg,
-                      .username = base::ASCIIToUTF16(kUsername1),
-                      .create_time = base::Time::Now(),
-                      .compromise_type = CompromiseType::kLeaked,
-                  },
-                  CompromisedCredentials{
-                      .signon_realm = kExampleCom,
-                      .username = base::ASCIIToUTF16(kUsername2Upper),
-                      .create_time = base::Time::Now(),
-                      .compromise_type = CompromiseType::kLeaked,
-                  },
-                  CompromisedCredentials{
-                      .signon_realm = kExampleOrg,
-                      .username = base::ASCIIToUTF16(kUsername2Email),
-                      .create_time = base::Time::Now(),
-                      .compromise_type = CompromiseType::kLeaked,
-                  }));
+  EXPECT_THAT(
+      store().insecure_credentials(),
+      UnorderedElementsAre(
+          CompromisedCredentials(kExampleCom, base::ASCIIToUTF16(kUsername1),
+                                 base::Time::Now(), InsecureType::kLeaked,
+                                 IsMuted(false)),
+          CompromisedCredentials(kExampleOrg, base::ASCIIToUTF16(kUsername1),
+                                 base::Time::Now(), InsecureType::kLeaked,
+                                 IsMuted(false)),
+          CompromisedCredentials(
+              kExampleCom, base::ASCIIToUTF16(kUsername2Upper),
+              base::Time::Now(), InsecureType::kLeaked, IsMuted(false)),
+          CompromisedCredentials(
+              kExampleOrg, base::ASCIIToUTF16(kUsername2Email),
+              base::Time::Now(), InsecureType::kLeaked, IsMuted(false))));
 }
 
 // Verifies that the case where the user has no saved passwords is reported
@@ -999,10 +1090,47 @@ TEST_F(PasswordCheckDelegateTest,
 
   // Use a local delegate instead of |delegate()| so that the Password Store can
   // be set-up prior to constructing the object.
-  PasswordCheckDelegate delegate(&profile());
+  SavedPasswordsPresenter new_presenter(&store());
+  PasswordCheckDelegate delegate(&profile(), &new_presenter);
+  new_presenter.Init();
   delegate.StartPasswordCheck(callback1.Get());
   delegate.StartPasswordCheck(callback2.Get());
   RunUntilIdle();
+}
+
+TEST_F(PasswordCheckDelegateTest, WellKnownChangePasswordUrl) {
+  store().AddLogin(MakeSavedPassword(kExampleCom, kUsername1));
+  store().AddInsecureCredential(MakeCompromised(kExampleCom, kUsername1,
+                                                base::TimeDelta::FromMinutes(1),
+                                                InsecureType::kLeaked));
+
+  RunUntilIdle();
+  GURL change_password_url(
+      *delegate().GetCompromisedCredentials().at(0).change_password_url);
+  EXPECT_EQ(change_password_url.path(),
+            password_manager::kWellKnownChangePasswordPath);
+}
+
+TEST_F(PasswordCheckDelegateTest, WellKnownChangePasswordUrl_androidrealm) {
+  store().AddLogin(
+      MakeSavedAndroidPassword(kExampleApp, kUsername1, "", kExampleCom));
+  store().AddInsecureCredential(
+      MakeCompromised(MakeAndroidRealm(kExampleApp), kUsername1,
+                      base::TimeDelta::FromDays(3), InsecureType::kPhished));
+
+  store().AddLogin(MakeSavedAndroidPassword(kExampleApp, kUsername2,
+                                            "Example App", kExampleCom));
+  store().AddInsecureCredential(
+      MakeCompromised(MakeAndroidRealm(kExampleApp), kUsername2,
+                      base::TimeDelta::FromDays(3), InsecureType::kPhished));
+
+  RunUntilIdle();
+  EXPECT_EQ(delegate().GetCompromisedCredentials().at(0).change_password_url,
+            nullptr);
+  EXPECT_EQ(
+      GURL(*delegate().GetCompromisedCredentials().at(1).change_password_url)
+          .path(),
+      password_manager::kWellKnownChangePasswordPath);
 }
 
 }  // namespace extensions

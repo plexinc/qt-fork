@@ -85,16 +85,16 @@ public:
     explicit QWindowsComBase(ULONG initialRefCount = 1) : m_ref(initialRefCount) {}
     virtual ~QWindowsComBase() = default;
 
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, LPVOID *iface)
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, LPVOID *iface) override
     {
         *iface = nullptr;
         return qWindowsComQueryInterface<IUnknown>(this, id, iface) || qWindowsComQueryInterface<ComInterface>(this, id, iface)
             ? S_OK : E_NOINTERFACE;
     }
 
-    ULONG STDMETHODCALLTYPE AddRef() { return ++m_ref; }
+    ULONG STDMETHODCALLTYPE AddRef() override { return ++m_ref; }
 
-    ULONG STDMETHODCALLTYPE Release()
+    ULONG STDMETHODCALLTYPE Release() override
     {
         if (!--m_ref) {
             delete this;
@@ -109,6 +109,7 @@ private:
 
 // Clang does not consider __declspec(nothrow) as nothrow
 QT_WARNING_DISABLE_CLANG("-Wmicrosoft-exception-spec")
+QT_WARNING_DISABLE_CLANG("-Wmissing-exception-spec")
 
 QT_END_NAMESPACE
 

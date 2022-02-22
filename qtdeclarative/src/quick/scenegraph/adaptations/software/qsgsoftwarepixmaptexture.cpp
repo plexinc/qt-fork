@@ -43,7 +43,6 @@
 QT_BEGIN_NAMESPACE
 
 QSGSoftwarePixmapTexture::QSGSoftwarePixmapTexture(const QImage &image, uint flags)
-    : QSGTexture(*(new QSGSoftwarePixmapTexturePrivate))
 {
     // Prevent pixmap format conversion to reduce memory consumption
     // and surprises in calling code. (See QTBUG-47328)
@@ -57,14 +56,8 @@ QSGSoftwarePixmapTexture::QSGSoftwarePixmapTexture(const QImage &image, uint fla
 }
 
 QSGSoftwarePixmapTexture::QSGSoftwarePixmapTexture(const QPixmap &pixmap)
-    : QSGTexture(*(new QSGSoftwarePixmapTexturePrivate)),
-      m_pixmap(pixmap)
+    : m_pixmap(pixmap)
 {
-}
-
-int QSGSoftwarePixmapTexture::textureId() const
-{
-    return 0;
 }
 
 QSize QSGSoftwarePixmapTexture::textureSize() const
@@ -82,12 +75,7 @@ bool QSGSoftwarePixmapTexture::hasMipmaps() const
     return false;
 }
 
-void QSGSoftwarePixmapTexture::bind()
-{
-    Q_UNREACHABLE();
-}
-
-int QSGSoftwarePixmapTexturePrivate::comparisonKey() const
+qint64 QSGSoftwarePixmapTexture::comparisonKey() const
 {
     return 0;
 }

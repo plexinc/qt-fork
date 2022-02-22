@@ -74,7 +74,8 @@ bool TinyCanBackend::canCreate(QString *errorReason)
 QList<QCanBusDeviceInfo> TinyCanBackend::interfaces()
 {
     QList<QCanBusDeviceInfo> result;
-    result.append(createDeviceInfo(QStringLiteral("can0.0")));
+    result.append(createDeviceInfo(QStringLiteral("tinycan"), QStringLiteral("can0.0"),
+                                   false, false));
     return result;
 }
 
@@ -232,7 +233,8 @@ void TinyCanBackendPrivate::close()
     isOpen = false;
 }
 
-bool TinyCanBackendPrivate::setConfigurationParameter(int key, const QVariant &value)
+bool TinyCanBackendPrivate::setConfigurationParameter(QCanBusDevice::ConfigurationKey key,
+                                                      const QVariant &value)
 {
     Q_Q(TinyCanBackend);
 
@@ -351,21 +353,22 @@ void TinyCanBackendPrivate::startWrite()
 
     const QCanBusFrame frame = q->dequeueOutgoingFrame();
     const QByteArray payload = frame.payload();
+    const qsizetype payloadSize = payload.size();
 
     TCanMsg message = {};
 
-    if (Q_UNLIKELY(payload.size() > int(sizeof(message.Data.Bytes)))) {
-        qCWarning(QT_CANBUS_PLUGINS_TINYCAN, "Cannot write frame with payload size %d.", payload.size());
+    if (Q_UNLIKELY(payloadSize > qsizetype(sizeof(message.Data.Bytes)))) {
+        qCWarning(QT_CANBUS_PLUGINS_TINYCAN, "Cannot write frame with payload size %d.", int(payloadSize));
     } else {
         message.Id = frame.frameId();
-        message.Flags.Flag.Len = payload.size();
+        message.Flags.Flag.Len = payloadSize;
         message.Flags.Flag.Error = (frame.frameType() == QCanBusFrame::ErrorFrame);
         message.Flags.Flag.RTR = (frame.frameType() == QCanBusFrame::RemoteRequestFrame);
         message.Flags.Flag.TxD = 1;
         message.Flags.Flag.EFF = frame.hasExtendedFrameFormat();
 
         const qint32 messagesToWrite = 1;
-        ::memcpy(message.Data.Bytes, payload.constData(), sizeof(message.Data.Bytes));
+        ::memcpy(message.Data.Bytes, payload.constData(), payloadSize);
         const int ret = ::CanTransmit(channelIndex, &message, messagesToWrite);
         if (Q_UNLIKELY(ret < 0))
             q->setError(systemErrorString(ret), QCanBusDevice::CanBusError::WriteError);
@@ -382,7 +385,7 @@ void TinyCanBackendPrivate::startRead()
 {
     Q_Q(TinyCanBackend);
 
-    QVector<QCanBusFrame> newFrames;
+    QList<QCanBusFrame> newFrames;
 
     for (;;) {
         if (!::CanReceiveGetCount(channelIndex))
@@ -506,9 +509,6 @@ TinyCanBackend::TinyCanBackend(const QString &name, QObject *parent)
 
     d->setupChannel(name);
     d->setupDefaultConfigurations();
-
-    std::function<void()> f = std::bind(&TinyCanBackend::resetController, this);
-    setResetControllerFunction(f);
 }
 
 TinyCanBackend::~TinyCanBackend()
@@ -529,7 +529,7 @@ bool TinyCanBackend::open()
 
         // apply all stored configurations
         const auto keys = configurationKeys();
-        for (int key : keys) {
+        for (ConfigurationKey key : keys) {
             const QVariant param = configurationParameter(key);
             const bool success = d->setConfigurationParameter(key, param);
             if (Q_UNLIKELY(!success)) {
@@ -552,7 +552,7 @@ void TinyCanBackend::close()
     setState(QCanBusDevice::UnconnectedState);
 }
 
-void TinyCanBackend::setConfigurationParameter(int key, const QVariant &value)
+void TinyCanBackend::setConfigurationParameter(ConfigurationKey key, const QVariant &value)
 {
     Q_D(TinyCanBackend);
 
@@ -606,6 +606,11 @@ void TinyCanBackend::resetController()
 {
     Q_D(TinyCanBackend);
     d->resetController();
+}
+
+QCanBusDeviceInfo TinyCanBackend::deviceInfo() const
+{
+    return createDeviceInfo(QStringLiteral("tinycan"), QStringLiteral("can0.0"), false, false);
 }
 
 QT_END_NAMESPACE

@@ -2,16 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/test_tools/crypto_test_utils.h"
+#include "quic/test_tools/crypto_test_utils.h"
 
 #include <utility>
 
-#include "net/third_party/quiche/src/quic/core/proto/crypto_server_config_proto.h"
-#include "net/third_party/quiche/src/quic/core/quic_utils.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/test_tools/mock_clock.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_text_utils.h"
+#include "absl/strings/escaping.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/proto/crypto_server_config_proto.h"
+#include "quic/core/quic_utils.h"
+#include "quic/platform/api/quic_test.h"
+#include "quic/test_tools/mock_clock.h"
+#include "common/platform/api/quiche_text_utils.h"
 
 namespace quic {
 namespace test {
@@ -134,17 +135,17 @@ TEST_F(CryptoTestUtilsTest, TestGenerateFullCHLO) {
   primary_config.set_primary_time(clock.WallNow().ToUNIXSeconds());
   std::unique_ptr<CryptoHandshakeMessage> msg =
       crypto_config.AddConfig(primary_config, clock.WallNow());
-  quiche::QuicheStringPiece orbit;
+  absl::string_view orbit;
   ASSERT_TRUE(msg->GetStringPiece(kORBT, &orbit));
   std::string nonce;
   CryptoUtils::GenerateNonce(clock.WallNow(), QuicRandom::GetInstance(), orbit,
                              &nonce);
-  std::string nonce_hex = "#" + quiche::QuicheTextUtils::HexEncode(nonce);
+  std::string nonce_hex = "#" + absl::BytesToHexString(nonce);
 
   char public_value[32];
   memset(public_value, 42, sizeof(public_value));
-  std::string pub_hex = "#" + quiche::QuicheTextUtils::HexEncode(
-                                  public_value, sizeof(public_value));
+  std::string pub_hex = "#" + absl::BytesToHexString(absl::string_view(
+                                  public_value, sizeof(public_value)));
 
   // The methods below use a PROTOCOL_QUIC_CRYPTO version so we pick the
   // first one from the list of supported versions.
@@ -164,8 +165,9 @@ TEST_F(CryptoTestUtilsTest, TestGenerateFullCHLO) {
        {"COPT", "SREJ"},
        {"PUBS", pub_hex},
        {"NONC", nonce_hex},
-       {"VER\0", QuicVersionLabelToString(
-                     QuicVersionToQuicVersionLabel(transport_version))}},
+       {"VER\0",
+        QuicVersionLabelToString(CreateQuicVersionLabel(
+            ParsedQuicVersion(PROTOCOL_QUIC_CRYPTO, transport_version)))}},
       kClientHelloMinimumSize);
 
   crypto_test_utils::GenerateFullCHLO(inchoate_chlo, &crypto_config,
@@ -178,7 +180,7 @@ TEST_F(CryptoTestUtilsTest, TestGenerateFullCHLO) {
       &compressed_certs_cache,
       ParsedQuicVersion(PROTOCOL_QUIC_CRYPTO, transport_version));
   crypto_config.ValidateClientHello(
-      full_chlo, client_addr.host(), server_addr, transport_version, &clock,
+      full_chlo, client_addr, server_addr, transport_version, &clock,
       signed_config, shlo_verifier.GetValidateClientHelloCallback());
 }
 

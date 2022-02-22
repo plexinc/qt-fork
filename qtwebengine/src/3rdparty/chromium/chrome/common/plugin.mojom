@@ -23,11 +23,9 @@ interface PluginHost {
   BlockedOutdatedPlugin(pending_remote<PluginRenderer> plugin_renderer,
                         string group_id);
 
-  // Notifies when a plugin couldn't be loaded because it requires a
-  // component update.
-  BlockedComponentUpdatedPlugin(pending_remote<PluginRenderer> plugin_renderer,
-                                string group_id);
-
+  // Tells the browser to open a PDF file. Used when no PDF Viewer is
+  // available, and the user clicks to view a PDF from the placeholder UI.
+  OpenPDF(url.mojom.Url url);
 };
 
 // Plugin messages sent from renderer to the host requiring user auth actions.
@@ -46,7 +44,6 @@ enum PluginStatus {
   kBlockedByPolicy,
   // Plugin is blocked, and cannot be manually loaded via context menu.
   kBlockedNoLoading,
-  kComponentUpdateRequired,
   kDisabled,
   // Flash is blocked, but user can click on the placeholder to trigger the
   // Flash permission prompt.
@@ -54,8 +51,10 @@ enum PluginStatus {
   kNotFound,
   kOutdatedBlocked,
   kOutdatedDisallowed,
+  // Similar to kOutdatedBlocked or kOutdatedDisallowed, but with no hope of
+  // updating and running. This is distinct to allow for separate UI treatment.
+  kDeprecated,
   kPlayImportantContent,
-  kRestartRequired,
   kUnauthorized,
 };
 

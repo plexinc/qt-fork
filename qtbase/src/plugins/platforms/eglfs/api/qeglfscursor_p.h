@@ -54,12 +54,12 @@
 #include "qeglfsglobal_p.h"
 #include <qpa/qplatformcursor.h>
 #include <qpa/qplatformscreen.h>
+#include <QtOpenGL/QOpenGLShaderProgram>
 #include <QtGui/QMatrix4x4>
 #include <QtGui/QOpenGLFunctions>
-#include <QtGui/QOpenGLShaderProgram>
 #include <QtGui/private/qinputdevicemanager_p.h>
 
-#include <QtCore/qvector.h>
+#include <QtCore/qlist.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -145,7 +145,7 @@ private:
         int cursorsPerRow;
         int width, height; // width and height of the atlas
         int cursorWidth, cursorHeight; // width and height of cursors inside the atlas
-        QVector<QPoint> hotSpots;
+        QList<QPoint> hotSpots;
         QImage image; // valid until it's uploaded
     } m_cursorAtlas;
 

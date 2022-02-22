@@ -10,7 +10,9 @@
 #include "base/macros.h"
 #include "base/optional.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_streamer.h"
+#include "third_party/blink/renderer/core/animation/compositor_animations.h"
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/core_probe_sink.h"
 #include "third_party/blink/renderer/core/css/css_selector.h"
 #include "third_party/blink/renderer/core/loader/frame_loader_types.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
@@ -62,6 +64,7 @@ class LocalFrameView;
 class Node;
 struct PhysicalRect;
 class QualifiedName;
+enum class RenderBlockingBehavior : uint8_t;
 class Resource;
 class ResourceError;
 class ResourceRequest;
@@ -89,7 +92,8 @@ class CORE_EXPORT InspectorTraceEvents
                        const ResourceRequest&,
                        const ResourceResponse& redirect_response,
                        const FetchInitiatorInfo&,
-                       ResourceType);
+                       ResourceType,
+                       RenderBlockingBehavior);
   void WillSendNavigationRequest(uint64_t identifier,
                                  DocumentLoader*,
                                  const KURL&,
@@ -109,9 +113,12 @@ class CORE_EXPORT InspectorTraceEvents
                         int64_t encoded_data_length,
                         int64_t decoded_body_length,
                         bool should_report_corb_blocking);
-  void DidFailLoading(uint64_t identifier,
-                      DocumentLoader*,
-                      const ResourceError&);
+  void DidFailLoading(
+      CoreProbeSink* sink,
+      uint64_t identifier,
+      DocumentLoader*,
+      const ResourceError&,
+      const base::UnguessableToken& devtools_frame_or_worker_token);
   void MarkResourceAsCached(DocumentLoader* loader, uint64_t identifier);
 
   void Will(const probe::ExecuteScript&);
@@ -127,11 +134,18 @@ class CORE_EXPORT InspectorTraceEvents
 
   void FrameStartedLoading(LocalFrame*);
 
-  void Trace(Visitor*) {}
+  void Trace(Visitor*) const {}
 
  private:
   DISALLOW_COPY_AND_ASSIGN(InspectorTraceEvents);
 };
+
+#define DEVTOOLS_TIMELINE_TRACE_EVENT_INSTANT(event_name, function_name, ...) \
+  TRACE_EVENT_INSTANT1("devtools.timeline", event_name,                       \
+                       TRACE_EVENT_SCOPE_THREAD, "data",                      \
+                       [&](perfetto::TracedValue ctx) {                       \
+                         function_name(std::move(ctx), __VA_ARGS__);          \
+                       })
 
 namespace inspector_layout_event {
 std::unique_ptr<TracedValue> BeginData(LocalFrameView*);
@@ -233,6 +247,7 @@ extern const char kFullscreen[];
 extern const char kChildChanged[];
 extern const char kListValueChange[];
 extern const char kListStyleTypeChange[];
+extern const char kCounterStyleChange[];
 extern const char kImageChanged[];
 extern const char kLineBoxesChanged[];
 extern const char kSliderValueChanged[];
@@ -254,6 +269,7 @@ extern const char kTextControlChanged[];
 extern const char kSvgChanged[];
 extern const char kScrollbarChanged[];
 extern const char kDisplayLock[];
+extern CORE_EXPORT const char kCanvasFormattedTextRunChange[];
 }  // namespace layout_invalidation_reason
 
 // LayoutInvalidationReasonForTracing is strictly for tracing. Blink logic must
@@ -272,10 +288,12 @@ std::unique_ptr<TracedValue> Data(DocumentLoader*,
 }
 
 namespace inspector_send_request_event {
-std::unique_ptr<TracedValue> Data(DocumentLoader*,
-                                  uint64_t identifier,
-                                  LocalFrame*,
-                                  const ResourceRequest&);
+void Data(perfetto::TracedValue context,
+          DocumentLoader*,
+          uint64_t identifier,
+          LocalFrame*,
+          const ResourceRequest&,
+          RenderBlockingBehavior);
 }
 
 namespace inspector_send_navigation_request_event {
@@ -480,6 +498,12 @@ std::unique_ptr<TracedValue> Data(const Animation&);
 
 namespace inspector_animation_state_event {
 std::unique_ptr<TracedValue> Data(const Animation&);
+}
+
+namespace inspector_animation_compositor_event {
+std::unique_ptr<TracedValue> Data(
+    blink::CompositorAnimations::FailureReasons failure_reasons,
+    const blink::PropertyHandleSet& unsupported_properties);
 }
 
 namespace inspector_hit_test_event {

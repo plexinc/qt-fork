@@ -43,6 +43,8 @@
 
 #include <QtCore/QList>
 #include <qpa/qplatformmenu.h>
+#include <qpa/qplatformmenu_p.h>
+
 #include "qcocoamenuitem.h"
 #include "qcocoansmenu.h"
 
@@ -51,6 +53,7 @@ QT_BEGIN_NAMESPACE
 class QCocoaMenuBar;
 
 class QCocoaMenu : public QPlatformMenu, public QCocoaMenuObject
+                 , public QNativeInterface::Private::QCocoaMenu
 {
 public:
     QCocoaMenu();
@@ -69,13 +72,14 @@ public:
 
     void propagateEnabledState(bool enabled);
 
-    void setIcon(const QIcon &icon) override { Q_UNUSED(icon) }
+    void setIcon(const QIcon &) override {}
 
     void setText(const QString &text) override;
     void setMinimumWidth(int width) override;
     void setFont(const QFont &font) override;
 
-    NSMenu *nsMenu() const;
+    NSMenu *nsMenu() const override;
+    void setAsDockMenu() const override;
 
     inline bool isVisible() const { return m_visible; }
 

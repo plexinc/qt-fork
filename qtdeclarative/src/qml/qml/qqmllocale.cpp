@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
@@ -314,7 +314,7 @@ ReturnedValue QQmlDateExtension::method_fromLocaleDateString(const QV4::Function
             QLocale locale;
             QString dateString = s->toQString();
             QDate date = locale.toDate(dateString);
-            RETURN_RESULT(engine->newDateObject(date.startOfDay()));
+            RETURN_RESULT(engine->newDateObject(date.startOfDay(Qt::UTC)));
         }
     }
 
@@ -341,7 +341,7 @@ ReturnedValue QQmlDateExtension::method_fromLocaleDateString(const QV4::Function
         dt = r->d()->locale->toDate(dateString, enumFormat);
     }
 
-    RETURN_RESULT(engine->newDateObject(dt.startOfDay()));
+    RETURN_RESULT(engine->newDateObject(dt.startOfDay(Qt::UTC)));
 }
 
 ReturnedValue QQmlDateExtension::method_timeZoneUpdated(const QV4::FunctionObject *b, const QV4::Value *, const QV4::Value *, int argc)
@@ -493,6 +493,41 @@ ReturnedValue QQmlLocaleData::method_set_numberOptions(const QV4::FunctionObject
     int const numberOptions = argc ? int(argv[0].toNumber()) : QLocale::DefaultNumberOptions;
     locale->setNumberOptions(QLocale::NumberOptions {numberOptions});
     return Encode::undefined();
+}
+
+ReturnedValue QQmlLocaleData::method_get_formattedDataSize(const QV4::FunctionObject *b, const QV4::Value *thisObject, const QV4::Value *argv, int argc)
+{
+    QV4::Scope scope(b);
+    const QLocale *locale = getThisLocale(scope, thisObject);
+    if (!locale)
+        return Encode::undefined();
+
+    if (argc < 1 || argc > 3) {
+        THROW_ERROR(QString::fromLatin1(
+            "Locale: formattedDataSize(): Expected 1-3 arguments, but received %1").arg(argc).toLatin1());
+    }
+
+    const qint64 bytes = static_cast<qint64>(argv[0].toInteger());
+    if (argc == 1)
+        RETURN_RESULT(scope.engine->newString(locale->formattedDataSize(bytes)));
+
+    int precision = 0;
+    if (argc >= 2) {
+        if (!argv[1].isInteger())
+            THROW_ERROR("Locale: formattedDataSize(): Invalid argument ('precision' must be an int)");
+
+        precision = argv[1].toInt32();
+        if (argc == 2)
+            RETURN_RESULT(scope.engine->newString(locale->formattedDataSize(bytes, precision)));
+    }
+
+    // argc >= 3
+    if (!argv[2].isNumber())
+        THROW_ERROR("Locale: formattedDataSize(): Invalid argument ('format' must be DataSizeFormat)");
+
+    const quint32 intFormat = argv[2].toUInt32();
+    const auto format = QLocale::DataSizeFormats(intFormat);
+    RETURN_RESULT(scope.engine->newString(locale->formattedDataSize(bytes, precision, format)));
 }
 
 ReturnedValue QQmlLocaleData::method_get_measurementSystem(const QV4::FunctionObject *b, const QV4::Value *thisObject, const QV4::Value *, int)
@@ -701,6 +736,7 @@ QV4LocaleDataDeletable::QV4LocaleDataDeletable(QV4::ExecutionEngine *engine)
     o->defineDefaultProperty(QStringLiteral("monthName"), QQmlLocaleData::method_monthName, 0);
     o->defineDefaultProperty(QStringLiteral("currencySymbol"), QQmlLocaleData::method_currencySymbol, 0);
     o->defineDefaultProperty(QStringLiteral("dateTimeFormat"), QQmlLocaleData::method_dateTimeFormat, 0);
+    o->defineDefaultProperty(QStringLiteral("formattedDataSize"), QQmlLocaleData::method_get_formattedDataSize, 0);
     o->defineAccessorProperty(QStringLiteral("name"), QQmlLocaleData::method_get_name, nullptr);
     o->defineAccessorProperty(QStringLiteral("positiveSign"), QQmlLocaleData::method_get_positiveSign, nullptr);
     o->defineAccessorProperty(QStringLiteral("uiLanguages"), QQmlLocaleData::method_get_uiLanguages, nullptr);
@@ -731,7 +767,7 @@ V4_DEFINE_EXTENSION(QV4LocaleDataDeletable, localeV4Data);
 
 /*!
     \qmltype Locale
-    \instantiates QQmlLocale
+    //! \instantiates QQmlLocale
     \inqmlmodule QtQml
     \brief Provides locale specific properties and formatted data.
 
@@ -823,19 +859,11 @@ V4_DEFINE_EXTENSION(QV4LocaleDataDeletable, localeV4Data);
     \sa Date, Number
 */
 
-QQmlLocale::QQmlLocale()
-{
-}
-
-QQmlLocale::~QQmlLocale()
-{
-}
-
 QV4::ReturnedValue QQmlLocale::locale(ExecutionEngine *engine, const QString &localeName)
 {
     QLocale qlocale;
     if (!localeName.isEmpty())
-        qlocale = localeName;
+        qlocale = QLocale(localeName);
     return wrap(engine, qlocale);
 }
 
@@ -891,7 +919,7 @@ ReturnedValue QQmlLocale::method_localeCompare(const QV4::FunctionObject *b, con
 */
 
 /*!
-    \qmlproperty enumeration QtQml::Locale::NumberOption
+    \qmlproperty enumeration QtQml::Locale::numberOptions
 
     Holds a set of options for number-to-string and
     string-to-number conversions.
@@ -956,6 +984,20 @@ ReturnedValue QQmlLocale::method_localeCompare(const QV4::FunctionObject *b, con
     \a type specifies the FormatType to return.
 
     \sa Date
+*/
+
+/*!
+    \qmlmethod string QtQml::Locale::formattedDataSize(int bytes, int precision, DataSizeFormat format)
+    \since 6.2
+
+    Converts a size in \a bytes to a human-readable localized string, comprising a
+    number and a quantified unit.
+
+    The \a precision and \a format arguments are optional.
+
+    For more information, see \l QLocale::formattedDataSize().
+
+    \sa QLocale::DataSizeFormats
 */
 
 /*!

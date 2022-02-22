@@ -28,7 +28,7 @@
 
 #include <QApplication>
 #include <QtWidgets>
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QtCore/qcoreapplication.h>
 
 #include "tst_qaccessibilitymac_helpers.h"
@@ -143,7 +143,7 @@ void tst_QAccessibilityMac::checkBoxTest()
     QVERIFY(QTest::qWaitForWindowExposed(m_window));
     QCoreApplication::processEvents();
 
-    QVERIFY(testCheckBox());
+    QVERIFY(testCheckBox(cb));
 }
 
 QTEST_MAIN(tst_QAccessibilityMac)

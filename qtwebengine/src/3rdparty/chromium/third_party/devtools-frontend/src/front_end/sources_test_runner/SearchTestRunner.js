@@ -4,8 +4,8 @@
 
 /**
  * @fileoverview using private properties isn't a Closure violation in tests.
- * @suppress {accessControls}
  */
+self.SourcesTestRunner = self.SourcesTestRunner || {};
 
 SourcesTestRunner.dumpSearchResults = function(searchResults) {
   function comparator(a, b) {
@@ -45,7 +45,9 @@ SourcesTestRunner.runSearchAndDumpResults = function(scope, searchConfig, callba
 
   function searchFinishedCallback() {
     function comparator(searchResultA, searchResultB) {
-      return searchResultA._uiSourceCode.url().compareTo(searchResultB._uiSourceCode.url());
+      const aUrl = searchResultA._uiSourceCode.url();
+      const bUrl = searchResultB._uiSourceCode.url();
+      return aUrl > bUrl ? 1 : bUrl > aUrl ? -1 : 0;
     }
 
     searchResults.sort(comparator);
@@ -92,7 +94,7 @@ SourcesTestRunner.replaceAndDumpChange = function(sourceFrame, searchConfig, rep
   const modifiersString = (modifiers.length ? ' (' + modifiers.join(', ') + ')' : '');
   TestRunner.addResult(
       'Running replace test for /' + searchConfig.query + '/' + replacement + '/ ' + modifiersString + ':');
-  editor = sourceFrame._textEditor;
+  const editor = sourceFrame._textEditor;
   const oldLines = [];
 
   for (let i = 0; i < editor.linesCount; ++i) {

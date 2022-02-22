@@ -61,7 +61,7 @@
 
 QT_BEGIN_NAMESPACE
 
-class QQuickAnimatorController : public QObject, public QAnimationJobChangeListener
+class Q_AUTOTEST_EXPORT QQuickAnimatorController : public QObject, public QAnimationJobChangeListener
 {
     Q_OBJECT
 
@@ -86,17 +86,16 @@ public:
     void lock() { m_mutex.lock(); }
     void unlock() { m_mutex.unlock(); }
 
-    void proxyWasDestroyed(QQuickAnimatorProxyJob *proxy);
-    void stopProxyJobs();
     void windowNodesDestroyed();
 
     QQuickWindow *window() const { return m_window; }
 
 private:
+    friend class tst_Animators;
+
     void start_helper(QAbstractAnimationJob *job);
     void cancel_helper(QAbstractAnimationJob *job);
 
-public:
     QSet<QQuickAnimatorJob * > m_runningAnimators;
     QHash<QAbstractAnimationJob *, QSharedPointer<QAbstractAnimationJob> > m_animationRoots;
     QSet<QSharedPointer<QAbstractAnimationJob> > m_rootsPendingStop;

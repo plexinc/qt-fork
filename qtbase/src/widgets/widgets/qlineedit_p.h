@@ -95,6 +95,11 @@ public:
 
     bool shouldHideWithText() const;
     void setHideWithText(bool hide);
+    bool needsSpace() const {
+        if (m_fadingOut)
+            return false;
+        return isVisibleTo(parentWidget());
+    }
 #endif
 
 protected:
@@ -118,7 +123,7 @@ private:
 
 #if QT_CONFIG(animation)
     bool m_hideWithText = false;
-    bool m_wasHidden = false;
+    bool m_fadingOut = false;
 #endif
 
 };
@@ -179,13 +184,19 @@ public:
     void setCursorVisible(bool visible);
     void setText(const QString& text);
 
+    QString textBeforeCursor(int curPos) const;
+    QString textAfterCursor(int curPos) const;
     void updatePasswordEchoEditing(bool);
 
     void resetInputMethod();
 
     inline bool shouldEnableInputMethod() const
     {
+#if defined (Q_OS_ANDROID)
+        return !control->isReadOnly() || control->isSelectableByMouse();
+#else
         return !control->isReadOnly();
+#endif
     }
     inline bool shouldShowPlaceholderText() const
     {
@@ -233,13 +244,16 @@ public:
 #endif
     void _q_textChanged(const QString &);
     void _q_clearButtonClicked();
+    void _q_controlEditingFinished();
 
     QMargins textMargins; // use effectiveTextMargins() in case of icon.
 
     QString placeholderText;
 
+#if QT_CONFIG(action)
     QWidget *addAction(QAction *newAction, QAction *before, QLineEdit::ActionPosition, int flags = 0);
     void removeAction(QAction *action);
+#endif
     SideWidgetParameters sideWidgetParameters() const;
     QIcon clearButtonIcon() const;
     void setClearButtonEnabled(bool enabled);
@@ -261,7 +275,9 @@ private:
     };
     friend class QTypeInfo<SideWidgetLocation>;
 
+#if QT_CONFIG(action)
     SideWidgetLocation findSideWidget(const QAction *a) const;
+#endif
 
     SideWidgetEntryList leadingSideWidgets;
     SideWidgetEntryList trailingSideWidgets;

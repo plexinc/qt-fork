@@ -144,7 +144,7 @@ QT_BEGIN_NAMESPACE
 */
 QTextLength::operator QVariant() const
 {
-    return QVariant(QMetaType::QTextLength, this);
+    return QVariant::fromValue(*this);
 }
 
 #ifndef QT_NO_DATASTREAM
@@ -177,14 +177,14 @@ struct Property
     { return key == other.key && value == other.value; }
 };
 }
-Q_DECLARE_TYPEINFO(Property, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(Property, Q_RELOCATABLE_TYPE);
 
 class QTextFormatPrivate : public QSharedData
 {
 public:
     QTextFormatPrivate() : hashDirty(true), fontDirty(true), hashValue(0) {}
 
-    inline uint hash() const
+    inline size_t hash() const
     {
         if (!hashDirty)
             return hashValue;
@@ -201,10 +201,9 @@ public:
     inline void insertProperty(qint32 key, const QVariant &value)
     {
         hashDirty = true;
-        if ((key >= QTextFormat::FirstFontProperty && key <= QTextFormat::LastFontProperty)
-                || key == QTextFormat::FontLetterSpacingType) {
+        if (key >= QTextFormat::FirstFontProperty && key <= QTextFormat::LastFontProperty)
             fontDirty = true;
-        }
+
         for (int i = 0; i < props.count(); ++i)
             if (props.at(i).key == key) {
                 props[i].value = value;
@@ -218,10 +217,8 @@ public:
         for (int i = 0; i < props.count(); ++i)
             if (props.at(i).key == key) {
                 hashDirty = true;
-                if ((key >= QTextFormat::FirstFontProperty && key <= QTextFormat::LastFontProperty)
-                        || key == QTextFormat::FontLetterSpacingType) {
+                if (key >= QTextFormat::FirstFontProperty && key <= QTextFormat::LastFontProperty)
                     fontDirty = true;
-                }
                 props.remove(i);
                 return;
             }
@@ -254,37 +251,37 @@ public:
         return fnt;
     }
 
-    QVector<Property> props;
+    QList<Property> props;
 private:
 
-    uint recalcHash() const;
+    size_t recalcHash() const;
     void recalcFont() const;
 
     mutable bool hashDirty;
     mutable bool fontDirty;
-    mutable uint hashValue;
+    mutable size_t hashValue;
     mutable QFont fnt;
 
     friend QDataStream &operator<<(QDataStream &, const QTextFormat &);
     friend QDataStream &operator>>(QDataStream &, QTextFormat &);
 };
 
-static inline uint hash(const QColor &color)
+static inline size_t hash(const QColor &color)
 {
     return (color.isValid()) ? color.rgba() : 0x234109;
 }
 
-static inline uint hash(const QPen &pen)
+static inline size_t hash(const QPen &pen)
 {
     return hash(pen.color()) + qHash(pen.widthF());
 }
 
-static inline uint hash(const QBrush &brush)
+static inline size_t hash(const QBrush &brush)
 {
     return hash(brush.color()) + (brush.style() << 3);
 }
 
-static inline uint variantHash(const QVariant &variant)
+static inline size_t variantHash(const QVariant &variant)
 {
     // simple and fast hash functions to differentiate between type and value
     switch (variant.userType()) { // sorted by occurrence frequency
@@ -307,15 +304,16 @@ static inline uint variantHash(const QVariant &variant)
     return qHash(variant.typeName());
 }
 
-static inline int getHash(const QTextFormatPrivate *d, int format)
+static inline size_t getHash(const QTextFormatPrivate *d, int format)
 {
     return (d ? d->hash() : 0) + format;
 }
 
-uint QTextFormatPrivate::recalcHash() const
+size_t QTextFormatPrivate::recalcHash() const
 {
     hashValue = 0;
-    for (QVector<Property>::ConstIterator it = props.constBegin(); it != props.constEnd(); ++it)
+    const auto end = props.constEnd();
+    for (auto it = props.constBegin(); it != end; ++it)
         hashValue += (static_cast<quint32>(it->key) << 16) + variantHash(it->value);
 
     hashDirty = false;
@@ -326,7 +324,7 @@ uint QTextFormatPrivate::recalcHash() const
 void QTextFormatPrivate::resolveFont(const QFont &defaultFont)
 {
     recalcFont();
-    const uint oldMask = fnt.resolve();
+    const uint oldMask = fnt.resolveMask();
     fnt = fnt.resolve(defaultFont);
 
     if (hasProperty(QTextFormat::FontSizeAdjustment)) {
@@ -344,7 +342,7 @@ void QTextFormatPrivate::resolveFont(const QFont &defaultFont)
         }
     }
 
-    fnt.resolve(oldMask);
+    fnt.setResolveMask(oldMask);
 }
 
 void QTextFormatPrivate::recalcFont() const
@@ -358,9 +356,6 @@ void QTextFormatPrivate::recalcFont() const
 
     for (int i = 0; i < props.count(); ++i) {
         switch (props.at(i).key) {
-            case QTextFormat::FontFamily:
-                f.setFamily(props.at(i).value.toString());
-                break;
             case QTextFormat::FontFamilies:
                 f.setFamilies(props.at(i).value.toStringList());
                 break;
@@ -377,7 +372,7 @@ void QTextFormatPrivate::recalcFont() const
                 const QVariant weightValue = props.at(i).value;
                 int weight = weightValue.toInt();
                 if (weight >= 0 && weightValue.isValid())
-                    f.setWeight(weight);
+                    f.setWeight(QFont::Weight(weight));
                 break; }
             case QTextFormat::FontItalic:
                 f.setItalic(props.at(i).value.toBool());
@@ -444,7 +439,34 @@ void QTextFormatPrivate::recalcFont() const
 #ifndef QT_NO_DATASTREAM
 Q_GUI_EXPORT QDataStream &operator<<(QDataStream &stream, const QTextFormat &fmt)
 {
-    stream << fmt.format_type << fmt.properties();
+    QMap<int, QVariant> properties = fmt.properties();
+    if (stream.version() < QDataStream::Qt_6_0) {
+        auto it = properties.find(QTextFormat::FontLetterSpacingType);
+        if (it != properties.end()) {
+            properties[QTextFormat::OldFontLetterSpacingType] = it.value();
+            properties.erase(it);
+        }
+
+        it = properties.find(QTextFormat::FontStretch);
+        if (it != properties.end()) {
+            properties[QTextFormat::OldFontStretch] = it.value();
+            properties.erase(it);
+        }
+
+        it = properties.find(QTextFormat::TextUnderlineColor);
+        if (it != properties.end()) {
+            properties[QTextFormat::OldTextUnderlineColor] = it.value();
+            properties.erase(it);
+        }
+
+        it = properties.find(QTextFormat::FontFamilies);
+        if (it != properties.end()) {
+            properties[QTextFormat::FontFamily] = QVariant(it.value().toStringList().first());
+            properties.erase(it);
+        }
+    }
+
+    stream << fmt.format_type << properties;
     return stream;
 }
 
@@ -455,12 +477,22 @@ Q_GUI_EXPORT QDataStream &operator>>(QDataStream &stream, QTextFormat &fmt)
 
     // QTextFormat's default constructor doesn't allocate the private structure, so
     // we have to do this, in case fmt is a default constructed value.
-    if(!fmt.d)
+    if (!fmt.d)
         fmt.d = new QTextFormatPrivate();
 
     for (QMap<qint32, QVariant>::ConstIterator it = properties.constBegin();
-         it != properties.constEnd(); ++it)
-        fmt.d->insertProperty(it.key(), it.value());
+         it != properties.constEnd(); ++it) {
+        qint32 key = it.key();
+        if (key == QTextFormat::OldFontLetterSpacingType)
+            key = QTextFormat::FontLetterSpacingType;
+        else if (key == QTextFormat::OldFontStretch)
+            key = QTextFormat::FontStretch;
+        else if (key == QTextFormat::OldTextUnderlineColor)
+            key = QTextFormat::TextUnderlineColor;
+        else if (key == QTextFormat::FontFamily)
+            key = QTextFormat::FontFamilies;
+        fmt.d->insertProperty(key, it.value());
+    }
 
     return stream;
 }
@@ -520,7 +552,6 @@ Q_GUI_EXPORT QDataStream &operator>>(QDataStream &stream, QTextFormat &fmt)
     \value BlockFormat The object formats a text block
     \value CharFormat The object formats a single character
     \value ListFormat The object formats a list
-    \omitvalue TableFormat \omit Unused Value, a table's FormatType is FrameFormat. \endomit
     \value FrameFormat The object formats a frame
 
     \value UserFormat
@@ -579,7 +610,7 @@ Q_GUI_EXPORT QDataStream &operator>>(QDataStream &stream, QTextFormat &fmt)
 
     Character properties
 
-    \value FontFamily
+    \value FontFamily e{This property has been deprecated.} Use QTextFormat::FontFamilies instead.
     \value FontFamilies
     \value FontStyleName
     \value FontPointSize
@@ -611,15 +642,22 @@ Q_GUI_EXPORT QDataStream &operator>>(QDataStream &stream, QTextFormat &fmt)
     \omitvalue FirstFontProperty
     \omitvalue LastFontProperty
 
-    \value TextUnderlineColor
+    \value TextUnderlineColor      Specifies the color to draw underlines, overlines and strikeouts.
     \value TextVerticalAlignment
     \value TextOutline
     \value TextUnderlineStyle
     \value TextToolTip Specifies the (optional) tool tip to be displayed for a fragment of text.
+    \value TextSuperScriptBaseline Specifies the baseline (in % of height) of superscript texts.
+    \value TextSubScriptBaseline   Specifies the baseline (in % of height) of subscript texts.
+    \value TextBaselineOffset      Specifies the baseline (in % of height) of text. A positive value moves up the text,
+                                   by the corresponding %; a negative value moves it down.
 
     \value IsAnchor
     \value AnchorHref
     \value AnchorName
+    \omitvalue OldFontLetterSpacingType
+    \omitvalue OldFontStretch
+    \omitvalue OldTextUnderlineColor
     \value ObjectType
 
     List properties
@@ -874,7 +912,7 @@ QTextFormat::~QTextFormat()
 */
 QTextFormat::operator QVariant() const
 {
-    return QVariant(QMetaType::QTextFormat, this);
+    return QVariant::fromValue(*this);
 }
 
 /*!
@@ -894,13 +932,13 @@ void QTextFormat::merge(const QTextFormat &other)
     if (!other.d)
         return;
 
-    QTextFormatPrivate *d = this->d;
+    QTextFormatPrivate *p = d.data();
 
-    const QVector<QT_PREPEND_NAMESPACE(Property)> &otherProps = other.d->props;
-    d->props.reserve(d->props.size() + otherProps.size());
+    const QList<QT_PREPEND_NAMESPACE(Property)> &otherProps = other.d.constData()->props;
+    p->props.reserve(p->props.size() + otherProps.size());
     for (int i = 0; i < otherProps.count(); ++i) {
-        const QT_PREPEND_NAMESPACE(Property) &p = otherProps.at(i);
-        d->insertProperty(p.key, p.value);
+        const QT_PREPEND_NAMESPACE(Property) &prop = otherProps.at(i);
+        p->insertProperty(prop.key, prop.value);
     }
 }
 
@@ -1011,7 +1049,7 @@ int QTextFormat::intProperty(int propertyId) const
 
 /*!
     Returns the value of the property specified by \a propertyId. If the
-    property isn't of QVariant::Double or QMetaType::Float type, 0 is
+    property isn't of QMetaType::Double or QMetaType::Float type, 0 is
     returned instead.
 
     \sa setProperty(), boolProperty(), intProperty(), stringProperty(), colorProperty(),
@@ -1029,7 +1067,7 @@ qreal QTextFormat::doubleProperty(int propertyId) const
 
 /*!
     Returns the value of the property given by \a propertyId; if the
-    property isn't of QVariant::String type, an empty string is
+    property isn't of QMetaType::QString type, an empty string is
     returned instead.
 
     \sa setProperty(), boolProperty(), intProperty(), doubleProperty(), colorProperty(),
@@ -1047,7 +1085,7 @@ QString QTextFormat::stringProperty(int propertyId) const
 
 /*!
     Returns the value of the property given by \a propertyId; if the
-    property isn't of QVariant::Color type, an invalid color is
+    property isn't of QMetaType::QColor type, an invalid color is
     returned instead.
 
     \sa setProperty(), boolProperty(), intProperty(), doubleProperty(),
@@ -1065,7 +1103,7 @@ QColor QTextFormat::colorProperty(int propertyId) const
 
 /*!
     Returns the value of the property given by \a propertyId; if the
-    property isn't of QVariant::Pen type, Qt::NoPen is
+    property isn't of QMetaType::QPen type, Qt::NoPen is
     returned instead.
 
     \sa setProperty(), boolProperty(), intProperty(), doubleProperty(), stringProperty(),
@@ -1083,7 +1121,7 @@ QPen QTextFormat::penProperty(int propertyId) const
 
 /*!
     Returns the value of the property given by \a propertyId; if the
-    property isn't of QVariant::Brush type, Qt::NoBrush is
+    property isn't of QMetaType::QBrush type, Qt::NoBrush is
     returned instead.
 
     \sa setProperty(), boolProperty(), intProperty(), doubleProperty(), stringProperty(),
@@ -1114,29 +1152,28 @@ QTextLength QTextFormat::lengthProperty(int propertyId) const
 
 /*!
     Returns the value of the property given by \a propertyId. If the
-    property isn't of QTextFormat::LengthVector type, an empty length
-    vector is returned instead.
+    property isn't of QTextFormat::LengthVector type, an empty
+    list is returned instead.
 
     \sa setProperty(), boolProperty(), intProperty(), doubleProperty(), stringProperty(),
         colorProperty(), lengthProperty(), Property
 */
-QVector<QTextLength> QTextFormat::lengthVectorProperty(int propertyId) const
+QList<QTextLength> QTextFormat::lengthVectorProperty(int propertyId) const
 {
-    QVector<QTextLength> vector;
+    QList<QTextLength> list;
     if (!d)
-        return vector;
+        return list;
     const QVariant prop = d->property(propertyId);
     if (prop.userType() != QMetaType::QVariantList)
-        return vector;
+        return list;
 
-    QList<QVariant> propertyList = prop.toList();
-    for (int i=0; i<propertyList.size(); ++i) {
-        QVariant var = propertyList.at(i);
+    const QList<QVariant> propertyList = prop.toList();
+    for (const auto &var : propertyList) {
         if (var.userType() == QMetaType::QTextLength)
-            vector.append(qvariant_cast<QTextLength>(var));
+            list.append(qvariant_cast<QTextLength>(var));
     }
 
-    return vector;
+    return list;
 }
 
 /*!
@@ -1169,7 +1206,7 @@ void QTextFormat::setProperty(int propertyId, const QVariant &value)
 
     \sa lengthVectorProperty(), Property
 */
-void QTextFormat::setProperty(int propertyId, const QVector<QTextLength> &value)
+void QTextFormat::setProperty(int propertyId, const QList<QTextLength> &value)
 {
     if (!d)
         d = new QTextFormatPrivate;
@@ -1237,10 +1274,10 @@ int QTextFormat::objectIndex() const
 void QTextFormat::setObjectIndex(int o)
 {
     if (o == -1) {
-        if (d)
+        if (d.constData())
             d->clearProperty(ObjectIndex);
     } else {
-        if (!d)
+        if (!d.constData())
             d = new QTextFormatPrivate;
         // ### type
         d->insertProperty(ObjectIndex, o);
@@ -1336,7 +1373,7 @@ bool QTextFormat::operator==(const QTextFormat &rhs) const
 
     The font used can be set by supplying a font to the setFont() function, and
     each aspect of its appearance can be adjusted to give the desired effect.
-    setFontFamily() and setFontPointSize() define the font's family (e.g. Times)
+    setFontFamilies() and setFontPointSize() define the font's family (e.g. Times)
     and printed size; setFontWeight() and setFontItalic() provide control over
     the style of the font. setFontUnderline(), setFontOverline(),
     setFontStrikeOut(), and setFontFixedPitch() provide additional effects for
@@ -1381,7 +1418,7 @@ bool QTextFormat::operator==(const QTextFormat &rhs) const
     \value SingleUnderline      A line is drawn using Qt::SolidLine.
     \value DashUnderline        Dashes are drawn using Qt::DashLine.
     \value DotLine              Dots are drawn using Qt::DotLine;
-    \value DashDotLine          Dashs and dots are drawn using Qt::DashDotLine.
+    \value DashDotLine          Dashes and dots are drawn using Qt::DashDotLine.
     \value DashDotDotLine       Underlines draw drawn using Qt::DashDotDotLine.
     \value WaveUnderline        The text is underlined using a wave shaped line.
     \value SpellCheckUnderline  The underline is drawn depending on the SpellCheckUnderlineStyle
@@ -1420,6 +1457,7 @@ QTextCharFormat::QTextCharFormat(const QTextFormat &fmt)
 
 /*!
     \fn void QTextCharFormat::setFontFamily(const QString &family)
+    \deprecated [6.1] Use setFontFamilies() instead.
 
     Sets the text format's font \a family.
 
@@ -1429,6 +1467,7 @@ QTextCharFormat::QTextCharFormat(const QTextFormat &fmt)
 
 /*!
     \fn QString QTextCharFormat::fontFamily() const
+    \deprecated [6.1] Use fontFamilies() instead.
 
     Returns the text format's font family.
 
@@ -1775,6 +1814,62 @@ void QTextCharFormat::setUnderlineStyle(UnderlineStyle style)
     \sa foreground(), setForeground(), clearBackground()
 */
 
+/*!
+    \fn void QTextCharFormat::setSuperScriptBaseline(qreal baseline)
+    \since 6.0
+
+    Sets the superscript's base line as a % of font height to \a baseline.
+    The default value is 50% (1/2 of height).
+
+    \sa superScriptBaseline(), setSubScriptBaseline(), subScriptBaseline(), setBaselineOffset(), baselineOffset()
+*/
+
+/*!
+    \fn qreal QTextCharFormat::superScriptBaseline() const
+    \since 6.0
+
+    Returns the superscript's base line as a % of font height.
+
+    \sa setSuperScriptBaseline(), setSubScriptBaseline(), subScriptBaseline(), setBaselineOffset(), baselineOffset()
+*/
+
+/*!
+    \fn void QTextCharFormat::setSubScriptBaseline(qreal baseline)
+    \since 6.0
+
+    Sets the subscript's base line as a % of font height to \a baseline.
+    The default value is 16.67% (1/6 of height)
+
+    \sa subScriptBaseline(), setSuperScriptBaseline(), superScriptBaseline(), setBaselineOffset(), baselineOffset()
+*/
+
+/*!
+    \fn qreal QTextCharFormat::subScriptBaseline() const
+    \since 6.0
+
+    Returns the subscript's base line as a % of font height.
+
+    \sa setSubScriptBaseline(), setSuperScriptBaseline(), superScriptBaseline(), setBaselineOffset(), baselineOffset()
+*/
+
+/*!
+    \fn void QTextCharFormat::setBaselineOffset(qreal baseline)
+    \since 6.0
+
+    Sets the base line (in % of height) of text to \a baseline. A positive value moves the text
+    up, by the corresponding %; a negative value moves it down. The default value is 0.
+
+    \sa baselineOffset(), setSubScriptBaseline(), subScriptBaseline(), setSuperScriptBaseline(), superScriptBaseline()
+*/
+
+/*!
+    \fn qreal QTextCharFormat::baselineOffset() const
+    \since 6.0
+
+    Returns the the baseline offset in %.
+
+    \sa setBaselineOffset(), setSubScriptBaseline(), subScriptBaseline(), setSuperScriptBaseline(), superScriptBaseline()
+*/
 
 /*!
     \fn void QTextCharFormat::setAnchor(bool anchor)
@@ -1822,20 +1917,6 @@ void QTextCharFormat::setUnderlineStyle(UnderlineStyle style)
     none has been set.
 */
 
-
-#if QT_DEPRECATED_SINCE(5, 13)
-/*!
-    \fn void QTextCharFormat::setAnchorName(const QString &name)
-    \obsolete
-
-    This function is deprecated. Use setAnchorNames() instead.
-
-    Sets the text format's anchor \a name. For the anchor to work as a
-    hyperlink, the destination must be set with setAnchorHref() and
-    the anchor must be enabled with setAnchor().
-*/
-#endif
-
 /*!
     \fn void QTextCharFormat::setAnchorNames(const QStringList &names)
     \since 4.3
@@ -1844,28 +1925,6 @@ void QTextCharFormat::setUnderlineStyle(UnderlineStyle style)
     hyperlink, the destination must be set with setAnchorHref() and
     the anchor must be enabled with setAnchor().
 */
-
-#if QT_DEPRECATED_SINCE(5, 13)
-/*!
-    \fn QString QTextCharFormat::anchorName() const
-    \obsolete
-
-    This function is deprecated. Use anchorNames() instead.
-
-    Returns the anchor name associated with this text format, or an empty
-    string if none has been set. If the anchor name is set, text with this
-    format can be the destination of a hypertext link.
-*/
-QString QTextCharFormat::anchorName() const
-{
-    QVariant prop = property(AnchorName);
-    if (prop.userType() == QMetaType::QStringList)
-        return prop.toStringList().value(0);
-    else if (prop.userType() != QMetaType::QString)
-        return QString();
-    return prop.toString();
-}
-#endif
 
 /*!
     \fn QStringList QTextCharFormat::anchorNames() const
@@ -1925,8 +1984,8 @@ QStringList QTextCharFormat::anchorNames() const
 /*!
     \fn void QTextCharFormat::setUnderlineColor(const QColor &color)
 
-    Sets the underline color used for the characters with this format to
-    the \a color specified.
+    Sets the color used to draw underlines, overlines and strikeouts on the
+    characters with this format to the \a color specified.
 
     \sa underlineColor()
 */
@@ -1934,7 +1993,8 @@ QStringList QTextCharFormat::anchorNames() const
 /*!
     \fn QColor QTextCharFormat::underlineColor() const
 
-    Returns the color used to underline the characters with this format.
+    Returns the color used to draw underlines, overlines and strikeouts
+    on the characters with this format.
 
     \sa setUnderlineColor()
 */
@@ -1972,18 +2032,6 @@ QStringList QTextCharFormat::anchorNames() const
 */
 
 /*!
-    \overload
-
-    Sets the text format's \a font.
-
-    \sa font()
-*/
-void QTextCharFormat::setFont(const QFont &font)
-{
-    setFont(font, FontPropertiesAll);
-}
-
-/*!
     \since 5.3
 
     Sets the text format's \a font.
@@ -1999,10 +2047,8 @@ void QTextCharFormat::setFont(const QFont &font)
 void QTextCharFormat::setFont(const QFont &font, FontPropertiesInheritanceBehavior behavior)
 {
     const uint mask = behavior == FontPropertiesAll ? uint(QFont::AllPropertiesResolved)
-                                                    : font.resolve();
+                                                    : font.resolveMask();
 
-    if (mask & QFont::FamilyResolved)
-        setFontFamily(font.family());
     if (mask & QFont::FamiliesResolved)
         setFontFamilies(font.families());
     if (mask & QFont::StyleNameResolved)
@@ -2150,7 +2196,7 @@ void QTextBlockFormat::setTabPositions(const QList<QTextOption::Tab> &tabs)
     QList<QTextOption::Tab>::ConstIterator iter = tabs.constBegin();
     while (iter != tabs.constEnd()) {
         QVariant v;
-        v.setValue<QTextOption::Tab>(*iter);
+        v.setValue(*iter);
         list.append(v);
         ++iter;
     }
@@ -2166,7 +2212,7 @@ void QTextBlockFormat::setTabPositions(const QList<QTextOption::Tab> &tabs)
 QList<QTextOption::Tab> QTextBlockFormat::tabPositions() const
 {
     QVariant variant = property(TabPositions);
-    if(variant.isNull())
+    if (variant.isNull())
         return QList<QTextOption::Tab>();
     QList<QTextOption::Tab> answer;
     QList<QVariant> variantsList = qvariant_cast<QList<QVariant> >(variant);
@@ -3026,7 +3072,7 @@ qreal QTextFrameFormat::rightMargin() const
     returns the number of columns with constraints, and the
     columnWidthConstraints() function returns the constraints defined for the
     table. These quantities can also be set by calling setColumnWidthConstraints()
-    with a vector containing new constraints. If no constraints are
+    with a list containing new constraints. If no constraints are
     required, clearColumnWidthConstraints() can be used to remove them.
 
     \sa QTextTable, QTextTableCell, QTextLength
@@ -3090,7 +3136,7 @@ QTextTableFormat::QTextTableFormat(const QTextFormat &fmt)
 */
 
 /*!
-    \fn void QTextTableFormat::setColumnWidthConstraints(const QVector<QTextLength> &constraints)
+    \fn void QTextTableFormat::setColumnWidthConstraints(const QList<QTextLength> &constraints)
 
     Sets the column width \a constraints for the table.
 
@@ -3098,7 +3144,7 @@ QTextTableFormat::QTextTableFormat(const QTextFormat &fmt)
 */
 
 /*!
-    \fn QVector<QTextLength> QTextTableFormat::columnWidthConstraints() const
+    \fn QList<QTextLength> QTextTableFormat::columnWidthConstraints() const
 
     Returns a list of constraints used by this table format to control the
     appearance of columns in a table.
@@ -3366,7 +3412,7 @@ QTextImageFormat::QTextImageFormat(const QTextFormat &fmt)
     \fn void QTextCharFormat::setFontCapitalization(QFont::Capitalization capitalization)
     \since 4.4
 
-    Sets the capitalization of the text that apppears in this font to \a capitalization.
+    Sets the capitalization of the text that appears in this font to \a capitalization.
 
     A font's capitalization makes the text appear in the selected capitalization mode.
 
@@ -3836,8 +3882,8 @@ void QTextFormatCollection::clear()
 
 int QTextFormatCollection::indexForFormat(const QTextFormat &format)
 {
-    uint hash = getHash(format.d, format.format_type);
-    QMultiHash<uint, int>::const_iterator i = hashes.constFind(hash);
+    size_t hash = getHash(format.d, format.format_type);
+    auto i = hashes.constFind(hash);
     while (i != hashes.constEnd() && i.key() == hash) {
         if (formats.value(i.value()) == format) {
             return i.value();
@@ -3865,8 +3911,8 @@ int QTextFormatCollection::indexForFormat(const QTextFormat &format)
 
 bool QTextFormatCollection::hasFormatCached(const QTextFormat &format) const
 {
-    uint hash = getHash(format.d, format.format_type);
-    QMultiHash<uint, int>::const_iterator i = hashes.constFind(hash);
+    size_t hash = getHash(format.d, format.format_type);
+    auto i = hashes.constFind(hash);
     while (i != hashes.constEnd() && i.key() == hash) {
         if (formats.value(i.value()) == format) {
             return true;

@@ -14,6 +14,7 @@
 #include "base/base64url.h"
 #include "base/bind.h"
 #include "base/format_macros.h"
+#include "base/numerics/safe_conversions.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -38,14 +39,13 @@
 #include "components/autofill/core/common/autofill_features.h"
 #include "components/autofill/core/common/autofill_switches.h"
 #include "components/autofill/core/common/form_data.h"
+#include "components/autofill/core/common/signatures.h"
 #include "components/prefs/pref_service.h"
-#include "components/variations/variations_http_header_provider.h"
+#include "components/variations/variations_ids_provider.h"
 #include "net/http/http_status_code.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
-#include "net/url_request/url_request_status.h"
-#include "net/url_request/url_request_test_util.h"
 #include "services/network/public/cpp/data_element.h"
 #include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
 #include "services/network/test/test_shared_url_loader_factory.h"
@@ -85,23 +85,15 @@ std::vector<FormStructure*> ToRawPointerVector(
 // the response body data is utilized.
 std::string GetStringFromDataElements(
     const std::vector<network::DataElement>* data_elements) {
-  network::DataElement unified_data_element;
-  auto data_elements_it = data_elements->begin();
-  if (data_elements_it != data_elements->end()) {
-    unified_data_element.SetToBytes(data_elements_it->bytes(),
-                                    data_elements_it->length());
+  std::string result;
+  for (const network::DataElement& e : *data_elements) {
+    DCHECK_EQ(e.type(), network::DataElement::Tag::kBytes);
+    // Provide the length of the bytes explicitly, not to rely on the null
+    // termination.
+    const auto piece = e.As<network::DataElementBytes>().AsStringPiece();
+    result.append(piece.data(), piece.size());
   }
-  ++data_elements_it;
-  while (data_elements_it != data_elements->end()) {
-    unified_data_element.AppendBytes(data_elements_it->bytes(),
-                                     data_elements_it->length());
-    ++data_elements_it;
-  }
-  // Using the std::string constructor with length ensures that we don't rely
-  // on having a termination character to delimit the string. This is the
-  // safest approach.
-  return std::string(unified_data_element.bytes(),
-                     unified_data_element.length());
+  return result;
 }
 
 // Gets the AutofillUploadRequest proto from the HTTP loader request payload.
@@ -166,10 +158,12 @@ class AutofillDownloadManagerWithCustomPayloadSize
                                                Observer* observer,
                                                const std::string& api_key,
                                                size_t length)
-      : AutofillDownloadManager(driver,
-                                observer,
-                                api_key,
-                                /*log_manager=*/nullptr),
+      : AutofillDownloadManager(
+            driver,
+            observer,
+            api_key,
+            AutofillDownloadManager::IsRawMetadataUploadingEnabled(false),
+            /*log_manager=*/nullptr),
         length_(length) {}
 
  protected:
@@ -210,7 +204,7 @@ class AutofillDownloadManagerTest : public AutofillDownloadManager::Observer,
   // AutofillDownloadManager::Observer implementation.
   void OnLoadedServerPredictions(
       std::string response_xml,
-      const std::vector<std::string>& form_signatures) override {
+      const std::vector<FormSignature>& form_signatures) override {
     ResponseData response;
     response.response = std::move(response_xml);
     response.type_of_response = QUERY_SUCCESSFULL;
@@ -223,11 +217,11 @@ class AutofillDownloadManagerTest : public AutofillDownloadManager::Observer,
     responses_.push_back(response);
   }
 
-  void OnServerRequestError(const std::string& form_signature,
+  void OnServerRequestError(FormSignature form_signature,
                             AutofillDownloadManager::RequestType request_type,
                             int http_error) override {
     ResponseData response;
-    response.signature = form_signature;
+    response.signature = base::NumberToString(form_signature.value());
     response.error = http_error;
     response.type_of_response =
         request_type == AutofillDownloadManager::REQUEST_QUERY
@@ -351,8 +345,10 @@ TEST_F(AutofillDownloadManagerTest, QueryAndUploadTest) {
   form_structures.push_back(std::make_unique<FormStructure>(form));
 
   // Make download manager.
-  AutofillDownloadManager download_manager(&driver_, this, "dummykey",
-                                           /*log_manager=*/nullptr);
+  AutofillDownloadManager download_manager(
+      &driver_, this, "dummykey",
+      AutofillDownloadManager::IsRawMetadataUploadingEnabled(false),
+      /*log_manager=*/nullptr);
 
   // Request with id 0.
   base::HistogramTester histogram;
@@ -524,14 +520,6 @@ TEST_F(AutofillDownloadManagerTest, QueryAndUploadTest) {
 }
 
 TEST_F(AutofillDownloadManagerTest, QueryAPITest) {
-  base::test::ScopedFeatureList feature_list;
-  feature_list.InitWithFeatures(
-      // Enabled
-      // We want to query the API rather than the legacy server.
-      {features::kAutofillUseApi},
-      // Disabled
-      {});
-
   // Build the form structures that we want to query.
   FormData form;
   FormFieldData field;
@@ -549,8 +537,10 @@ TEST_F(AutofillDownloadManagerTest, QueryAPITest) {
   std::vector<std::unique_ptr<FormStructure>> form_structures;
   form_structures.push_back(std::make_unique<FormStructure>(form));
 
-  AutofillDownloadManager download_manager(&driver_, this, "dummykey",
-                                           /*log_manager=*/nullptr);
+  AutofillDownloadManager download_manager(
+      &driver_, this, "dummykey",
+      AutofillDownloadManager::IsRawMetadataUploadingEnabled(false),
+      /*log_manager=*/nullptr);
 
   // Start the query request and look if it is successful. No response was
   // received yet.
@@ -578,10 +568,11 @@ TEST_F(AutofillDownloadManagerTest, QueryAPITest) {
     // This is the URL we expect to query the API. The sub-path right after
     // "/page" corresponds to the serialized AutofillPageQueryRequest proto
     // (that we filled forms in) encoded in base64. The Autofill
-    // https://clients1.google.com/ domain URL corresponds to the default domain
-    // used by the download manager, which is invalid, but good for testing.
+    // https://content-autofill.googleapis.com/ domain URL corresponds to the
+    // default domain used by the download manager, which is invalid, but good
+    // for testing.
     const std::string expected_url =
-        R"(https://clients1.google.com/v1/pages/(.+)\?alt=proto)";
+        R"(https://content-autofill.googleapis.com/v1/pages/(.+)\?alt=proto)";
     std::string encoded_request;
     ASSERT_TRUE(re2::RE2::FullMatch(request->request.url.spec(), expected_url,
                                     &encoded_request));
@@ -590,13 +581,13 @@ TEST_F(AutofillDownloadManagerTest, QueryAPITest) {
         DeserializeAutofillPageQueryRequest(encoded_request, &request_content));
     // Verify form content.
     ASSERT_EQ(request_content.forms().size(), 1);
-    EXPECT_EQ(request_content.forms(0).signature(),
+    EXPECT_EQ(FormSignature(request_content.forms(0).signature()),
               form_structures[0]->form_signature());
     // Verify field content.
     ASSERT_EQ(request_content.forms(0).fields().size(), 2);
-    EXPECT_EQ(request_content.forms(0).fields(0).signature(),
+    EXPECT_EQ(FieldSignature(request_content.forms(0).fields(0).signature()),
               form_structures[0]->field(0)->GetFieldSignature());
-    EXPECT_EQ(request_content.forms(0).fields(1).signature(),
+    EXPECT_EQ(FieldSignature(request_content.forms(0).fields(1).signature()),
               form_structures[0]->field(1)->GetFieldSignature());
   }
 
@@ -629,14 +620,6 @@ TEST_F(AutofillDownloadManagerTest, QueryAPITest) {
 }
 
 TEST_F(AutofillDownloadManagerTest, QueryAPITestWhenTooLongUrl) {
-  base::test::ScopedFeatureList feature_list;
-  feature_list.InitWithFeatures(
-      // Enabled
-      // We want to query the API rather than the legacy server.
-      {features::kAutofillUseApi},
-      // Disabled
-      {});
-
   // Build the form structures that we want to query.
   FormData form;
   FormFieldData field;
@@ -675,7 +658,7 @@ TEST_F(AutofillDownloadManagerTest, QueryAPITestWhenTooLongUrl) {
       test_url_loader_factory_.GetPendingRequest(0);
   // Verify that the POST URL is used when request data too large.
   const std::string expected_url = {
-      "https://clients1.google.com/v1/pages:get?alt=proto"};
+      "https://content-autofill.googleapis.com/v1/pages:get?alt=proto"};
   // Verify API key header.
   EXPECT_EQ(request->request.url, expected_url);
   {
@@ -708,11 +691,11 @@ TEST_F(AutofillDownloadManagerTest, QueryAPITestWhenTooLongUrl) {
         query_request.serialized_request(), &request_content));
     // Verify form content.
     ASSERT_EQ(request_content.forms().size(), 1);
-    EXPECT_EQ(request_content.forms(0).signature(),
+    EXPECT_EQ(FormSignature(request_content.forms(0).signature()),
               form_structures[0]->form_signature());
     // Verify field content.
     ASSERT_EQ(request_content.forms(0).fields().size(), 1);
-    EXPECT_EQ(request_content.forms(0).fields(0).signature(),
+    EXPECT_EQ(FieldSignature(request_content.forms(0).fields(0).signature()),
               form_structures[0]->field(0)->GetFieldSignature());
   }
 
@@ -740,13 +723,12 @@ TEST_F(AutofillDownloadManagerTest, UploadToAPITest) {
   base::test::ScopedFeatureList feature_list;
   feature_list.InitWithFeatures(
       // Enabled
-      // We want to query the API rather than the legacy server.
-      {features::kAutofillUseApi},
+      {},
       // Disabled
       // We don't want upload throttling for testing purpose.
       {features::kAutofillUploadThrottling});
 
-  // Build the form structures that we want to query.
+  // Build the form structures that we want to upload.
   FormData form;
   FormFieldData field;
 
@@ -763,8 +745,10 @@ TEST_F(AutofillDownloadManagerTest, UploadToAPITest) {
   form_structure.set_submission_source(SubmissionSource::FORM_SUBMISSION);
 
   std::unique_ptr<PrefService> pref_service = test::PrefServiceForTesting();
-  AutofillDownloadManager download_manager(&driver_, this, "dummykey",
-                                           /*log_manager=*/nullptr);
+  AutofillDownloadManager download_manager(
+      &driver_, this, "dummykey",
+      AutofillDownloadManager::IsRawMetadataUploadingEnabled(false),
+      /*log_manager=*/nullptr);
   EXPECT_TRUE(download_manager.StartUploadRequest(form_structure, true,
                                                   ServerFieldTypeSet(), "",
                                                   true, pref_service.get()));
@@ -774,11 +758,11 @@ TEST_F(AutofillDownloadManagerTest, UploadToAPITest) {
       test_url_loader_factory_.GetPendingRequest(0);
 
   // This is the URL we expect to upload votes to the API. The Autofill
-  // https://clients1.google.com/ domain URL corresponds to the
+  // https://content-autofill.googleapis.com/ domain URL corresponds to the
   // default one used by the download manager. Request upload data is in the
   // payload when uploading.
   const std::string expected_url =
-      "https://clients1.google.com/v1/forms:vote?alt=proto";
+      "https://content-autofill.googleapis.com/v1/forms:vote?alt=proto";
   EXPECT_EQ(request->request.url, expected_url);
   std::string api_key_header_value;
   EXPECT_TRUE(request->request.headers.GetHeader("X-Goog-Api-Key",
@@ -791,7 +775,7 @@ TEST_F(AutofillDownloadManagerTest, UploadToAPITest) {
   AutofillUploadRequest upload_request;
   EXPECT_TRUE(GetUploadRequestProtoFromRequest(request, &upload_request));
   EXPECT_GT(upload_request.upload().client_version().size(), 0U);
-  EXPECT_EQ(upload_request.upload().form_signature(),
+  EXPECT_EQ(FormSignature(upload_request.upload().form_signature()),
             form_structure.form_signature());
 
   // Trigger an upload response from the API and assert upload response content.
@@ -808,6 +792,80 @@ TEST_F(AutofillDownloadManagerTest, UploadToAPITest) {
   // counted.
   histogram.ExpectBucketCount("Autofill.Upload.HttpResponseOrErrorCode",
                               net::HTTP_OK, 1);
+}
+
+TEST_F(AutofillDownloadManagerTest, UploadWithRawMetadata) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitWithFeatures(
+      // Enabled
+      {},
+      // Disabled
+      // We don't want upload throttling for testing purpose.
+      {features::kAutofillUploadThrottling});
+
+  for (bool is_raw_metadata_uploading_enabled : {false, true}) {
+    SCOPED_TRACE(testing::Message() << "is_raw_metadata_uploading_enabled = "
+                                    << is_raw_metadata_uploading_enabled);
+    // Build the form structures that we want to upload.
+    FormData form;
+    form.name = UTF8ToUTF16("form1");
+    FormFieldData field;
+
+    field.name = UTF8ToUTF16("firstname");
+    field.form_control_type = "text";
+    form.fields.push_back(field);
+
+    field.name = UTF8ToUTF16("lastname");
+    field.form_control_type = "text";
+    form.fields.push_back(field);
+    FormStructure form_structure(form);
+    form_structure.set_submission_source(SubmissionSource::FORM_SUBMISSION);
+
+    std::unique_ptr<PrefService> pref_service = test::PrefServiceForTesting();
+    AutofillDownloadManager download_manager(
+        &driver_, this, "dummykey",
+        AutofillDownloadManager::IsRawMetadataUploadingEnabled(
+            is_raw_metadata_uploading_enabled),
+        /*log_manager=*/nullptr);
+    EXPECT_TRUE(download_manager.StartUploadRequest(form_structure, true,
+                                                    ServerFieldTypeSet(), "",
+                                                    true, pref_service.get()));
+
+    // Inspect the request that the test URL loader sent.
+    ASSERT_EQ(1, test_url_loader_factory_.NumPending());
+    network::TestURLLoaderFactory::PendingRequest* request =
+        test_url_loader_factory_.GetPendingRequest(0);
+
+    // Assert some of the fields within the uploaded proto to make sure it was
+    // filled with something else than default data.
+    AutofillUploadRequest autofill_upload_request;
+    EXPECT_TRUE(
+        GetUploadRequestProtoFromRequest(request, &autofill_upload_request));
+    AutofillUploadContents upload = autofill_upload_request.upload();
+    EXPECT_GT(upload.client_version().size(), 0U);
+    EXPECT_EQ(FormSignature(upload.form_signature()),
+              form_structure.form_signature());
+    // Only a few strings are tested, full testing happens in FormStructure's
+    // tests.
+    ASSERT_EQ(is_raw_metadata_uploading_enabled, upload.has_form_name());
+    ASSERT_EQ(is_raw_metadata_uploading_enabled, upload.field()[0].has_name());
+    ASSERT_EQ(is_raw_metadata_uploading_enabled, upload.field()[1].has_type());
+    if (is_raw_metadata_uploading_enabled) {
+      EXPECT_EQ(form.name, UTF8ToUTF16(upload.form_name()));
+      EXPECT_EQ(form.fields[0].name, UTF8ToUTF16(upload.field()[0].name()));
+      EXPECT_EQ(form.fields[1].form_control_type, upload.field()[1].type());
+    }
+
+    test_url_loader_factory_.SimulateResponseForPendingRequest(
+        request->request.url.spec(), "");
+    EXPECT_EQ(1U, responses_.size());
+    EXPECT_EQ(AutofillDownloadManagerTest::UPLOAD_SUCCESSFULL,
+              responses_.front().type_of_response);
+
+    ASSERT_EQ(0, test_url_loader_factory_.NumPending());
+    test_url_loader_factory_.ClearResponses();
+    responses_.clear();
+  }
 }
 
 TEST_F(AutofillDownloadManagerTest, BackoffLogic_Query) {
@@ -1348,7 +1406,7 @@ class AutofillServerCommunicationTest
                             base::Unretained(this)));
     ASSERT_TRUE(server_.Start());
 
-    GURL autofill_server_url(server_.base_url().Resolve("/tbproxy/af/"));
+    GURL autofill_server_url(server_.base_url());
     ASSERT_TRUE(autofill_server_url.is_valid());
 
     // Intialize the autofill driver.
@@ -1357,9 +1415,10 @@ class AutofillServerCommunicationTest
             nullptr /* network_service */, true /* is_trusted */);
     driver_ = std::make_unique<TestAutofillDriver>();
     driver_->SetSharedURLLoaderFactory(shared_url_loader_factory_);
-    driver_->SetNetworkIsolationKey(
-        net::NetworkIsolationKey(url::Origin::Create(GURL("https://abc.com")),
-                                 url::Origin::Create(GURL("https://xyz.com"))));
+    driver_->SetIsolationInfo(net::IsolationInfo::Create(
+        net::IsolationInfo::RequestType::kOther,
+        url::Origin::Create(GURL("https://abc.com")),
+        url::Origin::Create(GURL("https://xyz.com")), net::SiteForCookies()));
 
     // Configure the autofill server communications channel.
     switch (GetParam()) {
@@ -1389,16 +1448,16 @@ class AutofillServerCommunicationTest
     if (server_.Started())
       ASSERT_TRUE(server_.ShutdownAndWaitUntilComplete());
 
-    auto* variations_http_header_provider =
-        variations::VariationsHttpHeaderProvider::GetInstance();
-    if (variations_http_header_provider != nullptr)
-      variations_http_header_provider->ResetForTesting();
+    auto* variations_ids_provider =
+        variations::VariationsIdsProvider::GetInstance();
+    if (variations_ids_provider != nullptr)
+      variations_ids_provider->ResetForTesting();
   }
 
   // AutofillDownloadManager::Observer implementation.
   void OnLoadedServerPredictions(
       std::string /* response_xml */,
-      const std::vector<std::string>& /*form_signatures */) override {
+      const std::vector<FormSignature>& /*form_signatures */) override {
     ASSERT_TRUE(run_loop_);
     run_loop_->QuitWhenIdle();
   }
@@ -1408,22 +1467,17 @@ class AutofillServerCommunicationTest
     run_loop_->QuitWhenIdle();
   }
 
-  // Helper to extract the value of a query param. Returns "*** not found ***"
-  // if the requested query param is not in the query string.
-  std::string GetQueryParam(const std::string& query_str,
-                            const std::string& param_name) {
-    url::Component query(0, query_str.length());
-    url::Component key, value;
-    while (url::ExtractQueryKeyValue(query_str.c_str(), &query, &key, &value)) {
-      base::StringPiece key_string(query_str.c_str() + key.begin, key.len);
-      base::StringPiece param_text(query_str.c_str() + value.begin, value.len);
-      std::string param_value;
-      if (key_string == param_name &&
-          base::Base64UrlDecode(param_text,
-                                base::Base64UrlDecodePolicy::REQUIRE_PADDING,
-                                &param_value)) {
-        return param_value;
-      }
+  // Helper to extract the value passed to a lookup in the URL. Returns "*** not
+  // found ***" if the the data cannot be decoded.
+  std::string GetLookupContent(const std::string& query_path) {
+    if (query_path.find("/v1/pages/") == std::string::npos)
+      return "*** not found ***";
+    std::string payload = query_path.substr(strlen("/v1/pages/"));
+    std::string decoded_payload;
+    if (base::Base64UrlDecode(payload,
+                              base::Base64UrlDecodePolicy::REQUIRE_PADDING,
+                              &decoded_payload)) {
+      return decoded_payload;
     }
     return "*** not found ***";
   }
@@ -1432,12 +1486,15 @@ class AutofillServerCommunicationTest
     GURL absolute_url = server_.GetURL(request.relative_url);
     ++call_count_;
 
-    if (absolute_url.path() == "/tbproxy/af/query") {
+    if (absolute_url.path().find("/v1/pages") == 0) {
       payloads_.push_back(!request.content.empty()
                               ? request.content
-                              : GetQueryParam(absolute_url.query(), "q"));
-      AutofillQueryResponseContents proto;
-      proto.add_field()->set_overall_type_prediction(NAME_FIRST);
+                              : GetLookupContent(absolute_url.path()));
+      AutofillQueryResponse proto;
+      proto.add_form_suggestions()
+          ->add_field_suggestions()
+          ->add_predictions()
+          ->set_type(NAME_FIRST);
 
       auto response = std::make_unique<BasicHttpResponse>();
       response->set_code(net::HTTP_OK);
@@ -1452,7 +1509,7 @@ class AutofillServerCommunicationTest
       return response;
     }
 
-    if (absolute_url.path() == "/tbproxy/af/upload") {
+    if (absolute_url.path() == "/v1/forms:vote") {
       payloads_.push_back(request.content);
       auto response = std::make_unique<BasicHttpResponse>();
       response->set_code(net::HTTP_OK);
@@ -1633,10 +1690,10 @@ TEST_P(AutofillQueryTest, SendsExperiment) {
   }
 
   // Add experiment/variation idd from the range reserved for autofill.
-  auto* variations_http_header_provider =
-      variations::VariationsHttpHeaderProvider::GetInstance();
-  ASSERT_TRUE(variations_http_header_provider != nullptr);
-  variations_http_header_provider->ForceVariationIds(
+  auto* variations_ids_provider =
+      variations::VariationsIdsProvider::GetInstance();
+  ASSERT_TRUE(variations_ids_provider != nullptr);
+  variations_ids_provider->ForceVariationIds(
       {"t3314883", "t3312923", "t3314885"},  // first two valid, out-of-order
       {});
 
@@ -1655,8 +1712,9 @@ TEST_P(AutofillQueryTest, SendsExperiment) {
     histogram.ExpectBucketCount("Autofill.Query.WasInCache", CACHE_MISS, 1);
 
     ASSERT_EQ(1u, payloads_.size());
-    AutofillQueryContents query_contents;
+    AutofillPageQueryRequest query_contents;
     ASSERT_TRUE(query_contents.ParseFromString(payloads_[0]));
+
     ASSERT_EQ(2, query_contents.experiments_size());
     EXPECT_EQ(3312923, query_contents.experiments(0));
     EXPECT_EQ(3314883, query_contents.experiments(1));
@@ -1787,30 +1845,30 @@ TEST_P(AutofillQueryTest, RichMetadata_Enabled) {
 
   // We should have intercepted exactly on query request. Parse it.
   ASSERT_EQ(1u, payloads_.size());
-  AutofillQueryContents query;
+  AutofillPageQueryRequest query;
   ASSERT_TRUE(query.ParseFromString(payloads_.front()));
 
   // Validate that we have one form in the query.
-  ASSERT_EQ(query.form_size(), 1);
-  const auto& query_form = query.form(0);
+  ASSERT_EQ(query.forms_size(), 1);
+  const auto& query_form = query.forms(0);
 
   // The form should have metadata, and the metadata value should be equal
   // those initialized above.
-  ASSERT_TRUE(query_form.has_form_metadata());
-  EXPECT_EQ(UTF8ToUTF16(query_form.form_metadata().id().encoded_bits()),
+  ASSERT_TRUE(query_form.has_metadata());
+  EXPECT_EQ(UTF8ToUTF16(query_form.metadata().id().encoded_bits()),
             form.id_attribute);
-  EXPECT_EQ(UTF8ToUTF16(query_form.form_metadata().name().encoded_bits()),
+  EXPECT_EQ(UTF8ToUTF16(query_form.metadata().name().encoded_bits()),
             form.name_attribute);
 
   // The form should have 3 fields, and their metadata value should be equal
   // those initialized above.
-  ASSERT_EQ(3, query_form.field_size());
-  ASSERT_EQ(static_cast<int>(form.fields.size()), query_form.field_size());
-  for (int i = 0; i < query_form.field_size(); ++i) {
-    const auto& query_field = query_form.field(i);
+  ASSERT_EQ(3, query_form.fields_size());
+  ASSERT_EQ(static_cast<int>(form.fields.size()), query_form.fields_size());
+  for (int i = 0; i < query_form.fields_size(); ++i) {
+    const auto& query_field = query_form.fields(i);
     const auto& form_field = form.fields[i];
-    ASSERT_TRUE(query_field.has_field_metadata());
-    const auto& meta = query_field.field_metadata();
+    ASSERT_TRUE(query_field.has_metadata());
+    const auto& meta = query_field.metadata();
     EXPECT_EQ(UTF8ToUTF16(meta.id().encoded_bits()), form_field.id_attribute);
     EXPECT_EQ(UTF8ToUTF16(meta.name().encoded_bits()),
               form_field.name_attribute);
@@ -1887,22 +1945,22 @@ TEST_P(AutofillQueryTest, RichMetadata_Disabled) {
 
   // We should have intercepted exactly on query request. Parse it.
   ASSERT_EQ(1u, payloads_.size());
-  AutofillQueryContents query;
+  AutofillPageQueryRequest query;
   ASSERT_TRUE(query.ParseFromString(payloads_.front()));
 
   // Validate that we have one form in the query.
-  ASSERT_EQ(query.form_size(), 1);
-  const auto& query_form = query.form(0);
+  ASSERT_EQ(query.forms_size(), 1);
+  const auto& query_form = query.forms(0);
 
   // There should be no encoded metadata for the form.
-  EXPECT_FALSE(query_form.has_form_metadata());
+  EXPECT_FALSE(query_form.has_metadata());
 
   // There should be three fields, none of which have encoded metadata.
-  ASSERT_EQ(3, query_form.field_size());
-  ASSERT_EQ(static_cast<int>(form.fields.size()), query_form.field_size());
-  for (int i = 0; i < query_form.field_size(); ++i) {
-    const auto& query_field = query_form.field(i);
-    EXPECT_FALSE(query_field.has_field_metadata());
+  ASSERT_EQ(3, query_form.fields_size());
+  ASSERT_EQ(static_cast<int>(form.fields.size()), query_form.fields_size());
+  for (int i = 0; i < query_form.fields_size(); ++i) {
+    const auto& query_field = query_form.fields(i);
+    EXPECT_FALSE(query_field.has_metadata());
   }
 }
 
@@ -1921,6 +1979,7 @@ TEST_P(AutofillUploadTest, RichMetadata) {
 
   FormData form;
   form.url = GURL("https://origin.com");
+  form.full_url = GURL("https://origin.com?foo=bar#foo");
   form.action = GURL("https://origin.com/submit-me");
   form.id_attribute = UTF8ToUTF16("form-id_attribute");
   form.name_attribute = UTF8ToUTF16("form-id_attribute");
@@ -1962,7 +2021,10 @@ TEST_P(AutofillUploadTest, RichMetadata) {
 
   AutofillDownloadManager download_manager(driver_.get(), this);
   FormStructure form_structure(form);
-  form_structure.set_page_language("fr-ca");
+  form_structure.set_current_page_language(LanguageCode("fr"));
+
+  pref_service_->SetBoolean(
+      RandomizedEncoder::kUrlKeyedAnonymizedDataCollectionEnabled, true);
 
   for (int i = 0; i <= static_cast<int>(SubmissionSource::kMaxValue); ++i) {
     base::HistogramTester histogram_tester;
@@ -1992,12 +2054,18 @@ TEST_P(AutofillUploadTest, RichMetadata) {
                                         true, 1);
 
     ASSERT_EQ(1u, payloads_.size());
-    AutofillUploadContents upload;
-    ASSERT_TRUE(upload.ParseFromString(payloads_.front()));
-    EXPECT_EQ(upload.language(), form_structure.page_language());
+    AutofillUploadRequest request;
+    ASSERT_TRUE(request.ParseFromString(payloads_.front()));
+    ASSERT_TRUE(request.has_upload());
+    const AutofillUploadContents& upload = request.upload();
+    EXPECT_EQ(upload.language(),
+              form_structure.current_page_language().value());
     ASSERT_TRUE(upload.has_randomized_form_metadata());
     EXPECT_TRUE(upload.randomized_form_metadata().has_id());
     EXPECT_TRUE(upload.randomized_form_metadata().has_name());
+    EXPECT_TRUE(upload.randomized_form_metadata().has_url());
+    ASSERT_TRUE(upload.randomized_form_metadata().url().has_checksum());
+    EXPECT_EQ(upload.randomized_form_metadata().url().checksum(), 3608731642);
     EXPECT_EQ(3, upload.field_size());
     for (const auto& f : upload.field()) {
       ASSERT_TRUE(f.has_randomized_field_metadata());
@@ -2070,8 +2138,7 @@ TEST_P(AutofillUploadTest, ThrottlingDisabled) {
       // Enabled.
       {},
       // Disabled
-      {features::kAutofillUploadThrottling,
-       features::kAutofillEnforceMinRequiredFieldsForUpload});
+      {features::kAutofillUploadThrottling});
 
   FormData form;
   FormData small_form;
@@ -2136,8 +2203,10 @@ TEST_P(AutofillUploadTest, ThrottlingDisabled) {
     // The last middle two uploads were marked as throttle-able.
     ASSERT_EQ(4u, payloads_.size());
     for (size_t i = 0; i < payloads_.size(); ++i) {
-      AutofillUploadContents upload_contents;
-      ASSERT_TRUE(upload_contents.ParseFromString(payloads_[i]));
+      AutofillUploadRequest request;
+      ASSERT_TRUE(request.ParseFromString(payloads_[i]));
+      ASSERT_TRUE(request.has_upload());
+      const AutofillUploadContents& upload_contents = request.upload();
       EXPECT_EQ(upload_contents.was_throttleable(), (i == 1 || i == 2))
           << "Wrong was_throttleable value for upload " << i;
       EXPECT_FALSE(upload_contents.has_randomized_form_metadata());

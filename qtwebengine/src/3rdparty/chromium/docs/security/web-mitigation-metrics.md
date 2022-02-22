@@ -66,6 +66,12 @@ but also avoids relying upon `'strict-dynamic'`, via
 [script-src]: https://w3c.github.io/webappsec-csp/#directive-script-src
 [csp-is-dead]: https://research.google/pubs/pub45542/
 
+#### Embedded Enforcement
+
+`kIFrameCSPAttribute` records the overall usage of the `csp` attribute on
+`<iframe>` elements, which enables pages to enforce a policy on documents
+they embed.
+
 ## Trusted Types
 
 [Trusted Types][tt] gives page authors a means to protect their sites against
@@ -78,9 +84,10 @@ usage we obtain the following usage counts:
   two allow us to determine which percentage of pages run in enforcing or
   report-only mode (or both).
 
-* Tracking specific features: `kTrustedTypesDefaultPolicyUsed` notes whether a
-  "default" policy has been used. `kTrustedTyoesAllowDuplicates` records
-  whether an 'allow-duplicates' keyword has been used.
+* Tracking specific features: `kTrustedTypesPolicyCreated` tracks
+  creation of all Trusted Types policies, `kTrustedTypesDefaultPolicyCreated`
+  notes whether a "default" policy has been created. `kTrustedTypesAllowDuplicates`
+  records whether an 'allow-duplicates' keyword has been used.
 
 * Error tracking: `kTrustedTypesAssignmentError` tracks whether Trusted Types
   has blocked a string assignment.
@@ -141,3 +148,21 @@ for pages that set COOP to "same-origin" and COEP to "require-corp".
 [coep]: https://wicg.github.io/cross-origin-embedder-policy/
 [coop]: https://gist.github.com/annevk/6f2dd8c79c77123f39797f6bdac43f3e
 
+## Sanitizer API
+
+[The Sanitizer API][sanitizer] provides a browser-maintained "ever-green", safe,
+and easy-to-use library for user input sanitization as part of the general web
+platform.
+
+* Sanitizer creation: `kSanitizerAPICreated` and
+  `kSanitizerAPIDefaultConfiguration` tell us how many Sanitizers are
+  created and how many Sanitizers are created without custom configurations.
+* Sanitizing process: `kSanitizerAPIToString` and
+  `kSanitizerAPIToFragment` counts the usage of two methods,
+  `Sanitizer::sanitizeToString` and `Sanitizer::sanitize`.
+* `kSanitizerAPIActionTaken` shows how many times do the
+  actual sanitize action has been performed while calling the Sanitizer APIs.
+* Input type: `kSanitizerAPIFromString`, `kSanitizerAPIFromDocument` and
+  `kSanitizerAPIFromFragment` tell us what kind of input people are using.
+
+[sanitizer]: https://wicg.github.io/sanitizer-api/

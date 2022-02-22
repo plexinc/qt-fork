@@ -41,9 +41,9 @@
 #include "qbsdfbintegration.h"
 #include "qbsdfbscreen.h"
 
-#include <QtFontDatabaseSupport/private/qgenericunixfontdatabase_p.h>
-#include <QtServiceSupport/private/qgenericunixservices_p.h>
-#include <QtEventDispatcherSupport/private/qgenericunixeventdispatcher_p.h>
+#include <QtGui/private/qgenericunixfontdatabase_p.h>
+#include <QtGui/private/qgenericunixservices_p.h>
+#include <QtGui/private/qgenericunixeventdispatcher_p.h>
 
 #include <QtFbSupport/private/qfbvthandler_p.h>
 #include <QtFbSupport/private/qfbbackingstore_p.h>
@@ -94,6 +94,8 @@ bool QBsdFbIntegration::hasCapability(QPlatformIntegration::Capability cap) cons
     case ThreadedPixmaps:
         return true;
     case WindowManagement:
+        return false;
+    case RhiBasedRendering:
         return false;
     default:
         return QPlatformIntegration::hasCapability(cap);

@@ -53,11 +53,11 @@
 #include <QtGui/private/qtguiglobal_p.h>
 #include <qobject.h>
 #include <private/qobject_p.h>
-#include <qkeysequence.h>
 #include <qlist.h>
 #include <qlocale.h>
 #include <qevent.h>
 
+#include <QtCore/qnativeinterface.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -72,6 +72,8 @@ public:
     static QKeyMapper *instance();
     static void changeKeyboard();
     static QList<int> possibleKeys(QKeyEvent *e);
+
+    QT_DECLARE_NATIVE_INTERFACE_ACCESSOR(QKeyMapper)
 
 private:
     friend QKeyMapperPrivate *qt_keymapper_private();
@@ -89,7 +91,6 @@ public:
     QKeyMapperPrivate();
     ~QKeyMapperPrivate();
 
-    void clearMappings();
     QList<int> possibleKeys(QKeyEvent *e);
 
     QLocale keyboardInputLocale;
@@ -97,6 +98,22 @@ public:
 };
 
 QKeyMapperPrivate *qt_keymapper_private(); // from qkeymapper.cpp
+
+// ----------------- QNativeInterface -----------------
+
+namespace QNativeInterface::Private {
+
+#if QT_CONFIG(evdev) || defined(Q_CLANG_QDOC)
+struct Q_GUI_EXPORT QEvdevKeyMapper
+{
+    QT_DECLARE_NATIVE_INTERFACE(QEvdevKeyMapper, 1, QKeyMapper)
+    virtual void loadKeymap(const QString &filename) = 0;
+    virtual void switchLang() = 0;
+};
+#endif
+
+} // QNativeInterface::Private
+
 
 QT_END_NAMESPACE
 

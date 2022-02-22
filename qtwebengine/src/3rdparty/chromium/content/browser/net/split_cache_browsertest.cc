@@ -4,11 +4,15 @@
 
 #include "base/path_service.h"
 #include "base/strings/pattern.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "content/browser/web_contents/web_contents_impl.h"
+#include "content/public/browser/browser_context.h"
 #include "content/public/browser/render_frame_host.h"
+#include "content/public/browser/storage_partition.h"
 #include "content/public/common/content_paths.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
@@ -82,8 +86,12 @@ class SplitCacheContentBrowserTest : public ContentBrowserTest {
       http_response->set_code(net::HTTP_OK);
 
       GURL resource = GenURL("3p.com", "/script");
-      std::string content =
-          base::StringPrintf("importScripts('%s');", resource.spec().c_str());
+      // Self-terminate the worker just after loading the third party
+      // script, so that the parent context doesn't need to wait for the
+      // worker's termination when cleaning up the test. See
+      // https://crbug.com/1104847 for more details.
+      std::string content = base::StringPrintf("importScripts('%s');\nclose();",
+                                               resource.spec().c_str());
 
       http_response->set_content(content);
       http_response->set_content_type("application/javascript");
@@ -100,7 +108,7 @@ class SplitCacheContentBrowserTest : public ContentBrowserTest {
       return http_response;
     }
 
-    // A cacheable worker that loads a nested /worker.js on an origin provided
+    // A cacheable worker that loads a nested worker on an origin provided
     // as a query param.
     if (absolute_url.path() == "/embedding_worker.js") {
       auto http_response =
@@ -334,6 +342,7 @@ class SplitCacheContentBrowserTest : public ContentBrowserTest {
     EXPECT_TRUE(ExecuteScript(host_to_load_resource, GetWorkerScript(worker)));
 
     observer.WaitForResourceCompletion(GenURL("3p.com", "/script"));
+    observer.WaitForResourceCompletion(worker);
 
     return (*observer.FindResource(worker))->was_cached;
   }
@@ -391,9 +400,10 @@ class SplitCacheRegistrableDomainContentBrowserTest
  public:
   SplitCacheRegistrableDomainContentBrowserTest() {
     feature_list.InitWithFeatures(
+        // enabled_features
         {net::features::kSplitCacheByNetworkIsolationKey,
-         net::features::kUseRegistrableDomainInNetworkIsolationKey,
          net::features::kAppendFrameOriginToNetworkIsolationKey},
+        // disabled_features
         {});
   }
 
@@ -612,14 +622,8 @@ IN_PROC_BROWSER_TEST_F(SplitCacheContentBrowserTestDisabled, NonSplitCache) {
                                GenURL("c.com", "/title1.html")));
 }
 
-// TODO(http://crbug.com/997808): Flaky on Linux ASAN.
-#if defined(OS_LINUX) && (defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER))
-#define MAYBE_SplitCacheDedicatedWorkers DISABLED_SplitCacheDedicatedWorkers
-#else
-#define MAYBE_SplitCacheDedicatedWorkers SplitCacheDedicatedWorkers
-#endif
 IN_PROC_BROWSER_TEST_F(SplitCacheWithFrameOriginContentBrowserTest,
-                       MAYBE_SplitCacheDedicatedWorkers) {
+                       SplitCacheDedicatedWorkers) {
   // Load 3p.com/script from a.com's worker. The first time it's loaded from the
   // network and the second it's cached.
   EXPECT_FALSE(TestResourceLoadFromDedicatedWorker(
@@ -674,10 +678,11 @@ IN_PROC_BROWSER_TEST_P(SplitCacheContentBrowserTestEnabled,
 
   // Navigate to a subframe with the same top frame origin as in an earlier
   // navigation and same url as already navigated to earlier in a main frame
-  // navigation. It should be a cache hit for the subframe resource.
+  // navigation. It should not be a cache hit since main frame document resource
+  // and subframe document resource have different cache keys.
   EXPECT_FALSE(NavigationResourceCached(
       GenURL("a.com", "/navigation_controller/page_with_iframe.html"),
-      GenURL("a.com", "/title1.html"), true));
+      GenURL("a.com", "/title1.html"), false));
 
   // Navigate to the same subframe document from a different top frame origin.
   // It should be a cache miss.
@@ -717,8 +722,145 @@ IN_PROC_BROWSER_TEST_F(SplitCacheWithFrameOriginContentBrowserTest,
       GenURL("d.com", "/title1.html"), true);
 }
 
+// Tests that when a subresource URL which is same-site to the fetching frame
+// is later used to create a subframe from the same top-level site, it should
+// not be a cache hit (crbug.com/1135149).
+IN_PROC_BROWSER_TEST_F(SplitCacheWithFrameOriginContentBrowserTest,
+                       SubframeNavigationResource) {
+  // main.com iframes 3p.com which fetches a subresource 3p.com/script with
+  // cache key (main.com, 3p.com, 3p.com/script). Then main.com iframes evil.com
+  // which iframes 3p.com/script. It should be a cache miss since the first time
+  // it was fetched as a subresource and second time as a subframe document
+  // resource.
+
+  // Fetch 3p.com/script from a 3p.com iframe, top-level site main.com.
+  TestResourceLoad(GenURL("main.com", "/title1.html") /* top-level frame */,
+                   GenURL("3p.com", "/title1.html") /* subframe */);
+
+  // Create evil.com iframe inside top-level site main.com.
+  NavigationResourceCached(
+      GenURL("main.com", "/navigation_controller/page_with_iframe.html"),
+      GenURL("evil.com", "/title1.html"), false);
+  RenderFrameHostImpl* main_frame = static_cast<RenderFrameHostImpl*>(
+      shell()->web_contents()->GetMainFrame());
+  EXPECT_EQ(1U, main_frame->frame_tree_node()->child_count());
+
+  // Observe network requests.
+  ResourceLoadObserver observer(shell());
+
+  // Now iframe 3p.com/script within evil.com.
+  GURL subframe_url = GenURL("3p.com", "/script");
+  EXPECT_TRUE(ExecuteScript(main_frame->frame_tree_node()->child_at(0),
+                            GetSubframeScript(subframe_url)));
+  EXPECT_TRUE(WaitForLoadStop(shell()->web_contents()));
+  observer.WaitForResourceCompletion(subframe_url);
+  EXPECT_EQ(false, (*observer.FindResource(subframe_url))->was_cached);
+}
+
+namespace {
+
+// This class invokes ComputeHttpCacheSize on the Network Context and
+// waits for the callback to be invoked.
+class SplitCacheComputeHttpCacheSize {
+ public:
+  SplitCacheComputeHttpCacheSize() = default;
+  ~SplitCacheComputeHttpCacheSize() = default;
+
+  int64_t ComputeHttpCacheSize(BrowserContext* context,
+                               base::Time start_time,
+                               base::Time end_time) {
+    last_computed_cache_size_ = -1;
+    auto* network_context =
+        content::BrowserContext::GetDefaultStoragePartition(context)
+            ->GetNetworkContext();
+    network::mojom::NetworkContext::ComputeHttpCacheSizeCallback size_callback =
+        base::BindOnce(
+            &SplitCacheComputeHttpCacheSize::ComputeCacheSizeCallback,
+            base::Unretained(this));
+
+    network_context->ComputeHttpCacheSize(start_time, end_time,
+                                          std::move(size_callback));
+    runloop_ = std::make_unique<base::RunLoop>();
+    runloop_->Run();
+    return last_computed_cache_size_;
+  }
+
+  void ComputeCacheSizeCallback(bool is_upper_bound, int64_t size) {
+    last_computed_cache_size_ = size;
+    runloop_->Quit();
+  }
+
+  SplitCacheComputeHttpCacheSize(const SplitCacheComputeHttpCacheSize&) =
+      delete;
+  SplitCacheComputeHttpCacheSize& operator=(
+      const SplitCacheComputeHttpCacheSize&) = delete;
+
+ private:
+  std::unique_ptr<base::RunLoop> runloop_;
+  int64_t last_computed_cache_size_ = -1;
+};
+
+}  // namespace
+
+// Tests that NotifyExternalCacheHit() has the correct value of
+// is_subframe_document_resource by checking that the size of the http cache
+// resources accessed after the resource is loaded from the blink cache is the
+// same as before that.
+// TODO(crbug.com/1166650): Test is flaky on Win.
+#if defined(OS_WIN)
+#define MAYBE_NotifyExternalCacheHitCheckSubframeBit \
+  DISABLED_NotifyExternalCacheHitCheckSubframeBit
+#else
+#define MAYBE_NotifyExternalCacheHitCheckSubframeBit \
+  NotifyExternalCacheHitCheckSubframeBit
+#endif
+IN_PROC_BROWSER_TEST_F(SplitCacheWithFrameOriginContentBrowserTest,
+                       MAYBE_NotifyExternalCacheHitCheckSubframeBit) {
+  ResourceLoadObserver observer(shell());
+  BrowserContext* context = shell()->web_contents()->GetBrowserContext();
+  std::unique_ptr<SplitCacheComputeHttpCacheSize> http_cache_size =
+      std::make_unique<SplitCacheComputeHttpCacheSize>();
+
+  // Since no resources are loaded yet, Http cache's size will be 0.
+  EXPECT_EQ(0, http_cache_size->ComputeHttpCacheSize(context, base::Time(),
+                                                     base::Time::Max()));
+
+  // First fetch will populate the cache.
+  GURL page_url(
+      embedded_test_server()->GetURL("/page_with_cached_subresource.html"));
+  EXPECT_TRUE(NavigateToURL(shell(), page_url));
+
+  // Checking the size of resources should be >0 as resources have been loaded.
+  int64_t size1 = http_cache_size->ComputeHttpCacheSize(context, base::Time(),
+                                                        base::Time::Max());
+  EXPECT_GT(size1, 0);
+  ASSERT_EQ(2U, observer.resource_load_infos().size());
+  EXPECT_TRUE(observer.memory_cached_loaded_urls().empty());
+  observer.Reset();
+
+  // Make sure time has moved forward from when the last entry was cached.
+  base::Time start = base::Time::Now();
+  while (start == base::Time::Now()) {
+  }
+  base::Time after_first = base::Time::Now();
+
+  // Loading again should serve the request out of the in-memory cache.
+  EXPECT_TRUE(NavigateToURL(shell(), page_url));
+
+  ASSERT_EQ(1U, observer.resource_load_infos().size());
+  ASSERT_EQ(1U, observer.memory_cached_loaded_urls().size());
+
+  // Loading from the in-memory cache also changes the last accessed time of
+  // those resources in the http cache. So if we check the size of resources
+  // accessed after the first load till now, it will be the same as before the
+  // 2nd navigation.
+  int64_t size2 = http_cache_size->ComputeHttpCacheSize(context, after_first,
+                                                        base::Time::Max());
+  EXPECT_EQ(size1, size2);
+}
+
 IN_PROC_BROWSER_TEST_P(SplitCacheContentBrowserTestEnabled,
-                       MAYBE_SplitCacheDedicatedWorkers) {
+                       SplitCacheDedicatedWorkers) {
   // Load 3p.com/script from a.com's worker. The first time it's loaded from the
   // network and the second it's cached.
   EXPECT_FALSE(TestResourceLoadFromDedicatedWorker(
@@ -761,15 +903,8 @@ IN_PROC_BROWSER_TEST_P(SplitCacheContentBrowserTestEnabled,
       GenURL("e.com", "/worker.js")));
 }
 
-// TODO(http://crbug.com/997732): Flaky on Linux.
-#if defined(OS_LINUX)
-#define MAYBE_SplitCacheDedicatedWorkerScripts \
-  DISABLED_SplitCacheDedicatedWorkersScripts
-#else
-#define MAYBE_SplitCacheDedicatedWorkerScripts SplitCacheDedicatedWorkersScripts
-#endif
 IN_PROC_BROWSER_TEST_P(SplitCacheContentBrowserTestEnabled,
-                       MAYBE_SplitCacheDedicatedWorkerScripts) {
+                       SplitCacheDedicatedWorkersScripts) {
   // Load a.com's worker. The first time the worker script is loaded from the
   // network and the second it's cached.
   EXPECT_FALSE(DedicatedWorkerScriptCached(
@@ -809,7 +944,7 @@ IN_PROC_BROWSER_TEST_P(SplitCacheContentBrowserTestEnabled,
 }
 
 IN_PROC_BROWSER_TEST_F(SplitCacheContentBrowserTestDisabled,
-                       MAYBE_SplitCacheDedicatedWorkers) {
+                       SplitCacheDedicatedWorkers) {
   // Load 3p.com/script from a.com's worker. The first time it's loaded from the
   // network and the second it's cached.
   EXPECT_FALSE(TestResourceLoadFromDedicatedWorker(
@@ -842,5 +977,67 @@ IN_PROC_BROWSER_TEST_F(SplitCacheContentBrowserTestDisabled,
 INSTANTIATE_TEST_SUITE_P(All,
                          SplitCacheContentBrowserTestEnabled,
                          ::testing::Values(true, false));
+
+class ScopeBlinkMemoryCachePerContext : public SplitCacheContentBrowserTest {
+ public:
+  ScopeBlinkMemoryCachePerContext() {
+    std::vector<base::Feature> enabled_features;
+    enabled_features.push_back(net::features::kSplitCacheByNetworkIsolationKey);
+    enabled_features.push_back(blink::features::kScopeMemoryCachePerContext);
+
+    feature_list.InitWithFeatures(enabled_features, {});
+  }
+
+ private:
+  base::test::ScopedFeatureList feature_list;
+};
+
+IN_PROC_BROWSER_TEST_F(ScopeBlinkMemoryCachePerContext, CheckFeature) {
+  base::HistogramTester histograms;
+  EXPECT_TRUE(base::FeatureList::IsEnabled(
+      blink::features::kScopeMemoryCachePerContext));
+
+  // This page fetches the same script resource twice.
+  GURL page_url_1(embedded_test_server()->GetURL(
+      "/page_with_multiple_cached_subresources.html"));
+  EXPECT_TRUE(NavigateToURL(shell(), page_url_1));
+
+  content::FetchHistogramsFromChildProcesses();
+
+  // The script is preloaded.
+  histograms.ExpectTotalCount(
+      "Blink.MemoryCache.RevalidationPolicy.Preload.Script", 2);
+  histograms.ExpectBucketCount(
+      "Blink.MemoryCache.RevalidationPolicy.Preload.Script",
+      3 /* RevalidationPolicy::kLoad */, 1);
+  histograms.ExpectBucketCount(
+      "Blink.MemoryCache.RevalidationPolicy.Preload.Script",
+      0 /* RevalidationPolicy::kUse */, 1);
+
+  // Since the script is loaded twice, kUse bucket should have 2.
+  histograms.ExpectTotalCount("Blink.MemoryCache.RevalidationPolicy.Script", 2);
+  histograms.ExpectBucketCount("Blink.MemoryCache.RevalidationPolicy.Script",
+                               0 /* RevalidationPolicy::kUse */, 2);
+
+  // Loading again should not serve the request out of the in-memory cache since
+  // this is a new document.
+  // This page fetches the same script resource once.
+  GURL page_url_2(
+      embedded_test_server()->GetURL("/page_with_cached_subresource.html"));
+  EXPECT_TRUE(NavigateToURL(shell(), page_url_2));
+
+  content::FetchHistogramsFromChildProcesses();
+  histograms.ExpectTotalCount(
+      "Blink.MemoryCache.RevalidationPolicy.Preload.Script", 3);
+  histograms.ExpectBucketCount(
+      "Blink.MemoryCache.RevalidationPolicy.Preload.Script",
+      3 /* RevalidationPolicy::kLoad */, 2);
+  histograms.ExpectBucketCount(
+      "Blink.MemoryCache.RevalidationPolicy.Preload.Script",
+      0 /* RevalidationPolicy::kUse */, 1);
+  histograms.ExpectTotalCount("Blink.MemoryCache.RevalidationPolicy.Script", 3);
+  histograms.ExpectBucketCount("Blink.MemoryCache.RevalidationPolicy.Script",
+                               0 /* RevalidationPolicy::kUse */, 3);
+}
 
 }  // namespace content

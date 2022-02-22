@@ -53,12 +53,13 @@
 
 //! [1]
 #include <QtGui>
+#include <QScopedPointer>
 
 class RasterWindow : public QWindow
 {
     Q_OBJECT
 public:
-    explicit RasterWindow(QWindow *parent = 0);
+    explicit RasterWindow(QWindow *parent = nullptr);
 
     virtual void render(QPainter *painter);
 
@@ -73,7 +74,7 @@ protected:
     void exposeEvent(QExposeEvent *event) override;
 
 private:
-    QBackingStore *m_backingStore;
+    QScopedPointer<QBackingStore> m_backingStore;
 };
 //! [1]
 #endif // RASTERWINDOW_H

@@ -30,7 +30,7 @@
 #include <stdlib.h>
 
 #include <QtCore/QCoreApplication>
-#include <QtCore/QRegExp>
+#include <QtCore/QRegularExpression>
 #include <QtCore/QStringList>
 #include <QtCore/qmetaobject.h>
 #include <QtXml/QDomDocument>
@@ -77,24 +77,24 @@ static void printArg(const QVariant &v)
         return;
     }
 
-    if (v.userType() == QVariant::StringList) {
+    if (v.metaType() == QMetaType::fromType<QStringList>()) {
         const QStringList sl = v.toStringList();
         for (const QString &s : sl)
             printf("%s\n", qPrintable(s));
-    } else if (v.userType() == QVariant::List) {
+    } else if (v.metaType() == QMetaType::fromType<QVariantList>()) {
         const QVariantList vl = v.toList();
         for (const QVariant &var : vl)
             printArg(var);
-    } else if (v.userType() == QVariant::Map) {
+    } else if (v.metaType() == QMetaType::fromType<QVariantMap>()) {
         const QVariantMap map = v.toMap();
         QVariantMap::ConstIterator it = map.constBegin();
         for ( ; it != map.constEnd(); ++it) {
             printf("%s: ", qPrintable(it.key()));
             printArg(it.value());
         }
-    } else if (v.userType() == qMetaTypeId<QDBusVariant>()) {
+    } else if (v.metaType() == QMetaType::fromType<QDBusVariant>()) {
         printArg(qvariant_cast<QDBusVariant>(v).variant());
-    } else if (v.userType() == qMetaTypeId<QDBusArgument>()) {
+    } else if (v.metaType() == QMetaType::fromType<QDBusArgument>()) {
         QDBusArgument arg = qvariant_cast<QDBusArgument>(v);
         if (arg.currentSignature() == QLatin1String("av"))
             printArg(qdbus_cast<QVariantList>(arg));
@@ -103,7 +103,7 @@ static void printArg(const QVariant &v)
         else
             printf("qdbus: I don't know how to display an argument of type '%s', run with --literal.\n",
                    qPrintable(arg.currentSignature()));
-    } else if (v.userType() != QVariant::Invalid) {
+    } else if (v.metaType().isValid()) {
         printf("%s\n", qPrintable(v.toString()));
     }
 }
@@ -310,30 +310,29 @@ static int placeCall(const QString &service, const QString &path, const QString 
             }
 
             for (int i = 0; !args.isEmpty() && i < types.count(); ++i) {
-                int id = QVariant::nameToType(types.at(i));
-                if (id == QVariant::UserType)
-                    id = QMetaType::type(types.at(i));
-                if (!id) {
+                const QMetaType metaType = QMetaType::fromName(types.at(i));
+                if (!metaType.isValid()) {
                     fprintf(stderr, "Cannot call method '%s' because type '%s' is unknown to this tool\n",
                             qPrintable(member), types.at(i).constData());
                     return 1;
                 }
+                const int id = metaType.id();
 
                 QVariant p;
                 QString argument;
-                if ((id == QVariant::List || id == QVariant::StringList)
+                if ((id == QMetaType::QVariantList || id == QMetaType::QStringList)
                      && args.at(0) == QLatin1String("("))
                     p = readList(args);
                 else
                     p = argument = args.takeFirst();
 
-                if (id == int(QMetaType::UChar)) {
+                if (id == QMetaType::UChar) {
                     // special case: QVariant::convert doesn't convert to/from
                     // UChar because it can't decide if it's a character or a number
                     p = QVariant::fromValue<uchar>(p.toUInt());
-                } else if (id < int(QMetaType::User) && id != int(QVariant::Map)) {
-                    p.convert(id);
-                    if (p.type() == QVariant::Invalid) {
+                } else if (id < QMetaType::User && id != QMetaType::QVariantMap) {
+                    p.convert(metaType);
+                    if (!p.isValid()) {
                         fprintf(stderr, "Could not convert '%s' to type '%s'.\n",
                                 qPrintable(argument), types.at(i).constData());
                         return 1 ;
@@ -406,14 +405,14 @@ static int placeCall(const QString &service, const QString &path, const QString 
 
 static bool globServices(QDBusConnectionInterface *bus, const QString &glob)
 {
-    QRegExp pattern(glob, Qt::CaseSensitive, QRegExp::Wildcard);
+    QRegularExpression pattern(QRegularExpression::wildcardToRegularExpression(glob));
     if (!pattern.isValid())
         return false;
 
     QStringList names = bus->registeredServiceNames();
     names.sort();
     for (const QString &name : qAsConst(names))
-        if (pattern.exactMatch(name))
+        if (pattern.match(name).hasMatch())
             printf("%s\n", qPrintable(name));
 
     return true;

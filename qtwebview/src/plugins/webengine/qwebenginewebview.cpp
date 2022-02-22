@@ -35,10 +35,9 @@
 ****************************************************************************/
 
 #include "qwebenginewebview_p.h"
-#include <private/qwebview_p.h>
-#include <private/qwebviewloadrequest_p.h>
-
-#include <QtWebView/private/qquickwebview_p.h>
+#include <QtWebView/private/qwebview_p.h>
+#include <QtWebView/private/qwebviewloadrequest_p.h>
+#include <QtWebViewQuick/private/qquickwebview_p.h>
 
 #include <QtCore/qmap.h>
 #include <QtGui/qguiapplication.h>
@@ -52,8 +51,9 @@
 #include <QtQuick/qquickview.h>
 #include <QtQuick/qquickitem.h>
 
-#include <QtWebEngine/private/qquickwebengineview_p.h>
-#include <QtWebEngine/private/qquickwebengineloadrequest_p.h>
+#include <QtWebEngineQuick/private/qquickwebengineview_p.h>
+#include <QtWebEngineQuick/private/qquickwebenginesettings_p.h>
+#include <QtWebEngineCore/qwebengineloadinginfo.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -200,11 +200,11 @@ void QWebEngineWebViewPrivate::q_titleChanged()
     Q_EMIT titleChanged(m_webEngineView->title());
 }
 
-void QWebEngineWebViewPrivate::q_loadingChanged(QQuickWebEngineLoadRequest *loadRequest)
+void QWebEngineWebViewPrivate::q_loadingChanged(const QWebEngineLoadingInfo &loadRequest)
 {
-    QWebViewLoadRequestPrivate lr(loadRequest->url(),
-                                  static_cast<QWebView::LoadStatus>(loadRequest->status()), // These "should" match...
-                                  loadRequest->errorString());
+    QWebViewLoadRequestPrivate lr(loadRequest.url(),
+                                  static_cast<QWebView::LoadStatus>(loadRequest.status()), // These "should" match...
+                                  loadRequest.errorString());
 
     Q_EMIT loadingChanged(lr);
 }
@@ -245,19 +245,23 @@ void QWebEngineWebViewPrivate::QQuickWebEngineViewPtr::init() const
             break;
     }
 
-    if (!parentItem)
+    if (!parentItem) {
+        qWarning("Could not find QQuickWebView");
         return;
-
+    }
     QQmlEngine *engine = qmlEngine(parentItem);
-    if (!engine)
+    if (!engine) {
+        qWarning("Could not initialize qmlEngine");
         return;
-
+    }
     QQmlComponent *component = new QQmlComponent(engine);
     component->setData(qmlSource(), QUrl::fromLocalFile(QLatin1String("")));
     QQuickWebEngineView *webEngineView = qobject_cast<QQuickWebEngineView *>(component->create());
     Q_ASSERT(webEngineView);
     QQuickWebEngineProfile *profile = webEngineView->profile();
+    Q_ASSERT(profile);
     m_parent->m_profile = profile;
+    webEngineView->settings()->setErrorPageEnabled(false);
     // When the httpUserAgent is set as a property then it will be set before
     // init() is called
     if (m_parent->m_httpUserAgent.isEmpty())

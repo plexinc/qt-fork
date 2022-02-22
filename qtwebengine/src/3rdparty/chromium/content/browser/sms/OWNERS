@@ -1,7 +1,6 @@
-ayui@chromium.org
-jsbell@chromium.org
-juncai@chromium.org
-reillyg@chromium.org
+# Primary
+goto@chromium.org
+majidvp@chromium.org
 
-# COMPONENT: Blink>SMS
-# TEAM: fugu-dev@chromium.org
+# Secondary
+reillyg@chromium.org

@@ -2,13 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/qpack/qpack_static_table.h"
+#include "quic/core/qpack/qpack_static_table.h"
 
 #include <set>
 
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_arraysize.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/base/macros.h"
+#include "absl/strings/string_view.h"
+#include "quic/platform/api/quic_test.h"
 
 namespace quic {
 
@@ -32,7 +32,7 @@ TEST(QpackStaticTableTest, Initialize) {
   EXPECT_EQ(QpackStaticTableVector().size(), static_index.size());
 
   auto static_name_index = table.GetStaticNameIndex();
-  std::set<quiche::QuicheStringPiece> names;
+  std::set<absl::string_view> names;
   for (auto entry : static_index) {
     names.insert(entry->name());
   }

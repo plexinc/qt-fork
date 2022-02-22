@@ -42,7 +42,7 @@
 #include <private/chartaxiselement_p.h>
 #include <QtCharts/private/qchartglobal_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class Q_CHARTS_PRIVATE_EXPORT PolarChartAxis : public ChartAxisElement
 {
@@ -52,30 +52,30 @@ public:
     PolarChartAxis(QAbstractAxis *axis, QGraphicsItem *item, bool intervalAxis = false);
     ~PolarChartAxis();
 
-    void setGeometry(const QRectF &axis, const QRectF &grid);
+    void setGeometry(const QRectF &axis, const QRectF &grid) override;
     virtual qreal preferredAxisRadius(const QSizeF &maxSize) = 0;
     int tickWidth() { return 3; }
 
 public: // from ChartAxisElement
-    QRectF gridGeometry() const;
-    bool isEmpty();
+    QRectF gridGeometry() const override;
+    bool emptyAxis() const override;
 
 protected:
-    void updateLayout(QVector<qreal> &layout);
+    void updateLayout(const QList<qreal> &layout) override;
 
 protected: // virtual functions
     virtual void createItems(int count) = 0;
-    virtual void createAxisLabels(const QVector<qreal> &layout) = 0;
+    virtual void createAxisLabels(const QList<qreal> &layout) = 0;
     virtual void updateMinorTickItems() = 0;
 
 public Q_SLOTS:
-    virtual void handleShadesBrushChanged(const QBrush &brush);
-    virtual void handleShadesPenChanged(const QPen &pen);
+    void handleShadesBrushChanged(const QBrush &brush) override;
+    void handleShadesPenChanged(const QPen &pen) override;
 
 private:
     void deleteItems(int count);
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // POLARCHARTAXIS_P_H

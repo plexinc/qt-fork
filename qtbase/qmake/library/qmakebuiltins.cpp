@@ -39,7 +39,7 @@
 #include <qfile.h>
 #include <qfileinfo.h>
 #include <qlist.h>
-#include <qregexp.h>
+#include <qregularexpression.h>
 #include <qset.h>
 #include <qstringlist.h>
 #include <qtextstream.h>
@@ -639,7 +639,11 @@ QMakeEvaluator::VisitReturn QMakeEvaluator::evaluateBuiltinExpand(
         if (!var.isEmpty()) {
             const auto strings = values(map(var));
             if (regexp) {
-                QRegExp sepRx(sep);
+                QRegularExpression sepRx(sep, QRegularExpression::DotMatchesEverythingOption);
+                if (!sepRx.isValid()) {
+                    evalError(fL1S("section(): Encountered invalid regular expression '%1'.").arg(sep));
+                    goto allfail;
+                }
                 for (const ProString &str : strings) {
                     ProStringRwUser u1(str, m_tmp[m_toggle ^= 1]);
                     ret << u1.extract(u1.str().section(sepRx, beg, end));
@@ -669,7 +673,7 @@ QMakeEvaluator::VisitReturn QMakeEvaluator::evaluateBuiltinExpand(
         bool leftalign = false;
         enum { DefaultSign, PadSign, AlwaysSign } sign = DefaultSign;
         if (args.count() >= 2) {
-            const auto opts = split_value_list(args.at(1).toQStringRef());
+            const auto opts = split_value_list(args.at(1).toQStringView());
             for (const ProString &opt : opts) {
                 if (opt.startsWith(QLatin1String("ibase="))) {
                     ibase = opt.mid(6).toInt();
@@ -772,7 +776,7 @@ QMakeEvaluator::VisitReturn QMakeEvaluator::evaluateBuiltinExpand(
         const auto vars = values(map(args.at(0)));
         for (const ProString &var : vars) {
             // FIXME: this is inconsistent with the "there are no empty strings" dogma.
-            const auto splits = var.toQStringRef().split(sep, Qt::KeepEmptyParts);
+            const auto splits = var.toQStringView().split(sep, Qt::KeepEmptyParts);
             for (const auto &splt : splits)
                 ret << ProString(splt).setSource(var);
         }
@@ -862,7 +866,7 @@ QMakeEvaluator::VisitReturn QMakeEvaluator::evaluateBuiltinExpand(
                         ret += ProString(stream.readLine());
                     } else {
                         const QString &line = stream.readLine();
-                        ret += split_value_list(QStringRef(&line).trimmed());
+                        ret += split_value_list(QStringView(line).trimmed());
                         if (!singleLine)
                             ret += ProString("\n");
                     }
@@ -886,15 +890,19 @@ QMakeEvaluator::VisitReturn QMakeEvaluator::evaluateBuiltinExpand(
         ret = ProStringList(ProString(tmp));
         ProStringList lst;
         for (const ProString &arg : args)
-            lst += split_value_list(arg.toQStringRef(), arg.sourceFile()); // Relies on deep copy
+            lst += split_value_list(arg.toQStringView(), arg.sourceFile()); // Relies on deep copy
         m_valuemapStack.top()[ret.at(0).toKey()] = lst;
         break; }
     case E_FIND: {
-        QRegExp regx(args.at(1).toQString());
+        QRegularExpression regx(args.at(1).toQString(), QRegularExpression::DotMatchesEverythingOption);
+        if (!regx.isValid()) {
+            evalError(fL1S("find(): Encountered invalid regular expression '%1'.").arg(regx.pattern()));
+            goto allfail;
+        }
         const auto vals = values(map(args.at(0)));
         for (const ProString &val : vals) {
             ProStringRoUser u1(val, m_tmp[m_toggle ^= 1]);
-            if (regx.indexIn(u1.str()) != -1)
+            if (u1.str().contains(regx))
                 ret += val;
         }
         break;
@@ -931,7 +939,7 @@ QMakeEvaluator::VisitReturn QMakeEvaluator::evaluateBuiltinExpand(
                 output.replace(QLatin1Char('\t'), QLatin1Char(' '));
                 if (singleLine)
                     output.replace(QLatin1Char('\n'), QLatin1Char(' '));
-                ret += split_value_list(QStringRef(&output));
+                ret += split_value_list(QStringView(output));
             }
         }
         break;
@@ -990,7 +998,7 @@ QMakeEvaluator::VisitReturn QMakeEvaluator::evaluateBuiltinExpand(
     case E_RE_ESCAPE:
         for (int i = 0; i < args.size(); ++i) {
             ProStringRwUser u1(args.at(i), m_tmp1);
-            ret << u1.extract(QRegExp::escape(u1.str()));
+            ret << u1.extract(QRegularExpression::escape(u1.str()));
         }
         break;
     case E_VAL_ESCAPE: {
@@ -1038,8 +1046,12 @@ QMakeEvaluator::VisitReturn QMakeEvaluator::evaluateBuiltinExpand(
             dirs.append(QString());
         }
 
-        r.detach(); // Keep m_tmp out of QRegExp's cache
-        QRegExp regex(r, Qt::CaseSensitive, QRegExp::Wildcard);
+        QString pattern = QRegularExpression::wildcardToRegularExpression(r);
+        QRegularExpression regex(pattern, QRegularExpression::DotMatchesEverythingOption);
+        if (!regex.isValid()) {
+            evalError(fL1S("section(): Encountered invalid wildcard expression '%1'.").arg(pattern));
+            goto allfail;
+        }
         for (int d = 0; d < dirs.count(); d++) {
             QString dir = dirs[d];
             QDir qdir(pfx + dir);
@@ -1051,7 +1063,7 @@ QMakeEvaluator::VisitReturn QMakeEvaluator::evaluateBuiltinExpand(
                     if (recursive)
                         dirs.append(fname + QLatin1Char('/'));
                 }
-                if (regex.exactMatch(qdir[i]))
+                if (regex.match(qdir[i]).hasMatch())
                       ret += ProString(fname).setSource(currentFileId());
             }
         }
@@ -1080,13 +1092,17 @@ QMakeEvaluator::VisitReturn QMakeEvaluator::evaluateBuiltinExpand(
                 evalError(fL1S("Unexpected EOF."));
                 return ReturnError;
             }
-            ret = split_value_list(QStringRef(&line));
+            ret = split_value_list(QStringView(line));
         }
         break;
     }
 #endif
     case E_REPLACE: {
-        const QRegExp before(args.at(1).toQString());
+        const QRegularExpression before(args.at(1).toQString(), QRegularExpression::DotMatchesEverythingOption);
+        if (!before.isValid()) {
+            evalError(fL1S("replace(): Encountered invalid regular expression '%1'.").arg(before.pattern()));
+            goto allfail;
+        }
         ProStringRwUser u2(args.at(2), m_tmp2);
         const QString &after = u2.str();
         const auto vals = values(map(args.at(0)));
@@ -1109,7 +1125,7 @@ QMakeEvaluator::VisitReturn QMakeEvaluator::evaluateBuiltinExpand(
         ProString priosfx = args.count() < 4 ? ProString(".priority") : args.at(3);
         populateDeps(orgList, prefix,
                      args.count() < 3 ? ProStringList(ProString(".depends"))
-                                      : split_value_list(args.at(2).toQStringRef()),
+                                      : split_value_list(args.at(2).toQStringView()),
                      priosfx, dependencies, dependees, rootSet);
         while (!rootSet.isEmpty()) {
             QMultiMap<int, ProString>::iterator it = rootSet.begin();
@@ -1267,7 +1283,7 @@ QMakeEvaluator::VisitReturn QMakeEvaluator::testFunc_cache(const ProStringList &
     enum { CacheSet, CacheAdd, CacheSub } mode = CacheSet;
     ProKey srcvar;
     if (args.count() >= 2) {
-        const auto opts = split_value_list(args.at(1).toQStringRef());
+        const auto opts = split_value_list(args.at(1).toQStringView());
         for (const ProString &opt : opts) {
             if (opt == QLatin1String("transient")) {
                 persist = false;
@@ -1492,7 +1508,7 @@ QMakeEvaluator::VisitReturn QMakeEvaluator::evaluateBuiltinConditional(
                 auto isFrom = [pro](const ProString &s) {
                     return s.sourceFile() == pro;
                 };
-                vit->erase(std::remove_if(vit->begin(), vit->end(), isFrom), vit->end());
+                vit->removeIf(isFrom);
                 if (vit->isEmpty()) {
                     // When an initially non-empty variable becomes entirely empty,
                     // undefine it altogether.
@@ -1528,21 +1544,24 @@ QMakeEvaluator::VisitReturn QMakeEvaluator::evaluateBuiltinConditional(
             return ok;
         if (args.count() == 2)
             return returnBool(vars.contains(map(args.at(1))));
-        QRegExp regx;
+        QRegularExpression regx;
+        regx.setPatternOptions(QRegularExpression::DotMatchesEverythingOption);
         ProStringRoUser u1(args.at(2), m_tmp1);
         const QString &qry = u1.str();
-        if (qry != QRegExp::escape(qry)) {
-            QString copy = qry;
-            copy.detach();
-            regx.setPattern(copy);
+        if (qry != QRegularExpression::escape(qry)) {
+            regx.setPattern(QRegularExpression::anchoredPattern(qry));
+            if (!regx.isValid()) {
+                evalError(fL1S("infile(): Encountered invalid regular expression '%1'.").arg(qry));
+                return ReturnFalse;
+            }
         }
         const auto strings = vars.value(map(args.at(1)));
         for (const ProString &s : strings) {
             if (s == qry)
                 return ReturnTrue;
-            if (!regx.isEmpty()) {
+            if (!regx.pattern().isEmpty()) {
                 ProStringRoUser u2(s, m_tmp[m_toggle ^= 1]);
-                if (regx.exactMatch(u2.str()))
+                if (regx.match(u2.str()).hasMatch())
                     return ReturnTrue;
             }
         }
@@ -1557,7 +1576,7 @@ QMakeEvaluator::VisitReturn QMakeEvaluator::evaluateBuiltinConditional(
     case T_EVAL: {
         VisitReturn ret = ReturnFalse;
         QString contents = args.join(statics.field_sep);
-        ProFile *pro = m_parser->parsedProBlock(QStringRef(&contents),
+        ProFile *pro = m_parser->parsedProBlock(QStringView(contents),
                                                 0, m_current.pro->fileName(), m_current.line);
         if (m_cumulative || pro->isOk()) {
             m_locationStack.push(m_current);
@@ -1569,19 +1588,19 @@ QMakeEvaluator::VisitReturn QMakeEvaluator::evaluateBuiltinConditional(
         return ret;
     }
     case T_IF: {
-        return evaluateConditional(args.at(0).toQStringRef(),
+        return evaluateConditional(args.at(0).toQStringView(),
                                    m_current.pro->fileName(), m_current.line);
     }
     case T_CONFIG: {
         if (args.count() == 1)
-            return returnBool(isActiveConfig(args.at(0).toQStringRef()));
-        const auto mutuals = args.at(1).toQStringRef().split(QLatin1Char('|'),
+            return returnBool(isActiveConfig(args.at(0).toQStringView()));
+        const auto mutuals = args.at(1).toQStringView().split(QLatin1Char('|'),
                                                              Qt::SkipEmptyParts);
         const ProStringList &configs = values(statics.strCONFIG);
 
         for (int i = configs.size() - 1; i >= 0; i--) {
             for (int mut = 0; mut < mutuals.count(); mut++) {
-                if (configs[i].toQStringRef() == mutuals[mut].trimmed())
+                if (configs[i].toQStringView() == mutuals[mut].trimmed())
                     return returnBool(configs[i] == args[0]);
             }
         }
@@ -1590,11 +1609,14 @@ QMakeEvaluator::VisitReturn QMakeEvaluator::evaluateBuiltinConditional(
     case T_CONTAINS: {
         ProStringRoUser u1(args.at(1), m_tmp1);
         const QString &qry = u1.str();
-        QRegExp regx;
-        if (qry != QRegExp::escape(qry)) {
-            QString copy = qry;
-            copy.detach();
-            regx.setPattern(copy);
+        QRegularExpression regx;
+        regx.setPatternOptions(QRegularExpression::DotMatchesEverythingOption);
+        if (qry != QRegularExpression::escape(qry)) {
+            regx.setPattern(QRegularExpression::anchoredPattern(qry));
+            if (!regx.isValid()) {
+                evalError(fL1S("contains(): Encountered invalid regular expression '%1'.").arg(qry));
+                return ReturnFalse;
+            }
         }
         const ProStringList &l = values(map(args.at(0)));
         if (args.count() == 2) {
@@ -1602,24 +1624,24 @@ QMakeEvaluator::VisitReturn QMakeEvaluator::evaluateBuiltinConditional(
                 const ProString &val = l[i];
                 if (val == qry)
                     return ReturnTrue;
-                if (!regx.isEmpty()) {
+                if (!regx.pattern().isEmpty()) {
                     ProStringRoUser u2(val, m_tmp[m_toggle ^= 1]);
-                    if (regx.exactMatch(u2.str()))
+                    if (regx.match(u2.str()).hasMatch())
                         return ReturnTrue;
                 }
             }
         } else {
-            const auto mutuals = args.at(2).toQStringRef().split(QLatin1Char('|'),
+            const auto mutuals = args.at(2).toQStringView().split(QLatin1Char('|'),
                                                                  Qt::SkipEmptyParts);
             for (int i = l.size() - 1; i >= 0; i--) {
                 const ProString &val = l[i];
                 for (int mut = 0; mut < mutuals.count(); mut++) {
-                    if (val.toQStringRef() == mutuals[mut].trimmed()) {
+                    if (val.toQStringView() == mutuals[mut].trimmed()) {
                         if (val == qry)
                             return ReturnTrue;
-                        if (!regx.isEmpty()) {
+                        if (!regx.pattern().isEmpty()) {
                             ProStringRoUser u2(val, m_tmp[m_toggle ^= 1]);
-                            if (regx.exactMatch(u2.str()))
+                            if (regx.match(u2.str()).hasMatch())
                                 return ReturnTrue;
                         }
                         return ReturnFalse;
@@ -1667,15 +1689,15 @@ QMakeEvaluator::VisitReturn QMakeEvaluator::evaluateBuiltinConditional(
             }
         }
         if (func_t == T_GREATERTHAN)
-            return returnBool(lhs > rhs.toQStringRef());
-        return returnBool(lhs < rhs.toQStringRef());
+            return returnBool(lhs > rhs.toQStringView());
+        return returnBool(lhs < rhs.toQStringView());
     }
     case T_EQUALS:
         return returnBool(values(map(args.at(0))).join(statics.field_sep)
                           == args.at(1).toQStringView());
     case T_VERSION_AT_LEAST:
     case T_VERSION_AT_MOST: {
-        const QVersionNumber lvn = QVersionNumber::fromString(values(args.at(0).toKey()).join('.'));
+        const QVersionNumber lvn = QVersionNumber::fromString(values(args.at(0).toKey()).join(QLatin1Char('.')));
         const QVersionNumber rvn = QVersionNumber::fromString(args.at(1).toQStringView());
         if (func_t == T_VERSION_AT_LEAST)
             return returnBool(lvn >= rvn);
@@ -1859,7 +1881,7 @@ QMakeEvaluator::VisitReturn QMakeEvaluator::evaluateBuiltinConditional(
             if (!vals.isEmpty())
                 contents = vals.join(QLatin1Char('\n')) + QLatin1Char('\n');
             if (args.count() >= 3) {
-                const auto opts = split_value_list(args.at(2).toQStringRef());
+                const auto opts = split_value_list(args.at(2).toQStringView());
                 for (const ProString &opt : opts) {
                     if (opt == QLatin1String("append")) {
                         mode = QIODevice::Append;

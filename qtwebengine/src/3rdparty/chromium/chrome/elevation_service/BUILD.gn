@@ -3,6 +3,7 @@
 # found in the LICENSE file.
 
 import("//build/config/chrome_build.gni")
+import("//build/config/ui.gni")
 import("//build/toolchain/win/midl.gni")
 import("//chrome/process_version_rc_template.gni")
 import("//testing/test.gni")
@@ -37,7 +38,10 @@ executable("elevation_service") {
     "elevation_service.rc",
   ]
 
-  configs -= [ "//build/config/win:console" ]
+  configs -= [
+    "//build/config/compiler:cet_shadow_stack",
+    "//build/config/win:console",
+  ]
   configs += [ "//build/config/win:windowed" ]
   configs += [ ":no-missing-braces" ]
   configs -= [ "//build/config/win:winver" ]
@@ -63,8 +67,8 @@ source_set("lib") {
     "elevated_recovery_impl.h",
     "elevator.cc",
     "elevator.h",
-    "service_main.h",
     "service_main.cc",
+    "service_main.h",
   ]
 
   configs += [ ":no-missing-braces" ]
@@ -95,6 +99,8 @@ copy("elevation_service_unittests_files") {
 }
 
 test("elevation_service_unittests") {
+  use_xvfb = use_xvfb_in_this_config
+
   sources = [
     "elevated_recovery_unittest.cc",
     "run_all_unittests.cc",

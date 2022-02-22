@@ -390,6 +390,7 @@ void QVirtualKeyboardInputEngine::setInputMethod(QVirtualKeyboardAbstractInputMe
     if (d->inputMethod != inputMethod) {
         update();
         if (d->inputMethod) {
+            d->inputMethod->clearInputMode();
             QObject::disconnect(d->inputMethod.data(), &QVirtualKeyboardAbstractInputMethod::selectionListsChanged, this, &QVirtualKeyboardInputEngine::updateSelectionListModels);
             d->inputMethod->setInputEngine(nullptr);
         }
@@ -693,8 +694,9 @@ void QVirtualKeyboardInputEngine::updateInputModes()
 {
     Q_D(QVirtualKeyboardInputEngine);
     QList<int> newInputModes;
+    QList<InputMode> tmpList;
     if (d->inputMethod) {
-        QList<InputMode> tmpList(d->inputMethod->inputModes(d->inputContext->locale()));
+        tmpList = d->inputMethod->inputModes(d->inputContext->locale());
         if (!tmpList.isEmpty()) {
             std::transform(tmpList.constBegin(), tmpList.constEnd(),
                            std::back_inserter(newInputModes),
@@ -705,6 +707,7 @@ void QVirtualKeyboardInputEngine::updateInputModes()
     }
     if (d->inputModes != newInputModes) {
         d->inputModes = newInputModes;
+        VIRTUALKEYBOARD_DEBUG() << "QVirtualKeyboardInputEngine::inputModesChanged():" << tmpList;
         emit inputModesChanged();
     }
 }
@@ -716,9 +719,11 @@ void QVirtualKeyboardInputEngine::timerEvent(QTimerEvent *timerEvent)
 {
     Q_D(QVirtualKeyboardInputEngine);
     if (timerEvent->timerId() == d->repeatTimer) {
-        d->repeatTimer = 0;
         d->virtualKeyClick(d->activeKey, d->activeKeyText, d->activeKeyModifiers, true);
-        d->repeatTimer = startTimer(50);
+        if (!d->repeatCount) {
+            killTimer(d->repeatTimer);
+            d->repeatTimer = startTimer(50);
+        }
         d->repeatCount++;
     }
 }
@@ -806,6 +811,8 @@ void QVirtualKeyboardInputEngine::timerEvent(QTimerEvent *timerEvent)
         \li \c InputEngine.InputMode.JapaneseHandwriting Japanese handwriting.
         \li \c InputEngine.InputMode.KoreanHandwriting Korean handwriting.
         \li \c InputEngine.InputMode.Thai Thai input mode.
+        \li \c InputEngine.InputMode.Stroke Stroke input mode for Chinese.
+        \li \c InputEngine.InputMode.Romaji Romaji input mode for Japanese.
     \endlist
 */
 
@@ -889,6 +896,10 @@ void QVirtualKeyboardInputEngine::timerEvent(QTimerEvent *timerEvent)
            Korean handwriting input mode.
     \value Thai
            Thai input mode.
+    \value Stroke
+           Stroke input mode for Chinese.
+    \value Romaji
+           Romaji input mode for Japanese.
 */
 
 /*!

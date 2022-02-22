@@ -53,7 +53,7 @@
 
 #include <QtGui/private/qtguiglobal_p.h>
 #include "QtGui/qtextformat.h"
-#include "QtCore/qvector.h"
+#include "QtCore/qlist.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -92,17 +92,24 @@ public:
 
     inline int numFormats() const { return formats.count(); }
 
-    typedef QVector<QTextFormat> FormatVector;
+    typedef QList<QTextFormat> FormatVector;
 
     FormatVector formats;
-    QVector<qint32> objFormats;
-    QMultiHash<uint,int> hashes;
+    QList<qint32> objFormats;
+    QMultiHash<size_t,int> hashes;
 
     inline QFont defaultFont() const { return defaultFnt; }
     void setDefaultFont(const QFont &f);
 
+    inline void setSuperScriptBaseline(qreal baseline) { defaultFormat.setSuperScriptBaseline(baseline); }
+    inline void setSubScriptBaseline(qreal baseline) { defaultFormat.setSubScriptBaseline(baseline); }
+    inline void setBaselineOffset(qreal baseline) { defaultFormat.setBaselineOffset(baseline); }
+
+    inline QTextCharFormat defaultTextFormat() const { return defaultFormat; }
+
 private:
     QFont defaultFnt;
+    QTextCharFormat defaultFormat;
 
     Q_DISABLE_COPY_MOVE(QTextFormatCollection)
 };

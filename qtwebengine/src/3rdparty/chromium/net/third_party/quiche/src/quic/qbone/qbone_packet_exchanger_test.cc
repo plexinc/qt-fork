@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/qbone/qbone_packet_exchanger.h"
+#include "quic/qbone/qbone_packet_exchanger.h"
 
 #include <utility>
 
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/qbone/mock_qbone_client.h"
+#include "quic/platform/api/quic_test.h"
+#include "quic/qbone/mock_qbone_client.h"
 
 namespace quic {
 namespace {
@@ -19,8 +19,8 @@ const size_t kMaxPendingPackets = 2;
 
 class MockVisitor : public QbonePacketExchanger::Visitor {
  public:
-  MOCK_METHOD1(OnReadError, void(const std::string&));
-  MOCK_METHOD1(OnWriteError, void(const std::string&));
+  MOCK_METHOD(void, OnReadError, (const std::string&), (override));
+  MOCK_METHOD(void, OnWriteError, (const std::string&), (override));
 };
 
 class FakeQbonePacketExchanger : public QbonePacketExchanger {

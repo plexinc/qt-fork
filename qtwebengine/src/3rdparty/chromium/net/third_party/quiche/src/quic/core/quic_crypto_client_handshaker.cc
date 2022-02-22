@@ -2,18 +2,18 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/quic_crypto_client_handshaker.h"
+#include "quic/core/quic_crypto_client_handshaker.h"
 
 #include <memory>
 #include <string>
 
-#include "net/third_party/quiche/src/quic/core/crypto/crypto_protocol.h"
-#include "net/third_party/quiche/src/quic/core/crypto/crypto_utils.h"
-#include "net/third_party/quiche/src/quic/core/quic_session.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_client_stats.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
+#include "absl/strings/str_cat.h"
+#include "quic/core/crypto/crypto_protocol.h"
+#include "quic/core/crypto/crypto_utils.h"
+#include "quic/core/quic_session.h"
+#include "quic/platform/api/quic_client_stats.h"
+#include "quic/platform/api/quic_flags.h"
+#include "quic/platform/api/quic_logging.h"
 
 namespace quic {
 
@@ -128,6 +128,10 @@ bool QuicCryptoClientHandshaker::EarlyDataAccepted() const {
   return num_client_hellos_ == 1;
 }
 
+ssl_early_data_reason_t QuicCryptoClientHandshaker::EarlyDataReason() const {
+  return early_data_reason_;
+}
+
 bool QuicCryptoClientHandshaker::ReceivedInchoateReject() const {
   QUIC_BUG_IF(!one_rtt_keys_available_);
   return num_client_hellos_ >= 3;
@@ -163,7 +167,12 @@ HandshakeState QuicCryptoClientHandshaker::GetHandshakeState() const {
 }
 
 void QuicCryptoClientHandshaker::OnHandshakeDoneReceived() {
-  DCHECK(false);
+  QUICHE_DCHECK(false);
+}
+
+void QuicCryptoClientHandshaker::OnNewTokenReceived(
+    absl::string_view /*token*/) {
+  QUICHE_DCHECK(false);
 }
 
 size_t QuicCryptoClientHandshaker::BufferSizeLimitForLevel(
@@ -171,9 +180,33 @@ size_t QuicCryptoClientHandshaker::BufferSizeLimitForLevel(
   return QuicCryptoHandshaker::BufferSizeLimitForLevel(level);
 }
 
+bool QuicCryptoClientHandshaker::KeyUpdateSupportedLocally() const {
+  return false;
+}
+
+std::unique_ptr<QuicDecrypter>
+QuicCryptoClientHandshaker::AdvanceKeysAndCreateCurrentOneRttDecrypter() {
+  // Key update is only defined in QUIC+TLS.
+  QUICHE_DCHECK(false);
+  return nullptr;
+}
+
+std::unique_ptr<QuicEncrypter>
+QuicCryptoClientHandshaker::CreateCurrentOneRttEncrypter() {
+  // Key update is only defined in QUIC+TLS.
+  QUICHE_DCHECK(false);
+  return nullptr;
+}
+
+void QuicCryptoClientHandshaker::OnConnectionClosed(
+    QuicErrorCode /*error*/,
+    ConnectionCloseSource /*source*/) {
+  next_state_ = STATE_CONNECTION_CLOSED;
+}
+
 void QuicCryptoClientHandshaker::HandleServerConfigUpdateMessage(
     const CryptoHandshakeMessage& server_config_update) {
-  DCHECK(server_config_update.tag() == kSCUP);
+  QUICHE_DCHECK(server_config_update.tag() == kSCUP);
   std::string error_details;
   QuicCryptoClientConfig::CachedState* cached =
       crypto_config_->LookupOrCreate(server_id_);
@@ -188,7 +221,7 @@ void QuicCryptoClientHandshaker::HandleServerConfigUpdateMessage(
     return;
   }
 
-  DCHECK(one_rtt_keys_available());
+  QUICHE_DCHECK(one_rtt_keys_available());
   if (proof_verify_callback_) {
     proof_verify_callback_->Cancel();
   }
@@ -203,7 +236,7 @@ void QuicCryptoClientHandshaker::DoHandshakeLoop(
 
   QuicAsyncStatus rv = QUIC_SUCCESS;
   do {
-    CHECK_NE(STATE_NONE, next_state_);
+    QUICHE_CHECK_NE(STATE_NONE, next_state_);
     const State state = next_state_;
     next_state_ = STATE_IDLE;
     rv = QUIC_SUCCESS;
@@ -236,6 +269,9 @@ void QuicCryptoClientHandshaker::DoHandshakeLoop(
         break;
       case STATE_NONE:
         QUIC_NOTREACHED();
+        return;
+      case STATE_CONNECTION_CLOSED:
+        rv = QUIC_FAILURE;
         return;  // We are done.
     }
   } while (rv != QUIC_PENDING && next_state_ != STATE_NONE);
@@ -248,7 +284,7 @@ void QuicCryptoClientHandshaker::DoInitialize(
     // This allows us to respond to CA trust changes or certificate
     // expiration because it may have been a while since we last verified
     // the proof.
-    DCHECK(crypto_config_->proof_verifier());
+    QUICHE_DCHECK(crypto_config_->proof_verifier());
     // Track proof verification time when cached server config is used.
     proof_verify_start_time_ = session()->connection()->clock()->Now();
     chlo_hash_ = cached->chlo_hash();
@@ -267,21 +303,30 @@ void QuicCryptoClientHandshaker::DoSendCHLO(
   if (num_client_hellos_ >= QuicCryptoClientStream::kMaxClientHellos) {
     stream_->OnUnrecoverableError(
         QUIC_CRYPTO_TOO_MANY_REJECTS,
-        quiche::QuicheStrCat("More than ",
-                             QuicCryptoClientStream::kMaxClientHellos,
-                             " rejects"));
+        absl::StrCat("More than ", QuicCryptoClientStream::kMaxClientHellos,
+                     " rejects"));
     return;
   }
   num_client_hellos_++;
 
   CryptoHandshakeMessage out;
-  DCHECK(session() != nullptr);
-  DCHECK(session()->config() != nullptr);
+  QUICHE_DCHECK(session() != nullptr);
+  QUICHE_DCHECK(session()->config() != nullptr);
   // Send all the options, regardless of whether we're sending an
   // inchoate or subsequent hello.
   session()->config()->ToHandshakeMessage(&out, session()->transport_version());
 
+  bool fill_inchoate_client_hello = false;
   if (!cached->IsComplete(session()->connection()->clock()->WallNow())) {
+    early_data_reason_ = ssl_early_data_no_session_offered;
+    fill_inchoate_client_hello = true;
+  } else if (session()->config()->HasClientRequestedIndependentOption(
+                 kQNZ2, session()->perspective()) &&
+             num_client_hellos_ == 1) {
+    early_data_reason_ = ssl_early_data_disabled;
+    fill_inchoate_client_hello = true;
+  }
+  if (fill_inchoate_client_hello) {
     crypto_config_->FillInchoateClientHello(
         server_id_, session()->supported_versions().front(), cached,
         session()->connection()->random_generator(),
@@ -306,7 +351,7 @@ void QuicCryptoClientHandshaker::DoSendCHLO(
     chlo_hash_ = CryptoUtils::HashHandshakeMessage(out, Perspective::IS_CLIENT);
     session()->connection()->set_fully_pad_crypto_handshake_packets(
         crypto_config_->pad_inchoate_hello());
-    SendHandshakeMessage(out);
+    SendHandshakeMessage(out, ENCRYPTION_INITIAL);
     return;
   }
 
@@ -333,7 +378,7 @@ void QuicCryptoClientHandshaker::DoSendCHLO(
   next_state_ = STATE_RECV_SHLO;
   session()->connection()->set_fully_pad_crypto_handshake_packets(
       crypto_config_->pad_full_hello());
-  SendHandshakeMessage(out);
+  SendHandshakeMessage(out, ENCRYPTION_INITIAL);
   // Be prepared to decrypt with the new server write key.
   delegate_->OnNewEncryptionKeyAvailable(
       ENCRYPTION_ZERO_RTT,
@@ -345,6 +390,9 @@ void QuicCryptoClientHandshaker::DoSendCHLO(
       /*latch_once_used=*/true);
   encryption_established_ = true;
   delegate_->SetDefaultEncryptionLevel(ENCRYPTION_ZERO_RTT);
+  if (early_data_reason_ == ssl_early_data_unknown && num_client_hellos_ > 1) {
+    early_data_reason_ = ssl_early_data_peer_declined;
+  }
 }
 
 void QuicCryptoClientHandshaker::DoReceiveREJ(
@@ -415,7 +463,7 @@ void QuicCryptoClientHandshaker::DoReceiveREJ(
 QuicAsyncStatus QuicCryptoClientHandshaker::DoVerifyProof(
     QuicCryptoClientConfig::CachedState* cached) {
   ProofVerifier* verifier = crypto_config_->proof_verifier();
-  DCHECK(verifier);
+  QUICHE_DCHECK(verifier);
   next_state_ = STATE_VERIFY_PROOF_COMPLETE;
   generation_counter_ = cached->generation_counter();
 
@@ -481,7 +529,6 @@ void QuicCryptoClientHandshaker::DoVerifyProofComplete(
     if (!one_rtt_keys_available()) {
       next_state_ = STATE_SEND_CHLO;
     } else {
-      // TODO: Enable Expect-Staple. https://crbug.com/631101
       next_state_ = STATE_NONE;
     }
   }
@@ -510,8 +557,8 @@ void QuicCryptoClientHandshaker::DoReceiveSHLO(
   if (in->tag() != kSHLO) {
     stream_->OnUnrecoverableError(
         QUIC_INVALID_CRYPTO_MESSAGE_TYPE,
-        quiche::QuicheStrCat("Expected SHLO or REJ. Received: ",
-                             QuicTagToString(in->tag())));
+        absl::StrCat("Expected SHLO or REJ. Received: ",
+                     QuicTagToString(in->tag())));
     return;
   }
 
@@ -520,6 +567,9 @@ void QuicCryptoClientHandshaker::DoReceiveSHLO(
     stream_->OnUnrecoverableError(QUIC_CRYPTO_ENCRYPTION_LEVEL_INCORRECT,
                                   "unencrypted SHLO message");
     return;
+  }
+  if (num_client_hellos_ == 1) {
+    early_data_reason_ = ssl_early_data_accepted;
   }
 
   std::string error_details;
@@ -564,7 +614,7 @@ void QuicCryptoClientHandshaker::DoInitializeServerConfigUpdate(
   bool update_ignored = false;
   if (!cached->IsEmpty() && !cached->signature().empty()) {
     // Note that we verify the proof even if the cached proof is valid.
-    DCHECK(crypto_config_->proof_verifier());
+    QUICHE_DCHECK(crypto_config_->proof_verifier());
     next_state_ = STATE_VERIFY_PROOF;
   } else {
     update_ignored = true;

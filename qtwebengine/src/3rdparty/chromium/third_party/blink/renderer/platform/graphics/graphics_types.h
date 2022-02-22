@@ -116,32 +116,22 @@ enum OpacityMode {
   kOpaque,
 };
 
-enum AccelerationHint {
-  kPreferAcceleration,
-  // The PreferAccelerationAfterVisibilityChange hint suggests we should switch
-  // back to acceleration in the context of the canvas becoming visible again.
-  kPreferAccelerationAfterVisibilityChange,
-  kPreferNoAcceleration,
+// Specifies whether the provider should rasterize paint commands on the CPU
+// or GPU. This is used to support software raster with GPU compositing.
+enum class RasterMode {
+  kGPU,
+  kCPU,
+};
+
+enum class RasterModeHint {
+  kPreferGPU,
+  kPreferCPU,
 };
 
 enum MailboxSyncMode {
   kVerifiedSyncToken,
   kUnverifiedSyncToken,
   kOrderingBarrier,
-};
-
-enum class DarkModeClassification {
-  kNotClassified,
-  kApplyFilter,
-  kDoNotApplyFilter,
-};
-
-// TODO(junov): crbug.com/453113 Relocate ShadowMode to
-// CanvasRenderingContext2DState.h once GraphicsContext no longer uses it.
-enum ShadowMode {
-  kDrawShadowAndForeground,
-  kDrawShadowOnly,
-  kDrawForegroundOnly
 };
 
 enum AntiAliasingMode { kNotAntiAliased, kAntiAliased };
@@ -163,8 +153,6 @@ enum LineJoin {
   kRoundJoin = SkPaint::kRound_Join,
   kBevelJoin = SkPaint::kBevel_Join
 };
-
-enum HorizontalAlignment { kAlignLeft, kAlignRight, kAlignHCenter };
 
 enum TextBaseline {
   kAlphabeticTextBaseline,

@@ -26,7 +26,7 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include <QtCore/qcoreapplication.h>
 #include <QtGui/qevent.h>
@@ -37,8 +37,8 @@ class Window : public QWindow
 public:
     ~Window() { reset(); }
 
-    void keyPressEvent(QKeyEvent *event) { recordEvent(event); }
-    void keyReleaseEvent(QKeyEvent *event) { recordEvent(event); }
+    void keyPressEvent(QKeyEvent *event) override { recordEvent(event); }
+    void keyReleaseEvent(QKeyEvent *event) override { recordEvent(event); }
 
     void reset() {
         qDeleteAll(keyEvents.begin(), keyEvents.end());
@@ -52,7 +52,7 @@ private:
     }
 
 public:
-    QVector<QKeyEvent*> keyEvents;
+    QList<QKeyEvent *> keyEvents;
 };
 
 class tst_QKeyEvent : public QObject
@@ -64,8 +64,10 @@ public:
 
 private slots:
     void basicEventDelivery();
+#if QT_CONFIG(shortcut)
     void modifiers_data();
     void modifiers();
+#endif
 };
 
 tst_QKeyEvent::tst_QKeyEvent()
@@ -96,7 +98,7 @@ void tst_QKeyEvent::basicEventDelivery()
     }
 }
 
-static bool orderByModifier(const QVector<int> &v1, const QVector<int> &v2)
+static bool orderByModifier(const QList<int> &v1, const QList<int> &v2)
 {
     if (v1.size() != v2.size())
         return v1.size() < v2.size();
@@ -128,6 +130,8 @@ static QByteArray modifiersTestRowName(const QString &keySequence)
     return result;
 }
 
+#if QT_CONFIG(shortcut)
+
 void tst_QKeyEvent::modifiers_data()
 {
     struct Modifier
@@ -142,12 +146,12 @@ void tst_QKeyEvent::modifiers_data()
         { Qt::Key_Meta, Qt::MetaModifier },
     };
 
-    QVector<QVector<int>> modifierCombinations;
+    QList<QList<int>> modifierCombinations;
 
     // Generate powerset (minus the empty set) of possible modifier combinations
     static const int kNumModifiers = sizeof(modifiers) / sizeof(Modifier);
     for (quint64 bitmask = 1; bitmask < (1 << kNumModifiers) ; ++bitmask) {
-        QVector<int> modifierCombination;
+        QList<int> modifierCombination;
         for (quint64 modifier = 0; modifier < kNumModifiers; ++modifier) {
             if (bitmask & (quint64(1) << modifier))
                 modifierCombination.append(modifier);
@@ -158,7 +162,7 @@ void tst_QKeyEvent::modifiers_data()
     std::sort(modifierCombinations.begin(), modifierCombinations.end(), orderByModifier);
 
     QTest::addColumn<Qt::KeyboardModifiers>("modifiers");
-    foreach (const QVector<int> combination, modifierCombinations) {
+    foreach (const QList<int> combination, modifierCombinations) {
         int keys[4] = {};
         Qt::KeyboardModifiers mods;
         for (int i = 0; i < combination.size(); ++i) {
@@ -197,6 +201,8 @@ void tst_QKeyEvent::modifiers()
         }
     }
 }
+
+#endif // QT_CONFIG(shortcut)
 
 QTEST_MAIN(tst_QKeyEvent)
 #include "tst_qkeyevent.moc"

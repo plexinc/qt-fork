@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/quic_packets.h"
+#include "quic/core/quic_packets.h"
 
-#include "net/third_party/quiche/src/quic/platform/api/quic_ptr_util.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
-#include "net/third_party/quiche/src/common/test_tools/quiche_test_utils.h"
+#include "quic/platform/api/quic_ptr_util.h"
+#include "quic/platform/api/quic_test.h"
+#include "quic/test_tools/quic_test_utils.h"
+#include "common/test_tools/quiche_test_utils.h"
 
 namespace quic {
 namespace test {
@@ -106,10 +106,6 @@ TEST_F(QuicPacketsTest, CopySerializedPacket) {
       CopySerializedPacket(packet, &allocator, /*copy_buffer=*/false));
   EXPECT_EQ(packet.encrypted_buffer, copy2->encrypted_buffer);
   EXPECT_EQ(1000u, copy2->encrypted_length);
-  ClearSerializedPacket(&packet);
-  delete[] copy->encrypted_buffer;
-  ClearSerializedPacket(copy.get());
-  ClearSerializedPacket(copy2.get());
 }
 
 }  // namespace

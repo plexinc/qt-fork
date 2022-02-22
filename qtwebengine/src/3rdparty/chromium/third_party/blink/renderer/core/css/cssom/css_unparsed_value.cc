@@ -86,12 +86,15 @@ CSSUnparsedValue* CSSUnparsedValue::FromCSSVariableData(
   return CSSUnparsedValue::Create(ParserTokenRangeToTokens(value.TokenRange()));
 }
 
-CSSUnparsedSegment CSSUnparsedValue::AnonymousIndexedGetter(
+void CSSUnparsedValue::AnonymousIndexedGetter(
     unsigned index,
+    CSSUnparsedSegment& return_value,
     ExceptionState& exception_state) const {
-  if (index < tokens_.size())
-    return tokens_[index];
-  return {};
+  if (index < tokens_.size()) {
+    return_value = tokens_[index];
+  } else {
+    return_value = CSSUnparsedSegment();
+  }
 }
 
 IndexedPropertySetterResult CSSUnparsedValue::AnonymousIndexedSetter(
@@ -116,16 +119,18 @@ IndexedPropertySetterResult CSSUnparsedValue::AnonymousIndexedSetter(
 }
 
 const CSSValue* CSSUnparsedValue::ToCSSValue() const {
-  if (tokens_.IsEmpty()) {
+  CSSTokenizer tokenizer(ToString());
+  const auto tokens = tokenizer.TokenizeToEOF();
+  CSSParserTokenRange range(tokens);
+
+  if (range.AtEnd()) {
     return MakeGarbageCollected<CSSVariableReferenceValue>(
         CSSVariableData::Create());
   }
 
-  CSSTokenizer tokenizer(ToString());
-  const auto tokens = tokenizer.TokenizeToEOF();
   return MakeGarbageCollected<CSSVariableReferenceValue>(
       CSSVariableData::Create(
-          CSSParserTokenRange(tokens), false /* is_animation_tainted */,
+          {range, StringView()}, false /* is_animation_tainted */,
           false /* needs_variable_resolution */, KURL(), WTF::TextEncoding()));
 }
 

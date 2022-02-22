@@ -196,15 +196,18 @@ public:
     void addLineBreak() {m_tspans.append(LINEBREAK);}
     void setWhitespaceMode(WhitespaceMode mode) {m_mode = mode;}
 
-    //QRectF bounds(QPainter *p, QSvgExtraStates &states) const override;
+    QRectF bounds(QPainter *p, QSvgExtraStates &states) const override;
+
 private:
+    void draw_helper(QPainter *p, QSvgExtraStates &states, QRectF *boundingRect = nullptr) const;
+
     static QSvgTspan * const LINEBREAK;
 
     QPointF m_coord;
 
     // 'm_tspans' is also used to store characters outside tspans and line breaks.
     // If a 'm_tspan' item is null, it indicates a line break.
-    QVector<QSvgTspan *> m_tspans;
+    QList<QSvgTspan *> m_tspans;
 
     Type m_type;
     QSizeF m_size;

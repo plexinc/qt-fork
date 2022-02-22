@@ -18,6 +18,7 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/path_service.h"
 #include "base/win/scoped_hdc.h"
+#include "printing/mojom/print.mojom.h"
 #include "printing/printing_context.h"
 #include "printing/printing_context_win.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -86,7 +87,7 @@ TEST_F(EmfPrintingTest, Enumerate) {
   auto settings = std::make_unique<PrintSettings>();
 
   // My test case is a HP Color LaserJet 4550 PCL.
-  settings->set_device_name(L"UnitTest Printer");
+  settings->set_device_name(STRING16_LITERAL("UnitTest Printer"));
 
   // Initialize it.
   PrintingContextWin context(this);
@@ -113,7 +114,7 @@ TEST_F(EmfPrintingTest, Enumerate) {
   // unit_test, PrintingContext automatically dumps its files to the
   // current directory.
   // TODO(maruel):  Clean the .PRN file generated in current directory.
-  context.NewDocument(L"EmfTest.Enumerate");
+  context.NewDocument(STRING16_LITERAL("EmfTest.Enumerate"));
   context.NewPage();
   // Process one at a time.
   RECT page_bounds = emf.GetPageBounds(1).ToRECT();
@@ -145,7 +146,8 @@ TEST_F(EmfPrintingTest, PageBreak) {
     EXPECT_TRUE(emf.context());
     int pages = 3;
     while (pages) {
-      emf.StartPage(gfx::Size(), gfx::Rect(), 1);
+      emf.StartPage(gfx::Size(), gfx::Rect(), 1,
+                    mojom::PageOrientation::kUpright);
       ::Rectangle(emf.context(), 10, 10, 190, 190);
       EXPECT_TRUE(emf.FinishPage());
       --pages;

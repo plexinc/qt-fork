@@ -45,7 +45,7 @@
 #include "extensions_renderer_client_qt.h"
 
 #include "extensions_dispatcher_delegate_qt.h"
-#include "renderer/render_thread_observer_qt.h"
+#include "renderer/render_configuration.h"
 #include "renderer_permissions_policy_delegate_qt.h"
 #include "resource_request_policy_qt.h"
 
@@ -62,9 +62,7 @@
 #include "extensions/renderer/dispatcher.h"
 #include "extensions/renderer/extension_frame_helper.h"
 #include "extensions/renderer/extensions_render_frame_observer.h"
-#include "extensions/renderer/guest_view/extensions_guest_view_container.h"
 #include "extensions/renderer/guest_view/extensions_guest_view_container_dispatcher.h"
-#include "extensions/renderer/guest_view/mime_handler_view/mime_handler_view_container.h"
 #include "extensions/renderer/renderer_extension_registry.h"
 #include "extensions/renderer/script_context.h"
 #include "third_party/blink/public/platform/web_url.h"
@@ -72,7 +70,6 @@
 
 namespace chrome {
 const char kExtensionInvalidRequestURL[] = "chrome-extension://invalid/";
-const char kExtensionResourceInvalidRequestURL[] = "chrome-extension-resource://invalid/";
 }
 
 namespace QtWebEngineCore {
@@ -88,7 +85,7 @@ ExtensionsRendererClientQt::~ExtensionsRendererClientQt()
 // Returns true if the current render process was launched incognito.
 bool ExtensionsRendererClientQt::IsIncognitoProcess() const
 {
-    return RenderThreadObserverQt::is_incognito_process();
+    return RenderConfiguration::is_incognito_process();
 }
 
 // Returns the lowest isolated world ID available to extensions.
@@ -127,9 +124,6 @@ bool ExtensionsRendererClientQt::ExtensionAPIEnabledForServiceWorkerScript(const
     if (!script_url.SchemeIs(extensions::kExtensionScheme))
         return false;
 
-    if (!extensions::ExtensionsClient::Get()->ExtensionAPIEnabledInExtensionServiceWorkers())
-        return false;
-
     const extensions::Extension* extension =
             extensions::RendererExtensionRegistry::Get()->GetExtensionOrAppByURL(script_url);
 
@@ -147,8 +141,6 @@ bool ExtensionsRendererClientQt::ExtensionAPIEnabledForServiceWorkerScript(const
 void ExtensionsRendererClientQt::RenderThreadStarted()
 {
     content::RenderThread *thread = content::RenderThread::Get();
-    // ChromeRenderViewTest::SetUp() creates its own ExtensionDispatcher and
-    // injects it using SetExtensionDispatcher(). Don't overwrite it.
     if (!extension_dispatcher_)
         extension_dispatcher_.reset(new extensions::Dispatcher(std::make_unique<ExtensionsDispatcherDelegateQt>()));
     extension_dispatcher_->OnRenderThreadStarted(thread);
@@ -181,12 +173,14 @@ bool ExtensionsRendererClientQt::OverrideCreatePlugin(content::RenderFrame *rend
 void ExtensionsRendererClientQt::WillSendRequest(blink::WebLocalFrame *frame,
                                                  ui::PageTransition transition_type,
                                                  const blink::WebURL &url,
+                                                 const net::SiteForCookies &site_for_cookies,
                                                  const url::Origin *initiator_origin,
-                                                 GURL *new_url,
-                                                 bool *attach_same_site_cookies)
+                                                 GURL *new_url)
 {
     if (url.ProtocolIs(extensions::kExtensionScheme) &&
-            !resource_request_policy_->CanRequestResource(url, frame, transition_type)) {
+            !resource_request_policy_->CanRequestResource(url, frame,
+                                                          transition_type,
+                                                          base::OptionalFromPtr(initiator_origin))) {
         *new_url = GURL(chrome::kExtensionInvalidRequestURL);
     }
 }
@@ -198,16 +192,6 @@ bool ExtensionsRendererClientQt::ShouldFork(blink::WebLocalFrame *frame,
                                             bool *send_referrer)
 {
     return false; // TODO: Fix this to a sensible value
-}
-
-content::BrowserPluginDelegate *ExtensionsRendererClientQt::CreateBrowserPluginDelegate(content::RenderFrame *render_frame,
-                                                                                        const content::WebPluginInfo &info,
-                                                                                        const std::string &mime_type,
-                                                                                        const GURL &original_url)
-{
-    if (mime_type == content::kBrowserPluginMimeType)
-        return new extensions::ExtensionsGuestViewContainer(render_frame);
-    return new extensions::MimeHandlerViewContainer(render_frame, info, mime_type, original_url);
 }
 
 void ExtensionsRendererClientQt::RunScriptsAtDocumentStart(content::RenderFrame *render_frame)

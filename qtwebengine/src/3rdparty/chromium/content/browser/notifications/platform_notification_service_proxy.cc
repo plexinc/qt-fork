@@ -7,11 +7,12 @@
 #include <memory>
 #include <utility>
 
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/task/post_task.h"
 #include "content/browser/notifications/devtools_event_logging.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/notification_database_data.h"
 #include "content/public/browser/platform_notification_service.h"
@@ -66,20 +67,9 @@ void PlatformNotificationServiceProxy::VerifyServiceWorkerScope(
 
   if (status == blink::ServiceWorkerStatusCode::kOk &&
       registration->scope().GetOrigin() == data.origin) {
-    task = base::BindOnce(
-        &PlatformNotificationServiceProxy::DoDisplayNotification, AsWeakPtr(),
-        data, registration->scope(), std::move(callback));
+    DoDisplayNotification(data, registration->scope(), std::move(callback));
   } else {
-    task = base::BindOnce(std::move(callback), /* success= */ false,
-                          /* notification_id= */ "");
-  }
-
-  if (ServiceWorkerContextWrapper::IsServiceWorkerOnUIEnabled()) {
-    std::move(task).Run();
-  } else {
-    base::PostTask(FROM_HERE,
-                   {BrowserThread::UI, base::TaskPriority::USER_VISIBLE},
-                   std::move(task));
+    std::move(callback).Run(/* success= */ false, /* notification_id= */ "");
   }
 }
 
@@ -87,9 +77,10 @@ void PlatformNotificationServiceProxy::DisplayNotification(
     const NotificationDatabaseData& data,
     DisplayResultCallback callback) {
   if (!service_worker_context_) {
-    base::PostTask(
-        FROM_HERE, {BrowserThread::UI, base::TaskPriority::USER_VISIBLE},
-        base::BindOnce(&PlatformNotificationServiceProxy::DoDisplayNotification,
+    GetUIThreadTaskRunner({base::TaskPriority::USER_VISIBLE})
+        ->PostTask(FROM_HERE,
+                   base::BindOnce(
+                       &PlatformNotificationServiceProxy::DoDisplayNotification,
                        AsWeakPtr(), data, GURL(), std::move(callback)));
     return;
   }
@@ -101,35 +92,38 @@ void PlatformNotificationServiceProxy::DisplayNotification(
       base::BindOnce(
           &ServiceWorkerContextWrapper::FindReadyRegistrationForId,
           service_worker_context_, data.service_worker_registration_id,
-          data.origin,
+          url::Origin::Create(data.origin),
           base::BindOnce(
               &PlatformNotificationServiceProxy::VerifyServiceWorkerScope,
               weak_ptr_factory_io_.GetWeakPtr(), data, std::move(callback))));
 }
 
-void PlatformNotificationServiceProxy::CloseNotification(
-    const std::string& notification_id) {
+void PlatformNotificationServiceProxy::CloseNotifications(
+    const std::set<std::string>& notification_ids) {
   if (!notification_service_)
     return;
-  base::PostTask(
-      FROM_HERE, {BrowserThread::UI, base::TaskPriority::USER_VISIBLE},
-      base::BindOnce(&PlatformNotificationServiceProxy::DoCloseNotification,
-                     AsWeakPtr(), notification_id));
+  GetUIThreadTaskRunner({base::TaskPriority::USER_VISIBLE})
+      ->PostTask(FROM_HERE,
+                 base::BindOnce(
+                     &PlatformNotificationServiceProxy::DoCloseNotifications,
+                     AsWeakPtr(), notification_ids));
 }
 
-void PlatformNotificationServiceProxy::DoCloseNotification(
-    const std::string& notification_id) {
+void PlatformNotificationServiceProxy::DoCloseNotifications(
+    const std::set<std::string>& notification_ids) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  notification_service_->ClosePersistentNotification(notification_id);
+  for (const std::string& notification_id : notification_ids)
+    notification_service_->ClosePersistentNotification(notification_id);
 }
 
 void PlatformNotificationServiceProxy::ScheduleTrigger(base::Time timestamp) {
   if (!notification_service_)
     return;
-  base::PostTask(
-      FROM_HERE, {BrowserThread::UI, base::TaskPriority::USER_VISIBLE},
-      base::BindOnce(&PlatformNotificationServiceProxy::DoScheduleTrigger,
-                     AsWeakPtr(), timestamp));
+  GetUIThreadTaskRunner({base::TaskPriority::USER_VISIBLE})
+      ->PostTask(
+          FROM_HERE,
+          base::BindOnce(&PlatformNotificationServiceProxy::DoScheduleTrigger,
+                         AsWeakPtr(), timestamp));
 }
 
 void PlatformNotificationServiceProxy::DoScheduleTrigger(base::Time timestamp) {
@@ -142,9 +136,10 @@ void PlatformNotificationServiceProxy::ScheduleNotification(
   DCHECK(data.notification_data.show_trigger_timestamp.has_value());
   if (!notification_service_)
     return;
-  base::PostTask(
-      FROM_HERE, {BrowserThread::UI, base::TaskPriority::USER_VISIBLE},
-      base::BindOnce(&PlatformNotificationServiceProxy::DoScheduleNotification,
+  GetUIThreadTaskRunner({base::TaskPriority::USER_VISIBLE})
+      ->PostTask(FROM_HERE,
+                 base::BindOnce(
+                     &PlatformNotificationServiceProxy::DoScheduleNotification,
                      AsWeakPtr(), data));
 }
 
@@ -181,8 +176,8 @@ bool PlatformNotificationServiceProxy::ShouldLogClose(const GURL& origin) {
 
 void PlatformNotificationServiceProxy::LogClose(
     const NotificationDatabaseData& data) {
-  base::PostTask(FROM_HERE,
-                 {BrowserThread::UI, base::TaskPriority::BEST_EFFORT},
+  GetUIThreadTaskRunner({base::TaskPriority::BEST_EFFORT})
+      ->PostTask(FROM_HERE,
                  base::BindOnce(&PlatformNotificationServiceProxy::DoLogClose,
                                 AsWeakPtr(), data));
 }

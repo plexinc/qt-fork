@@ -247,7 +247,7 @@ static Qt::WindowStates windowState(const QObject *o)
 
 class EventFilter : public QObject {
 public:
-    explicit EventFilter(QObject *parent = 0) : QObject(parent) {}
+    explicit EventFilter(QObject *parent = nullptr) : QObject(parent) {}
 
     bool eventFilter(QObject *o, QEvent *e)
     {
@@ -289,19 +289,15 @@ private:
 
 LogWidget *LogWidget::m_instance = 0;
 
-#if QT_VERSION >= 0x050000
-static void qt5MessageHandler(QtMsgType, const QMessageLogContext &, const QString &text)
+static QtMessageHandler originalMessageHandler = nullptr;
+
+static void messageHandler(QtMsgType type, const QMessageLogContext &context, const QString &text)
 {
     if (LogWidget *lw = LogWidget::instance())
         lw->appendText(text);
+
+    originalMessageHandler(type, context, text);
 }
-#else // Qt 5
-static void qt4MessageHandler(QtMsgType, const char *text)
-{
-    if (LogWidget *lw = LogWidget::instance())
-        lw->appendText(QString::fromLocal8Bit(text));
-}
-#endif // Qt 4
 
 LogWidget::LogWidget(QWidget *parent)
     : QPlainTextEdit(parent)
@@ -318,11 +314,7 @@ LogWidget::~LogWidget()
 
 void LogWidget::install()
 {
-#if QT_VERSION >= 0x050000
-    qInstallMessageHandler(qt5MessageHandler);
-#else
-    qInstallMsgHandler(qt4MessageHandler);
-#endif
+    originalMessageHandler = qInstallMessageHandler(messageHandler);
 }
 
 QString LogWidget::startupMessage()
@@ -375,7 +367,7 @@ ControllerWindow::ControllerWindow()
     bottomLayout->addWidget(clearLogButton);
     QPushButton *quitButton = new QPushButton(tr("&Quit"));
     connect(quitButton, SIGNAL(clicked()), qApp, SLOT(quit()));
-    quitButton->setShortcut(Qt::CTRL + Qt::Key_Q);
+    quitButton->setShortcut(Qt::CTRL | Qt::Key_Q);
     bottomLayout->addWidget(quitButton);
 }
 

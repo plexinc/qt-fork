@@ -9,14 +9,30 @@
 #include <string>
 #include <vector>
 
-#include "net/third_party/quiche/src/quic/core/crypto/quic_crypto_proof.h"
-#include "net/third_party/quiche/src/quic/core/quic_versions.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_reference_counted.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_socket_address.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/string_view.h"
+#include "third_party/boringssl/src/include/openssl/ssl.h"
+#include "quic/core/crypto/quic_crypto_proof.h"
+#include "quic/core/quic_versions.h"
+#include "quic/platform/api/quic_export.h"
+#include "quic/platform/api/quic_reference_counted.h"
+#include "quic/platform/api/quic_socket_address.h"
 
 namespace quic {
+
+namespace test {
+class FakeProofSourceHandle;
+}  // namespace test
+
+// CryptoBuffers is a RAII class to own a std::vector<CRYPTO_BUFFER*> and the
+// buffers the elements point to.
+struct QUIC_EXPORT_PRIVATE CryptoBuffers {
+  CryptoBuffers() = default;
+  CryptoBuffers(const CryptoBuffers&) = delete;
+  CryptoBuffers(CryptoBuffers&&) = default;
+  ~CryptoBuffers();
+
+  std::vector<CRYPTO_BUFFER*> value;
+};
 
 // ProofSource is an interface by which a QUIC server can obtain certificate
 // chains and signatures that prove its identity.
@@ -28,6 +44,8 @@ class QUIC_EXPORT_PRIVATE ProofSource {
     explicit Chain(const std::vector<std::string>& certs);
     Chain(const Chain&) = delete;
     Chain& operator=(const Chain&) = delete;
+
+    CryptoBuffers ToCryptoBuffers() const;
 
     const std::vector<std::string> certs;
 
@@ -119,15 +137,17 @@ class QUIC_EXPORT_PRIVATE ProofSource {
   //
   // Callers should expect that |callback| might be invoked synchronously.
   virtual void GetProof(const QuicSocketAddress& server_address,
+                        const QuicSocketAddress& client_address,
                         const std::string& hostname,
                         const std::string& server_config,
                         QuicTransportVersion transport_version,
-                        quiche::QuicheStringPiece chlo_hash,
+                        absl::string_view chlo_hash,
                         std::unique_ptr<Callback> callback) = 0;
 
   // Returns the certificate chain for |hostname| in leaf-first order.
   virtual QuicReferenceCountedPointer<Chain> GetCertChain(
       const QuicSocketAddress& server_address,
+      const QuicSocketAddress& client_address,
       const std::string& hostname) = 0;
 
   // Computes a signature using the private key of the certificate for
@@ -140,10 +160,150 @@ class QUIC_EXPORT_PRIVATE ProofSource {
   // Callers should expect that |callback| might be invoked synchronously.
   virtual void ComputeTlsSignature(
       const QuicSocketAddress& server_address,
+      const QuicSocketAddress& client_address,
       const std::string& hostname,
       uint16_t signature_algorithm,
-      quiche::QuicheStringPiece in,
+      absl::string_view in,
       std::unique_ptr<SignatureCallback> callback) = 0;
+
+  class QUIC_EXPORT_PRIVATE DecryptCallback {
+   public:
+    DecryptCallback() = default;
+    virtual ~DecryptCallback() = default;
+
+    virtual void Run(std::vector<uint8_t> plaintext) = 0;
+
+   private:
+    DecryptCallback(const Callback&) = delete;
+    DecryptCallback& operator=(const Callback&) = delete;
+  };
+
+  // TicketCrypter is an interface for managing encryption and decryption of TLS
+  // session tickets. A TicketCrypter gets used as an
+  // SSL_CTX_set_ticket_aead_method in BoringSSL, which has a synchronous
+  // Encrypt/Seal operation and a potentially asynchronous Decrypt/Open
+  // operation. This interface allows for ticket decryptions to be performed on
+  // a remote service.
+  class QUIC_EXPORT_PRIVATE TicketCrypter {
+   public:
+    TicketCrypter() = default;
+    virtual ~TicketCrypter() = default;
+
+    // MaxOverhead returns the maximum number of bytes of overhead that may get
+    // added when encrypting the ticket.
+    virtual size_t MaxOverhead() = 0;
+
+    // Encrypt takes a serialized TLS session ticket in |in|, encrypts it, and
+    // returns the encrypted ticket. The resulting value must not be larger than
+    // MaxOverhead bytes larger than |in|. If encryption fails, this method
+    // returns an empty vector.
+    virtual std::vector<uint8_t> Encrypt(absl::string_view in) = 0;
+
+    // Decrypt takes an encrypted ticket |in|, decrypts it, and calls
+    // |callback->Run| with the decrypted ticket, which must not be larger than
+    // |in|. If decryption fails, the callback is invoked with an empty
+    // vector.
+    virtual void Decrypt(absl::string_view in,
+                         std::unique_ptr<DecryptCallback> callback) = 0;
+  };
+
+  // Returns the TicketCrypter used for encrypting and decrypting TLS
+  // session tickets, or nullptr if that functionality is not supported. The
+  // TicketCrypter returned (if not nullptr) must be valid for the lifetime of
+  // the ProofSource, and the caller does not take ownership of said
+  // TicketCrypter.
+  virtual TicketCrypter* GetTicketCrypter() = 0;
+};
+
+// ProofSourceHandleCallback is an interface that contains the callbacks when
+// the operations in ProofSourceHandle completes.
+// TODO(wub): Consider deprecating ProofSource by moving all functionalities of
+// ProofSource into ProofSourceHandle.
+class QUIC_EXPORT_PRIVATE ProofSourceHandleCallback {
+ public:
+  virtual ~ProofSourceHandleCallback() = default;
+
+  // Called when a ProofSourceHandle::SelectCertificate operation completes.
+  // |ok| indicates whether the operation was successful.
+  // |is_sync| indicates whether the operation completed synchronously, i.e.
+  //      whether it is completed before ProofSourceHandle::SelectCertificate
+  //      returned.
+  // |chain| the certificate chain in leaf-first order.
+  //
+  // When called asynchronously(is_sync=false), this method will be responsible
+  // to continue the handshake from where it left off.
+  virtual void OnSelectCertificateDone(bool ok,
+                                       bool is_sync,
+                                       const ProofSource::Chain* chain) = 0;
+
+  // Called when a ProofSourceHandle::ComputeSignature operation completes.
+  virtual void OnComputeSignatureDone(
+      bool ok,
+      bool is_sync,
+      std::string signature,
+      std::unique_ptr<ProofSource::Details> details) = 0;
+};
+
+// ProofSourceHandle is an interface by which a TlsServerHandshaker can obtain
+// certificate chains and signatures that prove its identity.
+// The operations this interface supports are similar to those in ProofSource,
+// the main difference is that ProofSourceHandle is per-handshaker, so
+// an implementation can have states that are shared by multiple calls on the
+// same handle.
+//
+// A handle object is owned by a TlsServerHandshaker. Since there might be an
+// async operation pending when the handle destructs, an implementation must
+// ensure when such operations finish, their corresponding callback method won't
+// be invoked.
+//
+// A handle will have at most one async operation pending at a time.
+class QUIC_EXPORT_PRIVATE ProofSourceHandle {
+ public:
+  virtual ~ProofSourceHandle() = default;
+
+  // Cancel the pending operation, if any.
+  // Once called, any completion method on |callback()| won't be invoked.
+  virtual void CancelPendingOperation() = 0;
+
+  // Starts a select certificate operation. If the operation is not cancelled
+  // when it completes, callback()->OnSelectCertificateDone will be invoked.
+  //
+  // If the operation is handled synchronously:
+  // - QUIC_SUCCESS or QUIC_FAILURE will be returned.
+  // - callback()->OnSelectCertificateDone should be invoked before the function
+  //   returns.
+  //
+  // If the operation is handled asynchronously:
+  // - QUIC_PENDING will be returned.
+  // - When the operation is done, callback()->OnSelectCertificateDone should be
+  //   invoked.
+  virtual QuicAsyncStatus SelectCertificate(
+      const QuicSocketAddress& server_address,
+      const QuicSocketAddress& client_address,
+      const std::string& hostname,
+      absl::string_view client_hello,
+      const std::string& alpn,
+      const std::vector<uint8_t>& quic_transport_params,
+      const absl::optional<std::vector<uint8_t>>& early_data_context) = 0;
+
+  // Starts a compute signature operation. If the operation is not cancelled
+  // when it completes, callback()->OnComputeSignatureDone will be invoked.
+  //
+  // See the comments of SelectCertificate for sync vs. async operations.
+  virtual QuicAsyncStatus ComputeSignature(
+      const QuicSocketAddress& server_address,
+      const QuicSocketAddress& client_address,
+      const std::string& hostname,
+      uint16_t signature_algorithm,
+      absl::string_view in,
+      size_t max_signature_size) = 0;
+
+ protected:
+  // Returns the object that will be notified when an operation completes.
+  virtual ProofSourceHandleCallback* callback() = 0;
+
+ private:
+  friend class test::FakeProofSourceHandle;
 };
 
 }  // namespace quic

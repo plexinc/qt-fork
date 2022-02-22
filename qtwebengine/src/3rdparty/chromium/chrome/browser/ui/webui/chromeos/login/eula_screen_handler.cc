@@ -7,14 +7,16 @@
 #include <memory>
 #include <string>
 
+#include "ash/constants/ash_switches.h"
 #include "base/bind.h"
+#include "base/command_line.h"
 #include "base/macros.h"
 #include "base/strings/stringprintf.h"
+#include "chrome/browser/ash/login/screens/eula_screen.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/login/help_app_launcher.h"
 #include "chrome/browser/chromeos/login/helper.h"
 #include "chrome/browser/chromeos/login/oobe_screen.h"
-#include "chrome/browser/chromeos/login/screens/eula_screen.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host.h"
 #include "chrome/browser/ui/webui/chromeos/login/core_oobe_handler.h"
 #include "chrome/common/url_constants.h"
@@ -28,8 +30,6 @@
 namespace chromeos {
 
 constexpr StaticOobeScreenId EulaView::kScreenId;
-
-const char* EulaScreenHandler::eula_url_for_testing_ = nullptr;
 
 EulaScreenHandler::EulaScreenHandler(JSCallsContainer* js_calls_container,
                                      CoreOobeView* core_oobe_view)
@@ -67,8 +67,10 @@ void EulaScreenHandler::Unbind() {
 }
 
 std::string EulaScreenHandler::GetEulaOnlineUrl() {
-  if (EulaScreenHandler::eula_url_for_testing_) {
-    return std::string(EulaScreenHandler::eula_url_for_testing_);
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kOobeEulaUrlForTests)) {
+    return base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+        switches::kOobeEulaUrlForTests);
   }
 
   return base::StringPrintf(chrome::kOnlineEulaURLPath,
@@ -87,18 +89,13 @@ void EulaScreenHandler::DeclareLocalizedValues(
   builder->Add("back", IDS_EULA_BACK_BUTTON);
   builder->Add("next", IDS_EULA_NEXT_BUTTON);
   builder->Add("acceptAgreement", IDS_EULA_ACCEPT_AND_CONTINUE_BUTTON);
-  builder->Add("eulaSystemInstallationSettings",
-               IDS_EULA_SYSTEM_SECURITY_SETTING);
+  builder->Add("eulaSystemSecuritySettings", IDS_EULA_SYSTEM_SECURITY_SETTING);
 
   builder->Add("eulaTpmDesc", IDS_EULA_SECURE_MODULE_DESCRIPTION);
-  builder->Add("eulaTpmKeyDesc", IDS_EULA_SECURE_MODULE_KEY_DESCRIPTION);
-  builder->Add("eulaTpmDescPowerwash",
-               IDS_EULA_SECURE_MODULE_KEY_DESCRIPTION_POWERWASH);
-  builder->Add("eulaTpmBusy", IDS_EULA_SECURE_MODULE_BUSY);
   ::login::GetSecureModuleUsed(base::BindOnce(
       &EulaScreenHandler::UpdateLocalizedValues, weak_factory_.GetWeakPtr()));
 
-  builder->Add("eulaSystemInstallationSettingsOkButton", IDS_OK);
+  builder->Add("eulaSystemSecuritySettingsOkButton", IDS_OK);
   builder->Add("termsOfServiceLoading", IDS_TERMS_OF_SERVICE_SCREEN_LOADING);
 #if BUILDFLAG(ENABLE_RLZ)
   builder->AddF("eulaRlzDesc",
@@ -122,14 +119,6 @@ void EulaScreenHandler::DeclareLocalizedValues(
                IDS_OOBE_EULA_ACCEPT_AND_CONTINUE_BUTTON_TEXT);
 }
 
-void EulaScreenHandler::DeclareJSCallbacks() {
-  AddCallback("eulaOnLearnMore", &EulaScreenHandler::HandleOnLearnMore);
-  AddCallback("eulaOnInstallationSettingsPopupOpened",
-              &EulaScreenHandler::HandleOnInstallationSettingsPopupOpened);
-  AddCallback("EulaScreen.usageStatsEnabled",
-              &EulaScreenHandler::HandleUsageStatsEnabled);
-}
-
 void EulaScreenHandler::GetAdditionalParameters(base::DictionaryValue* dict) {
 #if BUILDFLAG(ENABLE_RLZ)
   dict->SetString("rlzEnabled", "enabled");
@@ -142,7 +131,7 @@ void EulaScreenHandler::Initialize() {
   if (!page_is_ready() || !screen_)
     return;
 
-  core_oobe_view_->SetUsageStats(screen_->IsUsageStatsEnabled());
+  CallJS("login.EulaScreen.setUsageStats", screen_->IsUsageStatsEnabled());
 
   if (show_on_init_) {
     Show();
@@ -150,25 +139,19 @@ void EulaScreenHandler::Initialize() {
   }
 }
 
-void EulaScreenHandler::OnPasswordFetched(const std::string& tpm_password) {
-  core_oobe_view_->SetTpmPassword(tpm_password);
-}
-
-void EulaScreenHandler::HandleOnLearnMore() {
+void EulaScreenHandler::ShowStatsUsageLearnMore() {
   if (!help_app_.get())
     help_app_ = new HelpAppLauncher(
         LoginDisplayHost::default_host()->GetNativeWindow());
   help_app_->ShowHelpTopic(HelpAppLauncher::HELP_STATS_USAGE);
 }
 
-void EulaScreenHandler::HandleOnInstallationSettingsPopupOpened() {
-  if (screen_)
-    screen_->InitiatePasswordFetch();
+void EulaScreenHandler::ShowAdditionalTosDialog() {
+  CallJS("login.EulaScreen.showAdditionalTosDialog");
 }
 
-void EulaScreenHandler::HandleUsageStatsEnabled(bool enabled) {
-  if (screen_)
-    screen_->SetUsageStatsEnabled(enabled);
+void EulaScreenHandler::ShowSecuritySettingsDialog() {
+  CallJS("login.EulaScreen.showSecuritySettingsDialog");
 }
 
 void EulaScreenHandler::UpdateLocalizedValues(
@@ -178,10 +161,6 @@ void EulaScreenHandler::UpdateLocalizedValues(
       &updated_secure_module_strings);
   if (secure_module_used == ::login::SecureModuleUsed::TPM) {
     builder->Add("eulaTpmDesc", IDS_EULA_TPM_DESCRIPTION);
-    builder->Add("eulaTpmKeyDesc", IDS_EULA_TPM_KEY_DESCRIPTION);
-    builder->Add("eulaTpmDescPowerwash",
-                 IDS_EULA_TPM_KEY_DESCRIPTION_POWERWASH);
-    builder->Add("eulaTpmBusy", IDS_EULA_TPM_BUSY);
     core_oobe_view_->ReloadEulaContent(updated_secure_module_strings);
   }
 }

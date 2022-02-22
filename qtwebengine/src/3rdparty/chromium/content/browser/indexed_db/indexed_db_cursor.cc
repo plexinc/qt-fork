@@ -9,7 +9,8 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/logging.h"
+#include "base/check_op.h"
+#include "base/notreached.h"
 #include "base/task/post_task.h"
 #include "content/browser/indexed_db/indexed_db_callback_helpers.h"
 #include "content/browser/indexed_db/indexed_db_callbacks.h"
@@ -167,8 +168,8 @@ void IndexedDBCursor::Continue(
       task_type_,
       BindWeakOperation<IndexedDBCursor>(
           &IndexedDBCursor::CursorContinueOperation, ptr_factory_.GetWeakPtr(),
-          std::move(dispatcher_host), base::Passed(&key),
-          base::Passed(&primary_key), std::move(aborting_callback)));
+          std::move(dispatcher_host), std::move(key), std::move(primary_key),
+          std::move(aborting_callback)));
 }
 
 leveldb::Status IndexedDBCursor::CursorContinueOperation(

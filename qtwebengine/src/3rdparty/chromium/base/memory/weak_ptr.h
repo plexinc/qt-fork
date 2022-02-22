@@ -27,13 +27,13 @@
 //
 //  class Worker {
 //   public:
-//    static void StartNew(const WeakPtr<Controller>& controller) {
-//      Worker* worker = new Worker(controller);
+//    static void StartNew(WeakPtr<Controller> controller) {
+//      Worker* worker = new Worker(std::move(controller));
 //      // Kick off asynchronous processing...
 //    }
 //   private:
-//    Worker(const WeakPtr<Controller>& controller)
-//        : controller_(controller) {}
+//    Worker(WeakPtr<Controller> controller)
+//        : controller_(std::move(controller)) {}
 //    void DidCompleteAsynchronousProcessing(const Result& result) {
 //      if (controller_)
 //        controller_->WorkComplete(result);
@@ -73,7 +73,7 @@
 #include <type_traits>
 
 #include "base/base_export.h"
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/sequence_checker.h"
@@ -132,10 +132,6 @@ class BASE_EXPORT WeakReferenceOwner {
  public:
   WeakReferenceOwner();
   ~WeakReferenceOwner();
-  WeakReferenceOwner(WeakReferenceOwner&& other) noexcept = default;
-  WeakReferenceOwner(const WeakReferenceOwner& other) = default;
-  WeakReferenceOwner& operator=(WeakReferenceOwner&& other) noexcept = default;
-  WeakReferenceOwner& operator=(const WeakReferenceOwner& other) = default;
 
   WeakReference GetRef() const;
 
@@ -252,11 +248,11 @@ class WeakPtr : public internal::WeakPtrBase {
   }
 
   T& operator*() const {
-    DCHECK(get() != nullptr);
+    CHECK(ref_.IsValid());
     return *get();
   }
   T* operator->() const {
-    DCHECK(get() != nullptr);
+    CHECK(ref_.IsValid());
     return get();
   }
 
@@ -327,10 +323,8 @@ class WeakPtrFactory : public internal::WeakPtrFactoryBase {
       : WeakPtrFactoryBase(reinterpret_cast<uintptr_t>(ptr)) {}
 
   ~WeakPtrFactory() = default;
-  WeakPtrFactory(WeakPtrFactory&&) noexcept = default;
-  WeakPtrFactory& operator=(WeakPtrFactory&&) noexcept = default;
 
-  WeakPtr<T> GetWeakPtr() {
+  WeakPtr<T> GetWeakPtr() const {
     return WeakPtr<T>(weak_reference_owner_.GetRef(),
                       reinterpret_cast<T*>(ptr_));
   }

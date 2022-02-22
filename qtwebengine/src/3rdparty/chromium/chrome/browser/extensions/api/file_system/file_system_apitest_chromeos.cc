@@ -12,16 +12,16 @@
 #include "base/path_service.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/apps/platform_apps/app_browsertest_util.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/drive/drive_integration_service.h"
 #include "chrome/browser/chromeos/drive/drivefs_test_support.h"
 #include "chrome/browser/chromeos/file_manager/volume_manager.h"
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/extensions/api/file_system/consent_provider.h"
 #include "chrome/browser/extensions/component_loader.h"
 #include "chrome/common/chrome_paths.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "components/user_manager/scoped_user_manager.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/api/file_system/file_system_api.h"
 #include "extensions/browser/event_router.h"
@@ -123,9 +123,9 @@ class FileSystemApiTestForDrive : public PlatformAppBrowserTest {
 
     ASSERT_TRUE(test_cache_root_.CreateUniqueTempDir());
 
-    create_drive_integration_service_ =
-        base::Bind(&FileSystemApiTestForDrive::CreateDriveIntegrationService,
-                   base::Unretained(this));
+    create_drive_integration_service_ = base::BindRepeating(
+        &FileSystemApiTestForDrive::CreateDriveIntegrationService,
+        base::Unretained(this));
     service_factory_for_test_.reset(
         new drive::DriveIntegrationServiceFactory::ScopedFactoryForTest(
             &create_drive_integration_service_));
@@ -164,7 +164,7 @@ class FileSystemApiTestForDrive : public PlatformAppBrowserTest {
     SetUpTestFileHierarchy();
 
     integration_service_ = new drive::DriveIntegrationService(
-        profile, nullptr, "", test_cache_root_.GetPath(),
+        profile, "", test_cache_root_.GetPath(),
         fake_drivefs_helper_->CreateFakeDriveFsListenerFactory());
     return integration_service_;
   }
@@ -211,7 +211,7 @@ class FileSystemApiTestForRequestFileSystem : public PlatformAppBrowserTest {
   void SetUpCommandLine(base::CommandLine* command_line) override {
     PlatformAppBrowserTest::SetUpCommandLine(command_line);
     command_line->AppendSwitchASCII(
-        extensions::switches::kWhitelistedExtensionID, kTestingExtensionId);
+        extensions::switches::kAllowlistedExtensionID, kTestingExtensionId);
   }
 
   // Sets up fake Drive service for tests (this has to be injected before the
@@ -274,7 +274,7 @@ class FileSystemApiTestForRequestFileSystem : public PlatformAppBrowserTest {
         base::CreateDirectory(mount_point_path.Append(kChildDirectory)));
     ASSERT_TRUE(content::BrowserContext::GetMountPoints(browser()->profile())
                     ->RegisterFileSystem(
-                        mount_point_name, storage::kFileSystemTypeNativeLocal,
+                        mount_point_name, storage::kFileSystemTypeLocal,
                         storage::FileSystemMountOption(), mount_point_path));
     VolumeManager* const volume_manager =
         VolumeManager::Get(browser()->profile());
@@ -311,7 +311,7 @@ class FileSystemApiTestForRequestFileSystem : public PlatformAppBrowserTest {
         profile, drivefs_root_.GetPath().Append("drive-user"));
 
     return new drive::DriveIntegrationService(
-        profile, nullptr, "", {},
+        profile, "", {},
         fake_drivefs_helper_->CreateFakeDriveFsListenerFactory());
   }
 
@@ -380,16 +380,8 @@ IN_PROC_BROWSER_TEST_F(FileSystemApiTestForDrive,
       << message_;
 }
 
-#if defined(ADDRESS_SANITIZER)
-// Flaky when run under ASan: crbug.com/499233.
-#define MAYBE_FileSystemApiOpenDirectoryWithWriteTest \
-  DISABLED_FileSystemApiOpenDirectoryWithWriteTest
-#else
-#define MAYBE_FileSystemApiOpenDirectoryWithWriteTest \
-  FileSystemApiOpenDirectoryWithWriteTest
-#endif
 IN_PROC_BROWSER_TEST_F(FileSystemApiTestForDrive,
-                       MAYBE_FileSystemApiOpenDirectoryWithWriteTest) {
+                       FileSystemApiOpenDirectoryWithWriteTest) {
   base::FilePath test_directory =
       GetDriveMountPoint().AppendASCII("root/subdir");
   FileSystemChooseEntryFunction::SkipPickerAndAlwaysSelectPathForTest(
@@ -501,7 +493,7 @@ IN_PROC_BROWSER_TEST_F(FileSystemApiTestForRequestFileSystem, NotKioskSession) {
 }
 
 IN_PROC_BROWSER_TEST_F(FileSystemApiTestForRequestFileSystem,
-                       WhitelistedComponent) {
+                       AllowlistedComponent) {
   ScopedSkipRequestFileSystemDialog dialog_skipper(ui::DIALOG_BUTTON_CANCEL);
   ASSERT_TRUE(RunPlatformAppTestWithFlags(
       "api_test/file_system/request_file_system_whitelisted_component",
@@ -510,7 +502,7 @@ IN_PROC_BROWSER_TEST_F(FileSystemApiTestForRequestFileSystem,
 }
 
 IN_PROC_BROWSER_TEST_F(FileSystemApiTestForRequestFileSystem,
-                       NotWhitelistedComponent) {
+                       NotAllowlistedComponent) {
   ScopedSkipRequestFileSystemDialog dialog_skipper(ui::DIALOG_BUTTON_OK);
   ASSERT_TRUE(RunPlatformAppTestWithFlags(
       "api_test/file_system/request_file_system_not_whitelisted_component",
@@ -546,7 +538,7 @@ IN_PROC_BROWSER_TEST_F(FileSystemApiTestForRequestFileSystem,
 }
 
 IN_PROC_BROWSER_TEST_F(FileSystemApiTestForRequestFileSystem,
-                       WhitelistedExtensionForDownloads) {
+                       AllowlistedExtensionForDownloads) {
   ScopedSkipRequestFileSystemDialog dialog_skipper(ui::DIALOG_BUTTON_CANCEL);
   ASSERT_TRUE(RunPlatformAppTestWithFlags(
       "api_test/file_system/request_downloads_whitelisted_extension", kFlagNone,

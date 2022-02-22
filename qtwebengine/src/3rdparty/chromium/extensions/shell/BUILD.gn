@@ -2,6 +2,8 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/chromeos/ui_mode.gni")
+import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/features.gni")
 import("//build/config/ui.gni")
 import("//build/util/lastchange.gni")
@@ -12,7 +14,7 @@ import("//testing/test.gni")
 import("//tools/grit/grit_rule.gni")
 import("//tools/v8_context_snapshot/v8_context_snapshot.gni")
 
-if (is_linux) {
+if (is_linux || is_chromeos) {
   import("//build/linux/extract_symbols.gni")
 }
 
@@ -36,6 +38,7 @@ source_set("app_shell_lib") {
     ":version_header",
     "//apps",
     "//base",
+    "//build:chromeos_buildflags",
     "//components/feedback",
     "//components/guest_view/browser",
     "//components/guest_view/renderer",
@@ -57,39 +60,49 @@ source_set("app_shell_lib") {
     "//extensions:shell_and_test_pak",
     "//extensions/browser",
     "//extensions/browser:core_api_provider",
+    "//extensions/browser/api/messaging",
+    "//extensions/browser/api/system_display",
     "//extensions/browser/kiosk",
+    "//extensions/browser/updater",
     "//extensions/common",
     "//extensions/common:core_api_provider",
     "//extensions/common/api",
     "//extensions/renderer",
     "//extensions/shell/browser/system_logs",
-    "//extensions/shell/common/api",
     "//extensions/shell/common/api:extensions_features",
+    "//services/network/public/mojom",
     "//third_party/blink/public:blink",
     "//ui/base",
     "//ui/base/ime/init",
   ]
 
+  if (use_qt) {
+    deps -= [
+      "//components/pref_registry",
+      "//components/sessions",
+      "//components/update_client",
+      "//components/version_info",
+    ]
+  }
+
   # TODO(michaelpg): remove Mac support and always use aura.
   if (use_aura) {
-    deps += [
-      "//ui/aura",
-      "//ui/views",
-    ]
+    deps += [ "//ui/aura" ]
 
     if (use_x11) {
       deps += [ "//ui/events/devices/x11" ]
     }
   }
 
+  if (toolkit_views) {
+    deps += [ "//ui/views" ]
+  }
+
   sources = [
     "app/shell_main_delegate.cc",
     "app/shell_main_delegate.h",
-    "app/shell_main_delegate_mac.mm",
     "browser/api/feedback_private/shell_feedback_private_delegate.cc",
     "browser/api/feedback_private/shell_feedback_private_delegate.h",
-    "browser/api/identity/identity_api.cc",
-    "browser/api/identity/identity_api.h",
     "browser/api/runtime/shell_runtime_api_delegate.cc",
     "browser/api/runtime/shell_runtime_api_delegate.h",
     "browser/default_shell_browser_main_delegate.cc",
@@ -104,9 +117,6 @@ source_set("app_shell_lib") {
     "browser/shell_app_view_guest_delegate.h",
     "browser/shell_app_window_client.cc",
     "browser/shell_app_window_client.h",
-    "browser/shell_app_window_client_mac.mm",
-    "browser/shell_audio_controller_chromeos.cc",
-    "browser/shell_audio_controller_chromeos.h",
     "browser/shell_browser_context.cc",
     "browser/shell_browser_context.h",
     "browser/shell_browser_context_keyed_service_factories.cc",
@@ -116,8 +126,6 @@ source_set("app_shell_lib") {
     "browser/shell_browser_main_parts.h",
     "browser/shell_content_browser_client.cc",
     "browser/shell_content_browser_client.h",
-    "browser/shell_desktop_controller_mac.h",
-    "browser/shell_desktop_controller_mac.mm",
     "browser/shell_display_info_provider.cc",
     "browser/shell_display_info_provider.h",
     "browser/shell_extension_host_delegate.cc",
@@ -132,20 +140,14 @@ source_set("app_shell_lib") {
     "browser/shell_extension_web_contents_observer.h",
     "browser/shell_extensions_api_client.cc",
     "browser/shell_extensions_api_client.h",
-    "browser/shell_extensions_browser_api_provider.cc",
-    "browser/shell_extensions_browser_api_provider.h",
     "browser/shell_extensions_browser_client.cc",
     "browser/shell_extensions_browser_client.h",
     "browser/shell_keep_alive_requester.cc",
     "browser/shell_keep_alive_requester.h",
     "browser/shell_native_app_window.cc",
     "browser/shell_native_app_window.h",
-    "browser/shell_native_app_window_mac.h",
-    "browser/shell_native_app_window_mac.mm",
     "browser/shell_navigation_ui_data.cc",
     "browser/shell_navigation_ui_data.h",
-    "browser/shell_network_controller_chromeos.cc",
-    "browser/shell_network_controller_chromeos.h",
     "browser/shell_prefs.cc",
     "browser/shell_prefs.h",
     "browser/shell_special_storage_policy.cc",
@@ -172,6 +174,26 @@ source_set("app_shell_lib") {
     "renderer/shell_extensions_renderer_client.h",
   ]
 
+  if (is_mac) {
+    sources += [
+      "app/shell_main_delegate_mac.mm",
+      "browser/shell_app_window_client_mac.mm",
+      "browser/shell_desktop_controller_mac.h",
+      "browser/shell_desktop_controller_mac.mm",
+      "browser/shell_native_app_window_mac.h",
+      "browser/shell_native_app_window_mac.mm",
+    ]
+  }
+
+  if (is_chromeos_ash) {
+    sources += [
+      "browser/shell_audio_controller_chromeos.cc",
+      "browser/shell_audio_controller_chromeos.h",
+      "browser/shell_network_controller_chromeos.cc",
+      "browser/shell_network_controller_chromeos.h",
+    ]
+  }
+
   if (use_aura) {
     sources += [
       "browser/root_window_controller.cc",
@@ -183,17 +205,18 @@ source_set("app_shell_lib") {
       "browser/shell_native_app_window_aura.h",
     ]
     deps += [
-      "//ui/base/mojom:cursor_type",
+      "//ui/base/cursor",
+      "//ui/base/cursor/mojom:cursor_type",
       "//ui/platform_window",
       "//ui/wm",
       "//ui/wm/public",
     ]
-    if (is_chromeos) {
+    if (is_chromeos_ash) {
       deps += [ "//ui/ozone" ]
     }
   }
 
-  if (is_desktop_linux) {
+  if (is_linux || is_chromeos_lacros) {
     sources += [
       "app/shell_crash_reporter_client.cc",
       "app/shell_crash_reporter_client.h",
@@ -209,15 +232,14 @@ source_set("app_shell_lib") {
     ]
   }
 
-  if (is_chromeos) {
+  if (is_chromeos_ash) {
     sources += [
-      "browser/api/vpn_provider/vpn_service_factory.cc",
       "browser/shell_screen.cc",
       "browser/shell_screen.h",
     ]
     deps += [
-      "//chromeos/audio",
-      "//chromeos/constants",
+      "//ash/components/audio",
+      "//ash/constants",
       "//chromeos/dbus",
       "//chromeos/dbus/audio",
       "//chromeos/dbus/power",
@@ -244,7 +266,7 @@ source_set("app_shell_lib") {
       "//ppapi/shared_impl:shared_impl",
     ]
 
-    if (is_linux) {
+    if (is_linux || is_chromeos) {
       deps += [ "//components/nacl/loader:nacl_helper" ]
 
       if (enable_nacl_nonsfi) {
@@ -262,7 +284,7 @@ executable("app_shell") {
   deps = [
     ":app_shell_lib",
     "//build/win:default_exe_manifest",
-    "//content/public/app:both",
+    "//content/public/app",
     "//extensions:shell_and_test_pak",
   ]
 
@@ -274,9 +296,10 @@ executable("app_shell") {
 }
 
 test("app_shell_unittests") {
+  use_xvfb = use_xvfb_in_this_config
+
   sources = [
     "../test/extensions_unittests_main.cc",
-    "browser/api/identity/identity_api_unittest.cc",
     "browser/shell_content_browser_client_unittest.cc",
     "browser/shell_extension_loader_unittest.cc",
     "browser/shell_keep_alive_requester_unittest.cc",
@@ -296,6 +319,7 @@ test("app_shell_unittests") {
     "//apps",
     "//base",
     "//base/test:test_support",
+    "//build:chromeos_buildflags",
     "//components/crx_file",
     "//components/feedback",
     "//components/keep_alive_registry",
@@ -336,14 +360,13 @@ test("app_shell_unittests") {
     ]
   }
 
-  if (is_chromeos) {
+  if (is_chromeos_ash) {
     sources += [
       "browser/shell_audio_controller_chromeos_unittest.cc",
       "browser/shell_screen_unittest.cc",
     ]
     deps += [
-      "//chromeos/audio",
-      "//chromeos/constants",
+      "//ash/components/audio",
       "//chromeos/dbus:test_support",
       "//chromeos/dbus/audio",
       "//chromeos/dbus/power",
@@ -386,6 +409,7 @@ source_set("browser_tests") {
     ":app_shell_lib",
     "//base",
     "//base/test:test_support",
+    "//build:chromeos_buildflags",
     "//components/keep_alive_registry",
     "//components/version_info",
     "//content/shell:content_shell_lib",
@@ -414,15 +438,12 @@ source_set("unit_tests") {
     "//extensions/browser",
   ]
 
-  if (is_chromeos) {
-    deps += [
-      "//chromeos/constants",
-      "//components/keyed_service/content",
-    ]
+  if (is_chromeos_ash) {
+    deps += [ "//components/keyed_service/content" ]
   }
 }
 
-if (is_desktop_linux && is_official_build) {
+if ((is_linux || is_chromeos_lacros) && is_official_build) {
   extract_symbols("app_shell_linux_symbols") {
     # testonly because :app_shell is testonly. See :app_shell_lib comment.
     testonly = true

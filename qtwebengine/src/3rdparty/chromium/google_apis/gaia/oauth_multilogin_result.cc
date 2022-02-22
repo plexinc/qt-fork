@@ -4,8 +4,11 @@
 
 #include "google_apis/gaia/oauth_multilogin_result.h"
 
+#include <algorithm>
+
 #include "base/compiler_specific.h"
 #include "base/json/json_reader.h"
+#include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/optional.h"
 #include "base/strings/string_number_conversions.h"
@@ -58,7 +61,7 @@ OAuthMultiloginResult::OAuthMultiloginResult(
 base::StringPiece OAuthMultiloginResult::StripXSSICharacters(
     const std::string& raw_data) {
   base::StringPiece body(raw_data);
-  return body.substr(body.find('\n'));
+  return body.substr(std::min(body.find('\n'), body.size()));
 }
 
 void OAuthMultiloginResult::TryParseFailedAccountsFromValue(
@@ -116,15 +119,20 @@ void OAuthMultiloginResult::TryParseCookiesFromValue(base::Value* json_value) {
       samesite_mode = net::StringToCookieSameSite(*same_site, &samesite_string);
     }
     net::RecordCookieSameSiteAttributeValueHistogram(samesite_string);
-    net::CanonicalCookie new_cookie(
-        name ? *name : "", value ? *value : "", cookie_domain,
-        path ? *path : "", /*creation=*/base::Time::Now(),
-        base::Time::Now() + before_expiration,
-        /*last_access=*/base::Time::Now(), is_secure.value_or(true),
-        is_http_only.value_or(true), samesite_mode,
-        net::StringToCookiePriority(priority ? *priority : "medium"));
-    if (new_cookie.IsCanonical()) {
-      cookies_.push_back(std::move(new_cookie));
+    // TODO(crbug.com/1155648) Consider using CreateSanitizedCookie instead.
+    std::unique_ptr<net::CanonicalCookie> new_cookie =
+        net::CanonicalCookie::FromStorage(
+            name ? *name : "", value ? *value : "", cookie_domain,
+            path ? *path : "", /*creation=*/base::Time::Now(),
+            base::Time::Now() + before_expiration,
+            /*last_access=*/base::Time::Now(), is_secure.value_or(true),
+            is_http_only.value_or(true), samesite_mode,
+            net::StringToCookiePriority(priority ? *priority : "medium"),
+            /*same_party=*/false, net::CookieSourceScheme::kUnset,
+            url::PORT_UNSPECIFIED);
+    // If the unique_ptr is null, it means the cookie was not canonical.
+    if (new_cookie) {
+      cookies_.push_back(std::move(*new_cookie));
     } else {
       LOG(ERROR) << "Non-canonical cookie found.";
     }

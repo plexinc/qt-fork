@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/files/file.h"
 #include "base/files/file_util.h"
 #include "base/memory/memory_pressure_listener.h"
@@ -21,6 +21,7 @@
 #include "base/task/thread_pool.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
+#include "base/test/simple_test_clock.h"
 #include "base/third_party/dynamic_annotations/dynamic_annotations.h"
 #include "base/threading/platform_thread.h"
 #include "base/threading/thread_restrictions.h"
@@ -781,8 +782,7 @@ TEST_F(DiskCacheBackendTest, SimpleCreateBackendRecoveryAppCache) {
 
   // Delete the index.
   base::DeleteFile(
-      cache_path_.AppendASCII("index-dir").AppendASCII("the-real-index"),
-      false);
+      cache_path_.AppendASCII("index-dir").AppendASCII("the-real-index"));
 
   // Open the cache again. The fixture will also waits for index init.
   InitCache();
@@ -798,7 +798,7 @@ TEST_F(DiskCacheBackendTest, SimpleCreateBackendRecoveryAppCache) {
 TEST_F(DiskCacheBackendTest, CreateBackend_MissingFile) {
   ASSERT_TRUE(CopyTestCache("bad_entry"));
   base::FilePath filename = cache_path_.AppendASCII("data_1");
-  base::DeleteFile(filename, false);
+  base::DeleteFile(filename);
   net::TestCompletionCallback cb;
 
   bool prev = base::ThreadRestrictions::SetIOAllowed(false);
@@ -3920,18 +3920,18 @@ TEST_F(DiskCacheBackendTest, FileSharing) {
 #if defined(OS_WIN)
   DWORD sharing = FILE_SHARE_READ | FILE_SHARE_WRITE;
   DWORD access = GENERIC_READ | GENERIC_WRITE;
-  base::win::ScopedHandle file2(CreateFile(base::as_wcstr(name.value()), access,
+  base::win::ScopedHandle file2(CreateFile(name.value().c_str(), access,
                                            sharing, nullptr, OPEN_EXISTING, 0,
                                            nullptr));
   EXPECT_FALSE(file2.IsValid());
 
   sharing |= FILE_SHARE_DELETE;
-  file2.Set(CreateFile(base::as_wcstr(name.value()), access, sharing, nullptr,
+  file2.Set(CreateFile(name.value().c_str(), access, sharing, nullptr,
                        OPEN_EXISTING, 0, nullptr));
   EXPECT_TRUE(file2.IsValid());
 #endif
 
-  EXPECT_TRUE(base::DeleteFile(name, false));
+  EXPECT_TRUE(base::DeleteFile(name));
 
   // We should be able to use the file.
   const int kSize = 200;
@@ -4571,7 +4571,7 @@ TEST_F(DiskCacheBackendTest, SimpleCacheNegMaxSize) {
   InitCache();
   // We don't know what it will pick, but it's limited to what
   // disk_cache::PreferredCacheSize would return, scaled by the size experiment,
-  // which only goes as much as 2x. It definitely should not be MAX_UINT64.
+  // which only goes as much as 4x. It definitely should not be MAX_UINT64.
   EXPECT_NE(simple_cache_impl_->index()->max_size(),
             std::numeric_limits<uint64_t>::max());
 
@@ -4581,6 +4581,26 @@ TEST_F(DiskCacheBackendTest, SimpleCacheNegMaxSize) {
   ASSERT_GE(max_default_size, 0);
   EXPECT_LT(simple_cache_impl_->index()->max_size(),
             static_cast<unsigned>(max_default_size));
+
+  uint64_t max_size_without_scaling = simple_cache_impl_->index()->max_size();
+
+  // Scale to 200%. The size should be twice of |max_size_without_scaling| but
+  // since that's capped on 20% of available size, checking for the size to be
+  // between max_size_without_scaling and max_size_without_scaling*2.
+  {
+    base::test::ScopedFeatureList scoped_feature_list;
+    std::map<std::string, std::string> field_trial_params;
+    field_trial_params["percent_relative_size"] = "200";
+    scoped_feature_list.InitAndEnableFeatureWithParameters(
+        disk_cache::kChangeDiskCacheSizeExperiment, field_trial_params);
+
+    InitCache();
+
+    uint64_t max_size_scaled = simple_cache_impl_->index()->max_size();
+
+    EXPECT_GE(max_size_scaled, max_size_without_scaling);
+    EXPECT_LE(max_size_scaled, 2 * max_size_without_scaling);
+  }
 }
 
 TEST_F(DiskCacheBackendTest, SimpleLastModified) {
@@ -5278,4 +5298,145 @@ TEST_F(DiskCacheBackendTest, SimpleDontLeakPostDoomCreate) {
   entry->Close();
 
   // Should not have leaked files here.
+}
+
+TEST_F(DiskCacheBackendTest, BlockFileDelayedWriteFailureRecovery) {
+  // Test that blockfile recovers appropriately when some entries are
+  // in a screwed up state due to an error in delayed writeback.
+  //
+  // https://crbug.com/1086727
+  InitCache();
+
+  const char kKey[] = "Key2";
+  disk_cache::Entry* entry = nullptr;
+  ASSERT_THAT(CreateEntry(kKey, &entry), IsOk());
+
+  const int kBufSize = 24320;
+  scoped_refptr<net::IOBuffer> buffer =
+      base::MakeRefCounted<net::IOBuffer>(kBufSize);
+  CacheTestFillBuffer(buffer->data(), kBufSize, true);
+
+  ASSERT_EQ(kBufSize, WriteSparseData(entry, 0, buffer.get(), kBufSize));
+
+  // Setting the size limit artificially low injects a failure on writing back
+  // data buffered above.
+  SetMaxSize(4096);
+
+  // This causes SparseControl to close the child entry corresponding to
+  // low portion of offset space, triggering the writeback --- which fails
+  // due to the space cap, and in particular fails to allocate data for
+  // a stream, so it gets address 0.
+  ASSERT_EQ(net::ERR_FAILED, WriteSparseData(entry, 16773118, buffer.get(), 4));
+
+  // Now try reading the broken child. This should report an error, not
+  // DCHECK.
+  ASSERT_EQ(net::ERR_FAILED, ReadSparseData(entry, 4, buffer.get(), 4));
+
+  entry->Close();
+}
+
+TEST_F(DiskCacheBackendTest, BlockFileInsertAliasing) {
+  // Test for not having rankings corruption due to aliasing between iterator
+  // and other ranking list copies during insertion operations.
+  //
+  // https://crbug.com/1156288
+
+  // Need to disable weird extra sync behavior to hit the bug.
+  CreateBackend(disk_cache::kNone);
+  SetNewEviction();  // default, but integrity check doesn't realize that.
+
+  const char kKey[] = "Key0";
+  const char kKeyA[] = "KeyAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA41";
+  disk_cache::Entry* entry = nullptr;
+  ASSERT_THAT(CreateEntry(kKey, &entry), IsOk());
+
+  const int kBufSize = 61188;
+  scoped_refptr<net::IOBuffer> buffer =
+      base::MakeRefCounted<net::IOBuffer>(kBufSize);
+  CacheTestFillBuffer(buffer->data(), kBufSize, true);
+
+  net::TestCompletionCallback cb_write64;
+  EXPECT_EQ(net::ERR_IO_PENDING,
+            entry->WriteSparseData(8, buffer.get(), 64, cb_write64.callback()));
+
+  net::TestCompletionCallback cb_write61k;
+  EXPECT_EQ(net::ERR_IO_PENDING,
+            entry->WriteSparseData(16773118, buffer.get(), 61188,
+                                   cb_write61k.callback()));
+
+  EXPECT_EQ(64, cb_write64.WaitForResult());
+  EXPECT_EQ(61188, cb_write61k.WaitForResult());
+
+  EXPECT_EQ(4128, WriteSparseData(entry, 2147479550, buffer.get(), 4128));
+
+  std::unique_ptr<TestIterator> iter = CreateIterator();
+  EXPECT_EQ(4128, WriteSparseData(entry, 2147479550, buffer.get(), 4128));
+  EXPECT_EQ(64, WriteSparseData(entry, 8, buffer.get(), 64));
+
+  disk_cache::Entry* itEntry1 = nullptr;
+  ASSERT_EQ(net::OK, iter->OpenNextEntry(&itEntry1));
+  // These are actually child nodes for range.
+
+  entry->Close();
+
+  disk_cache::Entry* itEntry2 = nullptr;
+  ASSERT_EQ(net::OK, iter->OpenNextEntry(&itEntry2));
+
+  net::TestCompletionCallback doom_cb;
+  EXPECT_EQ(net::ERR_IO_PENDING, cache_->DoomAllEntries(doom_cb.callback()));
+
+  TestEntryResultCompletionCallback cb_create1;
+  disk_cache::EntryResult result =
+      cache_->CreateEntry(kKey, net::HIGHEST, cb_create1.callback());
+  EXPECT_EQ(net::OK, doom_cb.WaitForResult());
+  result = cb_create1.WaitForResult();
+  EXPECT_EQ(net::OK, result.net_error());
+  entry = result.ReleaseEntry();
+
+  disk_cache::Entry* entryA = nullptr;
+  ASSERT_THAT(CreateEntry(kKeyA, &entryA), IsOk());
+  entryA->Close();
+
+  disk_cache::Entry* itEntry3 = nullptr;
+  EXPECT_EQ(net::OK, iter->OpenNextEntry(&itEntry3));
+
+  EXPECT_EQ(net::OK, DoomEntry(kKeyA));
+  itEntry1->Close();
+  entry->Close();
+  itEntry2->Close();
+  if (itEntry3)
+    itEntry3->Close();
+}
+
+TEST_F(DiskCacheBackendTest, MemCacheBackwardsClock) {
+  // Test to make sure that wall clock going backwards is tolerated.
+
+  base::SimpleTestClock clock;
+  clock.SetNow(base::Time::Now());
+
+  SetMemoryOnlyMode();
+  InitCache();
+  mem_cache_->SetClockForTesting(&clock);
+
+  const int kBufSize = 4 * 1024;
+  scoped_refptr<net::IOBuffer> buffer =
+      base::MakeRefCounted<net::IOBuffer>(kBufSize);
+  CacheTestFillBuffer(buffer->data(), kBufSize, true);
+
+  disk_cache::Entry* entry = nullptr;
+  ASSERT_THAT(CreateEntry("key1", &entry), IsOk());
+  EXPECT_EQ(kBufSize, WriteData(entry, 0, 0, buffer.get(), kBufSize, false));
+  entry->Close();
+
+  clock.Advance(-base::TimeDelta::FromHours(1));
+
+  ASSERT_THAT(CreateEntry("key2", &entry), IsOk());
+  EXPECT_EQ(kBufSize, WriteData(entry, 0, 0, buffer.get(), kBufSize, false));
+  entry->Close();
+
+  EXPECT_LE(2 * kBufSize,
+            CalculateSizeOfEntriesBetween(base::Time(), base::Time::Max()));
+  EXPECT_EQ(net::OK, DoomEntriesBetween(base::Time(), base::Time::Max()));
+  EXPECT_EQ(0, CalculateSizeOfEntriesBetween(base::Time(), base::Time::Max()));
+  EXPECT_EQ(0, CalculateSizeOfAllEntries());
 }

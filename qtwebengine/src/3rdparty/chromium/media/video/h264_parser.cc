@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "base/logging.h"
+#include "base/notreached.h"
 #include "base/numerics/safe_math.h"
 #include "base/stl_util.h"
 #include "media/base/subsample_entry.h"
@@ -305,7 +306,7 @@ H264Parser::H264Parser() {
 H264Parser::~H264Parser() = default;
 
 void H264Parser::Reset() {
-  stream_ = NULL;
+  stream_ = nullptr;
   bytes_left_ = 0;
   encrypted_ranges_.clear();
   previous_nalu_range_.clear();

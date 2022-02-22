@@ -45,7 +45,6 @@
 #include <QDir>
 #include <QSaveFile>
 #include <QCoreApplication>
-#include <QLoggingCategory>
 #include <QCryptographicHash>
 
 #ifdef Q_OS_UNIX
@@ -120,20 +119,24 @@ QOpenGLProgramBinaryCache::QOpenGLProgramBinaryCache()
 {
     const QString subPath = QLatin1String("/qtshadercache-") + QSysInfo::buildAbi() + QLatin1Char('/');
     const QString sharedCachePath = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation);
+    m_globalCacheDir = sharedCachePath + subPath;
+    m_localCacheDir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + subPath;
+
     if (!sharedCachePath.isEmpty()) {
-        m_cacheDir = sharedCachePath + subPath;
-        m_cacheWritable = qt_ensureWritableDir(m_cacheDir);
+        m_currentCacheDir = m_globalCacheDir;
+        m_cacheWritable = qt_ensureWritableDir(m_currentCacheDir);
     }
     if (!m_cacheWritable) {
-        m_cacheDir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + subPath;
-        m_cacheWritable = qt_ensureWritableDir(m_cacheDir);
+        m_currentCacheDir = m_localCacheDir;
+        m_cacheWritable = qt_ensureWritableDir(m_currentCacheDir);
     }
-    qCDebug(lcOpenGLProgramDiskCache, "Cache location '%s' writable = %d", qPrintable(m_cacheDir), m_cacheWritable);
+
+    qCDebug(lcOpenGLProgramDiskCache, "Cache location '%s' writable = %d", qPrintable(m_currentCacheDir), m_cacheWritable);
 }
 
 QString QOpenGLProgramBinaryCache::cacheFileName(const QByteArray &cacheKey) const
 {
-    return m_cacheDir + QString::fromUtf8(cacheKey);
+    return m_currentCacheDir + QString::fromUtf8(cacheKey);
 }
 
 #define BASE_HEADER_SIZE (int(4 * sizeof(quint32)))
@@ -191,7 +194,7 @@ bool QOpenGLProgramBinaryCache::setProgramBinary(uint programId, uint blobFormat
         if (error == GL_NO_ERROR || error == GL_CONTEXT_LOST)
             break;
     }
-#if defined(QT_OPENGL_ES_2)
+#if QT_CONFIG(opengles2)
     if (context->isOpenGLES() && context->format().majorVersion() < 3) {
         initializeProgramBinaryOES(context);
         programBinaryOES(programId, blobFormat, p, blobSize);
@@ -362,6 +365,25 @@ static inline void writeStr(uchar **p, const QByteArray &str)
     *p += str.size();
 }
 
+static inline bool writeFile(const QString &filename, const QByteArray &data)
+{
+#if QT_CONFIG(temporaryfile)
+    QSaveFile f(filename);
+    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        f.write(data);
+        if (f.commit())
+            return true;
+    }
+#else
+    QFile f(filename);
+    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        if (f.write(data) == data.length())
+            return true;
+    }
+#endif
+    return false;
+}
+
 void QOpenGLProgramBinaryCache::save(const QByteArray &cacheKey, uint programId)
 {
     if (!m_cacheWritable)
@@ -413,7 +435,7 @@ void QOpenGLProgramBinaryCache::save(const QByteArray &cacheKey, uint programId)
         *p++ = 0;
 
     GLint outSize = 0;
-#if defined(QT_OPENGL_ES_2)
+#if QT_CONFIG(opengles2)
     if (context->isOpenGLES() && context->format().majorVersion() < 3) {
         QMutexLocker lock(&m_mutex);
         initializeProgramBinaryOES(context);
@@ -428,23 +450,23 @@ void QOpenGLProgramBinaryCache::save(const QByteArray &cacheKey, uint programId)
 
     writeUInt(&blobFormatPtr, blobFormat);
 
-#if QT_CONFIG(temporaryfile)
-    QSaveFile f(cacheFileName(cacheKey));
-    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        f.write(blob);
-        if (!f.commit())
-#else
-    QFile f(cacheFileName(cacheKey));
-    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        if (f.write(blob) < blob.length())
-#endif
-            qCDebug(lcOpenGLProgramDiskCache, "Failed to write %s to shader cache", qPrintable(f.fileName()));
-    } else {
-        qCDebug(lcOpenGLProgramDiskCache, "Failed to create %s in shader cache", qPrintable(f.fileName()));
+    QString filename = cacheFileName(cacheKey);
+    bool ok = writeFile(filename, blob);
+    if (!ok && m_currentCacheDir == m_globalCacheDir) {
+        m_currentCacheDir = m_localCacheDir;
+        m_cacheWritable = qt_ensureWritableDir(m_currentCacheDir);
+        qCDebug(lcOpenGLProgramDiskCache, "Cache location changed to '%s' writable = %d",
+                qPrintable(m_currentCacheDir), m_cacheWritable);
+        if (m_cacheWritable) {
+            filename = cacheFileName(cacheKey);
+            ok = writeFile(filename, blob);
+        }
     }
+    if (!ok)
+        qCDebug(lcOpenGLProgramDiskCache, "Failed to write %s to shader cache", qPrintable(filename));
 }
 
-#if defined(QT_OPENGL_ES_2)
+#if QT_CONFIG(opengles2)
 void QOpenGLProgramBinaryCache::initializeProgramBinaryOES(QOpenGLContext *context)
 {
     if (m_programBinaryOESInitialized)

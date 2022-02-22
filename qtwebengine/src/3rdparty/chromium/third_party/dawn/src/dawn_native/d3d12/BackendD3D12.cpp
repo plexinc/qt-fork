@@ -17,6 +17,7 @@
 #include "dawn_native/D3D12Backend.h"
 #include "dawn_native/Instance.h"
 #include "dawn_native/d3d12/AdapterD3D12.h"
+#include "dawn_native/d3d12/D3D12Error.h"
 #include "dawn_native/d3d12/PlatformFunctions.h"
 
 namespace dawn_native { namespace d3d12 {
@@ -24,7 +25,7 @@ namespace dawn_native { namespace d3d12 {
     namespace {
 
         ResultOrError<ComPtr<IDXGIFactory4>> CreateFactory(const PlatformFunctions* functions,
-                                                           bool enableBackendValidation,
+                                                           BackendValidationLevel validationLevel,
                                                            bool beginCaptureOnStartup) {
             ComPtr<IDXGIFactory4> factory;
 
@@ -32,12 +33,17 @@ namespace dawn_native { namespace d3d12 {
 
             // Enable the debug layer (requires the Graphics Tools "optional feature").
             {
-                if (enableBackendValidation) {
-                    ComPtr<ID3D12Debug> debugController;
+                if (validationLevel != BackendValidationLevel::Disabled) {
+                    ComPtr<ID3D12Debug3> debugController;
                     if (SUCCEEDED(
                             functions->d3d12GetDebugInterface(IID_PPV_ARGS(&debugController)))) {
                         ASSERT(debugController != nullptr);
                         debugController->EnableDebugLayer();
+                        debugController->SetEnableGPUBasedValidation(true);
+                        if (validationLevel == BackendValidationLevel::Partial) {
+                            debugController->SetGPUBasedValidationFlags(
+                                D3D12_GPU_BASED_VALIDATION_FLAGS_DISABLE_STATE_TRACKING);
+                        }
 
                         // Enable additional debug layers.
                         dxgiFactoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
@@ -65,7 +71,19 @@ namespace dawn_native { namespace d3d12 {
             }
 
             ASSERT(factory != nullptr);
-            return factory;
+            return std::move(factory);
+        }
+
+        ResultOrError<std::unique_ptr<AdapterBase>> CreateAdapterFromIDXGIAdapter(
+            Backend* backend,
+            ComPtr<IDXGIAdapter> dxgiAdapter) {
+            ComPtr<IDXGIAdapter3> dxgiAdapter3;
+            DAWN_TRY(CheckHRESULT(dxgiAdapter.As(&dxgiAdapter3), "DXGIAdapter retrieval"));
+            std::unique_ptr<Adapter> adapter =
+                std::make_unique<Adapter>(backend, std::move(dxgiAdapter3));
+            DAWN_TRY(adapter->Initialize());
+
+            return {std::move(adapter)};
         }
 
     }  // anonymous namespace
@@ -81,7 +99,7 @@ namespace dawn_native { namespace d3d12 {
         const auto instance = GetInstance();
 
         DAWN_TRY_ASSIGN(mFactory,
-                        CreateFactory(mFunctions.get(), instance->IsBackendValidationEnabled(),
+                        CreateFactory(mFunctions.get(), instance->GetBackendValidationLevel(),
                                       instance->IsBeginCaptureOnStartupEnabled()));
 
         return {};
@@ -89,6 +107,36 @@ namespace dawn_native { namespace d3d12 {
 
     ComPtr<IDXGIFactory4> Backend::GetFactory() const {
         return mFactory;
+    }
+
+    ResultOrError<IDxcLibrary*> Backend::GetOrCreateDxcLibrary() {
+        if (mDxcLibrary == nullptr) {
+            DAWN_TRY(CheckHRESULT(
+                mFunctions->dxcCreateInstance(CLSID_DxcLibrary, IID_PPV_ARGS(&mDxcLibrary)),
+                "DXC create library"));
+            ASSERT(mDxcLibrary != nullptr);
+        }
+        return mDxcLibrary.Get();
+    }
+
+    ResultOrError<IDxcCompiler*> Backend::GetOrCreateDxcCompiler() {
+        if (mDxcCompiler == nullptr) {
+            DAWN_TRY(CheckHRESULT(
+                mFunctions->dxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&mDxcCompiler)),
+                "DXC create compiler"));
+            ASSERT(mDxcCompiler != nullptr);
+        }
+        return mDxcCompiler.Get();
+    }
+
+    ResultOrError<IDxcValidator*> Backend::GetOrCreateDxcValidator() {
+        if (mDxcValidator == nullptr) {
+            DAWN_TRY(CheckHRESULT(
+                mFunctions->dxcCreateInstance(CLSID_DxcValidator, IID_PPV_ARGS(&mDxcValidator)),
+                "DXC create validator"));
+            ASSERT(mDxcValidator != nullptr);
+        }
+        return mDxcValidator.Get();
     }
 
     const PlatformFunctions* Backend::GetFunctions() const {
@@ -105,21 +153,32 @@ namespace dawn_native { namespace d3d12 {
             }
 
             ASSERT(dxgiAdapter != nullptr);
-
-            ComPtr<IDXGIAdapter3> dxgiAdapter3;
-            HRESULT result = dxgiAdapter.As(&dxgiAdapter3);
-            ASSERT(SUCCEEDED(result));
-
-            std::unique_ptr<Adapter> adapter =
-                std::make_unique<Adapter>(this, std::move(dxgiAdapter3));
-            if (GetInstance()->ConsumedError(adapter->Initialize())) {
+            ResultOrError<std::unique_ptr<AdapterBase>> adapter =
+                CreateAdapterFromIDXGIAdapter(this, dxgiAdapter);
+            if (adapter.IsError()) {
+                adapter.AcquireError();
                 continue;
             }
 
-            adapters.push_back(std::move(adapter));
+            adapters.push_back(std::move(adapter.AcquireSuccess()));
         }
 
         return adapters;
+    }
+
+    ResultOrError<std::vector<std::unique_ptr<AdapterBase>>> Backend::DiscoverAdapters(
+        const AdapterDiscoveryOptionsBase* optionsBase) {
+        ASSERT(optionsBase->backendType == WGPUBackendType_D3D12);
+        const AdapterDiscoveryOptions* options =
+            static_cast<const AdapterDiscoveryOptions*>(optionsBase);
+
+        ASSERT(options->dxgiAdapter != nullptr);
+
+        std::unique_ptr<AdapterBase> adapter;
+        DAWN_TRY_ASSIGN(adapter, CreateAdapterFromIDXGIAdapter(this, options->dxgiAdapter));
+        std::vector<std::unique_ptr<AdapterBase>> adapters;
+        adapters.push_back(std::move(adapter));
+        return std::move(adapters);
     }
 
     BackendConnection* Connect(InstanceBase* instance) {

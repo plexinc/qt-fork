@@ -58,8 +58,7 @@ struct quint128
 class Q_BLUETOOTH_EXPORT QBluetoothUuid : public QUuid
 {
 public:
-    //TODO Qt 6: Convert enums to scoped enums (see QTBUG-65831)
-    enum ProtocolUuid {
+    enum class ProtocolUuid {
         Sdp = 0x0001,
         Udp = 0x0002,
         Rfcomm = 0x0003,
@@ -87,7 +86,7 @@ public:
         L2cap = 0x0100
     };
 
-    enum ServiceClassUuid {
+    enum class ServiceClassUuid {
         ServiceDiscoveryServer = 0x1000,
         BrowseGroupDescriptor = 0x1001,
         PublicBrowseGroup = 0x1002,
@@ -181,7 +180,7 @@ public:
         ContinuousGlucoseMonitoring = 0x181f
     };
 
-    enum CharacteristicType {
+    enum class CharacteristicType {
         DeviceName = 0x2a00,
         Appearance = 0x2a01,
         PeripheralPrivacyFlag = 0x2a02,
@@ -348,7 +347,7 @@ public:
         BarometricPressureTrend = 0x2aa3
     };
 
-    enum DescriptorType {
+    enum class DescriptorType {
         UnknownDescriptorType = 0x0,
         CharacteristicExtendedProperties = 0x2900,
         CharacteristicUserDescription = 0x2901,
@@ -366,23 +365,41 @@ public:
         EnvironmentalSensingTriggerSetting = 0x290d
     };
 
-    QBluetoothUuid();
-    QBluetoothUuid(ProtocolUuid uuid);
-    QBluetoothUuid(ServiceClassUuid uuid);
-    QBluetoothUuid(CharacteristicType uuid);
-    QBluetoothUuid(DescriptorType uuid);
-    explicit QBluetoothUuid(quint16 uuid);
-    explicit QBluetoothUuid(quint32 uuid);
+    constexpr QBluetoothUuid() noexcept {};
+
+    // values below are based on Bluetooth BASE_UUID
+    constexpr QBluetoothUuid(ProtocolUuid uuid) noexcept
+        : QUuid(static_cast<uint>(uuid), 0x0, 0x1000, 0x80, 0x00, 0x00, 0x80, 0x5f, 0x9b, 0x34, 0xfb) {};
+    constexpr QBluetoothUuid(ServiceClassUuid uuid) noexcept
+        : QUuid(static_cast<uint>(uuid), 0x0, 0x1000, 0x80, 0x00, 0x00, 0x80, 0x5f, 0x9b, 0x34, 0xfb) {};
+    constexpr QBluetoothUuid(CharacteristicType uuid) noexcept
+        : QUuid(static_cast<uint>(uuid), 0x0, 0x1000, 0x80, 0x00, 0x00, 0x80, 0x5f, 0x9b, 0x34, 0xfb) {};
+    constexpr QBluetoothUuid(DescriptorType uuid) noexcept
+        : QUuid(static_cast<uint>(uuid), 0x0, 0x1000, 0x80, 0x00, 0x00, 0x80, 0x5f, 0x9b, 0x34, 0xfb) {};
+    explicit constexpr QBluetoothUuid(quint16 uuid) noexcept
+        : QUuid(uuid, 0x0, 0x1000, 0x80, 0x00, 0x00, 0x80, 0x5f, 0x9b, 0x34, 0xfb) {};
+    explicit constexpr QBluetoothUuid(quint32 uuid) noexcept
+        : QUuid(uuid, 0x0, 0x1000, 0x80, 0x00, 0x00, 0x80, 0x5f, 0x9b, 0x34, 0xfb) {};
+
     explicit QBluetoothUuid(quint128 uuid);
     explicit QBluetoothUuid(const QString &uuid);
-    QBluetoothUuid(const QBluetoothUuid &uuid);
+    QBluetoothUuid(const QBluetoothUuid &uuid) = default;
     QBluetoothUuid(const QUuid &uuid);
-    ~QBluetoothUuid();
-
-    bool operator==(const QBluetoothUuid &other) const;
-    bool operator!=(const QBluetoothUuid &other) const { return !operator==(other); }
+    ~QBluetoothUuid() = default;
 
     QBluetoothUuid &operator=(const QBluetoothUuid &other) = default;
+    friend bool operator==(const QBluetoothUuid &a, const QBluetoothUuid &b)
+    {
+        return static_cast<QUuid>(a) == static_cast<QUuid>(b);
+    }
+    friend bool operator!=(const QBluetoothUuid &a, const QBluetoothUuid &b) { return !(a == b); }
+#ifndef QT_NO_DEBUG_STREAM
+    friend QDebug operator<<(QDebug debug, const QBluetoothUuid &uuid)
+    {
+        return streamingOperator(debug, uuid);
+    }
+    static QDebug streamingOperator(QDebug debug, const QBluetoothUuid &uuid);
+#endif
 
     int minimumSize() const;
 
@@ -394,6 +411,9 @@ public:
     static QString protocolToString(ProtocolUuid uuid);
     static QString characteristicToString(CharacteristicType uuid);
     static QString descriptorToString(DescriptorType uuid);
+
+private:
+    static bool equals(const QBluetoothUuid &a, const QBluetoothUuid &b);
 };
 
 #ifndef QT_NO_DATASTREAM
@@ -405,15 +425,6 @@ inline QDataStream &operator<<(QDataStream &s, const QBluetoothUuid &uuid)
 inline QDataStream &operator>>(QDataStream &s, QBluetoothUuid &uuid)
 {
     return s >> static_cast<QUuid &>(uuid);
-}
-#endif
-
-#ifndef QT_NO_DEBUG_STREAM
-/// TODO: Move implementation to .cpp, uninline and add Q_BLUETOOTH_EXPORT for Qt 6
-inline QDebug operator<<(QDebug debug, const QBluetoothUuid &uuid)
-{
-    debug << uuid.toString();
-    return debug;
 }
 #endif
 

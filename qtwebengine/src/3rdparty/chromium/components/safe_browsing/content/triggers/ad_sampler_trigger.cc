@@ -14,7 +14,6 @@
 #include "base/rand_util.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/task/post_task.h"
 #include "components/safe_browsing/content/triggers/trigger_util.h"
 #include "components/safe_browsing/core/features.h"
 #include "components/safe_browsing/core/triggers/trigger_manager.h"
@@ -94,26 +93,9 @@ AdSamplerTrigger::AdSamplerTrigger(
       prefs_(prefs),
       url_loader_factory_(url_loader_factory),
       history_service_(history_service),
-      task_runner_(
-          base::CreateSingleThreadTaskRunner({content::BrowserThread::UI})) {}
+      task_runner_(content::GetUIThreadTaskRunner({})) {}
 
 AdSamplerTrigger::~AdSamplerTrigger() {}
-
-// static
-void AdSamplerTrigger::CreateForWebContents(
-    content::WebContents* web_contents,
-    TriggerManager* trigger_manager,
-    PrefService* prefs,
-    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
-    history::HistoryService* history_service) {
-  DCHECK(web_contents);
-  if (!FromWebContents(web_contents)) {
-    web_contents->SetUserData(UserDataKey(),
-                              base::WrapUnique(new AdSamplerTrigger(
-                                  web_contents, trigger_manager, prefs,
-                                  url_loader_factory, history_service)));
-  }
-}
 
 void AdSamplerTrigger::DidFinishLoad(
     content::RenderFrameHost* render_frame_host,

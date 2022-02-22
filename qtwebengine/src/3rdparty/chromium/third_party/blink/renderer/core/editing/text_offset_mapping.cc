@@ -40,6 +40,12 @@ bool CanBeInlineContentsContainer(const LayoutObject& layout_object) {
     return false;
   if (!block_flow->ChildrenInline() || block_flow->IsAtomicInlineLevel())
     return false;
+  if (block_flow->IsRuby()) {
+    // We should not make |LayoutRubyAsBlock| as inline contents container,
+    // because ruby base text comes after ruby text in layout tree.
+    // See ParameterizedTextOffsetMappingTest.RangeOfBlockWithRubyAsBlock
+    return false;
+  }
   if (block_flow->NonPseudoNode()) {
     // It is OK as long as |block_flow| is associated to non-pseudo |Node| even
     // if it is empty block or containing only anonymous objects.
@@ -284,11 +290,17 @@ TextOffsetMapping::InlineContents TextOffsetMapping::FindBackwardInlineContents(
   auto previous_skipping_text_control = [](const Node& node) -> const Node* {
     DCHECK(!EnclosingTextControl(&node));
     const Node* previous = PreviousNodeSkippingAncestors(node);
+    if (!previous)
+      return previous;
     const TextControlElement* previous_text_control =
         EnclosingTextControl(previous);
-    if (!previous_text_control)
-      return previous;
-    return previous_text_control;
+    if (previous_text_control)
+      return previous_text_control;
+    if (ShadowRoot* root = previous->ContainingShadowRoot()) {
+      if (root->IsUserAgent())
+        return root->OwnerShadowHost();
+    }
+    return previous;
   };
 
   if (const TextControlElement* last_enclosing_text_control =
@@ -328,6 +340,10 @@ TextOffsetMapping::InlineContents TextOffsetMapping::FindForwardInlineContents(
     DCHECK(!EnclosingTextControl(&node));
     if (IsTextControl(node))
       return FlatTreeTraversal::NextSkippingChildren(node);
+    if (ShadowRoot* root = node.GetShadowRoot()) {
+      if (root->IsUserAgent())
+        return FlatTreeTraversal::NextSkippingChildren(node);
+    }
     return FlatTreeTraversal::Next(node);
   };
   DCHECK(!EnclosingTextControl(next_node));

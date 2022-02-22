@@ -53,6 +53,7 @@
 #include "qv4global_p.h"
 
 #include <QHash>
+#include <climits> // for UINT_MAX
 #include <private/qv4propertykey_p.h>
 #include <private/qv4heap_p.h>
 
@@ -239,8 +240,7 @@ struct SharedInternalClassData {
             Q_ASSERT(d->refcount > 1);
             // need to detach
             Private *dd = new Private(*d, pos, value);
-            if (!--d->refcount)
-                delete d;
+            --d->refcount;
             d = dd;
             return;
         }
@@ -260,8 +260,7 @@ struct SharedInternalClassData {
         if (d->refcount > 1) {
             // need to detach
             Private *dd = new Private(*d);
-            if (!--d->refcount)
-                delete d;
+            --d->refcount;
             d = dd;
         }
         d->set(pos, value);

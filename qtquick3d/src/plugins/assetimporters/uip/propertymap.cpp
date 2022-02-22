@@ -158,23 +158,12 @@ PropertyMap::PropertyMap()
     layer->insert(QStringLiteral("environment.aosamplerate"), Property(QStringLiteral("environment.aoSampleRate"), Q3DS::Long, 2));
     layer->insert(QStringLiteral("environment.aobias"), Property(QStringLiteral("environment.aoBias"), Q3DS::Float, 0.0f));
 
-    layer->insert(QStringLiteral("probebright"), Property(QStringLiteral("probeBrightness"), Q3DS::Float, 0.0f));
-    layer->insert(QStringLiteral("fastibl"), Property(QStringLiteral("fastImageBasedLightingEnabled"), Q3DS::Boolean, false));
+    layer->insert(QStringLiteral("probebright"), Property(QStringLiteral("probeExposure"), Q3DS::Float, 1.0f));
     layer->insert(QStringLiteral("probehorizon"), Property(QStringLiteral("probeHorizon"), Q3DS::Float, -1.0f));
-    layer->insert(QStringLiteral("probefov"), Property(QStringLiteral("probeFieldOfView"), Q3DS::Float, 180.0f));
 
-    layer->insert(QStringLiteral("environment.probebright"), Property(QStringLiteral("environment.probeBrightness"), Q3DS::Float, 0.0f));
-    layer->insert(QStringLiteral("environment.fastibl"), Property(QStringLiteral("environment.fastImageBasedLightingEnabled"), Q3DS::Boolean, false));
+    layer->insert(QStringLiteral("environment.probebright"), Property(QStringLiteral("environment.probeExposure"), Q3DS::Float, 1.0f));
     layer->insert(QStringLiteral("environment.probehorizon"), Property(QStringLiteral("environment.probeHorizon"), Q3DS::Float, -1.0f));
     layer->insert(QStringLiteral("environment.probefov"), Property(QStringLiteral("environment.probeFieldOfView"), Q3DS::Float, 180.0f));
-
-    layer->insert(QStringLiteral("probe2fade"), Property(QStringLiteral("probe2Fade"), Q3DS::Float, 1.0f));
-    layer->insert(QStringLiteral("probe2window"), Property(QStringLiteral("probe2Window"), Q3DS::Float, 1.0f));
-    layer->insert(QStringLiteral("probe2pos"), Property(QStringLiteral("probe2Postion"), Q3DS::Float, 0.5f));
-
-    layer->insert(QStringLiteral("environment.probe2fade"), Property(QStringLiteral("environment.probe2Fade"), Q3DS::Float, 1.0f));
-    layer->insert(QStringLiteral("environment.probe2window"), Property(QStringLiteral("environment.probe2Window"), Q3DS::Float, 1.0f));
-    layer->insert(QStringLiteral("environment.probe2pos"), Property(QStringLiteral("environment.probe2Postion"), Q3DS::Float, 0.5f));
 
     layer->insert(QStringLiteral("temporalaa"), Property(QStringLiteral("temporalAAEnabled"), Q3DS::Boolean, false));
     layer->insert(QStringLiteral("disabledepthtest"), Property(QStringLiteral("depthTestEnabled"), Q3DS::Boolean, true));
@@ -195,7 +184,7 @@ PropertyMap::PropertyMap()
     camera->insert(QStringLiteral("clipnear"), Property(QStringLiteral("clipNear"), Q3DS::Float, 10.0f));
     camera->insert(QStringLiteral("clipfar"), Property(QStringLiteral("clipFar"), Q3DS::Float, 10000.0f));
     camera->insert(QStringLiteral("fov"), Property(QStringLiteral("fieldOfView"), Q3DS::Float, 60.0f));
-    camera->insert(QStringLiteral("fovhorizontal"), Property(QStringLiteral("fieldOfViewOrientation"),  Q3DS::String, QStringLiteral("Camera.Vertical")));
+    camera->insert(QStringLiteral("fovhorizontal"), Property(QStringLiteral("fieldOfViewOrientation"),  Q3DS::String, QStringLiteral("PerspectiveCamera.Vertical")));
     camera->insert(QStringLiteral("enablefrustumculling"), Property(QStringLiteral("frustumCullingEnabled"), Q3DS::Boolean, false));
     m_properties.insert(GraphObject::Camera, camera);
 
@@ -207,12 +196,10 @@ PropertyMap::PropertyMap()
     light->insert(QStringLiteral("lightdiffuse"), Property(QStringLiteral("color"), Q3DS::Color, QColor(Qt::white)));
     light->insert(QStringLiteral("lightspecular"), Property(QStringLiteral("color"), Q3DS::Color, QColor(Qt::white)));
     light->insert(QStringLiteral("lightambient"), Property(QStringLiteral("ambientColor"), Q3DS::Color, QColor(Qt::black)));
-    light->insert(QStringLiteral("brightness"), Property(QStringLiteral("brightness"), Q3DS::Float, 100.0f));
+    light->insert(QStringLiteral("brightness"), Property(QStringLiteral("brightness"), Q3DS::Float, 1.0f));
     light->insert(QStringLiteral("constantfade"), Property(QStringLiteral("constantFade"), Q3DS::Float, 1.0f));
     light->insert(QStringLiteral("linearfade"), Property(QStringLiteral("linearFade"), Q3DS::Float, 0.0f));
     light->insert(QStringLiteral("expfade"), Property(QStringLiteral("quadraticFade"), Q3DS::Float, 1.0f));
-    light->insert(QStringLiteral("areawidth"), Property(QStringLiteral("width"), Q3DS::Float, 100.0f));
-    light->insert(QStringLiteral("areaheight"), Property(QStringLiteral("height"), Q3DS::Float, 100.0f));
     light->insert(QStringLiteral("castshadow"), Property(QStringLiteral("castsShadow"), Q3DS::Boolean, false));
     light->insert(QStringLiteral("shdwbias"), Property(QStringLiteral("shadowBias"), Q3DS::Float, 0.0f));
     light->insert(QStringLiteral("shdwfactor"), Property(QStringLiteral("shadowFactor"), Q3DS::Float, 5.0f));
@@ -241,8 +228,9 @@ PropertyMap::PropertyMap()
     defaultMaterial->insert(QStringLiteral("shaderlighting"), Property(QStringLiteral("lighting"), Q3DS::Enum, QStringLiteral("DefaultMaterial.FragmentLighting")));
     defaultMaterial->insert(QStringLiteral("blendmode"), Property(QStringLiteral("blendMode"), Q3DS::Enum, QStringLiteral("DefaultMaterial.SourceOver")));
     defaultMaterial->insert(QStringLiteral("diffuse"), Property(QStringLiteral("diffuseColor"), Q3DS::Color, QColor(Qt::white)));
-    defaultMaterial->insert(QStringLiteral("emissivepower"), Property(QStringLiteral("emissiveFactor"), Q3DS::Float, 0.0f));
-    defaultMaterial->insert(QStringLiteral("emissivecolor"), Property(QStringLiteral("emissiveColor"), Q3DS::Color, QColor(Qt::white)));
+    defaultMaterial->insert(QStringLiteral("emissivepower.x"), Property(QStringLiteral("emissiveFactor.x"), Q3DS::Float, 0.0f));
+    defaultMaterial->insert(QStringLiteral("emissivepower.y"), Property(QStringLiteral("emissiveFactor.y"), Q3DS::Float, 0.0f));
+    defaultMaterial->insert(QStringLiteral("emissivepower.z"), Property(QStringLiteral("emissiveFactor.z"), Q3DS::Float, 0.0f));
     defaultMaterial->insert(QStringLiteral("specularmodel"), Property(QStringLiteral("specularModel"), Q3DS::Enum, QStringLiteral("DefaultMaterial.Default")));
     defaultMaterial->insert(QStringLiteral("speculartint"), Property(QStringLiteral("specularTint"), Q3DS::Color, QColor(Qt::white)));
     defaultMaterial->insert(QStringLiteral("ior"), Property(QStringLiteral("indexOfRefraction"), Q3DS::Float, 0.2f));
@@ -254,14 +242,11 @@ PropertyMap::PropertyMap()
     defaultMaterial->insert(QStringLiteral("translucentfalloff"), Property(QStringLiteral("translucentFalloff"), Q3DS::Float, 0.0f));
     defaultMaterial->insert(QStringLiteral("diffuselightwrap"), Property(QStringLiteral("diffuseLightWrap"), Q3DS::Float, 0.0f));
     defaultMaterial->insert(QStringLiteral("vertexcolors"), Property(QStringLiteral("vertexColorsEnabled"), Q3DS::Boolean, false));
-    defaultMaterial->insert(QStringLiteral("displacementamount"), Property(QStringLiteral("displacementAmount"), Q3DS::Float, 0.0f));
 
     m_properties.insert(GraphObject::DefaultMaterial, defaultMaterial);
 
     // CustomMaterial
     PropertiesMap *customMaterial = new PropertiesMap;
-    customMaterial->insert(QStringLiteral("displacementamount"), Property(QStringLiteral("displacementAmount"), Q3DS::Float, 0.0f));
-
     m_properties.insert(GraphObject::CustomMaterial, customMaterial);
 
     // ReferenceMaterial
@@ -292,7 +277,7 @@ PropertyMap::PropertyMap()
 
 PropertyMap::~PropertyMap()
 {
-    for (auto proprtyMap : m_properties.values())
+    for (const auto &proprtyMap : qAsConst(m_properties))
         delete proprtyMap;
 }
 

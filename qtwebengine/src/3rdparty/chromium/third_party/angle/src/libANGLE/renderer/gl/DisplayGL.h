@@ -19,6 +19,8 @@ class Surface;
 
 namespace rx
 {
+class ShareGroupGL : public ShareGroupImpl
+{};
 
 class RendererGL;
 
@@ -39,11 +41,20 @@ class DisplayGL : public DisplayImpl
     StreamProducerImpl *createStreamProducerD3DTexture(egl::Stream::ConsumerType consumerType,
                                                        const egl::AttributeMap &attribs) override;
 
-    egl::Error makeCurrent(egl::Surface *drawSurface,
+    ShareGroupImpl *createShareGroup() override;
+
+    egl::Error makeCurrent(egl::Display *display,
+                           egl::Surface *drawSurface,
                            egl::Surface *readSurface,
                            gl::Context *context) override;
 
     gl::Version getMaxConformantESVersion() const override;
+
+    virtual RendererGL *getRenderer() const = 0;
+
+    std::string getRendererDescription() override;
+    std::string getVendorString() override;
+    std::string getVersionString() override;
 
   protected:
     void generateExtensions(egl::DisplayExtensions *outExtensions) const override;

@@ -249,19 +249,6 @@ EnumNameMap *EnumParseMap<Image::TilingMode>::get()
     return g_Imagetilingmode;
 }
 
-static EnumNameMap g_ModelNodetessellation[] = {
-    { ModelNode::None, "None" },
-    { ModelNode::Linear, "Linear" },
-    { ModelNode::Phong, "Phong" },
-    { ModelNode::NPatch, "NPatch" },
-    { 0, nullptr }
-};
-
-EnumNameMap *EnumParseMap<ModelNode::Tessellation>::get()
-{
-    return g_ModelNodetessellation;
-}
-
 static EnumNameMap g_LightNodelighttype[] = {
     { LightNode::Directional, "Directional" },
     { LightNode::Point, "Point" },
@@ -303,7 +290,6 @@ EnumNameMap *EnumParseMap<DefaultMaterial::BlendMode>::get()
 static EnumNameMap g_MaterialNodespecularmodel[] = {
     { DefaultMaterial::DefaultSpecularModel, "Default" },
     { DefaultMaterial::KGGX, "KGGX" },
-    { DefaultMaterial::KWard, "KWard" },
     { 0, nullptr }
 };
 

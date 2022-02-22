@@ -25,7 +25,7 @@
 #include "net/test/cert_test_util.h"
 #include "net/test/test_data_directory.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/blink/public/platform/web_mixed_content_context_type.h"
+#include "third_party/blink/public/mojom/loader/mixed_content.mojom.h"
 #include "ui/base/l10n/l10n_util.h"
 
 namespace {
@@ -587,14 +587,14 @@ TEST(SecurityStateContentUtilsTest, MixedContentAndCertErrorExplanations) {
 }
 
 // Tests that a security level of WARNING produces
-// blink::kSecurityStyleNeutral.
+// blink::kSecurityStyleInsecure.
 TEST(SecurityStateContentUtilsTest, HTTPWarning) {
   security_state::VisibleSecurityState visible_security_state;
   visible_security_state.url = GURL("http://scheme-is-not-cryptographic.test");
   content::SecurityStyleExplanations explanations;
   blink::SecurityStyle security_style = GetSecurityStyle(
       security_state::WARNING, visible_security_state, &explanations);
-  EXPECT_EQ(blink::SecurityStyle::kNeutral, security_style);
+  EXPECT_EQ(blink::SecurityStyle::kInsecure, security_style);
   // Verify no explanation was shown.
   EXPECT_EQ(0u, explanations.neutral_explanations.size());
 }
@@ -831,7 +831,7 @@ TEST(SecurityStateContentUtilsTest, DefaultSecurityStyleExplanation) {
                                                 "description");
 
   EXPECT_EQ(false, !!explanation.certificate);
-  EXPECT_EQ(blink::WebMixedContentContextType::kNotMixedContent,
+  EXPECT_EQ(blink::mojom::MixedContentContextType::kNotMixedContent,
             explanation.mixed_content_type);
 }
 

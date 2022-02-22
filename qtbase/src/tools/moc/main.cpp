@@ -27,6 +27,7 @@
 **
 ****************************************************************************/
 
+#include <depfile_shared.h>
 #include "preprocessor.h"
 #include "moc.h"
 #include "outputrevision.h"
@@ -145,9 +146,10 @@ QByteArray composePreprocessorOutput(const Symbols &symbols) {
     return output;
 }
 
-static QStringList argumentsFromCommandLineAndFile(const QStringList &arguments)
+static QStringList argumentsFromCommandLineAndFile(const QStringList &arguments, bool &hasOptionFiles)
 {
     QStringList allArguments;
+    hasOptionFiles = false;
     allArguments.reserve(arguments.size());
     for (const QString &argument : arguments) {
         // "@file" doesn't start with a '-' so we can't use QCommandLineParser for it
@@ -163,6 +165,7 @@ static QStringList argumentsFromCommandLineAndFile(const QStringList &arguments)
                 error("Cannot open options file specified with @");
                 return QStringList();
             }
+            hasOptionFiles = true;
             while (!f.atEnd()) {
                 QString line = QString::fromLocal8Bit(f.readLine().trimmed());
                 if (!line.isEmpty())
@@ -173,50 +176,6 @@ static QStringList argumentsFromCommandLineAndFile(const QStringList &arguments)
         }
     }
     return allArguments;
-}
-
-// Escape characters in given path. Dependency paths are Make-style, not NMake/Jom style.
-// The paths can also be consumed by Ninja.
-// "$" replaced by "$$"
-// "#" replaced by "\#"
-// " " replaced by "\ "
-// "\#" replaced by "\\#"
-// "\ " replaced by "\\\ "
-//
-// The escape rules are according to what clang / llvm escapes when generating a Make-style
-// dependency file.
-// Is a template function, because input param can be either a QString or a QByteArray.
-template <typename T> struct CharType;
-template <> struct CharType<QString> { using type = QLatin1Char; };
-template <> struct CharType<QByteArray> { using type = char; };
-template <typename StringType>
-StringType escapeDependencyPath(const StringType &path)
-{
-    using CT = typename CharType<StringType>::type;
-    StringType escapedPath;
-    int size = path.size();
-    escapedPath.reserve(size);
-    for (int i = 0; i < size; ++i) {
-        if (path[i] == CT('$')) {
-            escapedPath.append(CT('$'));
-        } else if (path[i] == CT('#')) {
-            escapedPath.append(CT('\\'));
-        } else if (path[i] == CT(' ')) {
-            escapedPath.append(CT('\\'));
-            int backwards_it = i - 1;
-            while (backwards_it > 0 && path[backwards_it] == CT('\\')) {
-                escapedPath.append(CT('\\'));
-                --backwards_it;
-            }
-        }
-        escapedPath.append(path[i]);
-    }
-    return escapedPath;
-}
-
-QByteArray escapeAndEncodeDependencyPath(const QString &path)
-{
-    return QFile::encodeName(escapeDependencyPath(path));
 }
 
 int runMoc(int argc, char **argv)
@@ -242,7 +201,7 @@ int runMoc(int argc, char **argv)
     QString filename;
     QString output;
     QFile in;
-    FILE *out = 0;
+    FILE *out = nullptr;
 
     // Note that moc isn't translated.
     // If you use this code as an example for a translated app, make sure to translate the strings.
@@ -367,6 +326,10 @@ int runMoc(int argc, char **argv)
     depFileRuleNameOption.setValueName(QStringLiteral("rule name"));
     parser.addOption(depFileRuleNameOption);
 
+    QCommandLineOption requireCompleTypesOption(QStringLiteral("require-complete-types"));
+    requireCompleTypesOption.setDescription(QStringLiteral("Require complete types for better performance"));
+    parser.addOption(requireCompleTypesOption);
+
     parser.addPositionalArgument(QStringLiteral("[header-file]"),
             QStringLiteral("Header file to read from, otherwise stdin."));
     parser.addPositionalArgument(QStringLiteral("[@option-file]"),
@@ -374,7 +337,8 @@ int runMoc(int argc, char **argv)
     parser.addPositionalArgument(QStringLiteral("[MOC generated json file]"),
                                  QStringLiteral("MOC generated json output"));
 
-    const QStringList arguments = argumentsFromCommandLineAndFile(app.arguments());
+    bool hasOptionFiles = false;
+    const QStringList arguments = argumentsFromCommandLineAndFile(app.arguments(), hasOptionFiles);
     if (arguments.isEmpty())
         return 1;
 
@@ -383,7 +347,7 @@ int runMoc(int argc, char **argv)
     const QStringList files = parser.positionalArguments();
     output = parser.value(outputOption);
     if (parser.isSet(collectOption))
-        return collectJson(files, output);
+        return collectJson(files, output, hasOptionFiles);
 
     if (files.count() > 1) {
         error(qPrintable(QLatin1String("Too many input files specified: '") + files.join(QLatin1String("' '")) + QLatin1Char('\'')));
@@ -398,6 +362,8 @@ int runMoc(int argc, char **argv)
         moc.noInclude = true;
         autoInclude = false;
     }
+    if (parser.isSet(requireCompleTypesOption))
+        moc.requireCompleteTypes = true;
     if (!ignoreConflictingOptions) {
         if (parser.isSet(forceIncludeOption)) {
             moc.noInclude = false;

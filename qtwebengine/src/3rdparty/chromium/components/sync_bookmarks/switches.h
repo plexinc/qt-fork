@@ -9,14 +9,15 @@
 
 namespace switches {
 
-extern const base::Feature kSyncDoNotCommitBookmarksWithoutFavicon;
-extern const base::Feature kUpdateBookmarkGUIDWithNodeReplacement;
-extern const base::Feature kMergeBookmarksUsingGUIDs;
 // TODO(crbug.com/1066962): remove this code when most of bookmarks are
 // reuploaded.
 extern const base::Feature kSyncReuploadBookmarkFullTitles;
-// TODO(crbug.com/1071061): remove after launching.
-extern const base::Feature kSyncProcessBookmarkRestoreAfterDeletion;
+extern const base::Feature kSyncUseClientTagForBookmarkCommits;
+
+// TODO(crbug.com/1177798): remove this code when most of bookmarks are
+// reuploaded. This feature toggle will work only when
+// SyncReuploadBookmarkFullTitles is enabled.
+extern const base::Feature kSyncReuploadBookmarksUponMatchingData;
 
 }  // namespace switches
 

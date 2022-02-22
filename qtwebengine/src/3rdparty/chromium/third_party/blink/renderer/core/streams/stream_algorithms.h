@@ -8,13 +8,13 @@
 #include "base/optional.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
+#include "third_party/blink/renderer/platform/heap/visitor.h"
 #include "v8/include/v8.h"
 
 namespace blink {
 
 class ExceptionState;
 class ScriptState;
-class Visitor;
 
 // Base class for algorithms that calculate the size of a given chunk as part of
 // the stream's queuing strategy. This is the type for the
@@ -30,7 +30,7 @@ class StrategySizeAlgorithm : public GarbageCollected<StrategySizeAlgorithm> {
                                      v8::Local<v8::Value> chunk,
                                      ExceptionState&) = 0;
 
-  virtual void Trace(Visitor*) {}
+  virtual void Trace(Visitor*) const {}
 };
 
 // Base class for start algorithms, ie. those that are derived from the start()
@@ -43,7 +43,7 @@ class StreamStartAlgorithm : public GarbageCollected<StreamStartAlgorithm> {
 
   virtual v8::MaybeLocal<v8::Promise> Run(ScriptState*, ExceptionState&) = 0;
 
-  virtual void Trace(Visitor*) {}
+  virtual void Trace(Visitor*) const {}
 };
 
 // Base class for algorithms which take one or more arguments and return a
@@ -58,7 +58,7 @@ class StreamAlgorithm : public GarbageCollected<StreamAlgorithm> {
                                      int argc,
                                      v8::Local<v8::Value> argv[]) = 0;
 
-  virtual void Trace(Visitor*) {}
+  virtual void Trace(Visitor*) const {}
 };
 
 }  // namespace blink

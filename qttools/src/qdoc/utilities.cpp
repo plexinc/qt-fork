@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2019 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -27,7 +27,11 @@
 ****************************************************************************/
 
 #include "utilities.h"
-#include "loggingcategory.h"
+
+QT_BEGIN_NAMESPACE
+
+Q_LOGGING_CATEGORY(lcQdoc, "qt.qdoc")
+Q_LOGGING_CATEGORY(lcQdocClang, "qt.qdoc.clang")
 
 /*!
     \namespace Utilities
@@ -38,6 +42,7 @@ namespace Utilities {
 static inline void setDebugEnabled(bool value)
 {
     const_cast<QLoggingCategory &>(lcQdoc()).setEnabled(QtDebugMsg, value);
+    const_cast<QLoggingCategory &>(lcQdocClang()).setEnabled(QtDebugMsg, value);
 }
 
 void startDebugging(const QString &message)
@@ -56,4 +61,47 @@ bool debugging()
 {
     return lcQdoc().isEnabled(QtDebugMsg);
 }
+
+/*!
+    \internal
+    Convenience method that's used to get the correct punctuation character for
+    the words at \a wordPosition in a list of \a numberOfWords length.
+    For the last position in the list, returns "." (full stop). For any other
+    word, this method calls comma().
+
+    \sa comma()
+ */
+QString separator(qsizetype wordPosition, qsizetype numberOfWords)
+{
+    static QString terminator = QStringLiteral(".");
+    if (wordPosition == numberOfWords - 1)
+        return terminator;
+    else
+        return comma(wordPosition, numberOfWords);
 }
+
+/*!
+    \internal
+    Convenience method that's used to get the correct punctuation character for
+    the words at \a wordPosition in a list of \a numberOfWords length.
+
+    For a list of length one, returns an empty QString. For a list of length
+    two, returns the string " and ". For any length beyond two, returns the
+    string ", " until the last element, which returns ", and ".
+
+    \sa comma()
+ */
+QString comma(qsizetype wordPosition, qsizetype numberOfWords)
+{
+    if (wordPosition == numberOfWords - 1)
+        return QString();
+    if (numberOfWords == 2)
+        return QStringLiteral(" and ");
+    if (wordPosition == 0 || wordPosition < numberOfWords - 2)
+        return QStringLiteral(", ");
+    return QStringLiteral(", and ");
+}
+
+} // namespace Utilities
+
+QT_END_NAMESPACE

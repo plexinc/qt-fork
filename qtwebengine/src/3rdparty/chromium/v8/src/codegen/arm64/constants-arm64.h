@@ -159,6 +159,9 @@ using float16 = uint16_t;
                         /* store second source.      */ \
   V_(Rs, 20, 16, Bits)  /* Store-exclusive status    */ \
   V_(PrefetchMode, 4, 0, Bits)                          \
+  V_(PrefetchHint, 4, 3, Bits)                          \
+  V_(PrefetchTarget, 2, 1, Bits)                        \
+  V_(PrefetchStream, 0, 0, Bits)                        \
                                                         \
   /* Common bits */                                     \
   V_(SixtyFourBits, 31, 31, Bits)                       \
@@ -216,6 +219,7 @@ using float16 = uint16_t;
   V_(LSOpc, 23, 22, Bits)                               \
   V_(LSVector, 26, 26, Bits)                            \
   V_(LSSize, 31, 30, Bits)                              \
+  V_(ImmPrefetchOperation, 4, 0, Bits)                  \
                                                         \
   /* NEON generic fields */                             \
   V_(NEONQ, 30, 30, Bits)                               \
@@ -412,9 +416,9 @@ enum class BranchTargetIdentifier {
   // Emit a "BTI jc" instruction, which is a combination of "BTI j" and "BTI c".
   kBtiJumpCall,
 
-  // Emit a PACIASP instruction, which acts like a "BTI c" or a "BTI jc", based
-  // on the value of SCTLR_EL1.BT0.
-  kPaciasp
+  // Emit a PACIBSP instruction, which acts like a "BTI c" or a "BTI jc",
+  // based on the value of SCTLR_EL1.BT0.
+  kPacibsp
 };
 
 enum BarrierDomain {
@@ -441,6 +445,27 @@ enum SystemRegister {
   FPCR = ((0x1 << SysO0_offset) | (0x3 << SysOp1_offset) | (0x4 << CRn_offset) |
           (0x4 << CRm_offset) | (0x0 << SysOp2_offset)) >>
          ImmSystemRegister_offset
+};
+
+enum PrefetchOperation {
+  PLDL1KEEP = 0x00,
+  PLDL1STRM = 0x01,
+  PLDL2KEEP = 0x02,
+  PLDL2STRM = 0x03,
+  PLDL3KEEP = 0x04,
+  PLDL3STRM = 0x05,
+  PLIL1KEEP = 0x08,
+  PLIL1STRM = 0x09,
+  PLIL2KEEP = 0x0a,
+  PLIL2STRM = 0x0b,
+  PLIL3KEEP = 0x0c,
+  PLIL3STRM = 0x0d,
+  PSTL1KEEP = 0x10,
+  PSTL1STRM = 0x11,
+  PSTL2KEEP = 0x12,
+  PSTL2STRM = 0x13,
+  PSTL3KEEP = 0x14,
+  PSTL3STRM = 0x15,
 };
 
 // Instruction enumerations.
@@ -793,10 +818,10 @@ enum SystemPAuthOp : uint32_t {
   SystemPAuthFixed = 0xD503211F,
   SystemPAuthFMask = 0xFFFFFD1F,
   SystemPAuthMask = 0xFFFFFFFF,
-  PACIA1716 = SystemPAuthFixed | 0x00000100,
-  AUTIA1716 = SystemPAuthFixed | 0x00000180,
-  PACIASP = SystemPAuthFixed | 0x00000320,
-  AUTIASP = SystemPAuthFixed | 0x000003A0
+  PACIB1716 = SystemPAuthFixed | 0x00000140,
+  AUTIB1716 = SystemPAuthFixed | 0x000001C0,
+  PACIBSP = SystemPAuthFixed | 0x00000360,
+  AUTIBSP = SystemPAuthFixed | 0x000003E0
 };
 
 // Any load or store (including pair).
@@ -1325,7 +1350,8 @@ enum FPIntegerConvertOp : uint32_t {
   FMOV_xd = FMOV_ws | SixtyFourBits | FP64,
   FMOV_dx = FMOV_sw | SixtyFourBits | FP64,
   FMOV_d1_x = FPIntegerConvertFixed | SixtyFourBits | 0x008F0000,
-  FMOV_x_d1 = FPIntegerConvertFixed | SixtyFourBits | 0x008E0000
+  FMOV_x_d1 = FPIntegerConvertFixed | SixtyFourBits | 0x008E0000,
+  FJCVTZS = FPIntegerConvertFixed | FP64 | 0x001E0000
 };
 
 // Conversion between fixed point and floating point.

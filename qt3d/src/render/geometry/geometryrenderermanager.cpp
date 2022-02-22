@@ -58,28 +58,10 @@ void GeometryRendererManager::addDirtyGeometryRenderer(Qt3DCore::QNodeId bufferI
         m_dirtyGeometryRenderers.push_back(bufferId);
 }
 
-QVector<Qt3DCore::QNodeId> GeometryRendererManager::dirtyGeometryRenderers()
+QList<Qt3DCore::QNodeId> GeometryRendererManager::dirtyGeometryRenderers()
 {
-    QVector<Qt3DCore::QNodeId> vector(m_dirtyGeometryRenderers);
+    QList<Qt3DCore::QNodeId> vector(m_dirtyGeometryRenderers);
     m_dirtyGeometryRenderers.clear();
-    return vector;
-}
-
-void GeometryRendererManager::requestTriangleDataRefreshForGeometryRenderer(const Qt3DCore::QNodeId geometryRenderer)
-{
-    if (!m_geometryRenderersRequiringTriangleRefresh.contains(geometryRenderer))
-        m_geometryRenderersRequiringTriangleRefresh.push_back(geometryRenderer);
-}
-
-bool GeometryRendererManager::isGeometryRendererScheduledForTriangleDataRefresh(const Qt3DCore::QNodeId geometryRenderer)
-{
-    return m_geometryRenderersRequiringTriangleRefresh.contains(geometryRenderer);
-}
-
-QVector<Qt3DCore::QNodeId> GeometryRendererManager::geometryRenderersRequiringTriangleDataRefresh()
-{
-    QVector<Qt3DCore::QNodeId> vector(m_geometryRenderersRequiringTriangleRefresh);
-    m_geometryRenderersRequiringTriangleRefresh.clear();
     return vector;
 }
 

@@ -12,17 +12,18 @@
 #include "base/path_service.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/system/sys_info.h"
+#include "base/test/scoped_running_on_chromeos.h"
 #include "chrome/browser/chromeos/arc/session/arc_session_manager.h"
 #include "chrome/browser/chromeos/arc/test/test_arc_session_manager.h"
 #include "chrome/browser/chromeos/file_manager/fake_disk_mount_manager.h"
 #include "chrome/browser/chromeos/file_manager/path_util.h"
-#include "chrome/browser/chromeos/scoped_set_running_on_chromeos_for_testing.h"
 #include "chrome/browser/ui/webui/settings/chromeos/calculator/size_calculator_test_api.h"
 #include "chrome/browser/ui/webui/settings/chromeos/device_storage_handler.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/webui_url_constants.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile_manager.h"
+#include "chromeos/dbus/dbus_thread_manager.h"
 #include "components/arc/arc_service_manager.h"
 #include "components/arc/test/fake_arc_session.h"
 #include "content/public/browser/web_ui_data_source.h"
@@ -36,10 +37,6 @@ namespace chromeos {
 namespace settings {
 
 namespace {
-
-const char kLsbRelease[] =
-    "CHROMEOS_RELEASE_NAME=Chrome OS\n"
-    "CHROMEOS_RELEASE_VERSION=1.2.3.4\n";
 
 class TestStorageHandler : public StorageHandler {
  public:
@@ -58,6 +55,9 @@ class StorageHandlerTest : public testing::Test {
   ~StorageHandlerTest() override = default;
 
   void SetUp() override {
+    // Need to initialize DBusThreadManager before ArcSessionManager's
+    // constructor calls DBusThreadManager::Get().
+    chromeos::DBusThreadManager::Initialize();
     // The storage handler requires an instance of DiskMountManager,
     // ArcServiceManager and ArcSessionManager.
     chromeos::disks::DiskMountManager::InitializeForTesting(
@@ -100,14 +100,13 @@ class StorageHandlerTest : public testing::Test {
     // Create and register My files directory.
     // By emulating chromeos running, GetMyFilesFolderForProfile will return the
     // profile's temporary location instead of $HOME/Downloads.
-    chromeos::ScopedSetRunningOnChromeOSForTesting fake_release(kLsbRelease,
-                                                                base::Time());
+    base::test::ScopedRunningOnChromeOS running_on_chromeos;
     const base::FilePath my_files_path =
         file_manager::util::GetMyFilesFolderForProfile(profile_);
     CHECK(base::CreateDirectory(my_files_path));
     CHECK(storage::ExternalMountPoints::GetSystemInstance()->RegisterFileSystem(
         file_manager::util::GetDownloadsMountPointName(profile_),
-        storage::kFileSystemTypeNativeLocal, storage::FileSystemMountOption(),
+        storage::kFileSystemTypeLocal, storage::FileSystemMountOption(),
         my_files_path));
   }
 
@@ -119,8 +118,11 @@ class StorageHandlerTest : public testing::Test {
     apps_size_test_api_.reset();
     crostini_size_test_api_.reset();
     other_users_size_test_api_.reset();
+    arc_session_manager_.reset();
+    arc_service_manager_.reset();
     chromeos::disks::DiskMountManager::Shutdown();
     storage::ExternalMountPoints::GetSystemInstance()->RevokeAllFileSystems();
+    chromeos::DBusThreadManager::Shutdown();
   }
 
  protected:
@@ -318,7 +320,7 @@ TEST_F(StorageHandlerTest, MyFilesSize) {
   // Register android files mount point.
   CHECK(storage::ExternalMountPoints::GetSystemInstance()->RegisterFileSystem(
       file_manager::util::GetAndroidFilesMountPointName(),
-      storage::kFileSystemTypeNativeLocal, storage::FileSystemMountOption(),
+      storage::kFileSystemTypeLocal, storage::FileSystemMountOption(),
       android_files_path));
 
   // Add files in My files and android files.
@@ -449,10 +451,10 @@ TEST_F(StorageHandlerTest, SystemSize) {
   ASSERT_FALSE(GetWebUICallbackMessage("storage-system-size-changed"));
 
   // Simulate crostini size callback.
-  crostini_size_test_api_->SimulateOnGetCrostiniSize(70 * GB);
+  crostini_size_test_api_->SimulateOnGetCrostiniSize(50 * GB);
   callback = GetWebUICallbackMessage("storage-crostini-size-changed");
   ASSERT_TRUE(callback) << "No 'storage-crostini-size-changed' callback";
-  EXPECT_EQ("70.0 GB", callback->GetString());
+  EXPECT_EQ("50.0 GB", callback->GetString());
   ASSERT_FALSE(GetWebUICallbackMessage("storage-system-size-changed"));
 
   // Simulate other users size callback. No callback message until the sizes of
@@ -481,7 +483,7 @@ TEST_F(StorageHandlerTest, SystemSize) {
       // updated.
       callback = GetWebUICallbackMessage("storage-system-size-changed");
       ASSERT_TRUE(callback) << "No 'storage-system-size-changed' callback";
-      EXPECT_EQ("100 GB", callback->GetString());
+      EXPECT_EQ("120 GB", callback->GetString());
     }
   }
 
@@ -496,7 +498,7 @@ TEST_F(StorageHandlerTest, SystemSize) {
   // section instead. We expect the displayed size to be 100 + 24 GB.
   callback = GetWebUICallbackMessage("storage-system-size-changed");
   ASSERT_TRUE(callback) << "No 'storage-system-size-changed' callback";
-  EXPECT_EQ("124 GB", callback->GetString());
+  EXPECT_EQ("144 GB", callback->GetString());
 
   // No error while recalculating browsing data size, the UI should be updated
   // with the right sizes.
@@ -507,7 +509,7 @@ TEST_F(StorageHandlerTest, SystemSize) {
   EXPECT_EQ("24.0 GB", callback->GetString());
   callback = GetWebUICallbackMessage("storage-system-size-changed");
   ASSERT_TRUE(callback) << "No 'storage-system-size-changed' callback";
-  EXPECT_EQ("100 GB", callback->GetString());
+  EXPECT_EQ("120 GB", callback->GetString());
 }
 
 }  // namespace

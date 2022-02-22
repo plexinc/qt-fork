@@ -69,7 +69,7 @@ public:
     QSGInternalRectangleNode *createInternalRectangleNode() override;
     QSGInternalImageNode *createInternalImageNode(QSGRenderContext *renderContext) override;
     QSGPainterNode *createPainterNode(QQuickPaintedItem *item) override;
-    QSGGlyphNode *createGlyphNode(QSGRenderContext *rc, bool preferNativeGlyphNode) override;
+    QSGGlyphNode *createGlyphNode(QSGRenderContext *rc, bool preferNativeGlyphNode, int renderTypeQuality) override;
     QSGLayer *createLayer(QSGRenderContext *renderContext) override;
     QSurfaceFormat defaultSurfaceFormat() const override;
     QSGRendererInterface *rendererInterface(QSGRenderContext *renderContext) override;
@@ -80,8 +80,7 @@ public:
     QSGSpriteNode *createSpriteNode() override;
 #endif
     QSGGuiThreadShaderEffectManager *createGuiThreadShaderEffectManager() override;
-    QSGShaderEffectNode *createShaderEffectNode(QSGRenderContext *renderContext,
-                                                QSGGuiThreadShaderEffectManager *mgr) override;
+    QSGShaderEffectNode *createShaderEffectNode(QSGRenderContext *renderContext) override;
 
     void setDistanceFieldEnabled(bool enabled);
     bool isDistanceFieldEnabled() const;

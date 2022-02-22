@@ -16,28 +16,22 @@ class CORE_EXPORT DocumentPolicyViolationReportBody
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  DocumentPolicyViolationReportBody(const String& feature_id,
-                                    const String& message,
-                                    const String& disposition)
-      : feature_id_(feature_id), message_(message), disposition_(disposition) {}
-
   DocumentPolicyViolationReportBody(
       const String& feature_id,
       const String& message,
       const String& disposition,
       // URL of the resource that violated the document policy.
-      const String& resource_url)
-      : LocationReportBody(resource_url),
-        feature_id_(feature_id),
-        message_(message),
-        disposition_(disposition) {}
+      const String& resource_url);
 
   const String& featureId() const { return feature_id_; }
   const String& disposition() const { return disposition_; }
   const String& message() const { return message_; }
+
   void BuildJSONValue(V8ObjectBuilder& builder) const override;
 
   ~DocumentPolicyViolationReportBody() override = default;
+
+  unsigned MatchId() const override;
 
  private:
   const String feature_id_;

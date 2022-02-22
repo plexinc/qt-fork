@@ -27,8 +27,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import QtQuick.VirtualKeyboard 2.1
+import QtQuick
+import QtQuick.VirtualKeyboard
 
 /*!
     \qmltype HideKeyboardKey
@@ -42,7 +42,9 @@ import QtQuick.VirtualKeyboard 2.1
 */
 
 BaseKey {
+    keyType: QtVirtualKeyboard.HideKeyboardKey
     functionKey: true
-    onClicked: InputContext.priv.hideInputPanel()
+    highlighted: true
+    onClicked: keyboard.doKeyboardFunction(QtVirtualKeyboard.HideInputPanel)
     keyPanelDelegate: keyboard.style ? keyboard.style.hideKeyPanel : undefined
 }

@@ -6,11 +6,13 @@
 
 namespace network {
 
+// These strings are used in histograms, so do not change the values without
+// updating/deprecating histograms which use RequestDestination.
 const char* RequestDestinationToString(
     network::mojom::RequestDestination dest) {
   switch (dest) {
     case network::mojom::RequestDestination::kEmpty:
-      return "empty";
+      return "";
     case network::mojom::RequestDestination::kAudio:
       return "audio";
     case network::mojom::RequestDestination::kAudioWorklet:
@@ -47,6 +49,8 @@ const char* RequestDestinationToString(
       return "track";
     case network::mojom::RequestDestination::kVideo:
       return "video";
+    case network::mojom::RequestDestination::kWebBundle:
+      return "webbundle";
     case network::mojom::RequestDestination::kWorker:
       return "worker";
     case network::mojom::RequestDestination::kXslt:

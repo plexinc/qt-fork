@@ -32,7 +32,7 @@
 #include <QtCore/QList>
 #include <QtCore/QThread>
 #include <private/qfreelist_p.h>
-#include <QtTest/QtTest>
+#include <QTest>
 
 class tst_QFreeList : public QObject
 {
@@ -120,7 +120,7 @@ class FreeListThread : public QThread
 
 public:
     inline FreeListThread() : QThread() { }
-    inline void run()
+    inline void run() override
     {
         QElapsedTimer t;
         t.start();

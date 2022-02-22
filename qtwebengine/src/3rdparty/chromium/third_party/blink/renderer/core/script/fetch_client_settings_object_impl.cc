@@ -53,7 +53,7 @@ FetchClientSettingsObjectImpl::MimeTypeCheckForClassicWorkerScript() const {
   if (RuntimeEnabledFeatures::StrictMimeTypesForWorkersEnabled())
     return AllowedByNosniff::MimeTypeCheck::kStrict;
 
-  if (execution_context_->IsDocument()) {
+  if (execution_context_->IsWindow()) {
     // For worker creation on a document, don't impose strict MIME-type checks
     // on the top-level worker script for backward compatibility. Note that
     // there is a plan to deprecate legacy mime types for workers. See
@@ -74,7 +74,7 @@ FetchClientSettingsObjectImpl::MimeTypeCheckForClassicWorkerScript() const {
 
 network::mojom::IPAddressSpace FetchClientSettingsObjectImpl::GetAddressSpace()
     const {
-  return execution_context_->GetSecurityContext().AddressSpace();
+  return execution_context_->AddressSpace();
 }
 
 mojom::blink::InsecureRequestPolicy
@@ -88,7 +88,7 @@ FetchClientSettingsObjectImpl::GetUpgradeInsecureNavigationsSet() const {
       .InsecureNavigationsToUpgrade();
 }
 
-void FetchClientSettingsObjectImpl::Trace(Visitor* visitor) {
+void FetchClientSettingsObjectImpl::Trace(Visitor* visitor) const {
   visitor->Trace(execution_context_);
   FetchClientSettingsObject::Trace(visitor);
 }

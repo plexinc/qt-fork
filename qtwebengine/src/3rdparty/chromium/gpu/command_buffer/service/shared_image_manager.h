@@ -18,6 +18,7 @@
 namespace gpu {
 class SharedImageRepresentationFactoryRef;
 class SharedImageBatchAccessManager;
+class VaapiDependenciesFactory;
 
 class GPU_GLES2_EXPORT SharedImageManager {
  public:
@@ -61,6 +62,13 @@ class GPU_GLES2_EXPORT SharedImageManager {
       MemoryTypeTracker* ref,
       WGPUDevice device);
   std::unique_ptr<SharedImageRepresentationOverlay> ProduceOverlay(
+      const Mailbox& mailbox,
+      MemoryTypeTracker* ref);
+  std::unique_ptr<SharedImageRepresentationVaapi> ProduceVASurface(
+      const Mailbox& mailbox,
+      MemoryTypeTracker* ref,
+      VaapiDependenciesFactory* dep_factory);
+  std::unique_ptr<SharedImageRepresentationMemory> ProduceMemory(
       const Mailbox& mailbox,
       MemoryTypeTracker* ref);
 

@@ -62,13 +62,10 @@
 
 #include <QtCore/QBitArray>
 #include <QtCore/QStack>
-#include <QtGui/QOpenGLFunctions>
 
 #include <QtGui/private/qrhi_p.h>
 
 QT_BEGIN_NAMESPACE
-
-class QOpenGLVertexArrayObject;
 
 namespace QSGBatchRenderer
 {
@@ -298,7 +295,6 @@ inline QDebug operator << (QDebug d, const Rect &r) {
 }
 
 struct Buffer {
-    GLuint id;
     int size;
     // Data is only valid while preparing the upload. Exception is if we are using the
     // broken IBO workaround or we are using a visualization mode.
@@ -340,6 +336,7 @@ struct Element {
     int order = 0;
     QRhiShaderResourceBindings *srb = nullptr;
     QRhiGraphicsPipeline *ps = nullptr;
+    QRhiGraphicsPipeline *depthPostPassPs = nullptr;
 
     uint boundsComputed : 1;
     uint boundsOutsideFloatRange : 1;
@@ -645,9 +642,9 @@ struct GraphicsState
     float lineWidth = 1.0f;
 };
 
-bool operator==(const GraphicsState &a, const GraphicsState &b) Q_DECL_NOTHROW;
-bool operator!=(const GraphicsState &a, const GraphicsState &b) Q_DECL_NOTHROW;
-uint qHash(const GraphicsState &s, uint seed = 0) Q_DECL_NOTHROW;
+bool operator==(const GraphicsState &a, const GraphicsState &b) noexcept;
+bool operator!=(const GraphicsState &a, const GraphicsState &b) noexcept;
+size_t qHash(const GraphicsState &s, size_t seed = 0) noexcept;
 
 struct ShaderManagerShader;
 
@@ -655,30 +652,37 @@ struct GraphicsPipelineStateKey
 {
     GraphicsState state;
     const ShaderManagerShader *sms;
-    const QRhiRenderPassDescriptor *compatibleRenderPassDescriptor;
-    const QRhiShaderResourceBindings *layoutCompatibleSrb;
+    QVector<quint32> renderTargetDescription;
+    QVector<quint32> srbLayoutDescription;
+    struct {
+        size_t renderTargetDescriptionHash;
+        size_t srbLayoutDescriptionHash;
+    } extra;
+    static GraphicsPipelineStateKey create(const GraphicsState &state,
+                                           const ShaderManagerShader *sms,
+                                           const QRhiRenderPassDescriptor *rpDesc,
+                                           const QRhiShaderResourceBindings *srb)
+    {
+        const QVector<quint32> rtDesc = rpDesc->serializedFormat();
+        const QVector<quint32> srbDesc = srb->serializedLayoutDescription();
+        return { state, sms, rtDesc, srbDesc, { qHash(rtDesc), qHash(srbDesc) } };
+    }
 };
 
-bool operator==(const GraphicsPipelineStateKey &a, const GraphicsPipelineStateKey &b) Q_DECL_NOTHROW;
-bool operator!=(const GraphicsPipelineStateKey &a, const GraphicsPipelineStateKey &b) Q_DECL_NOTHROW;
-uint qHash(const GraphicsPipelineStateKey &k, uint seed = 0) Q_DECL_NOTHROW;
+bool operator==(const GraphicsPipelineStateKey &a, const GraphicsPipelineStateKey &b) noexcept;
+bool operator!=(const GraphicsPipelineStateKey &a, const GraphicsPipelineStateKey &b) noexcept;
+size_t qHash(const GraphicsPipelineStateKey &k, size_t seed = 0) noexcept;
 
 struct ShaderManagerShader
 {
     ~ShaderManagerShader() {
         delete programRhi.program;
-        delete programGL.program;
     }
     struct {
         QSGMaterialShader *program = nullptr;
-        int pos_order;
-    } programGL;
-    struct {
-        QSGMaterialRhiShader *program = nullptr;
         QRhiVertexInputLayout inputLayout;
         QVarLengthArray<QRhiGraphicsShaderStage, 2> shaderStages;
     } programRhi;
-
     float lastOpacity;
 };
 
@@ -688,7 +692,7 @@ class ShaderManager : public QObject
 public:
     using Shader = ShaderManagerShader;
 
-    ShaderManager(QSGDefaultRenderContext *ctx) : blitProgram(nullptr), context(ctx) { }
+    ShaderManager(QSGDefaultRenderContext *ctx) : context(ctx) { }
     ~ShaderManager() {
         qDeleteAll(rewrittenShaders);
         qDeleteAll(stockShaders);
@@ -696,26 +700,24 @@ public:
 
     void clearCachedRendererData();
 
-    using ShaderResourceBindingList = QVarLengthArray<QRhiShaderResourceBinding, 8>;
-    QRhiShaderResourceBindings *srb(const ShaderResourceBindingList &bindings);
-
     QHash<GraphicsPipelineStateKey, QRhiGraphicsPipeline *> pipelineCache;
+
+    QMultiHash<QVector<quint32>, QRhiShaderResourceBindings *> srbPool;
+    QVector<quint32> srbLayoutDescSerializeWorkspace;
 
 public Q_SLOTS:
     void invalidated();
 
 public:
-    Shader *prepareMaterial(QSGMaterial *material, bool enableRhiShaders = false, const QSGGeometry *geometry = nullptr);
-    Shader *prepareMaterialNoRewrite(QSGMaterial *material, bool enableRhiShaders = false, const QSGGeometry *geometry = nullptr);
+    Shader *prepareMaterial(QSGMaterial *material, const QSGGeometry *geometry = nullptr, QSGRendererInterface::RenderMode renderMode = QSGRendererInterface::RenderMode2D);
+    Shader *prepareMaterialNoRewrite(QSGMaterial *material, const QSGGeometry *geometry = nullptr, QSGRendererInterface::RenderMode renderMode = QSGRendererInterface::RenderMode2D);
 
 private:
-    QHash<QSGMaterialType *, Shader *> rewrittenShaders;
-    QHash<QSGMaterialType *, Shader *> stockShaders;
+    typedef QPair<QSGMaterialType *, QSGRendererInterface::RenderMode> ShaderKey;
+    QHash<ShaderKey, Shader *> rewrittenShaders;
+    QHash<ShaderKey, Shader *> stockShaders;
 
-    QOpenGLShaderProgram *blitProgram;
     QSGDefaultRenderContext *context;
-
-    QHash<ShaderResourceBindingList, QRhiShaderResourceBindings *> srbCache;
 };
 
 struct RenderPassState
@@ -756,16 +758,47 @@ protected:
     QHash<Node *, uint> m_visualizeChangeSet;
 };
 
-class Q_QUICK_PRIVATE_EXPORT Renderer : public QSGRenderer, public QOpenGLFunctions
+class Q_QUICK_PRIVATE_EXPORT Renderer : public QSGRenderer
 {
 public:
-    Renderer(QSGDefaultRenderContext *);
+    Renderer(QSGDefaultRenderContext *ctx, QSGRendererInterface::RenderMode renderMode = QSGRendererInterface::RenderMode2D);
     ~Renderer();
 
 protected:
     void nodeChanged(QSGNode *node, QSGNode::DirtyState state) override;
     void render() override;
+    void prepareInline() override;
+    void renderInline() override;
     void releaseCachedResources() override;
+
+    struct PreparedRenderBatch {
+        const Batch *batch;
+        ShaderManager::Shader *sms;
+    };
+
+    struct RenderPassContext {
+        bool valid = false;
+        QVarLengthArray<PreparedRenderBatch, 64> opaqueRenderBatches;
+        QVarLengthArray<PreparedRenderBatch, 64> alphaRenderBatches;
+        QElapsedTimer timer;
+        quint64 timeRenderLists;
+        quint64 timePrepareOpaque;
+        quint64 timePrepareAlpha;
+        quint64 timeSorting;
+        quint64 timeUploadOpaque;
+        quint64 timeUploadAlpha;
+    };
+
+    // update batches and queue and commit rhi resource updates
+    void prepareRenderPass(RenderPassContext *ctx);
+    // records the beginPass()
+    void beginRenderPass(RenderPassContext *ctx);
+    // records the draw calls, must be preceded by a prepareRenderPass at minimum,
+    // and also surrounded by begin/endRenderPass unless we are recording inside an
+    // already started pass.
+    void recordRenderPass(RenderPassContext *ctx);
+    // does visualizing if enabled and records the endPass()
+    void endRenderPass(RenderPassContext *ctx);
 
 private:
     enum RebuildFlag {
@@ -776,7 +809,6 @@ private:
     };
 
     friend class Updater;
-    friend class OpenGLVisualizer;
     friend class RhiVisualizer;
 
     void destroyGraphicsResources();
@@ -798,27 +830,18 @@ private:
     void uploadBatch(Batch *b);
     void uploadMergedElement(Element *e, int vaOffset, char **vertexData, char **zData, char **indexData, void *iBasePtr, int *indexCount);
 
-    struct PreparedRenderBatch {
-        const Batch *batch;
-        ShaderManager::Shader *sms;
-    };
-
-    void renderBatches();
-    bool ensurePipelineState(Element *e, const ShaderManager::Shader *sms);
+    bool ensurePipelineState(Element *e, const ShaderManager::Shader *sms, bool depthPostPass = false);
     QRhiTexture *dummyTexture();
-    void updateMaterialDynamicData(ShaderManager::Shader *sms, QSGMaterialRhiShader::RenderState &renderState,
-                                   QSGMaterial *material, ShaderManager::ShaderResourceBindingList *bindings,
-                                   const Batch *batch, int ubufOffset, int ubufRegionSize);
-    void updateMaterialStaticData(ShaderManager::Shader *sms, QSGMaterialRhiShader::RenderState &renderState,
+    void updateMaterialDynamicData(ShaderManager::Shader *sms, QSGMaterialShader::RenderState &renderState,
+                                   QSGMaterial *material, const Batch *batch, Element *e, int ubufOffset, int ubufRegionSize);
+    void updateMaterialStaticData(ShaderManager::Shader *sms, QSGMaterialShader::RenderState &renderState,
                                   QSGMaterial *material, Batch *batch, bool *gstateChanged);
     void checkLineWidth(QSGGeometry *g);
     bool prepareRenderMergedBatch(Batch *batch, PreparedRenderBatch *renderBatch);
-    void renderMergedBatch(PreparedRenderBatch *renderBatch);
+    void renderMergedBatch(PreparedRenderBatch *renderBatch, bool depthPostPass = false);
     bool prepareRenderUnmergedBatch(Batch *batch, PreparedRenderBatch *renderBatch);
-    void renderUnmergedBatch(PreparedRenderBatch *renderBatch);
-    void setGraphicsPipeline(QRhiCommandBuffer *cb, const Batch *batch, Element *e);
-    void renderMergedBatch(const Batch *batch); // GL
-    void renderUnmergedBatch(const Batch *batch); // GL
+    void renderUnmergedBatch(PreparedRenderBatch *renderBatch, bool depthPostPass = false);
+    void setGraphicsPipeline(QRhiCommandBuffer *cb, const Batch *batch, Element *e, bool depthPostPass = false);
     ClipState::ClipType updateStencilClip(const QSGClipNode *clip);
     void updateClip(const QSGClipNode *clipList, const Batch *batch);
     void applyClipStateToGraphicsState();
@@ -830,7 +853,7 @@ private:
     bool prepareRhiRenderNode(Batch *batch, PreparedRenderBatch *renderBatch);
     void renderRhiRenderNode(const Batch *batch);
     void setActiveShader(QSGMaterialShader *program, ShaderManager::Shader *shader);
-    void setActiveRhiShader(QSGMaterialRhiShader *program, ShaderManager::Shader *shader);
+    void setActiveRhiShader(QSGMaterialShader *program, ShaderManager::Shader *shader);
 
     bool changeBatchRoot(Node *node, Node *newRoot);
     void registerBatchRoot(Node *childRoot, Node *parentRoot);
@@ -845,19 +868,20 @@ private:
 
     inline Batch *newBatch();
     void invalidateAndRecycleBatch(Batch *b);
+    void releaseElement(Element *e, bool inDestructor = false);
 
-    void setCustomRenderMode(const QByteArray &mode) override;
-    bool hasCustomRenderModeWithContinuousUpdate() const override;
+    void setVisualizationMode(const QByteArray &mode) override;
+    bool hasVisualizationModeWithContinuousUpdate() const override;
 
     QSGDefaultRenderContext *m_context;
+    QSGRendererInterface::RenderMode m_renderMode;
     QSet<Node *> m_taggedRoots;
     QDataBuffer<Element *> m_opaqueRenderList;
     QDataBuffer<Element *> m_alphaRenderList;
     int m_nextRenderOrder;
     bool m_partialRebuild;
     QSGNode *m_partialRebuildRoot;
-
-    bool m_useDepthBuffer;
+    bool m_forceNoDepthBuffer;
 
     QHash<QSGRenderNode *, RenderNodeElement *> m_renderNodeElements;
     QDataBuffer<Batch *> m_opaqueBatches;
@@ -871,40 +895,30 @@ private:
 
     uint m_rebuild;
     qreal m_zRange;
+#if defined(QSGBATCHRENDERER_INVALIDATE_WEDGED_NODES)
     int m_renderOrderRebuildLower;
     int m_renderOrderRebuildUpper;
+#endif
 
-    GLuint m_bufferStrategy;
     int m_batchNodeThreshold;
     int m_batchVertexThreshold;
+    int m_srbPoolThreshold;
 
     Visualizer *m_visualizer;
 
-    // Stuff used during rendering only...
     ShaderManager *m_shaderManager; // per rendercontext, shared
     QSGMaterial *m_currentMaterial;
     QSGMaterialShader *m_currentProgram;
-    QSGMaterialRhiShader *m_currentRhiProgram;
     ShaderManager::Shader *m_currentShader;
     ClipState m_currentClipState;
 
-    // *** legacy (GL) only
-    QRect m_currentScissorRect;
-    int m_currentStencilValue;
-    QOpenGLShaderProgram m_clipProgram;
-    int m_clipMatrixId;
-    const QSGClipNode *m_currentClip;
-    ClipState::ClipType m_currentClipType;
-    // ***
-
     QDataBuffer<char> m_vertexUploadPool;
     QDataBuffer<char> m_indexUploadPool;
-    // For minimal OpenGL core profile support
-    QOpenGLVertexArrayObject *m_vao;
 
     Allocator<Node, 256> m_nodeAllocator;
     Allocator<Element, 64> m_elementAllocator;
 
+    RenderPassContext m_mainRenderPassContext;
     QRhiResourceUpdateBatch *m_resourceUpdates = nullptr;
     uint m_ubufAlignment;
     bool m_uint32IndexForRhi;
@@ -925,6 +939,8 @@ private:
     } m_stencilClipCommon;
 
     inline int mergedIndexElemSize() const;
+    inline bool useDepthBuffer() const;
+    inline void setStateForDepthPostPass();
 };
 
 Batch *Renderer::newBatch()
@@ -950,6 +966,25 @@ Batch *Renderer::newBatch()
 int Renderer::mergedIndexElemSize() const
 {
     return m_uint32IndexForRhi ? sizeof(quint32) : sizeof(quint16);
+}
+
+// "use" here means that both depth test and write is wanted (the latter for
+// opaque batches only). Therefore neither RenderMode2DNoDepthBuffer nor
+// RenderMode3D must result in true. So while RenderMode3D requires a depth
+// buffer, this here must say false. In addition, m_forceNoDepthBuffer is a
+// dynamic override relevant with QSGRenderNode.
+//
+bool Renderer::useDepthBuffer() const
+{
+    return !m_forceNoDepthBuffer && m_renderMode == QSGRendererInterface::RenderMode2D;
+}
+
+void Renderer::setStateForDepthPostPass()
+{
+    m_gstate.colorWrite = {};
+    m_gstate.depthWrite = true;
+    m_gstate.depthTest = true;
+    m_gstate.depthFunc = QRhiGraphicsPipeline::Less;
 }
 
 void Renderer::StencilClipCommonData::reset()
@@ -992,9 +1027,9 @@ void StencilClipState::reset()
 
 }
 
-Q_DECLARE_TYPEINFO(QSGBatchRenderer::GraphicsState, Q_MOVABLE_TYPE);
-Q_DECLARE_TYPEINFO(QSGBatchRenderer::GraphicsPipelineStateKey, Q_MOVABLE_TYPE);
-Q_DECLARE_TYPEINFO(QSGBatchRenderer::RenderPassState, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QSGBatchRenderer::GraphicsState, Q_RELOCATABLE_TYPE);
+Q_DECLARE_TYPEINFO(QSGBatchRenderer::GraphicsPipelineStateKey, Q_RELOCATABLE_TYPE);
+Q_DECLARE_TYPEINFO(QSGBatchRenderer::RenderPassState, Q_RELOCATABLE_TYPE);
 
 QT_END_NAMESPACE
 

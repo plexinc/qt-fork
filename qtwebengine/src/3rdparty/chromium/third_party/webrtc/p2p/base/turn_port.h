@@ -25,6 +25,7 @@
 #include "p2p/client/basic_port_allocator.h"
 #include "rtc_base/async_invoker.h"
 #include "rtc_base/async_packet_socket.h"
+#include "rtc_base/async_resolver_interface.h"
 #include "rtc_base/ssl_certificate.h"
 
 namespace webrtc {
@@ -32,6 +33,8 @@ class TurnCustomizer;
 }
 
 namespace cricket {
+
+const int kMaxTurnUsernameLength = 509;  // RFC 8489 section 14.3
 
 extern const int STUN_ATTR_TURN_LOGGING_ID;
 extern const char TURN_PORT_TYPE[];
@@ -61,6 +64,10 @@ class TurnPort : public Port {
       int server_priority,
       const std::string& origin,
       webrtc::TurnCustomizer* customizer) {
+    // Do basic parameter validation.
+    if (credentials.username.size() > kMaxTurnUsernameLength) {
+      return nullptr;
+    }
     // Using `new` to access a non-public constructor.
     return absl::WrapUnique(new TurnPort(
         thread, factory, network, socket, username, password, server_address,
@@ -102,6 +109,10 @@ class TurnPort : public Port {
       const std::vector<std::string>& tls_elliptic_curves,
       webrtc::TurnCustomizer* customizer,
       rtc::SSLCertificateVerifier* tls_cert_verifier = nullptr) {
+    // Do basic parameter validation.
+    if (credentials.username.size() > kMaxTurnUsernameLength) {
+      return nullptr;
+    }
     // Using `new` to access a non-public constructor.
     return absl::WrapUnique(
         new TurnPort(thread, factory, network, min_port, max_port, username,

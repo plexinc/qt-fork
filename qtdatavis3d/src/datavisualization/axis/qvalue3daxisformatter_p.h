@@ -45,7 +45,7 @@
 #include "utils_p.h"
 #include <QtCore/QLocale>
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 class QValue3DAxis;
 
@@ -81,9 +81,9 @@ protected:
     float m_max;
     float m_rangeNormalizer;
 
-    QVector<float> m_gridPositions;
-    QVector<float> m_subGridPositions;
-    QVector<float> m_labelPositions;
+    QList<float> m_gridPositions;
+    QList<float> m_subGridPositions;
+    QList<float> m_labelPositions;
     QStringList m_labelStrings;
 
     QValue3DAxis *m_axis;
@@ -105,6 +105,6 @@ protected:
     friend class QValue3DAxisFormatter;
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

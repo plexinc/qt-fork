@@ -139,11 +139,11 @@ void ProxyTest::testProxy()
 
         //Compare Replica to Source
         QCOMPARE(rep->rpm(), engine.rpm());
-        QCOMPARE((EngineReplica::EngineType)rep->type(), EngineReplica::Gas);
+        QCOMPARE(EngineReplica::EngineType(rep->type()), EngineReplica::Gas);
 
         //Change Replica and make sure change propagates to source
-        QSignalSpy sourceSpy(&engine, SIGNAL(rpmChanged(int)));
-        QSignalSpy replicaSpy(rep, SIGNAL(rpmChanged(int)));
+        QSignalSpy sourceSpy(&engine, &EngineSimpleSource::rpmChanged);
+        QSignalSpy replicaSpy(rep, &EngineReplica::rpmChanged);
         rep->pushRpm(42);
         sourceSpy.wait();
         QCOMPARE(sourceSpy.count(), 1);
@@ -169,7 +169,7 @@ void ProxyTest::testProxy()
         QCOMPARE(typeMeta.read(replica.data()).value<EngineReplica::EngineType>(), EngineReplica::Gas);
 
         //Change Replica and make sure change propagates to source
-        QSignalSpy sourceSpy(&engine, SIGNAL(rpmChanged(int)));
+        QSignalSpy sourceSpy(&engine, &EngineSimpleSource::rpmChanged);
         QSignalSpy replicaSpy(replica.data(), QByteArray(QByteArrayLiteral("2")+rpmMeta.notifySignal().methodSignature().constData()));
 
         const int rpmPushIndex = metaObject->indexOfMethod("pushRpm(int)");
@@ -191,7 +191,7 @@ void ProxyTest::testProxy()
     // Make sure disabling the Source cascades the state change
     bool res = host.disableRemoting(&engine);
     Q_ASSERT(res);
-    QSignalSpy stateSpy(replica.data(), SIGNAL(stateChanged(QRemoteObjectReplica::State,QRemoteObjectReplica::State)));
+    QSignalSpy stateSpy(replica.data(), &QRemoteObjectReplica::stateChanged);
     stateSpy.wait();
     QCOMPARE(stateSpy.count(), 1);
     QCOMPARE(replica->state(), QRemoteObjectReplica::Suspect);
@@ -199,7 +199,7 @@ void ProxyTest::testProxy()
     // Now test subclass Source
     ParentClassSimpleSource parent;
     SubClassSimpleSource subclass;
-    const MyPOD initialValue(42, 3.14, QStringLiteral("SubClass"));
+    const MyPOD initialValue(42, 3.14f, QStringLiteral("SubClass"));
     subclass.setMyPOD(initialValue);
     QStringListModel model;
     model.setStringList(QStringList() << "Track1" << "Track2" << "Track3");
@@ -224,7 +224,7 @@ void ProxyTest::testProxy()
         QVERIFY(tracksSpy.count() || tracksSpy.wait());
         // Rep file only uses display role, but proxy doesn't forward that yet
         if (!useProxy)
-            QCOMPARE(rep->tracks()->availableRoles(), QVector<int>{Qt::DisplayRole});
+            QCOMPARE(rep->tracks()->availableRoles(), QList<int> { Qt::DisplayRole });
         else {
             const auto &availableRolesVec = rep->tracks()->availableRoles();
             QSet<int> availableRoles;
@@ -236,10 +236,8 @@ void ProxyTest::testProxy()
                 roles.insert(it.key());
             QCOMPARE(availableRoles, roles);
         }
-        QSignalSpy dataSpy(rep->tracks(), SIGNAL(dataChanged(QModelIndex,QModelIndex,QVector<int>)));
-        QVector<QModelIndex> pending;
-        QTest::qWait(100);
-        QCOMPARE(rep->tracks()->rowCount(), model.rowCount());
+        QList<QModelIndex> pending;
+        QTRY_COMPARE(rep->tracks()->rowCount(), model.rowCount());
         for (int i = 0; i < rep->tracks()->rowCount(); i++)
         {
             // We haven't received any data yet
@@ -248,21 +246,21 @@ void ProxyTest::testProxy()
             pending.append(index);
         }
         if (useProxy) { // A first batch of updates will be the empty proxy values
-            WaitForDataChanged w(pending, &dataSpy);
+            WaitForDataChanged w(rep->tracks(), pending);
             QVERIFY(w.wait());
         }
-        WaitForDataChanged w(pending, &dataSpy);
+        WaitForDataChanged w(rep->tracks(), pending);
         QVERIFY(w.wait());
         for (int i = 0; i < rep->tracks()->rowCount(); i++)
         {
-            QCOMPARE(rep->tracks()->data(rep->tracks()->index(i, 0)), model.data(model.index(i), Qt::DisplayRole));
+            QTRY_COMPARE(rep->tracks()->data(rep->tracks()->index(i, 0)), model.data(model.index(i), Qt::DisplayRole));
         }
 
         //Change SubClass and make sure change propagates
         SubClassSimpleSource updatedSubclass;
-        const MyPOD updatedValue(-1, 123.456, QStringLiteral("Updated"));
+        const MyPOD updatedValue(-1, 123.456f, QStringLiteral("Updated"));
         updatedSubclass.setMyPOD(updatedValue);
-        QSignalSpy replicaSpy(rep, SIGNAL(subClassChanged(SubClassReplica*)));
+        QSignalSpy replicaSpy(rep, &ParentClassReplica::subClassChanged);
         parent.setSubClass(&updatedSubclass);
         replicaSpy.wait();
         QCOMPARE(replicaSpy.count(), 1);
@@ -300,7 +298,7 @@ void ProxyTest::testProxy()
         // Verify tracks data
         // Rep file only uses display role, but proxy doesn't forward that yet
         if (!useProxy)
-            QCOMPARE(tracksReplica->availableRoles(), QVector<int>{Qt::DisplayRole});
+            QCOMPARE(tracksReplica->availableRoles(), QList<int> { Qt::DisplayRole });
         else {
             const auto &availableRolesVec = tracksReplica->availableRoles();
             QSet<int> availableRoles;
@@ -313,10 +311,9 @@ void ProxyTest::testProxy()
             QCOMPARE(availableRoles, roles);
         }
         QTRY_COMPARE(tracksReplica->isInitialized(), true);
-        QSignalSpy dataSpy(tracksReplica, SIGNAL(dataChanged(QModelIndex,QModelIndex,QVector<int>)));
-        QVector<QModelIndex> pending;
-        QTest::qWait(100);
-        QCOMPARE(tracksReplica->rowCount(), model.rowCount());
+        QSignalSpy dataSpy(tracksReplica, &QAbstractItemModelReplica::dataChanged);
+        QList<QModelIndex> pending;
+        QTRY_COMPARE(tracksReplica->rowCount(), model.rowCount());
         for (int i = 0; i < tracksReplica->rowCount(); i++)
         {
             // We haven't received any data yet
@@ -325,10 +322,10 @@ void ProxyTest::testProxy()
             pending.append(index);
         }
         if (useProxy) { // A first batch of updates will be the empty proxy values
-            WaitForDataChanged w(pending, &dataSpy);
+            WaitForDataChanged w(tracksReplica, pending);
             QVERIFY(w.wait());
         }
-        WaitForDataChanged w(pending, &dataSpy);
+        WaitForDataChanged w(tracksReplica, pending);
         QVERIFY(w.wait());
         for (int i = 0; i < tracksReplica->rowCount(); i++)
         {
@@ -337,7 +334,7 @@ void ProxyTest::testProxy()
 
         //Change SubClass and make sure change propagates
         SubClassSimpleSource updatedSubclass;
-        const MyPOD updatedValue(-1, 123.456, QStringLiteral("Updated"));
+        const MyPOD updatedValue(-1, 123.456f, QStringLiteral("Updated"));
         updatedSubclass.setMyPOD(updatedValue);
         QSignalSpy replicaSpy(replica.data(), QByteArray(QByteArrayLiteral("2")+subclassMeta.notifySignal().methodSignature().constData()));
         parent.setSubClass(&updatedSubclass);
@@ -386,7 +383,7 @@ void ProxyTest::testForwardProxy()
 
     // Setup Replica
     const QScopedPointer<EngineReplica> replica(remoteNode.acquire<EngineReplica>());
-    QVERIFY(replica->waitForSource(1000));
+    QTRY_VERIFY(replica->waitForSource(300));
 
     // Compare Replica to Source
     QCOMPARE(replica->rpm(), engine.rpm());
@@ -403,7 +400,6 @@ void ProxyTest::testReverseProxy()
     SET_NODE_NAME(host);
 
     // Setup Proxy
-    // QRemoteObjectRegistryHost proxyNode(proxyNodeUrl);
     QRemoteObjectRegistryHost proxyNode(proxyNodeUrl);
     SET_NODE_NAME(proxyNode);
     proxyNode.proxy(registryUrl, proxyHostUrl);
@@ -422,7 +418,7 @@ void ProxyTest::testReverseProxy()
 
     // Setup Replica
     const QScopedPointer<EngineReplica> replica(host.acquire<EngineReplica>());
-    QVERIFY(replica->waitForSource(1000));
+    QTRY_VERIFY(replica->waitForSource(300));
 
     //Compare Replica to Source
     QCOMPARE(replica->rpm(), engine.rpm());
@@ -439,7 +435,7 @@ void ProxyTest::testTopLevelModel()
 
     QStringListModel model;
     model.setStringList(QStringList() << "Track1" << "Track2" << "Track3");
-    host.enableRemoting(&model, "trackList", QVector<int>() << Qt::DisplayRole);
+    host.enableRemoting(&model, "trackList", QList<int> { Qt::DisplayRole });
 
     QRemoteObjectHost proxyNode;
     SET_NODE_NAME(proxyNode);
@@ -453,8 +449,7 @@ void ProxyTest::testTopLevelModel()
     QAbstractItemModelReplica *replica = client.acquireModel("trackList");
     QSignalSpy tracksSpy(replica, &QAbstractItemModelReplica::initialized);
     QVERIFY(tracksSpy.wait());
-    QTest::qWait(100);
-    QCOMPARE(replica->rowCount(), model.rowCount());
+    QTRY_COMPARE(replica->rowCount(), model.rowCount());
 }
 
 QTEST_MAIN(ProxyTest)

@@ -13,6 +13,7 @@
 #include "base/i18n/case_conversion.h"
 #include "base/time/default_tick_clock.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "ui/base/ime/input_method.h"
 #include "ui/base/ime/text_input_type.h"
 #include "ui/gfx/range/range.h"
@@ -42,11 +43,15 @@ bool PrefixSelector::ShouldContinueSelection() const {
 void PrefixSelector::SetCompositionText(
     const ui::CompositionText& composition) {}
 
-void PrefixSelector::ConfirmCompositionText(bool keep_selection) {}
+uint32_t PrefixSelector::ConfirmCompositionText(bool keep_selection) {
+  return UINT32_MAX;
+}
 
 void PrefixSelector::ClearCompositionText() {}
 
-void PrefixSelector::InsertText(const base::string16& text) {
+void PrefixSelector::InsertText(const base::string16& text,
+                                InsertTextCursorBehavior cursor_behavior) {
+  // TODO(crbug.com/1155331): Handle |cursor_behavior| correctly.
   OnTextInput(text);
 }
 
@@ -161,11 +166,29 @@ bool PrefixSelector::ShouldDoLearning() {
   return false;
 }
 
-#if defined(OS_WIN) || defined(OS_CHROMEOS)
+#if defined(OS_WIN) || BUILDFLAG(IS_CHROMEOS_ASH)
 bool PrefixSelector::SetCompositionFromExistingText(
     const gfx::Range& range,
     const std::vector<ui::ImeTextSpan>& ui_ime_text_spans) {
   // TODO(https://crbug.com/952757): Implement this method.
+  NOTIMPLEMENTED_LOG_ONCE();
+  return false;
+}
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+gfx::Range PrefixSelector::GetAutocorrectRange() const {
+  NOTIMPLEMENTED_LOG_ONCE();
+  return gfx::Range();
+}
+
+gfx::Rect PrefixSelector::GetAutocorrectCharacterBounds() const {
+  NOTIMPLEMENTED_LOG_ONCE();
+  return gfx::Rect();
+}
+
+bool PrefixSelector::SetAutocorrectRange(const gfx::Range& range) {
+  // TODO(crbug.com/1091088): Implement SetAutocorrectRange.
   NOTIMPLEMENTED_LOG_ONCE();
   return false;
 }

@@ -4,7 +4,7 @@
 
 #include "extensions/browser/pref_names.h"
 
-#include "base/logging.h"
+#include "base/notreached.h"
 
 namespace extensions {
 namespace pref_names {
@@ -38,11 +38,9 @@ const char kExtensionManagement[] = "extensions.management";
 const char kInstallAllowList[] = "extensions.install.allowlist";
 const char kInstallDenyList[] = "extensions.install.denylist";
 const char kInstallForceList[] = "extensions.install.forcelist";
-const char kLoginScreenExtensions[] =
-    "extensions.install.login_screen_extensions";
 const char kLastChromeVersion[] = "extensions.last_chrome_version";
-const char kNativeMessagingBlacklist[] = "native_messaging.blacklist";
-const char kNativeMessagingWhitelist[] = "native_messaging.whitelist";
+const char kNativeMessagingBlocklist[] = "native_messaging.blacklist";
+const char kNativeMessagingAllowlist[] = "native_messaging.whitelist";
 const char kNativeMessagingUserLevelHosts[] =
     "native_messaging.user_level_hosts";
 const char kPinnedExtensions[] = "extensions.pinned_extensions";
@@ -51,6 +49,8 @@ const char kToolbar[] = "extensions.toolbar";
 const char kToolbarSize[] = "extensions.toolbarsize";
 const char kPinnedExtensionsMigrationComplete[] =
     "extensions.pinned_extension_migration";
+const char kDeletedComponentExtensions[] =
+    "extensions.deleted_component_extensions";
 
 const char kPrefPreferences[] = "preferences";
 const char kPrefIncognitoPreferences[] = "incognito_preferences";

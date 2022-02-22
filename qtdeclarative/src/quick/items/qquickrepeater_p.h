@@ -62,7 +62,7 @@ QT_BEGIN_NAMESPACE
 class QQmlChangeSet;
 
 class QQuickRepeaterPrivate;
-class Q_AUTOTEST_EXPORT QQuickRepeater : public QQuickItem
+class Q_QUICK_PRIVATE_EXPORT QQuickRepeater : public QQuickItem
 {
     Q_OBJECT
 
@@ -71,6 +71,7 @@ class Q_AUTOTEST_EXPORT QQuickRepeater : public QQuickItem
     Q_PROPERTY(int count READ count NOTIFY countChanged)
     Q_CLASSINFO("DefaultProperty", "delegate")
     QML_NAMED_ELEMENT(Repeater)
+    QML_ADDED_IN_VERSION(2, 0)
 
 public:
     QQuickRepeater(QQuickItem *parent=nullptr);

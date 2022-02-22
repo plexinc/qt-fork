@@ -2,6 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/jumbo.gni")
 import("//build/config/ui.gni")
 
@@ -39,7 +40,7 @@ jumbo_component("ime_types") {
     "//skia",
   ]
 
-  if (is_chromeos || use_ozone) {
+  if (is_chromeos_ash || use_ozone) {
     sources += [
       "character_composer.cc",
       "character_composer.h",
@@ -57,30 +58,22 @@ jumbo_component("ime") {
   sources = [
     "constants.cc",
     "constants.h",
-    "ime_bridge.cc",
-    "ime_bridge.h",
-    "ime_candidate_window_handler_interface.h",
-    "ime_engine_handler_interface.h",
-    "ime_input_context_handler_interface.h",
-    "ime_suggestion_window_handler_interface.h",
     "input_method.h",
     "input_method_base.cc",
     "input_method_base.h",
     "input_method_delegate.h",
-    "input_method_keyboard_controller.h",
-    "input_method_keyboard_controller_observer.h",
-    "input_method_keyboard_controller_stub.cc",
-    "input_method_keyboard_controller_stub.h",
     "input_method_minimal.cc",
     "input_method_minimal.h",
     "input_method_observer.h",
-    "mock_ime_input_context_handler.cc",
-    "mock_ime_input_context_handler.h",
     "mock_input_method.cc",
     "mock_input_method.h",
     "text_edit_commands.h",
     "text_input_client.cc",
     "text_input_client.h",
+    "virtual_keyboard_controller.h",
+    "virtual_keyboard_controller_observer.h",
+    "virtual_keyboard_controller_stub.cc",
+    "virtual_keyboard_controller_stub.h",
   ]
 
   defines = [ "IS_UI_BASE_IME_IMPL" ]
@@ -100,4 +93,6 @@ jumbo_component("ime") {
     "//ui/gfx/geometry",
     "//ui/gfx/range",
   ]
+
+  deps = [ "//build:chromeos_buildflags" ]
 }

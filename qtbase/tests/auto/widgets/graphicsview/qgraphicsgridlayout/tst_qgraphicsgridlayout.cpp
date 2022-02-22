@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <qgraphicsgridlayout.h>
 #include <qgraphicswidget.h>
 #include <qgraphicsscene.h>
@@ -119,9 +119,9 @@ private slots:
 class RectWidget : public QGraphicsWidget
 {
 public:
-    RectWidget(QGraphicsItem *parent = 0) : QGraphicsWidget(parent), m_fnConstraint(0) {}
+    RectWidget(QGraphicsItem *parent = nullptr) : QGraphicsWidget(parent), m_fnConstraint(0) {}
 
-    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget)
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override
     {
         Q_UNUSED(option);
         Q_UNUSED(widget);
@@ -130,7 +130,7 @@ public:
         painter->drawLine(rect().bottomLeft(), rect().topRight());
     }
 
-    QSizeF sizeHint(Qt::SizeHint which, const QSizeF &constraint = QSizeF()) const
+    QSizeF sizeHint(Qt::SizeHint which, const QSizeF &constraint = QSizeF()) const override
     {
         if (constraint.width() < 0 && constraint.height() < 0 && m_sizeHints[which].isValid()) {
             return m_sizeHints[which];

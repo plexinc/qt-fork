@@ -93,9 +93,11 @@ class Q_WIDGETS_EXPORT QWidgetTextControl : public QInputControl
     Q_PROPERTY(bool overwriteMode READ overwriteMode WRITE setOverwriteMode)
     Q_PROPERTY(bool acceptRichText READ acceptRichText WRITE setAcceptRichText)
     Q_PROPERTY(int cursorWidth READ cursorWidth WRITE setCursorWidth)
-    Q_PROPERTY(Qt::TextInteractionFlags textInteractionFlags READ textInteractionFlags WRITE setTextInteractionFlags)
+    Q_PROPERTY(Qt::TextInteractionFlags textInteractionFlags READ textInteractionFlags
+               WRITE setTextInteractionFlags)
     Q_PROPERTY(bool openExternalLinks READ openExternalLinks WRITE setOpenExternalLinks)
-    Q_PROPERTY(bool ignoreUnusedNavigationEvents READ ignoreUnusedNavigationEvents WRITE setIgnoreUnusedNavigationEvents)
+    Q_PROPERTY(bool ignoreUnusedNavigationEvents READ ignoreUnusedNavigationEvents
+               WRITE setIgnoreUnusedNavigationEvents)
 public:
     explicit QWidgetTextControl(QObject *parent = nullptr);
     explicit QWidgetTextControl(const QString &text, QObject *parent = nullptr);
@@ -105,7 +107,7 @@ public:
     void setDocument(QTextDocument *document);
     QTextDocument *document() const;
 
-    void setTextCursor(const QTextCursor &cursor);
+    void setTextCursor(const QTextCursor &cursor, bool selectionClipboard = false);
     QTextCursor textCursor() const;
 
     void setTextInteractionFlags(Qt::TextInteractionFlags flags);
@@ -117,9 +119,6 @@ public:
     QTextCharFormat currentCharFormat() const;
 
     bool find(const QString &exp, QTextDocument::FindFlags options = { });
-#ifndef QT_NO_REGEXP
-    bool find(const QRegExp &exp, QTextDocument::FindFlags options = { });
-#endif
 #if QT_CONFIG(regularexpression)
     bool find(const QRegularExpression &exp, QTextDocument::FindFlags options = { });
 #endif
@@ -311,7 +310,7 @@ public:
 
     virtual QStringList formats() const override;
 protected:
-    virtual QVariant retrieveData(const QString &mimeType, QVariant::Type type) const override;
+    virtual QVariant retrieveData(const QString &mimeType, QMetaType type) const override;
 private:
     void setup() const;
 

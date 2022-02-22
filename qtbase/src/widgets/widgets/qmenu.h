@@ -44,7 +44,7 @@
 #include <QtWidgets/qwidget.h>
 #include <QtCore/qstring.h>
 #include <QtGui/qicon.h>
-#include <QtWidgets/qaction.h>
+#include <QtGui/qaction.h>
 
 #if defined(Q_OS_MACOS) || defined(Q_CLANG_QDOC)
 Q_FORWARD_DECLARE_OBJC_CLASS(NSMenu);
@@ -78,8 +78,17 @@ public:
     using QWidget::addAction;
     QAction *addAction(const QString &text);
     QAction *addAction(const QIcon &icon, const QString &text);
-    QAction *addAction(const QString &text, const QObject *receiver, const char* member, const QKeySequence &shortcut = 0);
-    QAction *addAction(const QIcon &icon, const QString &text, const QObject *receiver, const char* member, const QKeySequence &shortcut = 0);
+
+    QAction *addAction(const QString &text, const QObject *receiver, const char* member
+#if QT_CONFIG(shortcut)
+                       , const QKeySequence &shortcut = {}
+#endif
+                       );
+    QAction *addAction(const QIcon &icon, const QString &text, const QObject *receiver, const char* member
+#if QT_CONFIG(shortcut)
+                       , const QKeySequence &shortcut = {}
+#endif
+                       );
 
 #ifdef Q_CLANG_QDOC
     template<typename Functor>
@@ -95,12 +104,14 @@ public:
     template<class Obj, typename Func1>
     inline typename std::enable_if<!std::is_same<const char*, Func1>::value
         && QtPrivate::IsPointerToTypeDerivedFromQObject<Obj*>::Value, QAction *>::type
-        addAction(const QString &text, const Obj *object, Func1 slot, const QKeySequence &shortcut = 0)
+        addAction(const QString &text, const Obj *object, Func1 slot
+#if QT_CONFIG(shortcut)
+                  , const QKeySequence &shortcut = {}
+#endif
+                  )
     {
         QAction *result = addAction(text);
-#ifdef QT_NO_SHORTCUT
-        Q_UNUSED(shortcut)
-#else
+#if QT_CONFIG(shortcut)
         result->setShortcut(shortcut);
 #endif
         connect(result, &QAction::triggered, object, std::move(slot));
@@ -108,12 +119,14 @@ public:
     }
     // addAction(QString): Connect to a functor or function pointer (without context)
     template <typename Func1>
-    inline QAction *addAction(const QString &text, Func1 slot, const QKeySequence &shortcut = 0)
+    inline QAction *addAction(const QString &text, Func1 slot
+#if QT_CONFIG(shortcut)
+                              , const QKeySequence &shortcut = {}
+#endif
+                              )
     {
         QAction *result = addAction(text);
-#ifdef QT_NO_SHORTCUT
-        Q_UNUSED(shortcut)
-#else
+#if QT_CONFIG(shortcut)
         result->setShortcut(shortcut);
 #endif
         connect(result, &QAction::triggered, std::move(slot));
@@ -123,12 +136,15 @@ public:
     template<class Obj, typename Func1>
     inline typename std::enable_if<!std::is_same<const char*, Func1>::value
         && QtPrivate::IsPointerToTypeDerivedFromQObject<Obj*>::Value, QAction *>::type
-        addAction(const QIcon &actionIcon, const QString &text, const Obj *object, Func1 slot, const QKeySequence &shortcut = 0)
+        addAction(const QIcon &actionIcon, const QString &text, const Obj *object, Func1 slot
+#if QT_CONFIG(shortcut)
+                  , const QKeySequence &shortcut = {}
+#endif
+                  )
+
     {
         QAction *result = addAction(actionIcon, text);
-#ifdef QT_NO_SHORTCUT
-        Q_UNUSED(shortcut)
-#else
+#if QT_CONFIG(shortcut)
         result->setShortcut(shortcut);
 #endif
         connect(result, &QAction::triggered, object, std::move(slot));
@@ -136,12 +152,14 @@ public:
     }
     // addAction(QIcon, QString): Connect to a functor or function pointer (without context)
     template <typename Func1>
-    inline QAction *addAction(const QIcon &actionIcon, const QString &text, Func1 slot, const QKeySequence &shortcut = 0)
+    inline QAction *addAction(const QIcon &actionIcon, const QString &text, Func1 slot
+#if QT_CONFIG(shortcut)
+                              , const QKeySequence &shortcut = {}
+#endif
+                              )
     {
         QAction *result = addAction(actionIcon, text);
-#ifdef QT_NO_SHORTCUT
-        Q_UNUSED(shortcut)
-#else
+#if QT_CONFIG(shortcut)
         result->setShortcut(shortcut);
 #endif
         connect(result, &QAction::triggered, std::move(slot));
@@ -184,11 +202,7 @@ public:
     QAction *exec();
     QAction *exec(const QPoint &pos, QAction *at = nullptr);
 
-#if QT_VERSION >= QT_VERSION_CHECK(6,0,0)
     static QAction *exec(const QList<QAction *> &actions, const QPoint &pos, QAction *at = nullptr, QWidget *parent = nullptr);
-#else
-    static QAction *exec(QList<QAction*> actions, const QPoint &pos, QAction *at = nullptr, QWidget *parent = nullptr);
-#endif
 
     QSize sizeHint() const override;
 
@@ -235,7 +249,7 @@ protected:
 #if QT_CONFIG(wheelevent)
     void wheelEvent(QWheelEvent *) override;
 #endif
-    void enterEvent(QEvent *) override;
+    void enterEvent(QEnterEvent *) override;
     void leaveEvent(QEvent *) override;
     void hideEvent(QHideEvent *) override;
     void paintEvent(QPaintEvent *) override;
@@ -243,7 +257,7 @@ protected:
     void timerEvent(QTimerEvent *) override;
     bool event(QEvent *) override;
     bool focusNextPrevChild(bool next) override;
-    void initStyleOption(QStyleOptionMenuItem *option, const QAction *action) const;
+    virtual void initStyleOption(QStyleOptionMenuItem *option, const QAction *action) const;
 
 private Q_SLOTS:
     void internalDelayedPopup();
@@ -264,16 +278,11 @@ private:
     friend class QMenuBarPrivate;
     friend class QTornOffMenu;
     friend class QComboBox;
-    friend class QAction;
+    friend class QtWidgetsActionPrivate;
     friend class QToolButtonPrivate;
     friend void qt_mac_emit_menuSignals(QMenu *menu, bool show);
     friend void qt_mac_menu_emit_hovered(QMenu *menu, QAction *action);
 };
-
-#ifdef Q_OS_MACOS
-// ### Qt 4 compatibility; remove in Qt 6
-inline QT_DEPRECATED void qt_mac_set_dock_menu(QMenu *menu) { menu->setAsDockMenu(); }
-#endif
 
 QT_END_NAMESPACE
 

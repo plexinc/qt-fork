@@ -87,8 +87,14 @@ prep_c(int16_t *tmp, const pixel *src, const ptrdiff_t src_stride,
 #define DAV1D_FILTER_8TAP_RND(src, x, F, stride, sh) \
     ((FILTER_8TAP(src, x, F, stride) + ((1 << (sh)) >> 1)) >> (sh))
 
+#define DAV1D_FILTER_8TAP_RND2(src, x, F, stride, rnd, sh) \
+    ((FILTER_8TAP(src, x, F, stride) + (rnd)) >> (sh))
+
 #define DAV1D_FILTER_8TAP_CLIP(src, x, F, stride, sh) \
     iclip_pixel(DAV1D_FILTER_8TAP_RND(src, x, F, stride, sh))
+
+#define DAV1D_FILTER_8TAP_CLIP2(src, x, F, stride, rnd, sh) \
+    iclip_pixel(DAV1D_FILTER_8TAP_RND2(src, x, F, stride, rnd, sh))
 
 #define GET_H_FILTER(mx) \
     const int8_t *const fh = !(mx) ? NULL : w > 4 ? \
@@ -111,7 +117,7 @@ put_8tap_c(pixel *dst, ptrdiff_t dst_stride,
            const int filter_type HIGHBD_DECL_SUFFIX)
 {
     const int intermediate_bits = get_intermediate_bits(bitdepth_max);
-    const int intermediate_rnd = (1 << intermediate_bits) >> 1;
+    const int intermediate_rnd = 32 + ((1 << (6 - intermediate_bits)) >> 1);
 
     GET_FILTERS();
     dst_stride = PXSTRIDE(dst_stride);
@@ -144,9 +150,8 @@ put_8tap_c(pixel *dst, ptrdiff_t dst_stride,
         } else {
             do {
                 for (int x = 0; x < w; x++) {
-                    const int px = DAV1D_FILTER_8TAP_RND(src, x, fh, 1,
-                                                         6 - intermediate_bits);
-                    dst[x] = iclip_pixel((px + intermediate_rnd) >> intermediate_bits);
+                    dst[x] = DAV1D_FILTER_8TAP_CLIP2(src, x, fh, 1,
+                                                     intermediate_rnd, 6);
                 }
 
                 dst += dst_stride;
@@ -885,21 +890,21 @@ static void emu_edge_c(const intptr_t bw, const intptr_t bh,
 
 static void resize_c(pixel *dst, const ptrdiff_t dst_stride,
                      const pixel *src, const ptrdiff_t src_stride,
-                     const int dst_w, const int src_w, int h,
+                     const int dst_w, int h, const int src_w,
                      const int dx, const int mx0 HIGHBD_DECL_SUFFIX)
 {
     do {
         int mx = mx0, src_x = -1;
         for (int x = 0; x < dst_w; x++) {
-            const int16_t *const F = dav1d_resize_filter[mx >> 8];
-            dst[x] = iclip_pixel((F[0] * src[iclip(src_x - 3, 0, src_w - 1)] +
-                                  F[1] * src[iclip(src_x - 2, 0, src_w - 1)] +
-                                  F[2] * src[iclip(src_x - 1, 0, src_w - 1)] +
-                                  F[3] * src[iclip(src_x + 0, 0, src_w - 1)] +
-                                  F[4] * src[iclip(src_x + 1, 0, src_w - 1)] +
-                                  F[5] * src[iclip(src_x + 2, 0, src_w - 1)] +
-                                  F[6] * src[iclip(src_x + 3, 0, src_w - 1)] +
-                                  F[7] * src[iclip(src_x + 4, 0, src_w - 1)] +
+            const int8_t *const F = dav1d_resize_filter[mx >> 8];
+            dst[x] = iclip_pixel((-(F[0] * src[iclip(src_x - 3, 0, src_w - 1)] +
+                                    F[1] * src[iclip(src_x - 2, 0, src_w - 1)] +
+                                    F[2] * src[iclip(src_x - 1, 0, src_w - 1)] +
+                                    F[3] * src[iclip(src_x + 0, 0, src_w - 1)] +
+                                    F[4] * src[iclip(src_x + 1, 0, src_w - 1)] +
+                                    F[5] * src[iclip(src_x + 2, 0, src_w - 1)] +
+                                    F[6] * src[iclip(src_x + 3, 0, src_w - 1)] +
+                                    F[7] * src[iclip(src_x + 4, 0, src_w - 1)]) +
                                   64) >> 7);
             mx += dx;
             src_x += mx >> 14;

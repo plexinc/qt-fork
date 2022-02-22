@@ -62,11 +62,18 @@ SKCMS_API bool skcms_TransferFunction_makePQish(skcms_TransferFunction*,
                                                 float A, float B, float C,
                                                 float D, float E, float F);
 // HLGish:
-//            { sign(encoded) * ( (R|encoded|)^G )          when 0   <= |encoded| <= 1/R
-//   linear = { sign(encoded) * ( e^(a(|encoded|-c)) + b )  when 1/R <  |encoded|
-SKCMS_API bool skcms_TransferFunction_makeHLGish(skcms_TransferFunction*,
-                                                float R, float G,
-                                                float a, float b, float c);
+//            { K * sign(encoded) * ( (R|encoded|)^G )          when 0   <= |encoded| <= 1/R
+//   linear = { K * sign(encoded) * ( e^(a(|encoded|-c)) + b )  when 1/R <  |encoded|
+SKCMS_API bool skcms_TransferFunction_makeScaledHLGish(skcms_TransferFunction*,
+                                                       float K, float R, float G,
+                                                       float a, float b, float c);
+
+// Compatibility shim with K=1 for old callers.
+static inline bool skcms_TransferFunction_makeHLGish(skcms_TransferFunction* fn,
+                                                     float R, float G,
+                                                     float a, float b, float c) {
+    return skcms_TransferFunction_makeScaledHLGish(fn, 1.0f, R,G, a,b,c);
+}
 
 // PQ mapping encoded [0,1] to linear [0,1].
 static inline bool skcms_TransferFunction_makePQ(skcms_TransferFunction* tf) {
@@ -78,6 +85,11 @@ static inline bool skcms_TransferFunction_makeHLG(skcms_TransferFunction* tf) {
     return skcms_TransferFunction_makeHLGish(tf, 2.0f, 2.0f
                                                , 1/0.17883277f, 0.28466892f, 0.55991073f);
 }
+
+// Is this an ordinary sRGB-ish transfer function, or one of the HDR forms we support?
+SKCMS_API bool skcms_TransferFunction_isSRGBish(const skcms_TransferFunction*);
+SKCMS_API bool skcms_TransferFunction_isPQish  (const skcms_TransferFunction*);
+SKCMS_API bool skcms_TransferFunction_isHLGish (const skcms_TransferFunction*);
 
 // Unified representation of 'curv' or 'para' tag data, or a 1D table from 'mft1' or 'mft2'
 typedef union skcms_Curve {
@@ -306,6 +318,9 @@ SKCMS_API bool skcms_PrimariesToXYZD50(float rx, float ry,
                                        float bx, float by,
                                        float wx, float wy,
                                        skcms_Matrix3x3* toXYZD50);
+
+// Call before your first call to skcms_Transform() to skip runtime CPU detection.
+SKCMS_API void skcms_DisableRuntimeCPUDetection(void);
 
 // Utilities for programmatically constructing profiles
 static inline void skcms_Init(skcms_ICCProfile* p) {

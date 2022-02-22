@@ -71,7 +71,6 @@ namespace QSGRhiAtlasTexture
 
 class Texture;
 class TextureBase;
-class TextureBasePrivate;
 class Atlas;
 
 class Manager : public QObject
@@ -105,7 +104,7 @@ public:
     ~AtlasBase();
 
     void invalidate();
-    void updateRhiTexture(QRhiResourceUpdateBatch *resourceUpdates);
+    void commitTextureOperations(QRhiResourceUpdateBatch *resourceUpdates);
     void remove(TextureBase *t);
 
     QSGDefaultRenderContext *renderContext() const { return m_rc; }
@@ -153,32 +152,21 @@ private:
 
 class TextureBase : public QSGTexture
 {
-    Q_DECLARE_PRIVATE(TextureBase)
     Q_OBJECT
 public:
     TextureBase(AtlasBase *atlas, const QRect &textureRect);
     ~TextureBase();
 
-    int textureId() const override { return 0; } // not used
-    void bind() override { } // not used
+    qint64 comparisonKey() const override;
+    QRhiTexture *rhiTexture() const override;
+    void commitTextureOperations(QRhi *rhi, QRhiResourceUpdateBatch *resourceUpdates) override;
 
     bool isAtlasTexture() const override { return true; }
     QRect atlasSubRect() const { return m_allocated_rect; }
 
-    QRhiResourceUpdateBatch *workResourceUpdateBatch() const;
-
 protected:
     QRect m_allocated_rect;
     AtlasBase *m_atlas;
-};
-
-class TextureBasePrivate : public QSGTexturePrivate
-{
-    Q_DECLARE_PUBLIC(TextureBase)
-public:
-    int comparisonKey() const override;
-    QRhiTexture *rhiTexture() const override;
-    void updateRhiTexture(QRhi *rhi, QRhiResourceUpdateBatch *resourceUpdates) override;
 };
 
 class Texture : public TextureBase
@@ -198,7 +186,7 @@ public:
     QRect atlasSubRect() const { return m_allocated_rect; }
     QRect atlasSubRectWithoutPadding() const { return m_allocated_rect.adjusted(1, 1, -1, -1); }
 
-    QSGTexture *removedFromAtlas() const override;
+    QSGTexture *removedFromAtlas(QRhiResourceUpdateBatch *resourceUpdates) const override;
 
     void releaseImage() { m_image = QImage(); }
     const QImage &image() const { return m_image; }

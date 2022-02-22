@@ -4,7 +4,7 @@
  *
  *   Auto-fitter module implementation (body).
  *
- * Copyright (C) 2003-2020 by
+ * Copyright (C) 2003-2021 by
  * David Turner, Robert Wilhelm, and Werner Lemberg.
  *
  * This file is part of the FreeType project, and may only be used,
@@ -53,10 +53,10 @@
   void*  _af_debug_hints = _af_debug_hints_rec;
 #endif
 
-#include FT_INTERNAL_OBJECTS_H
-#include FT_INTERNAL_DEBUG_H
-#include FT_DRIVER_H
-#include FT_SERVICE_PROPERTIES_H
+#include <freetype/internal/ftobjs.h>
+#include <freetype/internal/ftdebug.h>
+#include <freetype/ftdriver.h>
+#include <freetype/internal/services/svprop.h>
 
 
   /**************************************************************************
@@ -148,8 +148,8 @@
 
       if ( !af_style_classes[ss] )
       {
-        FT_TRACE0(( "af_property_set: Invalid value %d for property `%s'\n",
-                    fallback_script, property_name ));
+        FT_TRACE2(( "af_property_set: Invalid value %d for property `%s'\n",
+                    *fallback_script, property_name ));
         return FT_THROW( Invalid_Argument );
       }
 
@@ -307,7 +307,7 @@
       return error;
     }
 
-    FT_TRACE0(( "af_property_set: missing property `%s'\n",
+    FT_TRACE2(( "af_property_set: missing property `%s'\n",
                 property_name ));
     return FT_THROW( Missing_Property );
   }
@@ -410,7 +410,7 @@
       return error;
     }
 
-    FT_TRACE0(( "af_property_get: missing property `%s'\n",
+    FT_TRACE2(( "af_property_get: missing property `%s'\n",
                 property_name ));
     return FT_THROW( Missing_Property );
   }
@@ -550,8 +550,8 @@
     NULL,                                                    /* reset_face */
     NULL,                                              /* get_global_hints */
     NULL,                                             /* done_global_hints */
-    (FT_AutoHinter_GlyphLoadFunc)af_autofitter_load_glyph )  /* load_glyph */
-
+    (FT_AutoHinter_GlyphLoadFunc)af_autofitter_load_glyph    /* load_glyph */
+  )
 
   FT_DEFINE_MODULE(
     autofit_module_class,

@@ -53,8 +53,8 @@ namespace {
 class BasicUrlIterator : public visitedlink::VisitedLinkWriter::URLIterator {
 public:
     BasicUrlIterator(const QList<QUrl> &urls) : m_urls(urls) {}
-    virtual const GURL& NextURL() { m_currentUrl = toGurl(m_urls.takeFirst()); return m_currentUrl; }
-    virtual bool HasNextURL() const { return !m_urls.isEmpty(); }
+    const GURL &NextURL() override { m_currentUrl = toGurl(m_urls.takeFirst()); return m_currentUrl; }
+    bool HasNextURL() const override { return !m_urls.isEmpty(); }
 private:
     QList<QUrl> m_urls;
     GURL m_currentUrl;
@@ -71,7 +71,7 @@ class VisitedLinkDelegateQt : public visitedlink::VisitedLinkDelegate
 {
 public:
     ~VisitedLinkDelegateQt() {}
-    void RebuildTable(const scoped_refptr<URLEnumerator>& enumerator) { enumerator->OnComplete(true); }
+    void RebuildTable(const scoped_refptr<URLEnumerator> &enumerator) override { enumerator->OnComplete(true); }
 };
 
 void VisitedLinksManagerQt::deleteAllVisitedLinkData()
@@ -90,27 +90,12 @@ bool VisitedLinksManagerQt::containsUrl(const QUrl &url) const
     return m_visitedLinkWriter->IsVisited(toGurl(url));
 }
 
-static void ensureDirectoryExists(const base::FilePath &path)
-{
-    if (base::PathExists(path))
-        return;
-
-    base::File::Error error;
-    if (base::CreateDirectoryAndGetError(path, &error))
-        return;
-
-    std::string errorstr = base::File::ErrorToString(error);
-    qWarning("Cannot create directory %s. Error: %s.",
-             path.AsUTF8Unsafe().c_str(),
-             errorstr.c_str());
-}
-
 VisitedLinksManagerQt::VisitedLinksManagerQt(ProfileQt *profile, bool persistVisitedLinks)
     : m_delegate(new VisitedLinkDelegateQt)
 {
     Q_ASSERT(profile);
     if (persistVisitedLinks)
-        ensureDirectoryExists(profile->GetPath());
+        profile->ensureDirectoryExists();
     m_visitedLinkWriter.reset(new visitedlink::VisitedLinkWriter(profile, m_delegate.data(), persistVisitedLinks));
     m_visitedLinkWriter->Init();
 }

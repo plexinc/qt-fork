@@ -124,12 +124,20 @@ class MEDIA_EXPORT AudioBuffer
   // Copy frames into |dest|. |frames_to_copy| is the number of frames to copy.
   // |source_frame_offset| specifies how many frames in the buffer to skip
   // first. |dest_frame_offset| is the frame offset in |dest|. The frames are
-  // converted from their source format into planar float32 data (which is all
-  // that AudioBus handles).
+  // converted and clipped from their source format into planar float32 data
+  // (which is all that AudioBus handles).
   void ReadFrames(int frames_to_copy,
                   int source_frame_offset,
                   int dest_frame_offset,
                   AudioBus* dest) const;
+
+  // Copy all |adjusted_frame_count_| frames into |dest|. Each of |dest|'s
+  // elements correspond to a different channel. It's the caller's
+  // responsibility to make sure enough memory per channel was allocated.
+  // The frames are converted and clipped from their source format into planar
+  // float32 data.
+  // Note: Bitstream formats are not supported.
+  void ReadAllFrames(const std::vector<float*>& dest) const;
 
   // Trim an AudioBuffer by removing |frames_to_trim| frames from the start.
   // Timestamp and duration are adjusted to reflect the fewer frames.

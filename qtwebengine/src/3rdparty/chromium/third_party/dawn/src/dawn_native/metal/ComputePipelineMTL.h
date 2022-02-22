@@ -17,17 +17,18 @@
 
 #include "dawn_native/ComputePipeline.h"
 
+#include "common/NSRef.h"
+
 #import <Metal/Metal.h>
 
 namespace dawn_native { namespace metal {
 
     class Device;
 
-    class ComputePipeline : public ComputePipelineBase {
+    class ComputePipeline final : public ComputePipelineBase {
       public:
         static ResultOrError<ComputePipeline*> Create(Device* device,
                                                       const ComputePipelineDescriptor* descriptor);
-        ~ComputePipeline();
 
         void Encode(id<MTLComputeCommandEncoder> encoder);
         MTLSize GetLocalWorkGroupSize() const;
@@ -37,7 +38,7 @@ namespace dawn_native { namespace metal {
         using ComputePipelineBase::ComputePipelineBase;
         MaybeError Initialize(const ComputePipelineDescriptor* descriptor);
 
-        id<MTLComputePipelineState> mMtlComputePipelineState = nil;
+        NSPRef<id<MTLComputePipelineState>> mMtlComputePipelineState;
         MTLSize mLocalWorkgroupSize;
         bool mRequiresStorageBufferLength;
     };

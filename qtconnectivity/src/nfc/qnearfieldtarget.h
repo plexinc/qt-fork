@@ -45,12 +45,8 @@
 #include <QtCore/QMetaType>
 #include <QtCore/QObject>
 #include <QtCore/QSharedDataPointer>
+#include <QtCore/QVariant>
 #include <QtNfc/qtnfcglobal.h>
-
-QT_BEGIN_NAMESPACE
-class QString;
-class QUrl;
-QT_END_NAMESPACE
 
 QT_BEGIN_NAMESPACE
 
@@ -70,6 +66,8 @@ public:
         NfcTagType2,
         NfcTagType3,
         NfcTagType4,
+        NfcTagType4A,
+        NfcTagType4B,
         MifareTag
     };
     Q_ENUM(Type)
@@ -78,7 +76,7 @@ public:
         UnknownAccess = 0x00,
         NdefAccess = 0x01,
         TagTypeSpecificAccess = 0x02,
-        LlcpAccess = 0x04
+        AnyAccess = 0xff
     };
     Q_ENUM(AccessMethod)
     Q_DECLARE_FLAGS(AccessMethods, AccessMethod)
@@ -91,9 +89,11 @@ public:
         NoResponseError,
         ChecksumMismatchError,
         InvalidParametersError,
+        ConnectionError,
         NdefReadError,
         NdefWriteError,
-        CommandError
+        CommandError,
+        TimeoutError
     };
     Q_ENUM(Error)
 
@@ -119,59 +119,41 @@ public:
     };
 
     explicit QNearFieldTarget(QObject *parent = nullptr);
-    virtual ~QNearFieldTarget();
+    ~QNearFieldTarget();
 
-    virtual QByteArray uid() const = 0;
-    virtual QUrl url() const;
+    QByteArray uid() const;
+    Type type() const;
+    AccessMethods accessMethods() const;
 
-    virtual Type type() const = 0;
-    virtual AccessMethods accessMethods() const = 0;
-
-    bool keepConnection() const;
-    bool setKeepConnection(bool isPersistent);
     bool disconnect();
 
-    bool isProcessingCommand() const;
-
     // NdefAccess
-    virtual bool hasNdefMessage();
-    virtual RequestId readNdefMessages();
-    virtual RequestId writeNdefMessages(const QList<QNdefMessage> &messages);
+    bool hasNdefMessage();
+    RequestId readNdefMessages();
+    RequestId writeNdefMessages(const QList<QNdefMessage> &messages);
 
     // TagTypeSpecificAccess
     int maxCommandLength() const;
-    virtual RequestId sendCommand(const QByteArray &command);
-    virtual RequestId sendCommands(const QList<QByteArray> &commands);
+    RequestId sendCommand(const QByteArray &command);
 
-    virtual bool waitForRequestCompleted(const RequestId &id, int msecs = 5000);
-
-    QVariant requestResponse(const RequestId &id);
-    void setResponseForRequest(const QNearFieldTarget::RequestId &id, const QVariant &response,
-                               bool emitRequestCompleted = true);
-
-protected:
-    Q_INVOKABLE virtual bool handleResponse(const QNearFieldTarget::RequestId &id,
-                                            const QByteArray &response);
-
-    void reportError(QNearFieldTarget::Error error, const QNearFieldTarget::RequestId &id);
+    bool waitForRequestCompleted(const RequestId &id, int msecs = 5000);
+    QVariant requestResponse(const RequestId &id) const;
 
 Q_SIGNALS:
     void disconnected();
 
     void ndefMessageRead(const QNdefMessage &message);
-    void ndefMessagesWritten();
 
     void requestCompleted(const QNearFieldTarget::RequestId &id);
 
     void error(QNearFieldTarget::Error error, const QNearFieldTarget::RequestId &id);
 
+protected:
+    QNearFieldTarget(QNearFieldTargetPrivate *backend, QObject *parent = nullptr);
+
 private:
     QNearFieldTargetPrivate *d_ptr;
 };
-
-#if QT_DEPRECATED_SINCE(5, 9)
-Q_NFC_EXPORT quint16 qNfcChecksum(const char * data, uint len);
-#endif
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(QNearFieldTarget::AccessMethods)
 

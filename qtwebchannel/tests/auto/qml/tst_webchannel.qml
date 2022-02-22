@@ -26,11 +26,11 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import QtTest 1.0
+import QtQuick
+import QtTest
 
-import QtWebChannel 1.0
-import QtWebChannel.Tests 1.0
+import QtWebChannel
+import QtWebChannel.Tests
 import "qrc:///qtwebchannel/qwebchannel.js" as JSClient
 
 TestCase {
@@ -126,7 +126,7 @@ TestCase {
         compare(client.clientMessages.length, 0);
     }
 
-    function test_property()
+    function test_notifyProperty()
     {
         compare(myObj.myProperty, 1);
 
@@ -155,6 +155,36 @@ TestCase {
         compare(myObj.myProperty, 2);
         client.awaitIdle(); // property update
         compare(changedValue, 2);
+        compare(channel.objects.myObj.myProperty, 2)
+    }
+
+    function test_bindableProperty()
+    {
+        compare(testObject.stringProperty, "foo");
+
+        var initialValue;
+
+        var channel = client.createChannel(function(channel) {
+            initialValue = channel.objects.testObject.stringProperty;
+            // now trigger a write from the client side
+            channel.objects.testObject.stringProperty = "bar";
+        });
+
+        client.awaitInit();
+        var msg = client.awaitMessage();
+
+        compare(initialValue, "foo");
+        compare(testObject.stringProperty, "bar");
+
+        client.awaitIdle(); // init
+
+        // Change property, should be propagated to HTML client.
+        // This is a bindable property only. Not change signal will be emitted
+        // because there is none.
+        testObject.stringProperty = "baz";
+        compare(testObject.stringProperty, "baz");
+        client.awaitIdle(); // property update
+        compare(channel.objects.testObject.stringProperty, "baz");
     }
 
     function test_method()
@@ -497,6 +527,67 @@ TestCase {
         compare(signalArgs, [42, 42, 1, 1, 0, 0]);
     }
 
+    function test_connectDuringEmit()
+    {
+        var cb1 = 0;
+        var cb2 = 0;
+        var channel = client.createChannel(function(channel) {
+            var myObj = channel.objects.myObj;
+            myObj.mySignal.connect(function() {
+                cb1++;
+                myObj.mySignal.connect(function() {
+                    cb2++;
+                });
+            });
+        });
+        client.awaitInit();
+
+        var msg = client.awaitMessage();
+        compare(msg.type, JSClient.QWebChannelMessageTypes.connectToSignal);
+        compare(msg.object, "myObj");
+
+        client.awaitIdle();
+
+        myObj.mySignal(42, myObj);
+
+        compare(cb1, 1);
+        compare(cb2, 0);
+    }
+
+    function test_disconnectDuringEmit()
+    {
+        var cb1 = 0;
+        var cb2 = 0;
+        var cb3 = 0;
+        var channel = client.createChannel(function(channel) {
+            var myObj = channel.objects.myObj;
+            var cb1impl = function() {
+                cb1++;
+            };
+            myObj.mySignal.connect(cb1impl);
+            myObj.mySignal.connect(function() {
+                cb2++;
+                myObj.mySignal.disconnect(cb1impl);
+            });
+            myObj.mySignal.connect(function() {
+                cb3++;
+            });
+        });
+        client.awaitInit();
+
+        var msg = client.awaitMessage();
+        compare(msg.type, JSClient.QWebChannelMessageTypes.connectToSignal);
+        compare(msg.object, "myObj");
+
+        client.awaitIdle();
+
+        myObj.mySignal(42, myObj);
+
+        compare(cb1, 1);
+        compare(cb2, 1);
+        compare(cb3, 1);
+    }
+
     function test_overloading()
     {
         var signalArgs_implicit = [];
@@ -555,5 +646,69 @@ TestCase {
         compare(signalArgs_explicit2, [["hello world"]]);
         compare(signalArgs_explicit3, [["the answer is ", 41]]);
         compare(returnValues, [100, 42, "HELLO WORLD", "THE ANSWER IS 42"]);
+    }
+
+    function test_variantType()
+    {
+        var returnValues = [];
+        function logReturnValue(value) {
+            returnValues.push(value);
+        }
+        var channel = client.createChannel(function(channel) {
+            var testObject = channel.objects.testObject;
+            testObject.testVariantType(0.25, logReturnValue);
+            testObject.testVariantType("0", logReturnValue);
+            testObject.testVariantType(null, logReturnValue);
+            testObject.testVariantType(testObject, logReturnValue);
+        });
+        client.awaitInit();
+
+        function awaitMessage(type)
+        {
+            var msg = client.awaitMessage();
+            compare(msg.type, type);
+            compare(msg.object, "testObject");
+        }
+
+        console.log("double arg");
+        awaitMessage(JSClient.QWebChannelMessageTypes.invokeMethod);
+        console.log("string arg");
+        awaitMessage(JSClient.QWebChannelMessageTypes.invokeMethod);
+        console.log("null arg");
+        awaitMessage(JSClient.QWebChannelMessageTypes.invokeMethod);
+        console.log("QObject arg");
+        awaitMessage(JSClient.QWebChannelMessageTypes.invokeMethod);
+
+        client.awaitIdle();
+
+        // QMetaType::Double: 6, QMetaType::QString: 10, QMetaType::Nullptr: 51,
+        // QMetaType::QObjectStar: 39
+        compare(returnValues, [6, 10, 51, 39]);
+    }
+
+    function test_embeddedQObject()
+    {
+        var success = false;
+        function logReturnValue(value) {
+            success = value;
+        }
+        var channel = client.createChannel(function(channel) {
+            var testObject = channel.objects.testObject;
+            testObject.testEmbeddedObjects([testObject, { obj: testObject }], logReturnValue);
+        });
+        client.awaitInit();
+
+        function awaitMessage(type)
+        {
+            var msg = client.awaitMessage();
+            compare(msg.type, type);
+            compare(msg.object, "testObject");
+        }
+
+        awaitMessage(JSClient.QWebChannelMessageTypes.invokeMethod);
+
+        client.awaitIdle();
+
+        compare(success, true);
     }
 }

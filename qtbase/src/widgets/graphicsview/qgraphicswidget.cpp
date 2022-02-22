@@ -232,9 +232,9 @@ QGraphicsWidget::~QGraphicsWidget()
     Q_D(QGraphicsWidget);
 #ifndef QT_NO_ACTION
     // Remove all actions from this widget
-    for (int i = 0; i < d->actions.size(); ++i) {
-        QActionPrivate *apriv = d->actions.at(i)->d_func();
-        apriv->graphicsWidgets.removeAll(this);
+    for (auto action : qAsConst(d->actions)) {
+        QActionPrivate *apriv = action->d_func();
+        apriv->associatedObjects.removeAll(this);
     }
     d->actions.clear();
 #endif
@@ -977,13 +977,13 @@ QFont QGraphicsWidget::font() const
 {
     Q_D(const QGraphicsWidget);
     QFont fnt = d->font;
-    fnt.resolve(fnt.resolve() | d->inheritedFontResolveMask);
+    fnt.setResolveMask(fnt.resolveMask() | d->inheritedFontResolveMask);
     return fnt;
 }
 void QGraphicsWidget::setFont(const QFont &font)
 {
     Q_D(QGraphicsWidget);
-    setAttribute(Qt::WA_SetFont, font.resolve() != 0);
+    setAttribute(Qt::WA_SetFont, font.resolveMask() != 0);
 
     QFont naturalFont = d->naturalWidgetFont();
     QFont resolvedFont = font.resolve(naturalFont);
@@ -1023,7 +1023,7 @@ QPalette QGraphicsWidget::palette() const
 void QGraphicsWidget::setPalette(const QPalette &palette)
 {
     Q_D(QGraphicsWidget);
-    setAttribute(Qt::WA_SetPalette, palette.resolve() != 0);
+    setAttribute(Qt::WA_SetPalette, palette.resolveMask() != 0);
 
     QPalette naturalPalette = d->naturalWidgetPalette();
     QPalette resolvedPalette = palette.resolve(naturalPalette);
@@ -2006,11 +2006,7 @@ void QGraphicsWidget::addAction(QAction *action)
 
     \sa removeAction(), QMenu, addAction(), QWidget::addActions()
 */
-#if QT_VERSION >= QT_VERSION_CHECK(6,0,0)
 void QGraphicsWidget::addActions(const QList<QAction *> &actions)
-#else
-void QGraphicsWidget::addActions(QList<QAction *> actions)
-#endif
 {
     for (int i = 0; i < actions.count(); ++i)
         insertAction(nullptr, actions.at(i));
@@ -2049,7 +2045,7 @@ void QGraphicsWidget::insertAction(QAction *before, QAction *action)
 
     if (index == -1) {
         QActionPrivate *apriv = action->d_func();
-        apriv->graphicsWidgets.append(this);
+        apriv->associatedObjects.append(this);
     }
 
     QActionEvent e(QEvent::ActionAdded, action, before);
@@ -2067,11 +2063,7 @@ void QGraphicsWidget::insertAction(QAction *before, QAction *action)
 
     \sa removeAction(), QMenu, insertAction(), QWidget::insertActions()
 */
-#if QT_VERSION >= QT_VERSION_CHECK(6,0,0)
 void QGraphicsWidget::insertActions(QAction *before, const QList<QAction *> &actions)
-#else
-void QGraphicsWidget::insertActions(QAction *before, QList<QAction *> actions)
-#endif
 {
     for (int i = 0; i < actions.count(); ++i)
         insertAction(before, actions.at(i));
@@ -2092,7 +2084,7 @@ void QGraphicsWidget::removeAction(QAction *action)
     Q_D(QGraphicsWidget);
 
     QActionPrivate *apriv = action->d_func();
-    apriv->graphicsWidgets.removeAll(this);
+    apriv->associatedObjects.removeAll(this);
 
     if (d->actions.removeAll(action)) {
         QActionEvent e(QEvent::ActionRemoved, action);
@@ -2151,7 +2143,7 @@ void QGraphicsWidget::setTabOrder(QGraphicsWidget *first, QGraphicsWidget *secon
         return;
     }
     QGraphicsScene *scene = first ? first->scene() : second->scene();
-    if (!scene && (!first || !second)) {
+    if (!scene) {
         qWarning("QGraphicsWidget::setTabOrder: assigning tab order from/to the"
                  " scene requires the item to be in a scene.");
         return;

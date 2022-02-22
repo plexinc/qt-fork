@@ -31,7 +31,7 @@
 #include <private/qabstractaxis_p.h>
 #include <QtCore/QtMath>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 XYPolarDomain::XYPolarDomain(QObject *parent)
     : PolarDomain(parent)
@@ -181,13 +181,13 @@ bool Q_AUTOTEST_EXPORT operator!= (const XYPolarDomain &domain1, const XYPolarDo
 QDebug Q_AUTOTEST_EXPORT operator<<(QDebug dbg, const XYPolarDomain &domain)
 {
 #ifdef QT_NO_TEXTSTREAM
-    Q_UNUSED(domain)
+    Q_UNUSED(domain);
 #else
     dbg.nospace() << "AbstractDomain(" << domain.m_minX << ',' << domain.m_maxX << ',' << domain.m_minY << ',' << domain.m_maxY << ')' << domain.m_size;
 #endif
     return dbg.maybeSpace();
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_xypolardomain_p.cpp"

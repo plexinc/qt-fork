@@ -53,15 +53,12 @@
 #include "chatserver.h"
 #include "chatclient.h"
 
+#include <QCoreApplication>
 #include <QtCore/qdebug.h>
 
 #include <QtBluetooth/qbluetoothdeviceinfo.h>
 #include <QtBluetooth/qbluetoothlocaldevice.h>
 #include <QtBluetooth/qbluetoothuuid.h>
-
-#ifdef Q_OS_ANDROID
-#include <QtAndroidExtras/QtAndroid>
-#endif
 
 static const QLatin1String serviceUuid("e8e10f95-1a70-4b27-9ccf-02010264e9c8");
 #ifdef Q_OS_ANDROID
@@ -91,8 +88,20 @@ Chat::Chat(QWidget *parent)
         ui->firstAdapter->setChecked(true);
         connect(ui->firstAdapter, &QRadioButton::clicked, this, &Chat::newAdapterSelected);
         connect(ui->secondAdapter, &QRadioButton::clicked, this, &Chat::newAdapterSelected);
+    }
+
+    // make discoverable
+    if (!localAdapters.isEmpty()) {
         QBluetoothLocalDevice adapter(localAdapters.at(0).address());
         adapter.setHostMode(QBluetoothLocalDevice::HostDiscoverable);
+    } else {
+        qWarning("Local adapter is not found! The application might work incorrectly.");
+#ifdef Q_OS_WIN
+        // WinRT implementation does not support adapter information yet. So it
+        // will always return an empty list.
+        qWarning("If the adapter exists, make sure to pair the devices manually before launching"
+                 " the chat.");
+#endif
     }
 
     //! [Create Chat Server]
@@ -165,7 +174,7 @@ int Chat::adapterFromUserSelection() const
 
 void Chat::reactOnSocketError(const QString &error)
 {
-    ui->chat->insertPlainText(error);
+    ui->chat->insertPlainText(QString::fromLatin1("%1\n").arg(error));
 }
 
 //! [clientDisconnected]
@@ -191,7 +200,7 @@ void Chat::connectClicked()
 
     RemoteSelector remoteSelector(adapter);
 #ifdef Q_OS_ANDROID
-    if (QtAndroid::androidSdkVersion() >= 23)
+    if (QNativeInterface::QAndroidApplication::sdkVersion() >= 23)
         remoteSelector.startDiscovery(QBluetoothUuid(reverseUuid));
     else
         remoteSelector.startDiscovery(QBluetoothUuid(serviceUuid));
@@ -241,6 +250,7 @@ void Chat::sendClicked()
 
     ui->sendText->setEnabled(true);
     ui->sendButton->setEnabled(true);
+    ui->sendText->setFocus();
 }
 //! [sendClicked]
 

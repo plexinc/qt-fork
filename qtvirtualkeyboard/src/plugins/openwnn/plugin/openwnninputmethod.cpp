@@ -619,7 +619,7 @@ OpenWnnInputMethod::~OpenWnnInputMethod()
 
 QList<QVirtualKeyboardInputEngine::InputMode> OpenWnnInputMethod::inputModes(const QString &locale)
 {
-    Q_UNUSED(locale)
+    Q_UNUSED(locale);
     return QList<QVirtualKeyboardInputEngine::InputMode>()
             << QVirtualKeyboardInputEngine::InputMode::Hiragana
             << QVirtualKeyboardInputEngine::InputMode::Katakana
@@ -629,7 +629,7 @@ QList<QVirtualKeyboardInputEngine::InputMode> OpenWnnInputMethod::inputModes(con
 
 bool OpenWnnInputMethod::setInputMode(const QString &locale, QVirtualKeyboardInputEngine::InputMode inputMode)
 {
-    Q_UNUSED(locale)
+    Q_UNUSED(locale);
     Q_D(OpenWnnInputMethod);
     if (d->inputMode == inputMode)
         return true;
@@ -654,15 +654,15 @@ bool OpenWnnInputMethod::setInputMode(const QString &locale, QVirtualKeyboardInp
 
 bool OpenWnnInputMethod::setTextCase(QVirtualKeyboardInputEngine::TextCase textCase)
 {
-    Q_UNUSED(textCase)
+    Q_UNUSED(textCase);
     return true;
 }
 
 bool OpenWnnInputMethod::keyEvent(Qt::Key key, const QString &text, Qt::KeyboardModifiers modifiers)
 {
-    Q_UNUSED(key)
-    Q_UNUSED(text)
-    Q_UNUSED(modifiers)
+    Q_UNUSED(key);
+    Q_UNUSED(text);
+    Q_UNUSED(modifiers);
     Q_D(OpenWnnInputMethod);
 
     if (d->preConverter == nullptr && !d->isEnableL2Converter())
@@ -778,7 +778,7 @@ QList<QVirtualKeyboardSelectionListModel::Type> OpenWnnInputMethod::selectionLis
 
 int OpenWnnInputMethod::selectionListItemCount(QVirtualKeyboardSelectionListModel::Type type)
 {
-    Q_UNUSED(type)
+    Q_UNUSED(type);
     Q_D(OpenWnnInputMethod);
     return d->candidateList.size();
 }
@@ -803,8 +803,9 @@ QVariant OpenWnnInputMethod::selectionListData(QVirtualKeyboardSelectionListMode
 
 void OpenWnnInputMethod::selectionListItemSelected(QVirtualKeyboardSelectionListModel::Type type, int index)
 {
-    Q_UNUSED(type)
+    Q_UNUSED(type);
     Q_D(OpenWnnInputMethod);
+    d->activeWordIndex = index;
     // Set selected text as preeditText to place cursor at the end of selected text
     inputContext()->setPreeditText(d->candidateList.at(index)->candidate);
     d->commitText(*d->candidateList.at(index));
@@ -813,7 +814,7 @@ void OpenWnnInputMethod::selectionListItemSelected(QVirtualKeyboardSelectionList
 void OpenWnnInputMethod::reset()
 {
     Q_D(OpenWnnInputMethod);
-    d->commitAll();
+    d->composingText.clear();
     d->initializeScreen();
     d->fitInputType();
 }
@@ -821,8 +822,10 @@ void OpenWnnInputMethod::reset()
 void OpenWnnInputMethod::update()
 {
     Q_D(OpenWnnInputMethod);
-    if (!d->disableUpdate)
+    if (!d->disableUpdate) {
+        d->commitAll();
         reset();
+    }
 }
 
 } // namespace QtVirtualKeyboard

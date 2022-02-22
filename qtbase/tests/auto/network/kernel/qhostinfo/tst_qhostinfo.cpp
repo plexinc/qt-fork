@@ -40,18 +40,15 @@
 # include <ws2tcpip.h>
 #endif
 
-#include <QtTest/QtTest>
-#include <qcoreapplication.h>
+#include <QTest>
+#include <QTestEventLoop>
+#include <QProcess>
+#include <QCoreApplication>
 #include <QDebug>
 #include <QTcpSocket>
-#include <private/qthread_p.h>
 #include <QTcpServer>
 
-#ifndef QT_NO_BEARERMANAGEMENT
-#include <QtNetwork/qnetworkconfigmanager.h>
-#include <QtNetwork/qnetworkconfiguration.h>
-#include <QtNetwork/qnetworksession.h>
-#endif
+#include <private/qthread_p.h>
 
 #include <time.h>
 #if defined(Q_OS_WIN)
@@ -121,11 +118,6 @@ private:
     bool lookupDone;
     int lookupsDoneCounter;
     QHostInfo lookupResults;
-#ifndef QT_NO_BEARERMANAGEMENT
-    QNetworkConfigurationManager *netConfMan;
-    QNetworkConfiguration networkConfiguration;
-    QScopedPointer<QNetworkSession> networkSession;
-#endif
 };
 
 void tst_QHostInfo::swapFunction()
@@ -180,17 +172,6 @@ void tst_QHostInfo::staticInformation()
 
 void tst_QHostInfo::initTestCase()
 {
-#ifndef QT_NO_BEARERMANAGEMENT
-    //start the default network
-    netConfMan = new QNetworkConfigurationManager(this);
-    networkConfiguration = netConfMan->defaultConfiguration();
-    networkSession.reset(new QNetworkSession(networkConfiguration));
-    if (!networkSession->isOpen()) {
-        networkSession->open();
-        networkSession->waitForOpened(30000);
-    }
-#endif
-
     ipv6Available = false;
     ipv6LookupsAvailable = false;
 
@@ -547,7 +528,7 @@ void tst_QHostInfo::raceCondition()
 class LookupThread : public QThread
 {
 protected:
-    inline void run()
+    inline void run() override
     {
          QHostInfo info = QHostInfo::fromName("a-single" TEST_DOMAIN);
          QCOMPARE(info.error(), QHostInfo::NoError);

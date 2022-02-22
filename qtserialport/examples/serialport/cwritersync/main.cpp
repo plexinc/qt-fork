@@ -64,7 +64,7 @@ int main(int argc, char *argv[])
 
     if (argumentCount == 1) {
         standardOutput << QObject::tr("Usage: %1 <serialportname> [baudrate]")
-                          .arg(argumentList.first()) << "\n";
+                          .arg(argumentList.first()) << Qt::endl;
         return 1;
     }
 
@@ -79,14 +79,14 @@ int main(int argc, char *argv[])
     if (!serialPort.open(QIODevice::WriteOnly)) {
         standardOutput << QObject::tr("Failed to open port %1, error: %2")
                           .arg(serialPortName).arg(serialPort.errorString())
-                       << "\n";
+                       << Qt::endl;
         return 1;
     }
 
     QFile dataFile;
     if (!dataFile.open(stdin, QIODevice::ReadOnly)) {
         standardOutput << QObject::tr("Failed to open stdin for reading")
-                       << "\n";
+                       << Qt::endl;
         return 1;
     }
 
@@ -97,8 +97,7 @@ int main(int argc, char *argv[])
         standardOutput << QObject::tr("Either no data was currently available on "
                                       "the standard input for reading, or an error "
                                       "occurred for port %1, error: %2")
-                          .arg(serialPortName).arg(serialPort.errorString())
-                       << "\n";
+                          .arg(serialPortName).arg(serialPort.errorString()) << Qt::endl;
         return 1;
     }
 
@@ -106,25 +105,21 @@ int main(int argc, char *argv[])
 
     if (bytesWritten == -1) {
         standardOutput << QObject::tr("Failed to write the data to port %1, error: %2")
-                          .arg(serialPortName).arg(serialPort.errorString())
-                       << "\n";
+                          .arg(serialPortName).arg(serialPort.errorString()) << Qt::endl;
         return 1;
     } else if (bytesWritten != writeData.size()) {
         standardOutput << QObject::tr("Failed to write all the data to port %1, error: %2")
-                          .arg(serialPortName).arg(serialPort.errorString())
-                       << "\n";
+                          .arg(serialPortName).arg(serialPort.errorString()) << Qt::endl;
         return 1;
     } else if (!serialPort.waitForBytesWritten(5000)) {
         standardOutput << QObject::tr("Operation timed out or an error "
                                       "occurred for port %1, error: %2")
-                          .arg(serialPortName).arg(serialPort.errorString())
-                       << "\n";
+                          .arg(serialPortName).arg(serialPort.errorString()) << Qt::endl;
         return 1;
     }
 
     standardOutput << QObject::tr("Data successfully sent to port %1")
-                      .arg(serialPortName)
-                   << "\n";
+                      .arg(serialPortName) << Qt::endl;
 
     return 0;
 }

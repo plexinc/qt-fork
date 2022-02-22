@@ -49,7 +49,7 @@ class MediaElementAudioSourceHandler final : public AudioHandler {
       HTMLMediaElement&);
   ~MediaElementAudioSourceHandler() override;
 
-  HTMLMediaElement* MediaElement() const;
+  CrossThreadPersistent<HTMLMediaElement> MediaElement() const;
 
   // AudioHandler
   void Dispose() override;
@@ -113,10 +113,13 @@ class MediaElementAudioSourceHandler final : public AudioHandler {
   bool is_origin_tainted_;
 };
 
-class MediaElementAudioSourceNode final : public AudioNode,
-                                          public AudioSourceProviderClient {
+// -----------------------------------------------------------------------------
+
+class MediaElementAudioSourceNode final
+    : public AudioNode,
+      public AudioSourceProviderClient,
+      public ActiveScriptWrappable<MediaElementAudioSourceNode> {
   DEFINE_WRAPPERTYPEINFO();
-  USING_GARBAGE_COLLECTED_MIXIN(MediaElementAudioSourceNode);
 
  public:
   static MediaElementAudioSourceNode* Create(AudioContext&,
@@ -127,7 +130,6 @@ class MediaElementAudioSourceNode final : public AudioNode,
 
   MediaElementAudioSourceNode(AudioContext&, HTMLMediaElement&);
 
-  void Trace(Visitor*) override;
   MediaElementAudioSourceHandler& GetMediaElementAudioSourceHandler() const;
 
   HTMLMediaElement* mediaElement() const;
@@ -142,6 +144,10 @@ class MediaElementAudioSourceNode final : public AudioNode,
   // InspectorHelperMixin
   void ReportDidCreate() final;
   void ReportWillBeDestroyed() final;
+
+  // GC
+  bool HasPendingActivity() const final;
+  void Trace(Visitor*) const override;
 
  private:
   Member<HTMLMediaElement> media_element_;

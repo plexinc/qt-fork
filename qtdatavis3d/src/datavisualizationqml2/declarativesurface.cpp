@@ -30,7 +30,7 @@
 #include "declarativesurface_p.h"
 #include <QtCore/QMutexLocker>
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 DeclarativeSurface::DeclarativeSurface(QQuickItem *parent)
     : AbstractDeclarative(parent),
@@ -115,12 +115,13 @@ void DeclarativeSurface::appendSeriesFunc(QQmlListProperty<QSurface3DSeries> *li
     reinterpret_cast<DeclarativeSurface *>(list->data)->addSeries(series);
 }
 
-int DeclarativeSurface::countSeriesFunc(QQmlListProperty<QSurface3DSeries> *list)
+qsizetype DeclarativeSurface::countSeriesFunc(QQmlListProperty<QSurface3DSeries> *list)
 {
     return reinterpret_cast<DeclarativeSurface *>(list->data)->m_surfaceController->surfaceSeriesList().size();
 }
 
-QSurface3DSeries *DeclarativeSurface::atSeriesFunc(QQmlListProperty<QSurface3DSeries> *list, int index)
+QSurface3DSeries *DeclarativeSurface::atSeriesFunc(QQmlListProperty<QSurface3DSeries> *list,
+                                                   qsizetype index)
 {
     return reinterpret_cast<DeclarativeSurface *>(list->data)->m_surfaceController->surfaceSeriesList().at(index);
 }
@@ -160,4 +161,4 @@ void DeclarativeSurface::handleAxisZChanged(QAbstract3DAxis *axis)
     emit axisZChanged(static_cast<QValue3DAxis *>(axis));
 }
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE

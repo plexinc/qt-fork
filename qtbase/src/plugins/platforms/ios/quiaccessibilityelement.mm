@@ -43,6 +43,7 @@
 
 #include "private/qaccessiblecache_p.h"
 #include "private/qcore_mac_p.h"
+#include "uistrings_p.h"
 
 QT_NAMESPACE_ALIAS_OBJC_CLASS(QMacAccessibilityElement);
 
@@ -117,14 +118,15 @@ QT_NAMESPACE_ALIAS_OBJC_CLASS(QMacAccessibilityElement);
     QAccessible::State state = iface->state();
 
     if (state.checkable)
-        return state.checked ? @"checked" : @"unchecked"; // FIXME: translation
+        return state.checked
+                ? QCoreApplication::translate(ACCESSIBILITY_ELEMENT, AE_CHECKED).toNSString()
+                : QCoreApplication::translate(ACCESSIBILITY_ELEMENT, AE_UNCHECKED).toNSString();
 
     QAccessibleValueInterface *val = iface->valueInterface();
     if (val) {
         return val->currentValue().toString().toNSString();
     } else if (QAccessibleTextInterface *text = iface->textInterface()) {
-        // FIXME doesn't work?
-        return text->text(0, text->characterCount() - 1).toNSString();
+        return text->text(0, text->characterCount()).toNSString();
     }
 
     return [super accessibilityHint];
@@ -158,8 +160,16 @@ QT_NAMESPACE_ALIAS_OBJC_CLASS(QMacAccessibilityElement);
     if (state.searchEdit)
         traits |= UIAccessibilityTraitSearchField;
 
-    if (iface->role() == QAccessible::Button)
+    const auto accessibleRole = iface->role();
+    if (accessibleRole == QAccessible::Button) {
         traits |= UIAccessibilityTraitButton;
+    } else if (accessibleRole == QAccessible::EditableText) {
+        static auto defaultTextFieldTraits = []{
+            auto *textField = [[[UITextField alloc] initWithFrame:CGRectZero] autorelease];
+            return textField.accessibilityTraits;
+        }();
+        traits |= defaultTextFieldTraits;
+    }
 
     if (iface->valueInterface())
         traits |= UIAccessibilityTraitAdjustable;

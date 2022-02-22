@@ -28,11 +28,14 @@
 ****************************************************************************/
 
 #include <QtCore/QThread>
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QReadWriteLock>
 
-#if defined(Q_OS_UNIX)
+#if defined(Q_OS_UNIX) && !defined(Q_OS_INTEGRITY)
 #include <sys/resource.h>
 #endif
+
+#include <QtTest/private/qemulationdetector_p.h>
 
 class tst_QGlobalStatic : public QObject
 {
@@ -53,7 +56,7 @@ private Q_SLOTS:
 
 void tst_QGlobalStatic::initTestCase()
 {
-#if defined(Q_OS_UNIX)
+#if defined(Q_OS_UNIX) && !defined(Q_OS_INTEGRITY)
     // The tests create a lot of threads, which require file descriptors. On systems like
     // OS X low defaults such as 256 as the limit for the number of simultaneously
     // open files is not sufficient.
@@ -178,14 +181,17 @@ Q_GLOBAL_STATIC_WITH_ARGS(ThrowingType, threadStressTestGS, (threadStressTestCon
 
 void tst_QGlobalStatic::threadStressTest()
 {
+    if (QTestPrivate::isRunningArmOnX86())
+        QSKIP("Frequently hangs on QEMU, QTBUG-91423");
+
     class ThreadStressTestThread: public QThread
     {
     public:
         QReadWriteLock *lock;
-        void run()
+        void run() override
         {
             QReadLocker l(lock);
-            //usleep(qrand() * 200 / RAND_MAX);
+            //usleep(QRandomGenerator::global()->generate(200));
             // thundering herd
             try {
                 threadStressTestGS();
@@ -200,7 +206,13 @@ void tst_QGlobalStatic::threadStressTest()
     if (expectedConstructionCount <= 0)
         QSKIP("This test cannot be run more than once");
 
+#ifdef Q_OS_INTEGRITY
+    // OPEN_REALTIME_THREADS = 123 on current INTEGRITY environment
+    // if try to create more, app is halted
+    const int numThreads = 122;
+#else
     const int numThreads = 200;
+#endif
     ThreadStressTestThread threads[numThreads];
     QReadWriteLock lock;
     lock.lockForWrite();

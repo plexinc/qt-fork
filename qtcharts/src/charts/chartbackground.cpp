@@ -34,13 +34,14 @@
 #include <QtGui/QPainter>
 #include <QGraphicsDropShadowEffect>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 ChartBackground::ChartBackground(QGraphicsItem *parent)
     : QGraphicsRectItem(parent),
       m_diameter(5),
       m_dropShadow(0)
 {
+    setAcceptedMouseButtons({});
 }
 
 ChartBackground::~ChartBackground()
@@ -51,7 +52,7 @@ ChartBackground::~ChartBackground()
 void ChartBackground::setDropShadowEnabled(bool enabled)
 {
 #ifdef QT_NO_GRAPHICSEFFECT
-    Q_UNUSED(enabled)
+    Q_UNUSED(enabled);
 #else
     if (enabled) {
         if (!m_dropShadow) {
@@ -97,4 +98,4 @@ void ChartBackground::setDiameter(qreal diameter)
     update();
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE

@@ -260,11 +260,7 @@
                     <xsl:when test="$xs-type='xs:long'">QList&lt;qlonglong&gt;</xsl:when>
                     <xsl:when test="$xs-type='xs:unsignedInt'">QList&lt;uint&gt;</xsl:when>
                     <xsl:when test="$xs-type='xs:unsignedLong'">QList&lt;qulonglong&gt;</xsl:when>
-<!-- ### fixme Qt 6: Change the QList<DomProperty*> to QVector<DomProperty*> by
-     removing the below line and change the virtual methods QAbstractFormBuilder::applyProperties()
-     and QAbstractFormBuilder::computeProperties(QObject *obj) accordingly (repeats 2 times below). -->
-                    <xsl:when test="$xs-type='Property'">QList&lt;DomProperty *&gt;</xsl:when>
-                    <xsl:otherwise>QVector&lt;Dom<xsl:value-of select="$xs-type"/> *&gt;</xsl:otherwise>
+                    <xsl:otherwise>QList&lt;Dom<xsl:value-of select="$xs-type"/> *&gt;</xsl:otherwise>
                 </xsl:choose>
             </xsl:when>
             <xsl:otherwise>
@@ -297,8 +293,7 @@
                     <xsl:when test="$xs-type='xs:long'">QList&lt;qlonglong&gt; </xsl:when>
                     <xsl:when test="$xs-type='xs:unsignedInt'">QList&lt;uint&gt; </xsl:when>
                     <xsl:when test="$xs-type='xs:unsignedLong'">QList&lt;qulonglong&gt; </xsl:when>
-                    <xsl:when test="$xs-type='Property'">QList&lt;DomProperty*&gt; </xsl:when>
-                    <xsl:otherwise>QVector&lt;Dom<xsl:value-of select="$xs-type"/> *&gt; </xsl:otherwise>
+                    <xsl:otherwise>QList&lt;Dom<xsl:value-of select="$xs-type"/> *&gt; </xsl:otherwise>
                 </xsl:choose>
             </xsl:when>
             <xsl:otherwise>
@@ -331,8 +326,7 @@
                     <xsl:when test="$xs-type='xs:long'">const QList&lt;qlonglong&gt; &amp;</xsl:when>
                     <xsl:when test="$xs-type='xs:unsignedInt'">const QList&lt;uint&gt; &amp;</xsl:when>
                     <xsl:when test="$xs-type='xs:unsignedLong'">const QList&lt;qulonglong&gt; &amp;</xsl:when>
-                    <xsl:when test="$xs-type='Property'">const QList&lt;DomProperty *&gt; &amp;</xsl:when>
-                    <xsl:otherwise>const QVector&lt;Dom<xsl:value-of select="$xs-type"/> *&gt; &amp;</xsl:otherwise>
+                    <xsl:otherwise>const QList&lt;Dom<xsl:value-of select="$xs-type"/> *&gt; &amp;</xsl:otherwise>
                 </xsl:choose>
             </xsl:when>
             <xsl:otherwise>

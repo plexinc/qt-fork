@@ -56,11 +56,8 @@
     Node effectiveRootScroller(Document document);
 
     [RaisesException] DOMString shadowRootType(Node root);
-    [RaisesException] boolean hasShadowInsertionPoint(Node root);
-    [RaisesException] boolean hasContentElement(Node root);
     [RaisesException] unsigned long countElementShadow(Node Root);
     DOMString shadowPseudoId(Element element);
-    [RaisesException] boolean isValidContentSelect(Element contentElement);
     Node treeScopeRootNode(Node node);
     Node parentTreeScope(Node node);
     [RaisesException] unsigned short compareTreeScopePosition(Node treeScope1, Node treeScope2);
@@ -106,12 +103,12 @@
     DOMRectReadOnly boundingBox(Element element);
 
     [RaisesException] void setMarker(Document document, Range range, DOMString markerType);
-    [RaisesException] unsigned long markerCountForNode(Node node, DOMString markerType);
-    unsigned long activeMarkerCountForNode(Node node);
-    [RaisesException] Range markerRangeForNode(Node node, DOMString markerType, unsigned long index);
-    [RaisesException] DOMString markerDescriptionForNode(Node node, DOMString markerType, unsigned long index);
-    [RaisesException] unsigned long markerBackgroundColorForNode(Node node, DOMString markerType, unsigned long index);
-    [RaisesException] unsigned long markerUnderlineColorForNode(Node node, DOMString markerType, unsigned long index);
+    [RaisesException] unsigned long markerCountForNode(Text text, DOMString markerType);
+    unsigned long activeMarkerCountForNode(Text text);
+    [RaisesException] Range markerRangeForNode(Text text, DOMString markerType, unsigned long index);
+    [RaisesException] DOMString markerDescriptionForNode(Text text, DOMString markerType, unsigned long index);
+    [RaisesException] unsigned long markerBackgroundColorForNode(Text text, DOMString markerType, unsigned long index);
+    [RaisesException] unsigned long markerUnderlineColorForNode(Text text, DOMString markerType, unsigned long index);
     [RaisesException] void addTextMatchMarker(Range range, DOMString matchStatus);
     [RaisesException] void addCompositionMarker(Range range, DOMString underlineColorValue, DOMString thicknessValue, DOMString underlineStyleValue, DOMString textColorValue, DOMString backgroundColorValue);
     [RaisesException] void addActiveSuggestionMarker(Range range, DOMString underlineColorValue, DOMString thicknessValue, DOMString backgroundColorValue);
@@ -130,6 +127,7 @@
     [RaisesException] void setAutofilledValue(Element inputElement, DOMString value);
     [RaisesException] void setEditingValue(Element inputElement, DOMString value);
     [RaisesException] void setAutofilled(Element inputElement, boolean enabled);
+    [RaisesException] void setSelectionRangeForNumberType(Element inputElement, unsigned long start, unsigned long end);
 
     Range rangeFromLocationAndLength(Element scope, long rangeLocation, long rangeLength);
     unsigned long locationFromRange(Element scope, Range range);
@@ -205,7 +203,6 @@
     DOMString scrollingStateTreeAsText(Document document);
     [RaisesException] DOMString mainThreadScrollingReasons(Document document);
     [RaisesException] DOMRectList nonFastScrollableRects(Document document);
-    [RaisesException] void markGestureScrollRegionDirty(Document document);
 
     void evictAllResources();
 
@@ -217,14 +214,17 @@
     sequence<DOMString> shortcutIconURLs(Document document);
     sequence<DOMString> allIconURLs(Document document);
     [RaisesException] long numberOfPages(optional double pageWidthInPixels = 800, optional double pageHeightInPixels = 600);
-    [RaisesException] DOMString pageProperty(DOMString propertyName, long pageNumber);
-    [RaisesException] DOMString pageSizeAndMarginsInPixels(long pageIndex, long width, long height, long marginTop, long marginRight, long marginBottom, long marginLeft);
+    [RaisesException] DOMString pageProperty(DOMString propertyName, unsigned long pageNumber);
+    [RaisesException] DOMString pageSizeAndMarginsInPixels(unsigned long pageIndex, long width, long height, long marginTop, long marginRight, long marginBottom, long marginLeft);
 
     [RaisesException] float pageScaleFactor();
     [RaisesException] void setPageScaleFactor(float scaleFactor);
     [RaisesException] void setPageScaleFactorLimits(float minScaleFactor, float maxScaleFactor);
 
+    [RaisesException] float pageZoomFactor();
+
     [RaisesException] void setIsCursorVisible(Document document, boolean isVisible);
+    void setMaxNumberOfFramesToTen(boolean enable);
 
     // HTMLMediaElement, HTMLAudioElement and HTMLVideoElement.
     DOMString effectivePreload(HTMLMediaElement mediaElement);
@@ -295,6 +295,8 @@
 
     [RaisesException] void forceCompositingUpdate(Document document);
 
+    void setForcedColorsAndDarkPreferredColorScheme(Document document);
+
     [RaisesException] void setShouldRevealPassword(Element element, boolean reveal);
 
     [CallWith=ScriptState] Promise<any> createResolvedPromise(any value);
@@ -317,6 +319,10 @@
     // attribute returns the currently interested element on the page.
     readonly attribute Element? interestedElement;
 
+    // Returns true if page associated with current internals object is
+    // active.
+    boolean isActivated();
+
     boolean isInCanvasFontCache(Document document, DOMString fontString);
     unsigned long canvasFontCacheMaxFonts();
 
@@ -326,7 +332,6 @@
     UnionTypesTest unionTypesTest();
     CallbackFunctionTest callbackFunctionTest();
     [RaisesException] void setScrollChain(ScrollState scrollState, sequence<Element> elements);
-    void scheduleBlinkGC();
 
     DOMString selectedHTMLForClipboard();
     DOMString selectedTextForClipboard();
@@ -364,13 +369,16 @@
     boolean setScrollbarVisibilityInScrollableArea(Node node, boolean visible);
 
     [RaisesException] double monotonicTimeToZeroBasedDocumentTime(double platformTime);
+
+    // Translate an event's DOMHighResTimeStamp in seconds into a monotonic time
+    // in milliseconds.
+    long long zeroBasedDocumentTimeToMonotonicTime(double domHighResTimeStamp);
+
     long long currentTimeTicks();
 
     DOMString getScrollAnimationState(Node node);
 
     DOMString getProgrammaticScrollAnimationState(Node node);
-
-    DOMRect visualRect(Node node);
 
     OriginTrialsTest originTrialsTest();
 
@@ -435,4 +443,11 @@
 
     // Request generation of a Reporting report.
     void generateTestReport(DOMString message);
+
+    [RaisesException] void setIsAdSubframe(HTMLIFrameElement iframe);
+
+    [RaisesException, CallWith=ScriptState] ReadableStream createReadableStream(long queueSize, DOMString optimizer);
+    // The return value consists of a WritableStream (.stream) and a promise of
+    // a sink object (.sink).
+    [RaisesException, CallWith=ScriptState] any createWritableStreamAndSink(long queueSize, DOMString optimizer);
 };

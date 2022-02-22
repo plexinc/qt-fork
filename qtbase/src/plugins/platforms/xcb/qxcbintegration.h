@@ -43,6 +43,7 @@
 #include <QtGui/private/qtguiglobal_p.h>
 #include <qpa/qplatformintegration.h>
 #include <qpa/qplatformscreen.h>
+#include <qpa/qplatformopenglcontext.h>
 
 #include "qxcbexport.h"
 
@@ -55,6 +56,14 @@ class QAbstractEventDispatcher;
 class QXcbNativeInterface;
 
 class Q_XCB_EXPORT QXcbIntegration : public QPlatformIntegration
+#ifndef QT_NO_OPENGL
+# if QT_CONFIG(xcb_glx_plugin)
+    , public QNativeInterface::Private::QGLXIntegration
+# endif
+# if QT_CONFIG(egl)
+    , public QNativeInterface::Private::QEGLIntegration
+# endif
+#endif
 {
 public:
     QXcbIntegration(const QStringList &parameters, int &argc, char **argv);
@@ -65,6 +74,12 @@ public:
     QPlatformWindow *createForeignWindow(QWindow *window, WId nativeHandle) const override;
 #ifndef QT_NO_OPENGL
     QPlatformOpenGLContext *createPlatformOpenGLContext(QOpenGLContext *context) const override;
+# if QT_CONFIG(xcb_glx_plugin)
+    QOpenGLContext *createOpenGLContext(GLXContext context, void *visualInfo, QOpenGLContext *shareContext) const override;
+# endif
+# if QT_CONFIG(egl)
+    QOpenGLContext *createOpenGLContext(EGLContext context, EGLDisplay display, QOpenGLContext *shareContext) const override;
+# endif
 #endif
     QPlatformBackingStore *createPlatformBackingStore(QWindow *window) const override;
 
@@ -102,8 +117,8 @@ public:
     QPlatformTheme *createPlatformTheme(const QString &name) const override;
     QVariant styleHint(StyleHint hint) const override;
 
-    bool hasDefaultConnection() const { return !m_connections.isEmpty(); }
-    QXcbConnection *defaultConnection() const { return m_connections.first(); }
+    bool hasConnection() const { return m_connection; }
+    QXcbConnection *connection() const { return m_connection; }
 
     QByteArray wmClass() const;
 
@@ -124,7 +139,7 @@ public:
     static QXcbIntegration *instance() { return m_instance; }
 
 private:
-    QList<QXcbConnection *> m_connections;
+    QXcbConnection *m_connection = nullptr;
 
     QScopedPointer<QPlatformFontDatabase> m_fontDatabase;
     QScopedPointer<QXcbNativeInterface> m_nativeInterface;

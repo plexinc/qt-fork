@@ -43,7 +43,7 @@
 #include "datavisualizationglobal_p.h"
 #include "abstract3dcontroller_p.h"
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 class Scatter3DRenderer;
 class QScatterDataProxy;
@@ -71,7 +71,7 @@ public:
     };
 private:
     Scatter3DChangeBitField m_changeTracker;
-    QVector<ChangeItem> m_changedItems;
+    QList<ChangeItem> m_changedItems;
 
     // Rendering
     Scatter3DRenderer *m_renderer;
@@ -100,35 +100,35 @@ private:
         {}
     };
 
-    QVector<InsertRemoveRecord> m_insertRemoveRecords;
+    QList<InsertRemoveRecord> m_insertRemoveRecords;
     bool m_recordInsertsAndRemoves;
 
 public:
     explicit Scatter3DController(QRect rect, Q3DScene *scene = 0);
     ~Scatter3DController();
 
-    virtual void initializeOpenGL();
+    void initializeOpenGL() override;
 
     // Change selection mode
-    void setSelectionMode(QAbstract3DGraph::SelectionFlags mode);
+    void setSelectionMode(QAbstract3DGraph::SelectionFlags mode) override;
 
     inline QScatter3DSeries *selectedSeries() const { return m_selectedItemSeries; }
 
     void setSelectedItem(int index, QScatter3DSeries *series);
     static inline int invalidSelectionIndex() { return -1; }
-    virtual void clearSelection();
+    void clearSelection() override;
 
-    void synchDataToRenderer();
+    void synchDataToRenderer() override;
 
-    virtual void addSeries(QAbstract3DSeries *series);
-    virtual void removeSeries(QAbstract3DSeries *series);
+    void addSeries(QAbstract3DSeries *series) override;
+    void removeSeries(QAbstract3DSeries *series) override;
     virtual QList<QScatter3DSeries *> scatterSeriesList();
 
-    virtual void handleAxisAutoAdjustRangeChangedInOrientation(
-            QAbstract3DAxis::AxisOrientation orientation, bool autoAdjust);
-    virtual void handleAxisRangeChangedBySender(QObject *sender);
-    virtual void handlePendingClick();
-    virtual void adjustAxisRanges();
+    void handleAxisAutoAdjustRangeChangedInOrientation(
+            QAbstract3DAxis::AxisOrientation orientation, bool autoAdjust) override;
+    void handleAxisRangeChangedBySender(QObject *sender) override;
+    void handlePendingClick() override;
+    void adjustAxisRanges() override;
 
 public Q_SLOTS:
     void handleArrayReset();
@@ -141,13 +141,13 @@ Q_SIGNALS:
     void selectedSeriesChanged(QScatter3DSeries *series);
 
 protected:
-    virtual void startRecordingRemovesAndInserts();
+    void startRecordingRemovesAndInserts() override;
 
 private:
 
     Q_DISABLE_COPY(Scatter3DController)
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

@@ -1,1 +1,1 @@
-#include "../../src/pdf/api/qpdfbookmarkmodel.h"
+#include "../../src/pdf/qpdfbookmarkmodel.h"

@@ -71,7 +71,7 @@ QT_BEGIN_NAMESPACE
 
 class QSurface;
 class QScreen;
-
+class QRhi;
 namespace Qt3DRender {
 
 class QSceneImporter;
@@ -95,7 +95,7 @@ typedef QSharedPointer<UpdateLevelOfDetailJob> UpdateLevelOfDetailJobPtr;
 class Q_3DRENDERSHARED_PRIVATE_EXPORT QRenderAspectPrivate : public Qt3DCore::QAbstractAspectPrivate
 {
 public:
-    QRenderAspectPrivate(QRenderAspect::RenderType type);
+    QRenderAspectPrivate(QRenderAspect::SubmissionType submissionType);
     ~QRenderAspectPrivate();
 
     Q_DECLARE_PUBLIC(QRenderAspect)
@@ -103,35 +103,34 @@ public:
     static QRenderAspectPrivate* findPrivate(Qt3DCore::QAspectEngine *engine);
     static QRenderAspectPrivate *get(QRenderAspect *q);
 
-    void syncDirtyFrontEndNode(Qt3DCore::QNode *node, Qt3DCore::QBackendNode *backend, bool firstTime) const override;
     void jobsDone() override;
     void frameDone() override;
 
     void createNodeManagers();
     void onEngineStartup();
+    void onEngineAboutToShutdown() override;
 
     void registerBackendTypes();
     void unregisterBackendTypes();
     void loadSceneParsers();
     void loadRenderPlugin(const QString &pluginName);
-    void renderInitialize(QOpenGLContext *context);
-    void renderSynchronous(bool swapBuffers = true);
-    void renderShutdown();
     void registerBackendType(const QMetaObject &, const Qt3DCore::QBackendNodeMapperPtr &functor);
-    QVector<Qt3DCore::QAspectJobPtr> createGeometryRendererJobs() const;
-    QVector<Qt3DCore::QAspectJobPtr> createPreRendererJobs() const;
-    QVector<Qt3DCore::QAspectJobPtr> createRenderBufferJobs() const;
+    std::vector<Qt3DCore::QAspectJobPtr> createGeometryRendererJobs() const;
+    std::vector<Qt3DCore::QAspectJobPtr> createPreRendererJobs() const;
+    std::vector<Qt3DCore::QAspectJobPtr> createRenderBufferJobs() const;
     Render::AbstractRenderer *loadRendererPlugin();
+
+    bool processMouseEvent(QObject *obj, QMouseEvent *event);
+    bool processKeyEvent(QObject *obj, QKeyEvent *event);
 
     Render::NodeManagers *m_nodeManagers;
     Render::AbstractRenderer *m_renderer;
 
     bool m_initialized;
-    bool m_renderAfterJobs;
+    const bool m_renderAfterJobs;
     QList<QSceneImporter *> m_sceneImporter;
-    QVector<QString> m_loadedPlugins;
-    QVector<Render::QRenderPlugin *> m_renderPlugins;
-    QRenderAspect::RenderType m_renderType;
+    QList<QString> m_loadedPlugins;
+    QList<Render::QRenderPlugin *> m_renderPlugins;
     Render::OffscreenSurfaceHelper *m_offscreenHelper;
     QScreen *m_screen = nullptr;
 
@@ -148,10 +147,11 @@ public:
     Render::RayCastingJobPtr m_rayCastingJob;
 
     QScopedPointer<Render::PickEventFilter> m_pickEventFilter;
+    QRenderAspect::SubmissionType m_submissionType;
 
     static QMutex m_pluginLock;
-    static QVector<QString> m_pluginConfig;
-    static QVector<QRenderAspectPrivate *> m_instances;
+    static QList<QString> m_pluginConfig;
+    static QList<QRenderAspectPrivate *> m_instances;
     static void configurePlugin(const QString &plugin);
 };
 

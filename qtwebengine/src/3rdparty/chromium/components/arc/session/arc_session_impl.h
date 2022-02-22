@@ -11,7 +11,6 @@
 #include <vector>
 
 #include "base/callback.h"
-#include "base/files/file_path.h"
 #include "base/files/scoped_file.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
@@ -23,6 +22,14 @@
 
 namespace ash {
 class DefaultScaleFactorRetriever;
+}
+
+namespace base {
+struct SystemMemoryInfoKB;
+}
+
+namespace cryptohome {
+class Identification;
 }
 
 namespace arc {
@@ -158,7 +165,7 @@ class ArcSessionImpl
     using GetLcdDensityCallback = base::OnceCallback<void(int32_t)>;
 
     // Gets the lcd density via callback. The callback may be invoked
-    // immediately if its already available, or called asynchronosly later if
+    // immediately if it's already available, or called asynchronously later if
     // it's not yet available. Calling this method while there is a pending
     // callback will cancel the pending callback.
     virtual void GetLcdDensity(GetLcdDensityCallback callback) = 0;
@@ -174,9 +181,14 @@ class ArcSessionImpl
     virtual std::unique_ptr<ArcClientAdapter> CreateClient() = 0;
   };
 
+  using SystemMemoryInfoCallback =
+      base::RepeatingCallback<bool(base::SystemMemoryInfoKB*)>;
+
   ArcSessionImpl(std::unique_ptr<Delegate> delegate,
                  chromeos::SchedulerConfigurationManagerBase*
-                     scheduler_configuration_manager);
+                     scheduler_configuration_manager,
+                 AdbSideloadingAvailabilityDelegate*
+                     adb_sideloading_availability_delegate);
   ~ArcSessionImpl() override;
 
   // Returns default delegate implementation used for the production.
@@ -188,14 +200,19 @@ class ArcSessionImpl
   State GetStateForTesting() { return state_; }
   ArcClientAdapter* GetClientForTesting() { return client_.get(); }
 
+  void SetSystemMemoryInfoCallbackForTesting(SystemMemoryInfoCallback callback);
+
   // ArcSession overrides:
   void StartMiniInstance() override;
   void RequestUpgrade(UpgradeParams params) override;
   void Stop() override;
   bool IsStopRequested() override;
   void OnShutdown() override;
-  void SetUserInfo(const std::string& hash,
+  void SetUserInfo(const cryptohome::Identification& cryptohome_id,
+                   const std::string& hash,
                    const std::string& serial_number) override;
+  void SetDemoModeDelegate(
+      ArcClientAdapter::DemoModeDelegate* delegate) override;
 
   // chromeos::SchedulerConfigurationManagerBase::Observer overrides:
   void OnConfigurationSet(bool success, size_t num_cores_disabled) override;
@@ -210,6 +227,15 @@ class ArcSessionImpl
   // Called when arcbridge socket is created.
   void OnSocketCreated(base::ScopedFD fd);
 
+  // Loads ARC data/ snapshot if necessary.
+  // |callback| is called once the load process is finished.
+  void StartLoadingDataSnapshot(base::OnceClosure callback);
+
+  // Called when ARC data/ snapshot step is done: either snapshot is loaded or
+  // skipped.
+  // |socket_fd| should be a socket to be passed to OnUpgraded.
+  void OnDataSnapshotLoaded(base::ScopedFD scoped_fd);
+
   // D-Bus callback for UpgradeArcContainer(). |socket_fd| should be a socket
   // which should be accept(2)ed to connect ArcBridgeService Mojo channel.
   void OnUpgraded(base::ScopedFD socket_fd, bool result);
@@ -223,8 +249,9 @@ class ArcSessionImpl
   // connect.)
   void OnMojoConnected(std::unique_ptr<mojom::ArcBridgeHost> arc_bridge_host);
 
-  // Request to stop ARC instance via DBus.
-  void StopArcInstance(bool on_shutdown);
+  // Request to stop ARC instance via DBus. Also backs up the ARC
+  // bug report if |should_backup_log| is set to true.
+  void StopArcInstance(bool on_shutdown, bool should_backup_log);
 
   // ArcClientAdapter::Observer:
   void ArcInstanceStopped() override;
@@ -241,6 +268,9 @@ class ArcSessionImpl
 
   // Free disk space under /home in bytes.
   void OnFreeDiskSpace(int64_t space);
+
+  // Whether adb sideloading can be changed
+  void OnCanChangeAdbSideloading(bool can_change_adb_sideloading);
 
   // Checks whether a function runs on the thread where the instance is
   // created.
@@ -277,6 +307,13 @@ class ArcSessionImpl
   int lcd_density_ = 0;
   chromeos::SchedulerConfigurationManagerBase* const
       scheduler_configuration_manager_;
+
+  // Owned by ArcSessionManager.
+  AdbSideloadingAvailabilityDelegate* const
+      adb_sideloading_availability_delegate_;
+
+  // Callback to read system memory info.
+  SystemMemoryInfoCallback system_memory_info_callback_;
 
   // WeakPtrFactory to use callbacks.
   base::WeakPtrFactory<ArcSessionImpl> weak_factory_{this};

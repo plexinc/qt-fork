@@ -55,10 +55,9 @@
 #include <Qt3DRender/private/backendnode_p.h>
 #include <Qt3DRender/private/abstractrenderer_p.h>
 #include <Qt3DRender/private/handle_types_p.h>
-#include <Qt3DCore/qnodecreatedchange.h>
 #include <Qt3DCore/private/qentity_p.h>
 #include <Qt3DCore/private/qhandle_p.h>
-#include <QVector>
+#include <QList>
 
 QT_BEGIN_NAMESPACE
 
@@ -102,8 +101,8 @@ public:
     void removeFromParentChildHandles();
     void appendChildHandle(HEntity childHandle);
     void removeChildHandle(HEntity childHandle) { m_childrenHandles.removeOne(childHandle); }
-    QVector<HEntity> childrenHandles() const { return m_childrenHandles; }
-    QVector<Entity *> children() const;
+    const QList<HEntity> &childrenHandles() const { return m_childrenHandles; }
+    QList<Entity *> children() const;
     bool hasChildren() const { return !m_childrenHandles.empty(); }
     void traverse(const std::function<void(Entity *)> &operation);
     void traverse(const std::function<void(const Entity *)> &operation) const;
@@ -135,9 +134,9 @@ public:
     }
 
     template<class Backend>
-    QVector<Qt3DCore::QHandle<Backend> > componentsHandle() const
+    QList<Qt3DCore::QHandle<Backend>> componentsHandle() const
     {
-        return QVector<Qt3DCore::QHandle<Backend> >();
+        return { };
     }
 
     template<class Backend>
@@ -147,21 +146,24 @@ public:
     }
 
     template<class Backend>
-    QVector<Backend *> renderComponents() const
+    std::vector<Backend *> renderComponents() const
     {
-        return QVector<Backend *>();
+        // We should never reach this, we expect specialization to have been
+        // specified
+        Q_UNREACHABLE();
+        return {};
     }
 
     template<class Backend>
     Qt3DCore::QNodeId componentUuid() const
     {
-        return Qt3DCore::QNodeId();
+        return { };
     }
 
     template<class Backend>
-    QVector<Qt3DCore::QNodeId> componentsUuid() const
+    QList<Qt3DCore::QNodeId> componentsUuid() const
     {
-        return QVector<Qt3DCore::QNodeId>();
+        return { };
     }
 
     template<typename T>
@@ -183,7 +185,7 @@ private:
     NodeManagers *m_nodeManagers;
     HEntity m_handle;
     HEntity m_parentHandle;
-    QVector<HEntity > m_childrenHandles;
+    QList<HEntity> m_childrenHandles;
 
     HMatrix m_worldTransform;
     QSharedPointer<Sphere> m_localBoundingVolume;
@@ -194,13 +196,14 @@ private:
     Qt3DCore::QNodeId m_transformComponent;
     Qt3DCore::QNodeId m_materialComponent;
     Qt3DCore::QNodeId m_cameraComponent;
-    QVector<Qt3DCore::QNodeId> m_layerComponents;
-    QVector<Qt3DCore::QNodeId> m_levelOfDetailComponents;
-    QVector<Qt3DCore::QNodeId> m_rayCasterComponents;
-    QVector<Qt3DCore::QNodeId> m_shaderDataComponents;
-    QVector<Qt3DCore::QNodeId> m_lightComponents;
-    QVector<Qt3DCore::QNodeId> m_environmentLightComponents;
+    QList<Qt3DCore::QNodeId> m_layerComponents;
+    QList<Qt3DCore::QNodeId> m_levelOfDetailComponents;
+    QList<Qt3DCore::QNodeId> m_rayCasterComponents;
+    QList<Qt3DCore::QNodeId> m_shaderDataComponents;
+    QList<Qt3DCore::QNodeId> m_lightComponents;
+    QList<Qt3DCore::QNodeId> m_environmentLightComponents;
     Qt3DCore::QNodeId m_geometryRendererComponent;
+    Qt3DCore::QNodeId m_pickingProxyComponent;
     Qt3DCore::QNodeId m_objectPickerComponent;
     Qt3DCore::QNodeId m_boundingVolumeDebugComponent;
     Qt3DCore::QNodeId m_computeComponent;
@@ -230,10 +233,10 @@ private:
 #define ENTITY_COMPONENT_LIST_TEMPLATE_SPECIALIZATION(Type, Handle) \
     /* Handle */ \
     template<> \
-    Q_3DRENDERSHARED_PRIVATE_EXPORT QVector<Handle> Entity::componentsHandle<Type>() const; \
+    Q_3DRENDERSHARED_PRIVATE_EXPORT QList<Handle> Entity::componentsHandle<Type>() const; \
     /* Component */ \
     template<> \
-    Q_3DRENDERSHARED_PRIVATE_EXPORT QVector<Type *> Entity::renderComponents<Type>() const; \
+    Q_3DRENDERSHARED_PRIVATE_EXPORT std::vector<Type *> Entity::renderComponents<Type>() const; \
     /* Uuid */ \
     template<> \
     Q_3DRENDERSHARED_PRIVATE_EXPORT Qt3DCore::QNodeIdVector Entity::componentsUuid<Type>() const;
@@ -261,23 +264,23 @@ private:
 #define ENTITY_COMPONENT_LIST_TEMPLATE_IMPL(Type, Handle, Manager, variable) \
     /* Handle */ \
     template<> \
-    QVector<Handle> Entity::componentsHandle<Type>() const \
+    QList<Handle> Entity::componentsHandle<Type>() const \
     { \
         Manager *manager = m_nodeManagers->manager<Type, Manager>(); \
-        QVector<Handle> entries; \
+        QList<Handle> entries; \
         entries.reserve(variable.size()); \
-        for (const QNodeId id : variable) \
+        for (const QNodeId &id : variable) \
             entries.push_back(manager->lookupHandle(id)); \
         return entries; \
         } \
     /* Component */ \
     template<> \
-    QVector<Type *> Entity::renderComponents<Type>() const \
+    std::vector<Type *> Entity::renderComponents<Type>() const \
     { \
         Manager *manager = m_nodeManagers->manager<Type, Manager>(); \
-        QVector<Type *> entries; \
+        std::vector<Type *> entries; \
         entries.reserve(variable.size()); \
-        for (const QNodeId id : variable) \
+        for (const QNodeId &id : variable) \
             entries.push_back(manager->lookupResource(id)); \
         return entries; \
     } \
@@ -293,6 +296,7 @@ ENTITY_COMPONENT_TEMPLATE_SPECIALIZATION(CameraLens, HCamera)
 ENTITY_COMPONENT_TEMPLATE_SPECIALIZATION(Transform, HTransform)
 ENTITY_COMPONENT_TEMPLATE_SPECIALIZATION(GeometryRenderer, HGeometryRenderer)
 ENTITY_COMPONENT_TEMPLATE_SPECIALIZATION(ObjectPicker, HObjectPicker)
+ENTITY_COMPONENT_TEMPLATE_SPECIALIZATION(PickingProxy, HPickingProxy)
 ENTITY_COMPONENT_TEMPLATE_SPECIALIZATION(ComputeCommand, HComputeCommand)
 ENTITY_COMPONENT_TEMPLATE_SPECIALIZATION(Armature, HArmature)
 ENTITY_COMPONENT_LIST_TEMPLATE_SPECIALIZATION(Layer, HLayer)
@@ -306,7 +310,7 @@ class Q_AUTOTEST_EXPORT RenderEntityFunctor : public Qt3DCore::QBackendNodeMappe
 {
 public:
     explicit RenderEntityFunctor(AbstractRenderer *renderer, NodeManagers *manager);
-    Qt3DCore::QBackendNode *create(const Qt3DCore::QNodeCreatedChangeBasePtr &change) const override;
+    Qt3DCore::QBackendNode *create(Qt3DCore::QNodeId id) const override;
     Qt3DCore::QBackendNode *get(Qt3DCore::QNodeId id) const override;
     void destroy(Qt3DCore::QNodeId id) const override;
 

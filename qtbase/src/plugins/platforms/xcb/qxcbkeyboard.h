@@ -47,7 +47,7 @@
 #include <xcb/xkb.h>
 #undef explicit
 
-#include <QtXkbCommonSupport/private/qxkbcommon_p.h>
+#include <QtGui/private/qxkbcommon_p.h>
 #include <xkbcommon/xkbcommon-x11.h>
 
 #include <QEvent>
@@ -69,6 +69,7 @@ public:
 
     Qt::KeyboardModifiers translateModifiers(int s) const;
     void updateKeymap(xcb_mapping_notify_event_t *event);
+    void updateKeymap(xcb_xkb_new_keyboard_notify_event_t *event);
     void updateKeymap();
     QList<int> possibleKeys(const QKeyEvent *event) const;
 

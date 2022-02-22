@@ -8,8 +8,10 @@
 #include <stdint.h>
 
 #include <memory>
+#include <vector>
 
 #include "base/strings/string16.h"
+#include "base/strings/string_piece.h"
 #include "build/build_config.h"
 #include "ui/display/display.h"
 #include "ui/events/base_event_utils.h"
@@ -28,7 +30,7 @@
 namespace gfx {
 class Point;
 class Vector2d;
-}
+}  // namespace gfx
 
 namespace base {
 class TimeTicks;
@@ -107,8 +109,17 @@ EVENTS_EXPORT int GetChangedMouseButtonFlagsFromNative(
 EVENTS_EXPORT PointerDetails
 GetMousePointerDetailsFromNative(const PlatformEvent& native_event);
 
+// Returns the movement vector associated with this mouse movement event.
+EVENTS_EXPORT const gfx::Vector2dF& GetMouseMovementFromNative(
+    const PlatformEvent& native_event);
+
 // Gets the mouse wheel offsets from a native event.
 EVENTS_EXPORT gfx::Vector2d GetMouseWheelOffset(
+    const PlatformEvent& native_event);
+
+// Gets the mouse wheel tick counts from a native event, with a value of 120
+// representing a whole tick.
+EVENTS_EXPORT gfx::Vector2d GetMouseWheelTick120ths(
     const PlatformEvent& native_event);
 
 // Returns a copy of |native_event|. Depending on the platform, this copy may
@@ -180,9 +191,21 @@ EVENTS_EXPORT void ConvertEventLocationToTargetWindowLocation(
     const gfx::Point& current_window_origin,
     ui::LocatedEvent* located_event);
 
-// Returns a string description of an event type. Useful for debugging.
-EVENTS_EXPORT const char* EventTypeName(EventType type);
+// The following utilities are useful for debugging and tracing.
 
+// Returns a string description of an event type.
+EVENTS_EXPORT base::StringPiece EventTypeName(EventType type);
+
+// Returns a vector of string representations of EventFlags.
+EVENTS_EXPORT std::vector<base::StringPiece> EventFlagsNames(int event_flags);
+
+// Returns a a vector of string representations of KeyEventFlags.
+EVENTS_EXPORT std::vector<base::StringPiece> KeyEventFlagsNames(
+    int event_flags);
+
+// Returns a a vector of string representations of MouseEventFlags.
+EVENTS_EXPORT std::vector<base::StringPiece> MouseEventFlagsNames(
+    int event_flags);
 }  // namespace ui
 
 #endif  // UI_EVENTS_EVENT_UTILS_H_

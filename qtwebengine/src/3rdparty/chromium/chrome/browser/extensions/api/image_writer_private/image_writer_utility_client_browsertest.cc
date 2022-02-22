@@ -12,7 +12,6 @@
 #include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/sequenced_task_runner.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/api/image_writer_private/operation.h"
@@ -20,6 +19,7 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/test/browser_test.h"
 
 namespace extensions {
 namespace image_writer {
@@ -112,12 +112,12 @@ class ImageWriterUtilityClientTest : public InProcessBrowserTest {
     progress_ = 0;
 
     image_writer_utility_client_->Write(
-        base::Bind(&ImageWriterUtilityClientTest::Progress,
-                   base::Unretained(this)),
-        base::Bind(&ImageWriterUtilityClientTest::Success,
-                   base::Unretained(this)),
-        base::Bind(&ImageWriterUtilityClientTest::Failure,
-                   base::Unretained(this)),
+        base::BindRepeating(&ImageWriterUtilityClientTest::Progress,
+                            base::Unretained(this)),
+        base::BindOnce(&ImageWriterUtilityClientTest::Success,
+                       base::Unretained(this)),
+        base::BindOnce(&ImageWriterUtilityClientTest::Failure,
+                       base::Unretained(this)),
         image_, test_device_);
   }
 
@@ -128,7 +128,7 @@ class ImageWriterUtilityClientTest : public InProcessBrowserTest {
     if (!cancel_)
       return;
 
-    image_writer_utility_client_->Cancel(base::Bind(
+    image_writer_utility_client_->Cancel(base::BindOnce(
         &ImageWriterUtilityClientTest::Cancelled, base::Unretained(this)));
   }
 
@@ -160,12 +160,12 @@ class ImageWriterUtilityClientTest : public InProcessBrowserTest {
     progress_ = 0;
 
     image_writer_utility_client_->Verify(
-        base::Bind(&ImageWriterUtilityClientTest::Progress,
-                   base::Unretained(this)),
-        base::Bind(&ImageWriterUtilityClientTest::Verified,
-                   base::Unretained(this)),
-        base::Bind(&ImageWriterUtilityClientTest::Failure,
-                   base::Unretained(this)),
+        base::BindRepeating(&ImageWriterUtilityClientTest::Progress,
+                            base::Unretained(this)),
+        base::BindOnce(&ImageWriterUtilityClientTest::Verified,
+                       base::Unretained(this)),
+        base::BindOnce(&ImageWriterUtilityClientTest::Failure,
+                       base::Unretained(this)),
         image_, test_device_);
   }
 
@@ -200,7 +200,7 @@ class ImageWriterUtilityClientTest : public InProcessBrowserTest {
     success_ = cancel_;
 
     quit_called_ = true;
-    base::PostTask(FROM_HERE, {content::BrowserThread::UI}, quit_closure_);
+    content::GetUIThreadTaskRunner({})->PostTask(FROM_HERE, quit_closure_);
   }
 
   void Shutdown() {
@@ -209,7 +209,7 @@ class ImageWriterUtilityClientTest : public InProcessBrowserTest {
     image_writer_utility_client_->Shutdown();
 
     quit_called_ = true;
-    base::PostTask(FROM_HERE, {content::BrowserThread::UI}, quit_closure_);
+    content::GetUIThreadTaskRunner({})->PostTask(FROM_HERE, quit_closure_);
   }
 
   static void FillFile(const base::FilePath& path, char pattern) {
@@ -239,7 +239,7 @@ class ImageWriterUtilityClientTest : public InProcessBrowserTest {
   base::FilePath device_;
   base::FilePath image_;
 
-  base::Closure quit_closure_;
+  base::RepeatingClosure quit_closure_;
   bool quit_called_ = false;
 
   // Lives on |task_runner_|.

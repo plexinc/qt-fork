@@ -49,21 +49,23 @@
 #include <QtWidgets/qmenu.h>
 #include <QtWidgets/qtoolbar.h>
 #include <QtWidgets/qsplitter.h>
-#include <QtWidgets/qaction.h>
 #include <QtWidgets/qapplication.h>
 #if QT_CONFIG(clipboard)
 #include <QtGui/qclipboard.h>
 #endif
 #include <QtWidgets/qitemdelegate.h>
-#include <QtGui/qpainter.h>
 #include <QtWidgets/qboxlayout.h>
 #include <QtWidgets/qlineedit.h>
 #include <QtWidgets/qlabel.h>
 #include <QtWidgets/qpushbutton.h>
 #include <QtWidgets/qtoolbutton.h>
-#include <QtGui/qevent.h>
-#include <QtCore/qitemselectionmodel.h>
 
+#include <QtGui/qaction.h>
+#include <QtGui/qactiongroup.h>
+#include <QtGui/qevent.h>
+#include <QtGui/qpainter.h>
+
+#include <QtCore/qitemselectionmodel.h>
 #include <QtCore/qregularexpression.h>
 #include <QtCore/qdebug.h>
 #include <QtCore/qbuffer.h>
@@ -101,7 +103,7 @@ public:
 };
 
 //--------  ActionEditor
-ObjectNamingMode ActionEditor::m_objectNamingMode = Underscore; // fixme Qt 6: CamelCase
+ObjectNamingMode ActionEditor::m_objectNamingMode = CamelCase;
 
 ActionEditor::ActionEditor(QDesignerFormEditorInterface *core, QWidget *parent, Qt::WindowFlags flags) :
     QDesignerActionEditorInterface(parent, flags),
@@ -336,7 +338,7 @@ void  ActionEditor::slotSelectionChanged(const QItemSelection& selected, const Q
 void ActionEditor::slotCurrentItemChanged(QAction *action)
 {
     QDesignerFormWindowInterface *fw = formWindow();
-    if (!fw)
+    if (m_withinSelectAction || fw == nullptr)
         return;
 
     const bool hasCurrentAction = action != nullptr;
@@ -748,6 +750,24 @@ void ActionEditor::mainContainerChanged()
     // Invalidate references to objects kept in model
     if (sender() == formWindow())
         setFormWindow(nullptr);
+}
+
+void ActionEditor::clearSelection()
+{
+    // For use by the menu editor; block the syncing of the object inspector
+    // in slotCurrentItemChanged() since the  menu editor updates it itself.
+    m_withinSelectAction = true;
+    m_actionView->clearSelection();
+    m_withinSelectAction = false;
+}
+
+void ActionEditor::selectAction(QAction *a)
+{
+    // For use by the menu editor; block the syncing of the object inspector
+    // in slotCurrentItemChanged() since the  menu editor updates it itself.
+    m_withinSelectAction = true;
+    m_actionView->selectAction(a);
+    m_withinSelectAction = false;
 }
 
 void ActionEditor::slotViewMode(QAction *a)

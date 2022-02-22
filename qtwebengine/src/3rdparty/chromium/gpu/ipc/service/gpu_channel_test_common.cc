@@ -46,6 +46,7 @@ class TestGpuChannelManagerDelegate : public GpuChannelManagerDelegate {
   bool IsExiting() const override { return is_exiting_; }
 #if defined(OS_WIN)
   void DidUpdateOverlayInfo(const gpu::OverlayInfo& overlay_info) override {}
+  void DidUpdateHDRStatus(bool hdr_enabled) override {}
   void SendCreatedChildWindow(SurfaceHandle parent_window,
                               SurfaceHandle child_window) override {}
 #endif
@@ -77,10 +78,11 @@ GpuChannelTestCommon::GpuChannelTestCommon(
       channel_manager_delegate_(
           new TestGpuChannelManagerDelegate(scheduler_.get())) {
   // We need GL bindings to actually initialize command buffers.
-  if (use_stub_bindings)
+  if (use_stub_bindings) {
     gl::GLSurfaceTestSupport::InitializeOneOffWithStubBindings();
-  else
+  } else {
     gl::GLSurfaceTestSupport::InitializeOneOff();
+  }
 
   GpuFeatureInfo feature_info;
   feature_info.enabled_gpu_driver_bug_workarounds =

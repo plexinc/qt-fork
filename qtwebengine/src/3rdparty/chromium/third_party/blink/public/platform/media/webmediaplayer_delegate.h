@@ -8,17 +8,9 @@
 #include "third_party/blink/public/platform/web_common.h"
 #include "third_party/blink/public/platform/web_media_player.h"
 
-namespace gfx {
-class Size;
-}  // namespace gfx
-
 namespace media {
 enum class MediaContentType;
 }  // namespace media
-
-namespace media_session {
-struct MediaPosition;
-}  // namespace media_session
 
 namespace blink {
 
@@ -59,15 +51,6 @@ class BLINK_PLATFORM_EXPORT WebMediaPlayerDelegate {
     // discarding their decoders.
     virtual void OnIdleTimeout() = 0;
 
-    // Called when external controls are activated.
-    virtual void OnPlay() = 0;
-    virtual void OnPause() = 0;
-    virtual void OnMuted(bool muted) = 0;
-    virtual void OnSeekForward(double seconds) = 0;
-    virtual void OnSeekBackward(double seconds) = 0;
-    virtual void OnEnterPictureInPicture() = 0;
-    virtual void OnExitPictureInPicture() = 0;
-
     // Called to control audio ducking. Output volume should be set to
     // |player_volume| * |multiplier|. The range of |multiplier| is [0, 1],
     // where 1 indicates normal (non-ducked) playback.
@@ -95,35 +78,25 @@ class BLINK_PLATFORM_EXPORT WebMediaPlayerDelegate {
   // Unsubscribe from observer callbacks.
   virtual void RemoveObserver(int player_id) = 0;
 
+  // Notify about the kind of tracks the media player has, and the type of
+  // content.
+  virtual void DidMediaMetadataChange(
+      int player_id,
+      bool has_audio,
+      bool has_video,
+      media::MediaContentType media_content_type) = 0;
+
   // Notify playback started. This will request appropriate wake locks and, if
   // applicable, show a pause button in external controls.
   //
   // DidPlay() should not be called for remote playback.
-  virtual void DidPlay(int player_id,
-                       bool has_video,
-                       bool has_audio,
-                       media::MediaContentType media_content_type) = 0;
+  virtual void DidPlay(int player_id) = 0;
 
   // Notify that playback is paused. This will drop wake locks and, if
   // applicable, show a play button in external controls.
   // TODO(sandersd): It may be helpful to get |has_audio| and |has_video| here,
   // so that we can do the right thing with media that starts paused.
-  virtual void DidPause(int player_id) = 0;
-
-  // Notify that the size of the media player is changed.
-  virtual void DidPlayerSizeChange(int delegate_id, const gfx::Size& size) = 0;
-
-  // Notify that the muted status of the media player has changed.
-  virtual void DidPlayerMutedStatusChange(int delegate_id, bool muted) = 0;
-
-  // Notify that the media position state of the media player has changed.
-  virtual void DidPlayerMediaPositionStateChange(
-      int delegate_id,
-      const media_session::MediaPosition& position) = 0;
-
-  // Notify that picture-in-picture availability has changed.
-  virtual void DidPictureInPictureAvailabilityChange(int delegate_id,
-                                                     bool available) = 0;
+  virtual void DidPause(int player_id, bool reached_end_of_stream) = 0;
 
   // Notify that playback is stopped. This will drop wake locks and remove any
   // external controls.
@@ -152,14 +125,6 @@ class BLINK_PLATFORM_EXPORT WebMediaPlayerDelegate {
   // Returns |true| if the player is stale; that is that OnIdleTimeout() was
   // called and returned |true|.
   virtual bool IsStale(int player_id) = 0;
-
-  // Notifies the delegate that the player has entered fullscreen. This does not
-  // differentiate native controls fullscreen and custom controls fullscreen.
-  // |fullscreen_video_status| is used by MediaWebContentsObserver to
-  // trigger automatically Picture-in-Picture for fullscreen videos.
-  virtual void SetIsEffectivelyFullscreen(
-      int player_id,
-      blink::WebFullscreenVideoStatus fullscreen_video_status) = 0;
 
  protected:
   WebMediaPlayerDelegate() = default;

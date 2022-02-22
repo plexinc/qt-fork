@@ -51,7 +51,7 @@ void generateSeparator(int i, QTextStream &out)
     }
 }
 
-void generateList(const QVector<int> &list, QTextStream &out)
+void generateList(const QList<int> &list, QTextStream &out)
 {
     for (int i = 0; i < list.size(); ++i) {
         generateSeparator(i, out);
@@ -325,10 +325,10 @@ void CppGenerator::operator () ()
   compressed_goto (pgoto, state_count, non_terminal_count);
 
   delete[] table;
-  table = 0;
+  table = nullptr;
 
   delete[] pgoto;
-  pgoto = 0;
+  pgoto = nullptr;
 
 #undef ACTION
 #undef GOTO

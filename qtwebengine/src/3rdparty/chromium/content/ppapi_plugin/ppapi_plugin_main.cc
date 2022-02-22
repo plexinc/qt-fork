@@ -14,6 +14,7 @@
 #include "base/task/single_thread_task_executor.h"
 #include "base/threading/platform_thread.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "content/child/child_process.h"
 #include "content/common/content_constants_internal.h"
 #include "content/common/content_switches_internal.h"
@@ -23,7 +24,6 @@
 #include "content/public/common/main_function_params.h"
 #include "ipc/ipc_sender.h"
 #include "ppapi/proxy/plugin_globals.h"
-#include "ppapi/proxy/proxy_module.h"
 #include "services/tracing/public/cpp/trace_startup.h"
 #include "ui/base/ui_base_switches.h"
 
@@ -38,13 +38,13 @@
 #include "ui/gfx/win/direct_write.h"
 #endif
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "base/files/file_util.h"
 #endif
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
 #include "content/public/common/sandbox_init.h"
-#include "services/service_manager/sandbox/linux/sandbox_linux.h"
+#include "sandbox/policy/linux/sandbox_linux.h"
 #endif
 
 #ifdef V8_USE_EXTERNAL_STARTUP_DATA
@@ -68,6 +68,11 @@ int PpapiPluginMain(const MainFunctionParams& parameters) {
   const base::CommandLine& command_line = parameters.command_line;
 
 #if defined(OS_WIN)
+  // https://crbug.com/1139752 Premature unload of shell32 caused process to
+  // crash during process shutdown.
+  HMODULE shell32_pin = ::LoadLibrary(L"shell32.dll");
+  UNREFERENCED_PARAMETER(shell32_pin);
+
   g_target_services = parameters.sandbox_info->target_services;
 #endif
 
@@ -102,7 +107,7 @@ int PpapiPluginMain(const MainFunctionParams& parameters) {
 #endif
   }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // Specifies $HOME explicitly because some plugins rely on $HOME but
   // no other part of Chrome OS uses that.  See crbug.com/335290.
   base::FilePath homedir;
@@ -120,27 +125,26 @@ int PpapiPluginMain(const MainFunctionParams& parameters) {
   gin::V8Initializer::LoadV8Snapshot();
 #endif
 
-#if defined(OS_LINUX)
-  service_manager::SandboxLinux::GetInstance()->InitializeSandbox(
-      service_manager::SandboxTypeFromCommandLine(command_line),
-      service_manager::SandboxLinux::PreSandboxHook(),
-      service_manager::SandboxLinux::Options());
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
+  sandbox::policy::SandboxLinux::GetInstance()->InitializeSandbox(
+      sandbox::policy::SandboxTypeFromCommandLine(command_line),
+      sandbox::policy::SandboxLinux::PreSandboxHook(),
+      sandbox::policy::SandboxLinux::Options());
 #endif
 
   ChildProcess ppapi_process;
   base::RunLoop run_loop;
-  ppapi_process.set_main_thread(new PpapiThread(run_loop.QuitClosure(),
-                                                parameters.command_line,
-                                                false /* Not a broker */));
+  ppapi_process.set_main_thread(
+      new PpapiThread(run_loop.QuitClosure(), parameters.command_line));
 
-#if defined(OS_POSIX) && !defined(OS_ANDROID) && !defined(OS_MACOSX)
+#if defined(OS_POSIX) && !defined(OS_ANDROID) && !defined(OS_MAC)
   // Startup tracing is usually enabled earlier, but if we forked from a zygote,
   // we can only enable it after mojo IPC support is brought up by PpapiThread,
   // because the mojo broker has to create the tracing SMB on our behalf due to
   // the zygote sandbox.
   if (parameters.zygote_child)
     tracing::EnableStartupTracingIfNeeded();
-#endif  // OS_POSIX && !OS_ANDROID && !!OS_MACOSX
+#endif  // OS_POSIX && !OS_ANDROID && !OS_MAC
 
 #if defined(OS_WIN)
   if (!base::win::IsUser32AndGdi32Available())

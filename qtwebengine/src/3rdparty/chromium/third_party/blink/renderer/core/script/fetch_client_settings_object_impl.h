@@ -36,6 +36,7 @@ class CORE_EXPORT FetchClientSettingsObjectImpl final
   const KURL& BaseUrl() const override;
   const SecurityOrigin* GetSecurityOrigin() const override;
   network::mojom::ReferrerPolicy GetReferrerPolicy() const override;
+
   const String GetOutgoingReferrer() const override;
 
   HttpsState GetHttpsState() const override;
@@ -50,7 +51,7 @@ class CORE_EXPORT FetchClientSettingsObjectImpl final
   const InsecureNavigationsSet& GetUpgradeInsecureNavigationsSet()
       const override;
 
-  void Trace(Visitor* visitor) override;
+  void Trace(Visitor* visitor) const override;
 
  private:
   Member<ExecutionContext> execution_context_;

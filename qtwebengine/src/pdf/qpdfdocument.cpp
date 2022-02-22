@@ -51,14 +51,13 @@
 
 QT_BEGIN_NAMESPACE
 
-// The library is not thread-safe at all, it has a lot of global variables.
-Q_GLOBAL_STATIC_WITH_ARGS(QMutex, pdfMutex, (QMutex::Recursive));
+Q_GLOBAL_STATIC(QRecursiveMutex, pdfMutex)
 static int libraryRefCount;
 static const double CharacterHitTolerance = 16.0;
 Q_LOGGING_CATEGORY(qLcDoc, "qt.pdf.document")
 
 QPdfMutexLocker::QPdfMutexLocker()
-    : QMutexLocker(pdfMutex())
+    : std::unique_lock<QRecursiveMutex>(*pdfMutex())
 {
 }
 
@@ -395,11 +394,11 @@ void QPdfDocumentPrivate::fpdf_AddSegment(_FX_DOWNLOADHINTS *pThis, size_t offse
 
 QString QPdfDocumentPrivate::getText(FPDF_TEXTPAGE textPage, int startIndex, int count)
 {
-    QVector<ushort> buf(count + 1);
+    QList<ushort> buf(count + 1);
     // TODO is that enough space in case one unicode character is more than one in utf-16?
     int len = FPDFText_GetText(textPage, startIndex, count, buf.data());
     Q_ASSERT(len - 1 <= count); // len is number of characters written, including the terminator
-    return QString::fromUtf16(buf.constData(), len - 1);
+    return QString::fromUtf16(reinterpret_cast<const char16_t *>(buf.constData()), len - 1);
 }
 
 QPointF QPdfDocumentPrivate::getCharPosition(FPDF_TEXTPAGE textPage, double pageHeight, int charIndex)
@@ -424,6 +423,8 @@ QRectF QPdfDocumentPrivate::getCharBox(FPDF_TEXTPAGE textPage, double pageHeight
 QPdfDocumentPrivate::TextPosition QPdfDocumentPrivate::hitTest(int page, QPointF position)
 {
     const QPdfMutexLocker lock;
+
+    TextPosition result;
     FPDF_PAGE pdfPage = FPDF_LoadPage(doc, page);
     double pageHeight = FPDF_GetPageHeight(pdfPage);
     FPDF_TEXTPAGE textPage = FPDFText_LoadPage(pdfPage);
@@ -440,10 +441,14 @@ QPdfDocumentPrivate::TextPosition QPdfDocumentPrivate::hitTest(int page, QPointF
                 ++hitIndex;
             }
             qCDebug(qLcDoc) << "on page" << page << "@" << position << "got char position" << charPos << "index" << hitIndex;
-            return { charPos, charBox.height(), hitIndex };
+            result =  { charPos, charBox.height(), hitIndex };
         }
     }
-    return {};
+
+    FPDFText_ClosePage(textPage);
+    FPDF_ClosePage(pdfPage);
+
+    return result;
 }
 
 /*!
@@ -596,11 +601,11 @@ QVariant QPdfDocument::metaData(MetaDataField field) const
     QPdfMutexLocker lock;
     const unsigned long len = FPDF_GetMetaText(d->doc, fieldName.constData(), nullptr, 0);
 
-    QVector<ushort> buf(len);
+    QList<ushort> buf(len);
     FPDF_GetMetaText(d->doc, fieldName.constData(), buf.data(), buf.length());
     lock.unlock();
 
-    QString text = QString::fromUtf16(buf.data());
+    QString text = QString::fromUtf16(reinterpret_cast<const char16_t *>(buf.data()));
 
     switch (field) {
     case Title: // fall through
@@ -789,6 +794,9 @@ QPdfSelection QPdfDocument::getSelection(int page, QPointF start, QPointF end)
                                                 CharacterHitTolerance, CharacterHitTolerance);
     int endIndex = FPDFText_GetCharIndexAtPos(textPage, end.x(), pageHeight - end.y(),
                                               CharacterHitTolerance, CharacterHitTolerance);
+
+    QPdfSelection result;
+
     if (startIndex >= 0 && endIndex != startIndex) {
         if (startIndex > endIndex)
             qSwap(startIndex, endIndex);
@@ -801,7 +809,7 @@ QPdfSelection QPdfDocument::getSelection(int page, QPointF start, QPointF end)
 
         int count = endIndex - startIndex;
         QString text = d->getText(textPage, startIndex, count);
-        QVector<QPolygonF> bounds;
+        QList<QPolygonF> bounds;
         QRectF hull;
         int rectCount = FPDFText_CountRects(textPage, startIndex, endIndex - startIndex);
         for (int i = 0; i < rectCount; ++i) {
@@ -815,11 +823,15 @@ QPdfSelection QPdfDocument::getSelection(int page, QPointF start, QPointF end)
             bounds << QPolygonF(rect);
         }
         qCDebug(qLcDoc) << page << start << "->" << end << "found" << startIndex << "->" << endIndex << text;
-        return QPdfSelection(text, bounds, hull, startIndex, endIndex);
+        result = QPdfSelection(text, bounds, hull, startIndex, endIndex);
+    } else {
+        qCDebug(qLcDoc) << page << start << "->" << end << "nothing found";
     }
 
-    qCDebug(qLcDoc) << page << start << "->" << end << "nothing found";
-    return QPdfSelection();
+    FPDFText_ClosePage(textPage);
+    FPDF_ClosePage(pdfPage);
+
+    return result;
 }
 
 /*!
@@ -838,7 +850,7 @@ QPdfSelection QPdfDocument::getSelectionAtIndex(int page, int startIndex, int ma
     int pageCount = FPDFText_CountChars(textPage);
     if (startIndex >= pageCount)
         return QPdfSelection();
-    QVector<QPolygonF> bounds;
+    QList<QPolygonF> bounds;
     QRectF hull;
     int rectCount = 0;
     QString text;
@@ -860,6 +872,10 @@ QPdfSelection QPdfDocument::getSelectionAtIndex(int page, int startIndex, int ma
         hull = QRectF(d->getCharPosition(textPage, pageHeight, startIndex), QSizeF());
     qCDebug(qLcDoc) << "on page" << page << "at index" << startIndex << "maxLength" << maxLength
                     << "got" << text.length() << "chars," << rectCount << "rects within" << hull;
+
+    FPDFText_ClosePage(textPage);
+    FPDF_ClosePage(pdfPage);
+
     return QPdfSelection(text, bounds, hull, startIndex, startIndex + text.length());
 }
 
@@ -876,7 +892,7 @@ QPdfSelection QPdfDocument::getAllText(int page)
     if (count < 1)
         return QPdfSelection();
     QString text = d->getText(textPage, 0, count);
-    QVector<QPolygonF> bounds;
+    QList<QPolygonF> bounds;
     QRectF hull;
     int rectCount = FPDFText_CountRects(textPage, 0, count);
     for (int i = 0; i < rectCount; ++i) {
@@ -890,6 +906,10 @@ QPdfSelection QPdfDocument::getAllText(int page)
         bounds << QPolygonF(rect);
     }
     qCDebug(qLcDoc) << "on page" << page << "got" << count << "chars," << rectCount << "rects within" << hull;
+
+    FPDFText_ClosePage(textPage);
+    FPDF_ClosePage(pdfPage);
+
     return QPdfSelection(text, bounds, hull, 0, count);
 }
 

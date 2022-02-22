@@ -76,6 +76,16 @@ public:
         kDownscaleToFit,
     };
 
+    enum class LinebreakPolicy : uint8_t {
+        // Break lines such that they fit in a non-empty paragraph box, horizontally.
+        kParagraph,
+        // Only break lines when requested explicitly (\r), regardless of paragraph box dimensions.
+        kExplicit,
+    };
+
+    // Initial text direction.
+    enum class Direction : uint8_t { kLTR, kRTL };
+
     enum Flags : uint32_t {
         kNone                       = 0x00,
 
@@ -91,10 +101,13 @@ public:
         const sk_sp<SkTypeface>&  fTypeface;
         SkScalar                  fTextSize,
                                   fLineHeight,
+                                  fLineShift,
                                   fAscent;
         SkTextUtils::Align        fHAlign;
         VAlign                    fVAlign;
         ResizePolicy              fResize;
+        LinebreakPolicy           fLinebreak;
+        Direction                 fDirection;
         uint32_t                  fFlags;
     };
 

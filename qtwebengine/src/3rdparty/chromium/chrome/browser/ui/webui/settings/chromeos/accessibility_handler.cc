@@ -4,11 +4,10 @@
 
 #include "chrome/browser/ui/webui/settings/chromeos/accessibility_handler.h"
 
-#include "ash/public/cpp/tablet_mode.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/metrics/histogram_functions.h"
-#include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
+#include "chrome/browser/ash/accessibility/accessibility_manager.h"
 #include "chrome/browser/extensions/extension_tab_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_finder.h"
@@ -19,8 +18,9 @@
 
 namespace chromeos {
 namespace settings {
-
 namespace {
+
+using ::ash::AccessibilityManager;
 
 void RecordShowShelfNavigationButtonsValueChange(bool enabled) {
   base::UmaHistogramBoolean(
@@ -100,31 +100,9 @@ void AccessibilityHandler::HandleManageA11yPageReady(
     const base::ListValue* args) {
   AllowJavascript();
 
-  // When tablet mode is active we can return early since tablet mode
-  // is supported.
-  if (ash::TabletMode::Get()->InTabletMode()) {
-    FireWebUIListener(
-        "initial-data-ready",
-        base::Value(AccessibilityManager::Get()->GetStartupSoundEnabled()),
-        base::Value(true /* tablet_mode_supported */));
-    return;
-  }
-
-  PowerManagerClient::Get()->GetSwitchStates(
-      base::BindOnce(&AccessibilityHandler::OnReceivedSwitchStates,
-                     weak_ptr_factory_.GetWeakPtr()));
-}
-
-void AccessibilityHandler::OnReceivedSwitchStates(
-    base::Optional<PowerManagerClient::SwitchStates> switch_states) {
-  bool tablet_mode_supported =
-      switch_states.has_value() &&
-      switch_states->tablet_mode != PowerManagerClient::TabletMode::UNSUPPORTED;
-
   FireWebUIListener(
       "initial-data-ready",
-      base::Value(AccessibilityManager::Get()->GetStartupSoundEnabled()),
-      base::Value(tablet_mode_supported));
+      base::Value(AccessibilityManager::Get()->GetStartupSoundEnabled()));
 }
 
 void AccessibilityHandler::OpenExtensionOptionsPage(const char extension_id[]) {

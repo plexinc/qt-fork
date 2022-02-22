@@ -9,9 +9,9 @@
 #include <utility>
 #include <vector>
 
+#include "base/containers/contains.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/extensions/api/declarative_content/content_predicate_evaluator.h"
@@ -95,7 +95,9 @@ class DeclarativeContentIsBookmarkedConditionTrackerTest
   };
 
   DeclarativeContentIsBookmarkedConditionTrackerTest() {
-    profile()->CreateBookmarkModel(true);
+    profile_builder()->AddTestingFactory(
+        BookmarkModelFactory::GetInstance(),
+        BookmarkModelFactory::GetDefaultFactory());
     bookmarks::test::WaitForBookmarkModelToLoad(
         BookmarkModelFactory::GetForBrowserContext(profile()));
     bookmark_model_ = BookmarkModelFactory::GetForBrowserContext(profile());

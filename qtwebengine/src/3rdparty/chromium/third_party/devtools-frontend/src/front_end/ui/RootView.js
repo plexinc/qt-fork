@@ -5,23 +5,22 @@
 import {VBox} from './Widget.js';
 import {ZoomManager} from './ZoomManager.js';
 
-/**
- * @unrestricted
- */
 export class RootView extends VBox {
   constructor() {
     super();
     this.markAsRoot();
     this.element.classList.add('root-view');
-    this.registerRequiredCSS('ui/rootView.css');
-    this.element.setAttribute('spellcheck', false);
+    this.registerRequiredCSS('ui/rootView.css', {enableLegacyPatching: false});
+    this.element.setAttribute('spellcheck', 'false');
   }
 
   /**
    * @param {!Document} document
    */
   attachToDocument(document) {
-    document.defaultView.addEventListener('resize', this.doResize.bind(this), false);
+    if (document.defaultView) {
+      document.defaultView.addEventListener('resize', this.doResize.bind(this), false);
+    }
     this._window = document.defaultView;
     this.doResize();
     this.show(/** @type {!Element} */ (document.body));

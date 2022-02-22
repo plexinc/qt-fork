@@ -62,6 +62,7 @@
 #include <private/qrawfont_p.h>
 
 #include <QtQuick/qsgnode.h>
+#include <QtQuick/qsgrendererinterface.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -93,6 +94,7 @@ class QRhi;
 class QRhiRenderTarget;
 class QRhiRenderPassDescriptor;
 class QRhiCommandBuffer;
+class QQuickGraphicsConfiguration;
 
 Q_DECLARE_LOGGING_CATEGORY(QSG_LOG_TIME_RENDERLOOP)
 Q_DECLARE_LOGGING_CATEGORY(QSG_LOG_TIME_COMPILATION)
@@ -125,11 +127,10 @@ public:
     virtual QSGInternalRectangleNode *createInternalRectangleNode() = 0;
     virtual QSGInternalImageNode *createInternalImageNode(QSGRenderContext *renderContext) = 0;
     virtual QSGPainterNode *createPainterNode(QQuickPaintedItem *item) = 0;
-    virtual QSGGlyphNode *createGlyphNode(QSGRenderContext *rc, bool preferNativeGlyphNode) = 0;
+    virtual QSGGlyphNode *createGlyphNode(QSGRenderContext *rc, bool preferNativeGlyphNode, int renderTypeQuality) = 0;
     virtual QSGLayer *createLayer(QSGRenderContext *renderContext) = 0;
     virtual QSGGuiThreadShaderEffectManager *createGuiThreadShaderEffectManager();
-    virtual QSGShaderEffectNode *createShaderEffectNode(QSGRenderContext *renderContext,
-                                                        QSGGuiThreadShaderEffectManager *mgr);
+    virtual QSGShaderEffectNode *createShaderEffectNode(QSGRenderContext *renderContext);
 #if QT_CONFIG(quick_sprite)
     virtual QSGSpriteNode *createSpriteNode() = 0;
 #endif
@@ -174,12 +175,15 @@ public:
 
     using RenderPassCallback = void (*)(void *);
 
-    virtual void prepareSync(qreal devicePixelRatio, QRhiCommandBuffer *cb);
+    virtual void prepareSync(qreal devicePixelRatio,
+                             QRhiCommandBuffer *cb,
+                             const QQuickGraphicsConfiguration &config);
+
     virtual void beginNextFrame(QSGRenderer *renderer,
                                 RenderPassCallback mainPassRecordingStart,
                                 RenderPassCallback mainPassRecordingEnd,
                                 void *callbackUserData);
-    virtual void renderNextFrame(QSGRenderer *renderer, uint fboId) = 0;
+    virtual void renderNextFrame(QSGRenderer *renderer) = 0;
     virtual void endNextFrame(QSGRenderer *renderer);
 
     virtual void beginNextRhiFrame(QSGRenderer *renderer,
@@ -193,14 +197,12 @@ public:
     virtual void endSync();
 
     virtual void preprocess();
-    virtual QSGDistanceFieldGlyphCache *distanceFieldGlyphCache(const QRawFont &font);
+    virtual QSGDistanceFieldGlyphCache *distanceFieldGlyphCache(const QRawFont &font, int renderTypeQuality);
     QSGTexture *textureForFactory(QQuickTextureFactory *factory, QQuickWindow *window);
 
     virtual QSGTexture *createTexture(const QImage &image, uint flags = CreateTexture_Alpha) const = 0;
-    virtual QSGRenderer *createRenderer() = 0;
+    virtual QSGRenderer *createRenderer(QSGRendererInterface::RenderMode renderMode = QSGRendererInterface::RenderMode2D) = 0;
     virtual QSGTexture *compressedTextureForFactory(const QSGCompressedTextureFactory *) const;
-
-    virtual void setAttachToGraphicsContext(bool attach) { Q_UNUSED(attach); }
 
     virtual int maxTextureSize() const = 0;
 

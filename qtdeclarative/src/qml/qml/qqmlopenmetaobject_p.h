@@ -55,7 +55,6 @@
 #include <QtCore/QObject>
 
 #include <private/qqmlrefcount_p.h>
-#include <private/qqmlcleanup_p.h>
 #include <private/qtqmlglobal_p.h>
 #include <private/qobject_p.h>
 
@@ -65,10 +64,10 @@ QT_BEGIN_NAMESPACE
 class QQmlEngine;
 class QMetaPropertyBuilder;
 class QQmlOpenMetaObjectTypePrivate;
-class Q_QML_PRIVATE_EXPORT QQmlOpenMetaObjectType : public QQmlRefCount, public QQmlCleanup
+class Q_QML_PRIVATE_EXPORT QQmlOpenMetaObjectType : public QQmlRefCount
 {
 public:
-    QQmlOpenMetaObjectType(const QMetaObject *base, QQmlEngine *engine);
+    QQmlOpenMetaObjectType(const QMetaObject *base);
     ~QQmlOpenMetaObjectType() override;
 
     void createProperties(const QVector<QByteArray> &names);
@@ -83,7 +82,6 @@ public:
 
 protected:
     virtual void propertyCreated(int, QMetaPropertyBuilder &);
-    void clear() override;
 
 private:
     QQmlOpenMetaObjectTypePrivate *d;
@@ -95,12 +93,13 @@ class QQmlOpenMetaObjectPrivate;
 class Q_QML_PRIVATE_EXPORT QQmlOpenMetaObject : public QAbstractDynamicMetaObject
 {
 public:
-    QQmlOpenMetaObject(QObject *, const QMetaObject * = nullptr, bool = true);
-    QQmlOpenMetaObject(QObject *, QQmlOpenMetaObjectType *, bool = true);
+    QQmlOpenMetaObject(QObject *, const QMetaObject * = nullptr);
+    QQmlOpenMetaObject(QObject *, QQmlOpenMetaObjectType *);
     ~QQmlOpenMetaObject() override;
 
     QVariant value(const QByteArray &) const;
     bool setValue(const QByteArray &, const QVariant &, bool force = false);
+    void setValues(const QHash<QByteArray, QVariant> &, bool force = false);
     QVariant value(int) const;
     void setValue(int, const QVariant &);
     QVariant &valueRef(const QByteArray &);
@@ -115,6 +114,9 @@ public:
     // Be careful - once setCached(true) is called createProperty() is no
     // longer automatically called for new properties.
     void setCached(bool);
+
+    bool autoCreatesProperties() const;
+    void setAutoCreatesProperties(bool autoCreate);
 
     QQmlOpenMetaObjectType *type() const;
 
@@ -131,6 +133,8 @@ protected:
     virtual void propertyCreated(int, QMetaPropertyBuilder &);
 
     QAbstractDynamicMetaObject *parent() const;
+
+    bool checkedSetValue(int index, const QVariant &value, bool force);
 
 private:
     QQmlOpenMetaObjectPrivate *d;

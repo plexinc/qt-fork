@@ -5,8 +5,8 @@
 #include "components/autofill_assistant/browser/script_precondition.h"
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/test/gmock_callback_support.h"
@@ -22,8 +22,8 @@ namespace {
 
 using ::base::test::RunOnceCallback;
 using ::testing::_;
-using ::testing::Eq;
 using ::testing::Invoke;
+using ::testing::WithArgs;
 
 // A callback that expects to be called immediately.
 //
@@ -57,15 +57,19 @@ class DirectCallback {
 class ScriptPreconditionTest : public testing::Test {
  public:
   void SetUp() override {
-    ON_CALL(mock_web_controller_, OnElementCheck(Eq(Selector({"exists"})), _))
-        .WillByDefault(RunOnceCallback<1>(OkClientStatus()));
+    ON_CALL(mock_web_controller_, OnFindElement(Selector({"exists"}), _))
+        .WillByDefault(WithArgs<1>([](auto&& callback) {
+          std::move(callback).Run(OkClientStatus(),
+                                  std::make_unique<ElementFinder::Result>());
+        }));
     ON_CALL(mock_web_controller_,
-            OnElementCheck(Eq(Selector({"does_not_exist"})), _))
-        .WillByDefault(RunOnceCallback<1>(ClientStatus()));
+            OnFindElement(Selector({"does_not_exist"}), _))
+        .WillByDefault(RunOnceCallback<1>(
+            ClientStatus(ELEMENT_RESOLUTION_FAILED), nullptr));
 
     SetUrl("http://www.example.com/path");
 
-    trigger_context_ = TriggerContext::CreateEmpty();
+    trigger_context_ = std::make_unique<TriggerContext>();
   }
 
  protected:
@@ -249,9 +253,14 @@ TEST_F(ScriptPreconditionTest, ParameterMustExist) {
 
   EXPECT_FALSE(Check(proto));
 
-  std::map<std::string, std::string> parameters;
-  parameters["param"] = "exists";
-  trigger_context_ = TriggerContext::Create(parameters, "");
+  trigger_context_ = std::make_unique<TriggerContext>(
+      std::make_unique<ScriptParameters>(
+          std::map<std::string, std::string>{{"param", "exists"}}),
+      "",
+      /* is_cct = */ false,
+      /* onboarding_shown = */ false,
+      /* is_direct_action = */ false,
+      /* caller_account_hash = */ std::string());
 
   EXPECT_TRUE(Check(proto));
 }
@@ -264,9 +273,14 @@ TEST_F(ScriptPreconditionTest, ParameterMustNotExist) {
 
   EXPECT_TRUE(Check(proto));
 
-  std::map<std::string, std::string> parameters;
-  parameters["param"] = "exists";
-  trigger_context_ = TriggerContext::Create(parameters, "");
+  trigger_context_ = std::make_unique<TriggerContext>(
+      std::make_unique<ScriptParameters>(
+          std::map<std::string, std::string>{{"param", "exists"}}),
+      "",
+      /* is_cct = */ false,
+      /* onboarding_shown = */ false,
+      /* is_direct_action = */ false,
+      /* caller_account_hash = */ std::string());
 
   EXPECT_FALSE(Check(proto));
 }
@@ -279,15 +293,24 @@ TEST_F(ScriptPreconditionTest, ParameterMustHaveValue) {
 
   EXPECT_FALSE(Check(proto));
 
-  std::map<std::string, std::string> parameters;
-  parameters["param"] = "another value";
-  trigger_context_ = TriggerContext::Create(parameters, "");
-
+  trigger_context_ = std::make_unique<TriggerContext>(
+      std::make_unique<ScriptParameters>(
+          std::map<std::string, std::string>{{"param", "another"}}),
+      "",
+      /* is_cct = */ false,
+      /* onboarding_shown = */ false,
+      /* is_direct_action = */ false,
+      /* caller_account_hash = */ std::string());
   EXPECT_FALSE(Check(proto));
 
-  parameters["param"] = "value";
-  trigger_context_ = TriggerContext::Create(parameters, "");
-
+  trigger_context_ = std::make_unique<TriggerContext>(
+      std::make_unique<ScriptParameters>(
+          std::map<std::string, std::string>{{"param", "value"}}),
+      "",
+      /* is_cct = */ false,
+      /* onboarding_shown = */ false,
+      /* is_direct_action = */ false,
+      /* caller_account_hash = */ std::string());
   EXPECT_TRUE(Check(proto));
 }
 
@@ -295,7 +318,8 @@ TEST_F(ScriptPreconditionTest, MultipleConditions) {
   ScriptPreconditionProto proto;
   proto.add_domain("http://match.example.com");
   proto.add_path_pattern("/path");
-  proto.mutable_element_condition()->mutable_match()->add_selectors("exists");
+  *proto.mutable_element_condition()->mutable_match() =
+      ToSelectorProto("exists");
 
   // Domain and path don't match.
   EXPECT_FALSE(Check(proto));
@@ -303,8 +327,8 @@ TEST_F(ScriptPreconditionTest, MultipleConditions) {
   SetUrl("http://match.example.com/path");
   EXPECT_TRUE(Check(proto)) << "Domain, path and selector must match.";
 
-  proto.mutable_element_condition()->mutable_match()->set_selectors(
-      0, "does_not_exist");
+  *proto.mutable_element_condition()->mutable_match() =
+      ToSelectorProto("does_not_exist");
   EXPECT_FALSE(Check(proto)) << "Element can not match.";
 }
 

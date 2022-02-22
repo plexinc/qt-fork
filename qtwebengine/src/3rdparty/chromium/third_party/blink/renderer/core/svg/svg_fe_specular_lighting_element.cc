@@ -24,6 +24,10 @@
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/core/svg/graphics/filters/svg_filter_builder.h"
+#include "third_party/blink/renderer/core/svg/svg_animated_number.h"
+#include "third_party/blink/renderer/core/svg/svg_animated_number_optional_number.h"
+#include "third_party/blink/renderer/core/svg/svg_animated_string.h"
+#include "third_party/blink/renderer/core/svg/svg_fe_light_element.h"
 #include "third_party/blink/renderer/platform/graphics/filters/fe_specular_lighting.h"
 #include "third_party/blink/renderer/platform/graphics/filters/filter.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
@@ -57,7 +61,15 @@ SVGFESpecularLightingElement::SVGFESpecularLightingElement(Document& document)
   AddToPropertyMap(in1_);
 }
 
-void SVGFESpecularLightingElement::Trace(Visitor* visitor) {
+SVGAnimatedNumber* SVGFESpecularLightingElement::kernelUnitLengthX() {
+  return kernel_unit_length_->FirstNumber();
+}
+
+SVGAnimatedNumber* SVGFESpecularLightingElement::kernelUnitLengthY() {
+  return kernel_unit_length_->SecondNumber();
+}
+
+void SVGFESpecularLightingElement::Trace(Visitor* visitor) const {
   visitor->Trace(specular_constant_);
   visitor->Trace(specular_exponent_);
   visitor->Trace(surface_scale_);
@@ -121,7 +133,8 @@ bool SVGFESpecularLightingElement::SetFilterEffectAttribute(
 }
 
 void SVGFESpecularLightingElement::SvgAttributeChanged(
-    const QualifiedName& attr_name) {
+    const SvgAttributeChangedParams& params) {
+  const QualifiedName& attr_name = params.name;
   if (attr_name == svg_names::kSurfaceScaleAttr ||
       attr_name == svg_names::kSpecularConstantAttr ||
       attr_name == svg_names::kSpecularExponentAttr) {
@@ -136,7 +149,7 @@ void SVGFESpecularLightingElement::SvgAttributeChanged(
     return;
   }
 
-  SVGFilterPrimitiveStandardAttributes::SvgAttributeChanged(attr_name);
+  SVGFilterPrimitiveStandardAttributes::SvgAttributeChanged(params);
 }
 
 void SVGFESpecularLightingElement::LightElementAttributeChanged(
@@ -181,7 +194,7 @@ bool SVGFESpecularLightingElement::TaintsOrigin() const {
   // TaintsOrigin() is only called after a successful call to Build()
   // (see above), so we should have a ComputedStyle here.
   DCHECK(style);
-  return style->SvgStyle().LightingColor().IsCurrentColor();
+  return style->LightingColor().IsCurrentColor();
 }
 
 }  // namespace blink

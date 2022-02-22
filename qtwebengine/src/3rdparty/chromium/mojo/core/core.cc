@@ -137,7 +137,7 @@ void Core::SetIOTaskRunner(
 NodeController* Core::GetNodeController() {
   base::AutoLock lock(node_controller_lock_);
   if (!node_controller_)
-    node_controller_.reset(new NodeController(this));
+    node_controller_ = std::make_unique<NodeController>();
   return node_controller_.get();
 }
 
@@ -151,10 +151,6 @@ scoped_refptr<Dispatcher> Core::GetAndRemoveDispatcher(MojoHandle handle) {
   base::AutoLock lock(handles_->GetLock());
   handles_->GetAndRemoveDispatcher(handle, &dispatcher);
   return dispatcher;
-}
-
-void Core::SetDefaultProcessErrorCallback(ProcessErrorCallback callback) {
-  default_process_error_callback_ = std::move(callback);
 }
 
 MojoHandle Core::CreatePartialMessagePipe(ports::PortRef* peer) {
@@ -172,13 +168,13 @@ MojoHandle Core::CreatePartialMessagePipe(const ports::PortRef& port) {
 }
 
 void Core::SendBrokerClientInvitation(
-    base::ProcessHandle target_process,
+    base::Process target_process,
     ConnectionParams connection_params,
     const std::vector<std::pair<std::string, ports::PortRef>>& attached_ports,
     const ProcessErrorCallback& process_error_callback) {
   RequestContext request_context;
   GetNodeController()->SendBrokerClientInvitation(
-      target_process, std::move(connection_params), attached_ports,
+      std::move(target_process), std::move(connection_params), attached_ports,
       process_error_callback);
 }
 
@@ -347,8 +343,10 @@ MojoResult Core::CreateMessage(const MojoCreateMessageOptions* options,
     return MOJO_RESULT_INVALID_ARGUMENT;
   if (options && options->struct_size < sizeof(*options))
     return MOJO_RESULT_INVALID_ARGUMENT;
+  const MojoCreateMessageFlags flags =
+      options ? options->flags : MOJO_CREATE_MESSAGE_FLAG_NONE;
   *message_handle = reinterpret_cast<MojoMessageHandle>(
-      UserMessageImpl::CreateEventForNewMessage().release());
+      UserMessageImpl::CreateEventForNewMessage(flags).release());
   return MOJO_RESULT_OK;
 }
 
@@ -649,8 +647,7 @@ MojoResult Core::CreateDataPipe(const MojoCreateDataPipeOptions* options,
   // consumer of this pipe, and it would be impossible to support such access
   // control on Android anyway.
   auto writable_region_handle = ring_buffer_region.PassPlatformHandle();
-#if defined(OS_POSIX) && !defined(OS_ANDROID) && \
-    (!defined(OS_MACOSX) || defined(OS_IOS))
+#if defined(OS_POSIX) && !defined(OS_ANDROID) && !defined(OS_MAC)
   // This isn't strictly necessary, but it does make the handle configuration
   // consistent with regular UnsafeSharedMemoryRegions.
   writable_region_handle.readonly_fd.reset();
@@ -1013,8 +1010,7 @@ MojoResult Core::WrapPlatformSharedMemoryRegion(
     MojoHandle* mojo_handle) {
   DCHECK(size);
 
-#if defined(OS_POSIX) && !defined(OS_ANDROID) && \
-    (!defined(OS_MACOSX) || defined(OS_IOS))
+#if defined(OS_POSIX) && !defined(OS_ANDROID) && !defined(OS_MAC)
   if (access_mode == MOJO_PLATFORM_SHARED_MEMORY_REGION_ACCESS_MODE_WRITABLE) {
     if (num_platform_handles != 2)
       return MOJO_RESULT_INVALID_ARGUMENT;
@@ -1135,8 +1131,7 @@ MojoResult Core::UnwrapPlatformSharedMemoryRegion(
   if (available_handle_storage_slots < 1)
     return MOJO_RESULT_RESOURCE_EXHAUSTED;
   *num_platform_handles = 1;
-#if defined(OS_POSIX) && !defined(OS_ANDROID) && \
-    (!defined(OS_MACOSX) || defined(OS_IOS))
+#if defined(OS_POSIX) && !defined(OS_ANDROID) && !defined(OS_MAC)
   if (region.GetMode() ==
       base::subtle::PlatformSharedMemoryRegion::Mode::kWritable) {
     if (available_handle_storage_slots < 2)
@@ -1256,16 +1251,12 @@ MojoResult Core::SendInvitation(
   if (options && options->struct_size < sizeof(*options))
     return MOJO_RESULT_INVALID_ARGUMENT;
 
-  base::ProcessHandle target_process = base::kNullProcessHandle;
+  base::Process target_process;
   if (process_handle) {
-    if (process_handle->struct_size < sizeof(*process_handle))
-      return MOJO_RESULT_INVALID_ARGUMENT;
-#if defined(OS_WIN)
-    target_process = reinterpret_cast<base::ProcessHandle>(
-        static_cast<uintptr_t>(process_handle->value));
-#else
-    target_process = static_cast<base::ProcessHandle>(process_handle->value);
-#endif
+    MojoResult result =
+        UnwrapAndClonePlatformProcessHandle(process_handle, target_process);
+    if (result != MOJO_RESULT_OK)
+      return result;
   }
 
   ProcessErrorCallback process_error_callback;
@@ -1360,7 +1351,7 @@ MojoResult Core::SendInvitation(
       connection_params.set_is_async(true);
     }
     GetNodeController()->SendBrokerClientInvitation(
-        target_process, std::move(connection_params), attached_ports,
+        std::move(target_process), std::move(connection_params), attached_ports,
         process_error_callback);
   }
 
@@ -1475,6 +1466,29 @@ MojoResult Core::QueryQuota(MojoHandle handle,
   if (!dispatcher)
     return MOJO_RESULT_INVALID_ARGUMENT;
   return dispatcher->QueryQuota(type, limit, usage);
+}
+
+MojoResult Core::SetDefaultProcessErrorHandler(
+    MojoDefaultProcessErrorHandler handler,
+    const MojoSetDefaultProcessErrorHandlerOptions* options) {
+  if (default_process_error_callback_ && handler)
+    return MOJO_RESULT_ALREADY_EXISTS;
+
+  if (!handler) {
+    default_process_error_callback_.Reset();
+    return MOJO_RESULT_OK;
+  }
+
+  default_process_error_callback_ = base::BindRepeating(
+      [](MojoDefaultProcessErrorHandler handler, const std::string& error) {
+        MojoProcessErrorDetails details = {0};
+        details.struct_size = sizeof(details);
+        details.error_message_length = static_cast<uint32_t>(error.size());
+        details.error_message = error.c_str();
+        handler(&details);
+      },
+      handler);
+  return MOJO_RESULT_OK;
 }
 
 void Core::GetActiveHandlesForTest(std::vector<MojoHandle>* handles) {

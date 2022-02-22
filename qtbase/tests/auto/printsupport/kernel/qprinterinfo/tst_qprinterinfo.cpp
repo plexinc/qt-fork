@@ -26,17 +26,18 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QtGlobal>
 #include <QtAlgorithms>
 #include <QtPrintSupport/qprinterinfo.h>
 
 #include <algorithm>
 
-#ifdef Q_OS_UNIX
+#if defined(Q_OS_UNIX) && !defined(Q_OS_INTEGRITY)
 #  include <unistd.h>
 #  include <sys/types.h>
 #  include <sys/wait.h>
+#  define USE_PIPE_EXEC
 #endif
 
 
@@ -63,9 +64,9 @@ private:
     QString getDefaultPrinterFromSystem();
     QStringList getPrintersFromSystem();
 
-#ifdef Q_OS_UNIX
+#ifdef USE_PIPE_EXEC
     QString getOutputFromCommand(const QStringList& command);
-#endif // Q_OS_UNIX
+#endif // USE_PIPE_EXEC
 #endif
 };
 
@@ -89,7 +90,7 @@ QString tst_QPrinterInfo::getDefaultPrinterFromSystem()
 #ifdef Q_OS_WIN32
     // TODO "cscript c:\windows\system32\prnmngr.vbs -g"
 #endif // Q_OS_WIN32
-#ifdef Q_OS_UNIX
+#ifdef USE_PIPE_EXEC
     QStringList command;
     command << "lpstat" << "-d";
     QString output = getOutputFromCommand(command);
@@ -103,7 +104,7 @@ QString tst_QPrinterInfo::getDefaultPrinterFromSystem()
     QRegularExpression defaultReg("default.*: *([a-zA-Z0-9_-]+)");
     match = defaultReg.match(output);
     printer = match.captured(1);
-#endif // Q_OS_UNIX
+#endif // USE_PIPE_EXEC
     return printer;
 }
 
@@ -114,13 +115,11 @@ QStringList tst_QPrinterInfo::getPrintersFromSystem()
 #ifdef Q_OS_WIN32
     // TODO "cscript c:\windows\system32\prnmngr.vbs -l"
 #endif // Q_OS_WIN32
-#ifdef Q_OS_UNIX
-    QStringList command;
-    command << "lpstat" << "-p";
-    QString output = getOutputFromCommand(command);
+#ifdef USE_PIPE_EXEC
+    QString output = getOutputFromCommand({ "lpstat", "-e" });
     QStringList list = output.split(QChar::fromLatin1('\n'));
 
-    QRegularExpression reg("^[Pp]rinter ([.a-zA-Z0-9-_@]+)");
+    QRegularExpression reg("^([.a-zA-Z0-9-_@]+)");
     QRegularExpressionMatch match;
     for (int c = 0; c < list.size(); ++c) {
         match = reg.match(list[c]);
@@ -129,12 +128,12 @@ QStringList tst_QPrinterInfo::getPrintersFromSystem()
             ans << printer;
         }
     }
-#endif // Q_OS_UNIX
+#endif // USE_PIPE_EXEC
 
     return ans;
 }
 
-#ifdef Q_OS_UNIX
+#ifdef USE_PIPE_EXEC
 // This function does roughly the same as the `command substitution` in
 // the shell.
 QString getOutputFromCommandInternal(const QStringList &command)
@@ -302,12 +301,6 @@ void tst_QPrinterInfo::testConstructors()
         QCOMPARE(copy1.minimumPhysicalPageSize(), printers.at(i).minimumPhysicalPageSize());
         QCOMPARE(copy1.maximumPhysicalPageSize(), printers.at(i).maximumPhysicalPageSize());
         QCOMPARE(copy1.supportedPageSizes(),      printers.at(i).supportedPageSizes());
-#if QT_DEPRECATED_SINCE(5, 3)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-        QCOMPARE(copy1.supportedSizesWithNames(), printers.at(i).supportedSizesWithNames());
-QT_WARNING_POP
-#endif
         QCOMPARE(copy1.supportedResolutions(),    printers.at(i).supportedResolutions());
         QCOMPARE(copy1.defaultDuplexMode(),       printers.at(i).defaultDuplexMode());
         QCOMPARE(copy1.supportedDuplexModes(),    printers.at(i).supportedDuplexModes());
@@ -328,12 +321,6 @@ QT_WARNING_POP
         QCOMPARE(copy2.minimumPhysicalPageSize(), printers.at(i).minimumPhysicalPageSize());
         QCOMPARE(copy2.maximumPhysicalPageSize(), printers.at(i).maximumPhysicalPageSize());
         QCOMPARE(copy2.supportedPageSizes(),      printers.at(i).supportedPageSizes());
-#if QT_DEPRECATED_SINCE(5, 3)
-        QT_WARNING_PUSH
-        QT_WARNING_DISABLE_DEPRECATED
-        QCOMPARE(copy2.supportedSizesWithNames(), printers.at(i).supportedSizesWithNames());
-        QT_WARNING_POP
-#endif
         QCOMPARE(copy2.supportedResolutions(),    printers.at(i).supportedResolutions());
         QCOMPARE(copy2.defaultDuplexMode(),       printers.at(i).defaultDuplexMode());
         QCOMPARE(copy2.supportedDuplexModes(),    printers.at(i).supportedDuplexModes());

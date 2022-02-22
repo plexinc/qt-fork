@@ -8,8 +8,8 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/containers/contains.h"
 #include "base/logging.h"
-#include "base/stl_util.h"
 #include "base/strings/strcat.h"
 #include "base/strings/utf_string_conversions.h"
 #include "mojo/public/cpp/bindings/callback_helpers.h"
@@ -156,7 +156,7 @@ void ServiceInstance::StartWithRemote(
 #if !defined(OS_IOS)
 bool ServiceInstance::StartWithProcessHost(
     std::unique_ptr<ServiceProcessHost> host,
-    SandboxType sandbox_type) {
+    sandbox::policy::SandboxType sandbox_type) {
   DCHECK(!service_remote_);
   DCHECK(!process_host_);
 
@@ -473,6 +473,7 @@ void ServiceInstance::RegisterServiceInstance(
   if (!service_manager_->RegisterService(identity, std::move(service_remote),
                                          std::move(metadata_receiver))) {
     std::move(callback).Run(mojom::ConnectResult::ACCESS_DENIED);
+    return;
   }
 
   std::move(callback).Run(mojom::ConnectResult::SUCCEEDED);

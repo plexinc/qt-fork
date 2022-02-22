@@ -53,7 +53,7 @@
 #include <vector>
 
 #if QT_CONFIG(xkbcommon)
-#include <QtXkbCommonSupport/private/qxkbcommon_p.h>
+#include <QtGui/private/qxkbcommon_p.h>
 #endif
 
 QT_BEGIN_NAMESPACE
@@ -89,7 +89,7 @@ public:
 
     QWaylandOutput *defaultOutput() const { return outputs.size() ? outputs.first() : nullptr; }
 
-    inline QtWayland::ClientBufferIntegration *clientBufferIntegration() const;
+    inline const QList<QtWayland::ClientBufferIntegration *> clientBufferIntegrations() const;
     inline QtWayland::ServerBufferIntegration *serverBufferIntegration() const;
 
 #if QT_CONFIG(wayland_datadevice)
@@ -113,9 +113,9 @@ public:
     inline void addOutput(QWaylandOutput *output);
     inline void removeOutput(QWaylandOutput *output);
 
-#if WAYLAND_VERSION_MAJOR >= 1 && (WAYLAND_VERSION_MAJOR != 1 || WAYLAND_VERSION_MINOR >= 10)
     void connectToExternalSockets();
-#endif
+
+    virtual QWaylandSeat *seatFor(QInputEvent *inputEvent);
 
 protected:
     void compositor_create_surface(wl_compositor::Resource *resource, uint32_t id) override;
@@ -133,11 +133,10 @@ protected:
     void loadServerBufferIntegration();
 
     QByteArray socket_name;
-#if WAYLAND_VERSION_MAJOR >= 1 && (WAYLAND_VERSION_MAJOR != 1 || WAYLAND_VERSION_MINOR >= 10)
     QList<int> externally_added_socket_fds;
-#endif
     struct wl_display *display = nullptr;
     bool ownsDisplay = false;
+    QVector<QWaylandCompositor::ShmFormat> shmFormats;
 
     QList<QWaylandSeat *> seats;
     QList<QWaylandOutput *> outputs;
@@ -158,9 +157,9 @@ protected:
 #if QT_CONFIG(opengl)
     bool use_hw_integration_extension = true;
     QScopedPointer<QtWayland::HardwareIntegration> hw_integration;
-    QScopedPointer<QtWayland::ClientBufferIntegration> client_buffer_integration;
     QScopedPointer<QtWayland::ServerBufferIntegration> server_buffer_integration;
 #endif
+    QList<QtWayland::ClientBufferIntegration*> client_buffer_integrations;
 
     QScopedPointer<QWindowSystemEventHandler> eventHandler;
 
@@ -177,13 +176,9 @@ protected:
     Q_DISABLE_COPY(QWaylandCompositorPrivate)
 };
 
-QtWayland::ClientBufferIntegration * QWaylandCompositorPrivate::clientBufferIntegration() const
+const QList<QtWayland::ClientBufferIntegration *> QWaylandCompositorPrivate::clientBufferIntegrations() const
 {
-#if QT_CONFIG(opengl)
-    return client_buffer_integration.data();
-#else
-    return 0;
-#endif
+    return client_buffer_integrations;
 }
 
 QtWayland::ServerBufferIntegration * QWaylandCompositorPrivate::serverBufferIntegration() const

@@ -20,7 +20,9 @@
 
 namespace dawn_wire { namespace client {
 
-    bool Client::DoDeviceUncapturedErrorCallback(WGPUErrorType errorType, const char* message) {
+    bool Client::DoDeviceUncapturedErrorCallback(Device* device,
+                                                 WGPUErrorType errorType,
+                                                 const char* message) {
         switch (errorType) {
             case WGPUErrorType_NoError:
             case WGPUErrorType_Validation:
@@ -31,156 +33,41 @@ namespace dawn_wire { namespace client {
             default:
                 return false;
         }
-        mDevice->HandleError(errorType, message);
+        device->HandleError(errorType, message);
         return true;
     }
 
-    bool Client::DoDeviceLostCallback(char const* message) {
-        mDevice->HandleDeviceLost(message);
+    bool Client::DoDeviceLostCallback(Device* device, char const* message) {
+        if (device == nullptr) {
+            // The device might have been deleted or recreated so this isn't an error.
+            return true;
+        }
+        device->HandleDeviceLost(message);
         return true;
     }
 
-    bool Client::DoDevicePopErrorScopeCallback(uint64_t requestSerial,
+    bool Client::DoDevicePopErrorScopeCallback(Device* device,
+                                               uint64_t requestSerial,
                                                WGPUErrorType errorType,
                                                const char* message) {
-        return mDevice->PopErrorScope(requestSerial, errorType, message);
+        if (device == nullptr) {
+            // The device might have been deleted or recreated so this isn't an error.
+            return true;
+        }
+        return device->OnPopErrorScopeCallback(requestSerial, errorType, message);
     }
 
-    bool Client::DoBufferMapReadAsyncCallback(Buffer* buffer,
-                                              uint32_t requestSerial,
-                                              uint32_t status,
-                                              uint64_t initialDataInfoLength,
-                                              const uint8_t* initialDataInfo) {
+    bool Client::DoBufferMapAsyncCallback(Buffer* buffer,
+                                          uint32_t requestSerial,
+                                          uint32_t status,
+                                          uint64_t readInitialDataInfoLength,
+                                          const uint8_t* readInitialDataInfo) {
         // The buffer might have been deleted or recreated so this isn't an error.
         if (buffer == nullptr) {
             return true;
         }
-
-        // The requests can have been deleted via an Unmap so this isn't an error.
-        auto requestIt = buffer->requests.find(requestSerial);
-        if (requestIt == buffer->requests.end()) {
-            return true;
-        }
-
-        auto request = std::move(requestIt->second);
-        // Delete the request before calling the callback otherwise the callback could be fired a
-        // second time. If, for example, buffer.Unmap() is called inside the callback.
-        buffer->requests.erase(requestIt);
-
-        const void* mappedData = nullptr;
-        size_t mappedDataLength = 0;
-
-        auto GetMappedData = [&]() -> bool {
-            // It is an error for the server to call the read callback when we asked for a map write
-            if (request.writeHandle) {
-                return false;
-            }
-
-            if (status == WGPUBufferMapAsyncStatus_Success) {
-                if (buffer->readHandle || buffer->writeHandle) {
-                    // Buffer is already mapped.
-                    return false;
-                }
-                if (initialDataInfoLength > std::numeric_limits<size_t>::max()) {
-                    // This is the size of data deserialized from the command stream, which must be
-                    // CPU-addressable.
-                    return false;
-                }
-                ASSERT(request.readHandle != nullptr);
-
-                // The server serializes metadata to initialize the contents of the ReadHandle.
-                // Deserialize the message and return a pointer and size of the mapped data for
-                // reading.
-                if (!request.readHandle->DeserializeInitialData(
-                        initialDataInfo, static_cast<size_t>(initialDataInfoLength), &mappedData,
-                        &mappedDataLength)) {
-                    // Deserialization shouldn't fail. This is a fatal error.
-                    return false;
-                }
-                ASSERT(mappedData != nullptr);
-
-                // The MapRead request was successful. The buffer now owns the ReadHandle until
-                // Unmap().
-                buffer->readHandle = std::move(request.readHandle);
-            }
-
-            return true;
-        };
-
-        if (!GetMappedData()) {
-            // Dawn promises that all callbacks are called in finite time. Even if a fatal error
-            // occurs, the callback is called.
-            request.readCallback(WGPUBufferMapAsyncStatus_DeviceLost, nullptr, 0, request.userdata);
-            return false;
-        } else {
-            request.readCallback(static_cast<WGPUBufferMapAsyncStatus>(status), mappedData,
-                                 static_cast<uint64_t>(mappedDataLength), request.userdata);
-            return true;
-        }
-    }
-
-    bool Client::DoBufferMapWriteAsyncCallback(Buffer* buffer,
-                                               uint32_t requestSerial,
-                                               uint32_t status) {
-        // The buffer might have been deleted or recreated so this isn't an error.
-        if (buffer == nullptr) {
-            return true;
-        }
-
-        // The requests can have been deleted via an Unmap so this isn't an error.
-        auto requestIt = buffer->requests.find(requestSerial);
-        if (requestIt == buffer->requests.end()) {
-            return true;
-        }
-
-        auto request = std::move(requestIt->second);
-        // Delete the request before calling the callback otherwise the callback could be fired a
-        // second time. If, for example, buffer.Unmap() is called inside the callback.
-        buffer->requests.erase(requestIt);
-
-        void* mappedData = nullptr;
-        size_t mappedDataLength = 0;
-
-        auto GetMappedData = [&]() -> bool {
-            // It is an error for the server to call the write callback when we asked for a map read
-            if (request.readHandle) {
-                return false;
-            }
-
-            if (status == WGPUBufferMapAsyncStatus_Success) {
-                if (buffer->readHandle || buffer->writeHandle) {
-                    // Buffer is already mapped.
-                    return false;
-                }
-                ASSERT(request.writeHandle != nullptr);
-
-                // Open the WriteHandle. This returns a pointer and size of mapped memory.
-                // On failure, |mappedData| may be null.
-                std::tie(mappedData, mappedDataLength) = request.writeHandle->Open();
-
-                if (mappedData == nullptr) {
-                    return false;
-                }
-
-                // The MapWrite request was successful. The buffer now owns the WriteHandle until
-                // Unmap().
-                buffer->writeHandle = std::move(request.writeHandle);
-            }
-
-            return true;
-        };
-
-        if (!GetMappedData()) {
-            // Dawn promises that all callbacks are called in finite time. Even if a fatal error
-            // occurs, the callback is called.
-            request.writeCallback(WGPUBufferMapAsyncStatus_DeviceLost, nullptr, 0,
-                                  request.userdata);
-            return false;
-        } else {
-            request.writeCallback(static_cast<WGPUBufferMapAsyncStatus>(status), mappedData,
-                                  static_cast<uint64_t>(mappedDataLength), request.userdata);
-            return true;
-        }
+        return buffer->OnMapAsyncCallback(requestSerial, status, readInitialDataInfoLength,
+                                          readInitialDataInfo);
     }
 
     bool Client::DoFenceUpdateCompletedValue(Fence* fence, uint64_t value) {
@@ -189,9 +76,50 @@ namespace dawn_wire { namespace client {
             return true;
         }
 
-        fence->completedValue = value;
-        fence->CheckPassedFences();
+        fence->OnUpdateCompletedValueCallback(value);
         return true;
+    }
+
+    bool Client::DoFenceOnCompletionCallback(Fence* fence,
+                                             uint64_t requestSerial,
+                                             WGPUFenceCompletionStatus status) {
+        // The fence might have been deleted or recreated so this isn't an error.
+        if (fence == nullptr) {
+            return true;
+        }
+        return fence->OnCompletionCallback(requestSerial, status);
+    }
+
+    bool Client::DoQueueWorkDoneCallback(Queue* queue,
+                                         uint64_t requestSerial,
+                                         WGPUQueueWorkDoneStatus status) {
+        // The queue might have been deleted or recreated so this isn't an error.
+        if (queue == nullptr) {
+            return true;
+        }
+        return queue->OnWorkDoneCallback(requestSerial, status);
+    }
+
+    bool Client::DoDeviceCreateComputePipelineAsyncCallback(Device* device,
+                                                            uint64_t requestSerial,
+                                                            WGPUCreatePipelineAsyncStatus status,
+                                                            const char* message) {
+        // The device might have been deleted or recreated so this isn't an error.
+        if (device == nullptr) {
+            return true;
+        }
+        return device->OnCreateComputePipelineAsyncCallback(requestSerial, status, message);
+    }
+
+    bool Client::DoDeviceCreateRenderPipelineAsyncCallback(Device* device,
+                                                           uint64_t requestSerial,
+                                                           WGPUCreatePipelineAsyncStatus status,
+                                                           const char* message) {
+        // The device might have been deleted or recreated so this isn't an error.
+        if (device == nullptr) {
+            return true;
+        }
+        return device->OnCreateRenderPipelineAsyncCallback(requestSerial, status, message);
     }
 
 }}  // namespace dawn_wire::client

@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
@@ -162,17 +162,21 @@ void MojoVideoDecoderService::Construct(
       target_color_space);
 }
 
-void MojoVideoDecoderService::Initialize(const VideoDecoderConfig& config,
-                                         bool low_delay,
-                                         int32_t cdm_id,
-                                         InitializeCallback callback) {
+void MojoVideoDecoderService::Initialize(
+    const VideoDecoderConfig& config,
+    bool low_delay,
+    const base::Optional<base::UnguessableToken>& cdm_id,
+    InitializeCallback callback) {
   DVLOG(1) << __func__ << " config = " << config.AsHumanReadableString()
-           << ", cdm_id = " << cdm_id;
+           << ", cdm_id = "
+           << CdmContext::CdmIdToString(base::OptionalOrNullptr(cdm_id));
   DCHECK(!init_cb_);
   DCHECK(callback);
 
-  TRACE_EVENT_ASYNC_BEGIN2("media", kInitializeTraceName, this, "config",
-                           config.AsHumanReadableString(), "cdm_id", cdm_id);
+  TRACE_EVENT_ASYNC_BEGIN2(
+      "media", kInitializeTraceName, this, "config",
+      config.AsHumanReadableString(), "cdm_id",
+      CdmContext::CdmIdToString(base::OptionalOrNullptr(cdm_id)));
 
   init_cb_ = std::move(callback);
 
@@ -184,11 +188,12 @@ void MojoVideoDecoderService::Initialize(const VideoDecoderConfig& config,
   // |cdm_context_ref_| must be kept as long as |cdm_context| is used by the
   // |decoder_|. We do NOT support resetting |cdm_context_ref_| because in
   // general we don't support resetting CDM in the media pipeline.
-  if (cdm_id != CdmContext::kInvalidCdmId) {
-    if (cdm_id_ == CdmContext::kInvalidCdmId) {
+  if (cdm_id) {
+    if (!cdm_id_) {
       DCHECK(!cdm_context_ref_);
       cdm_id_ = cdm_id;
-      cdm_context_ref_ = mojo_cdm_service_context_->GetCdmContextRef(cdm_id);
+      cdm_context_ref_ =
+          mojo_cdm_service_context_->GetCdmContextRef(cdm_id.value());
     } else if (cdm_id != cdm_id_) {
       // TODO(xhwang): Replace with mojo::ReportBadMessage().
       NOTREACHED() << "The caller should not switch CDM";
@@ -202,7 +207,9 @@ void MojoVideoDecoderService::Initialize(const VideoDecoderConfig& config,
       cdm_context_ref_ ? cdm_context_ref_->GetCdmContext() : nullptr;
 
   if (config.is_encrypted() && !cdm_context) {
-    DVLOG(1) << "CdmContext for " << cdm_id << " not found for encrypted video";
+    DVLOG(1) << "CdmContext for "
+             << CdmContext::CdmIdToString(base::OptionalOrNullptr(cdm_id))
+             << " not found for encrypted video";
     OnDecoderInitialized(StatusCode::kDecoderMissingCdmForEncryptedContent);
     return;
   }
@@ -273,9 +280,13 @@ void MojoVideoDecoderService::OnDecoderInitialized(Status status) {
   TRACE_EVENT_ASYNC_END1("media", kInitializeTraceName, this, "success",
                          status.code());
 
-  std::move(init_cb_).Run(
-      status, status.is_ok() ? decoder_->NeedsBitstreamConversion() : false,
-      status.is_ok() ? decoder_->GetMaxDecodeRequests() : 1);
+  if (!status.is_ok()) {
+    std::move(init_cb_).Run(status, false, 1, VideoDecoderType::kUnknown);
+    return;
+  }
+  std::move(init_cb_).Run(status, decoder_->NeedsBitstreamConversion(),
+                          decoder_->GetMaxDecodeRequests(),
+                          decoder_->GetDecoderType());
 }
 
 void MojoVideoDecoderService::OnReaderRead(
@@ -309,7 +320,7 @@ void MojoVideoDecoderService::OnReaderFlushed() {
 void MojoVideoDecoderService::OnDecoderDecoded(
     DecodeCallback callback,
     std::unique_ptr<ScopedDecodeTrace> trace_event,
-    DecodeStatus status) {
+    media::Status status) {
   DVLOG(3) << __func__;
   if (trace_event) {
     TRACE_EVENT_ASYNC_STEP_PAST0("media", kDecodeTraceName, trace_event.get(),
@@ -317,7 +328,7 @@ void MojoVideoDecoderService::OnDecoderDecoded(
     trace_event->EndTrace(status);
   }
 
-  std::move(callback).Run(status);
+  std::move(callback).Run(std::move(status));
 }
 
 void MojoVideoDecoderService::OnDecoderReset() {
@@ -332,12 +343,12 @@ void MojoVideoDecoderService::OnDecoderOutput(scoped_refptr<VideoFrame> frame) {
   DCHECK(client_);
   DCHECK(decoder_);
   TRACE_EVENT1("media", "MojoVideoDecoderService::OnDecoderOutput",
-               "video_frame", frame->AsHumanReadableString())
+               "video_frame", frame->AsHumanReadableString());
 
   // All MojoVideoDecoder-based decoders are hardware decoders. If you're the
   // first to implement an out-of-process decoder that is not power efficent,
   // you can remove this DCHECK.
-  DCHECK(frame->metadata()->IsTrue(VideoFrameMetadata::POWER_EFFICIENT));
+  DCHECK(frame->metadata().power_efficient);
 
   base::Optional<base::UnguessableToken> release_token;
   if (frame->HasReleaseMailboxCB() && video_frame_handle_releaser_) {

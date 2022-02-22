@@ -8,7 +8,8 @@
 
 #include "base/auto_reset.h"
 #include "base/bind.h"
-#include "base/metrics/histogram_macros.h"
+#include "base/metrics/histogram_functions.h"
+#include "base/no_destructor.h"
 #include "base/strings/string_split.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "net/base/ip_endpoint.h"
@@ -93,26 +94,20 @@ HttpResponseInfo::ConnectionInfo QuicHttpStream::ConnectionInfoFromQuicVersion(
       return HttpResponseInfo::CONNECTION_INFO_QUIC_43;
     case quic::QUIC_VERSION_46:
       return HttpResponseInfo::CONNECTION_INFO_QUIC_46;
-    case quic::QUIC_VERSION_48:
-      return quic_version.handshake_protocol == quic::PROTOCOL_TLS1_3
-                 ? HttpResponseInfo::CONNECTION_INFO_QUIC_T048
-                 : HttpResponseInfo::CONNECTION_INFO_QUIC_Q048;
-    case quic::QUIC_VERSION_49:
-      return quic_version.handshake_protocol == quic::PROTOCOL_TLS1_3
-                 ? HttpResponseInfo::CONNECTION_INFO_QUIC_T049
-                 : HttpResponseInfo::CONNECTION_INFO_QUIC_Q049;
     case quic::QUIC_VERSION_50:
-      return quic_version.handshake_protocol == quic::PROTOCOL_TLS1_3
+      return quic_version.UsesTls()
                  ? HttpResponseInfo::CONNECTION_INFO_QUIC_T050
                  : HttpResponseInfo::CONNECTION_INFO_QUIC_Q050;
-    case quic::QUIC_VERSION_IETF_DRAFT_25:
-      DCHECK(quic_version.handshake_protocol == quic::PROTOCOL_TLS1_3);
-      return HttpResponseInfo::CONNECTION_INFO_QUIC_DRAFT_25;
-    case quic::QUIC_VERSION_IETF_DRAFT_27:
-      DCHECK(quic_version.handshake_protocol == quic::PROTOCOL_TLS1_3);
-      return HttpResponseInfo::CONNECTION_INFO_QUIC_DRAFT_27;
+    case quic::QUIC_VERSION_IETF_DRAFT_29:
+      DCHECK(quic_version.UsesTls());
+      return HttpResponseInfo::CONNECTION_INFO_QUIC_DRAFT_29;
+    case quic::QUIC_VERSION_IETF_RFC_V1:
+      DCHECK(quic_version.UsesTls());
+      return HttpResponseInfo::CONNECTION_INFO_QUIC_RFC_V1;
     case quic::QUIC_VERSION_RESERVED_FOR_NEGOTIATION:
       return HttpResponseInfo::CONNECTION_INFO_QUIC_999;
+    case quic::QUIC_VERSION_51:
+      return HttpResponseInfo::CONNECTION_INFO_QUIC_T051;
   }
   NOTREACHED();
   return HttpResponseInfo::CONNECTION_INFO_QUIC_UNKNOWN_VERSION;
@@ -433,6 +428,11 @@ void QuicHttpStream::OnReadResponseHeadersComplete(int rv) {
   }
 }
 
+const std::vector<std::string>& QuicHttpStream::GetDnsAliases() const {
+  static const base::NoDestructor<std::vector<std::string>> emptyvector_result;
+  return *emptyvector_result;
+}
+
 void QuicHttpStream::ReadTrailingHeaders() {
   int rv = stream_->ReadTrailingHeaders(
       &trailing_header_block_,
@@ -604,7 +604,7 @@ int QuicHttpStream::DoSendHeaders() {
   if (rv > 0)
     headers_bytes_sent_ += rv;
 
-  request_headers_ = spdy::SpdyHeaderBlock();
+  request_headers_ = spdy::Http2HeaderBlock();
   return rv;
 }
 
@@ -651,7 +651,7 @@ int QuicHttpStream::DoSendBody() {
   int len = request_body_buf_->BytesRemaining();
   if (len > 0 || eof) {
     next_state_ = STATE_SEND_BODY_COMPLETE;
-    quiche::QuicheStringPiece data(request_body_buf_->data(), len);
+    base::StringPiece data(request_body_buf_->data(), len);
     return stream_->WriteStreamData(
         data, eof,
         base::BindOnce(&QuicHttpStream::OnIOComplete,
@@ -678,11 +678,15 @@ int QuicHttpStream::DoSendBodyComplete(int rv) {
 }
 
 int QuicHttpStream::ProcessResponseHeaders(
-    const spdy::SpdyHeaderBlock& headers) {
-  if (!SpdyHeadersToHttpResponse(headers, response_info_)) {
+    const spdy::Http2HeaderBlock& headers) {
+  const bool header_valid = SpdyHeadersToHttpResponse(headers, response_info_);
+  base::UmaHistogramBoolean("Net.QuicHttpStream.ProcessResponseHeaderSuccess",
+                            header_valid);
+  if (!header_valid) {
     DLOG(WARNING) << "Invalid headers";
     return ERR_QUIC_PROTOCOL_ERROR;
   }
+
   // Put the peer's IP address and port into the response.
   IPEndPoint address;
   int rv = quic_session()->GetPeerAddress(&address);
@@ -791,13 +795,18 @@ int QuicHttpStream::ComputeResponseStatus() const {
   if (!response_info_)
     return ERR_CONNECTION_CLOSED;
 
-  // Explicit stream error are always fatal.
-  if (stream_->stream_error() != quic::QUIC_STREAM_NO_ERROR &&
-      stream_->stream_error() != quic::QUIC_STREAM_CONNECTION_ERROR) {
-    return ERR_QUIC_PROTOCOL_ERROR;
-  }
+  base::UmaHistogramEnumeration("Net.QuicHttpStream.ResponseStatus",
+                                stream_->stream_error(),
+                                quic::QUIC_STREAM_LAST_ERROR);
 
   return ERR_QUIC_PROTOCOL_ERROR;
+}
+
+void QuicHttpStream::SetRequestIdempotency(Idempotency idempotency) {
+  if (stream_ == nullptr) {
+    return;
+  }
+  stream_->SetRequestIdempotency(idempotency);
 }
 
 }  // namespace net

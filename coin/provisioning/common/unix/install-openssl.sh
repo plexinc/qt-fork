@@ -2,7 +2,7 @@
 
 #############################################################################
 ##
-## Copyright (C) 2020 The Qt Company Ltd.
+## Copyright (C) 2021 The Qt Company Ltd.
 ## Contact: http://www.qt.io/licensing/
 ##
 ## This file is part of the provisioning scripts of the Qt Toolkit.
@@ -37,21 +37,21 @@
 # Requires GCC and Perl to be in PATH.
 set -ex
 os="$1"
+SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 # shellcheck source=../unix/DownloadURL.sh
 source "${BASH_SOURCE%/*}/../unix/DownloadURL.sh"
 # shellcheck source=../unix/SetEnvVar.sh
 source "${BASH_SOURCE%/*}/../unix/SetEnvVar.sh"
-
-version="1.1.1g"
+version="1.1.1k"
 officialUrl="https://www.openssl.org/source/openssl-$version.tar.gz"
 cachedUrl="http://ci-files01-hki.intra.qt.io/input/openssl/openssl-$version.tar.gz"
 targetFile="/tmp/openssl-$version.tar.gz"
-sha="b213a293f2127ec3e323fb3cfc0c9807664fd997"
+sha="bad9dc4ae6dcc1855085463099b5dacb0ec6130b"
 opensslHome="${HOME}/openssl-${version}"
 opensslSource="${opensslHome}-src"
 DownloadURL "$cachedUrl" "$officialUrl" "$sha" "$targetFile"
-tar -xzf "$targetFile" -C "$HOME"
-mv "$opensslHome" "$opensslSource"
+mkdir -p "$opensslSource"
+tar -xzf "$targetFile" --strip 1 -C "$opensslSource"
 cd "$opensslSource"
 pwd
 
@@ -65,18 +65,55 @@ if [[ "$os" == "linux" ]]; then
         echo "export LD_LIBRARY_PATH=$opensslHome/lib:$LD_LIBRARY_PATH" >> ~/.bashrc
     fi
 
-elif [ "$os" == "macos" ]; then
+elif [ "$os" == "macos" -o "$os" == "macos-universal" ]; then
     # Below target location has been hard coded into Coin.
     # QTQAINFRA-1195
-    openssl_install_dir=/usr/local/openssl-$version
-    opensslTargetLocation="/usr/local/opt/openssl"
-    sudo ./Configure --prefix=$openssl_install_dir shared no-ssl3-method enable-ec_nistp_64_gcc_128 darwin64-x86_64-cc "-Wa,--noexecstack"
-    echo "Running 'make' for OpenSSL"
-    # shellcheck disable=SC2024
-    sudo make --silent > /tmp/openssl_make.log 2>&1
-    echo "Running 'make install' for OpenSSL"
-    # shellcheck disable=SC2024
-    sudo make --silent install > /tmp/openssl_make_install.log 2>&1
+    echo "prefix=$prefix"
+    if [[ -z "$prefix" ]]; then
+        prefix="/usr/local"
+    fi
+    openssl_install_dir="$prefix/openssl-$version"
+    opensslTargetLocation="$prefix/opt/openssl"
+
+    commonFlags="no-tests shared no-ssl3-method enable-ec_nistp_64_gcc_128 -Wa,--noexecstack"
+
+    export MACOSX_DEPLOYMENT_TARGET=10.14
+
+    opensslBuild="${opensslHome}-build"
+    opensslDestdir="${opensslHome}-destdir"
+    mkdir -p $opensslBuild
+
+    if [ "$os" == "macos-universal" ]; then
+        archs="x86_64 arm64"
+    else
+        archs="$(uname -m)"
+    fi
+
+    for arch in $archs; do
+        cd $opensslBuild
+        echo "Configuring OpenSSL for $arch"
+        mkdir -p $arch && cd $arch
+        $opensslSource/Configure --prefix=$openssl_install_dir $commonFlags darwin64-$arch-cc
+
+        echo "Building OpenSSL for $arch in $PWD"
+        make >> /tmp/openssl_make.log 2>&1
+
+        echo "Installing OpenSSL for $arch"
+        if [ "$os" == "macos-universal" ]; then
+            destdir="$opensslDestdir/$arch"
+        else
+            destdir=""
+        fi
+        # shellcheck disable=SC2024
+        sudo make install_sw install_ssldirs DESTDIR=$destdir >> /tmp/openssl_make_install.log 2>&1
+    done
+
+    if [ "$os" == "macos-universal" ]; then
+        echo "Making universal OpenSSL package"
+        # shellcheck disable=SC2024
+        sudo rm -Rf "$openssl_install_dir"
+        sudo ${SCRIPT_DIR}/../macos/makeuniversal.sh "$opensslDestdir/x86_64" $opensslDestdir/arm64
+    fi
 
     path=$(echo "$opensslTargetLocation" | sed -E 's/(.*)\/.*$/\1/')
     sudo mkdir -p "$path"

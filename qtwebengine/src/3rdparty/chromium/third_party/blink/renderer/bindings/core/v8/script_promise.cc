@@ -64,7 +64,7 @@ class PromiseAllHandler final : public GarbageCollected<PromiseAllHandler> {
     }
   }
 
-  virtual void Trace(Visitor* visitor) {
+  virtual void Trace(Visitor* visitor) const {
     visitor->Trace(resolver_);
     visitor->Trace(values_);
   }
@@ -95,7 +95,7 @@ class PromiseAllHandler final : public GarbageCollected<PromiseAllHandler> {
           index_(index),
           handler_(handler) {}
 
-    void Trace(Visitor* visitor) override {
+    void Trace(Visitor* visitor) const override {
       visitor->Trace(handler_);
       ScriptFunction::Trace(visitor);
     }
@@ -264,6 +264,13 @@ ScriptPromise ScriptPromise::Then(v8::Local<v8::Function> on_fulfilled,
     return ScriptPromise();
   }
   return ScriptPromise(script_state_, result_promise);
+}
+
+ScriptPromise ScriptPromise::Then(NewScriptFunction* on_fulfilled,
+                                  NewScriptFunction* on_rejected) {
+  const v8::Local<v8::Function> empty;
+  return Then(on_fulfilled ? on_fulfilled->V8Function() : empty,
+              on_rejected ? on_rejected->V8Function() : empty);
 }
 
 ScriptPromise ScriptPromise::CastUndefined(ScriptState* script_state) {

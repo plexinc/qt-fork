@@ -32,6 +32,7 @@
 #include <QDebug>
 
 #include "qwaylandquicksurface.h"
+#include "qwaylandquicksurface_p.h"
 #include "qwaylandquickcompositor.h"
 #include "qwaylandquickitem.h"
 #include <QtWaylandCompositor/qwaylandbufferref.h>
@@ -39,22 +40,6 @@
 #include <QtWaylandCompositor/private/qwaylandsurface_p.h>
 
 QT_BEGIN_NAMESPACE
-
-class QWaylandQuickSurfacePrivate : public QWaylandSurfacePrivate
-{
-    Q_DECLARE_PUBLIC(QWaylandQuickSurface)
-public:
-    QWaylandQuickSurfacePrivate()
-    {
-    }
-
-    ~QWaylandQuickSurfacePrivate() override
-    {
-    }
-
-    bool useTextureAlpha = true;
-    bool clientRenderingEnabled = true;
-};
 
 QWaylandQuickSurface::QWaylandQuickSurface()
     : QWaylandSurface(* new QWaylandQuickSurfacePrivate())
@@ -65,6 +50,11 @@ QWaylandQuickSurface::QWaylandQuickSurface(QWaylandCompositor *compositor, QWayl
                     : QWaylandSurface(* new QWaylandQuickSurfacePrivate())
 {
     initialize(compositor, client, id, version);
+}
+
+QWaylandQuickSurface::QWaylandQuickSurface(QWaylandQuickSurfacePrivate &dptr)
+    : QWaylandSurface(dptr)
+{
 }
 
 QWaylandQuickSurface::~QWaylandQuickSurface()
@@ -90,30 +80,6 @@ void QWaylandQuickSurface::setUseTextureAlpha(bool useTextureAlpha)
         d->useTextureAlpha = useTextureAlpha;
         emit useTextureAlphaChanged();
         emit configure(d->bufferRef.hasBuffer());
-    }
-}
-
-/*!
- * \qmlproperty bool QtWaylandCompositor::WaylandSurface::clientRenderingEnabled
- * \deprecated
- *
- * This property used to specify whether client rendering was enabled for the surface.
- * It depended on a Wayland extension that was part of the private API. The surface extension
- * is not used anymore, so this property does nothing.
- */
-bool QWaylandQuickSurface::clientRenderingEnabled() const
-{
-    Q_D(const QWaylandQuickSurface);
-    return d->clientRenderingEnabled;
-}
-
-void QWaylandQuickSurface::setClientRenderingEnabled(bool enabled)
-{
-    Q_D(QWaylandQuickSurface);
-    qWarning() << Q_FUNC_INFO << "doesn't do anything";
-    if (d->clientRenderingEnabled != enabled) {
-        d->clientRenderingEnabled = enabled;
-        emit clientRenderingEnabledChanged();
     }
 }
 

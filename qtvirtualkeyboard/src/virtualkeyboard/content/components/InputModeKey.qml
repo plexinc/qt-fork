@@ -27,8 +27,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import QtQuick.VirtualKeyboard 2.3
+import QtQuick
+import QtQuick.VirtualKeyboard
 
 /*!
     \qmltype InputModeKey
@@ -43,9 +43,11 @@ import QtQuick.VirtualKeyboard 2.3
 */
 
 Key {
+    keyType: QtVirtualKeyboard.InputModeKey
     key: Qt.Key_Mode_switch
     noKeyEvent: true
     functionKey: true
+    highlighted: true
     text: InputContext.inputEngine.inputMode < inputModeNameList.length ?
               inputModeNameList[InputContext.inputEngine.inputMode] : "ABC"
     onClicked: InputContext.inputEngine.inputMode = __nextInputMode(InputContext.inputEngine.inputMode)
@@ -76,6 +78,8 @@ Key {
         "日本語", // InputEngine.InputMode.JapaneseHandwriting
         "한국어", // InputEngine.InputMode.KoreanHandwriting
         "กขค",  // InputEngine.InputMode.Thai
+        "笔画",  // InputEngine.InputMode.Stroke
+        "ローマ字",  // InputEngine.InputMode.Romaji
     ]
 
     /*!

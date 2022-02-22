@@ -1,12 +1,13 @@
 // Copyright 2019 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file
+// found in the LICENSE file.
 
 #ifndef PLATFORM_BASE_UDP_PACKET_H_
 #define PLATFORM_BASE_UDP_PACKET_H_
 
 #include <stdint.h>
 
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -26,7 +27,7 @@ class UdpPacket : public std::vector<uint8_t> {
   explicit UdpPacket(size_type size, uint8_t fill_value = {});
   template <typename InputIt>
   UdpPacket(InputIt first, InputIt last) : std::vector<uint8_t>(first, last) {}
-  UdpPacket(UdpPacket&& other);
+  UdpPacket(UdpPacket&& other) noexcept;
   UdpPacket(std::initializer_list<uint8_t> init);
 
   ~UdpPacket();
@@ -44,7 +45,9 @@ class UdpPacket : public std::vector<uint8_t> {
   UdpSocket* socket() const { return socket_; }
   void set_socket(UdpSocket* socket) { socket_ = socket; }
 
-  static constexpr size_type kUdpMaxPacketSize = 1 << 16;
+  std::string ToString() const;
+
+  static const size_type kUdpMaxPacketSize;
 
  private:
   IPEndpoint source_ = {};

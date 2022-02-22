@@ -6,41 +6,63 @@
 
 #include <vector>
 
+#include "base/containers/flat_set.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "build/build_config.h"
+#include "gpu/vulkan/vulkan_crash_keys.h"
 #include "gpu/vulkan/vulkan_device_queue.h"
 #include "gpu/vulkan/vulkan_function_pointers.h"
+#include "gpu/vulkan/vulkan_util.h"
 
 namespace gpu {
 
+namespace {
+
+#if DCHECK_IS_ON()
+const char* kSkippedErrors[] = {
+    // http://anglebug.com/4583
+    "VUID-VkGraphicsPipelineCreateInfo-blendEnable-02023",
+};
+
 VKAPI_ATTR VkBool32 VKAPI_CALL
 VulkanErrorCallback(VkDebugReportFlagsEXT flags,
-                    VkDebugReportObjectTypeEXT objectType,
+                    VkDebugReportObjectTypeEXT object_type,
                     uint64_t object,
                     size_t location,
-                    int32_t messageCode,
-                    const char* pLayerPrefix,
-                    const char* pMessage,
-                    void* pUserData) {
-  LOG(ERROR) << pMessage;
-  return VK_TRUE;
+                    int32_t message_code,
+                    const char* layer_prefix,
+                    const char* message,
+                    void* user_data) {
+  static base::flat_set<const char*> hitted_errors;
+  for (const char* error : kSkippedErrors) {
+    if (strstr(message, error) != nullptr) {
+      if (hitted_errors.find(error) != hitted_errors.end())
+        return VK_FALSE;
+      hitted_errors.insert(error);
+    }
+  }
+  LOG(ERROR) << message;
+  return VK_FALSE;
 }
 
 VKAPI_ATTR VkBool32 VKAPI_CALL
 VulkanWarningCallback(VkDebugReportFlagsEXT flags,
-                      VkDebugReportObjectTypeEXT objectType,
+                      VkDebugReportObjectTypeEXT object_type,
                       uint64_t object,
                       size_t location,
-                      int32_t messageCode,
-                      const char* pLayerPrefix,
-                      const char* pMessage,
-                      void* pUserData) {
-  LOG(WARNING) << pMessage;
-  return VK_TRUE;
+                      int32_t message_code,
+                      const char* layer_prefix,
+                      const char* message,
+                      void* user_data) {
+  LOG(WARNING) << message;
+  return VK_FALSE;
 }
+#endif  // DCHECK_IS_ON()
 
-VulkanInstance::VulkanInstance() {}
+}  // namespace
+
+VulkanInstance::VulkanInstance() = default;
 
 VulkanInstance::~VulkanInstance() {
   Destroy();
@@ -57,24 +79,19 @@ bool VulkanInstance::Initialize(
   if (!vulkan_function_pointers->BindUnassociatedFunctionPointers())
     return false;
 
-  if (vkEnumerateInstanceVersion)
-    vkEnumerateInstanceVersion(&vulkan_info_.api_version);
-
-#if defined(OS_ANDROID)
-  // Ensure that android works only with vulkan apiVersion >= 1.1. Vulkan will
-  // only be enabled for Android P+ and Android P+ requires vulkan
-  // apiVersion >= 1.1.
-  if (vulkan_info_.api_version < VK_MAKE_VERSION(1, 1, 0))
+  VkResult result = vkEnumerateInstanceVersion(&vulkan_info_.api_version);
+  if (result != VK_SUCCESS) {
+    DLOG(ERROR) << "vkEnumerateInstanceVersion() failed: " << result;
     return false;
-#endif
+  }
 
-  // Use Vulkan 1.1 if it's available.
-  vulkan_info_.used_api_version =
-      (vulkan_info_.api_version >= VK_MAKE_VERSION(1, 1, 0))
-          ? VK_MAKE_VERSION(1, 1, 0)
-          : VK_MAKE_VERSION(1, 0, 0);
+  if (vulkan_info_.api_version < kVulkanRequiredApiVersion)
+    return false;
 
-  VkResult result = VK_SUCCESS;
+  gpu::crash_keys::vulkan_api_version.Set(
+      VkVersionToString(vulkan_info_.api_version));
+
+  vulkan_info_.used_api_version = kVulkanRequiredApiVersion;
 
   VkApplicationInfo app_info = {};
   app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
@@ -160,31 +177,6 @@ bool VulkanInstance::Initialize(
     return false;
   }
 
-  gfx::ExtensionSet enabled_extensions(
-      std::begin(vulkan_info_.enabled_instance_extensions),
-      std::end(vulkan_info_.enabled_instance_extensions));
-
-#if DCHECK_IS_ON()
-  // TODO(crbug.com/843346): Make validation work in combination with
-  // VK_KHR_xlib_surface or switch to VK_KHR_xcb_surface.
-  bool require_xlib_surface_extension =
-      gfx::HasExtension(enabled_extensions, "VK_KHR_xlib_surface");
-
-  // VK_LAYER_KHRONOS_validation 1.1.106 is required to support
-  // VK_KHR_xlib_surface.
-  constexpr base::StringPiece standard_validation(
-      "VK_LAYER_KHRONOS_validation");
-  for (const VkLayerProperties& layer_property : vulkan_info_.instance_layers) {
-    if (standard_validation != layer_property.layerName)
-      continue;
-    if (!require_xlib_surface_extension ||
-        layer_property.specVersion >= VK_MAKE_VERSION(1, 1, 106)) {
-      enabled_layer_names.push_back(standard_validation.data());
-    }
-    break;
-  }
-#endif  // DCHECK_IS_ON()
-
   VkInstanceCreateInfo instance_create_info = {
       VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,           // sType
       nullptr,                                          // pNext
@@ -202,6 +194,10 @@ bool VulkanInstance::Initialize(
     DLOG(ERROR) << "vkCreateInstance() failed: " << result;
     return false;
   }
+
+  gfx::ExtensionSet enabled_extensions(
+      std::begin(vulkan_info_.enabled_instance_extensions),
+      std::end(vulkan_info_.enabled_instance_extensions));
 
   if (!vulkan_function_pointers->BindInstanceFunctionPointers(
           vk_instance_, vulkan_info_.used_api_version, enabled_extensions)) {
@@ -286,24 +282,33 @@ bool VulkanInstance::CollectInfo() {
     // The API version of the VkInstance might be different than the supported
     // API version of the VkPhysicalDevice, so we need to check the GPU's
     // API version instead of just testing to see if
-    // vkGetPhysicalDeviceFeatures2 is non-null.
-    if (info.properties.apiVersion >= VK_MAKE_VERSION(1, 1, 0)) {
-      VkPhysicalDeviceSamplerYcbcrConversionFeatures ycbcr_converson_features =
+    // vkGetPhysicalDeviceProperties2 and vkGetPhysicalDeviceFeatures2 are
+    // non-null.
+    static_assert(kVulkanRequiredApiVersion >= VK_API_VERSION_1_1, "");
+    if (info.properties.apiVersion >= kVulkanRequiredApiVersion) {
+      info.driver_properties = VkPhysicalDeviceDriverProperties{};
+          info.driver_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES;
+
+      VkPhysicalDeviceProperties2 properties2;
+          properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+          properties2.pNext = &info.driver_properties;
+
+      vkGetPhysicalDeviceProperties2(device, &properties2);
+
+      VkPhysicalDeviceSamplerYcbcrConversionFeatures ycbcr_conversion_features =
           {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SAMPLER_YCBCR_CONVERSION_FEATURES};
       VkPhysicalDeviceProtectedMemoryFeatures protected_memory_feature = {
           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROTECTED_MEMORY_FEATURES};
       VkPhysicalDeviceFeatures2 features_2 = {
           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
-      features_2.pNext = &ycbcr_converson_features;
-      ycbcr_converson_features.pNext = &protected_memory_feature;
+      features_2.pNext = &ycbcr_conversion_features;
+      ycbcr_conversion_features.pNext = &protected_memory_feature;
 
       vkGetPhysicalDeviceFeatures2(device, &features_2);
       info.features = features_2.features;
       info.feature_sampler_ycbcr_conversion =
-          ycbcr_converson_features.samplerYcbcrConversion;
+          ycbcr_conversion_features.samplerYcbcrConversion;
       info.feature_protected_memory = protected_memory_feature.protectedMemory;
-    } else {
-      vkGetPhysicalDeviceFeatures(device, &info.features);
     }
 
     count = 0;

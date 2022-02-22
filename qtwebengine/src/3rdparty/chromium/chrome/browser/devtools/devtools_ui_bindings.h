@@ -80,11 +80,14 @@ class DevToolsUIBindings : public DevToolsEmbedderMessageDispatcher::Delegate,
 
   // Takes ownership over the |delegate|.
   void SetDelegate(Delegate* delegate);
-  void CallClientMethod(const std::string& object_name,
-                        const std::string& method_name,
-                        const base::Value& arg1 = {},
-                        const base::Value& arg2 = {},
-                        const base::Value& arg3 = {});
+  void CallClientMethod(
+      const std::string& object_name,
+      const std::string& method_name,
+      base::Value arg1 = {},
+      base::Value arg2 = {},
+      base::Value arg3 = {},
+      base::OnceCallback<void(base::Value)> completion_callback =
+          base::OnceCallback<void(base::Value)>());
   void AttachTo(const scoped_refptr<content::DevToolsAgentHost>& agent_host);
   void Detach();
   bool IsAttachedTo(content::DevToolsAgentHost* agent_host);
@@ -104,11 +107,11 @@ class DevToolsUIBindings : public DevToolsEmbedderMessageDispatcher::Delegate,
   void SetInspectedPageBounds(const gfx::Rect& rect) override;
   void InspectElementCompleted() override;
   void InspectedURLChanged(const std::string& url) override;
-  void LoadNetworkResource(const DispatchCallback& callback,
+  void LoadNetworkResource(DispatchCallback callback,
                            const std::string& url,
                            const std::string& headers,
                            int stream_id) override;
-  void SetIsDocked(const DispatchCallback& callback, bool is_docked) override;
+  void SetIsDocked(DispatchCallback callback, bool is_docked) override;
   void OpenInNewTab(const std::string& url) override;
   void ShowItemInFolder(const std::string& file_system_path) override;
   void SaveToFile(const std::string& url,
@@ -154,20 +157,24 @@ class DevToolsUIBindings : public DevToolsEmbedderMessageDispatcher::Delegate,
   void RecordPerformanceHistogram(const std::string& name,
                                   double duration) override;
   void RecordUserMetricsAction(const std::string& name) override;
-  void SendJsonRequest(const DispatchCallback& callback,
+  void SendJsonRequest(DispatchCallback callback,
                        const std::string& browser_id,
                        const std::string& url) override;
-  void GetPreferences(const DispatchCallback& callback) override;
+  void GetPreferences(DispatchCallback callback) override;
   void SetPreference(const std::string& name,
                      const std::string& value) override;
   void RemovePreference(const std::string& name) override;
   void ClearPreferences() override;
-  void Reattach(const DispatchCallback& callback) override;
+  void Reattach(DispatchCallback callback) override;
   void ReadyForTest() override;
   void ConnectionReady() override;
   void SetOpenNewWindowForPopups(bool value) override;
   void RegisterExtensionsAPI(const std::string& origin,
                              const std::string& script) override;
+  void ShowSurvey(DispatchCallback callback,
+                  const std::string& trigger) override;
+  void CanShowSurvey(DispatchCallback callback,
+                     const std::string& trigger) override;
 
   void EnableRemoteDeviceCounter(bool enable);
 
@@ -187,11 +194,11 @@ class DevToolsUIBindings : public DevToolsEmbedderMessageDispatcher::Delegate,
   void DidNavigateMainFrame();
   void FrontendLoaded();
 
-  void JsonReceived(const DispatchCallback& callback,
+  void JsonReceived(DispatchCallback callback,
                     int result,
                     const std::string& message);
   void DevicesDiscoveryConfigUpdated();
-  void SendPortForwardingStatus(const base::Value& status);
+  void SendPortForwardingStatus(base::Value status);
 
   // DevToolsFileHelper::Delegate overrides.
   void FileSystemAdded(
@@ -217,7 +224,7 @@ class DevToolsUIBindings : public DevToolsEmbedderMessageDispatcher::Delegate,
                        const std::string& file_system_path,
                        const std::vector<std::string>& file_paths);
   void ShowDevToolsInfoBar(const base::string16& message,
-                           const DevToolsInfoBarDelegate::Callback& callback);
+                           DevToolsInfoBarDelegate::Callback callback);
 
   // Extensions support.
   void AddDevToolsExtensionsToClient();

@@ -41,6 +41,7 @@
 #define QSOUNDEFFECT_H
 
 #include <QtMultimedia/qtmultimediaglobal.h>
+#include <QtMultimedia/qaudio.h>
 #include <QtCore/qobject.h>
 #include <QtCore/qurl.h>
 #include <QtCore/qstringlist.h>
@@ -50,7 +51,7 @@ QT_BEGIN_NAMESPACE
 
 
 class QSoundEffectPrivate;
-class QAudioDeviceInfo;
+class QAudioDevice;
 
 class Q_MULTIMEDIA_EXPORT QSoundEffect : public QObject
 {
@@ -59,19 +60,18 @@ class Q_MULTIMEDIA_EXPORT QSoundEffect : public QObject
     Q_PROPERTY(QUrl source READ source WRITE setSource NOTIFY sourceChanged)
     Q_PROPERTY(int loops READ loopCount WRITE setLoopCount NOTIFY loopCountChanged)
     Q_PROPERTY(int loopsRemaining READ loopsRemaining NOTIFY loopsRemainingChanged)
-    Q_PROPERTY(qreal volume READ volume WRITE setVolume NOTIFY volumeChanged)
+    Q_PROPERTY(float volume READ volume WRITE setVolume NOTIFY volumeChanged)
     Q_PROPERTY(bool muted READ isMuted WRITE setMuted NOTIFY mutedChanged)
     Q_PROPERTY(bool playing READ isPlaying NOTIFY playingChanged)
     Q_PROPERTY(Status status READ status NOTIFY statusChanged)
-    Q_PROPERTY(QString category READ category WRITE setCategory NOTIFY categoryChanged)
-    Q_ENUMS(Loop)
-    Q_ENUMS(Status)
+    Q_PROPERTY(QAudioDevice audioDevice READ audioDevice WRITE setAudioDevice NOTIFY audioDeviceChanged)
 
 public:
     enum Loop
     {
         Infinite = -2
     };
+    Q_ENUM(Loop)
 
     enum Status
     {
@@ -80,9 +80,10 @@ public:
         Ready,
         Error
     };
+    Q_ENUM(Status)
 
     explicit QSoundEffect(QObject *parent = nullptr);
-    explicit QSoundEffect(const QAudioDeviceInfo &audioDevice, QObject *parent = nullptr);
+    explicit QSoundEffect(const QAudioDevice &audioDevice, QObject *parent = nullptr);
     ~QSoundEffect();
 
     static QStringList supportedMimeTypes();
@@ -94,8 +95,11 @@ public:
     int loopsRemaining() const;
     void setLoopCount(int loopCount);
 
-    qreal volume() const;
-    void setVolume(qreal volume);
+    QAudioDevice audioDevice();
+    void setAudioDevice(const QAudioDevice &device);
+
+    float volume() const;
+    void setVolume(float volume);
 
     bool isMuted() const;
     void setMuted(bool muted);
@@ -104,9 +108,6 @@ public:
 
     bool isPlaying() const;
     Status status() const;
-
-    QString category() const;
-    void setCategory(const QString &category);
 
 Q_SIGNALS:
     void sourceChanged();
@@ -117,7 +118,7 @@ Q_SIGNALS:
     void loadedChanged();
     void playingChanged();
     void statusChanged();
-    void categoryChanged();
+    void audioDeviceChanged();
 
 public Q_SLOTS:
     void play();

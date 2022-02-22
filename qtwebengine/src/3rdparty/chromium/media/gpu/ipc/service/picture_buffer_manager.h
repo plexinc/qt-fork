@@ -19,6 +19,7 @@
 #include "media/base/video_types.h"
 #include "media/gpu/command_buffer_helper.h"
 #include "media/video/picture.h"
+#include "media/video/video_decode_accelerator.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 
@@ -77,7 +78,8 @@ class PictureBufferManager
       VideoPixelFormat pixel_format,
       uint32_t planes,
       gfx::Size texture_size,
-      uint32_t texture_target) = 0;
+      uint32_t texture_target,
+      VideoDecodeAccelerator::TextureAllocationMode mode) = 0;
 
   // Dismisses a picture buffer from the pool.
   //

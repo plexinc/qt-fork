@@ -27,8 +27,8 @@
 ****************************************************************************/
 
 #include "mockcompositor.h"
+#include <QtOpenGL/QOpenGLWindow>
 #include <QtGui/QRasterWindow>
-#include <QtGui/QOpenGLWindow>
 #include <QtGui/qpa/qplatformnativeinterface.h>
 #include <QtWaylandClient/private/wayland-wayland-client-protocol.h>
 
@@ -51,6 +51,7 @@ private slots:
     void minMaxSize();
     void windowGeometry();
     void foreignSurface();
+    void nativeResources();
 };
 
 void tst_xdgshell::showMinimized()
@@ -370,7 +371,7 @@ void tst_xdgshell::switchPopups()
             m_popups << new Popup(this);
         }
         ~Window() override { qDeleteAll(m_popups); }
-        QVector<Popup *> m_popups;
+        QList<Popup *> m_popups;
     };
 
     Window window;
@@ -505,7 +506,7 @@ void tst_xdgshell::minMaxSize()
     window.show();
     QCOMPOSITOR_TRY_VERIFY(xdgToplevel());
 
-    exec([=] { xdgToplevel()->sendCompleteConfigure(); });
+    // we don't roundtrip with our configuration the initial commit should be correct
 
     QCOMPOSITOR_TRY_COMPARE(xdgToplevel()->m_committed.minSize, QSize(100, 100));
     QCOMPOSITOR_TRY_COMPARE(xdgToplevel()->m_committed.maxSize, QSize(1000, 1000));
@@ -561,6 +562,24 @@ void tst_xdgshell::foreignSurface()
     QTRY_COMPARE(spy.count(), 1);
 
     wl_surface_destroy(foreignSurface);
+}
+
+void tst_xdgshell::nativeResources()
+{
+    QRasterWindow window;
+    window.resize(400, 320);
+    window.show();
+    QCOMPOSITOR_TRY_VERIFY(xdgToplevel());
+
+    auto *ni = QGuiApplication::platformNativeInterface();
+    auto *xdg_surface_proxy = static_cast<::wl_proxy *>(ni->nativeResourceForWindow("xdg_surface", &window));
+    QCOMPARE(wl_proxy_get_class(xdg_surface_proxy), "xdg_surface");
+
+    auto *xdg_toplevel_proxy = static_cast<::wl_proxy *>(ni->nativeResourceForWindow("xdg_toplevel", &window));
+    QCOMPARE(wl_proxy_get_class(xdg_toplevel_proxy), "xdg_toplevel");
+
+    auto *xdg_popup_proxy = static_cast<::wl_proxy *>(ni->nativeResourceForWindow("xdg_popup", &window));
+    QCOMPARE(xdg_popup_proxy, nullptr);
 }
 
 QCOMPOSITOR_TEST_MAIN(tst_xdgshell)

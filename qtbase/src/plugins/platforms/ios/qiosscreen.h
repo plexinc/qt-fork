@@ -67,13 +67,12 @@ public:
     int depth() const override;
     QImage::Format format() const override;
     QSizeF physicalSize() const override;
-    QDpi logicalDpi() const override;
+    QDpi logicalBaseDpi() const override;
     qreal devicePixelRatio() const override;
     qreal refreshRate() const override;
 
     Qt::ScreenOrientation nativeOrientation() const override;
     Qt::ScreenOrientation orientation() const override;
-    void setOrientationUpdateMask(Qt::ScreenOrientations mask) override;
 
     QPixmap grabWindow(WId window, int x, int y, int width, int height) const override;
 

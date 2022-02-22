@@ -40,16 +40,16 @@
 #include "qplatformdialoghelper.h"
 
 #include <QtCore/QCoreApplication>
-#include <QtCore/QVariant>
+#include <QtCore/QList>
 #if QT_CONFIG(regularexpression)
 #include <QtCore/QRegularExpression>
 #endif
-#include <QtCore/QSharedData>
 #if QT_CONFIG(settings)
 #include <QtCore/QSettings>
 #endif
+#include <QtCore/QSharedData>
 #include <QtCore/QUrl>
-#include <QtCore/QVector>
+#include <QtCore/QVariant>
 #include <QtGui/QColor>
 
 #include <algorithm>
@@ -107,11 +107,6 @@ static const int buttonRoleLayouts[2][6][14] =
           QPlatformDialogHelper::AcceptRole | QPlatformDialogHelper::Reverse, QPlatformDialogHelper::NoRole | QPlatformDialogHelper::Reverse,
           QPlatformDialogHelper::YesRole | QPlatformDialogHelper::Reverse, QPlatformDialogHelper::EOL },
 
-        // MacModelessLayout
-        { QPlatformDialogHelper::ResetRole, QPlatformDialogHelper::ApplyRole, QPlatformDialogHelper::ActionRole, QPlatformDialogHelper::Stretch,
-          QPlatformDialogHelper::HelpRole, QPlatformDialogHelper::EOL, QPlatformDialogHelper::EOL, QPlatformDialogHelper::EOL, QPlatformDialogHelper::EOL,
-          QPlatformDialogHelper::EOL, QPlatformDialogHelper::EOL, QPlatformDialogHelper::EOL, QPlatformDialogHelper::EOL, QPlatformDialogHelper::EOL },
-
           // AndroidLayout (neutral, stretch, dismissive, affirmative)
           // https://material.io/guidelines/components/dialogs.html#dialogs-specs
         { QPlatformDialogHelper::HelpRole, QPlatformDialogHelper::ResetRole, QPlatformDialogHelper::ApplyRole, QPlatformDialogHelper::ActionRole,
@@ -142,11 +137,6 @@ static const int buttonRoleLayouts[2][6][14] =
         { QPlatformDialogHelper::YesRole, QPlatformDialogHelper::NoRole, QPlatformDialogHelper::AcceptRole, QPlatformDialogHelper::RejectRole,
           QPlatformDialogHelper::AlternateRole, QPlatformDialogHelper::DestructiveRole, QPlatformDialogHelper::ApplyRole, QPlatformDialogHelper::ActionRole, QPlatformDialogHelper::Stretch,
           QPlatformDialogHelper::ResetRole, QPlatformDialogHelper::HelpRole, QPlatformDialogHelper::EOL, QPlatformDialogHelper::EOL, QPlatformDialogHelper::EOL },
-
-        // MacModelessLayout
-        { QPlatformDialogHelper::ActionRole, QPlatformDialogHelper::ApplyRole, QPlatformDialogHelper::ResetRole, QPlatformDialogHelper::Stretch,
-          QPlatformDialogHelper::HelpRole, QPlatformDialogHelper::EOL, QPlatformDialogHelper::EOL, QPlatformDialogHelper::EOL, QPlatformDialogHelper::EOL,
-          QPlatformDialogHelper::EOL, QPlatformDialogHelper::EOL, QPlatformDialogHelper::EOL, QPlatformDialogHelper::EOL, QPlatformDialogHelper::EOL },
 
           // AndroidLayout
           // (affirmative
@@ -741,7 +731,7 @@ QStringList QFileDialogOptions::supportedSchemes() const
 
 void QPlatformFileDialogHelper::selectMimeTypeFilter(const QString &filter)
 {
-    Q_UNUSED(filter)
+    Q_UNUSED(filter);
 }
 
 QString QPlatformFileDialogHelper::selectedMimeTypeFilter() const
@@ -784,12 +774,12 @@ QStringList QPlatformFileDialogHelper::cleanFilterList(const QString &filter)
     QRegularExpression regexp(QString::fromLatin1(filterRegExp));
     Q_ASSERT(regexp.isValid());
     QString f = filter;
-    QRegularExpressionMatch match;
-    filter.indexOf(regexp, 0, &match);
+    QRegularExpressionMatch match = regexp.match(filter);
     if (match.hasMatch())
         f = match.captured(2);
     return f.split(QLatin1Char(' '), Qt::SkipEmptyParts);
 #else
+    Q_UNUSED(filter);
     return QStringList();
 #endif
 }
@@ -811,7 +801,7 @@ public:
     QString informativeText;
     QString detailedText;
     QPlatformDialogHelper::StandardButtons buttons;
-    QVector<QMessageDialogOptions::CustomButton> customButtons;
+    QList<QMessageDialogOptions::CustomButton> customButtons;
     int nextCustomButtonId;
 };
 
@@ -922,7 +912,7 @@ void QMessageDialogOptions::removeButton(int id)
     d->customButtons.removeOne(CustomButton(id));
 }
 
-const QVector<QMessageDialogOptions::CustomButton> &QMessageDialogOptions::customButtons()
+const QList<QMessageDialogOptions::CustomButton> &QMessageDialogOptions::customButtons()
 {
     return d->customButtons;
 }

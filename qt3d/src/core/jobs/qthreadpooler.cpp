@@ -38,6 +38,7 @@
 ****************************************************************************/
 
 #include "qthreadpooler_p.h"
+#include "qaspectjobmanager_p.h"
 #include <QtCore/QDebug>
 
 QT_BEGIN_NAMESPACE
@@ -52,7 +53,7 @@ QThreadPooler::QThreadPooler(QObject *parent)
     , m_threadPool(QThreadPool::globalInstance())
     , m_totalRunJobs(0)
 {
-    m_threadPool->setMaxThreadCount(QThreadPooler::maxThreadCount());
+    m_threadPool->setMaxThreadCount(QAspectJobManager::idealThreadCount());
     // Ensures that threads will never be recycled
     m_threadPool->setExpiryTimeout(-1);
 }
@@ -64,13 +65,13 @@ QThreadPooler::~QThreadPooler()
     locker.unlock();
 }
 
-void QThreadPooler::enqueueTasks(const QVector<RunnableInterface *> &tasks)
+void QThreadPooler::enqueueTasks(const QList<RunnableInterface *> &tasks)
 {
     // The caller have to set the mutex
-    const QVector<RunnableInterface *>::const_iterator end = tasks.cend();
+    const QList<RunnableInterface *>::const_iterator end = tasks.cend();
 
     m_totalRunJobs = 0;
-    for (QVector<RunnableInterface *>::const_iterator it = tasks.cbegin();
+    for (QList<RunnableInterface *>::const_iterator it = tasks.cbegin();
          it != end; ++it) {
 
         // Only AspectTaskRunnables are checked for dependencies.
@@ -147,7 +148,7 @@ void QThreadPooler::taskFinished(RunnableInterface *task)
     }
 }
 
-QFuture<void> QThreadPooler::mapDependables(QVector<RunnableInterface *> &taskQueue)
+QFuture<void> QThreadPooler::mapDependables(QList<RunnableInterface *> &taskQueue)
 {
     const QMutexLocker locker(&m_mutex);
 
@@ -197,24 +198,6 @@ int QThreadPooler::currentCount() const
     // The caller have to set the mutex
 
     return m_taskCount.loadRelaxed();
-}
-
-int QThreadPooler::maxThreadCount()
-{
-    static int threadCount = 0;
-
-    if (threadCount == 0) {
-        threadCount = QThread::idealThreadCount();
-        const QByteArray maxThreadCount = qgetenv("QT3D_MAX_THREAD_COUNT");
-        if (!maxThreadCount.isEmpty()) {
-            bool conversionOK = false;
-            const int maxThreadCountValue = maxThreadCount.toInt(&conversionOK);
-            if (conversionOK)
-                threadCount = std::min(threadCount, maxThreadCountValue);
-        }
-    }
-
-    return threadCount;
 }
 
 } // namespace Qt3DCore

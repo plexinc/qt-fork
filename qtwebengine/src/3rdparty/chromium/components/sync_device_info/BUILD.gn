@@ -2,6 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/features.gni")
 import("//build/config/jumbo.gni")
 
@@ -29,11 +30,6 @@ jumbo_static_library("sync_device_info") {
     "local_device_info_provider_impl.h",
     "local_device_info_util.cc",
     "local_device_info_util.h",
-    "local_device_info_util_android.cc",
-    "local_device_info_util_ios.mm",
-    "local_device_info_util_linux.cc",
-    "local_device_info_util_mac.mm",
-    "local_device_info_util_win.cc",
   ]
 
   configs += [ "//build/config:precompiled_headers" ]
@@ -41,9 +37,11 @@ jumbo_static_library("sync_device_info") {
   public_deps = [
     "//base",
     "//components/sync",
+    "//components/sync/invalidations",
     "//components/sync/protocol",
   ]
   deps = [
+    "//build:chromeos_buildflags",
     "//components/keyed_service/core",
     "//components/metrics",
     "//components/prefs",
@@ -53,16 +51,33 @@ jumbo_static_library("sync_device_info") {
 
   configs += [ "//build/config/compiler:wexit_time_destructors" ]
 
+  if (is_android) {
+    sources += [ "local_device_info_util_android.cc" ]
+  }
+
+  if (is_ios) {
+    sources += [ "local_device_info_util_ios.mm" ]
+  }
+
+  if (is_linux || is_chromeos) {
+    sources += [ "local_device_info_util_linux.cc" ]
+  }
+
   if (is_mac) {
-    libs = [
+    sources += [ "local_device_info_util_mac.mm" ]
+    frameworks = [
       "CoreFoundation.framework",
       "SystemConfiguration.framework",  # For local_device_info_util_mac.mm.
     ]
   }
 
-  if (is_chromeos) {
+  if (is_win) {
+    sources += [ "local_device_info_util_win.cc" ]
+  }
+
+  if (is_chromeos_ash) {
     # Required by device_info_util_linux.cc on Chrome OS.
-    deps += [ "//chromeos/constants" ]
+    deps += [ "//ash/constants" ]
   }
 }
 
@@ -100,15 +115,12 @@ source_set("unit_tests") {
     ":test_support",
     "//base",
     "//base/test:test_support",
+    "//build:chromeos_buildflags",
     "//components/prefs:test_support",
     "//components/sync:test_support",
+    "//components/sync/invalidations:test_support",
     "//components/version_info:version_string",
     "//testing/gmock",
     "//testing/gtest",
   ]
-
-  if (is_chromeos) {
-    # Required by local_device_info_util_unittest.cc on Chrome OS.
-    deps += [ "//chromeos/constants" ]
-  }
 }

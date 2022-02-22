@@ -31,7 +31,7 @@
 #include <QtCore/QTimer>
 #include <QtCore/qmath.h>
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 static const float maxTapAndHoldJitter = 20.0f;
 static const int maxPinchJitter = 10;
@@ -119,15 +119,15 @@ QTouch3DInputHandler::~QTouch3DInputHandler()
 void QTouch3DInputHandler::touchEvent(QTouchEvent *event)
 {
     QList<QTouchEvent::TouchPoint> points;
-    points = event->touchPoints();
+    points = event->points();
 
     if (!scene()->isSlicingActive() && points.count() == 2) {
         d_ptr->m_holdTimer->stop();
-        QPointF distance = points.at(0).pos() - points.at(1).pos();
-        QPoint midPoint = ((points.at(0).pos() + points.at(1).pos()) / 2.0).toPoint();
+        QPointF distance = points.at(0).position() - points.at(1).position();
+        QPoint midPoint = ((points.at(0).position() + points.at(1).position()) / 2.0).toPoint();
         d_ptr->handlePinchZoom(distance.manhattanLength(), midPoint);
     } else if (points.count() == 1) {
-        QPointF pointerPos = points.at(0).pos();
+        QPointF pointerPos = points.at(0).position();
         if (event->type() == QEvent::TouchBegin) {
             // Flush input state
             d_ptr->m_inputState = QAbstract3DInputHandlerPrivate::InputStateNone;
@@ -278,4 +278,4 @@ void QTouch3DInputHandlerPrivate::handleRotation(const QPointF &position)
     }
 }
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE

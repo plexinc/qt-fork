@@ -6,6 +6,7 @@ import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
 import 'chrome://resources/polymer/v3_0/paper-styles/color.js';
 import './strings.m.js';
 import './signin_shared_css.js';
+import './signin_vars_css.js';
 
 import {assert, assertNotReached} from 'chrome://resources/js/assert.m.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
@@ -31,31 +32,38 @@ Polymer({
         return loadTimeData.getString('accountPictureUrl');
       },
     },
+
+    /** @private */
+    isProfileCreationFlow_: {
+      type: Boolean,
+      value() {
+        return loadTimeData.getBoolean('isProfileCreationFlow');
+      }
+    },
+
+    /** @private */
+    highlightColor_: {
+      type: String,
+      value() {
+        if (!loadTimeData.valueExists('highlightColor')) {
+          return '';
+        }
+
+        return loadTimeData.getString('highlightColor');
+      }
+    },
   },
 
   /** @private {?SyncConfirmationBrowserProxy} */
   syncConfirmationBrowserProxy_: null,
 
-  /** @private {?function(Event)} */
-  boundKeyDownHandler_: null,
-
   /** @override */
   attached() {
     this.syncConfirmationBrowserProxy_ =
         SyncConfirmationBrowserProxyImpl.getInstance();
-    this.boundKeyDownHandler_ = this.onKeyDown_.bind(this);
-    // This needs to be bound to document instead of "this" because the dialog
-    // window opens initially, the focus level is only on document, so the key
-    // event is not captured by "this".
-    document.addEventListener('keydown', this.boundKeyDownHandler_);
     this.addWebUIListener(
         'account-image-changed', this.handleAccountImageChanged_.bind(this));
     this.syncConfirmationBrowserProxy_.requestAccountImage();
-  },
-
-  /** @override */
-  detached() {
-    document.removeEventListener('keydown', this.boundKeyDownHandler_);
   },
 
   /** @private */
@@ -73,14 +81,6 @@ Polymer({
   onGoToSettings_(e) {
     this.syncConfirmationBrowserProxy_.goToSettings(
         this.getConsentDescription_(), this.getConsentConfirmation_(e.path));
-  },
-
-  /** @private */
-  onKeyDown_(e) {
-    if (e.key == 'Enter' && !/^(A|CR-BUTTON)$/.test(e.path[0].tagName)) {
-      this.onConfirm_(e);
-      e.preventDefault();
-    }
   },
 
   /**
@@ -106,7 +106,7 @@ Polymer({
         Array.from(this.shadowRoot.querySelectorAll('[consent-description]'))
             .filter(element => element.clientWidth * element.clientHeight > 0)
             .map(element => element.innerHTML.trim());
-    assert(consentDescription);
+    assert(consentDescription.length);
     return consentDescription;
   },
 

@@ -45,7 +45,7 @@
 #include <QtWidgets/QGraphicsScene>
 #include <QtWidgets/QGraphicsLinearLayout>
 #include <QtWidgets/QGraphicsProxyWidget>
-#include <QtWidgets/QOpenGLWidget>
+#include <QtOpenGLWidgets/QOpenGLWidget>
 #include <QtWidgets/QApplication>
 #include <QtCore/QDebug>
 #include <QtCore/QRegularExpression>
@@ -255,7 +255,7 @@ QComboBox *Window::createTempleteBox()
     QMultiMap<QString, Chart *> categoryMap;
 
     foreach (Chart *chart, list)
-        categoryMap.insertMulti(chart->category(), chart);
+        categoryMap.insert(chart->category(), chart);
 
     foreach (const QString &category, categoryMap.uniqueKeys())
         templateComboBox->addItem(category, category);
@@ -552,7 +552,7 @@ QMenu *Window::createMenu()
     QMenu *result = new QMenu(this);
 
     foreach (Chart *chart, list)
-        categoryMap.insertMulti(chart->category(), chart);
+        categoryMap.insert(chart->category(), chart);
 
     foreach (const QString &category, categoryMap.uniqueKeys()) {
         QMenu *menu(0);

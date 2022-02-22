@@ -46,9 +46,9 @@ namespace blink {
 CSSStyleSheetResource* CSSStyleSheetResource::Fetch(FetchParameters& params,
                                                     ResourceFetcher* fetcher,
                                                     ResourceClient* client) {
-  params.SetRequestContext(mojom::RequestContextType::STYLE);
+  params.SetRequestContext(mojom::blink::RequestContextType::STYLE);
   params.SetRequestDestination(network::mojom::RequestDestination::kStyle);
-  CSSStyleSheetResource* resource = ToCSSStyleSheetResource(
+  auto* resource = To<CSSStyleSheetResource>(
       fetcher->RequestResource(params, CSSStyleSheetResourceFactory(), client));
   return resource;
 }
@@ -58,7 +58,7 @@ CSSStyleSheetResource* CSSStyleSheetResource::CreateForTest(
     const WTF::TextEncoding& encoding) {
   ResourceRequest request(url);
   request.SetCredentialsMode(network::mojom::CredentialsMode::kOmit);
-  ResourceLoaderOptions options;
+  ResourceLoaderOptions options(nullptr /* world */);
   TextResourceDecoderOptions decoder_options(
       TextResourceDecoderOptions::kCSSContent, encoding);
   return MakeGarbageCollected<CSSStyleSheetResource>(request, options,
@@ -88,7 +88,7 @@ void CSSStyleSheetResource::SetParsedStyleSheetCache(
   UpdateDecodedSize();
 }
 
-void CSSStyleSheetResource::Trace(Visitor* visitor) {
+void CSSStyleSheetResource::Trace(Visitor* visitor) const {
   visitor->Trace(parsed_style_sheet_cache_);
   TextResource::Trace(visitor);
 }

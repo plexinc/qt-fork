@@ -195,6 +195,7 @@ public:
     template<typename T>
     void setData(const QVector<T> &v)
     {
+        m_elementByteSize = sizeof(T);
         m_data.resize(v.size() * sizeof(T) / sizeof(float));
         m_valueType = ScalarValue;
         float *data = m_data.data();
@@ -203,7 +204,9 @@ public:
 
     static UniformValue fromVariant(const QVariant &variant);
 
-    int byteSize() const { return m_data.size() * sizeof(float); }
+    int byteSize() const { return int(m_data.size()) * sizeof(float); }
+    int elementCount() const { return byteSize() / elementByteSize(); }
+    int elementByteSize() const { return m_elementByteSize; }
 
     template<typename T>
     const T *constData() const
@@ -235,6 +238,7 @@ private:
 
     // TODO: Replace this hack see QTBUG-57510
     UniformType m_storedType = Unknown;
+    int m_elementByteSize = sizeof(float);
 };
 
 template<>

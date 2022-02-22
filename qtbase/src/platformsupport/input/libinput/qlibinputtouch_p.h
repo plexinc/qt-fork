@@ -78,11 +78,12 @@ private:
         DeviceState() : m_touchDevice(nullptr), m_screenName() { }
         QWindowSystemInterface::TouchPoint *point(int32_t slot);
         QList<QWindowSystemInterface::TouchPoint> m_points;
-        QTouchDevice *m_touchDevice;
+        QPointingDevice *m_touchDevice;
         QString m_screenName;
     };
 
     DeviceState *deviceState(libinput_event_touch *e);
+    QRect screenGeometry(DeviceState *state);
     QPointF getPos(libinput_event_touch *e);
 
     QHash<libinput_device *, DeviceState> m_devState;

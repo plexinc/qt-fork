@@ -27,7 +27,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
+import QtQuick
+import QtQuick.VirtualKeyboard
 
 /*!
     \qmltype KeyboardLayoutLoader
@@ -47,9 +48,9 @@ import QtQuick 2.0
     Example:
 
     \code
-    import QtQuick 2.0
-    import QtQuick.Layouts 1.0
-    import QtQuick.VirtualKeyboard 2.1
+    import QtQuick
+    import QtQuick.Layouts
+    import QtQuick.VirtualKeyboard
 
     // file: layouts/en_GB/symbols.qml
 
@@ -123,5 +124,17 @@ Loader {
 
     active: parent !== null
 
-    onItemChanged: if (parent && item && __updateCount++ > 0 && !keyboard.inputMethodNeedsReset) keyboard.updateInputMethod()
+    onItemChanged: {
+        if (parent && item && __updateCount++ > 0) {
+            if (!keyboard.inputMethodNeedsReset)
+                keyboard.updateInputMethod()
+            keyboard.notifyLayoutChanged()
+        }
+    }
+
+    function scanLayout() {
+        if (item === null)
+            return null
+        return item.scanLayout()
+    }
 }

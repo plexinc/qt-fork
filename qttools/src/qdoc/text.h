@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2019 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -26,10 +26,6 @@
 **
 ****************************************************************************/
 
-/*
-  text.h
-*/
-
 #ifndef TEXT_H
 #define TEXT_H
 
@@ -47,8 +43,8 @@ public:
 
     Text &operator=(const Text &text);
 
-    Atom *firstAtom() { return first; }
-    Atom *lastAtom() { return last; }
+    Atom *firstAtom() { return m_first; }
+    Atom *lastAtom() { return m_last; }
     Text &operator<<(Atom::AtomType atomType);
     Text &operator<<(const QString &string);
     Text &operator<<(const Atom &atom);
@@ -57,11 +53,11 @@ public:
     void stripFirstAtom();
     void stripLastAtom();
 
-    bool isEmpty() const { return first == nullptr; }
-    bool contains(const QString &str) const;
-    QString toString() const;
-    const Atom *firstAtom() const { return first; }
-    const Atom *lastAtom() const { return last; }
+    [[nodiscard]] bool isEmpty() const { return m_first == nullptr; }
+    [[nodiscard]] bool contains(const QString &str) const;
+    [[nodiscard]] QString toString() const;
+    [[nodiscard]] const Atom *firstAtom() const { return m_first; }
+    [[nodiscard]] const Atom *lastAtom() const { return m_last; }
     Text subText(Atom::AtomType left, Atom::AtomType right, const Atom *from = nullptr,
                  bool inclusive = false) const;
     void dump() const;
@@ -69,12 +65,11 @@ public:
 
     static Text subText(const Atom *begin, const Atom *end = nullptr);
     static Text sectionHeading(const Atom *sectionBegin);
-    static const Atom *sectionHeadingAtom(const Atom *sectionLeft);
     static int compare(const Text &text1, const Text &text2);
 
 private:
-    Atom *first;
-    Atom *last;
+    Atom *m_first { nullptr };
+    Atom *m_last { nullptr };
 };
 
 inline bool operator==(const Text &text1, const Text &text2)

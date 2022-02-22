@@ -26,50 +26,19 @@
 **
 ****************************************************************************/
 
-// TODO Remove in Qt6
-#include <QtCore/qcompilerdetection.h>
-QT_WARNING_DISABLE_DEPRECATED
-
 #include <QtTest/QTest>
 #include <qbackendnodetester.h>
 #include <Qt3DRender/private/geometryrenderer_p.h>
 #include <Qt3DRender/private/geometryrenderermanager_p.h>
-#include <Qt3DRender/qgeometry.h>
-#include <Qt3DRender/qgeometryfactory.h>
+#include <Qt3DCore/qgeometry.h>
 #include "testrenderer.h"
 
-class TestFactory : public Qt3DRender::QGeometryFactory
-{
-public:
-    explicit TestFactory(int size)
-        : m_size(size)
-    {}
-
-    Qt3DRender::QGeometry *operator ()() final
-    {
-        return nullptr;
-    }
-
-    bool operator ==(const Qt3DRender::QGeometryFactory &other) const final
-    {
-        const TestFactory *otherFactory = Qt3DRender::functor_cast<TestFactory>(&other);
-        if (otherFactory != nullptr)
-            return otherFactory->m_size == m_size;
-        return false;
-    }
-
-    QT3D_FUNCTOR(TestFactory)
-
-    private:
-        int m_size;
-};
-
-class DummyGeometry : public Qt3DRender::QGeometry
+class DummyGeometry : public Qt3DCore::QGeometry
 {
     Q_OBJECT
 public:
     DummyGeometry(Qt3DCore::QNode *parent = nullptr)
-        : Qt3DRender::QGeometry(parent)
+        : Qt3DCore::QGeometry(parent)
     {}
 };
 
@@ -84,8 +53,7 @@ private Q_SLOTS:
         // GIVEN
         Qt3DRender::Render::GeometryRenderer renderGeometryRenderer;
         Qt3DRender::QGeometryRenderer geometryRenderer;
-        Qt3DRender::QGeometry geometry;
-        Qt3DRender::QGeometryFactoryPtr factory(new TestFactory(1200));
+        Qt3DCore::QGeometry geometry;
         Qt3DRender::Render::GeometryRendererManager geometryRendererManager;
         TestRenderer renderer;
 
@@ -98,8 +66,8 @@ private Q_SLOTS:
         geometryRenderer.setPrimitiveRestartEnabled(true);
         geometryRenderer.setPrimitiveType(Qt3DRender::QGeometryRenderer::Patches);
         geometryRenderer.setGeometry(&geometry);
-        geometryRenderer.setGeometryFactory(factory);
         geometryRenderer.setEnabled(false);
+        geometryRenderer.setSortIndex(42.f);
 
         // WHEN
         renderGeometryRenderer.setRenderer(&renderer);
@@ -108,7 +76,7 @@ private Q_SLOTS:
 
         // THEN
         QCOMPARE(renderGeometryRenderer.peerId(), geometryRenderer.id());
-        QCOMPARE(renderGeometryRenderer.isDirty(), true);
+        QVERIFY(renderGeometryRenderer.isDirty());
         QCOMPARE(renderGeometryRenderer.instanceCount(), geometryRenderer.instanceCount());
         QCOMPARE(renderGeometryRenderer.vertexCount(), geometryRenderer.vertexCount());
         QCOMPARE(renderGeometryRenderer.indexOffset(), geometryRenderer.indexOffset());
@@ -118,9 +86,9 @@ private Q_SLOTS:
         QCOMPARE(renderGeometryRenderer.primitiveRestartEnabled(), geometryRenderer.primitiveRestartEnabled());
         QCOMPARE(renderGeometryRenderer.primitiveType(), geometryRenderer.primitiveType());
         QCOMPARE(renderGeometryRenderer.geometryId(), geometry.id());
-        QCOMPARE(renderGeometryRenderer.geometryFactory(), factory);
         QCOMPARE(renderGeometryRenderer.isEnabled(), false);
-        QVERIFY(*renderGeometryRenderer.geometryFactory() == *factory);
+        QCOMPARE(renderGeometryRenderer.sortIndex(), geometryRenderer.sortIndex());
+        QCOMPARE(renderGeometryRenderer.sortIndex(), 42.f);
     }
 
     void checkInitialAndCleanedUpState()
@@ -132,7 +100,7 @@ private Q_SLOTS:
         // THEN
         QVERIFY(renderGeometryRenderer.peerId().isNull());
         QVERIFY(renderGeometryRenderer.geometryId().isNull());
-        QCOMPARE(renderGeometryRenderer.isDirty(), false);
+        QVERIFY(!renderGeometryRenderer.isDirty());
         QCOMPARE(renderGeometryRenderer.instanceCount(), 0);
         QCOMPARE(renderGeometryRenderer.vertexCount(), 0);
         QCOMPARE(renderGeometryRenderer.indexOffset(), 0);
@@ -143,11 +111,11 @@ private Q_SLOTS:
         QCOMPARE(renderGeometryRenderer.primitiveType(), Qt3DRender::QGeometryRenderer::Triangles);
         QVERIFY(renderGeometryRenderer.geometryFactory().isNull());
         QVERIFY(!renderGeometryRenderer.isEnabled());
+        QCOMPARE(renderGeometryRenderer.sortIndex(), -1.f);
 
         // GIVEN
         Qt3DRender::QGeometryRenderer geometryRenderer;
-        Qt3DRender::QGeometry geometry;
-        Qt3DRender::QGeometryFactoryPtr factory(new TestFactory(1200));
+        Qt3DCore::QGeometry geometry;
         TestRenderer renderer;
 
         geometryRenderer.setInstanceCount(454);
@@ -159,8 +127,8 @@ private Q_SLOTS:
         geometryRenderer.setPrimitiveRestartEnabled(true);
         geometryRenderer.setPrimitiveType(Qt3DRender::QGeometryRenderer::Patches);
         geometryRenderer.setGeometry(&geometry);
-        geometryRenderer.setGeometryFactory(factory);
         geometryRenderer.setEnabled(true);
+        geometryRenderer.setSortIndex(42.f);
 
         // WHEN
         renderGeometryRenderer.setRenderer(&renderer);
@@ -170,7 +138,7 @@ private Q_SLOTS:
 
         // THEN
         QVERIFY(renderGeometryRenderer.geometryId().isNull());
-        QCOMPARE(renderGeometryRenderer.isDirty(), false);
+        QVERIFY(!renderGeometryRenderer.isDirty());
         QCOMPARE(renderGeometryRenderer.instanceCount(), 0);
         QCOMPARE(renderGeometryRenderer.vertexCount(), 0);
         QCOMPARE(renderGeometryRenderer.indexOffset(), 0);
@@ -179,8 +147,8 @@ private Q_SLOTS:
         QCOMPARE(renderGeometryRenderer.restartIndexValue(), -1);
         QCOMPARE(renderGeometryRenderer.primitiveRestartEnabled(), false);
         QCOMPARE(renderGeometryRenderer.primitiveType(), Qt3DRender::QGeometryRenderer::Triangles);
-        QVERIFY(renderGeometryRenderer.geometryFactory().isNull());
         QVERIFY(!renderGeometryRenderer.isEnabled());
+        QCOMPARE(renderGeometryRenderer.sortIndex(), -1.f);
     }
 
     void checkPropertyChanges()
@@ -305,30 +273,6 @@ private Q_SLOTS:
         QVERIFY(!backEndRenderer.isDirty());
 
         // WHEN
-        Qt3DRender::QGeometryFactoryPtr factory(new TestFactory(1450));
-        frontEndRenderer.setGeometryFactory(factory);
-        backEndRenderer.syncFromFrontEnd(&frontEndRenderer, false);
-
-        // THEN
-        QCOMPARE(backEndRenderer.geometryFactory(), factory);
-        QVERIFY(backEndRenderer.isDirty());
-
-        QVERIFY(renderer.dirtyBits() & Qt3DRender::Render::AbstractRenderer::GeometryDirty);
-        renderer.clearDirtyBits(Qt3DRender::Render::AbstractRenderer::AllDirty);
-
-        backEndRenderer.unsetDirty();
-        QVERIFY(!backEndRenderer.isDirty());
-
-        // WHEN we set an identical factory again
-        Qt3DRender::QGeometryFactoryPtr factory2(new TestFactory(1450));
-        frontEndRenderer.setGeometryFactory(factory2);
-        backEndRenderer.syncFromFrontEnd(&frontEndRenderer, false);
-
-        // THEN not dirty and still uses original factory
-        QCOMPARE(backEndRenderer.geometryFactory(), factory);
-        QVERIFY(!backEndRenderer.isDirty());
-
-        // WHEN
         DummyGeometry geometry;
         const Qt3DCore::QNodeId geometryId = geometry.id();
         frontEndRenderer.setGeometry(&geometry);
@@ -364,6 +308,14 @@ private Q_SLOTS:
 
         // THEN
         QCOMPARE(backEndRenderer.isEnabled(), true);
+        QVERIFY(!backEndRenderer.isDirty());
+
+        // WHEN
+        frontEndRenderer.setSortIndex(42.f);
+        backEndRenderer.syncFromFrontEnd(&frontEndRenderer, false);
+
+        // THEN
+        QCOMPARE(backEndRenderer.sortIndex(), 42.f);
         QVERIFY(!backEndRenderer.isDirty());
     }
 

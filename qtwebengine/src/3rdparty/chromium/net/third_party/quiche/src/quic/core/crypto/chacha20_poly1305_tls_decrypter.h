@@ -7,8 +7,8 @@
 
 #include <cstdint>
 
-#include "net/third_party/quiche/src/quic/core/crypto/chacha_base_decrypter.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
+#include "quic/core/crypto/chacha_base_decrypter.h"
+#include "quic/platform/api/quic_export.h"
 
 namespace quic {
 
@@ -31,6 +31,7 @@ class QUIC_EXPORT_PRIVATE ChaCha20Poly1305TlsDecrypter
   ~ChaCha20Poly1305TlsDecrypter() override;
 
   uint32_t cipher_id() const override;
+  QuicPacketCount GetIntegrityLimit() const override;
 };
 
 }  // namespace quic

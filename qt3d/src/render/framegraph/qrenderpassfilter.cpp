@@ -42,7 +42,6 @@
 
 #include <Qt3DRender/qfilterkey.h>
 #include <Qt3DRender/qparameter.h>
-#include <Qt3DRender/qframegraphnodecreatedchange.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -63,8 +62,8 @@ namespace Qt3DRender {
     whose Qt3DRender::QFilterKey objects match the keys in QRenderPassFilter are
     selected for rendering. If no QRenderPassFilter is present, then all QRenderPass
     objects are selected for rendering. The parameters in the list can be used
-    to set values for shader parameters. The parameters in QRenderPassFilter are
-    overridden by parameters in QTechniqueFilter, QTechnique and QRenderPass.
+    to set values for shader parameters. The parameters in QRenderPassFilter
+    override parameters in QTechniqueFilter, QMaterial, QEffect, QTechnique and QRenderPass.
 */
 
 /*!
@@ -79,7 +78,10 @@ namespace Qt3DRender {
     objects are selected for drawing. When RenderPassFilter is present in the FrameGraph,
     only the RenderPass objects, whose FilterKey objects match the keys
     in RenderPassFilter are selected for rendering. If no RenderPassFilter is present,
-    then all RenderPass objects are selected for rendering.
+    then all RenderPass objects are selected for rendering. RenderPassFilter
+    specifies a list of Parameter objects. The parameters in the list can be used
+    to set values for shader parameters. The parameters in RenderPassFilter
+    override parameters in TechniqueFilter, Material, Effect, Technique and RenderPass.
 */
 
 /*!
@@ -113,7 +115,7 @@ QRenderPassFilter::QRenderPassFilter(QRenderPassFilterPrivate &dd, QNode *parent
 /*!
     Returns a vector of the current keys for the filter.
  */
-QVector<QFilterKey *> QRenderPassFilter::matchAny() const
+QList<QFilterKey *> QRenderPassFilter::matchAny() const
 {
     Q_D(const QRenderPassFilter);
     return d->m_matchList;
@@ -139,7 +141,7 @@ void QRenderPassFilter::addMatch(QFilterKey *filterKey)
         if (!filterKey->parent())
             filterKey->setParent(this);
 
-        d->updateNode(filterKey, "match", Qt3DCore::PropertyValueAdded);
+        d->update();
     }
 }
 
@@ -153,7 +155,7 @@ void QRenderPassFilter::removeMatch(QFilterKey *filterKey)
 
     if (!d->m_matchList.removeOne(filterKey))
         return;
-    d->updateNode(filterKey, "match", Qt3DCore::PropertyValueRemoved);
+    d->update();
     // Remove bookkeeping connection
     d->unregisterDestructionHelper(filterKey);
 }
@@ -178,7 +180,7 @@ void QRenderPassFilter::addParameter(QParameter *parameter)
         if (!parameter->parent())
             parameter->setParent(this);
 
-        d->updateNode(parameter, "parameter", Qt3DCore::PropertyValueAdded);
+        d->update();
     }
 }
 
@@ -192,7 +194,7 @@ void QRenderPassFilter::removeParameter(QParameter *parameter)
 
     if (!d->m_parameters.removeOne(parameter))
         return;
-    d->updateNode(parameter, "parameter", Qt3DCore::PropertyValueRemoved);
+    d->update();
     // Remove bookkeeping connection
     d->unregisterDestructionHelper(parameter);
 }
@@ -200,20 +202,10 @@ void QRenderPassFilter::removeParameter(QParameter *parameter)
 /*!
     Returns the current vector of parameters.
  */
-QVector<QParameter *> QRenderPassFilter::parameters() const
+QList<QParameter *> QRenderPassFilter::parameters() const
 {
     Q_D(const QRenderPassFilter);
     return d->m_parameters;
-}
-
-Qt3DCore::QNodeCreatedChangeBasePtr QRenderPassFilter::createNodeCreationChange() const
-{
-    auto creationChange = QFrameGraphNodeCreatedChangePtr<QRenderPassFilterData>::create(this);
-    auto &data = creationChange->data;
-    Q_D(const QRenderPassFilter);
-    data.matchIds = qIdsForNodes(d->m_matchList);
-    data.parameterIds = qIdsForNodes(d->m_parameters);
-    return creationChange;
 }
 
 } // namespace Qt3DRender

@@ -29,7 +29,7 @@
 
 #include "declarativetheme_p.h"
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 DeclarativeTheme3D::DeclarativeTheme3D(QObject *parent)
     : Q3DTheme(parent),
@@ -55,14 +55,14 @@ QQmlListProperty<QObject> DeclarativeTheme3D::themeChildren()
 
 void DeclarativeTheme3D::appendThemeChildren(QQmlListProperty<QObject> *list, QObject *element)
 {
-    Q_UNUSED(list)
-    Q_UNUSED(element)
+    Q_UNUSED(list);
+    Q_UNUSED(element);
     // Nothing to do, themeChildren is there only to enable scoping gradient items in Theme3D item.
 }
 
 void DeclarativeTheme3D::handleTypeChange(Theme themeType)
 {
-    Q_UNUSED(themeType)
+    Q_UNUSED(themeType);
 
     // Theme changed, disconnect base color/gradient connections
     if (!m_colors.isEmpty()) {
@@ -362,13 +362,13 @@ void DeclarativeTheme3D::appendBaseColorsFunc(QQmlListProperty<DeclarativeColor>
     reinterpret_cast<DeclarativeTheme3D *>(list->data)->addColor(color);
 }
 
-int DeclarativeTheme3D::countBaseColorsFunc(QQmlListProperty<DeclarativeColor> *list)
+qsizetype DeclarativeTheme3D::countBaseColorsFunc(QQmlListProperty<DeclarativeColor> *list)
 {
     return reinterpret_cast<DeclarativeTheme3D *>(list->data)->colorList().size();
 }
 
 DeclarativeColor *DeclarativeTheme3D::atBaseColorsFunc(QQmlListProperty<DeclarativeColor> *list,
-                                                       int index)
+                                                       qsizetype index)
 {
     return reinterpret_cast<DeclarativeTheme3D *>(list->data)->colorList().at(index);
 }
@@ -393,13 +393,13 @@ void DeclarativeTheme3D::appendBaseGradientsFunc(QQmlListProperty<ColorGradient>
     reinterpret_cast<DeclarativeTheme3D *>(list->data)->addGradient(gradient);
 }
 
-int DeclarativeTheme3D::countBaseGradientsFunc(QQmlListProperty<ColorGradient> *list)
+qsizetype DeclarativeTheme3D::countBaseGradientsFunc(QQmlListProperty<ColorGradient> *list)
 {
     return reinterpret_cast<DeclarativeTheme3D *>(list->data)->gradientList().size();
 }
 
 ColorGradient *DeclarativeTheme3D::atBaseGradientsFunc(QQmlListProperty<ColorGradient> *list,
-                                                       int index)
+                                                       qsizetype index)
 {
     return reinterpret_cast<DeclarativeTheme3D *>(list->data)->gradientList().at(index);
 }
@@ -409,4 +409,4 @@ void DeclarativeTheme3D::clearBaseGradientsFunc(QQmlListProperty<ColorGradient> 
     reinterpret_cast<DeclarativeTheme3D *>(list->data)->clearGradients();
 }
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE

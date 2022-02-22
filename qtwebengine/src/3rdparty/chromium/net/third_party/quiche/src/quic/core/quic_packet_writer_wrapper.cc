@@ -2,9 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/quic_packet_writer_wrapper.h"
+#include "quic/core/quic_packet_writer_wrapper.h"
 
-#include "net/third_party/quiche/src/quic/core/quic_types.h"
+#include "quic/core/quic_types.h"
 
 namespace quic {
 
@@ -45,7 +45,7 @@ bool QuicPacketWriterWrapper::IsBatchMode() const {
   return writer_->IsBatchMode();
 }
 
-char* QuicPacketWriterWrapper::GetNextWriteLocation(
+QuicPacketBuffer QuicPacketWriterWrapper::GetNextWriteLocation(
     const QuicIpAddress& self_address,
     const QuicSocketAddress& peer_address) {
   return writer_->GetNextWriteLocation(self_address, peer_address);

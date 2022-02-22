@@ -61,9 +61,6 @@ QT_BEGIN_NAMESPACE
     \value MiscellaneousDevice  A miscellaneous device.
     \value ComputerDevice       A computer device or PDA.
     \value PhoneDevice          A telephone device.
-    \value LANAccessDevice      A device that provides access to a local area network
-                                (deprecated since Qt 5.13 and replaced by
-                                \l QBluetoothDeviceInfo::NetworkDevice).
     \value NetworkDevice        A device that provides access to a local area network (since Qt 5.13).
     \value AudioVideoDevice     A device capable of playback or capture of audio and/or video.
     \value PeripheralDevice     A peripheral device such as a keyboard, mouse, and so on.
@@ -253,17 +250,6 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
-    \enum QBluetoothDeviceInfo::DataCompleteness
-
-    This enum describes the completeness of the received data.
-
-    \value DataComplete     The data is complete.
-    \value DataIncomplete   The data is incomplete. Addition datum is available via other
-                            interfaces.
-    \value DataUnavailable  No data is available.
-*/
-
-/*!
     \enum QBluetoothDeviceInfo::CoreConfiguration
     \since 5.4
 
@@ -275,17 +261,7 @@ QT_BEGIN_NAMESPACE
                                                 for standard and Low Energy device.
     \value LowEnergyCoreConfiguration           The device is a Bluetooth Low Energy device.
 */
-QBluetoothDeviceInfoPrivate::QBluetoothDeviceInfoPrivate() :
-    valid(false),
-    cached(false),
-    rssi(1),
-    serviceClasses(QBluetoothDeviceInfo::NoService),
-    majorDeviceClass(QBluetoothDeviceInfo::MiscellaneousDevice),
-    minorDeviceClass(0),
-#if QT_DEPRECATED_SINCE(5, 13)
-    serviceUuidsCompleteness(QBluetoothDeviceInfo::DataUnavailable),
-#endif
-    deviceCoreConfiguration(QBluetoothDeviceInfo::UnknownCoreConfiguration)
+QBluetoothDeviceInfoPrivate::QBluetoothDeviceInfoPrivate()
 {
 }
 
@@ -324,10 +300,6 @@ QBluetoothDeviceInfo::QBluetoothDeviceInfo(const QBluetoothAddress &address, con
     d->majorDeviceClass = static_cast<MajorDeviceClass>((classOfDevice >> 8) & 0x1f);
     d->serviceClasses = static_cast<ServiceClasses>((classOfDevice >> 13) & 0x7ff);
 
-#if QT_DEPRECATED_SINCE(5, 13)
-    d->serviceUuidsCompleteness = DataUnavailable;
-#endif
-
     d->valid = true;
     d->cached = false;
     d->rssi = 0;
@@ -356,10 +328,6 @@ QBluetoothDeviceInfo::QBluetoothDeviceInfo(const QBluetoothUuid &uuid, const QSt
     d->minorDeviceClass = static_cast<quint8>((classOfDevice >> 2) & 0x3f);
     d->majorDeviceClass = static_cast<MajorDeviceClass>((classOfDevice >> 8) & 0x1f);
     d->serviceClasses = static_cast<ServiceClasses>((classOfDevice >> 13) & 0x7ff);
-
-#if QT_DEPRECATED_SINCE(5, 13)
-    d->serviceUuidsCompleteness = DataUnavailable;
-#endif
 
     d->valid = true;
     d->cached = false;
@@ -426,9 +394,6 @@ QBluetoothDeviceInfo &QBluetoothDeviceInfo::operator=(const QBluetoothDeviceInfo
     d->serviceClasses = other.d_func()->serviceClasses;
     d->valid = other.d_func()->valid;
     d->cached = other.d_func()->cached;
-#if QT_DEPRECATED_SINCE(5, 13)
-    d->serviceUuidsCompleteness = other.d_func()->serviceUuidsCompleteness;
-#endif
     d->serviceUuids = other.d_func()->serviceUuids;
     d->manufacturerData = other.d_func()->manufacturerData;
     d->rssi = other.d_func()->rssi;
@@ -439,52 +404,49 @@ QBluetoothDeviceInfo &QBluetoothDeviceInfo::operator=(const QBluetoothDeviceInfo
 }
 
 /*!
-  Returns true if the \a other QBluetoothDeviceInfo object and this are identical.
-  */
-bool QBluetoothDeviceInfo::operator==(const QBluetoothDeviceInfo &other) const
-{
-    Q_D(const QBluetoothDeviceInfo);
+    \fn bool QBluetoothDeviceInfo::operator==(const QBluetoothDeviceInfo &a, const QBluetoothDeviceInfo &b)
+    \brief Returns \c true if the two QBluetoothDeviceInfo objects \a a and \a b are equal.
+*/
 
-    if (d->cached != other.d_func()->cached)
+/*!
+    \fn bool QBluetoothDeviceInfo::operator!=(const QBluetoothDeviceInfo &a,
+                                              const QBluetoothDeviceInfo &b)
+    \brief Returns \c true if the two QBluetoothDeviceInfo objects \a a and \a b are not equal.
+*/
+
+/*!
+    \brief Returns true if the \a other QBluetoothDeviceInfo object and this are identical.
+    \internal
+*/
+
+bool QBluetoothDeviceInfo::equals(const QBluetoothDeviceInfo &a, const QBluetoothDeviceInfo &b)
+{
+    if (a.d_func()->cached != b.d_func()->cached)
         return false;
-    if (d->valid != other.d_func()->valid)
+    if (a.d_func()->valid != b.d_func()->valid)
         return false;
-    if (d->majorDeviceClass != other.d_func()->majorDeviceClass)
+    if (a.d_func()->majorDeviceClass != b.d_func()->majorDeviceClass)
         return false;
-    if (d->minorDeviceClass != other.d_func()->minorDeviceClass)
+    if (a.d_func()->minorDeviceClass != b.d_func()->minorDeviceClass)
         return false;
-    if (d->serviceClasses != other.d_func()->serviceClasses)
+    if (a.d_func()->serviceClasses != b.d_func()->serviceClasses)
         return false;
-    if (d->name != other.d_func()->name)
+    if (a.d_func()->name != b.d_func()->name)
         return false;
-    if (d->address != other.d_func()->address)
+    if (a.d_func()->address != b.d_func()->address)
         return false;
-#if QT_DEPRECATED_SINCE(5, 13)
-    if (d->serviceUuidsCompleteness != other.d_func()->serviceUuidsCompleteness)
+    if (a.d_func()->serviceUuids.count() != b.d_func()->serviceUuids.count())
         return false;
-#endif
-    if (d->serviceUuids.count() != other.d_func()->serviceUuids.count())
+    if (a.d_func()->serviceUuids != b.d_func()->serviceUuids)
         return false;
-    if (d->serviceUuids != other.d_func()->serviceUuids)
+    if (a.d_func()->manufacturerData != b.d_func()->manufacturerData)
         return false;
-    if (d->manufacturerData != other.d_func()->manufacturerData)
+    if (a.d_func()->deviceCoreConfiguration != b.d_func()->deviceCoreConfiguration)
         return false;
-    if (d->deviceCoreConfiguration != other.d_func()->deviceCoreConfiguration)
-        return false;
-    if (d->deviceUuid != other.d_func()->deviceUuid)
+    if (a.d_func()->deviceUuid != b.d_func()->deviceUuid)
         return false;
 
     return true;
-}
-
-/*!
-    Returns true if this object is different from \a other, or false otherwise.
-
-    \sa operator==()
-*/
-bool QBluetoothDeviceInfo::operator!=(const QBluetoothDeviceInfo &other) const
-{
-    return !(*this == other);
 }
 
 /*!
@@ -511,6 +473,18 @@ QString QBluetoothDeviceInfo::name() const
     Q_D(const QBluetoothDeviceInfo);
 
     return d->name;
+}
+
+/*!
+  Sets the \a name of the device.
+
+  \since 6.2
+ */
+void QBluetoothDeviceInfo::setName(const QString &name)
+{
+    Q_D(QBluetoothDeviceInfo);
+
+    d->name = name;
 }
 
 /*!
@@ -548,33 +522,16 @@ quint8 QBluetoothDeviceInfo::minorDeviceClass() const
     return d->minorDeviceClass;
 }
 
-#if QT_DEPRECATED_SINCE(5, 13)
-/*!
-    \deprecated
-
-    Sets the list of service UUIDs to \a uuids and the completeness of the data to \a completeness.
-*/
-void QBluetoothDeviceInfo::setServiceUuids(const QList<QBluetoothUuid> &uuids,
-                                           DataCompleteness completeness)
-{
-    Q_D(QBluetoothDeviceInfo);
-
-    d->serviceUuids = uuids.toVector();
-    d->serviceUuidsCompleteness = completeness;
-}
-#endif
-
 /*!
     Sets the list of service UUIDs to \a uuids.
     \since 5.13
  */
-void QBluetoothDeviceInfo::setServiceUuids(const QVector<QBluetoothUuid> &uuids)
+void QBluetoothDeviceInfo::setServiceUuids(const QList<QBluetoothUuid> &uuids)
 {
     Q_D(QBluetoothDeviceInfo);
     d->serviceUuids = uuids;
 }
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 /*!
     Returns the list of service UUIDS supported by the device. Most commonly this
     list of uuids represents custom uuids or a uuid value specified by
@@ -583,62 +540,11 @@ void QBluetoothDeviceInfo::setServiceUuids(const QVector<QBluetoothUuid> &uuids)
     \sa serviceUuids()
     \since 6.0
 */
-QVector<QBluetoothUuid> QBluetoothDeviceInfo::serviceUuids() const
+QList<QBluetoothUuid> QBluetoothDeviceInfo::serviceUuids() const
 {
     Q_D(const QBluetoothDeviceInfo);
     return d->serviceUuids;
 }
-
-#elif QT_DEPRECATED_SINCE(5, 13)
-
-/*!
-    Returns the list of service UUIDS supported by the device. If \a completeness is not 0 it will
-    be set to DataComplete and the complete list of UUIDs supported by the device is returned.
-    DataIncomplete if additional service UUIDs are supported by the device and DataUnavailable if
-    no service UUID information is available.
-
-    This function requires both the Bluetooth devices to support the 2.1 specification.
-*/
-QList<QBluetoothUuid> QBluetoothDeviceInfo::serviceUuids(DataCompleteness *completeness) const
-{
-    Q_D(const QBluetoothDeviceInfo);
-
-    if (completeness)
-        *completeness = d->serviceUuidsCompleteness;
-
-    return d->serviceUuids.toList();
-}
-
-#else
-
-/*
-    Returns the list of service UUIDS supported by the device. Most commonly this
-    list of uuids represents custom uuids or a uuid value specified by
-    \l QBluetoothUuid::ServiceClassUuid.
-*/
-QList<QBluetoothUuid> QBluetoothDeviceInfo::serviceUuids() const
-{
-    Q_D(const QBluetoothDeviceInfo);
-    return d->serviceUuids.toList();
-}
-
-#endif //QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-
-#if QT_DEPRECATED_SINCE(5, 13)
-/*!
-    \deprecated
-
-    Returns the completeness of the service UUID list.  If DataComplete is returned,
-    serviceUuids() returns the complete list of service UUIDs supported by the device, otherwise
-    only the partial or empty list of service UUIDs. To get a list
-    of all services supported by the device, a full service discovery needs to be performed.
-*/
-QBluetoothDeviceInfo::DataCompleteness QBluetoothDeviceInfo::serviceUuidsCompleteness() const
-{
-    Q_D(const QBluetoothDeviceInfo);
-    return d->serviceUuidsCompleteness;
-}
-#endif
 
 /*!
     Returns all manufacturer ids attached to this device information.
@@ -647,7 +553,7 @@ QBluetoothDeviceInfo::DataCompleteness QBluetoothDeviceInfo::serviceUuidsComplet
 
     \since 5.12
  */
-QVector<quint16> QBluetoothDeviceInfo::manufacturerIds() const
+QList<quint16> QBluetoothDeviceInfo::manufacturerIds() const
 {
     Q_D(const QBluetoothDeviceInfo);
     return d->manufacturerData.keys().toVector();
@@ -717,7 +623,7 @@ bool QBluetoothDeviceInfo::setManufacturerData(quint16 manufacturerId, const QBy
     \sa setManufacturerData
     \since 5.12
 */
-QHash<quint16, QByteArray> QBluetoothDeviceInfo::manufacturerData() const
+QMultiHash<quint16, QByteArray> QBluetoothDeviceInfo::manufacturerData() const
 {
     Q_D(const QBluetoothDeviceInfo);
     return d->manufacturerData;

@@ -58,7 +58,6 @@
 #include "extensions/common/value_builder.h"
 #include "extensions/test/test_extension_dir.h"
 #include "services/data_decoder/data_decoder_service.h"
-#include "services/service_manager/public/cpp/connector.h"
 #include "services/service_manager/public/cpp/test/test_connector_factory.h"
 
 namespace extensions {
@@ -139,7 +138,7 @@ class DeveloperPrivateApiUnitTest : public ExtensionServiceTestWithInstall {
   const Extension* LoadSimpleExtension();
 
   // Tests modifying the extension's configuration.
-  void TestExtensionPrefSetting(const base::Callback<bool()>& has_pref,
+  void TestExtensionPrefSetting(const base::RepeatingCallback<bool()>& has_pref,
                                 const std::string& key,
                                 const std::string& extension_id);
 
@@ -232,7 +231,7 @@ const Extension* DeveloperPrivateApiUnitTest::LoadSimpleExtension() {
 }
 
 void DeveloperPrivateApiUnitTest::TestExtensionPrefSetting(
-    const base::Callback<bool()>& has_pref,
+    const base::RepeatingCallback<bool()>& has_pref,
     const std::string& key,
     const std::string& extension_id) {
   scoped_refptr<ExtensionFunction> function(
@@ -362,7 +361,7 @@ void DeveloperPrivateApiUnitTest::SetUp() {
   Browser::CreateParams params(profile(), true);
   params.type = Browser::TYPE_NORMAL;
   params.window = browser_window_.get();
-  browser_.reset(new Browser(params));
+  browser_.reset(Browser::Create(params));
 
   // Allow the API to be created.
   EventRouterFactory::GetInstance()->SetTestingFactory(
@@ -395,10 +394,12 @@ TEST_F(DeveloperPrivateApiUnitTest,
       .SetWithholdHostPermissions(true);
 
   TestExtensionPrefSetting(
-      base::Bind(&HasPrefsPermission, &util::IsIncognitoEnabled, profile(), id),
+      base::BindRepeating(&HasPrefsPermission, &util::IsIncognitoEnabled,
+                          profile(), id),
       "incognitoAccess", id);
   TestExtensionPrefSetting(
-      base::Bind(&HasPrefsPermission, &util::AllowFileAccess, profile(), id),
+      base::BindRepeating(&HasPrefsPermission, &util::AllowFileAccess,
+                          profile(), id),
       "fileAccess", id);
 }
 
@@ -416,7 +417,7 @@ TEST_F(DeveloperPrivateApiUnitTest, DeveloperPrivateReload) {
   scoped_refptr<const Extension> unloaded_extension =
       registry_observer.WaitForExtensionUnloaded();
   EXPECT_EQ(extension, unloaded_extension);
-  const Extension* reloaded_extension =
+  scoped_refptr<const Extension> reloaded_extension =
       registry_observer.WaitForExtensionLoaded();
   EXPECT_EQ(extension_id, reloaded_extension->id());
 }
@@ -467,7 +468,7 @@ TEST_F(DeveloperPrivateApiUnitTest, DeveloperPrivatePackFunction) {
 
   // Try to pack a final time when omitting (an existing) pem file. We should
   // get an error.
-  base::DeleteFile(crx_path, false);
+  base::DeleteFile(crx_path);
   EXPECT_TRUE(pack_args.Remove(1u, nullptr));  // Remove the pem key argument.
   EXPECT_TRUE(pack_args.Remove(1u, nullptr));  // Remove the flags argument.
   EXPECT_TRUE(TestPackExtensionFunction(
@@ -760,7 +761,8 @@ TEST_F(DeveloperPrivateApiUnitTest, LoadUnpackedRetryId) {
                                                    "\"retryGuid\": \"%s\"}]",
                                                    retry_guid.c_str()),
                                 profile());
-    const Extension* extension = observer.WaitForExtensionLoaded();
+    scoped_refptr<const Extension> extension =
+        observer.WaitForExtensionLoaded();
     ASSERT_TRUE(extension);
     EXPECT_EQ(extension->path(), path);
   }
@@ -895,7 +897,8 @@ TEST_F(DeveloperPrivateApiUnitTest, ReloadBadExtensionToLoadUnpackedRetry) {
                                 "retryGuid": "%s"}])",
                            retry_guid.c_str());
     api_test_utils::RunFunction(function.get(), args, profile());
-    const Extension* extension = observer.WaitForExtensionLoaded();
+    scoped_refptr<const Extension> extension =
+        observer.WaitForExtensionLoaded();
     ASSERT_TRUE(extension);
     EXPECT_EQ(extension->path(), path);
     EXPECT_TRUE(registry()->enabled_extensions().Contains(id));
@@ -943,7 +946,8 @@ TEST_F(DeveloperPrivateApiUnitTest,
     function->SetRenderFrameHost(web_contents->GetMainFrame());
     TestExtensionRegistryObserver observer(registry());
     api_test_utils::RunFunction(function.get(), kLoadUnpackedArgs, profile());
-    const Extension* extension = observer.WaitForExtensionLoaded();
+    scoped_refptr<const Extension> extension =
+        observer.WaitForExtensionLoaded();
     ASSERT_TRUE(extension);
     EXPECT_EQ(extension->path(), path);
   }
@@ -1227,7 +1231,7 @@ TEST_F(DeveloperPrivateApiUnitTest, LoadUnpackedFailsWithoutDevMode) {
   prefs->SetBoolean(prefs::kExtensionsUIDeveloperMode, true);
 }
 
-TEST_F(DeveloperPrivateApiUnitTest, LoadUnpackedFailsWithBlacklistingPolicy) {
+TEST_F(DeveloperPrivateApiUnitTest, LoadUnpackedFailsWithBlocklistingPolicy) {
   std::unique_ptr<content::WebContents> web_contents(
       content::WebContentsTester::CreateTestWebContents(profile(), nullptr));
 
@@ -1237,15 +1241,15 @@ TEST_F(DeveloperPrivateApiUnitTest, LoadUnpackedFailsWithBlacklistingPolicy) {
   {
     ExtensionManagementPrefUpdater<sync_preferences::TestingPrefServiceSyncable>
         pref_updater(testing_profile()->GetTestingPrefService());
-    pref_updater.SetBlacklistedByDefault(true);
+    pref_updater.SetBlocklistedByDefault(true);
   }
   EXPECT_TRUE(
       ExtensionManagementFactory::GetForBrowserContext(browser_context())
-          ->BlacklistedByDefault());
+          ->BlocklistedByDefault());
 
   EXPECT_FALSE(
       ExtensionManagementFactory::GetForBrowserContext(browser_context())
-          ->HasWhitelistedExtension());
+          ->HasAllowlistedExtension());
 
   auto info = DeveloperPrivateAPI::CreateProfileInfo(testing_profile());
 
@@ -1260,7 +1264,7 @@ TEST_F(DeveloperPrivateApiUnitTest, LoadUnpackedFailsWithBlacklistingPolicy) {
 }
 
 TEST_F(DeveloperPrivateApiUnitTest,
-       LoadUnpackedWorksWithBlacklistingPolicyAlongWhitelistingPolicy) {
+       LoadUnpackedWorksWithBlocklistingPolicyAlongAllowlistingPolicy) {
   std::unique_ptr<content::WebContents> web_contents(
       content::WebContentsTester::CreateTestWebContents(profile(), nullptr));
 
@@ -1270,17 +1274,17 @@ TEST_F(DeveloperPrivateApiUnitTest,
   {
     ExtensionManagementPrefUpdater<sync_preferences::TestingPrefServiceSyncable>
         pref_updater(testing_profile()->GetTestingPrefService());
-    pref_updater.SetBlacklistedByDefault(true);
+    pref_updater.SetBlocklistedByDefault(true);
     pref_updater.SetIndividualExtensionInstallationAllowed(kGoodCrx, true);
   }
 
   EXPECT_TRUE(
       ExtensionManagementFactory::GetForBrowserContext(browser_context())
-          ->BlacklistedByDefault());
+          ->BlocklistedByDefault());
 
   EXPECT_TRUE(
       ExtensionManagementFactory::GetForBrowserContext(browser_context())
-          ->HasWhitelistedExtension());
+          ->HasAllowlistedExtension());
 
   auto info = DeveloperPrivateAPI::CreateProfileInfo(testing_profile());
 
@@ -1327,7 +1331,8 @@ TEST_F(DeveloperPrivateApiUnitTest, InstallDroppedFileCrx) {
   TestExtensionRegistryObserver observer(registry());
   ASSERT_TRUE(api_test_utils::RunFunction(function.get(), "[]", profile()))
       << function->GetError();
-  const Extension* extension = observer.WaitForExtensionInstalled();
+  scoped_refptr<const Extension> extension =
+      observer.WaitForExtensionInstalled();
   ASSERT_TRUE(extension);
   EXPECT_EQ("foo", extension->name());
 }
@@ -1350,7 +1355,8 @@ TEST_F(DeveloperPrivateApiUnitTest, InstallDroppedFileUserScript) {
   TestExtensionRegistryObserver observer(registry());
   ASSERT_TRUE(api_test_utils::RunFunction(function.get(), "[]", profile()))
       << function->GetError();
-  const Extension* extension = observer.WaitForExtensionInstalled();
+  scoped_refptr<const Extension> extension =
+      observer.WaitForExtensionInstalled();
   ASSERT_TRUE(extension);
   EXPECT_EQ("My user script", extension->name());
 }
@@ -1475,14 +1481,7 @@ TEST_F(DeveloperPrivateApiUnitTest, RemoveHostPermission) {
   EXPECT_FALSE(modifier.HasGrantedHostPermission(kMapsGoogleCom));
 }
 
-// This test is flaky on chromeos.
-// https://crbug.com/937355
-#if defined(OS_CHROMEOS)
-#define MAYBE_UpdateHostAccess DISABLED_UpdateHostAccess
-#else
-#define MAYBE_UpdateHostAccess UpdateHostAccess
-#endif
-TEST_F(DeveloperPrivateApiUnitTest, MAYBE_UpdateHostAccess) {
+TEST_F(DeveloperPrivateApiUnitTest, UpdateHostAccess) {
   scoped_refptr<const Extension> extension =
       ExtensionBuilder("test").AddPermission("<all_urls>").Build();
   service()->AddExtension(extension.get());
@@ -1775,7 +1774,8 @@ TEST_F(DeveloperPrivateApiUnitTest, InstallDroppedFileZip) {
   TestExtensionRegistryObserver observer(registry());
   ASSERT_TRUE(api_test_utils::RunFunction(function.get(), "[]", profile()))
       << function->GetError();
-  const Extension* extension = observer.WaitForExtensionInstalled();
+  scoped_refptr<const Extension> extension =
+      observer.WaitForExtensionInstalled();
   ASSERT_TRUE(extension);
   EXPECT_EQ("Simple Empty Extension", extension->name());
 }

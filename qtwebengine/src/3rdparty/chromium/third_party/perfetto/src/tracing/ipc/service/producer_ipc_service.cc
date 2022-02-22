@@ -79,21 +79,16 @@ void ProducerIPCService::InitializeConnection(
       break;
   }
 
-  bool dcheck_mismatch = false;
 #if PERFETTO_DCHECK_IS_ON()
-  dcheck_mismatch =
-      req.build_flags() ==
-      protos::gen::InitializeConnectionRequest::BUILD_FLAGS_DCHECKS_OFF;
-#else
-  dcheck_mismatch =
-      req.build_flags() ==
-      protos::gen::InitializeConnectionRequest::BUILD_FLAGS_DCHECKS_ON;
-#endif
-  if (dcheck_mismatch) {
+  if (req.build_flags() ==
+      protos::gen::InitializeConnectionRequest::BUILD_FLAGS_DCHECKS_OFF) {
     PERFETTO_LOG(
-        "The producer and the service binaries are built using different "
-        "DEBUG/NDEBUG flags. This will likely cause crashes.");
+        "The producer is built with NDEBUG but the service binary was built "
+        "with the DEBUG flag. This will likely cause crashes.");
+    // The other way round (DEBUG producer with NDEBUG service) is expected to
+    // work.
   }
+#endif
 
   // If the producer provided an SMB, tell the service to attempt to adopt it.
   std::unique_ptr<SharedMemory> shmem;
@@ -136,6 +131,7 @@ void ProducerIPCService::InitializeConnection(
   auto async_res =
       ipc::AsyncResult<protos::gen::InitializeConnectionResponse>::Create();
   async_res->set_using_shmem_provided_by_producer(using_producer_shmem);
+  async_res->set_direct_smb_patching_supported(true);
   response.Resolve(std::move(async_res));
 }
 
@@ -353,6 +349,25 @@ void ProducerIPCService::GetAsyncCommand(
   // we should forward it to the producer now.
   if (producer->send_setup_tracing_on_async_commands_bound)
     producer->SendSetupTracing();
+}
+
+void ProducerIPCService::Sync(const protos::gen::SyncRequest&,
+                              DeferredSyncResponse resp) {
+  RemoteProducer* producer = GetProducerForCurrentRequest();
+  if (!producer) {
+    PERFETTO_DLOG("Producer invoked Sync() before InitializeConnection()");
+    return resp.Reject();
+  }
+  auto weak_this = weak_ptr_factory_.GetWeakPtr();
+  auto resp_it = pending_syncs_.insert(pending_syncs_.end(), std::move(resp));
+  auto callback = [weak_this, resp_it]() {
+    if (!weak_this)
+      return;
+    auto pending_resp = std::move(*resp_it);
+    weak_this->pending_syncs_.erase(resp_it);
+    pending_resp.Resolve(ipc::AsyncResult<protos::gen::SyncResponse>::Create());
+  };
+  producer->service_endpoint->Sync(callback);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

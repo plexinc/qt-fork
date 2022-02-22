@@ -8,10 +8,12 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/run_loop.h"
+#include "base/stl_util.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/test/metrics/histogram_tester.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
@@ -47,8 +49,11 @@ namespace {
 class MockAutofillClient : public TestAutofillClient {
  public:
   MockAutofillClient() : prefs_(test::PrefServiceForTesting()) {}
-  ~MockAutofillClient() override {}
-  PrefService* GetPrefs() override { return prefs_.get(); }
+  ~MockAutofillClient() override = default;
+  PrefService* GetPrefs() override {
+    return const_cast<PrefService*>(base::as_const(*this).GetPrefs());
+  }
+  const PrefService* GetPrefs() const override { return prefs_.get(); }
 
  private:
   std::unique_ptr<PrefService> prefs_;
@@ -151,7 +156,7 @@ TEST_F(AutocompleteHistoryManagerTest, CreditCardNumberValue) {
   valid_cc.label = ASCIIToUTF16("Credit Card");
   valid_cc.name = ASCIIToUTF16("ccnum");
   valid_cc.value = ASCIIToUTF16("4012888888881881");
-  valid_cc.properties_mask |= USER_TYPED;
+  valid_cc.properties_mask |= kUserTyped;
   valid_cc.form_control_type = "text";
   form.fields.push_back(valid_cc);
 
@@ -174,7 +179,7 @@ TEST_F(AutocompleteHistoryManagerTest, NonCreditCardNumberValue) {
   invalid_cc.label = ASCIIToUTF16("Credit Card");
   invalid_cc.name = ASCIIToUTF16("ccnum");
   invalid_cc.value = ASCIIToUTF16("4580123456789012");
-  invalid_cc.properties_mask |= USER_TYPED;
+  invalid_cc.properties_mask |= kUserTyped;
   invalid_cc.form_control_type = "text";
   form.fields.push_back(invalid_cc);
 
@@ -194,7 +199,7 @@ TEST_F(AutocompleteHistoryManagerTest, SSNValue) {
   ssn.label = ASCIIToUTF16("Social Security Number");
   ssn.name = ASCIIToUTF16("ssn");
   ssn.value = ASCIIToUTF16("078-05-1120");
-  ssn.properties_mask |= USER_TYPED;
+  ssn.properties_mask |= kUserTyped;
   ssn.form_control_type = "text";
   form.fields.push_back(ssn);
 
@@ -215,7 +220,7 @@ TEST_F(AutocompleteHistoryManagerTest, SearchField) {
   search_field.label = ASCIIToUTF16("Search");
   search_field.name = ASCIIToUTF16("search");
   search_field.value = ASCIIToUTF16("my favorite query");
-  search_field.properties_mask |= USER_TYPED;
+  search_field.properties_mask |= kUserTyped;
   search_field.form_control_type = "search";
   form.fields.push_back(search_field);
 
@@ -235,7 +240,7 @@ TEST_F(AutocompleteHistoryManagerTest, AutocompleteFeatureOff) {
   search_field.label = ASCIIToUTF16("Search");
   search_field.name = ASCIIToUTF16("search");
   search_field.value = ASCIIToUTF16("my favorite query");
-  search_field.properties_mask |= USER_TYPED;
+  search_field.properties_mask |= kUserTyped;
   search_field.form_control_type = "search";
   form.fields.push_back(search_field);
 
@@ -258,7 +263,7 @@ TEST_F(AutocompleteHistoryManagerTest, InvalidValues) {
   search_field.label = ASCIIToUTF16("Search");
   search_field.name = ASCIIToUTF16("search");
   search_field.value = ASCIIToUTF16("");
-  search_field.properties_mask |= USER_TYPED;
+  search_field.properties_mask |= kUserTyped;
   search_field.form_control_type = "search";
   form.fields.push_back(search_field);
 
@@ -266,7 +271,7 @@ TEST_F(AutocompleteHistoryManagerTest, InvalidValues) {
   search_field.label = ASCIIToUTF16("Search2");
   search_field.name = ASCIIToUTF16("other search");
   search_field.value = ASCIIToUTF16(" ");
-  search_field.properties_mask |= USER_TYPED;
+  search_field.properties_mask |= kUserTyped;
   search_field.form_control_type = "search";
   form.fields.push_back(search_field);
 
@@ -274,7 +279,7 @@ TEST_F(AutocompleteHistoryManagerTest, InvalidValues) {
   search_field.label = ASCIIToUTF16("Search3");
   search_field.name = ASCIIToUTF16("other search");
   search_field.value = ASCIIToUTF16("      ");
-  search_field.properties_mask |= USER_TYPED;
+  search_field.properties_mask |= kUserTyped;
   search_field.form_control_type = "search";
   form.fields.push_back(search_field);
 
@@ -298,7 +303,7 @@ TEST_F(AutocompleteHistoryManagerTest, FieldWithAutocompleteOff) {
   field.label = ASCIIToUTF16("Something esoteric");
   field.name = ASCIIToUTF16("esoterica");
   field.value = ASCIIToUTF16("a truly esoteric value, I assure you");
-  field.properties_mask |= USER_TYPED;
+  field.properties_mask |= kUserTyped;
   field.form_control_type = "text";
   field.should_autocomplete = false;
   form.fields.push_back(field);
@@ -322,7 +327,7 @@ TEST_F(AutocompleteHistoryManagerTest, Incognito) {
   search_field.label = ASCIIToUTF16("Search");
   search_field.name = ASCIIToUTF16("search");
   search_field.value = ASCIIToUTF16("my favorite query");
-  search_field.properties_mask |= USER_TYPED;
+  search_field.properties_mask |= kUserTyped;
   search_field.form_control_type = "search";
   form.fields.push_back(search_field);
 
@@ -347,7 +352,7 @@ TEST_F(AutocompleteHistoryManagerTest, UserInputNotFocusable) {
   search_field.name = ASCIIToUTF16("search");
   search_field.value = ASCIIToUTF16("my favorite query");
   search_field.form_control_type = "search";
-  search_field.properties_mask |= USER_TYPED;
+  search_field.properties_mask |= kUserTyped;
   search_field.is_focusable = false;
   form.fields.push_back(search_field);
 
@@ -370,7 +375,7 @@ TEST_F(AutocompleteHistoryManagerTest, PresentationField) {
   field.label = ASCIIToUTF16("Something esoteric");
   field.name = ASCIIToUTF16("esoterica");
   field.value = ASCIIToUTF16("a truly esoteric value, I assure you");
-  field.properties_mask |= USER_TYPED;
+  field.properties_mask |= kUserTyped;
   field.form_control_type = "text";
   field.role = FormFieldData::RoleAttribute::kPresentation;
   form.fields.push_back(field);
@@ -471,6 +476,79 @@ TEST_F(AutocompleteHistoryManagerTest,
                                     testing::Truly(IsEmptySuggestionVector)));
 
   // Simulate response from DB.
+  autocomplete_manager_->OnWebDataServiceRequestDone(mocked_db_query_id,
+                                                     std::move(mocked_results));
+}
+
+// Tests that no suggestions are queried if the field name is filtered because
+// it has a meaningless name.
+TEST_F(AutocompleteHistoryManagerTest,
+       DoQuerySuggestionsForMeaninglessFieldNames_FilterName) {
+  base::test::ScopedFeatureList scoped_feature;
+  scoped_feature.InitAndEnableFeature(
+      features::kAutocompleteFilterForMeaningfulNames);
+
+  auto suggestions_handler = std::make_unique<MockSuggestionsHandler>();
+  int test_query_id = 2;
+  auto test_name = ASCIIToUTF16("input_123");
+  auto test_prefix = ASCIIToUTF16("");
+
+  // Only expect a call when the name is not filtered out.
+  EXPECT_CALL(*web_data_service_,
+              GetFormValuesForElementName(test_name, test_prefix, _,
+                                          autocomplete_manager_.get()))
+      .Times(0);
+
+  // Simulate request for suggestions.
+  autocomplete_manager_->OnGetAutocompleteSuggestions(
+      test_query_id, /*is_autocomplete_enabled=*/true,
+      /*autoselect_first_suggestion=*/false, test_name, test_prefix,
+      "Some Type", suggestions_handler->GetWeakPtr());
+
+  // Setting up mock to verify that DB response does not trigger a call to the
+  // handler's OnSuggestionsReturned.
+  EXPECT_CALL(*suggestions_handler.get(),
+              OnSuggestionsReturned(test_query_id,
+                                    /*autoselect_first_suggestion=*/false, _))
+      .Times(0);
+}
+
+// Tests that the suggestions are queried if the field name is not filtered
+// because the field's name is meaningful.
+TEST_F(AutocompleteHistoryManagerTest,
+       DoQuerySuggestionsForMeaninglessFieldNames_PassName) {
+  base::test::ScopedFeatureList scoped_feature;
+  scoped_feature.InitAndEnableFeature(
+      features::kAutocompleteFilterForMeaningfulNames);
+
+  auto suggestions_handler = std::make_unique<MockSuggestionsHandler>();
+  int test_query_id = 2;
+  auto test_name = ASCIIToUTF16("addressline_1");
+  auto test_prefix = ASCIIToUTF16("");
+  int mocked_db_query_id = 100;
+
+  std::vector<AutofillEntry> expected_values;
+
+  std::unique_ptr<WDTypedResult> mocked_results =
+      GetMockedDbResults(expected_values);
+
+  // Expect a call because the name is not filtered.
+  EXPECT_CALL(*web_data_service_,
+              GetFormValuesForElementName(test_name, test_prefix, _,
+                                          autocomplete_manager_.get()))
+      .WillOnce(Return(mocked_db_query_id));
+
+  // Simulate request for suggestions.
+  autocomplete_manager_->OnGetAutocompleteSuggestions(
+      test_query_id, /*is_autocomplete_enabled=*/true,
+      /*autoselect_first_suggestion=*/false, test_name, test_prefix,
+      "Some Type", suggestions_handler->GetWeakPtr());
+
+  // Setting up mock to verify that DB response triggers a call to the handler's
+  EXPECT_CALL(*suggestions_handler.get(),
+              OnSuggestionsReturned(test_query_id,
+                                    /*autoselect_first_suggestion=*/false, _));
+
   autocomplete_manager_->OnWebDataServiceRequestDone(mocked_db_query_id,
                                                      std::move(mocked_results));
 }

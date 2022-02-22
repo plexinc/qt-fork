@@ -13,28 +13,22 @@ declare_args() {
   # invokes gomacc inside it.
   needs_gomacc_path_arg = false
 
-  # Set the default value based on the platform.
-  if (host_os == "win") {
-    # Absolute directory containing the gomacc.exe binary.
-    goma_dir = "C:\src\goma\goma-win64"
-  } else {
-    if (getenv("GOMA_DIR") != "") {
-      # Absolute directory containing the gomacc binary.
-      goma_dir = getenv("GOMA_DIR")
-    } else {
-      # Absolute directory containing the gomacc binary.
-      goma_dir = getenv("HOME") + "/goma"
-    }
-  }
+  # Absolute directory containing the gomacc binary.
+  goma_dir = ""
+}
+
+if (use_goma && goma_dir == "") {
+  goma_dir = exec_script("get_goma_dir.py", [], "string")
 }
 
 declare_args() {
   # TODO(crbug.com/726475): true if use_goma = true in the future.
   use_java_goma = false
 
-  # Auto-configure for Goma RBE backend.
-  # TODO(crbug.com/1015730): true if use_goma = true in the future.
-  ios_use_goma_rbe = false
+  # Deprecated and ignored as Goma RBE is now the default. Still exists
+  # to avoid breaking the build on the bots. Will be removed when all
+  # bots have been configured to not set this variable.
+  ios_use_goma_rbe = -1
 }
 
 assert(!is_win || !use_goma || is_clang,

@@ -27,10 +27,13 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
-
+#include <QTest>
 #include <QStandardItemModel>
 #include <QTreeView>
+#include <QSignalSpy>
+#include <QAbstractItemModelTester>
+
+#include <private/qabstractitemmodel_p.h>
 #include <private/qtreeview_p.h>
 
 class tst_QStandardItemModel : public QObject
@@ -103,6 +106,7 @@ private slots:
     void sort();
     void sortRole_data();
     void sortRole();
+    void sortRoleBindings();
     void findItems();
     void getSetHeaderItem();
     void indexFromItem();
@@ -126,20 +130,22 @@ private slots:
 #endif
     void removeRowsAndColumns();
 
+    void defaultItemRoles();
     void itemRoleNames();
     void getMimeDataWithInvalidModelIndex();
     void supportedDragDropActions();
 
     void taskQTBUG_45114_setItemData();
     void setItemPersistentIndex();
-
+    void signalsOnTakeItem();
+    void createPersistentOnLayoutAboutToBeChanged();
 private:
     QStandardItemModel *m_model = nullptr;
     QPersistentModelIndex persistent;
-    QVector<QModelIndex> rcParent = QVector<QModelIndex>(8);
-    QVector<int> rcFirst = QVector<int>(8, 0);
-    QVector<int> rcLast = QVector<int>(8, 0);
-    QVector<int> currentRoles;
+    QList<QModelIndex> rcParent = QList<QModelIndex>(8);
+    QList<int> rcFirst = QList<int>(8, 0);
+    QList<int> rcLast = QList<int>(8, 0);
+    QList<int> currentRoles;
 
     //return true if models have the same structure, and all child have the same text
     static bool compareModels(QStandardItemModel *model1, QStandardItemModel *model2);
@@ -191,11 +197,10 @@ void tst_QStandardItemModel::init()
     connect(m_model, &QStandardItemModel::columnsRemoved,
             this, &tst_QStandardItemModel::columnsRemoved);
 
-    connect(m_model, &QAbstractItemModel::dataChanged,
-            this, [this](const QModelIndex &, const QModelIndex &, const QVector<int> &roles)
-    {
-        currentRoles = roles;
-    });
+    connect(m_model, &QAbstractItemModel::dataChanged, this,
+            [this](const QModelIndex &, const QModelIndex &, const QList<int> &roles) {
+                currentRoles = roles;
+            });
 
     rcFirst.fill(-1);
     rcLast.fill(-1);
@@ -727,11 +732,11 @@ void tst_QStandardItemModel::data()
     for (int r = 0; r < m_model->rowCount(); ++r) {
         for (int c = 0; c < m_model->columnCount(); ++c) {
             m_model->setData(m_model->index(r,c), "initialitem", Qt::DisplayRole);
-            QCOMPARE(currentRoles, QVector<int>({Qt::DisplayRole, Qt::EditRole}));
+            QCOMPARE(currentRoles, QList<int>({ Qt::DisplayRole, Qt::EditRole }));
             m_model->setData(m_model->index(r,c), "tooltip", Qt::ToolTipRole);
-            QCOMPARE(currentRoles, QVector<int>{Qt::ToolTipRole});
+            QCOMPARE(currentRoles, QList<int> { Qt::ToolTipRole });
             m_model->setData(m_model->index(r,c), icon, Qt::DecorationRole);
-            QCOMPARE(currentRoles, QVector<int>{Qt::DecorationRole});
+            QCOMPARE(currentRoles, QList<int> { Qt::DecorationRole });
         }
     }
 
@@ -900,6 +905,22 @@ void tst_QStandardItemModel::sortRole()
         QCOMPARE(item->text(), expectedText.at(i));
         QCOMPARE(item->data(Qt::UserRole), expectedData.at(i));
     }
+}
+
+void tst_QStandardItemModel::sortRoleBindings()
+{
+    QStandardItemModel model;
+    QCOMPARE(model.sortRole(), Qt::DisplayRole);
+
+    QProperty<int> sortRole;
+    model.bindableSortRole().setBinding(Qt::makePropertyBinding(sortRole));
+    sortRole = Qt::UserRole;
+    QCOMPARE(model.sortRole(), Qt::UserRole);
+
+    QProperty<int> sortRoleObserver;
+    sortRoleObserver.setBinding([&] { return model.sortRole(); });
+    model.setSortRole(Qt::EditRole);
+    QCOMPARE(sortRoleObserver, Qt::EditRole);
 }
 
 void tst_QStandardItemModel::findItems()
@@ -1559,8 +1580,8 @@ void tst_QStandardItemModel::removeRowsAndColumns()
         for (int r = 0; r < row_list.count(); r++) \
             QCOMPARE(model.item(r,c)->text() , row_list[r] + QLatin1Char('x') + col_list[c]);
 
-    QVector<QString> row_list = QString("1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20").split(',').toVector();
-    QVector<QString> col_list = row_list;
+    QStringList row_list = QString("1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20").split(',');
+    QStringList col_list = row_list;
     QStandardItemModel model;
     for (int c = 0; c < col_list.count(); c++)
         for (int r = 0; r < row_list.count(); r++)
@@ -1598,10 +1619,16 @@ void tst_QStandardItemModel::removeRowsAndColumns()
     VERIFY_MODEL
 }
 
+void tst_QStandardItemModel::defaultItemRoles()
+{
+    QStandardItemModel model;
+    QCOMPARE(model.roleNames(), QAbstractItemModelPrivate::defaultRoleNames());
+}
+
 void tst_QStandardItemModel::itemRoleNames()
 {
-    QVector<QString> row_list = QString("1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20").split(',').toVector();
-    QVector<QString> col_list = row_list;
+    QStringList row_list = QString("1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20").split(',');
+    QStringList col_list = row_list;
     QStandardItemModel model;
     for (int c = 0; c < col_list.count(); c++)
         for (int r = 0; r < row_list.count(); r++)
@@ -1710,6 +1737,88 @@ void tst_QStandardItemModel::setItemPersistentIndex()
 
     m.setItem(0, 0, nullptr);
     QVERIFY(!persistentIndex.isValid());
+}
+
+void tst_QStandardItemModel::signalsOnTakeItem() // QTBUG-89145
+{
+    QStandardItemModel m;
+    m.insertColumns(0, 2);
+    m.insertRows(0, 5);
+    for (int i = 0; i < m.rowCount(); ++i) {
+        for (int j = 0; j < m.columnCount(); ++j)
+            m.setData(m.index(i, j), i + j);
+    }
+    const QModelIndex parentIndex = m.index(1, 0);
+    m.insertColumns(0, 2, parentIndex);
+    m.insertRows(0, 2, parentIndex);
+    for (int i = 0; i < m.rowCount(parentIndex); ++i) {
+        for (int j = 0; j < m.columnCount(parentIndex); ++j)
+            m.setData(m.index(i, j, parentIndex), i + j + 100);
+    }
+    QAbstractItemModelTester mTester(&m, nullptr);
+    QSignalSpy columnsRemovedSpy(&m, &QAbstractItemModel::columnsRemoved);
+    QSignalSpy columnsAboutToBeRemovedSpy(&m, &QAbstractItemModel::columnsAboutToBeRemoved);
+    QSignalSpy rowsRemovedSpy(&m, &QAbstractItemModel::rowsRemoved);
+    QSignalSpy rowsAboutToBeRemovedSpy(&m, &QAbstractItemModel::rowsAboutToBeRemoved);
+    QSignalSpy *const removeSpies[] = {&columnsRemovedSpy, &columnsAboutToBeRemovedSpy, &rowsRemovedSpy, &rowsAboutToBeRemovedSpy};
+    QSignalSpy dataChangedSpy(&m, &QAbstractItemModel::dataChanged);
+    QStandardItem *const takenItem = m.takeItem(1, 0);
+    for (auto &&spy : removeSpies) {
+        QCOMPARE(spy->count(), 1);
+        const auto spyArgs = spy->takeFirst();
+        QCOMPARE(spyArgs.at(0).value<QModelIndex>(), parentIndex);
+        QCOMPARE(spyArgs.at(1).toInt(), 0);
+        QCOMPARE(spyArgs.at(2).toInt(), 1);
+    }
+    QCOMPARE(dataChangedSpy.count(), 1);
+    const auto dataChangedSpyArgs = dataChangedSpy.takeFirst();
+    QCOMPARE(dataChangedSpyArgs.at(0).value<QModelIndex>(), m.index(1, 0));
+    QCOMPARE(dataChangedSpyArgs.at(1).value<QModelIndex>(), m.index(1, 0));
+    QCOMPARE(takenItem->data(Qt::EditRole).toInt(), 1);
+    QCOMPARE(takenItem->rowCount(), 2);
+    QCOMPARE(takenItem->columnCount(), 2);
+    for (int i = 0; i < 2; ++i) {
+        for (int j = 0; j < 2; ++j)
+            QCOMPARE(takenItem->child(i, j)->data(Qt::EditRole).toInt(), i + j + 100);
+    }
+    QCOMPARE(takenItem->model(), nullptr);
+    QCOMPARE(takenItem->child(0, 0)->model(), nullptr);
+    QCOMPARE(m.index(1, 0).data(), QVariant());
+}
+
+void tst_QStandardItemModel::createPersistentOnLayoutAboutToBeChanged() // QTBUG-93466
+{
+    QStandardItemModel model;
+    QAbstractItemModelTester mTester(&model, nullptr);
+    model.insertColumn(0);
+    QCOMPARE(model.columnCount(), 1);
+    model.insertRows(0, 3);
+    for (int row = 0; row < 3; ++row)
+        model.setData(model.index(row, 0), row);
+    QList<QPersistentModelIndex> idxList;
+    QSignalSpy layoutAboutToBeChangedSpy(&model, &QAbstractItemModel::layoutAboutToBeChanged);
+    QSignalSpy layoutChangedSpy(&model, &QAbstractItemModel::layoutChanged);
+    connect(&model, &QAbstractItemModel::layoutAboutToBeChanged, this, [&idxList, &model](){
+        idxList.clear();
+        for (int row = 0; row < 3; ++row)
+            idxList << QPersistentModelIndex(model.index(row, 0));
+    });
+    connect(&model, &QAbstractItemModel::layoutChanged, this, [&idxList](){
+        QCOMPARE(idxList.size(), 3);
+        QCOMPARE(idxList.at(0).row(), 1);
+        QCOMPARE(idxList.at(0).column(), 0);
+        QCOMPARE(idxList.at(0).data().toInt(), 0);
+        QCOMPARE(idxList.at(1).row(), 0);
+        QCOMPARE(idxList.at(1).column(), 0);
+        QCOMPARE(idxList.at(1).data().toInt(), -1);
+        QCOMPARE(idxList.at(2).row(), 2);
+        QCOMPARE(idxList.at(2).column(), 0);
+        QCOMPARE(idxList.at(2).data().toInt(), 2);
+    });
+    model.setData(model.index(1, 0), -1);
+    model.sort(0);
+    QCOMPARE(layoutAboutToBeChangedSpy.size(), 1);
+    QCOMPARE(layoutChangedSpy.size(), 1);
 }
 
 QTEST_MAIN(tst_QStandardItemModel)

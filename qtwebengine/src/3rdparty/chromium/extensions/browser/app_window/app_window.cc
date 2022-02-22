@@ -19,6 +19,7 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/web_modal/web_contents_modal_dialog_manager.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/file_select_listener.h"
@@ -56,7 +57,7 @@
 #include "ui/display/screen.h"
 #include "ui/events/keycodes/keyboard_codes.h"
 
-#if !defined(OS_MACOSX)
+#if !defined(OS_MAC)
 #include "components/prefs/pref_service.h"
 #include "extensions/browser/pref_names.h"
 #endif
@@ -242,7 +243,9 @@ AppWindow::AppWindow(BrowserContext* context,
                      const Extension* extension)
     : browser_context_(context),
       extension_id_(extension->id()),
+#ifndef TOOLKIT_QT
       session_id_(SessionID::NewUnique()),
+#endif
       app_delegate_(app_delegate) {
   ExtensionsBrowserClient* client = ExtensionsBrowserClient::Get();
   CHECK(!client->IsGuestSession(context) || context->IsOffTheRecord())
@@ -275,9 +278,6 @@ void AppWindow::Init(const GURL& url,
   // Initialize the window
   CreateParams new_params = LoadDefaults(params);
   window_type_ = new_params.window_type;
-  UMA_HISTOGRAM_ENUMERATION("Apps.Window.Type", new_params.window_type,
-                            WINDOW_TYPE_COUNT);
-
   window_key_ = new_params.window_key;
 
   // Windows cannot be always-on-top in fullscreen mode for security reasons.
@@ -331,9 +331,8 @@ void AppWindow::Init(const GURL& url,
   ExtensionRegistry::Get(browser_context_)->AddObserver(this);
 
   // Close when the browser process is exiting.
-  app_delegate_->SetTerminatingCallback(
-      base::Bind(&NativeAppWindow::Close,
-                 base::Unretained(native_app_window_.get())));
+  app_delegate_->SetTerminatingCallback(base::BindOnce(
+      &NativeAppWindow::Close, base::Unretained(native_app_window_.get())));
 
   app_window_contents_->LoadContents(new_params.creator_process_id);
 }
@@ -369,13 +368,15 @@ WebContents* AppWindow::OpenURLFromTab(WebContents* source,
 
 void AppWindow::AddNewContents(WebContents* source,
                                std::unique_ptr<WebContents> new_contents,
+                               const GURL& target_url,
                                WindowOpenDisposition disposition,
                                const gfx::Rect& initial_rect,
                                bool user_gesture,
                                bool* was_blocked) {
   DCHECK(new_contents->GetBrowserContext() == browser_context_);
   app_delegate_->AddNewContents(browser_context_, std::move(new_contents),
-                                disposition, initial_rect, user_gesture);
+                                target_url, disposition, initial_rect,
+                                user_gesture);
 }
 
 content::KeyboardEventProcessingResult AppWindow::PreHandleKeyboardEvent(
@@ -431,13 +432,6 @@ bool AppWindow::PreHandleGestureEvent(WebContents* source,
   return AppWebContentsHelper::ShouldSuppressGestureEvent(event);
 }
 
-std::unique_ptr<content::BluetoothChooser> AppWindow::RunBluetoothChooser(
-    content::RenderFrameHost* frame,
-    const content::BluetoothChooser::EventHandler& event_handler) {
-  return ExtensionsBrowserClient::Get()->CreateBluetoothChooser(frame,
-                                                                event_handler);
-}
-
 bool AppWindow::TakeFocus(WebContents* source, bool reverse) {
   return app_delegate_->TakeFocus(source, reverse);
 }
@@ -455,11 +449,11 @@ void AppWindow::ExitPictureInPicture() {
 }
 
 bool AppWindow::ShouldShowStaleContentOnEviction(content::WebContents* source) {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   return true;
 #else
   return false;
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 }
 
 bool AppWindow::OnMessageReceived(const IPC::Message& message,
@@ -472,8 +466,8 @@ bool AppWindow::OnMessageReceived(const IPC::Message& message,
   return handled;
 }
 
-void AppWindow::RenderViewCreated(content::RenderViewHost* render_view_host) {
-  app_delegate_->RenderViewCreated(render_view_host);
+void AppWindow::RenderFrameCreated(content::RenderFrameHost* frame_host) {
+  app_delegate_->RenderFrameCreated(frame_host);
 }
 
 void AppWindow::AddOnDidFinishFirstNavigationCallback(
@@ -517,7 +511,7 @@ void AppWindow::OnNativeWindowChanged() {
   if (!native_app_window_)
     return;
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   // On Mac the user can change the window's fullscreen state. If that has
   // happened, update AppWindow's internal state.
   if (native_app_window_->IsFullscreen()) {
@@ -623,7 +617,7 @@ void AppWindow::SetFullscreen(FullscreenType type, bool enable) {
   DCHECK_NE(FULLSCREEN_TYPE_NONE, type);
 
   if (enable) {
-#if !defined(OS_MACOSX)
+#if !defined(OS_MAC)
     // Do not enter fullscreen mode if disallowed by pref.
     // TODO(bartfab): Add a test once it becomes possible to simulate a user
     // gesture. http://crbug.com/174178
@@ -901,7 +895,7 @@ content::ColorChooser* AppWindow::OpenColorChooser(
 
 void AppWindow::RunFileChooser(
     content::RenderFrameHost* render_frame_host,
-    std::unique_ptr<content::FileSelectListener> listener,
+    scoped_refptr<content::FileSelectListener> listener,
     const blink::mojom::FileChooserParams& params) {
   app_delegate_->RunFileChooser(render_frame_host, std::move(listener), params);
 }
@@ -920,10 +914,10 @@ void AppWindow::NavigationStateChanged(content::WebContents* source,
 }
 
 void AppWindow::EnterFullscreenModeForTab(
-    content::WebContents* source,
-    const GURL& origin,
+    content::RenderFrameHost* requesting_frame,
     const blink::mojom::FullscreenOptions& options) {
-  ToggleFullscreenModeForTab(source, true);
+  ToggleFullscreenModeForTab(WebContents::FromRenderFrameHost(requesting_frame),
+                             true);
 }
 
 void AppWindow::ExitFullscreenModeForTab(content::WebContents* source) {

@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2018 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
@@ -26,7 +26,8 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QTestEventLoop>
 
 #include <QtNetwork/qsslpresharedkeyauthenticator.h>
 #include <QtNetwork/qsslconfiguration.h>
@@ -40,10 +41,13 @@
 #include <QtNetwork/qssl.h>
 
 #include <QtCore/qcryptographichash.h>
+#include <QtCore/qscopeguard.h>
 #include <QtCore/qbytearray.h>
-#include <QtCore/qvector.h>
-#include <QtCore/qstring.h>
 #include <QtCore/qobject.h>
+#include <QtCore/qstring.h>
+#include <QtCore/qlist.h>
+
+#include "../shared/tlshelpers.h"
 
 #include <algorithm>
 
@@ -162,12 +166,16 @@ Q_DECLARE_METATYPE(QSslSocket::SslMode)
 Q_DECLARE_METATYPE(QSslSocket::PeerVerifyMode)
 Q_DECLARE_METATYPE(QList<QSslCertificate>)
 Q_DECLARE_METATYPE(QSslKey)
-Q_DECLARE_METATYPE(QVector<QSslError>)
 
 QT_BEGIN_NAMESPACE
 
+void qt_ForceTlsSecurityLevel();
+
 void tst_QDtls::initTestCase()
 {
+    if (!TlsAux::classImplemented(QSsl::ImplementedClass::Dtls))
+        QSKIP("The active TLS backend does not support DTLS");
+
     certDirPath = QFileInfo(QFINDTESTDATA("certs")).absolutePath();
     QVERIFY(certDirPath.size() > 0);
     certDirPath += QDir::separator() + QStringLiteral("certs") + QDir::separator();
@@ -190,7 +198,6 @@ void tst_QDtls::initTestCase()
 
     hostName = QStringLiteral("bob.org");
 
-    void qt_ForceTlsSecurityLevel();
     qt_ForceTlsSecurityLevel();
 }
 
@@ -311,6 +318,19 @@ void tst_QDtls::configuration()
         QVERIFY(!dtls.setDtlsConfiguration(QSslConfiguration::defaultDtlsConfiguration()));
         QCOMPARE(dtls.dtlsError(), QDtlsError::InvalidOperation);
         QCOMPARE(dtls.dtlsConfiguration(), config);
+    }
+
+    static bool doneAlready = false;
+    if (!doneAlready) {
+        doneAlready = true;
+        QSslConfiguration nullConfig;
+        const auto defaultDtlsConfig = QSslConfiguration::defaultDtlsConfiguration();
+        const auto restoreDefault = qScopeGuard([&defaultDtlsConfig] {
+            QSslConfiguration::setDefaultDtlsConfiguration(defaultDtlsConfig);
+        });
+        QSslConfiguration::setDefaultDtlsConfiguration(nullConfig);
+        QCOMPARE(QSslConfiguration::defaultDtlsConfiguration(), nullConfig);
+        QVERIFY(QSslConfiguration::defaultDtlsConfiguration() != defaultDtlsConfig);
     }
 }
 
@@ -703,10 +723,10 @@ void tst_QDtls::verificationErrors()
 
 void tst_QDtls::presetExpectedErrors_data()
 {
-    QTest::addColumn<QVector<QSslError>>("expectedTlsErrors");
+    QTest::addColumn<QList<QSslError>>("expectedTlsErrors");
     QTest::addColumn<bool>("works");
 
-    QVector<QSslError> expectedErrors{{QSslError::HostNameMismatch, selfSignedCert}};
+    QList<QSslError> expectedErrors { { QSslError::HostNameMismatch, selfSignedCert } };
     QTest::addRow("unexpected-self-signed") << expectedErrors << false;
     expectedErrors.push_back({QSslError::SelfSignedCertificate, selfSignedCert});
     QTest::addRow("all-errors-ignored") << expectedErrors << true;
@@ -714,7 +734,7 @@ void tst_QDtls::presetExpectedErrors_data()
 
 void tst_QDtls::presetExpectedErrors()
 {
-    QFETCH(const QVector<QSslError>, expectedTlsErrors);
+    QFETCH(const QList<QSslError>, expectedTlsErrors);
     QFETCH(const bool, works);
 
     connectHandshakeReadingSlots();

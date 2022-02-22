@@ -56,8 +56,8 @@ void QBspTree::create(int n, int d)
     }
     depth = qMax(depth, uint(1));
 
-    nodes.resize((1 << depth) - 1); // resize to number of nodes
-    leaves.resize(1 << depth); // resize to number of leaves
+    nodes.resize((1ll << depth) - 1); // resize to number of nodes
+    leaves.resize(1ll << depth); // resize to number of leaves
 }
 
 void QBspTree::destroy()
@@ -128,12 +128,12 @@ void QBspTree::init(const QRect &area, int depth, NodeType type, int index)
     }
 }
 
-void QBspTree::insert(QVector<int> &leaf, const QRect &, uint, QBspTreeData data)
+void QBspTree::insert(QList<int> &leaf, const QRect &, uint, QBspTreeData data)
 {
     leaf.append(data.i);
 }
 
-void QBspTree::remove(QVector<int> &leaf, const QRect &, uint, QBspTreeData data)
+void QBspTree::remove(QList<int> &leaf, const QRect &, uint, QBspTreeData data)
 {
     int i = leaf.indexOf(data.i);
     if (i != -1)

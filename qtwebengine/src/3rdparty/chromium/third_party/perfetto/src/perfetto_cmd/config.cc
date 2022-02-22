@@ -31,7 +31,7 @@ using UnitMultipler = std::pair<const char*, uint64_t>;
 
 bool SplitValueAndUnit(const std::string& arg, ValueUnit* out) {
   char* end;
-  if (!arg.size())
+  if (arg.empty())
     return false;
   out->first = strtoull(arg.c_str(), &end, 10);
   if (end == arg.data())
@@ -45,6 +45,11 @@ bool ConvertValue(const std::string& arg,
                   std::vector<UnitMultipler> units,
                   uint64_t* out) {
   if (arg.empty()) {
+    *out = 0;
+    return true;
+  }
+
+  if (arg == "0") {
     *out = 0;
     return true;
   }
@@ -111,7 +116,7 @@ bool CreateConfigFromOptions(const ConfigOptions& options,
   std::vector<std::string> atrace_apps = options.atrace_apps;
 
   for (const auto& category : options.categories) {
-    if (category.find("/") == std::string::npos) {
+    if (category.find('/') == std::string::npos) {
       atrace_categories.push_back(category);
     } else {
       ftrace_events.push_back(category);

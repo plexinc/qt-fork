@@ -8,20 +8,21 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/check.h"
 #include "base/command_line.h"
-#include "base/logging.h"
-#include "base/single_thread_task_runner.h"
-#include "base/task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/feature_list.h"
+#include "base/notreached.h"
 #include "components/domain_reliability/baked_in_configs.h"
+#include "components/domain_reliability/features.h"
 #include "components/domain_reliability/google_configs.h"
 #include "components/domain_reliability/quic_error_mapping.h"
+#include "net/base/isolation_info.h"
 #include "net/base/load_flags.h"
 #include "net/base/net_errors.h"
+#include "net/base/network_isolation_key.h"
 #include "net/http/http_response_headers.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_context.h"
-#include "net/url_request/url_request_context_getter.h"
 
 namespace domain_reliability {
 
@@ -55,14 +56,17 @@ std::unique_ptr<DomainReliabilityBeacon> CreateBeaconFromAttempt(
 }  // namespace
 
 DomainReliabilityMonitor::DomainReliabilityMonitor(
+    net::URLRequestContext* url_request_context,
     const std::string& upload_reporter_string,
     const DomainReliabilityContext::UploadAllowedCallback&
         upload_allowed_callback)
-    : DomainReliabilityMonitor(upload_reporter_string,
+    : DomainReliabilityMonitor(url_request_context,
+                               upload_reporter_string,
                                upload_allowed_callback,
                                std::make_unique<ActualTime>()) {}
 
 DomainReliabilityMonitor::DomainReliabilityMonitor(
+    net::URLRequestContext* url_request_context,
     const std::string& upload_reporter_string,
     const DomainReliabilityContext::UploadAllowedCallback&
         upload_allowed_callback,
@@ -74,29 +78,15 @@ DomainReliabilityMonitor::DomainReliabilityMonitor(
                        upload_allowed_callback,
                        &dispatcher_),
       discard_uploads_set_(false) {
+  DCHECK(url_request_context);
+  uploader_ =
+      DomainReliabilityUploader::Create(time_.get(), url_request_context);
+  context_manager_.SetUploader(uploader_.get());
   net::NetworkChangeNotifier::AddNetworkChangeObserver(this);
 }
 
 DomainReliabilityMonitor::~DomainReliabilityMonitor() {
   net::NetworkChangeNotifier::RemoveNetworkChangeObserver(this);
-}
-
-void DomainReliabilityMonitor::InitURLRequestContext(
-    net::URLRequestContext* url_request_context) {
-  DCHECK(url_request_context);
-
-  scoped_refptr<net::URLRequestContextGetter> url_request_context_getter =
-      new net::TrivialURLRequestContextGetter(
-          url_request_context, base::ThreadTaskRunnerHandle::Get());
-  InitURLRequestContext(url_request_context_getter);
-}
-
-void DomainReliabilityMonitor::InitURLRequestContext(
-    const scoped_refptr<net::URLRequestContextGetter>&
-        url_request_context_getter) {
-  uploader_ = DomainReliabilityUploader::Create(time_.get(),
-                                                url_request_context_getter);
-  context_manager_.SetUploader(uploader_.get());
 }
 
 void DomainReliabilityMonitor::Shutdown() {
@@ -200,9 +190,12 @@ DomainReliabilityMonitor::RequestInfo::RequestInfo(
     const net::URLRequest& request,
     int net_error)
     : url(request.url()),
+      network_isolation_key(request.isolation_info().network_isolation_key()),
       net_error(net_error),
       response_info(request.response_info()),
-      load_flags(request.load_flags()),
+      // This ignores cookie blocking by the NetworkDelegate, but probably
+      // should not. Unclear if it's worth fixing.
+      allow_credentials(request.allow_credentials()),
       upload_depth(
           DomainReliabilityUploader::GetURLRequestUploadDepth(request)) {
   request.GetLoadTimingInfo(&load_timing_info);
@@ -220,12 +213,14 @@ DomainReliabilityMonitor::RequestInfo::~RequestInfo() {}
 // static
 bool DomainReliabilityMonitor::RequestInfo::ShouldReportRequest(
     const DomainReliabilityMonitor::RequestInfo& request) {
-  // Always report upload requests, even though they have DO_NOT_SEND_COOKIES.
+  // Always report DR upload requests, even though they don't allow credentials.
+  // Note: They are reported (i.e. generate a beacon) but do not necessarily
+  // trigger an upload by themselves.
   if (request.upload_depth > 0)
     return true;
 
-  // Don't report requests that weren't supposed to send cookies.
-  if (request.load_flags & net::LOAD_DO_NOT_SEND_COOKIES)
+  // Don't report requests that weren't supposed to send credentials.
+  if (!request.allow_credentials)
     return false;
 
   // Report requests that accessed the network or failed with an error code
@@ -277,6 +272,10 @@ void DomainReliabilityMonitor::OnRequestLegComplete(
   beacon_template.elapsed = time_->NowTicks() - beacon_template.start_time;
   beacon_template.was_proxied = request.response_info.was_fetched_via_proxy;
   beacon_template.url = request.url;
+  if (base::FeatureList::IsEnabled(
+          features::kPartitionDomainReliabilityByNetworkIsolationKey)) {
+    beacon_template.network_isolation_key = request.network_isolation_key;
+  }
   beacon_template.upload_depth = request.upload_depth;
   beacon_template.details = request.details;
 

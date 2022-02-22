@@ -6,12 +6,7 @@
 
 #include <gtk-primary-selection-client-protocol.h>
 
-#include <fcntl.h>
-#include <algorithm>
-
 #include "base/files/file_util.h"
-#include "base/logging.h"
-#include "base/stl_util.h"
 #include "ui/base/clipboard/clipboard_constants.h"
 
 namespace ui {

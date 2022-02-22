@@ -44,8 +44,6 @@
 #include "private/qtabbar_p.h"
 #include "qapplication.h"
 #include "qbitmap.h"
-#include "qdesktopwidget.h"
-#include <private/qdesktopwidget_p.h>
 #include "qevent.h"
 #include "qlayout.h"
 #include "qstackedwidget.h"
@@ -471,7 +469,7 @@ int QTabWidget::insertTab(int index, QWidget *w, const QString &label)
 int QTabWidget::insertTab(int index, QWidget *w, const QIcon& icon, const QString &label)
 {
     Q_D(QTabWidget);
-    if(!w)
+    if (!w)
         return -1;
     index = d->stack->insertWidget(index, w);
     d->tabs->insertTab(index, icon, label);
@@ -721,7 +719,7 @@ void QTabWidget::setCurrentIndex(int index)
     Returns the index position of the page occupied by the widget \a
     w, or -1 if the widget cannot be found.
 */
-int QTabWidget::indexOf(QWidget* w) const
+int QTabWidget::indexOf(const QWidget *w) const
 {
     Q_D(const QTabWidget);
     return d->stack->indexOf(w);
@@ -880,7 +878,7 @@ QSize QTabWidget::sizeHint() const
 
     if (d->leftCornerWidget)
         lc = d->leftCornerWidget->sizeHint();
-    if(d->rightCornerWidget)
+    if (d->rightCornerWidget)
         rc = d->rightCornerWidget->sizeHint();
     if (!d->dirty) {
         QTabWidget *that = const_cast<QTabWidget*>(this);
@@ -899,13 +897,12 @@ QSize QTabWidget::sizeHint() const
         if (usesScrollButtons())
             t = t.boundedTo(QSize(200,200));
         else
-            t = t.boundedTo(QDesktopWidgetPrivate::size());
+            t = t.boundedTo(QGuiApplication::primaryScreen()->virtualGeometry().size());
     }
 
     QSize sz = basicSize(d->pos == North || d->pos == South, lc, rc, s, t);
 
-    return style()->sizeFromContents(QStyle::CT_TabWidget, &opt, sz, this)
-                    .expandedTo(QApplication::globalStrut());
+    return style()->sizeFromContents(QStyle::CT_TabWidget, &opt, sz, this);
 }
 
 
@@ -919,9 +916,9 @@ QSize QTabWidget::minimumSizeHint() const
     Q_D(const QTabWidget);
     QSize lc(0, 0), rc(0, 0);
 
-    if(d->leftCornerWidget)
+    if (d->leftCornerWidget)
         lc = d->leftCornerWidget->minimumSizeHint();
-    if(d->rightCornerWidget)
+    if (d->rightCornerWidget)
         rc = d->rightCornerWidget->minimumSizeHint();
     if (!d->dirty) {
         QTabWidget *that = const_cast<QTabWidget*>(this);
@@ -938,8 +935,7 @@ QSize QTabWidget::minimumSizeHint() const
     initStyleOption(&opt);
     opt.palette = palette();
     opt.state = QStyle::State_None;
-    return style()->sizeFromContents(QStyle::CT_TabWidget, &opt, sz, this)
-                    .expandedTo(QApplication::globalStrut());
+    return style()->sizeFromContents(QStyle::CT_TabWidget, &opt, sz, this);
 }
 
 /*!
@@ -953,13 +949,12 @@ int QTabWidget::heightForWidth(int width) const
     opt.state = QStyle::State_None;
 
     QSize zero(0,0);
-    const QSize padding = style()->sizeFromContents(QStyle::CT_TabWidget, &opt, zero, this)
-                                  .expandedTo(QApplication::globalStrut());
+    const QSize padding = style()->sizeFromContents(QStyle::CT_TabWidget, &opt, zero, this);
 
     QSize lc(0, 0), rc(0, 0);
     if (d->leftCornerWidget)
         lc = d->leftCornerWidget->sizeHint();
-    if(d->rightCornerWidget)
+    if (d->rightCornerWidget)
         rc = d->rightCornerWidget->sizeHint();
     if (!d->dirty) {
         QTabWidget *that = const_cast<QTabWidget*>(this);
@@ -971,7 +966,7 @@ int QTabWidget::heightForWidth(int width) const
         if (usesScrollButtons())
             t = t.boundedTo(QSize(200,200));
         else
-            t = t.boundedTo(QDesktopWidgetPrivate::size());
+            t = t.boundedTo(QGuiApplication::primaryScreen()->virtualSize());
     }
 
     const bool tabIsHorizontal = (d->pos == North || d->pos == South);
@@ -984,7 +979,7 @@ int QTabWidget::heightForWidth(int width) const
     QSize s(stackWidth, stackHeight);
 
     QSize contentSize = basicSize(tabIsHorizontal, lc, rc, s, t);
-    return (contentSize + padding).expandedTo(QApplication::globalStrut()).height();
+    return (contentSize + padding).height();
 }
 
 
@@ -1212,7 +1207,7 @@ int QTabWidget::count() const
     return d->tabs->count();
 }
 
-#ifndef QT_NO_TOOLTIP
+#if QT_CONFIG(tooltip)
 /*!
     Sets the tab tool tip for the page at position \a index to \a tip.
 
@@ -1235,7 +1230,7 @@ QString QTabWidget::tabToolTip(int index) const
     Q_D(const QTabWidget);
     return d->tabs->tabToolTip(index);
 }
-#endif // QT_NO_TOOLTIP
+#endif // QT_CONFIG(tooltip)
 
 #if QT_CONFIG(whatsthis)
 /*!
@@ -1271,7 +1266,7 @@ QString QTabWidget::tabWhatsThis(int index) const
  */
 void QTabWidget::tabInserted(int index)
 {
-    Q_UNUSED(index)
+    Q_UNUSED(index);
 }
 
 /*!
@@ -1282,7 +1277,7 @@ void QTabWidget::tabInserted(int index)
  */
 void QTabWidget::tabRemoved(int index)
 {
-    Q_UNUSED(index)
+    Q_UNUSED(index);
 }
 
 /*!
@@ -1348,7 +1343,7 @@ void QTabWidget::setIconSize(const QSize &size)
     This property controls how items are elided when there is not
     enough space to show them for a given tab bar size.
 
-    By default the value is style dependant.
+    By default the value is style dependent.
 
     \sa QTabBar::elideMode, usesScrollButtons, QStyle::SH_TabBar_ElideMode
 */
@@ -1371,7 +1366,7 @@ void QTabWidget::setElideMode(Qt::TextElideMode mode)
     When there are too many tabs in a tab bar for its size, the tab bar can either choose
     to expand its size or to add buttons that allow you to scroll through the tabs.
 
-    By default the value is style dependant.
+    By default the value is style dependent.
 
     \sa elideMode, QTabBar::usesScrollButtons, QStyle::SH_TabBar_PreferNoArrows
 */

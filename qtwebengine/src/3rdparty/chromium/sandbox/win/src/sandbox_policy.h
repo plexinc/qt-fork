@@ -17,6 +17,7 @@
 namespace sandbox {
 
 class AppContainerProfile;
+class PolicyInfo;
 
 class TargetPolicy {
  public:
@@ -58,9 +59,6 @@ class TargetPolicy {
     FAKE_USER_GDI_INIT,     // Fakes user32 and gdi32 initialization. This can
                             // be used to allow the DLLs to load and initialize
                             // even if the process cannot access that subsystem.
-    IMPLEMENT_OPM_APIS,     // Implements FAKE_USER_GDI_INIT and also exposes
-                            // IPC calls to handle Output Protection Manager
-                            // APIs.
     SIGNED_ALLOW_LOAD       // Allows loading the module when CIG is enabled.
   };
 
@@ -256,11 +254,6 @@ class TargetPolicy {
   // the default DACL.
   virtual void AddRestrictingRandomSid() = 0;
 
-  // Enable OPM API redirection when in Win32k lockdown.
-  virtual void SetEnableOPMRedirection() = 0;
-  // Enable OPM API emulation when in Win32k lockdown.
-  virtual bool GetEnableOPMRedirection() = 0;
-
   // Configure policy to use an AppContainer profile. |package_name| is the
   // name of the profile to use. Specifying True for |create_profile| ensures
   // the profile exists, if set to False process creation will fail if the
@@ -276,8 +269,8 @@ class TargetPolicy {
   // lifetime of the policy object.
   virtual void SetEffectiveToken(HANDLE token) = 0;
 
-  // Returns the size of policy memory used at process start.
-  virtual size_t GetPolicyGlobalSize() const = 0;
+  // Returns a snapshot of the policy configuration.
+  virtual std::unique_ptr<PolicyInfo> GetPolicyInfo() = 0;
 
  protected:
   ~TargetPolicy() {}

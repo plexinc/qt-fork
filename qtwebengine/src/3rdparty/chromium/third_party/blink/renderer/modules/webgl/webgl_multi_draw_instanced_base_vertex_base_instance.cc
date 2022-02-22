@@ -61,7 +61,7 @@ void WebGLMultiDrawInstancedBaseVertexBaseInstance::
         GLuint counts_offset,
         const base::span<const int32_t> instance_counts,
         GLuint instance_counts_offset,
-        const base::span<const int32_t> baseinstances,
+        const base::span<const uint32_t> baseinstances,
         GLuint baseinstances_offset,
         GLsizei drawcount) {
   WebGLExtensionScopedContext scoped(this);
@@ -84,11 +84,12 @@ void WebGLMultiDrawInstancedBaseVertexBaseInstance::
     return;
   }
 
+  scoped.Context()->RecordUKMCanvasDrawnToAtFirstDrawCall();
+
   scoped.Context()->ContextGL()->MultiDrawArraysInstancedBaseInstanceWEBGL(
       mode, &firsts[firsts_offset], &counts[counts_offset],
       &instance_counts[instance_counts_offset],
-      reinterpret_cast<const GLuint*>(&baseinstances[baseinstances_offset]),
-      drawcount);
+      &baseinstances[baseinstances_offset], drawcount);
 }
 
 void WebGLMultiDrawInstancedBaseVertexBaseInstance::
@@ -103,7 +104,7 @@ void WebGLMultiDrawInstancedBaseVertexBaseInstance::
         GLuint instance_counts_offset,
         const base::span<const int32_t> basevertices,
         GLuint basevertices_offset,
-        const base::span<const int32_t> baseinstances,
+        const base::span<const uint32_t> baseinstances,
         GLuint baseinstances_offset,
         GLsizei drawcount) {
   WebGLExtensionScopedContext scoped(this);
@@ -134,14 +135,15 @@ void WebGLMultiDrawInstancedBaseVertexBaseInstance::
     return;
   }
 
+  scoped.Context()->RecordUKMCanvasDrawnToAtFirstDrawCall();
+
   scoped.Context()
       ->ContextGL()
       ->MultiDrawElementsInstancedBaseVertexBaseInstanceWEBGL(
           mode, &counts[counts_offset], type, &offsets[offsets_offset],
           &instance_counts[instance_counts_offset],
           &basevertices[basevertices_offset],
-          reinterpret_cast<const GLuint*>(&baseinstances[baseinstances_offset]),
-          drawcount);
+          &baseinstances[baseinstances_offset], drawcount);
 }
 
 }  // namespace blink

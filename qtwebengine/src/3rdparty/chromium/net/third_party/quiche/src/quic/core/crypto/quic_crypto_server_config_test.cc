@@ -2,29 +2,30 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/crypto/quic_crypto_server_config.h"
+#include "quic/core/crypto/quic_crypto_server_config.h"
 
 #include <stdarg.h>
 
 #include <memory>
 #include <string>
 
-#include "net/third_party/quiche/src/quic/core/crypto/cert_compressor.h"
-#include "net/third_party/quiche/src/quic/core/crypto/chacha20_poly1305_encrypter.h"
-#include "net/third_party/quiche/src/quic/core/crypto/crypto_handshake_message.h"
-#include "net/third_party/quiche/src/quic/core/crypto/crypto_secret_boxer.h"
-#include "net/third_party/quiche/src/quic/core/crypto/quic_random.h"
-#include "net/third_party/quiche/src/quic/core/proto/crypto_server_config_proto.h"
-#include "net/third_party/quiche/src/quic/core/quic_time.h"
-#include "net/third_party/quiche/src/quic/core/quic_versions.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_socket_address.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/test_tools/crypto_test_utils.h"
-#include "net/third_party/quiche/src/quic/test_tools/mock_clock.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_crypto_server_config_peer.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_text_utils.h"
+#include "absl/strings/match.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/crypto/cert_compressor.h"
+#include "quic/core/crypto/chacha20_poly1305_encrypter.h"
+#include "quic/core/crypto/crypto_handshake_message.h"
+#include "quic/core/crypto/crypto_secret_boxer.h"
+#include "quic/core/crypto/quic_random.h"
+#include "quic/core/proto/crypto_server_config_proto.h"
+#include "quic/core/quic_time.h"
+#include "quic/core/quic_versions.h"
+#include "quic/platform/api/quic_socket_address.h"
+#include "quic/platform/api/quic_test.h"
+#include "quic/test_tools/crypto_test_utils.h"
+#include "quic/test_tools/mock_clock.h"
+#include "quic/test_tools/quic_crypto_server_config_peer.h"
+#include "quic/test_tools/quic_test_utils.h"
+#include "common/platform/api/quiche_text_utils.h"
 
 namespace quic {
 namespace test {
@@ -142,7 +143,7 @@ TEST_F(QuicCryptoServerConfigTest, CompressDifferentCerts) {
   static const uint64_t set_hash = 42;
   std::unique_ptr<CommonCertSets> common_sets(
       crypto_test_utils::MockCommonCertSets(certs[0], set_hash, 1));
-  quiche::QuicheStringPiece different_common_certs(
+  absl::string_view different_common_certs(
       reinterpret_cast<const char*>(&set_hash), sizeof(set_hash));
   std::string compressed3 = QuicCryptoServerConfigPeer::CompressChain(
       &compressed_certs_cache, chain, std::string(different_common_certs),
@@ -193,16 +194,15 @@ class SourceAddressTokenTest : public QuicTest {
                                        clock_.WallNow(), cached_network_params);
   }
 
-  HandshakeFailureReason ValidateSourceAddressTokens(
-      std::string config_id,
-      quiche::QuicheStringPiece srct,
-      const QuicIpAddress& ip) {
+  HandshakeFailureReason ValidateSourceAddressTokens(std::string config_id,
+                                                     absl::string_view srct,
+                                                     const QuicIpAddress& ip) {
     return ValidateSourceAddressTokens(config_id, srct, ip, nullptr);
   }
 
   HandshakeFailureReason ValidateSourceAddressTokens(
       std::string config_id,
-      quiche::QuicheStringPiece srct,
+      absl::string_view srct,
       const QuicIpAddress& ip,
       CachedNetworkParameters* cached_network_params) {
     return peer_.ValidateSourceAddressTokens(
@@ -356,8 +356,7 @@ class CryptoServerConfigsTest : public QuicTest {
           QuicCryptoServerConfig::GenerateConfig(rand_, &clock_, options);
       protobuf.set_primary_time(primary_time);
       protobuf.set_priority(priority);
-      if (quiche::QuicheTextUtils::StartsWith(std::string(server_config_id),
-                                              "INVALID")) {
+      if (absl::StartsWith(std::string(server_config_id), "INVALID")) {
         protobuf.clear_key();
         has_invalid = true;
       }
@@ -481,7 +480,7 @@ TEST_F(CryptoServerConfigsTest, AdvancePrimaryViaValidate) {
   test_peer_.SelectNewPrimaryConfig(1000);
   test_peer_.CheckConfigs({{"a", true}, {"b", false}});
   CryptoHandshakeMessage client_hello;
-  QuicIpAddress client_ip;
+  QuicSocketAddress client_address;
   QuicSocketAddress server_address;
   QuicTransportVersion transport_version = QUIC_VERSION_UNSUPPORTED;
   for (const ParsedQuicVersion& version : AllSupportedVersions()) {
@@ -497,7 +496,7 @@ TEST_F(CryptoServerConfigsTest, AdvancePrimaryViaValidate) {
   std::unique_ptr<ValidateClientHelloResultCallback> done_cb(
       new ValidateCallback);
   clock.AdvanceTime(QuicTime::Delta::FromSeconds(1100));
-  config_.ValidateClientHello(client_hello, client_ip, server_address,
+  config_.ValidateClientHello(client_hello, client_address, server_address,
                               transport_version, &clock, signed_config,
                               std::move(done_cb));
   test_peer_.CheckConfigs({{"a", false}, {"b", true}});

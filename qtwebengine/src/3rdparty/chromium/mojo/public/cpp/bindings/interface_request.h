@@ -17,7 +17,6 @@
 #include "mojo/public/cpp/bindings/interface_ptr.h"
 #include "mojo/public/cpp/bindings/lib/bindings_internal.h"
 #include "mojo/public/cpp/bindings/lib/pending_receiver_state.h"
-#include "mojo/public/cpp/bindings/lib/serialization_context.h"
 #include "mojo/public/cpp/bindings/pipe_control_message_proxy.h"
 #include "mojo/public/cpp/system/message_pipe.h"
 
@@ -80,7 +79,7 @@ class InterfaceRequest {
 
     Message message =
         PipeControlMessageProxy::ConstructPeerEndpointClosedMessage(
-            kMasterInterfaceId, DisconnectReason(custom_reason, description));
+            kPrimaryInterfaceId, DisconnectReason(custom_reason, description));
     MojoResult result =
         WriteMessageNew(state_.pipe.get(), message.TakeMojoMessage(),
                         MOJO_WRITE_MESSAGE_FLAG_NONE);

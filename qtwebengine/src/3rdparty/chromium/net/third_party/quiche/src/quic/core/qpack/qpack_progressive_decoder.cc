@@ -2,17 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/qpack/qpack_progressive_decoder.h"
+#include "quic/core/qpack/qpack_progressive_decoder.h"
 
 #include <algorithm>
 #include <limits>
 #include <utility>
 
-#include "net/third_party/quiche/src/quic/core/qpack/qpack_index_conversions.h"
-#include "net/third_party/quiche/src/quic/core/qpack/qpack_instructions.h"
-#include "net/third_party/quiche/src/quic/core/qpack/qpack_required_insert_count.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/qpack/qpack_index_conversions.h"
+#include "quic/core/qpack/qpack_instructions.h"
+#include "quic/core/qpack/qpack_required_insert_count.h"
+#include "quic/platform/api/quic_logging.h"
 
 namespace quic {
 
@@ -46,8 +46,8 @@ QpackProgressiveDecoder::~QpackProgressiveDecoder() {
   }
 }
 
-void QpackProgressiveDecoder::Decode(quiche::QuicheStringPiece data) {
-  DCHECK(decoding_);
+void QpackProgressiveDecoder::Decode(absl::string_view data) {
+  QUICHE_DCHECK(decoding_);
 
   if (data.empty() || error_detected_) {
     return;
@@ -56,14 +56,14 @@ void QpackProgressiveDecoder::Decode(quiche::QuicheStringPiece data) {
   // Decode prefix byte by byte until the first (and only) instruction is
   // decoded.
   while (!prefix_decoded_) {
-    DCHECK(!blocked_);
+    QUICHE_DCHECK(!blocked_);
 
     if (!prefix_decoder_->Decode(data.substr(0, 1))) {
       return;
     }
 
     // |prefix_decoder_->Decode()| must return false if an error is detected.
-    DCHECK(!error_detected_);
+    QUICHE_DCHECK(!error_detected_);
 
     data = data.substr(1);
     if (data.empty()) {
@@ -74,19 +74,27 @@ void QpackProgressiveDecoder::Decode(quiche::QuicheStringPiece data) {
   if (blocked_) {
     buffer_.append(data.data(), data.size());
   } else {
-    DCHECK(buffer_.empty());
+    QUICHE_DCHECK(buffer_.empty());
 
     instruction_decoder_.Decode(data);
   }
 }
 
 void QpackProgressiveDecoder::EndHeaderBlock() {
-  DCHECK(decoding_);
+  QUICHE_DCHECK(decoding_);
   decoding_ = false;
 
   if (!blocked_) {
     FinishDecoding();
   }
+}
+
+void QpackProgressiveDecoder::OnError(absl::string_view error_message) {
+  QUICHE_DCHECK(!error_detected_);
+
+  error_detected_ = true;
+  // Might destroy |this|.
+  handler_->OnDecodingErrorDetected(error_message);
 }
 
 bool QpackProgressiveDecoder::OnInstructionDecoded(
@@ -95,8 +103,9 @@ bool QpackProgressiveDecoder::OnInstructionDecoded(
     return DoPrefixInstruction();
   }
 
-  DCHECK(prefix_decoded_);
-  DCHECK_LE(required_insert_count_, header_table_->inserted_entry_count());
+  QUICHE_DCHECK(prefix_decoded_);
+  QUICHE_DCHECK_LE(required_insert_count_,
+                   header_table_->inserted_entry_count());
 
   if (instruction == QpackIndexedHeaderFieldInstruction()) {
     return DoIndexedHeaderFieldInstruction();
@@ -110,20 +119,21 @@ bool QpackProgressiveDecoder::OnInstructionDecoded(
   if (instruction == QpackLiteralHeaderFieldPostBaseInstruction()) {
     return DoLiteralHeaderFieldPostBaseInstruction();
   }
-  DCHECK_EQ(instruction, QpackLiteralHeaderFieldInstruction());
+  QUICHE_DCHECK_EQ(instruction, QpackLiteralHeaderFieldInstruction());
   return DoLiteralHeaderFieldInstruction();
 }
 
-void QpackProgressiveDecoder::OnError(quiche::QuicheStringPiece error_message) {
-  DCHECK(!error_detected_);
-
-  error_detected_ = true;
-  // Might destroy |this|.
-  handler_->OnDecodingErrorDetected(error_message);
+void QpackProgressiveDecoder::OnInstructionDecodingError(
+    QpackInstructionDecoder::ErrorCode /* error_code */,
+    absl::string_view error_message) {
+  // Ignore |error_code|, because header block decoding errors trigger a
+  // RESET_STREAM frame which cannot carry an error code more granular than
+  // QPACK_DECOMPRESSION_FAILED.
+  OnError(error_message);
 }
 
 void QpackProgressiveDecoder::OnInsertCountReachedThreshold() {
-  DCHECK(blocked_);
+  QUICHE_DCHECK(blocked_);
 
   // Clear |blocked_| before calling instruction_decoder_.Decode() below,
   // because that might destroy |this| and ~QpackProgressiveDecoder() needs to
@@ -163,7 +173,7 @@ bool QpackProgressiveDecoder::DoIndexedHeaderFieldInstruction() {
       return false;
     }
 
-    DCHECK_LT(absolute_index, std::numeric_limits<uint64_t>::max());
+    QUICHE_DCHECK_LT(absolute_index, std::numeric_limits<uint64_t>::max());
     required_insert_count_so_far_ =
         std::max(required_insert_count_so_far_, absolute_index + 1);
 
@@ -203,7 +213,7 @@ bool QpackProgressiveDecoder::DoIndexedHeaderFieldPostBaseInstruction() {
     return false;
   }
 
-  DCHECK_LT(absolute_index, std::numeric_limits<uint64_t>::max());
+  QUICHE_DCHECK_LT(absolute_index, std::numeric_limits<uint64_t>::max());
   required_insert_count_so_far_ =
       std::max(required_insert_count_so_far_, absolute_index + 1);
 
@@ -233,7 +243,7 @@ bool QpackProgressiveDecoder::DoLiteralHeaderFieldNameReferenceInstruction() {
       return false;
     }
 
-    DCHECK_LT(absolute_index, std::numeric_limits<uint64_t>::max());
+    QUICHE_DCHECK_LT(absolute_index, std::numeric_limits<uint64_t>::max());
     required_insert_count_so_far_ =
         std::max(required_insert_count_so_far_, absolute_index + 1);
 
@@ -273,7 +283,7 @@ bool QpackProgressiveDecoder::DoLiteralHeaderFieldPostBaseInstruction() {
     return false;
   }
 
-  DCHECK_LT(absolute_index, std::numeric_limits<uint64_t>::max());
+  QUICHE_DCHECK_LT(absolute_index, std::numeric_limits<uint64_t>::max());
   required_insert_count_so_far_ =
       std::max(required_insert_count_so_far_, absolute_index + 1);
 
@@ -297,7 +307,7 @@ bool QpackProgressiveDecoder::DoLiteralHeaderFieldInstruction() {
 }
 
 bool QpackProgressiveDecoder::DoPrefixInstruction() {
-  DCHECK(!prefix_decoded_);
+  QUICHE_DCHECK(!prefix_decoded_);
 
   if (!QpackDecodeRequiredInsertCount(
           prefix_decoder_->varint(), header_table_->max_entries(),
@@ -328,9 +338,9 @@ bool QpackProgressiveDecoder::DoPrefixInstruction() {
 }
 
 void QpackProgressiveDecoder::FinishDecoding() {
-  DCHECK(buffer_.empty());
-  DCHECK(!blocked_);
-  DCHECK(!decoding_);
+  QUICHE_DCHECK(buffer_.empty());
+  QUICHE_DCHECK(!blocked_);
+  QUICHE_DCHECK(!decoding_);
 
   if (error_detected_) {
     return;

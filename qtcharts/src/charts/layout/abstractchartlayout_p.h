@@ -44,7 +44,7 @@
 #include <QtCharts/QChartGlobal>
 #include <QtCharts/private/qchartglobal_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class ChartTitle;
 class ChartAxisElement;
@@ -60,7 +60,7 @@ public:
 
     virtual void setMargins(const QMargins &margins);
     virtual QMargins margins() const;
-    virtual void setGeometry(const QRectF &rect);
+    void setGeometry(const QRectF &rect) override;
 
 protected:
     virtual QRectF calculateBackgroundGeometry(const QRectF &geometry, ChartBackground *background,
@@ -82,16 +82,16 @@ protected:
                                         const QList<ChartAxisElement *>& axes) const = 0;
 
     // from QGraphicsLayout
-    QSizeF sizeHint(Qt::SizeHint which, const QSizeF &constraint = QSizeF()) const;
-    int count() const { return 0; }
-    QGraphicsLayoutItem *itemAt(int) const { return 0; };
-    void removeAt(int) {};
+    QSizeF sizeHint(Qt::SizeHint which, const QSizeF &constraint = QSizeF()) const override;
+    int count() const override { return 0; }
+    QGraphicsLayoutItem *itemAt(int) const override { return 0; };
+    void removeAt(int) override {};
 
     ChartPresenter *m_presenter;
     QMargins m_margins;
     QRectF m_minAxisRect;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // ABSTRACTCHARTLAYOUT_H

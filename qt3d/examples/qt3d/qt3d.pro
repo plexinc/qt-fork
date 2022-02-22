@@ -17,7 +17,7 @@ qtHaveModule(widgets) {
 
 qtHaveModule(quick) {
     qtHaveModule(multimedia) {
-        SUBDIRS += audio-visualizer-qml
+#        SUBDIRS += audio-visualizer-qml
     }
 
     SUBDIRS += \
@@ -30,12 +30,11 @@ qtHaveModule(quick) {
         compute-particles \
         phong-cubes \
         lights \
-        scene3dview \
         controlsunderlay \
         simplecustommaterial \
         qardboard \
         pbr-materials \
-        scene2d \
+#        scene2d \ # Restore once Scene2D has been ported to Qt6
         multiviewport \
         wireframe \
         wave \

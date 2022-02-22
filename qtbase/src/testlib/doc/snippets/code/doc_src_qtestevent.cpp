@@ -48,16 +48,10 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QLineEdit>
 
-// dummy
-class TestGui: public QObject
-{
-    Q_OBJECT
-public:
-    void testGui_data();
-};
+#include "doc_src_qtestevent.h"
 
 void TestGui::testGui_data()
 {

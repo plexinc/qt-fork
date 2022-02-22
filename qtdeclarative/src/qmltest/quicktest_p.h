@@ -51,6 +51,7 @@
 // We mean it.
 //
 
+#include <QtQuickTest/private/quicktestglobal_p.h>
 #include <QtQuickTest/quicktest.h>
 
 #include <QtQml/qqmlpropertymap.h>
@@ -58,22 +59,24 @@
 
 QT_BEGIN_NAMESPACE
 
-class QTestRootObject : public QObject
+class Q_QUICK_TEST_PRIVATE_EXPORT QTestRootObject : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(bool windowShown READ windowShown NOTIFY windowShownChanged)
     Q_PROPERTY(bool hasTestCase READ hasTestCase WRITE setHasTestCase NOTIFY hasTestCaseChanged)
     Q_PROPERTY(QObject *defined READ defined)
+
     QML_SINGLETON
     QML_ELEMENT
+    QML_ADDED_IN_VERSION(1, 0)
 
 public:
-    QTestRootObject(QObject *parent = nullptr)
-        : QObject(parent), hasQuit(false), m_windowShown(false), m_hasTestCase(false)  {
-        m_defined = new QQmlPropertyMap(this);
-#if defined(QT_OPENGL_ES_2_ANGLE)
-        m_defined->insert(QLatin1String("QT_OPENGL_ES_2_ANGLE"), QVariant(true));
-#endif
+    static QTestRootObject *create(QQmlEngine *q, QJSEngine *)
+    {
+        QTestRootObject *result = instance();
+        QQmlEngine *engine = qmlEngine(result);
+        // You can only test on one engine at a time
+        return (engine == nullptr || engine == q) ? result : nullptr;
     }
 
     static QTestRootObject *instance() {
@@ -103,6 +106,14 @@ private Q_SLOTS:
     void quit() { hasQuit = true; }
 
 private:
+    QTestRootObject(QObject *parent = nullptr)
+        : QObject(parent), hasQuit(false), m_windowShown(false), m_hasTestCase(false)  {
+        m_defined = new QQmlPropertyMap(this);
+#if defined(QT_OPENGL_ES_2_ANGLE)
+        m_defined->insert(QLatin1String("QT_OPENGL_ES_2_ANGLE"), QVariant(true));
+#endif
+    }
+
     bool m_windowShown : 1;
     bool m_hasTestCase :1;
     QQmlPropertyMap *m_defined;

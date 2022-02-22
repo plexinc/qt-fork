@@ -43,13 +43,17 @@ class CORE_EXPORT CustomProperty : public Variable {
 
   const CSSValue* CSSValueFromComputedStyleInternal(
       const ComputedStyle&,
-      const SVGComputedStyle&,
       const LayoutObject*,
       bool allow_visited_style) const override;
 
   bool IsRegistered() const { return registration_; }
 
-  void Trace(Visitor* visitor) { visitor->Trace(registration_); }
+  bool HasInitialValue() const;
+
+  // https://drafts.csswg.org/css-variables/#guaranteed-invalid-value
+  bool SupportsGuaranteedInvalid() const;
+
+  void Trace(Visitor* visitor) const { visitor->Trace(registration_); }
 
  private:
   CustomProperty(const AtomicString& name,

@@ -10,12 +10,11 @@
 #include <ostream>
 #include <string>
 
-#include "base/logging.h"
-#include "ui/accessibility/ax_export.h"
+#include "ui/accessibility/ax_base_export.h"
 
 namespace ui {
 
-class AX_EXPORT AXMode {
+class AX_BASE_EXPORT AXMode {
  public:
   static constexpr uint32_t kFirstModeFlag = 1 << 0;
 
@@ -60,15 +59,19 @@ class AX_EXPORT AXMode {
   // The accessibility tree will contain automatic image annotations.
   static constexpr uint32_t kLabelImages = 1 << 5;
 
+  // The accessibility tree will contain enough information to export
+  // an accessible PDF.
+  static constexpr uint32_t kPDF = 1 << 6;
+
   // Update this to include the last supported mode flag. If you add
   // another, be sure to update the stream insertion operator for
   // logging and debugging.
-  static constexpr uint32_t kLastModeFlag = 1 << 5;
+  static constexpr uint32_t kLastModeFlag = 1 << 6;
 
   constexpr AXMode() : flags_(0) {}
   constexpr AXMode(uint32_t flags) : flags_(flags) {}
 
-  bool has_mode(uint32_t flag) const { return (flags_ & flag) > 0; }
+  bool has_mode(uint32_t flag) const { return (flags_ & flag) == flag; }
 
   void set_mode(uint32_t flag, bool value) {
     flags_ = value ? (flags_ | flag) : (flags_ & ~flag);
@@ -93,18 +96,28 @@ class AX_EXPORT AXMode {
   uint32_t flags_;
 };
 
+// Used when an AT that only require basic accessibility information, such as
+// a dictation tool, is present.
+static constexpr AXMode kAXModeBasic(AXMode::kNativeAPIs |
+                                     AXMode::kWebContents);
+
+// Used when complete accessibility access is desired but a third-party AT is
+// not present.
 static constexpr AXMode kAXModeWebContentsOnly(AXMode::kWebContents |
                                                AXMode::kInlineTextBoxes |
                                                AXMode::kScreenReader |
                                                AXMode::kHTML);
 
+// Used when an AT that requires full accessibility access, such as a screen
+// reader, is present.
 static constexpr AXMode kAXModeComplete(AXMode::kNativeAPIs |
                                         AXMode::kWebContents |
                                         AXMode::kInlineTextBoxes |
                                         AXMode::kScreenReader | AXMode::kHTML);
 
 // For debugging, test assertions, etc.
-AX_EXPORT std::ostream& operator<<(std::ostream& stream, const AXMode& mode);
+AX_BASE_EXPORT std::ostream& operator<<(std::ostream& stream,
+                                        const AXMode& mode);
 
 }  // namespace ui
 

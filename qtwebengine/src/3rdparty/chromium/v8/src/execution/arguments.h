@@ -33,6 +33,18 @@ namespace internal {
 template <ArgumentsType arguments_type>
 class Arguments {
  public:
+  // Scope to temporarily change the value of an argument.
+  class ChangeValueScope {
+   public:
+    inline ChangeValueScope(Isolate* isolate, Arguments* args, int index,
+                            Object value);
+    ~ChangeValueScope() { *location_ = old_value_->ptr(); }
+
+   private:
+    Address* location_;
+    Handle<Object> old_value_;
+  };
+
   Arguments(int length, Address* arguments)
       : length_(length), arguments_(arguments) {
     DCHECK_GE(length_, 0);
@@ -51,10 +63,6 @@ class Arguments {
 
   inline double number_at(int index) const;
 
-  inline void set_at(int index, Object value) {
-    *address_of_arg_at(index) = value.ptr();
-  }
-
   inline FullObjectSlot slot_at(int index) const {
     return FullObjectSlot(address_of_arg_at(index));
   }
@@ -62,11 +70,9 @@ class Arguments {
   inline Address* address_of_arg_at(int index) const {
     DCHECK_LE(static_cast<uint32_t>(index), static_cast<uint32_t>(length_));
     uintptr_t offset = index * kSystemPointerSize;
-#ifdef V8_REVERSE_JSARGS
     if (arguments_type == ArgumentsType::kJS) {
       offset = (length_ - index - 1) * kSystemPointerSize;
     }
-#endif
     return reinterpret_cast<Address*>(reinterpret_cast<Address>(arguments_) -
                                       offset);
   }
@@ -77,17 +83,13 @@ class Arguments {
   // Arguments on the stack are in reverse order (compared to an array).
   FullObjectSlot first_slot() const {
     int index = length() - 1;
-#ifdef V8_REVERSE_JSARGS
     if (arguments_type == ArgumentsType::kJS) index = 0;
-#endif
     return slot_at(index);
   }
 
   FullObjectSlot last_slot() const {
     int index = 0;
-#ifdef V8_REVERSE_JSARGS
     if (arguments_type == ArgumentsType::kJS) index = length() - 1;
-#endif
     return slot_at(index);
   }
 

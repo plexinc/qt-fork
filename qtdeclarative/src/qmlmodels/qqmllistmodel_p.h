@@ -82,9 +82,10 @@ class Q_QMLMODELS_PRIVATE_EXPORT QQmlListModel : public QAbstractListModel
     Q_OBJECT
     Q_PROPERTY(int count READ count NOTIFY countChanged)
     Q_PROPERTY(bool dynamicRoles READ dynamicRoles WRITE setDynamicRoles)
-    Q_PROPERTY(QObject *agent READ agent CONSTANT REVISION(14))
+    Q_PROPERTY(QObject *agent READ agent CONSTANT REVISION(2, 14))
     QML_NAMED_ELEMENT(ListModel)
-    QML_ADDED_IN_MINOR_VERSION(1)
+    QML_ADDED_IN_VERSION(2, 0)
+    QML_CUSTOMPARSER
 
 public:
     QQmlListModel(QObject *parent=nullptr);
@@ -147,6 +148,7 @@ private:
 
     ListLayout *m_layout;
     ListModel *m_listModel;
+    std::unique_ptr<QPropertyNotifier> translationChangeHandler;
 
     QVector<class DynamicRoleModelNode *> m_modelObjects;
     QVector<QString> m_roles;
@@ -168,6 +170,8 @@ private:
     void emitItemsInserted();
 
     void removeElements(int index, int removeCount);
+
+    void updateTranslations();
 };
 
 // ### FIXME
@@ -175,7 +179,7 @@ class QQmlListElement : public QObject
 {
     Q_OBJECT
     QML_NAMED_ELEMENT(ListElement)
-    QML_ADDED_IN_MINOR_VERSION(1)
+    QML_ADDED_IN_VERSION(2, 0)
 };
 
 class QQmlListModelParser : public QQmlCustomParser

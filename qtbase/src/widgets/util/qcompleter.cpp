@@ -148,11 +148,8 @@
 #if QT_CONFIG(stringlistmodel)
 #include "QtCore/qstringlistmodel.h"
 #endif
-#if QT_CONFIG(dirmodel)
-#include "QtWidgets/qdirmodel.h"
-#endif
 #if QT_CONFIG(filesystemmodel)
-#include "QtWidgets/qfilesystemmodel.h"
+#include "QtGui/qfilesystemmodel.h"
 #endif
 #include "QtWidgets/qheaderview.h"
 #if QT_CONFIG(listview)
@@ -160,9 +157,8 @@
 #endif
 #include "QtWidgets/qapplication.h"
 #include "QtGui/qevent.h"
-#include "QtWidgets/qdesktopwidget.h"
 #include <private/qapplication_p.h>
-#include <private/qdesktopwidget_p.h>
+#include <private/qwidget_p.h>
 #if QT_CONFIG(lineedit)
 #include "QtWidgets/qlineedit.h"
 #endif
@@ -473,19 +469,13 @@ QMatchData QCompletionEngine::filterHistory()
     if (curParts.count() <= 1 || c->proxy->showAll || !source)
         return QMatchData();
 
-#if QT_CONFIG(dirmodel) && QT_DEPRECATED_SINCE(5, 15)
-    const bool isDirModel = (qobject_cast<QDirModel *>(source) != nullptr);
-#else
-    const bool isDirModel = false;
-#endif
-    Q_UNUSED(isDirModel)
 #if QT_CONFIG(filesystemmodel)
     const bool isFsModel = (qobject_cast<QFileSystemModel *>(source) != nullptr);
 #else
     const bool isFsModel = false;
 #endif
-    Q_UNUSED(isFsModel)
-    QVector<int> v;
+    Q_UNUSED(isFsModel);
+    QList<int> v;
     QIndexMapper im(v);
     QMatchData m(im, -1, true);
 
@@ -493,7 +483,7 @@ QMatchData QCompletionEngine::filterHistory()
         QString str = source->index(i, c->column).data().toString();
         if (str.startsWith(c->prefix, c->cs)
 #if !defined(Q_OS_WIN)
-            && ((!isFsModel && !isDirModel) || QDir::toNativeSeparators(str) != QDir::separator())
+            && (!isFsModel || QDir::toNativeSeparators(str) != QDir::separator())
 #endif
             )
             m.indices.append(i);
@@ -758,10 +748,7 @@ int QUnsortedModelEngine::buildIndices(const QString& str, const QModelIndex& pa
         case Qt::MatchExactly:
         case Qt::MatchFixedString:
         case Qt::MatchCaseSensitive:
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-        case Qt::MatchRegExp:
-QT_WARNING_POP
+        case Qt::MatchRegularExpression:
         case Qt::MatchWildcard:
         case Qt::MatchWrap:
         case Qt::MatchRecursive:
@@ -797,7 +784,7 @@ QMatchData QUnsortedModelEngine::filter(const QString& part, const QModelIndex& 
 {
     QMatchData hint;
 
-    QVector<int> v;
+    QList<int> v;
     QIndexMapper im(v);
     QMatchData m(im, -1, true);
 
@@ -907,13 +894,6 @@ void QCompleterPrivate::_q_complete(QModelIndex index, bool highlighted)
         QModelIndex si = proxy->mapToSource(index);
         si = si.sibling(si.row(), column); // for clicked()
         completion = q->pathFromIndex(si);
-#if QT_CONFIG(dirmodel) && QT_DEPRECATED_SINCE(5, 15)
-        // add a trailing separator in inline
-        if (mode == QCompleter::InlineCompletion) {
-            if (qobject_cast<QDirModel *>(proxy->sourceModel()) && QFileInfo(completion).isDir())
-                completion += QDir::separator();
-        }
-#endif
 #if QT_CONFIG(filesystemmodel)
         // add a trailing separator in inline
         if (mode == QCompleter::InlineCompletion) {
@@ -941,7 +921,7 @@ void QCompleterPrivate::_q_autoResizePopup()
 
 void QCompleterPrivate::showPopup(const QRect& rect)
 {
-    const QRect screen = QDesktopWidgetPrivate::availableGeometry(widget);
+    const QRect screen = QWidgetPrivate::availableScreenGeometry(widget);
     Qt::LayoutDirection dir = widget->layoutDirection();
     QPoint pos;
     int rh, w;
@@ -1005,7 +985,7 @@ static bool completeOnLoaded(const QFileSystemModel *model,
     // The user is typing something within that directory and is not in a subdirectory yet.
     const auto separator = QLatin1Char('/');
     return prefix.startsWith(path, caseSensitivity) && prefix.at(pathSize) == separator
-        && !prefix.rightRef(prefixSize - pathSize - 1).contains(separator);
+        && !QStringView{prefix}.right(prefixSize - pathSize - 1).contains(separator);
 }
 
 void QCompleterPrivate::_q_fileSystemModelDirectoryLoaded(const QString &path)
@@ -1129,15 +1109,6 @@ void QCompleter::setModel(QAbstractItemModel *model)
         setPopup(d->popup); // set the model and make new connections
     if (oldModel && oldModel->QObject::parent() == this)
         delete oldModel;
-#if QT_CONFIG(dirmodel) && QT_DEPRECATED_SINCE(5, 15)
-    if (qobject_cast<QDirModel *>(model)) {
-#if defined(Q_OS_WIN)
-        setCaseSensitivity(Qt::CaseInsensitive);
-#else
-        setCaseSensitivity(Qt::CaseSensitive);
-#endif
-    }
-#endif // QT_CONFIG(dirmodel)
 #if QT_CONFIG(filesystemmodel)
     QFileSystemModel *fsModel = qobject_cast<QFileSystemModel *>(model);
     if (fsModel) {
@@ -1208,7 +1179,7 @@ QCompleter::CompletionMode QCompleter::completionMode() const
 
 /*!
     \property QCompleter::filterMode
-    \brief how the filtering is performed
+    \brief This property controls how filtering is performed.
     \since 5.2
 
     If filterMode is set to Qt::MatchStartsWith, only those entries that start
@@ -1216,11 +1187,14 @@ QCompleter::CompletionMode QCompleter::completionMode() const
     the entries that contain the typed characters, and Qt::MatchEndsWith the
     ones that end with the typed characters.
 
-    Currently, only these three modes are implemented. Setting filterMode to
-    any other Qt::MatchFlag will issue a warning, and no action will be
-    performed.
+    Setting filterMode to any other Qt::MatchFlag will issue a warning, and no
+    action will be performed. Because of this, the \c Qt::MatchCaseSensitive
+    flag has no effect. Use the \l caseSensitivity property to control case
+    sensitivity.
 
     The default mode is Qt::MatchStartsWith.
+
+    \sa caseSensitivity
 */
 
 void QCompleter::setFilterMode(Qt::MatchFlags filterMode)
@@ -1358,6 +1332,7 @@ bool QCompleter::eventFilter(QObject *o, QEvent *e)
     if (o != d->popup)
         return QObject::eventFilter(o, e);
 
+    Q_ASSERT(d->popup);
     switch (e->type()) {
     case QEvent::KeyPress: {
         QKeyEvent *ke = static_cast<QKeyEvent *>(e);
@@ -1747,9 +1722,9 @@ void QCompleter::setMaxVisibleItems(int maxItems)
     \property QCompleter::caseSensitivity
     \brief the case sensitivity of the matching
 
-    The default is Qt::CaseSensitive.
+    The default value is \c Qt::CaseSensitive.
 
-    \sa completionColumn, completionRole, modelSorting
+    \sa completionColumn, completionRole, modelSorting, filterMode
 */
 void QCompleter::setCaseSensitivity(Qt::CaseSensitivity cs)
 {
@@ -1848,26 +1823,19 @@ QString QCompleter::pathFromIndex(const QModelIndex& index) const
     QAbstractItemModel *sourceModel = d->proxy->sourceModel();
     if (!sourceModel)
         return QString();
-    bool isDirModel = false;
     bool isFsModel = false;
-#if QT_CONFIG(dirmodel) && QT_DEPRECATED_SINCE(5, 15)
-    isDirModel = qobject_cast<QDirModel *>(d->proxy->sourceModel()) != nullptr;
-#endif
 #if QT_CONFIG(filesystemmodel)
     isFsModel = qobject_cast<QFileSystemModel *>(d->proxy->sourceModel()) != nullptr;
 #endif
-    if (!isDirModel && !isFsModel)
+    if (!isFsModel)
         return sourceModel->data(index, d->role).toString();
 
     QModelIndex idx = index;
     QStringList list;
     do {
         QString t;
-        if (isDirModel)
-            t = sourceModel->data(idx, Qt::EditRole).toString();
 #if QT_CONFIG(filesystemmodel)
-        else
-            t = sourceModel->data(idx, QFileSystemModel::FileNameRole).toString();
+        t = sourceModel->data(idx, QFileSystemModel::FileNameRole).toString();
 #endif
         list.prepend(t);
         QModelIndex parent = idx.parent();
@@ -1897,20 +1865,13 @@ QString QCompleter::pathFromIndex(const QModelIndex& index) const
 */
 QStringList QCompleter::splitPath(const QString& path) const
 {
-    bool isDirModel = false;
     bool isFsModel = false;
-#if QT_CONFIG(dirmodel) && QT_DEPRECATED_SINCE(5, 15)
-    Q_D(const QCompleter);
-    isDirModel = qobject_cast<QDirModel *>(d->proxy->sourceModel()) != nullptr;
-#endif
 #if QT_CONFIG(filesystemmodel)
-#if !QT_CONFIG(dirmodel)
     Q_D(const QCompleter);
-#endif
     isFsModel = qobject_cast<QFileSystemModel *>(d->proxy->sourceModel()) != nullptr;
 #endif
 
-    if ((!isDirModel && !isFsModel) || path.isEmpty())
+    if (!isFsModel || path.isEmpty())
         return QStringList(completionPrefix());
 
     QString pathCopy = QDir::toNativeSeparators(path);

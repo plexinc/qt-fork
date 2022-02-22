@@ -7,6 +7,8 @@
 
 #include <stddef.h>
 #include <memory>
+#include <set>
+#include <utility>
 #include <vector>
 
 #include "base/containers/flat_set.h"
@@ -63,9 +65,14 @@ class RulesetManager {
   // corresponding AddRuleset.
   void RemoveRuleset(const ExtensionId& extension_id);
 
+  // Returns the set of extensions which have active rulesets.
+  std::set<ExtensionId> GetExtensionsWithRulesets() const;
+
   // Returns the CompositeMatcher corresponding to the |extension_id| or null
   // if no matcher is present for the extension.
   CompositeMatcher* GetMatcherForExtension(const ExtensionId& extension_id);
+  const CompositeMatcher* GetMatcherForExtension(
+      const ExtensionId& extension_id) const;
 
   // Returns the action to take for the given request; does not return an
   // |ALLOW| action. Note: the returned action is owned by |request|.
@@ -112,14 +119,20 @@ class RulesetManager {
     DISALLOW_COPY_AND_ASSIGN(ExtensionRulesetData);
   };
 
+  using RulesetAndPageAccess =
+      std::pair<const ExtensionRulesetData*, PermissionsData::PageAccess>;
+
   base::Optional<RequestAction> GetBeforeRequestAction(
-      const std::vector<const ExtensionRulesetData*>& rulesets,
+      const std::vector<RulesetAndPageAccess>& rulesets,
       const WebRequestInfo& request,
-      const int tab_id,
-      const bool crosses_incognito,
       const RequestParams& params) const;
-  std::vector<RequestAction> GetRemoveHeadersActions(
-      const std::vector<const ExtensionRulesetData*>& rulesets,
+
+  // Returns the list of matching modifyHeaders actions sorted in descending
+  // order of priority (|rulesets| is sorted in descending order of extension
+  // priority.)
+  std::vector<RequestAction> GetModifyHeadersActions(
+      const std::vector<RulesetAndPageAccess>& rulesets,
+      const WebRequestInfo& request,
       const RequestParams& params) const;
 
   // Helper for EvaluateRequest.

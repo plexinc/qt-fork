@@ -5,6 +5,7 @@
 #include "components/signin/internal/identity_manager/accounts_mutator_impl.h"
 
 #include "base/optional.h"
+#include "build/chromeos_buildflags.h"
 #include "components/prefs/pref_service.h"
 #include "components/signin/internal/identity_manager/account_tracker_service.h"
 #include "components/signin/internal/identity_manager/primary_account_manager.h"
@@ -42,6 +43,9 @@ CoreAccountId AccountsMutatorImpl::AddOrUpdateAccount(
     const std::string& refresh_token,
     bool is_under_advanced_protection,
     signin_metrics::SourceForRefreshTokenOperation source) {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  NOTREACHED();
+#endif
   CoreAccountId account_id =
       account_tracker_service_->SeedAccountInfo(gaia_id, email);
   account_tracker_service_->SetIsAdvancedProtectionAccount(
@@ -75,19 +79,28 @@ void AccountsMutatorImpl::UpdateAccountInfo(
 void AccountsMutatorImpl::RemoveAccount(
     const CoreAccountId& account_id,
     signin_metrics::SourceForRefreshTokenOperation source) {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  NOTREACHED();
+#endif
   token_service_->RevokeCredentials(account_id, source);
 }
 
 void AccountsMutatorImpl::RemoveAllAccounts(
     signin_metrics::SourceForRefreshTokenOperation source) {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  NOTREACHED();
+#endif
   token_service_->RevokeAllCredentials(source);
 }
 
 void AccountsMutatorImpl::InvalidateRefreshTokenForPrimaryAccount(
     signin_metrics::SourceForRefreshTokenOperation source) {
-  DCHECK(primary_account_manager_->IsAuthenticated());
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  NOTREACHED();
+#endif
+  DCHECK(primary_account_manager_->HasPrimaryAccount(ConsentLevel::kSync));
   CoreAccountInfo primary_account_info =
-      primary_account_manager_->GetAuthenticatedAccountInfo();
+      primary_account_manager_->GetPrimaryAccountInfo(ConsentLevel::kSync);
   AddOrUpdateAccount(primary_account_info.gaia, primary_account_info.email,
                      GaiaConstants::kInvalidRefreshToken,
                      primary_account_info.is_under_advanced_protection, source);

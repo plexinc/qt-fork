@@ -5,7 +5,7 @@
 #ifndef SERVICES_NETWORK_TRUST_TOKENS_SUITABLE_TRUST_TOKEN_ORIGIN_H_
 #define SERVICES_NETWORK_TRUST_TOKENS_SUITABLE_TRUST_TOKEN_ORIGIN_H_
 
-#include "base/util/type_safety/pass_key.h"
+#include "base/types/pass_key.h"
 #include "url/origin.h"
 
 namespace network {
@@ -37,9 +37,16 @@ class SuitableTrustTokenOrigin {
   std::string Serialize() const;
   const url::Origin& origin() const { return origin_; }
 
+  // This implicit "widening" conversion is allowed to ease drop-in use of
+  // SuitableTrustTokenOrigin in places currently requiring url::Origins with
+  // guaranteed preconditions. The intended use is creating a
+  // SuitableTrustTokenOrigin to confirm the preconditions, then directly
+  // passing the SuitableTrustTokenOrigin to url::Origin-accepting callsite.
+  operator const url::Origin&() const { return origin_; }  // NOLINT
+
   // Constructs a SuitableTrustTokenOrigin from the given origin. Public only as
   // an implementation detail; clients should use |Create|.
-  SuitableTrustTokenOrigin(util::PassKey<SuitableTrustTokenOrigin>,
+  SuitableTrustTokenOrigin(base::PassKey<SuitableTrustTokenOrigin>,
                            url::Origin&& origin);
 
  private:

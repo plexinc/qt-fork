@@ -26,14 +26,13 @@
 **
 ****************************************************************************/
 
-#include "util.h"
-
 #include <qtest.h>
 #include <QLibraryInfo>
 #include <QDir>
 #include <QProcess>
 #include <QDebug>
 #include <cstdlib>
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 
 class tst_qmlplugindump : public QQmlDataTest
 {
@@ -42,7 +41,7 @@ public:
     tst_qmlplugindump();
 
 private slots:
-    void initTestCase();
+    void initTestCase() override;
     void builtins();
     void singleton();
     void compositeWithinSingleton();
@@ -56,13 +55,14 @@ private:
 };
 
 tst_qmlplugindump::tst_qmlplugindump()
+    : QQmlDataTest(QT_QMLTEST_DATADIR)
 {
 }
 
 void tst_qmlplugindump::initTestCase()
 {
     QQmlDataTest::initTestCase();
-    qmlplugindumpPath = QLibraryInfo::location(QLibraryInfo::BinariesPath);
+    qmlplugindumpPath = QLibraryInfo::path(QLibraryInfo::BinariesPath);
 
 #if defined(Q_OS_WIN)
     qmlplugindumpPath += QLatin1String("/qmlplugindump.exe");

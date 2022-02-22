@@ -33,10 +33,6 @@
 
 {
   'WATCHLIST_DEFINITIONS': {
-    'api': {
-      'filepath': 'include/' \
-                  '|src/api\.(cc|h)$',
-    },
     'snapshot': {
       'filepath': 'src/snapshot/',
     },
@@ -91,12 +87,14 @@
     'tracing': {
       'filepath': 'src/tracing/',
     },
+    'ieee754': {
+      'filepath': 'src/base/ieee754\.(cc|h)' \
+                  '|src/base/overflowing-math.h' \
+                  '|LICENSE.fdlibm',
+    }
   },
 
   'WATCHLISTS': {
-    'api': [
-      'yangguo+watch@chromium.org',
-    ],
     'csa': [
       'jgruber+watch@chromium.org',
     ],
@@ -139,6 +137,10 @@
       'alph+watch@chromium.org',
       'lpy+v8tracing@chromium.org',
       'fmeawad@chromium.org',
+    ],
+    'ieee754': [
+      'rtoy+watch@chromium.org',
+      'hongchan+watch@chromium.org'
     ],
   },
 }

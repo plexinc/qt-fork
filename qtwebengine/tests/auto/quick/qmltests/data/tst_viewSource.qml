@@ -26,9 +26,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import QtTest 1.0
-import QtWebEngine 1.4
+import QtQuick
+import QtTest
+import QtWebEngine
 
 TestWebEngineView {
     id: webEngineView
@@ -38,9 +38,15 @@ TestWebEngineView {
     property var viewRequest: null
 
     SignalSpy {
+        id: loadSpy
+        target: webEngineView
+        signalName: 'loadingChanged'
+    }
+
+    SignalSpy {
         id: newViewRequestedSpy
         target: webEngineView
-        signalName: "newViewRequested"
+        signalName: "newWindowRequested"
     }
 
     SignalSpy {
@@ -49,13 +55,13 @@ TestWebEngineView {
         signalName: "titleChanged"
     }
 
-    onNewViewRequested: {
+    onNewWindowRequested: function(request) {
         viewRequest = {
             "destination": request.destination,
             "userInitiated": request.userInitiated
         };
 
-        request.openIn(webEngineView);
+        webEngineView.acceptAsNewWindow(request);
     }
 
     TestCase {
@@ -68,6 +74,7 @@ TestWebEngineView {
             tryCompare(webEngineView, "loadStatus", WebEngineView.LoadSucceededStatus);
             webEngineView.loadStatus = null;
 
+            loadSpy.clear();
             newViewRequestedSpy.clear();
             titleChangedSpy.clear();
             viewRequest = null;
@@ -86,42 +93,12 @@ TestWebEngineView {
             // The first titleChanged signal is emitted by adoptWebContents()
             tryVerify(function() { return titleChangedSpy.count >= 2; });
 
-            compare(viewRequest.destination, WebEngineView.NewViewInTab);
+            compare(viewRequest.destination, WebEngineNewWindowRequest.InNewTab);
             verify(viewRequest.userInitiated);
             verify(!webEngineView.action(WebEngineView.ViewSource).enabled);
 
             tryCompare(webEngineView, "title", "test1.html");
             compare(webEngineView.url, "view-source:" + Qt.resolvedUrl("test1.html"));
-        }
-
-        function test_viewSourceURL_data() {
-            var testLocalUrl = "view-source:" + Qt.resolvedUrl("test1.html");
-            var testLocalUrlWithoutScheme = "view-source:" + Qt.resolvedUrl("test1.html").substring(7);
-
-            return [
-                   { tag: "view-source:", userInputUrl: "view-source:", loadSucceed: true, url: "view-source:", title: "view-source:" },
-                   { tag: "view-source:about:blank", userInputUrl: "view-source:about:blank", loadSucceed: true, url: "view-source:about:blank", title: "view-source:about:blank" },
-                   { tag: testLocalUrl, userInputUrl: testLocalUrl, loadSucceed: true, url: testLocalUrl, title: "test1.html" },
-                   { tag: testLocalUrlWithoutScheme, userInputUrl: testLocalUrlWithoutScheme, loadSucceed: true, url: testLocalUrl, title: "test1.html" },
-                   { tag: "view-source:http://non.existent", userInputUrl: "view-source:http://non.existent", loadSucceed: false, url: "http://non.existent/", title: "non.existent" },
-                   { tag: "view-source:non.existent", userInputUrl: "view-source:non.existent", loadSucceed: false, url: "http://non.existent/", title: "non.existent" },
-            ];
-        }
-
-        function test_viewSourceURL(row) {
-            WebEngine.settings.errorPageEnabled = true
-            webEngineView.url = row.userInputUrl;
-
-            if (row.loadSucceed) {
-                tryCompare(webEngineView, "loadStatus", WebEngineView.LoadSucceededStatus);
-            } else {
-                tryCompare(webEngineView, "loadStatus", WebEngineView.LoadFailedStatus, 15000);
-            }
-            tryVerify(function() { return titleChangedSpy.count == 1; });
-
-            compare(webEngineView.url, row.url);
-            tryCompare(webEngineView, "title", row.title);
-            verify(!webEngineView.action(WebEngineView.ViewSource).enabled);
         }
 
         function test_viewSourceCredentials() {
@@ -145,11 +122,45 @@ TestWebEngineView {
 
             // The first titleChanged signal is emitted by adoptWebContents()
             tryVerify(function() { return titleChangedSpy.count >= 2; });
-            compare(viewRequest.destination, WebEngineView.NewViewInTab);
+            compare(viewRequest.destination, WebEngineNewWindowRequest.InNewTab);
             verify(viewRequest.userInitiated);
 
             tryCompare(webEngineView, "url", "view-source:" + url.replace("user:passwd@", ""));
             tryCompare(webEngineView, "title", "view-source:" + url.replace("http://user:passwd@", ""));
+        }
+
+        function test_viewSourceURL_data() {
+            var testLocalUrl = "view-source:" + Qt.resolvedUrl("test1.html");
+            var testLocalUrlWithoutScheme = "view-source:" + Qt.resolvedUrl("test1.html").toString().substring(7);
+
+            return [
+                   { tag: "view-source:", userInputUrl: "view-source:", loadSucceed: true, url: "view-source:", title: "view-source:" },
+                   { tag: "view-source:about:blank", userInputUrl: "view-source:about:blank", loadSucceed: true, url: "view-source:about:blank", title: "view-source:about:blank" },
+                   { tag: testLocalUrl, userInputUrl: testLocalUrl, loadSucceed: true, url: testLocalUrl, title: "test1.html" },
+                   { tag: testLocalUrlWithoutScheme, userInputUrl: testLocalUrlWithoutScheme, loadSucceed: true, url: testLocalUrl, title: "test1.html" },
+                   { tag: "view-source:http://non.existent", userInputUrl: "view-source:http://non.existent", loadSucceed: false, url: "http://non.existent/", title: "non.existent" },
+                   { tag: "view-source:non.existent", userInputUrl: "view-source:non.existent", loadSucceed: false, url: "http://non.existent/", title: "non.existent" },
+            ];
+        }
+
+        function test_viewSourceURL(row) {
+            WebEngine.settings.errorPageEnabled = true
+            webEngineView.url = row.userInputUrl;
+
+            tryCompare(loadSpy, 'count', 2);
+            let load = loadSpy.signalArguments[1][0]
+            let expectedStatus = row.loadSucceed ? WebEngineView.LoadSucceededStatus : WebEngineView.LoadFailedStatus
+            compare(load.status, expectedStatus);
+            compare(load.isErrorPage, !row.loadSucceed);
+            tryVerify(function() { return titleChangedSpy.count == 1; });
+
+            compare(webEngineView.url, row.url);
+            tryCompare(webEngineView, "title", row.title);
+            if (row.loadSucceed) {
+                verify(!webEngineView.action(WebEngineView.ViewSource).enabled);
+            } else {
+                verify(webEngineView.action(WebEngineView.ViewSource).enabled);
+            }
         }
     }
 }

@@ -10,11 +10,9 @@
 
 #include "base/callback_forward.h"
 #include "content/public/common/content_client.h"
+#include "mojo/public/cpp/bindings/binder_map.h"
 #include "mojo/public/cpp/bindings/generic_pending_receiver.h"
-#include "services/service_manager/public/cpp/binder_map.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
-#include "services/service_manager/public/cpp/service.h"
-#include "services/service_manager/public/mojom/service.mojom.h"
 
 namespace IPC {
 class Message;
@@ -44,6 +42,10 @@ class CONTENT_EXPORT ContentUtilityClient {
   // corresponding UtilityProcessHost.
   virtual void ExposeInterfacesToBrowser(mojo::BinderMap* binders) {}
 
+  // Called on the main thread immediately after the IO thread is created.
+  virtual void PostIOThreadCreated(
+      base::SingleThreadTaskRunner* io_thread_task_runner) {}
+
   // Allows the embedder to handle an incoming service request. If this is
   // called, this utility process was started for the sole purpose of running
   // the service identified by |service_name|.
@@ -54,23 +56,21 @@ class CONTENT_EXPORT ContentUtilityClient {
   // |UtilityThread::ReleaseProcess()|) once the running service terminates.
   //
   // If the embedder returns |false| this process is terminated immediately.
-  virtual bool HandleServiceRequest(
+  virtual bool HandleServiceRequestDeprecated(
       const std::string& service_name,
-      service_manager::mojom::ServiceRequest request);
+      mojo::ScopedMessagePipeHandle service_pipe);
 
   // Allows the embedder to handle an incoming service interface request to run
-  // a service on the IO thread. Should return a ServiceFactory instance which
-  // lives at least as long as the IO thread, or nullptr.
+  // a service on the IO thread.
   //
   // Only called from the IO thread.
-  virtual mojo::ServiceFactory* GetIOThreadServiceFactory();
+  virtual void RegisterIOThreadServices(mojo::ServiceFactory& services) {}
 
   // Allows the embedder to handle an incoming service interface request to run
-  // a service on the main thread. Should return a ServiceFactory instance which
-  // which effectively lives forever, or nullptr.
+  // a service on the main thread.
   //
   // Only called from the main thread.
-  virtual mojo::ServiceFactory* GetMainThreadServiceFactory();
+  virtual void RegisterMainThreadServices(mojo::ServiceFactory& services) {}
 
   virtual void RegisterNetworkBinders(
       service_manager::BinderRegistry* registry) {}

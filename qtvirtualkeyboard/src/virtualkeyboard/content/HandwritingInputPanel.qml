@@ -27,11 +27,11 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
+import QtQuick
 // Deliberately imported after QtQuick to avoid missing restoreMode property in Binding. Fix in Qt 6.
-import QtQml 2.14
-import QtQuick.Window 2.2
-import QtQuick.VirtualKeyboard 2.1
+import QtQml
+import QtQuick.Window
+import QtQuick.VirtualKeyboard
 
 /*!
     \qmltype HandwritingInputPanel
@@ -131,8 +131,16 @@ Item {
     }
 
     WordCandidatePopupList {
+        id: wordCandidatePopupList
         z: 1
         objectName: "wordCandidatePopupList"
         enabled: handwritingInputPanel.enabled && handwritingInputPanel.available && handwritingInputPanel.active
+    }
+
+    Loader {
+        sourceComponent: keyboard.style.popupListBackground
+        anchors.fill: wordCandidatePopupList
+        z: -1
+        visible: wordCandidatePopupList.visible
     }
 }

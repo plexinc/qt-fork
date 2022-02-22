@@ -11,6 +11,8 @@
 #include "third_party/blink/renderer/core/layout/layout_block_flow.h"
 #include "third_party/blink/renderer/core/layout/layout_box_model_object.h"
 #include "third_party/blink/renderer/core/layout/layout_progress.h"
+#include "third_party/blink/renderer/core/layout/layout_ruby.h"
+#include "third_party/blink/renderer/core/layout/layout_ruby_run.h"
 #include "third_party/blink/renderer/core/layout/layout_table_caption.h"
 #include "third_party/blink/renderer/core/layout/layout_table_cell.h"
 #include "third_party/blink/renderer/core/layout/ng/layout_ng_mixin.h"
@@ -19,8 +21,6 @@
 namespace blink {
 
 enum class NGBaselineAlgorithmType;
-class NGPaintFragment;
-class NGPhysicalFragment;
 struct NGInlineNodeData;
 
 // This mixin holds code shared between LayoutNG subclasses of LayoutBlockFlow.
@@ -39,26 +39,12 @@ class LayoutNGBlockFlowMixin : public LayoutNGMixin<Base> {
   LayoutUnit FirstLineBoxBaseline() const final;
   LayoutUnit InlineBlockBaseline(LineDirectionMode) const final;
 
-  void Paint(const PaintInfo&) const override;
-
   bool NodeAtPoint(HitTestResult&,
                    const HitTestLocation&,
                    const PhysicalOffset& accumulated_offset,
-                   HitTestAction) final;
+                   HitTestAction) override;
 
   PositionWithAffinity PositionForPoint(const PhysicalOffset&) const override;
-
-  const NGPaintFragment* PaintFragment() const final {
-    // TODO(layout-dev) crbug.com/963103
-    // Safer option here is to return nullptr only if
-    // Lifecycle > DocumentLifecycle::kAfterPerformLayout, but this breaks
-    // some layout tests.
-    if (Base::NeedsLayout())
-      return nullptr;
-    return paint_fragment_.get();
-  }
-  void SetPaintFragment(const NGBlockBreakToken*,
-                        scoped_refptr<const NGPhysicalFragment>) final;
 
   using LayoutNGMixin<Base>::CurrentFragment;
 
@@ -71,8 +57,6 @@ class LayoutNGBlockFlowMixin : public LayoutNGMixin<Base> {
                        const PhysicalOffset& additional_offset,
                        NGOutlineType) const final;
 
-  base::Optional<LayoutUnit> FragmentBaseline() const;
-
   void DirtyLinesFromChangedChild(LayoutObject* child,
                                   MarkingBehavior marking_behavior) final;
 
@@ -81,7 +65,6 @@ class LayoutNGBlockFlowMixin : public LayoutNGMixin<Base> {
   void UpdateNGBlockLayout();
 
   std::unique_ptr<NGInlineNodeData> ng_inline_node_data_;
-  scoped_refptr<NGPaintFragment> paint_fragment_;
 
   friend class NGBaseLayoutAlgorithmTest;
 
@@ -96,6 +79,14 @@ extern template class CORE_EXTERN_TEMPLATE_EXPORT
     LayoutNGBlockFlowMixin<LayoutBlockFlow>;
 extern template class CORE_EXTERN_TEMPLATE_EXPORT
     LayoutNGBlockFlowMixin<LayoutProgress>;
+extern template class CORE_EXTERN_TEMPLATE_EXPORT
+    LayoutNGBlockFlowMixin<LayoutRubyAsBlock>;
+extern template class CORE_EXTERN_TEMPLATE_EXPORT
+    LayoutNGBlockFlowMixin<LayoutRubyBase>;
+extern template class CORE_EXTERN_TEMPLATE_EXPORT
+    LayoutNGBlockFlowMixin<LayoutRubyRun>;
+extern template class CORE_EXTERN_TEMPLATE_EXPORT
+    LayoutNGBlockFlowMixin<LayoutRubyText>;
 extern template class CORE_EXTERN_TEMPLATE_EXPORT
     LayoutNGBlockFlowMixin<LayoutTableCaption>;
 extern template class CORE_EXTERN_TEMPLATE_EXPORT

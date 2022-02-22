@@ -122,13 +122,12 @@ TEST_F(GinJavaBridgeValueConverterTest, TypedArrays) {
     const char* typed_array_type = array_types[i + 1];
     v8::Local<v8::Script> script(
         v8::Script::Compile(
-            context, v8::String::NewFromUtf8(
-                         isolate_,
-                         base::StringPrintf(source_template, array_types[i],
-                                            typed_array_type)
-                             .c_str(),
-                         v8::NewStringType::kNormal)
-                         .ToLocalChecked())
+            context,
+            v8::String::NewFromUtf8(
+                isolate_, base::StringPrintf(source_template, array_types[i],
+                                             typed_array_type)
+                              .c_str())
+                .ToLocalChecked())
             .ToLocalChecked());
     v8::Local<v8::Value> v8_typed_array = script->Run(context).ToLocalChecked();
     std::unique_ptr<base::Value> list_value(
@@ -138,9 +137,22 @@ TEST_F(GinJavaBridgeValueConverterTest, TypedArrays) {
     base::ListValue* list;
     ASSERT_TRUE(list_value->GetAsList(&list)) << typed_array_type;
     EXPECT_EQ(1u, list->GetSize()) << typed_array_type;
-    double first_element;
-    ASSERT_TRUE(list->GetDouble(0, &first_element)) << typed_array_type;
-    EXPECT_EQ(42.0, first_element) << typed_array_type;
+
+    const base::Value* value;
+    list->Get(0, &value);
+    if (value->type() == base::Value::Type::BINARY) {
+      std::unique_ptr<const GinJavaBridgeValue> gin_value(
+          GinJavaBridgeValue::FromValue(value));
+      EXPECT_EQ(gin_value->GetType(), GinJavaBridgeValue::TYPE_UINT32);
+      uint32_t first_element = 0;
+      ASSERT_TRUE(gin_value->GetAsUInt32(&first_element));
+      EXPECT_EQ(42u, first_element) << typed_array_type;
+
+    } else {
+      double first_element;
+      ASSERT_TRUE(value->GetAsDouble(&first_element)) << typed_array_type;
+      EXPECT_EQ(42.0, first_element) << typed_array_type;
+    }
   }
 }
 

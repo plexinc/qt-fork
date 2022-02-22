@@ -77,6 +77,8 @@ MultiPointTouchArea {
             id: subWindowTouchArea
             anchors.fill: parent
         }
+
+        Component.onCompleted: show()
     }
 
     TestCase {
@@ -157,7 +159,7 @@ MultiPointTouchArea {
             compare(touchPoints.length, 1);
             verify(comparePoint(touchPoints[0], first, 0, 0));
 
-            sequence.stationary(first);
+            sequence.stationary(first, null, 0, 0);
             sequence.press(second, null, 1, 0);
             sequence.commit();
             compare(touchUpdatedSpy.count, 2);
@@ -166,7 +168,7 @@ MultiPointTouchArea {
             verify(comparePoint(touchPoints[0], first, 0, 0));
             verify(comparePoint(touchPoints[1], second, 1, 0));
 
-            sequence.release(first);
+            sequence.release(first, null, 0, 0);
             sequence.move(second, null, 1, 1);
             sequence.commit();
             compare(touchUpdatedSpy.count, 3);

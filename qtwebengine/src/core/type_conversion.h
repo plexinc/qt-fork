@@ -52,14 +52,13 @@
 #include <base/strings/nullable_string16.h>
 #include "base/files/file_path.h"
 #include "base/time/time.h"
-#include "content/public/common/file_chooser_file_info.h"
-#include "favicon_manager.h"
 #include "net/cookies/canonical_cookie.h"
 #include "third_party/blink/public/mojom/favicon/favicon_url.mojom-forward.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "third_party/skia/include/core/SkPixelRef.h"
 #include "third_party/skia/include/core/SkMatrix44.h"
+#include "ui/base/ime/text_input_type.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_f.h"
 #include "url/gurl.h"
@@ -68,6 +67,7 @@ QT_FORWARD_DECLARE_CLASS(QMatrix4x4)
 QT_FORWARD_DECLARE_CLASS(QSslCertificate)
 
 namespace gfx {
+class Image;
 class ImageSkiaRep;
 }
 
@@ -80,9 +80,20 @@ namespace QtWebEngineCore {
 inline QString toQt(const base::string16 &string)
 {
 #if defined(OS_WIN)
-    return QString::fromStdWString(string.data());
+    return QString::fromStdWString(string);
 #else
-    return QString::fromUtf16(string.data());
+    return QString::fromUtf16(reinterpret_cast<const char16_t *>(string.data()), string.size());
+#endif
+}
+
+inline QString toQt(const base::Optional<base::string16> &string)
+{
+    if (!string.has_value())
+        return QString();
+#if defined(OS_WIN)
+    return QString::fromStdWString(string->data());
+#else
+    return QString::fromUtf16(string->data());
 #endif
 }
 
@@ -107,13 +118,20 @@ inline base::string16 toString16(const QString &qString)
 #if defined(OS_WIN)
     return base::string16(qString.toStdWString());
 #else
-    return base::string16(qString.utf16());
+    return base::string16((const char16_t *)qString.utf16());
 #endif
 }
 
 inline base::NullableString16 toNullableString16(const QString &qString)
 {
     return base::NullableString16(toString16(qString), qString.isNull());
+}
+
+inline base::Optional<base::string16> toOptionalString16(const QString &qString)
+{
+    if (qString.isNull())
+        return base::nullopt;
+    return base::make_optional(toString16(qString));
 }
 
 inline QUrl toQt(const GURL &url)
@@ -204,6 +222,7 @@ QImage toQImage(const SkBitmap &bitmap);
 QImage toQImage(const gfx::ImageSkiaRep &imageSkiaRep);
 SkBitmap toSkBitmap(const QImage &image);
 
+QIcon toQIcon(const gfx::Image &image);
 QIcon toQIcon(const std::vector<SkBitmap> &bitmaps);
 
 void convertToQt(const SkMatrix44 &m, QMatrix4x4 &c);
@@ -243,43 +262,6 @@ inline base::FilePath toFilePath(const QString &str)
     return base::FilePath(toFilePathString(str));
 }
 
-template <typename T>
-inline T fileListingHelper(const QString &)
-// Clang is still picky about this though it should be supported eventually.
-// See http://www.open-std.org/jtc1/sc22/wg21/docs/cwg_defects.html#941
-#ifndef Q_CC_CLANG
-= delete;
-#else
-{ return T(); }
-#endif
-
-template <>
-inline content::FileChooserFileInfo fileListingHelper<content::FileChooserFileInfo>(const QString &file)
-{
-    content::FileChooserFileInfo choose_file;
-    base::FilePath fp(toFilePath(file));
-    choose_file.file_path = fp;
-    choose_file.display_name = fp.BaseName().value();
-    return choose_file;
-}
-
-template <>
-inline base::FilePath fileListingHelper<base::FilePath>(const QString &file)
-{
-    return base::FilePath(toFilePathString(file));
-}
-
-
-template <typename T>
-inline std::vector<T> toVector(const QStringList &fileList)
-{
-    std::vector<T> selectedFiles;
-    selectedFiles.reserve(fileList.size());
-    for (const QString &file : fileList)
-        selectedFiles.push_back(fileListingHelper<T>(file));
-    return selectedFiles;
-}
-
 int flagsFromModifiers(Qt::KeyboardModifiers modifiers);
 
 inline QStringList fromVector(const std::vector<base::string16> &vector)
@@ -291,9 +273,9 @@ inline QStringList fromVector(const std::vector<base::string16> &vector)
     return result;
 }
 
-FaviconInfo toFaviconInfo(const blink::mojom::FaviconURLPtr &favicon_url);
-
 QList<QSslCertificate> toCertificateChain(net::X509Certificate *certificate);
+
+Qt::InputMethodHints toQtInputMethodHints(ui::TextInputType inputType);
 
 } // namespace QtWebEngineCore
 

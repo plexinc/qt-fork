@@ -48,8 +48,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.14
-import QtQuick3D 1.15
+import QtQuick
+import QtQuick3D
 
 Rectangle {
     width: 400
@@ -87,15 +87,15 @@ Rectangle {
             materials: [ DefaultMaterial {
                     lighting: DefaultMaterial.NoLighting
                     diffuseMap: Texture {
-                        source: "../shared/maps/checkerboard_1.png"
+                        source: "../shared/maps/checkers1.png"
                         tilingModeHorizontal: Texture.Repeat
                         tilingModeVertical: Texture.Repeat
-                        scaleU: 8
-                        scaleV: 8
+                        scaleU: 100
+                        scaleV: 100
                     }
                 } ]
             z: -500
-            scale: Qt.vector3d(8, 12, 1)
+            scale: Qt.vector3d(10, 10, 1)
         }
 
         Node {
@@ -152,7 +152,7 @@ Rectangle {
                 materials: [ PrincipledMaterial {
                         baseColor: "#4080A0"
                         metalness: 0
-                        emissiveColor: "green"
+                        emissiveFactor: Qt.vector3d(0.0, 1.0, 0.0) // green
                     } ]
             }
 
@@ -164,7 +164,7 @@ Rectangle {
                 materials: [ PrincipledMaterial {
                         baseColorMap: tex_rgba
                         metalness: 0
-                        emissiveColor: "green"
+                        emissiveFactor: Qt.vector3d(0.0, 1.0, 0.0) // green
                     } ]
             }
 
@@ -176,7 +176,7 @@ Rectangle {
                 materials: [ PrincipledMaterial {
                         baseColor: "#4080A0"
                         metalness: 0
-                        emissiveColor: "yellow"
+                        emissiveFactor: Qt.vector3d(1.0, 1.0, 0.0) // yellow
                         emissiveMap: tex_rgba
                     } ]
             }
@@ -191,7 +191,6 @@ Rectangle {
                     baseColor: "#4080A0"
                     metalness: 0
                     roughness: 1
-                    indexOfRefraction: .5
                     specularAmount: .7
                     specularTint: 0
                 } ]
@@ -205,7 +204,6 @@ Rectangle {
                     baseColor: "#4080A0"
                     metalness: 0
                     roughness: 1
-                    indexOfRefraction: .5
                     specularAmount: .7
                     specularTint: .5
                 } ]
@@ -219,7 +217,6 @@ Rectangle {
                     baseColor: "#4080A0"
                     metalness: 0
                     roughness: 1
-                    indexOfRefraction: .5
                     specularAmount: .7
                     specularTint: 1
                 } ]

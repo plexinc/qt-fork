@@ -38,13 +38,15 @@
 #include "fxjs/cjs_zoomtype.h"
 #include "fxjs/fxv8.h"
 #include "fxjs/js_define.h"
-#include "third_party/base/ptr_util.h"
+#include "third_party/base/check.h"
 
 CJS_Runtime::CJS_Runtime(CPDFSDK_FormFillEnvironment* pFormFillEnv)
     : m_pFormFillEnv(pFormFillEnv) {
   v8::Isolate* pIsolate = nullptr;
   IPDF_JSPLATFORM* pPlatform = m_pFormFillEnv->GetFormFillInfo()->m_pJsPlatform;
   if (pPlatform->version <= 2) {
+    // Backwards compatibility - JS now initialized earlier in more modern
+    // JSPLATFORM versions.
     unsigned int embedderDataSlot = 0;
     v8::Isolate* pExternalIsolate = nullptr;
     if (pPlatform->version == 2) {
@@ -121,12 +123,12 @@ void CJS_Runtime::DefineJSObjects() {
 }
 
 IJS_EventContext* CJS_Runtime::NewEventContext() {
-  m_EventContextArray.push_back(pdfium::MakeUnique<CJS_EventContext>(this));
+  m_EventContextArray.push_back(std::make_unique<CJS_EventContext>(this));
   return m_EventContextArray.back().get();
 }
 
 void CJS_Runtime::ReleaseEventContext(IJS_EventContext* pContext) {
-  ASSERT(pContext == m_EventContextArray.back().get());
+  DCHECK(pContext == m_EventContextArray.back().get());
   m_EventContextArray.pop_back();
 }
 
@@ -135,7 +137,7 @@ CJS_EventContext* CJS_Runtime::GetCurrentEventContext() const {
                                      : m_EventContextArray.back().get();
 }
 
-TimerHandlerIface* CJS_Runtime::GetTimerHandler() const {
+CFX_Timer::HandlerIface* CJS_Runtime::GetTimerHandler() const {
   return m_pFormFillEnv ? m_pFormFillEnv->GetTimerHandler() : nullptr;
 }
 

@@ -87,7 +87,6 @@
 #include <QtCore/qpoint.h>
 #include <QtCore/qpointer.h>
 #include <QtCore/qpair.h>
-#include <QtGui/qmatrix.h>
 
 #include <algorithm>
 
@@ -127,22 +126,23 @@ public:
         qreal step;
         qreal value;
     };
-    QVector<Pair> xPosition;
-    QVector<Pair> yPosition;
-    QVector<Pair> rotation;
-    QVector<Pair> verticalScale;
-    QVector<Pair> horizontalScale;
-    QVector<Pair> verticalShear;
-    QVector<Pair> horizontalShear;
-    QVector<Pair> xTranslation;
-    QVector<Pair> yTranslation;
+    QList<Pair> xPosition;
+    QList<Pair> yPosition;
+    QList<Pair> rotation;
+    QList<Pair> verticalScale;
+    QList<Pair> horizontalScale;
+    QList<Pair> verticalShear;
+    QList<Pair> horizontalShear;
+    QList<Pair> xTranslation;
+    QList<Pair> yTranslation;
 
-    qreal linearValueForStep(qreal step, const QVector<Pair> &source, qreal defaultValue = 0);
-    void insertUniquePair(qreal step, qreal value, QVector<Pair> *binList, const char* method);
+    qreal linearValueForStep(qreal step, const QList<Pair> &source, qreal defaultValue = 0);
+    void insertUniquePair(qreal step, qreal value, QList<Pair> *binList, const char *method);
 };
 Q_DECLARE_TYPEINFO(QGraphicsItemAnimationPrivate::Pair, Q_PRIMITIVE_TYPE);
 
-qreal QGraphicsItemAnimationPrivate::linearValueForStep(qreal step, const QVector<Pair> &source, qreal defaultValue)
+qreal QGraphicsItemAnimationPrivate::linearValueForStep(qreal step, const QList<Pair> &source,
+                                                        qreal defaultValue)
 {
     if (source.isEmpty())
         return defaultValue;
@@ -172,14 +172,15 @@ qreal QGraphicsItemAnimationPrivate::linearValueForStep(qreal step, const QVecto
     return valueBefore + (valueAfter - valueBefore) * ((step - stepBefore) / (stepAfter - stepBefore));
 }
 
-void QGraphicsItemAnimationPrivate::insertUniquePair(qreal step, qreal value, QVector<Pair> *binList, const char* method)
+void QGraphicsItemAnimationPrivate::insertUniquePair(qreal step, qreal value, QList<Pair> *binList,
+                                                     const char *method)
 {
     if (!check_step_valid(step, method))
         return;
 
     const Pair pair = { step, value };
 
-    const QVector<Pair>::iterator result = std::lower_bound(binList->begin(), binList->end(), pair);
+    const QList<Pair>::iterator result = std::lower_bound(binList->begin(), binList->end(), pair);
     if (result == binList->end() || pair < *result)
         binList->insert(result, pair);
     else
@@ -293,19 +294,6 @@ QList<QPair<qreal, QPointF> > QGraphicsItemAnimation::posList() const
 
     return list;
 }
-
-#if QT_DEPRECATED_SINCE(5, 14)
-/*!
-  Returns the matrix used to transform the item at the specified \a step value.
-
-  \obsolete Use transformAt() instead
-*/
-QMatrix QGraphicsItemAnimation::matrixAt(qreal step) const
-{
-    check_step_valid(step, "matrixAt");
-    return transformAt(step).toAffine();
-}
-#endif
 
 /*!
   Returns the transform used for the item at the specified \a step value.
@@ -563,23 +551,6 @@ void QGraphicsItemAnimation::setStep(qreal step)
 
     afterAnimationStep(step);
 }
-
-#if QT_DEPRECATED_SINCE(5, 13)
-/*!
-    Resets the item to its starting position and transformation.
-
-    \obsolete
-
-    You can call setStep(0) instead.
-*/
-void QGraphicsItemAnimation::reset()
-{
-    if (!d->item)
-        return;
-    d->startPos = d->item->pos();
-    d->startTransform = d->item->transform();
-}
-#endif
 
 /*!
   \fn void QGraphicsItemAnimation::beforeAnimationStep(qreal step)

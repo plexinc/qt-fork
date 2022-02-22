@@ -92,16 +92,16 @@ void SkeletonManager::addDirtySkeleton(DirtyFlag dirtyFlag, HSkeleton skeletonHa
     }
 }
 
-QVector<HSkeleton> SkeletonManager::takeDirtySkeletons(DirtyFlag dirtyFlag)
+QList<HSkeleton> SkeletonManager::takeDirtySkeletons(DirtyFlag dirtyFlag)
 {
     switch (dirtyFlag) {
     case SkeletonDataDirty:
-        return std::move(m_dirtyDataSkeletons);
+        return Qt3DCore::moveAndClear(m_dirtyDataSkeletons);
 
     case SkeletonTransformsDirty:
-        return std::move(m_dirtyTransformSkeletons);
+        return Qt3DCore::moveAndClear(m_dirtyTransformSkeletons);
     }
-    return QVector<HSkeleton>();
+    return { };
 }
 
 void JointManager::addDirtyJoint(Qt3DCore::QNodeId jointId)
@@ -116,9 +116,9 @@ void JointManager::removeDirtyJoint(Qt3DCore::QNodeId jointId)
     m_dirtyJoints.removeAll(jointHandle);
 }
 
-QVector<HJoint> JointManager::dirtyJoints()
+QList<HJoint> JointManager::dirtyJoints()
 {
-    return std::move(m_dirtyJoints);
+    return  Qt3DCore::moveAndClear(m_dirtyJoints);
 }
 
 } // namespace Render

@@ -7,12 +7,12 @@
 
 #include <ostream>
 
-#include "net/third_party/quiche/src/quic/core/quic_interval.h"
-#include "net/third_party/quiche/src/quic/core/quic_interval_set.h"
-#include "net/third_party/quiche/src/quic/core/quic_types.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_containers.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
+#include "quic/core/quic_interval.h"
+#include "quic/core/quic_interval_set.h"
+#include "quic/core/quic_types.h"
+#include "quic/platform/api/quic_containers.h"
+#include "quic/platform/api/quic_export.h"
+#include "quic/platform/api/quic_flags.h"
 
 namespace quic {
 
@@ -29,9 +29,9 @@ class QUIC_EXPORT_PRIVATE PacketNumberQueue {
   PacketNumberQueue& operator=(const PacketNumberQueue& other);
   PacketNumberQueue& operator=(PacketNumberQueue&& other);
 
-  typedef QuicIntervalSet<QuicPacketNumber>::const_iterator const_iterator;
-  typedef QuicIntervalSet<QuicPacketNumber>::const_reverse_iterator
-      const_reverse_iterator;
+  using const_iterator = QuicIntervalSet<QuicPacketNumber>::const_iterator;
+  using const_reverse_iterator =
+      QuicIntervalSet<QuicPacketNumber>::const_reverse_iterator;
 
   // Adds |packet_number| to the set of packets in the queue.
   void Add(QuicPacketNumber packet_number);
@@ -108,7 +108,7 @@ struct QUIC_EXPORT_PRIVATE QuicAckFrame {
 
   // Time elapsed since largest_observed() was received until this Ack frame was
   // sent.
-  QuicTime::Delta ack_delay_time;
+  QuicTime::Delta ack_delay_time = QuicTime::Delta::Infinite();
 
   // Vector of <packet_number, time> for when packets arrived.
   PacketTimeVector received_packet_times;
@@ -118,17 +118,18 @@ struct QUIC_EXPORT_PRIVATE QuicAckFrame {
 
   // ECN counters, used only in version 99's ACK frame and valid only when
   // |ecn_counters_populated| is true.
-  bool ecn_counters_populated;
-  QuicPacketCount ect_0_count;
-  QuicPacketCount ect_1_count;
-  QuicPacketCount ecn_ce_count;
+  bool ecn_counters_populated = false;
+  QuicPacketCount ect_0_count = 0;
+  QuicPacketCount ect_1_count = 0;
+  QuicPacketCount ecn_ce_count = 0;
 };
 
 // The highest acked packet number we've observed from the peer. If no packets
 // have been observed, return 0.
 inline QUIC_EXPORT_PRIVATE QuicPacketNumber
 LargestAcked(const QuicAckFrame& frame) {
-  DCHECK(frame.packets.Empty() || frame.packets.Max() == frame.largest_acked);
+  QUICHE_DCHECK(frame.packets.Empty() ||
+                frame.packets.Max() == frame.largest_acked);
   return frame.largest_acked;
 }
 

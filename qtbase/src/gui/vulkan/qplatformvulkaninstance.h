@@ -69,6 +69,7 @@ public:
 
     virtual QVulkanInfoVector<QVulkanLayer> supportedLayers() const = 0;
     virtual QVulkanInfoVector<QVulkanExtension> supportedExtensions() const = 0;
+    virtual QVersionNumber supportedApiVersion() const = 0;
     virtual void createOrAdoptInstance() = 0;
     virtual bool isValid() const = 0;
     virtual VkResult errorCode() const = 0;
@@ -79,7 +80,7 @@ public:
     virtual bool supportsPresent(VkPhysicalDevice physicalDevice, uint32_t queueFamilyIndex, QWindow *window) = 0;
     virtual void presentAboutToBeQueued(QWindow *window);
     virtual void presentQueued(QWindow *window);
-    virtual void setDebugFilters(const QVector<QVulkanInstance::DebugFilter> &filters);
+    virtual void setDebugFilters(const QList<QVulkanInstance::DebugFilter> &filters);
 
 private:
     QScopedPointer<QPlatformVulkanInstancePrivate> d_ptr;

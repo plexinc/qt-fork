@@ -26,7 +26,7 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QtCore/qmath.h>
 #include <QtGui/qquaternion.h>
 
@@ -121,8 +121,8 @@ private slots:
     void negate_data();
     void negate();
 
-    void conjugate_data();
-    void conjugate();
+    void conjugated_data();
+    void conjugated();
 
     void fromAxisAndAngle_data();
     void fromAxisAndAngle();
@@ -763,12 +763,12 @@ void tst_QQuaternion::negate()
 }
 
 // Test quaternion conjugate calculations.
-void tst_QQuaternion::conjugate_data()
+void tst_QQuaternion::conjugated_data()
 {
     // Use the same test data as the add test.
     add_data();
 }
-void tst_QQuaternion::conjugate()
+void tst_QQuaternion::conjugated()
 {
     QFETCH(float, x1);
     QFETCH(float, y1);
@@ -778,9 +778,6 @@ void tst_QQuaternion::conjugate()
     QQuaternion v1(w1, x1, y1, z1);
     QQuaternion v2(w1, -x1, -y1, -z1);
 
-#if QT_DEPRECATED_SINCE(5, 5)
-    QCOMPARE(v1.conjugate(), v2);
-#endif
     QCOMPARE(v1.conjugated(), v2);
 }
 
@@ -828,35 +825,35 @@ void tst_QQuaternion::fromAxisAndAngle()
     result = result.normalized();
 
     QQuaternion answer = QQuaternion::fromAxisAndAngle(QVector3D(x1, y1, z1), angle);
-    QVERIFY(qFuzzyCompare(answer.x(), result.x()));
-    QVERIFY(qFuzzyCompare(answer.y(), result.y()));
-    QVERIFY(qFuzzyCompare(answer.z(), result.z()));
-    QVERIFY(qFuzzyCompare(answer.scalar(), result.scalar()));
+    QCOMPARE(answer.x(), result.x());
+    QCOMPARE(answer.y(), result.y());
+    QCOMPARE(answer.z(), result.z());
+    QCOMPARE(answer.scalar(), result.scalar());
 
     {
         QVector3D answerAxis;
         float answerAngle;
         answer.getAxisAndAngle(&answerAxis, &answerAngle);
-        QVERIFY(qFuzzyCompare(answerAxis.x(), vector.x()));
-        QVERIFY(qFuzzyCompare(answerAxis.y(), vector.y()));
-        QVERIFY(qFuzzyCompare(answerAxis.z(), vector.z()));
-        QVERIFY(qFuzzyCompare(answerAngle, angle));
+        QCOMPARE(answerAxis.x(), vector.x());
+        QCOMPARE(answerAxis.y(), vector.y());
+        QCOMPARE(answerAxis.z(), vector.z());
+        QCOMPARE(answerAngle, angle);
     }
 
     answer = QQuaternion::fromAxisAndAngle(x1, y1, z1, angle);
-    QVERIFY(qFuzzyCompare(answer.x(), result.x()));
-    QVERIFY(qFuzzyCompare(answer.y(), result.y()));
-    QVERIFY(qFuzzyCompare(answer.z(), result.z()));
-    QVERIFY(qFuzzyCompare(answer.scalar(), result.scalar()));
+    QCOMPARE(answer.x(), result.x());
+    QCOMPARE(answer.y(), result.y());
+    QCOMPARE(answer.z(), result.z());
+    QCOMPARE(answer.scalar(), result.scalar());
 
     {
         float answerAxisX, answerAxisY, answerAxisZ;
         float answerAngle;
         answer.getAxisAndAngle(&answerAxisX, &answerAxisY, &answerAxisZ, &answerAngle);
-        QVERIFY(qFuzzyCompare(answerAxisX, vector.x()));
-        QVERIFY(qFuzzyCompare(answerAxisY, vector.y()));
-        QVERIFY(qFuzzyCompare(answerAxisZ, vector.z()));
-        QVERIFY(qFuzzyCompare(answerAngle, angle));
+        QCOMPARE(answerAxisX, vector.x());
+        QCOMPARE(answerAxisY, vector.y());
+        QCOMPARE(answerAxisZ, vector.z());
+        QCOMPARE(answerAngle, angle);
     }
 }
 
@@ -908,7 +905,7 @@ void tst_QQuaternion::fromAxes_data()
 
     QTest::newRow("complex")
         << 1.0f << 2.0f << -3.0f << 45.0f
-        << QVector3D(0.728028, -0.525105, -0.440727) << QVector3D(0.608789, 0.790791, 0.0634566) << QVector3D(0.315202, -0.314508, 0.895395);
+        << QVector3D(0.728028f, -0.525105f, -0.440727f) << QVector3D(0.608789f, 0.790791f, 0.0634566f) << QVector3D(0.315202f, -0.314508f, 0.895395f);
 }
 void tst_QQuaternion::fromAxes()
 {
@@ -1088,35 +1085,38 @@ void tst_QQuaternion::fromEulerAngles_data()
     QTest::addColumn<float>("yaw");
     QTest::addColumn<float>("roll");
 
+    QTest::addColumn<QQuaternion>("quaternion");
+
     QTest::newRow("null")
-        << 0.0f << 0.0f << 0.0f;
+        << 0.0f << 0.0f << 0.0f << QQuaternion(1.0f, 0.0f, 0.0f, 0.0f);
 
     QTest::newRow("xonly")
-        << 90.0f << 0.0f << 0.0f;
+        << 90.0f << 0.0f << 0.0f << QQuaternion(0.707107f, 0.707107f, 0.0f, 0.0f);
 
     QTest::newRow("yonly")
-        << 0.0f << 180.0f << 0.0f;
+        << 0.0f << 180.0f << 0.0f << QQuaternion(0.0f, 0.0f, 1.0f, 0.0f);
 
     QTest::newRow("zonly")
-        << 0.0f << 0.0f << 270.0f;
+        << 0.0f << 0.0f << 270.0f << QQuaternion(-0.707107f, 0.0f, 0.0f, 0.707107f);
 
     QTest::newRow("x+z")
-        << 30.0f << 0.0f << 45.0f;
+        << 30.0f << 0.0f << 45.0f << QQuaternion(0.892399f, 0.239118f, -0.099046f, 0.369644f);
 
     QTest::newRow("x+y")
-        << 30.0f << 90.0f << 0.0f;
+        << 30.0f << 90.0f << 0.0f << QQuaternion(0.683013f, 0.183013f, 0.683013f, -0.183013f);
 
     QTest::newRow("y+z")
-        << 0.0f << 45.0f << 30.0f;
+        << 0.0f << 45.0f << 30.0f << QQuaternion(0.892399f, 0.099046f, 0.369644f, 0.239118f);
 
     QTest::newRow("complex")
-        << 30.0f << 240.0f << -45.0f;
+        << 30.0f << 240.0f << -45.0f << QQuaternion(-0.531976f, -0.43968f, 0.723317f, -0.02226f);
 }
 void tst_QQuaternion::fromEulerAngles()
 {
     QFETCH(float, pitch);
     QFETCH(float, yaw);
     QFETCH(float, roll);
+    QFETCH(QQuaternion, quaternion);
 
     // Use a straight-forward implementation of the algorithm at:
     // http://www.j3d.org/matrix_faq/matrfaq_latest.html#Q60
@@ -1132,11 +1132,22 @@ void tst_QQuaternion::fromEulerAngles()
     QVERIFY(myFuzzyCompare(answer.z(), result.z()));
     QVERIFY(myFuzzyCompare(answer.scalar(), result.scalar()));
 
+    // quaternion should be the same as the result
+    QVERIFY(myFuzzyCompare(answer.x(), quaternion.x()));
+    QVERIFY(myFuzzyCompare(answer.y(), quaternion.y()));
+    QVERIFY(myFuzzyCompare(answer.z(), quaternion.z()));
+    QVERIFY(myFuzzyCompare(answer.scalar(), quaternion.scalar()));
+
     {
         QVector3D answerEulerAngles = answer.toEulerAngles();
         QVERIFY(myFuzzyCompareDegrees(answerEulerAngles.x(), pitch));
         QVERIFY(myFuzzyCompareDegrees(answerEulerAngles.y(), yaw));
         QVERIFY(myFuzzyCompareDegrees(answerEulerAngles.z(), roll));
+
+        QVector3D quaternionEulerAngles = quaternion.toEulerAngles();
+        QVERIFY(myFuzzyCompareDegrees(quaternionEulerAngles.x(), pitch));
+        QVERIFY(myFuzzyCompareDegrees(quaternionEulerAngles.y(), yaw));
+        QVERIFY(myFuzzyCompareDegrees(quaternionEulerAngles.z(), roll));
     }
 
     answer = QQuaternion::fromEulerAngles(pitch, yaw, roll);
@@ -1151,6 +1162,12 @@ void tst_QQuaternion::fromEulerAngles()
         QVERIFY(myFuzzyCompareDegrees(answerPitch, pitch));
         QVERIFY(myFuzzyCompareDegrees(answerYaw, yaw));
         QVERIFY(myFuzzyCompareDegrees(answerRoll, roll));
+
+        float quaternionPitch, quaternionYaw, quaternionRoll;
+        quaternion.getEulerAngles(&quaternionPitch, &quaternionYaw, &quaternionRoll);
+        QVERIFY(myFuzzyCompareDegrees(quaternionPitch, pitch));
+        QVERIFY(myFuzzyCompareDegrees(quaternionYaw, yaw));
+        QVERIFY(myFuzzyCompareDegrees(quaternionRoll, roll));
     }
 }
 
@@ -1224,10 +1241,10 @@ void tst_QQuaternion::slerp()
 
     QQuaternion result = QQuaternion::slerp(q1, q2, t);
 
-    QVERIFY(qFuzzyCompare(result.x(), q3.x()));
-    QVERIFY(qFuzzyCompare(result.y(), q3.y()));
-    QVERIFY(qFuzzyCompare(result.z(), q3.z()));
-    QVERIFY(qFuzzyCompare(result.scalar(), q3.scalar()));
+    QCOMPARE(result.x(), q3.x());
+    QCOMPARE(result.y(), q3.y());
+    QCOMPARE(result.z(), q3.z());
+    QCOMPARE(result.scalar(), q3.scalar());
 }
 
 // Test normalized linear interpolation of quaternions.
@@ -1278,10 +1295,10 @@ void tst_QQuaternion::nlerp()
 
     QQuaternion q3 = QQuaternion(resultscalar, resultx, resulty, resultz).normalized();
 
-    QVERIFY(qFuzzyCompare(result.x(), q3.x()));
-    QVERIFY(qFuzzyCompare(result.y(), q3.y()));
-    QVERIFY(qFuzzyCompare(result.z(), q3.z()));
-    QVERIFY(qFuzzyCompare(result.scalar(), q3.scalar()));
+    QCOMPARE(result.x(), q3.x());
+    QCOMPARE(result.y(), q3.y());
+    QCOMPARE(result.z(), q3.z());
+    QCOMPARE(result.scalar(), q3.scalar());
 }
 
 class tst_QQuaternionProperties : public QObject
@@ -1289,7 +1306,7 @@ class tst_QQuaternionProperties : public QObject
     Q_OBJECT
     Q_PROPERTY(QQuaternion quaternion READ quaternion WRITE setQuaternion)
 public:
-    tst_QQuaternionProperties(QObject *parent = 0) : QObject(parent) {}
+    tst_QQuaternionProperties(QObject *parent = nullptr) : QObject(parent) {}
 
     QQuaternion quaternion() const { return q; }
     void setQuaternion(const QQuaternion& value) { q = value; }
@@ -1323,10 +1340,9 @@ void tst_QQuaternion::properties()
 
 void tst_QQuaternion::metaTypes()
 {
-    QCOMPARE(QMetaType::type("QQuaternion"), int(QMetaType::QQuaternion));
+    QCOMPARE(QMetaType::fromName("QQuaternion").id(), int(QMetaType::QQuaternion));
 
-    QCOMPARE(QByteArray(QMetaType::typeName(QMetaType::QQuaternion)),
-             QByteArray("QQuaternion"));
+    QCOMPARE(QByteArray(QMetaType(QMetaType::QQuaternion).name()), QByteArray("QQuaternion"));
 
     QVERIFY(QMetaType::isRegistered(QMetaType::QQuaternion));
 

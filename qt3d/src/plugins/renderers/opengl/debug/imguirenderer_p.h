@@ -81,13 +81,13 @@ namespace Debug {
 
 #define IMGUI_PERF_LOG_SIZE 30
 
-class ImGuiRenderer : public QObject {
-    Q_OBJECT
+class Q_AUTOTEST_EXPORT ImGuiRenderer : public QObject {
 public:
     ImGuiRenderer(Qt3DRender::Render::OpenGL::Renderer *renderer);
+    ~ImGuiRenderer();
 
     void processEvent(QEvent *event);
-    void renderDebugOverlay(const QVector<Render::OpenGL::RenderView *> &renderViews, const Render::OpenGL::RenderView *renderView, int jobsInLastFrame);
+    void renderDebugOverlay(const std::vector<Render::OpenGL::RenderView *> &renderViews, const Render::OpenGL::RenderView *renderView, int jobsInLastFrame);
 
     void setCapabilities(const QString &capabilities);
 
@@ -98,7 +98,7 @@ private:
     void onWheel(QWheelEvent *event);
     void onKeyPressRelease(QKeyEvent *event);
     void showGLInfo();
-    void showRenderDetails(const QVector<Render::OpenGL::RenderView *> &renderViews);
+    void showRenderDetails(const std::vector<Render::OpenGL::RenderView *> &renderViews);
 
     bool createFontsTexture();
     bool createDeviceObjects();
@@ -108,7 +108,7 @@ private:
     float        m_mouseWheel;
     float        m_mouseWheelH;
     GLuint       m_fontTexture = 0;
-    GLuint       m_shaderHandle = 0, m_vertHandle = 0, m_fragHandle = 0;
+    GLuint       m_shaderHandle = 0;
     int          m_attribLocationTex = 0, m_attribLocationProjMtx = 0;
     int          m_attribLocationPosition = 0, m_attribLocationUV = 0, m_attribLocationColor = 0;
     unsigned int m_vboHandle = 0, m_vaoHandle = 0, m_elementsHandle = 0;

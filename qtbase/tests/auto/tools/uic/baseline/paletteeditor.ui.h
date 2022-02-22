@@ -31,7 +31,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'paletteeditor.ui'
 **
-** Created by: Qt User Interface Compiler version 5.12.0
+** Created by: Qt User Interface Compiler version 6.0.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -40,6 +40,7 @@
 #define PALETTEEDITOR_H
 
 #include <QtCore/QVariant>
+#include <QtWidgets/QAbstractButton>
 #include <QtWidgets/QApplication>
 #include <QtWidgets/QDialog>
 #include <QtWidgets/QDialogButtonBox>
@@ -189,8 +190,8 @@ public:
 
 
         retranslateUi(qdesigner_internal__PaletteEditor);
-        QObject::connect(buttonBox, SIGNAL(accepted()), qdesigner_internal__PaletteEditor, SLOT(accept()));
-        QObject::connect(buttonBox, SIGNAL(rejected()), qdesigner_internal__PaletteEditor, SLOT(reject()));
+        QObject::connect(buttonBox, &QDialogButtonBox::accepted, qdesigner_internal__PaletteEditor, qOverload<>(&QDialog::accept));
+        QObject::connect(buttonBox, &QDialogButtonBox::rejected, qdesigner_internal__PaletteEditor, qOverload<>(&QDialog::reject));
 
         QMetaObject::connectSlotsByName(qdesigner_internal__PaletteEditor);
     } // setupUi

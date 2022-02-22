@@ -46,30 +46,9 @@ class FrameResourceReleaserImpl final : public mojom::FrameResourceReleaser {
   DISALLOW_COPY_AND_ASSIGN(FrameResourceReleaserImpl);
 };
 
+const char kInvalidStateMessage[] = "MojoDecryptorService - invalid state";
+
 }  // namespace
-
-// static
-std::unique_ptr<MojoDecryptorService> MojoDecryptorService::Create(
-    int cdm_id,
-    MojoCdmServiceContext* mojo_cdm_service_context) {
-  auto cdm_context_ref = mojo_cdm_service_context->GetCdmContextRef(cdm_id);
-  if (!cdm_context_ref) {
-    DVLOG(1) << "CdmContextRef not found for CDM ID: " << cdm_id;
-    return nullptr;
-  }
-
-  auto* cdm_context = cdm_context_ref->GetCdmContext();
-  DCHECK(cdm_context);
-
-  auto* decryptor = cdm_context->GetDecryptor();
-  if (!decryptor) {
-    DVLOG(1) << "CdmContext does not support Decryptor";
-    return nullptr;
-  }
-
-  return std::make_unique<MojoDecryptorService>(decryptor,
-                                                std::move(cdm_context_ref));
-}
 
 MojoDecryptorService::MojoDecryptorService(
     media::Decryptor* decryptor,
@@ -93,6 +72,12 @@ void MojoDecryptorService::Initialize(
     mojo::ScopedDataPipeProducerHandle decrypted_pipe) {
   DVLOG(1) << __func__;
 
+  if (has_initialize_been_called_) {
+    mojo::ReportBadMessage(kInvalidStateMessage);
+    return;
+  }
+  has_initialize_been_called_ = true;
+
   audio_buffer_reader_.reset(
       new MojoDecoderBufferReader(std::move(audio_pipe)));
   video_buffer_reader_.reset(
@@ -107,6 +92,12 @@ void MojoDecryptorService::Decrypt(StreamType stream_type,
                                    mojom::DecoderBufferPtr encrypted,
                                    DecryptCallback callback) {
   DVLOG(3) << __func__;
+
+  if (!decrypt_buffer_reader_) {
+    mojo::ReportBadMessage(kInvalidStateMessage);
+    return;
+  }
+
   decrypt_buffer_reader_->ReadDecoderBuffer(
       std::move(encrypted),
       base::BindOnce(&MojoDecryptorService::OnReadDone, weak_this_, stream_type,
@@ -140,6 +131,12 @@ void MojoDecryptorService::DecryptAndDecodeAudio(
     mojom::DecoderBufferPtr encrypted,
     DecryptAndDecodeAudioCallback callback) {
   DVLOG(3) << __func__;
+
+  if (!audio_buffer_reader_) {
+    mojo::ReportBadMessage(kInvalidStateMessage);
+    return;
+  }
+
   audio_buffer_reader_->ReadDecoderBuffer(
       std::move(encrypted), base::BindOnce(&MojoDecryptorService::OnAudioRead,
                                            weak_this_, std::move(callback)));
@@ -149,6 +146,12 @@ void MojoDecryptorService::DecryptAndDecodeVideo(
     mojom::DecoderBufferPtr encrypted,
     DecryptAndDecodeVideoCallback callback) {
   DVLOG(3) << __func__;
+
+  if (!video_buffer_reader_) {
+    mojo::ReportBadMessage(kInvalidStateMessage);
+    return;
+  }
+
   video_buffer_reader_->ReadDecoderBuffer(
       std::move(encrypted), base::BindOnce(&MojoDecryptorService::OnVideoRead,
                                            weak_this_, std::move(callback)));
@@ -194,7 +197,6 @@ void MojoDecryptorService::OnDecryptDone(DecryptCallback callback,
   DVLOG_IF(3, status == Status::kSuccess) << __func__;
 
   if (!buffer) {
-    DCHECK_NE(status, Status::kSuccess);
     std::move(callback).Run(status, nullptr);
     return;
   }
@@ -232,8 +234,8 @@ void MojoDecryptorService::OnAudioRead(DecryptAndDecodeAudioCallback callback,
   }
 
   decryptor_->DecryptAndDecodeAudio(
-      std::move(buffer), base::Bind(&MojoDecryptorService::OnAudioDecoded,
-                                    weak_this_, base::Passed(&callback)));
+      std::move(buffer), base::BindOnce(&MojoDecryptorService::OnAudioDecoded,
+                                        weak_this_, std::move(callback)));
 }
 
 void MojoDecryptorService::OnVideoRead(DecryptAndDecodeVideoCallback callback,
@@ -244,8 +246,8 @@ void MojoDecryptorService::OnVideoRead(DecryptAndDecodeVideoCallback callback,
   }
 
   decryptor_->DecryptAndDecodeVideo(
-      std::move(buffer), base::Bind(&MojoDecryptorService::OnVideoDecoded,
-                                    weak_this_, base::Passed(&callback)));
+      std::move(buffer), base::BindOnce(&MojoDecryptorService::OnVideoDecoded,
+                                        weak_this_, std::move(callback)));
 }
 
 void MojoDecryptorService::OnReaderFlushDone(StreamType stream_type) {

@@ -29,22 +29,292 @@
  */
 
 import * as Bindings from '../bindings/bindings.js';
+import * as BrowserSDK from '../browser_sdk/browser_sdk.js';
 import * as Common from '../common/common.js';
 import * as Components from '../components/components.js';
 import * as DataGrid from '../data_grid/data_grid.js';
 import * as HARImporter from '../har_importer/har_importer.js';
 import * as Host from '../host/host.js';
+import * as i18n from '../i18n/i18n.js';
 import * as PerfUI from '../perf_ui/perf_ui.js';
+import * as Platform from '../platform/platform.js';
 import * as SDK from '../sdk/sdk.js';
 import * as TextUtils from '../text_utils/text_utils.js';
+import * as ThemeSupport from '../theme_support/theme_support.js';
 import * as UI from '../ui/ui.js';
 
 import {HARWriter} from './HARWriter.js';
 import {Events, NetworkGroupNode, NetworkLogViewInterface, NetworkNode, NetworkRequestNode} from './NetworkDataGridNode.js';  // eslint-disable-line no-unused-vars
 import {NetworkFrameGrouper} from './NetworkFrameGrouper.js';
 import {NetworkLogViewColumns} from './NetworkLogViewColumns.js';
+import {FilterOptions} from './NetworkPanel.js';  // eslint-disable-line no-unused-vars
 import {NetworkTimeBoundary, NetworkTimeCalculator, NetworkTransferDurationCalculator, NetworkTransferTimeCalculator,} from './NetworkTimeCalculator.js';  // eslint-disable-line no-unused-vars
 
+export const UIStrings = {
+  /**
+  *@description Text in Network Log View of the Network panel
+  */
+  hideDataUrls: 'Hide data URLs',
+  /**
+  *@description Data urlfilter ui element title in Network Log View of the Network panel
+  */
+  hidesDataAndBlobUrls: 'Hides data: and blob: URLs',
+  /**
+  *@description Aria accessible name in Network Log View of the Network panel
+  */
+  resourceTypesToInclude: 'Resource types to include',
+  /**
+  *@description Label for a filter in the Network panel
+  */
+  hasBlockedCookies: 'Has blocked cookies',
+  /**
+  *@description Tooltip for a checkbox in the Network panel. The response to a network request may include a
+  *             cookie (https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies). Such response cookies can
+  *             be malformed or otherwise invalid and the browser may choose to ignore or not accept invalid cookies.
+  */
+  onlyShowRequestsWithBlocked: 'Only show requests with blocked response cookies',
+  /**
+  *@description Label for a filter in the Network panel
+  */
+  blockedRequests: 'Blocked Requests',
+  /**
+  *@description Tooltip for a filter in the Network panel
+  */
+  onlyShowBlockedRequests: 'Only show blocked requests',
+  /**
+  *@description Text that appears when user drag and drop something (for example, a file) in Network Log View of the Network panel
+  */
+  dropHarFilesHere: 'Drop HAR files here',
+  /**
+  *@description Recording text text content in Network Log View of the Network panel
+  */
+  recordingNetworkActivity: 'Recording network activity…',
+  /**
+  *@description Text in Network Log View of the Network panel
+  *@example {Ctrl + R} PH1
+  */
+  performARequestOrHitSToRecordThe: 'Perform a request or hit {PH1} to record the reload.',
+  /**
+  *@description Shown in the Network Log View of the Network panel when the user has not yet
+  * recorded any network activity. This is an instruction to the user to start recording in order to
+  * show network activity in the current UI.
+  *@example {Ctrl + E} PH1
+  */
+  recordSToDisplayNetworkActivity: 'Record ({PH1}) to display network activity.',
+  /**
+  *@description Text that is usually a hyperlink to more documentation
+  */
+  learnMore: 'Learn more',
+  /**
+  *@description Text to announce to screen readers that network data is available.
+  */
+  networkDataAvailable: 'Network Data Available',
+  /**
+  *@description Text in Network Log View of the Network panel
+  *@example {3} PH1
+  *@example {5} PH2
+  */
+  sSRequests: '{PH1} / {PH2} requests',
+  /**
+  *@description Text in Network Log View of the Network panel
+  *@example {5} PH1
+  *@example {10} PH2
+  */
+  sSTransferred: '{PH1} / {PH2} transferred',
+  /**
+  *@description Text in Network Log View of the Network panel
+  *@example {10} PH1
+  *@example {15} PH2
+  */
+  sBSBTransferredOverNetwork: '{PH1} B / {PH2} B transferred over network',
+  /**
+  * @description Text in Network Log View of the Network panel. Appears when a particular network
+  * resource is selected by the user. Shows how large the selected resource was (PH1) out of the
+  * total size (PH2).
+  * @example {40MB} PH1
+  * @example {50MB} PH2
+  */
+  sSResources: '{PH1} / {PH2} resources',
+  /**
+  *@description Text in Network Log View of the Network panel
+  *@example {40} PH1
+  *@example {50} PH2
+  */
+  sBSBResourcesLoadedByThePage: '{PH1} B / {PH2} B resources loaded by the page',
+  /**
+  *@description Text in Network Log View of the Network panel
+  *@example {6} PH1
+  */
+  sRequests: '{PH1} requests',
+  /**
+  *@description Message in the summary toolbar at the bottom of the Network log that shows the compressed size of
+  * all resources transferred over network during a network activity log.
+  *@example {4 B} PH1
+  */
+  sTransferred: '{PH1} transferred',
+  /**
+  *@description Message in a tooltip that shows the compressed size of all resources transferred over network during
+  * a network activity log.
+  *@example {4} PH1
+  */
+  sBTransferredOverNetwork: '{PH1} B transferred over network',
+  /**
+  *@description Text in Network Log View of the Network panel
+  *@example {4} PH1
+  */
+  sResources: '{PH1} resources',
+  /**
+  *@description Text in Network Log View of the Network panel
+  *@example {10} PH1
+  */
+  sBResourcesLoadedByThePage: '{PH1} B resources loaded by the page',
+  /**
+  *@description Text in Network Log View of the Network panel
+  *@example {120ms} PH1
+  */
+  finishS: 'Finish: {PH1}',
+  /**
+  *@description Text in Network Log View of the Network panel
+  *@example {3000ms} PH1
+  */
+  domcontentloadedS: 'DOMContentLoaded: {PH1}',
+  /**
+  *@description Text in Network Log View of the Network panel
+  *@example {40ms} PH1
+  */
+  loadS: 'Load: {PH1}',
+  /**
+  *@description Text for copying
+  */
+  copy: 'Copy',
+  /**
+  *@description Text in Network Log View of the Network panel
+  */
+  copyRequestHeaders: 'Copy request headers',
+  /**
+  *@description Text in Network Log View of the Network panel
+  */
+  copyResponseHeaders: 'Copy response headers',
+  /**
+  *@description Text in Network Log View of the Network panel
+  */
+  copyResponse: 'Copy response',
+  /**
+  *@description Text in Network Log View of the Network panel
+  */
+  copyStacktrace: 'Copy stacktrace',
+  /**
+  *@description Text in Network Log View of the Network panel
+  */
+  copyAsPowershell: 'Copy as `PowerShell`',
+  /**
+  *@description Text in Network Log View of the Network panel
+  */
+  copyAsFetch: 'Copy as `fetch`',
+  /**
+  *@description Text in Network Log View of the Network panel. An action that copies a command to
+  * the developer's clipboard. The command allows the developer to replay this specific network
+  * request in Node.js, a desktop application/framework. 'Node.js fetch' is a noun phrase for the
+  * type of request that will be copied.
+  */
+  copyAsNodejsFetch: 'Copy as `Node.js` `fetch`',
+  /**
+  *@description Text in Network Log View of the Network panel. An action that copies a command to
+  *the clipboard. It will copy the command in the format compatible with cURL (a program, not
+  *translatable).
+  */
+  copyAsCurlCmd: 'Copy as `cURL` (`cmd`)',
+  /**
+  *@description Text in Network Log View of the Network panel. An action that copies a command to
+  *the clipboard. It will copy the command in the format compatible with a Bash script.
+  */
+  copyAsCurlBash: 'Copy as `cURL` (`bash`)',
+  /**
+  *@description Text in Network Log View of the Network panel. An action that copies a command to
+  *the clipboard. It will copy the command in the format compatible with a PowerShell script.
+  */
+  copyAllAsPowershell: 'Copy all as `PowerShell`',
+  /**
+  *@description Text in Network Log View of the Network panel. An action that copies a command to
+  *the clipboard. It will copy the command in the format compatible with a 'fetch' command (fetch
+  *should not be translated).
+  */
+  copyAllAsFetch: 'Copy all as `fetch`',
+  /**
+  *@description Text in Network Log View of the Network panel. An action that copies a command to
+  *the clipboard. It will copy the command in the format compatible with a Node.js 'fetch' command
+  *(fetch and Node.js should not be translated).
+  */
+  copyAllAsNodejsFetch: 'Copy all as `Node.js` `fetch`',
+  /**
+  *@description Text in Network Log View of the Network panel. An action that copies a command to
+  *the clipboard. It will copy the command in the format compatible with cURL (a program, not
+  *translatable).
+  */
+  copyAllAsCurlCmd: 'Copy all as `cURL` (`cmd`)',
+  /**
+  *@description Text in Network Log View of the Network panel. An action that copies a command to
+  *the clipboard. It will copy the command in the format compatible with a Bash script.
+  */
+  copyAllAsCurlBash: 'Copy all as `cURL` (`bash`)',
+  /**
+  *@description Text in Network Log View of the Network panel. An action that copies a command to
+  *the clipboard. It will copy the command in the format compatible with cURL (a program, not
+  *translatable).
+  */
+  copyAsCurl: 'Copy as `cURL`',
+  /**
+  *@description Text in Network Log View of the Network panel. An action that copies a command to
+  *the clipboard. It will copy the command in the format compatible with cURL (a program, not
+  *translatable).
+  */
+  copyAllAsCurl: 'Copy all as `cURL`',
+  /**
+  * @description Text in Network Log View of the Network panel. An action that copies data to the
+  * clipboard. It will copy the data in the HAR (not translatable) format. 'all' refers to every
+  * network request that is currently shown.
+  */
+  copyAllAsHar: 'Copy all as `HAR`',
+  /**
+  *@description A context menu item in the Network Log View of the Network panel
+  */
+  saveAllAsHarWithContent: 'Save all as `HAR` with content',
+  /**
+  *@description A context menu item in the Network Log View of the Network panel
+  */
+  clearBrowserCache: 'Clear browser cache',
+  /**
+  *@description A context menu item in the Network Log View of the Network panel
+  */
+  clearBrowserCookies: 'Clear browser cookies',
+  /**
+  *@description A context menu item in the Network Log View of the Network panel
+  */
+  blockRequestUrl: 'Block request URL',
+  /**
+  *@description A context menu item in the Network Log View of the Network panel
+  *@example {example.com} PH1
+  */
+  unblockS: 'Unblock {PH1}',
+  /**
+  *@description A context menu item in the Network Log View of the Network panel
+  */
+  blockRequestDomain: 'Block request domain',
+  /**
+  *@description Text to replay an XHR request
+  */
+  replayXhr: 'Replay XHR',
+  /**
+  *@description Text in Network Log View of the Network panel
+  */
+  areYouSureYouWantToClearBrowser: 'Are you sure you want to clear browser cache?',
+  /**
+  *@description Text in Network Log View of the Network panel
+  */
+  areYouSureYouWantToClearBrowserCookies: 'Are you sure you want to clear browser cookies?',
+};
+const str_ = i18n.i18n.registerUIStrings('network/NetworkLogView.js', UIStrings);
+const i18nString = i18n.i18n.getLocalizedString.bind(undefined, str_);
 /**
  * @implements {SDK.SDKModel.SDKModelObserver<!SDK.NetworkManager.NetworkManager>}
  * @implements {NetworkLogViewInterface}
@@ -53,12 +323,12 @@ export class NetworkLogView extends UI.Widget.VBox {
   /**
    * @param {!UI.FilterBar.FilterBar} filterBar
    * @param {!Element} progressBarContainer
-   * @param {!Common.Settings.Setting} networkLogLargeRowsSetting
+   * @param {!Common.Settings.Setting<number>} networkLogLargeRowsSetting
    */
   constructor(filterBar, progressBarContainer, networkLogLargeRowsSetting) {
     super();
     this.setMinimumSize(50, 64);
-    this.registerRequiredCSS('network/networkLogView.css');
+    this.registerRequiredCSS('network/networkLogView.css', {enableLegacyPatching: true});
 
     this.element.id = 'network-container';
     this.element.classList.add('no-node-selected');
@@ -80,7 +350,7 @@ export class NetworkLogView extends UI.Widget.VBox {
      * @this {NetworkLogView}
      */
     function updateRowHeight() {
-      this._rawRowHeight = !!this._networkLogLargeRowsSetting.get() ? 41 : 21;
+      this._rawRowHeight = Boolean(this._networkLogLargeRowsSetting.get()) ? 41 : 21;
       this._rowHeight = this._computeRowHeight();
     }
     this._rawRowHeight = 0;
@@ -103,6 +373,7 @@ export class NetworkLogView extends UI.Widget.VBox {
     this._mainRequestLoadTime = -1;
     /** @type {number} */
     this._mainRequestDOMContentLoadedTime = -1;
+    /** @type {*} */
     this._highlightedSubstringChanges = [];
 
     /** @type {!Array.<!Filter>} */
@@ -118,7 +389,7 @@ export class NetworkLogView extends UI.Widget.VBox {
     /** @type {?NetworkRequestNode} */
     this._highlightedNode = null;
 
-    this.linkifier = new Components.Linkifier.Linkifier();
+    this._linkifier = new Components.Linkifier.Linkifier();
 
     this._recording = false;
     this._needsRefresh = false;
@@ -137,34 +408,36 @@ export class NetworkLogView extends UI.Widget.VBox {
     filterBar.addFilter(this._textFilterUI);
 
     this._dataURLFilterUI = new UI.FilterBar.CheckboxFilterUI(
-        'hide-data-url', Common.UIString.UIString('Hide data URLs'), true, this._networkHideDataURLSetting);
+        'hide-data-url', i18nString(UIStrings.hideDataUrls), true, this._networkHideDataURLSetting);
     this._dataURLFilterUI.addEventListener(
         UI.FilterBar.FilterUI.Events.FilterChanged, this._filterChanged.bind(this), this);
-    this._dataURLFilterUI.element().title = ls`Hides data: and blob: URLs`;
+    UI.Tooltip.Tooltip.install(this._dataURLFilterUI.element(), i18nString(UIStrings.hidesDataAndBlobUrls));
     filterBar.addFilter(this._dataURLFilterUI);
 
     const filterItems =
         Object.values(Common.ResourceType.resourceCategories)
-            .map(category => ({name: category.title, label: category.shortTitle, title: category.title}));
+            .map(category => ({name: category.title(), label: () => category.shortTitle(), title: category.title()}));
     this._resourceCategoryFilterUI =
         new UI.FilterBar.NamedBitSetFilterUI(filterItems, this._networkResourceTypeFiltersSetting);
-    UI.ARIAUtils.setAccessibleName(this._resourceCategoryFilterUI.element(), ls`Resource types to include`);
+    UI.ARIAUtils.setAccessibleName(
+        this._resourceCategoryFilterUI.element(), i18nString(UIStrings.resourceTypesToInclude));
     this._resourceCategoryFilterUI.addEventListener(
         UI.FilterBar.FilterUI.Events.FilterChanged, this._filterChanged.bind(this), this);
     filterBar.addFilter(this._resourceCategoryFilterUI);
 
     this._onlyIssuesFilterUI = new UI.FilterBar.CheckboxFilterUI(
-        'only-show-issues', ls`Has blocked cookies`, true, this._networkShowIssuesOnlySetting);
+        'only-show-issues', i18nString(UIStrings.hasBlockedCookies), true, this._networkShowIssuesOnlySetting);
     this._onlyIssuesFilterUI.addEventListener(
         UI.FilterBar.FilterUI.Events.FilterChanged, this._filterChanged.bind(this), this);
-    this._onlyIssuesFilterUI.element().title = ls`Only show requests with blocked response cookies`;
+    UI.Tooltip.Tooltip.install(this._onlyIssuesFilterUI.element(), i18nString(UIStrings.onlyShowRequestsWithBlocked));
     filterBar.addFilter(this._onlyIssuesFilterUI);
 
     this._onlyBlockedRequestsUI = new UI.FilterBar.CheckboxFilterUI(
-        'only-show-blocked-requests', ls`Blocked Requests`, true, this._networkOnlyBlockedRequestsSetting);
+        'only-show-blocked-requests', i18nString(UIStrings.blockedRequests), true,
+        this._networkOnlyBlockedRequestsSetting);
     this._onlyBlockedRequestsUI.addEventListener(
         UI.FilterBar.FilterUI.Events.FilterChanged, this._filterChanged.bind(this), this);
-    this._onlyBlockedRequestsUI.element().title = ls`Only show blocked requests`;
+    UI.Tooltip.Tooltip.install(this._onlyBlockedRequestsUI.element(), i18nString(UIStrings.onlyShowBlockedRequests));
     filterBar.addFilter(this._onlyBlockedRequestsUI);
 
 
@@ -183,17 +456,18 @@ export class NetworkLogView extends UI.Widget.VBox {
     this._summaryToolbar = new UI.Toolbar.Toolbar('network-summary-bar', this.element);
 
     new UI.DropTarget.DropTarget(
-        this.element, [UI.DropTarget.Type.File], Common.UIString.UIString('Drop HAR files here'),
-        this._handleDrop.bind(this));
+        this.element, [UI.DropTarget.Type.File], i18nString(UIStrings.dropHarFilesHere), this._handleDrop.bind(this));
 
     Common.Settings.Settings.instance()
         .moduleSetting('networkColorCodeResourceTypes')
         .addChangeListener(this._invalidateAllItems.bind(this, false), this);
 
     SDK.SDKModel.TargetManager.instance().observeModels(SDK.NetworkManager.NetworkManager, this);
-    self.SDK.networkLog.addEventListener(SDK.NetworkLog.Events.RequestAdded, this._onRequestUpdated, this);
-    self.SDK.networkLog.addEventListener(SDK.NetworkLog.Events.RequestUpdated, this._onRequestUpdated, this);
-    self.SDK.networkLog.addEventListener(SDK.NetworkLog.Events.Reset, this._reset, this);
+    SDK.NetworkLog.NetworkLog.instance().addEventListener(
+        SDK.NetworkLog.Events.RequestAdded, this._onRequestUpdated, this);
+    SDK.NetworkLog.NetworkLog.instance().addEventListener(
+        SDK.NetworkLog.Events.RequestUpdated, this._onRequestUpdated, this);
+    SDK.NetworkLog.NetworkLog.instance().addEventListener(SDK.NetworkLog.Events.Reset, this._reset, this);
 
     this._updateGroupByFrame();
     Common.Settings.Settings.instance()
@@ -201,6 +475,11 @@ export class NetworkLogView extends UI.Widget.VBox {
         .addChangeListener(() => this._updateGroupByFrame());
 
     this._filterBar = filterBar;
+
+    this._textFilterSetting = Common.Settings.Settings.instance().createSetting('networkTextFilter', '');
+    if (this._textFilterSetting.get()) {
+      this._textFilterUI.setValue(this._textFilterSetting.get());
+    }
   }
 
   _updateGroupByFrame() {
@@ -268,14 +547,7 @@ export class NetworkLogView extends UI.Widget.VBox {
    * @return {!Filter}
    */
   static _createRequestDomainFilter(value) {
-    /**
-     * @param {string} string
-     * @return {string}
-     */
-    function escapeForRegExp(string) {
-      return string.escapeForRegExp();
-    }
-    const escapedPattern = value.split('*').map(escapeForRegExp).join('.*');
+    const escapedPattern = value.split('*').map(Platform.StringUtilities.escapeForRegExp).join('.*');
     return NetworkLogView._requestDomainFilter.bind(null, new RegExp('^' + escapedPattern + '$', 'i'));
   }
 
@@ -465,7 +737,7 @@ export class NetworkLogView extends UI.Widget.VBox {
    * @return {boolean}
    */
   static _statusCodeFilter(value, request) {
-    return ('' + request.statusCode) === value;
+    return (String(request.statusCode)) === value;
   }
 
   /**
@@ -474,6 +746,26 @@ export class NetworkLogView extends UI.Widget.VBox {
    */
   static HTTPRequestsFilter(request) {
     return request.parsedURL.isValid && (request.scheme in HTTPSchemas);
+  }
+
+
+  /**
+   * @param {string} value
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
+   * @return {boolean}
+   */
+  static _resourceTypeFilter(value, request) {
+    return request.resourceType().name() === value;
+  }
+
+  /**
+   * @param {string} value
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
+   * @return {boolean}
+   */
+  static _requestUrlFilter(value, request) {
+    const regex = new RegExp(Platform.StringUtilities.escapeForRegExp(value), 'i');
+    return regex.test(request.url());
   }
 
   /**
@@ -511,10 +803,11 @@ export class NetworkLogView extends UI.Widget.VBox {
    */
   static async _copyResponse(request) {
     const contentData = await request.contentData();
+    /** @type {?string} */
     let content = contentData.content || '';
     if (!request.contentType().isTextType()) {
       content = TextUtils.ContentProvider.contentAsDataURL(content, request.mimeType, contentData.encoded);
-    } else if (contentData.encoded) {
+    } else if (contentData.encoded && content) {
       content = window.atob(content);
     }
     Host.InspectorFrontendHost.InspectorFrontendHostInstance.copyText(content);
@@ -545,7 +838,10 @@ export class NetworkLogView extends UI.Widget.VBox {
     const reader = new Bindings.FileUtils.ChunkedFileReader(file, /* chunkSize */ 10000000);
     const success = await reader.read(outputStream);
     if (!success) {
-      this._harLoadFailed(reader.error().message);
+      const error = reader.error();
+      if (error) {
+        this._harLoadFailed(/** @type {*} */ (error).message);
+      }
       return;
     }
     let harRoot;
@@ -556,7 +852,8 @@ export class NetworkLogView extends UI.Widget.VBox {
       this._harLoadFailed(e);
       return;
     }
-    self.SDK.networkLog.importRequests(HARImporter.HARImporter.Importer.requestsFromHARLog(harRoot.log));
+    SDK.NetworkLog.NetworkLog.instance().importRequests(
+        HARImporter.HARImporter.Importer.requestsFromHARLog(harRoot.log));
   }
 
   /**
@@ -591,7 +888,7 @@ export class NetworkLogView extends UI.Widget.VBox {
    * @return {?NetworkRequestNode}
    */
   nodeForRequest(request) {
-    return request[_networkNodeSymbol] || null;
+    return networkRequestToNode.get(request) || null;
   }
 
   /**
@@ -645,6 +942,14 @@ export class NetworkLogView extends UI.Widget.VBox {
 
   /**
    * @override
+   * @return {!Components.Linkifier.Linkifier}
+   */
+  linkifier() {
+    return this._linkifier;
+  }
+
+  /**
+   * @override
    * @param {number} start
    * @param {number} end
    */
@@ -683,6 +988,7 @@ export class NetworkLogView extends UI.Widget.VBox {
     this.removeAllNodeHighlights();
     this._parseFilterQuery(this._textFilterUI.value());
     this._filterRequests();
+    this._textFilterSetting.set(this._textFilterUI.value());
   }
 
   async resetFilter() {
@@ -694,38 +1000,35 @@ export class NetworkLogView extends UI.Widget.VBox {
     this._recordingHint = this.element.createChild('div', 'network-status-pane fill');
     const hintText = this._recordingHint.createChild('div', 'recording-hint');
 
-    let reloadShortcutNode = null;
-    const reloadShortcutDescriptor = self.UI.shortcutRegistry.shortcutDescriptorsForAction('inspector_main.reload')[0];
-    if (reloadShortcutDescriptor) {
-      reloadShortcutNode = this._recordingHint.createChild('b');
-      reloadShortcutNode.textContent = reloadShortcutDescriptor.name;
-    }
-
     if (this._recording) {
+      let reloadShortcutNode = null;
+      const reloadShortcut =
+          UI.ShortcutRegistry.ShortcutRegistry.instance().shortcutsForAction('inspector_main.reload')[0];
+      if (reloadShortcut) {
+        reloadShortcutNode = this._recordingHint.createChild('b');
+        reloadShortcutNode.textContent = reloadShortcut.title();
+      }
+
       const recordingText = hintText.createChild('span');
-      recordingText.textContent = Common.UIString.UIString('Recording network activity…');
+      recordingText.textContent = i18nString(UIStrings.recordingNetworkActivity);
       if (reloadShortcutNode) {
         hintText.createChild('br');
-        hintText.appendChild(
-            UI.UIUtils.formatLocalized('Perform a request or hit %s to record the reload.', [reloadShortcutNode]));
+        hintText.appendChild(i18n.i18n.getFormatLocalizedString(
+            str_, UIStrings.performARequestOrHitSToRecordThe, {PH1: reloadShortcutNode}));
       }
     } else {
       const recordNode = hintText.createChild('b');
-      recordNode.textContent = self.UI.shortcutRegistry.shortcutTitleForAction('network.toggle-recording');
-      if (reloadShortcutNode) {
-        hintText.appendChild(UI.UIUtils.formatLocalized(
-            'Record (%s) or reload (%s) to display network activity.', [recordNode, reloadShortcutNode]));
-      } else {
-        hintText.appendChild(UI.UIUtils.formatLocalized('Record (%s) to display network activity.', [recordNode]));
-      }
+      recordNode.textContent =
+          UI.ShortcutRegistry.ShortcutRegistry.instance().shortcutTitleForAction('network.toggle-recording') || '';
+      hintText.appendChild(
+          i18n.i18n.getFormatLocalizedString(str_, UIStrings.recordSToDisplayNetworkActivity, {PH1: recordNode}));
     }
     hintText.createChild('br');
     hintText.appendChild(UI.XLink.XLink.create(
         'https://developers.google.com/web/tools/chrome-devtools/network/?utm_source=devtools&utm_campaign=2019Q1',
-        'Learn more'));
+        i18nString(UIStrings.learnMore)));
 
     this._setHidden(true);
-    this._dataGrid.updateGridAccessibleName('');
   }
 
   _hideRecordingHint() {
@@ -733,7 +1036,7 @@ export class NetworkLogView extends UI.Widget.VBox {
     if (this._recordingHint) {
       this._recordingHint.remove();
     }
-    this._dataGrid.updateGridAccessibleName(ls`Network Data Available`);
+    UI.ARIAUtils.alert(i18nString(UIStrings.networkDataAvailable), this._summaryToolbar.element);
     this._recordingHint = null;
   }
 
@@ -764,7 +1067,7 @@ export class NetworkLogView extends UI.Widget.VBox {
 
   _setupDataGrid() {
     this._dataGrid.setRowContextMenuCallback((contextMenu, node) => {
-      const request = node.request();
+      const request = (/** @type {!NetworkNode} */ (node)).request();
       if (request) {
         this.handleContextMenuForRequest(contextMenu, request);
       }
@@ -778,7 +1081,7 @@ export class NetworkLogView extends UI.Widget.VBox {
     this._dataGrid.element.addEventListener('mouseleave', () => this._setHoveredNode(null), true);
     this._dataGrid.element.addEventListener('keydown', event => {
       if (isEnterOrSpaceKey(event)) {
-        this.dispatchEventToListeners(Events.RequestActivated, {showPanel: true});
+        this.dispatchEventToListeners(Events.RequestActivated, {showPanel: true, takeFocus: true});
         event.consume(true);
       }
     });
@@ -791,8 +1094,10 @@ export class NetworkLogView extends UI.Widget.VBox {
    * @param {!Event} event
    */
   _dataGridMouseMove(event) {
-    const node = (this._dataGrid.dataGridNodeFromNode(/** @type {!Node} */ (event.target)));
-    const highlightInitiatorChain = event.shiftKey;
+    const mouseEvent = /** @type {!MouseEvent} */ (event);
+    const node =
+        /** @type {!NetworkNode} */ (this._dataGrid.dataGridNodeFromNode(/** @type {!Node} */ (mouseEvent.target)));
+    const highlightInitiatorChain = mouseEvent.shiftKey;
     this._setHoveredNode(node, highlightInitiatorChain);
   }
 
@@ -814,7 +1119,7 @@ export class NetworkLogView extends UI.Widget.VBox {
     }
     this._hoveredNode = node;
     if (this._hoveredNode) {
-      this._hoveredNode.setHovered(true, !!highlightInitiatorChain);
+      this._hoveredNode.setHovered(true, Boolean(highlightInitiatorChain));
     }
   }
 
@@ -822,8 +1127,9 @@ export class NetworkLogView extends UI.Widget.VBox {
    * @param {!Event} event
    */
   _dataGridMouseDown(event) {
-    if (!this._dataGrid.selectedNode && event.button) {
-      event.consume();
+    const mouseEvent = /** @type {!MouseEvent} */ (event);
+    if (!this._dataGrid.selectedNode && mouseEvent.button) {
+      mouseEvent.consume();
     }
   }
 
@@ -839,8 +1145,8 @@ export class NetworkLogView extends UI.Widget.VBox {
     let maxTime = -1;
 
     let nodeCount = 0;
-    for (const request of self.SDK.networkLog.requests()) {
-      const node = request[_networkNodeSymbol];
+    for (const request of SDK.NetworkLog.NetworkLog.instance().requests()) {
+      const node = networkRequestToNode.get(request);
       if (!node) {
         continue;
       }
@@ -849,7 +1155,7 @@ export class NetworkLogView extends UI.Widget.VBox {
       transferSize += requestTransferSize;
       const requestResourceSize = request.resourceSize;
       resourceSize += requestResourceSize;
-      if (!node[isFilteredOutSymbol]) {
+      if (!filteredNetworkRequests.has(node)) {
         selectedNodeNumber++;
         selectedTransferSize += requestTransferSize;
         selectedResourceSize += requestResourceSize;
@@ -876,47 +1182,57 @@ export class NetworkLogView extends UI.Widget.VBox {
     /**
      * @param {string} chunk
      * @param {string=} title
-     * @return {!Element}
+     * @return {!HTMLDivElement}
      */
     const appendChunk = (chunk, title) => {
       const toolbarText = new UI.Toolbar.ToolbarText(chunk);
       toolbarText.setTitle(title ? title : chunk);
       this._summaryToolbar.appendToolbarItem(toolbarText);
-      return toolbarText.element;
+      return /** @type {!HTMLDivElement} */ (toolbarText.element);
     };
 
     if (selectedNodeNumber !== nodeCount) {
-      appendChunk(ls`${selectedNodeNumber} / ${nodeCount} requests`);
+      appendChunk(i18nString(UIStrings.sSRequests, {PH1: selectedNodeNumber, PH2: nodeCount}));
       this._summaryToolbar.appendSeparator();
       appendChunk(
-          ls`${Number.bytesToString(selectedTransferSize)} / ${Number.bytesToString(transferSize)} transferred`,
-          ls`${selectedTransferSize} B / ${transferSize} B transferred over network`);
+          i18nString(UIStrings.sSTransferred, {
+            PH1: Platform.NumberUtilities.bytesToString(selectedTransferSize),
+            PH2: Platform.NumberUtilities.bytesToString(transferSize)
+          }),
+          i18nString(UIStrings.sBSBTransferredOverNetwork, {PH1: selectedTransferSize, PH2: transferSize}));
       this._summaryToolbar.appendSeparator();
       appendChunk(
-          ls`${Number.bytesToString(selectedResourceSize)} / ${Number.bytesToString(resourceSize)} resources`,
-          ls`${selectedResourceSize} B / ${resourceSize} B resources loaded by the page`);
+          i18nString(UIStrings.sSResources, {
+            PH1: Platform.NumberUtilities.bytesToString(selectedResourceSize),
+            PH2: Platform.NumberUtilities.bytesToString(resourceSize)
+          }),
+          i18nString(UIStrings.sBSBResourcesLoadedByThePage, {PH1: selectedResourceSize, PH2: resourceSize}));
     } else {
-      appendChunk(ls`${nodeCount} requests`);
+      appendChunk(i18nString(UIStrings.sRequests, {PH1: nodeCount}));
       this._summaryToolbar.appendSeparator();
       appendChunk(
-          ls`${Number.bytesToString(transferSize)} transferred`, ls`${transferSize} B transferred over network`);
+          i18nString(UIStrings.sTransferred, {PH1: Platform.NumberUtilities.bytesToString(transferSize)}),
+          i18nString(UIStrings.sBTransferredOverNetwork, {PH1: transferSize}));
       this._summaryToolbar.appendSeparator();
       appendChunk(
-          ls`${Number.bytesToString(resourceSize)} resources`, ls`${resourceSize} B resources loaded by the page`);
+          i18nString(UIStrings.sResources, {PH1: Platform.NumberUtilities.bytesToString(resourceSize)}),
+          i18nString(UIStrings.sBResourcesLoadedByThePage, {PH1: resourceSize}));
     }
 
     if (baseTime !== -1 && maxTime !== -1) {
       this._summaryToolbar.appendSeparator();
-      appendChunk(ls`Finish: ${Number.secondsToString(maxTime - baseTime)}`);
+      appendChunk(i18nString(UIStrings.finishS, {PH1: Number.secondsToString(maxTime - baseTime)}));
       if (this._mainRequestDOMContentLoadedTime !== -1 && this._mainRequestDOMContentLoadedTime > baseTime) {
         this._summaryToolbar.appendSeparator();
-        const domContentLoadedText =
-            ls`DOMContentLoaded: ${Number.secondsToString(this._mainRequestDOMContentLoadedTime - baseTime)}`;
+        const domContentLoadedText = i18nString(
+            UIStrings.domcontentloadedS,
+            {PH1: Number.secondsToString(this._mainRequestDOMContentLoadedTime - baseTime)});
         appendChunk(domContentLoadedText).style.color = NetworkLogView.getDCLEventColor();
       }
       if (this._mainRequestLoadTime !== -1) {
         this._summaryToolbar.appendSeparator();
-        const loadText = ls`Load: ${Number.secondsToString(this._mainRequestLoadTime - baseTime)}`;
+        const loadText =
+            i18nString(UIStrings.loadS, {PH1: Number.secondsToString(this._mainRequestLoadTime - baseTime)});
         appendChunk(loadText).style.color = NetworkLogView.getLoadEventColor();
       }
     }
@@ -966,7 +1282,7 @@ export class NetworkLogView extends UI.Widget.VBox {
    * @param {boolean=} deferUpdate
    */
   _invalidateAllItems(deferUpdate) {
-    this._staleRequests = new Set(self.SDK.networkLog.requests());
+    this._staleRequests = new Set(SDK.NetworkLog.NetworkLog.instance().requests());
     if (deferUpdate) {
       this.scheduleRefresh();
     } else {
@@ -1070,11 +1386,15 @@ export class NetworkLogView extends UI.Widget.VBox {
    * @return {!Array<!NetworkNode>}
    */
   flatNodesList() {
-    return this._dataGrid.rootNode().flatChildren();
+    /** @type {!DataGrid.ViewportDataGrid.ViewportDataGridNode<!DataGrid.SortableDataGrid.SortableDataGridNode<!NetworkNode>>} */
+    const rootNode = (this._dataGrid.rootNode());
+    return /** @type {!Array<!NetworkNode>} */ (rootNode.flatChildren());
   }
 
   _onDataGridFocus() {
-    this.element.classList.add('grid-focused');
+    if (this._dataGrid.element.matches(':focus-visible')) {
+      this.element.classList.add('grid-focused');
+    }
     this.updateNodeBackground();
   }
 
@@ -1086,7 +1406,7 @@ export class NetworkLogView extends UI.Widget.VBox {
   /** @override */
   updateNodeBackground() {
     if (this._dataGrid.selectedNode) {
-      this._dataGrid.selectedNode.updateBackgroundColor();
+      (/** @type {!NetworkNode} */ (this._dataGrid.selectedNode)).updateBackgroundColor();
     }
   }
 
@@ -1122,7 +1442,7 @@ export class NetworkLogView extends UI.Widget.VBox {
     this._timeCalculator.updateBoundariesForEventTime(this._mainRequestDOMContentLoadedTime);
     this._durationCalculator.updateBoundariesForEventTime(this._mainRequestDOMContentLoadedTime);
 
-    /** @type {!Map<!NetworkNode, !Network.NetworkNode>} */
+    /** @type {!Map<!NetworkNode, !NetworkNode>} */
     const nodesToInsert = new Map();
     /** @type {!Array<!NetworkNode>} */
     const nodesToRefresh = [];
@@ -1133,9 +1453,9 @@ export class NetworkLogView extends UI.Widget.VBox {
     // While creating nodes it may add more entries into _staleRequests because redirect request nodes update the parent
     // node so we loop until we have no more stale requests.
     while (this._staleRequests.size) {
-      const request = this._staleRequests.firstValue();
+      const request = this._staleRequests.values().next().value;
       this._staleRequests.delete(request);
-      let node = request[_networkNodeSymbol];
+      let node = networkRequestToNode.get(request);
       if (!node) {
         node = this._createNodeForRequest(request);
       }
@@ -1155,16 +1475,24 @@ export class NetworkLogView extends UI.Widget.VBox {
       this._timeCalculator.updateBoundaries(request);
       this._durationCalculator.updateBoundaries(request);
       const newParent = this._parentNodeForInsert(node);
-      if (node[isFilteredOutSymbol] === isFilteredOut && node.parent === newParent) {
+      const wasAlreadyFiltered = filteredNetworkRequests.has(node);
+      if (wasAlreadyFiltered === isFilteredOut && node.parent === newParent) {
         continue;
       }
-      node[isFilteredOutSymbol] = isFilteredOut;
+      if (isFilteredOut) {
+        filteredNetworkRequests.add(node);
+      } else {
+        filteredNetworkRequests.delete(node);
+      }
       const removeFromParent = node.parent && (isFilteredOut || node.parent !== newParent);
       if (removeFromParent) {
         let parent = node.parent;
+        if (!parent) {
+          continue;
+        }
         parent.removeChild(node);
         while (parent && !parent.hasChildren() && parent.dataGrid && parent.dataGrid.rootNode() !== parent) {
-          const grandparent = parent.parent;
+          const grandparent = /** @type {!NetworkNode} */ (parent.parent);
           grandparent.removeChild(parent);
           parent = grandparent;
         }
@@ -1175,14 +1503,14 @@ export class NetworkLogView extends UI.Widget.VBox {
       }
 
       if (!newParent.dataGrid && !nodesToInsert.has(newParent)) {
-        nodesToInsert.set(newParent, this._dataGrid.rootNode());
+        nodesToInsert.set(newParent, /** @type {!NetworkNode} */ (this._dataGrid.rootNode()));
         nodesToRefresh.push(newParent);
       }
       nodesToInsert.set(node, newParent);
     }
 
     for (const node of nodesToInsert.keys()) {
-      nodesToInsert.get(node).appendChild(node);
+      /** @type {!NetworkNode} */ (nodesToInsert.get(node)).appendChild(node);
     }
 
     for (const node of nodesToRefresh) {
@@ -1208,12 +1536,12 @@ export class NetworkLogView extends UI.Widget.VBox {
    */
   _parentNodeForInsert(node) {
     if (!this._activeGroupLookup) {
-      return this._dataGrid.rootNode();
+      return /** @type {!NetworkNode} */ (this._dataGrid.rootNode());
     }
 
     const groupNode = this._activeGroupLookup.groupNodeForRequest(node.request());
     if (!groupNode) {
-      return this._dataGrid.rootNode();
+      return /** @type {!NetworkNode} */ (this._dataGrid.rootNode());
     }
     return groupNode;
   }
@@ -1228,7 +1556,7 @@ export class NetworkLogView extends UI.Widget.VBox {
     this._calculator.reset();
 
     this._timeCalculator.setWindow(null);
-    this.linkifier.reset();
+    this._linkifier.reset();
 
     if (this._activeGroupLookup) {
       this._activeGroupLookup.reset();
@@ -1262,8 +1590,8 @@ export class NetworkLogView extends UI.Widget.VBox {
    */
   _createNodeForRequest(request) {
     const node = new NetworkRequestNode(this, request);
-    request[_networkNodeSymbol] = node;
-    node[isFilteredOutSymbol] = true;
+    networkRequestToNode.set(request, node);
+    filteredNetworkRequests.add(node);
 
     for (let redirect = request.redirectSource(); redirect; redirect = redirect.redirectSource()) {
       this._refreshRequest(redirect);
@@ -1287,8 +1615,10 @@ export class NetworkLogView extends UI.Widget.VBox {
         .forEach(this._suggestionBuilder.addItem.bind(this._suggestionBuilder, FilterType.Domain));
     this._suggestionBuilder.addItem(FilterType.Method, request.requestMethod);
     this._suggestionBuilder.addItem(FilterType.MimeType, request.mimeType);
-    this._suggestionBuilder.addItem(FilterType.Scheme, '' + request.scheme);
-    this._suggestionBuilder.addItem(FilterType.StatusCode, '' + request.statusCode);
+    this._suggestionBuilder.addItem(FilterType.Scheme, String(request.scheme));
+    this._suggestionBuilder.addItem(FilterType.StatusCode, String(request.statusCode));
+    this._suggestionBuilder.addItem(FilterType.ResourceType, request.resourceType().name());
+    this._suggestionBuilder.addItem(FilterType.Url, request.securityOrigin());
 
     const priority = request.priority();
     if (priority) {
@@ -1355,7 +1685,7 @@ export class NetworkLogView extends UI.Widget.VBox {
    */
   handleContextMenuForRequest(contextMenu, request) {
     contextMenu.appendApplicableItems(request);
-    let copyMenu = contextMenu.clipboardSection().appendSubMenuItem(Common.UIString.UIString('Copy'));
+    let copyMenu = contextMenu.clipboardSection().appendSubMenuItem(i18nString(UIStrings.copy));
     const footerSection = copyMenu.footerSection();
     if (request) {
       copyMenu.defaultSection().appendItem(
@@ -1364,75 +1694,78 @@ export class NetworkLogView extends UI.Widget.VBox {
               Host.InspectorFrontendHost.InspectorFrontendHostInstance, request.contentURL()));
       if (request.requestHeadersText()) {
         copyMenu.defaultSection().appendItem(
-            Common.UIString.UIString('Copy request headers'), NetworkLogView._copyRequestHeaders.bind(null, request));
+            i18nString(UIStrings.copyRequestHeaders), NetworkLogView._copyRequestHeaders.bind(null, request));
       }
 
       if (request.responseHeadersText) {
         copyMenu.defaultSection().appendItem(
-            Common.UIString.UIString('Copy response headers'), NetworkLogView._copyResponseHeaders.bind(null, request));
+            i18nString(UIStrings.copyResponseHeaders), NetworkLogView._copyResponseHeaders.bind(null, request));
       }
 
       if (request.finished) {
         copyMenu.defaultSection().appendItem(
-            Common.UIString.UIString('Copy response'), NetworkLogView._copyResponse.bind(null, request));
+            i18nString(UIStrings.copyResponse), NetworkLogView._copyResponse.bind(null, request));
+      }
+
+      const initiator = request.initiator();
+
+      if (initiator) {
+        const stack = initiator.stack;
+        if (stack) {
+          // We proactively compute the stacktrace text, as we can't determine whether the stacktrace
+          // has any context solely based on the top frame. Sometimes, the top frame does not have
+          // any callFrames, but its parent frames do.
+          const stackTraceText = computeStackTraceText(stack);
+          if (stackTraceText !== '') {
+            copyMenu.defaultSection().appendItem(i18nString(UIStrings.copyStacktrace), () => {
+              Host.InspectorFrontendHost.InspectorFrontendHostInstance.copyText(stackTraceText);
+            });
+          }
+        }
       }
 
       const disableIfBlob = request.isBlobRequest();
       if (Host.Platform.isWin()) {
         footerSection.appendItem(
-            Common.UIString.UIString('Copy as PowerShell'), this._copyPowerShellCommand.bind(this, request),
-            disableIfBlob);
+            i18nString(UIStrings.copyAsPowershell), this._copyPowerShellCommand.bind(this, request), disableIfBlob);
         footerSection.appendItem(
-            Common.UIString.UIString('Copy as fetch'), this._copyFetchCall.bind(this, request, false), disableIfBlob);
+            i18nString(UIStrings.copyAsFetch), this._copyFetchCall.bind(this, request, false), disableIfBlob);
         footerSection.appendItem(
-            Common.UIString.UIString('Copy as Node.js fetch'), this._copyFetchCall.bind(this, request, true),
-            disableIfBlob);
+            i18nString(UIStrings.copyAsNodejsFetch), this._copyFetchCall.bind(this, request, true), disableIfBlob);
         footerSection.appendItem(
-            Common.UIString.UIString('Copy as cURL (cmd)'), this._copyCurlCommand.bind(this, request, 'win'),
-            disableIfBlob);
+            i18nString(UIStrings.copyAsCurlCmd), this._copyCurlCommand.bind(this, request, 'win'), disableIfBlob);
         footerSection.appendItem(
-            Common.UIString.UIString('Copy as cURL (bash)'), this._copyCurlCommand.bind(this, request, 'unix'),
-            disableIfBlob);
-        footerSection.appendItem(
-            Common.UIString.UIString('Copy all as PowerShell'), this._copyAllPowerShellCommand.bind(this));
-        footerSection.appendItem(
-            Common.UIString.UIString('Copy all as fetch'), this._copyAllFetchCall.bind(this, false));
-        footerSection.appendItem(
-            Common.UIString.UIString('Copy all as Node.js fetch'), this._copyAllFetchCall.bind(this, true));
-        footerSection.appendItem(
-            Common.UIString.UIString('Copy all as cURL (cmd)'), this._copyAllCurlCommand.bind(this, 'win'));
-        footerSection.appendItem(
-            Common.UIString.UIString('Copy all as cURL (bash)'), this._copyAllCurlCommand.bind(this, 'unix'));
+            i18nString(UIStrings.copyAsCurlBash), this._copyCurlCommand.bind(this, request, 'unix'), disableIfBlob);
+        footerSection.appendItem(i18nString(UIStrings.copyAllAsPowershell), this._copyAllPowerShellCommand.bind(this));
+        footerSection.appendItem(i18nString(UIStrings.copyAllAsFetch), this._copyAllFetchCall.bind(this, false));
+        footerSection.appendItem(i18nString(UIStrings.copyAllAsNodejsFetch), this._copyAllFetchCall.bind(this, true));
+        footerSection.appendItem(i18nString(UIStrings.copyAllAsCurlCmd), this._copyAllCurlCommand.bind(this, 'win'));
+        footerSection.appendItem(i18nString(UIStrings.copyAllAsCurlBash), this._copyAllCurlCommand.bind(this, 'unix'));
       } else {
         footerSection.appendItem(
-            Common.UIString.UIString('Copy as fetch'), this._copyFetchCall.bind(this, request, false), disableIfBlob);
+            i18nString(UIStrings.copyAsFetch), this._copyFetchCall.bind(this, request, false), disableIfBlob);
         footerSection.appendItem(
-            Common.UIString.UIString('Copy as Node.js fetch'), this._copyFetchCall.bind(this, request, true),
-            disableIfBlob);
+            i18nString(UIStrings.copyAsNodejsFetch), this._copyFetchCall.bind(this, request, true), disableIfBlob);
         footerSection.appendItem(
-            Common.UIString.UIString('Copy as cURL'), this._copyCurlCommand.bind(this, request, 'unix'), disableIfBlob);
-        footerSection.appendItem(
-            Common.UIString.UIString('Copy all as fetch'), this._copyAllFetchCall.bind(this, false));
-        footerSection.appendItem(
-            Common.UIString.UIString('Copy all as Node.js fetch'), this._copyAllFetchCall.bind(this, true));
-        footerSection.appendItem(
-            Common.UIString.UIString('Copy all as cURL'), this._copyAllCurlCommand.bind(this, 'unix'));
+            i18nString(UIStrings.copyAsCurl), this._copyCurlCommand.bind(this, request, 'unix'), disableIfBlob);
+        footerSection.appendItem(i18nString(UIStrings.copyAllAsFetch), this._copyAllFetchCall.bind(this, false));
+        footerSection.appendItem(i18nString(UIStrings.copyAllAsNodejsFetch), this._copyAllFetchCall.bind(this, true));
+        footerSection.appendItem(i18nString(UIStrings.copyAllAsCurl), this._copyAllCurlCommand.bind(this, 'unix'));
       }
     } else {
-      copyMenu = contextMenu.clipboardSection().appendSubMenuItem(Common.UIString.UIString('Copy'));
+      copyMenu = contextMenu.clipboardSection().appendSubMenuItem(i18nString(UIStrings.copy));
     }
-    footerSection.appendItem(Common.UIString.UIString('Copy all as HAR'), this._copyAll.bind(this));
+    footerSection.appendItem(i18nString(UIStrings.copyAllAsHar), this._copyAll.bind(this));
 
-    contextMenu.saveSection().appendItem(ls`Save all as HAR with content`, this.exportAll.bind(this));
+    contextMenu.saveSection().appendItem(i18nString(UIStrings.saveAllAsHarWithContent), this.exportAll.bind(this));
 
+    contextMenu.editSection().appendItem(i18nString(UIStrings.clearBrowserCache), this._clearBrowserCache.bind(this));
     contextMenu.editSection().appendItem(
-        Common.UIString.UIString('Clear browser cache'), this._clearBrowserCache.bind(this));
-    contextMenu.editSection().appendItem(
-        Common.UIString.UIString('Clear browser cookies'), this._clearBrowserCookies.bind(this));
+        i18nString(UIStrings.clearBrowserCookies), this._clearBrowserCookies.bind(this));
 
     if (request) {
       const maxBlockedURLLength = 20;
-      const manager = self.SDK.multitargetNetworkManager;
+      const manager = SDK.NetworkManager.MultitargetNetworkManager.instance();
       let patterns = manager.blockedPatterns();
 
       /**
@@ -1457,33 +1790,32 @@ export class NetworkLogView extends UI.Widget.VBox {
       const urlWithoutScheme = request.parsedURL.urlWithoutScheme();
       if (urlWithoutScheme && !patterns.find(pattern => pattern.url === urlWithoutScheme)) {
         contextMenu.debugSection().appendItem(
-            Common.UIString.UIString('Block request URL'), addBlockedURL.bind(null, urlWithoutScheme));
+            i18nString(UIStrings.blockRequestUrl), addBlockedURL.bind(null, urlWithoutScheme));
       } else if (urlWithoutScheme) {
-        const croppedURL = urlWithoutScheme.trimMiddle(maxBlockedURLLength);
+        const croppedURL = Platform.StringUtilities.trimMiddle(urlWithoutScheme, maxBlockedURLLength);
         contextMenu.debugSection().appendItem(
-            Common.UIString.UIString('Unblock %s', croppedURL), removeBlockedURL.bind(null, urlWithoutScheme));
+            i18nString(UIStrings.unblockS, {PH1: croppedURL}), removeBlockedURL.bind(null, urlWithoutScheme));
       }
 
       const domain = request.parsedURL.domain();
       if (domain && !patterns.find(pattern => pattern.url === domain)) {
         contextMenu.debugSection().appendItem(
-            Common.UIString.UIString('Block request domain'), addBlockedURL.bind(null, domain));
+            i18nString(UIStrings.blockRequestDomain), addBlockedURL.bind(null, domain));
       } else if (domain) {
-        const croppedDomain = domain.trimMiddle(maxBlockedURLLength);
+        const croppedDomain = Platform.StringUtilities.trimMiddle(domain, maxBlockedURLLength);
         contextMenu.debugSection().appendItem(
-            Common.UIString.UIString('Unblock %s', croppedDomain), removeBlockedURL.bind(null, domain));
+            i18nString(UIStrings.unblockS, {PH1: croppedDomain}), removeBlockedURL.bind(null, domain));
       }
 
       if (SDK.NetworkManager.NetworkManager.canReplayRequest(request)) {
         contextMenu.debugSection().appendItem(
-            Common.UIString.UIString('Replay XHR'),
-            SDK.NetworkManager.NetworkManager.replayRequest.bind(null, request));
+            i18nString(UIStrings.replayXhr), SDK.NetworkManager.NetworkManager.replayRequest.bind(null, request));
       }
     }
   }
 
   _harRequests() {
-    return self.SDK.networkLog.requests().filter(NetworkLogView.HTTPRequestsFilter).filter(request => {
+    return SDK.NetworkLog.NetworkLog.instance().requests().filter(NetworkLogView.HTTPRequestsFilter).filter(request => {
       return request.finished ||
           (request.resourceType() === Common.ResourceType.resourceTypes.WebSocket && request.responseReceivedTime);
     });
@@ -1507,7 +1839,7 @@ export class NetworkLogView extends UI.Widget.VBox {
    * @param {string} platform
    */
   async _copyAllCurlCommand(platform) {
-    const commands = await this._generateAllCurlCommand(self.SDK.networkLog.requests(), platform);
+    const commands = await this._generateAllCurlCommand(SDK.NetworkLog.NetworkLog.instance().requests(), platform);
     Host.InspectorFrontendHost.InspectorFrontendHostInstance.copyText(commands);
   }
 
@@ -1524,7 +1856,7 @@ export class NetworkLogView extends UI.Widget.VBox {
    * @param {boolean} includeCookies
    */
   async _copyAllFetchCall(includeCookies) {
-    const commands = await this._generateAllFetchCall(self.SDK.networkLog.requests(), includeCookies);
+    const commands = await this._generateAllFetchCall(SDK.NetworkLog.NetworkLog.instance().requests(), includeCookies);
     Host.InspectorFrontendHost.InspectorFrontendHostInstance.copyText(commands);
   }
 
@@ -1537,16 +1869,20 @@ export class NetworkLogView extends UI.Widget.VBox {
   }
 
   async _copyAllPowerShellCommand() {
-    const commands = await this._generateAllPowerShellCommand(self.SDK.networkLog.requests());
+    const commands = await this._generateAllPowerShellCommand(SDK.NetworkLog.NetworkLog.instance().requests());
     Host.InspectorFrontendHost.InspectorFrontendHostInstance.copyText(commands);
   }
 
   /**
    * @override
-   * @return {!Promise}
+   * @return {!Promise<void>}
    */
   async exportAll() {
-    const url = SDK.SDKModel.TargetManager.instance().mainTarget().inspectedURL();
+    const mainTarget = SDK.SDKModel.TargetManager.instance().mainTarget();
+    if (!mainTarget) {
+      return;
+    }
+    const url = mainTarget.inspectedURL();
     const parsedURL = Common.ParsedURL.ParsedURL.fromString(url);
     const filename = parsedURL ? parsedURL.host : 'network-log';
     const stream = new Bindings.FileUtils.FileOutputStream();
@@ -1563,14 +1899,14 @@ export class NetworkLogView extends UI.Widget.VBox {
   }
 
   _clearBrowserCache() {
-    if (confirm(Common.UIString.UIString('Are you sure you want to clear browser cache?'))) {
-      self.SDK.multitargetNetworkManager.clearBrowserCache();
+    if (confirm(i18nString(UIStrings.areYouSureYouWantToClearBrowser))) {
+      SDK.NetworkManager.MultitargetNetworkManager.instance().clearBrowserCache();
     }
   }
 
   _clearBrowserCookies() {
-    if (confirm(Common.UIString.UIString('Are you sure you want to clear browser cookies?'))) {
-      self.SDK.multitargetNetworkManager.clearBrowserCookies();
+    if (confirm(i18nString(UIStrings.areYouSureYouWantToClearBrowserCookies))) {
+      SDK.NetworkManager.MultitargetNetworkManager.instance().clearBrowserCookies();
     }
   }
 
@@ -1591,17 +1927,18 @@ export class NetworkLogView extends UI.Widget.VBox {
     if (this._timeFilter && !this._timeFilter(request)) {
       return false;
     }
-    const categoryName = request.resourceType().category().title;
+    const categoryName = request.resourceType().category().title();
     if (!this._resourceCategoryFilterUI.accept(categoryName)) {
       return false;
     }
     if (this._dataURLFilterUI.checked() && (request.parsedURL.isDataURL() || request.parsedURL.isBlobURL())) {
       return false;
     }
-    if (this._onlyIssuesFilterUI.checked() && !SDK.RelatedIssue.hasIssues(request)) {
+    if (this._onlyIssuesFilterUI.checked() &&
+        !BrowserSDK.RelatedIssue.hasIssueOfCategory(request, SDK.Issue.IssueCategory.SameSiteCookie)) {
       return false;
     }
-    if (this._onlyBlockedRequestsUI.checked() && !request.wasBlocked()) {
+    if (this._onlyBlockedRequestsUI.checked() && !request.wasBlocked() && !request.corsErrorStatus()) {
       return false;
     }
     if (request.statusText === 'Service Worker Fallback Required') {
@@ -1626,13 +1963,14 @@ export class NetworkLogView extends UI.Widget.VBox {
       const regex = descriptor.regex;
       let filter;
       if (key) {
-        const defaultText = (key + ':' + text).escapeForRegExp();
+        const defaultText = Platform.StringUtilities.escapeForRegExp(key + ':' + text);
         filter = this._createSpecialFilter(/** @type {!FilterType} */ (key), text) ||
             NetworkLogView._requestPathFilter.bind(null, new RegExp(defaultText, 'i'));
       } else if (descriptor.regex) {
         filter = NetworkLogView._requestPathFilter.bind(null, /** @type {!RegExp} */ (regex));
       } else {
-        filter = NetworkLogView._requestPathFilter.bind(null, new RegExp(text.escapeForRegExp(), 'i'));
+        filter = NetworkLogView._requestPathFilter.bind(
+            null, new RegExp(Platform.StringUtilities.escapeForRegExp(text), 'i'));
       }
       return descriptor.negative ? NetworkLogView._negativeFilter.bind(null, filter) : filter;
     });
@@ -1708,6 +2046,12 @@ export class NetworkLogView extends UI.Widget.VBox {
 
       case FilterType.StatusCode:
         return NetworkLogView._statusCodeFilter.bind(null, value);
+
+      case FilterType.ResourceType:
+        return NetworkLogView._resourceTypeFilter.bind(null, value);
+
+      case FilterType.Url:
+        return NetworkLogView._requestUrlFilter.bind(null, value);
     }
     return null;
   }
@@ -1719,10 +2063,10 @@ export class NetworkLogView extends UI.Widget.VBox {
   _createSizeFilter(value) {
     let multiplier = 1;
     if (value.endsWith('k')) {
-      multiplier = 1024;
+      multiplier = 1000;
       value = value.substring(0, value.length - 1);
     } else if (value.endsWith('m')) {
-      multiplier = 1024 * 1024;
+      multiplier = 1000 * 1000;
       value = value.substring(0, value.length - 1);
     }
     const quantity = Number(value);
@@ -1743,9 +2087,16 @@ export class NetworkLogView extends UI.Widget.VBox {
    */
   _reveal(request) {
     this.removeAllNodeHighlights();
-    const node = request[_networkNodeSymbol];
+    const node = networkRequestToNode.get(request);
     if (!node || !node.dataGrid) {
       return null;
+    }
+    // Viewport datagrid nodes do not reveal if not in the root node
+    // list of flatChildren. For children of grouped frame nodes:
+    // reveal and expand parent to ensure child is revealable.
+    if (node.parent && node.parent instanceof NetworkGroupNode) {
+      node.parent.reveal();
+      node.parent.expand();
     }
     node.reveal();
     return node;
@@ -1765,9 +2116,14 @@ export class NetworkLogView extends UI.Widget.VBox {
   /**
    * @override
    * @param {!SDK.NetworkRequest.NetworkRequest} request
+   * @param {!FilterOptions=} options - Optional parameters to change filter behavior
    */
-  selectRequest(request) {
-    this.setTextFilterValue('');
+  selectRequest(request, options) {
+    const defaultOptions = {clearFilter: true};
+    const {clearFilter} = options || defaultOptions;
+    if (clearFilter) {
+      this.setTextFilterValue('');
+    }
     const node = this._reveal(request);
     if (node) {
       node.select();
@@ -1804,61 +2160,63 @@ export class NetworkLogView extends UI.Widget.VBox {
    * @return {!Promise<string>}
    */
   async _generateFetchCall(request, includeCookies) {
-    const ignoredHeaders = {
+    const ignoredHeaders = new Set([
       // Internal headers
-      'method': 1,
-      'path': 1,
-      'scheme': 1,
-      'version': 1,
+      'method',
+      'path',
+      'scheme',
+      'version',
 
       // Unsafe headers
       // Keep this list synchronized with src/net/http/http_util.cc
-      'accept-charset': 1,
-      'accept-encoding': 1,
-      'access-control-request-headers': 1,
-      'access-control-request-method': 1,
-      'connection': 1,
-      'content-length': 1,
-      'cookie': 1,
-      'cookie2': 1,
-      'date': 1,
-      'dnt': 1,
-      'expect': 1,
-      'host': 1,
-      'keep-alive': 1,
-      'origin': 1,
-      'referer': 1,
-      'te': 1,
-      'trailer': 1,
-      'transfer-encoding': 1,
-      'upgrade': 1,
-      'via': 1,
+      'accept-charset',
+      'accept-encoding',
+      'access-control-request-headers',
+      'access-control-request-method',
+      'connection',
+      'content-length',
+      'cookie',
+      'cookie2',
+      'date',
+      'dnt',
+      'expect',
+      'host',
+      'keep-alive',
+      'origin',
+      'referer',
+      'te',
+      'trailer',
+      'transfer-encoding',
+      'upgrade',
+      'via',
       // TODO(phistuck) - remove this once crbug.com/571722 is fixed.
-      'user-agent': 1
-    };
+      'user-agent',
+    ]);
 
-    const credentialHeaders = {'cookie': 1, 'authorization': 1};
+    const credentialHeaders = new Set(['cookie', 'authorization']);
 
     const url = JSON.stringify(request.url());
 
     const requestHeaders = request.requestHeaders();
+    /** @type {!Headers} */
     const headerData = requestHeaders.reduce((result, header) => {
       const name = header.name;
 
-      if (!ignoredHeaders[name.toLowerCase()] && !name.includes(':')) {
+      if (!ignoredHeaders.has(name.toLowerCase()) && !name.includes(':')) {
         result.append(name, header.value);
       }
 
       return result;
     }, new Headers());
 
+    /** @type {!HeadersInit} */
     const headers = {};
     for (const headerArray of headerData) {
       headers[headerArray[0]] = headerArray[1];
     }
 
-    const credentials =
-        request.requestCookies.length || requestHeaders.some(({name}) => credentialHeaders[name.toLowerCase()]) ?
+    const credentials = request.includedRequestCookies().length ||
+            requestHeaders.some(({name}) => credentialHeaders.has(name.toLowerCase())) ?
         'include' :
         'omit';
 
@@ -1870,13 +2228,14 @@ export class NetworkLogView extends UI.Widget.VBox {
 
     const requestBody = await request.requestFormData();
 
+    /** @type {!RequestInit} */
     const fetchOptions = {
       headers: Object.keys(headers).length ? headers : void 0,
       referrer,
       referrerPolicy,
       body: requestBody,
       method: request.requestMethod,
-      mode: 'cors'
+      mode: 'cors',
     };
 
     if (includeCookies) {
@@ -1916,8 +2275,11 @@ export class NetworkLogView extends UI.Widget.VBox {
     let command = [];
     // Most of these headers are derived from the URL and are automatically added by cURL.
     // The |Accept-Encoding| header is ignored to prevent decompression errors. crbug.com/1015321
-    const ignoredHeaders = {'accept-encoding': 1, 'host': 1, 'method': 1, 'path': 1, 'scheme': 1, 'version': 1};
+    const ignoredHeaders = new Set(['accept-encoding', 'host', 'method', 'path', 'scheme', 'version']);
 
+    /**
+     * @param {string} str
+     */
     function escapeStringWin(str) {
       /* If there are no new line characters do not escape the " characters
                since it only uglifies the command.
@@ -1950,9 +2312,9 @@ export class NetworkLogView extends UI.Widget.VBox {
       return encapsChars +
           str.replace(/\\/g, '\\\\')
               .replace(/"/g, '\\"')
-              .replace(/[^a-zA-Z0-9\s_\-:=+~'\/.',?;()*`]/g, '^$&')
+              .replace(/[^a-zA-Z0-9\s_\-:=+~'\/.',?;()*`&]/g, '^$&')
               .replace(/%(?=[a-zA-Z0-9_])/g, '%^')
-              .replace(/\r\n|[\n\r]/g, '^\n\n') +
+              .replace(/\r?\n/g, '^\n\n') +
           encapsChars;
     }
 
@@ -2005,11 +2367,11 @@ export class NetworkLogView extends UI.Widget.VBox {
       // Note that formData is not necessarily urlencoded because it might for example
       // come from a fetch request made with an explicitly unencoded body.
       data.push('--data-raw ' + escapeString(formData));
-      ignoredHeaders['content-length'] = true;
+      ignoredHeaders.add('content-length');
       inferredMethod = 'POST';
     } else if (formData) {
-      data.push('--data-binary ' + escapeString(formData));
-      ignoredHeaders['content-length'] = true;
+      data.push('--data-raw ' + escapeString(formData));
+      ignoredHeaders.add('content-length');
       inferredMethod = 'POST';
     }
 
@@ -2021,7 +2383,7 @@ export class NetworkLogView extends UI.Widget.VBox {
     for (let i = 0; i < requestHeaders.length; i++) {
       const header = requestHeaders[i];
       const name = header.name.replace(/^:/, '');  // Translate SPDY v3 headers to HTTP headers.
-      if (name.toLowerCase() in ignoredHeaders) {
+      if (ignoredHeaders.has(name.toLowerCase())) {
         continue;
       }
       command.push('-H ' + escapeString(name + ': ' + header.value));
@@ -2118,7 +2480,7 @@ export class NetworkLogView extends UI.Widget.VBox {
    * @return {string}
    */
   static getDCLEventColor() {
-    if (self.UI.themeSupport.themeName() === 'dark') {
+    if (ThemeSupport.ThemeSupport.instance().themeName() === 'dark') {
       return '#03A9F4';
     }
     return '#0867CB';
@@ -2128,12 +2490,38 @@ export class NetworkLogView extends UI.Widget.VBox {
    * @return {string}
    */
   static getLoadEventColor() {
-    return self.UI.themeSupport.patchColorText('#B31412', UI.UIUtils.ThemeSupport.ColorUsage.Foreground);
+    return ThemeSupport.ThemeSupport.instance().patchColorText(
+        '#B31412', ThemeSupport.ThemeSupport.ColorUsage.Foreground);
   }
 }
 
-export const isFilteredOutSymbol = Symbol('isFilteredOut');
-export const _networkNodeSymbol = Symbol('NetworkNode');
+/**
+ * @param {!Protocol.Runtime.StackTrace} stackTrace
+ */
+export function computeStackTraceText(stackTrace) {
+  let stackTraceText = '';
+  for (const frame of stackTrace.callFrames) {
+    const functionName = UI.UIUtils.beautifyFunctionName(frame.functionName);
+    stackTraceText += `${functionName} @ ${frame.url}:${frame.lineNumber + 1}\n`;
+  }
+  if (stackTrace.parent) {
+    stackTraceText += computeStackTraceText(stackTrace.parent);
+  }
+  return stackTraceText;
+}
+
+/** @type {!WeakSet<!NetworkRequestNode>} */
+const filteredNetworkRequests = new WeakSet();
+/** @type {!WeakMap<!SDK.NetworkRequest.NetworkRequest, !NetworkRequestNode>} */
+const networkRequestToNode = new WeakMap();
+
+/**
+ * @param {!NetworkRequestNode} request
+ * @return {boolean}
+ */
+export function isRequestFilteredOut(request) {
+  return filteredNetworkRequests.has(request);
+}
 
 export const HTTPSchemas = {
   'http': true,
@@ -2156,11 +2544,13 @@ export const FilterType = {
   SetCookieDomain: 'set-cookie-domain',
   SetCookieName: 'set-cookie-name',
   SetCookieValue: 'set-cookie-value',
+  ResourceType: 'resource-type',
   CookieDomain: 'cookie-domain',
   CookieName: 'cookie-name',
   CookiePath: 'cookie-path',
   CookieValue: 'cookie-value',
-  StatusCode: 'status-code'
+  StatusCode: 'status-code',
+  Url: 'url'
 };
 
 /** @enum {string} */
@@ -2180,7 +2570,7 @@ export const IsFilterType = {
 };
 
 /** @type {!Array<string>} */
-export const _searchKeys = Object.keys(FilterType).map(key => FilterType[key]);
+export const _searchKeys = Object.values(FilterType);
 
 /**
  * @interface
@@ -2191,6 +2581,7 @@ export class GroupLookupInterface {
    * @return {?NetworkGroupNode}
    */
   groupNodeForRequest(request) {
+    throw new Error('Not implemented yet');
   }
 
   reset() {
@@ -2198,4 +2589,5 @@ export class GroupLookupInterface {
 }
 
 /** @typedef {function(!SDK.NetworkRequest.NetworkRequest): boolean} */
+// @ts-ignore typedef
 export let Filter;

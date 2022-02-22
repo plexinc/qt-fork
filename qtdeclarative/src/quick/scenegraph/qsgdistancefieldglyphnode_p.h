@@ -72,6 +72,7 @@ public:
     void setColor(const QColor &color) override;
 
     void setPreferredAntialiasingMode(AntialiasingMode mode) override;
+    void setRenderTypeQuality(int renderTypeQuality) override;
 
     void setStyle(QQuickText::TextStyle style) override;
     void setStyleColor(const QColor &color) override;
@@ -107,15 +108,20 @@ private:
     AntialiasingMode m_antialiasingMode;
     QRectF m_boundingRect;
     const QSGDistanceFieldGlyphCache::Texture *m_texture;
+    int m_renderTypeQuality;
 
     struct GlyphInfo {
         QVector<quint32> indexes;
         QVector<QPointF> positions;
     };
     QSet<quint32> m_allGlyphIndexesLookup;
+    // m_glyphs holds pointers to the GlyphInfo.indexes and positions arrays, so we need to hold on to them
+    QHash<const QSGDistanceFieldGlyphCache::Texture *, GlyphInfo> m_glyphsInOtherTextures;
 
     uint m_dirtyGeometry: 1;
     uint m_dirtyMaterial: 1;
+
+    static qint64 m_totalAllocation; // all SG glyph vertices and indices; only for qCDebug metrics
 };
 
 QT_END_NAMESPACE

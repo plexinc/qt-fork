@@ -3,21 +3,22 @@
 // found in the LICENSE file.
 
 #include "base/bind.h"
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/path_service.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/lock.h"
 #include "base/system/sys_info.h"
-#include "base/task/post_task.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/test_timeouts.h"
 #include "base/thread_annotations.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
+#include "content/browser/child_process_security_policy_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
+#include "content/browser/worker_host/shared_worker_service_impl.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -25,6 +26,8 @@
 #include "content/public/browser/storage_partition.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_paths.h"
+#include "content/public/common/content_switches.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
@@ -37,6 +40,7 @@
 #include "net/base/escape.h"
 #include "net/base/filename_util.h"
 #include "net/cookies/canonical_cookie.h"
+#include "net/cookies/cookie_access_result.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/ssl/ssl_server_config.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
@@ -134,7 +138,7 @@ class WorkerTest : public ContentBrowserTest,
 
   static void QuitUIMessageLoop(base::OnceClosure callback,
                                 bool is_main_frame /* unused */) {
-    base::PostTask(FROM_HERE, {BrowserThread::UI}, std::move(callback));
+    GetUIThreadTaskRunner({})->PostTask(FROM_HERE, std::move(callback));
   }
 
   void NavigateAndWaitForAuth(const GURL& url) {
@@ -158,33 +162,56 @@ class WorkerTest : public ContentBrowserTest,
         net::CookieOptions::SameSiteCookieContext(
             net::CookieOptions::SameSiteCookieContext::ContextType::
                 SAME_SITE_LAX));
+    GURL cookie_url = ssl_server_.GetURL(host, "/");
     std::unique_ptr<net::CanonicalCookie> cookie = net::CanonicalCookie::Create(
-        ssl_server_.GetURL(host, "/"),
-        std::string(kSameSiteCookie) + "; SameSite=Lax; Secure",
+        cookie_url, std::string(kSameSiteCookie) + "; SameSite=Lax; Secure",
         base::Time::Now(), base::nullopt /* server_time */);
     base::RunLoop run_loop;
     cookie_manager->SetCanonicalCookie(
-        *cookie, "https" /* source_scheme */, options,
+        *cookie, cookie_url, options,
         base::BindLambdaForTesting(
-            [&](net::CanonicalCookie::CookieInclusionStatus set_cookie_result) {
-              EXPECT_TRUE(set_cookie_result.IsInclude());
+            [&](net::CookieAccessResult set_cookie_result) {
+              EXPECT_TRUE(set_cookie_result.status.IsInclude());
               run_loop.Quit();
             }));
     run_loop.Run();
   }
 
   // Returns the cookie received with the request for the specified path. If the
-  // path was requested but no cookie was received, return kNoCookie.
+  // path was requested but no cookie was received, return kNoCookie. Waits for
+  // the path to be requested if it hasn't been requested already.
   std::string GetReceivedCookie(const std::string& path) {
+    {
+      base::AutoLock auto_lock(path_cookie_map_lock_);
+      DCHECK(path_to_wait_for_.empty());
+      DCHECK(!path_wait_loop_);
+      if (path_cookie_map_.find(path) != path_cookie_map_.end())
+        return path_cookie_map_[path];
+      path_to_wait_for_ = path;
+      path_wait_loop_ = std::make_unique<base::RunLoop>();
+    }
+
+    path_wait_loop_->Run();
+
     base::AutoLock auto_lock(path_cookie_map_lock_);
-    if (path_cookie_map_.find(path) == path_cookie_map_.end())
-      return "path not requested";
+    path_to_wait_for_.clear();
+    path_wait_loop_.reset();
     return path_cookie_map_[path];
   }
 
   void ClearReceivedCookies() {
     base::AutoLock auto_lock(path_cookie_map_lock_);
     path_cookie_map_.clear();
+  }
+
+  SharedWorkerHost* GetSharedWorkerHost(const GURL& url) {
+    StoragePartition* partition = BrowserContext::GetDefaultStoragePartition(
+        shell()->web_contents()->GetBrowserContext());
+    DCHECK(partition);
+    auto* service = static_cast<SharedWorkerServiceImpl*>(
+        partition->GetSharedWorkerService());
+    return service->FindMatchingSharedWorkerHost(url, "",
+                                                 url::Origin::Create(url));
   }
 
   net::test_server::EmbeddedTestServer* ssl_server() { return &ssl_server_; }
@@ -213,9 +240,12 @@ class WorkerTest : public ContentBrowserTest,
     auto cookie_header = request.headers.find("Cookie");
     if (cookie_header == request.headers.end()) {
       path_cookie_map_[request.relative_url] = kNoCookie;
-      return nullptr;
+    } else {
+      path_cookie_map_[request.relative_url] = cookie_header->second;
     }
-    path_cookie_map_[request.relative_url] = cookie_header->second;
+    if (path_to_wait_for_ == request.relative_url) {
+      path_wait_loop_->Quit();
+    }
     return nullptr;
   }
 
@@ -223,6 +253,14 @@ class WorkerTest : public ContentBrowserTest,
   // with. Paths may only be requested once without clearing the map.
   std::map<std::string, std::string> path_cookie_map_
       GUARDED_BY(path_cookie_map_lock_);
+  // If non-empty, path to wait for the test server to see a request for on the
+  // "a.test" server.
+  std::string path_to_wait_for_ GUARDED_BY(path_cookie_map_lock_);
+  // If non-null, quit when a request for |path_to_wait_for_| is observed. May
+  // only be created or dereferenced off of the UI thread while holding
+  // |path_cookie_map_lock_|, its run method must be called while not holding
+  // the lock.
+  std::unique_ptr<base::RunLoop> path_wait_loop_;
   // Lock that must be held while modifying |path_cookie_map_|, as it's used on
   // both the test server's thread and the UI thread.
   base::Lock path_cookie_map_lock_;
@@ -245,6 +283,23 @@ IN_PROC_BROWSER_TEST_P(WorkerTest, SingleWorker) {
 }
 
 IN_PROC_BROWSER_TEST_P(WorkerTest, SingleWorkerFromFile) {
+  RunTest(GetTestFileURL("single_worker.html"), true /* expect_failure */);
+}
+
+class WorkerTestWithAllowFileAccessFromFiles : public WorkerTest {
+ public:
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    WorkerTest::SetUpCommandLine(command_line);
+    command_line->AppendSwitch(switches::kAllowFileAccessFromFiles);
+  }
+};
+
+INSTANTIATE_TEST_SUITE_P(All,
+                         WorkerTestWithAllowFileAccessFromFiles,
+                         testing::ValuesIn({false, true}));
+
+IN_PROC_BROWSER_TEST_P(WorkerTestWithAllowFileAccessFromFiles,
+                       SingleWorkerFromFile) {
   RunTest(GetTestFileURL("single_worker.html"));
 }
 
@@ -265,6 +320,40 @@ IN_PROC_BROWSER_TEST_P(WorkerTest, SingleSharedWorker) {
     return;
 
   RunTest(GetTestURL("single_worker.html", "shared=true"));
+}
+
+// Confirm shared worker without COEP is in a different process from a page that
+// is protected by COOP and COEP.
+IN_PROC_BROWSER_TEST_P(WorkerTest, SharedWorkerWithoutCoepInDifferentProcess) {
+  if (!SupportsSharedWorker())
+    return;
+
+  // Navigate to a page living in an isolated process.
+  EXPECT_TRUE(NavigateToURL(
+      shell(), ssl_server()->GetURL("a.test", "/cross-origin-isolated.html")));
+  RenderFrameHostImpl* page_rfh = static_cast<RenderFrameHostImpl*>(
+      shell()->web_contents()->GetMainFrame());
+  auto page_lock = page_rfh->GetSiteInstance()->GetProcessLock();
+  EXPECT_TRUE(page_lock.coop_coep_cross_origin_isolated_info().is_isolated());
+  EXPECT_NE(page_rfh->GetCrossOriginIsolationStatus(),
+            RenderFrameHost::CrossOriginIsolationStatus::kNotIsolated);
+
+  // Create a shared worker from the cross-origin-isolated page.
+  // The worker must be in a different process because shared workers isn't
+  // protected by COEP header.
+  EXPECT_EQ("Worker connected.", EvalJs(shell(), R"(
+    new Promise(resolve => {
+      const worker = new SharedWorker("/workers/messageport_worker.js");
+      worker.port.onmessage = (e) => resolve(e.data);
+    })
+  )"));
+  auto* host = GetSharedWorkerHost(
+      ssl_server()->GetURL("a.test", "/workers/messageport_worker.js"));
+  RenderProcessHost* worker_rph = host->GetProcessHost();
+  EXPECT_NE(worker_rph, page_rfh->GetProcess());
+  auto worker_lock = host->site_instance()->GetProcessLock();
+  EXPECT_FALSE(
+      worker_lock.coop_coep_cross_origin_isolated_info().is_isolated());
 }
 
 // http://crbug.com/96435
@@ -396,17 +485,18 @@ IN_PROC_BROWSER_TEST_P(WorkerTest,
 }
 
 // Tests the value of |request_initiator| for shared worker resources.
-IN_PROC_BROWSER_TEST_P(WorkerTest, VerifyInitiatorSharedWorker) {
+IN_PROC_BROWSER_TEST_P(WorkerTest,
+                       VerifyInitiatorAndSameSiteCookiesSharedWorker) {
   if (!SupportsSharedWorker())
     return;
 
-  const GURL start_url(ssl_server()->GetURL("a.test", "/frame_tree/top.html"));
+  const GURL start_url(ssl_server()->GetURL("b.test", "/frame_tree/top.html"));
   EXPECT_TRUE(NavigateToURL(shell(), start_url));
 
   // To make things tricky about |top_frame_origin|, this test navigates to
   // a page on |ssl_server()| which has a cross-origin iframe that registers the
   // worker.
-  std::string cross_site_domain("b.test");
+  std::string cross_site_domain("a.test");
   const GURL test_url(ssl_server()->GetURL(
       cross_site_domain, "/workers/simple_shared_worker.html"));
 
@@ -420,6 +510,9 @@ IN_PROC_BROWSER_TEST_P(WorkerTest, VerifyInitiatorSharedWorker) {
       ssl_server()->GetURL(cross_site_domain, "/workers/empty.js"));
   const GURL resource_url(
       ssl_server()->GetURL(cross_site_domain, "/workers/empty.html"));
+
+  // Set a cookie for verfifying which requests send SameSite cookies.
+  SetSameSiteCookie(cross_site_domain);
 
   std::set<GURL> expected_request_urls = {worker_url, script_url, resource_url};
   const url::Origin expected_origin =
@@ -443,8 +536,16 @@ IN_PROC_BROWSER_TEST_P(WorkerTest, VerifyInitiatorSharedWorker) {
   FrameTreeNode* root = static_cast<WebContentsImpl*>(shell()->web_contents())
                             ->GetFrameTree()
                             ->root();
-  NavigateFrameToURL(root->child_at(0), test_url);
+  EXPECT_TRUE(NavigateToURLFromRenderer(root->child_at(0), test_url));
   waiter.Run();
+
+  // Check cookies sent with each request to "a.test". Frame request should not
+  // have SameSite cookies, but SharedWorker could (though eventually this will
+  // need to be changed, to protect against cross-site user tracking).
+  EXPECT_EQ(kNoCookie, GetReceivedCookie(test_url.path()));
+  EXPECT_EQ(kSameSiteCookie, GetReceivedCookie(worker_url.path()));
+  EXPECT_EQ(kSameSiteCookie, GetReceivedCookie(script_url.path()));
+  EXPECT_EQ(kSameSiteCookie, GetReceivedCookie(resource_url.path()));
 }
 
 // Test that an "a.test" worker sends "a.test" SameSite cookies, both when

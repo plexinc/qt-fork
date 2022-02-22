@@ -11,8 +11,6 @@
 
 namespace blink {
 
-class Visitor;
-
 namespace bindings {
 
 // This class is the base class for all IDL dictionary implementations.  This is
@@ -36,10 +34,11 @@ class PLATFORM_EXPORT DictionaryBase : public GarbageCollected<DictionaryBase> {
     return v8_object;
   }
 
-  virtual void Trace(Visitor*) {}
+  virtual void Trace(Visitor*) const {}
 
  protected:
   DictionaryBase() = default;
+  explicit DictionaryBase(v8::Isolate* isolate) {}
 
   DictionaryBase(const DictionaryBase&) = delete;
   DictionaryBase(const DictionaryBase&&) = delete;

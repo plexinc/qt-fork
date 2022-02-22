@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
@@ -26,7 +26,10 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QStandardPaths>
+#include <QScopeGuard>
+#include <QScopedValueRollback>
 
 #include <qfile.h>
 #include <qdir.h>
@@ -48,10 +51,8 @@
 #endif
 #ifdef Q_OS_WIN
 #include <qt_windows.h>
-#if !defined(Q_OS_WINRT)
 #include <private/qwinregistry_p.h>
 #include <lm.h>
-#endif
 #endif
 #include <qplatformdefs.h>
 #include <qdebug.h>
@@ -61,7 +62,7 @@
 #include <private/qfileinfo_p.h>
 #include "../../../../shared/filesystem.h"
 
-#if defined(Q_OS_VXWORKS) || defined(Q_OS_WINRT)
+#if defined(Q_OS_VXWORKS)
 #define Q_NO_SYMLINKS
 #endif
 
@@ -69,9 +70,7 @@
 QT_BEGIN_NAMESPACE
 extern Q_CORE_EXPORT int qt_ntfs_permission_lookup;
 QT_END_NAMESPACE
-#  ifndef Q_OS_WINRT
 bool IsUserAdmin();
-#  endif
 #endif
 
 inline bool qIsLikelyToBeFat(const QString &path)
@@ -96,37 +95,12 @@ inline bool qIsLikelyToBeNfs(const QString &path)
 #endif
 }
 
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
-#  ifndef SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE // MinGW
-#    define SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE (0x2)
-#  endif
-
-static DWORD createSymbolicLink(const QString &symLinkName, const QString &target,
-                                QString *errorMessage)
-{
-    DWORD result = ERROR_SUCCESS;
-    const QString nativeSymLinkName = QDir::toNativeSeparators(symLinkName);
-    const QString nativeTarget = QDir::toNativeSeparators(target);
-    DWORD flags = 0;
-    if (QOperatingSystemVersion::current() >= QOperatingSystemVersion(QOperatingSystemVersion::Windows, 10, 0, 14972))
-        flags |= SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE;
-    if (QFileInfo(target).isDir())
-        flags |= SYMBOLIC_LINK_FLAG_DIRECTORY;
-    if (CreateSymbolicLink(reinterpret_cast<const wchar_t*>(nativeSymLinkName.utf16()),
-                           reinterpret_cast<const wchar_t*>(nativeTarget.utf16()), flags) == FALSE) {
-        result = GetLastError();
-        QTextStream(errorMessage) << "CreateSymbolicLink(" <<  nativeSymLinkName << ", "
-            << nativeTarget << ", 0x" << hex << flags << dec << ") failed with error " << result
-            << ": " << qt_error_string(int(result));
-    }
-    return result;
-}
-
+#if defined(Q_OS_WIN)
 static QByteArray msgInsufficientPrivileges(const QString &errorMessage)
 {
     return "Insufficient privileges (" + errorMessage.toLocal8Bit() + ')';
 }
-#endif  // Q_OS_WIN && !Q_OS_WINRT
+#endif  // Q_OS_WIN
 
 static QString seedAndTemplate()
 {
@@ -261,7 +235,7 @@ private slots:
 
     void refresh();
 
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
     void ntfsJunctionPointsAndSymlinks_data();
     void ntfsJunctionPointsAndSymlinks();
     void brokenShortcut();
@@ -278,14 +252,14 @@ private slots:
 
     void detachingOperations();
 
-#if !defined(Q_OS_WINRT)
     void owner();
-#endif
     void group();
 
     void invalidState_data();
     void invalidState();
     void nonExistingFile();
+
+    void stdfilesystem();
 
 private:
     const QString m_currentDir;
@@ -419,12 +393,12 @@ void tst_QFileInfo::isDir_data()
 
     QTest::newRow("broken link") << "brokenlink.lnk" << false;
 
-#if (defined(Q_OS_WIN) && !defined(Q_OS_WINRT))
+#if defined(Q_OS_WIN)
     QTest::newRow("drive 1") << "c:" << true;
     QTest::newRow("drive 2") << "c:/" << true;
     //QTest::newRow("drive 2") << "t:s" << false;
 #endif
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
     const QString uncRoot = QStringLiteral("//") + QtNetworkSettings::winServerName();
     QTest::newRow("unc 1") << uncRoot << true;
     QTest::newRow("unc 2") << uncRoot + QLatin1Char('/') << true;
@@ -461,13 +435,13 @@ void tst_QFileInfo::isRoot_data()
 
     QTest::newRow("simple dir") << m_resourcesDir << false;
     QTest::newRow("simple dir with slash") << (m_resourcesDir + QLatin1Char('/')) << false;
-#if (defined(Q_OS_WIN) && !defined(Q_OS_WINRT))
+#if defined(Q_OS_WIN)
     QTest::newRow("drive 1") << "c:" << false;
     QTest::newRow("drive 2") << "c:/" << true;
     QTest::newRow("drive 3") << "p:/" << false;
 #endif
 
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
     const QString uncRoot = QStringLiteral("//") + QtNetworkSettings::winServerName();
     QTest::newRow("unc 1") << uncRoot << true;
     QTest::newRow("unc 2") << uncRoot + QLatin1Char('/') << true;
@@ -505,18 +479,13 @@ void tst_QFileInfo::exists_data()
     QTest::newRow("data8") << (m_resourcesDir + "/*.ext1") << false;
     QTest::newRow("data9") << (m_resourcesDir + "/file?.ext1") << false;
     QTest::newRow("data10") << "." << true;
-
-    // Skip for the WinRT case, as GetFileAttributesEx removes _any_
-    // trailing whitespace and "." is a valid entry as seen in data10
-#ifndef Q_OS_WINRT
     QTest::newRow("data11") << ". " << false;
-#endif
     QTest::newRow("empty") << "" << false;
 
     QTest::newRow("simple dir") << m_resourcesDir << true;
     QTest::newRow("simple dir with slash") << (m_resourcesDir + QLatin1Char('/')) << true;
 
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
     const QString uncRoot = QStringLiteral("//") + QtNetworkSettings::winServerName();
     QTest::newRow("unc 1") << uncRoot << true;
     QTest::newRow("unc 2") << uncRoot + QLatin1Char('/') << true;
@@ -551,7 +520,7 @@ void tst_QFileInfo::absolutePath_data()
     QTest::addColumn<QString>("filename");
 
     QString drivePrefix;
-#if (defined(Q_OS_WIN) && !defined(Q_OS_WINRT))
+#if defined(Q_OS_WIN)
     drivePrefix = QDir::currentPath().left(2);
     QString nonCurrentDrivePrefix =
         drivePrefix.left(1).compare("X", Qt::CaseInsensitive) == 0 ? QString("Y:") : QString("X:");
@@ -561,8 +530,6 @@ void tst_QFileInfo::absolutePath_data()
     QTest::newRow("<not current drive>:my.dll") << nonCurrentDrivePrefix + "my.dll"
                                                 << nonCurrentDrivePrefix + "/"
                                                 << "my.dll";
-#elif defined(Q_OS_WINRT)
-    drivePrefix = QDir::currentPath().left(2);
 #endif
     QTest::newRow("0") << "/machine/share/dir1/" << drivePrefix + "/machine/share/dir1" << "";
     QTest::newRow("1") << "/machine/share/dir1" << drivePrefix + "/machine/share" << "dir1";
@@ -570,7 +537,7 @@ void tst_QFileInfo::absolutePath_data()
     QTest::newRow("3") << "/usr/local/bin/" << drivePrefix + "/usr/local/bin" << "";
     QTest::newRow("/test") << "/test" << drivePrefix + "/" << "test";
 
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
     QTest::newRow("c:\\autoexec.bat") << "c:\\autoexec.bat" << "C:/"
                                       << "autoexec.bat";
     QTest::newRow("c:autoexec.bat") << QDir::currentPath().left(2) + "autoexec.bat" << QDir::currentPath()
@@ -746,14 +713,13 @@ void tst_QFileInfo::canonicalFilePath()
     }
 #endif
 
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
     {
-        QString errorMessage;
         const QString linkTarget = QStringLiteral("res");
-        const DWORD dwErr = createSymbolicLink(linkTarget, m_resourcesDir, &errorMessage);
-        if (dwErr == ERROR_PRIVILEGE_NOT_HELD)
-            QSKIP(msgInsufficientPrivileges(errorMessage));
-        QVERIFY2(dwErr == ERROR_SUCCESS, qPrintable(errorMessage));
+        const auto result = FileSystem::createSymbolicLink(linkTarget, m_resourcesDir);
+        if (result.dwErr == ERROR_PRIVILEGE_NOT_HELD)
+            QSKIP(msgInsufficientPrivileges(result.errorMessage));
+        QVERIFY2(result.dwErr == ERROR_SUCCESS, qPrintable(result.errorMessage));
         QString currentPath = QDir::currentPath();
         QVERIFY(QDir::setCurrent(linkTarget));
         const QString actualCanonicalPath = QFileInfo("file1").canonicalFilePath();
@@ -844,7 +810,7 @@ void tst_QFileInfo::dir_data()
     QTest::newRow("absFilePath") << QDir::currentPath() + "/tmp.txt" << false << QDir::currentPath();
     QTest::newRow("absFilePathAbsPath") << QDir::currentPath() + "/tmp.txt" << true << QDir::currentPath();
     QTest::newRow("resource1") << ":/tst_qfileinfo/resources/file1.ext1" << true << ":/tst_qfileinfo/resources";
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
     QTest::newRow("driveWithSlash") << "C:/file1.ext1.ext2" << true << "C:/";
     QTest::newRow("driveWithoutSlash") << QDir::currentPath().left(2) + "file1.ext1.ext2" << false << QDir::currentPath().left(2);
 #endif
@@ -1035,7 +1001,7 @@ void tst_QFileInfo::size()
 
 void tst_QFileInfo::systemFiles()
 {
-#if !defined(Q_OS_WIN) || defined(Q_OS_WINRT)
+#if !defined(Q_OS_WIN)
     QSKIP("This is a Windows only test");
 #endif
     QFileInfo fi("c:\\pagefile.sys");
@@ -1046,9 +1012,6 @@ void tst_QFileInfo::systemFiles()
     QCOMPARE(fi.metadataChangeTime(), fi.lastModified());   // On Windows, they're the same
     QVERIFY(fi.birthTime().isValid());
     QVERIFY(fi.birthTime() <= fi.lastModified());
-#if QT_DEPRECATED_SINCE(5, 10)
-    QCOMPARE(fi.created(), fi.birthTime());                 // On Windows, they're the same
-#endif
 }
 
 void tst_QFileInfo::compare_data()
@@ -1238,7 +1201,7 @@ void tst_QFileInfo::fileTimes()
     QCOMPARE(fileInfo.birthTime(), birthTime); // mustn't have changed
     QVERIFY(readTime.isValid());
 
-#if defined(Q_OS_WINRT) || defined(Q_OS_QNX) || (defined(Q_OS_ANDROID) && !defined(Q_OS_ANDROID_EMBEDDED))
+#if defined(Q_OS_QNX) || (defined(Q_OS_ANDROID) && !defined(Q_OS_ANDROID_EMBEDDED))
     noAccessTime = true;
 #elif defined(Q_OS_WIN)
     //In Vista the last-access timestamp is not updated when the file is accessed/touched (by default).
@@ -1359,7 +1322,7 @@ void tst_QFileInfo::isShortcut_data()
         << regularFile.fileName() << false;
     QTest::newRow("directory")
         << QDir::currentPath() << false;
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
     // windows shortcuts
     QVERIFY(regularFile.link("link.lnk"));
     QTest::newRow("shortcut")
@@ -1395,17 +1358,14 @@ void tst_QFileInfo::isSymbolicLink_data()
 
 #ifndef Q_NO_SYMLINKS
 #if defined(Q_OS_WIN)
-#if !defined(Q_OS_WINRT)
-    QString errorMessage;
-    const DWORD creationResult = createSymbolicLink("symlink", m_sourceFile, &errorMessage);
-    if (creationResult == ERROR_PRIVILEGE_NOT_HELD) {
-        QWARN(msgInsufficientPrivileges(errorMessage));
+    const auto creationResult = FileSystem::createSymbolicLink("symlink", m_sourceFile);
+    if (creationResult.dwErr == ERROR_PRIVILEGE_NOT_HELD) {
+        qWarning() << qPrintable(msgInsufficientPrivileges(creationResult.errorMessage));
     } else {
-        QVERIFY2(creationResult == ERROR_SUCCESS, qPrintable(errorMessage));
+        QVERIFY2(creationResult.dwErr == ERROR_SUCCESS, qPrintable(creationResult.errorMessage));
         QTest::newRow("NTFS-symlink")
             << "symlink" << true;
     }
-#endif // !Q_OS_WINRT
 #else // Unix:
     QVERIFY(regularFile.link("symlink.lnk"));
     QTest::newRow("symlink.lnk")
@@ -1448,7 +1408,7 @@ void tst_QFileInfo::link_data()
     file2.open(QIODevice::WriteOnly);
 
     QTest::newRow("existent file") << m_sourceFile << false << false << "";
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
     // windows shortcuts
     QVERIFY(file1.link("link.lnk"));
     QTest::newRow("link.lnk")
@@ -1461,26 +1421,23 @@ void tst_QFileInfo::link_data()
 
 #ifndef Q_NO_SYMLINKS
 #if defined(Q_OS_WIN)
-#if !defined(Q_OS_WINRT)
-    QString errorMessage;
-    DWORD creationResult = createSymbolicLink("link", m_sourceFile, &errorMessage);
-    if (creationResult == ERROR_PRIVILEGE_NOT_HELD) {
-        QWARN(msgInsufficientPrivileges(errorMessage));
+    auto creationResult = FileSystem::createSymbolicLink("link", m_sourceFile);
+    if (creationResult.dwErr == ERROR_PRIVILEGE_NOT_HELD) {
+        qWarning() << qPrintable(msgInsufficientPrivileges(creationResult.errorMessage));
     } else {
-        QVERIFY2(creationResult == ERROR_SUCCESS, qPrintable(errorMessage));
+        QVERIFY2(creationResult.dwErr == ERROR_SUCCESS, qPrintable(creationResult.errorMessage));
         QTest::newRow("link")
             << "link" << false << true << QFileInfo(m_sourceFile).absoluteFilePath();
     }
 
-    creationResult = createSymbolicLink("brokenlink", "dummyfile", &errorMessage);
-    if (creationResult == ERROR_PRIVILEGE_NOT_HELD) {
-        QWARN(msgInsufficientPrivileges(errorMessage));
+    creationResult = FileSystem::createSymbolicLink("brokenlink", "dummyfile");
+    if (creationResult.dwErr == ERROR_PRIVILEGE_NOT_HELD) {
+        qWarning() << qPrintable(msgInsufficientPrivileges(creationResult.errorMessage));
     } else {
-        QVERIFY2(creationResult == ERROR_SUCCESS, qPrintable(errorMessage));
+        QVERIFY2(creationResult.dwErr == ERROR_SUCCESS, qPrintable(creationResult.errorMessage));
         QTest::newRow("broken link")
             << "brokenlink" << false << true  << QFileInfo("dummyfile").absoluteFilePath();
     }
-#endif // !Q_OS_WINRT
 #else // Unix:
     QVERIFY(file1.link("link"));
     QTest::newRow("link")
@@ -1660,7 +1617,7 @@ void tst_QFileInfo::refresh()
     QCOMPARE(info2.size(), info.size());
 }
 
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
 
 struct NtfsTestResource {
 
@@ -1680,7 +1637,6 @@ void tst_QFileInfo::ntfsJunctionPointsAndSymlinks_data()
 {
     QTest::addColumn<NtfsTestResource>("resource");
     QTest::addColumn<QString>("path");
-    QTest::addColumn<bool>("isSymLink");
     QTest::addColumn<QString>("linkTarget");
     QTest::addColumn<QString>("canonicalFilePath");
 
@@ -1708,13 +1664,13 @@ void tst_QFileInfo::ntfsJunctionPointsAndSymlinks_data()
 
         QTest::newRow("absolute dir symlink")
             << NtfsTestResource(NtfsTestResource::SymLink, absSymlink, absTarget)
-            << absSymlink << true << QDir::fromNativeSeparators(absTarget) << target.canonicalPath();
+            << absSymlink << QDir::fromNativeSeparators(absTarget) << target.canonicalPath();
         QTest::newRow("relative dir symlink")
             << NtfsTestResource(NtfsTestResource::SymLink, relSymlink, relTarget)
-            << relSymlink << true << QDir::fromNativeSeparators(absTarget) << target.canonicalPath();
+            << relSymlink << QDir::fromNativeSeparators(absTarget) << target.canonicalPath();
         QTest::newRow("file in symlink dir")
             << NtfsTestResource()
-            << fileInSymlink << false << "" << target.canonicalPath().append("/file");
+            << fileInSymlink << "" << target.canonicalPath().append("/file");
     }
     {
         //File symlinks
@@ -1730,23 +1686,22 @@ void tst_QFileInfo::ntfsJunctionPointsAndSymlinks_data()
 
         QTest::newRow("absolute file symlink")
             << NtfsTestResource(NtfsTestResource::SymLink, absSymlink, absTarget)
-            << absSymlink << true << QDir::fromNativeSeparators(absTarget) << target.canonicalFilePath();
+            << absSymlink << QDir::fromNativeSeparators(absTarget) << target.canonicalFilePath();
         QTest::newRow("relative file symlink")
             << NtfsTestResource(NtfsTestResource::SymLink, relSymlink, relTarget)
-            << relSymlink << true << QDir::fromNativeSeparators(absTarget) << target.canonicalFilePath();
+            << relSymlink << QDir::fromNativeSeparators(absTarget) << target.canonicalFilePath();
         QTest::newRow("relative to relative file symlink")
             << NtfsTestResource(NtfsTestResource::SymLink, relToRelSymlink, relToRelTarget)
-            << relToRelSymlink << true << QDir::fromNativeSeparators(absTarget) << target.canonicalFilePath();
+            << relToRelSymlink << QDir::fromNativeSeparators(absTarget) << target.canonicalFilePath();
     }
     {
         // Symlink to UNC share
         pwd.mkdir("unc");
-        QString errorMessage;
         QString uncTarget = QStringLiteral("//") + QtNetworkSettings::winServerName() + "/testshare";
         QString uncSymlink = QDir::toNativeSeparators(pwd.absolutePath().append("\\unc\\link_to_unc"));
         QTest::newRow("UNC symlink")
             << NtfsTestResource(NtfsTestResource::SymLink, uncSymlink, uncTarget)
-            << QDir::fromNativeSeparators(uncSymlink) << true << QDir::fromNativeSeparators(uncTarget) << uncTarget;
+            << QDir::fromNativeSeparators(uncSymlink) << QDir::fromNativeSeparators(uncTarget) << uncTarget;
     }
 
     //Junctions
@@ -1755,7 +1710,7 @@ void tst_QFileInfo::ntfsJunctionPointsAndSymlinks_data()
     QFileInfo targetInfo(target);
     QTest::newRow("junction_pwd")
         << NtfsTestResource(NtfsTestResource::Junction, junction, target)
-        << junction << false << QString() << QString();
+        << junction << QString() << QString();
 
     QFileInfo fileInJunction(targetInfo.absoluteFilePath().append("/file"));
     QFile file(fileInJunction.absoluteFilePath());
@@ -1764,14 +1719,14 @@ void tst_QFileInfo::ntfsJunctionPointsAndSymlinks_data()
     QVERIFY2(file.exists(), msgDoesNotExist(file.fileName()).constData());
     QTest::newRow("file in junction")
         << NtfsTestResource()
-        << fileInJunction.absoluteFilePath() << false << QString() << fileInJunction.canonicalFilePath();
+        << fileInJunction.absoluteFilePath() << QString() << fileInJunction.canonicalFilePath();
 
     target = QDir::rootPath();
     junction = "junction_root";
     targetInfo.setFile(target);
     QTest::newRow("junction_root")
         << NtfsTestResource(NtfsTestResource::Junction, junction, target)
-        << junction << false << QString() << QString();
+        << junction << QString() << QString();
 
     //Mountpoint
     wchar_t buffer[MAX_PATH];
@@ -1782,35 +1737,37 @@ void tst_QFileInfo::ntfsJunctionPointsAndSymlinks_data()
     rootVolume.replace("\\\\?\\","\\??\\");
     QTest::newRow("mountpoint")
         << NtfsTestResource(NtfsTestResource::Junction, junction, rootVolume)
-        << junction << false << QString() << QString();
+        << junction << QString() << QString();
 }
 
 void tst_QFileInfo::ntfsJunctionPointsAndSymlinks()
 {
     QFETCH(NtfsTestResource, resource);
     QFETCH(QString, path);
-    QFETCH(bool, isSymLink);
     QFETCH(QString, linkTarget);
     QFETCH(QString, canonicalFilePath);
 
-    QString errorMessage;
-    DWORD creationResult = ERROR_SUCCESS;
+    bool isSymLink = false;
+    bool isJunction = false;
+    FileSystem::Result creationResult;
     switch (resource.type) {
     case NtfsTestResource::None:
         break;
     case NtfsTestResource::SymLink:
-        creationResult = createSymbolicLink(resource.source, resource.target, &errorMessage);
+        isSymLink = true;
+        creationResult = FileSystem::createSymbolicLink(resource.source, resource.target);
         break;
     case NtfsTestResource::Junction:
-        creationResult = FileSystem::createNtfsJunction(resource.target, resource.source, &errorMessage);
-        if (creationResult == ERROR_NOT_SUPPORTED) // Special value indicating non-NTFS drive
-            QSKIP(qPrintable(errorMessage));
+        isJunction = true;
+        creationResult = FileSystem::createNtfsJunction(resource.target, resource.source);
+        if (creationResult.dwErr == ERROR_NOT_SUPPORTED) // Special value indicating non-NTFS drive
+            QSKIP(qPrintable(creationResult.errorMessage));
         break;
     }
 
-    if (creationResult == ERROR_PRIVILEGE_NOT_HELD)
-        QSKIP(msgInsufficientPrivileges(errorMessage));
-    QVERIFY2(creationResult == ERROR_SUCCESS, qPrintable(errorMessage));
+    if (creationResult.dwErr == ERROR_PRIVILEGE_NOT_HELD)
+        QSKIP(msgInsufficientPrivileges(creationResult.errorMessage));
+    QVERIFY2(creationResult.dwErr == ERROR_SUCCESS, qPrintable(creationResult.errorMessage));
 
     QFileInfo fi(path);
     auto guard = qScopeGuard([&fi, this]() {
@@ -1825,13 +1782,35 @@ void tst_QFileInfo::ntfsJunctionPointsAndSymlinks()
             }
         }
     });
-    const QString actualSymLinkTarget = isSymLink ? fi.symLinkTarget() : QString();
-    const QString actualCanonicalFilePath = isSymLink ? fi.canonicalFilePath() : QString();
-    QCOMPARE(fi.isJunction(), resource.type == NtfsTestResource::Junction);
+    const QString actualCanonicalFilePath = fi.canonicalFilePath();
+    QCOMPARE(fi.isJunction(), isJunction);
     QCOMPARE(fi.isSymbolicLink(), isSymLink);
     if (isSymLink) {
-        QCOMPARE(actualSymLinkTarget, linkTarget);
+        QCOMPARE(fi.symLinkTarget(), linkTarget);
         QCOMPARE(actualCanonicalFilePath, canonicalFilePath);
+    }
+
+    if (isJunction) {
+        if (creationResult.target.startsWith(uR"(\??\)"))
+            creationResult.target = creationResult.target.sliced(4);
+
+        // resolve volume to drive letter
+        static const QRegularExpression matchVolumeRe(uR"(^Volume\{([a-z]|[0-9]|-)+\}\\)"_qs,
+            QRegularExpression::CaseInsensitiveOption);
+        auto matchVolume = matchVolumeRe.match(creationResult.target);
+        if (matchVolume.hasMatch()) {
+            Q_ASSERT(matchVolume.capturedStart() == 0);
+            DWORD len;
+            wchar_t buffer[MAX_PATH];
+            const QString volumeName = uR"(\\?\)"_qs + matchVolume.captured();
+            if (GetVolumePathNamesForVolumeName(reinterpret_cast<LPCWSTR>(volumeName.utf16()),
+                                                buffer, MAX_PATH, &len) != 0) {
+                creationResult.target.replace(0, matchVolume.capturedLength(),
+                                              QString::fromWCharArray(buffer));
+            }
+        }
+        QCOMPARE(fi.junctionTarget(), QDir::fromNativeSeparators(creationResult.target));
+        QCOMPARE(actualCanonicalFilePath, QFileInfo(creationResult.link).canonicalFilePath());
     }
 }
 
@@ -1870,13 +1849,13 @@ void tst_QFileInfo::isWritable()
     QVERIFY(QFileInfo("tempfile.txt").isWritable());
     tempfile.remove();
 
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
     QFileInfo fi("c:\\pagefile.sys");
     QVERIFY2(fi.exists(), msgDoesNotExist(fi.absoluteFilePath()).constData());
     QVERIFY(!fi.isWritable());
 #endif
 
-#if defined (Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined (Q_OS_WIN)
     QScopedValueRollback<int> ntfsMode(qt_ntfs_permission_lookup);
     qt_ntfs_permission_lookup = 1;
     QFileInfo fi2(QFile::decodeName(qgetenv("SystemRoot") + "/system.ini"));
@@ -1885,7 +1864,7 @@ void tst_QFileInfo::isWritable()
 #endif
 
 #if defined (Q_OS_QNX) // On QNX /etc is usually on a read-only filesystem
-    QVERIFY(!QFileInfo("/etc/passwd").isWritable());
+    QCOMPARE(QFileInfo("/etc/passwd").isWritable(), (geteuid() == 0));
 #elif defined (Q_OS_UNIX) && !defined(Q_OS_VXWORKS) // VxWorks does not have users/groups
     for (const char *attempt : { "/etc/passwd", "/etc/machine-id", "/proc/version" }) {
         if (access(attempt, F_OK) == -1)
@@ -2057,7 +2036,7 @@ void tst_QFileInfo::detachingOperations()
     QVERIFY(!info1.caching());
 }
 
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
 bool IsUserAdmin()
 {
     BOOL b;
@@ -2079,13 +2058,12 @@ bool IsUserAdmin()
     return b != FALSE;
 }
 
-#endif // Q_OS_WIN && !Q_OS_WINRT
+#endif // Q_OS_WIN
 
-#ifndef Q_OS_WINRT
 void tst_QFileInfo::owner()
 {
     QString userName;
-#if defined(Q_OS_UNIX) && !defined(Q_OS_VXWORKS)
+#if defined(Q_OS_UNIX) && !defined(Q_OS_VXWORKS) && !defined(Q_OS_INTEGRITY)
     {
         passwd *user = getpwuid(geteuid());
         QVERIFY(user);
@@ -2143,12 +2121,11 @@ void tst_QFileInfo::owner()
     qt_ntfs_permission_lookup = 0;
 #endif
 }
-#endif // !Q_OS_WINRT
 
 void tst_QFileInfo::group()
 {
     QString expected;
-#if defined(Q_OS_UNIX) && !defined(Q_OS_VXWORKS)
+#if defined(Q_OS_UNIX) && !defined(Q_OS_VXWORKS) && !defined(Q_OS_INTEGRITY)
     struct group *gr;
     gid_t gid = getegid();
 
@@ -2226,9 +2203,6 @@ static void stateCheck(const QFileInfo &info, const QString &dirname, const QStr
 
     QCOMPARE(info.permissions(), QFile::Permissions());
 
-#if QT_DEPRECATED_SINCE(5, 10)
-    QVERIFY(!info.created().isValid());
-#endif
     QVERIFY(!info.birthTime().isValid());
     QVERIFY(!info.metadataChangeTime().isValid());
     QVERIFY(!info.lastRead().isValid());
@@ -2270,6 +2244,97 @@ void tst_QFileInfo::nonExistingFile()
     stateCheck(info, dirname, filename);
 }
 
+void tst_QFileInfo::stdfilesystem()
+{
+#if QT_CONFIG(cxx17_filesystem)
+
+    namespace fs = std::filesystem;
+
+    // Verify constructing with fs::path leads to valid objects
+    {
+        // We compare using absoluteFilePath since QFileInfo::operator== ends up using
+        // canonicalFilePath which evaluates to empty-string for non-existent paths causing
+        // these tests to always succeed.
+#define COMPARE_CONSTRUCTION(filepath)                                                 \
+        QCOMPARE(QFileInfo(fs::path(filepath)).absoluteFilePath(),                     \
+                 QFileInfo(QString::fromLocal8Bit(filepath)).absoluteFilePath());      \
+        QCOMPARE(QFileInfo(base, fs::path(filepath)).absoluteFilePath(),               \
+                 QFileInfo(base, QString::fromLocal8Bit(filepath)).absoluteFilePath())
+
+        QDir base{ "../" }; // Used for the QFileInfo(QDir, <path>) ctor
+
+        COMPARE_CONSTRUCTION("./file");
+
+#ifdef Q_OS_WIN32
+        COMPARE_CONSTRUCTION("C:\\path\\to\\file.txt");
+        COMPARE_CONSTRUCTION("x:\\path/to\\file.txt");
+        COMPARE_CONSTRUCTION("D:/path/TO/file.txt");
+        COMPARE_CONSTRUCTION("//sharename/folder/file.txt");
+#endif
+        COMPARE_CONSTRUCTION("/path/TO/file.txt");
+        COMPARE_CONSTRUCTION("./path/TO/file.txt");
+        COMPARE_CONSTRUCTION("../file.txt");
+        COMPARE_CONSTRUCTION("./filæ.txt");
+
+#undef COMPARE_CONSTRUCTION
+        {
+            // One proper comparison with operator== for each ctor
+            QFile file(QStringLiteral("./filesystem_test_file.txt"));
+            if (!file.open(QFile::NewOnly))
+                QVERIFY(file.exists());
+            file.close();
+
+            QFileInfo pinfo{ fs::path{ "./filesystem_test_file.txt" } };
+            QFileInfo info{ QStringLiteral("./filesystem_test_file.txt") };
+            QCOMPARE(pinfo, info);
+        }
+
+        {
+            // And once more for QFileInfo(QDir, <path>)
+            const QString &subdir = QStringLiteral("./filesystem_test_dir/");
+            base = QDir(QStringLiteral("."));
+            if (!base.exists(subdir))
+                QVERIFY(base.mkdir(subdir));
+            base.cd(subdir);
+            QFile file{ base.filePath(QStringLiteral("./filesystem_test_file.txt")) };
+            if (!file.open(QFile::NewOnly))
+                QVERIFY(file.exists());
+            file.close();
+            QFileInfo pinfo{ base, fs::path{ "filesystem_test_file.txt" } };
+            QFileInfo info{ base, QStringLiteral("filesystem_test_file.txt") };
+            QCOMPARE(pinfo, info);
+        }
+    }
+
+    // Verify that functions returning path all point to the same place
+    {
+#define COMPARE_PATHS(actual, expected)                               \
+    QCOMPARE(QString::fromStdU16String(actual.u16string()), expected)
+
+        QFile file(QStringLiteral("./orig"));
+        if (!file.open(QFile::NewOnly))
+            QVERIFY(file.exists());
+        file.close();
+
+        QFileInfo info{ QStringLiteral("./orig") };
+        COMPARE_PATHS(info.filesystemPath(), info.path());
+        COMPARE_PATHS(info.filesystemAbsolutePath(), info.absolutePath());
+        COMPARE_PATHS(info.filesystemCanonicalPath(), info.canonicalPath());
+        COMPARE_PATHS(info.filesystemFilePath(), info.filePath());
+        COMPARE_PATHS(info.filesystemAbsoluteFilePath(), info.absoluteFilePath());
+        COMPARE_PATHS(info.filesystemCanonicalFilePath(), info.canonicalFilePath());
+
+        QVERIFY(file.link(QStringLiteral("./filesystem_test_symlink.lnk")));
+        info = QFileInfo{ "./filesystem_test_symlink.lnk" };
+
+        COMPARE_PATHS(info.filesystemSymLinkTarget(), info.symLinkTarget());
+#undef COMPARE_PATHS
+    }
+
+#else
+    QSKIP("Not supported");
+#endif
+}
 
 QTEST_MAIN(tst_QFileInfo)
 #include "tst_qfileinfo.moc"

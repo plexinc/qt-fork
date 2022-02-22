@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <qlayout.h>
 #include "qstyle.h"
 #include <qevent.h>
@@ -75,7 +75,7 @@ private slots:
     void testFusionStyle();
 #endif
     void testWindowsStyle();
-#if defined(Q_OS_WIN) && !defined(QT_NO_STYLE_WINDOWSVISTA) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN) && !defined(QT_NO_STYLE_WINDOWSVISTA)
     void testWindowsVistaStyle();
 #endif
 #ifdef Q_OS_MAC
@@ -83,7 +83,6 @@ private slots:
 #endif
     void testStyleFactory();
     void testProxyStyle();
-    void pixelMetric();
 #if !defined(QT_NO_STYLE_WINDOWS) && !defined(QT_NO_STYLE_FUSION)
     void progressBarChangeStyle();
 #endif
@@ -184,9 +183,6 @@ void tst_QStyle::drawItemPixmap()
     QVERIFY(image.reinterpretAsFormat(QImage::Format_RGB32));
     const QRgb *bits = reinterpret_cast<const QRgb *>(image.constBits());
     const QRgb *end = bits + image.sizeInBytes() / sizeof(QRgb);
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("", "QWidget::resize does not work on WinRT", Continue);
-#endif
     QVERIFY(std::all_of(bits, end, [green] (QRgb r) { return r == green; }));
 }
 
@@ -194,7 +190,7 @@ bool tst_QStyle::testAllFunctions(QStyle *style)
 {
     QStyleOption opt;
     QWidget testWidget;
-    opt.init(&testWidget);
+    opt.initFrom(&testWidget);
 
     testWidget.setStyle(style);
 
@@ -222,24 +218,24 @@ bool tst_QStyle::testAllFunctions(QStyle *style)
         QPixmap surface(QSize(200, 200));
         QPainter painter(&surface);
         QStyleOptionComboBox copt1;
-        copt1.init(&testWidget);
+        copt1.initFrom(&testWidget);
 
         QStyleOptionGroupBox copt2;
-        copt2.init(&testWidget);
+        copt2.initFrom(&testWidget);
         QStyleOptionSizeGrip copt3;
-        copt3.init(&testWidget);
+        copt3.initFrom(&testWidget);
         QStyleOptionSlider copt4;
-        copt4.init(&testWidget);
+        copt4.initFrom(&testWidget);
         copt4.minimum = 0;
         copt4.maximum = 100;
         copt4.tickInterval = 25;
         copt4.sliderValue = 50;
         QStyleOptionSpinBox copt5;
-        copt5.init(&testWidget);
+        copt5.initFrom(&testWidget);
         QStyleOptionTitleBar copt6;
-        copt6.init(&testWidget);
+        copt6.initFrom(&testWidget);
         QStyleOptionToolButton copt7;
-        copt7.init(&testWidget);
+        copt7.initFrom(&testWidget);
         QStyleOptionComplex copt9;
         copt9.initFrom(&testWidget);
 
@@ -274,7 +270,7 @@ bool tst_QStyle::testAllFunctions(QStyle *style)
 
 bool tst_QStyle::testScrollBarSubControls(const QStyle *style)
 {
-    const bool isMacStyle = style->objectName().compare(QLatin1String("macintosh"),
+    const bool isMacStyle = style->objectName().compare(QLatin1String("macos"),
                                                         Qt::CaseInsensitive) == 0;
     QScrollBar scrollBar;
     setFrameless(&scrollBar);
@@ -320,7 +316,7 @@ void tst_QStyle::testWindowsStyle()
     wstyle->drawControl(QStyle::CE_ProgressBar, &pb, &painter, nullptr);
 }
 
-#if defined(Q_OS_WIN) && !defined(QT_NO_STYLE_WINDOWSVISTA) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN) && !defined(QT_NO_STYLE_WINDOWSVISTA)
 void tst_QStyle::testWindowsVistaStyle()
 {
     QScopedPointer<QStyle> vistastyle(QStyleFactory::create("WindowsVista"));
@@ -332,7 +328,7 @@ void tst_QStyle::testWindowsVistaStyle()
 #ifdef Q_OS_MAC
 void tst_QStyle::testMacStyle()
 {
-    QStyle *mstyle = QStyleFactory::create("Macintosh");
+    QStyle *mstyle = QStyleFactory::create("macos");
     QVERIFY(testAllFunctions(mstyle));
     delete mstyle;
 }
@@ -347,57 +343,6 @@ void MyWidget::paintEvent(QPaintEvent *)
     style()->drawItemPixmap(&p, rect(), Qt::AlignCenter, big);
 }
 
-
-class Qt42Style : public QCommonStyle
-{
-    Q_OBJECT
-public:
-    int pixelMetric(PixelMetric metric, const QStyleOption *option = nullptr,
-                    const QWidget *widget = nullptr) const override;
-
-    int margin_toplevel = 10;
-    int margin = 5;
-    int spacing = 0;
-};
-
-int Qt42Style::pixelMetric(PixelMetric metric, const QStyleOption * /* option = 0*/,
-                                   const QWidget * /* widget = 0*/ ) const
-{
-    switch (metric) {
-        case QStyle::PM_DefaultTopLevelMargin:
-            return margin_toplevel;
-        case QStyle::PM_DefaultChildMargin:
-            return margin;
-        case QStyle::PM_DefaultLayoutSpacing:
-            return spacing;
-        default:
-            break;
-    }
-    return -1;
-}
-
-
-void tst_QStyle::pixelMetric()
-{
-    QScopedPointer<Qt42Style> style(new Qt42Style);
-    QCOMPARE(style->pixelMetric(QStyle::PM_DefaultTopLevelMargin), 10);
-    QCOMPARE(style->pixelMetric(QStyle::PM_DefaultChildMargin), 5);
-    QCOMPARE(style->pixelMetric(QStyle::PM_DefaultLayoutSpacing), 0);
-
-    style->margin_toplevel = 0;
-    style->margin = 0;
-    style->spacing = 0;
-    QCOMPARE(style->pixelMetric(QStyle::PM_DefaultTopLevelMargin), 0);
-    QCOMPARE(style->pixelMetric(QStyle::PM_DefaultChildMargin), 0);
-    QCOMPARE(style->pixelMetric(QStyle::PM_DefaultLayoutSpacing), 0);
-
-    style->margin_toplevel = -1;
-    style->margin = -1;
-    style->spacing = -1;
-    QCOMPARE(style->pixelMetric(QStyle::PM_DefaultTopLevelMargin), -1);
-    QCOMPARE(style->pixelMetric(QStyle::PM_DefaultChildMargin), -1);
-    QCOMPARE(style->pixelMetric(QStyle::PM_DefaultLayoutSpacing), -1);
-}
 
 #if !defined(QT_NO_STYLE_WINDOWS) && !defined(QT_NO_STYLE_FUSION)
 void tst_QStyle::progressBarChangeStyle()
@@ -567,9 +512,6 @@ void tst_QStyle::testFrameOnlyAroundContents()
     area.verticalScrollBar()->setStyle(&frameStyle);
     area.setStyle(&frameStyle);
     // Test that we reserve space for scrollbar spacing
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("", "QWidget::setGeometry does not work on WinRT", Continue);
-#endif
     QCOMPARE(viewPortWidth, area.viewport()->width() + SCROLLBAR_SPACING);
 }
 
@@ -596,13 +538,13 @@ void tst_QStyle::testProxyCalled()
     QToolButton b;
     b.setArrowType(Qt::DownArrow);
     QStyleOptionToolButton opt;
-    opt.init(&b);
+    opt.initFrom(&b);
     opt.features |= QStyleOptionToolButton::Arrow;
     QPixmap surface(QSize(200, 200));
     QPainter painter(&surface);
 
     const QStringList keys = QStyleFactory::keys();
-    QVector<QStyle*> styles;
+    QList<QStyle *> styles;
     styles.reserve(keys.size() + 1);
 
     styles << new QCommonStyle();

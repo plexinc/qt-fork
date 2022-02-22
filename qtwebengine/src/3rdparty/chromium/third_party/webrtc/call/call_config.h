@@ -26,11 +26,13 @@ class AudioProcessing;
 class RtcEventLog;
 
 struct CallConfig {
-  explicit CallConfig(RtcEventLog* event_log);
+  // If |network_task_queue| is set to nullptr, Call will assume that network
+  // related callbacks will be made on the same TQ as the Call instance was
+  // constructed on.
+  explicit CallConfig(RtcEventLog* event_log,
+                      TaskQueueBase* network_task_queue = nullptr);
   CallConfig(const CallConfig&);
   ~CallConfig();
-
-  RTC_DEPRECATED static constexpr int kDefaultStartBitrateBps = 300000;
 
   // Bitrate config used until valid bitrate estimates are calculated. Also
   // used to cap total bitrate used. This comes from the remote connection.
@@ -44,7 +46,7 @@ struct CallConfig {
 
   // RtcEventLog to use for this call. Required.
   // Use webrtc::RtcEventLog::CreateNull() for a null implementation.
-  RtcEventLog* event_log = nullptr;
+  RtcEventLog* const event_log = nullptr;
 
   // FecController to use for this call.
   FecControllerFactoryInterface* fec_controller_factory = nullptr;
@@ -65,6 +67,8 @@ struct CallConfig {
   // Key-value mapping of internal configurations to apply,
   // e.g. field trials.
   const WebRtcKeyValueConfig* trials = nullptr;
+
+  TaskQueueBase* const network_task_queue_ = nullptr;
 };
 
 }  // namespace webrtc

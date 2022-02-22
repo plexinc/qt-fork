@@ -61,7 +61,7 @@ class Q_3DCORESHARED_EXPORT QTransform : public QComponent
     Q_PROPERTY(float rotationX READ rotationX WRITE setRotationX NOTIFY rotationXChanged)
     Q_PROPERTY(float rotationY READ rotationY WRITE setRotationY NOTIFY rotationYChanged)
     Q_PROPERTY(float rotationZ READ rotationZ WRITE setRotationZ NOTIFY rotationZChanged)
-    Q_PROPERTY(QMatrix4x4 worldMatrix READ worldMatrix NOTIFY worldMatrixChanged REVISION 14)
+    Q_PROPERTY(QMatrix4x4 worldMatrix READ worldMatrix NOTIFY worldMatrixChanged QT3D_PROPERTY_REVISION(2, 14))
 
 public:
     explicit QTransform(QNode *parent = nullptr);
@@ -119,12 +119,9 @@ Q_SIGNALS:
 
 protected:
     explicit QTransform(QTransformPrivate &dd, QNode *parent = nullptr);
-    // TODO Unused remove in Qt6
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) override;
 
 private:
     Q_DECLARE_PRIVATE(QTransform)
-    QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DCore

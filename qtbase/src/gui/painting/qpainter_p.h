@@ -65,6 +65,8 @@
 
 #include <private/qpen_p.h>
 
+#include <memory>
+
 QT_BEGIN_NAMESPACE
 
 class QPaintEngine;
@@ -100,7 +102,7 @@ inline bool qbrush_has_transform(const QBrush &b) { return data_ptr(b)->transfor
 class QPainterClipInfo
 {
 public:
-    QPainterClipInfo() {} // for QVector, don't use
+    QPainterClipInfo() { } // for QList, don't use
     enum ClipType { RegionClip, PathClip, RectClip, RectFClip };
 
     QPainterClipInfo(const QPainterPath &p, Qt::ClipOperation op, const QTransform &m) :
@@ -138,7 +140,7 @@ public:
 
 };
 
-Q_DECLARE_TYPEINFO(QPainterClipInfo, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QPainterClipInfo, Q_RELOCATABLE_TYPE);
 
 class Q_GUI_EXPORT QPainterState : public QPaintEngineState
 {
@@ -158,7 +160,7 @@ public:
     QPainterPath clipPath;
     Qt::ClipOperation clipOperation = Qt::NoClip;
     QPainter::RenderHints renderHints;
-    QVector<QPainterClipInfo> clipInfo; // ### Make me smaller and faster to copy around...
+    QList<QPainterClipInfo> clipInfo; // ### Make me smaller and faster to copy around...
     QTransform worldMatrix;       // World transformation matrix, not window and viewport
     QTransform matrix;            // Complete transformation matrix,
     QTransform redirectionMatrix;
@@ -206,7 +208,7 @@ public:
     QPainterState *state;
     QVarLengthArray<QPainterState *, 8> states;
 
-    mutable QPainterDummyState *dummyState;
+    mutable std::unique_ptr<QPainterDummyState> dummyState;
 
     QTransform invMatrix;
     uint txinv:1;
@@ -221,8 +223,8 @@ public:
 
     QPainterDummyState *fakeState() const {
         if (!dummyState)
-            dummyState = new QPainterDummyState();
-        return dummyState;
+            dummyState = std::make_unique<QPainterDummyState>();
+        return dummyState.get();
     }
 
     void updateEmulationSpecifier(QPainterState *s);
@@ -235,7 +237,7 @@ public:
     void drawTextItem(const QPointF &p, const QTextItem &_ti, QTextEngine *textEngine);
 
 #if !defined(QT_NO_RAWFONT)
-    void drawGlyphs(const quint32 *glyphArray, QFixedPoint *positionArray, int glyphCount,
+    void drawGlyphs(const QPointF &decorationPosition, const quint32 *glyphArray, QFixedPoint *positionArray, int glyphCount,
                     QFontEngine *fontEngine, bool overline = false, bool underline = false,
                     bool strikeOut = false);
 #endif
@@ -270,10 +272,6 @@ Q_GUI_EXPORT void qt_draw_helper(QPainterPrivate *p, const QPainterPath &path, Q
 
 QString qt_generate_brush_key(const QBrush &brush);
 
-inline bool qt_pen_is_cosmetic(const QPen &pen, QPainter::RenderHints hints)
-{
-    return pen.isCosmetic() || (const_cast<QPen &>(pen).data_ptr()->defaultWidth && (hints & QPainter::Qt4CompatiblePainting));
-}
 
 QT_END_NAMESPACE
 

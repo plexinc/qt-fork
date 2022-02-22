@@ -84,13 +84,12 @@ MainWindow::MainWindow(QWidget *parent)
 
 void MainWindow::setupFontTree()
 {
-    QFontDatabase database;
     fontTree->setColumnCount(1);
     fontTree->setHeaderLabels({ tr("Font") });
 
-    const QStringList fontFamilies = database.families();
+    const QStringList fontFamilies = QFontDatabase::families();
     for (const QString &family : fontFamilies) {
-        const QStringList styles = database.styles(family);
+        const QStringList styles = QFontDatabase::styles(family);
         if (styles.isEmpty())
             continue;
 
@@ -103,8 +102,8 @@ void MainWindow::setupFontTree()
             QTreeWidgetItem *styleItem = new QTreeWidgetItem(familyItem);
             styleItem->setText(0, style);
             styleItem->setCheckState(0, Qt::Unchecked);
-            styleItem->setData(0, Qt::UserRole, QVariant(database.weight(family, style)));
-            styleItem->setData(0, Qt::UserRole + 1, QVariant(database.italic(family, style)));
+            styleItem->setData(0, Qt::UserRole, QVariant(QFontDatabase::weight(family, style)));
+            styleItem->setData(0, Qt::UserRole + 1, QVariant(QFontDatabase::italic(family, style)));
         }
     }
 }
@@ -296,7 +295,7 @@ void MainWindow::on_printPreviewAction_triggered()
 void MainWindow::printPage(int index, QPainter *painter, QPrinter *printer)
 {
 #if defined(QT_PRINTSUPPORT_LIB) && QT_CONFIG(printdialog)
-    const QString family = (pageMap.begin() + index).key();
+    const QString family = std::next(pageMap.begin(), index).key();
     const StyleItems items = pageMap.value(family);
 
     // Find the dimensions of the text on each page.
@@ -320,16 +319,16 @@ void MainWindow::printPage(int index, QPainter *painter, QPrinter *printer)
         }
     }
 
-    qreal xScale = printer->pageRect().width() / width;
-    qreal yScale = printer->pageRect().height() / height;
+    qreal xScale = printer->pageRect(QPrinter::DevicePixel).width() / width;
+    qreal yScale = printer->pageRect(QPrinter::DevicePixel).height() / height;
     qreal scale = qMin(xScale, yScale);
 
-    qreal remainingHeight = printer->pageRect().height()/scale - height;
+    qreal remainingHeight = printer->pageRect(QPrinter::DevicePixel).height()/scale - height;
     qreal spaceHeight = (remainingHeight / 4.0) / (items.count() + 1);
     qreal interLineHeight = (remainingHeight / 4.0) / (sampleSizes.count() * items.count());
 
     painter->save();
-    painter->translate(printer->pageRect().width() / 2.0, printer->pageRect().height() / 2.0);
+    painter->translate(printer->pageRect(QPrinter::DevicePixel).width() / 2.0, printer->pageRect(QPrinter::DevicePixel).height() / 2.0);
     painter->scale(scale, scale);
     painter->setBrush(QBrush(Qt::black));
 

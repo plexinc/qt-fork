@@ -5,30 +5,33 @@
 **
 ** This file is part of the Qt3D module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL3$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
 ** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPLv3 included in the
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
 ** packaging of this file. Please review the following information to
 ** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl.html.
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
 ** GNU General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or later as published by the Free
-** Software Foundation and appearing in the file LICENSE.GPL included in
-** the packaging of this file. Please review the following information to
-** ensure the GNU General Public License version 2.0 requirements will be
-** met: http://www.gnu.org/licenses/gpl-2.0.html.
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -104,10 +107,10 @@ void BuildBlendTreesJob::run()
 
         // Store the clip value nodes to avoid further lookups below.
         // TODO: Refactor this next block into a function in animationutils.cpp that takes
-        // a QVector<QClipBlendValue*> as input.
-        QVector<ClipBlendValue *> valueNodes;
+        // a QList<QClipBlendValue*> as input.
+        QList<ClipBlendValue *> valueNodes;
         valueNodes.reserve(valueNodeIds.size());
-        for (const auto valueNodeId : valueNodeIds) {
+        for (const auto &valueNodeId : valueNodeIds) {
             ClipBlendValue *valueNode
                     = static_cast<ClipBlendValue *>(m_handler->clipBlendNodeManager()->lookupNode(valueNodeId));
             Q_ASSERT(valueNode);
@@ -181,20 +184,19 @@ void BuildBlendTreesJob::run()
         // Finally, build the mapping data vector for this blended clip animator. This
         // gets used during the final stage of evaluation when sending the property changes
         // out to the targets of the animation. We do the costly work once up front.
-        const QVector<Qt3DCore::QNodeId> channelMappingIds = mapper->mappingIds();
+        const Qt3DCore::QNodeIdVector channelMappingIds = mapper->mappingIds();
         QVector<ChannelMapping *> channelMappings;
         channelMappings.reserve(channelMappingIds.size());
-        for (const auto mappingId : channelMappingIds) {
+        for (const auto &mappingId : channelMappingIds) {
             ChannelMapping *mapping = m_handler->channelMappingManager()->lookupResource(mappingId);
             Q_ASSERT(mapping);
             channelMappings.push_back(mapping);
         }
 
-        const QVector<MappingData> mappingDataVec
-                = buildPropertyMappings(channelMappings,
-                                        channelNamesAndTypes,
-                                        channelComponentIndices,
-                                        blendTreeChannelMask);
+        const QVector<MappingData> mappingDataVec = buildPropertyMappings(channelMappings,
+                                                                          channelNamesAndTypes,
+                                                                          channelComponentIndices,
+                                                                          blendTreeChannelMask);
         blendClipAnimator->setMappingData(mappingDataVec);
     }
 }

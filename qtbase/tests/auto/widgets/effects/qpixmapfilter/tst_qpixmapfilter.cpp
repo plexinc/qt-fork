@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <qpixmap.h>
 #include <private/qpixmapfilter_p.h>
 #include <qpainter.h>
@@ -59,7 +59,8 @@ public:
 
     CustomFilter() : QPixmapFilter((QPixmapFilter::FilterType) Type, 0) { };
 
-    void draw(QPainter *p, const QPointF &pt, const QPixmap &src, const QRectF &srcRect = QRectF()) const {
+    void draw(QPainter *p, const QPointF &pt, const QPixmap &src, const QRectF &srcRect = QRectF()) const override
+    {
         p->drawPixmap(QRectF(pt, srcRect.size()), src, srcRect);
     }
 };
@@ -400,13 +401,13 @@ void tst_QPixmapFilter::blurIndexed8()
     QImage original = img;
     qt_blurImage(img, 10, true, false);
     QCOMPARE(original.size(), img.size());
-    QVERIFY2(qFuzzyCompare(img.devicePixelRatioF(), qreal(2)),
-             QByteArray::number(img.devicePixelRatioF()).constData());
+    QVERIFY2(qFuzzyCompare(img.devicePixelRatio(), qreal(2)),
+             QByteArray::number(img.devicePixelRatio()).constData());
 
     original = img;
     qt_blurImage(img, 10, true, true);
-    QVERIFY2(qFuzzyCompare(img.devicePixelRatioF(), qreal(2)),
-             QByteArray::number(img.devicePixelRatioF()).constData());
+    QVERIFY2(qFuzzyCompare(img.devicePixelRatio(), qreal(2)),
+             QByteArray::number(img.devicePixelRatio()).constData());
     QCOMPARE(original.size(), QSize(img.height(), img.width()));
 }
 

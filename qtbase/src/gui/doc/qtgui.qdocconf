@@ -5,6 +5,9 @@ project                 = QtGui
 description             = Qt GUI Reference Documentation
 version                 = $QT_VERSION
 
+includepaths           += ./includes
+moduleheader            = QtGuiDoc
+
 examplesinstallpath     = gui
 
 qhp.projects            = QtGui
@@ -30,11 +33,8 @@ tagfile                 = ../../../doc/qtgui/qtgui.tags
 depends += \
     qtcore \
     qtimageformats \
-    qtmacextras \
-    qtmultimedia \
     qtnetwork \
     qtopengl \
-    qtplatformheaders \
     qtprintsupport \
     qtsvg \
     qtqml \
@@ -43,7 +43,8 @@ depends += \
     qtdoc \
     qmake \
     qtcmake \
-    qttestlib
+    qttestlib \
+    qtplatformintegration
 
 headerdirs  += ..
 
@@ -53,6 +54,7 @@ sourcedirs  += .. \
 
 exampledirs += ../../../examples/gui \
                ../../../examples/vulkan \
+               ../../widgets/doc/snippets \
                snippets
 
 imagedirs   += images \
@@ -60,9 +62,10 @@ imagedirs   += images \
                ../../../doc/src/images
 
 # Included in qttestlib.qdocconf instead
-excludefiles += ../kernel/qtestsupport_gui.cpp
+excludefiles += ../kernel/qtestsupport_gui.cpp \
+                ../painting/qdrawhelper_ssse3.cpp
 
-manifestmeta.highlighted.names      = "QtGui/Analog Clock Window Example"
+# manifestmeta.highlighted.names      = "QtGui/Analog Clock Window Example"
 
 navigation.landingpage = "Qt GUI"
 navigation.cppclassespage = "Qt GUI C++ Classes"

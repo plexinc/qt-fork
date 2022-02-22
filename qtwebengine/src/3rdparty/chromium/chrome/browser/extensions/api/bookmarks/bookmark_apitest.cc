@@ -18,12 +18,27 @@
 #include "components/bookmarks/managed/managed_bookmark_service.h"
 #include "components/bookmarks/test/bookmark_test_helpers.h"
 #include "components/prefs/pref_service.h"
+#include "content/public/test/browser_test.h"
 
 using bookmarks::BookmarkModel;
 
 namespace extensions {
 
-IN_PROC_BROWSER_TEST_F(ExtensionApiTest, Bookmarks) {
+using ContextType = ExtensionApiTest::ContextType;
+
+class BookmarksApiTest : public ExtensionApiTest,
+                         public testing::WithParamInterface<ContextType> {
+};
+
+INSTANTIATE_TEST_SUITE_P(EventPage,
+                         BookmarksApiTest,
+                         ::testing::Values(ContextType::kEventPage));
+
+INSTANTIATE_TEST_SUITE_P(ServiceWorker,
+                         BookmarksApiTest,
+                         ::testing::Values(ContextType::kServiceWorker));
+
+IN_PROC_BROWSER_TEST_P(BookmarksApiTest, Bookmarks) {
   // Add test managed bookmarks to verify that the bookmarks API can read them
   // and can't modify them.
   Profile* profile = browser()->profile();
@@ -44,7 +59,10 @@ IN_PROC_BROWSER_TEST_F(ExtensionApiTest, Bookmarks) {
   profile->GetPrefs()->Set(bookmarks::prefs::kManagedBookmarks, list);
   ASSERT_EQ(2u, managed->managed_node()->children().size());
 
-  ASSERT_TRUE(RunExtensionTest("bookmarks")) << message_;
+  ASSERT_TRUE(RunExtensionTest(
+      {.name = "bookmarks"},
+      {.load_as_service_worker = GetParam() == ContextType::kServiceWorker}))
+      << message_;
 }
 
 }  // namespace extensions

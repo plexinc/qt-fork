@@ -38,6 +38,11 @@ void HidManagerImpl::SetHidServiceForTesting(
   g_hid_service.Get() = std::move(hid_service);
 }
 
+// static
+bool HidManagerImpl::IsHidServiceTesting() {
+  return g_hid_service.IsCreated();
+}
+
 void HidManagerImpl::AddReceiver(
     mojo::PendingReceiver<mojom::HidManager> receiver) {
   receivers_.Add(this, std::move(receiver));
@@ -73,8 +78,9 @@ void HidManagerImpl::Connect(
     const std::string& device_guid,
     mojo::PendingRemote<mojom::HidConnectionClient> connection_client,
     mojo::PendingRemote<mojom::HidConnectionWatcher> watcher,
+    bool allow_protected_reports,
     ConnectCallback callback) {
-  hid_service_->Connect(device_guid,
+  hid_service_->Connect(device_guid, allow_protected_reports,
                         base::AdaptCallbackForRepeating(base::BindOnce(
                             &HidManagerImpl::CreateConnection,
                             weak_factory_.GetWeakPtr(), std::move(callback),

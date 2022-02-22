@@ -5,19 +5,24 @@
 #ifndef PRINTING_BACKEND_PRINT_BACKEND_H_
 #define PRINTING_BACKEND_PRINT_BACKEND_H_
 
+#include <stdint.h>
+
 #include <map>
 #include <string>
 #include <vector>
 
 #include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
+#include "printing/mojom/print.mojom.h"
 #include "printing/print_job_constants.h"
 #include "printing/printing_export.h"
 #include "ui/gfx/geometry/size.h"
 
-#if defined(OS_CHROMEOS)
-#include "base/values.h"
-#endif  // defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include <stdint.h>
+#endif
 
 namespace base {
 class DictionaryValue;
@@ -26,10 +31,20 @@ class DictionaryValue;
 // This is the interface for platform-specific code for a print backend
 namespace printing {
 
+using PrinterBasicInfoOptions = std::map<std::string, std::string>;
+
 struct PRINTING_EXPORT PrinterBasicInfo {
   PrinterBasicInfo();
+  PrinterBasicInfo(const std::string& printer_name,
+                   const std::string& display_name,
+                   const std::string& printer_description,
+                   int printer_status,
+                   bool is_default,
+                   const PrinterBasicInfoOptions& options);
   PrinterBasicInfo(const PrinterBasicInfo& other);
   ~PrinterBasicInfo();
+
+  bool operator==(const PrinterBasicInfo& other) const;
 
   // The name of the printer as understood by OS.
   std::string printer_name;
@@ -40,18 +55,22 @@ struct PRINTING_EXPORT PrinterBasicInfo {
   std::string display_name;
   std::string printer_description;
   int printer_status = 0;
-  int is_default = false;
-  std::map<std::string, std::string> options;
+  bool is_default = false;
+  PrinterBasicInfoOptions options;
 };
 
 using PrinterList = std::vector<PrinterBasicInfo>;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 
 struct PRINTING_EXPORT AdvancedCapabilityValue {
   AdvancedCapabilityValue();
+  AdvancedCapabilityValue(const std::string& name,
+                          const std::string& display_name);
   AdvancedCapabilityValue(const AdvancedCapabilityValue& other);
   ~AdvancedCapabilityValue();
+
+  bool operator==(const AdvancedCapabilityValue& other) const;
 
   // IPP identifier of the value.
   std::string name;
@@ -61,9 +80,18 @@ struct PRINTING_EXPORT AdvancedCapabilityValue {
 };
 
 struct PRINTING_EXPORT AdvancedCapability {
+  enum class Type : uint8_t { kBoolean, kFloat, kInteger, kString };
+
   AdvancedCapability();
+  AdvancedCapability(const std::string& name,
+                     const std::string& display_name,
+                     AdvancedCapability::Type type,
+                     const std::string& default_value,
+                     const std::vector<AdvancedCapabilityValue>& values);
   AdvancedCapability(const AdvancedCapability& other);
   ~AdvancedCapability();
+
+  bool operator==(const AdvancedCapability& other) const;
 
   // IPP identifier of the attribute.
   std::string name;
@@ -72,7 +100,7 @@ struct PRINTING_EXPORT AdvancedCapability {
   std::string display_name;
 
   // Attribute type.
-  base::Value::Type type;
+  AdvancedCapability::Type type;
 
   // Default value.
   std::string default_value;
@@ -83,7 +111,7 @@ struct PRINTING_EXPORT AdvancedCapability {
 
 using AdvancedCapabilities = std::vector<AdvancedCapability>;
 
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 struct PRINTING_EXPORT PrinterSemanticCapsAndDefaults {
   PrinterSemanticCapsAndDefaults();
@@ -98,18 +126,20 @@ struct PRINTING_EXPORT PrinterSemanticCapsAndDefaults {
   // |copies_max| should never be < 1.
   int32_t copies_max = 1;
 
-  std::vector<DuplexMode> duplex_modes;
-  DuplexMode duplex_default = UNKNOWN_DUPLEX_MODE;
+  std::vector<mojom::DuplexMode> duplex_modes;
+  mojom::DuplexMode duplex_default = mojom::DuplexMode::kUnknownDuplexMode;
 
   bool color_changeable = false;
   bool color_default = false;
-  ColorModel color_model = UNKNOWN_COLOR_MODEL;
-  ColorModel bw_model = UNKNOWN_COLOR_MODEL;
+  mojom::ColorModel color_model = mojom::ColorModel::kUnknownColorModel;
+  mojom::ColorModel bw_model = mojom::ColorModel::kUnknownColorModel;
 
-  struct Paper {
+  struct PRINTING_EXPORT Paper {
     std::string display_name;
     std::string vendor_id;
     gfx::Size size_um;
+
+    bool operator==(const Paper& other) const;
   };
   using Papers = std::vector<Paper>;
   Papers papers;
@@ -119,10 +149,10 @@ struct PRINTING_EXPORT PrinterSemanticCapsAndDefaults {
   std::vector<gfx::Size> dpis;
   gfx::Size default_dpi;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   bool pin_supported = false;
   AdvancedCapabilities advanced_capabilities;
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 };
 
 struct PRINTING_EXPORT PrinterCapsAndDefaults {
@@ -178,11 +208,8 @@ class PRINTING_EXPORT PrintBackend
   // Returns true if printer_name points to a valid printer.
   virtual bool IsValidPrinter(const std::string& printer_name) = 0;
 
-  // Allocates a print backend. If |print_backend_settings| is nullptr, default
-  // settings will be used.
-  static scoped_refptr<PrintBackend> CreateInstance(
-      const base::DictionaryValue* print_backend_settings,
-      const std::string& locale);
+  // Allocates a print backend.
+  static scoped_refptr<PrintBackend> CreateInstance(const std::string& locale);
 
 #if defined(USE_CUPS)
   // TODO(crbug.com/1062136): Remove this static function when Cloud Print is

@@ -29,6 +29,7 @@
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
+#include "third_party/blink/renderer/core/svg/svg_length.h"
 #include "third_party/blink/renderer/core/svg/svg_svg_element.h"
 #include "third_party/blink/renderer/platform/fonts/font_metrics.h"
 #include "third_party/blink/renderer/platform/geometry/length_functions.h"
@@ -49,11 +50,10 @@ static inline float DimensionForLengthMode(SVGLengthMode mode,
   return 0;
 }
 
-static float ConvertValueFromPercentageToUserUnits(
-    const SVGLength& value,
-    const FloatSize& viewport_size) {
-  return CSSPrimitiveValue::ClampToCSSLengthRange(value.ScaleByPercentage(
-      DimensionForLengthMode(value.UnitMode(), viewport_size)));
+static float ConvertValueFromPercentageToUserUnits(const SVGLength& value,
+                                                   float viewport_dimension) {
+  return CSSPrimitiveValue::ClampToCSSLengthRange(
+      value.ScaleByPercentage(viewport_dimension));
 }
 
 static const ComputedStyle* ComputedStyleForLengthResolving(
@@ -167,12 +167,13 @@ FloatRect SVGLengthContext::ResolveRectangle(const SVGElement* context,
                                              const SVGLength& height) {
   DCHECK_NE(SVGUnitTypes::kSvgUnitTypeUnknown, type);
   if (type != SVGUnitTypes::kSvgUnitTypeUserspaceonuse) {
-    const FloatSize& viewport_size = viewport.Size();
     return FloatRect(
-        ConvertValueFromPercentageToUserUnits(x, viewport_size) + viewport.X(),
-        ConvertValueFromPercentageToUserUnits(y, viewport_size) + viewport.Y(),
-        ConvertValueFromPercentageToUserUnits(width, viewport_size),
-        ConvertValueFromPercentageToUserUnits(height, viewport_size));
+        ConvertValueFromPercentageToUserUnits(x, viewport.Width()) +
+            viewport.X(),
+        ConvertValueFromPercentageToUserUnits(y, viewport.Height()) +
+            viewport.Y(),
+        ConvertValueFromPercentageToUserUnits(width, viewport.Width()),
+        ConvertValueFromPercentageToUserUnits(height, viewport.Height()));
   }
 
   SVGLengthContext length_context(context);
@@ -201,9 +202,16 @@ FloatPoint SVGLengthContext::ResolveLengthPair(
     const Length& y_length,
     const ComputedStyle& style) const {
   FloatSize viewport_size;
-  if (x_length.IsPercentOrCalc() || y_length.IsPercentOrCalc())
+  if (x_length.IsPercentOrCalc() || y_length.IsPercentOrCalc()) {
     DetermineViewport(viewport_size);
-
+    // If either |x_length| or |y_length| is 'auto', set that viewport dimension
+    // to zero so that the corresponding Length resolves to zero. This matches
+    // the behavior of ValueForLength() below.
+    if (x_length.IsAuto())
+      viewport_size.SetWidth(0);
+    else if (y_length.IsAuto())
+      viewport_size.SetHeight(0);
+  }
   float zoom = style.EffectiveZoom();
   return FloatPoint(ValueForLength(x_length, zoom, viewport_size.Width()),
                     ValueForLength(y_length, zoom, viewport_size.Height()));
@@ -258,9 +266,8 @@ float SVGLengthContext::ValueForLength(const Length& length,
                                        float zoom,
                                        float dimension) {
   DCHECK_NE(zoom, 0);
-  // isIntrinsic can occur for 'width' and 'height', but has no
-  // real meaning for svg.
-  if (length.IsIntrinsic())
+  // Only "specified" lengths have meaning for SVG.
+  if (!length.IsSpecified())
     return 0;
   return FloatValueForLength(length, dimension * zoom) / zoom;
 }

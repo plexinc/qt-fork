@@ -41,22 +41,21 @@
 #define QXCBEGLCONTEXT_H
 
 #include "qxcbeglwindow.h"
-#include <QtEglSupport/private/qeglplatformcontext_p.h>
-#include <QtEglSupport/private/qeglpbuffer_p.h>
-#include <QtPlatformHeaders/QEGLNativeContext>
+#include <QtGui/private/qeglplatformcontext_p.h>
+#include <QtGui/private/qeglpbuffer_p.h>
 
 QT_BEGIN_NAMESPACE
 
 class QXcbEglContext : public QEGLPlatformContext
 {
 public:
-    QXcbEglContext(const QSurfaceFormat &glFormat, QPlatformOpenGLContext *share,
-                           EGLDisplay display, const QVariant &nativeHandle)
-        : QEGLPlatformContext(glFormat, share, display, nullptr, nativeHandle)
+    using QEGLPlatformContext::QEGLPlatformContext;
+    QXcbEglContext(const QSurfaceFormat &glFormat, QPlatformOpenGLContext *share, EGLDisplay display)
+        : QEGLPlatformContext(glFormat, share, display, nullptr)
     {
     }
 
-    void swapBuffers(QPlatformSurface *surface)
+    void swapBuffers(QPlatformSurface *surface) override
     {
         QEGLPlatformContext::swapBuffers(surface);
         if (surface->surface()->surfaceClass() == QSurface::Window) {
@@ -69,26 +68,22 @@ public:
         }
     }
 
-    bool makeCurrent(QPlatformSurface *surface)
+    bool makeCurrent(QPlatformSurface *surface) override
     {
         return QEGLPlatformContext::makeCurrent(surface);
     }
 
-    void doneCurrent()
+    void doneCurrent() override
     {
         QEGLPlatformContext::doneCurrent();
     }
 
-    EGLSurface eglSurfaceForPlatformSurface(QPlatformSurface *surface)
+    EGLSurface eglSurfaceForPlatformSurface(QPlatformSurface *surface) override
     {
         if (surface->surface()->surfaceClass() == QSurface::Window)
             return static_cast<QXcbEglWindow *>(surface)->eglSurface();
         else
             return static_cast<QEGLPbuffer *>(surface)->pbuffer();
-    }
-
-    QVariant nativeHandle() const {
-        return QVariant::fromValue<QEGLNativeContext>(QEGLNativeContext(eglContext(), eglDisplay()));
     }
 };
 

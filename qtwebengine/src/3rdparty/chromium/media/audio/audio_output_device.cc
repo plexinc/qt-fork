@@ -11,6 +11,7 @@
 #include <utility>
 
 #include "base/callback_helpers.h"
+#include "base/logging.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/single_thread_task_runner.h"
@@ -33,7 +34,7 @@ AudioOutputDevice::AudioOutputDevice(
     const AudioSinkParameters& sink_params,
     base::TimeDelta authorization_timeout)
     : io_task_runner_(io_task_runner),
-      callback_(NULL),
+      callback_(nullptr),
       ipc_(std::move(ipc)),
       state_(IDLE),
       session_id_(sink_params.session_id),
@@ -62,7 +63,12 @@ void AudioOutputDevice::InitializeOnIOThread(const AudioParameters& params,
   DCHECK(params.IsValid());
   DVLOG(1) << __func__ << ": " << params.AsHumanReadableString();
   audio_parameters_ = params;
-  callback_ = callback;
+
+  base::AutoLock auto_lock(audio_thread_lock_);
+  // If Stop() has already been called, RenderCallback has already been
+  // destroyed. So |callback| would be a dangling pointer.
+  if (!stopping_hack_)
+    callback_ = callback;
 }
 
 AudioOutputDevice::~AudioOutputDevice() {
@@ -157,7 +163,7 @@ void AudioOutputDevice::GetOutputDeviceInfoAsync(OutputDeviceInfoCB info_cb) {
     base::AutoLock auto_lock(device_info_lock_);
     if (!did_receive_auth_.IsSignaled()) {
       DCHECK(!pending_device_info_cb_);
-      pending_device_info_cb_ = BindToCurrentLoop(std::move(info_cb));
+      pending_device_info_cb_ = BindToCurrentLoop(std::move(info_cb), FROM_HERE);
       return;
     }
   }
@@ -205,7 +211,13 @@ void AudioOutputDevice::RequestDeviceAuthorizationOnIOThread() {
 void AudioOutputDevice::CreateStreamOnIOThread() {
   TRACE_EVENT0("audio", "AudioOutputDevice::Create");
   DCHECK(io_task_runner_->BelongsToCurrentThread());
-  DCHECK(callback_) << "Initialize hasn't been called";
+#if DCHECK_IS_ON()
+  {
+    base::AutoLock auto_lock(audio_thread_lock_);
+    if (!stopping_hack_)
+      DCHECK(callback_) << "Initialize hasn't been called";
+  }
+#endif
   DCHECK_NE(state_, STREAM_CREATION_REQUESTED);
 
   if (!ipc_) {
@@ -367,7 +379,7 @@ void AudioOutputDevice::OnStreamCreated(
     base::UnsafeSharedMemoryRegion shared_memory_region,
     base::SyncSocket::ScopedHandle socket_handle,
     bool playing_automatically) {
-  TRACE_EVENT0("audio", "AudioOutputDevice::OnStreamCreated")
+  TRACE_EVENT0("audio", "AudioOutputDevice::OnStreamCreated");
 
   DCHECK(io_task_runner_->BelongsToCurrentThread());
   DCHECK(shared_memory_region.IsValid());
@@ -402,8 +414,7 @@ void AudioOutputDevice::OnStreamCreated(
     DCHECK(!audio_callback_);
 
     audio_callback_.reset(new AudioOutputDeviceThreadCallback(
-        audio_parameters_, std::move(shared_memory_region), callback_,
-        std::make_unique<AudioOutputDeviceThreadCallback::Metrics>()));
+        audio_parameters_, std::move(shared_memory_region), callback_));
     if (playing_automatically)
       audio_callback_->InitializePlayStartTime();
     audio_thread_.reset(new AudioDeviceThread(

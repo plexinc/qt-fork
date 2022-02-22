@@ -8,6 +8,7 @@
 
 #include "base/command_line.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "ui/gfx/animation/animation_container.h"
 #include "ui/gfx/animation/animation_delegate.h"
 #include "ui/gfx/animation/tween.h"
@@ -26,8 +27,7 @@ base::Optional<bool> Animation::prefers_reduced_motion_;
 Animation::Animation(base::TimeDelta timer_interval)
     : timer_interval_(timer_interval),
       is_animating_(false),
-      delegate_(NULL) {
-}
+      delegate_(nullptr) {}
 
 Animation::~Animation() {
   // Don't send out notification from the destructor. Chances are the delegate
@@ -112,7 +112,7 @@ bool Animation::ShouldRenderRichAnimation() {
          RichAnimationRenderMode::FORCE_ENABLED;
 }
 
-#if defined(OS_ANDROID) || defined(OS_CHROMEOS) || defined(OS_IOS) || \
+#if defined(OS_ANDROID) || BUILDFLAG(IS_CHROMEOS_ASH) || defined(OS_IOS) || \
     defined(OS_FUCHSIA)
 // static
 bool Animation::ShouldRenderRichAnimationImpl() {
@@ -137,8 +137,8 @@ void Animation::UpdatePrefersReducedMotion() {
   prefers_reduced_motion_ = false;
 }
 #endif  // !defined(OS_ANDROID)
-#endif  // defined(OS_ANDROID) || defined(OS_CHROMEOS) || defined(OS_IOS) ||
-        // defined(OS_FUCHSIA)
+#endif  // defined(OS_ANDROID) || BUILDFLAG(IS_CHROMEOS_ASH) || defined(OS_IOS)
+        // || defined(OS_FUCHSIA)
 
 // static
 bool Animation::PrefersReducedMotion() {

@@ -34,6 +34,7 @@ class OpenXrController {
       XrInstance instance,
       XrSession session,
       const OpenXRPathHelper* path_helper,
+      const OpenXrExtensionHelper& extension_helper,
       std::map<XrPath, std::vector<XrActionSuggestedBinding>>* bindings);
 
   XrActionSet action_set() const { return action_set_; }
@@ -56,9 +57,15 @@ class OpenXrController {
 
   XrResult UpdateInteractionProfile();
 
+  // Hand Tracking
+  mojom::XRHandTrackingDataPtr GetHandTrackingData(
+      XrSpace base_space,
+      XrTime predicted_display_time);
+
  private:
   XrResult InitializeControllerActions();
   XrResult InitializeControllerSpaces();
+  XrResult InitializeHandTracking();
 
   XrResult SuggestBindings(
       std::map<XrPath, std::vector<XrActionSuggestedBinding>>* bindings) const;
@@ -138,6 +145,7 @@ class OpenXrController {
   OpenXrHandednessType type_;
   XrInstance instance_;
   XrSession session_;
+  XrHandTrackerEXT hand_tracker_{XR_NULL_HANDLE};
   XrActionSet action_set_;
   XrAction grip_pose_action_;
   XrSpace grip_pose_space_;
@@ -152,6 +160,7 @@ class OpenXrController {
   std::unordered_map<OpenXrAxisType, XrAction> axis_action_map_;
 
   const OpenXRPathHelper* path_helper_;
+  const OpenXrExtensionHelper* extension_helper_;
 
   DISALLOW_COPY_AND_ASSIGN(OpenXrController);
 };

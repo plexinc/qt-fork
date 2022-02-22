@@ -29,6 +29,7 @@
     \module QtSvg
     \title Qt SVG C++ Classes
     \ingroup modules
+    \qtcmakepackage Svg
     \qtvariable svg
 
     \brief The Qt SVG module provides functionality for handling SVG images.
@@ -38,4 +39,19 @@
     for rendering and displaying SVG drawings in widgets and on other
     paint devices. See the class descriptions for further details.
 
+    The \l{Qt SVG Widgets C++ Classes}{Qt SVG Widgets} library provides C++
+    classes for rendering SVG drawings into widget UIs.
+
+    \generatelist classesbymodule QtSvgWidgets
+*/
+
+/*
+    This "module" only exists so that classes in the separate library have
+    the correct build system documentation.
+*/
+/*!
+    \module QtSvgWidgets
+    \title Qt SVG Widgets C++ Classes
+    \qtcmakepackage SvgWidgets
+    \qtvariable svgwidgets
 */

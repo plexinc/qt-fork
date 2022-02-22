@@ -43,7 +43,7 @@
 #include <QtCore/QRectF>
 #include <QtCore/QSizeF>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class Q_CHARTS_PRIVATE_EXPORT XYDomain: public AbstractDomain
 {
@@ -52,23 +52,23 @@ public:
     explicit XYDomain(QObject *object = 0);
     virtual ~XYDomain();
 
-    DomainType type(){ return AbstractDomain::XYDomain;}
+    DomainType type() override { return AbstractDomain::XYDomain; }
 
-    void setRange(qreal minX, qreal maxX, qreal minY, qreal maxY);
+    void setRange(qreal minX, qreal maxX, qreal minY, qreal maxY) override;
 
     friend bool Q_AUTOTEST_EXPORT operator== (const XYDomain &Domain1, const XYDomain &Domain2);
     friend bool Q_AUTOTEST_EXPORT operator!= (const XYDomain &Domain1, const XYDomain &Domain2);
     friend QDebug Q_AUTOTEST_EXPORT operator<<(QDebug dbg, const XYDomain &AbstractDomain);
 
-    void zoomIn(const QRectF &rect);
-    void zoomOut(const QRectF &rect);
-    void move(qreal dx, qreal dy);
+    void zoomIn(const QRectF &rect) override;
+    void zoomOut(const QRectF &rect) override;
+    void move(qreal dx, qreal dy) override;
 
-    QPointF calculateGeometryPoint(const QPointF &point, bool &ok) const;
-    QPointF calculateDomainPoint(const QPointF &point) const;
-    QVector<QPointF> calculateGeometryPoints(const QVector<QPointF> &vector) const;
+    QPointF calculateGeometryPoint(const QPointF &point, bool &ok) const override;
+    QPointF calculateDomainPoint(const QPointF &point) const override;
+    QList<QPointF> calculateGeometryPoints(const QList<QPointF> &list) const override;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // XYDOMAIN_H

@@ -12,31 +12,75 @@
 
 namespace blink {
 
-class ScriptWrappable;
-class Visitor;
-
 /**
- * Classes deriving from ActiveScriptWrappable will be registered in a
- * thread-specific list. They keep their wrappers and dependant objects alive
- * as long as they have pending activity.
+ * Classes deriving from ActiveScriptWrappable will be kept alive as long as
+ * they have a pending activity. Destroying the corresponding ExecutionContext
+ * implicitly releases them to avoid leaks.
  */
 class PLATFORM_EXPORT ActiveScriptWrappableBase : public GarbageCollectedMixin {
  public:
-  static void TraceActiveScriptWrappables(v8::Isolate*, Visitor*);
-
   virtual ~ActiveScriptWrappableBase() = default;
-
- protected:
-  ActiveScriptWrappableBase();
 
   virtual bool IsContextDestroyed() const = 0;
   virtual bool DispatchHasPendingActivity() const = 0;
-  virtual const ScriptWrappable* ToScriptWrappable() const = 0;
+
+  // See trait below.
+  //
+  // Registering the ActiveScriptWrappableBase after construction means that
+  // the garbage collector does not need to deal with objects that are
+  // currently under construction. This is important as checking whether ASW
+  // should be treated as active involves calling virtual functions which may
+  // not work during construction. The objects in construction are kept alive
+  // via conservative stack scanning.
+  void ActiveScriptWrappableBaseConstructed();
+
+ protected:
+  ActiveScriptWrappableBase() = default;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ActiveScriptWrappableBase);
 };
 
 }  // namespace blink
+
+#if BUILDFLAG(USE_V8_OILPAN)
+
+namespace cppgc {
+template <typename T, typename Unused>
+struct PostConstructionCallbackTrait;
+
+template <typename T>
+struct PostConstructionCallbackTrait<
+    T,
+    base::void_t<decltype(
+        std::declval<T>().ActiveScriptWrappableBaseConstructed())>> {
+  static void Call(T* object) {
+    static_assert(std::is_base_of<blink::ActiveScriptWrappableBase, T>::value,
+                  "Only ActiveScriptWrappableBase should use the "
+                  "post-construction hook.");
+    object->ActiveScriptWrappableBaseConstructed();
+  }
+};
+}  // namespace cppgc
+
+#else  // !USE_V8_OILPAN
+
+namespace blink {
+template <typename T>
+struct PostConstructionHookTrait<
+    T,
+    base::void_t<decltype(
+        std::declval<T>().ActiveScriptWrappableBaseConstructed())>> {
+  static void Call(T* object) {
+    static_assert(std::is_base_of<ActiveScriptWrappableBase, T>::value,
+                  "Only ActiveScriptWrappableBase should use the "
+                  "post-construction hook.");
+    object->ActiveScriptWrappableBaseConstructed();
+  }
+};
+
+}  // namespace blink
+
+#endif  // !USE_V8_OILPAN
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_BINDINGS_ACTIVE_SCRIPT_WRAPPABLE_BASE_H_

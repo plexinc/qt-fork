@@ -33,32 +33,34 @@
 #include "third_party/blink/renderer/platform/fonts/font_cache.h"
 #include "third_party/blink/renderer/platform/fonts/font_cache_key.h"
 #include "third_party/blink/renderer/platform/fonts/font_description.h"
+#include "third_party/blink/renderer/platform/fonts/font_fallback_map.h"
 #include "third_party/blink/renderer/platform/fonts/font_family.h"
 #include "third_party/blink/renderer/platform/fonts/segmented_font_data.h"
 #include "third_party/blink/renderer/platform/wtf/text/character_names.h"
 
 namespace blink {
 
-FontFallbackList::FontFallbackList(FontSelector* font_selector)
+FontFallbackList::FontFallbackList(FontFallbackMap& font_fallback_map)
     : cached_primary_simple_font_data_(nullptr),
-      font_selector_(font_selector),
-      font_selector_version_(font_selector ? font_selector->Version() : 0),
+      font_fallback_map_(font_fallback_map),
       family_index_(0),
       generation_(FontCache::GetFontCache()->Generation()),
       has_loading_fallback_(false),
+      has_custom_font_(false),
+      has_advance_override_(false),
       can_shape_word_by_word_(false),
-      can_shape_word_by_word_computed_(false) {}
+      can_shape_word_by_word_computed_(false),
+      is_invalid_(false) {}
 
-void FontFallbackList::Invalidate() {
+FontFallbackList::~FontFallbackList() {
   ReleaseFontData();
-  font_list_.clear();
-  cached_primary_simple_font_data_ = nullptr;
-  family_index_ = 0;
-  has_loading_fallback_ = false;
-  can_shape_word_by_word_ = false;
-  can_shape_word_by_word_computed_ = false;
-  font_selector_version_ = font_selector_ ? font_selector_->Version() : 0;
-  generation_ = FontCache::GetFontCache()->Generation();
+}
+
+FontSelector* FontFallbackList::GetFontSelector() const {
+  // FontFallbackList objects are managed in FontFallbackMap, and should not be
+  // used after FontFallbackMap is destroyed.
+  DCHECK(font_fallback_map_);
+  return font_fallback_map_->GetFontSelector();
 }
 
 void FontFallbackList::ReleaseFontData() {
@@ -73,24 +75,9 @@ void FontFallbackList::ReleaseFontData() {
   shape_cache_.reset();  // Clear the weak pointer to the cache instance.
 }
 
-bool FontFallbackList::LoadingCustomFonts() const {
-  // This function is only used for style and layout invalidation purposes. We
-  // don't need it for invalidation when the feature below is enabled.
-  if (RuntimeEnabledFeatures::CSSReducedFontLoadingInvalidationsEnabled())
-    return false;
-
-  if (!has_loading_fallback_)
-    return false;
-
-  unsigned num_fonts = font_list_.size();
-  for (unsigned i = 0; i < num_fonts; ++i) {
-    if (font_list_[i]->IsLoading())
-      return true;
-  }
-  return false;
-}
-
 bool FontFallbackList::ShouldSkipDrawing() const {
+  // The DCHECK hit will be fixed by the runtime enabled feature below, so we
+  // don't fix it in the legacy code paths.
   DCHECK(IsValid());
 
   if (!has_loading_fallback_)
@@ -157,45 +144,58 @@ const SimpleFontData* FontFallbackList::DeterminePrimarySimpleFontData(
 }
 
 scoped_refptr<FontData> FontFallbackList::GetFontData(
-    const FontDescription& font_description,
-    int& family_index) const {
+    const FontDescription& font_description) {
   const FontFamily* curr_family = &font_description.Family();
-  for (int i = 0; curr_family && i < family_index; i++)
+  for (int i = 0; curr_family && i < family_index_; i++)
     curr_family = curr_family->Next();
 
   for (; curr_family; curr_family = curr_family->Next()) {
-    family_index++;
+    family_index_++;
     if (curr_family->Family().length()) {
       scoped_refptr<FontData> result;
-      if (font_selector_)
-        result = font_selector_->GetFontData(font_description,
-                                             curr_family->Family());
-      if (!result)
+      if (GetFontSelector()) {
+        result = GetFontSelector()->GetFontData(font_description,
+                                                curr_family->Family());
+      }
+
+      if (!result) {
         result = FontCache::GetFontCache()->GetFontData(font_description,
                                                         curr_family->Family());
+        if (GetFontSelector()) {
+          GetFontSelector()->ReportFontLookupByUniqueOrFamilyName(
+              curr_family->Family(), font_description,
+              DynamicTo<SimpleFontData>(result.get()));
+        }
+      }
       if (result) {
-        if (font_selector_) {
-          font_selector_->ReportSuccessfulFontFamilyMatch(
+        if (GetFontSelector()) {
+          GetFontSelector()->ReportSuccessfulFontFamilyMatch(
               curr_family->Family());
         }
         return result;
       }
 
-      if (font_selector_)
-        font_selector_->ReportFailedFontFamilyMatch(curr_family->Family());
+      if (GetFontSelector())
+        GetFontSelector()->ReportFailedFontFamilyMatch(curr_family->Family());
     }
   }
-  family_index = kCAllFamiliesScanned;
+  family_index_ = kCAllFamiliesScanned;
 
-  if (font_selector_) {
+  if (GetFontSelector()) {
     // Try the user's preferred standard font.
-    if (scoped_refptr<FontData> data = font_selector_->GetFontData(
+    if (scoped_refptr<FontData> data = GetFontSelector()->GetFontData(
             font_description, font_family_names::kWebkitStandard))
       return data;
   }
 
   // Still no result. Hand back our last resort fallback font.
-  return FontCache::GetFontCache()->GetLastResortFallbackFont(font_description);
+  auto last_resort =
+      FontCache::GetFontCache()->GetLastResortFallbackFont(font_description);
+  if (GetFontSelector()) {
+    GetFontSelector()->ReportLastResortFallbackFontLookup(font_description,
+                                                          last_resort.get());
+  }
+  return last_resort;
 }
 
 FallbackListCompositeKey FontFallbackList::CompositeKey(
@@ -207,9 +207,10 @@ FallbackListCompositeKey FontFallbackList::CompositeKey(
       FontFaceCreationParams params(
           AdjustFamilyNameToAvoidUnsupportedFonts(current_family->Family()));
       scoped_refptr<FontData> result;
-      if (font_selector_)
-        result = font_selector_->GetFontData(font_description,
-                                             current_family->Family());
+      if (GetFontSelector()) {
+        result = GetFontSelector()->GetFontData(font_description,
+                                                current_family->Family());
+      }
       if (!result) {
         if (FontPlatformData* platform_data =
                 FontCache::GetFontCache()->GetFontPlatformData(font_description,
@@ -234,11 +235,6 @@ FallbackListCompositeKey FontFallbackList::CompositeKey(
 const FontData* FontFallbackList::FontDataAt(
     const FontDescription& font_description,
     unsigned realized_font_index) {
-  if (RuntimeEnabledFeatures::CSSReducedFontLoadingInvalidationsEnabled()) {
-    if (!IsValid())
-      Invalidate();
-  }
-
   // This fallback font is already in our list.
   if (realized_font_index < font_list_.size())
     return font_list_[realized_font_index].get();
@@ -255,11 +251,15 @@ const FontData* FontFallbackList::FontDataAt(
   // the same spot in the list twice.  GetFontData will adjust our
   // |family_index_| as it scans for the right font to make.
   DCHECK_EQ(FontCache::GetFontCache()->Generation(), generation_);
-  scoped_refptr<FontData> result = GetFontData(font_description, family_index_);
+  scoped_refptr<FontData> result = GetFontData(font_description);
   if (result) {
     font_list_.push_back(result);
     if (result->IsLoadingFallback())
       has_loading_fallback_ = true;
+    if (result->IsCustomFont())
+      has_custom_font_ = true;
+    if (result->HasAdvanceOverride())
+      has_advance_override_ = true;
   }
   return result.get();
 }
@@ -280,23 +280,11 @@ bool FontFallbackList::ComputeCanShapeWordByWord(
 
 bool FontFallbackList::CanShapeWordByWord(
     const FontDescription& font_description) {
-  if (RuntimeEnabledFeatures::CSSReducedFontLoadingInvalidationsEnabled()) {
-    if (!IsValid())
-      Invalidate();
-  }
-
   if (!can_shape_word_by_word_computed_) {
     can_shape_word_by_word_ = ComputeCanShapeWordByWord(font_description);
     can_shape_word_by_word_computed_ = true;
   }
   return can_shape_word_by_word_;
-}
-
-bool FontFallbackList::IsValid() const {
-  if (!font_selector_)
-    return font_selector_version_ == 0;
-
-  return font_selector_->Version() == font_selector_version_;
 }
 
 }  // namespace blink

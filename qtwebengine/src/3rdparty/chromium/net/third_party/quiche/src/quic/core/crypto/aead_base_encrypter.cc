@@ -2,17 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/crypto/aead_base_encrypter.h"
+#include "quic/core/crypto/aead_base_encrypter.h"
 
+#include "absl/base/macros.h"
+#include "absl/strings/string_view.h"
 #include "third_party/boringssl/src/include/openssl/crypto.h"
 #include "third_party/boringssl/src/include/openssl/err.h"
 #include "third_party/boringssl/src/include/openssl/evp.h"
-#include "net/third_party/quiche/src/quic/core/quic_utils.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_aligned.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_bug_tracker.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_arraysize.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "quic/core/quic_utils.h"
+#include "quic/platform/api/quic_bug_tracker.h"
+#include "quic/platform/api/quic_logging.h"
 
 namespace quic {
 
@@ -27,7 +26,7 @@ void DLogOpenSslErrors() {
 #else
   while (unsigned long error = ERR_get_error()) {
     char buf[120];
-    ERR_error_string_n(error, buf, QUICHE_ARRAYSIZE(buf));
+    ERR_error_string_n(error, buf, ABSL_ARRAYSIZE(buf));
     QUIC_DLOG(ERROR) << "OpenSSL error: " << buf;
   }
 #endif
@@ -52,15 +51,15 @@ AeadBaseEncrypter::AeadBaseEncrypter(const EVP_AEAD* (*aead_getter)(),
       auth_tag_size_(auth_tag_size),
       nonce_size_(nonce_size),
       use_ietf_nonce_construction_(use_ietf_nonce_construction) {
-  DCHECK_LE(key_size_, sizeof(key_));
-  DCHECK_LE(nonce_size_, sizeof(iv_));
-  DCHECK_GE(kMaxNonceSize, nonce_size_);
+  QUICHE_DCHECK_LE(key_size_, sizeof(key_));
+  QUICHE_DCHECK_LE(nonce_size_, sizeof(iv_));
+  QUICHE_DCHECK_GE(kMaxNonceSize, nonce_size_);
 }
 
 AeadBaseEncrypter::~AeadBaseEncrypter() {}
 
-bool AeadBaseEncrypter::SetKey(quiche::QuicheStringPiece key) {
-  DCHECK_EQ(key.size(), key_size_);
+bool AeadBaseEncrypter::SetKey(absl::string_view key) {
+  QUICHE_DCHECK_EQ(key.size(), key_size_);
   if (key.size() != key_size_) {
     return false;
   }
@@ -77,12 +76,12 @@ bool AeadBaseEncrypter::SetKey(quiche::QuicheStringPiece key) {
   return true;
 }
 
-bool AeadBaseEncrypter::SetNoncePrefix(quiche::QuicheStringPiece nonce_prefix) {
+bool AeadBaseEncrypter::SetNoncePrefix(absl::string_view nonce_prefix) {
   if (use_ietf_nonce_construction_) {
     QUIC_BUG << "Attempted to set nonce prefix on IETF QUIC crypter";
     return false;
   }
-  DCHECK_EQ(nonce_prefix.size(), nonce_size_ - sizeof(QuicPacketNumber));
+  QUICHE_DCHECK_EQ(nonce_prefix.size(), nonce_size_ - sizeof(QuicPacketNumber));
   if (nonce_prefix.size() != nonce_size_ - sizeof(QuicPacketNumber)) {
     return false;
   }
@@ -90,12 +89,12 @@ bool AeadBaseEncrypter::SetNoncePrefix(quiche::QuicheStringPiece nonce_prefix) {
   return true;
 }
 
-bool AeadBaseEncrypter::SetIV(quiche::QuicheStringPiece iv) {
+bool AeadBaseEncrypter::SetIV(absl::string_view iv) {
   if (!use_ietf_nonce_construction_) {
     QUIC_BUG << "Attempted to set IV on Google QUIC crypter";
     return false;
   }
-  DCHECK_EQ(iv.size(), nonce_size_);
+  QUICHE_DCHECK_EQ(iv.size(), nonce_size_);
   if (iv.size() != nonce_size_) {
     return false;
   }
@@ -103,11 +102,11 @@ bool AeadBaseEncrypter::SetIV(quiche::QuicheStringPiece iv) {
   return true;
 }
 
-bool AeadBaseEncrypter::Encrypt(quiche::QuicheStringPiece nonce,
-                                quiche::QuicheStringPiece associated_data,
-                                quiche::QuicheStringPiece plaintext,
+bool AeadBaseEncrypter::Encrypt(absl::string_view nonce,
+                                absl::string_view associated_data,
+                                absl::string_view plaintext,
                                 unsigned char* output) {
-  DCHECK_EQ(nonce.size(), nonce_size_);
+  QUICHE_DCHECK_EQ(nonce.size(), nonce_size_);
 
   size_t ciphertext_len;
   if (!EVP_AEAD_CTX_seal(
@@ -125,8 +124,8 @@ bool AeadBaseEncrypter::Encrypt(quiche::QuicheStringPiece nonce,
 }
 
 bool AeadBaseEncrypter::EncryptPacket(uint64_t packet_number,
-                                      quiche::QuicheStringPiece associated_data,
-                                      quiche::QuicheStringPiece plaintext,
+                                      absl::string_view associated_data,
+                                      absl::string_view plaintext,
                                       char* output,
                                       size_t* output_length,
                                       size_t max_output_length) {
@@ -136,7 +135,7 @@ bool AeadBaseEncrypter::EncryptPacket(uint64_t packet_number,
   }
   // TODO(ianswett): Introduce a check to ensure that we don't encrypt with the
   // same packet number twice.
-  QUIC_ALIGNED(4) char nonce_buffer[kMaxNonceSize];
+  alignas(4) char nonce_buffer[kMaxNonceSize];
   memcpy(nonce_buffer, iv_, nonce_size_);
   size_t prefix_len = nonce_size_ - sizeof(packet_number);
   if (use_ietf_nonce_construction_) {
@@ -148,9 +147,8 @@ bool AeadBaseEncrypter::EncryptPacket(uint64_t packet_number,
     memcpy(nonce_buffer + prefix_len, &packet_number, sizeof(packet_number));
   }
 
-  if (!Encrypt(quiche::QuicheStringPiece(nonce_buffer, nonce_size_),
-               associated_data, plaintext,
-               reinterpret_cast<unsigned char*>(output))) {
+  if (!Encrypt(absl::string_view(nonce_buffer, nonce_size_), associated_data,
+               plaintext, reinterpret_cast<unsigned char*>(output))) {
     return false;
   }
   *output_length = ciphertext_size;
@@ -177,14 +175,13 @@ size_t AeadBaseEncrypter::GetCiphertextSize(size_t plaintext_size) const {
   return plaintext_size + auth_tag_size_;
 }
 
-quiche::QuicheStringPiece AeadBaseEncrypter::GetKey() const {
-  return quiche::QuicheStringPiece(reinterpret_cast<const char*>(key_),
-                                   key_size_);
+absl::string_view AeadBaseEncrypter::GetKey() const {
+  return absl::string_view(reinterpret_cast<const char*>(key_), key_size_);
 }
 
-quiche::QuicheStringPiece AeadBaseEncrypter::GetNoncePrefix() const {
-  return quiche::QuicheStringPiece(reinterpret_cast<const char*>(iv_),
-                                   GetNoncePrefixSize());
+absl::string_view AeadBaseEncrypter::GetNoncePrefix() const {
+  return absl::string_view(reinterpret_cast<const char*>(iv_),
+                           GetNoncePrefixSize());
 }
 
 }  // namespace quic

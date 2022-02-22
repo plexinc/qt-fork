@@ -4,9 +4,11 @@
 
 #include "storage/browser/file_system/sandbox_prioritized_origin_database.h"
 
+#include <memory>
+
+#include "base/check.h"
 #include "base/files/file.h"
 #include "base/files/file_util.h"
-#include "base/logging.h"
 #include "base/pickle.h"
 #include "storage/browser/file_system/sandbox_isolated_origin_database.h"
 #include "storage/browser/file_system/sandbox_origin_database.h"
@@ -65,8 +67,10 @@ bool SandboxPrioritizedOriginDatabase::InitializePrimaryOrigin(
   if (!primary_origin_database_ && !is_in_memory) {
     if (!MaybeLoadPrimaryOrigin() && ResetPrimaryOrigin(origin)) {
       MaybeMigrateDatabase(origin);
-      primary_origin_database_.reset(new SandboxIsolatedOriginDatabase(
-          origin, file_system_directory_, base::FilePath(kPrimaryDirectory)));
+      primary_origin_database_ =
+          std::make_unique<SandboxIsolatedOriginDatabase>(
+              origin, file_system_directory_,
+              base::FilePath(kPrimaryDirectory));
       return true;
     }
   }
@@ -112,8 +116,8 @@ bool SandboxPrioritizedOriginDatabase::RemovePathForOrigin(
   if (primary_origin_database_ &&
       primary_origin_database_->HasOriginPath(origin)) {
     primary_origin_database_.reset();
-    base::DeleteFile(file_system_directory_.Append(kPrimaryOriginFile),
-                     true /* recursive */);
+    base::DeletePathRecursively(
+        file_system_directory_.Append(kPrimaryOriginFile));
     return true;
   }
   if (origin_database_)
@@ -151,8 +155,8 @@ bool SandboxPrioritizedOriginDatabase::MaybeLoadPrimaryOrigin() {
   std::string saved_origin;
   if (!ReadPrimaryOriginFile(primary_origin_file_, &saved_origin))
     return false;
-  primary_origin_database_.reset(new SandboxIsolatedOriginDatabase(
-      saved_origin, file_system_directory_, base::FilePath(kPrimaryDirectory)));
+  primary_origin_database_ = std::make_unique<SandboxIsolatedOriginDatabase>(
+      saved_origin, file_system_directory_, base::FilePath(kPrimaryDirectory));
   return true;
 }
 
@@ -165,8 +169,7 @@ bool SandboxPrioritizedOriginDatabase::ResetPrimaryOrigin(
   // (This means the origin file corruption causes data loss
   // We could keep the directory there as the same origin will likely
   // become the primary origin, but let's play conservatively.)
-  base::DeleteFile(file_system_directory_.Append(kPrimaryDirectory),
-                   true /* recursive */);
+  base::DeletePathRecursively(file_system_directory_.Append(kPrimaryDirectory));
   return true;
 }
 
@@ -183,7 +186,7 @@ void SandboxPrioritizedOriginDatabase::MaybeMigrateDatabase(
       base::FilePath to_path = file_system_directory_.Append(kPrimaryDirectory);
 
       if (base::PathExists(to_path))
-        base::DeleteFileRecursively(to_path);
+        base::DeletePathRecursively(to_path);
       base::Move(from_path, to_path);
     }
 
@@ -208,8 +211,8 @@ void SandboxPrioritizedOriginDatabase::MaybeInitializeNonPrimaryDatabase(
   if (origin_database_)
     return;
 
-  origin_database_.reset(
-      new SandboxOriginDatabase(file_system_directory_, env_override_));
+  origin_database_ = std::make_unique<SandboxOriginDatabase>(
+      file_system_directory_, env_override_);
   if (!create && !base::DirectoryExists(origin_database_->GetDatabasePath())) {
     origin_database_.reset();
     return;

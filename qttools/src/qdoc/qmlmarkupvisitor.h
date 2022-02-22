@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2019 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -37,30 +37,20 @@
 #ifndef QT_NO_DECLARATIVE
 #    include <private/qqmljsastvisitor_p.h>
 #    include <private/qqmljsengine_p.h>
-#endif
 
 QT_BEGIN_NAMESPACE
-
-#ifndef QT_NO_DECLARATIVE
-#    include <private/qqmlapiversion_p.h>
-#    if Q_QML_PRIVATE_API_VERSION < 8
-namespace QQmlJS {
-    using SourceLocation = AST::SourceLocation;
-}
-#    endif
-
 
 class QmlMarkupVisitor : public QQmlJS::AST::Visitor
 {
 public:
     enum ExtraType { Comment, Pragma };
 
-    QmlMarkupVisitor(const QString &code, const QVector<QQmlJS::SourceLocation> &pragmas,
+    QmlMarkupVisitor(const QString &code, const QList<QQmlJS::SourceLocation> &pragmas,
                      QQmlJS::Engine *engine);
-    virtual ~QmlMarkupVisitor();
+    ~QmlMarkupVisitor() override = default;
 
     QString markedUpCode();
-    bool hasError() const;
+    [[nodiscard]] bool hasError() const;
 
     bool visit(QQmlJS::AST::UiImport *) override;
     void endVisit(QQmlJS::AST::UiImport *) override;
@@ -159,18 +149,19 @@ private:
     QString sourceText(QQmlJS::SourceLocation &location);
     void throwRecursionDepthError() final;
 
-    QQmlJS::Engine *engine;
-    QVector<ExtraType> extraTypes;
-    QVector<QQmlJS::SourceLocation> extraLocations;
-    QString source;
-    QString output;
-    quint32 cursor;
-    int extraIndex;
-    bool hasRecursionDepthError = false;
+    QQmlJS::Engine *m_engine { nullptr };
+    QList<ExtraType> m_extraTypes {};
+    QList<QQmlJS::SourceLocation> m_extraLocations {};
+    QString m_source {};
+    QString m_output {};
+    quint32 m_cursor {};
+    int m_extraIndex {};
+    bool m_hasRecursionDepthError { false };
 };
 Q_DECLARE_TYPEINFO(QmlMarkupVisitor::ExtraType, Q_PRIMITIVE_TYPE);
-#endif
 
 QT_END_NAMESPACE
+
+#endif
 
 #endif

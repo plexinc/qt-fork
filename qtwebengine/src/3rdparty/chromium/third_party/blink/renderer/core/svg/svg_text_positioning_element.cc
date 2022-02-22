@@ -21,6 +21,8 @@
 #include "third_party/blink/renderer/core/svg/svg_text_positioning_element.h"
 
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_text.h"
+#include "third_party/blink/renderer/core/svg/svg_animated_length_list.h"
+#include "third_party/blink/renderer/core/svg/svg_animated_number_list.h"
 #include "third_party/blink/renderer/core/svg/svg_length_list.h"
 #include "third_party/blink/renderer/core/svg/svg_number_list.h"
 #include "third_party/blink/renderer/core/svg_names.h"
@@ -58,7 +60,7 @@ SVGTextPositioningElement::SVGTextPositioningElement(
   AddToPropertyMap(rotate_);
 }
 
-void SVGTextPositioningElement::Trace(Visitor* visitor) {
+void SVGTextPositioningElement::Trace(Visitor* visitor) const {
   visitor->Trace(x_);
   visitor->Trace(y_);
   visitor->Trace(dx_);
@@ -68,7 +70,8 @@ void SVGTextPositioningElement::Trace(Visitor* visitor) {
 }
 
 void SVGTextPositioningElement::SvgAttributeChanged(
-    const QualifiedName& attr_name) {
+    const SvgAttributeChangedParams& params) {
+  const QualifiedName& attr_name = params.name;
   bool update_relative_lengths =
       attr_name == svg_names::kXAttr || attr_name == svg_names::kYAttr ||
       attr_name == svg_names::kDxAttr || attr_name == svg_names::kDyAttr;
@@ -90,7 +93,7 @@ void SVGTextPositioningElement::SvgAttributeChanged(
     return;
   }
 
-  SVGTextContentElement::SvgAttributeChanged(attr_name);
+  SVGTextContentElement::SvgAttributeChanged(params);
 }
 
 }  // namespace blink

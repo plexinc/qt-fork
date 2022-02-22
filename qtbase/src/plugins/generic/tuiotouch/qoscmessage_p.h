@@ -43,7 +43,6 @@
 
 #include <QtCore/QByteArray>
 #include <QtCore/QVariant>
-#include <QtCore/QVector>
 #include <QtCore/QList>
 
 
@@ -51,22 +50,22 @@ QT_BEGIN_NAMESPACE
 
 class QOscMessage
 {
-    QOscMessage(); // for QVector, don't use
-    friend class QVector<QOscMessage>;
+    QOscMessage(); // for QList, don't use
+    friend class QList<QOscMessage>;
 public:
     explicit QOscMessage(const QByteArray &data);
 
     bool isValid() const { return m_isValid; }
 
     QByteArray addressPattern() const { return m_addressPattern; }
-    QList<QVariant> arguments() const { return m_arguments; }
+    QVariantList arguments() const { return m_arguments; }
 
 private:
     bool m_isValid;
     QByteArray m_addressPattern;
-    QList<QVariant> m_arguments;
+    QVariantList m_arguments;
 };
-Q_DECLARE_TYPEINFO(QOscMessage, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QOscMessage, Q_RELOCATABLE_TYPE);
 
 QT_END_NAMESPACE
 

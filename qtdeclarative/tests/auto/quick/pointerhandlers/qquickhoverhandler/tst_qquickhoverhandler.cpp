@@ -39,8 +39,8 @@
 #include <QtQml/qqmlengine.h>
 #include <QtQml/qqmlproperty.h>
 
-#include "../../../shared/util.h"
-#include "../../shared/viewtestutil.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
+#include <QtQuickTestUtils/private/viewtestutils_p.h>
 
 Q_LOGGING_CATEGORY(lcPointerTests, "qt.quick.pointer.tests")
 
@@ -54,6 +54,7 @@ class tst_HoverHandler : public QQmlDataTest
     Q_OBJECT
 public:
     tst_HoverHandler()
+        : QQmlDataTest(QT_QMLTEST_DATADIR)
     {}
 
 private slots:
@@ -62,6 +63,7 @@ private slots:
     void hoverHandlerAndUnderlyingMouseArea();
     void movingItemWithHoverHandler();
     void margin();
+    void window();
 
 private:
     void createView(QScopedPointer<QQuickView> &window, const char *fileName);
@@ -72,8 +74,8 @@ void tst_HoverHandler::createView(QScopedPointer<QQuickView> &window, const char
     window.reset(new QQuickView);
     window->setSource(testFileUrl(fileName));
     QTRY_COMPARE(window->status(), QQuickView::Ready);
-    QQuickViewTestUtil::centerOnScreen(window.data());
-    QQuickViewTestUtil::moveMouseAway(window.data());
+    QQuickViewTestUtils::centerOnScreen(window.data());
+    QQuickViewTestUtils::moveMouseAway(window.data());
 
     window->show();
     QVERIFY(QTest::qWaitForWindowActive(window.data()));
@@ -158,6 +160,13 @@ void tst_HoverHandler::mouseAreaAndUnderlyingHoverHandler()
     QQuickHoverHandler *topSidebarHH = topSidebar->findChild<QQuickHoverHandler *>("topSidebarHH");
     QVERIFY(topSidebarHH);
 
+    // Ensure that we don't get extra hover events delivered on the
+    // side, since it can affect the number of hover move events we receive below.
+    QQuickWindowPrivate::get(window)->deliveryAgentPrivate()->frameSynchronousHoverEnabled = false;
+    // And flush out any mouse events that might be queued up
+    // in QPA, since QTest::mouseMove() calls processEvents.
+    qGuiApp->processEvents();
+
     QPoint buttonCenter(buttonMA->mapToScene(QPointF(buttonMA->width() / 2, buttonMA->height() / 2)).toPoint());
     QPoint rightOfButton(buttonMA->mapToScene(QPointF(buttonMA->width() + 2, buttonMA->height() / 2)).toPoint());
     QPoint outOfSidebar(topSidebar->mapToScene(QPointF(topSidebar->width() + 2, topSidebar->height() / 2)).toPoint());
@@ -183,8 +192,8 @@ void tst_HoverHandler::mouseAreaAndUnderlyingHoverHandler()
 #endif
 
     QTest::mouseMove(window, buttonCenter);
-    QCOMPARE(topSidebarHH->isHovered(), true);
-    QCOMPARE(sidebarHoveredSpy.count(), 1);
+    QCOMPARE(topSidebarHH->isHovered(), false);
+    QCOMPARE(sidebarHoveredSpy.count(), 2);
     QCOMPARE(buttonMA->hovered(), true);
     QCOMPARE(buttonHoveredSpy.count(), 1);
 #if QT_CONFIG(cursor)
@@ -193,7 +202,7 @@ void tst_HoverHandler::mouseAreaAndUnderlyingHoverHandler()
 
     QTest::mouseMove(window, rightOfButton);
     QCOMPARE(topSidebarHH->isHovered(), true);
-    QCOMPARE(sidebarHoveredSpy.count(), 1);
+    QCOMPARE(sidebarHoveredSpy.count(), 3);
     QCOMPARE(buttonMA->hovered(), false);
     QCOMPARE(buttonHoveredSpy.count(), 2);
 #if QT_CONFIG(cursor)
@@ -202,7 +211,7 @@ void tst_HoverHandler::mouseAreaAndUnderlyingHoverHandler()
 
     QTest::mouseMove(window, outOfSidebar);
     QCOMPARE(topSidebarHH->isHovered(), false);
-    QCOMPARE(sidebarHoveredSpy.count(), 2);
+    QCOMPARE(sidebarHoveredSpy.count(), 4);
     QCOMPARE(buttonMA->hovered(), false);
     QCOMPARE(buttonHoveredSpy.count(), 2);
 #if QT_CONFIG(cursor)
@@ -249,8 +258,8 @@ void tst_HoverHandler::hoverHandlerAndUnderlyingMouseArea()
 #endif
 
     QTest::mouseMove(window, buttonCenter);
-    QCOMPARE(bottomSidebarMA->hovered(), false);
-    QCOMPARE(sidebarHoveredSpy.count(), 2);
+    QCOMPARE(bottomSidebarMA->hovered(), true);
+    QCOMPARE(sidebarHoveredSpy.count(), 1);
     QCOMPARE(buttonHH->isHovered(), true);
     QCOMPARE(buttonHoveredSpy.count(), 1);
 #if QT_CONFIG(cursor)
@@ -259,7 +268,7 @@ void tst_HoverHandler::hoverHandlerAndUnderlyingMouseArea()
 
     QTest::mouseMove(window, rightOfButton);
     QCOMPARE(bottomSidebarMA->hovered(), true);
-    QCOMPARE(sidebarHoveredSpy.count(), 3);
+    QCOMPARE(sidebarHoveredSpy.count(), 1);
     QCOMPARE(buttonHH->isHovered(), false);
     QCOMPARE(buttonHoveredSpy.count(), 2);
 #if QT_CONFIG(cursor)
@@ -268,7 +277,7 @@ void tst_HoverHandler::hoverHandlerAndUnderlyingMouseArea()
 
     QTest::mouseMove(window, outOfSidebar);
     QCOMPARE(bottomSidebarMA->hovered(), false);
-    QCOMPARE(sidebarHoveredSpy.count(), 4);
+    QCOMPARE(sidebarHoveredSpy.count(), 2);
     QCOMPARE(buttonHH->isHovered(), false);
     QCOMPARE(buttonHoveredSpy.count(), 2);
 #if QT_CONFIG(cursor)
@@ -306,7 +315,7 @@ void tst_HoverHandler::movingItemWithHoverHandler()
     paddle->setX(100);
     QTRY_COMPARE(paddleHH->isHovered(), false);
 
-    paddle->setX(p.x());
+    paddle->setX(p.x() - paddle->width() / 2);
     QTRY_COMPARE(paddleHH->isHovered(), true);
 
     paddle->setX(540);
@@ -360,6 +369,27 @@ void tst_HoverHandler::margin() // QTBUG-85303
 //    QCOMPARE(hoveredSpy.count(), 2);
 #if QT_CONFIG(cursor)
     QCOMPARE(window->cursor().shape(), Qt::ArrowCursor);
+#endif
+}
+
+void tst_HoverHandler::window() // QTBUG-98717
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.loadUrl(testFileUrl("windowCursorShape.qml"));
+    QScopedPointer<QQuickWindow> window(qobject_cast<QQuickWindow *>(component.create()));
+    QVERIFY(!window.isNull());
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window.data()));
+#if QT_CONFIG(cursor)
+    if (isPlatformWayland())
+         QSKIP("Wayland: QCursor::setPos() doesn't work.");
+    auto cursorPos = window->mapToGlobal(QPoint(100, 100));
+    qCDebug(lcPointerTests) << "in window @" << window->position() << "setting cursor pos" << cursorPos;
+    QCursor::setPos(cursorPos);
+    if (!QTest::qWaitFor([cursorPos]{ return QCursor::pos() == cursorPos; }))
+        QSKIP("QCursor::setPos() doesn't work (QTBUG-76312).");
+    QTRY_COMPARE(window->cursor().shape(), Qt::OpenHandCursor);
 #endif
 }
 

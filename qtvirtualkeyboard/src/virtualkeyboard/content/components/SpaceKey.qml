@@ -27,7 +27,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
+import QtQuick
+import QtQuick.VirtualKeyboard
 
 /*!
     \qmltype SpaceKey
@@ -41,10 +42,12 @@ import QtQuick 2.0
 */
 
 Key {
+    keyType: QtVirtualKeyboard.SpaceKey
     text: " "
     displayText: ""
     repeat: true
     showPreview: false
+    highlighted: true
     key: Qt.Key_Space
     keyPanelDelegate: keyboard.style ? keyboard.style.spaceKeyPanel : undefined
 }

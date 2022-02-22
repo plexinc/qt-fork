@@ -61,20 +61,19 @@ public:
     explicit QRenderPassFilter(Qt3DCore::QNode *parent = nullptr);
     ~QRenderPassFilter();
 
-    QVector<QFilterKey*> matchAny() const;
+    QList<QFilterKey *> matchAny() const;
     void addMatch(QFilterKey *filterKey);
     void removeMatch(QFilterKey *filterKey);
 
     void addParameter(QParameter *parameter);
     void removeParameter(QParameter *parameter);
-    QVector<QParameter *> parameters() const;
+    QList<QParameter *> parameters() const;
 
 protected:
     explicit QRenderPassFilter(QRenderPassFilterPrivate &dd, Qt3DCore::QNode *parent = nullptr);
 
 private:
     Q_DECLARE_PRIVATE(QRenderPassFilter)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DRender

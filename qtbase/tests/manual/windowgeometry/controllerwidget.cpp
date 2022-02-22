@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
@@ -85,7 +85,8 @@ RectControl::RectControl()
 {
     QHBoxLayout *l = new QHBoxLayout(this);
     l->setSpacing(0);
-    l->setMargin(ControlLayoutMargin);
+    l->setContentsMargins(ControlLayoutMargin, ControlLayoutMargin,
+                          ControlLayoutMargin, ControlLayoutMargin);
     connect(m_point, SIGNAL(pointValueChanged(QPoint)), this, SLOT(handleChanged()));
     connect(m_point, SIGNAL(pointValueChanged(QPoint)), this, SIGNAL(positionChanged(QPoint)));
     l->addWidget(m_point);
@@ -128,11 +129,13 @@ BaseWindowControl::BaseWindowControl(QObject *w)
     m_geometry->setTitle(tr("Geometry"));
     int row = 0;
     m_layout->addWidget(m_geometry, row, 0, 1, 2);
-    m_layout->setMargin(ControlLayoutMargin);
+    m_layout->setContentsMargins(ControlLayoutMargin, ControlLayoutMargin,
+                                 ControlLayoutMargin, ControlLayoutMargin);
     QGroupBox *frameGB = new QGroupBox(tr("Frame"));
     QVBoxLayout *frameL = new QVBoxLayout(frameGB);
     frameL->setSpacing(0);
-    frameL->setMargin(ControlLayoutMargin);
+    frameL->setContentsMargins(ControlLayoutMargin, ControlLayoutMargin,
+                               ControlLayoutMargin, ControlLayoutMargin);
     frameL->addWidget(m_framePosition);
     m_layout->addWidget(frameGB, row, 2);
 
@@ -144,7 +147,8 @@ BaseWindowControl::BaseWindowControl(QObject *w)
     QGroupBox *eventGroupBox = new QGroupBox(tr("Events"));
     QVBoxLayout *l = new QVBoxLayout(eventGroupBox);
     l->setSpacing(0);
-    l->setMargin(ControlLayoutMargin);
+    l->setContentsMargins(ControlLayoutMargin, ControlLayoutMargin,
+                          ControlLayoutMargin, ControlLayoutMargin);
     l->addWidget(m_moveEventLabel);
     l->addWidget(m_resizeEventLabel);
     l->addWidget(m_mouseEventLabel);
@@ -293,7 +297,7 @@ void WidgetWindowControl::statesChanged()
 class Window : public QWindow
 {
 public:
-    explicit Window(QWindow *parent = 0)
+    explicit Window(QWindow *parent = nullptr)
         : QWindow(parent)
         , m_backingStore(new QBackingStore(this))
     {
@@ -396,7 +400,7 @@ ControllerWidget::ControllerWidget(QWidget *parent)
     QMenu *fileMenu = menuBar()->addMenu(tr("File"));
     QAction *exitAction = fileMenu->addAction(tr("Exit"));
     exitAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Q));
-    connect(exitAction, SIGNAL(triggered()), qApp, SLOT(closeAllWindows()));
+    connect(exitAction, SIGNAL(triggered()), qApp, SLOT(quit()));
 
     QString title = QLatin1String("Geometry test, (Qt ");
     title += QLatin1String(QT_VERSION_STR);

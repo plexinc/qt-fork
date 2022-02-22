@@ -53,7 +53,6 @@
 
 #include <QVariant>
 #include <QByteArray>
-#include <QVector>
 #include <QOpenGLShaderProgram>
 #include <Qt3DCore/qnodeid.h>
 #include <Qt3DRender/private/renderlogging_p.h>
@@ -63,10 +62,6 @@
 QT_BEGIN_NAMESPACE
 
 class QOpenGLShaderProgram;
-
-namespace Qt3DCore {
-class QFrameAllocator;
-}
 
 namespace Qt3DRender {
 namespace Render {
@@ -80,7 +75,7 @@ struct BlockToUBO {
     bool m_needsUpdate;
     QHash<QString, QVariant> m_updatedProperties;
 };
-QT3D_DECLARE_TYPEINFO_3(Qt3DRender, Render, OpenGL, BlockToUBO, Q_MOVABLE_TYPE)
+QT3D_DECLARE_TYPEINFO_3(Qt3DRender, Render, OpenGL, BlockToUBO, Q_RELOCATABLE_TYPE)
 
 struct BlockToSSBO {
     int m_blockIndex;
@@ -103,6 +98,11 @@ struct PackUniformHash
     {
         keys.reserve(count);
         values.reserve(count);
+    }
+
+    size_t size() const
+    {
+        return keys.size();
     }
 
     inline int indexForKey(int key) const

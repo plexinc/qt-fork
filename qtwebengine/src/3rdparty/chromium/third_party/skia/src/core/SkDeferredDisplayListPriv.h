@@ -22,6 +22,10 @@ public:
         return fDDL->fRenderTasks.count();
     }
 
+    GrRenderTargetProxy* targetProxy() const {
+        return fDDL->fTargetProxy.get();
+    }
+
     const SkDeferredDisplayList::LazyProxyData* lazyProxyData() const {
         return fDDL->fLazyProxyData.get();
     }
@@ -29,12 +33,16 @@ public:
     const SkTArray<GrRecordingContext::ProgramData>& programData() const {
         return fDDL->programData();
     }
+
+    const SkTArray<sk_sp<GrRenderTask>>& renderTasks() const {
+        return fDDL->fRenderTasks;
+    }
 #endif
 
 private:
     explicit SkDeferredDisplayListPriv(SkDeferredDisplayList* ddl) : fDDL(ddl) {}
-    SkDeferredDisplayListPriv(const SkDeferredDisplayListPriv&);            // unimpl
-    SkDeferredDisplayListPriv& operator=(const SkDeferredDisplayListPriv&); // unimpl
+    SkDeferredDisplayListPriv(const SkDeferredDisplayListPriv&) = delete;
+    SkDeferredDisplayListPriv& operator=(const SkDeferredDisplayListPriv&) = delete;
 
     // No taking addresses of this type.
     const SkDeferredDisplayListPriv* operator&() const;
@@ -49,7 +57,7 @@ inline SkDeferredDisplayListPriv SkDeferredDisplayList::priv() {
     return SkDeferredDisplayListPriv(this);
 }
 
-inline const SkDeferredDisplayListPriv SkDeferredDisplayList::priv () const {
+inline const SkDeferredDisplayListPriv SkDeferredDisplayList::priv () const {  // NOLINT(readability-const-return-type)
     return SkDeferredDisplayListPriv(const_cast<SkDeferredDisplayList*>(this));
 }
 

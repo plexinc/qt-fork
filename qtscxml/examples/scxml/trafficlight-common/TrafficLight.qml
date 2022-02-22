@@ -48,8 +48,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.5
-import QtQuick.Window 2.2
+import QtQuick
+import QtQuick.Window
 import TrafficLightStateMachine 1.0
 
 Window {

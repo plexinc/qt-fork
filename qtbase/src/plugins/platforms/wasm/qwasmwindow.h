@@ -74,6 +74,7 @@ public:
     QRect normalGeometry() const override;
     qreal devicePixelRatio() const override;
     void requestUpdate() override;
+    void requestActivateWindow() override;
 
     QWasmScreen *platformScreen() const;
     void setBackingStore(QWasmBackingStore *store) { m_backingStore = store; }
@@ -123,6 +124,7 @@ protected:
     bool m_needsCompositor = false;
     friend class QWasmCompositor;
     friend class QWasmEventTranslator;
+    bool windowIsPopupType(Qt::WindowFlags flags) const;
 };
 QT_END_NAMESPACE
 #endif // QWASMWINDOW_H

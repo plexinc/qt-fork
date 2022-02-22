@@ -5,7 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_MOJO_TEST_MOJO_INTERFACE_INTERCEPTOR_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_MOJO_TEST_MOJO_INTERFACE_INTERCEPTOR_H_
 
-#include "base/util/type_safety/strong_alias.h"
+#include "base/types/strong_alias.h"
 #include "mojo/public/cpp/system/message_pipe.h"
 #include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
 #include "third_party/blink/renderer/core/dom/events/event_listener.h"
@@ -30,7 +30,6 @@ class MojoInterfaceInterceptor final
       public ActiveScriptWrappable<MojoInterfaceInterceptor>,
       public ExecutionContextLifecycleObserver {
   DEFINE_WRAPPERTYPEINFO();
-  USING_GARBAGE_COLLECTED_MIXIN(MojoInterfaceInterceptor);
 
  public:
   static MojoInterfaceInterceptor* Create(ExecutionContext*,
@@ -48,7 +47,7 @@ class MojoInterfaceInterceptor final
 
   DEFINE_ATTRIBUTE_EVENT_LISTENER(interfacerequest, kInterfacerequest)
 
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
   // EventTargetWithInlineData
   const AtomicString& InterfaceName() const override;

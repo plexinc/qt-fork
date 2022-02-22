@@ -108,13 +108,14 @@ void qt_abstime_for_timeout(timespec *ts, QDeadlineTimer deadline)
     normalizedTimespec(*ts);
 #else
     // depends on QDeadlineTimer's internals!!
-    Q_STATIC_ASSERT(QDeadlineTimerNanosecondsInT2);
+    static_assert(QDeadlineTimerNanosecondsInT2);
     ts->tv_sec = deadline._q_data().first;
     ts->tv_nsec = deadline._q_data().second;
 #endif
 }
 
-class QWaitConditionPrivate {
+class QWaitConditionPrivate
+{
 public:
     pthread_mutex_t mutex;
     pthread_cond_t cond;
@@ -169,7 +170,6 @@ public:
     }
 };
 
-
 QWaitCondition::QWaitCondition()
 {
     d = new QWaitConditionPrivate;
@@ -177,7 +177,6 @@ QWaitCondition::QWaitCondition()
     qt_initialize_pthread_cond(&d->cond, "QWaitCondition");
     d->waiters = d->wakeups = 0;
 }
-
 
 QWaitCondition::~QWaitCondition()
 {
@@ -211,12 +210,8 @@ bool QWaitCondition::wait(QMutex *mutex, unsigned long time)
 
 bool QWaitCondition::wait(QMutex *mutex, QDeadlineTimer deadline)
 {
-    if (! mutex)
+    if (!mutex)
         return false;
-    if (mutex->isRecursive()) {
-        qWarning("QWaitCondition: cannot wait on recursive mutexes");
-        return false;
-    }
 
     report_error(pthread_mutex_lock(&d->mutex), "QWaitCondition::wait()", "mutex lock");
     ++d->waiters;

@@ -60,6 +60,7 @@
 #include <QtQml/qjsvalue.h>
 
 #include <QtCore/qobject.h>
+#include <QtCore/qversionnumber.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -98,22 +99,26 @@ public:
     QString elementName() const;
 
     QHashedString module() const;
-    int majorVersion() const;
-    int minorVersion() const;
+    QTypeRevision version() const;
 
-    bool availableInVersion(int vmajor, int vminor) const;
-    bool availableInVersion(const QHashedStringRef &module, int vmajor, int vminor) const;
+    bool availableInVersion(QTypeRevision version) const;
+    bool availableInVersion(const QHashedStringRef &module, QTypeRevision version) const;
+
+    typedef QVariant (*CreateValueTypeFunc)(const QJSValue &);
+    CreateValueTypeFunc createValueTypeFunction() const;
 
     QObject *create() const;
     void create(QObject **, void **, size_t) const;
 
-    typedef void (*CreateFunc)(void *);
+    typedef void (*CreateFunc)(void *, void *);
     CreateFunc createFunction() const;
+
     QQmlCustomParser *customParser() const;
 
     bool isCreatable() const;
     typedef QObject *(*ExtensionFunc)(QObject *);
     ExtensionFunc extensionFunction() const;
+    const QMetaObject *extensionMetaObject() const;
     bool isExtendedType() const;
     QString noCreationReason() const;
 
@@ -123,20 +128,18 @@ public:
     bool isCompositeSingleton() const;
     bool isQObjectSingleton() const;
     bool isQJSValueSingleton() const;
+    bool isSequentialContainer() const;
 
-    int typeId() const;
-    int qListTypeId() const;
+    QMetaType typeId() const;
+    QMetaType qListTypeId() const;
 
     const QMetaObject *metaObject() const;
     const QMetaObject *baseMetaObject() const;
-    int metaObjectRevision() const;
+    QTypeRevision metaObjectRevision() const;
     bool containsRevisionedAttributes() const;
 
     QQmlAttachedPropertiesFunc attachedPropertiesFunction(QQmlEnginePrivate *engine) const;
     const QMetaObject *attachedPropertiesType(QQmlEnginePrivate *engine) const;
-#if QT_DEPRECATED_SINCE(5, 14)
-    QT_DEPRECATED int attachedPropertiesId(QQmlEnginePrivate *engine) const;
-#endif
 
     int parserStatusCast() const;
     const char *interfaceIId() const;
@@ -146,11 +149,11 @@ public:
     int index() const;
 
     bool isInlineComponentType() const;
-    int inlineComponendId() const;
+    int inlineComponentId() const;
 
     struct Q_QML_PRIVATE_EXPORT SingletonInstanceInfo
     {
-        QJSValue (*scriptCallback)(QQmlEngine *, QJSEngine *) = nullptr;
+        std::function<QJSValue(QQmlEngine *, QJSEngine *)> scriptCallback = {};
         std::function<QObject *(QQmlEngine *, QJSEngine *)> qobjectCallback = {};
         const QMetaObject *instanceMetaObject = nullptr;
         QString typeName;
@@ -169,8 +172,8 @@ public:
     int scopedEnumValue(QQmlEnginePrivate *engine, int index, const QV4::String *, bool *ok) const;
     int scopedEnumValue(QQmlEnginePrivate *engine, int index, const QString &, bool *ok) const;
     int scopedEnumValue(QQmlEnginePrivate *engine, const QByteArray &, const QByteArray &, bool *ok) const;
-    int scopedEnumValue(QQmlEnginePrivate *engine, const QStringRef &, const QStringRef &, bool *ok) const;
-    int inlineComponentObjectId();
+    int scopedEnumValue(QQmlEnginePrivate *engine, QStringView, QStringView, bool *ok) const;
+    int inlineComponentObjectId() const;
     void setInlineComponentObjectId(int id) const; // TODO: const setters are BAD
 
     const QQmlTypePrivate *priv() const { return d.data(); }
@@ -185,6 +188,7 @@ public:
         CompositeType = 3,
         CompositeSingletonType = 4,
         InlineComponentType = 5,
+        SequentialContainerType = 6,
         AnyRegistrationType = 255
     };
 
@@ -197,13 +201,15 @@ public:
     void setPendingResolutionName(const QString &name);
     QString pendingResolutionName() const;
 
+    void createProxy(QObject *instance) const;
+
 private:
     friend class QQmlTypePrivate;
-    friend uint qHash(const QQmlType &t, uint seed);
+    friend size_t qHash(const QQmlType &t, size_t seed);
     QQmlRefPointer<const QQmlTypePrivate> d;
 };
 
-inline uint qHash(const QQmlType &t, uint seed = 0)
+inline size_t qHash(const QQmlType &t, size_t seed = 0)
 {
     return qHash(reinterpret_cast<quintptr>(t.d.data()), seed);
 }

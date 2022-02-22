@@ -36,10 +36,9 @@
 #include <QtDataVisualization/QScatter3DSeries>
 #include <QtDataVisualization/Q3DTheme>
 #include <QtCore/qmath.h>
+#include <QtCore/QFile>
 #include <QtCore/QTextStream>
 #include <QtCore/QDebug>
-
-using namespace QtDataVisualization;
 
 ScatterDataModifier::ScatterDataModifier(Q3DScatter *scatter)
     : m_graph(scatter),
@@ -118,9 +117,9 @@ void ScatterDataModifier::start()
 
 void ScatterDataModifier::addData()
 {
-    QVector<QVector3D> itemList;
+    QList<QVector3D> itemList;
 
-    // Read data items from the file to QVector
+    // Read data items from the file to QList
     QTextStream stream;
     QFile dataFile(":/data/data.txt");
     if (dataFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -144,7 +143,7 @@ void ScatterDataModifier::addData()
         qWarning() << "Unable to open data file:" << dataFile.fileName();
     }
 
-    // Add data from the QVector to datamodel
+    // Add data from the QList to datamodel
     QScatterDataArray *dataArray = new QScatterDataArray;
     dataArray->resize(itemList.count());
     QScatterDataItem *ptrToDataArray = &dataArray->first();

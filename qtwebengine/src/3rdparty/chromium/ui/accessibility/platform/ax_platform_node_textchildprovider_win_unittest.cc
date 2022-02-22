@@ -60,7 +60,7 @@ class AXPlatformNodeTextChildProviderTest : public AXPlatformNodeWinTest {
 
     ui::AXNodeData text_child_of_text;
     text_child_of_text.id = 6;
-    text_child_of_text.role = ax::mojom::Role::kStaticText;
+    text_child_of_text.role = ax::mojom::Role::kInlineTextBox;
     text_child_of_text.SetName("text child of text.");
     text_child_of_root.child_ids.push_back(text_child_of_text.id);
 
@@ -272,9 +272,8 @@ TEST_F(AXPlatformNodeTextChildProviderTest,
   EXPECT_HRESULT_SUCCEEDED(
       text_range_provider->GetText(-1, text_content.Receive()));
   EXPECT_EQ(
-      0,
-      wcscmp(text_content.Get(),
-             (kEmbeddedCharacterAsString + L"text child of nontext.").c_str()));
+      base::WideToUTF16(text_content.Get()),
+      kEmbeddedCharacterAsString + STRING16_LITERAL("text child of nontext."));
 
   ComPtr<IRawElementProviderSimple> enclosing_element;
   text_range_provider->GetEnclosingElement(&enclosing_element);
@@ -296,7 +295,7 @@ TEST_F(AXPlatformNodeTextChildProviderTest,
 
   ComPtr<IRawElementProviderSimple> enclosing_element;
   text_range_provider->GetEnclosingElement(&enclosing_element);
-  EXPECT_EQ(text_child_of_text_text_provider_raw_.Get(),
+  EXPECT_EQ(text_child_of_root_text_provider_raw_.Get(),
             enclosing_element.Get());
 }
 
@@ -311,7 +310,7 @@ TEST_F(AXPlatformNodeTextChildProviderTest,
   base::win::ScopedBstr text_content;
   EXPECT_HRESULT_SUCCEEDED(
       text_range_provider->GetText(-1, text_content.Receive()));
-  EXPECT_EQ(0, wcscmp(text_content.Get(), kEmbeddedCharacterAsString.c_str()));
+  EXPECT_EQ(base::WideToUTF16(text_content.Get()), kEmbeddedCharacterAsString);
 
   ComPtr<IRawElementProviderSimple> enclosing_element;
   text_range_provider->GetEnclosingElement(&enclosing_element);
@@ -353,7 +352,7 @@ TEST_F(AXPlatformNodeTextChildProviderTest,
 
   ComPtr<IRawElementProviderSimple> enclosing_element;
   text_range_provider->GetEnclosingElement(&enclosing_element);
-  EXPECT_EQ(text_child_of_text_text_provider_raw_.Get(),
+  EXPECT_EQ(text_child_of_root_text_provider_raw_.Get(),
             enclosing_element.Get());
 }
 

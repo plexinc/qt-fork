@@ -4,6 +4,8 @@
 
 import * as Common from '../common/common.js';
 import * as Diff from '../diff/diff.js';  // eslint-disable-line no-unused-vars
+import * as i18n from '../i18n/i18n.js';
+import * as Persistence from '../persistence/persistence.js';
 import * as SourceFrame from '../source_frame/source_frame.js';
 import * as TextEditor from '../text_editor/text_editor.js';  // eslint-disable-line no-unused-vars
 import * as UI from '../ui/ui.js';                            // eslint-disable-line no-unused-vars
@@ -12,9 +14,17 @@ import * as WorkspaceDiff from '../workspace_diff/workspace_diff.js';
 
 import {Plugin} from './Plugin.js';
 
+export const UIStrings = {
+  /**
+  *@description A context menu item in the Gutter Diff Plugin of the Sources panel
+  */
+  localModifications: 'Local Modifications...',
+};
+const str_ = i18n.i18n.registerUIStrings('sources/GutterDiffPlugin.js', UIStrings);
+const i18nString = i18n.i18n.getLocalizedString.bind(undefined, str_);
 export class GutterDiffPlugin extends Plugin {
   /**
-   * @param {!TextEditor.CodeMirrorTextEditor.CodeMirrorTextEditor} textEditor
+   * @param {!SourceFrame.SourcesTextEditor.SourcesTextEditor} textEditor
    * @param {!Workspace.UISourceCode.UISourceCode} uiSourceCode
    */
   constructor(textEditor, uiSourceCode) {
@@ -128,6 +138,12 @@ export class GutterDiffPlugin extends Plugin {
       const rightKey = rightKeys[rightIndex];
       const left = oldDecorations.get(leftKey);
       const right = decorations.get(rightKey);
+      if (!left) {
+        throw new Error(`No decoration with key ${leftKey}`);
+      }
+      if (!right) {
+        throw new Error(`No decoration with key ${rightKey}`);
+      }
       if (leftKey === rightKey && left.type === right.type) {
         equal.push(left);
         ++leftIndex;
@@ -142,11 +158,19 @@ export class GutterDiffPlugin extends Plugin {
     }
     while (leftIndex < leftKeys.length) {
       const leftKey = leftKeys[leftIndex++];
-      removed.push(oldDecorations.get(leftKey));
+      const left = oldDecorations.get(leftKey);
+      if (!left) {
+        throw new Error(`No decoration with key ${leftKey}`);
+      }
+      removed.push(left);
     }
     while (rightIndex < rightKeys.length) {
       const rightKey = rightKeys[rightIndex++];
-      added.push(decorations.get(rightKey));
+      const right = decorations.get(rightKey);
+      if (!right) {
+        throw new Error(`No decoration with key ${rightKey}`);
+      }
+      added.push(right);
     }
     return {added: added, removed: removed, equal: equal};
   }
@@ -161,7 +185,7 @@ export class GutterDiffPlugin extends Plugin {
    * @override
    * @param {!UI.ContextMenu.ContextMenu} contextMenu
    * @param {number} lineNumber
-   * @return {!Promise}
+   * @return {!Promise<void>}
    */
   async populateLineGutterContextMenu(contextMenu, lineNumber) {
     GutterDiffPlugin._appendRevealDiffContextMenu(contextMenu, this._uiSourceCode);
@@ -172,17 +196,21 @@ export class GutterDiffPlugin extends Plugin {
    * @param {!UI.ContextMenu.ContextMenu} contextMenu
    * @param {number} lineNumber
    * @param {number} columnNumber
-   * @return {!Promise}
+   * @return {!Promise<void>}
    */
   async populateTextAreaContextMenu(contextMenu, lineNumber, columnNumber) {
     GutterDiffPlugin._appendRevealDiffContextMenu(contextMenu, this._uiSourceCode);
   }
 
+  /**
+   * @param {!UI.ContextMenu.ContextMenu} contextMenu
+   * @param {!Workspace.UISourceCode.UISourceCode} uiSourceCode
+   */
   static _appendRevealDiffContextMenu(contextMenu, uiSourceCode) {
     if (!WorkspaceDiff.WorkspaceDiff.workspaceDiff().isUISourceCodeModified(uiSourceCode)) {
       return;
     }
-    contextMenu.revealSection().appendItem(ls`Local Modifications...`, () => {
+    contextMenu.revealSection().appendItem(i18nString(UIStrings.localModifications), () => {
       Common.Revealer.reveal(new WorkspaceDiff.WorkspaceDiff.DiffUILocation(uiSourceCode));
     });
   }
@@ -200,7 +228,7 @@ export class GutterDiffPlugin extends Plugin {
 
 export class GutterDecoration {
   /**
-   * @param {!TextEditor.CodeMirrorTextEditor.CodeMirrorTextEditor} textEditor
+   * @param {!SourceFrame.SourcesTextEditor.SourcesTextEditor} textEditor
    * @param {number} lineNumber
    * @param {!SourceFrame.SourceCodeDiff.EditType} type
    */
@@ -234,7 +262,8 @@ export class GutterDecoration {
     if (!location) {
       return;
     }
-    const element = createElementWithClass('div', 'diff-marker');
+    const element = document.createElement('div');
+    element.classList.add('diff-marker');
     element.textContent = '\xA0';
     this._textEditor.setGutterDecoration(location.lineNumber, DiffGutterType, element);
     this._textEditor.toggleLineClass(location.lineNumber, this._className, true);
@@ -254,10 +283,26 @@ export class GutterDecoration {
 export const DiffGutterType = 'CodeMirror-gutter-diff';
 
 /**
+ * @type {ContextMenuProvider}
+ */
+let contextMenuProviderInstance;
+
+/**
  * @implements {UI.ContextMenu.Provider}
- * @unrestricted
  */
 export class ContextMenuProvider {
+  /**
+   * @param {{forceNew: ?boolean}} opts
+   */
+  static instance(opts = {forceNew: null}) {
+    const {forceNew} = opts;
+    if (!contextMenuProviderInstance || forceNew) {
+      contextMenuProviderInstance = new ContextMenuProvider();
+    }
+
+    return contextMenuProviderInstance;
+  }
+
   /**
    * @override
    * @param {!Event} event
@@ -266,7 +311,7 @@ export class ContextMenuProvider {
    */
   appendApplicableItems(event, contextMenu, target) {
     let uiSourceCode = /** @type {!Workspace.UISourceCode.UISourceCode} */ (target);
-    const binding = self.Persistence.persistence.binding(uiSourceCode);
+    const binding = Persistence.Persistence.PersistenceImpl.instance().binding(uiSourceCode);
     if (binding) {
       uiSourceCode = binding.network;
     }

@@ -63,7 +63,7 @@
 // that change on-the-minute yet efficiently sleep the rest
 // of the time.
 
-QRemoteObjectNode m_client;
+static QRemoteObjectNode m_client;
 
 class TimeModel : public QObject
 {
@@ -76,11 +76,11 @@ public:
     TimeModel(QObject *parent = nullptr) : QObject(parent), d_ptr(nullptr)
     {
         d_ptr.reset(m_client.acquire< MinuteTimerReplica >());
-        connect(d_ptr.data(), SIGNAL(hourChanged(int)), this, SIGNAL(timeChanged()));
-        connect(d_ptr.data(), SIGNAL(minuteChanged(int)), this, SIGNAL(timeChanged()));
-        connect(d_ptr.data(), SIGNAL(timeChanged()), this, SIGNAL(timeChanged()));
-        connect(d_ptr.data(), SIGNAL(timeChanged2(QTime)), this, SLOT(test(QTime)));
-        connect(d_ptr.data(), SIGNAL(sendCustom(PresetInfo)), this, SLOT(testCustom(PresetInfo)));
+        connect(d_ptr.data(), &MinuteTimerReplica::hourChanged, this, &TimeModel::timeChanged);
+        connect(d_ptr.data(), &MinuteTimerReplica::minuteChanged, this, &TimeModel::timeChanged);
+        connect(d_ptr.data(), &MinuteTimerReplica::timeChanged, this, &TimeModel::timeChanged);
+        connect(d_ptr.data(), &MinuteTimerReplica::timeChanged2, this, &TimeModel::test);
+        connect(d_ptr.data(), &MinuteTimerReplica::sendCustom, this, &TimeModel::testCustom);
     }
 
     ~TimeModel() override
@@ -122,8 +122,8 @@ class QExampleQmlPlugin : public QQmlExtensionPlugin
 public:
     void initializeEngine(QQmlEngine *engine, const char *uri) override
     {
-        Q_UNUSED(engine);
-        Q_UNUSED(uri);
+        Q_UNUSED(engine)
+        Q_UNUSED(uri)
         Q_ASSERT(uri == QLatin1String("TimeExample"));
         engine->addImportPath(QStringLiteral("qrc:/qml"));
         m_client.setRegistryUrl(QUrl(QStringLiteral("local:registry")));

@@ -46,10 +46,10 @@
 #include "profile_adapter.h"
 #include "color_chooser_controller.h"
 #include "color_chooser_qt.h"
-#include "favicon_manager.h"
 #include "file_picker_controller.h"
 #include "media_capture_devices_dispatcher.h"
 #include "profile_qt.h"
+#include "qwebengineloadinginfo.h"
 #include "qwebengineregisterprotocolhandlerrequest.h"
 #include "register_protocol_handler_request_controller_impl.h"
 #include "render_widget_host_view_qt.h"
@@ -59,13 +59,14 @@
 #include "web_contents_adapter.h"
 #include "web_contents_view_qt.h"
 #include "web_engine_context.h"
+#include "web_engine_error.h"
 #include "web_engine_settings.h"
-
+#include "certificate_error_controller.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry_factory.h"
 #include "components/error_page/common/error.h"
 #include "components/error_page/common/localized_error.h"
 #include "components/web_cache/browser/web_cache_manager.h"
-#include "content/browser/frame_host/render_frame_host_impl.h"
+#include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/browser_context.h"
@@ -77,9 +78,7 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/frame_navigate_params.h"
 #include "content/public/common/url_constants.h"
-#include "content/public/common/web_preferences.h"
 #include "net/base/data_url.h"
 #include "net/base/url_util.h"
 
@@ -104,9 +103,7 @@ static WebContentsAdapterClient::JavaScriptConsoleMessageLevel mapToJavascriptCo
 
 WebContentsDelegateQt::WebContentsDelegateQt(content::WebContents *webContents, WebContentsAdapterClient *adapterClient)
     : m_viewClient(adapterClient)
-    , m_faviconManager(new FaviconManager(webContents, adapterClient))
     , m_findTextHelper(new FindTextHelper(webContents, adapterClient))
-    , m_lastLoadProgress(-1)
     , m_loadingState(determineLoadingState(webContents))
     , m_didStartLoadingSeen(m_loadingState == LoadingState::Loading)
     , m_frameFocusedObserver(adapterClient)
@@ -128,7 +125,7 @@ content::WebContents *WebContentsDelegateQt::OpenURLFromTab(content::WebContents
     content::SiteInstance *target_site_instance = params.source_site_instance.get();
     content::Referrer referrer = params.referrer;
     if (params.disposition != WindowOpenDisposition::CURRENT_TAB) {
-        QSharedPointer<WebContentsAdapter> targetAdapter = createWindow(0, params.disposition, gfx::Rect(), params.user_gesture);
+        QSharedPointer<WebContentsAdapter> targetAdapter = createWindow(nullptr, params.disposition, gfx::Rect(), toQt(params.url), params.user_gesture);
         if (targetAdapter) {
             if (targetAdapter->profile() != source->GetBrowserContext()) {
                 target_site_instance = nullptr;
@@ -137,11 +134,15 @@ content::WebContents *WebContentsDelegateQt::OpenURLFromTab(content::WebContents
             if (!targetAdapter->isInitialized())
                 targetAdapter->initialize(target_site_instance);
             target = targetAdapter->webContents();
+        } else {
+            return target;
         }
     }
     Q_ASSERT(target);
 
     content::NavigationController::LoadURLParams load_url_params(params.url);
+    load_url_params.initiator_frame_token = params.initiator_frame_token;
+    load_url_params.initiator_process_id = params.initiator_process_id;
     load_url_params.initiator_origin = params.initiator_origin;
     load_url_params.source_site_instance = target_site_instance;
     load_url_params.referrer = referrer;
@@ -157,6 +158,7 @@ content::WebContents *WebContentsDelegateQt::OpenURLFromTab(content::WebContents
     load_url_params.override_user_agent = content::NavigationController::UA_OVERRIDE_TRUE;
     load_url_params.href_translate = params.href_translate;
     load_url_params.reload_type = params.reload_type;
+    load_url_params.impression = params.impression;
     if (params.post_data) {
         load_url_params.load_type = content::NavigationController::LOAD_TYPE_HTTP_POST;
         load_url_params.post_data = params.post_data;
@@ -232,10 +234,11 @@ QUrl WebContentsDelegateQt::url(content::WebContents* source) const {
     m_pendingUrlUpdate = false;
     return newUrl;
 }
-void WebContentsDelegateQt::AddNewContents(content::WebContents* source, std::unique_ptr<content::WebContents> new_contents, WindowOpenDisposition disposition, const gfx::Rect& initial_pos, bool user_gesture, bool* was_blocked)
+void WebContentsDelegateQt::AddNewContents(content::WebContents* source, std::unique_ptr<content::WebContents> new_contents, const GURL &target_url,
+                                           WindowOpenDisposition disposition, const gfx::Rect& initial_pos, bool user_gesture, bool* was_blocked)
 {
     Q_UNUSED(source)
-    QSharedPointer<WebContentsAdapter> newAdapter = createWindow(std::move(new_contents), disposition, initial_pos, user_gesture);
+    QSharedPointer<WebContentsAdapter> newAdapter = createWindow(std::move(new_contents), disposition, initial_pos, toQt(target_url), user_gesture);
     // Chromium can forget to pass user-agent override settings to new windows (see QTBUG-61774 and QTBUG-76249),
     // so set it here. Note the actual value doesn't really matter here. Only the second value does, but we try
     // to give the correct user-agent anyway.
@@ -258,14 +261,12 @@ void WebContentsDelegateQt::CloseContents(content::WebContents *source)
 
 void WebContentsDelegateQt::LoadProgressChanged(double progress)
 {
-    if (!m_loadingErrorFrameList.isEmpty())
-        return;
-    if (m_lastLoadProgress < 0) // suppress signals that aren't between loadStarted and loadFinished
+    if (!m_loadingInfo.isLoading()) // suppress signals that aren't between loadStarted and loadFinished
         return;
 
     int p = qMin(qRound(progress * 100), 100);
-    if (p > m_lastLoadProgress) { // ensure strict monotonic increase
-        m_lastLoadProgress = p;
+    if (p > m_loadingInfo.progress) { // ensure strict monotonic increase
+        m_loadingInfo.progress = p;
         m_viewClient->loadProgressChanged(p);
     }
 }
@@ -283,11 +284,6 @@ void WebContentsDelegateQt::RenderFrameCreated(content::RenderFrameHost *render_
 {
     content::FrameTreeNode *node = static_cast<content::RenderFrameHostImpl *>(render_frame_host)->frame_tree_node();
     m_frameFocusedObserver.addNode(node);
-}
-
-void WebContentsDelegateQt::RenderFrameDeleted(content::RenderFrameHost *render_frame_host)
-{
-    m_loadingErrorFrameList.removeOne(render_frame_host->GetRoutingID());
 }
 
 void WebContentsDelegateQt::RenderProcessGone(base::TerminationStatus status)
@@ -321,7 +317,7 @@ void WebContentsDelegateQt::RenderFrameHostChanged(content::RenderFrameHost *old
         m_frameFocusedObserver.addNode(new_node);
 
         // Is this a main frame?
-        if (new_host->GetFrameOwnerElementType() == blink::FrameOwnerElementType::kNone) {
+        if (new_host->GetFrameOwnerElementType() == blink::mojom::FrameOwnerElementType::kNone) {
             content::RenderProcessHost *renderProcessHost = new_host->GetProcess();
             const base::Process &process = renderProcessHost->GetProcess();
             if (process.IsValid())
@@ -334,45 +330,75 @@ void WebContentsDelegateQt::RenderViewHostChanged(content::RenderViewHost *, con
 {
     if (newHost && newHost->GetWidget() && newHost->GetWidget()->GetView()) {
         auto rwhv = static_cast<RenderWidgetHostViewQt *>(newHost->GetWidget()->GetView());
-        m_viewClient->widgetChanged(rwhv->delegate());
+        Q_ASSERT(rwhv->delegate());
+        rwhv->delegate()->adapterClientChanged(m_viewClient);
     }
 }
 
-void WebContentsDelegateQt::EmitLoadStarted(const QUrl &url, bool isErrorPage)
+void WebContentsDelegateQt::emitLoadStarted(bool isErrorPage)
 {
-    if (m_lastLoadProgress >= 0 && m_lastLoadProgress < 100) // already running
+    for (auto &&wc : m_certificateErrorControllers)
+        if (auto controller = wc.lock())
+            controller->deactivate();
+    m_certificateErrorControllers.clear();
+
+    // only report first ever load start or separate one for error page only
+    if (!isErrorPage && m_loadingInfo.isLoading()) // already running
         return;
-    m_viewClient->loadStarted(url, isErrorPage);
-    m_viewClient->updateNavigationActions();
-    m_viewClient->loadProgressChanged(0);
-    m_lastLoadProgress = 0;
+
+    m_isDocumentEmpty = true; // reset to default which may only be overridden on actual resource load complete
+    if (!isErrorPage) {
+        m_loadingInfo.progress = 0;
+        m_viewClient->loadStarted(QWebEngineLoadingInfo(m_loadingInfo.url, QWebEngineLoadingInfo::LoadStartedStatus));
+        m_viewClient->updateNavigationActions();
+        m_viewClient->loadProgressChanged(0);
+    }
 }
 
 void WebContentsDelegateQt::DidStartNavigation(content::NavigationHandle *navigation_handle)
 {
-    if (!navigation_handle->IsInMainFrame())
+    if (!webEngineSettings()->testAttribute(QWebEngineSettings::ErrorPageEnabled))
+        navigation_handle->SetSilentlyIgnoreErrors();
+
+    if (!navigation_handle->IsInMainFrame() || !web_contents()->IsLoadingToDifferentDocument())
         return;
 
-    // Error-pages are not reported as separate started navigations.
-    Q_ASSERT(!navigation_handle->IsErrorPage());
-
-    m_loadingErrorFrameList.clear();
-    m_faviconManager->resetCandidates();
-    EmitLoadStarted(toQt(navigation_handle->GetURL()));
+    m_loadingInfo.url = toQt(navigation_handle->GetURL());
+    // IsErrorPage is only set after navigation commit, so check it otherwise: error page shouldn't have navigation entry
+    bool isErrorPage = m_loadingInfo.triggersErrorPage && !navigation_handle->GetNavigationEntry();
+    emitLoadStarted(isErrorPage);
 }
 
-void WebContentsDelegateQt::EmitLoadFinished(bool success, const QUrl &url, bool isErrorPage, int errorCode, const QString &errorDescription)
+void WebContentsDelegateQt::emitLoadFinished(bool isErrorPage)
 {
-    if (m_lastLoadProgress < 0) // not currently running
+    if (!m_loadingInfo.isLoading()) // not currently running
         return;
-    if (m_lastLoadProgress < 100)
+
+    Q_ASSERT(!isErrorPage || webEngineSettings()->testAttribute(QWebEngineSettings::ErrorPageEnabled));
+    Q_ASSERT((m_loadingInfo.triggersErrorPage && webEngineSettings()->testAttribute(QWebEngineSettings::ErrorPageEnabled)) || !m_loadingInfo.triggersErrorPage);
+
+    if (isErrorPage) {
+        m_loadingInfo.isErrorPage = isErrorPage;
+        return;
+    }
+
+    if (m_loadingInfo.progress < 100) {
+        m_loadingInfo.progress = 100;
         m_viewClient->loadProgressChanged(100);
-    m_lastLoadProgress = -1;
-    m_viewClient->loadFinished(success, url, isErrorPage, errorCode, errorDescription);
+    }
+
+    auto loadStatus = m_loadingInfo.success
+        ? QWebEngineLoadingInfo::LoadSucceededStatus
+        : (m_loadingInfo.errorCode == WebEngineError::UserAbortedError
+                ? QWebEngineLoadingInfo::LoadStoppedStatus : QWebEngineLoadingInfo::LoadFailedStatus);
+    auto errorDomain = static_cast<QWebEngineLoadingInfo::ErrorDomain>(WebEngineError::toQtErrorDomain(m_loadingInfo.errorCode));
+    QWebEngineLoadingInfo info(m_loadingInfo.url, loadStatus, m_loadingInfo.isErrorPage,
+                               m_loadingInfo.errorDescription, m_loadingInfo.errorCode, errorDomain);
+    m_viewClient->loadFinished(std::move(info));
     m_viewClient->updateNavigationActions();
 }
 
-void WebContentsDelegateQt::EmitLoadCommitted()
+void WebContentsDelegateQt::emitLoadCommitted()
 {
     m_findTextHelper->handleLoadCommitted();
     m_viewClient->loadCommitted();
@@ -392,8 +418,9 @@ void WebContentsDelegateQt::DidFinishNavigation(content::NavigationHandle *navig
                 profileAdapter->visitedLinksManager()->addUrl(url);
         }
 
-        EmitLoadCommitted();
+        emitLoadCommitted();
     }
+
     // Success is reported by DidFinishLoad, but DidFailLoad is now dead code and needs to be handled below
     if (navigation_handle->GetNetErrorCode() == net::OK)
         return;
@@ -406,13 +433,10 @@ void WebContentsDelegateQt::DidFinishNavigation(content::NavigationHandle *navig
     // The load will succede as an error-page load later, and we reported the original error above
     if (navigation_handle->IsErrorPage()) {
         // Now report we are starting to load an error-page.
-        m_loadingErrorFrameList.append(navigation_handle->GetRenderFrameHost()->GetRoutingID());
-        m_faviconManager->resetCandidates();
-        EmitLoadStarted(toQt(GURL(content::kUnreachableWebDataURL)), true);
 
         // If it is already committed we will not see another DidFinishNavigation call or a DidFinishLoad call.
         if (navigation_handle->HasCommitted())
-            EmitLoadCommitted();
+            emitLoadCommitted();
     }
 }
 
@@ -454,12 +478,23 @@ void WebContentsDelegateQt::DidStopLoading()
 
     if (m_loadingState == LoadingState::Loading)
         setLoadingState(LoadingState::Loaded);
+
+    emitLoadFinished();
+    m_loadingInfo.clear();
 }
 
 void WebContentsDelegateQt::didFailLoad(const QUrl &url, int errorCode, const QString &errorDescription)
 {
     m_viewClient->iconChanged(QUrl());
-    EmitLoadFinished(false /* success */ , url, false /* isErrorPage */, errorCode, errorDescription);
+    bool errorPageEnabled = webEngineSettings()->testAttribute(QWebEngineSettings::ErrorPageEnabled);
+    // Delay notifying failure until the error-page is done loading.
+    // Error-pages are not loaded on failures due to abort.
+    bool aborted = (errorCode == -3 /* ERR_ABORTED*/ );
+    m_loadingInfo.success = false;
+    m_loadingInfo.url = url;
+    m_loadingInfo.errorCode = errorCode;
+    m_loadingInfo.errorDescription = errorDescription;
+    m_loadingInfo.triggersErrorPage = errorPageEnabled && !aborted;
 }
 
 void WebContentsDelegateQt::DidFailLoad(content::RenderFrameHost* render_frame_host, const GURL& validated_url, int error_code)
@@ -473,10 +508,8 @@ void WebContentsDelegateQt::DidFailLoad(content::RenderFrameHost* render_frame_h
     if (validated_url.spec() == content::kUnreachableWebDataURL) {
         // error-pages should only ever fail due to abort:
         Q_ASSERT(error_code == -3 /* ERR_ABORTED */);
-        m_loadingErrorFrameList.removeOne(render_frame_host->GetRoutingID());
         m_viewClient->iconChanged(QUrl());
-
-        EmitLoadFinished(false /* success */, toQt(validated_url), true /* isErrorPage */);
+        emitLoadFinished(/* isErrorPage = */true);
         return;
     }
     // Qt6: Consider getting rid of the error_description (Chromium already has)
@@ -491,12 +524,10 @@ void WebContentsDelegateQt::DidFinishLoad(content::RenderFrameHost* render_frame
 {
     Q_ASSERT(validated_url.is_valid());
     if (validated_url.spec() == content::kUnreachableWebDataURL) {
-        m_loadingErrorFrameList.removeOne(render_frame_host->GetRoutingID());
-
         // Trigger LoadFinished signal for main frame's error page only.
         if (!render_frame_host->GetParent()) {
             m_viewClient->iconChanged(QUrl());
-            EmitLoadFinished(true /* success */, toQt(validated_url), true /* isErrorPage */);
+            emitLoadFinished(/* isErrorPage = */true);
         }
 
         return;
@@ -507,38 +538,22 @@ void WebContentsDelegateQt::DidFinishLoad(content::RenderFrameHost* render_frame
         return;
     }
 
-    if (!m_faviconManager->hasCandidate())
-        m_viewClient->iconChanged(QUrl());
-
     content::NavigationEntry *entry = web_contents()->GetController().GetActiveEntry();
-    int http_statuscode = 0;
-    if (entry)
-       http_statuscode = entry->GetHttpStatusCode();
-    EmitLoadFinished(true /* success */ , toQt(validated_url), false /* isErrorPage */, http_statuscode);
-}
+    int http_statuscode = entry ? entry->GetHttpStatusCode() : 0;
+    bool errorPageEnabled = webEngineSettings()->testAttribute(QWebEngineSettings::ErrorPageEnabled);
+    bool triggersErrorPage = errorPageEnabled && (http_statuscode >= 400) && m_isDocumentEmpty;
 
-void WebContentsDelegateQt::DidUpdateFaviconURL(const std::vector<blink::mojom::FaviconURLPtr> &candidates)
-
-{
-    QList<FaviconInfo> faviconCandidates;
-    faviconCandidates.reserve(static_cast<int>(candidates.size()));
-    for (const blink::mojom::FaviconURLPtr &candidate : candidates) {
-        // Store invalid candidates too for later debugging via API
-        faviconCandidates.append(toFaviconInfo(candidate));
-    }
-
-    // Favicon URL can be changed from JavaScript too. Thus we need to reset
-    // the current candidate icon list to not handle previous icon as a candidate.
-    m_faviconManager->resetCandidates();
-    m_faviconManager->update(faviconCandidates);
+    m_loadingInfo.success = http_statuscode < 400;
+    m_loadingInfo.url = toQt(validated_url);
+    m_loadingInfo.errorCode = http_statuscode;
+    m_loadingInfo.triggersErrorPage = triggersErrorPage;
 }
 
 void WebContentsDelegateQt::WebContentsCreated(content::WebContents * /*source_contents*/,
                                                int /*opener_render_process_id*/, int /*opener_render_frame_id*/,
                                                const std::string &/*frame_name*/,
-                                               const GURL &target_url, content::WebContents *newContents)
+                                               const GURL &/*target_url*/, content::WebContents *newContents)
 {
-    m_initialTargetUrl = toQt(target_url);
     if (auto *view = static_cast<content::WebContentsImpl *>(newContents)->GetView())
         static_cast<WebContentsViewQt *>(view)->setFactoryClient(m_viewClient);
 }
@@ -556,11 +571,11 @@ content::JavaScriptDialogManager *WebContentsDelegateQt::GetJavaScriptDialogMana
     return JavaScriptDialogManagerQt::GetInstance();
 }
 
-void WebContentsDelegateQt::EnterFullscreenModeForTab(content::WebContents *web_contents, const GURL& origin, const blink::mojom::FullscreenOptions &)
+void WebContentsDelegateQt::EnterFullscreenModeForTab(content::RenderFrameHost *requesting_frame, const blink::mojom::FullscreenOptions &options)
 {
-    Q_UNUSED(web_contents);
+    Q_UNUSED(options);
     if (!m_viewClient->isFullScreenMode())
-        m_viewClient->requestFullScreenMode(toQt(origin), true);
+        m_viewClient->requestFullScreenMode(toQt(requesting_frame->GetLastCommittedURL()), true);
 }
 
 void WebContentsDelegateQt::ExitFullscreenModeForTab(content::WebContents *web_contents)
@@ -580,8 +595,10 @@ ASSERT_ENUMS_MATCH(FilePickerController::OpenMultiple, blink::mojom::FileChooser
 ASSERT_ENUMS_MATCH(FilePickerController::UploadFolder, blink::mojom::FileChooserParams::Mode::kUploadFolder)
 ASSERT_ENUMS_MATCH(FilePickerController::Save, blink::mojom::FileChooserParams::Mode::kSave)
 
+extern FilePickerController *createFilePickerController(FilePickerController::FileChooserMode mode, scoped_refptr<content::FileSelectListener> listener, const QString &defaultFileName, const QStringList &acceptedMimeTypes, QObject *parent = nullptr);
+
 void WebContentsDelegateQt::RunFileChooser(content::RenderFrameHost * /*frameHost*/,
-                                           std::unique_ptr<content::FileSelectListener> listener,
+                                           scoped_refptr<content::FileSelectListener> listener,
                                            const blink::mojom::FileChooserParams& params)
 {
     QStringList acceptedMimeTypes;
@@ -589,8 +606,8 @@ void WebContentsDelegateQt::RunFileChooser(content::RenderFrameHost * /*frameHos
     for (std::vector<base::string16>::const_iterator it = params.accept_types.begin(); it < params.accept_types.end(); ++it)
         acceptedMimeTypes.append(toQt(*it));
 
-    m_filePickerController.reset(new FilePickerController(static_cast<FilePickerController::FileChooserMode>(params.mode),
-                                                          std::move(listener), toQt(params.default_file_name.value()), acceptedMimeTypes));
+    m_filePickerController.reset(createFilePickerController(static_cast<FilePickerController::FileChooserMode>(params.mode),
+                                                            listener, toQt(params.default_file_name.value()), acceptedMimeTypes));
 
     // Defer the call to not block base::MessageLoop::RunTask with modal dialogs.
     QTimer::singleShot(0, [this] () {
@@ -601,7 +618,7 @@ void WebContentsDelegateQt::RunFileChooser(content::RenderFrameHost * /*frameHos
 bool WebContentsDelegateQt::DidAddMessageToConsole(content::WebContents *source, blink::mojom::ConsoleMessageLevel log_level,
                                                    const base::string16 &message, int32_t line_no, const base::string16 &source_id)
 {
-    Q_UNUSED(source)
+    Q_UNUSED(source);
     m_viewClient->javaScriptConsoleMessage(mapToJavascriptConsoleMessageLevel(log_level), toQt(message), static_cast<int>(line_no), toQt(source_id));
     return false;
 }
@@ -613,7 +630,7 @@ void WebContentsDelegateQt::FindReply(content::WebContents *source, int request_
 
 void WebContentsDelegateQt::RequestMediaAccessPermission(content::WebContents *web_contents, const content::MediaStreamRequest &request,  content::MediaResponseCallback callback)
 {
-    MediaCaptureDevicesDispatcher::GetInstance()->processMediaAccessRequest(m_viewClient, web_contents, request, std::move(callback));
+    MediaCaptureDevicesDispatcher::GetInstance()->processMediaAccessRequest(web_contents, request, std::move(callback));
 }
 
 void WebContentsDelegateQt::SetContentsBounds(content::WebContents *source, const gfx::Rect &bounds)
@@ -632,7 +649,7 @@ void WebContentsDelegateQt::SetContentsBounds(content::WebContents *source, cons
 
 void WebContentsDelegateQt::UpdateTargetURL(content::WebContents* source, const GURL& url)
 {
-    Q_UNUSED(source)
+    Q_UNUSED(source);
     m_viewClient->didUpdateTargetURL(toQt(url));
 }
 
@@ -642,19 +659,10 @@ void WebContentsDelegateQt::OnVisibilityChanged(content::Visibility visibility)
         web_cache::WebCacheManager::GetInstance()->ObserveActivity(web_contents()->GetMainFrame()->GetProcess()->GetID());
 }
 
-void WebContentsDelegateQt::DidFirstVisuallyNonEmptyPaint()
-{
-    RenderWidgetHostViewQt *rwhv = static_cast<RenderWidgetHostViewQt*>(web_contents()->GetRenderWidgetHostView());
-    if (!rwhv)
-        return;
-
-    rwhv->OnDidFirstVisuallyNonEmptyPaint();
-}
-
 void WebContentsDelegateQt::ActivateContents(content::WebContents* contents)
 {
-    WebEngineSettings *settings = m_viewClient->webEngineSettings();
-    if (settings->testAttribute(settings->Attribute::AllowWindowActivationFromJavaScript))
+    QWebEngineSettings *settings = m_viewClient->webEngineSettings();
+    if (settings->testAttribute(QWebEngineSettings::AllowWindowActivationFromJavaScript))
         contents->Focus();
 }
 
@@ -668,14 +676,14 @@ void WebContentsDelegateQt::RequestToLockMouse(content::WebContents *web_content
         m_viewClient->runMouseLockPermissionRequest(toQt(web_contents->GetLastCommittedURL().GetOrigin()));
 }
 
-void WebContentsDelegateQt::overrideWebPreferences(content::WebContents *webContents, content::WebPreferences *webPreferences)
+void WebContentsDelegateQt::overrideWebPreferences(content::WebContents *webContents, blink::web_pref::WebPreferences *webPreferences)
 {
-    m_viewClient->webEngineSettings()->overrideWebPreferences(webContents, webPreferences);
+    WebEngineSettings::get(m_viewClient->webEngineSettings())->overrideWebPreferences(webContents, webPreferences);
 }
 
 QSharedPointer<WebContentsAdapter>
 WebContentsDelegateQt::createWindow(std::unique_ptr<content::WebContents> new_contents,
-                                    WindowOpenDisposition disposition, const gfx::Rect &initial_pos,
+                                    WindowOpenDisposition disposition, const gfx::Rect &initial_pos, const QUrl &url,
                                     bool user_gesture)
 {
     QSharedPointer<WebContentsAdapter> newAdapter = QSharedPointer<WebContentsAdapter>::create(std::move(new_contents));
@@ -683,12 +691,18 @@ WebContentsDelegateQt::createWindow(std::unique_ptr<content::WebContents> new_co
     return m_viewClient->adoptNewWindow(
             std::move(newAdapter),
             static_cast<WebContentsAdapterClient::WindowOpenDisposition>(disposition), user_gesture,
-            toQt(initial_pos), m_initialTargetUrl);
+            toQt(initial_pos), url);
 }
 
-void WebContentsDelegateQt::allowCertificateError(const QSharedPointer<CertificateErrorController> &errorController)
+void WebContentsDelegateQt::allowCertificateError(
+        const QSharedPointer<CertificateErrorController> &controller)
 {
-    m_viewClient->allowCertificateError(errorController);
+    QWebEngineCertificateError error(controller);
+    m_viewClient->allowCertificateError(error);
+    if (!error.isOverridable() || (!controller->deferred() && !controller->answered()))
+        error.rejectCertificate();
+    else
+        m_certificateErrorControllers.append(controller);
 }
 
 void WebContentsDelegateQt::selectClientCert(const QSharedPointer<ClientCertSelectController> &selectController)
@@ -705,17 +719,17 @@ extern WebContentsAdapterClient::NavigationType pageTransitionToNavigationType(u
 
 void WebContentsDelegateQt::launchExternalURL(const QUrl &url, ui::PageTransition page_transition, bool is_main_frame, bool has_user_gesture)
 {
-    WebEngineSettings *settings = m_viewClient->webEngineSettings();
+    QWebEngineSettings *settings = m_viewClient->webEngineSettings();
     bool navigationAllowedByPolicy = false;
     bool navigationRequestAccepted = true;
 
     switch (settings->unknownUrlSchemePolicy()) {
-    case WebEngineSettings::DisallowUnknownUrlSchemes:
+    case QWebEngineSettings::DisallowUnknownUrlSchemes:
         break;
-    case WebEngineSettings::AllowUnknownUrlSchemesFromUserInteraction:
+    case QWebEngineSettings::AllowUnknownUrlSchemesFromUserInteraction:
         navigationAllowedByPolicy = has_user_gesture;
         break;
-    case WebEngineSettings::AllowAllUnknownUrlSchemes:
+    case QWebEngineSettings::AllowAllUnknownUrlSchemes:
         navigationAllowedByPolicy = true;
         break;
     default:
@@ -723,9 +737,7 @@ void WebContentsDelegateQt::launchExternalURL(const QUrl &url, ui::PageTransitio
     }
 
     if (navigationAllowedByPolicy) {
-        int navigationRequestAction = WebContentsAdapterClient::AcceptRequest;
-        m_viewClient->navigationRequested(pageTransitionToNavigationType(page_transition), url, navigationRequestAction, is_main_frame);
-        navigationRequestAccepted = navigationRequestAction == WebContentsAdapterClient::AcceptRequest;
+        m_viewClient->navigationRequested(pageTransitionToNavigationType(page_transition), url, navigationRequestAccepted, is_main_frame);
 #ifndef QT_NO_DESKTOPSERVICES
         if (navigationRequestAccepted)
             QDesktopServices::openUrl(url);
@@ -771,11 +783,9 @@ bool WebContentsDelegateQt::CheckMediaAccessPermission(content::RenderFrameHost 
     }
 }
 
-void WebContentsDelegateQt::RegisterProtocolHandler(content::WebContents *webContents, const std::string &protocol, const GURL &url, bool)
+void WebContentsDelegateQt::RegisterProtocolHandler(content::RenderFrameHost *frameHost, const std::string &protocol, const GURL &url, bool)
 {
-    content::BrowserContext *context = webContents->GetBrowserContext();
-    if (context->IsOffTheRecord())
-        return;
+    content::BrowserContext *context = frameHost->GetBrowserContext();
 
     ProtocolHandler handler =
         ProtocolHandler::CreateProtocolHandler(protocol, url);
@@ -786,15 +796,13 @@ void WebContentsDelegateQt::RegisterProtocolHandler(content::WebContents *webCon
         return;
 
     QWebEngineRegisterProtocolHandlerRequest request(
-        QSharedPointer<RegisterProtocolHandlerRequestControllerImpl>::create(webContents, handler));
+        QSharedPointer<RegisterProtocolHandlerRequestControllerImpl>::create(content::WebContents::FromRenderFrameHost(frameHost), handler));
     m_viewClient->runRegisterProtocolHandlerRequest(std::move(request));
 }
 
-void WebContentsDelegateQt::UnregisterProtocolHandler(content::WebContents *webContents, const std::string &protocol, const GURL &url, bool)
+void WebContentsDelegateQt::UnregisterProtocolHandler(content::RenderFrameHost *frameHost, const std::string &protocol, const GURL &url, bool)
 {
-    content::BrowserContext* context = webContents->GetBrowserContext();
-    if (context->IsOffTheRecord())
-        return;
+    content::BrowserContext* context = frameHost->GetBrowserContext();
 
     ProtocolHandler handler =
         ProtocolHandler::CreateProtocolHandler(protocol, url);
@@ -819,18 +827,16 @@ void WebContentsDelegateQt::ContentsZoomChange(bool zoom_in)
         adapter->setZoomFactor(adapter->currentZoomFactor() - 0.1f);
 }
 
-bool WebContentsDelegateQt::ShouldNavigateOnBackForwardMouseButtons()
+void WebContentsDelegateQt::ResourceLoadComplete(content::RenderFrameHost* render_frame_host,
+                                                 const content::GlobalRequestID& request_id,
+                                                 const blink::mojom::ResourceLoadInfo& resource_load_info)
 {
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-    return false;
-#else
-    return true;
-#endif
-}
+    Q_UNUSED(render_frame_host);
+    Q_UNUSED(request_id);
 
-FaviconManager *WebContentsDelegateQt::faviconManager()
-{
-    return m_faviconManager.data();
+    if (resource_load_info.request_destination == network::mojom::RequestDestination::kDocument) {
+        m_isDocumentEmpty = (resource_load_info.raw_body_bytes == 0);
+    }
 }
 
 FindTextHelper *WebContentsDelegateQt::findTextHelper()
@@ -839,7 +845,7 @@ FindTextHelper *WebContentsDelegateQt::findTextHelper()
 }
 
 WebEngineSettings *WebContentsDelegateQt::webEngineSettings() const {
-    return m_viewClient->webEngineSettings();
+   return WebEngineSettings::get(m_viewClient->webEngineSettings());
 }
 
 WebContentsAdapter *WebContentsDelegateQt::webContentsAdapter() const
@@ -851,7 +857,6 @@ void WebContentsDelegateQt::copyStateFrom(WebContentsDelegateQt *source)
 {
     m_title = source->m_title;
     NavigationStateChanged(web_contents(), content::INVALIDATE_TYPE_URL);
-    m_faviconManager->copyStateFrom(source->m_faviconManager.data());
 }
 
 WebContentsDelegateQt::LoadingState WebContentsDelegateQt::determineLoadingState(content::WebContents *contents)
@@ -896,6 +901,7 @@ int &WebContentsDelegateQt::streamCount(blink::mojom::MediaStreamType type)
     case blink::mojom::MediaStreamType::GUM_DESKTOP_AUDIO_CAPTURE:
     case blink::mojom::MediaStreamType::DISPLAY_VIDEO_CAPTURE:
     case blink::mojom::MediaStreamType::DISPLAY_AUDIO_CAPTURE:
+    case blink::mojom::MediaStreamType::DISPLAY_VIDEO_CAPTURE_THIS_TAB:
         return m_desktopStreamCount;
 
     case blink::mojom::MediaStreamType::NO_SERVICE:

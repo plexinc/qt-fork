@@ -31,7 +31,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'config.ui'
 **
-** Created by: Qt User Interface Compiler version 5.12.0
+** Created by: Qt User Interface Compiler version 6.0.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -695,8 +695,8 @@ public:
 
 
         retranslateUi(Config);
-        QObject::connect(size_width, SIGNAL(valueChanged(int)), size_custom, SLOT(click()));
-        QObject::connect(size_height, SIGNAL(valueChanged(int)), size_custom, SLOT(click()));
+        QObject::connect(size_width, &QSpinBox::valueChanged, size_custom, qOverload<>(&QRadioButton::click));
+        QObject::connect(size_height, &QSpinBox::valueChanged, size_custom, qOverload<>(&QRadioButton::click));
 
         buttonOk->setDefault(true);
 

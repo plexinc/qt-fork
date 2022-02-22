@@ -6,20 +6,14 @@
     "sources",
     "sources_test_runner"
   ],
-  "scripts": [
+  "modules": [
+    "application_test_runner.js",
     "AppcacheTestRunner.js",
     "CacheStorageTestRunner.js",
     "IndexedDBTestRunner.js",
     "ResourceTreeTestRunner.js",
     "ResourcesTestRunner.js",
-    "ServiceWorkersTestRunner.js"
-  ],
-  "skip_compilation": [
-    "AppcacheTestRunner.js",
-    "CacheStorageTestRunner.js",
-    "IndexedDBTestRunner.js",
-    "ResourceTreeTestRunner.js",
-    "ResourcesTestRunner.js",
-    "ServiceWorkersTestRunner.js"
+    "ServiceWorkersTestRunner.js",
+    "StorageTestRunner.js"
   ]
 }

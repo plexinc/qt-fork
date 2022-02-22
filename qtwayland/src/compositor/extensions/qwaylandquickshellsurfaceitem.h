@@ -45,6 +45,9 @@ class Q_WAYLAND_COMPOSITOR_EXPORT QWaylandQuickShellSurfaceItem : public QWaylan
     Q_PROPERTY(QWaylandShellSurface *shellSurface READ shellSurface WRITE setShellSurface NOTIFY shellSurfaceChanged)
     Q_PROPERTY(QQuickItem *moveItem READ moveItem WRITE setMoveItem NOTIFY moveItemChanged)
     Q_PROPERTY(bool autoCreatePopupItems READ autoCreatePopupItems WRITE setAutoCreatePopupItems NOTIFY autoCreatePopupItemsChanged)
+    Q_MOC_INCLUDE("qwaylandshellsurface.h")
+    QML_NAMED_ELEMENT(ShellSurfaceItem)
+    QML_ADDED_IN_VERSION(1, 0)
 public:
     QWaylandQuickShellSurfaceItem(QQuickItem *parent = nullptr);
     ~QWaylandQuickShellSurfaceItem() override;

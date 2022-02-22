@@ -47,7 +47,7 @@ QT_BEGIN_NAMESPACE
 class QModelIndex;
 QT_END_NAMESPACE
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class QPieSlice;
 
@@ -68,8 +68,8 @@ public Q_SLOTS:
     void handleModelDestroyed();
 
     // for the series
-    void slicesAdded(QList<QPieSlice *> slices);
-    void slicesRemoved(QList<QPieSlice *> slices);
+    void slicesAdded(const QList<QPieSlice *> &slices);
+    void slicesRemoved(const QList<QPieSlice *> &slices);
     void sliceLabelChanged();
     void sliceValueChanged();
     void handleSeriesDestroyed();
@@ -106,6 +106,6 @@ private:
     Q_DECLARE_PUBLIC(QPieModelMapper)
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // QPIEMODELMAPPER_P_H

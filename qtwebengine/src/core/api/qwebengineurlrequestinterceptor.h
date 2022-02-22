@@ -43,14 +43,12 @@
 #include <QtWebEngineCore/qtwebenginecoreglobal.h>
 #include <QtWebEngineCore/qwebengineurlrequestinfo.h>
 
-#include <QtCore/qbytearray.h>
-#include <QtCore/qhash.h>
 #include <QtCore/qobject.h>
-#include <QtCore/qurl.h>
 
 QT_BEGIN_NAMESPACE
 
-class Q_WEBENGINECORE_EXPORT QWebEngineUrlRequestInterceptor : public QObject {
+class Q_WEBENGINECORE_EXPORT QWebEngineUrlRequestInterceptor : public QObject
+{
     Q_OBJECT
     Q_DISABLE_COPY(QWebEngineUrlRequestInterceptor)
 public:

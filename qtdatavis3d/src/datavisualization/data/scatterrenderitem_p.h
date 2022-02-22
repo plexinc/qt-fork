@@ -42,7 +42,7 @@
 
 #include "abstractrenderitem_p.h"
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 class ScatterRenderItem : public AbstractRenderItem
 {
@@ -65,8 +65,8 @@ protected:
     QVector3D m_position;
     bool m_visible;
 };
-typedef QVector<ScatterRenderItem> ScatterRenderItemArray;
+typedef QList<ScatterRenderItem> ScatterRenderItemArray;
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

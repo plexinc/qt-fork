@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "base/optional.h"
+#include "third_party/skia/include/core/SkColor.h"
 #include "ui/accessibility/ax_clipping_behavior.h"
 #include "ui/accessibility/ax_coordinate_system.h"
 #include "ui/accessibility/ax_enums.mojom-forward.h"
@@ -78,7 +79,24 @@ class AX_EXPORT AXPlatformNodeDelegate {
   // Get the accessibility tree data for this node.
   virtual const AXTreeData& GetTreeData() const = 0;
 
-  // Get the unignored selection from the tree
+  // Returns the text of this node and all descendant nodes; including text
+  // found in embedded objects.
+  //
+  // Only text displayed on screen is included. Text from ARIA and HTML
+  // attributes that is either not displayed on screen, or outside this node,
+  // e.g. aria-label and HTML title, is not returned.
+  virtual base::string16 GetInnerText() const = 0;
+
+  // Returns the value of a control such as a text field, a slider, a <select>
+  // element, a date picker or an ARIA combo box. In order to minimize
+  // cross-process communication between the renderer and the browser, may
+  // compute the value from the control's inner text in the case of a text
+  // field.
+  virtual base::string16 GetValueForControl() const = 0;
+
+  // Get the unignored selection from the tree, meaning the selection whose
+  // endpoints are on unignored nodes. (An ignored node means that the node
+  // should not be exposed to platform APIs: See `IsInvisibleOrIgnored`.)
   virtual const AXTree::Selection GetUnignoredSelection() const = 0;
 
   // Creates a text position rooted at this object.
@@ -102,10 +120,24 @@ class AX_EXPORT AXPlatformNodeDelegate {
   virtual int GetIndexInParent() = 0;
 
   // Get the number of children of this node.
+  //
+  // Note that for accessibility trees that have ignored nodes, this method
+  // should return the number of unignored children. All ignored nodes are
+  // recursively removed from the children count. (An ignored node means that
+  // the node should not be exposed to platform APIs: See
+  // `IsInvisibleOrIgnored`.)
   virtual int GetChildCount() const = 0;
 
-  // Get the child of a node given a 0-based index.
+  // Get a child of a node given a 0-based index.
+  //
+  // Note that for accessibility trees that have ignored nodes, this method
+  // returns only unignored children. All ignored nodes are recursively removed.
+  // (An ignored node means that the node should not be exposed to platform
+  // APIs: See `IsInvisibleOrIgnored`.)
   virtual gfx::NativeViewAccessible ChildAtIndex(int index) = 0;
+
+  // Returns true if it has a modal dialog.
+  virtual bool HasModalDialog() const = 0;
 
   // Gets the first child of a node, or nullptr if no children exist.
   virtual gfx::NativeViewAccessible GetFirstChild() = 0;
@@ -121,13 +153,38 @@ class AX_EXPORT AXPlatformNodeDelegate {
   virtual gfx::NativeViewAccessible GetPreviousSibling() = 0;
 
   // Returns true if an ancestor of this node (not including itself) is a
-  // leaf node, meaning that this node is not actually exposed to the
-  // platform.
+  // leaf node, meaning that this node is not actually exposed to any
+  // platform's accessibility layer.
   virtual bool IsChildOfLeaf() const = 0;
 
-  // If this object is exposed to the platform, returns this object. Otherwise,
-  // returns the platform leaf under which this object is found.
-  virtual gfx::NativeViewAccessible GetClosestPlatformObject() const = 0;
+  // Returns true if this node is either a plain text field , or one of its
+  // ancestors is.
+  virtual bool IsDescendantOfPlainTextField() const = 0;
+
+  // Returns true if this is a leaf node, meaning all its
+  // children should not be exposed to any platform's native accessibility
+  // layer.
+  virtual bool IsLeaf() const = 0;
+
+  // Returns true if this node is invisible or ignored. (Only relevant for
+  // accessibility trees that support ignored nodes.)
+  virtual bool IsInvisibleOrIgnored() const = 0;
+
+  // Returns true if this node is focused.
+  virtual bool IsFocused() const = 0;
+
+  // Returns true if this is a top-level browser window that doesn't have a
+  // parent accessible node, or its parent is the application accessible node on
+  // platforms that have one.
+  virtual bool IsToplevelBrowserWindow() = 0;
+
+  // If this object is exposed to the platform's accessibility layer, returns
+  // this object. Otherwise, returns the platform leaf or lowest unignored
+  // ancestor under which this object is found.
+  //
+  // (An ignored node means that the node should not be exposed to platform
+  // APIs: See `IsInvisibleOrIgnored`.)
+  virtual gfx::NativeViewAccessible GetLowestPlatformAncestor() const = 0;
 
   class ChildIterator {
    public:
@@ -171,10 +228,6 @@ class AX_EXPORT AXPlatformNodeDelegate {
   // because inheritance works differently between the different delegate
   // implementations.
   virtual std::string GetInheritedFontFamilyName() const = 0;
-
-  // Returns the text of this node and all descendant nodes; including text
-  // found in embedded objects.
-  virtual base::string16 GetInnerText() const = 0;
 
   // Return the bounds of this node in the coordinate system indicated. If the
   // clipping behavior is set to clipped, clipping is applied. If an offscreen
@@ -230,13 +283,16 @@ class AX_EXPORT AXPlatformNodeDelegate {
   // Return the node within this node's subtree (inclusive) that currently has
   // focus, or return nullptr if this subtree is not connected to the top
   // document through its ancestry chain.
-  virtual gfx::NativeViewAccessible GetFocus() = 0;
+  virtual gfx::NativeViewAccessible GetFocus() const = 0;
 
   // Get whether this node is offscreen.
   virtual bool IsOffscreen() const = 0;
 
   // Get whether this node is a minimized window.
   virtual bool IsMinimized() const = 0;
+
+  // See AXNode::IsText().
+  virtual bool IsText() const = 0;
 
   // Get whether this node is in web content.
   virtual bool IsWebContent() const = 0;
@@ -360,6 +416,10 @@ class AX_EXPORT AXPlatformNodeDelegate {
   virtual bool IsOrderedSet() const = 0;
   virtual base::Optional<int> GetPosInSet() const = 0;
   virtual base::Optional<int> GetSetSize() const = 0;
+
+  // Computed colors, taking blending into account.
+  virtual SkColor GetColor() const = 0;
+  virtual SkColor GetBackgroundColor() const = 0;
 
   //
   // Events.

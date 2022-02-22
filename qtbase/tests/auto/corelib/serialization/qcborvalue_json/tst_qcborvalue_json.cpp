@@ -38,7 +38,10 @@
 ****************************************************************************/
 
 #include <QtCore/qcborvalue.h>
-#include <QtTest>
+#include <QTest>
+#include <QJsonValue>
+#include <QJsonObject>
+#include <QJsonArray>
 
 Q_DECLARE_METATYPE(QCborValue)
 
@@ -80,7 +83,7 @@ void tst_QCborValue_Json::toVariant_data()
             if (v.type() == QCborValue::Double)
                 return QTest::addRow("Double:%g", exp.toDouble());
             if (v.type() == QCborValue::ByteArray || v.type() == QCborValue::String)
-                return QTest::addRow("%s:%d", typeString, exp.toString().size());
+                return QTest::addRow("%s:%zd", typeString, size_t(exp.toString().size()));
             if (v.type() >= 0x10000)
                 return QTest::newRow(exp.typeName());
             return QTest::newRow(typeString);
@@ -97,9 +100,12 @@ void tst_QCborValue_Json::toVariant_data()
     add(1, 1, 1);
     add(-1, -1, -1);
     add(0., 0., 0.);
+    add(2., 2., 2.);
     add(1.25, 1.25, 1.25);
     add(-1.25, -1.25, -1.25);
     add("Hello", "Hello", "Hello");
+    add(std::numeric_limits<qint64>::max(), std::numeric_limits<qint64>::max(), std::numeric_limits<qint64>::max());
+    add(std::numeric_limits<qint64>::min(), std::numeric_limits<qint64>::min(), std::numeric_limits<qint64>::min());
 
     // converts to string in JSON:
     add(QByteArray("Hello"), QByteArray("Hello"), "SGVsbG8");
@@ -123,14 +129,6 @@ void tst_QCborValue_Json::toVariant_data()
                                 << QVariant(qQNaN())
                                 << QJsonValue();
 
-    // large integral values lose precision in JSON
-    QTest::newRow("Integer:max") << QCborValue(std::numeric_limits<qint64>::max())
-                                 << QVariant(std::numeric_limits<qint64>::max())
-                                 << QJsonValue(std::numeric_limits<qint64>::max());
-    QTest::newRow("Integer:min") << QCborValue(std::numeric_limits<qint64>::min())
-                                 << QVariant(std::numeric_limits<qint64>::min())
-                                 << QJsonValue(std::numeric_limits<qint64>::min());
-
     // empty arrays and maps
     add(QCborArray(), QVariantList(), QJsonArray());
     add(QCborMap(), QVariantMap(), QJsonObject());
@@ -153,8 +151,8 @@ void tst_QCborValue_Json::toVariant()
     QCOMPARE(v.toVariant(), variant);
     if (variant.isValid()) {
         QVariant variant2 = QVariant::fromValue(v);
-        QVERIFY(variant2.canConvert(variant.userType()));
-        QVERIFY(variant2.convert(variant.userType()));
+        QVERIFY(variant2.canConvert(variant.metaType()));
+        QVERIFY(variant2.convert(variant.metaType()));
         QCOMPARE(variant2, variant);
     }
 
@@ -229,7 +227,7 @@ void tst_QCborValue_Json::fromVariant()
     QCOMPARE(QCborArray::fromVariantList({variant}), QCborArray{v});
     QCOMPARE(QCborArray::fromVariantList({variant, variant}), QCborArray({v, v}));
 
-    if (variant.type() == QVariant::String) {
+    if (variant.metaType() == QMetaType(QMetaType::QString)) {
         QString s = variant.toString();
         QCOMPARE(QCborArray::fromStringList({s}), QCborArray{v});
         QCOMPARE(QCborArray::fromStringList({s, s}), QCborArray({v, v}));
@@ -257,6 +255,10 @@ void tst_QCborValue_Json::fromJson_data()
     QTest::newRow("0") << QCborValue(0) << QJsonValue(0.);
     QTest::newRow("1") << QCborValue(1) << QJsonValue(1);
     QTest::newRow("1.5") << QCborValue(1.5) << QJsonValue(1.5);
+    QTest::newRow("Integer:max") << QCborValue(std::numeric_limits<qint64>::max())
+                                 << QJsonValue(std::numeric_limits<qint64>::max());
+    QTest::newRow("Integer:min") << QCborValue(std::numeric_limits<qint64>::min())
+                                 << QJsonValue(std::numeric_limits<qint64>::min());
     QTest::newRow("string") << QCborValue("Hello") << QJsonValue("Hello");
     QTest::newRow("array") << QCborValue(QCborValue::Array) << QJsonValue(QJsonValue::Array);
     QTest::newRow("map") << QCborValue(QCborValue::Map) << QJsonValue(QJsonValue::Object);

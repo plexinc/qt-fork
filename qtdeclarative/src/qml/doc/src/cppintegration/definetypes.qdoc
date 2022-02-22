@@ -46,6 +46,7 @@ features such as \e{attached properties} and \e{default properties} in C++.
 (Note that a number of the important concepts covered in this document are
 demonstrated in the \l{Writing QML Extensions with C++} tutorial.)
 
+\b{NOTE:} All headers that declare QML types need to be accessible without any prefix from the project's include path.
 
 \section1 Registering C++ Types with the QML Type System
 
@@ -68,6 +69,21 @@ exposed to QML but the type itself should not be instantiable.
 
 For a quick guide to choosing the correct approach to expose C++ types to QML,
 see \l {Choosing the Correct Integration Method Between C++ and QML}.
+
+\section2 Preconditions
+
+All the macros mentioned below are available from the \c qqmlregistration.h
+header. You need to add the following code to the files using them in order to
+make the macros available:
+
+\code
+#include <QtQml/qqmlregistration.h>
+\endcode
+
+Furthermore, your class declarations have to live in headers reachable via your
+project's include path. The declarations are used to generate registration code
+at compile time, and the registration code needs to include the headers that
+contain the declarations.
 
 \section2 Registering an Instantiable Object Type
 
@@ -115,6 +131,14 @@ number to the project file. For example, to make the type available in the
 CONFIG += qmltypes
 QML_IMPORT_NAME = com.mycompany.messaging
 QML_IMPORT_MAJOR_VERSION = 1
+\endcode
+
+If the header the class is declared in is not accessible from your project's
+include path, you may have to amend the include path so that the generated
+registration code can be compiled:
+
+\code
+INCLUDEPATH += com/mycompany/messaging
 \endcode
 
 The type can be used in an \l{qtqml-syntax-basics.html#object-declarations}
@@ -213,6 +237,20 @@ register a new singleton type, and how to use an existing singleton type.
 
 \note Enum values for registered types in QML should start with a capital.
 
+\section2 Final properties
+
+Properties declared final using the \c FINAL modifier to \l Q_PROPERTY cannot
+be overridden. This means that any properties or functions of the same name,
+declared either in QML or in C++ on derived types, are ignored by the QML
+engine. You should declare properties \c FINAL when possible, in order to avoid
+accidental overrides. An override of a property is visible not only in
+derived classes, but also to QML code executing the context of the base class.
+Such QML code, typically expects the original property, though. This is a
+frequent source of mistakes.
+
+Properties declared \c FINAL can also not be overridden by functions in QML, or
+by \l Q_INVOKABLE methods in C++.
+
 \section2 Type Revisions and Versions
 
 Many of the type registration functions require versions to be specified
@@ -310,6 +348,9 @@ QLineEdit, without modifying its source code.
 The QML_EXTENDED(extended) macro is for registering extended types. The
 argument is the name of another class to be used as extension.
 
+You can also use QML_EXTENDED_NAMESPACE(namespace) to register a namespace, and
+especially the enumerations declared within, as an extension to a type.
+
 An extension class is a regular QObject, with a constructor that takes a QObject
 pointer. However, the extension class creation is delayed until the first
 extended property is accessed. The extension class is created and the target
@@ -319,6 +360,32 @@ accessed, the corresponding property on the extension object is used instead.
 The \l{Extending QML - Extension Objects Example}{Extension Objects Example}
 demonstrates a usage of extension objects.
 
+\section2 Registering Foreign Types
+
+There may be C++ types that cannot be modified to hold the above mentioned
+macros. Those may be types from 3rdparty libraries, or types that need to
+fulfill some contract that contradicts the presence of those macros. You can
+still expose those types to QML, though, using the QML_FOREIGN macro. In order
+to do this, create a separate struct that consists entirely of the registration
+macros, like this:
+
+\code
+// Contains class Immutable3rdParty
+#include <3rdpartyheader.h>
+
+struct Foreign
+{
+    Q_GADGET
+    QML_FOREIGN(Immutable3rdParty)
+    QML_NAMED_ELEMENT(Accessible3rdParty)
+    QML_ADDED_IN_VERSION(2, 4)
+    // QML_EXTENDED, QML_SINGLETON ...
+};
+\endcode
+
+From this code, you get a QML type with the methods and properties of
+Immutable3rdParty, and the QML traits (e.g.: singleton, extended) specified in
+Foreign.
 
 \section1 Defining QML-Specific Types and Attributes
 
@@ -552,6 +619,8 @@ Item {
 }
 \endqml
 
+This is commonly referred to as "on" syntax.
+
 Clients can register their own property value source types, but currently not
 property value write interceptors.
 
@@ -648,7 +717,7 @@ assignment fails does the engine call the \l
 the type to also be used in contexts other than just as a value source.
 
 
-\section2 Specifying Default Properties for QML Object Types
+\section2 Specifying Default and Parent Properties for QML Object Types
 
 Any QObject-derived type that is registered as an instantiable QML object type
 can optionally specify a \e {default property} for the type. A default
@@ -705,6 +774,37 @@ objects added to this \c data property are also added to the list of
 to be declared for an item without explicitly assigning them to the
 \l{Item::}{children} property.)
 
+Additionally, you can declare a "ParentProperty" Q_CLASSINFO() to inform the QML
+engine which property should denote the parent object in the QML hierarchy. For
+example, the Message type might be declared as follows:
+
+\code
+class Message : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(QObject* board READ board BINDABLE boardBindable)
+    Q_PROPERTY(QString author READ author BINDABLE authorBindable)
+    Q_CLASSINFO("ParentProperty", "board")
+    QML_ELEMENT
+
+public:
+    Message(QObject *parent = nullptr) : QObject(parent) { m_board = parent; }
+
+    QObject *board() const { return m_board.value(); }
+    QBindable<QObject *> boardBindable() { return QBindable<QObject *>(&m_board); }
+
+    QString author() const { return m_author.value(); }
+    QBindable<QString> authorBindable() { return QBindable<QString>(&m_author); }
+
+private:
+    QProperty<QObject *> m_board;
+    QProperty<QString> m_author;
+};
+\endcode
+
+Defining the parent property affords \l qmllint and other tools better insight
+into the intention of your code and avoids false positive warnings on some
+property accesses.
 
 \section2 Defining Visual Items with the Qt Quick Module
 

@@ -35,10 +35,19 @@ class WasmFeatures : public base::EnumSet<WasmFeature> {
 
   // Simplified getters. Use {has_foo()} instead of {contains(kFeature_foo)}.
 #define DECL_FEATURE_GETTER(feat, ...) \
-  bool has_##feat() const { return contains(kFeature_##feat); }
+  constexpr bool has_##feat() const { return contains(kFeature_##feat); }
   FOREACH_WASM_FEATURE(DECL_FEATURE_GETTER)
 #undef DECL_FEATURE_GETTER
 
+  static constexpr const char* name_for_feature(WasmFeature feature) {
+    switch (feature) {
+#define NAME(feat, ...)              \
+  case WasmFeature::kFeature_##feat: \
+    return #feat;
+      FOREACH_WASM_FEATURE(NAME)
+    }
+#undef NAME
+  }
   static inline constexpr WasmFeatures All();
   static inline constexpr WasmFeatures None();
   static inline constexpr WasmFeatures ForAsmjs();

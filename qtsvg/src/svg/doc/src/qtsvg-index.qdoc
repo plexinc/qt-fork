@@ -47,6 +47,10 @@
 
     \snippet doc_src_qtsvg.pro 1
 
+    \section1 Module Evolution
+    \l{Changes to Qt SVG} lists important changes in the module API
+    and functionality that were done for the Qt 6 series of Qt.
+
     \section1 Licenses and Attributions
 
     Qt SVG is available under commercial licenses from \l{The Qt Company}.
@@ -69,6 +73,7 @@
     \section1 References
     \list
         \li \l{Qt SVG C++ Classes}
+        \li \l{Qt SVG Widgets C++ Classes}
     \endlist
 
     Qt SVG comes with the following examples:

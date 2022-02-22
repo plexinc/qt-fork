@@ -126,15 +126,6 @@ namespace dawn_native { namespace metal {
             }
         }
 
-        MTLIndexType MTLIndexFormat(wgpu::IndexFormat format) {
-            switch (format) {
-                case wgpu::IndexFormat::Uint16:
-                    return MTLIndexTypeUInt16;
-                case wgpu::IndexFormat::Uint32:
-                    return MTLIndexTypeUInt32;
-            }
-        }
-
         MTLBlendFactor MetalBlendFactor(wgpu::BlendFactor factor, bool alpha) {
             switch (factor) {
                 case wgpu::BlendFactor::Zero:
@@ -245,17 +236,23 @@ namespace dawn_native { namespace metal {
             }
         }
 
-        MTLDepthStencilDescriptor* MakeDepthStencilDesc(
+        NSRef<MTLDepthStencilDescriptor> MakeDepthStencilDesc(
             const DepthStencilStateDescriptor* descriptor) {
-            MTLDepthStencilDescriptor* mtlDepthStencilDescriptor = [MTLDepthStencilDescriptor new];
+            NSRef<MTLDepthStencilDescriptor> mtlDepthStencilDescRef =
+                AcquireNSRef([MTLDepthStencilDescriptor new]);
+            MTLDepthStencilDescriptor* mtlDepthStencilDescriptor = mtlDepthStencilDescRef.Get();
 
             mtlDepthStencilDescriptor.depthCompareFunction =
                 ToMetalCompareFunction(descriptor->depthCompare);
             mtlDepthStencilDescriptor.depthWriteEnabled = descriptor->depthWriteEnabled;
 
             if (StencilTestEnabled(descriptor)) {
-                MTLStencilDescriptor* backFaceStencil = [MTLStencilDescriptor new];
-                MTLStencilDescriptor* frontFaceStencil = [MTLStencilDescriptor new];
+                NSRef<MTLStencilDescriptor> backFaceStencilRef =
+                    AcquireNSRef([MTLStencilDescriptor new]);
+                MTLStencilDescriptor* backFaceStencil = backFaceStencilRef.Get();
+                NSRef<MTLStencilDescriptor> frontFaceStencilRef =
+                    AcquireNSRef([MTLStencilDescriptor new]);
+                MTLStencilDescriptor* frontFaceStencil = frontFaceStencilRef.Get();
 
                 backFaceStencil.stencilCompareFunction =
                     ToMetalCompareFunction(descriptor->stencilBack.compare);
@@ -281,12 +278,9 @@ namespace dawn_native { namespace metal {
 
                 mtlDepthStencilDescriptor.backFaceStencil = backFaceStencil;
                 mtlDepthStencilDescriptor.frontFaceStencil = frontFaceStencil;
-
-                [backFaceStencil release];
-                [frontFaceStencil release];
             }
 
-            return mtlDepthStencilDescriptor;
+            return mtlDepthStencilDescRef;
         }
 
         MTLWinding MTLFrontFace(wgpu::FrontFace face) {
@@ -315,28 +309,39 @@ namespace dawn_native { namespace metal {
     ResultOrError<RenderPipeline*> RenderPipeline::Create(
         Device* device,
         const RenderPipelineDescriptor* descriptor) {
-        std::unique_ptr<RenderPipeline> pipeline =
-            std::make_unique<RenderPipeline>(device, descriptor);
+        Ref<RenderPipeline> pipeline = AcquireRef(new RenderPipeline(device, descriptor));
         DAWN_TRY(pipeline->Initialize(descriptor));
-        return pipeline.release();
+        return pipeline.Detach();
     }
 
     MaybeError RenderPipeline::Initialize(const RenderPipelineDescriptor* descriptor) {
-        mMtlIndexType = MTLIndexFormat(GetVertexStateDescriptor()->indexFormat);
         mMtlPrimitiveTopology = MTLPrimitiveTopology(GetPrimitiveTopology());
         mMtlFrontFace = MTLFrontFace(GetFrontFace());
         mMtlCullMode = ToMTLCullMode(GetCullMode());
         auto mtlDevice = ToBackend(GetDevice())->GetMTLDevice();
 
-        MTLRenderPipelineDescriptor* descriptorMTL = [MTLRenderPipelineDescriptor new];
+        NSRef<MTLRenderPipelineDescriptor> descriptorMTLRef =
+            AcquireNSRef([MTLRenderPipelineDescriptor new]);
+        MTLRenderPipelineDescriptor* descriptorMTL = descriptorMTLRef.Get();
+
+        // TODO: MakeVertexDesc should be const in the future, so we don't need to call it here when
+        // vertex pulling is enabled
+        NSRef<MTLVertexDescriptor> vertexDesc = MakeVertexDesc();
+
+        // Calling MakeVertexDesc first is important since it sets indices for packed bindings
+        if (GetDevice()->IsToggleEnabled(Toggle::MetalEnableVertexPulling)) {
+            vertexDesc = AcquireNSRef([MTLVertexDescriptor new]);
+        }
+        descriptorMTL.vertexDescriptor = vertexDesc.Get();
 
         ShaderModule* vertexModule = ToBackend(descriptor->vertexStage.module);
         const char* vertexEntryPoint = descriptor->vertexStage.entryPoint;
         ShaderModule::MetalFunctionData vertexData;
-        DAWN_TRY(vertexModule->GetFunction(vertexEntryPoint, SingleShaderStage::Vertex,
-                                           ToBackend(GetLayout()), &vertexData));
+        DAWN_TRY(vertexModule->CreateFunction(vertexEntryPoint, SingleShaderStage::Vertex,
+                                              ToBackend(GetLayout()), &vertexData, 0xFFFFFFFF,
+                                              this));
 
-        descriptorMTL.vertexFunction = vertexData.function;
+        descriptorMTL.vertexFunction = vertexData.function.Get();
         if (vertexData.needsStorageBufferLength) {
             mStagesRequiringStorageBufferLength |= wgpu::ShaderStage::Vertex;
         }
@@ -344,10 +349,11 @@ namespace dawn_native { namespace metal {
         ShaderModule* fragmentModule = ToBackend(descriptor->fragmentStage->module);
         const char* fragmentEntryPoint = descriptor->fragmentStage->entryPoint;
         ShaderModule::MetalFunctionData fragmentData;
-        DAWN_TRY(fragmentModule->GetFunction(fragmentEntryPoint, SingleShaderStage::Fragment,
-                                             ToBackend(GetLayout()), &fragmentData));
+        DAWN_TRY(fragmentModule->CreateFunction(fragmentEntryPoint, SingleShaderStage::Fragment,
+                                                ToBackend(GetLayout()), &fragmentData,
+                                                descriptor->sampleMask));
 
-        descriptorMTL.fragmentFunction = fragmentData.function;
+        descriptorMTL.fragmentFunction = fragmentData.function.Get();
         if (fragmentData.needsStorageBufferLength) {
             mStagesRequiringStorageBufferLength |= wgpu::ShaderStage::Fragment;
         }
@@ -365,31 +371,26 @@ namespace dawn_native { namespace metal {
             }
         }
 
-        const ShaderModuleBase::FragmentOutputBaseTypes& fragmentOutputBaseTypes =
-            descriptor->fragmentStage->module->GetFragmentOutputBaseTypes();
-        for (uint32_t i : IterateBitSet(GetColorAttachmentsMask())) {
-            descriptorMTL.colorAttachments[i].pixelFormat =
+        const auto& fragmentOutputsWritten =
+            GetStage(SingleShaderStage::Fragment).metadata->fragmentOutputsWritten;
+        for (ColorAttachmentIndex i : IterateBitSet(GetColorAttachmentsMask())) {
+            descriptorMTL.colorAttachments[static_cast<uint8_t>(i)].pixelFormat =
                 MetalPixelFormat(GetColorAttachmentFormat(i));
             const ColorStateDescriptor* descriptor = GetColorStateDescriptor(i);
-            bool isDeclaredInFragmentShader = fragmentOutputBaseTypes[i] != Format::Other;
-            ComputeBlendDesc(descriptorMTL.colorAttachments[i], descriptor,
-                             isDeclaredInFragmentShader);
+            ComputeBlendDesc(descriptorMTL.colorAttachments[static_cast<uint8_t>(i)], descriptor,
+                             fragmentOutputsWritten[i]);
         }
 
         descriptorMTL.inputPrimitiveTopology = MTLInputPrimitiveTopology(GetPrimitiveTopology());
-
-        MTLVertexDescriptor* vertexDesc = MakeVertexDesc();
-        descriptorMTL.vertexDescriptor = vertexDesc;
-        [vertexDesc release];
-
         descriptorMTL.sampleCount = GetSampleCount();
+        descriptorMTL.alphaToCoverageEnabled = descriptor->alphaToCoverageEnabled;
 
         {
-            NSError* error = nil;
-            mMtlRenderPipelineState = [mtlDevice newRenderPipelineStateWithDescriptor:descriptorMTL
-                                                                                error:&error];
-            [descriptorMTL release];
-            if (error != nil) {
+            NSError* error = nullptr;
+            mMtlRenderPipelineState =
+                AcquireNSPRef([mtlDevice newRenderPipelineStateWithDescriptor:descriptorMTL
+                                                                        error:&error]);
+            if (error != nullptr) {
                 NSLog(@" error => %@", error);
                 return DAWN_INTERNAL_ERROR("Error creating rendering pipeline state");
             }
@@ -398,21 +399,12 @@ namespace dawn_native { namespace metal {
         // Create depth stencil state and cache it, fetch the cached depth stencil state when we
         // call setDepthStencilState() for a given render pipeline in CommandEncoder, in order to
         // improve performance.
-        MTLDepthStencilDescriptor* depthStencilDesc =
+        NSRef<MTLDepthStencilDescriptor> depthStencilDesc =
             MakeDepthStencilDesc(GetDepthStencilStateDescriptor());
-        mMtlDepthStencilState = [mtlDevice newDepthStencilStateWithDescriptor:depthStencilDesc];
-        [depthStencilDesc release];
+        mMtlDepthStencilState =
+            AcquireNSPRef([mtlDevice newDepthStencilStateWithDescriptor:depthStencilDesc.Get()]);
 
         return {};
-    }
-
-    RenderPipeline::~RenderPipeline() {
-        [mMtlRenderPipelineState release];
-        [mMtlDepthStencilState release];
-    }
-
-    MTLIndexType RenderPipeline::GetMTLIndexType() const {
-        return mMtlIndexType;
     }
 
     MTLPrimitiveType RenderPipeline::GetMTLPrimitiveTopology() const {
@@ -428,16 +420,16 @@ namespace dawn_native { namespace metal {
     }
 
     void RenderPipeline::Encode(id<MTLRenderCommandEncoder> encoder) {
-        [encoder setRenderPipelineState:mMtlRenderPipelineState];
+        [encoder setRenderPipelineState:mMtlRenderPipelineState.Get()];
     }
 
     id<MTLDepthStencilState> RenderPipeline::GetMTLDepthStencilState() {
-        return mMtlDepthStencilState;
+        return mMtlDepthStencilState.Get();
     }
 
-    uint32_t RenderPipeline::GetMtlVertexBufferIndex(uint32_t dawnIndex) const {
-        ASSERT(dawnIndex < kMaxVertexBuffers);
-        return mMtlVertexBufferIndices[dawnIndex];
+    uint32_t RenderPipeline::GetMtlVertexBufferIndex(VertexBufferSlot slot) const {
+        ASSERT(slot < kMaxVertexBuffersTyped);
+        return mMtlVertexBufferIndices[slot];
     }
 
     wgpu::ShaderStage RenderPipeline::GetStagesRequiringStorageBufferLength() const {
@@ -451,8 +443,8 @@ namespace dawn_native { namespace metal {
         uint32_t mtlVertexBufferIndex =
             ToBackend(GetLayout())->GetBufferBindingCount(SingleShaderStage::Vertex);
 
-        for (uint32_t dawnVertexBufferSlot : IterateBitSet(GetVertexBufferSlotsUsed())) {
-            const VertexBufferInfo& info = GetVertexBuffer(dawnVertexBufferSlot);
+        for (VertexBufferSlot slot : IterateBitSet(GetVertexBufferSlotsUsed())) {
+            const VertexBufferInfo& info = GetVertexBuffer(slot);
 
             MTLVertexBufferLayoutDescriptor* layoutDesc = [MTLVertexBufferLayoutDescriptor new];
             if (info.arrayStride == 0) {
@@ -460,10 +452,10 @@ namespace dawn_native { namespace metal {
                 // but the arrayStride must NOT be 0, so we made up it with
                 // max(attrib.offset + sizeof(attrib) for each attrib)
                 size_t maxArrayStride = 0;
-                for (uint32_t attribIndex : IterateBitSet(GetAttributeLocationsUsed())) {
-                    const VertexAttributeInfo& attrib = GetAttribute(attribIndex);
+                for (VertexAttributeLocation loc : IterateBitSet(GetAttributeLocationsUsed())) {
+                    const VertexAttributeInfo& attrib = GetAttribute(loc);
                     // Only use the attributes that use the current input
-                    if (attrib.vertexBufferSlot != dawnVertexBufferSlot) {
+                    if (attrib.vertexBufferSlot != slot) {
                         continue;
                     }
                     maxArrayStride = std::max(
@@ -483,18 +475,18 @@ namespace dawn_native { namespace metal {
             mtlVertexDescriptor.layouts[mtlVertexBufferIndex] = layoutDesc;
             [layoutDesc release];
 
-            mMtlVertexBufferIndices[dawnVertexBufferSlot] = mtlVertexBufferIndex;
+            mMtlVertexBufferIndices[slot] = mtlVertexBufferIndex;
             mtlVertexBufferIndex++;
         }
 
-        for (uint32_t i : IterateBitSet(GetAttributeLocationsUsed())) {
-            const VertexAttributeInfo& info = GetAttribute(i);
+        for (VertexAttributeLocation loc : IterateBitSet(GetAttributeLocationsUsed())) {
+            const VertexAttributeInfo& info = GetAttribute(loc);
 
             auto attribDesc = [MTLVertexAttributeDescriptor new];
             attribDesc.format = VertexFormatType(info.format);
             attribDesc.offset = info.offset;
             attribDesc.bufferIndex = mMtlVertexBufferIndices[info.vertexBufferSlot];
-            mtlVertexDescriptor.attributes[i] = attribDesc;
+            mtlVertexDescriptor.attributes[static_cast<uint8_t>(loc)] = attribDesc;
             [attribDesc release];
         }
 

@@ -142,7 +142,7 @@ public:
     QPainterPath selectionArea;
     int selectionChanging;
     QSet<QGraphicsItem *> selectedItems;
-    QVector<QGraphicsItem *> unpolishedItems;
+    QList<QGraphicsItem *> unpolishedItems;
     QList<QGraphicsItem *> topLevelItems;
 
     QHash<QGraphicsItem *, QPointF> movingItemsInitialPositions;
@@ -309,7 +309,7 @@ public:
 
     QStyleOptionGraphicsItem styleOptionTmp;
 
-    QMap<int, QTouchEvent::TouchPoint> sceneCurrentTouchPoints;
+    QMap<int, QEventPoint> sceneCurrentTouchPoints;
     QMap<int, QGraphicsItem *> itemForTouchPointId;
     static void updateTouchPointsForItem(QGraphicsItem *item, QTouchEvent *touchEvent);
     int findClosestTouchPointId(const QPointF &scenePos);

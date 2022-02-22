@@ -64,7 +64,8 @@ struct Command {
 int main(int argc, char *argv[])
 {
     if (argc != 3) {
-        qDebug() << "Usage: ftpclient <server> <file>";
+        qWarning() << "Usage: ftpclient <server> <file>";
+        qWarning() << "For example: ftpclient ftp.gnu.org welcome.msg";
         return 1;
     }
 
@@ -79,7 +80,7 @@ int main(int argc, char *argv[])
     // Print all data retrieved from the server on the console.
     QObject::connect(&dataChannel, &FtpDataChannel::dataReceived,
                      [](const QByteArray &data) {
-        std::cout << data.constData();
+        std::cout << data.constData() << std::flush;
     });
 
     // Translate server replies into state machine events.

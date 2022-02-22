@@ -41,6 +41,7 @@
 #include <QtCore/qsortfilterproxymodel.h>
 
 #include <QtCore/qabstractitemmodel.h>
+#include <QtCore/qiodevice.h>
 #include <QtCore/qlist.h>
 #include <QtCore/qtextstream.h>
 #include <QtCore/qregularexpression.h>
@@ -129,7 +130,7 @@ public:
     bool removeCustomWidgets();
 
 private:
-    using WidgetBoxCategoryEntrys = QVector<WidgetBoxCategoryEntry>;
+    using WidgetBoxCategoryEntrys = QList<WidgetBoxCategoryEntry>;
 
     QDesignerFormEditorInterface *m_core;
     WidgetBoxCategoryEntrys m_items;
@@ -268,8 +269,10 @@ QVariant WidgetBoxCategoryModel::data(const QModelIndex &index, int role) const
 bool WidgetBoxCategoryModel::setData(const QModelIndex &index, const QVariant &value, int role)
 {
     const int row = index.row();
-    if (role != Qt::EditRole || row < 0 || row >=  m_items.size() || value.type() != QVariant::String)
+    if (role != Qt::EditRole || row < 0 || row >=  m_items.size()
+        || value.metaType().id() != QMetaType::QString) {
         return false;
+    }
     // Set name and adapt Xml
     WidgetBoxCategoryEntry &item = m_items[row];
     const QString newName = value.toString();
@@ -482,9 +485,10 @@ QString WidgetBoxCategoryListView::widgetDomXml(const QDesignerWidgetBoxInterfac
     return domXml;
 }
 
-void WidgetBoxCategoryListView::filter(const QRegExp &re)
+void WidgetBoxCategoryListView::filter(const QString &needle, Qt::CaseSensitivity caseSensitivity)
 {
-    m_proxyModel->setFilterRegExp(re);
+    m_proxyModel->setFilterFixedString(needle);
+    m_proxyModel->setFilterCaseSensitivity(caseSensitivity);
 }
 
 QDesignerWidgetBoxInterface::Category WidgetBoxCategoryListView::category() const

@@ -102,7 +102,7 @@
     \c QT_HIGHDPI_DISABLE_2X_IMAGE_LOADING.
 
     \sa QImageWriter, QImageIOHandler, QImageIOPlugin, QMimeDatabase, QColorSpace
-    \sa QImage::devicePixelRatio(), QPixmap::devicePixelRatio(), QIcon, QPainter::drawPixmap(), QPainter::drawImage(), Qt::AA_UseHighDpiPixmaps
+    \sa QImage::devicePixelRatio(), QPixmap::devicePixelRatio(), QIcon, QPainter::drawPixmap(), QPainter::drawImage()
 */
 
 /*!
@@ -492,7 +492,11 @@ public:
     QString errorString;
 
     QImageReader *q;
+
+    static int maxAlloc;
 };
+
+int QImageReaderPrivate::maxAlloc = 128; // 128 MB is enough for an 8K 32bpp image
 
 /*!
     \internal
@@ -534,7 +538,7 @@ bool QImageReaderPrivate::initHandler()
 
     // probe the file extension
     if (deleteDevice && !device->isOpen() && !device->open(QIODevice::ReadOnly) && autoDetectImageFormat) {
-        Q_ASSERT(qobject_cast<QFile*>(device) != 0); // future-proofing; for now this should always be the case, so...
+        Q_ASSERT(qobject_cast<QFile*>(device) != nullptr); // future-proofing; for now this should always be the case, so...
         QFile *file = static_cast<QFile *>(device);
 
         if (file->error() == QFileDevice::ResourceError) {
@@ -765,7 +769,7 @@ bool QImageReader::decideFormatFromContent() const
     otherwise left unchanged.
 
     If the device is not already open, QImageReader will attempt to
-    open the device in \l QIODevice::ReadOnly mode by calling
+    open the device in \l {QIODeviceBase::}{ReadOnly} mode by calling
     open(). Note that this does not work for certain devices, such as
     QProcess, QTcpSocket and QUdpSocket, where more logic is required
     to open the device.
@@ -795,7 +799,7 @@ QIODevice *QImageReader::device() const
 /*!
     Sets the file name of QImageReader to \a fileName. Internally,
     QImageReader will create a QFile object and open it in \l
-    QIODevice::ReadOnly mode, and use this when reading images.
+    {QIODeviceBase::}{ReadOnly} mode, and use this when reading images.
 
     If \a fileName does not include a file extension (e.g., .png or .bmp),
     QImageReader will cycle through all supported extensions until it finds
@@ -1138,53 +1142,12 @@ bool QImageReader::autoTransform() const
     case QImageReaderPrivate::DoNotApplyTransform:
         return false;
     case QImageReaderPrivate::UsePluginDefault:
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-        if (d->initHandler())
-            return d->handler->supportsOption(QImageIOHandler::TransformedByDefault);
-#endif
         Q_FALLTHROUGH();
     default:
         break;
     }
     return false;
 }
-
-#if QT_DEPRECATED_SINCE(5, 15)
-/*!
-    \since 5.6
-    \obsolete Use QColorSpace conversion on the QImage instead.
-
-    This is an image format specific function that forces images with
-    gamma information to be gamma corrected to \a gamma. For image formats
-    that do not support gamma correction, this value is ignored.
-
-    To gamma correct to a standard PC color-space, set gamma to \c 1/2.2.
-
-    \sa gamma()
-*/
-void QImageReader::setGamma(float gamma)
-{
-    if (d->initHandler() && d->handler->supportsOption(QImageIOHandler::Gamma))
-        d->handler->setOption(QImageIOHandler::Gamma, gamma);
-}
-
-/*!
-    \since 5.6
-    \obsolete Use QImage::colorSpace() and QColorSpace::gamma() instead.
-
-    Returns the gamma level of the decoded image. If setGamma() has been
-    called and gamma correction is supported it will return the gamma set.
-    If gamma level is not supported by the image format, \c 0.0 is returned.
-
-    \sa setGamma()
-*/
-float QImageReader::gamma() const
-{
-    if (d->initHandler() && d->handler->supportsOption(QImageIOHandler::Gamma))
-        return d->handler->option(QImageIOHandler::Gamma).toFloat();
-    return 0.0;
-}
-#endif
 
 /*!
     Returns \c true if an image can be read for the device (i.e., the
@@ -1610,6 +1573,47 @@ QList<QByteArray> QImageReader::imageFormatsForMimeType(const QByteArray &mimeTy
 {
     return QImageReaderWriterHelpers::imageFormatsForMimeType(mimeType,
                                                               QImageReaderWriterHelpers::CanRead);
+}
+
+/*!
+    \since 6.0
+
+    Returns the current allocation limit, in megabytes.
+
+    \sa setAllocationLimit()
+*/
+int QImageReader::allocationLimit()
+{
+    static int envLimit = []() {
+        bool ok = false;
+        int res = qEnvironmentVariableIntValue("QT_IMAGEIO_MAXALLOC", &ok);
+        return ok ? res : -1;
+    }();
+
+    return envLimit >= 0 ? envLimit : QImageReaderPrivate::maxAlloc;
+}
+
+/*!
+    \since 6.0
+
+    Sets the allocation limit to \a mbLimit megabytes. Images that would
+    require a QImage memory allocation above this limit will be rejected.
+    If \a mbLimit is 0, the allocation size check will be disabled.
+
+    This limit helps applications avoid unexpectedly large memory usage from
+    loading corrupt image files. It is normally not needed to change it. The
+    default limit is large enough for all commonly used image sizes.
+
+    \note The memory requirements are calculated for a minimum of 32 bits per pixel, since Qt will
+    typically convert an image to that depth when it is used in GUI. This means that the effective
+    allocation limit is significantly smaller than \a mbLimit when reading 1 bpp and 8 bpp images.
+
+    \sa allocationLimit()
+*/
+void QImageReader::setAllocationLimit(int mbLimit)
+{
+    if (mbLimit >= 0)
+        QImageReaderPrivate::maxAlloc = mbLimit;
 }
 
 QT_END_NAMESPACE

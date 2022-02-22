@@ -41,7 +41,7 @@
 #define DISPLAY_GL_OUTPUT_SURFACE_H
 
 #include "compositor_resource_fence.h"
-#include "display_frame_sink.h"
+#include "compositor.h"
 
 #include "components/viz/common/display/update_vsync_parameters_callback.h"
 #include "components/viz/service/display/output_surface.h"
@@ -49,16 +49,11 @@
 #include "gpu/command_buffer/common/mailbox.h"
 #include "gpu/command_buffer/common/sync_token.h"
 
-namespace viz {
-class Display;
-class SyntheticBeginFrameSource;
-} // namespace viz
+#include <QMutex>
 
 namespace QtWebEngineCore {
 
-// NOTE: Some methods are defined in display_gl_output_surface_qsg.cpp due
-// to conflicts between Qt & Chromium OpenGL APIs.
-class DisplayGLOutputSurface final : public viz::OutputSurface, public DisplayProducer
+class DisplayGLOutputSurface final : public viz::OutputSurface, public Compositor
 {
 public:
     DisplayGLOutputSurface(scoped_refptr<viz::VizProcessContextProvider> contextProvider);
@@ -85,11 +80,15 @@ public:
     void SetUpdateVSyncParametersCallback(viz::UpdateVSyncParametersCallback callback) override;
     void SetDisplayTransformHint(gfx::OverlayTransform transform) override;
     gfx::OverlayTransform GetDisplayTransform() override;
-    scoped_refptr<gpu::GpuTaskSchedulerHelper> GetGpuTaskSchedulerHelper() override;
-    gpu::MemoryTracker *GetMemoryTracker() override;
+    void SetFrameSinkId(const viz::FrameSinkId &id) override;
 
-    // Overridden from DisplayProducer.
-    QSGNode *updatePaintNode(QSGNode *oldNode, RenderWidgetHostViewQtDelegate *delegate) override;
+    // Overridden from Compositor.
+    void swapFrame() override;
+    void waitForTexture() override;
+    int textureId() override;
+    QSize size() override;
+    bool hasAlphaChannel() override;
+    float devicePixelRatio() override;
 
 private:
     struct Shape
@@ -135,8 +134,7 @@ private:
     gpu::gles2::GLES2Interface *const m_gl;
     mutable QMutex m_mutex;
     uint32_t m_fboId = 0;
-    viz::Display *m_display = nullptr;
-    scoped_refptr<DisplayFrameSink> m_sink;
+    viz::OutputSurfaceClient *m_client = nullptr;
     Shape m_currentShape;
     std::unique_ptr<Buffer> m_backBuffer;
     std::unique_ptr<Buffer> m_middleBuffer;

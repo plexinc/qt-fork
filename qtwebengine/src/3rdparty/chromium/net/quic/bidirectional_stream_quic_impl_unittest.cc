@@ -8,6 +8,7 @@
 
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
+#include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/default_tick_clock.h"
@@ -89,10 +90,10 @@ struct TestParams {
 
 // Used by ::testing::PrintToStringParamName().
 std::string PrintToString(const TestParams& p) {
-  return quiche::QuicheStrCat(
-      ParsedQuicVersionToString(p.version), "_",
-      (p.client_headers_include_h2_stream_dependency ? "" : "No"),
-      "Dependency");
+  return base::StrCat(
+      {ParsedQuicVersionToString(p.version), "_",
+       (p.client_headers_include_h2_stream_dependency ? "" : "No"),
+       "Dependency"});
 }
 
 std::vector<TestParams> GetTestParams() {
@@ -133,7 +134,7 @@ class TestDelegateBase : public BidirectionalStreamImpl::Delegate {
         is_ready_(false),
         trailers_expected_(false),
         trailers_received_(false) {
-    loop_.reset(new base::RunLoop);
+    loop_ = std::make_unique<base::RunLoop>();
   }
 
   ~TestDelegateBase() override {}
@@ -148,7 +149,7 @@ class TestDelegateBase : public BidirectionalStreamImpl::Delegate {
   }
 
   void OnHeadersReceived(
-      const spdy::SpdyHeaderBlock& response_headers) override {
+      const spdy::Http2HeaderBlock& response_headers) override {
     CHECK(!on_failed_called_);
     CHECK(!not_expect_callback_);
 
@@ -178,7 +179,7 @@ class TestDelegateBase : public BidirectionalStreamImpl::Delegate {
     loop_->Quit();
   }
 
-  void OnTrailersReceived(const spdy::SpdyHeaderBlock& trailers) override {
+  void OnTrailersReceived(const spdy::Http2HeaderBlock& trailers) override {
     CHECK(!on_failed_called_);
     CHECK(!not_expect_callback_);
 
@@ -238,7 +239,7 @@ class TestDelegateBase : public BidirectionalStreamImpl::Delegate {
     int on_data_sent_count = on_data_sent_count_;
 
     loop_->Run();
-    loop_.reset(new base::RunLoop);
+    loop_ = std::make_unique<base::RunLoop>();
 
     EXPECT_EQ(method == kOnFailed, on_failed_called_);
     EXPECT_EQ(is_ready || (method == kOnStreamReady), is_ready_);
@@ -308,10 +309,10 @@ class TestDelegateBase : public BidirectionalStreamImpl::Delegate {
   // Const getters for internal states.
   const std::string& data_received() const { return data_received_; }
   int error() const { return error_; }
-  const spdy::SpdyHeaderBlock& response_headers() const {
+  const spdy::Http2HeaderBlock& response_headers() const {
     return response_headers_;
   }
-  const spdy::SpdyHeaderBlock& trailers() const { return trailers_; }
+  const spdy::Http2HeaderBlock& trailers() const { return trailers_; }
   int on_data_read_count() const { return on_data_read_count_; }
   int on_data_sent_count() const { return on_data_sent_count_; }
   bool on_failed_called() const { return on_failed_called_; }
@@ -328,8 +329,8 @@ class TestDelegateBase : public BidirectionalStreamImpl::Delegate {
   std::unique_ptr<base::OneShotTimer> timer_;
   std::string data_received_;
   std::unique_ptr<base::RunLoop> loop_;
-  spdy::SpdyHeaderBlock response_headers_;
-  spdy::SpdyHeaderBlock trailers_;
+  spdy::Http2HeaderBlock response_headers_;
+  spdy::Http2HeaderBlock trailers_;
   NextProto next_proto_;
   int64_t received_bytes_;
   int64_t sent_bytes_;
@@ -374,10 +375,10 @@ class DeleteStreamDelegate : public TestDelegateBase {
   }
 
   void OnHeadersReceived(
-      const spdy::SpdyHeaderBlock& response_headers) override {
+      const spdy::Http2HeaderBlock& response_headers) override {
     // Make a copy of |response_headers| before the stream is deleted, since
     // the headers are owned by the stream.
-    spdy::SpdyHeaderBlock headers_copy = response_headers.Clone();
+    spdy::Http2HeaderBlock headers_copy = response_headers.Clone();
     if (phase_ == ON_HEADERS_RECEIVED)
       DeleteStream();
     TestDelegateBase::OnHeadersReceived(headers_copy);
@@ -392,12 +393,12 @@ class DeleteStreamDelegate : public TestDelegateBase {
     TestDelegateBase::OnDataRead(bytes_read);
   }
 
-  void OnTrailersReceived(const spdy::SpdyHeaderBlock& trailers) override {
+  void OnTrailersReceived(const spdy::Http2HeaderBlock& trailers) override {
     DCHECK_NE(ON_HEADERS_RECEIVED, phase_);
     DCHECK_NE(ON_DATA_READ, phase_);
     // Make a copy of |response_headers| before the stream is deleted, since
     // the headers are owned by the stream.
-    spdy::SpdyHeaderBlock trailers_copy = trailers.Clone();
+    spdy::Http2HeaderBlock trailers_copy = trailers.Clone();
     if (phase_ == ON_TRAILERS_RECEIVED)
       DeleteStream();
     TestDelegateBase::OnTrailersReceived(trailers_copy);
@@ -425,7 +426,6 @@ class BidirectionalStreamQuicImplTest
  protected:
   static const bool kFin = true;
   static const bool kIncludeVersion = true;
-  static const bool kIncludeCongestionFeedback = true;
 
   // Holds a packet to be written to the wire, and the IO mode that should
   // be used by the mock socket when performing the write.
@@ -464,6 +464,7 @@ class BidirectionalStreamQuicImplTest
         printer_(version_),
         destination_(kDefaultServerHostName, kDefaultServerPort) {
     quic::QuicEnableVersion(version_);
+    FLAGS_quic_enable_http3_grease_randomness = false;
     IPAddress ip(192, 0, 2, 33);
     peer_addr_ = IPEndPoint(ip, 443);
     self_addr_ = IPEndPoint(ip, 8435);
@@ -507,7 +508,7 @@ class BidirectionalStreamQuicImplTest
   void Initialize() {
     crypto_client_stream_factory_.set_handshake_mode(
         MockCryptoClientStream::ZERO_RTT);
-    mock_writes_.reset(new MockWrite[writes_.size()]);
+    mock_writes_ = std::make_unique<MockWrite[]>(writes_.size());
     for (size_t i = 0; i < writes_.size(); i++) {
       if (writes_[i].packet == nullptr) {
         mock_writes_[i] = MockWrite(writes_[i].mode, writes_[i].rv, i);
@@ -517,9 +518,9 @@ class BidirectionalStreamQuicImplTest
       }
     }
 
-    socket_data_.reset(new StaticSocketDataProvider(
+    socket_data_ = std::make_unique<StaticSocketDataProvider>(
         base::span<MockRead>(),
-        base::make_span(mock_writes_.get(), writes_.size())));
+        base::make_span(mock_writes_.get(), writes_.size()));
     socket_data_->set_printer(&printer_);
 
     std::unique_ptr<MockUDPClientSocket> socket(new MockUDPClientSocket(
@@ -528,10 +529,11 @@ class BidirectionalStreamQuicImplTest
     runner_ = new TestTaskRunner(&clock_);
     helper_.reset(
         new QuicChromiumConnectionHelper(&clock_, &random_generator_));
-    alarm_factory_.reset(new QuicChromiumAlarmFactory(runner_.get(), &clock_));
+    alarm_factory_ =
+        std::make_unique<QuicChromiumAlarmFactory>(runner_.get(), &clock_);
     connection_ = new quic::QuicConnection(
-        connection_id_, ToQuicSocketAddress(peer_addr_), helper_.get(),
-        alarm_factory_.get(),
+        connection_id_, quic::QuicSocketAddress(),
+        ToQuicSocketAddress(peer_addr_), helper_.get(), alarm_factory_.get(),
         new QuicChromiumPacketWriter(socket.get(), runner_.get()),
         true /* owns_writer */, quic::Perspective::IS_CLIENT,
         quic::test::SupportedVersions(version_));
@@ -543,7 +545,7 @@ class BidirectionalStreamQuicImplTest
     base::TimeTicks dns_end = base::TimeTicks::Now();
     base::TimeTicks dns_start = dns_end - base::TimeDelta::FromMilliseconds(1);
 
-    session_.reset(new QuicChromiumClientSession(
+    session_ = std::make_unique<QuicChromiumClientSession>(
         connection_, std::move(socket),
         /*stream_factory=*/nullptr, &crypto_client_stream_factory_, &clock_,
         &transport_security_state_, /*ssl_config_service=*/nullptr,
@@ -569,10 +571,11 @@ class BidirectionalStreamQuicImplTest
         client_headers_include_h2_stream_dependency_, /*cert_verify_flags=*/0,
         quic::test::DefaultQuicConfig(),
         std::make_unique<TestQuicCryptoClientConfigHandle>(&crypto_config_),
-        "CONNECTION_UNKNOWN", dns_start, dns_end, &push_promise_index_, nullptr,
+        "CONNECTION_UNKNOWN", dns_start, dns_end,
+        std::make_unique<quic::QuicClientPushPromiseIndex>(), nullptr,
         base::DefaultTickClock::GetInstance(),
         base::ThreadTaskRunnerHandle::Get().get(),
-        /*socket_performance_watcher=*/nullptr, net_log().bound().net_log()));
+        /*socket_performance_watcher=*/nullptr, net_log().bound().net_log());
     session_->Initialize();
 
     // Blackhole QPACK decoder stream instead of constructing mock writes.
@@ -597,7 +600,7 @@ class BidirectionalStreamQuicImplTest
     request_headers_ = client_maker_.GetRequestHeaders(method, "http", path);
   }
 
-  spdy::SpdyHeaderBlock ConstructResponseHeaders(
+  spdy::Http2HeaderBlock ConstructResponseHeaders(
       const std::string& response_code) {
     return server_maker_.GetResponseHeaders(response_code);
   }
@@ -606,7 +609,7 @@ class BidirectionalStreamQuicImplTest
       uint64_t packet_number,
       bool should_include_version,
       bool fin,
-      quiche::QuicheStringPiece data) {
+      absl::string_view data) {
     std::unique_ptr<quic::QuicReceivedPacket> packet(
         server_maker_.MakeDataPacket(packet_number, stream_id_,
                                      should_include_version, fin, data));
@@ -618,7 +621,7 @@ class BidirectionalStreamQuicImplTest
   std::unique_ptr<quic::QuicReceivedPacket> ConstructClientDataPacket(
       bool should_include_version,
       bool fin,
-      quiche::QuicheStringPiece data) {
+      absl::string_view data) {
     return client_maker_.MakeDataPacket(++packet_number_, stream_id_,
                                         should_include_version, fin, data);
   }
@@ -678,7 +681,7 @@ class BidirectionalStreamQuicImplTest
   std::unique_ptr<quic::QuicReceivedPacket> ConstructResponseHeadersPacket(
       uint64_t packet_number,
       bool fin,
-      spdy::SpdyHeaderBlock response_headers,
+      spdy::Http2HeaderBlock response_headers,
       size_t* spdy_headers_frame_length) {
     return ConstructResponseHeadersPacketInner(packet_number, stream_id_, fin,
                                                std::move(response_headers),
@@ -689,7 +692,7 @@ class BidirectionalStreamQuicImplTest
       uint64_t packet_number,
       quic::QuicStreamId stream_id,
       bool fin,
-      spdy::SpdyHeaderBlock response_headers,
+      spdy::Http2HeaderBlock response_headers,
       size_t* spdy_headers_frame_length) {
     return server_maker_.MakeResponseHeadersPacket(
         packet_number, stream_id, !kIncludeVersion, fin,
@@ -699,7 +702,7 @@ class BidirectionalStreamQuicImplTest
   std::unique_ptr<quic::QuicReceivedPacket> ConstructResponseTrailersPacket(
       uint64_t packet_number,
       bool fin,
-      spdy::SpdyHeaderBlock trailers,
+      spdy::Http2HeaderBlock trailers,
       size_t* spdy_headers_frame_length) {
     return server_maker_.MakeResponseHeadersPacket(
         packet_number, stream_id_, !kIncludeVersion, fin, std::move(trailers),
@@ -737,12 +740,10 @@ class BidirectionalStreamQuicImplTest
 
   std::unique_ptr<quic::QuicReceivedPacket>
   ConstructClientAckAndRstStreamPacket(uint64_t largest_received,
-                                       uint64_t smallest_received,
-                                       uint64_t least_unacked) {
+                                       uint64_t smallest_received) {
     return client_maker_.MakeAckAndRstPacket(
         ++packet_number_, !kIncludeVersion, stream_id_,
-        quic::QUIC_STREAM_CANCELLED, largest_received, smallest_received,
-        least_unacked, !kIncludeCongestionFeedback);
+        quic::QUIC_STREAM_CANCELLED, largest_received, smallest_received);
   }
 
   std::unique_ptr<quic::QuicReceivedPacket> ConstructAckAndDataPacket(
@@ -750,14 +751,13 @@ class BidirectionalStreamQuicImplTest
       bool should_include_version,
       uint64_t largest_received,
       uint64_t smallest_received,
-      uint64_t least_unacked,
       bool fin,
-      quiche::QuicheStringPiece data,
+      absl::string_view data,
       QuicTestPacketMaker* maker) {
     std::unique_ptr<quic::QuicReceivedPacket> packet(
-        maker->MakeAckAndDataPacket(
-            packet_number, should_include_version, stream_id_, largest_received,
-            smallest_received, least_unacked, fin, data));
+        maker->MakeAckAndDataPacket(packet_number, should_include_version,
+                                    stream_id_, largest_received,
+                                    smallest_received, fin, data));
     DVLOG(2) << "packet(" << packet_number << "): " << std::endl
              << quiche::QuicheTextUtils::HexDump(packet->AsStringPiece());
     return packet;
@@ -765,11 +765,9 @@ class BidirectionalStreamQuicImplTest
 
   std::unique_ptr<quic::QuicReceivedPacket> ConstructClientAckPacket(
       uint64_t largest_received,
-      uint64_t smallest_received,
-      uint64_t least_unacked) {
+      uint64_t smallest_received) {
     return client_maker_.MakeAckPacket(++packet_number_, largest_received,
-                                       smallest_received, least_unacked,
-                                       !kIncludeCongestionFeedback);
+                                       smallest_received);
   }
 
   std::unique_ptr<quic::QuicReceivedPacket> ConstructServerAckPacket(
@@ -778,8 +776,7 @@ class BidirectionalStreamQuicImplTest
       uint64_t smallest_received,
       uint64_t least_unacked) {
     return server_maker_.MakeAckPacket(packet_number, largest_received,
-                                       smallest_received, least_unacked,
-                                       !kIncludeCongestionFeedback);
+                                       smallest_received, least_unacked);
   }
 
   std::unique_ptr<quic::QuicReceivedPacket> ConstructInitialSettingsPacket() {
@@ -836,7 +833,7 @@ class BidirectionalStreamQuicImplTest
   HttpRequestHeaders headers_;
   HttpResponseInfo response_;
   scoped_refptr<IOBufferWithSize> read_buffer_;
-  spdy::SpdyHeaderBlock request_headers_;
+  spdy::Http2HeaderBlock request_headers_;
   const quic::QuicConnectionId connection_id_;
   const quic::QuicStreamId stream_id_;
   QuicTestPacketMaker client_maker_;
@@ -849,7 +846,6 @@ class BidirectionalStreamQuicImplTest
   MockCryptoClientStreamFactory crypto_client_stream_factory_;
   std::unique_ptr<StaticSocketDataProvider> socket_data_;
   std::vector<PacketToWrite> writes_;
-  quic::QuicClientPushPromiseIndex push_promise_index_;
   HostPortPair destination_;
   quic::test::NoopQpackStreamSenderDelegate noop_qpack_stream_sender_delegate_;
 };
@@ -860,11 +856,6 @@ INSTANTIATE_TEST_SUITE_P(Version,
                          ::testing::PrintToStringParamName());
 
 TEST_P(BidirectionalStreamQuicImplTest, GetRequest) {
-  if (version_.handshake_protocol == quic::PROTOCOL_TLS1_3) {
-    // QUIC with TLS1.3 handshake doesn't support 0-rtt.
-    return;
-  }
-
   SetRequest("GET", "/", DEFAULT_PRIORITY);
   size_t spdy_request_headers_frame_length;
   client_maker_.SetEncryptionLevel(quic::ENCRYPTION_ZERO_RTT);
@@ -874,7 +865,7 @@ TEST_P(BidirectionalStreamQuicImplTest, GetRequest) {
       GetNthClientInitiatedBidirectionalStreamId(0), kFin, DEFAULT_PRIORITY,
       &spdy_request_headers_frame_length));
   client_maker_.SetEncryptionLevel(quic::ENCRYPTION_FORWARD_SECURE);
-  AddWrite(ConstructClientAckPacket(3, 1, 2));
+  AddWrite(ConstructClientAckPacket(3, 1));
 
   Initialize();
 
@@ -898,7 +889,7 @@ TEST_P(BidirectionalStreamQuicImplTest, GetRequest) {
   ProcessPacket(ConstructServerAckPacket(1, 1, 1, 1));
 
   // Server sends the response headers.
-  spdy::SpdyHeaderBlock response_headers = ConstructResponseHeaders("200");
+  spdy::Http2HeaderBlock response_headers = ConstructResponseHeaders("200");
 
   size_t spdy_response_headers_frame_length;
   ProcessPacket(
@@ -924,7 +915,7 @@ TEST_P(BidirectionalStreamQuicImplTest, GetRequest) {
   TestCompletionCallback cb2;
   EXPECT_THAT(delegate->ReadData(cb2.callback()), IsError(ERR_IO_PENDING));
 
-  spdy::SpdyHeaderBlock trailers;
+  spdy::Http2HeaderBlock trailers;
   size_t spdy_trailers_frame_length;
   trailers["foo"] = "bar";
   if (!quic::VersionUsesHttp3(version_.transport_version)) {
@@ -969,11 +960,6 @@ TEST_P(BidirectionalStreamQuicImplTest, GetRequest) {
 }
 
 TEST_P(BidirectionalStreamQuicImplTest, LoadTimingTwoRequests) {
-  if (version_.handshake_protocol == quic::PROTOCOL_TLS1_3) {
-    // QUIC with TLS1.3 handshake doesn't support 0-rtt.
-    return;
-  }
-
   SetRequest("GET", "/", DEFAULT_PRIORITY);
   client_maker_.SetEncryptionLevel(quic::ENCRYPTION_ZERO_RTT);
   if (VersionUsesHttp3(version_.transport_version))
@@ -987,7 +973,7 @@ TEST_P(BidirectionalStreamQuicImplTest, LoadTimingTwoRequests) {
       GetNthClientInitiatedBidirectionalStreamId(1), kFin, DEFAULT_PRIORITY,
       GetNthClientInitiatedBidirectionalStreamId(0), nullptr));
   client_maker_.SetEncryptionLevel(quic::ENCRYPTION_FORWARD_SECURE);
-  AddWrite(ConstructClientAckPacket(3, 1, 2));
+  AddWrite(ConstructClientAckPacket(3, 1));
   Initialize();
 
   BidirectionalStreamRequestInfo request;
@@ -1048,10 +1034,6 @@ TEST_P(BidirectionalStreamQuicImplTest, LoadTimingTwoRequests) {
 // Tests that when request headers are not delayed, only data buffers are
 // coalesced.
 TEST_P(BidirectionalStreamQuicImplTest, CoalesceDataBuffersNotHeadersFrame) {
-  if (version_.handshake_protocol == quic::PROTOCOL_TLS1_3) {
-    // QUIC with TLS1.3 handshake doesn't support 0-rtt.
-    return;
-  }
   SetRequest("POST", "/", DEFAULT_PRIORITY);
   size_t spdy_request_headers_frame_length;
   client_maker_.SetEncryptionLevel(quic::ENCRYPTION_ZERO_RTT);
@@ -1075,7 +1057,7 @@ TEST_P(BidirectionalStreamQuicImplTest, CoalesceDataBuffersNotHeadersFrame) {
   }
 
   // Ack server's data packet.
-  AddWrite(ConstructClientAckPacket(3, 1, 2));
+  AddWrite(ConstructClientAckPacket(3, 1));
   const std::string kBody3 = "hello there";
   const std::string kBody4 = "another piece of small data";
   const std::string kBody5 = "really small";
@@ -1128,7 +1110,7 @@ TEST_P(BidirectionalStreamQuicImplTest, CoalesceDataBuffersNotHeadersFrame) {
   ProcessPacket(ConstructServerAckPacket(1, 1, 1, 1));
 
   // Server sends the response headers.
-  spdy::SpdyHeaderBlock response_headers = ConstructResponseHeaders("200");
+  spdy::Http2HeaderBlock response_headers = ConstructResponseHeaders("200");
   size_t spdy_response_headers_frame_length;
   ProcessPacket(
       ConstructResponseHeadersPacket(2, !kFin, std::move(response_headers),
@@ -1160,7 +1142,7 @@ TEST_P(BidirectionalStreamQuicImplTest, CoalesceDataBuffersNotHeadersFrame) {
   delegate->WaitUntilNextCallback(kOnDataSent);
 
   size_t spdy_trailers_frame_length;
-  spdy::SpdyHeaderBlock trailers;
+  spdy::Http2HeaderBlock trailers;
   trailers["foo"] = "bar";
   if (!quic::VersionUsesHttp3(version_.transport_version)) {
     trailers[quic::kFinalOffsetHeaderKey] =
@@ -1194,11 +1176,6 @@ TEST_P(BidirectionalStreamQuicImplTest, CoalesceDataBuffersNotHeadersFrame) {
 // request headers with data buffers.
 TEST_P(BidirectionalStreamQuicImplTest,
        SendDataCoalesceDataBufferAndHeaderFrame) {
-  if (version_.handshake_protocol == quic::PROTOCOL_TLS1_3) {
-    // QUIC with TLS1.3 handshake doesn't support 0-rtt.
-    return;
-  }
-
   SetRequest("POST", "/", DEFAULT_PRIORITY);
   size_t spdy_request_headers_frame_length;
   client_maker_.SetEncryptionLevel(quic::ENCRYPTION_ZERO_RTT);
@@ -1217,7 +1194,7 @@ TEST_P(BidirectionalStreamQuicImplTest,
   }
 
   // Ack server's data packet.
-  AddWrite(ConstructClientAckPacket(3, 1, 2));
+  AddWrite(ConstructClientAckPacket(3, 1));
   const char kBody2[] = "really small";
   std::string header2 = ConstructDataHeader(strlen(kBody2));
   if (version_.UsesHttp3()) {
@@ -1256,7 +1233,7 @@ TEST_P(BidirectionalStreamQuicImplTest,
   ProcessPacket(ConstructServerAckPacket(1, 1, 1, 1));
 
   // Server sends the response headers.
-  spdy::SpdyHeaderBlock response_headers = ConstructResponseHeaders("200");
+  spdy::Http2HeaderBlock response_headers = ConstructResponseHeaders("200");
   size_t spdy_response_headers_frame_length;
   ProcessPacket(
       ConstructResponseHeadersPacket(2, !kFin, std::move(response_headers),
@@ -1283,7 +1260,7 @@ TEST_P(BidirectionalStreamQuicImplTest,
   delegate->WaitUntilNextCallback(kOnDataSent);
 
   size_t spdy_trailers_frame_length;
-  spdy::SpdyHeaderBlock trailers;
+  spdy::Http2HeaderBlock trailers;
   trailers["foo"] = "bar";
   if (!quic::VersionUsesHttp3(version_.transport_version)) {
     trailers[quic::kFinalOffsetHeaderKey] =
@@ -1315,11 +1292,6 @@ TEST_P(BidirectionalStreamQuicImplTest,
 // request headers with data buffers.
 TEST_P(BidirectionalStreamQuicImplTest,
        SendvDataCoalesceDataBuffersAndHeaderFrame) {
-  if (version_.handshake_protocol == quic::PROTOCOL_TLS1_3) {
-    // QUIC with TLS1.3 handshake doesn't support 0-rtt.
-    return;
-  }
-
   SetRequest("POST", "/", DEFAULT_PRIORITY);
   size_t spdy_request_headers_frame_length;
   client_maker_.SetEncryptionLevel(quic::ENCRYPTION_ZERO_RTT);
@@ -1342,7 +1314,7 @@ TEST_P(BidirectionalStreamQuicImplTest,
   }
 
   // Ack server's data packet.
-  AddWrite(ConstructClientAckPacket(3, 1, 2));
+  AddWrite(ConstructClientAckPacket(3, 1));
   const std::string kBody3 = "hello there";
   const std::string kBody4 = "another piece of small data";
   const std::string kBody5 = "really small";
@@ -1390,7 +1362,7 @@ TEST_P(BidirectionalStreamQuicImplTest,
   ProcessPacket(ConstructServerAckPacket(1, 1, 1, 1));
 
   // Server sends the response headers.
-  spdy::SpdyHeaderBlock response_headers = ConstructResponseHeaders("200");
+  spdy::Http2HeaderBlock response_headers = ConstructResponseHeaders("200");
   size_t spdy_response_headers_frame_length;
   ProcessPacket(
       ConstructResponseHeadersPacket(2, !kFin, std::move(response_headers),
@@ -1422,7 +1394,7 @@ TEST_P(BidirectionalStreamQuicImplTest,
   delegate->WaitUntilNextCallback(kOnDataSent);
 
   size_t spdy_trailers_frame_length;
-  spdy::SpdyHeaderBlock trailers;
+  spdy::Http2HeaderBlock trailers;
   trailers["foo"] = "bar";
   if (!quic::VersionUsesHttp3(version_.transport_version)) {
     trailers[quic::kFinalOffsetHeaderKey] =
@@ -1456,11 +1428,6 @@ TEST_P(BidirectionalStreamQuicImplTest,
 // headers to be sent, if that write fails the stream does not crash.
 TEST_P(BidirectionalStreamQuicImplTest,
        SendDataWriteErrorCoalesceDataBufferAndHeaderFrame) {
-  if (version_.handshake_protocol == quic::PROTOCOL_TLS1_3) {
-    // QUIC with TLS1.3 handshake doesn't support 0-rtt.
-    return;
-  }
-
   client_maker_.SetEncryptionLevel(quic::ENCRYPTION_ZERO_RTT);
   if (VersionUsesHttp3(version_.transport_version))
     AddWrite(ConstructInitialSettingsPacket());
@@ -1498,10 +1465,6 @@ TEST_P(BidirectionalStreamQuicImplTest,
 // headers to be sent, if that write fails the stream does not crash.
 TEST_P(BidirectionalStreamQuicImplTest,
        SendvDataWriteErrorCoalesceDataBufferAndHeaderFrame) {
-  if (version_.handshake_protocol == quic::PROTOCOL_TLS1_3) {
-    // QUIC with TLS1.3 handshake doesn't support 0-rtt.
-    return;
-  }
   client_maker_.SetEncryptionLevel(quic::ENCRYPTION_ZERO_RTT);
   if (VersionUsesHttp3(version_.transport_version))
     AddWrite(ConstructInitialSettingsPacket());
@@ -1540,11 +1503,6 @@ TEST_P(BidirectionalStreamQuicImplTest,
 }
 
 TEST_P(BidirectionalStreamQuicImplTest, PostRequest) {
-  if (version_.handshake_protocol == quic::PROTOCOL_TLS1_3) {
-    // QUIC with TLS1.3 handshake doesn't support 0-rtt.
-    return;
-  }
-
   SetRequest("POST", "/", DEFAULT_PRIORITY);
   size_t spdy_request_headers_frame_length;
   client_maker_.SetEncryptionLevel(quic::ENCRYPTION_ZERO_RTT);
@@ -1562,7 +1520,7 @@ TEST_P(BidirectionalStreamQuicImplTest, PostRequest) {
     AddWrite(ConstructClientDataPacket(kIncludeVersion, kFin, kUploadData));
   }
 
-  AddWrite(ConstructClientAckPacket(3, 1, 2));
+  AddWrite(ConstructClientAckPacket(3, 1));
 
   Initialize();
 
@@ -1592,7 +1550,7 @@ TEST_P(BidirectionalStreamQuicImplTest, PostRequest) {
   ProcessPacket(ConstructServerAckPacket(1, 1, 1, 1));
 
   // Server sends the response headers.
-  spdy::SpdyHeaderBlock response_headers = ConstructResponseHeaders("200");
+  spdy::Http2HeaderBlock response_headers = ConstructResponseHeaders("200");
   size_t spdy_response_headers_frame_length;
   ProcessPacket(
       ConstructResponseHeadersPacket(2, !kFin, std::move(response_headers),
@@ -1612,7 +1570,7 @@ TEST_P(BidirectionalStreamQuicImplTest, PostRequest) {
   EXPECT_EQ(static_cast<int>(strlen(kResponseBody)), cb.WaitForResult());
 
   size_t spdy_trailers_frame_length;
-  spdy::SpdyHeaderBlock trailers;
+  spdy::Http2HeaderBlock trailers;
   trailers["foo"] = "bar";
   if (!quic::VersionUsesHttp3(version_.transport_version)) {
     trailers[quic::kFinalOffsetHeaderKey] =
@@ -1640,29 +1598,16 @@ TEST_P(BidirectionalStreamQuicImplTest, PostRequest) {
 }
 
 TEST_P(BidirectionalStreamQuicImplTest, EarlyDataOverrideRequest) {
-  if (version_.handshake_protocol == quic::PROTOCOL_TLS1_3) {
-    // QUIC with TLS1.3 handshake doesn't support 0-rtt.
-    return;
-  }
-
   SetRequest("PUT", "/", DEFAULT_PRIORITY);
   size_t spdy_request_headers_frame_length;
   client_maker_.SetEncryptionLevel(quic::ENCRYPTION_ZERO_RTT);
   if (VersionUsesHttp3(version_.transport_version))
     AddWrite(ConstructInitialSettingsPacket());
-  client_maker_.SetEncryptionLevel(quic::ENCRYPTION_FORWARD_SECURE);
   AddWrite(ConstructRequestHeadersPacketInner(
-      GetNthClientInitiatedBidirectionalStreamId(0), !kFin, DEFAULT_PRIORITY,
+      GetNthClientInitiatedBidirectionalStreamId(0), kFin, DEFAULT_PRIORITY,
       &spdy_request_headers_frame_length));
-  std::string header = ConstructDataHeader(strlen(kUploadData));
-  if (version_.UsesHttp3()) {
-    AddWrite(ConstructClientDataPacket(kIncludeVersion, kFin,
-                                       header + std::string(kUploadData)));
-  } else {
-    AddWrite(ConstructClientDataPacket(kIncludeVersion, kFin, kUploadData));
-  }
-
-  AddWrite(ConstructClientAckPacket(3, 1, 2));
+  client_maker_.SetEncryptionLevel(quic::ENCRYPTION_FORWARD_SECURE);
+  AddWrite(ConstructClientAckPacket(3, 1));
 
   Initialize();
 
@@ -1670,50 +1615,51 @@ TEST_P(BidirectionalStreamQuicImplTest, EarlyDataOverrideRequest) {
   request.method = "PUT";
   request.allow_early_data_override = true;
   request.url = GURL("http://www.google.com/");
-  request.end_stream_on_headers = false;
+  request.end_stream_on_headers = true;
   request.priority = DEFAULT_PRIORITY;
 
   scoped_refptr<IOBuffer> read_buffer =
       base::MakeRefCounted<IOBuffer>(kReadBufferSize);
   std::unique_ptr<TestDelegateBase> delegate(
       new TestDelegateBase(read_buffer.get(), kReadBufferSize));
+  delegate->set_trailers_expected(true);
   delegate->Start(&request, net_log().bound(),
                   session()->CreateHandle(destination_));
-  ConfirmHandshake();
   delegate->WaitUntilNextCallback(kOnStreamReady);
-
-  // Send a DATA frame.
-  scoped_refptr<StringIOBuffer> buf =
-      base::MakeRefCounted<StringIOBuffer>(kUploadData);
-
-  delegate->SendData(buf, buf->size(), true);
-  delegate->WaitUntilNextCallback(kOnDataSent);
+  ConfirmHandshake();
 
   // Server acks the request.
   ProcessPacket(ConstructServerAckPacket(1, 1, 1, 1));
 
   // Server sends the response headers.
-  spdy::SpdyHeaderBlock response_headers = ConstructResponseHeaders("200");
+  spdy::Http2HeaderBlock response_headers = ConstructResponseHeaders("200");
+
   size_t spdy_response_headers_frame_length;
   ProcessPacket(
       ConstructResponseHeadersPacket(2, !kFin, std::move(response_headers),
                                      &spdy_response_headers_frame_length));
 
   delegate->WaitUntilNextCallback(kOnHeadersReceived);
+  LoadTimingInfo load_timing_info;
+  EXPECT_TRUE(delegate->GetLoadTimingInfo(&load_timing_info));
+  ExpectLoadTimingValid(load_timing_info, /*session_reused=*/false);
   TestCompletionCallback cb;
   int rv = delegate->ReadData(cb.callback());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
   EXPECT_EQ("200", delegate->response_headers().find(":status")->second);
   const char kResponseBody[] = "Hello world!";
   // Server sends data.
-  std::string header2 = ConstructDataHeader(strlen(kResponseBody));
+  std::string header = ConstructDataHeader(strlen(kResponseBody));
   ProcessPacket(ConstructServerDataPacket(3, !kIncludeVersion, !kFin,
-                                          header2 + kResponseBody));
+                                          header + kResponseBody));
+  EXPECT_EQ(12, cb.WaitForResult());
 
-  EXPECT_EQ(static_cast<int>(strlen(kResponseBody)), cb.WaitForResult());
+  EXPECT_EQ(std::string(kResponseBody), delegate->data_received());
+  TestCompletionCallback cb2;
+  EXPECT_THAT(delegate->ReadData(cb2.callback()), IsError(ERR_IO_PENDING));
 
+  spdy::Http2HeaderBlock trailers;
   size_t spdy_trailers_frame_length;
-  spdy::SpdyHeaderBlock trailers;
   trailers["foo"] = "bar";
   if (!quic::VersionUsesHttp3(version_.transport_version)) {
     trailers[quic::kFinalOffsetHeaderKey] =
@@ -1724,28 +1670,39 @@ TEST_P(BidirectionalStreamQuicImplTest, EarlyDataOverrideRequest) {
                                                 &spdy_trailers_frame_length));
 
   delegate->WaitUntilNextCallback(kOnTrailersReceived);
+  EXPECT_THAT(cb2.WaitForResult(), IsOk());
   trailers.erase(quic::kFinalOffsetHeaderKey);
   EXPECT_EQ(trailers, delegate->trailers());
-  EXPECT_THAT(delegate->ReadData(cb.callback()), IsOk());
 
-  EXPECT_EQ(1, delegate->on_data_read_count());
-  EXPECT_EQ(1, delegate->on_data_sent_count());
+  EXPECT_THAT(delegate->ReadData(cb2.callback()), IsOk());
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_EQ(2, delegate->on_data_read_count());
+  EXPECT_EQ(0, delegate->on_data_sent_count());
   EXPECT_EQ(kProtoQUIC, delegate->GetProtocol());
-  EXPECT_EQ(static_cast<int64_t>(spdy_request_headers_frame_length +
-                                 strlen(kUploadData) + header.length()),
+  EXPECT_EQ(static_cast<int64_t>(spdy_request_headers_frame_length),
             delegate->GetTotalSentBytes());
   EXPECT_EQ(static_cast<int64_t>(spdy_response_headers_frame_length +
-                                 strlen(kResponseBody) + header2.length() +
+                                 strlen(kResponseBody) + header.length() +
                                  spdy_trailers_frame_length),
             delegate->GetTotalReceivedBytes());
+  // Check that NetLog was filled as expected.
+  auto entries = net_log().GetEntries();
+  size_t pos = ExpectLogContainsSomewhere(
+      entries, /*min_offset=*/0,
+      NetLogEventType::QUIC_CHROMIUM_CLIENT_STREAM_SEND_REQUEST_HEADERS,
+      NetLogEventPhase::NONE);
+  pos = ExpectLogContainsSomewhere(
+      entries, /*min_offset=*/pos,
+      NetLogEventType::QUIC_CHROMIUM_CLIENT_STREAM_SEND_REQUEST_HEADERS,
+      NetLogEventPhase::NONE);
+  ExpectLogContainsSomewhere(
+      entries, /*min_offset=*/pos,
+      NetLogEventType::QUIC_CHROMIUM_CLIENT_STREAM_SEND_REQUEST_HEADERS,
+      NetLogEventPhase::NONE);
 }
 
 TEST_P(BidirectionalStreamQuicImplTest, InterleaveReadDataAndSendData) {
-  if (version_.handshake_protocol == quic::PROTOCOL_TLS1_3) {
-    // QUIC with TLS1.3 handshake doesn't support 0-rtt.
-    return;
-  }
-
   SetRequest("POST", "/", DEFAULT_PRIORITY);
   size_t spdy_request_headers_frame_length;
   client_maker_.SetEncryptionLevel(quic::ENCRYPTION_ZERO_RTT);
@@ -1759,16 +1716,16 @@ TEST_P(BidirectionalStreamQuicImplTest, InterleaveReadDataAndSendData) {
   std::string header = ConstructDataHeader(strlen(kUploadData));
   if (!version_.UsesHttp3()) {
     AddWrite(ConstructAckAndDataPacket(++packet_number_, !kIncludeVersion, 2, 1,
-                                       2, !kFin, kUploadData, &client_maker_));
+                                       !kFin, kUploadData, &client_maker_));
     AddWrite(ConstructAckAndDataPacket(++packet_number_, !kIncludeVersion, 3, 3,
-                                       3, kFin, kUploadData, &client_maker_));
+                                       kFin, kUploadData, &client_maker_));
   } else {
-    AddWrite(ConstructAckAndDataPacket(
-        ++packet_number_, !kIncludeVersion, 2, 1, 1, !kFin,
-        header + std::string(kUploadData), &client_maker_));
-    AddWrite(ConstructAckAndDataPacket(
-        ++packet_number_, !kIncludeVersion, 3, 3, 3, kFin,
-        header + std::string(kUploadData), &client_maker_));
+    AddWrite(ConstructAckAndDataPacket(++packet_number_, !kIncludeVersion, 2, 1,
+                                       !kFin, header + std::string(kUploadData),
+                                       &client_maker_));
+    AddWrite(ConstructAckAndDataPacket(++packet_number_, !kIncludeVersion, 3, 3,
+                                       kFin, header + std::string(kUploadData),
+                                       &client_maker_));
   }
   Initialize();
 
@@ -1791,7 +1748,7 @@ TEST_P(BidirectionalStreamQuicImplTest, InterleaveReadDataAndSendData) {
   ProcessPacket(ConstructServerAckPacket(1, 1, 1, 1));
 
   // Server sends the response headers.
-  spdy::SpdyHeaderBlock response_headers = ConstructResponseHeaders("200");
+  spdy::Http2HeaderBlock response_headers = ConstructResponseHeaders("200");
   size_t spdy_response_headers_frame_length;
   ProcessPacket(
       ConstructResponseHeadersPacket(2, !kFin, std::move(response_headers),
@@ -1818,7 +1775,7 @@ TEST_P(BidirectionalStreamQuicImplTest, InterleaveReadDataAndSendData) {
   if (VersionUsesHttp3(version_.transport_version))
     server_ack++;
   ProcessPacket(ConstructAckAndDataPacket(3, !kIncludeVersion, server_ack++, 1,
-                                          1, !kFin, header2 + kResponseBody,
+                                          !kFin, header2 + kResponseBody,
                                           &server_maker_));
 
   EXPECT_EQ(static_cast<int64_t>(strlen(kResponseBody)), cb.WaitForResult());
@@ -1832,7 +1789,7 @@ TEST_P(BidirectionalStreamQuicImplTest, InterleaveReadDataAndSendData) {
   rv = delegate->ReadData(cb2.callback());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
   ProcessPacket(
-      ConstructAckAndDataPacket(4, !kIncludeVersion, server_ack++, 1, 1, kFin,
+      ConstructAckAndDataPacket(4, !kIncludeVersion, server_ack++, 1, kFin,
 
                                 header2 + kResponseBody, &server_maker_));
 
@@ -1856,11 +1813,6 @@ TEST_P(BidirectionalStreamQuicImplTest, InterleaveReadDataAndSendData) {
 }
 
 TEST_P(BidirectionalStreamQuicImplTest, ServerSendsRstAfterHeaders) {
-  if (version_.handshake_protocol == quic::PROTOCOL_TLS1_3) {
-    // QUIC with TLS1.3 handshake doesn't support 0-rtt.
-    return;
-  }
-
   SetRequest("GET", "/", DEFAULT_PRIORITY);
   size_t spdy_request_headers_frame_length;
   client_maker_.SetEncryptionLevel(quic::ENCRYPTION_ZERO_RTT);
@@ -1887,8 +1839,12 @@ TEST_P(BidirectionalStreamQuicImplTest, ServerSendsRstAfterHeaders) {
   delegate->WaitUntilNextCallback(kOnStreamReady);
   ConfirmHandshake();
 
-  // Server sends a Rst.
-  ProcessPacket(ConstructServerRstStreamPacket(1));
+  // Server sends a Rst. Since the stream has sent fin, the rst is one way in
+  // IETF QUIC.
+  ProcessPacket(server_maker_.MakeRstPacket(
+      1, !kIncludeVersion, GetNthClientInitiatedBidirectionalStreamId(0),
+      quic::QUIC_STREAM_CANCELLED,
+      /*include_stop_sending_if_v99=*/false));
 
   delegate->WaitUntilNextCallback(kOnFailed);
 
@@ -1907,11 +1863,6 @@ TEST_P(BidirectionalStreamQuicImplTest, ServerSendsRstAfterHeaders) {
 }
 
 TEST_P(BidirectionalStreamQuicImplTest, ServerSendsRstAfterReadData) {
-  if (version_.handshake_protocol == quic::PROTOCOL_TLS1_3) {
-    // QUIC with TLS1.3 handshake doesn't support 0-rtt.
-    return;
-  }
-
   SetRequest("GET", "/", DEFAULT_PRIORITY);
   size_t spdy_request_headers_frame_length;
   client_maker_.SetEncryptionLevel(quic::ENCRYPTION_ZERO_RTT);
@@ -1922,7 +1873,7 @@ TEST_P(BidirectionalStreamQuicImplTest, ServerSendsRstAfterReadData) {
       &spdy_request_headers_frame_length));
   client_maker_.SetEncryptionLevel(quic::ENCRYPTION_FORWARD_SECURE);
   // Why does QUIC ack Rst? Is this expected?
-  AddWrite(ConstructClientAckPacket(3, 1, 2));
+  AddWrite(ConstructClientAckPacket(3, 1));
 
   Initialize();
 
@@ -1945,7 +1896,7 @@ TEST_P(BidirectionalStreamQuicImplTest, ServerSendsRstAfterReadData) {
   ProcessPacket(ConstructServerAckPacket(1, 1, 1, 1));
 
   // Server sends the response headers.
-  spdy::SpdyHeaderBlock response_headers = ConstructResponseHeaders("200");
+  spdy::Http2HeaderBlock response_headers = ConstructResponseHeaders("200");
 
   size_t spdy_response_headers_frame_length;
   ProcessPacket(
@@ -1959,8 +1910,12 @@ TEST_P(BidirectionalStreamQuicImplTest, ServerSendsRstAfterReadData) {
   int rv = delegate->ReadData(cb.callback());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
-  // Server sends a Rst.
-  ProcessPacket(ConstructServerRstStreamPacket(3));
+  // Server sends a Rst. Since the stream has sent fin, the rst is one way in
+  // IETF QUIC.
+  ProcessPacket(server_maker_.MakeRstPacket(
+      3, !kIncludeVersion, GetNthClientInitiatedBidirectionalStreamId(0),
+      quic::QUIC_STREAM_CANCELLED,
+      /*include_stop_sending_if_v99=*/false));
 
   delegate->WaitUntilNextCallback(kOnFailed);
 
@@ -1976,11 +1931,6 @@ TEST_P(BidirectionalStreamQuicImplTest, ServerSendsRstAfterReadData) {
 }
 
 TEST_P(BidirectionalStreamQuicImplTest, SessionClosedBeforeReadData) {
-  if (version_.handshake_protocol == quic::PROTOCOL_TLS1_3) {
-    // QUIC with TLS1.3 handshake doesn't support 0-rtt.
-    return;
-  }
-
   SetRequest("POST", "/", DEFAULT_PRIORITY);
   size_t spdy_request_headers_frame_length;
   client_maker_.SetEncryptionLevel(quic::ENCRYPTION_ZERO_RTT);
@@ -2011,7 +1961,7 @@ TEST_P(BidirectionalStreamQuicImplTest, SessionClosedBeforeReadData) {
   ProcessPacket(ConstructServerAckPacket(1, 1, 1, 1));
 
   // Server sends the response headers.
-  spdy::SpdyHeaderBlock response_headers = ConstructResponseHeaders("200");
+  spdy::Http2HeaderBlock response_headers = ConstructResponseHeaders("200");
 
   size_t spdy_response_headers_frame_length;
   ProcessPacket(
@@ -2093,11 +2043,6 @@ TEST_P(BidirectionalStreamQuicImplTest, SessionClosedBeforeStartNotConfirmed) {
 }
 
 TEST_P(BidirectionalStreamQuicImplTest, SessionCloseDuringOnStreamReady) {
-  if (version_.handshake_protocol == quic::PROTOCOL_TLS1_3) {
-    // QUIC with TLS1.3 handshake doesn't support 0-rtt.
-    return;
-  }
-
   SetRequest("POST", "/", DEFAULT_PRIORITY);
   client_maker_.SetEncryptionLevel(quic::ENCRYPTION_ZERO_RTT);
   if (VersionUsesHttp3(version_.transport_version))
@@ -2126,11 +2071,6 @@ TEST_P(BidirectionalStreamQuicImplTest, SessionCloseDuringOnStreamReady) {
 }
 
 TEST_P(BidirectionalStreamQuicImplTest, DeleteStreamDuringOnStreamReady) {
-  if (version_.handshake_protocol == quic::PROTOCOL_TLS1_3) {
-    // QUIC with TLS1.3 handshake doesn't support 0-rtt.
-    return;
-  }
-
   SetRequest("POST", "/", DEFAULT_PRIORITY);
   size_t spdy_request_headers_frame_length;
   client_maker_.SetEncryptionLevel(quic::ENCRYPTION_ZERO_RTT);
@@ -2165,11 +2105,6 @@ TEST_P(BidirectionalStreamQuicImplTest, DeleteStreamDuringOnStreamReady) {
 }
 
 TEST_P(BidirectionalStreamQuicImplTest, DeleteStreamAfterReadData) {
-  if (version_.handshake_protocol == quic::PROTOCOL_TLS1_3) {
-    // QUIC with TLS1.3 handshake doesn't support 0-rtt.
-    return;
-  }
-
   SetRequest("POST", "/", DEFAULT_PRIORITY);
   size_t spdy_request_headers_frame_length;
   client_maker_.SetEncryptionLevel(quic::ENCRYPTION_ZERO_RTT);
@@ -2179,7 +2114,7 @@ TEST_P(BidirectionalStreamQuicImplTest, DeleteStreamAfterReadData) {
   AddWrite(ConstructRequestHeadersPacketInner(
       GetNthClientInitiatedBidirectionalStreamId(0), !kFin, DEFAULT_PRIORITY,
       &spdy_request_headers_frame_length));
-  AddWrite(ConstructClientAckAndRstStreamPacket(2, 1, 2));
+  AddWrite(ConstructClientAckAndRstStreamPacket(2, 1));
 
   Initialize();
 
@@ -2202,7 +2137,7 @@ TEST_P(BidirectionalStreamQuicImplTest, DeleteStreamAfterReadData) {
   ProcessPacket(ConstructServerAckPacket(1, 1, 1, 1));
 
   // Server sends the response headers.
-  spdy::SpdyHeaderBlock response_headers = ConstructResponseHeaders("200");
+  spdy::Http2HeaderBlock response_headers = ConstructResponseHeaders("200");
   size_t spdy_response_headers_frame_length;
   ProcessPacket(
       ConstructResponseHeadersPacket(2, !kFin, std::move(response_headers),
@@ -2228,11 +2163,6 @@ TEST_P(BidirectionalStreamQuicImplTest, DeleteStreamAfterReadData) {
 }
 
 TEST_P(BidirectionalStreamQuicImplTest, DeleteStreamDuringOnHeadersReceived) {
-  if (version_.handshake_protocol == quic::PROTOCOL_TLS1_3) {
-    // QUIC with TLS1.3 handshake doesn't support 0-rtt.
-    return;
-  }
-
   SetRequest("POST", "/", DEFAULT_PRIORITY);
   size_t spdy_request_headers_frame_length;
   client_maker_.SetEncryptionLevel(quic::ENCRYPTION_ZERO_RTT);
@@ -2242,7 +2172,7 @@ TEST_P(BidirectionalStreamQuicImplTest, DeleteStreamDuringOnHeadersReceived) {
   AddWrite(ConstructRequestHeadersPacketInner(
       GetNthClientInitiatedBidirectionalStreamId(0), !kFin, DEFAULT_PRIORITY,
       &spdy_request_headers_frame_length));
-  AddWrite(ConstructClientAckAndRstStreamPacket(2, 1, 2));
+  AddWrite(ConstructClientAckAndRstStreamPacket(2, 1));
 
   Initialize();
 
@@ -2266,7 +2196,7 @@ TEST_P(BidirectionalStreamQuicImplTest, DeleteStreamDuringOnHeadersReceived) {
   ProcessPacket(ConstructServerAckPacket(1, 1, 1, 1));
 
   // Server sends the response headers.
-  spdy::SpdyHeaderBlock response_headers = ConstructResponseHeaders("200");
+  spdy::Http2HeaderBlock response_headers = ConstructResponseHeaders("200");
 
   size_t spdy_response_headers_frame_length;
   ProcessPacket(
@@ -2283,11 +2213,6 @@ TEST_P(BidirectionalStreamQuicImplTest, DeleteStreamDuringOnHeadersReceived) {
 }
 
 TEST_P(BidirectionalStreamQuicImplTest, DeleteStreamDuringOnDataRead) {
-  if (version_.handshake_protocol == quic::PROTOCOL_TLS1_3) {
-    // QUIC with TLS1.3 handshake doesn't support 0-rtt.
-    return;
-  }
-
   SetRequest("POST", "/", DEFAULT_PRIORITY);
   size_t spdy_request_headers_frame_length;
   client_maker_.SetEncryptionLevel(quic::ENCRYPTION_ZERO_RTT);
@@ -2297,7 +2222,7 @@ TEST_P(BidirectionalStreamQuicImplTest, DeleteStreamDuringOnDataRead) {
   AddWrite(ConstructRequestHeadersPacketInner(
       GetNthClientInitiatedBidirectionalStreamId(0), !kFin, DEFAULT_PRIORITY,
       &spdy_request_headers_frame_length));
-  AddWrite(ConstructClientAckPacket(3, 1, 2));
+  AddWrite(ConstructClientAckPacket(3, 1));
   AddWrite(ConstructClientRstStreamPacket());
 
   Initialize();
@@ -2321,7 +2246,7 @@ TEST_P(BidirectionalStreamQuicImplTest, DeleteStreamDuringOnDataRead) {
   ProcessPacket(ConstructServerAckPacket(1, 1, 1, 1));
 
   // Server sends the response headers.
-  spdy::SpdyHeaderBlock response_headers = ConstructResponseHeaders("200");
+  spdy::Http2HeaderBlock response_headers = ConstructResponseHeaders("200");
 
   size_t spdy_response_headers_frame_length;
   ProcessPacket(
@@ -2349,11 +2274,6 @@ TEST_P(BidirectionalStreamQuicImplTest, DeleteStreamDuringOnDataRead) {
 }
 
 TEST_P(BidirectionalStreamQuicImplTest, AsyncFinRead) {
-  if (version_.handshake_protocol == quic::PROTOCOL_TLS1_3) {
-    // QUIC with TLS1.3 handshake doesn't support 0-rtt.
-    return;
-  }
-
   const char kBody[] = "here is some data";
   SetRequest("POST", "/", DEFAULT_PRIORITY);
   size_t spdy_request_headers_frame_length;
@@ -2370,7 +2290,7 @@ TEST_P(BidirectionalStreamQuicImplTest, AsyncFinRead) {
   } else {
     AddWrite(ConstructClientDataPacket(kIncludeVersion, kFin, kBody));
   }
-  AddWrite(ConstructClientAckPacket(3, 1, 2));
+  AddWrite(ConstructClientAckPacket(3, 1));
 
   Initialize();
 
@@ -2400,7 +2320,7 @@ TEST_P(BidirectionalStreamQuicImplTest, AsyncFinRead) {
   ProcessPacket(ConstructServerAckPacket(1, 1, 1, 1));
 
   // Server sends the response headers.
-  spdy::SpdyHeaderBlock response_headers = ConstructResponseHeaders("200");
+  spdy::Http2HeaderBlock response_headers = ConstructResponseHeaders("200");
 
   size_t spdy_response_headers_frame_length;
   ProcessPacket(
@@ -2431,20 +2351,16 @@ TEST_P(BidirectionalStreamQuicImplTest, AsyncFinRead) {
 }
 
 TEST_P(BidirectionalStreamQuicImplTest, DeleteStreamDuringOnTrailersReceived) {
-  if (version_.handshake_protocol == quic::PROTOCOL_TLS1_3) {
-    // QUIC with TLS1.3 handshake doesn't support 0-rtt.
-    return;
-  }
-
   SetRequest("GET", "/", DEFAULT_PRIORITY);
   size_t spdy_request_headers_frame_length;
   client_maker_.SetEncryptionLevel(quic::ENCRYPTION_ZERO_RTT);
   if (VersionUsesHttp3(version_.transport_version))
     AddWrite(ConstructInitialSettingsPacket());
+  client_maker_.SetEncryptionLevel(quic::ENCRYPTION_FORWARD_SECURE);
   AddWrite(ConstructRequestHeadersPacket(kFin, DEFAULT_PRIORITY,
                                          &spdy_request_headers_frame_length));
-  AddWrite(ConstructClientAckPacket(3, 1, 2));  // Ack the data packet
-  AddWrite(ConstructClientAckAndRstStreamPacket(4, 4, 2));
+  AddWrite(ConstructClientAckPacket(3, 1));  // Ack the data packet
+  AddWrite(ConstructClientAckAndRstStreamPacket(4, 4));
 
   Initialize();
 
@@ -2461,13 +2377,14 @@ TEST_P(BidirectionalStreamQuicImplTest, DeleteStreamDuringOnTrailersReceived) {
                                DeleteStreamDelegate::ON_TRAILERS_RECEIVED));
   delegate->Start(&request, net_log().bound(),
                   session()->CreateHandle(destination_));
+  ConfirmHandshake();
   delegate->WaitUntilNextCallback(kOnStreamReady);
 
   // Server acks the request.
   ProcessPacket(ConstructServerAckPacket(1, 1, 1, 1));
 
   // Server sends the response headers.
-  spdy::SpdyHeaderBlock response_headers = ConstructResponseHeaders("200");
+  spdy::Http2HeaderBlock response_headers = ConstructResponseHeaders("200");
 
   size_t spdy_response_headers_frame_length;
   ProcessPacket(
@@ -2492,7 +2409,7 @@ TEST_P(BidirectionalStreamQuicImplTest, DeleteStreamDuringOnTrailersReceived) {
   EXPECT_EQ(std::string(kResponseBody), delegate->data_received());
 
   size_t spdy_trailers_frame_length;
-  spdy::SpdyHeaderBlock trailers;
+  spdy::Http2HeaderBlock trailers;
   trailers["foo"] = "bar";
   if (!quic::VersionUsesHttp3(version_.transport_version)) {
     trailers[quic::kFinalOffsetHeaderKey] =

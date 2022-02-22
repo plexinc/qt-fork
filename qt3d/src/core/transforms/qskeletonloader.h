@@ -41,6 +41,7 @@
 #define QT3DCORE_QSKELETONLOADER_H
 
 #include <Qt3DCore/qabstractskeleton.h>
+#include <Qt3DCore/qjoint.h>
 #include <Qt3DCore/qt3dcore_global.h>
 #include <QtCore/qurl.h>
 
@@ -48,7 +49,6 @@ QT_BEGIN_NAMESPACE
 
 namespace Qt3DCore {
 
-class QJoint;
 class QSkeletonLoaderPrivate;
 
 class Q_3DCORESHARED_EXPORT QSkeletonLoader : public QAbstractSkeleton
@@ -89,11 +89,9 @@ Q_SIGNALS:
 
 protected:
     explicit QSkeletonLoader(QSkeletonLoaderPrivate &dd, Qt3DCore::QNode *parent = nullptr);
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) override;
 
 private:
     Q_DECLARE_PRIVATE(QSkeletonLoader)
-    QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
     void setRootJoint(QJoint *rootJoint); // Needed for lifetime management of created joints
 };
 

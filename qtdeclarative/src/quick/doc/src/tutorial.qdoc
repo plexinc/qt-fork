@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -100,11 +100,13 @@ The \c font.pointSize and \c font.bold properties are related to fonts and use t
 
 \section2 Viewing the Example
 
-To view what you have created, run the \l{Prototyping with qmlscene}{qmlscene} tool (located in the \c bin directory) with your filename as the first argument.
-For example, to run the provided completed Tutorial 1 example from the install location, you would type:
+To view what you have created, run the
+\l{Prototyping with the QML Runtime Tool}{qml tool} (located in the
+\c bin directory) with your filename as the first argument. For example, to run
+the provided completed Tutorial 1 example from the install location, you would type:
 
 \code
-qmlscene tutorials/helloworld/tutorial1.qml
+qml tutorials/helloworld/tutorial1.qml
 \endcode
 */
 
@@ -220,5 +222,6 @@ This is equivalent to writing the two transitions separately.
 The \l ParallelAnimation type makes sure that the two types of animations (number and color) start at the same time.
 We could also run them one after the other by using \l SequentialAnimation instead.
 
-For more details on states and transitions, see \l {Qt Quick States} and the \l{animation/states}{states and transitions example}.
+For more details on states and transitions, see \l {Qt Quick States} and the
+\l{Qt Quick Examples - Animation#States}{states and transitions example}.
 */

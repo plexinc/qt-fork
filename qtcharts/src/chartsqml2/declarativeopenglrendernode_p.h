@@ -45,13 +45,13 @@
 #include <private/glxyseriesdata_p.h>
 #include <QtQuick/QSGImageNode>
 #include <QtQuick/QQuickWindow>
-#include <QtGui/QOpenGLShaderProgram>
-#include <QtGui/QOpenGLVertexArrayObject>
+#include <QtOpenGL/QOpenGLShaderProgram>
+#include <QtOpenGL/QOpenGLVertexArrayObject>
 #include <QtGui/QOpenGLFunctions>
-#include <QtGui/QOpenGLFramebufferObject>
-#include <QtGui/QOpenGLBuffer>
+#include <QtOpenGL/QOpenGLFramebufferObject>
+#include <QtOpenGL/QOpenGLBuffer>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class DeclarativeOpenGLRenderNode : public QObject, public DeclarativeAbstractRenderNode, QOpenGLFunctions
 {
@@ -67,8 +67,8 @@ public:
     void setSeriesData(bool mapDirty, const GLXYDataMap &dataMap) override;
     void setRect(const QRectF &rect) override;
     void setAntialiasing(bool enable) override;
-    void addMouseEvents(const QVector<QMouseEvent *> &events) override;
-    void takeMouseEventResponses(QVector<MouseEventResponse> &responses) override;
+    void addMouseEvents(const QList<QMouseEvent *> &events) override;
+    void takeMouseEventResponses(QList<MouseEventResponse> &responses) override;
 
 public Q_SLOTS:
     void render();
@@ -104,16 +104,16 @@ private:
     bool m_renderNeeded;
     QRectF m_rect;
     bool m_antialiasing;
-    QVector<QMouseEvent *> m_mouseEvents;
-    QVector<MouseEventResponse> m_mouseEventResponses;
+    QList<QMouseEvent *> m_mouseEvents;
+    QList<MouseEventResponse> m_mouseEventResponses;
     bool m_selectionRenderNeeded;
-    QVector<const QXYSeries *> m_selectionVector;
+    QList<const QXYSeries *> m_selectionList;
     QPoint m_mousePressPos;
     bool m_mousePressed;
     const QXYSeries *m_lastPressSeries;
     const QXYSeries *m_lastHoverSeries;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // DECLARATIVEOPENGLRENDERNODE_P_H

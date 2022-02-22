@@ -125,7 +125,7 @@ public:
 };
 
 //animates QQuickBulkValueUpdater (assumes start and end values will be reals or compatible)
-class Q_AUTOTEST_EXPORT QQuickBulkValueAnimator : public QAbstractAnimationJob
+class Q_QUICK_AUTOTEST_EXPORT QQuickBulkValueAnimator : public QAbstractAnimationJob
 {
     Q_DISABLE_COPY(QQuickBulkValueAnimator)
 public:
@@ -135,7 +135,7 @@ public:
     void setAnimValue(QQuickBulkValueUpdater *value);
     QQuickBulkValueUpdater *getAnimValue() const { return animValue; }
 
-    void setFromSourcedValue(bool *value) { fromSourced = value; }
+    void setFromIsSourcedValue(bool *value) { fromIsSourced = value; }
 
     int duration() const override { return m_duration; }
     void setDuration(int msecs) { m_duration = msecs; }
@@ -150,7 +150,7 @@ protected:
 
 private:
     QQuickBulkValueUpdater *animValue;
-    bool *fromSourced;
+    bool *fromIsSourced;
     int m_duration;
     QEasingCurve easing;
 };
@@ -256,10 +256,10 @@ public:
     : QQuickAbstractAnimationPrivate() {}
 
     static void append_animation(QQmlListProperty<QQuickAbstractAnimation> *list, QQuickAbstractAnimation *role);
-    static QQuickAbstractAnimation *at_animation(QQmlListProperty<QQuickAbstractAnimation> *list, int index);
-    static int count_animation(QQmlListProperty<QQuickAbstractAnimation> *list);
+    static QQuickAbstractAnimation *at_animation(QQmlListProperty<QQuickAbstractAnimation> *list, qsizetype index);
+    static qsizetype count_animation(QQmlListProperty<QQuickAbstractAnimation> *list);
     static void clear_animation(QQmlListProperty<QQuickAbstractAnimation> *list);
-    static void replace_animation(QQmlListProperty<QQuickAbstractAnimation> *list, int index,
+    static void replace_animation(QQmlListProperty<QQuickAbstractAnimation> *list, qsizetype index,
                                   QQuickAbstractAnimation *role);
     static void removeLast_animation(QQmlListProperty<QQuickAbstractAnimation> *list);
     QList<QQuickAbstractAnimation *> animations;
@@ -270,7 +270,7 @@ class QQuickPropertyAnimationPrivate : public QQuickAbstractAnimationPrivate
     Q_DECLARE_PUBLIC(QQuickPropertyAnimation)
 public:
     QQuickPropertyAnimationPrivate()
-    : QQuickAbstractAnimationPrivate(), target(nullptr), fromSourced(false), fromIsDefined(false), toIsDefined(false),
+    : QQuickAbstractAnimationPrivate(), target(nullptr), fromIsDefined(false), toIsDefined(false),
       defaultToInterpolatorType(0), interpolatorType(0), interpolator(nullptr), duration(250), actions(nullptr) {}
 
     QVariant from;
@@ -283,7 +283,6 @@ public:
     QList<QObject *> exclude;
     QString defaultProperties;
 
-    bool fromSourced;
     bool fromIsDefined:1;
     bool toIsDefined:1;
     bool defaultToInterpolatorType:1;
@@ -296,7 +295,7 @@ public:
     QQuickStateActions *actions;
 
     static QVariant interpolateVariant(const QVariant &from, const QVariant &to, qreal progress);
-    static void convertVariant(QVariant &variant, int type);
+    static void convertVariant(QVariant &variant, QMetaType type);
 };
 
 class QQuickRotationAnimationPrivate : public QQuickPropertyAnimationPrivate
@@ -311,7 +310,7 @@ public:
 class Q_AUTOTEST_EXPORT QQuickAnimationPropertyUpdater : public QQuickBulkValueUpdater
 {
 public:
-    QQuickAnimationPropertyUpdater() : interpolatorType(0), interpolator(nullptr), prevInterpolatorType(0), reverse(false), fromSourced(false), fromDefined(false), wasDeleted(nullptr) {}
+    QQuickAnimationPropertyUpdater() : interpolatorType(0), interpolator(nullptr), prevInterpolatorType(0), reverse(false), fromIsSourced(false), fromIsDefined(false), wasDeleted(nullptr) {}
     ~QQuickAnimationPropertyUpdater() override;
 
     void setValue(qreal v) override;
@@ -323,8 +322,8 @@ public:
     QVariantAnimation::Interpolator interpolator;
     int prevInterpolatorType;   //for generic
     bool reverse;
-    bool fromSourced;
-    bool fromDefined;
+    bool fromIsSourced;
+    bool fromIsDefined;
     bool *wasDeleted;
 };
 

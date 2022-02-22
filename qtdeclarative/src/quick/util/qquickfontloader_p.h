@@ -51,6 +51,7 @@
 // We mean it.
 //
 
+#include <private/qtquickglobal_p.h>
 #include <qqml.h>
 
 #include <QtCore/qobject.h>
@@ -59,15 +60,17 @@
 QT_BEGIN_NAMESPACE
 
 class QQuickFontLoaderPrivate;
-class Q_AUTOTEST_EXPORT QQuickFontLoader : public QObject
+class Q_QUICK_PRIVATE_EXPORT QQuickFontLoader : public QObject
 {
     Q_OBJECT
     Q_DECLARE_PRIVATE(QQuickFontLoader)
 
     Q_PROPERTY(QUrl source READ source WRITE setSource NOTIFY sourceChanged)
-    Q_PROPERTY(QString name READ name WRITE setName NOTIFY nameChanged)
+    Q_PROPERTY(QString name READ name NOTIFY nameChanged)
     Q_PROPERTY(Status status READ status NOTIFY statusChanged)
+    Q_PROPERTY(QFont font READ font NOTIFY fontChanged)
     QML_NAMED_ELEMENT(FontLoader)
+    QML_ADDED_IN_VERSION(2, 0)
 
 public:
     enum Status { Null = 0, Ready, Loading, Error };
@@ -80,16 +83,18 @@ public:
     void setSource(const QUrl &url);
 
     QString name() const;
-    void setName(const QString &name);
+
+    QFont font() const;
 
     Status status() const;
 
 private Q_SLOTS:
-    void updateFontInfo(const QString&, QQuickFontLoader::Status);
+    void updateFontInfo(int);
 
 Q_SIGNALS:
     void sourceChanged();
     void nameChanged();
+    void fontChanged();
     void statusChanged();
 };
 

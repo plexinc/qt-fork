@@ -117,10 +117,17 @@ QDebug operator<<(QDebug dbg, const QHandle<T> &h)
 }
 
 template <typename T>
-uint qHash(const QHandle<T> &h, uint seed)
+size_t qHash(const QHandle<T> &h, size_t seed)
 {
     using QT_PREPEND_NAMESPACE(qHash);
     return qHash(h.handle(), seed);
+}
+
+template <typename T>
+size_t qHash(const QHandle<T> &h)
+{
+    using QT_PREPEND_NAMESPACE(qHash);
+    return qHash(h.handle());
 }
 
 } // Qt3DCore

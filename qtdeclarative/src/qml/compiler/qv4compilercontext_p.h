@@ -182,8 +182,9 @@ struct Context {
         int index = -1;
         QQmlJS::AST::VariableScope scope = QQmlJS::AST::VariableScope::Var;
         mutable bool canEscape = false;
+        bool isInjected = false;
         QQmlJS::AST::FunctionExpression *function = nullptr;
-        QQmlJS::SourceLocation endOfInitializerLocation;
+        QQmlJS::SourceLocation declarationLocation;
 
         bool isLexicallyScoped() const { return this->scope != QQmlJS::AST::VariableScope::Var; }
         bool requiresTDZCheck(const QQmlJS::SourceLocation &accessLocation, bool accessAcrossContextBoundaries) const;
@@ -289,12 +290,20 @@ struct Context {
             isStrict = true;
     }
 
-    int findArgument(const QString &name) const
+    bool hasArgument(const QString &name) const
+    {
+        return arguments.contains(name);
+    }
+
+    int findArgument(const QString &name, bool *isInjected) const
     {
         // search backwards to handle duplicate argument names correctly
         for (int i = arguments.size() - 1; i >= 0; --i) {
-            if (arguments.at(i).id == name)
+            const auto &arg = arguments.at(i);
+            if (arg.id == name) {
+                *isInjected = arg.isInjected();
                 return i;
+            }
         }
         return -1;
     }
@@ -330,8 +339,11 @@ struct Context {
         usedVariables.insert(name);
     }
 
-    bool addLocalVar(const QString &name, MemberType contextType, QQmlJS::AST::VariableScope scope, QQmlJS::AST::FunctionExpression *function = nullptr,
-                     const QQmlJS::SourceLocation &endOfInitializer = QQmlJS::SourceLocation());
+    bool addLocalVar(
+            const QString &name, MemberType contextType, QQmlJS::AST::VariableScope scope,
+            QQmlJS::AST::FunctionExpression *function = nullptr,
+            const QQmlJS::SourceLocation &declarationLocation = QQmlJS::SourceLocation(),
+            bool isInjected = false);
 
     struct ResolvedName {
         enum Type {
@@ -346,9 +358,10 @@ struct Context {
         bool isArgOrEval = false;
         bool isConst = false;
         bool requiresTDZCheck = false;
+        bool isInjected = false;
         int scope = -1;
         int index = -1;
-        QQmlJS::SourceLocation endOfDeclarationLocation;
+        QQmlJS::SourceLocation declarationLocation;
         bool isValid() const { return type != Unresolved; }
     };
     ResolvedName resolveName(const QString &name, const QQmlJS::SourceLocation &accessLocation);

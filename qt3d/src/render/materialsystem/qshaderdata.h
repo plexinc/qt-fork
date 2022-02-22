@@ -42,7 +42,7 @@
 
 #include <Qt3DCore/qcomponent.h>
 #include <Qt3DRender/qt3drender_global.h>
-#include <QtCore/QVector>
+#include <QtCore/QList>
 
 QT_BEGIN_NAMESPACE
 
@@ -75,7 +75,6 @@ protected:
 
 private:
     Q_DECLARE_PRIVATE(QShaderData)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DRender
@@ -83,6 +82,6 @@ private:
 QT_END_NAMESPACE
 
 Q_DECLARE_METATYPE(Qt3DRender::QShaderData*) // LCOV_EXCL_LINE
-Q_DECLARE_METATYPE(QVector<Qt3DRender::QShaderData*>) // LCOV_EXCL_LINE
+Q_DECLARE_METATYPE(QList<Qt3DRender::QShaderData*>) // LCOV_EXCL_LINE
 
 #endif // QT3DRENDER_QSHADERDATA_H

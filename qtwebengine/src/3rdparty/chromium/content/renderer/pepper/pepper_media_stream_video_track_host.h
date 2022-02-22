@@ -16,7 +16,7 @@
 #include "ppapi/shared_impl/media_stream_video_track_shared.h"
 #include "third_party/blink/public/common/mediastream/media_stream_request.h"
 #include "third_party/blink/public/mojom/mediastream/media_stream.mojom-shared.h"
-#include "third_party/blink/public/platform/web_media_stream_track.h"
+#include "third_party/blink/public/platform/modules/mediastream/web_media_stream_track.h"
 #include "third_party/blink/public/web/modules/mediastream/media_stream_video_sink.h"
 #include "ui/gfx/geometry/size.h"
 
@@ -66,8 +66,10 @@ class PepperMediaStreamVideoTrackHost : public PepperMediaStreamTrackHostBase,
   // Sends frame with |index| to |track_|.
   int32_t SendFrameToTrack(int32_t index);
 
-  void OnVideoFrame(scoped_refptr<media::VideoFrame> frame,
-                    base::TimeTicks estimated_capture_time);
+  void OnVideoFrame(
+      scoped_refptr<media::VideoFrame> video_frame,
+      std::vector<scoped_refptr<media::VideoFrame>> scaled_video_frames,
+      base::TimeTicks estimated_capture_time);
 
   // ResourceHost overrides:
   void DidConnectPendingHostToResource() override;

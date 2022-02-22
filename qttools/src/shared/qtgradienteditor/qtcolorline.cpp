@@ -94,7 +94,7 @@ private:
     QPixmap hueGradientPixmap(Qt::Orientation orientation, bool flipped = false,
                 int saturation = 0xFF, int value = 0xFF, int alpha = 0xFF) const;
 
-    QVector<QRect> rects(const QPointF &point) const;
+    QList<QRect> rects(const QPointF &point) const;
 
     QColor colorFromPoint(const QPointF &point) const;
     QPointF pointFromColor(const QColor &color) const;
@@ -620,7 +620,7 @@ QPointF QtColorLinePrivate::pointFromColor(const QColor &color) const
     return p;
 }
 
-QVector<QRect> QtColorLinePrivate::rects(const QPointF &point) const
+QList<QRect> QtColorLinePrivate::rects(const QPointF &point) const
 {
     QRect r = q_ptr->geometry();
     r.moveTo(0, 0);
@@ -630,7 +630,7 @@ QVector<QRect> QtColorLinePrivate::rects(const QPointF &point) const
     int y1 = (int)((r.height() - m_indicatorSize - 2 * m_indicatorSpace) * point.y() + 0.5);
     int y2 = y1 + m_indicatorSize + 2 * m_indicatorSpace;
 
-    QVector<QRect> rects;
+    QList<QRect> rects;
     if (m_orientation == Qt::Horizontal) {
         // r0 r1 r2
         QRect r0(0, 0, x1, r.height());
@@ -660,7 +660,7 @@ void QtColorLinePrivate::paintEvent(QPaintEvent *)
 {
     QRect rect = q_ptr->rect();
 
-    QVector<QRect> r = rects(m_point);
+    QList<QRect> r = rects(m_point);
 
     QColor c = colorFromPoint(m_point);
     if (!m_combiningAlpha && m_component != QtColorLine::Alpha)
@@ -878,7 +878,7 @@ void QtColorLinePrivate::paintEvent(QPaintEvent *)
     r[1].adjust(br, br, -br, -br);
     if (r[1].adjusted(lw, lw, -lw, -lw).isValid()) {
         QStyleOptionFrame opt;
-        opt.init(q_ptr);
+        opt.initFrom(q_ptr);
         opt.rect = r[1];
         opt.lineWidth = 2;
         opt.midLineWidth = 1;
@@ -915,8 +915,8 @@ void QtColorLinePrivate::mousePressEvent(QMouseEvent *event)
     if (event->button() != Qt::LeftButton)
         return;
 
-    QVector<QRect> r = rects(m_point);
-    QPoint clickPos = event->pos();
+    QList<QRect> r = rects(m_point);
+    QPoint clickPos = event->position().toPoint();
 
     QPoint posOnField = r[1].topLeft() - QPoint(m_indicatorSpace, m_indicatorSpace);
     m_clickOffset = posOnField - clickPos;
@@ -931,7 +931,7 @@ void QtColorLinePrivate::mouseMoveEvent(QMouseEvent *event)
 {
     if (!m_dragging)
         return;
-    QPoint newPos = event->pos();
+    QPoint newPos = event->position().toPoint();
 
     QSize fieldSize = q_ptr->geometry().size() -
             QSize(m_indicatorSize + 2 * m_indicatorSpace - 1, m_indicatorSize + 2 * m_indicatorSpace - 1);
@@ -969,8 +969,8 @@ void QtColorLinePrivate::mouseDoubleClickEvent(QMouseEvent *event)
     if (event->button() != Qt::LeftButton)
         return;
 
-    QVector<QRect> r = rects(m_point);
-    QPoint clickPos = event->pos();
+    QList<QRect> r = rects(m_point);
+    QPoint clickPos = event->position().toPoint();
     if (!r[0].contains(clickPos) && !r[2].contains(clickPos))
         return;
     QPoint newPosOnField = clickPos;

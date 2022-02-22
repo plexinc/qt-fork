@@ -54,7 +54,7 @@
 #include <QtWidgets/private/qtwidgetsglobal_p.h>
 #include <QtWidgets/qlayout.h>
 #include <private/qlayoutengine_p.h>
-#include <QVector>
+#include <QList>
 
 QT_REQUIRE_CONFIG(toolbar);
 
@@ -96,7 +96,7 @@ public:
     QSize sizeHint() const override;
 
     void insertAction(int index, QAction *action);
-    int indexOf(QAction *action) const;
+    int indexOf(const QAction *action) const;
     using QLayout::indexOf; // bring back the hidden members
 
     bool layoutActions(const QSize &size);
@@ -118,7 +118,7 @@ private:
     QList<QToolBarItem*> items;
     QSize hint, minSize;
     bool dirty, expanding, empty, expandFlag;
-    QVector<QLayoutStruct> geomArray;
+    QList<QLayoutStruct> geomArray;
     QRect handRect;
     QToolBarExtension *extension;
 

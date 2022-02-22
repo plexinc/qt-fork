@@ -70,7 +70,7 @@ class WorkerInspectorController final
                             scoped_refptr<InspectorTaskRunner>,
                             std::unique_ptr<WorkerDevToolsParams>);
   ~WorkerInspectorController() override;
-  void Trace(Visitor*);
+  void Trace(Visitor*) const;
 
   CoreProbeSink* GetProbeSink() const { return probe_sink_.Get(); }
   DevToolsAgent* GetDevToolsAgent() const { return agent_.Get(); }
@@ -109,7 +109,7 @@ class WorkerInspectorController final
   base::UnguessableToken worker_devtools_token_;
   base::UnguessableToken parent_devtools_token_;
   KURL url_;
-  PlatformThreadId worker_thread_id_;
+  const PlatformThreadId worker_thread_id_;
 
   DISALLOW_COPY_AND_ASSIGN(WorkerInspectorController);
 };

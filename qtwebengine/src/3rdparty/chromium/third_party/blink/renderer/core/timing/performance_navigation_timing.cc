@@ -7,7 +7,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/v8_object_builder.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/document_timing.h"
-#include "third_party/blink/renderer/core/frame/local_frame.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/loader/document_load_timing.h"
 #include "third_party/blink/renderer/core/loader/document_loader.h"
 #include "third_party/blink/renderer/core/performance_entry_names.h"
@@ -46,7 +46,7 @@ bool AllowNavigationTimingRedirect(
 }  // namespace
 
 PerformanceNavigationTiming::PerformanceNavigationTiming(
-    LocalFrame* frame,
+    LocalDOMWindow* window,
     ResourceTimingInfo* info,
     base::TimeTicks time_origin,
     HeapVector<Member<PerformanceServerTiming>> server_timing)
@@ -55,12 +55,13 @@ PerformanceNavigationTiming::PerformanceNavigationTiming(
                      info->FinalResponse().CurrentRequestUrl().GetString())
                : g_empty_atom,
           time_origin,
-          SecurityOrigin::IsSecure(frame->GetDocument()->Url()),
-          std::move(server_timing)),
-      ExecutionContextClient(frame),
+          // TODO(crbug.com/1153336) Use network::IsUrlPotentiallyTrustworthy().
+          SecurityOrigin::IsSecure(window->Url()),
+          std::move(server_timing),
+          window),
+      ExecutionContextClient(window),
       resource_timing_info_(info) {
-  DCHECK(frame);
-  DCHECK(frame->GetDocument());
+  DCHECK(window);
   DCHECK(info);
 }
 
@@ -74,7 +75,7 @@ PerformanceEntryType PerformanceNavigationTiming::EntryTypeEnum() const {
   return PerformanceEntry::EntryType::kNavigation;
 }
 
-void PerformanceNavigationTiming::Trace(Visitor* visitor) {
+void PerformanceNavigationTiming::Trace(Visitor* visitor) const {
   ExecutionContextClient::Trace(visitor);
   PerformanceResourceTiming::Trace(visitor);
 }
@@ -88,19 +89,11 @@ DocumentLoadTiming* PerformanceNavigationTiming::GetDocumentLoadTiming() const {
 }
 
 DocumentLoader* PerformanceNavigationTiming::GetDocumentLoader() const {
-  if (!GetFrame())
-    return nullptr;
-  return GetFrame()->Loader().GetDocumentLoader();
+  return DomWindow() ? DomWindow()->document()->Loader() : nullptr;
 }
 
 const DocumentTiming* PerformanceNavigationTiming::GetDocumentTiming() const {
-  if (!GetFrame())
-    return nullptr;
-  Document* document = GetFrame()->GetDocument();
-  if (!document)
-    return nullptr;
-
-  return &document->GetTiming();
+  return DomWindow() ? &DomWindow()->document()->GetTiming() : nullptr;
 }
 
 ResourceLoadTiming* PerformanceNavigationTiming::GetResourceLoadTiming() const {
@@ -116,7 +109,8 @@ bool PerformanceNavigationTiming::DidReuseConnection() const {
 }
 
 uint64_t PerformanceNavigationTiming::GetTransferSize() const {
-  return resource_timing_info_->TransferSize();
+  return PerformanceResourceTiming::GetTransferSize(
+      resource_timing_info_->FinalResponse().EncodedBodyLength(), CacheState());
 }
 
 uint64_t PerformanceNavigationTiming::GetEncodedBodySize() const {
@@ -150,15 +144,12 @@ AtomicString PerformanceNavigationTiming::initiatorType() const {
 }
 
 bool PerformanceNavigationTiming::GetAllowRedirectDetails() const {
-  blink::ExecutionContext* context =
-      GetFrame() ? GetFrame()->GetDocument()->ToExecutionContext() : nullptr;
-  const blink::SecurityOrigin* security_origin = nullptr;
-  if (context)
-    security_origin = context->GetSecurityOrigin();
-  if (!security_origin)
+  if (!GetExecutionContext())
     return false;
   // TODO(sunjian): Think about how to make this flag deterministic.
   // crbug/693183.
+  const blink::SecurityOrigin* security_origin =
+      GetExecutionContext()->GetSecurityOrigin();
   return AllowNavigationTimingRedirect(resource_timing_info_->RedirectChain(),
                                        resource_timing_info_->FinalResponse(),
                                        *security_origin);
@@ -177,7 +168,7 @@ DOMHighResTimeStamp PerformanceNavigationTiming::unloadEventStart() const {
   DocumentLoadTiming* timing = GetDocumentLoadTiming();
 
   if (!allow_redirect_details || !timing ||
-      !timing->HasSameOriginAsPreviousDocument())
+      !timing->CanRequestFromPreviousDocument())
     return 0;
   return Performance::MonotonicTimeToDOMHighResTimeStamp(
       TimeOrigin(), timing->UnloadEventStart(),
@@ -189,7 +180,7 @@ DOMHighResTimeStamp PerformanceNavigationTiming::unloadEventEnd() const {
   DocumentLoadTiming* timing = GetDocumentLoadTiming();
 
   if (!allow_redirect_details || !timing ||
-      !timing->HasSameOriginAsPreviousDocument())
+      !timing->CanRequestFromPreviousDocument())
     return 0;
   return Performance::MonotonicTimeToDOMHighResTimeStamp(
       TimeOrigin(), timing->UnloadEventEnd(), false /* allow_negative_value */);
@@ -248,10 +239,10 @@ DOMHighResTimeStamp PerformanceNavigationTiming::loadEventEnd() const {
 }
 
 AtomicString PerformanceNavigationTiming::type() const {
-  DocumentLoader* loader = GetDocumentLoader();
-  if (GetFrame() && loader)
-    return GetNavigationType(loader->GetNavigationType(),
-                             GetFrame()->GetDocument());
+  if (DomWindow()) {
+    return GetNavigationType(GetDocumentLoader()->GetNavigationType(),
+                             DomWindow()->document());
+  }
   return "navigate";
 }
 
@@ -316,4 +307,4 @@ void PerformanceNavigationTiming::BuildJSONValue(
   builder.AddString("type", type());
   builder.AddNumber("redirectCount", redirectCount());
 }
-}
+}  // namespace blink

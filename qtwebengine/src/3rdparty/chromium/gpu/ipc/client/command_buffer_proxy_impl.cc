@@ -79,8 +79,7 @@ ContextResult CommandBufferProxyImpl::Initialize(
     const gpu::ContextCreationAttribs& attribs,
     const GURL& active_url) {
   DCHECK(!share_group || (stream_id_ == share_group->stream_id_));
-  TRACE_EVENT1("gpu", "GpuChannelHost::CreateViewCommandBuffer",
-               "surface_handle", surface_handle);
+  TRACE_EVENT0("gpu", "GpuChannelHost::CreateViewCommandBuffer");
 
   // Drop the |channel_| if this method does not succeed and early-outs, to
   // prevent cleanup on destruction.
@@ -378,7 +377,8 @@ void CommandBufferProxyImpl::SetGetBuffer(int32_t shm_id) {
 
 scoped_refptr<gpu::Buffer> CommandBufferProxyImpl::CreateTransferBuffer(
     uint32_t size,
-    int32_t* id) {
+    int32_t* id,
+    TransferBufferAllocationOption option) {
   CheckLock();
   base::AutoLock lock(last_state_lock_);
   *id = -1;
@@ -390,7 +390,8 @@ scoped_refptr<gpu::Buffer> CommandBufferProxyImpl::CreateTransferBuffer(
   std::tie(shared_memory_region, shared_memory_mapping) =
       AllocateAndMapSharedMemory(size);
   if (!shared_memory_mapping.IsValid()) {
-    if (last_state_.error == gpu::error::kNoError)
+    if (last_state_.error == gpu::error::kNoError &&
+        option != TransferBufferAllocationOption::kReturnNullOnOOM)
       OnClientError(gpu::error::kOutOfBounds);
     return nullptr;
   }
@@ -596,9 +597,11 @@ void CommandBufferProxyImpl::CreateGpuFence(uint32_t gpu_fence_id,
     return;
   }
 
+  // IPC accepts handles by const reference. However, on platforms where the
+  // handle is backed by base::ScopedFD, const is casted away and the handle is
+  // forcibly taken from you.
   gfx::GpuFence* gpu_fence = gfx::GpuFence::FromClientGpuFence(source);
-  gfx::GpuFenceHandle handle =
-      gfx::CloneHandleForIPC(gpu_fence->GetGpuFenceHandle());
+  gfx::GpuFenceHandle handle = gpu_fence->GetGpuFenceHandle().Clone();
   Send(new GpuCommandBufferMsg_CreateGpuFenceFromHandle(route_id_, gpu_fence_id,
                                                         handle));
 }
@@ -624,9 +627,9 @@ void CommandBufferProxyImpl::GetGpuFence(
 
 void CommandBufferProxyImpl::OnGetGpuFenceHandleComplete(
     uint32_t gpu_fence_id,
-    const gfx::GpuFenceHandle& handle) {
+    gfx::GpuFenceHandle handle) {
   // Always consume the provided handle to avoid leaks on error.
-  auto gpu_fence = std::make_unique<gfx::GpuFence>(handle);
+  auto gpu_fence = std::make_unique<gfx::GpuFence>(std::move(handle));
 
   GetGpuFenceTaskMap::iterator it = get_gpu_fence_tasks_.find(gpu_fence_id);
   if (it == get_gpu_fence_tasks_.end()) {

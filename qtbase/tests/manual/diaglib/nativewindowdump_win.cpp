@@ -29,17 +29,19 @@
 #include "nativewindowdump.h"
 #include "qwindowdump.h"
 
-#include <QtCore/QTextStream>
-#include <QtCore/QSharedPointer>
 #include <QtCore/QDebug>
+#include <QtCore/QList>
 #include <QtCore/QRect>
-#include <QtCore/QVector>
+#include <QtCore/QSharedPointer>
+#include <QtCore/QTextStream>
 
 #include <QtCore/qt_windows.h>
 
 #ifndef WS_EX_NOREDIRECTIONBITMAP
 #  define WS_EX_NOREDIRECTIONBITMAP 0x00200000L
 #endif
+
+using namespace Qt;
 
 namespace QtDiag {
 
@@ -251,7 +253,7 @@ static void dumpNativeWindowRecursionByZ(HWND hwnd, DumpContext *dc)
     }
 }
 
-typedef QVector<WId> WIdVector;
+typedef QList<WId> WIdVector;
 
 static void dumpNativeWindows(const WIdVector& wins)
 {

@@ -10,11 +10,14 @@
 #include "base/bind.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/memory/singleton.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/strings/string_piece.h"
 #include "base/threading/thread.h"
 #include "base/values.h"
 #include "chrome/browser/defaults.h"
+#include "chrome/browser/enterprise/connectors/connectors_service.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_metrics.h"
 #include "chrome/browser/safe_browsing/advanced_protection_status_manager.h"
 #include "chrome/browser/safe_browsing/advanced_protection_status_manager_factory.h"
 #include "chrome/browser/ui/webui/downloads/downloads.mojom.h"
@@ -33,6 +36,7 @@
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/theme_resources.h"
 #include "components/prefs/pref_service.h"
+#include "components/profile_metrics/browser_profile_type.h"
 #include "content/public/browser/download_manager.h"
 #include "content/public/browser/url_data_source.h"
 #include "content/public/browser/web_contents.h"
@@ -52,24 +56,12 @@ using content::WebContents;
 
 namespace {
 
-#if !BUILDFLAG(OPTIMIZE_WEBUI)
-constexpr char kGeneratedPath[] =
-    "@out_folder@/gen/chrome/browser/resources/downloads/";
-#endif
-
 content::WebUIDataSource* CreateDownloadsUIHTMLSource(Profile* profile) {
   content::WebUIDataSource* source =
       content::WebUIDataSource::Create(chrome::kChromeUIDownloadsHost);
-
-#if BUILDFLAG(OPTIMIZE_WEBUI)
-  webui::SetupBundledWebUIDataSource(source, "downloads.js",
-                                     IDR_DOWNLOADS_DOWNLOADS_ROLLUP_JS,
-                                     IDR_DOWNLOADS_DOWNLOADS_HTML);
-#else
   webui::SetupWebUIDataSource(
       source, base::make_span(kDownloadsResources, kDownloadsResourcesSize),
-      kGeneratedPath, IDR_DOWNLOADS_DOWNLOADS_HTML);
-#endif
+      IDR_DOWNLOADS_DOWNLOADS_HTML);
 
   bool requests_ap_verdicts =
       safe_browsing::AdvancedProtectionStatusManagerFactory::GetForProfile(
@@ -84,7 +76,7 @@ content::WebUIDataSource* CreateDownloadsUIHTMLSource(Profile* profile) {
       {"downloads", IDS_DOWNLOAD_TITLE},
       {"actionMenuDescription", IDS_DOWNLOAD_ACTION_MENU_DESCRIPTION},
       {"clearAll", IDS_DOWNLOAD_LINK_CLEAR_ALL},
-      {"clearSearch", IDS_DOWNLOAD_CLEAR_SEARCH},
+      {"clearSearch", IDS_CLEAR_SEARCH},
       {"openDownloadsFolder", IDS_DOWNLOAD_LINK_OPEN_DOWNLOADS_FOLDER},
       {"moreActions", IDS_DOWNLOAD_MORE_ACTIONS},
       {"search", IDS_DOWNLOAD_SEARCH},
@@ -128,7 +120,7 @@ content::WebUIDataSource* CreateDownloadsUIHTMLSource(Profile* profile) {
       {"toastRemovedFromList", IDS_DOWNLOAD_TOAST_REMOVED_FROM_LIST},
       {"undo", IDS_DOWNLOAD_UNDO},
   };
-  AddLocalizedStringsBulk(source, kStrings);
+  source->AddLocalizedStrings(kStrings);
 
   source->AddLocalizedString("dangerDownloadDesc",
                              IDS_BLOCK_REASON_DANGEROUS_DOWNLOAD);
@@ -162,12 +154,12 @@ content::WebUIDataSource* CreateDownloadsUIHTMLSource(Profile* profile) {
 
   source->AddLocalizedString("inIncognito", IDS_DOWNLOAD_IN_INCOGNITO);
 
-  source->AddResourcePath("images/incognito_marker.svg",
-                          IDR_DOWNLOADS_IMAGES_INCOGNITO_MARKER_SVG);
-  source->AddResourcePath("images/no_downloads.svg",
-                          IDR_DOWNLOADS_IMAGES_NO_DOWNLOADS_SVG);
-  source->AddResourcePath("downloads.mojom-lite.js",
-                          IDR_DOWNLOADS_MOJO_LITE_JS);
+  source->AddBoolean(
+      "allowOpenNow",
+      !enterprise_connectors::ConnectorsServiceFactory::GetForBrowserContext(
+           profile)
+           ->DelayUntilVerdict(
+               enterprise_connectors::AnalysisConnector::FILE_DOWNLOADED));
 
   return source;
 }
@@ -190,6 +182,9 @@ DownloadsUI::DownloadsUI(content::WebUI* web_ui)
   ManagedUIHandler::Initialize(web_ui, source);
   content::WebUIDataSource::Add(profile, source);
   content::URLDataSource::Add(profile, std::make_unique<ThemeSource>(profile));
+
+  base::UmaHistogramEnumeration("Download.OpenDownloads.PerProfileType",
+                                ProfileMetrics::GetBrowserProfileType(profile));
 }
 
 WEB_UI_CONTROLLER_TYPE_IMPL(DownloadsUI)

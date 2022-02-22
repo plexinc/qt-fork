@@ -44,7 +44,7 @@ QT_BEGIN_NAMESPACE
 
 QSGOpenVGTexture::QSGOpenVGTexture(const QImage &image, uint flags)
 {
-    Q_UNUSED(flags)
+    Q_UNUSED(flags);
 
     VGImageFormat format = QSGOpenVGHelpers::qImageFormatToVGImageFormat(image.format());
     m_image = vgCreateImage(format, image.width(), image.height(), VG_IMAGE_QUALITY_BETTER);
@@ -58,9 +58,9 @@ QSGOpenVGTexture::~QSGOpenVGTexture()
     vgDestroyImage(m_image);
 }
 
-int QSGOpenVGTexture::textureId() const
+qint64 QSGOpenVGTexture::comparisonKey() const
 {
-    return static_cast<int>(m_image);
+    return qint64(static_cast<int>(m_image));
 }
 
 QSize QSGOpenVGTexture::textureSize() const
@@ -113,11 +113,6 @@ bool QSGOpenVGTexture::hasAlphaChannel() const
 bool QSGOpenVGTexture::hasMipmaps() const
 {
     return false;
-}
-
-void QSGOpenVGTexture::bind()
-{
-    // No need to bind
 }
 
 QT_END_NAMESPACE

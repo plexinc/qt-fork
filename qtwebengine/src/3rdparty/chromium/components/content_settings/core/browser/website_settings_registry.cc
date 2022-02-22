@@ -6,9 +6,10 @@
 
 #include <utility>
 
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/memory/ptr_util.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/content_settings/core/common/content_settings.h"
 
 namespace {
@@ -66,13 +67,15 @@ const WebsiteSettingsInfo* WebsiteSettingsRegistry::Register(
 #if defined(OS_WIN)
   if (!(platform & PLATFORM_WINDOWS))
     return nullptr;
-#elif defined(OS_LINUX) && !defined(OS_CHROMEOS)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#elif defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
   if (!(platform & PLATFORM_LINUX))
     return nullptr;
-#elif defined(OS_MACOSX) && !defined(OS_IOS)
+#elif defined(OS_MAC)
   if (!(platform & PLATFORM_MAC))
     return nullptr;
-#elif defined(OS_CHROMEOS)
+#elif BUILDFLAG(IS_CHROMEOS_ASH)
   if (!(platform & PLATFORM_CHROMEOS))
     return nullptr;
 #elif defined(OS_ANDROID)
@@ -180,13 +183,6 @@ void WebsiteSettingsRegistry::Init() {
            WebsiteSettingsInfo::SINGLE_ORIGIN_WITH_EMBEDDED_EXCEPTIONS_SCOPE,
            DESKTOP | PLATFORM_ANDROID,
            WebsiteSettingsInfo::DONT_INHERIT_IN_INCOGNITO);
-  // To counteract the reduced usability of the Flash permission when it becomes
-  // ephemeral, we sync the bit indicating that the Flash permission should be
-  // displayed in the page info.
-  Register(ContentSettingsType::PLUGINS_DATA, "flash-data", nullptr,
-           WebsiteSettingsInfo::SYNCABLE, WebsiteSettingsInfo::NOT_LOSSY,
-           WebsiteSettingsInfo::SINGLE_ORIGIN_WITH_EMBEDDED_EXCEPTIONS_SCOPE,
-           DESKTOP, WebsiteSettingsInfo::INHERIT_IN_INCOGNITO);
   // Set to keep track of dismissals without user's interaction for intent
   // picker UI.
   Register(ContentSettingsType::INTENT_PICKER_DISPLAY,
@@ -217,9 +213,20 @@ void WebsiteSettingsRegistry::Init() {
            WebsiteSettingsInfo::DONT_INHERIT_IN_INCOGNITO);
   Register(ContentSettingsType::SAFE_BROWSING_URL_CHECK_DATA,
            "safe-browsing-url-check-data", nullptr,
-           WebsiteSettingsInfo::UNSYNCABLE, WebsiteSettingsInfo::NOT_LOSSY,
+           WebsiteSettingsInfo::UNSYNCABLE, WebsiteSettingsInfo::LOSSY,
            WebsiteSettingsInfo::SINGLE_ORIGIN_ONLY_SCOPE, ALL_PLATFORMS,
-           WebsiteSettingsInfo::INHERIT_IN_INCOGNITO);
+           WebsiteSettingsInfo::DONT_INHERIT_IN_INCOGNITO);
+  Register(ContentSettingsType::PERMISSION_AUTOREVOCATION_DATA,
+           "permission-autorevocation-data", nullptr,
+           WebsiteSettingsInfo::UNSYNCABLE, WebsiteSettingsInfo::NOT_LOSSY,
+           WebsiteSettingsInfo::SINGLE_ORIGIN_ONLY_SCOPE,
+           DESKTOP | PLATFORM_ANDROID,
+           WebsiteSettingsInfo::DONT_INHERIT_IN_INCOGNITO);
+  Register(ContentSettingsType::FILE_SYSTEM_LAST_PICKED_DIRECTORY,
+           "file-system-last-picked-directory", nullptr,
+           WebsiteSettingsInfo::UNSYNCABLE, WebsiteSettingsInfo::NOT_LOSSY,
+           WebsiteSettingsInfo::SINGLE_ORIGIN_ONLY_SCOPE, DESKTOP,
+           WebsiteSettingsInfo::DONT_INHERIT_IN_INCOGNITO);
 }
 
 }  // namespace content_settings

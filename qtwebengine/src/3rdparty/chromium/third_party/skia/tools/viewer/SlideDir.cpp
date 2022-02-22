@@ -10,6 +10,7 @@
 #include "include/core/SkCanvas.h"
 #include "include/core/SkCubicMap.h"
 #include "include/core/SkTypeface.h"
+#include "include/private/SkTPin.h"
 #include "modules/sksg/include/SkSGDraw.h"
 #include "modules/sksg/include/SkSGGroup.h"
 #include "modules/sksg/include/SkSGPaint.h"
@@ -26,7 +27,6 @@
 
 class SlideDir::Animator : public SkRefCnt {
 public:
-    virtual ~Animator() = default;
     Animator(const Animator&) = delete;
     Animator& operator=(const Animator&) = delete;
 
@@ -108,9 +108,8 @@ private:
 
 SkMatrix SlideMatrix(const sk_sp<Slide>& slide, const SkRect& dst) {
     const auto slideSize = slide->getDimensions();
-    return SkMatrix::MakeRectToRect(SkRect::MakeIWH(slideSize.width(), slideSize.height()),
-                                    dst,
-                                    SkMatrix::kCenter_ScaleToFit);
+    return SkMatrix::RectToRect(SkRect::MakeIWH(slideSize.width(), slideSize.height()), dst,
+                                SkMatrix::kCenter_ScaleToFit);
 }
 
 } // namespace
@@ -180,9 +179,8 @@ public:
         }
 
         // Map coords to slide space.
-        const auto xform = SkMatrix::MakeRectToRect(fRect,
-                                                    SkRect::MakeSize(fDir->fWinSize),
-                                                    SkMatrix::kCenter_ScaleToFit);
+        const auto xform = SkMatrix::RectToRect(fRect, SkRect::MakeSize(fDir->fWinSize),
+                                                SkMatrix::kCenter_ScaleToFit);
         const auto pt = xform.mapXY(x, y);
 
         return fTarget->fSlide->onMouse(pt.x(), pt.y(), state, modifiers);
@@ -195,7 +193,7 @@ public:
     }
 
 protected:
-    void onTick(float t) {
+    void onTick(float t) override {
         if (!this->isAnimating())
             return;
 
@@ -396,7 +394,7 @@ bool SlideDir::onChar(SkUnichar c) {
 bool SlideDir::onMouse(SkScalar x, SkScalar y, skui::InputState state,
                        skui::ModifierKey modifiers) {
     modifiers &= ~skui::ModifierKey::kFirstPress;
-    if (state == skui::InputState::kMove || skstd::Any(modifiers))
+    if (state == skui::InputState::kMove || sknonstd::Any(modifiers))
         return false;
 
     if (fFocusController->hasFocus()) {

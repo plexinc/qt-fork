@@ -17,19 +17,18 @@ class WorkerGlobalScope;
 class CORE_EXPORT InstalledServiceWorkerModuleScriptFetcher final
     : public GarbageCollected<InstalledServiceWorkerModuleScriptFetcher>,
       public ModuleScriptFetcher {
-  USING_GARBAGE_COLLECTED_MIXIN(InstalledServiceWorkerModuleScriptFetcher);
-
  public:
   InstalledServiceWorkerModuleScriptFetcher(WorkerGlobalScope*,
-                                            util::PassKey<ModuleScriptLoader>);
+                                            base::PassKey<ModuleScriptLoader>);
 
   // Implements ModuleScriptFetcher.
   void Fetch(FetchParameters&,
+             ModuleType,
              ResourceFetcher*,
              ModuleGraphLevel,
              ModuleScriptFetcher::Client*) override;
 
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
  private:
   String DebugName() const override {
@@ -37,6 +36,7 @@ class CORE_EXPORT InstalledServiceWorkerModuleScriptFetcher final
   }
 
   const Member<WorkerGlobalScope> global_scope_;
+  ModuleType expected_module_type_;
 };
 
 }  // namespace blink

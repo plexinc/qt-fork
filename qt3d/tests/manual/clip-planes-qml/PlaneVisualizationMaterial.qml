@@ -62,14 +62,8 @@ Material {
 
     ShaderProgram {
         id: gl3PhongAlphaShader
-        vertexShaderCode: loadSource("qrc:/shaders/gl3/phong.vert")
-        fragmentShaderCode: loadSource("qrc:/shaders/gl3/phongalpha.frag")
-    }
-
-    ShaderProgram {
-        id: gl2es2PhongAlphaShader
-        vertexShaderCode: loadSource("qrc:/shaders/es2/phong.vert")
-        fragmentShaderCode: loadSource("qrc:/shaders/es2/phongalpha.frag")
+        vertexShaderCode: loadSource("qrc:/default.vert")
+        fragmentShaderCode: loadSource("qrc:/phongalpha.frag")
     }
 
     effect: Effect {
@@ -95,28 +89,6 @@ Material {
                 }
                 renderPasses: RenderPass {
                     shaderProgram: gl3PhongAlphaShader
-                    renderStates: [
-                        NoDepthMask { },
-                        BlendEquationArguments {
-                            sourceRgb: BlendEquationArguments.SourceAlpha
-                            destinationRgb: BlendEquationArguments.OneMinusSourceAlpha
-                        },
-                        BlendEquation {blendFunction: BlendEquation.Add}
-                    ]
-                    filterKeys: FilterKey { name: "pass"; value: "material" }
-                }
-            },
-
-            // GL 2 Technique
-            Technique {
-                graphicsApiFilter {
-                    api: GraphicsApiFilter.OpenGL
-                    profile: GraphicsApiFilter.NoProfile
-                    majorVersion: 2
-                    minorVersion: 0
-                }
-                renderPasses: RenderPass {
-                    shaderProgram: gl2es2PhongAlphaShader
                     renderStates: [
                         NoDepthMask { },
                         BlendEquationArguments {

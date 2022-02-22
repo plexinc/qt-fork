@@ -49,6 +49,7 @@
 ****************************************************************************/
 
 #include "ftpcontrolchannel.h"
+#include <QCoreApplication>
 
 FtpControlChannel::FtpControlChannel(QObject *parent) : QObject(parent)
 {
@@ -59,6 +60,8 @@ FtpControlChannel::FtpControlChannel(QObject *parent) : QObject(parent)
     connect(&m_socket, &QAbstractSocket::connected, this, [this]() {
         emit opened(m_socket.localAddress(), m_socket.localPort());
     });
+    connect(&m_socket, &QAbstractSocket::errorOccurred,
+            this, &FtpControlChannel::error);
 }
 
 void FtpControlChannel::connectToServer(const QString &server)
@@ -85,12 +88,21 @@ void FtpControlChannel::onReadyRead()
         int space = received.indexOf(' ');
         if (space != -1) {
             int code = received.mid(0, space).toInt();
-            if (code == 0)
+            if (code == 0) {
+                qDebug() << "Info received: " << received.mid(space + 1);
                 emit info(received.mid(space + 1));
-            else
+            } else {
+                qDebug() << "Reply received: " << received.mid(space + 1);
                 emit reply(code, received.mid(space + 1));
+            }
         } else {
             emit invalidReply(received);
         }
     }
+}
+
+void FtpControlChannel::error(QAbstractSocket::SocketError error)
+{
+    qWarning() << "Socket error:" << error;
+    QCoreApplication::exit();
 }

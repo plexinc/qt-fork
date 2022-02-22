@@ -8,6 +8,7 @@
 #include "base/run_loop.h"
 #include "chrome/browser/extensions/api/identity/identity_api.h"
 #include "chrome/browser/extensions/extension_apitest.h"
+#include "content/public/test/browser_test.h"
 #include "extensions/browser/api_test_utils.h"
 
 namespace extensions {
@@ -49,9 +50,7 @@ class IdentityPrivateApiTest : public ExtensionBrowserTest {
   std::string consent_result_;
   std::string window_id_;
   std::unique_ptr<base::RunLoop> callback_loop_;
-  std::unique_ptr<base::CallbackList<
-      IdentityAPI::OnSetConsentResultSignature>::Subscription>
-      callback_subscription_;
+  base::CallbackListSubscription callback_subscription_;
 };
 
 IN_PROC_BROWSER_TEST_F(IdentityPrivateApiTest, SetConsentResult) {

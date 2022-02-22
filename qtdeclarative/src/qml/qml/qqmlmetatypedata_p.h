@@ -54,10 +54,10 @@
 #include <private/qqmltype_p.h>
 #include <private/qqmlmetatype_p.h>
 #include <private/qhashedstring_p.h>
+#include <private/qqmlvaluetype_p.h>
 
 #include <QtCore/qset.h>
 #include <QtCore/qvector.h>
-#include <QtCore/qbitarray.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -71,8 +71,10 @@ struct QQmlMetaTypeData
     QSet<QQmlType> undeletableTypes;
     typedef QHash<int, QQmlTypePrivate *> Ids;
     Ids idToType;
-    typedef QMultiHash<QHashedStringRef, QQmlTypePrivate *> Names;
+
+    using Names = QMultiHash<QHashedString, QQmlTypePrivate *>;
     Names nameToType;
+
     typedef QHash<QUrl, QQmlTypePrivate *> Files; //For file imported composite types only
     Files urlToType;
     Files urlToNonFileImportType; // For non-file imported composite and composite
@@ -81,45 +83,60 @@ struct QQmlMetaTypeData
             // a module via QQmlPrivate::RegisterCompositeType
     typedef QMultiHash<const QMetaObject *, QQmlTypePrivate *> MetaObjects;
     MetaObjects metaObjectToType;
-    typedef QHash<int, QQmlMetaType::StringConverter> StringConverters;
-    StringConverters stringConverters;
-    QVector<QHash<int, QQmlRefPointer<QQmlPropertyCache>>> typePropertyCaches;
+    QVector<QHash<QTypeRevision, QQmlRefPointer<QQmlPropertyCache>>> typePropertyCaches;
+    QHash<int, QQmlValueType *> metaTypeToValueType;
 
     struct VersionedUri {
-        VersionedUri()
-            : majorVersion(0) {}
-        VersionedUri(const QHashedString &uri, int majorVersion)
-            : uri(uri), majorVersion(majorVersion) {}
-        bool operator==(const VersionedUri &other) const {
-            return other.majorVersion == majorVersion && other.uri == uri;
+        VersionedUri() = default;
+        VersionedUri(const QString &uri, QTypeRevision version)
+            : uri(uri), majorVersion(version.majorVersion()) {}
+        VersionedUri(const std::unique_ptr<QQmlTypeModule> &module);
+
+        friend bool operator==(const VersionedUri &a, const VersionedUri &b)
+        {
+            return a.majorVersion == b.majorVersion && a.uri == b.uri;
         }
-        QHashedString uri;
-        int majorVersion;
+
+        friend size_t qHash(const VersionedUri &v, size_t seed = 0)
+        {
+            return qHashMulti(seed, v.uri, v.majorVersion);
+        }
+
+        friend bool operator<(const QQmlMetaTypeData::VersionedUri &a,
+                              const QQmlMetaTypeData::VersionedUri &b)
+        {
+            const int diff = a.uri.compare(b.uri);
+            return diff < 0 || (diff == 0 && a.majorVersion < b.majorVersion);
+        }
+
+        QString uri;
+        quint8 majorVersion = 0;
     };
 
-    typedef QHash<VersionedUri, QQmlTypeModule *> TypeModules;
+    typedef std::vector<std::unique_ptr<QQmlTypeModule>> TypeModules;
     TypeModules uriToModule;
+    QQmlTypeModule *findTypeModule(const QString &module, QTypeRevision version);
+    QQmlTypeModule *addTypeModule(std::unique_ptr<QQmlTypeModule> module);
 
-    QHash<VersionedUri, void (*)()> moduleTypeRegistrationFunctions;
-    bool registerModuleTypes(const VersionedUri &versionedUri);
+    using ModuleImports = QMultiMap<VersionedUri, QQmlDirParser::Import>;
+    ModuleImports moduleImports;
 
-    QBitArray objects;
-    QBitArray interfaces;
-    QBitArray lists;
+    QHash<QString, void (*)()> moduleTypeRegistrationFunctions;
+    bool registerModuleTypes(const QString &uri);
+
+    QSet<int> interfaces;
 
     QList<QQmlPrivate::AutoParentFunction> parentFunctions;
     QVector<QQmlPrivate::QmlUnitCacheLookupFunction> lookupCachedQmlUnit;
 
-    QHash<int, int> qmlLists;
-
     QHash<const QMetaObject *, QQmlPropertyCache *> propertyCaches;
 
-    QQmlPropertyCache *propertyCacheForMinorVersion(int index, int minorVersion) const;
-    void setPropertyCacheForMinorVersion(int index, int minorVersion, QQmlPropertyCache *cache);
-    void clearPropertyCachesForMinorVersion(int index);
+    QQmlPropertyCache *propertyCacheForVersion(int index, QTypeRevision version) const;
+    void setPropertyCacheForVersion(int index, QTypeRevision version, QQmlPropertyCache *cache);
+    void clearPropertyCachesForVersion(int index);
 
-    QQmlRefPointer<QQmlPropertyCache> propertyCache(const QMetaObject *metaObject, int minorVersion);
-    QQmlPropertyCache *propertyCache(const QQmlType &type, int minorVersion);
+    QQmlRefPointer<QQmlPropertyCache> propertyCache(const QMetaObject *metaObject, QTypeRevision version);
+    QQmlPropertyCache *propertyCache(const QQmlType &type, QTypeRevision version);
 
     void setTypeRegistrationFailures(QStringList *failures)
     {
@@ -137,11 +154,6 @@ struct QQmlMetaTypeData
 private:
     QStringList *m_typeRegistrationFailures = nullptr;
 };
-
-inline uint qHash(const QQmlMetaTypeData::VersionedUri &v)
-{
-    return v.uri.hash() ^ qHash(v.majorVersion);
-}
 
 QT_END_NAMESPACE
 

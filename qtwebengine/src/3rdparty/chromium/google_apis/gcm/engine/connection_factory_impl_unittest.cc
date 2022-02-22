@@ -24,6 +24,7 @@
 #include "services/network/network_context.h"
 #include "services/network/network_service.h"
 #include "services/network/public/mojom/proxy_resolving_socket.mojom.h"
+#include "services/network/test/fake_test_cert_verifier_params_factory.h"
 #include "services/network/test/test_network_connection_tracker.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -149,8 +150,10 @@ class TestConnectionFactoryImpl : public ConnectionFactoryImpl {
   // Dummy GCM Stats recorder.
   FakeGCMStatsRecorder dummy_recorder_;
   // Dummy mojo pipes.
-  mojo::DataPipe receive_pipe_;
-  mojo::DataPipe send_pipe_;
+  mojo::ScopedDataPipeProducerHandle receive_pipe_producer_;
+  mojo::ScopedDataPipeConsumerHandle receive_pipe_consumer_;
+  mojo::ScopedDataPipeProducerHandle send_pipe_producer_;
+  mojo::ScopedDataPipeConsumerHandle send_pipe_consumer_;
 };
 
 TestConnectionFactoryImpl::TestConnectionFactoryImpl(
@@ -174,6 +177,13 @@ TestConnectionFactoryImpl::TestConnectionFactoryImpl(
       fake_handler_(scoped_handler_.get()) {
   // Set a non-null time.
   tick_clock_.Advance(base::TimeDelta::FromMilliseconds(1));
+
+  EXPECT_EQ(mojo::CreateDataPipe(nullptr, receive_pipe_producer_,
+                                 receive_pipe_consumer_),
+            MOJO_RESULT_OK);
+  EXPECT_EQ(
+      mojo::CreateDataPipe(nullptr, send_pipe_producer_, send_pipe_consumer_),
+      MOJO_RESULT_OK);
 }
 
 TestConnectionFactoryImpl::~TestConnectionFactoryImpl() {
@@ -184,9 +194,8 @@ void TestConnectionFactoryImpl::StartConnection() {
   ASSERT_GT(num_expected_attempts_, 0);
   ASSERT_FALSE(GetConnectionHandler()->CanSendMessage());
   std::unique_ptr<mcs_proto::LoginRequest> request(BuildLoginRequest(0, 0, ""));
-  GetConnectionHandler()->Init(*request,
-                               std::move(receive_pipe_.consumer_handle),
-                               std::move(send_pipe_.producer_handle));
+  GetConnectionHandler()->Init(*request, std::move(receive_pipe_consumer_),
+                               std::move(send_pipe_producer_));
   OnConnectDone(connect_result_, net::IPEndPoint(), net::IPEndPoint(),
                 mojo::ScopedDataPipeConsumerHandle(),
                 mojo::ScopedDataPipeProducerHandle());
@@ -292,6 +301,8 @@ class ConnectionFactoryImplTest
     return login_request.client_event();
   }
 
+  base::RunLoop* GetRunLoop() { return run_loop_.get(); }
+
  private:
   void GetProxyResolvingSocketFactory(
       mojo::PendingReceiver<network::mojom::ProxyResolvingSocketFactory>
@@ -329,6 +340,10 @@ ConnectionFactoryImplTest::ConnectionFactoryImplTest()
       network_service_(network::NetworkService::CreateForTesting()) {
   network::mojom::NetworkContextParamsPtr params =
       network::mojom::NetworkContextParams::New();
+  // Use a dummy CertVerifier that always passes cert verification, since
+  // these unittests don't need to test CertVerifier behavior.
+  params->cert_verifier_params =
+      network::FakeTestCertVerifierParamsFactory::GetCertVerifierParams();
   // Use a fixed proxy config, to avoid dependencies on local network
   // configuration.
   params->initial_proxy_config = net::ProxyConfigWithAnnotation::CreateDirect();
@@ -509,7 +524,7 @@ TEST_F(ConnectionFactoryImplTest, CanarySucceedsRetryDuringLogin) {
 
   // Pump the loop, to ensure the pending backoff retry has no effect.
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-      FROM_HERE, base::RunLoop::QuitCurrentWhenIdleClosureDeprecated(),
+      FROM_HERE, GetRunLoop()->QuitWhenIdleClosure(),
       base::TimeDelta::FromMilliseconds(1));
   WaitForConnections();
 }

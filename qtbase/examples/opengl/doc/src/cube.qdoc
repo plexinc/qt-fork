@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -81,7 +81,7 @@
 
     \snippet cube/fshader.glsl 0
 
-    Using \c QGLShaderProgram we can compile, link and bind shader code to
+    Using QOpenGLShaderProgram we can compile, link and bind shader code to
     graphics pipeline. This code uses Qt Resource files to access shader source code.
 
     \snippet cube/mainwidget.cpp 3
@@ -92,9 +92,9 @@
 
     \section1 Loading Textures from Qt Resource Files
 
-    \c QOpenGLWidget interface implements methods for loading textures from QImage to GL
-    texture memory. We still need to use OpenGL provided functions for specifying
-    the GL texture unit and configuring texture filtering options.
+    The \c QOpenGLWidget interface implements methods for loading textures from QImage
+    to OpenGL texture memory. We still need to use OpenGL provided functions for
+    specifying the OpenGL texture unit and configuring texture filtering options.
 
     \snippet cube/mainwidget.cpp 4
 

@@ -17,13 +17,13 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/thread_annotations.h"
+#include "build/build_config.h"
 #include "media/base/buffering_state.h"
 #include "media/base/media_export.h"
 #include "media/base/media_log_events.h"
 #include "media/base/media_log_message_levels.h"
 #include "media/base/media_log_properties.h"
 #include "media/base/media_log_record.h"
-#include "media/base/pipeline_impl.h"
 #include "media/base/pipeline_status.h"
 #include "url/gurl.h"
 
@@ -43,6 +43,15 @@ class MEDIA_EXPORT MediaLog {
  public:
   static const char kEventKey[];
   static const char kStatusText[];
+
+// Maximum limit for the total number of logs kept per renderer. At the time of
+// writing, 512 events of the kind: { "property": value } together consume ~88kb
+// of memory on linux.
+#if defined(OS_ANDROID)
+  static constexpr size_t kLogLimit = 128;
+#else
+  static constexpr size_t kLogLimit = 512;
+#endif
 
   // Constructor is protected, see below.
   virtual ~MediaLog();
@@ -81,6 +90,9 @@ class MEDIA_EXPORT MediaLog {
   // TODO(tmathmeyer) replace with Status when that's ready.
   void NotifyError(PipelineStatus status);
 
+  // Notify a non-ok Status. This method Should _not_ be given an OK status.
+  void NotifyError(Status status);
+
   // Notify the media log that the player is destroyed. Some implementations
   // will want to change event handling based on this.
   void OnWebMediaPlayerDestroyed();
@@ -97,16 +109,17 @@ class MEDIA_EXPORT MediaLog {
   // Getter for |id_|. Used by MojoMediaLogService to construct MediaLogRecords
   // to log into this MediaLog. Also used in trace events to associate each
   // event with a specific media playback.
-  int32_t id() const { return id_; }
+  int32_t id() const { return parent_log_record_->id; }
 
   // Add a record to this log.  Inheritors should override AddLogRecordLocked to
   // do something. This needs to be public for MojoMediaLogService to use it.
   void AddLogRecord(std::unique_ptr<MediaLogRecord> event);
 
   // Provide a MediaLog which can have a separate lifetime from this one, but
-  // still write to the same log.  It is not guaranteed that this will log
-  // forever; it might start silently discarding log messages if the original
-  // log is closed by whoever owns it.
+  // still write to the same player's log.  It is not guaranteed that this will
+  // log forever; it might start silently discarding log messages if the
+  // original log is closed by whoever owns it.  However, it's safe to use it
+  // even if this occurs, in the "won't crash" sense.
   virtual std::unique_ptr<MediaLog> Clone();
 
  protected:
@@ -147,7 +160,10 @@ class MEDIA_EXPORT MediaLog {
   void InvalidateLog();
 
   struct ParentLogRecord : base::RefCountedThreadSafe<ParentLogRecord> {
-    ParentLogRecord(MediaLog* log);
+    explicit ParentLogRecord(MediaLog* log);
+
+    // A unique (to this process) id for this MediaLog.
+    int32_t id;
 
     // |lock_| protects the rest of this structure.
     base::Lock lock;
@@ -162,33 +178,21 @@ class MEDIA_EXPORT MediaLog {
     DISALLOW_COPY_AND_ASSIGN(ParentLogRecord);
   };
 
-  // Use |parent_log_record| instead of making a new one.
-  MediaLog(scoped_refptr<ParentLogRecord> parent_log_record);
-
  private:
   // Allows MediaLogTest to construct MediaLog directly for testing.
   friend class MediaLogTest;
   FRIEND_TEST_ALL_PREFIXES(MediaLogTest, EventsAreForwarded);
   FRIEND_TEST_ALL_PREFIXES(MediaLogTest, EventsAreNotForwardedAfterInvalidate);
 
+  // Use |parent_log_record| instead of making a new one.
+  explicit MediaLog(scoped_refptr<ParentLogRecord> parent_log_record);
+
   // Helper methods to create events and their parameters.
   std::unique_ptr<MediaLogRecord> CreateRecord(MediaLogRecord::Type type);
-
-  enum : size_t {
-    // Max length of URLs in Created/Load events. Exceeding triggers truncation.
-    kMaxUrlLength = 1000,
-  };
-
-  // URLs (for Created and Load events) may be of arbitrary length from the
-  // untrusted renderer. This method truncates to |kMaxUrlLength| before storing
-  // the event, and sets the last 3 characters to an ellipsis.
-  static std::string TruncateUrlString(std::string log_string);
 
   // The underlying media log.
   scoped_refptr<ParentLogRecord> parent_log_record_;
 
-  // A unique (to this process) id for this MediaLog.
-  int32_t id_;
   DISALLOW_COPY_AND_ASSIGN(MediaLog);
 };
 

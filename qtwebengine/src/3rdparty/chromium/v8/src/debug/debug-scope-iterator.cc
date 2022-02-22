@@ -10,8 +10,6 @@
 #include "src/execution/frames-inl.h"
 #include "src/execution/isolate.h"
 #include "src/objects/js-generator-inl.h"
-#include "src/wasm/wasm-debug.h"
-#include "src/wasm/wasm-objects-inl.h"
 
 namespace v8 {
 
@@ -128,108 +126,5 @@ bool DebugScopeIterator::SetVariableValue(v8::Local<v8::String> name,
                                     Utils::OpenHandle(*value));
 }
 
-DebugWasmScopeIterator::DebugWasmScopeIterator(Isolate* isolate,
-                                               StandardFrame* frame,
-                                               int inlined_frame_index)
-    : isolate_(isolate),
-      frame_(frame),
-      inlined_frame_index_(inlined_frame_index),
-      type_(debug::ScopeIterator::ScopeTypeGlobal) {}
-
-bool DebugWasmScopeIterator::Done() {
-  return type_ == debug::ScopeIterator::ScopeTypeWith;
-}
-
-void DebugWasmScopeIterator::Advance() {
-  DCHECK(!Done());
-  switch (type_) {
-    case ScopeTypeGlobal:
-      type_ = debug::ScopeIterator::ScopeTypeLocal;
-      break;
-    case ScopeTypeLocal:
-      type_ = debug::ScopeIterator::ScopeTypeWasmExpressionStack;
-      break;
-    case ScopeTypeWasmExpressionStack:
-      // We use ScopeTypeWith type as marker for done.
-      type_ = debug::ScopeIterator::ScopeTypeWith;
-      break;
-    default:
-      UNREACHABLE();
-  }
-}
-
-v8::debug::ScopeIterator::ScopeType DebugWasmScopeIterator::GetType() {
-  DCHECK(!Done());
-  return type_;
-}
-
-v8::Local<v8::Object> DebugWasmScopeIterator::GetObject() {
-  DCHECK(!Done());
-  switch (type_) {
-    case debug::ScopeIterator::ScopeTypeGlobal: {
-      Handle<WasmInstanceObject> instance =
-          FrameSummary::GetTop(frame_).AsWasm().wasm_instance();
-      return Utils::ToLocal(wasm::GetGlobalScopeObject(instance));
-    }
-    case debug::ScopeIterator::ScopeTypeLocal: {
-      if (frame_->is_wasm_interpreter_entry()) {
-        Handle<WasmDebugInfo> debug_info(
-            WasmInterpreterEntryFrame::cast(frame_)->debug_info(), isolate_);
-        return Utils::ToLocal(WasmDebugInfo::GetLocalScopeObject(
-            debug_info, frame_->fp(), inlined_frame_index_));
-      }
-      // Compiled code.
-      DCHECK(frame_->is_wasm_compiled());
-      wasm::DebugInfo* debug_info =
-          WasmCompiledFrame::cast(frame_)->native_module()->GetDebugInfo();
-      return Utils::ToLocal(debug_info->GetLocalScopeObject(
-          isolate_, frame_->pc(), frame_->fp(), frame_->callee_fp()));
-    }
-    case debug::ScopeIterator::ScopeTypeWasmExpressionStack: {
-      if (frame_->is_wasm_interpreter_entry()) {
-        Handle<WasmDebugInfo> debug_info(
-            WasmInterpreterEntryFrame::cast(frame_)->debug_info(), isolate_);
-        return Utils::ToLocal(WasmDebugInfo::GetStackScopeObject(
-            debug_info, frame_->fp(), inlined_frame_index_));
-      }
-      // Compiled code.
-      DCHECK(frame_->is_wasm_compiled());
-      wasm::DebugInfo* debug_info =
-          WasmCompiledFrame::cast(frame_)->native_module()->GetDebugInfo();
-      return Utils::ToLocal(debug_info->GetStackScopeObject(
-          isolate_, frame_->pc(), frame_->fp(), frame_->callee_fp()));
-    }
-    default:
-      return {};
-  }
-}
-
-int DebugWasmScopeIterator::GetScriptId() {
-  DCHECK(!Done());
-  return -1;
-}
-
-v8::Local<v8::Value> DebugWasmScopeIterator::GetFunctionDebugName() {
-  DCHECK(!Done());
-  return Utils::ToLocal(isolate_->factory()->empty_string());
-}
-
-bool DebugWasmScopeIterator::HasLocationInfo() { return false; }
-
-debug::Location DebugWasmScopeIterator::GetStartLocation() {
-  DCHECK(!Done());
-  return debug::Location();
-}
-
-debug::Location DebugWasmScopeIterator::GetEndLocation() {
-  DCHECK(!Done());
-  return debug::Location();
-}
-
-bool DebugWasmScopeIterator::SetVariableValue(v8::Local<v8::String> name,
-                                              v8::Local<v8::Value> value) {
-  DCHECK(!Done());
-  return false;
-}
 }  // namespace internal
 }  // namespace v8

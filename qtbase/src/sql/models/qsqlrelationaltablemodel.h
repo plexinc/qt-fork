@@ -76,7 +76,7 @@ public:
 private:
     QString tName, iColumn, dColumn;
 };
-Q_DECLARE_SHARED_NOT_MOVABLE_UNTIL_QT6(QSqlRelation)
+Q_DECLARE_SHARED(QSqlRelation)
 
 class QSqlRelationalTableModelPrivate;
 
@@ -91,7 +91,7 @@ public:
     };
 
     explicit QSqlRelationalTableModel(QObject *parent = nullptr,
-                                      QSqlDatabase db = QSqlDatabase());
+                                      const QSqlDatabase &db = QSqlDatabase());
     virtual ~QSqlRelationalTableModel();
 
     QVariant data(const QModelIndex &item, int role = Qt::DisplayRole) const override;

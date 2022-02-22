@@ -316,9 +316,9 @@ message ChallengeResponse {
 message KeyInfo {
   // Indicates whether the key is an EMK or EUK.
   optional KeyProfile key_type = 1;
-  // Domain information about the device or user associated with the key. For an
-  // EMK, this value is the enrolled domain. For an EUK, this value is the
-  // user's email address.
+  // Domain information about the user associated with the key. For an
+  // EMK, this value is empty - customer_id is used instead.
+  // For an EUK, this value is the user's email address.
   optional string domain = 2;
   // The virtual device ID associated with the device or user.
   optional bytes device_id = 3;
@@ -328,6 +328,9 @@ message KeyInfo {
   // with a random challenge.  The SignedPublicKeyAndChallenge specification is
   // here: https://developer.mozilla.org/en-US/docs/HTML/Element/keygen.
   optional bytes signed_public_key_and_challenge = 5;
+  // The identifier of the customer, as defined by the Google Admin SDK at
+  // https://developers.google.com/admin-sdk/directory/v1/guides/manage-customers
+  optional string customer_id = 6;
 }
 
 enum KeyProfile {

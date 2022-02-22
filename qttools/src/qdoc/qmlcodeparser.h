@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2019 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -26,10 +26,6 @@
 **
 ****************************************************************************/
 
-/*
-  qmlcodeparser.h
-*/
-
 #ifndef QMLCODEPARSER_H
 #define QMLCODEPARSER_H
 
@@ -50,11 +46,9 @@ class QString;
 
 class QmlCodeParser : public CodeParser
 {
-    Q_DECLARE_TR_FUNCTIONS(QDoc::QmlCodeParser)
-
 public:
     QmlCodeParser();
-    ~QmlCodeParser() override;
+    ~QmlCodeParser() override = default;
 
     void initializeParser() override;
     void terminateParser() override;
@@ -72,9 +66,9 @@ protected:
 
 private:
 #ifndef QT_NO_DECLARATIVE
-    QQmlJS::Engine engine;
-    QQmlJS::Lexer *lexer;
-    QQmlJS::Parser *parser;
+    QQmlJS::Engine m_engine {};
+    QQmlJS::Lexer *m_lexer { nullptr };
+    QQmlJS::Parser *m_parser { nullptr };
 #endif
 };
 

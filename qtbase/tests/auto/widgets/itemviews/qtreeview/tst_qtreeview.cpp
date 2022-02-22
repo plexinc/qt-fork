@@ -28,7 +28,6 @@
 
 #include "../../../../shared/fakedirmodel.h"
 
-#include <QDesktopWidget>
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
@@ -89,6 +88,14 @@ public:
         QTreeView::paintEvent(event);
         wasPainted = true;
     }
+    void dataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight,
+                     const QList<int> &roles = QList<int>()) override
+    {
+        QTreeView::dataChanged(topLeft, bottomRight, roles);
+        QTreeViewPrivate *av = static_cast<QTreeViewPrivate*>(qt_widget_private(this));
+        m_intersectecRect = av->intersectedRect(av->viewport->rect(), topLeft, bottomRight);
+    }
+    mutable QRect m_intersectecRect;
     bool wasPainted = false;
 public slots:
     void handleSelectionChanged()
@@ -208,6 +215,8 @@ private slots:
     void statusTip_data();
     void statusTip();
     void fetchMoreOnScroll();
+    void checkIntersectedRect_data();
+    void checkIntersectedRect();
 
     // task-specific tests:
     void task174627_moveLeftToRoot();
@@ -241,8 +250,10 @@ private slots:
     void taskQTBUG_7232_AllowUserToControlSingleStep();
     void taskQTBUG_8376();
     void taskQTBUG_61476();
+    void taskQTBUG_42469_crash();
     void testInitialFocus();
     void fetchUntilScreenFull();
+    void expandAfterTake();
 };
 
 class QtTestModel: public QAbstractItemModel
@@ -885,9 +896,6 @@ void tst_QTreeView::horizontalScrollMode()
 
     QCOMPARE(view.horizontalScrollMode(), QAbstractItemView::ScrollPerPixel);
     QCOMPARE(view.horizontalScrollBar()->minimum(), 0);
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("", "setFixedSize does not work on WinRT - QTBUG-68297", Abort);
-#endif
     QVERIFY(view.horizontalScrollBar()->maximum() > 2);
 
     view.setHorizontalScrollMode(QAbstractItemView::ScrollPerItem);
@@ -1064,7 +1072,7 @@ void tst_QTreeView::itemDelegateForColumnOrRow()
 
     QVERIFY(!view.itemDelegateForRow(0));
     QVERIFY(!view.itemDelegateForColumn(0));
-    QCOMPARE(view.itemDelegate(QModelIndex()), defaultDelegate);
+    QCOMPARE(view.itemDelegateForIndex(QModelIndex()), defaultDelegate);
 
     QStandardItemModel model;
     for (int i = 0; i < 100; ++i) {
@@ -1080,26 +1088,26 @@ void tst_QTreeView::itemDelegateForColumnOrRow()
 
     QVERIFY(!view.itemDelegateForRow(0));
     QVERIFY(!view.itemDelegateForColumn(0));
-    QCOMPARE(view.itemDelegate(QModelIndex()), defaultDelegate);
-    QCOMPARE(view.itemDelegate(view.model()->index(0, 0)), defaultDelegate);
+    QCOMPARE(view.itemDelegateForIndex(QModelIndex()), defaultDelegate);
+    QCOMPARE(view.itemDelegateForIndex(view.model()->index(0, 0)), defaultDelegate);
 
     QPointer<QAbstractItemDelegate> rowDelegate = new QStyledItemDelegate;
     view.setItemDelegateForRow(0, rowDelegate);
     QVERIFY(!rowDelegate->parent());
     QCOMPARE(view.itemDelegateForRow(0), rowDelegate);
-    QCOMPARE(view.itemDelegate(view.model()->index(0, 0)), rowDelegate);
-    QCOMPARE(view.itemDelegate(view.model()->index(0, 1)), rowDelegate);
-    QCOMPARE(view.itemDelegate(view.model()->index(1, 0)), defaultDelegate);
-    QCOMPARE(view.itemDelegate(view.model()->index(1, 1)), defaultDelegate);
+    QCOMPARE(view.itemDelegateForIndex(view.model()->index(0, 0)), rowDelegate);
+    QCOMPARE(view.itemDelegateForIndex(view.model()->index(0, 1)), rowDelegate);
+    QCOMPARE(view.itemDelegateForIndex(view.model()->index(1, 0)), defaultDelegate);
+    QCOMPARE(view.itemDelegateForIndex(view.model()->index(1, 1)), defaultDelegate);
 
     QPointer<QAbstractItemDelegate> columnDelegate = new QStyledItemDelegate;
     view.setItemDelegateForColumn(1, columnDelegate);
     QVERIFY(!columnDelegate->parent());
     QCOMPARE(view.itemDelegateForColumn(1), columnDelegate);
-    QCOMPARE(view.itemDelegate(view.model()->index(0, 0)), rowDelegate);
-    QCOMPARE(view.itemDelegate(view.model()->index(0, 1)), rowDelegate); // row wins
-    QCOMPARE(view.itemDelegate(view.model()->index(1, 0)), defaultDelegate);
-    QCOMPARE(view.itemDelegate(view.model()->index(1, 1)), columnDelegate);
+    QCOMPARE(view.itemDelegateForIndex(view.model()->index(0, 0)), rowDelegate);
+    QCOMPARE(view.itemDelegateForIndex(view.model()->index(0, 1)), rowDelegate); // row wins
+    QCOMPARE(view.itemDelegateForIndex(view.model()->index(1, 0)), defaultDelegate);
+    QCOMPARE(view.itemDelegateForIndex(view.model()->index(1, 1)), columnDelegate);
 
     view.setItemDelegateForRow(0, nullptr);
     QVERIFY(!view.itemDelegateForRow(0));
@@ -1994,7 +2002,7 @@ public:
     { return QSize(200, 50); }
 };
 
-typedef QVector<QPoint> PointList;
+typedef QList<QPoint> PointList;
 
 void tst_QTreeView::setSelection_data()
 {
@@ -2060,10 +2068,6 @@ void tst_QTreeView::setSelection()
     QVERIFY(selectionModel);
 
     const QModelIndexList selectedIndexes = selectionModel->selectedIndexes();
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("(0,-20,20,50),rows", "Fails on WinRT - QTBUG-68297", Abort);
-    QEXPECT_FAIL("(0,-50,20,90),rows", "Fails on WinRT - QTBUG-68297", Abort);
-#endif
     QCOMPARE(selectedIndexes.count(), expectedItems.count());
     for (const QModelIndex &idx : selectedIndexes)
         QVERIFY(expectedItems.contains(QPoint(idx.column(), idx.row())));
@@ -2489,12 +2493,13 @@ void tst_QTreeView::spanningItems()
 
     // size hint
     // every second row is un-spanned
-    QStyleOptionViewItem option = view.viewOptions();
+    QStyleOptionViewItem option;
+    view.initViewItemOption(&option);
     int w = view.header()->sectionSizeHint(0);
     for (int i = 0; i < model.rowCount(QModelIndex()); ++i) {
         if (!view.isFirstColumnSpanned(i, QModelIndex())) {
             QModelIndex index = model.index(i, 0, QModelIndex());
-            w = qMax(w, view.itemDelegate(index)->sizeHint(option, index).width() + view.indentation());
+            w = qMax(w, view.itemDelegateForIndex(index)->sizeHint(option, index).width() + view.indentation());
         }
     }
     QCOMPARE(view.sizeHintForColumn(0), w);
@@ -2906,8 +2911,8 @@ public:
             }
         }
 
-        QVector<Node *> children;
-        QVector<Node *> deadChildren;
+        QList<Node *> children;
+        QList<Node *> deadChildren;
         Node *parent;
         bool isDead = false;
     };
@@ -2931,7 +2936,7 @@ public:
     {
         emit layoutAboutToBeChanged();
         QModelIndexList oldList = persistentIndexList();
-        QVector<QStack<int>> oldListPath;
+        QList<QStack<int>> oldListPath;
         for (int i = 0; i < oldList.count(); ++i) {
             QModelIndex idx = oldList.at(i);
             QStack<int> path;
@@ -4784,7 +4789,7 @@ void tst_QTreeView::statusTip()
         mw.setCentralWidget(view);
     }
     mw.statusBar();
-    mw.setGeometry(QRect(QPoint(QApplication::desktop()->geometry().center() - QPoint(250, 250)),
+    mw.setGeometry(QRect(QPoint(QGuiApplication::primaryScreen()->geometry().center() - QPoint(250, 250)),
                                 QSize(500, 500)));
     mw.show();
     QApplication::setActiveWindow(&mw);
@@ -4849,6 +4854,106 @@ void tst_QTreeView::fetchMoreOnScroll()
     tw.verticalScrollBar()->setValue(tw.verticalScrollBar()->maximum());
     // The item should have now fetched the other children, thus bringing the count to 20
     QCOMPARE(im.item(19)->rowCount(), 20);
+}
+
+void tst_QTreeView::checkIntersectedRect_data()
+{
+    auto createModel = [](int rowCount)
+    {
+        QStandardItemModel *model = new QStandardItemModel;
+        for (int i = 0; i < rowCount; ++i) {
+            const QList<QStandardItem *> sil({new QStandardItem(QString("Row %1 Item").arg(i)),
+                                              new QStandardItem(QString("2nd column"))});
+            model->appendRow(sil);
+        }
+        for (int i = 2; i < 4; ++i) {
+            const QList<QStandardItem *> sil({new QStandardItem(QString("Row %1 Item").arg(i)),
+                                              new QStandardItem(QString("2nd column"))});
+            model->item(i)->appendRow(sil);
+        }
+        return model;
+    };
+    QTest::addColumn<QStandardItemModel *>("model");
+    QTest::addColumn<QList<QModelIndex>>("changedIndexes");
+    QTest::addColumn<bool>("isEmpty");
+    {
+        auto model = createModel(5);
+        QTest::newRow("multiple columns")
+                << model << QList<QModelIndex>({ model->index(0, 0), model->index(0, 1) }) << false;
+    }
+    {
+        auto model = createModel(5);
+        QTest::newRow("multiple rows")
+                << model
+                << QList<QModelIndex>(
+                           { model->index(0, 0), model->index(1, 0), model->index(2, 0) })
+                << false;
+    }
+    {
+        auto model = createModel(5);
+        const QModelIndex idxRow2(model->indexFromItem(model->item(2)));
+        QTest::newRow("child row")
+                << model
+                << QList<QModelIndex>({ model->index(0, 0, idxRow2), model->index(0, 1, idxRow2) })
+                << false;
+        }
+    {
+        auto model = createModel(5);
+        QTest::newRow("hidden row")
+                << model << QList<QModelIndex>({ model->index(3, 0), model->index(3, 1) }) << true;
+    }
+    {
+        auto model = createModel(5);
+        const QModelIndex idxRow3(model->indexFromItem(model->item(3)));
+        QTest::newRow("hidden child row")
+                << model
+                << QList<QModelIndex>({ model->index(0, 0, idxRow3), model->index(0, 1, idxRow3) })
+                << true;
+    }
+    {
+        auto model = createModel(50);
+        QTest::newRow("row outside viewport")
+                << model << QList<QModelIndex>({ model->index(49, 0), model->index(49, 1) })
+                << true;
+    }
+}
+
+void tst_QTreeView::checkIntersectedRect()
+{
+    QFETCH(QStandardItemModel *, model);
+    QFETCH(const QList<QModelIndex>, changedIndexes);
+    QFETCH(bool, isEmpty);
+
+    TreeView view;
+    model->setParent(&view);
+    view.setModel(model);
+    view.resize(400, 400);
+    view.show();
+    view.expandAll();
+    view.setRowHidden(3, QModelIndex(), true);
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+    view.m_intersectecRect = QRect();
+    emit view.model()->dataChanged(changedIndexes.first(), changedIndexes.last());
+    if (isEmpty) {
+        QVERIFY(view.m_intersectecRect.isEmpty());
+    } else if (!changedIndexes.first().isValid()) {
+        QCOMPARE(view.m_intersectecRect, view.viewport()->rect());
+    } else {
+        const auto parent = changedIndexes.first().parent();
+        const int rCount = view.model()->rowCount(parent);
+        const int cCount = view.model()->columnCount(parent);
+        for (int r = 0; r < rCount; ++r) {
+            for (int c = 0; c < cCount; ++c) {
+                const QModelIndex &idx = view.model()->index(r, c, parent);
+                const auto rect = view.visualRect(idx);
+                if (changedIndexes.contains(idx))
+                    QVERIFY(view.m_intersectecRect.contains(rect));
+                else
+                    QVERIFY(!view.m_intersectecRect.contains(rect));
+            }
+        }
+    }
 }
 
 static void fillModeltaskQTBUG_8376(QAbstractItemModel &model)
@@ -4961,9 +5066,32 @@ void tst_QTreeView::taskQTBUG_61476()
     QTest::mousePress(tv.viewport(), Qt::LeftButton, {}, pos);
     if (expandsOnPress)
         QTRY_VERIFY(!tv.isExpanded(mi));
-    QTest::mouseRelease(tv.viewport(), Qt::LeftButton, nullptr, pos);
+    QTest::mouseRelease(tv.viewport(), Qt::LeftButton, {}, pos);
     QTRY_VERIFY(!tv.isExpanded(mi));
     QCOMPARE(lastTopLevel->checkState(), Qt::Checked);
+}
+
+void tst_QTreeView::taskQTBUG_42469_crash()
+{
+    QTreeWidget treeWidget;
+    QTreeWidgetItem *itemOne = new QTreeWidgetItem(QStringList("item1"));
+    QTreeWidgetItem *itemTwo = new QTreeWidgetItem(QStringList("item2"));
+    treeWidget.addTopLevelItem(itemOne);
+    treeWidget.addTopLevelItem(itemTwo);
+    treeWidget.topLevelItem(1)->addChild(new QTreeWidgetItem(QStringList("child1")));
+
+    treeWidget.setAnimated(true);
+    QObject::connect(&treeWidget, &QTreeWidget::itemExpanded, [&](QTreeWidgetItem* p_item) {
+        auto tempCount = treeWidget.topLevelItemCount();
+        for (int j = 0; j < tempCount; ++j)
+            if (treeWidget.topLevelItem(j) != p_item) {
+                auto temp = treeWidget.topLevelItem(j);
+                temp->setHidden(true);
+            }
+    });
+
+    treeWidget.show();
+    itemTwo->setExpanded(true);
 }
 
 void tst_QTreeView::fetchUntilScreenFull()
@@ -5115,6 +5243,39 @@ void tst_QTreeView::fetchUntilScreenFull()
     QVERIFY(expectedItemNumberFetched);
 }
 
+static void populateModel(QStandardItemModel *model)
+{
+    const int depth = 10;
+    for (int i1 = 0; i1 < depth; ++i1) {
+        QStandardItem *s1 = new QStandardItem;
+        s1->setText(QString::number(i1));
+        model->appendRow(s1);
+        for (int i2 = 0; i2 < depth; ++i2) {
+            QStandardItem *s2 = new QStandardItem;
+            s2->setText(QStringLiteral("%1 - %2").arg(i1).arg(i2));
+            s1->appendRow(s2);
+            for (int i3 = 0; i3 < depth; ++i3) {
+                QStandardItem *s3 = new QStandardItem;
+                s3->setText(QStringLiteral("%1 - %2 - %3").arg(i1).arg(i2).arg(i3));
+                s2->appendRow(s3);
+            }
+        }
+    }
+}
 
+void tst_QTreeView::expandAfterTake()
+{
+    QStandardItemModel model;
+    populateModel(&model);
+    QTreeView view;
+    view.setUniformRowHeights(true);
+    view.setModel(&model);
+    view.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
+    view.expandAll();
+    model.takeItem(0);
+    populateModel(&model); // populate model again, having corrupted items inside QTreeViewPrivate::expandedIndexes
+    view.expandAll(); // adding new items to QTreeViewPrivate::expandedIndexes with corrupted persistent indices, causing crash sometimes
+}
 QTEST_MAIN(tst_QTreeView)
 #include "tst_qtreeview.moc"

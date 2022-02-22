@@ -11,9 +11,9 @@
 #include "device/fido/attestation_statement_formats.h"
 #include "device/fido/attested_credential_data.h"
 #include "device/fido/authenticator_data.h"
-#include "device/fido/client_data.h"
-#include "device/fido/ec_public_key.h"
 #include "device/fido/fido_parsing_utils.h"
+#include "device/fido/p256_public_key.h"
+#include "device/fido/public_key.h"
 
 namespace device {
 
@@ -23,8 +23,8 @@ AuthenticatorMakeCredentialResponse::CreateFromU2fRegisterResponse(
     base::Optional<FidoTransportProtocol> transport_used,
     base::span<const uint8_t, kRpIdHashLength> relying_party_id_hash,
     base::span<const uint8_t> u2f_data) {
-  auto public_key = ECPublicKey::ExtractFromU2fRegistrationResponse(
-      fido_parsing_utils::kEs256, u2f_data);
+  auto public_key = P256PublicKey::ExtractFromU2fRegistrationResponse(
+      static_cast<int32_t>(CoseAlgorithmIdentifier::kEs256), u2f_data);
   if (!public_key)
     return base::nullopt;
 
@@ -54,9 +54,11 @@ AuthenticatorMakeCredentialResponse::CreateFromU2fRegisterResponse(
   if (!fido_attestation_statement)
     return base::nullopt;
 
-  return AuthenticatorMakeCredentialResponse(
+  AuthenticatorMakeCredentialResponse response(
       transport_used, AttestationObject(std::move(authenticator_data),
                                         std::move(fido_attestation_statement)));
+  response.is_resident_key = false;
+  return response;
 }
 
 AuthenticatorMakeCredentialResponse::AuthenticatorMakeCredentialResponse(
@@ -69,8 +71,9 @@ AuthenticatorMakeCredentialResponse::AuthenticatorMakeCredentialResponse(
 AuthenticatorMakeCredentialResponse::AuthenticatorMakeCredentialResponse(
     AuthenticatorMakeCredentialResponse&& that) = default;
 
-AuthenticatorMakeCredentialResponse& AuthenticatorMakeCredentialResponse::
-operator=(AuthenticatorMakeCredentialResponse&& other) = default;
+AuthenticatorMakeCredentialResponse&
+AuthenticatorMakeCredentialResponse::operator=(
+    AuthenticatorMakeCredentialResponse&& other) = default;
 
 AuthenticatorMakeCredentialResponse::~AuthenticatorMakeCredentialResponse() =
     default;
@@ -101,16 +104,23 @@ AuthenticatorMakeCredentialResponse::GetRpIdHash() const {
   return attestation_object_.rp_id_hash();
 }
 
+void AuthenticatorMakeCredentialResponse::set_large_blob_key(
+    const base::span<const uint8_t, kLargeBlobKeyLength> large_blob_key) {
+  large_blob_key_ = fido_parsing_utils::Materialize(large_blob_key);
+}
+
 std::vector<uint8_t> AsCTAPStyleCBORBytes(
     const AuthenticatorMakeCredentialResponse& response) {
   const AttestationObject& object = response.attestation_object();
   cbor::Value::MapValue map;
-  map.emplace(1, cbor::Value(object.attestation_statement().format_name()));
-  map.emplace(2, cbor::Value(object.authenticator_data().SerializeToByteArray()));
+  map.emplace(1, object.attestation_statement().format_name());
+  map.emplace(2, object.authenticator_data().SerializeToByteArray());
   map.emplace(3, AsCBOR(object.attestation_statement()));
-  if (response.android_client_data_ext()) {
-    map.emplace(kAndroidClientDataExtOutputKey,
-                cbor::Value(*response.android_client_data_ext()));
+  if (response.enterprise_attestation_returned) {
+    map.emplace(4, true);
+  }
+  if (response.large_blob_key()) {
+    map.emplace(5, cbor::Value(*response.large_blob_key()));
   }
   auto encoded_bytes = cbor::Writer::Write(cbor::Value(std::move(map)));
   DCHECK(encoded_bytes);

@@ -51,7 +51,9 @@
 
 #include <QtGui/qtguiglobal.h>
 #include <QtCore/QScopedPointer>
-#include <QtGui/QKeySequence>
+#if QT_CONFIG(shortcut)
+#  include <QtGui/QKeySequence>
+#endif
 
 QT_BEGIN_NAMESPACE
 
@@ -104,12 +106,7 @@ public:
         KeyboardScheme,
         UiEffects,
         SpellCheckUnderlineStyle,
-#if QT_VERSION >= QT_VERSION_CHECK(6,0,0)
         TabFocusBehavior,
-#else
-        TabAllWidgets,
-        TabFocusBehavior = TabAllWidgets,
-#endif
         IconPixmapSizes,
         PasswordMaskCharacter,
         DialogSnapToDefaultButton,
@@ -120,7 +117,8 @@ public:
         TouchDoubleTapDistance,
         ShowShortcutsInContextMenus,
         IconFallbackSearchPaths,
-        MouseQuickSelectionThreshold
+        MouseQuickSelectionThreshold,
+        InteractiveResizeAcrossScreens,
     };
 
     enum DialogType {
@@ -128,6 +126,12 @@ public:
         ColorDialog,
         FontDialog,
         MessageDialog
+    };
+
+    enum class Appearance {
+        Unknown = 0x0000,
+        Light = 0x0001,
+        Dark = 0x0002
     };
 
     enum Palette {
@@ -301,6 +305,8 @@ public:
     virtual QPlatformSystemTrayIcon *createPlatformSystemTrayIcon() const;
 #endif
 
+    virtual Appearance appearance() const;
+
     virtual const QPalette *palette(Palette type = SystemPalette) const;
 
     virtual const QFont *font(Font type = SystemFont) const;
@@ -312,12 +318,14 @@ public:
                            QPlatformTheme::IconOptions iconOptions = { }) const;
     virtual QIconEngine *createIconEngine(const QString &iconName) const;
 
-#ifndef QT_NO_SHORTCUT
+#if QT_CONFIG(shortcut)
     virtual QList<QKeySequence> keyBindings(QKeySequence::StandardKey key) const;
 #endif
 
     virtual QString standardButtonText(int button) const;
+#if QT_CONFIG(shortcut)
     virtual QKeySequence standardButtonShortcut(int button) const;
+#endif
 
     static QVariant defaultThemeHint(ThemeHint hint);
     static QString defaultStandardButtonText(int button);

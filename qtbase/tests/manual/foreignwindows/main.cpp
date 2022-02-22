@@ -26,9 +26,8 @@
 **
 ****************************************************************************/
 
-#include <QtWidgets/QAction>
+#include <QtGui/QAction>
 #include <QtWidgets/QApplication>
-#include <QtWidgets/QDesktopWidget>
 #include <QtWidgets/QMainWindow>
 #include <QtWidgets/QMenu>
 #include <QtWidgets/QMenuBar>
@@ -60,8 +59,8 @@
 QT_USE_NAMESPACE
 
 using WidgetPtr = QSharedPointer<QWidget>;
-using WidgetPtrList = QVector<WidgetPtr>;
-using WIdList = QVector<WId>;
+using WidgetPtrList = QList<WidgetPtr>;
+using WIdList = QList<WId>;
 
 // Create some pre-defined Windows controls by class name
 static WId createInternalWindow(const QString &name)
@@ -83,7 +82,7 @@ static WId createInternalWindow(const QString &name)
         }
     }
 #else // Q_OS_WIN
-    Q_UNUSED(name)
+    Q_UNUSED(name);
 #endif
     return result;
 }
@@ -143,7 +142,7 @@ EmbeddingWindow::EmbeddingWindow(QWindow *window) : m_window(window)
     fileMenu->addSeparator();
     action = fileMenu->addAction("Quit", qApp, &QCoreApplication::quit);
     toolbar->addAction(action);
-    action->setShortcut(Qt::CTRL + Qt::Key_Q);
+    action->setShortcut(Qt::CTRL | Qt::Key_Q);
 }
 
 void EmbeddingWindow::releaseForeignWindow()
@@ -227,9 +226,6 @@ static inline bool isOptionSet(int argc, char *argv[], const char *option)
 
 int main(int argc, char *argv[])
 {
-    // Check for no scaling before QApplication is instantiated.
-    if (isOptionSet(argc, argv, "-s"))
-        QCoreApplication::setAttribute(Qt::AA_DisableHighDpiScaling);
     QCoreApplication::setApplicationVersion(QLatin1String(QT_VERSION_STR));
     QGuiApplication::setApplicationDisplayName("Foreign window tester");
 

@@ -1033,7 +1033,7 @@
 
            The slider can be styled using the \l{#handle-sub}{::handle} subcontrol.
            Setting the \l{#min-width-prop}{min-width} or \l{#min-height-prop}{min-height}
-           provides size contraints for the slider depending on the orientation.
+           provides size constraints for the slider depending on the orientation.
 
            The \l{add-line-sub}{::add-line} subcontrol can be used to style the
            button to add a line. By default, the add-line subcontrol is placed in
@@ -1950,7 +1950,7 @@
 
         The only widget currently supporting this property is QPushButton.
 
-        \note It's the application's responsibilty to assign an icon to a
+        \note It's the application's responsibility to assign an icon to a
         button (using the QAbstractButton API), and not the style's. So be
         careful setting it unless your stylesheet is targeting a specific
         application.
@@ -2167,7 +2167,7 @@
            subclasses, QAbstractSpinBox subclasses, QCheckBox,
            QComboBox, QFrame, QGroupBox, QLabel, QLineEdit, QMenu,
            QMenuBar, QPushButton, QRadioButton, QSizeGrip, QSpinBox,
-           QSplitter, QStatusBar, QTextEdit, and QToolTip.
+           QSplitter, QStatusBar, QTextEdit, QToolButton, and QToolTip.
 
            If this property is not specified, the minimum height is
            derived based on the widget's contents and the style.
@@ -2178,6 +2178,9 @@
            Example:
 
            \snippet code/doc_src_stylesheet.qdoc 66
+
+           \note Setting this property might allow widgets to shrink
+           smaller than the space required for the contents.
 
            See also \l{#min-width-prop}{min-width}.
 
@@ -2190,7 +2193,7 @@
            subclasses, QAbstractSpinBox subclasses, QCheckBox,
            QComboBox, QFrame, QGroupBox, QLabel, QLineEdit, QMenu,
            QMenuBar, QPushButton, QRadioButton, QSizeGrip, QSpinBox,
-           QSplitter, QStatusBar, QTextEdit, and QToolTip.
+           QSplitter, QStatusBar, QTextEdit, QToolButton, and QToolTip.
 
            If this property is not specified, the minimum width is
            derived based on the widget's contents and the style.
@@ -2201,6 +2204,9 @@
            Example:
 
            \snippet code/doc_src_stylesheet.qdoc 67
+
+           \note Setting this property might allow widgets to shrink
+           smaller than the space required for the contents.
 
            See also \l{#min-height-prop}{min-height}.
 
@@ -2718,6 +2724,10 @@
         \li QStyle::SP_DirHomeIcon
 
     \row
+        \li lineedit-clear-button-icon
+        \li QStyle::SP_LineEditClearButton
+
+    \row
         \li leftarrow-icon
         \li QStyle::SP_ArrowLeft
 
@@ -3017,8 +3027,9 @@
            \list
            \li \c px: pixels
            \li \c pt: the size of one point (i.e., 1/72 of an inch)
-           \li \c em: the em width of the font (i.e., the width of 'M')
-           \li \c ex: the ex width of the font (i.e., the height of 'x')
+           \li \c em: the size relative to the font size of the element
+                  (e.g., 2em means 2 times the size of the font)
+           \li \c ex: the x-height of the font (i.e., the height of 'x')
            \endlist
 
            However, Qt is limited to font sizes in \c pt and \c px and any other
@@ -3930,8 +3941,10 @@
     \image tabWidget-stylesheet2.png
 
     For a tab widget that looks like above, we make use of
-    \l{http://www.communitymx.com/content/article.cfm?cid=B0029}
-    {negative margins}. The resulting stylesheet looks like this:
+    \l{https://doc.qt.io/qt-5/stylesheet-customizing.html#the-box-model}
+    {negative margins}. Negative values draw the element closer to its
+    neighbors than it would be by default. The resulting stylesheet
+    looks like this:
 
     \snippet code/doc_src_stylesheet.qdoc 146
 

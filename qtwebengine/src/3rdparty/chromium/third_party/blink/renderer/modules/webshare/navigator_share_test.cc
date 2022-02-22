@@ -89,7 +89,8 @@ class NavigatorShareTest : public testing::Test {
   }
 
   void Share(const ShareData& share_data) {
-    LocalFrame::NotifyUserActivation(&GetFrame());
+    LocalFrame::NotifyUserActivation(
+        &GetFrame(), mojom::UserActivationNotificationType::kTest);
     Navigator* navigator = GetFrame().DomWindow()->navigator();
     NonThrowableExceptionState exception_state;
     ScriptPromise promise = NavigatorShare::share(GetScriptState(), *navigator,
@@ -98,7 +99,7 @@ class NavigatorShareTest : public testing::Test {
     EXPECT_EQ(mock_share_service_.error() == mojom::ShareError::OK
                   ? v8::Promise::kFulfilled
                   : v8::Promise::kRejected,
-              promise.V8Value().As<v8::Promise>()->State());
+              promise.V8Promise()->State());
   }
 
   MockShareService& mock_share_service() { return mock_share_service_; }
@@ -106,8 +107,8 @@ class NavigatorShareTest : public testing::Test {
  protected:
   void SetUp() override {
     GetFrame().Loader().CommitNavigation(
-        WebNavigationParams::CreateWithHTMLBuffer(SharedBuffer::Create(),
-                                                  KURL("https://example.com")),
+        WebNavigationParams::CreateWithHTMLBufferForTesting(
+            SharedBuffer::Create(), KURL("https://example.com")),
         nullptr /* extra_data */);
     test::RunPendingTasks();
 

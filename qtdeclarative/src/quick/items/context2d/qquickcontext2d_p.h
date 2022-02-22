@@ -83,7 +83,6 @@ class QQuickContext2DTexture;
 class QQuickPixmap;
 class QSGTexture;
 class QSurface;
-class QOpenGLContext;
 
 class QQuickContext2D : public QQuickCanvasContext
 {
@@ -241,14 +240,13 @@ public:
     void arc(qreal x, qreal y, qreal radius,
              qreal startAngle, qreal endAngle,
              bool anticlockwise);
-    void addArcTo(const QPointF& p1, const QPointF& p2, float radius);
+    void addArcTo(const QPointF& p1, const QPointF& p2, qreal radius);
 
     bool isPointInPath(qreal x, qreal y) const;
 
     QPainterPath createTextGlyphs(qreal x, qreal y, const QString& text);
     QQmlRefPointer<QQuickCanvasPixmap> createPixmap(const QUrl& url);
 
-    QOpenGLContext *glContext() const { return m_glContext; }
     QSurface *surface() const { return m_surface.data(); }
     void setGrabbedImage(const QImage& grab);
 
@@ -262,7 +260,6 @@ public:
     QV4::PersistentValue m_v4path;
     QV4::ExecutionEngine *m_v4engine;
     QScopedPointer<QOffscreenSurface> m_surface;
-    QOpenGLContext *m_glContext;
     QV4::PersistentValue m_v4value;
     QQuickContext2DTexture *m_texture;
     QQuickCanvasItem::RenderTarget m_renderTarget;

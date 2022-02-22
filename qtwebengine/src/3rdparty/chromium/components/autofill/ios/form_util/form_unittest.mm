@@ -2,11 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#import "base/test/ios/wait_util.h"
 #include "components/autofill/ios/form_util/form_activity_tab_helper.h"
 #include "components/autofill/ios/form_util/test_form_activity_observer.h"
 #import "ios/web/public/browser_state.h"
-#import "ios/web/public/test/fakes/test_web_client.h"
-#include "ios/web/public/test/fakes/test_web_state_observer.h"
+#import "ios/web/public/test/fakes/fake_web_client.h"
 #import "ios/web/public/test/js_test_util.h"
 #import "ios/web/public/test/web_js_test.h"
 #import "ios/web/public/test/web_test_with_web_state.h"
@@ -16,7 +16,10 @@
 #error "This file requires ARC support."
 #endif
 
-class FormTestClient : public web::TestWebClient {
+using base::test::ios::WaitUntilConditionOrTimeout;
+using base::test::ios::kWaitForJSCompletionTimeout;
+
+class FormTestClient : public web::FakeWebClient {
  public:
   NSString* GetDocumentStartScriptForAllFrames(
       web::BrowserState* browser_state) const override {
@@ -60,9 +63,9 @@ TEST_F(FormJsTest, KeyUpEventFocused) {
        "var ev = new KeyboardEvent('keyup', {bubbles:true});"
        "e.dispatchEvent(ev);");
   autofill::TestFormActivityObserver* block_observer = observer_.get();
-  WaitForCondition(^bool {
+  ASSERT_TRUE(WaitUntilConditionOrTimeout(kWaitForJSCompletionTimeout, ^{
     return block_observer->form_activity_info() != nullptr;
-  });
+  }));
   autofill::TestFormActivityInfo* info = observer_->form_activity_info();
   ASSERT_TRUE(info);
   EXPECT_EQ("keyup", info->form_activity.type);
@@ -93,9 +96,9 @@ TEST_F(FormJsTest, FocusMainFrame) {
   ASSERT_FALSE(observer_->form_activity_info());
   ExecuteJavaScript(@"document.getElementById('id1').focus();");
   autofill::TestFormActivityObserver* block_observer = observer_.get();
-  WaitForCondition(^bool {
+  ASSERT_TRUE(WaitUntilConditionOrTimeout(kWaitForJSCompletionTimeout, ^{
     return block_observer->form_activity_info() != nullptr;
-  });
+  }));
   autofill::TestFormActivityInfo* info = observer_->form_activity_info();
   ASSERT_TRUE(info);
   EXPECT_EQ("focus", info->form_activity.type);
@@ -131,9 +134,9 @@ TEST_F(FormJsTest, FocusSameOriginIFrame) {
       @"document.getElementById('frame1').contentDocument.getElementById('id1')"
       @".focus()");
   autofill::TestFormActivityObserver* block_observer = observer_.get();
-  WaitForCondition(^bool {
+  ASSERT_TRUE(WaitUntilConditionOrTimeout(kWaitForJSCompletionTimeout, ^{
     return block_observer->form_activity_info() != nullptr;
-  });
+  }));
   autofill::TestFormActivityInfo* info = observer_->form_activity_info();
   ASSERT_TRUE(info);
   EXPECT_EQ("focus", info->form_activity.type);
@@ -161,17 +164,17 @@ TEST_F(FormJsTest, FormSameOriginIFrame) {
 // Tests that a new form triggers form_changed event.
 TEST_F(FormJsTest, AddForm) {
   LoadHtml(@"<body></body>");
-
+  ExecuteJavaScript(@"__gCrWeb.fill.setUpForUniqueIDs(0);");
   ExecuteJavaScript(
       @"__gCrWeb.formHandlers.trackFormMutations(10);"
       @"var form = document.createElement('form');"
       @"document.body.appendChild(form);");
   autofill::TestFormActivityObserver* block_observer = observer_.get();
   __block autofill::TestFormActivityInfo* info = nil;
-  WaitForCondition(^{
+  ASSERT_TRUE(WaitUntilConditionOrTimeout(kWaitForJSCompletionTimeout, ^{
     info = block_observer->form_activity_info();
     return info != nil;
-  });
+  }));
   EXPECT_EQ("form_changed", info->form_activity.type);
   EXPECT_FALSE(info->form_activity.input_missing);
 }
@@ -186,10 +189,10 @@ TEST_F(FormJsTest, AddInput) {
       @"document.getElementById('formId').appendChild(input);");
   autofill::TestFormActivityObserver* block_observer = observer_.get();
   __block autofill::TestFormActivityInfo* info = nil;
-  WaitForCondition(^{
+  ASSERT_TRUE(WaitUntilConditionOrTimeout(kWaitForJSCompletionTimeout, ^{
     info = block_observer->form_activity_info();
     return info != nil;
-  });
+  }));
   EXPECT_EQ("form_changed", info->form_activity.type);
   EXPECT_FALSE(info->form_activity.input_missing);
 }
@@ -204,10 +207,10 @@ TEST_F(FormJsTest, AddSelect) {
       @"document.getElementById('formId').appendChild(select);");
   autofill::TestFormActivityObserver* block_observer = observer_.get();
   __block autofill::TestFormActivityInfo* info = nil;
-  WaitForCondition(^{
+  ASSERT_TRUE(WaitUntilConditionOrTimeout(kWaitForJSCompletionTimeout, ^{
     info = block_observer->form_activity_info();
     return info != nil;
-  });
+  }));
   EXPECT_EQ("form_changed", info->form_activity.type);
   EXPECT_FALSE(info->form_activity.input_missing);
 }
@@ -225,10 +228,32 @@ TEST_F(FormJsTest, AddOption) {
       @"document.getElementById('select1').appendChild(option);");
   autofill::TestFormActivityObserver* block_observer = observer_.get();
   __block autofill::TestFormActivityInfo* info = nil;
-  WaitForCondition(^{
+  ASSERT_TRUE(WaitUntilConditionOrTimeout(kWaitForJSCompletionTimeout, ^{
     info = block_observer->form_activity_info();
     return info != nil;
-  });
+  }));
   EXPECT_EQ("form_changed", info->form_activity.type);
+  EXPECT_FALSE(info->form_activity.input_missing);
+}
+
+// Tests that removing password form triggers 'password_form_removed" event.
+TEST_F(FormJsTest, RemoveForm) {
+  LoadHtml(@"<form id=\"form1\">"
+            "<input type=\"text\" name=\"username\" id=\"id1\">"
+            "<input type=\"password\" name=\"password\" id=\"id2\">"
+            "<input type=\"submit\" id=\"submit_input\"/>"
+            "</form>");
+  ExecuteJavaScript(@"__gCrWeb.fill.setUpForUniqueIDs(0);"
+                    @"__gCrWeb.formHandlers.trackFormMutations(10);"
+                    @"var form1 = document.getElementById('form1');"
+                    @"__gCrWeb.fill.setUniqueIDIfNeeded(form1);"
+                    @"form1.parentNode.removeChild(form1);");
+  autofill::TestFormActivityObserver* block_observer = observer_.get();
+  __block autofill::TestFormActivityInfo* info = nil;
+  ASSERT_TRUE(WaitUntilConditionOrTimeout(kWaitForJSCompletionTimeout, ^{
+    info = block_observer->form_activity_info();
+    return info != nil;
+  }));
+  EXPECT_EQ("password_form_removed", info->form_activity.type);
   EXPECT_FALSE(info->form_activity.input_missing);
 }

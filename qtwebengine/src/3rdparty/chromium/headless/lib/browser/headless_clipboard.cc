@@ -8,6 +8,7 @@
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/base/clipboard/clipboard_constants.h"
+#include "ui/base/data_transfer_policy/data_transfer_endpoint.h"
 
 namespace headless {
 
@@ -18,13 +19,23 @@ HeadlessClipboard::~HeadlessClipboard() = default;
 
 void HeadlessClipboard::OnPreShutdown() {}
 
+// DataTransferEndpoint is not used on this platform.
+ui::DataTransferEndpoint* HeadlessClipboard::GetSource(
+    ui::ClipboardBuffer buffer) const {
+  return nullptr;
+}
+
 uint64_t HeadlessClipboard::GetSequenceNumber(
     ui::ClipboardBuffer buffer) const {
   return GetStore(buffer).sequence_number;
 }
 
-bool HeadlessClipboard::IsFormatAvailable(const ui::ClipboardFormatType& format,
-                                          ui::ClipboardBuffer buffer) const {
+// |data_dst| is not used. It's only passed to be consistent with other
+// platforms.
+bool HeadlessClipboard::IsFormatAvailable(
+    const ui::ClipboardFormatType& format,
+    ui::ClipboardBuffer buffer,
+    const ui::DataTransferEndpoint* data_dst) const {
   return base::Contains(GetStore(buffer).data, format);
 }
 
@@ -32,27 +43,36 @@ void HeadlessClipboard::Clear(ui::ClipboardBuffer buffer) {
   GetStore(buffer).Clear();
 }
 
-void HeadlessClipboard::ReadAvailableTypes(ui::ClipboardBuffer buffer,
-                                           std::vector<base::string16>* types,
-                                           bool* contains_filenames) const {
+// |data_dst| is not used. It's only passed to be consistent with other
+// platforms.
+void HeadlessClipboard::ReadAvailableTypes(
+    ui::ClipboardBuffer buffer,
+    const ui::DataTransferEndpoint* data_dst,
+    std::vector<base::string16>* types) const {
+  DCHECK(types);
   types->clear();
 
-  if (IsFormatAvailable(ui::ClipboardFormatType::GetPlainTextType(), buffer))
+  if (IsFormatAvailable(ui::ClipboardFormatType::GetPlainTextType(), buffer,
+                        data_dst))
     types->push_back(base::UTF8ToUTF16(ui::kMimeTypeText));
-  if (IsFormatAvailable(ui::ClipboardFormatType::GetHtmlType(), buffer))
+  if (IsFormatAvailable(ui::ClipboardFormatType::GetHtmlType(), buffer,
+                        data_dst))
     types->push_back(base::UTF8ToUTF16(ui::kMimeTypeHTML));
 
-  if (IsFormatAvailable(ui::ClipboardFormatType::GetRtfType(), buffer))
+  if (IsFormatAvailable(ui::ClipboardFormatType::GetRtfType(), buffer,
+                        data_dst))
     types->push_back(base::UTF8ToUTF16(ui::kMimeTypeRTF));
-  if (IsFormatAvailable(ui::ClipboardFormatType::GetBitmapType(), buffer))
+  if (IsFormatAvailable(ui::ClipboardFormatType::GetBitmapType(), buffer,
+                        data_dst))
     types->push_back(base::UTF8ToUTF16(ui::kMimeTypePNG));
-
-  *contains_filenames = false;
 }
 
+// |data_dst| is not used. It's only passed to be consistent with other
+// platforms.
 std::vector<base::string16>
 HeadlessClipboard::ReadAvailablePlatformSpecificFormatNames(
-    ui::ClipboardBuffer buffer) const {
+    ui::ClipboardBuffer buffer,
+    const ui::DataTransferEndpoint* data_dst) const {
   const auto& data = GetStore(buffer).data;
   std::vector<base::string16> types;
   types.reserve(data.size());
@@ -64,14 +84,20 @@ HeadlessClipboard::ReadAvailablePlatformSpecificFormatNames(
   return types;
 }
 
+// |data_dst| is not used. It's only passed to be consistent with other
+// platforms.
 void HeadlessClipboard::ReadText(ui::ClipboardBuffer buffer,
+                                 const ui::DataTransferEndpoint* data_dst,
                                  base::string16* result) const {
   std::string result8;
-  ReadAsciiText(buffer, &result8);
+  ReadAsciiText(buffer, data_dst, &result8);
   *result = base::UTF8ToUTF16(result8);
 }
 
+// |data_dst| is not used. It's only passed to be consistent with other
+// platforms.
 void HeadlessClipboard::ReadAsciiText(ui::ClipboardBuffer buffer,
+                                      const ui::DataTransferEndpoint* data_dst,
                                       std::string* result) const {
   result->clear();
   const DataStore& store = GetStore(buffer);
@@ -80,7 +106,10 @@ void HeadlessClipboard::ReadAsciiText(ui::ClipboardBuffer buffer,
     *result = it->second;
 }
 
+// |data_dst| is not used. It's only passed to be consistent with other
+// platforms.
 void HeadlessClipboard::ReadHTML(ui::ClipboardBuffer buffer,
+                                 const ui::DataTransferEndpoint* data_dst,
                                  base::string16* markup,
                                  std::string* src_url,
                                  uint32_t* fragment_start,
@@ -96,7 +125,22 @@ void HeadlessClipboard::ReadHTML(ui::ClipboardBuffer buffer,
   *fragment_end = base::checked_cast<uint32_t>(markup->size());
 }
 
+// |data_dst| is not used. It's only passed to be consistent with other
+// platforms.
+void HeadlessClipboard::ReadSvg(ui::ClipboardBuffer buffer,
+                                const ui::DataTransferEndpoint* data_dst,
+                                base::string16* result) const {
+  result->clear();
+  const DataStore& store = GetStore(buffer);
+  auto it = store.data.find(ui::ClipboardFormatType::GetSvgType());
+  if (it != store.data.end())
+    *result = base::UTF8ToUTF16(it->second);
+}
+
+// |data_dst| is not used. It's only passed to be consistent with other
+// platforms.
 void HeadlessClipboard::ReadRTF(ui::ClipboardBuffer buffer,
+                                const ui::DataTransferEndpoint* data_dst,
                                 std::string* result) const {
   result->clear();
   const DataStore& store = GetStore(buffer);
@@ -105,16 +149,33 @@ void HeadlessClipboard::ReadRTF(ui::ClipboardBuffer buffer,
     *result = it->second;
 }
 
+// |data_dst| is not used. It's only passed to be consistent with other
+// platforms.
 void HeadlessClipboard::ReadImage(ui::ClipboardBuffer buffer,
+                                  const ui::DataTransferEndpoint* data_dst,
                                   ReadImageCallback callback) const {
   std::move(callback).Run(GetStore(buffer).image);
 }
 
+// |data_dst| is not used. It's only passed to be consistent with other
+// platforms.
 void HeadlessClipboard::ReadCustomData(ui::ClipboardBuffer clipboard_buffer,
                                        const base::string16& type,
+                                       const ui::DataTransferEndpoint* data_dst,
                                        base::string16* result) const {}
 
-void HeadlessClipboard::ReadBookmark(base::string16* title,
+// |data_dst| is not used. It's only passed to be consistent with other
+// platforms.
+void HeadlessClipboard::ReadFilenames(ui::ClipboardBuffer buffer,
+                                      const ui::DataTransferEndpoint* data_dst,
+                                      std::vector<ui::FileInfo>* result) const {
+  *result = GetStore(buffer).filenames;
+}
+
+// |data_dst| is not used. It's only passed to be consistent with other
+// platforms.
+void HeadlessClipboard::ReadBookmark(const ui::DataTransferEndpoint* data_dst,
+                                     base::string16* title,
                                      std::string* url) const {
   const DataStore& store = GetDefaultStore();
   auto it = store.data.find(ui::ClipboardFormatType::GetUrlType());
@@ -123,7 +184,10 @@ void HeadlessClipboard::ReadBookmark(base::string16* title,
   *title = base::UTF8ToUTF16(store.url_title);
 }
 
+// |data_dst| is not used. It's only passed to be consistent with other
+// platforms.
 void HeadlessClipboard::ReadData(const ui::ClipboardFormatType& format,
+                                 const ui::DataTransferEndpoint* data_dst,
                                  std::string* result) const {
   result->clear();
   const DataStore& store = GetDefaultStore();
@@ -132,8 +196,18 @@ void HeadlessClipboard::ReadData(const ui::ClipboardFormatType& format,
     *result = it->second;
 }
 
-void HeadlessClipboard::WritePortableRepresentations(ui::ClipboardBuffer buffer,
-                                                     const ObjectMap& objects) {
+#if defined(USE_OZONE)
+bool HeadlessClipboard::IsSelectionBufferAvailable() const {
+  return false;
+}
+#endif  // defined(USE_OZONE)
+
+// |data_src| is not used. It's only passed to be consistent with other
+// platforms.
+void HeadlessClipboard::WritePortableRepresentations(
+    ui::ClipboardBuffer buffer,
+    const ObjectMap& objects,
+    std::unique_ptr<ui::DataTransferEndpoint> data_src) {
   Clear(buffer);
   default_store_buffer_ = buffer;
   for (const auto& kv : objects)
@@ -141,9 +215,12 @@ void HeadlessClipboard::WritePortableRepresentations(ui::ClipboardBuffer buffer,
   default_store_buffer_ = ui::ClipboardBuffer::kCopyPaste;
 }
 
+// |data_src| is not used. It's only passed to be consistent with other
+// platforms.
 void HeadlessClipboard::WritePlatformRepresentations(
     ui::ClipboardBuffer buffer,
-    std::vector<Clipboard::PlatformRepresentation> platform_representations) {
+    std::vector<Clipboard::PlatformRepresentation> platform_representations,
+    std::unique_ptr<ui::DataTransferEndpoint> data_src) {
   Clear(buffer);
   default_store_buffer_ = buffer;
   DispatchPlatformRepresentations(std::move(platform_representations));
@@ -170,9 +247,18 @@ void HeadlessClipboard::WriteHTML(const char* markup_data,
   GetDefaultStore().html_src_url = std::string(url_data, url_len);
 }
 
+void HeadlessClipboard::WriteSvg(const char* markup_data, size_t markup_len) {
+  std::string markup(markup_data, markup_len);
+  GetDefaultStore().data[ui::ClipboardFormatType::GetSvgType()] = markup;
+}
+
 void HeadlessClipboard::WriteRTF(const char* rtf_data, size_t data_len) {
   GetDefaultStore().data[ui::ClipboardFormatType::GetRtfType()] =
       std::string(rtf_data, data_len);
+}
+
+void HeadlessClipboard::WriteFilenames(std::vector<ui::FileInfo> filenames) {
+  GetDefaultStore().filenames = std::move(filenames);
 }
 
 void HeadlessClipboard::WriteBookmark(const char* title_data,

@@ -47,6 +47,20 @@ enum class MultiviewImplementationTypeGL
     UNSPECIFIED
 };
 
+// State-tracking data for the swap control to allow DisplayGL to remember per
+// drawable information for swap control.
+struct SwapControlData
+{
+    SwapControlData();
+
+    // Set by the drawable
+    int targetSwapInterval;
+
+    // DisplayGL-side state-tracking
+    int maxSwapInterval;
+    int currentSwapInterval;
+};
+
 VendorID GetVendorID(const FunctionsGL *functions);
 
 // Helpers for extracting the GL helper objects out of a context
@@ -150,6 +164,11 @@ struct ContextCreationTry
 };
 
 std::vector<ContextCreationTry> GenerateContextCreationToTry(EGLint requestedType, bool isMesaGLX);
+
+std::string GetRendererString(const FunctionsGL *functions);
+std::string GetVendorString(const FunctionsGL *functions);
+std::string GetVersionString(const FunctionsGL *functions);
+
 }  // namespace rx
 
 #endif  // LIBANGLE_RENDERER_GL_RENDERERGLUTILS_H_

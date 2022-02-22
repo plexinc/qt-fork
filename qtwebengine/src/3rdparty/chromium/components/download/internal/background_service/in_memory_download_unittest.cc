@@ -8,7 +8,7 @@
 #include "base/guid.h"
 #include "base/message_loop/message_pump_type.h"
 #include "base/run_loop.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread.h"
 #include "net/base/io_buffer.h"
@@ -216,7 +216,7 @@ TEST_F(InMemoryDownloadTest, RedirectResponseHeaders) {
   // Add some random header.
   auto response_head = network::mojom::URLResponseHead::New();
   response_head->headers = base::MakeRefCounted<net::HttpResponseHeaders>("");
-  response_head->headers->AddHeader("X-Random-Test-Header: 123");
+  response_head->headers->SetHeader("X-Random-Test-Header", "123");
 
   // The size must match for download as stream from SimpleUrlLoader.
   network::URLLoaderCompletionStatus status;

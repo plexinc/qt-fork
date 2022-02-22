@@ -8,8 +8,8 @@
 #include <utility>
 #include <vector>
 
+#include "base/containers/contains.h"
 #include "base/i18n/time_formatting.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
@@ -18,7 +18,6 @@
 #include "build/build_config.h"
 #include "chrome/browser/browsing_data/cookies_tree_model.h"
 #include "chrome/grit/generated_resources.h"
-#include "content/public/browser/cache_storage_context.h"
 #include "content/public/browser/service_worker_context.h"
 #include "content/public/browser/storage_usage_info.h"
 #include "extensions/buildflags/buildflags.h"
@@ -176,7 +175,7 @@ bool CookiesTreeModelUtil::GetCookieTreeNodeDictionary(
     case CookieTreeNode::DetailedInfo::TYPE_FILE_SYSTEM: {
       dict->SetString(kKeyType, "file_system");
 
-      const BrowsingDataFileSystemHelper::FileSystemInfo& file_system_info =
+      const browsing_data::FileSystemHelper::FileSystemInfo& file_system_info =
           *node.GetDetailedInfo().file_system_info;
       const storage::FileSystemType kPerm = storage::kFileSystemTypePersistent;
       const storage::FileSystemType kTemp = storage::kFileSystemTypeTemporary;
@@ -235,7 +234,7 @@ bool CookiesTreeModelUtil::GetCookieTreeNodeDictionary(
     case CookieTreeNode::DetailedInfo::TYPE_SHARED_WORKER: {
       dict->SetString(kKeyType, "shared_worker");
 
-      const BrowsingDataSharedWorkerHelper::SharedWorkerInfo&
+      const browsing_data::SharedWorkerHelper::SharedWorkerInfo&
           shared_worker_info = *node.GetDetailedInfo().shared_worker_info;
 
       dict->SetString(kKeyOrigin, shared_worker_info.worker.spec());
@@ -253,12 +252,6 @@ bool CookiesTreeModelUtil::GetCookieTreeNodeDictionary(
       dict->SetString(kKeyModified,
                       base::UTF16ToUTF8(base::TimeFormatFriendlyDateAndTime(
                           usage_info.last_modified)));
-      break;
-    }
-    case CookieTreeNode::DetailedInfo::TYPE_FLASH_LSO: {
-      dict->SetString(kKeyType, "flash_lso");
-
-      dict->SetString(kKeyDomain, node.GetDetailedInfo().flash_lso_domain);
       break;
     }
     case CookieTreeNode::DetailedInfo::TYPE_MEDIA_LICENSE: {

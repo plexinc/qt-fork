@@ -57,8 +57,6 @@
 #include <QGraphicsScene>
 #include <QGraphicsView>
 #endif
-#include <QDesktopWidget>
-#include <private/qdesktopwidget_p.h>
 #include <QVector2D>
 #include <QtCore/qmath.h>
 #include <QtGui/qevent.h>
@@ -1376,7 +1374,7 @@ void QScrollerPrivate::createScrollingSegments(const QPointF &v,
     // v(t) = deltaTime * a * 0.5 * differentialForProgress(t / deltaTime)
     // v(0) = vrelease
     // v(deltaTime) = 0
-    // deltaTime = (2 * vrelease) / (a * differntial(0))
+    // deltaTime = (2 * vrelease) / (a * differential(0))
 
     // pos(t) = integrate(v(t)dt)
     // pos(t) = vrelease * t - 0.5 * a * t * t

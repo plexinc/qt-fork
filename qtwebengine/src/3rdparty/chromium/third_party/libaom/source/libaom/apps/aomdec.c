@@ -76,14 +76,14 @@ static const arg_def_t limitarg =
     ARG_DEF(NULL, "limit", 1, "Stop decoding after n frames");
 static const arg_def_t skiparg =
     ARG_DEF(NULL, "skip", 1, "Skip the first n input frames");
-static const arg_def_t postprocarg =
-    ARG_DEF(NULL, "postproc", 0, "Postprocess decoded frames");
 static const arg_def_t summaryarg =
     ARG_DEF(NULL, "summary", 0, "Show timing summary");
 static const arg_def_t outputfile =
     ARG_DEF("o", "output", 1, "Output file name pattern (see below)");
 static const arg_def_t threadsarg =
     ARG_DEF("t", "threads", 1, "Max threads to use");
+static const arg_def_t rowmtarg =
+    ARG_DEF(NULL, "row-mt", 1, "Enable row based multi-threading, default: 0");
 static const arg_def_t verbosearg =
     ARG_DEF("v", "verbose", 0, "Show version string");
 static const arg_def_t scalearg =
@@ -108,12 +108,12 @@ static const arg_def_t skipfilmgrain =
     ARG_DEF(NULL, "skip-film-grain", 0, "Skip film grain application");
 
 static const arg_def_t *all_args[] = {
-  &help,           &codecarg,   &use_yv12,      &use_i420,
-  &flipuvarg,      &rawvideo,   &noblitarg,     &progressarg,
-  &limitarg,       &skiparg,    &postprocarg,   &summaryarg,
-  &outputfile,     &threadsarg, &verbosearg,    &scalearg,
-  &fb_arg,         &md5arg,     &framestatsarg, &continuearg,
-  &outbitdeptharg, &isannexb,   &oppointarg,    &outallarg,
+  &help,           &codecarg, &use_yv12,      &use_i420,
+  &flipuvarg,      &rawvideo, &noblitarg,     &progressarg,
+  &limitarg,       &skiparg,  &summaryarg,    &outputfile,
+  &threadsarg,     &rowmtarg, &verbosearg,    &scalearg,
+  &fb_arg,         &md5arg,   &framestatsarg, &continuearg,
+  &outbitdeptharg, &isannexb, &oppointarg,    &outallarg,
   &skipfilmgrain,  NULL
 };
 
@@ -170,9 +170,9 @@ static void show_help(FILE *fout, int shorthelp) {
   fprintf(fout, "\nIncluded decoders:\n\n");
 
   for (int i = 0; i < get_aom_decoder_count(); ++i) {
-    const AvxInterface *const decoder = get_aom_decoder_by_index(i);
-    fprintf(fout, "    %-6s - %s\n", decoder->name,
-            aom_codec_iface_name(decoder->codec_interface()));
+    aom_codec_iface_t *decoder = get_aom_decoder_by_index(i);
+    fprintf(fout, "    %-6s - %s\n", get_short_name_by_aom_decoder(decoder),
+            aom_codec_iface_name(decoder));
   }
 }
 
@@ -258,11 +258,10 @@ static int file_is_raw(struct AvxInputContext *input) {
 
     if (mem_get_le32(buf) < 256 * 1024 * 1024) {
       for (i = 0; i < get_aom_decoder_count(); ++i) {
-        const AvxInterface *const decoder = get_aom_decoder_by_index(i);
-        if (!aom_codec_peek_stream_info(decoder->codec_interface(), buf + 4,
-                                        32 - 4, &si)) {
+        aom_codec_iface_t *decoder = get_aom_decoder_by_index(i);
+        if (!aom_codec_peek_stream_info(decoder, buf + 4, 32 - 4, &si)) {
           is_raw = 1;
-          input->fourcc = decoder->fourcc;
+          input->fourcc = get_fourcc_by_aom_decoder(decoder);
           input->width = si.w;
           input->height = si.h;
           input->framerate.numerator = 30;
@@ -437,11 +436,9 @@ static int main_loop(int argc, const char **argv_) {
   FILE *infile;
   int frame_in = 0, frame_out = 0, flipuv = 0, noblit = 0;
   int do_md5 = 0, progress = 0;
-  int stop_after = 0, postproc = 0, summary = 0, quiet = 1;
+  int stop_after = 0, summary = 0, quiet = 1;
   int arg_skip = 0;
   int keep_going = 0;
-  const AvxInterface *interface = NULL;
-  const AvxInterface *fourcc_interface = NULL;
   uint64_t dx_time = 0;
   struct arg arg;
   char **argv, **argi, **argj;
@@ -460,6 +457,7 @@ static int main_loop(int argc, const char **argv_) {
   int operating_point = 0;
   int output_all_layers = 0;
   int skip_film_grain = 0;
+  int enable_row_mt = 0;
   aom_image_t *scaled_img = NULL;
   aom_image_t *img_shifted = NULL;
   int frame_avail, got_data, flush_decoder = 0;
@@ -494,6 +492,7 @@ static int main_loop(int argc, const char **argv_) {
   exec_name = argv_[0];
   argv = argv_dup(argc - 1, argv_ + 1);
 
+  aom_codec_iface_t *interface = NULL;
   for (argi = argj = argv; (*argj = *argi); argi += arg.argv_step) {
     memset(&arg, 0, sizeof(arg));
     arg.argv_step = 1;
@@ -502,7 +501,7 @@ static int main_loop(int argc, const char **argv_) {
       show_help(stdout, 0);
       exit(EXIT_SUCCESS);
     } else if (arg_match(&arg, &codecarg, argi)) {
-      interface = get_aom_decoder_by_name(arg.val);
+      interface = get_aom_decoder_by_short_name(arg.val);
       if (!interface)
         die("Error: Unrecognized argument (%s) to --codec\n", arg.val);
     } else if (arg_match(&arg, &looparg, argi)) {
@@ -536,8 +535,6 @@ static int main_loop(int argc, const char **argv_) {
       stop_after = arg_parse_uint(&arg);
     } else if (arg_match(&arg, &skiparg, argi)) {
       arg_skip = arg_parse_uint(&arg);
-    } else if (arg_match(&arg, &postprocarg, argi)) {
-      postproc = 1;
     } else if (arg_match(&arg, &md5arg, argi)) {
       do_md5 = 1;
     } else if (arg_match(&arg, &framestatsarg, argi)) {
@@ -557,6 +554,8 @@ static int main_loop(int argc, const char **argv_) {
             cfg.threads);
       }
 #endif
+    } else if (arg_match(&arg, &rowmtarg, argi)) {
+      enable_row_mt = arg_parse_uint(&arg);
     } else if (arg_match(&arg, &verbosearg, argi)) {
       quiet = 0;
     } else if (arg_match(&arg, &scalearg, argi)) {
@@ -606,6 +605,7 @@ static int main_loop(int argc, const char **argv_) {
     fprintf(stderr,
             "Not dumping raw video to your terminal. Use '-o -' to "
             "override.\n");
+    free(argv);
     return EXIT_FAILURE;
   }
 #endif
@@ -664,21 +664,22 @@ static int main_loop(int argc, const char **argv_) {
 #endif
   }
 
-  fourcc_interface = get_aom_decoder_by_fourcc(aom_input_ctx.fourcc);
+  aom_codec_iface_t *fourcc_interface =
+      get_aom_decoder_by_fourcc(aom_input_ctx.fourcc);
 
   if (is_ivf && !fourcc_interface)
     fatal("Unsupported fourcc: %x\n", aom_input_ctx.fourcc);
 
   if (interface && fourcc_interface && interface != fourcc_interface)
-    warn("Header indicates codec: %s\n", fourcc_interface->name);
+    warn("Header indicates codec: %s\n",
+         aom_codec_iface_name(fourcc_interface));
   else
     interface = fourcc_interface;
 
   if (!interface) interface = get_aom_decoder_by_index(0);
 
-  dec_flags = (postproc ? AOM_CODEC_USE_POSTPROC : 0);
-  if (aom_codec_dec_init(&decoder, interface->codec_interface(), &cfg,
-                         dec_flags)) {
+  dec_flags = 0;
+  if (aom_codec_dec_init(&decoder, interface, &cfg, dec_flags)) {
     fprintf(stderr, "Failed to initialize decoder: %s\n",
             aom_codec_error(&decoder));
     goto fail2;
@@ -686,26 +687,34 @@ static int main_loop(int argc, const char **argv_) {
 
   if (!quiet) fprintf(stderr, "%s\n", decoder.name);
 
-  if (aom_codec_control(&decoder, AV1D_SET_IS_ANNEXB, is_annexb)) {
+  if (AOM_CODEC_CONTROL_TYPECHECKED(&decoder, AV1D_SET_IS_ANNEXB, is_annexb)) {
     fprintf(stderr, "Failed to set is_annexb: %s\n", aom_codec_error(&decoder));
     goto fail;
   }
 
-  if (aom_codec_control(&decoder, AV1D_SET_OPERATING_POINT, operating_point)) {
+  if (AOM_CODEC_CONTROL_TYPECHECKED(&decoder, AV1D_SET_OPERATING_POINT,
+                                    operating_point)) {
     fprintf(stderr, "Failed to set operating_point: %s\n",
             aom_codec_error(&decoder));
     goto fail;
   }
 
-  if (aom_codec_control(&decoder, AV1D_SET_OUTPUT_ALL_LAYERS,
-                        output_all_layers)) {
+  if (AOM_CODEC_CONTROL_TYPECHECKED(&decoder, AV1D_SET_OUTPUT_ALL_LAYERS,
+                                    output_all_layers)) {
     fprintf(stderr, "Failed to set output_all_layers: %s\n",
             aom_codec_error(&decoder));
     goto fail;
   }
 
-  if (aom_codec_control(&decoder, AV1D_SET_SKIP_FILM_GRAIN, skip_film_grain)) {
+  if (AOM_CODEC_CONTROL_TYPECHECKED(&decoder, AV1D_SET_SKIP_FILM_GRAIN,
+                                    skip_film_grain)) {
     fprintf(stderr, "Failed to set skip_film_grain: %s\n",
+            aom_codec_error(&decoder));
+    goto fail;
+  }
+
+  if (AOM_CODEC_CONTROL_TYPECHECKED(&decoder, AV1D_SET_ROW_MT, enable_row_mt)) {
+    fprintf(stderr, "Failed to set row multithreading mode: %s\n",
             aom_codec_error(&decoder));
     goto fail;
   }
@@ -760,7 +769,8 @@ static int main_loop(int argc, const char **argv_) {
 
         if (framestats_file) {
           int qp;
-          if (aom_codec_control(&decoder, AOMD_GET_LAST_QUANTIZER, &qp)) {
+          if (AOM_CODEC_CONTROL_TYPECHECKED(&decoder, AOMD_GET_LAST_QUANTIZER,
+                                            &qp)) {
             warn("Failed AOMD_GET_LAST_QUANTIZER: %s",
                  aom_codec_error(&decoder));
             if (!keep_going) goto fail;
@@ -794,7 +804,8 @@ static int main_loop(int argc, const char **argv_) {
       ++frame_out;
       got_data = 1;
 
-      if (aom_codec_control(&decoder, AOMD_GET_FRAME_CORRUPTED, &corrupted)) {
+      if (AOM_CODEC_CONTROL_TYPECHECKED(&decoder, AOMD_GET_FRAME_CORRUPTED,
+                                        &corrupted)) {
         warn("Failed AOM_GET_FRAME_CORRUPTED: %s", aom_codec_error(&decoder));
         if (!keep_going) goto fail;
       }
@@ -818,8 +829,8 @@ static int main_loop(int argc, const char **argv_) {
             int render_height = aom_input_ctx.height;
             if (!render_width || !render_height) {
               int render_size[2];
-              if (aom_codec_control(&decoder, AV1D_GET_DISPLAY_SIZE,
-                                    render_size)) {
+              if (AOM_CODEC_CONTROL_TYPECHECKED(&decoder, AV1D_GET_DISPLAY_SIZE,
+                                                render_size)) {
                 // As last resort use size of first frame as display size.
                 render_width = img->d_w;
                 render_height = img->d_h;
@@ -874,7 +885,8 @@ static int main_loop(int argc, const char **argv_) {
               len = y4m_write_file_header(
                   y4m_buf, sizeof(y4m_buf), aom_input_ctx.width,
                   aom_input_ctx.height, &aom_input_ctx.framerate,
-                  img->monochrome, img->csp, img->fmt, img->bit_depth);
+                  img->monochrome, img->csp, img->fmt, img->bit_depth,
+                  img->range);
               if (img->csp == AOM_CSP_COLOCATED) {
                 fprintf(stderr,
                         "Warning: Y4M lacks a colorspace for colocated "

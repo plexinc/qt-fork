@@ -2,15 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/qbone/platform/tcp_packet.h"
+#include "quic/qbone/platform/tcp_packet.h"
 
 #include <netinet/ip6.h>
 
 #include <cstdint>
 
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_text_utils.h"
+#include "absl/strings/string_view.h"
+#include "quic/platform/api/quic_test.h"
+#include "common/platform/api/quiche_text_utils.h"
 
 namespace quic {
 namespace {
@@ -102,17 +102,16 @@ constexpr uint8_t kReferenceTCPRSTPacket[] = {
 }  // namespace
 
 TEST(TcpPacketTest, CreatedPacketMatchesReference) {
-  quiche::QuicheStringPiece syn = quiche::QuicheStringPiece(
-      reinterpret_cast<const char*>(kReferenceTCPSYNPacket),
-      sizeof(kReferenceTCPSYNPacket));
-  quiche::QuicheStringPiece expected_packet = quiche::QuicheStringPiece(
-      reinterpret_cast<const char*>(kReferenceTCPRSTPacket),
-      sizeof(kReferenceTCPRSTPacket));
-  CreateTcpResetPacket(
-      syn, [&expected_packet](quiche::QuicheStringPiece packet) {
-        QUIC_LOG(INFO) << quiche::QuicheTextUtils::HexDump(packet);
-        ASSERT_EQ(packet, expected_packet);
-      });
+  absl::string_view syn =
+      absl::string_view(reinterpret_cast<const char*>(kReferenceTCPSYNPacket),
+                        sizeof(kReferenceTCPSYNPacket));
+  absl::string_view expected_packet =
+      absl::string_view(reinterpret_cast<const char*>(kReferenceTCPRSTPacket),
+                        sizeof(kReferenceTCPRSTPacket));
+  CreateTcpResetPacket(syn, [&expected_packet](absl::string_view packet) {
+    QUIC_LOG(INFO) << quiche::QuicheTextUtils::HexDump(packet);
+    ASSERT_EQ(packet, expected_packet);
+  });
 }
 
 }  // namespace quic

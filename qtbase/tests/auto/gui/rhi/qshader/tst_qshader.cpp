@@ -26,8 +26,10 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QFile>
+#include <QBuffer>
+
 #include <QtGui/private/qshaderdescription_p_p.h>
 #include <QtGui/private/qshader_p_p.h>
 
@@ -36,15 +38,16 @@ class tst_QShader : public QObject
     Q_OBJECT
 
 private slots:
+    void serializeDeserialize();
     void simpleCompileCheckResults();
     void genVariants();
     void shaderDescImplicitSharing();
     void bakedShaderImplicitSharing();
     void mslResourceMapping();
-    void loadV3();
     void serializeShaderDesc();
     void comparison();
     void loadV4();
+    void manualShaderPackCreation();
 };
 
 static QShader getShader(const QString &name)
@@ -56,11 +59,27 @@ static QShader getShader(const QString &name)
     return QShader();
 }
 
+void tst_QShader::serializeDeserialize()
+{
+    QShader s = getShader(QLatin1String(":/data/texture_all_v4.frag.qsb"));
+    QVERIFY(s.isValid());
+
+    QByteArray data = s.serialized();
+    QVERIFY(!data.isEmpty());
+
+    QShader s2;
+    QVERIFY(!s2.isValid());
+    QVERIFY(s != s2);
+    s2 = QShader::fromSerialized(data);
+    QVERIFY(s2.isValid());
+    QCOMPARE(s, s2);
+}
+
 void tst_QShader::simpleCompileCheckResults()
 {
-    QShader s = getShader(QLatin1String(":/data/color_spirv_v1.vert.qsb"));
+    QShader s = getShader(QLatin1String(":/data/color_spirv_v5.vert.qsb"));
     QVERIFY(s.isValid());
-    QCOMPARE(QShaderPrivate::get(&s)->qsbVersion, 1);
+    QCOMPARE(QShaderPrivate::get(&s)->qsbVersion, 5);
     QCOMPARE(s.availableShaders().count(), 1);
 
     const QShaderCode shader = s.shader(QShaderKey(QShader::SpirvShader,
@@ -74,11 +93,11 @@ void tst_QShader::simpleCompileCheckResults()
     for (const QShaderDescription::InOutVariable &v : desc.inputVariables()) {
         switch (v.location) {
         case 0:
-            QCOMPARE(v.name, QLatin1String("position"));
+            QCOMPARE(v.name, QByteArrayLiteral("position"));
             QCOMPARE(v.type, QShaderDescription::Vec4);
             break;
         case 1:
-            QCOMPARE(v.name, QLatin1String("color"));
+            QCOMPARE(v.name, QByteArrayLiteral("color"));
             QCOMPARE(v.type, QShaderDescription::Vec3);
             break;
         default:
@@ -90,7 +109,7 @@ void tst_QShader::simpleCompileCheckResults()
     for (const QShaderDescription::InOutVariable &v : desc.outputVariables()) {
         switch (v.location) {
         case 0:
-            QCOMPARE(v.name, QLatin1String("v_color"));
+            QCOMPARE(v.name, QByteArrayLiteral("v_color"));
             QCOMPARE(v.type, QShaderDescription::Vec3);
             break;
         default:
@@ -100,8 +119,8 @@ void tst_QShader::simpleCompileCheckResults()
     }
     QCOMPARE(desc.uniformBlocks().count(), 1);
     const QShaderDescription::UniformBlock blk = desc.uniformBlocks().first();
-    QCOMPARE(blk.blockName, QLatin1String("buf"));
-    QCOMPARE(blk.structName, QLatin1String("ubuf"));
+    QCOMPARE(blk.blockName, QByteArrayLiteral("buf"));
+    QCOMPARE(blk.structName, QByteArrayLiteral("ubuf"));
     QCOMPARE(blk.size, 68);
     QCOMPARE(blk.binding, 0);
     QCOMPARE(blk.descriptorSet, 0);
@@ -112,14 +131,14 @@ void tst_QShader::simpleCompileCheckResults()
         case 0:
             QCOMPARE(v.offset, 0);
             QCOMPARE(v.size, 64);
-            QCOMPARE(v.name, QLatin1String("mvp"));
+            QCOMPARE(v.name, QByteArrayLiteral("mvp"));
             QCOMPARE(v.type, QShaderDescription::Mat4);
             QCOMPARE(v.matrixStride, 16);
             break;
         case 1:
             QCOMPARE(v.offset, 64);
             QCOMPARE(v.size, 4);
-            QCOMPARE(v.name, QLatin1String("opacity"));
+            QCOMPARE(v.name, QByteArrayLiteral("opacity"));
             QCOMPARE(v.type, QShaderDescription::Float);
             break;
         default:
@@ -131,11 +150,11 @@ void tst_QShader::simpleCompileCheckResults()
 
 void tst_QShader::genVariants()
 {
-    QShader s = getShader(QLatin1String(":/data/color_all_v1.vert.qsb"));
+    QShader s = getShader(QLatin1String(":/data/color_all_v5.vert.qsb"));
     // spirv, glsl 100, glsl 330, glsl 120, hlsl 50, msl 12
     // + batchable variants
     QVERIFY(s.isValid());
-    QCOMPARE(QShaderPrivate::get(&s)->qsbVersion, 1);
+    QCOMPARE(QShaderPrivate::get(&s)->qsbVersion, 5);
     QCOMPARE(s.availableShaders().count(), 2 * 6);
 
     int batchableVariantCount = 0;
@@ -156,9 +175,9 @@ void tst_QShader::genVariants()
 
 void tst_QShader::shaderDescImplicitSharing()
 {
-    QShader s = getShader(QLatin1String(":/data/color_spirv_v1.vert.qsb"));
+    QShader s = getShader(QLatin1String(":/data/color_spirv_v5.vert.qsb"));
     QVERIFY(s.isValid());
-    QCOMPARE(QShaderPrivate::get(&s)->qsbVersion, 1);
+    QCOMPARE(QShaderPrivate::get(&s)->qsbVersion, 5);
     QCOMPARE(s.availableShaders().count(), 1);
     QVERIFY(s.availableShaders().contains(QShaderKey(QShader::SpirvShader, QShaderVersion(100))));
 
@@ -194,9 +213,9 @@ void tst_QShader::shaderDescImplicitSharing()
 
 void tst_QShader::bakedShaderImplicitSharing()
 {
-    QShader s0 = getShader(QLatin1String(":/data/color_spirv_v1.vert.qsb"));
+    QShader s0 = getShader(QLatin1String(":/data/color_spirv_v5.vert.qsb"));
     QVERIFY(s0.isValid());
-    QCOMPARE(QShaderPrivate::get(&s0)->qsbVersion, 1);
+    QCOMPARE(QShaderPrivate::get(&s0)->qsbVersion, 5);
     QCOMPARE(s0.availableShaders().count(), 1);
     QVERIFY(s0.availableShaders().contains(QShaderKey(QShader::SpirvShader, QShaderVersion(100))));
 
@@ -245,11 +264,11 @@ void tst_QShader::bakedShaderImplicitSharing()
 
 void tst_QShader::mslResourceMapping()
 {
-    QShader s = getShader(QLatin1String(":/data/texture_all_v2.frag.qsb"));
+    QShader s = getShader(QLatin1String(":/data/texture_all_v4.frag.qsb"));
     QVERIFY(s.isValid());
-    QCOMPARE(QShaderPrivate::get(&s)->qsbVersion, 2);
+    QCOMPARE(QShaderPrivate::get(&s)->qsbVersion, 4);
 
-    const QVector<QShaderKey> availableShaders = s.availableShaders();
+    const QList<QShaderKey> availableShaders = s.availableShaders();
     QCOMPARE(availableShaders.count(), 7);
     QVERIFY(availableShaders.contains(QShaderKey(QShader::SpirvShader, QShaderVersion(100))));
     QVERIFY(availableShaders.contains(QShaderKey(QShader::MslShader, QShaderVersion(12))));
@@ -272,80 +291,6 @@ void tst_QShader::mslResourceMapping()
     QCOMPARE(resMap->count(), 2);
     QCOMPARE(resMap->value(0).first, 0); // mapped to native buffer index 0
     QCOMPARE(resMap->value(1), qMakePair(0, 0)); // mapped to native texture index 0 and sampler index 0
-}
-
-void tst_QShader::loadV3()
-{
-    // qsb version 3: QShaderDescription is serialized as CBOR. Ensure the deserialized data is as expected.
-    QShader s = getShader(QLatin1String(":/data/texture_all_v3.frag.qsb"));
-    QVERIFY(s.isValid());
-    QCOMPARE(QShaderPrivate::get(&s)->qsbVersion, 3);
-
-    const QVector<QShaderKey> availableShaders = s.availableShaders();
-    QCOMPARE(availableShaders.count(), 7);
-    QVERIFY(availableShaders.contains(QShaderKey(QShader::SpirvShader, QShaderVersion(100))));
-    QVERIFY(availableShaders.contains(QShaderKey(QShader::MslShader, QShaderVersion(12))));
-    QVERIFY(availableShaders.contains(QShaderKey(QShader::HlslShader, QShaderVersion(50))));
-    QVERIFY(availableShaders.contains(QShaderKey(QShader::GlslShader, QShaderVersion(100, QShaderVersion::GlslEs))));
-    QVERIFY(availableShaders.contains(QShaderKey(QShader::GlslShader, QShaderVersion(120))));
-    QVERIFY(availableShaders.contains(QShaderKey(QShader::GlslShader, QShaderVersion(150))));
-    QVERIFY(availableShaders.contains(QShaderKey(QShader::GlslShader, QShaderVersion(330))));
-
-    const QShaderDescription desc = s.description();
-    QVERIFY(desc.isValid());
-    QCOMPARE(desc.inputVariables().count(), 1);
-    for (const QShaderDescription::InOutVariable &v : desc.inputVariables()) {
-        switch (v.location) {
-        case 0:
-            QCOMPARE(v.name, QLatin1String("qt_TexCoord"));
-            QCOMPARE(v.type, QShaderDescription::Vec2);
-            break;
-        default:
-            QVERIFY(false);
-            break;
-        }
-    }
-    QCOMPARE(desc.outputVariables().count(), 1);
-    for (const QShaderDescription::InOutVariable &v : desc.outputVariables()) {
-        switch (v.location) {
-        case 0:
-            QCOMPARE(v.name, QLatin1String("fragColor"));
-            QCOMPARE(v.type, QShaderDescription::Vec4);
-            break;
-        default:
-            QVERIFY(false);
-            break;
-        }
-    }
-    QCOMPARE(desc.uniformBlocks().count(), 1);
-    const QShaderDescription::UniformBlock blk = desc.uniformBlocks().first();
-    QCOMPARE(blk.blockName, QLatin1String("buf"));
-    QCOMPARE(blk.structName, QLatin1String("ubuf"));
-    QCOMPARE(blk.size, 68);
-    QCOMPARE(blk.binding, 0);
-    QCOMPARE(blk.descriptorSet, 0);
-    QCOMPARE(blk.members.count(), 2);
-    for (int i = 0; i < blk.members.count(); ++i) {
-        const QShaderDescription::BlockVariable v = blk.members[i];
-        switch (i) {
-        case 0:
-            QCOMPARE(v.offset, 0);
-            QCOMPARE(v.size, 64);
-            QCOMPARE(v.name, QLatin1String("qt_Matrix"));
-            QCOMPARE(v.type, QShaderDescription::Mat4);
-            QCOMPARE(v.matrixStride, 16);
-            break;
-        case 1:
-            QCOMPARE(v.offset, 64);
-            QCOMPARE(v.size, 4);
-            QCOMPARE(v.name, QLatin1String("opacity"));
-            QCOMPARE(v.type, QShaderDescription::Float);
-            break;
-        default:
-            QVERIFY(false);
-            break;
-        }
-    }
 }
 
 void tst_QShader::serializeShaderDesc()
@@ -413,7 +358,7 @@ void tst_QShader::comparison()
     {
         QShader s1 = getShader(QLatin1String(":/data/texture_all_v4.frag.qsb"));
         QVERIFY(s1.isValid());
-        QShader s2 = getShader(QLatin1String(":/data/color_all_v1.vert.qsb"));
+        QShader s2 = getShader(QLatin1String(":/data/color_all_v5.vert.qsb"));
         QVERIFY(s2.isValid());
 
         QVERIFY(s1.description().isValid());
@@ -444,7 +389,7 @@ void tst_QShader::loadV4()
     QVERIFY(s.isValid());
     QCOMPARE(QShaderPrivate::get(&s)->qsbVersion, 4);
 
-    const QVector<QShaderKey> availableShaders = s.availableShaders();
+    const QList<QShaderKey> availableShaders = s.availableShaders();
     QCOMPARE(availableShaders.count(), 7);
     QVERIFY(availableShaders.contains(QShaderKey(QShader::SpirvShader, QShaderVersion(100))));
     QVERIFY(availableShaders.contains(QShaderKey(QShader::MslShader, QShaderVersion(12))));
@@ -460,7 +405,7 @@ void tst_QShader::loadV4()
     for (const QShaderDescription::InOutVariable &v : desc.inputVariables()) {
         switch (v.location) {
         case 0:
-            QCOMPARE(v.name, QLatin1String("qt_TexCoord"));
+            QCOMPARE(v.name, QByteArrayLiteral("qt_TexCoord"));
             QCOMPARE(v.type, QShaderDescription::Vec2);
             break;
         default:
@@ -472,7 +417,7 @@ void tst_QShader::loadV4()
     for (const QShaderDescription::InOutVariable &v : desc.outputVariables()) {
         switch (v.location) {
         case 0:
-            QCOMPARE(v.name, QLatin1String("fragColor"));
+            QCOMPARE(v.name, QByteArrayLiteral("fragColor"));
             QCOMPARE(v.type, QShaderDescription::Vec4);
             break;
         default:
@@ -482,8 +427,8 @@ void tst_QShader::loadV4()
     }
     QCOMPARE(desc.uniformBlocks().count(), 1);
     const QShaderDescription::UniformBlock blk = desc.uniformBlocks().first();
-    QCOMPARE(blk.blockName, QLatin1String("buf"));
-    QCOMPARE(blk.structName, QLatin1String("ubuf"));
+    QCOMPARE(blk.blockName, QByteArrayLiteral("buf"));
+    QCOMPARE(blk.structName, QByteArrayLiteral("ubuf"));
     QCOMPARE(blk.size, 68);
     QCOMPARE(blk.binding, 0);
     QCOMPARE(blk.descriptorSet, 0);
@@ -494,14 +439,14 @@ void tst_QShader::loadV4()
         case 0:
             QCOMPARE(v.offset, 0);
             QCOMPARE(v.size, 64);
-            QCOMPARE(v.name, QLatin1String("qt_Matrix"));
+            QCOMPARE(v.name, QByteArrayLiteral("qt_Matrix"));
             QCOMPARE(v.type, QShaderDescription::Mat4);
             QCOMPARE(v.matrixStride, 16);
             break;
         case 1:
             QCOMPARE(v.offset, 64);
             QCOMPARE(v.size, 4);
-            QCOMPARE(v.name, QLatin1String("opacity"));
+            QCOMPARE(v.name, QByteArrayLiteral("opacity"));
             QCOMPARE(v.type, QShaderDescription::Float);
             break;
         default:
@@ -509,6 +454,120 @@ void tst_QShader::loadV4()
             break;
         }
     }
+}
+
+void tst_QShader::manualShaderPackCreation()
+{
+    // Exercise manually building a QShader (instead of loading it from
+    // serialized form). Some Qt modules may do this, in particular when OpenGL
+    // and GLSL code that cannot be processed through the normal pipeline with
+    // Vulkan SPIR-V as the primary target.
+
+    static const char *FS =
+        "#extension GL_OES_EGL_image_external : require\n"
+        "varying vec2 v_texcoord;\n"
+        "struct buf {\n"
+        "    mat4 qt_Matrix;\n"
+        "    float qt_Opacity;\n"
+        "};\n"
+        "uniform buf ubuf;\n"
+        "uniform samplerExternalOES tex0;\n"
+        "void main()\n"
+        "{\n"
+        "    gl_FragColor = ubuf.qt_Opacity * texture2D(tex0, v_texcoord);\n"
+        "}\n";
+    static const char *FS_GLES_PREAMBLE =
+        "precision highp float;\n";
+    // not necessarily sensible given the OES stuff but just for testing
+    static const char *FS_GL_PREAMBLE =
+        "#version 120\n";
+    QByteArray fs_gles = FS_GLES_PREAMBLE;
+    fs_gles += FS;
+    QByteArray fs_gl = FS_GL_PREAMBLE;
+    fs_gl += FS;
+
+    QShaderDescription desc;
+    QShaderDescriptionPrivate *descData = QShaderDescriptionPrivate::get(&desc);
+    QCOMPARE(descData->ref.loadRelaxed(), 1);
+
+    // Inputs
+    QShaderDescription::InOutVariable texCoordInput;
+    texCoordInput.name = "v_texcoord";
+    texCoordInput.type = QShaderDescription::Vec2;
+    texCoordInput.location = 0;
+
+    descData->inVars = {
+        texCoordInput
+    };
+
+    // Outputs (just here for completeness, not strictly needed with OpenGL, the
+    // OpenGL backend of QRhi does not care)
+    QShaderDescription::InOutVariable fragColorOutput;
+    texCoordInput.name = "gl_FragColor";
+    texCoordInput.type = QShaderDescription::Vec4;
+    texCoordInput.location = 0;
+
+    descData->outVars = {
+        fragColorOutput
+    };
+
+    // No real uniform blocks in GLSL shaders used with QRhi, but metadata-wise
+    // that's what the struct maps to in others shading languages.
+    QShaderDescription::BlockVariable matrixBlockVar;
+    matrixBlockVar.name = "qt_Matrix";
+    matrixBlockVar.type = QShaderDescription::Mat4;
+    matrixBlockVar.offset = 0;
+    matrixBlockVar.size = 64;
+
+    QShaderDescription::BlockVariable opacityBlockVar;
+    opacityBlockVar.name = "qt_Opacity";
+    opacityBlockVar.type = QShaderDescription::Float;
+    opacityBlockVar.offset = 64;
+    opacityBlockVar.size = 4;
+
+    QShaderDescription::UniformBlock ubufStruct;
+    ubufStruct.blockName = "buf";
+    ubufStruct.structName = "ubuf";
+    ubufStruct.size = 64 + 4;
+    ubufStruct.binding = 0;
+    ubufStruct.members = {
+        matrixBlockVar,
+        opacityBlockVar
+    };
+
+    descData->uniformBlocks = {
+        ubufStruct
+    };
+
+    // Samplers
+    QShaderDescription::InOutVariable samplerTex0;
+    samplerTex0.name = "tex0";
+    samplerTex0.type = QShaderDescription::SamplerExternalOES;
+    // the struct with the "uniform block" content should be binding 0, samplers can then use 1, 2, ...
+    samplerTex0.binding = 1;
+
+    descData->combinedImageSamplers = {
+        samplerTex0
+    };
+
+    // Now we have everything needed to construct a QShader suitable for OpenGL ES >=2.0 and OpenGL >=2.1
+    QShader shaderPack;
+    shaderPack.setStage(QShader::FragmentStage);
+    shaderPack.setDescription(desc);
+    shaderPack.setShader(QShaderKey(QShader::GlslShader, QShaderVersion(100, QShaderVersion::GlslEs)), QShaderCode(fs_gles));
+    shaderPack.setShader(QShaderKey(QShader::GlslShader, QShaderVersion(120)), QShaderCode(fs_gl));
+
+    // real world code would then pass the QShader to QSGMaterialShader::setShader() etc.
+
+    const QByteArray serialized = shaderPack.serialized();
+    QShader newShaderPack = QShader::fromSerialized(serialized);
+    QCOMPARE(newShaderPack.availableShaders().count(), 2);
+    QCOMPARE(newShaderPack.description().inputVariables().count(), 1);
+    QCOMPARE(newShaderPack.description().outputVariables().count(), 1);
+    QCOMPARE(newShaderPack.description().uniformBlocks().count(), 1);
+    QCOMPARE(newShaderPack.description().combinedImageSamplers().count(), 1);
+    QCOMPARE(newShaderPack.shader(QShaderKey(QShader::GlslShader, QShaderVersion(100, QShaderVersion::GlslEs))).shader(), fs_gles);
+    QCOMPARE(newShaderPack.shader(QShaderKey(QShader::GlslShader, QShaderVersion(120))).shader(), fs_gl);
 }
 
 #include <tst_qshader.moc>

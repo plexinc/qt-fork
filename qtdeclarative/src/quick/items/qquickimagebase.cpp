@@ -51,24 +51,27 @@
 
 QT_BEGIN_NAMESPACE
 
+bool isScalableImageFormat(const QUrl &url)
+{
+    if (url.scheme() == QLatin1String("image")) {
+        // Custom image provider; let the provider deal with it.
+        return false;
+    }
+
+    const QString stringUrl = url.path(QUrl::PrettyDecoded);
+    return stringUrl.endsWith(QLatin1String("svg"))
+        || stringUrl.endsWith(QLatin1String("svgz"))
+        || stringUrl.endsWith(QLatin1String("pdf"));
+}
+
 // This function gives derived classes the chance set the devicePixelRatio
 // if they're not happy with our implementation of it.
 bool QQuickImageBasePrivate::updateDevicePixelRatio(qreal targetDevicePixelRatio)
 {
     // QQuickImageProvider and SVG and PDF can generate a high resolution image when
-    // sourceSize is set (this function is only called if it's set).
-    // If sourceSize is not set then the provider default size will be used, as usual.
-    bool setDevicePixelRatio = false;
-    if (url.scheme() == QLatin1String("image")) {
-        setDevicePixelRatio = true;
-    } else {
-        QString stringUrl = url.path(QUrl::PrettyDecoded);
-        if (stringUrl.endsWith(QLatin1String("svg")) ||
-            stringUrl.endsWith(QLatin1String("svgz")) ||
-            stringUrl.endsWith(QLatin1String("pdf"))) {
-            setDevicePixelRatio = true;
-        }
-    }
+    // sourceSize is set. If sourceSize is not set then the provider default size will
+    // be used, as usual.
+    const bool setDevicePixelRatio = isScalableImageFormat(url);
 
     if (setDevicePixelRatio)
         devicePixelRatio = targetDevicePixelRatio;
@@ -217,10 +220,10 @@ QImage QQuickImageBase::image() const
 void QQuickImageBase::setMirror(bool mirror)
 {
     Q_D(QQuickImageBase);
-    if (mirror == d->mirror)
+    if (mirror == d->mirrorHorizontally)
         return;
 
-    d->mirror = mirror;
+    d->mirrorHorizontally = mirror;
 
     if (isComponentComplete())
         update();
@@ -231,7 +234,27 @@ void QQuickImageBase::setMirror(bool mirror)
 bool QQuickImageBase::mirror() const
 {
     Q_D(const QQuickImageBase);
-    return d->mirror;
+    return d->mirrorHorizontally;
+}
+
+void QQuickImageBase::setMirrorVertically(bool mirror)
+{
+    Q_D(QQuickImageBase);
+    if (mirror == d->mirrorVertically)
+        return;
+
+    d->mirrorVertically = mirror;
+
+    if (isComponentComplete())
+        update();
+
+    emit mirrorVerticallyChanged();
+}
+
+bool QQuickImageBase::mirrorVertically() const
+{
+    Q_D(const QQuickImageBase);
+    return d->mirrorVertically;
 }
 
 void QQuickImageBase::setCurrentFrame(int frame)
@@ -298,21 +321,22 @@ void QQuickImageBase::loadPixmap(const QUrl &url, LoadPixmapOptions loadOptions)
         options |= QQuickPixmap::Cache;
     d->pix.clear(this);
     QUrl loadUrl = url;
-    QQmlEngine* engine = qmlEngine(this);
-    if (engine && engine->urlInterceptor())
-        loadUrl = engine->urlInterceptor()->intercept(loadUrl, QQmlAbstractUrlInterceptor::UrlString);
+    const QQmlContext *context = qmlContext(this);
+    if (context)
+        loadUrl = context->resolvedUrl(url);
 
     if (loadOptions & HandleDPR) {
         const qreal targetDevicePixelRatio = (window() ? window()->effectiveDevicePixelRatio() : qApp->devicePixelRatio());
         d->devicePixelRatio = 1.0;
         bool updatedDevicePixelRatio = false;
-        if (d->sourcesize.isValid())
+        if (d->sourcesize.isValid() || isScalableImageFormat(d->url))
             updatedDevicePixelRatio = d->updateDevicePixelRatio(targetDevicePixelRatio);
 
         if (!updatedDevicePixelRatio) {
             // (possible) local file: loadUrl and d->devicePixelRatio will be modified if
             // an "@2x" file is found.
-            resolve2xLocalFile(d->url, targetDevicePixelRatio, &loadUrl, &d->devicePixelRatio);
+            resolve2xLocalFile(context ? context->resolvedUrl(d->url) : d->url,
+                               targetDevicePixelRatio, &loadUrl, &d->devicePixelRatio);
         }
     }
 
@@ -322,7 +346,8 @@ void QQuickImageBase::loadPixmap(const QUrl &url, LoadPixmapOptions loadOptions)
                 (loadOptions & HandleDPR) ? d->sourcesize * d->devicePixelRatio : QSize(),
                 options,
                 (loadOptions & UseProviderOptions) ? d->providerOptions : QQuickImageProviderOptions(),
-                d->currentFrame, d->frameCount);
+                d->currentFrame, d->frameCount,
+                d->devicePixelRatio);
 
     if (d->pix.isLoading()) {
         if (d->progress != 0.0) {
@@ -418,10 +443,14 @@ void QQuickImageBase::itemChange(ItemChange change, const ItemChangeData &value)
     Q_D(QQuickImageBase);
     // If the screen DPI changed, reload image.
     if (change == ItemDevicePixelRatioHasChanged && value.realValue != d->devicePixelRatio) {
+        const auto oldDpr = d->devicePixelRatio;
         // ### how can we get here with !qmlEngine(this)? that implies
         // itemChange() on an item pending deletion, which seems strange.
         if (qmlEngine(this) && isComponentComplete() && d->url.isValid()) {
             load();
+            // not changed when loading (sourceSize might not be set)
+            if (d->devicePixelRatio == oldDpr)
+                d->updateDevicePixelRatio(value.realValue);
         }
     }
     QQuickItem::itemChange(change, value);

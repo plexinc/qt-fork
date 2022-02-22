@@ -57,7 +57,7 @@ it to Qt as shown in the following example.
         newIntent.putExtra(NfcAdapter.EXTRA_TAG, pTag);
         QtNative.onNewIntent(newIntent);
     }
-\ endcode
+\endcode
 
 \section1 C++ Overview
 
@@ -89,6 +89,18 @@ to the \l QNearFieldManager::targetLost() signal:
 
 \note The target object should only be deleted via deleteLater() if it is deleted inside the slot.
 
+\section2 Connecting NFC Tags
+
+All functions of \l QNearFieldTarget that require a connection will create one by its own.
+An active connection will prevent other instances to create a connection because only one
+connection at the time is allowed.
+
+Qt 5 disconnected the tag at the end of the functions to allow other instances to connect.
+QNearFieldManager::setKeepConnection() allowed to change this behavior.
+
+Since Qt 6, \l QNearFieldTarget keeps the connection by default. The connection is only closed
+when the \l QNearFieldTarget is destroyed or \l QNearFieldManager::disconnect() is called.
+
 \section2 Reading and Writing NDEF Messages
 
 The \l QNearFieldTarget instance returned by \l QNearFieldManager::targetDetected() signal
@@ -103,62 +115,7 @@ may consist of zero or more \l QNdefRecord entries, which can be identified by t
 For more information about processing of records, see the \l QNdefRecord class documentation.
 As the above code demonstrates, writing of NDEF messages is triggered via
 \l QNearFieldTarget::writeNdefMessages(). The successful completion of the write operation
-is indicated by the emission of the \l QNearFieldTarget::ndefMessagesWritten() signal. Any
-type of error during read or write is indicated via \l QNearFieldTarget::error().
-
-\section2 Registering NDEF Message Handlers
-
-The above described method (of reading NDEF messages) directly connects to the platform's NFC infrastructure.
-However on some platforms (in particular mobile platforms) this may not actually trigger the target slot
-if the application is currently running in the background. This is not desirable in cases where an
-application wants to be activated if the platform detects a tag of particular type.
-For this purpose the Qt NFC API provides the possibility to register an NDEF message handler. The handler
-is called by the operating system, when the detected NDEF message matches the given filter criteria.
-Depending on the platform it may even be possible to start the application that registered the handler.
-
-\note This feature is not available on all platforms and, in addition to the code snippets below,
-may require further platform specific setup.
-
-\snippet annotatedurl/annotatedurl.cpp QNearFieldManager register handler
-
-For comparison an application that uses an empty NDEF filter (match all behavior) in combination with
-\l QNearFieldManager::registerNdefMessageHandler() would behave similarly to another application that uses
-\l QNearFieldTarget::readNdefMessages() while being in the forground. For more information about
-registration details of NDEF message handlers, see the
-\l {QNearFieldManager#automatically-launching-ndef-message-handlers}{QNearFieldManager} class description.
-
-The content of \c handleMessage() may look like the snippet below. Any incoming NDEF message of type
-\c text or \c uri will be processed:
-
-\snippet annotatedurl/annotatedurl.cpp handleMessage 1
-\snippet annotatedurl/annotatedurl.cpp handleMessage 2
-\snippet annotatedurl/annotatedurl.cpp handleMessage 3
-\snippet annotatedurl/annotatedurl.cpp handleMessage 4
-
-\section2 Sharing Files and Messages
-
-Since Qt 5.3, Qt NFC provides a generic NFC share feature. If both devices support the same protocol,
-the feature can be used to share files or NDEF messages. The advantage is that the two involved partners
-can quickly establish a connection via NFC but transfer the data through, for example, Bluetooth or Wifi.
-Effectively, this combines the low configuration effort of NFC with high data rate communication bearers
-which usually require a much more complex setup.
-
-\note The API does not make any guarantees about the actual communication bearer used during the transfer.
-The bearer is chosen based on the device's capabilities and the properties of the to-be-shared data.
-
-\l QNearFieldShareManager and \l QNearFieldShareTarget are responsible for accessing the NFC share feature.
-
-\section1 QML Overview
-
-The QML API only supports a very small subset of the Qt NFC feature set. This section outlines the available QML features.
-
-\section2 Reading NDEF Messages
-
-The user can specify NDEF filters and use those filters to register for the automatic reception of NDEF
-messages which match those filters. The \l NearField::messageRecords property contains the list of NDEF records
-of the last NDEF message read matching the given filters.
-
-\snippet doc_src_qtnfc.qml QML register for messages
-
-If no filter is set, the message handler will match all incoming NDEF messages.
+is indicated by the emission of the \l QNearFieldTarget::requestCompleted() signal with the
+corresponding request id. Any type of error during read or write is indicated via
+\l QNearFieldTarget::error().
 */

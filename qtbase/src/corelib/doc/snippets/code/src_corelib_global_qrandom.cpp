@@ -95,9 +95,9 @@
 //! [8]
 
 //! [9]
-    QVector<quint32> vector;
-    vector.resize(16);
-    QRandomGenerator::global()->fillRange(vector.data(), vector.size());
+    QList<quint32> list;
+    list.resize(16);
+    QRandomGenerator::global()->fillRange(list.data(), list.size());
 //! [9]
 
 //! [10]
@@ -127,5 +127,5 @@
 //! [15]
 
 //! [16]
-    qint64 value = QRandomGenerator64::generate() & std::numeric_limits<qint64>::max();
+    qint64 value = QRandomGenerator64::global()->generate() & std::numeric_limits<qint64>::max();
 //! [16]

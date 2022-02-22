@@ -64,8 +64,8 @@ public:
     QString calculateId(QScxmlStateMachine *parent,
                         const QScxmlExecutableContent::InvokeInfo &invokeInfo, bool *ok) const;
     QVariantMap calculateData(QScxmlStateMachine *parent,
-                              const QVector<QScxmlExecutableContent::ParameterInfo> &parameters,
-                              const QVector<QScxmlExecutableContent::StringId> &names,
+                              const QList<QScxmlExecutableContent::ParameterInfo> &parameters,
+                              const QList<QScxmlExecutableContent::StringId> &names,
                               bool *ok) const;
 
     QScxmlStateMachine *parentStateMachine;
@@ -76,12 +76,12 @@ class QScxmlInvokableServiceFactoryPrivate : public QObjectPrivate
 public:
     QScxmlInvokableServiceFactoryPrivate(
             const QScxmlExecutableContent::InvokeInfo &invokeInfo,
-            const QVector<QScxmlExecutableContent::StringId> &names,
-            const QVector<QScxmlExecutableContent::ParameterInfo> &parameters);
+            const QList<QScxmlExecutableContent::StringId> &names,
+            const QList<QScxmlExecutableContent::ParameterInfo> &parameters);
 
     QScxmlExecutableContent::InvokeInfo invokeInfo;
-    QVector<QScxmlExecutableContent::StringId> names;
-    QVector<QScxmlExecutableContent::ParameterInfo> parameters;
+    QList<QScxmlExecutableContent::StringId> names;
+    QList<QScxmlExecutableContent::ParameterInfo> parameters;
 };
 
 class Q_SCXML_EXPORT QScxmlScxmlService: public QScxmlInvokableService
@@ -111,8 +111,8 @@ public:
     QScxmlStaticScxmlServiceFactoryPrivate(
             const QMetaObject *metaObject,
             const QScxmlExecutableContent::InvokeInfo &invokeInfo,
-            const QVector<QScxmlExecutableContent::StringId> &names,
-            const QVector<QScxmlExecutableContent::ParameterInfo> &parameters);
+            const QList<QScxmlExecutableContent::StringId> &names,
+            const QList<QScxmlExecutableContent::ParameterInfo> &parameters);
 
     const QMetaObject *metaObject;
 };

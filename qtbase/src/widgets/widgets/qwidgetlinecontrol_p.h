@@ -70,6 +70,7 @@
 #include "qplatformdefs.h"
 
 #include <vector>
+#include <memory>
 
 #ifdef DrawText
 #  undef DrawText
@@ -110,9 +111,7 @@ public:
         // password data to stay in the process memory, therefore we need
         // to zero it out
         if (m_echoMode != QLineEdit::Normal)
-            m_text.fill('\0');
-
-        delete [] m_maskData;
+            m_text.fill(u'\0');
     }
 
     void setAccessibleObject(QObject *object)
@@ -165,6 +164,9 @@ public:
 
     int selectionStart() const { return hasSelectedText() ? m_selstart : -1; }
     int selectionEnd() const { return hasSelectedText() ? m_selend : -1; }
+#if defined (Q_OS_ANDROID)
+    bool isSelectableByMouse() const { return true; }
+#endif
     bool inSelection(int x) const
     {
         if (m_selstart >= m_selend)
@@ -465,7 +467,7 @@ private:
     };
     QString m_inputMask;
     QChar m_blank;
-    MaskInputData *m_maskData;
+    std::unique_ptr<MaskInputData[]> m_maskData;
 
     // undo/redo handling
     enum CommandType { Separator, Insert, Remove, Delete, RemoveSelection, DeleteSelection, SetSelection };

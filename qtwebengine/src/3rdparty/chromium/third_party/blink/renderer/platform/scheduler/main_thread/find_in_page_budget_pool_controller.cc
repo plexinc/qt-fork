@@ -36,14 +36,7 @@ FindInPageBudgetPoolController::FindInPageBudgetPoolController(
   } else {
     task_priority_ = kFindInPageBudgetNotExhaustedPriority;
   }
-}
 
-FindInPageBudgetPoolController::~FindInPageBudgetPoolController() = default;
-
-void FindInPageBudgetPoolController::EnsureBudgetPoolInitialized() {
-  DCHECK(!best_effort_budget_experiment_enabled_);
-  if (find_in_page_budget_pool_)
-    return;
   base::TimeTicks now = scheduler_->GetTickClock()->NowTicks();
   find_in_page_budget_pool_.reset(new CPUTimeBudgetPool(
       "FindInPageBudgetPool", this, &scheduler_->tracing_controller_, now));
@@ -55,16 +48,18 @@ void FindInPageBudgetPoolController::EnsureBudgetPoolInitialized() {
       now, kFindInPageBudgetRecoveryRate);
 }
 
+FindInPageBudgetPoolController::~FindInPageBudgetPoolController() = default;
+
 void FindInPageBudgetPoolController::OnTaskCompleted(
     MainThreadTaskQueue* queue,
     TaskQueue::TaskTiming* task_timing) {
   if (!queue || best_effort_budget_experiment_enabled_)
     return;
-  EnsureBudgetPoolInitialized();
+  DCHECK(find_in_page_budget_pool_);
   if (queue->GetPrioritisationType() ==
       MainThreadTaskQueue::QueueTraits::PrioritisationType::kFindInPage) {
     find_in_page_budget_pool_->RecordTaskRunTime(
-        queue, task_timing->start_time(), task_timing->end_time());
+        nullptr, task_timing->start_time(), task_timing->end_time());
   }
 
   bool is_exhausted = !find_in_page_budget_pool_->CanRunTasksAt(

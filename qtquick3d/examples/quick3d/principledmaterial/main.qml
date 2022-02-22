@@ -48,9 +48,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.15
-import QtQuick.Window 2.14
-import QtQuick3D 1.15
+import QtQuick
+import QtQuick3D
 
 Window {
     id: window
@@ -58,6 +57,7 @@ Window {
     height: 720
     visible: true
     title: "Principled Materials Example"
+    color: "#848895"
 
     MaterialControl {
         id: materialCtrl
@@ -74,7 +74,7 @@ Window {
         // Rotate the light direction
         DirectionalLight {
             eulerRotation.y: -100
-            brightness: 100
+            brightness: 1
             SequentialAnimation on eulerRotation.y {
                 loops: Animation.Infinite
                 PropertyAnimation {
@@ -88,13 +88,12 @@ Window {
 
         //! [environment]
         environment: SceneEnvironment {
-            probeBrightness: 100
-            clearColor: "#848895"
-
-            backgroundMode: SceneEnvironment.Color
+            clearColor: window.color
+            backgroundMode: SceneEnvironment.SkyBox
             lightProbe: Texture {
                 source: "maps/OpenfootageNET_garage-1024.hdr"
             }
+            probeOrientation: Qt.vector3d(0, -90, 0)
         }
         //! [environment]
 
@@ -113,7 +112,6 @@ Window {
                     metalness: materialCtrl.metalness
                     roughness: materialCtrl.roughness
                     specularAmount: materialCtrl.specular
-                    indexOfRefraction: materialCtrl.ior
                     specularTint: materialCtrl.specularTint
                     opacity: materialCtrl.opacityValue
                 }
@@ -130,7 +128,6 @@ Window {
                     metalness: materialCtrl.metalness
                     roughness: materialCtrl.roughness
                     specularAmount: materialCtrl.specular
-                    indexOfRefraction: materialCtrl.ior
                     opacity: materialCtrl.opacityValue
 
                     baseColorMap: Texture { source: "maps/metallic/basecolor.jpg" }

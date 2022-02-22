@@ -28,11 +28,9 @@
 
 #include "qdoccommandlineparser.h"
 
-#include "loggingcategory.h"
 #include "utilities.h"
 
 #include <QtCore/qdebug.h>
-#include <QtCore/qdir.h>
 #include <QtCore/qfile.h>
 
 QDocCommandLineParser::QDocCommandLineParser()
@@ -46,7 +44,6 @@ QDocCommandLineParser::QDocCommandLineParser()
       noExamplesOption(QStringList() << QStringLiteral("no-examples")),
       indexDirOption(QStringList() << QStringLiteral("indexdir")),
       installDirOption(QStringList() << QStringLiteral("installdir")),
-      obsoleteLinksOption(QStringList() << QStringLiteral("obsoletelinks")),
       outputDirOption(QStringList() << QStringLiteral("outputdir")),
       outputFormatOption(QStringList() << QStringLiteral("outputformat")),
       noLinkErrorsOption(QStringList() << QStringLiteral("no-link-errors")),
@@ -56,7 +53,6 @@ QDocCommandLineParser::QDocCommandLineParser()
       generateOption(QStringList() << QStringLiteral("generate")),
       logProgressOption(QStringList() << QStringLiteral("log-progress")),
       singleExecOption(QStringList() << QStringLiteral("single-exec")),
-      writeQaPagesOption(QStringList() << QStringLiteral("write-qa-pages")),
       includePathOption("I", "Add dir to the include path for header files.", "path"),
       includePathSystemOption("isystem", "Add dir to the system include path for header files.",
                               "path"),
@@ -111,10 +107,6 @@ QDocCommandLineParser::QDocCommandLineParser()
     installDirOption.setValueName(QStringLiteral("dir"));
     addOption(installDirOption);
 
-    obsoleteLinksOption.setDescription(QCoreApplication::translate(
-            "qdoc", "Report links from obsolete items to non-obsolete items"));
-    addOption(obsoleteLinksOption);
-
     outputDirOption.setDescription(QCoreApplication::translate(
             "qdoc", "Specify output directory, overrides setting in qdocconf file"));
     outputDirOption.setValueName(QStringLiteral("dir"));
@@ -151,9 +143,6 @@ QDocCommandLineParser::QDocCommandLineParser()
     singleExecOption.setDescription(
             QCoreApplication::translate("qdoc", "Run qdoc once over all the qdoc conf files."));
     addOption(singleExecOption);
-
-    writeQaPagesOption.setDescription(QCoreApplication::translate("qdoc", "Write QA pages."));
-    addOption(writeQaPagesOption);
 
     includePathOption.setFlags(QCommandLineOption::ShortOptionStyle);
     addOption(includePathOption);

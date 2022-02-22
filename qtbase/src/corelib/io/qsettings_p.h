@@ -64,16 +64,11 @@
 #ifndef QT_NO_QOBJECT
 #include "private/qobject_p.h"
 #endif
-#include "private/qscopedpointer_p.h"
 
 QT_BEGIN_NAMESPACE
 
 #ifndef Q_OS_WIN
 #define QT_QSETTINGS_ALWAYS_CASE_SENSITIVE_AND_FORGET_ORIGINAL_KEY_ORDER
-#endif
-
-#if defined(Q_OS_WINRT)
-#define QT_QTSETTINGS_FORGET_ORIGINAL_KEY_ORDER
 #endif
 
 // used in testing framework
@@ -98,7 +93,7 @@ class QSettingsKey : public QString
 {
 public:
     inline QSettingsKey(const QString &key, Qt::CaseSensitivity cs, int position = -1)
-         : QString(key), theOriginalKey(key), theOriginalKeyPosition(position)
+        : QString(key), theOriginalKey(key), theOriginalKeyPosition(position)
     {
         if (cs == Qt::CaseInsensitive)
             QString::operator=(toLower());
@@ -113,7 +108,7 @@ private:
 };
 #endif
 
-Q_DECLARE_TYPEINFO(QSettingsKey, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QSettingsKey, Q_RELOCATABLE_TYPE);
 
 typedef QMap<QSettingsKey, QByteArray> UnparsedSettingsMap;
 typedef QMap<QSettingsKey, QVariant> ParsedSettingsMap;
@@ -139,7 +134,7 @@ public:
     int num;
     int maxNum;
 };
-Q_DECLARE_TYPEINFO(QSettingsGroup, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QSettingsGroup, Q_RELOCATABLE_TYPE);
 
 inline QString QSettingsGroup::toString() const
 {
@@ -224,7 +219,7 @@ public:
                                         const QString &organization, const QString &application);
     static QSettingsPrivate *create(const QString &fileName, QSettings::Format format);
 
-    static void processChild(QStringRef key, ChildSpec spec, QStringList &result);
+    static void processChild(QStringView key, ChildSpec spec, QStringList &result);
 
     // Variant streaming functions
     static QStringList variantListToStringList(const QVariantList &l);
@@ -235,18 +230,16 @@ public:
     static QVariant stringToVariant(const QString &s);
     static void iniEscapedKey(const QString &key, QByteArray &result);
     static bool iniUnescapedKey(const QByteArray &key, int from, int to, QString &result);
-    static void iniEscapedString(const QString &str, QByteArray &result, QTextCodec *codec);
-    static void iniEscapedStringList(const QStringList &strs, QByteArray &result, QTextCodec *codec);
+    static void iniEscapedString(const QString &str, QByteArray &result);
+    static void iniEscapedStringList(const QStringList &strs, QByteArray &result);
     static bool iniUnescapedStringList(const QByteArray &str, int from, int to,
-                                       QString &stringResult, QStringList &stringListResult,
-                                       QTextCodec *codec);
+                                       QString &stringResult, QStringList &stringListResult);
     static QStringList splitArgs(const QString &s, int idx);
 
     QSettings::Format format;
     QSettings::Scope scope;
     QString organizationName;
     QString applicationName;
-    QTextCodec *iniCodec;
 
 protected:
     QStack<QSettingsGroup> groupStack;
@@ -283,7 +276,7 @@ public:
 
     bool readIniFile(const QByteArray &data, UnparsedSettingsMap *unparsedIniSections);
     static bool readIniSection(const QSettingsKey &section, const QByteArray &data,
-                               ParsedSettingsMap *settingsMap, QTextCodec *codec);
+                               ParsedSettingsMap *settingsMap);
     static bool readIniLine(const QByteArray &data, int &dataPos, int &lineStart, int &lineLen,
                             int &equalsPos);
 
@@ -299,7 +292,7 @@ private:
     void ensureAllSectionsParsed(QConfFile *confFile) const;
     void ensureSectionParsed(QConfFile *confFile, const QSettingsKey &key) const;
 
-    QVector<QConfFile *> confFiles;
+    QList<QConfFile *> confFiles;
     QSettings::ReadFunc readFunc;
     QSettings::WriteFunc writeFunc;
     QString extension;

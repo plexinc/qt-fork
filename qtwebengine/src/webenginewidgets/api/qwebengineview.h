@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtWebEngine module of the Qt Toolkit.
@@ -40,23 +40,27 @@
 #ifndef QWEBENGINEVIEW_H
 #define QWEBENGINEVIEW_H
 
-#include <QtGui/qpainter.h>
-#include <QtNetwork/qnetworkaccessmanager.h>
+#include <QtGui/QPageLayout>
+#include <QtGui/qpageranges.h>
 #include <QtWidgets/qwidget.h>
 
 #include <QtWebEngineWidgets/qtwebenginewidgetsglobal.h>
-#include <QtWebEngineWidgets/qwebenginepage.h>
-#include <QtWebEngineCore/qwebenginehttprequest.h>
+#include <QtWebEngineCore/qwebenginepage.h>
 
 QT_BEGIN_NAMESPACE
+
 class QContextMenuEvent;
+class QPrinter;
 class QUrl;
-class QWebEnginePage;
+class QWebEngineContextMenuRequest;
+class QWebEngineHistory;
+class QWebEngineHttpRequest;
 class QWebEngineSettings;
 class QWebEngineViewAccessible;
 class QWebEngineViewPrivate;
 
-class QWEBENGINEWIDGETS_EXPORT QWebEngineView : public QWidget {
+class QWEBENGINEWIDGETS_EXPORT QWebEngineView : public QWidget
+{
     Q_OBJECT
     Q_PROPERTY(QString title READ title)
     Q_PROPERTY(QUrl url READ url WRITE setUrl)
@@ -67,18 +71,21 @@ class QWEBENGINEWIDGETS_EXPORT QWebEngineView : public QWidget {
     Q_PROPERTY(qreal zoomFactor READ zoomFactor WRITE setZoomFactor)
 
 public:
-    explicit QWebEngineView(QWidget* parent = Q_NULLPTR);
+    explicit QWebEngineView(QWidget *parent = nullptr);
     virtual ~QWebEngineView();
 
-    QWebEnginePage* page() const;
-    void setPage(QWebEnginePage* page);
+    static QWebEngineView *forPage(const QWebEnginePage *page);
+
+    QWebEnginePage *page() const;
+    void setPage(QWebEnginePage *page);
 
     void load(const QUrl &url);
     void load(const QWebEngineHttpRequest &request);
-    void setHtml(const QString& html, const QUrl& baseUrl = QUrl());
-    void setContent(const QByteArray& data, const QString& mimeType = QString(), const QUrl& baseUrl = QUrl());
+    void setHtml(const QString &html, const QUrl &baseUrl = QUrl());
+    void setContent(const QByteArray &data, const QString &mimeType = QString(),
+                    const QUrl &baseUrl = QUrl());
 
-    QWebEngineHistory* history() const;
+    QWebEngineHistory *history() const;
 
     QString title() const;
     void setUrl(const QUrl &url);
@@ -90,16 +97,33 @@ public:
     QString selectedText() const;
 
 #ifndef QT_NO_ACTION
-    QAction* pageAction(QWebEnginePage::WebAction action) const;
+    QAction *pageAction(QWebEnginePage::WebAction action) const;
 #endif
     void triggerPageAction(QWebEnginePage::WebAction action, bool checked = false);
 
     qreal zoomFactor() const;
     void setZoomFactor(qreal factor);
-    void findText(const QString &subString, QWebEnginePage::FindFlags options = QWebEnginePage::FindFlags(), const QWebEngineCallback<bool> &resultCallback = QWebEngineCallback<bool>());
+    void findText(const QString &subString, QWebEnginePage::FindFlags options = {},
+                  const std::function<void(const QWebEngineFindTextResult &)> &resultCallback =
+                          std::function<void(const QWebEngineFindTextResult &)>());
 
     QSize sizeHint() const override;
     QWebEngineSettings *settings() const;
+
+#if QT_CONFIG(menu)
+    QMenu *createStandardContextMenu();
+#endif
+    QWebEngineContextMenuRequest *lastContextMenuRequest() const;
+
+    void printToPdf(const QString &filePath,
+                    const QPageLayout &layout = QPageLayout(QPageSize(QPageSize::A4),
+                                                            QPageLayout::Portrait, QMarginsF()),
+                    const QPageRanges &ranges = {});
+    void printToPdf(const std::function<void(const QByteArray &)> &resultCallback,
+                    const QPageLayout &layout = QPageLayout(QPageSize(QPageSize::A4),
+                                                            QPageLayout::Portrait, QMarginsF()),
+                    const QPageRanges &ranges = {});
+    void print(QPrinter *printer);
 
 public Q_SLOTS:
     void stop();
@@ -111,20 +135,23 @@ Q_SIGNALS:
     void loadStarted();
     void loadProgress(int progress);
     void loadFinished(bool);
-    void titleChanged(const QString& title);
+    void titleChanged(const QString &title);
     void selectionChanged();
-    void urlChanged(const QUrl&);
-    void iconUrlChanged(const QUrl&);
-    void iconChanged(const QIcon&);
+    void urlChanged(const QUrl &);
+    void iconUrlChanged(const QUrl &);
+    void iconChanged(const QIcon &);
     void renderProcessTerminated(QWebEnginePage::RenderProcessTerminationStatus terminationStatus,
-                             int exitCode);
+                                 int exitCode);
+    void pdfPrintingFinished(const QString &filePath, bool success);
+    void printRequested();
+    void printFinished(bool success);
 
 protected:
     virtual QWebEngineView *createWindow(QWebEnginePage::WebWindowType type);
 #if QT_CONFIG(contextmenu)
-    void contextMenuEvent(QContextMenuEvent*) override;
+    void contextMenuEvent(QContextMenuEvent *) override;
 #endif // QT_CONFIG(contextmenu)
-    bool event(QEvent*) override;
+    bool event(QEvent *) override;
     void showEvent(QShowEvent *) override;
     void hideEvent(QHideEvent *) override;
     void closeEvent(QCloseEvent *) override;

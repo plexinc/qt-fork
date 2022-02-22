@@ -59,7 +59,6 @@
 #include <texturesubmissioncontext_p.h>
 #include <imagesubmissioncontext_p.h>
 #include <Qt3DRender/qclearbuffers.h>
-#include <Qt3DRender/qattribute.h>
 #include <Qt3DRender/private/handle_types_p.h>
 #include <Qt3DRender/private/attachmentpack_p.h>
 
@@ -145,6 +144,7 @@ public:
     void setCurrentStateSet(RenderStateSet* ss);
     RenderStateSet *currentStateSet() const;
     void applyState(const StateVariant &state);
+    void resetState();
 
     void resetMasked(qint64 maskOfStatesToReset);
     void applyStateSet(RenderStateSet *ss);

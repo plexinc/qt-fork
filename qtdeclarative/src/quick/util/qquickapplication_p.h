@@ -51,16 +51,19 @@
 // We mean it.
 //
 
-#include <QtCore/QObject>
-#include <QtGui/QFont>
-#include <qqml.h>
+#include <QtQuick/private/qtquickglobal_p.h>
+#include <QtQuick/private/qquickscreen_p.h>
+
+#include <QtQml/qqml.h>
 #include <QtQml/private/qqmlglobal_p.h>
-#include <private/qtquickglobal_p.h>
-#include "../items/qquickscreen_p.h"
+
+#include <QtGui/qfont.h>
+
+#include <QtCore/qobject.h>
 
 QT_BEGIN_NAMESPACE
 
-class Q_AUTOTEST_EXPORT QQuickApplication : public QQmlApplication
+class Q_QUICK_PRIVATE_EXPORT QQuickApplication : public QQmlApplication
 {
     Q_OBJECT
     Q_PROPERTY(bool active READ active NOTIFY activeChanged) // deprecated, use 'state' instead
@@ -72,7 +75,8 @@ class Q_AUTOTEST_EXPORT QQuickApplication : public QQmlApplication
     Q_PROPERTY(QQmlListProperty<QQuickScreenInfo> screens READ screens NOTIFY screensChanged)
 
     QML_NAMED_ELEMENT(Application)
-    QML_UNCREATABLE("Application is an abstract class.")
+    QML_SINGLETON
+    QML_ADDED_IN_VERSION(2, 0)
 
 public:
     explicit QQuickApplication(QObject *parent = nullptr);

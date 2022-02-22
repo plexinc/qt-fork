@@ -37,7 +37,7 @@ QT_BEGIN_NAMESPACE
 class QQuickView;
 QT_END_NAMESPACE
 
-QT_CHARTS_USE_NAMESPACE
+QT_USE_NAMESPACE
 
 class DataSource : public QObject
 {
@@ -53,7 +53,7 @@ public slots:
 
 private:
     QQuickView *m_appViewer;
-    QList<QVector<QPointF> > m_data;
+    QList<QList<QPointF>> m_data;
     int m_index;
 };
 

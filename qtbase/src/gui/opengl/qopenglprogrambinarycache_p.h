@@ -54,6 +54,7 @@
 #include <QtGui/qtguiglobal.h>
 #include <QtCore/qcache.h>
 #include <QtCore/qmutex.h>
+#include <QtCore/QLoggingCategory>
 #include <QtGui/private/qopenglcontext_p.h>
 #include <QtGui/private/qshader_p.h>
 
@@ -63,10 +64,12 @@ QT_BEGIN_NAMESPACE
 // therefore stay independent from QOpenGLShader(Program). Must rely only on
 // QOpenGLContext/Functions.
 
-class QOpenGLProgramBinaryCache
+Q_GUI_EXPORT Q_DECLARE_LOGGING_CATEGORY(lcOpenGLProgramDiskCache)
+
+class Q_GUI_EXPORT QOpenGLProgramBinaryCache
 {
 public:
-    struct ShaderDesc {
+    struct Q_GUI_EXPORT ShaderDesc {
         ShaderDesc() { }
         ShaderDesc(QShader::Stage stage, const QByteArray &source = QByteArray())
           : stage(stage), source(source)
@@ -74,8 +77,8 @@ public:
         QShader::Stage stage;
         QByteArray source;
     };
-    struct ProgramDesc {
-        QVector<ShaderDesc> shaders;
+    struct Q_GUI_EXPORT ProgramDesc {
+        QList<ShaderDesc> shaders;
         QByteArray cacheKey() const;
     };
 
@@ -89,7 +92,9 @@ private:
     bool verifyHeader(const QByteArray &buf) const;
     bool setProgramBinary(uint programId, uint blobFormat, const void *p, uint blobSize);
 
-    QString m_cacheDir;
+    QString m_globalCacheDir;
+    QString m_localCacheDir;
+    QString m_currentCacheDir;
     bool m_cacheWritable;
     struct MemCacheEntry {
         MemCacheEntry(const void *p, int size, uint format)
@@ -100,7 +105,7 @@ private:
         uint format;
     };
     QCache<QByteArray, MemCacheEntry> m_memCache;
-#if defined(QT_OPENGL_ES_2)
+#if QT_CONFIG(opengles2)
     void (QOPENGLF_APIENTRYP programBinaryOES)(GLuint program, GLenum binaryFormat, const GLvoid *binary, GLsizei length);
     void (QOPENGLF_APIENTRYP getProgramBinaryOES)(GLuint program, GLsizei bufSize, GLsizei *length, GLenum *binaryFormat, GLvoid *binary);
     void initializeProgramBinaryOES(QOpenGLContext *context);
@@ -114,7 +119,7 @@ private:
 // per-context basis, not just once per process. QOpenGLSharedResource enables this,
 // although it's once-per-sharing-context-group, not per-context. Still, this should
 // be good enough in practice.
-class QOpenGLProgramBinarySupportCheck : public QOpenGLSharedResource
+class Q_GUI_EXPORT QOpenGLProgramBinarySupportCheck : public QOpenGLSharedResource
 {
 public:
     QOpenGLProgramBinarySupportCheck(QOpenGLContext *context);

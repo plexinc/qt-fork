@@ -44,9 +44,8 @@
 #include <QtCore/qlist.h>
 #include <QtCore/qobject.h>
 #include <QtCore/qmetaobject.h>
-#include <QtCore/qvariant.h>
-#include <QtCore/qvector.h>
 #include <QtTest/qtesteventloop.h>
+#include <QtCore/qvariant.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -193,23 +192,21 @@ private:
     {
         args.reserve(member.parameterCount());
         for (int i = 0; i < member.parameterCount(); ++i) {
-            int tp = member.parameterType(i);
-            if (tp == QMetaType::UnknownType && obj) {
+            QMetaType tp = member.parameterMetaType(i);
+            if (!tp.isValid() && obj) {
                 void *argv[] = { &tp, &i };
                 QMetaObject::metacall(const_cast<QObject*>(obj),
                                       QMetaObject::RegisterMethodArgumentMetaType,
                                       member.methodIndex(), argv);
-                if (tp == -1)
-                    tp = QMetaType::UnknownType;
             }
-            if (tp == QMetaType::UnknownType) {
+            if (!tp.isValid()) {
                 qWarning("QSignalSpy: Unable to handle parameter '%s' of type '%s' of method '%s',"
                          " use qRegisterMetaType to register it.",
                          member.parameterNames().at(i).constData(),
                          member.parameterTypes().at(i).constData(),
                          member.name().constData());
             }
-            args << tp;
+            args << tp.id();
         }
     }
 
@@ -222,7 +219,7 @@ private:
             if (type == QMetaType::QVariant)
                 list << *reinterpret_cast<QVariant *>(a[i + 1]);
             else
-                list << QVariant(type, a[i + 1]);
+                list << QVariant(QMetaType(type), a[i + 1]);
         }
         append(list);
 
@@ -233,7 +230,7 @@ private:
     // the full, normalized signal name
     QByteArray sig;
     // holds the QMetaType types for the argument list of the signal
-    QVector<int> args;
+    QList<int> args;
 
     QTestEventLoop m_loop;
     bool m_waiting;

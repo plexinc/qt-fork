@@ -5,6 +5,7 @@
 #include "third_party/blink/renderer/core/messaging/blink_cloneable_message_mojom_traits.h"
 
 #include "mojo/public/cpp/base/big_buffer_mojom_traits.h"
+#include "third_party/blink/public/mojom/messaging/cloneable_message.mojom-blink.h"
 #include "third_party/blink/renderer/platform/blob/blob_data.h"
 
 namespace mojo {
@@ -50,9 +51,9 @@ bool StructTraits<blink::mojom::blink::CloneableMessage::DataView,
     return false;
   out->locked_agent_cluster_id = locked_agent_cluster_id;
 
-  Vector<PendingRemote<blink::mojom::blink::NativeFileSystemTransferToken>>&
-      tokens = out->message->NativeFileSystemTokens();
-  if (!data.ReadNativeFileSystemTokens(&tokens)) {
+  Vector<PendingRemote<blink::mojom::blink::FileSystemAccessTransferToken>>&
+      tokens = out->message->FileSystemAccessTokens();
+  if (!data.ReadFileSystemAccessTokens(&tokens)) {
     return false;
   }
   return true;

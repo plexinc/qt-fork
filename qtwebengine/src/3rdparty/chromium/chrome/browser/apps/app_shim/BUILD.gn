@@ -43,7 +43,9 @@ source_set("app_shim") {
 
     deps += [
       "//apps",
-      "//chrome/browser/web_applications:web_applications_on_extensions",
+      "//chrome/browser:browser_process",
+      "//chrome/browser/profiles:profile",
+      "//chrome/browser/web_applications:web_applications",
       "//chrome/browser/web_applications/components",
       "//services/preferences/public/cpp:cpp",
     ]

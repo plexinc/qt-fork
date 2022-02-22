@@ -101,20 +101,30 @@ TEST_F(NGLayoutResultCachingTest, HitDifferentBFCOffset) {
           /* offset */ {LayoutUnit(), LayoutUnit()},
           /* available_inline_size */ LayoutUnit(100));
 
-  EXPECT_EQ(opportunities.size(), 3u);
+  EXPECT_EQ(opportunities.size(), 4u);
+
+  // This first opportunity is superfluous, but harmless. It isn't needed for
+  // correct positioning, but having it in the opportunity list shouldn't
+  // trigger any bad behaviour (if something doesn't fit, in this case it'll
+  // proceed to the next layout opportunity).
   EXPECT_EQ(opportunities[0].rect.start_offset,
             NGBfcOffset(LayoutUnit(50), LayoutUnit()));
   EXPECT_EQ(opportunities[0].rect.end_offset,
-            NGBfcOffset(LayoutUnit(100), LayoutUnit::Max()));
-
-  EXPECT_EQ(opportunities[1].rect.start_offset,
-            NGBfcOffset(LayoutUnit(), LayoutUnit(20)));
-  EXPECT_EQ(opportunities[1].rect.end_offset,
             NGBfcOffset(LayoutUnit(100), LayoutUnit(45)));
 
+  EXPECT_EQ(opportunities[1].rect.start_offset,
+            NGBfcOffset(LayoutUnit(50), LayoutUnit()));
+  EXPECT_EQ(opportunities[1].rect.end_offset,
+            NGBfcOffset(LayoutUnit(100), LayoutUnit::Max()));
+
   EXPECT_EQ(opportunities[2].rect.start_offset,
-            NGBfcOffset(LayoutUnit(), LayoutUnit(65)));
+            NGBfcOffset(LayoutUnit(), LayoutUnit(20)));
   EXPECT_EQ(opportunities[2].rect.end_offset,
+            NGBfcOffset(LayoutUnit(100), LayoutUnit(45)));
+
+  EXPECT_EQ(opportunities[3].rect.start_offset,
+            NGBfcOffset(LayoutUnit(), LayoutUnit(65)));
+  EXPECT_EQ(opportunities[3].rect.end_offset,
             NGBfcOffset(LayoutUnit(100), LayoutUnit::Max()));
 }
 
@@ -1502,22 +1512,23 @@ TEST_F(NGLayoutResultCachingTest, MissIsFixedBlockSizeIndefinite) {
   EXPECT_EQ(result.get(), nullptr);
 }
 
-TEST_F(NGLayoutResultCachingTest, HitFlexBoxMeasureAndLayout) {
-  ScopedLayoutNGFlexBoxForTest layout_ng_flex_box(true);
-
+TEST_F(NGLayoutResultCachingTest, HitColumnFlexBoxMeasureAndLayout) {
   SetBodyInnerHTML(R"HTML(
     <!DOCTYPE html>
-    <div style="display: flex; flex-direction: column; width: 100px; height: 100px;">
+    <style>
+      .bfc { display: flex; flex-direction: column; width: 100px; height: 100px; }
+    </style>
+    <div class="bfc">
       <div id="src1" style="flex-grow: 0;">
         <div style="height: 50px;"></div>
       </div>
     </div>
-    <div style="display: flex; flex-direction: column; width: 100px; height: 100px;">
+    <div class="bfc">
       <div id="src2" style="flex-grow: 1;">
         <div style="height: 50px;"></div>
       </div>
     </div>
-    <div style="display: flex; flex-direction: column; width: 100px; height: 100px;">
+    <div class="bfc">
       <div id="test1" style="flex-grow: 2;">
         <div style="height: 50px;"></div>
       </div>
@@ -1549,6 +1560,510 @@ TEST_F(NGLayoutResultCachingTest, HitFlexBoxMeasureAndLayout) {
                                      &fragment_geometry, &cache_status);
 
   EXPECT_EQ(space.CacheSlot(), NGCacheSlot::kLayout);
+  EXPECT_EQ(cache_status, NGLayoutCacheStatus::kHit);
+  EXPECT_NE(result.get(), nullptr);
+}
+
+TEST_F(NGLayoutResultCachingTest, HitRowFlexBoxMeasureAndLayout) {
+  SetBodyInnerHTML(R"HTML(
+    <!DOCTYPE html>
+    <style>
+      .bfc { display: flex; width: 100px; }
+    </style>
+    <div class="bfc">
+      <div id="src1">
+        <div style="height: 50px;"></div>
+      </div>
+    </div>
+    <div class="bfc">
+      <div id="src2">
+        <div style="height: 70px;"></div>
+      </div>
+      <div style="width: 0px; height: 100px;"></div>
+    </div>
+    <div class="bfc">
+      <div id="test1">
+        <div style="height: 50px;"></div>
+      </div>
+      <div style="width: 0px; height: 100px;"></div>
+    </div>
+  )HTML");
+
+  auto* test1 = To<LayoutBlockFlow>(GetLayoutObjectByElementId("test1"));
+  auto* src1 = To<LayoutBlockFlow>(GetLayoutObjectByElementId("src1"));
+  auto* src2 = To<LayoutBlockFlow>(GetLayoutObjectByElementId("src2"));
+
+  NGLayoutCacheStatus cache_status;
+  base::Optional<NGFragmentGeometry> fragment_geometry;
+
+  // "src1" only had one "measure" pass performed, and should hit the "measure"
+  // cache-slot for "test1".
+  NGConstraintSpace space =
+      src1->GetCachedLayoutResult()->GetConstraintSpaceForCaching();
+  scoped_refptr<const NGLayoutResult> result = test1->CachedLayoutResult(
+      space, nullptr, nullptr, &fragment_geometry, &cache_status);
+
+  EXPECT_EQ(space.CacheSlot(), NGCacheSlot::kMeasure);
+  EXPECT_EQ(cache_status, NGLayoutCacheStatus::kHit);
+  EXPECT_NE(result.get(), nullptr);
+
+  // "src2" had both a "measure" and "layout" pass performed, and should hit
+  // the "layout" cache-slot for "test1".
+  space = src2->GetCachedLayoutResult()->GetConstraintSpaceForCaching();
+  result = test1->CachedLayoutResult(space, nullptr, nullptr,
+                                     &fragment_geometry, &cache_status);
+
+  EXPECT_EQ(space.CacheSlot(), NGCacheSlot::kLayout);
+  EXPECT_EQ(cache_status, NGLayoutCacheStatus::kHit);
+  EXPECT_NE(result.get(), nullptr);
+}
+
+TEST_F(NGLayoutResultCachingTest, HitFlexLegacyImg) {
+  SetBodyInnerHTML(R"HTML(
+    <style>
+      .bfc { display: flex; flex-direction: column; width: 300px; }
+      .bfc > * { display: flex; }
+    </style>
+    <div class="bfc">
+      <div id="test">
+        <img />
+      </div>
+    </div>
+    <div class="bfc" style="height: 200px;">
+      <div id="src">
+        <img />
+      </div>
+    </div>
+  )HTML");
+
+  auto* test = To<LayoutBlock>(GetLayoutObjectByElementId("test"));
+  auto* src = To<LayoutBlock>(GetLayoutObjectByElementId("src"));
+
+  NGLayoutCacheStatus cache_status;
+  base::Optional<NGFragmentGeometry> fragment_geometry;
+  const NGConstraintSpace& space =
+      src->GetCachedLayoutResult()->GetConstraintSpaceForCaching();
+  scoped_refptr<const NGLayoutResult> result = test->CachedLayoutResult(
+      space, nullptr, nullptr, &fragment_geometry, &cache_status);
+
+  EXPECT_EQ(cache_status, NGLayoutCacheStatus::kHit);
+  EXPECT_NE(result.get(), nullptr);
+}
+
+TEST_F(NGLayoutResultCachingTest, HitFlexLegacyGrid) {
+  SetBodyInnerHTML(R"HTML(
+    <style>
+      .bfc { display: flex; flex-direction: column; width: 300px; }
+      .bfc > * { display: flex; }
+      .grid { display: grid; }
+    </style>
+    <div class="bfc">
+      <div id="test">
+        <div class="grid"></div>
+      </div>
+    </div>
+    <div class="bfc" style="height: 200px;">
+      <div id="src">
+        <div class="grid"></div>
+      </div>
+    </div>
+  )HTML");
+
+  auto* test = To<LayoutBlock>(GetLayoutObjectByElementId("test"));
+  auto* src = To<LayoutBlock>(GetLayoutObjectByElementId("src"));
+
+  NGLayoutCacheStatus cache_status;
+  base::Optional<NGFragmentGeometry> fragment_geometry;
+  const NGConstraintSpace& space =
+      src->GetCachedLayoutResult()->GetConstraintSpaceForCaching();
+  scoped_refptr<const NGLayoutResult> result = test->CachedLayoutResult(
+      space, nullptr, nullptr, &fragment_geometry, &cache_status);
+
+  EXPECT_EQ(cache_status, NGLayoutCacheStatus::kHit);
+  EXPECT_NE(result.get(), nullptr);
+}
+
+TEST_F(NGLayoutResultCachingTest, HitFlexDefiniteChange) {
+  SetBodyInnerHTML(R"HTML(
+    <div style="display: flex; flex-direction: column;">
+      <div style="height: 200px;" id=target1>
+        <div style="height: 100px"></div>
+      </div>
+    </div>
+  )HTML");
+
+  auto* target1 = To<LayoutBlock>(GetLayoutObjectByElementId("target1"));
+
+  scoped_refptr<const NGLayoutResult> result1 =
+      target1->GetCachedLayoutResult();
+  scoped_refptr<const NGLayoutResult> measure1 =
+      target1->GetCachedMeasureResult();
+  EXPECT_EQ(measure1->IntrinsicBlockSize(), 100);
+  EXPECT_EQ(result1->PhysicalFragment().Size().height, 200);
+
+  EXPECT_EQ(result1->GetConstraintSpaceForCaching().CacheSlot(),
+            NGCacheSlot::kMeasure);
+  EXPECT_EQ(result1.get(), measure1.get());
+}
+
+TEST_F(NGLayoutResultCachingTest, HitOrthogonalRoot) {
+  SetBodyInnerHTML(R"HTML(
+    <style>
+      span { display: inline-block; width: 20px; height: 250px }
+    </style>
+    <div id="target" style="display: flex;">
+      <div style="writing-mode: vertical-rl; line-height: 0;">
+        <span></span><span></span>
+      </div>
+    </div>
+  )HTML");
+
+  auto* target = To<LayoutBlock>(GetLayoutObjectByElementId("target"));
+
+  NGLayoutCacheStatus cache_status;
+  base::Optional<NGFragmentGeometry> fragment_geometry;
+  const NGConstraintSpace& space =
+      target->GetCachedLayoutResult()->GetConstraintSpaceForCaching();
+  scoped_refptr<const NGLayoutResult> result = target->CachedLayoutResult(
+      space, nullptr, nullptr, &fragment_geometry, &cache_status);
+
+  // We should hit the cache using the same constraint space.
+  EXPECT_EQ(cache_status, NGLayoutCacheStatus::kHit);
+  EXPECT_NE(result.get(), nullptr);
+}
+
+TEST_F(NGLayoutResultCachingTest, SimpleTable) {
+  ScopedLayoutNGTableForTest table_ng(true);
+
+  SetBodyInnerHTML(R"HTML(
+    <table>
+      <td id="target1">abc</td>
+      <td id="target2">abc</td>
+    </table>
+  )HTML");
+
+  auto* target1 = To<LayoutBlock>(GetLayoutObjectByElementId("target1"));
+  auto* target2 = To<LayoutBlock>(GetLayoutObjectByElementId("target2"));
+
+  // Both "target1", and "target1" should have  only had one "measure" pass
+  // performed.
+  scoped_refptr<const NGLayoutResult> result1 =
+      target1->GetCachedLayoutResult();
+  scoped_refptr<const NGLayoutResult> measure1 =
+      target1->GetCachedMeasureResult();
+  EXPECT_EQ(result1->GetConstraintSpaceForCaching().CacheSlot(),
+            NGCacheSlot::kMeasure);
+  EXPECT_NE(result1.get(), nullptr);
+  EXPECT_EQ(result1.get(), measure1.get());
+
+  scoped_refptr<const NGLayoutResult> result2 =
+      target2->GetCachedLayoutResult();
+  scoped_refptr<const NGLayoutResult> measure2 =
+      target2->GetCachedMeasureResult();
+  EXPECT_EQ(result2->GetConstraintSpaceForCaching().CacheSlot(),
+            NGCacheSlot::kMeasure);
+  EXPECT_NE(result2.get(), nullptr);
+  EXPECT_EQ(result2.get(), measure2.get());
+}
+
+TEST_F(NGLayoutResultCachingTest, MissTableCellMiddleAlignment) {
+  ScopedLayoutNGTableForTest table_ng(true);
+
+  SetBodyInnerHTML(R"HTML(
+    <table>
+      <td id="target" style="vertical-align: middle;">abc</td>
+      <td>abc<br>abc</td>
+    </table>
+  )HTML");
+
+  auto* target = To<LayoutBlock>(GetLayoutObjectByElementId("target"));
+
+  // "target" should be stretched, and miss the measure cache.
+  scoped_refptr<const NGLayoutResult> result = target->GetCachedLayoutResult();
+  scoped_refptr<const NGLayoutResult> measure =
+      target->GetCachedMeasureResult();
+  EXPECT_NE(measure.get(), nullptr);
+  EXPECT_NE(result.get(), nullptr);
+  EXPECT_EQ(measure->GetConstraintSpaceForCaching().CacheSlot(),
+            NGCacheSlot::kMeasure);
+  EXPECT_EQ(result->GetConstraintSpaceForCaching().CacheSlot(),
+            NGCacheSlot::kLayout);
+  EXPECT_NE(result.get(), measure.get());
+}
+
+TEST_F(NGLayoutResultCachingTest, MissTableCellBottomAlignment) {
+  ScopedLayoutNGTableForTest table_ng(true);
+
+  SetBodyInnerHTML(R"HTML(
+    <table>
+      <td id="target" style="vertical-align: bottom;">abc</td>
+      <td>abc<br>abc</td>
+    </table>
+  )HTML");
+
+  auto* target = To<LayoutBlock>(GetLayoutObjectByElementId("target"));
+
+  // "target" should be stretched, and miss the measure cache.
+  scoped_refptr<const NGLayoutResult> result = target->GetCachedLayoutResult();
+  scoped_refptr<const NGLayoutResult> measure =
+      target->GetCachedMeasureResult();
+  EXPECT_NE(measure.get(), nullptr);
+  EXPECT_NE(result.get(), nullptr);
+  EXPECT_EQ(measure->GetConstraintSpaceForCaching().CacheSlot(),
+            NGCacheSlot::kMeasure);
+  EXPECT_EQ(result->GetConstraintSpaceForCaching().CacheSlot(),
+            NGCacheSlot::kLayout);
+  EXPECT_NE(result.get(), measure.get());
+}
+
+TEST_F(NGLayoutResultCachingTest, HitTableCellBaselineAlignment) {
+  ScopedLayoutNGTableForTest table_ng(true);
+
+  SetBodyInnerHTML(R"HTML(
+    <style>
+      td { vertical-align: baseline; }
+    </style>
+    <table>
+      <td id="target">abc</td>
+      <td>def</td>
+    </table>
+  )HTML");
+
+  auto* target = To<LayoutBlock>(GetLayoutObjectByElementId("target"));
+
+  // "target" should align to the baseline, but hit the cache.
+  scoped_refptr<const NGLayoutResult> result = target->GetCachedLayoutResult();
+  scoped_refptr<const NGLayoutResult> measure =
+      target->GetCachedMeasureResult();
+  EXPECT_EQ(result->GetConstraintSpaceForCaching().CacheSlot(),
+            NGCacheSlot::kMeasure);
+  EXPECT_NE(result.get(), nullptr);
+  EXPECT_EQ(result.get(), measure.get());
+}
+
+TEST_F(NGLayoutResultCachingTest, MissTableCellBaselineAlignment) {
+  ScopedLayoutNGTableForTest table_ng(true);
+
+  SetBodyInnerHTML(R"HTML(
+    <style>
+      td { vertical-align: baseline; }
+    </style>
+    <table>
+      <td id="target">abc</td>
+      <td><span style="font-size: 32px">def</span></td>
+    </table>
+  )HTML");
+
+  auto* target = To<LayoutBlock>(GetLayoutObjectByElementId("target"));
+
+  // "target" should align to the baseline, but miss the cache.
+  scoped_refptr<const NGLayoutResult> result = target->GetCachedLayoutResult();
+  scoped_refptr<const NGLayoutResult> measure =
+      target->GetCachedMeasureResult();
+  EXPECT_NE(measure.get(), nullptr);
+  EXPECT_NE(result.get(), nullptr);
+  EXPECT_EQ(measure->GetConstraintSpaceForCaching().CacheSlot(),
+            NGCacheSlot::kMeasure);
+  EXPECT_EQ(result->GetConstraintSpaceForCaching().CacheSlot(),
+            NGCacheSlot::kLayout);
+  EXPECT_NE(result.get(), measure.get());
+}
+
+TEST_F(NGLayoutResultCachingTest, MissTablePercent) {
+  ScopedLayoutNGTableForTest table_ng(true);
+
+  SetBodyInnerHTML(R"HTML(
+    <style>
+      .bfc { display: flow-root; width: 100px; }
+      table { height: 100%; }
+      caption { height: 50px; }
+    </style>
+    <div class="bfc" style="height: 50px;">
+      <table id="test">
+        <caption></caption>
+        <td></td>
+      </table>
+    </div>
+    <div class="bfc" style="height: 100px;">
+      <table id="src">
+        <caption></caption>
+        <td></td>
+      </table>
+    </div>
+  )HTML");
+
+  auto* test = To<LayoutBlock>(GetLayoutObjectByElementId("test"));
+  auto* src = To<LayoutBlock>(GetLayoutObjectByElementId("src"));
+
+  NGLayoutCacheStatus cache_status;
+  base::Optional<NGFragmentGeometry> fragment_geometry;
+  const NGConstraintSpace& space =
+      src->GetCachedLayoutResult()->GetConstraintSpaceForCaching();
+  scoped_refptr<const NGLayoutResult> result = test->CachedLayoutResult(
+      space, nullptr, nullptr, &fragment_geometry, &cache_status);
+
+  EXPECT_EQ(cache_status, NGLayoutCacheStatus::kNeedsLayout);
+  EXPECT_EQ(result.get(), nullptr);
+}
+
+TEST_F(NGLayoutResultCachingTest, HitTableRowAdd) {
+  ScopedLayoutNGTableForTest table_ng(true);
+
+  SetBodyInnerHTML(R"HTML(
+    <table>
+      <tr><td>a</td><td>b</td></tr>
+      <tr id="test"><td>text</td><td>more text</td></tr>
+    </table>
+    <table>
+      <tr id="src"><td>text</td><td>more text</td></tr>
+    </table>
+  )HTML");
+
+  auto* test = To<LayoutBlock>(GetLayoutObjectByElementId("test"));
+  auto* src = To<LayoutBlock>(GetLayoutObjectByElementId("src"));
+
+  NGLayoutCacheStatus cache_status;
+  base::Optional<NGFragmentGeometry> fragment_geometry;
+  const NGConstraintSpace& space =
+      src->GetCachedLayoutResult()->GetConstraintSpaceForCaching();
+  scoped_refptr<const NGLayoutResult> result = test->CachedLayoutResult(
+      space, nullptr, nullptr, &fragment_geometry, &cache_status);
+
+  EXPECT_EQ(cache_status, NGLayoutCacheStatus::kHit);
+  EXPECT_NE(result.get(), nullptr);
+}
+
+TEST_F(NGLayoutResultCachingTest, MissTableRowAdd) {
+  ScopedLayoutNGTableForTest table_ng(true);
+
+  SetBodyInnerHTML(R"HTML(
+    <table>
+      <tr><td>longwordhere</td><td>b</td></tr>
+      <tr id="test"><td>text</td><td>more text</td></tr>
+    </table>
+    <table>
+      <tr id="src"><td>text</td><td>more text</td></tr>
+    </table>
+  )HTML");
+
+  auto* test = To<LayoutBlock>(GetLayoutObjectByElementId("test"));
+  auto* src = To<LayoutBlock>(GetLayoutObjectByElementId("src"));
+
+  NGLayoutCacheStatus cache_status;
+  base::Optional<NGFragmentGeometry> fragment_geometry;
+  const NGConstraintSpace& space =
+      src->GetCachedLayoutResult()->GetConstraintSpaceForCaching();
+  scoped_refptr<const NGLayoutResult> result = test->CachedLayoutResult(
+      space, nullptr, nullptr, &fragment_geometry, &cache_status);
+
+  EXPECT_EQ(cache_status, NGLayoutCacheStatus::kNeedsLayout);
+  EXPECT_EQ(result.get(), nullptr);
+}
+
+TEST_F(NGLayoutResultCachingTest, HitTableRowRemove) {
+  ScopedLayoutNGTableForTest table_ng(true);
+
+  SetBodyInnerHTML(R"HTML(
+    <table>
+      <tr id="test"><td>text</td><td>more text</td></tr>
+    </table>
+    <table>
+      <tr><td>a</td><td>b</td></tr>
+      <tr id="src"><td>text</td><td>more text</td></tr>
+    </table>
+  )HTML");
+
+  auto* test = To<LayoutBlock>(GetLayoutObjectByElementId("test"));
+  auto* src = To<LayoutBlock>(GetLayoutObjectByElementId("src"));
+
+  NGLayoutCacheStatus cache_status;
+  base::Optional<NGFragmentGeometry> fragment_geometry;
+  const NGConstraintSpace& space =
+      src->GetCachedLayoutResult()->GetConstraintSpaceForCaching();
+  scoped_refptr<const NGLayoutResult> result = test->CachedLayoutResult(
+      space, nullptr, nullptr, &fragment_geometry, &cache_status);
+
+  EXPECT_EQ(cache_status, NGLayoutCacheStatus::kHit);
+  EXPECT_NE(result.get(), nullptr);
+}
+
+TEST_F(NGLayoutResultCachingTest, MissTableRowRemove) {
+  ScopedLayoutNGTableForTest table_ng(true);
+
+  SetBodyInnerHTML(R"HTML(
+    <table>
+      <tr id="test"><td>text</td><td>more text</td></tr>
+    </table>
+    <table>
+      <tr><td>longwordhere</td><td>b</td></tr>
+      <tr id="src"><td>text</td><td>more text</td></tr>
+    </table>
+  )HTML");
+
+  auto* test = To<LayoutBlock>(GetLayoutObjectByElementId("test"));
+  auto* src = To<LayoutBlock>(GetLayoutObjectByElementId("src"));
+
+  NGLayoutCacheStatus cache_status;
+  base::Optional<NGFragmentGeometry> fragment_geometry;
+  const NGConstraintSpace& space =
+      src->GetCachedLayoutResult()->GetConstraintSpaceForCaching();
+  scoped_refptr<const NGLayoutResult> result = test->CachedLayoutResult(
+      space, nullptr, nullptr, &fragment_geometry, &cache_status);
+
+  EXPECT_EQ(cache_status, NGLayoutCacheStatus::kNeedsLayout);
+  EXPECT_EQ(result.get(), nullptr);
+}
+
+TEST_F(NGLayoutResultCachingTest, HitTableSectionAdd) {
+  ScopedLayoutNGTableForTest table_ng(true);
+
+  SetBodyInnerHTML(R"HTML(
+    <table>
+      <tbody><tr><td>a</td><td>b</td></tr></tbody>
+      <tbody id="test"><tr><td>text</td><td>more text</td></tr></tbody>
+    </table>
+    <table>
+      <tbody id="src"><tr><td>text</td><td>more text</td></tr></tbody>
+    </table>
+  )HTML");
+
+  auto* test = To<LayoutBlock>(GetLayoutObjectByElementId("test"));
+  auto* src = To<LayoutBlock>(GetLayoutObjectByElementId("src"));
+
+  NGLayoutCacheStatus cache_status;
+  base::Optional<NGFragmentGeometry> fragment_geometry;
+  const NGConstraintSpace& space =
+      src->GetCachedLayoutResult()->GetConstraintSpaceForCaching();
+  scoped_refptr<const NGLayoutResult> result = test->CachedLayoutResult(
+      space, nullptr, nullptr, &fragment_geometry, &cache_status);
+
+  EXPECT_EQ(cache_status, NGLayoutCacheStatus::kHit);
+  EXPECT_NE(result.get(), nullptr);
+}
+
+TEST_F(NGLayoutResultCachingTest, HitTableSectionRemove) {
+  ScopedLayoutNGTableForTest table_ng(true);
+
+  SetBodyInnerHTML(R"HTML(
+    <table>
+      <tbody id="test"><tr><td>text</td><td>more text</td></tr></tbody>
+    </table>
+    <table>
+      <tbody><tr><td>a</td><td>b</td></tr></tbody>
+      <tbody id="src"><tr><td>text</td><td>more text</td></tr></tbody>
+    </table>
+  )HTML");
+
+  auto* test = To<LayoutBlock>(GetLayoutObjectByElementId("test"));
+  auto* src = To<LayoutBlock>(GetLayoutObjectByElementId("src"));
+
+  NGLayoutCacheStatus cache_status;
+  base::Optional<NGFragmentGeometry> fragment_geometry;
+  const NGConstraintSpace& space =
+      src->GetCachedLayoutResult()->GetConstraintSpaceForCaching();
+  scoped_refptr<const NGLayoutResult> result = test->CachedLayoutResult(
+      space, nullptr, nullptr, &fragment_geometry, &cache_status);
+
   EXPECT_EQ(cache_status, NGLayoutCacheStatus::kHit);
   EXPECT_NE(result.get(), nullptr);
 }

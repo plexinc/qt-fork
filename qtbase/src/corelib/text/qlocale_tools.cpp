@@ -90,9 +90,10 @@ void qt_doubleToAscii(double d, QLocaleData::DoubleForm form, int precision, cha
     }
 
     // Detect special numbers (nan, +/-inf)
-    // We cannot use the high-level API of libdouble-conversion as we need to apply locale-specific
-    // formatting, such as decimal points, thousands-separators, etc. Because of this, we have to
-    // check for infinity and NaN before calling DoubleToAscii.
+    // We cannot use the high-level API of libdouble-conversion as we need to
+    // apply locale-specific formatting, such as decimal points, grouping
+    // separators, etc. Because of this, we have to check for infinity and NaN
+    // before calling DoubleToAscii.
     if (qt_is_inf(d)) {
         sign = d < 0;
         if (bufSize >= 3) {
@@ -143,7 +144,7 @@ void qt_doubleToAscii(double d, QLocaleData::DoubleForm form, int precision, cha
     if (precision > 999)
         precision = 999;
     else if (precision == QLocale::FloatingPointShortest)
-        precision = QLocaleData::DoubleMaxSignificant; // "shortest" mode not supported by snprintf
+        precision = std::numeric_limits<double>::max_digits10; // snprintf lacks "shortest" mode
 
     if (isZero(d)) {
         // Negative zero is expected as simple "0", not "-0". We cannot do d < 0, though.
@@ -171,8 +172,8 @@ void qt_doubleToAscii(double d, QLocaleData::DoubleForm form, int precision, cha
     switch (form) {
     case QLocaleData::DFDecimal:
         format[formatLength - 2] = 'f';
-        // <anything> '.' <precision> '\0' - optimize for numbers smaller than 512k
-        extraChars = (d > (1 << 19) ? QLocaleData::DoubleMaxDigitsBeforeDecimal : 6) + 2;
+        // <anything> '.' <precision> '\0'
+        extraChars = wholePartSpace(d) + 2;
         break;
     case QLocaleData::DFExponent:
         format[formatLength - 2] = 'e';
@@ -281,7 +282,7 @@ void qt_doubleToAscii(double d, QLocaleData::DoubleForm form, int precision, cha
         --length;
 }
 
-double qt_asciiToDouble(const char *num, int numLen, bool &ok, int &processed,
+double qt_asciiToDouble(const char *num, qsizetype numLen, bool &ok, int &processed,
                         StrayCharacterMode strayCharMode)
 {
     auto string_equals = [](const char *needle, const char *haystack, qsizetype haystackLen) {
@@ -289,7 +290,7 @@ double qt_asciiToDouble(const char *num, int numLen, bool &ok, int &processed,
         return needleLen == haystackLen && memcmp(needle, haystack, haystackLen) == 0;
     };
 
-    if (*num == '\0') {
+    if (numLen == 0) {
         ok = false;
         processed = 0;
         return 0.0;
@@ -332,7 +333,14 @@ double qt_asciiToDouble(const char *num, int numLen, bool &ok, int &processed,
                 | double_conversion::StringToDoubleConverter::ALLOW_TRAILING_SPACES;
     }
     double_conversion::StringToDoubleConverter conv(conv_flags, 0.0, qt_qnan(), nullptr, nullptr);
-    d = conv.StringToDouble(num, numLen, &processed);
+    if (int(numLen) != numLen) {
+        // a number over 2 GB in length is silly, just assume it isn't valid
+        ok = false;
+        processed = 0;
+        return 0.0;
+    } else {
+        d = conv.StringToDouble(num, numLen, &processed);
+    }
 
     if (!qIsFinite(d)) {
         ok = false;
@@ -354,6 +362,7 @@ double qt_asciiToDouble(const char *num, int numLen, bool &ok, int &processed,
         buffer = reasonableBuffer;
     else
         buffer = static_cast<char *>(malloc(numLen + 1));
+    Q_CHECK_PTR(buffer);
     memcpy(buffer, num, numLen);
     buffer[numLen] = '\0';
 
@@ -451,115 +460,83 @@ qstrtoll(const char * nptr, const char **endptr, int base, bool *ok)
     return result;
 }
 
-QString qulltoa(qulonglong l, int base, const QChar _zero)
+QString qulltoa(qulonglong number, int base, const QStringView zero)
 {
-    ushort buff[65]; // length of MAX_ULLONG in base 2
-    ushort *p = buff + 65;
+    // Length of MAX_ULLONG in base 2 is 64; and we may need a surrogate pair
+    // per digit. We do not need a terminator.
+    const unsigned maxlen = 128;
+    static_assert(CHAR_BIT * sizeof(number) <= maxlen);
+    char16_t buff[maxlen];
+    char16_t *const end = buff + maxlen, *p = end;
 
-    if (base != 10 || _zero.unicode() == '0') {
-        while (l != 0) {
-            int c = l % base;
-
-            --p;
-
-            if (c < 10)
-                *p = '0' + c;
-            else
-                *p = c - 10 + 'a';
-
-            l /= base;
+    // Performance-optimized code. Compiler can generate faster code when base is known.
+    if (base != 10 || zero == u"0") {
+        switch (base) {
+#ifndef __OPTIMIZE_SIZE__
+        case 10:
+            while (number != 0) {
+                const int c = number % 10;
+                const qulonglong temp = number / 10;
+                *--p = '0' + c;
+                number = temp;
+            }
+            break;
+        case 2:
+            while (number != 0) {
+                const int c = number % 2;
+                const qulonglong temp = number / 2;
+                *--p = '0' + c;
+                number = temp;
+            }
+            break;
+        case 8:
+            while (number != 0) {
+                const int c = number % 8;
+                const qulonglong temp = number / 8;
+                *--p = '0' + c;
+                number = temp;
+            }
+            break;
+        case 16:
+            while (number != 0) {
+                const int c = number % 16;
+                const qulonglong temp = number / 16;
+                *--p = c < 10 ? '0' + c : c - 10 + 'a';
+                number = temp;
+            }
+            break;
+#endif
+        default:
+            while (number != 0) {
+                const int c = number % base;
+                const qulonglong temp = number / base;
+                *--p = c < 10 ? '0' + c : c - 10 + 'a';
+                number = temp;
+            }
         }
-    }
-    else {
-        while (l != 0) {
-            int c = l % base;
+    } else if (zero.size() && !zero.at(0).isSurrogate()) {
+        const char16_t zeroUcs2 = zero.at(0).unicode();
+        while (number != 0) {
+            *(--p) = unicodeForDigit(number % base, zeroUcs2);
 
-            *(--p) = _zero.unicode() + c;
-
-            l /= base;
+            number /= base;
         }
+    } else if (zero.size() == 2 && zero.at(0).isHighSurrogate()) {
+        const char32_t zeroUcs4 = QChar::surrogateToUcs4(zero.at(0), zero.at(1));
+        while (number != 0) {
+            const char32_t digit = unicodeForDigit(number % base, zeroUcs4);
+
+            *(--p) = QChar::lowSurrogate(digit);
+            *(--p) = QChar::highSurrogate(digit);
+
+            number /= base;
+        }
+    } else { // zero should always be either a non-surrogate or a surrogate pair:
+        Q_UNREACHABLE();
+        return QString();
     }
 
-    return QString(reinterpret_cast<QChar *>(p), 65 - (p - buff));
-}
-
-QString &decimalForm(QChar zero, QChar decimal, QChar group,
-                     QString &digits, int decpt, int precision,
-                     PrecisionMode pm,
-                     bool always_show_decpt,
-                     bool thousands_group)
-{
-    if (decpt < 0) {
-        for (int i = 0; i < -decpt; ++i)
-            digits.prepend(zero);
-        decpt = 0;
-    }
-    else if (decpt > digits.length()) {
-        for (int i = digits.length(); i < decpt; ++i)
-            digits.append(zero);
-    }
-
-    if (pm == PMDecimalDigits) {
-        uint decimal_digits = digits.length() - decpt;
-        for (int i = decimal_digits; i < precision; ++i)
-            digits.append(zero);
-    }
-    else if (pm == PMSignificantDigits) {
-        for (int i = digits.length(); i < precision; ++i)
-            digits.append(zero);
-    }
-    else { // pm == PMChopTrailingZeros
-    }
-
-    if (always_show_decpt || decpt < digits.length())
-        digits.insert(decpt, decimal);
-
-    if (thousands_group) {
-        for (int i = decpt - 3; i > 0; i -= 3)
-            digits.insert(i, group);
-    }
-
-    if (decpt == 0)
-        digits.prepend(zero);
-
-    return digits;
-}
-
-QString &exponentForm(QChar zero, QChar decimal, QChar exponential,
-                      QChar group, QChar plus, QChar minus,
-                      QString &digits, int decpt, int precision,
-                      PrecisionMode pm,
-                      bool always_show_decpt,
-                      bool leading_zero_in_exponent)
-{
-    int exp = decpt - 1;
-
-    if (pm == PMDecimalDigits) {
-        for (int i = digits.length(); i < precision + 1; ++i)
-            digits.append(zero);
-    }
-    else if (pm == PMSignificantDigits) {
-        for (int i = digits.length(); i < precision; ++i)
-            digits.append(zero);
-    }
-    else { // pm == PMChopTrailingZeros
-    }
-
-    if (always_show_decpt || digits.length() > 1)
-        digits.insert(1, decimal);
-
-    digits.append(exponential);
-    digits.append(QLocaleData::longLongToString(zero, group, plus, minus,
-                   exp, leading_zero_in_exponent ? 2 : 1, 10, -1, QLocaleData::AlwaysShowSign));
-
-    return digits;
-}
-
-double qstrtod(const char *s00, const char **se, bool *ok)
-{
-    const int len = static_cast<int>(strlen(s00));
-    Q_ASSERT(len >= 0);
-    return qstrntod(s00, len, se, ok);
+    return QString(reinterpret_cast<QChar *>(p), end - p);
 }
 
 /*!
@@ -567,7 +544,7 @@ double qstrtod(const char *s00, const char **se, bool *ok)
 
   Converts the initial portion of the string pointed to by \a s00 to a double, using the 'C' locale.
  */
-double qstrntod(const char *s00, int len, const char **se, bool *ok)
+double qstrntod(const char *s00, qsizetype len, const char **se, bool *ok)
 {
     int processed = 0;
     bool nonNullOk = false;
@@ -586,9 +563,10 @@ QString qdtoa(qreal d, int *decpt, int *sign)
     int length = 0;
 
     // Some versions of libdouble-conversion like an extra digit, probably for '\0'
-    char result[QLocaleData::DoubleMaxSignificant + 1];
-    qt_doubleToAscii(d, QLocaleData::DFSignificantDigits, QLocale::FloatingPointShortest, result,
-                     QLocaleData::DoubleMaxSignificant + 1, nonNullSign, length, nonNullDecpt);
+    constexpr int digits = std::numeric_limits<double>::max_digits10 + 1;
+    char result[digits];
+    qt_doubleToAscii(d, QLocaleData::DFSignificantDigits, QLocale::FloatingPointShortest,
+                     result, digits, nonNullSign, length, nonNullDecpt);
 
     if (sign)
         *sign = nonNullSign ? 1 : 0;

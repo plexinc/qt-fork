@@ -2,11 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/spdy/core/spdy_protocol_test_utils.h"
+#include "spdy/core/spdy_protocol_test_utils.h"
 
 #include <cstdint>
 
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/string_view.h"
 
 namespace spdy {
 namespace test {
@@ -47,8 +47,8 @@ namespace test {
   if (expected.data() == nullptr) {
     VERIFY_EQ(nullptr, actual.data());
   } else {
-    VERIFY_EQ(quiche::QuicheStringPiece(expected.data(), expected.data_len()),
-              quiche::QuicheStringPiece(actual.data(), actual.data_len()));
+    VERIFY_EQ(absl::string_view(expected.data(), expected.data_len()),
+              absl::string_view(actual.data(), actual.data_len()));
   }
   VERIFY_SUCCESS(VerifySpdyFrameWithPaddingIREquals(expected, actual));
   return ::testing::AssertionSuccess();

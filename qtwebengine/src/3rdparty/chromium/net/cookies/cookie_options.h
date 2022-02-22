@@ -7,9 +7,14 @@
 #ifndef NET_COOKIES_COOKIE_OPTIONS_H_
 #define NET_COOKIES_COOKIE_OPTIONS_H_
 
+#include <ostream>
+#include <set>
+
+#include "base/optional.h"
 #include "base/time/time.h"
 #include "net/base/net_export.h"
 #include "net/cookies/cookie_constants.h"
+#include "net/cookies/cookie_inclusion_status.h"
 #include "url/gurl.h"
 
 namespace net {
@@ -33,49 +38,91 @@ class NET_EXPORT CookieOptions {
       COUNT
     };
 
-    // Used for when, and in what direction, same-site requests and responses
-    // are made in a cross-scheme context. Currently only used for metrics
-    // gathering and does not affect cookie behavior.
-    enum class CrossSchemeness {
-      NONE,
-      INSECURE_SECURE,  // Insecure site-for-cookies, secure request/response
-      SECURE_INSECURE   // Secure site-for-cookies, insecure request/response
-    };
+    SameSiteCookieContext()
+        : SameSiteCookieContext(ContextType::CROSS_SITE,
+                                ContextType::CROSS_SITE) {}
+    explicit SameSiteCookieContext(ContextType same_site_context)
+        : SameSiteCookieContext(same_site_context, same_site_context) {}
 
-    SameSiteCookieContext() : SameSiteCookieContext(ContextType::CROSS_SITE) {}
-    explicit SameSiteCookieContext(
-        ContextType same_site_context,
-        CrossSchemeness cross_schemeness = CrossSchemeness::NONE)
-        : context(same_site_context), cross_schemeness(cross_schemeness) {}
+    SameSiteCookieContext(ContextType same_site_context,
+                          ContextType schemeful_same_site_context)
+        : context_(same_site_context),
+          schemeful_context_(schemeful_same_site_context) {
+      DCHECK_LE(schemeful_context_, context_);
+    }
 
     // Convenience method which returns a SameSiteCookieContext with the most
-    // inclusive context. This allows access to all SameSite cookies.
+    // inclusive contexts. This allows access to all SameSite cookies.
     static SameSiteCookieContext MakeInclusive();
 
-    // The following functions are for conversion to the previous style of
-    // SameSiteCookieContext for metrics usage. This may be removed when the
-    // metrics using them are also removed.
+    // Convenience method which returns a SameSiteCookieContext with the most
+    // inclusive contexts for set. This allows setting all SameSite cookies.
+    static SameSiteCookieContext MakeInclusiveForSet();
 
-    // Used as the "COUNT" entry in a histogram enum.
-    static constexpr int64_t MetricCount() {
-      return (static_cast<int>(ContextType::SAME_SITE_STRICT) |
-              kToInsecureMask) +
-             1;
+    // Returns the context for determining SameSite cookie inclusion.
+    ContextType GetContextForCookieInclusion() const;
+
+    // If you're just trying to determine if a cookie is accessible you likely
+    // want to use GetContextForCookieInclusion() which will return the correct
+    // context regardless the status of same-site features.
+    ContextType context() const { return context_; }
+    void set_context(ContextType context) { context_ = context; }
+    void set_context(std::pair<ContextType, bool> context) {
+      context_ = context.first;
+      affected_by_bugfix_1166211_ = context.second;
     }
-    int64_t ConvertToMetricsValue() const;
 
-    ContextType context;
+    ContextType schemeful_context() const { return schemeful_context_; }
+    void set_schemeful_context(ContextType schemeful_context) {
+      schemeful_context_ = schemeful_context;
+    }
+    void set_schemeful_context(std::pair<ContextType, bool> schemeful_context) {
+      schemeful_context_ = schemeful_context.first;
+      schemeful_affected_by_bugfix_1166211_ = schemeful_context.second;
+    }
 
-    CrossSchemeness cross_schemeness;
+    // Whether the request was affected by the bugfix, either schemefully or
+    // schemelessly.
+    // TODO(crbug.com/1166211): Remove once no longer needed.
+    bool AffectedByBugfix1166211() const;
+
+    // If the cookie was excluded solely due to the bugfix, this applies a
+    // warning to the status that will show up in the netlog. Also logs a
+    // histogram showing whether the warning was applied.
+    // TODO(crbug.com/1166211): Remove once no longer needed.
+    void MaybeApplyBugfix1166211WarningToStatusAndLogHistogram(
+        CookieInclusionStatus& status) const;
+
+    NET_EXPORT friend bool operator==(
+        const CookieOptions::SameSiteCookieContext& lhs,
+        const CookieOptions::SameSiteCookieContext& rhs);
+    NET_EXPORT friend bool operator!=(
+        const CookieOptions::SameSiteCookieContext& lhs,
+        const CookieOptions::SameSiteCookieContext& rhs);
 
    private:
-    // The following variables are for conversion to the previous style of
-    // SameSiteCookieContext for metrics usage. This may be removed when the
-    // metrics using them are also removed.
-    // Mask indicating insecure site-for-cookies and secure request/response.
-    static const int kToSecureMask = 1 << 5;
-    // Mask indicating secure site-for-cookies and insecure request/response.
-    static const int kToInsecureMask = kToSecureMask << 1;
+    ContextType context_;
+    ContextType schemeful_context_;
+
+    // Record whether the ContextType calculation was affected by the bugfix for
+    // crbug.com/1166211. These are for the purpose of recording histograms and
+    // adding warnings to CookieInclusionStatus.
+    // Note: These are not preserved when serializing/deserializing for mojo, as
+    // these are only used in URLRequestHttpJob, which does not make mojo calls
+    // with this struct (it is only relevant for HTTP requests).
+    // TODO(crbug.com/1166211): Remove once no longer needed.
+    bool affected_by_bugfix_1166211_ = false;
+    bool schemeful_affected_by_bugfix_1166211_ = false;
+  };
+
+  // Computed in URLRequestHttpJob for every cookie access attempt but is only
+  // relevant for SameParty cookies.
+  enum class SamePartyCookieContextType {
+    // The opposite to kSameParty. Should be the default value.
+    kCrossParty = 0,
+    // If the request URL is in the same First-Party Sets as the top-frame site
+    // and each member of the isolation_info.party_context.
+    kSameParty = 1,
   };
 
   // Creates a CookieOptions object which:
@@ -84,14 +131,21 @@ class NET_EXPORT CookieOptions {
   // * Excludes SameSite cookies
   // * Updates last-accessed time.
   // * Does not report excluded cookies in APIs that can do so.
+  // * Excludes SameParty cookies.
   //
   // These settings can be altered by calling:
   //
   // * |set_{include,exclude}_httponly()|
-  // * |set_same_site_cookie_context(
-  //        CookieOptions::SameSiteCookieContext::SAME_SITE_STRICT)|
+  // * |set_same_site_cookie_context()|
   // * |set_do_not_update_access_time()|
+  // * |set_same_party_cookie_context_type()|
   CookieOptions();
+  CookieOptions(const CookieOptions& other);
+  CookieOptions(CookieOptions&& other);
+  ~CookieOptions();
+
+  CookieOptions& operator=(const CookieOptions&);
+  CookieOptions& operator=(CookieOptions&&);
 
   void set_exclude_httponly() { exclude_httponly_ = true; }
   void set_include_httponly() { exclude_httponly_ = false; }
@@ -103,7 +157,6 @@ class NET_EXPORT CookieOptions {
     same_site_cookie_context_ = context;
   }
 
-  // Strips off the cross-scheme bits to only return the same-site context.
   SameSiteCookieContext same_site_cookie_context() const {
     return same_site_cookie_context_;
   }
@@ -115,6 +168,29 @@ class NET_EXPORT CookieOptions {
   void set_return_excluded_cookies() { return_excluded_cookies_ = true; }
   void unset_return_excluded_cookies() { return_excluded_cookies_ = false; }
   bool return_excluded_cookies() const { return return_excluded_cookies_; }
+
+  // How trusted is the current browser environment when it comes to accessing
+  // SameParty cookies. Default is not trusted, e.g. kCrossParty.
+  void set_same_party_cookie_context_type(
+      SamePartyCookieContextType context_type) {
+    same_party_cookie_context_type_ = context_type;
+  }
+  SamePartyCookieContextType same_party_cookie_context_type() const {
+    return same_party_cookie_context_type_;
+  }
+
+  // Getter/setter of |full_party_context_size_| for logging purposes.
+  void set_full_party_context_size(uint32_t len) {
+    full_party_context_size_ = len;
+  }
+  uint32_t full_party_context_size() const { return full_party_context_size_; }
+
+  void set_is_in_nontrivial_first_party_set(bool is_member) {
+    is_in_nontrivial_first_party_set_ = is_member;
+  }
+  bool is_in_nontrivial_first_party_set() const {
+    return is_in_nontrivial_first_party_set_;
+  }
 
   // Convenience method for where you need a CookieOptions that will
   // work for getting/setting all types of cookies, including HttpOnly and
@@ -128,14 +204,38 @@ class NET_EXPORT CookieOptions {
   bool exclude_httponly_;
   SameSiteCookieContext same_site_cookie_context_;
   bool update_access_time_;
-  bool return_excluded_cookies_;
+  bool return_excluded_cookies_ = false;
+
+  SamePartyCookieContextType same_party_cookie_context_type_ =
+      SamePartyCookieContextType::kCrossParty;
+  // The size of the isolation_info.party_context plus the top-frame site.
+  // Stored for logging purposes.
+  uint32_t full_party_context_size_ = 0;
+  // Whether the site requesting cookie access (as opposed to e.g. the
+  // `site_for_cookies`) is a member (or owner) of a nontrivial First-Party
+  // Set.
+  // This is included here temporarily, for the purpose of ignoring SameParty
+  // for sites that are not participating in the Origin Trial.
+  // TODO(https://crbug.com/1163990): remove this field.
+  bool is_in_nontrivial_first_party_set_ = false;
 };
 
-NET_EXPORT bool operator==(const CookieOptions::SameSiteCookieContext& lhs,
-                           const CookieOptions::SameSiteCookieContext& rhs);
+// Allows gtest to print more helpful error messages instead of printing hex.
+// (No need to null-check `os` because we can assume gtest will properly pass a
+// non-null pointer, and it is dereferenced immediately anyway.)
+inline void PrintTo(CookieOptions::SameSiteCookieContext::ContextType ct,
+                    std::ostream* os) {
+  *os << static_cast<int>(ct);
+}
 
-NET_EXPORT bool operator!=(const CookieOptions::SameSiteCookieContext& lhs,
-                           const CookieOptions::SameSiteCookieContext& rhs);
+inline void PrintTo(const CookieOptions::SameSiteCookieContext& sscc,
+                    std::ostream* os) {
+  *os << "{ context: ";
+  PrintTo(sscc.context(), os);
+  *os << ", schemeful_context: ";
+  PrintTo(sscc.schemeful_context(), os);
+  *os << " }";
+}
 
 }  // namespace net
 

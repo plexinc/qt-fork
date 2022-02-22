@@ -8,10 +8,11 @@
 #include <memory>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "build/chromeos_buildflags.h"
 #include "extensions/browser/api/device_permissions_prompt.h"
 #include "extensions/browser/api/hid/hid_device_manager.h"
 #include "extensions/shell/browser/shell_extensions_api_client.h"
@@ -21,9 +22,9 @@
 #include "services/device/public/cpp/hid/hid_report_descriptor.h"
 #include "services/device/public/mojom/hid.mojom.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chromeos/dbus/permission_broker/fake_permission_broker_client.h"
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 using base::ThreadTaskRunnerHandle;
 using device::FakeHidManager;
@@ -58,17 +59,7 @@ class TestDevicePermissionsPrompt
 
   void ShowDialog() override { prompt()->SetObserver(this); }
 
-  void OnDeviceAdded(size_t index, const base::string16& device_name) override {
-    OnDevicesChanged();
-  }
-
-  void OnDeviceRemoved(size_t index,
-                       const base::string16& device_name) override {
-    OnDevicesChanged();
-  }
-
- private:
-  void OnDevicesChanged() {
+  void OnDevicesInitialized() override {
     if (prompt()->multiple()) {
       for (size_t i = 0; i < prompt()->GetDeviceCount(); ++i) {
         prompt()->GrantDevicePermission(i);
@@ -85,6 +76,12 @@ class TestDevicePermissionsPrompt
       }
     }
   }
+
+  void OnDeviceAdded(size_t index, const base::string16& device_name) override {
+  }
+
+  void OnDeviceRemoved(size_t index,
+                       const base::string16& device_name) override {}
 };
 
 class TestExtensionsAPIClient : public ShellExtensionsAPIClient {
@@ -100,7 +97,7 @@ class TestExtensionsAPIClient : public ShellExtensionsAPIClient {
 class HidApiTest : public ShellApiTest {
  public:
   HidApiTest() {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     // Required for DevicePermissionsPrompt:
     chromeos::PermissionBrokerClient::InitializeFake();
 #endif
@@ -115,7 +112,7 @@ class HidApiTest : public ShellApiTest {
 
   ~HidApiTest() override {
     HidDeviceManager::OverrideHidManagerBinderForTesting(base::NullCallback());
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     chromeos::PermissionBrokerClient::Shutdown();
 #endif
   }
@@ -163,7 +160,10 @@ class HidApiTest : public ShellApiTest {
         serial_number, device::mojom::HidBusType::kHIDBusTypeUSB,
         report_descriptor, std::move(collections), has_report_id,
         max_input_report_size, max_output_report_size, max_feature_report_size,
-        "");
+        /*device_path=*/"",
+        /*protected_input_report_ids=*/std::vector<uint8_t>{},
+        /*protected_output_report_ids=*/std::vector<uint8_t>{},
+        /*protected_feature_report_ids=*/std::vector<uint8_t>{});
 
     fake_hid_manager_->AddDevice(std::move(device));
   }

@@ -53,22 +53,6 @@
 
 QT_USE_NAMESPACE
 
-// This define must be set if the platform provides access to GATT handles
-// otherwise it must not be defined. As of now the two supported platforms
-// (Android and Bluez/Linux) provide access or some notion of it.
-#ifndef Q_OS_MAC
-#define HANDLES_PROVIDED_BY_PLATFORM
-#endif
-
-#ifdef HANDLES_PROVIDED_BY_PLATFORM
-#define HANDLE_COMPARE(actual,expected) \
-    if (!isBluezDbusLE) {\
-        QCOMPARE(actual, expected);\
-    };
-#else
-#define HANDLE_COMPARE(actual,expected)
-#endif
-
 class tst_QLowEnergyController : public QObject
 {
     Q_OBJECT
@@ -148,6 +132,8 @@ void tst_QLowEnergyController::initTestCase()
     }
 #endif
 
+    // QLoggingCategory::setFilterRules(QStringLiteral("qt.bluetooth* = true"));
+
     devAgent = new QBluetoothDeviceDiscoveryAgent(this);
     devAgent->setLowEnergyDiscoveryTimeout(5000);
 
@@ -174,7 +160,8 @@ void tst_QLowEnergyController::initTestCase()
         }
     }
 
-    QVERIFY2(deviceFound, "Cannot find remote device.");
+    if (!deviceFound || !remoteDeviceInfo.isValid())
+        qWarning() << "The sensor tag device was not found, will skip most of the test";
 
     // These are the services exported by the TI SensorTag
 #ifndef Q_OS_MAC
@@ -218,13 +205,12 @@ void tst_QLowEnergyController::cleanupTestCase()
 void tst_QLowEnergyController::tst_emptyCtor()
 {
     {
-        QBluetoothAddress remoteAddress;
-        QLowEnergyController control(remoteAddress);
-        QSignalSpy connectedSpy(&control, SIGNAL(connected()));
-        QSignalSpy stateSpy(&control, SIGNAL(stateChanged(QLowEnergyController::ControllerState)));
-        QSignalSpy errorSpy(&control, SIGNAL(error(QLowEnergyController::Error)));
-        QCOMPARE(control.error(), QLowEnergyController::NoError);
-        control.connectToDevice();
+        QScopedPointer<QLowEnergyController> control(QLowEnergyController::createCentral(QBluetoothDeviceInfo()));
+        QSignalSpy connectedSpy(control.data(), SIGNAL(connected()));
+        QSignalSpy stateSpy(control.data(), SIGNAL(stateChanged(QLowEnergyController::ControllerState)));
+        QSignalSpy errorSpy(control.data(), SIGNAL(errorOccurred(QLowEnergyController::Error)));
+        QCOMPARE(control->error(), QLowEnergyController::NoError);
+        control->connectToDevice();
 
         QTRY_VERIFY_WITH_TIMEOUT(!errorSpy.isEmpty(), 10000);
 
@@ -237,13 +223,13 @@ void tst_QLowEnergyController::tst_emptyCtor()
     }
 
     {
-        QBluetoothDeviceInfo deviceInfo;
-        QLowEnergyController control(deviceInfo);
-        QSignalSpy connectedSpy(&control, SIGNAL(connected()));
-        QSignalSpy stateSpy(&control, SIGNAL(stateChanged(QLowEnergyController::ControllerState)));
-        QSignalSpy errorSpy(&control, SIGNAL(error(QLowEnergyController::Error)));
-        QCOMPARE(control.error(), QLowEnergyController::NoError);
-        control.connectToDevice();
+        QScopedPointer<QLowEnergyController> control(QLowEnergyController::createCentral(
+                                                         QBluetoothDeviceInfo(), QBluetoothAddress(), this));
+        QSignalSpy connectedSpy(control.data(), SIGNAL(connected()));
+        QSignalSpy stateSpy(control.data(), SIGNAL(stateChanged(QLowEnergyController::ControllerState)));
+        QSignalSpy errorSpy(control.data(), SIGNAL(errorOccurred(QLowEnergyController::Error)));
+        QCOMPARE(control->error(), QLowEnergyController::NoError);
+        control->connectToDevice();
 
         QTRY_VERIFY_WITH_TIMEOUT(!errorSpy.isEmpty(), 10000);
 
@@ -268,66 +254,66 @@ void tst_QLowEnergyController::tst_connect()
 #endif
         QSKIP("No local Bluetooth or remote BTLE device found. Skipping test.");
 
-    QLowEnergyController control(remoteDeviceInfo);
-    QCOMPARE(remoteDeviceInfo.deviceUuid(), control.remoteDeviceUuid());
-    QCOMPARE(control.role(), QLowEnergyController::CentralRole);
-    QSignalSpy connectedSpy(&control, SIGNAL(connected()));
-    QSignalSpy disconnectedSpy(&control, SIGNAL(disconnected()));
+    QScopedPointer<QLowEnergyController> control(QLowEnergyController::createCentral(remoteDeviceInfo));
+    QCOMPARE(remoteDeviceInfo.deviceUuid(), control->remoteDeviceUuid());
+    QCOMPARE(control->role(), QLowEnergyController::CentralRole);
+    QSignalSpy connectedSpy(control.data(), SIGNAL(connected()));
+    QSignalSpy disconnectedSpy(control.data(), SIGNAL(disconnected()));
     if (remoteDeviceInfo.name().isEmpty())
-        QVERIFY(control.remoteName().isEmpty());
+        QVERIFY(control->remoteName().isEmpty());
     else
-        QCOMPARE(control.remoteName(), remoteDeviceInfo.name());
+        QCOMPARE(control->remoteName(), remoteDeviceInfo.name());
 
 #if !defined(Q_OS_IOS) && !defined(Q_OS_TVOS) && !QT_CONFIG(winrt_bt)
     const QBluetoothAddress localAdapter = localAdapters.at(0).address();
-    QCOMPARE(control.localAddress(), localAdapter);
-    QVERIFY(!control.localAddress().isNull());
+    QCOMPARE(control->localAddress(), localAdapter);
+    QVERIFY(!control->localAddress().isNull());
 #endif
 #ifndef Q_OS_MAC
-    QCOMPARE(control.remoteAddress(), remoteDevice);
+    QCOMPARE(control->remoteAddress(), remoteDevice);
 #endif
-    QCOMPARE(control.state(), QLowEnergyController::UnconnectedState);
-    QCOMPARE(control.error(), QLowEnergyController::NoError);
-    QVERIFY(control.errorString().isEmpty());
+    QCOMPARE(control->state(), QLowEnergyController::UnconnectedState);
+    QCOMPARE(control->error(), QLowEnergyController::NoError);
+    QVERIFY(control->errorString().isEmpty());
     QCOMPARE(disconnectedSpy.count(), 0);
     QCOMPARE(connectedSpy.count(), 0);
-    QVERIFY(control.services().isEmpty());
+    QVERIFY(control->services().isEmpty());
 
     bool wasError = false;
-    control.connectToDevice();
-    QTRY_IMPL(control.state() != QLowEnergyController::ConnectingState,
-              10000);
+    control->connectToDevice();
+    QTRY_IMPL(control->state() != QLowEnergyController::ConnectingState,
+              10000)
 
     QCOMPARE(disconnectedSpy.count(), 0);
-    if (control.error() != QLowEnergyController::NoError) {
+    if (control->error() != QLowEnergyController::NoError) {
         //error during connect
         QCOMPARE(connectedSpy.count(), 0);
-        QCOMPARE(control.state(), QLowEnergyController::UnconnectedState);
+        QCOMPARE(control->state(), QLowEnergyController::UnconnectedState);
         wasError = true;
-    } else if (control.state() == QLowEnergyController::ConnectingState) {
+    } else if (control->state() == QLowEnergyController::ConnectingState) {
         //timeout
         QCOMPARE(connectedSpy.count(), 0);
-        QVERIFY(control.errorString().isEmpty());
-        QCOMPARE(control.error(), QLowEnergyController::NoError);
-        QVERIFY(control.services().isEmpty());
+        QVERIFY(control->errorString().isEmpty());
+        QCOMPARE(control->error(), QLowEnergyController::NoError);
+        QVERIFY(control->services().isEmpty());
         QSKIP("Connection to LE device cannot be established. Skipping test.");
         return;
     } else {
-        QCOMPARE(control.state(), QLowEnergyController::ConnectedState);
+        QCOMPARE(control->state(), QLowEnergyController::ConnectedState);
         QCOMPARE(connectedSpy.count(), 1);
-        QCOMPARE(control.error(), QLowEnergyController::NoError);
-        QVERIFY(control.errorString().isEmpty());
+        QCOMPARE(control->error(), QLowEnergyController::NoError);
+        QVERIFY(control->errorString().isEmpty());
     }
 
-    QVERIFY(control.services().isEmpty());
+    QVERIFY(control->services().isEmpty());
 
     QList<QLowEnergyService *> savedReferences;
 
     if (!wasError) {
-        QSignalSpy discoveryFinishedSpy(&control, SIGNAL(discoveryFinished()));
-        QSignalSpy serviceFoundSpy(&control, SIGNAL(serviceDiscovered(QBluetoothUuid)));
-        QSignalSpy stateSpy(&control, SIGNAL(stateChanged(QLowEnergyController::ControllerState)));
-        control.discoverServices();
+        QSignalSpy discoveryFinishedSpy(control.data(), SIGNAL(discoveryFinished()));
+        QSignalSpy serviceFoundSpy(control.data(), SIGNAL(serviceDiscovered(QBluetoothUuid)));
+        QSignalSpy stateSpy(control.data(), SIGNAL(stateChanged(QLowEnergyController::ControllerState)));
+        control->discoverServices();
         QTRY_VERIFY_WITH_TIMEOUT(discoveryFinishedSpy.count() == 1, 20000);
         QCOMPARE(stateSpy.count(), 2);
         QCOMPARE(stateSpy.at(0).at(0).value<QLowEnergyController::ControllerState>(),
@@ -348,29 +334,30 @@ void tst_QLowEnergyController::tst_connect()
             QVERIFY2(listing.contains(uuid),
                      uuid.toString().toLatin1());
 
-            QLowEnergyService *service = control.createServiceObject(uuid);
+            QLowEnergyService *service = control->createServiceObject(uuid);
             QVERIFY2(service, uuid.toString().toLatin1());
             savedReferences.append(service);
             QCOMPARE(service->type(), QLowEnergyService::PrimaryService);
-            QCOMPARE(service->state(), QLowEnergyService::DiscoveryRequired);
+            QCOMPARE(service->state(), QLowEnergyService::RemoteService);
         }
 
         // unrelated uuids don't return valid service object
         // invalid service uuid
-        QVERIFY(!control.createServiceObject(QBluetoothUuid()));
+        QVERIFY(!control->createServiceObject(QBluetoothUuid()));
         // some random uuid
-        QVERIFY(!control.createServiceObject(QBluetoothUuid(QBluetoothUuid::DeviceName)));
+        QVERIFY(!control->createServiceObject(
+                QBluetoothUuid(QBluetoothUuid::CharacteristicType::DeviceName)));
 
         // initiate characteristic discovery
         for (QLowEnergyService *service : qAsConst(savedReferences)) {
             qDebug() << "Discovering" << service->serviceUuid();
             QSignalSpy stateSpy(service,
                                 SIGNAL(stateChanged(QLowEnergyService::ServiceState)));
-            QSignalSpy errorSpy(service, SIGNAL(error(QLowEnergyService::ServiceError)));
+            QSignalSpy errorSpy(service, SIGNAL(errorOccurred(QLowEnergyService::ServiceError)));
             service->discoverDetails();
 
             QTRY_VERIFY_WITH_TIMEOUT(
-                        service->state() == QLowEnergyService::ServiceDiscovered, 10000);
+                        service->state() == QLowEnergyService::RemoteServiceDiscovered, 10000);
 
             QCOMPARE(errorSpy.count(), 0); //no error
             QCOMPARE(stateSpy.count(), 2); //
@@ -380,18 +367,18 @@ void tst_QLowEnergyController::tst_connect()
 
         // ensure that related service objects share same state
         for (QLowEnergyService* originalService : qAsConst(savedReferences)) {
-            QLowEnergyService *newService = control.createServiceObject(
+            QLowEnergyService *newService = control->createServiceObject(
                         originalService->serviceUuid());
             QVERIFY(newService);
-            QCOMPARE(newService->state(), QLowEnergyService::ServiceDiscovered);
+            QCOMPARE(newService->state(), QLowEnergyService::RemoteServiceDiscovered);
             delete newService;
         }
     }
 
     // Finish off
-    control.disconnectFromDevice();
+    control->disconnectFromDevice();
     QTRY_VERIFY_WITH_TIMEOUT(
-                control.state() == QLowEnergyController::UnconnectedState,
+                control->state() == QLowEnergyController::UnconnectedState,
                 10000);
 
     if (wasError) {
@@ -429,78 +416,78 @@ void tst_QLowEnergyController::tst_concurrentDiscovery()
 
     if (!remoteDeviceInfo.isValid())
         QSKIP("No remote BTLE device found. Skipping test.");
-    QLowEnergyController control(remoteDeviceInfo);
+    QScopedPointer<QLowEnergyController> control(QLowEnergyController::createCentral(remoteDeviceInfo));
 
 
-    QCOMPARE(control.state(), QLowEnergyController::UnconnectedState);
-    QCOMPARE(control.error(), QLowEnergyController::NoError);
+    QCOMPARE(control->state(), QLowEnergyController::UnconnectedState);
+    QCOMPARE(control->error(), QLowEnergyController::NoError);
 
-    control.connectToDevice();
+    control->connectToDevice();
     {
-        QTRY_IMPL(control.state() != QLowEnergyController::ConnectingState,
-              30000);
+        QTRY_IMPL(control->state() != QLowEnergyController::ConnectingState,
+              30000)
     }
 
-    if (control.state() == QLowEnergyController::ConnectingState
-            || control.error() != QLowEnergyController::NoError) {
+    if (control->state() == QLowEnergyController::ConnectingState
+            || control->error() != QLowEnergyController::NoError) {
         // default BTLE backend forever hangs in ConnectingState
         QSKIP("Cannot connect to remote device");
     }
 
-    QCOMPARE(control.state(), QLowEnergyController::ConnectedState);
+    QCOMPARE(control->state(), QLowEnergyController::ConnectedState);
 
     // 2. new controller to same device fails
     {
-#ifdef Q_OS_DARWIN
-        QLowEnergyController control2(remoteDeviceInfo);
-#else
-        QLowEnergyController control2(remoteDevice);
-#endif
-        control2.connectToDevice();
+
+        QScopedPointer<QLowEnergyController> control2(
+                    QLowEnergyController::createCentral(remoteDeviceInfo));
+        control2->connectToDevice();
         {
-            QTRY_IMPL(control2.state() != QLowEnergyController::ConnectingState,
-                      30000);
+            QTRY_IMPL(control2->state() != QLowEnergyController::ConnectingState,
+                      30000)
         }
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_DARWIN) || QT_CONFIG(winrt_bt)
-        QCOMPARE(control.state(), QLowEnergyController::ConnectedState);
-        QCOMPARE(control2.state(), QLowEnergyController::ConnectedState);
-        control2.disconnectFromDevice();
+        QCOMPARE(control->state(), QLowEnergyController::ConnectedState);
+        QCOMPARE(control2->state(), QLowEnergyController::ConnectedState);
+        control2->disconnectFromDevice();
         QTest::qWait(3000);
-        QCOMPARE(control.state(), QLowEnergyController::ConnectedState);
-        QCOMPARE(control2.state(), QLowEnergyController::UnconnectedState);
+        QCOMPARE(control->state(), QLowEnergyController::ConnectedState);
+        QCOMPARE(control2->state(), QLowEnergyController::UnconnectedState);
 #else
         if (!isBluezDbusLE) {
             // see QTBUG-42519
             // Linux non-DBus GATT cannot maintain two controller connections at the same time
-            QCOMPARE(control.state(), QLowEnergyController::UnconnectedState);
-            QCOMPARE(control2.state(), QLowEnergyController::ConnectedState);
-            control2.disconnectFromDevice();
-            QTRY_COMPARE(control2.state(), QLowEnergyController::UnconnectedState);
-            QTRY_COMPARE(control2.error(), QLowEnergyController::NoError);
+            QCOMPARE(control->state(), QLowEnergyController::UnconnectedState);
+            QCOMPARE(control2->state(), QLowEnergyController::ConnectedState);
+            control2->disconnectFromDevice();
+            QTRY_COMPARE(control2->state(), QLowEnergyController::UnconnectedState);
+            QTRY_COMPARE(control2->error(), QLowEnergyController::NoError);
 
             // reconnect control
-            control.connectToDevice();
+            control->connectToDevice();
             {
-                QTRY_VERIFY_WITH_TIMEOUT(control.state() != QLowEnergyController::ConnectingState,
+                QTRY_VERIFY_WITH_TIMEOUT(control->state() != QLowEnergyController::ConnectingState,
                                          30000);
             }
-            QCOMPARE(control.state(), QLowEnergyController::ConnectedState);
+            QCOMPARE(control->state(), QLowEnergyController::ConnectedState);
         } else {
-            QCOMPARE(control.state(), QLowEnergyController::ConnectedState);
-            QCOMPARE(control2.state(), QLowEnergyController::ConnectedState);
-            control2.disconnectFromDevice();
-            QTRY_COMPARE(control2.state(), QLowEnergyController::UnconnectedState);
-            QTRY_COMPARE(control2.error(), QLowEnergyController::NoError);
-            QTRY_COMPARE(control.state(), QLowEnergyController::UnconnectedState);
+            QCOMPARE(control->state(), QLowEnergyController::ConnectedState);
+            QCOMPARE(control2->state(), QLowEnergyController::ConnectedState);
+            QTRY_COMPARE(control2->error(), QLowEnergyController::NoError);
+            control2->disconnectFromDevice();
+            QTRY_COMPARE(control2->state(), QLowEnergyController::UnconnectedState);
+            QTRY_COMPARE(control->error(), QLowEnergyController::NoError);
+            QTRY_COMPARE(control2->error(), QLowEnergyController::NoError);
+            QTRY_COMPARE(control->state(), QLowEnergyController::UnconnectedState);
 
             // reconnect control
-            control.connectToDevice();
+            control->connectToDevice();
             {
-                QTRY_VERIFY_WITH_TIMEOUT(control.state() != QLowEnergyController::ConnectingState,
+                QTRY_VERIFY_WITH_TIMEOUT(control->state() != QLowEnergyController::ConnectingState,
                                          30000);
             }
-            QCOMPARE(control.state(), QLowEnergyController::ConnectedState);
+            QCOMPARE(control->state(), QLowEnergyController::ConnectedState);
         }
 #endif
     }
@@ -509,9 +496,9 @@ void tst_QLowEnergyController::tst_concurrentDiscovery()
      * for multiple services at the same time.
      * */
 
-    QSignalSpy discoveryFinishedSpy(&control, SIGNAL(discoveryFinished()));
-    QSignalSpy stateSpy(&control, SIGNAL(stateChanged(QLowEnergyController::ControllerState)));
-    control.discoverServices();
+    QSignalSpy discoveryFinishedSpy(control.data(), SIGNAL(discoveryFinished()));
+    QSignalSpy stateSpy(control.data(), SIGNAL(stateChanged(QLowEnergyController::ControllerState)));
+    control->discoverServices();
     QTRY_VERIFY_WITH_TIMEOUT(discoveryFinishedSpy.count() == 1, 20000);
     QCOMPARE(stateSpy.count(), 2);
     QCOMPARE(stateSpy.at(0).at(0).value<QLowEnergyController::ControllerState>(),
@@ -524,13 +511,13 @@ void tst_QLowEnergyController::tst_concurrentDiscovery()
 #define MAX_SERVICES_SAME_TIME_ACCESS 3
     QLowEnergyService *services[MAX_SERVICES_SAME_TIME_ACCESS];
 
-    QVERIFY(control.services().count() >= MAX_SERVICES_SAME_TIME_ACCESS);
+    QVERIFY(control->services().count() >= MAX_SERVICES_SAME_TIME_ACCESS);
 
-    QList<QBluetoothUuid> uuids = control.services();
+    QList<QBluetoothUuid> uuids = control->services();
 
     // initialize services
     for (int i = 0; i<MAX_SERVICES_SAME_TIME_ACCESS; i++) {
-        services[i] = control.createServiceObject(uuids.at(i), this);
+        services[i] = control->createServiceObject(uuids.at(i), this);
         QVERIFY(services[i]);
     }
 
@@ -542,7 +529,7 @@ void tst_QLowEnergyController::tst_concurrentDiscovery()
     for (int i = 0; i<MAX_SERVICES_SAME_TIME_ACCESS; i++) {
         qWarning() << "Waiting for" << i << services[i]->serviceUuid();
         QTRY_VERIFY_WITH_TIMEOUT(
-            services[i]->state() == QLowEnergyService::ServiceDiscovered,
+            services[i]->state() == QLowEnergyService::RemoteServiceDiscovered,
             30000);
     }
 
@@ -554,22 +541,22 @@ void tst_QLowEnergyController::tst_concurrentDiscovery()
         QVERIFY(!services[i]->contains(QLowEnergyDescriptor()));
     }
 
-    control.disconnectFromDevice();
-    QTRY_VERIFY_WITH_TIMEOUT(control.state() == QLowEnergyController::UnconnectedState,
+    control->disconnectFromDevice();
+    QTRY_VERIFY_WITH_TIMEOUT(control->state() == QLowEnergyController::UnconnectedState,
                              30000);
     discoveryFinishedSpy.clear();
 
     // redo the discovery with same controller
     QLowEnergyService *services_second[MAX_SERVICES_SAME_TIME_ACCESS];
-    control.connectToDevice();
+    control->connectToDevice();
     {
-        QTRY_IMPL(control.state() != QLowEnergyController::ConnectingState,
+        QTRY_IMPL(control->state() != QLowEnergyController::ConnectingState,
               30000);
     }
 
-    QCOMPARE(control.state(), QLowEnergyController::ConnectedState);
+    QCOMPARE(control->state(), QLowEnergyController::ConnectedState);
     stateSpy.clear();
-    control.discoverServices();
+    control->discoverServices();
     QTRY_VERIFY_WITH_TIMEOUT(discoveryFinishedSpy.count() == 1, 20000);
     QCOMPARE(stateSpy.count(), 2);
     QCOMPARE(stateSpy.at(0).at(0).value<QLowEnergyController::ControllerState>(),
@@ -579,10 +566,10 @@ void tst_QLowEnergyController::tst_concurrentDiscovery()
 
     // get all details
     for (int i = 0; i<MAX_SERVICES_SAME_TIME_ACCESS; i++) {
-        services_second[i] = control.createServiceObject(uuids.at(i), this);
+        services_second[i] = control->createServiceObject(uuids.at(i), this);
         QVERIFY(services_second[i]->parent() == this);
         QVERIFY(services[i]);
-        QVERIFY(services_second[i]->state() == QLowEnergyService::DiscoveryRequired);
+        QVERIFY(services_second[i]->state() == QLowEnergyService::RemoteService);
         services_second[i]->discoverDetails();
     }
 
@@ -590,7 +577,7 @@ void tst_QLowEnergyController::tst_concurrentDiscovery()
     for (int i = 0; i<MAX_SERVICES_SAME_TIME_ACCESS; i++) {
         qWarning() << "Waiting for" << i << services_second[i]->serviceUuid();
         QTRY_VERIFY_WITH_TIMEOUT(
-            services_second[i]->state() == QLowEnergyService::ServiceDiscovered,
+            services_second[i]->state() == QLowEnergyService::RemoteServiceDiscovered,
             30000);
         QCOMPARE(services_second[i]->serviceName(), services[i]->serviceName());
         QCOMPARE(services_second[i]->serviceUuid(), services[i]->serviceUuid());
@@ -617,7 +604,7 @@ void tst_QLowEnergyController::tst_concurrentDiscovery()
         QCOMPARE(services[i]->serviceName(), services_second[i]->serviceName());
         QCOMPARE(services[i]->type(), services_second[i]->type());
         QVERIFY(services[i]->state() == QLowEnergyService::InvalidService);
-        QVERIFY(services_second[i]->state() == QLowEnergyService::ServiceDiscovered);
+        QVERIFY(services_second[i]->state() == QLowEnergyService::RemoteServiceDiscovered);
     }
 
     // cleanup
@@ -626,7 +613,9 @@ void tst_QLowEnergyController::tst_concurrentDiscovery()
         delete services_second[i];
     }
 
-    control.disconnectFromDevice();
+    control->disconnectFromDevice();
+    QTRY_COMPARE(control->state(), QLowEnergyController::UnconnectedState);
+    QCOMPARE(control->error(), QLowEnergyController::NoError);
 }
 
 void tst_QLowEnergyController::verifyServiceProperties(
@@ -641,7 +630,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         // Device Name
         QString temp("00002a00-0000-1000-8000-00805f9b34fb");
         QCOMPARE(chars[0].uuid(), QBluetoothUuid(temp));
-        HANDLE_COMPARE(chars[0].handle(), QLowEnergyHandle(0x3));
         QCOMPARE(chars[0].properties(), QLowEnergyCharacteristic::Read);
         QCOMPARE(chars[0].value(), QByteArray::fromHex("544920424c452053656e736f7220546167"));
         QVERIFY(chars[0].isValid());
@@ -651,7 +639,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         // Appearance
         temp = QString("00002a01-0000-1000-8000-00805f9b34fb");
         QCOMPARE(chars[1].uuid(), QBluetoothUuid(temp));
-        HANDLE_COMPARE(chars[1].handle(), QLowEnergyHandle(0x5));
         QCOMPARE(chars[1].properties(), QLowEnergyCharacteristic::Read);
         QCOMPARE(chars[1].value(), QByteArray::fromHex("0000"));
         QVERIFY(chars[1].isValid());
@@ -661,7 +648,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         // Peripheral Privacy Flag
         temp = QString("00002a02-0000-1000-8000-00805f9b34fb");
         QCOMPARE(chars[2].uuid(), QBluetoothUuid(temp));
-        HANDLE_COMPARE(chars[2].handle(), QLowEnergyHandle(0x7));
         QVERIFY(chars[2].properties() & QLowEnergyCharacteristic::Read);
         QCOMPARE(chars[2].value(), QByteArray::fromHex("00"));
         QVERIFY(chars[2].isValid());
@@ -671,7 +657,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         // Reconnection Address
         temp = QString("00002a03-0000-1000-8000-00805f9b34fb");
         QCOMPARE(chars[3].uuid(), QBluetoothUuid(temp));
-        HANDLE_COMPARE(chars[3].handle(), QLowEnergyHandle(0x9));
         //Early firmware version had this characteristic as Read|Write and may fail
         QCOMPARE(chars[3].properties(), QLowEnergyCharacteristic::Write);
         if (chars[3].properties() & QLowEnergyCharacteristic::Read)
@@ -685,7 +670,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         // Peripheral Preferred Connection Parameters
         temp = QString("00002a04-0000-1000-8000-00805f9b34fb");
         QCOMPARE(chars[4].uuid(), QBluetoothUuid(temp));
-        HANDLE_COMPARE(chars[4].handle(), QLowEnergyHandle(0xb));
         QCOMPARE(chars[4].properties(), QLowEnergyCharacteristic::Read);
         QCOMPARE(chars[4].value(), QByteArray::fromHex("5000a0000000e803"));
         QVERIFY(chars[4].isValid());
@@ -701,7 +685,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         QString temp("00002a05-0000-1000-8000-00805f9b34fb");
         //this should really be readable according to GATT Service spec
         QCOMPARE(chars[0].uuid(), QBluetoothUuid(temp));
-        HANDLE_COMPARE(chars[0].handle(), QLowEnergyHandle(0xe));
         QCOMPARE(chars[0].properties(), QLowEnergyCharacteristic::Indicate);
         QCOMPARE(chars[0].value(), QByteArray());
         QVERIFY(chars[0].isValid());
@@ -709,11 +692,10 @@ void tst_QLowEnergyController::verifyServiceProperties(
 
         QCOMPARE(chars[0].descriptors().count(), 1);
         QCOMPARE(chars[0].descriptors().at(0).isValid(), true);
-        HANDLE_COMPARE(chars[0].descriptors().at(0).handle(), QLowEnergyHandle(0xf));
         QCOMPARE(chars[0].descriptors().at(0).uuid(),
-                QBluetoothUuid(QBluetoothUuid::ClientCharacteristicConfiguration));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration));
         QCOMPARE(chars[0].descriptors().at(0).type(),
-                QBluetoothUuid::ClientCharacteristicConfiguration);
+                 QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
         QVERIFY(verifyClientCharacteristicValue(chars[0].descriptors().at(0).value()));
         QVERIFY(info->contains(chars[0].descriptors().at(0)));
     } else if (info->serviceUuid() ==
@@ -726,7 +708,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         QString temp("00002a23-0000-1000-8000-00805f9b34fb");
         //this should really be readable according to GATT Service spec
         QCOMPARE(chars[0].uuid(), QBluetoothUuid(temp));
-        HANDLE_COMPARE(chars[0].handle(), QLowEnergyHandle(0x12));
         QCOMPARE(chars[0].properties(), QLowEnergyCharacteristic::Read);
 //        Do not read the System ID as it is different for every device
 //        QEXPECT_FAIL("", "The value is different on different devices", Continue);
@@ -738,7 +719,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         // Model Number
         temp = QString("00002a24-0000-1000-8000-00805f9b34fb");
         QCOMPARE(chars[1].uuid(), QBluetoothUuid(temp));
-        HANDLE_COMPARE(chars[1].handle(), QLowEnergyHandle(0x14));
         QCOMPARE(chars[1].properties(), QLowEnergyCharacteristic::Read);
         QCOMPARE(chars[1].value(), QByteArray::fromHex("4e2e412e00"));
         QVERIFY(chars[1].isValid());
@@ -748,7 +728,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         // Serial Number
         temp = QString("00002a25-0000-1000-8000-00805f9b34fb");
         QCOMPARE(chars[2].uuid(), QBluetoothUuid(temp));
-        HANDLE_COMPARE(chars[2].handle(), QLowEnergyHandle(0x16));
         QCOMPARE(chars[2].properties(),
                  (QLowEnergyCharacteristic::Read));
         QCOMPARE(chars[2].value(), QByteArray::fromHex("4e2e412e00"));
@@ -759,7 +738,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         // Firmware Revision
         temp = QString("00002a26-0000-1000-8000-00805f9b34fb");
         QCOMPARE(chars[3].uuid(), QBluetoothUuid(temp));
-        HANDLE_COMPARE(chars[3].handle(), QLowEnergyHandle(0x18));
         QCOMPARE(chars[3].properties(),
                  (QLowEnergyCharacteristic::Read));
         //FW rev. : 1.5 (Oct 23 2013)
@@ -772,7 +750,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         // Hardware Revision
         temp = QString("00002a27-0000-1000-8000-00805f9b34fb");
         QCOMPARE(chars[4].uuid(), QBluetoothUuid(temp));
-        HANDLE_COMPARE(chars[4].handle(), QLowEnergyHandle(0x1a));
         QCOMPARE(chars[4].properties(),
                  (QLowEnergyCharacteristic::Read));
         QCOMPARE(chars[4].value(), QByteArray::fromHex("4e2e412e00"));
@@ -783,7 +760,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         // Software Revision
         temp = QString("00002a28-0000-1000-8000-00805f9b34fb");
         QCOMPARE(chars[5].uuid(), QBluetoothUuid(temp));
-        HANDLE_COMPARE(chars[5].handle(), QLowEnergyHandle(0x1c));
         QCOMPARE(chars[5].properties(),
                  (QLowEnergyCharacteristic::Read));
         QCOMPARE(chars[5].value(), QByteArray::fromHex("4e2e412e00"));
@@ -794,7 +770,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         // Manufacturer Name
         temp = QString("00002a29-0000-1000-8000-00805f9b34fb");
         QCOMPARE(chars[6].uuid(), QBluetoothUuid(temp));
-        HANDLE_COMPARE(chars[6].handle(), QLowEnergyHandle(0x1e));
         QCOMPARE(chars[6].properties(),
                  (QLowEnergyCharacteristic::Read));
         QCOMPARE(chars[6].value(), QByteArray::fromHex("546578617320496e737472756d656e747300"));
@@ -805,7 +780,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         // IEEE
         temp = QString("00002a2a-0000-1000-8000-00805f9b34fb");
         QCOMPARE(chars[7].uuid(), QBluetoothUuid(temp));
-        HANDLE_COMPARE(chars[7].handle(), QLowEnergyHandle(0x20));
         QCOMPARE(chars[7].properties(),
                  (QLowEnergyCharacteristic::Read));
         QCOMPARE(chars[7].value(), QByteArray::fromHex("fe006578706572696d656e74616c"));
@@ -816,7 +790,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         // PnP ID
         temp = QString("00002a50-0000-1000-8000-00805f9b34fb");
         QCOMPARE(chars[8].uuid(), QBluetoothUuid(temp));
-        HANDLE_COMPARE(chars[8].handle(), QLowEnergyHandle(0x22));
         QCOMPARE(chars[8].properties(),
                  (QLowEnergyCharacteristic::Read));
         QCOMPARE(chars[8].value(), QByteArray::fromHex("010d0000001001"));
@@ -832,7 +805,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         // Temp Data
         QString temp("f000aa01-0451-4000-b000-000000000000");
         QCOMPARE(chars[0].uuid(), QBluetoothUuid(temp));
-        HANDLE_COMPARE(chars[0].handle(), QLowEnergyHandle(0x25));
         QCOMPARE(chars[0].properties(),
                 (QLowEnergyCharacteristic::Read|QLowEnergyCharacteristic::Notify));
         QCOMPARE(chars[0].value(), QByteArray::fromHex("00000000"));
@@ -842,20 +814,18 @@ void tst_QLowEnergyController::verifyServiceProperties(
         QCOMPARE(chars[0].descriptors().count(), 2);
         //descriptor checks
         QCOMPARE(chars[0].descriptors().at(0).isValid(), true);
-        HANDLE_COMPARE(chars[0].descriptors().at(0).handle(), QLowEnergyHandle(0x26));
         QCOMPARE(chars[0].descriptors().at(0).uuid(),
-                QBluetoothUuid(QBluetoothUuid::ClientCharacteristicConfiguration));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration));
         QCOMPARE(chars[0].descriptors().at(0).type(),
-                QBluetoothUuid::ClientCharacteristicConfiguration);
+                 QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
         QVERIFY(verifyClientCharacteristicValue(chars[0].descriptors().at(0).value()));
         QVERIFY(info->contains(chars[0].descriptors().at(0)));
 
         QCOMPARE(chars[0].descriptors().at(1).isValid(), true);
-        HANDLE_COMPARE(chars[0].descriptors().at(1).handle(), QLowEnergyHandle(0x27));
         QCOMPARE(chars[0].descriptors().at(1).uuid(),
-                QBluetoothUuid(QBluetoothUuid::CharacteristicUserDescription));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::CharacteristicUserDescription));
         QCOMPARE(chars[0].descriptors().at(1).type(),
-                QBluetoothUuid::CharacteristicUserDescription);
+                 QBluetoothUuid::DescriptorType::CharacteristicUserDescription);
         // value different in other revisions and test may fail
         QCOMPARE(chars[0].descriptors().at(1).value(),
                 QByteArray::fromHex("54656d702e2044617461"));
@@ -864,7 +834,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         // Temp Config
         temp = QString("f000aa02-0451-4000-b000-000000000000");
         QCOMPARE(chars[1].uuid(), QBluetoothUuid(temp));
-        HANDLE_COMPARE(chars[1].handle(), QLowEnergyHandle(0x29));
         QCOMPARE(chars[1].properties(),
                  (QLowEnergyCharacteristic::Read|QLowEnergyCharacteristic::Write));
         QCOMPARE(chars[1].value(), QByteArray::fromHex("00"));
@@ -874,11 +843,10 @@ void tst_QLowEnergyController::verifyServiceProperties(
         QCOMPARE(chars[1].descriptors().count(), 1);
         //descriptor checks
         QCOMPARE(chars[1].descriptors().at(0).isValid(), true);
-        HANDLE_COMPARE(chars[1].descriptors().at(0).handle(), QLowEnergyHandle(0x2a));
         QCOMPARE(chars[1].descriptors().at(0).uuid(),
-                QBluetoothUuid(QBluetoothUuid::CharacteristicUserDescription));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::CharacteristicUserDescription));
         QCOMPARE(chars[1].descriptors().at(0).type(),
-                QBluetoothUuid::CharacteristicUserDescription);
+                 QBluetoothUuid::DescriptorType::CharacteristicUserDescription);
         // value different in other revisions and test may fail
         QCOMPARE(chars[1].descriptors().at(0).value(),
                 QByteArray::fromHex("54656d702e20436f6e662e"));
@@ -889,7 +857,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         if (chars.count() > 2) {
             temp = QString("f000aa03-0451-4000-b000-000000000000");
             QCOMPARE(chars[2].uuid(), QBluetoothUuid(temp));
-            HANDLE_COMPARE(chars[2].handle(), QLowEnergyHandle(0x2c));
             QCOMPARE(chars[2].properties(),
                      (QLowEnergyCharacteristic::Read|QLowEnergyCharacteristic::Write));
             QCOMPARE(chars[2].value(), QByteArray::fromHex("64"));
@@ -899,11 +866,10 @@ void tst_QLowEnergyController::verifyServiceProperties(
             QCOMPARE(chars[2].descriptors().count(), 1);
             //descriptor checks
             QCOMPARE(chars[2].descriptors().at(0).isValid(), true);
-            HANDLE_COMPARE(chars[2].descriptors().at(0).handle(), QLowEnergyHandle(0x2d));
             QCOMPARE(chars[2].descriptors().at(0).uuid(),
-                    QBluetoothUuid(QBluetoothUuid::CharacteristicUserDescription));
+                     QBluetoothUuid(QBluetoothUuid::DescriptorType::CharacteristicUserDescription));
             QCOMPARE(chars[2].descriptors().at(0).type(),
-                    QBluetoothUuid::CharacteristicUserDescription);
+                     QBluetoothUuid::DescriptorType::CharacteristicUserDescription);
             QCOMPARE(chars[2].descriptors().at(0).value(),
                     QByteArray::fromHex("54656d702e20506572696f64"));
             QVERIFY(info->contains(chars[2].descriptors().at(0)));
@@ -918,7 +884,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         QString temp("0000ffe1-0000-1000-8000-00805f9b34fb");
         QCOMPARE(chars[0].uuid(), QBluetoothUuid(temp));
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[0].handle(), QLowEnergyHandle(0x6b));
         QCOMPARE(chars[0].properties(),
                 (QLowEnergyCharacteristic::Notify));
         QCOMPARE(chars[0].value(), QByteArray());
@@ -929,21 +894,19 @@ void tst_QLowEnergyController::verifyServiceProperties(
         //descriptor checks
         QCOMPARE(chars[0].descriptors().at(0).isValid(), true);
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[0].descriptors().at(0).handle(), QLowEnergyHandle(0x6c));
         QCOMPARE(chars[0].descriptors().at(0).uuid(),
-                QBluetoothUuid(QBluetoothUuid::ClientCharacteristicConfiguration));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration));
         QCOMPARE(chars[0].descriptors().at(0).type(),
-                QBluetoothUuid::ClientCharacteristicConfiguration);
+                 QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
         QVERIFY(verifyClientCharacteristicValue(chars[0].descriptors().at(0).value()));
         QVERIFY(info->contains(chars[0].descriptors().at(0)));
 
         QCOMPARE(chars[0].descriptors().at(1).isValid(), true);
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[0].descriptors().at(1).handle(), QLowEnergyHandle(0x6d));
         QCOMPARE(chars[0].descriptors().at(1).uuid(),
-                QBluetoothUuid(QBluetoothUuid::CharacteristicUserDescription));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::CharacteristicUserDescription));
         QCOMPARE(chars[0].descriptors().at(1).type(),
-                QBluetoothUuid::CharacteristicUserDescription);
+                 QBluetoothUuid::DescriptorType::CharacteristicUserDescription);
         QCOMPARE(chars[0].descriptors().at(1).value(),
                 QByteArray::fromHex("4b6579205072657373205374617465"));
         QVERIFY(info->contains(chars[0].descriptors().at(1)));
@@ -958,7 +921,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         QString temp("f000aa11-0451-4000-b000-000000000000");
         QCOMPARE(chars[0].uuid(), QBluetoothUuid(temp));
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[0].handle(), QLowEnergyHandle(0x30));
         QCOMPARE(chars[0].properties(),
                 (QLowEnergyCharacteristic::Read|QLowEnergyCharacteristic::Notify));
         QCOMPARE(chars[0].value(), QByteArray::fromHex("000000"));
@@ -969,21 +931,19 @@ void tst_QLowEnergyController::verifyServiceProperties(
 
         QCOMPARE(chars[0].descriptors().at(0).isValid(), true);
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[0].descriptors().at(0).handle(), QLowEnergyHandle(0x31));
         QCOMPARE(chars[0].descriptors().at(0).uuid(),
-                 QBluetoothUuid(QBluetoothUuid::ClientCharacteristicConfiguration));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration));
         QCOMPARE(chars[0].descriptors().at(0).type(),
-                 QBluetoothUuid::ClientCharacteristicConfiguration);
+                 QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
         QVERIFY(verifyClientCharacteristicValue(chars[0].descriptors().at(0).value()));
         QVERIFY(info->contains(chars[0].descriptors().at(0)));
 
         QCOMPARE(chars[0].descriptors().at(1).isValid(), true);
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[0].descriptors().at(1).handle(), QLowEnergyHandle(0x32));
         QCOMPARE(chars[0].descriptors().at(1).uuid(),
-                 QBluetoothUuid(QBluetoothUuid::CharacteristicUserDescription));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::CharacteristicUserDescription));
         QCOMPARE(chars[0].descriptors().at(1).type(),
-                 QBluetoothUuid::CharacteristicUserDescription);
+                 QBluetoothUuid::DescriptorType::CharacteristicUserDescription);
         QCOMPARE(chars[0].descriptors().at(1).value(),
                  QByteArray::fromHex("416363656c2e2044617461"));
         QVERIFY(info->contains(chars[0].descriptors().at(1)));
@@ -992,7 +952,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         temp = QString("f000aa12-0451-4000-b000-000000000000");
         QCOMPARE(chars[1].uuid(), QBluetoothUuid(temp));
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[1].handle(), QLowEnergyHandle(0x34));
         QCOMPARE(chars[1].properties(),
                  (QLowEnergyCharacteristic::Read|QLowEnergyCharacteristic::Write));
         QCOMPARE(chars[1].value(), QByteArray::fromHex("00"));
@@ -1002,11 +961,10 @@ void tst_QLowEnergyController::verifyServiceProperties(
 
         QCOMPARE(chars[1].descriptors().at(0).isValid(), true);
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[1].descriptors().at(0).handle(), QLowEnergyHandle(0x35));
         QCOMPARE(chars[1].descriptors().at(0).uuid(),
-                 QBluetoothUuid(QBluetoothUuid::CharacteristicUserDescription));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::CharacteristicUserDescription));
         QCOMPARE(chars[1].descriptors().at(0).type(),
-                 QBluetoothUuid::CharacteristicUserDescription);
+                 QBluetoothUuid::DescriptorType::CharacteristicUserDescription);
         QCOMPARE(chars[1].descriptors().at(0).value(),
                  QByteArray::fromHex("416363656c2e20436f6e662e"));
         QVERIFY(info->contains(chars[1].descriptors().at(0)));
@@ -1015,7 +973,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         temp = QString("f000aa13-0451-4000-b000-000000000000");
         QCOMPARE(chars[2].uuid(), QBluetoothUuid(temp));
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[2].handle(), QLowEnergyHandle(0x37));
         QCOMPARE(chars[2].properties(),
                  (QLowEnergyCharacteristic::Read|QLowEnergyCharacteristic::Write));
         QCOMPARE(chars[2].value(), QByteArray::fromHex("64"));   // don't change it or set it to 0x64
@@ -1026,11 +983,10 @@ void tst_QLowEnergyController::verifyServiceProperties(
         //descriptor checks
         QCOMPARE(chars[2].descriptors().at(0).isValid(), true);
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[2].descriptors().at(0).handle(), QLowEnergyHandle(0x38));
         QCOMPARE(chars[2].descriptors().at(0).uuid(),
-                QBluetoothUuid(QBluetoothUuid::CharacteristicUserDescription));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::CharacteristicUserDescription));
         QCOMPARE(chars[2].descriptors().at(0).type(),
-                QBluetoothUuid::CharacteristicUserDescription);
+                 QBluetoothUuid::DescriptorType::CharacteristicUserDescription);
         // value different in other revisions and test may fail
         QCOMPARE(chars[2].descriptors().at(0).value(),
                 QByteArray::fromHex("416363656c2e20506572696f64"));
@@ -1045,7 +1001,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         QString temp("f000aa21-0451-4000-b000-000000000000");
         QCOMPARE(chars[0].uuid(), QBluetoothUuid(temp));
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[0].handle(), QLowEnergyHandle(0x3b));
         QCOMPARE(chars[0].properties(),
                 (QLowEnergyCharacteristic::Read|QLowEnergyCharacteristic::Notify));
         QCOMPARE(chars[0].value(), QByteArray::fromHex("00000000"));
@@ -1056,21 +1011,19 @@ void tst_QLowEnergyController::verifyServiceProperties(
         //descriptor checks
         QCOMPARE(chars[0].descriptors().at(0).isValid(), true);
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[0].descriptors().at(0).handle(), QLowEnergyHandle(0x3c));
         QCOMPARE(chars[0].descriptors().at(0).uuid(),
-                QBluetoothUuid(QBluetoothUuid::ClientCharacteristicConfiguration));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration));
         QCOMPARE(chars[0].descriptors().at(0).type(),
-                QBluetoothUuid::ClientCharacteristicConfiguration);
+                 QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
         QVERIFY(verifyClientCharacteristicValue(chars[0].descriptors().at(0).value()));
         QVERIFY(info->contains(chars[0].descriptors().at(0)));
 
         QCOMPARE(chars[0].descriptors().at(1).isValid(), true);
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[0].descriptors().at(1).handle(), QLowEnergyHandle(0x3d));
         QCOMPARE(chars[0].descriptors().at(1).uuid(),
-                QBluetoothUuid(QBluetoothUuid::CharacteristicUserDescription));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::CharacteristicUserDescription));
         QCOMPARE(chars[0].descriptors().at(1).type(),
-                QBluetoothUuid::CharacteristicUserDescription);
+                 QBluetoothUuid::DescriptorType::CharacteristicUserDescription);
         QCOMPARE(chars[0].descriptors().at(1).value(),
                 QByteArray::fromHex("48756d69642e2044617461"));
         QVERIFY(info->contains(chars[0].descriptors().at(1)));
@@ -1079,7 +1032,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         temp = QString("f000aa22-0451-4000-b000-000000000000");
         QCOMPARE(chars[1].uuid(), QBluetoothUuid(temp));
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[1].handle(), QLowEnergyHandle(0x3f));
         QCOMPARE(chars[1].properties(),
                  (QLowEnergyCharacteristic::Read|QLowEnergyCharacteristic::Write));
         QCOMPARE(chars[1].value(), QByteArray::fromHex("00"));
@@ -1090,11 +1042,10 @@ void tst_QLowEnergyController::verifyServiceProperties(
         //descriptor checks
         QCOMPARE(chars[1].descriptors().at(0).isValid(), true);
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[1].descriptors().at(0).handle(), QLowEnergyHandle(0x40));
         QCOMPARE(chars[1].descriptors().at(0).uuid(),
-                QBluetoothUuid(QBluetoothUuid::CharacteristicUserDescription));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::CharacteristicUserDescription));
         QCOMPARE(chars[1].descriptors().at(0).type(),
-                QBluetoothUuid::CharacteristicUserDescription);
+                 QBluetoothUuid::DescriptorType::CharacteristicUserDescription);
         QCOMPARE(chars[1].descriptors().at(0).value(),
                 QByteArray::fromHex("48756d69642e20436f6e662e"));
         QVERIFY(info->contains(chars[1].descriptors().at(0)));
@@ -1104,7 +1055,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
             // Humidity Period
             temp = QString("f000aa23-0451-4000-b000-000000000000");
             QCOMPARE(chars[2].uuid(), QBluetoothUuid(temp));
-            HANDLE_COMPARE(chars[2].handle(), QLowEnergyHandle(0x42));
             QCOMPARE(chars[2].properties(),
                      (QLowEnergyCharacteristic::Read|QLowEnergyCharacteristic::Write));
             QCOMPARE(chars[2].value(), QByteArray::fromHex("64"));
@@ -1114,11 +1064,10 @@ void tst_QLowEnergyController::verifyServiceProperties(
             QCOMPARE(chars[2].descriptors().count(), 1);
             //descriptor checks
             QCOMPARE(chars[2].descriptors().at(0).isValid(), true);
-            HANDLE_COMPARE(chars[2].descriptors().at(0).handle(), QLowEnergyHandle(0x43));
             QCOMPARE(chars[2].descriptors().at(0).uuid(),
-                    QBluetoothUuid(QBluetoothUuid::CharacteristicUserDescription));
+                     QBluetoothUuid(QBluetoothUuid::DescriptorType::CharacteristicUserDescription));
             QCOMPARE(chars[2].descriptors().at(0).type(),
-                    QBluetoothUuid::CharacteristicUserDescription);
+                     QBluetoothUuid::DescriptorType::CharacteristicUserDescription);
             QCOMPARE(chars[2].descriptors().at(0).value(),
                     QByteArray::fromHex("48756d69642e20506572696f64"));
             QVERIFY(info->contains(chars[2].descriptors().at(0)));
@@ -1133,7 +1082,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         QString temp("f000aa31-0451-4000-b000-000000000000");
         QCOMPARE(chars[0].uuid(), QBluetoothUuid(temp));
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[0].handle(), QLowEnergyHandle(0x46));
         QCOMPARE(chars[0].properties(),
                 (QLowEnergyCharacteristic::Read|QLowEnergyCharacteristic::Notify));
         QCOMPARE(chars[0].value(), QByteArray::fromHex("000000000000"));
@@ -1144,21 +1092,19 @@ void tst_QLowEnergyController::verifyServiceProperties(
 
         QCOMPARE(chars[0].descriptors().at(0).isValid(), true);
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[0].descriptors().at(0).handle(), QLowEnergyHandle(0x47));
         QCOMPARE(chars[0].descriptors().at(0).uuid(),
-                 QBluetoothUuid(QBluetoothUuid::ClientCharacteristicConfiguration));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration));
         QCOMPARE(chars[0].descriptors().at(0).type(),
-                 QBluetoothUuid::ClientCharacteristicConfiguration);
+                 QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
         QVERIFY(verifyClientCharacteristicValue(chars[0].descriptors().at(0).value()));
         QVERIFY(info->contains(chars[0].descriptors().at(0)));
 
         QCOMPARE(chars[0].descriptors().at(1).isValid(), true);
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[0].descriptors().at(1).handle(), QLowEnergyHandle(0x48));
         QCOMPARE(chars[0].descriptors().at(1).uuid(),
-                 QBluetoothUuid(QBluetoothUuid::CharacteristicUserDescription));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::CharacteristicUserDescription));
         QCOMPARE(chars[0].descriptors().at(1).type(),
-                 QBluetoothUuid::CharacteristicUserDescription);
+                 QBluetoothUuid::DescriptorType::CharacteristicUserDescription);
         QCOMPARE(chars[0].descriptors().at(1).value(),
                  QByteArray::fromHex("4d61676e2e2044617461"));
         QVERIFY(info->contains(chars[0].descriptors().at(1)));
@@ -1167,7 +1113,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         temp = QString("f000aa32-0451-4000-b000-000000000000");
         QCOMPARE(chars[1].uuid(), QBluetoothUuid(temp));
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[1].handle(), QLowEnergyHandle(0x4a));
         QCOMPARE(chars[1].properties(),
                  (QLowEnergyCharacteristic::Read|QLowEnergyCharacteristic::Write));
         QCOMPARE(chars[1].value(), QByteArray::fromHex("00"));
@@ -1177,11 +1122,10 @@ void tst_QLowEnergyController::verifyServiceProperties(
         QCOMPARE(chars[1].descriptors().count(), 1);
         QCOMPARE(chars[1].descriptors().at(0).isValid(), true);
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[1].descriptors().at(0).handle(), QLowEnergyHandle(0x4b));
         QCOMPARE(chars[1].descriptors().at(0).uuid(),
-                 QBluetoothUuid(QBluetoothUuid::CharacteristicUserDescription));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::CharacteristicUserDescription));
         QCOMPARE(chars[1].descriptors().at(0).type(),
-                 QBluetoothUuid::CharacteristicUserDescription);
+                 QBluetoothUuid::DescriptorType::CharacteristicUserDescription);
         // value different in other revisions and test may fail
         QCOMPARE(chars[1].descriptors().at(0).value(),
                  QByteArray::fromHex("4d61676e2e20436f6e662e"));
@@ -1191,7 +1135,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         temp = QString("f000aa33-0451-4000-b000-000000000000");
         QCOMPARE(chars[2].uuid(), QBluetoothUuid(temp));
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[2].handle(), QLowEnergyHandle(0x4d));
         QCOMPARE(chars[2].properties(),
                  (QLowEnergyCharacteristic::Read|QLowEnergyCharacteristic::Write));
         QCOMPARE(chars[2].value(), QByteArray::fromHex("c8"));   // don't change it or set it to 0xc8
@@ -1201,11 +1144,10 @@ void tst_QLowEnergyController::verifyServiceProperties(
         QCOMPARE(chars[2].descriptors().count(), 1);
         QCOMPARE(chars[2].descriptors().at(0).isValid(), true);
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[2].descriptors().at(0).handle(), QLowEnergyHandle(0x4e));
         QCOMPARE(chars[2].descriptors().at(0).uuid(),
-                 QBluetoothUuid(QBluetoothUuid::CharacteristicUserDescription));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::CharacteristicUserDescription));
         QCOMPARE(chars[2].descriptors().at(0).type(),
-                 QBluetoothUuid::CharacteristicUserDescription);
+                 QBluetoothUuid::DescriptorType::CharacteristicUserDescription);
         // value different in other revisions and test may fail
         QCOMPARE(chars[2].descriptors().at(0).value(),
                  QByteArray::fromHex("4d61676e2e20506572696f64"));
@@ -1220,7 +1162,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         QString temp("f000aa41-0451-4000-b000-000000000000");
         QCOMPARE(chars[0].uuid(), QBluetoothUuid(temp));
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[0].handle(), QLowEnergyHandle(0x51));
         QCOMPARE(chars[0].properties(),
                 (QLowEnergyCharacteristic::Read|QLowEnergyCharacteristic::Notify));
         QCOMPARE(chars[0].value(), QByteArray::fromHex("00000000"));
@@ -1231,21 +1172,19 @@ void tst_QLowEnergyController::verifyServiceProperties(
         //descriptor checks
         QCOMPARE(chars[0].descriptors().at(0).isValid(), true);
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[0].descriptors().at(0).handle(), QLowEnergyHandle(0x52));
         QCOMPARE(chars[0].descriptors().at(0).uuid(),
-                QBluetoothUuid(QBluetoothUuid::ClientCharacteristicConfiguration));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration));
         QCOMPARE(chars[0].descriptors().at(0).type(),
-                QBluetoothUuid::ClientCharacteristicConfiguration);
+                 QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
         QVERIFY(verifyClientCharacteristicValue(chars[0].descriptors().at(0).value()));
         QVERIFY(info->contains(chars[0].descriptors().at(0)));
 
         QCOMPARE(chars[0].descriptors().at(1).isValid(), true);
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[0].descriptors().at(1).handle(), QLowEnergyHandle(0x53));
         QCOMPARE(chars[0].descriptors().at(1).uuid(),
-                QBluetoothUuid(QBluetoothUuid::CharacteristicUserDescription));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::CharacteristicUserDescription));
         QCOMPARE(chars[0].descriptors().at(1).type(),
-                QBluetoothUuid::CharacteristicUserDescription);
+                 QBluetoothUuid::DescriptorType::CharacteristicUserDescription);
         // value different in other revisions and test may fail
         QCOMPARE(chars[0].descriptors().at(1).value(),
                 QByteArray::fromHex("4261726f6d2e2044617461"));
@@ -1255,7 +1194,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         temp = QString("f000aa42-0451-4000-b000-000000000000");
         QCOMPARE(chars[1].uuid(), QBluetoothUuid(temp));
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[1].handle(), QLowEnergyHandle(0x55));
         QCOMPARE(chars[1].properties(),
                  (QLowEnergyCharacteristic::Read|QLowEnergyCharacteristic::Write));
         QCOMPARE(chars[1].value(), QByteArray::fromHex("00"));
@@ -1265,11 +1203,10 @@ void tst_QLowEnergyController::verifyServiceProperties(
         QCOMPARE(chars[1].descriptors().count(), 1);
         QCOMPARE(chars[1].descriptors().at(0).isValid(), true);
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[1].descriptors().at(0).handle(), QLowEnergyHandle(0x56));
         QCOMPARE(chars[1].descriptors().at(0).uuid(),
-                QBluetoothUuid(QBluetoothUuid::CharacteristicUserDescription));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::CharacteristicUserDescription));
         QCOMPARE(chars[1].descriptors().at(0).type(),
-                QBluetoothUuid::CharacteristicUserDescription);
+                 QBluetoothUuid::DescriptorType::CharacteristicUserDescription);
         QCOMPARE(chars[1].descriptors().at(0).value(),
                 QByteArray::fromHex("4261726f6d2e20436f6e662e"));
         QVERIFY(info->contains(chars[1].descriptors().at(0)));
@@ -1289,7 +1226,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
             temp = QString("f000aa43-0451-4000-b000-000000000000");
             QCOMPARE(calibration.uuid(), QBluetoothUuid(temp));
             // value different in other revisions and test may fail
-            HANDLE_COMPARE(calibration.handle(), QLowEnergyHandle(0x5b));
             QCOMPARE(calibration.properties(),
                      (QLowEnergyCharacteristic::Read));
             QCOMPARE(calibration.value(), QByteArray::fromHex("00000000000000000000000000000000"));   // don't change it
@@ -1300,21 +1236,20 @@ void tst_QLowEnergyController::verifyServiceProperties(
             //descriptor checks
             QCOMPARE(calibration.descriptors().at(0).isValid(), true);
             // value different in other revisions and test may fail
-            HANDLE_COMPARE(calibration.descriptors().at(0).handle(), QLowEnergyHandle(0x5c));
             QCOMPARE(calibration.descriptors().at(0).uuid(),
-                    QBluetoothUuid(QBluetoothUuid::ClientCharacteristicConfiguration));
+                     QBluetoothUuid(
+                             QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration));
             QCOMPARE(calibration.descriptors().at(0).type(),
-                    QBluetoothUuid::ClientCharacteristicConfiguration);
+                     QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
             QVERIFY(verifyClientCharacteristicValue(calibration.descriptors().at(0).value()));
             QVERIFY(info->contains(calibration.descriptors().at(0)));
 
             QCOMPARE(calibration.descriptors().at(1).isValid(), true);
             // value different in other revisions and test may fail
-            HANDLE_COMPARE(calibration.descriptors().at(1).handle(), QLowEnergyHandle(0x5d));
             QCOMPARE(calibration.descriptors().at(1).uuid(),
-                    QBluetoothUuid(QBluetoothUuid::CharacteristicUserDescription));
+                     QBluetoothUuid(QBluetoothUuid::DescriptorType::CharacteristicUserDescription));
             QCOMPARE(calibration.descriptors().at(1).type(),
-                    QBluetoothUuid::CharacteristicUserDescription);
+                     QBluetoothUuid::DescriptorType::CharacteristicUserDescription);
             QCOMPARE(calibration.descriptors().at(1).value(),
                      QByteArray::fromHex("4261726f6d2e2043616c6962722e"));
             QVERIFY(info->contains(calibration.descriptors().at(1)));
@@ -1325,7 +1260,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
             temp = QString("f000aa44-0451-4000-b000-000000000000");
             QCOMPARE(period.uuid(), QBluetoothUuid(temp));
             // value different in other revisions and test may fail
-            HANDLE_COMPARE(period.handle(), QLowEnergyHandle(0x58));
             QCOMPARE(period.properties(),
                      (QLowEnergyCharacteristic::Read|QLowEnergyCharacteristic::Write));
             QCOMPARE(period.value(), QByteArray::fromHex("64"));
@@ -1336,11 +1270,10 @@ void tst_QLowEnergyController::verifyServiceProperties(
             //descriptor checks
             QCOMPARE(period.descriptors().at(0).isValid(), true);
             // value different in other revisions and test may fail
-            HANDLE_COMPARE(period.descriptors().at(0).handle(), QLowEnergyHandle(0x59));
             QCOMPARE(period.descriptors().at(0).uuid(),
-                    QBluetoothUuid(QBluetoothUuid::CharacteristicUserDescription));
+                     QBluetoothUuid(QBluetoothUuid::DescriptorType::CharacteristicUserDescription));
             QCOMPARE(period.descriptors().at(0).type(),
-                    QBluetoothUuid::CharacteristicUserDescription);
+                     QBluetoothUuid::DescriptorType::CharacteristicUserDescription);
             QCOMPARE(period.descriptors().at(0).value(),
                      QByteArray::fromHex("4261726f6d2e20506572696f64"));
             QVERIFY(info->contains(period.descriptors().at(0)));
@@ -1355,7 +1288,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         QString temp("f000aa51-0451-4000-b000-000000000000");
         QCOMPARE(chars[0].uuid(), QBluetoothUuid(temp));
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[0].handle(), QLowEnergyHandle(0x60));
         QCOMPARE(chars[0].properties(),
                 (QLowEnergyCharacteristic::Read|QLowEnergyCharacteristic::Notify));
         QCOMPARE(chars[0].value(), QByteArray::fromHex("000000000000"));
@@ -1366,21 +1298,19 @@ void tst_QLowEnergyController::verifyServiceProperties(
         //descriptor checks
         QCOMPARE(chars[0].descriptors().at(0).isValid(), true);
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[0].descriptors().at(0).handle(), QLowEnergyHandle(0x61));
         QCOMPARE(chars[0].descriptors().at(0).uuid(),
-                QBluetoothUuid(QBluetoothUuid::ClientCharacteristicConfiguration));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration));
         QCOMPARE(chars[0].descriptors().at(0).type(),
-                QBluetoothUuid::ClientCharacteristicConfiguration);
+                 QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
         QVERIFY(verifyClientCharacteristicValue(chars[0].descriptors().at(0).value()));
         QVERIFY(info->contains(chars[0].descriptors().at(0)));
 
         QCOMPARE(chars[0].descriptors().at(1).isValid(), true);
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[0].descriptors().at(1).handle(), QLowEnergyHandle(0x62));
         QCOMPARE(chars[0].descriptors().at(1).uuid(),
-                QBluetoothUuid(QBluetoothUuid::CharacteristicUserDescription));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::CharacteristicUserDescription));
         QCOMPARE(chars[0].descriptors().at(1).type(),
-                QBluetoothUuid::CharacteristicUserDescription);
+                 QBluetoothUuid::DescriptorType::CharacteristicUserDescription);
         // value different in other revisions and test may fail
         QCOMPARE(chars[0].descriptors().at(1).value(),
                 QByteArray::fromHex("4779726f2044617461"));
@@ -1390,7 +1320,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         temp = QString("f000aa52-0451-4000-b000-000000000000");
         QCOMPARE(chars[1].uuid(), QBluetoothUuid(temp));
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[1].handle(), QLowEnergyHandle(0x64));
         QCOMPARE(chars[1].properties(),
                  (QLowEnergyCharacteristic::Read|QLowEnergyCharacteristic::Write));
         QCOMPARE(chars[1].value(), QByteArray::fromHex("00"));
@@ -1401,11 +1330,10 @@ void tst_QLowEnergyController::verifyServiceProperties(
         //descriptor checks
         QCOMPARE(chars[1].descriptors().at(0).isValid(), true);
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[1].descriptors().at(0).handle(), QLowEnergyHandle(0x65));
         QCOMPARE(chars[1].descriptors().at(0).uuid(),
-                QBluetoothUuid(QBluetoothUuid::CharacteristicUserDescription));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::CharacteristicUserDescription));
         QCOMPARE(chars[1].descriptors().at(0).type(),
-                QBluetoothUuid::CharacteristicUserDescription);
+                 QBluetoothUuid::DescriptorType::CharacteristicUserDescription);
         QCOMPARE(chars[1].descriptors().at(0).value(),
                 QByteArray::fromHex("4779726f20436f6e662e"));
         QVERIFY(info->contains(chars[1].descriptors().at(0)));
@@ -1414,7 +1342,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         temp = QString("f000aa53-0451-4000-b000-000000000000");
         QCOMPARE(chars[2].uuid(), QBluetoothUuid(temp));
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[2].handle(), QLowEnergyHandle(0x67));
         QCOMPARE(chars[2].properties(),
                  (QLowEnergyCharacteristic::Read|QLowEnergyCharacteristic::Write));
         QCOMPARE(chars[2].value(), QByteArray::fromHex("64"));
@@ -1424,11 +1351,10 @@ void tst_QLowEnergyController::verifyServiceProperties(
         QCOMPARE(chars[2].descriptors().count(), 1);
         //descriptor checks
         QCOMPARE(chars[2].descriptors().at(0).isValid(), true);
-        HANDLE_COMPARE(chars[2].descriptors().at(0).handle(), QLowEnergyHandle(0x68));
         QCOMPARE(chars[2].descriptors().at(0).uuid(),
-                QBluetoothUuid(QBluetoothUuid::CharacteristicUserDescription));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::CharacteristicUserDescription));
         QCOMPARE(chars[2].descriptors().at(0).type(),
-                QBluetoothUuid::CharacteristicUserDescription);
+                 QBluetoothUuid::DescriptorType::CharacteristicUserDescription);
         QCOMPARE(chars[2].descriptors().at(0).value(),
                 QByteArray::fromHex("4779726f20506572696f64"));
         QVERIFY(info->contains(chars[2].descriptors().at(0)));
@@ -1442,7 +1368,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         QString temp("f000aa61-0451-4000-b000-000000000000");
         QCOMPARE(chars[0].uuid(), QBluetoothUuid(temp));
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[0].handle(), QLowEnergyHandle(0x70));
         QCOMPARE(chars[0].properties(),
                 (QLowEnergyCharacteristic::Read));
         QCOMPARE(chars[0].value(), QByteArray::fromHex("3f00"));
@@ -1452,11 +1377,10 @@ void tst_QLowEnergyController::verifyServiceProperties(
         QCOMPARE(chars[0].descriptors().count(), 1);
         QCOMPARE(chars[0].descriptors().at(0).isValid(), true);
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[0].descriptors().at(0).handle(), QLowEnergyHandle(0x71));
         QCOMPARE(chars[0].descriptors().at(0).uuid(),
-                QBluetoothUuid(QBluetoothUuid::CharacteristicUserDescription));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::CharacteristicUserDescription));
         QCOMPARE(chars[0].descriptors().at(0).type(),
-                QBluetoothUuid::CharacteristicUserDescription);
+                 QBluetoothUuid::DescriptorType::CharacteristicUserDescription);
         QCOMPARE(chars[0].descriptors().at(0).value(),
                 QByteArray::fromHex("546573742044617461"));
         QVERIFY(info->contains(chars[0].descriptors().at(0)));
@@ -1464,7 +1388,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         // Test Config
         temp = QString("f000aa62-0451-4000-b000-000000000000");
         QCOMPARE(chars[1].uuid(), QBluetoothUuid(temp));
-        HANDLE_COMPARE(chars[1].handle(), QLowEnergyHandle(0x73));
         QCOMPARE(chars[1].properties(),
                  (QLowEnergyCharacteristic::Read|QLowEnergyCharacteristic::Write));
         QCOMPARE(chars[1].value(), QByteArray::fromHex("00"));
@@ -1475,11 +1398,10 @@ void tst_QLowEnergyController::verifyServiceProperties(
         //descriptor checks
         QCOMPARE(chars[1].descriptors().at(0).isValid(), true);
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[1].descriptors().at(0).handle(), QLowEnergyHandle(0x74));
         QCOMPARE(chars[1].descriptors().at(0).uuid(),
-                QBluetoothUuid(QBluetoothUuid::CharacteristicUserDescription));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::CharacteristicUserDescription));
         QCOMPARE(chars[1].descriptors().at(0).type(),
-                QBluetoothUuid::CharacteristicUserDescription);
+                 QBluetoothUuid::DescriptorType::CharacteristicUserDescription);
         QCOMPARE(chars[1].descriptors().at(0).value(),
                 QByteArray::fromHex("5465737420436f6e666967"));
         QVERIFY(info->contains(chars[1].descriptors().at(0)));
@@ -1492,7 +1414,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         //first characteristic
         QString temp("f000ccc1-0451-4000-b000-000000000000");
         QCOMPARE(chars[0].uuid(), QBluetoothUuid(temp));
-        HANDLE_COMPARE(chars[0].handle(), QLowEnergyHandle(0x77));
         QCOMPARE(chars[0].properties(),
                 (QLowEnergyCharacteristic::Notify|QLowEnergyCharacteristic::Read));
         // the connection control parameter change from platform to platform
@@ -1504,21 +1425,19 @@ void tst_QLowEnergyController::verifyServiceProperties(
         QCOMPARE(chars[0].descriptors().count(), 2);
         //descriptor checks
         QCOMPARE(chars[0].descriptors().at(0).isValid(), true);
-        HANDLE_COMPARE(chars[0].descriptors().at(0).handle(), QLowEnergyHandle(0x78));
         QCOMPARE(chars[0].descriptors().at(0).uuid(),
-                QBluetoothUuid(QBluetoothUuid::ClientCharacteristicConfiguration));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration));
         QCOMPARE(chars[0].descriptors().at(0).type(),
-                QBluetoothUuid::ClientCharacteristicConfiguration);
+                 QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
         QVERIFY(verifyClientCharacteristicValue(chars[0].descriptors().at(0).value()));
         QVERIFY(info->contains(chars[0].descriptors().at(0)));
 
         QCOMPARE(chars[0].descriptors().at(1).isValid(), true);
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[0].descriptors().at(1).handle(), QLowEnergyHandle(0x79));
         QCOMPARE(chars[0].descriptors().at(1).uuid(),
-                QBluetoothUuid(QBluetoothUuid::CharacteristicUserDescription));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::CharacteristicUserDescription));
         QCOMPARE(chars[0].descriptors().at(1).type(),
-                QBluetoothUuid::CharacteristicUserDescription);
+                 QBluetoothUuid::DescriptorType::CharacteristicUserDescription);
         QCOMPARE(chars[0].descriptors().at(1).value(),
                 QByteArray::fromHex("436f6e6e2e20506172616d73"));
         QVERIFY(info->contains(chars[0].descriptors().at(1)));
@@ -1526,7 +1445,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         //second characteristic
         temp = QString("f000ccc2-0451-4000-b000-000000000000");
         QCOMPARE(chars[1].uuid(), QBluetoothUuid(temp));
-        HANDLE_COMPARE(chars[1].handle(), QLowEnergyHandle(0x7b));
         QCOMPARE(chars[1].properties(), QLowEnergyCharacteristic::Write);
         QCOMPARE(chars[1].value(), QByteArray());
         QVERIFY(chars[1].isValid());
@@ -1534,11 +1452,10 @@ void tst_QLowEnergyController::verifyServiceProperties(
 
         QCOMPARE(chars[1].descriptors().count(), 1);
         QCOMPARE(chars[1].descriptors().at(0).isValid(), true);
-        HANDLE_COMPARE(chars[1].descriptors().at(0).handle(), QLowEnergyHandle(0x7c));
         QCOMPARE(chars[1].descriptors().at(0).uuid(),
-                QBluetoothUuid(QBluetoothUuid::CharacteristicUserDescription));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::CharacteristicUserDescription));
         QCOMPARE(chars[1].descriptors().at(0).type(),
-                QBluetoothUuid::CharacteristicUserDescription);
+                 QBluetoothUuid::DescriptorType::CharacteristicUserDescription);
         QCOMPARE(chars[1].descriptors().at(0).value(),
                 QByteArray::fromHex("436f6e6e2e20506172616d7320526571"));
         QVERIFY(info->contains(chars[1].descriptors().at(0)));
@@ -1546,7 +1463,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         //third characteristic
         temp = QString("f000ccc3-0451-4000-b000-000000000000");
         QCOMPARE(chars[2].uuid(), QBluetoothUuid(temp));
-        HANDLE_COMPARE(chars[2].handle(), QLowEnergyHandle(0x7e));
         QCOMPARE(chars[2].properties(), QLowEnergyCharacteristic::Write);
         QCOMPARE(chars[2].value(), QByteArray());
         QVERIFY(chars[2].isValid());
@@ -1554,11 +1470,10 @@ void tst_QLowEnergyController::verifyServiceProperties(
 
         QCOMPARE(chars[2].descriptors().count(), 1);
         QCOMPARE(chars[2].descriptors().at(0).isValid(), true);
-        HANDLE_COMPARE(chars[2].descriptors().at(0).handle(), QLowEnergyHandle(0x7f));
         QCOMPARE(chars[2].descriptors().at(0).uuid(),
-                QBluetoothUuid(QBluetoothUuid::CharacteristicUserDescription));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::CharacteristicUserDescription));
         QCOMPARE(chars[2].descriptors().at(0).type(),
-                QBluetoothUuid::CharacteristicUserDescription);
+                 QBluetoothUuid::DescriptorType::CharacteristicUserDescription);
         QCOMPARE(chars[2].descriptors().at(0).value(),
                 QByteArray::fromHex("446973636f6e6e65637420526571"));
         QVERIFY(info->contains(chars[2].descriptors().at(0)));
@@ -1572,7 +1487,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         QString temp("f000ffc1-0451-4000-b000-000000000000");
         QCOMPARE(chars[0].uuid(), QBluetoothUuid(temp));
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[0].handle(), QLowEnergyHandle(0x82));
         QCOMPARE(chars[0].properties(),
                 (QLowEnergyCharacteristic::Notify|QLowEnergyCharacteristic::Write|QLowEnergyCharacteristic::WriteNoResponse));
         QCOMPARE(chars[0].value(), QByteArray());
@@ -1582,21 +1496,19 @@ void tst_QLowEnergyController::verifyServiceProperties(
         QCOMPARE(chars[0].descriptors().count(), 2);
         //descriptor checks
         QCOMPARE(chars[0].descriptors().at(0).isValid(), true);
-        HANDLE_COMPARE(chars[0].descriptors().at(0).handle(), QLowEnergyHandle(0x83));
         QCOMPARE(chars[0].descriptors().at(0).uuid(),
-                QBluetoothUuid(QBluetoothUuid::ClientCharacteristicConfiguration));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration));
         QCOMPARE(chars[0].descriptors().at(0).type(),
-                QBluetoothUuid::ClientCharacteristicConfiguration);
+                 QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
         QVERIFY(verifyClientCharacteristicValue(chars[0].descriptors().at(0).value()));
         QVERIFY(info->contains(chars[0].descriptors().at(0)));
 
         QCOMPARE(chars[0].descriptors().at(1).isValid(), true);
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[0].descriptors().at(1).handle(), QLowEnergyHandle(0x84));
         QCOMPARE(chars[0].descriptors().at(1).uuid(),
-                QBluetoothUuid(QBluetoothUuid::CharacteristicUserDescription));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::CharacteristicUserDescription));
         QCOMPARE(chars[0].descriptors().at(1).type(),
-                QBluetoothUuid::CharacteristicUserDescription);
+                 QBluetoothUuid::DescriptorType::CharacteristicUserDescription);
         QCOMPARE(chars[0].descriptors().at(1).value(),
                 QByteArray::fromHex("496d67204964656e74696679"));
         QVERIFY(info->contains(chars[0].descriptors().at(1)));
@@ -1605,7 +1517,6 @@ void tst_QLowEnergyController::verifyServiceProperties(
         temp = QString("f000ffc2-0451-4000-b000-000000000000");
         QCOMPARE(chars[1].uuid(), QBluetoothUuid(temp));
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[1].handle(), QLowEnergyHandle(0x86));
         QCOMPARE(chars[1].properties(),
                  (QLowEnergyCharacteristic::Notify|QLowEnergyCharacteristic::Write|QLowEnergyCharacteristic::WriteNoResponse));
         QCOMPARE(chars[1].value(), QByteArray());
@@ -1616,21 +1527,19 @@ void tst_QLowEnergyController::verifyServiceProperties(
         //descriptor checks
         QCOMPARE(chars[1].descriptors().at(0).isValid(), true);
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[1].descriptors().at(0).handle(), QLowEnergyHandle(0x87));
         QCOMPARE(chars[1].descriptors().at(0).uuid(),
-                QBluetoothUuid(QBluetoothUuid::ClientCharacteristicConfiguration));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration));
         QCOMPARE(chars[1].descriptors().at(0).type(),
-                QBluetoothUuid::ClientCharacteristicConfiguration);
+                 QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
         QVERIFY(verifyClientCharacteristicValue(chars[0].descriptors().at(0).value()));
         QVERIFY(info->contains(chars[1].descriptors().at(0)));
 
         QCOMPARE(chars[1].descriptors().at(1).isValid(), true);
         // value different in other revisions and test may fail
-        HANDLE_COMPARE(chars[1].descriptors().at(1).handle(), QLowEnergyHandle(0x88));
         QCOMPARE(chars[1].descriptors().at(1).uuid(),
-                QBluetoothUuid(QBluetoothUuid::CharacteristicUserDescription));
+                 QBluetoothUuid(QBluetoothUuid::DescriptorType::CharacteristicUserDescription));
         QCOMPARE(chars[1].descriptors().at(1).type(),
-                QBluetoothUuid::CharacteristicUserDescription);
+                 QBluetoothUuid::DescriptorType::CharacteristicUserDescription);
         QCOMPARE(chars[1].descriptors().at(1).value(),
                 QByteArray::fromHex("496d6720426c6f636b"));
         QVERIFY(info->contains(chars[1].descriptors().at(1)));
@@ -1671,44 +1580,50 @@ void tst_QLowEnergyController::tst_defaultBehavior()
     const QBluetoothAddress randomAddress("11:22:33:44:55:66");
 
     // Test automatic detection of local adapter
-    QLowEnergyController controlDefaultAdapter(randomAddress);
-    QCOMPARE(controlDefaultAdapter.remoteAddress(), randomAddress);
-    QCOMPARE(controlDefaultAdapter.state(), QLowEnergyController::UnconnectedState);
+    QScopedPointer<QLowEnergyController> controlDefaultAdapter(QLowEnergyController::createCentral(
+                                            QBluetoothDeviceInfo(randomAddress, QString("random"), 1)));
+
+    QCOMPARE(controlDefaultAdapter->remoteAddress(), randomAddress);
+    QCOMPARE(controlDefaultAdapter->state(), QLowEnergyController::UnconnectedState);
     if (foundAddresses.isEmpty()) {
-        QVERIFY(controlDefaultAdapter.localAddress().isNull());
+        QVERIFY(controlDefaultAdapter->localAddress().isNull());
     } else {
-        QCOMPARE(controlDefaultAdapter.error(), QLowEnergyController::NoError);
-        QVERIFY(controlDefaultAdapter.errorString().isEmpty());
-        QVERIFY(foundAddresses.contains(controlDefaultAdapter.localAddress()));
+        QCOMPARE(controlDefaultAdapter->error(), QLowEnergyController::NoError);
+        QVERIFY(controlDefaultAdapter->errorString().isEmpty());
+        QVERIFY(foundAddresses.contains(controlDefaultAdapter->localAddress()));
 
         // unrelated uuids don't return valid service object
         // invalid service uuid
-        QVERIFY(!controlDefaultAdapter.createServiceObject(
+        QVERIFY(!controlDefaultAdapter->createServiceObject(
                     QBluetoothUuid()));
         // some random uuid
-        QVERIFY(!controlDefaultAdapter.createServiceObject(
-                    QBluetoothUuid(QBluetoothUuid::DeviceName)));
+        QVERIFY(!controlDefaultAdapter->createServiceObject(
+                QBluetoothUuid(QBluetoothUuid::CharacteristicType::DeviceName)));
     }
 
-    QCOMPARE(controlDefaultAdapter.services().count(), 0);
+    QCOMPARE(controlDefaultAdapter->services().count(), 0);
 
     // Test explicit local adapter
     if (!foundAddresses.isEmpty()) {
-        QLowEnergyController controlExplicitAdapter(randomAddress,
-                                                       foundAddresses[0]);
-        QCOMPARE(controlExplicitAdapter.remoteAddress(), randomAddress);
-        QCOMPARE(controlExplicitAdapter.localAddress(), foundAddresses[0]);
-        QCOMPARE(controlExplicitAdapter.state(),
+
+        QScopedPointer<QLowEnergyController> controlExplicitAdapter(
+                    QLowEnergyController::createCentral(
+                        QBluetoothDeviceInfo(randomAddress, QString("random"), 1),
+                        foundAddresses[0]));
+
+        QCOMPARE(controlExplicitAdapter->remoteAddress(), randomAddress);
+        QCOMPARE(controlExplicitAdapter->localAddress(), foundAddresses[0]);
+        QCOMPARE(controlExplicitAdapter->state(),
                  QLowEnergyController::UnconnectedState);
-        QCOMPARE(controlExplicitAdapter.services().count(), 0);
+        QCOMPARE(controlExplicitAdapter->services().count(), 0);
 
         // unrelated uuids don't return valid service object
         // invalid service uuid
-        QVERIFY(!controlExplicitAdapter.createServiceObject(
+        QVERIFY(!controlExplicitAdapter->createServiceObject(
                     QBluetoothUuid()));
         // some random uuid
-        QVERIFY(!controlExplicitAdapter.createServiceObject(
-                    QBluetoothUuid(QBluetoothUuid::DeviceName)));
+        QVERIFY(!controlExplicitAdapter->createServiceObject(
+                QBluetoothUuid(QBluetoothUuid::CharacteristicType::DeviceName)));
     }
 }
 
@@ -1722,26 +1637,27 @@ void tst_QLowEnergyController::tst_writeCharacteristic()
 
     if (!remoteDeviceInfo.isValid())
         QSKIP("No remote BTLE device found. Skipping test.");
-    QLowEnergyController control(remoteDeviceInfo);
+    QScopedPointer<QLowEnergyController> control(
+                QLowEnergyController::createCentral(remoteDeviceInfo));
 
-    QCOMPARE(control.error(), QLowEnergyController::NoError);
+    QCOMPARE(control->error(), QLowEnergyController::NoError);
 
-    control.connectToDevice();
+    control->connectToDevice();
     {
-        QTRY_IMPL(control.state() != QLowEnergyController::ConnectingState,
-              30000);
+        QTRY_IMPL(control->state() != QLowEnergyController::ConnectingState,
+              30000)
     }
 
-    if (control.state() == QLowEnergyController::ConnectingState
-            || control.error() != QLowEnergyController::NoError) {
+    if (control->state() == QLowEnergyController::ConnectingState
+            || control->error() != QLowEnergyController::NoError) {
         // default BTLE backend forever hangs in ConnectingState
         QSKIP("Cannot connect to remote device");
     }
 
-    QCOMPARE(control.state(), QLowEnergyController::ConnectedState);
-    QSignalSpy discoveryFinishedSpy(&control, SIGNAL(discoveryFinished()));
-    QSignalSpy stateSpy(&control, SIGNAL(stateChanged(QLowEnergyController::ControllerState)));
-    control.discoverServices();
+    QTRY_VERIFY_WITH_TIMEOUT(control->state() == QLowEnergyController::ConnectedState, 20000);
+    QSignalSpy discoveryFinishedSpy(control.data(), SIGNAL(discoveryFinished()));
+    QSignalSpy stateSpy(control.data(), SIGNAL(stateChanged(QLowEnergyController::ControllerState)));
+    control->discoverServices();
     QTRY_VERIFY_WITH_TIMEOUT(discoveryFinishedSpy.count() == 1, 20000);
     QCOMPARE(stateSpy.count(), 2);
     QCOMPARE(stateSpy.at(0).at(0).value<QLowEnergyController::ControllerState>(),
@@ -1750,14 +1666,14 @@ void tst_QLowEnergyController::tst_writeCharacteristic()
              QLowEnergyController::DiscoveredState);
 
     const QBluetoothUuid testService(QString("f000aa60-0451-4000-b000-000000000000"));
-    QList<QBluetoothUuid> uuids = control.services();
+    QList<QBluetoothUuid> uuids = control->services();
     QVERIFY(uuids.contains(testService));
 
-    QLowEnergyService *service = control.createServiceObject(testService, this);
+    QLowEnergyService *service = control->createServiceObject(testService, this);
     QVERIFY(service);
     service->discoverDetails();
     QTRY_VERIFY_WITH_TIMEOUT(
-        service->state() == QLowEnergyService::ServiceDiscovered, 30000);
+        service->state() == QLowEnergyService::RemoteServiceDiscovered, 30000);
 
     // test service described by
     // http://processors.wiki.ti.com/index.php/CC2650_SensorTag_User%27s_Guide
@@ -1836,7 +1752,7 @@ void tst_QLowEnergyController::tst_writeCharacteristic()
 
     // *******************************************
     // write wrong value -> error response required
-    QSignalSpy errorSpy(service, SIGNAL(error(QLowEnergyService::ServiceError)));
+    QSignalSpy errorSpy(service, SIGNAL(errorOccurred(QLowEnergyService::ServiceError)));
     writeSpy.clear();
     QCOMPARE(errorSpy.count(), 0);
     QCOMPARE(writeSpy.count(), 0);
@@ -1864,8 +1780,9 @@ void tst_QLowEnergyController::tst_writeCharacteristic()
     QCOMPARE(dataChar.value(), QByteArray::fromHex("3f00"));
 
 
-    control.disconnectFromDevice();
-
+    control->disconnectFromDevice();
+    QTRY_COMPARE(control->state(), QLowEnergyController::UnconnectedState);
+    QCOMPARE(control->error(), QLowEnergyController::NoError);
     // *******************************************
     // write value while disconnected -> error
     errorSpy.clear();
@@ -1897,25 +1814,25 @@ void tst_QLowEnergyController::tst_readWriteDescriptor()
 
     if (!remoteDeviceInfo.isValid())
         QSKIP("No remote BTLE device found. Skipping test.");
-    QLowEnergyController control(remoteDeviceInfo);
+    QScopedPointer<QLowEnergyController> control(QLowEnergyController::createCentral(remoteDeviceInfo));
 
     // quick setup - more elaborate test is done by connect()
-    control.connectToDevice();
+    control->connectToDevice();
     {
-        QTRY_IMPL(control.state() != QLowEnergyController::ConnectingState,
-              30000);
+        QTRY_IMPL(control->state() != QLowEnergyController::ConnectingState,
+              30000)
     }
 
-    if (control.state() == QLowEnergyController::ConnectingState
-            || control.error() != QLowEnergyController::NoError) {
+    if (control->state() == QLowEnergyController::ConnectingState
+            || control->error() != QLowEnergyController::NoError) {
         // default BTLE backend forever hangs in ConnectingState
         QSKIP("Cannot connect to remote device");
     }
 
-    QCOMPARE(control.state(), QLowEnergyController::ConnectedState);
-    QSignalSpy discoveryFinishedSpy(&control, SIGNAL(discoveryFinished()));
-    QSignalSpy stateSpy(&control, SIGNAL(stateChanged(QLowEnergyController::ControllerState)));
-    control.discoverServices();
+    QCOMPARE(control->state(), QLowEnergyController::ConnectedState);
+    QSignalSpy discoveryFinishedSpy(control.data(), SIGNAL(discoveryFinished()));
+    QSignalSpy stateSpy(control.data(), SIGNAL(stateChanged(QLowEnergyController::ControllerState)));
+    control->discoverServices();
     QTRY_VERIFY_WITH_TIMEOUT(discoveryFinishedSpy.count() == 1, 20000);
     QCOMPARE(stateSpy.count(), 2);
     QCOMPARE(stateSpy.at(0).at(0).value<QLowEnergyController::ControllerState>(),
@@ -1923,47 +1840,51 @@ void tst_QLowEnergyController::tst_readWriteDescriptor()
     QCOMPARE(stateSpy.at(1).at(0).value<QLowEnergyController::ControllerState>(),
              QLowEnergyController::DiscoveredState);
 
-    const QBluetoothUuid testService(QString("f000aa00-0451-4000-b000-000000000000"));
-    QList<QBluetoothUuid> uuids = control.services();
+    const QBluetoothUuid testService(QString("f000aa20-0451-4000-b000-000000000000"));
+    QList<QBluetoothUuid> uuids = control->services();
     QVERIFY(uuids.contains(testService));
 
-    QLowEnergyService *service = control.createServiceObject(testService, this);
+    QLowEnergyService *service = control->createServiceObject(testService, this);
     QVERIFY(service);
     service->discoverDetails();
     QTRY_VERIFY_WITH_TIMEOUT(
-        service->state() == QLowEnergyService::ServiceDiscovered, 30000);
+        service->state() == QLowEnergyService::RemoteServiceDiscovered, 30000);
 
-    // Temperature service described by
+    // Humidity service described by
     // http://processors.wiki.ti.com/index.php/CC2650_SensorTag_User%27s_Guide
 
-    // 1. Find temperature data characteristic
-    const QLowEnergyCharacteristic tempData = service->characteristic(
-                QBluetoothUuid(QStringLiteral("f000aa01-0451-4000-b000-000000000000")));
-    const QLowEnergyCharacteristic tempConfig = service->characteristic(
-                QBluetoothUuid(QStringLiteral("f000aa02-0451-4000-b000-000000000000")));
+    // 1. Find humidity data characteristic
+    const QLowEnergyCharacteristic humidData = service->characteristic(
+            QBluetoothUuid(QStringLiteral("f000aa21-0451-4000-b000-000000000000")));
+    const QLowEnergyCharacteristic humidConfig = service->characteristic(
+            QBluetoothUuid(QStringLiteral("f000aa22-0451-4000-b000-000000000000")));
 
-    if (!tempData.isValid()) {
+    if (!humidData.isValid()) {
         delete service;
-        control.disconnectFromDevice();
-        QSKIP("Cannot find temperature data characteristic of TI Sensor");
+        control->disconnectFromDevice();
+        QTRY_COMPARE(control->state(), QLowEnergyController::UnconnectedState);
+        QCOMPARE(control->error(), QLowEnergyController::NoError);
+        QSKIP("Cannot find humidity data characteristic of TI Sensor");
     }
 
-    // 2. Find temperature data notification descriptor
-    const QLowEnergyDescriptor notification = tempData.descriptor(
-                QBluetoothUuid(QBluetoothUuid::ClientCharacteristicConfiguration));
+    // 2. Find humidity data notification descriptor
+    const QLowEnergyDescriptor notification = humidData.descriptor(
+            QBluetoothUuid(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration));
 
     if (!notification.isValid()) {
         delete service;
-        control.disconnectFromDevice();
-        QSKIP("Cannot find temperature data notification of TI Sensor");
+        control->disconnectFromDevice();
+        QTRY_COMPARE(control->state(), QLowEnergyController::UnconnectedState);
+        QCOMPARE(control->error(), QLowEnergyController::NoError);
+        QSKIP("Cannot find humidity data notification of TI Sensor");
     }
 
     QCOMPARE(notification.value(), QByteArray::fromHex("0000"));
     QVERIFY(service->contains(notification));
-    QVERIFY(service->contains(tempData));
-    if (tempConfig.isValid()) {
-        QVERIFY(service->contains(tempConfig));
-        QCOMPARE(tempConfig.value(), QByteArray::fromHex("00"));
+    QVERIFY(service->contains(humidData));
+    if (humidConfig.isValid()) {
+        QVERIFY(service->contains(humidConfig));
+        QCOMPARE(humidConfig.value(), QByteArray::fromHex("00"));
     }
 
     // 3. Test reading and writing to descriptor -> activate notifications
@@ -1994,11 +1915,11 @@ void tst_QLowEnergyController::tst_readWriteDescriptor()
     }
 
     // 4. Test reception of notifications
-    // activate the temperature sensor if available
-    if (tempConfig.isValid()) {
-        service->writeCharacteristic(tempConfig, QByteArray::fromHex("01"));
+    // activate the humidity sensor if available
+    if (humidConfig.isValid()) {
+        service->writeCharacteristic(humidConfig, QByteArray::fromHex("01"));
 
-        // first signal is confirmation of tempConfig write
+        // first signal is confirmation of humidConfig write
         // subsequent signals are temp data updates
         QTRY_VERIFY_WITH_TIMEOUT(charWrittenSpy.count() == 1, 10000);
         QTRY_VERIFY_WITH_TIMEOUT(charChangedSpy.count() >= 4, 10000);
@@ -2006,8 +1927,8 @@ void tst_QLowEnergyController::tst_readWriteDescriptor()
         QCOMPARE(charWrittenSpy.count(), 1);
         QLowEnergyCharacteristic writtenChar = charWrittenSpy[0].at(0).value<QLowEnergyCharacteristic>();
         QByteArray writtenValue = charWrittenSpy[0].at(1).toByteArray();
-        QCOMPARE(tempConfig, writtenChar);
-        QCOMPARE(tempConfig.value(), writtenValue);
+        QCOMPARE(humidConfig, writtenChar);
+        QCOMPARE(humidConfig.value(), writtenValue);
         QCOMPARE(writtenChar.value(), writtenValue);
         QCOMPARE(writtenValue, QByteArray::fromHex("01"));
 
@@ -2016,17 +1937,17 @@ void tst_QLowEnergyController::tst_readWriteDescriptor()
             entry = charChangedSpy[i];
             const QLowEnergyCharacteristic ch = entry[0].value<QLowEnergyCharacteristic>();
 
-            QCOMPARE(tempData, ch);
+            QCOMPARE(humidData, ch);
 
             //check last characteristic changed value matches the characteristics current value
             if (i == (charChangedSpy.count() - 1)) {
                 writtenValue = entry[1].toByteArray();
                 QCOMPARE(ch.value(), writtenValue);
-                QCOMPARE(tempData.value(), writtenValue);
+                QCOMPARE(humidData.value(), writtenValue);
             }
         }
 
-        service->writeCharacteristic(tempConfig, QByteArray::fromHex("00"));
+        service->writeCharacteristic(humidConfig, QByteArray::fromHex("00"));
     }
 
     // 5. Test reading and writing of/to descriptor -> deactivate notifications
@@ -2108,7 +2029,7 @@ void tst_QLowEnergyController::tst_readWriteDescriptor()
 
     // *******************************************
     // write wrong value -> error response required
-    QSignalSpy errorSpy(service, SIGNAL(error(QLowEnergyService::ServiceError)));
+    QSignalSpy errorSpy(service, SIGNAL(errorOccurred(QLowEnergyService::ServiceError)));
     descWrittenSpy.clear();
     QCOMPARE(errorSpy.count(), 0);
     QCOMPARE(descWrittenSpy.count(), 0);
@@ -2130,7 +2051,9 @@ void tst_QLowEnergyController::tst_readWriteDescriptor()
     QCOMPARE(descWrittenSpy.count(), 0);
     QCOMPARE(notification.value(), QByteArray::fromHex("0000"));
 
-    control.disconnectFromDevice();
+    control->disconnectFromDevice();
+    QTRY_COMPARE(control->state(), QLowEnergyController::UnconnectedState);
+    QCOMPARE(control->error(), QLowEnergyController::NoError);
 
     // *******************************************
     // write value while disconnected -> error
@@ -2181,28 +2104,29 @@ void tst_QLowEnergyController::tst_customProgrammableDevice()
     //The target characteristic must be readble and writable
     //under encryption to test dynamic switching of security level
     QBluetoothAddress encryptedDevice(QString("00:02:5B:00:15:10"));
-    QBluetoothUuid serviceUuid(QBluetoothUuid::GenericAccess);
-    QBluetoothUuid characterristicUuid(QBluetoothUuid::DeviceName);
+    QBluetoothUuid serviceUuid(QBluetoothUuid::ServiceClassUuid::GenericAccess);
+    QBluetoothUuid characterristicUuid(QBluetoothUuid::CharacteristicType::DeviceName);
 
-    QLowEnergyController control(encryptedDevice);
-    QCOMPARE(control.error(), QLowEnergyController::NoError);
+    QScopedPointer<QLowEnergyController> control(
+                QLowEnergyController::createCentral(QBluetoothDeviceInfo(encryptedDevice, QString("DeviceFoo"), 1)));
+    QCOMPARE(control->error(), QLowEnergyController::NoError);
 
-    control.connectToDevice();
+    control->connectToDevice();
     {
-        QTRY_IMPL(control.state() != QLowEnergyController::ConnectingState,
-              30000);
+        QTRY_IMPL(control->state() != QLowEnergyController::ConnectingState,
+              30000)
     }
 
-    if (control.state() == QLowEnergyController::ConnectingState
-            || control.error() != QLowEnergyController::NoError) {
+    if (control->state() == QLowEnergyController::ConnectingState
+            || control->error() != QLowEnergyController::NoError) {
         // default BTLE backend forever hangs in ConnectingState
         QSKIP("Cannot connect to remote device");
     }
 
-    QCOMPARE(control.state(), QLowEnergyController::ConnectedState);
-    QSignalSpy discoveryFinishedSpy(&control, SIGNAL(discoveryFinished()));
-    QSignalSpy stateSpy(&control, SIGNAL(stateChanged(QLowEnergyController::ControllerState)));
-    control.discoverServices();
+    QCOMPARE(control->state(), QLowEnergyController::ConnectedState);
+    QSignalSpy discoveryFinishedSpy(control.data(), SIGNAL(discoveryFinished()));
+    QSignalSpy stateSpy(control.data(), SIGNAL(stateChanged(QLowEnergyController::ControllerState)));
+    control->discoverServices();
     QTRY_VERIFY_WITH_TIMEOUT(discoveryFinishedSpy.count() == 1, 20000);
     QCOMPARE(stateSpy.count(), 2);
     QCOMPARE(stateSpy.at(0).at(0).value<QLowEnergyController::ControllerState>(),
@@ -2210,16 +2134,16 @@ void tst_QLowEnergyController::tst_customProgrammableDevice()
     QCOMPARE(stateSpy.at(1).at(0).value<QLowEnergyController::ControllerState>(),
              QLowEnergyController::DiscoveredState);
 
-    QList<QBluetoothUuid> uuids = control.services();
+    QList<QBluetoothUuid> uuids = control->services();
     QVERIFY(uuids.contains(serviceUuid));
 
-    QLowEnergyService *service = control.createServiceObject(serviceUuid, this);
+    QLowEnergyService *service = control->createServiceObject(serviceUuid, this);
     QVERIFY(service);
 
     // 1.) discovery triggers read of device name char which is encrypted
     service->discoverDetails();
     QTRY_VERIFY_WITH_TIMEOUT(
-        service->state() == QLowEnergyService::ServiceDiscovered, 30000);
+        service->state() == QLowEnergyService::RemoteServiceDiscovered, 30000);
 
     QLowEnergyCharacteristic encryptedChar = service->characteristic(
                                                     characterristicUuid);
@@ -2232,8 +2156,7 @@ void tst_QLowEnergyController::tst_customProgrammableDevice()
     //     encryption already.
     QSignalSpy encryptedReadSpy(service,
                                 SIGNAL(characteristicRead(QLowEnergyCharacteristic,QByteArray)));
-    QSignalSpy encryptedErrorSpy(service,
-                                 SIGNAL(error(QLowEnergyService::ServiceError)));
+    QSignalSpy encryptedErrorSpy(service, SIGNAL(errorOccurred(QLowEnergyService::ServiceError)));
     service->readCharacteristic(encryptedChar);
     QTRY_VERIFY_WITH_TIMEOUT(!encryptedReadSpy.isEmpty(), 10000);
     QVERIFY(encryptedErrorSpy.isEmpty());
@@ -2262,24 +2185,23 @@ void tst_QLowEnergyController::tst_customProgrammableDevice()
     delete service;
 
     //change to Device Information service
-    QVERIFY(uuids.contains(QBluetoothUuid::DeviceInformation));
-    service = control.createServiceObject(QBluetoothUuid::DeviceInformation);
+    QVERIFY(uuids.contains(QBluetoothUuid::ServiceClassUuid::DeviceInformation));
+    service = control->createServiceObject(QBluetoothUuid::ServiceClassUuid::DeviceInformation);
     QVERIFY(service);
 
     service->discoverDetails();
     QTRY_VERIFY_WITH_TIMEOUT(
-        service->state() == QLowEnergyService::ServiceDiscovered, 30000);
+        service->state() == QLowEnergyService::RemoteServiceDiscovered, 30000);
 
     // 4.) read of software revision string which is longer than mtu
     //     tests readCharacteristic() including blob reads
     QSignalSpy readSpy(service,
                        SIGNAL(characteristicRead(QLowEnergyCharacteristic,QByteArray)));
-    QSignalSpy errorSpy(service,
-                       SIGNAL(error(QLowEnergyService::ServiceError)));
+    QSignalSpy errorSpy(service, SIGNAL(errorOccurred(QLowEnergyService::ServiceError)));
 
     const QByteArray expectedSoftRev("Application version 2.3.0.0");
-    QLowEnergyCharacteristic softwareRevChar
-            = service->characteristic(QBluetoothUuid::SoftwareRevisionString);
+    QLowEnergyCharacteristic softwareRevChar =
+            service->characteristic(QBluetoothUuid::CharacteristicType::SoftwareRevisionString);
     QVERIFY(softwareRevChar.isValid());
     QCOMPARE(softwareRevChar.value(), expectedSoftRev);
 
@@ -2303,8 +2225,8 @@ void tst_QLowEnergyController::tst_customProgrammableDevice()
     // This assumes the manufacturer string was mondified via CSR SDK
     // see function description above
     const QByteArray expectedManufacturer("Cambridge Silicon Radi");
-    QLowEnergyCharacteristic manufacturerChar = service->characteristic(
-                QBluetoothUuid::ManufacturerNameString);
+    QLowEnergyCharacteristic manufacturerChar =
+            service->characteristic(QBluetoothUuid::CharacteristicType::ManufacturerNameString);
     QVERIFY(manufacturerChar.isValid());
     QCOMPARE(manufacturerChar.value(), expectedManufacturer);
 
@@ -2318,7 +2240,9 @@ void tst_QLowEnergyController::tst_customProgrammableDevice()
     QCOMPARE(manufacturerChar.value(), expectedManufacturer);
 
     delete service;
-    control.disconnectFromDevice();
+    control->disconnectFromDevice();
+    QTRY_COMPARE(control->state(), QLowEnergyController::UnconnectedState);
+    QCOMPARE(control->error(), QLowEnergyController::NoError);
 }
 
 
@@ -2338,25 +2262,25 @@ void tst_QLowEnergyController::tst_errorCases()
 
     if (!remoteDeviceInfo.isValid())
         QSKIP("No remote BTLE device found. Skipping test.");
-    QLowEnergyController control(remoteDeviceInfo);
-    QCOMPARE(control.error(), QLowEnergyController::NoError);
+    QScopedPointer<QLowEnergyController> control(QLowEnergyController::createCentral(remoteDeviceInfo));
+    QCOMPARE(control->error(), QLowEnergyController::NoError);
 
-    control.connectToDevice();
+    control->connectToDevice();
     {
-        QTRY_IMPL(control.state() != QLowEnergyController::ConnectingState,
-              30000);
+        QTRY_IMPL(control->state() != QLowEnergyController::ConnectingState,
+              30000)
     }
 
-    if (control.state() == QLowEnergyController::ConnectingState
-            || control.error() != QLowEnergyController::NoError) {
+    if (control->state() == QLowEnergyController::ConnectingState
+            || control->error() != QLowEnergyController::NoError) {
         // default BTLE backend forever hangs in ConnectingState
         QSKIP("Cannot connect to remote device");
     }
 
-    QCOMPARE(control.state(), QLowEnergyController::ConnectedState);
-    QSignalSpy discoveryFinishedSpy(&control, SIGNAL(discoveryFinished()));
-    QSignalSpy stateSpy(&control, SIGNAL(stateChanged(QLowEnergyController::ControllerState)));
-    control.discoverServices();
+    QCOMPARE(control->state(), QLowEnergyController::ConnectedState);
+    QSignalSpy discoveryFinishedSpy(control.data(), SIGNAL(discoveryFinished()));
+    QSignalSpy stateSpy(control.data(), SIGNAL(stateChanged(QLowEnergyController::ControllerState)));
+    control->discoverServices();
     QTRY_VERIFY_WITH_TIMEOUT(discoveryFinishedSpy.count() == 1, 20000);
     QCOMPARE(stateSpy.count(), 2);
     QCOMPARE(stateSpy.at(0).at(0).value<QLowEnergyController::ControllerState>(),
@@ -2371,17 +2295,17 @@ void tst_QLowEnergyController::tst_errorCases()
     const QBluetoothUuid oadServiceUuid(QStringLiteral("f000ffc0-0451-4000-b000-000000000000"));
     const QBluetoothUuid oadCharUuid(QString("f000ffc1-0451-4000-b000-000000000000"));
 
-    QVERIFY(control.services().contains(irTemperaturServiceUuid));
-    QVERIFY(control.services().contains(oadServiceUuid));
+    QVERIFY(control->services().contains(irTemperaturServiceUuid));
+    QVERIFY(control->services().contains(oadServiceUuid));
 
     // Create service objects and basic tests
-    QLowEnergyService *irService = control.createServiceObject(irTemperaturServiceUuid);
+    QLowEnergyService *irService = control->createServiceObject(irTemperaturServiceUuid);
     QVERIFY(irService);
-    QCOMPARE(irService->state(), QLowEnergyService::DiscoveryRequired);
+    QCOMPARE(irService->state(), QLowEnergyService::RemoteService);
     QVERIFY(irService->characteristics().isEmpty());
-    QLowEnergyService *oadService = control.createServiceObject(oadServiceUuid);
+    QLowEnergyService *oadService = control->createServiceObject(oadServiceUuid);
     QVERIFY(oadService);
-    QCOMPARE(oadService->state(), QLowEnergyService::DiscoveryRequired);
+    QCOMPARE(oadService->state(), QLowEnergyService::RemoteService);
     QVERIFY(oadService->characteristics().isEmpty());
 
     QLowEnergyCharacteristic invalidChar;
@@ -2390,8 +2314,8 @@ void tst_QLowEnergyController::tst_errorCases()
     QVERIFY(!irService->contains(invalidChar));
     QVERIFY(!irService->contains(invalidDesc));
 
-    QSignalSpy irErrorSpy(irService, SIGNAL(error(QLowEnergyService::ServiceError)));
-    QSignalSpy oadErrorSpy(oadService, SIGNAL(error(QLowEnergyService::ServiceError)));
+    QSignalSpy irErrorSpy(irService, SIGNAL(errorOccurred(QLowEnergyService::ServiceError)));
+    QSignalSpy oadErrorSpy(oadService, SIGNAL(errorOccurred(QLowEnergyService::ServiceError)));
 
     QSignalSpy irReadSpy(irService, SIGNAL(characteristicRead(QLowEnergyCharacteristic,QByteArray)));
     QSignalSpy irWrittenSpy(irService, SIGNAL(characteristicWritten(QLowEnergyCharacteristic,QByteArray)));
@@ -2407,7 +2331,7 @@ void tst_QLowEnergyController::tst_errorCases()
     // discover IR Service
     irService->discoverDetails();
     QTRY_VERIFY_WITH_TIMEOUT(
-        irService->state() == QLowEnergyService::ServiceDiscovered, 30000);
+        irService->state() == QLowEnergyService::RemoteServiceDiscovered, 30000);
     QVERIFY(!irService->contains(invalidChar));
     QVERIFY(!irService->contains(invalidDesc));
     irErrorSpy.clear();
@@ -2510,7 +2434,7 @@ void tst_QLowEnergyController::tst_errorCases()
     // CharacteristicUserDescription is not writable
 
     QLowEnergyDescriptor nonWritableDesc = nonWritableChar.descriptor(
-                QBluetoothUuid::CharacteristicUserDescription);
+            QBluetoothUuid::DescriptorType::CharacteristicUserDescription);
     QVERIFY(nonWritableDesc.isValid());
     irService->writeDescriptor(nonWritableDesc, QByteArray("ABCD"));
     QTRY_VERIFY_WITH_TIMEOUT(!irErrorSpy.isEmpty(), 5000);
@@ -2527,7 +2451,7 @@ void tst_QLowEnergyController::tst_errorCases()
     // discover OAD Service
     oadService->discoverDetails();
     QTRY_VERIFY_WITH_TIMEOUT(
-        oadService->state() == QLowEnergyService::ServiceDiscovered, 30000);
+        oadService->state() == QLowEnergyService::RemoteServiceDiscovered, 30000);
     oadErrorSpy.clear();
 
     // Test reading
@@ -2543,7 +2467,9 @@ void tst_QLowEnergyController::tst_errorCases()
 
     delete irService;
     delete oadService;
-    control.disconnectFromDevice();
+    control->disconnectFromDevice();
+    QTRY_COMPARE(control->state(), QLowEnergyController::UnconnectedState);
+    QCOMPARE(control->error(), QLowEnergyController::NoError);
 }
 
 /*
@@ -2560,26 +2486,26 @@ void tst_QLowEnergyController::tst_writeCharacteristicNoResponse()
 
     if (!remoteDeviceInfo.isValid())
         QSKIP("No remote BTLE device found. Skipping test.");
-    QLowEnergyController control(remoteDeviceInfo);
+    QScopedPointer<QLowEnergyController> control(QLowEnergyController::createCentral(remoteDeviceInfo));
 
-    QCOMPARE(control.error(), QLowEnergyController::NoError);
+    QCOMPARE(control->error(), QLowEnergyController::NoError);
 
-    control.connectToDevice();
+    control->connectToDevice();
     {
-        QTRY_IMPL(control.state() != QLowEnergyController::ConnectingState,
-              30000);
+        QTRY_IMPL(control->state() != QLowEnergyController::ConnectingState,
+              30000)
     }
 
-    if (control.state() == QLowEnergyController::ConnectingState
-            || control.error() != QLowEnergyController::NoError) {
+    if (control->state() == QLowEnergyController::ConnectingState
+            || control->error() != QLowEnergyController::NoError) {
         // default BTLE backend forever hangs in ConnectingState
         QSKIP("Cannot connect to remote device");
     }
 
-    QCOMPARE(control.state(), QLowEnergyController::ConnectedState);
-    QSignalSpy discoveryFinishedSpy(&control, SIGNAL(discoveryFinished()));
-    QSignalSpy stateSpy(&control, SIGNAL(stateChanged(QLowEnergyController::ControllerState)));
-    control.discoverServices();
+    QTRY_VERIFY_WITH_TIMEOUT(control->state() == QLowEnergyController::ConnectedState, 20000);
+    QSignalSpy discoveryFinishedSpy(control.data(), SIGNAL(discoveryFinished()));
+    QSignalSpy stateSpy(control.data(), SIGNAL(stateChanged(QLowEnergyController::ControllerState)));
+    control->discoverServices();
     QTRY_VERIFY_WITH_TIMEOUT(discoveryFinishedSpy.count() == 1, 20000);
     QCOMPARE(stateSpy.count(), 2);
     QCOMPARE(stateSpy.at(0).at(0).value<QLowEnergyController::ControllerState>(),
@@ -2589,14 +2515,14 @@ void tst_QLowEnergyController::tst_writeCharacteristicNoResponse()
 
     // The Over-The-Air update service uuid
     const QBluetoothUuid testService(QString("f000ffc0-0451-4000-b000-000000000000"));
-    QList<QBluetoothUuid> uuids = control.services();
+    QList<QBluetoothUuid> uuids = control->services();
     QVERIFY(uuids.contains(testService));
 
-    QLowEnergyService *service = control.createServiceObject(testService, this);
+    QLowEnergyService *service = control->createServiceObject(testService, this);
     QVERIFY(service);
     service->discoverDetails();
     QTRY_VERIFY_WITH_TIMEOUT(
-        service->state() == QLowEnergyService::ServiceDiscovered, 30000);
+        service->state() == QLowEnergyService::RemoteServiceDiscovered, 30000);
 
     // 1. Get "Image Identity" and "Image Block" characteristic
     const QLowEnergyCharacteristic imageIdentityChar = service->characteristic(
@@ -2611,15 +2537,17 @@ void tst_QLowEnergyController::tst_writeCharacteristicNoResponse()
 
     // 2. Get "Image Identity" notification descriptor
     const QLowEnergyDescriptor identityNotification = imageIdentityChar.descriptor(
-                QBluetoothUuid(QBluetoothUuid::ClientCharacteristicConfiguration));
+            QBluetoothUuid(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration));
     const QLowEnergyDescriptor blockNotification = imageBlockChar.descriptor(
-                QBluetoothUuid(QBluetoothUuid::ClientCharacteristicConfiguration));
+            QBluetoothUuid(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration));
 
     if (!identityNotification.isValid()
             || !blockNotification.isValid()
             || !imageIdentityChar.isValid()) {
         delete service;
-        control.disconnectFromDevice();
+        control->disconnectFromDevice();
+        QTRY_COMPARE(control->state(), QLowEnergyController::UnconnectedState);
+        QCOMPARE(control->error(), QLowEnergyController::NoError);
         QSKIP("Cannot find OAD char/notification");
     }
 
@@ -2632,8 +2560,7 @@ void tst_QLowEnergyController::tst_writeCharacteristicNoResponse()
                         SIGNAL(characteristicWritten(QLowEnergyCharacteristic,QByteArray)));
     QSignalSpy charReadSpy(service,
                         SIGNAL(characteristicRead(QLowEnergyCharacteristic,QByteArray)));
-    QSignalSpy errorSpy(service,
-                        SIGNAL(error(QLowEnergyService::ServiceError)));
+    QSignalSpy errorSpy(service, SIGNAL(errorOccurred(QLowEnergyService::ServiceError)));
 
     //enable notifications on both characteristics
     if (identityNotification.value() != QByteArray::fromHex("0100")) {
@@ -2828,7 +2755,9 @@ void tst_QLowEnergyController::tst_writeCharacteristicNoResponse()
     QVERIFY2(foundOneImage, "The SensorTag doesn't have a valid image? (2)");
 
     delete service;
-    control.disconnectFromDevice();
+    control->disconnectFromDevice();
+    QTRY_COMPARE(control->state(), QLowEnergyController::UnconnectedState);
+    QCOMPARE(control->error(), QLowEnergyController::NoError);
 }
 
 QTEST_MAIN(tst_QLowEnergyController)

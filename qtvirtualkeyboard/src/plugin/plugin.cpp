@@ -34,6 +34,9 @@
 #include <QtVirtualKeyboard/private/qvirtualkeyboard_staticplugin_p.h>
 #include <QLoggingCategory>
 #include <QtQml>
+#if defined(Q_OS_WIN)
+#include <qt_windows.h>
+#endif
 
 QT_BEGIN_NAMESPACE
 
@@ -73,6 +76,12 @@ QPlatformInputContext *QVirtualKeyboardPlugin::create(const QString &system, con
 
     if (system.compare(system, QLatin1String(pluginName), Qt::CaseInsensitive) != 0)
         return Q_NULLPTR;
+
+#if defined(Q_OS_WIN)
+    // QTBUG-93042
+    ImmDisableIME(0);
+#endif
+
     PlatformInputContext *platformInputContext = new PlatformInputContext();
 
     QStringList inputMethodList;
@@ -89,18 +98,40 @@ QPlatformInputContext *QVirtualKeyboardPlugin::create(const QString &system, con
             qCWarning(qlcVirtualKeyboard) << "Error loading extension - metadata not found!";
             continue;
         }
-        const QString inputMethod = metaData.value(QLatin1String("InputMethod")).toString();
-        if (!inputMethod.isEmpty() && inputMethodList.contains(inputMethod)) {
-            qCWarning(qlcVirtualKeyboard) << "Ignored extension" << extensionName <<
-                                             "by" << metaData.value(QLatin1String("Provider")).toString() <<
-                                             "-" << inputMethod << "is already registered!";
-            continue;
+
+        const QJsonValue &inputMethodValue = metaData.value(QLatin1String("InputMethod"));
+        QStringList inputMethodValueList;
+        if (inputMethodValue.isArray()) {
+            for (const QJsonValue v : inputMethodValue.toArray()) {
+                const QString &inputMethod = v.toString();
+                if (!inputMethod.isEmpty())
+                    inputMethodValueList.append(inputMethod);
+            }
+        } else {
+            const QString &inputMethod = inputMethodValue.toString();
+            if (!inputMethod.isEmpty())
+                inputMethodValueList.append(inputMethod);
         }
+
+        bool ignoreExtension = false;
+        for (const QString &inputMethod : inputMethodValueList) {
+            if (inputMethodList.contains(inputMethod)) {
+                ignoreExtension = true;
+                qCWarning(qlcVirtualKeyboard) << "Ignored extension" << extensionName <<
+                                                 "by" << metaData.value(QLatin1String("Provider")).toString() <<
+                                                 "-" << inputMethod << "is already registered!";
+                break;
+            }
+        }
+
+        if (ignoreExtension)
+            continue;
+
         qCDebug(qlcVirtualKeyboard) << "Loading extension" << extensionName;
         QVirtualKeyboardExtensionPlugin *extensionPlugin = ExtensionLoader::loadPlugin(metaData);
-        if (extensionPlugin && !inputMethod.isEmpty()) {
+        if (extensionPlugin && !inputMethodValueList.isEmpty()) {
             extensionPlugin->registerTypes(pluginsUri);
-            inputMethodList.append(inputMethod);
+            inputMethodList.append(inputMethodValueList);
         }
     }
 

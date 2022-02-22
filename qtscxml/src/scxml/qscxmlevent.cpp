@@ -71,7 +71,7 @@ QScxmlEvent *QScxmlEventBuilder::buildEvent()
         }
         if (!ok) {
             // expr evaluation failure results in the data property of the event being set to null. See e.g. test528.
-            data = QVariant(QMetaType::VoidStar, 0);
+            data = QVariant(QMetaType(QMetaType::VoidStar), nullptr);
         }
     } else {
         QVariantMap keyValues;
@@ -86,7 +86,7 @@ QScxmlEvent *QScxmlEventBuilder::buildEvent()
         } else {
             // If the evaluation of the <param> tags fails, set _event.data to an empty string.
             // See test343.
-            data = QVariant(QMetaType::VoidStar, 0);
+            data = QVariant(QMetaType(QMetaType::VoidStar), nullptr);
         }
     }
 

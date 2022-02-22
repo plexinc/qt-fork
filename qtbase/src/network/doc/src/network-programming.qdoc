@@ -43,9 +43,6 @@
     QTcpServer and QUdpSocket that represent low level network concepts,
     and high level classes such as QNetworkRequest, QNetworkReply and
     QNetworkAccessManager to perform network operations using common protocols.
-    It also offers classes such as QNetworkConfiguration,
-    QNetworkConfigurationManager and QNetworkSession that implement bearer
-    management.
 
     \tableofcontents
 
@@ -54,7 +51,7 @@
     The \l{Qt Network C++ Classes} page contains a list of the C++ classes
     in Qt Network.
 
-    \section1 High Level Network Operations for HTTP and FTP
+    \section1 High Level Network Operations for HTTP
 
     The Network Access API is a collection of classes for performing
     common network operations. The API provides an abstraction layer
@@ -67,7 +64,7 @@
     with a request, such as any header information and the encryption
     used. The URL specified when a request object is constructed
     determines the protocol used for a request.
-    Currently HTTP, FTP and local file URLs are supported for uploading
+    Currently HTTP and local file URLs are supported for uploading
     and downloading.
 
     The coordination of network operations is performed by the

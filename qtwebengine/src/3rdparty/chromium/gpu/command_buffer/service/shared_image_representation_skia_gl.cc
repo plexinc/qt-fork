@@ -96,24 +96,37 @@ sk_sp<SkSurface> SharedImageRepresentationSkiaGL::BeginWriteAccess(
 
   SkColorType sk_color_type = viz::ResourceFormatToClosestSkColorType(
       /*gpu_compositing=*/true, format());
-  // TODO(https://crbug.com/1054033): Switch back to
-  // MakeFromBackendTextureAsRenderTarget once we no longer use GLRendererCopier
-  // with surfaceless surfaces.
   auto surface = SkSurface::MakeFromBackendTexture(
       context_state_->gr_context(), promise_texture_->backendTexture(),
-      kTopLeft_GrSurfaceOrigin, final_msaa_count, sk_color_type,
+      surface_origin(), final_msaa_count, sk_color_type,
       backing()->color_space().ToSkColorSpace(), &surface_props);
   surface_ = surface;
   return surface;
 }
 
+sk_sp<SkPromiseImageTexture> SharedImageRepresentationSkiaGL::BeginWriteAccess(
+    std::vector<GrBackendSemaphore>* begin_semaphores,
+    std::vector<GrBackendSemaphore>* end_semaphores,
+    std::unique_ptr<GrBackendSurfaceMutableState>* end_state) {
+  DCHECK_EQ(mode_, RepresentationAccessMode::kNone);
+  CheckContext();
+
+  if (!gl_representation_->BeginAccess(
+          GL_SHARED_IMAGE_ACCESS_MODE_READWRITE_CHROMIUM)) {
+    return nullptr;
+  }
+  mode_ = RepresentationAccessMode::kWrite;
+  return promise_texture_;
+}
+
 void SharedImageRepresentationSkiaGL::EndWriteAccess(sk_sp<SkSurface> surface) {
   DCHECK_EQ(mode_, RepresentationAccessMode::kWrite);
-  DCHECK(surface_);
-  DCHECK_EQ(surface.get(), surface_.get());
-
-  surface.reset();
-  DCHECK(surface_->unique());
+  if (surface) {
+    DCHECK(surface_);
+    DCHECK_EQ(surface.get(), surface_.get());
+    surface.reset();
+    DCHECK(surface_->unique());
+  }
 
   gl_representation_->EndAccess();
   mode_ = RepresentationAccessMode::kNone;

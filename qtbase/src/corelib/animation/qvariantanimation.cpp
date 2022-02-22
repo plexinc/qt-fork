@@ -190,14 +190,15 @@ QVariantAnimationPrivate::QVariantAnimationPrivate() : duration(250), interpolat
 
 void QVariantAnimationPrivate::convertValues(int t)
 {
+    auto type = QMetaType(t);
     //this ensures that all the keyValues are of type t
     for (int i = 0; i < keyValues.count(); ++i) {
         QVariantAnimation::KeyValue &pair = keyValues[i];
-        pair.second.convert(t);
+        pair.second.convert(type);
     }
     //we also need update to the current interval if needed
-    currentInterval.start.second.convert(t);
-    currentInterval.end.second.convert(t);
+    currentInterval.start.second.convert(type);
+    currentInterval.end.second.convert(type);
 
     //... and the interpolator
     updateInterpolator();
@@ -229,7 +230,8 @@ void QVariantAnimationPrivate::recalculateCurrentInterval(bool force/*=false*/)
         return;
 
     const qreal endProgress = (direction == QAbstractAnimation::Forward) ? qreal(1) : qreal(0);
-    const qreal progress = easing.valueForProgress(((duration == 0) ? endProgress : qreal(currentTime) / qreal(duration)));
+    const qreal progress = easing.value().valueForProgress(
+            duration == 0 ? endProgress : qreal(currentTime) / qreal(duration));
 
     //0 and 1 are still the boundaries
     if (force || (currentInterval.start.first > 0 && progress < currentInterval.start.first)
@@ -276,7 +278,9 @@ void QVariantAnimationPrivate::setCurrentValueForProgress(const qreal progress)
 
     const qreal startProgress = currentInterval.start.first;
     const qreal endProgress = currentInterval.end.first;
-    const qreal localProgress = (progress - startProgress) / (endProgress - startProgress);
+    const qreal localProgress =
+            qIsNull(progress - startProgress) ? 0.0 // avoid 0/0 below
+            /* else */                        : (progress - startProgress) / (endProgress - startProgress);
 
     QVariant ret = q->interpolated(currentInterval.start.second,
                                    currentInterval.end.second,
@@ -385,11 +389,20 @@ QEasingCurve QVariantAnimation::easingCurve() const
 void QVariantAnimation::setEasingCurve(const QEasingCurve &easing)
 {
     Q_D(QVariantAnimation);
+    const bool valueChanged = easing != d->easing;
     d->easing = easing;
     d->recalculateCurrentInterval();
+    if (valueChanged)
+        d->easing.notify();
 }
 
-typedef QVector<QVariantAnimation::Interpolator> QInterpolatorVector;
+QBindable<QEasingCurve> QVariantAnimation::bindableEasingCurve()
+{
+    Q_D(QVariantAnimation);
+    return &d->easing;
+}
+
+typedef QList<QVariantAnimation::Interpolator> QInterpolatorVector;
 Q_GLOBAL_STATIC(QInterpolatorVector, registeredInterpolators)
 static QBasicMutex registeredInterpolatorsMutex;
 
@@ -428,8 +441,8 @@ void QVariantAnimation::registerInterpolator(QVariantAnimation::Interpolator fun
     // to continue causes the app to crash on exit with a SEGV
     if (interpolators) {
         const auto locker = qt_scoped_lock(registeredInterpolatorsMutex);
-        if (int(interpolationType) >= interpolators->count())
-            interpolators->resize(int(interpolationType) + 1);
+        if (interpolationType >= interpolators->count())
+            interpolators->resize(interpolationType + 1);
         interpolators->replace(interpolationType, func);
     }
 }
@@ -505,10 +518,19 @@ void QVariantAnimation::setDuration(int msecs)
         qWarning("QVariantAnimation::setDuration: cannot set a negative duration");
         return;
     }
-    if (d->duration == msecs)
+    if (d->duration == msecs) {
+        d->duration.removeBindingUnlessInWrapper();
         return;
+    }
     d->duration = msecs;
     d->recalculateCurrentInterval();
+    d->duration.notify();
+}
+
+QBindable<int> QVariantAnimation::bindableDuration()
+{
+    Q_D(QVariantAnimation);
+    return &d->duration;
 }
 
 /*!
@@ -571,7 +593,7 @@ QVariant QVariantAnimation::keyValueAt(qreal step) const
 /*!
     \typedef QVariantAnimation::KeyValues
 
-    This is a typedef for QVector<KeyValue>
+    This is a typedef for QList<KeyValue>
 */
 
 /*!

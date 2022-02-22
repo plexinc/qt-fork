@@ -2,22 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import * as ProtocolClient from '../protocol_client/protocol_client.js';
-
 import {Capability, SDKModel, Target} from './SDKModel.js';  // eslint-disable-line no-unused-vars
+import {ObjectSnapshot} from './TracingModel.js';            // eslint-disable-line no-unused-vars
 
-/**
- * @unrestricted
- */
 export class TracingManager extends SDKModel {
   /**
    * @param {!Target} target
    */
   constructor(target) {
     super(target);
-    // @ts-ignore TODO(1063322): Domain-specific CDP generated method.
     this._tracingAgent = target.tracingAgent();
-    // @ts-ignore TODO(1063322): Domain-specific CDP generated method.
     target.registerTracingDispatcher(new TracingDispatcher(this));
 
     /** @type {?TracingManagerClient} */
@@ -69,6 +63,8 @@ export class TracingManager extends SDKModel {
     this._finishing = false;
   }
 
+  // TODO(petermarshall): Use the traceConfig argument instead of deprecated
+  // categories + options.
   /**
    * @param {!TracingManagerClient} client
    * @param {string} categoryFilter
@@ -85,10 +81,10 @@ export class TracingManager extends SDKModel {
       bufferUsageReportingInterval: bufferUsageReportingIntervalMs,
       categories: categoryFilter,
       options: options,
-      transferMode: TransferMode.ReportEvents
+      transferMode: Protocol.Tracing.StartRequestTransferMode.ReportEvents,
     };
     const response = await this._tracingAgent.invoke_start(args);
-    if (response[ProtocolClient.InspectorBackend.ProtocolError]) {
+    if (response.getError()) {
       this._activeClient = null;
     }
     return response;
@@ -102,14 +98,9 @@ export class TracingManager extends SDKModel {
       throw new Error('Tracing is already being stopped');
     }
     this._finishing = true;
-    this._tracingAgent.end();
+    this._tracingAgent.invoke_end();
   }
 }
-
-const TransferMode = {
-  ReportEvents: 'ReportEvents',
-  ReturnAsStream: 'ReturnAsStream'
-};
 
 /**
  * @interface
@@ -136,8 +127,7 @@ export class TracingManagerClient {
 }
 
 /**
- * @implements {Protocol.TracingDispatcher}
- * @unrestricted
+ * @implements {ProtocolProxyApi.TracingDispatcher}
  */
 class TracingDispatcher {
   /**
@@ -149,20 +139,18 @@ class TracingDispatcher {
 
   /**
    * @override
-   * @param {number=} usage
-   * @param {number=} eventCount
-   * @param {number=} percentFull
+   * @param {!Protocol.Tracing.BufferUsageEvent} event
    */
-  bufferUsage(usage, eventCount, percentFull) {
-    this._tracingManager._bufferUsage(usage, eventCount, percentFull);
+  bufferUsage({value, eventCount, percentFull}) {
+    this._tracingManager._bufferUsage(value, eventCount, percentFull);
   }
 
   /**
    * @override
-   * @param {!Array.<!EventPayload>} data
+   * @param {!Protocol.Tracing.DataCollectedEvent} event
    */
-  dataCollected(data) {
-    this._tracingManager._eventsCollected(data);
+  dataCollected({value}) {
+    this._tracingManager._eventsCollected(value);
   }
 
   /**
@@ -182,7 +170,12 @@ SDKModel.register(TracingManager, Capability.Tracing, false);
         ts: number,
         ph: string,
         name: string,
-        args: !Object,
+        args: !{
+          sort_index: number,
+          name: string,
+          snapshot: ObjectSnapshot,
+          data: ?Object
+        },
         dur: number,
         id: string,
         id2: (!{global: (string|undefined), local: (string|undefined)}|undefined),

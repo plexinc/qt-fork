@@ -78,14 +78,19 @@ public:
     QByteArray data() const;
     void setData(const QByteArray &data);
 
-    int dataOffset(int level = 0) const;
-    void setDataOffset(int offset, int level = 0);
+    int dataOffset(int level = 0, int face = 0) const;
+    void setDataOffset(int offset, int level = 0, int face = 0);
 
-    int dataLength(int level = 0) const;
-    void setDataLength(int length, int level = 0);
+    int dataLength(int level = 0, int face = 0) const;
+    void setDataLength(int length, int level = 0, int face = 0);
+
+    QByteArrayView getDataView(int level = 0, int face = 0) const;
 
     int numLevels() const;
     void setNumLevels(int num);
+
+    int numFaces() const;
+    void setNumFaces(int num);
 
     QSize size() const;
     void setSize(const QSize &size);
@@ -102,11 +107,14 @@ public:
     QByteArray logName() const;
     void setLogName(const QByteArray &name);
 
+    QMap<QByteArray, QByteArray> keyValueMetadata() const;
+    void setKeyValueMetadata(const QMap<QByteArray, QByteArray> &keyValues);
+
 private:
     QSharedDataPointer<QTextureFileDataPrivate> d;
 };
 
-Q_DECLARE_TYPEINFO(QTextureFileData, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QTextureFileData, Q_RELOCATABLE_TYPE);
 
 Q_GUI_EXPORT QDebug operator<<(QDebug dbg, const QTextureFileData &d);
 

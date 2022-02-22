@@ -58,7 +58,11 @@
 #include <QMetaObject>
 #include <QBasicTimer>
 #include <QPointer>
+#include <QProperty>
 #include <QJsonObject>
+#include <QQueue>
+
+#include <unordered_map>
 
 #include "qwebchannelglobal.h"
 
@@ -84,11 +88,29 @@ enum MessageType {
     TYPES_LAST_VALUE = 10
 };
 
+class QMetaObjectPublisher;
 class QWebChannel;
 class QWebChannelAbstractTransport;
+
+struct QWebChannelPropertyChangeNotifier : QPropertyObserver
+{
+    QWebChannelPropertyChangeNotifier(QMetaObjectPublisher *publisher, const QObject *object, int propertyIndex)
+        : QPropertyObserver(&QWebChannelPropertyChangeNotifier::notify),
+          publisher(publisher), object(object), propertyIndex(propertyIndex)
+    {
+    }
+
+    QMetaObjectPublisher *publisher = nullptr;
+    const QObject *object = nullptr;
+    int propertyIndex = 0;
+    static void notify(QPropertyObserver *, QUntypedPropertyData *);
+};
+
 class Q_WEBCHANNEL_EXPORT QMetaObjectPublisher : public QObject
 {
     Q_OBJECT
+    Q_PROPERTY(int propertyUpdateIntervalTime READ propertyUpdateInterval WRITE
+                       setPropertyUpdateInterval)
 public:
     explicit QMetaObjectPublisher(QWebChannel *webChannel);
     virtual ~QMetaObjectPublisher();
@@ -110,16 +132,35 @@ public:
     void broadcastMessage(const QJsonObject &message) const;
 
     /**
+     * Enqueue the given @p message to all known transports.
+     */
+    void enqueueBroadcastMessage(const QJsonObject &message);
+
+    /**
+     * Enqueue the given @p message to @p transport.
+     */
+    void enqueueMessage(const QJsonObject &message, QWebChannelAbstractTransport *transport);
+
+    /**
+     * If client for given @p transport is idle, send queued messaged to @p transport and then mark
+     * the client as not idle.
+     */
+    void sendEnqueuedPropertyUpdates(QWebChannelAbstractTransport *transport);
+
+    /**
      * Serialize the QMetaObject of @p object and return it in JSON form.
      */
     QJsonObject classInfoForObject(const QObject *object, QWebChannelAbstractTransport *transport);
 
     /**
-     * Set the client to idle or busy, based on the value of @p isIdle.
-     *
-     * When the value changed, start/stop the property update timer accordingly.
+     * Set the client to idle or busy for a single @p transport, based on the value of @p isIdle.
      */
-    void setClientIsIdle(bool isIdle);
+    void setClientIsIdle(bool isIdle, QWebChannelAbstractTransport *transport);
+
+    /**
+     * Check that client is idle for @p transport.
+     */
+    bool isClientIdle(QWebChannelAbstractTransport *transport);
 
     /**
      * Initialize clients by sending them the class information of the registered objects.
@@ -134,7 +175,7 @@ public:
      * When receiving a notify signal, it will store the information in pendingPropertyUpdates which
      * gets send via a Qt.propertyUpdate message to the server when the grouping timer timeouts.
      */
-    void initializePropertyUpdates(const QObject *const object, const QJsonObject &objectInfo);
+    void initializePropertyUpdates(QObject *const object, const QJsonObject &objectInfo);
 
     /**
      * Send the clients the new property values since the last time this function was invoked.
@@ -184,6 +225,17 @@ public:
     void signalEmitted(const QObject *object, const int signalIndex, const QVariantList &arguments);
 
     /**
+     * Callback for bindable property value changes which forwards the change to the webchannel clients.
+     */
+    void propertyValueChanged(const QObject *object, const int propertyIndex);
+
+    /**
+     * Called after a property has been updated. Starts the update timer if
+     * the client is idle and updates are not blocked.
+     */
+    void startPropertyUpdateTimer(bool forceRestart = false);
+
+    /**
      * Callback for registered or wrapped objects which erases all data related to @p object.
      *
      * @sa signalEmitted
@@ -191,6 +243,9 @@ public:
     void objectDestroyed(const QObject *object);
 
     QObject *unwrapObject(const QString &objectId) const;
+    QVariant unwrapMap(QVariantMap map) const;
+    QVariant unwrapList(QVariantList list) const;
+    QVariant unwrapVariant(const QVariant &value) const;
 
     QVariant toVariant(const QJsonValue &value, int targetType) const;
 
@@ -250,9 +305,23 @@ public:
     void deleteWrappedObject(QObject *object) const;
 
     /**
+     * The property update interval in milliseconds.
+     *
+     * This interval can be changed to a different interval in milliseconds by
+     * setting it to a positive value. Property updates are batched and sent out
+     * after the interval expires. If set to zero, the updates occurring within a
+     * single event loop run are batched and sent out on the next run.
+     * If negative, updates will be sent immediately.
+     * Default value is 50 milliseconds.
+     */
+    int propertyUpdateInterval();
+    void setPropertyUpdateInterval(int ms);
+
+    /**
      * When updates are blocked, no property updates are transmitted to remote clients.
      */
     void setBlockUpdates(bool block);
+    bool blockUpdates() const;
 
 Q_SIGNALS:
     void blockUpdatesChanged(bool block);
@@ -267,24 +336,41 @@ protected:
     void timerEvent(QTimerEvent *) override;
 
 private:
+    void onBlockUpdatesChanged();
+
     friend class QQmlWebChannelPrivate;
     friend class QWebChannel;
     friend class TestWebChannel;
 
     QWebChannel *webChannel;
-    SignalHandler<QMetaObjectPublisher> signalHandler;
+    std::unordered_map<const QThread*, SignalHandler<QMetaObjectPublisher>> signalHandlers;
+    SignalHandler<QMetaObjectPublisher> *signalHandlerFor(const QObject *object);
 
-    // true when the client is idle, false otherwise
-    bool clientIsIdle;
+    struct TransportState
+    {
+        TransportState() : clientIsIdle(false) { }
+        // true when the client is idle, false otherwise
+        bool clientIsIdle;
+        // messages to send
+        QQueue<QJsonObject> queuedMessages;
+    };
+    QHash<QWebChannelAbstractTransport *, TransportState> transportState;
 
     // true when no property updates should be sent, false otherwise
-    bool blockUpdates;
+    Q_OBJECT_BINDABLE_PROPERTY(QMetaObjectPublisher, bool, blockUpdatesStatus);
 
+    QPropertyChangeHandler<std::function<void()>> blockUpdatesHandler;
     // true when at least one client was initialized and thus
     // the property updates have been initialized and the
     // object info map set.
     bool propertyUpdatesInitialized;
 
+    // The update interval in ms when more than zero.
+    // Update in next event loop when zero.
+    // Update immediately when less than zero.
+    Q_OBJECT_BINDABLE_PROPERTY(QMetaObjectPublisher, int, propertyUpdateIntervalTime);
+
+    QPropertyChangeHandler<std::function<void()>> propertyUpdateIntervalHandler;
     // Map of registered objects indexed by their id.
     QHash<QString, QObject *> registeredObjects;
 
@@ -299,7 +385,7 @@ private:
             : object(o), isBeingWrapped(false)
         {}
         QObject *object;
-        QVector<QWebChannelAbstractTransport*> transports;
+        QList<QWebChannelAbstractTransport *> transports;
         bool isBeingWrapped;
     };
 
@@ -313,10 +399,32 @@ private:
     typedef QHash<int, QSet<int> > SignalToPropertyNameMap;
     QHash<const QObject *, SignalToPropertyNameMap> signalToPropertyMap;
 
+    // Keeps property observers alive for as long as we track an object
+    std::unordered_multimap<const QObject*, QWebChannelPropertyChangeNotifier> propertyObservers;
+
     // Objects that changed their properties and are waiting for idle client.
-    // map of object name to map of signal index to arguments
     typedef QHash<int, QVariantList> SignalToArgumentsMap;
-    typedef QHash<const QObject *, SignalToArgumentsMap> PendingPropertyUpdates;
+
+    // A set of plain property index (for bindable properties) and a map of
+    // signal index to arguments (for property updates from a notify signal).
+    // NOTIFY signals and their arguments are first collected and then mapped to
+    // the corresponding property in sendPendingPropertyUpdates()
+    struct PropertyUpdate
+    {
+    public:
+        SignalToArgumentsMap signalMap;
+        QSet<int> plainProperties;
+
+        /**
+         * Given a SignalToPropertyNameMap, returns the set of all property
+         * indices of properties that were changed in this PropertyUpdate.
+         */
+        QSet<int> propertyIndices(const SignalToPropertyNameMap &map) const;
+    };
+
+    // map of object to either a property index for plain bindable properties
+    // or a to map of signal index to arguments
+    typedef QHash<const QObject *, PropertyUpdate> PendingPropertyUpdates;
     PendingPropertyUpdates pendingPropertyUpdates;
 
     // Aggregate property updates since we get multiple Qt.idle message when we have multiple
@@ -324,6 +432,14 @@ private:
     // prevent message flooding.
     QBasicTimer timer;
 };
+
+inline QSet<int> QMetaObjectPublisher::PropertyUpdate::propertyIndices(const SignalToPropertyNameMap &map) const {
+    auto indexes = plainProperties;
+    for (auto it = signalMap.cbegin(); it != signalMap.cend(); ++it) {
+        indexes += map.value(it.key());
+    }
+    return indexes;
+}
 
 QT_END_NAMESPACE
 

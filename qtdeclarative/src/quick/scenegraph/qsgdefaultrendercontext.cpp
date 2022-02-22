@@ -40,35 +40,31 @@
 #include "qsgdefaultrendercontext_p.h"
 
 #include <QtGui/QGuiApplication>
-#include <QtGui/QOpenGLFramebufferObject>
 
 #include <QtQuick/private/qsgbatchrenderer_p.h>
 #include <QtQuick/private/qsgrenderer_p.h>
 #include <QtQuick/private/qsgrhiatlastexture_p.h>
 #include <QtQuick/private/qsgrhidistancefieldglyphcache_p.h>
-#include <QtQuick/private/qsgmaterialrhishader_p.h>
+#include <QtQuick/private/qsgmaterialshader_p.h>
 
-#include <QtQuick/private/qsgopenglatlastexture_p.h>
 #include <QtQuick/private/qsgcompressedtexture_p.h>
-#include <QtQuick/private/qsgopengldistancefieldglyphcache_p.h>
+
+#include <QtQuick/qsgrendererinterface.h>
+#include <QtQuick/qquickgraphicsconfiguration.h>
 
 QT_BEGIN_NAMESPACE
-
-#define QSG_RENDERCONTEXT_PROPERTY "_q_sgrendercontext"
 
 QSGDefaultRenderContext::QSGDefaultRenderContext(QSGContext *context)
     : QSGRenderContext(context)
     , m_rhi(nullptr)
-    , m_gl(nullptr)
-    , m_depthStencilManager(nullptr)
     , m_maxTextureSize(0)
-    , m_brokenIBOs(false)
     , m_serializedRender(false)
-    , m_attachToGLContext(true)
-    , m_glAtlasManager(nullptr)
     , m_rhiAtlasManager(nullptr)
     , m_currentFrameCommandBuffer(nullptr)
     , m_currentFrameRenderPass(nullptr)
+    , m_separateIndexBuffer(false)
+    , m_useDepthBufferFor2D(true)
+    , m_glyphCacheResourceUpdates(nullptr)
 {
 }
 
@@ -88,43 +84,13 @@ void QSGDefaultRenderContext::initialize(const QSGRenderContext::InitParams *par
     m_initParams = *initParams;
 
     m_rhi = m_initParams.rhi;
-    if (m_rhi) {
-        m_maxTextureSize = m_rhi->resourceLimit(QRhi::TextureSizeMax);
-        if (!m_rhiAtlasManager)
-            m_rhiAtlasManager = new QSGRhiAtlasTexture::Manager(this, m_initParams.initialSurfacePixelSize, m_initParams.maybeSurface);
-    } else {
-        QOpenGLFunctions *funcs = m_rhi ? nullptr : QOpenGLContext::currentContext()->functions();
-        funcs->glGetIntegerv(GL_MAX_TEXTURE_SIZE, &m_maxTextureSize);
+    m_maxTextureSize = m_rhi->resourceLimit(QRhi::TextureSizeMax);
+    if (!m_rhiAtlasManager)
+        m_rhiAtlasManager = new QSGRhiAtlasTexture::Manager(this, m_initParams.initialSurfacePixelSize, m_initParams.maybeSurface);
+    // unlike OpenGL (and like WebGL), QRhi does not guarantee buffer usage types can be mixed
+    m_separateIndexBuffer = true;
 
-        // Sanity check the surface format, in case it was overridden by the application
-        QSurfaceFormat requested = m_sg->defaultSurfaceFormat();
-        QSurfaceFormat actual = m_initParams.openGLContext->format();
-        if (requested.depthBufferSize() > 0 && actual.depthBufferSize() <= 0)
-            qWarning("QSGContext::initialize: depth buffer support missing, expect rendering errors");
-        if (requested.stencilBufferSize() > 0 && actual.stencilBufferSize() <= 0)
-            qWarning("QSGContext::initialize: stencil buffer support missing, expect rendering errors");
-
-#ifdef Q_OS_LINUX
-        const char *vendor = (const char *) funcs->glGetString(GL_VENDOR);
-        if (vendor && strstr(vendor, "nouveau"))
-            m_brokenIBOs = true;
-        const char *renderer = (const char *) funcs->glGetString(GL_RENDERER);
-        if (renderer && strstr(renderer, "llvmpipe"))
-            m_serializedRender = true;
-        if (vendor && renderer && strstr(vendor, "Hisilicon Technologies") && strstr(renderer, "Immersion.16"))
-            m_brokenIBOs = true;
-#endif
-
-        Q_ASSERT_X(!m_gl, "QSGRenderContext::initialize", "already initialized!");
-        m_gl = m_initParams.openGLContext;
-        if (m_attachToGLContext) {
-            Q_ASSERT(!m_gl->property(QSG_RENDERCONTEXT_PROPERTY).isValid());
-            m_gl->setProperty(QSG_RENDERCONTEXT_PROPERTY, QVariant::fromValue(this));
-        }
-
-        if (!m_glAtlasManager)
-            m_glAtlasManager = new QSGOpenGLAtlasTexture::Manager(m_initParams.initialSurfacePixelSize);
-    }
+    m_glyphCacheResourceUpdates = nullptr;
 
     m_sg->renderContextInitialized(this);
 
@@ -133,7 +99,7 @@ void QSGDefaultRenderContext::initialize(const QSGRenderContext::InitParams *par
 
 void QSGDefaultRenderContext::invalidate()
 {
-    if (!m_gl && !m_rhi)
+    if (!m_rhi)
         return;
 
     qDeleteAll(m_texturesToDelete);
@@ -158,11 +124,6 @@ void QSGDefaultRenderContext::invalidate()
        Another alternative would be to use a QPointer in
        QSGOpenGLAtlasTexture::Texture, but this seemed simpler.
      */
-    if (m_glAtlasManager) {
-        m_glAtlasManager->invalidate();
-        m_glAtlasManager->deleteLater();
-        m_glAtlasManager = nullptr;
-    }
     if (m_rhiAtlasManager) {
         m_rhiAtlasManager->invalidate();
         m_rhiAtlasManager->deleteLater();
@@ -176,22 +137,17 @@ void QSGDefaultRenderContext::invalidate()
     // sequence. (see qsgdefaultglyphnode_p.cpp's init())
     for (QSet<QFontEngine *>::const_iterator it = m_fontEnginesToClean.constBegin(),
          end = m_fontEnginesToClean.constEnd(); it != end; ++it) {
-        (*it)->clearGlyphCache(m_gl ? (void *) m_gl : (void *) m_rhi);
+        (*it)->clearGlyphCache(m_rhi);
         if (!(*it)->ref.deref())
             delete *it;
     }
     m_fontEnginesToClean.clear();
 
-    delete m_depthStencilManager;
-    m_depthStencilManager = nullptr;
-
     qDeleteAll(m_glyphCaches);
     m_glyphCaches.clear();
 
-    if (m_gl && m_gl->property(QSG_RENDERCONTEXT_PROPERTY) == QVariant::fromValue(this))
-        m_gl->setProperty(QSG_RENDERCONTEXT_PROPERTY, QVariant());
+    releaseGlyphCacheResourceUpdates();
 
-    m_gl = nullptr;
     m_rhi = nullptr;
 
     if (m_sg)
@@ -200,9 +156,12 @@ void QSGDefaultRenderContext::invalidate()
     emit invalidated();
 }
 
-void QSGDefaultRenderContext::prepareSync(qreal devicePixelRatio, QRhiCommandBuffer *cb)
+void QSGDefaultRenderContext::prepareSync(qreal devicePixelRatio,
+                                          QRhiCommandBuffer *cb,
+                                          const QQuickGraphicsConfiguration &config)
 {
     m_currentDevicePixelRatio = devicePixelRatio;
+    m_useDepthBufferFor2D = config.isDepthBufferEnabledFor2D();
 
     // we store the command buffer already here, in case there is something in
     // an updatePaintNode() implementation that leads to needing it (for
@@ -220,12 +179,12 @@ void QSGDefaultRenderContext::beginNextFrame(QSGRenderer *renderer,
     renderer->setRenderPassRecordingCallbacks(mainPassRecordingStart, mainPassRecordingEnd, callbackUserData);
 }
 
-void QSGDefaultRenderContext::renderNextFrame(QSGRenderer *renderer, uint fboId)
+void QSGDefaultRenderContext::renderNextFrame(QSGRenderer *renderer)
 {
     if (m_serializedRender)
         qsg_framerender_mutex.lock();
 
-    renderer->renderScene(fboId);
+    renderer->renderScene();
 
     if (m_serializedRender)
         qsg_framerender_mutex.unlock();
@@ -263,39 +222,6 @@ void QSGDefaultRenderContext::endNextRhiFrame(QSGRenderer *renderer)
     m_currentFrameRenderPass = nullptr;
 }
 
-/*!
-    Returns a shared pointer to a depth stencil buffer that can be used with \a fbo.
-*/
-QSharedPointer<QSGDepthStencilBuffer> QSGDefaultRenderContext::depthStencilBufferForFbo(QOpenGLFramebufferObject *fbo)
-{
-    if (!m_gl)
-        return QSharedPointer<QSGDepthStencilBuffer>();
-    QSGDepthStencilBufferManager *manager = depthStencilBufferManager();
-    QSGDepthStencilBuffer::Format format;
-    format.size = fbo->size();
-    format.samples = fbo->format().samples();
-    format.attachments = QSGDepthStencilBuffer::DepthAttachment | QSGDepthStencilBuffer::StencilAttachment;
-    QSharedPointer<QSGDepthStencilBuffer> buffer = manager->bufferForFormat(format);
-    if (buffer.isNull()) {
-        buffer = QSharedPointer<QSGDepthStencilBuffer>(new QSGDefaultDepthStencilBuffer(m_gl, format));
-        manager->insertBuffer(buffer);
-    }
-    return buffer;
-}
-
-/*!
-    Returns a pointer to the context's depth/stencil buffer manager. This is useful for custom
-    implementations of \l depthStencilBufferForFbo().
-*/
-QSGDepthStencilBufferManager *QSGDefaultRenderContext::depthStencilBufferManager()
-{
-    if (!m_gl)
-        return nullptr;
-    if (!m_depthStencilManager)
-        m_depthStencilManager = new QSGDepthStencilBufferManager(m_gl);
-    return m_depthStencilManager;
-}
-
 QSGTexture *QSGDefaultRenderContext::createTexture(const QImage &image, uint flags) const
 {
     bool atlas = flags & CreateTexture_Atlas;
@@ -310,12 +236,6 @@ QSGTexture *QSGDefaultRenderContext::createTexture(const QImage &image, uint fla
             if (t)
                 return t;
         }
-    } else {
-        if (!mipmap && atlas && openglContext() && QThread::currentThread() == openglContext()->thread()) {
-            QSGTexture *t = m_glAtlasManager->create(image, alpha);
-            if (t)
-                return t;
-        }
     }
 
     QSGPlainTexture *texture = new QSGPlainTexture;
@@ -326,108 +246,45 @@ QSGTexture *QSGDefaultRenderContext::createTexture(const QImage &image, uint fla
     return texture;
 }
 
-QSGRenderer *QSGDefaultRenderContext::createRenderer()
+QSGRenderer *QSGDefaultRenderContext::createRenderer(QSGRendererInterface::RenderMode renderMode)
 {
-    return new QSGBatchRenderer::Renderer(this);
+    return new QSGBatchRenderer::Renderer(this, renderMode);
 }
 
 QSGTexture *QSGDefaultRenderContext::compressedTextureForFactory(const QSGCompressedTextureFactory *factory) const
 {
     // This is only used for atlasing compressed textures. Returning null implies no atlas.
 
-    if (m_rhi) {
-        // ###
-    } else if (openglContext() && QThread::currentThread() == openglContext()->thread()) {
-        // The atlas implementation is only supported from the render thread
-        return m_glAtlasManager->create(factory);
-    }
+    if (m_rhi && QThread::currentThread() == m_rhi->thread())
+        return m_rhiAtlasManager->create(factory);
 
     return nullptr;
 }
 
-/*!
-    Compile \a shader, optionally using \a vertexCode and \a fragmentCode as
-    replacement for the source code supplied by \a shader.
-
-    If \a vertexCode or \a fragmentCode is supplied, the caller is responsible
-    for setting up attribute bindings.
-
-    \a material is supplied in case the implementation needs to take the
-    material flags into account.
- */
-void QSGDefaultRenderContext::compileShader(QSGMaterialShader *shader, QSGMaterial *material, const char *vertexCode, const char *fragmentCode)
-{
-    Q_UNUSED(material);
-    if (vertexCode || fragmentCode) {
-        Q_ASSERT_X((material->flags() & QSGMaterial::CustomCompileStep) == 0,
-                   "QSGRenderContext::compile()",
-                   "materials with custom compile step cannot have modified vertex or fragment code");
-        QOpenGLShaderProgram *p = shader->program();
-        p->addCacheableShaderFromSourceCode(QOpenGLShader::Vertex, vertexCode ? vertexCode : shader->vertexShader());
-        p->addCacheableShaderFromSourceCode(QOpenGLShader::Fragment, fragmentCode ? fragmentCode : shader->fragmentShader());
-        p->link();
-        if (!p->isLinked())
-            qWarning() << "shader compilation failed:" << Qt::endl << p->log();
-    } else {
-        shader->compile();
-    }
-}
-
-QString QSGDefaultRenderContext::fontKey(const QRawFont &font)
+QString QSGDefaultRenderContext::fontKey(const QRawFont &font, int renderTypeQuality)
 {
     QFontEngine *fe = QRawFontPrivate::get(font)->fontEngine;
     if (!fe->faceId().filename.isEmpty()) {
-        QByteArray keyName = fe->faceId().filename + ' ' + QByteArray::number(fe->faceId().index);
-        if (font.style() != QFont::StyleNormal)
-            keyName += QByteArray(" I");
-        if (font.weight() != QFont::Normal)
-            keyName += ' ' + QByteArray::number(font.weight());
-        keyName += QByteArray(" DF");
+        QByteArray keyName =
+                fe->faceId().filename + ' ' + QByteArray::number(fe->faceId().index)
+                + (font.style() != QFont::StyleNormal ? QByteArray(" I") : QByteArray())
+                + (font.weight() != QFont::Normal ? ' ' + QByteArray::number(font.weight()) : QByteArray())
+                + ' ' + QByteArray::number(renderTypeQuality)
+                + QByteArray(" DF");
         return QString::fromUtf8(keyName);
     } else {
-        return QString::fromLatin1("%1_%2_%3_%4")
+        return QString::fromLatin1("%1_%2_%3_%4_%5")
             .arg(font.familyName())
             .arg(font.styleName())
             .arg(font.weight())
-            .arg(font.style());
+            .arg(font.style())
+            .arg(renderTypeQuality);
     }
 }
 
-void QSGDefaultRenderContext::initializeShader(QSGMaterialShader *shader)
+void QSGDefaultRenderContext::initializeRhiShader(QSGMaterialShader *shader, QShader::Variant shaderVariant)
 {
-    shader->program()->bind();
-    shader->initialize();
-}
-
-void QSGDefaultRenderContext::initializeRhiShader(QSGMaterialRhiShader *shader, QShader::Variant shaderVariant)
-{
-    QSGMaterialRhiShaderPrivate::get(shader)->prepare(shaderVariant);
-}
-
-void QSGDefaultRenderContext::setAttachToGraphicsContext(bool attach)
-{
-    Q_ASSERT(!isValid());
-    m_attachToGLContext = attach;
-}
-
-QSGDefaultRenderContext *QSGDefaultRenderContext::from(QOpenGLContext *context)
-{
-    return qobject_cast<QSGDefaultRenderContext *>(context->property(QSG_RENDERCONTEXT_PROPERTY).value<QObject *>());
-}
-
-bool QSGDefaultRenderContext::separateIndexBuffer() const
-{
-    if (m_rhi)
-        return true;
-
-    // WebGL: A given WebGLBuffer object may only be bound to one of
-    // the ARRAY_BUFFER or ELEMENT_ARRAY_BUFFER target in its
-    // lifetime. An attempt to bind a buffer object to the other
-    // target will generate an INVALID_OPERATION error, and the
-    // current binding will remain untouched.
-    static const bool isWebGL = (qGuiApp->platformName().compare(QLatin1String("webgl")) == 0
-                                  || qGuiApp->platformName().compare(QLatin1String("wasm")) == 0);
-    return isWebGL;
+    QSGMaterialShaderPrivate::get(shader)->prepare(shaderVariant);
 }
 
 void QSGDefaultRenderContext::preprocess()
@@ -438,19 +295,37 @@ void QSGDefaultRenderContext::preprocess()
     }
 }
 
-QSGDistanceFieldGlyphCache *QSGDefaultRenderContext::distanceFieldGlyphCache(const QRawFont &font)
+QSGDistanceFieldGlyphCache *QSGDefaultRenderContext::distanceFieldGlyphCache(const QRawFont &font, int renderTypeQuality)
 {
-    QString key = fontKey(font);
+    QString key = fontKey(font, renderTypeQuality);
     QSGDistanceFieldGlyphCache *cache = m_glyphCaches.value(key, 0);
     if (!cache) {
-        if (m_rhi)
-            cache = new QSGRhiDistanceFieldGlyphCache(m_rhi, font);
-        else
-            cache = new QSGOpenGLDistanceFieldGlyphCache(openglContext(), font);
+        cache = new QSGRhiDistanceFieldGlyphCache(this, font, renderTypeQuality);
         m_glyphCaches.insert(key, cache);
     }
 
     return cache;
+}
+
+QRhiResourceUpdateBatch *QSGDefaultRenderContext::maybeGlyphCacheResourceUpdates()
+{
+    return m_glyphCacheResourceUpdates;
+}
+
+QRhiResourceUpdateBatch *QSGDefaultRenderContext::glyphCacheResourceUpdates()
+{
+    if (!m_glyphCacheResourceUpdates)
+        m_glyphCacheResourceUpdates = m_rhi->nextResourceUpdateBatch();
+
+    return m_glyphCacheResourceUpdates;
+}
+
+void QSGDefaultRenderContext::releaseGlyphCacheResourceUpdates()
+{
+    if (m_glyphCacheResourceUpdates) {
+        m_glyphCacheResourceUpdates->release();
+        m_glyphCacheResourceUpdates = nullptr;
+    }
 }
 
 QT_END_NAMESPACE

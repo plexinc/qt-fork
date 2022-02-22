@@ -4,7 +4,7 @@
 
 #include "components/page_load_metrics/browser/page_load_metrics_test_waiter.h"
 
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "components/page_load_metrics/browser/page_load_metrics_observer.h"
 #include "components/page_load_metrics/common/page_load_metrics.mojom.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -35,9 +35,13 @@ void PageLoadMetricsTestWaiter::AddFrameSizeExpectation(const gfx::Size& size) {
   expected_frame_sizes_.insert(size);
 }
 
-void PageLoadMetricsTestWaiter::AddMainFrameDocumentIntersectionExpectation(
+void PageLoadMetricsTestWaiter::AddMainFrameIntersectionExpectation(
     const gfx::Rect& rect) {
   expected_main_frame_intersection_ = rect;
+}
+
+void PageLoadMetricsTestWaiter::AddMainFrameIntersectionExpectation() {
+  expected_main_frame_intersection_update_ = true;
 }
 
 void PageLoadMetricsTestWaiter::AddSubFrameExpectation(TimingField field) {
@@ -77,6 +81,10 @@ void PageLoadMetricsTestWaiter::AddMinimumAggregateCpuTimeExpectation(
   expected_minimum_aggregate_cpu_time_ = minimum;
 }
 
+void PageLoadMetricsTestWaiter::AddMemoryUpdateExpectation(int routing_id) {
+  expected_memory_update_frame_ids_.insert(routing_id);
+}
+
 bool PageLoadMetricsTestWaiter::DidObserveInPage(TimingField field) const {
   return observed_page_fields_.IsSet(field);
 }
@@ -105,7 +113,15 @@ void PageLoadMetricsTestWaiter::OnTimingUpdated(
   const page_load_metrics::mojom::FrameMetadata& metadata =
       subframe_rfh ? GetDelegateForCommittedLoad().GetSubframeMetadata()
                    : GetDelegateForCommittedLoad().GetMainFrameMetadata();
-  TimingFieldBitSet matched_bits = GetMatchedBits(timing, metadata);
+  // There is no way to get the layout shift score only for a subframe so far.
+  // See the score only when the frame is the main frame.
+  const PageRenderData* render_data =
+      subframe_rfh ? nullptr
+                   : &GetDelegateForCommittedLoad().GetMainFrameRenderData();
+
+  TimingFieldBitSet matched_bits =
+      GetMatchedBits(timing, metadata, render_data);
+
   if (subframe_rfh) {
     subframe_expected_fields_.ClearMatching(matched_bits);
   } else {
@@ -192,9 +208,12 @@ void PageLoadMetricsTestWaiter::OnFrameIntersectionUpdate(
     content::RenderFrameHost* rfh,
     const page_load_metrics::mojom::FrameIntersectionUpdate&
         frame_intersection_update) {
+  if (frame_intersection_update.main_frame_intersection_rect)
+    expected_main_frame_intersection_update_ = false;
+
   if (expected_main_frame_intersection_ &&
       expected_main_frame_intersection_ ==
-          frame_intersection_update.main_frame_document_intersection_rect) {
+          frame_intersection_update.main_frame_intersection_rect) {
     expected_main_frame_intersection_.reset();
   }
   if (ExpectationsSatisfied() && run_loop_)
@@ -212,6 +231,18 @@ void PageLoadMetricsTestWaiter::OnDidFinishSubFrameNavigation(
     run_loop_->Quit();
 }
 
+void PageLoadMetricsTestWaiter::OnV8MemoryChanged(
+    const std::vector<MemoryUpdate>& memory_updates) {
+  if (MemoryUpdateExpectationsSatisfied())
+    return;
+
+  for (const auto& update : memory_updates)
+    expected_memory_update_frame_ids_.erase(update.routing_id.frame_routing_id);
+
+  if (ExpectationsSatisfied() && run_loop_)
+    run_loop_->Quit();
+}
+
 void PageLoadMetricsTestWaiter::FrameSizeChanged(
     content::RenderFrameHost* render_frame_host,
     const gfx::Size& frame_size) {
@@ -224,7 +255,8 @@ void PageLoadMetricsTestWaiter::FrameSizeChanged(
 PageLoadMetricsTestWaiter::TimingFieldBitSet
 PageLoadMetricsTestWaiter::GetMatchedBits(
     const page_load_metrics::mojom::PageLoadTiming& timing,
-    const page_load_metrics::mojom::FrameMetadata& metadata) {
+    const page_load_metrics::mojom::FrameMetadata& metadata,
+    const PageRenderData* render_data) {
   PageLoadMetricsTestWaiter::TimingFieldBitSet matched_bits;
   if (timing.document_timing->load_event_start)
     matched_bits.Set(TimingField::kLoadEvent);
@@ -238,36 +270,65 @@ PageLoadMetricsTestWaiter::GetMatchedBits(
       blink::LoadingBehaviorFlag::kLoadingBehaviorDocumentWriteBlockReload) {
     matched_bits.Set(TimingField::kDocumentWriteBlockReload);
   }
-  if (timing.paint_timing->largest_image_paint ||
-      timing.paint_timing->largest_text_paint) {
+  if (timing.paint_timing->largest_contentful_paint->largest_image_paint ||
+      timing.paint_timing->largest_contentful_paint->largest_text_paint) {
     matched_bits.Set(TimingField::kLargestContentfulPaint);
   }
   if (timing.paint_timing->first_input_or_scroll_notified_timestamp)
     matched_bits.Set(TimingField::kFirstInputOrScroll);
   if (timing.interactive_timing->first_input_delay)
     matched_bits.Set(TimingField::kFirstInputDelay);
+  if (!timing.back_forward_cache_timings.empty()) {
+    if (!timing.back_forward_cache_timings.back()
+             ->first_paint_after_back_forward_cache_restore.is_zero()) {
+      matched_bits.Set(TimingField::kFirstPaintAfterBackForwardCacheRestore);
+    }
+    if (timing.back_forward_cache_timings.back()
+            ->first_input_delay_after_back_forward_cache_restore.has_value()) {
+      matched_bits.Set(
+          TimingField::kFirstInputDelayAfterBackForwardCacheRestore);
+    }
+  }
+
+  if (render_data) {
+    double layout_shift_score = render_data->layout_shift_score;
+    if (last_main_frame_layout_shift_score_ < layout_shift_score)
+      matched_bits.Set(TimingField::kLayoutShift);
+    last_main_frame_layout_shift_score_ = layout_shift_score;
+  }
 
   return matched_bits;
 }
 
 void PageLoadMetricsTestWaiter::OnTrackerCreated(
     page_load_metrics::PageLoadTracker* tracker) {
-  if (!attach_on_tracker_creation_)
-    return;
   // A PageLoadMetricsWaiter should only wait for events from a single page
   // load.
-  ASSERT_FALSE(did_add_observer_);
-  tracker->AddObserver(
-      std::make_unique<WaiterMetricsObserver>(weak_factory_.GetWeakPtr()));
-  did_add_observer_ = true;
+  if (!attach_on_tracker_creation_)
+    return;
+  AddObserver(tracker);
 }
 
 void PageLoadMetricsTestWaiter::OnCommit(
     page_load_metrics::PageLoadTracker* tracker) {
-  if (attach_on_tracker_creation_)
-    return;
   // A PageLoadMetricsWaiter should only wait for events from a single page
   // load.
+  if (attach_on_tracker_creation_)
+    return;
+  AddObserver(tracker);
+}
+
+void PageLoadMetricsTestWaiter::OnRestoredFromBackForwardCache(
+    page_load_metrics::PageLoadTracker* tracker) {
+  // A PageLoadMetricsWaiter should only wait for events from a single page
+  // load.
+  if (attach_on_tracker_creation_)
+    return;
+  AddObserver(tracker);
+}
+
+void PageLoadMetricsTestWaiter::AddObserver(
+    page_load_metrics::PageLoadTracker* tracker) {
   ASSERT_FALSE(did_add_observer_);
   tracker->AddObserver(
       std::make_unique<WaiterMetricsObserver>(weak_factory_.GetWeakPtr()));
@@ -304,6 +365,10 @@ bool PageLoadMetricsTestWaiter::SubframeDataExpectationsSatisfied() const {
   return !expected_subframe_data_;
 }
 
+bool PageLoadMetricsTestWaiter::MemoryUpdateExpectationsSatisfied() const {
+  return expected_memory_update_frame_ids_.empty();
+}
+
 bool PageLoadMetricsTestWaiter::ExpectationsSatisfied() const {
   return subframe_expected_fields_.Empty() && page_expected_fields_.Empty() &&
          ResourceUseExpectationsSatisfied() &&
@@ -311,7 +376,9 @@ bool PageLoadMetricsTestWaiter::ExpectationsSatisfied() const {
          SubframeNavigationExpectationsSatisfied() &&
          SubframeDataExpectationsSatisfied() && expected_frame_sizes_.empty() &&
          CpuTimeExpectationsSatisfied() &&
-         !expected_main_frame_intersection_.has_value();
+         !expected_main_frame_intersection_.has_value() &&
+         !expected_main_frame_intersection_update_ &&
+         MemoryUpdateExpectationsSatisfied();
 }
 
 PageLoadMetricsTestWaiter::WaiterMetricsObserver::~WaiterMetricsObserver() =
@@ -379,6 +446,12 @@ void PageLoadMetricsTestWaiter::WaiterMetricsObserver::FrameSizeChanged(
     const gfx::Size& frame_size) {
   if (waiter_)
     waiter_->FrameSizeChanged(render_frame_host, frame_size);
+}
+
+void PageLoadMetricsTestWaiter::WaiterMetricsObserver::OnV8MemoryChanged(
+    const std::vector<MemoryUpdate>& memory_updates) {
+  if (waiter_)
+    waiter_->OnV8MemoryChanged(memory_updates);
 }
 
 bool PageLoadMetricsTestWaiter::FrameSizeComparator::operator()(

@@ -6,7 +6,9 @@
 
 #include "base/memory/scoped_refptr.h"
 #include "base/single_thread_task_runner.h"
+#include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
+#include "third_party/blink/renderer/platform/heap/visitor.h"
 #include "third_party/webrtc/api/dtls_transport_interface.h"
 
 // The DtlsTransportProxy class takes care of thread-jumping when
@@ -35,7 +37,7 @@ class DtlsTransportProxy : public webrtc::DtlsTransportObserverInterface {
     virtual void OnStartCompleted(webrtc::DtlsTransportInformation info) = 0;
     // Called when a state change is signalled from transport.
     virtual void OnStateChange(webrtc::DtlsTransportInformation info) = 0;
-    void Trace(Visitor* visitor) override {}
+    void Trace(Visitor* visitor) const override {}
   };
   // Constructs a DtlsTransportProxy.
   // The caller is responsible for keeping |dtls_transport| and |delegate|

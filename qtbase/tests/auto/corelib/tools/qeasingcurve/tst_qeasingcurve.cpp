@@ -26,7 +26,7 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include <qeasingcurve.h>
 
@@ -501,7 +501,7 @@ class tst_QEasingProperties : public QObject
     Q_OBJECT
     Q_PROPERTY(QEasingCurve easing READ easing WRITE setEasing)
 public:
-    tst_QEasingProperties(QObject *parent = 0) : QObject(parent) {}
+    tst_QEasingProperties(QObject *parent = nullptr) : QObject(parent) {}
 
     QEasingCurve easing() const { return e; }
     void setEasing(const QEasingCurve& value) { e = value; }
@@ -546,10 +546,9 @@ void tst_QEasingCurve::properties()
 
 void tst_QEasingCurve::metaTypes()
 {
-    QVERIFY(QMetaType::type("QEasingCurve") == QMetaType::QEasingCurve);
+    QVERIFY(QMetaType::fromName("QEasingCurve").id() == QMetaType::QEasingCurve);
 
-    QCOMPARE(QByteArray(QMetaType::typeName(QMetaType::QEasingCurve)),
-             QByteArray("QEasingCurve"));
+    QCOMPARE(QByteArray(QMetaType(QMetaType::QEasingCurve).name()), QByteArray("QEasingCurve"));
 
     QVERIFY(QMetaType::isRegistered(QMetaType::QEasingCurve));
 
@@ -602,7 +601,7 @@ static inline void setupBezierSpline(QEasingCurve *easingCurve, const QString &s
 {
     QStringList pointStr = string.split(QLatin1Char(' '));
 
-    QVector<QPointF> points;
+    QList<QPointF> points;
     foreach (const QString &str, pointStr) {
         QStringList coordStr = str.split(QLatin1Char(','));
         QPointF point(coordStr.first().toDouble(), coordStr.last().toDouble());

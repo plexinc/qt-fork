@@ -2,21 +2,21 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/quic_transport/quic_transport_server_session.h"
+#include "quic/quic_transport/quic_transport_server_session.h"
 
 #include <algorithm>
 #include <memory>
 #include <string>
 
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "url/gurl.h"
 #include "url/url_constants.h"
-#include "net/third_party/quiche/src/quic/core/quic_error_codes.h"
-#include "net/third_party/quiche/src/quic/core/quic_stream.h"
-#include "net/third_party/quiche/src/quic/core/quic_types.h"
-#include "net/third_party/quiche/src/quic/quic_transport/quic_transport_protocol.h"
-#include "net/third_party/quiche/src/quic/quic_transport/quic_transport_stream.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "quic/core/quic_error_codes.h"
+#include "quic/core/quic_stream.h"
+#include "quic/core/quic_types.h"
+#include "quic/quic_transport/quic_transport_protocol.h"
+#include "quic/quic_transport/quic_transport_stream.h"
 
 namespace quic {
 
@@ -88,8 +88,8 @@ void QuicTransportServerSession::ClientIndication::OnDataAvailable() {
   if (buffer_.size() > ClientIndicationMaxSize()) {
     session_->connection()->CloseConnection(
         QUIC_TRANSPORT_INVALID_CLIENT_INDICATION,
-        quiche::QuicheStrCat("Client indication size exceeds ",
-                             ClientIndicationMaxSize(), " bytes"),
+        absl::StrCat("Client indication size exceeds ",
+                     ClientIndicationMaxSize(), " bytes"),
         ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
     return;
   }
@@ -109,9 +109,9 @@ bool QuicTransportServerSession::ClientIndicationParser::Parse() {
       return false;
     }
 
-    quiche::QuicheStringPiece value;
+    absl::string_view value;
     if (!reader_.ReadStringPiece16(&value)) {
-      ParseError(quiche::QuicheStrCat("Failed to read value for key ", key));
+      ParseError(absl::StrCat("Failed to read value for key ", key));
       return false;
     }
 
@@ -160,7 +160,7 @@ bool QuicTransportServerSession::ClientIndicationParser::Parse() {
 }
 
 bool QuicTransportServerSession::ClientIndicationParser::ProcessPath(
-    quiche::QuicheStringPiece path) {
+    absl::string_view path) {
   if (path.empty() || path[0] != '/') {
     // https://tools.ietf.org/html/draft-vvv-webtransport-quic-01#section-3.2.2
     Error("Path must begin with a '/'");
@@ -169,9 +169,9 @@ bool QuicTransportServerSession::ClientIndicationParser::ProcessPath(
 
   // TODO(b/145674008): use the SNI value from the handshake instead of the IP
   // address.
-  std::string url_text = quiche::QuicheStrCat(
-      url::kQuicTransportScheme, url::kStandardSchemeSeparator,
-      session_->self_address().ToString(), path);
+  std::string url_text =
+      absl::StrCat(url::kQuicTransportScheme, url::kStandardSchemeSeparator,
+                   session_->self_address().ToString(), path);
   GURL url{url_text};
   if (!url.is_valid()) {
     Error("Invalid path specified");
@@ -193,13 +193,13 @@ void QuicTransportServerSession::ClientIndicationParser::Error(
 }
 
 void QuicTransportServerSession::ClientIndicationParser::ParseError(
-    quiche::QuicheStringPiece error_message) {
-  Error(quiche::QuicheStrCat("Failed to parse the client indication stream: ",
-                             error_message, reader_.DebugString()));
+    absl::string_view error_message) {
+  Error(absl::StrCat("Failed to parse the client indication stream: ",
+                     error_message, reader_.DebugString()));
 }
 
 void QuicTransportServerSession::ProcessClientIndication(
-    quiche::QuicheStringPiece indication) {
+    absl::string_view indication) {
   ClientIndicationParser parser(this, indication);
   if (!parser.Parse()) {
     return;

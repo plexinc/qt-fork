@@ -26,13 +26,22 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-import * as Common from '../common/common.js';
-import * as ProtocolClient from '../protocol_client/protocol_client.js';
+import * as i18n from '../i18n/i18n.js';
 import * as SDK from '../sdk/sdk.js';
 
-/**
- * @unrestricted
- */
+export const UIStrings = {
+  /**
+  *@description Message in Database Model of the Application panel
+  */
+  databaseNoLongerHasExpected: 'Database no longer has expected version.',
+  /**
+  *@description Message in Database Model of the Application panel
+  *@example {-197} PH1
+  */
+  anUnexpectedErrorSOccurred: 'An unexpected error {PH1} occurred.',
+};
+const str_ = i18n.i18n.registerUIStrings('resources/DatabaseModel.js', UIStrings);
+const i18nString = i18n.i18n.getLocalizedString.bind(undefined, str_);
 export class Database {
   /**
    * @param {!DatabaseModel} model
@@ -88,42 +97,40 @@ export class Database {
    * @return {!Promise<!Array<string>>}
    */
   async tableNames() {
-    const names = await this._model._agent.getDatabaseTableNames(this._id) || [];
-    return names.sort();
+    const {tableNames} = await this._model._agent.invoke_getDatabaseTableNames({databaseId: this._id}) || [];
+    return tableNames.sort();
   }
 
   /**
    * @param {string} query
-   * @param {function(!Array.<string>=, !Array.<*>=)} onSuccess
-   * @param {function(string)} onError
+   * @param {function(!Array.<string>, !Array.<*>):void} onSuccess
+   * @param {function(string):void} onError
    */
   async executeSql(query, onSuccess, onError) {
     const response = await this._model._agent.invoke_executeSQL({'databaseId': this._id, 'query': query});
-    const error = response[ProtocolClient.InspectorBackend.ProtocolError];
+    const error = response.getError() || null;
     if (error) {
       onError(error);
       return;
     }
     const sqlError = response.sqlError;
     if (!sqlError) {
-      onSuccess(response.columnNames, response.values);
+      // We know from the back-end that if there is no error, neither columnNames nor values can be undefined.
+      onSuccess(response.columnNames || [], response.values || []);
       return;
     }
     let message;
     if (sqlError.message) {
       message = sqlError.message;
     } else if (sqlError.code === 2) {
-      message = Common.UIString.UIString('Database no longer has expected version.');
+      message = i18nString(UIStrings.databaseNoLongerHasExpected);
     } else {
-      message = Common.UIString.UIString('An unexpected error %s occurred.', sqlError.code);
+      message = i18nString(UIStrings.anUnexpectedErrorSOccurred, {PH1: sqlError.code});
     }
     onError(message);
   }
 }
 
-/**
- * @unrestricted
- */
 export class DatabaseModel extends SDK.SDKModel.SDKModel {
   /**
    * @param {!SDK.SDKModel.Target} target
@@ -131,6 +138,7 @@ export class DatabaseModel extends SDK.SDKModel.SDKModel {
   constructor(target) {
     super(target);
 
+    /** @type {!Array<!Database>} */
     this._databases = [];
     this._agent = target.databaseAgent();
     this.target().registerDatabaseDispatcher(new DatabaseDispatcher(this));
@@ -140,7 +148,7 @@ export class DatabaseModel extends SDK.SDKModel.SDKModel {
     if (this._enabled) {
       return;
     }
-    this._agent.enable();
+    this._agent.invoke_enable();
     this._enabled = true;
   }
 
@@ -150,7 +158,7 @@ export class DatabaseModel extends SDK.SDKModel.SDKModel {
     }
     this._enabled = false;
     this._databases = [];
-    this._agent.disable();
+    this._agent.invoke_disable();
     this.dispatchEventToListeners(Events.DatabasesRemoved);
   }
 
@@ -183,8 +191,7 @@ export const Events = {
 };
 
 /**
- * @implements {Protocol.DatabaseDispatcher}
- * @unrestricted
+ * @implements {ProtocolProxyApi.DatabaseDispatcher}
  */
 export class DatabaseDispatcher {
   /**
@@ -196,9 +203,9 @@ export class DatabaseDispatcher {
 
   /**
    * @override
-   * @param {!Protocol.Database.Database} payload
+   * @param {!Protocol.Database.AddDatabaseEvent} event
    */
-  addDatabase(payload) {
-    this._model._addDatabase(new Database(this._model, payload.id, payload.domain, payload.name, payload.version));
+  addDatabase({database}) {
+    this._model._addDatabase(new Database(this._model, database.id, database.domain, database.name, database.version));
   }
 }

@@ -14,6 +14,8 @@
 #include "base/test/scoped_feature_list.h"
 #include "net/base/features.h"
 #include "net/base/network_isolation_key.h"
+#include "net/base/schemeful_site.h"
+#include "net/cookies/cookie_access_result.h"
 #include "net/cookies/cookie_store.h"
 #include "net/cookies/cookie_store_test_callbacks.h"
 #include "net/http/http_status_code.h"
@@ -24,6 +26,8 @@
 #include "net/test/test_with_task_environment.h"
 #include "net/url_request/url_request_test_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "url/gurl.h"
+#include "url/origin.h"
 
 namespace net {
 namespace {
@@ -118,7 +122,7 @@ class TestUploadCallback {
 
     if (waiting_) {
       waiting_ = false;
-      closure_.Run();
+      std::move(closure_).Run();
     }
   }
 
@@ -126,7 +130,7 @@ class TestUploadCallback {
   ReportingUploader::Outcome outcome_;
 
   bool waiting_;
-  base::Closure closure_;
+  base::OnceClosure closure_;
 };
 
 TEST_F(ReportingUploaderTest, Upload) {
@@ -446,16 +450,15 @@ TEST_F(ReportingUploaderTest, DontSendCookies) {
   server_.RegisterRequestHandler(base::BindRepeating(&ReturnResponse, HTTP_OK));
   ASSERT_TRUE(server_.Start());
 
-  ResultSavingCookieCallback<CanonicalCookie::CookieInclusionStatus>
-      cookie_callback;
+  ResultSavingCookieCallback<CookieAccessResult> cookie_callback;
   GURL url = server_.GetURL("/");
   auto cookie = CanonicalCookie::Create(url, "foo=bar", base::Time::Now(),
                                         base::nullopt /* server_time */);
   context_.cookie_store()->SetCanonicalCookieAsync(
-      std::move(cookie), url.scheme(), CookieOptions::MakeAllInclusive(),
+      std::move(cookie), url, CookieOptions::MakeAllInclusive(),
       cookie_callback.MakeCallback());
   cookie_callback.WaitUntilDone();
-  ASSERT_TRUE(cookie_callback.result().IsInclude());
+  ASSERT_TRUE(cookie_callback.result().status.IsInclude());
 
   TestUploadCallback upload_callback;
   uploader_->StartUpload(kOrigin, server_.GetURL("/"), NetworkIsolationKey(),
@@ -546,10 +549,11 @@ TEST_F(ReportingUploaderTest, RespectsNetworkIsolationKey) {
   feature_list.InitAndEnableFeature(
       features::kPartitionConnectionsByNetworkIsolationKey);
 
-  const url::Origin kOrigin2 = url::Origin::Create(GURL("https://origin2/"));
-  ASSERT_NE(kOrigin, kOrigin2);
-  const NetworkIsolationKey kNetworkIsolationKey1(kOrigin, kOrigin);
-  const NetworkIsolationKey kNetworkIsolationKey2(kOrigin2, kOrigin2);
+  const SchemefulSite kSite1 = SchemefulSite(kOrigin);
+  const SchemefulSite kSite2(GURL("https://origin2/"));
+  ASSERT_NE(kSite1, kSite2);
+  const NetworkIsolationKey kNetworkIsolationKey1(kSite1, kSite1);
+  const NetworkIsolationKey kNetworkIsolationKey2(kSite2, kSite2);
 
   MockClientSocketFactory socket_factory;
   TestURLRequestContext context(true /* delay_initialization */);

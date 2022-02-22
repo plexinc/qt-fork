@@ -1,7 +1,6 @@
 INCLUDEPATH += $$PWD
 
 HEADERS += \
-    $$PWD/renderthread_p.h \
     $$PWD/parameterpack_p.h \
     $$PWD/rendertarget_p.h \
     $$PWD/attachmentpack_p.h \
@@ -20,7 +19,6 @@ HEADERS += \
     $$PWD/boundingvolumedebug_p.h \
     $$PWD/nodemanagers_p.h \
     $$PWD/triangleboundingvolume_p.h \
-    $$PWD/trianglesextractor_p.h \
     $$PWD/buffervisitor_p.h \
     $$PWD/bufferutils_p.h \
     $$PWD/trianglesvisitor_p.h \
@@ -39,7 +37,6 @@ HEADERS += \
     $$PWD/apishadermanager_p.h
 
 SOURCES += \
-    $$PWD/renderthread.cpp \
     $$PWD/parameterpack.cpp \
     $$PWD/rendertarget.cpp \
     $$PWD/managers.cpp \
@@ -54,7 +51,6 @@ SOURCES += \
     $$PWD/boundingvolumedebug.cpp \
     $$PWD/nodemanagers.cpp \
     $$PWD/triangleboundingvolume.cpp \
-    $$PWD/trianglesextractor.cpp \
     $$PWD/trianglesvisitor.cpp \
     $$PWD/computecommand.cpp \
     $$PWD/rendersettings.cpp \

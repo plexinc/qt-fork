@@ -42,6 +42,8 @@
 #include <private/qv4lookup_p.h>
 #include <private/qv4generatorobject_p.h>
 
+#if QT_CONFIG(qml_jit)
+
 QT_USE_NAMESPACE
 using namespace QV4;
 using namespace QV4::JIT;
@@ -281,6 +283,13 @@ void BaselineJIT::generate_LoadProperty(int name)
     BASELINEJIT_GENERATE_RUNTIME_CALL(LoadProperty, CallResultDestination::InAccumulator);
 }
 
+void BaselineJIT::generate_LoadOptionalProperty(int name, int offset)
+{
+    labels.insert(as->jumpEqNull(absoluteOffset(offset)));
+
+    generate_LoadProperty(name);
+}
+
 void BaselineJIT::generate_GetLookup(int index)
 {
     STORE_IP();
@@ -291,6 +300,13 @@ void BaselineJIT::generate_GetLookup(int index)
     as->passFunctionAsArg(1);
     as->passEngineAsArg(0);
     BASELINEJIT_GENERATE_RUNTIME_CALL(GetLookup, CallResultDestination::InAccumulator);
+}
+
+void BaselineJIT::generate_GetOptionalLookup(int index, int offset)
+{
+    labels.insert(as->jumpEqNull(absoluteOffset(offset)));
+
+    generate_GetLookup(index);
 }
 
 void BaselineJIT::generate_StoreProperty(int name, int base)
@@ -829,6 +845,7 @@ void BaselineJIT::generate_CmpStrictNotEqual(int lhs) { as->cmpStrictNotEqual(lh
 
 void BaselineJIT::generate_CmpIn(int lhs)
 {
+    STORE_IP();
     STORE_ACC();
     as->prepareCallWithArgCount(3);
     as->passAccumulatorAsArg(2);
@@ -845,6 +862,16 @@ void BaselineJIT::generate_CmpInstanceOf(int lhs)
     as->passJSSlotAsArg(lhs, 1);
     as->passEngineAsArg(0);
     BASELINEJIT_GENERATE_RUNTIME_CALL(Instanceof, CallResultDestination::InAccumulator);
+}
+
+void BaselineJIT::generate_As(int lhs)
+{
+    STORE_ACC();
+    as->prepareCallWithArgCount(3);
+    as->passAccumulatorAsArg(2);
+    as->passJSSlotAsArg(lhs, 1);
+    as->passEngineAsArg(0);
+    BASELINEJIT_GENERATE_RUNTIME_CALL(As, CallResultDestination::InAccumulator);
 }
 
 void BaselineJIT::generate_UNot() { as->unot(); }
@@ -930,3 +957,6 @@ void BaselineJIT::endInstruction(Instr::Type instr)
 {
     Q_UNUSED(instr);
 }
+
+#endif // QT_CONFIG(qml_jit)
+

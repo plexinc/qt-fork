@@ -54,25 +54,14 @@
 #include <QtQuick/private/qsgcontext_p.h>
 #include <QtGui/private/qshader_p.h>
 
-#if QT_CONFIG(opengl)
-#include <QtQuick/private/qsgdepthstencilbuffer_p.h>
-#endif
-
 QT_BEGIN_NAMESPACE
 
 class QRhi;
 class QRhiCommandBuffer;
 class QRhiRenderPassDescriptor;
-class QOpenGLContext;
+class QRhiResourceUpdateBatch;
 class QSGMaterialShader;
-class QSGMaterialRhiShader;
-class QOpenGLFramebufferObject;
-class QSGDepthStencilBufferManager;
-class QSGDepthStencilBuffer;
-
-namespace QSGOpenGLAtlasTexture {
-    class Manager;
-}
+class QSurface;
 
 namespace QSGRhiAtlasTexture {
     class Manager;
@@ -85,15 +74,13 @@ public:
     QSGDefaultRenderContext(QSGContext *context);
 
     QRhi *rhi() const override { return m_rhi; }
-    QOpenGLContext *openglContext() const { return m_gl; }
-    bool isValid() const override { return m_gl || m_rhi; }
+    bool isValid() const override { return m_rhi != nullptr; }
 
     static const int INIT_PARAMS_MAGIC = 0x50E;
     struct InitParams : public QSGRenderContext::InitParams {
         int sType = INIT_PARAMS_MAGIC; // help discovering broken code passing something else as 'context'
         QRhi *rhi = nullptr;
         int sampleCount = 1; // 1, 4, 8, ...
-        QOpenGLContext *openGLContext = nullptr; // ### Qt 6: remove
         // only used as a hint f.ex. in the texture atlas init
         QSize initialSurfacePixelSize;
         // The first window that will be used with this rc, if available.
@@ -104,12 +91,15 @@ public:
     void initialize(const QSGRenderContext::InitParams *params) override;
     void invalidate() override;
 
-    void prepareSync(qreal devicePixelRatio, QRhiCommandBuffer *cb) override;
+    void prepareSync(qreal devicePixelRatio,
+                     QRhiCommandBuffer *cb,
+                     const QQuickGraphicsConfiguration &config) override;
+
     void beginNextFrame(QSGRenderer *renderer,
                         RenderPassCallback mainPassRecordingStart,
                         RenderPassCallback mainPassRecordingEnd,
                         void *callbackUserData) override;
-    void renderNextFrame(QSGRenderer *renderer, uint fboId) override;
+    void renderNextFrame(QSGRenderer *renderer) override;
     void endNextFrame(QSGRenderer *renderer) override;
 
     void beginNextRhiFrame(QSGRenderer *renderer,
@@ -121,27 +111,17 @@ public:
     void endNextRhiFrame(QSGRenderer *renderer) override;
 
     void preprocess() override;
-    QSGDistanceFieldGlyphCache *distanceFieldGlyphCache(const QRawFont &font) override;
-
-    virtual QSharedPointer<QSGDepthStencilBuffer> depthStencilBufferForFbo(QOpenGLFramebufferObject *fbo);
-    QSGDepthStencilBufferManager *depthStencilBufferManager();
+    QSGDistanceFieldGlyphCache *distanceFieldGlyphCache(const QRawFont &font, int renderTypeQuality) override;
 
     QSGTexture *createTexture(const QImage &image, uint flags) const override;
-    QSGRenderer *createRenderer() override;
+    QSGRenderer *createRenderer(QSGRendererInterface::RenderMode renderMode = QSGRendererInterface::RenderMode2D) override;
     QSGTexture *compressedTextureForFactory(const QSGCompressedTextureFactory *factory) const override;
 
-    virtual void compileShader(QSGMaterialShader *shader, QSGMaterial *material, const char *vertexCode = nullptr, const char *fragmentCode = nullptr);
-    virtual void initializeShader(QSGMaterialShader *shader);
-    virtual void initializeRhiShader(QSGMaterialRhiShader *shader, QShader::Variant shaderVariant);
+    virtual void initializeRhiShader(QSGMaterialShader *shader, QShader::Variant shaderVariant);
 
-    void setAttachToGraphicsContext(bool attach) override;
-
-    static QSGDefaultRenderContext *from(QOpenGLContext *context);
-
-    bool hasBrokenIndexBufferObjects() const { return m_brokenIBOs; }
     int maxTextureSize() const override { return m_maxTextureSize; }
-    bool separateIndexBuffer() const;
-
+    bool separateIndexBuffer() const { return m_separateIndexBuffer; }
+    bool useDepthBufferFor2D() const { return m_useDepthBufferFor2D; }
     int msaaSampleCount() const { return m_initParams.sampleCount; }
 
     QRhiCommandBuffer *currentFrameCommandBuffer() const {
@@ -164,22 +144,24 @@ public:
         return m_currentDevicePixelRatio;
     }
 
+    QRhiResourceUpdateBatch *maybeGlyphCacheResourceUpdates();
+    QRhiResourceUpdateBatch *glyphCacheResourceUpdates();
+    void releaseGlyphCacheResourceUpdates();
+
 protected:
-    static QString fontKey(const QRawFont &font);
+    static QString fontKey(const QRawFont &font, int renderTypeQuality);
 
     InitParams m_initParams;
     QRhi *m_rhi;
-    QOpenGLContext *m_gl;
-    QSGDepthStencilBufferManager *m_depthStencilManager;
     int m_maxTextureSize;
-    bool m_brokenIBOs;
     bool m_serializedRender;
-    bool m_attachToGLContext;
-    QSGOpenGLAtlasTexture::Manager *m_glAtlasManager;
     QSGRhiAtlasTexture::Manager *m_rhiAtlasManager;
     QRhiCommandBuffer *m_currentFrameCommandBuffer;
     QRhiRenderPassDescriptor *m_currentFrameRenderPass;
     qreal m_currentDevicePixelRatio;
+    bool m_separateIndexBuffer;
+    bool m_useDepthBufferFor2D;
+    QRhiResourceUpdateBatch *m_glyphCacheResourceUpdates;
 };
 
 QT_END_NAMESPACE

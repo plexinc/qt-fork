@@ -49,7 +49,7 @@
 
 #include "qpainter.h"
 #include "qprintdialog.h"
-#include "qtextcodec.h"
+#include "qstringconverter.h"
 #include "qdialogbuttonbox.h"
 #include <ui_qpagesetupwidget.h>
 
@@ -249,9 +249,6 @@ QPageSetupWidget::QPageSetupWidget(QWidget *parent)
 {
     m_ui.setupUi(this);
 
-    if (!QMetaType::hasRegisteredComparators<QPageSize>())
-        QMetaType::registerEqualsComparator<QPageSize>();
-
     QVBoxLayout *lay = new QVBoxLayout(m_ui.preview);
     m_pagePreview = new QPagePreview(m_ui.preview);
     m_pagePreview->setPagePreviewLayout(1, 1);
@@ -274,21 +271,21 @@ QPageSetupWidget::QPageSetupWidget(QWidget *parent)
     initUnits();
     initPagesPerSheet();
 
-    connect(m_ui.unitCombo, QOverload<int>::of(&QComboBox::activated), this, &QPageSetupWidget::unitChanged);
+    connect(m_ui.unitCombo, &QComboBox::activated, this, &QPageSetupWidget::unitChanged);
 
-    connect(m_ui.pageSizeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &QPageSetupWidget::pageSizeChanged);
-    connect(m_ui.pageWidth, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &QPageSetupWidget::pageSizeChanged);
-    connect(m_ui.pageHeight, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &QPageSetupWidget::pageSizeChanged);
+    connect(m_ui.pageSizeCombo, &QComboBox::currentIndexChanged, this, &QPageSetupWidget::pageSizeChanged);
+    connect(m_ui.pageWidth, &QDoubleSpinBox::valueChanged, this, &QPageSetupWidget::pageSizeChanged);
+    connect(m_ui.pageHeight, &QDoubleSpinBox::valueChanged, this, &QPageSetupWidget::pageSizeChanged);
 
-    connect(m_ui.leftMargin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &QPageSetupWidget::leftMarginChanged);
-    connect(m_ui.topMargin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &QPageSetupWidget::topMarginChanged);
-    connect(m_ui.rightMargin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &QPageSetupWidget::rightMarginChanged);
-    connect(m_ui.bottomMargin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &QPageSetupWidget::bottomMarginChanged);
+    connect(m_ui.leftMargin, &QDoubleSpinBox::valueChanged, this, &QPageSetupWidget::leftMarginChanged);
+    connect(m_ui.topMargin, &QDoubleSpinBox::valueChanged, this, &QPageSetupWidget::topMarginChanged);
+    connect(m_ui.rightMargin, &QDoubleSpinBox::valueChanged, this, &QPageSetupWidget::rightMarginChanged);
+    connect(m_ui.bottomMargin, &QDoubleSpinBox::valueChanged, this, &QPageSetupWidget::bottomMarginChanged);
 
     connect(m_ui.portrait, &QRadioButton::clicked, this, &QPageSetupWidget::pageOrientationChanged);
     connect(m_ui.landscape, &QRadioButton::clicked, this, &QPageSetupWidget::pageOrientationChanged);
 
-    connect(m_ui.pagesPerSheetCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &QPageSetupWidget::pagesPerSheetChanged);
+    connect(m_ui.pagesPerSheetCombo, &QComboBox::currentIndexChanged, this, &QPageSetupWidget::pagesPerSheetChanged);
 }
 
 // Init the Units combo box
@@ -592,10 +589,14 @@ void QPageSetupWidget::pageSizeChanged()
 #if QT_CONFIG(cups)
         if (m_pageSizePpdOption) {
             ppd_file_t *ppd = qvariant_cast<ppd_file_t*>(m_printDevice->property(PDPK_PpdFile));
-            QTextCodec *cupsCodec = QTextCodec::codecForName(ppd->lang_encoding);
+            QStringDecoder toUtf16(ppd->lang_encoding, QStringDecoder::Flag::Stateless);
+            if (!toUtf16.isValid()) {
+                qWarning() << "QPrinSupport: Cups uses unsupported encoding" << ppd->lang_encoding;
+                toUtf16 = QStringDecoder(QStringDecoder::Utf8);
+            }
             for (int i = 0; i < m_pageSizePpdOption->num_choices; ++i) {
                 const ppd_choice_t *choice = &m_pageSizePpdOption->choices[i];
-                if (cupsCodec->toUnicode(choice->text) == m_ui.pageSizeCombo->currentText()) {
+                if (toUtf16(choice->text) == m_ui.pageSizeCombo->currentText()) {
                     const auto values = QStringList{} << QString::fromLatin1(m_pageSizePpdOption->keyword)
                                                       << QString::fromLatin1(choice->choice);
                     m_printDevice->setProperty(PDPK_PpdOption, values);

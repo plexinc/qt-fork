@@ -38,6 +38,8 @@
 #include "third_party/blink/renderer/core/css/style_engine.h"
 #include "third_party/blink/renderer/core/css/zoom_adjusted_pixel_value.h"
 #include "third_party/blink/renderer/core/dom/document.h"
+#include "third_party/blink/renderer/core/dom/flat_tree_traversal.h"
+#include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/dom/pseudo_element.h"
 #include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/html/html_frame_owner_element.h"
@@ -46,6 +48,7 @@
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
+#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 
 namespace blink {
@@ -56,83 +59,155 @@ namespace {
 // NOTE: Do not use this list, use computableProperties() instead
 // to respect runtime enabling of CSS properties.
 const CSSPropertyID kComputedPropertyArray[] = {
+    CSSPropertyID::kAlignContent, CSSPropertyID::kAlignItems,
+    CSSPropertyID::kAlignSelf, CSSPropertyID::kAlignmentBaseline,
     CSSPropertyID::kAnimationDelay, CSSPropertyID::kAnimationDirection,
     CSSPropertyID::kAnimationDuration, CSSPropertyID::kAnimationFillMode,
     CSSPropertyID::kAnimationIterationCount, CSSPropertyID::kAnimationName,
-    CSSPropertyID::kAnimationPlayState, CSSPropertyID::kAnimationTimingFunction,
+    CSSPropertyID::kAnimationPlayState, CSSPropertyID::kAnimationTimeline,
+    CSSPropertyID::kAnimationTimingFunction, CSSPropertyID::kAppearance,
+    CSSPropertyID::kBackdropFilter, CSSPropertyID::kBackfaceVisibility,
     CSSPropertyID::kBackgroundAttachment, CSSPropertyID::kBackgroundBlendMode,
     CSSPropertyID::kBackgroundClip, CSSPropertyID::kBackgroundColor,
     CSSPropertyID::kBackgroundImage, CSSPropertyID::kBackgroundOrigin,
     // more-specific background-position-x/y are non-standard
     CSSPropertyID::kBackgroundPosition, CSSPropertyID::kBackgroundRepeat,
-    CSSPropertyID::kBackgroundSize, CSSPropertyID::kBorderBottomColor,
+    CSSPropertyID::kBackgroundSize, CSSPropertyID::kBaselineShift,
+    CSSPropertyID::kBlockSize, CSSPropertyID::kBorderBlockEndColor,
+    CSSPropertyID::kBorderBlockEndStyle, CSSPropertyID::kBorderBlockEndWidth,
+    CSSPropertyID::kBorderBlockStartColor,
+    CSSPropertyID::kBorderBlockStartStyle,
+    CSSPropertyID::kBorderBlockStartWidth, CSSPropertyID::kBorderBottomColor,
     CSSPropertyID::kBorderBottomLeftRadius,
     CSSPropertyID::kBorderBottomRightRadius, CSSPropertyID::kBorderBottomStyle,
     CSSPropertyID::kBorderBottomWidth, CSSPropertyID::kBorderCollapse,
+    CSSPropertyID::kBorderEndEndRadius, CSSPropertyID::kBorderEndStartRadius,
     CSSPropertyID::kBorderImageOutset, CSSPropertyID::kBorderImageRepeat,
     CSSPropertyID::kBorderImageSlice, CSSPropertyID::kBorderImageSource,
-    CSSPropertyID::kBorderImageWidth, CSSPropertyID::kBorderLeftColor,
+    CSSPropertyID::kBorderImageWidth, CSSPropertyID::kBorderInlineEndColor,
+    CSSPropertyID::kBorderInlineEndStyle, CSSPropertyID::kBorderInlineEndWidth,
+    CSSPropertyID::kBorderInlineStartColor,
+    CSSPropertyID::kBorderInlineStartStyle,
+    CSSPropertyID::kBorderInlineStartWidth, CSSPropertyID::kBorderLeftColor,
     CSSPropertyID::kBorderLeftStyle, CSSPropertyID::kBorderLeftWidth,
     CSSPropertyID::kBorderRightColor, CSSPropertyID::kBorderRightStyle,
-    CSSPropertyID::kBorderRightWidth, CSSPropertyID::kBorderTopColor,
+    CSSPropertyID::kBorderRightWidth, CSSPropertyID::kBorderStartEndRadius,
+    CSSPropertyID::kBorderStartStartRadius, CSSPropertyID::kBorderTopColor,
     CSSPropertyID::kBorderTopLeftRadius, CSSPropertyID::kBorderTopRightRadius,
     CSSPropertyID::kBorderTopStyle, CSSPropertyID::kBorderTopWidth,
     CSSPropertyID::kBottom, CSSPropertyID::kBoxShadow,
     CSSPropertyID::kBoxSizing, CSSPropertyID::kBreakAfter,
     CSSPropertyID::kBreakBefore, CSSPropertyID::kBreakInside,
-    CSSPropertyID::kCaptionSide, CSSPropertyID::kClear, CSSPropertyID::kClip,
-    CSSPropertyID::kColor, CSSPropertyID::kContent, CSSPropertyID::kCursor,
-    CSSPropertyID::kDirection, CSSPropertyID::kDisplay,
-    CSSPropertyID::kEmptyCells, CSSPropertyID::kFloat,
+    CSSPropertyID::kBufferedRendering, CSSPropertyID::kCaptionSide,
+    CSSPropertyID::kCaretColor, CSSPropertyID::kClear, CSSPropertyID::kClip,
+    CSSPropertyID::kClipPath, CSSPropertyID::kClipRule, CSSPropertyID::kColor,
+    CSSPropertyID::kColorInterpolation,
+    CSSPropertyID::kColorInterpolationFilters, CSSPropertyID::kColorRendering,
+    CSSPropertyID::kColumnCount, CSSPropertyID::kColumnGap,
+    CSSPropertyID::kColumnRuleColor, CSSPropertyID::kColumnRuleStyle,
+    CSSPropertyID::kColumnRuleWidth, CSSPropertyID::kColumnSpan,
+    CSSPropertyID::kColumnWidth, CSSPropertyID::kContent,
+    CSSPropertyID::kCursor, CSSPropertyID::kCx, CSSPropertyID::kCy,
+    CSSPropertyID::kD, CSSPropertyID::kDirection, CSSPropertyID::kDisplay,
+    CSSPropertyID::kDominantBaseline, CSSPropertyID::kEmptyCells,
+    CSSPropertyID::kFill, CSSPropertyID::kFillOpacity, CSSPropertyID::kFillRule,
+    CSSPropertyID::kFilter, CSSPropertyID::kFlexBasis,
+    CSSPropertyID::kFlexDirection, CSSPropertyID::kFlexGrow,
+    CSSPropertyID::kFlexShrink, CSSPropertyID::kFlexWrap, CSSPropertyID::kFloat,
+    CSSPropertyID::kFloodColor, CSSPropertyID::kFloodOpacity,
     CSSPropertyID::kFontFamily, CSSPropertyID::kFontKerning,
     CSSPropertyID::kFontOpticalSizing, CSSPropertyID::kFontSize,
     CSSPropertyID::kFontSizeAdjust, CSSPropertyID::kFontStretch,
     CSSPropertyID::kFontStyle, CSSPropertyID::kFontVariant,
-    CSSPropertyID::kFontVariantLigatures, CSSPropertyID::kFontVariantCaps,
-    CSSPropertyID::kFontVariantNumeric, CSSPropertyID::kFontVariantEastAsian,
-    CSSPropertyID::kFontWeight, CSSPropertyID::kHeight,
-    CSSPropertyID::kImageOrientation, CSSPropertyID::kImageRendering,
-    CSSPropertyID::kIsolation, CSSPropertyID::kJustifyItems,
-    CSSPropertyID::kJustifySelf, CSSPropertyID::kLeft,
-    CSSPropertyID::kLetterSpacing, CSSPropertyID::kLineHeight,
-    CSSPropertyID::kLineHeightStep, CSSPropertyID::kListStyleImage,
-    CSSPropertyID::kListStylePosition, CSSPropertyID::kListStyleType,
-    CSSPropertyID::kMarginBottom, CSSPropertyID::kMarginLeft,
-    CSSPropertyID::kMarginRight, CSSPropertyID::kMarginTop,
-    CSSPropertyID::kMaxHeight, CSSPropertyID::kMaxWidth,
-    CSSPropertyID::kMinHeight, CSSPropertyID::kMinWidth,
+    CSSPropertyID::kFontVariantCaps, CSSPropertyID::kFontVariantEastAsian,
+    CSSPropertyID::kFontVariantLigatures, CSSPropertyID::kFontVariantNumeric,
+    CSSPropertyID::kFontWeight, CSSPropertyID::kGridAutoColumns,
+    CSSPropertyID::kGridAutoFlow, CSSPropertyID::kGridAutoRows,
+    CSSPropertyID::kGridColumnEnd, CSSPropertyID::kGridColumnStart,
+    CSSPropertyID::kGridRowEnd, CSSPropertyID::kGridRowStart,
+    CSSPropertyID::kGridTemplateAreas, CSSPropertyID::kGridTemplateColumns,
+    CSSPropertyID::kGridTemplateRows, CSSPropertyID::kHeight,
+    CSSPropertyID::kHyphens, CSSPropertyID::kImageOrientation,
+    CSSPropertyID::kImageRendering, CSSPropertyID::kInlineSize,
+    CSSPropertyID::kInsetBlockEnd, CSSPropertyID::kInsetBlockStart,
+    CSSPropertyID::kInsetInlineEnd, CSSPropertyID::kInsetInlineStart,
+    CSSPropertyID::kIsolation, CSSPropertyID::kJustifyContent,
+    CSSPropertyID::kJustifyItems, CSSPropertyID::kJustifySelf,
+    CSSPropertyID::kLeft, CSSPropertyID::kLetterSpacing,
+    CSSPropertyID::kLightingColor, CSSPropertyID::kLineBreak,
+    CSSPropertyID::kLineHeight, CSSPropertyID::kLineHeightStep,
+    CSSPropertyID::kListStyleImage, CSSPropertyID::kListStylePosition,
+    CSSPropertyID::kListStyleType, CSSPropertyID::kMarginBlockEnd,
+    CSSPropertyID::kMarginBlockStart, CSSPropertyID::kMarginBottom,
+    CSSPropertyID::kMarginInlineEnd, CSSPropertyID::kMarginInlineStart,
+    CSSPropertyID::kMarginLeft, CSSPropertyID::kMarginRight,
+    CSSPropertyID::kMarginTop, CSSPropertyID::kMarkerEnd,
+    CSSPropertyID::kMarkerMid, CSSPropertyID::kMarkerStart,
+    CSSPropertyID::kMaskType, CSSPropertyID::kMathDepth,
+    CSSPropertyID::kMathShift, CSSPropertyID::kMathStyle,
+    CSSPropertyID::kMaxBlockSize, CSSPropertyID::kMaxHeight,
+    CSSPropertyID::kMaxInlineSize, CSSPropertyID::kMaxWidth,
+    CSSPropertyID::kMinBlockSize, CSSPropertyID::kMinHeight,
+    CSSPropertyID::kMinInlineSize, CSSPropertyID::kMinWidth,
     CSSPropertyID::kMixBlendMode, CSSPropertyID::kObjectFit,
     CSSPropertyID::kObjectPosition, CSSPropertyID::kOffsetAnchor,
     CSSPropertyID::kOffsetDistance, CSSPropertyID::kOffsetPath,
     CSSPropertyID::kOffsetPosition, CSSPropertyID::kOffsetRotate,
-    CSSPropertyID::kOpacity, CSSPropertyID::kOrphans,
+    CSSPropertyID::kOpacity, CSSPropertyID::kOrder, CSSPropertyID::kOrphans,
     CSSPropertyID::kOutlineColor, CSSPropertyID::kOutlineOffset,
     CSSPropertyID::kOutlineStyle, CSSPropertyID::kOutlineWidth,
-    CSSPropertyID::kOverflowAnchor, CSSPropertyID::kOverflowWrap,
-    CSSPropertyID::kOverflowX, CSSPropertyID::kOverflowY,
-    CSSPropertyID::kPaddingBottom, CSSPropertyID::kPaddingLeft,
-    CSSPropertyID::kPaddingRight, CSSPropertyID::kPaddingTop,
-    CSSPropertyID::kPointerEvents, CSSPropertyID::kPosition,
-    CSSPropertyID::kResize, CSSPropertyID::kRight,
-    CSSPropertyID::kScrollBehavior, CSSPropertyID::kScrollCustomization,
-    CSSPropertyID::kSpeak, CSSPropertyID::kTableLayout, CSSPropertyID::kTabSize,
+    CSSPropertyID::kOverflowAnchor, CSSPropertyID::kOverflowBlock,
+    CSSPropertyID::kOverflowClipMargin, CSSPropertyID::kOverflowInline,
+    CSSPropertyID::kOverflowWrap, CSSPropertyID::kOverflowX,
+    CSSPropertyID::kOverflowY, CSSPropertyID::kOverscrollBehaviorBlock,
+    CSSPropertyID::kOverscrollBehaviorInline, CSSPropertyID::kPaddingBlockEnd,
+    CSSPropertyID::kPaddingBlockStart, CSSPropertyID::kPaddingBottom,
+    CSSPropertyID::kPaddingInlineEnd, CSSPropertyID::kPaddingInlineStart,
+    CSSPropertyID::kPaddingLeft, CSSPropertyID::kPaddingRight,
+    CSSPropertyID::kPaddingTop, CSSPropertyID::kPaintOrder,
+    CSSPropertyID::kPerspective, CSSPropertyID::kPerspectiveOrigin,
+    CSSPropertyID::kPointerEvents, CSSPropertyID::kPosition, CSSPropertyID::kR,
+    CSSPropertyID::kResize, CSSPropertyID::kRight, CSSPropertyID::kRotate,
+    CSSPropertyID::kRowGap, CSSPropertyID::kRubyPosition, CSSPropertyID::kRx,
+    CSSPropertyID::kRy, CSSPropertyID::kScale, CSSPropertyID::kScrollBehavior,
+    CSSPropertyID::kScrollCustomization, CSSPropertyID::kScrollMarginBlockEnd,
+    CSSPropertyID::kScrollMarginBlockStart,
+    CSSPropertyID::kScrollMarginInlineEnd,
+    CSSPropertyID::kScrollMarginInlineStart,
+    CSSPropertyID::kScrollPaddingBlockEnd,
+    CSSPropertyID::kScrollPaddingBlockStart,
+    CSSPropertyID::kScrollPaddingInlineEnd,
+    CSSPropertyID::kScrollPaddingInlineStart, CSSPropertyID::kScrollbarGutter,
+    CSSPropertyID::kScrollbarWidth, CSSPropertyID::kShapeImageThreshold,
+    CSSPropertyID::kShapeMargin, CSSPropertyID::kShapeOutside,
+    CSSPropertyID::kShapeRendering, CSSPropertyID::kSpeak,
+    CSSPropertyID::kStopColor, CSSPropertyID::kStopOpacity,
+    CSSPropertyID::kStroke, CSSPropertyID::kStrokeDasharray,
+    CSSPropertyID::kStrokeDashoffset, CSSPropertyID::kStrokeLinecap,
+    CSSPropertyID::kStrokeLinejoin, CSSPropertyID::kStrokeMiterlimit,
+    CSSPropertyID::kStrokeOpacity, CSSPropertyID::kStrokeWidth,
+    CSSPropertyID::kTabSize, CSSPropertyID::kTableLayout,
     CSSPropertyID::kTextAlign, CSSPropertyID::kTextAlignLast,
-    CSSPropertyID::kTextDecoration, CSSPropertyID::kTextDecorationLine,
-    CSSPropertyID::kTextDecorationStyle, CSSPropertyID::kTextDecorationColor,
-    CSSPropertyID::kTextDecorationSkipInk, CSSPropertyID::kTextJustify,
-    CSSPropertyID::kTextUnderlinePosition, CSSPropertyID::kTextIndent,
-    CSSPropertyID::kTextRendering, CSSPropertyID::kTextShadow,
-    CSSPropertyID::kTextSizeAdjust, CSSPropertyID::kTextOverflow,
-    CSSPropertyID::kTextTransform, CSSPropertyID::kTop,
-    CSSPropertyID::kTouchAction, CSSPropertyID::kTransitionDelay,
-    CSSPropertyID::kTransitionDuration, CSSPropertyID::kTransitionProperty,
-    CSSPropertyID::kTransitionTimingFunction, CSSPropertyID::kUnicodeBidi,
-    CSSPropertyID::kVerticalAlign, CSSPropertyID::kVisibility,
-    CSSPropertyID::kWhiteSpace, CSSPropertyID::kWidows, CSSPropertyID::kWidth,
-    CSSPropertyID::kWillChange, CSSPropertyID::kWordBreak,
-    CSSPropertyID::kWordSpacing, CSSPropertyID::kZIndex, CSSPropertyID::kZoom,
-
-    CSSPropertyID::kWebkitAppearance, CSSPropertyID::kBackfaceVisibility,
+    CSSPropertyID::kTextAnchor, CSSPropertyID::kTextDecoration,
+    CSSPropertyID::kTextDecorationColor, CSSPropertyID::kTextDecorationLine,
+    CSSPropertyID::kTextDecorationSkipInk, CSSPropertyID::kTextDecorationStyle,
+    CSSPropertyID::kTextIndent, CSSPropertyID::kTextJustify,
+    CSSPropertyID::kTextOverflow, CSSPropertyID::kTextRendering,
+    CSSPropertyID::kTextShadow, CSSPropertyID::kTextSizeAdjust,
+    CSSPropertyID::kTextTransform, CSSPropertyID::kTextUnderlinePosition,
+    CSSPropertyID::kTop, CSSPropertyID::kTouchAction, CSSPropertyID::kTransform,
+    CSSPropertyID::kTransformOrigin, CSSPropertyID::kTransformStyle,
+    CSSPropertyID::kTransitionDelay, CSSPropertyID::kTransitionDuration,
+    CSSPropertyID::kTransitionProperty,
+    CSSPropertyID::kTransitionTimingFunction, CSSPropertyID::kTranslate,
+    CSSPropertyID::kUnicodeBidi, CSSPropertyID::kUserSelect,
+    CSSPropertyID::kVectorEffect, CSSPropertyID::kVerticalAlign,
+    CSSPropertyID::kVisibility, CSSPropertyID::kWhiteSpace,
+    CSSPropertyID::kWidows, CSSPropertyID::kWidth, CSSPropertyID::kWillChange,
+    CSSPropertyID::kWordBreak, CSSPropertyID::kWordSpacing,
+    CSSPropertyID::kWritingMode, CSSPropertyID::kX, CSSPropertyID::kY,
+    CSSPropertyID::kZIndex, CSSPropertyID::kZoom,
+    CSSPropertyID::kWebkitAppRegion,
     CSSPropertyID::kWebkitBorderHorizontalSpacing,
     CSSPropertyID::kWebkitBorderImage,
     CSSPropertyID::kWebkitBorderVerticalSpacing, CSSPropertyID::kWebkitBoxAlign,
@@ -140,24 +215,10 @@ const CSSPropertyID kComputedPropertyArray[] = {
     CSSPropertyID::kWebkitBoxDirection, CSSPropertyID::kWebkitBoxFlex,
     CSSPropertyID::kWebkitBoxOrdinalGroup, CSSPropertyID::kWebkitBoxOrient,
     CSSPropertyID::kWebkitBoxPack, CSSPropertyID::kWebkitBoxReflect,
-    CSSPropertyID::kColumnCount, CSSPropertyID::kColumnGap,
-    CSSPropertyID::kColumnRuleColor, CSSPropertyID::kColumnRuleStyle,
-    CSSPropertyID::kColumnRuleWidth, CSSPropertyID::kColumnSpan,
-    CSSPropertyID::kColumnWidth, CSSPropertyID::kBackdropFilter,
-    CSSPropertyID::kAlignContent, CSSPropertyID::kAlignItems,
-    CSSPropertyID::kAlignSelf, CSSPropertyID::kFlexBasis,
-    CSSPropertyID::kFlexGrow, CSSPropertyID::kFlexShrink,
-    CSSPropertyID::kFlexDirection, CSSPropertyID::kFlexWrap,
-    CSSPropertyID::kJustifyContent, CSSPropertyID::kWebkitFontSmoothing,
-    CSSPropertyID::kGridAutoColumns, CSSPropertyID::kGridAutoFlow,
-    CSSPropertyID::kGridAutoRows, CSSPropertyID::kGridColumnEnd,
-    CSSPropertyID::kGridColumnStart, CSSPropertyID::kGridTemplateAreas,
-    CSSPropertyID::kGridTemplateColumns, CSSPropertyID::kGridTemplateRows,
-    CSSPropertyID::kGridRowEnd, CSSPropertyID::kGridRowStart,
-    CSSPropertyID::kRowGap, CSSPropertyID::kWebkitHighlight,
-    CSSPropertyID::kHyphens, CSSPropertyID::kWebkitHyphenateCharacter,
-    CSSPropertyID::kWebkitLineBreak, CSSPropertyID::kWebkitLineClamp,
-    CSSPropertyID::kWebkitLocale, CSSPropertyID::kWebkitMaskBoxImage,
+    CSSPropertyID::kWebkitFontSmoothing, CSSPropertyID::kWebkitHighlight,
+    CSSPropertyID::kWebkitHyphenateCharacter, CSSPropertyID::kWebkitLineBreak,
+    CSSPropertyID::kWebkitLineClamp, CSSPropertyID::kWebkitLocale,
+    CSSPropertyID::kWebkitMaskBoxImage,
     CSSPropertyID::kWebkitMaskBoxImageOutset,
     CSSPropertyID::kWebkitMaskBoxImageRepeat,
     CSSPropertyID::kWebkitMaskBoxImageSlice,
@@ -166,10 +227,7 @@ const CSSPropertyID kComputedPropertyArray[] = {
     CSSPropertyID::kWebkitMaskComposite, CSSPropertyID::kWebkitMaskImage,
     CSSPropertyID::kWebkitMaskOrigin, CSSPropertyID::kWebkitMaskPosition,
     CSSPropertyID::kWebkitMaskRepeat, CSSPropertyID::kWebkitMaskSize,
-    CSSPropertyID::kOrder, CSSPropertyID::kPerspective,
-    CSSPropertyID::kPerspectiveOrigin, CSSPropertyID::kWebkitPrintColorAdjust,
-    CSSPropertyID::kWebkitRtlOrdering, CSSPropertyID::kShapeOutside,
-    CSSPropertyID::kShapeImageThreshold, CSSPropertyID::kShapeMargin,
+    CSSPropertyID::kWebkitPrintColorAdjust, CSSPropertyID::kWebkitRtlOrdering,
     CSSPropertyID::kWebkitTapHighlightColor, CSSPropertyID::kWebkitTextCombine,
     CSSPropertyID::kWebkitTextDecorationsInEffect,
     CSSPropertyID::kWebkitTextEmphasisColor,
@@ -177,33 +235,8 @@ const CSSPropertyID kComputedPropertyArray[] = {
     CSSPropertyID::kWebkitTextEmphasisStyle,
     CSSPropertyID::kWebkitTextFillColor, CSSPropertyID::kWebkitTextOrientation,
     CSSPropertyID::kWebkitTextSecurity, CSSPropertyID::kWebkitTextStrokeColor,
-    CSSPropertyID::kWebkitTextStrokeWidth, CSSPropertyID::kTransform,
-    CSSPropertyID::kTransformOrigin, CSSPropertyID::kTransformStyle,
-    CSSPropertyID::kWebkitUserDrag, CSSPropertyID::kWebkitUserModify,
-    CSSPropertyID::kUserSelect, CSSPropertyID::kWebkitWritingMode,
-    CSSPropertyID::kWebkitAppRegion, CSSPropertyID::kBufferedRendering,
-    CSSPropertyID::kClipPath, CSSPropertyID::kClipRule, CSSPropertyID::kMask,
-    CSSPropertyID::kFilter, CSSPropertyID::kFloodColor,
-    CSSPropertyID::kFloodOpacity, CSSPropertyID::kLightingColor,
-    CSSPropertyID::kStopColor, CSSPropertyID::kStopOpacity,
-    CSSPropertyID::kColorInterpolation,
-    CSSPropertyID::kColorInterpolationFilters, CSSPropertyID::kColorRendering,
-    CSSPropertyID::kFill, CSSPropertyID::kFillOpacity, CSSPropertyID::kFillRule,
-    CSSPropertyID::kMarkerEnd, CSSPropertyID::kMarkerMid,
-    CSSPropertyID::kMarkerStart, CSSPropertyID::kMaskType,
-    CSSPropertyID::kMaskSourceType, CSSPropertyID::kShapeRendering,
-    CSSPropertyID::kStroke, CSSPropertyID::kStrokeDasharray,
-    CSSPropertyID::kStrokeDashoffset, CSSPropertyID::kStrokeLinecap,
-    CSSPropertyID::kStrokeLinejoin, CSSPropertyID::kStrokeMiterlimit,
-    CSSPropertyID::kStrokeOpacity, CSSPropertyID::kStrokeWidth,
-    CSSPropertyID::kAlignmentBaseline, CSSPropertyID::kBaselineShift,
-    CSSPropertyID::kDominantBaseline, CSSPropertyID::kTextAnchor,
-    CSSPropertyID::kWritingMode, CSSPropertyID::kVectorEffect,
-    CSSPropertyID::kPaintOrder, CSSPropertyID::kD, CSSPropertyID::kCx,
-    CSSPropertyID::kCy, CSSPropertyID::kX, CSSPropertyID::kY, CSSPropertyID::kR,
-    CSSPropertyID::kRx, CSSPropertyID::kRy, CSSPropertyID::kTranslate,
-    CSSPropertyID::kRotate, CSSPropertyID::kScale, CSSPropertyID::kCaretColor,
-    CSSPropertyID::kLineBreak, CSSPropertyID::kMathStyle};
+    CSSPropertyID::kWebkitTextStrokeWidth, CSSPropertyID::kWebkitUserDrag,
+    CSSPropertyID::kWebkitUserModify, CSSPropertyID::kWebkitWritingMode};
 
 CSSValueID CssIdentifierForFontSizeKeyword(int keyword_size) {
   DCHECK_NE(keyword_size, 0);
@@ -221,6 +254,21 @@ void LogUnimplementedPropertyID(const CSSProperty& property) {
 
   DLOG(ERROR) << "Blink does not yet implement getComputedStyle for '"
               << property.GetPropertyName() << "'.";
+}
+
+// TODO(crbug.com/1167696): We probably want to avoid doing this for
+// performance reasons.
+bool InclusiveAncestorMayDependOnContainerQueries(Node* node) {
+  if (!RuntimeEnabledFeatures::CSSContainerQueriesEnabled())
+    return false;
+  for (Node& ancestor : FlatTreeTraversal::InclusiveAncestorsOf(*node)) {
+    const ComputedStyle* style = ancestor.GetComputedStyle();
+    // Since DependsOnContainerQueries is stored on ComputedStyle, we have to
+    // behave as if the flag is set for nullptr-styles (display:none).
+    if (!style || style->DependsOnContainerQueries())
+      return true;
+  }
+  return false;
 }
 
 }  // namespace
@@ -244,26 +292,14 @@ CSSComputedStyleDeclaration::CSSComputedStyleDeclaration(
     : CSSStyleDeclaration(n ? n->GetExecutionContext() : nullptr),
       node_(n),
       pseudo_element_specifier_(
-          CSSSelector::ParsePseudoId(pseudo_element_name)),
+          CSSSelector::ParsePseudoId(pseudo_element_name, n)),
       allow_visited_style_(allow_visited_style) {}
 
 CSSComputedStyleDeclaration::~CSSComputedStyleDeclaration() = default;
 
 String CSSComputedStyleDeclaration::cssText() const {
-  StringBuilder result;
-  static const Vector<const CSSProperty*>& properties =
-      ComputableProperties(GetExecutionContext());
-
-  for (unsigned i = 0; i < properties.size(); i++) {
-    if (i)
-      result.Append(' ');
-    result.Append(properties[i]->GetPropertyName());
-    result.Append(": ");
-    result.Append(GetPropertyValue(properties[i]->PropertyID()));
-    result.Append(';');
-  }
-
-  return result.ToString();
+  // CSSStyleDeclaration.cssText should return empty string for computed style.
+  return String();
 }
 
 void CSSComputedStyleDeclaration::setCSSText(const ExecutionContext*,
@@ -410,7 +446,8 @@ const CSSValue* CSSComputedStyleDeclaration::GetPropertyCSSValue(
   LayoutObject* layout_object = StyledLayoutObject();
   const ComputedStyle* style = ComputeComputedStyle();
 
-  if (property_class.IsLayoutDependent(style, layout_object)) {
+  if (property_class.IsLayoutDependent(style, layout_object) ||
+      InclusiveAncestorMayDependOnContainerQueries(styled_node)) {
     document.UpdateStyleAndLayoutForNode(styled_node,
                                          DocumentUpdateReason::kJavaScript);
     styled_node = StyledNode();
@@ -433,8 +470,7 @@ const CSSValue* CSSComputedStyleDeclaration::GetPropertyCSSValue(
 String CSSComputedStyleDeclaration::GetPropertyValue(
     CSSPropertyID property_id) const {
   // allow_visited_style_ is true only for access from DevTools.
-  if (!allow_visited_style_ &&
-      property_id == CSSPropertyID::kWebkitAppearance) {
+  if (!allow_visited_style_ && property_id == CSSPropertyID::kAppearance) {
     UseCounter::Count(
         node_->GetDocument(),
         WebFeature::kGetComputedStyleForWebkitAppearanceExcludeDevTools);
@@ -492,10 +528,10 @@ MutableCSSPropertyValueSet* CSSComputedStyleDeclaration::CopyPropertiesInSet(
   HeapVector<CSSPropertyValue, 256> list;
   list.ReserveInitialCapacity(properties.size());
   for (unsigned i = 0; i < properties.size(); ++i) {
-    const CSSProperty& property = *properties[i];
-    const CSSValue* value = GetPropertyCSSValue(property.GetCSSPropertyName());
+    CSSPropertyName name = properties[i]->GetCSSPropertyName();
+    const CSSValue* value = GetPropertyCSSValue(name);
     if (value)
-      list.push_back(CSSPropertyValue(property, *value, false));
+      list.push_back(CSSPropertyValue(name, *value, false));
   }
   return MakeGarbageCollected<MutableCSSPropertyValueSet>(list.data(),
                                                           list.size());
@@ -508,8 +544,8 @@ CSSRule* CSSComputedStyleDeclaration::parentRule() const {
 String CSSComputedStyleDeclaration::getPropertyValue(
     const String& property_name) {
   CSSPropertyID property_id =
-      cssPropertyID(GetExecutionContext(), property_name);
-  if (!isValidCSSPropertyID(property_id))
+      CssPropertyID(GetExecutionContext(), property_name);
+  if (!IsValidCSSPropertyID(property_id))
     return String();
   if (property_id == CSSPropertyID::kVariable) {
     const CSSValue* value = GetPropertyCSSValue(AtomicString(property_name));
@@ -559,7 +595,7 @@ String CSSComputedStyleDeclaration::removeProperty(
 
 const CSSValue* CSSComputedStyleDeclaration::GetPropertyCSSValueInternal(
     CSSPropertyID property_id) {
-  if (property_id == CSSPropertyID::kWebkitAppearance && node_) {
+  if (property_id == CSSPropertyID::kAppearance && node_) {
     UseCounter::Count(node_->GetDocument(),
                       WebFeature::kGetComputedStyleWebkitAppearance);
   }
@@ -569,7 +605,7 @@ const CSSValue* CSSComputedStyleDeclaration::GetPropertyCSSValueInternal(
 const CSSValue* CSSComputedStyleDeclaration::GetPropertyCSSValueInternal(
     AtomicString custom_property_name) {
   DCHECK_EQ(CSSPropertyID::kVariable,
-            cssPropertyID(GetExecutionContext(), custom_property_name));
+            CssPropertyID(GetExecutionContext(), custom_property_name));
   return GetPropertyCSSValue(custom_property_name);
 }
 
@@ -592,7 +628,7 @@ void CSSComputedStyleDeclaration::SetPropertyInternal(
           "' property is read-only.");
 }
 
-void CSSComputedStyleDeclaration::Trace(Visitor* visitor) {
+void CSSComputedStyleDeclaration::Trace(Visitor* visitor) const {
   visitor->Trace(node_);
   CSSStyleDeclaration::Trace(visitor);
 }

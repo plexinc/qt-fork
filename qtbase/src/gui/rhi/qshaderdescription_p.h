@@ -1,34 +1,37 @@
 /****************************************************************************
 **
 ** Copyright (C) 2019 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the Qt Gui module
 **
-** $QT_BEGIN_LICENSE:LGPL3$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
 ** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPLv3 included in the
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
 ** packaging of this file. Please review the following information to
 ** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl.html.
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
 ** GNU General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or later as published by the Free
-** Software Foundation and appearing in the file LICENSE.GPL included in
-** the packaging of this file. Please review the following information to
-** ensure the GNU General Public License version 2.0 requirements will be
-** met: http://www.gnu.org/licenses/gpl-2.0.html.
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -50,7 +53,7 @@
 
 #include <QtGui/qtguiglobal.h>
 #include <QtCore/QString>
-#include <QtCore/QVector>
+#include <QtCore/QList>
 #include <array>
 
 QT_BEGIN_NAMESPACE
@@ -69,15 +72,9 @@ public:
 
     bool isValid() const;
 
-    QByteArray toCbor() const;
     void serialize(QDataStream *stream) const;
     QByteArray toJson() const;
 
-#if QT_CONFIG(binaryjson) && QT_DEPRECATED_SINCE(5, 15)
-    QT_DEPRECATED_X("Use CBOR format instead")
-    static QShaderDescription fromBinaryJson(const QByteArray &data);
-#endif
-    static QShaderDescription fromCbor(const QByteArray &data);
     static QShaderDescription deserialize(QDataStream *stream, int version);
 
     enum VariableType {
@@ -139,6 +136,7 @@ public:
         SamplerCubeArray,
         SamplerRect,
         SamplerBuffer,
+        SamplerExternalOES,
 
         Image1D,
         Image2D,
@@ -209,59 +207,59 @@ public:
     // Optional data (like decorations) usually default to an otherwise invalid value (-1 or 0). This is intentional.
 
     struct InOutVariable {
-        QString name;
+        QByteArray name;
         VariableType type = Unknown;
         int location = -1;
         int binding = -1;
         int descriptorSet = -1;
         ImageFormat imageFormat = ImageFormatUnknown;
         ImageFlags imageFlags;
-        QVector<int> arrayDims;
+        QList<int> arrayDims;
     };
 
     struct BlockVariable {
-        QString name;
+        QByteArray name;
         VariableType type = Unknown;
         int offset = 0;
         int size = 0;
-        QVector<int> arrayDims;
+        QList<int> arrayDims;
         int arrayStride = 0;
         int matrixStride = 0;
         bool matrixIsRowMajor = false;
-        QVector<BlockVariable> structMembers;
+        QList<BlockVariable> structMembers;
     };
 
     struct UniformBlock {
-        QString blockName;
-        QString structName; // instanceName
+        QByteArray blockName;
+        QByteArray structName; // instanceName
         int size = 0;
         int binding = -1;
         int descriptorSet = -1;
-        QVector<BlockVariable> members;
+        QList<BlockVariable> members;
     };
 
     struct PushConstantBlock {
-        QString name;
+        QByteArray name;
         int size = 0;
-        QVector<BlockVariable> members;
+        QList<BlockVariable> members;
     };
 
     struct StorageBlock {
-        QString blockName;
-        QString instanceName;
+        QByteArray blockName;
+        QByteArray instanceName;
         int knownSize = 0;
         int binding = -1;
         int descriptorSet = -1;
-        QVector<BlockVariable> members;
+        QList<BlockVariable> members;
     };
 
-    QVector<InOutVariable> inputVariables() const;
-    QVector<InOutVariable> outputVariables() const;
-    QVector<UniformBlock> uniformBlocks() const;
-    QVector<PushConstantBlock> pushConstantBlocks() const;
-    QVector<StorageBlock> storageBlocks() const;
-    QVector<InOutVariable> combinedImageSamplers() const;
-    QVector<InOutVariable> storageImages() const;
+    QList<InOutVariable> inputVariables() const;
+    QList<InOutVariable> outputVariables() const;
+    QList<UniformBlock> uniformBlocks() const;
+    QList<PushConstantBlock> pushConstantBlocks() const;
+    QList<StorageBlock> storageBlocks() const;
+    QList<InOutVariable> combinedImageSamplers() const;
+    QList<InOutVariable> storageImages() const;
 
     std::array<uint, 3> computeShaderLocalSize() const;
 
@@ -271,7 +269,7 @@ private:
 #ifndef QT_NO_DEBUG_STREAM
     friend Q_GUI_EXPORT QDebug operator<<(QDebug, const QShaderDescription &);
 #endif
-    friend Q_GUI_EXPORT bool operator==(const QShaderDescription &lhs, const QShaderDescription &rhs) Q_DECL_NOTHROW;
+    friend Q_GUI_EXPORT bool operator==(const QShaderDescription &lhs, const QShaderDescription &rhs) noexcept;
 };
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(QShaderDescription::ImageFlags)
@@ -285,39 +283,39 @@ Q_GUI_EXPORT QDebug operator<<(QDebug, const QShaderDescription::PushConstantBlo
 Q_GUI_EXPORT QDebug operator<<(QDebug, const QShaderDescription::StorageBlock &);
 #endif
 
-Q_GUI_EXPORT bool operator==(const QShaderDescription &lhs, const QShaderDescription &rhs) Q_DECL_NOTHROW;
-Q_GUI_EXPORT bool operator==(const QShaderDescription::InOutVariable &lhs, const QShaderDescription::InOutVariable &rhs) Q_DECL_NOTHROW;
-Q_GUI_EXPORT bool operator==(const QShaderDescription::BlockVariable &lhs, const QShaderDescription::BlockVariable &rhs) Q_DECL_NOTHROW;
-Q_GUI_EXPORT bool operator==(const QShaderDescription::UniformBlock &lhs, const QShaderDescription::UniformBlock &rhs) Q_DECL_NOTHROW;
-Q_GUI_EXPORT bool operator==(const QShaderDescription::PushConstantBlock &lhs, const QShaderDescription::PushConstantBlock &rhs) Q_DECL_NOTHROW;
-Q_GUI_EXPORT bool operator==(const QShaderDescription::StorageBlock &lhs, const QShaderDescription::StorageBlock &rhs) Q_DECL_NOTHROW;
+Q_GUI_EXPORT bool operator==(const QShaderDescription &lhs, const QShaderDescription &rhs) noexcept;
+Q_GUI_EXPORT bool operator==(const QShaderDescription::InOutVariable &lhs, const QShaderDescription::InOutVariable &rhs) noexcept;
+Q_GUI_EXPORT bool operator==(const QShaderDescription::BlockVariable &lhs, const QShaderDescription::BlockVariable &rhs) noexcept;
+Q_GUI_EXPORT bool operator==(const QShaderDescription::UniformBlock &lhs, const QShaderDescription::UniformBlock &rhs) noexcept;
+Q_GUI_EXPORT bool operator==(const QShaderDescription::PushConstantBlock &lhs, const QShaderDescription::PushConstantBlock &rhs) noexcept;
+Q_GUI_EXPORT bool operator==(const QShaderDescription::StorageBlock &lhs, const QShaderDescription::StorageBlock &rhs) noexcept;
 
-inline bool operator!=(const QShaderDescription &lhs, const QShaderDescription &rhs) Q_DECL_NOTHROW
+inline bool operator!=(const QShaderDescription &lhs, const QShaderDescription &rhs) noexcept
 {
     return !(lhs == rhs);
 }
 
-inline bool operator!=(const QShaderDescription::InOutVariable &lhs, const QShaderDescription::InOutVariable &rhs) Q_DECL_NOTHROW
+inline bool operator!=(const QShaderDescription::InOutVariable &lhs, const QShaderDescription::InOutVariable &rhs) noexcept
 {
     return !(lhs == rhs);
 }
 
-inline bool operator!=(const QShaderDescription::BlockVariable &lhs, const QShaderDescription::BlockVariable &rhs) Q_DECL_NOTHROW
+inline bool operator!=(const QShaderDescription::BlockVariable &lhs, const QShaderDescription::BlockVariable &rhs) noexcept
 {
     return !(lhs == rhs);
 }
 
-inline bool operator!=(const QShaderDescription::UniformBlock &lhs, const QShaderDescription::UniformBlock &rhs) Q_DECL_NOTHROW
+inline bool operator!=(const QShaderDescription::UniformBlock &lhs, const QShaderDescription::UniformBlock &rhs) noexcept
 {
     return !(lhs == rhs);
 }
 
-inline bool operator!=(const QShaderDescription::PushConstantBlock &lhs, const QShaderDescription::PushConstantBlock &rhs) Q_DECL_NOTHROW
+inline bool operator!=(const QShaderDescription::PushConstantBlock &lhs, const QShaderDescription::PushConstantBlock &rhs) noexcept
 {
     return !(lhs == rhs);
 }
 
-inline bool operator!=(const QShaderDescription::StorageBlock &lhs, const QShaderDescription::StorageBlock &rhs) Q_DECL_NOTHROW
+inline bool operator!=(const QShaderDescription::StorageBlock &lhs, const QShaderDescription::StorageBlock &rhs) noexcept
 {
     return !(lhs == rhs);
 }

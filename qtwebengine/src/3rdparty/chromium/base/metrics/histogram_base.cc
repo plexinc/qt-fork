@@ -10,14 +10,15 @@
 #include <set>
 #include <utility>
 
+#include "base/check_op.h"
 #include "base/json/json_string_value_serializer.h"
-#include "base/logging.h"
 #include "base/metrics/histogram.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/histogram_samples.h"
 #include "base/metrics/sparse_histogram.h"
 #include "base/metrics/statistics_recorder.h"
 #include "base/no_destructor.h"
+#include "base/notreached.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/pickle.h"
 #include "base/process/process_handle.h"
@@ -175,16 +176,37 @@ void HistogramBase::FindAndRunCallback(HistogramBase::Sample sample) const {
   StatisticsRecorder::OnSampleCallback cb =
       StatisticsRecorder::FindCallback(histogram_name());
   if (!cb.is_null())
-    cb.Run(sample);
+    cb.Run(histogram_name(), name_hash(), sample);
 }
 
-void HistogramBase::WriteAsciiBucketGraph(double current_size,
-                                          double max_size,
+void HistogramBase::GetCountAndBucketData(Count* count,
+                                          int64_t* sum,
+                                          ListValue* buckets) const {
+  std::unique_ptr<HistogramSamples> snapshot = SnapshotSamples();
+  *count = snapshot->TotalCount();
+  *sum = snapshot->sum();
+  std::unique_ptr<SampleCountIterator> it = snapshot->Iterator();
+  uint32_t index = 0;
+  while (!it->Done()) {
+    std::unique_ptr<DictionaryValue> bucket_value(new DictionaryValue());
+    Sample bucket_min;
+    int64_t bucket_max;
+    Count bucket_count;
+    it->Get(&bucket_min, &bucket_max, &bucket_count);
+
+    bucket_value->SetIntKey("low", bucket_min);
+    bucket_value->SetIntKey("high", bucket_max);
+    bucket_value->SetIntKey("count", bucket_count);
+    buckets->Set(index, std::move(bucket_value));
+    it->Next();
+    ++index;
+  }
+}
+
+void HistogramBase::WriteAsciiBucketGraph(double x_count,
+                                          int line_length,
                                           std::string* output) const {
-  const int k_line_length = 72;  // Maximal horizontal width of graph.
-  int x_count = static_cast<int>(k_line_length * (current_size / max_size)
-                                 + 0.5);
-  int x_remainder = k_line_length - x_count;
+  int x_remainder = line_length - x_count;
 
   while (0 < x_count--)
     output->append("-");

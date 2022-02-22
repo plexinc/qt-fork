@@ -101,17 +101,17 @@ unsigned dav1d_msac_decode_bool_c(MsacContext *const s, const unsigned f) {
 }
 
 int dav1d_msac_decode_subexp(MsacContext *const s, const int ref,
-                             const int n, const unsigned k)
+                             const int n, unsigned k)
 {
-    int i = 0;
-    int a = 0;
-    int b = k;
-    while ((2 << b) < n) {
-        if (!dav1d_msac_decode_bool_equi(s)) break;
-        b = k + i++;
-        a = (1 << b);
+    assert(n >> k == 8);
+
+    unsigned a = 0;
+    if (dav1d_msac_decode_bool_equi(s)) {
+        if (dav1d_msac_decode_bool_equi(s))
+            k += dav1d_msac_decode_bool_equi(s) + 1;
+        a = 1 << k;
     }
-    const unsigned v = dav1d_msac_decode_bools(s, b) + a;
+    const unsigned v = dav1d_msac_decode_bools(s, k) + a;
     return ref * 2 <= n ? inv_recenter(ref, v) :
                           n - 1 - inv_recenter(n - 1 - ref, v);
 }
@@ -198,12 +198,11 @@ void dav1d_msac_init(MsacContext *const s, const uint8_t *const data,
     s->rng = 0x8000;
     s->cnt = -15;
     s->allow_update_cdf = !disable_cdf_update_flag;
+    ctx_refill(s);
 
 #if ARCH_X86_64 && HAVE_ASM
     s->symbol_adapt16 = dav1d_msac_decode_symbol_adapt_c;
 
     dav1d_msac_init_x86(s);
 #endif
-
-    ctx_refill(s);
 }

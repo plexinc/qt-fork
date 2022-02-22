@@ -25,6 +25,10 @@
 #include "third_party/blink/public/platform/web_video_frame_submitter.h"
 #include "ui/gfx/geometry/size.h"
 
+namespace base {
+class WaitableEvent;
+}
+
 namespace viz {
 class SurfaceId;
 }
@@ -65,6 +69,12 @@ class MEDIA_BLINK_EXPORT VideoFrameCompositor : public VideoRendererSink,
 
   using OnNewFramePresentedCB = base::OnceClosure;
 
+  enum UpdateType {
+    kNormal,
+    kBypassClient,  // Disregards whether |client| is driving frame updates, and
+                    // forces an attempt to update the frame.
+  };
+
   // |task_runner| is the task runner on which this class will live,
   // though it may be constructed on any thread.
   VideoFrameCompositor(
@@ -82,7 +92,6 @@ class MEDIA_BLINK_EXPORT VideoFrameCompositor : public VideoRendererSink,
   // submit video frames given by VideoFrameCompositor.
   virtual void EnableSubmission(
       const viz::SurfaceId& id,
-      base::TimeTicks local_surface_id_allocation_time,
       VideoRotation rotation,
       bool force_submit);
 
@@ -121,7 +130,7 @@ class MEDIA_BLINK_EXPORT VideoFrameCompositor : public VideoRendererSink,
   // where the <video> tag is invisible (possibly not even in the DOM) and thus
   // does not receive a |client_|.  In this case, frame acquisition is driven by
   // the frequency of canvas or WebGL paints requested via JavaScript.
-  void UpdateCurrentFrameIfStale();
+  virtual void UpdateCurrentFrameIfStale(UpdateType type = UpdateType::kNormal);
 
   // Sets the callback to be run when the new frame has been processed. The
   // callback is only run once and then reset.
@@ -131,8 +140,8 @@ class MEDIA_BLINK_EXPORT VideoFrameCompositor : public VideoRendererSink,
   virtual void SetOnFramePresentedCallback(OnNewFramePresentedCB present_cb);
 
   // Gets the metadata for the last frame that was presented to the compositor.
-  // Used to populate the VideoFrameMetadata of video.requestAnimationFrame()
-  // callbacks. See https://wicg.github.io/video-raf/.
+  // Used to populate the VideoFrameMetadata of video.requestVideoFrameCallback
+  // callbacks. See https://wicg.github.io/video-rvfc/.
   // Can be called on any thread.
   virtual std::unique_ptr<blink::WebMediaPlayer::VideoFramePresentationMetadata>
   GetLastPresentedFrameMetadata();
@@ -172,7 +181,7 @@ class MEDIA_BLINK_EXPORT VideoFrameCompositor : public VideoRendererSink,
 
   // Signals the VideoFrameSubmitter to stop submitting frames. Sets whether the
   // video surface is visible within the view port.
-  void SetIsSurfaceVisible(bool is_visible);
+  void SetIsSurfaceVisible(bool is_visible, base::WaitableEvent* done_event);
 
   // Indicates whether the endpoint for the VideoFrame exists.
   bool IsClientSinkAvailable();
@@ -188,6 +197,17 @@ class MEDIA_BLINK_EXPORT VideoFrameCompositor : public VideoRendererSink,
 
   void SetCurrentFrame_Locked(scoped_refptr<VideoFrame> frame,
                               base::TimeTicks expected_display_time);
+
+  // Sets the ForceBeginFrames flag on |submitter_|, and resets
+  // |force_begin_frames_timer_|.
+  //
+  // The flag is used to keep receiving BeginFrame()/UpdateCurrentFrame() calls
+  // even if the video element is not visible, so websites can still use the
+  // requestVideoFrameCallback() API when the video is offscreen.
+  void StartForceBeginFrames();
+
+  // Called from |force_begin_frames_timer_| to unset the flag on |submitter_|.
+  void StopForceBeginFrames();
 
   // Called by |background_rendering_timer_| when enough time elapses where we
   // haven't seen a Render() call.
@@ -220,6 +240,10 @@ class MEDIA_BLINK_EXPORT VideoFrameCompositor : public VideoRendererSink,
   // after each successful UpdateCurrentFrame() call.
   base::RetainingOneShotTimer background_rendering_timer_;
 
+  // Calls StopForceBeginFrames() once we stop receiving calls to
+  // requestVideoFrameCallback() (or SetOnFramePresentedCallback() in our case).
+  base::RetainingOneShotTimer force_begin_frames_timer_;
+
   // These values are only set and read on the compositor thread.
   cc::VideoFrameProvider::Client* client_ = nullptr;
   bool rendering_ = false;
@@ -231,7 +255,7 @@ class MEDIA_BLINK_EXPORT VideoFrameCompositor : public VideoRendererSink,
   OnNewProcessedFrameCB new_processed_frame_cb_;
   cc::UpdateSubmissionStateCB update_submission_state_callback_;
 
-  // Callback used to satisfy video.rAF requests.
+  // Callback used to satisfy video.rVFC requests.
   // Set on the main thread, fired on the compositor thread.
   OnNewFramePresentedCB new_presented_frame_cb_ GUARDED_BY(current_frame_lock_);
 
@@ -240,8 +264,8 @@ class MEDIA_BLINK_EXPORT VideoFrameCompositor : public VideoRendererSink,
   base::Lock current_frame_lock_;
   scoped_refptr<VideoFrame> current_frame_;
 
-  // Used to fulfill video.requestAnimationFrame() calls.
-  // See https://wicg.github.io/video-raf/.
+  // Used to fulfill video.requestVideoFrameCallback() calls.
+  // See https://wicg.github.io/video-rvfc/.
   base::TimeTicks last_presentation_time_ GUARDED_BY(current_frame_lock_);
   base::TimeTicks last_expected_display_time_ GUARDED_BY(current_frame_lock_);
   uint32_t presentation_counter_ GUARDED_BY(current_frame_lock_) = 0u;

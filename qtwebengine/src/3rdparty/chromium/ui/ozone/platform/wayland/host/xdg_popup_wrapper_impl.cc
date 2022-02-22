@@ -6,24 +6,28 @@
 
 #include <xdg-shell-client-protocol.h>
 #include <xdg-shell-unstable-v6-client-protocol.h>
+
 #include <memory>
 
 #include "base/environment.h"
 #include "base/nix/xdg_util.h"
+#include "ui/events/event.h"
 #include "ui/events/event_constants.h"
+#include "ui/events/types/event_type.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/ozone/platform/wayland/common/wayland_util.h"
 #include "ui/ozone/platform/wayland/host/wayland_connection.h"
 #include "ui/ozone/platform/wayland/host/wayland_pointer.h"
 #include "ui/ozone/platform/wayland/host/wayland_popup.h"
-#include "ui/ozone/platform/wayland/host/wayland_surface.h"
+#include "ui/ozone/platform/wayland/host/wayland_toplevel_window.h"
 #include "ui/ozone/platform/wayland/host/xdg_surface_wrapper_impl.h"
+#include "ui/ozone/platform/wayland/host/xdg_toplevel_wrapper_impl.h"
 
 namespace ui {
 
 namespace {
 
-uint32_t TranslateAnchorStable(WlAnchor anchor) {
+uint32_t TranslateAnchor(WlAnchor anchor) {
   switch (anchor) {
     case WlAnchor::None:
       return XDG_POSITIONER_ANCHOR_NONE;
@@ -46,7 +50,7 @@ uint32_t TranslateAnchorStable(WlAnchor anchor) {
   }
 }
 
-uint32_t TranslateGravityStable(WlGravity gravity) {
+uint32_t TranslateGravity(WlGravity gravity) {
   switch (gravity) {
     case WlGravity::None:
       return XDG_POSITIONER_GRAVITY_NONE;
@@ -69,7 +73,7 @@ uint32_t TranslateGravityStable(WlGravity gravity) {
   }
 }
 
-uint32_t TranslateContraintAdjustmentStable(
+uint32_t TranslateContraintAdjustment(
     WlConstraintAdjustment constraint_adjustment) {
   uint32_t res = 0;
   if ((constraint_adjustment & WlConstraintAdjustment::SlideX) !=
@@ -93,175 +97,14 @@ uint32_t TranslateContraintAdjustmentStable(
   return res;
 }
 
-uint32_t TranslateAnchorV6(WlAnchor anchor) {
-  switch (anchor) {
-    case WlAnchor::None:
-      return ZXDG_POSITIONER_V6_ANCHOR_NONE;
-    case WlAnchor::Top:
-      return ZXDG_POSITIONER_V6_ANCHOR_TOP;
-    case WlAnchor::Bottom:
-      return ZXDG_POSITIONER_V6_ANCHOR_BOTTOM;
-    case WlAnchor::Left:
-      return ZXDG_POSITIONER_V6_ANCHOR_LEFT;
-    case WlAnchor::Right:
-      return ZXDG_POSITIONER_V6_ANCHOR_RIGHT;
-    case WlAnchor::TopLeft:
-      return ZXDG_POSITIONER_V6_ANCHOR_TOP | ZXDG_POSITIONER_V6_ANCHOR_LEFT;
-    case WlAnchor::BottomLeft:
-      return ZXDG_POSITIONER_V6_ANCHOR_BOTTOM | ZXDG_POSITIONER_V6_ANCHOR_LEFT;
-    case WlAnchor::TopRight:
-      return ZXDG_POSITIONER_V6_ANCHOR_TOP | ZXDG_POSITIONER_V6_ANCHOR_RIGHT;
-    case WlAnchor::BottomRight:
-      return ZXDG_POSITIONER_V6_ANCHOR_BOTTOM | ZXDG_POSITIONER_V6_ANCHOR_RIGHT;
-  }
-}
-
-uint32_t TranslateGravityV6(WlGravity gravity) {
-  switch (gravity) {
-    case WlGravity::None:
-      return ZXDG_POSITIONER_V6_GRAVITY_NONE;
-    case WlGravity::Top:
-      return ZXDG_POSITIONER_V6_GRAVITY_TOP;
-    case WlGravity::Bottom:
-      return ZXDG_POSITIONER_V6_GRAVITY_BOTTOM;
-    case WlGravity::Left:
-      return ZXDG_POSITIONER_V6_GRAVITY_LEFT;
-    case WlGravity::Right:
-      return ZXDG_POSITIONER_V6_GRAVITY_RIGHT;
-    case WlGravity::TopLeft:
-      return ZXDG_POSITIONER_V6_GRAVITY_TOP | ZXDG_POSITIONER_V6_GRAVITY_LEFT;
-    case WlGravity::BottomLeft:
-      return ZXDG_POSITIONER_V6_GRAVITY_BOTTOM |
-             ZXDG_POSITIONER_V6_GRAVITY_LEFT;
-    case WlGravity::TopRight:
-      return ZXDG_POSITIONER_V6_GRAVITY_TOP | ZXDG_POSITIONER_V6_GRAVITY_RIGHT;
-    case WlGravity::BottomRight:
-      return ZXDG_POSITIONER_V6_GRAVITY_BOTTOM |
-             ZXDG_POSITIONER_V6_GRAVITY_RIGHT;
-  }
-}
-
-uint32_t TranslateContraintAdjustmentV6(
-    WlConstraintAdjustment constraint_adjustment) {
-  uint32_t res = 0;
-  if ((constraint_adjustment & WlConstraintAdjustment::SlideX) !=
-      WlConstraintAdjustment::None)
-    res |= ZXDG_POSITIONER_V6_CONSTRAINT_ADJUSTMENT_SLIDE_X;
-  if ((constraint_adjustment & WlConstraintAdjustment::SlideY) !=
-      WlConstraintAdjustment::None)
-    res |= ZXDG_POSITIONER_V6_CONSTRAINT_ADJUSTMENT_SLIDE_Y;
-  if ((constraint_adjustment & WlConstraintAdjustment::FlipX) !=
-      WlConstraintAdjustment::None)
-    res |= ZXDG_POSITIONER_V6_CONSTRAINT_ADJUSTMENT_FLIP_X;
-  if ((constraint_adjustment & WlConstraintAdjustment::FlipY) !=
-      WlConstraintAdjustment::None)
-    res |= ZXDG_POSITIONER_V6_CONSTRAINT_ADJUSTMENT_FLIP_Y;
-  if ((constraint_adjustment & WlConstraintAdjustment::ResizeX) !=
-      WlConstraintAdjustment::None)
-    res |= ZXDG_POSITIONER_V6_CONSTRAINT_ADJUSTMENT_RESIZE_X;
-  if ((constraint_adjustment & WlConstraintAdjustment::ResizeY) !=
-      WlConstraintAdjustment::None)
-    res |= ZXDG_POSITIONER_V6_CONSTRAINT_ADJUSTMENT_RESIZE_Y;
-  return res;
-}
-
-uint32_t GetAnchor(MenuType menu_type, const gfx::Rect& bounds, bool stable) {
-  WlAnchor anchor = WlAnchor::None;
-  switch (menu_type) {
-    case MenuType::TYPE_RIGHT_CLICK:
-      anchor = WlAnchor::TopLeft;
-      break;
-    case MenuType::TYPE_3DOT_PARENT_MENU:
-      anchor = WlAnchor::BottomRight;
-      break;
-    case MenuType::TYPE_3DOT_CHILD_MENU:
-      // Chromium may want to manually position a child menu on the left side of
-      // its parent menu. Thus, react accordingly. Positive x means the child is
-      // located on the right side of the parent and negative - on the left
-      // side.
-      if (bounds.x() >= 0)
-        anchor = WlAnchor::TopRight;
-      else
-        anchor = WlAnchor::TopLeft;
-      break;
-    case MenuType::TYPE_UNKNOWN:
-      NOTREACHED() << "Unsupported menu type";
-      break;
-  }
-
-  if (stable)
-    return TranslateAnchorStable(anchor);
-  else {
-    return TranslateAnchorV6(anchor);
-  }
-}
-
-uint32_t GetGravity(MenuType menu_type, const gfx::Rect& bounds, bool stable) {
-  WlGravity gravity = WlGravity::None;
-  switch (menu_type) {
-    case MenuType::TYPE_RIGHT_CLICK:
-      gravity = WlGravity::BottomRight;
-      break;
-    case MenuType::TYPE_3DOT_PARENT_MENU:
-      gravity = WlGravity::BottomRight;
-      break;
-    case MenuType::TYPE_3DOT_CHILD_MENU:
-      // Chromium may want to manually position a child menu on the left side of
-      // its parent menu. Thus, react accordingly. Positive x means the child is
-      // located on the right side of the parent and negative - on the left
-      // side.
-      if (bounds.x() >= 0)
-        gravity = WlGravity::BottomRight;
-      else
-        gravity = WlGravity::BottomLeft;
-      break;
-    case MenuType::TYPE_UNKNOWN:
-      NOTREACHED() << "Unsupported menu type";
-      break;
-  }
-
-  if (stable)
-    return TranslateGravityStable(gravity);
-  else {
-    return TranslateGravityV6(gravity);
-  }
-}
-
-uint32_t GetConstraintAdjustment(MenuType menu_type, bool stable) {
-  WlConstraintAdjustment constraint = WlConstraintAdjustment::None;
-
-  switch (menu_type) {
-    case MenuType::TYPE_RIGHT_CLICK:
-      constraint = WlConstraintAdjustment::SlideX |
-                   WlConstraintAdjustment::SlideY |
-                   WlConstraintAdjustment::FlipY;
-      break;
-    case MenuType::TYPE_3DOT_PARENT_MENU:
-      constraint =
-          WlConstraintAdjustment::SlideX | WlConstraintAdjustment::FlipY;
-      break;
-    case MenuType::TYPE_3DOT_CHILD_MENU:
-      constraint =
-          WlConstraintAdjustment::SlideY | WlConstraintAdjustment::FlipX;
-      break;
-    case MenuType::TYPE_UNKNOWN:
-      NOTREACHED() << "Unsupported menu type";
-      break;
-  }
-  if (stable)
-    return TranslateContraintAdjustmentStable(constraint);
-  else {
-    return TranslateContraintAdjustmentV6(constraint);
-  }
-}
-
 }  // namespace
 
 XDGPopupWrapperImpl::XDGPopupWrapperImpl(
     std::unique_ptr<XDGSurfaceWrapperImpl> surface,
     WaylandWindow* wayland_window)
-    : wayland_window_(wayland_window), xdg_surface_(std::move(surface)) {
-  DCHECK(xdg_surface_);
+    : wayland_window_(wayland_window),
+      xdg_surface_wrapper_(std::move(surface)) {
+  DCHECK(xdg_surface_wrapper_);
   DCHECK(wayland_window_ && wayland_window_->parent_window());
 }
 
@@ -282,21 +125,27 @@ bool XDGPopupWrapperImpl::Initialize(WaylandConnection* connection,
         static_cast<WaylandPopup*>(wayland_window_->parent_window());
     XDGPopupWrapperImpl* popup =
         static_cast<XDGPopupWrapperImpl*>(wayland_popup->shell_popup());
-    parent_xdg_surface = popup->xdg_surface();
+    parent_xdg_surface = popup->xdg_surface_wrapper();
   } else {
-    WaylandSurface* wayland_surface =
-        static_cast<WaylandSurface*>(wayland_window_->parent_window());
+    WaylandToplevelWindow* wayland_surface =
+        static_cast<WaylandToplevelWindow*>(wayland_window_->parent_window());
     parent_xdg_surface =
-        static_cast<XDGSurfaceWrapperImpl*>(wayland_surface->shell_surface());
+        static_cast<XDGToplevelWrapperImpl*>(wayland_surface->shell_toplevel())
+            ->xdg_surface_wrapper();
   }
 
-  if (!xdg_surface_ || !parent_xdg_surface)
+  if (!xdg_surface_wrapper_ || !parent_xdg_surface)
     return false;
 
+  auto new_bounds = bounds;
+  // Wayland doesn't allow empty bounds. If a zero or negative size is set, the
+  // invalid_input error is raised. Thus, use the least possible one.
+  // WaylandPopup will update its bounds upon the following configure event.
+  if (new_bounds.IsEmpty())
+    new_bounds.set_size({1, 1});
+
   if (connection->shell())
-    return InitializeStable(connection, bounds, parent_xdg_surface);
-  else if (connection->shell_v6())
-    return InitializeV6(connection, bounds, parent_xdg_surface);
+    return InitializeStable(connection, new_bounds, parent_xdg_surface);
   return false;
 }
 
@@ -305,16 +154,16 @@ bool XDGPopupWrapperImpl::InitializeStable(
     const gfx::Rect& bounds,
     XDGSurfaceWrapperImpl* parent_xdg_surface) {
   static const struct xdg_popup_listener xdg_popup_listener = {
-      &XDGPopupWrapperImpl::ConfigureStable,
-      &XDGPopupWrapperImpl::PopupDoneStable,
+      &XDGPopupWrapperImpl::Configure,
+      &XDGPopupWrapperImpl::PopupDone,
   };
 
-  struct xdg_positioner* positioner = CreatePositionerStable(
-      connection, wayland_window_->parent_window(), bounds);
+  struct xdg_positioner* positioner =
+      CreatePositioner(connection, wayland_window_->parent_window(), bounds);
   if (!positioner)
     return false;
 
-  xdg_popup_.reset(xdg_surface_get_popup(xdg_surface_->xdg_surface(),
+  xdg_popup_.reset(xdg_surface_get_popup(xdg_surface_wrapper_->xdg_surface(),
                                          parent_xdg_surface->xdg_surface(),
                                          positioner));
   if (!xdg_popup_)
@@ -322,49 +171,21 @@ bool XDGPopupWrapperImpl::InitializeStable(
 
   xdg_positioner_destroy(positioner);
 
-  // According to the spec, the grab call can only be done on a key press, mouse
-  // press or touch down. However, there is a problem with popup windows and
-  // touch events so long as Chromium creates them only on consequent touch up
-  // events. That results in Wayland compositors dismissing popups. To fix
-  // the issue, do not use grab with touch events. Please note that explicit
-  // grab means that a Wayland compositor dismisses a popup whenever the user
-  // clicks outside the created surfaces. If the explicit grab is not used, the
-  // popups are not dismissed in such cases. What is more, current non-ozone X11
-  // implementation does the same. This means there is no functionality changes
-  // and we do things right.
-  //
-  // We cannot know what was the last event. Instead, we can check if the window
-  // has pointer or keyboard focus. If so, the popup will be explicitly grabbed.
-  //
-  // There is a bug in the gnome/mutter - if explicit grab is not used,
-  // unmapping of a wl_surface (aka destroying xdg_popup and surface) to hide a
-  // window results in weird behaviour. That is, a popup continues to be visible
-  // on a display and it results in a crash of the entire session. Thus, just
-  // continue to use grab here and avoid showing popups for touch events on
-  // gnome/mutter. That is better than crashing the entire system. Otherwise,
-  // Chromium has to change the way how it reacts on touch events - instead of
-  // creating a menu on touch up, it must do it on touch down events.
-  // https://gitlab.gnome.org/GNOME/mutter/issues/698#note_562601.
-  std::unique_ptr<base::Environment> env(base::Environment::Create());
-  if ((base::nix::GetDesktopEnvironment(env.get()) ==
-       base::nix::DESKTOP_ENVIRONMENT_GNOME) ||
-      (wayland_window_->parent_window()->has_pointer_focus() ||
-       wayland_window_->parent_window()->has_keyboard_focus())) {
-    // When drag process starts, as described the protocol -
-    // https://goo.gl/1Mskq3, the client must have an active implicit grab. If
-    // we try to create a popup and grab it, it will be immediately dismissed.
-    // Thus, do not take explicit grab during drag process.
-    if (!connection->IsDragInProgress())
-      xdg_popup_grab(xdg_popup_.get(), connection->seat(),
-                     connection->serial());
+  if (CanGrabPopup(connection)) {
+    xdg_popup_grab(xdg_popup_.get(), connection->seat(), connection->serial());
   }
   xdg_popup_add_listener(xdg_popup_.get(), &xdg_popup_listener, this);
 
-  wl_surface_commit(wayland_window_->surface());
+  wayland_window_->root_surface()->Commit();
   return true;
 }
 
-struct xdg_positioner* XDGPopupWrapperImpl::CreatePositionerStable(
+void XDGPopupWrapperImpl::AckConfigure(uint32_t serial) {
+  DCHECK(xdg_surface_wrapper_);
+  xdg_surface_wrapper_->AckConfigure(serial);
+}
+
+struct xdg_positioner* XDGPopupWrapperImpl::CreatePositioner(
     WaylandConnection* connection,
     WaylandWindow* parent_window,
     const gfx::Rect& bounds) {
@@ -373,21 +194,11 @@ struct xdg_positioner* XDGPopupWrapperImpl::CreatePositionerStable(
   if (!positioner)
     return nullptr;
 
-  auto* pointer = connection->pointer();
-  uint32_t flags = 0;
-  if (pointer)
-    flags = pointer->GetFlagsWithKeyboardModifiers();
-  bool is_right_click_menu = flags & EF_RIGHT_MOUSE_BUTTON;
+  auto menu_type = GetMenuTypeForPositioner(connection, parent_window);
 
-  // Different types of menu require different anchors, constraint adjustments,
-  // gravity and etc.
-  MenuType menu_type = MenuType::TYPE_UNKNOWN;
-  if (is_right_click_menu)
-    menu_type = MenuType::TYPE_RIGHT_CLICK;
-  else if (wl::IsMenuType(parent_window->type()))
-    menu_type = MenuType::TYPE_3DOT_CHILD_MENU;
-  else
-    menu_type = MenuType::TYPE_3DOT_PARENT_MENU;
+  // The parent we got must be the topmost in the stack of the same family
+  // windows.
+  DCHECK_EQ(parent_window->GetTopMostChildWindow(), parent_window);
 
   // Place anchor to the end of the possible position.
   gfx::Rect anchor_rect = GetAnchorRect(
@@ -398,118 +209,19 @@ struct xdg_positioner* XDGPopupWrapperImpl::CreatePositionerStable(
   xdg_positioner_set_anchor_rect(positioner, anchor_rect.x(), anchor_rect.y(),
                                  anchor_rect.width(), anchor_rect.height());
   xdg_positioner_set_size(positioner, bounds.width(), bounds.height());
-  xdg_positioner_set_anchor(positioner, GetAnchor(menu_type, bounds, true));
-  xdg_positioner_set_gravity(positioner, GetGravity(menu_type, bounds, true));
+  xdg_positioner_set_anchor(positioner,
+                            TranslateAnchor(GetAnchor(menu_type, bounds)));
+  xdg_positioner_set_gravity(positioner,
+                             TranslateGravity(GetGravity(menu_type, bounds)));
   xdg_positioner_set_constraint_adjustment(
-      positioner, GetConstraintAdjustment(menu_type, true));
+      positioner,
+      TranslateContraintAdjustment(GetConstraintAdjustment(menu_type)));
   return positioner;
 }
 
-bool XDGPopupWrapperImpl::InitializeV6(
-    WaylandConnection* connection,
-    const gfx::Rect& bounds,
-    XDGSurfaceWrapperImpl* parent_xdg_surface) {
-  static const struct zxdg_popup_v6_listener zxdg_popup_v6_listener = {
-      &XDGPopupWrapperImpl::ConfigureV6,
-      &XDGPopupWrapperImpl::PopupDoneV6,
-  };
-
-  zxdg_positioner_v6* positioner =
-      CreatePositionerV6(connection, wayland_window_->parent_window(), bounds);
-  if (!positioner)
-    return false;
-
-  zxdg_popup_v6_.reset(zxdg_surface_v6_get_popup(
-      xdg_surface_->zxdg_surface(), parent_xdg_surface->zxdg_surface(),
-      positioner));
-  if (!zxdg_popup_v6_)
-    return false;
-
-  zxdg_positioner_v6_destroy(positioner);
-
-  // According to the spec, the grab call can only be done on a key press, mouse
-  // press or touch down. However, there is a problem with popup windows and
-  // touch events so long as Chromium creates them only on consequent touch up
-  // events. That results in Wayland compositors dismissing popups. To fix
-  // the issue, do not use grab with touch events. Please note that explicit
-  // grab means that a Wayland compositor dismisses a popup whenever the user
-  // clicks outside the created surfaces. If the explicit grab is not used, the
-  // popups are not dismissed in such cases. What is more, current non-ozone X11
-  // implementation does the same. This means there is no functionality changes
-  // and we do things right.
-  //
-  // We cannot know what was the last event. Instead, we can check if the window
-  // has pointer or keyboard focus. If so, the popup will be explicitly grabbed.
-  //
-  // There is a bug in the gnome/mutter - if explicit grab is not used,
-  // unmapping of a wl_surface (aka destroying xdg_popup and surface) to hide a
-  // window results in weird behaviour. That is, a popup continues to be visible
-  // on a display and it results in a crash of the entire session. Thus, just
-  // continue to use grab here and avoid showing popups for touch events on
-  // gnome/mutter. That is better than crashing the entire system. Otherwise,
-  // Chromium has to change the way how it reacts on touch events - instead of
-  // creating a menu on touch up, it must do it on touch down events.
-  // https://gitlab.gnome.org/GNOME/mutter/issues/698#note_562601.
-  std::unique_ptr<base::Environment> env(base::Environment::Create());
-  if ((base::nix::GetDesktopEnvironment(env.get()) ==
-       base::nix::DESKTOP_ENVIRONMENT_GNOME) ||
-      (wayland_window_->parent_window()->has_pointer_focus() ||
-       wayland_window_->parent_window()->has_keyboard_focus())) {
-    zxdg_popup_v6_grab(zxdg_popup_v6_.get(), connection->seat(),
-                       connection->serial());
-  }
-  zxdg_popup_v6_add_listener(zxdg_popup_v6_.get(), &zxdg_popup_v6_listener,
-                             this);
-
-  wl_surface_commit(wayland_window_->surface());
-  return true;
-}
-
-zxdg_positioner_v6* XDGPopupWrapperImpl::CreatePositionerV6(
-    WaylandConnection* connection,
-    WaylandWindow* parent_window,
-    const gfx::Rect& bounds) {
-  struct zxdg_positioner_v6* positioner;
-  positioner = zxdg_shell_v6_create_positioner(connection->shell_v6());
-  if (!positioner)
-    return nullptr;
-
-  auto* pointer = connection->pointer();
-  uint32_t flags = 0;
-  if (pointer)
-    flags = pointer->GetFlagsWithKeyboardModifiers();
-  bool is_right_click_menu = flags & EF_RIGHT_MOUSE_BUTTON;
-
-  // Different types of menu require different anchors, constraint adjustments,
-  // gravity and etc.
-  MenuType menu_type = MenuType::TYPE_UNKNOWN;
-  if (is_right_click_menu)
-    menu_type = MenuType::TYPE_RIGHT_CLICK;
-  else if (wl::IsMenuType(parent_window->type()))
-    menu_type = MenuType::TYPE_3DOT_CHILD_MENU;
-  else
-    menu_type = MenuType::TYPE_3DOT_PARENT_MENU;
-
-  // Place anchor to the end of the possible position.
-  gfx::Rect anchor_rect = GetAnchorRect(
-      menu_type, bounds,
-      gfx::ScaleToRoundedRect(parent_window->GetBounds(),
-                              1.0 / parent_window->buffer_scale()));
-
-  zxdg_positioner_v6_set_anchor_rect(positioner, anchor_rect.x(),
-                                     anchor_rect.y(), anchor_rect.width(),
-                                     anchor_rect.height());
-  zxdg_positioner_v6_set_size(positioner, bounds.width(), bounds.height());
-  zxdg_positioner_v6_set_anchor(positioner,
-                                GetAnchor(menu_type, bounds, false));
-  zxdg_positioner_v6_set_gravity(positioner,
-                                 GetGravity(menu_type, bounds, false));
-  zxdg_positioner_v6_set_constraint_adjustment(
-      positioner, GetConstraintAdjustment(menu_type, false));
-  return positioner;
-}
-
+// static
 void XDGPopupWrapperImpl::Configure(void* data,
+                                    struct xdg_popup* xdg_popup,
                                     int32_t x,
                                     int32_t y,
                                     int32_t width,
@@ -527,7 +239,7 @@ void XDGPopupWrapperImpl::Configure(void* data,
 }
 
 // static
-void XDGPopupWrapperImpl::PopupDone(void* data) {
+void XDGPopupWrapperImpl::PopupDone(void* data, struct xdg_popup* xdg_popup) {
   WaylandWindow* window =
       static_cast<XDGPopupWrapperImpl*>(data)->wayland_window_;
   DCHECK(window);
@@ -535,41 +247,9 @@ void XDGPopupWrapperImpl::PopupDone(void* data) {
   window->OnCloseRequest();
 }
 
-// static
-void XDGPopupWrapperImpl::ConfigureStable(void* data,
-                                          struct xdg_popup* xdg_popup,
-                                          int32_t x,
-                                          int32_t y,
-                                          int32_t width,
-                                          int32_t height) {
-  Configure(data, x, y, width, height);
-}
-
-// static
-void XDGPopupWrapperImpl::PopupDoneStable(void* data,
-                                          struct xdg_popup* xdg_popup) {
-  PopupDone(data);
-}
-
-// static
-void XDGPopupWrapperImpl::ConfigureV6(void* data,
-                                      struct zxdg_popup_v6* zxdg_popup_v6,
-                                      int32_t x,
-                                      int32_t y,
-                                      int32_t width,
-                                      int32_t height) {
-  Configure(data, x, y, width, height);
-}
-
-// static
-void XDGPopupWrapperImpl::PopupDoneV6(void* data,
-                                      struct zxdg_popup_v6* zxdg_popup_v6) {
-  PopupDone(data);
-}
-
-XDGSurfaceWrapperImpl* XDGPopupWrapperImpl::xdg_surface() {
-  DCHECK(xdg_surface_.get());
-  return xdg_surface_.get();
+XDGSurfaceWrapperImpl* XDGPopupWrapperImpl::xdg_surface_wrapper() const {
+  DCHECK(xdg_surface_wrapper_.get());
+  return xdg_surface_wrapper_.get();
 }
 
 }  // namespace ui

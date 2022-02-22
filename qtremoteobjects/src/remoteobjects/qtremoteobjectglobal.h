@@ -113,6 +113,7 @@ namespace QRemoteObjectStringLiterals {
 // it creates duplicate static data. Wrapping it in inline functions prevents it.
 
 inline QString local() { return QStringLiteral("local"); }
+inline QString localabstract() { return QStringLiteral("localabstract"); }
 inline QString tcp() { return QStringLiteral("tcp"); }
 inline QString CLASS() { return QStringLiteral("Class::%1"); }
 inline QString MODEL() { return QStringLiteral("Model::%1"); }
@@ -150,6 +151,11 @@ template <typename T>
 void copyStoredProperties(QDataStream &src, T *dst)
 {
     copyStoredProperties(&T::staticMetaObject, src, dst);
+}
+
+template <typename E>
+constexpr typename std::underlying_type<E>::type to_underlying(E e) noexcept {
+    return static_cast<typename std::underlying_type<E>::type>(e);
 }
 
 enum QRemoteObjectPacketTypeEnum

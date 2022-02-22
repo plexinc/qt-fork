@@ -6,6 +6,7 @@
 #define CONTENT_BROWSER_ANDROID_NFC_HOST_H_
 
 #include "base/android/jni_android.h"
+#include "content/public/browser/permission_controller.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
@@ -30,11 +31,10 @@ class NFCHost : public WebContentsObserver {
   // WebContentsObserver implementation.
   void RenderFrameHostChanged(RenderFrameHost* old_host,
                               RenderFrameHost* new_host) override;
-
-  // WebContentsObserver implementation.
   void OnVisibilityChanged(Visibility visibility) override;
 
  private:
+  void MaybeResumeOrSuspendOperations(Visibility visibility);
   void OnPermissionStatusChange(blink::mojom::PermissionStatus status);
   void Close();
 
@@ -44,7 +44,7 @@ class NFCHost : public WebContentsObserver {
   mojo::Remote<device::mojom::NFCProvider> nfc_provider_;
 
   // Permission change subscription ID provided by |permission_controller_|.
-  int subscription_id_ = 0;
+  PermissionController::SubscriptionId subscription_id_;
 
   DISALLOW_COPY_AND_ASSIGN(NFCHost);
 };

@@ -25,10 +25,8 @@ CustomExtensionProvider::~CustomExtensionProvider() {
 
 std::unique_ptr<RuleIterator> CustomExtensionProvider::GetRuleIterator(
     ContentSettingsType content_type,
-    const ResourceIdentifier& resource_identifier,
     bool incognito) const {
   return extensions_settings_->GetRuleIterator(content_type,
-                                               resource_identifier,
                                                incognito);
 }
 
@@ -36,8 +34,8 @@ bool CustomExtensionProvider::SetWebsiteSetting(
     const ContentSettingsPattern& primary_pattern,
     const ContentSettingsPattern& secondary_pattern,
     ContentSettingsType content_type,
-    const ResourceIdentifier& resource_identifier,
-    std::unique_ptr<base::Value>&& value) {
+    std::unique_ptr<base::Value>&& value,
+    const ContentSettingConstraints& constraints) {
   return false;
 }
 
@@ -53,7 +51,7 @@ void CustomExtensionProvider::OnContentSettingChanged(
     return;
   // TODO(markusheintz): Be more concise.
   NotifyObservers(ContentSettingsPattern(), ContentSettingsPattern(),
-                  ContentSettingsType::DEFAULT, std::string());
+                  ContentSettingsType::DEFAULT);
 }
 
 }  // namespace content_settings

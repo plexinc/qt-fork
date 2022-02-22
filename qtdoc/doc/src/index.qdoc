@@ -92,7 +92,7 @@
             \enddiv
                 \list
                 \li \l{Getting Started with Qt}
-                \li \l{What's New in Qt 5}
+                \li \l{What's New in Qt 6}
                 \li \l{Qt Examples and Tutorials}{Examples and Tutorials}
                 \li \l{Supported Platforms}
                 \li \l{Qt Licensing}
@@ -107,12 +107,14 @@
                 \li \l{User Interfaces}
                 \li \l{Core Internals}
                 \li \l{Data Storage}
-                \li \l[QtMultimedia]{Multimedia}
                 \li \l{Networking and Connectivity}
                 \li \l{Graphics}
+                \omit //! Not part of Qt 6
                 \li \l{Integrating Web Content}{Web Content}
-                \li \l{Mobile APIs}
+                \endomit //! Not part of Qt 6
+                \li \l{Mobile Development}
                 \li \l{QML Applications}
+                \li \l{Platform Integration}
                 \endlist
                 \list
                 \li \l{Qt Overviews}{All Qt Overviews}

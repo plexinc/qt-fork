@@ -49,6 +49,7 @@
 
 #include <QtCore/private/qcore_mac_p.h>
 
+#include <QtGui/qpointingdevice.h>
 #include <QtGui/private/qwindow_p.h>
 #include <private/qcoregraphics_p.h>
 #include <qpa/qwindowsysteminterface.h>
@@ -244,7 +245,7 @@ static QString deviceModelIdentifier()
     char value[size];
     sysctlbyname(key, &value, &size, NULL, 0);
 
-    return QString::fromLatin1(value);
+    return QString::fromLatin1(QByteArrayView(value, qsizetype(size)));
 #endif
 }
 
@@ -300,6 +301,8 @@ QIOSScreen::QIOSScreen(UIScreen *screen)
             m_uiWindow.rootViewController = [[[QIOSViewController alloc] initWithQIOSScreen:this] autorelease];
         }
     }
+
+    m_orientationListener = [[QIOSOrientationListener alloc] initWithQIOSScreen:this];
 
     updateProperties();
 
@@ -459,7 +462,7 @@ QSizeF QIOSScreen::physicalSize() const
     return m_physicalSize;
 }
 
-QDpi QIOSScreen::logicalDpi() const
+QDpi QIOSScreen::logicalBaseDpi() const
 {
     return QDpi(72, 72);
 }
@@ -519,17 +522,6 @@ Qt::ScreenOrientation QIOSScreen::orientation() const
 
     return toQtScreenOrientation(deviceOrientation);
 #endif
-}
-
-void QIOSScreen::setOrientationUpdateMask(Qt::ScreenOrientations mask)
-{
-    if (m_orientationListener && mask == Qt::PrimaryOrientation) {
-        [m_orientationListener release];
-        m_orientationListener = 0;
-    } else if (!m_orientationListener) {
-        m_orientationListener = [[QIOSOrientationListener alloc] initWithQIOSScreen:this];
-        updateProperties();
-    }
 }
 
 QPixmap QIOSScreen::grabWindow(WId window, int x, int y, int width, int height) const

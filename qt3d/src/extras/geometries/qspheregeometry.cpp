@@ -40,9 +40,8 @@
 #include "qspheregeometry.h"
 #include "qspheregeometry_p.h"
 
-#include <Qt3DRender/qbufferdatagenerator.h>
-#include <Qt3DRender/qbuffer.h>
-#include <Qt3DRender/qattribute.h>
+#include <Qt3DCore/qbuffer.h>
+#include <Qt3DCore/qattribute.h>
 
 #include <qmath.h>
 
@@ -53,7 +52,7 @@
 
 QT_BEGIN_NAMESPACE
 
-using namespace Qt3DRender;
+using namespace Qt3DCore;
 
 namespace  Qt3DExtras {
 
@@ -167,69 +166,6 @@ QByteArray createSphereMeshIndexData(int rings, int slices)
 
 } // anonymous
 
-class SphereVertexDataFunctor : public QBufferDataGenerator
-{
-public:
-    SphereVertexDataFunctor(int rings, int slices, float radius)
-        : m_rings(rings)
-        , m_slices(slices)
-        , m_radius(radius)
-    {
-    }
-
-    QByteArray operator ()() override
-    {
-        return createSphereMeshVertexData(m_radius, m_rings, m_slices);
-    }
-
-    bool operator ==(const QBufferDataGenerator &other) const override
-    {
-        const SphereVertexDataFunctor *otherFunctor = functor_cast<SphereVertexDataFunctor>(&other);
-        if (otherFunctor != nullptr)
-            return (otherFunctor->m_rings == m_rings &&
-                    otherFunctor->m_slices == m_slices &&
-                    otherFunctor->m_radius == m_radius);
-        return false;
-    }
-
-    QT3D_FUNCTOR(SphereVertexDataFunctor)
-
-private:
-    int m_rings;
-    int m_slices;
-    float m_radius;
-};
-
-class SphereIndexDataFunctor : public QBufferDataGenerator
-{
-public:
-    SphereIndexDataFunctor(int rings, int slices)
-        : m_rings(rings)
-        , m_slices(slices)
-    {
-    }
-
-    QByteArray operator ()() override
-    {
-        return createSphereMeshIndexData(m_rings, m_slices);
-    }
-
-    bool operator ==(const QBufferDataGenerator &other) const override
-    {
-        const SphereIndexDataFunctor *otherFunctor = functor_cast<SphereIndexDataFunctor>(&other);
-        if (otherFunctor != nullptr)
-            return (otherFunctor->m_rings == m_rings &&
-                    otherFunctor->m_slices == m_slices);
-        return false;
-    }
-
-    QT3D_FUNCTOR(SphereIndexDataFunctor)
-
-private:
-    int m_rings;
-    int m_slices;
-};
-
 QSphereGeometryPrivate::QSphereGeometryPrivate()
     : QGeometryPrivate()
     , m_generateTangents(false)
@@ -254,8 +190,8 @@ void QSphereGeometryPrivate::init()
     m_texCoordAttribute = new QAttribute(q);
     m_tangentAttribute = new QAttribute(q);
     m_indexAttribute = new QAttribute(q);
-    m_vertexBuffer = new Qt3DRender::QBuffer(q);
-    m_indexBuffer = new Qt3DRender::QBuffer(q);
+    m_vertexBuffer = new Qt3DCore::QBuffer(q);
+    m_indexBuffer = new Qt3DCore::QBuffer(q);
 
     // vec3 pos, vec2 tex, vec3 normal, vec4 tangent
     const quint32 elementSize = 3 + 2 + 3 + 4;
@@ -304,8 +240,8 @@ void QSphereGeometryPrivate::init()
 
     m_indexAttribute->setCount(faces * 3);
 
-    m_vertexBuffer->setDataGenerator(QSharedPointer<SphereVertexDataFunctor>::create(m_rings, m_slices, m_radius));
-    m_indexBuffer->setDataGenerator(QSharedPointer<SphereIndexDataFunctor>::create(m_rings, m_slices));
+    m_vertexBuffer->setData(generateVertexData());
+    m_indexBuffer->setData(generateIndexData());
 
     q->addAttribute(m_positionAttribute);
     q->addAttribute(m_texCoordAttribute);
@@ -313,6 +249,16 @@ void QSphereGeometryPrivate::init()
     if (m_generateTangents)
         q->addAttribute(m_tangentAttribute);
     q->addAttribute(m_indexAttribute);
+}
+
+QByteArray QSphereGeometryPrivate::generateVertexData() const
+{
+    return createSphereMeshVertexData(m_radius, m_rings, m_slices);
+}
+
+QByteArray QSphereGeometryPrivate::generateIndexData() const
+{
+    return createSphereMeshIndexData(m_rings, m_slices);
 }
 
 /*!
@@ -388,7 +334,7 @@ void QSphereGeometryPrivate::init()
  * \brief The QSphereGeometry class allows creation of a sphere in 3D space.
  * \since 5.7
  * \ingroup geometries
- * \inherits Qt3DRender::QGeometry
+ * \inherits Qt3DCore::QGeometry
  *
  * The QSphereGeometry class is most commonly used internally by the QSphereMesh
  * but can also be used in custom Qt3DRender::QGeometryRenderer subclasses.
@@ -432,7 +378,7 @@ void QSphereGeometry::updateVertices()
     d->m_texCoordAttribute->setCount(nVerts);
     d->m_normalAttribute->setCount(nVerts);
     d->m_tangentAttribute->setCount(nVerts);
-    d->m_vertexBuffer->setDataGenerator(QSharedPointer<SphereVertexDataFunctor>::create(d->m_rings, d->m_slices, d->m_radius));
+    d->m_vertexBuffer->setData(d->generateVertexData());
 }
 
 /*!
@@ -443,8 +389,7 @@ void QSphereGeometry::updateIndices()
     Q_D(QSphereGeometry);
     const int faces = (d->m_slices * 2) * (d->m_rings - 2) + (2 * d->m_slices);
     d->m_indexAttribute->setCount(faces * 3);
-    d->m_indexBuffer->setDataGenerator(QSharedPointer<SphereIndexDataFunctor>::create(d->m_rings, d->m_slices));
-
+    d->m_indexBuffer->setData(d->generateIndexData());
 }
 
 void QSphereGeometry::setRings(int rings)

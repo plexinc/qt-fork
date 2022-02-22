@@ -45,23 +45,6 @@ void consistentWait(int ms)
         QTest::qWait(20);
 }
 
-void eventLoopWait(int ms)
-{
-    // QTest::qWait() always calls sendPostedEvents before exiting, so we can't use it to stop
-    // between an event is posted and it is received; But we can use an event loop instead
-
-    QPauseAnimation waitTimer(ms);
-    waitTimer.start();
-    while (waitTimer.state() == QAbstractAnimation::Running)
-    {
-        QTimer timer;
-        QEventLoop eventLoop;
-        timer.start(0);
-        timer.connect(&timer, &QTimer::timeout, &eventLoop, &QEventLoop::quit);
-        eventLoop.exec();
-    }
-}
-
 class tst_qqmltimer : public QObject
 {
     Q_OBJECT
@@ -311,7 +294,7 @@ void tst_qqmltimer::restart()
 {
     QQmlEngine engine;
     QQmlComponent component(&engine);
-    component.setData(QByteArray("import QtQml 2.0\nTimer { interval: 500; repeat: true; running: true }"), QUrl::fromLocalFile(""));
+    component.setData(QByteArray("import QtQml 2.0\nTimer { interval: 1000; repeat: true; running: true }"), QUrl::fromLocalFile(""));
     QQmlTimer *timer = qobject_cast<QQmlTimer*>(component.create());
     QVERIFY(timer != nullptr);
 
@@ -319,14 +302,16 @@ void tst_qqmltimer::restart()
     connect(timer, SIGNAL(triggered()), &helper, SLOT(timeout()));
     QCOMPARE(helper.count, 0);
 
-    consistentWait(600);
+    consistentWait(1200);
     QCOMPARE(helper.count, 1);
 
-    consistentWait(300);
+    consistentWait(500);
 
+    QCOMPARE(helper.count, 1);
     timer->restart();
+    QCOMPARE(helper.count, 1);
 
-    consistentWait(700);
+    consistentWait(1400);
 
     QCOMPARE(helper.count, 2);
     QVERIFY(timer->isRunning());
@@ -417,7 +402,9 @@ void tst_qqmltimer::stopWhenEventPosted()
     connect(timer, SIGNAL(triggered()), &helper, SLOT(timeout()));
     QCOMPARE(helper.count, 0);
 
-    eventLoopWait(200);
+    // Use QThread::msleep() as QTest::qWait() always calls sendPostedEvents before
+    // exiting, so we can't use it to stop between an event is posted and it is received.
+    QThread::msleep(200);
     QCOMPARE(helper.count, 0);
     QVERIFY(timer->isRunning());
     timer->stop();
@@ -439,7 +426,9 @@ void tst_qqmltimer::restartWhenEventPosted()
     connect(timer, SIGNAL(triggered()), &helper, SLOT(timeout()));
     QCOMPARE(helper.count, 0);
 
-    eventLoopWait(200);
+    // Use QThread::msleep() as QTest::qWait() always calls sendPostedEvents before
+    // exiting, so we can't use it to stop between an event is posted and it is received.
+    QThread::msleep(200);
     QCOMPARE(helper.count, 0);
     timer->restart();
 

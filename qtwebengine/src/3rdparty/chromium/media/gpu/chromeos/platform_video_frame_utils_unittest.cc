@@ -70,7 +70,7 @@ scoped_refptr<VideoFrame> CreateMockDmaBufVideoFrame(
 class FakeGpuMemoryBufferFactory : public gpu::GpuMemoryBufferFactory {
  public:
   FakeGpuMemoryBufferFactory() = default;
-  ~FakeGpuMemoryBufferFactory() {
+  ~FakeGpuMemoryBufferFactory() override {
     for (const auto& buffers : gpu_memory_buffers_) {
       if (!buffers.second.empty()) {
         LOG(ERROR) << "client_id=" << buffers.first
@@ -85,6 +85,7 @@ class FakeGpuMemoryBufferFactory : public gpu::GpuMemoryBufferFactory {
   gfx::GpuMemoryBufferHandle CreateGpuMemoryBuffer(
       gfx::GpuMemoryBufferId id,
       const gfx::Size& size,
+      const gfx::Size& framebuffer_size,
       gfx::BufferFormat format,
       gfx::BufferUsage usage,
       int client_id,
@@ -104,6 +105,13 @@ class FakeGpuMemoryBufferFactory : public gpu::GpuMemoryBufferFactory {
     ASSERT_TRUE(base::Contains(gpu_memory_buffers_, client_id));
     ASSERT_TRUE(base::Contains(gpu_memory_buffers_[client_id], id));
     gpu_memory_buffers_[client_id].erase(id);
+  }
+
+  bool FillSharedMemoryRegionWithBufferContents(
+      gfx::GpuMemoryBufferHandle buffer_handle,
+      base::UnsafeSharedMemoryRegion shared_memory) override {
+    NOTIMPLEMENTED();
+    return false;
   }
 
   // Type-checking downcast routine.
@@ -158,7 +166,7 @@ TEST(PlatformVideoFrameUtilsTest, CreateVideoFrame) {
   constexpr gfx::Size kNaturalSize(kCodedSize);
   constexpr auto kTimeStamp = base::TimeDelta::FromMilliseconds(1234);
   constexpr gfx::BufferUsage kBufferUsage =
-      gfx::BufferUsage::SCANOUT_VEA_READ_CAMERA_AND_CPU_READ_WRITE;
+      gfx::BufferUsage::VEA_READ_CAMERA_AND_CPU_READ_WRITE;
 
   auto gpu_memory_buffer_factory =
       std::make_unique<FakeGpuMemoryBufferFactory>();

@@ -8,7 +8,7 @@
 #ifndef QUICHE_QUIC_TOOLS_QUIC_TOY_CLIENT_H_
 #define QUICHE_QUIC_TOOLS_QUIC_TOY_CLIENT_H_
 
-#include "net/third_party/quiche/src/quic/tools/quic_spdy_client_base.h"
+#include "quic/tools/quic_spdy_client_base.h"
 
 namespace quic {
 
@@ -24,8 +24,11 @@ class QuicToyClient {
     virtual std::unique_ptr<QuicSpdyClientBase> CreateClient(
         std::string host_for_handshake,
         std::string host_for_lookup,
+        // AF_INET, AF_INET6, or AF_UNSPEC(=don't care).
+        int address_family_for_lookup,
         uint16_t port,
         ParsedQuicVersionVector versions,
+        const QuicConfig& config,
         std::unique_ptr<ProofVerifier> verifier) = 0;
   };
 

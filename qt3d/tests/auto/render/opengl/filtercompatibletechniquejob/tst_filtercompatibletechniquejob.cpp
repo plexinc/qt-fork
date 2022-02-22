@@ -38,9 +38,11 @@
 #include <Qt3DRender/private/nodemanagers_p.h>
 #include <Qt3DRender/private/qrenderaspect_p.h>
 #include <Qt3DRender/private/techniquemanager_p.h>
+#include <Qt3DRender/private/filtercompatibletechniquejob_p.h>
 #include <renderer_p.h>
 #include <submissioncontext_p.h>
-#include <filtercompatibletechniquejob_p.h>
+
+#include "qbackendnodetester.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -50,7 +52,7 @@ class TestAspect : public Qt3DRender::QRenderAspect
 {
 public:
     TestAspect(Qt3DCore::QNode *root)
-        : Qt3DRender::QRenderAspect(Qt3DRender::QRenderAspect::Synchronous)
+        : Qt3DRender::QRenderAspect()
         , m_jobManager(new Qt3DCore::QAspectJobManager())
         , m_window(new QWindow())
         , m_contextCreationSuccessful(false)
@@ -74,7 +76,7 @@ public:
         Qt3DCore::QAbstractAspectPrivate::get(this)->m_jobManager = m_jobManager.data();
         QRenderAspect::onRegistered();
 
-        QVector<Qt3DCore::QNode *> nodes;
+        QList<Qt3DCore::QNode *> nodes;
         Qt3DCore::QNodeVisitor v;
         v.traverse(root, [&nodes](Qt3DCore::QNode *node) {
             Qt3DCore::QNodePrivate *d = Qt3DCore::QNodePrivate::get(node);
@@ -121,8 +123,8 @@ public:
         return static_cast<Render::OpenGL::Renderer *>(d_func()->m_renderer);
     }
 
-    void onRegistered() { QRenderAspect::onRegistered(); }
-    void onUnregistered() { QRenderAspect::onUnregistered(); }
+    void onRegistered() override { QRenderAspect::onRegistered(); }
+    void onUnregistered() override { QRenderAspect::onUnregistered(); }
 
 private:
     QScopedPointer<Qt3DCore::QAspectJobManager> m_jobManager;
@@ -179,7 +181,7 @@ private Q_SLOTS:
     void initTestCase()
     {
         QSurfaceFormat format;
-#ifdef QT_OPENGL_ES_2
+#if QT_CONFIG(opengles2)
         format.setRenderableType(QSurfaceFormat::OpenGLES);
 #else
         if (QOpenGLContext::openGLModuleType() == QOpenGLContext::LibGL) {
@@ -196,7 +198,7 @@ private Q_SLOTS:
     void checkInitialState()
     {
         // GIVEN
-        Qt3DRender::Render::OpenGL::FilterCompatibleTechniqueJob backendFilterCompatibleTechniqueJob;
+        Qt3DRender::Render::FilterCompatibleTechniqueJob backendFilterCompatibleTechniqueJob;
 
         // THEN
         QVERIFY(backendFilterCompatibleTechniqueJob.manager() == nullptr);
@@ -204,7 +206,7 @@ private Q_SLOTS:
 
         // WHEN
         Qt3DRender::Render::TechniqueManager techniqueManager;
-        Qt3DRender::Render::OpenGL::Renderer renderer(Qt3DRender::QRenderAspect::Synchronous);
+        Qt3DRender::Render::OpenGL::Renderer renderer;
         backendFilterCompatibleTechniqueJob.setManager(&techniqueManager);
         backendFilterCompatibleTechniqueJob.setRenderer(&renderer);
 
@@ -218,7 +220,7 @@ private Q_SLOTS:
     void checkRunRendererRunning()
     {
         // GIVEN
-        Qt3DRender::Render::OpenGL::FilterCompatibleTechniqueJob backendFilterCompatibleTechniqueJob;
+        Qt3DRender::Render::FilterCompatibleTechniqueJob backendFilterCompatibleTechniqueJob;
         Qt3DRender::TestAspect testAspect(buildTestScene());
 
         const bool unableToCreateContext = !testAspect.contextCreationSuccessful();
@@ -239,18 +241,18 @@ private Q_SLOTS:
         QCOMPARE(testAspect.renderer()->isRunning(), true);
         QCOMPARE(testAspect.renderer()->submissionContext()->isInitialized(), true);
         const std::vector<Qt3DRender::Render::HTechnique> &handles = testAspect.nodeManagers()->techniqueManager()->activeHandles();
-        QCOMPARE(handles.size(), 3);
+        QCOMPARE(handles.size(), size_t(3));
 
         // WHEN
         backendFilterCompatibleTechniqueJob.run();
 
         // THEN -> empty if job ran properly
-        const QVector<Qt3DCore::QNodeId> dirtyTechniquesId = testAspect.nodeManagers()->techniqueManager()->takeDirtyTechniques();
+        const std::vector<Qt3DCore::QNodeId> dirtyTechniquesId = testAspect.nodeManagers()->techniqueManager()->takeDirtyTechniques();
         QCOMPARE(dirtyTechniquesId.size(), 0);
 
         // Check at least one technique is valid
         bool foundValid = false;
-        for (const auto handle: handles) {
+        for (const auto &handle: handles) {
             Qt3DRender::Render::Technique *technique = testAspect.nodeManagers()->techniqueManager()->data(handle);
             foundValid |= technique->isCompatibleWithRenderer();
         }

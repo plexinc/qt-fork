@@ -8,13 +8,13 @@
 
 #include "core/fpdfapi/parser/cpdf_indirect_object_holder.h"
 #include "core/fxcrt/fx_stream.h"
-#include "third_party/base/ptr_util.h"
+#include "third_party/base/check.h"
 #include "third_party/base/stl_util.h"
 
 CPDF_Reference::CPDF_Reference(CPDF_IndirectObjectHolder* pDoc, uint32_t objnum)
     : m_pObjList(pDoc), m_RefObjNum(objnum) {}
 
-CPDF_Reference::~CPDF_Reference() {}
+CPDF_Reference::~CPDF_Reference() = default;
 
 CPDF_Object::Type CPDF_Reference::GetType() const {
   return kReference;
@@ -67,7 +67,7 @@ RetainPtr<CPDF_Object> CPDF_Reference::CloneNonCyclic(
   pVisited->insert(this);
   if (bDirect) {
     auto* pDirect = GetDirect();
-    return pDirect && !pdfium::ContainsKey(*pVisited, pDirect)
+    return pDirect && !pdfium::Contains(*pVisited, pDirect)
                ? pDirect->CloneNonCyclic(true, pVisited)
                : nullptr;
   }
@@ -107,7 +107,7 @@ bool CPDF_Reference::WriteTo(IFX_ArchiveStream* archive,
 
 RetainPtr<CPDF_Object> CPDF_Reference::MakeReference(
     CPDF_IndirectObjectHolder* holder) const {
-  ASSERT(holder == m_pObjList);
+  DCHECK(holder == m_pObjList);
   // Do not allow reference to reference, just create other reference for same
   // object.
   return pdfium::MakeRetain<CPDF_Reference>(holder, GetRefObjNum());

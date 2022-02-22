@@ -8,7 +8,7 @@
 
 #include "base/command_line.h"
 #include "base/feature_list.h"
-#include "base/single_thread_task_runner.h"
+#include "base/sequenced_task_runner.h"
 #include "build/build_config.h"
 #include "build/buildflag.h"
 #include "components/viz/common/gpu/raster_context_provider.h"
@@ -16,7 +16,6 @@
 #include "media/base/media_switches.h"
 #include "media/media_buildflags.h"
 #include "media/video/gpu_video_accelerator_factories.h"
-#include "third_party/libaom/libaom_buildflags.h"
 
 #if !defined(OS_ANDROID)
 #include "media/filters/decrypting_audio_decoder.h"
@@ -24,12 +23,10 @@
 #endif
 
 #if defined(OS_FUCHSIA)
+// TODO(crbug.com/1117629): Remove this dependency and update include_rules
+// that allow it.
 #include "fuchsia/engine/switches.h"
 #include "media/filters/fuchsia/fuchsia_video_decoder.h"
-#endif
-
-#if BUILDFLAG(ENABLE_LIBAOM)
-#include "media/filters/aom_video_decoder.h"
 #endif
 
 #if BUILDFLAG(ENABLE_DAV1D_DECODER)
@@ -61,7 +58,7 @@ DefaultDecoderFactory::DefaultDecoderFactory(
 DefaultDecoderFactory::~DefaultDecoderFactory() = default;
 
 void DefaultDecoderFactory::CreateAudioDecoders(
-    scoped_refptr<base::SingleThreadTaskRunner> task_runner,
+    scoped_refptr<base::SequencedTaskRunner> task_runner,
     MediaLog* media_log,
     std::vector<std::unique_ptr<AudioDecoder>>* audio_decoders) {
   base::AutoLock auto_lock(shutdown_lock_);
@@ -88,8 +85,74 @@ void DefaultDecoderFactory::CreateAudioDecoders(
   }
 }
 
+SupportedVideoDecoderConfigs
+DefaultDecoderFactory::GetSupportedVideoDecoderConfigsForWebRTC() {
+  SupportedVideoDecoderConfigs supported_configs;
+
+  {
+    base::AutoLock auto_lock(shutdown_lock_);
+    if (external_decoder_factory_) {
+      SupportedVideoDecoderConfigs external_supported_configs =
+          external_decoder_factory_->GetSupportedVideoDecoderConfigsForWebRTC();
+      supported_configs.insert(supported_configs.end(),
+                               external_supported_configs.begin(),
+                               external_supported_configs.end());
+    }
+  }
+
+#if defined(OS_FUCHSIA)
+  // TODO(crbug.com/1173503): Implement capabilities for fuchsia.
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kDisableSoftwareVideoDecoders)) {
+    // Bypass software codec registration.
+    return supported_configs;
+  }
+#endif
+
+  if (!base::FeatureList::IsEnabled(media::kExposeSwDecodersToWebRTC))
+    return supported_configs;
+
+#if BUILDFLAG(ENABLE_LIBVPX)
+  SupportedVideoDecoderConfigs vpx_configs =
+      VpxVideoDecoder::SupportedConfigs();
+
+  for (auto& config : vpx_configs) {
+    if (config.profile_min >= VP9PROFILE_MIN &&
+        config.profile_max <= VP9PROFILE_MAX) {
+      supported_configs.emplace_back(config);
+    }
+  }
+#endif
+
+#if BUILDFLAG(ENABLE_LIBGAV1_DECODER)
+  if (base::FeatureList::IsEnabled(kGav1VideoDecoder)) {
+    SupportedVideoDecoderConfigs gav1_configs =
+        Gav1VideoDecoder::SupportedConfigs();
+    supported_configs.insert(supported_configs.end(), gav1_configs.begin(),
+                             gav1_configs.end());
+  } else
+#endif
+  {
+#if BUILDFLAG(ENABLE_DAV1D_DECODER)
+    SupportedVideoDecoderConfigs dav1d_configs =
+        Dav1dVideoDecoder::SupportedConfigs();
+    supported_configs.insert(supported_configs.end(), dav1d_configs.begin(),
+                             dav1d_configs.end());
+#endif
+  }
+
+#if BUILDFLAG(ENABLE_FFMPEG_VIDEO_DECODERS)
+  SupportedVideoDecoderConfigs ffmpeg_configs =
+      FFmpegVideoDecoder::SupportedConfigsForWebRTC();
+  supported_configs.insert(supported_configs.end(), ffmpeg_configs.begin(),
+                           ffmpeg_configs.end());
+#endif
+
+  return supported_configs;
+}
+
 void DefaultDecoderFactory::CreateVideoDecoders(
-    scoped_refptr<base::SingleThreadTaskRunner> task_runner,
+    scoped_refptr<base::SequencedTaskRunner> task_runner,
     GpuVideoAcceleratorFactories* gpu_factories,
     MediaLog* media_log,
     RequestOverlayInfoCB request_overlay_info_cb,
@@ -119,12 +182,23 @@ void DefaultDecoderFactory::CreateVideoDecoders(
   }
 
 #if defined(OS_FUCHSIA)
-  if (gpu_factories) {
+  // TODO(crbug.com/1122116): Minimize Fuchsia-specific code paths.
+  if (gpu_factories && gpu_factories->IsGpuVideoAcceleratorEnabled()) {
     auto* context_provider = gpu_factories->GetMediaContextProvider();
-    DCHECK(context_provider);
-    video_decoders->push_back(
-        CreateFuchsiaVideoDecoder(gpu_factories->SharedImageInterface(),
-                                  context_provider->ContextSupport()));
+
+    // GetMediaContextProvider() may return nullptr when the context was lost
+    // (e.g. after GPU process crash). To handle this case RenderThreadImpl
+    // creates a new GpuVideoAcceleratorFactories with a new ContextProvider
+    // instance, but there is no way to get it here. For now just don't add
+    // FuchsiaVideoDecoder in that scenario.
+    //
+    // TODO(crbug.com/580386): Handle context loss properly.
+    if (context_provider) {
+      video_decoders->push_back(CreateFuchsiaVideoDecoder(context_provider));
+    } else {
+      DLOG(ERROR)
+          << "Can't create FuchsiaVideoDecoder due to GPU context loss.";
+    }
   }
 
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
@@ -148,8 +222,6 @@ void DefaultDecoderFactory::CreateVideoDecoders(
 #if BUILDFLAG(ENABLE_DAV1D_DECODER)
     video_decoders->push_back(
         std::make_unique<OffloadingDav1dVideoDecoder>(media_log));
-#elif BUILDFLAG(ENABLE_LIBAOM)
-    video_decoders->push_back(std::make_unique<AomVideoDecoder>(media_log));
 #endif
   }
 

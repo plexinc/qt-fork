@@ -42,7 +42,7 @@ class AXImageMapLink final : public AXNodeObject {
  public:
   explicit AXImageMapLink(HTMLAreaElement*, AXObjectCacheImpl&);
   ~AXImageMapLink() override;
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
   HTMLAreaElement* AreaElement() const {
     return To<HTMLAreaElement>(GetNode());
@@ -50,22 +50,27 @@ class AXImageMapLink final : public AXNodeObject {
 
   HTMLMapElement* MapElement() const;
 
-  ax::mojom::Role RoleValue() const override;
+  ax::mojom::blink::Role DetermineAccessibilityRole() override;
   bool ComputeAccessibilityIsIgnored(IgnoredReasons* = nullptr) const override;
+  bool CanHaveChildren() const override {
+    // If the area has child nodes, those will be rendered, and the combination
+    // of Role::kGenericContainer and CanHaveChildren() = true allows for those
+    // children to show in the AX hierarchy.
+    return RoleValue() == ax::mojom::blink::Role::kGenericContainer;
+  }
 
   Element* AnchorElement() const override;
   Element* ActionElement() const override;
   KURL Url() const override;
-  bool IsLink() const override { return true; }
   bool IsLinked() const override { return true; }
-  AXObject* ComputeParent() const override;
+  AXObject* ComputeParentImpl() const override;
   void GetRelativeBounds(AXObject** out_container,
                          FloatRect& out_bounds_in_container,
                          SkMatrix44& out_container_transform,
                          bool* clips_children = nullptr) const override;
 
  private:
-  bool IsImageMapLink() const override { return true; }
+  bool IsImageMapLink() const override;
 
   DISALLOW_COPY_AND_ASSIGN(AXImageMapLink);
 };

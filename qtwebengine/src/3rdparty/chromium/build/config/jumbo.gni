@@ -228,7 +228,6 @@ template("internal_jumbo_target") {
       deps += [ ":" + merge_action_name ]
       variables_to_not_forward += [ "sources" ]
       assert(jumbo_files != [])
-      set_sources_assignment_filter([])  # Prefiltered.
       sources = invoker_sources - sources_in_jumbo_files + jumbo_files
 
       # Change include_dirs to make sure that the jumbo file can find its

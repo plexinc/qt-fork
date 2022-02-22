@@ -55,6 +55,7 @@
         \li \l{Qt Assistant Quick Guide}
         \li \l{Using Qt Assistant}
         \li \l{Customizing Qt Assistant}
+        \li \l{Licenses and Attributions}
     \endlist
 */
 
@@ -63,6 +64,7 @@
     \title Customizing Qt Assistant
 
     \previouspage Using Qt Assistant
+    \nextpage Licenses and Attributions
 
     Using \QA as custom help viewer requires more than just being able to
     display custom documentation. It is equally important that the
@@ -119,7 +121,7 @@
     To solve this dilemma, \QA creates user specific collection files which
     are more or less copied from the original collection file. The user-specific
     collection file will be saved in a subdirectory of the path returned by
-    QDesktopServices::DataLocation. The subdirectory, or \e{cache directory}
+    QDesktopServices::AppDataLocation. The subdirectory, or \e{cache directory}
     within this user-specific location, can be defined in the help collection
     project file. For example:
 
@@ -260,7 +262,7 @@
             relative to the directory the collection file resides in.
             If the attribute is set to "default" or if it is missing,
             the path is relative to the directory given by
-            QDesktopServices::DataLocation. The first form is useful for
+            QDesktopServices::AppDataLocation. The first form is useful for
             collections that are used in a \e mobile way, such as carried around
             on a USB stick.
         \row
@@ -423,3 +425,18 @@
             \li Doesn't show any error, warning or success messages.
     \endtable
     */
+
+/*!
+    \page assistant-licenses.html
+    \title Licenses and Attributions
+
+    \previouspage Customizing Qt Assistant
+
+    \QA is available under commercial licenses from \l{The Qt Company}. In
+    addition, it is available under the \l{GNU General Public License, version 3}.
+
+    Furthermore, \QA \QtVersion may contain third party modules
+    under following permissive licenses:
+
+    \generatelist{groupsbymodule attributions-qtassistant-tools}
+*/

@@ -52,7 +52,11 @@ namespace {
 // event is destroyed.
 gfx::NativeEvent CopyEvent(gfx::NativeEvent event)
 {
-    return event ? reinterpret_cast<gfx::NativeEvent>(new QKeyEvent(*reinterpret_cast<QKeyEvent*>(event))) : 0;
+    if (!event)
+        return nullptr;
+
+    QKeyEvent *keyEvent = reinterpret_cast<QKeyEvent *>(event);
+    return reinterpret_cast<gfx::NativeEvent>(keyEvent->clone());
 }
 
 void DestroyEvent(gfx::NativeEvent event)
@@ -91,7 +95,10 @@ NativeWebKeyboardEvent::NativeWebKeyboardEvent(const NativeWebKeyboardEvent& oth
 {
 }
 
-NativeWebKeyboardEvent& NativeWebKeyboardEvent::operator=(const NativeWebKeyboardEvent& other) {
+NativeWebKeyboardEvent &NativeWebKeyboardEvent::operator=(const NativeWebKeyboardEvent &other)
+{
+    if (this == &other)
+        return *this;
     WebKeyboardEvent::operator=(other);
     DestroyEvent(os_event);
     os_event = CopyEvent(other.os_event);

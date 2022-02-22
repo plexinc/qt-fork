@@ -55,7 +55,6 @@
 #include "cmdlineparser.h"
 
 // #define TRACING_REQUESTED
-// #define DEBUG_TRANSLATIONS
 
 QT_USE_NAMESPACE
 
@@ -241,26 +240,18 @@ bool unregisterDocumentation(QHelpEngineCore &collection,
 void setupTranslation(const QString &fileName, const QString &dir)
 {
     QTranslator *translator = new QTranslator(QCoreApplication::instance());
-    if (translator->load(fileName, dir))
+    if (translator->load(QLocale(), fileName, QLatin1String("_"), dir))
         QCoreApplication::installTranslator(translator);
-#ifdef DEBUG_TRANSLATIONS
-    else if (!fileName.endsWith(QLatin1String("en_US"))
-             && !fileName.endsWith(QLatin1String("_C"))) {
-        qDebug("Could not load translation file %s in directory %s.",
-               qPrintable(fileName), qPrintable(dir));
-    }
-#endif
 }
 
 void setupTranslations()
 {
     TRACE_OBJ
-    const QString& locale = QLocale::system().name();
     const QString &resourceDir
-        = QLibraryInfo::location(QLibraryInfo::TranslationsPath);
-    setupTranslation(QLatin1String("assistant_") + locale, resourceDir);
-    setupTranslation(QLatin1String("qt_") + locale, resourceDir);
-    setupTranslation(QLatin1String("qt_help_") + locale, resourceDir);
+        = QLibraryInfo::path(QLibraryInfo::TranslationsPath);
+    setupTranslation(QLatin1String("assistant"), resourceDir);
+    setupTranslation(QLatin1String("qt"), resourceDir);
+    setupTranslation(QLatin1String("qt_help"), resourceDir);
 }
 
 } // Anonymous namespace.
@@ -283,7 +274,6 @@ static ExitStatus preliminarySetup(CmdLineParser *cmd)
     QScopedPointer<QHelpEngineCore> collection;
     if (collectionFileGiven) {
         collection.reset(new QHelpEngineCore(collectionFile));
-        collection->setProperty("_q_readonly", QVariant::fromValue<bool>(true));
         if (!collection->setupData()) {
             cmd->showMessage(QCoreApplication::translate("Assistant",
                              "Error reading collection file '%1': %2.")
@@ -371,9 +361,6 @@ static ExitStatus preliminarySetup(CmdLineParser *cmd)
 
 int main(int argc, char *argv[])
 {
-    QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
-    QCoreApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
-    QCoreApplication::setAttribute(Qt::AA_DisableWindowContextHelpButton);
     TRACE_OBJ
     QScopedPointer<QCoreApplication> a(createApplication(argc, argv));
 #if QT_CONFIG(library)

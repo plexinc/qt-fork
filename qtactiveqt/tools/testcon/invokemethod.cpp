@@ -29,8 +29,10 @@
 #include "invokemethod.h"
 
 #include <qt_windows.h>
-#include <ActiveQt/ActiveQt>
+#include <QtAxContainer/QAxBase>
 #include <QtWidgets/QCompleter>
+#include <QtCore/QMetaObject>
+#include <QtCore/QMetaMethod>
 
 QT_BEGIN_NAMESPACE
 
@@ -66,7 +68,7 @@ void InvokeMethod::setControl(QAxBase *ax)
         return;
     }
 
-    const QMetaObject *mo = activex->metaObject();
+    const QMetaObject *mo = activex->axBaseMetaObject();
     if (mo->methodCount()) {
         for (int i = mo->methodOffset(); i < mo->methodCount(); ++i) {
             const QMetaMethod method = mo->method(i);
@@ -111,7 +113,7 @@ void InvokeMethod::on_comboMethods_textActivated(const QString &method)
         return;
     listParameters->clear();
 
-    const QMetaObject *mo = activex->metaObject();
+    const QMetaObject *mo = activex->axBaseMetaObject();
     const QMetaMethod slot = mo->method(mo->indexOfSlot(method.toLatin1()));
     QString signature = QString::fromLatin1(slot.methodSignature());
     signature.remove(0, signature.indexOf(QLatin1Char('(')) + 1);

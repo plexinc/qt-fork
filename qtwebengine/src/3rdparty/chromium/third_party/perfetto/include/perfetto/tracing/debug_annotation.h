@@ -18,11 +18,27 @@
 #define INCLUDE_PERFETTO_TRACING_DEBUG_ANNOTATION_H_
 
 #include "perfetto/base/export.h"
+#include "perfetto/tracing/traced_value_forward.h"
+#include "protos/perfetto/trace/track_event/debug_annotation.pbzero.h"
 
 #include <stdint.h>
 
 #include <memory>
 #include <string>
+
+namespace {
+// std::underlying_type can't be used with non-enum types, so we need this
+// indirection.
+template <typename T, bool = std::is_enum<T>::value>
+struct safe_underlying_type {
+  using type = typename std::underlying_type<T>::type;
+};
+
+template <typename T>
+struct safe_underlying_type<T, false> {
+  using type = T;
+};
+}  // namespace
 
 namespace perfetto {
 namespace protos {
@@ -39,41 +55,10 @@ class PERFETTO_EXPORT DebugAnnotation {
 
   // Called to write the contents of the debug annotation into the trace.
   virtual void Add(protos::pbzero::DebugAnnotation*) const = 0;
+
+  void WriteIntoTracedValue(TracedValue context) const;
 };
 
-namespace internal {
-
-// Overloads for all the supported built in debug annotation types.
-void PERFETTO_EXPORT WriteDebugAnnotation(protos::pbzero::DebugAnnotation*,
-                                          bool);
-void PERFETTO_EXPORT WriteDebugAnnotation(protos::pbzero::DebugAnnotation*,
-                                          uint64_t);
-void PERFETTO_EXPORT WriteDebugAnnotation(protos::pbzero::DebugAnnotation*,
-                                          unsigned);
-void PERFETTO_EXPORT WriteDebugAnnotation(protos::pbzero::DebugAnnotation*,
-                                          int64_t);
-void PERFETTO_EXPORT WriteDebugAnnotation(protos::pbzero::DebugAnnotation*,
-                                          int);
-void PERFETTO_EXPORT WriteDebugAnnotation(protos::pbzero::DebugAnnotation*,
-                                          double);
-void PERFETTO_EXPORT WriteDebugAnnotation(protos::pbzero::DebugAnnotation*,
-                                          float);
-void PERFETTO_EXPORT WriteDebugAnnotation(protos::pbzero::DebugAnnotation*,
-                                          const char*);
-void PERFETTO_EXPORT WriteDebugAnnotation(protos::pbzero::DebugAnnotation*,
-                                          const std::string&);
-void PERFETTO_EXPORT WriteDebugAnnotation(protos::pbzero::DebugAnnotation*,
-                                          const void*);
-void PERFETTO_EXPORT WriteDebugAnnotation(protos::pbzero::DebugAnnotation*,
-                                          const DebugAnnotation&);
-
-template <typename T>
-void WriteDebugAnnotation(protos::pbzero::DebugAnnotation* annotation,
-                          const std::unique_ptr<T>& value) {
-  WriteDebugAnnotation(annotation, *value);
-}
-
-}  // namespace internal
 }  // namespace perfetto
 
 #endif  // INCLUDE_PERFETTO_TRACING_DEBUG_ANNOTATION_H_

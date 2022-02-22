@@ -41,7 +41,7 @@
 #include <private/abstractbarchartitem_p.h>
 #include <private/qchart_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 /*!
     \class QAbstractBarSeries
@@ -348,7 +348,7 @@ QT_CHARTS_BEGIN_NAMESPACE
 */
 
 /*!
-    \fn void QAbstractBarSeries::barsetsAdded(QList<QBarSet*> sets)
+    \fn void QAbstractBarSeries::barsetsAdded(const QList<QBarSet *> &sets)
     This signal is emitted when the bar sets specified by \a sets are added to the series.
     \sa append(), insert()
 */
@@ -360,7 +360,7 @@ QT_CHARTS_BEGIN_NAMESPACE
 */
 
 /*!
-    \fn void QAbstractBarSeries::barsetsRemoved(QList<QBarSet*> sets)
+    \fn void QAbstractBarSeries::barsetsRemoved(const QList<QBarSet *> &sets)
     This signal is emitted when the bar sets specified by \a sets are removed from the series.
     \sa remove()
 */
@@ -513,17 +513,19 @@ bool QAbstractBarSeries::take(QBarSet *set)
     If any of the sets appears in the list more than once, nothing is appended and this function
     returns \c false.
 */
-bool QAbstractBarSeries::append(QList<QBarSet *> sets)
+bool QAbstractBarSeries::append(const QList<QBarSet *> &sets)
 {
     Q_D(QAbstractBarSeries);
-    bool success = d->append(sets);
-    if (success) {
-        foreach (QBarSet *set, sets)
-            set->setParent(this);
-        emit barsetsAdded(sets);
-        emit countChanged();
-    }
-    return success;
+    if (!d->append(sets))
+        return false;
+
+    for (auto *set : sets)
+        set->setParent(this);
+
+    emit barsetsAdded(sets);
+    emit countChanged();
+
+    return true;
 }
 
 /*!
@@ -969,6 +971,8 @@ bool QAbstractBarSeriesPrivate::append(QBarSet *set)
                      this, &QAbstractBarSeriesPrivate::handleSetValueAdd);
     QObject::connect(set->d_ptr.data(), &QBarSetPrivate::valueRemoved,
                      this, &QAbstractBarSeriesPrivate::handleSetValueRemove);
+    connect(set, &QBarSet::selectedBarsChanged,
+            this, &QAbstractBarSeriesPrivate::updatedBars);
 
     emit restructuredBars(); // this notifies barchartitem
     return true;
@@ -988,21 +992,23 @@ bool QAbstractBarSeriesPrivate::remove(QBarSet *set)
                         this, &QAbstractBarSeriesPrivate::handleSetValueAdd);
     QObject::disconnect(set->d_ptr.data(), &QBarSetPrivate::valueRemoved,
                         this, &QAbstractBarSeriesPrivate::handleSetValueRemove);
+    disconnect(set, &QBarSet::selectedBarsChanged,
+               this, &QAbstractBarSeriesPrivate::updatedBars);
 
     emit restructuredBars(); // this notifies barchartitem
     return true;
 }
 
-bool QAbstractBarSeriesPrivate::append(QList<QBarSet * > sets)
+bool QAbstractBarSeriesPrivate::append(const QList<QBarSet *> &sets)
 {
-    foreach (QBarSet *set, sets) {
+    for (auto *set : sets) {
         if ((set == 0) || (m_barSets.contains(set)))
             return false; // Fail if any of the sets is null or is already appended.
         if (sets.count(set) != 1)
             return false; // Also fail if same set is more than once in given list.
     }
 
-    foreach (QBarSet *set, sets) {
+    for (auto *set : sets) {
         m_barSets.append(set);
         QObject::connect(set->d_ptr.data(), &QBarSetPrivate::updatedBars,
                          this, &QAbstractBarSeriesPrivate::updatedBars);
@@ -1012,13 +1018,15 @@ bool QAbstractBarSeriesPrivate::append(QList<QBarSet * > sets)
                          this, &QAbstractBarSeriesPrivate::handleSetValueAdd);
         QObject::connect(set->d_ptr.data(), &QBarSetPrivate::valueRemoved,
                          this, &QAbstractBarSeriesPrivate::handleSetValueRemove);
+        connect(set, &QBarSet::selectedBarsChanged,
+                this, &QAbstractBarSeriesPrivate::updatedBars);
     }
 
     emit restructuredBars(); // this notifies barchartitem
     return true;
 }
 
-bool QAbstractBarSeriesPrivate::remove(QList<QBarSet * > sets)
+bool QAbstractBarSeriesPrivate::remove(const QList<QBarSet *> &sets)
 {
     if (sets.count() == 0)
         return false;
@@ -1040,6 +1048,8 @@ bool QAbstractBarSeriesPrivate::remove(QList<QBarSet * > sets)
                             this, &QAbstractBarSeriesPrivate::handleSetValueAdd);
         QObject::disconnect(set->d_ptr.data(), &QBarSetPrivate::valueRemoved,
                             this, &QAbstractBarSeriesPrivate::handleSetValueRemove);
+        disconnect(set, &QBarSet::selectedBarsChanged,
+                   this, &QAbstractBarSeriesPrivate::updatedBars);
     }
 
     emit restructuredBars();        // this notifies barchartitem
@@ -1061,6 +1071,8 @@ bool QAbstractBarSeriesPrivate::insert(int index, QBarSet *set)
                      this, &QAbstractBarSeriesPrivate::handleSetValueAdd);
     QObject::connect(set->d_ptr.data(), &QBarSetPrivate::valueRemoved,
                      this, &QAbstractBarSeriesPrivate::handleSetValueRemove);
+    disconnect(set, &QBarSet::selectedBarsChanged,
+               this, &QAbstractBarSeriesPrivate::updatedBars);
 
     emit restructuredBars();      // this notifies barchartitem
     return true;
@@ -1260,7 +1272,7 @@ void QAbstractBarSeriesPrivate::initializeAnimations(QChart::AnimationOptions op
     QAbstractSeriesPrivate::initializeAnimations(options, duration, curve);
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_qabstractbarseries.cpp"
 #include "moc_qabstractbarseries_p.cpp"

@@ -97,9 +97,13 @@ class TypeOracle : public ContextualClass<TypeOracle> {
   static base::Optional<const Type*> MatchReferenceGeneric(
       const Type* reference_type, bool* is_const = nullptr);
 
-  static GenericType* GetSliceGeneric() {
+  static GenericType* GetMutableSliceGeneric() {
     return Declarations::LookupUniqueGenericType(
-        QualifiedName({TORQUE_INTERNAL_NAMESPACE_STRING}, SLICE_TYPE_STRING));
+        QualifiedName(MUTABLE_SLICE_TYPE_STRING));
+  }
+  static GenericType* GetConstSliceGeneric() {
+    return Declarations::LookupUniqueGenericType(
+        QualifiedName(CONST_SLICE_TYPE_STRING));
   }
 
   static GenericType* GetWeakGeneric() {
@@ -108,6 +112,10 @@ class TypeOracle : public ContextualClass<TypeOracle> {
 
   static GenericType* GetSmiTaggedGeneric() {
     return Declarations::LookupGlobalUniqueGenericType(SMI_TAGGED_TYPE_STRING);
+  }
+
+  static GenericType* GetLazyGeneric() {
+    return Declarations::LookupGlobalUniqueGenericType(LAZY_TYPE_STRING);
   }
 
   static const Type* GetReferenceType(const Type* referenced_type,
@@ -122,8 +130,11 @@ class TypeOracle : public ContextualClass<TypeOracle> {
     return GetReferenceType(referenced_type, false);
   }
 
-  static const Type* GetSliceType(const Type* referenced_type) {
-    return GetGenericTypeInstance(GetSliceGeneric(), {referenced_type});
+  static const Type* GetMutableSliceType(const Type* referenced_type) {
+    return GetGenericTypeInstance(GetMutableSliceGeneric(), {referenced_type});
+  }
+  static const Type* GetConstSliceType(const Type* referenced_type) {
+    return GetGenericTypeInstance(GetConstSliceGeneric(), {referenced_type});
   }
 
   static const std::vector<const BuiltinPointerType*>&
@@ -166,6 +177,10 @@ class TypeOracle : public ContextualClass<TypeOracle> {
     return Get().GetBuiltinType(CONSTEXPR_BOOL_TYPE_STRING);
   }
 
+  static const Type* GetConstexprStringType() {
+    return Get().GetBuiltinType(CONSTEXPR_STRING_TYPE_STRING);
+  }
+
   static const Type* GetConstexprIntPtrType() {
     return Get().GetBuiltinType(CONSTEXPR_INTPTR_TYPE_STRING);
   }
@@ -182,6 +197,10 @@ class TypeOracle : public ContextualClass<TypeOracle> {
     return Get().GetBuiltinType(RAWPTR_TYPE_STRING);
   }
 
+  static const Type* GetExternalPointerType() {
+    return Get().GetBuiltinType(EXTERNALPTR_TYPE_STRING);
+  }
+
   static const Type* GetMapType() {
     return Get().GetBuiltinType(MAP_TYPE_STRING);
   }
@@ -192,6 +211,10 @@ class TypeOracle : public ContextualClass<TypeOracle> {
 
   static const Type* GetHeapObjectType() {
     return Get().GetBuiltinType(HEAP_OBJECT_TYPE_STRING);
+  }
+
+  static const Type* GetTaggedZeroPatternType() {
+    return Get().GetBuiltinType(TAGGED_ZERO_PATTERN_TYPE_STRING);
   }
 
   static const Type* GetJSAnyType() {

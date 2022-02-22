@@ -14,10 +14,10 @@
 #include "extensions/browser/api/web_request/web_request_info.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_util.h"
-#include "extensions/common/api/declarative_net_request.h"
 #include "extensions/common/api/declarative_net_request/constants.h"
 #include "extensions/common/api/declarative_net_request/test_utils.h"
 #include "extensions/common/constants.h"
+#include "services/network/public/mojom/fetch_api.mojom-shared.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/mojom/loader/resource_load_info.mojom-shared.h"
 #include "url/gurl.h"
@@ -25,11 +25,7 @@
 namespace extensions {
 namespace declarative_net_request {
 
-namespace dnr_api = api::declarative_net_request;
-
 namespace {
-
-constexpr char kJSONRulesFilename[] = "rules_file.json";
 
 constexpr int64_t kNavigationId = 1;
 
@@ -42,6 +38,10 @@ class ActionTrackerTest : public DNRTestBase {
   void SetUp() override {
     DNRTestBase::SetUp();
     action_tracker_ = std::make_unique<ActionTracker>(browser_context());
+
+    // Do not check whether tab IDs correspond to valid tabs in this test as
+    // this is a unit test and no actual tabs will be created.
+    action_tracker_->SetCheckTabIdOnRuleMatchForTest(false);
   }
 
  protected:
@@ -55,7 +55,9 @@ class ActionTrackerTest : public DNRTestBase {
 
     // Create extension directory.
     ASSERT_TRUE(base::CreateDirectory(extension_dir));
-    TestRulesetInfo info = {kJSONRulesFilename, base::ListValue()};
+    constexpr char kRulesetID[] = "id";
+    constexpr char kJSONRulesFilename[] = "rules_file.json";
+    TestRulesetInfo info(kRulesetID, kJSONRulesFilename, base::ListValue());
     WriteManifestAndRuleset(
         extension_dir, info,
         std::vector<std::string>({URLPattern::kAllUrlsPattern}), flags);
@@ -71,23 +73,23 @@ class ActionTrackerTest : public DNRTestBase {
   // Helper to create a RequestAction for the given |extension_id|.
   RequestAction CreateRequestAction(const ExtensionId& extension_id) {
     return RequestAction(RequestActionType::BLOCK, kMinValidID,
-                         kDefaultPriority, dnr_api::SOURCE_TYPE_MANIFEST,
+                         kDefaultPriority, kMinValidStaticRulesetID,
                          extension_id);
   }
 
   // Returns renderer-initiated request params for the given |url|.
   WebRequestInfoInitParams GetRequestParamsForURL(
       base::StringPiece url,
-      blink::mojom::ResourceType type,
+      WebRequestResourceType web_request_type,
       int tab_id) {
     const int kRendererId = 1;
     WebRequestInfoInitParams info;
     info.url = GURL(url);
-    info.type = type;
+    info.web_request_type = web_request_type;
     info.render_process_id = kRendererId;
     info.frame_data.tab_id = tab_id;
 
-    if (type == blink::mojom::ResourceType::kMainFrame) {
+    if (web_request_type == WebRequestResourceType::MAIN_FRAME) {
       info.navigation_id = kNavigationId;
       info.is_navigation_request = true;
     }
@@ -129,11 +131,11 @@ TEST_P(ActionTrackerTest, GetMatchedRulesNoPermission) {
 
   // Record a rule match for a main-frame navigation request.
   WebRequestInfo request_1(GetRequestParamsForURL(
-      "http://one.com", blink::mojom::ResourceType::kMainFrame, tab_id));
+      "http://one.com", WebRequestResourceType::MAIN_FRAME, tab_id));
 
   // Record a rule match for a non-navigation request.
   WebRequestInfo request_2(GetRequestParamsForURL(
-      "http://one.com", blink::mojom::ResourceType::kSubResource, tab_id));
+      "http://one.com", WebRequestResourceType::OTHER, tab_id));
 
   // Assume a rule is matched for |request_1| and |request_2| for all three
   // extensions.
@@ -189,7 +191,7 @@ TEST_P(ActionTrackerTest, GetMatchedRulesLifespan) {
 
   // Record a rule match for a non-navigation request.
   WebRequestInfo request_1(GetRequestParamsForURL(
-      "http://one.com", blink::mojom::ResourceType::kSubResource, tab_id));
+      "http://one.com", WebRequestResourceType::OTHER, tab_id));
   action_tracker()->OnRuleMatched(CreateRequestAction(extension_1->id()),
                                   request_1);
 
@@ -266,9 +268,9 @@ TEST_P(ActionTrackerTest, RulesClearedOnTimer) {
   const Extension* extension_1 = last_loaded_extension();
 
   // Record a rule match for |extension_1| for the unknown tab.
-  WebRequestInfo request_1(GetRequestParamsForURL(
-      "http://one.com", blink::mojom::ResourceType::kSubResource,
-      extension_misc::kUnknownTabId));
+  WebRequestInfo request_1(
+      GetRequestParamsForURL("http://one.com", WebRequestResourceType::OTHER,
+                             extension_misc::kUnknownTabId));
   action_tracker()->OnRuleMatched(CreateRequestAction(extension_1->id()),
                                   request_1);
 

@@ -8,7 +8,7 @@
 #include "base/callback_forward.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/threading/thread_checker.h"
+#include "base/sequence_checker.h"
 #include "media/base/video_codecs.h"
 #include "media/base/video_decoder.h"
 #include "media/base/video_decoder_config.h"
@@ -88,6 +88,7 @@ class MEDIA_EXPORT OffloadingVideoDecoder : public VideoDecoder {
   ~OffloadingVideoDecoder() override;
 
   // VideoDecoder implementation.
+  VideoDecoderType GetDecoderType() const override;
   std::string GetDisplayName() const override;
   void Initialize(const VideoDecoderConfig& config,
                   bool low_delay,
@@ -110,7 +111,7 @@ class MEDIA_EXPORT OffloadingVideoDecoder : public VideoDecoder {
   // Indicates if Initialize() has been called.
   bool initialized_ = false;
 
-  THREAD_CHECKER(thread_checker_);
+  SEQUENCE_CHECKER(sequence_checker_);
 
   // A helper class for managing Decode() and Reset() calls to the offloaded
   // decoder; it owns the given OffloadableVideoDecoder and is always destructed

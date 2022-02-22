@@ -18,18 +18,44 @@
  *                              &v8::CFunction::Make(FastMethod));
  * \endcode
  *
+ * By design, fast calls are limited by the following requirements, which
+ * the embedder should enforce themselves:
+ *   - they should not allocate on the JS heap;
+ *   - they should not trigger JS execution.
+ * To enforce them, the embedder could use the existing
+ * v8::Isolate::DisallowJavascriptExecutionScope and a utility similar to
+ * Blink's NoAllocationScope:
+ * https://source.chromium.org/chromium/chromium/src/+/master:third_party/blink/renderer/platform/heap/thread_state_scopes.h;l=16
+ *
+ * Due to these limitations, it's not directly possible to report errors by
+ * throwing a JS exception or to otherwise do an allocation. There is an
+ * alternative way of creating fast calls that supports falling back to the
+ * slow call and then performing the necessary allocation. When one creates
+ * the fast method by using CFunction::MakeWithFallbackSupport instead of
+ * CFunction::Make, the fast callback gets as last parameter an output variable,
+ * through which it can request falling back to the slow call. So one might
+ * declare their method like:
+ *
+ * \code
+ *    void FastMethodWithFallback(int param, FastApiCallbackOptions& options);
+ * \endcode
+ *
+ * If the callback wants to signal an error condition or to perform an
+ * allocation, it must set options.fallback to true and do an early return from
+ * the fast method. Then V8 checks the value of options.fallback and if it's
+ * true, falls back to executing the SlowCallback, which is capable of reporting
+ * the error (either by throwing a JS exception or logging to the console) or
+ * doing the allocation. It's the embedder's responsibility to ensure that the
+ * fast callback is idempotent up to the point where error and fallback
+ * conditions are checked, because otherwise executing the slow callback might
+ * produce visible side-effects twice.
+ *
  * An example for custom embedder type support might employ a way to wrap/
  * unwrap various C++ types in JSObject instances, e.g:
  *
  * \code
  *
- *    // Represents the way this type system maps C++ and JS values.
- *    struct WrapperTypeInfo {
- *      // Store e.g. a method to map from exposed C++ types to the already
- *      // created v8::FunctionTemplate's for instantiating them.
- *    };
- *
- *    // Helper method with a sanity check.
+ *    // Helper method with a check for field count.
  *    template <typename T, int offset>
  *    inline T* GetInternalField(v8::Local<v8::Object> wrapper) {
  *      assert(offset < wrapper->InternalFieldCount());
@@ -37,25 +63,19 @@
  *          wrapper->GetAlignedPointerFromInternalField(offset));
  *    }
  *
- *    // Returns the type info from a wrapper JS object.
- *    inline const WrapperTypeInfo* ToWrapperTypeInfo(
- *        v8::Local<v8::Object> wrapper) {
- *      return GetInternalField<WrapperTypeInfo,
- *                              kV8EmbedderWrapperTypeIndex>(wrapper);
- *    }
- *
  *    class CustomEmbedderType {
  *     public:
- *      static constexpr const WrapperTypeInfo* GetWrapperTypeInfo() {
- *        return &custom_type_wrapper_type_info;
- *      }
  *      // Returns the raw C object from a wrapper JS object.
  *      static CustomEmbedderType* Unwrap(v8::Local<v8::Object> wrapper) {
  *        return GetInternalField<CustomEmbedderType,
  *                                kV8EmbedderWrapperObjectIndex>(wrapper);
  *      }
- *      static void FastMethod(CustomEmbedderType* receiver, int param) {
- *        assert(receiver != nullptr);
+ *      static void FastMethod(v8::ApiObject receiver_obj, int param) {
+ *        v8::Object* v8_object = reinterpret_cast<v8::Object*>(&api_object);
+ *        CustomEmbedderType* receiver = static_cast<CustomEmbedderType*>(
+ *          receiver_obj->GetAlignedPointerFromInternalField(
+ *            kV8EmbedderWrapperObjectIndex));
+ *
  *        // Type checks are already done by the optimized code.
  *        // Then call some performance-critical method like:
  *        // receiver->Method(param);
@@ -67,31 +87,16 @@
  *          v8::Local<v8::Object>::Cast(info.Holder());
  *        CustomEmbedderType* receiver = Unwrap(instance);
  *        // TODO: Do type checks and extract {param}.
- *        FastMethod(receiver, param);
+ *        receiver->Method(param);
  *      }
- *
- *     private:
- *      static const WrapperTypeInfo custom_type_wrapper_type_info;
  *    };
  *
- *    // Support for custom embedder types via specialization of WrapperTraits.
- *    namespace v8 {
- *      template <>
- *      class WrapperTraits<CustomEmbedderType> {
- *        public:
- *          static const void* GetTypeInfo() {
- *            // We use the already defined machinery for the custom type.
- *            return CustomEmbedderType::GetWrapperTypeInfo();
- *          }
- *      };
- *    }  // namespace v8
- *
+ *    // TODO(mslekova): Clean-up these constants
  *    // The constants kV8EmbedderWrapperTypeIndex and
  *    // kV8EmbedderWrapperObjectIndex describe the offsets for the type info
- *    // struct (the one returned by WrapperTraits::GetTypeInfo) and the
- *    // native object, when expressed as internal field indices within a
- *    // JSObject. The existance of this helper function assumes that all
- *    // embedder objects have their JSObject-side type info at the same
+ *    // struct and the native object, when expressed as internal field indices
+ *    // within a JSObject. The existance of this helper function assumes that
+ *    // all embedder objects have their JSObject-side type info at the same
  *    // offset, but this is not a limitation of the API itself. For a detailed
  *    // use case, see the third example.
  *    static constexpr int kV8EmbedderWrapperTypeIndex = 0;
@@ -120,8 +125,7 @@
  *        v8::ObjectTemplate::New(isolate);
  *      object_template->SetInternalFieldCount(
  *        kV8EmbedderWrapperObjectIndex + 1);
- *      object_template->Set(
-            v8::String::NewFromUtf8Literal(isolate, "method"), method_template);
+ *      object_template->Set(isolate, "method", method_template);
  *
  *      // Instantiate the wrapper JS object.
  *      v8::Local<v8::Object> object =
@@ -144,17 +148,35 @@
  *   receiver := the {embedder_object} from above
  *   param := 42
  *
- * Currently only void return types are supported.
+ * Currently supported return types:
+ *   - void
+ *   - bool
+ *   - int32_t
+ *   - uint32_t
+ *   - float32_t
+ *   - float64_t
  * Currently supported argument types:
  *  - pointer to an embedder type
  *  - bool
  *  - int32_t
  *  - uint32_t
- * To be supported types:
  *  - int64_t
  *  - uint64_t
  *  - float32_t
  *  - float64_t
+ *
+ * The 64-bit integer types currently have the IDL (unsigned) long long
+ * semantics: https://heycam.github.io/webidl/#abstract-opdef-converttoint
+ * In the future we'll extend the API to also provide conversions from/to
+ * BigInt to preserve full precision.
+ * The floating point types currently have the IDL (unrestricted) semantics,
+ * which is the only one used by WebGL. We plan to add support also for
+ * restricted floats/doubles, similarly to the BigInt conversion policies.
+ * We also differ from the specific NaN bit pattern that WebIDL prescribes
+ * (https://heycam.github.io/webidl/#es-unrestricted-float) in that Blink
+ * passes NaN values as-is, i.e. doesn't normalize them.
+ *
+ * To be supported types:
  *  - arrays of C types
  *  - arrays of embedder types
  */
@@ -165,13 +187,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "v8config.h"  // NOLINT(build/include)
+#include "v8config.h"  // NOLINT(build/include_directory)
 
 namespace v8 {
 
 class CTypeInfo {
  public:
-  enum class Type : char {
+  enum class Type : uint8_t {
     kVoid,
     kBool,
     kInt32,
@@ -180,60 +202,34 @@ class CTypeInfo {
     kUint64,
     kFloat32,
     kFloat64,
-    kUnwrappedApiObject,
+    kV8Value,
   };
 
-  enum ArgFlags : char {
-    None = 0,
-    IsArrayBit = 1 << 0,  // This argument is first in an array of values.
+  // kCallbackOptionsType and kInvalidType are not part of the Type enum
+  // because they are only used internally. Use values 255 and 254 that
+  // are larger than any valid Type enum.
+  static constexpr Type kCallbackOptionsType = Type(255);
+  static constexpr Type kInvalidType = Type(254);
+
+  enum class ArgFlags : uint8_t {
+    kNone = 0,
   };
 
-  static CTypeInfo FromWrapperType(const void* wrapper_type_info,
-                                   ArgFlags flags = ArgFlags::None) {
-    uintptr_t wrapper_type_info_ptr =
-        reinterpret_cast<uintptr_t>(wrapper_type_info);
-    // Check that the lower kIsWrapperTypeBit bits are 0's.
-    CHECK_EQ(
-        wrapper_type_info_ptr & ~(static_cast<uintptr_t>(~0)
-                                  << static_cast<uintptr_t>(kIsWrapperTypeBit)),
-        0);
-    // TODO(mslekova): Refactor the manual bit manipulations to use
-    // PointerWithPayload instead.
-    return CTypeInfo(wrapper_type_info_ptr | flags | kIsWrapperTypeBit);
+  explicit constexpr CTypeInfo(Type type, ArgFlags flags = ArgFlags::kNone)
+      : type_(type), flags_(flags) {}
+
+  constexpr Type GetType() const { return type_; }
+
+  constexpr ArgFlags GetFlags() const { return flags_; }
+
+  static const CTypeInfo& Invalid() {
+    static CTypeInfo invalid = CTypeInfo(kInvalidType);
+    return invalid;
   }
-
-  static constexpr CTypeInfo FromCType(Type ctype,
-                                       ArgFlags flags = ArgFlags::None) {
-    // ctype cannot be Type::kUnwrappedApiObject.
-    return CTypeInfo(
-        ((static_cast<uintptr_t>(ctype) << kTypeOffset) & kTypeMask) | flags);
-  }
-
-  const void* GetWrapperInfo() const;
-
-  constexpr Type GetType() const {
-    if (payload_ & kIsWrapperTypeBit) {
-      return Type::kUnwrappedApiObject;
-    }
-    return static_cast<Type>((payload_ & kTypeMask) >> kTypeOffset);
-  }
-
-  constexpr bool IsArray() const { return payload_ & ArgFlags::IsArrayBit; }
 
  private:
-  explicit constexpr CTypeInfo(uintptr_t payload) : payload_(payload) {}
-
-  // That must be the last bit after ArgFlags.
-  static constexpr uintptr_t kIsWrapperTypeBit = 1 << 1;
-  static constexpr uintptr_t kWrapperTypeInfoMask = static_cast<uintptr_t>(~0)
-                                                    << 2;
-
-  static constexpr unsigned int kTypeOffset = kIsWrapperTypeBit;
-  static constexpr unsigned int kTypeSize = 8 - kTypeOffset;
-  static constexpr uintptr_t kTypeMask =
-      (~(static_cast<uintptr_t>(~0) << kTypeSize)) << kTypeOffset;
-
-  const uintptr_t payload_;
+  Type type_;
+  ArgFlags flags_;
 };
 
 class CFunctionInfo {
@@ -241,31 +237,50 @@ class CFunctionInfo {
   virtual const CTypeInfo& ReturnInfo() const = 0;
   virtual unsigned int ArgumentCount() const = 0;
   virtual const CTypeInfo& ArgumentInfo(unsigned int index) const = 0;
+  virtual bool HasOptions() const = 0;
 };
 
-template <typename T>
-class WrapperTraits {
- public:
-  static const void* GetTypeInfo() {
-    static_assert(sizeof(T) != sizeof(T),
-                  "WrapperTraits must be specialized for this type.");
-    return nullptr;
-  }
+struct ApiObject {
+  uintptr_t address;
+};
+
+/**
+ * A struct which may be passed to a fast call callback, like so:
+ * \code
+ *    void FastMethodWithOptions(int param, FastApiCallbackOptions& options);
+ * \endcode
+ */
+struct FastApiCallbackOptions {
+  /**
+   * If the callback wants to signal an error condition or to perform an
+   * allocation, it must set options.fallback to true and do an early return
+   * from the fast method. Then V8 checks the value of options.fallback and if
+   * it's true, falls back to executing the SlowCallback, which is capable of
+   * reporting the error (either by throwing a JS exception or logging to the
+   * console) or doing the allocation. It's the embedder's responsibility to
+   * ensure that the fast callback is idempotent up to the point where error and
+   * fallback conditions are checked, because otherwise executing the slow
+   * callback might produce visible side-effects twice.
+   */
+  bool fallback;
+
+  /**
+   * The `data` passed to the FunctionTemplate constructor, or `undefined`.
+   */
+  const ApiObject data;
 };
 
 namespace internal {
 
 template <typename T>
-struct GetCType {
-  static_assert(sizeof(T) != sizeof(T), "Unsupported CType");
-};
+struct GetCType;
 
-#define SPECIALIZE_GET_C_TYPE_FOR(ctype, ctypeinfo)            \
-  template <>                                                  \
-  struct GetCType<ctype> {                                     \
-    static constexpr CTypeInfo Get() {                         \
-      return CTypeInfo::FromCType(CTypeInfo::Type::ctypeinfo); \
-    }                                                          \
+#define SPECIALIZE_GET_C_TYPE_FOR(ctype, ctypeinfo) \
+  template <>                                       \
+  struct GetCType<ctype> {                          \
+    static constexpr CTypeInfo Get() {              \
+      return CTypeInfo(CTypeInfo::Type::ctypeinfo); \
+    }                                               \
   };
 
 #define SUPPORTED_C_TYPES(V) \
@@ -276,89 +291,74 @@ struct GetCType {
   V(int64_t, kInt64)         \
   V(uint64_t, kUint64)       \
   V(float, kFloat32)         \
-  V(double, kFloat64)
+  V(double, kFloat64)        \
+  V(ApiObject, kV8Value)
 
 SUPPORTED_C_TYPES(SPECIALIZE_GET_C_TYPE_FOR)
 
-template <typename T, typename = void>
-struct EnableIfHasWrapperTypeInfo {};
-
 template <>
-struct EnableIfHasWrapperTypeInfo<void> {};
-
-template <typename T>
-struct EnableIfHasWrapperTypeInfo<T, decltype(WrapperTraits<T>::GetTypeInfo(),
-                                              void())> {
-  typedef void type;
-};
-
-// T* where T is a primitive (array of primitives).
-template <typename T, typename = void>
-struct GetCTypePointerImpl {
+struct GetCType<FastApiCallbackOptions&> {
   static constexpr CTypeInfo Get() {
-    return CTypeInfo::FromCType(GetCType<T>::Get().GetType(),
-                                CTypeInfo::IsArrayBit);
+    return CTypeInfo(CTypeInfo::kCallbackOptionsType);
   }
 };
 
-// T* where T is an API object.
-template <typename T>
-struct GetCTypePointerImpl<T, typename EnableIfHasWrapperTypeInfo<T>::type> {
-  static constexpr CTypeInfo Get() {
-    return CTypeInfo::FromWrapperType(WrapperTraits<T>::GetTypeInfo());
-  }
-};
-
-// T** where T is a primitive. Not allowed.
-template <typename T, typename = void>
-struct GetCTypePointerPointerImpl {
-  static_assert(sizeof(T**) != sizeof(T**), "Unsupported type");
-};
-
-// T** where T is an API object (array of API objects).
-template <typename T>
-struct GetCTypePointerPointerImpl<
-    T, typename EnableIfHasWrapperTypeInfo<T>::type> {
-  static constexpr CTypeInfo Get() {
-    return CTypeInfo::FromWrapperType(WrapperTraits<T>::GetTypeInfo(),
-                                      CTypeInfo::IsArrayBit);
-  }
-};
-
-template <typename T>
-struct GetCType<T**> : public GetCTypePointerPointerImpl<T> {};
-
-template <typename T>
-struct GetCType<T*> : public GetCTypePointerImpl<T> {};
+// Helper to count the number of occurances of `T` in `List`
+template <typename T, typename... List>
+struct count : std::integral_constant<int, 0> {};
+template <typename T, typename... Args>
+struct count<T, T, Args...>
+    : std::integral_constant<std::size_t, 1 + count<T, Args...>::value> {};
+template <typename T, typename U, typename... Args>
+struct count<T, U, Args...> : count<T, Args...> {};
 
 template <typename R, typename... Args>
 class CFunctionInfoImpl : public CFunctionInfo {
  public:
+  static constexpr int kOptionsArgCount =
+      count<FastApiCallbackOptions&, Args...>();
+  static constexpr int kReceiverCount = 1;
   CFunctionInfoImpl()
-      : return_info_(i::GetCType<R>::Get()),
-        arg_count_(sizeof...(Args)),
-        arg_info_{i::GetCType<Args>::Get()...} {
-    static_assert(i::GetCType<R>::Get().GetType() == CTypeInfo::Type::kVoid,
-                  "Only void return types are currently supported.");
+      : return_info_(internal::GetCType<R>::Get()),
+        arg_count_(sizeof...(Args) - kOptionsArgCount),
+        arg_info_{internal::GetCType<Args>::Get()...} {
+    static_assert(kOptionsArgCount == 0 || kOptionsArgCount == 1,
+                  "Only one options parameter is supported.");
+    static_assert(sizeof...(Args) >= kOptionsArgCount + kReceiverCount,
+                  "The receiver or the fallback argument is missing.");
+    constexpr CTypeInfo::Type type = internal::GetCType<R>::Get().GetType();
+    static_assert(type == CTypeInfo::Type::kVoid ||
+                      type == CTypeInfo::Type::kBool ||
+                      type == CTypeInfo::Type::kInt32 ||
+                      type == CTypeInfo::Type::kUint32 ||
+                      type == CTypeInfo::Type::kFloat32 ||
+                      type == CTypeInfo::Type::kFloat64,
+                  "64-bit int and api object values are not currently "
+                  "supported return types.");
   }
 
   const CTypeInfo& ReturnInfo() const override { return return_info_; }
   unsigned int ArgumentCount() const override { return arg_count_; }
   const CTypeInfo& ArgumentInfo(unsigned int index) const override {
-    CHECK_LT(index, ArgumentCount());
+    if (index >= ArgumentCount()) {
+      return CTypeInfo::Invalid();
+    }
     return arg_info_[index];
   }
+  bool HasOptions() const override { return kOptionsArgCount == 1; }
 
  private:
-  CTypeInfo return_info_;
+  const CTypeInfo return_info_;
   const unsigned int arg_count_;
-  CTypeInfo arg_info_[sizeof...(Args)];
+  const CTypeInfo arg_info_[sizeof...(Args)];
 };
 
 }  // namespace internal
 
 class V8_EXPORT CFunction {
  public:
+  constexpr CFunction() : address_(nullptr), type_info_(nullptr) {}
+
   const CTypeInfo& ReturnInfo() const { return type_info_->ReturnInfo(); }
 
   const CTypeInfo& ArgumentInfo(unsigned int index) const {
@@ -373,6 +373,17 @@ class V8_EXPORT CFunction {
   template <typename F>
   static CFunction Make(F* func) {
     return ArgUnwrap<F*>::Make(func);
+  }
+
+  template <typename F>
+  V8_DEPRECATED("Use CFunction::Make instead.")
+  static CFunction MakeWithFallbackSupport(F* func) {
+    return ArgUnwrap<F*>::Make(func);
+  }
+
+  template <typename F>
+  static CFunction Make(F* func, const CFunctionInfo* type_info) {
+    return CFunction(reinterpret_cast<const void*>(func), type_info);
   }
 
  private:

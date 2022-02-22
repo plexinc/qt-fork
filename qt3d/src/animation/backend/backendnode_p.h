@@ -54,6 +54,7 @@
 #include <Qt3DAnimation/qt3danimation_global.h>
 #include <Qt3DCore/qbackendnode.h>
 #include <Qt3DAnimation/private/handler_p.h>
+#include <Qt3DCore/qnode.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -68,7 +69,7 @@ public:
 
     void setHandler(Handler *handler);
 
-    virtual void syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firstTime);
+    void syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firstTime) override;
 
 protected:
     void setDirty(Handler::DirtyFlag flag);

@@ -30,7 +30,7 @@ class MojoRenderer;
 // wrapper factories that use MRF, rather than creating derived MojoRenderer
 // types, or extending MRF. See DecryptingRendererFactory and
 // MediaPlayerRendererClientFactory for examples of small wrappers around MRF.
-class MojoRendererFactory : public RendererFactory {
+class MojoRendererFactory final : public RendererFactory {
  public:
   explicit MojoRendererFactory(
       media::mojom::InterfaceFactory* interface_factory);
@@ -43,6 +43,14 @@ class MojoRendererFactory : public RendererFactory {
       VideoRendererSink* video_renderer_sink,
       RequestOverlayInfoCB request_overlay_info_cb,
       const gfx::ColorSpace& target_color_space) final;
+
+#if defined(OS_WIN)
+  std::unique_ptr<MojoRenderer> CreateMediaFoundationRenderer(
+      mojo::PendingReceiver<mojom::MediaFoundationRendererExtension>
+          renderer_extension_receiver,
+      const scoped_refptr<base::SingleThreadTaskRunner>& media_task_runner,
+      VideoRendererSink* video_renderer_sink);
+#endif  // defined (OS_WIN)
 
 #if BUILDFLAG(ENABLE_CAST_RENDERER)
   std::unique_ptr<MojoRenderer> CreateCastRenderer(

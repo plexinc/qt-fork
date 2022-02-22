@@ -8,6 +8,7 @@
 #include "base/optional.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
+#include "third_party/blink/renderer/platform/heap/visitor.h"
 #include "v8/include/v8.h"
 
 namespace blink {
@@ -17,7 +18,6 @@ class ScriptPromise;
 class ScriptState;
 class ScriptValue;
 class StreamPromiseResolver;
-class Visitor;
 class WritableStream;
 class WritableStream;
 
@@ -106,7 +106,7 @@ class CORE_EXPORT WritableStreamDefaultWriter final : public ScriptWrappable {
 
   void SetReadyPromise(StreamPromiseResolver*);
 
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
  private:
   // https://streams.spec.whatwg.org/#writable-stream-default-writer-abort

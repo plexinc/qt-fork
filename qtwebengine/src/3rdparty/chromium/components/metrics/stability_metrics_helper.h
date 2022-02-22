@@ -8,9 +8,7 @@
 #include <string>
 
 #include "base/macros.h"
-#include "base/optional.h"
 #include "base/process/kill.h"
-#include "base/time/time.h"
 
 class PrefRegistrySimple;
 class PrefService;
@@ -18,15 +16,23 @@ class PrefService;
 namespace metrics {
 
 // The values here correspond to values in the Stability message in
-// system_profile.proto. It is intentional that we're only tracking a subset,
-// but more values can get added to this.
+// system_profile.proto.
 // This must stay 1-1 with the StabilityEventType enum in enums.xml.
 enum class StabilityEventType {
   kPageLoad = 2,
   kRendererCrash = 3,
+  kRendererHang = 4,
   kExtensionCrash = 5,
+  kChildProcessCrash = 6,
+  kLaunch = 15,
   kBrowserCrash = 16,
-  kMaxValue = kBrowserCrash
+  kIncompleteShutdown = 17,
+  kRendererFailedLaunch = 24,
+  kExtensionRendererFailedLaunch = 25,
+  kRendererLaunch = 26,
+  kExtensionRendererLaunch = 27,
+  kGpuCrash = 31,
+  kMaxValue = kGpuCrash
 };
 
 class SystemProfileProto;
@@ -60,8 +66,7 @@ class StabilityMetricsHelper {
   // Records a renderer process crash.
   void LogRendererCrash(bool was_extension_process,
                         base::TerminationStatus status,
-                        int exit_code,
-                        base::Optional<base::TimeDelta> uptime);
+                        int exit_code);
 
   // Records that a new renderer process was successfully launched.
   void LogRendererLaunched(bool was_extension_process);
@@ -90,6 +95,9 @@ class StabilityMetricsHelper {
 
   // Increments a 64-bit Integer pref value specified by |path|.
   void IncrementLongPrefsValue(const char* path);
+
+  // Records that a renderer launch failed.
+  void LogRendererLaunchFailed(bool was_extension_process);
 
   PrefService* local_state_;
 

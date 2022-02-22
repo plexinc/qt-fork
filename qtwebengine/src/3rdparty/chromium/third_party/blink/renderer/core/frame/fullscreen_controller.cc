@@ -36,6 +36,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/v8_fullscreen_options.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/exported/web_view_impl.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/frame/page_scale_constraints_set.h"
@@ -48,6 +49,34 @@
 #include "third_party/blink/renderer/core/page/spatial_navigation_controller.h"
 
 namespace blink {
+
+namespace {
+
+mojom::blink::FullscreenOptionsPtr ToMojoOptions(
+    LocalFrame* frame,
+    const FullscreenOptions* options,
+    FullscreenRequestType request_type) {
+  auto fullscreen_options = mojom::blink::FullscreenOptions::New();
+  fullscreen_options->prefers_navigation_bar =
+      options->navigationUI() != "hide";
+  if (options->hasScreen()) {
+    DCHECK(RuntimeEnabledFeatures::WindowPlacementEnabled(frame->DomWindow()));
+    if (options->screen()->DisplayId() != Screen::kInvalidDisplayId)
+      fullscreen_options->display_id = options->screen()->DisplayId();
+  }
+
+  // Propagate the type of fullscreen request (prefixed or unprefixed) to
+  // OOPIF ancestor frames so that they fire matching prefixed or unprefixed
+  // fullscreen events.
+  fullscreen_options->is_prefixed =
+      request_type & FullscreenRequestType::kPrefixed;
+  fullscreen_options->is_xr_overlay =
+      request_type & FullscreenRequestType::kForXrOverlay;
+
+  return fullscreen_options;
+}
+
+}  // namespace
 
 FullscreenController::FullscreenController(WebViewImpl* web_view_base)
     : web_view_base_(web_view_base),
@@ -112,7 +141,7 @@ void FullscreenController::DidExitFullscreen() {
 
 void FullscreenController::EnterFullscreen(LocalFrame& frame,
                                            const FullscreenOptions* options,
-                                           bool for_cross_process_descendant) {
+                                           FullscreenRequestType request_type) {
   // TODO(dtapuska): If we are already in fullscreen. If the options are
   // different than the currently requested one we may wish to request
   // fullscreen mode again.
@@ -128,7 +157,7 @@ void FullscreenController::EnterFullscreen(LocalFrame& frame,
   }
 
   // We need to store these values here rather than in |DidEnterFullscreen()|
-  // since by the time the latter is called, a Resize has already occured,
+  // since by the time the latter is called, a Resize has already occurred,
   // clamping the scroll offset. Don't save values if we're still waiting to
   // restore a previous set. This can happen if we exit and quickly reenter
   // fullscreen without performing a layout.
@@ -146,18 +175,21 @@ void FullscreenController::EnterFullscreen(LocalFrame& frame,
     return;
 
   DCHECK(state_ == State::kInitial);
-  auto fullscreen_options = mojom::blink::FullscreenOptions::New();
-  fullscreen_options->prefers_navigation_bar =
-      options->navigationUI() != "hide";
-  if (options->hasScreen()) {
-    DCHECK(RuntimeEnabledFeatures::WindowPlacementEnabled());
-    if (options->screen()->DisplayId() != Screen::kInvalidDisplayId)
-      fullscreen_options->display_id = options->screen()->DisplayId();
-  }
+
+  auto fullscreen_options = ToMojoOptions(&frame, options, request_type);
+
+#if DCHECK_IS_ON()
+  DVLOG(2) << __func__ << ": request_type="
+           << FullscreenRequestTypeToDebugString(request_type)
+           << " fullscreen_options={display_id="
+           << fullscreen_options->display_id
+           << ", is_prefixed=" << fullscreen_options->is_prefixed
+           << ", is_xr_overlay=" << fullscreen_options->is_xr_overlay << "}";
+#endif
 
   // Don't send redundant EnterFullscreen message to the browser for the
   // ancestor frames if the subframe has already entered fullscreen.
-  if (!for_cross_process_descendant) {
+  if (!(request_type & FullscreenRequestType::kForCrossProcessDescendant)) {
     frame.GetLocalFrameHostRemote().EnterFullscreen(
         std::move(fullscreen_options),
         WTF::Bind(&FullscreenController::EnterFullscreenCallback,
@@ -180,8 +212,11 @@ void FullscreenController::ExitFullscreen(LocalFrame& frame) {
   state_ = State::kExitingFullscreen;
 }
 
-void FullscreenController::FullscreenElementChanged(Element* old_element,
-                                                    Element* new_element) {
+void FullscreenController::FullscreenElementChanged(
+    Element* old_element,
+    Element* new_element,
+    const FullscreenOptions* options,
+    FullscreenRequestType request_type) {
   DCHECK_NE(old_element, new_element);
 
   // We only override the WebView's background color for overlay fullscreen
@@ -213,8 +248,14 @@ void FullscreenController::FullscreenElementChanged(Element* old_element,
   // Tell the browser the fullscreen state has changed.
   if (Element* owner = new_element ? new_element : old_element) {
     Document& doc = owner->GetDocument();
+    bool in_fullscreen = !!new_element;
     if (LocalFrame* frame = doc.GetFrame()) {
-      frame->GetLocalFrameHostRemote().FullscreenStateChanged(!!new_element);
+      mojom::blink::FullscreenOptionsPtr mojo_options;
+      if (in_fullscreen)
+        mojo_options = ToMojoOptions(frame, options, request_type);
+
+      frame->GetLocalFrameHostRemote().FullscreenStateChanged(
+          in_fullscreen, std::move(mojo_options));
       if (IsSpatialNavigationEnabled(frame)) {
         doc.GetPage()->GetSpatialNavigationController().FullscreenStateChanged(
             new_element);

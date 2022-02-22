@@ -6,27 +6,20 @@ import("//build/config/features.gni")
 import("//mojo/public/tools/bindings/mojom.gni")
 import("//printing/buildflags/buildflags.gni")
 
-static_library("common") {
+source_set("common") {
   sources = [
     "cloud_print_cdd_conversion.cc",
     "cloud_print_cdd_conversion.h",
-    "print_messages.cc",
-    "print_messages.h",
-    "printing_param_traits_macros.h",
   ]
 
   deps = [
+    ":mojo_interfaces",
     "//base",
+    "//build:chromeos_buildflags",
     "//components/cloud_devices/common:common",
-    "//ipc",
     "//printing",
     "//printing/common:common",
-    "//third_party/blink/public:blink_headers",
-    "//ui/accessibility",
-    "//ui/gfx/geometry",
-    "//ui/gfx/ipc",
-    "//ui/gfx/ipc/geometry",
-    "//ui/gfx/ipc/skia",
+    "//printing/mojom",
   ]
   if (use_qt) {
     sources -= [
@@ -44,10 +37,16 @@ mojom("mojo_interfaces") {
 
   public_deps = [
     "//mojo/public/mojom/base",
+    "//printing/mojom",
     "//ui/gfx/geometry/mojom",
   ]
 
+  enabled_features = []
   if (enable_print_preview) {
-    enabled_features = [ "enable_print_preview" ]
+    enabled_features += [ "enable_print_preview" ]
+  }
+  if (enable_tagged_pdf) {
+    public_deps += [ "//ui/accessibility/mojom" ]
+    enabled_features += [ "enable_tagged_pdf" ]
   }
 }

@@ -39,6 +39,7 @@
 #include "eventnames1.h"
 #include "connection.h"
 #include "topmachine.h"
+#include "historyState.h"
 
 enum { SpyWaitTime = 8000 };
 
@@ -56,6 +57,7 @@ private Q_SLOTS:
     void topMachine();
     void topMachineDynamic();
     void publicSignals();
+    void historyState();
 };
 
 void tst_Compiled::stateNames()
@@ -258,7 +260,7 @@ void tst_Compiled::topMachine()
     });
 
     QObject::connect(&stateMachine, &QScxmlStateMachine::invokedServicesChanged,
-                     [&invokableServicesCount](const QVector<QScxmlInvokableService *> &services) {
+                     [&invokableServicesCount](const QList<QScxmlInvokableService *> &services) {
         invokableServicesCount = services.count();
     });
 
@@ -283,7 +285,7 @@ void tst_Compiled::topMachineDynamic()
     });
 
     QObject::connect(stateMachine.data(), &QScxmlStateMachine::invokedServicesChanged,
-                     [&invokableServicesCount](const QVector<QScxmlInvokableService *> &services) {
+                     [&invokableServicesCount](const QList<QScxmlInvokableService *> &services) {
         invokableServicesCount = services.count();
     });
 
@@ -304,6 +306,20 @@ void tst_Compiled::publicSignals()
     QMetaMethod aChanged = connectionMeta->method(index);
     QVERIFY(aChanged.isValid());
     QCOMPARE(aChanged.access(), QMetaMethod::Public);
+}
+
+void tst_Compiled::historyState()
+{
+    HistoryState historyStateSM;
+    QSignalSpy stableStateSpy(&historyStateSM, SIGNAL(reachedStableState()));
+    historyStateSM.start();
+
+    stableStateSpy.wait(5000);
+    QCOMPARE(historyStateSM.activeStateNames(), QStringList(QLatin1String("Off")));
+
+    historyStateSM.submitEvent("toHistory");
+    stableStateSpy.wait(5000);
+    QCOMPARE(historyStateSM.activeStateNames(), QStringList(QLatin1String("Beta")));
 }
 
 QTEST_MAIN(tst_Compiled)

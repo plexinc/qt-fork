@@ -4,7 +4,7 @@
 
 #include "chrome/browser/ui/webui/chromeos/login/screenlock_icon_source.h"
 
-#include "chrome/browser/chromeos/login/lock/screen_locker.h"
+#include "chrome/browser/ash/login/lock/screen_locker.h"
 #include "chrome/browser/ui/webui/chromeos/login/screenlock_icon_provider.h"
 #include "chrome/common/url_constants.h"
 #include "net/base/escape.h"
@@ -42,8 +42,8 @@ void ScreenlockIconSource::StartDataRequest(
     return;
   }
 
-  // TODO(crbug/1009127): Make sure |url| matches
-  // |chrome::kChromeUIScreenlockIconURL| now that |url| is available.
+  // TODO(crbug/1009127): Make sure `url` matches
+  // `chrome::kChromeUIScreenlockIconURL` now that `url` is available.
   std::string username =
       net::UnescapeBinaryURLComponent(url.path_piece().substr(1));
 

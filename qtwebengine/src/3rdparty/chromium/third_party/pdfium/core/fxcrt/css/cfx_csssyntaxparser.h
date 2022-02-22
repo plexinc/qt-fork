@@ -9,8 +9,8 @@
 
 #include <stack>
 
-#include "core/fxcrt/css/cfx_cssexttextbuf.h"
-#include "core/fxcrt/css/cfx_csstextbuf.h"
+#include "core/fxcrt/css/cfx_cssinputtextbuf.h"
+#include "core/fxcrt/css/cfx_cssoutputtextbuf.h"
 #include "core/fxcrt/fx_string.h"
 
 #define CFX_CSSSYNTAXCHECK_AllowCharset 1
@@ -49,10 +49,10 @@ class CFX_CSSSyntaxParser {
   void SaveMode(SyntaxMode eMode);
   bool RestoreMode();
 
-  bool m_bError = false;
+  bool m_bHasError = false;
   SyntaxMode m_eMode = SyntaxMode::kRuleSet;
-  CFX_CSSTextBuf m_Output;
-  CFX_CSSExtTextBuf m_Input;
+  CFX_CSSOutputTextBuf m_Output;
+  CFX_CSSInputTextBuf m_Input;
   std::stack<SyntaxMode> m_ModeStack;
 };
 

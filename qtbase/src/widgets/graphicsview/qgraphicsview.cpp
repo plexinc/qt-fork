@@ -107,7 +107,7 @@ static const int QGRAPHICSVIEW_PREALLOC_STYLE_OPTIONS = 503; // largest prime < 
     the events and reacts to them. For example, if you click on a selectable
     item, the item will typically let the scene know that it has been
     selected, and it will also redraw itself to display a selection
-    rectangle. Similiary, if you click and drag the mouse to move a movable
+    rectangle. Similarly, if you click and drag the mouse to move a movable
     item, it's the item that handles the mouse moves and moves itself.  Item
     interaction is enabled by default, and you can toggle it by calling
     setInteractive().
@@ -198,8 +198,6 @@ static const int QGRAPHICSVIEW_PREALLOC_STYLE_OPTIONS = 503; // largest prime < 
     Note that setting a flag usually imposes a side effect, and this effect
     can vary between paint devices and platforms.
 
-    \value DontClipPainter This value is obsolete and has no effect.
-
     \value DontSavePainterState When rendering, QGraphicsView protects the
     painter state (see QPainter::save()) when rendering the background or
     foreground, and when rendering each item. This allows you to leave the
@@ -287,12 +285,9 @@ static const int QGRAPHICSVIEW_PREALLOC_STYLE_OPTIONS = 503; // largest prime < 
 #include <QtCore/qmath.h>
 #include <QtCore/qscopedvaluerollback.h>
 #include <QtWidgets/qapplication.h>
-#include <QtWidgets/qdesktopwidget.h>
-#include <private/qdesktopwidget_p.h>
 #include <QtGui/qevent.h>
 #include <QtWidgets/qlayout.h>
 #include <QtGui/qtransform.h>
-#include <QtGui/qmatrix.h>
 #include <QtGui/qpainter.h>
 #include <QtGui/qpainterpath.h>
 #include <QtWidgets/qscrollbar.h>
@@ -315,21 +310,13 @@ inline int q_round_bound(qreal d) //### (int)(qreal) INT_MAX != INT_MAX for sing
 
 void QGraphicsViewPrivate::translateTouchEvent(QGraphicsViewPrivate *d, QTouchEvent *touchEvent)
 {
-    QList<QTouchEvent::TouchPoint> touchPoints = touchEvent->touchPoints();
-    for (int i = 0; i < touchPoints.count(); ++i) {
-        QTouchEvent::TouchPoint &touchPoint = touchPoints[i];
-        const QSizeF ellipseDiameters = touchPoint.ellipseDiameters();
+    for (int i = 0; i < touchEvent->pointCount(); ++i) {
+        auto &pt = touchEvent->point(i);
         // the scene will set the item local pos, startPos, lastPos, and rect before delivering to
         // an item, but for now those functions are returning the view's local coordinates
-        touchPoint.setScenePos(d->mapToScene(touchPoint.pos()));
-        touchPoint.setStartScenePos(d->mapToScene(touchPoint.startPos()));
-        touchPoint.setLastScenePos(d->mapToScene(touchPoint.lastPos()));
-        touchPoint.setEllipseDiameters(ellipseDiameters);
-
+        QMutableEventPoint::from(pt).setScenePosition(d->mapToScene(pt.position()));
         // screenPos, startScreenPos, and lastScreenPos are already set
     }
-
-    touchEvent->setTouchPoints(touchPoints);
 }
 
 /*!
@@ -353,7 +340,6 @@ QGraphicsViewPrivate::QGraphicsViewPrivate()
       hasUpdateClip(false),
       mousePressButton(Qt::NoButton),
       leftIndent(0), topIndent(0),
-      lastMouseEvent(QEvent::None, QPointF(), QPointF(), QPointF(), Qt::NoButton, { }, { }),
       alignment(Qt::AlignCenter),
       transformationAnchor(QGraphicsView::AnchorViewCenter), resizeAnchor(QGraphicsView::NoAnchor),
       viewportUpdateMode(QGraphicsView::MinimalViewportUpdate),
@@ -616,12 +602,33 @@ void QGraphicsViewPrivate::updateScroll()
 
 /*!
     \internal
+
+    * don't start scrolling when a drag mode has been set
+    * don't start scrolling on a movable item
+*/
+bool QGraphicsViewPrivate::canStartScrollingAt(const QPoint &startPos) const
+{
+    Q_Q(const QGraphicsView);
+    if (q->dragMode() != QGraphicsView::NoDrag)
+        return false;
+
+    const QGraphicsItem *childItem = q->itemAt(startPos);
+
+    if (!startPos.isNull() && childItem && (childItem->flags() & QGraphicsItem::ItemIsMovable))
+        return false;
+
+    return QAbstractScrollAreaPrivate::canStartScrollingAt(startPos);
+}
+
+/*!
+    \internal
 */
 void QGraphicsViewPrivate::replayLastMouseEvent()
 {
     if (!useLastMouseEvent || !scene)
         return;
-    mouseMoveEventHandler(&lastMouseEvent);
+    QSinglePointEvent *spe = static_cast<QSinglePointEvent *>(&lastMouseEvent);
+    mouseMoveEventHandler(static_cast<QMouseEvent *>(spe));
 }
 
 /*!
@@ -630,8 +637,7 @@ void QGraphicsViewPrivate::replayLastMouseEvent()
 void QGraphicsViewPrivate::storeMouseEvent(QMouseEvent *event)
 {
     useLastMouseEvent = true;
-    lastMouseEvent = QMouseEvent(QEvent::MouseMove, event->localPos(), event->windowPos(), event->screenPos(),
-                                 event->button(), event->buttons(), event->modifiers());
+    lastMouseEvent = *event;
 }
 
 void QGraphicsViewPrivate::mouseMoveEventHandler(QMouseEvent *event)
@@ -656,8 +662,8 @@ void QGraphicsViewPrivate::mouseMoveEventHandler(QMouseEvent *event)
     mouseEvent.setWidget(viewport);
     mouseEvent.setButtonDownScenePos(mousePressButton, mousePressScenePoint);
     mouseEvent.setButtonDownScreenPos(mousePressButton, mousePressScreenPoint);
-    mouseEvent.setScenePos(q->mapToScene(event->pos()));
-    mouseEvent.setScreenPos(event->globalPos());
+    mouseEvent.setScenePos(q->mapToScene(event->position().toPoint()));
+    mouseEvent.setScreenPos(event->globalPosition().toPoint());
     mouseEvent.setLastScenePos(lastMouseMoveScenePoint);
     mouseEvent.setLastScreenPos(lastMouseMoveScreenPoint);
     mouseEvent.setButtons(event->buttons());
@@ -665,6 +671,7 @@ void QGraphicsViewPrivate::mouseMoveEventHandler(QMouseEvent *event)
     mouseEvent.setModifiers(event->modifiers());
     mouseEvent.setSource(event->source());
     mouseEvent.setFlags(event->flags());
+    mouseEvent.setTimestamp(event->timestamp());
     lastMouseMoveScenePoint = mouseEvent.scenePos();
     lastMouseMoveScreenPoint = mouseEvent.screenPos();
     mouseEvent.setAccepted(false);
@@ -694,7 +701,7 @@ void QGraphicsViewPrivate::mouseMoveEventHandler(QMouseEvent *event)
                                                                                   mouseEvent.widget());
     }
     // Find the topmost item under the mouse with a cursor.
-    foreach (QGraphicsItem *item, scene->d_func()->cachedItemsUnderMouse) {
+    for (QGraphicsItem *item : qAsConst(scene->d_func()->cachedItemsUnderMouse)) {
         if (item->isEnabled() && item->hasCursor()) {
             _q_setViewportCursor(item->cursor());
             return;
@@ -736,7 +743,7 @@ void QGraphicsViewPrivate::updateRubberBand(const QMouseEvent *event)
     if (dragMode != QGraphicsView::RubberBandDrag || !sceneInteractionAllowed || !rubberBanding)
         return;
     // Check for enough drag distance
-    if ((mousePressViewPoint - event->pos()).manhattanLength() < QApplication::startDragDistance())
+    if ((mousePressViewPoint - event->position().toPoint()).manhattanLength() < QApplication::startDragDistance())
         return;
 
     // Update old rubberband
@@ -763,7 +770,7 @@ void QGraphicsViewPrivate::updateRubberBand(const QMouseEvent *event)
 
     // Update rubberband position
     const QPoint mp = q->mapFromScene(mousePressScenePoint);
-    const QPoint ep = event->pos();
+    const QPoint ep = event->position().toPoint();
     rubberBandRect = QRect(qMin(mp.x(), ep.x()), qMin(mp.y(), ep.y()),
                            qAbs(mp.x() - ep.x()) + 1, qAbs(mp.y() - ep.y()) + 1);
 
@@ -831,7 +838,7 @@ void QGraphicsViewPrivate::_q_setViewportCursor(const QCursor &cursor)
 void QGraphicsViewPrivate::_q_unsetViewportCursor()
 {
     Q_Q(QGraphicsView);
-    const auto items = q->items(lastMouseEvent.pos());
+    const auto items = q->items(lastMouseEvent.position().toPoint());
     for (QGraphicsItem *item : items) {
         if (item->isEnabled() && item->hasCursor()) {
             _q_setViewportCursor(item->cursor());
@@ -867,6 +874,7 @@ void QGraphicsViewPrivate::storeDragDropEvent(const QGraphicsSceneDragDropEvent 
     lastDragDropEvent->setMimeData(event->mimeData());
     lastDragDropEvent->setWidget(event->widget());
     lastDragDropEvent->setSource(event->source());
+    lastDragDropEvent->setTimestamp(event->timestamp());
 }
 
 /*!
@@ -877,10 +885,10 @@ void QGraphicsViewPrivate::populateSceneDragDropEvent(QGraphicsSceneDragDropEven
 {
 #if QT_CONFIG(draganddrop)
     Q_Q(QGraphicsView);
-    dest->setScenePos(q->mapToScene(source->pos()));
-    dest->setScreenPos(q->mapToGlobal(source->pos()));
-    dest->setButtons(source->mouseButtons());
-    dest->setModifiers(source->keyboardModifiers());
+    dest->setScenePos(q->mapToScene(source->position().toPoint()));
+    dest->setScreenPos(q->mapToGlobal(source->position().toPoint()));
+    dest->setButtons(source->buttons());
+    dest->setModifiers(source->modifiers());
     dest->setPossibleActions(source->possibleActions());
     dest->setProposedAction(source->proposedAction());
     dest->setDropAction(source->dropAction());
@@ -888,8 +896,8 @@ void QGraphicsViewPrivate::populateSceneDragDropEvent(QGraphicsSceneDragDropEven
     dest->setWidget(viewport);
     dest->setSource(qobject_cast<QWidget *>(source->source()));
 #else
-    Q_UNUSED(dest)
-    Q_UNUSED(source)
+    Q_UNUSED(dest);
+    Q_UNUSED(source);
 #endif
 }
 
@@ -1276,7 +1284,7 @@ QSize QGraphicsView::sizeHint() const
     if (d->scene) {
         QSizeF baseSize = d->matrix.mapRect(sceneRect()).size();
         baseSize += QSizeF(d->frameWidth * 2, d->frameWidth * 2);
-        return baseSize.boundedTo((3 * QDesktopWidgetPrivate::size()) / 4).toSize();
+        return baseSize.boundedTo((3 * QGuiApplication::primaryScreen()->virtualSize()) / 4).toSize();
     }
     return QAbstractScrollArea::sizeHint();
 }
@@ -1747,7 +1755,7 @@ void QGraphicsView::setScene(QGraphicsScene *scene)
             QEvent windowDeactivate(QEvent::WindowDeactivate);
             QCoreApplication::sendEvent(d->scene, &windowDeactivate);
         }
-        if(hasFocus())
+        if (hasFocus())
             d->scene->clearFocus();
     }
 
@@ -1824,75 +1832,6 @@ void QGraphicsView::setSceneRect(const QRectF &rect)
     d->sceneRect = rect;
     d->recalculateContentSize();
 }
-
-#if QT_DEPRECATED_SINCE(5, 15)
-
-/*!
-    \obsolete
-
-    Use transform() instead.
-
-    Returns the current transformation matrix for the view. If no current
-    transformation is set, the identity matrix is returned.
-
-    \sa setMatrix(), transform(), rotate(), scale(), shear(), translate()
-*/
-QMatrix QGraphicsView::matrix() const
-{
-    Q_D(const QGraphicsView);
-    return d->matrix.toAffine();
-}
-
-/*!
-    \obsolete
-
-    Use setTransform() instead.
-
-    Sets the view's current transformation matrix to \a matrix.
-
-    If \a combine is true, then \a matrix is combined with the current matrix;
-    otherwise, \a matrix \e replaces the current matrix. \a combine is false
-    by default.
-
-    The transformation matrix tranforms the scene into view coordinates. Using
-    the default transformation, provided by the identity matrix, one pixel in
-    the view represents one unit in the scene (e.g., a 10x10 rectangular item
-    is drawn using 10x10 pixels in the view). If a 2x2 scaling matrix is
-    applied, the scene will be drawn in 1:2 (e.g., a 10x10 rectangular item is
-    then drawn using 20x20 pixels in the view).
-
-    Example:
-
-    \snippet code/src_gui_graphicsview_qgraphicsview.cpp 3
-
-    To simplify interation with items using a transformed view, QGraphicsView
-    provides mapTo... and mapFrom... functions that can translate between
-    scene and view coordinates. For example, you can call mapToScene() to map
-    a view coordinate to a floating point scene coordinate, or mapFromScene()
-    to map from floating point scene coordinates to view coordinates.
-
-    \sa matrix(), setTransform(), rotate(), scale(), shear(), translate()
-*/
-void QGraphicsView::setMatrix(const QMatrix &matrix, bool combine)
-{
-    setTransform(QTransform(matrix), combine);
-}
-
-/*!
-    \obsolete
-
-    Use resetTransform() instead.
-
-    Resets the view transformation matrix to the identity matrix.
-
-    \sa resetTransform()
-*/
-void QGraphicsView::resetMatrix()
-{
-    resetTransform();
-}
-
-#endif // QT_DEPRECATED_SINCE(5, 15)
 
 /*!
     Rotates the current view transformation \a angle degrees clockwise.
@@ -2718,7 +2657,7 @@ void QGraphicsView::updateScene(const QList<QRectF> &rects)
         return;
 
     // Extract and reset dirty scene rect info.
-    QVector<QRect> dirtyViewportRects;
+    QList<QRect> dirtyViewportRects;
     dirtyViewportRects.reserve(d->dirtyRegion.rectCount() + rects.count());
     for (const QRect &dirtyRect : d->dirtyRegion)
         dirtyViewportRects += dirtyRect;
@@ -2807,7 +2746,7 @@ void QGraphicsView::setupViewport(QWidget *widget)
         return;
     }
 
-    const bool isGLWidget = widget->inherits("QGLWidget") || widget->inherits("QOpenGLWidget");
+    const bool isGLWidget = widget->inherits("QOpenGLWidget");
 
     d->accelerateScrolling = !(isGLWidget);
 
@@ -2933,14 +2872,13 @@ bool QGraphicsView::viewportEvent(QEvent *event)
                 d->scene->d_func()->removePopup(d->scene->d_func()->popupWidgets.constFirst());
         }
         d->useLastMouseEvent = false;
-        // a hack to pass a viewport pointer to the scene inside the leave event
-        Q_ASSERT(event->d == nullptr);
-        QScopedValueRollback<QEventPrivate *> rb(event->d);
-        event->d = reinterpret_cast<QEventPrivate *>(viewport());
-        QCoreApplication::sendEvent(d->scene, event);
+        QGraphicsSceneEvent leaveEvent(QEvent::GraphicsSceneLeave);
+        leaveEvent.setWidget(viewport());
+        QCoreApplication::sendEvent(d->scene, &leaveEvent);
+        event->setAccepted(leaveEvent.isAccepted());
         break;
     }
-#ifndef QT_NO_TOOLTIP
+#if QT_CONFIG(tooltip)
     case QEvent::ToolTip: {
         QHelpEvent *toolTip = static_cast<QHelpEvent *>(event);
         QGraphicsSceneHelpEvent helpEvent(QEvent::GraphicsSceneHelp);
@@ -2983,7 +2921,7 @@ bool QGraphicsView::viewportEvent(QEvent *event)
         if (d->scene && d->sceneInteractionAllowed) {
             // Convert and deliver the touch event to the scene.
             QTouchEvent *touchEvent = static_cast<QTouchEvent *>(event);
-            touchEvent->setTarget(viewport());
+            QMutableTouchEvent::from(touchEvent)->setTarget(viewport());
             QGraphicsViewPrivate::translateTouchEvent(d, touchEvent);
             QCoreApplication::sendEvent(d->scene, touchEvent);
         } else {
@@ -3037,6 +2975,7 @@ void QGraphicsView::contextMenuEvent(QContextMenuEvent *event)
     contextEvent.setModifiers(event->modifiers());
     contextEvent.setReason((QGraphicsSceneContextMenuEvent::Reason)(event->reason()));
     contextEvent.setAccepted(event->isAccepted());
+    contextEvent.setTimestamp(event->timestamp());
     QCoreApplication::sendEvent(d->scene, &contextEvent);
     event->setAccepted(contextEvent.isAccepted());
 }
@@ -3231,9 +3170,9 @@ void QGraphicsView::mouseDoubleClickEvent(QMouseEvent *event)
         return;
 
     d->storeMouseEvent(event);
-    d->mousePressViewPoint = event->pos();
+    d->mousePressViewPoint = event->position().toPoint();
     d->mousePressScenePoint = mapToScene(d->mousePressViewPoint);
-    d->mousePressScreenPoint = event->globalPos();
+    d->mousePressScreenPoint = event->globalPosition().toPoint();
     d->lastMouseMoveScenePoint = d->mousePressScenePoint;
     d->lastMouseMoveScreenPoint = d->mousePressScreenPoint;
     d->mousePressButton = event->button();
@@ -3252,6 +3191,7 @@ void QGraphicsView::mouseDoubleClickEvent(QMouseEvent *event)
     mouseEvent.setModifiers(event->modifiers());
     mouseEvent.setSource(event->source());
     mouseEvent.setFlags(event->flags());
+    mouseEvent.setTimestamp(event->timestamp());
     if (event->spontaneous())
         qt_sendSpontaneousEvent(d->scene, &mouseEvent);
     else
@@ -3280,9 +3220,9 @@ void QGraphicsView::mousePressEvent(QMouseEvent *event)
 
     if (d->sceneInteractionAllowed) {
         // Store some of the event's button-down data.
-        d->mousePressViewPoint = event->pos();
+        d->mousePressViewPoint = event->position().toPoint();
         d->mousePressScenePoint = mapToScene(d->mousePressViewPoint);
-        d->mousePressScreenPoint = event->globalPos();
+        d->mousePressScreenPoint = event->globalPosition().toPoint();
         d->lastMouseMoveScenePoint = d->mousePressScenePoint;
         d->lastMouseMoveScreenPoint = d->mousePressScreenPoint;
         d->mousePressButton = event->button();
@@ -3303,6 +3243,7 @@ void QGraphicsView::mousePressEvent(QMouseEvent *event)
             mouseEvent.setSource(event->source());
             mouseEvent.setFlags(event->flags());
             mouseEvent.setAccepted(false);
+            mouseEvent.setTimestamp(event->timestamp());
             if (event->spontaneous())
                 qt_sendSpontaneousEvent(d->scene, &mouseEvent);
             else
@@ -3362,7 +3303,7 @@ void QGraphicsView::mouseMoveEvent(QMouseEvent *event)
         if (d->handScrolling) {
             QScrollBar *hBar = horizontalScrollBar();
             QScrollBar *vBar = verticalScrollBar();
-            QPoint delta = event->pos() - d->lastMouseEvent.pos();
+            QPoint delta = event->position().toPoint() - d->lastMouseEvent.position().toPoint();
             hBar->setValue(hBar->value() + (isRightToLeft() ? delta.x() : -delta.x()));
             vBar->setValue(vBar->value() - delta.y());
 
@@ -3416,8 +3357,8 @@ void QGraphicsView::mouseReleaseEvent(QMouseEvent *event)
     mouseEvent.setWidget(viewport());
     mouseEvent.setButtonDownScenePos(d->mousePressButton, d->mousePressScenePoint);
     mouseEvent.setButtonDownScreenPos(d->mousePressButton, d->mousePressScreenPoint);
-    mouseEvent.setScenePos(mapToScene(event->pos()));
-    mouseEvent.setScreenPos(event->globalPos());
+    mouseEvent.setScenePos(mapToScene(event->position().toPoint()));
+    mouseEvent.setScreenPos(event->globalPosition().toPoint());
     mouseEvent.setLastScenePos(d->lastMouseMoveScenePoint);
     mouseEvent.setLastScreenPos(d->lastMouseMoveScreenPoint);
     mouseEvent.setButtons(event->buttons());
@@ -3426,6 +3367,7 @@ void QGraphicsView::mouseReleaseEvent(QMouseEvent *event)
     mouseEvent.setSource(event->source());
     mouseEvent.setFlags(event->flags());
     mouseEvent.setAccepted(false);
+    mouseEvent.setTimestamp(event->timestamp());
     if (event->spontaneous())
         qt_sendSpontaneousEvent(d->scene, &mouseEvent);
     else
@@ -3464,8 +3406,12 @@ void QGraphicsView::wheelEvent(QWheelEvent *event)
     wheelEvent.setModifiers(event->modifiers());
     const bool horizontal = qAbs(event->angleDelta().x()) > qAbs(event->angleDelta().y());
     wheelEvent.setDelta(horizontal ? event->angleDelta().x() : event->angleDelta().y());
+    wheelEvent.setPixelDelta(event->pixelDelta());
+    wheelEvent.setPhase(event->phase());
+    wheelEvent.setInverted(event->isInverted());
     wheelEvent.setOrientation(horizontal ? Qt::Horizontal : Qt::Vertical);
     wheelEvent.setAccepted(false);
+    wheelEvent.setTimestamp(event->timestamp());
     QCoreApplication::sendEvent(d->scene, &wheelEvent);
     event->setAccepted(wheelEvent.isAccepted());
     if (!event->isAccepted())
@@ -3512,7 +3458,7 @@ void QGraphicsView::paintEvent(QPaintEvent *event)
         // Recreate the background pixmap, and flag the whole background as
         // exposed.
         if (d->mustResizeBackgroundPixmap) {
-            const qreal dpr = d->viewport->devicePixelRatioF();
+            const qreal dpr = d->viewport->devicePixelRatio();
             d->backgroundPixmap = QPixmap(viewport()->size() * dpr);
             d->backgroundPixmap.setDevicePixelRatio(dpr);
             QBrush bgBrush = viewport()->palette().brush(viewport()->backgroundRole());
@@ -3805,7 +3751,7 @@ void QGraphicsView::drawForeground(QPainter *painter, const QRectF &rect)
 }
 
 /*!
-    \obsolete
+    \deprecated
 
     Draws the items \a items in the scene using \a painter, after the
     background and before the foreground are drawn. \a numItems is the number
@@ -3877,7 +3823,7 @@ bool QGraphicsView::isTransformed() const
     otherwise, \a matrix \e replaces the current matrix. \a combine is false
     by default.
 
-    The transformation matrix tranforms the scene into view coordinates. Using
+    The transformation matrix transforms the scene into view coordinates. Using
     the default transformation, provided by the identity matrix, one pixel in
     the view represents one unit in the scene (e.g., a 10x10 rectangular item
     is drawn using 10x10 pixels in the view). If a 2x2 scaling matrix is
@@ -3891,7 +3837,7 @@ bool QGraphicsView::isTransformed() const
     To simplify interation with items using a transformed view, QGraphicsView
     provides mapTo... and mapFrom... functions that can translate between
     scene and view coordinates. For example, you can call mapToScene() to map
-    a view coordiate to a floating point scene coordinate, or mapFromScene()
+    a view coordinate to a floating point scene coordinate, or mapFromScene()
     to map from floating point scene coordinates to view coordinates.
 
     \sa transform(), rotate(), scale(), shear(), translate()

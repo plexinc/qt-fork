@@ -10,7 +10,6 @@
 #include <memory>
 #include <vector>
 
-#include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/observer_list_threadsafe.h"
 #include "base/time/time.h"
@@ -23,7 +22,7 @@ struct NetworkInterface;
 class SystemDnsConfigChangeNotifier;
 typedef std::vector<NetworkInterface> NetworkInterfaceList;
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
 namespace internal {
 class AddressTrackerLinux;
 }
@@ -52,9 +51,10 @@ class NET_EXPORT NetworkChangeNotifier {
     CONNECTION_2G = 3,
     CONNECTION_3G = 4,
     CONNECTION_4G = 5,
-    CONNECTION_NONE = 6,     // No connection.
+    CONNECTION_NONE = 6,  // No connection.
     CONNECTION_BLUETOOTH = 7,
-    CONNECTION_LAST = CONNECTION_BLUETOOTH
+    CONNECTION_5G = 8,
+    CONNECTION_LAST = CONNECTION_5G
   };
 
   // This is the NetInfo v3 set of connection technologies as seen in
@@ -65,6 +65,9 @@ class NET_EXPORT NetworkChangeNotifier {
   //
   // A Java counterpart will be generated for this enum.
   // GENERATED_JAVA_ENUM_PACKAGE: org.chromium.net
+  //
+  // TODO(crbug.com/1127134): Introduce subtypes for 5G networks once they can
+  // be detected.
   enum ConnectionSubtype {
     SUBTYPE_UNKNOWN = 0,
     SUBTYPE_NONE,
@@ -102,9 +105,18 @@ class NET_EXPORT NetworkChangeNotifier {
     SUBTYPE_LAST = SUBTYPE_WIFI_AD
   };
 
+  enum ConnectionCost {
+    CONNECTION_COST_UNKNOWN = 0,
+    CONNECTION_COST_UNMETERED,
+    CONNECTION_COST_METERED,
+  };
+
   // DEPRECATED. Please use NetworkChangeObserver instead. crbug.com/754695.
   class NET_EXPORT IPAddressObserver {
    public:
+    IPAddressObserver(const IPAddressObserver&) = delete;
+    IPAddressObserver& operator=(const IPAddressObserver&) = delete;
+
     // Will be called when the IP address of the primary interface changes.
     // This includes when the primary interface itself changes.
     virtual void OnIPAddressChanged() = 0;
@@ -117,13 +129,13 @@ class NET_EXPORT NetworkChangeNotifier {
     friend NetworkChangeNotifier;
     scoped_refptr<base::ObserverListThreadSafe<IPAddressObserver>>
         observer_list_;
-
-    DISALLOW_COPY_AND_ASSIGN(IPAddressObserver);
   };
 
   // DEPRECATED. Please use NetworkChangeObserver instead. crbug.com/754695.
   class NET_EXPORT ConnectionTypeObserver {
    public:
+    ConnectionTypeObserver(const ConnectionTypeObserver&) = delete;
+    ConnectionTypeObserver& operator=(const ConnectionTypeObserver&) = delete;
     // Will be called when the connection type of the system has changed.
     // See NetworkChangeNotifier::GetConnectionType() for important caveats
     // about the unreliability of using this signal to infer the ability to
@@ -138,12 +150,13 @@ class NET_EXPORT NetworkChangeNotifier {
     friend NetworkChangeNotifier;
     scoped_refptr<base::ObserverListThreadSafe<ConnectionTypeObserver>>
         observer_list_;
-
-    DISALLOW_COPY_AND_ASSIGN(ConnectionTypeObserver);
   };
 
   class NET_EXPORT DNSObserver {
    public:
+    DNSObserver(const DNSObserver&) = delete;
+    DNSObserver& operator=(const DNSObserver&) = delete;
+
     // Will be called when the DNS settings of the system may have changed.
     virtual void OnDNSChanged() = 0;
 
@@ -154,12 +167,13 @@ class NET_EXPORT NetworkChangeNotifier {
    private:
     friend NetworkChangeNotifier;
     scoped_refptr<base::ObserverListThreadSafe<DNSObserver>> observer_list_;
-
-    DISALLOW_COPY_AND_ASSIGN(DNSObserver);
   };
 
   class NET_EXPORT NetworkChangeObserver {
    public:
+    NetworkChangeObserver(const NetworkChangeObserver&) = delete;
+    NetworkChangeObserver& operator=(const NetworkChangeObserver&) = delete;
+
     // OnNetworkChanged will be called when a change occurs to the host
     // computer's hardware or software that affects the route network packets
     // take to any network server. Some examples:
@@ -195,12 +209,13 @@ class NET_EXPORT NetworkChangeNotifier {
     friend NetworkChangeNotifier;
     scoped_refptr<base::ObserverListThreadSafe<NetworkChangeObserver>>
         observer_list_;
-
-    DISALLOW_COPY_AND_ASSIGN(NetworkChangeObserver);
   };
 
   class NET_EXPORT MaxBandwidthObserver {
    public:
+    MaxBandwidthObserver(const MaxBandwidthObserver&) = delete;
+    MaxBandwidthObserver& operator=(const MaxBandwidthObserver&) = delete;
+
     // Called when a change occurs to the network's maximum bandwidth as
     // defined in http://w3c.github.io/netinfo/. Also called on type change,
     // even if the maximum bandwidth doesn't change. See the documentation of
@@ -217,8 +232,33 @@ class NET_EXPORT NetworkChangeNotifier {
     friend NetworkChangeNotifier;
     scoped_refptr<base::ObserverListThreadSafe<MaxBandwidthObserver>>
         observer_list_;
+  };
 
-    DISALLOW_COPY_AND_ASSIGN(MaxBandwidthObserver);
+  class NET_EXPORT ConnectionCostObserver {
+   public:
+    // Not copyable or movable
+    ConnectionCostObserver(const ConnectionCostObserver&) = delete;
+    ConnectionCostObserver& operator=(const ConnectionCostObserver&) = delete;
+
+    // Will be called when the connection cost of the default network connection
+    // of the system has changed. This will only fire if the connection cost
+    // actually changes, regardless of any other network-related changes that
+    // might have occurred (for example, changing from ethernet to wifi won't
+    // update this unless that change also results in a cost change). The cost
+    // is not tied directly to any other network-related states, as you could
+    // simply change the current connection from unmetered to metered. It is
+    // safe to assume that network traffic will default to this cost once this
+    // has fired.
+    virtual void OnConnectionCostChanged(ConnectionCost Cost) = 0;
+
+   protected:
+    ConnectionCostObserver();
+    virtual ~ConnectionCostObserver();
+
+   private:
+    friend NetworkChangeNotifier;
+    scoped_refptr<base::ObserverListThreadSafe<ConnectionCostObserver>>
+        observer_list_;
   };
 
   // Opaque handle for device-wide connection to a particular network. For
@@ -240,6 +280,9 @@ class NET_EXPORT NetworkChangeNotifier {
   // unimplemented.
   class NET_EXPORT NetworkObserver {
    public:
+    NetworkObserver(const NetworkObserver&) = delete;
+    NetworkObserver& operator=(const NetworkObserver&) = delete;
+
     // Called when device connects to |network|. For example device associates
     // with a WiFi access point. This does not imply the network has Internet
     // access as it may well be behind a captive portal.
@@ -262,13 +305,13 @@ class NET_EXPORT NetworkChangeNotifier {
    private:
     friend NetworkChangeNotifier;
     scoped_refptr<base::ObserverListThreadSafe<NetworkObserver>> observer_list_;
-
-    DISALLOW_COPY_AND_ASSIGN(NetworkObserver);
   };
 
   // An invalid NetworkHandle.
   static const NetworkHandle kInvalidNetworkHandle;
 
+  NetworkChangeNotifier(const NetworkChangeNotifier&) = delete;
+  NetworkChangeNotifier& operator=(const NetworkChangeNotifier&) = delete;
   virtual ~NetworkChangeNotifier();
 
   // Returns the factory or nullptr if it is not set.
@@ -289,6 +332,12 @@ class NET_EXPORT NetworkChangeNotifier {
   static std::unique_ptr<NetworkChangeNotifier> CreateIfNeeded(
       NetworkChangeNotifier::ConnectionType initial_type = CONNECTION_NONE,
       NetworkChangeNotifier::ConnectionSubtype initial_subtype = SUBTYPE_NONE);
+
+  // Returns the most likely cost attribute for the default network connection.
+  // The value does not indicate with absolute certainty if using the connection
+  // will or will not incur a monetary cost to the user. It is a best guess
+  // based on Operating System information and network interface type.
+  static ConnectionCost GetConnectionCost();
 
   // Returns the connection type.
   // A return value of |CONNECTION_NONE| is a pretty strong indicator that the
@@ -366,7 +415,7 @@ class NET_EXPORT NetworkChangeNotifier {
   // Chrome net code.
   static SystemDnsConfigChangeNotifier* GetSystemDnsConfigNotifier();
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
   // Returns the AddressTrackerLinux if present.
   static const internal::AddressTrackerLinux* GetAddressTracker();
 #endif
@@ -415,6 +464,7 @@ class NET_EXPORT NetworkChangeNotifier {
   static void AddNetworkChangeObserver(NetworkChangeObserver* observer);
   static void AddMaxBandwidthObserver(MaxBandwidthObserver* observer);
   static void AddNetworkObserver(NetworkObserver* observer);
+  static void AddConnectionCostObserver(ConnectionCostObserver* observer);
 
   // Unregisters |observer| from receiving notifications.  This must be called
   // on the same thread on which AddObserver() was called.  Like AddObserver(),
@@ -434,6 +484,7 @@ class NET_EXPORT NetworkChangeNotifier {
   static void RemoveNetworkChangeObserver(NetworkChangeObserver* observer);
   static void RemoveMaxBandwidthObserver(MaxBandwidthObserver* observer);
   static void RemoveNetworkObserver(NetworkObserver* observer);
+  static void RemoveConnectionCostObserver(ConnectionCostObserver* observer);
 
   // Called to signify a non-system DNS config change.
   static void TriggerNonSystemDnsChange();
@@ -447,6 +498,8 @@ class NET_EXPORT NetworkChangeNotifier {
   static void NotifyObserversOfMaxBandwidthChangeForTests(
       double max_bandwidth_mbps,
       ConnectionType type);
+  static void NotifyObserversOfConnectionCostChangeForTests(
+      ConnectionCost cost);
 
   // Enable or disable notifications from the host. After setting to true, be
   // sure to pump the RunLoop until idle to finish any preexisting
@@ -507,13 +560,18 @@ class NET_EXPORT NetworkChangeNotifier {
   };
 
   // If |system_dns_config_notifier| is null (the default), a shared singleton
-  // will be used that will be leaked on shutdown.
-  NetworkChangeNotifier(
+  // will be used that will be leaked on shutdown. If
+  // |omit_observers_in_constructor_for_testing| is true, internal observers
+  // aren't added during construction - this is used to skip registering
+  // observers from MockNetworkChangeNotifier, and allow its construction when
+  // SequencedTaskRunnerHandle isn't set.
+  explicit NetworkChangeNotifier(
       const NetworkChangeCalculatorParams& params =
           NetworkChangeCalculatorParams(),
-      SystemDnsConfigChangeNotifier* system_dns_config_notifier = nullptr);
+      SystemDnsConfigChangeNotifier* system_dns_config_notifier = nullptr,
+      bool omit_observers_in_constructor_for_testing = false);
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
   // Returns the AddressTrackerLinux if present.
   // TODO(szym): Retrieve AddressMap from NetworkState. http://crbug.com/144212
   virtual const internal::AddressTrackerLinux*
@@ -524,6 +582,7 @@ class NET_EXPORT NetworkChangeNotifier {
   // See the description of the corresponding functions named without "Current".
   // Implementations must be thread-safe. Implementations must also be
   // cheap as they are called often.
+  virtual ConnectionCost GetCurrentConnectionCost();
   virtual ConnectionType GetCurrentConnectionType() const = 0;
   virtual ConnectionSubtype GetCurrentConnectionSubtype() const;
   virtual void GetCurrentMaxBandwidthAndConnectionType(
@@ -547,6 +606,7 @@ class NET_EXPORT NetworkChangeNotifier {
                                                   ConnectionType type);
   static void NotifyObserversOfSpecificNetworkChange(NetworkChangeType type,
                                                      NetworkHandle network);
+  static void NotifyObserversOfConnectionCostChange();
 
   // Infer connection type from |GetNetworkList|. If all network interfaces
   // have the same type, return it, otherwise return CONNECTION_UNKNOWN.
@@ -559,6 +619,13 @@ class NET_EXPORT NetworkChangeNotifier {
   // Clears the global NetworkChangeNotifier pointer.  This should be called
   // as early as possible in the destructor to prevent races.
   void ClearGlobalPointer();
+
+  // Called whenever a new ConnectionCostObserver is added. This method is
+  // needed so that the implementation class can be notified and
+  // potentially take action when an observer gets added. Since the act of
+  // adding an observer and the observer list itself are both static, the
+  // implementation class has no direct capability to watch for changes.
+  virtual void ConnectionCostObserverAdded() {}
 
  private:
   friend class HostResolverManagerDnsTest;
@@ -577,6 +644,7 @@ class NET_EXPORT NetworkChangeNotifier {
                                                ConnectionType type);
   void NotifyObserversOfSpecificNetworkChangeImpl(NetworkChangeType type,
                                                   NetworkHandle network);
+  void NotifyObserversOfConnectionCostChangeImpl(ConnectionCost cost);
 
   const scoped_refptr<base::ObserverListThreadSafe<IPAddressObserver>>
       ip_address_observer_list_;
@@ -590,6 +658,8 @@ class NET_EXPORT NetworkChangeNotifier {
       max_bandwidth_observer_list_;
   const scoped_refptr<base::ObserverListThreadSafe<NetworkObserver>>
       network_observer_list_;
+  const scoped_refptr<base::ObserverListThreadSafe<ConnectionCostObserver>>
+      connection_cost_observer_list_;
 
   SystemDnsConfigChangeNotifier* system_dns_config_notifier_;
   std::unique_ptr<SystemDnsConfigObserver> system_dns_config_observer_;
@@ -603,7 +673,9 @@ class NET_EXPORT NetworkChangeNotifier {
   // Indicates if this instance cleared g_network_change_notifier_ yet.
   bool cleared_global_pointer_ = false;
 
-  DISALLOW_COPY_AND_ASSIGN(NetworkChangeNotifier);
+  // Whether observers can be added. This may only be false during construction
+  // in tests. See comment above the constructor.
+  bool can_add_observers_;
 };
 
 }  // namespace net

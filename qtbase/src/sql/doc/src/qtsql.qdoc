@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -30,8 +30,8 @@
     \brief Provides a driver layer, SQL API layer, and a user
     interface layer for SQL databases
 
-    Qt SQL is an essential module which provides support for SQL databases. Qt
-    SQL's APIs are divided into different layers:
+    The Qt SQL module provides support for SQL databases. Qt SQL's APIs are
+    divided into different layers:
 
     \list
     \li Driver layer
@@ -41,22 +41,23 @@
     The \l{SQL Programming} guide contains information about development using
     Qt SQL.
 
-    \section1 Getting Started
-    To enable Qt SQL in a project, add this directive into the C++ files:
-    \code
-    #include <QtSql>
-    \endcode
-    To link against the Qt SQL module, add this line to the project file:
-    \code
-    QT += sql
-    \endcode
+    \include module-use.qdocinc using qt module
+    \snippet snippets/CMakeLists.txt cmake_use
+
+    See also the \l {Build with CMake} overview.
+
+    \include module-use.qdocinc building with qmake
+    \snippet snippets/code/code.pro qmake_use
+
+    \section1 Module Evolution
+    \l{Changes to Qt SQL} lists important changes in the module API
+    and functionality that were done for the Qt 6 series of Qt.
 
     \section1 Licenses and Attributions
 
     Qt SQL is available under commercial licenses from \l{The Qt Company}.
-    In addition, it is available under free software licenses. Since Qt 5.4,
-    these free software licenses are
-    \l{GNU Lesser General Public License, version 3}, or
+    In addition, it is available under free software licenses:
+    The \l{GNU Lesser General Public License, version 3}, or
     the \l{GNU General Public License, version 2}.
     See \l{Qt Licensing} for further details.
 
@@ -78,22 +79,10 @@
     \module QtSql
     \title Qt SQL C++ Classes
     \ingroup modules
+    \qtcmakepackage Sql
     \qtvariable sql
     \brief Provides a driver layer, SQL API layer, and a user
     interface layer for SQL databases.
 
-    To include the definitions of the module's classes, use the
-    following directive:
-
-    \snippet code/doc_src_qtsql.cpp 0
-
-    \if !defined(qtforpython)
-    To link against the module, add this line to your \l qmake \c
-    .pro file:
-
-    \snippet code/doc_src_qtsql.pro 1
-    \endif
-
-    See the \l{SQL Programming} guide for information about using this
-    module in your applications.
+    The \l{Qt SQL} page contains information about how to use the module.
 */

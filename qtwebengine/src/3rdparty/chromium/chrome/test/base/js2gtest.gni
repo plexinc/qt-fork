@@ -2,6 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/python.gni")
 import("//v8/gni/snapshot_toolchain.gni")
 import("//v8/gni/v8.gni")
 
@@ -9,7 +10,6 @@ import("//v8/gni/v8.gni")
 # Changing the size or the order of files in this array also requires changing
 # src/tools/gypv8sh.py.
 js2gtest_js_input_libraries = [
-  "//chrome/third_party/mock4js/mock4js.js",
   "//chrome/test/data/webui/test_api.js",
   "//chrome/test/base/js2gtest.js",
 ]
@@ -38,7 +38,8 @@ template("js2gtest") {
   assert(defined(invoker.test_type) &&
          (invoker.test_type == "webui" || invoker.test_type == "unit" ||
           invoker.test_type == "extension" ||
-          invoker.test_type == "mojo_lite_webui"))
+          invoker.test_type == "mojo_lite_webui" ||
+          invoker.test_type == "mojo_webui"))
   action_name = target_name + "_action"
   source_set_name = target_name
 
@@ -52,7 +53,8 @@ template("js2gtest") {
     data += invoker.data
   }
 
-  action_foreach(action_name) {
+  # TODO(crbug.com/1112471): Get this to run cleanly under Python 3.
+  python2_action_foreach(action_name) {
     testonly = true
     visibility = [ ":$source_set_name" ]
     script = "//tools/gypv8sh.py"

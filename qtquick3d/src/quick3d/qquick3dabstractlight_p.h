@@ -61,9 +61,10 @@ class Q_QUICK3D_EXPORT QQuick3DAbstractLight : public QQuick3DNode
     Q_PROPERTY(float shadowMapFar READ shadowMapFar WRITE setShadowMapFar NOTIFY shadowMapFarChanged)
     Q_PROPERTY(float shadowFilter READ shadowFilter WRITE setShadowFilter NOTIFY shadowFilterChanged)
 
+    QML_NAMED_ELEMENT(Light)
+    QML_UNCREATABLE("Light is Abstract")
 public:
-    explicit QQuick3DAbstractLight(QQuick3DNode *parent = nullptr);
-    ~QQuick3DAbstractLight() override {}
+    ~QQuick3DAbstractLight() override;
 
     enum class QSSGShadowMapQuality {
         ShadowMapQualityLow,
@@ -92,7 +93,7 @@ public Q_SLOTS:
     void setCastsShadow(bool castsShadow);
     void setShadowBias(float shadowBias);
     void setShadowFactor(float shadowFactor);
-    void setShadowMapQuality(QSSGShadowMapQuality shadowMapQuality);
+    void setShadowMapQuality(QQuick3DAbstractLight::QSSGShadowMapQuality shadowMapQuality);
     void setShadowMapFar(float shadowMapFar);
     void setShadowFilter(float shadowFilter);
 
@@ -109,6 +110,8 @@ Q_SIGNALS:
     void shadowFilterChanged();
 
 protected:
+    explicit QQuick3DAbstractLight(QQuick3DNodePrivate &dd, QQuick3DNode *parent = nullptr);
+
     QSSGRenderGraphObject *updateSpatialNode(QSSGRenderGraphObject *node) override;
     void markAllDirty() override;
 
@@ -131,7 +134,7 @@ private:
 
     QColor m_color;
     QColor m_ambientColor;
-    float m_brightness = 100.0f;
+    float m_brightness = 1.0f;
     QQuick3DNode *m_scope = nullptr;
     bool m_castsShadow = false;
     float m_shadowBias = 0.0f;

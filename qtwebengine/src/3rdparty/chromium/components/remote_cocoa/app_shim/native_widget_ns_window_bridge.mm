@@ -19,6 +19,7 @@
 #include "base/strings/sys_string_conversions.h"
 #import "components/remote_cocoa/app_shim/bridged_content_view.h"
 #import "components/remote_cocoa/app_shim/browser_native_widget_window_mac.h"
+#import "components/remote_cocoa/app_shim/certificate_viewer.h"
 #import "components/remote_cocoa/app_shim/mouse_capture.h"
 #import "components/remote_cocoa/app_shim/native_widget_mac_frameless_nswindow.h"
 #import "components/remote_cocoa/app_shim/native_widget_mac_nswindow.h"
@@ -40,6 +41,7 @@
 #include "ui/display/screen.h"
 #include "ui/events/cocoa/cocoa_event_utils.h"
 #include "ui/gfx/geometry/dip_util.h"
+#include "ui/gfx/geometry/size_conversions.h"
 #import "ui/gfx/mac/coordinate_conversion.h"
 #import "ui/gfx/mac/nswindow_frame_controls.h"
 
@@ -387,6 +389,11 @@ void NativeWidgetNSWindowBridge::CreateSelectFileDialog(
   mojo::MakeSelfOwnedReceiver(
       std::make_unique<remote_cocoa::SelectFileDialogBridge>(window_),
       std::move(receiver));
+}
+
+void NativeWidgetNSWindowBridge::ShowCertificateViewer(
+    const scoped_refptr<net::X509Certificate>& certificate) {
+  ShowCertificateViewerForWindow(window_, certificate.get());
 }
 
 void NativeWidgetNSWindowBridge::StackAbove(uint64_t sibling_id) {
@@ -1021,7 +1028,8 @@ void NativeWidgetNSWindowBridge::OnShowAnimationComplete() {
   show_animation_.reset();
 }
 
-void NativeWidgetNSWindowBridge::InitCompositorView() {
+void NativeWidgetNSWindowBridge::InitCompositorView(
+    InitCompositorViewCallback callback) {
   // Use the regular window background for window modal sheets. The layer will
   // still paint over most of it, but the native -[NSApp beginSheet:] animation
   // blocks the UI thread, so there's no way to invalidate the shadow to match
@@ -1046,6 +1054,9 @@ void NativeWidgetNSWindowBridge::InitCompositorView() {
   // will be forwarded.
   UpdateWindowDisplay();
   UpdateWindowGeometry();
+
+  // Inform the browser of the CGWindowID for this NSWindow.
+  std::move(callback).Run([window_ windowNumber]);
 }
 
 void NativeWidgetNSWindowBridge::SortSubviews(
@@ -1216,18 +1227,20 @@ void NativeWidgetNSWindowBridge::SetWindowLevel(int32_t level) {
   [window_ setCollectionBehavior:behavior];
 }
 
-void NativeWidgetNSWindowBridge::SetContentAspectRatio(
+void NativeWidgetNSWindowBridge::SetAspectRatio(
     const gfx::SizeF& aspect_ratio) {
-  [window_ setContentAspectRatio:NSMakeSize(aspect_ratio.width(),
-                                            aspect_ratio.height())];
+  DCHECK(!aspect_ratio.IsEmpty());
+  [window_delegate_
+      setAspectRatio:aspect_ratio.width() / aspect_ratio.height()];
 }
 
 void NativeWidgetNSWindowBridge::SetCALayerParams(
     const gfx::CALayerParams& ca_layer_params) {
   // Ignore frames arriving "late" for an old size. A frame at the new size
   // should arrive soon.
-  gfx::Size frame_dip_size = gfx::ConvertSizeToDIP(ca_layer_params.scale_factor,
-                                                   ca_layer_params.pixel_size);
+  // TODO(danakj): We should avoid lossy conversions to integer DIPs.
+  gfx::Size frame_dip_size = gfx::ToFlooredSize(gfx::ConvertSizeToDips(
+      ca_layer_params.pixel_size, ca_layer_params.scale_factor));
   if (content_dip_size_ != frame_dip_size)
     return;
   compositor_frame_dip_size_ = frame_dip_size;

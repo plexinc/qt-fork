@@ -11,15 +11,15 @@
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/location.h"
-#include "base/logging.h"
 #include "base/no_destructor.h"
+#include "base/notreached.h"
 #include "base/system/sys_info_internal.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
-#include "base/task_runner_util.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 
 namespace base {
 namespace {
@@ -83,26 +83,18 @@ bool SysInfo::IsLowEndDeviceImpl() {
 }
 #endif
 
-#if !defined(OS_MACOSX) && !defined(OS_ANDROID)
+#if !defined(OS_APPLE) && !defined(OS_ANDROID) && \
+    !BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_CHROMEOS_LACROS)
 std::string SysInfo::HardwareModelName() {
   return std::string();
 }
 #endif
 
 void SysInfo::GetHardwareInfo(base::OnceCallback<void(HardwareInfo)> callback) {
-#if defined(OS_WIN)
-  // On Windows the calls to GetHardwareInfoSync can take a really long time to
-  // complete as they depend on WMI, using the CONTINUE_ON_SHUTDOWN traits will
-  // prevent this task from blocking shutdown.
-  base::PostTaskAndReplyWithResult(
-      base::ThreadPool::CreateCOMSTATaskRunner(
-          {TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN})
-          .get(),
-      FROM_HERE, base::BindOnce(&GetHardwareInfoSync), std::move(callback));
-#elif defined(OS_ANDROID) || defined(OS_MACOSX)
+#if defined(OS_WIN) || defined(OS_ANDROID) || defined(OS_APPLE)
   base::ThreadPool::PostTaskAndReplyWithResult(
       FROM_HERE, {}, base::BindOnce(&GetHardwareInfoSync), std::move(callback));
-#elif defined(OS_LINUX)
+#elif defined(OS_LINUX) || defined(OS_CHROMEOS)
   base::ThreadPool::PostTaskAndReplyWithResult(
       FROM_HERE, {base::MayBlock()}, base::BindOnce(&GetHardwareInfoSync),
       std::move(callback));
@@ -120,6 +112,21 @@ base::TimeDelta SysInfo::Uptime() {
   // microseconds, on Win/Mac/iOS/Linux/ChromeOS and Android.
   int64_t uptime_in_microseconds = TimeTicks::Now().ToInternalValue();
   return base::TimeDelta::FromMicroseconds(uptime_in_microseconds);
+}
+
+// static
+std::string SysInfo::ProcessCPUArchitecture() {
+#if defined(ARCH_CPU_X86)
+  return "x86";
+#elif defined(ARCH_CPU_X86_64)
+  return "x86_64";
+#elif defined(ARCH_CPU_ARMEL)
+  return "ARM";
+#elif defined(ARCH_CPU_ARM64)
+  return "ARM_64";
+#else
+  return std::string();
+#endif
 }
 
 }  // namespace base

@@ -9,6 +9,7 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
+#include "base/sequence_checker.h"
 #include "media/base/status.h"
 #include "media/base/video_decoder.h"
 #include "media/base/video_frame.h"
@@ -21,7 +22,7 @@
 #include "ui/gfx/color_space.h"
 
 namespace base {
-class SingleThreadTaskRunner;
+class SequencedTaskRunner;
 }
 
 namespace media {
@@ -47,7 +48,7 @@ class MojoVideoDecoder final : public VideoDecoder,
                                public mojom::VideoDecoderClient {
  public:
   MojoVideoDecoder(
-      scoped_refptr<base::SingleThreadTaskRunner> task_runner,
+      scoped_refptr<base::SequencedTaskRunner> task_runner,
       GpuVideoAcceleratorFactories* gpu_factories,
       MediaLog* media_log,
       mojo::PendingRemote<mojom::VideoDecoder> pending_remote_decoder,
@@ -56,9 +57,13 @@ class MojoVideoDecoder final : public VideoDecoder,
       const gfx::ColorSpace& target_color_space);
   ~MojoVideoDecoder() final;
 
-  // VideoDecoder implementation.
-  std::string GetDisplayName() const final;
+  // Decoder implementation
   bool IsPlatformDecoder() const final;
+  bool SupportsDecryption() const final;
+  std::string GetDisplayName() const override;
+  VideoDecoderType GetDecoderType() const final;
+
+  // VideoDecoder implementation.
   void Initialize(const VideoDecoderConfig& config,
                   bool low_delay,
                   CdmContext* cdm_context,
@@ -70,6 +75,7 @@ class MojoVideoDecoder final : public VideoDecoder,
   bool NeedsBitstreamConversion() const final;
   bool CanReadWithoutStalling() const final;
   int GetMaxDecodeRequests() const final;
+  bool IsOptimizedForRTC() const final;
 
   // mojom::VideoDecoderClient implementation.
   void OnVideoFrameDecoded(
@@ -87,8 +93,9 @@ class MojoVideoDecoder final : public VideoDecoder,
   void FailInit(InitCB init_cb, Status err);
   void OnInitializeDone(const Status& status,
                         bool needs_bitstream_conversion,
-                        int32_t max_decode_requests);
-  void OnDecodeDone(uint64_t decode_id, DecodeStatus status);
+                        int32_t max_decode_requests,
+                        VideoDecoderType decoder_type);
+  void OnDecodeDone(uint64_t decode_id, const Status& status);
   void OnResetDone();
 
   void BindRemoteDecoder();
@@ -102,7 +109,8 @@ class MojoVideoDecoder final : public VideoDecoder,
   void ReportInitialPlaybackErrorUMA();
 
   // Task runner that the decoder runs on (media thread).
-  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
+  scoped_refptr<base::SequencedTaskRunner> task_runner_;
+  SEQUENCE_CHECKER(sequence_checker_);
 
   // Used to pass the remote decoder from the constructor (on the main thread)
   // to Initialize() (on the media thread).
@@ -141,6 +149,7 @@ class MojoVideoDecoder final : public VideoDecoder,
   bool initialized_ = false;
   bool needs_bitstream_conversion_ = false;
   bool can_read_without_stalling_ = true;
+  VideoDecoderType decoder_type_ = VideoDecoderType::kUnknown;
 
   // True if UMA metrics of success/failure after first few seconds of playback
   // have been already reported.

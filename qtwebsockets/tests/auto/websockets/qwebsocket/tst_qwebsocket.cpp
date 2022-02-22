@@ -623,7 +623,7 @@ void tst_QWebSocket::tst_errorString()
 
     socket.open(QUrl(QStringLiteral("ws://someserver.on.mars:9999")));
 
-    QTRY_COMPARE(errorSpy.count(), 1);
+    QTRY_COMPARE_WITH_TIMEOUT(errorSpy.count(), 1, 10000);
     QList<QVariant> arguments = errorSpy.takeFirst();
     QAbstractSocket::SocketError socketError =
             qvariant_cast<QAbstractSocket::SocketError>(arguments.at(0));
@@ -804,7 +804,7 @@ void tst_QWebSocket::overlongCloseReason()
     QCOMPARE(socket.closeCode(), QWebSocketProtocol::CloseCodeGoingAway);
     // Max length of a control frame is 125, but 2 bytes are used for the close code:
     QCOMPARE(socket.closeReason().length(), 123);
-    QCOMPARE(socket.closeReason(), reason.leftRef(123));
+    QCOMPARE(socket.closeReason(), reason.left(123));
     QTRY_COMPARE(socketDisconnectedSpy.count(), 1);
 }
 

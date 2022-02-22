@@ -45,7 +45,7 @@
 #include "qscatter3dseries_p.h"
 #include "scatterrenderitem_p.h"
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 class ScatterObjectBufferHelper;
 class ScatterPointBufferHelper;
@@ -56,7 +56,7 @@ public:
     ScatterSeriesRenderCache(QAbstract3DSeries *series, Abstract3DRenderer *renderer);
     virtual ~ScatterSeriesRenderCache();
 
-    void cleanup(TextureHelper *texHelper);
+    void cleanup(TextureHelper *texHelper) override;
 
     inline ScatterRenderItemArray &renderArray() { return m_renderArray; }
     inline QScatter3DSeries *series() const { return static_cast<QScatter3DSeries *>(m_series); }
@@ -74,8 +74,8 @@ public:
     inline ScatterObjectBufferHelper *bufferObject() const { return m_scatterBufferObj; }
     inline void setBufferPoints(ScatterPointBufferHelper *object) { m_scatterBufferPoints = object; }
     inline ScatterPointBufferHelper *bufferPoints() const { return m_scatterBufferPoints; }
-    inline QVector<int> &updateIndices() { return m_updateIndices; }
-    inline QVector<int> &bufferIndices() { return m_bufferIndices; }
+    inline QList<int> &updateIndices() { return m_updateIndices; }
+    inline QList<int> &bufferIndices() { return m_bufferIndices; }
     inline void setVisibilityChanged(bool changed) { m_visibilityChanged = changed; }
     inline bool visibilityChanged() const { return m_visibilityChanged; }
 
@@ -88,11 +88,11 @@ protected:
     QString m_oldMeshFileName; // Used to detect if full buffer change needed
     ScatterObjectBufferHelper *m_scatterBufferObj;
     ScatterPointBufferHelper *m_scatterBufferPoints;
-    QVector<int> m_updateIndices; // Used as temporary cache during item updates
-    QVector<int> m_bufferIndices; // Cache for mapping renderarray to mesh buffer
+    QList<int> m_updateIndices; // Used as temporary cache during item updates
+    QList<int> m_bufferIndices; // Cache for mapping renderarray to mesh buffer
     bool m_visibilityChanged; // Used to detect if full buffer change needed
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

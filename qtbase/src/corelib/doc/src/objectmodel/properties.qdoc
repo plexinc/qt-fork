@@ -102,21 +102,19 @@
     re-evaluated in QML, for example. Qt emits automatically that signal when
     needed for MEMBER properties that do not have an explicit setter.
 
-    \li A \c REVISION number is optional. If included, it defines
-    the property and its notifier signal to be used in a particular
+    \li A \c REVISION number or \c REVISION() macro is optional. If included,
+    it defines the property and its notifier signal to be used in a particular
     revision of the API (usually for exposure to QML). If not included, it
     defaults to 0.
 
     \li The \c DESIGNABLE attribute indicates whether the property
     should be visible in the property editor of GUI design tool (e.g.,
     \l {Qt Designer Manual}{Qt Designer}). Most properties are \c DESIGNABLE
-    (default true). Instead of true or false, you can specify a boolean
-    member function.
+    (default true). Valid values are true and false.
 
     \li The \c SCRIPTABLE attribute indicates whether this property
     should be accessible by a scripting engine (default true).
-    Instead of true or false, you can specify a boolean member
-    function.
+    Valid values are true and false.
 
     \li The \c STORED attribute indicates whether the property should
     be thought of as existing on its own or as depending on other
@@ -132,6 +130,13 @@
     (default false). e.g., QAbstractButton::checked is the user
     editable property for (checkable) buttons. Note that QItemDelegate
     gets and sets a widget's \c USER property.
+
+    \li The \c {BINDABLE bindableProperty} attribute indicates that the
+    property supports \l {Qt Bindable Properties}{bindings},
+    and that it is possible to set and inspect
+    bindings to this property via the meta object system (QMetaProperty).
+    \c bindableProperty names a class member of type QBindable<T>, where T
+    is the property type. This attribute was introduced in Qt 6.0.
 
     \li The presence of the \c CONSTANT attribute indicates that the property
     value is constant.  For a given object instance, the READ method of a
@@ -291,4 +296,21 @@
 
     Like other meta-data, class information is accessible at run-time
     through the meta-object; see QMetaObject::classInfo() for details.
+
+    \section1 Using Bindable Properties
+
+    Three different types can be used to implement bindable properties:
+    \list
+        \li \l QProperty
+        \li \l QObjectBindableProperty
+        \li \l QObjectComputedProperty.
+    \endlist
+    The first one is a general class for bindable properties. The latter
+    two can only be used inside a \l QObject.
+
+    For more information, including examples, see the classes mentioned above
+    and the general tips on implementing and using
+    \l {Qt Bindable Properties}{bindable properties}.
+
+    \sa {Qt Bindable Properties}
 */

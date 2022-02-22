@@ -51,6 +51,7 @@
 // We mean it.
 //
 
+#include <private/qtqmlglobal_p.h>
 #include <qqml.h>
 
 #include <QtCore/qobject.h>
@@ -58,7 +59,7 @@
 QT_BEGIN_NAMESPACE
 
 class QQmlBindPrivate;
-class Q_AUTOTEST_EXPORT QQmlBind : public QObject, public QQmlPropertyValueSource, public QQmlParserStatus
+class Q_QML_PRIVATE_EXPORT QQmlBind : public QObject, public QQmlPropertyValueSource, public QQmlParserStatus
 {
 public:
     enum RestorationMode {
@@ -77,11 +78,12 @@ private:
     Q_PROPERTY(QString property READ property WRITE setProperty)
     Q_PROPERTY(QJSValue value READ value WRITE setValue)
     Q_PROPERTY(bool when READ when WRITE setWhen)
-    Q_PROPERTY(bool delayed READ delayed WRITE setDelayed REVISION 8)
+    Q_PROPERTY(bool delayed READ delayed WRITE setDelayed REVISION(2, 8))
     Q_PROPERTY(RestorationMode restoreMode READ restoreMode WRITE setRestoreMode
-               NOTIFY restoreModeChanged REVISION 14)
+               NOTIFY restoreModeChanged REVISION(2, 14))
     Q_ENUM(RestorationMode)
     QML_NAMED_ELEMENT(Binding)
+    QML_ADDED_IN_VERSION(2, 0)
 
 public:
     QQmlBind(QObject *parent=nullptr);

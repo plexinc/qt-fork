@@ -278,9 +278,6 @@ class USER_MANAGER_EXPORT UserManager {
   // Returns true if we're logged in as a Guest.
   virtual bool IsLoggedInAsGuest() const = 0;
 
-  // Returns true if we're logged in as a legacy supervised user.
-  virtual bool IsLoggedInAsSupervisedUser() const = 0;
-
   // Returns true if we're logged in as a kiosk app.
   virtual bool IsLoggedInAsKioskApp() const = 0;
 
@@ -320,9 +317,6 @@ class USER_MANAGER_EXPORT UserManager {
       const gfx::ImageSkia& profile_image) = 0;
   virtual void NotifyUsersSignInConstraintsChanged() = 0;
 
-  // Returns true if supervised users allowed.
-  virtual bool AreSupervisedUsersAllowed() const = 0;
-
   // Returns true if guest user is allowed.
   virtual bool IsGuestSessionAllowed() const = 0;
 
@@ -333,7 +327,7 @@ class USER_MANAGER_EXPORT UserManager {
 
   // Returns true if |user| is allowed depending on device policies.
   // Accepted user types: USER_TYPE_REGULAR, USER_TYPE_GUEST,
-  // USER_TYPE_SUPERVISED, USER_TYPE_CHILD.
+  // USER_TYPE_SUPERVISED_DEPRECATED, USER_TYPE_CHILD.
   virtual bool IsUserAllowed(const User& user) const = 0;
 
   // Returns "Local State" PrefService instance.
@@ -361,8 +355,10 @@ class USER_MANAGER_EXPORT UserManager {
   // Returns true if |account_id| is Stub user.
   virtual bool IsStubAccountId(const AccountId& account_id) const = 0;
 
-  // Returns true if |account_id| is supervised.
-  virtual bool IsSupervisedAccountId(const AccountId& account_id) const = 0;
+  // Returns true if |account_id| is deprecated supervised.
+  // TODO(crbug/1155729): Check it is not used anymore and remove it.
+  virtual bool IsDeprecatedSupervisedAccountId(
+      const AccountId& account_id) const = 0;
 
   virtual bool IsDeviceLocalAccountMarkedForRemoval(
       const AccountId& account_id) const = 0;

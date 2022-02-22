@@ -51,7 +51,7 @@ enum FilterEffectType {
 class PLATFORM_EXPORT FilterEffect : public GarbageCollected<FilterEffect> {
  public:
   virtual ~FilterEffect();
-  virtual void Trace(Visitor*);
+  virtual void Trace(Visitor*) const;
 
   void DisposeImageFilters();
   void DisposeImageFiltersRecursive();
@@ -139,7 +139,7 @@ class PLATFORM_EXPORT FilterEffect : public GarbageCollected<FilterEffect> {
 
   Color AdaptColorToOperatingInterpolationSpace(const Color& device_color);
 
-  PaintFilter::CropRect GetCropRect() const;
+  base::Optional<PaintFilter::CropRect> GetCropRect() const;
 
  private:
   FilterEffectVector input_effects_;

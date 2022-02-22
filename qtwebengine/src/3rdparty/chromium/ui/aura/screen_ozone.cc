@@ -8,7 +8,6 @@
 #include "ui/aura/window.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/display/display.h"
-#include "ui/display/screen.h"
 #include "ui/ozone/public/ozone_platform.h"
 #include "ui/ozone/public/platform_screen.h"
 
@@ -22,7 +21,9 @@ ScreenOzone::ScreenOzone() {
   }
 }
 
-ScreenOzone::~ScreenOzone() = default;
+ScreenOzone::~ScreenOzone() {
+  display::Screen::SetScreenInstance(old_screen_);
+}
 
 gfx::Point ScreenOzone::GetCursorScreenPoint() {
   return platform_screen_->GetCursorScreenPoint();
@@ -33,24 +34,19 @@ bool ScreenOzone::IsWindowUnderCursor(gfx::NativeWindow window) {
 }
 
 gfx::NativeWindow ScreenOzone::GetWindowAtScreenPoint(const gfx::Point& point) {
-  auto widget = platform_screen_->GetAcceleratedWidgetAtScreenPoint(point);
-  if (!widget)
-    return nullptr;
+  return GetNativeWindowFromAcceleratedWidget(
+      platform_screen_->GetAcceleratedWidgetAtScreenPoint(point));
+}
 
-  aura::WindowTreeHost* host =
-      aura::WindowTreeHost::GetForAcceleratedWidget(widget);
-  if (!host)
-    return nullptr;
+gfx::NativeWindow ScreenOzone::GetLocalProcessWindowAtPoint(
+    const gfx::Point& point,
+    const std::set<gfx::NativeWindow>& ignore) {
+  std::set<gfx::AcceleratedWidget> ignore_top_level;
+  for (auto* const window : ignore)
+    ignore_top_level.emplace(window->GetHost()->GetAcceleratedWidget());
 
-  gfx::NativeWindow window = host->window();
-  gfx::Point local_point = point;
-
-  aura::client::ScreenPositionClient* position_client =
-      aura::client::GetScreenPositionClient(window);
-  if (position_client)
-    position_client->ConvertPointFromScreen(window, &local_point);
-
-  return window->GetEventHandlerForPoint(local_point);
+  return GetNativeWindowFromAcceleratedWidget(
+      platform_screen_->GetLocalProcessWidgetAtPoint(point, ignore_top_level));
 }
 
 int ScreenOzone::GetNumDisplays() const {
@@ -89,6 +85,18 @@ display::Display ScreenOzone::GetPrimaryDisplay() const {
   return platform_screen_->GetPrimaryDisplay();
 }
 
+void ScreenOzone::SetScreenSaverSuspended(bool suspend) {
+  platform_screen_->SetScreenSaverSuspended(suspend);
+}
+
+bool ScreenOzone::IsScreenSaverActive() const {
+  return platform_screen_->IsScreenSaverActive();
+}
+
+base::TimeDelta ScreenOzone::CalculateIdleTime() const {
+  return platform_screen_->CalculateIdleTime();
+}
+
 void ScreenOzone::AddObserver(display::DisplayObserver* observer) {
   platform_screen_->AddObserver(observer);
 }
@@ -99,6 +107,16 @@ void ScreenOzone::RemoveObserver(display::DisplayObserver* observer) {
 
 std::string ScreenOzone::GetCurrentWorkspace() {
   return platform_screen_->GetCurrentWorkspace();
+}
+
+base::Value ScreenOzone::GetGpuExtraInfoAsListValue(
+    const gfx::GpuExtraInfo& gpu_extra_info) {
+  return platform_screen_->GetGpuExtraInfoAsListValue(gpu_extra_info);
+}
+
+gfx::NativeWindow ScreenOzone::GetNativeWindowFromAcceleratedWidget(
+    gfx::AcceleratedWidget widget) const {
+  return nullptr;
 }
 
 gfx::AcceleratedWidget ScreenOzone::GetAcceleratedWidgetForWindow(

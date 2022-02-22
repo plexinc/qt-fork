@@ -95,7 +95,7 @@ public:
         QDateTime lastModified;
     };
 
-    QVector<FileInfo> fileInfoList() const;
+    QList<FileInfo> fileInfoList() const;
     int count() const;
 
     FileInfo entryInfoAt(int index) const;
@@ -118,7 +118,7 @@ private:
     QZipReaderPrivate *d;
     Q_DISABLE_COPY_MOVE(QZipReader)
 };
-Q_DECLARE_TYPEINFO(QZipReader::FileInfo, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QZipReader::FileInfo, Q_RELOCATABLE_TYPE);
 Q_DECLARE_TYPEINFO(QZipReader::Status, Q_PRIMITIVE_TYPE);
 
 QT_END_NAMESPACE

@@ -50,15 +50,14 @@
 #include <qdrag.h>
 #endif
 #include <qclipboard.h>
-#if QT_CONFIG(menu)
-#include <qmenu.h>
-#endif
 #include <qstyle.h>
 #include <qtimer.h>
 #include "private/qapplication_p.h"
 #include "private/qtextdocumentlayout_p.h"
 #include "private/qabstracttextdocumentlayout_p.h"
+#if QT_CONFIG(menu)
 #include "private/qmenu_p.h"
+#endif
 #include "qtextdocument.h"
 #include "private/qtextdocument_p.h"
 #include "qtextlist.h"
@@ -85,7 +84,9 @@
 #include <qurl.h>
 #include <qdesktopservices.h>
 #include <qinputmethod.h>
+#if QT_CONFIG(tooltip)
 #include <qtooltip.h>
+#endif
 #include <qstyleoption.h>
 #if QT_CONFIG(lineedit)
 #include <QtWidgets/qlineedit.h>
@@ -93,12 +94,11 @@
 #include <QtGui/qaccessible.h>
 #include <QtCore/qmetaobject.h>
 
-#ifndef QT_NO_SHORTCUT
+#if QT_CONFIG(shortcut)
 #include "private/qapplication_p.h"
 #include "private/qshortcutmap_p.h"
 #include <qkeysequence.h>
-#define ACCEL_KEY(k) ((!QCoreApplication::testAttribute(Qt::AA_DontShowShortcutsInContextMenus) \
-                       && QGuiApplication::styleHints()->showShortcutsInContextMenus()) \
+#define ACCEL_KEY(k) (!QCoreApplication::testAttribute(Qt::AA_DontShowShortcutsInContextMenus) \
                       && !QGuiApplicationPrivate::instance()->shortcutMap.hasShortcutForKeySequence(k) ? \
                       QLatin1Char('\t') + QKeySequence(k).toString(QKeySequence::NativeText) : QString())
 
@@ -696,9 +696,9 @@ void QWidgetTextControlPrivate::_q_contentsChanged(int from, int charsRemoved, i
         delete ev;
     }
 #else
-    Q_UNUSED(from)
-    Q_UNUSED(charsRemoved)
-    Q_UNUSED(charsAdded)
+    Q_UNUSED(from);
+    Q_UNUSED(charsRemoved);
+    Q_UNUSED(charsAdded);
 #endif
 }
 
@@ -922,7 +922,7 @@ QTextDocument *QWidgetTextControl::document() const
     return d->doc;
 }
 
-void QWidgetTextControl::setTextCursor(const QTextCursor &cursor)
+void QWidgetTextControl::setTextCursor(const QTextCursor &cursor, bool selectionClipboard)
 {
     Q_D(QWidgetTextControl);
     d->cursorIsFocusIndicator = false;
@@ -936,6 +936,11 @@ void QWidgetTextControl::setTextCursor(const QTextCursor &cursor)
     d->repaintOldAndNewSelection(oldSelection);
     if (posChanged)
         emit cursorPositionChanged();
+
+#ifndef QT_NO_CLIPBOARD
+    if (selectionClipboard)
+        d->setClipboardSelection();
+#endif
 }
 
 QTextCursor QWidgetTextControl::textCursor() const
@@ -1039,23 +1044,23 @@ void QWidgetTextControl::processEvent(QEvent *e, const QTransform &transform, QW
             break;
         case QEvent::MouseButtonPress: {
             QMouseEvent *ev = static_cast<QMouseEvent *>(e);
-            d->mousePressEvent(ev, ev->button(), transform.map(ev->pos()), ev->modifiers(),
-                               ev->buttons(), ev->globalPos());
+            d->mousePressEvent(ev, ev->button(), transform.map(ev->position().toPoint()), ev->modifiers(),
+                               ev->buttons(), ev->globalPosition().toPoint());
             break; }
         case QEvent::MouseMove: {
             QMouseEvent *ev = static_cast<QMouseEvent *>(e);
-            d->mouseMoveEvent(ev, ev->button(), transform.map(ev->pos()), ev->modifiers(),
-                              ev->buttons(), ev->globalPos());
+            d->mouseMoveEvent(ev, ev->button(), transform.map(ev->position().toPoint()), ev->modifiers(),
+                              ev->buttons(), ev->globalPosition().toPoint());
             break; }
         case QEvent::MouseButtonRelease: {
             QMouseEvent *ev = static_cast<QMouseEvent *>(e);
-            d->mouseReleaseEvent(ev, ev->button(), transform.map(ev->pos()), ev->modifiers(),
-                                 ev->buttons(), ev->globalPos());
+            d->mouseReleaseEvent(ev, ev->button(), transform.map(ev->position().toPoint()), ev->modifiers(),
+                                 ev->buttons(), ev->globalPosition().toPoint());
             break; }
         case QEvent::MouseButtonDblClick: {
             QMouseEvent *ev = static_cast<QMouseEvent *>(e);
-            d->mouseDoubleClickEvent(ev, ev->button(), transform.map(ev->pos()), ev->modifiers(),
-                                     ev->buttons(), ev->globalPos());
+            d->mouseDoubleClickEvent(ev, ev->button(), transform.map(ev->position().toPoint()), ev->modifiers(),
+                                     ev->buttons(), ev->globalPosition().toPoint());
             break; }
         case QEvent::InputMethod:
             d->inputMethodEvent(static_cast<QInputMethodEvent *>(e));
@@ -1075,13 +1080,13 @@ void QWidgetTextControl::processEvent(QEvent *e, const QTransform &transform, QW
             d->isEnabled = e->isAccepted();
             break;
 
-#ifndef QT_NO_TOOLTIP
+#if QT_CONFIG(tooltip)
         case QEvent::ToolTip: {
             QHelpEvent *ev = static_cast<QHelpEvent *>(e);
             d->showToolTip(ev->globalPos(), transform.map(ev->pos()), contextWidget);
             break;
         }
-#endif // QT_NO_TOOLTIP
+#endif // QT_CONFIG(tooltip)
 
 #if QT_CONFIG(draganddrop)
         case QEvent::DragEnter: {
@@ -1095,13 +1100,13 @@ void QWidgetTextControl::processEvent(QEvent *e, const QTransform &transform, QW
             break;
         case QEvent::DragMove: {
             QDragMoveEvent *ev = static_cast<QDragMoveEvent *>(e);
-            if (d->dragMoveEvent(e, ev->mimeData(), transform.map(ev->pos())))
+            if (d->dragMoveEvent(e, ev->mimeData(), transform.map(ev->position().toPoint())))
                 ev->acceptProposedAction();
             break;
         }
         case QEvent::Drop: {
             QDropEvent *ev = static_cast<QDropEvent *>(e);
-            if (d->dropEvent(ev->mimeData(), transform.map(ev->pos()), ev->dropAction(), ev->source()))
+            if (d->dropEvent(ev->mimeData(), transform.map(ev->position().toPoint()), ev->dropAction(), ev->source()))
                 ev->acceptProposedAction();
             break;
         }
@@ -1225,6 +1230,9 @@ void QWidgetTextControlPrivate::keyPressEvent(QKeyEvent *e)
     if (e == QKeySequence::SelectAll) {
             e->accept();
             q->selectAll();
+#ifndef QT_NO_CLIPBOARD
+            setClipboardSelection();
+#endif
             return;
     }
 #ifndef QT_NO_CLIPBOARD
@@ -1273,7 +1281,7 @@ void QWidgetTextControlPrivate::keyPressEvent(QKeyEvent *e)
     // example)
     repaintSelection();
 
-    if (e->key() == Qt::Key_Backspace && !(e->modifiers() & ~Qt::ShiftModifier)) {
+    if (e->key() == Qt::Key_Backspace && !(e->modifiers() & ~(Qt::ShiftModifier | Qt::GroupSwitchModifier))) {
         QTextBlockFormat blockFmt = cursor.blockFormat();
         QTextList *list = cursor.currentList();
         if (list && cursor.atBlockStart() && !cursor.hasSelection()) {
@@ -1375,6 +1383,10 @@ process:
     }
 
  accept:
+
+#ifndef QT_NO_CLIPBOARD
+    setClipboardSelection();
+#endif
 
     e->accept();
     cursorOn = true;
@@ -1942,10 +1954,12 @@ void QWidgetTextControlPrivate::contextMenuEvent(const QPoint &screenPos, const 
     if (!menu)
         return;
     menu->setAttribute(Qt::WA_DeleteOnClose);
-    if (auto *window = static_cast<QWidget *>(parent)->window()->windowHandle()) {
-        QMenuPrivate::get(menu)->topData()->initialScreenIndex =
-                QGuiApplication::screens().indexOf(window->screen());
+
+    if (auto *widget = qobject_cast<QWidget *>(parent)) {
+        if (auto *window = widget->window()->windowHandle())
+            QMenuPrivate::get(menu)->topData()->initialScreen = window->screen();
     }
+
     menu->popup(screenPos);
 #endif
 }
@@ -2024,7 +2038,7 @@ bool QWidgetTextControlPrivate::dropEvent(const QMimeData *mimeData, const QPoin
 void QWidgetTextControlPrivate::inputMethodEvent(QInputMethodEvent *e)
 {
     Q_Q(QWidgetTextControl);
-    if (!(interactionFlags & Qt::TextEditable) || cursor.isNull()) {
+    if (!(interactionFlags & (Qt::TextEditable | Qt::TextSelectableByMouse)) || cursor.isNull()) {
         e->ignore();
         return;
     }
@@ -2068,7 +2082,7 @@ void QWidgetTextControlPrivate::inputMethodEvent(QInputMethodEvent *e)
     QTextLayout *layout = block.layout();
     if (isGettingInput)
         layout->setPreeditArea(cursor.position() - block.position(), e->preeditString());
-    QVector<QTextLayout::FormatRange> overrides;
+    QList<QTextLayout::FormatRange> overrides;
     overrides.reserve(e->attributes().size());
     const int oldPreeditCursor = preeditCursor;
     preeditCursor = e->preeditString().length();
@@ -2088,9 +2102,9 @@ void QWidgetTextControlPrivate::inputMethodEvent(QInputMethodEvent *e)
                 o.format = f;
 
                 // Make sure list is sorted by start index
-                QVector<QTextLayout::FormatRange>::iterator it = overrides.end();
+                QList<QTextLayout::FormatRange>::iterator it = overrides.end();
                 while (it != overrides.begin()) {
-                    QVector<QTextLayout::FormatRange>::iterator previous = it - 1;
+                    QList<QTextLayout::FormatRange>::iterator previous = it - 1;
                     if (o.start >= previous->start) {
                         overrides.insert(it, o);
                         break;
@@ -2108,7 +2122,7 @@ void QWidgetTextControlPrivate::inputMethodEvent(QInputMethodEvent *e)
         int start = cursor.position() - block.position();
         int end = start + e->preeditString().length();
 
-        QVector<QTextLayout::FormatRange>::iterator it = overrides.begin();
+        QList<QTextLayout::FormatRange>::iterator it = overrides.begin();
         while (it != overrides.end()) {
             QTextLayout::FormatRange range = *it;
             int rangeStart = range.start;
@@ -2209,7 +2223,7 @@ QVariant QWidgetTextControl::inputMethodQuery(Qt::InputMethodQuery property, QVa
             tmpCursor.movePosition(QTextCursor::NextBlock);
             --numBlocks;
         }
-        result += block.text().midRef(0, localPos);
+        result += QStringView{block.text()}.mid(0, localPos);
         return QVariant(result);
     }
     default:
@@ -2518,7 +2532,7 @@ void QWidgetTextControl::setExtraSelections(const QList<QTextEdit::ExtraSelectio
         emit updateRequest(r);
     }
 
-    for (QHash<int, int>::iterator it = hash.begin(); it != hash.end(); ++it) {
+    for (auto it = hash.cbegin(); it != hash.cend(); ++it) {
         const QAbstractTextDocumentLayout::Selection &esel = d->extraSelections.at(it.value());
         QRectF r = selectionRect(esel.cursor);
         if (esel.format.boolProperty(QTextFormat::FullWidthSelection)) {
@@ -2674,6 +2688,7 @@ void QWidgetTextControl::print(QPagedPaintDevice *printer) const
         if (!d->cursor.hasSelection())
             return;
         tempDoc = new QTextDocument(const_cast<QTextDocument *>(doc));
+        tempDoc->setResourceProvider(doc->resourceProvider());
         tempDoc->setMetaInformation(QTextDocument::DocumentTitle, doc->metaInformation(QTextDocument::DocumentTitle));
         tempDoc->setPageSize(doc->pageSize());
         tempDoc->setDefaultFont(doc->defaultFont());
@@ -2953,7 +2968,7 @@ void QWidgetTextControlPrivate::activateLinkUnderCursor(QString href)
         emit q_func()->linkActivated(href);
 }
 
-#ifndef QT_NO_TOOLTIP
+#if QT_CONFIG(tooltip)
 void QWidgetTextControlPrivate::showToolTip(const QPoint &globalPos, const QPointF &pos, QWidget *contextWidget)
 {
     const QString toolTip = q_func()->cursorForPosition(pos).charFormat().toolTip();
@@ -2961,7 +2976,7 @@ void QWidgetTextControlPrivate::showToolTip(const QPoint &globalPos, const QPoin
         return;
     QToolTip::showText(globalPos, toolTip, contextWidget);
 }
-#endif // QT_NO_TOOLTIP
+#endif // QT_CONFIG(tooltip)
 
 bool QWidgetTextControlPrivate::isPreediting() const
 {
@@ -3150,19 +3165,6 @@ bool QWidgetTextControl::find(const QString &exp, QTextDocument::FindFlags optio
     setTextCursor(search);
     return true;
 }
-
-#ifndef QT_NO_REGEXP
-bool QWidgetTextControl::find(const QRegExp &exp, QTextDocument::FindFlags options)
-{
-    Q_D(QWidgetTextControl);
-    QTextCursor search = d->doc->find(exp, d->cursor, options);
-    if (search.isNull())
-        return false;
-
-    setTextCursor(search);
-    return true;
-}
-#endif
 
 #if QT_CONFIG(regularexpression)
 bool QWidgetTextControl::find(const QRegularExpression &exp, QTextDocument::FindFlags options)
@@ -3431,7 +3433,7 @@ QStringList QTextEditMimeData::formats() const
         return QMimeData::formats();
 }
 
-QVariant QTextEditMimeData::retrieveData(const QString &mimeType, QVariant::Type type) const
+QVariant QTextEditMimeData::retrieveData(const QString &mimeType, QMetaType type) const
 {
     if (!fragment.isEmpty())
         setup();
@@ -3442,7 +3444,7 @@ void QTextEditMimeData::setup() const
 {
     QTextEditMimeData *that = const_cast<QTextEditMimeData *>(this);
 #ifndef QT_NO_TEXTHTMLPARSER
-    that->setData(QLatin1String("text/html"), fragment.toHtml("utf-8").toUtf8());
+    that->setData(QLatin1String("text/html"), fragment.toHtml().toUtf8());
 #endif
 #ifndef QT_NO_TEXTODFWRITER
     {

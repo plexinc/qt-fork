@@ -42,14 +42,16 @@
 #include "compiler/translator/Symbol.h"
 #include "compiler/translator/SymbolTable_autogen.h"
 
-enum class Shader
+enum class Shader : uint8_t
 {
     ALL,
-    FRAGMENT,      // GL_FRAGMENT_SHADER
-    VERTEX,        // GL_VERTEX_SHADER
-    COMPUTE,       // GL_COMPUTE_SHADER
-    GEOMETRY,      // GL_GEOMETRY_SHADER
-    GEOMETRY_EXT,  // GL_GEOMETRY_SHADER_EXT
+    FRAGMENT,             // GL_FRAGMENT_SHADER
+    VERTEX,               // GL_VERTEX_SHADER
+    COMPUTE,              // GL_COMPUTE_SHADER
+    GEOMETRY,             // GL_GEOMETRY_SHADER
+    GEOMETRY_EXT,         // GL_GEOMETRY_SHADER_EXT
+    TESS_CONTROL_EXT,     // GL_TESS_CONTROL_SHADER_EXT
+    TESS_EVALUATION_EXT,  // GL_TESS_EVALUATION_SHADER_EXT
     NOT_COMPUTE
 };
 
@@ -66,7 +68,7 @@ struct UnmangledBuiltIn
 using VarPointer        = TSymbol *(TSymbolTableBase::*);
 using ValidateExtension = int ShBuiltInResources::*;
 
-enum class Spec
+enum class Spec : uint8_t
 {
     GLSL,
     ESSL

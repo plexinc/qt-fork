@@ -32,7 +32,7 @@
     Please don't save this file in emacs. It contains utf8 text sequences emacs will
     silently convert to a series of question marks.
  */
-#include <QtTest/QtTest>
+#include <QTest>
 
 
 
@@ -68,11 +68,15 @@ private slots:
     void forcedBreaks();
     void breakAny();
     void noWrap();
+
     void cursorToXForInlineObjects();
     void cursorToXForSetColumns();
     void cursorToXForTrailingSpaces_data();
     void cursorToXForTrailingSpaces();
     void cursorToXInvalidInput();
+    void cursorToXForBidiBoundaries_data();
+    void cursorToXForBidiBoundaries();
+
     void horizontalAlignment_data();
     void horizontalAlignment();
     void horizontalAlignmentMultiline_data();
@@ -86,6 +90,8 @@ private slots:
 #ifdef QT_BUILD_INTERNAL
     void xToCursorAtEndOfLine();
 #endif
+    void xToCursorForBidiEnds_data();
+    void xToCursorForBidiEnds();
     void boundingRectTopLeft();
     void graphemeBoundaryForSurrogatePairs();
     void tabStops();
@@ -141,6 +147,7 @@ private slots:
     void showLineAndParagraphSeparatorsCrash();
     void koreanWordWrap();
     void tooManyDirectionalCharctersCrash_qtbug77819();
+    void softHyphens_data();
     void softHyphens();
     void min_maximumWidth();
 
@@ -733,6 +740,58 @@ void tst_QTextLayout::cursorToXInvalidInput()
     QCOMPARE(cursorPos, 3);
 }
 
+void tst_QTextLayout::cursorToXForBidiBoundaries_data()
+{
+    QTest::addColumn<Qt::LayoutDirection>("textDirection");
+    QTest::addColumn<QString>("text");
+    QTest::addColumn<int>("cursorPosition");
+    QTest::addColumn<int>("expectedX");
+
+    QTest::addRow("LTR, abcشزذabc, 0") << Qt::LeftToRight << "abcشزذabc"
+        << 0 << 0;
+    QTest::addRow("RTL, abcشزذabc, 9") << Qt::RightToLeft << "abcشزذabc"
+        << 9 << TESTFONT_SIZE * 3;
+    QTest::addRow("LTR, abcشزذabc, 3") << Qt::LeftToRight << "abcشزذabc"
+        << 0 << 0;
+    QTest::addRow("RTL, abcشزذabc, 6") << Qt::RightToLeft << "abcشزذabc"
+        << 9 << TESTFONT_SIZE * 3;
+
+    QTest::addRow("LTR, شزذabcشزذ, 0") << Qt::LeftToRight << "شزذabcشزذ"
+        << 0 << TESTFONT_SIZE * 2;
+    QTest::addRow("RTL, شزذabcشزذ, 9") << Qt::RightToLeft << "شزذabcشزذ"
+        << 9 << 0;
+    QTest::addRow("LTR, شزذabcشزذ, 3") << Qt::LeftToRight << "شزذabcشزذ"
+        << 3 << TESTFONT_SIZE * 2;
+    QTest::addRow("RTL, شزذabcشزذ, 3") << Qt::RightToLeft << "شزذabcشزذ"
+        << 3 << TESTFONT_SIZE * 5;
+    QTest::addRow("LTR, شزذabcشزذ, 6") << Qt::LeftToRight << "شزذabcشزذ"
+        << 6 << TESTFONT_SIZE * 5;
+    QTest::addRow("RTL, شزذabcشزذ, 6") << Qt::RightToLeft << "شزذabcشزذ"
+        << 6 << TESTFONT_SIZE * 2;
+}
+
+void tst_QTextLayout::cursorToXForBidiBoundaries()
+{
+    QFETCH(Qt::LayoutDirection, textDirection);
+    QFETCH(QString, text);
+    QFETCH(int, cursorPosition);
+    QFETCH(int, expectedX);
+
+    QTextOption option;
+    option.setTextDirection(textDirection);
+
+    QTextLayout layout(text, testFont);
+    layout.setTextOption(option);
+    layout.beginLayout();
+
+    QTextLine line = layout.createLine();
+    line.setLineWidth(0x10000);
+
+    QCOMPARE(line.cursorToX(cursorPosition), expectedX);
+
+    layout.endLayout();
+}
+
 void tst_QTextLayout::horizontalAlignment_data()
 {
     qreal width = TESTFONT_SIZE * 4;
@@ -1125,6 +1184,60 @@ void tst_QTextLayout::xToCursorAtEndOfLine()
 }
 #endif
 
+
+void tst_QTextLayout::xToCursorForBidiEnds_data()
+{
+    QTest::addColumn<Qt::LayoutDirection>("textDirection");
+    QTest::addColumn<QString>("text");
+    QTest::addColumn<int>("leftPosition");
+    QTest::addColumn<int>("rightPosition");
+
+    QTest::addRow("LTR, abcشزذ") << Qt::LeftToRight << "abcشزذ"
+        << 0 << 6;
+    QTest::addRow("RTL, abcشزذ") << Qt::RightToLeft << "abcشزذ"
+        << 6 << 0;
+    QTest::addRow("LTR, شزذabc") << Qt::LeftToRight << "شزذabc"
+        << 0 << 6;
+    QTest::addRow("RTL, شزذabc") << Qt::RightToLeft << "شزذabc"
+        << 6 << 0;
+    QTest::addRow("LTR, شزذ123") << Qt::LeftToRight << "شزذ123"
+        << 0 << 6;
+    QTest::addRow("RTL, شزذ123") << Qt::RightToLeft << "شزذ123"
+        << 6 << 0;
+
+    QTest::addRow("LTR, abcشزذabc") << Qt::LeftToRight << "abcشزذabc"
+        << 0 << 9;
+    QTest::addRow("RTL, abcشزذabc") << Qt::RightToLeft << "abcشزذabc"
+        << 9 << 0;
+    QTest::addRow("LTR, شزذabcشزذ") << Qt::LeftToRight << "شزذabcشزذ"
+        << 0 << 9;
+    QTest::addRow("RTL, شزذabcشزذ") << Qt::RightToLeft << "شزذabcشزذ"
+        << 9 << 0;
+}
+
+void tst_QTextLayout::xToCursorForBidiEnds()
+{
+    QFETCH(Qt::LayoutDirection, textDirection);
+    QFETCH(QString, text);
+    QFETCH(int, leftPosition);
+    QFETCH(int, rightPosition);
+
+    QTextOption option;
+    option.setTextDirection(textDirection);
+
+    QTextLayout layout(text, testFont);
+    layout.setTextOption(option);
+    layout.beginLayout();
+
+    QTextLine line = layout.createLine();
+    line.setLineWidth(0x10000);
+
+    QCOMPARE(line.xToCursor(0), leftPosition);
+    QCOMPARE(line.xToCursor(line.width()), rightPosition);
+
+    layout.endLayout();
+}
+
 void tst_QTextLayout::boundingRectTopLeft()
 {
     QString text = "FirstLine\nSecondLine";
@@ -1149,8 +1262,8 @@ void tst_QTextLayout::graphemeBoundaryForSurrogatePairs()
 {
     QString txt;
     txt.append(QLatin1Char('a'));
-    txt.append(0xd87e);
-    txt.append(0xdc25);
+    txt.append(QChar(0xd87e));
+    txt.append(QChar(0xdc25));
     txt.append(QLatin1Char('b'));
     QTextLayout layout(txt);
     QTextEngine *engine = layout.engine();
@@ -1683,8 +1796,8 @@ QT_END_NAMESPACE
 void tst_QTextLayout::testTabDPIScale()
 {
     class MyPaintDevice : public QPaintDevice {
-        QPaintEngine *paintEngine () const { return 0; }
-        int metric (QPaintDevice::PaintDeviceMetric metric) const {
+        QPaintEngine *paintEngine () const override { return 0; }
+        int metric (QPaintDevice::PaintDeviceMetric metric) const override {
             switch(metric) {
             case QPaintDevice::PdmWidth:
             case QPaintDevice::PdmHeight:
@@ -1894,6 +2007,34 @@ void tst_QTextLayout::longText()
         layout.endLayout();
         QVERIFY(line.isValid());
         QVERIFY(line.cursorToX(line.textLength() - 1) > 0);
+    }
+
+    {
+        QTextLayout layout(QString("Qt rocks! ").repeated(200000));
+        layout.setCacheEnabled(true);
+        layout.beginLayout();
+        forever {
+            QTextLine line = layout.createLine();
+            if (!line.isValid())
+                break;
+        }
+        layout.endLayout();
+        QFontMetricsF fm(layout.font());
+        QVERIFY(layout.maximumWidth() - fm.horizontalAdvance(' ') <= QFIXED_MAX);
+    }
+
+    {
+        QTextLayout layout(QString("AAAAAAAA").repeated(200000));
+        layout.setCacheEnabled(true);
+        layout.beginLayout();
+        forever {
+            QTextLine line = layout.createLine();
+            if (!line.isValid())
+                break;
+        }
+        layout.endLayout();
+        QFontMetricsF fm(layout.font());
+        QVERIFY(layout.maximumWidth() - fm.horizontalAdvance('A') <= QFIXED_MAX);
     }
 }
 
@@ -2401,22 +2542,45 @@ void tst_QTextLayout::tooManyDirectionalCharctersCrash_qtbug77819()
     tl.endLayout();
 }
 
+void tst_QTextLayout::softHyphens_data()
+{
+    QTest::addColumn<int>("fontSize");
+
+    QTest::newRow("12") << 12;
+    QTest::newRow("14") << 14;
+    QTest::newRow("16") << 16;
+}
+
 void tst_QTextLayout::softHyphens()
 {
+    QFETCH(int, fontSize);
     QString text = QStringLiteral("xxxx\u00ad") + QStringLiteral("xxxx\u00ad");
 
     QFont font;
-    font.setPixelSize(14);
+    font.setPixelSize(fontSize);
     font.setHintingPreference(QFont::PreferNoHinting);
-    const float xAdvance = QFontMetricsF(font).horizontalAdvance(QChar('x'));
-    const float shyAdvance = QFontMetricsF(font).horizontalAdvance(QChar::SoftHyphen);
-    if (xAdvance < (shyAdvance + 1.0f))
-        QSKIP("Default font not suitable for this test.");
+    const float xAdvance = QFontMetricsF(font).horizontalAdvance(QChar::fromLatin1('x'));
+    float shyWidth = 0.0f;
     QTextLayout layout(text, font);
     QTextOption option;
     option.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
     layout.setTextOption(option);
-
+    {
+        // Calculate the effective width of a line-ending hyphen
+        // This calculation is currently done to work-around odditities on
+        // macOS 11 (see QTBUG-90698).
+        QTextLayout test(QStringLiteral("x\u00ad"), font);
+        // Note: This only works because Qt show the soft-hyphen when ending a text.
+        // This _could_ be considered a bug and the test would need to be changed
+        // if we stop doing that.
+        test.beginLayout();
+        QTextLine line = test.createLine();
+        line.setLineWidth(10 * xAdvance);
+        line.setPosition(QPoint(0, 0));
+        shyWidth = line.naturalTextWidth() - xAdvance;
+        test.endLayout();
+    }
+    qreal linefit;
     // Loose fit
     // xxxx- |
     // xxxx- |
@@ -2425,21 +2589,22 @@ void tst_QTextLayout::softHyphens()
         int y = 0;
         layout.beginLayout();
         QTextLine line = layout.createLine();
-        line.setLineWidth(qCeil(5 * xAdvance) + 1);
+        line.setLineWidth(qCeil(5 * xAdvance + shyWidth) + 1);
         line.setPosition(QPoint(0, y));
         QCOMPARE(line.textStart(), pos);
         QCOMPARE(line.textLength(), 5);
-        QVERIFY(qAbs(line.naturalTextWidth() - (4 * xAdvance + shyAdvance)) <= 1);
+        linefit = line.naturalTextWidth();
+        QVERIFY(qAbs(linefit - qCeil(4 * xAdvance + shyWidth)) <= 1.0);
 
         pos += line.textLength();
         y += qRound(line.ascent() + line.descent());
 
         line = layout.createLine();
-        line.setLineWidth(qCeil(5 * xAdvance) + 1);
+        line.setLineWidth(qCeil(5 * xAdvance + shyWidth) + 1);
         line.setPosition(QPoint(0, y));
         QCOMPARE(line.textStart(), pos);
         QCOMPARE(line.textLength(), 5);
-        QVERIFY(qAbs(line.naturalTextWidth() - (4 * xAdvance + shyAdvance)) <= 1);
+        QVERIFY(qAbs(line.naturalTextWidth() - linefit) <= 1.0);
         layout.endLayout();
     }
 
@@ -2451,21 +2616,21 @@ void tst_QTextLayout::softHyphens()
         int y = 0;
         layout.beginLayout();
         QTextLine line = layout.createLine();
-        line.setLineWidth(qCeil(4 * xAdvance + shyAdvance) + 1);
+        line.setLineWidth(qCeil(linefit) + 1);
         line.setPosition(QPoint(0, y));
         QCOMPARE(line.textStart(), pos);
         QCOMPARE(line.textLength(), 5);
-        QVERIFY(qAbs(line.naturalTextWidth() - (4 * xAdvance + shyAdvance)) <= 1);
+        QVERIFY(qAbs(line.naturalTextWidth() - linefit) <= 1.0);
 
         pos += line.textLength();
         y += qRound(line.ascent() + line.descent());
 
         line = layout.createLine();
-        line.setLineWidth(qCeil(4 * xAdvance + shyAdvance) + 1);
+        line.setLineWidth(qCeil(linefit) + 1);
         line.setPosition(QPoint(0, y));
         QCOMPARE(line.textStart(), pos);
         QCOMPARE(line.textLength(), 5);
-        QVERIFY(qAbs(line.naturalTextWidth() - (4 * xAdvance + shyAdvance)) <= 1);
+        QVERIFY(qAbs(line.naturalTextWidth() - linefit) <= 1.0);
         layout.endLayout();
     }
 
@@ -2482,7 +2647,7 @@ void tst_QTextLayout::softHyphens()
         line.setPosition(QPoint(0, y));
         QCOMPARE(line.textStart(), pos);
         QCOMPARE(line.textLength(), 4);
-        QVERIFY(qAbs(line.naturalTextWidth() - 4 * xAdvance) <= 1);
+        QVERIFY(qAbs(line.naturalTextWidth() - qCeil(4 * xAdvance)) <= 1.0);
 
         pos += line.textLength();
         y += qRound(line.ascent() + line.descent());
@@ -2492,7 +2657,7 @@ void tst_QTextLayout::softHyphens()
         line.setPosition(QPoint(0, y));
         QCOMPARE(line.textStart(), pos);
         QCOMPARE(line.textLength(), 5);
-        QVERIFY(qAbs(line.naturalTextWidth() - 4 * xAdvance) <= 1);
+        QVERIFY(qAbs(line.naturalTextWidth() - qCeil(4 * xAdvance)) <= 1.0);
 
         pos += line.textLength();
         y += qRound(line.ascent() + line.descent());
@@ -2502,7 +2667,7 @@ void tst_QTextLayout::softHyphens()
         line.setPosition(QPoint(0, y));
         QCOMPARE(line.textStart(), pos);
         QCOMPARE(line.textLength(), 1);
-        QVERIFY(qAbs(line.naturalTextWidth() - shyAdvance) <= 1);
+        QVERIFY(qAbs(line.naturalTextWidth() - shyWidth) <= 1.0);
         layout.endLayout();
     }
 }

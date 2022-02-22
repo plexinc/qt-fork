@@ -1,6 +1,7 @@
 /****************************************************************************
 **
 ** Copyright (C) 2019 Thibaut Cuvelier
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -26,14 +27,17 @@
 **
 ****************************************************************************/
 
-/*
-  xmlgenerator.cpp
-*/
-
 #include "xmlgenerator.h"
+
+#include "enumnode.h"
+#include "examplenode.h"
+#include "functionnode.h"
 #include "qdocdatabase.h"
+#include "typedefnode.h"
 
 QT_BEGIN_NAMESPACE
+
+const QRegularExpression XmlGenerator::m_funcLeftParen(QStringLiteral("^\\S+(\\(.*\\))$"));
 
 /*!
   Do not display \brief for QML/JS types, document and collection nodes
@@ -74,6 +78,7 @@ int XmlGenerator::hOffset(const Node *node)
     case Node::QmlBasicType:
     case Node::QmlType:
     case Node::Page:
+    case Node::Group:
         return 1;
     case Node::Enum:
     case Node::TypeAlias:
@@ -240,15 +245,14 @@ QString XmlGenerator::refForNode(const Node *node)
     case Node::Enum:
         ref = node->name() + "-enum";
         break;
-    case Node::TypeAlias:
-        ref = node->name() + "-alias";
-        break;
     case Node::Typedef: {
-        const auto tdn = static_cast<const TypedefNode *>(node);
-        if (tdn->associatedEnum())
-            return refForNode(tdn->associatedEnum());
+        const auto *tdf = static_cast<const TypedefNode *>(node);
+        if (tdf->associatedEnum())
+            return refForNode(tdf->associatedEnum());
+    } Q_FALLTHROUGH();
+    case Node::TypeAlias:
         ref = node->name() + "-typedef";
-    } break;
+        break;
     case Node::Function: {
         const auto fn = static_cast<const FunctionNode *>(node);
         switch (fn->metaness()) {
@@ -277,6 +281,10 @@ QString XmlGenerator::refForNode(const Node *node)
             break;
         }
     } break;
+    case Node::SharedComment: {
+        if (!node->isPropertyGroup())
+            break;
+    } Q_FALLTHROUGH();
     case Node::JsProperty:
     case Node::QmlProperty:
         if (node->isAttached())
@@ -289,10 +297,6 @@ QString XmlGenerator::refForNode(const Node *node)
         break;
     case Node::Variable:
         ref = node->name() + "-var";
-        break;
-    case Node::SharedComment:
-        if (node->isPropertyGroup())
-            ref = node->name() + "-prop";
         break;
     default:
         break;
@@ -312,7 +316,7 @@ QString XmlGenerator::linkForNode(const Node *node, const Node *relative)
 {
     if (node == nullptr)
         return QString();
-    if (!node->url().isEmpty())
+    if (!node->url().isNull())
         return node->url();
     if (fileBase(node).isEmpty())
         return QString();
@@ -320,14 +324,15 @@ QString XmlGenerator::linkForNode(const Node *node, const Node *relative)
         return QString();
 
     QString fn = fileName(node);
-    if (node && node->parent() && (node->parent()->isQmlType() || node->parent()->isJsType())
+    if (node->parent() && (node->parent()->isQmlType() || node->parent()->isJsType())
         && node->parent()->isAbstract()) {
         if (Generator::qmlTypeContext()) {
             if (Generator::qmlTypeContext()->inherits(node->parent())) {
                 fn = fileName(Generator::qmlTypeContext());
-            } else if (node->parent()->isInternal()) {
-                node->doc().location().warning(tr("Cannot link to property in internal type '%1'")
-                                                       .arg(node->parent()->name()));
+            } else if (node->parent()->isInternal() && !noLinkErrors()) {
+                node->doc().location().warning(
+                        QStringLiteral("Cannot link to property in internal type '%1'")
+                                .arg(node->parent()->name()));
                 return QString();
             }
         }
@@ -350,7 +355,7 @@ QString XmlGenerator::linkForNode(const Node *node, const Node *relative)
       the link must go up to the parent directory and then
       back down into the other subdirectory.
      */
-    if (node && relative && (node != relative)) {
+    if (relative && (node != relative)) {
         if (useOutputSubdirs() && !node->isExternalPage()
             && node->outputSubdirectory() != relative->outputSubdirectory()) {
             if (link.startsWith(QString(node->outputSubdirectory() + QLatin1Char('/')))) {
@@ -378,6 +383,10 @@ QString XmlGenerator::linkForNode(const Node *node, const Node *relative)
 QString XmlGenerator::getLink(const Atom *atom, const Node *relative, const Node **node)
 {
     const QString &t = atom->string();
+
+    if (t.isEmpty())
+        return t;
+
     if (t.at(0) == QChar('h')) {
         if (t.startsWith("http:") || t.startsWith("https:"))
             return t;
@@ -394,8 +403,7 @@ QString XmlGenerator::getLink(const Atom *atom, const Node *relative, const Node
 /*!
   This function is called for autolinks, i.e. for words that
   are not marked with the qdoc link command that qdoc has
-  reason to believe should be links. For links marked with
-  the qdoc link command, the getLink() function is called.
+  reason to believe should be links.
 
   It returns the string for a link found by using the data
   in the \a atom to search the database. It also sets \a node
@@ -403,19 +411,23 @@ QString XmlGenerator::getLink(const Atom *atom, const Node *relative, const Node
   to the node holding the qdoc comment where the link command
   was found.
  */
-QString XmlGenerator::getAutoLink(const Atom *atom, const Node *relative, const Node **node)
+QString XmlGenerator::getAutoLink(const Atom *atom, const Node *relative, const Node **node,
+                                  Node::Genus genus)
 {
     QString ref;
 
-    *node = qdb_->findNodeForAtom(atom, relative, ref);
+    *node = m_qdb->findNodeForAtom(atom, relative, ref, genus);
     if (!(*node))
         return QString();
 
     QString link = (*node)->url();
-    if (link.isEmpty())
+    if (link.isNull()) {
         link = linkForNode(*node, relative);
+    } else if (link.isEmpty()) {
+        return link; // Explicit empty url (node is ignored as a link target)
+    }
     if (!ref.isEmpty()) {
-        int hashtag = link.lastIndexOf(QChar('#'));
+        qsizetype hashtag = link.lastIndexOf(QChar('#'));
         if (hashtag != -1)
             link.truncate(hashtag);
         link += QLatin1Char('#') + ref;
@@ -423,7 +435,7 @@ QString XmlGenerator::getAutoLink(const Atom *atom, const Node *relative, const 
     return link;
 }
 
-const QPair<QString, QString> XmlGenerator::anchorForNode(const Node *node)
+QPair<QString, QString> XmlGenerator::anchorForNode(const Node *node)
 {
     QPair<QString, QString> anchorPair;
 

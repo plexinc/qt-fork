@@ -12,8 +12,10 @@
 #include <algorithm>
 #include <type_traits>
 
+#include "base/bits.h"
 #include "base/stl_util.h"
 #include "base/strings/string16.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -678,28 +680,28 @@ TEST(StringUtilTest, FormatBytesUnlocalized) {
     int64_t bytes;
     const char* expected;
   } cases[] = {
-    // Expected behavior: we show one post-decimal digit when we have
-    // under two pre-decimal digits, except in cases where it makes no
-    // sense (zero or bytes).
-    // Since we switch units once we cross the 1000 mark, this keeps
-    // the display of file sizes or bytes consistently around three
-    // digits.
-    {0, "0 B"},
-    {512, "512 B"},
-    {1024*1024, "1.0 MB"},
-    {1024*1024*1024, "1.0 GB"},
-    {10LL*1024*1024*1024, "10.0 GB"},
-    {99LL*1024*1024*1024, "99.0 GB"},
-    {105LL*1024*1024*1024, "105 GB"},
-    {105LL*1024*1024*1024 + 500LL*1024*1024, "105 GB"},
-    {~(1LL << 63), "8192 PB"},
+      // Expected behavior: we show one post-decimal digit when we have
+      // under two pre-decimal digits, except in cases where it makes no
+      // sense (zero or bytes).
+      // Since we switch units once we cross the 1000 mark, this keeps
+      // the display of file sizes or bytes consistently around three
+      // digits.
+      {0, "0 B"},
+      {512, "512 B"},
+      {1024 * 1024, "1.0 MB"},
+      {1024 * 1024 * 1024, "1.0 GB"},
+      {10LL * 1024 * 1024 * 1024, "10.0 GB"},
+      {99LL * 1024 * 1024 * 1024, "99.0 GB"},
+      {105LL * 1024 * 1024 * 1024, "105 GB"},
+      {105LL * 1024 * 1024 * 1024 + 500LL * 1024 * 1024, "105 GB"},
+      {~(bits::LeftmostBit<int64_t>()), "8192 PB"},
 
-    {99*1024 + 103, "99.1 kB"},
-    {1024*1024 + 103, "1.0 MB"},
-    {1024*1024 + 205 * 1024, "1.2 MB"},
-    {1024*1024*1024 + (927 * 1024*1024), "1.9 GB"},
-    {10LL*1024*1024*1024, "10.0 GB"},
-    {100LL*1024*1024*1024, "100 GB"},
+      {99 * 1024 + 103, "99.1 kB"},
+      {1024 * 1024 + 103, "1.0 MB"},
+      {1024 * 1024 + 205 * 1024, "1.2 MB"},
+      {1024 * 1024 * 1024 + (927 * 1024 * 1024), "1.9 GB"},
+      {10LL * 1024 * 1024 * 1024, "10.0 GB"},
+      {100LL * 1024 * 1024 * 1024, "100 GB"},
   };
 
   for (const auto& i : cases) {
@@ -756,7 +758,7 @@ TEST(StringUtilTest, ReplaceSubstringsAfterOffset) {
 
   // std::string with insufficient capacity: expansion must realloc the buffer.
   for (const auto& scenario : cases) {
-    std::string str = scenario.str.as_string();
+    std::string str(scenario.str);
     str.shrink_to_fit();  // This is nonbinding, but it's the best we've got.
     ReplaceSubstringsAfterOffset(&str, scenario.start_offset,
                                  scenario.find_this, scenario.replace_with);
@@ -765,7 +767,7 @@ TEST(StringUtilTest, ReplaceSubstringsAfterOffset) {
 
   // std::string with ample capacity: should be possible to grow in-place.
   for (const auto& scenario : cases) {
-    std::string str = scenario.str.as_string();
+    std::string str(scenario.str);
     str.reserve(std::max(scenario.str.length(), scenario.expected.length()) *
                 2);
 
@@ -1307,6 +1309,47 @@ TEST(StringUtilTest, WprintfFormatPortabilityTest) {
   };
   for (const auto& i : cases)
     EXPECT_EQ(i.portable, IsWprintfFormatPortable(i.input));
+}
+
+TEST(StringUtilTest, MakeBasicStringPieceTest) {
+  constexpr char kFoo[] = "Foo";
+  static_assert(MakeStringPiece(kFoo, kFoo + 3) == kFoo, "");
+  static_assert(MakeStringPiece(kFoo, kFoo + 3).data() == kFoo, "");
+  static_assert(MakeStringPiece(kFoo, kFoo + 3).size() == 3, "");
+  static_assert(MakeStringPiece(kFoo + 3, kFoo + 3).empty(), "");
+  static_assert(MakeStringPiece(kFoo + 4, kFoo + 4).empty(), "");
+
+  std::string foo = kFoo;
+  EXPECT_EQ(MakeStringPiece(foo.begin(), foo.end()), foo);
+  EXPECT_EQ(MakeStringPiece(foo.begin(), foo.end()).data(), foo.data());
+  EXPECT_EQ(MakeStringPiece(foo.begin(), foo.end()).size(), foo.size());
+  EXPECT_TRUE(MakeStringPiece(foo.end(), foo.end()).empty());
+
+  constexpr char16 kBar[] = STRING16_LITERAL("Bar");
+  static_assert(MakeStringPiece16(kBar, kBar + 3) == kBar, "");
+  static_assert(MakeStringPiece16(kBar, kBar + 3).data() == kBar, "");
+  static_assert(MakeStringPiece16(kBar, kBar + 3).size() == 3, "");
+  static_assert(MakeStringPiece16(kBar + 3, kBar + 3).empty(), "");
+  static_assert(MakeStringPiece16(kBar + 4, kBar + 4).empty(), "");
+
+  string16 bar = kBar;
+  EXPECT_EQ(MakeStringPiece16(bar.begin(), bar.end()), bar);
+  EXPECT_EQ(MakeStringPiece16(bar.begin(), bar.end()).data(), bar.data());
+  EXPECT_EQ(MakeStringPiece16(bar.begin(), bar.end()).size(), bar.size());
+  EXPECT_TRUE(MakeStringPiece16(bar.end(), bar.end()).empty());
+
+  constexpr wchar_t kBaz[] = L"Baz";
+  static_assert(MakeWStringPiece(kBaz, kBaz + 3) == kBaz, "");
+  static_assert(MakeWStringPiece(kBaz, kBaz + 3).data() == kBaz, "");
+  static_assert(MakeWStringPiece(kBaz, kBaz + 3).size() == 3, "");
+  static_assert(MakeWStringPiece(kBaz + 3, kBaz + 3).empty(), "");
+  static_assert(MakeWStringPiece(kBaz + 4, kBaz + 4).empty(), "");
+
+  std::wstring baz = kBaz;
+  EXPECT_EQ(MakeWStringPiece(baz.begin(), baz.end()), baz);
+  EXPECT_EQ(MakeWStringPiece(baz.begin(), baz.end()).data(), baz.data());
+  EXPECT_EQ(MakeWStringPiece(baz.begin(), baz.end()).size(), baz.size());
+  EXPECT_TRUE(MakeWStringPiece(baz.end(), baz.end()).empty());
 }
 
 TEST(StringUtilTest, RemoveChars) {

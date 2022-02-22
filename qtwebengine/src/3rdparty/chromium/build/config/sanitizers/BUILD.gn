@@ -5,7 +5,6 @@
 import("//build/config/chrome_build.gni")
 import("//build/config/chromecast_build.gni")
 import("//build/config/clang/clang.gni")
-import("//build/config/features.gni")
 import("//build/config/sanitizers/sanitizers.gni")
 import("//build/toolchain/toolchain.gni")
 import("//build_overrides/build.gni")
@@ -90,7 +89,7 @@ if ((is_mac || is_win || (is_ios && !use_xcode_clang)) && is_asan) {
     }
   }
 
-  if (is_mac || is_ios) {
+  if (is_apple) {
     bundle_data("asan_runtime_bundle_data") {
       sources = get_target_outputs(":copy_asan_runtime")
       outputs = [ "{{bundle_executable_dir}}/{{source_file_part}}" ]
@@ -100,7 +99,7 @@ if ((is_mac || is_win || (is_ios && !use_xcode_clang)) && is_asan) {
 }
 
 config("sanitizer_options_link_helper") {
-  if (is_mac || is_ios) {
+  if (is_apple) {
     ldflags = [ "-Wl,-U,_sanitizer_options_link_helper" ]
   } else if (!is_win) {
     ldflags = [ "-Wl,-u_sanitizer_options_link_helper" ]
@@ -149,18 +148,15 @@ config("default_sanitizer_ldflags") {
   visibility = [
     ":default_sanitizer_flags",
     ":deps",
+
+    # https://crbug.com/360158.
+    "//tools/ipc_fuzzer/fuzzer:ipc_fuzzer",
   ]
 
   if (is_posix || is_fuchsia) {
     ldflags = []
     if (is_asan) {
       ldflags += [ "-fsanitize=address" ]
-      if (is_mac) {
-        # https://crbug.com/708707
-        ldflags += [ "-fno-sanitize-address-use-after-scope" ]
-      } else {
-        ldflags += [ "-fsanitize-address-use-after-scope" ]
-      }
     }
     if (is_hwasan) {
       ldflags += [ "-fsanitize=hwaddress" ]
@@ -275,34 +271,12 @@ config("asan_flags") {
   cflags = []
   if (is_asan) {
     cflags += [ "-fsanitize=address" ]
-    if (!is_mac) {
-      cflags += [ "-fsanitize-address-use-after-scope" ]
-    } else {
-      # https://crbug.com/708707
-      cflags += [ "-fno-sanitize-address-use-after-scope" ]
-    }
-    if (!asan_globals) {
-      cflags += [
-        "-mllvm",
-        "-asan-globals=0",
-      ]
-    }
-    if (asan_use_blacklist) {
-      if (is_win) {
-        if (!defined(asan_win_blacklist_path)) {
-          asan_win_blacklist_path =
-              rebase_path("//tools/memory/asan/blacklist_win.txt",
-                          root_build_dir)
-        }
-        cflags += [ "-fsanitize-blacklist=$asan_win_blacklist_path" ]
-      } else if(!use_qt) {
-        # TODO(rnk): Remove this as discussed in http://crbug.com/427202.
-        if (!defined(asan_blacklist_path)) {
-          asan_blacklist_path =
-              rebase_path("//tools/memory/asan/blacklist.txt", root_build_dir)
-        }
-        cflags += [ "-fsanitize-blacklist=$asan_blacklist_path" ]
+    if (is_win) {
+      if (!defined(asan_win_blacklist_path)) {
+        asan_win_blacklist_path =
+            rebase_path("//tools/memory/asan/blocklist_win.txt", root_build_dir)
       }
+      cflags += [ "-fsanitize-blacklist=$asan_win_blacklist_path" ]
     }
   }
 }
@@ -334,7 +308,7 @@ config("cfi_flags") {
   if (is_cfi && current_toolchain == default_toolchain) {
     if (!defined(cfi_blacklist_path)) {
       cfi_blacklist_path =
-          rebase_path("//tools/cfi/blacklist.txt", root_build_dir)
+          rebase_path("//tools/cfi/ignores.txt", root_build_dir)
     }
     cflags += [
       "-fsanitize=cfi-vcall",
@@ -433,7 +407,8 @@ config("lsan_flags") {
 
 config("msan_flags") {
   if (is_msan) {
-    assert(is_linux, "msan only supported on linux x86_64")
+    assert(is_linux || is_chromeos,
+           "msan only supported on linux x86_64/ChromeOS")
     if (!defined(msan_blacklist_path)) {
       msan_blacklist_path =
           rebase_path("//tools/msan/blacklist.txt", root_build_dir)
@@ -448,7 +423,7 @@ config("msan_flags") {
 
 config("tsan_flags") {
   if (is_tsan) {
-    assert(is_linux, "tsan only supported on linux x86_64")
+    assert(is_linux || is_chromeos, "tsan only supported on linux x86_64")
     if (!defined(tsan_blacklist_path)) {
       tsan_blacklist_path =
           rebase_path("//tools/memory/tsan_v2/ignores.txt", root_build_dir)

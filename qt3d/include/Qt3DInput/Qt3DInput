@@ -22,6 +22,5 @@
 #include "qmousedevice.h"
 #include "qmouseevent.h"
 #include "qmousehandler.h"
-#include "qphysicaldevicecreatedchange.h"
 #include "qt3dinputversion.h"
 #endif

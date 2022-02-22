@@ -33,11 +33,11 @@
 #include <QtCore/qjsonarray.h>
 #include <QtCore/qjsondocument.h>
 #include <QtCore/qjsonobject.h>
-#include <QtCore/qregexp.h>
 #include <QtCore/qtextstream.h>
 #include <QtCore/qvariant.h>
 
 #include <iostream>
+#include <optional>
 
 namespace Scanner {
 
@@ -65,6 +65,13 @@ static void validatePackage(Package &p, const QString &filePath, LogLevel logLev
         if (p.license.isEmpty())
             missingPropertyWarning(filePath, QStringLiteral("License"));
 
+        if (!p.copyright.isEmpty() && !p.copyrightFile.isEmpty()) {
+            std::cerr << qPrintable(tr("File %1: Properties 'Copyright' and 'CopyrightFile' are "
+                                       "mutually exclusive.")
+                                            .arg(QDir::toNativeSeparators(filePath)))
+                      << std::endl;
+        }
+
         for (const QString &part : qAsConst(p.qtParts)) {
             if (part != QLatin1String("examples")
                     && part != QLatin1String("tests")
@@ -81,6 +88,19 @@ static void validatePackage(Package &p, const QString &filePath, LogLevel logLev
     }
 }
 
+static std::optional<QStringList> toStringList(const QJsonValue &value)
+{
+    if (!value.isArray())
+        return std::nullopt;
+    QStringList result;
+    for (auto iter : value.toArray()) {
+        if (iter.type() != QJsonValue::String)
+            return std::nullopt;
+        result.push_back(iter.toString());
+    }
+    return result;
+}
+
 // Transforms a JSON object into a Package object
 static Package readPackage(const QJsonObject &object, const QString &filePath, LogLevel logLevel)
 {
@@ -91,7 +111,8 @@ static Package readPackage(const QJsonObject &object, const QString &filePath, L
     for (auto iter = object.constBegin(); iter != object.constEnd(); ++iter) {
         const QString key = iter.key();
 
-        if (!iter.value().isString() && key != QLatin1String("QtParts")) {
+        if (!iter.value().isString() && key != QLatin1String("QtParts")
+            && key != QLatin1String("LicenseFiles")) {
             if (logLevel != SilentLog)
                 std::cerr << qPrintable(tr("File %1: Expected JSON string as value of %2.").arg(
                                             QDir::toNativeSeparators(filePath), key)) << std::endl;
@@ -103,7 +124,7 @@ static Package readPackage(const QJsonObject &object, const QString &filePath, L
         } else if (key == QLatin1String("Path")) {
             p.path = QDir(directory).absoluteFilePath(value);
         } else if (key == QLatin1String("Files")) {
-            p.files = value.split(QRegExp(QStringLiteral("\\s")), Qt::SkipEmptyParts);
+            p.files = value.simplified().split(QLatin1Char(' '), Qt::SkipEmptyParts);
         } else if (key == QLatin1String("Id")) {
             p.id = value;
         } else if (key == QLatin1String("Homepage")) {
@@ -117,9 +138,20 @@ static Package readPackage(const QJsonObject &object, const QString &filePath, L
         } else if (key == QLatin1String("LicenseId")) {
             p.licenseId = value;
         } else if (key == QLatin1String("LicenseFile")) {
-            p.licenseFile = QDir(directory).absoluteFilePath(value);
+            p.licenseFiles = QStringList(QDir(directory).absoluteFilePath(value));
+        } else if (key == QLatin1String("LicenseFiles")) {
+            auto strings = toStringList(iter.value());
+            if (!strings && (logLevel != SilentLog))
+                std::cerr << qPrintable(tr("File %1: Expected JSON array of strings in %2.")
+                                                .arg(QDir::toNativeSeparators(filePath), key))
+                          << std::endl;
+            const QDir dir(directory);
+            for (auto iter : strings.value())
+                p.licenseFiles.push_back(dir.absoluteFilePath(iter));
         } else if (key == QLatin1String("Copyright")) {
             p.copyright = value;
+        } else if (key == QLatin1String("CopyrightFile")) {
+            p.copyrightFile = QDir(directory).absoluteFilePath(value);
         } else if (key == QLatin1String("PackageComment")) {
             p.packageComment = value;
         } else if (key == QLatin1String("QDocModule")) {
@@ -129,15 +161,12 @@ static Package readPackage(const QJsonObject &object, const QString &filePath, L
         } else if (key == QLatin1String("QtUsage")) {
             p.qtUsage = value;
         } else if (key == QLatin1String("QtParts")) {
-            const QVariantList variantList = iter.value().toArray().toVariantList();
-            for (const QVariant &v: variantList) {
-                if (v.type() != QVariant::String && logLevel != SilentLog) {
-                    std::cerr << qPrintable(tr("File %1: Expected JSON string in array of %2.").arg(
-                                                QDir::toNativeSeparators(filePath), key))
-                              << std::endl;
-                }
-                p.qtParts.append(v.toString());
-            }
+            auto parts = toStringList(iter.value());
+            if (!parts && (logLevel != SilentLog))
+                std::cerr << qPrintable(tr("File %1: Expected JSON array of strings in %2.")
+                                                .arg(QDir::toNativeSeparators(filePath), key))
+                          << std::endl;
+            p.qtParts = parts.value();
         } else {
             if (logLevel != SilentLog)
                 std::cerr << qPrintable(tr("File %1: Unknown key %2.").arg(
@@ -207,7 +236,7 @@ static Package parseChromiumFile(QFile &file, const QString &filePath, LogLevel 
 
     QString licenseFile = fields[QStringLiteral("License File")];
     if (licenseFile != QString() && licenseFile != QLatin1String("NOT_SHIPPED")) {
-        p.licenseFile = QDir(directory).absoluteFilePath(licenseFile);
+        p.licenseFiles = QStringList(QDir(directory).absoluteFilePath(licenseFile));
     } else {
         // Look for a LICENSE or COPYING file as a fallback
         QDir dir = directory;
@@ -217,7 +246,7 @@ static Package parseChromiumFile(QFile &file, const QString &filePath, LogLevel 
 
         const QFileInfoList entries = dir.entryInfoList();
         if (!entries.empty())
-            p.licenseFile = entries.at(0).absoluteFilePath();
+            p.licenseFiles = QStringList(entries.at(0).absoluteFilePath());
     }
 
     validatePackage(p, filePath, logLevel);
@@ -225,9 +254,9 @@ static Package parseChromiumFile(QFile &file, const QString &filePath, LogLevel 
     return p;
 }
 
-QVector<Package> readFile(const QString &filePath, LogLevel logLevel)
+QList<Package> readFile(const QString &filePath, LogLevel logLevel)
 {
-    QVector<Package> packages;
+    QList<Package> packages;
 
     if (logLevel == VerboseLog) {
         std::cerr << qPrintable(tr("Reading file %1...").arg(
@@ -238,7 +267,7 @@ QVector<Package> readFile(const QString &filePath, LogLevel logLevel)
         if (logLevel != SilentLog)
             std::cerr << qPrintable(tr("Could not open file %1.").arg(
                                         QDir::toNativeSeparators(file.fileName()))) << std::endl;
-        return QVector<Package>();
+        return QList<Package>();
     }
 
     if (filePath.endsWith(QLatin1String(".json"))) {
@@ -250,7 +279,7 @@ QVector<Package> readFile(const QString &filePath, LogLevel logLevel)
                                             QDir::toNativeSeparators(file.fileName()),
                                             jsonParseError.errorString()))
                           << std::endl;
-            return QVector<Package>();
+            return QList<Package>();
         }
 
         if (document.isObject()) {
@@ -287,10 +316,10 @@ QVector<Package> readFile(const QString &filePath, LogLevel logLevel)
     return packages;
 }
 
-QVector<Package> scanDirectory(const QString &directory, InputFormats inputFormats, LogLevel logLevel)
+QList<Package> scanDirectory(const QString &directory, InputFormats inputFormats, LogLevel logLevel)
 {
     QDir dir(directory);
-    QVector<Package> packages;
+    QList<Package> packages;
 
     QStringList nameFilters = QStringList();
     if (inputFormats & InputFormat::QtAttributions)

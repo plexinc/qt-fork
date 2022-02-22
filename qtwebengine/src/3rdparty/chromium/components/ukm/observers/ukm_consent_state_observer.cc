@@ -7,9 +7,9 @@
 #include <memory>
 #include <utility>
 
+#include "base/containers/contains.h"
 #include "base/feature_list.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/stl_util.h"
 #include "components/sync/driver/sync_user_settings.h"
 #include "components/unified_consent/url_keyed_data_collection_consent_helper.h"
 #include "google_apis/gaia/google_service_auth_error.h"
@@ -18,7 +18,7 @@ using unified_consent::UrlKeyedDataCollectionConsentHelper;
 
 namespace ukm {
 
-UkmConsentStateObserver::UkmConsentStateObserver() : sync_observer_(this) {}
+UkmConsentStateObserver::UkmConsentStateObserver() = default;
 
 UkmConsentStateObserver::~UkmConsentStateObserver() {
   for (const auto& entry : consent_helpers_) {
@@ -48,14 +48,14 @@ void UkmConsentStateObserver::StartObserving(syncer::SyncService* sync_service,
                                              PrefService* prefs) {
   std::unique_ptr<UrlKeyedDataCollectionConsentHelper> consent_helper =
       UrlKeyedDataCollectionConsentHelper::
-          NewAnonymizedDataCollectionConsentHelper(prefs, sync_service);
+          NewAnonymizedDataCollectionConsentHelper(prefs);
 
   ProfileState state = GetProfileState(sync_service, consent_helper.get());
   previous_states_[sync_service] = state;
 
   consent_helper->AddObserver(this);
   consent_helpers_[sync_service] = std::move(consent_helper);
-  sync_observer_.Add(sync_service);
+  sync_observations_.AddObservation(sync_service);
   UpdateUkmAllowedForAllProfiles(false);
 }
 
@@ -149,7 +149,8 @@ void UkmConsentStateObserver::OnSyncShutdown(syncer::SyncService* sync) {
     found->second->RemoveObserver(this);
     consent_helpers_.erase(found);
   }
-  sync_observer_.Remove(sync);
+  DCHECK(sync_observations_.IsObservingSource(sync));
+  sync_observations_.RemoveObservation(sync);
   previous_states_.erase(sync);
   UpdateUkmAllowedForAllProfiles(/*must_purge=*/false);
 }

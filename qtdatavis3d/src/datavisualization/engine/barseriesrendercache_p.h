@@ -45,7 +45,7 @@
 #include "qbar3dseries_p.h"
 #include "barrenderitem_p.h"
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 class BarSeriesRenderCache : public SeriesRenderCache
 {
@@ -53,20 +53,20 @@ public:
     BarSeriesRenderCache(QAbstract3DSeries *series, Abstract3DRenderer *renderer);
     virtual ~BarSeriesRenderCache();
 
-    void cleanup(TextureHelper *texHelper);
+    void cleanup(TextureHelper *texHelper) override;
 
     inline BarRenderItemArray &renderArray() { return m_renderArray; }
     inline QBar3DSeries *series() const { return static_cast<QBar3DSeries *>(m_series); }
-    inline QVector<BarRenderSliceItem> &sliceArray() { return m_sliceArray; }
+    inline QList<BarRenderSliceItem> &sliceArray() { return m_sliceArray; }
     inline void setVisualIndex(int index) { m_visualIndex = index; }
     inline int visualIndex() {return m_visualIndex; }
 
 protected:
     BarRenderItemArray m_renderArray;
-    QVector<BarRenderSliceItem> m_sliceArray;
+    QList<BarRenderSliceItem> m_sliceArray;
     int m_visualIndex; // order of the series is relevant
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

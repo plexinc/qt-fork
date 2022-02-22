@@ -74,11 +74,12 @@ class COMPOSITOR_EXPORT LayerAnimationSequence
   bool IsFinished(base::TimeTicks time);
 
   // Updates the delegate to the end of the animation; if this sequence is
-  // cyclic, updates the delegate to the end of one cycle of the sequence.
+  // repeating, updates the delegate to the end of one repetition of the
+  // sequence.
   void ProgressToEnd(LayerAnimationDelegate* delegate);
 
   // Sets the target value to the value that would have been set had
-  // the sequence completed. Does nothing if the sequence is cyclic.
+  // the sequence completed. Does nothing if the sequence is repeating.
   void GetTargetValue(LayerAnimationElement::TargetValue* target) const;
 
   // Aborts the given animation.
@@ -93,9 +94,9 @@ class COMPOSITOR_EXPORT LayerAnimationSequence
   // element.
   void AddElement(std::unique_ptr<LayerAnimationElement> element);
 
-  // Sequences can be looped indefinitely.
-  void set_is_cyclic(bool is_cyclic) { is_cyclic_ = is_cyclic; }
-  bool is_cyclic() const { return is_cyclic_; }
+  // Sequences can repeat indefinitely.
+  void set_is_repeating(bool is_repeating) { is_repeating_ = is_repeating; }
+  bool is_repeating() const { return is_repeating_; }
 
   // Returns true if this sequence has at least one element conflicting with a
   // property in |other|.
@@ -131,9 +132,6 @@ class COMPOSITOR_EXPORT LayerAnimationSequence
   void OnAnimatorAttached(LayerAnimationDelegate* delegate);
   void OnAnimatorDetached();
 
-  // Sets |animation_metrics_reporter_| and passes it to all |elements_|.
-  void SetAnimationMetricsReporter(AnimationMetricsReporter* reporter);
-
   // The last_progressed_fraction of the element most recently progressed by
   // by this sequence. Returns 0.0 if no elements have been progressed.
   double last_progressed_fraction() const { return last_progressed_fraction_; }
@@ -163,6 +161,9 @@ class COMPOSITOR_EXPORT LayerAnimationSequence
   // Notifies the observers that this sequence has ended.
   void NotifyEnded();
 
+  // Notifies the observers that this sequence has ended and will repeat.
+  void NotifyWillRepeat();
+
   // Notifies the observers that this sequence has been aborted.
   void NotifyAborted();
 
@@ -176,7 +177,7 @@ class COMPOSITOR_EXPORT LayerAnimationSequence
   Elements elements_;
 
   // True if the sequence should be looped forever.
-  bool is_cyclic_;
+  bool is_repeating_;
 
   // These are used when animating to efficiently find the next element.
   size_t last_element_;
@@ -201,9 +202,6 @@ class COMPOSITOR_EXPORT LayerAnimationSequence
   // Tracks the last_progressed_fraction() of the most recently progressed
   // element.
   double last_progressed_fraction_;
-
-  // Used to tag animation elements to obtain metrics of animation performance.
-  AnimationMetricsReporter* animation_metrics_reporter_;
 
   DISALLOW_COPY_AND_ASSIGN(LayerAnimationSequence);
 };

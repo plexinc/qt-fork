@@ -6,6 +6,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_CSS_CSS_VALUE_ID_MAPPINGS_H_
 
 #include "third_party/blink/renderer/core/css/css_value_id_mappings_generated.h"
+#include "third_party/blink/renderer/core/style/computed_style_constants.h"
 
 namespace blink {
 
@@ -170,8 +171,6 @@ inline EDisplay CssValueIDToPlatformEnum(CSSValueID v) {
     return EDisplay::kInlineFlex;
   if (v == CSSValueID::kMath)
     return EDisplay::kMath;
-  if (v == CSSValueID::kInlineMath)
-    return EDisplay::kInlineMath;
 
   NOTREACHED();
   return EDisplay::kInline;
@@ -186,6 +185,10 @@ inline EListStyleType CssValueIDToPlatformEnum(CSSValueID v) {
       return EListStyleType::kCircle;
     case CSSValueID::kSquare:
       return EListStyleType::kSquare;
+    case CSSValueID::kDisclosureOpen:
+      return EListStyleType::kDisclosureOpen;
+    case CSSValueID::kDisclosureClosed:
+      return EListStyleType::kDisclosureClosed;
     case CSSValueID::kDecimal:
       return EListStyleType::kDecimal;
     case CSSValueID::kDecimalLeadingZero:
@@ -293,12 +296,10 @@ inline EListStyleType CssValueIDToPlatformEnum(CSSValueID v) {
     case CSSValueID::kNone:
       return EListStyleType::kNone;
     default:
-      NOTREACHED();
       break;
   }
 
-  NOTREACHED();
-  return EListStyleType::kDisc;
+  return EListStyleType::kNone;
 }
 
 template <>
@@ -358,8 +359,6 @@ inline CSSValueID PlatformEnumToCSSValueID(EDisplay v) {
     return CSSValueID::kContents;
   if (v == EDisplay::kMath)
     return CSSValueID::kMath;
-  if (v == EDisplay::kInlineMath)
-    return CSSValueID::kInlineMath;
 
   NOTREACHED();
   return CSSValueID::kInline;
@@ -374,6 +373,10 @@ inline CSSValueID PlatformEnumToCSSValueID(EListStyleType v) {
       return CSSValueID::kCircle;
     case EListStyleType::kSquare:
       return CSSValueID::kSquare;
+    case EListStyleType::kDisclosureOpen:
+      return CSSValueID::kDisclosureOpen;
+    case EListStyleType::kDisclosureClosed:
+      return CSSValueID::kDisclosureClosed;
     case EListStyleType::kDecimal:
       return CSSValueID::kDecimal;
     case EListStyleType::kDecimalLeadingZero:
@@ -487,6 +490,36 @@ inline CSSValueID PlatformEnumToCSSValueID(EListStyleType v) {
 
   NOTREACHED();
   return CSSValueID::kDisc;
+}
+
+template <>
+inline PageOrientation CssValueIDToPlatformEnum(CSSValueID v) {
+  if (v == CSSValueID::kUpright)
+    return PageOrientation::kUpright;
+  if (v == CSSValueID::kRotateLeft)
+    return PageOrientation::kRotateLeft;
+  if (v == CSSValueID::kRotateRight)
+    return PageOrientation::kRotateRight;
+
+  NOTREACHED();
+  return PageOrientation::kUpright;
+}
+
+template <>
+inline ScrollbarGutter CssValueIDToPlatformEnum(CSSValueID v) {
+  if (v == CSSValueID::kAuto)
+    return kScrollbarGutterAuto;
+  if (v == CSSValueID::kStable)
+    return kScrollbarGutterStable;
+  if (v == CSSValueID::kAlways)
+    return kScrollbarGutterAlways;
+  if (v == CSSValueID::kBoth)
+    return kScrollbarGutterBoth;
+  if (v == CSSValueID::kForce)
+    return kScrollbarGutterForce;
+
+  NOTREACHED();
+  return kScrollbarGutterAuto;
 }
 
 }  // namespace blink

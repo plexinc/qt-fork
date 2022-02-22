@@ -45,7 +45,7 @@ QT_BEGIN_NAMESPACE
 QHttpNetworkRequestPrivate::QHttpNetworkRequestPrivate(QHttpNetworkRequest::Operation op,
         QHttpNetworkRequest::Priority pri, const QUrl &newUrl)
     : QHttpNetworkHeaderPrivate(newUrl), operation(op), priority(pri), uploadByteDevice(nullptr),
-      autoDecompress(false), pipeliningAllowed(false), spdyAllowed(false), http2Allowed(false),
+      autoDecompress(false), pipeliningAllowed(false), http2Allowed(true),
       http2Direct(false), withCredentials(true), preConnect(false), redirectCount(0),
       redirectPolicy(QNetworkRequest::ManualRedirectPolicy)
 {
@@ -57,14 +57,15 @@ QHttpNetworkRequestPrivate::QHttpNetworkRequestPrivate(const QHttpNetworkRequest
       customVerb(other.customVerb),
       priority(other.priority),
       uploadByteDevice(other.uploadByteDevice),
+      minimumArchiveBombSize(other.minimumArchiveBombSize),
       autoDecompress(other.autoDecompress),
       pipeliningAllowed(other.pipeliningAllowed),
-      spdyAllowed(other.spdyAllowed),
       http2Allowed(other.http2Allowed),
       http2Direct(other.http2Direct),
       withCredentials(other.withCredentials),
       ssl(other.ssl),
       preConnect(other.preConnect),
+      needResendWithCredentials(other.needResendWithCredentials),
       redirectCount(other.redirectCount),
       redirectPolicy(other.redirectPolicy),
       peerVerifyName(other.peerVerifyName)
@@ -83,7 +84,6 @@ bool QHttpNetworkRequestPrivate::operator==(const QHttpNetworkRequestPrivate &ot
         && (uploadByteDevice == other.uploadByteDevice)
         && (autoDecompress == other.autoDecompress)
         && (pipeliningAllowed == other.pipeliningAllowed)
-        && (spdyAllowed == other.spdyAllowed)
         && (http2Allowed == other.http2Allowed)
         && (http2Direct == other.http2Direct)
         // we do not clear the customVerb in setOperation
@@ -92,7 +92,9 @@ bool QHttpNetworkRequestPrivate::operator==(const QHttpNetworkRequestPrivate &ot
         && (ssl == other.ssl)
         && (preConnect == other.preConnect)
         && (redirectPolicy == other.redirectPolicy)
-        && (peerVerifyName == other.peerVerifyName);
+        && (peerVerifyName == other.peerVerifyName)
+        && (needResendWithCredentials == other.needResendWithCredentials)
+        && (minimumArchiveBombSize == other.minimumArchiveBombSize);
 }
 
 QByteArray QHttpNetworkRequest::methodName() const
@@ -344,16 +346,6 @@ void QHttpNetworkRequest::setPipeliningAllowed(bool b)
     d->pipeliningAllowed = b;
 }
 
-bool QHttpNetworkRequest::isSPDYAllowed() const
-{
-    return d->spdyAllowed;
-}
-
-void QHttpNetworkRequest::setSPDYAllowed(bool b)
-{
-    d->spdyAllowed = b;
-}
-
 bool QHttpNetworkRequest::isHTTP2Allowed() const
 {
     return d->http2Allowed;
@@ -372,6 +364,16 @@ bool QHttpNetworkRequest::isHTTP2Direct() const
 void QHttpNetworkRequest::setHTTP2Direct(bool b)
 {
     d->http2Direct = b;
+}
+
+bool QHttpNetworkRequest::isH2cAllowed() const
+{
+    return qEnvironmentVariableIsSet("QT_NETWORK_H2C_ALLOWED");
+}
+
+void QHttpNetworkRequest::setH2cAllowed(bool b)
+{
+    Q_UNUSED(b);
 }
 
 bool QHttpNetworkRequest::withCredentials() const
@@ -412,6 +414,16 @@ QString QHttpNetworkRequest::peerVerifyName() const
 void QHttpNetworkRequest::setPeerVerifyName(const QString &peerName)
 {
     d->peerVerifyName = peerName;
+}
+
+qint64 QHttpNetworkRequest::minimumArchiveBombSize() const
+{
+    return d->minimumArchiveBombSize;
+}
+
+void QHttpNetworkRequest::setMinimumArchiveBombSize(qint64 threshold)
+{
+    d->minimumArchiveBombSize = threshold;
 }
 
 QT_END_NAMESPACE

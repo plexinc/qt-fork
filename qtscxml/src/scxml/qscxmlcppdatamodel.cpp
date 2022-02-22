@@ -64,12 +64,12 @@ using namespace QScxmlExecutableContent;
    The format of the \e datamodel attribute is: \c{cplusplus:<class-name>:<classdef-header>}.
    So, for the example above, there should be a file \e thedatamodel.h containing a subclass of
    QScxmlCppDataModel, containing at least the following:
-   \code
+   \badcode
 #include "qscxmlcppdatamodel.h"
 
 class TheDataModel: public QScxmlCppDataModel
 {
-    Q_OBJECT
+    \Q_OBJECT
     Q_SCXML_DATAMODEL
 };
    \endcode
@@ -137,6 +137,8 @@ QScxmlCppDataModel::QScxmlCppDataModel(QObject *parent)
  * Called during state machine initialization to set up a state machine using the initial values
  * for data model variables specified by their keys, \a initialDataValues. These
  * are the values specified by \c <param> tags in an \c <invoke> element.
+ *
+ * Returns \c true on success.
  *
  * \sa QScxmlStateMachine::init
  */

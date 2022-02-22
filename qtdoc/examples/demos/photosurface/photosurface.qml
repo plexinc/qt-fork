@@ -47,10 +47,10 @@
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
-import QtQuick 2.6
-import QtQuick.Dialogs 1.0
-import QtQuick.Window 2.1
-import Qt.labs.folderlistmodel 1.0
+import QtQuick
+import QtQuick.Window
+import Qt.labs.folderlistmodel
+import Qt.labs.platform
 
 Window {
     id: root
@@ -62,12 +62,11 @@ Window {
     property var currentFrame: undefined
     property real surfaceViewportRatio: 1.5
 
-    FileDialog {
-        id: fileDialog
+    FolderDialog {
+        id: folderDialog
         title: "Choose a folder with some images"
-        selectFolder: true
         folder: picturesLocation
-        onAccepted: folderModel.folder = fileUrl + "/"
+        onAccepted: folderModel.folder = folder + "/"
     }
 
     Flickable {
@@ -212,7 +211,7 @@ Window {
         MouseArea {
             anchors.fill: parent
             anchors.margins: -10
-            onClicked: fileDialog.open()
+            onClicked: folderDialog.open()
             hoverEnabled: true
             onPositionChanged: {
                 tooltip.visible = false
@@ -248,7 +247,7 @@ Window {
         Shortcut {
             id: openShortcut
             sequence: StandardKey.Open
-            onActivated: fileDialog.open()
+            onActivated: folderDialog.open()
         }
     }
 
@@ -272,12 +271,12 @@ Window {
             imageNameFilters = contextImageNameFilters;
             picturesLocation = contextPicturesLocation;
             if (contextInitialUrl == "")
-                fileDialog.open();
+                folderDialog.open();
             else
                 folderModel.folder = contextInitialUrl + "/";
         } else {
             // Launched via QML viewer without context properties set.
-            fileDialog.open();
+            folderDialog.open();
         }
     }
 

@@ -56,14 +56,15 @@
 
 #include <algorithm>
 
+QT_REQUIRE_CONFIG(shortcut);
+
 QT_BEGIN_NAMESPACE
 
-#ifndef QT_NO_SHORTCUT
 struct QKeyBinding
 {
     QKeySequence::StandardKey standardKey;
     uchar priority;
-    uint shortcut;
+    QKeyCombination shortcut;
     uint platform;
 };
 
@@ -87,7 +88,6 @@ public:
     Q_GUI_EXPORT static QString keyName(int key, QKeySequence::SequenceFormat format);
     static int decodeString(QString accel, QKeySequence::SequenceFormat format);
 };
-#endif // QT_NO_SHORTCUT
 
 QT_END_NAMESPACE
 

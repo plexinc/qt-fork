@@ -54,8 +54,6 @@ class PLATFORM_EXPORT ScaleTransformOperation final
   double Y() const { return y_; }
   double Z() const { return z_; }
 
-  bool CanBlendWith(const TransformOperation& other) const override;
-
   void Apply(TransformationMatrix& transform, const FloatSize&) const override {
     transform.Scale3d(x_, y_, z_);
   }
@@ -88,6 +86,9 @@ class PLATFORM_EXPORT ScaleTransformOperation final
   scoped_refptr<TransformOperation> Zoom(double factor) final { return this; }
 
   bool PreservesAxisAlignment() const final { return true; }
+  bool IsIdentityOrTranslation() const final {
+    return x_ == 1.0 && y_ == 1.0 && z_ == 1.0;
+  }
 
   ScaleTransformOperation(double sx, double sy, double sz, OperationType type)
       : x_(sx), y_(sy), z_(sz), type_(type) {

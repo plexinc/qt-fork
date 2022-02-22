@@ -9,10 +9,10 @@
 #include <string>
 #include <tuple>
 #include <utility>
-#include <vector>
 
 #include "base/strings/string_number_conversions.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "media/audio/audio_features.h"
 #include "media/base/audio_parameters.h"
 #include "media/base/limits.h"
@@ -25,8 +25,6 @@
 #include "third_party/blink/renderer/platform/mediastream/media_constraints.h"
 #include "third_party/blink/renderer/platform/mediastream/media_stream_audio_processor_options.h"
 #include "third_party/blink/renderer/platform/mediastream/media_stream_audio_source.h"
-
-// TODO(crbug.com/704136): Replace the use of std::vector by WTF::Vector.
 
 namespace blink {
 
@@ -305,17 +303,17 @@ class EchoCancellationContainer {
         device_parameters_(media::AudioParameters::UnavailableDeviceParams()),
         is_device_capture_(true) {}
 
-  EchoCancellationContainer(std::vector<EchoCancellationType> allowed_values,
+  EchoCancellationContainer(Vector<EchoCancellationType> allowed_values,
                             bool has_active_source,
                             bool is_device_capture,
                             media::AudioParameters device_parameters,
                             AudioProcessingProperties properties,
                             bool is_reconfiguration_allowed)
-      : ec_mode_allowed_values_(std::move(allowed_values)),
+      : ec_mode_allowed_values_(EchoCancellationTypeSet({allowed_values})),
         device_parameters_(device_parameters),
         is_device_capture_(is_device_capture) {
     if (!has_active_source) {
-#if defined(OS_MACOSX) || defined(OS_CHROMEOS)
+#if defined(OS_MAC) || BUILDFLAG(IS_CHROMEOS_ASH)
       // If force system echo cancellation feature is enabled, only expose that
       // type if available; otherwise expose no type.
       if (base::FeatureList::IsEnabled(features::kForceEnableSystemAec)) {
@@ -324,7 +322,7 @@ class EchoCancellationContainer {
                 {EchoCancellationType::kEchoCancellationSystem,
                  EchoCancellationType::kEchoCancellationDisabled}));
       }
-#endif  // defined(OS_MACOSX) || defined(OS_CHROMEOS)
+#endif  // defined(OS_MAC) || BUILDFLAG(IS_CHROMEOS_ASH)
       return;
     }
 
@@ -428,7 +426,7 @@ class EchoCancellationContainer {
   }
 
   static EchoCancellationTypeSet ToEchoCancellationTypes(const BoolSet ec_set) {
-    std::vector<EchoCancellationType> types;
+    Vector<EchoCancellationType> types;
 
     if (ec_set.Contains(false))
       types.push_back(EchoCancellationType::kEchoCancellationDisabled);
@@ -443,13 +441,13 @@ class EchoCancellationContainer {
 
   static bool ShouldUseExperimentalSystemEchoCanceller(
       const media::AudioParameters& parameters) {
-#if defined(OS_MACOSX) || defined(OS_CHROMEOS)
+#if defined(OS_MAC) || BUILDFLAG(IS_CHROMEOS_ASH)
     if (base::FeatureList::IsEnabled(features::kForceEnableSystemAec) &&
         (parameters.effects() &
          media::AudioParameters::EXPERIMENTAL_ECHO_CANCELLER)) {
       return true;
     }
-#endif  // defined(OS_MACOSX) || defined(OS_CHROMEOS)
+#endif  // defined(OS_MAC) || BUILDFLAG(IS_CHROMEOS_ASH)
     return false;
   }
 
@@ -616,30 +614,6 @@ class AutoGainControlContainer {
 // APM, processed without APM, and unprocessed.
 class ProcessingBasedContainer {
  public:
-  static ProcessingBasedContainer CreateRemoteApmProcessedContainer(
-      const SourceInfo& source_info,
-      bool is_device_capture,
-      const media::AudioParameters& device_parameters,
-      bool is_reconfiguration_allowed) {
-    return ProcessingBasedContainer(
-        ProcessingType::kApmProcessed,
-        {EchoCancellationType::kEchoCancellationAec3,
-         EchoCancellationType::kEchoCancellationDisabled},
-        BoolSet(), /* auto_gain_control_set */
-        BoolSet(), /* goog_audio_mirroring_set */
-        BoolSet(), /* goog_experimental_echo_cancellation_set */
-        BoolSet(), /* goog_noise_suppression_set */
-        BoolSet(), /* goog_experimental_noise_suppression_set */
-        BoolSet(), /* goog_highpass_filter_set */
-        IntRangeSet::FromValue(GetSampleSize()), /* sample_size_range */
-        IntRangeSet::FromValue(
-            device_parameters.channels()), /* channels_range */
-        IntRangeSet::FromValue(
-            device_parameters.sample_rate()), /* sample_rate_range */
-        source_info, is_device_capture, device_parameters,
-        is_reconfiguration_allowed);
-  }
-
   // Creates an instance of ProcessingBasedContainer for the WebRTC processed
   // source type. The source type allows (a) any type of echo cancellation,
   // though the system echo cancellation type depends on the availability of the
@@ -802,7 +776,7 @@ class ProcessingBasedContainer {
     // container, and only if it's based on a specific user constraint.
     base::Optional<int> requested_buffer_size;
     if (processing_type_ == ProcessingType::kUnprocessed && latency &&
-        !constraint_set.latency.IsEmpty()) {
+        !constraint_set.latency.IsUnconstrained()) {
       int min_buffer_size, max_buffer_size;
       std::tie(min_buffer_size, max_buffer_size) =
           GetMinMaxBufferSizesForAudioParameters(parameters);
@@ -908,22 +882,21 @@ class ProcessingBasedContainer {
   // System echo cancellation should not be explicitly included in
   // |echo_cancellation_type|. It is added automatically based on the value of
   // |device_parameters|.
-  ProcessingBasedContainer(
-      ProcessingType processing_type,
-      std::vector<EchoCancellationType> echo_cancellation_types,
-      BoolSet auto_gain_control_set,
-      BoolSet goog_audio_mirroring_set,
-      BoolSet goog_experimental_echo_cancellation_set,
-      BoolSet goog_noise_suppression_set,
-      BoolSet goog_experimental_noise_suppression_set,
-      BoolSet goog_highpass_filter_set,
-      IntRangeSet sample_size_range,
-      IntRangeSet channels_range,
-      IntRangeSet sample_rate_range,
-      SourceInfo source_info,
-      bool is_device_capture,
-      media::AudioParameters device_parameters,
-      bool is_reconfiguration_allowed)
+  ProcessingBasedContainer(ProcessingType processing_type,
+                           Vector<EchoCancellationType> echo_cancellation_types,
+                           BoolSet auto_gain_control_set,
+                           BoolSet goog_audio_mirroring_set,
+                           BoolSet goog_experimental_echo_cancellation_set,
+                           BoolSet goog_noise_suppression_set,
+                           BoolSet goog_experimental_noise_suppression_set,
+                           BoolSet goog_highpass_filter_set,
+                           IntRangeSet sample_size_range,
+                           IntRangeSet channels_range,
+                           IntRangeSet sample_rate_range,
+                           SourceInfo source_info,
+                           bool is_device_capture,
+                           media::AudioParameters device_parameters,
+                           bool is_reconfiguration_allowed)
       : processing_type_(processing_type),
         sample_size_container_(sample_size_range),
         channels_container_(channels_range),
@@ -957,9 +930,19 @@ class ProcessingBasedContainer {
     boolean_containers_[kGoogHighpassFilter] =
         BooleanContainer(goog_highpass_filter_set);
 
-    if (!source_info.HasActiveSource())
+    // Allow the full set of supported values when the device is not open or
+    // when the candidate settings would open the device using an unprocessed
+    // source.
+    if (!source_info.HasActiveSource() ||
+        (is_reconfiguration_allowed &&
+         processing_type_ == ProcessingType::kUnprocessed)) {
       return;
+    }
 
+    // If the device is already opened, restrict supported values for
+    // non-reconfigurable settings to what is already configured. The rationale
+    // for this is that opening multiple instances of the APM is costly.
+    // TODO(crbug.com/1147928): Consider removing this restriction.
     auto_gain_control_container_ = AutoGainControlContainer(
         BoolSet({source_info.properties().goog_auto_gain_control}));
 
@@ -1071,17 +1054,10 @@ class DeviceContainer {
         ProcessingBasedContainer::CreateNoApmProcessedContainer(
             source_info, is_device_capture, device_parameters_,
             is_reconfiguration_allowed));
-    if (media::IsWebRtcApmInAudioServiceEnabled()) {
-      processing_based_containers_.push_back(
-          ProcessingBasedContainer::CreateRemoteApmProcessedContainer(
-              source_info, is_device_capture, device_parameters_,
-              is_reconfiguration_allowed));
-    } else {
-      processing_based_containers_.push_back(
-          ProcessingBasedContainer::CreateApmProcessedContainer(
-              source_info, is_device_capture, device_parameters_,
-              is_reconfiguration_allowed));
-    }
+    processing_based_containers_.push_back(
+        ProcessingBasedContainer::CreateApmProcessedContainer(
+            source_info, is_device_capture, device_parameters_,
+            is_reconfiguration_allowed));
 
     DCHECK_EQ(processing_based_containers_.size(), 3u);
 
@@ -1125,7 +1101,7 @@ class DeviceContainer {
 
     // For each processing based container, apply the constraints and only fail
     // if all of them failed.
-    for (auto it = processing_based_containers_.begin();
+    for (auto* it = processing_based_containers_.begin();
          it != processing_based_containers_.end();) {
       DCHECK(!it->IsEmpty());
       failed_constraint_name = it->ApplyConstraintSet(constraint_set);
@@ -1134,7 +1110,7 @@ class DeviceContainer {
       else
         ++it;
     }
-    if (processing_based_containers_.empty()) {
+    if (processing_based_containers_.IsEmpty()) {
       DCHECK_NE(failed_constraint_name, nullptr);
       return failed_constraint_name;
     }
@@ -1299,7 +1275,7 @@ class DeviceContainer {
   StringContainer device_id_container_;
   StringContainer group_id_container_;
   std::array<BooleanContainer, kNumBooleanContainerIds> boolean_containers_;
-  std::vector<ProcessingBasedContainer> processing_based_containers_;
+  Vector<ProcessingBasedContainer> processing_based_containers_;
 };
 
 constexpr DeviceContainer::BooleanPropertyContainerInfo
@@ -1332,7 +1308,7 @@ class CandidatesContainer {
 
   const char* ApplyConstraintSet(const ConstraintSet& constraint_set) {
     const char* latest_failed_constraint_name = nullptr;
-    for (auto it = devices_.begin(); it != devices_.end();) {
+    for (auto* it = devices_.begin(); it != devices_.end();) {
       DCHECK(!it->IsEmpty());
       auto* failed_constraint_name = it->ApplyConstraintSet(constraint_set);
       if (failed_constraint_name) {
@@ -1370,11 +1346,11 @@ class CandidatesContainer {
     return std::make_tuple(best_score, best_settings);
   }
 
-  bool IsEmpty() const { return devices_.empty(); }
+  bool IsEmpty() const { return devices_.IsEmpty(); }
 
  private:
   std::string default_device_id_;
-  std::vector<DeviceContainer> devices_;
+  Vector<DeviceContainer> devices_;
 };
 
 std::string GetMediaStreamSource(const MediaConstraints& constraints) {

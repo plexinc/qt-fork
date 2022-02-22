@@ -12,6 +12,7 @@
 #include "extensions/browser/api/declarative_net_request/extension_url_pattern_index_matcher.h"
 #include "extensions/browser/api/declarative_net_request/flat/extension_ruleset_generated.h"
 #include "extensions/browser/api/declarative_net_request/regex_rules_matcher.h"
+#include "extensions/common/api/declarative_net_request/constants.h"
 
 namespace content {
 class RenderFrameHost;
@@ -20,7 +21,8 @@ class RenderFrameHost;
 namespace extensions {
 
 namespace declarative_net_request {
-class RulesetSource;
+
+struct RulesCountPair;
 
 namespace flat {
 struct ExtensionIndexedRuleset;
@@ -34,50 +36,24 @@ struct UrlRuleMetadata;
 // inherits from RulesetMatcherBase.
 class RulesetMatcher {
  public:
-  // Describes the result of creating a RulesetMatcher instance.
-  // This is logged as part of UMA. Hence existing values should not be re-
-  // numbered or deleted. New values should be added before kLoadRulesetMax.
-  enum LoadRulesetResult {
-    // Ruleset loading succeeded.
-    kLoadSuccess = 0,
-
-    // Ruleset loading failed since the provided path did not exist.
-    kLoadErrorInvalidPath = 1,
-
-    // Ruleset loading failed due to a file read error.
-    kLoadErrorFileRead = 2,
-
-    // Ruleset loading failed due to a checksum mismatch.
-    kLoadErrorChecksumMismatch = 3,
-
-    // Ruleset loading failed due to version header mismatch.
-    // TODO(karandeepb): This should be split into two cases:
-    //    - When the indexed ruleset doesn't have the version header in the
-    //      correct format.
-    //    - When the indexed ruleset's version is not the same as that used by
-    //      Chrome.
-    kLoadErrorVersionMismatch = 4,
-
-    kLoadResultMax
-  };
-
-  // Factory function to create a verified RulesetMatcher for |source|. Must be
-  // called on a sequence where file IO is allowed. Returns kLoadSuccess on
-  // success along with the ruleset |matcher|.
-  static LoadRulesetResult CreateVerifiedMatcher(
-      const RulesetSource& source,
-      int expected_ruleset_checksum,
-      std::unique_ptr<RulesetMatcher>* matcher);
-
+  RulesetMatcher(std::string ruleset_data,
+                 RulesetID id,
+                 const ExtensionId& extension_id);
   ~RulesetMatcher();
 
   base::Optional<RequestAction> GetBeforeRequestAction(
       const RequestParams& params) const;
-  uint8_t GetRemoveHeadersMask(
+
+  // Returns a list of actions corresponding to all matched
+  // modifyHeaders rules with priority greater than |min_priority| if specified.
+  std::vector<RequestAction> GetModifyHeadersActions(
       const RequestParams& params,
-      uint8_t excluded_remove_headers_mask,
-      std::vector<RequestAction>* remove_headers_actions) const;
+      base::Optional<uint64_t> min_priority) const;
+
   bool IsExtraHeadersMatcher() const;
+  size_t GetRulesCount() const;
+  size_t GetRegexRulesCount() const;
+  RulesCountPair GetRulesCountPair() const;
 
   void OnRenderFrameCreated(content::RenderFrameHost* host);
   void OnRenderFrameDeleted(content::RenderFrameHost* host);
@@ -85,7 +61,7 @@ class RulesetMatcher {
 
   // ID of the ruleset. Each extension can have multiple rulesets with
   // their own unique ids.
-  size_t id() const { return id_; }
+  RulesetID id() const { return id_; }
 
   // Returns the tracked highest priority matching allowsAllRequests action, if
   // any, for |host|.
@@ -93,16 +69,11 @@ class RulesetMatcher {
       content::RenderFrameHost* host) const;
 
  private:
-  explicit RulesetMatcher(std::string ruleset_data,
-                          int id,
-                          api::declarative_net_request::SourceType source_type,
-                          const ExtensionId& extension_id);
-
   const std::string ruleset_data_;
 
   const flat::ExtensionIndexedRuleset* const root_;
 
-  const int id_;
+  const RulesetID id_;
 
   // Underlying matcher for filter-list style rules supported using the
   // |url_pattern_index| component.

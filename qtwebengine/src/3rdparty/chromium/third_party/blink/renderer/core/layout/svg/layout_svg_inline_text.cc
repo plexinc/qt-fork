@@ -28,10 +28,12 @@
 #include "third_party/blink/renderer/core/css/style_engine.h"
 #include "third_party/blink/renderer/core/editing/text_affinity.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
+#include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_text.h"
 #include "third_party/blink/renderer/core/layout/svg/line/svg_inline_text_box.h"
 #include "third_party/blink/renderer/core/layout/svg/svg_layout_support.h"
 #include "third_party/blink/renderer/platform/fonts/character_range.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/text/bidi_character_run.h"
 #include "third_party/blink/renderer/platform/text/bidi_resolver.h"
 #include "third_party/blink/renderer/platform/text/text_direction.h"
@@ -57,14 +59,19 @@ LayoutSVGInlineText::LayoutSVGInlineText(Node* n,
       scaling_factor_(1) {}
 
 void LayoutSVGInlineText::TextDidChange() {
+  NOT_DESTROYED();
   SetTextInternal(NormalizeWhitespace(GetText().Impl()));
   LayoutText::TextDidChange();
   LayoutSVGText::NotifySubtreeStructureChanged(
       this, layout_invalidation_reason::kTextChanged);
+
+  if (StyleRef().UserModify() != EUserModify::kReadOnly)
+    UseCounter::Count(GetDocument(), WebFeature::kSVGTextEdited);
 }
 
 void LayoutSVGInlineText::StyleDidChange(StyleDifference diff,
                                          const ComputedStyle* old_style) {
+  NOT_DESTROYED();
   LayoutText::StyleDidChange(diff, old_style);
   UpdateScaledFont();
 
@@ -88,7 +95,19 @@ void LayoutSVGInlineText::StyleDidChange(StyleDifference diff,
   }
 }
 
+void LayoutSVGInlineText::InvalidateSubtreeLayoutForFontUpdates() {
+  NOT_DESTROYED();
+  if (!IsFontFallbackValid()) {
+    if (LayoutSVGText* text_layout_object =
+            LayoutSVGText::LocateLayoutSVGTextAncestor(this)) {
+      text_layout_object->SetNeedsTextMetricsUpdate();
+    }
+  }
+  LayoutText::InvalidateSubtreeLayoutForFontUpdates();
+}
+
 InlineTextBox* LayoutSVGInlineText::CreateTextBox(int start, uint16_t length) {
+  NOT_DESTROYED();
   InlineTextBox* box =
       new SVGInlineTextBox(LineLayoutItem(this), start, length);
   box->SetHasVirtualLogicalHeight();
@@ -98,10 +117,11 @@ InlineTextBox* LayoutSVGInlineText::CreateTextBox(int start, uint16_t length) {
 LayoutRect LayoutSVGInlineText::LocalCaretRect(const InlineBox* box,
                                                int caret_offset,
                                                LayoutUnit*) const {
+  NOT_DESTROYED();
   if (!box || !box->IsInlineTextBox())
     return LayoutRect();
 
-  const InlineTextBox* text_box = ToInlineTextBox(box);
+  const auto* text_box = To<InlineTextBox>(box);
   if (static_cast<unsigned>(caret_offset) < text_box->Start() ||
       static_cast<unsigned>(caret_offset) > text_box->Start() + text_box->Len())
     return LayoutRect();
@@ -122,6 +142,7 @@ LayoutRect LayoutSVGInlineText::LocalCaretRect(const InlineBox* box,
 }
 
 FloatRect LayoutSVGInlineText::FloatLinesBoundingBox() const {
+  NOT_DESTROYED();
   FloatRect bounding_box;
   for (InlineTextBox* box : TextBoxes())
     bounding_box.Unite(FloatRect(box->FrameRect()));
@@ -129,10 +150,12 @@ FloatRect LayoutSVGInlineText::FloatLinesBoundingBox() const {
 }
 
 PhysicalRect LayoutSVGInlineText::PhysicalLinesBoundingBox() const {
+  NOT_DESTROYED();
   return PhysicalRect::EnclosingRect(FloatLinesBoundingBox());
 }
 
 bool LayoutSVGInlineText::CharacterStartsNewTextChunk(int position) const {
+  NOT_DESTROYED();
   DCHECK_GE(position, 0);
   DCHECK_LT(position, static_cast<int>(TextLength()));
 
@@ -151,6 +174,9 @@ bool LayoutSVGInlineText::CharacterStartsNewTextChunk(int position) const {
 
 PositionWithAffinity LayoutSVGInlineText::PositionForPoint(
     const PhysicalOffset& point) const {
+  NOT_DESTROYED();
+  DCHECK_GE(GetDocument().Lifecycle().GetState(),
+            DocumentLifecycle::kPrePaintClean);
   if (!HasInlineFragments() || !TextLength())
     return CreatePositionWithAffinity(0);
 
@@ -298,6 +324,7 @@ void SynthesizeGraphemeWidths(const TextRun& run,
 void LayoutSVGInlineText::AddMetricsFromRun(
     const TextRun& run,
     bool& last_character_was_white_space) {
+  NOT_DESTROYED();
   Vector<CharacterRange> char_ranges =
       ScaledFont().IndividualCharacterRanges(run);
   SynthesizeGraphemeWidths(run, char_ranges);
@@ -337,6 +364,7 @@ void LayoutSVGInlineText::AddMetricsFromRun(
 
 void LayoutSVGInlineText::UpdateMetricsList(
     bool& last_character_was_white_space) {
+  NOT_DESTROYED();
   metrics_.clear();
 
   if (!TextLength())
@@ -379,6 +407,7 @@ void LayoutSVGInlineText::UpdateMetricsList(
 }
 
 void LayoutSVGInlineText::UpdateScaledFont() {
+  NOT_DESTROYED();
   ComputeNewScaledFontForStyle(*this, scaling_factor_, scaled_font_);
 }
 
@@ -420,10 +449,12 @@ void LayoutSVGInlineText::ComputeNewScaledFontForStyle(
 
 PhysicalRect LayoutSVGInlineText::VisualRectInDocument(
     VisualRectFlags flags) const {
+  NOT_DESTROYED();
   return Parent()->VisualRectInDocument(flags);
 }
 
 FloatRect LayoutSVGInlineText::VisualRectInLocalSVGCoordinates() const {
+  NOT_DESTROYED();
   return Parent()->VisualRectInLocalSVGCoordinates();
 }
 

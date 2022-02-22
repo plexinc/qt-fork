@@ -26,7 +26,7 @@ namespace {
 // Return true if ancestor is in the containing block chain above descendant.
 bool IsContainingBlockChainDescendant(const LayoutObject* descendant,
                                       const LayoutObject* ancestor) {
-  if (!ancestor || !descendant)
+  if (!ancestor || !descendant || ancestor == descendant)
     return false;
   LocalFrame* ancestor_frame = ancestor->GetDocument().GetFrame();
   LocalFrame* descendant_frame = descendant->GetDocument().GetFrame();
@@ -51,67 +51,22 @@ LayoutUnit ComputeMargin(const Length& length,
 }
 
 // Expand rect by the given margin values.
-void ApplyRootMargin(PhysicalRect& rect,
-                     const Vector<Length>& margin,
-                     float zoom) {
+void ApplyMargin(
+    PhysicalRect& expand_rect,
+    const Vector<Length>& margin,
+    float zoom,
+    const base::Optional<PhysicalRect>& resolution_rect = base::nullopt) {
   if (margin.IsEmpty())
     return;
 
   // TODO(szager): Make sure the spec is clear that left/right margins are
   // resolved against width and not height.
+  const PhysicalRect& rect = resolution_rect.value_or(expand_rect);
   LayoutRectOutsets outsets(ComputeMargin(margin[0], rect.Height(), zoom),
                             ComputeMargin(margin[1], rect.Width(), zoom),
                             ComputeMargin(margin[2], rect.Height(), zoom),
                             ComputeMargin(margin[3], rect.Width(), zoom));
-  rect.Expand(outsets);
-}
-
-// Return the bounding box of target in target's own coordinate system
-PhysicalRect InitializeTargetRect(const LayoutObject* target, unsigned flags) {
-  if ((flags & IntersectionGeometry::kShouldUseReplacedContentRect) &&
-      target->IsLayoutEmbeddedContent()) {
-    return ToLayoutEmbeddedContent(target)->ReplacedContentRect();
-  }
-  if (target->IsBox())
-    return PhysicalRect(ToLayoutBoxModelObject(target)->BorderBoundingBox());
-  if (target->IsLayoutInline()) {
-    return target->AbsoluteToLocalRect(
-        PhysicalRect::EnclosingRect(target->AbsoluteBoundingBoxFloatRect()));
-  }
-  return ToLayoutText(target)->PhysicalLinesBoundingBox();
-}
-
-// Return the local frame root for a given object
-LayoutView* LocalRootView(const LayoutObject& object) {
-  const LocalFrame* frame = object.GetDocument().GetFrame();
-  const LocalFrame* frame_root = frame ? &frame->LocalFrameRoot() : nullptr;
-  return frame_root ? frame_root->ContentLayoutObject() : nullptr;
-}
-
-// Returns true if target has visual effects applied, or if rect, given in
-// absolute coordinates, is overlapped by any content painted after target
-//
-//   https://w3c.github.io/IntersectionObserver/v2/#calculate-visibility-algo
-bool ComputeIsVisible(const LayoutObject* target, const PhysicalRect& rect) {
-  DCHECK(RuntimeEnabledFeatures::IntersectionObserverV2Enabled());
-  if (target->GetDocument().GetFrame()->LocalFrameRoot().GetOcclusionState() !=
-      FrameOcclusionState::kGuaranteedNotOccluded) {
-    return false;
-  }
-  if (target->HasDistortingVisualEffects())
-    return false;
-  // TODO(layout-dev): This should hit-test the intersection rect, not the
-  // target rect; it's not helpful to know that the portion of the target that
-  // is clipped is also occluded.
-  HitTestResult result(target->HitTestForOcclusion(rect));
-  const Node* hit_node = result.InnerNode();
-  if (!hit_node || hit_node == target->GetNode())
-    return true;
-  // TODO(layout-dev): This IsDescendantOf tree walk could be optimized by
-  // stopping when hit_node's containing LayoutBlockFlow is reached.
-  if (target->IsLayoutInline())
-    return hit_node->IsDescendantOf(target->GetNode());
-  return false;
+  expand_rect.Expand(outsets);
 }
 
 // Returns the root intersect rect for the given root object, with the given
@@ -133,13 +88,84 @@ PhysicalRect InitializeRootRect(const LayoutObject* root,
     // 2) An element wider than the ICB can cause us to resize the FrameView so
     // we can zoom out to fit the entire element width.
     result = layout_view->OverflowClipRect(PhysicalOffset());
-  } else if (root->IsBox() && root->HasOverflowClip()) {
-    result = ToLayoutBox(root)->PhysicalContentBoxRect();
+  } else if (root->IsBox() && root->IsScrollContainer()) {
+    result = To<LayoutBox>(root)->PhysicalContentBoxRect();
   } else {
-    result = PhysicalRect(ToLayoutBoxModelObject(root)->BorderBoundingBox());
+    result = PhysicalRect(To<LayoutBoxModelObject>(root)->BorderBoundingBox());
   }
-  ApplyRootMargin(result, margin, root->StyleRef().EffectiveZoom());
+  ApplyMargin(result, margin, root->StyleRef().EffectiveZoom());
   return result;
+}
+
+PhysicalRect GetBoxBounds(const LayoutBox* box, bool use_overflow_clip_edge) {
+  PhysicalRect bounds = PhysicalRect(box->BorderBoundingBox());
+  // OverflowClipMargin() should only apply if clipping occurs on both axis.
+  if (use_overflow_clip_edge && box->ShouldClipOverflowAlongBothAxis() &&
+      box->StyleRef().OverflowClipMargin() != LayoutUnit()) {
+    // OverflowClipRect() may be smaller than BorderBoundingBox().
+    bounds.Unite(box->OverflowClipRect(PhysicalOffset()));
+  }
+  return bounds;
+}
+
+// Return the bounding box of target in target's own coordinate system, also
+// return a bool indicating whether the target rect before margin application
+// was empty.
+std::pair<PhysicalRect, bool> InitializeTargetRect(const LayoutObject* target,
+                                                   unsigned flags,
+                                                   const Vector<Length>& margin,
+                                                   const LayoutObject* root) {
+  std::pair<PhysicalRect, bool> result;
+  if ((flags & IntersectionGeometry::kShouldUseReplacedContentRect) &&
+      target->IsLayoutEmbeddedContent()) {
+    result.first = To<LayoutEmbeddedContent>(target)->ReplacedContentRect();
+  } else if (target->IsBox()) {
+    result.first =
+        GetBoxBounds(To<LayoutBox>(target),
+                     (flags & IntersectionGeometry::kUseOverflowClipEdge) ==
+                         IntersectionGeometry::kUseOverflowClipEdge);
+  } else if (target->IsLayoutInline()) {
+    result.first = target->AbsoluteToLocalRect(
+        PhysicalRect::EnclosingRect(target->AbsoluteBoundingBoxFloatRect()));
+  } else {
+    result.first = To<LayoutText>(target)->PhysicalLinesBoundingBox();
+  }
+  result.second = result.first.IsEmpty();
+  ApplyMargin(result.first, margin, root->StyleRef().EffectiveZoom(),
+              InitializeRootRect(root, {} /* margin */));
+  return result;
+}
+
+// Return the local frame root for a given object
+LayoutView* LocalRootView(const LayoutObject& object) {
+  const LocalFrame* frame = object.GetDocument().GetFrame();
+  const LocalFrame* frame_root = frame ? &frame->LocalFrameRoot() : nullptr;
+  return frame_root ? frame_root->ContentLayoutObject() : nullptr;
+}
+
+// Returns true if target has visual effects applied, or if rect, given in
+// absolute coordinates, is overlapped by any content painted after target
+//
+//   https://w3c.github.io/IntersectionObserver/v2/#calculate-visibility-algo
+bool ComputeIsVisible(const LayoutObject* target, const PhysicalRect& rect) {
+  if (target->GetDocument().GetFrame()->LocalFrameRoot().GetOcclusionState() !=
+      mojom::blink::FrameOcclusionState::kGuaranteedNotOccluded) {
+    return false;
+  }
+  if (target->HasDistortingVisualEffects())
+    return false;
+  // TODO(layout-dev): This should hit-test the intersection rect, not the
+  // target rect; it's not helpful to know that the portion of the target that
+  // is clipped is also occluded.
+  HitTestResult result(target->HitTestForOcclusion(rect));
+  const Node* hit_node = result.InnerNode();
+  if (!hit_node || hit_node == target->GetNode())
+    return true;
+  // TODO(layout-dev): This IsDescendantOf tree walk could be optimized by
+  // stopping when hit_node's containing LayoutBlockFlow is reached.
+  if (target->IsLayoutInline())
+    return hit_node->IsDescendantOf(target->GetNode());
+  return false;
 }
 
 // Validates the given target element and returns its LayoutObject
@@ -150,8 +176,9 @@ LayoutObject* GetTargetLayoutObject(const Element& target_element) {
   if (!target || (!target->IsBoxModelObject() && !target->IsText()))
     return nullptr;
   // If the target is inside a locked subtree, it isn't ever visible.
-  if (UNLIKELY(DisplayLockUtilities::IsInLockedSubtreeCrossingFrames(
-          target_element))) {
+  if (UNLIKELY(target->GetFrameView()->IsDisplayLocked() ||
+               DisplayLockUtilities::IsInLockedSubtreeCrossingFrames(
+                   target_element))) {
     return nullptr;
   }
 
@@ -173,7 +200,8 @@ static const unsigned kConstructorFlagsMask =
     IntersectionGeometry::kShouldTrackFractionOfRoot |
     IntersectionGeometry::kShouldUseReplacedContentRect |
     IntersectionGeometry::kShouldConvertToCSSPixels |
-    IntersectionGeometry::kShouldUseCachedRects;
+    IntersectionGeometry::kShouldUseCachedRects |
+    IntersectionGeometry::kUseOverflowClipEdge;
 
 }  // namespace
 
@@ -212,10 +240,10 @@ const LayoutObject* IntersectionGeometry::GetRootLayoutObjectForTarget(
     root = To<Document>(root_node)->GetLayoutView();
   } else {
     root = root_node->GetLayoutObject();
-    if (target && check_containing_block_chain &&
-        !IsContainingBlockChainDescendant(target, root)) {
-      root = nullptr;
-    }
+  }
+  if (target && check_containing_block_chain &&
+      !IsContainingBlockChainDescendant(target, root)) {
+    root = nullptr;
   }
   return root;
 }
@@ -224,11 +252,15 @@ IntersectionGeometry::IntersectionGeometry(const Node* root_node,
                                            const Element& target_element,
                                            const Vector<Length>& root_margin,
                                            const Vector<float>& thresholds,
+                                           const Vector<Length>& target_margin,
                                            unsigned flags,
                                            CachedRects* cached_rects)
     : flags_(flags & kConstructorFlagsMask),
       intersection_ratio_(0),
       threshold_index_(0) {
+  // Only one of root_margin or target_margin can be specified.
+  DCHECK(root_margin.IsEmpty() || target_margin.IsEmpty());
+
   if (cached_rects)
     cached_rects->valid = false;
   if (!root_node)
@@ -241,13 +273,15 @@ IntersectionGeometry::IntersectionGeometry(const Node* root_node,
   if (!root)
     return;
   RootGeometry root_geometry(root, root_margin);
-  ComputeGeometry(root_geometry, root, target, thresholds, cached_rects);
+  ComputeGeometry(root_geometry, root, target, thresholds, target_margin,
+                  cached_rects);
 }
 
 IntersectionGeometry::IntersectionGeometry(const RootGeometry& root_geometry,
                                            const Node& explicit_root,
                                            const Element& target_element,
                                            const Vector<float>& thresholds,
+                                           const Vector<Length>& target_margin,
                                            unsigned flags,
                                            CachedRects* cached_rects)
     : flags_(flags & kConstructorFlagsMask),
@@ -262,13 +296,15 @@ IntersectionGeometry::IntersectionGeometry(const RootGeometry& root_geometry,
       &explicit_root, target, !ShouldUseCachedRects());
   if (!root)
     return;
-  ComputeGeometry(root_geometry, root, target, thresholds, cached_rects);
+  ComputeGeometry(root_geometry, root, target, thresholds, target_margin,
+                  cached_rects);
 }
 
 void IntersectionGeometry::ComputeGeometry(const RootGeometry& root_geometry,
                                            const LayoutObject* root,
                                            const LayoutObject* target,
                                            const Vector<float>& thresholds,
+                                           const Vector<Length>& target_margin,
                                            CachedRects* cached_rects) {
   DCHECK(cached_rects || !ShouldUseCachedRects());
   // Initially:
@@ -276,22 +312,30 @@ void IntersectionGeometry::ComputeGeometry(const RootGeometry& root_geometry,
   //   root_rect_ is in root's coordinate system
   //   The coordinate system for unclipped_intersection_rect_ depends on whether
   //       or not we can use previously cached geometry...
+  bool pre_margin_target_rect_is_empty;
   if (ShouldUseCachedRects()) {
     target_rect_ = cached_rects->local_target_rect;
+    pre_margin_target_rect_is_empty =
+        cached_rects->pre_margin_target_rect_is_empty;
+
     // The cached intersection rect has already been mapped/clipped up to the
     // root, except that the root's scroll offset and overflow clip have not
     // been applied.
     unclipped_intersection_rect_ =
         cached_rects->unscrolled_unclipped_intersection_rect;
   } else {
-    target_rect_ = InitializeTargetRect(target, flags_);
+    std::tie(target_rect_, pre_margin_target_rect_is_empty) =
+        InitializeTargetRect(target, flags_, target_margin, root);
     // We have to map/clip target_rect_ up to the root, so we begin with the
     // intersection rect in target's coordinate system. After ClipToRoot, it
     // will be in root's coordinate system.
     unclipped_intersection_rect_ = target_rect_;
   }
-  if (cached_rects)
+  if (cached_rects) {
     cached_rects->local_target_rect = target_rect_;
+    cached_rects->pre_margin_target_rect_is_empty =
+        pre_margin_target_rect_is_empty;
+  }
   root_rect_ = root_geometry.local_root_rect;
 
   bool does_intersect =
@@ -301,7 +345,8 @@ void IntersectionGeometry::ComputeGeometry(const RootGeometry& root_geometry,
   // Map target_rect_ to absolute coordinates for target's document.
   // GeometryMapper is faster, so we use it when possible; otherwise, fall back
   // to LocalToAncestorRect.
-  PropertyTreeState container_properties = PropertyTreeState::Uninitialized();
+  PropertyTreeStateOrAlias container_properties =
+      PropertyTreeState::Uninitialized();
   const LayoutObject* property_container =
       CanUseGeometryMapper(target)
           ? target->GetPropertyContainer(nullptr, &container_properties)
@@ -329,7 +374,7 @@ void IntersectionGeometry::ComputeGeometry(const RootGeometry& root_geometry,
           TransformState::kUnapplyInverseTransformDirection);
       target->GetDocument().GetLayoutView()->MapAncestorToLocal(
           nullptr, implicit_root_to_target_document_transform,
-          kTraverseDocumentBoundaries | kApplyRemoteRootFrameOffset);
+          kTraverseDocumentBoundaries | kApplyRemoteMainFrameTransform);
       TransformationMatrix matrix =
           implicit_root_to_target_document_transform.AccumulatedTransform()
               .Inverse();
@@ -380,7 +425,18 @@ void IntersectionGeometry::ComputeGeometry(const RootGeometry& root_geometry,
   if (does_intersect) {
     const PhysicalRect& comparison_rect =
         ShouldTrackFractionOfRoot() ? root_rect_ : target_rect_;
-    if (comparison_rect.IsEmpty()) {
+    // Note that if we are checking whether target is empty, we have to consider
+    // the fact that we might have padded the rect with a target margin. If we
+    // did, `pre_margin_target_rect_is_empty` would be true. Use this
+    // information to force the rect to be empty for the purposes of this
+    // computation. Note that it could also be the case that the rect started as
+    // non-empty and was transformed to be empty. In this case, we rely on
+    // target_rect_.IsEmpty() to be true, so we need to check the rect itself as
+    // well.
+    // In the fraction of root case, we can just check the comparison rect.
+    bool empty_override =
+        !ShouldTrackFractionOfRoot() && pre_margin_target_rect_is_empty;
+    if (comparison_rect.IsEmpty() || empty_override) {
       intersection_ratio_ = 1;
     } else {
       const PhysicalSize& intersection_size = intersection_rect_.size;
@@ -428,7 +484,7 @@ bool IntersectionGeometry::ClipToRoot(const LayoutObject* root,
   // TODO(szager): the writing mode flipping needs a test.
   const LayoutBox* local_ancestor = nullptr;
   if (!RootIsImplicit() || root->GetDocument().IsInMainFrame())
-    local_ancestor = ToLayoutBox(root);
+    local_ancestor = To<LayoutBox>(root);
 
   unsigned flags = kDefaultVisualRectFlags | kEdgeInclusive |
                    kDontApplyMainFrameOverflowClip;
@@ -456,7 +512,7 @@ bool IntersectionGeometry::ClipToRoot(const LayoutObject* root,
   if (does_intersect) {
     intersection_rect = unclipped_intersection_rect;
     if (local_ancestor) {
-      if (local_ancestor->HasOverflowClip()) {
+      if (local_ancestor->IsScrollContainer()) {
         PhysicalOffset scroll_offset = -PhysicalOffset(
             LayoutPoint(local_ancestor->ScrollOrigin()) +
             local_ancestor->PixelSnappedScrolledContentOffset());
@@ -480,11 +536,19 @@ bool IntersectionGeometry::ClipToRoot(const LayoutObject* root,
       // done yet.
       LocalFrame* local_root_frame = root->GetDocument().GetFrame();
       IntRect clip_rect(local_root_frame->RemoteViewportIntersection());
-      // Map clip_rect from the coordinate system of the local root frame to
-      // the coordinate system of the remote main frame.
-      clip_rect.MoveBy(IntPoint(local_root_frame->RemoteViewportOffset()));
-      does_intersect &=
-          intersection_rect.InclusiveIntersect(PhysicalRect(clip_rect));
+      if (clip_rect.IsEmpty()) {
+        intersection_rect = PhysicalRect();
+        does_intersect = false;
+      } else {
+        // Map clip_rect from the coordinate system of the local root frame to
+        // the coordinate system of the remote main frame.
+        clip_rect = PixelSnappedIntRect(
+            local_root_frame->ContentLayoutObject()->LocalToAncestorRect(
+                PhysicalRect(clip_rect), nullptr,
+                kTraverseDocumentBoundaries | kApplyRemoteMainFrameTransform));
+        does_intersect &=
+            intersection_rect.InclusiveIntersect(PhysicalRect(clip_rect));
+      }
     }
   }
 

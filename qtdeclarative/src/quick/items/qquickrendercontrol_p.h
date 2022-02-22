@@ -56,16 +56,23 @@
 
 QT_BEGIN_NAMESPACE
 
-class QQuickRenderControlPrivate : public QObjectPrivate
+class QRhi;
+class QRhiCommandBuffer;
+class QOffscreenSurface;
+
+class Q_QUICK_PRIVATE_EXPORT QQuickRenderControlPrivate : public QObjectPrivate
 {
 public:
     Q_DECLARE_PUBLIC(QQuickRenderControl)
 
-    QQuickRenderControlPrivate();
+    QQuickRenderControlPrivate(QQuickRenderControl *renderControl);
 
     static QQuickRenderControlPrivate *get(QQuickRenderControl *renderControl) {
         return renderControl->d_func();
     }
+
+    static bool isRenderWindowFor(QQuickWindow *quickWin, const QWindow *renderWin);
+    virtual bool isRenderWindow(const QWindow *w) { Q_UNUSED(w); return false; }
 
     static void cleanup();
 
@@ -74,10 +81,20 @@ public:
     void update();
     void maybeUpdate();
 
+    bool initRhi();
+    void resetRhi();
+
+    QImage grab();
+
+    QQuickRenderControl *q;
     bool initialized;
     QQuickWindow *window;
     static QSGContext *sg;
     QSGRenderContext *rc;
+    QRhi *rhi;
+    QRhiCommandBuffer *cb;
+    QOffscreenSurface *offscreenSurface;
+    int sampleCount;
 };
 
 QT_END_NAMESPACE

@@ -16,9 +16,9 @@
 #include "src/core/SkTextBlobPriv.h"
 
 #if SK_SUPPORT_GPU
-#include "src/gpu/text/GrTextContext.h"
+#include "src/gpu/text/GrSDFTOptions.h"
 class GrColorInfo;
-class GrRenderTargetContext;
+class GrSurfaceDrawContext;
 #endif
 
 class SkGlyphRunPainterInterface;
@@ -62,7 +62,7 @@ public:
     // The following two ctors are used exclusively by the GPU, and will always use the global
     // strike cache.
     SkGlyphRunListPainter(const SkSurfaceProps&, const GrColorInfo&);
-    explicit SkGlyphRunListPainter(const GrRenderTargetContext& renderTargetContext);
+    explicit SkGlyphRunListPainter(const GrSurfaceDrawContext& surfaceDrawContext);
 #endif  // SK_SUPPORT_GPU
 
     class BitmapDevicePainter {
@@ -70,7 +70,8 @@ public:
         virtual ~BitmapDevicePainter() = default;
 
         virtual void paintPaths(
-                SkDrawableGlyphBuffer* drawables, SkScalar scale, const SkPaint& paint) const = 0;
+                SkDrawableGlyphBuffer* drawables, SkScalar scale, SkPoint origin,
+                const SkPaint& paint) const = 0;
 
         virtual void paintMasks(SkDrawableGlyphBuffer* drawables, const SkPaint& paint) const = 0;
     };
@@ -82,12 +83,14 @@ public:
 #if SK_SUPPORT_GPU
     // A nullptr for process means that the calls to the cache will be performed, but none of the
     // callbacks will be called.
-    void processGlyphRunList(const SkGlyphRunList& glyphRunList,
-                             const SkMatrix& drawMatrix,
-                             const SkSurfaceProps& props,
-                             bool contextSupportsDistanceFieldText,
-                             const GrTextContext::Options& options,
-                             SkGlyphRunPainterInterface* process);
+    void processGlyphRun(const SkGlyphRun& glyphRun,
+                         const SkMatrix& drawMatrix,
+                         SkPoint drawOrigin,
+                         const SkPaint& drawPaint,
+                         const SkSurfaceProps& props,
+                         bool contextSupportsDistanceFieldText,
+                         const GrSDFTOptions& options,
+                         SkGlyphRunPainterInterface* process);
 #endif  // SK_SUPPORT_GPU
 
 private:
@@ -101,6 +104,7 @@ private:
     };
 
     ScopedBuffers SK_WARN_UNUSED_RESULT ensureBuffers(const SkGlyphRunList& glyphRunList);
+    ScopedBuffers SK_WARN_UNUSED_RESULT ensureBuffers(const SkGlyphRun& glyphRun);
 
     // The props as on the actual device.
     const SkSurfaceProps fDeviceProps;

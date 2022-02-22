@@ -40,6 +40,7 @@ namespace views {
 class AXAuraObjCache;
 class View;
 class ViewAccessibility;
+class ViewAXPlatformNodeDelegate;
 
 // Implements a virtual view that is used only for accessibility.
 //
@@ -99,6 +100,8 @@ class VIEWS_EXPORT AXVirtualView : public ui::AXPlatformNodeDelegateBase {
   }
   AXVirtualView* virtual_parent_view() { return virtual_parent_view_; }
 
+  ui::AXPlatformNode* ax_platform_node() { return ax_platform_node_; }
+
   // Returns true if |view| is contained within the hierarchy of this
   // AXVirtualView, even as an indirect descendant. Will return true if |view|
   // is also this AXVirtualView.
@@ -142,26 +145,39 @@ class VIEWS_EXPORT AXVirtualView : public ui::AXPlatformNodeDelegateBase {
   gfx::Rect GetBoundsRect(
       const ui::AXCoordinateSystem coordinate_system,
       const ui::AXClippingBehavior clipping_behavior,
-      ui::AXOffscreenResult* offscreen_result) const override;
+      ui::AXOffscreenResult* offscreen_result = nullptr) const override;
   gfx::NativeViewAccessible HitTestSync(
       int screen_physical_pixel_x,
       int screen_physical_pixel_y) const override;
-  gfx::NativeViewAccessible GetFocus() override;
+  gfx::NativeViewAccessible GetFocus() const override;
   ui::AXPlatformNode* GetFromNodeID(int32_t id) override;
   bool AccessibilityPerformAction(const ui::AXActionData& data) override;
   bool ShouldIgnoreHoveredStateForTesting() override;
   bool IsOffscreen() const override;
   const ui::AXUniqueId& GetUniqueId() const override;
   gfx::AcceleratedWidget GetTargetForNativeAccessibilityEvent() override;
+  base::Optional<bool> GetTableHasColumnOrRowHeaderNode() const override;
+  std::vector<int32_t> GetColHeaderNodeIds() const override;
+  std::vector<int32_t> GetColHeaderNodeIds(int col_index) const override;
+  base::Optional<int32_t> GetCellId(int row_index,
+                                    int col_index) const override;
 
   // Gets the real View that owns our shallowest virtual ancestor,, if any.
   View* GetOwnerView() const;
+
+  // Gets the delegate for our owning View; if we are on a platform that exposes
+  // Views directly to platform APIs instead of serializing them into an AXTree.
+  // Otherwise, returns nullptr.
+  ViewAXPlatformNodeDelegate* GetDelegate() const;
 
   // Gets or creates a wrapper suitable for use with tree sources.
   AXVirtualViewWrapper* GetOrCreateWrapper(views::AXAuraObjCache* cache);
 
   // Returns true if this node is ignored and should be hidden from the
-  // accessibility tree. This does not impact the node's descendants.
+  // accessibility tree. Methods that are used to navigate the accessibility
+  // tree, such as "ChildAtIndex", "GetParent", and "GetChildCount", among
+  // others, also skip ignored nodes. This does not impact the node's
+  // descendants.
   bool IsIgnored() const;
 
   // Handle a request from assistive technology to perform an action on this
@@ -170,6 +186,11 @@ class VIEWS_EXPORT AXVirtualView : public ui::AXPlatformNodeDelegateBase {
   // request is sometimes asynchronous. The right way to send a response is
   // via NotifyAccessibilityEvent().
   virtual bool HandleAccessibleAction(const ui::AXActionData& action_data);
+
+ protected:
+  // Forwards a request from assistive technology to perform an action on this
+  // virtual view to the owner view's accessible action handler.
+  bool HandleAccessibleActionInOwnerView(const ui::AXActionData& action_data);
 
  private:
   // Internal class name.

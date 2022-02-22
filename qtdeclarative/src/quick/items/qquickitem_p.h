@@ -51,35 +51,33 @@
 // We mean it.
 //
 
-#include "qquickitem.h"
-
-#include "qquickanchors_p.h"
-#include "qquickanchors_p_p.h"
-#include "qquickitemchangelistener_p.h"
-#include "qquickevents_p_p.h"
-
-#include "qquickwindow_p.h"
-
-#include <QtQuick/qsgnode.h>
-#include "qquickclipnode_p.h"
-
+#include <QtQuick/private/qquickanchors_p.h>
+#include <QtQuick/private/qquickanchors_p_p.h>
+#include <QtQuick/private/qquickitemchangelistener_p.h>
+#include <QtQuick/private/qquickevents_p_p.h>
+#include <QtQuick/private/qquickclipnode_p.h>
 #include <QtQuick/private/qquickstate_p.h>
-#include <private/qqmlnullablevalue_p.h>
-#include <private/qqmlnotifier_p.h>
-#include <private/qqmlglobal_p.h>
-#include <private/qlazilyallocated_p.h>
-
-#include <qqml.h>
-#include <qqmlcontext.h>
-
-#include <QtCore/qlist.h>
-#include <QtCore/qdebug.h>
-#include <QtCore/qelapsedtimer.h>
-#include <QtCore/qpointer.h>
+#include <QtQuick/private/qquickpaletteproviderprivatebase_p.h>
+#include <QtQuick/private/qquickwindow_p.h>
+#include <QtCore/private/qproperty_p.h>
 
 #if QT_CONFIG(quick_shadereffect)
 #include <QtQuick/private/qquickshadereffectsource_p.h>
 #endif
+
+#include <QtQuick/qquickitem.h>
+#include <QtQuick/qsgnode.h>
+
+#include <QtQml/private/qqmlnullablevalue_p.h>
+#include <QtQml/private/qqmlnotifier_p.h>
+#include <QtQml/private/qqmlglobal_p.h>
+#include <QtQml/private/qlazilyallocated_p.h>
+#include <QtQml/qqml.h>
+#include <QtQml/qqmlcontext.h>
+
+#include <QtCore/qlist.h>
+#include <QtCore/qdebug.h>
+#include <QtCore/qelapsedtimer.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -138,7 +136,7 @@ public:
 
 #if QT_CONFIG(quick_shadereffect)
 
-class QQuickItemLayer : public QObject, public QQuickItemChangeListener
+class Q_QUICK_PRIVATE_EXPORT QQuickItemLayer : public QObject, public QQuickItemChangeListener
 {
     Q_OBJECT
     Q_PROPERTY(bool enabled READ enabled WRITE setEnabled NOTIFY enabledChanged)
@@ -153,6 +151,7 @@ class QQuickItemLayer : public QObject, public QQuickItemChangeListener
     Q_PROPERTY(QQuickShaderEffectSource::TextureMirroring textureMirroring READ textureMirroring WRITE setTextureMirroring NOTIFY textureMirroringChanged)
     Q_PROPERTY(int samples READ samples WRITE setSamples NOTIFY samplesChanged)
     QML_ANONYMOUS
+    QML_ADDED_IN_VERSION(2, 0)
 
 public:
     QQuickItemLayer(QQuickItem *item);
@@ -248,7 +247,9 @@ private:
 
 #endif
 
-class Q_QUICK_PRIVATE_EXPORT QQuickItemPrivate : public QObjectPrivate
+class Q_QUICK_PRIVATE_EXPORT QQuickItemPrivate
+    : public QObjectPrivate
+    , public QQuickPaletteProviderPrivateBase<QQuickItem, QQuickItemPrivate>
 {
     Q_DECLARE_PUBLIC(QQuickItem)
 
@@ -281,37 +282,38 @@ public:
 
     QQuickItemLayer *layer() const;
 
+    void localizedTouchEvent(const QTouchEvent *event, bool isFiltering, QMutableTouchEvent *localized);
     bool hasPointerHandlers() const;
     bool hasHoverHandlers() const;
     virtual void addPointerHandler(QQuickPointerHandler *h);
 
     // data property
     static void data_append(QQmlListProperty<QObject> *, QObject *);
-    static int data_count(QQmlListProperty<QObject> *);
-    static QObject *data_at(QQmlListProperty<QObject> *, int);
+    static qsizetype data_count(QQmlListProperty<QObject> *);
+    static QObject *data_at(QQmlListProperty<QObject> *, qsizetype);
     static void data_clear(QQmlListProperty<QObject> *);
 
     // resources property
-    static QObject *resources_at(QQmlListProperty<QObject> *, int);
+    static QObject *resources_at(QQmlListProperty<QObject> *, qsizetype);
     static void resources_append(QQmlListProperty<QObject> *, QObject *);
-    static int resources_count(QQmlListProperty<QObject> *);
+    static qsizetype resources_count(QQmlListProperty<QObject> *);
     static void resources_clear(QQmlListProperty<QObject> *);
 
     // children property
     static void children_append(QQmlListProperty<QQuickItem> *, QQuickItem *);
-    static int children_count(QQmlListProperty<QQuickItem> *);
-    static QQuickItem *children_at(QQmlListProperty<QQuickItem> *, int);
+    static qsizetype children_count(QQmlListProperty<QQuickItem> *);
+    static QQuickItem *children_at(QQmlListProperty<QQuickItem> *, qsizetype);
     static void children_clear(QQmlListProperty<QQuickItem> *);
 
     // visibleChildren property
     static void visibleChildren_append(QQmlListProperty<QQuickItem> *prop, QQuickItem *o);
-    static int visibleChildren_count(QQmlListProperty<QQuickItem> *prop);
-    static QQuickItem *visibleChildren_at(QQmlListProperty<QQuickItem> *prop, int index);
+    static qsizetype visibleChildren_count(QQmlListProperty<QQuickItem> *prop);
+    static QQuickItem *visibleChildren_at(QQmlListProperty<QQuickItem> *prop, qsizetype index);
 
     // transform property
-    static int transform_count(QQmlListProperty<QQuickTransform> *list);
+    static qsizetype transform_count(QQmlListProperty<QQuickTransform> *list);
     static void transform_append(QQmlListProperty<QQuickTransform> *list, QQuickTransform *);
-    static QQuickTransform *transform_at(QQmlListProperty<QQuickTransform> *list, int);
+    static QQuickTransform *transform_at(QQmlListProperty<QQuickTransform> *list, qsizetype);
     static void transform_clear(QQmlListProperty<QQuickTransform> *list);
 
     void _q_resourceObjectDeleted(QObject *);
@@ -329,6 +331,8 @@ public:
         ImplicitWidth = 0x100,
         ImplicitHeight = 0x200,
         Enabled = 0x400,
+        Focus = 0x800,
+        AllChanges = 0xFFFFFFFF
     };
 
     Q_DECLARE_FLAGS(ChangeTypes, ChangeType)
@@ -355,6 +359,32 @@ public:
         ChangeTypes types;
         QQuickGeometryChange gTypes;  //NOTE: not used for ==
     };
+
+    // call QQuickItemChangeListener PMF
+    template <typename Fn, typename ...Args>
+    void notifyChangeListeners(QQuickItemPrivate::ChangeTypes changeTypes, Fn &&function, Args &&...args)
+    {
+        if (changeListeners.isEmpty())
+            return;
+
+        const auto listeners = changeListeners; // NOTE: intentional copy (QTBUG-54732)
+        for (const QQuickItemPrivate::ChangeListener &change : listeners) {
+            if (change.types & changeTypes)
+                (change.listener->*function)(args...);
+        }
+    }
+    // call functor
+    template <typename Fn>
+    void notifyChangeListeners(QQuickItemPrivate::ChangeTypes changeTypes, Fn &&function) {
+        if (changeListeners.isEmpty())
+            return;
+
+        const auto listeners = changeListeners; // NOTE: intentional copy (QTBUG-54732)
+        for (const QQuickItemPrivate::ChangeListener &change : listeners) {
+            if (change.types & changeTypes)
+                function(change);
+        }
+    }
 
     struct ExtraData {
         ExtraData();
@@ -387,6 +417,8 @@ public:
         QSGOpacityNode *opacityNode;
         QQuickDefaultClipNode *clipNode;
         QSGRootNode *rootNode;
+        // subsceneDeliveryAgent is set only if this item is the root of a subscene, not on all items within.
+        QQuickDeliveryAgent *subsceneDeliveryAgent = nullptr;
 
         // Mask contains() method
         QMetaMethod maskContains;
@@ -394,7 +426,7 @@ public:
         QObjectList resourcesList;
 
         // Although acceptedMouseButtons is inside ExtraData, we actually store
-        // the LeftButton flag in the extra.flag() bit.  This is because it is
+        // the LeftButton flag in the extra.tag() bit.  This is because it is
         // extremely common to set acceptedMouseButtons to LeftButton, but very
         // rare to use any of the other buttons.
         Qt::MouseButtons acceptedMouseButtons;
@@ -404,9 +436,17 @@ public:
 
         // 26 bits padding
     };
-    QLazilyAllocated<ExtraData> extra;
+
+    enum ExtraDataTag {
+        NoTag = 0x1,
+        LeftMouseButtonAccepted = 0x2
+    };
+    Q_DECLARE_FLAGS(ExtraDataTags, ExtraDataTag)
+
+    QLazilyAllocated<ExtraData, ExtraDataTags> extra;
     // Contains mask
     QPointer<QObject> mask;
+    QPointer<QQuickItem> quickMask;
     // If the mask is an Item, inform it that it's being used as a mask (true) or is no longer being used (false)
     virtual void registerAsContainmentMask(QQuickItem * /* maskedItem */, bool /* set */) { }
 
@@ -430,8 +470,8 @@ public:
 
     // Bit 0
     quint32 flags:5;
-    bool widthValid:1;
-    bool heightValid:1;
+    bool widthValidFlag:1;
+    bool heightValidFlag:1;
     bool componentComplete:1;
     bool keepMouse:1;
     bool keepTouch:1;
@@ -472,6 +512,8 @@ public:
     bool replayingPressEvent:1;
     bool touchEnabled:1;
     bool hasCursorHandler:1;
+    // set true when this item does not expect events via a subscene delivery agent; false otherwise
+    bool maybeHasSubsceneDeliveryAgent:1;
 
     enum DirtyType {
         TransformOrigin         = 0x00000001,
@@ -550,12 +592,23 @@ public:
 
     static bool canAcceptTabFocus(QQuickItem *item);
 
-    qreal x;
-    qreal y;
-    qreal width;
-    qreal height;
+    void setX(qreal x) {q_func()->setX(x);}
+    void xChanged() {q_func()->xChanged();}
+    Q_OBJECT_COMPAT_PROPERTY(QQuickItemPrivate, qreal, x, &QQuickItemPrivate::setX, &QQuickItemPrivate::xChanged);
+    void setY(qreal y) {q_func()->setY(y);}
+    void yChanged() {q_func()->yChanged();}
+    Q_OBJECT_COMPAT_PROPERTY(QQuickItemPrivate, qreal, y, &QQuickItemPrivate::setY, &QQuickItemPrivate::yChanged);
+    void setWidth(qreal width) {q_func()->setWidth(width);}
+    void widthChanged() {q_func()->widthChanged();}
+    Q_OBJECT_COMPAT_PROPERTY(QQuickItemPrivate, qreal, width, &QQuickItemPrivate::setWidth, &QQuickItemPrivate::widthChanged);
+    void setHeight(qreal height) {q_func()->setHeight(height);}
+    void heightChanged() {q_func()->heightChanged();}
+    Q_OBJECT_COMPAT_PROPERTY(QQuickItemPrivate, qreal, height, &QQuickItemPrivate::setHeight, &QQuickItemPrivate::heightChanged);
     qreal implicitWidth;
     qreal implicitHeight;
+
+    bool widthValid() const { return widthValidFlag || (width.hasBinding() && !QQmlPropertyBinding::isUndefined(width.binding()) ); }
+    bool heightValid() const { return heightValidFlag || (height.hasBinding() && !QQmlPropertyBinding::isUndefined(height.binding()) ); }
 
     qreal baselineOffset;
 
@@ -599,6 +652,10 @@ public:
                                     qreal startScale, qreal activeScale,
                                     qreal startRotation, qreal activeRotation);
 
+    QQuickDeliveryAgent *deliveryAgent();
+    QQuickDeliveryAgentPrivate *deliveryAgentPrivate();
+    QQuickDeliveryAgent *ensureSubsceneDeliveryAgent();
+
     void deliverKeyEvent(QKeyEvent *);
     bool filterKeyEvent(QKeyEvent *, bool post);
 #if QT_CONFIG(im)
@@ -606,8 +663,8 @@ public:
 #endif
     void deliverShortcutOverrideEvent(QKeyEvent *);
 
-    bool anyPointerHandlerWants(QQuickEventPoint *point) const;
-    virtual bool handlePointerEvent(QQuickPointerEvent *, bool avoidExclusiveGrabber = false);
+    bool anyPointerHandlerWants(const QPointerEvent *event, const QEventPoint &point) const;
+    virtual bool handlePointerEvent(QPointerEvent *, bool avoidExclusiveGrabber = false);
 
     virtual void setVisible(bool visible);
 
@@ -659,6 +716,8 @@ public:
 
     virtual void updatePolish() { }
 };
+
+Q_DECLARE_OPERATORS_FOR_FLAGS(QQuickItemPrivate::ExtraDataTags)
 
 /*
     Key filters can be installed on a QQuickItem, but not removed.  Currently they
@@ -722,6 +781,7 @@ class Q_QUICK_PRIVATE_EXPORT QQuickKeyNavigationAttached : public QObject, publi
     Q_PROPERTY(Priority priority READ priority WRITE setPriority NOTIFY priorityChanged)
 
     QML_NAMED_ELEMENT(KeyNavigation)
+    QML_ADDED_IN_VERSION(2, 0)
     QML_UNCREATABLE("KeyNavigation is only available via attached properties.")
     QML_ATTACHED(QQuickKeyNavigationAttached)
 
@@ -771,6 +831,7 @@ class QQuickLayoutMirroringAttached : public QObject
     Q_PROPERTY(bool childrenInherit READ childrenInherit WRITE setChildrenInherit NOTIFY childrenInheritChanged)
 
     QML_NAMED_ELEMENT(LayoutMirroring)
+    QML_ADDED_IN_VERSION(2, 0)
     QML_UNCREATABLE("LayoutMirroring is only available via attached properties.")
     QML_ATTACHED(QQuickLayoutMirroringAttached)
 
@@ -800,7 +861,7 @@ class QQuickEnterKeyAttached : public QObject
 
     QML_NAMED_ELEMENT(EnterKey)
     QML_UNCREATABLE("EnterKey is only available via attached properties")
-    QML_ADDED_IN_MINOR_VERSION(6)
+    QML_ADDED_IN_VERSION(2, 6)
     QML_ATTACHED(QQuickEnterKeyAttached)
 
 public:
@@ -849,6 +910,7 @@ class QQuickKeysAttached : public QObject, public QQuickItemKeyFilter
     Q_PROPERTY(Priority priority READ priority WRITE setPriority NOTIFY priorityChanged)
 
     QML_NAMED_ELEMENT(Keys)
+    QML_ADDED_IN_VERSION(2, 0)
     QML_UNCREATABLE("Keys is only available via attached properties")
     QML_ATTACHED(QQuickKeysAttached)
 
@@ -941,7 +1003,7 @@ private:
 
 Qt::MouseButtons QQuickItemPrivate::acceptedMouseButtons() const
 {
-    return ((extra.flag() ? Qt::LeftButton : Qt::MouseButton(0)) |
+    return ((extra.tag().testFlag(LeftMouseButtonAccepted) ? Qt::LeftButton : Qt::MouseButton(0)) |
             (extra.isAllocated() ? extra->acceptedMouseButtons : Qt::MouseButtons{}));
 }
 

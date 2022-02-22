@@ -59,6 +59,7 @@
 #include <QElapsedTimer>
 #include <QTimer>
 #include <QLoggingCategory>
+#include <QColorSpace>
 
 #include <QtGui/private/qshader_p.h>
 #include <QFile>
@@ -128,6 +129,7 @@ QRhi::BeginFrameFlags beginFrameFlags;
 QRhi::EndFrameFlags endFrameFlags;
 int framesUntilTdr = -1;
 bool transparentBackground = false;
+bool debugLayer = true;
 
 class Window : public QWindow
 {
@@ -190,7 +192,7 @@ Window::Window()
         setSurfaceType(VulkanSurface);
         break;
     case D3D11:
-        setSurfaceType(OpenGLSurface); // not a typo
+        setSurfaceType(Direct3DSurface);
         break;
     case Metal:
 #if (QT_VERSION >= QT_VERSION_CHECK(5, 12, 0))
@@ -286,7 +288,9 @@ void Window::init()
 #ifdef Q_OS_WIN
     if (graphicsApi == D3D11) {
         QRhiD3D11InitParams params;
-        params.enableDebugLayer = true;
+        if (debugLayer)
+            qDebug("Enabling D3D11 debug layer");
+        params.enableDebugLayer = debugLayer;
         if (framesUntilTdr > 0) {
             params.framesUntilKillingDeviceViaTdr = framesUntilTdr;
             params.repeatDeviceKill = true;
@@ -347,7 +351,7 @@ void Window::releaseResources()
 
 void Window::resizeSwapChain()
 {
-    m_hasSwapChain = m_sc->buildOrResize(); // also handles m_ds
+    m_hasSwapChain = m_sc->createOrResize(); // also handles m_ds
 
     m_frameCount = 0;
     m_timer.restart();
@@ -362,7 +366,7 @@ void Window::releaseSwapChain()
 {
     if (m_hasSwapChain) {
         m_hasSwapChain = false;
-        m_sc->release();
+        m_sc->destroy();
     }
 }
 
@@ -440,7 +444,6 @@ void Window::render()
 
 int main(int argc, char **argv)
 {
-    QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
     QGuiApplication app(argc, argv);
 
     QLoggingCategory::setFilterRules(QLatin1String("qt.rhi.*=true"));
@@ -521,7 +524,7 @@ int main(int argc, char **argv)
     if (scFlags.testFlag(QRhiSwapChain::NoVSync))
         fmt.setSwapInterval(0);
     if (scFlags.testFlag(QRhiSwapChain::sRGB))
-        fmt.setColorSpace(QSurfaceFormat::sRGBColorSpace);
+        fmt.setColorSpace(QColorSpace::SRgb);
     // Exception: The alpha size is not necessarily OpenGL specific.
     if (transparentBackground)
         fmt.setAlphaBufferSize(8);
@@ -531,20 +534,17 @@ int main(int argc, char **argv)
 #if QT_CONFIG(vulkan)
     QVulkanInstance inst;
     if (graphicsApi == Vulkan) {
-#ifndef Q_OS_ANDROID
-        inst.setLayers(QByteArrayList() << "VK_LAYER_LUNARG_standard_validation");
-#else
-        inst.setLayers(QByteArrayList()
-                       << "VK_LAYER_GOOGLE_threading"
-                       << "VK_LAYER_LUNARG_parameter_validation"
-                       << "VK_LAYER_LUNARG_object_tracker"
-                       << "VK_LAYER_LUNARG_core_validation"
-                       << "VK_LAYER_LUNARG_image"
-                       << "VK_LAYER_LUNARG_swapchain"
-                       << "VK_LAYER_GOOGLE_unique_objects");
-#endif
-        inst.setExtensions(QByteArrayList()
-                           << "VK_KHR_get_physical_device_properties2");
+        if (debugLayer) {
+            qDebug("Enabling Vulkan validation layer (if available)");
+            inst.setLayers({ "VK_LAYER_KHRONOS_validation" });
+        }
+        const QVersionNumber supportedVersion = inst.supportedApiVersion();
+        qDebug() << "Supported Vulkan API version:" << supportedVersion;
+        if (supportedVersion >= QVersionNumber(1, 1)) {
+            qDebug("Requesting Vulkan API 1.1 on the VkInstance");
+            inst.setApiVersion(QVersionNumber(1, 1));
+        }
+        inst.setExtensions(QRhiVulkanInitParams::preferredInstanceExtensions());
         if (!inst.create()) {
             qWarning("Failed to create Vulkan instance, switching to OpenGL");
             graphicsApi = OpenGL;

@@ -8,11 +8,13 @@
 
 #include "base/memory/ptr_util.h"
 #include "components/pdf/browser/pdf_web_contents_helper_client.h"
+#include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/common/referrer_type_converters.h"
+#include "ui/base/pointer/touch_editing_controller.h"
+#include "ui/base/ui_base_types.h"
 #include "ui/gfx/geometry/point_conversions.h"
 #include "ui/gfx/geometry/point_f.h"
-#include "ui/strings/grit/ui_strings.h"
 
 namespace pdf {
 
@@ -37,6 +39,14 @@ PDFWebContentsHelper::PDFWebContentsHelper(
 PDFWebContentsHelper::~PDFWebContentsHelper() {
   if (!touch_selection_controller_client_manager_)
     return;
+
+  // PDFWebContentsHelperTest overrides TouchSelectionControllerClientManager
+  // to mock it and GetTouchSelectionController() returns nullptr in that case.
+  // This check prevents the tests from failing in that condition.
+  ui::TouchSelectionController* touch_selection_controller =
+      touch_selection_controller_client_manager_->GetTouchSelectionController();
+  if (touch_selection_controller)
+    touch_selection_controller->HideAndDisallowShowingAutomatically();
 
   touch_selection_controller_client_manager_->InvalidateClient(this);
   touch_selection_controller_client_manager_->RemoveObserver(this);
@@ -149,7 +159,9 @@ void PDFWebContentsHelper::SelectBetweenCoordinates(const gfx::PointF& base,
 
 void PDFWebContentsHelper::OnSelectionEvent(ui::SelectionEventType event) {}
 
-void PDFWebContentsHelper::OnDragUpdate(const gfx::PointF& position) {}
+void PDFWebContentsHelper::OnDragUpdate(
+    const ui::TouchSelectionDraggable::Type type,
+    const gfx::PointF& position) {}
 
 std::unique_ptr<ui::TouchHandleDrawable>
 PDFWebContentsHelper::CreateDrawable() {
@@ -170,7 +182,7 @@ bool PDFWebContentsHelper::IsCommandIdEnabled(int command_id) const {
   bool readable = true;
 
   switch (command_id) {
-    case IDS_APP_COPY:
+    case ui::TouchEditable::kCopy:
       return readable && has_selection_;
       // TODO(wjmaclean): add logic for cut/paste as the information required
       // from PDFium becomes available.
@@ -182,15 +194,41 @@ void PDFWebContentsHelper::ExecuteCommand(int command_id, int event_flags) {
   // TODO(wjmaclean, dsinclair): Need to communicate to PDFium to accept
   // cut/paste commands.
   switch (command_id) {
-    case IDS_APP_COPY:
+    case ui::TouchEditable::kCopy:
       web_contents()->Copy();
       break;
   }
 }
 
 void PDFWebContentsHelper::RunContextMenu() {
-  // TouchSelectionControllerClientAura will handle this for us.
-  NOTIMPLEMENTED();
+  content::RenderWidgetHostView* view =
+      web_contents()->GetRenderWidgetHostView();
+
+  if (!view)
+    return;
+
+  if (!touch_selection_controller_client_manager_)
+    InitTouchSelectionClientManager();
+
+  if (!touch_selection_controller_client_manager_)
+    return;
+
+  ui::TouchSelectionController* touch_selection_controller =
+      touch_selection_controller_client_manager_->GetTouchSelectionController();
+  gfx::RectF anchor_rect =
+      touch_selection_controller->GetVisibleRectBetweenBounds();
+  gfx::PointF anchor_point =
+      gfx::PointF(anchor_rect.CenterPoint().x(), anchor_rect.y());
+
+  gfx::PointF origin = view->TransformPointToRootCoordSpaceF(gfx::PointF());
+  anchor_point.Offset(-origin.x(), -origin.y());
+  view->GetRenderWidgetHost()->ShowContextMenuAtPoint(
+      gfx::ToRoundedPoint(anchor_point), ui::MENU_SOURCE_TOUCH_EDIT_MENU);
+
+  // Hide selection handles after getting rect-between-bounds from touch
+  // selection controller; otherwise, rect would be empty and the above
+  // calculations would be invalid.
+  touch_selection_controller->HideAndDisallowShowingAutomatically();
 }
 
 bool PDFWebContentsHelper::ShouldShowQuickMenu() {
@@ -222,7 +260,11 @@ void PDFWebContentsHelper::HasUnsupportedFeature() {
 void PDFWebContentsHelper::SaveUrlAs(const GURL& url,
                                      blink::mojom::ReferrerPtr referrer) {
   client_->OnSaveURL(web_contents());
-  web_contents()->SaveFrame(url, referrer.To<content::Referrer>());
+
+  if (content::RenderFrameHost* rfh =
+          web_contents()->GetOuterWebContentsFrame()) {
+    web_contents()->SaveFrame(url, referrer.To<content::Referrer>(), rfh);
+  }
 }
 
 void PDFWebContentsHelper::UpdateContentRestrictions(

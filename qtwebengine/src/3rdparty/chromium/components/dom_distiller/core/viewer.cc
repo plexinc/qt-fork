@@ -25,9 +25,9 @@
 #include "components/grit/components_resources.h"
 #include "components/strings/grit/components_strings.h"
 #include "net/base/escape.h"
-#include "net/url_request/url_request.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/base/template_expressions.h"
 #include "url/gurl.h"
 
 namespace dom_distiller {
@@ -109,12 +109,55 @@ void EnsureNonEmptyContent(std::string* content) {
 }
 
 std::string ReplaceHtmlTemplateValues(const mojom::Theme theme,
-                                      const mojom::FontFamily font_family) {
+                                      const mojom::FontFamily font_family,
+                                      const std::string& csp_nonce) {
   std::string html_template =
       ui::ResourceBundle::GetSharedInstance().LoadDataResourceString(
           IDR_DOM_DISTILLER_VIEWER_HTML);
+
+  // Replace placeholders of the form $i18n{foo} with translated strings
+  // using ReplaceTemplateExpressions. Do this step first because
+  // ReplaceStringPlaceholders, below, considers $i18n to be an error.
+  ui::TemplateReplacements i18n_replacements;
+  i18n_replacements["title"] =
+      l10n_util::GetStringUTF8(IDS_DOM_DISTILLER_VIEWER_LOADING_TITLE);
+  i18n_replacements["customizeAppearance"] =
+      l10n_util::GetStringUTF8(IDS_DOM_DISTILLER_VIEWER_CUSTOMIZE_APPEARANCE);
+  i18n_replacements["fontStyle"] =
+      l10n_util::GetStringUTF8(IDS_DOM_DISTILLER_VIEWER_FONT_STYLE);
+  i18n_replacements["sansSerifFont"] =
+      l10n_util::GetStringUTF8(IDS_DOM_DISTILLER_VIEWER_SANS_SERIF_FONT);
+  i18n_replacements["serifFont"] =
+      l10n_util::GetStringUTF8(IDS_DOM_DISTILLER_VIEWER_SERIF_FONT);
+  i18n_replacements["monospaceFont"] =
+      l10n_util::GetStringUTF8(IDS_DOM_DISTILLER_VIEWER_MONOSPACE_FONT);
+  i18n_replacements["pageColor"] =
+      l10n_util::GetStringUTF8(IDS_DOM_DISTILLER_VIEWER_PAGE_COLOR);
+  i18n_replacements["light"] =
+      l10n_util::GetStringUTF8(IDS_DOM_DISTILLER_VIEWER_PAGE_COLOR_LIGHT);
+  i18n_replacements["sepia"] =
+      l10n_util::GetStringUTF8(IDS_DOM_DISTILLER_VIEWER_PAGE_COLOR_SEPIA);
+  i18n_replacements["dark"] =
+      l10n_util::GetStringUTF8(IDS_DOM_DISTILLER_VIEWER_PAGE_COLOR_DARK);
+  i18n_replacements["fontSize"] =
+      l10n_util::GetStringUTF8(IDS_DOM_DISTILLER_VIEWER_FONT_SIZE);
+  i18n_replacements["small"] =
+      l10n_util::GetStringUTF8(IDS_DOM_DISTILLER_VIEWER_FONT_SIZE_SMALL);
+  i18n_replacements["large"] =
+      l10n_util::GetStringUTF8(IDS_DOM_DISTILLER_VIEWER_FONT_SIZE_LARGE);
+  i18n_replacements["close"] =
+      l10n_util::GetStringUTF8(IDS_DOM_DISTILLER_VIEWER_CLOSE);
+
+  html_template =
+      ui::ReplaceTemplateExpressions(html_template, i18n_replacements);
+
+  // There shouldn't be any unsubstituted i18n placeholders left.
+  DCHECK_EQ(html_template.find("$i18n"), std::string::npos);
+
+  // Now do other non-i18n string replacements.
   std::vector<std::string> substitutions;
 
+  std::ostringstream csp;
   std::ostringstream css;
   std::ostringstream svg;
 #if defined(OS_IOS)
@@ -122,24 +165,37 @@ std::string ReplaceHtmlTemplateValues(const mojom::Theme theme,
   // and return the local data once a page is loaded.
   css << "<style>" << viewer::GetCss() << "</style>";
   svg << viewer::GetLoadingImage();
+
+  // iOS specific CSP policy to mitigate leaking of data from different
+  // origins.
+  csp << "<meta http-equiv=\"Content-Security-Policy\" content=\"";
+  csp << "default-src 'none'; ";
+  csp << "script-src 'nonce-" << csp_nonce << "'; ";
+  // YouTube videos are embedded as an iframe.
+  csp << "frame-src http://www.youtube.com; ";
+  csp << "style-src 'unsafe-inline' https://fonts.googleapis.com; ";
+  // Allows the fallback font-face from the main stylesheet.
+  csp << "font-src https://fonts.gstatic.com; ";
+  // Images will be inlined as data-uri if they are valid.
+  csp << "img-src data:; ";
+  csp << "form-action 'none'; ";
+  csp << "base-uri 'none'; ";
+  csp << "\">";
+
 #else
   css << "<link rel=\"stylesheet\" href=\"/" << kViewerCssPath << "\">";
   svg << "<img src=\"/" << kViewerLoadingImagePath << "\">";
 #endif  // defined(OS_IOS)
 
-  substitutions.push_back(
-      l10n_util::GetStringUTF8(IDS_DOM_DISTILLER_VIEWER_LOADING_TITLE));  // $1
-
+  substitutions.push_back(csp.str());  // $1
   substitutions.push_back(css.str());  // $2
   substitutions.push_back(GetThemeCssClass(theme) + " " +
                           GetFontCssClass(font_family));  // $3
 
-  substitutions.push_back(
-      l10n_util::GetStringUTF8(IDS_DOM_DISTILLER_VIEWER_LOADING_TITLE));  // $4
   substitutions.push_back(l10n_util::GetStringUTF8(
-      IDS_DOM_DISTILLER_JAVASCRIPT_DISABLED_CONTENT));  // $5
+      IDS_DOM_DISTILLER_JAVASCRIPT_DISABLED_CONTENT));  // $4
 
-  substitutions.push_back(svg.str());  // $6
+  substitutions.push_back(svg.str());  // $5
 
   return base::ReplaceStringPlaceholders(html_template, substitutions, nullptr);
 }
@@ -175,15 +231,18 @@ const std::string GetErrorPageJs() {
 
 const std::string GetSetTitleJs(std::string title) {
 #if defined(OS_ANDROID) || defined(OS_IOS)
-  base::Value value(title);
+  base::Value suffixValue("");
 #else  // Desktop
   std::string suffix(
       l10n_util::GetStringUTF8(IDS_DOM_DISTILLER_VIEWER_TITLE_SUFFIX));
-  base::Value value(title + " - " + suffix);
+  base::Value suffixValue(" - " + suffix);
 #endif
-  std::string output;
-  base::JSONWriter::Write(value, &output);
-  return "setTitle(" + output + ");";
+  base::Value titleValue(title);
+  std::string suffixJs;
+  base::JSONWriter::Write(suffixValue, &suffixJs);
+  std::string titleJs;
+  base::JSONWriter::Write(titleValue, &titleJs);
+  return "setTitle(" + titleJs + ", " + suffixJs + ");";
 }
 
 const std::string GetSetTextDirectionJs(const std::string& direction) {
@@ -200,8 +259,9 @@ const std::string GetToggleLoadingIndicatorJs(bool is_last_page) {
 }
 
 const std::string GetArticleTemplateHtml(mojom::Theme theme,
-                                         mojom::FontFamily font_family) {
-  return ReplaceHtmlTemplateValues(theme, font_family);
+                                         mojom::FontFamily font_family,
+                                         const std::string& csp_nonce) {
+  return ReplaceHtmlTemplateValues(theme, font_family, csp_nonce);
 }
 
 const std::string GetUnsafeArticleContentJs(

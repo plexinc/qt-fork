@@ -51,26 +51,27 @@
 #ifndef WEB_CONTENTS_ADAPTER_CLIENT_H
 #define WEB_CONTENTS_ADAPTER_CLIENT_H
 
-#include "qtwebenginecoreglobal_p.h"
+#include <QtWebEngineCore/private/qtwebenginecoreglobal_p.h>
 
 #include "profile_adapter.h"
 
 #include <QFlags>
 #include <QRect>
-#include <QSharedPointer>
 #include <QString>
 #include <QStringList>
 #include <QUrl>
 
-QT_FORWARD_DECLARE_CLASS(CertificateErrorController)
-QT_FORWARD_DECLARE_CLASS(ClientCertSelectController)
 QT_FORWARD_DECLARE_CLASS(QKeyEvent)
 QT_FORWARD_DECLARE_CLASS(QVariant)
 QT_FORWARD_DECLARE_CLASS(QWebEngineFindTextResult)
+QT_FORWARD_DECLARE_CLASS(QWebEngineLoadingInfo)
 QT_FORWARD_DECLARE_CLASS(QWebEngineQuotaRequest)
 QT_FORWARD_DECLARE_CLASS(QWebEngineRegisterProtocolHandlerRequest)
 QT_FORWARD_DECLARE_CLASS(QWebEngineUrlRequestInfo)
 QT_FORWARD_DECLARE_CLASS(QWebEngineUrlRequestInterceptor)
+QT_FORWARD_DECLARE_CLASS(QWebEngineContextMenuRequest)
+QT_FORWARD_DECLARE_CLASS(QWebEngineCertificateError)
+QT_FORWARD_DECLARE_CLASS(QWebEngineSettings)
 
 namespace content {
 struct DropData;
@@ -78,6 +79,8 @@ struct DropData;
 
 namespace QtWebEngineCore {
 
+class CertificateErrorController;
+class ClientCertSelectController;
 class AuthenticationDialogController;
 class ColorChooserController;
 class FilePickerController;
@@ -90,279 +93,6 @@ class TouchSelectionMenuController;
 class WebContentsAdapter;
 class WebContentsDelegateQt;
 class WebEngineSettings;
-
-// Must match blink::WebReferrerPolicy
-enum class ReferrerPolicy {
-    Always,
-    Default,
-    NoReferrerWhenDowngrade,
-    Never,
-    Origin,
-    OriginWhenCrossOrigin,
-    NoReferrerWhenDowngradeOriginWhenCrossOrigin,
-    SameOrigin,
-    StrictOrigin,
-    Last = StrictOrigin,
-};
-
-class WebEngineContextMenuSharedData : public QSharedData {
-
-public:
-    WebEngineContextMenuSharedData()
-        :  hasImageContent(false)
-        , isEditable(false)
-        , isSpellCheckerEnabled(false)
-        , mediaType(0)
-        , mediaFlags(0)
-        , editFlags(0)
-    {
-    }
-    bool hasImageContent;
-    bool isEditable;
-    bool isSpellCheckerEnabled;
-    uint mediaType;
-    uint mediaFlags;
-    uint editFlags;
-    QPoint pos;
-    QUrl linkUrl;
-    QUrl unfilteredLinkUrl;
-    QUrl mediaUrl;
-    QString altText;
-    QString linkText;
-    QString titleText;
-    QString selectedText;
-    QString suggestedFileName;
-    QString misspelledWord;
-    QStringList spellCheckerSuggestions;
-    QUrl pageUrl;
-    QUrl frameUrl;
-    ReferrerPolicy referrerPolicy = ReferrerPolicy::Default;
-    // Some likely candidates for future additions as we add support for the related actions:
-    //    bool isImageBlocked;
-    //    <enum tbd> mediaType;
-    //    ...
-};
-
-class WebEngineContextMenuData {
-public:
-    // Must match blink::WebContextMenuData::MediaType:
-    enum MediaType {
-        // No special node is in context.
-        MediaTypeNone = 0x0,
-        // An image node is selected.
-        MediaTypeImage,
-        // A video node is selected.
-        MediaTypeVideo,
-        // An audio node is selected.
-        MediaTypeAudio,
-        // A canvas node is selected.
-        MediaTypeCanvas,
-        // A file node is selected.
-        MediaTypeFile,
-        // A plugin node is selected.
-        MediaTypePlugin,
-        MediaTypeLast = MediaTypePlugin
-    };
-    // Must match blink::WebContextMenuData::MediaFlags:
-    enum MediaFlags {
-        MediaNone = 0x0,
-        MediaInError = 0x1,
-        MediaPaused = 0x2,
-        MediaMuted = 0x4,
-        MediaLoop = 0x8,
-        MediaCanSave = 0x10,
-        MediaHasAudio = 0x20,
-        MediaCanToggleControls = 0x40,
-        MediaControls = 0x80,
-        MediaCanPrint = 0x100,
-        MediaCanRotate = 0x200,
-    };
-
-    // Must match blink::WebContextMenuData::EditFlags:
-    enum EditFlags {
-        CanDoNone = 0x0,
-        CanUndo = 0x1,
-        CanRedo = 0x2,
-        CanCut = 0x4,
-        CanCopy = 0x8,
-        CanPaste = 0x10,
-        CanDelete = 0x20,
-        CanSelectAll = 0x40,
-        CanTranslate = 0x80,
-        CanEditRichly = 0x100,
-    };
-
-    WebEngineContextMenuData():d(new WebEngineContextMenuSharedData) {
-    }
-
-    void setPosition(const QPoint &pos) {
-        d->pos = pos;
-    }
-
-    QPoint position() const {
-        return d->pos;
-    }
-
-    void setLinkUrl(const QUrl &url) {
-        d->linkUrl = url;
-    }
-
-    QUrl linkUrl() const {
-        return d->linkUrl;
-    }
-
-    void setUnfilteredLinkUrl(const QUrl &url) {
-        d->unfilteredLinkUrl = url;
-    }
-
-    QUrl unfilteredLinkUrl() const {
-        return d->unfilteredLinkUrl;
-    }
-
-    void setAltText(const QString &text) {
-        d->altText = text;
-    }
-
-    QString altText() const {
-        return d->altText;
-    }
-
-    void setLinkText(const QString &text) {
-        d->linkText = text;
-    }
-
-    QString linkText() const {
-        return d->linkText;
-    }
-
-    void setTitleText(const QString &text) {
-        d->titleText = text;
-    }
-
-    QString titleText() const {
-        return d->titleText;
-    }
-
-    void setSelectedText(const QString &text) {
-        d->selectedText = text;
-    }
-
-    QString selectedText() const {
-        return d->selectedText;
-    }
-
-    void setMediaUrl(const QUrl &url) {
-        d->mediaUrl = url;
-    }
-
-    QUrl mediaUrl() const {
-        return d->mediaUrl;
-    }
-
-    void setMediaType(MediaType type) {
-        d->mediaType = type;
-    }
-
-    MediaType mediaType() const {
-        return MediaType(d->mediaType);
-    }
-
-    void setHasImageContent(bool imageContent) {
-        d->hasImageContent = imageContent;
-    }
-
-    bool hasImageContent() const {
-        return d->hasImageContent;
-    }
-
-    void setMediaFlags(MediaFlags flags) {
-        d->mediaFlags = flags;
-    }
-
-    MediaFlags mediaFlags() const {
-        return MediaFlags(d->mediaFlags);
-    }
-
-    void setEditFlags(EditFlags flags) {
-        d->editFlags = flags;
-    }
-
-    EditFlags editFlags() const {
-        return EditFlags(d->editFlags);
-    }
-
-    void setSuggestedFileName(const QString &filename) {
-        d->suggestedFileName = filename;
-    }
-
-    QString suggestedFileName() const {
-        return d->suggestedFileName;
-    }
-
-    void setIsEditable(bool editable) {
-        d->isEditable = editable;
-    }
-
-    bool isEditable() const {
-        return d->isEditable;
-    }
-
-    void setIsSpellCheckerEnabled(bool spellCheckerEnabled) {
-        d->isSpellCheckerEnabled = spellCheckerEnabled;
-    }
-
-    bool isSpellCheckerEnabled() const {
-        return d->isSpellCheckerEnabled;
-    }
-
-    void setMisspelledWord(const QString &word) {
-        d->misspelledWord = word;
-    }
-
-    QString misspelledWord() const {
-        return d->misspelledWord;
-    }
-
-    void setSpellCheckerSuggestions(const QStringList &suggestions) {
-        d->spellCheckerSuggestions = suggestions;
-    }
-
-    QStringList spellCheckerSuggestions() const {
-        return d->spellCheckerSuggestions;
-    }
-
-    void setFrameUrl(const QUrl &url) {
-        d->frameUrl = url;
-    }
-
-    QUrl frameUrl() const {
-        return d->frameUrl;
-    }
-
-    void setPageUrl(const QUrl &url) {
-        d->pageUrl = url;
-    }
-
-    QUrl pageUrl() const {
-        return d->pageUrl;
-    }
-
-    QUrl referrerUrl() const {
-        return !d->frameUrl.isEmpty() ? d->frameUrl : d->pageUrl;
-    }
-
-    void setReferrerPolicy(ReferrerPolicy referrerPolicy) {
-        d->referrerPolicy = referrerPolicy;
-    }
-
-    ReferrerPolicy referrerPolicy() const {
-        return d->referrerPolicy;
-    }
-
-private:
-    QSharedDataPointer<WebEngineContextMenuSharedData> d;
-};
-
 
 class Q_WEBENGINECORE_PRIVATE_EXPORT WebContentsAdapterClient {
 public:
@@ -388,12 +118,6 @@ public:
         UnloadDialog,
         // Leave room for potential new specs
         InternalAuthorizationDialog = 0x10,
-    };
-
-    enum NavigationRequestAction {
-        AcceptRequest,
-        // Make room in the valid range of the enum for extra actions exposed in Experimental.
-        IgnoreRequest = 0xFF
     };
 
     enum NavigationType {
@@ -463,10 +187,9 @@ public:
     virtual void renderProcessPidChanged(qint64 pid) = 0;
     virtual QRectF viewportRect() const = 0;
     virtual QColor backgroundColor() const = 0;
-    virtual void loadStarted(const QUrl &provisionalUrl, bool isErrorPage = false) = 0;
+    virtual void loadStarted(QWebEngineLoadingInfo info) = 0;
     virtual void loadCommitted() = 0;
-    virtual void loadVisuallyCommitted() = 0;
-    virtual void loadFinished(bool success, const QUrl &url, bool isErrorPage = false, int errorCode = 0, const QString &errorDescription = QString()) = 0;
+    virtual void loadFinished(QWebEngineLoadingInfo info) = 0;
     virtual void focusContainer() = 0;
     virtual void unhandledKeyEvent(QKeyEvent *event) = 0;
     virtual QSharedPointer<WebContentsAdapter>
@@ -476,8 +199,8 @@ public:
     virtual bool isBeingAdopted() = 0;
     virtual void close() = 0;
     virtual void windowCloseRejected() = 0;
-    virtual void contextMenuRequested(const WebEngineContextMenuData &) = 0;
-    virtual void navigationRequested(int navigationType, const QUrl &url, int &navigationRequestAction, bool isMainFrame) = 0;
+    virtual void contextMenuRequested(QWebEngineContextMenuRequest *request) = 0;
+    virtual void navigationRequested(int navigationType, const QUrl &url, bool &accepted, bool isMainFrame) = 0;
     virtual void requestFullScreenMode(const QUrl &origin, bool fullscreen) = 0;
     virtual bool isFullScreenMode() const = 0;
     virtual void javascriptDialog(QSharedPointer<JavaScriptDialogController>) = 0;
@@ -499,25 +222,22 @@ public:
     virtual void runMouseLockPermissionRequest(const QUrl &securityOrigin) = 0;
     virtual void runQuotaRequest(QWebEngineQuotaRequest) = 0;
     virtual void runRegisterProtocolHandlerRequest(QWebEngineRegisterProtocolHandlerRequest) = 0;
-    virtual WebEngineSettings *webEngineSettings() const = 0;
+    virtual QWebEngineSettings *webEngineSettings() const = 0;
     RenderProcessTerminationStatus renderProcessExitStatus(int);
     virtual void renderProcessTerminated(RenderProcessTerminationStatus terminationStatus, int exitCode) = 0;
     virtual void requestGeometryChange(const QRect &geometry, const QRect &frameGeometry) = 0;
-    virtual void allowCertificateError(const QSharedPointer<CertificateErrorController> &errorController) = 0;
+    virtual void allowCertificateError(const QWebEngineCertificateError &error) = 0;
     virtual void selectClientCert(const QSharedPointer<ClientCertSelectController> &selectController) = 0;
     virtual void updateScrollPosition(const QPointF &position) = 0;
     virtual void updateContentsSize(const QSizeF &size) = 0;
     virtual void updateNavigationActions() = 0;
     virtual void updateEditActions() = 0;
-    virtual void startDragging(const content::DropData &dropData, Qt::DropActions allowedActions,
-                               const QPixmap &pixmap, const QPoint &offset) = 0;
-    virtual bool supportsDragging() const = 0;
+    virtual QObject *dragSource() const = 0;
     virtual bool isEnabled() const = 0;
     virtual const QObject *holdingQObject() const = 0;
     virtual void setToolTip(const QString& toolTipText) = 0;
     virtual ClientType clientType() = 0;
     virtual void printRequested() = 0;
-    virtual void widgetChanged(RenderWidgetHostViewQtDelegate *newWidget) = 0;
     virtual TouchHandleDrawableClient *createTouchHandle(const QMap<int, QImage> &images) = 0;
     virtual void showTouchSelectionMenu(TouchSelectionMenuController *menuController, const QRect &bounds, const QSize &handleSize) = 0;
     virtual void hideTouchSelectionMenu() = 0;

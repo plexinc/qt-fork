@@ -13,11 +13,11 @@
 #include <string>
 #include <vector>
 
-#include "net/third_party/quiche/src/quic/core/crypto/quic_compressed_certs_cache.h"
-#include "net/third_party/quiche/src/quic/core/http/quic_spdy_session.h"
-#include "net/third_party/quiche/src/quic/core/quic_crypto_server_stream_base.h"
-#include "net/third_party/quiche/src/quic/core/quic_packets.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
+#include "quic/core/crypto/quic_compressed_certs_cache.h"
+#include "quic/core/http/quic_spdy_session.h"
+#include "quic/core/quic_crypto_server_stream_base.h"
+#include "quic/core/quic_packets.h"
+#include "quic/platform/api/quic_export.h"
 
 namespace quic {
 
@@ -98,6 +98,11 @@ class QUIC_EXPORT_PRIVATE QuicServerSessionBase : public QuicSpdySession {
  private:
   friend class test::QuicServerSessionBasePeer;
   friend class test::QuicSimpleServerSessionPeer;
+
+  // Informs the QuicCryptoStream of the SETTINGS that will be used on this
+  // connection, so that the server crypto stream knows whether to accept 0-RTT
+  // data.
+  void SendSettingsToCryptoStream();
 
   const QuicCryptoServerConfig* crypto_config_;
 

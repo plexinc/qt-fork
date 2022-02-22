@@ -51,6 +51,7 @@ QT_BEGIN_NAMESPACE
 
 /*!
     \qmltype IdleInhibitManagerV1
+    \instantiates QWaylandIdleInhibitManagerV1
     \inqmlmodule QtWayland.Compositor
     \since 5.14
     \brief Provides an extension that allows to inhibit the idle behavior of the compositor.
@@ -64,8 +65,8 @@ QT_BEGIN_NAMESPACE
     To provide the functionality of the extension in a compositor, create an instance of the
     IdleInhibitManagerV1 component and add it to the list of extensions supported by the compositor:
 
-    \qml \QtMinorVersion
-    import QtWayland.Compositor 1.\1
+    \qml
+    import QtWayland.Compositor
 
     WaylandCompositor {
         IdleInhibitManagerV1 {

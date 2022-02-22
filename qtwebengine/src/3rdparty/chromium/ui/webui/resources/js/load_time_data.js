@@ -19,9 +19,9 @@
 
 /**
  * @typedef {{
- *   substitutions: (Array<string>|undefined),
- *   attrs: (Object<function(Node, string):boolean>|undefined),
- *   tags: (Array<string>|undefined),
+ *   substitutions: (!Array<string>|undefined),
+ *   attrs: (!Array<string>|undefined),
+ *   tags: (!Array<string>|undefined),
  * }}
  */
 /* #export */ let SanitizeInnerHtmlOpts;
@@ -243,3 +243,5 @@ function LoadTimeData(){}
   // local.
   window.loadTimeData = loadTimeData;
 })();
+
+/* #ignore */ console.warn('crbug/1173575, non-JS module files deprecated.');

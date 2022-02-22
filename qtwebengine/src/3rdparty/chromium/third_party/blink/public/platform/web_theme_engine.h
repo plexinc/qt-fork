@@ -33,12 +33,13 @@
 
 #include "base/optional.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "third_party/blink/public/common/css/forced_colors.h"
-#include "third_party/blink/public/platform/web_color_scheme.h"
-#include "third_party/blink/public/platform/web_rect.h"
+#include "third_party/blink/public/mojom/frame/color_scheme.mojom-shared.h"
 #include "third_party/blink/public/platform/web_scrollbar_overlay_color_theme.h"
-#include "third_party/blink/public/platform/web_size.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/size.h"
 
 namespace cc {
 class PaintCanvas;
@@ -126,6 +127,7 @@ class WebThemeEngine {
     SkColor background_color;
     bool has_border;
     bool auto_complete_active;
+    float zoom;
   };
 
   // Extra parameters for PartMenuList
@@ -138,6 +140,7 @@ class WebThemeEngine {
     SkColor arrow_color;
     SkColor background_color;
     bool fill_content_area;
+    float zoom;
   };
 
   // Extra parameters for PartSliderTrack and PartSliderThumb
@@ -147,6 +150,7 @@ class WebThemeEngine {
     int thumb_x;
     int thumb_y;
     float zoom;
+    bool right_to_left;
   };
 
   // Extra parameters for PartInnerSpinButton
@@ -162,6 +166,7 @@ class WebThemeEngine {
     int value_rect_y;
     int value_rect_width;
     int value_rect_height;
+    float zoom;
   };
 
   // Extra parameters for scrollbar thumb. Used only for overlay scrollbars.
@@ -174,6 +179,24 @@ class WebThemeEngine {
     bool right_to_left;
   };
 
+#if defined(OS_MAC)
+  enum ScrollbarOrientation {
+    // Vertical scrollbar on the right side of content.
+    kVerticalOnRight,
+    // Vertical scrollbar on the left side of content.
+    kVerticalOnLeft,
+    // Horizontal scrollbar (on the bottom of content).
+    kHorizontal,
+  };
+
+  struct ScrollbarExtraParams {
+    bool is_hovering;
+    bool is_overlay;
+    mojom::ColorScheme scrollbar_theme;
+    ScrollbarOrientation orientation;
+  };
+#endif
+
   union ExtraParams {
     ScrollbarTrackExtraParams scrollbar_track;
     ButtonExtraParams button;
@@ -184,6 +207,9 @@ class WebThemeEngine {
     ProgressBarExtraParams progress_bar;
     ScrollbarThumbExtraParams scrollbar_thumb;
     ScrollbarButtonExtraParams scrollbar_button;
+#if defined(OS_MAC)
+    ScrollbarExtraParams scrollbar_extra;
+#endif
   };
 
   virtual ~WebThemeEngine() {}
@@ -191,11 +217,11 @@ class WebThemeEngine {
   // Gets the size of the given theme part. For variable sized items
   // like vertical scrollbar thumbs, the width will be the required width of
   // the track while the height will be the minimum height.
-  virtual WebSize GetSize(Part) { return WebSize(); }
+  virtual gfx::Size GetSize(Part) { return gfx::Size(); }
 
   virtual bool SupportsNinePatch(Part) const { return false; }
-  virtual WebSize NinePatchCanvasSize(Part) const { return WebSize(); }
-  virtual WebRect NinePatchAperture(Part) const { return WebRect(); }
+  virtual gfx::Size NinePatchCanvasSize(Part) const { return gfx::Size(); }
+  virtual gfx::Rect NinePatchAperture(Part) const { return gfx::Rect(); }
 
   struct ScrollbarStyle {
     int thumb_thickness;
@@ -221,16 +247,16 @@ class WebThemeEngine {
   virtual void Paint(cc::PaintCanvas*,
                      Part,
                      State,
-                     const WebRect&,
+                     const gfx::Rect&,
                      const ExtraParams*,
-                     blink::WebColorScheme) {}
+                     blink::mojom::ColorScheme) {}
 
   virtual base::Optional<SkColor> GetSystemColor(
       SystemThemeColor system_theme) const {
     return base::nullopt;
   }
 
-  virtual blink::ForcedColors GetForcedColors() const { return blink::ForcedColors::kNone; }
+  virtual ForcedColors GetForcedColors() const { return ForcedColors::kNone; }
   virtual void SetForcedColors(const blink::ForcedColors forced_colors) {}
 };
 

@@ -199,8 +199,8 @@ QPlatformServices *QPlatformIntegration::services() const
 
     \value SharedGraphicsCache The platform supports a shared graphics cache
 
-    \value BufferQueueingOpenGL The OpenGL implementation on the platform will queue
-    up buffers when swapBuffers() is called and block only when its buffer pipeline
+    \value BufferQueueingOpenGL Deprecated. The OpenGL implementation on the platform will
+    queue up buffers when swapBuffers() is called and block only when its buffer pipeline
     is full, rather than block immediately.
 
     \value MultipleWindows The platform supports multiple QWindows, i.e. does some kind
@@ -247,6 +247,19 @@ QPlatformServices *QPlatformIntegration::services() const
 
     \value OpenGLOnRasterSurface The platform supports making a QOpenGLContext current
     in combination with a QWindow of type RasterSurface.
+
+    \value PaintEvents The platform sends paint events instead of expose events when
+    the window needs repainting. Expose events are only sent when a window is toggled
+    from a non-exposed to exposed state or back.
+
+    \value RhiBasedRendering The platform supports one or more of the 3D rendering APIs
+    that Qt Quick and other components can use via the Qt Rendering Hardware Interface. On
+    platforms where it is clear upfront that the platform cannot, or does not want to,
+    support rendering via 3D graphics APIs such as OpenGL, Vulkan, Direct 3D, or Metal,
+    this capability can be reported as \c false. That in effect means that in modules
+    where there is an alternative, such as Qt Quick with its \c software backend, an
+    automatic fallback to that alternative may occur, if applicable. The default
+    implementation of hasCapability() returns \c true.
  */
 
 /*!
@@ -271,7 +284,7 @@ QPlatformServices *QPlatformIntegration::services() const
 bool QPlatformIntegration::hasCapability(Capability cap) const
 {
     return cap == NonFullScreenWindows || cap == NativeWidgets || cap == WindowManagement
-        || cap == TopStackedNativeChildWindows || cap == WindowActivation;
+        || cap == TopStackedNativeChildWindows || cap == WindowActivation || cap == RhiBasedRendering;
 }
 
 QPlatformPixmap *QPlatformIntegration::createPlatformPixmap(QPlatformPixmap::PixelType type) const
@@ -324,7 +337,7 @@ QPlatformSharedGraphicsCache *QPlatformIntegration::createPlatformSharedGraphics
 */
 QPaintEngine *QPlatformIntegration::createImagePaintEngine(QPaintDevice *paintDevice) const
 {
-    Q_UNUSED(paintDevice)
+    Q_UNUSED(paintDevice);
     return nullptr;
 }
 
@@ -437,6 +450,9 @@ Qt::WindowState QPlatformIntegration::defaultWindowState(Qt::WindowFlags flags) 
     if (flags & Qt::Popup & ~Qt::Window)
         return Qt::WindowNoState;
 
+     if (flags & Qt::SubWindow)
+        return Qt::WindowNoState;
+
     if (styleHint(QPlatformIntegration::ShowIsFullScreen).toBool())
         return Qt::WindowFullScreen;
     else if (styleHint(QPlatformIntegration::ShowIsMaximized).toBool())
@@ -472,7 +488,7 @@ QStringList QPlatformIntegration::themeNames() const
 
 class QPlatformTheme *QPlatformIntegration::createPlatformTheme(const QString &name) const
 {
-    Q_UNUSED(name)
+    Q_UNUSED(name);
     return new QPlatformTheme;
 }
 
@@ -483,7 +499,7 @@ class QPlatformTheme *QPlatformIntegration::createPlatformTheme(const QString &n
 */
 QPlatformOffscreenSurface *QPlatformIntegration::createPlatformOffscreenSurface(QOffscreenSurface *surface) const
 {
-    Q_UNUSED(surface)
+    Q_UNUSED(surface);
     return nullptr;
 }
 
@@ -523,6 +539,20 @@ void QPlatformIntegration::sync()
 */
 void QPlatformIntegration::beep() const
 {
+}
+
+/*!
+   \since 6.0
+
+   Asks the platform to terminate the application.
+
+   Overrides should ensure there's a callback into the QWSI
+   function handleApplicationTermination so that the quit can
+   be propagated to QtGui and the application.
+*/
+void QPlatformIntegration::quit() const
+{
+    QWindowSystemInterface::handleApplicationTermination<QWindowSystemInterface::SynchronousDelivery>();
 }
 
 #ifndef QT_NO_OPENGL

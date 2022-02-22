@@ -49,6 +49,7 @@
 ****************************************************************************/
 
 #include <QtWidgets>
+#include <QMimeData>
 
 #include "clipwindow.h"
 
@@ -70,8 +71,6 @@ ClipWindow::ClipWindow(QWidget *parent)
     connect(clipboard, &QClipboard::dataChanged,
             this, &ClipWindow::updateClipboard);
 //! [0]
-    connect(mimeTypeCombo, QOverload<QString>::of(&QComboBox::activated),
-            this, &ClipWindow::updateData);
 
     QVBoxLayout *currentLayout = new QVBoxLayout(currentItem);
     currentLayout->addWidget(mimeTypeLabel);
@@ -91,21 +90,26 @@ ClipWindow::ClipWindow(QWidget *parent)
 //! [1]
 void ClipWindow::updateClipboard()
 {
+    mimeTypeCombo->clear();
+
     QStringList formats = clipboard->mimeData()->formats();
-    QByteArray data = clipboard->mimeData()->data(format);
+    if (formats.isEmpty())
+        return;
+
+    for (const auto &format : formats) {
+        QByteArray data = clipboard->mimeData()->data(format);
+        // ...
+    }
 //! [1]
 
-    mimeTypeCombo->clear();
-    mimeTypeCombo->insertStringList(formats);
+    mimeTypeCombo->addItems(formats);
 
     int size = clipboard->mimeData()->data(formats[0]).size();
     QListWidgetItem *newItem = new QListWidgetItem(previousItems);
     newItem->setText(tr("%1 (%2 bytes)").arg(formats[0]).arg(size));
 
     updateData(formats[0]);
-//! [2]
 }
-//! [2]
 
 void ClipWindow::updateData(const QString &format)
 {

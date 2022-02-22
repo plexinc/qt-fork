@@ -7,7 +7,6 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/event_type_names.h"
 #include "third_party/blink/renderer/core/events/before_unload_event.h"
-#include "third_party/blink/renderer/platform/heap/visitor.h"
 
 namespace blink {
 
@@ -21,7 +20,7 @@ void BeforeUnloadEventListener::Invoke(ExecutionContext* execution_context,
     To<BeforeUnloadEvent>(event)->setReturnValue(g_empty_string);
 }
 
-void BeforeUnloadEventListener::Trace(Visitor* visitor) {
+void BeforeUnloadEventListener::Trace(Visitor* visitor) const {
   visitor->Trace(doc_);
   NativeEventListener::Trace(visitor);
 }

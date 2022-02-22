@@ -53,6 +53,7 @@
 
 #include <Qt3DInput/private/qt3dinput_global_p.h>
 #include <Qt3DCore/qbackendnode.h>
+#include <Qt3DCore/qnode.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -65,7 +66,7 @@ public:
     BackendNode(Qt3DCore::QBackendNode::Mode mode = ReadOnly);
     ~BackendNode();
 
-    virtual void syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firstTime);
+    void syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firstTime) override;
 
 protected:
     explicit BackendNode(Qt3DCore::QBackendNodePrivate &dd);

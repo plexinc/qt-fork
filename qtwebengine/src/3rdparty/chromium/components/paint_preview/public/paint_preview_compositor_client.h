@@ -29,18 +29,31 @@ class PaintPreviewCompositorClient {
   // isn't started.
   virtual const base::Optional<base::UnguessableToken>& Token() const = 0;
 
-  // Adds |closure| as a disconnect handler.
+  // Adds `closure` as a disconnect handler.
   virtual void SetDisconnectHandler(base::OnceClosure closure) = 0;
 
+  // Note the BitmapFor* methods use `clip_rect` values relative to the captured
+  // content.
+
   // mojom::PaintPreviewCompositor API
-  virtual void BeginComposite(
+  virtual void BeginSeparatedFrameComposite(
       mojom::PaintPreviewBeginCompositeRequestPtr request,
-      mojom::PaintPreviewCompositor::BeginCompositeCallback callback) = 0;
-  virtual void BitmapForFrame(
+      mojom::PaintPreviewCompositor::BeginSeparatedFrameCompositeCallback
+          callback) = 0;
+  virtual void BitmapForSeparatedFrame(
       const base::UnguessableToken& frame_guid,
       const gfx::Rect& clip_rect,
       float scale_factor,
-      mojom::PaintPreviewCompositor::BitmapForFrameCallback callback) = 0;
+      mojom::PaintPreviewCompositor::BitmapForSeparatedFrameCallback
+          callback) = 0;
+  virtual void BeginMainFrameComposite(
+      mojom::PaintPreviewBeginCompositeRequestPtr request,
+      mojom::PaintPreviewCompositor::BeginMainFrameCompositeCallback
+          callback) = 0;
+  virtual void BitmapForMainFrame(
+      const gfx::Rect& clip_rect,
+      float scale_factor,
+      mojom::PaintPreviewCompositor::BitmapForMainFrameCallback callback) = 0;
   virtual void SetRootFrameUrl(const GURL& url) = 0;
 
   PaintPreviewCompositorClient(const PaintPreviewCompositorClient&) = delete;

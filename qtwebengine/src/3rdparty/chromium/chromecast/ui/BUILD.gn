@@ -13,17 +13,65 @@ cast_source_set("public") {
   deps = [ "//base" ]
 }
 
-cast_source_set("aura_components") {
-  sources = [ "aura_components.h" ]
+cast_source_set("display_settings_public") {
+  sources = [
+    "display_settings_manager.cc",
+    "display_settings_manager.h",
+  ]
 
-  deps = [ ":public" ]
+  deps = [
+    "//base",
+    "//chromecast/ui/mojom",
+    "//mojo/public/cpp/bindings",
+    "//ui/display/types",
+  ]
+}
+
+cast_source_set("display_settings_manager") {
+  sources = [
+    "display_settings_manager_impl.cc",
+    "display_settings_manager_impl.h",
+  ]
+
+  deps = [
+    ":display_settings_public",
+    "//base",
+    "//chromecast/browser",
+    "//chromecast/graphics",
+    "//chromecast/ui/display_settings",
+    "//chromecast/ui/mojom",
+    "//mojo/public/cpp/bindings",
+    "//ui/display/types",
+  ]
+}
+
+cast_source_set("aura_components") {
+  sources = [
+    "aura_components.cc",
+    "aura_components.h",
+  ]
+
+  deps = [
+    ":public",
+    "//base",
+  ]
 
   if (use_aura) {
-    sources += [ "aura_components.cc" ]
+    sources += [
+      "aura_components_impl.cc",
+      "aura_components_impl.h",
+    ]
 
-    deps += [ ":media_overlay" ]
+    deps += [
+      ":media_overlay",
+      "//ui/views",
+    ]
   } else {
     sources += [ "aura_components_dummy.cc" ]
+  }
+
+  if (enable_media_overlay) {
+    defines = [ "ENABLE_MEDIA_OVERLAY" ]
   }
 }
 
@@ -72,7 +120,7 @@ if (use_aura) {
 aggregate_vector_icons("media_controls_vector_icons") {
   icon_directory = "vector_icons"
 
-  icons = [
+  sources = [
     "back30.icon",
     "forward30.icon",
     "next.icon",

@@ -172,7 +172,7 @@ public:
     bool verticalTitleBar;
 
 private:
-    QVector<QLayoutItem*> item_list;
+    QList<QLayoutItem *> item_list;
     QRect _titleArea;
 };
 
@@ -201,11 +201,7 @@ inline QLayoutItem *QDockWidgetItem::dockWidgetChildItem() const
 
 inline QDockWidgetLayout *QDockWidgetItem::dockWidgetLayout() const
 {
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-    QWidget *w = const_cast<QDockWidgetItem*>(this)->widget();
-#else
     QWidget *w = widget();
-#endif
     if (w != nullptr)
         return qobject_cast<QDockWidgetLayout*>(w->layout());
     return nullptr;

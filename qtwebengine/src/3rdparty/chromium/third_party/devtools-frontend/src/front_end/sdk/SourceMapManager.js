@@ -3,12 +3,25 @@
 // found in the LICENSE file.
 
 import * as Common from '../common/common.js';
+import * as i18n from '../i18n/i18n.js';
+import * as Platform from '../platform/platform.js';
 
+import {FrameAssociated} from './FrameAssociated.js';  // eslint-disable-line no-unused-vars
 import {Events as TargetManagerEvents, Target, TargetManager} from './SDKModel.js';  // eslint-disable-line no-unused-vars
-import {SourceMap, TextSourceMap, WasmSourceMap} from './SourceMap.js';  // eslint-disable-line no-unused-vars
+import {SourceMap, TextSourceMap} from './SourceMap.js';  // eslint-disable-line no-unused-vars
+
+export const UIStrings = {
+  /**
+  *@description Error message when failing to load a source map text
+  *@example {An error occurred} PH1
+  */
+  devtoolsFailedToLoadSourcemapS: 'DevTools failed to load SourceMap: {PH1}',
+};
+const str_ = i18n.i18n.registerUIStrings('sdk/SourceMapManager.js', UIStrings);
+const i18nString = i18n.i18n.getLocalizedString.bind(undefined, str_);
 
 /**
- * @template T
+ * @template {!FrameAssociated} T
  */
 export class SourceMapManager extends Common.ObjectWrapper.ObjectWrapper {
   /**
@@ -18,6 +31,7 @@ export class SourceMapManager extends Common.ObjectWrapper.ObjectWrapper {
     super();
 
     this._target = target;
+    /** @type {boolean} */
     this._isEnabled = true;
 
     /** @type {!Map<!T, string>} */
@@ -29,10 +43,10 @@ export class SourceMapManager extends Common.ObjectWrapper.ObjectWrapper {
 
     /** @type {!Map<string, !SourceMap>} */
     this._sourceMapById = new Map();
-    /** @type {!Platform.Multimap<string, !T>} */
-    this._sourceMapIdToLoadingClients = new Platform.Multimap();
-    /** @type {!Platform.Multimap<string, !T>} */
-    this._sourceMapIdToClients = new Platform.Multimap();
+    /** @type {!Platform.MapUtilities.Multimap<string, !T>} */
+    this._sourceMapIdToLoadingClients = new Platform.MapUtilities.Multimap();
+    /** @type {!Platform.MapUtilities.Multimap<string, !T>} */
+    this._sourceMapIdToClients = new Platform.MapUtilities.Multimap();
 
     TargetManager.instance().addEventListener(TargetManagerEvents.InspectedURLChanged, this._inspectedURLChanged, this);
   }
@@ -72,8 +86,11 @@ export class SourceMapManager extends Common.ObjectWrapper.ObjectWrapper {
     for (const [client, prevSourceMapId] of prevSourceMapIds) {
       const relativeSourceURL = this._relativeSourceURL.get(client);
       const relativeSourceMapURL = this._relativeSourceMapURL.get(client);
-      const {sourceMapId} = this._resolveRelativeURLs(relativeSourceURL, relativeSourceMapURL);
-      if (prevSourceMapId !== sourceMapId) {
+      if (relativeSourceURL === undefined || relativeSourceMapURL === undefined) {
+        continue;
+      }
+      const resolvedUrls = this._resolveRelativeURLs(relativeSourceURL, relativeSourceMapURL);
+      if (resolvedUrls !== null && prevSourceMapId !== resolvedUrls.sourceMapId) {
         this.detachSourceMap(client);
         this.attachSourceMap(client, relativeSourceURL, relativeSourceMapURL);
       }
@@ -137,11 +154,12 @@ export class SourceMapManager extends Common.ObjectWrapper.ObjectWrapper {
 
   /**
    * @param {!T} client
-   * @param {string} relativeSourceURL
+   * @param {string|undefined} relativeSourceURL
    * @param {string|undefined} relativeSourceMapURL
    */
   attachSourceMap(client, relativeSourceURL, relativeSourceMapURL) {
-    if (!relativeSourceMapURL) {
+    // TODO(chromium:1011811): Strengthen the type to obsolte the undefined check once sdk/ is fully typescriptified.
+    if (relativeSourceURL === undefined || !relativeSourceMapURL) {
       return;
     }
     console.assert(!this._resolvedSourceMapId.has(client), 'SourceMap is already attached to client');
@@ -166,12 +184,11 @@ export class SourceMapManager extends Common.ObjectWrapper.ObjectWrapper {
       return;
     }
     if (!this._sourceMapIdToLoadingClients.has(sourceMapId)) {
-      const sourceMapPromise = sourceMapURL === WasmSourceMap.FAKE_URL ? WasmSourceMap.load(client, sourceURL) :
-                                                                         TextSourceMap.load(sourceMapURL, sourceURL);
-
-      sourceMapPromise
+      TextSourceMap.load(sourceMapURL, sourceURL, client.createPageResourceLoadInitiator())
           .catch(error => {
-            Common.Console.Console.instance().warn(ls`DevTools failed to load SourceMap: ${error.message}`);
+            Common.Console.Console.instance().warn(
+                i18nString(UIStrings.devtoolsFailedToLoadSourcemapS, {PH1: error.message}));
+            return null;
           })
           .then(onSourceMap.bind(this, sourceMapId));
     }
@@ -180,7 +197,7 @@ export class SourceMapManager extends Common.ObjectWrapper.ObjectWrapper {
     /**
      * @param {string} sourceMapId
      * @param {?SourceMap} sourceMap
-     * @this {SourceMapManager}
+     * @this {SourceMapManager<T>}
      */
     function onSourceMap(sourceMapId, sourceMap) {
       this._sourceMapLoadedForTest();
@@ -204,7 +221,7 @@ export class SourceMapManager extends Common.ObjectWrapper.ObjectWrapper {
     /**
      * @param {string} sourceMapId
      * @param {!T} client
-     * @this {SourceMapManager}
+     * @this {SourceMapManager<T>}
      */
     function attach(sourceMapId, client) {
       this._sourceMapIdToClients.set(sourceMapId, client);
@@ -233,20 +250,19 @@ export class SourceMapManager extends Common.ObjectWrapper.ObjectWrapper {
     }
     this._sourceMapIdToClients.delete(sourceMapId, client);
     const sourceMap = this._sourceMapById.get(sourceMapId);
-    this.dispatchEventToListeners(Events.SourceMapDetached, {client: client, sourceMap: sourceMap});
+    if (!sourceMap) {
+      return;
+    }
     if (!this._sourceMapIdToClients.has(sourceMapId)) {
-      sourceMap.dispose();
       this._sourceMapById.delete(sourceMapId);
     }
+    this.dispatchEventToListeners(Events.SourceMapDetached, {client: client, sourceMap: sourceMap});
   }
 
   _sourceMapLoadedForTest() {
   }
 
   dispose() {
-    for (const sourceMap of this._sourceMapById.values()) {
-      sourceMap.dispose();
-    }
     TargetManager.instance().removeEventListener(
         TargetManagerEvents.InspectedURLChanged, this._inspectedURLChanged, this);
   }

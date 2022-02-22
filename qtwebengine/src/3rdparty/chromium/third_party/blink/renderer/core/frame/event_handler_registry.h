@@ -16,6 +16,7 @@ class Document;
 class EventTarget;
 class LocalFrame;
 
+// We use UntracedMember<> here to do custom weak processing.
 typedef HashCountedSet<UntracedMember<EventTarget>> EventTargetSet;
 
 // Registry for keeping track of event handlers. Note that only handlers on
@@ -78,7 +79,7 @@ class CORE_EXPORT EventHandlerRegistry final
   // references to handlers that are no longer related to it.
   void DocumentDetached(Document&);
 
-  void Trace(Visitor*);
+  void Trace(Visitor*) const;
 
  private:
   enum ChangeOperation {
@@ -95,7 +96,7 @@ class CORE_EXPORT EventHandlerRegistry final
 
   // Returns true if the operation actually added a new target or completely
   // removed an existing one.
-  bool UpdateEventHandlerTargets(ChangeOperation,
+  void UpdateEventHandlerTargets(ChangeOperation,
                                  EventHandlerClass,
                                  EventTarget*);
 
@@ -106,11 +107,6 @@ class CORE_EXPORT EventHandlerRegistry final
   void NotifyHandlersChanged(EventTarget*,
                              EventHandlerClass,
                              bool has_active_handlers);
-
-  // Called to notify clients whenever a single event handler target is
-  // registered or unregistered. If several handlers are registered for the
-  // same target, only the first registration will trigger this notification.
-  void NotifyDidAddOrRemoveEventHandlerTarget(LocalFrame*, EventHandlerClass);
 
   // Record a change operation to a given event handler class and notify any
   // parent registry and other clients accordingly.
@@ -129,7 +125,7 @@ class CORE_EXPORT EventHandlerRegistry final
 
   Page* GetPage() const;
 
-  void ProcessCustomWeakness(const WeakCallbackInfo&);
+  void ProcessCustomWeakness(const LivenessBroker&);
 
   Member<LocalFrame> frame_;
   EventTargetSet targets_[kEventHandlerClassCount];

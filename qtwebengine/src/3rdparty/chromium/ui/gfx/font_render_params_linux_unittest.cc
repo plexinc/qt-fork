@@ -6,13 +6,15 @@
 
 #include <fontconfig/fontconfig.h>
 
+#include "base/check_op.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/logging.h"
 #include "base/macros.h"
+#include "base/notreached.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/fontconfig_util_linux.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/gfx/font.h"
 #include "ui/gfx/linux/fontconfig_util.h"
@@ -362,12 +364,12 @@ TEST_F(FontRenderParamsTest, ForceSubpixelPositioning) {
     FontRenderParams params =
         GetFontRenderParams(FontRenderParamsQuery(), nullptr);
     EXPECT_TRUE(params.antialiasing);
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
     EXPECT_TRUE(params.subpixel_positioning);
 #else
     // Integral scale factor does not require subpixel positioning.
     EXPECT_FALSE(params.subpixel_positioning);
-#endif  // !defined(OS_CHROMEOS)
+#endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
     SetFontRenderParamsDeviceScaleFactor(1.0f);
   }
 }

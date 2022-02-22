@@ -8,16 +8,21 @@
 
 #include "mojo/public/cpp/bindings/remote.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
+#include "third_party/blink/public/common/privacy_budget/identifiability_metric_builder.h"
+#include "third_party/blink/public/common/privacy_budget/identifiability_study_settings.h"
+#include "third_party/blink/public/common/privacy_budget/identifiable_surface.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_media_stream_constraints.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_media_track_supported_constraints.h"
-#include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
+#include "third_party/blink/renderer/core/frame/navigator.h"
+#include "third_party/blink/renderer/modules/mediastream/identifiability_metrics.h"
 #include "third_party/blink/renderer/modules/mediastream/input_device_info.h"
 #include "third_party/blink/renderer/modules/mediastream/media_error_state.h"
 #include "third_party/blink/renderer/modules/mediastream/media_stream.h"
@@ -27,11 +32,16 @@
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/mediastream/webrtc_uma_histograms.h"
+#include "third_party/blink/renderer/platform/privacy_budget/identifiability_digest_helpers.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 
 namespace blink {
 
 namespace {
+
+const char kFeaturePolicyBlocked[] =
+    "Access to the feature \"display-capture\" is disallowed by permission "
+    "policy.";
 
 class PromiseResolverCallbacks final : public UserMediaRequest::Callbacks {
  public:
@@ -48,7 +58,7 @@ class PromiseResolverCallbacks final : public UserMediaRequest::Callbacks {
     resolver_->Reject(error);
   }
 
-  void Trace(Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(resolver_);
     UserMediaRequest::Callbacks::Trace(visitor);
   }
@@ -59,19 +69,30 @@ class PromiseResolverCallbacks final : public UserMediaRequest::Callbacks {
 
 }  // namespace
 
-MediaDevices::MediaDevices(ExecutionContext* context)
-    : ExecutionContextLifecycleObserver(context),
+const char MediaDevices::kSupplementName[] = "MediaDevices";
+
+MediaDevices* MediaDevices::mediaDevices(Navigator& navigator) {
+  MediaDevices* supplement =
+      Supplement<Navigator>::From<MediaDevices>(navigator);
+  if (!supplement) {
+    supplement = MakeGarbageCollected<MediaDevices>(navigator);
+    ProvideTo(navigator, supplement);
+  }
+  return supplement;
+}
+
+MediaDevices::MediaDevices(Navigator& navigator)
+    : Supplement<Navigator>(navigator),
+      ExecutionContextLifecycleObserver(navigator.DomWindow()),
       stopped_(false),
-      receiver_(this, context) {}
+      receiver_(this, navigator.DomWindow()) {}
 
 MediaDevices::~MediaDevices() = default;
 
 ScriptPromise MediaDevices::enumerateDevices(ScriptState* script_state,
                                              ExceptionState& exception_state) {
   UpdateWebRTCMethodCount(RTCAPIName::kEnumerateDevices);
-  LocalFrame* frame =
-      Document::From(ExecutionContext::From(script_state))->GetFrame();
-  if (!frame) {
+  if (!script_state->ContextIsValid()) {
     exception_state.ThrowDOMException(DOMExceptionCode::kNotSupportedError,
                                       "Current frame is detached.");
     return ScriptPromise();
@@ -81,6 +102,7 @@ ScriptPromise MediaDevices::enumerateDevices(ScriptState* script_state,
   ScriptPromise promise = resolver->Promise();
   requests_.insert(resolver);
 
+  LocalFrame* frame = LocalDOMWindow::From(script_state)->GetFrame();
   GetDispatcherHost(frame)->EnumerateDevices(
       true /* audio input */, true /* video input */, true /* audio output */,
       true /* request_video_input_capabilities */,
@@ -107,23 +129,28 @@ ScriptPromise MediaDevices::SendUserMediaRequest(
     UserMediaRequest::MediaType media_type,
     const MediaStreamConstraints* options,
     ExceptionState& exception_state) {
-  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
-  auto* callbacks = MakeGarbageCollected<PromiseResolverCallbacks>(resolver);
-
-  Document* document = Document::From(ExecutionContext::From(script_state));
-  UserMediaController* user_media =
-      UserMediaController::From(document->GetFrame());
-  if (!user_media) {
+  if (!script_state->ContextIsValid()) {
     exception_state.ThrowDOMException(DOMExceptionCode::kNotSupportedError,
                                       "No media device controller available; "
                                       "is this a detached window?");
     return ScriptPromise();
   }
 
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
+  auto* callbacks = MakeGarbageCollected<PromiseResolverCallbacks>(resolver);
+
+  LocalDOMWindow* window = LocalDOMWindow::From(script_state);
+  UserMediaController* user_media = UserMediaController::From(window);
+  constexpr IdentifiableSurface::Type surface_type =
+      IdentifiableSurface::Type::kMediaDevices_GetUserMedia;
+  IdentifiableSurface surface;
+  if (IdentifiabilityStudySettings::Get()->IsTypeAllowed(surface_type)) {
+    surface = IdentifiableSurface::FromTypeAndToken(
+        surface_type, TokenFromConstraints(options));
+  }
   MediaErrorState error_state;
-  UserMediaRequest* request =
-      UserMediaRequest::Create(document->ToExecutionContext(), user_media,
-                               media_type, options, callbacks, error_state);
+  UserMediaRequest* request = UserMediaRequest::Create(
+      window, user_media, media_type, options, callbacks, error_state, surface);
   if (!request) {
     DCHECK(error_state.HadException());
     if (error_state.CanGenerateException()) {
@@ -131,6 +158,9 @@ ScriptPromise MediaDevices::SendUserMediaRequest(
       return ScriptPromise();
     }
     ScriptPromise rejected_promise = resolver->Promise();
+    RecordIdentifiabilityMetric(
+        surface, GetExecutionContext(),
+        IdentifiabilityBenignStringToken(error_state.GetErrorMessage()));
     resolver->Reject(error_state.CreateError());
     return rejected_promise;
   }
@@ -153,6 +183,36 @@ ScriptPromise MediaDevices::getDisplayMedia(
   return SendUserMediaRequest(script_state,
                               UserMediaRequest::MediaType::kDisplayMedia,
                               options, exception_state);
+}
+
+ScriptPromise MediaDevices::getCurrentBrowsingContextMedia(
+    ScriptState* script_state,
+    const MediaStreamConstraints* options,
+    ExceptionState& exception_state) {
+  const ExecutionContext* const context = GetExecutionContext();
+  if (!context) {
+    exception_state.ThrowDOMException(
+        DOMExceptionCode::kNotSupportedError,
+        "The implementation did not support the requested type of object or "
+        "operation.");
+    return ScriptPromise();
+  }
+
+  // This call should not be possible otherwise, as per the RuntimeEnabled
+  // in the IDL.
+  CHECK(RuntimeEnabledFeatures::GetCurrentBrowsingContextMediaEnabled(context));
+
+  if (!context->IsFeatureEnabled(
+          mojom::blink::FeaturePolicyFeature::kDisplayCapture,
+          ReportOptions::kReportOnFailure)) {
+    exception_state.ThrowSecurityError(kFeaturePolicyBlocked);
+    return ScriptPromise();
+  }
+
+  return SendUserMediaRequest(
+      script_state,
+      UserMediaRequest::MediaType::kGetCurrentBrowsingContextMedia, options,
+      exception_state);
 }
 
 const AtomicString& MediaDevices::InterfaceName() const {
@@ -201,10 +261,9 @@ void MediaDevices::ContextDestroyed() {
 }
 
 void MediaDevices::OnDevicesChanged(
-    MediaDeviceType type,
+    mojom::blink::MediaDeviceType type,
     const Vector<WebMediaDeviceInfo>& device_infos) {
-  Document* document = Document::From(GetExecutionContext());
-  DCHECK(document);
+  DCHECK(GetExecutionContext());
 
   if (RuntimeEnabledFeatures::OnDeviceChangeEnabled())
     ScheduleDispatchEvent(Event::Create(event_type_names::kDevicechange));
@@ -239,11 +298,11 @@ void MediaDevices::StartObserving() {
   if (receiver_.is_bound() || stopped_)
     return;
 
-  Document* document = Document::From(GetExecutionContext());
-  if (!document || !document->GetFrame())
+  LocalDOMWindow* window = To<LocalDOMWindow>(GetExecutionContext());
+  if (!window)
     return;
 
-  GetDispatcherHost(document->GetFrame())
+  GetDispatcherHost(window->GetFrame())
       ->AddMediaDevicesListener(true /* audio input */, true /* video input */,
                                 true /* audio output */,
                                 receiver_.BindNewPipeAndPassRemote(
@@ -256,6 +315,32 @@ void MediaDevices::StopObserving() {
     return;
   receiver_.reset();
 }
+
+namespace {
+
+void RecordEnumeratedDevices(ScriptPromiseResolver* resolver,
+                             const MediaDeviceInfoVector& media_devices) {
+  if (!IdentifiabilityStudySettings::Get()->IsWebFeatureAllowed(
+          WebFeature::kIdentifiabilityMediaDevicesEnumerateDevices)) {
+    return;
+  }
+  Document* document = LocalDOMWindow::From(resolver->GetScriptState())
+                           ->GetFrame()
+                           ->GetDocument();
+  IdentifiableTokenBuilder builder;
+  for (const auto& device_info : media_devices) {
+    // Ignore device_id since that varies per-site.
+    builder.AddToken(IdentifiabilityBenignStringToken(device_info->kind()));
+    builder.AddToken(IdentifiabilityBenignStringToken(device_info->label()));
+    // Ignore group_id since that is varies per-site.
+  }
+  IdentifiabilityMetricBuilder(document->UkmSourceID())
+      .SetWebfeature(WebFeature::kIdentifiabilityMediaDevicesEnumerateDevices,
+                     builder.GetToken())
+      .Record(document->UkmRecorder());
+}
+
+}  // namespace
 
 void MediaDevices::DevicesEnumerated(
     ScriptPromiseResolver* resolver,
@@ -300,12 +385,15 @@ void MediaDevices::DevicesEnumerated(
       mojom::blink::MediaDeviceType device_type =
           static_cast<mojom::blink::MediaDeviceType>(i);
       WebMediaDeviceInfo device_info = enumeration[i][j];
+      String device_label = String::FromUTF8(device_info.label);
+      if (device_label.Contains("AirPods")) {
+        device_label = "AirPods";
+      }
       if (device_type == mojom::blink::MediaDeviceType::MEDIA_AUDIO_INPUT ||
           device_type == mojom::blink::MediaDeviceType::MEDIA_VIDEO_INPUT) {
         InputDeviceInfo* input_device_info =
             MakeGarbageCollected<InputDeviceInfo>(
-                String::FromUTF8(device_info.device_id),
-                String::FromUTF8(device_info.label),
+                String::FromUTF8(device_info.device_id), device_label,
                 String::FromUTF8(device_info.group_id), device_type);
         if (device_type == mojom::blink::MediaDeviceType::MEDIA_VIDEO_INPUT &&
             !video_input_capabilities.IsEmpty()) {
@@ -320,12 +408,13 @@ void MediaDevices::DevicesEnumerated(
         media_devices.push_back(input_device_info);
       } else {
         media_devices.push_back(MakeGarbageCollected<MediaDeviceInfo>(
-            String::FromUTF8(device_info.device_id),
-            String::FromUTF8(device_info.label),
+            String::FromUTF8(device_info.device_id), device_label,
             String::FromUTF8(device_info.group_id), device_type));
       }
     }
   }
+
+  RecordEnumeratedDevices(resolver, media_devices);
 
   if (enumerate_devices_test_callback_)
     std::move(enumerate_devices_test_callback_).Run(media_devices);
@@ -367,10 +456,11 @@ void MediaDevices::SetDispatcherHostForTesting(
                 WrapWeakPersistent(this)));
 }
 
-void MediaDevices::Trace(Visitor* visitor) {
+void MediaDevices::Trace(Visitor* visitor) const {
   visitor->Trace(receiver_);
   visitor->Trace(scheduled_events_);
   visitor->Trace(requests_);
+  Supplement<Navigator>::Trace(visitor);
   EventTargetWithInlineData::Trace(visitor);
   ExecutionContextLifecycleObserver::Trace(visitor);
 }

@@ -7,7 +7,6 @@
 #include "base/memory/scoped_refptr.h"
 #include "base/no_destructor.h"
 #include "base/single_thread_task_runner.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/sequence_local_storage_slot.h"
 #include "build/build_config.h"
@@ -15,7 +14,6 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/network_service_instance.h"
-#include "content/public/browser/system_connector.h"
 #include "content/public/common/content_client.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "services/device/device_service.h"
@@ -50,12 +48,14 @@ class DeviceServiceURLLoaderFactory : public network::SharedURLLoaderFactory {
       mojo::PendingRemote<network::mojom::URLLoaderClient> client,
       const net::MutableNetworkTrafficAnnotationTag& traffic_annotation)
       override {
-    GetContentClient()
-        ->browser()
-        ->GetSystemSharedURLLoaderFactory()
-        ->CreateLoaderAndStart(std::move(receiver), routing_id, request_id,
-                               options, url_request, std::move(client),
-                               traffic_annotation);
+    auto factory =
+        GetContentClient()->browser()->GetSystemSharedURLLoaderFactory();
+    if (!factory)
+      return;
+
+    factory->CreateLoaderAndStart(std::move(receiver), routing_id, request_id,
+                                  options, url_request, std::move(client),
+                                  traffic_annotation);
   }
 
   // SharedURLLoaderFactory implementation:
@@ -109,8 +109,7 @@ void BindDeviceServiceReceiver(
   // and ContentNfcDelegate.java respectively for comments on those
   // parameters.
   service = device::CreateDeviceService(
-      device_blocking_task_runner,
-      base::CreateSingleThreadTaskRunner({BrowserThread::IO}),
+      device_blocking_task_runner, GetIOThreadTaskRunner({}),
       base::MakeRefCounted<DeviceServiceURLLoaderFactory>(),
       content::GetNetworkConnectionTracker(),
       GetContentClient()->browser()->GetGeolocationApiKey(),
@@ -121,11 +120,11 @@ void BindDeviceServiceReceiver(
       std::move(java_nfc_delegate), std::move(receiver));
 #else
   service = device::CreateDeviceService(
-      device_blocking_task_runner,
-      base::CreateSingleThreadTaskRunner({BrowserThread::IO}),
+      device_blocking_task_runner, GetIOThreadTaskRunner({}),
       base::MakeRefCounted<DeviceServiceURLLoaderFactory>(),
       content::GetNetworkConnectionTracker(),
       GetContentClient()->browser()->GetGeolocationApiKey(),
+      GetContentClient()->browser()->GetLocationPermissionManager(),
       base::BindRepeating(&ContentBrowserClient::OverrideSystemLocationProvider,
                           base::Unretained(GetContentClient()->browser())),
       std::move(receiver));
@@ -146,8 +145,8 @@ device::mojom::DeviceService& GetDeviceService() {
     // the Device Service's connection to the Network Service could deadlock).
     // We post a task to defer until the main message loop has started, when
     // initialization is reliably safe.
-    base::PostTask(FROM_HERE, {BrowserThread::UI},
-                   base::BindOnce(&BindDeviceServiceReceiver,
+    GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE, base::BindOnce(&BindDeviceServiceReceiver,
                                   remote.BindNewPipeAndPassReceiver()));
   }
   return *remote.get();

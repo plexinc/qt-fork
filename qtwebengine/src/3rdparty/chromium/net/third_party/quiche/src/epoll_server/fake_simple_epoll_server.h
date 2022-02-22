@@ -10,8 +10,8 @@
 
 #include <map>
 
-#include "net/third_party/quiche/src/epoll_server/platform/api/epoll_export.h"
-#include "net/third_party/quiche/src/epoll_server/simple_epoll_server.h"
+#include "epoll_server/platform/api/epoll_export.h"
+#include "epoll_server/simple_epoll_server.h"
 
 namespace epoll_server {
 namespace test {
@@ -95,14 +95,14 @@ class EPOLL_EXPORT_PRIVATE FakeSimpleEpollServer
  protected:  // functions
   // These functions do nothing here, as we're not actually
   // using the epoll_* syscalls.
-  void DelFD(int fd) const override {}
-  void AddFD(int fd, int event_mask) const override {}
-  void ModFD(int fd, int event_mask) const override {}
+  void DelFD(int /*fd*/) const override {}
+  void AddFD(int /*fd*/, int /*event_mask*/) const override {}
+  void ModFD(int /*fd*/, int /*event_mask*/) const override {}
 
   // Replaces the epoll_server's epoll_wait_impl.
   int epoll_wait_impl(int epfd, struct epoll_event* events, int max_events,
                       int timeout_in_ms) override;
-  void SetNonblocking(int fd) override {}
+  void SetNonblocking(int /*fd*/) override {}
 
  private:  // members
   EventQueue event_queue_;

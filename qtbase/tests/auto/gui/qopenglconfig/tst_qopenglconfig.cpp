@@ -34,7 +34,7 @@
 #include <qpa/qplatformnativeinterface.h>
 #include <private/qopengl_p.h>
 
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include <QtCore/QSysInfo>
 #include <QtCore/QLibraryInfo>
@@ -148,14 +148,13 @@ static void dumpConfiguration(QTextStream &str)
             << "\n  DevicePixelRatio: " << screen->devicePixelRatio()
             << " Primary orientation: " << screen->primaryOrientation()
             << "\n  Orientation: " << screen->orientation()
-            << " Native orientation: " << screen->nativeOrientation()
-            << " OrientationUpdateMask: " << screen->orientationUpdateMask() << '\n';
+            << " Native orientation: " << screen->nativeOrientation() << '\n';
     }
 
     // On Windows, this will provide addition GPU info similar to the output of dxdiag.
     if (QGuiApplication::platformNativeInterface()) {
         const QVariant gpuInfoV = QGuiApplication::platformNativeInterface()->property("gpu");
-        if (gpuInfoV.type() == QVariant::Map) {
+        if (gpuInfoV.userType() == QMetaType::QVariantMap) {
             const QString description = gpuInfoV.toMap().value(QStringLiteral("printable")).toString();
             if (!description.isEmpty())
                 str << "\nGPU:\n" << description << "\n\n";
@@ -250,7 +249,7 @@ void tst_QOpenGlConfig::testBugList()
     expectedFeatures << "feature1";
 
     // adapter info
-    QVersionNumber driverVersion(QVector<int>() << 9 << 18 << 13 << 4460);
+    QVersionNumber driverVersion(QList<int>() << 9 << 18 << 13 << 4460);
     QOpenGLConfig::Gpu gpu = QOpenGLConfig::Gpu::fromDevice(0x10DE, 0x0DE9, driverVersion, QByteArrayLiteral("Unknown"));
 
     QSet<QString> actualFeatures = QOpenGLConfig::gpuFeatures(gpu, QStringLiteral("win"),

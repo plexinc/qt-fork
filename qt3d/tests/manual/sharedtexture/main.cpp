@@ -60,6 +60,7 @@
 #include <Qt3DRender/QRenderAspect>
 #include <Qt3DRender/QTexture>
 #include <Qt3DRender/QDirectionalLight>
+#include <Qt3DRender/QGeometryRenderer>
 
 #include <Qt3DInput/QInputAspect>
 

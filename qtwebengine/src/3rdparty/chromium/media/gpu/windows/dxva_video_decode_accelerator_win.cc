@@ -7,10 +7,6 @@
 #include <algorithm>
 #include <memory>
 
-#if !defined(OS_WIN)
-#error This file should only be built on Windows.
-#endif  // !defined(OS_WIN)
-
 #include <codecapi.h>
 #include <dxgi1_2.h>
 #include <ks.h>
@@ -25,9 +21,9 @@
 #include "base/atomicops.h"
 #include "base/base_paths_win.h"
 #include "base/bind.h"
+#include "base/bind_post_task.h"
 #include "base/callback.h"
 #include "base/command_line.h"
-#include "base/debug/alias.h"
 #include "base/file_version_info.h"
 #include "base/files/file_path.h"
 #include "base/location.h"
@@ -43,12 +39,19 @@
 #include "base/win/scoped_co_mem.h"
 #include "base/win/windows_version.h"
 #include "build/build_config.h"
+#include "components/viz/common/resources/resource_format_utils.h"
+#include "gpu/command_buffer/common/shared_image_usage.h"
+#include "gpu/command_buffer/service/shared_image_backing_d3d.h"
+#include "gpu/command_buffer/service/shared_image_factory.h"
 #include "gpu/config/gpu_driver_bug_workarounds.h"
 #include "gpu/config/gpu_preferences.h"
+#include "gpu/ipc/service/shared_image_stub.h"
 #include "media/base/media_log.h"
 #include "media/base/media_switches.h"
+#include "media/base/video_frame.h"
 #include "media/base/win/mf_helpers.h"
 #include "media/filters/vp9_parser.h"
+#include "media/gpu/command_buffer_helper.h"
 #include "media/gpu/windows/d3d11_video_device_format_support.h"
 #include "media/gpu/windows/dxva_picture_buffer_win.h"
 #include "media/gpu/windows/supported_profile_helpers.h"
@@ -64,6 +67,7 @@
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_context.h"
 #include "ui/gl/gl_fence.h"
+#include "ui/gl/gl_image_dxgi.h"
 #include "ui/gl/gl_surface_egl.h"
 #include "ui/gl/gl_switches.h"
 
@@ -121,12 +125,11 @@ DEFINE_GUID(MF_XVP_PLAYBACK_MODE,
             0xcc,
             0xe9);
 
-// Defines the GUID for the Intel H264 DXVA device.
-static const GUID DXVA2_Intel_ModeH264_E = {
-    0x604F8E68,
-    0x4951,
-    0x4c54,
-    {0x88, 0xFE, 0xAB, 0xD2, 0x5C, 0x15, 0xB3, 0xD6}};
+static const CLSID CLSID_CAV1DecoderMFT = {
+    0xC843981A,
+    0x3359,
+    0x4721,
+    {0xB3, 0xF5, 0xD4, 0x84, 0xD8, 0x56, 0x1E, 0x47}};
 
 constexpr const wchar_t* const kMediaFoundationVideoDecoderDLLs[] = {
     L"mf.dll", L"mfplat.dll", L"msmpeg2vdec.dll",
@@ -138,6 +141,23 @@ uint64_t GetCurrentQPC() {
   // memory in an exception handler;
   ::QueryPerformanceCounter(&perf_counter_now);
   return perf_counter_now.QuadPart;
+}
+
+HRESULT CreateAV1Decoder(const IID& iid, void** object) {
+  MFT_REGISTER_TYPE_INFO type_info = {MFMediaType_Video, MFVideoFormat_AV1};
+
+  base::win::ScopedCoMem<IMFActivate*> acts;
+  UINT32 acts_num;
+  HRESULT hr =
+      ::MFTEnumEx(MFT_CATEGORY_VIDEO_DECODER, MFT_ENUM_FLAG_SORTANDFILTER,
+                  &type_info, nullptr, &acts, &acts_num);
+  if (FAILED(hr))
+    return hr;
+
+  if (acts_num < 1)
+    return E_FAIL;
+
+  return acts[0]->ActivateObject(iid, object);
 }
 
 uint64_t g_last_process_output_time;
@@ -161,9 +181,40 @@ HRESULT g_last_device_removed_reason;
 
 namespace media {
 
-static const VideoCodecProfile kSupportedProfiles[] = {
-    H264PROFILE_BASELINE, H264PROFILE_MAIN,    H264PROFILE_HIGH,
-    VP8PROFILE_ANY,       VP9PROFILE_PROFILE0, VP9PROFILE_PROFILE2};
+bool VideoPixelFormatToVizFormat(
+    VideoPixelFormat pixel_format,
+    size_t textures_per_picture,
+    std::array<viz::ResourceFormat, VideoFrame::kMaxPlanes>& texture_formats) {
+  switch (pixel_format) {
+    case PIXEL_FORMAT_ARGB:
+    case PIXEL_FORMAT_XRGB:
+    case PIXEL_FORMAT_ABGR:
+    case PIXEL_FORMAT_BGRA:
+      DCHECK_EQ(textures_per_picture, 1u);
+      texture_formats[0] =
+          (pixel_format == PIXEL_FORMAT_ABGR) ? viz::RGBA_8888 : viz::BGRA_8888;
+      return true;
+    case PIXEL_FORMAT_NV12:
+      DCHECK_EQ(textures_per_picture, 2u);
+      texture_formats[0] = viz::RED_8;  // Y
+      texture_formats[1] = viz::RG_88;  // UV
+      return true;
+    case PIXEL_FORMAT_P016LE:
+      // TODO(crbug.com/1011555): P010 formats are not fully supported.
+      // The required Viz formats (viz::R16_EXT and viz::RG16_EXT) are not yet
+      // supported.
+      DCHECK_EQ(textures_per_picture, 2u);
+      return false;
+    default:  // Unsupported
+      NOTREACHED();
+      return false;
+  }
+}
+
+constexpr VideoCodecProfile kSupportedProfiles[] = {
+    H264PROFILE_BASELINE,    H264PROFILE_MAIN,        H264PROFILE_HIGH,
+    VP8PROFILE_ANY,          VP9PROFILE_PROFILE0,     VP9PROFILE_PROFILE2,
+    AV1PROFILE_PROFILE_MAIN, AV1PROFILE_PROFILE_HIGH, AV1PROFILE_PROFILE_PRO};
 
 CreateDXGIDeviceManager
     DXVAVideoDecodeAccelerator::create_dxgi_device_manager_ = NULL;
@@ -264,13 +315,18 @@ HRESULT CreateCOMObjectFromDll(HMODULE dll,
 
 ConfigChangeDetector::~ConfigChangeDetector() {}
 
+bool ConfigChangeDetector::IsYUV420() const {
+  NOTIMPLEMENTED();
+  return false;
+}
+
 // Provides functionality to detect H.264 stream configuration changes.
 // TODO(ananta)
 // Move this to a common place so that all VDA's can use this.
 class H264ConfigChangeDetector : public ConfigChangeDetector {
  public:
-  H264ConfigChangeDetector();
-  ~H264ConfigChangeDetector() override;
+  H264ConfigChangeDetector() {}
+  ~H264ConfigChangeDetector() override {}
 
   // Detects stream configuration changes.
   // Returns false on failure.
@@ -279,29 +335,25 @@ class H264ConfigChangeDetector : public ConfigChangeDetector {
       const gfx::Rect& container_visible_rect) const override;
   VideoColorSpace current_color_space(
       const VideoColorSpace& container_color_space) const override;
+  bool IsYUV420() const override;
 
  private:
   // These fields are used to track the SPS/PPS in the H.264 bitstream and
   // are eventually compared against the SPS/PPS in the bitstream to detect
   // a change.
-  int last_sps_id_;
+  int last_sps_id_ = 0;
   std::vector<uint8_t> last_sps_;
-  int last_pps_id_;
+  int last_pps_id_ = 0;
   std::vector<uint8_t> last_pps_;
   // We want to indicate configuration changes only after we see IDR slices.
   // This flag tracks that we potentially have a configuration change which
   // we want to honor after we see an IDR slice.
-  bool pending_config_changed_;
+  bool pending_config_changed_ = false;
 
   std::unique_ptr<H264Parser> parser_;
 
   DISALLOW_COPY_AND_ASSIGN(H264ConfigChangeDetector);
 };
-
-H264ConfigChangeDetector::H264ConfigChangeDetector()
-    : last_sps_id_(0), last_pps_id_(0), pending_config_changed_(false) {}
-
-H264ConfigChangeDetector::~H264ConfigChangeDetector() {}
 
 bool H264ConfigChangeDetector::DetectConfig(const uint8_t* stream,
                                             unsigned int size) {
@@ -427,6 +479,13 @@ VideoColorSpace H264ConfigChangeDetector::current_color_space(
   return container_color_space;
 }
 
+bool H264ConfigChangeDetector::IsYUV420() const {
+  if (!parser_)
+    return true;
+  const H264SPS* sps = parser_->GetSPS(last_sps_id_);
+  return !sps || sps->chroma_format_idc == 1;
+}
+
 // Doesn't actually detect config changes, only stream metadata.
 class VP9ConfigChangeDetector : public ConfigChangeDetector {
  public:
@@ -437,6 +496,8 @@ class VP9ConfigChangeDetector : public ConfigChangeDetector {
   // Returns false on failure.
   bool DetectConfig(const uint8_t* stream, unsigned int size) override {
     parser_.SetStream(stream, size, nullptr);
+    config_changed_ = false;
+
     Vp9FrameHeader fhdr;
     gfx::Size allocate_size;
     std::unique_ptr<DecryptConfig> null_config;
@@ -494,11 +555,17 @@ class VP8ConfigChangeDetector : public ConfigChangeDetector {
   // Detects stream configuration changes.
   // Returns false on failure.
   bool DetectConfig(const uint8_t* stream, unsigned int size) override {
+    config_changed_ = false;
+
     Vp8FrameHeader fhdr;
     if (!parser_.ParseFrame(stream, size, &fhdr))
       return false;
 
-    if (fhdr.IsKeyframe() && fhdr.is_full_range) {
+    // VP8 parser only return resolution and range fields on key frames.
+    if (!fhdr.IsKeyframe())
+      return true;
+
+    if (fhdr.is_full_range) {
       // VP8 has no color space information, only the range. We will always
       // prefer the config color space if set, but indicate JPEG when the full
       // range flag is set on the frame header.
@@ -507,22 +574,12 @@ class VP8ConfigChangeDetector : public ConfigChangeDetector {
 
     // Does VP8 need a separate visible rect?
     gfx::Size new_size(fhdr.width, fhdr.height);
-    if (!size_.IsEmpty() && !pending_config_changed_ && !config_changed_ &&
-        size_ != new_size) {
-      pending_config_changed_ = true;
+    if (!size_.IsEmpty() && size_ != new_size) {
+      config_changed_ = true;
       DVLOG(1) << "Configuration changed from " << size_.ToString() << " to "
                << new_size.ToString();
     }
     size_ = new_size;
-
-    // Resolution changes can happen on any frame technically, so wait for a
-    // keyframe before signaling the config change.
-    if (fhdr.IsKeyframe() && pending_config_changed_) {
-      config_changed_ = true;
-      pending_config_changed_ = false;
-    }
-    if (pending_config_changed_)
-      DVLOG(3) << "Deferring config change until next keyframe...";
     return true;
   }
 
@@ -539,7 +596,6 @@ class VP8ConfigChangeDetector : public ConfigChangeDetector {
 
  private:
   gfx::Size size_;
-  bool pending_config_changed_ = false;
   VideoColorSpace color_space_;
   Vp8Parser parser_;
 };
@@ -567,7 +623,7 @@ DXVAVideoDecodeAccelerator::DXVAVideoDecodeAccelerator(
     const gpu::GpuDriverBugWorkarounds& workarounds,
     const gpu::GpuPreferences& gpu_preferences,
     MediaLog* media_log)
-    : client_(NULL),
+    : client_(nullptr),
       dev_manager_reset_token_(0),
       dx11_dev_manager_reset_token_(0),
       egl_config_(NULL),
@@ -598,8 +654,12 @@ DXVAVideoDecodeAccelerator::DXVAVideoDecodeAccelerator(
       use_keyed_mutex_(false),
       using_angle_device_(false),
       using_debug_device_(false),
-      enable_accelerated_vpx_decode_(
-          !workarounds.disable_accelerated_vpx_decode),
+      enable_accelerated_av1_decode_(
+          !workarounds.disable_accelerated_av1_decode),
+      enable_accelerated_vp8_decode_(
+          !workarounds.disable_accelerated_vp8_decode),
+      enable_accelerated_vp9_decode_(
+          !workarounds.disable_accelerated_vp9_decode),
       processing_config_changed_(false),
       use_empty_video_hdr_metadata_(workarounds.use_empty_video_hdr_metadata) {
   weak_ptr_ = weak_this_factory_.GetWeakPtr();
@@ -609,13 +669,16 @@ DXVAVideoDecodeAccelerator::DXVAVideoDecodeAccelerator(
 }
 
 DXVAVideoDecodeAccelerator::~DXVAVideoDecodeAccelerator() {
-  client_ = NULL;
+  client_ = nullptr;
 }
 
 bool DXVAVideoDecodeAccelerator::Initialize(const Config& config,
                                             Client* client) {
   if (media_log_)
     MEDIA_LOG(INFO, media_log_) << "Starting Initialization of DXVAVDA";
+
+  AddPlaybackSucceededLifetimeStageIfNeeded();
+  AddLifetimeProgressionStage(DXVALifetimeProgression::kInitializeStarted);
 
   if (!get_gl_context_cb_ || !make_context_current_cb_) {
     NOTREACHED() << "GL callbacks are required for this VDA";
@@ -660,10 +723,17 @@ bool DXVAVideoDecodeAccelerator::Initialize(const Config& config,
     decoder_output_p010_or_p016_ = true;
   }
 
-  // Unfortunately, the profile is currently unreliable for
-  // VP9 (https://crbug.com/592074) so also try to use fp16 if HDR is on.
-  if (config.target_color_space.IsHDR()) {
+  // While we can rely on the profile to indicate HBD status for other codecs,
+  // AV1 may have both 8-bit SDR and 10-bit HDR in the same profile, so also
+  // check the color space to determine if HDR should be used. It's possible for
+  // HDR 8-bit content to be created too, it's just rare.
+  if (config.container_color_space.ToGfxColorSpace().IsHDR()) {
     use_fp16_ = true;
+    if (config.profile == AV1PROFILE_PROFILE_PRO ||
+        config.profile == AV1PROFILE_PROFILE_MAIN ||
+        config.profile == AV1PROFILE_PROFILE_HIGH) {
+      decoder_output_p010_or_p016_ = true;
+    }
   }
 
   // Not all versions of Windows 7 and later include Media Foundation DLLs.
@@ -742,10 +812,15 @@ bool DXVAVideoDecodeAccelerator::Initialize(const Config& config,
   if (codec_ == kCodecVP9)
     config_change_detector_.reset(new VP9ConfigChangeDetector());
 
+  processing_config_changed_ = false;
   SetState(kNormal);
 
   UMA_HISTOGRAM_ENUMERATION("Media.DXVAVDA.PictureBufferMechanism",
                             GetPictureBufferMechanism());
+
+  AddLifetimeProgressionStage(
+      use_dx11_ ? DXVALifetimeProgression::kDX11InitializeSucceeded
+                : DXVALifetimeProgression::kDX9InitializeSucceeded);
 
   return StartDecoderThread();
 }
@@ -958,7 +1033,7 @@ bool DXVAVideoDecodeAccelerator::CreateDX11DevManager() {
   }
 
   // Create the display information.
-  display_helper_.emplace(D3D11Device());
+  hdr_metadata_helper_.emplace(D3D11Device());
 
   hr = d3d11_device_context_.As(&video_context_);
   RETURN_ON_HR_FAILURE(hr, "Failed to get video context", false);
@@ -1290,6 +1365,9 @@ void DXVAVideoDecodeAccelerator::Reset() {
 
 void DXVAVideoDecodeAccelerator::Destroy() {
   DCHECK(main_thread_task_runner_->BelongsToCurrentThread());
+
+  AddPlaybackSucceededLifetimeStageIfNeeded();
+
   Invalidate();
   delete this;
 }
@@ -1302,6 +1380,13 @@ bool DXVAVideoDecodeAccelerator::TryToSetupDecodeOnSeparateThread(
 
 GLenum DXVAVideoDecodeAccelerator::GetSurfaceInternalFormat() const {
   return GL_BGRA_EXT;
+}
+
+bool DXVAVideoDecodeAccelerator::SupportsSharedImagePictureBuffers() const {
+  // Shared image is needed to display overlays which can be used directly
+  // by the video processor.
+  // TODO(crbug.com/1011555): Support for non-bind cases.
+  return GetPictureBufferMechanism() == PictureBufferMechanism::BIND;
 }
 
 // static
@@ -1324,71 +1409,28 @@ DXVAVideoDecodeAccelerator::GetSupportedProfiles(
     }
   }
 
-  // On Windows 7 the maximum resolution supported by media foundation is
-  // 1920 x 1088. We use 1088 to account for 16x16 macroblocks.
-  ResolutionPair max_h264_resolutions(gfx::Size(1920, 1088), gfx::Size());
-
-  // VP8/VP9 has no default resolutions since it may not even be supported.
-  ResolutionPair max_vp8_resolutions;
-  ResolutionPair max_vp9_profile0_resolutions;
-  ResolutionPair max_vp9_profile2_resolutions;
-
-  GetResolutionsForDecoders({DXVA2_ModeH264_E, DXVA2_Intel_ModeH264_E},
-                            gl::QueryD3D11DeviceObjectFromANGLE(), workarounds,
-                            &max_h264_resolutions, &max_vp8_resolutions,
-                            &max_vp9_profile0_resolutions,
-                            &max_vp9_profile2_resolutions);
-
-  for (const auto& supported_profile : kSupportedProfiles) {
-    const bool is_h264 = supported_profile >= H264PROFILE_MIN &&
-                         supported_profile <= H264PROFILE_MAX;
-    const bool is_vp9 = supported_profile >= VP9PROFILE_MIN &&
-                        supported_profile <= VP9PROFILE_MAX;
-    const bool is_vp8 = supported_profile == VP8PROFILE_ANY;
-    DCHECK(is_h264 || is_vp9 || is_vp8);
-
-    ResolutionPair max_resolutions;
-    if (is_h264) {
-      max_resolutions = max_h264_resolutions;
-    } else if (supported_profile == VP9PROFILE_PROFILE0) {
-      max_resolutions = max_vp9_profile0_resolutions;
-    } else if (supported_profile == VP9PROFILE_PROFILE2) {
-      max_resolutions = max_vp9_profile2_resolutions;
-    } else if (is_vp8) {
-      max_resolutions = max_vp8_resolutions;
-    }
-
-    // Skip adding VPx profiles if it's not supported or disabled.
-    if ((is_vp9 || is_vp8) && max_resolutions.first.IsEmpty())
-      continue;
-
-    // Windows Media Foundation H.264 decoding does not support decoding videos
-    // with any dimension smaller than 48 pixels:
-    // http://msdn.microsoft.com/en-us/library/windows/desktop/dd797815
-    //
-    // TODO(dalecurtis): These values are too low. We should only be using
-    // hardware decode for videos above ~360p, see http://crbug.com/684792.
-    const gfx::Size min_resolution =
-        is_h264 ? gfx::Size(48, 48) : gfx::Size(16, 16);
-
+  const auto supported_resolutions = GetSupportedD3D11VideoDecoderResolutions(
+      gl::QueryD3D11DeviceObjectFromANGLE(), workarounds);
+  for (const auto& kv : supported_resolutions) {
+    const auto& resolution_range = kv.second;
     {
       SupportedProfile profile;
-      profile.profile = supported_profile;
-      profile.min_resolution = min_resolution;
-      profile.max_resolution = max_resolutions.first;
+      profile.profile = kv.first;
+      profile.min_resolution = resolution_range.min_resolution;
+      profile.max_resolution = resolution_range.max_landscape_resolution;
       profiles.push_back(profile);
     }
 
-    const gfx::Size portrait_max_resolution = max_resolutions.second;
-    if (!portrait_max_resolution.IsEmpty()) {
+    if (!resolution_range.max_portrait_resolution.IsEmpty() &&
+        resolution_range.max_portrait_resolution !=
+            resolution_range.max_landscape_resolution) {
       SupportedProfile profile;
-      profile.profile = supported_profile;
-      profile.min_resolution = min_resolution;
-      profile.max_resolution = portrait_max_resolution;
+      profile.profile = kv.first;
+      profile.min_resolution = resolution_range.min_resolution;
+      profile.max_resolution = resolution_range.max_portrait_resolution;
       profiles.push_back(profile);
     }
   }
-
   return profiles;
 }
 
@@ -1431,7 +1473,7 @@ bool DXVAVideoDecodeAccelerator::InitDecoder(VideoCodecProfile profile) {
       return false;
     }
 
-    // Check version of DLL, version 6.1.7140 is blacklisted due to high crash
+    // Check version of DLL, version 6.1.7140 is blocked due to high crash
     // rates in browsers loading that DLL. If that is the version installed we
     // fall back to software decoding. See crbug/403440.
     std::unique_ptr<FileVersionInfo> version_info(
@@ -1439,28 +1481,42 @@ bool DXVAVideoDecodeAccelerator::InitDecoder(VideoCodecProfile profile) {
     RETURN_ON_FAILURE(version_info, "unable to get version of msmpeg2vdec.dll",
                       false);
     base::string16 file_version = version_info->file_version();
-    RETURN_ON_FAILURE(file_version.find(L"6.1.7140") == base::string16::npos,
-                      "blacklisted version of msmpeg2vdec.dll 6.1.7140", false);
+    RETURN_ON_FAILURE(
+        file_version.find(STRING16_LITERAL("6.1.7140")) == base::string16::npos,
+        "blocked version of msmpeg2vdec.dll 6.1.7140", false);
     codec_ = kCodecH264;
     clsid = __uuidof(CMSH264DecoderMFT);
-  } else if (enable_accelerated_vpx_decode_ &&
-             ((profile >= VP9PROFILE_PROFILE0 &&
-               profile <= VP9PROFILE_PROFILE3) ||
-              profile == VP8PROFILE_ANY)) {
+  } else if ((profile >= VP9PROFILE_PROFILE0 &&
+              profile <= VP9PROFILE_PROFILE3) ||
+             profile == VP8PROFILE_ANY) {
     codec_ = profile == VP8PROFILE_ANY ? kCodecVP8 : kCodecVP9;
-    clsid = CLSID_MSVPxDecoder;
-    decoder_dll = ::LoadLibrary(kMSVPxDecoderDLLName);
-    if (decoder_dll)
-      using_ms_vpx_mft_ = true;
+    if ((codec_ == kCodecVP8 && enable_accelerated_vp8_decode_) ||
+        (codec_ == kCodecVP9 && enable_accelerated_vp9_decode_)) {
+      clsid = CLSID_MSVPxDecoder;
+      decoder_dll = ::LoadLibrary(kMSVPxDecoderDLLName);
+      if (decoder_dll)
+        using_ms_vpx_mft_ = true;
+    }
   }
 
-  if (!decoder_dll) {
-    RETURN_ON_FAILURE(false, "Unsupported codec.", false);
-  }
+  if (enable_accelerated_av1_decode_ &&
+      base::FeatureList::IsEnabled(kMediaFoundationAV1Decoding) &&
+      (profile >= AV1PROFILE_MIN && profile <= AV1PROFILE_MAX)) {
+    codec_ = kCodecAV1;
+    clsid = CLSID_CAV1DecoderMFT;
 
-  HRESULT hr =
-      CreateCOMObjectFromDll(decoder_dll, clsid, IID_PPV_ARGS(&decoder_));
-  RETURN_ON_HR_FAILURE(hr, "Failed to create decoder instance", false);
+    // Since the AV1 decoder is a Windows Store package, it can't be created
+    // from a DLL file like the other codecs. Microsoft baked helper code into
+    // the OS for VP9 which is why it works and AV1 doesn't.
+    HRESULT hr = CreateAV1Decoder(IID_PPV_ARGS(&decoder_));
+    RETURN_ON_HR_FAILURE(hr, "Failed to create decoder instance", false);
+  } else {
+    if (!decoder_dll)
+      RETURN_ON_FAILURE(false, "Unsupported codec.", false);
+    HRESULT hr =
+        CreateCOMObjectFromDll(decoder_dll, clsid, IID_PPV_ARGS(&decoder_));
+    RETURN_ON_HR_FAILURE(hr, "Failed to create decoder instance", false);
+  }
 
   RETURN_ON_FAILURE(CheckDecoderDxvaSupport(),
                     "Failed to check decoder DXVA support", false);
@@ -1470,22 +1526,20 @@ bool DXVAVideoDecodeAccelerator::InitDecoder(VideoCodecProfile profile) {
     CHECK(create_dxgi_device_manager_);
     if (media_log_)
       MEDIA_LOG(INFO, media_log_) << "Using D3D11 device for DXVA";
-    RETURN_AND_NOTIFY_ON_FAILURE(CreateDX11DevManager(),
-                                 "Failed to initialize DX11 device and manager",
-                                 PLATFORM_FAILURE, false);
+    RETURN_ON_FAILURE(CreateDX11DevManager(),
+                      "Failed to initialize DX11 device and manager", false);
     device_manager_to_use =
         reinterpret_cast<ULONG_PTR>(d3d11_device_manager_.Get());
   } else {
     if (media_log_)
       MEDIA_LOG(INFO, media_log_) << "Using D3D9 device for DXVA";
-    RETURN_AND_NOTIFY_ON_FAILURE(CreateD3DDevManager(),
-                                 "Failed to initialize D3D device and manager",
-                                 PLATFORM_FAILURE, false);
+    RETURN_ON_FAILURE(CreateD3DDevManager(),
+                      "Failed to initialize D3D device and manager", false);
     device_manager_to_use = reinterpret_cast<ULONG_PTR>(device_manager_.Get());
   }
 
-  hr = decoder_->ProcessMessage(MFT_MESSAGE_SET_D3D_MANAGER,
-                                device_manager_to_use);
+  HRESULT hr = decoder_->ProcessMessage(MFT_MESSAGE_SET_D3D_MANAGER,
+                                        device_manager_to_use);
   if (use_dx11_) {
     RETURN_ON_HR_FAILURE(hr, "Failed to pass DX11 manager to decoder", false);
   } else {
@@ -1637,6 +1691,8 @@ bool DXVAVideoDecodeAccelerator::SetDecoderInputMediaType() {
     hr = media_type->SetGUID(MF_MT_SUBTYPE, MEDIASUBTYPE_VP90);
   } else if (codec_ == kCodecVP8) {
     hr = media_type->SetGUID(MF_MT_SUBTYPE, MEDIASUBTYPE_VP80);
+  } else if (codec_ == kCodecAV1) {
+    hr = media_type->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_AV1);
   } else {
     NOTREACHED();
     RETURN_ON_FAILURE(false, "Unsupported codec on input media type.", false);
@@ -1660,25 +1716,27 @@ bool DXVAVideoDecodeAccelerator::SetDecoderInputMediaType() {
     RETURN_ON_HR_FAILURE(hr, "Failed to set interlace mode", false);
   }
 
+  Microsoft::WRL::ComPtr<IMFAttributes> out_attributes;
+  hr = decoder_->GetOutputStreamAttributes(0, &out_attributes);
+  RETURN_ON_HR_FAILURE(hr, "Failed to get stream attributes", false);
+
+  // On Intel Gen9 and older devices, textures need to be created with a share
+  // handle or they'll crash in CreateShaderResourceView. crbug.com/1107403
+  // Technically MF_SA_D3D11_SHARED_WITHOUT_MUTEX is only honored by the sample
+  // allocator, not by the media foundation transform, but Microsoft's h.264
+  // transform happens to pass it through.
+  out_attributes->SetUINT32(MF_SA_D3D11_SHARED_WITHOUT_MUTEX, TRUE);
+
   // These bind flags _must_ be set before SetInputType or SetOutputType to
   // ensure that we get the proper surfaces created under the hood.
   if (GetPictureBufferMechanism() == PictureBufferMechanism::BIND) {
-    Microsoft::WRL::ComPtr<IMFAttributes> out_attributes;
-    HRESULT hr = decoder_->GetOutputStreamAttributes(0, &out_attributes);
-    RETURN_ON_HR_FAILURE(hr, "Failed to get stream attributes", false);
     out_attributes->SetUINT32(MF_SA_D3D11_BINDFLAGS,
                               D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_DECODER);
     // TODO(sunnyps): Find if we can always set resource sharing to disabled
     if (gl::DirectCompositionSurfaceWin::IsDecodeSwapChainSupported()) {
       // Decode swap chains do not support shared resources.
       out_attributes->SetUINT32(MF_SA_D3D11_SHARED, FALSE);
-    } else {
-      // For some reason newer Intel drivers need D3D11_BIND_DECODER textures to
-      // be created with a share handle or they'll crash in
-      // CreateShaderResourceView.  Technically MF_SA_D3D11_SHARED_WITHOUT_MUTEX
-      // is only honored by the sample allocator, not by the media foundation
-      // transform, but Microsoft's h.264 transform happens to pass it through.
-      out_attributes->SetUINT32(MF_SA_D3D11_SHARED_WITHOUT_MUTEX, TRUE);
+      out_attributes->SetUINT32(MF_SA_D3D11_SHARED_WITHOUT_MUTEX, FALSE);
     }
   }
 
@@ -1710,29 +1768,35 @@ bool DXVAVideoDecodeAccelerator::GetStreamsInfoAndBufferReqs() {
 
   DVLOG(1) << "Input stream info: ";
   DVLOG(1) << "Max latency: " << input_stream_info_.hnsMaxLatency;
-  if (codec_ == kCodecH264) {
-    // There should be three flags, one for requiring a whole frame be in a
-    // single sample, one for requiring there be one buffer only in a single
-    // sample, and one that specifies a fixed sample size. (as in cbSize)
-    CHECK_EQ(input_stream_info_.dwFlags, 0x7u);
-  }
+
+  // There should be three flags, one for requiring a whole frame be in a
+  // single sample, one for requiring there be one buffer only in a single
+  // sample, and one that specifies a fixed sample size. (as in cbSize)
+  if (codec_ == kCodecH264 && input_stream_info_.dwFlags != 0x7u)
+    return false;
 
   DVLOG(1) << "Min buffer size: " << input_stream_info_.cbSize;
   DVLOG(1) << "Max lookahead: " << input_stream_info_.cbMaxLookahead;
   DVLOG(1) << "Alignment: " << input_stream_info_.cbAlignment;
 
   DVLOG(1) << "Output stream info: ";
+  DVLOG(1) << "Flags: " << std::hex << std::showbase
+           << output_stream_info_.dwFlags;
+  DVLOG(1) << "Min buffer size: " << output_stream_info_.cbSize;
+  DVLOG(1) << "Alignment: " << output_stream_info_.cbAlignment;
+
   // The flags here should be the same and mean the same thing, except when
   // DXVA is enabled, there is an extra 0x100 flag meaning decoder will
   // allocate its own sample.
-  DVLOG(1) << "Flags: " << std::hex << std::showbase
-           << output_stream_info_.dwFlags;
-  if (codec_ == kCodecH264) {
-    CHECK_EQ(output_stream_info_.dwFlags, 0x107u);
-  }
-  DVLOG(1) << "Min buffer size: " << output_stream_info_.cbSize;
-  DVLOG(1) << "Alignment: " << output_stream_info_.cbAlignment;
-  return true;
+  if (codec_ == kCodecH264 && output_stream_info_.dwFlags != 0x107u)
+    return false;
+
+  // We should fail above during MFT_MESSAGE_SET_D3D_MANAGER if the decoder
+  // doesn't allocate its own samples, but some MFTs are broken.
+  if (output_stream_info_.dwFlags & MFT_OUTPUT_STREAM_PROVIDES_SAMPLES)
+    return true;
+
+  return false;
 }
 
 void DXVAVideoDecodeAccelerator::DoDecode(const gfx::Rect& visible_rect,
@@ -1809,7 +1873,7 @@ void DXVAVideoDecodeAccelerator::DoDecode(const gfx::Rect& visible_rect,
   }
   TRACE_EVENT_ASYNC_END0("gpu", "DXVAVideoDecodeAccelerator.Decoding", this);
 
-  TRACE_COUNTER1("DXVA Decoding", "TotalPacketsBeforeDecode",
+  TRACE_COUNTER1("DXVA_Decoding", "TotalPacketsBeforeDecode",
                  inputs_before_decode_);
 
   inputs_before_decode_ = 0;
@@ -1962,9 +2026,23 @@ void DXVAVideoDecodeAccelerator::StopOnError(
     return;
   }
 
+  DXVALifetimeProgression result;
+  if (use_dx11_) {
+    if (decoded_any_frames_)
+      result = DXVALifetimeProgression::kDX11PlaybackFailedAfterFirstFrame;
+    else
+      result = DXVALifetimeProgression::kDX11PlaybackFailedBeforeFirstFrame;
+  } else {
+    if (decoded_any_frames_)
+      result = DXVALifetimeProgression::kDX9PlaybackFailedAfterFirstFrame;
+    else
+      result = DXVALifetimeProgression::kDX9PlaybackFailedBeforeFirstFrame;
+  }
+  AddLifetimeProgressionStage(result);
+
   if (client_)
     client_->NotifyError(error);
-  client_ = NULL;
+  client_ = nullptr;
 
 #ifdef _DEBUG
   if (using_debug_device_) {
@@ -2000,16 +2078,34 @@ void DXVAVideoDecodeAccelerator::StopOnError(
   }
 }
 
-void DXVAVideoDecodeAccelerator::Invalidate() {
+void DXVAVideoDecodeAccelerator::Invalidate(bool for_config_change) {
+  DCHECK(main_thread_task_runner_->BelongsToCurrentThread());
+
   if (GetState() == kUninitialized)
     return;
 
   // Best effort to make the GL context current.
-  make_context_current_cb_.Run();
+  if (!make_context_current_cb_.Run()) {
+    // TODO(crbug.com/1139489): This may not be the right fix.
+    for (auto& kv : output_picture_buffers_) {
+      if (auto* fence = kv.second->reuse_fence())
+        fence->Invalidate();
+    }
+    for (auto& kv : stale_output_picture_buffers_) {
+      if (auto* fence = kv.second->reuse_fence())
+        fence->Invalidate();
+    }
+
+    // Since this is called by StopOnError() we can't call it directly.
+    DLOG(ERROR) << "Failed to make context current.";
+    for_config_change = false;
+    if (client_) {
+      client_->NotifyError(PLATFORM_FAILURE);
+      client_ = nullptr;
+    }
+  }
 
   StopDecoderThread();
-  weak_this_factory_.InvalidateWeakPtrs();
-  weak_ptr_ = weak_this_factory_.GetWeakPtr();
   pending_output_samples_.clear();
   decoder_.Reset();
   config_change_detector_.reset();
@@ -2019,7 +2115,10 @@ void DXVAVideoDecodeAccelerator::Invalidate() {
   // output picture buffers may need to be recreated in case the video
   // resolution changes. We already handle that in the
   // HandleResolutionChanged() function.
-  if (GetState() != kConfigChange) {
+  if (!for_config_change) {
+    weak_this_factory_.InvalidateWeakPtrs();
+    weak_ptr_ = weak_this_factory_.GetWeakPtr();
+
     output_picture_buffers_.clear();
     stale_output_picture_buffers_.clear();
     // We want to continue processing pending input after detecting a config
@@ -2049,29 +2148,6 @@ void DXVAVideoDecodeAccelerator::Invalidate() {
 }
 
 void DXVAVideoDecodeAccelerator::StopDecoderThread() {
-  // Try to determine what, if any exception last happened before a hang. See
-  // http://crbug.com/613701
-  uint64_t last_process_output_time = g_last_process_output_time;
-  HRESULT last_device_removed_reason = g_last_device_removed_reason;
-  LARGE_INTEGER perf_frequency;
-  ::QueryPerformanceFrequency(&perf_frequency);
-  uint32_t output_array_size = output_array_size_;
-  size_t sample_count;
-  {
-    base::AutoLock lock(decoder_lock_);
-    sample_count = pending_output_samples_.size();
-  }
-  size_t stale_output_picture_buffers_size =
-      stale_output_picture_buffers_.size();
-  PictureBufferMechanism mechanism = GetPictureBufferMechanism();
-
-  base::debug::Alias(&last_process_output_time);
-  base::debug::Alias(&last_device_removed_reason);
-  base::debug::Alias(&perf_frequency.QuadPart);
-  base::debug::Alias(&output_array_size);
-  base::debug::Alias(&sample_count);
-  base::debug::Alias(&stale_output_picture_buffers_size);
-  base::debug::Alias(&mechanism);
   decoder_thread_.Stop();
 }
 
@@ -2123,12 +2199,19 @@ void DXVAVideoDecodeAccelerator::NotifyPictureReady(
     int input_buffer_id,
     const gfx::Rect& visible_rect,
     const gfx::ColorSpace& color_space,
-    bool allow_overlay) {
+    bool allow_overlay,
+    std::vector<scoped_refptr<Picture::ScopedSharedImage>> shared_images) {
   DCHECK(main_thread_task_runner_->BelongsToCurrentThread());
   // This task could execute after the decoder has been torn down.
   if (GetState() != kUninitialized && client_) {
     Picture picture(picture_buffer_id, input_buffer_id, visible_rect,
                     color_space, allow_overlay);
+
+    for (uint32_t i = 0; i < shared_images.size(); i++) {
+      picture.set_scoped_shared_image(shared_images[i], i);
+    }
+
+    decoded_any_frames_ = true;
     client_->PictureReady(picture);
   }
 }
@@ -2217,7 +2300,6 @@ void DXVAVideoDecodeAccelerator::FlushInternal() {
         FROM_HERE, base::BindOnce(&DXVAVideoDecodeAccelerator::NotifyFlushDone,
                                   weak_ptr_));
   } else {
-    processing_config_changed_ = false;
     main_thread_task_runner_->PostTask(
         FROM_HERE, base::BindOnce(&DXVAVideoDecodeAccelerator::ConfigChanged,
                                   weak_ptr_, config_));
@@ -2234,7 +2316,8 @@ void DXVAVideoDecodeAccelerator::DecodeInternal(
   if (GetState() == kUninitialized)
     return;
 
-  if (OutputSamplesPresent() || !pending_input_buffers_.empty()) {
+  if (OutputSamplesPresent() || !pending_input_buffers_.empty() ||
+      processing_config_changed_) {
     pending_input_buffers_.push_back(sample);
     return;
   }
@@ -2246,6 +2329,11 @@ void DXVAVideoDecodeAccelerator::DecodeInternal(
   HRESULT hr = CheckConfigChanged(sample.Get(), &config_changed);
   RETURN_AND_NOTIFY_ON_HR_FAILURE(hr, "Failed to check video stream config",
                                   PLATFORM_FAILURE, );
+
+  // https://crbug.com/1160623 -- non 4:2:0 content hangs the decoder.
+  RETURN_AND_NOTIFY_ON_FAILURE(
+      codec_ != kCodecH264 || config_change_detector_->IsYUV420(),
+      "Only 4:2:0 H.264 content is supported", PLATFORM_FAILURE, );
 
   processing_config_changed_ = config_changed;
 
@@ -2596,13 +2684,100 @@ void DXVAVideoDecodeAccelerator::BindPictureBufferToSample(
 
   DCHECK(!output_picture_buffers_.empty());
 
+  // BindSampleToTexture configures GLImage with the DX11 output texture.
+  // The DX11 texture is then accessed through the GLImage to create a shared
+  // image backing below.
   bool result = picture_buffer->BindSampleToTexture(this, sample);
-  RETURN_AND_NOTIFY_ON_FAILURE(result, "Failed to complete copying surface",
+  RETURN_AND_NOTIFY_ON_FAILURE(result, "Failed to bind sample to texture",
                                PLATFORM_FAILURE, );
+
+  // Create the DX11 texture backed shared images (texture per plane).
+  std::vector<scoped_refptr<Picture::ScopedSharedImage>> scoped_shared_images;
+  if (SupportsSharedImagePictureBuffers()) {
+    gl::GLImageDXGI* gl_image_dxgi =
+        gl::GLImageDXGI::FromGLImage(picture_buffer->gl_image().get());
+    DCHECK(gl_image_dxgi);
+
+    const size_t textures_per_picture =
+        picture_buffer->service_texture_ids().size();
+
+    // Get the viz resource format per texture.
+    std::array<viz::ResourceFormat, VideoFrame::kMaxPlanes> viz_formats;
+    {
+      const bool result = VideoPixelFormatToVizFormat(
+          picture_buffer->pixel_format(), textures_per_picture, viz_formats);
+      RETURN_AND_NOTIFY_ON_FAILURE(
+          result, "Could not convert pixel format to viz format",
+          PLATFORM_FAILURE, );
+    }
+
+    CommandBufferHelper* helper = client_->GetCommandBufferHelper();
+    DCHECK(helper);
+
+    for (uint32_t texture_idx = 0; texture_idx < textures_per_picture;
+         texture_idx++) {
+      // Usage flags to allow the display compositor to draw from it, video
+      // to decode, and allow webgl/canvas access.
+      constexpr uint32_t shared_image_usage =
+          gpu::SHARED_IMAGE_USAGE_VIDEO_DECODE | gpu::SHARED_IMAGE_USAGE_GLES2 |
+          gpu::SHARED_IMAGE_USAGE_RASTER | gpu::SHARED_IMAGE_USAGE_DISPLAY |
+          gpu::SHARED_IMAGE_USAGE_SCANOUT;
+
+      // Create a shared image
+      // TODO(crbug.com/1011555): Need key shared mutex if shared image is ever
+      // used by another device.
+      scoped_refptr<gpu::gles2::TexturePassthrough> gl_texture =
+          gpu::gles2::TexturePassthrough::CheckedCast(helper->GetTexture(
+              picture_buffer->service_texture_ids()[texture_idx]));
+
+      // Create a new shared image mailbox. The existing mailbox belonging to
+      // this |picture_buffer| will be updated when the video frame is created.
+      const auto& mailbox = gpu::Mailbox::GenerateForSharedImage();
+
+      auto shared_image = std::make_unique<gpu::SharedImageBackingD3D>(
+          mailbox, viz_formats[texture_idx],
+          picture_buffer->texture_size(texture_idx),
+          picture_buffer->color_space(), kTopLeft_GrSurfaceOrigin,
+          kPremul_SkAlphaType, shared_image_usage,
+          /*swap_chain=*/nullptr, std::move(gl_texture),
+          picture_buffer->gl_image(),
+          /*buffer_index=*/0, gl_image_dxgi->texture(),
+          base::win::ScopedHandle(),
+          /*dxgi_keyed_mutex=*/nullptr);
+
+      // Caller is assumed to provide cleared d3d textures.
+      shared_image->SetCleared();
+
+      gpu::SharedImageStub* shared_image_stub = client_->GetSharedImageStub();
+      DCHECK(shared_image_stub);
+      const bool success = shared_image_stub->factory()->RegisterBacking(
+          std::move(shared_image), /* legacy_mailbox */ true);
+      if (!success) {
+        RETURN_AND_NOTIFY_ON_FAILURE(false, "Failed to register shared image",
+                                     PLATFORM_FAILURE, );
+      }
+
+      auto destroy_shared_image_callback = base::BindPostTask(
+          main_thread_task_runner_,
+          base::BindOnce(
+              shared_image_stub->GetSharedImageDestructionCallback(mailbox),
+              gpu::SyncToken()));
+
+      // Wrap the factory ref with a scoped shared image. The factory ref
+      // is used instead of requiring a destruction call-back.
+      auto scoped_shared_image =
+          base::MakeRefCounted<Picture::ScopedSharedImage>(
+              mailbox, GetTextureTarget(),
+              std::move(destroy_shared_image_callback));
+
+      scoped_shared_images.push_back(std::move(scoped_shared_image));
+    }
+  }
 
   NotifyPictureReady(
       picture_buffer->id(), input_buffer_id, picture_buffer->visible_rect(),
-      picture_buffer->color_space(), picture_buffer->AllowOverlay());
+      picture_buffer->color_space(), picture_buffer->AllowOverlay(),
+      std::move(scoped_shared_images));
 
   {
     base::AutoLock lock(decoder_lock_);
@@ -2904,11 +3079,9 @@ bool DXVAVideoDecodeAccelerator::InitializeID3D11VideoProcessor(
   // Since the video processor doesn't support HLG, lets just do the YUV->RGB
   // conversion and let the output color space be HLG. This won't work well
   // unless color management is on, but if color management is off we don't
-  // support HLG anyways.
-  if (color_space == gfx::ColorSpace(gfx::ColorSpace::PrimaryID::BT2020,
-                                     gfx::ColorSpace::TransferID::ARIB_STD_B67,
-                                     gfx::ColorSpace::MatrixID::BT709,
-                                     gfx::ColorSpace::RangeID::LIMITED)) {
+  // support HLG anyways. See https://crbug.com/1144260#c6.
+  if (color_space.GetTransferID() ==
+      gfx::ColorSpace::TransferID::ARIB_STD_B67) {
     video_context1->VideoProcessorSetStreamColorSpace1(
         d3d11_processor_.Get(), 0,
         DXGI_COLOR_SPACE_YCBCR_STUDIO_G2084_LEFT_P2020);
@@ -2944,13 +3117,13 @@ bool DXVAVideoDecodeAccelerator::InitializeID3D11VideoProcessor(
 }
 
 void DXVAVideoDecodeAccelerator::SetDX11ProcessorHDRMetadataIfNeeded() {
-  DCHECK(display_helper_);
+  DCHECK(hdr_metadata_helper_);
 
   // If we don't know the input metadata, then we'll still send the
   // monitor output.
 
   // Do nothing without display metadata.
-  auto dxgi_display_metadata = display_helper_->GetDisplayMetadata();
+  auto dxgi_display_metadata = hdr_metadata_helper_->GetDisplayMetadata();
   if (!dxgi_display_metadata)
     return;
 
@@ -2963,12 +3136,12 @@ void DXVAVideoDecodeAccelerator::SetDX11ProcessorHDRMetadataIfNeeded() {
   // stream metadata.  For the Radeon 5700, at least, this seems to do
   // something sane.  Not setting the metadata crashes intermittently.
   if (config_.hdr_metadata || use_empty_video_hdr_metadata_) {
-    HDRMetadata stream_metadata;
+    gfx::HDRMetadata stream_metadata;
     if (config_.hdr_metadata)
       stream_metadata = *config_.hdr_metadata;
 
     DXGI_HDR_METADATA_HDR10 dxgi_stream_metadata =
-        DisplayHelper::HdrMetadataToDXGI(stream_metadata);
+        gl::HDRMetadataHelperWin::HDRMetadataToDXGI(stream_metadata);
 
     video_context2->VideoProcessorSetStreamHDRMetaData(
         d3d11_processor_.Get(), 0, DXGI_HDR_METADATA_TYPE_HDR10,
@@ -3068,9 +3241,7 @@ HRESULT DXVAVideoDecodeAccelerator::CheckConfigChanged(IMFSample* sample,
 
 void DXVAVideoDecodeAccelerator::ConfigChanged(const Config& config) {
   DCHECK(main_thread_task_runner_->BelongsToCurrentThread());
-
-  SetState(kConfigChange);
-  Invalidate();
+  Invalidate(/*for_config_change=*/true);
   Initialize(config_, client_);
   decoder_thread_task_runner_->PostTask(
       FROM_HERE,
@@ -3123,8 +3294,37 @@ bool DXVAVideoDecodeAccelerator::ShouldUseANGLEDevice() const {
   NOTREACHED();
   return false;
 }
+
 ID3D11Device* DXVAVideoDecodeAccelerator::D3D11Device() const {
   return ShouldUseANGLEDevice() ? angle_device_.Get() : d3d11_device_.Get();
+}
+
+void DXVAVideoDecodeAccelerator::AddLifetimeProgressionStage(
+    DXVALifetimeProgression stage) {
+  // If we're starting init, then forget about any previously output frames.
+  if (stage == DXVALifetimeProgression::kInitializeStarted)
+    decoded_any_frames_ = false;
+
+  // If init has succeeded, then we can output a playback success / failure when
+  // we fail / re-init / are destroyed, as needed.
+  already_initialized_ =
+      (stage == DXVALifetimeProgression::kDX11InitializeSucceeded ||
+       stage == DXVALifetimeProgression::kDX9InitializeSucceeded);
+
+  base::UmaHistogramEnumeration("Media.DXVAVDA.DecoderLifetimeProgression",
+                                stage);
+}
+
+void DXVAVideoDecodeAccelerator::AddPlaybackSucceededLifetimeStageIfNeeded() {
+  // If we didn't complete initialization, then we didn't complete playback.
+  // This will also prevent us from sending "playback succeeded" more than once
+  // per init, or after a playback error.
+  if (!already_initialized_)
+    return;
+
+  AddLifetimeProgressionStage(
+      use_dx11_ ? DXVALifetimeProgression::kDX11PlaybackSucceeded
+                : DXVALifetimeProgression::kDX9PlaybackSucceeded);
 }
 
 }  // namespace media

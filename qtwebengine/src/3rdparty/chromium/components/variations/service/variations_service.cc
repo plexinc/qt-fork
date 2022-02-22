@@ -32,6 +32,7 @@
 #include "base/version.h"
 #include "build/branding_buildflags.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/encrypted_messages/encrypted_message.pb.h"
 #include "components/encrypted_messages/message_encrypter.h"
 #include "components/metrics/clean_exit_beacon.h"
@@ -103,15 +104,18 @@ std::string GetPlatformString() {
   return "win";
 #elif defined(OS_IOS)
   return "ios";
-#elif defined(OS_MACOSX)
+#elif defined(OS_APPLE)
   return "mac";
-#elif defined(OS_CHROMEOS)
+#elif BUILDFLAG(IS_CHROMEOS_ASH)
   return "chromeos";
+#elif BUILDFLAG(IS_CHROMEOS_LACROS)
+  return "chromeos_lacros";
 #elif defined(OS_ANDROID)
   return "android";
 #elif defined(OS_FUCHSIA)
   return "fuchsia";
-#elif defined(OS_LINUX) || defined(OS_BSD) || defined(OS_SOLARIS)
+#elif (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)) || \
+    defined(OS_BSD) || defined(OS_SOLARIS)
   // Default BSD and SOLARIS to Linux to not break those builds, although these
   // platforms are not officially supported by Chrome.
   return "linux";
@@ -152,13 +156,6 @@ void RecordRequestsAllowedHistogram(ResourceRequestsAllowedState state) {
   UMA_HISTOGRAM_ENUMERATION("Variations.ResourceRequestsAllowed", state,
                             RESOURCE_REQUESTS_ALLOWED_ENUM_SIZE);
 }
-
-enum VariationsSeedExpiry {
-  VARIATIONS_SEED_EXPIRY_NOT_EXPIRED,
-  VARIATIONS_SEED_EXPIRY_FETCH_TIME_MISSING,
-  VARIATIONS_SEED_EXPIRY_EXPIRED,
-  VARIATIONS_SEED_EXPIRY_ENUM_SIZE,
-};
 
 // Converts ResourceRequestAllowedNotifier::State to the corresponding
 // ResourceRequestsAllowedState value.
@@ -267,17 +264,9 @@ std::unique_ptr<SeedResponse> MaybeImportFirstRunSeed(
   return nullptr;
 }
 
-// Called when the VariationsSeedStore first stores a seed.
-void OnInitialSeedStored() {
-#if defined(OS_ANDROID)
-  android::MarkVariationsSeedAsStored();
-  android::ClearJavaFirstRunPrefs();
-#endif
-}
-
 }  // namespace
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 // This is a utility which syncs the policy-managed value of
 // |prefs::kDeviceVariationsRestrictionsByPolicy| into
 // |prefs::kVariationsRestrictionsByPolicy|.
@@ -354,7 +343,7 @@ class DeviceVariationsRestrictionByPolicyApplicator {
   base::WeakPtrFactory<DeviceVariationsRestrictionByPolicyApplicator>
       weak_ptr_factory_{this};
 };
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 VariationsService::VariationsService(
     std::unique_ptr<VariationsServiceClient> client,
@@ -377,13 +366,13 @@ VariationsService::VariationsService(
                            std::make_unique<VariationsSeedStore>(
                                local_state,
                                MaybeImportFirstRunSeed(local_state),
-                               base::BindOnce(&OnInitialSeedStored)),
+                               /*signature_verification_enabled=*/true),
                            ui_string_overrider),
       last_request_was_http_retry_(false) {
   DCHECK(client_);
   DCHECK(resource_request_allowed_notifier_);
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   device_variations_restrictions_by_policy_applicator_ =
       std::make_unique<DeviceVariationsRestrictionByPolicyApplicator>(
           policy_pref_service_);
@@ -510,7 +499,7 @@ GURL VariationsService::GetVariationsServerURL(HttpOptions http_options) {
 }
 
 void VariationsService::EnsureLocaleEquals(const std::string& locale) {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // Chrome OS may switch language on the fly.
   DCHECK_EQ(locale, field_trial_creator_.application_locale());
 #else
@@ -640,7 +629,10 @@ bool VariationsService::DoFetchFromURL(const GURL& url, bool is_http_retry) {
           cookies_allowed: NO
           setting: "This feature cannot be disabled by settings."
           policy_exception_justification:
-            "Not implemented, considered not required."
+            "The ChromeVariations policy prevents Variations from applying, "
+            "but Google Chrome still downloads Variations from the server "
+            "periodically. This way, the downloaded Variations apply "
+            "immediately on restart if you unset the ChromeVariations policy."
         })");
   auto resource_request = std::make_unique<network::ResourceRequest>();
   resource_request->url = url;
@@ -699,15 +691,13 @@ bool VariationsService::StoreSeed(const std::string& seed_data,
                                   const std::string& country_code,
                                   base::Time date_fetched,
                                   bool is_delta_compressed,
-                                  bool is_gzip_compressed,
-                                  bool fetched_insecurely) {
+                                  bool is_gzip_compressed) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   std::unique_ptr<VariationsSeed> seed(new VariationsSeed);
   if (!field_trial_creator_.seed_store()->StoreSeedData(
           seed_data, seed_signature, country_code, date_fetched,
-          is_delta_compressed, is_gzip_compressed, fetched_insecurely,
-          seed.get())) {
+          is_delta_compressed, is_gzip_compressed, seed.get())) {
     return false;
   }
 
@@ -810,19 +800,12 @@ void VariationsService::OnSimpleLoaderCompleteOrRedirect(
   scoped_refptr<net::HttpResponseHeaders> headers;
 
   int response_code = -1;
-  // We use the final URL HTTPS/HTTP value to pass to StoreSeed, since
-  // signature validation should be forced on for any HTTP fetch, including
-  // redirects from HTTPS to HTTP. We default to false since we can't get this
-  // value (nor will it be used) in the redirect case.
-  bool final_url_was_https = false;
 
   // Variations seed fetches should not follow redirects, so if this request was
   // redirected, keep the default values for |net_error| and |is_success| (treat
   // it as a net::ERR_INVALID_REDIRECT), and the fetch will be cancelled when
   // pending_seed_request is reset.
   if (!was_redirect) {
-    final_url_was_https =
-        pending_seed_request_->GetFinalURL().SchemeIs(url::kHttpsScheme);
     const network::mojom::URLResponseHead* response_info =
         pending_seed_request_->ResponseInfo();
     if (response_info && response_info->headers) {
@@ -919,7 +902,7 @@ void VariationsService::OnSimpleLoaderCompleteOrRedirect(
   const std::string country_code = GetHeaderValue(headers.get(), "X-Country");
   const bool store_success =
       StoreSeed(*response_body, signature, country_code, response_date,
-                is_delta_compressed, is_gzip_compressed, !final_url_was_https);
+                is_delta_compressed, is_gzip_compressed);
   if (!store_success && is_delta_compressed) {
     disable_deltas_for_next_request_ = true;
     // |request_scheduler_| will be null during unit tests.
@@ -1016,16 +999,15 @@ bool VariationsService::SetupFieldTrials(
     const char* kEnableGpuBenchmarking,
     const char* kEnableFeatures,
     const char* kDisableFeatures,
-    const std::set<std::string>& unforceable_field_trials,
     const std::vector<std::string>& variation_ids,
     const std::vector<base::FeatureList::FeatureOverrideInfo>& extra_overrides,
     std::unique_ptr<base::FeatureList> feature_list,
     variations::PlatformFieldTrials* platform_field_trials) {
   return field_trial_creator_.SetupFieldTrials(
-      kEnableGpuBenchmarking, kEnableFeatures, kDisableFeatures,
-      unforceable_field_trials, variation_ids, extra_overrides,
-      CreateLowEntropyProvider(), std::move(feature_list),
-      platform_field_trials, &safe_seed_manager_);
+      kEnableGpuBenchmarking, kEnableFeatures, kDisableFeatures, variation_ids,
+      extra_overrides, CreateLowEntropyProvider(), std::move(feature_list),
+      platform_field_trials, &safe_seed_manager_,
+      state_manager_->GetLowEntropySource());
 }
 
 void VariationsService::OverrideCachedUIStrings() {

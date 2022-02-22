@@ -19,8 +19,6 @@
 #include "ui/views/views_export.h"
 #include "ui/views/widget/desktop_aura/desktop_window_tree_host_platform.h"
 
-class SkPath;
-
 namespace aura {
 class ScopedWindowTargeter;
 }  // namespace aura
@@ -42,14 +40,6 @@ class VIEWS_EXPORT DesktopWindowTreeHostLinux
       internal::NativeWidgetDelegate* native_widget_delegate,
       DesktopNativeWidgetAura* desktop_native_widget_aura);
   ~DesktopWindowTreeHostLinux() override;
-
-  // A way of converting a |widget| into the content_window()
-  // of the associated DesktopNativeWidgetAura.
-  static aura::Window* GetContentWindowForWidget(gfx::AcceleratedWidget widget);
-
-  // A way of converting a |widget| into this object.
-  static DesktopWindowTreeHostLinux* GetHostForWidget(
-      gfx::AcceleratedWidget widget);
 
   // Get all open top-level windows. This includes windows that may not be
   // visible. This list is sorted in their stacking order, i.e. the first window
@@ -82,6 +72,10 @@ class VIEWS_EXPORT DesktopWindowTreeHostLinux
   void OnNativeWidgetCreated(const Widget::InitParams& params) override;
   base::flat_map<std::string, std::string> GetKeyboardLayoutMap() override;
   void InitModalType(ui::ModalType modal_type) override;
+  Widget::MoveLoopResult RunMoveLoop(
+      const gfx::Vector2d& drag_offset,
+      Widget::MoveLoopSource source,
+      Widget::MoveLoopEscapeBehavior escape_behavior) override;
 
   // PlatformWindowDelegate:
   void DispatchEvent(ui::Event* event) override;
@@ -93,12 +87,10 @@ class VIEWS_EXPORT DesktopWindowTreeHostLinux
   const ui::X11Extension* GetX11Extension() const;
 
  private:
-  friend class DesktopWindowTreeHostX11Test;
   FRIEND_TEST_ALL_PREFIXES(DesktopWindowTreeHostLinuxTest, HitTest);
-
-  // Overridden from display::DisplayObserver via aura::WindowTreeHost:
-  void OnDisplayMetricsChanged(const display::Display& display,
-                               uint32_t changed_metrics) override;
+  FRIEND_TEST_ALL_PREFIXES(DesktopWindowTreeHostLinuxTest, MouseNCEvents);
+  FRIEND_TEST_ALL_PREFIXES(DesktopWindowTreeHostLinuxHighDPITest,
+                           MouseNCEvents);
 
   // DesktopWindowTreeHostPlatform overrides:
   void AddAdditionalInitProperties(
@@ -112,12 +104,11 @@ class VIEWS_EXPORT DesktopWindowTreeHostLinux
   void DestroyNonClientEventFilter();
 
   // X11ExtensionDelegate overrides:
-  void GetWindowMask(const gfx::Size& size, SkPath* window_mask) override;
   void OnLostMouseGrab() override;
 #if BUILDFLAG(USE_ATK)
-  bool OnAtkKeyEvent(AtkKeyEventStruct* atk_key_event) override;
+  bool OnAtkKeyEvent(AtkKeyEventStruct* atk_key_event, bool transient) override;
 #endif
-  bool IsOverrideRedirect() const override;
+  bool IsOverrideRedirect(bool is_tiling_wm) const override;
 
   // Enables event listening after closing |dialog|.
   void EnableEventListening();

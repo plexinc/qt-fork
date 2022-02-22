@@ -32,7 +32,7 @@
 
 #include <algorithm>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 /*!
     \qmltype CategoryRange
@@ -126,8 +126,8 @@ void DeclarativeCategoryAxis::replace(const QString &oldLabel, const QString &ne
 void DeclarativeCategoryAxis::appendAxisChildren(QQmlListProperty<QObject> *list, QObject *element)
 {
     // Empty implementation; the children are parsed in componentComplete instead
-    Q_UNUSED(list)
-    Q_UNUSED(element)
+    Q_UNUSED(list);
+    Q_UNUSED(element);
 }
 
 DeclarativeCategoryAxis::AxisLabelsPosition DeclarativeCategoryAxis::labelsPosition() const
@@ -143,6 +143,6 @@ void DeclarativeCategoryAxis::setLabelsPosition(AxisLabelsPosition position)
     }
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_declarativecategoryaxis_p.cpp"

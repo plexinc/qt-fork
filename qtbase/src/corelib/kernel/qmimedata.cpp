@@ -42,9 +42,7 @@
 #include "private/qobject_p.h"
 #include "qurl.h"
 #include "qstringlist.h"
-#if QT_CONFIG(textcodec)
-#include "qtextcodec.h"
-#endif
+#include "qstringconverter.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -60,7 +58,7 @@ struct QMimeDataStruct
     QString format;
     QVariant data;
 };
-Q_DECLARE_TYPEINFO(QMimeDataStruct, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QMimeDataStruct, Q_RELOCATABLE_TYPE);
 
 class QMimeDataPrivate : public QObjectPrivate
 {
@@ -70,7 +68,7 @@ public:
     void setData(const QString &format, const QVariant &data);
     QVariant getData(const QString &format) const;
 
-    QVariant retrieveTypedData(const QString &format, QMetaType::Type type) const;
+    QVariant retrieveTypedData(const QString &format, QMetaType type) const;
 
     std::vector<QMimeDataStruct>::iterator find(const QString &format) noexcept {
         const auto formatEquals = [](const QString &format) {
@@ -112,23 +110,24 @@ QVariant QMimeDataPrivate::getData(const QString &format) const
         return it->data;
 }
 
-QVariant QMimeDataPrivate::retrieveTypedData(const QString &format, QMetaType::Type type) const
+QVariant QMimeDataPrivate::retrieveTypedData(const QString &format, QMetaType type) const
 {
     Q_Q(const QMimeData);
+    int typeId = type.id();
 
-    QVariant data = q->retrieveData(format, QVariant::Type(type));
+    QVariant data = q->retrieveData(format, type);
 
     // Text data requested: fallback to URL data if available
     if (format == QLatin1String("text/plain") && !data.isValid()) {
-        data = retrieveTypedData(textUriListLiteral(), QMetaType::QVariantList);
-        if (data.userType() == QMetaType::QUrl) {
+        data = retrieveTypedData(textUriListLiteral(), QMetaType(QMetaType::QVariantList));
+        if (data.metaType().id() == QMetaType::QUrl) {
             data = QVariant(data.toUrl().toDisplayString());
-        } else if (data.userType() == QMetaType::QVariantList) {
+        } else if (data.metaType().id() == QMetaType::QVariantList) {
             QString text;
             int numUrls = 0;
             const QList<QVariant> list = data.toList();
             for (int i = 0; i < list.size(); ++i) {
-                if (list.at(i).userType() == QMetaType::QUrl) {
+                if (list.at(i).metaType().id() == QMetaType::QUrl) {
                     text += list.at(i).toUrl().toDisplayString() + QLatin1Char('\n');
                     ++numUrls;
                 }
@@ -139,38 +138,41 @@ QVariant QMimeDataPrivate::retrieveTypedData(const QString &format, QMetaType::T
         }
     }
 
-    if (data.userType() == type || !data.isValid())
+    if (data.metaType() == type || !data.isValid())
         return data;
 
-    // provide more conversion possiblities than just what QVariant provides
+    // provide more conversion possibilities than just what QVariant provides
 
     // URLs can be lists as well...
-    if ((type == QMetaType::QUrl && data.userType() == QMetaType::QVariantList)
-        || (type == QMetaType::QVariantList && data.userType() == QMetaType::QUrl))
+    if ((typeId == QMetaType::QUrl && data.metaType().id() == QMetaType::QVariantList)
+        || (typeId == QMetaType::QVariantList && data.metaType().id() == QMetaType::QUrl))
         return data;
 
     // images and pixmaps are interchangeable
-    if ((type == QMetaType::QPixmap && data.userType() == QMetaType::QImage)
-        || (type == QMetaType::QImage && data.userType() == QMetaType::QPixmap))
+    if ((typeId == QMetaType::QPixmap && data.metaType().id() == QMetaType::QImage)
+        || (typeId == QMetaType::QImage && data.metaType().id() == QMetaType::QPixmap))
         return data;
 
-    if (data.userType() == QMetaType::QByteArray) {
+    if (data.metaType().id() == QMetaType::QByteArray) {
         // see if we can convert to the requested type
-        switch(type) {
-#if QT_CONFIG(textcodec)
+        switch (typeId) {
         case QMetaType::QString: {
             const QByteArray ba = data.toByteArray();
-            if (ba.isNull())
-                return QString();
-            QTextCodec *codec = QTextCodec::codecForName("utf-8");
-            if (format == QLatin1String("text/html"))
-                codec = QTextCodec::codecForHtml(ba, codec);
-            return codec->toUnicode(ba);
+            if (format == QLatin1String("text/html")) {
+                auto encoding = QStringConverter::encodingForHtml(ba);
+                if (encoding) {
+                    QStringDecoder toUtf16(*encoding);
+                    return QString(toUtf16(ba));
+                }
+                // fall back to utf8
+            }
+            return QString::fromUtf8(ba);
         }
-#endif // textcodec
         case QMetaType::QColor: {
             QVariant newData = data;
+QT_WARNING_PUSH QT_WARNING_DISABLE_DEPRECATED
             newData.convert(QMetaType::QColor);
+QT_WARNING_POP
             return newData;
         }
         case QMetaType::QVariantList: {
@@ -199,10 +201,10 @@ QVariant QMimeDataPrivate::retrieveTypedData(const QString &format, QMetaType::T
             break;
         }
 
-    } else if (type == QMetaType::QByteArray) {
+    } else if (typeId == QMetaType::QByteArray) {
 
         // try to convert to bytearray
-        switch (data.userType()) {
+        switch (data.metaType().id()) {
         case QMetaType::QByteArray:
         case QMetaType::QColor:
             return data.toByteArray();
@@ -215,7 +217,7 @@ QVariant QMimeDataPrivate::retrieveTypedData(const QString &format, QMetaType::T
             QByteArray result;
             QList<QVariant> list = data.toList();
             for (int i = 0; i < list.size(); ++i) {
-                if (list.at(i).userType() == QMetaType::QUrl) {
+                if (list.at(i).metaType().id() == QMetaType::QUrl) {
                     result += list.at(i).toUrl().toEncoded();
                     result += "\r\n";
                 }
@@ -318,7 +320,7 @@ QVariant QMimeDataPrivate::retrieveTypedData(const QString &format, QMetaType::T
     QMacPasteboardMime maps MIME to Mac flavors.
 
     \sa QClipboard, QDragEnterEvent, QDragMoveEvent, QDropEvent, QDrag,
-        QMacPasteboardMime, {Drag and Drop}
+        {Drag and Drop}
 */
 
 /*!
@@ -346,14 +348,14 @@ QMimeData::~QMimeData()
 QList<QUrl> QMimeData::urls() const
 {
     Q_D(const QMimeData);
-    QVariant data = d->retrieveTypedData(textUriListLiteral(), QMetaType::QVariantList);
+    QVariant data = d->retrieveTypedData(textUriListLiteral(), QMetaType(QMetaType::QVariantList));
     QList<QUrl> urls;
-    if (data.userType() == QMetaType::QUrl)
+    if (data.metaType().id() == QMetaType::QUrl)
         urls.append(data.toUrl());
-    else if (data.userType() == QMetaType::QVariantList) {
+    else if (data.metaType().id() == QMetaType::QVariantList) {
         QList<QVariant> list = data.toList();
         for (int i = 0; i < list.size(); ++i) {
-            if (list.at(i).userType() == QMetaType::QUrl)
+            if (list.at(i).metaType().id() == QMetaType::QUrl)
                 urls.append(list.at(i).toUrl());
         }
     }
@@ -406,11 +408,11 @@ bool QMimeData::hasUrls() const
 QString QMimeData::text() const
 {
     Q_D(const QMimeData);
-    QVariant utf8Text = d->retrieveTypedData(textPlainUtf8Literal(), QMetaType::QString);
+    QVariant utf8Text = d->retrieveTypedData(textPlainUtf8Literal(), QMetaType(QMetaType::QString));
     if (!utf8Text.isNull())
         return utf8Text.toString();
 
-    QVariant data = d->retrieveTypedData(textPlainLiteral(), QMetaType::QString);
+    QVariant data = d->retrieveTypedData(textPlainLiteral(), QMetaType(QMetaType::QString));
     return data.toString();
 }
 
@@ -446,7 +448,7 @@ bool QMimeData::hasText() const
 QString QMimeData::html() const
 {
     Q_D(const QMimeData);
-    QVariant data = d->retrieveTypedData(textHtmlLiteral(), QMetaType::QString);
+    QVariant data = d->retrieveTypedData(textHtmlLiteral(), QMetaType(QMetaType::QString));
     return data.toString();
 }
 
@@ -488,7 +490,7 @@ bool QMimeData::hasHtml() const
 QVariant QMimeData::imageData() const
 {
     Q_D(const QMimeData);
-    return d->retrieveTypedData(applicationXQtImageLiteral(), QMetaType::QImage);
+    return d->retrieveTypedData(applicationXQtImageLiteral(), QMetaType(QMetaType::QImage));
 }
 
 /*!
@@ -535,7 +537,7 @@ bool QMimeData::hasImage() const
 QVariant QMimeData::colorData() const
 {
     Q_D(const QMimeData);
-    return d->retrieveTypedData(applicationXColorLiteral(), QMetaType::QColor);
+    return d->retrieveTypedData(applicationXColorLiteral(), QMetaType(QMetaType::QColor));
 }
 
 /*!
@@ -570,7 +572,7 @@ bool QMimeData::hasColor() const
 QByteArray QMimeData::data(const QString &mimeType) const
 {
     Q_D(const QMimeData);
-    QVariant data = d->retrieveTypedData(mimeType, QMetaType::QByteArray);
+    QVariant data = d->retrieveTypedData(mimeType, QMetaType(QMetaType::QByteArray));
     return data.toByteArray();
 }
 
@@ -584,11 +586,9 @@ QByteArray QMimeData::data(const QString &mimeType) const
 
     Note that if you want to use a custom data type in an item view drag and drop
     operation, you must register it as a Qt \l{QMetaType}{meta type}, using the
-    Q_DECLARE_METATYPE() macro, and implement stream operators for it. The stream
-    operators must then be registered with the qRegisterMetaTypeStreamOperators()
-    function.
+    Q_DECLARE_METATYPE() macro, and implement stream operators for it.
 
-    \sa hasFormat(), QMetaType, {QMetaType::}{qRegisterMetaTypeStreamOperators()}
+    \sa hasFormat(), QMetaType, {QMetaType::}{Q_DECLARE_METATYPE()}
 */
 void QMimeData::setData(const QString &mimeType, const QByteArray &data)
 {
@@ -662,7 +662,7 @@ QStringList QMimeData::formats() const
 
     \sa data()
 */
-QVariant QMimeData::retrieveData(const QString &mimeType, QVariant::Type type) const
+QVariant QMimeData::retrieveData(const QString &mimeType, QMetaType type) const
 {
     Q_UNUSED(type);
     Q_D(const QMimeData);

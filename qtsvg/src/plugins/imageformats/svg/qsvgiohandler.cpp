@@ -118,6 +118,24 @@ QSvgIOHandler::~QSvgIOHandler()
     delete d;
 }
 
+static bool isPossiblySvg(QIODevice *device, bool *isCompressed = nullptr)
+{
+    constexpr int bufSize = 64;
+    char buf[bufSize];
+    const qint64 readLen = device->peek(buf, bufSize);
+    if (readLen < 8)
+        return false;
+#    ifndef QT_NO_COMPRESS
+    if (quint8(buf[0]) == 0x1f && quint8(buf[1]) == 0x8b) {
+        if (isCompressed)
+            *isCompressed = true;
+        return true;
+    }
+#    endif
+    QTextStream str(QByteArray::fromRawData(buf, readLen));
+    QByteArray ba = str.read(16).trimmed().toLatin1();
+    return ba.startsWith("<?xml") || ba.startsWith("<svg") || ba.startsWith("<!--") || ba.startsWith("<!DOCTYPE svg");
+}
 
 bool QSvgIOHandler::canRead() const
 {
@@ -126,15 +144,9 @@ bool QSvgIOHandler::canRead() const
     if (d->loaded && !d->readDone)
         return true;        // Will happen if we have been asked for the size
 
-    QByteArray buf = device()->peek(16);
-#ifndef QT_NO_COMPRESS
-    if (buf.startsWith("\x1f\x8b")) {
-        setFormat("svgz");
-        return true;
-    } else
-#endif
-    if (buf.contains("<?xml") || buf.contains("<svg") || buf.contains("<!--") || buf.contains("<!DOCTYPE svg")) {
-        setFormat("svg");
+    bool isCompressed = false;
+    if (isPossiblySvg(device(), &isCompressed)) {
+        setFormat(isCompressed ? "svgz" : "svg");
         return true;
     }
     return false;
@@ -169,14 +181,13 @@ bool QSvgIOHandler::read(QImage *image)
             t.translate(tr1.x(), tr1.y());
             bounds = t.mapRect(bounds);
         }
-        if (image->size() != finalSize || !image->reinterpretAsFormat(QImage::Format_ARGB32_Premultiplied)) {
-            *image = QImage(finalSize, QImage::Format_ARGB32_Premultiplied);
-            if (!finalSize.isEmpty() && image->isNull()) {
-                qWarning("QSvgIOHandler: QImage allocation failed (size %i x %i)", finalSize.width(), finalSize.height());
+        if (finalSize.isEmpty()) {
+            *image = QImage();
+        } else {
+            if (qMax(finalSize.width(), finalSize.height()) > 0xffff)
+                return false; // Assume corrupted file
+            if (!QImageIOHandler::allocateImage(finalSize, QImage::Format_ARGB32_Premultiplied, image))
                 return false;
-            }
-        }
-        if (!finalSize.isEmpty()) {
             image->fill(d->backColor.rgba());
             QPainter p(image);
             d->r.render(&p, bounds);
@@ -260,12 +271,7 @@ bool QSvgIOHandler::supportsOption(ImageOption option) const
 
 bool QSvgIOHandler::canRead(QIODevice *device)
 {
-    QByteArray buf = device->peek(16);
-    return
-#ifndef QT_NO_COMPRESS
-            buf.startsWith("\x1f\x8b") ||
-#endif
-            buf.contains("<?xml") || buf.contains("<svg") || buf.contains("<!--") || buf.contains("<!DOCTYPE svg");
+    return isPossiblySvg(device);
 }
 
 QT_END_NAMESPACE

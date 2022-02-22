@@ -27,6 +27,8 @@
 
 #include <limits>
 #include <memory>
+#include <utility>
+
 #include "third_party/blink/renderer/bindings/modules/v8/to_v8_for_modules.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_binding_for_modules.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_idb_request.h"
@@ -64,7 +66,7 @@ IDBCursor::IDBCursor(std::unique_ptr<WebIDBCursor> backend,
 
 IDBCursor::~IDBCursor() = default;
 
-void IDBCursor::Trace(Visitor* visitor) {
+void IDBCursor::Trace(Visitor* visitor) const {
   visitor->Trace(request_);
   visitor->Trace(source_);
   visitor->Trace(transaction_);

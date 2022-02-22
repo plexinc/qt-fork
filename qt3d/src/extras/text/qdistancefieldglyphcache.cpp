@@ -44,6 +44,7 @@
 #include "qdistancefieldglyphcache_p.h"
 #include "qtextureatlas_p.h"
 
+#include <QtGui/qpainterpath.h>
 #include <QtGui/qfont.h>
 #include <QtGui/qpainterpath.h>
 #include <QtGui/private/qdistancefield_p.h>
@@ -107,7 +108,7 @@ private:
 
     QHash<quint32, StoredGlyph> m_glyphs;
 
-    QVector<QTextureAtlas*> m_atlasses;
+    QList<QTextureAtlas*> m_atlasses;
 };
 
 StoredGlyph::StoredGlyph(const QRawFont &font, quint32 glyph, bool doubleResolution)
@@ -335,12 +336,12 @@ QDistanceFieldGlyphCache::Glyph refAndGetGlyph(DistanceFieldFont *dff, quint32 g
 }
 } // anonymous
 
-QVector<QDistanceFieldGlyphCache::Glyph> QDistanceFieldGlyphCache::refGlyphs(const QGlyphRun &run)
+QList<QDistanceFieldGlyphCache::Glyph> QDistanceFieldGlyphCache::refGlyphs(const QGlyphRun &run)
 {
     DistanceFieldFont *dff = getOrCreateDistanceFieldFont(run.rawFont());
-    QVector<QDistanceFieldGlyphCache::Glyph> ret;
+    QList<QDistanceFieldGlyphCache::Glyph> ret;
 
-    const QVector<quint32> glyphs = run.glyphIndexes();
+    const auto glyphs = run.glyphIndexes();
     for (quint32 glyph : glyphs)
         ret << refAndGetGlyph(dff, glyph);
 
@@ -356,7 +357,7 @@ void QDistanceFieldGlyphCache::derefGlyphs(const QGlyphRun &run)
 {
     DistanceFieldFont *dff = getOrCreateDistanceFieldFont(run.rawFont());
 
-    const QVector<quint32> glyphs = run.glyphIndexes();
+    const auto glyphs = run.glyphIndexes();
     for (quint32 glyph : glyphs)
         dff->derefGlyph(glyph);
 }

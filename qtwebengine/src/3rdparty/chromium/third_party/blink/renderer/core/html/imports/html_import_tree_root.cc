@@ -77,8 +77,9 @@ void HTMLImportTreeRoot::RecalcTimerFired(TimerBase*) {
   HTMLImport::RecalcTreeState(this);
 }
 
-void HTMLImportTreeRoot::Trace(Visitor* visitor) {
+void HTMLImportTreeRoot::Trace(Visitor* visitor) const {
   visitor->Trace(document_);
+  visitor->Trace(recalc_timer_);
   visitor->Trace(imports_);
   HTMLImport::Trace(visitor);
 }

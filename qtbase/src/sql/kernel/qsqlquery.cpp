@@ -41,16 +41,15 @@
 
 //#define QT_DEBUG_SQL
 
+#include "qatomic.h"
 #include "qdebug.h"
 #include "qelapsedtimer.h"
-#include "qatomic.h"
+#include "qmap.h"
 #include "qsqlrecord.h"
 #include "qsqlresult.h"
 #include "qsqldriver.h"
 #include "qsqldatabase.h"
 #include "private/qsqlnulldriver_p.h"
-#include "qvector.h"
-#include "qmap.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -65,7 +64,7 @@ public:
     static QSqlQueryPrivate* shared_null();
 };
 
-Q_GLOBAL_STATIC_WITH_ARGS(QSqlQueryPrivate, nullQueryPrivate, (0))
+Q_GLOBAL_STATIC_WITH_ARGS(QSqlQueryPrivate, nullQueryPrivate, (nullptr))
 Q_GLOBAL_STATIC(QSqlNullDriver, nullDriver)
 Q_GLOBAL_STATIC_WITH_ARGS(QSqlNullResult, nullResult, (nullDriver()))
 
@@ -180,7 +179,7 @@ QSqlQueryPrivate::~QSqlQueryPrivate()
     them in the same query.
 
     You can retrieve the values of all the fields in a single variable
-    (a map) using boundValues().
+    using boundValues().
 
     \note Not all SQL operations support binding values. Refer to your database
     system's documentation to check their availability.
@@ -244,12 +243,18 @@ QSqlQuery::QSqlQuery(QSqlResult *result)
 
 QSqlQuery::~QSqlQuery()
 {
-    if (!d->ref.deref())
+    if (d && !d->ref.deref())
         delete d;
 }
 
+#if QT_DEPRECATED_SINCE(6, 2)
 /*!
     Constructs a copy of \a other.
+
+    \deprecated QSqlQuery cannot be meaningfully copied. Prepared
+    statements, bound values and so on will not work correctly, depending
+    on your database driver (for instance, changing the copy will affect
+    the original). Treat QSqlQuery as a move-only type instead.
 */
 
 QSqlQuery::QSqlQuery(const QSqlQuery& other)
@@ -259,9 +264,44 @@ QSqlQuery::QSqlQuery(const QSqlQuery& other)
 }
 
 /*!
+    Assigns \a other to this object.
+
+    \deprecated QSqlQuery cannot be meaningfully copied. Prepared
+    statements, bound values and so on will not work correctly, depending
+    on your database driver (for instance, changing the copy will affect
+    the original). Treat QSqlQuery as a move-only type instead.
+*/
+
+QSqlQuery& QSqlQuery::operator=(const QSqlQuery& other)
+{
+    qAtomicAssign(d, other.d);
+    return *this;
+}
+#endif
+
+/*!
+    \fn QSqlQuery::QSqlQuery(QSqlQuery &&other) noexcept
+    \since 6.2
+    Move-constructs a QSqlQuery from \a other.
+*/
+
+/*!
+    \fn QSqlQuery &QSqlQuery::operator=(QSqlQuery &&other) noexcept
+    \since 6.2
+    Move-assigns \a other to this object.
+*/
+
+/*!
+    \fn void QSqlQuery::swap(QSqlQuery &other) noexcept
+    \since 6.2
+    Swaps \a other to this object. This operation is very
+    fast and never fails.
+*/
+
+/*!
     \internal
 */
-static void qInit(QSqlQuery *q, const QString& query, QSqlDatabase db)
+static void qInit(QSqlQuery *q, const QString& query, const QSqlDatabase &db)
 {
     QSqlDatabase database = db;
     if (!database.isValid())
@@ -281,7 +321,7 @@ static void qInit(QSqlQuery *q, const QString& query, QSqlDatabase db)
 
     \sa QSqlDatabase
 */
-QSqlQuery::QSqlQuery(const QString& query, QSqlDatabase db)
+QSqlQuery::QSqlQuery(const QString& query, const QSqlDatabase &db)
 {
     d = QSqlQueryPrivate::shared_null();
     qInit(this, query, db);
@@ -294,21 +334,10 @@ QSqlQuery::QSqlQuery(const QString& query, QSqlDatabase db)
     \sa QSqlDatabase
 */
 
-QSqlQuery::QSqlQuery(QSqlDatabase db)
+QSqlQuery::QSqlQuery(const QSqlDatabase &db)
 {
     d = QSqlQueryPrivate::shared_null();
     qInit(this, QString(), db);
-}
-
-
-/*!
-    Assigns \a other to this object.
-*/
-
-QSqlQuery& QSqlQuery::operator=(const QSqlQuery& other)
-{
-    qAtomicAssign(d, other.d);
-    return *this;
 }
 
 /*!
@@ -1048,7 +1077,7 @@ bool QSqlQuery::exec()
 
   To bind NULL values, a null QVariant of the relevant type has to be
   added to the bound QVariantList; for example, \c
-  {QVariant(QVariant::String)} should be used if you are using
+  {QVariant(QMetaType::QString)} should be used if you are using
   strings.
 
   \note Every bound QVariantList must contain the same amount of
@@ -1086,7 +1115,7 @@ bool QSqlQuery::execBatch(BatchExecutionMode mode)
   the result into.
 
   To bind a NULL value, use a null QVariant; for example, use
-  \c {QVariant(QVariant::String)} if you are binding a string.
+  \c {QVariant(QMetaType::QString)} if you are binding a string.
 
   \sa addBindValue(), prepare(), exec(), boundValue(), boundValues()
 */
@@ -1116,7 +1145,7 @@ void QSqlQuery::bindValue(int pos, const QVariant& val, QSql::ParamType paramTyp
   overwritten with data from the database after the exec() call.
 
   To bind a NULL value, use a null QVariant; for example, use \c
-  {QVariant(QVariant::String)} if you are binding a string.
+  {QVariant(QMetaType::QString)} if you are binding a string.
 
   \sa bindValue(), prepare(), exec(), boundValue(), boundValues()
 */
@@ -1144,27 +1173,24 @@ QVariant QSqlQuery::boundValue(int pos) const
 }
 
 /*!
-  Returns a map of the bound values.
+  \since 6.0
 
-  With named binding, the bound values can be examined in the
-  following ways:
+  Returns a list of bound values.
+
+  The order of the list is in binding order, irrespective of whether
+  named or positional binding is used.
+
+  The bound values can be examined in the following way:
 
   \snippet sqldatabase/sqldatabase.cpp 14
 
-  With positional binding, the code becomes:
-
-  \snippet sqldatabase/sqldatabase.cpp 15
-
   \sa boundValue(), bindValue(), addBindValue()
 */
-QMap<QString,QVariant> QSqlQuery::boundValues() const
-{
-    QMap<QString,QVariant> map;
 
-    const QVector<QVariant> values(d->sqlResult->boundValues());
-    for (int i = 0; i < values.count(); ++i)
-        map[d->sqlResult->boundValueName(i)] = values.at(i);
-    return map;
+QVariantList QSqlQuery::boundValues() const
+{
+    const QVariantList values(d->sqlResult->boundValues());
+    return values;
 }
 
 /*!

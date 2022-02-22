@@ -57,8 +57,10 @@ tst_QGuiVariant::~tst_QGuiVariant()
 void tst_QGuiVariant::createGuiType_data()
 {
     QTest::addColumn<int>("typeId");
-    for (int i = QMetaType::FirstGuiType; i <= QMetaType::LastGuiType; ++i)
-        QTest::newRow(QMetaType::typeName(i)) << i;
+    for (int i = QMetaType::FirstGuiType; i <= QMetaType::LastGuiType; ++i) {
+        if (QMetaType metaType(i); metaType.isValid())
+            QTest::newRow(metaType.name()) << i;
+    }
 }
 
 // Tests how fast a Qt GUI type can be default-constructed by a
@@ -70,7 +72,7 @@ void tst_QGuiVariant::createGuiType()
     QFETCH(int, typeId);
     QBENCHMARK {
         for (int i = 0; i < ITERATION_COUNT; ++i)
-            QVariant(typeId, (void *)0);
+            QVariant(QMetaType(typeId));
     }
 }
 
@@ -86,11 +88,11 @@ void tst_QGuiVariant::createGuiTypeCopy_data()
 void tst_QGuiVariant::createGuiTypeCopy()
 {
     QFETCH(int, typeId);
-    QVariant other(typeId, (void *)0);
+    QVariant other((QMetaType(typeId)));
     const void *copy = other.constData();
     QBENCHMARK {
         for (int i = 0; i < ITERATION_COUNT; ++i)
-            QVariant(typeId, copy);
+            QVariant(QMetaType(typeId), copy);
     }
 }
 

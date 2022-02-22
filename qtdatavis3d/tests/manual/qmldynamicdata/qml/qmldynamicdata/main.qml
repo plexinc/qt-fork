@@ -27,11 +27,12 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.1
-import QtDataVisualization 1.0
+import QtQuick
+import QtDataVisualization 1.2
+import QtQuick.Controls
 import "."
 
-Rectangle {
+Item {
     id: mainView
     width: 1280
     height: 720
@@ -157,12 +158,12 @@ Rectangle {
             property int mouseX: -1
             property int mouseY: -1
 
-            onPositionChanged: {
+            onPositionChanged: (mouse)=> {
                 mouseX = mouse.x;
                 mouseY = mouse.y;
             }
 
-            onWheel: {
+            onWheel: (wheel)=> {
                 // Adjust zoom level based on what zoom range we're in.
                 var zoomLevel = scatterGraph.scene.activeCamera.zoomLevel;
                 if (zoomLevel > 100)
@@ -227,7 +228,7 @@ Rectangle {
         }
     }
 
-    NewButton {
+    Button {
         id: shadowToggle
         width: parent.width / 3 // We're adding 3 buttons and want to divide them equally
         text: "Hide Shadows"
@@ -244,7 +245,7 @@ Rectangle {
         }
     }
 
-    NewButton {
+    Button {
         id: cameraToggle
         width: parent.width / 3
         text: "Pause Camera"
@@ -261,11 +262,11 @@ Rectangle {
         }
     }
 
-    NewButton {
+    Button {
         id: exitButton
         width: parent.width / 3
         text: "Quit"
         anchors.left: cameraToggle.right
-        onClicked: Qt.quit(0);
+        onClicked: Qt.quit();
     }
 }

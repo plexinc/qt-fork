@@ -47,6 +47,7 @@
 #include "iosmagnetometer.h"
 #include "ioscompass.h"
 #include "iosproximitysensor.h"
+#include "iospressure.h"
 
 #import <CoreLocation/CoreLocation.h>
 #ifdef HAVE_COREMOTION
@@ -62,19 +63,21 @@ public:
     void registerSensors() override
     {
 #ifdef HAVE_COREMOTION
-        QSensorManager::registerBackend(QAccelerometer::type, IOSAccelerometer::id, this);
+        QSensorManager::registerBackend(QAccelerometer::sensorType, IOSAccelerometer::id, this);
         if ([QIOSMotionManager sharedManager].gyroAvailable)
-            QSensorManager::registerBackend(QGyroscope::type, IOSGyroscope::id, this);
+            QSensorManager::registerBackend(QGyroscope::sensorType, IOSGyroscope::id, this);
         if ([QIOSMotionManager sharedManager].magnetometerAvailable)
-            QSensorManager::registerBackend(QMagnetometer::type, IOSMagnetometer::id, this);
+            QSensorManager::registerBackend(QMagnetometer::sensorType, IOSMagnetometer::id, this);
+        if ([CMAltimeter isRelativeAltitudeAvailable])
+            QSensorManager::registerBackend(QPressureSensor::sensorType, IOSPressure::id, this);
 #endif
 #ifdef HAVE_COMPASS
         if ([CLLocationManager headingAvailable])
-            QSensorManager::registerBackend(QCompass::type, IOSCompass::id, this);
+            QSensorManager::registerBackend(QCompass::sensorType, IOSCompass::id, this);
 #endif
 #ifdef HAVE_UIDEVICE
         if (IOSProximitySensor::available())
-            QSensorManager::registerBackend(QProximitySensor::type, IOSProximitySensor::id, this);
+            QSensorManager::registerBackend(QProximitySensor::sensorType, IOSProximitySensor::id, this);
 #endif
     }
 
@@ -87,6 +90,8 @@ public:
             return new IOSGyroscope(sensor);
         if (sensor->identifier() == IOSMagnetometer::id)
             return new IOSMagnetometer(sensor);
+        if (sensor->identifier() == IOSPressure::id)
+            return new IOSPressure(sensor);
 #endif
 #ifdef HAVE_COMPASS
         if (sensor->identifier() == IOSCompass::id)

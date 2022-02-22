@@ -2,6 +2,7 @@
 <html dir="$i18n{textdirection}" lang="$i18n{language}">
 <head>
 <meta charset="utf-8">
+<meta name="color-scheme" content="light dark">
 <if expr="not is_ios">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="chrome://resources/css/text_defaults_md.css">
@@ -19,6 +20,7 @@
 
 <script src="chrome://resources/js/cr.js"></script>
 <script src="chrome://resources/js/cr/ui/focus_outline_manager.js"></script>
+<script src="chrome://resources/js/assert.js"></script>
 <script src="chrome://resources/js/util.js"></script>
 <script src="chrome://resources/js/load_time_data.js"></script>
 <script src="strings.js"></script>
@@ -28,8 +30,10 @@
   <div class="flex-container">
     <div class="flex">
       <div class="search-container">
-        <input type="text" id="search" placeholder="$i18n{search-placeholder}" tabindex="1"
-            autocomplete="off" spellcheck="false">
+        <input type="text" id="search"
+               aria-label="$i18n{search-label}"
+               placeholder="$i18n{search-placeholder}" tabindex="1"
+               autocomplete="off" spellcheck="false">
         <input type="button" class="clear-search" title="$i18n{clear-search}"
             tabindex="2">
       </div>
@@ -89,7 +93,7 @@
                     jsvalues="title: is_default ? '' : '$i18n{experiment-enabled}';
                         id:internal_name + '_name'"></h3>
                 <p>
-                  <span jsvalues=".innerHTML:description"></span> –
+                  <span jsvalues=".textContent:description"></span> –
                   <span class="platforms" jscontent="supported_platforms.join(', ')"></span>
                 </p>
                 <div jsdisplay="origin_list_value!==null">
@@ -136,7 +140,7 @@
                     jsvalues="title: is_default ? '' : '$i18n{experiment-enabled}';
                         id:internal_name + '_name'"></h3>
                 <p>
-                  <span jsvalues=".innerHTML:description"></span> –
+                  <span jsvalues=".textContent:description"></span> –
                   <span class="platforms" jscontent="supported_platforms.join(', ')"></span>
                 </p>
                 <div jsdisplay="origin_list_value!==null">
@@ -193,7 +197,7 @@
                 <h3 class="experiment-name"
                     jscontent="name"></h3>
                 <p>
-                  <span jsvalues=".innerHTML:description"></span>
+                  <span jsvalues=".textContent:description"></span>
                   <span class="platforms" jscontent="supported_platforms.join(', ')"></span>
                 </p>
                 <a class="permalink"

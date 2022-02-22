@@ -27,7 +27,8 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QSignalSpy>
 
 #include <QtWidgets/qtwidgetsglobal.h>
 #if QT_CONFIG(dockwidget)
@@ -65,7 +66,7 @@ public:
     {
         m_timerId = startTimer(200);
     }
-    void timerEvent(QTimerEvent*)
+    void timerEvent(QTimerEvent*) override
     {
         QCoreApplication::postEvent(m_tb, new QMouseEvent(QEvent::MouseButtonPress, QPoint(6, 7), Qt::LeftButton, {}, {}));
         QCoreApplication::postEvent(m_tb, new QMouseEvent(QEvent::MouseMove, QPoint(7, 8), Qt::LeftButton, Qt::LeftButton, {}));
@@ -89,7 +90,7 @@ public:
         m_timerId = startTimer(100);
     }
 
-    void timerEvent(QTimerEvent*)
+    void timerEvent(QTimerEvent*) override
     {
         QCoreApplication::postEvent(m_w, new QMouseEvent(QEvent::MouseButtonPress, QPoint(230, 370), Qt::LeftButton, {}, {}));
         QCoreApplication::postEvent(m_w, new QMouseEvent(QEvent::MouseButtonRelease, QPoint(230, 370), Qt::LeftButton, {}, {}));
@@ -110,6 +111,7 @@ private slots:
     void iconSize();
     void toolButtonStyle();
     void menuBar();
+    void customMenuBar();
     void centralWidget();
     void takeCentralWidget();
     void corner();
@@ -669,6 +671,18 @@ void tst_QMainWindow::menuBar()
         QVERIFY(!topLeftCornerWidget);
         QVERIFY(!topRightCornerWidget);
     }
+}
+
+// QTBUG-98247
+void tst_QMainWindow::customMenuBar()
+{
+    QMainWindow w;
+    std::unique_ptr<QWidget> menuWidget(new QWidget);
+    w.setMenuWidget(menuWidget.get());
+    QVERIFY(menuWidget->parentWidget());
+    QVERIFY(w.menuBar()); // implicitly calls setMenuBar
+    QVERIFY(!menuWidget->parentWidget());
+    menuWidget.reset();
 }
 
 #ifdef QT_BUILD_INTERNAL
@@ -1371,7 +1385,7 @@ void tst_QMainWindow::restoreStateFromPreviousVersion()
 
         QMainWindow win;
         win.setCentralWidget(new QTextEdit);
-        QVector<QDockWidget*> docks;
+        QList<QDockWidget *> docks;
 
         for(int i = 0; i < 16; ++i) {
             const QString name = QStringLiteral("dock ") + QString::number(i);
@@ -1456,7 +1470,7 @@ void tst_QMainWindow::createPopupMenu()
 class MyDockWidget : public QDockWidget
 {
 public:
-    MyDockWidget(QWidget * = 0) {
+    MyDockWidget(QWidget * = nullptr) {
         create(); // otherwise hide() doesn't result in a hide event
     }
 };
@@ -1464,11 +1478,11 @@ public:
 class MyWidget : public QWidget
 {
 public:
-    MyWidget(QWidget *parent = 0) : QWidget(parent)
+    MyWidget(QWidget *parent = nullptr) : QWidget(parent)
     {
     }
 
-    QSize sizeHint() const
+    QSize sizeHint() const override
     {
         return QSize(200, 200);
     }
@@ -1522,10 +1536,10 @@ void AddDockWidget::apply(QMainWindow *mw) const
     dw->setObjectName(name);
     dw->setWindowTitle(name);
 
-    QDockWidget *other = 0;
+    QDockWidget *other = nullptr;
     if (mode == SplitMode || mode == TabMode) {
         other = mw->findChild<QDockWidget*>(this->other);
-        QVERIFY(other != 0);
+        QVERIFY(other != nullptr);
     }
 
     switch (mode) {
@@ -1787,9 +1801,6 @@ void tst_QMainWindow::centralWidgetSize()
     mainWindow.setCentralWidget(&widget);
 
     mainWindow.show();
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("", "Widgets are maximized by default on WinRT - QTBUG-68297", Abort);
-#endif
     QTRY_COMPARE(widget.size(), widget.sizeHint());
 }
 
@@ -1834,9 +1845,6 @@ void tst_QMainWindow::fixedSizeCentralWidget()
 
     // finally verify that we get the space back when we resize to the old size
     mainWindow.resize(mwSize);
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("", "QMainWindow::resize does not work on WinRT", Continue);
-#endif
     QTRY_COMPARE(child->height(), childHeight);
 }
 

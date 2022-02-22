@@ -41,7 +41,6 @@
 #include "qrenderstateset_p.h"
 
 #include <Qt3DRender/qrenderstate.h>
-#include <Qt3DRender/qframegraphnodecreatedchange.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -146,7 +145,7 @@ QRenderStateSetPrivate::QRenderStateSetPrivate()
         Entity {
             id: sphereEntity
             components: [
-                SphereMesh {},
+                GeometryRenderer { view: SphereMesh {} },
                 PhongMaterial {}
             ]
         }
@@ -191,7 +190,7 @@ void QRenderStateSet::addRenderState(QRenderState *state)
         if (!state->parent())
             state->setParent(this);
 
-        d->updateNode(state, "renderState", Qt3DCore::PropertyValueAdded);
+        d->update();
     }
 }
 
@@ -205,7 +204,7 @@ void QRenderStateSet::removeRenderState(QRenderState *state)
 
     if (!d->m_renderStates.removeOne(state))
         return;
-    d->updateNode(state, "renderState", Qt3DCore::PropertyValueRemoved);
+    d->update();
     // Remove bookkeeping connection
     d->unregisterDestructionHelper(state);
 }
@@ -213,19 +212,10 @@ void QRenderStateSet::removeRenderState(QRenderState *state)
 /*!
     Returns the list of QRenderState objects that compose the QRenderStateSet instance.
  */
-QVector<QRenderState *> QRenderStateSet::renderStates() const
+QList<QRenderState *> QRenderStateSet::renderStates() const
 {
     Q_D(const QRenderStateSet);
     return d->m_renderStates;
-}
-
-Qt3DCore::QNodeCreatedChangeBasePtr QRenderStateSet::createNodeCreationChange() const
-{
-    auto creationChange = QFrameGraphNodeCreatedChangePtr<QRenderStateSetData>::create(this);
-    auto &data = creationChange->data;
-    Q_D(const QRenderStateSet);
-    data.renderStateIds = qIdsForNodes(d->m_renderStates);
-    return creationChange;
 }
 
 } // namespace Qt3DRender

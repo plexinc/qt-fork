@@ -40,11 +40,14 @@
 #include "ozone_platform_qt.h"
 
 #if defined(USE_OZONE)
+#include "ui/base/buildflags.h"
+#include "ui/base/cursor/ozone/bitmap_cursor_factory_ozone.h"
 #include "ui/base/ime/input_method.h"
 #include "ui/display/types/native_display_delegate.h"
+#include "ui/events/ozone/layout/keyboard_layout_engine_manager.h"
+#include "ui/events/ozone/layout/stub/stub_keyboard_layout_engine.h"
 #include "ui/ozone/common/stub_client_native_pixmap_factory.h"
 #include "ui/ozone/common/stub_overlay_manager.h"
-#include "ui/ozone/public/cursor_factory_ozone.h"
 #include "ui/ozone/public/gpu_platform_support_host.h"
 #include "ui/ozone/public/input_controller.h"
 #include "ui/ozone/public/ozone_platform.h"
@@ -56,6 +59,16 @@
 #include "surface_factory_qt.h"
 #include "platform_window_qt.h"
 
+#if BUILDFLAG(USE_XKBCOMMON)
+#include "ui/events/ozone/layout/xkb/xkb_evdev_codes.h"
+#include "ui/events/ozone/layout/xkb/xkb_keyboard_layout_engine.h"
+
+#include <X11/XKBlib.h>
+#include <X11/extensions/XKBrules.h>
+
+extern void *GetQtXDisplay();
+#endif // BUILDFLAG(USE_XKBCOMMON)
+
 namespace ui {
 
 namespace {
@@ -66,7 +79,7 @@ public:
     ~OzonePlatformQt() override;
 
     ui::SurfaceFactoryOzone* GetSurfaceFactoryOzone() override;
-    ui::CursorFactoryOzone* GetCursorFactoryOzone() override;
+    ui::CursorFactory* GetCursorFactory() override;
     GpuPlatformSupportHost* GetGpuPlatformSupportHost() override;
     std::unique_ptr<PlatformWindow> CreatePlatformWindow(PlatformWindowDelegate* delegate, PlatformWindowInitProperties properties) override;
     std::unique_ptr<display::NativeDisplayDelegate> CreateNativeDisplayDelegate() override;
@@ -80,11 +93,16 @@ private:
     void InitializeGPU(const ui::OzonePlatform::InitParams &) override;
 
     std::unique_ptr<QtWebEngineCore::SurfaceFactoryQt> surface_factory_ozone_;
-    std::unique_ptr<CursorFactoryOzone> cursor_factory_ozone_;
+    std::unique_ptr<CursorFactory> cursor_factory_ozone_;
 
     std::unique_ptr<GpuPlatformSupportHost> gpu_platform_support_host_;
     std::unique_ptr<InputController> input_controller_;
     std::unique_ptr<OverlayManagerOzone> overlay_manager_;
+
+#if BUILDFLAG(USE_XKBCOMMON)
+    XkbEvdevCodes m_xkbEvdevCodeConverter;
+#endif
+    std::unique_ptr<KeyboardLayoutEngine> m_keyboardLayoutEngine;
 
     DISALLOW_COPY_AND_ASSIGN(OzonePlatformQt);
 };
@@ -99,7 +117,7 @@ ui::SurfaceFactoryOzone* OzonePlatformQt::GetSurfaceFactoryOzone()
     return surface_factory_ozone_.get();
 }
 
-ui::CursorFactoryOzone* OzonePlatformQt::GetCursorFactoryOzone()
+ui::CursorFactory* OzonePlatformQt::GetCursorFactory()
 {
     return cursor_factory_ozone_.get();
 }
@@ -135,12 +153,84 @@ std::unique_ptr<display::NativeDisplayDelegate> OzonePlatformQt::CreateNativeDis
     return nullptr;
 }
 
+#if BUILDFLAG(USE_XKBCOMMON)
+static std::string getCurrentKeyboardLayout()
+{
+    Display *dpy = static_cast<Display *>(GetQtXDisplay());
+    if (dpy == nullptr)
+        return std::string();
+
+    int d;
+    if (!XkbQueryExtension(dpy, &d, &d, &d, &d, &d)) {
+        // no Xkb extension
+        return std::string();
+    }
+
+    XkbStateRec state;
+    if (XkbGetState(dpy, XkbUseCoreKbd, &state) != 0)
+        return std::string();
+
+    XkbRF_VarDefsRec vdr {}; // zero initialize it
+    struct Cleanup {
+        XkbRF_VarDefsRec &vdr;
+        Cleanup(XkbRF_VarDefsRec &vdr) : vdr(vdr) { }
+        ~Cleanup() {
+            free (vdr.model);
+            free (vdr.layout);
+            free (vdr.variant);
+            free (vdr.options);
+        }
+    } cleanup(vdr);
+    if (XkbRF_GetNamesProp(dpy, nullptr, &vdr) == 0)
+        return std::string();
+
+    char *layout = strtok(vdr.layout, ",");
+    for (int i = 0; i < state.group; i++) {
+        layout = strtok(nullptr, ",");
+        if (layout == nullptr)
+            return std::string();
+    }
+
+    if (!vdr.variant)
+        return layout;
+
+    char *variant = strtok(vdr.variant, ",");
+    if (!variant)
+        return layout;
+
+    for (int i = 0; i < state.group; i++) {
+        variant = strtok(nullptr, ",");
+        if (variant == nullptr)
+            return layout;
+    }
+
+    std::string layoutWithVariant = layout;
+    layoutWithVariant = layoutWithVariant.append("-");
+    layoutWithVariant = layoutWithVariant.append(variant);
+    return layoutWithVariant;
+}
+#endif // BUILDFLAG(USE_XKBCOMMON)
+
 void OzonePlatformQt::InitializeUI(const ui::OzonePlatform::InitParams &)
 {
     overlay_manager_.reset(new StubOverlayManager());
-    cursor_factory_ozone_.reset(new CursorFactoryOzone());
+    cursor_factory_ozone_.reset(new BitmapCursorFactoryOzone());
     gpu_platform_support_host_.reset(ui::CreateStubGpuPlatformSupportHost());
     input_controller_ = CreateStubInputController();
+
+#if BUILDFLAG(USE_XKBCOMMON)
+    std::string layout = getCurrentKeyboardLayout();
+    if (layout.empty()) {
+        m_keyboardLayoutEngine = std::make_unique<StubKeyboardLayoutEngine>();
+    } else {
+        m_keyboardLayoutEngine = std::make_unique<XkbKeyboardLayoutEngine>(m_xkbEvdevCodeConverter);
+        m_keyboardLayoutEngine->SetCurrentLayoutByName(layout);
+    }
+#else
+    m_keyboardLayoutEngine = std::make_unique<StubKeyboardLayoutEngine>();
+#endif // BUILDFLAG(USE_XKBCOMMON)
+
+    KeyboardLayoutEngineManager::SetKeyboardLayoutEngine(m_keyboardLayoutEngine.get());
 }
 
 void OzonePlatformQt::InitializeGPU(const ui::OzonePlatform::InitParams &)

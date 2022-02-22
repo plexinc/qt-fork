@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2019 Intel Corporation.
+** Copyright (C) 2020 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -201,7 +201,6 @@ QJsonValue qt_convertToJson(QCborContainerPrivate *d, qsizetype idx,
 
 static QJsonValue convertExtendedTypeToJson(QCborContainerPrivate *d)
 {
-#ifndef QT_BUILD_QMAKE
     qint64 tag = d->elements.at(0).value;
 
     switch (tag) {
@@ -222,7 +221,6 @@ static QJsonValue convertExtendedTypeToJson(QCborContainerPrivate *d)
             return s;
     }
     }
-#endif
 
     // for all other tags, ignore it and return the converted tagged item
     return qt_convertToJson(d, 1);
@@ -271,8 +269,7 @@ QJsonValue qt_convertToJson(QCborContainerPrivate *d, qsizetype idx, ConversionM
     const auto &e = d->elements.at(idx);
     switch (e.type) {
     case QCborValue::Integer:
-        return QJsonPrivate::Value::fromTrustedCbor(e.value);
-
+        return QJsonValue(e.value);
     case QCborValue::ByteArray:
         if (mode == ConversionMode::FromVariantToJson) {
             const auto value = makeString(d, idx, mode);
@@ -386,7 +383,7 @@ QJsonValue QCborValue::toJsonValue() const
         return false;
 
     case Integer:
-        return QJsonPrivate::Value::fromTrustedCbor(n);
+        return QJsonPrivate::Value::fromTrustedCbor(*this);
 
     case True:
         return true;
@@ -641,11 +638,9 @@ QCborValue QCborValue::fromJsonValue(const QJsonValue &v)
     case QJsonValue::Bool:
         return v.toBool();
     case QJsonValue::Double: {
-        qint64 i;
-        const double dbl = v.toDouble();
-        if (convertDoubleTo(dbl, &i))
-            return i;
-        return dbl;
+        if (v.value.t == Integer)
+            return v.toInteger();
+        return v.toDouble();
     }
     case QJsonValue::String:
         return v.toString();
@@ -665,7 +660,7 @@ static void appendVariant(QCborContainerPrivate *d, const QVariant &variant)
 {
     // Handle strings and byte arrays directly, to avoid creating a temporary
     // dummy container to hold their data.
-    int type = variant.userType();
+    int type = variant.metaType().id();
     if (type == QMetaType::QString) {
         d->append(variant.toString());
     } else if (type == QMetaType::QByteArray) {
@@ -693,9 +688,7 @@ static void appendVariant(QCborContainerPrivate *d, const QVariant &variant)
       \row  \li \c bool                     \li Bool
       \row  \li \c std::nullptr_t           \li Null
       \row  \li \c short, \c ushort, \c int, \c uint, \l qint64  \li Integer
-      \row  \li \l quint64                  \li Integer, but they are cast to \c qint64 first so
-                                                values higher than 2\sup{63}-1 (\c INT64_MAX) will
-                                                be wrapped to negative
+      \row  \li \l quint64                  \li Integer, or Double if outside the range of qint64
       \row  \li \c float, \c double         \li Double
       \row  \li \l QByteArray               \li ByteArray
       \row  \li \l QDateTime                \li DateTime
@@ -733,7 +726,7 @@ static void appendVariant(QCborContainerPrivate *d, const QVariant &variant)
  */
 QCborValue QCborValue::fromVariant(const QVariant &variant)
 {
-    switch (variant.userType()) {
+    switch (variant.metaType().id()) {
     case QMetaType::UnknownType:
         return {};
     case QMetaType::Nullptr:
@@ -744,9 +737,12 @@ QCborValue QCborValue::fromVariant(const QVariant &variant)
     case QMetaType::UShort:
     case QMetaType::Int:
     case QMetaType::LongLong:
-    case QMetaType::ULongLong:
     case QMetaType::UInt:
         return variant.toLongLong();
+    case QMetaType::ULongLong:
+        if (variant.toULongLong() <= static_cast<uint64_t>(std::numeric_limits<qint64>::max()))
+            return variant.toLongLong();
+        Q_FALLTHROUGH();
     case QMetaType::Float:
     case QMetaType::Double:
         return variant.toDouble();

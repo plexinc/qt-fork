@@ -8,6 +8,7 @@
 #include <memory>
 #include "third_party/blink/renderer/core/css/css_property_name.h"
 #include "third_party/blink/renderer/core/css/css_value.h"
+#include "third_party/blink/renderer/core/css/properties/css_direction_aware_resolver.h"
 #include "third_party/blink/renderer/core/css/properties/css_unresolved_property.h"
 #include "third_party/blink/renderer/platform/heap/heap_allocator.h"
 #include "third_party/blink/renderer/platform/text/text_direction.h"
@@ -21,11 +22,10 @@ class ComputedStyle;
 class CrossThreadStyleValue;
 class ExecutionContext;
 class LayoutObject;
-class SVGComputedStyle;
 
 class CORE_EXPORT CSSProperty : public CSSUnresolvedProperty {
  public:
-  using Flags = uint16_t;
+  using Flags = uint32_t;
 
   static const CSSProperty& Get(CSSPropertyID);
 
@@ -50,14 +50,18 @@ class CORE_EXPORT CSSProperty : public CSSUnresolvedProperty {
   bool IsInherited() const { return flags_ & kInherited; }
   bool IsVisited() const { return flags_ & kVisited; }
   bool IsInternal() const { return flags_ & kInternal; }
-  bool IsAffectedByForcedColors() const {
-    return flags_ & kIsAffectedByForcedColors;
-  }
   bool IsValidForFirstLetter() const { return flags_ & kValidForFirstLetter; }
   bool IsValidForCue() const { return flags_ & kValidForCue; }
   bool IsValidForMarker() const { return flags_ & kValidForMarker; }
+  bool IsValidForHighlight() const { return flags_ & kValidForHighlight; }
   bool IsSurrogate() const { return flags_ & kSurrogate; }
   bool AffectsFont() const { return flags_ & kAffectsFont; }
+  bool IsBackground() const { return flags_ & kBackground; }
+  bool IsBorder() const { return flags_ & kBorder; }
+  bool TakesTreeScopedValue() const { return flags_ & kTreeScopedValue; }
+  bool IsInLogicalPropertyGroup() const {
+    return flags_ & kInLogicalPropertyGroup;
+  }
 
   bool IsRepeated() const { return repetition_separator_ != '\0'; }
   char RepetitionSeparator() const { return repetition_separator_; }
@@ -73,7 +77,6 @@ class CORE_EXPORT CSSProperty : public CSSUnresolvedProperty {
 
   virtual const CSSValue* CSSValueFromComputedStyleInternal(
       const ComputedStyle&,
-      const SVGComputedStyle&,
       const LayoutObject*,
       bool allow_visited_style) const {
     return nullptr;
@@ -88,6 +91,10 @@ class CORE_EXPORT CSSProperty : public CSSUnresolvedProperty {
   virtual const CSSProperty& ResolveDirectionAwareProperty(TextDirection,
                                                            WritingMode) const {
     return *this;
+  }
+  virtual bool IsInSameLogicalPropertyGroupWithDifferentMappingLogic(
+      CSSPropertyID) const {
+    return false;
   }
   virtual const CSSProperty* GetVisitedProperty() const { return nullptr; }
   virtual const CSSProperty* GetUnvisitedProperty() const { return nullptr; }
@@ -116,21 +123,30 @@ class CORE_EXPORT CSSProperty : public CSSUnresolvedProperty {
     // seen by CSSOM, which is represented by the unvisited property).
     kVisited = 1 << 7,
     kInternal = 1 << 8,
-    kIsAffectedByForcedColors = 1 << 9,
     // Animation properties have this flag set. (I.e. longhands of the
     // 'animation' and 'transition' shorthands).
-    kAnimation = 1 << 10,
+    kAnimation = 1 << 9,
     // https://drafts.csswg.org/css-pseudo-4/#first-letter-styling
-    kValidForFirstLetter = 1 << 11,
+    kValidForFirstLetter = 1 << 10,
     // https://w3c.github.io/webvtt/#the-cue-pseudo-element
-    kValidForCue = 1 << 12,
+    kValidForCue = 1 << 11,
     // https://drafts.csswg.org/css-pseudo-4/#marker-pseudo
-    kValidForMarker = 1 << 13,
+    kValidForMarker = 1 << 12,
     // A surrogate is a (non-alias) property which acts like another property,
     // for example -webkit-writing-mode is a surrogate for writing-mode, and
     // inline-size is a surrogate for either width or height.
-    kSurrogate = 1 << 14,
-    kAffectsFont = 1 << 15,
+    kSurrogate = 1 << 13,
+    kAffectsFont = 1 << 14,
+    // If the author specifies any background or border property on an UI
+    // element, the native appearance must be disabled.
+    kBackground = 1 << 15,
+    kBorder = 1 << 16,
+    // Set if the property values are tree-scoped references.
+    kTreeScopedValue = 1 << 17,
+    // https://drafts.csswg.org/css-pseudo-4/#highlight-styling
+    kValidForHighlight = 1 << 18,
+    // https://drafts.csswg.org/css-logical/#logical-property-group
+    kInLogicalPropertyGroup = 1 << 19,
   };
 
   constexpr CSSProperty(CSSPropertyID property_id,

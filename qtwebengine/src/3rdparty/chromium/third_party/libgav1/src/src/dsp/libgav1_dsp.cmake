@@ -24,11 +24,13 @@ list(APPEND libgav1_dsp_sources
             "${libgav1_source}/dsp/average_blend.h"
             "${libgav1_source}/dsp/cdef.cc"
             "${libgav1_source}/dsp/cdef.h"
+            "${libgav1_source}/dsp/cdef.inc"
             "${libgav1_source}/dsp/common.h"
             "${libgav1_source}/dsp/constants.cc"
             "${libgav1_source}/dsp/constants.h"
             "${libgav1_source}/dsp/convolve.cc"
             "${libgav1_source}/dsp/convolve.h"
+            "${libgav1_source}/dsp/convolve.inc"
             "${libgav1_source}/dsp/distance_weighted_blend.cc"
             "${libgav1_source}/dsp/distance_weighted_blend.h"
             "${libgav1_source}/dsp/dsp.cc"
@@ -42,6 +44,7 @@ list(APPEND libgav1_dsp_sources
             "${libgav1_source}/dsp/intrapred.h"
             "${libgav1_source}/dsp/inverse_transform.cc"
             "${libgav1_source}/dsp/inverse_transform.h"
+            "${libgav1_source}/dsp/inverse_transform.inc"
             "${libgav1_source}/dsp/loop_filter.cc"
             "${libgav1_source}/dsp/loop_filter.h"
             "${libgav1_source}/dsp/loop_restoration.cc"
@@ -54,12 +57,23 @@ list(APPEND libgav1_dsp_sources
             "${libgav1_source}/dsp/motion_vector_search.h"
             "${libgav1_source}/dsp/obmc.cc"
             "${libgav1_source}/dsp/obmc.h"
+            "${libgav1_source}/dsp/obmc.inc"
             "${libgav1_source}/dsp/super_res.cc"
             "${libgav1_source}/dsp/super_res.h"
             "${libgav1_source}/dsp/warp.cc"
             "${libgav1_source}/dsp/warp.h"
             "${libgav1_source}/dsp/weight_mask.cc"
             "${libgav1_source}/dsp/weight_mask.h")
+
+list(APPEND libgav1_dsp_sources_avx2
+            ${libgav1_dsp_sources_avx2}
+            "${libgav1_source}/dsp/x86/cdef_avx2.cc"
+            "${libgav1_source}/dsp/x86/cdef_avx2.h"
+            "${libgav1_source}/dsp/x86/convolve_avx2.cc"
+            "${libgav1_source}/dsp/x86/convolve_avx2.h"
+            "${libgav1_source}/dsp/x86/loop_restoration_10bit_avx2.cc"
+            "${libgav1_source}/dsp/x86/loop_restoration_avx2.cc"
+            "${libgav1_source}/dsp/x86/loop_restoration_avx2.h")
 
 list(APPEND libgav1_dsp_sources_neon
             ${libgav1_dsp_sources_neon}
@@ -112,6 +126,7 @@ list(APPEND libgav1_dsp_sources_sse4
             "${libgav1_source}/dsp/x86/cdef_sse4.h"
             "${libgav1_source}/dsp/x86/convolve_sse4.cc"
             "${libgav1_source}/dsp/x86/convolve_sse4.h"
+            "${libgav1_source}/dsp/x86/convolve_sse4.inc"
             "${libgav1_source}/dsp/x86/distance_weighted_blend_sse4.cc"
             "${libgav1_source}/dsp/x86/distance_weighted_blend_sse4.h"
             "${libgav1_source}/dsp/x86/intra_edge_sse4.cc"
@@ -124,10 +139,15 @@ list(APPEND libgav1_dsp_sources_sse4
             "${libgav1_source}/dsp/x86/inverse_transform_sse4.h"
             "${libgav1_source}/dsp/x86/loop_filter_sse4.cc"
             "${libgav1_source}/dsp/x86/loop_filter_sse4.h"
+            "${libgav1_source}/dsp/x86/loop_restoration_10bit_sse4.cc"
             "${libgav1_source}/dsp/x86/loop_restoration_sse4.cc"
             "${libgav1_source}/dsp/x86/loop_restoration_sse4.h"
             "${libgav1_source}/dsp/x86/mask_blend_sse4.cc"
             "${libgav1_source}/dsp/x86/mask_blend_sse4.h"
+            "${libgav1_source}/dsp/x86/motion_field_projection_sse4.cc"
+            "${libgav1_source}/dsp/x86/motion_field_projection_sse4.h"
+            "${libgav1_source}/dsp/x86/motion_vector_search_sse4.cc"
+            "${libgav1_source}/dsp/x86/motion_vector_search_sse4.h"
             "${libgav1_source}/dsp/x86/obmc_sse4.cc"
             "${libgav1_source}/dsp/x86/obmc_sse4.h"
             "${libgav1_source}/dsp/x86/super_res_sse4.cc"
@@ -136,12 +156,13 @@ list(APPEND libgav1_dsp_sources_sse4
             "${libgav1_source}/dsp/x86/warp_sse4.cc"
             "${libgav1_source}/dsp/x86/warp_sse4.h"
             "${libgav1_source}/dsp/x86/weight_mask_sse4.cc"
-            "${libgav1_source}/dsp/x86/weight_mask_sse4.h"
-            )
+            "${libgav1_source}/dsp/x86/weight_mask_sse4.h")
 
 macro(libgav1_add_dsp_targets)
   unset(dsp_sources)
-  list(APPEND dsp_sources ${libgav1_dsp_sources} ${libgav1_dsp_sources_neon}
+  list(APPEND dsp_sources ${libgav1_dsp_sources}
+              ${libgav1_dsp_sources_neon}
+              ${libgav1_dsp_sources_avx2}
               ${libgav1_dsp_sources_sse4})
 
   libgav1_add_library(NAME

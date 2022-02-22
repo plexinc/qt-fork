@@ -27,12 +27,14 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include <QPair>
-#include <QTextCodec>
 #include <QSysInfo>
 #include <QLatin1String>
+#include <QString>
+
+#include <cmath>
 
 class tst_QGlobal: public QObject
 {
@@ -49,12 +51,16 @@ private slots:
     void qConstructorFunction();
     void qCoreAppStartupFunction();
     void qCoreAppStartupFunctionRestart();
-    void qAlignOf();
     void integerForSize();
-    void qprintable();
-    void qprintable_data();
     void buildAbiEndianness();
     void testqOverload();
+    void testqMinMax();
+    void qRoundFloats_data();
+    void qRoundFloats();
+    void qRoundDoubles_data();
+    void qRoundDoubles();
+    void PRImacros();
+    void testqToUnderlying();
 };
 
 extern "C" {        // functions in qglobal.c
@@ -96,7 +102,7 @@ void tst_QGlobal::qIsNull()
 
 void tst_QGlobal::for_each()
 {
-    QVector<int> list;
+    QList<int> list;
     list << 0 << 1 << 2 << 3 << 4 << 5;
 
     int counter = 0;
@@ -115,7 +121,7 @@ void tst_QGlobal::for_each()
 
     // check whether we can pass a constructor as container argument
     counter = 0;
-    foreach (int i, QVector<int>(list)) {
+    foreach (int i, QList<int>(list)) {
         QCOMPARE(i, counter++);
     }
     QCOMPARE(counter, list.count());
@@ -349,6 +355,9 @@ struct MyTemplate
 
 void tst_QGlobal::qstaticassert()
 {
+    // Test multiple Q_STATIC_ASSERT on a single line
+    Q_STATIC_ASSERT(true); Q_STATIC_ASSERT_X(!false, "");
+
     // Force compilation of these classes
     MyTrue tmp1;
     MyExpresion tmp2;
@@ -356,11 +365,6 @@ void tst_QGlobal::qstaticassert()
     Q_UNUSED(tmp1);
     Q_UNUSED(tmp2);
     Q_UNUSED(tmp3);
-#ifdef __COUNTER__
-    // if the compiler supports __COUNTER__, multiple
-    // Q_STATIC_ASSERT's on a single line should compile:
-    Q_STATIC_ASSERT(true); Q_STATIC_ASSERT_X(!false, "");
-#endif // __COUNTER__
     QVERIFY(true); // if the test compiles it has passed.
 }
 
@@ -434,178 +438,22 @@ template <class T> struct AlignmentInStruct { T dummy; };
 typedef int (*fun) ();
 typedef int (Empty::*memFun) ();
 
-#define TEST_AlignOf(type, alignment)                                       \
-    do {                                                                    \
-        TEST_AlignOf_impl(type, alignment);                                 \
-                                                                            \
-        TEST_AlignOf_impl(type &, alignment);                               \
-        TEST_AlignOf_RValueRef(type &&, alignment);                         \
-                                                                            \
-        TEST_AlignOf_impl(type [5], alignment);                             \
-        TEST_AlignOf_impl(type (&) [5], alignment);                         \
-                                                                            \
-        TEST_AlignOf_impl(AlignmentInStruct<type>, alignment);              \
-                                                                            \
-        /* Some internal sanity validation, just for fun */                 \
-        TEST_AlignOf_impl(AlignmentInStruct<type [5]>, alignment);          \
-        TEST_AlignOf_impl(AlignmentInStruct<type &>, Q_ALIGNOF(void *));    \
-        TEST_AlignOf_impl(AlignmentInStruct<type (&) [5]>,                  \
-                Q_ALIGNOF(void *));                                         \
-        TEST_AlignOf_RValueRef(AlignmentInStruct<type &&>,                  \
-                Q_ALIGNOF(void *));                                         \
-    } while (false)                                                         \
-    /**/
-
-#define TEST_AlignOf_RValueRef(type, alignment) \
-        TEST_AlignOf_impl(type, alignment)
-
-#define TEST_AlignOf_impl(type, alignment) \
-    do { \
-        QCOMPARE(Q_ALIGNOF(type), size_t(alignment)); \
-        /* Compare to native operator for compilers that support it,
-           otherwise...  erm... check consistency! :-) */ \
-        QCOMPARE(alignof(type), Q_ALIGNOF(type)); \
-    } while (false)
-    /**/
-
-void tst_QGlobal::qAlignOf()
-{
-    // Built-in types, except 64-bit integers and double
-    TEST_AlignOf(char, 1);
-    TEST_AlignOf(signed char, 1);
-    TEST_AlignOf(unsigned char, 1);
-    TEST_AlignOf(qint8, 1);
-    TEST_AlignOf(quint8, 1);
-    TEST_AlignOf(qint16, 2);
-    TEST_AlignOf(quint16, 2);
-    TEST_AlignOf(qint32, 4);
-    TEST_AlignOf(quint32, 4);
-    TEST_AlignOf(void *, sizeof(void *));
-
-    // Depends on platform and compiler, disabling test for now
-    // TEST_AlignOf(long double, 16);
-
-    // Empty struct
-    TEST_AlignOf(Empty, 1);
-
-    // Function pointers
-    TEST_AlignOf(fun, Q_ALIGNOF(void *));
-    TEST_AlignOf(memFun, Q_ALIGNOF(void *));
-
-
-    // 64-bit integers and double
-    TEST_AlignOf_impl(qint64, 8);
-    TEST_AlignOf_impl(quint64, 8);
-    TEST_AlignOf_impl(double, 8);
-
-    TEST_AlignOf_impl(qint64 &, 8);
-    TEST_AlignOf_impl(quint64 &, 8);
-    TEST_AlignOf_impl(double &, 8);
-
-    TEST_AlignOf_RValueRef(qint64 &&, 8);
-    TEST_AlignOf_RValueRef(quint64 &&, 8);
-    TEST_AlignOf_RValueRef(double &&, 8);
-
-    // 32-bit x86 ABI idiosyncrasies
-#if defined(Q_PROCESSOR_X86_32) && !defined(Q_OS_WIN)
-    TEST_AlignOf_impl(AlignmentInStruct<qint64>, 4);
-#else
-    TEST_AlignOf_impl(AlignmentInStruct<qint64>, 8);
-#endif
-
-    TEST_AlignOf_impl(AlignmentInStruct<quint64>, Q_ALIGNOF(AlignmentInStruct<qint64>));
-    TEST_AlignOf_impl(AlignmentInStruct<double>, Q_ALIGNOF(AlignmentInStruct<qint64>));
-
-    // 32-bit x86 ABI, Clang disagrees with gcc
-#if !defined(Q_PROCESSOR_X86_32) || !defined(Q_CC_CLANG) || defined(Q_OS_ANDROID)
-    TEST_AlignOf_impl(qint64 [5],       Q_ALIGNOF(qint64));
-#else
-    TEST_AlignOf_impl(qint64 [5],       Q_ALIGNOF(AlignmentInStruct<qint64>));
-#endif
-
-    TEST_AlignOf_impl(qint64 (&) [5],   Q_ALIGNOF(qint64 [5]));
-    TEST_AlignOf_impl(quint64 [5],      Q_ALIGNOF(quint64 [5]));
-    TEST_AlignOf_impl(quint64 (&) [5],  Q_ALIGNOF(quint64 [5]));
-    TEST_AlignOf_impl(double [5],       Q_ALIGNOF(double [5]));
-    TEST_AlignOf_impl(double (&) [5],   Q_ALIGNOF(double [5]));
-}
-
-#undef TEST_AlignOf
-#undef TEST_AlignOf_RValueRef
-#undef TEST_AlignOf_impl
-
 void tst_QGlobal::integerForSize()
 {
     // compile-only test:
-    Q_STATIC_ASSERT(sizeof(QIntegerForSize<1>::Signed) == 1);
-    Q_STATIC_ASSERT(sizeof(QIntegerForSize<2>::Signed) == 2);
-    Q_STATIC_ASSERT(sizeof(QIntegerForSize<4>::Signed) == 4);
-    Q_STATIC_ASSERT(sizeof(QIntegerForSize<8>::Signed) == 8);
+    static_assert(sizeof(QIntegerForSize<1>::Signed) == 1);
+    static_assert(sizeof(QIntegerForSize<2>::Signed) == 2);
+    static_assert(sizeof(QIntegerForSize<4>::Signed) == 4);
+    static_assert(sizeof(QIntegerForSize<8>::Signed) == 8);
 
-    Q_STATIC_ASSERT(sizeof(QIntegerForSize<1>::Unsigned) == 1);
-    Q_STATIC_ASSERT(sizeof(QIntegerForSize<2>::Unsigned) == 2);
-    Q_STATIC_ASSERT(sizeof(QIntegerForSize<4>::Unsigned) == 4);
-    Q_STATIC_ASSERT(sizeof(QIntegerForSize<8>::Unsigned) == 8);
+    static_assert(sizeof(QIntegerForSize<1>::Unsigned) == 1);
+    static_assert(sizeof(QIntegerForSize<2>::Unsigned) == 2);
+    static_assert(sizeof(QIntegerForSize<4>::Unsigned) == 4);
+    static_assert(sizeof(QIntegerForSize<8>::Unsigned) == 8);
 }
 
 typedef QPair<const char *, const char *> stringpair;
 Q_DECLARE_METATYPE(stringpair)
-
-void tst_QGlobal::qprintable()
-{
-    QFETCH(QVector<stringpair>, localestrings);
-    QFETCH(int, utf8index);
-
-    QVERIFY(utf8index >= 0 && utf8index < localestrings.count());
-    if (utf8index < 0 || utf8index >= localestrings.count())
-        return;
-
-    const char *const utf8string = localestrings.at(utf8index).second;
-
-    QString string = QString::fromUtf8(utf8string);
-
-    for (const stringpair &pair : qAsConst(localestrings)) {
-        QTextCodec *codec = QTextCodec::codecForName(pair.first);
-        if (!codec)
-            continue;
-        QTextCodec::setCodecForLocale(codec);
-        // test qPrintable()
-        QVERIFY(qstrcmp(qPrintable(string), pair.second) == 0);
-        for (const stringpair &pair2 : qAsConst(localestrings)) {
-            if (pair2.second == pair.second)
-                continue;
-            QVERIFY(qstrcmp(qPrintable(string), pair2.second) != 0);
-        }
-        // test qUtf8Printable()
-        QVERIFY(qstrcmp(qUtf8Printable(string), utf8string) == 0);
-        for (const stringpair &pair2 : qAsConst(localestrings)) {
-            if (qstrcmp(pair2.second, utf8string) == 0)
-                continue;
-            QVERIFY(qstrcmp(qUtf8Printable(string), pair2.second) != 0);
-        }
-    }
-
-    QTextCodec::setCodecForLocale(0);
-}
-
-void tst_QGlobal::qprintable_data()
-{
-    QTest::addColumn<QVector<stringpair> >("localestrings");
-    QTest::addColumn<int>("utf8index"); // index of utf8 string
-
-    // Unicode: HIRAGANA LETTER A, I, U, E, O (U+3442, U+3444, U+3446, U+3448, U+344a)
-    static const char *const utf8string = "\xe3\x81\x82\xe3\x81\x84\xe3\x81\x86\xe3\x81\x88\xe3\x81\x8a";
-    static const char *const eucjpstring = "\xa4\xa2\xa4\xa4\xa4\xa6\xa4\xa8\xa4\xaa";
-    static const char *const sjisstring = "\x82\xa0\x82\xa2\x82\xa4\x82\xa6\x82\xa8";
-
-    QVector<stringpair> japanesestrings;
-    japanesestrings << stringpair("UTF-8", utf8string)
-                    << stringpair("EUC-JP", eucjpstring)
-                    << stringpair("Shift_JIS", sjisstring);
-
-    QTest::newRow("Japanese") << japanesestrings << 0;
-
-}
 
 void tst_QGlobal::buildAbiEndianness()
 {
@@ -737,6 +585,138 @@ void tst_QGlobal::testqOverload()
 #endif
 }
 
+// enforce that types are identical when comparing
+template<typename T>
+void compare(T a, T b)
+{ QCOMPARE(a, b); }
+
+void tst_QGlobal::testqMinMax()
+{
+    // signed types
+    compare(qMin(float(1), double(-1)), double(-1));
+    compare(qMin(double(1), float(-1)), double(-1));
+    compare(qMin(short(1), int(-1)), int(-1));
+    compare(qMin(short(1), long(-1)), long(-1));
+    compare(qMin(qint64(1), short(-1)), qint64(-1));
+
+    compare(qMax(float(1), double(-1)), double(1));
+    compare(qMax(short(1), long(-1)), long(1));
+    compare(qMax(qint64(1), short(-1)), qint64(1));
+
+    // unsigned types
+    compare(qMin(ushort(1), ulong(2)), ulong(1));
+    compare(qMin(quint64(1), ushort(2)), quint64(1));
+
+    compare(qMax(ushort(1), ulong(2)), ulong(2));
+    compare(qMax(quint64(1), ushort(2)), quint64(2));
+}
+
+void tst_QGlobal::qRoundFloats_data()
+{
+    QTest::addColumn<float>("actual");
+    QTest::addColumn<float>("expected");
+
+    QTest::newRow("round half") << 0.5f << 1.0f;
+    QTest::newRow("round negative half") << -0.5f << -1.0f;
+    QTest::newRow("round negative") << -1.4f << -1.0f;
+    QTest::newRow("round largest representable float less than 0.5") << std::nextafter(0.5f, 0.0f) << 0.0f;
+}
+
+void tst_QGlobal::qRoundFloats() {
+    QFETCH(float, actual);
+    QFETCH(float, expected);
+
+#if !(defined(Q_PROCESSOR_ARM_64) && (__has_builtin(__builtin_round) || defined(Q_CC_GNU)) && !defined(Q_CC_CLANG))
+    QEXPECT_FAIL("round largest representable float less than 0.5",
+                 "We know qRound fails in this case, but decided that we value simplicity over correctness",
+                 Continue);
+#endif
+    QCOMPARE(qRound(actual), expected);
+
+#if !(defined(Q_PROCESSOR_ARM_64) && (__has_builtin(__builtin_round) || defined(Q_CC_GNU)) && !defined(Q_CC_CLANG))
+    QEXPECT_FAIL("round largest representable float less than 0.5",
+                 "We know qRound fails in this case, but decided that we value simplicity over correctness",
+                 Continue);
+#endif
+    QCOMPARE(qRound64(actual), expected);
+}
+
+void tst_QGlobal::qRoundDoubles_data() {
+    QTest::addColumn<double>("actual");
+    QTest::addColumn<double>("expected");
+
+    QTest::newRow("round half") << 0.5 << 1.0;
+    QTest::newRow("round negative half") << -0.5 << -1.0;
+    QTest::newRow("round negative") << -1.4 << -1.0;
+    QTest::newRow("round largest representable double less than 0.5") << std::nextafter(0.5, 0.0) << 0.0;
+}
+
+void tst_QGlobal::qRoundDoubles() {
+    QFETCH(double, actual);
+    QFETCH(double, expected);
+
+#if !(defined(Q_PROCESSOR_ARM_64) && (__has_builtin(__builtin_round) || defined(Q_CC_GNU)) && !defined(Q_CC_CLANG))
+    QEXPECT_FAIL("round largest representable double less than 0.5",
+                 "We know qRound fails in this case, but decided that we value simplicity over correctness",
+                 Continue);
+#endif
+    QCOMPARE(qRound(actual), expected);
+
+#if !(defined(Q_PROCESSOR_ARM_64) && (__has_builtin(__builtin_round) || defined(Q_CC_GNU)) && !defined(Q_CC_CLANG))
+    QEXPECT_FAIL("round largest representable double less than 0.5",
+                 "We know qRound fails in this case, but decided that we value simplicity over correctness",
+                 Continue);
+#endif
+    QCOMPARE(qRound64(actual), expected);
+}
+
+void tst_QGlobal::PRImacros()
+{
+    // none of these calls must generate a -Wformat warning
+    {
+        quintptr p = 123u;
+        QCOMPARE(QString::asprintf("The value %" PRIuQUINTPTR " is nice", p), "The value 123 is nice");
+        QCOMPARE(QString::asprintf("The value %" PRIoQUINTPTR " is nice", p), "The value 173 is nice");
+        QCOMPARE(QString::asprintf("The value %" PRIxQUINTPTR " is nice", p), "The value 7b is nice");
+        QCOMPARE(QString::asprintf("The value %" PRIXQUINTPTR " is nice", p), "The value 7B is nice");
+    }
+
+    {
+        qintptr p = 123;
+        QCOMPARE(QString::asprintf("The value %" PRIdQINTPTR " is nice", p), "The value 123 is nice");
+        QCOMPARE(QString::asprintf("The value %" PRIiQINTPTR " is nice", p), "The value 123 is nice");
+    }
+
+    {
+        qptrdiff d = 123;
+        QCOMPARE(QString::asprintf("The value %" PRIdQPTRDIFF " is nice", d), "The value 123 is nice");
+        QCOMPARE(QString::asprintf("The value %" PRIiQPTRDIFF " is nice", d), "The value 123 is nice");
+    }
+    {
+        qsizetype s = 123;
+        QCOMPARE(QString::asprintf("The value %" PRIdQSIZETYPE " is nice", s), "The value 123 is nice");
+        QCOMPARE(QString::asprintf("The value %" PRIiQSIZETYPE " is nice", s), "The value 123 is nice");
+    }
+}
+
+void tst_QGlobal::testqToUnderlying()
+{
+    enum class E {
+        E1 = 123,
+        E2 = 456,
+    };
+    static_assert(std::is_same_v<decltype(qToUnderlying(E::E1)), int>);
+    QCOMPARE(qToUnderlying(E::E1), 123);
+    QCOMPARE(qToUnderlying(E::E2), 456);
+
+    enum EE : unsigned long {
+        EE1 = 123,
+        EE2 = 456,
+    };
+    static_assert(std::is_same_v<decltype(qToUnderlying(EE1)), unsigned long>);
+    QCOMPARE(qToUnderlying(EE1), 123UL);
+    QCOMPARE(qToUnderlying(EE2), 456UL);
+}
 
 QTEST_APPLESS_MAIN(tst_QGlobal)
 #include "tst_qglobal.moc"

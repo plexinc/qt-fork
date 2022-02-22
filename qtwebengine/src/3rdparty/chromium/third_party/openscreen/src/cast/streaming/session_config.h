@@ -6,7 +6,7 @@
 #define CAST_STREAMING_SESSION_CONFIG_H_
 
 #include <array>
-#include <chrono>  // NOLINT
+#include <chrono>
 #include <cstdint>
 
 #include "cast/streaming/ssrc.h"
@@ -24,12 +24,13 @@ struct SessionConfig final {
                 int channels,
                 std::chrono::milliseconds target_playout_delay,
                 std::array<uint8_t, 16> aes_secret_key,
-                std::array<uint8_t, 16> aes_iv_mask);
-  SessionConfig(const SessionConfig&) = default;
-  SessionConfig(SessionConfig&&) noexcept = default;
-  SessionConfig& operator=(const SessionConfig&) = default;
-  SessionConfig& operator=(SessionConfig&&) noexcept = default;
-  ~SessionConfig() = default;
+                std::array<uint8_t, 16> aes_iv_mask,
+                bool is_pli_enabled);
+  SessionConfig(const SessionConfig& other);
+  SessionConfig(SessionConfig&& other) noexcept;
+  SessionConfig& operator=(const SessionConfig& other);
+  SessionConfig& operator=(SessionConfig&& other) noexcept;
+  ~SessionConfig();
 
   // The sender and receiver's SSRC identifiers. Note: SSRC identifiers
   // are defined as unsigned 32 bit integers here:
@@ -50,6 +51,9 @@ struct SessionConfig final {
   // The AES-128 crypto key and initialization vector.
   std::array<uint8_t, 16> aes_secret_key{};
   std::array<uint8_t, 16> aes_iv_mask{};
+
+  // Whether picture loss indication (PLI) should be used for this session.
+  bool is_pli_enabled = false;
 };
 
 }  // namespace cast

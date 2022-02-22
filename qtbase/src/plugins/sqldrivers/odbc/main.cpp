@@ -51,7 +51,7 @@ class QODBCDriverPlugin : public QSqlDriverPlugin
 public:
     QODBCDriverPlugin();
 
-    QSqlDriver* create(const QString &);
+    QSqlDriver* create(const QString &) override;
 };
 
 QODBCDriverPlugin::QODBCDriverPlugin()
@@ -61,7 +61,7 @@ QODBCDriverPlugin::QODBCDriverPlugin()
 
 QSqlDriver* QODBCDriverPlugin::create(const QString &name)
 {
-    if (name == QLatin1String("QODBC") || name == QLatin1String("QODBC3")) {
+    if (name == QLatin1String("QODBC")) {
         QODBCDriver* driver = new QODBCDriver();
         return driver;
     }

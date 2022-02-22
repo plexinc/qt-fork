@@ -9,11 +9,19 @@ function $(id) {
 /* eslint-enable no-restricted-properties */
 
 document.addEventListener('DOMContentLoaded', function() {
-  if (cr.isChromeOS) {
-    const keyboardUtils = document.createElement('script');
-    keyboardUtils.src = 'chrome://credits/keyboard_utils.js';
-    document.body.appendChild(keyboardUtils);
-  }
+  // <if expr="chromeos">
+  const keyboardUtils = document.createElement('script');
+
+  const staticUrlPolicy = trustedTypes.createPolicy(
+      'credits-static',
+      {createScriptURL: () => 'chrome://credits/keyboard_utils.js'});
+
+  // TODO(Jun.Kokatsu@microsoft.com): remove an empty string argument
+  // once supported.
+  // https://github.com/w3c/webappsec-trusted-types/issues/278
+  keyboardUtils.src = staticUrlPolicy.createScriptURL('');
+  document.body.appendChild(keyboardUtils);
+  // </if>
 
   $('print-link').hidden = false;
   $('print-link').onclick = function() {

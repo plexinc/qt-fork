@@ -33,7 +33,6 @@
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/dom/pseudo_element.h"
 #include "third_party/blink/renderer/core/dom/text.h"
-#include "third_party/blink/renderer/core/dom/v0_insertion_point.h"
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/layout/generated_children.h"
 #include "third_party/blink/renderer/core/layout/layout_inline.h"
@@ -51,7 +50,6 @@ LayoutTreeBuilderForElement::LayoutTreeBuilderForElement(
     const ComputedStyle* style,
     LegacyLayout legacy)
     : LayoutTreeBuilder(element, context, style), legacy_(legacy) {
-  DCHECK(element.CanParticipateInFlatTree());
   DCHECK(style_);
   DCHECK(!style_->IsEnsuredInDisplayNone());
 }
@@ -102,6 +100,8 @@ void LayoutTreeBuilderForElement::CreateLayoutObject() {
   LayoutObject* next_layout_object = NextLayoutObject();
   // SetStyle() can depend on LayoutObject() already being set.
   node_->SetLayoutObject(new_layout_object);
+
+  DCHECK(!new_layout_object->Style());
   new_layout_object->SetStyle(style_);
 
   // Note: Adding new_layout_object instead of LayoutObject(). LayoutObject()
@@ -164,7 +164,9 @@ void LayoutTreeBuilderForText::CreateLayoutObject() {
       context_.parent->IsInsideFlowThread());
 
   node_->SetLayoutObject(new_layout_object);
+  DCHECK(!new_layout_object->Style());
   new_layout_object->SetStyle(&style);
+
   layout_object_parent->AddChild(new_layout_object, next_layout_object);
 }
 

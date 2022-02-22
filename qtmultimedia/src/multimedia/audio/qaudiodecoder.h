@@ -40,50 +40,41 @@
 #ifndef QAUDIODECODER_H
 #define QAUDIODECODER_H
 
-#include <QtMultimedia/qmediaobject.h>
+#include <QtCore/qobject.h>
 #include <QtMultimedia/qmediaenumdebug.h>
 
 #include <QtMultimedia/qaudiobuffer.h>
 
 QT_BEGIN_NAMESPACE
 
-class QAudioDecoderPrivate;
-class Q_MULTIMEDIA_EXPORT QAudioDecoder : public QMediaObject
+class QPlatformAudioDecoder;
+class Q_MULTIMEDIA_EXPORT QAudioDecoder : public QObject
 {
     Q_OBJECT
-    Q_PROPERTY(QString sourceFilename READ sourceFilename WRITE setSourceFilename NOTIFY sourceChanged)
-    Q_PROPERTY(State state READ state NOTIFY stateChanged)
+    Q_PROPERTY(QUrl source READ source WRITE setSource NOTIFY sourceChanged)
+    Q_PROPERTY(bool isDecoding READ isDecoding NOTIFY isDecodingChanged)
     Q_PROPERTY(QString error READ errorString)
     Q_PROPERTY(bool bufferAvailable READ bufferAvailable NOTIFY bufferAvailableChanged)
 
-    Q_ENUMS(State)
-    Q_ENUMS(Error)
-
 public:
-    enum State
-    {
-        StoppedState,
-        DecodingState
-    };
-
     enum Error
     {
         NoError,
         ResourceError,
         FormatError,
         AccessDeniedError,
-        ServiceMissingError
+        NotSupportedError
     };
+    Q_ENUM(Error)
 
     explicit QAudioDecoder(QObject *parent = nullptr);
     ~QAudioDecoder();
 
-    static QMultimedia::SupportEstimate hasSupport(const QString &mimeType, const QStringList& codecs = QStringList());
+    bool isSupported() const;
+    bool isDecoding() const;
 
-    State state() const;
-
-    QString sourceFilename() const;
-    void setSourceFilename(const QString &fileName);
+    QUrl source() const;
+    void setSource(const QUrl &fileName);
 
     QIODevice* sourceDevice() const;
     void setSourceDevice(QIODevice *device);
@@ -108,8 +99,8 @@ Q_SIGNALS:
     void bufferAvailableChanged(bool);
     void bufferReady();
     void finished();
+    void isDecodingChanged(bool);
 
-    void stateChanged(QAudioDecoder::State newState);
     void formatChanged(const QAudioFormat &format);
 
     void error(QAudioDecoder::Error error);
@@ -119,23 +110,13 @@ Q_SIGNALS:
     void positionChanged(qint64 position);
     void durationChanged(qint64 duration);
 
-public:
-    bool bind(QObject *) override;
-    void unbind(QObject *) override;
-
 private:
     Q_DISABLE_COPY(QAudioDecoder)
-    Q_DECLARE_PRIVATE(QAudioDecoder)
-    Q_PRIVATE_SLOT(d_func(), void _q_stateChanged(QAudioDecoder::State))
-    Q_PRIVATE_SLOT(d_func(), void _q_error(int, const QString &))
+    QPlatformAudioDecoder *decoder;
 };
 
 QT_END_NAMESPACE
 
-Q_DECLARE_METATYPE(QAudioDecoder::State)
-Q_DECLARE_METATYPE(QAudioDecoder::Error)
-
-Q_MEDIA_ENUM_DEBUG(QAudioDecoder, State)
 Q_MEDIA_ENUM_DEBUG(QAudioDecoder, Error)
 
 #endif  // QAUDIODECODER_H

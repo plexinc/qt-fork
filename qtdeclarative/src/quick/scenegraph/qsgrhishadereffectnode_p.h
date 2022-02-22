@@ -53,13 +53,13 @@
 
 #include <private/qsgadaptationlayer_p.h>
 #include <qsgmaterial.h>
+#include <QUrl>
 
 QT_BEGIN_NAMESPACE
 
 class QSGDefaultRenderContext;
 class QSGPlainTexture;
 class QSGRhiShaderEffectNode;
-class QSGRhiGuiThreadShaderEffectManager;
 class QFileSelector;
 
 class QSGRhiShaderLinker
@@ -90,6 +90,7 @@ public:
     QHash<uint, Constant> m_constants; // offset -> Constant
     QHash<int, QVariant> m_samplers; // binding -> value (source ref)
     QHash<QByteArray, int> m_samplerNameMap; // name -> binding
+    QSet<int> m_subRectBindings;
 };
 
 QDebug operator<<(QDebug debug, const QSGRhiShaderLinker::Constant &c);
@@ -102,9 +103,11 @@ public:
 
     int compare(const QSGMaterial *other) const override;
     QSGMaterialType *type() const override;
-    QSGMaterialShader *createShader() const override;
+    QSGMaterialShader *createShader(QSGRendererInterface::RenderMode renderMode) const override;
 
     void updateTextureProviders(bool layoutChange);
+
+    bool usesSubRectUniform(int binding) const { return m_linker.m_subRectBindings.contains(binding); }
 
     static const int MAX_BINDINGS = 32;
 
@@ -121,12 +124,12 @@ public:
     QSGPlainTexture *m_dummyTexture = nullptr;
 };
 
-class QSGRhiShaderEffectNode : public QObject, public QSGShaderEffectNode
+class QSGRhiShaderEffectNode : public QSGShaderEffectNode
 {
     Q_OBJECT
 
 public:
-    QSGRhiShaderEffectNode(QSGDefaultRenderContext *rc, QSGRhiGuiThreadShaderEffectManager *mgr);
+    QSGRhiShaderEffectNode(QSGDefaultRenderContext *rc);
 
     QRectF updateNormalizedTextureSubRect(bool supportsAtlasTextures) override;
     void syncMaterial(SyncData *syncData) override;
@@ -140,7 +143,6 @@ private Q_SLOTS:
 
 private:
     QSGDefaultRenderContext *m_rc;
-    QSGRhiGuiThreadShaderEffectManager *m_mgr;
     QSGRhiShaderEffectMaterial m_material;
 };
 
@@ -150,7 +152,7 @@ public:
     bool hasSeparateSamplerAndTextureObjects() const override;
     QString log() const override;
     Status status() const override;
-    void prepareShaderCode(ShaderInfo::Type typeHint, const QByteArray &src, ShaderInfo *result) override;
+    void prepareShaderCode(ShaderInfo::Type typeHint, const QUrl &src, ShaderInfo *result) override;
 
 private:
     bool reflect(ShaderInfo *result);

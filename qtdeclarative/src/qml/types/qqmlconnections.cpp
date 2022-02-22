@@ -88,7 +88,7 @@ public:
 
     \qml
     MouseArea {
-        onClicked: { foo(parameters) }
+        onClicked: (mouse)=> { foo(mouse) }
     }
     \endqml
 
@@ -241,7 +241,8 @@ void QQmlConnectionsParser::verifyBindings(const QQmlRefPointer<QV4::ExecutableC
         const QV4::CompiledData::Binding *binding = props.at(ii);
         const QString &propName = compilationUnit->stringAt(binding->propertyNameIndex);
 
-        const bool thirdCharacterIsValid = (propName.length() >= 2) && (propName.at(2).isUpper() || propName.at(2) == '_');
+        const bool thirdCharacterIsValid = (propName.length() >= 2)
+                && (propName.at(2).isUpper() || propName.at(2) == u'_');
         if (!propName.startsWith(QLatin1String("on")) || !thirdCharacterIsValid) {
             error(props.at(ii), QQmlConnections::tr("Cannot assign to non-existent property \"%1\"").arg(propName));
             return;
@@ -297,9 +298,9 @@ void QQmlConnections::connectSignalsToMethods()
     if (!ddata)
         return;
 
-    QV4::ExecutionEngine *engine = ddata->context->engine->handle();
+    QV4::ExecutionEngine *engine = ddata->context->engine()->handle();
 
-    QQmlContextData *ctxtdata = ddata->outerContext;
+    QQmlRefPointer<QQmlContextData> ctxtdata = ddata->outerContext;
     for (int i = ddata->propertyCache->methodOffset(),
              end = ddata->propertyCache->methodOffset() + ddata->propertyCache->methodCount();
          i < end;
@@ -349,7 +350,7 @@ void QQmlConnections::connectSignalsToBindings()
     Q_D(QQmlConnections);
     QObject *target = this->target();
     QQmlData *ddata = QQmlData::get(this);
-    QQmlContextData *ctxtdata = ddata ? ddata->outerContext : nullptr;
+    QQmlRefPointer<QQmlContextData> ctxtdata = ddata ? ddata->outerContext : nullptr;
 
     for (const QV4::CompiledData::Binding *binding : qAsConst(d->bindings)) {
         Q_ASSERT(binding->type == QV4::CompiledData::Binding::Type_Script);

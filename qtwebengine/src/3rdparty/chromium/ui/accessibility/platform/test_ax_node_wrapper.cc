@@ -21,7 +21,7 @@ namespace ui {
 namespace {
 
 // A global map from AXNodes to TestAXNodeWrappers.
-std::map<AXNode::AXID, TestAXNodeWrapper*> g_node_id_to_wrapper_map;
+std::map<AXNodeID, TestAXNodeWrapper*> g_node_id_to_wrapper_map;
 
 // A global coordinate offset.
 gfx::Vector2d g_offset;
@@ -48,7 +48,7 @@ bool g_is_web_content = false;
 
 // A map of hit test results - a map from source node ID to destination node
 // ID.
-std::map<AXNode::AXID, AXNode::AXID> g_hit_test_result;
+std::map<AXNodeID, AXNodeID> g_hit_test_result;
 
 // A simple implementation of AXTreeObserver to catch when AXNodes are
 // deleted so we can delete their wrappers.
@@ -99,6 +99,11 @@ const AXNode* TestAXNodeWrapper::GetNodeFromLastDefaultAction() {
 }
 
 // static
+void TestAXNodeWrapper::SetNodeFromLastDefaultAction(AXNode* node) {
+  g_node_from_last_default_action = node;
+}
+
+// static
 std::unique_ptr<base::AutoReset<float>> TestAXNodeWrapper::SetScaleFactor(
     float value) {
   return std::make_unique<base::AutoReset<float>>(&g_scale_factor, value);
@@ -110,8 +115,8 @@ void TestAXNodeWrapper::SetGlobalIsWebContent(bool is_web_content) {
 }
 
 // static
-void TestAXNodeWrapper::SetHitTestResult(AXNode::AXID src_node_id,
-                                         AXNode::AXID dst_node_id) {
+void TestAXNodeWrapper::SetHitTestResult(AXNodeID src_node_id,
+                                         AXNodeID dst_node_id) {
   g_hit_test_result[src_node_id] = dst_node_id;
 }
 
@@ -296,7 +301,7 @@ gfx::NativeViewAccessible TestAXNodeWrapper::HitTestSync(
                  : nullptr;
 }
 
-gfx::NativeViewAccessible TestAXNodeWrapper::GetFocus() {
+gfx::NativeViewAccessible TestAXNodeWrapper::GetFocus() const {
   auto focused = g_focused_node_in_tree.find(tree_);
   if (focused != g_focused_node_in_tree.end() &&
       focused->second->IsDescendantOf(node_)) {
@@ -459,30 +464,22 @@ base::Optional<bool> TestAXNodeWrapper::GetTableHasColumnOrRowHeaderNode()
   return node_->GetTableHasColumnOrRowHeaderNode();
 }
 
-std::vector<int32_t> TestAXNodeWrapper::GetColHeaderNodeIds() const {
-  std::vector<int32_t> header_ids;
-  node_->GetTableCellColHeaderNodeIds(&header_ids);
-  return header_ids;
+std::vector<AXNodeID> TestAXNodeWrapper::GetColHeaderNodeIds() const {
+  return node_->GetTableColHeaderNodeIds();
 }
 
-std::vector<int32_t> TestAXNodeWrapper::GetColHeaderNodeIds(
+std::vector<AXNodeID> TestAXNodeWrapper::GetColHeaderNodeIds(
     int col_index) const {
-  std::vector<int32_t> header_ids;
-  node_->GetTableColHeaderNodeIds(col_index, &header_ids);
-  return header_ids;
+  return node_->GetTableColHeaderNodeIds(col_index);
 }
 
-std::vector<int32_t> TestAXNodeWrapper::GetRowHeaderNodeIds() const {
-  std::vector<int32_t> header_ids;
-  node_->GetTableCellRowHeaderNodeIds(&header_ids);
-  return header_ids;
+std::vector<AXNodeID> TestAXNodeWrapper::GetRowHeaderNodeIds() const {
+  return node_->GetTableCellRowHeaderNodeIds();
 }
 
-std::vector<int32_t> TestAXNodeWrapper::GetRowHeaderNodeIds(
+std::vector<AXNodeID> TestAXNodeWrapper::GetRowHeaderNodeIds(
     int row_index) const {
-  std::vector<int32_t> header_ids;
-  node_->GetTableRowHeaderNodeIds(row_index, &header_ids);
-  return header_ids;
+  return node_->GetTableRowHeaderNodeIds(row_index);
 }
 
 bool TestAXNodeWrapper::IsTableRow() const {
@@ -586,6 +583,15 @@ bool TestAXNodeWrapper::AccessibilityPerformAction(
     }
 
     case ax::mojom::Action::kDoDefault: {
+      // If a default action such as a click is performed on an element, it
+      // could result in a selected state change. In which case, the element's
+      // selected state no longer comes from focus action, so we should set
+      // |kSelectedFromFocus| to false.
+      if (GetData().HasBoolAttribute(
+              ax::mojom::BoolAttribute::kSelectedFromFocus))
+        ReplaceBoolAttribute(ax::mojom::BoolAttribute::kSelectedFromFocus,
+                             false);
+
       switch (GetData().role) {
         case ax::mojom::Role::kListBoxOption:
         case ax::mojom::Role::kCell: {
@@ -611,7 +617,7 @@ bool TestAXNodeWrapper::AccessibilityPerformAction(
         default:
           break;
       }
-      g_node_from_last_default_action = node_;
+      SetNodeFromLastDefaultAction(node_);
       return true;
     }
 
@@ -636,9 +642,21 @@ bool TestAXNodeWrapper::AccessibilityPerformAction(
       return true;
     }
 
-    case ax::mojom::Action::kFocus:
+    case ax::mojom::Action::kFocus: {
       g_focused_node_in_tree[tree_] = node_;
+
+      // The platform has select follows focus behavior:
+      // https://www.w3.org/TR/wai-aria-practices-1.1/#kbd_selection_follows_focus
+      // For test purpose, we support select follows focus for all elements, and
+      // not just single-selection container elements.
+      if (SupportsSelected(GetData().role)) {
+        ReplaceBoolAttribute(ax::mojom::BoolAttribute::kSelected, true);
+        ReplaceBoolAttribute(ax::mojom::BoolAttribute::kSelectedFromFocus,
+                             true);
+      }
+
       return true;
+    }
 
     case ax::mojom::Action::kShowContextMenu:
       g_node_from_last_show_context_menu = node_;
@@ -881,6 +899,14 @@ base::Optional<int> TestAXNodeWrapper::GetSetSize() const {
   return node_->GetSetSize();
 }
 
+SkColor TestAXNodeWrapper::GetColor() const {
+  return node_->ComputeColor();
+}
+
+SkColor TestAXNodeWrapper::GetBackgroundColor() const {
+  return node_->ComputeBackgroundColor();
+}
+
 gfx::RectF TestAXNodeWrapper::GetLocation() const {
   return GetData().relative_bounds.bounds;
 }
@@ -948,11 +974,11 @@ gfx::RectF TestAXNodeWrapper::GetInlineTextRect(const int start_offset,
   gfx::RectF location = GetLocation();
   gfx::RectF bounds;
 
-  switch (static_cast<ax::mojom::TextDirection>(
+  switch (static_cast<ax::mojom::WritingDirection>(
       GetData().GetIntAttribute(ax::mojom::IntAttribute::kTextDirection))) {
     // Currently only kNone and kLtr are supported text direction.
-    case ax::mojom::TextDirection::kNone:
-    case ax::mojom::TextDirection::kLtr: {
+    case ax::mojom::WritingDirection::kNone:
+    case ax::mojom::WritingDirection::kLtr: {
       int start_pixel_offset =
           start_offset > 0 ? character_offsets[start_offset - 1] : location.x();
       int end_pixel_offset =

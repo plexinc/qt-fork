@@ -15,14 +15,14 @@
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_object.h"
-#include "third_party/base/ptr_util.h"
+#include "third_party/base/check.h"
 #include "third_party/base/stl_util.h"
 
 CPDF_Page::CPDF_Page(CPDF_Document* pDocument, CPDF_Dictionary* pPageDict)
     : CPDF_PageObjectHolder(pDocument, pPageDict, nullptr, nullptr),
       m_PageSize(100, 100),
       m_pPDFDocument(pDocument) {
-  ASSERT(pPageDict);
+  DCHECK(pPageDict);
 
   // Cannot initialize |m_pResources| and |m_pPageResources| via the
   // CPDF_PageObjectHolder ctor because GetPageAttr() requires
@@ -36,7 +36,7 @@ CPDF_Page::CPDF_Page(CPDF_Document* pDocument, CPDF_Dictionary* pPageDict)
   LoadTransparencyInfo();
 }
 
-CPDF_Page::~CPDF_Page() {}
+CPDF_Page::~CPDF_Page() = default;
 
 CPDF_Page* CPDF_Page::AsPDFPage() {
   return this;
@@ -67,9 +67,9 @@ void CPDF_Page::ParseContent() {
     return;
 
   if (GetParseState() == ParseState::kNotParsed)
-    StartParse(pdfium::MakeUnique<CPDF_ContentParser>(this));
+    StartParse(std::make_unique<CPDF_ContentParser>(this));
 
-  ASSERT(GetParseState() == ParseState::kParsing);
+  DCHECK(GetParseState() == ParseState::kParsing);
   ContinueParse(nullptr);
 }
 
@@ -82,7 +82,7 @@ CPDF_Object* CPDF_Page::GetPageAttr(const ByteString& name) const {
       return pObj;
 
     pPageDict = pPageDict->GetDictFor(pdfium::page_object::kParent);
-    if (!pPageDict || pdfium::ContainsKey(visited, pPageDict))
+    if (!pPageDict || pdfium::Contains(visited, pPageDict))
       break;
   }
   return nullptr;

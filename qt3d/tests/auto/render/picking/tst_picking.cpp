@@ -26,20 +26,19 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QtTest/QTest>
 #include <Qt3DCore/qentity.h>
 #include <Qt3DCore/qtransform.h>
-#include <Qt3DCore/QPropertyUpdatedChange>
 #include <Qt3DCore/private/qscene_p.h>
 #include <Qt3DRender/private/qboundingvolumeprovider_p.h>
 #include <Qt3DRender/private/pickboundingvolumejob_p.h>
 #include <Qt3DRender/private/objectpicker_p.h>
 #include <Qt3DRender/qobjectpicker.h>
+#include <Qt3DRender/qgeometryrenderer.h>
 #include <Qt3DRender/private/qobjectpicker_p.h>
 #include <Qt3DExtras/qspheremesh.h>
-#include <Qt3DRender/qattribute.h>
-#include <Qt3DRender/qbuffer.h>
-#include <Qt3DRender/qbufferdatagenerator.h>
+#include <Qt3DCore/qattribute.h>
+#include <Qt3DCore/qbuffer.h>
 #include <Qt3DExtras/qspheregeometry.h>
 #include <Qt3DRender/qpickevent.h>
 
@@ -55,11 +54,6 @@ public:
     MyObjectPicker(Qt3DCore::QNode *parent = nullptr)
         : Qt3DRender::QObjectPicker(parent)
     {}
-
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) final
-    {
-        Qt3DRender::QObjectPicker::sceneChangeEvent(change);
-    }
 };
 
 class PickableEntity : public QEntity
@@ -77,16 +71,10 @@ public:
         , clickedCalled(0)
     {
         mesh->setRadius(radius);
-        QSphereGeometry *g = static_cast<QSphereGeometry *>(mesh->geometry());
+        QSphereGeometry *g = static_cast<QSphereGeometry *>(mesh->view()->geometry());
         QAttribute *positionAttr = static_cast<QAttribute *>(g->attributes().first());
-        Qt3DRender::QBuffer *vertexBuffer = static_cast<Qt3DRender::QBuffer *>(positionAttr->buffer());
-
-        // Load the geometry
-        QT_WARNING_PUSH
-        QT_WARNING_DISABLE_DEPRECATED
-        const QByteArray data = (*vertexBuffer->dataGenerator())();
-        vertexBuffer->setData(data);
-        QT_WARNING_POP
+        Qt3DCore::QBuffer *vertexBuffer = static_cast<Qt3DCore::QBuffer *>(positionAttr->buffer());
+        Q_UNUSED(vertexBuffer);
 
         transform->setTranslation(position);
 

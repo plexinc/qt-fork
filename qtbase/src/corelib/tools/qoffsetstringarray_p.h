@@ -55,6 +55,7 @@
 
 #include <tuple>
 #include <array>
+#include <limits>
 
 QT_BEGIN_NAMESPACE
 
@@ -65,9 +66,11 @@ struct OffsetSequenceHelper : OffsetSequenceHelper<N - 1, O + I, Idx..., O> { };
 template<int Last, int I, int S, int ... Idx>
 struct OffsetSequenceHelper<1, Last, I, S, Idx...> : IndexesList<Last + I, Idx..., Last>
 {
+    // the unary + before std::numeric_limits below is required. Otherwise we get on g++-10.2:
+    // error: comparison is always false due to limited range of data type [-Werror=type-limits]
     static const constexpr auto Length = Last + I;
     using Type = typename std::conditional<
-        Last <= std::numeric_limits<quint8>::max(),
+        Last <= +std::numeric_limits<quint8>::max(),
         quint8,
         typename std::conditional<
             Last <= std::numeric_limits<quint16>::max(),
@@ -133,6 +136,10 @@ constexpr StaticString<Sum> staticString(const char (&s)[I], const char (&...sx)
 QT_WARNING_POP
 } // namespace QtPrivate
 
+QT_WARNING_PUSH
+#if defined(Q_CC_GNU) && __GNUC__ == 9
+QT_WARNING_DISABLE_GCC("-Wstringop-overflow")
+#endif
 template<typename T, int SizeString, int SizeOffsets>
 class QOffsetStringArray
 {
@@ -158,7 +165,7 @@ public:
 
     constexpr inline const char *str() const { return m_string.data; }
     constexpr inline const T *offsets() const { return m_offsets; }
-    constexpr inline int count() const { return SizeOffsets; };
+    constexpr inline int count() const { return SizeOffsets; }
 
     static constexpr const auto sizeString = SizeString;
     static constexpr const auto sizeOffsets = SizeOffsets;
@@ -167,6 +174,7 @@ private:
     QtPrivate::StaticString<SizeString> m_string;
     const T m_offsets[SizeOffsets];
 };
+QT_WARNING_POP
 
 template<typename T, int N, int ... Ox>
 constexpr QOffsetStringArray<T, N, sizeof ... (Ox)> qOffsetStringArray(

@@ -49,6 +49,7 @@ IMPLEMENT_READING(QIRProximityReading)
     \ingroup sensors_reading
     \inmodule QtSensors
     \since 5.1
+    \internal
 
     \brief The QIRProximityReading class holds readings from the IR proximity sensor.
 
@@ -101,6 +102,7 @@ void QIRProximityReading::setReflectance(qreal reflectance)
     \ingroup sensors_filter
     \inmodule QtSensors
     \since 5.1
+    \internal
 
     \brief The QIRProximityFilter class is a convenience wrapper around QSensorFilter.
 
@@ -121,13 +123,14 @@ bool QIRProximityFilter::filter(QSensorReading *reading)
     return filter(static_cast<QIRProximityReading*>(reading));
 }
 
-char const * const QIRProximitySensor::type("QIRProximitySensor");
+char const * const QIRProximitySensor::sensorType("QIRProximitySensor");
 
 /*!
     \class QIRProximitySensor
     \ingroup sensors_type
     \inmodule QtSensors
     \since 5.1
+    \internal
 
     \brief The QIRProximitySensor class is a convenience wrapper around QSensor.
 
@@ -144,7 +147,7 @@ char const * const QIRProximitySensor::type("QIRProximitySensor");
     Construct the sensor as a child of \a parent.
 */
 QIRProximitySensor::QIRProximitySensor(QObject *parent)
-    : QSensor(QIRProximitySensor::type, parent)
+    : QSensor(QIRProximitySensor::sensorType, parent)
 {
 }
 

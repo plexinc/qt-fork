@@ -4,10 +4,8 @@ include_rules = [
   "-components",
   "+components/browser_watcher",
   "+components/component_updater",
-  "+components/compression",
   "+components/metrics",
   "+components/prefs",
-  "+components/sync",
   "+components/variations",
   "+components/version_info",
   "+content/public/test",
@@ -20,3 +18,9 @@ include_rules = [
   "-net",
   "+url"
 ]
+
+specific_include_rules = {
+  "log_decoder\.cc": [
+    "+third_party/protobuf/src/google/protobuf",
+  ],
+}

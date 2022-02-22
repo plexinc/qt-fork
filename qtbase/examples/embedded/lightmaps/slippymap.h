@@ -55,15 +55,17 @@
 #include <QPixmap>
 #include <QUrl>
 
+QT_BEGIN_NAMESPACE
 class QNetworkReply;
 class QPainter;
+QT_END_NAMESPACE
 
 class SlippyMap: public QObject
 {
     Q_OBJECT
 
 public:
-    SlippyMap(QObject *parent = 0);
+    SlippyMap(QObject *parent = nullptr);
     void invalidate();
     void render(QPainter *p, const QRect &rect);
     void pan(const QPoint &delta);
@@ -94,3 +96,4 @@ private:
 };
 
 #endif
+

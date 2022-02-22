@@ -50,6 +50,7 @@
 // We mean it.
 //
 
+#include <qqmlprivate.h>
 #include "qv4global_p.h"
 #include <private/qv4executablecompilationunit_p.h>
 #include <private/qv4context_p.h>
@@ -82,7 +83,7 @@ Q_STATIC_ASSERT(std::is_standard_layout< FunctionData >::value);
 struct Q_QML_EXPORT Function : public FunctionData {
 private:
     Function(ExecutionEngine *engine, ExecutableCompilationUnit *unit,
-             const CompiledData::Function *function);
+             const CompiledData::Function *function, const QQmlPrivate::AOTCompiledFunction *aotFunction);
     ~Function();
 
 public:
@@ -99,6 +100,8 @@ public:
         return compilationUnit->runtimeStrings[i];
     }
 
+    bool call(const Value *thisObject, void **a, const QMetaType *types, int argc,
+              const ExecutionContext *context);
     ReturnedValue call(const Value *thisObject, const Value *argv, int argc, const ExecutionContext *context);
 
     const char *codeData;
@@ -106,15 +109,18 @@ public:
     typedef ReturnedValue (*JittedCode)(CppStackFrame *, ExecutionEngine *);
     JittedCode jittedCode;
     JSC::MacroAssemblerCodeRef *codeRef;
+    const QQmlPrivate::AOTCompiledFunction *aotFunction = nullptr;
 
     // first nArguments names in internalClass are the actual arguments
     Heap::InternalClass *internalClass;
     uint nFormals;
     int interpreterCallCount = 0;
     bool isEval = false;
+    bool detectedInjectedParameters = false;
 
     static Function *create(ExecutionEngine *engine, ExecutableCompilationUnit *unit,
-                            const CompiledData::Function *function);
+                            const CompiledData::Function *function,
+                            const QQmlPrivate::AOTCompiledFunction *aotFunction);
     void destroy();
 
     // used when dynamically assigning signal handlers (QQmlConnection)
@@ -132,6 +138,7 @@ public:
     inline bool isStrict() const { return compiledFunction->flags & CompiledData::Function::IsStrict; }
     inline bool isArrowFunction() const { return compiledFunction->flags & CompiledData::Function::IsArrowFunction; }
     inline bool isGenerator() const { return compiledFunction->flags & CompiledData::Function::IsGenerator; }
+    inline bool isClosureWrapper() const { return compiledFunction->flags & CompiledData::Function::IsClosureWrapper; }
 
     QQmlSourceLocation sourceLocation() const;
 

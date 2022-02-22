@@ -40,13 +40,16 @@ class StatusDataView;
 // successful returns.
 class MEDIA_EXPORT Status {
  public:
-  // Default constructor can be used for OkStatus();
+  // This will create a kOk status, but please don't use it.  Use either
+  // Status(StatusCode::kOk) or OkStatus().  This is here because the mojo
+  // bindings assume that it is.
+  // TODO(crbug.com/1106492): Remove this.
   Status();
 
   // Constructor to create a new Status from a numeric code & message.
   // These are immutable; if you'd like to change them, then you likely should
-  // create a new Status. {} or OkStatus() should be used to create a
-  // success status.
+  // create a new Status. Either {StatusCode::kOk} or OkStatus() may be used to
+  // create a success status.
   // NOTE: This should never be given a location parameter when called - It is
   // defaulted in order to grab the caller location.
   Status(StatusCode code,
@@ -147,66 +150,117 @@ class MEDIA_EXPORT Status {
 // if they are added.
 MEDIA_EXPORT Status OkStatus();
 
-// Helper class to allow returning a |T| or a Status.  Typical usage:
+// TODO(liberato): Add more helper functions for common error returns.
+
+// Helper class to allow returning a `T` or a Status.
 //
-// ErrorOr<std::unique_ptr<MyObject>> FactoryFn() {
+// It is not okay to send a StatusOr with a status code of `kOk`.  `kOk` is
+// reserved for cases where there is a `T` rather than a Status.
+//
+// Typical usage:
+//
+// StatusOr<std::unique_ptr<MyObject>> FactoryFn() {
 //   if (success)
 //     return std::make_unique<MyObject>();
 //   return Status(StatusCodes::kSomethingBadHappened);
 // }
 //
 // auto result = FactoryFn();
-// if (result.has_error())  return std::move(result.error());
-// my_object_ = std::move(result.value());
+// if (result.has_error())  return std::move(result).error();
+// my_object_ = std::move(result).value();
+//
+// Can also be combined into a single switch using `code()`:
+//
+// switch (result.code()) {
+//  case StatusCode::kOk:
+//    // `kOk` is special; it means the StatusOr has a `T`.
+//    // Do something with result.value()
+//    break;
+//  // Maybe switch on specific non-kOk codes for special processing.
+//  default:  // Send unknown errors upwards.
+//    return std::move(result).error();
+// }
 //
 // Also useful if one would like to get an enum class return value, unless an
 // error occurs:
 //
 // enum class ResultType { kNeedMoreInput, kOutputIsReady, kFormatChanged };
 //
-// ErrorOr<ResultType> Foo() { ... }
+// StatusOr<ResultType> Foo() { ... }
 //
 // auto result = Foo();
-// if (result.has_error()) return std::move(result.error());
-// switch (result.value()) {
+// if (result.has_error()) return std::move(result).error();
+// switch (std::move(result).value()) {
 //  case ResultType::kNeedMoreInput:
 //   ...
 // }
 template <typename T>
-class ErrorOr {
+class StatusOr {
  public:
   // All of these may be implicit, so that one may just return Status or
   // the value in question.
-  ErrorOr(Status&& error) : error_(std::move(error)) {}
-  ErrorOr(const Status& error) : error_(error) {}
-  ErrorOr(T&& value) : value_(std::move(value)) {}
-  ErrorOr(const T& value) : value_(value) {}
+  /* not explicit */ StatusOr(Status&& error) : error_(std::move(error)) {
+    DCHECK_NE(code(), StatusCode::kOk);
+  }
+  /* not explicit */ StatusOr(const Status& error) : error_(error) {
+    DCHECK_NE(code(), StatusCode::kOk);
+  }
+  StatusOr(StatusCode code,
+           const base::Location& location = base::Location::Current())
+      : error_(Status(code, "", location)) {
+    DCHECK_NE(code, StatusCode::kOk);
+  }
 
-  ~ErrorOr() = default;
+  StatusOr(T&& value) : value_(std::move(value)) {}
+  StatusOr(const T& value) : value_(value) {}
+
+  ~StatusOr() = default;
 
   // Move- and copy- construction and assignment are okay.
-  ErrorOr(const ErrorOr&) = default;
-  ErrorOr(ErrorOr&&) = default;
-  ErrorOr& operator=(ErrorOr&) = default;
-  ErrorOr& operator=(ErrorOr&&) = default;
+  StatusOr(const StatusOr&) = default;
+  StatusOr(StatusOr&&) = default;
+  StatusOr& operator=(StatusOr&) = default;
+  StatusOr& operator=(StatusOr&&) = default;
 
   // Do we have a value?
   bool has_value() const { return value_.has_value(); }
 
-  // Since we often test for errors, provide this too.
-  bool has_error() const { return !has_value(); }
+  // Do we have an error?
+  bool has_error() const { return error_.has_value(); }
 
   // Return the error, if we have one.  Up to the caller to make sure that we
-  // have one via |!has_value()|.
-  Status& error() { return *error_; }
+  // have one via |has_error()|.
+  // NOTE: once this is called, the StatusOr is defunct and should not be used.
+  Status error() && {
+    CHECK(error_);
+    auto error = std::move(*error_);
+    error_.reset();
+    return error;
+  }
 
-  // Return a ref to the value.  It's up to the caller to verify that we have a
-  // value before calling this.
-  T& value() { return *value_; }
+  // Return the value.  It's up to the caller to verify that we have a value
+  // before calling this.  Also, this only works once, after which we will have
+  // an error.  Use like this: std::move(status_or).value();
+  // NOTE: once this is called, the StatusOr is defunct and should not be used.
+  T value() && {
+    CHECK(value_);
+    auto value = std::move(std::get<0>(*value_));
+    value_.reset();
+    return value;
+  }
+
+  // Returns the error code we have, if any, or `kOk`.
+  StatusCode code() const {
+    CHECK(error_ || value_);
+    return error_ ? error_->code() : StatusCode::kOk;
+  }
 
  private:
+  // Optional error.
   base::Optional<Status> error_;
-  base::Optional<T> value_;
+  // We wrap |T| in a container so that windows COM wrappers work.  They
+  // override operator& and similar, and won't compile in a base::Optional.
+  base::Optional<std::tuple<T>> value_;
 };
 
 }  // namespace media

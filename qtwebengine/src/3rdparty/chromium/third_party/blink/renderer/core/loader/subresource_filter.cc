@@ -8,8 +8,10 @@
 
 #include "base/location.h"
 #include "base/single_thread_task_runner.h"
+#include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/core/dom/document.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/core/loader/document_loader.h"
@@ -43,19 +45,21 @@ SubresourceFilter::SubresourceFilter(
   DCHECK(subresource_filter_);
   // Report the main resource as an ad if the subresource filter is
   // associated with an ad subframe.
-  if (auto* document = Document::DynamicFrom(execution_context_.Get())) {
-    auto* loader = document->Loader();
-    if (document->GetFrame()->IsAdSubframe()) {
-      ReportAdRequestId(loader->GetResponse().RequestId());
+  if (auto* window = DynamicTo<LocalDOMWindow>(execution_context_.Get())) {
+    auto* frame = window->GetFrame();
+    if (frame->IsAdSubframe()) {
+      ReportAdRequestId(
+          frame->Loader().GetDocumentLoader()->GetResponse().RequestId());
     }
   }
 }
 
 SubresourceFilter::~SubresourceFilter() = default;
 
-bool SubresourceFilter::AllowLoad(const KURL& resource_url,
-                                  mojom::RequestContextType request_context,
-                                  ReportingDisposition reporting_disposition) {
+bool SubresourceFilter::AllowLoad(
+    const KURL& resource_url,
+    mojom::blink::RequestContextType request_context,
+    ReportingDisposition reporting_disposition) {
   // TODO(csharrison): Implement a caching layer here which is a HashMap of
   // Pair<url string, context> -> LoadPolicy.
   WebDocumentSubresourceFilter::LoadPolicy load_policy =
@@ -89,7 +93,7 @@ bool SubresourceFilter::AllowWebSocketConnection(const KURL& url) {
 
 bool SubresourceFilter::IsAdResource(
     const KURL& resource_url,
-    mojom::RequestContextType request_context) {
+    mojom::blink::RequestContextType request_context) {
   WebDocumentSubresourceFilter::LoadPolicy load_policy;
   if (last_resource_check_result_.first ==
       std::make_pair(resource_url, request_context)) {
@@ -132,9 +136,9 @@ void SubresourceFilter::ReportLoad(
       // TODO(csharrison): Consider posting a task to the main thread from
       // worker thread, or adding support for DidObserveLoadingBehavior to
       // ExecutionContext.
-      if (auto* document = Document::DynamicFrom(execution_context_.Get())) {
-        if (DocumentLoader* loader = document->Loader()) {
-          loader->DidObserveLoadingBehavior(
+      if (auto* window = DynamicTo<LocalDOMWindow>(execution_context_.Get())) {
+        if (auto* frame = window->GetFrame()) {
+          frame->Loader().GetDocumentLoader()->DidObserveLoadingBehavior(
               kLoadingBehaviorSubresourceFilterMatch);
         }
       }
@@ -142,7 +146,7 @@ void SubresourceFilter::ReportLoad(
   }
 }
 
-void SubresourceFilter::Trace(Visitor* visitor) {
+void SubresourceFilter::Trace(Visitor* visitor) const {
   visitor->Trace(execution_context_);
 }
 

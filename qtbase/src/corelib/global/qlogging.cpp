@@ -53,6 +53,7 @@
 #include "qloggingcategory.h"
 #ifndef QT_BOOTSTRAPPED
 #include "qelapsedtimer.h"
+#include "qdeadlinetimer.h"
 #include "qdatetime.h"
 #include "qcoreapplication.h"
 #include "qthread.h"
@@ -101,6 +102,11 @@
 #include <emscripten/emscripten.h>
 #endif
 
+#if QT_CONFIG(slog2)
+extern char *__progname;
+#endif
+
+#ifndef QT_BOOTSTRAPPED
 #if QT_CONFIG(regularexpression)
 #  ifdef __UCLIBC__
 #    if __UCLIBC_HAS_BACKTRACE__
@@ -111,11 +117,6 @@
 #  endif
 #endif
 
-#if QT_CONFIG(slog2)
-extern char *__progname;
-#endif
-
-#ifndef QT_BOOTSTRAPPED
 #if defined(Q_OS_LINUX) && (defined(__GLIBC__) || __has_include(<sys/syscall.h>))
 #  include <sys/syscall.h>
 
@@ -226,10 +227,6 @@ static bool isDefaultCategory(const char *category)
 */
 static bool systemHasStderr()
 {
-#if defined(Q_OS_WINRT)
-    return false; // WinRT has no stderr
-#endif
-
     return true;
 }
 
@@ -268,7 +265,7 @@ static bool stderrHasConsoleAttached()
         if (qEnvironmentVariableIntValue("QT_ASSUME_STDERR_HAS_CONSOLE"))
             return true;
 
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
         return GetConsoleWindow();
 #elif defined(Q_OS_UNIX)
 #       ifndef _PATH_TTY
@@ -1073,8 +1070,8 @@ static const char emptyTokenC[] = "";
 
 static const char defaultPattern[] = "%{if-category}%{category}: %{endif}%{message}";
 
-
-struct QMessagePattern {
+struct QMessagePattern
+{
     QMessagePattern();
     ~QMessagePattern();
 
@@ -1082,24 +1079,25 @@ struct QMessagePattern {
 
     // 0 terminated arrays of literal tokens / literal or placeholder tokens
     std::unique_ptr<std::unique_ptr<const char[]>[]> literals;
-    std::unique_ptr<const char*[]> tokens;
-    QList<QString> timeArgs;   // timeFormats in sequence of %{time
+    std::unique_ptr<const char *[]> tokens;
+    QList<QString> timeArgs; // timeFormats in sequence of %{time
 #ifndef QT_BOOTSTRAPPED
     QElapsedTimer timer;
 #endif
 #ifdef QLOGGING_HAVE_BACKTRACE
-    struct BacktraceParams {
+    struct BacktraceParams
+    {
         QString backtraceSeparator;
         int backtraceDepth;
     };
-    QVector<BacktraceParams> backtraceArgs; // backtrace argumens in sequence of %{backtrace
+    QList<BacktraceParams> backtraceArgs; // backtrace arguments in sequence of %{backtrace
 #endif
 
     bool fromEnvironment;
     static QBasicMutex mutex;
 };
 #ifdef QLOGGING_HAVE_BACKTRACE
-Q_DECLARE_TYPEINFO(QMessagePattern::BacktraceParams, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QMessagePattern::BacktraceParams, Q_RELOCATABLE_TYPE);
 #endif
 
 QBasicMutex QMessagePattern::mutex;
@@ -1119,8 +1117,7 @@ QMessagePattern::QMessagePattern()
     }
 }
 
-QMessagePattern::~QMessagePattern()
-    = default;
+QMessagePattern::~QMessagePattern() = default;
 
 void QMessagePattern::setPattern(const QString &pattern)
 {
@@ -1162,7 +1159,7 @@ void QMessagePattern::setPattern(const QString &pattern)
 
     // tokenizer
     std::vector<std::unique_ptr<const char[]>> literalsVar;
-    tokens.reset(new const char*[lexemes.size() + 1]);
+    tokens.reset(new const char *[lexemes.size() + 1]);
     tokens[lexemes.size()] = nullptr;
 
     bool nestedIfError = false;
@@ -1210,7 +1207,7 @@ void QMessagePattern::setPattern(const QString &pattern)
                 static const QRegularExpression separatorRx(QStringLiteral(" separator=(?|\"([^\"]*)\"|([^ }]*))"));
                 QRegularExpressionMatch m = depthRx.match(lexeme);
                 if (m.hasMatch()) {
-                    int depth = m.capturedRef(1).toInt();
+                    int depth = m.capturedView(1).toInt();
                     if (depth <= 0)
                         error += QLatin1String("QT_MESSAGE_PATTERN: %{backtrace} depth must be a number greater than 0\n");
                     else
@@ -1294,7 +1291,7 @@ static QStringList backtraceFramesForLogMessage(int frameCount)
     // This code is protected by QMessagePattern::mutex so it is thread safe on all compilers
     static const QRegularExpression rx(QStringLiteral("^(?:[^(]*/)?([^(/]+)\\(([^+]*)(?:[\\+[a-f0-9x]*)?\\) \\[[a-f0-9x]*\\]$"));
 
-    QVarLengthArray<void*, 32> buffer(8 + frameCount);
+    QVarLengthArray<void *, 32> buffer(8 + frameCount);
     int n = backtrace(buffer.data(), buffer.size());
     if (n > 0) {
         int numberPrinted = 0;
@@ -1307,7 +1304,7 @@ static QStringList backtraceFramesForLogMessage(int frameCount)
                 QString function = m.captured(2);
 
                 // skip the trace from QtCore that are because of the qDebug itself
-                if (!numberPrinted && library.contains(QLatin1String("Qt5Core"))
+                if (!numberPrinted && library.contains(QLatin1String("Qt6Core"))
                         && (function.isEmpty() || function.contains(QLatin1String("Message"), Qt::CaseInsensitive)
                             || function.contains(QLatin1String("QDebug")))) {
                     continue;
@@ -1413,7 +1410,10 @@ QString qFormatLogMessage(QtMsgType type, const QMessageLogContext &context, con
         } else if (token == messageTokenC) {
             message.append(str);
         } else if (token == categoryTokenC) {
+#ifndef Q_OS_ANDROID
+            // Don't add the category to the message on Android
             message.append(QLatin1String(context.category));
+#endif
         } else if (token == typeTokenC) {
             switch (type) {
             case QtDebugMsg:   message.append(QLatin1String("debug")); break;
@@ -1460,9 +1460,7 @@ QString qFormatLogMessage(QtMsgType type, const QMessageLogContext &context, con
             } else if (timeFormat ==  QLatin1String("boot")) {
                 // just print the milliseconds since the elapsed timer reference
                 // like the Linux kernel does
-                QElapsedTimer now;
-                now.start();
-                uint ms = now.msecsSinceReference();
+                uint ms = QDeadlineTimer::current().deadline();
                 message.append(QString::asprintf("%6d.%03d", uint(ms / 1000), uint(ms % 1000)));
 #if QT_CONFIG(datestring)
             } else if (timeFormat.isEmpty()) {
@@ -1491,24 +1489,15 @@ QString qFormatLogMessage(QtMsgType type, const QMessageLogContext &context, con
     return message;
 }
 
-#if !QT_DEPRECATED_SINCE(5, 0)
-// make sure they're defined to be exported
-typedef void (*QtMsgHandler)(QtMsgType, const char *);
-Q_CORE_EXPORT QtMsgHandler qInstallMsgHandler(QtMsgHandler);
-#endif
-
-static void qDefaultMsgHandler(QtMsgType type, const char *buf);
 static void qDefaultMessageHandler(QtMsgType type, const QMessageLogContext &context, const QString &buf);
 
-// pointer to QtMsgHandler debug handler (without context)
-static QBasicAtomicPointer<void (QtMsgType, const char*)> msgHandler = Q_BASIC_ATOMIC_INITIALIZER(nullptr);
 // pointer to QtMessageHandler debug handler (with context)
 static QBasicAtomicPointer<void (QtMsgType, const QMessageLogContext &, const QString &)> messageHandler = Q_BASIC_ATOMIC_INITIALIZER(nullptr);
 
 // ------------------------ Alternate logging sinks -------------------------
 
 #if defined(QT_BOOTSTRAPPED)
-    // Boostrapped tools always print to stderr, so no need for alternate sinks
+    // Bootstrapped tools always print to stderr, so no need for alternate sinks
 #else
 
 #if QT_CONFIG(slog2)
@@ -1655,23 +1644,36 @@ static bool android_default_message_handler(QtMsgType type,
 
     android_LogPriority priority = ANDROID_LOG_DEBUG;
     switch (type) {
-    case QtDebugMsg: priority = ANDROID_LOG_DEBUG; break;
-    case QtInfoMsg: priority = ANDROID_LOG_INFO; break;
-    case QtWarningMsg: priority = ANDROID_LOG_WARN; break;
-    case QtCriticalMsg: priority = ANDROID_LOG_ERROR; break;
-    case QtFatalMsg: priority = ANDROID_LOG_FATAL; break;
+    case QtDebugMsg:
+        priority = ANDROID_LOG_DEBUG;
+        break;
+    case QtInfoMsg:
+        priority = ANDROID_LOG_INFO;
+        break;
+    case QtWarningMsg:
+        priority = ANDROID_LOG_WARN;
+        break;
+    case QtCriticalMsg:
+        priority = ANDROID_LOG_ERROR;
+        break;
+    case QtFatalMsg:
+        priority = ANDROID_LOG_FATAL;
+        break;
     };
 
-    __android_log_print(priority, qPrintable(QCoreApplication::applicationName()), "%s\n", qPrintable(formattedMessage));
+    // If a category is defined, use it as an Android logging tag
+    __android_log_print(priority, isDefaultCategory(context.category) ?
+                            qPrintable(QCoreApplication::applicationName()) : context.category,
+                        "%s\n", qPrintable(formattedMessage));
 
     return true; // Prevent further output to stderr
 }
 #endif //Q_OS_ANDROID
 
 #ifdef Q_OS_WIN
-static void win_outputDebugString_helper(QStringView message)
+static void win_outputDebugString_helper(const QString &message)
 {
-    const int maxOutputStringLength = 32766;
+    const qsizetype maxOutputStringLength = 32766;
     static QBasicMutex m;
     auto locker = qt_unique_lock(m);
     // fast path: Avoid string copies if one output is enough
@@ -1679,9 +1681,9 @@ static void win_outputDebugString_helper(QStringView message)
         OutputDebugString(reinterpret_cast<const wchar_t *>(message.utf16()));
     } else {
         wchar_t *messagePart = new wchar_t[maxOutputStringLength + 1];
-        for (int i = 0; i < message.length(); i += maxOutputStringLength ) {
-            const int length = std::min(message.length() - i, maxOutputStringLength );
-            const int len = message.mid(i, length).toWCharArray(messagePart);
+        for (qsizetype i = 0; i < message.length(); i += maxOutputStringLength) {
+            const qsizetype length = qMin(message.length() - i, maxOutputStringLength);
+            const qsizetype len = QStringView{message}.mid(i, length).toWCharArray(messagePart);
             Q_ASSERT(len == length);
             messagePart[len] = 0;
             OutputDebugString(messagePart);
@@ -1695,7 +1697,7 @@ static bool win_message_handler(QtMsgType type, const QMessageLogContext &contex
     if (shouldLogToStderr())
         return false; // Leave logging up to stderr handler
 
-    const QString formattedMessage = qFormatLogMessage(type, context, message).append('\n');
+    const QString formattedMessage = qFormatLogMessage(type, context, message).append(QLatin1Char('\n'));
     win_outputDebugString_helper(formattedMessage);
 
     return true; // Prevent further output to stderr
@@ -1746,6 +1748,13 @@ static void stderr_message_handler(QtMsgType type, const QMessageLogContext &con
     if (formattedMessage.isNull())
         return;
 
+#ifdef Q_OS_WASM
+    // Prevent thread cross-talk, which causes Emscripten to log
+    // non-valid UTF-8. FIXME: remove once we upgrade to emsdk > 2.0.30
+    static QBasicMutex m;
+    auto locker = qt_unique_lock(m);
+#endif
+
     fprintf(stderr, "%s\n", formattedMessage.toLocal8Bit().constData());
     fflush(stderr);
 }
@@ -1784,15 +1793,6 @@ static void qDefaultMessageHandler(QtMsgType type, const QMessageLogContext &con
 
     if (!handledStderr)
         stderr_message_handler(type, context, message);
-}
-
-/*!
-    \internal
-*/
-static void qDefaultMsgHandler(QtMsgType type, const char *buf)
-{
-    QMessageLogContext emptyContext;
-    qDefaultMessageHandler(type, emptyContext, QString::fromLocal8Bit(buf));
 }
 
 #if defined(Q_COMPILER_THREAD_LOCAL)
@@ -1836,14 +1836,8 @@ static void qt_message_print(QtMsgType msgType, const QMessageLogContext &contex
     // itself, e.g. by using Qt API
     if (grabMessageHandler()) {
         const auto ungrab = qScopeGuard([]{ ungrabMessageHandler(); });
-        auto oldStyle = msgHandler.loadAcquire();
-        auto newStye = messageHandler.loadAcquire();
-        // prefer new message handler over the old one
-        if (newStye || !oldStyle) {
-            (newStye ? newStye : qDefaultMessageHandler)(msgType, context, message);
-        } else {
-            (oldStyle ? oldStyle : qDefaultMsgHandler)(msgType, message.toLocal8Bit().constData());
-        }
+        auto msgHandler = messageHandler.loadAcquire();
+        (msgHandler ? msgHandler : qDefaultMessageHandler)(msgType, context, message);
     } else {
         fprintf(stderr, "%s\n", message.toLocal8Bit().constData());
     }
@@ -1851,10 +1845,7 @@ static void qt_message_print(QtMsgType msgType, const QMessageLogContext &contex
 
 static void qt_message_print(const QString &message)
 {
-#if defined(Q_OS_WINRT)
-    win_outputDebugString_helper(message);
-    return;
-#elif defined(Q_OS_WIN) && !defined(QT_BOOTSTRAPPED)
+#if defined(Q_OS_WIN) && !defined(QT_BOOTSTRAPPED)
     if (!shouldLogToStderr()) {
         win_outputDebugString_helper(message);
         return;
@@ -1957,20 +1948,6 @@ void qErrnoWarning(int code, const char *msg, ...)
 }
 
 /*!
-    \typedef QtMsgHandler
-    \relates <QtGlobal>
-    \deprecated
-
-    This is a typedef for a pointer to a function with the following
-    signature:
-
-    \snippet code/src_corelib_global_qglobal.cpp 7
-
-    This typedef is deprecated, you should use QtMessageHandler instead.
-    \sa QtMsgType, QtMessageHandler, qInstallMsgHandler(), qInstallMessageHandler()
-*/
-
-/*!
     \typedef QtMessageHandler
     \relates <QtGlobal>
     \since 5.0
@@ -2017,16 +1994,6 @@ void qErrnoWarning(int code, const char *msg, ...)
     {Debugging Techniques}
 */
 
-/*!
-    \fn QtMsgHandler qInstallMsgHandler(QtMsgHandler handler)
-    \relates <QtGlobal>
-    \deprecated
-
-    Installs a Qt message \a handler which has been defined
-    previously. This method is deprecated, use qInstallMessageHandler
-    instead.
-    \sa QtMsgHandler, qInstallMessageHandler()
-*/
 /*!
     \fn void qSetMessagePattern(const QString &pattern)
     \relates <QtGlobal>
@@ -2085,13 +2052,17 @@ void qErrnoWarning(int code, const char *msg, ...)
     environment variable; if both \l qSetMessagePattern() is called and QT_MESSAGE_PATTERN is
     set, the environment variable takes precedence.
 
+    \note The information for the placeholders \c category, \c file, \c function and \c line is
+    only recorded in debug builds. Alternatively, \c QT_MESSAGELOGCONTEXT can be defined
+    explicitly. For more information refer to the QMessageLogContext documentation.
+
     \note The message pattern only applies to unstructured logging, such as the default
     \c stderr output. Structured logging such as systemd will record the message as is,
     along with as much structured information as can be captured.
 
     Custom message handlers can use qFormatLogMessage() to take \a pattern into account.
 
-    \sa qInstallMessageHandler(), {Debugging Techniques}, {QLoggingCategory}
+    \sa qInstallMessageHandler(), {Debugging Techniques}, {QLoggingCategory}, QMessageLogContext
  */
 
 QtMessageHandler qInstallMessageHandler(QtMessageHandler h)
@@ -2101,15 +2072,6 @@ QtMessageHandler qInstallMessageHandler(QtMessageHandler h)
         return old;
     else
         return qDefaultMessageHandler;
-}
-
-QtMsgHandler qInstallMsgHandler(QtMsgHandler h)
-{
-    const auto old = msgHandler.fetchAndStoreOrdered(h);
-    if (old)
-        return old;
-    else
-        return qDefaultMsgHandler;
 }
 
 void qSetMessagePattern(const QString &pattern)

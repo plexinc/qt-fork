@@ -59,7 +59,7 @@ std::unique_ptr<base::DictionaryValue> GetOriginAutoBlockerData(
   std::unique_ptr<base::DictionaryValue> dict =
       base::DictionaryValue::From(settings->GetWebsiteSetting(
           origin_url, GURL(), ContentSettingsType::PERMISSION_AUTOBLOCKER_DATA,
-          std::string(), nullptr));
+          nullptr));
   if (!dict)
     return std::make_unique<base::DictionaryValue>();
 
@@ -93,7 +93,7 @@ int RecordActionInWebsiteSettings(const GURL& url,
 
   settings_map->SetWebsiteSettingDefaultScope(
       url, GURL(), ContentSettingsType::PERMISSION_AUTOBLOCKER_DATA,
-      std::string(), std::move(dict));
+      std::move(dict));
 
   return current_count;
 }
@@ -183,6 +183,8 @@ PermissionResult PermissionDecisionAutoBlocker::GetEmbargoResult(
     ContentSettingsType permission,
     base::Time current_time) {
   DCHECK(settings_map);
+  DCHECK(PermissionUtil::IsPermission(permission));
+
   std::unique_ptr<base::DictionaryValue> dict =
       GetOriginAutoBlockerData(settings_map, request_origin);
   base::Value* permission_dict = GetOrCreatePermissionDict(
@@ -288,8 +290,7 @@ std::set<GURL> PermissionDecisionAutoBlocker::GetEmbargoedOrigins(
   DCHECK(settings_map_);
   ContentSettingsForOneType embargo_settings;
   settings_map_->GetSettingsForOneType(
-      ContentSettingsType::PERMISSION_AUTOBLOCKER_DATA, std::string(),
-      &embargo_settings);
+      ContentSettingsType::PERMISSION_AUTOBLOCKER_DATA, &embargo_settings);
   std::set<GURL> origins;
   for (const auto& e : embargo_settings) {
     for (auto content_type : content_types) {
@@ -341,10 +342,7 @@ bool PermissionDecisionAutoBlocker::RecordDismissAndEmbargo(
   //    does not have a PermissionContextBase available
   // 2. Not calling RecordDismissAndEmbargo means no repeated dismissal metrics
   //    are recorded
-  // For now, only plugins are explicitly opted out. We should think about how
-  // to make this nicer once PermissionQueueController is removed.
-  if (base::FeatureList::IsEnabled(features::kBlockPromptsIfDismissedOften) &&
-      permission != ContentSettingsType::PLUGINS) {
+  if (base::FeatureList::IsEnabled(features::kBlockPromptsIfDismissedOften)) {
     if (current_dismissal_count >= g_dismissals_before_block) {
       PlaceUnderEmbargo(url, permission, kPermissionDismissalEmbargoKey);
       return true;
@@ -374,8 +372,7 @@ bool PermissionDecisionAutoBlocker::RecordIgnoreAndEmbargo(
                                           settings_map_)
           : -1;
 
-  if (base::FeatureList::IsEnabled(features::kBlockPromptsIfIgnoredOften) &&
-      permission != ContentSettingsType::PLUGINS) {
+  if (base::FeatureList::IsEnabled(features::kBlockPromptsIfIgnoredOften)) {
     if (current_ignore_count >= g_ignores_before_block) {
       PlaceUnderEmbargo(url, permission, kPermissionIgnoreEmbargoKey);
       return true;
@@ -392,47 +389,28 @@ bool PermissionDecisionAutoBlocker::RecordIgnoreAndEmbargo(
   return false;
 }
 
-void PermissionDecisionAutoBlocker::RemoveEmbargoByUrl(
+void PermissionDecisionAutoBlocker::RemoveEmbargoAndResetCounts(
     const GURL& url,
     ContentSettingsType permission) {
   if (!PermissionUtil::IsPermission(permission))
     return;
 
-  // Don't proceed if |permission| was not under embargo for |url|.
-  PermissionResult result = GetEmbargoResult(url, permission);
-  if (result.source != PermissionStatusSource::MULTIPLE_DISMISSALS &&
-      result.source != PermissionStatusSource::MULTIPLE_IGNORES) {
-    return;
-  }
-
   std::unique_ptr<base::DictionaryValue> dict =
       GetOriginAutoBlockerData(settings_map_, url);
-  base::Value* permission_dict = GetOrCreatePermissionDict(
-      dict.get(), PermissionUtil::GetPermissionString(permission));
 
-  if (result.source == PermissionStatusSource::MULTIPLE_DISMISSALS) {
-    const bool dismissal_key_deleted =
-        permission_dict->RemoveKey(kPermissionDismissalEmbargoKey);
-    DCHECK(dismissal_key_deleted);
-  } else {
-    DCHECK_EQ(result.source, PermissionStatusSource::MULTIPLE_IGNORES);
-    const bool ignores_key_deleted =
-        permission_dict->RemoveKey(kPermissionIgnoreEmbargoKey);
-    DCHECK(ignores_key_deleted);
-  }
+  dict->RemoveKey(PermissionUtil::GetPermissionString(permission));
 
   settings_map_->SetWebsiteSettingDefaultScope(
       url, GURL(), ContentSettingsType::PERMISSION_AUTOBLOCKER_DATA,
-      std::string(), std::move(dict));
+      std::move(dict));
 }
 
-void PermissionDecisionAutoBlocker::RemoveCountsByUrl(
-    base::Callback<bool(const GURL& url)> filter) {
+void PermissionDecisionAutoBlocker::RemoveEmbargoAndResetCounts(
+    base::RepeatingCallback<bool(const GURL& url)> filter) {
   std::unique_ptr<ContentSettingsForOneType> settings(
       new ContentSettingsForOneType);
   settings_map_->GetSettingsForOneType(
-      ContentSettingsType::PERMISSION_AUTOBLOCKER_DATA, std::string(),
-      settings.get());
+      ContentSettingsType::PERMISSION_AUTOBLOCKER_DATA, settings.get());
 
   for (const auto& site : *settings) {
     GURL origin(site.primary_pattern.ToString());
@@ -440,7 +418,7 @@ void PermissionDecisionAutoBlocker::RemoveCountsByUrl(
     if (origin.is_valid() && filter.Run(origin)) {
       settings_map_->SetWebsiteSettingDefaultScope(
           origin, GURL(), ContentSettingsType::PERMISSION_AUTOBLOCKER_DATA,
-          std::string(), nullptr);
+          nullptr);
     }
   }
 }
@@ -469,7 +447,7 @@ void PermissionDecisionAutoBlocker::PlaceUnderEmbargo(
       key, base::Value(static_cast<double>(clock_->Now().ToInternalValue())));
   settings_map_->SetWebsiteSettingDefaultScope(
       request_origin, GURL(), ContentSettingsType::PERMISSION_AUTOBLOCKER_DATA,
-      std::string(), std::move(dict));
+      std::move(dict));
 }
 
 void PermissionDecisionAutoBlocker::SetClockForTesting(base::Clock* clock) {

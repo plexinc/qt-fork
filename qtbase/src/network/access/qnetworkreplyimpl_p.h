@@ -62,7 +62,6 @@
 #include "private/qringbuffer_p.h"
 #include "private/qbytedata_p.h"
 #include <QSharedPointer>
-#include <QtNetwork/QNetworkSession> // ### Qt6: Remove include
 
 QT_BEGIN_NAMESPACE
 
@@ -92,12 +91,6 @@ public:
     Q_PRIVATE_SLOT(d_func(), void _q_copyReadChannelFinished())
     Q_PRIVATE_SLOT(d_func(), void _q_bufferOutgoingData())
     Q_PRIVATE_SLOT(d_func(), void _q_bufferOutgoingDataFinished())
-#ifndef QT_NO_BEARERMANAGEMENT // ### Qt6: Remove section
-    Q_PRIVATE_SLOT(d_func(), void _q_networkSessionConnected())
-    Q_PRIVATE_SLOT(d_func(), void _q_networkSessionFailed())
-    Q_PRIVATE_SLOT(d_func(), void _q_networkSessionStateChanged(QNetworkSession::State))
-    Q_PRIVATE_SLOT(d_func(), void _q_networkSessionUsagePoliciesChanged(QNetworkSession::UsagePolicies))
-#endif
 
 #ifndef QT_NO_SSL
 protected:
@@ -113,8 +106,6 @@ class QNetworkReplyImplPrivate: public QNetworkReplyPrivate
 public:
     enum InternalNotifications {
         NotifyDownstreamReadyWrite,
-        NotifyCloseDownstreamChannel,
-        NotifyCopyFinished
     };
 
     QNetworkReplyImplPrivate();
@@ -124,12 +115,6 @@ public:
     void _q_copyReadChannelFinished();
     void _q_bufferOutgoingData();
     void _q_bufferOutgoingDataFinished();
-#ifndef QT_NO_BEARERMANAGEMENT // ### Qt6: Remove section
-    void _q_networkSessionConnected();
-    void _q_networkSessionFailed();
-    void _q_networkSessionStateChanged(QNetworkSession::State);
-    void _q_networkSessionUsagePoliciesChanged(QNetworkSession::UsagePolicies);
-#endif
 
     void setup(QNetworkAccessManager::Operation op, const QNetworkRequest &request,
                QIODevice *outgoingData);
@@ -152,7 +137,6 @@ public:
     void appendDownstreamDataSignalEmissions();
     void appendDownstreamData(QByteDataBuffer &data);
     void appendDownstreamData(QIODevice *data);
-    void appendDownstreamData(const QByteArray &data);
 
     void setDownloadBuffer(QSharedPointer<char> sp, qint64 size);
     char* getDownloadBuffer(qint64 size);
@@ -165,13 +149,13 @@ public:
     void encrypted();
     void sslErrors(const QList<QSslError> &errors);
 
+    void readFromBackend();
+
     QNetworkAccessBackend *backend;
     QIODevice *outgoingData;
     QSharedPointer<QRingBuffer> outgoingDataBuffer;
     QIODevice *copyDevice;
     QAbstractNetworkCache *networkCache() const;
-
-    bool migrateBackend();
 
     bool cacheEnabled;
     QIODevice *cacheSaveDevice;
@@ -186,9 +170,7 @@ public:
 #endif
 
     qint64 bytesDownloaded;
-    qint64 lastBytesDownloaded;
     qint64 bytesUploaded;
-    qint64 preMigrationDownloaded;
 
     QString httpReasonPhrase;
     int httpStatusCode;

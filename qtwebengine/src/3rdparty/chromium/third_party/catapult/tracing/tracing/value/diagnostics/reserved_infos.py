@@ -25,6 +25,7 @@ class _Info(object):
     return self._entry_type
 
 
+ALERT_GROUPING = _Info('alertGrouping', 'GenericSet', str)
 ANGLE_REVISIONS = _Info('angleRevisions', 'GenericSet', str)
 ARCHITECTURES = _Info('architectures', 'GenericSet', str)
 BENCHMARKS = _Info('benchmarks', 'GenericSet', str)
@@ -40,6 +41,7 @@ CHROMIUM_REVISIONS = _Info('chromiumRevisions', 'GenericSet', str)
 DESCRIPTION = _Info('description', 'GenericSet', str)
 DEVICE_IDS = _Info('deviceIds', 'GenericSet', str)
 DOCUMENTATION_URLS = _Info('documentationLinks', 'GenericSet', str)
+INFO_BLURB = _Info('infoBlurb', 'GenericSet', str)
 FUCHSIA_GARNET_REVISIONS = _Info('fuchsiaGarnetRevisions', 'GenericSet', str)
 FUCHSIA_PERIDOT_REVISIONS = _Info('fuchsiaPeridotRevisions', 'GenericSet', str)
 FUCHSIA_TOPAZ_REVISIONS = _Info('fuchsiaTopazRevisions', 'GenericSet', str)

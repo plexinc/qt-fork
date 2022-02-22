@@ -29,7 +29,7 @@
 #include "mockcompositor.h"
 #include <QtGui/QRasterWindow>
 #if QT_CONFIG(opengl)
-#include <QtGui/QOpenGLWindow>
+#include <QtOpenGL/QOpenGLWindow>
 #endif
 
 using namespace MockCompositor;
@@ -64,7 +64,6 @@ void tst_surface::createDestroySurface()
 
 void tst_surface::waitForFrameCallbackRaster()
 {
-    QSKIP("TODO: This currently fails, needs a fix");
     class TestWindow : public QRasterWindow {
     public:
         explicit TestWindow() { resize(40, 40); }
@@ -100,7 +99,6 @@ void tst_surface::waitForFrameCallbackRaster()
 #if QT_CONFIG(opengl)
 void tst_surface::waitForFrameCallbackGl()
 {
-    QSKIP("TODO: This currently fails, needs a fix");
     class TestWindow : public QOpenGLWindow {
     public:
         explicit TestWindow()
@@ -129,6 +127,10 @@ void tst_surface::waitForFrameCallbackGl()
     // Make sure we follow frame callbacks for some frames
     for (int i = 0; i < 5; ++i) {
         xdgPingAndWaitForPong(); // Make sure things have happened on the client
+        if (!qEnvironmentVariableIntValue("QT_WAYLAND_DISABLE_WINDOWDECORATION") && i == 0) {
+            QCOMPARE(bufferSpy.count(), 1);
+            bufferSpy.removeFirst();
+        }
         exec([&] {
             QVERIFY(bufferSpy.empty()); // Make sure no extra buffers have arrived
             QVERIFY(!xdgToplevel()->surface()->m_waitingFrameCallbacks.empty());
@@ -167,17 +169,40 @@ void tst_surface::negotiateShmFormat()
 void tst_surface::createSubsurface()
 {
     QRasterWindow window;
-    window.resize(64, 64);
+    window.setObjectName("main");
+    window.resize(200, 200);
+
+    QRasterWindow subWindow;
+    subWindow.setObjectName("subwindow");
+    subWindow.setParent(&window);
+    subWindow.resize(64, 64);
+
     window.show();
+    subWindow.show();
+
+    QCOMPOSITOR_TRY_VERIFY(subSurface());
     QCOMPOSITOR_TRY_VERIFY(xdgToplevel());
     exec([=] { xdgToplevel()->sendCompleteConfigure(); });
     QCOMPOSITOR_TRY_VERIFY(xdgSurface()->m_committedConfigureSerial);
 
-    QRasterWindow subWindow;
-    subWindow.setParent(&window);
-    subWindow.resize(64, 64);
-    subWindow.show();
-    QCOMPOSITOR_TRY_VERIFY(subSurface());
+    const Surface *mainSurface = exec([=] {return surface(0);});
+    const Surface *childSurface = exec([=] {return surface(1);});
+    QSignalSpy  mainSurfaceCommitSpy(mainSurface, &Surface::commit);
+    QSignalSpy childSurfaceCommitSpy(childSurface, &Surface::commit);
+
+    // Move subsurface. The parent should redraw and commit
+    subWindow.setGeometry(100, 100, 64, 64);
+    // the toplevel should commit to indicate the subsurface moved
+    QCOMPOSITOR_TRY_COMPARE(mainSurfaceCommitSpy.count(), 1);
+    mainSurfaceCommitSpy.clear();
+    childSurfaceCommitSpy.clear();
+
+    // Move and resize the subSurface. The parent should redraw and commit
+    // The child should also redraw
+    subWindow.setGeometry(50, 50, 80, 80);
+    QCOMPOSITOR_TRY_COMPARE(mainSurfaceCommitSpy.count(), 1);
+    QCOMPOSITOR_TRY_COMPARE(childSurfaceCommitSpy.count(), 1);
+
 }
 
 // Used to cause a crash in libwayland (QTBUG-79674)

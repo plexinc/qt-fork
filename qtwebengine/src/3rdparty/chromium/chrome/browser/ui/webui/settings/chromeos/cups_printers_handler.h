@@ -11,7 +11,7 @@
 #include <vector>
 
 #include "base/memory/weak_ptr.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "chrome/browser/chromeos/printing/cups_printers_manager.h"
 #include "chrome/browser/chromeos/printing/printer_configurer.h"
 #include "chrome/browser/chromeos/printing/printer_event_tracker.h"
@@ -48,14 +48,13 @@ class CupsPrintersHandler : public ::settings::SettingsPageUIHandler,
                             public ui::SelectFileDialog::Listener,
                             public CupsPrintersManager::Observer {
  public:
-  static std::unique_ptr<CupsPrintersHandler> Create(content::WebUI* webui);
-
   static std::unique_ptr<CupsPrintersHandler> CreateForTesting(
       Profile* profile,
       scoped_refptr<PpdProvider> ppd_provider,
       std::unique_ptr<PrinterConfigurer> printer_configurer,
       CupsPrintersManager* printers_manager);
 
+  CupsPrintersHandler(Profile* profile, CupsPrintersManager* printers_manager);
   ~CupsPrintersHandler() override;
 
   // SettingsPageUIHandler overrides:
@@ -234,6 +233,10 @@ class CupsPrintersHandler : public ::settings::SettingsPageUIHandler,
       const GURL& server_url,
       std::vector<PrinterDetector::DetectedPrinter>&& returned_printers);
 
+  void HandleOpenPrintManagementApp(const base::ListValue* args);
+
+  void HandleOpenScanningApp(const base::ListValue* args);
+
   Profile* profile_;
 
   // Discovery support.  discovery_active_ tracks whether or not the UI
@@ -261,8 +264,8 @@ class CupsPrintersHandler : public ::settings::SettingsPageUIHandler,
 
   std::unique_ptr<ServerPrintersFetcher> server_printers_fetcher_;
 
-  ScopedObserver<CupsPrintersManager, CupsPrintersManager::Observer>
-      printers_manager_observer_;
+  base::ScopedObservation<CupsPrintersManager, CupsPrintersManager::Observer>
+      printers_manager_observation_{this};
 
   base::WeakPtrFactory<CupsPrintersHandler> weak_factory_{this};
 

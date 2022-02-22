@@ -10,7 +10,7 @@
 
 #include "base/bind.h"
 #include "base/callback_forward.h"
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/scoped_refptr.h"
@@ -50,6 +50,9 @@ namespace {
 class MockVideoDecoder : public media::VideoDecoder {
  public:
   std::string GetDisplayName() const override { return "MockVideoDecoder"; }
+  media::VideoDecoderType GetDecoderType() const override {
+    return media::VideoDecoderType::kUnknown;
+  }
   void Initialize(const media::VideoDecoderConfig& config,
                   bool low_delay,
                   media::CdmContext* cdm_context,
@@ -190,7 +193,6 @@ class RTCVideoDecoderAdapterTest : public ::testing::Test {
     input_image.SetEncodedData(
         webrtc::EncodedImageBuffer::Create(data, sizeof(data)));
     input_image._frameType = webrtc::VideoFrameType::kVideoFrameKey;
-    input_image._completeFrame = true;
     input_image.SetTimestamp(timestamp);
     return rtc_video_decoder_adapter_->Decode(input_image, false, 0);
   }
@@ -222,9 +224,6 @@ class RTCVideoDecoderAdapterTest : public ::testing::Test {
     static const uint8_t data[1] = {0};
     input_image.SetEncodedData(
         webrtc::EncodedImageBuffer::Create(data, sizeof(data)));
-    input_image.set_size(1);
-    input_image.data()[0] = 0;
-    input_image._completeFrame = true;
     input_image._frameType = webrtc::VideoFrameType::kVideoFrameKey;
     input_image.SetTimestamp(timestamp);
     webrtc::ColorSpace webrtc_color_space;

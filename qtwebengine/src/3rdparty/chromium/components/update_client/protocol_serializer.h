@@ -60,6 +60,7 @@ protocol_request::App MakeProtocolApp(
     const std::string& cohort,
     const std::string& cohort_hint,
     const std::string& cohort_name,
+    const std::string& release_channel,
     const std::vector<int>& disabled_reasons,
     base::Optional<protocol_request::UpdateCheck> update_check,
     base::Optional<protocol_request::Ping> ping);
@@ -67,7 +68,8 @@ protocol_request::App MakeProtocolApp(
 protocol_request::UpdateCheck MakeProtocolUpdateCheck(bool is_update_disabled);
 
 protocol_request::Ping MakeProtocolPing(const std::string& app_id,
-                                        const PersistedData* metadata);
+                                        const PersistedData* metadata,
+                                        bool active);
 
 class ProtocolSerializer {
  public:

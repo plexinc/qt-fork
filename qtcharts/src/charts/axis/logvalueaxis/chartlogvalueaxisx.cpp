@@ -34,7 +34,7 @@
 #include <private/chartlogvalueaxisx_p.h>
 #include <private/chartpresenter_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 ChartLogValueAxisX::ChartLogValueAxisX(QLogValueAxis *axis, QGraphicsItem *item)
     : HorizontalAxis(axis, item),
@@ -48,15 +48,15 @@ ChartLogValueAxisX::~ChartLogValueAxisX()
 {
 }
 
-QVector<qreal> ChartLogValueAxisX::calculateLayout() const
+QList<qreal> ChartLogValueAxisX::calculateLayout() const
 {
-    QVector<qreal> points;
+    QList<qreal> points;
     points.resize(m_axis->tickCount());
 
     const qreal logMax = std::log10(m_axis->max()) / std::log10(m_axis->base());
     const qreal logMin = std::log10(m_axis->min()) / std::log10(m_axis->base());
     const qreal leftEdge = qMin(logMin, logMax);
-    const qreal ceilEdge = qCeil(leftEdge);
+    const qreal ceilEdge = std::ceil(leftEdge);
 
     const QRectF &gridRect = gridGeometry();
     const qreal deltaX = gridRect.width() / qAbs(logMax - logMin);
@@ -68,7 +68,7 @@ QVector<qreal> ChartLogValueAxisX::calculateLayout() const
 
 void ChartLogValueAxisX::updateGeometry()
 {
-    const QVector<qreal>& layout = ChartAxisElement::layout();
+    const QList<qreal> &layout = ChartAxisElement::layout();
     setLabels(createLogValueLabels(m_axis->min(), m_axis->max(), m_axis->base(), layout.size(), m_axis->labelFormat()));
     HorizontalAxis::updateGeometry();
 }
@@ -89,7 +89,7 @@ void ChartLogValueAxisX::handleLabelFormatChanged(const QString &format)
 
 QSizeF ChartLogValueAxisX::sizeHint(Qt::SizeHint which, const QSizeF &constraint) const
 {
-    Q_UNUSED(constraint)
+    Q_UNUSED(constraint);
 
     QSizeF sh;
 
@@ -101,7 +101,7 @@ QSizeF ChartLogValueAxisX::sizeHint(Qt::SizeHint which, const QSizeF &constraint
 
     // If the high edge sits exactly on the tick value, add a tick
     qreal highValue = logMin < logMax ? logMax : logMin;
-    if (qFuzzyCompare(highValue, qreal(qCeil(highValue))))
+    if (qFuzzyCompare(highValue, std::ceil(highValue)))
         tickCount++;
 
     if (m_axis->max() > m_axis->min() && tickCount > 0)
@@ -145,6 +145,6 @@ QSizeF ChartLogValueAxisX::sizeHint(Qt::SizeHint which, const QSizeF &constraint
     return sh;
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_chartlogvalueaxisx_p.cpp"

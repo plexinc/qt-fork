@@ -48,9 +48,6 @@
 #include "profile_io_data_qt.h"
 #include <QtGlobal>
 
-QT_BEGIN_NAMESPACE
-class QStringList;
-QT_END_NAMESPACE
 class InMemoryPrefStore;
 class PrefService;
 
@@ -92,10 +89,12 @@ public:
     content::BrowsingDataRemoverDelegate *GetBrowsingDataRemoverDelegate() override;
     content::ClientHintsControllerDelegate *GetClientHintsControllerDelegate() override;
     content::StorageNotificationService *GetStorageNotificationService() override;
-    void SetCorsOriginAccessListForOrigin(const url::Origin &source_origin,
+    void SetCorsOriginAccessListForOrigin(TargetBrowserContexts target_mode,
+                                          const url::Origin &source_origin,
                                           std::vector<network::mojom::CorsOriginPatternPtr> allow_patterns,
                                           std::vector<network::mojom::CorsOriginPatternPtr> block_patterns,
                                           base::OnceClosure closure) override;
+
     content::SharedCorsOriginAccessList *GetSharedCorsOriginAccessList() override;
     std::string GetMediaDeviceIDSalt() override;
 
@@ -122,11 +121,9 @@ public:
     PrefServiceAdapter &prefServiceAdapter();
 
     const PrefServiceAdapter &prefServiceAdapter() const;
+    bool ensureDirectoryExists();
 
 private:
-    friend class ContentBrowserClientQt;
-    friend class ProfileIODataQt;
-    friend class WebContentsAdapter;
     std::unique_ptr<BrowsingDataRemoverDelegateQt> m_removerDelegate;
     std::unique_ptr<PermissionManagerQt> m_permissionManager;
     std::unique_ptr<SSLHostStateDelegateQt> m_sslHostStateDelegate;
@@ -136,11 +133,12 @@ private:
     ProfileAdapter *m_profileAdapter;
     PrefServiceAdapter m_prefServiceAdapter;
 
-    friend class ProfileAdapter;
 #if BUILDFLAG(ENABLE_EXTENSIONS)
     extensions::ExtensionSystemQt *m_extensionSystem;
 #endif //ENABLE_EXTENSIONS
-    friend class BrowserContextAdapter;
+
+    friend class ProfileAdapter;
+    friend class ProfileIODataQt;
 
     DISALLOW_COPY_AND_ASSIGN(ProfileQt);
 };

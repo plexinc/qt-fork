@@ -47,12 +47,12 @@ QT_BEGIN_NAMESPACE
 /*!
     \class QException
     \inmodule QtCore
-    \brief The QException class provides a base class for exceptions that can transferred across threads.
+    \brief The QException class provides a base class for exceptions that can be transferred across threads.
     \since 5.0
 
     Qt Concurrent supports throwing and catching exceptions across thread
-    boundaries, provided that the exception inherit from QException
-    and implement two helper functions:
+    boundaries, provided that the exception inherits from QException
+    and implements two helper functions:
 
     \snippet code/src_corelib_thread_qexception.cpp 0
 
@@ -62,7 +62,7 @@ QT_BEGIN_NAMESPACE
     \snippet code/src_corelib_thread_qexception.cpp 1
 
     If you throw an exception that is not a subclass of QException,
-    the Qt functions will throw a QUnhandledException
+    the \l{Qt Concurrent} functions will throw a QUnhandledException
     in the receiver thread.
 
     When using QFuture, transferred exceptions will be thrown when calling the following functions:
@@ -92,12 +92,18 @@ QT_BEGIN_NAMESPACE
     \class QUnhandledException
     \inmodule QtCore
 
-    \brief The UnhandledException class represents an unhandled exception in a worker thread.
+    \brief The QUnhandledException class represents an unhandled exception in a
+    Qt Concurrent worker thread.
     \since 5.0
 
     If a worker thread throws an exception that is not a subclass of QException,
-    the Qt functions will throw a QUnhandledException
-    on the receiver thread side.
+    the \l{Qt Concurrent} functions will throw a QUnhandledException on the receiver
+    thread side. The information about the actual exception that has been thrown
+    will be saved in the QUnhandledException class and can be obtained using the
+    exception() method. For example, you can process the exception held by
+    QUnhandledException in the following way:
+
+    \snippet code/src_corelib_thread_qexception.cpp 4
 
     Inheriting from this class is not supported.
 */
@@ -112,14 +118,8 @@ QT_BEGIN_NAMESPACE
     \internal
 */
 
-QException::~QException()
-#ifdef Q_COMPILER_NOEXCEPT
-    noexcept
-#else
-    throw()
-#endif
+QException::~QException() noexcept
 {
-    // must stay empty until ### Qt 6
 }
 
 void QException::raise() const
@@ -133,14 +133,76 @@ QException *QException::clone() const
     return new QException(*this);
 }
 
-QUnhandledException::~QUnhandledException()
-#ifdef Q_COMPILER_NOEXCEPT
-    noexcept
-#else
-    throw()
-#endif
+class QUnhandledExceptionPrivate : public QSharedData
 {
-    // must stay empty until ### Qt 6
+public:
+    QUnhandledExceptionPrivate(std::exception_ptr exception) noexcept : exceptionPtr(exception) { }
+    std::exception_ptr exceptionPtr;
+};
+
+/*!
+    \fn QUnhandledException::QUnhandledException(std::exception_ptr exception = nullptr) noexcept
+    \since 6.0
+
+    Constructs a new QUnhandledException object. Saves the pointer to the actual
+    exception object if \a exception is passed.
+
+    \sa exception()
+*/
+QUnhandledException::QUnhandledException(std::exception_ptr exception) noexcept
+    : d(new QUnhandledExceptionPrivate(exception))
+{
+}
+
+/*!
+    Move-constructs a QUnhandledException, making it point to the same
+    object as \a other was pointing to.
+*/
+QUnhandledException::QUnhandledException(QUnhandledException &&other) noexcept
+    : d(std::exchange(other.d, {}))
+{
+}
+
+/*!
+    Constructs a QUnhandledException object as a copy of \a other.
+*/
+QUnhandledException::QUnhandledException(const QUnhandledException &other) noexcept
+    : d(other.d)
+{
+}
+
+/*!
+    Assigns \a other to this QUnhandledException object and returns a reference
+    to this QUnhandledException object.
+*/
+QUnhandledException &QUnhandledException::operator=(const QUnhandledException &other) noexcept
+{
+    d = other.d;
+    return *this;
+}
+
+/*!
+    \fn void QUnhandledException::swap(QUnhandledException &other)
+    \since 6.0
+
+    Swaps this QUnhandledException with \a other. This function is very fast and
+    never fails.
+*/
+
+/*!
+    \since 6.0
+
+    Returns a \l{https://en.cppreference.com/w/cpp/error/exception_ptr}{pointer} to
+    the actual exception that has been saved in this QUnhandledException. Returns a
+    \c null pointer, if it does not point to an exception object.
+*/
+std::exception_ptr QUnhandledException::exception() const
+{
+    return d->exceptionPtr;
+}
+
+QUnhandledException::~QUnhandledException() noexcept
+{
 }
 
 void QUnhandledException::raise() const
@@ -158,64 +220,37 @@ QUnhandledException *QUnhandledException::clone() const
 
 namespace QtPrivate {
 
-class Base : public QSharedData
-{
-public:
-    Base(QException *exception)
-    : exception(exception), hasThrown(false) { }
-    ~Base() { delete exception; }
-
-    QException *exception;
-    bool hasThrown;
-};
-
-ExceptionHolder::ExceptionHolder(QException *exception)
-: base(exception ? new Base(exception) : nullptr) {}
-
-ExceptionHolder::ExceptionHolder(const ExceptionHolder &other)
-: base(other.base)
-{}
-
-void ExceptionHolder::operator=(const ExceptionHolder &other)
-{
-    base = other.base;
-}
-
-ExceptionHolder::~ExceptionHolder()
-{}
-
-QException *ExceptionHolder::exception() const
-{
-    if (!base)
-        return nullptr;
-    return base->exception;
-}
-
 void ExceptionStore::setException(const QException &e)
 {
-    if (hasException() == false)
-        exceptionHolder = ExceptionHolder(e.clone());
+    Q_ASSERT(!hasException());
+    try {
+        e.raise();
+    } catch (...) {
+        exceptionHolder = std::current_exception();
+    }
+}
+
+void ExceptionStore::setException(std::exception_ptr e)
+{
+    Q_ASSERT(!hasException());
+    exceptionHolder = e;
 }
 
 bool ExceptionStore::hasException() const
 {
-    return (exceptionHolder.exception() != nullptr);
+    return !!exceptionHolder;
 }
 
-ExceptionHolder ExceptionStore::exception()
+std::exception_ptr ExceptionStore::exception() const
 {
     return exceptionHolder;
 }
 
 void ExceptionStore::throwPossibleException()
 {
-    if (hasException() ) {
-        exceptionHolder.base->hasThrown = true;
-        exceptionHolder.exception()->raise();
-    }
+    if (hasException())
+        std::rethrow_exception(exceptionHolder);
 }
-
-bool ExceptionStore::hasThrown() const { return exceptionHolder.base->hasThrown; }
 
 } // namespace QtPrivate
 

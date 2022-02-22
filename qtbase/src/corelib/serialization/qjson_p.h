@@ -113,7 +113,7 @@ struct ObjectIterator
         Element m_value;
     };
 
-    using difference_type = typename QVector<Element>::difference_type;
+    using difference_type = typename QList<Element>::difference_type;
     using iterator_category = std::random_access_iterator_tag;
 
     ObjectIterator() = default;
@@ -129,7 +129,7 @@ struct ObjectIterator
     ObjectIterator &operator-=(difference_type n) { it -= 2 * n; return *this; }
 
     reference operator*() const { return *it; }
-    reference operator[](int n) const { return it[n * 2]; }
+    reference operator[](qsizetype n) const { return it[n * 2]; }
 
     bool operator<(ObjectIterator other) const { return it < other.it; }
     bool operator>(ObjectIterator other) const { return it > other.it; }
@@ -149,7 +149,7 @@ inline ObjectIterator<Element, ElementsIterator> operator+(
 }
 template<typename Element, typename ElementsIterator>
 inline ObjectIterator<Element, ElementsIterator> operator+(
-        int n, ObjectIterator<Element, ElementsIterator> a)
+        qsizetype n, ObjectIterator<Element, ElementsIterator> a)
 {
     return {a.elementsIterator() + 2 * n};
 }
@@ -161,7 +161,7 @@ inline ObjectIterator<Element, ElementsIterator> operator-(
     return {a.elementsIterator() - 2 * n};
 }
 template<typename Element, typename ElementsIterator>
-inline int operator-(
+inline qsizetype operator-(
         ObjectIterator<Element, ElementsIterator> a,
         ObjectIterator<Element, ElementsIterator> b)
 {
@@ -182,8 +182,8 @@ inline bool operator==(
     return a.elementsIterator() == b.elementsIterator();
 }
 
-using KeyIterator = ObjectIterator<QtCbor::Element, QVector<QtCbor::Element>::iterator>;
-using ConstKeyIterator = ObjectIterator<const QtCbor::Element, QVector<QtCbor::Element>::const_iterator>;
+using KeyIterator = ObjectIterator<QtCbor::Element, QList<QtCbor::Element>::iterator>;
+using ConstKeyIterator = ObjectIterator<const QtCbor::Element, QList<QtCbor::Element>::const_iterator>;
 
 template<>
 inline KeyIterator::reference &KeyIterator::reference::operator=(const KeyIterator::value_type &value)
@@ -204,13 +204,12 @@ class Value
 {
 public:
     static QCborContainerPrivate *container(const QCborValue &v) { return v.container; }
+    static qint64 valueHelper(const QCborValue &v) { return v.n; }
 
     static QJsonValue fromTrustedCbor(const QCborValue &v)
     {
         QJsonValue result;
-        result.d = v.container;
-        result.n = v.n;
-        result.t = v.t;
+        result.value = v;
         return result;
     }
 };

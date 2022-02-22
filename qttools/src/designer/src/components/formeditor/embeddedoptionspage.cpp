@@ -52,7 +52,7 @@
 #include <QtWidgets/qgroupbox.h>
 
 #include <QtCore/qset.h>
-#include <QtCore/qvector.h>
+#include <QtCore/qlist.h>
 
 #include <algorithm>
 
@@ -60,7 +60,7 @@ QT_BEGIN_NAMESPACE
 
 namespace qdesigner_internal {
 
-using DeviceProfileList = QVector<DeviceProfile>;
+using DeviceProfileList = QList<DeviceProfile>;
 
 enum { profileComboIndexOffset = 1 };
 
@@ -145,7 +145,7 @@ void EmbeddedOptionsControlPrivate::init(EmbeddedOptionsControl *q)
     m_profileCombo->setEditable(false);
     hLayout->addWidget(m_profileCombo);
     m_profileCombo->addItem(EmbeddedOptionsControl::tr("None"));
-    EmbeddedOptionsControl::connect(m_profileCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+    EmbeddedOptionsControl::connect(m_profileCombo, &QComboBox::currentIndexChanged,
                                     m_q, &EmbeddedOptionsControl::slotProfileIndexChanged);
 
     m_addButton->setIcon(createIconSet(QString::fromUtf8("plus.png")));

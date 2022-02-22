@@ -76,10 +76,10 @@ class Q_SENSORS_EXPORT QRotationSensor : public QSensor
     Q_OBJECT
     Q_PROPERTY(bool hasZ READ hasZ NOTIFY hasZChanged)
 public:
-    explicit QRotationSensor(QObject *parent = Q_NULLPTR);
+    explicit QRotationSensor(QObject *parent = nullptr);
     virtual ~QRotationSensor();
     QRotationReading *reading() const;
-    static char const * const type;
+    static char const * const sensorType;
 
     bool hasZ() const;
     void setHasZ(bool hasZ);

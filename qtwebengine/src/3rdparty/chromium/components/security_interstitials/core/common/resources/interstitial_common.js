@@ -44,7 +44,9 @@ const SecurityInterstitialCommandId = {
   CMD_OPEN_REPORTING_PRIVACY: 10,
   CMD_OPEN_WHITEPAPER: 11,
   // Report a phishing error.
-  CMD_REPORT_PHISHING_ERROR: 12
+  CMD_REPORT_PHISHING_ERROR: 12,
+  // Open enhanced protection settings.
+  CMD_OPEN_ENHANCED_PROTECTION_SETTINGS: 13,
 };
 
 const HIDDEN_CLASS = 'hidden';
@@ -95,6 +97,9 @@ function sendCommand(cmd) {
       case SecurityInterstitialCommandId.CMD_REPORT_PHISHING_ERROR:
         certificateErrorPageController.reportPhishingError();
         break;
+      case SecurityInterstitialCommandId.CMD_OPEN_ENHANCED_PROTECTION_SETTINGS:
+        certificateErrorPageController.openEnhancedProtectionSettings();
+        break;
     }
     return;
   }
@@ -102,20 +107,10 @@ function sendCommand(cmd) {
   window.domAutomationController.send(cmd);
   // </if>
   // <if expr="is_ios">
-  // TODO(crbug.com/987407): Used to send commands for non-committed
-  // interstitials on iOS. Should be deleted after committed interstitials are
-  // fully launched.
-  if (!loadTimeData.getBoolean('committed_interstitials_enabled')) {
-    const iframe = document.createElement('IFRAME');
-    iframe.setAttribute('src', 'js-command:' + cmd);
-    document.documentElement.appendChild(iframe);
-    iframe.parentNode.removeChild(iframe);
-  } else {
-    // Used to send commands for iOS committed interstitials.
-    /** @suppress {undefinedVars|missingProperties} */ (function() {
-      __gCrWeb.message.invokeOnHost({'command': 'blockingPage.' + cmd});
-    })();
-  }
+  // Send commands for iOS committed interstitials.
+  /** @suppress {undefinedVars|missingProperties} */ (function() {
+    __gCrWeb.message.invokeOnHost({'command': 'blockingPage.' + cmd});
+  })();
   // </if>
 }
 
@@ -135,24 +130,21 @@ function preventDefaultOnPoundLinkClicks() {
   });
 }
 
+// <if expr="is_ios">
 /**
  * Ensures interstitial pages on iOS aren't loaded from cache, which breaks
  * the commands due to ErrorRetryStateMachine::DidFailProvisionalNavigation
  * not getting triggered.
  */
 function setupIosRefresh() {
-  if (!loadTimeData.getBoolean('committed_interstitials_enabled')) {
-    return;
-  }
-  const params = new URLSearchParams(window.location.search.substring(1));
-  const failedUrl = decodeURIComponent(params.get('url') || '');
   const load = () => {
-    window.location.replace(failedUrl);
+    window.location.replace(loadTimeData.getString('url_to_reload'));
   };
   window.addEventListener('pageshow', function(e) {
     window.onpageshow = load;
   }, {once: true});
 }
+// </if>
 
 // <if expr="is_ios">
 document.addEventListener('DOMContentLoaded', setupIosRefresh);

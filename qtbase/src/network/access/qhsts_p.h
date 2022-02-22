@@ -61,13 +61,11 @@
 #include <QtCore/qglobal.h>
 #include <QtCore/qpair.h>
 #include <QtCore/qurl.h>
+#include <QtCore/qcontainerfwd.h>
 
 #include <map>
 
 QT_BEGIN_NAMESPACE
-
-template<typename T> class QList;
-template <typename T> class QVector;
 
 class Q_AUTOTEST_EXPORT QHstsCache
 {
@@ -75,13 +73,13 @@ public:
 
     void updateFromHeaders(const QList<QPair<QByteArray, QByteArray>> &headers,
                            const QUrl &url);
-    void updateFromPolicies(const QVector<QHstsPolicy> &hosts);
+    void updateFromPolicies(const QList<QHstsPolicy> &hosts);
     void updateKnownHost(const QUrl &url, const QDateTime &expires,
                          bool includeSubDomains);
     bool isKnownHost(const QUrl &url) const;
     void clear();
 
-    QVector<QHstsPolicy> policies() const;
+    QList<QHstsPolicy> policies() const;
 
 #if QT_CONFIG(settings)
     void setStore(class QHstsStore *store);
@@ -95,18 +93,18 @@ private:
     struct HostName
     {
         explicit HostName(const QString &n) : name(n) { }
-        explicit HostName(const QStringRef &r) : fragment(r) { }
+        explicit HostName(QStringView r) : fragment(r) { }
 
         bool operator < (const HostName &rhs) const
         {
             if (fragment.size()) {
                 if (rhs.fragment.size())
                     return fragment < rhs.fragment;
-                return fragment < QStringRef(&rhs.name);
+                return fragment < QStringView{rhs.name};
             }
 
             if (rhs.fragment.size())
-                return QStringRef(&name) < rhs.fragment;
+                return QStringView{name} < rhs.fragment;
             return name < rhs.name;
         }
 
@@ -115,7 +113,7 @@ private:
         // name, removing subdomain names (such HostName object is 'transient', it
         // must not outlive the original QString object.
         QString name;
-        QStringRef fragment;
+        QStringView fragment;
     };
 
     mutable std::map<HostName, QHstsPolicy> knownHosts;

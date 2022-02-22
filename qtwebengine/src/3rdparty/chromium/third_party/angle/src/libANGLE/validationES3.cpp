@@ -492,6 +492,34 @@ bool ValidateES3TexImageParametersBase(const Context *context,
             }
             break;
 
+        case TextureType::CubeMapArray:
+            if (!isSubImage && width != height)
+            {
+                context->validationError(GL_INVALID_VALUE, kCubemapFacesEqualDimensions);
+                return false;
+            }
+
+            if (width > (caps.maxCubeMapTextureSize >> level))
+            {
+                context->validationError(GL_INVALID_VALUE, kResourceMaxTextureSize);
+                return false;
+            }
+
+            if (width > (caps.max3DTextureSize >> level) ||
+                height > (caps.max3DTextureSize >> level) ||
+                depth > (caps.max3DTextureSize >> level))
+            {
+                context->validationError(GL_INVALID_VALUE, kResourceMaxTextureSize);
+                return false;
+            }
+
+            if (!isSubImage && depth % 6 != 0)
+            {
+                context->validationError(GL_INVALID_VALUE, kCubemapInvalidDepth);
+                return false;
+            }
+            break;
+
         default:
             context->validationError(GL_INVALID_ENUM, kEnumNotSupported);
             return false;
@@ -667,6 +695,50 @@ bool ValidateES3TexImageParametersBase(const Context *context,
         {
             context->validationError(GL_INVALID_OPERATION, kBufferMapped);
             return false;
+        }
+    }
+
+    if (context->getExtensions().webglCompatibility)
+    {
+        // Define:
+        //   DataStoreWidth  = (GL_UNPACK_ROW_LENGTH ? GL_UNPACK_ROW_LENGTH : width)
+        //   DataStoreHeight = (GL_UNPACK_IMAGE_HEIGHT ? GL_UNPACK_IMAGE_HEIGHT : height)
+        //
+        // WebGL 2.0 imposes the following additional constraints:
+        //
+        // 1) texImage2D and texSubImage2D generate INVALID_OPERATION if:
+        //      GL_UNPACK_SKIP_PIXELS + width > DataStoreWidth
+        //    except for texImage2D if no GL_PIXEL_UNPACK_BUFFER is
+        //    bound and _pixels_ is null.
+        //
+        // 2) texImage3D and texSubImage3D generate INVALID_OPERATION if:
+        //      GL_UNPACK_SKIP_PIXELS + width > DataStoreWidth
+        //      GL_UNPACK_SKIP_ROWS + height > DataStoreHeight
+        //    except for texImage3D if no GL_PIXEL_UNPACK_BUFFER is
+        //    bound and _pixels_ is null.
+        if (!pixelUnpackBuffer && !pixels && !isSubImage)
+        {
+            // Exception case for texImage2D or texImage3D, above.
+        }
+        else
+        {
+            const auto &unpack   = context->getState().getUnpackState();
+            GLint dataStoreWidth = unpack.rowLength ? unpack.rowLength : width;
+            if (unpack.skipPixels + width > dataStoreWidth)
+            {
+                context->validationError(GL_INVALID_OPERATION, kInvalidUnpackParametersForWebGL);
+                return false;
+            }
+            if (target == TextureTarget::_3D || target == TextureTarget::_2DArray)
+            {
+                GLint dataStoreHeight = unpack.imageHeight ? unpack.imageHeight : height;
+                if (unpack.skipRows + height > dataStoreHeight)
+                {
+                    context->validationError(GL_INVALID_OPERATION,
+                                             kInvalidUnpackParametersForWebGL);
+                    return false;
+                }
+            }
         }
     }
 
@@ -1207,6 +1279,35 @@ bool ValidateES3TexStorageParametersBase(const Context *context,
         }
         break;
 
+        case TextureType::CubeMapArray:
+        {
+            if (width != height)
+            {
+                context->validationError(GL_INVALID_VALUE, kCubemapFacesEqualDimensions);
+                return false;
+            }
+
+            if (width > caps.maxCubeMapTextureSize)
+            {
+                context->validationError(GL_INVALID_VALUE, kResourceMaxTextureSize);
+                return false;
+            }
+
+            if (width > caps.max3DTextureSize || height > caps.max3DTextureSize ||
+                depth > caps.max3DTextureSize)
+            {
+                context->validationError(GL_INVALID_VALUE, kResourceMaxTextureSize);
+                return false;
+            }
+
+            if (depth % 6 != 0)
+            {
+                context->validationError(GL_INVALID_VALUE, kCubemapInvalidDepth);
+                return false;
+            }
+        }
+        break;
+
         default:
             UNREACHABLE();
             return false;
@@ -1419,6 +1520,22 @@ bool ValidateFramebufferTextureLayer(const Context *context,
             }
             break;
 
+            case TextureType::CubeMapArray:
+            {
+                if (level > log2(caps.max3DTextureSize))
+                {
+                    context->validationError(GL_INVALID_VALUE, kFramebufferTextureInvalidMipLevel);
+                    return false;
+                }
+
+                if (layer >= caps.max3DTextureSize)
+                {
+                    context->validationError(GL_INVALID_VALUE, kFramebufferTextureInvalidLayer);
+                    return false;
+                }
+            }
+            break;
+
             default:
                 context->validationError(GL_INVALID_OPERATION,
                                          kFramebufferTextureLayerIncorrectTextureType);
@@ -1588,9 +1705,9 @@ bool ValidateReadBuffer(const Context *context, GLenum src)
     {
         GLuint drawBuffer = static_cast<GLuint>(src - GL_COLOR_ATTACHMENT0);
 
-        if (drawBuffer >= static_cast<GLuint>(context->getCaps().maxDrawBuffers))
+        if (drawBuffer >= static_cast<GLuint>(context->getCaps().maxColorAttachments))
         {
-            context->validationError(GL_INVALID_OPERATION, kExceedsMaxDrawBuffers);
+            context->validationError(GL_INVALID_OPERATION, kExceedsMaxColorAttachments);
             return false;
         }
     }
@@ -1816,6 +1933,25 @@ static bool ValidateBindBufferCommon(const Context *context,
             }
             break;
         }
+        case BufferBinding::Texture:
+        {
+            if (!context->getExtensions().textureBufferAny())
+            {
+                context->validationError(GL_INVALID_ENUM, kTextureBufferExtensionNotAvailable);
+                return false;
+            }
+            if (index != 0)
+            {
+                context->validationError(GL_INVALID_VALUE, kIndexExceedsMaxUniformBufferBindings);
+                return false;
+            }
+            if (buffer.value != 0 && (offset % caps.textureBufferOffsetAlignment) != 0)
+            {
+                context->validationError(GL_INVALID_VALUE, kTextureBufferOffsetAlignment);
+                return false;
+            }
+            break;
+        }
         default:
             context->validationError(GL_INVALID_ENUM, kEnumNotSupported);
             return false;
@@ -1851,7 +1987,7 @@ bool ValidateProgramBinary(const Context *context,
                            ShaderProgramID program,
                            GLenum binaryFormat,
                            const void *binary,
-                           GLint length)
+                           GLsizei length)
 {
     if (context->getClientMajorVersion() < 3)
     {
@@ -1878,17 +2014,11 @@ bool ValidateGetProgramBinary(const Context *context,
     return ValidateGetProgramBinaryBase(context, program, bufSize, length, binaryFormat, binary);
 }
 
-bool ValidateProgramParameteri(const Context *context,
-                               ShaderProgramID program,
-                               GLenum pname,
-                               GLint value)
+bool ValidateProgramParameteriBase(const Context *context,
+                                   ShaderProgramID program,
+                                   GLenum pname,
+                                   GLint value)
 {
-    if (context->getClientMajorVersion() < 3)
-    {
-        context->validationError(GL_INVALID_OPERATION, kES3Required);
-        return false;
-    }
-
     if (GetValidProgram(context, program) == nullptr)
     {
         return false;
@@ -1926,6 +2056,20 @@ bool ValidateProgramParameteri(const Context *context,
     return true;
 }
 
+bool ValidateProgramParameteri(const Context *context,
+                               ShaderProgramID program,
+                               GLenum pname,
+                               GLint value)
+{
+    if (context->getClientMajorVersion() < 3)
+    {
+        context->validationError(GL_INVALID_OPERATION, kES3Required);
+        return false;
+    }
+
+    return ValidateProgramParameteriBase(context, program, pname, value);
+}
+
 bool ValidateBlitFramebuffer(const Context *context,
                              GLint srcX0,
                              GLint srcY0,
@@ -1938,7 +2082,7 @@ bool ValidateBlitFramebuffer(const Context *context,
                              GLbitfield mask,
                              GLenum filter)
 {
-    if (context->getClientMajorVersion() < 3)
+    if (context->getClientMajorVersion() < 3 && !context->getExtensions().framebufferBlitNV)
     {
         context->validationError(GL_INVALID_OPERATION, kES3Required);
         return false;
@@ -2452,33 +2596,35 @@ bool ValidateCompressedTexSubImage3DRobustANGLE(const Context *context,
                                            height, depth, format, imageSize, data);
 }
 
-bool ValidateGenQueries(const Context *context, GLint n, const QueryID *queries)
+bool ValidateGenQueries(const Context *context, GLsizei n, const QueryID *queries)
 {
     return ValidateGenOrDeleteES3(context, n);
 }
 
-bool ValidateDeleteQueries(const Context *context, GLint n, const QueryID *queries)
+bool ValidateDeleteQueries(const Context *context, GLsizei n, const QueryID *queries)
 {
     return ValidateGenOrDeleteES3(context, n);
 }
 
-bool ValidateGenSamplers(const Context *context, GLint count, const SamplerID *samplers)
+bool ValidateGenSamplers(const Context *context, GLsizei count, const SamplerID *samplers)
 {
     return ValidateGenOrDeleteCountES3(context, count);
 }
 
-bool ValidateDeleteSamplers(const Context *context, GLint count, const SamplerID *samplers)
+bool ValidateDeleteSamplers(const Context *context, GLsizei count, const SamplerID *samplers)
 {
     return ValidateGenOrDeleteCountES3(context, count);
 }
 
-bool ValidateGenTransformFeedbacks(const Context *context, GLint n, const TransformFeedbackID *ids)
+bool ValidateGenTransformFeedbacks(const Context *context,
+                                   GLsizei n,
+                                   const TransformFeedbackID *ids)
 {
     return ValidateGenOrDeleteES3(context, n);
 }
 
 bool ValidateDeleteTransformFeedbacks(const Context *context,
-                                      GLint n,
+                                      GLsizei n,
                                       const TransformFeedbackID *ids)
 {
     if (!ValidateGenOrDeleteES3(context, n))
@@ -2498,12 +2644,12 @@ bool ValidateDeleteTransformFeedbacks(const Context *context,
     return true;
 }
 
-bool ValidateGenVertexArrays(const Context *context, GLint n, const VertexArrayID *arrays)
+bool ValidateGenVertexArrays(const Context *context, GLsizei n, const VertexArrayID *arrays)
 {
     return ValidateGenOrDeleteES3(context, n);
 }
 
-bool ValidateDeleteVertexArrays(const Context *context, GLint n, const VertexArrayID *arrays)
+bool ValidateDeleteVertexArrays(const Context *context, GLsizei n, const VertexArrayID *arrays)
 {
     return ValidateGenOrDeleteES3(context, n);
 }
@@ -2688,6 +2834,11 @@ bool ValidateIndexedStateQuery(const Context *context, GLenum pname, GLuint inde
         case GL_BLEND_EQUATION_RGB:
         case GL_BLEND_EQUATION_ALPHA:
         case GL_COLOR_WRITEMASK:
+            if (!context->getExtensions().drawBuffersIndexedAny())
+            {
+                context->validationError(GL_INVALID_ENUM, kDrawBuffersIndexedExtensionNotAvailable);
+                return false;
+            }
             if (index >= static_cast<GLuint>(caps.maxDrawBuffers))
             {
                 context->validationError(GL_INVALID_VALUE, kIndexExceedsMaxDrawBuffer);
@@ -2806,7 +2957,14 @@ bool ValidateIndexedStateQuery(const Context *context, GLenum pname, GLuint inde
 
     if (length)
     {
-        *length = 1;
+        if (pname == GL_COLOR_WRITEMASK)
+        {
+            *length = 4;
+        }
+        else
+        {
+            *length = 1;
+        }
     }
 
     return true;
@@ -3983,7 +4141,7 @@ bool ValidateGetUniformBlockIndex(const Context *context,
 
 bool ValidateGetActiveUniformBlockiv(const Context *context,
                                      ShaderProgramID program,
-                                     GLuint uniformBlockIndex,
+                                     UniformBlockIndex uniformBlockIndex,
                                      GLenum pname,
                                      const GLint *params)
 {
@@ -3992,7 +4150,7 @@ bool ValidateGetActiveUniformBlockiv(const Context *context,
 
 bool ValidateGetActiveUniformBlockName(const Context *context,
                                        ShaderProgramID program,
-                                       GLuint uniformBlockIndex,
+                                       UniformBlockIndex uniformBlockIndex,
                                        GLsizei bufSize,
                                        const GLsizei *length,
                                        const GLchar *uniformBlockName)
@@ -4009,7 +4167,7 @@ bool ValidateGetActiveUniformBlockName(const Context *context,
         return false;
     }
 
-    if (uniformBlockIndex >= programObject->getActiveUniformBlockCount())
+    if (uniformBlockIndex.value >= programObject->getActiveUniformBlockCount())
     {
         context->validationError(GL_INVALID_VALUE, kIndexExceedsMaxActiveUniformBlock);
         return false;
@@ -4020,7 +4178,7 @@ bool ValidateGetActiveUniformBlockName(const Context *context,
 
 bool ValidateUniformBlockBinding(const Context *context,
                                  ShaderProgramID program,
-                                 GLuint uniformBlockIndex,
+                                 UniformBlockIndex uniformBlockIndex,
                                  GLuint uniformBlockBinding)
 {
     if (context->getClientMajorVersion() < 3)
@@ -4042,7 +4200,7 @@ bool ValidateUniformBlockBinding(const Context *context,
     }
 
     // if never linked, there won't be any uniform blocks
-    if (uniformBlockIndex >= programObject->getActiveUniformBlockCount())
+    if (uniformBlockIndex.value >= programObject->getActiveUniformBlockCount())
     {
         context->validationError(GL_INVALID_VALUE, kIndexExceedsMaxUniformBufferBindings);
         return false;
@@ -4517,9 +4675,12 @@ bool ValidateGetTexLevelParameterfvANGLE(const Context *context,
                                          GLenum pname,
                                          const GLfloat *params)
 {
-    if (!context->getExtensions().textureMultisample)
+    if (!context->getExtensions().textureMultisample &&
+        !context->getExtensions().getTexLevelParameterANGLE)
     {
-        context->validationError(GL_INVALID_OPERATION, kMultisampleTextureExtensionOrES31Required);
+        context->validationError(
+            GL_INVALID_OPERATION,
+            kMultisampleTextureExtensionOrGetTexLevelParameterExtensionOrES31Required);
         return false;
     }
 
@@ -4532,9 +4693,12 @@ bool ValidateGetTexLevelParameterivANGLE(const Context *context,
                                          GLenum pname,
                                          const GLint *params)
 {
-    if (!context->getExtensions().textureMultisample)
+    if (!context->getExtensions().textureMultisample &&
+        !context->getExtensions().getTexLevelParameterANGLE)
     {
-        context->validationError(GL_INVALID_OPERATION, kMultisampleTextureExtensionOrES31Required);
+        context->validationError(
+            GL_INVALID_OPERATION,
+            kMultisampleTextureExtensionOrGetTexLevelParameterExtensionOrES31Required);
         return false;
     }
 

@@ -8,6 +8,7 @@
 
 #include "base/bind.h"
 #include "base/containers/span.h"
+#include "components/openscreen_platform/network_context.h"
 #include "components/openscreen_platform/network_util.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "net/base/address_family.h"
@@ -25,9 +26,24 @@ ErrorOr<std::unique_ptr<UdpSocket>> UdpSocket::Create(
     TaskRunner* task_runner,
     Client* client,
     const IPEndpoint& local_endpoint) {
-  // TODO(btolsch): Replace initialization code with NetworkContext follow-up
-  // patch.
-  return Error::Code::kInitializationFailure;
+  network::mojom::NetworkContext* const network_context =
+      openscreen_platform::GetNetworkContext();
+  if (!network_context) {
+    return Error::Code::kInitializationFailure;
+  }
+
+  mojo::PendingRemote<network::mojom::UDPSocketListener> listener_remote;
+  mojo::PendingReceiver<network::mojom::UDPSocketListener> pending_listener =
+      listener_remote.InitWithNewPipeAndPassReceiver();
+
+  mojo::Remote<network::mojom::UDPSocket> socket;
+  network_context->CreateUDPSocket(socket.BindNewPipeAndPassReceiver(),
+                                   std::move(listener_remote));
+
+  return ErrorOr<std::unique_ptr<UdpSocket>>(
+      std::make_unique<openscreen_platform::UdpSocket>(
+          client, local_endpoint, std::move(socket),
+          std::move(pending_listener)));
 }
 
 }  // namespace openscreen
@@ -78,7 +94,9 @@ UdpSocket::UdpSocket(
     : client_(client),
       local_endpoint_(local_endpoint),
       udp_socket_(std::move(udp_socket)),
-      pending_listener_(std::move(pending_listener)) {}
+      pending_listener_(std::move(pending_listener)) {
+  DCHECK(client_);
+}
 
 UdpSocket::~UdpSocket() = default;
 
@@ -136,10 +154,6 @@ void UdpSocket::OnReceived(
     int32_t net_result,
     const base::Optional<net::IPEndPoint>& source_endpoint,
     base::Optional<base::span<const uint8_t>> data) {
-  if (!client_) {
-    return;  // Ignore if there's no Client to receive the result.
-  }
-
   if (net_result != net::OK) {
     client_->OnRead(this, Error::Code::kSocketReadFailure);
   } else if (data) {
@@ -158,20 +172,15 @@ void UdpSocket::OnReceived(
 void UdpSocket::BindCallback(int32_t result,
                              const base::Optional<net::IPEndPoint>& address) {
   if (result != net::OK) {
-    if (client_) {
-      client_->OnError(this, Error(Error::Code::kSocketBindFailure,
-                                   net::ErrorToString(result)));
-    }
+    client_->OnError(this, Error(Error::Code::kSocketBindFailure,
+                                 net::ErrorToString(result)));
     return;
   }
 
-  // Enable packet receives only if there is a Client to dispatch them to.
-  if (client_) {
-    // This is an approximate value for number of packets, and may need to be
-    // adjusted when we have real world data.
-    constexpr int kNumPacketsReadyFor = 30;
-    udp_socket_->ReceiveMore(kNumPacketsReadyFor);
-  }
+  // This is an approximate value for number of packets, and may need to be
+  // adjusted when we have real world data.
+  constexpr int kNumPacketsReadyFor = 30;
+  udp_socket_->ReceiveMore(kNumPacketsReadyFor);
 
   if (address) {
     local_endpoint_ =
@@ -180,17 +189,18 @@ void UdpSocket::BindCallback(int32_t result,
       listener_.Bind(std::move(pending_listener_));
     }
   }
+  client_->OnBound(this);
 }
 
 void UdpSocket::JoinGroupCallback(int32_t result) {
-  if (result != net::OK && client_) {
+  if (result != net::OK) {
     client_->OnError(this, Error(Error::Code::kSocketOptionSettingFailure,
                                  net::ErrorToString(result)));
   }
 }
 
 void UdpSocket::SendCallback(int32_t result) {
-  if (result != net::OK && client_) {
+  if (result != net::OK) {
     client_->OnSendError(this, Error(Error::Code::kSocketSendFailure,
                                      net::ErrorToString(result)));
   }

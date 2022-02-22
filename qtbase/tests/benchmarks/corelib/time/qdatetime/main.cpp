@@ -29,7 +29,7 @@
 #include <QDateTime>
 #include <QTimeZone>
 #include <QTest>
-#include <QVector>
+#include <QList>
 #include <qdebug.h>
 
 class tst_QDateTime : public QObject
@@ -50,8 +50,8 @@ class tst_QDateTime : public QObject
         JULIAN_DAY_2060 = 2473460
     };
 
-    static QVector<QDateTime> daily(qint64 start, qint64 end);
-    static QVector<QDateTime> norse(qint64 start, qint64 end);
+    static QList<QDateTime> daily(qint64 start, qint64 end);
+    static QList<QDateTime> norse(qint64 start, qint64 end);
 
 private Q_SLOTS:
     void create();
@@ -102,19 +102,19 @@ private Q_SLOTS:
     void fromMSecsSinceEpochTz();
 };
 
-QVector<QDateTime> tst_QDateTime::daily(qint64 start, qint64 end)
+QList<QDateTime> tst_QDateTime::daily(qint64 start, qint64 end)
 {
-    QVector<QDateTime> list;
+    QList<QDateTime> list;
     list.reserve(end - start);
     for (int jd = start; jd < end; ++jd)
         list.append(QDateTime(QDate::fromJulianDay(jd), QTime::fromMSecsSinceStartOfDay(0)));
     return list;
 }
 
-QVector<QDateTime> tst_QDateTime::norse(qint64 start, qint64 end)
+QList<QDateTime> tst_QDateTime::norse(qint64 start, qint64 end)
 {
     const QTimeZone cet("Europe/Oslo");
-    QVector<QDateTime> list;
+    QList<QDateTime> list;
     list.reserve(end - start);
     for (int jd = start; jd < end; ++jd)
         list.append(QDateTime(QDate::fromJulianDay(jd), QTime::fromMSecsSinceStartOfDay(0), cet));
@@ -126,7 +126,7 @@ void tst_QDateTime::create()
     QBENCHMARK {
         for (int jd = JULIAN_DAY_2010; jd < JULIAN_DAY_2020; ++jd) {
             QDateTime test(QDate::fromJulianDay(jd), QTime::fromMSecsSinceStartOfDay(0));
-            Q_UNUSED(test)
+            Q_UNUSED(test);
         }
     }
 }
@@ -427,7 +427,7 @@ void tst_QDateTime::equivalent()
         for (const QDateTime &test : list)
             result = (test == other);
     }
-    Q_UNUSED(result)
+    Q_UNUSED(result);
 }
 
 void tst_QDateTime::equivalentUtc()
@@ -440,7 +440,7 @@ void tst_QDateTime::equivalentUtc()
         for (const QDateTime &test : list)
             result = (test == other);
     }
-    Q_UNUSED(result)
+    Q_UNUSED(result);
 }
 
 void tst_QDateTime::lessThan()
@@ -453,7 +453,7 @@ void tst_QDateTime::lessThan()
         for (const QDateTime &test : list)
             result = (test < other);
     }
-    Q_UNUSED(result)
+    Q_UNUSED(result);
 }
 
 void tst_QDateTime::lessThanUtc()
@@ -466,7 +466,7 @@ void tst_QDateTime::lessThanUtc()
         for (const QDateTime &test : list)
             result = (test < other);
     }
-    Q_UNUSED(result)
+    Q_UNUSED(result);
 }
 
 void tst_QDateTime::currentDateTime()

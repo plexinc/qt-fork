@@ -22,6 +22,7 @@ public:
                                    int width, int height,
                                    const GrVkRenderPass* renderPass,
                                    const GrVkImageView* colorAttachment,
+                                   const GrVkImageView* resolveAttachment,
                                    const GrVkImageView* stencilAttachment);
 
     VkFramebuffer framebuffer() const { return fFramebuffer; }
@@ -43,7 +44,7 @@ private:
 
     VkFramebuffer  fFramebuffer;
 
-    typedef GrVkManagedResource INHERITED;
+    using INHERITED = GrVkManagedResource;
 };
 
 #endif

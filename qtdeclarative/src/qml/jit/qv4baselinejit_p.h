@@ -56,7 +56,7 @@
 #include <private/qv4instr_moth_p.h>
 #include <private/qv4bytecodehandler_p.h>
 
-QT_REQUIRE_CONFIG(qml_jit);
+#if QT_CONFIG(qml_jit)
 
 QT_BEGIN_NAMESPACE
 
@@ -102,7 +102,9 @@ public:
     void generate_LoadElement(int base) override;
     void generate_StoreElement(int base, int index) override;
     void generate_LoadProperty(int name) override;
+    void generate_LoadOptionalProperty(int name, int offset) override;
     void generate_GetLookup(int index) override;
+    void generate_GetOptionalLookup(int index, int offset) override;
     void generate_StoreProperty(int name, int base) override;
     void generate_SetLookup(int index, int base) override;
     void generate_LoadSuperProperty(int property) override;
@@ -178,6 +180,7 @@ public:
     void generate_CmpStrictNotEqual(int lhs) override;
     void generate_CmpIn(int lhs) override;
     void generate_CmpInstanceOf(int lhs) override;
+    void generate_As(int lhs) override;
     void generate_UNot() override;
     void generate_UPlus() override;
     void generate_UMinus() override;
@@ -219,5 +222,7 @@ private:
 } // namespace QV4
 
 QT_END_NAMESPACE
+
+#endif // QT_CONFIG(qml_jit)
 
 #endif // QV4JIT_P_H

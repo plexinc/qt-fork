@@ -1,5 +1,6 @@
 /****************************************************************************
 **
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Copyright (C) 2014 BogDan Vatra <bogdan@kde.org>
 ** Contact: https://www.qt.io/licensing/
 **
@@ -39,10 +40,12 @@
 
 
 
-#include <jni.h>
+#include <QtCore/QJniEnvironment>
+
+#include <alloca.h>
 #include <android/log.h>
 #include <extract.h>
-#include <alloca.h>
+#include <jni.h>
 #include <stdlib.h>
 
 #define LOG_TAG    "extractSyleInfo"
@@ -91,7 +94,8 @@ Res_png_9patch* Res_png_9patch::deserialize(const void* inData)
     return (Res_png_9patch*) inData;
 }
 
-extern "C" JNIEXPORT jintArray JNICALL Java_org_qtproject_qt5_android_ExtractStyle_extractNativeChunkInfo20(JNIEnv * env, jobject, long addr)
+extern "C" JNIEXPORT jintArray JNICALL
+Java_org_qtproject_qt_android_ExtractStyle_extractNativeChunkInfo20(JNIEnv *env, jobject, long addr)
 {
     Res_png_9patch20* chunk = reinterpret_cast<Res_png_9patch20*>(addr);
     Res_png_9patch20::deserialize(chunk);
@@ -121,20 +125,6 @@ extern "C" JNIEXPORT jintArray JNICALL Java_org_qtproject_qt5_android_ExtractSty
     env->SetIntArrayRegion(result, 0, size, data);
     free(data);
     return result;
-}
-
-extern "C" JNIEXPORT jintArray JNICALL Java_org_qtproject_qt5_android_ExtractStyle_extractChunkInfo20(JNIEnv * env, jobject  obj, jbyteArray chunkObj)
-{
-    size_t chunkSize = env->GetArrayLength(chunkObj);
-    void* storage = alloca(chunkSize);
-    env->GetByteArrayRegion(chunkObj, 0, chunkSize,
-                            reinterpret_cast<jbyte*>(storage));
-
-    if (!env->ExceptionCheck())
-        return Java_org_qtproject_qt5_android_ExtractStyle_extractNativeChunkInfo20(env, obj, long(storage));
-    else
-        env->ExceptionClear();
-    return 0;
 }
 
 static inline void fill9patchOffsets(Res_png_9patch20* patch) {

@@ -30,7 +30,7 @@
 #include "declarativescatter_p.h"
 #include <QtCore/QMutexLocker>
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 DeclarativeScatter::DeclarativeScatter(QQuickItem *parent)
     : AbstractDeclarative(parent),
@@ -103,12 +103,13 @@ void DeclarativeScatter::appendSeriesFunc(QQmlListProperty<QScatter3DSeries> *li
     reinterpret_cast<DeclarativeScatter *>(list->data)->addSeries(series);
 }
 
-int DeclarativeScatter::countSeriesFunc(QQmlListProperty<QScatter3DSeries> *list)
+qsizetype DeclarativeScatter::countSeriesFunc(QQmlListProperty<QScatter3DSeries> *list)
 {
     return reinterpret_cast<DeclarativeScatter *>(list->data)->m_scatterController->scatterSeriesList().size();
 }
 
-QScatter3DSeries *DeclarativeScatter::atSeriesFunc(QQmlListProperty<QScatter3DSeries> *list, int index)
+QScatter3DSeries *DeclarativeScatter::atSeriesFunc(QQmlListProperty<QScatter3DSeries> *list,
+                                                   qsizetype index)
 {
     return reinterpret_cast<DeclarativeScatter *>(list->data)->m_scatterController->scatterSeriesList().at(index);
 }
@@ -148,4 +149,4 @@ void DeclarativeScatter::handleAxisZChanged(QAbstract3DAxis *axis)
     emit axisZChanged(static_cast<QValue3DAxis *>(axis));
 }
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE

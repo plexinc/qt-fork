@@ -38,7 +38,8 @@ QT_BEGIN_NAMESPACE
 
 /*!
  * \qmltype XdgOutputManagerV1
- * \inqmlmodule QtWayland.Compositor
+ * \instantiates QWaylandXdgOutputManagerV1
+ * \inqmlmodule QtWayland.Compositor.XdgShell
  * \since 5.14
  * \brief Provides an extension for describing outputs in a desktop oriented fashion.
  *
@@ -56,8 +57,8 @@ QT_BEGIN_NAMESPACE
  * XdgOutputManagerV1 component and add it to the list of extensions supported by the compositor,
  * and associated each XdgOutputV1 with its WaylandOutput:
  *
- * \qml \QtMinorVersion
- * import QtWayland.Compositor 1.\1
+ * \qml
+ * import QtWayland.Compositor
  *
  * WaylandCompositor {
  *     XdgOutputManagerV1 {

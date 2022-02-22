@@ -40,7 +40,7 @@
 #ifndef QBACKINGSTORE_COCOA_H
 #define QBACKINGSTORE_COCOA_H
 
-#include <QtGraphicsSupport/private/qrasterbackingstore_p.h>
+#include <QtGui/private/qrasterbackingstore_p.h>
 
 #include <private/qcore_mac_p.h>
 
@@ -51,26 +51,11 @@
 
 QT_BEGIN_NAMESPACE
 
-class QCocoaBackingStore : public QRasterBackingStore
+class QCocoaBackingStore : public QPlatformBackingStore
 {
 protected:
     QCocoaBackingStore(QWindow *window);
     QCFType<CGColorSpaceRef> colorSpace() const;
-};
-
-class QNSWindowBackingStore : public QCocoaBackingStore
-{
-public:
-    QNSWindowBackingStore(QWindow *window);
-    ~QNSWindowBackingStore();
-
-    void resize(const QSize &size, const QRegion &staticContents) override;
-    void flush(QWindow *, const QRegion &, const QPoint &) override;
-
-private:
-    bool windowHasUnifiedToolbar() const;
-    QImage::Format format() const override;
-    void redrawRoundedBottomCorners(CGRect) const;
 };
 
 class QCALayerBackingStore : public QObject, public QCocoaBackingStore
@@ -100,7 +85,6 @@ private:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
     QSize m_requestedSize;
-    QRegion m_paintedRegion;
 
     class GraphicsBuffer : public QIOSurfaceGraphicsBuffer
     {
@@ -111,15 +95,21 @@ private:
         QRegion dirtyRegion; // In unscaled coordinates
         QImage *asImage();
         qreal devicePixelRatio() const { return m_devicePixelRatio; }
+        bool isDirty() const { return !dirtyRegion.isEmpty(); }
+        QRegion validRegion() const;
 
     private:
         qreal m_devicePixelRatio;
         QImage m_image;
     };
 
+    void updateDirtyStates(const QRegion &paintedRegion);
+
     void ensureBackBuffer();
     bool recreateBackBufferIfNeeded();
-    bool prepareForFlush();
+    void finalizeBackBuffer();
+
+    void preserveFromFrontBuffer(const QRegion &region, const QPoint &offset = QPoint());
 
     void backingPropertiesChanged();
     QMacNotificationObserver m_backingPropertiesObserver;

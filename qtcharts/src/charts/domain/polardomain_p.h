@@ -43,7 +43,7 @@
 #include <QtCore/QRectF>
 #include <QtCore/QSizeF>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class Q_CHARTS_PRIVATE_EXPORT PolarDomain: public AbstractDomain
 {
@@ -52,10 +52,10 @@ public:
     explicit PolarDomain(QObject *object = 0);
     virtual ~PolarDomain();
 
-    void setSize(const QSizeF &size);
+    void setSize(const QSizeF &size) override;
 
-    QPointF calculateGeometryPoint(const QPointF &point, bool &ok) const;
-    QVector<QPointF> calculateGeometryPoints(const QVector<QPointF> &vector) const;
+    QPointF calculateGeometryPoint(const QPointF &point, bool &ok) const override;
+    QList<QPointF> calculateGeometryPoints(const QList<QPointF> &list) const override;
 
     virtual qreal toAngularCoordinate(qreal value, bool &ok) const = 0;
     virtual qreal toRadialCoordinate(qreal value, bool &ok) const = 0;
@@ -67,6 +67,6 @@ protected:
     qreal m_radius;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // POLARDOMAIN_H

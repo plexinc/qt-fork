@@ -4,15 +4,13 @@
 
 #include "chrome/browser/ui/webui/settings/chromeos/device_keyboard_handler.h"
 
+#include "ash/constants/ash_switches.h"
 #include "ash/public/cpp/keyboard_shortcut_viewer.h"
 #include "ash/public/cpp/tablet_mode.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/values.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "content/public/browser/web_ui.h"
-#include "content/public/common/service_manager_connection.h"
-#include "services/service_manager/public/cpp/connector.h"
 #include "ui/chromeos/events/event_rewriter_chromeos.h"
 #include "ui/chromeos/events/keyboard_layout_util.h"
 
@@ -84,11 +82,11 @@ void KeyboardHandler::RegisterMessages() {
 }
 
 void KeyboardHandler::OnJavascriptAllowed() {
-  observer_.Add(ui::DeviceDataManager::GetInstance());
+  observation_.Observe(ui::DeviceDataManager::GetInstance());
 }
 
 void KeyboardHandler::OnJavascriptDisallowed() {
-  observer_.RemoveAll();
+  observation_.Reset();
 }
 
 void KeyboardHandler::OnInputDeviceConfigurationChanged(

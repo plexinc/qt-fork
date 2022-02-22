@@ -209,7 +209,7 @@ class GFX_EXPORT RenderTextHarfBuzz : public RenderText {
   // RenderText:
   const base::string16& GetDisplayText() override;
   SizeF GetStringSizeF() override;
-  Size GetLineSize(const SelectionModel& caret) override;
+  SizeF GetLineSizeF(const SelectionModel& caret) override;
   std::vector<Rect> GetSubstringBounds(const Range& range) override;
   RangeF GetCursorSpan(const Range& text_range) override;
   size_t GetLineContainingCaret(const SelectionModel& caret) override;
@@ -229,7 +229,7 @@ class GFX_EXPORT RenderTextHarfBuzz : public RenderText {
   void OnDisplayTextAttributeChanged() override;
   void EnsureLayout() override;
   void DrawVisualText(internal::SkiaTextRenderer* renderer,
-                      const Range& selection) override;
+                      const std::vector<Range>& selections) override;
 
  private:
   friend class test::RenderTextTestApi;
@@ -286,6 +286,10 @@ class GFX_EXPORT RenderTextHarfBuzz : public RenderText {
   // Makes sure that text runs for layout text are shaped.
   void EnsureLayoutRunList();
 
+  // Returns whether the display range is still a valid range after the eliding
+  // pass.
+  bool IsValidDisplayRange(Range display_range);
+
   // RenderText:
   internal::TextRunList* GetRunList() override;
   const internal::TextRunList* GetRunList() const override;
@@ -300,6 +304,9 @@ class GFX_EXPORT RenderTextHarfBuzz : public RenderText {
   bool update_layout_run_list_ : 1;
   bool update_display_run_list_ : 1;
   bool update_display_text_ : 1;
+
+  // The device scale factor for which the text was laid out.
+  float device_scale_factor_ = 1.0f;
 
   // The total size of the layouted text.
   SizeF total_size_;

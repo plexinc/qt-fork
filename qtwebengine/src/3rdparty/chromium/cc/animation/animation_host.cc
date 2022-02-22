@@ -6,11 +6,12 @@
 
 #include <algorithm>
 #include <memory>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/containers/contains.h"
 #include "base/memory/ptr_util.h"
-#include "base/stl_util.h"
 #include "base/trace_event/trace_event.h"
 #include "base/trace_event/traced_value.h"
 #include "cc/animation/animation.h"
@@ -19,12 +20,13 @@
 #include "cc/animation/animation_id_provider.h"
 #include "cc/animation/animation_timeline.h"
 #include "cc/animation/element_animations.h"
+#include "cc/animation/keyframe_effect.h"
 #include "cc/animation/scroll_offset_animation_curve.h"
 #include "cc/animation/scroll_offset_animations.h"
 #include "cc/animation/scroll_offset_animations_impl.h"
 #include "cc/animation/scroll_timeline.h"
-#include "cc/animation/timing_function.h"
 #include "cc/animation/worklet_animation.h"
+#include "ui/gfx/animation/keyframe/timing_function.h"
 #include "ui/gfx/geometry/box_f.h"
 #include "ui/gfx/geometry/scroll_offset.h"
 
@@ -46,19 +48,6 @@ AnimationWorkletMutationState ToAnimationWorkletMutationState(
   }
 }
 
-bool TickAnimationsIf(AnimationHost::AnimationsList animations,
-                      base::TimeTicks monotonic_time,
-                      bool (*predicate)(const Animation&)) {
-  bool did_tick = false;
-  for (auto& it : animations) {
-    if (predicate(*it)) {
-      it->Tick(monotonic_time);
-      did_tick = true;
-    }
-  }
-  return did_tick;
-}
-
 }  // namespace
 
 std::unique_ptr<AnimationHost> AnimationHost::CreateMainInstance() {
@@ -69,16 +58,12 @@ std::unique_ptr<AnimationHost> AnimationHost::CreateForTesting(
     ThreadInstance thread_instance) {
   auto animation_host = base::WrapUnique(new AnimationHost(thread_instance));
 
-  if (thread_instance == ThreadInstance::IMPL)
-    animation_host->SetSupportsScrollAnimations(true);
-
   return animation_host;
 }
 
 AnimationHost::AnimationHost(ThreadInstance thread_instance)
     : mutator_host_client_(nullptr),
       thread_instance_(thread_instance),
-      supports_scroll_animations_(false),
       needs_push_properties_(false),
       mutator_(nullptr) {
   if (thread_instance_ == ThreadInstance::IMPL) {
@@ -97,13 +82,10 @@ AnimationHost::~AnimationHost() {
   DCHECK(element_to_animations_map_.empty());
 }
 
-std::unique_ptr<MutatorHost> AnimationHost::CreateImplInstance(
-    bool supports_impl_scrolling) const {
+std::unique_ptr<MutatorHost> AnimationHost::CreateImplInstance() const {
   DCHECK_EQ(thread_instance_, ThreadInstance::MAIN);
-
   auto mutator_host_impl =
       base::WrapUnique<MutatorHost>(new AnimationHost(ThreadInstance::IMPL));
-  mutator_host_impl->SetSupportsScrollAnimations(supports_impl_scrolling);
   return mutator_host_impl;
 }
 
@@ -116,6 +98,20 @@ void AnimationHost::ClearMutators() {
   for (auto& kv : id_to_timeline_map_)
     EraseTimeline(kv.second);
   id_to_timeline_map_.clear();
+}
+
+base::TimeDelta AnimationHost::MinimumTickInterval() const {
+  base::TimeDelta min_interval = base::TimeDelta::Max();
+  for (const auto& animation : ticking_animations_) {
+    DCHECK(animation->keyframe_effect());
+    base::TimeDelta interval =
+        animation->keyframe_effect()->MinimumTickInterval();
+    if (interval.is_zero())
+      return interval;
+    if (interval < min_interval)
+      min_interval = interval;
+  }
+  return min_interval;
 }
 
 void AnimationHost::EraseTimeline(scoped_refptr<AnimationTimeline> timeline) {
@@ -140,13 +136,34 @@ void AnimationHost::RemoveAnimationTimeline(
   SetNeedsPushProperties();
 }
 
+void AnimationHost::SetHasCanvasInvalidation(bool has_canvas_invalidation) {
+  has_canvas_invalidation_ = has_canvas_invalidation;
+}
+
+bool AnimationHost::HasCanvasInvalidation() const {
+  return has_canvas_invalidation_;
+}
+
+bool AnimationHost::HasJSAnimation() const {
+  return has_inline_style_mutation_;
+}
+
+void AnimationHost::SetHasInlineStyleMutation(bool has_inline_style_mutation) {
+  has_inline_style_mutation_ = has_inline_style_mutation;
+}
+
 void AnimationHost::UpdateRegisteredElementIds(ElementListType changed_list) {
   for (auto map_entry : element_to_animations_map_) {
+    // kReservedElementId is reserved for a paint worklet element that animates
+    // a custom property. This element is assumed to always be present as no
+    // element is needed to tick this animation.
     if (mutator_host_client()->IsElementInPropertyTrees(map_entry.first,
-                                                        changed_list))
+                                                        changed_list) ||
+        map_entry.first.GetStableId() == ElementId::kReservedElementId) {
       map_entry.second->ElementIdRegistered(map_entry.first, changed_list);
-    else
+    } else {
       map_entry.second->ElementIdUnregistered(map_entry.first, changed_list);
+    }
   }
 }
 
@@ -232,6 +249,8 @@ void AnimationHost::SetNeedsCommit() {
 }
 
 void AnimationHost::SetNeedsPushProperties() {
+  if (needs_push_properties_)
+    return;
   needs_push_properties_ = true;
   if (mutator_host_client_)
     mutator_host_client_->SetMutatorsNeedCommit();
@@ -239,6 +258,16 @@ void AnimationHost::SetNeedsPushProperties() {
 
 void AnimationHost::PushPropertiesTo(MutatorHost* mutator_host_impl) {
   auto* host_impl = static_cast<AnimationHost*>(mutator_host_impl);
+
+  // Update animation counts and whether raf was requested. These explicitly
+  // do not request push properties and are pushed as part of the next commit
+  // when it happens as requesting a commit leads to performance issues:
+  // https://crbug.com/1083244
+  host_impl->main_thread_animations_count_ = main_thread_animations_count_;
+  host_impl->current_frame_had_raf_ = current_frame_had_raf_;
+  host_impl->next_frame_has_pending_raf_ = next_frame_has_pending_raf_;
+  host_impl->has_canvas_invalidation_ = has_canvas_invalidation_;
+  host_impl->has_inline_style_mutation_ = has_inline_style_mutation_;
 
   if (needs_push_properties_) {
     needs_push_properties_ = false;
@@ -302,9 +331,12 @@ void AnimationHost::PushPropertiesToImplThread(AnimationHost* host_impl) {
   // Update the impl-only scroll offset animations.
   scroll_offset_animations_->PushPropertiesTo(
       host_impl->scroll_offset_animations_impl_.get());
-  host_impl->main_thread_animations_count_ = main_thread_animations_count_;
-  host_impl->current_frame_had_raf_ = current_frame_had_raf_;
-  host_impl->next_frame_has_pending_raf_ = next_frame_has_pending_raf_;
+
+  // The pending info list is cleared in LayerTreeHostImpl::CommitComplete
+  // and should be empty when pushing properties.
+  DCHECK(host_impl->pending_throughput_tracker_infos_.empty());
+  host_impl->pending_throughput_tracker_infos_ =
+      TakePendingThroughputTrackerInfos();
 }
 
 scoped_refptr<ElementAnimations>
@@ -315,18 +347,9 @@ AnimationHost::GetElementAnimationsForElementId(ElementId element_id) const {
   return iter == element_to_animations_map_.end() ? nullptr : iter->second;
 }
 
-void AnimationHost::SetSupportsScrollAnimations(
-    bool supports_scroll_animations) {
-  supports_scroll_animations_ = supports_scroll_animations;
-}
-
 void AnimationHost::SetScrollAnimationDurationForTesting(
     base::TimeDelta duration) {
   ScrollOffsetAnimationCurve::SetAnimationDurationForTesting(duration);
-}
-
-bool AnimationHost::SupportsScrollAnimations() const {
-  return supports_scroll_animations_;
 }
 
 bool AnimationHost::NeedsTickAnimations() const {
@@ -404,12 +427,17 @@ bool AnimationHost::TickAnimations(base::TimeTicks monotonic_time,
 
   TRACE_EVENT_INSTANT0("cc", "NeedsTickAnimations", TRACE_EVENT_SCOPE_THREAD);
 
-  // Worklet animations are ticked at a later stage. See above comment for
-  // details.
-  bool animated = TickAnimationsIf(ticking_animations_, monotonic_time,
-                                   [](const Animation& animation) {
-                                     return !animation.IsWorkletAnimation();
-                                   });
+  bool animated = false;
+  for (auto& kv : id_to_timeline_map_) {
+    AnimationTimeline* timeline = kv.second.get();
+    if (timeline->IsScrollTimeline()) {
+      animated |= timeline->TickScrollLinkedAnimations(
+          ticking_animations_, scroll_tree, is_active_tree);
+    } else {
+      animated |= timeline->TickTimeLinkedAnimations(ticking_animations_,
+                                                     monotonic_time);
+    }
+  }
 
   // TODO(majidvp): At the moment we call this for both active and pending
   // trees similar to other animations. However our final goal is to only call
@@ -431,10 +459,11 @@ void AnimationHost::TickScrollAnimations(base::TimeTicks monotonic_time,
 }
 
 void AnimationHost::TickWorkletAnimations() {
-  TickAnimationsIf(ticking_animations_, base::TimeTicks(),
-                   [](const Animation& animation) {
-                     return animation.IsWorkletAnimation();
-                   });
+  for (auto& animation : ticking_animations_) {
+    if (!animation->IsWorkletAnimation())
+      continue;
+    animation->Tick(base::TimeTicks());
+  }
 }
 
 std::unique_ptr<MutatorInputState> AnimationHost::CollectWorkletAnimationsState(
@@ -616,17 +645,11 @@ bool AnimationHost::AnimationsPreserveAxisAlignment(
              : true;
 }
 
-void AnimationHost::GetAnimationScales(ElementId element_id,
-                                       ElementListType list_type,
-                                       float* maximum_scale,
-                                       float* starting_scale) const {
-  if (auto element_animations = GetElementAnimationsForElementId(element_id)) {
-    element_animations->GetAnimationScales(list_type, maximum_scale,
-                                           starting_scale);
-    return;
-  }
-  *maximum_scale = kNotScaled;
-  *starting_scale = kNotScaled;
+float AnimationHost::MaximumScale(ElementId element_id,
+                                  ElementListType list_type) const {
+  if (auto element_animations = GetElementAnimationsForElementId(element_id))
+    return element_animations->MaximumScale(list_type);
+  return kInvalidScale;
 }
 
 bool AnimationHost::IsElementAnimating(ElementId element_id) const {
@@ -753,37 +776,25 @@ void AnimationHost::SetMutationUpdate(
   }
 }
 
-size_t AnimationHost::CompositedAnimationsCount() const {
-  size_t composited_animations_count = 0;
-  for (const auto& it : ticking_animations_)
-    composited_animations_count += it->TickingKeyframeModelsCount();
-  return composited_animations_count;
-}
-
 void AnimationHost::SetAnimationCounts(
     size_t total_animations_count,
     bool current_frame_had_raf,
     bool next_frame_has_pending_raf) {
+  // Though these changes are pushed as part of AnimationHost::PushPropertiesTo
+  // we don't SetNeedsPushProperties as pushing the values requires a commit.
+  // Instead we allow them to be pushed whenever the next required commit
+  // happens to avoid unnecessary work. See https://crbug.com/1083244.
+
   // If an animation is being run on the compositor, it will have a ticking
   // Animation (which will have a corresponding impl-thread version). Therefore
   // to find the count of main-only animations, we can simply subtract the
   // number of ticking animations from the total count.
   size_t ticking_animations_count = ticking_animations_.size();
-  if (main_thread_animations_count_ !=
-      total_animations_count - ticking_animations_count) {
-    main_thread_animations_count_ =
-        total_animations_count - ticking_animations_count;
-    DCHECK_GE(main_thread_animations_count_, 0u);
-    SetNeedsPushProperties();
-  }
-  if (current_frame_had_raf != current_frame_had_raf_) {
-    current_frame_had_raf_ = current_frame_had_raf;
-    SetNeedsPushProperties();
-  }
-  if (next_frame_has_pending_raf != next_frame_has_pending_raf_) {
-    next_frame_has_pending_raf_ = next_frame_has_pending_raf;
-    SetNeedsPushProperties();
-  }
+  main_thread_animations_count_ =
+      total_animations_count - ticking_animations_count;
+  DCHECK_GE(main_thread_animations_count_, 0u);
+  current_frame_had_raf_ = current_frame_had_raf;
+  next_frame_has_pending_raf_ = next_frame_has_pending_raf;
 }
 
 size_t AnimationHost::MainThreadAnimationsCount() const {
@@ -803,6 +814,26 @@ bool AnimationHost::CurrentFrameHadRAF() const {
 
 bool AnimationHost::NextFrameHasPendingRAF() const {
   return next_frame_has_pending_raf_;
+}
+
+AnimationHost::PendingThroughputTrackerInfos
+AnimationHost::TakePendingThroughputTrackerInfos() {
+  PendingThroughputTrackerInfos infos =
+      std::move(pending_throughput_tracker_infos_);
+  pending_throughput_tracker_infos_ = {};
+  return infos;
+}
+
+void AnimationHost::StartThroughputTracking(
+    TrackedAnimationSequenceId sequence_id) {
+  pending_throughput_tracker_infos_.push_back({sequence_id, true});
+  SetNeedsPushProperties();
+}
+
+void AnimationHost::StopThroughputTracking(
+    TrackedAnimationSequenceId sequnece_id) {
+  pending_throughput_tracker_infos_.push_back({sequnece_id, false});
+  SetNeedsPushProperties();
 }
 
 }  // namespace cc

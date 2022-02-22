@@ -6,7 +6,6 @@
 
 #include "third_party/blink/renderer/core/css/css_property_names.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
-#include "third_party/blink/renderer/core/layout/ng/inline/ng_physical_text_fragment.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_unpositioned_float.h"
 #include "third_party/blink/renderer/core/paint/box_painter.h"
 #include "third_party/blink/renderer/core/paint/paint_info.h"
@@ -14,6 +13,7 @@
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/core/style/shadow_list.h"
 #include "third_party/blink/renderer/platform/fonts/font.h"
+#include "third_party/blink/renderer/platform/fonts/shaping/shape_result_view.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_context.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_context_state_saver.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_controller.h"
@@ -26,9 +26,11 @@ void NGTextPainter::Paint(unsigned start_offset,
                           unsigned end_offset,
                           unsigned length,
                           const TextPaintStyle& text_style,
-                          DOMNodeId node_id) {
+                          DOMNodeId node_id,
+                          ShadowMode shadow_mode) {
   GraphicsContextStateSaver state_saver(graphics_context_, false);
-  UpdateGraphicsContext(text_style, state_saver);
+  UpdateGraphicsContext(graphics_context_, text_style, horizontal_, state_saver,
+                        shadow_mode);
   // TODO(layout-dev): Handle combine text here or elsewhere.
   PaintInternal<kPaintText>(start_offset, end_offset, length, node_id);
 
@@ -54,11 +56,15 @@ void NGTextPainter::PaintSelectedText(unsigned start_offset,
   if (!fragment_paint_info_.shape_result)
     return;
 
-  // Use fast path if all glyphs fit in |selection_rect|. Note |text_bounds_| is
-  // the bounds of all glyphs of this text fragment, including characters before
+  // Use fast path if all glyphs fit in |selection_rect|. |visual_rect_| is the
+  // ink bounds of all glyphs of this text fragment, including characters before
   // |start_offset| or after |end_offset|. Computing exact bounds is expensive
   // that this code only checks bounds of all glyphs.
-  if (selection_rect.Contains(text_bounds_)) {
+  IntRect snapped_selection_rect(PixelSnappedIntRect(selection_rect));
+  // Allowing 1px overflow is almost unnoticeable, while it can avoid two-pass
+  // painting in most small text.
+  snapped_selection_rect.Inflate(1);
+  if (snapped_selection_rect.Contains(visual_rect_)) {
     Paint(start_offset, end_offset, length, selection_style, node_id);
     return;
   }
@@ -76,7 +82,8 @@ void NGTextPainter::PaintSelectedText(unsigned start_offset,
   {
     GraphicsContextStateSaver state_saver(graphics_context_);
     graphics_context_.ClipOut(float_selection_rect);
-    Paint(start_offset, end_offset, length, text_style, node_id);
+    Paint(start_offset, end_offset, length, text_style, node_id,
+          kTextProperOnly);
   }
   // Then draw the glyphs inside the selection area, with the selection style.
   {

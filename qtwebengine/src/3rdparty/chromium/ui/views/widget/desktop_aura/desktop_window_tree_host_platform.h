@@ -16,6 +16,7 @@
 #include "ui/platform_window/extensions/workspace_extension_delegate.h"
 #include "ui/views/views_export.h"
 #include "ui/views/widget/desktop_aura/desktop_window_tree_host.h"
+#include "ui/views/widget/desktop_aura/window_move_client_platform.h"
 
 namespace views {
 
@@ -29,9 +30,19 @@ class VIEWS_EXPORT DesktopWindowTreeHostPlatform
       DesktopNativeWidgetAura* desktop_native_widget_aura);
   ~DesktopWindowTreeHostPlatform() override;
 
+  // A way of converting a |widget| into the content_window()
+  // of the associated DesktopNativeWidgetAura.
+  static aura::Window* GetContentWindowForWidget(gfx::AcceleratedWidget widget);
+
+  // A way of converting a |widget| into this object.
+  static DesktopWindowTreeHostPlatform* GetHostForWidget(
+      gfx::AcceleratedWidget widget);
+
   // Accessor for DesktopNativeWidgetAura::content_window().
   aura::Window* GetContentWindow();
   const aura::Window* GetContentWindow() const;
+
+  bool is_shape_explicitly_set() const { return is_shape_explicitly_set_; }
 
   // DesktopWindowTreeHost:
   void Init(const Widget::InitParams& params) override;
@@ -39,8 +50,7 @@ class VIEWS_EXPORT DesktopWindowTreeHostPlatform
   void OnWidgetInitDone() override;
   void OnActiveWindowChanged(bool active) override;
   std::unique_ptr<corewm::Tooltip> CreateTooltip() override;
-  std::unique_ptr<aura::client::DragDropClient> CreateDragDropClient(
-      DesktopNativeCursorManager* cursor_manager) override;
+  std::unique_ptr<aura::client::DragDropClient> CreateDragDropClient() override;
   void Close() override;
   void CloseNow() override;
   aura::WindowTreeHost* AsWindowTreeHost() override;
@@ -80,7 +90,7 @@ class VIEWS_EXPORT DesktopWindowTreeHostPlatform
       Widget::MoveLoopEscapeBehavior escape_behavior) override;
   void EndMoveLoop() override;
   void SetVisibilityChangedAnimationsEnabled(bool value) override;
-  NonClientFrameView* CreateNonClientFrameView() override;
+  std::unique_ptr<NonClientFrameView> CreateNonClientFrameView() override;
   bool ShouldUseNativeFrame() const override;
   bool ShouldWindowContentsBeTransparent() const override;
   void FrameTypeChanged() override;
@@ -108,9 +118,11 @@ class VIEWS_EXPORT DesktopWindowTreeHostPlatform
   void OnClosed() override;
   void OnWindowStateChanged(ui::PlatformWindowState new_state) override;
   void OnCloseRequest() override;
+  void OnWillDestroyAcceleratedWidget() override;
   void OnActivationChanged(bool active) override;
   base::Optional<gfx::Size> GetMinimumSizeForWindow() override;
   base::Optional<gfx::Size> GetMaximumSizeForWindow() override;
+  SkPath GetWindowMaskForWindowShapeInPixels() override;
 
   // ui::WorkspaceExtensionDelegate:
   void OnWorkspaceChanged() override;
@@ -124,6 +136,8 @@ class VIEWS_EXPORT DesktopWindowTreeHostPlatform
   DesktopNativeWidgetAura* desktop_native_widget_aura() {
     return desktop_native_widget_aura_;
   }
+
+  ui::PlatformWindowState window_show_state() { return old_state_; }
 
   // These are not general purpose methods and must be used with care. Please
   // make sure you understand the rounding direction before using.
@@ -144,6 +158,10 @@ class VIEWS_EXPORT DesktopWindowTreeHostPlatform
       const Widget::InitParams& params,
       ui::PlatformWindowInitProperties* properties);
 
+  // Returns true if WindowShapeUpdater should update the window shape by
+  // window mask, otherwise false when window shape is already updated in views.
+  virtual bool ShouldUseLayerForShapedWindow() const;
+
   internal::NativeWidgetDelegate* const native_widget_delegate_;
   DesktopNativeWidgetAura* const desktop_native_widget_aura_;
 
@@ -160,6 +178,13 @@ class VIEWS_EXPORT DesktopWindowTreeHostPlatform
   // visibility only if the window was minimized or was unminimized from the
   // normal state.
   ui::PlatformWindowState old_state_ = ui::PlatformWindowState::kUnknown;
+
+  // Used for tab dragging in move loop requests.
+  WindowMoveClientPlatform window_move_client_;
+
+  // ui::Layer::SetAlphaShape can be set from either SetShape or default window
+  // mask. When explicitly setting from SetShape, |explicitly_set_shape_:true|.
+  bool is_shape_explicitly_set_ = false;
 
   base::WeakPtrFactory<DesktopWindowTreeHostPlatform> close_widget_factory_{
       this};

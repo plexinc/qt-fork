@@ -12,12 +12,14 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/task_environment.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/test/bookmark_test_helpers.h"
 #include "components/bookmarks/test/test_bookmark_client.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/dragdrop/os_exchange_data.h"
+#include "ui/base/dragdrop/os_exchange_data_provider.h"
 #include "url/gurl.h"
 
 using base::ASCIIToUTF16;
@@ -62,7 +64,7 @@ class BookmarkNodeDataTest : public testing::Test {
 
 namespace {
 
-std::unique_ptr<ui::OSExchangeData::Provider> CloneProvider(
+std::unique_ptr<ui::OSExchangeDataProvider> CloneProvider(
     const ui::OSExchangeData& data) {
   return data.provider().Clone();
 }
@@ -144,8 +146,8 @@ TEST_F(BookmarkNodeDataTest, URL) {
   // Writing should also put the URL and title on the clipboard.
   GURL read_url;
   base::string16 read_title;
-  EXPECT_TRUE(data2.GetURLAndTitle(
-      ui::OSExchangeData::CONVERT_FILENAMES, &read_url, &read_title));
+  EXPECT_TRUE(data2.GetURLAndTitle(ui::FilenameToURLPolicy::CONVERT_FILENAMES,
+                                   &read_url, &read_title));
   EXPECT_EQ(url, read_url);
   EXPECT_EQ(title, read_title);
 }
@@ -288,11 +290,12 @@ TEST_F(BookmarkNodeDataTest, DISABLED_WriteToClipboardURL) {
 
   // Now read the data back in.
   base::string16 clipboard_result;
-  clipboard().ReadText(ui::ClipboardBuffer::kCopyPaste, &clipboard_result);
+  clipboard().ReadText(ui::ClipboardBuffer::kCopyPaste,
+                       /* data_dst = */ nullptr, &clipboard_result);
   EXPECT_EQ(base::UTF8ToUTF16(url.spec()), clipboard_result);
 }
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
 #define MAYBE_WriteToClipboardMultipleURLs DISABLED_WriteToClipboardMultipleURLs
 #else
 #define MAYBE_WriteToClipboardMultipleURLs WriteToClipboardMultipleURLs
@@ -323,11 +326,13 @@ TEST_F(BookmarkNodeDataTest, MAYBE_WriteToClipboardMultipleURLs) {
   combined_text = base::UTF8ToUTF16(url.spec()) + new_line
     + base::UTF8ToUTF16(url2.spec());
   base::string16 clipboard_result;
-  clipboard().ReadText(ui::ClipboardBuffer::kCopyPaste, &clipboard_result);
+  clipboard().ReadText(ui::ClipboardBuffer::kCopyPaste,
+                       /* data_dst = */ nullptr, &clipboard_result);
   EXPECT_EQ(combined_text, clipboard_result);
 }
 
-#if defined(OS_MACOSX)
+// Test is flaky on LaCrOS: crbug.com/1010185
+#if defined(OS_APPLE) || BUILDFLAG(IS_CHROMEOS_LACROS)
 #define MAYBE_WriteToClipboardEmptyFolder DISABLED_WriteToClipboardEmptyFolder
 #else
 #define MAYBE_WriteToClipboardEmptyFolder WriteToClipboardEmptyFolder
@@ -344,7 +349,8 @@ TEST_F(BookmarkNodeDataTest, MAYBE_WriteToClipboardEmptyFolder) {
 
   // Now read the data back in.
   base::string16 clipboard_result;
-  clipboard().ReadText(ui::ClipboardBuffer::kCopyPaste, &clipboard_result);
+  clipboard().ReadText(ui::ClipboardBuffer::kCopyPaste,
+                       /* data_dst = */ nullptr, &clipboard_result);
   EXPECT_EQ(base::ASCIIToUTF16("g1"), clipboard_result);
 }
 
@@ -363,7 +369,8 @@ TEST_F(BookmarkNodeDataTest, WriteToClipboardFolderWithChildren) {
 
   // Now read the data back in.
   base::string16 clipboard_result;
-  clipboard().ReadText(ui::ClipboardBuffer::kCopyPaste, &clipboard_result);
+  clipboard().ReadText(ui::ClipboardBuffer::kCopyPaste,
+                       /* data_dst = */ nullptr, &clipboard_result);
   EXPECT_EQ(base::ASCIIToUTF16("g1"), clipboard_result);
 }
 
@@ -393,7 +400,8 @@ TEST_F(BookmarkNodeDataTest, DISABLED_WriteToClipboardFolderAndURL) {
   base::string16 folder_title = ASCIIToUTF16("g1");
   combined_text = base::ASCIIToUTF16(url.spec()) + new_line + folder_title;
   base::string16 clipboard_result;
-  clipboard().ReadText(ui::ClipboardBuffer::kCopyPaste, &clipboard_result);
+  clipboard().ReadText(ui::ClipboardBuffer::kCopyPaste,
+                       /* data_dst = */ nullptr, &clipboard_result);
   EXPECT_EQ(combined_text, clipboard_result);
 }
 
@@ -425,7 +433,7 @@ TEST_F(BookmarkNodeDataTest, MetaInfo) {
   EXPECT_EQ("someothervalue", meta_info_map["someotherkey"]);
 }
 
-#if !defined(OS_MACOSX)
+#if !defined(OS_APPLE)
 TEST_F(BookmarkNodeDataTest, ReadFromPickleTooManyNodes) {
   // Test case determined by a fuzzer. See https://crbug.com/956583.
   const char pickled_data[] = {0x08, 0x00, 0x00, 0x00, 0x00, 0x00,

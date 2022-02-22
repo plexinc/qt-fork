@@ -91,7 +91,7 @@ class QOffscreenSurface;
 // Opting in/out of QRhi and choosing the default/requested backend is managed
 // by this singleton. This is because this information may be needed before
 // creating a render loop. A well-written render loop sets up its QRhi and
-// related machinery based on the settings queriable from here.
+// related machinery using the helper functions in here.
 //
 // cleanup() must be called to perform global (not per thread) cleanup, such
 // as, destroying the QVulkanInstance (if one was created in vulkanInstance()).
@@ -99,13 +99,18 @@ class QOffscreenSurface;
 // In addition, the class provides handy conversion and query stuff for the
 // renderloop and the QSGRendererInterface implementations.
 //
-class QSGRhiSupport
+class Q_QUICK_PRIVATE_EXPORT QSGRhiSupport
 {
 public:
-    static void configure(QSGRendererInterface::GraphicsApi api);
+    static QSGRhiSupport *instance_internal();
     static QSGRhiSupport *instance();
-    static QVulkanInstance *vulkanInstance();
-    void cleanup();
+    static QVulkanInstance *defaultVulkanInstance();
+    static void cleanupDefaultVulkanInstance();
+    static int chooseSampleCountForWindowWithRhi(QWindow *window, QRhi *rhi);
+    static QImage grabAndBlockInCurrentFrame(QRhi *rhi, QRhiCommandBuffer *cb, QRhiTexture *src = nullptr);
+    static void checkEnvQSgInfo();
+
+    void configure(QSGRendererInterface::GraphicsApi api);
 
     bool isRhiEnabled() const { return m_enableRhi; }
     QRhi::Implementation rhiBackend() const { return m_rhiBackend; }
@@ -119,29 +124,33 @@ public:
 
     QSurface::SurfaceType windowSurfaceType() const;
 
-    const void *rifResource(QSGRendererInterface::Resource res, const QSGDefaultRenderContext *rc);
-
-    int chooseSampleCountForWindowWithRhi(QWindow *window, QRhi *rhi);
+    const void *rifResource(QSGRendererInterface::Resource res,
+                            const QSGDefaultRenderContext *rc,
+                            const QQuickWindow *w);
 
     QOffscreenSurface *maybeCreateOffscreenSurface(QWindow *window);
-    QRhi *createRhi(QWindow *window, QOffscreenSurface *offscreenSurface);
+    QRhi *createRhi(QQuickWindow *window, QOffscreenSurface *offscreenSurface);
+    void destroyRhi(QRhi *rhi);
+    void prepareWindowForRhi(QQuickWindow *window);
 
-    QImage grabAndBlockInCurrentFrame(QRhi *rhi, QRhiSwapChain *swapchain);
-
-    static void checkEnvQSgInfo();
+    QImage grabOffscreen(QQuickWindow *window);
+#ifdef Q_OS_WEBOS
+    QImage grabOffscreenForProtectedContent(QQuickWindow *window);
+#endif
 
 private:
     QSGRhiSupport();
     void applySettings();
-    static QSGRhiSupport *staticInst();
+    void adjustToPlatformQuirks();
     struct {
         bool valid = false;
         QSGRendererInterface::GraphicsApi api;
-        uint rhi : 1;
     } m_requested;
     QRhi::Implementation m_rhiBackend = QRhi::Null;
     int m_killDeviceFrameCount;
-    uint m_set : 1;
+    QString m_pipelineCacheSave;
+    QString m_pipelineCacheLoad;
+    uint m_settingsApplied : 1;
     uint m_enableRhi : 1;
     uint m_debugLayer : 1;
     uint m_profile : 1;
@@ -150,8 +159,11 @@ private:
 };
 
 // Sends QRhi resource statistics over a QTcpSocket. To be initialized by the
-// renderloop when QSGRhiSupport::isProfilingRequested() is true. Will not do
-// anything unless extra env vars (QSG_RHI_PROFILE_HOST) are set.
+// renderloop when QSGRhiSupport::isProfilingRequested() is true. From the
+// applications' side this is enabled by setting the env.vars. QSG_RHI_PROFILE=1
+// and QSG_RHI_PROFILE_HOST=<address>. For security, this is also tied to
+// CONFIG+=qml_debug in the application (just like QML debugging), so it won't
+// be doing anything otherwise, even if the env vars are set.
 class QSGRhiProfileConnection
 {
 public:

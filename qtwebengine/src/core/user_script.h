@@ -53,17 +53,19 @@
 
 #include "qtwebenginecoreglobal_p.h"
 
+#include "qtwebengine/userscript/user_script_data.h"
+
 #include <QtCore/QScopedPointer>
 #include <QtCore/QSharedData>
 #include <QtCore/QString>
+#include <QtCore/QUrl>
 
-struct UserScriptData;
 
 namespace QtWebEngineCore {
-
 class UserResourceControllerHost;
 
-class Q_WEBENGINECORE_PRIVATE_EXPORT UserScript : public QSharedData {
+class UserScript : public QSharedData
+{
 public:
     enum InjectionPoint {
         AfterLoad,
@@ -76,19 +78,20 @@ public:
     ~UserScript();
     UserScript &operator=(const UserScript &other);
 
-    bool isNull() const;
-
     QString name() const;
     void setName(const QString &);
 
     QString sourceCode() const;
     void setSourceCode(const QString &);
 
+    QUrl sourceUrl() const;
+    void setSourceUrl(const QUrl &);
+
     InjectionPoint injectionPoint() const;
     void setInjectionPoint(InjectionPoint);
 
-    uint worldId() const;
-    void setWorldId(uint id);
+    quint32 worldId() const;
+    void setWorldId(quint32 id);
 
     bool runsOnSubFrames() const;
     void setRunsOnSubFrames(bool on);
@@ -96,13 +99,13 @@ public:
     bool operator==(const UserScript &) const;
 
 private:
-    void initData();
-    UserScriptData &data() const;
+    const UserScriptData &data() const;
     void parseMetadataHeader();
     friend class UserResourceControllerHost;
 
-    QScopedPointer<UserScriptData> scriptData;
+    UserScriptData m_scriptData;
     QString m_name;
+    QUrl m_url;
 };
 
 } // namespace QtWebEngineCore

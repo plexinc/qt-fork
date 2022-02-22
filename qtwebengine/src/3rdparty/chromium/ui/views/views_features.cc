@@ -5,17 +5,12 @@
 #include "ui/views/views_features.h"
 
 #include "base/feature_list.h"
+#include "build/build_config.h"
 
 namespace views {
 namespace features {
 
 // Please keep alphabetized.
-
-// Increase corner radius on Dialogs for the material design refresh.
-// TODO(tluk): Remove this feature flag when platform inconsistencies
-// have been fixed as recorded on: https://crbug.com/932970
-const base::Feature kEnableMDRoundedCornersOnDialogs{
-    "EnableMDRoundedCornersOnDialogs", base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Use a high-contrast style for ink drops when in platform high-contrast mode,
 // including full opacity and a high-contrast color
@@ -27,6 +22,16 @@ const base::Feature kEnablePlatformHighContrastInkDrop{
 // an invalid rectangle on the layer.
 const base::Feature kEnableViewPaintOptimization{
     "EnableViewPaintOptimization", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Change views::Textfield to take focus on a completed tap, rather than
+// immediately on tap down. This only affects touch input.
+const base::Feature kTextfieldFocusOnTapUp{"TextfieldFocusOnTapUp",
+                                           base::FEATURE_ENABLED_BY_DEFAULT};
+
+// Allows a "New" badge to be displayed on menu items that provide access to new
+// features.
+const base::Feature kEnableNewBadgeOnMenuItems{
+    "EnableNewBadgeOnMenuItems", base::FEATURE_ENABLED_BY_DEFAULT};
 
 }  // namespace features
 }  // namespace views

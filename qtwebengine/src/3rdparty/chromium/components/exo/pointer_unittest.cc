@@ -11,17 +11,20 @@
 #include "base/bind.h"
 #include "base/run_loop.h"
 #include "base/test/scoped_feature_list.h"
+#include "build/chromeos_buildflags.h"
 #include "components/exo/buffer.h"
 #include "components/exo/data_source.h"
 #include "components/exo/data_source_delegate.h"
 #include "components/exo/pointer_constraint_delegate.h"
 #include "components/exo/pointer_delegate.h"
+#include "components/exo/pointer_stylus_delegate.h"
 #include "components/exo/relative_pointer_delegate.h"
 #include "components/exo/seat.h"
 #include "components/exo/shell_surface.h"
 #include "components/exo/sub_surface.h"
 #include "components/exo/surface.h"
 #include "components/exo/test/exo_test_base.h"
+#include "components/exo/test/exo_test_data_exchange_delegate.h"
 #include "components/exo/test/exo_test_helper.h"
 #include "components/viz/common/quads/compositor_frame.h"
 #include "components/viz/service/surfaces/surface.h"
@@ -29,13 +32,18 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "ui/aura/client/cursor_client.h"
 #include "ui/aura/client/focus_client.h"
-#include "ui/base/mojom/cursor_type.mojom-shared.h"
+#include "ui/base/cursor/mojom/cursor_type.mojom-shared.h"
+#include "ui/base/dragdrop/mojom/drag_drop_types.mojom-shared.h"
+#include "ui/events/base_event_utils.h"
+#include "ui/events/event.h"
 #include "ui/events/event_utils.h"
 #include "ui/events/test/event_generator.h"
+#include "ui/events/types/event_type.h"
+#include "ui/gfx/geometry/vector2d_f.h"
 #include "ui/views/widget/widget.h"
 
-#if defined(OS_CHROMEOS)
-#include "chromeos/constants/chromeos_features.h"
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/constants/ash_features.h"
 #endif
 
 namespace exo {
@@ -65,8 +73,10 @@ class MockRelativePointerDelegate : public RelativePointerDelegate {
 
   // Overridden from RelativePointerDelegate:
   MOCK_METHOD1(OnPointerDestroying, void(Pointer*));
-  MOCK_METHOD2(OnPointerRelativeMotion,
-               void(base::TimeTicks, const gfx::PointF&));
+  MOCK_METHOD3(OnPointerRelativeMotion,
+               void(base::TimeTicks,
+                    const gfx::Vector2dF&,
+                    const gfx::Vector2dF&));
 };
 
 class MockPointerConstraintDelegate : public PointerConstraintDelegate {
@@ -77,6 +87,17 @@ class MockPointerConstraintDelegate : public PointerConstraintDelegate {
   // Overridden from PointerConstraintDelegate:
   MOCK_METHOD0(OnConstraintBroken, void());
   MOCK_METHOD0(GetConstrainedSurface, Surface*());
+};
+
+class MockPointerStylusDelegate : public PointerStylusDelegate {
+ public:
+  MockPointerStylusDelegate() {}
+
+  // Overridden from PointerStylusDelegate:
+  MOCK_METHOD(void, OnPointerDestroying, (Pointer*));
+  MOCK_METHOD(void, OnPointerToolChange, (ui::EventPointerType));
+  MOCK_METHOD(void, OnPointerForce, (base::TimeTicks, float));
+  MOCK_METHOD(void, OnPointerTilt, (base::TimeTicks, const gfx::Vector2dF&));
 };
 
 class TestDataSourceDelegate : public DataSourceDelegate {
@@ -144,7 +165,7 @@ TEST_F(PointerTest, SetCursor) {
   pointer->SetCursor(pointer_surface.get(), gfx::Point(5, 5));
   base::RunLoop().RunUntilIdle();
 
-  const viz::RenderPass* last_render_pass;
+  const viz::CompositorRenderPass* last_render_pass;
   {
     viz::SurfaceId surface_id = pointer->host_window()->GetSurfaceId();
     viz::SurfaceManager* surface_manager = GetSurfaceManager();
@@ -526,9 +547,9 @@ TEST_F(PointerTest, OnPointerMotion) {
                         gfx::Vector2d(1, 1));
 
   std::unique_ptr<Surface> child_surface(new Surface);
-  std::unique_ptr<ShellSurface> child_shell_surface(
-      new ShellSurface(child_surface.get(), gfx::Point(9, 9), true, false,
-                       ash::desks_util::GetActiveDeskContainerId()));
+  std::unique_ptr<ShellSurface> child_shell_surface(new ShellSurface(
+      child_surface.get(), gfx::Point(9, 9), /*can_minimize=*/false,
+      ash::desks_util::GetActiveDeskContainerId()));
   child_shell_surface->DisableMovement();
   child_shell_surface->SetParent(shell_surface.get());
   gfx::Size child_buffer_size(15, 15);
@@ -688,7 +709,7 @@ TEST_F(PointerTest, RegisterPointerEventsOnModal) {
   // Create modal surface.
   std::unique_ptr<Surface> surface(new Surface);
   std::unique_ptr<ShellSurface> shell_surface(
-      new ShellSurface(surface.get(), gfx::Point(), true, false,
+      new ShellSurface(surface.get(), gfx::Point(), /*can_minimize=*/false,
                        ash::kShellWindowId_SystemModalContainer));
   shell_surface->DisableMovement();
   std::unique_ptr<Buffer> buffer(
@@ -747,7 +768,7 @@ TEST_F(PointerTest, IgnorePointerEventsOnNonModalWhenModalIsOpen) {
   // Create surface for modal window.
   std::unique_ptr<Surface> surface2(new Surface);
   std::unique_ptr<ShellSurface> shell_surface2(
-      new ShellSurface(surface2.get(), gfx::Point(), true, false,
+      new ShellSurface(surface2.get(), gfx::Point(), /*can_minimize=*/false,
                        ash::kShellWindowId_SystemModalContainer));
   shell_surface2->DisableMovement();
   std::unique_ptr<Buffer> buffer2(
@@ -809,7 +830,7 @@ TEST_F(PointerTest, IgnorePointerLeaveOnModal) {
   // Create modal surface.
   std::unique_ptr<Surface> surface(new Surface);
   std::unique_ptr<ShellSurface> shell_surface(
-      new ShellSurface(surface.get(), gfx::Point(), true, false,
+      new ShellSurface(surface.get(), gfx::Point(), /*can_minimize=*/false,
                        ash::kShellWindowId_SystemModalContainer));
   shell_surface->DisableMovement();
   std::unique_ptr<Buffer> buffer(
@@ -860,7 +881,7 @@ TEST_F(PointerTest, RegisterPointerEventsOnNonModal) {
   // Create another surface for a non-modal window.
   std::unique_ptr<Surface> surface2(new Surface);
   std::unique_ptr<ShellSurface> shell_surface2(
-      new ShellSurface(surface2.get(), gfx::Point(), true, false,
+      new ShellSurface(surface2.get(), gfx::Point(), /*can_minimize=*/false,
                        ash::kShellWindowId_SystemModalContainer));
   shell_surface2->DisableMovement();
   std::unique_ptr<Buffer> buffer2(
@@ -916,7 +937,7 @@ TEST_F(PointerTest, RegisterPointerEventsOnNonModal) {
 }
 
 TEST_F(PointerTest, DragDropAbort) {
-  Seat seat;
+  Seat seat(std::make_unique<TestDataExchangeDelegate>());
   MockPointerDelegate pointer_delegate;
   std::unique_ptr<Pointer> pointer(new Pointer(&pointer_delegate, &seat));
   TestDataSourceDelegate data_source_delegate;
@@ -937,8 +958,7 @@ TEST_F(PointerTest, DragDropAbort) {
   EXPECT_CALL(pointer_delegate, OnPointerEnter(&origin, gfx::PointF(), 0));
   generator.MoveMouseTo(origin.window()->GetBoundsInScreen().origin());
 
-  seat.StartDrag(&source, &origin, &icon,
-                 ui::DragDropTypes::DragEventSource::DRAG_EVENT_SOURCE_MOUSE);
+  seat.StartDrag(&source, &origin, &icon, ui::mojom::DragEventSource::kMouse);
   EXPECT_TRUE(seat.get_drag_drop_operation_for_testing());
 
   EXPECT_CALL(pointer_delegate, OnPointerButton).Times(2);
@@ -975,14 +995,16 @@ TEST_F(PointerTest, OnPointerRelativeMotion) {
   generator.MoveMouseTo(surface->window()->GetBoundsInScreen().origin());
 
   EXPECT_CALL(delegate, OnPointerMotion(testing::_, gfx::PointF(1, 1)));
-  EXPECT_CALL(relative_delegate,
-              OnPointerRelativeMotion(testing::_, gfx::PointF(1, 1)));
+  EXPECT_CALL(
+      relative_delegate,
+      OnPointerRelativeMotion(testing::_, gfx::Vector2dF(1, 1), testing::_));
   generator.MoveMouseTo(surface->window()->GetBoundsInScreen().origin() +
                         gfx::Vector2d(1, 1));
 
   EXPECT_CALL(delegate, OnPointerMotion(testing::_, gfx::PointF(2, 2)));
-  EXPECT_CALL(relative_delegate,
-              OnPointerRelativeMotion(testing::_, gfx::PointF(1, 1)));
+  EXPECT_CALL(
+      relative_delegate,
+      OnPointerRelativeMotion(testing::_, gfx::Vector2dF(1, 1), testing::_));
   generator.MoveMouseTo(surface->window()->GetBoundsInScreen().origin() +
                         gfx::Vector2d(2, 2));
 
@@ -1004,13 +1026,15 @@ TEST_F(PointerTest, OnPointerRelativeMotion) {
   // OnPointerMotion will not be called, because the pointer location is already
   // sent with OnPointerEnter, but we should still receive
   // OnPointerRelativeMotion.
-  EXPECT_CALL(relative_delegate,
-              OnPointerRelativeMotion(testing::_, gfx::PointF(3, 3)));
+  EXPECT_CALL(
+      relative_delegate,
+      OnPointerRelativeMotion(testing::_, gfx::Vector2dF(3, 3), testing::_));
   generator.MoveMouseTo(sub_surface->window()->GetBoundsInScreen().origin());
 
   EXPECT_CALL(delegate, OnPointerMotion(testing::_, gfx::PointF(1, 1)));
-  EXPECT_CALL(relative_delegate,
-              OnPointerRelativeMotion(testing::_, gfx::PointF(1, 1)));
+  EXPECT_CALL(
+      relative_delegate,
+      OnPointerRelativeMotion(testing::_, gfx::Vector2dF(1, 1), testing::_));
   generator.MoveMouseTo(sub_surface->window()->GetBoundsInScreen().origin() +
                         gfx::Vector2d(1, 1));
 
@@ -1019,7 +1043,7 @@ TEST_F(PointerTest, OnPointerRelativeMotion) {
       gfx::Vector2d(10, 10);
   auto child_surface = std::make_unique<Surface>();
   auto child_shell_surface = std::make_unique<ShellSurface>(
-      child_surface.get(), child_surface_origin, true, false,
+      child_surface.get(), child_surface_origin, /*can_minimize=*/false,
       ash::desks_util::GetActiveDeskContainerId());
   child_shell_surface->DisableMovement();
   child_shell_surface->SetParent(shell_surface.get());
@@ -1037,13 +1061,15 @@ TEST_F(PointerTest, OnPointerRelativeMotion) {
   // OnPointerMotion will not be called, because the pointer location is already
   // sent with OnPointerEnter, but we should still receive
   // OnPointerRelativeMotion.
-  EXPECT_CALL(relative_delegate,
-              OnPointerRelativeMotion(testing::_, gfx::PointF(9, 9)));
+  EXPECT_CALL(
+      relative_delegate,
+      OnPointerRelativeMotion(testing::_, gfx::Vector2dF(9, 9), testing::_));
   generator.MoveMouseTo(child_surface->window()->GetBoundsInScreen().origin());
 
   EXPECT_CALL(delegate, OnPointerMotion(testing::_, gfx::PointF(10, 10)));
-  EXPECT_CALL(relative_delegate,
-              OnPointerRelativeMotion(testing::_, gfx::PointF(10, 10)));
+  EXPECT_CALL(
+      relative_delegate,
+      OnPointerRelativeMotion(testing::_, gfx::Vector2dF(10, 10), testing::_));
   generator.MoveMouseTo(child_surface->window()->GetBoundsInScreen().origin() +
                         gfx::Vector2d(10, 10));
 
@@ -1052,7 +1078,61 @@ TEST_F(PointerTest, OnPointerRelativeMotion) {
   pointer.reset();
 }
 
-#if defined(OS_CHROMEOS)
+TEST_F(PointerTest, OrdinalMotionOverridesRelativeMotion) {
+  auto surface = std::make_unique<Surface>();
+  auto shell_surface = std::make_unique<ShellSurface>(surface.get());
+  gfx::Size buffer_size(10, 10);
+  std::unique_ptr<Buffer> buffer(
+      new Buffer(exo_test_helper()->CreateGpuMemoryBuffer(buffer_size)));
+  surface->Attach(buffer.get());
+  surface->Commit();
+
+  // Set up the pointer and move it to the origin.
+  testing::NiceMock<MockPointerDelegate> delegate;
+  Seat seat;
+  auto pointer = std::make_unique<Pointer>(&delegate, &seat);
+  ui::test::EventGenerator generator(ash::Shell::GetPrimaryRootWindow());
+  EXPECT_CALL(delegate, CanAcceptPointerEventsForSurface(surface.get()))
+      .WillRepeatedly(testing::Return(true));
+  gfx::Point origin = surface->window()->GetBoundsInScreen().origin();
+  generator.MoveMouseTo(origin);
+
+  // Start sending relative motion events.
+  testing::StrictMock<MockRelativePointerDelegate> relative_delegate;
+  pointer->RegisterRelativePointerDelegate(&relative_delegate);
+
+  // By default, ordinal and relative are the same.
+  gfx::Point new_location = origin + gfx::Vector2d(1, 1);
+  ui::MouseEvent ev1(ui::ET_MOUSE_MOVED, new_location, new_location,
+                     ui::EventTimeForNow(), generator.flags(), 0);
+  EXPECT_CALL(relative_delegate,
+              OnPointerRelativeMotion(testing::_, gfx::Vector2dF(1, 1),
+                                      gfx::Vector2dF(1, 1)));
+  generator.Dispatch(&ev1);
+
+  // When set, ordinal overrides the relative motion.
+  //
+  // TODO(b/161755250): the ifdef is only necessary because of the feature
+  // flag. This code should work fine on non-cros.
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  new_location = new_location + gfx::Vector2d(1, 1);
+  ui::MouseEvent ev2(ui::ET_MOUSE_MOVED, new_location, new_location,
+                     ui::EventTimeForNow(), generator.flags(), 0);
+  ui::MouseEvent::DispatcherApi(&ev2).set_movement(gfx::Vector2dF(99, 99));
+  EXPECT_CALL(relative_delegate,
+              OnPointerRelativeMotion(testing::_, gfx::Vector2dF(1, 1),
+                                      gfx::Vector2dF(99, 99)));
+  // This feature is gated behind a flag.
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(
+      chromeos::features::kExoOrdinalMotion);
+  generator.Dispatch(&ev2);
+#endif
+
+  pointer->UnregisterRelativePointerDelegate(&relative_delegate);
+}
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 TEST_F(PointerTest, ConstrainPointer) {
   auto scoped_feature_list = std::make_unique<base::test::ScopedFeatureList>();
   scoped_feature_list->InitAndEnableFeature(
@@ -1091,7 +1171,7 @@ TEST_F(PointerTest, ConstrainPointer) {
 
   auto child_surface = std::make_unique<Surface>();
   auto child_shell_surface = std::make_unique<ShellSurface>(
-      child_surface.get(), gfx::Point(), true, false,
+      child_surface.get(), gfx::Point(), /*can_minimize=*/false,
       ash::desks_util::GetActiveDeskContainerId());
   child_shell_surface->DisableMovement();
   child_shell_surface->SetParent(shell_surface.get());
@@ -1119,8 +1199,8 @@ TEST_F(PointerTest, ConstrainPointer) {
 }
 #endif
 
-#if defined(OS_CHROMEOS)
-TEST_F(PointerTest, ConstrainPointerFailsWhenSurfaceIsNotFocused) {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+TEST_F(PointerTest, ConstrainPointerFailsWhenSurfaceIsNotActive) {
   auto scoped_feature_list = std::make_unique<base::test::ScopedFeatureList>();
   scoped_feature_list->InitAndEnableFeature(
       chromeos::features::kExoPointerLock);
@@ -1139,7 +1219,6 @@ TEST_F(PointerTest, ConstrainPointerFailsWhenSurfaceIsNotFocused) {
   auto pointer = std::make_unique<Pointer>(&delegate, &seat);
   aura::client::FocusClient* focus_client =
       aura::client::GetFocusClient(ash::Shell::GetPrimaryRootWindow());
-  focus_client->FocusWindow(nullptr);
   ui::test::EventGenerator generator(ash::Shell::GetPrimaryRootWindow());
 
   EXPECT_CALL(delegate, CanAcceptPointerEventsForSurface(surface.get()))
@@ -1147,24 +1226,20 @@ TEST_F(PointerTest, ConstrainPointerFailsWhenSurfaceIsNotFocused) {
 
   EXPECT_CALL(constraint_delegate, GetConstrainedSurface())
       .WillRepeatedly(testing::Return(surface.get()));
-  EXPECT_FALSE(pointer->ConstrainPointer(&constraint_delegate));
 
-  auto child_surface = std::make_unique<Surface>();
-  auto child_shell_surface = std::make_unique<ShellSurface>(
-      child_surface.get(), gfx::Point(), true, false,
-      ash::desks_util::GetActiveDeskContainerId());
-  child_shell_surface->DisableMovement();
-  child_shell_surface->SetParent(shell_surface.get());
-  gfx::Size child_buffer_size(15, 15);
-  auto child_buffer = std::make_unique<Buffer>(
-      exo_test_helper()->CreateGpuMemoryBuffer(child_buffer_size));
-  child_surface->Attach(child_buffer.get());
-  child_surface->Commit();
+  auto second_surface = std::make_unique<Surface>();
+  auto second_shell_surface =
+      std::make_unique<ShellSurface>(second_surface.get());
+  auto second_buffer = std::make_unique<Buffer>(
+      exo_test_helper()->CreateGpuMemoryBuffer(buffer_size));
+  second_surface->Attach(second_buffer.get());
+  second_surface->Commit();
 
-  EXPECT_CALL(delegate, CanAcceptPointerEventsForSurface(child_surface.get()))
+  EXPECT_CALL(delegate, CanAcceptPointerEventsForSurface(second_surface.get()))
       .WillRepeatedly(testing::Return(true));
 
-  focus_client->FocusWindow(child_surface->window());
+  // Setting the focused window also makes it activated.
+  focus_client->FocusWindow(second_surface->window());
   EXPECT_FALSE(pointer->ConstrainPointer(&constraint_delegate));
 
   focus_client->FocusWindow(surface->window());
@@ -1181,7 +1256,7 @@ TEST_F(PointerTest, ConstrainPointerFailsWhenSurfaceIsNotFocused) {
 }
 #endif
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 TEST_F(PointerTest, UnconstrainPointerWhenSurfaceIsDestroyed) {
   auto scoped_feature_list = std::make_unique<base::test::ScopedFeatureList>();
   scoped_feature_list->InitAndEnableFeature(
@@ -1225,7 +1300,7 @@ TEST_F(PointerTest, UnconstrainPointerWhenSurfaceIsDestroyed) {
 }
 #endif
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 TEST_F(PointerTest, UnconstrainPointerWhenWindowLosesFocus) {
   auto scoped_feature_list = std::make_unique<base::test::ScopedFeatureList>();
   scoped_feature_list->InitAndEnableFeature(
@@ -1266,6 +1341,42 @@ TEST_F(PointerTest, UnconstrainPointerWhenWindowLosesFocus) {
   pointer.reset();
 }
 #endif
+
+TEST_F(PointerTest, PointerStylus) {
+  std::unique_ptr<Surface> surface(new Surface);
+  std::unique_ptr<ShellSurface> shell_surface(new ShellSurface(surface.get()));
+  gfx::Size buffer_size(10, 10);
+  std::unique_ptr<Buffer> buffer(
+      new Buffer(exo_test_helper()->CreateGpuMemoryBuffer(buffer_size)));
+  surface->Attach(buffer.get());
+  surface->Commit();
+
+  MockPointerDelegate delegate;
+  MockPointerStylusDelegate stylus_delegate;
+  Seat seat;
+  std::unique_ptr<Pointer> pointer(new Pointer(&delegate, &seat));
+  ui::test::EventGenerator generator(ash::Shell::GetPrimaryRootWindow());
+
+  pointer->SetStylusDelegate(&stylus_delegate);
+
+  EXPECT_CALL(delegate, CanAcceptPointerEventsForSurface(surface.get()))
+      .WillRepeatedly(testing::Return(true));
+
+  {
+    testing::InSequence sequence;
+    EXPECT_CALL(delegate, OnPointerEnter(surface.get(), gfx::PointF(), 0));
+    EXPECT_CALL(delegate, OnPointerFrame());
+    EXPECT_CALL(stylus_delegate,
+                OnPointerToolChange(ui::EventPointerType::kMouse));
+    EXPECT_CALL(delegate, OnPointerFrame());
+  }
+
+  generator.MoveMouseTo(surface->window()->GetBoundsInScreen().origin());
+
+  EXPECT_CALL(delegate, OnPointerDestroying(pointer.get()));
+  EXPECT_CALL(stylus_delegate, OnPointerDestroying(pointer.get()));
+  pointer.reset();
+}
 
 }  // namespace
 }  // namespace exo

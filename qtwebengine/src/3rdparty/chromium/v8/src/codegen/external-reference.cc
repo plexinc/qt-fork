@@ -11,21 +11,21 @@
 #include "src/date/date.h"
 #include "src/debug/debug.h"
 #include "src/deoptimizer/deoptimizer.h"
-#include "src/heap/heap.h"
-#include "src/logging/counters.h"
-#include "src/numbers/hash-seed-inl.h"
-#include "src/objects/elements.h"
-#include "src/objects/ordered-hash-table.h"
-// For IncrementalMarking::RecordWriteFromCode. TODO(jkummerow): Drop.
 #include "src/execution/isolate.h"
 #include "src/execution/microtask-queue.h"
 #include "src/execution/simulator-base.h"
 #include "src/heap/heap-inl.h"
+#include "src/heap/heap.h"
 #include "src/ic/stub-cache.h"
 #include "src/interpreter/interpreter.h"
+#include "src/logging/counters.h"
 #include "src/logging/log.h"
+#include "src/numbers/hash-seed-inl.h"
 #include "src/numbers/math-random.h"
+#include "src/objects/elements.h"
 #include "src/objects/objects-inl.h"
+#include "src/objects/ordered-hash-table.h"
+#include "src/regexp/experimental/experimental.h"
 #include "src/regexp/regexp-interpreter.h"
 #include "src/regexp/regexp-macro-assembler-arch.h"
 #include "src/regexp/regexp-stack.h"
@@ -33,6 +33,7 @@
 #include "src/wasm/wasm-external-refs.h"
 
 #ifdef V8_INTL_SUPPORT
+#include "src/base/platform/wrappers.h"
 #include "src/objects/intl-objects.h"
 #endif  // V8_INTL_SUPPORT
 
@@ -73,6 +74,72 @@ constexpr struct alignas(16) {
   uint64_t b;
 } double_negate_constant = {uint64_t{0x8000000000000000},
                             uint64_t{0x8000000000000000}};
+
+constexpr struct alignas(16) {
+  uint64_t a;
+  uint64_t b;
+} wasm_i8x16_swizzle_mask = {uint64_t{0x70707070'70707070},
+                             uint64_t{0x70707070'70707070}};
+
+constexpr struct alignas(16) {
+  uint64_t a;
+  uint64_t b;
+} wasm_i8x16_popcnt_mask = {uint64_t{0x03020201'02010100},
+                            uint64_t{0x04030302'03020201}};
+
+constexpr struct alignas(16) {
+  uint64_t a;
+  uint64_t b;
+} wasm_i8x16_splat_0x01 = {uint64_t{0x01010101'01010101},
+                           uint64_t{0x01010101'01010101}};
+
+constexpr struct alignas(16) {
+  uint64_t a;
+  uint64_t b;
+} wasm_i8x16_splat_0x0f = {uint64_t{0x0F0F0F0F'0F0F0F0F},
+                           uint64_t{0x0F0F0F0F'0F0F0F0F}};
+
+constexpr struct alignas(16) {
+  uint64_t a;
+  uint64_t b;
+} wasm_i8x16_splat_0x33 = {uint64_t{0x33333333'33333333},
+                           uint64_t{0x33333333'33333333}};
+
+constexpr struct alignas(16) {
+  uint64_t a;
+  uint64_t b;
+} wasm_i8x16_splat_0x55 = {uint64_t{0x55555555'55555555},
+                           uint64_t{0x55555555'55555555}};
+
+constexpr struct alignas(16) {
+  uint64_t a;
+  uint64_t b;
+} wasm_i16x8_splat_0x0001 = {uint64_t{0x00010001'00010001},
+                             uint64_t{0x00010001'00010001}};
+
+constexpr struct alignas(16) {
+  uint64_t a;
+  uint64_t b;
+} wasm_f64x2_convert_low_i32x4_u_int_mask = {uint64_t{0x4330000043300000},
+                                             uint64_t{0x4330000043300000}};
+
+constexpr struct alignas(16) {
+  uint64_t a;
+  uint64_t b;
+} wasm_double_2_power_52 = {uint64_t{0x4330000000000000},
+                            uint64_t{0x4330000000000000}};
+
+constexpr struct alignas(16) {
+  uint64_t a;
+  uint64_t b;
+} wasm_int32_max_as_double = {uint64_t{0x41dfffffffc00000},
+                              uint64_t{0x41dfffffffc00000}};
+
+constexpr struct alignas(16) {
+  uint64_t a;
+  uint64_t b;
+} wasm_uint32_max_as_double = {uint64_t{0x41efffffffe00000},
+                               uint64_t{0x41efffffffe00000}};
 
 // Implementation of ExternalReference
 
@@ -120,6 +187,13 @@ ExternalReference ExternalReference::handle_scope_implementer_address(
     Isolate* isolate) {
   return ExternalReference(isolate->handle_scope_implementer_address());
 }
+
+#ifdef V8_HEAP_SANDBOX
+ExternalReference ExternalReference::external_pointer_table_address(
+    Isolate* isolate) {
+  return ExternalReference(isolate->external_pointer_table_address());
+}
+#endif
 
 ExternalReference ExternalReference::interpreter_dispatch_table_address(
     Isolate* isolate) {
@@ -214,8 +288,8 @@ struct IsValidExternalReferenceType<Result (Class::*)(Args...)> {
     return ExternalReference(Redirect(FUNCTION_ADDR(Target), Type));       \
   }
 
-FUNCTION_REFERENCE(incremental_marking_record_write_function,
-                   IncrementalMarking::RecordWriteFromCode)
+FUNCTION_REFERENCE(write_barrier_marking_from_code_function,
+                   WriteBarrier::MarkingFromCode)
 
 FUNCTION_REFERENCE(insert_remembered_set_function,
                    Heap::InsertIntoRememberedSetFromCode)
@@ -277,6 +351,14 @@ FUNCTION_REFERENCE(wasm_float32_to_int64, wasm::float32_to_int64_wrapper)
 FUNCTION_REFERENCE(wasm_float32_to_uint64, wasm::float32_to_uint64_wrapper)
 FUNCTION_REFERENCE(wasm_float64_to_int64, wasm::float64_to_int64_wrapper)
 FUNCTION_REFERENCE(wasm_float64_to_uint64, wasm::float64_to_uint64_wrapper)
+FUNCTION_REFERENCE(wasm_float32_to_int64_sat,
+                   wasm::float32_to_int64_sat_wrapper)
+FUNCTION_REFERENCE(wasm_float32_to_uint64_sat,
+                   wasm::float32_to_uint64_sat_wrapper)
+FUNCTION_REFERENCE(wasm_float64_to_int64_sat,
+                   wasm::float64_to_int64_sat_wrapper)
+FUNCTION_REFERENCE(wasm_float64_to_uint64_sat,
+                   wasm::float64_to_uint64_sat_wrapper)
 FUNCTION_REFERENCE(wasm_int64_div, wasm::int64_div_wrapper)
 FUNCTION_REFERENCE(wasm_int64_mod, wasm::int64_mod_wrapper)
 FUNCTION_REFERENCE(wasm_uint64_div, wasm::uint64_div_wrapper)
@@ -289,6 +371,14 @@ FUNCTION_REFERENCE(wasm_word32_rol, wasm::word32_rol_wrapper)
 FUNCTION_REFERENCE(wasm_word32_ror, wasm::word32_ror_wrapper)
 FUNCTION_REFERENCE(wasm_word64_rol, wasm::word64_rol_wrapper)
 FUNCTION_REFERENCE(wasm_word64_ror, wasm::word64_ror_wrapper)
+FUNCTION_REFERENCE(wasm_f64x2_ceil, wasm::f64x2_ceil_wrapper)
+FUNCTION_REFERENCE(wasm_f64x2_floor, wasm::f64x2_floor_wrapper)
+FUNCTION_REFERENCE(wasm_f64x2_trunc, wasm::f64x2_trunc_wrapper)
+FUNCTION_REFERENCE(wasm_f64x2_nearest_int, wasm::f64x2_nearest_int_wrapper)
+FUNCTION_REFERENCE(wasm_f32x4_ceil, wasm::f32x4_ceil_wrapper)
+FUNCTION_REFERENCE(wasm_f32x4_floor, wasm::f32x4_floor_wrapper)
+FUNCTION_REFERENCE(wasm_f32x4_trunc, wasm::f32x4_trunc_wrapper)
+FUNCTION_REFERENCE(wasm_f32x4_nearest_int, wasm::f32x4_nearest_int_wrapper)
 FUNCTION_REFERENCE(wasm_memory_init, wasm::memory_init_wrapper)
 FUNCTION_REFERENCE(wasm_memory_copy, wasm::memory_copy_wrapper)
 FUNCTION_REFERENCE(wasm_memory_fill, wasm::memory_fill_wrapper)
@@ -404,8 +494,29 @@ ExternalReference::address_of_mock_arraybuffer_allocator_flag() {
   return ExternalReference(&FLAG_mock_arraybuffer_allocator);
 }
 
+ExternalReference ExternalReference::address_of_builtin_subclassing_flag() {
+  return ExternalReference(&FLAG_builtin_subclassing);
+}
+
+ExternalReference
+ExternalReference::address_of_harmony_regexp_match_indices_flag() {
+  return ExternalReference(&FLAG_harmony_regexp_match_indices);
+}
+
 ExternalReference ExternalReference::address_of_runtime_stats_flag() {
   return ExternalReference(&TracingFlags::runtime_stats);
+}
+
+ExternalReference ExternalReference::address_of_load_from_stack_count(
+    const char* function_name) {
+  return ExternalReference(
+      Isolate::load_from_stack_count_address(function_name));
+}
+
+ExternalReference ExternalReference::address_of_store_to_stack_count(
+    const char* function_name) {
+  return ExternalReference(
+      Isolate::store_to_stack_count_address(function_name));
 }
 
 ExternalReference ExternalReference::address_of_one_half() {
@@ -438,6 +549,69 @@ ExternalReference ExternalReference::address_of_double_abs_constant() {
 
 ExternalReference ExternalReference::address_of_double_neg_constant() {
   return ExternalReference(reinterpret_cast<Address>(&double_negate_constant));
+}
+
+ExternalReference ExternalReference::address_of_wasm_i8x16_swizzle_mask() {
+  return ExternalReference(reinterpret_cast<Address>(&wasm_i8x16_swizzle_mask));
+}
+
+ExternalReference ExternalReference::address_of_wasm_i8x16_popcnt_mask() {
+  return ExternalReference(reinterpret_cast<Address>(&wasm_i8x16_popcnt_mask));
+}
+
+ExternalReference ExternalReference::address_of_wasm_i8x16_splat_0x01() {
+  return ExternalReference(reinterpret_cast<Address>(&wasm_i8x16_splat_0x01));
+}
+
+ExternalReference ExternalReference::address_of_wasm_i8x16_splat_0x0f() {
+  return ExternalReference(reinterpret_cast<Address>(&wasm_i8x16_splat_0x0f));
+}
+
+ExternalReference ExternalReference::address_of_wasm_i8x16_splat_0x33() {
+  return ExternalReference(reinterpret_cast<Address>(&wasm_i8x16_splat_0x33));
+}
+
+ExternalReference ExternalReference::address_of_wasm_i8x16_splat_0x55() {
+  return ExternalReference(reinterpret_cast<Address>(&wasm_i8x16_splat_0x55));
+}
+
+ExternalReference ExternalReference::address_of_wasm_i16x8_splat_0x0001() {
+  return ExternalReference(reinterpret_cast<Address>(&wasm_i16x8_splat_0x0001));
+}
+
+ExternalReference
+ExternalReference::address_of_wasm_f64x2_convert_low_i32x4_u_int_mask() {
+  return ExternalReference(
+      reinterpret_cast<Address>(&wasm_f64x2_convert_low_i32x4_u_int_mask));
+}
+
+ExternalReference ExternalReference::supports_wasm_simd_128_address() {
+  return ExternalReference(
+      reinterpret_cast<Address>(&CpuFeatures::supports_wasm_simd_128_));
+}
+
+ExternalReference ExternalReference::address_of_wasm_double_2_power_52() {
+  return ExternalReference(reinterpret_cast<Address>(&wasm_double_2_power_52));
+}
+
+ExternalReference ExternalReference::address_of_wasm_int32_max_as_double() {
+  return ExternalReference(
+      reinterpret_cast<Address>(&wasm_int32_max_as_double));
+}
+
+ExternalReference ExternalReference::address_of_wasm_uint32_max_as_double() {
+  return ExternalReference(
+      reinterpret_cast<Address>(&wasm_uint32_max_as_double));
+}
+
+ExternalReference
+ExternalReference::address_of_enable_experimental_regexp_engine() {
+  return ExternalReference(&FLAG_enable_experimental_regexp_engine);
+}
+
+ExternalReference ExternalReference::thread_in_wasm_flag_address_address(
+    Isolate* isolate) {
+  return ExternalReference(isolate->thread_in_wasm_flag_address_address());
 }
 
 ExternalReference ExternalReference::is_profiling_address(Isolate* isolate) {
@@ -474,6 +648,8 @@ ExternalReference ExternalReference::invoke_accessor_getter_callback() {
 #define re_stack_check_func RegExpMacroAssemblerMIPS::CheckStackGuardState
 #elif V8_TARGET_ARCH_S390
 #define re_stack_check_func RegExpMacroAssemblerS390::CheckStackGuardState
+#elif V8_TARGET_ARCH_RISCV64
+#define re_stack_check_func RegExpMacroAssemblerRISCV::CheckStackGuardState
 #else
 UNREACHABLE();
 #endif
@@ -484,12 +660,19 @@ FUNCTION_REFERENCE_WITH_ISOLATE(re_check_stack_guard_state, re_stack_check_func)
 FUNCTION_REFERENCE_WITH_ISOLATE(re_grow_stack,
                                 NativeRegExpMacroAssembler::GrowStack)
 
-FUNCTION_REFERENCE_WITH_ISOLATE(re_match_for_call_from_js,
-                                IrregexpInterpreter::MatchForCallFromJs)
+FUNCTION_REFERENCE(re_match_for_call_from_js,
+                   IrregexpInterpreter::MatchForCallFromJs)
+
+FUNCTION_REFERENCE(re_experimental_match_for_call_from_js,
+                   ExperimentalRegExp::MatchForCallFromJs)
 
 FUNCTION_REFERENCE_WITH_ISOLATE(
-    re_case_insensitive_compare_uc16,
-    NativeRegExpMacroAssembler::CaseInsensitiveCompareUC16)
+    re_case_insensitive_compare_unicode,
+    NativeRegExpMacroAssembler::CaseInsensitiveCompareUnicode)
+
+FUNCTION_REFERENCE_WITH_ISOLATE(
+    re_case_insensitive_compare_non_unicode,
+    NativeRegExpMacroAssembler::CaseInsensitiveCompareNonUnicode)
 
 ExternalReference ExternalReference::re_word_character_map(Isolate* isolate) {
   return ExternalReference(
@@ -563,7 +746,7 @@ void* libc_memchr(void* string, int character, size_t search_length) {
 FUNCTION_REFERENCE(libc_memchr_function, libc_memchr)
 
 void* libc_memcpy(void* dest, const void* src, size_t n) {
-  return memcpy(dest, src, n);
+  return base::Memcpy(dest, src, n);
 }
 
 FUNCTION_REFERENCE(libc_memcpy_function, libc_memcpy)
@@ -612,10 +795,53 @@ ExternalReference ExternalReference::search_string_raw_two_two() {
   return search_string_raw<const uc16, const uc16>();
 }
 
+namespace {
+
+void StringWriteToFlatOneByte(Address source, uint8_t* sink, int32_t from,
+                              int32_t to) {
+  return String::WriteToFlat<uint8_t>(String::cast(Object(source)), sink, from,
+                                      to);
+}
+
+void StringWriteToFlatTwoByte(Address source, uint16_t* sink, int32_t from,
+                              int32_t to) {
+  return String::WriteToFlat<uint16_t>(String::cast(Object(source)), sink, from,
+                                       to);
+}
+
+const uint8_t* ExternalOneByteStringGetChars(Address string) {
+  // The following CHECK is a workaround to prevent a CFI bug where
+  // ExternalOneByteStringGetChars() and ExternalTwoByteStringGetChars() are
+  // merged by the linker, resulting in one of the input type's vtable address
+  // failing the address range check.
+  // TODO(chromium:1160961): Consider removing the CHECK when CFI is fixed.
+  CHECK(Object(string).IsExternalOneByteString());
+  return ExternalOneByteString::cast(Object(string)).GetChars();
+}
+const uint16_t* ExternalTwoByteStringGetChars(Address string) {
+  // The following CHECK is a workaround to prevent a CFI bug where
+  // ExternalOneByteStringGetChars() and ExternalTwoByteStringGetChars() are
+  // merged by the linker, resulting in one of the input type's vtable address
+  // failing the address range check.
+  // TODO(chromium:1160961): Consider removing the CHECK when CFI is fixed.
+  CHECK(Object(string).IsExternalTwoByteString());
+  return ExternalTwoByteString::cast(Object(string)).GetChars();
+}
+
+}  // namespace
+
+FUNCTION_REFERENCE(string_write_to_flat_one_byte, StringWriteToFlatOneByte)
+FUNCTION_REFERENCE(string_write_to_flat_two_byte, StringWriteToFlatTwoByte)
+
+FUNCTION_REFERENCE(external_one_byte_string_get_chars,
+                   ExternalOneByteStringGetChars)
+FUNCTION_REFERENCE(external_two_byte_string_get_chars,
+                   ExternalTwoByteStringGetChars)
+
 FUNCTION_REFERENCE(orderedhashmap_gethash_raw, OrderedHashMap::GetHash)
 
 Address GetOrCreateHash(Isolate* isolate, Address raw_key) {
-  DisallowHeapAllocation no_gc;
+  DisallowGarbageCollection no_gc;
   return Object(raw_key).GetOrCreateHash(isolate).ptr();
 }
 
@@ -630,7 +856,7 @@ FUNCTION_REFERENCE(jsreceiver_create_identity_hash,
                    JSReceiverCreateIdentityHash)
 
 static uint32_t ComputeSeededIntegerHash(Isolate* isolate, int32_t key) {
-  DisallowHeapAllocation no_gc;
+  DisallowGarbageCollection no_gc;
   return ComputeSeededHash(static_cast<uint32_t>(key), HashSeed(isolate));
 }
 
@@ -640,8 +866,8 @@ FUNCTION_REFERENCE(copy_fast_number_jsarray_elements_to_typed_array,
 FUNCTION_REFERENCE(copy_typed_array_elements_to_typed_array,
                    CopyTypedArrayElementsToTypedArray)
 FUNCTION_REFERENCE(copy_typed_array_elements_slice, CopyTypedArrayElementsSlice)
-FUNCTION_REFERENCE(try_internalize_string_function,
-                   StringTable::LookupStringIfExists_NoAllocate)
+FUNCTION_REFERENCE(try_string_to_index_or_lookup_existing,
+                   StringTable::TryStringToIndexOrLookupExisting)
 FUNCTION_REFERENCE(string_to_array_index_function, String::ToArrayIndex)
 
 static Address LexicographicCompareWrapper(Isolate* isolate, Address smi_x,
@@ -778,6 +1004,12 @@ ExternalReference ExternalReference::fast_c_call_caller_pc_address(
       isolate->isolate_data()->fast_c_call_caller_pc_address());
 }
 
+ExternalReference ExternalReference::fast_api_call_target_address(
+    Isolate* isolate) {
+  return ExternalReference(
+      isolate->isolate_data()->fast_api_call_target_address());
+}
+
 ExternalReference ExternalReference::stack_is_iterable_address(
     Isolate* isolate) {
   return ExternalReference(
@@ -901,6 +1133,15 @@ static int EnterMicrotaskContextWrapper(HandleScopeImplementer* hsi,
 }
 
 FUNCTION_REFERENCE(call_enter_context_function, EnterMicrotaskContextWrapper)
+
+FUNCTION_REFERENCE(
+    js_finalization_registry_remove_cell_from_unregister_token_map,
+    JSFinalizationRegistry::RemoveCellFromUnregisterTokenMap)
+
+#ifdef V8_HEAP_SANDBOX
+FUNCTION_REFERENCE(external_pointer_table_grow_table_function,
+                   ExternalPointerTable::GrowTable)
+#endif
 
 bool operator==(ExternalReference lhs, ExternalReference rhs) {
   return lhs.address() == rhs.address();

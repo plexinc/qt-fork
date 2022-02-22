@@ -32,7 +32,7 @@
 #include <qdir.h>
 #include <qfile.h>
 #include <qfileinfo.h>
-#include <qregexp.h>
+#include <qregularexpression.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -215,7 +215,7 @@ ProjectGenerator::init()
     }
 
     //setup deplist
-    QVector<QMakeLocalFileName> deplist;
+    QList<QMakeLocalFileName> deplist;
     {
         const ProStringList &d = v["DEPENDPATH"];
         for(int i = 0; i < d.size(); ++i)
@@ -245,7 +245,7 @@ ProjectGenerator::init()
                                 v["INCLUDEPATH"] += inc.real();
                         }
                     }
-                    if(no_qt_files && file_no_path.indexOf(QRegExp("^q[a-z_0-9].h$")) != -1)
+                    if (no_qt_files && file_no_path.contains(QRegularExpression("^q[a-z_0-9].h$")))
                         no_qt_files = false;
                     QString h_ext;
                     for(int hit = 0; hit < Option::h_ext.size(); ++hit) {

@@ -47,7 +47,7 @@
 
 QT_BEGIN_NAMESPACE
 
-Q_STATIC_ASSERT(QKeySequencePrivate::MaxKeyCount == 4); // assumed by the code around here
+static_assert(QKeySequencePrivate::MaxKeyCount == 4); // assumed by the code around here
 
 void QKeySequenceEditPrivate::init()
 {
@@ -63,7 +63,7 @@ void QKeySequenceEditPrivate::init()
     layout->setContentsMargins(0, 0, 0, 0);
     layout->addWidget(lineEdit);
 
-    key[0] = key[1] = key[2] = key[3] = 0;
+    std::fill_n(key, QKeySequencePrivate::MaxKeyCount, QKeyCombination::fromCombined(0));
 
     lineEdit->setFocusProxy(q);
     lineEdit->installEventFilter(q);
@@ -186,7 +186,7 @@ void QKeySequenceEdit::setKeySequence(const QKeySequence &keySequence)
 
     d->keySequence = keySequence;
 
-    d->key[0] = d->key[1] = d->key[2] = d->key[3] = 0;
+    d->key[0] = d->key[1] = d->key[2] = d->key[3] = QKeyCombination::fromCombined(0);
     d->keyNum = keySequence.count();
     for (int i = 0; i < d->keyNum; ++i)
         d->key[i] = keySequence[i];
@@ -286,7 +286,7 @@ void QKeySequenceEdit::keyPressEvent(QKeyEvent *e)
     }
 
 
-    d->key[d->keyNum] = nextKey;
+    d->key[d->keyNum] = QKeyCombination::fromCombined(nextKey);
     d->keyNum++;
 
     QKeySequence key(d->key[0], d->key[1], d->key[2], d->key[3]);

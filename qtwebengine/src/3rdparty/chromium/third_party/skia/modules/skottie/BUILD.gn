@@ -54,13 +54,16 @@ if (skia_enable_skottie) {
         ]
         sources = [
           "src/SkottieTest.cpp",
+          "tests/AudioLayer.cpp",
+          "tests/Image.cpp",
           "tests/Keyframe.cpp",
+          "tests/Text.cpp",
         ]
 
         deps = [
           ":skottie",
-          "../..:gpu_tool_utils",
           "../..:skia",
+          "../..:test",
           "../skshaper",
         ]
       }
@@ -84,8 +87,8 @@ if (skia_enable_skottie) {
         ]
 
         deps = [
-          "../..:experimental_svg_model",
           "../..:skia",
+          "../svg",
         ]
 
         public_deps = [ ":skottie" ]
@@ -101,11 +104,8 @@ if (skia_enable_skottie) {
         deps = [
           "../..:flags",
           "../..:skia",
+          "../../experimental/ffmpeg:video_encoder",
         ]
-        if (skia_use_ffmpeg) {
-          defines = [ "HAVE_VIDEO_ENCODER" ]
-          deps += [ "../..:video_decoder" ]
-        }
 
         public_deps = [
           ":skottie",

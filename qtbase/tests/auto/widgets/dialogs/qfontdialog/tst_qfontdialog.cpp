@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 
 
 #include <qapplication.h>
@@ -182,7 +182,6 @@ void tst_QFontDialog::task256466_wrongStyle()
     if (QGuiApplication::platformName().startsWith(QLatin1String("wayland"), Qt::CaseInsensitive))
         QSKIP("Wayland: This freezes. Figure out why.");
 
-    QFontDatabase fdb;
     FriendlyFontDialog dialog;
     dialog.setOption(QFontDialog::DontUseNativeDialog);
     QListView *familyList = reinterpret_cast<QListView*>(dialog.d_func()->familyList);
@@ -193,11 +192,11 @@ void tst_QFontDialog::task256466_wrongStyle()
         familyList->setCurrentIndex(currentFamily);
         int expectedSize = sizeList->currentIndex().data().toInt();
         const QFont current = dialog.currentFont(),
-                    expected = fdb.font(currentFamily.data().toString(),
+                    expected = QFontDatabase::font(currentFamily.data().toString(),
             styleList->currentIndex().data().toString(), expectedSize);
         QCOMPARE(current.family(), expected.family());
         QCOMPARE(current.style(), expected.style());
-        if (expectedSize == 0 && !QFontDatabase().isScalable(current.family(), current.styleName()))
+        if (expectedSize == 0 && !QFontDatabase::isScalable(current.family(), current.styleName()))
             QEXPECT_FAIL("", "QTBUG-53299: Smooth sizes for unscalable font contains unsupported size", Continue);
         QCOMPARE(current.pointSizeF(), expected.pointSizeF());
     }
@@ -261,7 +260,7 @@ void tst_QFontDialog::testNonStandardFontSize()
     if (accepted)
         QCOMPARE(testFont.pointSize(), resultFont.pointSize());
     else
-        QWARN("Fail using a non-standard font size.");
+        qWarning("Fail using a non-standard font size.");
 }
 
 QTEST_MAIN(tst_QFontDialog)

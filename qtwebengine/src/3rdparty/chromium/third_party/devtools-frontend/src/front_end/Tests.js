@@ -39,9 +39,6 @@
 
 (function createTestSuite(window) {
 
-  /**
-   * @unrestricted
-   */
   const TestSuite = class {
     /**
      * Test suite for interactive UI tests.
@@ -96,7 +93,7 @@
    * @param {string} opt_message User message to print if the test fails.
    */
   TestSuite.prototype.assertTrue = function(value, opt_message) {
-    this.assertEquals(true, !!value, opt_message);
+    this.assertEquals(true, Boolean(value), opt_message);
   };
 
   /**
@@ -650,7 +647,8 @@
 
       function checkMetrics(consoleResult) {
         test.assertEquals(
-            '"' + JSON.stringify(metrics) + '"', consoleResult, 'Wrong metrics for params: ' + JSON.stringify(params));
+            JSON.stringify(JSON.stringify(metrics)), consoleResult,
+            'Wrong metrics for params: ' + JSON.stringify(params));
         callback();
       }
     }
@@ -699,10 +697,6 @@
     }
 
     function selectTopAutoFill() {
-      self.SDK.targetManager.mainTarget().inputAgent().invoke_dispatchKeyEvent(
-          {type: 'rawKeyDown', key: 'Down', windowsVirtualKeyCode: 40, nativeVirtualKeyCode: 40});
-      self.SDK.targetManager.mainTarget().inputAgent().invoke_dispatchKeyEvent(
-          {type: 'keyUp', key: 'Down', windowsVirtualKeyCode: 40, nativeVirtualKeyCode: 40});
       self.SDK.targetManager.mainTarget().inputAgent().invoke_dispatchKeyEvent(
           {type: 'rawKeyDown', key: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13});
       self.SDK.targetManager.mainTarget().inputAgent().invoke_dispatchKeyEvent(
@@ -770,6 +764,23 @@
         Host.InspectorFrontendHostAPI.Events.KeyEventUnhandled, onKeyEventUnhandledKeyDown, this);
     self.SDK.targetManager.mainTarget().inputAgent().invoke_dispatchKeyEvent(
         {type: 'rawKeyDown', key: 'F8', windowsVirtualKeyCode: 119, nativeVirtualKeyCode: 119});
+  };
+
+  // Tests that the keys that are forwarded from the browser update
+  // when their shortcuts change
+  TestSuite.prototype.testForwardedKeysChanged = function() {
+    this.takeControl();
+
+    this.addSniffer(self.UI.shortcutRegistry, '_registerBindings', () => {
+      self.SDK.targetManager.mainTarget().inputAgent().invoke_dispatchKeyEvent(
+          {type: 'rawKeyDown', key: 'F1', windowsVirtualKeyCode: 112, nativeVirtualKeyCode: 112});
+    });
+    this.addSniffer(self.UI.shortcutRegistry, 'handleKey', key => {
+      this.assertEquals(112, key);
+      this.releaseControl();
+    });
+
+    self.Common.settings.moduleSetting('activeKeybindSet').set('vsCode');
   };
 
   TestSuite.prototype.testDispatchKeyEventDoesNotCrash = function() {
@@ -919,7 +930,7 @@
           MobileThrottling.networkPresets[1],
           [
             'online event: online = true',
-            'connection change event: type = cellular; downlinkMax = 0.390625; effectiveType = 2g'
+            'connection change event: type = cellular; downlinkMax = 0.3814697265625; effectiveType = 2g'
           ],
           step3);
     }
@@ -927,7 +938,7 @@
     function step3() {
       testPreset(
           MobileThrottling.networkPresets[0],
-          ['connection change event: type = cellular; downlinkMax = 1.4400000000000002; effectiveType = 3g'],
+          ['connection change event: type = cellular; downlinkMax = 1.373291015625; effectiveType = 3g'],
           test.releaseControl.bind(test));
     }
   };
@@ -974,7 +985,7 @@
 
       function onGotImageData(data) {
         const image = new Image();
-        test.assertTrue(!!data, 'No image data for frame');
+        test.assertTrue(Boolean(data), 'No image data for frame');
         image.addEventListener('load', onLoad);
         image.src = 'data:image/jpg;base64,' + data;
       }
@@ -1103,7 +1114,7 @@
 
     let count = 0;
     function onResponseReceived(event) {
-      const networkRequest = event.data;
+      const networkRequest = event.data.request;
       if (!networkRequest.url().startsWith('http')) {
         return;
       }
@@ -1295,6 +1306,23 @@
     await targetAgent.invoke_disposeBrowserContext({browserContextId});
     const response2 = await targetAgent.invoke_getBrowserContexts();
     this.assertEquals(response2.browserContextIds.length, 0);
+    this.releaseControl();
+  };
+
+  TestSuite.prototype.testNewWindowFromBrowserContext = async function(url) {
+    this.takeControl();
+    // Create a BrowserContext.
+    const targetAgent = self.SDK.targetManager.mainTarget().targetAgent();
+    const {browserContextId} = await targetAgent.invoke_createBrowserContext();
+
+    // Cause a Browser to be created with the temp profile.
+    const {targetId} =
+        await targetAgent.invoke_createTarget({url: 'data:text/html,', browserContextId, newWindow: true});
+    await targetAgent.invoke_attachToTarget({targetId, flatten: true});
+
+    // Destroy the temp profile.
+    await targetAgent.invoke_disposeBrowserContext({browserContextId});
+
     this.releaseControl();
   };
 

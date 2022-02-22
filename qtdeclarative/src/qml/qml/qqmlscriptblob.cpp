@@ -42,6 +42,7 @@
 #include <private/qqmlscriptblob_p.h>
 #include <private/qqmlscriptdata_p.h>
 #include <private/qqmlsourcecoordinate_p.h>
+#include <private/qqmlcontextdata_p.h>
 #include <private/qv4runtimecodegen_p.h>
 #include <private/qv4script_p.h>
 
@@ -149,10 +150,10 @@ void QQmlScriptBlob::dataReceived(const SourceCodeData &data)
     initializeFromCompilationUnit(executableUnit);
 }
 
-void QQmlScriptBlob::initializeFromCachedUnit(const QV4::CompiledData::Unit *unit)
+void QQmlScriptBlob::initializeFromCachedUnit(const QQmlPrivate::CachedQmlUnit *unit)
 {
     initializeFromCompilationUnit(QV4::ExecutableCompilationUnit::create(
-            QV4::CompiledData::CompilationUnit(unit, urlString(), finalUrlString())));
+            QV4::CompiledData::CompilationUnit(unit->qmlData, unit->aotCompiledFunctions, urlString(), finalUrlString())));
 }
 
 void QQmlScriptBlob::done()
@@ -233,7 +234,7 @@ void QQmlScriptBlob::initializeFromCompilationUnit(const QQmlRefPointer<QV4::Exe
         QList<QQmlError> errors;
         for (quint32 i = 0, count = script->importCount(); i < count; ++i) {
             const QV4::CompiledData::Import *import = script->importAt(i);
-            if (!addImport(import, &errors)) {
+            if (!addImport(import, {}, &errors)) {
                 Q_ASSERT(errors.size());
                 QQmlError error(errors.takeFirst());
                 error.setUrl(m_importCache.baseUrl());

@@ -51,9 +51,9 @@
 // We mean it.
 //
 
-#include <QtCore/qobject.h>
+#include <QtCore/qlist.h>
 #include <QtCore/qmetaobject.h>
-#include <QtCore/qvector.h>
+#include <QtCore/qobject.h>
 #include <QtCore/qpointer.h>
 #include "qremoteobjectsource.h"
 #include "qremoteobjectpacket_p.h"
@@ -61,7 +61,7 @@
 QT_BEGIN_NAMESPACE
 
 class QRemoteObjectSourceIo;
-class IoDeviceBase;
+class QtROIoDeviceBase;
 
 class QRemoteObjectSourceBase : public QObject
 {
@@ -84,10 +84,11 @@ public:
     QByteArray m_objectChecksum;
     QMap<int, QPointer<QRemoteObjectSourceBase>> m_children;
     struct Private {
-        Private(QRemoteObjectSourceIo *io, QRemoteObjectRootSource *root) : m_sourceIo(io), isDynamic(false), root(root) {}
+        Private(QRemoteObjectSourceIo *io, QRemoteObjectRootSource *root);
         QRemoteObjectSourceIo *m_sourceIo;
-        QVector<IoDeviceBase*> m_listeners;
-        QRemoteObjectPackets::DataStreamPacket m_packet;
+        QList<QtROIoDeviceBase*> m_listeners;
+        // Pointer to codec, not owned by Private.  We can assume it is valid.
+        QRemoteObjectPackets::CodecBase *codec;
 
         // Types needed during recursively sending a root to a new listener
         QSet<QString> sentTypes;
@@ -104,7 +105,7 @@ protected:
 class QRemoteObjectSource : public QRemoteObjectSourceBase
 {
 public:
-    explicit QRemoteObjectSource(QObject *object, Private *d, const SourceApiMap *, QObject *adapter);
+    explicit QRemoteObjectSource(QObject *object, Private *d, const SourceApiMap *, QObject *adapter, const QString &parentName);
     ~QRemoteObjectSource() override;
 
     bool isRoot() const override { return false; }
@@ -122,8 +123,8 @@ public:
 
     bool isRoot() const override { return true; }
     QString name() const override { return m_name; }
-    void addListener(IoDeviceBase *io, bool dynamic = false);
-    int removeListener(IoDeviceBase *io, bool shouldSendRemove = false);
+    void addListener(QtROIoDeviceBase *io, bool dynamic = false);
+    int removeListener(QtROIoDeviceBase *io, bool shouldSendRemove = false);
 
     QString m_name;
 };
@@ -167,14 +168,14 @@ public:
     int signalParameterCount(int index) const override { return parameterCount(m_signals.at(index)); }
     int signalParameterType(int sigIndex, int paramIndex) const override { return parameterType(m_signals.at(sigIndex), paramIndex); }
     const QByteArray signalSignature(int index) const override { return signature(m_signals.at(index)); }
-    QList<QByteArray> signalParameterNames(int index) const override;
+    QByteArrayList signalParameterNames(int index) const override;
 
     int methodParameterCount(int index) const override { return parameterCount(m_methods.at(index)); }
     int methodParameterType(int methodIndex, int paramIndex) const override { return parameterType(m_methods.at(methodIndex), paramIndex); }
     const QByteArray methodSignature(int index) const override { return signature(m_methods.at(index)); }
     QMetaMethod::MethodType methodType(int index) const override;
     const QByteArray typeName(int index) const override;
-    QList<QByteArray> methodParameterNames(int index) const override;
+    QByteArrayList methodParameterNames(int index) const override;
 
     int propertyIndexFromSignal(int index) const override
     {
@@ -207,10 +208,10 @@ public:
     QString m_typeName;
     int m_enumCount;
     int m_enumOffset;
-    QVector<int> m_properties;
-    QVector<int> m_signals;
-    QVector<int> m_methods;
-    QVector<int> m_propertyAssociatedWithSignal;
+    QList<int> m_properties;
+    QList<int> m_signals;
+    QList<int> m_methods;
+    QList<int> m_propertyAssociatedWithSignal;
     const QMetaObject *m_metaObject;
     mutable QMetaMethod m_cachedMetamethod;
     mutable int m_cachedMetamethodIndex;

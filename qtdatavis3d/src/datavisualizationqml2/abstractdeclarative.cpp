@@ -44,11 +44,9 @@
 #include "glstatestore_p.h"
 #endif
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
-static QList<const QQuickWindow *> clearList;
 static QHash<AbstractDeclarative *, QQuickWindow *> graphWindowList;
-static QHash<QQuickWindow *, bool> windowClearList;
 
 AbstractDeclarative::AbstractDeclarative(QQuickItem *parent) :
     QQuickItem(parent),
@@ -68,8 +66,11 @@ AbstractDeclarative::AbstractDeclarative(QQuickItem *parent) :
     connect(this, &QQuickItem::windowChanged, this, &AbstractDeclarative::handleWindowChanged);
 
     // Set contents to false in case we are in qml designer to make component look nice
-    m_runningInDesigner = QGuiApplication::applicationDisplayName() == "Qml2Puppet";
+    m_runningInDesigner = QGuiApplication::applicationDisplayName() == QLatin1String("Qml2Puppet");
     setFlag(ItemHasContents, !m_runningInDesigner);
+
+    // Accept touchevents
+    setAcceptTouchEvents(true);
 }
 
 AbstractDeclarative::~AbstractDeclarative()
@@ -106,7 +107,7 @@ void AbstractDeclarative::setRenderingMode(AbstractDeclarative::RenderingMode mo
             update();
             setFlag(ItemHasContents, false);
             if (win) {
-                QObject::connect(win, &QQuickWindow::beforeRendering, this,
+                QObject::connect(win, &QQuickWindow::beforeRenderPassRecording, this,
                                  &AbstractDeclarative::render, Qt::DirectConnection);
                 checkWindowList(win);
                 setAntialiasing(m_windowSamples > 0);
@@ -120,7 +121,7 @@ void AbstractDeclarative::setRenderingMode(AbstractDeclarative::RenderingMode mo
         setFlag(ItemHasContents, !m_runningInDesigner);
         update();
         if (win) {
-            QObject::disconnect(win, &QQuickWindow::beforeRendering, this,
+            QObject::disconnect(win, &QQuickWindow::beforeRenderPassRecording, this,
                                 &AbstractDeclarative::render);
             checkWindowList(win);
         }
@@ -272,13 +273,13 @@ void AbstractDeclarative::appendCustomItemFunc(QQmlListProperty<QCustom3DItem> *
     decl->addCustomItem(item);
 }
 
-int AbstractDeclarative::countCustomItemFunc(QQmlListProperty<QCustom3DItem> *list)
+qsizetype AbstractDeclarative::countCustomItemFunc(QQmlListProperty<QCustom3DItem> *list)
 {
     return reinterpret_cast<AbstractDeclarative *>(list->data)->m_controller->m_customItems.size();
 }
 
 QCustom3DItem *AbstractDeclarative::atCustomItemFunc(QQmlListProperty<QCustom3DItem> *list,
-                                                     int index)
+                                                     qsizetype index)
 {
     return reinterpret_cast<AbstractDeclarative *>(list->data)->m_controller->m_customItems.at(index);
 }
@@ -293,6 +294,7 @@ void AbstractDeclarative::setSharedController(Abstract3DController *controller)
 {
     Q_ASSERT(controller);
     m_controller = controller;
+    m_controller->m_qml = this;
 
     if (!m_controller->isOpenGLES())
         m_samples = 4;
@@ -399,16 +401,13 @@ void AbstractDeclarative::doneOpenGLContext(QQuickWindow *window)
 #ifdef USE_SHARED_CONTEXT
     m_qtContext->makeCurrent(window);
 #else
-    Q_UNUSED(window)
+    Q_UNUSED(window);
     m_stateStore->restoreGLState();
 #endif
 }
 
 void AbstractDeclarative::synchDataToRenderer()
 {
-    if (m_renderMode == RenderDirectToBackground && clearList.size())
-        clearList.clear();
-
     QQuickWindow *win = window();
     activateOpenGLContext(win);
     m_controller->synchDataToRenderer();
@@ -443,7 +442,6 @@ void AbstractDeclarative::setMsaaSamples(int samples)
 void AbstractDeclarative::handleWindowChanged(QQuickWindow *window)
 {
     checkWindowList(window);
-
     if (!window)
         return;
 
@@ -472,7 +470,7 @@ void AbstractDeclarative::handleWindowChanged(QQuickWindow *window)
 
     if (m_renderMode == RenderDirectToBackground_NoClear
             || m_renderMode == RenderDirectToBackground) {
-        connect(window, &QQuickWindow::beforeRendering, this, &AbstractDeclarative::render,
+        connect(window, &QQuickWindow::beforeRenderPassRecording, this, &AbstractDeclarative::render,
                 Qt::DirectConnection);
         setAntialiasing(m_windowSamples > 0);
         if (m_windowSamples != oldWindowSamples)
@@ -491,9 +489,9 @@ void AbstractDeclarative::handleWindowChanged(QQuickWindow *window)
 #endif
 }
 
-void AbstractDeclarative::geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry)
+void AbstractDeclarative::geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry)
 {
-    QQuickItem::geometryChanged(newGeometry, oldGeometry);
+    QQuickItem::geometryChange(newGeometry, oldGeometry);
 
     m_cachedGeometry = newGeometry;
 
@@ -579,14 +577,10 @@ void AbstractDeclarative::render()
 
     // Clear the background once per window as that is not done by default
     QQuickWindow *win = window();
+    win->beginExternalCommands();
     activateOpenGLContext(win);
+
     QOpenGLFunctions *funcs = QOpenGLContext::currentContext()->functions();
-    if (m_renderMode == RenderDirectToBackground && !clearList.contains(win)) {
-        clearList.append(win);
-        QColor clearColor = win->color();
-        funcs->glClearColor(clearColor.redF(), clearColor.greenF(), clearColor.blueF(), 1.0f);
-        funcs->glClear(GL_COLOR_BUFFER_BIT);
-    }
 
     if (isVisible()) {
         funcs->glDepthMask(GL_TRUE);
@@ -600,7 +594,9 @@ void AbstractDeclarative::render()
 
         funcs->glEnable(GL_BLEND);
     }
+
     doneOpenGLContext(win);
+    win->endExternalCommands();
 }
 
 QAbstract3DInputHandler* AbstractDeclarative::inputHandler() const
@@ -652,7 +648,6 @@ void AbstractDeclarative::wheelEvent(QWheelEvent *event)
 void AbstractDeclarative::checkWindowList(QQuickWindow *window)
 {
     QQuickWindow *oldWindow = graphWindowList.value(this);
-
     graphWindowList[this] = window;
 
     if (oldWindow != window && oldWindow) {
@@ -660,7 +655,7 @@ void AbstractDeclarative::checkWindowList(QQuickWindow *window)
                             &AbstractDeclarative::windowDestroyed);
         QObject::disconnect(oldWindow, &QQuickWindow::beforeSynchronizing, this,
                             &AbstractDeclarative::synchDataToRenderer);
-        QObject::disconnect(oldWindow, &QQuickWindow::beforeRendering, this,
+        QObject::disconnect(oldWindow, &QQuickWindow::beforeRenderPassRecording, this,
                             &AbstractDeclarative::render);
         if (!m_controller.isNull()) {
             QObject::disconnect(m_controller.data(), &Abstract3DController::needRender,
@@ -677,25 +672,9 @@ void AbstractDeclarative::checkWindowList(QQuickWindow *window)
         }
     }
 
-    if (oldWindow && !windowList.contains(oldWindow)
-            && windowClearList.contains(oldWindow)) {
-        // Return window clear value
-        oldWindow->setClearBeforeRendering(windowClearList.value(oldWindow));
-        windowClearList.remove(oldWindow);
-    }
-
     if (!window) {
         graphWindowList.remove(this);
         return;
-    }
-
-    if ((m_renderMode == RenderDirectToBackground
-         || m_renderMode == RenderDirectToBackground_NoClear)
-            && !windowClearList.contains(window)) {
-        // Save old clear value
-        windowClearList[window] = window->clearBeforeRendering();
-        // Disable clearing of the window as we render underneath
-        window->setClearBeforeRendering(false);
     }
 }
 
@@ -834,8 +813,6 @@ void AbstractDeclarative::windowDestroyed(QObject *obj)
 
     if (win == oldWindow)
         graphWindowList.remove(this);
-
-    windowClearList.remove(win);
 }
 
 void AbstractDeclarative::destroyContext()
@@ -855,4 +832,4 @@ void AbstractDeclarative::destroyContext()
     }
 }
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE

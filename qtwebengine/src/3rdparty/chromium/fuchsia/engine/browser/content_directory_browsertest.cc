@@ -6,6 +6,7 @@
 #include <lib/vfs/cpp/pseudo_dir.h>
 #include <lib/vfs/cpp/vmo_file.h>
 
+#include "base/strings/string_piece.h"
 #include "fuchsia/engine/test/web_engine_browser_test.h"
 
 #include "base/files/file_path.h"
@@ -14,6 +15,7 @@
 #include "base/fuchsia/fuchsia_logging.h"
 #include "base/path_service.h"
 #include "base/threading/thread_restrictions.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/content_test_suite_base.h"
 #include "fuchsia/base/frame_test_util.h"
 #include "fuchsia/base/test_navigation_listener.h"
@@ -44,7 +46,7 @@ void AddFileToPseudoDir(base::StringPiece data,
 // Serves |dir| as a ContentDirectory under the path |name|.
 void ServePseudoDir(base::StringPiece name, vfs::PseudoDir* dir) {
   fuchsia::web::ContentDirectoryProvider provider;
-  provider.set_name(name.as_string());
+  provider.set_name(std::string(name));
   fidl::InterfaceHandle<fuchsia::io::Directory> directory_channel;
   dir->Serve(
       fuchsia::io::OPEN_FLAG_DIRECTORY | fuchsia::io::OPEN_RIGHT_READABLE,
@@ -82,13 +84,13 @@ class ContentDirectoryTest : public cr_fuchsia::WebEngineBrowserTest {
     provider.set_name("testdata");
     base::FilePath pkg_path;
     base::PathService::Get(base::DIR_ASSETS, &pkg_path);
-    provider.set_directory(base::fuchsia::OpenDirectory(
+    provider.set_directory(base::OpenDirectoryHandle(
         pkg_path.AppendASCII("fuchsia/engine/test/data")));
     providers.emplace_back(std::move(provider));
 
     provider = {};
     provider.set_name("alternate");
-    provider.set_directory(base::fuchsia::OpenDirectory(
+    provider.set_directory(base::OpenDirectoryHandle(
         pkg_path.AppendASCII("fuchsia/engine/test/data")));
     providers.emplace_back(std::move(provider));
 

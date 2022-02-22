@@ -26,9 +26,10 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.2
-import QtTest 1.0
-import QtWebEngine 1.9
+import QtQuick
+import QtTest
+import QtWebEngine
+import Test.Shared as Shared
 
 TestWebEngineView {
     id: view
@@ -47,7 +48,7 @@ TestWebEngineView {
         signalName: 'featurePermissionRequested'
     }
 
-    onFeaturePermissionRequested: {
+    onFeaturePermissionRequested: function(securityOrigin, feature) {
         if (feature === WebEngineView.Notifications) {
             view.permissionRequested = true
             view.securityOrigin = securityOrigin
@@ -60,7 +61,8 @@ TestWebEngineView {
         when: windowShown
 
         function resolverUrl(html) {
-            return Qt.resolvedUrl('../../../shared/data/' + html)
+            console.log(Shared.HttpServer.sharedDataDir())
+            return Qt.resolvedUrl(Shared.HttpServer.sharedDataDir() + "/" + html)
         }
 
         function init() {

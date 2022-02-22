@@ -29,10 +29,10 @@
 
 #include "declarativerendernode_p.h"
 #include "abstractdeclarative_p.h"
-#include <QtGui/QOpenGLFramebufferObject>
+#include <QtOpenGL/QOpenGLFramebufferObject>
 #include <QtCore/QMutexLocker>
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 DeclarativeRenderNode::DeclarativeRenderNode(AbstractDeclarative *declarative,
                                              const QSharedPointer<QMutex> &nodeMutex)
@@ -114,9 +114,7 @@ void DeclarativeRenderNode::updateFBO()
 
     delete m_texture;
     const uint id = m_fbo->texture();
-    m_texture =
-        m_window->createTextureFromNativeObject(QQuickWindow::NativeObjectTexture,
-                                                &id, 0 /* nativeLayout */, m_size);
+    m_texture = QNativeInterface::QSGOpenGLTexture::fromNative(id, m_window, m_size);
     m_material.setTexture(m_texture);
     m_materialO.setTexture(m_texture);
 
@@ -182,4 +180,4 @@ void DeclarativeRenderNode::handleControllerDestroyed()
     m_controller = 0;
 }
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE

@@ -142,7 +142,7 @@ bool FrameSerializerDelegateImpl::ShouldIgnorePopupOverlayElement(
     return false;
 
   // The z-index should be greater than the threshold.
-  if (box->Style()->ZIndex() < kPopupOverlayZIndexThreshold)
+  if (box->Style()->EffectiveZIndex() < kPopupOverlayZIndexThreshold)
     return false;
 
   popup_overlays_skipped_ = true;
@@ -287,9 +287,6 @@ std::pair<Node*, Element*> FrameSerializerDelegateImpl::GetAuxiliaryDOMTree(
     case ShadowRootType::kUserAgent:
       // No need to serialize.
       return std::pair<Node*, Element*>();
-    case ShadowRootType::V0:
-      shadow_mode = "v0";
-      break;
     case ShadowRootType::kOpen:
       shadow_mode = "open";
       break;
@@ -305,8 +302,7 @@ std::pair<Node*, Element*> FrameSerializerDelegateImpl::GetAuxiliaryDOMTree(
   template_element->setAttribute(
       QualifiedName(g_null_atom, kShadowModeAttributeName, g_null_atom),
       AtomicString(shadow_mode));
-  if (shadow_root->GetType() != ShadowRootType::V0 &&
-      shadow_root->delegatesFocus()) {
+  if (shadow_root->delegatesFocus()) {
     template_element->setAttribute(
         QualifiedName(g_null_atom, kShadowDelegatesFocusAttributeName,
                       g_null_atom),

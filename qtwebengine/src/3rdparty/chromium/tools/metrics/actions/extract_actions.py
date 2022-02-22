@@ -25,7 +25,6 @@ from __future__ import print_function
 
 __author__ = 'evanm (Evan Martin)'
 
-from HTMLParser import HTMLParser
 import logging
 import os
 import re
@@ -33,8 +32,13 @@ import shutil
 import sys
 from xml.dom import minidom
 
+if sys.version_info.major == 2:
+  from HTMLParser import HTMLParser
+else:
+  from html.parser import HTMLParser
+
 import action_utils
-import actions_print_style
+import actions_model
 
 # Import the metrics/common module for pretty print xml.
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'common'))
@@ -372,7 +376,7 @@ def GrepForActions(path, actions):
       if not action_name:
         break
       actions.add(action_name)
-    except InvalidStatementException, e:
+    except InvalidStatementException as e:
       logging.warning(str(e))
 
   if action_re != USER_METRICS_ACTION_RE:
@@ -439,7 +443,7 @@ def GrepForWebUIActions(path, actions):
     # ensure the path of the file being parsed gets printed if that happens.
     close_called = True
     parser.close()
-  except Exception, e:
+  except Exception as e:
     print("Error encountered for path %s" % path)
     raise e
   finally:
@@ -468,7 +472,7 @@ def GrepForDevToolsActions(path, actions):
       if not action_name:
         break
       actions.add(action_name)
-    except InvalidStatementException, e:
+    except InvalidStatementException as e:
       logging.warning(str(e))
 
 def WalkDirectory(root_path, actions, extensions, callback):
@@ -760,7 +764,7 @@ def PrettyPrint(actions_dict, comment_nodes, suffixes):
   for suffix_tag in suffixes:
     actions_element.appendChild(suffix_tag)
 
-  return actions_print_style.GetPrintStyle().PrettyPrintXml(doc)
+  return actions_model.PrettifyTree(doc)
 
 
 def UpdateXml(original_xml):
@@ -770,12 +774,7 @@ def UpdateXml(original_xml):
   AddComputedActions(actions)
   AddWebUIActions(actions)
   AddDevToolsActions(actions)
-
   AddLiteralActions(actions)
-
-  # print("Scanned {0} number of files".format(number_of_files_total))
-  # print("Found {0} entries".format(len(actions)))
-
   AddAutomaticResetBannerActions(actions)
   AddBookmarkManagerActions(actions)
   AddChromeOSActions(actions)
@@ -791,8 +790,13 @@ def UpdateXml(original_xml):
 
 
 def main(argv):
-  presubmit_util.DoPresubmitMain(argv, 'actions.xml', 'actions.old.xml',
-                                 'extract_actions.py', UpdateXml)
+  presubmit_util.DoPresubmitMain(
+      argv,
+      'actions.xml',
+      'actions.old.xml',
+      UpdateXml,
+      script_name='extract_actions.py')
+
 
 if '__main__' == __name__:
   sys.exit(main(sys.argv))

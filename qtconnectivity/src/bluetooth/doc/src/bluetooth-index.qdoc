@@ -40,10 +40,9 @@ Currently, the API is supported on the following platforms:
     \li API Feature
     \li \l {Qt for Android}{Android}
     \li \l {Qt for iOS}{iOS}
-    \li \l {Qt for Linux/X11}{Linux (BlueZ 4.x/5.x)}
+    \li \l {Qt for Linux/X11}{Linux (BlueZ 5.x)}
     \li \l \macos
-    \li \l {Qt for UWP}{UWP (Universal Windows Platform)}
-    \li \l {Qt for Windows}{Win32}
+    \li \l {Qt for Windows}
 \row
     \li Classic Bluetooth
     \li x
@@ -51,10 +50,8 @@ Currently, the API is supported on the following platforms:
     \li x
     \li x
     \li x
-    \li x
 \row
     \li Bluetooth LE Central
-    \li x
     \li x
     \li x
     \li x
@@ -67,10 +64,8 @@ Currently, the API is supported on the following platforms:
     \li x
     \li x
     \li
-    \li
 \row
     \li Bluetooth LE Advertisement & Scanning
-    \li
     \li
     \li
     \li
@@ -97,20 +92,16 @@ Qt Bluetooth supports Bluetooth Low Energy development for client/central role u
 Further details can be found in the
 \l {Bluetooth Low Energy Overview}{Bluetooth Low Energy Overview} section.
 
-A new addition since the Qt Bluetooth 5.7 release covers support for Bluetooth Low Energy
-applications performing the peripheral/server role. This new API remains in Technology Preview.
+\include module-use.qdocinc using qt module
+\snippet doc/snippets/CMakeLists.txt 0
 
-\section1 Getting Started
+See also the \l {Build with CMake} overview.
 
-To use the C++ library in your application, add the following configuration
-option to your \c .pro file:
+\section2 Building with \c qmake
+
+Add \c bluetooth to the \c QT variable:
 
 \snippet snippets.pro contacts project modification
-
-To use the classes of the module in your application you need the following
-import statement in your \c .qml file:
-
-\snippet doc_src_qtbluetooth.qml import
 
 \section1 Related Information
 
@@ -127,6 +118,16 @@ Qt D-Bus support.
 
 The usage of the dummy backend is highlighted via an appropriate warning while building and running.
 
+\section3 \macos Specific
+The Bluetooth API on \macos requires a certain type of event dispatcher
+that in Qt causes a dependency to QGuiApplication. However, you can set the
+environment variable \c {QT_EVENT_DISPATCHER_CORE_FOUNDATION=1} to circumvent
+this issue.
+
+Applications that don't use Classic Bluetooth will find a subset of QtBluetooth
+is available, as CoreBluetooth (Bluetooth LE) do not require either of
+QApplication or QGuiApplication.
+
 \section2 Guides
 \list
     \li \l {Qt Bluetooth Overview}{Classic Bluetooth Overview}
@@ -135,7 +136,6 @@ The usage of the dummy backend is highlighted via an appropriate warning while b
 
 \section2 Reference
 \list
-    \li \l {Qt Bluetooth QML Types}{QML Types}
     \li \l {Qt Bluetooth C++ Classes}{C++ Classes}
 \endlist
 
@@ -164,15 +164,8 @@ The \l QtBluetooth module exports the following
     \li qt.bluetooth.osx
     \li Enables logging of the \l {Qt for macOS} {macOS} implementation
 \row
-    \li qt.bluetooth.qml
-     \li Enables logging of the QtBluetooth QML implementation
-\row
-    \li qt.bluetooth.winrt
-    \li Enables logging of the \l {Qt for UWP}{UWP (Universal Windows Platform)}
-        implementation
-\row
     \li qt.bluetooth.windows
-    \li Enables logging of the \l {Qt for Windows} {Win32} implementation
+    \li Enables logging of the \l {Qt for Windows} implementation
 \endtable
 
 Logging categories can be used to enable additional warning and debug output
@@ -187,10 +180,7 @@ A quick way to enable all QtBluetooth logging is to add the following line to th
 \list
     \li QML
     \list
-        \li \l {scanner}{QML Bluetooth Scanner}
-        \li \l {picturetransfer}{QML Bluetooth Picture Push}
         \li \l {pingpong}{QML Bluetooth PingPong}
-        \li \l {chat}{QML Bluetooth Chat}
         \li \l {heartrate-game}{Bluetooth Low Energy Heart Rate Game}
         \li \l {heartrate-server}{Bluetooth Low Energy Heart Rate Server}
         \li \l {lowenergyscanner}{Bluetooth Low Energy Scanner}
@@ -199,9 +189,13 @@ A quick way to enable all QtBluetooth logging is to add the following line to th
     \list
         \li \l {btchat}{Bluetooth Chat}
         \li \l {btscanner}{Bluetooth Scanner}
-        \li \l {btfiletransfer}{Bluetooth File Transfer}
     \endlist
 \endlist
+
+\section1 Module Evolution
+
+\l{Changes to Qt Bluetooth} lists important changes in the module
+API and functionality that were done for the Qt 6 series of Qt.
 
 \section1 Licenses and Attributions
 

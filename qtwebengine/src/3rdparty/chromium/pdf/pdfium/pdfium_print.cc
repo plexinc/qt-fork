@@ -9,11 +9,12 @@
 #include <utility>
 
 #include "base/strings/string_number_conversions.h"
-#include "pdf/geometry_conversions.h"
+#include "build/chromeos_buildflags.h"
 #include "pdf/pdf_transform.h"
 #include "pdf/pdfium/pdfium_engine.h"
 #include "pdf/pdfium/pdfium_mem_buffer_file_read.h"
 #include "pdf/pdfium/pdfium_mem_buffer_file_write.h"
+#include "pdf/ppapi_migration/geometry_conversions.h"
 #include "ppapi/c/dev/ppp_printing_dev.h"
 #include "ppapi/c/private/ppp_pdf.h"
 #include "printing/nup_parameters.h"
@@ -22,6 +23,7 @@
 #include "third_party/pdfium/public/fpdf_flatten.h"
 #include "third_party/pdfium/public/fpdf_ppo.h"
 #include "third_party/pdfium/public/fpdf_transformpage.h"
+#include "third_party/skia/include/core/SkImageInfo.h"
 #include "ui/gfx/codec/jpeg_codec.h"
 #include "ui/gfx/geometry/point_f.h"
 #include "ui/gfx/geometry/rect.h"
@@ -271,14 +273,14 @@ PDFiumPrint::PDFiumPrint(PDFiumEngine* engine) : engine_(engine) {}
 
 PDFiumPrint::~PDFiumPrint() = default;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 // static
 std::vector<uint8_t> PDFiumPrint::CreateFlattenedPdf(ScopedFPDFDocument doc) {
   if (!FlattenPrintData(doc.get()))
     return std::vector<uint8_t>();
   return ConvertDocToBuffer(std::move(doc));
 }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 // static
 std::vector<uint32_t> PDFiumPrint::GetPageNumbersFromPrintPageNumberRange(
@@ -317,7 +319,7 @@ bool PDFiumPrint::IsSourcePdfLandscape(FPDF_DOCUMENT doc) {
   DCHECK(pdf_page);
 
   bool is_source_landscape =
-      FPDF_GetPageWidth(pdf_page.get()) > FPDF_GetPageHeight(pdf_page.get());
+      FPDF_GetPageWidthF(pdf_page.get()) > FPDF_GetPageHeightF(pdf_page.get());
   return is_source_landscape;
 }
 
@@ -423,8 +425,8 @@ ScopedFPDFDocument PDFiumPrint::CreateSinglePageRasterPdf(
   ScopedFPDFDocument temp_doc(FPDF_CreateNewDocument());
   DCHECK(temp_doc);
 
-  double source_page_width = FPDF_GetPageWidth(page_to_print);
-  double source_page_height = FPDF_GetPageHeight(page_to_print);
+  float source_page_width = FPDF_GetPageWidthF(page_to_print);
+  float source_page_height = FPDF_GetPageHeightF(page_to_print);
 
   // For computing size in pixels, use a square dpi since the source PDF page
   // has square DPI.

@@ -5,46 +5,15 @@
 import("//build/config/android/rules.gni")
 import("//mojo/public/tools/bindings/mojom.gni")
 
-mojom("common_mojom") {
-  sources = [
-    "aw_origin_matcher.mojom",
-    "js_java_interaction/interfaces.mojom",
-  ]
-
-  public_deps = [
-    "//mojo/public/mojom/base",
-    "//services/network/public/mojom:mojom",
-  ]
-
-  cpp_typemaps = [
-    {
-      types = [
-        {
-          mojom = "android_webview.mojom.AwOriginMatcher"
-          cpp = "::android_webview::AwOriginMatcher"
-        },
-      ]
-      traits_headers =
-          [ "//android_webview/common/aw_origin_matcher_mojom_traits.h" ]
-    },
-  ]
-}
-
 source_set("common") {
   sources = [
-    "android_webview_message_generator.cc",
-    "android_webview_message_generator.h",
     "aw_content_client.cc",
     "aw_content_client.h",
     "aw_descriptors.h",
     "aw_features.cc",
     "aw_features.h",
-    "aw_hit_test_data.cc",
-    "aw_hit_test_data.h",
     "aw_media_drm_bridge_client.cc",
     "aw_media_drm_bridge_client.h",
-    "aw_origin_matcher.cc",
-    "aw_origin_matcher.h",
     "aw_paths.cc",
     "aw_paths.h",
     "aw_resource.cc",
@@ -58,8 +27,6 @@ source_set("common") {
     "crash_reporter/crash_keys.cc",
     "crash_reporter/crash_keys.h",
     "devtools_instrumentation.h",
-    "render_view_messages.cc",
-    "render_view_messages.h",
     "url_constants.cc",
     "url_constants.h",
   ]
@@ -84,5 +51,23 @@ source_set("common") {
     "//ui/gfx/ipc/geometry",
     "//ui/gfx/ipc/skia",
     "//url",
+  ]
+}
+
+mojom("mojom") {
+  # We don't want Blink variants of bindings to be generated.
+  disable_variants = true
+
+  sources = [
+    "mojom/frame.mojom",
+    "mojom/render_message_filter.mojom",
+    "mojom/renderer.mojom",
+  ]
+
+  public_deps = [
+    "//mojo/public/mojom/base",
+    "//skia/public/mojom",
+    "//ui/gfx/geometry/mojom",
+    "//url/mojom:url_mojom_gurl",
   ]
 }

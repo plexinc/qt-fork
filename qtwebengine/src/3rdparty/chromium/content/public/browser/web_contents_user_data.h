@@ -5,7 +5,7 @@
 #ifndef CONTENT_PUBLIC_BROWSER_WEB_CONTENTS_USER_DATA_H_
 #define CONTENT_PUBLIC_BROWSER_WEB_CONTENTS_USER_DATA_H_
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/memory/ptr_util.h"
 #include "base/supports_user_data.h"
 #include "content/public/browser/web_contents.h"
@@ -34,10 +34,14 @@ class WebContentsUserData : public base::SupportsUserData::Data {
  public:
   // Creates an object of type T, and attaches it to the specified WebContents.
   // If an instance is already attached, does nothing.
-  static void CreateForWebContents(WebContents* contents) {
+  template <typename... Args>
+  static void CreateForWebContents(WebContents* contents, Args&&... args) {
     DCHECK(contents);
-    if (!FromWebContents(contents))
-      contents->SetUserData(UserDataKey(), base::WrapUnique(new T(contents)));
+    if (!FromWebContents(contents)) {
+      contents->SetUserData(
+          UserDataKey(),
+          base::WrapUnique(new T(contents, std::forward<Args>(args)...)));
+    }
   }
 
   // Retrieves the instance of type T that was attached to the specified

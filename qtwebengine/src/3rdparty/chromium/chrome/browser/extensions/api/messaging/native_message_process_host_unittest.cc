@@ -27,7 +27,6 @@
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/test_timeouts.h"
 #include "base/threading/platform_thread.h"
@@ -58,8 +57,6 @@
 #else
 #include <unistd.h>
 #endif
-
-using content::BrowserThread;
 
 namespace {
 
@@ -102,9 +99,10 @@ class FakeLauncher : public NativeProcessLauncher {
 
   void Launch(const GURL& origin,
               const std::string& native_host_name,
-              const LaunchedCallback& callback) const override {
-    callback.Run(NativeProcessLauncher::RESULT_SUCCESS, base::Process(),
-                 std::move(read_file_), std::move(write_file_));
+              LaunchedCallback callback) const override {
+    std::move(callback).Run(NativeProcessLauncher::RESULT_SUCCESS,
+                            base::Process(), std::move(read_file_),
+                            std::move(write_file_));
   }
 
  private:
@@ -125,8 +123,8 @@ class NativeMessagingTest : public ::testing::Test,
 
   void TearDown() override {
     if (native_message_host_) {
-      base::DeleteSoon(FROM_HERE, {BrowserThread::IO},
-                       native_message_host_.release());
+      content::GetIOThreadTaskRunner({})->DeleteSoon(
+          FROM_HERE, native_message_host_.release());
     }
     base::RunLoop().RunUntilIdle();
   }
@@ -166,12 +164,9 @@ class NativeMessagingTest : public ::testing::Test,
       return base::FilePath();
 
     std::string message_with_header = FormatMessage(message);
-    int bytes_written = base::WriteFile(
-        filename, message_with_header.data(), message_with_header.size());
-    if (bytes_written < 0 ||
-        (message_with_header.size() != static_cast<size_t>(bytes_written))) {
+    if (!base::WriteFile(filename, message_with_header))
       return base::FilePath();
-    }
+
     return filename;
   }
 
@@ -228,7 +223,7 @@ TEST_F(NativeMessagingTest, SingleSendMessageWrite) {
 
   base::File read_file;
 #if defined(OS_WIN)
-  base::string16 pipe_name = base::StringPrintf(
+  std::wstring pipe_name = base::StringPrintf(
       L"\\\\.\\pipe\\chrome.nativeMessaging.out.%llx", base::RandUint64());
   base::File write_handle =
       base::File(base::ScopedPlatformFile(CreateNamedPipeW(
@@ -363,7 +358,7 @@ TEST_F(NativeMessagingTest, MAYBE_ReconnectArgs) {
   for (auto& arg : args_value->GetList()) {
     ASSERT_TRUE(arg.is_string());
 #if defined(OS_WIN)
-    args.push_back(base::UTF8ToUTF16(arg.GetString()));
+    args.push_back(base::UTF8ToWide(arg.GetString()));
 #else
     args.push_back(arg.GetString());
 #endif

@@ -27,7 +27,10 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QStandardPaths>
+#include <QSignalSpy>
+#include <QTemporaryFile>
 
 #include <qcoreapplication.h>
 #include <qfile.h>
@@ -35,7 +38,6 @@
 #include <qsharedpointer.h>
 #include <qfiledialog.h>
 #include <qabstractitemdelegate.h>
-#include <qdirmodel.h>
 #include <qitemdelegate.h>
 #include <qlistview.h>
 #include <qcombobox.h>
@@ -72,7 +74,7 @@ QT_END_NAMESPACE
 
 static inline bool isCaseSensitiveFileSystem(const QString &path)
 {
-    Q_UNUSED(path)
+    Q_UNUSED(path);
 #if defined(Q_OS_MAC)
     return pathconf(QFile::encodeName(path).constData(), _PC_CASE_SENSITIVE);
 #elif defined(Q_OS_WIN)
@@ -137,6 +139,7 @@ private slots:
     void clearLineEdit();
     void enableChooseButton();
     void selectedFilesWithoutWidgets();
+    void selectedFileWithDefaultSuffix();
     void trailingDotsAndSpaces();
 #ifdef Q_OS_UNIX
 #ifdef QT_BUILD_INTERNAL
@@ -202,8 +205,8 @@ class MyAbstractItemDelegate : public QAbstractItemDelegate
 {
 public:
     MyAbstractItemDelegate() : QAbstractItemDelegate() {};
-    void paint(QPainter *, const QStyleOptionViewItem &, const QModelIndex &) const {}
-    QSize sizeHint(const QStyleOptionViewItem &, const QModelIndex &) const { return QSize(); }
+    void paint(QPainter *, const QStyleOptionViewItem &, const QModelIndex &) const override {}
+    QSize sizeHint(const QStyleOptionViewItem &, const QModelIndex &) const override { return QSize(); }
 };
 
 // emitted any time the selection model emits current changed
@@ -293,7 +296,6 @@ void tst_QFiledialog::filesSelectedSignal_data()
     QTest::newRow("any") << QFileDialog::AnyFile;
     QTest::newRow("existing") << QFileDialog::ExistingFile;
     QTest::newRow("directory") << QFileDialog::Directory;
-    QTest::newRow("directoryOnly") << QFileDialog::DirectoryOnly;
     QTest::newRow("existingFiles") << QFileDialog::ExistingFiles;
 }
 
@@ -302,7 +304,7 @@ void tst_QFiledialog::filesSelectedSignal()
 {
     QFileDialog fd;
     fd.setViewMode(QFileDialog::List);
-    QDir testDir(SRCDIR);
+    QDir testDir(QT_TESTCASE_SOURCEDIR);
     fd.setDirectory(testDir);
     QFETCH(QFileDialog::FileMode, fileMode);
     fd.setFileMode(fileMode);
@@ -318,7 +320,7 @@ void tst_QFiledialog::filesSelectedSignal()
     QModelIndex file;
     for (int i = 0; i < listView->model()->rowCount(root); ++i) {
         file = listView->model()->index(i, 0, root);
-        if (fileMode == QFileDialog::Directory || fileMode == QFileDialog::DirectoryOnly) {
+        if (fileMode == QFileDialog::Directory) {
             if (listView->model()->hasChildren(file))
                 break;
         } else {
@@ -367,7 +369,7 @@ void tst_QFiledialog::filterSelectedSignal()
 
 void tst_QFiledialog::args()
 {
-    QWidget *parent = 0;
+    QWidget *parent = nullptr;
     QString caption = "caption";
     QString directory = QDir::tempPath();
     QString filter = "*.mp3";
@@ -650,8 +652,6 @@ void tst_QFiledialog::fileMode()
     QCOMPARE(fd.fileMode(), QFileDialog::ExistingFile);
     fd.setFileMode(QFileDialog::Directory);
     QCOMPARE(fd.fileMode(), QFileDialog::Directory);
-    fd.setFileMode(QFileDialog::DirectoryOnly);
-    QCOMPARE(fd.fileMode(), QFileDialog::DirectoryOnly);
     fd.setFileMode(QFileDialog::ExistingFiles);
     QCOMPARE(fd.fileMode(), QFileDialog::ExistingFiles);
 }
@@ -801,9 +801,6 @@ void tst_QFiledialog::isReadOnly()
     QAction* renameAction = fd.findChild<QAction*>("qt_rename_action");
     QAction* deleteAction = fd.findChild<QAction*>("qt_delete_action");
 
-#if QT_DEPRECATED_SINCE(5, 13)
-    QCOMPARE(fd.isReadOnly(), false);
-#endif
     QCOMPARE(fd.testOption(QFileDialog::ReadOnly), false);
 
     // This is dependent upon the file/dir, find cross platform way to test
@@ -1473,6 +1470,21 @@ void tst_QFiledialog::selectedFilesWithoutWidgets()
     QFileDialog fd;
     fd.setAcceptMode(QFileDialog::AcceptOpen);
     QVERIFY(fd.selectedFiles().size() >= 0);
+}
+
+void tst_QFiledialog::selectedFileWithDefaultSuffix()
+{
+    // QTBUG-59401: dot in file path should not prevent default suffix from being added
+    QTemporaryDir tempDir(QDir::tempPath() + "/abcXXXXXX.def");
+    QVERIFY2(tempDir.isValid(), qPrintable(tempDir.errorString()));
+
+    QFileDialog fd;
+    fd.setDirectory(tempDir.path());
+    fd.setDefaultSuffix(".txt");
+    fd.selectFile("xxx");
+    const auto selectedFiles = fd.selectedFiles();
+    QCOMPARE(selectedFiles.size(), 1);
+    QVERIFY(selectedFiles.first().endsWith(".txt"));
 }
 
 void tst_QFiledialog::trailingDotsAndSpaces()

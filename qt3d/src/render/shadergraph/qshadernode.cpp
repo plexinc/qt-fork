@@ -84,7 +84,7 @@ void QShaderNode::setLayers(const QStringList &layers) noexcept
     m_layers = layers;
 }
 
-QVector<QShaderNodePort> QShaderNode::ports() const noexcept
+QList<QShaderNodePort> QShaderNode::ports() const noexcept
 {
     return m_ports;
 }
@@ -141,9 +141,9 @@ void QShaderNode::removeRule(const QShaderFormat &format)
         m_rules.erase(it);
 }
 
-QVector<QShaderFormat> QShaderNode::availableFormats() const
+QList<QShaderFormat> QShaderNode::availableFormats() const
 {
-    auto res = QVector<QShaderFormat>();
+    auto res = QList<QShaderFormat>();
     std::transform(m_rules.cbegin(), m_rules.cend(),
                    std::back_inserter(res),
                    [](const QPair<QShaderFormat, Rule> &entry) { return entry.first; });
@@ -152,11 +152,15 @@ QVector<QShaderFormat> QShaderNode::availableFormats() const
 
 QShaderNode::Rule QShaderNode::rule(const QShaderFormat &format) const
 {
-    const auto it = std::find_if(m_rules.crbegin(), m_rules.crend(),
-                                 [format](const QPair<QShaderFormat, Rule> &entry) {
-        return format.supports(entry.first);
-    });
-    return it != m_rules.crend() ? it->second : Rule();
+    const QPair<QShaderFormat, Rule> *selected = nullptr;
+    for (auto it = m_rules.crbegin(); it != m_rules.crend(); ++it) {
+        const auto &entry = *it;
+        if (format.supports(entry.first)) {
+            if (!selected || entry.first.version() > selected->first.version())
+                selected = &entry;
+        }
+    }
+    return selected ? selected->second : Rule();
 }
 
 QShaderNode::Rule::Rule(const QByteArray &subs, const QByteArrayList &snippets) noexcept

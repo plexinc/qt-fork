@@ -42,6 +42,7 @@
 #include <QtCore/qatomic.h>
 #include <QtCore/QDebug>
 #include <QOpenGLContext>
+#include <QtGui/qcolorspace.h>
 #include <QtGui/qguiapplication.h>
 
 #ifdef major
@@ -73,7 +74,6 @@ public:
         , major(2)
         , minor(0)
         , swapInterval(1) // default to vsync
-        , colorSpace(QSurfaceFormat::DefaultColorSpace)
     {
     }
 
@@ -112,7 +112,7 @@ public:
     int major;
     int minor;
     int swapInterval;
-    QSurfaceFormat::ColorSpace colorSpace;
+    QColorSpace colorSpace;
 };
 
 /*!
@@ -152,6 +152,9 @@ public:
         the monitoring of the loss of context, such as, Windows with WGL, or Linux/X11 (xcb) with GLX, will
         monitor the status in every call to \l{QOpenGLContext::makeCurrent()}{makeCurrent()}. See
         \l{QOpenGLContext::isValid()}{isValid()} for more information on this.
+    \value ProtectedContent Enables access to protected content. This allows the GPU to operate on protected
+        resources (surfaces, buffers, textures), for example DRM-protected video content.
+        Currently only implemented for EGL.
 */
 
 /*!
@@ -346,48 +349,13 @@ void QSurfaceFormat::setSamples(int numSamples)
     }
 }
 
-#if QT_DEPRECATED_SINCE(5, 2)
-/*!
-    \obsolete
-    \overload
-
-    Use setOption(QSurfaceFormat::FormatOption, bool) or setOptions() instead.
-
-    Sets the format options to the OR combination of \a opt and the
-    current format options.
-
-    \sa options(), testOption()
-*/
-void QSurfaceFormat::setOption(QSurfaceFormat::FormatOptions opt)
-{
-    const QSurfaceFormat::FormatOptions newOptions = d->opts | opt;
-    if (int(newOptions) != int(d->opts)) {
-        detach();
-        d->opts = newOptions;
-    }
-}
-
-/*!
-    \obsolete
-    \overload
-
-    Use testOption(QSurfaceFormat::FormatOption) instead.
-
-    Returns \c true if any of the options in \a opt is currently set
-    on this object; otherwise returns false.
-
-    \sa setOption()
-*/
-bool QSurfaceFormat::testOption(QSurfaceFormat::FormatOptions opt) const
-{
-    return d->opts & opt;
-}
-#endif // QT_DEPRECATED_SINCE(5, 2)
-
 /*!
     \since 5.3
 
     Sets the format options to \a options.
+
+    To verify that an option was respected, compare the actual format to the
+    requested format after surface/context creation.
 
     \sa options(), testOption()
 */
@@ -403,6 +371,9 @@ void QSurfaceFormat::setOptions(QSurfaceFormat::FormatOptions options)
     \since 5.3
 
     Sets the format option \a option if \a on is true; otherwise, clears the option.
+
+    To verify that an option was respected, compare the actual format to the
+    requested format after surface/context creation.
 
     \sa setOptions(), options(), testOption()
 */
@@ -770,15 +741,36 @@ int QSurfaceFormat::swapInterval() const
     blending to be performed in the given color space instead of using the
     standard linear operations.
 
+    \since 6.0
+
+    \sa colorSpace()
+ */
+void QSurfaceFormat::setColorSpace(const QColorSpace &colorSpace)
+{
+    if (d->colorSpace != colorSpace) {
+        detach();
+        d->colorSpace = colorSpace;
+    }
+}
+
+/*!
+    \overload
+
+    Sets the colorspace to one of the predefined values.
+
     \since 5.10
 
     \sa colorSpace()
  */
 void QSurfaceFormat::setColorSpace(ColorSpace colorSpace)
 {
-    if (d->colorSpace != colorSpace) {
-        detach();
-        d->colorSpace = colorSpace;
+    switch (colorSpace) {
+    case DefaultColorSpace:
+        setColorSpace(QColorSpace());
+        break;
+    case sRGBColorSpace:
+        setColorSpace(QColorSpace::SRgb);
+        break;
     }
 }
 
@@ -789,7 +781,7 @@ void QSurfaceFormat::setColorSpace(ColorSpace colorSpace)
 
     \sa setColorSpace()
 */
-QSurfaceFormat::ColorSpace QSurfaceFormat::colorSpace() const
+const QColorSpace &QSurfaceFormat::colorSpace() const
 {
     return d->colorSpace;
 }
@@ -848,37 +840,37 @@ QSurfaceFormat QSurfaceFormat::defaultFormat()
 }
 
 /*!
-    Returns \c true if all the options of the two QSurfaceFormat objects
-    \a a and \a b are equal.
+    \fn bool QSurfaceFormat::operator==(const QSurfaceFormat& lhs, const QSurfaceFormat& rhs)
 
-    \relates QSurfaceFormat
+    Returns \c true if all the options of the two QSurfaceFormat objects
+    \a lhs and \a rhs are equal.
 */
-bool operator==(const QSurfaceFormat& a, const QSurfaceFormat& b)
-{
-    return (a.d == b.d) || ((int) a.d->opts == (int) b.d->opts
-        && a.d->stencilSize == b.d->stencilSize
-        && a.d->redBufferSize == b.d->redBufferSize
-        && a.d->greenBufferSize == b.d->greenBufferSize
-        && a.d->blueBufferSize == b.d->blueBufferSize
-        && a.d->alphaBufferSize == b.d->alphaBufferSize
-        && a.d->depthSize == b.d->depthSize
-        && a.d->numSamples == b.d->numSamples
-        && a.d->swapBehavior == b.d->swapBehavior
-        && a.d->profile == b.d->profile
-        && a.d->major == b.d->major
-        && a.d->minor == b.d->minor
-        && a.d->swapInterval == b.d->swapInterval);
-}
 
 /*!
-    Returns \c false if all the options of the two QSurfaceFormat objects
-    \a a and \a b are equal; otherwise returns \c true.
+    \fn bool QSurfaceFormat::operator!=(const QSurfaceFormat& lhs, const QSurfaceFormat& rhs)
 
-    \relates QSurfaceFormat
+    Returns \c false if all the options of the two QSurfaceFormat objects
+    \a lhs and \a rhs are equal; otherwise returns \c true.
 */
-bool operator!=(const QSurfaceFormat& a, const QSurfaceFormat& b)
+
+/*!
+    \internal
+*/
+bool QSurfaceFormat::equals(const QSurfaceFormat& other) const noexcept
 {
-    return !(a == b);
+    return (d == other.d) || ((int) d->opts == (int) other.d->opts
+        && d->stencilSize == other.d->stencilSize
+        && d->redBufferSize == other.d->redBufferSize
+        && d->greenBufferSize == other.d->greenBufferSize
+        && d->blueBufferSize == other.d->blueBufferSize
+        && d->alphaBufferSize == other.d->alphaBufferSize
+        && d->depthSize == other.d->depthSize
+        && d->numSamples == other.d->numSamples
+        && d->swapBehavior == other.d->swapBehavior
+        && d->profile == other.d->profile
+        && d->major == other.d->major
+        && d->minor == other.d->minor
+        && d->swapInterval == other.d->swapInterval);
 }
 
 #ifndef QT_NO_DEBUG_STREAM

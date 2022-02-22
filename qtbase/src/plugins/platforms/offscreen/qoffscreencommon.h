@@ -45,6 +45,7 @@
 #include <qpa/qplatformdrag.h>
 #endif
 #include <qpa/qplatformintegration.h>
+#include <qpa/qplatformnativeinterface.h>
 #include <qpa/qplatformscreen.h>
 #include <qpa/qplatformwindow.h>
 
@@ -54,23 +55,34 @@
 
 QT_BEGIN_NAMESPACE
 
+class QOffscreenIntegration;
 class QOffscreenScreen : public QPlatformScreen
 {
 public:
-    QOffscreenScreen();
+    QOffscreenScreen(const QOffscreenIntegration *integration);
 
     QRect geometry() const override { return m_geometry; }
     int depth() const override { return 32; }
     QImage::Format format() const override { return QImage::Format_RGB32; }
+    QDpi logicalDpi() const override { return QDpi(m_logicalDpi, m_logicalDpi); }
+    QDpi logicalBaseDpi() const override { return QDpi(m_logicalBaseDpi, m_logicalBaseDpi); }
+    qreal devicePixelRatio() const override { return m_dpr; }
+    QString name() const override { return m_name; }
     QPlatformCursor *cursor() const override { return m_cursor.data(); }
+    QList<QPlatformScreen *> virtualSiblings() const override;
 
     QPixmap grabWindow(WId window, int x, int y, int width, int height) const override;
 
     static QPlatformWindow *windowContainingCursor;
 
 public:
+    QString m_name;
     QRect m_geometry;
+    int m_logicalDpi = 96;
+    int m_logicalBaseDpi= 96;
+    qreal m_dpr = 1;
     QScopedPointer<QPlatformCursor> m_cursor;
+    const QOffscreenIntegration *m_integration;
 };
 
 #if QT_CONFIG(draganddrop)
@@ -103,6 +115,12 @@ private:
     QHash<WId, QRect> m_windowAreaHash;
 
     static QHash<WId, QOffscreenBackingStore *> m_backingStoreForWinIdHash;
+};
+
+class QOffscreenPlatformNativeInterface : public QPlatformNativeInterface
+{
+public:
+    ~QOffscreenPlatformNativeInterface();
 };
 
 QT_END_NAMESPACE

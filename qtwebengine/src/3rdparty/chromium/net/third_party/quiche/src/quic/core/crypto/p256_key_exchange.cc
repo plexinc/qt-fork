@@ -2,20 +2,21 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/crypto/p256_key_exchange.h"
+#include "quic/core/crypto/p256_key_exchange.h"
 
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <string>
 #include <utility>
 
+#include "absl/strings/string_view.h"
 #include "third_party/boringssl/src/include/openssl/ec.h"
 #include "third_party/boringssl/src/include/openssl/ecdh.h"
 #include "third_party/boringssl/src/include/openssl/err.h"
 #include "third_party/boringssl/src/include/openssl/evp.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_ptr_util.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "quic/platform/api/quic_logging.h"
+#include "quic/platform/api/quic_ptr_util.h"
 
 namespace quic {
 
@@ -33,8 +34,7 @@ std::unique_ptr<P256KeyExchange> P256KeyExchange::New() {
 }
 
 // static
-std::unique_ptr<P256KeyExchange> P256KeyExchange::New(
-    quiche::QuicheStringPiece key) {
+std::unique_ptr<P256KeyExchange> P256KeyExchange::New(absl::string_view key) {
   if (key.empty()) {
     QUIC_DLOG(INFO) << "Private key is empty";
     return nullptr;
@@ -84,7 +84,7 @@ std::string P256KeyExchange::NewPrivateKey() {
 }
 
 bool P256KeyExchange::CalculateSharedKeySync(
-    quiche::QuicheStringPiece peer_public_value,
+    absl::string_view peer_public_value,
     std::string* shared_key) const {
   if (peer_public_value.size() != kUncompressedP256PointBytes) {
     QUIC_DLOG(INFO) << "Peer public value is invalid";
@@ -114,9 +114,9 @@ bool P256KeyExchange::CalculateSharedKeySync(
   return true;
 }
 
-quiche::QuicheStringPiece P256KeyExchange::public_value() const {
-  return quiche::QuicheStringPiece(reinterpret_cast<const char*>(public_key_),
-                                   sizeof(public_key_));
+absl::string_view P256KeyExchange::public_value() const {
+  return absl::string_view(reinterpret_cast<const char*>(public_key_),
+                           sizeof(public_key_));
 }
 
 }  // namespace quic

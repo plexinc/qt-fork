@@ -4,10 +4,12 @@
 
 #include "cc/paint/paint_op_buffer.h"
 
+#include <algorithm>
 #include "base/bind.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
+#include "build/build_config.h"
 #include "cc/paint/decoded_draw_image.h"
 #include "cc/paint/display_item_list.h"
 #include "cc/paint/image_provider.h"
@@ -31,7 +33,6 @@
 #include "third_party/skia/include/effects/SkColorMatrixFilter.h"
 #include "third_party/skia/include/effects/SkDashPathEffect.h"
 #include "third_party/skia/include/effects/SkLayerDrawLooper.h"
-#include "third_party/skia/include/effects/SkOffsetImageFilter.h"
 #include "third_party/skia/src/core/SkRemoteGlyphCache.h"
 
 using testing::_;
@@ -45,7 +46,7 @@ namespace {
 // unit test suite as generally deserialized ops are smaller.
 static constexpr size_t kBufferBytesPerOp = 1000 + sizeof(LargestPaintOp);
 
-#ifndef OS_ANDROID
+#if !defined(OS_ANDROID)
 // A skottie animation with solid green color for the first 2.5 seconds and then
 // a solid blue color for the next 2.5 seconds.
 constexpr char kSkottieData[] =
@@ -77,7 +78,7 @@ constexpr char kSkottieData[] =
     "    }"
     "  ]"
     "}";
-#endif  // OS_ANDROID
+#endif  // !defined(OS_ANDROID)
 
 template <typename T>
 void ValidateOps(PaintOpBuffer* buffer) {
@@ -482,7 +483,7 @@ TEST(PaintOpBufferTest, DiscardableImagesTracking_NoImageOp) {
 TEST(PaintOpBufferTest, DiscardableImagesTracking_DrawImage) {
   PaintOpBuffer buffer;
   PaintImage image = CreateDiscardablePaintImage(gfx::Size(100, 100));
-  buffer.push<DrawImageOp>(image, SkIntToScalar(0), SkIntToScalar(0), nullptr);
+  buffer.push<DrawImageOp>(image, SkIntToScalar(0), SkIntToScalar(0));
   EXPECT_TRUE(buffer.HasDiscardableImages());
 }
 
@@ -491,7 +492,7 @@ TEST(PaintOpBufferTest, DiscardableImagesTracking_PaintWorkletImage) {
       base::MakeRefCounted<TestPaintWorkletInput>(gfx::SizeF(32.0f, 32.0f));
   PaintOpBuffer buffer;
   PaintImage image = CreatePaintWorkletPaintImage(input);
-  buffer.push<DrawImageOp>(image, SkIntToScalar(0), SkIntToScalar(0), nullptr);
+  buffer.push<DrawImageOp>(image, SkIntToScalar(0), SkIntToScalar(0));
   EXPECT_TRUE(buffer.HasDiscardableImages());
 }
 
@@ -502,17 +503,17 @@ TEST(PaintOpBufferTest, DiscardableImagesTracking_PaintWorkletImageRect) {
   PaintImage image = CreatePaintWorkletPaintImage(input);
   SkRect src = SkRect::MakeEmpty();
   SkRect dst = SkRect::MakeEmpty();
-  buffer.push<DrawImageRectOp>(image, src, dst, nullptr,
-                               PaintCanvas::kStrict_SrcRectConstraint);
+  buffer.push<DrawImageRectOp>(image, src, dst,
+                               SkCanvas::kStrict_SrcRectConstraint);
   EXPECT_TRUE(buffer.HasDiscardableImages());
 }
 
 TEST(PaintOpBufferTest, DiscardableImagesTracking_DrawImageRect) {
   PaintOpBuffer buffer;
   PaintImage image = CreateDiscardablePaintImage(gfx::Size(100, 100));
-  buffer.push<DrawImageRectOp>(
-      image, SkRect::MakeWH(100, 100), SkRect::MakeWH(100, 100), nullptr,
-      PaintCanvas::SrcRectConstraint::kFast_SrcRectConstraint);
+  buffer.push<DrawImageRectOp>(image, SkRect::MakeWH(100, 100),
+                               SkRect::MakeWH(100, 100),
+                               SkCanvas::kFast_SrcRectConstraint);
   EXPECT_TRUE(buffer.HasDiscardableImages());
 }
 
@@ -659,7 +660,7 @@ TEST(PaintOpBufferTest, NonAAPaint) {
     PaintFlags non_aa_flags;
     non_aa_flags.setAntiAlias(true);
     buffer->push<DrawImageOp>(image, SkIntToScalar(0), SkIntToScalar(0),
-                              &non_aa_flags);
+                              SkSamplingOptions(), &non_aa_flags);
 
     EXPECT_FALSE(buffer->HasNonAAPaint());
   }
@@ -720,6 +721,31 @@ class PaintOpBufferOffsetsTest : public ::testing::Test {
   std::vector<size_t> offsets_;
   PaintOpBuffer buffer_;
 };
+
+TEST_F(PaintOpBufferOffsetsTest, EmptyClipRectShouldRejectAnOp) {
+  SkCanvas device(0, 0);
+  SkCanvas* canvas = &device;
+  canvas->translate(-254, 0);
+  SkIRect bounds = canvas->getDeviceClipBounds();
+  EXPECT_TRUE(bounds.isEmpty());
+  SkMatrix ctm = canvas->getTotalMatrix();
+  EXPECT_EQ(ctm[2], -254);
+
+  scoped_refptr<TestPaintWorkletInput> input =
+      base::MakeRefCounted<TestPaintWorkletInput>(gfx::SizeF(32.0f, 32.0f));
+  PaintImage image = CreatePaintWorkletPaintImage(input);
+  SkRect src = SkRect::MakeLTRB(0, 0, 100, 100);
+  SkRect dst = SkRect::MakeLTRB(168, -23, 268, 77);
+  push_op<DrawImageRectOp>(image, src, dst,
+                           SkCanvas::kStrict_SrcRectConstraint);
+  std::vector<size_t> offsets = Select({0});
+  for (PaintOpBuffer::PlaybackFoldingIterator iter(&buffer_, &offsets); iter;
+       ++iter) {
+    const PaintOp* op = *iter;
+    EXPECT_EQ(op->GetType(), PaintOpType::DrawImageRect);
+    EXPECT_TRUE(PaintOp::QuickRejectDraw(op, canvas));
+  }
+}
 
 TEST_F(PaintOpBufferOffsetsTest, ContiguousIndices) {
   testing::StrictMock<MockCanvas> canvas;
@@ -1079,22 +1105,12 @@ std::vector<SkIRect> test_irects = {
 
 std::vector<uint32_t> test_ids = {0, 1, 56, 0xFFFFFFFF, 0xFFFFFFFE, 0x10001};
 
-std::vector<SkMatrix> test_matrices = {
-    SkMatrix::I(),
-    SkMatrix::MakeScale(3.91f, 4.31f),
-    SkMatrix::MakeTrans(-5.2f, 8.7f),
-    [] {
-      SkMatrix matrix;
-      SkScalar buffer[] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
-      matrix.set9(buffer);
-      return matrix;
-    }(),
-    [] {
-      SkMatrix matrix;
-      SkScalar buffer[] = {1, 2, 3, 4, 5, 6, 7, 8, 9};
-      matrix.set9(buffer);
-      return matrix;
-    }(),
+std::vector<SkM44> test_matrices = {
+    SkM44(),
+    SkM44::Scale(3.91f, 4.31f, 1.0f),
+    SkM44::Translate(-5.2f, 8.7f, 0.0f),
+    SkM44(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    SkM44(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16),
 };
 
 std::vector<SkPath> test_paths = {
@@ -1126,7 +1142,7 @@ std::vector<PaintFlags> test_flags = {
       flags.setBlendMode(SkBlendMode::kDst);
       flags.setStrokeCap(PaintFlags::kSquare_Cap);
       flags.setStrokeJoin(PaintFlags::kBevel_Join);
-      flags.setStyle(PaintFlags::kStrokeAndFill_Style);
+      flags.setStyle(PaintFlags::kStroke_Style);
       flags.setFilterQuality(SkFilterQuality::kMedium_SkFilterQuality);
       flags.setShader(PaintShader::MakeColor(SkColorSetARGB(1, 2, 3, 4)));
       return flags;
@@ -1421,8 +1437,8 @@ void PushClipRRectOps(PaintOpBuffer* buffer) {
 }
 
 void PushConcatOps(PaintOpBuffer* buffer) {
-  for (size_t i = 0; i < test_matrices.size(); ++i)
-    buffer->push<ConcatOp>(test_matrices[i]);
+  for (auto& test_matrix : test_matrices)
+    buffer->push<ConcatOp>(test_matrix);
   ValidateOps<ConcatOp>(buffer);
 }
 
@@ -1452,14 +1468,16 @@ void PushDrawImageOps(PaintOpBuffer* buffer) {
   size_t len =
       std::min({test_images.size(), test_flags.size(), test_floats.size() - 1});
   for (size_t i = 0; i < len; ++i) {
-    buffer->push<DrawImageOp>(test_images[i], test_floats[i],
-                              test_floats[i + 1], &test_flags[i]);
+    buffer->push<DrawImageOp>(
+        test_images[i], test_floats[i], test_floats[i + 1],
+        SkSamplingOptions(test_flags[i].getFilterQuality(),
+                          SkSamplingOptions::kMedium_asMipmapLinear),
+        &test_flags[i]);
   }
 
   // Test optional flags
   // TODO(enne): maybe all these optional ops should not be optional.
-  buffer->push<DrawImageOp>(test_images[0], test_floats[0], test_floats[1],
-                            nullptr);
+  buffer->push<DrawImageOp>(test_images[0], test_floats[0], test_floats[1]);
   ValidateOps<DrawImageOp>(buffer);
 }
 
@@ -1467,18 +1485,19 @@ void PushDrawImageRectOps(PaintOpBuffer* buffer) {
   size_t len =
       std::min({test_images.size(), test_flags.size(), test_rects.size() - 1});
   for (size_t i = 0; i < len; ++i) {
-    PaintCanvas::SrcRectConstraint constraint =
-        i % 2 ? PaintCanvas::kStrict_SrcRectConstraint
-              : PaintCanvas::kFast_SrcRectConstraint;
-    buffer->push<DrawImageRectOp>(test_images[i], test_rects[i],
-                                  test_rects[i + 1], &test_flags[i],
-                                  constraint);
+    SkCanvas::SrcRectConstraint constraint =
+        i % 2 ? SkCanvas::kStrict_SrcRectConstraint
+              : SkCanvas::kFast_SrcRectConstraint;
+    buffer->push<DrawImageRectOp>(
+        test_images[i], test_rects[i], test_rects[i + 1],
+        SkSamplingOptions(test_flags[i].getFilterQuality(),
+                          SkSamplingOptions::kMedium_asMipmapLinear),
+        &test_flags[i], constraint);
   }
 
   // Test optional flags.
   buffer->push<DrawImageRectOp>(test_images[0], test_rects[0], test_rects[1],
-                                nullptr,
-                                PaintCanvas::kStrict_SrcRectConstraint);
+                                SkCanvas::kStrict_SrcRectConstraint);
   ValidateOps<DrawImageRectOp>(buffer);
 }
 
@@ -1653,8 +1672,8 @@ void PushScaleOps(PaintOpBuffer* buffer) {
 }
 
 void PushSetMatrixOps(PaintOpBuffer* buffer) {
-  for (size_t i = 0; i < test_matrices.size(); ++i)
-    buffer->push<SetMatrixOp>(test_matrices[i]);
+  for (auto& test_matrix : test_matrices)
+    buffer->push<SetMatrixOp>(test_matrix);
   ValidateOps<SetMatrixOp>(buffer);
 }
 
@@ -1982,7 +2001,7 @@ TEST_P(PaintOpSerializationTest, UsesOverridenFlags) {
           base::AlignedAlloc(deserialized_size, PaintOpBuffer::PaintOpAlign)));
   for (const auto* op : PaintOpBuffer::Iterator(&buffer_)) {
     options_provider.mutable_serialize_options().flags_to_serialize =
-        &static_cast<const PaintOpWithFlags*>(op)->flags;
+        &(static_cast<const PaintOpWithFlags*>(op))->flags;
 
     size_t bytes_written = op->Serialize(output_.get(), output_size_,
                                          options_provider.serialize_options());
@@ -2278,7 +2297,7 @@ TEST(PaintOpBufferTest, ClipsImagesDuringSerialization) {
     buffer.push<DrawImageOp>(
         CreateDiscardablePaintImage(test_case.image_rect.size()),
         static_cast<SkScalar>(test_case.image_rect.x()),
-        static_cast<SkScalar>(test_case.image_rect.y()), nullptr);
+        static_cast<SkScalar>(test_case.image_rect.y()));
 
     std::unique_ptr<char, base::AlignedFreeDeleter> memory(
         static_cast<char*>(base::AlignedAlloc(PaintOpBuffer::kInitialBufferSize,
@@ -2473,7 +2492,10 @@ TEST(PaintOpBufferTest, ValidateSkClip) {
   buffer.push<ClipRectOp>(test_rects[0], bad_clip, true);
   buffer.push<ClipRRectOp>(test_rrects[0], bad_clip, false);
 
-  SkClipOp bad_clip_max = static_cast<SkClipOp>(~static_cast<uint32_t>(0));
+  // SkClipOp is serialized to uint8_t (see WriteEnum). Values outside uint8_t
+  // would crash the serialization, so this is the max value that passes checked
+  // cast but will still fail validation during deserialization.
+  SkClipOp bad_clip_max = static_cast<SkClipOp>(static_cast<uint8_t>(~0));
   buffer.push<ClipRectOp>(test_rects[1], bad_clip_max, false);
 
   TestOptionsProvider options_provider;
@@ -2535,15 +2557,15 @@ TEST(PaintOpBufferTest, ValidateSkBlendMode) {
       SkBlendMode::kSaturation,
       SkBlendMode::kColor,
       SkBlendMode::kLuminosity,
-      static_cast<SkBlendMode>(static_cast<uint32_t>(SkBlendMode::kLastMode) +
+      static_cast<SkBlendMode>(static_cast<uint8_t>(SkBlendMode::kLastMode) +
                                1),
-      static_cast<SkBlendMode>(static_cast<uint32_t>(~0)),
+      static_cast<SkBlendMode>(static_cast<uint8_t>(~0)),
   };
 
   SkBlendMode bad_modes_for_flags[] = {
-      static_cast<SkBlendMode>(static_cast<uint32_t>(SkBlendMode::kLastMode) +
+      static_cast<SkBlendMode>(static_cast<uint8_t>(SkBlendMode::kLastMode) +
                                1),
-      static_cast<SkBlendMode>(static_cast<uint32_t>(~0)),
+      static_cast<SkBlendMode>(static_cast<uint8_t>(~0)),
   };
 
   for (size_t i = 0; i < base::size(bad_modes_for_draw_color); ++i) {
@@ -2601,10 +2623,10 @@ TEST(PaintOpBufferTest, ValidateRects) {
                           SkData::MakeWithCString("test1"));
   buffer.push<ClipRectOp>(bad_rect, SkClipOp::kDifference, true);
 
-  buffer.push<DrawImageRectOp>(test_images[0], bad_rect, test_rects[1], nullptr,
-                               PaintCanvas::kStrict_SrcRectConstraint);
-  buffer.push<DrawImageRectOp>(test_images[0], test_rects[0], bad_rect, nullptr,
-                               PaintCanvas::kStrict_SrcRectConstraint);
+  buffer.push<DrawImageRectOp>(test_images[0], bad_rect, test_rects[1],
+                               SkCanvas::kStrict_SrcRectConstraint);
+  buffer.push<DrawImageRectOp>(test_images[0], test_rects[0], bad_rect,
+                               SkCanvas::kStrict_SrcRectConstraint);
   buffer.push<DrawOvalOp>(bad_rect, test_flags[0]);
   buffer.push<DrawRectOp>(bad_rect, test_flags[0]);
   buffer.push<SaveLayerOp>(&bad_rect, nullptr);
@@ -2637,9 +2659,8 @@ TEST(PaintOpBufferTest, BoundingRect_DrawImageOp) {
   for (auto* base_op : PaintOpBuffer::Iterator(&buffer)) {
     auto* op = static_cast<DrawImageOp*>(base_op);
 
-    SkRect image_rect =
-        SkRect::MakeXYWH(op->left, op->top, op->image.GetSkImage()->width(),
-                         op->image.GetSkImage()->height());
+    SkRect image_rect = SkRect::MakeXYWH(op->left, op->top, op->image.width(),
+                                         op->image.height());
     ASSERT_TRUE(PaintOp::GetBounds(op, &rect));
     EXPECT_EQ(rect, image_rect.makeSorted());
   }
@@ -2805,8 +2826,8 @@ class MockImageProvider : public ImageProvider {
                             SkBitmap::kZeroPixels_AllocFlag);
     sk_sp<SkImage> image = SkImage::MakeFromBitmap(bitmap);
     size_t i = index_++;
-    return ScopedResult(DecodedDrawImage(image, src_rect_offset_[i], scale_[i],
-                                         quality_[i], true));
+    return ScopedResult(DecodedDrawImage(image, nullptr, src_rect_offset_[i],
+                                         scale_[i], quality_[i], true));
   }
 
   void SetRecord(sk_sp<PaintRecord> record) { record_ = std::move(record); }
@@ -2830,9 +2851,8 @@ TEST(PaintOpBufferTest, SkipsOpsOutsideClip) {
   buffer.push<ClipRectOp>(SkRect::MakeXYWH(0, 0, 100, 100),
                           SkClipOp::kIntersect, false);
 
-  PaintFlags flags;
   PaintImage paint_image = CreateDiscardablePaintImage(gfx::Size(10, 10));
-  buffer.push<DrawImageOp>(paint_image, 105.0f, 105.0f, &flags);
+  buffer.push<DrawImageOp>(paint_image, 105.0f, 105.0f);
   PaintFlags image_flags;
   image_flags.setShader(PaintShader::MakeImage(paint_image, SkTileMode::kRepeat,
                                                SkTileMode::kRepeat, nullptr));
@@ -2855,9 +2875,8 @@ TEST(PaintOpBufferTest, SkipsOpsWithFailedDecodes) {
   MockImageProvider image_provider(true);
   PaintOpBuffer buffer;
 
-  PaintFlags flags;
   PaintImage paint_image = CreateDiscardablePaintImage(gfx::Size(10, 10));
-  buffer.push<DrawImageOp>(paint_image, 105.0f, 105.0f, &flags);
+  buffer.push<DrawImageOp>(paint_image, 105.0f, 105.0f);
   PaintFlags image_flags;
   image_flags.setShader(PaintShader::MakeImage(paint_image, SkTileMode::kRepeat,
                                                SkTileMode::kRepeat, nullptr));
@@ -2875,10 +2894,10 @@ MATCHER(NonLazyImage, "") {
 }
 
 MATCHER_P2(MatchesRect, rect, scale, "") {
-  EXPECT_EQ(arg->x(), rect.x() * scale.width());
-  EXPECT_EQ(arg->y(), rect.y() * scale.height());
-  EXPECT_EQ(arg->width(), rect.width() * scale.width());
-  EXPECT_EQ(arg->height(), rect.height() * scale.height());
+  EXPECT_EQ(arg.x(), rect.x() * scale.width());
+  EXPECT_EQ(arg.y(), rect.y() * scale.height());
+  EXPECT_EQ(arg.width(), rect.width() * scale.width());
+  EXPECT_EQ(arg.height(), rect.height() * scale.height());
   return true;
 }
 
@@ -2924,8 +2943,8 @@ TEST(PaintOpBufferTest, RasterPaintWorkletImageRectBasicCase) {
   PaintImage image = CreatePaintWorkletPaintImage(input);
   SkRect src = SkRect::MakeXYWH(0, 0, 100, 100);
   SkRect dst = SkRect::MakeXYWH(0, 0, 100, 100);
-  blink_buffer.push<DrawImageRectOp>(image, src, dst, nullptr,
-                                     PaintCanvas::kStrict_SrcRectConstraint);
+  blink_buffer.push<DrawImageRectOp>(image, src, dst,
+                                     SkCanvas::kStrict_SrcRectConstraint);
 
   testing::StrictMock<MockCanvas> canvas;
   testing::Sequence s;
@@ -2949,10 +2968,10 @@ TEST(PaintOpBufferTest, RasterPaintWorkletImageRectTranslated) {
   PaintFlags noop_flags;
   SkRect savelayer_rect = SkRect::MakeXYWH(0, 0, 10, 10);
   paint_worklet_buffer->push<SaveLayerOp>(&savelayer_rect, &noop_flags);
-  PaintFlags draw_flags;
-  draw_flags.setFilterQuality(kLow_SkFilterQuality);
   PaintImage paint_image = CreateDiscardablePaintImage(gfx::Size(10, 10));
-  paint_worklet_buffer->push<DrawImageOp>(paint_image, 0.0f, 0.0f, &draw_flags);
+  paint_worklet_buffer->push<DrawImageOp>(
+      paint_image, 0.0f, 0.0f, SkSamplingOptions(SkFilterMode::kLinear),
+      nullptr);
 
   std::vector<SkSize> src_rect_offset = {SkSize::MakeEmpty()};
   std::vector<SkSize> scale_adjustment = {SkSize::Make(0.2f, 0.2f)};
@@ -2966,21 +2985,22 @@ TEST(PaintOpBufferTest, RasterPaintWorkletImageRectTranslated) {
   PaintImage image = CreatePaintWorkletPaintImage(input);
   SkRect src = SkRect::MakeXYWH(0, 0, 100, 100);
   SkRect dst = SkRect::MakeXYWH(5, 7, 100, 100);
-  blink_buffer.push<DrawImageRectOp>(image, src, dst, nullptr,
-                                     PaintCanvas::kStrict_SrcRectConstraint);
+  blink_buffer.push<DrawImageRectOp>(image, src, dst,
+                                     SkCanvas::kStrict_SrcRectConstraint);
 
   testing::StrictMock<MockCanvas> canvas;
   testing::Sequence s;
 
+  SkSamplingOptions sampling({1.0f / 3, 1.0f / 3});
+
   EXPECT_CALL(canvas, willSave()).InSequence(s);
   EXPECT_CALL(canvas, OnSaveLayer()).InSequence(s);
   EXPECT_CALL(canvas, OnSaveLayer()).InSequence(s);
-  EXPECT_CALL(canvas, didConcat(SkMatrix::MakeTrans(5.0f, 7.0f)));
+  EXPECT_CALL(canvas, didConcat44(SkM44::Translate(5.0f, 7.0f)));
   EXPECT_CALL(canvas, willSave()).InSequence(s);
   EXPECT_CALL(canvas, didScale(1.0f / scale_adjustment[0].width(),
                                1.0f / scale_adjustment[0].height()));
-  EXPECT_CALL(canvas, onDrawImage(NonLazyImage(), 0.0f, 0.0f,
-                                  MatchesQuality(quality[0])));
+  EXPECT_CALL(canvas, onDrawImage2(NonLazyImage(), 0.0f, 0.0f, sampling, _));
   EXPECT_CALL(canvas, willRestore()).InSequence(s);
   EXPECT_CALL(canvas, willRestore()).InSequence(s);
   EXPECT_CALL(canvas, willRestore()).InSequence(s);
@@ -2994,10 +3014,10 @@ TEST(PaintOpBufferTest, RasterPaintWorkletImageRectScaled) {
   PaintFlags noop_flags;
   SkRect savelayer_rect = SkRect::MakeXYWH(0, 0, 10, 10);
   paint_worklet_buffer->push<SaveLayerOp>(&savelayer_rect, &noop_flags);
-  PaintFlags draw_flags;
-  draw_flags.setFilterQuality(kLow_SkFilterQuality);
   PaintImage paint_image = CreateDiscardablePaintImage(gfx::Size(10, 10));
-  paint_worklet_buffer->push<DrawImageOp>(paint_image, 0.0f, 0.0f, &draw_flags);
+  paint_worklet_buffer->push<DrawImageOp>(
+      paint_image, 0.0f, 0.0f, SkSamplingOptions(SkFilterMode::kLinear),
+      nullptr);
 
   std::vector<SkSize> src_rect_offset = {SkSize::MakeEmpty()};
   std::vector<SkSize> scale_adjustment = {SkSize::Make(0.2f, 0.2f)};
@@ -3011,21 +3031,22 @@ TEST(PaintOpBufferTest, RasterPaintWorkletImageRectScaled) {
   PaintImage image = CreatePaintWorkletPaintImage(input);
   SkRect src = SkRect::MakeXYWH(0, 0, 100, 100);
   SkRect dst = SkRect::MakeXYWH(0, 0, 200, 150);
-  blink_buffer.push<DrawImageRectOp>(image, src, dst, nullptr,
-                                     PaintCanvas::kStrict_SrcRectConstraint);
+  blink_buffer.push<DrawImageRectOp>(image, src, dst,
+                                     SkCanvas::kStrict_SrcRectConstraint);
 
   testing::StrictMock<MockCanvas> canvas;
   testing::Sequence s;
 
+  SkSamplingOptions sampling({1.0f / 3, 1.0f / 3});
+
   EXPECT_CALL(canvas, willSave()).InSequence(s);
   EXPECT_CALL(canvas, OnSaveLayer()).InSequence(s);
   EXPECT_CALL(canvas, OnSaveLayer()).InSequence(s);
-  EXPECT_CALL(canvas, didConcat(SkMatrix::MakeScale(2.f, 1.5f)));
+  EXPECT_CALL(canvas, didConcat44(SkM44::Scale(2.f, 1.5f)));
   EXPECT_CALL(canvas, willSave()).InSequence(s);
   EXPECT_CALL(canvas, didScale(1.0f / scale_adjustment[0].width(),
                                1.0f / scale_adjustment[0].height()));
-  EXPECT_CALL(canvas, onDrawImage(NonLazyImage(), 0.0f, 0.0f,
-                                  MatchesQuality(quality[0])));
+  EXPECT_CALL(canvas, onDrawImage2(NonLazyImage(), 0.0f, 0.0f, sampling, _));
   EXPECT_CALL(canvas, willRestore()).InSequence(s);
   EXPECT_CALL(canvas, willRestore()).InSequence(s);
   EXPECT_CALL(canvas, willRestore()).InSequence(s);
@@ -3039,13 +3060,13 @@ TEST(PaintOpBufferTest, RasterPaintWorkletImageRectClipped) {
   PaintFlags noop_flags;
   SkRect savelayer_rect = SkRect::MakeXYWH(0, 0, 60, 60);
   paint_worklet_buffer->push<SaveLayerOp>(&savelayer_rect, &noop_flags);
-  PaintFlags draw_flags;
-  draw_flags.setFilterQuality(kLow_SkFilterQuality);
+  SkSamplingOptions linear(SkFilterMode::kLinear);
   PaintImage paint_image = CreateDiscardablePaintImage(gfx::Size(10, 10));
   // One rect inside the src-rect, one outside.
-  paint_worklet_buffer->push<DrawImageOp>(paint_image, 0.0f, 0.0f, &draw_flags);
-  paint_worklet_buffer->push<DrawImageOp>(paint_image, 50.0f, 50.0f,
-                                          &draw_flags);
+  paint_worklet_buffer->push<DrawImageOp>(paint_image, 0.0f, 0.0f, linear,
+                                          nullptr);
+  paint_worklet_buffer->push<DrawImageOp>(paint_image, 50.0f, 50.0f, linear,
+                                          nullptr);
 
   std::vector<SkSize> src_rect_offset = {SkSize::MakeEmpty()};
   std::vector<SkSize> scale_adjustment = {SkSize::Make(0.2f, 0.2f)};
@@ -3059,11 +3080,13 @@ TEST(PaintOpBufferTest, RasterPaintWorkletImageRectClipped) {
   PaintImage image = CreatePaintWorkletPaintImage(input);
   SkRect src = SkRect::MakeXYWH(0, 0, 20, 20);
   SkRect dst = SkRect::MakeXYWH(0, 0, 20, 20);
-  blink_buffer.push<DrawImageRectOp>(image, src, dst, nullptr,
-                                     PaintCanvas::kStrict_SrcRectConstraint);
+  blink_buffer.push<DrawImageRectOp>(image, src, dst,
+                                     SkCanvas::kStrict_SrcRectConstraint);
 
   testing::StrictMock<MockCanvas> canvas;
   testing::Sequence s;
+
+  SkSamplingOptions sampling({1.0f / 3, 1.0f / 3});
 
   EXPECT_CALL(canvas, willSave()).InSequence(s);
   EXPECT_CALL(canvas, OnSaveLayer()).InSequence(s);
@@ -3071,8 +3094,7 @@ TEST(PaintOpBufferTest, RasterPaintWorkletImageRectClipped) {
   EXPECT_CALL(canvas, willSave()).InSequence(s);
   EXPECT_CALL(canvas, didScale(1.0f / scale_adjustment[0].width(),
                                1.0f / scale_adjustment[0].height()));
-  EXPECT_CALL(canvas, onDrawImage(NonLazyImage(), 0.0f, 0.0f,
-                                  MatchesQuality(quality[0])));
+  EXPECT_CALL(canvas, onDrawImage2(NonLazyImage(), 0.0f, 0.0f, sampling, _));
   EXPECT_CALL(canvas, willRestore()).InSequence(s);
   EXPECT_CALL(canvas, willRestore()).InSequence(s);
   EXPECT_CALL(canvas, willRestore()).InSequence(s);
@@ -3094,13 +3116,12 @@ TEST(PaintOpBufferTest, ReplacesImagesFromProvider) {
   PaintOpBuffer buffer;
 
   SkRect rect = SkRect::MakeWH(10, 10);
-  PaintFlags flags;
-  flags.setFilterQuality(kLow_SkFilterQuality);
+  SkSamplingOptions sampling(SkFilterMode::kLinear);
   PaintImage paint_image = CreateDiscardablePaintImage(gfx::Size(10, 10));
-  buffer.push<DrawImageOp>(paint_image, 0.0f, 0.0f, &flags);
-  buffer.push<DrawImageRectOp>(
-      paint_image, rect, rect, &flags,
-      PaintCanvas::SrcRectConstraint::kFast_SrcRectConstraint);
+  buffer.push<DrawImageOp>(paint_image, 0.0f, 0.0f, sampling, nullptr);
+  buffer.push<DrawImageRectOp>(paint_image, rect, rect, sampling, nullptr,
+                               SkCanvas::kFast_SrcRectConstraint);
+  PaintFlags flags;
   flags.setShader(PaintShader::MakeImage(paint_image, SkTileMode::kRepeat,
                                          SkTileMode::kRepeat, nullptr));
   buffer.push<DrawOvalOp>(SkRect::MakeWH(10, 10), flags);
@@ -3108,27 +3129,79 @@ TEST(PaintOpBufferTest, ReplacesImagesFromProvider) {
   testing::StrictMock<MockCanvas> canvas;
   testing::Sequence s;
 
+  SkSamplingOptions sampling0({1.0f / 3, 1.0f / 3});
+  SkSamplingOptions sampling1(SkFilterMode::kLinear, SkMipmapMode::kLinear);
+
   // Save/scale/image/restore from DrawImageop.
   EXPECT_CALL(canvas, willSave()).InSequence(s);
   EXPECT_CALL(canvas, didScale(1.0f / scale_adjustment[0].width(),
                                1.0f / scale_adjustment[0].height()));
-  EXPECT_CALL(canvas, onDrawImage(NonLazyImage(), 0.0f, 0.0f,
-                                  MatchesQuality(quality[0])));
+  EXPECT_CALL(canvas, onDrawImage2(NonLazyImage(), 0.0f, 0.0f, sampling0, _));
   EXPECT_CALL(canvas, willRestore()).InSequence(s);
 
   // DrawImageRectop.
   SkRect src_rect =
       rect.makeOffset(src_rect_offset[1].width(), src_rect_offset[1].height());
   EXPECT_CALL(canvas,
-              onDrawImageRect(
-                  NonLazyImage(), MatchesRect(src_rect, scale_adjustment[1]),
-                  SkRect::MakeWH(10, 10), MatchesQuality(quality[1]),
-                  SkCanvas::kFast_SrcRectConstraint));
+              onDrawImageRect2(NonLazyImage(),
+                               MatchesRect(src_rect, scale_adjustment[1]),
+                               SkRect::MakeWH(10, 10), sampling1, _,
+                               SkCanvas::kFast_SrcRectConstraint));
 
   // DrawOvalop.
   EXPECT_CALL(canvas, onDrawOval(SkRect::MakeWH(10, 10),
                                  MatchesShader(flags, scale_adjustment[2])));
 
+  buffer.Playback(&canvas, PlaybackParams(&image_provider));
+}
+
+TEST(PaintOpBufferTest, DrawImageRectOpWithLooperNoImageProvider) {
+  PaintOpBuffer buffer;
+  PaintImage image = CreateDiscardablePaintImage(gfx::Size(100, 100));
+  SkLayerDrawLooper::Builder sk_draw_looper_builder;
+  sk_draw_looper_builder.addLayer(20.0, 20.0);
+  SkLayerDrawLooper::LayerInfo info_unmodified;
+  sk_draw_looper_builder.addLayerOnTop(info_unmodified);
+
+  PaintFlags paint_flags;
+  paint_flags.setLooper(sk_draw_looper_builder.detach());
+  buffer.push<DrawImageRectOp>(image, SkRect::MakeWH(100, 100),
+                               SkRect::MakeWH(100, 100), SkSamplingOptions(),
+                               &paint_flags, SkCanvas::kFast_SrcRectConstraint);
+
+  testing::StrictMock<MockCanvas> canvas;
+  EXPECT_CALL(canvas, willSave);
+  EXPECT_CALL(canvas, didTranslate);
+  EXPECT_CALL(canvas, willRestore);
+  EXPECT_CALL(canvas, onDrawImageRect2).Times(2);
+
+  buffer.Playback(&canvas, PlaybackParams(nullptr));
+}
+
+TEST(PaintOpBufferTest, DrawImageRectOpWithLooperWithImageProvider) {
+  PaintOpBuffer buffer;
+  PaintImage image = CreateDiscardablePaintImage(gfx::Size(100, 100));
+  SkLayerDrawLooper::Builder sk_draw_looper_builder;
+  sk_draw_looper_builder.addLayer(20.0, 20.0);
+  SkLayerDrawLooper::LayerInfo info_unmodified;
+  sk_draw_looper_builder.addLayerOnTop(info_unmodified);
+
+  PaintFlags paint_flags;
+  paint_flags.setLooper(sk_draw_looper_builder.detach());
+  buffer.push<DrawImageRectOp>(image, SkRect::MakeWH(100, 100),
+                               SkRect::MakeWH(100, 100), SkSamplingOptions(),
+                               &paint_flags, SkCanvas::kFast_SrcRectConstraint);
+
+  testing::StrictMock<MockCanvas> canvas;
+  EXPECT_CALL(canvas, willSave);
+  EXPECT_CALL(canvas, didTranslate);
+  EXPECT_CALL(canvas, willRestore);
+  EXPECT_CALL(canvas, onDrawImageRect2).Times(2);
+
+  std::vector<SkSize> src_rect_offset = {SkSize::MakeEmpty()};
+  std::vector<SkSize> scale_adjustment = {SkSize::Make(1.0f, 1.0f)};
+  std::vector<SkFilterQuality> quality = {kHigh_SkFilterQuality};
+  MockImageProvider image_provider(src_rect_offset, scale_adjustment, quality);
   buffer.Playback(&canvas, PlaybackParams(&image_provider));
 }
 
@@ -3138,13 +3211,12 @@ TEST(PaintOpBufferTest, ReplacesImagesFromProviderOOP) {
 
   SkRect rect = SkRect::MakeWH(10, 10);
   PaintFlags flags;
-  flags.setFilterQuality(kLow_SkFilterQuality);
+  SkSamplingOptions sampling(SkFilterMode::kLinear);
   PaintImage paint_image = CreateDiscardablePaintImage(gfx::Size(10, 10));
   buffer.push<ScaleOp>(expected_scale.width(), expected_scale.height());
-  buffer.push<DrawImageOp>(paint_image, 0.0f, 0.0f, &flags);
-  buffer.push<DrawImageRectOp>(
-      paint_image, rect, rect, &flags,
-      PaintCanvas::SrcRectConstraint::kFast_SrcRectConstraint);
+  buffer.push<DrawImageOp>(paint_image, 0.0f, 0.0f, sampling, nullptr);
+  buffer.push<DrawImageRectOp>(paint_image, rect, rect, sampling, nullptr,
+                               SkCanvas::kFast_SrcRectConstraint);
   flags.setShader(PaintShader::MakeImage(paint_image, SkTileMode::kRepeat,
                                          SkTileMode::kRepeat, nullptr));
   buffer.push<DrawOvalOp>(SkRect::MakeWH(10, 10), flags);
@@ -3179,14 +3251,14 @@ TEST(PaintOpBufferTest, ReplacesImagesFromProviderOOP) {
       EXPECT_CALL(canvas, willSave()).InSequence(s);
       EXPECT_CALL(canvas, didScale(1.0f / expected_scale.width(),
                                    1.0f / expected_scale.height()));
-      EXPECT_CALL(canvas, onDrawImage(NonLazyImage(), 0.0f, 0.0f, _));
+      EXPECT_CALL(canvas, onDrawImage2(NonLazyImage(), 0.0f, 0.0f, _, _));
       EXPECT_CALL(canvas, willRestore()).InSequence(s);
       op->Raster(&canvas, params);
     } else if (op->GetType() == PaintOpType::DrawImageRect) {
-      EXPECT_CALL(canvas, onDrawImageRect(NonLazyImage(),
-                                          MatchesRect(rect, expected_scale),
-                                          SkRect::MakeWH(10, 10), _,
-                                          SkCanvas::kFast_SrcRectConstraint));
+      EXPECT_CALL(canvas, onDrawImageRect2(NonLazyImage(),
+                                           MatchesRect(rect, expected_scale),
+                                           SkRect::MakeWH(10, 10), _, _,
+                                           SkCanvas::kFast_SrcRectConstraint));
       op->Raster(&canvas, params);
     } else if (op->GetType() == PaintOpType::DrawOval) {
       EXPECT_CALL(canvas, onDrawOval(SkRect::MakeWH(10, 10),
@@ -3207,21 +3279,20 @@ TEST_P(PaintFilterSerializationTest, Basic) {
   std::vector<sk_sp<PaintFilter>> filters = {
       sk_sp<PaintFilter>{new ColorFilterPaintFilter(
           SkColorFilters::LinearToSRGBGamma(), nullptr)},
-      sk_sp<PaintFilter>{new BlurPaintFilter(
-          0.5f, 0.3f, SkBlurImageFilter::kRepeat_TileMode, nullptr)},
+      sk_sp<PaintFilter>{
+          new BlurPaintFilter(0.5f, 0.3f, SkTileMode::kRepeat, nullptr)},
       sk_sp<PaintFilter>{new DropShadowPaintFilter(
           5.f, 10.f, 0.1f, 0.3f, SK_ColorBLUE,
-          SkDropShadowImageFilter::kDrawShadowOnly_ShadowMode, nullptr)},
+          DropShadowPaintFilter::ShadowMode::kDrawShadowOnly, nullptr)},
       sk_sp<PaintFilter>{new MagnifierPaintFilter(SkRect::MakeXYWH(5, 6, 7, 8),
                                                   10.5f, nullptr)},
       sk_sp<PaintFilter>{new AlphaThresholdPaintFilter(
           SkRegion(SkIRect::MakeXYWH(0, 0, 100, 200)), 10.f, 20.f, nullptr)},
       sk_sp<PaintFilter>{new MatrixConvolutionPaintFilter(
           SkISize::Make(3, 3), scalars, 30.f, 123.f, SkIPoint::Make(0, 0),
-          SkMatrixConvolutionImageFilter::kClampToBlack_TileMode, true,
-          nullptr)},
+          SkTileMode::kDecal, true, nullptr)},
       sk_sp<PaintFilter>{new MorphologyPaintFilter(
-          MorphologyPaintFilter::MorphType::kErode, 15, 30, nullptr)},
+          MorphologyPaintFilter::MorphType::kErode, 15.5f, 30.2f, nullptr)},
       sk_sp<PaintFilter>{new OffsetPaintFilter(-1.f, -2.f, nullptr)},
       sk_sp<PaintFilter>{new TilePaintFilter(
           SkRect::MakeXYWH(1, 2, 3, 4), SkRect::MakeXYWH(4, 3, 2, 1), nullptr)},
@@ -3248,12 +3319,10 @@ TEST_P(PaintFilterSerializationTest, Basic) {
   filters.emplace_back(new ComposePaintFilter(filters[0], filters[1]));
   filters.emplace_back(
       new XfermodePaintFilter(SkBlendMode::kDst, filters[2], filters[3]));
-  filters.emplace_back(new ArithmeticPaintFilter(
-      1.1f, 2.2f, 3.3f, 4.4f, false, filters[4], filters[5], nullptr));
+  filters.emplace_back(new ArithmeticPaintFilter(1.1f, 2.2f, 3.3f, 4.4f, false,
+                                                 filters[4], filters[5]));
   filters.emplace_back(new DisplacementMapEffectPaintFilter(
-      SkDisplacementMapEffect::kR_ChannelSelectorType,
-      SkDisplacementMapEffect::kG_ChannelSelectorType, 10, filters[6],
-      filters[7]));
+      SkColorChannel::kR, SkColorChannel::kG, 10, filters[6], filters[7]));
   filters.emplace_back(new MergePaintFilter(filters.data(), filters.size()));
   filters.emplace_back(new RecordPaintFilter(
       sk_sp<PaintRecord>{new PaintRecord}, SkRect::MakeXYWH(10, 15, 20, 25)));
@@ -3326,7 +3395,7 @@ TEST(PaintOpBufferTest, PaintRecordShaderSerialization) {
   EXPECT_TRUE(!!rect_op->flags.getShader()->GetSkShader());
 }
 
-#ifndef OS_ANDROID
+#if !defined(OS_ANDROID)
 TEST(PaintOpBufferTest, DrawSkottieOpSerialization) {
   std::unique_ptr<char, base::AlignedFreeDeleter> memory(
       static_cast<char*>(base::AlignedAlloc(PaintOpBuffer::kInitialBufferSize,
@@ -3423,7 +3492,7 @@ TEST(PaintOpBufferTest, DrawSkottieOpSerializationFailure) {
       memory.get(), serializer.written(), d_options);
   ASSERT_FALSE(deserialized_buffer);
 }
-#endif  // OS_ANDROID
+#endif  // !defined(OS_ANDROID
 
 TEST(PaintOpBufferTest, CustomData) {
   // Basic tests: size, move, comparison.
@@ -3469,7 +3538,7 @@ TEST(PaintOpBufferTest, CustomData) {
     buffer.push<CustomDataOp>(9999u);
     testing::StrictMock<MockCanvas> canvas;
     EXPECT_CALL(canvas, onCustomCallback(&canvas, 9999)).Times(1);
-    buffer.Playback(&canvas, PlaybackParams(nullptr, SkMatrix::I(),
+    buffer.Playback(&canvas, PlaybackParams(nullptr, SkM44(),
                                             base::BindRepeating(
                                                 &MockCanvas::onCustomCallback,
                                                 base::Unretained(&canvas))));
@@ -3508,9 +3577,8 @@ TEST(PaintOpBufferTest, DrawImageRectSerializeScaledImages) {
   // translations here are arbitrary
   SkRect src = SkRect::MakeXYWH(3, 4, 20, 6);
   SkRect dst = SkRect::MakeXYWH(20, 38, 5, 30);
-  buffer->push<DrawImageRectOp>(
-      CreateDiscardablePaintImage(gfx::Size(32, 16)), src, dst, nullptr,
-      PaintCanvas::SrcRectConstraint::kStrict_SrcRectConstraint);
+  buffer->push<DrawImageRectOp>(CreateDiscardablePaintImage(gfx::Size(32, 16)),
+                                src, dst, SkCanvas::kStrict_SrcRectConstraint);
 
   std::unique_ptr<char, base::AlignedFreeDeleter> memory(
       static_cast<char*>(base::AlignedAlloc(PaintOpBuffer::kInitialBufferSize,
@@ -3535,7 +3603,7 @@ TEST(PaintOpBufferTest, DrawImageRectSerializeScaledImages) {
 TEST(PaintOpBufferTest, RecordShadersSerializeScaledImages) {
   auto record_buffer = sk_make_sp<PaintOpBuffer>();
   record_buffer->push<DrawImageOp>(
-      CreateDiscardablePaintImage(gfx::Size(10, 10)), 0.f, 0.f, nullptr);
+      CreateDiscardablePaintImage(gfx::Size(10, 10)), 0.f, 0.f);
 
   auto shader = PaintShader::MakePaintRecord(
       record_buffer, SkRect::MakeWH(10.f, 10.f), SkTileMode::kRepeat,
@@ -3570,7 +3638,7 @@ TEST(PaintOpBufferTest, RecordShadersSerializeScaledImages) {
 TEST(PaintOpBufferTest, RecordShadersCached) {
   auto record_buffer = sk_make_sp<PaintOpBuffer>();
   record_buffer->push<DrawImageOp>(
-      CreateDiscardablePaintImage(gfx::Size(10, 10)), 0.f, 0.f, nullptr);
+      CreateDiscardablePaintImage(gfx::Size(10, 10)), 0.f, 0.f);
   auto shader = PaintShader::MakePaintRecord(
       record_buffer, SkRect::MakeWH(10.f, 10.f), SkTileMode::kRepeat,
       SkTileMode::kRepeat, nullptr);
@@ -3632,7 +3700,7 @@ TEST(PaintOpBufferTest, RecordShadersCached) {
   std::vector<uint8_t> scratch_buffer;
   PaintOp::DeserializeOptions deserialize_options(
       transfer_cache, options_provider.service_paint_cache(),
-      options_provider.strike_client(), &scratch_buffer, true);
+      options_provider.strike_client(), &scratch_buffer, true, nullptr);
 
   // Several deserialization test cases:
   // (0) deserialize once, verify cached is the same as deserialized version
@@ -3688,7 +3756,7 @@ TEST(PaintOpBufferTest, RecordShadersCachedSize) {
   auto record_buffer = sk_make_sp<PaintOpBuffer>();
   size_t estimated_image_size = 30 * 30 * 4;
   auto image = CreateBitmapImage(gfx::Size(30, 30));
-  record_buffer->push<DrawImageOp>(image, 0.f, 0.f, nullptr);
+  record_buffer->push<DrawImageOp>(image, 0.f, 0.f);
   auto shader = PaintShader::MakePaintRecord(
       record_buffer, SkRect::MakeWH(10.f, 10.f), SkTileMode::kRepeat,
       SkTileMode::kRepeat, nullptr);
@@ -3720,7 +3788,7 @@ TEST(PaintOpBufferTest, RecordShadersCachedSize) {
   std::vector<uint8_t> scratch_buffer;
   PaintOp::DeserializeOptions deserialize_options(
       transfer_cache, options_provider.service_paint_cache(),
-      options_provider.strike_client(), &scratch_buffer, true);
+      options_provider.strike_client(), &scratch_buffer, true, nullptr);
   auto record = PaintOpBuffer::MakeFromMemory(
       memory.get(), serializer.written(), deserialize_options);
   auto* shader_entry =
@@ -3752,7 +3820,7 @@ TEST(PaintOpBufferTest, TotalOpCount) {
 
 TEST(PaintOpBufferTest, NullImages) {
   PaintOpBuffer buffer;
-  buffer.push<DrawImageOp>(PaintImage(), 0.f, 0.f, nullptr);
+  buffer.push<DrawImageOp>(PaintImage(), 0.f, 0.f);
 
   std::unique_ptr<char, base::AlignedFreeDeleter> memory(
       static_cast<char*>(base::AlignedAlloc(PaintOpBuffer::kInitialBufferSize,
@@ -3777,6 +3845,128 @@ TEST(PaintOpBufferTest, NullImages) {
   ASSERT_EQ(deserialized_buffer->size(), 1u);
   ASSERT_EQ(deserialized_buffer->GetFirstOp()->GetType(),
             PaintOpType::DrawImage);
+}
+
+TEST(PaintOpBufferTest, HasDrawOpsAndHasDrawTextOps) {
+  auto buffer1 = sk_make_sp<PaintOpBuffer>();
+  EXPECT_FALSE(buffer1->has_draw_ops());
+  EXPECT_FALSE(buffer1->has_draw_text_ops());
+  buffer1->push<DrawRectOp>(SkRect::MakeWH(3, 4), PaintFlags());
+  PushDrawRectOps(buffer1.get());
+  EXPECT_TRUE(buffer1->has_draw_ops());
+  EXPECT_FALSE(buffer1->has_draw_text_ops());
+
+  auto buffer2 = sk_make_sp<PaintOpBuffer>();
+  EXPECT_FALSE(buffer2->has_draw_ops());
+  EXPECT_FALSE(buffer2->has_draw_text_ops());
+  buffer2->push<DrawRecordOp>(std::move(buffer1));
+  EXPECT_TRUE(buffer2->has_draw_ops());
+  EXPECT_FALSE(buffer2->has_draw_text_ops());
+  buffer2->push<DrawTextBlobOp>(SkTextBlob::MakeFromString("abc", SkFont()), 0,
+                                0, PaintFlags());
+  EXPECT_TRUE(buffer2->has_draw_ops());
+  EXPECT_TRUE(buffer2->has_draw_text_ops());
+  buffer2->push<DrawRectOp>(SkRect::MakeWH(4, 5), PaintFlags());
+  EXPECT_TRUE(buffer2->has_draw_ops());
+  EXPECT_TRUE(buffer2->has_draw_text_ops());
+
+  auto buffer3 = sk_make_sp<PaintOpBuffer>();
+  EXPECT_FALSE(buffer3->has_draw_text_ops());
+  EXPECT_FALSE(buffer3->has_draw_ops());
+  buffer3->push<DrawRecordOp>(std::move(buffer2));
+  EXPECT_TRUE(buffer3->has_draw_ops());
+  EXPECT_TRUE(buffer3->has_draw_text_ops());
+}
+
+TEST(PaintOpBufferTest, HasEffectsPreventingLCDTextForSaveLayerAlpha) {
+  auto buffer1 = sk_make_sp<PaintOpBuffer>();
+  EXPECT_FALSE(buffer1->has_effects_preventing_lcd_text_for_save_layer_alpha());
+  buffer1->push<DrawRectOp>(SkRect::MakeWH(3, 4), PaintFlags());
+  EXPECT_FALSE(buffer1->has_effects_preventing_lcd_text_for_save_layer_alpha());
+
+  auto buffer2 = sk_make_sp<PaintOpBuffer>();
+  EXPECT_FALSE(buffer2->has_effects_preventing_lcd_text_for_save_layer_alpha());
+  buffer2->push<DrawRecordOp>(std::move(buffer1));
+  EXPECT_FALSE(buffer2->has_effects_preventing_lcd_text_for_save_layer_alpha());
+  buffer2->push<SaveLayerOp>(nullptr, nullptr);
+  EXPECT_TRUE(buffer2->has_effects_preventing_lcd_text_for_save_layer_alpha());
+  buffer2->push<DrawRectOp>(SkRect::MakeWH(4, 5), PaintFlags());
+  EXPECT_TRUE(buffer2->has_effects_preventing_lcd_text_for_save_layer_alpha());
+
+  auto buffer3 = sk_make_sp<PaintOpBuffer>();
+  EXPECT_FALSE(buffer3->has_effects_preventing_lcd_text_for_save_layer_alpha());
+  buffer3->push<DrawRecordOp>(std::move(buffer2));
+  EXPECT_TRUE(buffer3->has_effects_preventing_lcd_text_for_save_layer_alpha());
+}
+
+TEST(PaintOpBufferTest, NeedsAdditionalInvalidationForLCDText) {
+  auto buffer1 = sk_make_sp<PaintOpBuffer>();
+  buffer1->push<SaveLayerAlphaOp>(nullptr, 100);
+  EXPECT_FALSE(buffer1->has_draw_text_ops());
+  EXPECT_TRUE(buffer1->has_save_layer_alpha_ops());
+  EXPECT_FALSE(buffer1->has_effects_preventing_lcd_text_for_save_layer_alpha());
+
+  auto buffer2 = sk_make_sp<PaintOpBuffer>();
+  buffer2->push<DrawTextBlobOp>(SkTextBlob::MakeFromString("abc", SkFont()), 0,
+                                0, PaintFlags());
+  buffer2->push<SaveLayerOp>(nullptr, nullptr);
+  EXPECT_TRUE(buffer2->has_draw_ops());
+  EXPECT_FALSE(buffer2->has_save_layer_alpha_ops());
+  EXPECT_TRUE(buffer2->has_effects_preventing_lcd_text_for_save_layer_alpha());
+
+  // Neither buffer has effects preventing lcd text for SaveLayerAlpha.
+  EXPECT_FALSE(buffer1->NeedsAdditionalInvalidationForLCDText(*buffer2));
+  EXPECT_FALSE(buffer2->NeedsAdditionalInvalidationForLCDText(*buffer1));
+
+  {
+    auto buffer3 = sk_make_sp<PaintOpBuffer>();
+    buffer3->push<DrawRecordOp>(buffer2);
+    EXPECT_TRUE(
+        buffer3->has_effects_preventing_lcd_text_for_save_layer_alpha());
+    // Neither buffer has both DrawText and SaveLayerAlpha.
+    EXPECT_FALSE(buffer1->NeedsAdditionalInvalidationForLCDText(*buffer3));
+    EXPECT_FALSE(buffer3->NeedsAdditionalInvalidationForLCDText(*buffer1));
+    EXPECT_FALSE(buffer2->NeedsAdditionalInvalidationForLCDText(*buffer3));
+    EXPECT_FALSE(buffer3->NeedsAdditionalInvalidationForLCDText(*buffer2));
+  }
+  {
+    buffer1->push<DrawTextBlobOp>(SkTextBlob::MakeFromString("abc", SkFont()),
+                                  0, 0, PaintFlags());
+    EXPECT_TRUE(buffer1->has_draw_text_ops());
+    EXPECT_TRUE(buffer1->has_save_layer_alpha_ops());
+    EXPECT_FALSE(
+        buffer1->has_effects_preventing_lcd_text_for_save_layer_alpha());
+    auto buffer3 = sk_make_sp<PaintOpBuffer>();
+    buffer3->push<DrawRecordOp>(buffer1);
+    buffer3->push<DrawRecordOp>(buffer2);
+    EXPECT_TRUE(buffer3->has_draw_text_ops());
+    EXPECT_TRUE(buffer3->has_save_layer_alpha_ops());
+    EXPECT_TRUE(
+        buffer3->has_effects_preventing_lcd_text_for_save_layer_alpha());
+    // Both have DrawText and SaveLayerAlpha, and have different
+    // has_effects_preventing_lcd_text_for_save_layer_alpha().
+    EXPECT_TRUE(buffer1->NeedsAdditionalInvalidationForLCDText(*buffer3));
+    EXPECT_TRUE(buffer3->NeedsAdditionalInvalidationForLCDText(*buffer1));
+    EXPECT_FALSE(buffer3->NeedsAdditionalInvalidationForLCDText(*buffer3));
+  }
+}
+
+// A regression test for crbug.com/1195276. Ensure that PlaybackParams works
+// with SetMatrix operations.
+TEST(PaintOpBufferTest, SetMatrixOpWithNonIdentityPlaybackParams) {
+  for (const auto& original_ctm : test_matrices) {
+    for (const auto& matrix : test_matrices) {
+      SkCanvas device(0, 0);
+      SkCanvas* canvas = &device;
+
+      PlaybackParams params(nullptr, original_ctm);
+      SetMatrixOp op(matrix);
+      SetMatrixOp::Raster(&op, canvas, params);
+
+      EXPECT_TRUE(AnnotateOp::AreSkM44sEqual(canvas->getLocalToDevice(),
+                                             SkM44(original_ctm, matrix)));
+    }
+  }
 }
 
 }  // namespace cc

@@ -240,7 +240,7 @@ inline QString QUrlQueryPrivate::recodeFromUser(const QString &input) const
         decode('#'),
         0
     };
-    if (qt_urlRecode(output, input.constData(), input.constData() + input.length(),
+    if (qt_urlRecode(output, input,
                      QUrl::DecodeReserved,
                      prettyDecodedActions))
         return output;
@@ -261,7 +261,7 @@ inline QString QUrlQueryPrivate::recodeToUser(const QString &input, QUrl::Compon
 
     if (!(encoding & QUrl::EncodeDelimiters)) {
         QString output;
-        if (qt_urlRecode(output, input.constData(), input.constData() + input.length(),
+        if (qt_urlRecode(output, input,
                          encoding, nullptr))
             return output;
         return input;
@@ -271,7 +271,7 @@ inline QString QUrlQueryPrivate::recodeToUser(const QString &input, QUrl::Compon
     ushort actions[] = { encode(pairDelimiter.unicode()), encode(valueDelimiter.unicode()),
                          encode('#'), 0 };
     QString output;
-    if (qt_urlRecode(output, input.constData(), input.constData() + input.length(), encoding, actions))
+    if (qt_urlRecode(output, input, encoding, actions))
         return output;
     return input;
 }
@@ -306,7 +306,7 @@ void QUrlQueryPrivate::setQuery(const QString &query)
         // delimiter points to the value delimiter or to the end of this pair
 
         QString key;
-        if (!qt_urlRecode(key, begin, delimiter,
+        if (!qt_urlRecode(key, QStringView{begin, delimiter},
                           QUrl::DecodeReserved,
                           prettyDecodedActions))
             key = QString(begin, delimiter - begin);
@@ -319,7 +319,7 @@ void QUrlQueryPrivate::setQuery(const QString &query)
             itemList.append(qMakePair(key, QString(0, Qt::Uninitialized)));
         } else {
             QString value;
-            if (!qt_urlRecode(value, delimiter + 1, pos,
+            if (!qt_urlRecode(value, QStringView{delimiter + 1, pos},
                               QUrl::DecodeReserved,
                               prettyDecodedActions))
                 value = QString(delimiter + 1, pos - delimiter - 1);
@@ -434,7 +434,7 @@ bool QUrlQuery::operator ==(const QUrlQuery &other) const
     Returns the hash value for \a key,
     using \a seed to seed the calculation.
 */
-uint qHash(const QUrlQuery &key, uint seed) noexcept
+size_t qHash(const QUrlQuery &key, size_t seed) noexcept
 {
     if (const QUrlQueryPrivate *d = key.d) {
         QtPrivate::QHashCombine hash;
@@ -492,7 +492,7 @@ void QUrlQuery::setQuery(const QString &queryString)
 static void recodeAndAppend(QString &to, const QString &input,
                             QUrl::ComponentFormattingOptions encoding, const ushort *tableModifications)
 {
-    if (!qt_urlRecode(to, input.constData(), input.constData() + input.length(), encoding, tableModifications))
+    if (!qt_urlRecode(to, input, encoding, tableModifications))
         to += input;
 }
 
@@ -743,9 +743,10 @@ QStringList QUrlQuery::allQueryItemValues(const QString &key, QUrl::ComponentFor
 void QUrlQuery::removeQueryItem(const QString &key)
 {
     if (d.constData()) {
-        Map::iterator it = d->findKey(key);
-        if (it != d->itemList.end())
-            d->itemList.erase(it);
+        auto *p = d.data();
+        Map::iterator it = p->findKey(key);
+        if (it != p->itemList.end())
+            p->itemList.erase(it);
     }
 }
 
@@ -758,27 +759,31 @@ void QUrlQuery::removeQueryItem(const QString &key)
 void QUrlQuery::removeAllQueryItems(const QString &key)
 {
     if (d.constData()) {
-        const QString encodedKey = d->recodeFromUser(key);
+        auto *p = d.data();
+        const QString encodedKey = p->recodeFromUser(key);
         auto firstEqualsEncodedKey = [&encodedKey](const QPair<QString, QString> &item) {
             return item.first == encodedKey;
         };
-        const auto end = d->itemList.end();
-        d->itemList.erase(std::remove_if(d->itemList.begin(), end, firstEqualsEncodedKey), end);
+        p->itemList.removeIf(firstEqualsEncodedKey);
     }
 }
 
 /*!
-    \fn QChar QUrlQuery::defaultQueryValueDelimiter()
+    \fn QUrlQuery::defaultQueryValueDelimiter()
     Returns the default character for separating keys from values in the query,
     an equal sign ("=").
+
+    \note Prior to Qt 6, this function returned QChar.
 
     \sa setQueryDelimiters(), queryValueDelimiter(), defaultQueryPairDelimiter()
 */
 
 /*!
-    \fn QChar QUrlQuery::defaultQueryPairDelimiter()
+    \fn QUrlQuery::defaultQueryPairDelimiter()
     Returns the default character for separating keys-value pairs from each
     other, an ampersand ("&").
+
+    \note Prior to Qt 6, this function returned QChar.
 
     \sa setQueryDelimiters(), queryPairDelimiter(), defaultQueryValueDelimiter()
 */

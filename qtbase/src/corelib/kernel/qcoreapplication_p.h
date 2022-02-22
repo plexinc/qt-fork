@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -74,6 +74,10 @@ typedef QList<QTranslator*> QTranslatorList;
 
 class QAbstractEventDispatcher;
 
+#ifndef QT_NO_QOBJECT
+class QEvent;
+#endif
+
 class Q_CORE_EXPORT QCoreApplicationPrivate
 #ifndef QT_NO_QOBJECT
     : public QObjectPrivate
@@ -116,7 +120,7 @@ public:
     bool sendThroughApplicationEventFilters(QObject *, QEvent *);
     static bool sendThroughObjectEventFilters(QObject *, QEvent *);
     static bool notify_helper(QObject *, QEvent *);
-    static inline void setEventSpontaneous(QEvent *e, bool spontaneous) { e->spont = spontaneous; }
+    static inline void setEventSpontaneous(QEvent *e, bool spontaneous) { e->m_spont = spontaneous; }
 
     virtual void createEventDispatcher();
     virtual void eventDispatcherReady();
@@ -131,6 +135,8 @@ public:
     virtual bool shouldQuit() {
       return true;
     }
+
+    virtual void quit();
     void maybeQuit();
 
     static QBasicAtomicPointer<QThread> theMainThread;
@@ -154,7 +160,7 @@ public:
 
     int &argc;
     char **argv;
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
     int origArgc;
     char **origArgv; // store unmodified arguments for QCoreApplication::arguments()
 #endif
@@ -192,7 +198,7 @@ public:
 
     void processCommandLineArguments();
     QString qmljs_debug_arguments; // a string containing arguments for js/qml debugging.
-    inline QString qmljsDebugArgumentsString() { return qmljs_debug_arguments; }
+    inline QString qmljsDebugArgumentsString() const { return qmljs_debug_arguments; }
 
 #ifdef QT_NO_QOBJECT
     QCoreApplication *q_ptr;

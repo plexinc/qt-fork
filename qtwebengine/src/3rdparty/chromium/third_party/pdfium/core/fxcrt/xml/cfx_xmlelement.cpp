@@ -6,16 +6,15 @@
 
 #include "core/fxcrt/xml/cfx_xmlelement.h"
 
-#include <utility>
-
 #include "core/fxcrt/cfx_widetextbuf.h"
 #include "core/fxcrt/fx_extension.h"
 #include "core/fxcrt/xml/cfx_xmlchardata.h"
 #include "core/fxcrt/xml/cfx_xmldocument.h"
 #include "core/fxcrt/xml/cfx_xmltext.h"
+#include "third_party/base/check.h"
 
 CFX_XMLElement::CFX_XMLElement(const WideString& wsTag) : name_(wsTag) {
-  ASSERT(!name_.IsEmpty());
+  DCHECK(!name_.IsEmpty());
 }
 
 CFX_XMLElement::~CFX_XMLElement() = default;
@@ -150,7 +149,7 @@ WideString CFX_XMLElement::AttributeToString(const WideString& name,
   WideString ret = L" ";
   ret += name;
   ret += L"=\"";
-  ret += EncodeEntities(value);
+  ret += value.EncodeEntities();
   ret += L"\"";
   return ret;
 }

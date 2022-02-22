@@ -10,8 +10,8 @@ if(qtc_run|lupdate_run): return()
     unset(qt_modules)
 }
 
-qtPrepareTool(QML_CACHEGEN, qmlcachegen, _FILTER)
-qtPrepareTool(QMAKE_RCC, rcc, _DEP)
+qtPrepareLibExecTool(QML_CACHEGEN, qmlcachegen, _FILTER)
+qtPrepareLibExecTool(QMAKE_RCC, rcc, _DEP)
 
 isEmpty(QMLCACHE_DIR): QMLCACHE_DIR = .
 

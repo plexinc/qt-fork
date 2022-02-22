@@ -30,8 +30,6 @@ namespace dawn_native { namespace vulkan {
                     return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
                 case wgpu::AddressMode::ClampToEdge:
                     return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-                default:
-                    UNREACHABLE();
             }
         }
 
@@ -41,8 +39,6 @@ namespace dawn_native { namespace vulkan {
                     return VK_FILTER_LINEAR;
                 case wgpu::FilterMode::Nearest:
                     return VK_FILTER_NEAREST;
-                default:
-                    UNREACHABLE();
             }
         }
 
@@ -52,17 +48,15 @@ namespace dawn_native { namespace vulkan {
                     return VK_SAMPLER_MIPMAP_MODE_LINEAR;
                 case wgpu::FilterMode::Nearest:
                     return VK_SAMPLER_MIPMAP_MODE_NEAREST;
-                default:
-                    UNREACHABLE();
             }
         }
     }  // anonymous namespace
 
     // static
     ResultOrError<Sampler*> Sampler::Create(Device* device, const SamplerDescriptor* descriptor) {
-        std::unique_ptr<Sampler> sampler = std::make_unique<Sampler>(device, descriptor);
+        Ref<Sampler> sampler = AcquireRef(new Sampler(device, descriptor));
         DAWN_TRY(sampler->Initialize(descriptor));
-        return sampler.release();
+        return sampler.Detach();
     }
 
     MaybeError Sampler::Initialize(const SamplerDescriptor* descriptor) {
@@ -77,15 +71,31 @@ namespace dawn_native { namespace vulkan {
         createInfo.addressModeV = VulkanSamplerAddressMode(descriptor->addressModeV);
         createInfo.addressModeW = VulkanSamplerAddressMode(descriptor->addressModeW);
         createInfo.mipLodBias = 0.0f;
-        createInfo.anisotropyEnable = VK_FALSE;
-        createInfo.maxAnisotropy = 1.0f;
-        createInfo.compareOp = ToVulkanCompareOp(descriptor->compare);
-        createInfo.compareEnable = createInfo.compareOp == VK_COMPARE_OP_NEVER ? VK_FALSE : VK_TRUE;
+        if (descriptor->compare != wgpu::CompareFunction::Undefined) {
+            createInfo.compareOp = ToVulkanCompareOp(descriptor->compare);
+            createInfo.compareEnable = VK_TRUE;
+        } else {
+            // Still set the compareOp so it's not garbage.
+            createInfo.compareOp = VK_COMPARE_OP_NEVER;
+            createInfo.compareEnable = VK_FALSE;
+        }
         createInfo.minLod = descriptor->lodMinClamp;
         createInfo.maxLod = descriptor->lodMaxClamp;
         createInfo.unnormalizedCoordinates = VK_FALSE;
 
         Device* device = ToBackend(GetDevice());
+        uint16_t maxAnisotropy = GetMaxAnisotropy();
+        if (device->GetDeviceInfo().features.samplerAnisotropy == VK_TRUE && maxAnisotropy > 1) {
+            createInfo.anisotropyEnable = VK_TRUE;
+            // https://www.khronos.org/registry/vulkan/specs/1.2-extensions/man/html/VkSamplerCreateInfo.html
+            createInfo.maxAnisotropy =
+                std::min(static_cast<float>(maxAnisotropy),
+                         device->GetDeviceInfo().properties.limits.maxSamplerAnisotropy);
+        } else {
+            createInfo.anisotropyEnable = VK_FALSE;
+            createInfo.maxAnisotropy = 1;
+        }
+
         return CheckVkSuccess(
             device->fn.CreateSampler(device->GetVkDevice(), &createInfo, nullptr, &*mHandle),
             "CreateSampler");

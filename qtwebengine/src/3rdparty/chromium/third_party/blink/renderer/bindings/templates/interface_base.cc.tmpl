@@ -529,6 +529,26 @@ static void Install{{v8_class}}Template(
   {% endfilter %}
   {% endif %}
 
+  {% if interface_name == 'FileSystemDirectoryHandle' %}
+  // Temporary @@asyncIterator support for FileSystemDirectoryHandle
+  // TODO(https://crbug.com/1087157): Replace with proper bindings support.
+  static const V8DOMConfiguration::SymbolKeyedMethodConfiguration
+  kSymbolKeyedIteratorConfiguration = {
+      v8::Symbol::GetAsyncIterator,
+      "entries",
+      V8FileSystemDirectoryHandle::EntriesMethodCallback,
+      0,
+      v8::DontEnum,
+      V8DOMConfiguration::kOnPrototype,
+      V8DOMConfiguration::kCheckHolder,
+      V8DOMConfiguration::kDoNotCheckAccess,
+      V8DOMConfiguration::kHasSideEffect
+  };
+  V8DOMConfiguration::InstallMethod(
+      isolate, world, prototype_template, signature,
+      kSymbolKeyedIteratorConfiguration);
+  {% endif %}
+
   {% if interface_name == 'Iterator' %}
   // The WebIDL spec says when an interface has pair iterators the iterators it
   // returns must be instances of the "default iterator object" whose
@@ -559,10 +579,23 @@ static void Install{{v8_class}}Template(
   //   so there is no need to reuse this FunctionTemplate and register it in
   //   V8PerIsolateData.
   v8::Local<v8::FunctionTemplate> intrinsic_iterator_prototype_interface_template =
-      v8::FunctionTemplate::New(isolate);
-  intrinsic_iterator_prototype_interface_template->RemovePrototype();
+      v8::FunctionTemplate::New(isolate, nullptr, v8::Local<v8::Value>(), 
+                                v8::Local<v8::Signature>(), 0, 
+                                v8::ConstructorBehavior::kThrow);
   intrinsic_iterator_prototype_interface_template->SetIntrinsicDataProperty(
       V8AtomicString(isolate, "prototype"), v8::kIteratorPrototype);
+  interface_template->Inherit(intrinsic_iterator_prototype_interface_template);
+  {% endif %}
+
+  {% if interface_name == 'FileSystemDirectoryIterator' %}
+  // Temporary @@asyncIterator support for FileSystemDirectoryHandle
+  // TODO(https://crbug.com/1087157): Replace with proper bindings support.
+  v8::Local<v8::FunctionTemplate> intrinsic_iterator_prototype_interface_template =
+      v8::FunctionTemplate::New(isolate, nullptr, v8::Local<v8::Value>(), 
+                                v8::Local<v8::Signature>(), 0, 
+                                v8::ConstructorBehavior::kThrow);
+  intrinsic_iterator_prototype_interface_template->SetIntrinsicDataProperty(
+      V8AtomicString(isolate, "prototype"), v8::kAsyncIteratorPrototype);
   interface_template->Inherit(intrinsic_iterator_prototype_interface_template);
   {% endif %}
 
@@ -583,8 +616,9 @@ static void Install{{v8_class}}Template(
   // |interface_template| is instantiated, its prototype.__proto__ will point to
   // |intrinsic_error_prototype_interface_template|'s "prototype" property.
   v8::Local<v8::FunctionTemplate> intrinsic_error_prototype_interface_template =
-      v8::FunctionTemplate::New(isolate);
-  intrinsic_error_prototype_interface_template->RemovePrototype();
+      v8::FunctionTemplate::New(isolate, nullptr, v8::Local<v8::Value>(), 
+                                v8::Local<v8::Signature>(), 0, 
+                                v8::ConstructorBehavior::kThrow);
   intrinsic_error_prototype_interface_template->SetIntrinsicDataProperty(
       V8AtomicString(isolate, "prototype"), v8::kErrorPrototype);
   interface_template->Inherit(intrinsic_error_prototype_interface_template);

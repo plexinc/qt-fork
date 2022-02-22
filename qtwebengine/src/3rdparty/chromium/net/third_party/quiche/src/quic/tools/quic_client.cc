@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/tools/quic_client.h"
+#include "quic/tools/quic_client.h"
 
 #include <errno.h>
 #include <netdb.h>
@@ -14,27 +14,30 @@
 
 #include <utility>
 
-#include "net/third_party/quiche/src/quic/core/crypto/quic_random.h"
-#include "net/third_party/quiche/src/quic/core/http/spdy_utils.h"
-#include "net/third_party/quiche/src/quic/core/quic_connection.h"
-#include "net/third_party/quiche/src/quic/core/quic_data_reader.h"
-#include "net/third_party/quiche/src/quic/core/quic_epoll_alarm_factory.h"
-#include "net/third_party/quiche/src/quic/core/quic_epoll_connection_helper.h"
-#include "net/third_party/quiche/src/quic/core/quic_packets.h"
-#include "net/third_party/quiche/src/quic/core/quic_server_id.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_bug_tracker.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_ptr_util.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_socket_address.h"
-#include "net/third_party/quiche/src/quic/tools/quic_simple_client_session.h"
+#include "quic/core/crypto/quic_random.h"
+#include "quic/core/http/spdy_utils.h"
+#include "quic/core/quic_connection.h"
+#include "quic/core/quic_data_reader.h"
+#include "quic/core/quic_epoll_alarm_factory.h"
+#include "quic/core/quic_epoll_connection_helper.h"
+#include "quic/core/quic_packets.h"
+#include "quic/core/quic_server_id.h"
+#include "quic/platform/api/quic_bug_tracker.h"
+#include "quic/platform/api/quic_logging.h"
+#include "quic/platform/api/quic_ptr_util.h"
+#include "quic/platform/api/quic_socket_address.h"
+#include "quic/tools/quic_simple_client_session.h"
 
 namespace quic {
 
 namespace tools {
 
-QuicSocketAddress LookupAddress(std::string host, std::string port) {
+QuicSocketAddress LookupAddress(int address_family_for_lookup,
+                                std::string host,
+                                std::string port) {
   addrinfo hint;
   memset(&hint, 0, sizeof(hint));
+  hint.ai_family = address_family_for_lookup;
   hint.ai_protocol = IPPROTO_UDP;
 
   addrinfo* info_list = nullptr;
@@ -45,7 +48,7 @@ QuicSocketAddress LookupAddress(std::string host, std::string port) {
     return QuicSocketAddress();
   }
 
-  CHECK(info_list != nullptr);
+  QUICHE_CHECK(info_list != nullptr);
   std::unique_ptr<addrinfo, void (*)(addrinfo*)> info_list_owned(info_list,
                                                                  freeaddrinfo);
   return QuicSocketAddress(info_list->ai_addr, info_list->ai_addrlen);

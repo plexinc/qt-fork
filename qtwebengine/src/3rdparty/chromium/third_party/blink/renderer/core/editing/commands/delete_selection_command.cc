@@ -518,7 +518,7 @@ void DeleteSelectionCommand::RemoveNode(
     // Make sure empty cell has some height, if a placeholder can be inserted.
     GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kEditing);
     LayoutObject* r = node->GetLayoutObject();
-    if (r && r->IsTableCell() && ToLayoutBox(r)->ContentHeight() <= 0) {
+    if (r && r->IsTableCell() && To<LayoutBox>(r)->ContentHeight() <= 0) {
       Position first_editable_position = FirstEditablePositionInNode(node);
       if (first_editable_position.IsNotNull())
         InsertBlockPlaceholder(first_editable_position, editing_state);
@@ -645,10 +645,10 @@ void DeleteSelectionCommand::HandleGeneralDelete(EditingState* editing_state) {
 
   if (start_node == downstream_end_.AnchorNode()) {
     if (downstream_end_.ComputeEditingOffset() - start_offset > 0) {
-      if (auto* text = DynamicTo<Text>(start_node)) {
+      if (auto* text_node_to_trim = DynamicTo<Text>(start_node)) {
         // in a text node that needs to be trimmed
         DeleteTextFromNode(
-            text, start_offset,
+            text_node_to_trim, start_offset,
             downstream_end_.ComputeOffsetInContainerNode() - start_offset);
       } else {
         RemoveChildrenInRange(start_node, start_offset,
@@ -736,10 +736,12 @@ void DeleteSelectionCommand::HandleGeneralDelete(EditingState* editing_state) {
         // The node itself is fully selected, not just its contents.  Delete it.
         RemoveNode(downstream_end_.AnchorNode(), editing_state);
       } else {
-        if (auto* text = DynamicTo<Text>(downstream_end_.AnchorNode())) {
+        if (auto* text_node_to_trim =
+                DynamicTo<Text>(downstream_end_.AnchorNode())) {
           // in a text node that needs to be trimmed
           if (downstream_end_.ComputeEditingOffset() > 0) {
-            DeleteTextFromNode(text, 0, downstream_end_.ComputeEditingOffset());
+            DeleteTextFromNode(text_node_to_trim, 0,
+                               downstream_end_.ComputeEditingOffset());
           }
           // Remove children of downstream_end_.AnchorNode() that come after
           // upstream_start_. Don't try to remove children if upstream_start_
@@ -835,23 +837,20 @@ void DeleteSelectionCommand::MergeParagraphs(EditingState* editing_state) {
 
   GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kEditing);
 
-  VisiblePosition start_of_paragraph_to_move =
-      CreateVisiblePosition(downstream_end_);
+  VisiblePosition merge_origin = CreateVisiblePosition(downstream_end_);
   VisiblePosition merge_destination = CreateVisiblePosition(upstream_start_);
 
   // downstream_end_'s block has been emptied out by deletion.  There is no
   // content inside of it to move, so just remove it.
   Element* end_block = EnclosingBlock(downstream_end_.AnchorNode());
   if (!end_block ||
-      !end_block->contains(
-          start_of_paragraph_to_move.DeepEquivalent().AnchorNode()) ||
-      !start_of_paragraph_to_move.DeepEquivalent().AnchorNode()) {
+      !end_block->contains(merge_origin.DeepEquivalent().AnchorNode()) ||
+      !merge_origin.DeepEquivalent().AnchorNode()) {
     RemoveNode(EnclosingBlock(downstream_end_.AnchorNode()), editing_state);
     return;
   }
 
-  RelocatablePosition relocatable_start(
-      start_of_paragraph_to_move.DeepEquivalent());
+  RelocatablePosition relocatable_start(merge_origin.DeepEquivalent());
 
   // We need to merge into upstream_start_'s block, but it's been emptied out
   // and collapsed by deletion.
@@ -861,24 +860,22 @@ void DeleteSelectionCommand::MergeParagraphs(EditingState* editing_state) {
        (!merge_destination.DeepEquivalent().AnchorNode()->hasChildren() ||
         !upstream_start_.ComputeContainerNode()->hasChildren())) ||
       (starts_at_empty_line_ &&
-       merge_destination.DeepEquivalent() !=
-           start_of_paragraph_to_move.DeepEquivalent())) {
+       merge_destination.DeepEquivalent() != merge_origin.DeepEquivalent())) {
     InsertNodeAt(MakeGarbageCollected<HTMLBRElement>(GetDocument()),
                  upstream_start_, editing_state);
     if (editing_state->IsAborted())
       return;
     GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kEditing);
     merge_destination = CreateVisiblePosition(upstream_start_);
-    start_of_paragraph_to_move =
-        CreateVisiblePosition(relocatable_start.GetPosition());
+    merge_origin = CreateVisiblePosition(relocatable_start.GetPosition());
   }
 
-  if (merge_destination.DeepEquivalent() ==
-      start_of_paragraph_to_move.DeepEquivalent())
+  if (merge_destination.DeepEquivalent() == merge_origin.DeepEquivalent())
     return;
 
+  VisiblePosition start_of_paragraph_to_move = StartOfParagraph(merge_origin);
   VisiblePosition end_of_paragraph_to_move =
-      EndOfParagraph(start_of_paragraph_to_move, kCanSkipOverEditingBoundary);
+      EndOfParagraph(merge_origin, kCanSkipOverEditingBoundary);
 
   if (merge_destination.DeepEquivalent() ==
       end_of_paragraph_to_move.DeepEquivalent())
@@ -906,8 +903,7 @@ void DeleteSelectionCommand::MergeParagraphs(EditingState* editing_state) {
   // the right.
   // FIXME: Consider RTL.
   if (!starts_at_empty_line_ && IsStartOfParagraph(merge_destination) &&
-      AbsoluteCaretBoundsOf(start_of_paragraph_to_move.ToPositionWithAffinity())
-              .X() >
+      AbsoluteCaretBoundsOf(merge_origin.ToPositionWithAffinity()).X() >
           AbsoluteCaretBoundsOf(merge_destination.ToPositionWithAffinity())
               .X()) {
     if (IsA<HTMLBRElement>(
@@ -930,7 +926,7 @@ void DeleteSelectionCommand::MergeParagraphs(EditingState* editing_state) {
   // the caret to just before the selection we deleted. See
   // https://bugs.webkit.org/show_bug.cgi?id=25439
   if (IsRenderedAsNonInlineTableImageOrHR(
-          start_of_paragraph_to_move.DeepEquivalent().AnchorNode()) &&
+          merge_origin.DeepEquivalent().AnchorNode()) &&
       !IsStartOfParagraph(merge_destination)) {
     ending_position_ = upstream_start_;
     return;
@@ -1269,7 +1265,7 @@ bool DeleteSelectionCommand::PreservesTypingStyle() const {
   return typing_style_;
 }
 
-void DeleteSelectionCommand::Trace(Visitor* visitor) {
+void DeleteSelectionCommand::Trace(Visitor* visitor) const {
   visitor->Trace(selection_to_delete_);
   visitor->Trace(upstream_start_);
   visitor->Trace(downstream_start_);

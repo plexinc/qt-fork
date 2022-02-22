@@ -16,27 +16,24 @@
 #define DAWNWIRE_CLIENT_OBJECTALLOCATOR_H_
 
 #include "common/Assert.h"
+#include "common/Compiler.h"
+#include "dawn_wire/WireCmd_autogen.h"
 
+#include <limits>
 #include <memory>
 #include <vector>
 
 namespace dawn_wire { namespace client {
 
-    class Client;
-    class Device;
-
     template <typename T>
     class ObjectAllocator {
-        using ObjectOwner =
-            typename std::conditional<std::is_same<T, Device>::value, Client, Device>::type;
-
       public:
         struct ObjectAndSerial {
-            ObjectAndSerial(std::unique_ptr<T> object, uint32_t serial)
-                : object(std::move(object)), serial(serial) {
+            ObjectAndSerial(std::unique_ptr<T> object, uint32_t generation)
+                : object(std::move(object)), generation(generation) {
             }
             std::unique_ptr<T> object;
-            uint32_t serial;
+            uint32_t generation;
         };
 
         ObjectAllocator() {
@@ -44,26 +41,35 @@ namespace dawn_wire { namespace client {
             mObjects.emplace_back(nullptr, 0);
         }
 
-        ObjectAndSerial* New(ObjectOwner* owner) {
+        template <typename Client>
+        ObjectAndSerial* New(Client* client) {
             uint32_t id = GetNewId();
-            T* result = new T(owner, 1, id);
-            auto object = std::unique_ptr<T>(result);
+            auto object = std::make_unique<T>(client, 1, id);
+            client->TrackObject(object.get());
 
             if (id >= mObjects.size()) {
                 ASSERT(id == mObjects.size());
                 mObjects.emplace_back(std::move(object), 0);
             } else {
                 ASSERT(mObjects[id].object == nullptr);
-                // TODO(cwallez@chromium.org): investigate if overflows could cause bad things to
-                // happen
-                mObjects[id].serial++;
+
+                mObjects[id].generation++;
+                // The generation should never overflow. We don't recycle ObjectIds that would
+                // overflow their next generation.
+                ASSERT(mObjects[id].generation != 0);
+
                 mObjects[id].object = std::move(object);
             }
 
             return &mObjects[id];
         }
         void Free(T* obj) {
-            FreeId(obj->id);
+            ASSERT(obj->IsInList());
+            if (DAWN_LIKELY(mObjects[obj->id].generation != std::numeric_limits<uint32_t>::max())) {
+                // Only recycle this ObjectId if the generation won't overflow on the next
+                // allocation.
+                FreeId(obj->id);
+            }
             mObjects[obj->id].object = nullptr;
         }
 
@@ -74,11 +80,11 @@ namespace dawn_wire { namespace client {
             return mObjects[id].object.get();
         }
 
-        uint32_t GetSerial(uint32_t id) {
+        uint32_t GetGeneration(uint32_t id) {
             if (id >= mObjects.size()) {
                 return 0;
             }
-            return mObjects[id].serial;
+            return mObjects[id].generation;
         }
 
       private:
@@ -98,7 +104,6 @@ namespace dawn_wire { namespace client {
         uint32_t mCurrentId = 1;
         std::vector<uint32_t> mFreeIds;
         std::vector<ObjectAndSerial> mObjects;
-        Device* mDevice;
     };
 }}  // namespace dawn_wire::client
 

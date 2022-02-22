@@ -198,8 +198,7 @@ std::vector<FacetURI> ExtractAndSortFacetURIs(const AffiliatedFacets& facets) {
 
 // FacetURI -------------------------------------------------------------------
 
-FacetURI::FacetURI() : is_valid_(false) {
-}
+FacetURI::FacetURI() = default;
 
 // static
 FacetURI FacetURI::FromPotentiallyInvalidSpec(const std::string& spec) {
@@ -265,18 +264,23 @@ FacetURI::FacetURI(const std::string& canonical_spec, bool is_valid)
                         &parsed_);
 }
 
-
 // AffiliatedFacetsWithUpdateTime ---------------------------------------------
 
-AffiliatedFacetsWithUpdateTime::AffiliatedFacetsWithUpdateTime() {
-}
+AffiliatedFacetsWithUpdateTime::AffiliatedFacetsWithUpdateTime() = default;
 
 AffiliatedFacetsWithUpdateTime::AffiliatedFacetsWithUpdateTime(
     const AffiliatedFacetsWithUpdateTime& other) = default;
 
-AffiliatedFacetsWithUpdateTime::~AffiliatedFacetsWithUpdateTime() {
-}
+AffiliatedFacetsWithUpdateTime::AffiliatedFacetsWithUpdateTime(
+    AffiliatedFacetsWithUpdateTime&& other) = default;
 
+AffiliatedFacetsWithUpdateTime& AffiliatedFacetsWithUpdateTime::operator=(
+    const AffiliatedFacetsWithUpdateTime& other) = default;
+
+AffiliatedFacetsWithUpdateTime& AffiliatedFacetsWithUpdateTime::operator=(
+    AffiliatedFacetsWithUpdateTime&& other) = default;
+
+AffiliatedFacetsWithUpdateTime::~AffiliatedFacetsWithUpdateTime() = default;
 
 // Helpers --------------------------------------------------------------------
 

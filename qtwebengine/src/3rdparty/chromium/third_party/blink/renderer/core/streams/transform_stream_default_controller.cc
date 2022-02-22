@@ -16,13 +16,22 @@
 #include "third_party/blink/renderer/platform/bindings/to_v8.h"
 #include "third_party/blink/renderer/platform/bindings/v8_binding.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
-#include "third_party/blink/renderer/platform/heap/visitor.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
+#include "third_party/blink/renderer/platform/wtf/casting.h"
 
 namespace blink {
 
 TransformStreamDefaultController::TransformStreamDefaultController() = default;
 TransformStreamDefaultController::~TransformStreamDefaultController() = default;
+
+ReadableStreamDefaultController*
+TransformStreamDefaultController::GetDefaultController(
+    TransformStream* stream) {
+  // The TransformStreamDefaultController will always use a
+  // ReadableStreamDefaultController. Hence, it is safe to down-cast here.
+  return To<ReadableStreamDefaultController>(
+      stream->readable_->GetController());
+}
 
 base::Optional<double> TransformStreamDefaultController::desiredSize() const {
   // https://streams.spec.whatwg.org/#ts-default-controller-desired-size
@@ -30,28 +39,13 @@ base::Optional<double> TransformStreamDefaultController::desiredSize() const {
   //    this.[[controlledTransformStream]].[[readable]].
   //    [[readableStreamController]].
   const auto* readable_controller =
-      controlled_transform_stream_->readable_->GetController();
+      GetDefaultController(controlled_transform_stream_);
 
   // 3. Return !
   //    ReadableStreamDefaultControllerGetDesiredSize(readableController).
   // Use the accessor instead as it already has the semantics we need and can't
   // be interfered with from JavaScript.
   return readable_controller->desiredSize();
-}
-
-double TransformStreamDefaultController::desiredSize(bool& is_null) const {
-  // https://streams.spec.whatwg.org/#ts-default-controller-desired-size
-  // 2. Let readableController be
-  //    this.[[controlledTransformStream]].[[readable]].
-  //    [[readableStreamController]].
-  const auto* readable_controller =
-      controlled_transform_stream_->readable_->GetController();
-
-  // 3. Return !
-  //    ReadableStreamDefaultControllerGetDesiredSize(readableController).
-  // Use the accessor instead as it already has the semantics we need and can't
-  // be interfered with from JavaScript.
-  return readable_controller->desiredSize(is_null);
 }
 
 // The handling of undefined arguments is implicit in the standard, but needs to
@@ -93,7 +87,7 @@ void TransformStreamDefaultController::terminate(ScriptState* script_state) {
   Terminate(script_state, this);
 }
 
-void TransformStreamDefaultController::Trace(Visitor* visitor) {
+void TransformStreamDefaultController::Trace(Visitor* visitor) const {
   visitor->Trace(controlled_transform_stream_);
   visitor->Trace(flush_algorithm_);
   visitor->Trace(transform_algorithm_);
@@ -136,7 +130,7 @@ class TransformStreamDefaultController::DefaultTransformAlgorithm final
     return PromiseResolveWithUndefined(script_state);
   }
 
-  void Trace(Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(controller_);
     StreamAlgorithm::Trace(visitor);
   }
@@ -264,7 +258,7 @@ void TransformStreamDefaultController::Enqueue(
 
   // 2. Let readableController be
   //    stream.[[readable]].[[readableStreamController]].
-  auto* readable_controller = stream->readable_->GetController();
+  auto* readable_controller = GetDefaultController(stream);
 
   // 3. If !
   //    ReadableStreamDefaultControllerCanCloseOrEnqueue(readableController) is
@@ -349,7 +343,7 @@ v8::Local<v8::Promise> TransformStreamDefaultController::PerformTransform(
       return PromiseReject(GetScriptState(), r);
     }
 
-    void Trace(Visitor* visitor) override {
+    void Trace(Visitor* visitor) const override {
       visitor->Trace(stream_);
       PromiseHandlerWithValue::Trace(visitor);
     }
@@ -375,7 +369,7 @@ void TransformStreamDefaultController::Terminate(
   // 2. Let readableController be
   //    stream.[[readable]].[[readableStreamController]].
   ReadableStreamDefaultController* readable_controller =
-      stream->readable_->GetController();
+      GetDefaultController(stream);
 
   // 3. If !
   //    ReadableStreamDefaultControllerCanCloseOrEnqueue(readableController) is

@@ -9,10 +9,16 @@
 namespace switches {
 
 // Makes Content Shell use the given path for its data directory.
+// NOTE: If changing this value, change the corresponding Java-side value in
+// ContentShellBrowserTestActivity.java#getUserDataDirectoryCommandLineSwitch()
+// to match.
 const char kContentShellDataPath[] = "data-path";
 
 // The directory breakpad should store minidumps in.
 const char kCrashDumpsDir[] = "crash-dumps-dir";
+
+// Disables the check for the system font when specified.
+const char kDisableSystemFontCheck[] = "disable-system-font-check";
 
 // Exposes the window.internals object to JavaScript for interactive development
 // and debugging of web tests that rely on it.

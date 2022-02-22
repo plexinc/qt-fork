@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/spdy/core/spdy_prefixed_buffer_reader.h"
+#include "spdy/core/spdy_prefixed_buffer_reader.h"
 
 #include <string>
 
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_test.h"
+#include "absl/strings/string_view.h"
+#include "common/platform/api/quiche_test.h"
 
 namespace spdy {
 
@@ -46,8 +46,7 @@ TEST_F(SpdyPrefixedBufferReaderTest, ReadPieceFromPrefix) {
   EXPECT_FALSE(reader.ReadN(10, &piece));  // Not enough buffer.
   EXPECT_TRUE(reader.ReadN(6, &piece));
   EXPECT_FALSE(piece.IsPinned());
-  EXPECT_EQ(quiche::QuicheStringPiece("foobar"),
-            quiche::QuicheStringPiece(piece));
+  EXPECT_EQ(absl::string_view("foobar"), absl::string_view(piece));
   EXPECT_EQ(0u, reader.Available());
 }
 
@@ -70,8 +69,7 @@ TEST_F(SpdyPrefixedBufferReaderTest, ReadPieceFromSuffix) {
   EXPECT_FALSE(reader.ReadN(10, &piece));  // Not enough buffer.
   EXPECT_TRUE(reader.ReadN(6, &piece));
   EXPECT_FALSE(piece.IsPinned());
-  EXPECT_EQ(quiche::QuicheStringPiece("foobar"),
-            quiche::QuicheStringPiece(piece));
+  EXPECT_EQ(absl::string_view("foobar"), absl::string_view(piece));
   EXPECT_EQ(0u, reader.Available());
 }
 
@@ -94,8 +92,7 @@ TEST_F(SpdyPrefixedBufferReaderTest, ReadPieceSpanning) {
   EXPECT_FALSE(reader.ReadN(10, &piece));  // Not enough buffer.
   EXPECT_TRUE(reader.ReadN(6, &piece));
   EXPECT_TRUE(piece.IsPinned());
-  EXPECT_EQ(quiche::QuicheStringPiece("foobar"),
-            quiche::QuicheStringPiece(piece));
+  EXPECT_EQ(absl::string_view("foobar"), absl::string_view(piece));
   EXPECT_EQ(0u, reader.Available());
 }
 
@@ -115,12 +112,12 @@ TEST_F(SpdyPrefixedBufferReaderTest, ReadMixed) {
   EXPECT_EQ(6u, reader.Available());
 
   EXPECT_TRUE(reader.ReadN(3, &piece));
-  EXPECT_EQ(quiche::QuicheStringPiece("fhi"), quiche::QuicheStringPiece(piece));
+  EXPECT_EQ(absl::string_view("fhi"), absl::string_view(piece));
   EXPECT_TRUE(piece.IsPinned());
   EXPECT_EQ(3u, reader.Available());
 
   EXPECT_TRUE(reader.ReadN(2, &piece));
-  EXPECT_EQ(quiche::QuicheStringPiece("jk"), quiche::QuicheStringPiece(piece));
+  EXPECT_EQ(absl::string_view("jk"), absl::string_view(piece));
   EXPECT_FALSE(piece.IsPinned());
   EXPECT_EQ(1u, reader.Available());
 

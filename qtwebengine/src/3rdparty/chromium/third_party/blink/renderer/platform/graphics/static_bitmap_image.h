@@ -27,11 +27,11 @@ class PLATFORM_EXPORT StaticBitmapImage : public Image {
   // The ImageOrientation should be derived from the source of the image data.
   static scoped_refptr<StaticBitmapImage> Create(
       PaintImage,
-      ImageOrientation = kDefaultImageOrientation);
+      ImageOrientation = ImageOrientationEnum::kDefault);
   static scoped_refptr<StaticBitmapImage> Create(
       sk_sp<SkData> data,
       const SkImageInfo&,
-      ImageOrientation = kDefaultImageOrientation);
+      ImageOrientation = ImageOrientationEnum::kDefault);
 
   StaticBitmapImage(ImageOrientation orientation) : orientation_(orientation) {}
 
@@ -40,7 +40,7 @@ class PLATFORM_EXPORT StaticBitmapImage : public Image {
   // Methods overridden by all sub-classes
   ~StaticBitmapImage() override = default;
 
-  IntSize SizeRespectingOrientation() const override;
+  IntSize PreferredDisplaySize() const override;
 
   virtual scoped_refptr<StaticBitmapImage> ConvertToColorSpace(
       sk_sp<SkColorSpace>,
@@ -93,20 +93,8 @@ class PLATFORM_EXPORT StaticBitmapImage : public Image {
     return orientation_;
   }
   bool HasDefaultOrientation() const override {
-    return orientation_ == kDefaultImageOrientation;
+    return orientation_ == ImageOrientationEnum::kDefault;
   }
-
-  static base::CheckedNumeric<size_t> GetSizeInBytes(
-      const IntRect& rect,
-      const CanvasColorParams& color_params);
-
-  static bool MayHaveStrayArea(scoped_refptr<StaticBitmapImage> src_image,
-                               const IntRect& rect);
-
-  static bool CopyToByteArray(scoped_refptr<StaticBitmapImage> src_image,
-                              base::span<uint8_t> dst,
-                              const IntRect&,
-                              const CanvasColorParams&);
 
  protected:
   // Helper for sub-classes
@@ -114,6 +102,7 @@ class PLATFORM_EXPORT StaticBitmapImage : public Image {
                   const cc::PaintFlags&,
                   const FloatRect&,
                   const FloatRect&,
+                  const SkSamplingOptions&,
                   ImageClampingMode,
                   RespectImageOrientationEnum,
                   const PaintImage&);
@@ -122,7 +111,7 @@ class PLATFORM_EXPORT StaticBitmapImage : public Image {
   // static image is created and the underlying representations do not store
   // the information. The property is set at construction based on the source of
   // the image data.
-  ImageOrientation orientation_ = kDefaultImageOrientation;
+  ImageOrientation orientation_ = ImageOrientationEnum::kDefault;
 
   // The following property is here because the SkImage API doesn't expose the
   // info. It is applied to both UnacceleratedStaticBitmapImage and

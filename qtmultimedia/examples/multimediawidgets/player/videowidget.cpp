@@ -62,12 +62,14 @@ VideoWidget::VideoWidget(QWidget *parent)
     p.setColor(QPalette::Window, Qt::black);
     setPalette(p);
 
+#ifndef Q_OS_ANDROID // QTBUG-95723
     setAttribute(Qt::WA_OpaquePaintEvent);
+#endif
 }
 
 void VideoWidget::keyPressEvent(QKeyEvent *event)
 {
-    if (event->key() == Qt::Key_Escape && isFullScreen()) {
+    if ((event->key() == Qt::Key_Escape || event->key() == Qt::Key_Back) && isFullScreen()) {
         setFullScreen(false);
         event->accept();
     } else if (event->key() == Qt::Key_Enter && event->modifiers() & Qt::Key_Alt) {

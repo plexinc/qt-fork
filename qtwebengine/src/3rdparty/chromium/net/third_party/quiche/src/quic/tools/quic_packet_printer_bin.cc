@@ -28,11 +28,12 @@
 
 #include <iostream>
 
-#include "net/third_party/quiche/src/quic/core/quic_framer.h"
-#include "net/third_party/quiche/src/quic/core/quic_utils.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_text_utils.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "quic/core/quic_framer.h"
+#include "quic/core/quic_utils.h"
+#include "quic/platform/api/quic_flags.h"
+#include "common/platform/api/quiche_text_utils.h"
+#include "absl/strings/string_view.h"
+#include "absl/strings/escaping.h"
 
 DEFINE_QUIC_COMMAND_LINE_FLAG(std::string,
                               quic_version,
@@ -65,9 +66,9 @@ class QuicPacketPrinter : public QuicFramerVisitorInterface {
   }
   void OnRetryPacket(QuicConnectionId /*original_connection_id*/,
                      QuicConnectionId /*new_connection_id*/,
-                     quiche::QuicheStringPiece /*retry_token*/,
-                     quiche::QuicheStringPiece /*retry_integrity_tag*/,
-                     quiche::QuicheStringPiece /*retry_without_tag*/) override {
+                     absl::string_view /*retry_token*/,
+                     absl::string_view /*retry_integrity_tag*/,
+                     absl::string_view /*retry_without_tag*/) override {
     std::cerr << "OnRetryPacket\n";
   }
   bool OnUnauthenticatedPublicHeader(
@@ -79,9 +80,9 @@ class QuicPacketPrinter : public QuicFramerVisitorInterface {
     std::cerr << "OnUnauthenticatedHeader: " << header;
     return true;
   }
-  void OnDecryptedPacket(EncryptionLevel level) override {
+  void OnDecryptedPacket(size_t /*length*/, EncryptionLevel level) override {
     // This only currently supports "decrypting" null encrypted packets.
-    DCHECK_EQ(ENCRYPTION_INITIAL, level);
+    QUICHE_DCHECK_EQ(ENCRYPTION_INITIAL, level);
     std::cerr << "OnDecryptedPacket\n";
   }
   bool OnPacketHeader(const QuicPacketHeader& /*header*/) override {
@@ -99,16 +100,16 @@ class QuicPacketPrinter : public QuicFramerVisitorInterface {
   bool OnStreamFrame(const QuicStreamFrame& frame) override {
     std::cerr << "OnStreamFrame: " << frame;
     std::cerr << "         data: { "
-              << quiche::QuicheTextUtils::HexEncode(frame.data_buffer,
-                                                    frame.data_length)
+              << absl::BytesToHexString(
+                     absl::string_view(frame.data_buffer, frame.data_length))
               << " }\n";
     return true;
   }
   bool OnCryptoFrame(const QuicCryptoFrame& frame) override {
     std::cerr << "OnCryptoFrame: " << frame;
     std::cerr << "         data: { "
-              << quiche::QuicheTextUtils::HexEncode(frame.data_buffer,
-                                                    frame.data_length)
+              << absl::BytesToHexString(
+                     absl::string_view(frame.data_buffer, frame.data_length))
               << " }\n";
     return true;
   }
@@ -207,6 +208,10 @@ class QuicPacketPrinter : public QuicFramerVisitorInterface {
     std::cerr << "OnHandshakeDoneFrame: " << frame;
     return true;
   }
+  bool OnAckFrequencyFrame(const QuicAckFrequencyFrame& frame) override {
+    std::cerr << "OnAckFrequencyFrame: " << frame;
+    return true;
+  }
   void OnPacketComplete() override { std::cerr << "OnPacketComplete\n"; }
   bool IsValidStatelessResetToken(QuicUint128 /*token*/) const override {
     std::cerr << "IsValidStatelessResetToken\n";
@@ -215,6 +220,21 @@ class QuicPacketPrinter : public QuicFramerVisitorInterface {
   void OnAuthenticatedIetfStatelessResetPacket(
       const QuicIetfStatelessResetPacket& /*packet*/) override {
     std::cerr << "OnAuthenticatedIetfStatelessResetPacket\n";
+  }
+  void OnKeyUpdate(KeyUpdateReason reason) override {
+    std::cerr << "OnKeyUpdate: " << reason << "\n";
+  }
+  void OnDecryptedFirstPacketInKeyPhase() override {
+    std::cerr << "OnDecryptedFirstPacketInKeyPhase\n";
+  }
+  std::unique_ptr<QuicDecrypter> AdvanceKeysAndCreateCurrentOneRttDecrypter()
+      override {
+    std::cerr << "AdvanceKeysAndCreateCurrentOneRttDecrypter\n";
+    return nullptr;
+  }
+  std::unique_ptr<QuicEncrypter> CreateCurrentOneRttEncrypter() override {
+    std::cerr << "CreateCurrentOneRttEncrypter\n";
+    return nullptr;
   }
 
  private:
@@ -244,19 +264,16 @@ int main(int argc, char* argv[]) {
     quic::QuicPrintCommandLineFlagHelp(usage);
     return 1;
   }
-  std::string hex = quiche::QuicheTextUtils::HexDecode(args[1]);
+  std::string hex = absl::HexStringToBytes(args[1]);
   quic::ParsedQuicVersionVector versions = quic::AllSupportedVersions();
   // Fake a time since we're not actually generating acks.
   quic::QuicTime start(quic::QuicTime::Zero());
   quic::QuicFramer framer(versions, start, perspective,
                           quic::kQuicDefaultConnectionIdLength);
-  if (!GetQuicFlag(FLAGS_quic_version).empty()) {
-    for (quic::ParsedQuicVersion version : versions) {
-      if (quic::QuicVersionToString(version.transport_version) ==
-          GetQuicFlag(FLAGS_quic_version)) {
-        framer.set_version(version);
-      }
-    }
+  const quic::ParsedQuicVersion& version =
+      quic::ParseQuicVersionString(GetQuicFlag(FLAGS_quic_version));
+  if (version != quic::ParsedQuicVersion::Unsupported()) {
+    framer.set_version(version);
   }
   quic::QuicPacketPrinter visitor(&framer);
   framer.set_visitor(&visitor);

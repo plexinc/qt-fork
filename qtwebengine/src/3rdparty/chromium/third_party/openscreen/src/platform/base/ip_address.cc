@@ -12,23 +12,12 @@
 #include <cstring>
 #include <iomanip>
 #include <iterator>
+#include <limits>
 #include <sstream>
 #include <utility>
 
 namespace openscreen {
 
-// static
-const IPAddress IPAddress::kV4LoopbackAddress{127, 0, 0, 1};
-
-// static
-const IPAddress IPAddress::kV6LoopbackAddress{0, 0, 0, 0, 0, 0, 0, 1};
-
-IPAddress::IPAddress() : version_(Version::kV4), bytes_({}) {}
-IPAddress::IPAddress(const std::array<uint8_t, 4>& bytes)
-    : version_(Version::kV4),
-      bytes_{{bytes[0], bytes[1], bytes[2], bytes[3]}} {}
-IPAddress::IPAddress(const uint8_t (&b)[4])
-    : version_(Version::kV4), bytes_{{b[0], b[1], b[2], b[3]}} {}
 IPAddress::IPAddress(Version version, const uint8_t* b) : version_(version) {
   if (version_ == Version::kV4) {
     bytes_ = {{b[0], b[1], b[2], b[3]}};
@@ -37,61 +26,6 @@ IPAddress::IPAddress(Version version, const uint8_t* b) : version_(version) {
                b[10], b[11], b[12], b[13], b[14], b[15]}};
   }
 }
-IPAddress::IPAddress(uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4)
-    : version_(Version::kV4), bytes_{{b1, b2, b3, b4}} {}
-
-IPAddress::IPAddress(const std::array<uint16_t, 8>& hextets)
-    : IPAddress(hextets[0],
-                hextets[1],
-                hextets[2],
-                hextets[3],
-                hextets[4],
-                hextets[5],
-                hextets[6],
-                hextets[7]) {}
-
-IPAddress::IPAddress(const uint16_t (&hextets)[8])
-    : IPAddress(hextets[0],
-                hextets[1],
-                hextets[2],
-                hextets[3],
-                hextets[4],
-                hextets[5],
-                hextets[6],
-                hextets[7]) {}
-
-IPAddress::IPAddress(uint16_t h0,
-                     uint16_t h1,
-                     uint16_t h2,
-                     uint16_t h3,
-                     uint16_t h4,
-                     uint16_t h5,
-                     uint16_t h6,
-                     uint16_t h7)
-    : version_(Version::kV6),
-      bytes_{{
-          static_cast<uint8_t>(h0 >> 8),
-          static_cast<uint8_t>(h0),
-          static_cast<uint8_t>(h1 >> 8),
-          static_cast<uint8_t>(h1),
-          static_cast<uint8_t>(h2 >> 8),
-          static_cast<uint8_t>(h2),
-          static_cast<uint8_t>(h3 >> 8),
-          static_cast<uint8_t>(h3),
-          static_cast<uint8_t>(h4 >> 8),
-          static_cast<uint8_t>(h4),
-          static_cast<uint8_t>(h5 >> 8),
-          static_cast<uint8_t>(h5),
-          static_cast<uint8_t>(h6 >> 8),
-          static_cast<uint8_t>(h6),
-          static_cast<uint8_t>(h7 >> 8),
-          static_cast<uint8_t>(h7),
-      }} {}
-
-IPAddress::IPAddress(const IPAddress& o) noexcept = default;
-IPAddress::IPAddress(IPAddress&& o) noexcept = default;
-IPAddress& IPAddress::operator=(const IPAddress& o) noexcept = default;
-IPAddress& IPAddress::operator=(IPAddress&& o) noexcept = default;
 
 bool IPAddress::operator==(const IPAddress& o) const {
   if (version_ != o.version_)
@@ -211,6 +145,16 @@ ErrorOr<IPAddress> IPAddress::Parse(const std::string& s) {
   return v4 ? std::move(v4) : ParseV6(s);
 }
 
+// static
+const IPEndpoint IPEndpoint::kAnyV4() {
+  return IPEndpoint{};
+}
+
+// static
+const IPEndpoint IPEndpoint::kAnyV6() {
+  return IPEndpoint{IPAddress::kAnyV6(), 0};
+}
+
 IPEndpoint::operator bool() const {
   return address || port;
 }
@@ -294,25 +238,27 @@ std::ostream& operator<<(std::ostream& out, const IPAddress& address) {
   size_t len = 0;
   char separator;
   size_t values_per_separator;
+  int value_width;
   if (address.IsV4()) {
     out << std::dec;
     address.CopyToV4(values);
     len = 4;
     separator = '.';
     values_per_separator = 1;
+    value_width = 0;
   } else if (address.IsV6()) {
-    out << std::hex;
+    out << std::hex << std::setfill('0') << std::right;
     address.CopyToV6(values);
     len = 16;
     separator = ':';
     values_per_separator = 2;
+    value_width = 2;
   }
-  out << std::setfill('0') << std::right;
   for (size_t i = 0; i < len; ++i) {
     if (i > 0 && (i % values_per_separator == 0)) {
       out << separator;
     }
-    out << std::setw(2) << static_cast<int>(values[i]);
+    out << std::setw(value_width) << static_cast<int>(values[i]);
   }
   return out;
 }
@@ -330,7 +276,7 @@ std::ostream& operator<<(std::ostream& out, const IPEndpoint& endpoint) {
 
 std::string IPEndpoint::ToString() const {
   std::ostringstream name;
-  name << this;
+  name << *this;
   return name.str();
 }
 

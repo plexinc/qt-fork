@@ -56,6 +56,7 @@
 #include <QtCore/QReadWriteLock>
 
 #include <QtGui/QIcon>
+#include <QtGui/QEventPoint>
 #include <QtCore/QVariant>
 #include <QtCore/QLoggingCategory>
 #include <QtCore/QElapsedTimer>
@@ -83,6 +84,8 @@ class QWaylandInputDevice;
 class QWaylandScreen;
 class QWaylandShmBackingStore;
 class QWaylandPointerEvent;
+class QWaylandPointerGestureSwipeEvent;
+class QWaylandPointerGesturePinchEvent;
 class QWaylandSurface;
 
 class Q_WAYLAND_CLIENT_EXPORT QWaylandWindow : public QObject, public QPlatformWindow
@@ -94,6 +97,15 @@ public:
         Egl,
         Vulkan
     };
+
+    enum ToplevelWindowTilingState {
+        WindowNoState = 0,
+        WindowTiledLeft = 1,
+        WindowTiledRight = 2,
+        WindowTiledTop = 4,
+        WindowTiledBottom = 8
+    };
+    Q_DECLARE_FLAGS(ToplevelWindowTilingStates, ToplevelWindowTilingState)
 
     QWaylandWindow(QWindow *window, QWaylandDisplay *display);
     ~QWaylandWindow() override;
@@ -145,6 +157,10 @@ public:
     void handleContentOrientationChange(Qt::ScreenOrientation orientation) override;
     void setOrientationMask(Qt::ScreenOrientations mask);
 
+    ToplevelWindowTilingStates toplevelWindowTilingStates() const;
+    void handleToplevelWindowTilingStatesChanged(ToplevelWindowTilingStates states);
+
+    Qt::WindowStates windowStates() const;
     void setWindowState(Qt::WindowStates states) override;
     void setWindowFlags(Qt::WindowFlags flags) override;
     void handleWindowStatesChanged(Qt::WindowStates states);
@@ -154,7 +170,7 @@ public:
 
     void setMask(const QRegion &region) override;
 
-    int scale() const;
+    qreal scale() const;
     qreal devicePixelRatio() const override;
 
     void requestActivateWindow() override;
@@ -164,9 +180,15 @@ public:
     QWaylandAbstractDecoration *decoration() const;
 
     void handleMouse(QWaylandInputDevice *inputDevice, const QWaylandPointerEvent &e);
+#ifndef QT_NO_GESTURES
+    void handleSwipeGesture(QWaylandInputDevice *inputDevice,
+                            const QWaylandPointerGestureSwipeEvent &e);
+    void handlePinchGesture(QWaylandInputDevice *inputDevice,
+                            const QWaylandPointerGesturePinchEvent &e);
+#endif
 
     bool touchDragDecoration(QWaylandInputDevice *inputDevice, const QPointF &local, const QPointF &global,
-                             Qt::TouchPointState state, Qt::KeyboardModifiers mods);
+                             QEventPoint::State state, Qt::KeyboardModifiers mods);
 
     bool createDecoration();
 
@@ -214,15 +236,36 @@ signals:
     void wlSurfaceDestroyed();
 
 protected:
+    virtual void doHandleFrameCallback();
+    virtual QRect defaultGeometry() const;
+    void sendExposeEvent(const QRect &rect);
+
     QWaylandDisplay *mDisplay = nullptr;
     QScopedPointer<QWaylandSurface> mSurface;
     QWaylandShellSurface *mShellSurface = nullptr;
     QWaylandSubSurface *mSubSurfaceWindow = nullptr;
-    QVector<QWaylandSubSurface *> mChildren;
+    QList<QWaylandSubSurface *> mChildren;
 
     QWaylandAbstractDecoration *mWindowDecoration = nullptr;
     bool mMouseEventsInContentArea = false;
     Qt::MouseButtons mMousePressedInContentArea = Qt::NoButton;
+
+#ifndef QT_NO_GESTURES
+    enum GestureState {
+        GestureNotActive,
+        GestureActiveInContentArea,
+        GestureActiveInDecoration
+    };
+
+    // We want gestures started in the decoration area to be completely ignored even if the mouse
+    // pointer is later moved to content area. Likewise, gestures started in the content area should
+    // keep sending events even if the mouse pointer is moved over the decoration (consider that
+    // the events for that gesture will be sent to us even if it's moved outside the window).
+    // So we track the gesture state and accept or ignore events based on that. Note that
+    // concurrent gestures of different types are not allowed in the protocol, so single state is
+    // enough
+    GestureState mGestureState = GestureNotActive;
+#endif
 
     WId mWindowId;
     bool mWaitingForFrameCallback = false;
@@ -256,6 +299,7 @@ protected:
     QRegion mMask;
     QRegion mOpaqueArea;
     Qt::WindowStates mLastReportedWindowStates = Qt::WindowNoState;
+    ToplevelWindowTilingStates mLastReportedToplevelWindowTilingStates = WindowNoState;
 
     QWaylandShmBackingStore *mBackingStore = nullptr;
     QWaylandBuffer *mQueuedBuffer = nullptr;
@@ -268,7 +312,6 @@ private:
     bool shouldCreateShellSurface() const;
     bool shouldCreateSubSurface() const;
     void reset();
-    void sendExposeEvent(const QRect &rect);
     static void closePopups(QWaylandWindow *parent);
     QPlatformScreen *calculateScreenFromSurfaceEvents() const;
     void setOpaqueArea(const QRegion &opaqueArea);
@@ -287,10 +330,12 @@ private:
 
     static QWaylandWindow *mMouseGrab;
 
-    QReadWriteLock mSurfaceLock;
+    mutable QReadWriteLock mSurfaceLock;
 
     friend class QWaylandSubSurface;
 };
+
+Q_DECLARE_OPERATORS_FOR_FLAGS(QWaylandWindow::ToplevelWindowTilingStates)
 
 inline QIcon QWaylandWindow::windowIcon() const
 {

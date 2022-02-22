@@ -72,19 +72,19 @@
     \gui Preferences > \gui Downloads > \gui Components >
     \gui {Command Line Tools}.
 
-    Qt 5 sources can be obtained either by cloning the repositories or
+    Qt sources can be obtained either by cloning the repositories or
     downloading the source package(s).
 
-    We can then configure and build Qt. This is done from the Qt 5 top
+    We can then configure and build Qt. This is done from the Qt top
     directory:
 
     \badcode
-        > ./configure -xplatform macx-ios-clang -release
+        > ./configure -platform macx-ios-clang -release -qt-host-path <path_to_host_qt_installation>
     \endcode
 
     For other configure options, see \l{Qt Configure Options}.
 
-    Then, simply run \c{make}.
+    Then, simply run \c{cmake --build . --parallel}.
 
     \note A default build will include both simulator and device
     libraries. If you want to build for a single target, use the \c
@@ -145,8 +145,9 @@
          \l{Qt Creator: Specifying Run Settings}
 
      \li If your application uses imports or plugins which depend on special Qt
-         modules, these Qt modules should be added to the .pro file. For example, if
-         your application uses the \l{Qt Multimedia} import in QML, you should add
+         modules, these Qt modules should be added to the .pro file.
+         For example, if
+         your application uses the Qt Multimedia import in QML, you should add
          the following to your .pro file:
 
          \badcode
@@ -157,20 +158,16 @@
          bundle. The applications are "sandboxed" inside their bundles and cannot make use
          of shared object files. Because of this, also the plugins used by the Qt modules
          need to be statically linked. To do this, define the required plugins using the
-         \l QTPLUGIN variable. For example, to use the camera APIs from Qt Multimedia:
+         \l QTPLUGIN variable.
 
-         \badcode
-         QTPLUGIN += qavfcamera
-         \endcode
-
-         See \l {http://wiki.qt.io/QtMultimedia_iOS}{Qt Multimedia on iOS}
-         for information on other Qt Multimedia plugins. If your project uses APIs
-         from \l {Qt Sensors}, use the following:
+         \omit
+         If your project uses APIs from \l {Qt Sensors}, use the following:
 
          \badcode
          QT += sensors
          QTPLUGIN += qtsensors_ios
          \endcode
+         \endomit
 
      \li Save the changes to your project and run the application.
     \endlist

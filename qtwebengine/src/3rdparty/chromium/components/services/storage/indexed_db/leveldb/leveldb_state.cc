@@ -17,9 +17,10 @@ scoped_refptr<LevelDBState> LevelDBState::CreateForDiskDB(
     const leveldb::Comparator* comparator,
     std::unique_ptr<leveldb::DB> database,
     base::FilePath database_path) {
-  return base::WrapRefCounted(new LevelDBState(
-      nullptr, comparator, std::move(database), std::move(database_path),
-      database_path.BaseName().AsUTF8Unsafe()));
+  auto name_for_tracing = database_path.BaseName().AsUTF8Unsafe();
+  return base::WrapRefCounted(
+      new LevelDBState(nullptr, comparator, std::move(database),
+                       std::move(database_path), std::move(name_for_tracing)));
 }
 
 // static
@@ -57,14 +58,14 @@ void LevelDBState::RequestDestruction(
 }
 
 LevelDBState::~LevelDBState() {
+  if (db_) {
+    base::TimeTicks begin_time = base::TimeTicks::Now();
+    const_cast<std::unique_ptr<leveldb::DB>*>(&db_)->reset();
+    base::UmaHistogramMediumTimes("WebCore.IndexedDB.LevelDB.CloseTime",
+                                  base::TimeTicks::Now() - begin_time);
+  }
   if (signal_on_destruction_)
     signal_on_destruction_->Signal();
-  if (!db_)
-    return;
-  base::TimeTicks begin_time = base::TimeTicks::Now();
-  const_cast<std::unique_ptr<leveldb::DB>*>(&db_)->reset();
-  base::UmaHistogramMediumTimes("WebCore.IndexedDB.LevelDB.CloseTime",
-                                base::TimeTicks::Now() - begin_time);
 }
 
 }  // namespace content

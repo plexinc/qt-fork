@@ -4,28 +4,17 @@
 
 #include "components/net_log/chrome_net_log.h"
 
+#include <utility>
+
 #include "base/command_line.h"
 #include "base/strings/stringprintf.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/system/sys_info.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "components/version_info/version_info.h"
-#include "net/log/net_log_util.h"
 
 namespace net_log {
-
-std::unique_ptr<base::Value> GetConstantsForNetLog(
-    const base::CommandLine::StringType& command_line_string,
-    const std::string& channel_string) {
-  std::unique_ptr<base::DictionaryValue> constants_dict =
-      net::GetNetConstants();
-  DCHECK(constants_dict);
-
-  auto platform_dict =
-      GetPlatformConstantsForNetLog(command_line_string, channel_string);
-  if (platform_dict)
-    constants_dict->MergeDictionary(platform_dict.get());
-  return constants_dict;
-}
 
 std::unique_ptr<base::DictionaryValue> GetPlatformConstantsForNetLog(
     const base::CommandLine::StringType& command_line_string,
@@ -48,7 +37,11 @@ std::unique_ptr<base::DictionaryValue> GetPlatformConstantsForNetLog(
       base::SysInfo::OperatingSystemVersion().c_str(),
       base::SysInfo::OperatingSystemArchitecture().c_str());
   dict->SetString("os_type", os_type);
+#if defined(OS_WIN)
+  dict->SetString("command_line", base::WideToUTF8(command_line_string));
+#else
   dict->SetString("command_line", command_line_string);
+#endif
 
   constants_dict->Set("clientInfo", std::move(dict));
 

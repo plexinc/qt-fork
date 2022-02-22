@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2020 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -26,14 +26,13 @@
 **
 ****************************************************************************/
 
+#include <qbuffer.h>
 #include <qbytearray.h>
-#include <qstring.h>
-#include <qvarlengtharray.h>
+#include <qdebug.h>
 #include <qfile.h>
 #include <qlist.h>
-#include <qbuffer.h>
-#include <qvector.h>
-#include <qdebug.h>
+#include <qstring.h>
+#include <qvarlengtharray.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -61,7 +60,7 @@ static const char docTypeHeader[] =
 
 #define PROGRAMNAME     "qdbuscpp2xml"
 #define PROGRAMVERSION  "0.2"
-#define PROGRAMCOPYRIGHT "Copyright (C) 2020 The Qt Company Ltd."
+#define PROGRAMCOPYRIGHT "Copyright (C) 2022 The Qt Company Ltd."
 
 static QString outputFile;
 static int flags;
@@ -81,8 +80,7 @@ static const char help[] =
     "  -V             Show the program version and quit.\n"
     "\n";
 
-
-int qDBusParametersForMethod(const FunctionDef &mm, QVector<int>& metaTypes, QString &errorMsg)
+int qDBusParametersForMethod(const FunctionDef &mm, QList<QMetaType> &metaTypes, QString &errorMsg)
 {
     QList<QByteArray> parameterTypes;
     parameterTypes.reserve(mm.arguments.size());
@@ -106,16 +104,16 @@ static QString addFunction(const FunctionDef &mm, bool isSignal = false) {
                                     isSignal ? "signal" : "method", mm.name.constData());
 
     // check the return type first
-    int typeId = QMetaType::type(mm.normalizedType.constData());
+    int typeId = QMetaType::fromName(mm.normalizedType).id();
     if (typeId != QMetaType::Void) {
         if (typeId) {
-            const char *typeName = QDBusMetaType::typeToSignature(typeId);
+            const char *typeName = QDBusMetaType::typeToSignature(QMetaType(typeId));
             if (typeName) {
                 xml += QString::fromLatin1("      <arg type=\"%1\" direction=\"out\"/>\n")
                         .arg(typeNameToXml(typeName));
 
                     // do we need to describe this argument?
-                    if (QDBusMetaType::signatureToType(typeName) == QMetaType::UnknownType)
+                    if (!QDBusMetaType::signatureToMetaType(typeName).isValid())
                         xml += QString::fromLatin1("      <annotation name=\"org.qtproject.QtDBus.QtTypeName.Out0\" value=\"%1\"/>\n")
                             .arg(typeNameToXml(mm.normalizedType.constData()));
             } else {
@@ -125,8 +123,8 @@ static QString addFunction(const FunctionDef &mm, bool isSignal = false) {
             return QString();           // wasn't a valid type
         }
     }
-    QVector<ArgumentDef> names = mm.arguments;
-    QVector<int> types;
+    QList<ArgumentDef> names = mm.arguments;
+    QList<QMetaType> types;
     QString errorMsg;
     int inputCount = qDBusParametersForMethod(mm, types, errorMsg);
     if (inputCount == -1) {
@@ -152,15 +150,15 @@ static QString addFunction(const FunctionDef &mm, bool isSignal = false) {
 
         bool isOutput = isSignal || j > inputCount;
 
-        const char *signature = QDBusMetaType::typeToSignature(types.at(j));
+        const char *signature = QDBusMetaType::typeToSignature(QMetaType(types.at(j)));
         xml += QString::fromLatin1("      <arg %1type=\"%2\" direction=\"%3\"/>\n")
                 .arg(name,
                      QLatin1String(signature),
                      isOutput ? QLatin1String("out") : QLatin1String("in"));
 
         // do we need to describe this argument?
-        if (QDBusMetaType::signatureToType(signature) == QMetaType::UnknownType) {
-            const char *typeName = QMetaType::typeName(types.at(j));
+        if (!QDBusMetaType::signatureToMetaType(signature).isValid()) {
+            const char *typeName = QMetaType(types.at(j)).name();
             xml += QString::fromLatin1("      <annotation name=\"org.qtproject.QtDBus.QtTypeName.%1%2\" value=\"%3\"/>\n")
                     .arg(isOutput ? QLatin1String("Out") : QLatin1String("In"))
                     .arg(isOutput && !isSignal ? j - inputCount : j - 1)
@@ -198,7 +196,7 @@ static QString generateInterfaceXml(const ClassDef *mo)
     // start with properties:
     if (flags & (QDBusConnection::ExportScriptableProperties |
                  QDBusConnection::ExportNonScriptableProperties)) {
-        static const char *accessvalues[] = {0, "read", "write", "readwrite"};
+        static const char *accessvalues[] = {nullptr, "read", "write", "readwrite"};
         for (const PropertyDef &mp : mo->propertyList) {
             if (!((!mp.scriptable.isEmpty() && (flags & QDBusConnection::ExportScriptableProperties)) ||
                   (!mp.scriptable.isEmpty() && (flags & QDBusConnection::ExportNonScriptableProperties))))
@@ -210,13 +208,13 @@ static QString generateInterfaceXml(const ClassDef *mo)
             if (!mp.write.isEmpty())
                 access |= 2;
 
-            int typeId = QMetaType::type(mp.type.constData());
+            int typeId = QMetaType::fromName(mp.type).id();
             if (!typeId) {
                 fprintf(stderr, PROGRAMNAME ": unregistered type: '%s', ignoring\n",
                         mp.type.constData());
                 continue;
             }
-            const char *signature = QDBusMetaType::typeToSignature(typeId);
+            const char *signature = QDBusMetaType::typeToSignature(QMetaType(typeId));
             if (!signature)
                 continue;
 
@@ -225,7 +223,7 @@ static QString generateInterfaceXml(const ClassDef *mo)
                            QLatin1String(signature),
                            QLatin1String(accessvalues[access]));
 
-            if (QDBusMetaType::signatureToType(signature) == QMetaType::UnknownType) {
+            if (!QDBusMetaType::signatureToMetaType(signature).isValid()) {
                 retval += QString::fromLatin1(">\n      <annotation name=\"org.qtproject.QtDBus.QtTypeName\" value=\"%3\"/>\n    </property>\n")
                           .arg(typeNameToXml(mp.type.constData()));
             } else {
@@ -398,7 +396,7 @@ int main(int argc, char **argv)
         args.append(QString::fromLocal8Bit(argv[n]));
     parseCmdLine(args);
 
-    QVector<ClassDef> classes;
+    QList<ClassDef> classes;
 
     for (int i = 0; i < args.count(); ++i) {
         const QString arg = args.at(i);

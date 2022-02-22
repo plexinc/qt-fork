@@ -4,6 +4,7 @@
 
 #include "content/browser/devtools/devtools_pipe_handler.h"
 #include "base/task/thread_pool.h"
+#include "build/build_config.h"
 
 #if defined(OS_WIN)
 #include <io.h>
@@ -26,7 +27,6 @@
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
 #include "base/synchronization/atomic_flag.h"
-#include "base/task/post_task.h"
 #include "base/threading/thread.h"
 #include "build/build_config.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -79,11 +79,10 @@ class PipeIOBase {
       pipe_io.reset();
     }
     // Post background task that would join and destroy the thread.
-    base::DeleteSoon(
-        FROM_HERE,
-        {base::ThreadPool(), base::MayBlock(), base::WithBaseSyncPrimitives(),
-         base::TaskPriority::BEST_EFFORT},
-        std::move(thread));
+    base::ThreadPool::CreateSequencedTaskRunner(
+        {base::MayBlock(), base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN,
+         base::WithBaseSyncPrimitives(), base::TaskPriority::BEST_EFFORT})
+        ->DeleteSoon(FROM_HERE, std::move(thread));
   }
 
  protected:
@@ -144,8 +143,12 @@ class PipeReaderBase : public PipeIOBase {
       bool had_error = size_read <= 0;
 #endif
       if (had_error) {
-        if (!shutting_down_.IsSet())
+        if (!shutting_down_.IsSet()) {
           LOG(ERROR) << "Connection terminated while reading from pipe";
+          GetUIThreadTaskRunner({})->PostTask(
+              FROM_HERE, base::BindOnce(&DevToolsPipeHandler::OnDisconnect,
+                                        devtools_handler_));
+        }
         return 0;
       }
       bytes_read += size_read;
@@ -156,16 +159,16 @@ class PipeReaderBase : public PipeIOBase {
   }
 
   void HandleMessage(std::vector<uint8_t> message) {
-    base::PostTask(FROM_HERE, {BrowserThread::UI},
-                   base::BindOnce(&DevToolsPipeHandler::HandleMessage,
+    GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE, base::BindOnce(&DevToolsPipeHandler::HandleMessage,
                                   devtools_handler_, std::move(message)));
   }
 
  private:
   void ReadLoop() {
     ReadLoopInternal();
-    base::PostTask(
-        FROM_HERE, {BrowserThread::UI},
+    GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE,
         base::BindOnce(&DevToolsPipeHandler::Shutdown, devtools_handler_));
   }
 
@@ -343,8 +346,10 @@ class PipeReaderCBOR : public PipeReaderBase {
 
 // DevToolsPipeHandler ---------------------------------------------------
 
-DevToolsPipeHandler::DevToolsPipeHandler()
-    : read_fd_(kReadFD), write_fd_(kWriteFD) {
+DevToolsPipeHandler::DevToolsPipeHandler(base::OnceClosure on_disconnect)
+    : on_disconnect_(std::move(on_disconnect)),
+      read_fd_(kReadFD),
+      write_fd_(kWriteFD) {
   browser_target_ = DevToolsAgentHost::CreateForBrowser(
       nullptr, DevToolsAgentHost::CreateServerSocketCallback());
   browser_target_->AttachClient(this);
@@ -395,7 +400,10 @@ void DevToolsPipeHandler::HandleMessage(std::vector<uint8_t> message) {
     browser_target_->DispatchProtocolMessage(this, message);
 }
 
-void DevToolsPipeHandler::DetachFromTarget() {}
+void DevToolsPipeHandler::OnDisconnect() {
+  if (on_disconnect_)
+    std::move(on_disconnect_).Run();
+}
 
 void DevToolsPipeHandler::DispatchProtocolMessage(
     DevToolsAgentHost* agent_host,
@@ -408,6 +416,10 @@ void DevToolsPipeHandler::AgentHostClosed(DevToolsAgentHost* agent_host) {}
 
 bool DevToolsPipeHandler::UsesBinaryProtocol() {
   return mode_ == ProtocolMode::kCBOR;
+}
+
+bool DevToolsPipeHandler::AllowUnsafeOperations() {
+  return true;
 }
 
 }  // namespace content

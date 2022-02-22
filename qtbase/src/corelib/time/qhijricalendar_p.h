@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2019 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -72,10 +72,7 @@ public:
 
 protected:
     const QCalendarLocale *localeMonthIndexData() const override;
-    const ushort *localeMonthData() const override;
-    // (The INTEGRITY compiler got upset at: using QCalendarBackend:QCalendarBackend;)
-    QHijriCalendar(const QString &name, QCalendar::System id = QCalendar::System::User)
-        : QCalendarBackend(name, id) {}
+    const char16_t *localeMonthData() const override;
 };
 
 QT_END_NAMESPACE

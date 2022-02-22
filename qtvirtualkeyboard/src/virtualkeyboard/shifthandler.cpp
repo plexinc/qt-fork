@@ -38,6 +38,12 @@
 #include <QStyleHints>
 
 QT_BEGIN_NAMESPACE
+
+size_t qHash(QLocale::Language lang, size_t seed)
+{
+    return qHash(ushort(lang), seed);
+}
+
 namespace QtVirtualKeyboard {
 
 class ShiftHandlerPrivate : public QObjectPrivate
@@ -55,7 +61,7 @@ public:
         resetWhenVisible(false),
         manualShiftLanguageFilter(QSet<QLocale::Language>() << QLocale::Arabic << QLocale::Persian << QLocale::Hindi << QLocale::Korean << QLocale::Thai),
         manualCapsInputModeFilter(QSet<QVirtualKeyboardInputEngine::InputMode>() << QVirtualKeyboardInputEngine::InputMode::Cangjie << QVirtualKeyboardInputEngine::InputMode::Zhuyin << QVirtualKeyboardInputEngine::InputMode::Hebrew),
-        noAutoUppercaseInputModeFilter(QSet<QVirtualKeyboardInputEngine::InputMode>() << QVirtualKeyboardInputEngine::InputMode::FullwidthLatin << QVirtualKeyboardInputEngine::InputMode::Pinyin << QVirtualKeyboardInputEngine::InputMode::Cangjie << QVirtualKeyboardInputEngine::InputMode::Zhuyin << QVirtualKeyboardInputEngine::InputMode::ChineseHandwriting << QVirtualKeyboardInputEngine::InputMode::JapaneseHandwriting << QVirtualKeyboardInputEngine::InputMode::KoreanHandwriting),
+        noAutoUppercaseInputModeFilter(QSet<QVirtualKeyboardInputEngine::InputMode>() << QVirtualKeyboardInputEngine::InputMode::FullwidthLatin << QVirtualKeyboardInputEngine::InputMode::Pinyin << QVirtualKeyboardInputEngine::InputMode::Cangjie << QVirtualKeyboardInputEngine::InputMode::Zhuyin << QVirtualKeyboardInputEngine::InputMode::ChineseHandwriting << QVirtualKeyboardInputEngine::InputMode::JapaneseHandwriting << QVirtualKeyboardInputEngine::InputMode::KoreanHandwriting << QVirtualKeyboardInputEngine::InputMode::Romaji),
         allCapsInputModeFilter(QSet<QVirtualKeyboardInputEngine::InputMode>() << QVirtualKeyboardInputEngine::InputMode::Hiragana << QVirtualKeyboardInputEngine::InputMode::Katakana)
     {
     }
@@ -304,7 +310,7 @@ void ShiftHandler::autoCapitalize()
             if (text.trimmed().length() == 0)
                 setShiftActive(!preferLowerCase);
             else if (text.endsWith(QLatin1Char(' ')))
-                setShiftActive(d->sentenceEndingCharacters.contains(text.rightRef(2)[0])
+                setShiftActive(d->sentenceEndingCharacters.contains(QStringView{text}.right(2)[0])
                                && !preferLowerCase);
             else
                 setShiftActive(false);

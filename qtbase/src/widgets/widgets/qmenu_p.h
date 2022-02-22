@@ -52,6 +52,7 @@
 //
 
 #include <QtWidgets/private/qtwidgetsglobal_p.h>
+#include "QtWidgets/qmenu.h"
 #if QT_CONFIG(menubar)
 #include "QtWidgets/qmenubar.h"
 #endif
@@ -347,12 +348,11 @@ public:
     //item calculations
     QRect actionRect(QAction *) const;
 
-    mutable QVector<QRect> actionRects;
+    mutable QList<QRect> actionRects;
     mutable QHash<QAction *, QWidget *> widgetItems;
     void updateActionRects() const;
     void updateActionRects(const QRect &screen) const;
-    QRect popupGeometry() const;
-    QRect popupGeometry(int screen) const;
+    QRect popupGeometry(QScreen *screen = nullptr) const;
     bool useFullScreenForPopup() const;
     int getLastVisibleAction() const;
     void popup(const QPoint &p, QAction *atAction, PositionFunction positionFunction = {});
@@ -436,10 +436,11 @@ public:
         QPointer<QWidget> widget;
         QPointer<QAction> action;
     };
-    virtual QVector<QPointer<QWidget> > calcCausedStack() const;
+    virtual QList<QPointer<QWidget>> calcCausedStack() const;
     QMenuCaused causedPopup;
     void hideUpToMenuBar();
     void hideMenu(QMenu *menu);
+    QWindow *transientParentWindow() const;
 
     //index mappings
     inline QAction *actionAt(int i) const { return q_func()->actions().at(i); }
@@ -461,7 +462,8 @@ public:
 
     //firing of events
     void activateAction(QAction *, QAction::ActionEvent, bool self=true);
-    void activateCausedStack(const QVector<QPointer<QWidget> > &, QAction *, QAction::ActionEvent, bool);
+    void activateCausedStack(const QList<QPointer<QWidget>> &, QAction *, QAction::ActionEvent,
+                             bool);
 
     void _q_actionTriggered();
     void _q_actionHovered();
@@ -521,8 +523,6 @@ public:
     bool tearoffHighlighted : 1;
     //menu fading/scrolling effects
     bool doChildEffects : 1;
-
-    int popupScreen = -1;
 };
 
 QT_END_NAMESPACE

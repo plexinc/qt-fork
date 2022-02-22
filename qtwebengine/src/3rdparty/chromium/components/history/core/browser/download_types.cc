@@ -6,7 +6,8 @@
 
 #include <ostream>
 
-#include "base/logging.h"
+#include "base/check_op.h"
+#include "base/notreached.h"
 #include "components/history/core/browser/download_constants.h"
 
 namespace history {
@@ -63,7 +64,7 @@ DownloadDangerType IntToDownloadDangerType(int danger_type) {
     case DownloadDangerType::USER_VALIDATED:
     case DownloadDangerType::DANGEROUS_HOST:
     case DownloadDangerType::POTENTIALLY_UNWANTED:
-    case DownloadDangerType::WHITELISTED_BY_POLICY:
+    case DownloadDangerType::ALLOWLISTED_BY_POLICY:
     case DownloadDangerType::ASYNC_SCANNING:
     case DownloadDangerType::BLOCKED_PASSWORD_PROTECTED:
     case DownloadDangerType::BLOCKED_TOO_LARGE:
@@ -110,8 +111,8 @@ std::ostream& operator<<(std::ostream& stream, DownloadDangerType danger_type) {
       return stream << "history::DownloadDangerType::DANGEROUS_HOST";
     case DownloadDangerType::POTENTIALLY_UNWANTED:
       return stream << "history::DownloadDangerType::POTENTIALLY_UNWANTED";
-    case DownloadDangerType::WHITELISTED_BY_POLICY:
-      return stream << "history::DownloadDangerType::WHITELISTED_BY_POLICY";
+    case DownloadDangerType::ALLOWLISTED_BY_POLICY:
+      return stream << "history::DownloadDangerType::ALLOWLISTED_BY_POLICY";
     case DownloadDangerType::ASYNC_SCANNING:
       return stream << "history::DownloadDangerType::ASYNC_SCANNING";
     case DownloadDangerType::BLOCKED_PASSWORD_PROTECTED:

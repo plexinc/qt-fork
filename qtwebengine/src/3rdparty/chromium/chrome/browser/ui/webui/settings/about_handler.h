@@ -13,26 +13,24 @@
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string16.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/ui/webui/help/version_updater.h"
 #include "chrome/browser/ui/webui/settings/settings_page_ui_handler.h"
 #include "chrome/browser/upgrade_detector/upgrade_observer.h"
 #include "components/policy/core/common/policy_service.h"
 #include "content/public/browser/web_ui_message_handler.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "base/task/cancelable_task_tracker.h"
 #include "chrome/browser/chromeos/tpm_firmware_update.h"
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace base {
 class DictionaryValue;
 class FilePath;
 class ListValue;
-}
-
-namespace content {
-class WebUIDataSource;
-}
+class Clock;
+}  // namespace base
 
 class Profile;
 
@@ -42,11 +40,8 @@ namespace settings {
 class AboutHandler : public settings::SettingsPageUIHandler,
                      public UpgradeObserver {
  public:
-  AboutHandler();
+  explicit AboutHandler(Profile* profile);
   ~AboutHandler() override;
-
-  static AboutHandler* Create(content::WebUIDataSource* html_source,
-                              Profile* profile);
 
   // WebUIMessageHandler implementation.
   void RegisterMessages() override;
@@ -58,6 +53,10 @@ class AboutHandler : public settings::SettingsPageUIHandler,
 
   // Returns the browser version as a string.
   static base::string16 BuildBrowserVersionString();
+
+ protected:
+  // Used to test the EOL string displayed in the About details page.
+  void set_clock(base::Clock* clock) { clock_ = clock; }
 
  private:
   void OnDeviceAutoUpdatePolicyChanged(const base::Value* previous_policy,
@@ -73,7 +72,7 @@ class AboutHandler : public settings::SettingsPageUIHandler,
   void HandleRefreshUpdateStatus(const base::ListValue* args);
   void RefreshUpdateStatus();
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   // Promotes the updater for all users.
   void PromoteUpdater(const base::ListValue* args);
 #endif
@@ -84,7 +83,7 @@ class AboutHandler : public settings::SettingsPageUIHandler,
   // Opens the help page. |args| must be empty.
   void HandleOpenHelpPage(const base::ListValue* args);
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // Checks if ReleaseNotes is enabled.
   void HandleGetEnabledReleaseNotes(const base::ListValue* args);
 
@@ -144,16 +143,19 @@ class AboutHandler : public settings::SettingsPageUIHandler,
   void SetUpdateStatus(VersionUpdater::Status status,
                        int progress,
                        bool rollback,
+                       bool powerwash,
                        const std::string& version,
                        int64_t size,
                        const base::string16& fail_message);
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   // Callback method which forwards promotion state to the page.
   void SetPromotionState(VersionUpdater::PromotionState state);
 #endif
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  void HandleOpenDiagnostics(const base::ListValue* args);
+
   void HandleGetRegulatoryInfo(const base::ListValue* args);
 
   // Callback for when the directory with the regulatory label image and alt
@@ -177,6 +179,8 @@ class AboutHandler : public settings::SettingsPageUIHandler,
                           chromeos::UpdateEngineClient::EolInfo eol_info);
 #endif
 
+  Profile* profile_;
+
   // Specialized instance of the VersionUpdater used to update the browser.
   std::unique_ptr<VersionUpdater> version_updater_;
 
@@ -185,6 +189,9 @@ class AboutHandler : public settings::SettingsPageUIHandler,
 
   // If true changes to UpgradeObserver are applied, if false they are ignored.
   bool apply_changes_from_upgrade_observer_;
+
+  // Override to test the EOL string displayed in the About details page.
+  base::Clock* clock_;
 
   // Used for callbacks.
   base::WeakPtrFactory<AboutHandler> weak_factory_{this};

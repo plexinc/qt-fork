@@ -35,28 +35,30 @@
 #include <QtDesigner/abstractsettings.h>
 
 #include <QtWidgets/qtoolbar.h>
-#include <QtWidgets/qaction.h>
 #include <QtWidgets/qsplitter.h>
 #include <QtWidgets/qtreewidget.h>
 #include <QtWidgets/qlistwidget.h>
 #include <QtWidgets/qheaderview.h>
 #include <QtWidgets/qboxlayout.h>
-#include <QtGui/qpainter.h>
-#include <QtCore/qfileinfo.h>
-#include <QtCore/qdir.h>
-#include <QtCore/qqueue.h>
-#include <QtGui/qpainter.h>
 #include <QtWidgets/qdialogbuttonbox.h>
 #include <QtWidgets/qpushbutton.h>
 #include <QtWidgets/qmessagebox.h>
 #include <QtWidgets/qapplication.h>
-#if QT_CONFIG(clipboard)
-#include <QtGui/qclipboard.h>
-#endif
 #include <QtWidgets/qmenu.h>
 #include <QtWidgets/qlineedit.h>
+
+#include <QtGui/qaction.h>
+#if QT_CONFIG(clipboard)
+#  include <QtGui/qclipboard.h>
+#endif
 #include <QtGui/qdrag.h>
+#include <QtGui/qpainter.h>
+
 #include <QtCore/qmimedata.h>
+#include <QtCore/qfileinfo.h>
+#include <QtCore/qdir.h>
+#include <QtCore/qqueue.h>
+
 #include <QtXml/qdom.h>
 
 #include <algorithm>
@@ -845,7 +847,7 @@ QtResourceViewDialog::QtResourceViewDialog(QDesignerFormEditorInterface *core, Q
     settings->beginGroup(QLatin1String(ResourceViewDialogC));
 
     const QVariant geometry = settings->value(QLatin1String(Geometry));
-    if (geometry.type() == QVariant::ByteArray) // Used to be a QRect up until 5.4.0, QTBUG-43374.
+    if (geometry.metaType().id() == QMetaType::QByteArray) // Used to be a QRect up until 5.4.0, QTBUG-43374.
         restoreGeometry(geometry.toByteArray());
 
     settings->endGroup();

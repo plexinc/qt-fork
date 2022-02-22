@@ -37,10 +37,10 @@
 **
 ****************************************************************************/
 
-#include "qwaylandeglclientbufferintegration.h"
+#include "qwaylandeglclientbufferintegration_p.h"
 
-#include "qwaylandeglwindow.h"
-#include "qwaylandglcontext.h"
+#include "qwaylandeglwindow_p.h"
+#include "qwaylandglcontext_p.h"
 
 #include <wayland-client-core.h>
 
@@ -152,7 +152,10 @@ QWaylandWindow *QWaylandEglClientBufferIntegration::createEglWindow(QWindow *win
 
 QPlatformOpenGLContext *QWaylandEglClientBufferIntegration::createPlatformOpenGLContext(const QSurfaceFormat &glFormat, QPlatformOpenGLContext *share) const
 {
-    return new QWaylandGLContext(m_eglDisplay, m_display, glFormat, share);
+    QSurfaceFormat fmt = glFormat;
+    if (m_display->supportsWindowDecoration())
+        fmt.setAlphaBufferSize(8);
+    return new QWaylandGLContext(m_eglDisplay, m_display, fmt, share);
 }
 
 void *QWaylandEglClientBufferIntegration::nativeResource(NativeResource resource)

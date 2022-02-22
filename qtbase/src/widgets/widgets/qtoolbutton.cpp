@@ -40,8 +40,6 @@
 #include "qtoolbutton.h"
 
 #include <qapplication.h>
-#include <qdesktopwidget.h>
-#include <private/qdesktopwidget_p.h>
 #include <qdrawutil.h>
 #include <qevent.h>
 #include <qicon.h>
@@ -49,7 +47,9 @@
 #include <qpointer.h>
 #include <qstyle.h>
 #include <qstyleoption.h>
+#if QT_CONFIG(tooltip)
 #include <qtooltip.h>
+#endif
 #if QT_CONFIG(mainwindow)
 #include <qmainwindow.h>
 #endif
@@ -244,7 +244,6 @@ void QToolButton::initStyleOption(QStyleOptionToolButton *option) const
 
     Q_D(const QToolButton);
     option->initFrom(this);
-    bool forceNoText = false;
     option->iconSize = iconSize(); //default value
 
 #if QT_CONFIG(toolbar)
@@ -255,8 +254,7 @@ void QToolButton::initStyleOption(QStyleOptionToolButton *option) const
     }
 #endif // QT_CONFIG(toolbar)
 
-    if (!forceNoText)
-        option->text = d->text;
+    option->text = d->text;
     option->icon = d->icon;
     option->arrowType = d->arrowType;
     if (d->down)
@@ -308,7 +306,7 @@ void QToolButton::initStyleOption(QStyleOptionToolButton *option) const
             option->toolButtonStyle = Qt::ToolButtonIconOnly;
     }
 
-    if (d->icon.isNull() && d->arrowType == Qt::NoArrow && !forceNoText) {
+    if (d->icon.isNull() && d->arrowType == Qt::NoArrow) {
         if (!d->text.isEmpty())
             option->toolButtonStyle = Qt::ToolButtonTextOnly;
         else if (option->toolButtonStyle != Qt::ToolButtonTextOnly)
@@ -369,8 +367,7 @@ QSize QToolButton::sizeHint() const
     if (d->popupMode == MenuButtonPopup)
         w += style()->pixelMetric(QStyle::PM_MenuButtonIndicator, &opt, this);
 
-    d->sizeHint = style()->sizeFromContents(QStyle::CT_ToolButton, &opt, QSize(w, h), this).
-                  expandedTo(QApplication::globalStrut());
+    d->sizeHint = style()->sizeFromContents(QStyle::CT_ToolButton, &opt, QSize(w, h), this);
     return d->sizeHint;
 }
 
@@ -466,7 +463,7 @@ void QToolButton::paintEvent(QPaintEvent *)
 void QToolButton::actionEvent(QActionEvent *event)
 {
     Q_D(QToolButton);
-    QAction *action = event->action();
+    auto action = static_cast<QAction *>(event->action());
     switch (event->type()) {
     case QEvent::ActionChanged:
         if (action == d->defaultAction)
@@ -528,7 +525,7 @@ void QToolButtonPrivate::_q_actionTriggered()
 /*!
     \reimp
  */
-void QToolButton::enterEvent(QEvent * e)
+void QToolButton::enterEvent(QEnterEvent * e)
 {
     Q_D(QToolButton);
     if (d->autoRaise)
@@ -602,7 +599,7 @@ void QToolButton::mousePressEvent(QMouseEvent *e)
     if (e->button() == Qt::LeftButton && (d->popupMode == MenuButtonPopup)) {
         QRect popupr = style()->subControlRect(QStyle::CC_ToolButton, &opt,
                                                QStyle::SC_ToolButtonMenu, this);
-        if (popupr.isValid() && popupr.contains(e->pos())) {
+        if (popupr.isValid() && popupr.contains(e->position().toPoint())) {
             d->buttonPressed = QToolButtonPrivate::MenuButtonPressed;
             showMenu();
             return;
@@ -629,7 +626,7 @@ void QToolButton::mouseReleaseEvent(QMouseEvent *e)
 bool QToolButton::hitButton(const QPoint &pos) const
 {
     Q_D(const QToolButton);
-    if(QAbstractButton::hitButton(pos))
+    if (QAbstractButton::hitButton(pos))
         return (d->buttonPressed != QToolButtonPrivate::MenuButtonPressed);
     return false;
 }
@@ -728,7 +725,7 @@ static QPoint positionMenu(const QToolButton *q, bool horizontal,
 {
     QPoint p;
     const QRect rect = q->rect(); // Find screen via point in case of QGraphicsProxyWidget.
-    QRect screen = QDesktopWidgetPrivate::availableGeometry(q->mapToGlobal(rect.center()));
+    const QRect screen = QWidgetPrivate::availableScreenGeometry(q);
     if (horizontal) {
         if (q->isRightToLeft()) {
             if (q->mapToGlobal(QPoint(0, rect.bottom())).y() + sh.height() <= screen.bottom()) {
@@ -946,7 +943,7 @@ void QToolButton::setDefaultAction(QAction *action)
         buttonText.replace(QLatin1String("&"), QLatin1String("&&"));
     setText(buttonText);
     setIcon(action->icon());
-#ifndef QT_NO_TOOLTIP
+#if QT_CONFIG(tooltip)
     setToolTip(action->toolTip());
 #endif
 #if QT_CONFIG(statustip)
@@ -982,7 +979,15 @@ QAction *QToolButton::defaultAction() const
     return d->defaultAction;
 }
 
-
+/*!
+  \reimp
+ */
+void QToolButton::checkStateSet()
+{
+    Q_D(QToolButton);
+    if (d->defaultAction && d->defaultAction->isCheckable())
+        d->defaultAction->setChecked(isChecked());
+}
 
 /*!
   \reimp
@@ -1004,7 +1009,7 @@ bool QToolButton::event(QEvent *event)
     case QEvent::HoverLeave:
     case QEvent::HoverMove:
         if (const QHoverEvent *he = static_cast<const QHoverEvent *>(event))
-            d_func()->updateHoverControl(he->pos());
+            d_func()->updateHoverControl(he->position().toPoint());
         break;
     default:
         break;

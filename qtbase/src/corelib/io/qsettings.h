@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -138,9 +138,7 @@ public:
     QSettings(Format format, Scope scope, const QString &organization,
               const QString &application = QString());
     QSettings(const QString &fileName, Format format);
-#  ifndef QT_BUILD_QMAKE
     explicit QSettings(Scope scope = UserScope);
-#  endif
 #endif
     ~QSettings();
 
@@ -179,20 +177,8 @@ public:
     QString organizationName() const;
     QString applicationName() const;
 
-#if QT_CONFIG(textcodec)
-    void setIniCodec(QTextCodec *codec);
-    void setIniCodec(const char *codecName);
-    QTextCodec *iniCodec() const;
-#endif
-
     static void setDefaultFormat(Format format);
     static Format defaultFormat();
-#if QT_DEPRECATED_SINCE(5, 13)
-    QT_DEPRECATED_X("Use QSettings::setPath() instead")
-    static void setSystemIniPath(const QString &dir);
-    QT_DEPRECATED_X("Use QSettings::setPath() instead")
-    static void setUserIniPath(const QString &dir);
-#endif
     static void setPath(Format format, Scope scope, const QString &path);
 
     typedef QMap<QString, QVariant> SettingsMap;

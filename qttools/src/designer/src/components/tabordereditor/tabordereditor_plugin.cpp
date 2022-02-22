@@ -26,7 +26,7 @@
 **
 ****************************************************************************/
 
-#include <QtWidgets/qaction.h>
+#include <QtGui/qaction.h>
 
 #include "tabordereditor_plugin.h"
 #include "tabordereditor_tool.h"
@@ -113,3 +113,5 @@ QAction *TabOrderEditorPlugin::action() const
 }
 
 QT_END_NAMESPACE
+
+#include "moc_tabordereditor_plugin.cpp"

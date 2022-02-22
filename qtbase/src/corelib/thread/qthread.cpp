@@ -97,7 +97,7 @@ QThreadData::~QThreadData()
         const QPostEvent &pe = postEventList.at(i);
         if (pe.event) {
             --pe.receiver->d_func()->postedEvents;
-            pe.event->posted = false;
+            pe.event->m_posted = false;
             delete pe.event;
         }
     }
@@ -125,7 +125,6 @@ QAbstractEventDispatcher *QThreadData::createEventDispatcher()
 {
     QAbstractEventDispatcher *ed = QThreadPrivate::createEventDispatcher(this);
     eventDispatcher.storeRelease(ed);
-    ed->startingUp();
     return ed;
 }
 
@@ -184,9 +183,7 @@ QThreadPrivate::QThreadPrivate(QThreadData *d)
 
 #if defined (Q_OS_WIN)
     handle = 0;
-#  ifndef Q_OS_WINRT
     id = 0;
-#  endif
     waiters = 0;
     terminationEnabled = true;
     terminatePending = false;
@@ -256,7 +253,7 @@ QThreadPrivate::~QThreadPrivate()
 
     \section1 Managing Threads
 
-    QThread will notifiy you via a signal when the thread is
+    QThread will notify you via a signal when the thread is
     started() and finished(), or you can use isFinished() and
     isRunning() to query the state of the thread.
 
@@ -860,12 +857,12 @@ bool QThread::wait(QDeadlineTimer deadline)
     return false;
 }
 
-bool QThread::event(QEvent* event)
+bool QThread::event(QEvent *event)
 {
     return QObject::event(event);
 }
 
-Qt::HANDLE QThread::currentThreadId() noexcept
+Qt::HANDLE QThread::currentThreadIdImpl() noexcept
 {
     return Qt::HANDLE(currentThread());
 }
@@ -897,7 +894,7 @@ bool QThread::isRunning() const
 }
 
 // No threads: so we can just use static variables
-static QThreadData *data = 0;
+static QThreadData *data = nullptr;
 
 QThreadData *QThreadData::current(bool createIfNecessary)
 {
@@ -989,14 +986,11 @@ void QThread::setEventDispatcher(QAbstractEventDispatcher *eventDispatcher)
 
 /*!
     \fn bool QThread::wait(unsigned long time)
+
     \overload
+    \a time is the time to wait in milliseconds.
+    If \a time is ULONG_MAX, then the wait will never timeout.
 */
-bool QThread::wait(unsigned long time)
-{
-    if (time == std::numeric_limits<unsigned long>::max())
-        return wait(QDeadlineTimer(QDeadlineTimer::Forever));
-    return wait(QDeadlineTimer(time));
-}
 
 #if QT_CONFIG(thread)
 
@@ -1033,8 +1027,6 @@ void QThread::requestInterruption()
         return;
     }
     Q_D(QThread);
-    // ### Qt 6: use std::atomic_flag, and document that
-    // requestInterruption/isInterruptionRequested do not synchronize with each other
     QMutexLocker locker(&d->mutex);
     if (!d->running || d->finished || d->isInFinish)
         return;
@@ -1084,29 +1076,6 @@ bool QThread::isInterruptionRequested() const
 
     Creates a new QThread object that will execute the function \a f with the
     arguments \a args.
-
-    The new thread is not started -- it must be started by an explicit call
-    to start(). This allows you to connect to its signals, move QObjects
-    to the thread, choose the new thread's priority and so on. The function
-    \a f will be called in the new thread.
-
-    Returns the newly created QThread instance.
-
-    \note the caller acquires ownership of the returned QThread instance.
-
-    \note this function is only available when using C++17.
-
-    \warning do not call start() on the returned QThread instance more than once;
-    doing so will result in undefined behavior.
-
-    \sa start()
-*/
-
-/*!
-    \fn template <typename Function> QThread *QThread::create(Function &&f)
-    \since 5.10
-
-    Creates a new QThread object that will execute the function \a f.
 
     The new thread is not started -- it must be started by an explicit call
     to start(). This allows you to connect to its signals, move QObjects

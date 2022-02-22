@@ -58,7 +58,7 @@
 #include <Qt3DRender/private/managers_p.h>
 #include <Qt3DRender/private/nodemanagers_p.h>
 #include <qglobal.h>
-#include <QVector>
+#include <QList>
 
 // Windows had the smart idea of using a #define MemoryBarrier
 // https://msdn.microsoft.com/en-us/library/windows/desktop/ms684208(v=vs.85).aspx
@@ -115,10 +115,10 @@ public:
     void setParentId(Qt3DCore::QNodeId parentId);
 
     Qt3DCore::QNodeId parentId() const;
-    QVector<Qt3DCore::QNodeId> childrenIds() const;
+    QList<Qt3DCore::QNodeId> childrenIds() const;
 
     FrameGraphNode *parent() const;
-    QVector<FrameGraphNode *> children() const;
+    QList<FrameGraphNode *> children() const;
 
     void cleanup();
 
@@ -130,7 +130,7 @@ protected:
 private:
     FrameGraphNodeType m_nodeType;
     Qt3DCore::QNodeId m_parentId;
-    QVector<Qt3DCore::QNodeId> m_childrenIds;
+    QList<Qt3DCore::QNodeId> m_childrenIds;
     FrameGraphManager *m_manager;
 
     friend class FrameGraphVisitor;
@@ -146,9 +146,9 @@ public:
     {
     }
 
-    Qt3DCore::QBackendNode *create(const Qt3DCore::QNodeCreatedChangeBasePtr &change) const override
+    Qt3DCore::QBackendNode *create(Qt3DCore::QNodeId id) const override
     {
-        return createBackendFrameGraphNode(change);
+        return createBackendFrameGraphNode(id);
     }
 
     Qt3DCore::QBackendNode *get(Qt3DCore::QNodeId id) const override
@@ -162,16 +162,16 @@ public:
     }
 
 protected:
-    Backend *createBackendFrameGraphNode(const Qt3DCore::QNodeCreatedChangeBasePtr &change) const
+    Backend *createBackendFrameGraphNode(const Qt3DCore::QNodeId &id) const
     {
-        if (!m_manager->containsNode(change->subjectId())) {
+        if (!m_manager->containsNode(id)) {
             Backend *backend = new Backend();
             backend->setFrameGraphManager(m_manager);
             backend->setRenderer(m_renderer);
-            m_manager->appendNode(change->subjectId(), backend);
+            m_manager->appendNode(id, backend);
             return backend;
         }
-        return static_cast<Backend *>(m_manager->lookupNode(change->subjectId()));
+        return static_cast<Backend *>(m_manager->lookupNode(id));
     }
 
 private:

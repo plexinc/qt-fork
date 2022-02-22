@@ -18,6 +18,7 @@
 #include "core/fpdfapi/render/cpdf_pagerendercache.h"
 #include "core/fpdfdoc/cpdf_interactiveform.h"
 #include "core/fpdfdoc/cpdf_nametree.h"
+#include "core/fxcrt/fx_memory_wrappers.h"
 #include "fpdfsdk/cpdfsdk_annotiteration.h"
 #include "fpdfsdk/cpdfsdk_interactiveform.h"
 #include "fpdfsdk/cpdfsdk_pageview.h"
@@ -28,6 +29,7 @@
 #include "fxjs/cjs_field.h"
 #include "fxjs/cjs_icon.h"
 #include "fxjs/js_resources.h"
+#include "third_party/base/check.h"
 
 const JSPropertySpec CJS_Document::PropertySpecs[] = {
     {"ADBE", get_ADBE_static, set_ADBE_static},
@@ -109,11 +111,11 @@ const JSMethodSpec CJS_Document::MethodSpecs[] = {
     {"submitForm", submitForm_static},
     {"syncAnnotScan", syncAnnotScan_static}};
 
-int CJS_Document::ObjDefnID = -1;
+uint32_t CJS_Document::ObjDefnID = 0;
 const char CJS_Document::kName[] = "Document";
 
 // static
-int CJS_Document::GetObjDefnID() {
+uint32_t CJS_Document::GetObjDefnID() {
   return ObjDefnID;
 }
 
@@ -392,7 +394,8 @@ CJS_Result CJS_Document::mailForm(
   if (IsExpandedParamKnown(newParams[5]))
     cMsg = pRuntime->ToWideString(newParams[5]);
 
-  std::vector<char> mutable_buf(sTextBuf.begin(), sTextBuf.end());
+  std::vector<char, FxAllocAllocator<char>> mutable_buf(sTextBuf.begin(),
+                                                        sTextBuf.end());
   pRuntime->BeginBlock();
   m_pFormFillEnv->JS_docmailForm(mutable_buf.data(), mutable_buf.size(), bUI,
                                  cTo, cSubject, cCc, cBcc, cMsg);
@@ -482,7 +485,7 @@ CJS_Result CJS_Document::removeField(
       continue;
 
     IPDF_Page* pPage = pWidget->GetPage();
-    ASSERT(pPage);
+    DCHECK(pPage);
 
     // If there is currently no pageview associated with the page being used
     // do not create one. We may be in the process of tearing down the document
@@ -1252,7 +1255,7 @@ CJS_Result CJS_Document::getPageNthWord(
     return CJS_Result::Failure(JSMessage::kBadObjectError);
 
   auto page = pdfium::MakeRetain<CPDF_Page>(pDocument, pPageDict);
-  page->SetRenderCache(pdfium::MakeUnique<CPDF_PageRenderCache>(page.Get()));
+  page->SetRenderCache(std::make_unique<CPDF_PageRenderCache>(page.Get()));
   page->ParseContent();
 
   int nWords = 0;
@@ -1307,7 +1310,7 @@ CJS_Result CJS_Document::getPageNumWords(
     return CJS_Result::Failure(JSMessage::kBadObjectError);
 
   auto page = pdfium::MakeRetain<CPDF_Page>(pDocument, pPageDict);
-  page->SetRenderCache(pdfium::MakeUnique<CPDF_PageRenderCache>(page.Get()));
+  page->SetRenderCache(std::make_unique<CPDF_PageRenderCache>(page.Get()));
   page->ParseContent();
 
   int nWords = 0;
@@ -1387,13 +1390,12 @@ CJS_Result CJS_Document::gotoNamedDest(
     return CJS_Result::Failure(JSMessage::kBadObjectError);
 
   CPDF_Document* pDocument = m_pFormFillEnv->GetPDFDocument();
-  CPDF_NameTree name_tree(pDocument, "Dests");
-  CPDF_Array* destArray =
-      name_tree.LookupNamedDest(pDocument, pRuntime->ToWideString(params[0]));
-  if (!destArray)
+  CPDF_Array* dest_array = CPDF_NameTree::LookupNamedDest(
+      pDocument, pRuntime->ToByteString(params[0]));
+  if (!dest_array)
     return CJS_Result::Failure(JSMessage::kBadObjectError);
 
-  CPDF_Dest dest(destArray);
+  CPDF_Dest dest(dest_array);
   const CPDF_Array* arrayObject = dest.GetArray();
   std::vector<float> scrollPositionArray;
   if (arrayObject) {

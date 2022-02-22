@@ -31,12 +31,11 @@
    */
 
 
-#include <ft2build.h>
 
-#include FT_FREETYPE_H
-#include FT_INTERNAL_DEBUG_H
-#include FT_INTERNAL_STREAM_H
-#include FT_INTERNAL_OBJECTS_H
+#include <freetype/freetype.h>
+#include <freetype/internal/ftdebug.h>
+#include <freetype/internal/ftstream.h>
+#include <freetype/internal/ftobjs.h>
 
 #include "bdf.h"
 #include "bdferror.h"
@@ -186,12 +185,12 @@
                  "Added `FONT_ASCENT %hd'.\n"
 #define ACMSG2   "FONT_DESCENT property missing.  " \
                  "Added `FONT_DESCENT %hd'.\n"
-#define ACMSG3   "Font width != actual width.  Old: %hd New: %hd.\n"
+#define ACMSG3   "Font width != actual width.  Old: %d New: %d.\n"
 #define ACMSG4   "Font left bearing != actual left bearing.  " \
                  "Old: %hd New: %hd.\n"
 #define ACMSG5   "Font ascent != actual ascent.  Old: %hd New: %hd.\n"
-#define ACMSG6   "Font descent != actual descent.  Old: %hd New: %hd.\n"
-#define ACMSG7   "Font height != actual height. Old: %hd New: %hd.\n"
+#define ACMSG6   "Font descent != actual descent.  Old: %d New: %d.\n"
+#define ACMSG7   "Font height != actual height. Old: %d New: %d.\n"
 #define ACMSG8   "Glyph scalable width (SWIDTH) adjustments made.\n"
 #define ACMSG9   "SWIDTH field missing at line %ld.  Set automatically.\n"
 #define ACMSG10  "DWIDTH field missing at line %ld.  Set to glyph width.\n"
@@ -808,7 +807,7 @@
 
 
   /* Routine to compare two glyphs by encoding so they can be sorted. */
-  static int
+  FT_COMPARE_DEF( int )
   by_encoding( const void*  a,
                const void*  b )
   {

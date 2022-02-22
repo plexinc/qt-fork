@@ -76,18 +76,32 @@ public:
     typedef QExplicitlySharedDataPointer<QQmlBinding> Ptr;
 
     static QQmlBinding *create(const QQmlPropertyData *, const QQmlScriptString &, QObject *, QQmlContext *);
-    static QQmlBinding *create(const QQmlPropertyData *, const QString &, QObject *, QQmlContextData *,
-                               const QString &url = QString(), quint16 lineNumber = 0);
-    static QQmlBinding *create(const QQmlPropertyData *property, QV4::Function *function,
-                               QObject *obj, QQmlContextData *ctxt, QV4::ExecutionContext *scope);
-    static QQmlBinding *createTranslationBinding(const QQmlRefPointer<QV4::ExecutableCompilationUnit> &unit, const QV4::CompiledData::Binding *binding,
-                                                 QObject *obj, QQmlContextData *ctxt);
+
+    static QQmlBinding *create(
+            const QQmlPropertyData *, const QString &, QObject *,
+            const QQmlRefPointer<QQmlContextData> &, const QString &url = QString(),
+            quint16 lineNumber = 0);
+
+    static QQmlBinding *create(
+            const QQmlPropertyData *property, QV4::Function *function, QObject *obj,
+            const QQmlRefPointer<QQmlContextData> &ctxt, QV4::ExecutionContext *scope);
+
+    static QQmlBinding *create(QMetaType propertyType, QV4::Function *function, QObject *obj,
+                               const QQmlRefPointer<QQmlContextData> &ctxt,
+                               QV4::ExecutionContext *scope);
+
+    static QQmlBinding *createTranslationBinding(
+            const QQmlRefPointer<QV4::ExecutableCompilationUnit> &unit,
+            const QV4::CompiledData::Binding *binding, QObject *obj,
+            const QQmlRefPointer<QQmlContextData> &ctxt);
+
     ~QQmlBinding() override;
+
+    bool mustCaptureBindableProperty() const final {return true;}
 
     void setTarget(const QQmlProperty &);
     bool setTarget(QObject *, const QQmlPropertyData &, const QQmlPropertyData *valueType);
-
-    void setNotifyOnValueChanged(bool);
+    bool setTarget(QObject *, int coreIndex, bool coreIsAlias, int valueTypeIndex);
 
     void refresh() override;
 
@@ -102,7 +116,6 @@ public:
 
     QVariant evaluate();
 
-    QString expressionIdentifier() const override;
     void expressionChanged() override;
 
     QQmlSourceLocation sourceLocation() const override;
@@ -110,6 +123,7 @@ public:
     void setBoundFunction(QV4::BoundFunction *boundFunction) {
         m_boundFunction.set(boundFunction->engine(), *boundFunction);
     }
+    bool hasBoundFunction() const { return m_boundFunction.valueRef(); }
 
     /**
      * This method returns a snapshot of the currently tracked dependencies of
@@ -119,6 +133,7 @@ public:
      * Call this method from the UI thread.
      */
     QVector<QQmlProperty> dependencies() const;
+    // This method is used internally to check whether a binding is constant and can be removed
     virtual bool hasDependencies() const;
 
 protected:
@@ -130,8 +145,15 @@ protected:
 
     bool slowWrite(const QQmlPropertyData &core, const QQmlPropertyData &valueTypeData,
                    const QV4::Value &result, bool isUndefined, QQmlPropertyData::WriteFlags flags);
+    bool slowWrite(const QQmlPropertyData &core, const QQmlPropertyData &valueTypeData,
+                   const void *result, QMetaType resultType, bool isUndefined,
+                   QQmlPropertyData::WriteFlags flags);
 
     QV4::ReturnedValue evaluate(bool *isUndefined);
+    bool evaluate(void *result, QMetaType type)
+    {
+        return QQmlJavaScriptExpression::evaluate(&result, &type, 0);
+    }
 
 private:
     inline bool updatingFlag() const;
@@ -140,29 +162,31 @@ private:
     inline void setEnabledFlag(bool);
 
     static QQmlBinding *newBinding(QQmlEnginePrivate *engine, const QQmlPropertyData *property);
+    static QQmlBinding *newBinding(QQmlEnginePrivate *engine, QMetaType propertyType);
 
     QQmlSourceLocation *m_sourceLocation = nullptr; // used for Qt.binding() created functions
     QV4::PersistentValue m_boundFunction; // used for Qt.binding() that are created from a bound function object
+    void handleWriteError(const void *result, QMetaType resultType, QMetaType metaType);
 };
 
 bool QQmlBinding::updatingFlag() const
 {
-    return m_target.flag();
+    return m_target.tag().testFlag(UpdatingBinding);
 }
 
 void QQmlBinding::setUpdatingFlag(bool v)
 {
-    m_target.setFlagValue(v);
+    m_target.setTag(m_target.tag().setFlag(UpdatingBinding, v));
 }
 
 bool QQmlBinding::enabledFlag() const
 {
-    return m_target.flag2();
+    return m_target.tag().testFlag(BindingEnabled);
 }
 
 void QQmlBinding::setEnabledFlag(bool v)
 {
-    m_target.setFlag2Value(v);
+    m_target.setTag(m_target.tag().setFlag(BindingEnabled, v));
 }
 
 QT_END_NAMESPACE

@@ -8,9 +8,12 @@
 #include "base/json/json_writer.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/chromeos/network_element_localized_strings_provider.h"
+#include "chrome/browser/ui/webui/webui_util.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/browser_resources.h"
 #include "chrome/grit/generated_resources.h"
+#include "chrome/grit/internet_config_dialog_resources.h"
+#include "chrome/grit/internet_config_dialog_resources_map.h"
 #include "chromeos/network/network_handler.h"
 #include "chromeos/network/network_state.h"
 #include "chromeos/network/network_state_handler.h"
@@ -19,6 +22,7 @@
 #include "components/strings/grit/components_strings.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
+#include "ui/wm/core/shadow_types.h"
 
 namespace chromeos {
 
@@ -114,6 +118,13 @@ const std::string& InternetConfigDialog::Id() {
   return dialog_id_;
 }
 
+void InternetConfigDialog::AdjustWidgetInitParams(
+    views::Widget::InitParams* params) {
+  params->type = views::Widget::InitParams::Type::TYPE_WINDOW_FRAMELESS;
+  params->shadow_type = views::Widget::InitParams::ShadowType::kDrop;
+  params->shadow_elevation = wm::kShadowElevationActiveWindow;
+}
+
 void InternetConfigDialog::GetDialogSize(gfx::Size* size) const {
   const NetworkState* network =
       network_id_.empty() ? nullptr
@@ -142,17 +153,17 @@ InternetConfigDialogUI::InternetConfigDialogUI(content::WebUI* web_ui)
   content::WebUIDataSource* source = content::WebUIDataSource::Create(
       chrome::kChromeUIInternetConfigDialogHost);
 
+  source->DisableTrustedTypesCSP();
+
   AddInternetStrings(source);
   source->AddLocalizedString("title", IDS_SETTINGS_INTERNET_CONFIG);
   source->UseStringsJs();
-#if BUILDFLAG(OPTIMIZE_WEBUI)
-  source->SetDefaultResource(IDR_INTERNET_CONFIG_DIALOG_VULCANIZED_HTML);
-  source->AddResourcePath("crisper.js", IDR_INTERNET_CONFIG_DIALOG_CRISPER_JS);
-#else
-  source->SetDefaultResource(IDR_INTERNET_CONFIG_DIALOG_HTML);
-  source->AddResourcePath("internet_config_dialog.js",
-                          IDR_INTERNET_CONFIG_DIALOG_JS);
-#endif
+
+  webui::SetupWebUIDataSource(
+      source,
+      base::make_span(kInternetConfigDialogResources,
+                      kInternetConfigDialogResourcesSize),
+      IDR_INTERNET_CONFIG_DIALOG_INTERNET_CONFIG_DIALOG_CONTAINER_HTML);
 
   content::WebUIDataSource::Add(Profile::FromWebUI(web_ui), source);
 }

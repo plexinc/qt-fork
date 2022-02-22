@@ -66,8 +66,8 @@ struct QVertexSet
     QVertexSet<T> &operator = (const QVertexSet<T> &other) {vertices = other.vertices; indices = other.indices; return *this;}
 
     // The vertices of a triangle are given by: (x[i[n]], y[i[n]]), (x[j[n]], y[j[n]]), (x[k[n]], y[k[n]]), n = 0, 1, ...
-    QVector<qreal> vertices; // [x[0], y[0], x[1], y[1], x[2], ...]
-    QVector<T> indices; // [i[0], j[0], k[0], i[1], j[1], k[1], i[2], ...]
+    QList<qreal> vertices; // [x[0], y[0], x[1], y[1], x[2], ...]
+    QList<T> indices; // [i[0], j[0], k[0], i[1], j[1], k[1], i[2], ...]
 };
 
 //============================================================================//
@@ -570,8 +570,8 @@ public:
     class ComplexToSimple
     {
     public:
-        inline ComplexToSimple(QTriangulator<T> *parent) : m_parent(parent),
-            m_edges(0), m_events(0), m_splits(0) { }
+        inline ComplexToSimple(QTriangulator<T> *parent)
+            : m_parent(parent), m_edges(0), m_events(0), m_splits(0), m_initialPointCount(0) { }
         void decompose();
     private:
         struct Edge
@@ -674,7 +674,8 @@ public:
     class SimpleToMonotone
     {
     public:
-        inline SimpleToMonotone(QTriangulator<T> *parent) : m_parent(parent), m_edges(0), m_upperVertex(0) { }
+        inline SimpleToMonotone(QTriangulator<T> *parent)
+            : m_parent(parent), m_edges(0), m_upperVertex(0), m_clockwiseOrder(false) { }
         void decompose();
     private:
         enum VertexType {MergeVertex, EndVertex, RegularVertex, StartVertex, SplitVertex};
@@ -730,7 +731,8 @@ public:
     class MonotoneToTriangles
     {
     public:
-        inline MonotoneToTriangles(QTriangulator<T> *parent) : m_parent(parent) { }
+        inline MonotoneToTriangles(QTriangulator<T> *parent)
+            : m_parent(parent), m_first(0), m_length(0) { }
         void decompose();
     private:
         inline T indices(int index) const {return m_parent->m_indices.at(index + m_first);}
@@ -748,7 +750,8 @@ public:
         int m_length;
     };
 
-    inline QTriangulator() : m_vertices(0) { }
+    inline QTriangulator()
+        : m_vertices(0), m_hint(0) { }
 
     // Call this only once.
     void initialize(const qreal *polygon, int count, uint hint, const QTransform &matrix);
@@ -761,7 +764,7 @@ public:
     QVertexSet<T> polyline();
 private:
     QDataBuffer<QPodPoint> m_vertices;
-    QVector<T> m_indices;
+    QList<T> m_indices;
     uint m_hint;
 };
 
@@ -1061,7 +1064,7 @@ template <typename T>
 QPair<QRBTree<int>::Node *, QRBTree<int>::Node *> QTriangulator<T>::ComplexToSimple::bounds(const QPodPoint &point) const
 {
     QRBTree<int>::Node *current = m_edgeList.root;
-    QPair<QRBTree<int>::Node *, QRBTree<int>::Node *> result(0, 0);
+    QPair<QRBTree<int>::Node *, QRBTree<int>::Node *> result(nullptr, nullptr);
     while (current) {
         const QPodPoint &v1 = m_parent->m_vertices.at(m_edges.at(current->data).lower());
         const QPodPoint &v2 = m_parent->m_vertices.at(m_edges.at(current->data).upper());
@@ -1110,7 +1113,7 @@ template <typename T>
 QPair<QRBTree<int>::Node *, QRBTree<int>::Node *> QTriangulator<T>::ComplexToSimple::outerBounds(const QPodPoint &point) const
 {
     QRBTree<int>::Node *current = m_edgeList.root;
-    QPair<QRBTree<int>::Node *, QRBTree<int>::Node *> result(0, 0);
+    QPair<QRBTree<int>::Node *, QRBTree<int>::Node *> result(nullptr, nullptr);
 
     while (current) {
         const QPodPoint &v1 = m_parent->m_vertices.at(m_edges.at(current->data).lower());
@@ -1309,7 +1312,7 @@ void QTriangulator<T>::ComplexToSimple::calculateIntersections()
         int vertex = (event.type == Event::Upper ? m_edges.at(event.edge).upper() : m_edges.at(event.edge).lower());
         QIntersectionPoint eventPoint = QT_PREPEND_NAMESPACE(qIntersectionPoint)(event.point);
 
-        if (range.first != 0) {
+        if (range.first != nullptr) {
             splitEdgeListRange(range.first, range.second, vertex, eventPoint);
             reorderEdgeListRange(range.first, range.second);
         }
@@ -2155,7 +2158,7 @@ bool QTriangulator<T>::SimpleToMonotone::CompareVertices::operator () (int i, in
 template <typename T>
 void QTriangulator<T>::MonotoneToTriangles::decompose()
 {
-    QVector<T> result;
+    QList<T> result;
     QDataBuffer<int> stack(m_parent->m_indices.size());
     m_first = 0;
     // Require at least three more indices.

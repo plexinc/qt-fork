@@ -18,7 +18,7 @@ using namespace testing;
 
 namespace {
     {% for type in by_category["object"] %}
-        {% for method in c_methods(type) if len(method.arguments) < 10 %}
+        {% for method in c_methods(type) %}
             {{as_cType(method.return_type.name)}} Forward{{as_MethodSuffix(type.name, method.name)}}(
                 {{-as_cType(type.name)}} self
                 {%- for arg in method.arguments -%}
@@ -44,119 +44,52 @@ void ProcTableAsClass::GetProcTableAndDevice(DawnProcTable* table, WGPUDevice* d
     *device = GetNewDevice();
 
     {% for type in by_category["object"] %}
-        {% for method in c_methods(type) if len(method.arguments) < 10 %}
+        {% for method in c_methods(type) %}
             table->{{as_varName(type.name, method.name)}} = reinterpret_cast<{{as_cProc(type.name, method.name)}}>(Forward{{as_MethodSuffix(type.name, method.name)}});
         {% endfor %}
     {% endfor %}
 }
 
-void ProcTableAsClass::DeviceSetUncapturedErrorCallback(WGPUDevice self,
-                                                        WGPUErrorCallback callback,
-                                                        void* userdata) {
-    auto object = reinterpret_cast<ProcTableAsClass::Object*>(self);
-    object->deviceErrorCallback = callback;
-    object->userdata = userdata;
+{% for type in by_category["object"] %}
+    {% for method in type.methods if has_callback_arguments(method) %}
+        {% set Suffix = as_MethodSuffix(type.name, method.name) %}
 
-    OnDeviceSetUncapturedErrorCallback(self, callback, userdata);
-}
+        {{as_cType(method.return_type.name)}} ProcTableAsClass::{{Suffix}}(
+            {{-as_cType(type.name)}} {{as_varName(type.name)}}
+            {%- for arg in method.arguments -%}
+                , {{as_annotated_cType(arg)}}
+            {%- endfor -%}
+        ) {
+            ProcTableAsClass::Object* object = reinterpret_cast<ProcTableAsClass::Object*>({{as_varName(type.name)}});
+            {% for callback_arg in method.arguments if callback_arg.type.category == 'callback' %}
+                object->m{{as_MethodSuffix(type.name, method.name)}}Callback = {{as_varName(callback_arg.name)}};
+            {% endfor %}
+            object->userdata = userdata;
+            return On{{as_MethodSuffix(type.name, method.name)}}(
+                {{-as_varName(type.name)}}
+                {%- for arg in method.arguments -%}
+                    , {{as_varName(arg.name)}}
+                {%- endfor -%}
+            );
+        }
 
-void ProcTableAsClass::DeviceSetDeviceLostCallback(WGPUDevice self,
-                                                   WGPUDeviceLostCallback callback,
-                                                   void* userdata) {
-    auto object = reinterpret_cast<ProcTableAsClass::Object*>(self);
-    object->deviceLostCallback = callback;
-    object->userdata = userdata;
-
-    OnDeviceSetDeviceLostCallback(self, callback, userdata);
-}
-
-bool ProcTableAsClass::DevicePopErrorScope(WGPUDevice self,
-                                           WGPUErrorCallback callback,
-                                           void* userdata) {
-    return OnDevicePopErrorScopeCallback(self, callback, userdata);
-}
-
-void ProcTableAsClass::DeviceCreateBufferMappedAsync(WGPUDevice self,
-                                                     const WGPUBufferDescriptor* descriptor,
-                                                     WGPUBufferCreateMappedCallback callback,
-                                                     void* userdata) {
-    auto object = reinterpret_cast<ProcTableAsClass::Object*>(self);
-    object->createBufferMappedCallback = callback;
-    object->userdata = userdata;
-
-    OnDeviceCreateBufferMappedAsyncCallback(self, descriptor, callback, userdata);
-}
-
-void ProcTableAsClass::BufferMapReadAsync(WGPUBuffer self,
-                                          WGPUBufferMapReadCallback callback,
-                                          void* userdata) {
-    auto object = reinterpret_cast<ProcTableAsClass::Object*>(self);
-    object->mapReadCallback = callback;
-    object->userdata = userdata;
-
-    OnBufferMapReadAsyncCallback(self, callback, userdata);
-}
-
-void ProcTableAsClass::BufferMapWriteAsync(WGPUBuffer self,
-                                           WGPUBufferMapWriteCallback callback,
-                                           void* userdata) {
-    auto object = reinterpret_cast<ProcTableAsClass::Object*>(self);
-    object->mapWriteCallback = callback;
-    object->userdata = userdata;
-
-    OnBufferMapWriteAsyncCallback(self, callback, userdata);
-}
-
-void ProcTableAsClass::FenceOnCompletion(WGPUFence self,
-                                         uint64_t value,
-                                         WGPUFenceOnCompletionCallback callback,
-                                         void* userdata) {
-    auto object = reinterpret_cast<ProcTableAsClass::Object*>(self);
-    object->fenceOnCompletionCallback = callback;
-    object->userdata = userdata;
-
-    OnFenceOnCompletionCallback(self, value, callback, userdata);
-}
-
-void ProcTableAsClass::CallDeviceErrorCallback(WGPUDevice device,
-                                               WGPUErrorType type,
-                                               const char* message) {
-    auto object = reinterpret_cast<ProcTableAsClass::Object*>(device);
-    object->deviceErrorCallback(type, message, object->userdata);
-}
-
-void ProcTableAsClass::CallDeviceLostCallback(WGPUDevice device, const char* message) {
-    auto object = reinterpret_cast<ProcTableAsClass::Object*>(device);
-    object->deviceLostCallback(message, object->userdata);
-}
-
-void ProcTableAsClass::CallCreateBufferMappedCallback(WGPUDevice device,
-                                                      WGPUBufferMapAsyncStatus status,
-                                                      WGPUCreateBufferMappedResult result) {
-    auto object = reinterpret_cast<ProcTableAsClass::Object*>(device);
-    object->createBufferMappedCallback(status, result, object->userdata);
-}
-void ProcTableAsClass::CallMapReadCallback(WGPUBuffer buffer,
-                                           WGPUBufferMapAsyncStatus status,
-                                           const void* data,
-                                           uint64_t dataLength) {
-    auto object = reinterpret_cast<ProcTableAsClass::Object*>(buffer);
-    object->mapReadCallback(status, data, dataLength, object->userdata);
-}
-
-void ProcTableAsClass::CallMapWriteCallback(WGPUBuffer buffer,
-                                            WGPUBufferMapAsyncStatus status,
-                                            void* data,
-                                            uint64_t dataLength) {
-    auto object = reinterpret_cast<ProcTableAsClass::Object*>(buffer);
-    object->mapWriteCallback(status, data, dataLength, object->userdata);
-}
-
-void ProcTableAsClass::CallFenceOnCompletionCallback(WGPUFence fence,
-                                                     WGPUFenceCompletionStatus status) {
-    auto object = reinterpret_cast<ProcTableAsClass::Object*>(fence);
-    object->fenceOnCompletionCallback(status, object->userdata);
-}
+        {% for callback_arg in method.arguments if callback_arg.type.category == 'callback' %}
+            void ProcTableAsClass::Call{{Suffix}}Callback(
+                {{-as_cType(type.name)}} {{as_varName(type.name)}}
+                {%- for arg in callback_arg.type.arguments -%}
+                    {%- if not loop.last -%}, {{as_annotated_cType(arg)}}{%- endif -%}
+                {%- endfor -%}
+            ) {
+                ProcTableAsClass::Object* object = reinterpret_cast<ProcTableAsClass::Object*>({{as_varName(type.name)}});
+                object->m{{Suffix}}Callback(
+                    {%- for arg in callback_arg.type.arguments -%}
+                        {%- if not loop.last -%}{{as_varName(arg.name)}}, {% endif -%}
+                    {%- endfor -%}
+                    object->userdata);
+            }
+        {% endfor %}
+    {% endfor %}
+{% endfor %}
 
 {% for type in by_category["object"] %}
     {{as_cType(type.name)}} ProcTableAsClass::GetNew{{type.name.CamelCase()}}() {
@@ -166,8 +99,9 @@ void ProcTableAsClass::CallFenceOnCompletionCallback(WGPUFence fence,
     }
 {% endfor %}
 
-MockProcTable::MockProcTable() {
-}
+MockProcTable::MockProcTable() = default;
+
+MockProcTable::~MockProcTable() = default;
 
 void MockProcTable::IgnoreAllReleaseCalls() {
     {% for type in by_category["object"] %}

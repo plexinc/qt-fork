@@ -59,27 +59,34 @@ class TerminalPrivateOpenTerminalProcessFunction : public ExtensionFunction {
       std::unique_ptr<std::vector<std::string>> args);
 
  private:
-  // Callback for when starting crostini is complete.
   void OnCrostiniRestarted(
       std::unique_ptr<CrostiniStartupStatus> startup_status,
       const std::string& user_id_hash,
-      int tab_id,
-      const std::vector<std::string>& arguments,
+      base::CommandLine cmdline,
       crostini::CrostiniResult result);
 
-  using ProcessOutputCallback =
-      base::Callback<void(const std::string& terminal_id,
-                          const std::string& output_type,
-                          const std::string& output)>;
-  using OpenProcessCallback =
-      base::Callback<void(bool success, const std::string& terminal_id)>;
+  void OpenVmshellProcess(const std::string& user_id_hash,
+                          base::CommandLine cmdline);
+
+  void OnGetVshSession(const std::string& user_id_hash,
+                       base::CommandLine cmdline,
+                       const std::string& terminal_id,
+                       bool success,
+                       const std::string& failure_reason,
+                       int32_t container_shell_pid);
 
   void OpenProcess(const std::string& user_id_hash,
-                   int tab_id,
-                   const std::vector<std::string>& arguments);
-  void OpenOnRegistryTaskRunner(const ProcessOutputCallback& output_callback,
-                                const OpenProcessCallback& callback,
-                                const std::vector<std::string>& arguments,
+                   base::CommandLine cmdline);
+
+  using ProcessOutputCallback =
+      base::RepeatingCallback<void(const std::string& terminal_id,
+                                   const std::string& output_type,
+                                   const std::string& output)>;
+  using OpenProcessCallback =
+      base::OnceCallback<void(bool success, const std::string& terminal_id)>;
+  void OpenOnRegistryTaskRunner(ProcessOutputCallback output_callback,
+                                OpenProcessCallback callback,
+                                base::CommandLine cmdline,
                                 const std::string& user_id_hash);
   void RespondOnUIThread(bool success, const std::string& terminal_id);
 };
@@ -163,20 +170,26 @@ class TerminalPrivateAckOutputFunction : public ExtensionFunction {
   void AckOutputOnRegistryTaskRunner(const std::string& terminal_id);
 };
 
-// TODO(crbug.com/1019021): Remove this function after M-83.
-// Be sure to first remove the callsite in the terminal system app.
-class TerminalPrivateGetCroshSettingsFunction : public ExtensionFunction {
+class TerminalPrivateOpenWindowFunction : public ExtensionFunction {
  public:
-  DECLARE_EXTENSION_FUNCTION("terminalPrivate.getCroshSettings",
-                             TERMINALPRIVATE_GETCROSHSETTINGS)
+  DECLARE_EXTENSION_FUNCTION("terminalPrivate.openWindow",
+                             TERMINALPRIVATE_OPENWINDOW)
 
  protected:
-  ~TerminalPrivateGetCroshSettingsFunction() override;
+  ~TerminalPrivateOpenWindowFunction() override;
 
   ExtensionFunction::ResponseAction Run() override;
+};
 
- private:
-  void AsyncRunWithStorage(ValueStore* storage);
+class TerminalPrivateOpenOptionsPageFunction : public ExtensionFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("terminalPrivate.openOptionsPage",
+                             TERMINALPRIVATE_OPENOPTIONSPAGE)
+
+ protected:
+  ~TerminalPrivateOpenOptionsPageFunction() override;
+
+  ExtensionFunction::ResponseAction Run() override;
 };
 
 class TerminalPrivateGetSettingsFunction : public ExtensionFunction {

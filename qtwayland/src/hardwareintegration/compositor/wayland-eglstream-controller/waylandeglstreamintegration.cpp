@@ -31,12 +31,12 @@
 #include "waylandeglstreamcontroller.h"
 
 #include <QtWaylandCompositor/QWaylandCompositor>
+#include <QtOpenGL/QOpenGLTexture>
 #include <QtGui/QGuiApplication>
 #include <QtGui/QOpenGLContext>
-#include <QtGui/QOpenGLTexture>
 #include <QtGui/QOffscreenSurface>
 
-#include <QtEglSupport/private/qeglstreamconvenience_p.h>
+#include <QtGui/private/qeglstreamconvenience_p.h>
 #include <qpa/qplatformnativeinterface.h>
 
 #include <QtWaylandCompositor/private/qwaylandcompositor_p.h>
@@ -157,7 +157,7 @@ public:
     bool display_bound = false;
     QOffscreenSurface *offscreenSurface = nullptr;
     QOpenGLContext *localContext = nullptr;
-    QVector<QOpenGLTexture *> orphanedTextures;
+    QList<QOpenGLTexture *> orphanedTextures;
 
     WaylandEglStreamController *eglStreamController = nullptr;
 
@@ -290,10 +290,9 @@ void WaylandEglStreamClientBufferIntegration::attachEglStreamConsumer(struct ::w
     Q_D(WaylandEglStreamClientBufferIntegration);
     Q_UNUSED(wl_surface);
 
-    // NOTE: must use getBuffer to create the buffer here, so the buffer will end up in the buffer manager's hash
-
+    auto *clientBuffer = new WaylandEglStreamClientBuffer(this, wl_buffer);
     auto *bufferManager = QWaylandCompositorPrivate::get(m_compositor)->bufferManager();
-    auto *clientBuffer = static_cast<WaylandEglStreamClientBuffer*>(bufferManager->getBuffer(wl_buffer));
+    bufferManager->registerBuffer(wl_buffer, clientBuffer);
 
     d->initEglStream(clientBuffer, wl_buffer);
 }

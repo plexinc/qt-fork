@@ -27,16 +27,23 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QtConcurrentRun>
+#if QT_CONFIG(process)
+#include <QProcess>
+#endif
+#include <QSemaphore>
+#include <QFutureSynchronizer>
+
 #include <qlockfile.h>
 #include <qtemporarydir.h>
 #include <qsysinfo.h>
 #if defined(Q_OS_UNIX) && !defined(Q_OS_VXWORKS)
 #include <unistd.h>
 #include <sys/time.h>
-#elif defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#elif defined(Q_OS_WIN)
 #  include <qt_windows.h>
+#  include <QOperatingSystemVersion>
 #endif
 
 #include <private/qlockfile_p.h>  // for getLockFileHandle()
@@ -96,6 +103,7 @@ void tst_QLockFile::lockUnlock()
     const QString fileName = dir.path() + "/lock1";
     QVERIFY(!QFile(fileName).exists());
     QLockFile lockFile(fileName);
+    QCOMPARE(lockFile.fileName(), fileName);
     QVERIFY(lockFile.lock());
     QVERIFY(lockFile.isLocked());
     QCOMPARE(int(lockFile.error()), int(QLockFile::NoError));
@@ -163,13 +171,13 @@ void tst_QLockFile::lockOutOtherThread()
     QVERIFY(lockFile.lock());
 
     // Other thread can't acquire lock
-    QFuture<QLockFile::LockError> ret = QtConcurrent::run<QLockFile::LockError>(tryLockFromThread, fileName);
+    auto ret = QtConcurrent::run(tryLockFromThread, fileName);
     QCOMPARE(ret.result(), QLockFile::LockFailedError);
 
     lockFile.unlock();
 
     // Now other thread can acquire lock
-    QFuture<QLockFile::LockError> ret2 = QtConcurrent::run<QLockFile::LockError>(tryLockFromThread, fileName);
+    auto ret2 = QtConcurrent::run(tryLockFromThread, fileName);
     QCOMPARE(ret2.result(), QLockFile::NoError);
 }
 
@@ -186,13 +194,13 @@ static QLockFile::LockError lockFromThread(const QString &fileName)
 void tst_QLockFile::raceWithOtherThread()
 {
     const QString fileName = dir.path() + "/raceWithOtherThread";
-    QFuture<QLockFile::LockError> ret = QtConcurrent::run<QLockFile::LockError>(lockFromThread, fileName);
-    QFuture<QLockFile::LockError> ret2 = QtConcurrent::run<QLockFile::LockError>(lockFromThread, fileName);
+    auto ret = QtConcurrent::run(lockFromThread, fileName);
+    auto ret2 = QtConcurrent::run(lockFromThread, fileName);
     QCOMPARE(ret.result(), QLockFile::NoError);
     QCOMPARE(ret2.result(), QLockFile::NoError);
 }
 
-static bool lockFromThread(const QString &fileName, int sleepMs, QSemaphore *semThreadReady, QSemaphore *semMainThreadDone)
+static bool lockFromThreadAndWait(const QString &fileName, int sleepMs, QSemaphore *semThreadReady, QSemaphore *semMainThreadDone)
 {
     QLockFile lockFile(fileName);
     if (!lockFile.lock()) {
@@ -233,7 +241,7 @@ void tst_QLockFile::waitForLock()
     QLockFile lockFile(fileName);
     QSemaphore semThreadReady, semMainThreadDone;
     // Lock file from a thread
-    QFuture<bool> ret = QtConcurrent::run<bool>(lockFromThread, fileName, threadSleepMs, &semThreadReady, &semMainThreadDone);
+    auto ret = QtConcurrent::run(lockFromThreadAndWait, fileName, threadSleepMs, &semThreadReady, &semMainThreadDone);
     semThreadReady.acquire();
 
     if (releaseEarly) // let the thread release the lock after threadSleepMs
@@ -248,7 +256,7 @@ void tst_QLockFile::waitForLock()
     if (!releaseEarly) // only let the thread release the lock now
         semMainThreadDone.release();
 
-    QVERIFY(ret); // waits for the thread to finish
+    QVERIFY(ret.result()); // waits for the thread to finish
 }
 
 void tst_QLockFile::staleLockFromCrashedProcess_data()
@@ -289,7 +297,7 @@ void tst_QLockFile::staleLockFromCrashedProcessReusedPid()
 {
 #if !QT_CONFIG(process)
     QSKIP("This test requires QProcess support");
-#elif defined(Q_OS_WINRT) || defined(QT_PLATFORM_UIKIT)
+#elif defined(QT_PLATFORM_UIKIT)
     QSKIP("We cannot retrieve information about other processes on this platform.");
 #else
     const QString fileName = dir.path() + "/staleLockFromCrashedProcessReusedPid";
@@ -410,7 +418,7 @@ void tst_QLockFile::staleLockRace()
     QThreadPool::globalInstance()->setMaxThreadCount(10);
     QFutureSynchronizer<QString> synchronizer;
     for (int i = 0; i < 8; ++i)
-        synchronizer.addFuture(QtConcurrent::run<QString>(tryStaleLockFromThread, fileName));
+        synchronizer.addFuture(QtConcurrent::run(tryStaleLockFromThread, fileName));
     synchronizer.waitForFinished();
     foreach (const QFuture<QString> &future, synchronizer.futures())
         QVERIFY2(future.result().isEmpty(), qPrintable(future.result()));
@@ -463,7 +471,7 @@ Q_DECLARE_OPERATORS_FOR_FLAGS(ProcessProperties)
 static inline ProcessProperties processProperties()
 {
     ProcessProperties result;
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
     HANDLE processToken = NULL;
     if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &processToken)) {
         DWORD elevation; // struct containing a DWORD, not present in some MinGW headers.
@@ -492,7 +500,7 @@ void tst_QLockFile::noPermissionsWindows()
 {
     // Windows: Do the permissions test in a system directory in which
     // files cannot be created.
-#if !defined(Q_OS_WIN) || defined(Q_OS_WINRT)
+#if !defined(Q_OS_WIN)
     QSKIP("This test is for desktop Windows only");
 #endif
 #ifdef Q_OS_WIN

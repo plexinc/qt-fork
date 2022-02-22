@@ -24,10 +24,13 @@
 #include "content/public/browser/restore_type.h"
 #include "content/public/browser/session_storage_namespace.h"
 #include "content/public/browser/site_instance.h"
+#include "content/public/common/child_process_host.h"
 #include "content/public/common/referrer.h"
 #include "content/public/common/was_activated_option.mojom.h"
 #include "services/network/public/cpp/resource_request_body.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
+#include "third_party/blink/public/common/navigation/impression.h"
+#include "third_party/blink/public/common/tokens/tokens.h"
 #include "ui/base/page_transition_types.h"
 #include "url/gurl.h"
 #include "url/origin.h"
@@ -115,11 +118,36 @@ class NavigationController {
 
   // Extra optional parameters for LoadURLWithParams.
   struct CONTENT_EXPORT LoadURLParams {
+    explicit LoadURLParams(const GURL& url);
+
+    // Copies |open_url_params| into LoadURLParams, attempting to copy all
+    // fields that are present in both structs (some properties are ignored
+    // because they are unique to LoadURLParams or OpenURLParams).
+    explicit LoadURLParams(const OpenURLParams& open_url_params);
+
+    ~LoadURLParams();
+    LoadURLParams(LoadURLParams &&) = default;
+    LoadURLParams& operator=(LoadURLParams &&) = default;
+
     // The url to load. This field is required.
     GURL url;
 
+    // The frame token of the initiator of the navigation if the navigation was
+    // initiated through trusted, non-web-influenced UI (e.g. via omnibox, the
+    // bookmarks bar, local NTP, etc.). This frame is not guaranteed to exist at
+    // any point during navigation. This can be an invalid id if the navigation
+    // was not associated with a frame, or if the initiating frame did not exist
+    // by the time navigation started. This parameter is defined if and only if
+    // |initiator_process_id| below is.
+    base::Optional<blink::LocalFrameToken> initiator_frame_token;
+
+    // ID of the renderer process of the frame host that initiated the
+    // navigation. This is defined if and only if |initiator_frame_token| above
+    // is, and it is only valid in conjunction with it.
+    int initiator_process_id = ChildProcessHost::kInvalidUniqueID;
+
     // The origin of the initiator of the navigation or base::nullopt if the
-    // navigation was initiated through through trusted, non-web-influenced UI
+    // navigation was initiated through trusted, non-web-influenced UI
     // (e.g. via omnibox, the bookmarks bar, local NTP, etc.).
     //
     // All renderer-initiated navigations must have a non-null
@@ -157,6 +185,11 @@ class NavigationController {
     // True for renderer-initiated navigations. This is
     // important for tracking whether to display pending URLs.
     bool is_renderer_initiated;
+
+    // Whether a navigation in a new window has the opener suppressed. False if
+    // the navigation is not in a new window. Can only be true when
+    // |is_renderer_initiated| is true.
+    bool was_opener_suppressed = false;
 
     // User agent override for this load. See comments in
     // UserAgentOverrideOption definition.
@@ -238,16 +271,9 @@ class NavigationController {
     // Indicates the reload type of this navigation.
     ReloadType reload_type = ReloadType::NONE;
 
-    explicit LoadURLParams(const GURL& url);
-
-    // Copies |open_url_params| into LoadURLParams, attempting to copy all
-    // fields that are present in both structs (some properties are ignored
-    // because they are unique to LoadURLParams or OpenURLParams).
-    explicit LoadURLParams(const OpenURLParams& open_url_params);
-
-    ~LoadURLParams();
-    LoadURLParams(LoadURLParams &&) = default;
-    LoadURLParams& operator=(LoadURLParams &&) = default;
+    // Impression info associated with this navigation. Should only be populated
+    // for navigations originating from a link click.
+    base::Optional<blink::Impression> impression;
 
     DISALLOW_COPY_AND_ASSIGN(LoadURLParams);
   };
@@ -283,24 +309,18 @@ class NavigationController {
   // has not been responded to, the NavigationEntry is pending. Once data is
   // received for that entry, that NavigationEntry is committed.
 
-  // A transient entry is an entry that, when the user navigates away, is
-  // removed and discarded rather than being added to the back-forward list.
-  // Transient entries are useful for interstitial pages and the like.
-
   // Active entry --------------------------------------------------------------
 
   // THIS IS DEPRECATED. DO NOT USE. Use GetVisibleEntry instead.
   // See http://crbug.com/273710.
   //
-  // Returns the active entry, which is the transient entry if any, the pending
-  // entry if a navigation is in progress or the last committed entry otherwise.
-  // NOTE: This can be nullptr!!
+  // Returns the active entry, which is the pending entry if a navigation is in
+  // progress or the last committed entry otherwise. NOTE: This can be nullptr!!
   virtual NavigationEntry* GetActiveEntry() = 0;
 
   // Returns the entry that should be displayed to the user in the address bar.
-  // This is the transient entry if any, the pending entry if a navigation is
-  // in progress *and* is safe to display to the user (see below), or the last
-  // committed entry otherwise.
+  // This is the pending entry if a navigation is in progress *and* is safe to
+  // display to the user (see below), or the last committed entry otherwise.
   // NOTE: This can be nullptr if no entry has committed!
   //
   // A pending entry is safe to display if it started in the browser process or
@@ -318,8 +338,7 @@ class NavigationController {
   virtual NavigationEntry* GetLastCommittedEntry() = 0;
 
   // Returns the index of the last committed entry.  It will be -1 if there are
-  // no entries, or if there is a transient entry before the first entry
-  // commits.
+  // no entries.
   virtual int GetLastCommittedEntryIndex() = 0;
 
   // Returns true if the source for the current entry can be viewed.
@@ -328,8 +347,7 @@ class NavigationController {
   // Navigation list -----------------------------------------------------------
 
   // Returns the number of entries in the NavigationController, excluding
-  // the pending entry if there is one, but including the transient entry if
-  // any.
+  // the pending entry if there is one.
   virtual int GetEntryCount() = 0;
 
   virtual NavigationEntry* GetEntryAtIndex(int index) = 0;
@@ -340,7 +358,7 @@ class NavigationController {
 
   // Pending entry -------------------------------------------------------------
 
-  // Discards the pending and transient entries if any.
+  // Discards the pending entry if any.
   virtual void DiscardNonCommittedEntries() = 0;
 
   // Returns the pending entry corresponding to the navigation that is
@@ -350,22 +368,6 @@ class NavigationController {
   // Returns the index of the pending entry or -1 if the pending entry
   // corresponds to a new navigation (created via LoadURL).
   virtual int GetPendingEntryIndex() = 0;
-
-  // Transient entry -----------------------------------------------------------
-
-  // Returns the transient entry if any. This is an entry which is removed and
-  // discarded if any navigation occurs. Note that the returned entry is owned
-  // by the navigation controller and may be deleted at any time.
-  virtual NavigationEntry* GetTransientEntry() = 0;
-
-  // Adds an entry that is returned by GetActiveEntry(). The entry is
-  // transient: any navigation causes it to be removed and discarded.  The
-  // NavigationController becomes the owner of |entry| and deletes it when
-  // it discards it. This is useful with interstitial pages that need to be
-  // represented as an entry, but should go away when the user navigates away
-  // from them.
-  // Note that adding a transient entry does not change the active contents.
-  virtual void SetTransientEntry(std::unique_ptr<NavigationEntry> entry) = 0;
 
   // New navigations -----------------------------------------------------------
 
@@ -417,8 +419,7 @@ class NavigationController {
   // |check_for_repost| is true and the current entry has POST data the user is
   // prompted to see if they really want to reload the page.  In nearly all
   // cases pass in true in production code, but would do false for testing, or
-  // in cases where no user interface is available for prompting.  If a
-  // transient entry is showing, initiates a new navigation to its URL.
+  // in cases where no user interface is available for prompting.
   // NOTE: |reload_type| should never be NONE.
   virtual void Reload(ReloadType reload_type, bool check_for_repost) = 0;
 
@@ -426,11 +427,11 @@ class NavigationController {
 
   // Removes the entry at the specified |index|.  If the index is the last
   // committed index or the pending entry, this does nothing and returns false.
-  // Otherwise this call discards any transient or pending entries.
+  // Otherwise this call discards any pending entry.
   virtual bool RemoveEntryAtIndex(int index) = 0;
 
-  // Discards any transient or pending entries, then discards all entries after
-  // the current entry index.
+  // Discards any pending entry, then discards all entries after the current
+  // entry index.
   virtual void PruneForwardEntries() = 0;
 
   // Random --------------------------------------------------------------------
@@ -489,23 +490,20 @@ class NavigationController {
   // If there is a pending entry after *G* in |this|, it is also preserved.
   // If |replace_entry| is true, the current entry in |source| is replaced. So
   // the result above would be A B *G*.
-  // This ignores any pending or transient entries in |source|.  Callers must
-  // ensure that |CanPruneAllButLastCommitted| returns true before calling this,
-  // or it will crash.
+  // This ignores any pending entry in |source|.  Callers must ensure that
+  // |CanPruneAllButLastCommitted| returns true before calling this, or it will
+  // crash.
   virtual void CopyStateFromAndPrune(NavigationController* source,
                                      bool replace_entry) = 0;
 
   // Returns whether it is safe to call PruneAllButLastCommitted or
-  // CopyStateFromAndPrune.  There must be a last committed entry, no transient
-  // entry, and if there is a pending entry, it must be new and not an existing
-  // entry.
+  // CopyStateFromAndPrune.  There must be a last committed entry, and if there
+  // is a pending entry, it must be new and not an existing entry.
   //
   // If there were no last committed entry, the pending entry might not commit,
   // leaving us with a blank page.  This is unsafe when used with
   // |CopyStateFromAndPrune|, which would show an existing entry above the blank
   // page.
-  // If there were a transient entry, we would not want to prune the other
-  // entries, which the transient entry could be referring to.
   // If there were an existing pending entry, we could not prune the last
   // committed entry, in case it did not commit.  That would leave us with no
   // sensible place to put the pending entry when it did commit, after all other

@@ -17,12 +17,12 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
+#include "base/optional.h"
 #include "net/base/completion_once_callback.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/io_buffer.h"
 #include "net/cert/cert_verifier.h"
 #include "net/cert/cert_verify_result.h"
-#include "net/cert/ct_verify_result.h"
 #include "net/log/net_log_with_source.h"
 #include "net/socket/next_proto.h"
 #include "net/socket/socket_bio_adapter.h"
@@ -86,6 +86,7 @@ class SSLClientSocketImpl : public SSLClientSocket,
   bool WasEverUsed() const override;
   bool WasAlpnNegotiated() const override;
   NextProto GetNegotiatedProtocol() const override;
+  base::Optional<base::StringPiece> GetPeerApplicationSettings() const override;
   bool GetSSLInfo(SSLInfo* ssl_info) override;
   void GetConnectionAttempts(ConnectionAttempts* out) const override;
   void ClearConnectionAttempts() override {}
@@ -149,7 +150,7 @@ class SSLClientSocketImpl : public SSLClientSocket,
   static ssl_verify_result_t VerifyCertCallback(SSL* ssl, uint8_t* out_alert);
   ssl_verify_result_t VerifyCert();
   ssl_verify_result_t HandleVerifyResult();
-  int VerifyCT();
+  int CheckCTCompliance();
 
   // Callback from the SSL layer that indicates the remote server is requesting
   // a certificate for this client.
@@ -157,14 +158,6 @@ class SSLClientSocketImpl : public SSLClientSocket,
 
   // Called from the SSL layer whenever a new session is established.
   int NewSessionCallback(SSL_SESSION* session);
-
-  // Adds the Certificate Transparency info from ct_verify_result_ to
-  // |ssl_info|.
-  // SCTs are held in three separate vectors in ct_verify_result, each
-  // vetor representing a particular verification state, this method associates
-  // each of the SCTs with the corresponding SCTVerifyStatus as it adds it to
-  // the |ssl_info|.signed_certificate_timestamps list.
-  void AddCTInfoToSSLInfo(SSLInfo* ssl_info) const;
 
   // Returns a session cache key for this socket.
   SSLClientSessionCache::Key GetSessionCacheKey(
@@ -220,9 +213,8 @@ class SSLClientSocketImpl : public SSLClientSocket,
   int user_write_buf_len_;
   bool first_post_handshake_write_ = true;
 
-  // True if we've already recorded the result of our attempt to
-  // use early data.
-  bool recorded_early_data_result_ = false;
+  // True if we've already handled the result of our attempt to use early data.
+  bool handled_early_data_result_ = false;
 
   // Used by DoPayloadRead() when attempting to fill the caller's buffer with
   // as much data as possible without blocking.
@@ -255,9 +247,6 @@ class SSLClientSocketImpl : public SSLClientSocket,
 
   // Result from Cert Verifier.
   int cert_verification_result_;
-
-  // Certificate Transparency: Verifier and result holder.
-  ct::CTVerifyResult ct_verify_result_;
 
   // OpenSSL stuff
   bssl::UniquePtr<SSL> ssl_;

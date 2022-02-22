@@ -43,7 +43,8 @@ class CONTENT_EXPORT WebGraphicsContext3DProviderImpl
   gpu::gles2::GLES2Interface* ContextGL() override;
   gpu::raster::RasterInterface* RasterInterface() override;
   gpu::webgpu::WebGPUInterface* WebGPUInterface() override;
-  GrContext* GetGrContext() override;
+  bool IsContextLost() override;
+  GrDirectContext* GetGrContext() override;
   const gpu::Capabilities& GetCapabilities() const override;
   const gpu::GpuFeatureInfo& GetGpuFeatureInfo() const override;
   const blink::WebglPreferences& GetWebglPreferences() const override;
@@ -56,10 +57,7 @@ class CONTENT_EXPORT WebGraphicsContext3DProviderImpl
   void CopyVideoFrame(media::PaintCanvasVideoRenderer* video_render,
                       media::VideoFrame* video_frame,
                       cc::PaintCanvas* canvas) override;
-
-  viz::ContextProviderCommandBuffer* context_provider() const {
-    return provider_.get();
-  }
+  viz::RasterContextProvider* RasterContextProvider() const override;
 
  private:
   // viz::ContextLostObserver implementation.

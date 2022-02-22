@@ -45,7 +45,7 @@
 QT_BEGIN_NAMESPACE
 
 QSGSoftwareLayer::QSGSoftwareLayer(QSGRenderContext *renderContext)
-    : QSGLayer(*(new QSGSoftwareLayerPrivate))
+    : QSGLayer(*(new QSGTexturePrivate(this)))
     , m_item(nullptr)
     , m_context(renderContext)
     , m_renderer(nullptr)
@@ -65,12 +65,7 @@ QSGSoftwareLayer::~QSGSoftwareLayer()
     invalidated();
 }
 
-int QSGSoftwareLayer::textureId() const
-{
-    return 0;
-}
-
-int QSGSoftwareLayerPrivate::comparisonKey() const
+qint64 QSGSoftwareLayer::comparisonKey() const
 {
     return 0;
 }
@@ -88,10 +83,6 @@ bool QSGSoftwareLayer::hasAlphaChannel() const
 bool QSGSoftwareLayer::hasMipmaps() const
 {
     return false;
-}
-
-void QSGSoftwareLayer::bind()
-{
 }
 
 bool QSGSoftwareLayer::updateTexture()

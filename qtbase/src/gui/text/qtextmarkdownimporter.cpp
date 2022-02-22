@@ -48,7 +48,11 @@
 #include <QTextDocumentFragment>
 #include <QTextList>
 #include <QTextTable>
+#if QT_CONFIG(system_textmarkdownreader)
+#include <md4c.h>
+#else
 #include "../../3rdparty/md4c/md4c.h"
+#endif
 
 QT_BEGIN_NAMESPACE
 
@@ -60,21 +64,22 @@ static const QChar Space = QLatin1Char(' ');
 // TODO maybe eliminate the margins after all views recognize BlockQuoteLevel, CSS can format it, etc.
 static const int BlockQuoteIndent = 40; // pixels, same as in QTextHtmlParserNode::initializeProperties
 
-Q_STATIC_ASSERT(int(QTextMarkdownImporter::FeatureCollapseWhitespace) == MD_FLAG_COLLAPSEWHITESPACE);
-Q_STATIC_ASSERT(int(QTextMarkdownImporter::FeaturePermissiveATXHeaders) == MD_FLAG_PERMISSIVEATXHEADERS);
-Q_STATIC_ASSERT(int(QTextMarkdownImporter::FeaturePermissiveURLAutoLinks) == MD_FLAG_PERMISSIVEURLAUTOLINKS);
-Q_STATIC_ASSERT(int(QTextMarkdownImporter::FeaturePermissiveMailAutoLinks) == MD_FLAG_PERMISSIVEEMAILAUTOLINKS);
-Q_STATIC_ASSERT(int(QTextMarkdownImporter::FeatureNoIndentedCodeBlocks) == MD_FLAG_NOINDENTEDCODEBLOCKS);
-Q_STATIC_ASSERT(int(QTextMarkdownImporter::FeatureNoHTMLBlocks) == MD_FLAG_NOHTMLBLOCKS);
-Q_STATIC_ASSERT(int(QTextMarkdownImporter::FeatureNoHTMLSpans) == MD_FLAG_NOHTMLSPANS);
-Q_STATIC_ASSERT(int(QTextMarkdownImporter::FeatureTables) == MD_FLAG_TABLES);
-Q_STATIC_ASSERT(int(QTextMarkdownImporter::FeatureStrikeThrough) == MD_FLAG_STRIKETHROUGH);
-Q_STATIC_ASSERT(int(QTextMarkdownImporter::FeaturePermissiveWWWAutoLinks) == MD_FLAG_PERMISSIVEWWWAUTOLINKS);
-Q_STATIC_ASSERT(int(QTextMarkdownImporter::FeaturePermissiveAutoLinks) == MD_FLAG_PERMISSIVEAUTOLINKS);
-Q_STATIC_ASSERT(int(QTextMarkdownImporter::FeatureTasklists) == MD_FLAG_TASKLISTS);
-Q_STATIC_ASSERT(int(QTextMarkdownImporter::FeatureNoHTML) == MD_FLAG_NOHTML);
-Q_STATIC_ASSERT(int(QTextMarkdownImporter::DialectCommonMark) == MD_DIALECT_COMMONMARK);
-Q_STATIC_ASSERT(int(QTextMarkdownImporter::DialectGitHub) == MD_DIALECT_GITHUB);
+static_assert(int(QTextMarkdownImporter::FeatureCollapseWhitespace) == MD_FLAG_COLLAPSEWHITESPACE);
+static_assert(int(QTextMarkdownImporter::FeaturePermissiveATXHeaders) == MD_FLAG_PERMISSIVEATXHEADERS);
+static_assert(int(QTextMarkdownImporter::FeaturePermissiveURLAutoLinks) == MD_FLAG_PERMISSIVEURLAUTOLINKS);
+static_assert(int(QTextMarkdownImporter::FeaturePermissiveMailAutoLinks) == MD_FLAG_PERMISSIVEEMAILAUTOLINKS);
+static_assert(int(QTextMarkdownImporter::FeatureNoIndentedCodeBlocks) == MD_FLAG_NOINDENTEDCODEBLOCKS);
+static_assert(int(QTextMarkdownImporter::FeatureNoHTMLBlocks) == MD_FLAG_NOHTMLBLOCKS);
+static_assert(int(QTextMarkdownImporter::FeatureNoHTMLSpans) == MD_FLAG_NOHTMLSPANS);
+static_assert(int(QTextMarkdownImporter::FeatureTables) == MD_FLAG_TABLES);
+static_assert(int(QTextMarkdownImporter::FeatureStrikeThrough) == MD_FLAG_STRIKETHROUGH);
+static_assert(int(QTextMarkdownImporter::FeatureUnderline) == MD_FLAG_UNDERLINE);
+static_assert(int(QTextMarkdownImporter::FeaturePermissiveWWWAutoLinks) == MD_FLAG_PERMISSIVEWWWAUTOLINKS);
+static_assert(int(QTextMarkdownImporter::FeaturePermissiveAutoLinks) == MD_FLAG_PERMISSIVEAUTOLINKS);
+static_assert(int(QTextMarkdownImporter::FeatureTasklists) == MD_FLAG_TASKLISTS);
+static_assert(int(QTextMarkdownImporter::FeatureNoHTML) == MD_FLAG_NOHTML);
+static_assert(int(QTextMarkdownImporter::DialectCommonMark) == MD_DIALECT_COMMONMARK);
+static_assert(int(QTextMarkdownImporter::DialectGitHub) == (MD_DIALECT_GITHUB | MD_FLAG_UNDERLINE));
 
 // --------------------------------------------------------
 // MD4C callback function wrappers
@@ -111,7 +116,7 @@ static int CbText(MD_TEXTTYPE type, const MD_CHAR *text, MD_SIZE size, void *use
 
 static void CbDebugLog(const char *msg, void *userdata)
 {
-    Q_UNUSED(userdata)
+    Q_UNUSED(userdata);
     qCDebug(lcMD) << msg;
 }
 
@@ -177,7 +182,7 @@ int QTextMarkdownImporter::cbEnterBlock(int blockType, void *det)
     switch (blockType) {
     case MD_BLOCK_P:
         if (!m_listStack.isEmpty())
-            qCDebug(lcMD, m_listItem ? "P of LI at level %d"  : "P continuation inside LI at level %d", m_listStack.count());
+            qCDebug(lcMD, m_listItem ? "P of LI at level %d"  : "P continuation inside LI at level %d", int(m_listStack.count()));
         else
             qCDebug(lcMD, "P");
         m_needsInsertBlock = true;
@@ -243,7 +248,7 @@ int QTextMarkdownImporter::cbEnterBlock(int blockType, void *det)
             m_listFormat.setStyle(QTextListFormat::ListDisc);
             break;
         }
-        qCDebug(lcMD, "UL %c level %d", detail->mark, m_listStack.count() + 1);
+        qCDebug(lcMD, "UL %c level %d", detail->mark, int(m_listStack.count()) + 1);
     } break;
     case MD_BLOCK_OL: {
         if (m_needsInsertList) // list nested in an empty list
@@ -255,7 +260,7 @@ int QTextMarkdownImporter::cbEnterBlock(int blockType, void *det)
         m_listFormat.setIndent(m_listStack.count() + 1);
         m_listFormat.setNumberSuffix(QChar::fromLatin1(detail->mark_delimiter));
         m_listFormat.setStyle(QTextListFormat::ListDecimal);
-        qCDebug(lcMD, "OL xx%d level %d", detail->mark_delimiter, m_listStack.count() + 1);
+        qCDebug(lcMD, "OL xx%d level %d", detail->mark_delimiter, int(m_listStack.count()) + 1);
     } break;
     case MD_BLOCK_TD: {
         MD_BLOCK_TD_DETAIL *detail = static_cast<MD_BLOCK_TD_DETAIL *>(det);
@@ -314,7 +319,7 @@ int QTextMarkdownImporter::cbEnterBlock(int blockType, void *det)
 
 int QTextMarkdownImporter::cbLeaveBlock(int blockType, void *detail)
 {
-    Q_UNUSED(detail)
+    Q_UNUSED(detail);
     switch (blockType) {
     case MD_BLOCK_P:
         m_listItem = false;
@@ -326,7 +331,7 @@ int QTextMarkdownImporter::cbLeaveBlock(int blockType, void *detail)
         if (Q_UNLIKELY(m_listStack.isEmpty())) {
             qCWarning(lcMD, "list ended unexpectedly");
         } else {
-            qCDebug(lcMD, "list at level %d ended", m_listStack.count());
+            qCDebug(lcMD, "list at level %d ended", int(m_listStack.count()));
             m_listStack.pop();
         }
         break;
@@ -363,7 +368,7 @@ int QTextMarkdownImporter::cbLeaveBlock(int blockType, void *detail)
         m_cursor->movePosition(QTextCursor::End);
         break;
     case MD_BLOCK_LI:
-        qCDebug(lcMD, "LI at level %d ended", m_listStack.count());
+        qCDebug(lcMD, "LI at level %d ended", int(m_listStack.count()));
         m_listItem = false;
         break;
     case MD_BLOCK_CODE: {
@@ -397,6 +402,9 @@ int QTextMarkdownImporter::cbEnterSpan(int spanType, void *det)
     case MD_SPAN_STRONG:
         charFmt.setFontWeight(QFont::Bold);
         break;
+    case MD_SPAN_U:
+        charFmt.setFontUnderline(true);
+        break;
     case MD_SPAN_A: {
         MD_SPAN_A_DETAIL *detail = static_cast<MD_SPAN_A_DETAIL *>(det);
         QString url = QString::fromUtf8(detail->href.text, int(detail->href.size));
@@ -424,15 +432,16 @@ int QTextMarkdownImporter::cbEnterSpan(int spanType, void *det)
         break;
     }
     m_spanFormatStack.push(charFmt);
-    qCDebug(lcMD) << spanType << "setCharFormat" << charFmt.font().family() << charFmt.fontWeight()
-                  << (charFmt.fontItalic() ? "italic" : "") << charFmt.foreground().color().name();
+    qCDebug(lcMD) << spanType << "setCharFormat" << charFmt.font().families().first()
+                  << charFmt.fontWeight() << (charFmt.fontItalic() ? "italic" : "")
+                  << charFmt.foreground().color().name();
     m_cursor->setCharFormat(charFmt);
     return 0; // no error
 }
 
 int QTextMarkdownImporter::cbLeaveSpan(int spanType, void *detail)
 {
-    Q_UNUSED(detail)
+    Q_UNUSED(detail);
     QTextCharFormat charFmt;
     if (!m_spanFormatStack.isEmpty()) {
         m_spanFormatStack.pop();
@@ -440,8 +449,9 @@ int QTextMarkdownImporter::cbLeaveSpan(int spanType, void *detail)
             charFmt = m_spanFormatStack.top();
     }
     m_cursor->setCharFormat(charFmt);
-    qCDebug(lcMD) << spanType << "setCharFormat" << charFmt.font().family() << charFmt.fontWeight()
-                  << (charFmt.fontItalic() ? "italic" : "") << charFmt.foreground().color().name();
+    qCDebug(lcMD) << spanType << "setCharFormat" << charFmt.font().families().first()
+                  << charFmt.fontWeight() << (charFmt.fontItalic() ? "italic" : "")
+                  << charFmt.foreground().color().name();
     if (spanType == int(MD_SPAN_IMG))
         m_imageSpan = false;
     return 0; // no error
@@ -467,7 +477,7 @@ int QTextMarkdownImporter::cbText(int textType, const char *text, unsigned size)
 #endif
         break;
     case MD_TEXT_NULLCHAR:
-        s = QString(QChar(0xFFFD)); // CommonMark-required replacement for null
+        s = QString(QChar(u'\xFFFD')); // CommonMark-required replacement for null
         break;
     case MD_TEXT_BR:
         s = QString(Newline);
@@ -480,7 +490,10 @@ int QTextMarkdownImporter::cbText(int textType, const char *text, unsigned size)
         break;
 #if QT_CONFIG(texthtmlparser)
     case MD_TEXT_ENTITY:
-        m_cursor->insertHtml(s);
+        if (m_htmlTagDepth)
+            m_htmlAccumulator += s;
+        else
+            m_cursor->insertHtml(s);
         s = QString();
         break;
 #endif

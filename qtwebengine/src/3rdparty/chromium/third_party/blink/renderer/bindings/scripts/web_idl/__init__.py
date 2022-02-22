@@ -35,6 +35,7 @@ def _setup_sys_path():
 _setup_sys_path()
 
 from . import file_io
+from .argument import Argument
 from .ast_group import AstGroup
 from .attribute import Attribute
 from .callback_function import CallbackFunction
@@ -69,6 +70,7 @@ from .operation import Operation
 from .operation import OperationGroup
 from .runtime_enabled_features import RuntimeEnabledFeatures
 from .typedef import Typedef
+from .union import NewUnion
 from .union import Union
 
 

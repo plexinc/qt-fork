@@ -32,8 +32,8 @@
 #include "wayland-xcomposite-server-protocol.h"
 
 #include <QtWaylandCompositor/QWaylandCompositor>
+#include <QtOpenGL/QOpenGLTexture>
 #include <QtGui/QGuiApplication>
-#include <QtGui/QOpenGLTexture>
 #include <qpa/qplatformnativeinterface.h>
 #include <qpa/qplatformopenglcontext.h>
 
@@ -45,9 +45,9 @@
 
 QT_BEGIN_NAMESPACE
 
-QVector<EGLint> eglbuildSpec()
+QList<EGLint> eglbuildSpec()
 {
-    QVector<EGLint> spec;
+    QList<EGLint> spec;
 
     spec.append(EGL_SURFACE_TYPE); spec.append(EGL_WINDOW_BIT | EGL_PIXMAP_BIT);
     spec.append(EGL_RENDERABLE_TYPE); spec.append(EGL_OPENGL_ES2_BIT);
@@ -75,12 +75,12 @@ void XCompositeEglClientBufferIntegration::initializeHardware(struct ::wl_displa
     } else {
         qFatal("Platform integration doesn't have native interface");
     }
-    new XCompositeHandler(m_compositor, mDisplay);
+    mHandler = new XCompositeHandler(m_compositor, mDisplay);
 }
 
 QtWayland::ClientBuffer *XCompositeEglClientBufferIntegration::createBufferFor(wl_resource *buffer)
 {
-    if (wl_shm_buffer_get(buffer))
+    if (!mHandler->isXCompositeBuffer(buffer))
         return nullptr;
     return new XCompositeEglClientBuffer(this, buffer);
 }
@@ -98,7 +98,7 @@ QOpenGLTexture *XCompositeEglClientBuffer::toOpenGlTexture(int plane)
     XCompositeBuffer *compositorBuffer = XCompositeBuffer::fromResource(m_buffer);
     Pixmap pixmap = XCompositeNameWindowPixmap(m_integration->xDisplay(), compositorBuffer->window());
 
-    QVector<EGLint> eglConfigSpec = eglbuildSpec();
+    QList<EGLint> eglConfigSpec = eglbuildSpec();
 
     EGLint matching = 0;
     EGLConfig config;
@@ -108,7 +108,7 @@ QOpenGLTexture *XCompositeEglClientBuffer::toOpenGlTexture(int plane)
         return nullptr;
     }
 
-    QVector<EGLint> attribList;
+    QList<EGLint> attribList;
 
     attribList.append(EGL_TEXTURE_FORMAT);
     attribList.append(EGL_TEXTURE_RGBA);

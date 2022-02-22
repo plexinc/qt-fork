@@ -12,13 +12,17 @@
 #include <utility>
 
 #include "base/command_line.h"
+#include "base/logging.h"
 #include "base/mac/mac_util.h"
+#include "base/mac/foundation_util.h"
 #include "base/trace_event/trace_event.h"
 #include "components/metal_util/hdr_copier_layer.h"
+#include "media/base/mac/color_space_util_mac.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/cocoa/animation_utils.h"
 #include "ui/base/ui_base_switches.h"
 #include "ui/gfx/geometry/dip_util.h"
+#include "ui/gfx/mac/io_surface_hdr_metadata.h"
 #include "ui/gl/ca_renderer_layer_params.h"
 #include "ui/gl/gl_image_io_surface.h"
 
@@ -31,10 +35,8 @@ namespace {
 bool AVSampleBufferDisplayLayerEnqueueCVPixelBuffer(
     AVSampleBufferDisplayLayer* av_layer,
     CVPixelBufferRef cv_pixel_buffer) {
-  OSStatus os_status = noErr;
-
   base::ScopedCFTypeRef<CMVideoFormatDescriptionRef> video_info;
-  os_status = CMVideoFormatDescriptionCreateForImageBuffer(
+  OSStatus os_status = CMVideoFormatDescriptionCreateForImageBuffer(
       nullptr, cv_pixel_buffer, video_info.InitializeInto());
   if (os_status != noErr) {
     LOG(ERROR) << "CMVideoFormatDescriptionCreateForImageBuffer failed with "
@@ -104,7 +106,8 @@ bool AVSampleBufferDisplayLayerEnqueueCVPixelBuffer(
 // of and retain |io_surface| until it is no longer being displayed.
 bool AVSampleBufferDisplayLayerEnqueueIOSurface(
     AVSampleBufferDisplayLayer* av_layer,
-    IOSurfaceRef io_surface) {
+    IOSurfaceRef io_surface,
+    const gfx::ColorSpace& io_surface_color_space) {
   CVReturn cv_return = kCVReturnSuccess;
 
   base::ScopedCFTypeRef<CVPixelBufferRef> cv_pixel_buffer;
@@ -113,6 +116,55 @@ bool AVSampleBufferDisplayLayerEnqueueIOSurface(
   if (cv_return != kCVReturnSuccess) {
     LOG(ERROR) << "CVPixelBufferCreateWithIOSurface failed with " << cv_return;
     return false;
+  }
+
+  if (__builtin_available(macos 11.0, *)) {
+    if (io_surface_color_space ==
+            gfx::ColorSpace(gfx::ColorSpace::PrimaryID::BT2020,
+                            gfx::ColorSpace::TransferID::SMPTEST2084,
+                            gfx::ColorSpace::MatrixID::BT2020_NCL,
+                            gfx::ColorSpace::RangeID::LIMITED) ||
+        io_surface_color_space ==
+            gfx::ColorSpace(gfx::ColorSpace::PrimaryID::BT2020,
+                            gfx::ColorSpace::TransferID::ARIB_STD_B67,
+                            gfx::ColorSpace::MatrixID::BT2020_NCL,
+                            gfx::ColorSpace::RangeID::LIMITED)) {
+      CVBufferSetAttachment(cv_pixel_buffer, kCVImageBufferColorPrimariesKey,
+                            kCVImageBufferColorPrimaries_ITU_R_2020,
+                            kCVAttachmentMode_ShouldPropagate);
+      CVBufferSetAttachment(cv_pixel_buffer, kCVImageBufferYCbCrMatrixKey,
+                            kCVImageBufferYCbCrMatrix_ITU_R_2020,
+                            kCVAttachmentMode_ShouldPropagate);
+      CVBufferSetAttachment(
+          cv_pixel_buffer, kCVImageBufferTransferFunctionKey,
+          io_surface_color_space.GetTransferID() ==
+                  gfx::ColorSpace::TransferID::ARIB_STD_B67
+              ? kCVImageBufferTransferFunction_ITU_R_2100_HLG
+              : kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ,
+          kCVAttachmentMode_ShouldPropagate);
+
+      // Transfer stashed HDR metadata from the IOSurface to the CVPixelBuffer.
+      //
+      // Note: It'd be nice to find a way to set this on the IOSurface itself
+      // in some way that propagates to the CVPixelBuffer, but thus far we
+      // haven't been able to find a way.
+      gfx::HDRMetadata hdr_metadata;
+      if (IOSurfaceGetHDRMetadata(io_surface, hdr_metadata)) {
+        if (!(hdr_metadata.mastering_metadata == gfx::MasteringMetadata())) {
+          CVBufferSetAttachment(
+              cv_pixel_buffer, kCVImageBufferMasteringDisplayColorVolumeKey,
+              media::GenerateMasteringDisplayColorVolume(hdr_metadata),
+              kCVAttachmentMode_ShouldPropagate);
+        }
+        if (hdr_metadata.max_content_light_level ||
+            hdr_metadata.max_frame_average_light_level) {
+          CVBufferSetAttachment(
+              cv_pixel_buffer, kCVImageBufferContentLightLevelInfoKey,
+              media::GenerateContentLightLevelInfo(hdr_metadata),
+              kCVAttachmentMode_ShouldPropagate);
+        }
+      }
+    }
   }
 
   return AVSampleBufferDisplayLayerEnqueueCVPixelBuffer(av_layer,
@@ -268,23 +320,14 @@ bool CARendererLayerTree::RootLayer::WantsFullcreenLowPowerBackdrop() const {
   return found_video_layer;
 }
 
-void CARendererLayerTree::RootLayer::EnforceOnlyOneAVLayer() {
-  size_t video_layer_count = 0;
+void CARendererLayerTree::RootLayer::DowngradeAVLayersToCALayers() {
   for (auto& clip_layer : clip_and_sorting_layers) {
     for (auto& transform_layer : clip_layer.transform_layers) {
       for (auto& content_layer : transform_layer.content_layers) {
-        if (content_layer.type == CALayerType::kVideo)
-          video_layer_count += 1;
-      }
-    }
-  }
-  if (video_layer_count <= 1)
-    return;
-  for (auto& clip_layer : clip_and_sorting_layers) {
-    for (auto& transform_layer : clip_layer.transform_layers) {
-      for (auto& content_layer : transform_layer.content_layers) {
-        if (content_layer.type == CALayerType::kVideo)
+        if (content_layer.type == CALayerType::kVideo &&
+            content_layer.video_type_can_downgrade) {
           content_layer.type = CALayerType::kDefault;
+        }
       }
     }
   }
@@ -385,7 +428,7 @@ CARendererLayerTree::ContentLayer::ContentLayer(
     const gfx::RectF& contents_rect,
     const gfx::Rect& rect_in,
     unsigned background_color,
-    bool has_hdr_color_space,
+    const gfx::ColorSpace& io_surface_color_space,
     unsigned edge_aa_mask,
     float opacity,
     unsigned filter)
@@ -394,6 +437,7 @@ CARendererLayerTree::ContentLayer::ContentLayer(
       contents_rect(contents_rect),
       rect(rect_in),
       background_color(background_color),
+      io_surface_color_space(io_surface_color_space),
       ca_edge_aa_mask(0),
       opacity(opacity),
       ca_filter(filter == GL_LINEAR ? kCAFilterLinear : kCAFilterNearest) {
@@ -439,24 +483,25 @@ CARendererLayerTree::ContentLayer::ContentLayer(
   }
 
   // Determine which type of CALayer subclass we should use.
-  if (io_surface) {
-    switch (IOSurfaceGetPixelFormat(io_surface)) {
-      case kCVPixelFormatType_64RGBAHalf:
-      case kCVPixelFormatType_ARGB2101010LEPacked:
-        // HDR content can come in either as half-float or as 10-10-10-2.
-        if (has_hdr_color_space)
-          type = CALayerType::kHDRCopier;
-        break;
-      case kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange:
-        // Only allow 4:2:0 frames which fill the layer's contents to be
-        // promoted to AV layers.
-        if (tree->allow_av_sample_buffer_display_layer_ &&
-            contents_rect == gfx::RectF(0, 0, 1, 1)) {
+  if (metal::ShouldUseHDRCopier(io_surface, io_surface_color_space)) {
+    type = CALayerType::kHDRCopier;
+  } else if (io_surface) {
+    // Only allow 4:2:0 frames which fill the layer's contents to be
+    // promoted to AV layers.
+    if (tree->allow_av_sample_buffer_display_layer_ &&
+        contents_rect == gfx::RectF(0, 0, 1, 1)) {
+      switch (IOSurfaceGetPixelFormat(io_surface)) {
+        case kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange:
           type = CALayerType::kVideo;
-        }
-        break;
-      default:
-        break;
+          video_type_can_downgrade = !io_surface_color_space.IsHDR();
+          break;
+        case kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange:
+          type = CALayerType::kVideo;
+          video_type_can_downgrade = false;
+          break;
+        default:
+          break;
+      }
     }
   }
 
@@ -495,10 +540,12 @@ CARendererLayerTree::ContentLayer::ContentLayer(ContentLayer&& layer)
       contents_rect(layer.contents_rect),
       rect(layer.rect),
       background_color(layer.background_color),
+      io_surface_color_space(layer.io_surface_color_space),
       ca_edge_aa_mask(layer.ca_edge_aa_mask),
       opacity(layer.opacity),
       ca_filter(layer.ca_filter),
       type(layer.type),
+      video_type_can_downgrade(layer.video_type_can_downgrade),
       ca_layer(std::move(layer.ca_layer)),
       av_layer(std::move(layer.av_layer)) {
   DCHECK(!layer.ca_layer);
@@ -570,7 +617,7 @@ void CARendererLayerTree::TransformLayer::AddContentLayer(
     const CARendererLayerParams& params) {
   base::ScopedCFTypeRef<IOSurfaceRef> io_surface;
   base::ScopedCFTypeRef<CVPixelBufferRef> cv_pixel_buffer;
-  bool has_hdr_color_space = false;
+  gfx::ColorSpace io_surface_color_space;
   if (params.image) {
     gl::GLImageIOSurface* io_surface_image =
         gl::GLImageIOSurface::FromGLImage(params.image);
@@ -584,11 +631,11 @@ void CARendererLayerTree::TransformLayer::AddContentLayer(
     // TODO(ccameron): If this indeed causes the bug to disappear, then
     // extirpate the CVPixelBufferRef path.
     // cv_pixel_buffer = io_surface_image->cv_pixel_buffer();
-    has_hdr_color_space = params.image->color_space().IsHDR();
+    io_surface_color_space = params.image->color_space();
   }
   content_layers.push_back(
       ContentLayer(tree, io_surface, cv_pixel_buffer, params.contents_rect,
-                   params.rect, params.background_color, has_hdr_color_space,
+                   params.rect, params.background_color, io_surface_color_space,
                    params.edge_aa_mask, params.opacity, params.filter));
 }
 
@@ -610,9 +657,9 @@ void CARendererLayerTree::RootLayer::CommitToCA(CALayer* superlayer,
     DLOG(ERROR) << "CARendererLayerTree root layer not attached to tree.";
   }
 
-  EnforceOnlyOneAVLayer();
-
   if (WantsFullcreenLowPowerBackdrop()) {
+    // In fullscreen low power mode there exists a single video layer on a
+    // solid black background.
     const gfx::RectF bg_rect(
         ScaleSize(gfx::SizeF(pixel_size), 1 / scale_factor));
     if (gfx::RectF([ca_layer frame]) != bg_rect)
@@ -624,6 +671,16 @@ void CARendererLayerTree::RootLayer::CommitToCA(CALayer* superlayer,
       [ca_layer setFrame:CGRectZero];
     if ([ca_layer backgroundColor])
       [ca_layer setBackgroundColor:nil];
+    // We know that we are not in fullscreen low power mode, so there is no
+    // power savings (and a slight power cost) to using
+    // AVSampleBufferDisplayLayer.
+    // https://crbug.com/1143477
+    // We also want to minimize our use of AVSampleBufferDisplayLayer because we
+    // don't track which video element corresponded to which CALayer, and
+    // AVSampleBufferDisplayLayer is not updated with the CATransaction.
+    // Combined, these can result in result in videos jumping around.
+    // https://crbug.com/923427
+    DowngradeAVLayersToCALayers();
   }
 
   for (size_t i = 0; i < clip_and_sorting_layers.size(); ++i) {
@@ -808,7 +865,10 @@ void CARendererLayerTree::ContentLayer::CommitToCA(CALayer* superlayer,
 
   switch (type) {
     case CALayerType::kHDRCopier:
-      [ca_layer setContents:static_cast<id>(io_surface.get())];
+      if (update_contents) {
+        metal::UpdateHDRCopierLayer(ca_layer.get(), io_surface.get(),
+                                    io_surface_color_space);
+      }
       break;
     case CALayerType::kVideo:
       if (update_contents) {
@@ -821,8 +881,8 @@ void CARendererLayerTree::ContentLayer::CommitToCA(CALayer* superlayer,
                 << "AVSampleBufferDisplayLayerEnqueueCVPixelBuffer failed";
           }
         } else {
-          result =
-              AVSampleBufferDisplayLayerEnqueueIOSurface(av_layer, io_surface);
+          result = AVSampleBufferDisplayLayerEnqueueIOSurface(
+              av_layer, io_surface, io_surface_color_space);
           if (!result) {
             LOG(ERROR) << "AVSampleBufferDisplayLayerEnqueueIOSurface failed";
           }

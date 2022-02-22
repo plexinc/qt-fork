@@ -9,7 +9,6 @@
 
 #include <memory>
 
-#include "base/logging.h"
 #include "base/memory/shared_memory_mapping.h"
 #include "base/memory/unsafe_shared_memory_region.h"
 #include "base/process/process_handle.h"
@@ -56,7 +55,7 @@ void HostArrayBufferVar::Unmap() {
 }
 
 uint32_t HostArrayBufferVar::ByteLength() {
-  return base::checked_cast<uint32_t>(buffer_.ByteLengthAsSizeT());
+  return base::checked_cast<uint32_t>(buffer_.ByteLength());
 }
 
 bool HostArrayBufferVar::CopyToNewShmem(

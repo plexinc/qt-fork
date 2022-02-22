@@ -18,7 +18,6 @@
 #include "content/child/dwrite_font_proxy/font_fallback_win.h"
 #include "content/child/font_warmup_win.h"
 #include "content/public/child/child_thread.h"
-#include "content/public/common/service_names.mojom.h"
 #include "skia/ext/fontmgr_default.h"
 #include "third_party/blink/public/web/win/web_font_rendering.h"
 #include "third_party/skia/include/core/SkFontMgr.h"
@@ -59,12 +58,8 @@ void InitializeDWriteFontProxy() {
 
   if (!g_font_collection) {
     mojo::PendingRemote<blink::mojom::DWriteFontProxy> dwrite_font_proxy;
-    if (g_connection_callback_override) {
+    if (g_connection_callback_override)
       dwrite_font_proxy = g_connection_callback_override->Run();
-    } else if (auto* thread = ChildThread::Get()) {
-      thread->BindHostReceiver(
-          dwrite_font_proxy.InitWithNewPipeAndPassReceiver());
-    }
     DWriteFontCollectionProxy::Create(&g_font_collection, factory.Get(),
                                       std::move(dwrite_font_proxy));
   }

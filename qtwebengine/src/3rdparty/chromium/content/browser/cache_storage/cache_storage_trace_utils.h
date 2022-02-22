@@ -8,6 +8,7 @@
 #include <memory>
 #include <vector>
 
+#include "base/strings/string16.h"
 #include "third_party/blink/public/mojom/cache_storage/cache_storage.mojom-forward.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-forward.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_response.mojom-forward.h"
@@ -56,6 +57,9 @@ std::unique_ptr<base::trace_event::TracedValue> CacheStorageTracedValue(
 
 std::unique_ptr<base::trace_event::TracedValue> CacheStorageTracedValue(
     const std::vector<base::string16> string_list);
+
+std::unique_ptr<base::trace_event::TracedValue> CacheStorageTracedValue(
+    const std::vector<blink::mojom::CacheEntryPtr>& entries);
 
 }  // namespace content
 

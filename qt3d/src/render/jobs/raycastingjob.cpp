@@ -64,15 +64,19 @@ namespace {
 class EntityCasterGatherer : public EntityVisitor
 {
 public:
-    using EntityCasterList = QVector<QPair<Entity *, RayCaster*>>;
+    using EntityCasterList = QList<QPair<Entity *, RayCaster *>>;
     EntityCasterList m_result;
+    RayCaster *m_trigger;
 
-    explicit EntityCasterGatherer(NodeManagers *manager) : EntityVisitor(manager) { setPruneDisabled(true); }
+    explicit EntityCasterGatherer(NodeManagers *manager, RayCaster *trigger = nullptr)
+        : EntityVisitor(manager), m_trigger(trigger) {
+        setPruneDisabled(true);
+    }
 
     Operation visit(Entity *entity) override {
-        QVector<RayCaster *> components = entity->renderComponents<RayCaster>();
-        for (const auto c: qAsConst(components)) {
-            if (c->isEnabled())
+        const std::vector<RayCaster *> &components = entity->renderComponents<RayCaster>();
+        for (const auto c: components) {
+            if ((m_trigger == nullptr && c->isEnabled()) || (m_trigger != nullptr && m_trigger == c))
                 m_result.push_back(qMakePair(entity, c));
         }
 
@@ -92,7 +96,7 @@ public:
     bool isRequired() const override;
     void postFrame(Qt3DCore::QAspectManager *manager) override;
 
-    QVector<QPair<RayCaster *, QAbstractRayCaster::Hits>> dispatches;
+    QList<QPair<RayCaster *, QAbstractRayCaster::Hits>> dispatches;
 
     RayCastingJob *q_ptr;
     Q_DECLARE_PUBLIC(RayCastingJob)
@@ -159,40 +163,35 @@ bool RayCastingJob::runHelper()
     if (!m_oneEnabledAtLeast)
         return false;
 
-    const bool trianglePickingRequested = (m_renderSettings->pickMethod() & QPickingSettings::TrianglePicking);
-    const bool edgePickingRequested = (m_renderSettings->pickMethod() & QPickingSettings::LinePicking);
-    const bool pointPickingRequested = (m_renderSettings->pickMethod() & QPickingSettings::PointPicking);
-    const bool primitivePickingRequested = pointPickingRequested | edgePickingRequested | trianglePickingRequested;
-    const bool frontFaceRequested =
-            m_renderSettings->faceOrientationPickingMode() != QPickingSettings::BackFace;
-    const bool backFaceRequested =
-            m_renderSettings->faceOrientationPickingMode() != QPickingSettings::FrontFace;
-    const float pickWorldSpaceTolerance = m_renderSettings->pickWorldSpaceTolerance();
-
     EntityCasterGatherer gatherer(m_manager);
     gatherer.apply(m_node);
     const EntityCasterGatherer::EntityCasterList &entities = gatherer.m_result;
+    return pick(entities);
+}
 
-    PickingUtils::ViewportCameraAreaGatherer vcaGatherer;
-    const QVector<PickingUtils::ViewportCameraAreaDetails> vcaDetails = vcaGatherer.gather(m_frameGraphRoot);
+bool RayCastingJob::pick(const QList<QPair<Entity *, RayCaster *>> &entities)
+{
+    const PickingUtils::PickConfiguration pickConfiguration(m_frameGraphRoot, m_renderSettings);
+    if (pickConfiguration.vcaDetails.empty())
+        return false;
 
     const float sceneRayLength = m_node->worldBoundingVolumeWithChildren()->radius() * 3.f;
 
     for (const EntityCasterGatherer::EntityCasterList::value_type &pair: entities) {
-        QVector<QRay3D> rays;
+        std::vector<QRay3D> rays;
 
         switch (pair.second->type()) {
         case QAbstractRayCasterPrivate::WorldSpaceRayCaster:
-            rays << QRay3D(Vector3D(pair.second->origin()),
-                           Vector3D(pair.second->direction()),
-                           pair.second->length() > 0.f ? pair.second->length() : sceneRayLength);
+            rays.emplace_back(Vector3D(pair.second->origin()),
+                              Vector3D(pair.second->direction()),
+                              pair.second->length() > 0.f ? pair.second->length() : sceneRayLength);
             rays.back().transform(*pair.first->worldTransform());
             break;
         case QAbstractRayCasterPrivate::ScreenScapeRayCaster:
-            for (const PickingUtils::ViewportCameraAreaDetails &vca : vcaDetails) {
-                auto ray = rayForViewportAndCamera(vca, nullptr, pair.second->position());
+            for (const PickingUtils::ViewportCameraAreaDetails &vca : pickConfiguration.vcaDetails) {
+                const auto ray = rayForViewportAndCamera(vca, nullptr, pair.second->position());
                 if (ray.isValid())
-                    rays << ray;
+                    rays.push_back(ray);
             }
             break;
         default:
@@ -202,37 +201,49 @@ bool RayCastingJob::runHelper()
         for (const QRay3D &ray: qAsConst(rays)) {
             PickingUtils::HitList sphereHits;
             PickingUtils::HierarchicalEntityPicker entityPicker(ray, false);
-            entityPicker.setFilterLayers(pair.second->layerIds(), pair.second->filterMode());
+            entityPicker.setLayerIds(pair.second->layerIds(), pair.second->filterMode());
             if (entityPicker.collectHits(m_manager, m_node)) {
-                if (trianglePickingRequested) {
+                if (pickConfiguration.trianglePickingRequested) {
                     PickingUtils::TriangleCollisionGathererFunctor gathererFunctor;
-                    gathererFunctor.m_frontFaceRequested = frontFaceRequested;
-                    gathererFunctor.m_backFaceRequested = backFaceRequested;
+                    gathererFunctor.m_frontFaceRequested = pickConfiguration.frontFaceRequested;
+                    gathererFunctor.m_backFaceRequested = pickConfiguration.backFaceRequested;
                     gathererFunctor.m_manager = m_manager;
                     gathererFunctor.m_ray = ray;
                     gathererFunctor.m_objectPickersRequired = false;
-                    sphereHits << gathererFunctor.computeHits(entityPicker.entities(), QPickingSettings::AllPicks);
+                    const PickingUtils::HitList &hits = gathererFunctor.computeHits(entityPicker.entities(), QPickingSettings::AllPicks);
+                    sphereHits.insert(sphereHits.end(),
+                                      std::make_move_iterator(hits.begin()),
+                                      std::make_move_iterator(hits.end()));
                 }
-                if (edgePickingRequested) {
+                if (pickConfiguration.edgePickingRequested) {
                     PickingUtils::LineCollisionGathererFunctor gathererFunctor;
                     gathererFunctor.m_manager = m_manager;
                     gathererFunctor.m_ray = ray;
-                    gathererFunctor.m_pickWorldSpaceTolerance = pickWorldSpaceTolerance;
+                    gathererFunctor.m_pickWorldSpaceTolerance = pickConfiguration.pickWorldSpaceTolerance;
                     gathererFunctor.m_objectPickersRequired = false;
-                    sphereHits << gathererFunctor.computeHits(entityPicker.entities(), QPickingSettings::AllPicks);
+                    const PickingUtils::HitList &hits = gathererFunctor.computeHits(entityPicker.entities(), QPickingSettings::AllPicks);
+                    sphereHits.insert(sphereHits.end(),
+                                      std::make_move_iterator(hits.begin()),
+                                      std::make_move_iterator(hits.end()));
                     PickingUtils::AbstractCollisionGathererFunctor::sortHits(sphereHits);
                 }
-                if (pointPickingRequested) {
+                if (pickConfiguration.pointPickingRequested) {
                     PickingUtils::PointCollisionGathererFunctor gathererFunctor;
                     gathererFunctor.m_manager = m_manager;
                     gathererFunctor.m_ray = ray;
-                    gathererFunctor.m_pickWorldSpaceTolerance = pickWorldSpaceTolerance;
+                    gathererFunctor.m_pickWorldSpaceTolerance = pickConfiguration.pickWorldSpaceTolerance;
                     gathererFunctor.m_objectPickersRequired = false;
-                    sphereHits << gathererFunctor.computeHits(entityPicker.entities(), QPickingSettings::AllPicks);
+                    const PickingUtils::HitList &hits = gathererFunctor.computeHits(entityPicker.entities(), QPickingSettings::AllPicks);
+                    sphereHits.insert(sphereHits.end(),
+                                      std::make_move_iterator(hits.begin()),
+                                      std::make_move_iterator(hits.end()));
                     PickingUtils::AbstractCollisionGathererFunctor::sortHits(sphereHits);
                 }
-                if (!primitivePickingRequested) {
-                    sphereHits << entityPicker.hits();
+                if (!pickConfiguration.primitivePickingRequested) {
+                    const PickingUtils::HitList &hits = entityPicker.hits();
+                    sphereHits.insert(sphereHits.end(),
+                                      std::make_move_iterator(hits.begin()),
+                                      std::make_move_iterator(hits.end()));
                     PickingUtils::AbstractCollisionGathererFunctor::sortHits(sphereHits);
                 }
             }
@@ -242,6 +253,37 @@ bool RayCastingJob::runHelper()
     }
 
     return true;
+}
+
+QAbstractRayCaster::Hits RayCastingJob::pick(Qt3DRender::QAbstractRayCaster *rayCaster)
+{
+    const PickingUtils::PickConfiguration pickConfiguration(m_frameGraphRoot, m_renderSettings);
+    if (pickConfiguration.vcaDetails.empty())
+        return {};
+
+    auto backendRayCaster = m_manager->rayCasterManager()->lookupResource(rayCaster->id());
+    if (!backendRayCaster)
+        return {};
+
+    backendRayCaster->syncFromFrontEnd(rayCaster, false);
+
+    EntityCasterGatherer gatherer(m_manager, backendRayCaster);
+    gatherer.apply(m_node);
+    const EntityCasterGatherer::EntityCasterList &entities = gatherer.m_result;
+
+    if (!pick(entities))
+        return {};
+
+    Q_D(RayCastingJob);
+    QAbstractRayCaster::Hits res;
+    for (const auto &hit: d->dispatches) {
+        if (hit.first->peerId() == rayCaster->id()) {
+            res = hit.second;
+            break;
+        }
+    }
+    d->dispatches.clear();
+    return res;
 }
 
 void RayCastingJob::dispatchHits(RayCaster *rayCaster, const PickingUtils::HitList &sphereHits)

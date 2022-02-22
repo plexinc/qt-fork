@@ -47,13 +47,6 @@ KeyedService* SpellcheckServiceFactory::BuildServiceInstanceFor(
   // Many variables are initialized from the |context| in the SpellcheckService.
   SpellcheckService* spellcheck = new SpellcheckService(context);
 
-  PrefService* prefs = user_prefs::UserPrefs::Get(context);
-  DCHECK(prefs);
-
-  // Instantiates Metrics object for spellchecking for use.
-  spellcheck->StartRecordingMetrics(
-      prefs->GetBoolean(spellcheck::prefs::kSpellCheckEnable));
-
   return spellcheck;
 }
 
@@ -62,8 +55,13 @@ void SpellcheckServiceFactory::RegisterProfilePrefs(
   user_prefs->RegisterListPref(spellcheck::prefs::kSpellCheckDictionaries);
   user_prefs->RegisterListPref(
       spellcheck::prefs::kSpellCheckForcedDictionaries);
+  // Continue registering kSpellCheckBlacklistedDictionaries for
+  // preference migration.
+  // TODO(crbug/1161062): Remove after M91.
   user_prefs->RegisterListPref(
       spellcheck::prefs::kSpellCheckBlacklistedDictionaries);
+  user_prefs->RegisterListPref(
+      spellcheck::prefs::kSpellCheckBlocklistedDictionaries);
   // Continue registering kSpellCheckDictionary for preference migration.
   // TODO(estade): remove: crbug.com/751275
 #ifndef TOOLKIT_QT

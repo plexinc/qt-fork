@@ -2,21 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/http2/hpack/decoder/hpack_decoder_state.h"
+#include "http2/hpack/decoder/hpack_decoder_state.h"
 
 // Tests of HpackDecoderState.
 
 #include <utility>
 #include <vector>
 
-#include "testing/gmock/include/gmock/gmock.h"
-#include "testing/gtest/include/gtest/gtest.h"
-#include "net/third_party/quiche/src/http2/hpack/hpack_string.h"
-#include "net/third_party/quiche/src/http2/hpack/http2_hpack_constants.h"
-#include "net/third_party/quiche/src/http2/http2_constants.h"
-#include "net/third_party/quiche/src/http2/platform/api/http2_logging.h"
-#include "net/third_party/quiche/src/http2/platform/api/http2_test_helpers.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/string_view.h"
+#include "http2/hpack/hpack_string.h"
+#include "http2/hpack/http2_hpack_constants.h"
+#include "http2/http2_constants.h"
+#include "http2/platform/api/http2_logging.h"
+#include "http2/platform/api/http2_test_helpers.h"
+#include "common/platform/api/quiche_test.h"
 
 using ::testing::AssertionResult;
 using ::testing::AssertionSuccess;
@@ -41,13 +40,15 @@ class MockHpackDecoderListener : public HpackDecoderListener {
   MOCK_METHOD2(OnHeader,
                void(const HpackString& name, const HpackString& value));
   MOCK_METHOD0(OnHeaderListEnd, void());
-  MOCK_METHOD1(OnHeaderErrorDetected,
-               void(quiche::QuicheStringPiece error_message));
+  MOCK_METHOD(void,
+              OnHeaderErrorDetected,
+              (absl::string_view error_message),
+              (override));
 };
 
 enum StringBacking { STATIC, UNBUFFERED, BUFFERED };
 
-class HpackDecoderStateTest : public ::testing::Test {
+class HpackDecoderStateTest : public QuicheTest {
  protected:
   HpackDecoderStateTest() : decoder_state_(&listener_) {}
 
@@ -108,7 +109,7 @@ class HpackDecoderStateTest : public ::testing::Test {
   }
 
   void SendIndexAndVerifyCallback(size_t index,
-                                  HpackEntryType expected_type,
+                                  HpackEntryType /*expected_type*/,
                                   const char* expected_name,
                                   const char* expected_value) {
     EXPECT_CALL(listener_, OnHeader(Eq(expected_name), Eq(expected_value)));
@@ -455,7 +456,7 @@ TEST_F(HpackDecoderStateTest, RequiredTableSizeChangeBeforeHeader) {
   decoder_state_.OnLiteralNameAndValue(HpackEntryType::kIndexedLiteralHeader,
                                        &name_buffer_, &value_buffer_);
   decoder_state_.OnHeaderBlockEnd();
-  decoder_state_.OnHpackDecodeError(HpackDecodingError::kIndexVarintError);
+  decoder_state_.OnHpackDecodeError(HpackDecodingError::kIndexVarintError, "");
 }
 
 // Confirm that required size updates are validated.
@@ -524,7 +525,7 @@ TEST_F(HpackDecoderStateTest, ErrorsSuppressCallbacks) {
   SendStartAndVerifyCallback();
   EXPECT_CALL(listener_,
               OnHeaderErrorDetected(Eq("Name Huffman encoding error")));
-  decoder_state_.OnHpackDecodeError(HpackDecodingError::kNameHuffmanError);
+  decoder_state_.OnHpackDecodeError(HpackDecodingError::kNameHuffmanError, "");
 
   // Further decoded entries are ignored.
   decoder_state_.OnIndexedHeader(1);
@@ -536,7 +537,7 @@ TEST_F(HpackDecoderStateTest, ErrorsSuppressCallbacks) {
   decoder_state_.OnLiteralNameAndValue(HpackEntryType::kIndexedLiteralHeader,
                                        &name_buffer_, &value_buffer_);
   decoder_state_.OnHeaderBlockEnd();
-  decoder_state_.OnHpackDecodeError(HpackDecodingError::kIndexVarintError);
+  decoder_state_.OnHpackDecodeError(HpackDecodingError::kIndexVarintError, "");
 }
 
 }  // namespace

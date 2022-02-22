@@ -62,6 +62,7 @@ struct GSocketNotifierSource
 {
     GSource source;
     QList<GPollFDWithQSocketNotifier *> pollfds;
+    int activeNotifierPos;
 };
 
 static gboolean socketNotifierSourcePrepare(GSource *, gint *timeout)
@@ -100,8 +101,9 @@ static gboolean socketNotifierSourceDispatch(GSource *source, GSourceFunc, gpoin
     QEvent event(QEvent::SockAct);
 
     GSocketNotifierSource *src = reinterpret_cast<GSocketNotifierSource *>(source);
-    for (int i = 0; i < src->pollfds.count(); ++i) {
-        GPollFDWithQSocketNotifier *p = src->pollfds.at(i);
+    for (src->activeNotifierPos = 0; src->activeNotifierPos < src->pollfds.count();
+         ++src->activeNotifierPos) {
+        GPollFDWithQSocketNotifier *p = src->pollfds.at(src->activeNotifierPos);
 
         if ((p->pollfd.revents & p->pollfd.events) != 0)
             QCoreApplication::sendEvent(p->socketNotifier, &event);
@@ -318,32 +320,36 @@ QEventDispatcherGlibPrivate::QEventDispatcherGlibPrivate(GMainContext *context)
 #endif
 
     // setup post event source
-    postEventSource = reinterpret_cast<GPostEventSource *>(g_source_new(&postEventSourceFuncs,
-                                                                        sizeof(GPostEventSource)));
+    GSource *source = g_source_new(&postEventSourceFuncs, sizeof(GPostEventSource));
+    g_source_set_name(source, "[Qt] GPostEventSource");
+    postEventSource = reinterpret_cast<GPostEventSource *>(source);
+
     postEventSource->serialNumber.storeRelaxed(1);
     postEventSource->d = this;
     g_source_set_can_recurse(&postEventSource->source, true);
     g_source_attach(&postEventSource->source, mainContext);
 
     // setup socketNotifierSource
-    socketNotifierSource =
-        reinterpret_cast<GSocketNotifierSource *>(g_source_new(&socketNotifierSourceFuncs,
-                                                               sizeof(GSocketNotifierSource)));
+    source = g_source_new(&socketNotifierSourceFuncs, sizeof(GSocketNotifierSource));
+    g_source_set_name(source, "[Qt] GSocketNotifierSource");
+    socketNotifierSource = reinterpret_cast<GSocketNotifierSource *>(source);
     (void) new (&socketNotifierSource->pollfds) QList<GPollFDWithQSocketNotifier *>();
     g_source_set_can_recurse(&socketNotifierSource->source, true);
     g_source_attach(&socketNotifierSource->source, mainContext);
 
     // setup normal and idle timer sources
-    timerSource = reinterpret_cast<GTimerSource *>(g_source_new(&timerSourceFuncs,
-                                                                sizeof(GTimerSource)));
+    source = g_source_new(&timerSourceFuncs, sizeof(GTimerSource));
+    g_source_set_name(source, "[Qt] GTimerSource");
+    timerSource = reinterpret_cast<GTimerSource *>(source);
     (void) new (&timerSource->timerList) QTimerInfoList();
     timerSource->processEventsFlags = QEventLoop::AllEvents;
     timerSource->runWithIdlePriority = false;
     g_source_set_can_recurse(&timerSource->source, true);
     g_source_attach(&timerSource->source, mainContext);
 
-    idleTimerSource = reinterpret_cast<GIdleTimerSource *>(g_source_new(&idleTimerSourceFuncs,
-                                                                        sizeof(GIdleTimerSource)));
+    source = g_source_new(&idleTimerSourceFuncs, sizeof(GIdleTimerSource));
+    g_source_set_name(source, "[Qt] GIdleTimerSource");
+    idleTimerSource = reinterpret_cast<GIdleTimerSource *>(source);
     idleTimerSource->timerSource = timerSource;
     g_source_set_can_recurse(&idleTimerSource->source, true);
     g_source_attach(&idleTimerSource->source, mainContext);
@@ -405,7 +411,7 @@ bool QEventDispatcherGlib::processEvents(QEventLoop::ProcessEventsFlags flags)
 {
     Q_D(QEventDispatcherGlib);
 
-    const bool canWait = (flags & QEventLoop::WaitForMoreEvents);
+    const bool canWait = flags.testAnyFlag(QEventLoop::WaitForMoreEvents);
     if (canWait)
         emit aboutToBlock();
     else
@@ -430,12 +436,6 @@ bool QEventDispatcherGlib::processEvents(QEventLoop::ProcessEventsFlags flags)
         emit awake();
 
     return result;
-}
-
-bool QEventDispatcherGlib::hasPendingEvents()
-{
-    Q_D(QEventDispatcherGlib);
-    return g_main_context_pending(d->mainContext);
 }
 
 void QEventDispatcherGlib::registerSocketNotifier(QSocketNotifier *notifier)
@@ -503,12 +503,16 @@ void QEventDispatcherGlib::unregisterSocketNotifier(QSocketNotifier *notifier)
             d->socketNotifierSource->pollfds.removeAt(i);
             delete p;
 
+            // Keep a position in the list for the next item.
+            if (i <= d->socketNotifierSource->activeNotifierPos)
+                --d->socketNotifierSource->activeNotifierPos;
+
             return;
         }
     }
 }
 
-void QEventDispatcherGlib::registerTimer(int timerId, int interval, Qt::TimerType timerType, QObject *object)
+void QEventDispatcherGlib::registerTimer(int timerId, qint64 interval, Qt::TimerType timerType, QObject *object)
 {
 #ifndef QT_NO_DEBUG
     if (timerId < 1 || interval < 0 || !object) {
@@ -590,10 +594,6 @@ void QEventDispatcherGlib::wakeUp()
     Q_D(QEventDispatcherGlib);
     d->postEventSource->serialNumber.ref();
     g_main_context_wakeup(d->mainContext);
-}
-
-void QEventDispatcherGlib::flush()
-{
 }
 
 bool QEventDispatcherGlib::versionSupported()

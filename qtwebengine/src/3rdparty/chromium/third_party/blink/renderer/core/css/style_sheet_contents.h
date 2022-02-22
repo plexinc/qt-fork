@@ -26,6 +26,7 @@
 #include "third_party/blink/renderer/core/css/parser/css_parser_context.h"
 #include "third_party/blink/renderer/core/css/rule_set.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
+#include "third_party/blink/renderer/platform/loader/fetch/render_blocking_behavior.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string_hash.h"
@@ -40,7 +41,6 @@ class CSSStyleSheet;
 class CSSStyleSheetResource;
 class Document;
 class Node;
-class SecurityOrigin;
 class StyleRuleBase;
 class StyleRuleFontFace;
 class StyleRuleImport;
@@ -66,8 +66,7 @@ class CORE_EXPORT StyleSheetContents final
   const AtomicString& DefaultNamespace() const { return default_namespace_; }
   const AtomicString& NamespaceURIFromPrefix(const AtomicString& prefix) const;
 
-  void ParseAuthorStyleSheet(const CSSStyleSheetResource*,
-                             const SecurityOrigin*);
+  void ParseAuthorStyleSheet(const CSSStyleSheetResource*);
   ParseSheetResult ParseString(const String&, bool allow_import_rules = true);
   ParseSheetResult ParseStringAtPosition(const String&,
                                          const TextPosition&,
@@ -191,7 +190,14 @@ class CORE_EXPORT StyleSheetContents final
 
   String SourceMapURL() const { return source_map_url_; }
 
-  void Trace(Visitor*);
+  void SetRenderBlocking(RenderBlockingBehavior behavior) {
+    render_blocking_behavior_ = behavior;
+  }
+  RenderBlockingBehavior GetRenderBlockingBehavior() const {
+    return render_blocking_behavior_;
+  }
+
+  void Trace(Visitor*) const;
 
  private:
   StyleSheetContents& operator=(const StyleSheetContents&) = delete;
@@ -228,6 +234,8 @@ class CORE_EXPORT StyleSheetContents final
 
   Member<RuleSet> rule_set_;
   String source_map_url_;
+  RenderBlockingBehavior render_blocking_behavior_ =
+      RenderBlockingBehavior::kUnset;
 };
 
 }  // namespace blink

@@ -8,6 +8,8 @@
 #include "base/optional.h"
 #include "net/cookies/site_for_cookies.h"
 #include "services/network/public/mojom/referrer_policy.mojom-blink-forward.h"
+#include "third_party/blink/public/common/user_agent/user_agent_metadata.h"
+#include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink-forward.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
@@ -20,14 +22,22 @@
 namespace blink {
 
 class ConsoleMessage;
+class DOMWrapperWorld;
 class DetachableResourceFetcherProperties;
 class KURL;
-class PreviewsResourceLoadingHints;
 class SecurityOrigin;
 class SubresourceFilter;
 class WebSocketHandshakeThrottle;
 
-// A core-level implementaiton of FetchContext that does not depend on
+// This is information for client hints that only make sense when attached to a
+// frame
+struct ClientHintImageInfo {
+  float dpr;
+  FetchParameters::ResourceWidth resource_width;
+  base::Optional<int> viewport_width;
+};
+
+// A core-level implementation of FetchContext that does not depend on
 // Frame. This class provides basic default implementation for some methods.
 class CORE_EXPORT BaseFetchContext : public FetchContext {
  public:
@@ -37,16 +47,25 @@ class CORE_EXPORT BaseFetchContext : public FetchContext {
       const KURL&,
       const ResourceLoaderOptions&,
       ReportingDisposition,
-      const Vector<KURL>&) const override;
+      const base::Optional<ResourceRequest::RedirectInfo>&) const override;
+  base::Optional<ResourceRequestBlockedReason>
+  CanRequestBasedOnSubresourceFilterOnly(
+      ResourceType,
+      const ResourceRequest&,
+      const KURL&,
+      const ResourceLoaderOptions&,
+      ReportingDisposition,
+      const base::Optional<ResourceRequest::RedirectInfo>&) const override;
   base::Optional<ResourceRequestBlockedReason> CheckCSPForRequest(
-      mojom::RequestContextType,
+      mojom::blink::RequestContextType,
+      network::mojom::RequestDestination request_destination,
       const KURL&,
       const ResourceLoaderOptions&,
       ReportingDisposition,
       const KURL& url_before_redirects,
       ResourceRequest::RedirectStatus) const override;
 
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
   const DetachableResourceFetcherProperties& GetResourceFetcherProperties()
       const {
@@ -61,24 +80,36 @@ class CORE_EXPORT BaseFetchContext : public FetchContext {
   virtual scoped_refptr<const SecurityOrigin> GetTopFrameOrigin() const = 0;
 
   virtual SubresourceFilter* GetSubresourceFilter() const = 0;
-  virtual PreviewsResourceLoadingHints* GetPreviewsResourceLoadingHints()
-      const = 0;
   virtual bool ShouldBlockWebSocketByMixedContentCheck(const KURL&) const = 0;
   virtual std::unique_ptr<WebSocketHandshakeThrottle>
   CreateWebSocketHandshakeThrottle() = 0;
 
-  bool CalculateIfAdSubresource(const ResourceRequest& resource_request,
-                                ResourceType type) override;
+  // If the optional `alias_url` is non-null, it will be used to perform the
+  // check in place of `resource_request.Url()`, e.g. in the case of DNS
+  // aliases.
+  bool CalculateIfAdSubresource(
+      const ResourceRequestHead& resource_request,
+      const base::Optional<KURL>& alias_url,
+      ResourceType type,
+      const FetchInitiatorInfo& initiator_info) override;
 
   // Returns whether a request to |url| is a conversion registration request.
   // Conversion registration requests are redirects to a well-known conversion
   // registration endpoint.
   virtual bool SendConversionRequestInsteadOfRedirecting(
       const KURL& url,
-      const Vector<KURL>& redirect_chain,
+      const base::Optional<ResourceRequest::RedirectInfo>& redirect_info,
       ReportingDisposition reporting_disposition) const;
 
-  virtual const ContentSecurityPolicy* GetContentSecurityPolicy() const = 0;
+  void AddClientHintsIfNecessary(
+      const ClientHintsPreferences& hints_preferences,
+      const url::Origin& resource_origin,
+      bool is_1p_origin,
+      base::Optional<UserAgentMetadata> ua,
+      const FeaturePolicy* policy,
+      const base::Optional<ClientHintImageInfo>& image_info,
+      const base::Optional<WTF::AtomicString>& lang,
+      ResourceRequest& request);
 
  protected:
   explicit BaseFetchContext(
@@ -96,20 +127,28 @@ class CORE_EXPORT BaseFetchContext : public FetchContext {
                                        const FetchInitiatorInfo&,
                                        ResourceRequestBlockedReason,
                                        ResourceType) const = 0;
-  virtual bool ShouldBypassMainWorldCSP() const = 0;
+  virtual ContentSecurityPolicy* GetContentSecurityPolicyForWorld(
+      const DOMWrapperWorld* world) const = 0;
+
   virtual bool IsSVGImageChromeClient() const = 0;
   virtual bool ShouldBlockFetchByMixedContentCheck(
-      mojom::RequestContextType,
-      const Vector<KURL>& redirect_chain,
-      const KURL&,
-      ReportingDisposition) const = 0;
+      mojom::blink::RequestContextType request_context,
+      const base::Optional<ResourceRequest::RedirectInfo>& redirect_info,
+      const KURL& url,
+      ReportingDisposition reporting_disposition,
+      const base::Optional<String>& devtools_id) const = 0;
   virtual bool ShouldBlockFetchAsCredentialedSubresource(const ResourceRequest&,
                                                          const KURL&) const = 0;
   virtual const KURL& Url() const = 0;
   virtual const SecurityOrigin* GetParentSecurityOrigin() const = 0;
+  virtual ContentSecurityPolicy* GetContentSecurityPolicy() const = 0;
 
   // TODO(yhirano): Remove this.
   virtual void AddConsoleMessage(ConsoleMessage*) const = 0;
+
+  void AddBackForwardCacheExperimentHTTPHeaderIfNeeded(
+      ExecutionContext* context,
+      ResourceRequest& request);
 
  private:
   const Member<const DetachableResourceFetcherProperties> fetcher_properties_;
@@ -124,16 +163,25 @@ class CORE_EXPORT BaseFetchContext : public FetchContext {
       const KURL&,
       const ResourceLoaderOptions&,
       ReportingDisposition,
-      const Vector<KURL>& redirect_chain) const;
+      const base::Optional<ResourceRequest::RedirectInfo>& redirect_info) const;
 
   base::Optional<ResourceRequestBlockedReason> CheckCSPForRequestInternal(
-      mojom::RequestContextType,
+      mojom::blink::RequestContextType,
+      network::mojom::RequestDestination request_destination,
       const KURL&,
       const ResourceLoaderOptions&,
       ReportingDisposition,
       const KURL& url_before_redirects,
-      ResourceRequest::RedirectStatus,
+      ResourceRequest::RedirectStatus redirect_status,
       ContentSecurityPolicy::CheckHeaderType) const;
+
+  enum class ClientHintsMode { kLegacy, kStandard };
+  bool ShouldSendClientHint(ClientHintsMode mode,
+                            const FeaturePolicy*,
+                            const url::Origin&,
+                            bool is_1p_origin,
+                            network::mojom::blink::WebClientHintsType,
+                            const ClientHintsPreferences&) const;
 };
 
 }  // namespace blink

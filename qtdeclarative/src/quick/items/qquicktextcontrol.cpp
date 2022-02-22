@@ -77,7 +77,7 @@
 const int textCursorWidth = 1;
 
 QT_BEGIN_NAMESPACE
-Q_DECLARE_LOGGING_CATEGORY(DBG_HOVER_TRACE)
+Q_DECLARE_LOGGING_CATEGORY(lcHoverTrace)
 
 // could go into QTextCursor...
 static QTextLine currentTextLine(const QTextCursor &cursor)
@@ -323,9 +323,11 @@ void QQuickTextControlPrivate::setContent(Qt::TextFormat format, const QString &
             formatCursor.select(QTextCursor::Document);
             formatCursor.setCharFormat(charFormatForInsertion);
             formatCursor.endEditBlock();
+#if QT_CONFIG(textmarkdownreader)
         } else if (format == Qt::MarkdownText) {
             doc->setBaseUrl(doc->baseUrl().adjusted(QUrl::RemoveFilename));
             doc->setMarkdown(text);
+#endif
         } else {
 #if QT_CONFIG(texthtmlparser)
             doc->setHtml(text);
@@ -741,25 +743,25 @@ void QQuickTextControl::processEvent(QEvent *e, const QTransform &transform)
             break;
         case QEvent::MouseButtonPress: {
             QMouseEvent *ev = static_cast<QMouseEvent *>(e);
-            d->mousePressEvent(ev, transform.map(ev->localPos()));
+            d->mousePressEvent(ev, transform.map(ev->position()));
             break; }
         case QEvent::MouseMove: {
             QMouseEvent *ev = static_cast<QMouseEvent *>(e);
-            d->mouseMoveEvent(ev, transform.map(ev->localPos()));
+            d->mouseMoveEvent(ev, transform.map(ev->position()));
             break; }
         case QEvent::MouseButtonRelease: {
             QMouseEvent *ev = static_cast<QMouseEvent *>(e);
-            d->mouseReleaseEvent(ev, transform.map(ev->localPos()));
+            d->mouseReleaseEvent(ev, transform.map(ev->position()));
             break; }
         case QEvent::MouseButtonDblClick: {
             QMouseEvent *ev = static_cast<QMouseEvent *>(e);
-            d->mouseDoubleClickEvent(ev, transform.map(ev->localPos()));
+            d->mouseDoubleClickEvent(ev, transform.map(ev->position()));
             break; }
         case QEvent::HoverEnter:
         case QEvent::HoverMove:
         case QEvent::HoverLeave: {
             QHoverEvent *ev = static_cast<QHoverEvent *>(e);
-            d->hoverEvent(ev, transform.map(ev->posF()));
+            d->hoverEvent(ev, transform.map(ev->position()));
             break; }
 #if QT_CONFIG(im)
         case QEvent::InputMethod:
@@ -819,11 +821,7 @@ void QQuickTextControl::setHtml(const QString &text)
 
 void QQuickTextControlPrivate::keyReleaseEvent(QKeyEvent *e)
 {
-    if (e->key() == Qt::Key_Back) {
-         e->ignore();
-         return;
-    }
-    return;
+    e->ignore();
 }
 
 void QQuickTextControlPrivate::keyPressEvent(QKeyEvent *e)
@@ -949,6 +947,12 @@ void QQuickTextControlPrivate::keyPressEvent(QKeyEvent *e)
 process:
     {
         if (q->isAcceptableInput(e)) {
+#if QT_CONFIG(im)
+            // QTBUG-90362
+            // Before key press event will be handled, pre-editing part should be finished
+            if (isPreediting())
+                commitPreedit();
+#endif
             if (overwriteMode
                 // no need to call deleteChar() if we have a selection, insertText
                 // does it already
@@ -1310,10 +1314,11 @@ bool QQuickTextControlPrivate::sendMouseEventToInputContext(QMouseEvent *e, cons
 void QQuickTextControlPrivate::inputMethodEvent(QInputMethodEvent *e)
 {
     Q_Q(QQuickTextControl);
-    if (!(interactionFlags & Qt::TextEditable) || cursor.isNull()) {
+    if (cursor.isNull()) {
         e->ignore();
         return;
     }
+    bool textEditable = interactionFlags.testFlag(Qt::TextEditable);
     bool isGettingInput = !e->commitString().isEmpty()
             || e->preeditString() != cursor.block().layout()->preeditAreaText()
             || e->replacementLength() > 0;
@@ -1321,14 +1326,14 @@ void QQuickTextControlPrivate::inputMethodEvent(QInputMethodEvent *e)
     int oldCursorPos = cursor.position();
 
     cursor.beginEditBlock();
-    if (isGettingInput) {
+    if (isGettingInput && textEditable) {
         cursor.removeSelectedText();
     }
 
     QTextBlock block;
 
     // insert commit string
-    if (!e->commitString().isEmpty() || e->replacementLength()) {
+    if (textEditable && (!e->commitString().isEmpty() || e->replacementLength())) {
         if (e->commitString().endsWith(QChar::LineFeed))
             block = cursor.block(); // Remember the block where the preedit text is
         QTextCursor c = cursor;
@@ -1337,50 +1342,54 @@ void QQuickTextControlPrivate::inputMethodEvent(QInputMethodEvent *e)
         c.insertText(e->commitString());
     }
 
-    for (int i = 0; i < e->attributes().size(); ++i) {
-        const QInputMethodEvent::Attribute &a = e->attributes().at(i);
-        if (a.type == QInputMethodEvent::Selection) {
-            QTextCursor oldCursor = cursor;
-            int blockStart = a.start + cursor.block().position();
-            cursor.setPosition(blockStart, QTextCursor::MoveAnchor);
-            cursor.setPosition(blockStart + a.length, QTextCursor::KeepAnchor);
-            repaintOldAndNewSelection(oldCursor);
-            forceSelectionChanged = true;
+    if (interactionFlags & (Qt::TextSelectableByKeyboard | Qt::TextSelectableByMouse)) {
+        for (int i = 0; i < e->attributes().size(); ++i) {
+            const QInputMethodEvent::Attribute &a = e->attributes().at(i);
+            if (a.type == QInputMethodEvent::Selection) {
+                QTextCursor oldCursor = cursor;
+                int blockStart = a.start + cursor.block().position();
+                cursor.setPosition(blockStart, QTextCursor::MoveAnchor);
+                cursor.setPosition(blockStart + a.length, QTextCursor::KeepAnchor);
+                repaintOldAndNewSelection(oldCursor);
+                forceSelectionChanged = true;
+            }
         }
     }
 
     if (!block.isValid())
         block = cursor.block();
 
-    QTextLayout *layout = block.layout();
-    if (isGettingInput) {
-        layout->setPreeditArea(cursor.position() - block.position(), e->preeditString());
-        emit q->preeditTextChanged();
-    }
-    QVector<QTextLayout::FormatRange> overrides;
     const int oldPreeditCursor = preeditCursor;
-    preeditCursor = e->preeditString().length();
-    hasImState = !e->preeditString().isEmpty();
-    cursorVisible = true;
-    for (int i = 0; i < e->attributes().size(); ++i) {
-        const QInputMethodEvent::Attribute &a = e->attributes().at(i);
-        if (a.type == QInputMethodEvent::Cursor) {
-            hasImState = true;
-            preeditCursor = a.start;
-            cursorVisible = a.length != 0;
-        } else if (a.type == QInputMethodEvent::TextFormat) {
-            hasImState = true;
-            QTextCharFormat f = qvariant_cast<QTextFormat>(a.value).toCharFormat();
-            if (f.isValid()) {
-                QTextLayout::FormatRange o;
-                o.start = a.start + cursor.position() - block.position();
-                o.length = a.length;
-                o.format = f;
-                overrides.append(o);
+    if (textEditable) {
+        QTextLayout *layout = block.layout();
+        if (isGettingInput) {
+            layout->setPreeditArea(cursor.position() - block.position(), e->preeditString());
+            emit q->preeditTextChanged();
+        }
+        QVector<QTextLayout::FormatRange> overrides;
+        preeditCursor = e->preeditString().length();
+        hasImState = !e->preeditString().isEmpty();
+        cursorVisible = true;
+        for (int i = 0; i < e->attributes().size(); ++i) {
+            const QInputMethodEvent::Attribute &a = e->attributes().at(i);
+            if (a.type == QInputMethodEvent::Cursor) {
+                hasImState = true;
+                preeditCursor = a.start;
+                cursorVisible = a.length != 0;
+            } else if (a.type == QInputMethodEvent::TextFormat) {
+                hasImState = true;
+                QTextCharFormat f = qvariant_cast<QTextFormat>(a.value).toCharFormat();
+                if (f.isValid()) {
+                    QTextLayout::FormatRange o;
+                    o.start = a.start + cursor.position() - block.position();
+                    o.length = a.length;
+                    o.format = f;
+                    overrides.append(o);
+                }
             }
         }
+        layout->setFormats(overrides);
     }
-    layout->setFormats(overrides);
 
     cursor.endEditBlock();
 
@@ -1461,9 +1470,11 @@ QVariant QQuickTextControl::inputMethodQuery(Qt::InputMethodQuery property, cons
             tmpCursor.movePosition(QTextCursor::NextBlock);
             --numBlocks;
         }
-        result += block.text().midRef(0,localPos);
+        result += QStringView{block.text()}.mid(0,localPos);
         return QVariant(result);
     }
+    case Qt::ImReadOnly:
+        return QVariant(!d->interactionFlags.testFlag(Qt::TextEditable));
     default:
         return QVariant();
     }
@@ -1501,14 +1512,14 @@ void QQuickTextControlPrivate::hoverEvent(QHoverEvent *e, const QPointF &pos)
     if (hoveredLink != link) {
         hoveredLink = link;
         emit q->linkHovered(link);
-        qCDebug(DBG_HOVER_TRACE) << q << e->type() << pos << "hoveredLink" << hoveredLink;
+        qCDebug(lcHoverTrace) << q << e->type() << pos << "hoveredLink" << hoveredLink;
     } else {
         QTextBlock block = q->blockWithMarkerAt(pos);
         if (block.isValid() != hoveredMarker)
             emit q->markerHovered(block.isValid());
         hoveredMarker = block.isValid();
         if (hoveredMarker)
-            qCDebug(DBG_HOVER_TRACE) << q << e->type() << pos << "hovered marker" << int(block.blockFormat().marker()) << block.text();
+            qCDebug(lcHoverTrace) << q << e->type() << pos << "hovered marker" << int(block.blockFormat().marker()) << block.text();
     }
 }
 
@@ -1872,7 +1883,7 @@ QStringList QQuickTextEditMimeData::formats() const
         return QMimeData::formats();
 }
 
-QVariant QQuickTextEditMimeData::retrieveData(const QString &mimeType, QVariant::Type type) const
+QVariant QQuickTextEditMimeData::retrieveData(const QString &mimeType, QMetaType type) const
 {
     if (!fragment.isEmpty())
         setup();
@@ -1883,7 +1894,7 @@ void QQuickTextEditMimeData::setup() const
 {
     QQuickTextEditMimeData *that = const_cast<QQuickTextEditMimeData *>(this);
 #if QT_CONFIG(texthtmlparser)
-    that->setData(QLatin1String("text/html"), fragment.toHtml("utf-8").toUtf8());
+    that->setData(QLatin1String("text/html"), fragment.toHtml().toUtf8());
 #endif
 #if QT_CONFIG(textodfwriter)
     {

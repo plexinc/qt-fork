@@ -34,12 +34,10 @@
 QSSGRenderGeometry::QSSGRenderGeometry()
     : QSSGRenderGraphObject(QSSGRenderGraphObject::Type::Geometry)
 {
-
 }
 
 QSSGRenderGeometry::~QSSGRenderGeometry()
 {
-
 }
 
 const QByteArray &QSSGRenderGeometry::vertexBuffer() const
@@ -82,14 +80,9 @@ int QSSGRenderGeometry::stride() const
     return m_meshData.m_stride;
 }
 
-QString QSSGRenderGeometry::path() const
+QSSGMesh::Mesh::DrawMode QSSGRenderGeometry::primitiveType() const
 {
-    return m_meshPath.path;
-}
-
-QSSGRenderGeometry::PrimitiveType QSSGRenderGeometry::primitiveType() const
-{
-    return static_cast<QSSGRenderGeometry::PrimitiveType>(m_meshData.m_primitiveType);
+    return m_meshData.m_primitiveType;
 }
 
 QSSGRenderGeometry::Attribute QSSGRenderGeometry::attribute(int idx) const
@@ -97,14 +90,14 @@ QSSGRenderGeometry::Attribute QSSGRenderGeometry::attribute(int idx) const
     Attribute attr;
     const auto &mattr = m_meshData.m_attributes[idx];
     attr.offset = mattr.offset;
-    attr.semantic = static_cast<QSSGRenderGeometry::Attribute::Semantic>(mattr.semantic);
-    attr.componentType
-            = static_cast<QSSGRenderGeometry::Attribute::ComponentType>(mattr.componentType);
+    attr.semantic = mattr.semantic;
+    attr.componentType = mattr.componentType;
     return attr;
 }
 
-void QSSGRenderGeometry::addAttribute(Attribute::Semantic semantic, int offset,
-                                      Attribute::ComponentType componentType)
+void QSSGRenderGeometry::addAttribute(QSSGMesh::RuntimeMeshData::Attribute::Semantic semantic,
+                                      int offset,
+                                      QSSGMesh::Mesh::ComponentType componentType)
 {
     Attribute attr;
     attr.semantic = semantic;
@@ -116,13 +109,22 @@ void QSSGRenderGeometry::addAttribute(Attribute::Semantic semantic, int offset,
 void QSSGRenderGeometry::addAttribute(const Attribute &att)
 {
     int index = m_meshData.m_attributeCount;
+    if (index == QSSGMesh::RuntimeMeshData::MAX_ATTRIBUTES) {
+        qWarning("Maximum number (%d) of vertex attributes in custom geometry has been reached; ignoring extra attributes",
+                 QSSGMesh::RuntimeMeshData::MAX_ATTRIBUTES);
+        return;
+    }
     m_meshData.m_attributes[index].semantic
-            = static_cast<QSSGMeshUtilities::MeshData::Attribute::Semantic>(att.semantic);
+            = static_cast<QSSGMesh::RuntimeMeshData::Attribute::Semantic>(att.semantic);
     m_meshData.m_attributes[index].offset = att.offset;
-    m_meshData.m_attributes[index].componentType
-            = static_cast<QSSGMeshUtilities::MeshData::Attribute::ComponentType>(att.componentType);
+    m_meshData.m_attributes[index].componentType = att.componentType;
     ++m_meshData.m_attributeCount;
     m_dirty = true;
+}
+
+void QSSGRenderGeometry::addSubset(quint32 offset, quint32 count, const QVector3D &boundsMin, const QVector3D &boundsMax, const QString &name)
+{
+    m_meshData.m_subsets.append({name, {boundsMin, boundsMax}, count, offset, {}});
 }
 
 void QSSGRenderGeometry::setStride(int stride)
@@ -131,10 +133,9 @@ void QSSGRenderGeometry::setStride(int stride)
     m_dirty = true;
 }
 
-void QSSGRenderGeometry::setPrimitiveType(PrimitiveType type)
+void QSSGRenderGeometry::setPrimitiveType(QSSGMesh::Mesh::DrawMode type)
 {
-    m_meshData.m_primitiveType
-            = static_cast<QSSGMeshUtilities::MeshData::PrimitiveType>(type);
+    m_meshData.m_primitiveType = type;
     m_dirty = true;
 }
 
@@ -147,19 +148,13 @@ void QSSGRenderGeometry::setBounds(const QVector3D &min, const QVector3D &max)
 void QSSGRenderGeometry::clear()
 {
     m_meshData.clear();
-    m_bounds = QSSGBounds3::empty();
+    m_bounds.setEmpty();
     m_dirty = true;
 }
 
 void QSSGRenderGeometry::clearAttributes()
 {
     m_meshData.m_attributeCount = 0;
-}
-
-void QSSGRenderGeometry::setPath(const QString &path)
-{
-    m_meshPath = QSSGRenderMeshPath::create(path);
-    m_dirty = true;
 }
 
 void QSSGRenderGeometry::setVertexData(const QByteArray &data)
@@ -176,16 +171,18 @@ void QSSGRenderGeometry::setIndexData(const QByteArray &data)
 
 QSSGRenderMesh *QSSGRenderGeometry::createOrUpdate(const QSSGRef<QSSGBufferManager> &bufferManager)
 {
-    if (!m_meshBuilder)
-        m_meshBuilder = QSSGMeshUtilities::QSSGMeshBuilder::createMeshBuilder();
-
     if (m_dirty) {
+        QSSGRenderMesh *renderMesh = nullptr;
         QString error;
-        auto mesh = m_meshBuilder->buildMesh(m_meshData, error, m_bounds);
-        bufferManager->loadCustomMesh(m_meshPath, mesh, true);
-        m_meshBuilder->reset();
+        QSSGMesh::Mesh mesh = QSSGMesh::Mesh::fromRuntimeData(m_meshData, &error);
+        if (mesh.isValid())
+            renderMesh = bufferManager->loadCustomMesh(this, mesh, true);
+        else
+            qWarning("Mesh building failed: %s", qPrintable(error));
+
         m_dirty = false;
+        return renderMesh;
     }
 
-    return bufferManager->loadMesh(m_meshPath);
+    return bufferManager->getMesh(this);
 }

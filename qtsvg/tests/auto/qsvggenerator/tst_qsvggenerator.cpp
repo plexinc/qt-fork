@@ -270,7 +270,7 @@ void tst_QSvgGenerator::radialGradient()
     generator.setFileName(fileName);
     QCOMPARE(generator.fileName(), fileName);
 
-    QRadialGradient gradient(QPointF(0.5, 0.5), 0.5, QPointF(0.5, 0.5));
+    QRadialGradient gradient(QPointF(0.5, 0.5), 0.5, QPointF(0.5, 0.5), 0);
     gradient.setInterpolationMode(QGradient::ComponentInterpolation);
     gradient.setColorAt(0, Qt::red);
     gradient.setColorAt(1, Qt::blue);
@@ -279,7 +279,7 @@ void tst_QSvgGenerator::radialGradient()
     QPainter painter(&generator);
     painter.fillRect(0, 0, 100, 100, gradient);
 
-    gradient = QRadialGradient(QPointF(150, 50), 50, QPointF(150, 50));
+    gradient = QRadialGradient(QPointF(150, 50), 50, QPointF(150, 50), 0);
     gradient.setInterpolationMode(QGradient::ComponentInterpolation);
     gradient.setColorAt(0, Qt::red);
     gradient.setColorAt(1, Qt::blue);
@@ -291,8 +291,6 @@ void tst_QSvgGenerator::radialGradient()
 
 void tst_QSvgGenerator::fileEncoding()
 {
-    QTextCodec::setCodecForLocale(QTextCodec::codecForName("ISO-8859-1"));
-
     QByteArray byteArray;
     QBuffer buffer(&byteArray);
 
@@ -300,7 +298,7 @@ void tst_QSvgGenerator::fileEncoding()
     generator.setOutputDevice(&buffer);
 
     static const QChar unicode[] = { 'f', 'o', 'o',
-            0x00F8, 'b', 'a', 'r'};
+            u'\u00F8', 'b', 'a', 'r'};
 
     int size = sizeof(unicode) / sizeof(QChar);
     QString unicodeString = QString::fromRawData(unicode, size);

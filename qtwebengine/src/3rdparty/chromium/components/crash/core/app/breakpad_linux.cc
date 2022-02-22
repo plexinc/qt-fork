@@ -31,6 +31,7 @@
 #include "base/files/file_path.h"
 #include "base/lazy_instance.h"
 #include "base/linux_util.h"
+#include "base/logging.h"
 #include "base/macros.h"
 #include "base/path_service.h"
 #include "base/posix/eintr_wrapper.h"
@@ -44,7 +45,7 @@
 #include "components/crash/core/app/breakpad_linux_impl.h"
 #include "components/crash/core/app/crash_reporter_client.h"
 #include "components/crash/core/common/crash_keys.h"
-#include "services/service_manager/embedder/descriptors.h"
+#include "content/public/common/content_descriptors.h"
 #include "third_party/breakpad/breakpad/src/client/linux/crash_generation/crash_generation_client.h"
 #include "third_party/breakpad/breakpad/src/client/linux/handler/exception_handler.h"
 #include "third_party/breakpad/breakpad/src/client/linux/minidump_writer/directory_reader.h"
@@ -60,11 +61,11 @@
 #include "base/android/path_utils.h"
 #include "base/debug/leak_annotations.h"
 #endif
+#include "build/chromeos_buildflags.h"
 #include "third_party/lss/linux_syscall_support.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "components/crash/core/app/crash_switches.h"
-#include "services/service_manager/embedder/switches.h"  // nogncheck
 #endif
 
 #if defined(ADDRESS_SANITIZER)
@@ -93,7 +94,7 @@ namespace breakpad {
 
 namespace {
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 // An optional UNIX timestamp passed to us from session_manager. If set,
 // session_manager thinks we are in a possible crash-loop and will log the user
 // out if we crash again before the indicated time. We don't actually do much
@@ -103,7 +104,11 @@ namespace {
 // while we do have functions to deal with uint64_t's.
 uint64_t g_crash_loop_before_time = 0;
 #else
-const char kUploadURL[] = "https://clients2.google.com/cr/report";
+char* g_upload_url = nullptr;
+void SetUploadURL(const std::string& url) {
+  DCHECK(!g_upload_url);
+  g_upload_url = strdup(url.c_str());
+}
 #endif
 
 bool g_is_crash_reporter_enabled = false;
@@ -115,9 +120,6 @@ ExceptionHandler* g_breakpad = nullptr;
 #if defined(ADDRESS_SANITIZER)
 const char* g_asan_report_str = nullptr;
 #endif
-
-bool g_use_crash_key_white_list = false;
-const char* const* g_crash_key_white_list = nullptr;
 
 #if defined(OS_ANDROID)
 #define G_DUMPS_SUPPRESSED_MAGIC 0x5AFECEDE
@@ -243,7 +245,7 @@ void my_uint64tos(char* output, uint64_t i, unsigned i_len) {
     output[index - 1] = '0' + (i % 10);
 }
 
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
 bool my_isxdigit(char c) {
   return base::IsAsciiDigit(c) || ((c | 0x20) >= 'a' && (c | 0x20) <= 'f');
 }
@@ -290,7 +292,7 @@ void SetClientIdFromCommandLine(const base::CommandLine& command_line) {
 }
 
 // MIME substrings.
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 const char g_sep[] = ":";
 #endif
 const char g_rn[] = "\r\n";
@@ -470,7 +472,7 @@ void MimeWriter::AddItemWithoutTrailingSpaces(const void* base, size_t size) {
                                             size));
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 // This subclass is used on Chromium OS to report crashes in a format easy for
 // the central crash reporting facility to understand.
 // Format is <name>:<data length in decimal>:<data>
@@ -583,7 +585,7 @@ void CrashReporterWriter::AddFileContents(const char* filename_msg,
   AddItem(file_data, file_size);
   Flush();
 }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 #if defined(OS_ANDROID)
 // Writes the "package" field, which is in the format:
@@ -1022,8 +1024,8 @@ void MicrodumpInfo::Initialize(const std::string& process_type,
 class NonBrowserCrashHandler : public google_breakpad::CrashGenerationClient {
  public:
   NonBrowserCrashHandler()
-      : server_fd_(base::GlobalDescriptors::GetInstance()->Get(
-            service_manager::kCrashDumpSignal)) {}
+      : server_fd_(
+            base::GlobalDescriptors::GetInstance()->Get(kCrashDumpSignal)) {}
 
   ~NonBrowserCrashHandler() override {}
 
@@ -1132,28 +1134,15 @@ void EnableNonBrowserCrashDumping() {
 }
 #endif  // defined(OS_ANDROID)
 
-bool IsInWhiteList(const base::StringPiece& key) {
-  DCHECK(g_crash_key_white_list);
-  for (size_t i = 0; g_crash_key_white_list[i]; ++i) {
-    if (0 == my_strcmp(g_crash_key_white_list[i], key.data())) {
-      return true;
-    }
-  }
-  return false;
-}
-
 // GetCrashReporterClient() cannot call any Set methods until after
 // InitCrashKeys().
 void InitCrashKeys() {
   crash_reporter::InitializeCrashKeys();
-  g_use_crash_key_white_list =
-      GetCrashReporterClient()->UseCrashKeysWhiteList();
-  g_crash_key_white_list = GetCrashReporterClient()->GetCrashKeyWhiteList();
 }
 
 void SetCrashLoopBeforeTime(const std::string& process_type,
                             const base::CommandLine& parsed_command_line) {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   std::string crash_loop_before = parsed_command_line.GetSwitchValueASCII(
       crash_reporter::switches::kCrashLoopBefore);
   if (crash_loop_before.empty()) {
@@ -1165,7 +1154,7 @@ void SetCrashLoopBeforeTime(const std::string& process_type,
                  << crash_loop_before << " to integer";
     g_crash_loop_before_time = 0;
   }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 }
 
 // Miscellaneous initialization functions to call after Breakpad has been
@@ -1274,7 +1263,7 @@ void ExecUploadProcessOrTerminate(const BreakpadInfo& info,
                                   const char* exe_buf,
                                   int upload_status_fd,
                                   google_breakpad::PageAllocator* allocator) {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // CrOS uses crash_reporter instead of wget to report crashes,
   // it needs to know where the crash dump lives and the pid and uid of the
   // crashing process.
@@ -1323,7 +1312,7 @@ void ExecUploadProcessOrTerminate(const BreakpadInfo& info,
   static const char msg[] = "Cannot upload crash dump: cannot exec "
                             "/sbin/crash_reporter\n";
 
-#else  // defined(OS_CHROMEOS)
+#else   // BUILDFLAG(IS_CHROMEOS_ASH)
 
   // Compress |dumpfile| with gzip.
   const pid_t gzip_child = sys_fork();
@@ -1400,20 +1389,20 @@ void ExecUploadProcessOrTerminate(const BreakpadInfo& info,
 
   static const char kWgetBinary[] = "/usr/bin/wget";
   const char* args[] = {
-    kWgetBinary,
-    header_content_encoding,
-    header_content_type,
-    post_file,
-    kUploadURL,
-    "--timeout=10",  // Set a timeout so we don't hang forever.
-    "--tries=1",     // Don't retry if the upload fails.
-    "-O",  // Output reply to the file descriptor path.
-    status_fd_path,
-    nullptr,
+      kWgetBinary,
+      header_content_encoding,
+      header_content_type,
+      post_file,
+      g_upload_url,
+      "--timeout=10",  // Set a timeout so we don't hang forever.
+      "--tries=1",     // Don't retry if the upload fails.
+      "-O",            // Output reply to the file descriptor path.
+      status_fd_path,
+      nullptr,
   };
   static const char msg[] = "Cannot upload crash dump: cannot exec "
                             "/usr/bin/wget\n";
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
   execve(args[0], const_cast<char**>(args), environ);
   WriteLog(msg, sizeof(msg) - 1);
@@ -1464,7 +1453,7 @@ bool IsValidCrashReportId(const char* buf, size_t bytes_read,
     WriteLog(msg, sizeof(msg) - 1);
     return false;
   }
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // See kSuccessMagic in platform2/crash-reporter/chrome_collector.cc.
   return my_strcmp(buf, "_sys_cr_finished") == 0;
 #else
@@ -1481,7 +1470,7 @@ void HandleCrashReportId(const char* buf, size_t bytes_read,
                          size_t expected_len) {
   WriteNewline();
   if (!IsValidCrashReportId(buf, bytes_read, expected_len)) {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     static const char msg[] =
         "System crash_reporter failed to process crash report.";
 #else
@@ -1497,7 +1486,7 @@ void HandleCrashReportId(const char* buf, size_t bytes_read,
     return;
   }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   static const char msg[] = "Crash dump received by crash_reporter\n";
   WriteLog(msg, sizeof(msg) - 1);
 #else
@@ -1528,7 +1517,7 @@ void HandleCrashReportId(const char* buf, size_t bytes_read,
 #endif
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 const char* GetCrashingProcessName(const BreakpadInfo& info,
                                    google_breakpad::PageAllocator* allocator) {
   // Symlink to process binary is at /proc/###/exe.
@@ -1556,7 +1545,7 @@ const char* GetCrashingProcessName(const BreakpadInfo& info,
   // Either way too long, or a read error.
   return "chrome-crash-unknown-process";
 }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 // Attempts to close all open file descriptors other than stdin, stdout and
 // stderr (0, 1, and 2).
@@ -1591,7 +1580,7 @@ void HandleCrashDump(const BreakpadInfo& info) {
     return;
   }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // Grab the crashing process' name now, when it should still be available.
   // If we try to do this later in our grandchild the crashing process has
   // already terminated.
@@ -1732,7 +1721,7 @@ void HandleCrashDump(const BreakpadInfo& info) {
   //   <dump contents>
   //   \r\n BOUNDARY -- \r\n
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   CrashReporterWriter writer(temp_file_fd);
 #else
   MimeWriter writer(temp_file_fd, mime_boundary);
@@ -1865,8 +1854,6 @@ void HandleCrashDump(const BreakpadInfo& info) {
     CrashKeyStorage::Iterator crash_key_iterator(*info.crash_keys);
     const CrashKeyStorage::Entry* entry;
     while ((entry = crash_key_iterator.Next())) {
-      if (g_use_crash_key_white_list && !IsInWhiteList(entry->key))
-        continue;
       size_t key_size, value_size;
       // Check for malformed messages.
       key_size = entry->key[CrashKeyStorage::key_size - 1] != '\0'
@@ -2036,6 +2023,10 @@ void InitCrashReporter(const std::string& process_type) {
       process_type == kBrowserProcessType ||
 #endif
       process_type.empty();
+
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
+  SetUploadURL(GetCrashReporterClient()->GetUploadUrl());
+#endif
 
   if (is_browser_process) {
     bool enable_breakpad = GetCrashReporterClient()->GetCollectStatsConsent() ||

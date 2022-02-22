@@ -6,8 +6,10 @@
 
 #include "build/build_config.h"
 #include "services/viz/public/cpp/compositing/begin_frame_args_mojom_traits.h"
+#include "services/viz/public/cpp/compositing/compositor_frame_transition_directive_mojom_traits.h"
 #include "services/viz/public/cpp/compositing/selection_mojom_traits.h"
 #include "services/viz/public/cpp/compositing/surface_id_mojom_traits.h"
+#include "services/viz/public/cpp/crash_keys.h"
 #include "ui/gfx/mojom/display_color_spaces_mojom_traits.h"
 #include "ui/gfx/mojom/selection_bound_mojom_traits.h"
 #include "ui/latency/mojom/latency_info_mojom_traits.h"
@@ -19,11 +21,14 @@ bool StructTraits<viz::mojom::CompositorFrameMetadataDataView,
                   viz::CompositorFrameMetadata>::
     Read(viz::mojom::CompositorFrameMetadataDataView data,
          viz::CompositorFrameMetadata* out) {
-  if (data.device_scale_factor() <= 0)
+  if (data.device_scale_factor() <= 0) {
+    viz::SetDeserializationCrashKeyString("Invalid device scale factor");
     return false;
+  }
   out->device_scale_factor = data.device_scale_factor();
-  if (!data.ReadRootScrollOffset(&out->root_scroll_offset))
+  if (!data.ReadRootScrollOffset(&out->root_scroll_offset)) {
     return false;
+  }
 
   out->page_scale_factor = data.page_scale_factor();
   if (!data.ReadScrollableViewportSize(&out->scrollable_viewport_size))
@@ -51,11 +56,10 @@ bool StructTraits<viz::mojom::CompositorFrameMetadataDataView,
          data.ReadDeadline(&out->deadline) &&
          data.ReadActivationDependencies(&out->activation_dependencies) &&
          data.ReadBeginFrameAck(&out->begin_frame_ack) &&
-         data.ReadLocalSurfaceIdAllocationTime(
-             &out->local_surface_id_allocation_time) &&
-         !out->local_surface_id_allocation_time.is_null() &&
          data.ReadPreferredFrameInterval(&out->preferred_frame_interval) &&
-         data.ReadDisplayTransformHint(&out->display_transform_hint);
+         data.ReadDisplayTransformHint(&out->display_transform_hint) &&
+         data.ReadDelegatedInkMetadata(&out->delegated_ink_metadata) &&
+         data.ReadTransitionDirectives(&out->transition_directives);
 }
 
 }  // namespace mojo

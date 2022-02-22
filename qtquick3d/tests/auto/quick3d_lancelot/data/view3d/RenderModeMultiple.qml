@@ -48,8 +48,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.15
-import QtQuick3D 1.15
+import QtQuick
+import QtQuick3D
 
 Item {
     width: 480
@@ -77,7 +77,6 @@ Item {
             position: Qt.vector3d(0, 0, 350)
         }
         DirectionalLight {
-            brightness: 100
         }
         Model {
             source: "#Cube"

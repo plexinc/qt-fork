@@ -55,7 +55,7 @@
 #include <private/qv4function_p.h>
 #include <QHash>
 
-QT_REQUIRE_CONFIG(qml_jit);
+#if QT_CONFIG(qml_jit)
 
 QT_BEGIN_NAMESPACE
 
@@ -137,6 +137,7 @@ public:
     Q_REQUIRED_RESULT int jumpFalse(int offset);
     Q_REQUIRED_RESULT int jumpNoException(int offset);
     Q_REQUIRED_RESULT int jumpNotUndefined(int offset);
+    Q_REQUIRED_RESULT int jumpEqNull(int offset);
 
     // stuff for runtime calls
     void prepareCallWithArgCount(int argc);
@@ -181,5 +182,7 @@ private:
 } // namespace QV4
 
 QT_END_NAMESPACE
+
+#endif // QT_CONFIG(qml_jit)
 
 #endif // QV4BASELINEASSEMBLER_P_H

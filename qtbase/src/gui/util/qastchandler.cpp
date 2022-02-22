@@ -61,7 +61,7 @@ struct AstcHeader
 
 bool QAstcHandler::canRead(const QByteArray &suffix, const QByteArray &block)
 {
-    Q_UNUSED(suffix)
+    Q_UNUSED(suffix);
 
     return block.startsWith("\x13\xAB\xA1\x5C");
 }
@@ -150,6 +150,7 @@ QTextureFileData QAstcHandler::read()
 
     res.setDataOffset(sizeof(AstcHeader));
     res.setNumLevels(1);
+    res.setNumFaces(1);
     res.setDataLength(byteCount);
 
     if (oob || !res.isValid()) {

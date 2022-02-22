@@ -49,27 +49,43 @@ TEST_F(InitValueManifestTest, InitFromValueInvalid) {
       Testcase("init_invalid_icons_path_invalid.json",
                errors::kInvalidIconPath),
       Testcase("init_invalid_script_invalid.json",
-               errors::kInvalidContentScriptsList),
+               "Error at key 'content_scripts'. Type is invalid. Expected "
+               "list, found integer."),
       Testcase("init_invalid_script_item_invalid.json",
-               errors::kInvalidContentScript),
+               "Error at key 'content_scripts'. Parsing array failed at index "
+               "0: expected dictionary, got integer"),
       Testcase("init_invalid_script_matches_missing.json",
-               errors::kInvalidMatches),
+               "Error at key 'content_scripts'. Parsing array failed at index "
+               "0: 'matches' is required"),
       Testcase("init_invalid_script_matches_invalid.json",
-               errors::kInvalidMatches),
+               "Error at key 'content_scripts'. Parsing array failed at index "
+               "0: 'matches': expected list, got integer"),
       Testcase("init_invalid_script_matches_empty.json",
                errors::kInvalidMatchCount),
       Testcase("init_invalid_script_match_item_invalid.json",
-               errors::kInvalidMatch),
+               "Error at key 'content_scripts'. Parsing array failed at index "
+               "0: Error at key 'matches': Parsing array failed at index 0: "
+               "expected string, got integer"),
       Testcase("init_invalid_script_match_item_invalid_2.json",
                errors::kInvalidMatch),
       Testcase("init_invalid_script_files_missing.json", errors::kMissingFile),
-      Testcase("init_invalid_files_js_invalid.json", errors::kInvalidJsList),
+      Testcase("init_invalid_files_js_invalid.json",
+               "Error at key 'content_scripts'. Parsing array failed at index "
+               "0: 'js': expected list, got integer"),
       Testcase("init_invalid_files_empty.json", errors::kMissingFile),
       Testcase("init_invalid_files_js_empty_css_missing.json",
                errors::kMissingFile),
-      Testcase("init_invalid_files_js_item_invalid.json", errors::kInvalidJs),
-      Testcase("init_invalid_files_css_invalid.json", errors::kInvalidCssList),
-      Testcase("init_invalid_files_css_item_invalid.json", errors::kInvalidCss),
+      Testcase("init_invalid_files_js_item_invalid.json",
+               "Error at key 'content_scripts'. Parsing array failed at index "
+               "0: Error at key 'js': Parsing array failed at index 0: "
+               "expected string, got integer"),
+      Testcase("init_invalid_files_css_invalid.json",
+               "Error at key 'content_scripts'. Parsing array failed at index "
+               "0: 'css': expected list, got integer"),
+      Testcase("init_invalid_files_css_item_invalid.json",
+               "Error at key 'content_scripts'. Parsing array failed at index "
+               "0: Error at key 'css': Parsing array failed at index 0: "
+               "expected string, got integer"),
       Testcase("init_invalid_permissions_invalid.json",
                errors::kInvalidPermissions),
       Testcase("init_invalid_host_permissions_invalid.json",
@@ -139,6 +155,9 @@ TEST_F(InitValueManifestTest, InitFromValueValid) {
 
     // Test a hosted app with a requirements section.
     Testcase("init_valid_app_requirements.json"),
+
+    // Test a theme with a minimum_chrome_version.
+    Testcase("init_valid_theme_minimum_chrome.json"),
 
     // Verify empty permission settings are considered valid.
     Testcase("init_valid_permissions_empty.json"),

@@ -109,9 +109,7 @@ public:
         uint non_complex_pen : 1;           // can use rasterizer, rather than stroker
         uint antialiased : 1;
         uint bilinear : 1;
-        uint legacy_rounding : 1;
         uint fast_text : 1;
-        uint int_xform : 1;
         uint tx_noshear : 1;
         uint fast_images : 1;
     };
@@ -277,6 +275,7 @@ public:
     void rasterize(QT_FT_Outline *outline, ProcessSpans callback, QSpanData *spanData, QRasterBuffer *rasterBuffer);
     void rasterize(QT_FT_Outline *outline, ProcessSpans callback, void *userData, QRasterBuffer *rasterBuffer);
     void updateMatrixData(QSpanData *spanData, const QBrush &brush, const QTransform &brushMatrix);
+    void updateClipping();
 
     void systemStateChanged() override;
 
@@ -375,6 +374,7 @@ public:
 
     QRect clipRect;
     QRegion clipRegion;
+    QTransform clipTransform;
 
     uint enabled : 1;
     uint hasRectClip : 1;
@@ -434,14 +434,14 @@ public:
 
     QImage::Format prepare(QImage *image);
 
-    uchar *scanLine(int y) { Q_ASSERT(y>=0); Q_ASSERT(y<m_height); return m_buffer + y * qsizetype(bytes_per_line); }
+    uchar *scanLine(int y) { Q_ASSERT(y>=0); Q_ASSERT(y<m_height); return m_buffer + y * bytes_per_line; }
 
     int width() const { return m_width; }
     int height() const { return m_height; }
-    int bytesPerLine() const { return bytes_per_line; }
+    qsizetype bytesPerLine() const { return bytes_per_line; }
     int bytesPerPixel() const { return bytes_per_pixel; }
     template<typename T>
-    int stride() { return bytes_per_line / sizeof(T); }
+    int stride() { return static_cast<int>(bytes_per_line / sizeof(T)); }
 
     uchar *buffer() const { return m_buffer; }
 
@@ -451,12 +451,13 @@ public:
 
     QPainter::CompositionMode compositionMode;
     QImage::Format format;
+    QColorSpace colorSpace;
     QImage colorizeBitmap(const QImage &image, const QColor &color);
 
 private:
     int m_width;
     int m_height;
-    int bytes_per_line;
+    qsizetype bytes_per_line;
     int bytes_per_pixel;
     uchar *m_buffer;
 };

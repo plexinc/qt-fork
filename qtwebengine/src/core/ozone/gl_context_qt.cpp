@@ -42,6 +42,7 @@
 #include <QGuiApplication>
 #include <QOpenGLContext>
 #include <QThread>
+#include <QtGui/private/qtgui-config_p.h>
 #include <qpa/qplatformnativeinterface.h>
 #include "ui/gl/gl_context_egl.h"
 #include "ui/gl/gl_implementation.h"
@@ -53,7 +54,7 @@
 QT_BEGIN_NAMESPACE
 
 Q_GUI_EXPORT QOpenGLContext *qt_gl_global_share_context();
-GLContextHelper* GLContextHelper::contextHelper = 0;
+GLContextHelper* GLContextHelper::contextHelper = nullptr;
 
 namespace {
 
@@ -62,7 +63,7 @@ inline void *resourceForContext(const QByteArray &resource)
 #if QT_CONFIG(opengl)
     QOpenGLContext *shareContext = qt_gl_global_share_context();
     if (!shareContext) {
-        qFatal("QWebEngine: OpenGL resource sharing is not set up in QtQuick. Please make sure to call QtWebEngine::initialize() in your main() function.");
+        qFatal("QWebEngine: OpenGL resource sharing is not set up in QtQuick. Please make sure to call QtWebEngineCore::initialize() in your main() function.");
     }
     return qApp->platformNativeInterface()->nativeResourceForContext(resource, shareContext);
 #else
@@ -95,7 +96,7 @@ void GLContextHelper::initialize()
 void GLContextHelper::destroy()
 {
     delete contextHelper;
-    contextHelper = 0;
+    contextHelper = nullptr;
 }
 
 bool GLContextHelper::initializeContextOnBrowserThread(gl::GLContext* context, gl::GLSurface* surface, gl::GLContextAttribs attribs)
@@ -140,10 +141,12 @@ void* GLContextHelper::getEGLDisplay()
 
 void* GLContextHelper::getXDisplay()
 {
-    QPlatformNativeInterface *pni = QGuiApplication::platformNativeInterface();
-    if (pni)
-        return pni->nativeResourceForScreen(QByteArrayLiteral("display"), qApp->primaryScreen());
+#if QT_CONFIG(xcb)
+    auto *x11app = qGuiApp->nativeInterface<QNativeInterface::QX11Application>();
+    return x11app ? x11app->display() : nullptr;
+#else
     return nullptr;
+#endif
 }
 
 void* GLContextHelper::getNativeDisplay()
@@ -154,7 +157,7 @@ void* GLContextHelper::getNativeDisplay()
 QFunctionPointer GLContextHelper::getGlXGetProcAddress()
 {
      QFunctionPointer get_proc_address = nullptr;
-#if QT_CONFIG(opengl)
+#if QT_CONFIG(xcb_glx)
     if (QOpenGLContext *context = qt_gl_global_share_context()) {
         get_proc_address = context->getProcAddress("glXGetProcAddress");
     }
@@ -171,6 +174,24 @@ QFunctionPointer GLContextHelper::getEglGetProcAddress()
     }
 #endif
     return get_proc_address;
+}
+
+void *GLContextHelper::getGlxPlatformInterface()
+{
+#if QT_CONFIG(xcb_glx)
+    if (QOpenGLContext *context = qt_gl_global_share_context())
+        return context->nativeInterface<QNativeInterface::QGLXContext>();
+#endif
+    return nullptr;
+}
+
+void *GLContextHelper::getEglPlatformInterface()
+{
+#if QT_CONFIG(opengl) && QT_CONFIG(egl)
+    if (QOpenGLContext *context = qt_gl_global_share_context())
+        return context->nativeInterface<QNativeInterface::QEGLContext>();
+#endif
+    return nullptr;
 }
 
 bool GLContextHelper::isCreateContextRobustnessSupported()

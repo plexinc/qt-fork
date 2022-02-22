@@ -12,6 +12,7 @@
 #include <utility>
 #include <vector>
 
+#include "ash/constants/ash_switches.h"
 #include "ash/public/cpp/default_scale_factor_retriever.h"
 #include "base/bind.h"
 #include "base/command_line.h"
@@ -19,6 +20,7 @@
 #include "base/files/file_util.h"
 #include "base/location.h"
 #include "base/posix/eintr_wrapper.h"
+#include "base/process/process_metrics.h"
 #include "base/rand_util.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
@@ -26,12 +28,13 @@
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
-#include "base/util/memory_pressure/system_memory_pressure_evaluator_chromeos.h"
-#include "chromeos/constants/chromeos_switches.h"
+#include "base/threading/thread_restrictions.h"
 #include "chromeos/cryptohome/cryptohome_parameters.h"
+#include "chromeos/memory/memory.h"
 #include "chromeos/system/scheduler_configuration_manager_base.h"
 #include "components/arc/arc_features.h"
 #include "components/arc/arc_util.h"
+#include "components/arc/enterprise/arc_data_snapshotd_manager.h"
 #include "components/arc/session/arc_bridge_host_impl.h"
 #include "components/user_manager/user_manager.h"
 #include "components/version_info/channel.h"
@@ -47,11 +50,13 @@ namespace arc {
 
 namespace {
 
-constexpr char kArcBridgeSocketPath[] = "/run/chrome/arc_bridge.sock";
-constexpr char kArcBridgeSocketGroup[] = "arc-bridge";
-
 constexpr char kOn[] = "on";
 constexpr char kOff[] = "off";
+
+// Used to classify device based on memory available, 4G, 8GB, 16GB.
+constexpr int kClassify4GbDeviceInKb = 3500000;
+constexpr int kClassify8GbDeviceInKb = 7500000;
+constexpr int kClassify16GbDeviceInKb = 15500000;
 
 std::string GenerateRandomToken() {
   char random_bytes[16];
@@ -83,6 +88,79 @@ bool WaitForSocketReadable(int raw_socket_fd, int raw_cancel_fd) {
 
   DCHECK(fds[0].revents);
   return true;
+}
+
+// Applies dalvik memory profile to the ARC mini instance start params.
+// Profile is determined based on enable feature and available memory on the
+// device. Possible profiles 16G,8G and 4G. For low memory devices dalvik
+// profile is not overridden. If |memory_stat_file_for_testing| is set,
+// it specifies the file to read in tests instead of /proc/meminfo in
+// production.
+void ApplyDalvikMemoryProfile(
+    ArcSessionImpl::SystemMemoryInfoCallback system_memory_info_callback,
+    StartParams* params) {
+  // Check if enabled.
+  if (!base::FeatureList::IsEnabled(arc::kUseHighMemoryDalvikProfile)) {
+    VLOG(1) << "High-memory dalvik profile is not enabled, default low-memory "
+               "is used.";
+    return;
+  }
+
+  base::SystemMemoryInfoKB mem_info;
+  if (!system_memory_info_callback.Run(&mem_info)) {
+    LOG(ERROR) << "Failed to get system memory info";
+    return;
+  }
+
+  std::string log_profile_name;
+  if (mem_info.total >= kClassify16GbDeviceInKb) {
+    params->dalvik_memory_profile = StartParams::DalvikMemoryProfile::M16G;
+    log_profile_name = "high-memory 16G";
+  } else if (mem_info.total >= kClassify8GbDeviceInKb) {
+    params->dalvik_memory_profile = StartParams::DalvikMemoryProfile::M8G;
+    log_profile_name = "high-memory 8G";
+  } else if (mem_info.total >= kClassify4GbDeviceInKb) {
+    params->dalvik_memory_profile = StartParams::DalvikMemoryProfile::M4G;
+    log_profile_name = "high-memory 4G";
+  } else {
+    params->dalvik_memory_profile = StartParams::DalvikMemoryProfile::DEFAULT;
+    log_profile_name = "default low-memory";
+  }
+  VLOG(1) << "Applied " << log_profile_name << " profile for the "
+          << (mem_info.total / 1024) << "Mb device.";
+}
+
+// Applies USAP profile to the ARC mini instance start params.
+// Profile is determined based on enable feature and available memory on the
+// device. Possible profiles 16G,8G and 4G. For low memory devices USAP
+// profile is not overridden. If |memory_stat_file_for_testing| is set,
+// it specifies the file to read in tests instead of /proc/meminfo in
+// production.
+// Note: This is only used for VM. This profile does nothing for container.
+void ApplyUsapProfile(
+    ArcSessionImpl::SystemMemoryInfoCallback system_memory_info_callback,
+    StartParams* params) {
+  // Check if enabled.
+  if (!base::FeatureList::IsEnabled(arc::kEnableUsap)) {
+    VLOG(1) << "USAP profile is not enabled.";
+    return;
+  }
+
+  base::SystemMemoryInfoKB mem_info;
+  if (!system_memory_info_callback.Run(&mem_info)) {
+    LOG(ERROR) << "Failed to get system memory info";
+    return;
+  }
+
+  if (mem_info.total >= kClassify16GbDeviceInKb) {
+    params->usap_profile = StartParams::UsapProfile::M16G;
+  } else if (mem_info.total >= kClassify8GbDeviceInKb) {
+    params->usap_profile = StartParams::UsapProfile::M8G;
+  } else if (mem_info.total >= kClassify4GbDeviceInKb) {
+    params->usap_profile = StartParams::UsapProfile::M4G;
+  } else {
+    params->usap_profile = StartParams::UsapProfile::DEFAULT;
+  }
 }
 
 // Real Delegate implementation to connect Mojo.
@@ -201,7 +279,27 @@ std::unique_ptr<ArcClientAdapter> ArcSessionDelegateImpl::CreateClient() {
 
 // static
 base::ScopedFD ArcSessionDelegateImpl::CreateSocketInternal() {
-  auto endpoint = mojo::NamedPlatformChannel({kArcBridgeSocketPath});
+  constexpr char kArcBridgeSocketPath[] = "/run/chrome/arc_bridge.sock";
+  constexpr char kArcVmBridgeSocketPath[] = "/run/chrome/arc/arc_bridge.sock";
+  constexpr char kArcBridgeSocketGroup[] = "arc-bridge";
+
+  const base::FilePath socket_path(IsArcVmEnabled() ? kArcVmBridgeSocketPath
+                                                    : kArcBridgeSocketPath);
+  if (IsArcVmEnabled()) {
+    base::File::Error error;
+    const base::FilePath socket_dir(socket_path.DirName());
+    if (!base::CreateDirectoryAndGetError(socket_dir, &error)) {
+      LOG(ERROR) << "Failed to create " << socket_dir << ": "
+                 << base::File::ErrorToString(error);
+      return base::ScopedFD();
+    }
+    if (!base::SetPosixFilePermissions(socket_dir, 0700)) {
+      PLOG(ERROR) << "Could not set permissions: " << socket_dir;
+      return base::ScopedFD();
+    }
+  }
+
+  auto endpoint = mojo::NamedPlatformChannel({socket_path.value()});
   // TODO(cmtm): use NamedPlatformChannel to bootstrap mojo connection after
   // libchrome uprev in android.
   base::ScopedFD socket_fd =
@@ -233,15 +331,15 @@ base::ScopedFD ArcSessionDelegateImpl::CreateSocketInternal() {
       return base::ScopedFD();
     }
 
-    if (chown(kArcBridgeSocketPath, -1, arc_bridge_group.gr_gid) < 0) {
+    if (chown(socket_path.value().c_str(), -1, arc_bridge_group.gr_gid) < 0) {
       PLOG(ERROR) << "chown failed";
       return base::ScopedFD();
     }
   }
 
-  if (!base::SetPosixFilePermissions(base::FilePath(kArcBridgeSocketPath),
+  if (!base::SetPosixFilePermissions(socket_path,
                                      IsArcVmEnabled() ? 0600 : 0660)) {
-    PLOG(ERROR) << "Could not set permissions: " << kArcBridgeSocketPath;
+    PLOG(ERROR) << "Could not set permissions: " << socket_path;
     return base::ScopedFD();
   }
 
@@ -277,11 +375,16 @@ mojo::ScopedMessagePipeHandle ArcSessionDelegateImpl::ConnectMojoInternal(
   std::vector<base::ScopedFD> fds;
   fds.emplace_back(channel.TakeRemoteEndpoint().TakePlatformHandle().TakeFD());
 
+  // Version of protocol chrome is using.
+  uint8_t protocol_version = 0;
+
   // We need to send the length of the message as a single byte, so make sure it
   // fits.
   DCHECK_LT(token.size(), 256u);
   uint8_t message_length = static_cast<uint8_t>(token.size());
-  struct iovec iov[] = {{&message_length, sizeof(message_length)},
+
+  struct iovec iov[] = {{&protocol_version, sizeof(protocol_version)},
+                        {&message_length, sizeof(message_length)},
                         {const_cast<char*>(token.c_str()), token.size()}};
   ssize_t result = mojo::SendmsgWithHandles(connection_fd.get(), iov,
                                             sizeof(iov) / sizeof(iov[0]), fds);
@@ -303,8 +406,8 @@ void ArcSessionDelegateImpl::OnMojoConnected(
   }
 
   std::move(callback).Run(std::make_unique<ArcBridgeHostImpl>(
-      arc_bridge_service_, mojo::PendingRemote<mojom::ArcBridgeInstance>(
-                               std::move(server_pipe), 0u)));
+      arc_bridge_service_,
+      mojo::PendingReceiver<mojom::ArcBridgeHost>(std::move(server_pipe))));
 }
 
 }  // namespace
@@ -318,12 +421,18 @@ std::unique_ptr<ArcSessionImpl::Delegate> ArcSessionImpl::CreateDelegate(
                                                   channel);
 }
 
-ArcSessionImpl::ArcSessionImpl(std::unique_ptr<Delegate> delegate,
-                               chromeos::SchedulerConfigurationManagerBase*
-                                   scheduler_configuration_manager)
+ArcSessionImpl::ArcSessionImpl(
+    std::unique_ptr<Delegate> delegate,
+    chromeos::SchedulerConfigurationManagerBase*
+        scheduler_configuration_manager,
+    AdbSideloadingAvailabilityDelegate* adb_sideloading_availability_delegate)
     : delegate_(std::move(delegate)),
       client_(delegate_->CreateClient()),
-      scheduler_configuration_manager_(scheduler_configuration_manager) {
+      scheduler_configuration_manager_(scheduler_configuration_manager),
+      adb_sideloading_availability_delegate_(
+          adb_sideloading_availability_delegate),
+      system_memory_info_callback_(
+          base::BindRepeating(&base::GetSystemMemoryInfo)) {
   DCHECK(client_);
   client_->AddObserver(this);
 }
@@ -370,14 +479,12 @@ void ArcSessionImpl::DoStartMiniInstance(size_t num_cores_disabled) {
       base::FeatureList::IsEnabled(arc::kNativeBridgeToggleFeature);
   params.arc_file_picker_experiment =
       base::FeatureList::IsEnabled(arc::kFilePickerExperimentFeature);
-  // Enable Custom Tabs only on Dev and Cannary, and only when Mash is enabled.
+  // Enable Custom Tabs only on Dev and Canary.
   const bool is_custom_tab_enabled =
       base::FeatureList::IsEnabled(arc::kCustomTabsExperimentFeature) &&
       delegate_->GetChannel() != version_info::Channel::STABLE &&
       delegate_->GetChannel() != version_info::Channel::BETA;
   params.arc_custom_tabs_experiment = is_custom_tab_enabled;
-  params.arc_print_spooler_experiment =
-      base::FeatureList::IsEnabled(arc::kPrintSpoolerExperimentFeature);
   params.lcd_density = lcd_density_;
   params.num_cores_disabled = num_cores_disabled;
 
@@ -403,14 +510,34 @@ void ArcSessionImpl::DoStartMiniInstance(size_t num_cores_disabled) {
   params.arc_disable_system_default_app =
       base::CommandLine::ForCurrentProcess()->HasSwitch(
           chromeos::switches::kArcDisableSystemDefaultApps);
+  if (params.arc_disable_system_default_app)
+    VLOG(1) << "System default app(s) are disabled";
+
+  params.disable_media_store_maintenance =
+      base::CommandLine::ForCurrentProcess()->HasSwitch(
+          chromeos::switches::kArcDisableMediaStoreMaintenance);
+  if (params.disable_media_store_maintenance)
+    VLOG(1) << "MediaStore maintenance task(s) are disabled";
+
+  params.arc_generate_play_auto_install =
+      base::CommandLine::ForCurrentProcess()->HasSwitch(
+          chromeos::switches::kArcGeneratePlayAutoInstall);
 
   VLOG(1) << "Starting ARC mini instance with lcd_density="
           << params.lcd_density
           << ", num_cores_disabled=" << params.num_cores_disabled;
 
+  ApplyDalvikMemoryProfile(system_memory_info_callback_, &params);
+  ApplyUsapProfile(system_memory_info_callback_, &params);
+
   client_->StartMiniArc(std::move(params),
                         base::BindOnce(&ArcSessionImpl::OnMiniInstanceStarted,
                                        weak_factory_.GetWeakPtr()));
+}
+
+void ArcSessionImpl::SetSystemMemoryInfoCallbackForTesting(
+    SystemMemoryInfoCallback callback) {
+  system_memory_info_callback_ = callback;
 }
 
 void ArcSessionImpl::RequestUpgrade(UpgradeParams params) {
@@ -420,6 +547,8 @@ void ArcSessionImpl::RequestUpgrade(UpgradeParams params) {
   upgrade_requested_ = true;
   upgrade_params_ = std::move(params);
 
+  VLOG(1) << "Upgrade requested. state: " << state_;
+
   switch (state_) {
     case State::NOT_STARTED:
       NOTREACHED();
@@ -427,7 +556,6 @@ void ArcSessionImpl::RequestUpgrade(UpgradeParams params) {
     case State::WAITING_FOR_LCD_DENSITY:
     case State::WAITING_FOR_NUM_CORES:
     case State::STARTING_MINI_INSTANCE:
-      VLOG(2) << "Requested to upgrade a starting ARC mini instance";
       // OnMiniInstanceStarted() will restart a full instance.
       break;
     case State::RUNNING_MINI_INSTANCE:
@@ -459,7 +587,7 @@ void ArcSessionImpl::OnMiniInstanceStarted(bool result) {
 
   if (stop_requested_) {
     // The ARC instance has started to run. Request to stop.
-    StopArcInstance(/*on_shutdown=*/false);
+    StopArcInstance(/*on_shutdown=*/false, /*should_backup_log=*/false);
     return;
   }
 
@@ -483,14 +611,24 @@ void ArcSessionImpl::OnFreeDiskSpace(int64_t space) {
   // Ensure there's sufficient space on disk for the container.
   if (space == -1) {
     LOG(ERROR) << "Could not determine free disk space";
-    StopArcInstance(/*on_shutdown=*/false);
+    StopArcInstance(/*on_shutdown=*/false, /*should_backup_log=*/false);
     return;
   } else if (space < kMinimumFreeDiskSpaceBytes) {
     VLOG(1) << "There is not enough disk space to start the ARC container";
     insufficient_disk_space_ = true;
-    StopArcInstance(/*on_shutdown=*/false);
+    StopArcInstance(/*on_shutdown=*/false, /*should_backup_log=*/false);
     return;
   }
+
+  adb_sideloading_availability_delegate_->CanChangeAdbSideloading(
+      base::BindOnce(&ArcSessionImpl::OnCanChangeAdbSideloading,
+                     weak_factory_.GetWeakPtr()));
+}
+
+void ArcSessionImpl::OnCanChangeAdbSideloading(
+    bool can_change_adb_sideloading) {
+  upgrade_params_.is_managed_adb_sideloading_allowed =
+      can_change_adb_sideloading;
 
   delegate_->CreateSocket(base::BindOnce(&ArcSessionImpl::OnSocketCreated,
                                          weak_factory_.GetWeakPtr()));
@@ -503,17 +641,33 @@ void ArcSessionImpl::OnSocketCreated(base::ScopedFD socket_fd) {
   if (stop_requested_) {
     // The ARC instance has started to run. Request to stop.
     VLOG(1) << "Stop() called while creating socket";
-    StopArcInstance(/*on_shutdown=*/false);
+    StopArcInstance(/*on_shutdown=*/false, /*should_backup_log=*/false);
     return;
   }
 
   if (!socket_fd.is_valid()) {
     LOG(ERROR) << "ARC: Error creating socket";
-    StopArcInstance(/*on_shutdown=*/false);
+    StopArcInstance(/*on_shutdown=*/false, /*should_backup_log=*/false);
     return;
   }
 
-  VLOG(2) << "Socket is created. Starting ARC container";
+  VLOG(2) << "Socket is created. Start loading ARC data snapshot";
+  StartLoadingDataSnapshot(base::BindOnce(&ArcSessionImpl::OnDataSnapshotLoaded,
+                                          weak_factory_.GetWeakPtr(),
+                                          std::move(socket_fd)));
+}
+
+void ArcSessionImpl::StartLoadingDataSnapshot(base::OnceClosure callback) {
+  auto* arc_data_snapshotd_manager =
+      arc::data_snapshotd::ArcDataSnapshotdManager::Get();
+  if (arc_data_snapshotd_manager)
+    arc_data_snapshotd_manager->StartLoadingSnapshot(std::move(callback));
+  else
+    std::move(callback).Run();
+}
+
+void ArcSessionImpl::OnDataSnapshotLoaded(base::ScopedFD socket_fd) {
+  VLOG(2) << "Starting ARC container";
   client_->UpgradeArc(
       std::move(upgrade_params_),
       base::BindOnce(&ArcSessionImpl::OnUpgraded, weak_factory_.GetWeakPtr(),
@@ -533,7 +687,7 @@ void ArcSessionImpl::OnUpgraded(base::ScopedFD socket_fd, bool result) {
 
   if (stop_requested_) {
     // The ARC instance has started to run. Request to stop.
-    StopArcInstance(/*on_shutdown=*/false);
+    StopArcInstance(/*on_shutdown=*/false, /*should_backup_log=*/false);
     return;
   }
 
@@ -544,7 +698,7 @@ void ArcSessionImpl::OnUpgraded(base::ScopedFD socket_fd, bool result) {
                                            weak_factory_.GetWeakPtr()));
   if (!accept_cancel_pipe_.is_valid()) {
     // Failed to post a task to accept() the request.
-    StopArcInstance(/*on_shutdown=*/false);
+    StopArcInstance(/*on_shutdown=*/false, /*should_backup_log=*/false);
     return;
   }
 }
@@ -556,13 +710,16 @@ void ArcSessionImpl::OnMojoConnected(
   accept_cancel_pipe_.reset();
 
   if (stop_requested_) {
-    StopArcInstance(/*on_shutdown=*/false);
+    StopArcInstance(/*on_shutdown=*/false, /*should_backup_log=*/false);
     return;
   }
 
   if (!arc_bridge_host.get()) {
     LOG(ERROR) << "Invalid pipe.";
-    StopArcInstance(/*on_shutdown=*/false);
+    // If we can't establish the connection with ARC bridge, it could
+    // be a problem inside ARC thus setting |should_backup_log| to back up log
+    // before container is shutdown.
+    StopArcInstance(/*on_shutdown=*/false, /*should_backup_log*/ true);
     return;
   }
   arc_bridge_host_ = std::move(arc_bridge_host);
@@ -570,11 +727,8 @@ void ArcSessionImpl::OnMojoConnected(
   VLOG(0) << "ARC ready.";
   state_ = State::RUNNING_FULL_INSTANCE;
 
-  // Some memory parameters may be changed when ARC is launched, notify the
-  // memory monitor to update these parameters.
-  auto* monitor = util::chromeos::SystemMemoryPressureEvaluator::Get();
-  if (monitor)
-    monitor->UpdateMemoryParameters();
+  // Some memory parameters may be changed when ARC is launched.
+  chromeos::UpdateMemoryParameters();
 }
 
 void ArcSessionImpl::Stop() {
@@ -597,6 +751,7 @@ void ArcSessionImpl::Stop() {
     case State::WAITING_FOR_LCD_DENSITY:
       // If |Stop()| is called while waiting for LCD density or CPU cores
       // information, it can directly move to stopped state.
+      VLOG(1) << "ARC session is not started. state: " << state_;
       OnStopped(ArcStopReason::SHUTDOWN);
       return;
     case State::STARTING_MINI_INSTANCE:
@@ -614,7 +769,7 @@ void ArcSessionImpl::Stop() {
     case State::RUNNING_MINI_INSTANCE:
     case State::RUNNING_FULL_INSTANCE:
       // An ARC {mini,full} instance is running. Request to stop it.
-      StopArcInstance(/*on_shutdown=*/false);
+      StopArcInstance(/*on_shutdown=*/false, /*should_backup_log=*/false);
       return;
 
     case State::CONNECTING_MOJO:
@@ -625,12 +780,13 @@ void ArcSessionImpl::Stop() {
       return;
 
     case State::STOPPED:
+      VLOG(1) << "ARC session is already stopped.";
       // The instance is already stopped. Do nothing.
       return;
   }
 }
 
-void ArcSessionImpl::StopArcInstance(bool on_shutdown) {
+void ArcSessionImpl::StopArcInstance(bool on_shutdown, bool should_backup_log) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   DCHECK(state_ == State::WAITING_FOR_LCD_DENSITY ||
          state_ == State::WAITING_FOR_NUM_CORES ||
@@ -640,11 +796,13 @@ void ArcSessionImpl::StopArcInstance(bool on_shutdown) {
          state_ == State::CONNECTING_MOJO ||
          state_ == State::RUNNING_FULL_INSTANCE);
 
-  VLOG(2) << "Requesting session_manager to stop ARC instance";
+  VLOG(1) << "Requesting session_manager to stop ARC instance"
+          << " on_shutdown: " << on_shutdown
+          << " should_backup_log: " << should_backup_log;
 
   // When the instance is full instance, change the |state_| in
   // ArcInstanceStopped().
-  client_->StopArcInstance(on_shutdown);
+  client_->StopArcInstance(on_shutdown, should_backup_log);
 }
 
 void ArcSessionImpl::ArcInstanceStopped() {
@@ -685,7 +843,9 @@ void ArcSessionImpl::OnStopped(ArcStopReason reason) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   // OnStopped() should be called once per instance.
   DCHECK_NE(state_, State::STOPPED);
-  VLOG(2) << "ARC session is stopped.";
+  VLOG(1) << "ARC session is stopped."
+          << " reason: " << reason << " state: " << state_;
+
   const bool was_running = (state_ == State::RUNNING_FULL_INSTANCE);
   arc_bridge_host_.reset();
   state_ = State::STOPPED;
@@ -712,7 +872,7 @@ void ArcSessionImpl::OnShutdown() {
       state_ == State::STARTING_FULL_INSTANCE ||
       state_ == State::CONNECTING_MOJO ||
       state_ == State::RUNNING_FULL_INSTANCE) {
-    StopArcInstance(/*on_shutdown=*/true);
+    StopArcInstance(/*on_shutdown=*/true, /*should_backup_log*/ false);
   }
 
   // Directly set to the STOPPED state by OnStopped(). Note that calling
@@ -721,10 +881,18 @@ void ArcSessionImpl::OnShutdown() {
   OnStopped(ArcStopReason::SHUTDOWN);
 }
 
-void ArcSessionImpl::SetUserInfo(const std::string& hash,
-                                 const std::string& serial_number) {
+void ArcSessionImpl::SetUserInfo(
+    const cryptohome::Identification& cryptohome_id,
+    const std::string& hash,
+    const std::string& serial_number) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  client_->SetUserInfo(hash, serial_number);
+  client_->SetUserInfo(cryptohome_id, hash, serial_number);
+}
+
+void ArcSessionImpl::SetDemoModeDelegate(
+    ArcClientAdapter::DemoModeDelegate* delegate) {
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  client_->SetDemoModeDelegate(delegate);
 }
 
 void ArcSessionImpl::OnConfigurationSet(bool success,

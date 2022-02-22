@@ -10,6 +10,7 @@
 #include "base/stl_util.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/event_router_forwarder.h"
 #include "chrome/browser/profiles/profile.h"
@@ -18,7 +19,7 @@
 #include "components/prefs/pref_service.h"
 #include "google_apis/google_api_keys.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/update_engine_client.h"
 #else
@@ -43,9 +44,9 @@ const char kStateKey[] = "state";
 const char kNotAvailableState[] = "NotAvailable";
 const char kNeedRestartState[] = "NeedRestart";
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 const char kUpdatingState[] = "Updating";
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 }  // namespace
 
@@ -61,14 +62,14 @@ SystemPrivateGetIncognitoModeAvailabilityFunction::Run() {
   EXTENSION_FUNCTION_VALIDATE(
       value >= 0 &&
       value < static_cast<int>(base::size(kIncognitoModeAvailabilityStrings)));
-  return RespondNow(OneArgument(
-      std::make_unique<base::Value>(kIncognitoModeAvailabilityStrings[value])));
+  return RespondNow(
+      OneArgument(base::Value(kIncognitoModeAvailabilityStrings[value])));
 }
 
 ExtensionFunction::ResponseAction SystemPrivateGetUpdateStatusFunction::Run() {
   std::string state;
   double download_progress = 0;
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // With UpdateEngineClient, we can provide more detailed information about
   // system updates on ChromeOS.
   const update_engine::StatusResult status = chromeos::DBusThreadManager::Get()
@@ -127,12 +128,12 @@ ExtensionFunction::ResponseAction SystemPrivateGetUpdateStatusFunction::Run() {
   std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
   dict->SetString(kStateKey, state);
   dict->SetDouble(kDownloadProgressKey, download_progress);
-  return RespondNow(OneArgument(std::move(dict)));
+  return RespondNow(
+      OneArgument(base::Value::FromUniquePtrValue(std::move(dict))));
 }
 
 ExtensionFunction::ResponseAction SystemPrivateGetApiKeyFunction::Run() {
-  return RespondNow(
-      OneArgument(std::make_unique<base::Value>(google_apis::GetAPIKey())));
+  return RespondNow(OneArgument(base::Value(google_apis::GetAPIKey())));
 }
 
 }  // namespace extensions

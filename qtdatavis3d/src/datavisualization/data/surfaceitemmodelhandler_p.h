@@ -43,7 +43,7 @@
 #include "abstractitemmodelhandler_p.h"
 #include "qitemmodelsurfacedataproxy_p.h"
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 class SurfaceItemModelHandler : public AbstractItemModelHandler
 {
@@ -53,20 +53,20 @@ public:
     virtual ~SurfaceItemModelHandler();
 
 public Q_SLOTS:
-    virtual void handleDataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight,
-                                   const QVector<int> &roles = QVector<int> ());
+    void handleDataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight,
+                           const QList<int> &roles = QList<int>()) override;
 
 protected:
-    void virtual resolveModel();
+    void resolveModel() override;
 
     QItemModelSurfaceDataProxy *m_proxy; // Not owned
     QSurfaceDataArray *m_proxyArray; // Not owned
     int m_xPosRole;
     int m_yPosRole;
     int m_zPosRole;
-    QRegExp m_xPosPattern;
-    QRegExp m_yPosPattern;
-    QRegExp m_zPosPattern;
+    QRegularExpression m_xPosPattern;
+    QRegularExpression m_yPosPattern;
+    QRegularExpression m_zPosPattern;
     QString m_xPosReplace;
     QString m_yPosReplace;
     QString m_zPosReplace;
@@ -75,6 +75,6 @@ protected:
     bool m_haveZPosPattern;
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

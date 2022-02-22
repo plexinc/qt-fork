@@ -68,14 +68,8 @@ public:
     ~QMaterialPrivate();
 
     Q_DECLARE_PUBLIC(QMaterial)
-    QVector<QParameter *> m_parameters;
+    QList<QParameter *> m_parameters;
     QEffect *m_effect;
-};
-
-struct QMaterialData
-{
-    Qt3DCore::QNodeIdVector parameterIds;
-    Qt3DCore::QNodeId effectId;
 };
 
 } // namespace Qt3DRender

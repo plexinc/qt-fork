@@ -33,12 +33,14 @@
 #include <QtDataVisualization/qabstractdataproxy.h>
 #include <QtDataVisualization/qscatterdataitem.h>
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+Q_MOC_INCLUDE(<QtDataVisualization/qscatter3dseries.h>)
+
+QT_BEGIN_NAMESPACE
 
 class QScatterDataProxyPrivate;
 class QScatter3DSeries;
 
-typedef QVector<QScatterDataItem> QScatterDataArray;
+typedef QList<QScatterDataItem> QScatterDataArray;
 
 class QT_DATAVISUALIZATION_EXPORT QScatterDataProxy : public QAbstractDataProxy
 {
@@ -90,6 +92,6 @@ private:
     friend class Scatter3DController;
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

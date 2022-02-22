@@ -32,19 +32,16 @@
 
 QT_BEGIN_NAMESPACE
 
-QSSGRenderLight::QSSGRenderLight()
-    : QSSGRenderNode(QSSGRenderGraphObject::Type::Light)
-    , m_lightType(QSSGRenderLight::Type::Directional)
+QSSGRenderLight::QSSGRenderLight(QSSGRenderGraphObject::Type type)
+    : QSSGRenderNode(type)
     , m_scope(nullptr)
     , m_diffuseColor(1, 1, 1)
     , m_specularColor(1, 1, 1)
     , m_ambientColor(0, 0, 0)
-    , m_brightness(100)
+    , m_brightness(1)
     , m_constantFade(1)
     , m_linearFade(0)
     , m_quadraticFade(1)
-    , m_areaWidth(100)
-    , m_areaHeight(100)
     , m_coneAngle(40.0f)
     , m_innerConeAngle(30.0f)
     , m_castShadow(false)
@@ -54,7 +51,7 @@ QSSGRenderLight::QSSGRenderLight()
     , m_shadowMapFar(5000.0f)
     , m_shadowFilter(35.0f)
 {
-    flags.setFlag(Flag::PointLight, false);
+    Q_ASSERT(QSSGRenderGraphObject::isLight(type));
 }
 
 QT_END_NAMESPACE

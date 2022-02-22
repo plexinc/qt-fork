@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2019 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -31,13 +31,11 @@
 #include "codeparser.h"
 #include "config.h"
 #include "cppcodemarker.h"
-#include "cppcodeparser.h"
 #include "doc.h"
-#include "htmlgenerator.h"
 #include "docbookgenerator.h"
+#include "htmlgenerator.h"
 #include "jscodemarker.h"
 #include "location.h"
-#include "loggingcategory.h"
 #include "puredocparser.h"
 #include "qdocdatabase.h"
 #include "qmlcodemarker.h"
@@ -48,12 +46,9 @@
 #include "tree.h"
 #include "webxmlgenerator.h"
 
-#include <QtCore/qcommandlineoption.h>
-#include <QtCore/qcommandlineparser.h>
 #include <QtCore/qdatetime.h>
 #include <QtCore/qdebug.h>
 #include <QtCore/qglobal.h>
-#include <QtCore/qglobalstatic.h>
 #include <QtCore/qhashfunctions.h>
 
 #ifndef QT_BOOTSTRAPPED
@@ -61,11 +56,9 @@
 #endif
 
 #include <algorithm>
-#include <stdlib.h>
+#include <cstdlib>
 
 QT_BEGIN_NAMESPACE
-
-Q_LOGGING_CATEGORY(lcQdoc, "qt.qdoc")
 
 bool creationTimeBefore(const QFileInfo &fi1, const QFileInfo &fi2)
 {
@@ -74,7 +67,7 @@ bool creationTimeBefore(const QFileInfo &fi1, const QFileInfo &fi2)
 
 #ifndef QT_NO_TRANSLATION
 typedef QPair<QString, QTranslator *> Translator;
-static QVector<Translator> translators;
+static QList<Translator> translators;
 #endif
 
 static ClangCodeParser *clangParser_ = nullptr;
@@ -94,11 +87,13 @@ static void loadIndexFiles(const QSet<QString> &formats)
     QDocDatabase *qdb = QDocDatabase::qdocDB();
     QStringList indexFiles;
     const QStringList configIndexes = config.getStringList(CONFIG_INDEXES);
+    bool warn = !config.getBool(CONFIG_NOLINKERRORS);
+
     for (const auto &index : configIndexes) {
         QFileInfo fi(index);
         if (fi.exists() && fi.isFile())
             indexFiles << index;
-        else
+        else if (warn)
             Location().warning(QString("Index file not found: %1").arg(index));
     }
 
@@ -117,8 +112,8 @@ static void loadIndexFiles(const QSet<QString> &formats)
         }
     }
 
-    if (config.dependModules().size() > 0) {
-        if (config.indexDirs().size() > 0) {
+    if (!config.dependModules().empty()) {
+        if (!config.indexDirs().empty()) {
             for (auto &dir : config.indexDirs()) {
                 if (dir.startsWith("..")) {
                     const QString prefix(QDir(config.currentDir())
@@ -165,7 +160,7 @@ static void loadIndexFiles(const QSet<QString> &formats)
                                << " index files found";
             }
             for (const auto &module : config.dependModules()) {
-                QVector<QFileInfo> foundIndices;
+                QList<QFileInfo> foundIndices;
                 // Always look in module-specific subdir, even with *.nosubdirs config
                 bool useModuleSubDir = !subDirs.contains(module);
                 subDirs << module;
@@ -196,13 +191,15 @@ static void loadIndexFiles(const QSet<QString> &formats)
                     indexPaths.reserve(foundIndices.size());
                     for (const auto &found : qAsConst(foundIndices))
                         indexPaths << found.absoluteFilePath();
-                    Location().warning(
-                            QString("Multiple index files found for dependency \"%1\":\n%2")
-                                    .arg(module, indexPaths.join('\n')));
-                    Location().warning(
-                            QString("Using %1 as index file for dependency \"%2\"")
-                                    .arg(foundIndices[foundIndices.size() - 1].absoluteFilePath(),
-                                         module));
+                    if (warn) {
+                        Location().warning(
+                                QString("Multiple index files found for dependency \"%1\":\n%2")
+                                        .arg(module, indexPaths.join('\n')));
+                        Location().warning(
+                                QString("Using %1 as index file for dependency \"%2\"")
+                                        .arg(foundIndices[foundIndices.size() - 1].absoluteFilePath(),
+                                             module));
+                    }
                     indexToAdd = foundIndices[foundIndices.size() - 1].absoluteFilePath();
                 } else if (foundIndices.size() == 1) {
                     indexToAdd = foundIndices[0].absoluteFilePath();
@@ -210,13 +207,13 @@ static void loadIndexFiles(const QSet<QString> &formats)
                 if (!indexToAdd.isEmpty()) {
                     if (!indexFiles.contains(indexToAdd))
                         indexFiles << indexToAdd;
-                } else if (!asteriskUsed) {
+                } else if (!asteriskUsed && warn) {
                     Location().warning(
-                            QString("\"%1\" Cannot locate index file for dependency \"%2\"")
+                            QString(R"("%1" Cannot locate index file for dependency "%2")")
                                     .arg(config.getString(CONFIG_PROJECT), module));
                 }
             }
-        } else {
+        } else if (warn) {
             Location().warning(
                     QLatin1String("Dependent modules specified, but no index directories were set. "
                                   "There will probably be errors for missing links."));
@@ -306,25 +303,25 @@ static void processQdocconfFile(const QString &fileName)
       -prepare/-generate mode and -singleexec mode.
      */
     const QStringList fileNames = config.getStringList(CONFIG_TRANSLATORS);
-    for (const auto &fileName : fileNames) {
+    for (const auto &file : fileNames) {
         bool found = false;
         if (!translators.isEmpty()) {
             for (const auto &translator : translators) {
-                if (translator.first == fileName) {
+                if (translator.first == file) {
                     found = true;
                     break;
                 }
             }
         }
         if (!found) {
-            QTranslator *translator = new QTranslator(nullptr);
-            if (!translator->load(fileName)) {
+            auto *translator = new QTranslator(nullptr);
+            if (!translator->load(file)) {
                 config.lastLocation().error(
                         QCoreApplication::translate("QDoc", "Cannot load translator '%1'")
-                                .arg(fileName));
+                                .arg(file));
             } else {
                 QCoreApplication::instance()->installTranslator(translator);
-                translators.append(Translator(fileName, translator));
+                translators.append(Translator(file, translator));
             }
         }
     }
@@ -335,7 +332,6 @@ static void processQdocconfFile(const QString &fileName)
       and the location in the configuration file where the
       source language was set.
      */
-    QString lang = config.getString(CONFIG_LANGUAGE);
     Location langLocation = config.lastLocation();
 
     /*
@@ -349,8 +345,6 @@ static void processQdocconfFile(const QString &fileName)
      */
     QDocDatabase *qdb = QDocDatabase::qdocDB();
     qdb->setVersion(config.getString(CONFIG_VERSION));
-    qdb->setShowInternal(config.getBool(CONFIG_SHOWINTERNAL));
-    qdb->setSingleExec(config.getBool(CONFIG_SINGLEEXEC));
     /*
       By default, the only output format is HTML.
      */
@@ -513,7 +507,6 @@ static void processQdocconfFile(const QString &fileName)
         generator->initializeFormat();
         generator->generateDocs();
     }
-    qdb->clearLinkCounts();
 
     qCDebug(lcQdoc, "Terminating qdoc classes");
     if (Utilities::debugging())

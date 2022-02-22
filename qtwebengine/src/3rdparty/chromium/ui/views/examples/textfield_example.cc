@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "base/strings/utf_string_conversions.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "ui/events/event.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/range/range.h"
@@ -18,11 +19,12 @@
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/examples/examples_window.h"
+#include "ui/views/examples/grit/views_examples_resources.h"
 #include "ui/views/layout/grid_layout.h"
 #include "ui/views/view.h"
 
-using base::ASCIIToUTF16;
-using base::UTF16ToUTF8;
+using l10n_util::GetStringUTF16;
+using l10n_util::GetStringUTF8;
 
 namespace views {
 namespace examples {
@@ -41,7 +43,8 @@ T* MakeRow(GridLayout* layout,
 
 }  // namespace
 
-TextfieldExample::TextfieldExample() : ExampleBase("Textfield") {}
+TextfieldExample::TextfieldExample()
+    : ExampleBase(GetStringUTF8(IDS_TEXTFIELD_SELECT_LABEL).c_str()) {}
 
 TextfieldExample::~TextfieldExample() = default;
 
@@ -50,14 +53,15 @@ void TextfieldExample::CreateExampleView(View* container) {
   name->set_controller(this);
   auto password = std::make_unique<Textfield>();
   password->SetTextInputType(ui::TEXT_INPUT_TYPE_PASSWORD);
-  password->SetPlaceholderText(ASCIIToUTF16("password"));
+  password->SetPlaceholderText(
+      GetStringUTF16(IDS_TEXTFIELD_PASSWORD_PLACEHOLDER));
   password->set_controller(this);
   auto disabled = std::make_unique<Textfield>();
   disabled->SetEnabled(false);
-  disabled->SetText(ASCIIToUTF16("disabled"));
+  disabled->SetText(GetStringUTF16(IDS_TEXTFIELD_DISABLED_PLACEHOLDER));
   auto read_only = std::make_unique<Textfield>();
   read_only->SetReadOnly(true);
-  read_only->SetText(ASCIIToUTF16("read only"));
+  read_only->SetText(GetStringUTF16(IDS_TEXTFFIELD_READ_ONLY_PLACEHOLDER));
   auto invalid = std::make_unique<Textfield>();
   invalid->SetInvalid(true);
   auto rtl = std::make_unique<Textfield>();
@@ -68,57 +72,76 @@ void TextfieldExample::CreateExampleView(View* container) {
 
   ColumnSet* column_set = layout->AddColumnSet(0);
   column_set->AddColumn(GridLayout::LEADING, GridLayout::FILL, 0.2f,
-                        GridLayout::USE_PREF, 0, 0);
+                        GridLayout::ColumnSize::kUsePreferred, 0, 0);
   column_set->AddColumn(GridLayout::FILL, GridLayout::FILL, 0.8f,
-                        GridLayout::USE_PREF, 0, 0);
+                        GridLayout::ColumnSize::kUsePreferred, 0, 0);
 
-  name_ = MakeRow(layout, std::make_unique<Label>(ASCIIToUTF16("Name:")),
-                  std::move(name));
-  password_ =
-      MakeRow(layout, std::make_unique<Label>(ASCIIToUTF16("Password:")),
-              std::move(password));
-  disabled_ =
-      MakeRow(layout, std::make_unique<Label>(ASCIIToUTF16("Disabled:")),
-              std::move(disabled));
-  read_only_ =
-      MakeRow(layout, std::make_unique<Label>(ASCIIToUTF16("Read Only:")),
-              std::move(read_only));
-  invalid_ = MakeRow(layout, std::make_unique<Label>(ASCIIToUTF16("Invalid:")),
-                     std::move(invalid));
-  rtl_ = MakeRow(layout, std::make_unique<Label>(ASCIIToUTF16("RTL:")),
-                 std::move(rtl));
-  MakeRow<View, Label>(layout, nullptr,
-                       std::make_unique<Label>(ASCIIToUTF16("Name:")));
+  name_ = MakeRow(
+      layout, std::make_unique<Label>(GetStringUTF16(IDS_TEXTFIELD_NAME_LABEL)),
+      std::move(name));
+  password_ = MakeRow(
+      layout,
+      std::make_unique<Label>(GetStringUTF16(IDS_TEXTFIELD_PASSWORD_LABEL)),
+      std::move(password));
+  disabled_ = MakeRow(
+      layout,
+      std::make_unique<Label>(GetStringUTF16(IDS_TEXTFIELD_DISABLED_LABEL)),
+      std::move(disabled));
+  read_only_ = MakeRow(
+      layout,
+      std::make_unique<Label>(GetStringUTF16(IDS_TEXTFIELD_READ_ONLY_LABEL)),
+      std::move(read_only));
+  invalid_ = MakeRow(
+      layout,
+      std::make_unique<Label>(GetStringUTF16(IDS_TEXTFIELD_INVALID_LABEL)),
+      std::move(invalid));
+  rtl_ = MakeRow(
+      layout, std::make_unique<Label>(GetStringUTF16(IDS_TEXTFIELD_RTL_LABEL)),
+      std::move(rtl));
+  MakeRow<View, Label>(
+      layout, nullptr,
+      std::make_unique<Label>(GetStringUTF16(IDS_TEXTFIELD_NAME_LABEL)));
   show_password_ = MakeRow<View, LabelButton>(
       layout, nullptr,
-      std::make_unique<LabelButton>(this, ASCIIToUTF16("Show password")));
+      std::make_unique<LabelButton>(
+          base::BindRepeating(
+              [](TextfieldExample* example) {
+                PrintStatus(
+                    "Password [%s]",
+                    base::UTF16ToUTF8(example->password_->GetText()).c_str());
+              },
+              base::Unretained(this)),
+          GetStringUTF16(IDS_TEXTFIELD_SHOW_PASSWORD_LABEL)));
   set_background_ = MakeRow<View, LabelButton>(
       layout, nullptr,
       std::make_unique<LabelButton>(
-          this, ASCIIToUTF16("Set non-default background")));
+          base::BindRepeating(&Textfield::SetBackgroundColor,
+                              base::Unretained(password_), gfx::kGoogleRed300),
+          GetStringUTF16(IDS_TEXTFIELD_BACKGROUND_LABEL)));
   clear_all_ = MakeRow<View, LabelButton>(
       layout, nullptr,
-      std::make_unique<LabelButton>(this, ASCIIToUTF16("Clear All")));
+      std::make_unique<LabelButton>(
+          base::BindRepeating(&TextfieldExample::ClearAllButtonPressed,
+                              base::Unretained(this)),
+          GetStringUTF16(IDS_TEXTFIELD_CLEAR_LABEL)));
   append_ = MakeRow<View, LabelButton>(
       layout, nullptr,
-      std::make_unique<LabelButton>(this, ASCIIToUTF16("Append")));
+      std::make_unique<LabelButton>(
+          base::BindRepeating(&TextfieldExample::AppendButtonPressed,
+                              base::Unretained(this)),
+          GetStringUTF16(IDS_TEXTFIELD_APPEND_LABEL)));
   set_ = MakeRow<View, LabelButton>(
       layout, nullptr,
-      std::make_unique<LabelButton>(this, ASCIIToUTF16("Set")));
+      std::make_unique<LabelButton>(
+          base::BindRepeating(&TextfieldExample::SetButtonPressed,
+                              base::Unretained(this)),
+          GetStringUTF16(IDS_TEXTFIELD_SET_LABEL)));
   set_style_ = MakeRow<View, LabelButton>(
       layout, nullptr,
-      std::make_unique<LabelButton>(this, ASCIIToUTF16("Set Styles")));
-}
-
-void TextfieldExample::ContentsChanged(Textfield* sender,
-                                       const base::string16& new_contents) {
-  if (sender == name_) {
-    PrintStatus("Name [%s]", UTF16ToUTF8(new_contents).c_str());
-  } else if (sender == password_) {
-    PrintStatus("Password [%s]", UTF16ToUTF8(new_contents).c_str());
-  } else {
-    NOTREACHED();
-  }
+      std::make_unique<LabelButton>(
+          base::BindRepeating(&TextfieldExample::SetStyleButtonPressed,
+                              base::Unretained(this)),
+          GetStringUTF16(IDS_TEXTFIELD_SET_STYLE_LABEL)));
 }
 
 bool TextfieldExample::HandleKeyEvent(Textfield* sender,
@@ -132,50 +155,53 @@ bool TextfieldExample::HandleMouseEvent(Textfield* sender,
   return false;
 }
 
-void TextfieldExample::ButtonPressed(Button* sender, const ui::Event& event) {
-  if (sender == show_password_) {
-    PrintStatus("Password [%s]", UTF16ToUTF8(password_->GetText()).c_str());
-  } else if (sender == set_background_) {
-    password_->SetBackgroundColor(gfx::kGoogleRed300);
-  } else if (sender == clear_all_) {
-    base::string16 empty;
-    name_->SetText(empty);
-    password_->SetText(empty);
-    disabled_->SetText(empty);
-    read_only_->SetText(empty);
-    invalid_->SetText(empty);
-    rtl_->SetText(empty);
-  } else if (sender == append_) {
-    name_->AppendText(ASCIIToUTF16("[append]"));
-    password_->AppendText(ASCIIToUTF16("[append]"));
-    disabled_->SetText(ASCIIToUTF16("[append]"));
-    read_only_->AppendText(ASCIIToUTF16("[append]"));
-    invalid_->AppendText(ASCIIToUTF16("[append]"));
-    rtl_->AppendText(ASCIIToUTF16("[append]"));
-  } else if (sender == set_) {
-    name_->SetText(ASCIIToUTF16("[set]"));
-    password_->SetText(ASCIIToUTF16("[set]"));
-    disabled_->SetText(ASCIIToUTF16("[set]"));
-    read_only_->SetText(ASCIIToUTF16("[set]"));
-    invalid_->SetText(ASCIIToUTF16("[set]"));
-    rtl_->SetText(ASCIIToUTF16("[set]"));
-  } else if (sender == set_style_) {
-    if (!name_->GetText().empty()) {
-      name_->SetColor(SK_ColorGREEN);
+void TextfieldExample::ClearAllButtonPressed() {
+  name_->SetText(base::string16());
+  password_->SetText(base::string16());
+  disabled_->SetText(base::string16());
+  read_only_->SetText(base::string16());
+  invalid_->SetText(base::string16());
+  rtl_->SetText(base::string16());
+}
 
-      if (name_->GetText().length() >= 5) {
-        size_t fifth = name_->GetText().length() / 5;
-        const gfx::Range big_range(1 * fifth, 4 * fifth);
-        name_->ApplyStyle(gfx::TEXT_STYLE_UNDERLINE, true, big_range);
-        name_->ApplyColor(SK_ColorBLUE, big_range);
+void TextfieldExample::AppendButtonPressed() {
+  const base::string16 append_text =
+      GetStringUTF16(IDS_TEXTFIELD_APPEND_UPDATE_TEXT);
+  name_->AppendText(append_text);
+  password_->AppendText(append_text);
+  disabled_->SetText(append_text);
+  read_only_->AppendText(append_text);
+  invalid_->AppendText(append_text);
+  rtl_->AppendText(append_text);
+}
 
-        const gfx::Range small_range(2 * fifth, 3 * fifth);
-        name_->ApplyStyle(gfx::TEXT_STYLE_ITALIC, true, small_range);
-        name_->ApplyStyle(gfx::TEXT_STYLE_UNDERLINE, false, small_range);
-        name_->ApplyColor(SK_ColorRED, small_range);
-      }
-    }
-  }
+void TextfieldExample::SetButtonPressed() {
+  const base::string16 set_text = GetStringUTF16(IDS_TEXTFIELD_SET_UPDATE_TEXT);
+  name_->SetText(set_text);
+  password_->SetText(set_text);
+  disabled_->SetText(set_text);
+  read_only_->SetText(set_text);
+  invalid_->SetText(set_text);
+  rtl_->SetText(set_text);
+}
+
+void TextfieldExample::SetStyleButtonPressed() {
+  if (name_->GetText().empty())
+    return;
+  name_->SetColor(SK_ColorGREEN);
+
+  const size_t fifth = name_->GetText().length() / 5;
+  if (!fifth)
+    return;
+
+  const gfx::Range big_range(1 * fifth, 4 * fifth);
+  name_->ApplyStyle(gfx::TEXT_STYLE_UNDERLINE, true, big_range);
+  name_->ApplyColor(SK_ColorBLUE, big_range);
+
+  const gfx::Range small_range(2 * fifth, 3 * fifth);
+  name_->ApplyStyle(gfx::TEXT_STYLE_ITALIC, true, small_range);
+  name_->ApplyStyle(gfx::TEXT_STYLE_UNDERLINE, false, small_range);
+  name_->ApplyColor(SK_ColorRED, small_range);
 }
 
 }  // namespace examples

@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
@@ -48,11 +48,11 @@ ProtocolHandlersHandler::ProtocolHandlersHandler() = default;
 ProtocolHandlersHandler::~ProtocolHandlersHandler() = default;
 
 void ProtocolHandlersHandler::OnJavascriptAllowed() {
-  registry_observer_.Add(GetProtocolHandlerRegistry());
+  registry_observation_.Observe(GetProtocolHandlerRegistry());
 }
 
 void ProtocolHandlersHandler::OnJavascriptDisallowed() {
-  registry_observer_.RemoveAll();
+  registry_observation_.Reset();
 }
 
 void ProtocolHandlersHandler::RegisterMessages() {

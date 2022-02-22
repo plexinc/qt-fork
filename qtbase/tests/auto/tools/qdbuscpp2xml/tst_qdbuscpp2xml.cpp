@@ -26,7 +26,9 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QLibraryInfo>
+#include <QProcess>
 
 #include "test1.h"
 
@@ -78,7 +80,7 @@ void tst_qdbuscpp2xml::qdbuscpp2xml_data()
     QTest::addColumn<QString>("inputfile");
     QTest::addColumn<int>("flags");
 
-    QBitArray doneFlags(QDBusConnection::ExportAllContents + 1);
+    QBitArray doneFlags(int(QDBusConnection::ExportAllContents) + 1);
     for (int flag = 0x10; flag < QDBusConnection::ExportScriptableContents; flag += 0x10) {
         QTest::newRow("xmlgenerator-" + QByteArray::number(flag)) << "test1" << flag;
         doneFlags.setBit(flag);
@@ -129,7 +131,7 @@ void tst_qdbuscpp2xml::qdbuscpp2xml()
     }
 
     // Launch
-    const QString binpath = QLibraryInfo::location(QLibraryInfo::BinariesPath);
+    const QString binpath = QLibraryInfo::path(QLibraryInfo::BinariesPath);
     const QString command = binpath + QLatin1String("/qdbuscpp2xml");
     QProcess process;
     process.start(command, QStringList() << options << (QFINDTESTDATA(inputfile + QStringLiteral(".h"))));

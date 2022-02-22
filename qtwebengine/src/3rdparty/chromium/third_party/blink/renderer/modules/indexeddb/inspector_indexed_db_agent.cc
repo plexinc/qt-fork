@@ -37,10 +37,10 @@
 #include "third_party/blink/renderer/bindings/core/v8/script_controller.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_idb_transaction_options.h"
-#include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/dom_string_list.h"
 #include "third_party/blink/renderer/core/dom/events/native_event_listener.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/inspector/inspected_frames.h"
 #include "third_party/blink/renderer/core/inspector/v8_inspector_string.h"
@@ -98,8 +98,7 @@ namespace {
 const char kIndexedDBObjectGroup[] = "indexeddb";
 const char kNoDocumentError[] = "No document for given frame found";
 
-Response AssertIDBFactory(Document* document, IDBFactory*& result) {
-  LocalDOMWindow* dom_window = document->domWindow();
+Response AssertIDBFactory(LocalDOMWindow* dom_window, IDBFactory*& result) {
   if (!dom_window)
     return Response::ServerError("No IndexedDB factory for given frame found");
   IDBFactory* idb_factory = GlobalIndexedDB::indexedDB(*dom_window);
@@ -110,40 +109,49 @@ Response AssertIDBFactory(Document* document, IDBFactory*& result) {
   return Response::Success();
 }
 
-class GetDatabaseNamesCallback final : public NativeEventListener {
+class GetDatabaseNamesCallback final : public mojom::blink::IDBCallbacks {
  public:
-  GetDatabaseNamesCallback(
-      std::unique_ptr<RequestDatabaseNamesCallback> request_callback,
-      const String& security_origin)
-      : request_callback_(std::move(request_callback)),
-        security_origin_(security_origin) {}
+  explicit GetDatabaseNamesCallback(
+      std::unique_ptr<RequestDatabaseNamesCallback> request_callback)
+      : request_callback_(std::move(request_callback)) {}
   ~GetDatabaseNamesCallback() override = default;
 
-  void Invoke(ExecutionContext*, Event* event) override {
-    if (event->type() != event_type_names::kSuccess) {
-      request_callback_->sendFailure(
-          Response::ServerError("Unexpected event type."));
-      return;
-    }
+  void Error(mojom::blink::IDBException code, const String& message) override {
+    request_callback_->sendFailure(
+        Response::ServerError("Could not obtain database names."));
+  }
 
-    IDBRequest* idb_request = static_cast<IDBRequest*>(event->target());
-    IDBAny* request_result = idb_request->ResultAsAny();
-    if (request_result->GetType() != IDBAny::kDOMStringListType) {
-      request_callback_->sendFailure(
-          Response::ServerError("Unexpected result type."));
-      return;
-    }
-
-    DOMStringList* database_names_list = request_result->DomStringList();
+  void SuccessNamesAndVersionsList(
+      Vector<mojom::blink::IDBNameAndVersionPtr> names_and_versions) override {
     auto database_names = std::make_unique<protocol::Array<String>>();
-    for (uint32_t i = 0; i < database_names_list->length(); ++i)
-      database_names->emplace_back(database_names_list->item(i));
+    for (const auto& name_and_version : names_and_versions)
+      database_names->emplace_back(name_and_version->name);
     request_callback_->sendSuccess(std::move(database_names));
+  }
+
+  void SuccessDatabase(
+      mojo::PendingAssociatedRemote<mojom::blink::IDBDatabase> pending_backend,
+      const IDBDatabaseMetadata& metadata) override {
+    NOTREACHED();
+  }
+
+  void SuccessInteger(int64_t value) override { NOTREACHED(); }
+
+  void Success() override { NOTREACHED(); }
+
+  void Blocked(int64_t old_version) override { NOTREACHED(); }
+
+  void UpgradeNeeded(
+      mojo::PendingAssociatedRemote<mojom::blink::IDBDatabase> pending_database,
+      int64_t old_version,
+      mojom::blink::IDBDataLoss data_loss,
+      const String& data_loss_message,
+      const IDBDatabaseMetadata& metadata) override {
+    NOTREACHED();
   }
 
  private:
   std::unique_ptr<RequestDatabaseNamesCallback> request_callback_;
-  String security_origin_;
 };
 
 class DeleteCallback final : public NativeEventListener {
@@ -181,13 +189,12 @@ class ExecutableWithDatabase
   virtual void Execute(IDBDatabase*, ScriptState*) = 0;
   virtual RequestCallback* GetRequestCallback() = 0;
   void Start(LocalFrame* frame, const String& database_name) {
-    Document* document = frame ? frame->GetDocument() : nullptr;
-    if (!document) {
+    if (!frame) {
       SendFailure(Response::ServerError(kNoDocumentError));
       return;
     }
     IDBFactory* idb_factory = nullptr;
-    Response response = AssertIDBFactory(document, idb_factory);
+    Response response = AssertIDBFactory(frame->DomWindow(), idb_factory);
     if (!response.IsSuccess()) {
       SendFailure(response);
       return;
@@ -200,7 +207,7 @@ class ExecutableWithDatabase
     }
 
     ScriptState::Scope scope(script_state);
-    DoStart(idb_factory, script_state, document->GetSecurityOrigin(),
+    DoStart(idb_factory, script_state, frame->DomWindow()->GetSecurityOrigin(),
             database_name);
   }
 
@@ -270,7 +277,7 @@ class OpenDatabaseCallback final : public NativeEventListener {
     idb_database->close();
   }
 
-  void Trace(Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(script_state_);
     NativeEventListener::Trace(visitor);
   }
@@ -440,7 +447,8 @@ class DatabaseLoader final
   }
 
  private:
-  DatabaseLoader(std::unique_ptr<RequestDatabaseCallback> request_callback)
+  explicit DatabaseLoader(
+      std::unique_ptr<RequestDatabaseCallback> request_callback)
       : request_callback_(std::move(request_callback)) {}
   std::unique_ptr<RequestDatabaseCallback> request_callback_;
 };
@@ -584,8 +592,7 @@ class OpenCursorCallback final : public NativeEventListener {
       return;
     }
 
-    Document* document = Document::From(ExecutionContext::From(script_state_));
-    if (!document)
+    if (!script_state_->ContextIsValid())
       return;
     ScriptState::Scope scope(script_state_);
     v8::Local<v8::Context> context = script_state_->GetContext();
@@ -610,7 +617,7 @@ class OpenCursorCallback final : public NativeEventListener {
     request_callback_->sendSuccess(std::move(result_), has_more);
   }
 
-  void Trace(Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(script_state_);
     NativeEventListener::Trace(visitor);
   }
@@ -747,13 +754,12 @@ void InspectorIndexedDBAgent::requestDatabaseNames(
     std::unique_ptr<RequestDatabaseNamesCallback> request_callback) {
   LocalFrame* frame =
       inspected_frames_->FrameWithSecurityOrigin(security_origin);
-  Document* document = frame ? frame->GetDocument() : nullptr;
-  if (!document) {
+  if (!frame) {
     request_callback->sendFailure(Response::ServerError(kNoDocumentError));
     return;
   }
   IDBFactory* idb_factory = nullptr;
-  Response response = AssertIDBFactory(document, idb_factory);
+  Response response = AssertIDBFactory(frame->DomWindow(), idb_factory);
   if (!response.IsSuccess()) {
     request_callback->sendFailure(response);
     return;
@@ -764,21 +770,9 @@ void InspectorIndexedDBAgent::requestDatabaseNames(
     request_callback->sendFailure(Response::InternalError());
     return;
   }
-  ScriptState::Scope scope(script_state);
-  DummyExceptionStateForTesting exception_state;
-  IDBRequest* idb_request =
-      idb_factory->GetDatabaseNames(script_state, exception_state);
-  if (exception_state.HadException()) {
-    request_callback->sendFailure(
-        Response::ServerError("Could not obtain database names."));
-    return;
-  }
-  idb_request->addEventListener(
-      event_type_names::kSuccess,
-      MakeGarbageCollected<GetDatabaseNamesCallback>(
-          std::move(request_callback),
-          document->GetSecurityOrigin()->ToRawString()),
-      false);
+  idb_factory->GetDatabaseInfo(
+      script_state,
+      std::make_unique<GetDatabaseNamesCallback>(std::move(request_callback)));
 }
 
 void InspectorIndexedDBAgent::requestDatabase(
@@ -1153,13 +1147,12 @@ void InspectorIndexedDBAgent::deleteDatabase(
     std::unique_ptr<DeleteDatabaseCallback> request_callback) {
   LocalFrame* frame =
       inspected_frames_->FrameWithSecurityOrigin(security_origin);
-  Document* document = frame ? frame->GetDocument() : nullptr;
-  if (!document) {
+  if (!frame) {
     request_callback->sendFailure(Response::ServerError(kNoDocumentError));
     return;
   }
   IDBFactory* idb_factory = nullptr;
-  Response response = AssertIDBFactory(document, idb_factory);
+  Response response = AssertIDBFactory(frame->DomWindow(), idb_factory);
   if (!response.IsSuccess()) {
     request_callback->sendFailure(response);
     return;
@@ -1183,11 +1176,11 @@ void InspectorIndexedDBAgent::deleteDatabase(
       event_type_names::kSuccess,
       MakeGarbageCollected<DeleteCallback>(
           std::move(request_callback),
-          document->GetSecurityOrigin()->ToRawString()),
+          frame->DomWindow()->GetSecurityOrigin()->ToRawString()),
       false);
 }
 
-void InspectorIndexedDBAgent::Trace(Visitor* visitor) {
+void InspectorIndexedDBAgent::Trace(Visitor* visitor) const {
   visitor->Trace(inspected_frames_);
   InspectorBaseAgent::Trace(visitor);
 }

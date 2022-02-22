@@ -29,7 +29,10 @@
 
 #include <QDebug>
 #include <qtest.h>
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QTestEventLoop>
+#include <QSemaphore>
+#include <QTimer>
 #include <QtCore/qrandom.h>
 #include <QtCore/QElapsedTimer>
 #include <QtNetwork/qnetworkreply.h>
@@ -41,9 +44,6 @@
 
 #ifdef QT_BUILD_INTERNAL
 #include <QtNetwork/private/qhostinfo_p.h>
-#ifndef QT_NO_OPENSSL
-#include <QtNetwork/private/qsslsocket_openssl_p.h>
-#endif
 #endif
 
 Q_DECLARE_METATYPE(QSharedPointer<char>)
@@ -78,7 +78,7 @@ private slots:
     }
 
 protected:
-    void run()
+    void run() override
     {
         QTcpServer server;
         server.listen();
@@ -160,7 +160,6 @@ class ThreadedDataReader: public QThread
     // used to make the constructor only return after the tcp server started listening
     QSemaphore ready;
     QTcpSocket *client;
-    int timeout;
     int port;
 public:
     qint64 transferRate;
@@ -174,7 +173,7 @@ public:
     inline int serverPort() const { return port; }
 
 protected:
-    void run()
+    void run() override
     {
         QTcpServer server;
         server.listen();
@@ -206,15 +205,15 @@ public:
     DataGenerator() : state(Idle)
     { open(ReadOnly); }
 
-    virtual bool isSequential() const { return true; }
-    virtual qint64 bytesAvailable() const { return state == Started ? 1024*1024 : 0; }
+    bool isSequential() const override { return true; }
+    qint64 bytesAvailable() const override { return state == Started ? 1024*1024 : 0; }
 
 public slots:
     void start() { state = Started; emit readyRead(); }
     void stop() { state = Stopped; emit readyRead(); }
 
 protected:
-    virtual qint64 readData(char *data, qint64 maxlen)
+    qint64 readData(char *data, qint64 maxlen) override
     {
         if (state == Stopped)
             return -1;          // EOF
@@ -223,8 +222,7 @@ protected:
         memset(data, '@', maxlen);
         return maxlen;
     }
-    virtual qint64 writeData(const char *, qint64)
-    { return -1; }
+    qint64 writeData(const char *, qint64) override { return -1; }
 };
 
 class ThreadedDataReaderHttpServer: public QThread
@@ -233,7 +231,6 @@ class ThreadedDataReaderHttpServer: public QThread
     // used to make the constructor only return after the tcp server started listening
     QSemaphore ready;
     QTcpSocket *client;
-    int timeout;
     int port;
 public:
     qint64 transferRate;
@@ -247,7 +244,7 @@ public:
     inline int serverPort() const { return port; }
 
 protected:
-    void run()
+    void run() override
     {
         QTcpServer server;
         server.listen();
@@ -302,28 +299,22 @@ public:
       toBeGeneratedTotalCount = toBeGeneratedCount = size;
     }
 
-    virtual qint64 bytesAvailable() const
+    qint64 bytesAvailable() const override
     {
         return state == Started ? toBeGeneratedCount + QIODevice::bytesAvailable() : 0;
     }
 
-    virtual bool isSequential() const{
-        return false;
-    }
+    bool isSequential() const override { return false; }
 
-    virtual bool reset() {
-        return false;
-    }
+    bool reset() override { return false; }
 
-    qint64 size() const {
-        return toBeGeneratedTotalCount;
-    }
+    qint64 size() const override { return toBeGeneratedTotalCount; }
 
 public slots:
     void start() { state = Started; emit readyRead(); }
 
 protected:
-    virtual qint64 readData(char *data, qint64 maxlen)
+    qint64 readData(char *data, qint64 maxlen) override
     {
         memset(data, '@', maxlen);
 
@@ -341,8 +332,7 @@ protected:
 
         return n;
     }
-    virtual qint64 writeData(const char *, qint64)
-    { return -1; }
+    qint64 writeData(const char *, qint64) override { return -1; }
 
     qint64 toBeGeneratedCount;
     qint64 toBeGeneratedTotalCount;
@@ -546,15 +536,10 @@ void tst_qnetworkreply::echoPerformance()
 void tst_qnetworkreply::preConnectEncrypted()
 {
     QFETCH(int, sleepTime);
-    QFETCH(QSslConfiguration, sslConfiguration);
-    bool spdyEnabled = !sslConfiguration.isNull();
-
     QString hostName = QLatin1String("www.google.com");
 
     QNetworkAccessManager manager;
     QNetworkRequest request(QUrl("https://" + hostName));
-    if (spdyEnabled)
-        request.setAttribute(QNetworkRequest::SpdyAllowedAttribute, true);
 
     // make sure we have a full request including
     // DNS lookup, TCP and SSL handshakes
@@ -580,12 +565,7 @@ void tst_qnetworkreply::preConnectEncrypted()
     manager.clearAccessCache();
 
     // now try to make the connection beforehand
-    if (spdyEnabled) {
-        request.setAttribute(QNetworkRequest::SpdyAllowedAttribute, true);
-        manager.connectToHostEncrypted(hostName, 443, sslConfiguration);
-    } else {
-        manager.connectToHostEncrypted(hostName);
-    }
+    manager.connectToHostEncrypted(hostName);
     QTestEventLoop::instance().enterLoopMSecs(sleepTime);
 
     // now make another request and hopefully use the existing connection
@@ -593,8 +573,6 @@ void tst_qnetworkreply::preConnectEncrypted()
     QNetworkReply *preConnectReply = normalResult.first;
     QVERIFY(!QTestEventLoop::instance().timeout());
     QVERIFY(preConnectReply->error() == QNetworkReply::NoError);
-    bool spdyWasUsed = preConnectReply->attribute(QNetworkRequest::SpdyWasUsedAttribute).toBool();
-    QCOMPARE(spdyEnabled, spdyWasUsed);
     qint64 preConnectElapsed = preConnectResult.second;
     qDebug() << request.url().toString() << "full request:" << normalElapsed
              << "ms, pre-connect request:" << preConnectElapsed << "ms, difference:"
@@ -607,27 +585,11 @@ void tst_qnetworkreply::preConnectEncrypted_data()
 {
 #ifndef QT_NO_OPENSSL
     QTest::addColumn<int>("sleepTime");
-    QTest::addColumn<QSslConfiguration>("sslConfiguration");
-
     // start a new normal request after preconnecting is done
-    QTest::newRow("HTTPS-2secs") << 2000 << QSslConfiguration();
+    QTest::newRow("HTTPS-2secs") << 2000;
 
     // start a new normal request while preconnecting is in-flight
-    QTest::newRow("HTTPS-100ms") << 100 << QSslConfiguration();
-
-    QSslConfiguration spdySslConf = QSslConfiguration::defaultConfiguration();
-    QList<QByteArray> nextProtocols = QList<QByteArray>()
-            << QSslConfiguration::NextProtocolSpdy3_0
-            << QSslConfiguration::NextProtocolHttp1_1;
-    spdySslConf.setAllowedNextProtocols(nextProtocols);
-
-#if defined(QT_BUILD_INTERNAL) && !defined(QT_NO_SSL) && OPENSSL_VERSION_NUMBER >= 0x1000100fL && !defined(OPENSSL_NO_TLSEXT) && !defined(OPENSSL_NO_NEXTPROTONEG)
-    // start a new SPDY request while preconnecting is done
-    QTest::newRow("SPDY-2secs") << 2000 << spdySslConf;
-
-    // start a new SPDY request while preconnecting is in-flight
-    QTest::newRow("SPDY-100ms") << 100 << spdySslConf;
-#endif // defined (QT_BUILD_INTERNAL) && !defined(QT_NO_SSL) ...
+    QTest::newRow("HTTPS-100ms") << 100;
 #endif // QT_NO_OPENSSL
 }
 

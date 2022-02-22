@@ -57,6 +57,8 @@
 #include <rhibuffer_p.h>
 #include <rhishader_p.h>
 #include <rhigraphicspipeline_p.h>
+#include <rhirendertarget_p.h>
+#include <rendercommand_p.h>
 #include <Qt3DRender/private/apishadermanager_p.h>
 #include <Qt3DRender/private/renderstateset_p.h>
 
@@ -80,18 +82,15 @@ public:
     QHash<RHITexture *, Qt3DCore::QNodeId> texNodeIdForRHITexture;
 };
 
+class Q_AUTOTEST_EXPORT RHIRenderTargetManager
+        : public Qt3DCore::QResourceManager<RHIRenderTarget, Qt3DCore::QNodeId, Qt3DCore::NonLockingPolicy>
+{
+};
+
 class Q_AUTOTEST_EXPORT RHIShaderManager : public APIShaderManager<RHIShader>
 {
 public:
     explicit RHIShaderManager() : APIShaderManager<RHIShader>() { }
-};
-
-// Geometry | Shader | RenderStateMask
-struct GraphicsPipelineIdentifier
-{
-    HGeometry geometry;
-    Qt3DCore::QNodeId shader;
-    int renderViewIndex;
 };
 
 class Q_AUTOTEST_EXPORT RHIGraphicsPipelineManager
@@ -100,6 +99,27 @@ class Q_AUTOTEST_EXPORT RHIGraphicsPipelineManager
 {
 public:
     RHIGraphicsPipelineManager() { }
+
+    int getIdForAttributeVec(const std::vector<AttributeInfo> &attributesInfo);
+    int getIdForRenderStates(const RenderStateSetPtr &stateSet);
+
+    void releasePipelinesReferencingShader(const Qt3DCore::QNodeId &shaderId);
+    void releasePipelinesReferencingRenderTarget(const Qt3DCore::QNodeId &renderTargetId);
+
+private:
+    using AttributeInfoVec= std::vector<AttributeInfo>;
+    std::vector<AttributeInfoVec> m_attributesInfo;
+    std::vector<std::vector<StateVariant>> m_renderStates;
+};
+
+class Q_AUTOTEST_EXPORT RHIComputePipelineManager
+        : public Qt3DCore::QResourceManager<RHIComputePipeline, ComputePipelineIdentifier,
+        Qt3DCore::NonLockingPolicy>
+{
+public:
+    RHIComputePipelineManager() { }
+
+    void releasePipelinesReferencingShader(const Qt3DCore::QNodeId &shaderId);
 };
 
 class Q_AUTOTEST_EXPORT RHIResourceManagers
@@ -111,9 +131,14 @@ public:
     inline RHIShaderManager *rhiShaderManager() const noexcept { return m_rhiShaderManager; }
     inline RHITextureManager *rhiTextureManager() const noexcept { return m_rhiTextureManager; }
     inline RHIBufferManager *rhiBufferManager() const noexcept { return m_rhiBufferManager; }
+    inline RHIRenderTargetManager *rhiRenderTargetManager() const noexcept { return m_rhiRenderTargetManager; }
     inline RHIGraphicsPipelineManager *rhiGraphicsPipelineManager() const noexcept
     {
         return m_rhiGraphicsPipelineManager;
+    }
+    inline RHIComputePipelineManager *rhiComputePipelineManager() const noexcept
+    {
+        return m_rhiComputePipelineManager;
     }
 
     void releaseAllResources();
@@ -122,20 +147,43 @@ private:
     RHIBufferManager *m_rhiBufferManager;
     RHIShaderManager *m_rhiShaderManager;
     RHITextureManager *m_rhiTextureManager;
+    RHIRenderTargetManager *m_rhiRenderTargetManager;
     RHIGraphicsPipelineManager *m_rhiGraphicsPipelineManager;
+    RHIComputePipelineManager *m_rhiComputePipelineManager;
 };
 
-inline uint qHash(const GraphicsPipelineIdentifier &key, uint seed)
+inline size_t qHash(const GraphicsPipelineIdentifier &key, size_t seed = 0)
 {
-    const QPair<HGeometry, Qt3DCore::QNodeId> p = { key.geometry, key.shader };
+    const QPair<int, Qt3DCore::QNodeId> p = { key.geometryLayoutKey, key.shader };
     using QT_PREPEND_NAMESPACE(qHash);
-    return qHash(p, seed) + qHash(key.renderViewIndex, seed);
+    seed = qHash(p, seed);
+    seed = qHash(key.renderTarget, seed);
+    seed = qHash(key.renderStatesKey, seed);
+    seed = qHash(key.primitiveType, seed);
+    return seed;
 }
 
 inline bool operator==(const GraphicsPipelineIdentifier &a, const GraphicsPipelineIdentifier &b)
 {
-    return a.geometry == b.geometry && a.shader == b.shader
-            && a.renderViewIndex == b.renderViewIndex;
+    return a.geometryLayoutKey == b.geometryLayoutKey &&
+           a.shader == b.shader &&
+           a.renderTarget == b.renderTarget &&
+           a.renderStatesKey == b.renderStatesKey &&
+           a.primitiveType == b.primitiveType;
+}
+
+inline size_t qHash(const ComputePipelineIdentifier &key, size_t seed = 0)
+{
+    using QT_PREPEND_NAMESPACE(qHash);
+    seed = qHash(key.shader, seed);
+    seed = qHash(key.renderViewIndex, seed);
+    return seed;
+}
+
+inline bool operator==(const ComputePipelineIdentifier &a, const ComputePipelineIdentifier &b)
+{
+    return a.shader == b.shader &&
+           a.renderViewIndex == b.renderViewIndex;
 }
 
 } // Rhi
@@ -145,8 +193,10 @@ inline bool operator==(const GraphicsPipelineIdentifier &a, const GraphicsPipeli
 } // Qt3DRender
 
 Q_DECLARE_RESOURCE_INFO(Qt3DRender::Render::Rhi::RHIGraphicsPipeline, Q_REQUIRES_CLEANUP)
+Q_DECLARE_RESOURCE_INFO(Qt3DRender::Render::Rhi::RHIComputePipeline, Q_REQUIRES_CLEANUP)
 Q_DECLARE_RESOURCE_INFO(Qt3DRender::Render::Rhi::RHITexture, Q_REQUIRES_CLEANUP)
 Q_DECLARE_RESOURCE_INFO(Qt3DRender::Render::Rhi::RHIBuffer, Q_REQUIRES_CLEANUP)
+Q_DECLARE_RESOURCE_INFO(Qt3DRender::Render::Rhi::RHIRenderTarget, Q_REQUIRES_CLEANUP)
 Q_DECLARE_RESOURCE_INFO(Qt3DRender::Render::Rhi::RHIShader, Q_REQUIRES_CLEANUP)
 QT_END_NAMESPACE
 

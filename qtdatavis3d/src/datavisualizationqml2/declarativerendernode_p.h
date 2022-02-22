@@ -49,7 +49,7 @@
 #include <QtCore/QSharedPointer>
 #include <QtCore/QObject>
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 class Abstract3DController;
 class AbstractDeclarative;
@@ -72,7 +72,7 @@ public:
     void setQuickWindow(QQuickWindow *window);
     void setSamples(int samples);
 
-    void preprocess();
+    void preprocess() override;
 
 public Q_SLOTS:
     void handleControllerDestroyed();
@@ -97,6 +97,6 @@ private:
 
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

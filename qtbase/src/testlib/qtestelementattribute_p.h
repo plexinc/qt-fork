@@ -51,7 +51,7 @@
 // We mean it.
 //
 
-#include <QtTest/private/qtestcorelist_p.h>
+#include <QtTest/qttestglobal.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -61,39 +61,38 @@ namespace QTest {
     enum AttributeIndex
     {
         AI_Undefined = -1,
-        AI_Name = 0,
-        AI_Result = 1,
-        AI_Tests = 2,
-        AI_Failures = 3,
-        AI_Errors = 4,
-        AI_Type = 5,
-        AI_Description = 6,
-        AI_PropertyValue = 7,
-        AI_QTestVersion = 8,
-        AI_QtVersion = 9,
-        AI_File = 10,
-        AI_Line = 11,
-        AI_Metric = 12,
-        AI_Tag = 13,
-        AI_Value = 14,
-        AI_Iterations = 15
+        AI_Name,
+        AI_Tests,
+        AI_Failures,
+        AI_Errors,
+        AI_Type,
+        AI_Message,
+        AI_PropertyValue,
+        AI_Value,
+        AI_Time,
+        AI_Timestamp,
+        AI_Hostname,
+        AI_Classname,
+        AI_Skipped
     };
 
     enum LogElementType
     {
         LET_Undefined = -1,
-        LET_Property = 0,
-        LET_Properties = 1,
-        LET_Failure = 2,
-        LET_Error = 3,
-        LET_TestCase = 4,
-        LET_TestSuite = 5,
-        LET_Benchmark = 6,
-        LET_SystemError = 7
+        LET_Property,
+        LET_Properties,
+        LET_Failure,
+        LET_Error,
+        LET_TestCase,
+        LET_TestSuite,
+        LET_Text,
+        LET_SystemError,
+        LET_SystemOutput,
+        LET_Skipped
     };
 }
 
-class QTestElementAttribute: public QTestCoreList<QTestElementAttribute>
+class QTestElementAttribute
 {
     public:
         QTestElementAttribute();

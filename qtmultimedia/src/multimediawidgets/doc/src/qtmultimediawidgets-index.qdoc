@@ -28,7 +28,7 @@
 /*!
 \page qtmultimediawidgets-index.html
 \title Qt Multimedia Widgets
-\brief An essential module which provides multimedia-related widgets.
+\brief An add-on module which provides multimedia-related widgets.
 
 Qt Multimedia Widgets provides additional multimedia-related widgets and
 controls. The classes expand the capabilities of the \l{Qt Multimedia} and
@@ -42,29 +42,20 @@ C++ files:
 #include <QtMultimediaWidgets>
 \endcode
 
-To link against the C++ libraries, add the following to your \c qmake project
-file:
+To link against the C++ libraries, add the following to your project's
+\c CMakeLists.txt file. Substitute \c my_project with the name of your project.
+
 \code
-QT += multimediawidgets
+find_package(Qt6 COMPONENTS MultimediaWidgets REQUIRED)
+target_link_libraries(my_project PUBLIC Qt::MultimediaWidgets)
 \endcode
 
-\section1 Licenses and Attributions
-
-The Qt Multimedia Widgets module is available under commercial licenses from \l{The Qt Company}.
-In addition, it is available under free software licenses. Since Qt 5.4,
-these free software licenses are
-\l{GNU Lesser General Public License, version 3}, or
-the \l{GNU General Public License, version 2}.
-See \l{Qt Licensing} for further details.
-
-\section1 Related Information
-
-\section2 Reference
+\section1 References
 \list
 \li \l{Qt Multimedia Widgets C++ Classes}{C++ Classes}
 \endlist
 
-\section2 Examples
+\section1 Examples
 \list
 \li \l{Camera Example}
 \li \l{Media Player Example}

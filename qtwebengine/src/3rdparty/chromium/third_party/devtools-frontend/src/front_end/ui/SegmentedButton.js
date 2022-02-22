@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {Tooltip} from './Tooltip.js';
 import {HBox} from './Widget.js';
 
 export class SegmentedButton extends HBox {
@@ -12,7 +13,7 @@ export class SegmentedButton extends HBox {
 
     /** @type {?string} */
     this._selected = null;
-    this.registerRequiredCSS('ui/segmentedButton.css');
+    this.registerRequiredCSS('ui/segmentedButton.css', {enableLegacyPatching: true});
     this.contentElement.classList.add('segmented-button');
   }
 
@@ -24,7 +25,9 @@ export class SegmentedButton extends HBox {
   addSegment(label, value, tooltip) {
     const button = this.contentElement.createChild('button', 'segmented-button-segment');
     button.textContent = label;
-    button.title = tooltip;
+    if (tooltip) {
+      Tooltip.install(button, tooltip);
+    }
     this._buttons.set(value, button);
     button.addEventListener('click', () => this.select(value));
   }
@@ -37,8 +40,8 @@ export class SegmentedButton extends HBox {
       return;
     }
     this._selected = value;
-    for (const key of this._buttons.keys()) {
-      this._buttons.get(key).classList.toggle('segmented-button-segment-selected', key === this._selected);
+    for (const [key, button] of this._buttons) {
+      button.classList.toggle('segmented-button-segment-selected', key === this._selected);
     }
   }
 

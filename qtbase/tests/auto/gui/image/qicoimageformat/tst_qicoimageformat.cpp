@@ -25,7 +25,7 @@
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QtGui>
 #include <QtCore>
 
@@ -115,7 +115,8 @@ public:
 
     virtual ~QSequentialFile() {}
 
-    virtual bool isSequential() const {
+    virtual bool isSequential() const override
+    {
         return true;
     }
 

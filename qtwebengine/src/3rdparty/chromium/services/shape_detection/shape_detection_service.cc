@@ -9,14 +9,18 @@
 
 #include "base/bind.h"
 #include "base/macros.h"
+#include "build/branding_buildflags.h"
+#include "build/chromeos_buildflags.h"
 #if defined(OS_WIN)
 #include "services/shape_detection/barcode_detection_provider_impl.h"
 #include "services/shape_detection/face_detection_provider_win.h"
-#elif defined(OS_MACOSX)
-#include <dlfcn.h>
+#elif defined(OS_MAC)
 #include "base/mac/mac_util.h"
 #include "services/shape_detection/barcode_detection_provider_mac.h"
 #include "services/shape_detection/face_detection_provider_mac.h"
+#elif BUILDFLAG(GOOGLE_CHROME_BRANDING) && BUILDFLAG(IS_CHROMEOS_ASH)
+#include "services/shape_detection/barcode_detection_provider_barhopper.h"
+#include "services/shape_detection/face_detection_provider_impl.h"
 #else
 #include "services/shape_detection/barcode_detection_provider_impl.h"
 #include "services/shape_detection/face_detection_provider_impl.h"
@@ -33,22 +37,9 @@ namespace shape_detection {
 ShapeDetectionService::ShapeDetectionService(
     mojo::PendingReceiver<mojom::ShapeDetectionService> receiver)
     : receiver_(this, std::move(receiver)) {
-#if defined(OS_MACOSX)
-  if (base::mac::IsAtLeastOS10_13()) {
-    vision_framework_ =
-        dlopen("/System/Library/Frameworks/Vision.framework/Vision", RTLD_LAZY);
-  }
-#endif
 }
 
-ShapeDetectionService::~ShapeDetectionService() {
-#if defined(OS_MACOSX)
-  if (base::mac::IsAtLeastOS10_13()) {
-    if (vision_framework_)
-      dlclose(vision_framework_);
-  }
-#endif
-}
+ShapeDetectionService::~ShapeDetectionService() = default;
 
 void ShapeDetectionService::BindBarcodeDetectionProvider(
     mojo::PendingReceiver<mojom::BarcodeDetectionProvider> receiver) {
@@ -56,8 +47,10 @@ void ShapeDetectionService::BindBarcodeDetectionProvider(
   Java_InterfaceRegistrar_bindBarcodeDetectionProvider(
       base::android::AttachCurrentThread(),
       receiver.PassPipe().release().value());
-#elif defined(OS_MACOSX)
+#elif defined(OS_MAC)
   BarcodeDetectionProviderMac::Create(std::move(receiver));
+#elif BUILDFLAG(GOOGLE_CHROME_BRANDING) && BUILDFLAG(IS_CHROMEOS_ASH)
+  BarcodeDetectionProviderBarhopper::Create(std::move(receiver));
 #else
   BarcodeDetectionProviderImpl::Create(std::move(receiver));
 #endif
@@ -69,7 +62,7 @@ void ShapeDetectionService::BindFaceDetectionProvider(
   Java_InterfaceRegistrar_bindFaceDetectionProvider(
       base::android::AttachCurrentThread(),
       receiver.PassPipe().release().value());
-#elif defined(OS_MACOSX)
+#elif defined(OS_MAC)
   FaceDetectionProviderMac::Create(std::move(receiver));
 #elif defined(OS_WIN)
   FaceDetectionProviderWin::Create(std::move(receiver));

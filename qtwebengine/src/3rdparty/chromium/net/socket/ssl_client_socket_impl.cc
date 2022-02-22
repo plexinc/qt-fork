@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include <algorithm>
+#include <cstring>
 #include <map>
 #include <utility>
 
@@ -44,12 +45,15 @@
 #include "net/cert/ct_policy_status.h"
 #include "net/cert/ct_verifier.h"
 #include "net/cert/internal/parse_certificate.h"
+#include "net/cert/sct_auditing_delegate.h"
+#include "net/cert/sct_status_flags.h"
 #include "net/cert/x509_certificate_net_log_param.h"
 #include "net/cert/x509_util.h"
 #include "net/der/parse_values.h"
 #include "net/http/transport_security_state.h"
 #include "net/log/net_log_event_type.h"
 #include "net/log/net_log_values.h"
+#include "net/ssl/cert_compression.h"
 #include "net/ssl/ssl_cert_request_info.h"
 #include "net/ssl/ssl_cipher_suite_names.h"
 #include "net/ssl/ssl_connection_status_flags.h"
@@ -64,10 +68,6 @@
 #include "third_party/boringssl/src/include/openssl/evp.h"
 #include "third_party/boringssl/src/include/openssl/mem.h"
 #include "third_party/boringssl/src/include/openssl/ssl.h"
-
-#if !defined(NET_DISABLE_BROTLI)
-#include "third_party/brotli/include/brotli/decode.h"
-#endif
 
 namespace net {
 
@@ -237,31 +237,6 @@ RSAKeyUsage CheckRSAKeyUsage(const X509Certificate* cert,
                                 : RSAKeyUsage::kMissingDigitalSignature;
 }
 
-#if !defined(NET_DISABLE_BROTLI)
-int DecompressBrotliCert(SSL* ssl,
-                         CRYPTO_BUFFER** out,
-                         size_t uncompressed_len,
-                         const uint8_t* in,
-                         size_t in_len) {
-  uint8_t* data;
-  bssl::UniquePtr<CRYPTO_BUFFER> decompressed(
-      CRYPTO_BUFFER_alloc(&data, uncompressed_len));
-  if (!decompressed) {
-    return 0;
-  }
-
-  size_t output_size = uncompressed_len;
-  if (BrotliDecoderDecompress(in_len, in, &output_size, data) !=
-          BROTLI_DECODER_RESULT_SUCCESS ||
-      output_size != uncompressed_len) {
-    return 0;
-  }
-
-  *out = decompressed.release();
-  return 1;
-}
-#endif
-
 }  // namespace
 
 class SSLClientSocketImpl::SSLContext {
@@ -285,9 +260,9 @@ class SSLClientSocketImpl::SSLContext {
   }
 
   void SetSSLKeyLogger(std::unique_ptr<SSLKeyLogger> logger) {
-    DCHECK(!ssl_key_logger_);
-    ssl_key_logger_ = std::move(logger);
-    SSL_CTX_set_keylog_callback(ssl_ctx_.get(), KeyLogCallback);
+    net::SSLKeyLoggerManager::SetSSLKeyLogger(std::move(logger));
+    SSL_CTX_set_keylog_callback(ssl_ctx_.get(),
+                                SSLKeyLoggerManager::KeyLogCallback);
   }
 
   static const SSL_PRIVATE_KEY_METHOD kPrivateKeyMethod;
@@ -321,11 +296,7 @@ class SSLClientSocketImpl::SSLContext {
 
     SSL_CTX_set_msg_callback(ssl_ctx_.get(), MessageCallback);
 
-#if !defined(NET_DISABLE_BROTLI)
-    SSL_CTX_add_cert_compression_alg(
-        ssl_ctx_.get(), TLSEXT_cert_compression_brotli,
-        nullptr /* compression not supported */, DecompressBrotliCert);
-#endif
+    ConfigureCertificateCompression(ssl_ctx_.get());
 
     if (base::FeatureList::IsEnabled(features::kPostQuantumCECPQ2)) {
       static const int kCurves[] = {NID_CECPQ2, NID_X25519,
@@ -365,10 +336,6 @@ class SSLClientSocketImpl::SSLContext {
     return socket->PrivateKeyCompleteCallback(out, out_len, max_out);
   }
 
-  static void KeyLogCallback(const SSL* ssl, const char* line) {
-    GetInstance()->ssl_key_logger_->WriteLine(line);
-  }
-
   static void MessageCallback(int is_write,
                               int version,
                               int content_type,
@@ -385,8 +352,6 @@ class SSLClientSocketImpl::SSLContext {
   int ssl_socket_data_index_;
 
   bssl::UniquePtr<SSL_CTX> ssl_ctx_;
-
-  std::unique_ptr<SSLKeyLogger> ssl_key_logger_;
 };
 
 const SSL_PRIVATE_KEY_METHOD
@@ -587,6 +552,18 @@ NextProto SSLClientSocketImpl::GetNegotiatedProtocol() const {
   return negotiated_protocol_;
 }
 
+base::Optional<base::StringPiece>
+SSLClientSocketImpl::GetPeerApplicationSettings() const {
+  if (!SSL_has_application_settings(ssl_.get())) {
+    return base::nullopt;
+  }
+
+  const uint8_t* out_data;
+  size_t out_len;
+  SSL_get0_peer_application_settings(ssl_.get(), &out_data, &out_len);
+  return base::StringPiece{reinterpret_cast<const char*>(out_data), out_len};
+}
+
 bool SSLClientSocketImpl::GetSSLInfo(SSLInfo* ssl_info) {
   ssl_info->Reset();
   if (!server_cert_)
@@ -603,7 +580,8 @@ bool SSLClientSocketImpl::GetSSLInfo(SSLInfo* ssl_info) {
   ssl_info->pinning_failure_log = pinning_failure_log_;
   ssl_info->ocsp_result = server_cert_verify_result_.ocsp_result;
   ssl_info->is_fatal_cert_error = is_fatal_cert_error_;
-  AddCTInfoToSSLInfo(ssl_info);
+  ssl_info->signed_certificate_timestamps = server_cert_verify_result_.scts;
+  ssl_info->ct_policy_compliance = server_cert_verify_result_.policy_compliance;
 
   const SSL_CIPHER* cipher = SSL_get_current_cipher(ssl_.get());
   CHECK(cipher);
@@ -817,10 +795,6 @@ int SSLClientSocketImpl::Init() {
 
   SSL_set_early_data_enabled(ssl_.get(), ssl_config_.early_data_enabled);
 
-  if (!context_->config().tls13_hardening_for_local_anchors_enabled) {
-    SSL_set_ignore_tls13_downgrade(ssl_.get(), 1);
-  }
-
   // OpenSSL defaults some options to on, others to off. To avoid ambiguity,
   // set everything we care about to an absolute value.
   SslSetClearMask options;
@@ -885,6 +859,16 @@ int SSLClientSocketImpl::Init() {
     SSL_set_alpn_protos(ssl_.get(), wire_protos.data(), wire_protos.size());
   }
 
+  for (const auto& alps : ssl_config_.application_settings) {
+    const char* proto_string = NextProtoToString(alps.first);
+    const auto& data = alps.second;
+    if (!SSL_add_application_settings(
+            ssl_.get(), reinterpret_cast<const uint8_t*>(proto_string),
+            strlen(proto_string), data.data(), data.size())) {
+      return ERR_UNEXPECTED;
+    }
+  }
+
   SSL_enable_signed_cert_timestamps(ssl_.get());
   SSL_enable_ocsp_stapling(ssl_.get());
 
@@ -900,8 +884,12 @@ int SSLClientSocketImpl::Init() {
 
   // TODO(https://crbug.com/775438), if |ssl_config_.privacy_mode| is enabled,
   // this should always continue with no client certificate.
-  send_client_cert_ = context_->GetClientCertificate(
-      host_and_port_, &client_cert_, &client_private_key_);
+  if (ssl_config_.privacy_mode == PRIVACY_MODE_ENABLED_WITHOUT_CLIENT_CERTS) {
+    send_client_cert_ = true;
+  } else {
+    send_client_cert_ = context_->GetClientCertificate(
+        host_and_port_, &client_cert_, &client_private_key_);
+  }
 
   return OK;
 }
@@ -1012,74 +1000,12 @@ int SSLClientSocketImpl::DoHandshakeComplete(int result) {
 
   // See how feasible enforcing RSA key usage would be. See
   // https://crbug.com/795089.
-  RSAKeyUsage rsa_key_usage =
-      CheckRSAKeyUsage(server_cert_.get(), SSL_get_current_cipher(ssl_.get()));
-  if (rsa_key_usage != RSAKeyUsage::kNotRSA) {
-    if (server_cert_verify_result_.is_issued_by_known_root) {
-      UMA_HISTOGRAM_ENUMERATION("Net.SSLRSAKeyUsage.KnownRoot", rsa_key_usage,
-                                static_cast<int>(RSAKeyUsage::kLastValue) + 1);
-    } else {
+  if (!server_cert_verify_result_.is_issued_by_known_root) {
+    RSAKeyUsage rsa_key_usage = CheckRSAKeyUsage(
+        server_cert_.get(), SSL_get_current_cipher(ssl_.get()));
+    if (rsa_key_usage != RSAKeyUsage::kNotRSA) {
       UMA_HISTOGRAM_ENUMERATION("Net.SSLRSAKeyUsage.UnknownRoot", rsa_key_usage,
                                 static_cast<int>(RSAKeyUsage::kLastValue) + 1);
-    }
-  }
-
-  if (!context_->config().tls13_hardening_for_local_anchors_enabled) {
-    // Record metrics on the TLS 1.3 anti-downgrade mechanism. This is only
-    // recorded when enforcement is disabled. (When enforcement is enabled,
-    // the connection will fail with ERR_TLS13_DOWNGRADE_DETECTED.) See
-    // https://crbug.com/boringssl/226.
-    //
-    // Record metrics for both servers overall and the TLS 1.3 experiment
-    // set. These metrics are only useful on TLS 1.3 servers, so the latter
-    // is more precise, but there is a large enough TLS 1.3 deployment that
-    // the overall numbers may be more robust. In particular, the
-    // DowngradeType metrics do not need to be filtered.
-    bool is_downgrade = !!SSL_is_tls13_downgrade(ssl_.get());
-    UMA_HISTOGRAM_BOOLEAN("Net.SSLTLS13Downgrade", is_downgrade);
-    bool is_tls13_experiment_host =
-        IsTLS13ExperimentHost(host_and_port_.host());
-    if (is_tls13_experiment_host) {
-      UMA_HISTOGRAM_BOOLEAN("Net.SSLTLS13DowngradeTLS13Experiment",
-                            is_downgrade);
-    }
-
-    if (is_downgrade) {
-      // Record whether connections which hit the downgrade used known vs
-      // unknown roots and which key exchange type.
-
-      // This enum is persisted into histograms. Values may not be
-      // renumbered.
-      enum class DowngradeType {
-        kKnownRootRSA = 0,
-        kKnownRootECDHE = 1,
-        kUnknownRootRSA = 2,
-        kUnknownRootECDHE = 3,
-        kMaxValue = kUnknownRootECDHE,
-      };
-
-      DowngradeType type;
-      int kx_nid = SSL_CIPHER_get_kx_nid(SSL_get_current_cipher(ssl_.get()));
-      DCHECK(kx_nid == NID_kx_rsa || kx_nid == NID_kx_ecdhe);
-      if (server_cert_verify_result_.is_issued_by_known_root) {
-        type = kx_nid == NID_kx_rsa ? DowngradeType::kKnownRootRSA
-                                    : DowngradeType::kKnownRootECDHE;
-      } else {
-        type = kx_nid == NID_kx_rsa ? DowngradeType::kUnknownRootRSA
-                                    : DowngradeType::kUnknownRootECDHE;
-      }
-      UMA_HISTOGRAM_ENUMERATION("Net.SSLTLS13DowngradeType", type);
-      if (is_tls13_experiment_host) {
-        UMA_HISTOGRAM_ENUMERATION("Net.SSLTLS13DowngradeTypeTLS13Experiment",
-                                  type);
-      }
-
-      if (server_cert_verify_result_.is_issued_by_known_root) {
-        // Exit DoHandshakeLoop and return the result to the caller to
-        // Connect.
-        DCHECK_EQ(STATE_NONE, next_handshake_state_);
-        return ERR_TLS13_DOWNGRADE_DETECTED;
-      }
     }
   }
 
@@ -1203,7 +1129,7 @@ ssl_verify_result_t SSLClientSocketImpl::VerifyCert() {
   cert_verification_result_ = context_->cert_verifier()->Verify(
       CertVerifier::RequestParams(
           server_cert_, host_and_port_.host(), ssl_config_.GetCertVerifyFlags(),
-          ocsp_response.as_string(), sct_list.as_string()),
+          std::string(ocsp_response), std::string(sct_list)),
       &server_cert_verify_result_,
       base::BindOnce(&SSLClientSocketImpl::OnVerifyComplete,
                      base::Unretained(this)),
@@ -1256,13 +1182,14 @@ ssl_verify_result_t SSLClientSocketImpl::HandleVerifyResult() {
   // If the connection was good, check HPKP and CT status simultaneously,
   // but prefer to treat the HPKP error as more serious, if there was one.
   if (result == OK) {
-    int ct_result = VerifyCT();
+    int ct_result = CheckCTCompliance();
     TransportSecurityState::PKPStatus pin_validity =
         context_->transport_security_state()->CheckPublicKeyPins(
             host_and_port_, server_cert_verify_result_.is_issued_by_known_root,
             server_cert_verify_result_.public_key_hashes, server_cert_.get(),
             server_cert_verify_result_.verified_cert.get(),
-            TransportSecurityState::ENABLE_PIN_REPORTS, &pinning_failure_log_);
+            TransportSecurityState::ENABLE_PIN_REPORTS,
+            ssl_config_.network_isolation_key, &pinning_failure_log_);
     switch (pin_validity) {
       case TransportSecurityState::PKPStatus::VIOLATED:
         server_cert_verify_result_.cert_status |=
@@ -1284,9 +1211,7 @@ ssl_verify_result_t SSLClientSocketImpl::HandleVerifyResult() {
   // version.
   if (result == OK &&
       SSL_version(ssl_.get()) < context_->config().version_min_warn &&
-      base::FeatureList::IsEnabled(features::kLegacyTLSEnforced) &&
-      !context_->ssl_config_service()->ShouldSuppressLegacyTLSWarning(
-          host_and_port_.host())) {
+      base::FeatureList::IsEnabled(features::kLegacyTLSEnforced)) {
     server_cert_verify_result_.cert_status |= CERT_STATUS_LEGACY_TLS;
 
     // Only set the resulting net error if it hasn't been previously bypassed.
@@ -1311,6 +1236,89 @@ ssl_verify_result_t SSLClientSocketImpl::HandleVerifyResult() {
 
   OpenSSLPutNetError(FROM_HERE, result);
   return ssl_verify_invalid;
+}
+
+int SSLClientSocketImpl::CheckCTCompliance() {
+  ct::SCTList verified_scts;
+  for (const auto& sct_and_status : server_cert_verify_result_.scts) {
+    if (sct_and_status.status == ct::SCT_STATUS_OK)
+      verified_scts.push_back(sct_and_status.sct);
+  }
+  server_cert_verify_result_.policy_compliance =
+      context_->ct_policy_enforcer()->CheckCompliance(
+          server_cert_verify_result_.verified_cert.get(), verified_scts,
+          net_log_);
+  if (server_cert_verify_result_.cert_status & CERT_STATUS_IS_EV) {
+    if (server_cert_verify_result_.policy_compliance !=
+            ct::CTPolicyCompliance::CT_POLICY_COMPLIES_VIA_SCTS &&
+        server_cert_verify_result_.policy_compliance !=
+            ct::CTPolicyCompliance::CT_POLICY_BUILD_NOT_TIMELY) {
+      server_cert_verify_result_.cert_status |=
+          CERT_STATUS_CT_COMPLIANCE_FAILED;
+      server_cert_verify_result_.cert_status &= ~CERT_STATUS_IS_EV;
+    }
+
+    // Record the CT compliance status for connections with EV certificates,
+    // to distinguish how often EV status is being dropped due to failing CT
+    // compliance.
+    if (server_cert_verify_result_.is_issued_by_known_root) {
+      UMA_HISTOGRAM_ENUMERATION("Net.CertificateTransparency.EVCompliance2.SSL",
+                                server_cert_verify_result_.policy_compliance,
+                                ct::CTPolicyCompliance::CT_POLICY_COUNT);
+    }
+  }
+
+  // Record the CT compliance of every connection to get an overall picture of
+  // how many connections are CT-compliant.
+  if (server_cert_verify_result_.is_issued_by_known_root) {
+    UMA_HISTOGRAM_ENUMERATION(
+        "Net.CertificateTransparency.ConnectionComplianceStatus2.SSL",
+        server_cert_verify_result_.policy_compliance,
+        ct::CTPolicyCompliance::CT_POLICY_COUNT);
+  }
+
+  TransportSecurityState::CTRequirementsStatus ct_requirement_status =
+      context_->transport_security_state()->CheckCTRequirements(
+          host_and_port_, server_cert_verify_result_.is_issued_by_known_root,
+          server_cert_verify_result_.public_key_hashes,
+          server_cert_verify_result_.verified_cert.get(), server_cert_.get(),
+          server_cert_verify_result_.scts,
+          TransportSecurityState::ENABLE_EXPECT_CT_REPORTS,
+          server_cert_verify_result_.policy_compliance,
+          ssl_config_.network_isolation_key);
+  if (ct_requirement_status != TransportSecurityState::CT_NOT_REQUIRED) {
+    if (server_cert_verify_result_.is_issued_by_known_root) {
+      // Record the CT compliance of connections for which compliance is
+      // required; this helps answer the question: "Of all connections that
+      // are supposed to be serving valid CT information, how many fail to do
+      // so?"
+      UMA_HISTOGRAM_ENUMERATION(
+          "Net.CertificateTransparency.CTRequiredConnectionComplianceStatus2."
+          "SSL",
+          server_cert_verify_result_.policy_compliance,
+          ct::CTPolicyCompliance::CT_POLICY_COUNT);
+    }
+  }
+
+  if (context_->sct_auditing_delegate() &&
+      context_->sct_auditing_delegate()->IsSCTAuditingEnabled()) {
+    context_->sct_auditing_delegate()->MaybeEnqueueReport(
+        host_and_port_, server_cert_verify_result_.verified_cert.get(),
+        server_cert_verify_result_.scts);
+  }
+
+  switch (ct_requirement_status) {
+    case TransportSecurityState::CT_REQUIREMENTS_NOT_MET:
+      server_cert_verify_result_.cert_status |=
+          CERT_STATUS_CERTIFICATE_TRANSPARENCY_REQUIRED;
+      return ERR_CERTIFICATE_TRANSPARENCY_REQUIRED;
+    case TransportSecurityState::CT_REQUIREMENTS_MET:
+    case TransportSecurityState::CT_NOT_REQUIRED:
+      return OK;
+  }
+
+  NOTREACHED();
+  return OK;
 }
 
 void SSLClientSocketImpl::DoConnectCallback(int rv) {
@@ -1490,19 +1498,19 @@ int SSLClientSocketImpl::DoPayloadWrite() {
 }
 
 void SSLClientSocketImpl::DoPeek() {
-  if (ssl_config_.disable_post_handshake_peek_for_testing ||
-      !completed_connect_ || peek_complete_) {
+  if (!completed_connect_) {
     return;
   }
 
   crypto::OpenSSLErrStackTracer err_tracer(FROM_HERE);
 
-  if (ssl_config_.early_data_enabled && !recorded_early_data_result_) {
+  if (ssl_config_.early_data_enabled && !handled_early_data_result_) {
     // |SSL_peek| will implicitly run |SSL_do_handshake| if needed, but run it
     // manually to pick up the reject reason.
     int rv = SSL_do_handshake(ssl_.get());
     int ssl_err = SSL_get_error(ssl_.get(), rv);
-    if (ssl_err == SSL_ERROR_WANT_READ || ssl_err == SSL_ERROR_WANT_WRITE) {
+    int err = rv > 0 ? OK : MapOpenSSLError(ssl_err, err_tracer);
+    if (err == ERR_IO_PENDING) {
       return;
     }
 
@@ -1513,11 +1521,26 @@ void SSLClientSocketImpl::DoPeek() {
     UMA_HISTOGRAM_ENUMERATION("Net.SSLHandshakeEarlyDataReason",
                               SSL_get_early_data_reason(ssl_.get()),
                               ssl_early_data_reason_max_value + 1);
-    recorded_early_data_result_ = true;
-    if (ssl_err != SSL_ERROR_NONE) {
+
+    // On early data reject, clear early data on any other sessions in the
+    // cache, so retries do not get stuck attempting 0-RTT. See
+    // https://crbug.com/1066623.
+    if (err == ERR_EARLY_DATA_REJECTED ||
+        err == ERR_WRONG_VERSION_ON_EARLY_DATA) {
+      context_->ssl_client_session_cache()->ClearEarlyData(
+          GetSessionCacheKey(base::nullopt));
+    }
+
+    handled_early_data_result_ = true;
+
+    if (err != OK) {
       peek_complete_ = true;
       return;
     }
+  }
+
+  if (ssl_config_.disable_post_handshake_peek_for_testing || peek_complete_) {
+    return;
   }
 
   char byte;
@@ -1568,100 +1591,6 @@ void SSLClientSocketImpl::RetryAllOperations() {
 
   if (rv_write != ERR_IO_PENDING)
     DoWriteCallback(rv_write);
-}
-
-int SSLClientSocketImpl::VerifyCT() {
-  const uint8_t* sct_list_raw;
-  size_t sct_list_len;
-  SSL_get0_signed_cert_timestamp_list(ssl_.get(), &sct_list_raw, &sct_list_len);
-  base::StringPiece sct_list(reinterpret_cast<const char*>(sct_list_raw),
-                             sct_list_len);
-
-  const uint8_t* ocsp_response_raw;
-  size_t ocsp_response_len;
-  SSL_get0_ocsp_response(ssl_.get(), &ocsp_response_raw, &ocsp_response_len);
-  base::StringPiece ocsp_response(
-      reinterpret_cast<const char*>(ocsp_response_raw), ocsp_response_len);
-
-  // Note that this is a completely synchronous operation: The CT Log Verifier
-  // gets all the data it needs for SCT verification and does not do any
-  // external communication.
-  context_->cert_transparency_verifier()->Verify(
-      host_and_port().host(), server_cert_verify_result_.verified_cert.get(),
-      ocsp_response, sct_list, &ct_verify_result_.scts, net_log_);
-
-  ct::SCTList verified_scts =
-      ct::SCTsMatchingStatus(ct_verify_result_.scts, ct::SCT_STATUS_OK);
-
-  ct_verify_result_.policy_compliance =
-      context_->ct_policy_enforcer()->CheckCompliance(
-          server_cert_verify_result_.verified_cert.get(), verified_scts,
-          net_log_);
-  if (server_cert_verify_result_.cert_status & CERT_STATUS_IS_EV) {
-    if (ct_verify_result_.policy_compliance !=
-            ct::CTPolicyCompliance::CT_POLICY_COMPLIES_VIA_SCTS &&
-        ct_verify_result_.policy_compliance !=
-            ct::CTPolicyCompliance::CT_POLICY_BUILD_NOT_TIMELY) {
-      server_cert_verify_result_.cert_status |=
-          CERT_STATUS_CT_COMPLIANCE_FAILED;
-      server_cert_verify_result_.cert_status &= ~CERT_STATUS_IS_EV;
-    }
-
-    // Record the CT compliance status for connections with EV certificates, to
-    // distinguish how often EV status is being dropped due to failing CT
-    // compliance.
-    if (server_cert_verify_result_.is_issued_by_known_root) {
-      UMA_HISTOGRAM_ENUMERATION("Net.CertificateTransparency.EVCompliance2.SSL",
-                                ct_verify_result_.policy_compliance,
-                                ct::CTPolicyCompliance::CT_POLICY_COUNT);
-    }
-  }
-
-  // Record the CT compliance of every connection to get an overall picture of
-  // how many connections are CT-compliant.
-  if (server_cert_verify_result_.is_issued_by_known_root) {
-    UMA_HISTOGRAM_ENUMERATION(
-        "Net.CertificateTransparency.ConnectionComplianceStatus2.SSL",
-        ct_verify_result_.policy_compliance,
-        ct::CTPolicyCompliance::CT_POLICY_COUNT);
-  }
-
-  TransportSecurityState::CTRequirementsStatus ct_requirement_status =
-      context_->transport_security_state()->CheckCTRequirements(
-          host_and_port_, server_cert_verify_result_.is_issued_by_known_root,
-          server_cert_verify_result_.public_key_hashes,
-          server_cert_verify_result_.verified_cert.get(), server_cert_.get(),
-          ct_verify_result_.scts,
-          TransportSecurityState::ENABLE_EXPECT_CT_REPORTS,
-          ct_verify_result_.policy_compliance);
-  if (ct_requirement_status != TransportSecurityState::CT_NOT_REQUIRED) {
-    ct_verify_result_.policy_compliance_required = true;
-    if (server_cert_verify_result_.is_issued_by_known_root) {
-      // Record the CT compliance of connections for which compliance is
-      // required; this helps answer the question: "Of all connections that are
-      // supposed to be serving valid CT information, how many fail to do so?"
-      UMA_HISTOGRAM_ENUMERATION(
-          "Net.CertificateTransparency.CTRequiredConnectionComplianceStatus2."
-          "SSL",
-          ct_verify_result_.policy_compliance,
-          ct::CTPolicyCompliance::CT_POLICY_COUNT);
-    }
-  } else {
-    ct_verify_result_.policy_compliance_required = false;
-  }
-
-  switch (ct_requirement_status) {
-    case TransportSecurityState::CT_REQUIREMENTS_NOT_MET:
-      server_cert_verify_result_.cert_status |=
-          CERT_STATUS_CERTIFICATE_TRANSPARENCY_REQUIRED;
-      return ERR_CERTIFICATE_TRANSPARENCY_REQUIRED;
-    case TransportSecurityState::CT_REQUIREMENTS_MET:
-    case TransportSecurityState::CT_NOT_REQUIRED:
-      return OK;
-  }
-
-  NOTREACHED();
-  return OK;
 }
 
 int SSLClientSocketImpl::ClientCertRequestCallback(SSL* ssl) {
@@ -1741,10 +1670,6 @@ int SSLClientSocketImpl::NewSessionCallback(SSL_SESSION* session) {
   context_->ssl_client_session_cache()->Insert(
       GetSessionCacheKey(ip_addr), bssl::UniquePtr<SSL_SESSION>(session));
   return 1;
-}
-
-void SSLClientSocketImpl::AddCTInfoToSSLInfo(SSLInfo* ssl_info) const {
-  ssl_info->UpdateCertificateTransparencyInfo(ct_verify_result_);
 }
 
 SSLClientSessionCache::Key SSLClientSocketImpl::GetSessionCacheKey(

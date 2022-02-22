@@ -31,14 +31,15 @@
 #define SERVEROBJECT_H
 
 #include <QObject>
-#include <QtDBus/QtDBus>
+#include <QDBusConnection>
+#include <QDBusVariant>
 
 class ServerObject: public QObject
 {
     Q_OBJECT
     Q_CLASSINFO("D-Bus Interface", "org.qtproject.autotests.Performance")
 public:
-    ServerObject(const QString &objectPath, QDBusConnection conn, QObject *parent = 0)
+    ServerObject(const QString &objectPath, QDBusConnection conn, QObject *parent = nullptr)
         : QObject(parent)
     {
         conn.registerObject(objectPath, this, QDBusConnection::ExportAllSlots);
@@ -69,13 +70,12 @@ public slots:
     int size(const QDBusVariant &data)
     {
         QVariant v = data.variant();
-        switch (v.type())
-        {
-        case QVariant::ByteArray:
+        switch (v.typeId()) {
+        case QMetaType::QByteArray:
             return v.toByteArray().size();
-        case QVariant::StringList:
+        case QMetaType::QStringList:
             return v.toStringList().size();
-        case QVariant::String:
+        case QMetaType::QString:
         default:
             return v.toString().size();
         }

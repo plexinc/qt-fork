@@ -30,7 +30,7 @@ qhp.QtWidgets.subprojects.classes.sortPages = true
 
 tagfile                 = ../../../doc/qtwidgets/qtwidgets.tags
 
-depends                 += qtcore qtgui qtdoc qtsql qtdesigner qtquick qmake qtplatformheaders qtsvg qtlinguist
+depends                 += qtcore qtgui qtdoc qtsql qtdesigner qtquick qmake qtcmake qtsvg qtlinguist
 
 headerdirs  += ..
 
@@ -39,13 +39,23 @@ sourcedirs  += .. \
 
 exampledirs += ../../../examples/widgets \
                ../../../doc/src/snippets \
-               ../ \
+               .. \
+               . \
                snippets
 
 excludedirs += snippets
 
 # Included in qttestlib.qdocconf instead
 excludefiles += ../kernel/qtestsupport_widgets.cpp
+
+# Exclude forwarding headers to QtGUI to avoid duplicates in the node tree
+excludefiles += \
+    ../dialogs/qfilesystemmodel.h \
+    ../kernel/qaction.h \
+    ../kernel/qactiongroup.h \
+    ../kernel/qshortcut.h \
+    ../util/qundogroup.h \
+    ../util/qundostack.h
 
 imagedirs   += images \
                ../../../doc/src/images \
@@ -54,7 +64,4 @@ imagedirs   += images \
 
 navigation.landingpage = "Qt Widgets"
 navigation.cppclassespage = "Qt Widgets C++ Classes"
-manifestmeta.highlighted.names = "QtWidgets/Calendar Widget Example" \
-                                 "QtWidgets/Editable Tree Model Example" \
-                                 "QtWidgets/Address Book Example" \
-                                 "QtWidgets/Application Example"
+manifestmeta.highlighted.names = "QtWidgets/Qt Widgets - Application Example"

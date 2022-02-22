@@ -18,6 +18,7 @@
 #include "base/trace_event/memory_dump_manager.h"
 #include "base/trace_event/memory_dump_request_args.h"
 #include "base/trace_event/process_memory_dump.h"
+#include "build/chromeos_buildflags.h"
 #include "net/base/http_user_agent_settings.h"
 #include "net/cookies/cookie_store.h"
 #include "net/dns/host_resolver.h"
@@ -41,8 +42,8 @@ URLRequestContext::URLRequestContext()
       http_user_agent_settings_(nullptr),
       cookie_store_(nullptr),
       transport_security_state_(nullptr),
-      cert_transparency_verifier_(nullptr),
       ct_policy_enforcer_(nullptr),
+      sct_auditing_delegate_(nullptr),
       http_transaction_factory_(nullptr),
       job_factory_(nullptr),
       throttler_manager_(nullptr),
@@ -55,6 +56,7 @@ URLRequestContext::URLRequestContext()
       url_requests_(std::make_unique<std::set<const URLRequest*>>()),
       enable_brotli_(false),
       check_cleartext_permitted_(false),
+      require_network_isolation_key_(false),
       name_("unknown") {
   base::trace_event::MemoryDumpManager::GetInstance()->RegisterDumpProvider(
       this, "URLRequestContext", base::ThreadTaskRunnerHandle::Get());
@@ -89,7 +91,9 @@ const HttpNetworkSession::Context* URLRequestContext::GetNetworkSessionContext()
   return &network_session->context();
 }
 
-#if (!defined(OS_WIN) && !defined(OS_LINUX)) || defined(OS_CHROMEOS)
+// TODO(crbug.com/1052397): Revisit once build flag switch of lacros-chrome is
+// complete.
+#if !defined(OS_WIN) && !(defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS))
 std::unique_ptr<URLRequest> URLRequestContext::CreateRequest(
     const GURL& url,
     RequestPriority priority,
@@ -103,8 +107,8 @@ std::unique_ptr<URLRequest> URLRequestContext::CreateRequest(
     RequestPriority priority,
     URLRequest::Delegate* delegate,
     NetworkTrafficAnnotationTag traffic_annotation) const {
-  return base::WrapUnique(new URLRequest(
-      url, priority, delegate, this, network_delegate_, traffic_annotation));
+  return base::WrapUnique(
+      new URLRequest(url, priority, delegate, this, traffic_annotation));
 }
 
 void URLRequestContext::set_cookie_store(CookieStore* cookie_store) {

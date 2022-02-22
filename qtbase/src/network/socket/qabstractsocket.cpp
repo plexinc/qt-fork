@@ -202,13 +202,6 @@
 */
 
 /*!
-    \fn void QAbstractSocket::error(QAbstractSocket::SocketError socketError)
-    \obsolete
-
-    Use errorOccurred() instead.
-*/
-
-/*!
     \fn void QAbstractSocket::errorOccurred(QAbstractSocket::SocketError socketError)
     \since 5.15
 
@@ -437,7 +430,7 @@
 
     \value DontShareAddress Bind the address and port exclusively, so that
     no other services are allowed to rebind. By passing this option to
-    QAbstractSocket::bind(), you are guaranteed that on successs, your service
+    QAbstractSocket::bind(), you are guaranteed that on success, your service
     is the only one that listens to the address and port. No services are
     allowed to rebind, even if they pass ReuseAddressHint. This option
     provides more security than ShareAddress, but on certain operating
@@ -475,10 +468,6 @@
 #include "qabstractsocket_p.h"
 
 #include "private/qhostinfo_p.h"
-#if QT_CONFIG(bearermanagement) // ### Qt6: Remove section
-#include "private/qnetworksession_p.h"
-#endif
-#include "private/qnetworkconfiguration_p.h" // ### Qt6: Remove include
 
 #include <qabstracteventdispatcher.h>
 #include <qhostaddress.h>
@@ -490,14 +479,11 @@
 #include <qscopedvaluerollback.h>
 #include <qvarlengtharray.h>
 
-#ifndef QT_NO_SSL
-#include <QtNetwork/qsslsocket.h>
-#endif
-
 #include <private/qthread_p.h>
 
 #ifdef QABSTRACTSOCKET_DEBUG
 #include <qdebug.h>
+#include <private/qdebug_p.h>
 #endif
 
 #include <time.h>
@@ -514,41 +500,7 @@
 
 QT_BEGIN_NAMESPACE
 
-#if defined QABSTRACTSOCKET_DEBUG
-QT_BEGIN_INCLUDE_NAMESPACE
-#include <qstring.h>
-#include <ctype.h>
-QT_END_INCLUDE_NAMESPACE
-
-/*
-    Returns a human readable representation of the first \a len
-    characters in \a data.
-*/
-static QByteArray qt_prettyDebug(const char *data, int len, int maxLength)
-{
-    if (!data) return "(null)";
-    QByteArray out;
-    for (int i = 0; i < qMin(len, maxLength); ++i) {
-        char c = data[i];
-        if (isprint(int(uchar(c)))) {
-            out += c;
-        } else switch (c) {
-        case '\n': out += "\\n"; break;
-        case '\r': out += "\\r"; break;
-        case '\t': out += "\\t"; break;
-        default:
-            QString tmp;
-            tmp.sprintf("\\%o", c);
-            out += tmp.toLatin1();
-        }
-    }
-
-    if (len < maxLength)
-        out += "...";
-
-    return out;
-}
-#endif
+static const int DefaultConnectTimeout = 30000;
 
 static bool isProxyError(QAbstractSocket::SocketError error)
 {
@@ -657,10 +609,6 @@ bool QAbstractSocketPrivate::initSocketLayer(QAbstractSocket::NetworkLayerProtoc
                  QAbstractSocket::tr("Operation on socket is not supported"));
         return false;
     }
-#ifndef QT_NO_BEARERMANAGEMENT // ### Qt6: Remove section
-    //copy network session down to the socket engine (if it has been set)
-    socketEngine->setProperty("_q_networksession", q->property("_q_networksession"));
-#endif
     if (!socketEngine->initialize(q->socketType(), protocol)) {
 #if defined (QABSTRACTSOCKET_DEBUG)
         qDebug("QAbstractSocketPrivate::initSocketLayer(%s, %s) failed (%s)",
@@ -961,7 +909,7 @@ void QAbstractSocketPrivate::resolveProxy(const QString &hostname, quint16 port)
 }
 #endif // !QT_NO_NETWORKPROXY
 
-#if !defined(QT_NO_NETWORKPROXY) || defined(Q_OS_WINRT)
+#if !defined(QT_NO_NETWORKPROXY)
 /*!
     \internal
 
@@ -1003,7 +951,7 @@ void QAbstractSocketPrivate::startConnectingByName(const QString &host)
     emit q->stateChanged(state);
 }
 
-#endif // !QT_NO_NETWORKPROXY || Q_OS_WINRT
+#endif // !QT_NO_NETWORKPROXY
 
 /*! \internal
 
@@ -1159,16 +1107,7 @@ void QAbstractSocketPrivate::_q_connectToNextAddress()
                                  q, SLOT(_q_abortConnectionAttempt()),
                                  Qt::DirectConnection);
             }
-#ifdef QT_NO_BEARERMANAGEMENT
-            int connectTimeout = 30000;
-#else
-            int connectTimeout = QNetworkConfigurationPrivate::DefaultTimeout;
-            QSharedPointer<QNetworkSession> networkSession = qvariant_cast< QSharedPointer<QNetworkSession> >(q->property("_q_networksession"));
-            if (networkSession) {
-                QNetworkConfiguration networkConfiguration = networkSession->configuration();
-                connectTimeout = networkConfiguration.connectTimeout();
-            }
-#endif
+            int connectTimeout = DefaultConnectTimeout;
             connectTimer->start(connectTimeout);
         }
 
@@ -1383,20 +1322,23 @@ void QAbstractSocketPrivate::fetchConnectionParameters()
     emit q->connected();
 }
 
-/*! \internal
+/*! \reimp
 */
-qint64 QAbstractSocketPrivate::skip(qint64 maxSize)
+qint64 QAbstractSocket::skipData(qint64 maxSize)
 {
+    Q_D(const QAbstractSocket);
+
     // if we're not connected, return -1 indicating EOF
-    if (!socketEngine || !socketEngine->isValid() || state != QAbstractSocket::ConnectedState)
+    if (!d->socketEngine || !d->socketEngine->isValid()
+        || d->state != QAbstractSocket::ConnectedState)
         return -1;
 
     // Caller, QIODevice::skip(), has ensured buffer is empty. So, wait
     // for more data in buffered mode.
-    if (isBuffered)
+    if (d->isBuffered)
         return 0;
 
-    return QIODevicePrivate::skip(maxSize);
+    return QIODevice::skipData(maxSize);
 }
 
 void QAbstractSocketPrivate::pauseSocketNotifiers(QAbstractSocket *socket)
@@ -1469,9 +1411,6 @@ QAbstractSocket::QAbstractSocket(SocketType socketType,
            : socketType == SctpSocket ? "Sctp" : "Unknown", &dd, parent);
 #endif
     d->socketType = socketType;
-
-    // Support the deprecated error() signal:
-    connect(this, &QAbstractSocket::errorOccurred, this, QOverload<QAbstractSocket::SocketError>::of(&QAbstractSocket::error));
 }
 
 /*!
@@ -1630,6 +1569,19 @@ bool QAbstractSocketPrivate::bind(const QHostAddress &address, quint16 port, QAb
 }
 
 /*!
+    \fn bool QAbstractSocket::bind(QHostAddress::SpecialAddress addr, quint16 port, BindMode mode)
+    \since 6.2
+    \overload
+
+    Binds to the special address \a addr on port \a port, using the BindMode \a
+    mode.
+
+    By default, the socket is bound using the DefaultForPlatform BindMode.
+    If a port is not specified, a random port is chosen.
+*/
+
+/*!
+    \fn bool QAbstractSocket::bind(quint16 port, BindMode mode)
     \since 5.0
     \overload
 
@@ -1638,10 +1590,12 @@ bool QAbstractSocketPrivate::bind(const QHostAddress &address, quint16 port, QAb
     By default, the socket is bound using the DefaultForPlatform BindMode.
     If a port is not specified, a random port is chosen.
 */
+#if QT_VERSION < QT_VERSION_CHECK(7, 0, 0)
 bool QAbstractSocket::bind(quint16 port, BindMode mode)
 {
     return bind(QHostAddress::Any, port, mode);
 }
+#endif
 
 /*!
     Returns \c true if the socket is valid and ready for use; otherwise
@@ -1738,7 +1692,6 @@ void QAbstractSocket::connectToHost(const QString &hostName, quint16 port,
     QIODevice::open(openMode);
     d->readChannelCount = d->writeChannelCount = 0;
 
-#ifndef Q_OS_WINRT
     d->state = HostLookupState;
     emit stateChanged(d->state);
 
@@ -1775,10 +1728,6 @@ void QAbstractSocket::connectToHost(const QString &hostName, quint16 port,
            (d->state == ConnectedState) ? "true" : "false",
            (d->state == ConnectingState || d->state == HostLookupState)
            ? " (connection in progress)" : "");
-#endif
-#else // !Q_OS_WINRT
-    // On WinRT we should always connect by name. Lookup and proxy handling are done by the API.
-    d->startConnectingByName(hostName);
 #endif
 }
 
@@ -1896,22 +1845,6 @@ QString QAbstractSocket::peerName() const
 }
 
 /*!
-    Returns \c true if a line of data can be read from the socket;
-    otherwise returns \c false.
-
-    \sa readLine()
-*/
-bool QAbstractSocket::canReadLine() const
-{
-    bool hasLine = QIODevice::canReadLine();
-#if defined (QABSTRACTSOCKET_DEBUG)
-    qDebug("QAbstractSocket::canReadLine() == %s, buffer size = %lld, size = %lld",
-           hasLine ? "true" : "false", d_func()->buffer.size(), d_func()->buffer.size());
-#endif
-    return hasLine;
-}
-
-/*!
     Returns the native socket descriptor of the QAbstractSocket object
     if this is available; otherwise returns -1.
 
@@ -1955,10 +1888,6 @@ bool QAbstractSocket::setSocketDescriptor(qintptr socketDescriptor, SocketState 
         d->setError(UnsupportedSocketOperationError, tr("Operation on socket is not supported"));
         return false;
     }
-#ifndef QT_NO_BEARERMANAGEMENT // ### Qt6: Remove section
-    //copy network session down to the socket engine (if it has been set)
-    d->socketEngine->setProperty("_q_networksession", property("_q_networksession"));
-#endif
     bool result = d->socketEngine->initialize(socketDescriptor, socketState);
     if (!result) {
         d->setError(d->socketEngine->error(), d->socketEngine->errorString());
@@ -2148,10 +2077,6 @@ bool QAbstractSocket::waitForConnected(int msecs)
     QElapsedTimer stopWatch;
     stopWatch.start();
 
-#ifndef QT_NO_BEARERMANAGEMENT // ### Qt6: Remove section
-    QSharedPointer<QNetworkSession> networkSession = qvariant_cast< QSharedPointer<QNetworkSession> >(property("_q_networksession"));
-#endif
-
     if (d->state == HostLookupState) {
 #if defined (QABSTRACTSOCKET_DEBUG)
         qDebug("QAbstractSocket::waitForConnected(%i) doing host name lookup", msecs);
@@ -2170,15 +2095,7 @@ bool QAbstractSocket::waitForConnected(int msecs)
     if (state() == UnconnectedState)
         return false; // connect not im progress anymore!
 
-#ifdef QT_NO_BEARERMANAGEMENT
-    int connectTimeout = 30000;
-#else
-    int connectTimeout = QNetworkConfigurationPrivate::DefaultTimeout;
-    if (networkSession) {
-        QNetworkConfiguration networkConfiguration = networkSession->configuration();
-        connectTimeout = networkConfiguration.connectTimeout();
-    }
-#endif
+    int connectTimeout = DefaultConnectTimeout;
     bool timedOut = true;
 #if defined (QABSTRACTSOCKET_DEBUG)
     int attempt = 1;
@@ -2260,6 +2177,7 @@ bool QAbstractSocket::waitForReadyRead(int msecs)
     do {
         if (state() != ConnectedState && state() != BoundState)
             return false;
+        Q_ASSERT(d->socketEngine);
 
         bool readyToRead = false;
         bool readyToWrite = false;
@@ -2449,15 +2367,6 @@ void QAbstractSocket::abort()
     qDebug("QAbstractSocket::abort()");
 #endif
     d->setWriteChannelCount(0);
-    if (d->state == UnconnectedState)
-        return;
-#ifndef QT_NO_SSL
-    if (QSslSocket *socket = qobject_cast<QSslSocket *>(this)) {
-        socket->abort();
-        return;
-    }
-#endif
-
     d->abortCalled = true;
     close();
 }
@@ -2467,23 +2376,6 @@ void QAbstractSocket::abort()
 bool QAbstractSocket::isSequential() const
 {
     return true;
-}
-
-/*! \reimp
-
-     Returns \c true if no more data is currently
-     available for reading; otherwise returns \c false.
-
-     This function is most commonly used when reading data from the
-     socket in a loop. For example:
-
-     \snippet code/src_network_socket_qabstractsocket.cpp 2
-
-     \sa bytesAvailable(), readyRead()
- */
-bool QAbstractSocket::atEnd() const
-{
-    return QIODevice::atEnd();
 }
 
 /*!
@@ -2532,9 +2424,8 @@ qint64 QAbstractSocket::readData(char *data, qint64 maxSize)
     }
 
 #if defined (QABSTRACTSOCKET_DEBUG)
-    qDebug("QAbstractSocket::readData(%p \"%s\", %lli) == %lld [engine]",
-           data, qt_prettyDebug(data, 32, readBytes).data(), maxSize,
-           readBytes);
+    qDebug("QAbstractSocket::readData(%p \"%s\", %lli) == %lld [engine]", data,
+           QtDebugUtils::toPrintable(data, readBytes, 32).constData(), maxSize, readBytes);
 #endif
     return readBytes;
 }
@@ -2572,8 +2463,7 @@ qint64 QAbstractSocket::writeData(const char *data, qint64 size)
 
 #if defined (QABSTRACTSOCKET_DEBUG)
         qDebug("QAbstractSocket::writeData(%p \"%s\", %lli) == %lli", data,
-               qt_prettyDebug(data, qMin((int)size, 32), size).data(),
-               size, written);
+               QtDebugUtils::toPrintable(data, size, 32).constData(), size, written);
 #endif
         return written; // written = actually written + what has been buffered
     } else if (!d->isBuffered && d->socketType != TcpSocket) {
@@ -2584,8 +2474,7 @@ qint64 QAbstractSocket::writeData(const char *data, qint64 size)
 
 #if defined (QABSTRACTSOCKET_DEBUG)
     qDebug("QAbstractSocket::writeData(%p \"%s\", %lli) == %lli", data,
-           qt_prettyDebug(data, qMin((int)size, 32), size).data(),
-           size, written);
+           QtDebugUtils::toPrintable(data, size, 32).constData(), size, written);
 #endif
         if (written >= 0)
             d->emitBytesWritten(written);
@@ -2598,7 +2487,7 @@ qint64 QAbstractSocket::writeData(const char *data, qint64 size)
     // We just write to our write buffer and enable the write notifier
     // The write notifier then flush()es the buffer.
 
-    d->writeBuffer.append(data, size);
+    d->write(data, size);
     qint64 written = size;
 
     if (d->socketEngine && !d->writeBuffer.isEmpty())
@@ -2606,8 +2495,7 @@ qint64 QAbstractSocket::writeData(const char *data, qint64 size)
 
 #if defined (QABSTRACTSOCKET_DEBUG)
     qDebug("QAbstractSocket::writeData(%p \"%s\", %lli) == %lli", data,
-           qt_prettyDebug(data, qMin((int)size, 32), size).data(),
-           size, written);
+           QtDebugUtils::toPrintable(data, size, 32).constData(), size, written);
 #endif
     return written;
 }
@@ -2938,7 +2826,7 @@ void QAbstractSocket::setSocketError(SocketError socketError)
     To disable the use of a proxy for this socket, use the
     QNetworkProxy::NoProxy proxy type:
 
-    \snippet code/src_network_socket_qabstractsocket.cpp 3
+    \snippet code/src_network_socket_qabstractsocket.cpp 2
 
     The default value for the proxy is QNetworkProxy::DefaultProxy,
     which means the socket will use the application settings: if a

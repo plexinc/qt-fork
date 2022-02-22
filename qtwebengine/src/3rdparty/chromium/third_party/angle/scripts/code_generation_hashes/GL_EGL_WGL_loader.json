@@ -1,32 +1,40 @@
 {
   "scripts/egl.xml":
-    "842e24514c4cfe09fba703c17a0fd292",
+    "013c552e6c523abdcf268268ea47e9fe",
   "scripts/egl_angle_ext.xml":
-    "854e99785af19f8f4eea4f73005a0451",
+    "5bcc01462b355d933cf3ada15198fb68",
   "scripts/generate_loader.py":
-    "792c41d7ae93a4518f0c73e45626d19b",
+    "82f0334c0ffe6c271ce0b04af7ec713b",
   "scripts/gl.xml":
-    "e74a595068cbdd6064300be1e71b7cc9",
+    "f66967f3f3d696b5d8306fd80bbd49a8",
   "scripts/gl_angle_ext.xml":
-    "079cc4829de7ce638faf7bbf66e141ad",
+    "0b4f3476d76a5ccc40af342d6c08739d",
   "scripts/registry_xml.py":
-    "4048ca8f1e61cd86df75e5a1778461ea",
+    "7e9b9e8b735dadb417b2d10434f56a41",
   "scripts/wgl.xml":
-    "aa96419c582af2f6673430e2847693f4",
+    "c36001431919e1c435f1215a85f7e1db",
   "src/libEGL/egl_loader_autogen.cpp":
-    "64cb617726751808af6a64607cba39eb",
+    "3740eb7bd4928f17c4239ab294930469",
   "src/libEGL/egl_loader_autogen.h":
-    "e79b89b5f1f704383c96dbc99124efff",
+    "9cbf4d491497058a32642865eb032276",
+  "src/tests/restricted_traces/trace_egl_loader_autogen.cpp":
+    "ab1ce9e72e1e248b13302349f2228a89",
+  "src/tests/restricted_traces/trace_egl_loader_autogen.h":
+    "c912fbb18f691ab4b2694089cfd668d5",
+  "src/tests/restricted_traces/trace_gles_loader_autogen.cpp":
+    "d21675de753ec93a6664a4d63c5f0b86",
+  "src/tests/restricted_traces/trace_gles_loader_autogen.h":
+    "818312144f7c2d2116ddeebb1eb828fd",
   "util/egl_loader_autogen.cpp":
-    "44c9d17a658aec04dfa7b57fca5386a0",
+    "ad2bc908fbd69d8a1406320a4f5142c8",
   "util/egl_loader_autogen.h":
-    "e0ae6f29162d13d8d825fc9cd58baf94",
+    "dd280caf858b39f1ef0c89d55bdcc559",
   "util/gles_loader_autogen.cpp":
-    "b73fa86312a71c76f6a8402548d21204",
+    "af644f848dfe3f49cb49468e5303a75a",
   "util/gles_loader_autogen.h":
-    "f5df94d354db0d26275b1828f4083633",
+    "7ee618897d1372c643f0a1ad377d2fc8",
   "util/windows/wgl_loader_autogen.cpp":
-    "c0d9a65eaa9aac356c6fd3f88638d2be",
+    "0e305ff76ce8e855022f92105362fcdb",
   "util/windows/wgl_loader_autogen.h":
-    "36857be5c303b13eba2ee91d7c127207"
+    "9bc9410ff7fd9fe896bbd85b553faca1"
 }

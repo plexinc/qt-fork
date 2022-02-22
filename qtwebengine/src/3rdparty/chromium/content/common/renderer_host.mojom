@@ -4,6 +4,8 @@
 
 module content.mojom;
 
+import "url/mojom/url.mojom";
+
 // The primordial interface implemented by a render process host. This should be
 // used for implementing renderer-to-browser messages.
 interface RendererHost {

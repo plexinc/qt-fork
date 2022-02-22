@@ -9,7 +9,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
@@ -21,7 +21,6 @@
 #include "content/browser/cache_storage/scoped_writable_entry.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/browser/storage_partition.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/test_browser_context.h"
 #include "net/disk_cache/disk_cache.h"
@@ -76,10 +75,8 @@ class CacheStorageBlobToDiskCacheTest : public testing::Test {
  protected:
   CacheStorageBlobToDiskCacheTest()
       : task_environment_(BrowserTaskEnvironment::IO_MAINLOOP),
-        browser_context_(new TestBrowserContext()),
-        data_(kTestData),
-        callback_success_(false),
-        callback_called_(false) {}
+        browser_context_(std::make_unique<TestBrowserContext>()),
+        data_(kTestData) {}
 
   void SetUp() override {
     InitBlobStorage();
@@ -93,7 +90,6 @@ class CacheStorageBlobToDiskCacheTest : public testing::Test {
   }
 
   void TearDown() override {
-    quota_manager_proxy()->SimulateQuotaManagerDestroyed();
     quota_manager_ = nullptr;
     quota_manager_proxy_ = nullptr;
   }
@@ -137,7 +133,7 @@ class CacheStorageBlobToDiskCacheTest : public testing::Test {
         base::ThreadTaskRunnerHandle::Get().get(),
         nullptr /* special storage policy */);
     quota_manager_proxy_ = base::MakeRefCounted<storage::MockQuotaManagerProxy>(
-        quota_manager(), base::ThreadTaskRunnerHandle::Get().get());
+        quota_manager(), base::ThreadTaskRunnerHandle::Get());
   }
 
   std::string ReadCacheContent() {
@@ -194,8 +190,8 @@ class CacheStorageBlobToDiskCacheTest : public testing::Test {
       cache_storage_blob_to_disk_cache_;
   std::string data_;
 
-  bool callback_success_;
-  bool callback_called_;
+  bool callback_success_ = false;
+  bool callback_called_ = false;
 
  private:
   scoped_refptr<storage::QuotaManager> quota_manager_;

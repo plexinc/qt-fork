@@ -66,12 +66,12 @@ MemoryCache* ReplaceMemoryCacheForTesting(MemoryCache* cache) {
   return old_cache;
 }
 
-void MemoryCacheEntry::Trace(Visitor* visitor) {
+void MemoryCacheEntry::Trace(Visitor* visitor) const {
   visitor->template RegisterWeakCallbackMethod<
       MemoryCacheEntry, &MemoryCacheEntry::ClearResourceWeak>(this);
 }
 
-void MemoryCacheEntry::ClearResourceWeak(const WeakCallbackInfo& info) {
+void MemoryCacheEntry::ClearResourceWeak(const LivenessBroker& info) {
   if (!resource_ || info.IsHeapObjectAlive(resource_))
     return;
   GetMemoryCache()->Remove(resource_.Get());
@@ -93,7 +93,7 @@ MemoryCache::MemoryCache(
 
 MemoryCache::~MemoryCache() = default;
 
-void MemoryCache::Trace(Visitor* visitor) {
+void MemoryCache::Trace(Visitor* visitor) const {
   visitor->Trace(resource_maps_);
   MemoryCacheDumpClient::Trace(visitor);
   MemoryPressureListener::Trace(visitor);
@@ -447,7 +447,8 @@ bool MemoryCache::OnMemoryDump(WebMemoryDumpLevelOfDetail level_of_detail,
   return true;
 }
 
-void MemoryCache::OnMemoryPressure(WebMemoryPressureLevel level) {
+void MemoryCache::OnMemoryPressure(
+    base::MemoryPressureListener::MemoryPressureLevel level) {
   PruneAll();
 }
 

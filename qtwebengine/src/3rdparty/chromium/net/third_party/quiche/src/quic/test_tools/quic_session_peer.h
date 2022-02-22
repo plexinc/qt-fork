@@ -9,10 +9,11 @@
 #include <map>
 #include <memory>
 
-#include "net/third_party/quiche/src/quic/core/quic_packets.h"
-#include "net/third_party/quiche/src/quic/core/quic_session.h"
-#include "net/third_party/quiche/src/quic/core/quic_write_blocked_list.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_containers.h"
+#include "absl/container/flat_hash_map.h"
+#include "quic/core/quic_packets.h"
+#include "quic/core/quic_session.h"
+#include "quic/core/quic_write_blocked_list.h"
+#include "quic/platform/api/quic_containers.h"
 
 namespace quic {
 
@@ -54,13 +55,10 @@ class QuicSessionPeer {
   static QuicWriteBlockedList* GetWriteBlockedStreams(QuicSession* session);
   static QuicStream* GetOrCreateStream(QuicSession* session,
                                        QuicStreamId stream_id);
-  static std::map<QuicStreamId, QuicStreamOffset>&
+  static absl::flat_hash_map<QuicStreamId, QuicStreamOffset>&
   GetLocallyClosedStreamsHighestOffset(QuicSession* session);
   static QuicSession::StreamMap& stream_map(QuicSession* session);
   static const QuicSession::ClosedStreams& closed_streams(QuicSession* session);
-  static QuicSession::ZombieStreamMap& zombie_streams(QuicSession* session);
-  static QuicUnorderedSet<QuicStreamId>* GetDrainingStreams(
-      QuicSession* session);
   static void ActivateStream(QuicSession* session,
                              std::unique_ptr<QuicStream> stream);
 
@@ -74,15 +72,21 @@ class QuicSessionPeer {
   static bool IsStreamWriteBlocked(QuicSession* session, QuicStreamId id);
   static QuicAlarm* GetCleanUpClosedStreamsAlarm(QuicSession* session);
   static LegacyQuicStreamIdManager* GetStreamIdManager(QuicSession* session);
-  static UberQuicStreamIdManager* v99_streamid_manager(QuicSession* session);
-  static QuicStreamIdManager* v99_bidirectional_stream_id_manager(
+  static UberQuicStreamIdManager* ietf_streamid_manager(QuicSession* session);
+  static QuicStreamIdManager* ietf_bidirectional_stream_id_manager(
       QuicSession* session);
-  static QuicStreamIdManager* v99_unidirectional_stream_id_manager(
+  static QuicStreamIdManager* ietf_unidirectional_stream_id_manager(
       QuicSession* session);
   static PendingStream* GetPendingStream(QuicSession* session,
                                          QuicStreamId stream_id);
   static void set_is_configured(QuicSession* session, bool value);
   static void SetPerspective(QuicSession* session, Perspective perspective);
+  static size_t GetNumOpenDynamicStreams(QuicSession* session);
+  static size_t GetNumDrainingStreams(QuicSession* session);
+  static QuicStreamId GetLargestPeerCreatedStreamId(QuicSession* session,
+                                                    bool unidirectional) {
+    return session->GetLargestPeerCreatedStreamId(unidirectional);
+  }
 };
 
 }  // namespace test

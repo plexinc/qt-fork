@@ -12,6 +12,7 @@
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
+#include "cc/base/features.h"
 #include "content/browser/renderer_host/input/synthetic_gesture.h"
 #include "content/browser/renderer_host/input/synthetic_smooth_scroll_gesture.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
@@ -20,12 +21,14 @@
 #include "content/common/input/synthetic_smooth_scroll_gesture_params.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
 #include "content/public/test/hit_test_region_observer.h"
 #include "content/public/test/test_utils.h"
 #include "content/shell/browser/shell.h"
+#include "third_party/blink/public/common/switches.h"
 #include "ui/gfx/geometry/angle_conversions.h"
 
 namespace {
@@ -66,18 +69,21 @@ class CompositedScrollingBrowserTest : public ContentBrowserTest {
   CompositedScrollingBrowserTest() {
     // Disable scroll resampling because this is checking scroll distance.
     scoped_feature_list_.InitAndDisableFeature(
-        features::kResamplingScrollEvents);
+        blink::features::kResamplingScrollEvents);
   }
 
   ~CompositedScrollingBrowserTest() override = default;
 
   void SetUpCommandLine(base::CommandLine* cmd) override {
-    cmd->AppendSwitch(switches::kEnablePreferCompositingToLCDText);
+    cmd->AppendSwitch(blink::switches::kEnablePreferCompositingToLCDText);
   }
 
   RenderWidgetHostImpl* GetWidgetHost() {
-    return RenderWidgetHostImpl::From(
-        shell()->web_contents()->GetRenderViewHost()->GetWidget());
+    return RenderWidgetHostImpl::From(shell()
+                                          ->web_contents()
+                                          ->GetMainFrame()
+                                          ->GetRenderViewHost()
+                                          ->GetWidget());
   }
 
   void OnSyntheticGestureCompleted(SyntheticGesture::Result result) {
@@ -125,7 +131,7 @@ class CompositedScrollingBrowserTest : public ContentBrowserTest {
 
   // Generate touch events for a synthetic scroll from |point| for |distance|.
   // Returns the distance scrolled.
-  double DoScroll(SyntheticGestureParams::GestureSourceType type,
+  double DoScroll(content::mojom::GestureSourceType type,
                   const gfx::Point& point,
                   const gfx::Vector2d& distance) {
     SyntheticSmoothScrollGestureParams params;
@@ -151,11 +157,13 @@ class CompositedScrollingBrowserTest : public ContentBrowserTest {
   }
 
   double DoTouchScroll(const gfx::Point& point, const gfx::Vector2d& distance) {
-    return DoScroll(SyntheticGestureParams::TOUCH_INPUT, point, distance);
+    return DoScroll(content::mojom::GestureSourceType::kTouchInput, point,
+                    distance);
   }
 
   double DoWheelScroll(const gfx::Point& point, const gfx::Vector2d& distance) {
-    return DoScroll(SyntheticGestureParams::MOUSE_INPUT, point, distance);
+    return DoScroll(content::mojom::GestureSourceType::kMouseInput, point,
+                    distance);
   }
 
  private:
@@ -170,7 +178,7 @@ class CompositedScrollingBrowserTest : public ContentBrowserTest {
 // Disabled on MacOS because it doesn't support touch input.
 // Disabled on Android due to flakiness, see https://crbug.com/376668.
 // Flaky on Windows: crbug.com/804009
-#if defined(OS_MACOSX) || defined(OS_ANDROID) || defined(OS_WIN)
+#if defined(OS_MAC) || defined(OS_ANDROID) || defined(OS_WIN)
 #define MAYBE_Scroll3DTransformedScroller DISABLED_Scroll3DTransformedScroller
 #else
 #define MAYBE_Scroll3DTransformedScroller Scroll3DTransformedScroller
@@ -195,9 +203,9 @@ class CompositedScrollingMetricTest : public CompositedScrollingBrowserTest,
   void SetUpCommandLine(base::CommandLine* cmd) override {
     const bool enable_composited_scrolling = GetParam();
     if (enable_composited_scrolling)
-      cmd->AppendSwitch(switches::kEnablePreferCompositingToLCDText);
+      cmd->AppendSwitch(blink::switches::kEnablePreferCompositingToLCDText);
     else
-      cmd->AppendSwitch(switches::kDisableThreadedScrolling);
+      cmd->AppendSwitch(blink::switches::kDisableThreadedScrolling);
   }
 
   bool CompositingEnabled() { return GetParam(); }
@@ -256,6 +264,12 @@ IN_PROC_BROWSER_TEST_P(CompositedScrollingMetricTest,
 
   base::HistogramBase::Sample expected_bucket =
       CompositingEnabled() ? kScrollingOnCompositor : kScrollingOnMain;
+  if (base::FeatureList::IsEnabled(::features::kScrollUnification)) {
+    // TODO: crbug.com/1082590
+    // After ScrollUnification all scrolls happen on the compositor thread
+    // but some will still force blocking on main thread
+    expected_bucket = kScrollingOnCompositor;
+  }
 
   histograms.ExpectUniqueSample(kTouchHistogramName, expected_bucket, 2);
   histograms.ExpectUniqueSample(kWheelHistogramName, expected_bucket, 1);
@@ -303,6 +317,12 @@ IN_PROC_BROWSER_TEST_P(CompositedScrollingMetricTest, BlockingEventHandlers) {
   base::HistogramBase::Sample expected_bucket =
       CompositingEnabled() ? kScrollingOnCompositorBlockedOnMain
                            : kScrollingOnMain;
+  if (base::FeatureList::IsEnabled(::features::kScrollUnification)) {
+    // TODO: crbug.com/1082590
+    // After ScrollUnification all scrolls happen on the compositor thread
+    // but some will still force blocking on main thread
+    expected_bucket = kScrollingOnCompositorBlockedOnMain;
+  }
 
   histograms.ExpectUniqueSample(kTouchHistogramName, expected_bucket, 2);
   histograms.ExpectUniqueSample(kWheelHistogramName, expected_bucket, 1);
@@ -350,6 +370,12 @@ IN_PROC_BROWSER_TEST_P(CompositedScrollingMetricTest, PassiveEventHandlers) {
 
   base::HistogramBase::Sample expected_bucket =
       CompositingEnabled() ? kScrollingOnCompositor : kScrollingOnMain;
+  if (base::FeatureList::IsEnabled(::features::kScrollUnification)) {
+    // TODO: crbug.com/1082590
+    // After ScrollUnification all scrolls happen on the compositor thread
+    // but some will still force blocking on main thread
+    expected_bucket = kScrollingOnCompositor;
+  }
 
   histograms.ExpectUniqueSample(kTouchHistogramName, expected_bucket, 2);
   histograms.ExpectUniqueSample(kWheelHistogramName, expected_bucket, 1);

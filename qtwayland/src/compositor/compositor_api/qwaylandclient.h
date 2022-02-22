@@ -31,6 +31,7 @@
 #define QWAYLANDCLIENT_H
 
 #include <QtWaylandCompositor/qtwaylandcompositorglobal.h>
+#include <QtWaylandCompositor/qtwaylandqmlinclude.h>
 
 #include <QObject>
 
@@ -52,6 +53,11 @@ class Q_WAYLAND_COMPOSITOR_EXPORT QWaylandClient : public QObject
     Q_PROPERTY(qint64 userId READ userId CONSTANT)
     Q_PROPERTY(qint64 groupId READ groupId CONSTANT)
     Q_PROPERTY(qint64 processId READ processId CONSTANT)
+    Q_MOC_INCLUDE("qwaylandcompositor.h")
+
+    QML_NAMED_ELEMENT(WaylandClient)
+    QML_ADDED_IN_VERSION(1, 0)
+    QML_UNCREATABLE("")
 public:
     ~QWaylandClient() override;
 

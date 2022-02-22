@@ -14,6 +14,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
 #include "base/sequence_checker.h"
+#include "build/build_config.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
 #include "components/viz/host/client_frame_sink_video_capturer.h"
 #include "content/common/content_export.h"
@@ -72,7 +73,8 @@ class CONTENT_EXPORT FrameSinkVideoCaptureDevice
   void MaybeSuspend() final;
   void Resume() final;
   void StopAndDeAllocate() final;
-  void OnUtilizationReport(int frame_feedback_id, double utilization) final;
+  void OnUtilizationReport(int frame_feedback_id,
+                           media::VideoFrameFeedback feedback) final;
 
   // FrameSinkVideoConsumer implementation.
   void OnFrameCaptured(
@@ -91,7 +93,11 @@ class CONTENT_EXPORT FrameSinkVideoCaptureDevice
 
  protected:
   MouseCursorOverlayController* cursor_controller() const {
+#if !defined(OS_ANDROID)
     return cursor_controller_.get();
+#else
+    return nullptr;
+#endif
   }
 
   // Subclasses override these to perform additional start/stop tasks.
@@ -162,10 +168,12 @@ class CONTENT_EXPORT FrameSinkVideoCaptureDevice
 
   SEQUENCE_CHECKER(sequence_checker_);
 
+#if !defined(OS_ANDROID)
   // Controls the overlay that renders the mouse cursor onto each video frame.
   const std::unique_ptr<MouseCursorOverlayController,
                         BrowserThread::DeleteOnUIThread>
       cursor_controller_;
+#endif
 
   // Prevent display sleeping while content capture is in progress.
   mojo::Remote<device::mojom::WakeLock> wake_lock_;

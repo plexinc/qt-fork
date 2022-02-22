@@ -5,10 +5,10 @@
 #ifndef QUICHE_QUIC_CORE_CONGESTION_CONTROL_BBR2_PROBE_RTT_H_
 #define QUICHE_QUIC_CORE_CONGESTION_CONTROL_BBR2_PROBE_RTT_H_
 
-#include "net/third_party/quiche/src/quic/core/congestion_control/bbr2_misc.h"
-#include "net/third_party/quiche/src/quic/core/quic_time.h"
-#include "net/third_party/quiche/src/quic/core/quic_types.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
+#include "quic/core/congestion_control/bbr2_misc.h"
+#include "quic/core/quic_time.h"
+#include "quic/core/quic_types.h"
+#include "quic/platform/api/quic_export.h"
 
 namespace quic {
 
@@ -17,15 +17,11 @@ class QUIC_EXPORT_PRIVATE Bbr2ProbeRttMode final : public Bbr2ModeBase {
  public:
   using Bbr2ModeBase::Bbr2ModeBase;
 
-#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ < 7
-  Bbr2ProbeRttMode(const Bbr2Sender* sender, Bbr2NetworkModel* model)
-      : Bbr2ModeBase(sender, model) {}
-#endif
-
   void Enter(QuicTime now,
              const Bbr2CongestionEvent* congestion_event) override;
   void Leave(QuicTime /*now*/,
              const Bbr2CongestionEvent* /*congestion_event*/) override {}
+
   Bbr2Mode OnCongestionEvent(
       QuicByteCount prior_in_flight,
       QuicTime event_time,

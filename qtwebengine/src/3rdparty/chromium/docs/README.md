@@ -48,8 +48,8 @@ used when committed.
     (on a Linux host)
 *   [Cast for Android Build Instructions](android_cast_build_instructions.md) -
     Cast for Android (on a Linux host)
-*   [Fuchsia Build Instructions](fuchsia_build_instructions.md) - Fuchsia target
-    (on a Linux host)
+*   [Fuchsia Build Instructions](fuchsia/build_instructions.md) -
+    Fuchsia target (on a Linux host)
 *   [iOS Build Instructions](ios/build_instructions.md) - iOS target (on a MacOS
     host)
 *   [Chrome OS Build Instructions](chromeos_build_instructions.md) - Chrome OS
@@ -110,6 +110,7 @@ used when committed.
 *   [Code Reviews](code_reviews.md) - Code review requirements and guidelines
 *   [Respectful Code Reviews](cr_respect.md) - A guide for code reviewers
 *   [Respectful Changes](cl_respect.md) - A guide for code authors
+*   [Mandatory Code-Review Rollout](code_review_owners.md) - Upcoming policy changes related to code review and OWNERS
 *   [LUCI Migration FAQ](luci_migration_faq.md) - FAQ on Buildbot-to-LUCI
     builder migration for Chromium
 *   [Tour of Continuous Integration UI](tour_of_luci_ui.md) - A tour of our
@@ -122,6 +123,7 @@ used when committed.
     and handle thread safety in Chrome.
 *   [Callback<> and Bind()](callback.md) - All about Callbacks, Closures, and
     Bind().
+*   [Chromium Views UI](ui/index.md) - Working with the desktop UI framework.
 *   [Views Platform Styling](ui/views/platform_style.md) - How views are styled
     to fit in different native platforms
 *   [Tab Helpers](tab_helpers.md) - Using WebContents/WebContentsObserver to add
@@ -153,9 +155,12 @@ used when committed.
     chrome:// URLs).
 *   [Watchlists](infra/watchlists.md) - Use watchlists to get notified of CLs
     you are interested in.
+*   [Shutdown](shutdown.md) - Explains the steps of Chrome shutdown, to make it
+    easier to determine where to add a new shutdown operation.
 
 ### Testing
 *   [Running and Debugging Web Tests](testing/web_tests.md)
+*   [On disabling tests](testing/disabling_tests.md)
 *   [Writing Web Tests](testing/writing_web_tests.md) - Web Tests using
     `content_shell`
 *   [Web Test Expectations and Baselines](testing/web_test_expectations.md) -
@@ -249,6 +254,11 @@ used when committed.
     on top of DirectX
 *   [Windows Split DLLs](windows_split_dll.md) - Splitting `chrome.dll` into
     multiple dlls to work around toolchain limitations on Windows.
+*   [Windows Native Window Occlusion Tracking](windows_native_window_occlusion_tracking.md)
+*   [Windows PWA Integration](windows_pwa_integration.md) - Integration with
+    Progressive Web Apps on Windows
+*   [Windows Shortcut and Taskbar Handling](windows_shortcut_and_taskbar_handling.md)
+*   [Windows Virtual Desktop Integration](windows_virtual_desktop_handling.md)
 
 ### Misc Android-Specific Docs
 *   [Google Play Services in Chrome for Android](google_play_services.md)
@@ -286,6 +296,8 @@ used when committed.
 *   [User Agent in Chrome for iOS](ios/user_agent.md) - Notes on User Agent
     strings using Chrome for iOS.
 *   [Running iOS test suites locally](ios/testing.md)
+*   [Working With Project Files in iOS](ios/working_with_files.md) - How
+    to add, remove, and rename files in the iOS Chromium project.
 
 ### Misc Chrome-OS-Specific Docs
 *   [Setting up captive portals and other restrictive networks](login/restrictive_networks.md)
@@ -293,10 +305,13 @@ used when committed.
     *   [Kiosk mode and public sessions](enterprise/kiosk_public_session.md)
 *   [Debugging UI in OOBE/login/lock](login/ui_debugging.md)
 *   [Chrome Logging on Chrome OS](chrome_os_logging.md)
+*   [Debugging tips](testing/chromeos_debugging_tips.md)
 
 ### Misc WebUI-Specific Docs
 *   [Creating WebUI Interfaces in components/](webui_in_components.md) How to
     create a new WebUI component in the `components/` directory.
+*   [Trusted Types on WebUI](trusted_types_on_webui.md) Tips for coding in WebUI
+    with Trusted Types in mind.
 
 ### Media
 *   [Audio Focus Handling](media/audio_focus.md) - How multiple MediaSession
@@ -343,6 +358,11 @@ used when committed.
 *   [Memory Benchmarks](memory-infra/memory_benchmarks.md)
 *   [Heap Profiling](memory-infra/heap_profiler.md)
 
+### Metrics
+*   [Histograms](/tools/metrics/histograms/README.md)
+*   [User Actions](/tools/metrics/actions/README.md)
+*   [Code review guidelines](/tools/metrics/histograms/review_guidelines.md)
+
 ### Misc
 *   [Useful URLs](useful_urls.md) - A collection of links to various tools and
     dashboards
@@ -377,9 +397,9 @@ used when committed.
 *   [Mojo “Style” Guide](security/mojo.md) - Recommendations for best practices
     from Mojo and IPC reviewers
 
-### WebXR
-*   [Running OpenVR Without Headset](xr/run_openvr_without_headset.md) -
-    Instructions for running OpenVR on Windows without a headset
+### Speed
+*   [Chrome Speed](speed/README.md) - Documentation for performance measurements and regressions in Chrome.
+*   [Chrome Speed Metrics](speed_metrics/README.md) - Documentation about user experience metrics in the web and their JavaScript APIs.
 
 ### Probably Obsolete
 *   [TPM Quick Reference](tpm_quick_ref.md) - Trusted Platform Module notes.

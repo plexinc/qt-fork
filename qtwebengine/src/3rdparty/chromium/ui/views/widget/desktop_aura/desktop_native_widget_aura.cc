@@ -17,6 +17,7 @@
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/client/cursor_client.h"
 #include "ui/aura/client/drag_drop_client.h"
+#include "ui/aura/client/drag_drop_delegate.h"
 #include "ui/aura/client/focus_client.h"
 #include "ui/aura/client/window_parenting_client.h"
 #include "ui/aura/env.h"
@@ -25,10 +26,13 @@
 #include "ui/aura/window_occlusion_tracker.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/base/class_property.h"
+#include "ui/base/data_transfer_policy/data_transfer_endpoint.h"
+#include "ui/base/dragdrop/drag_drop_types.h"
 #include "ui/base/hit_test.h"
 #include "ui/base/ime/input_method.h"
 #include "ui/base/ui_base_features.h"
 #include "ui/compositor/layer.h"
+#include "ui/display/screen.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/geometry/point_conversions.h"
 #include "ui/gfx/geometry/rect.h"
@@ -358,9 +362,6 @@ void DesktopNativeWidgetAura::OnDesktopWindowTreeHostDestroyed(
   aura::client::SetScreenPositionClient(host->window(), nullptr);
   position_client_.reset();
 
-  aura::client::SetDragDropClient(host->window(), nullptr);
-  drag_drop_client_.reset();
-
   aura::client::SetEventClient(host->window(), nullptr);
   event_client_.reset();
 }
@@ -431,6 +432,13 @@ void DesktopNativeWidgetAura::HandleActivationChanged(bool active) {
       GetInputMethod()->OnBlur();
     }
   }
+}
+
+void DesktopNativeWidgetAura::OnHostWillClose() {
+  // The host is going to close, but our DnD client may use it, so we need to
+  // detach the DnD client and destroy it to avoid uses after free.
+  aura::client::SetDragDropClient(host_->window(), nullptr);
+  drag_drop_client_.reset();
 }
 
 gfx::NativeWindow DesktopNativeWidgetAura::GetNativeWindow() const {
@@ -517,6 +525,9 @@ void DesktopNativeWidgetAura::InitNativeWidget(Widget::InitParams params) {
     if (!cursor_manager_) {
       cursor_manager_ = new wm::CursorManager(
           std::unique_ptr<wm::NativeCursorManager>(native_cursor_manager_));
+      cursor_manager_->SetDisplay(
+          display::Screen::GetScreen()->GetDisplayNearestWindow(
+              host_->window()));
     }
     native_cursor_manager_->AddHost(host());
     aura::client::SetCursorClient(host_->window(), cursor_manager_);
@@ -539,8 +550,7 @@ void DesktopNativeWidgetAura::InitNativeWidget(Widget::InitParams params) {
 
   position_client_ = desktop_window_tree_host_->CreateScreenPositionClient();
 
-  drag_drop_client_ =
-      desktop_window_tree_host_->CreateDragDropClient(native_cursor_manager_);
+  drag_drop_client_ = desktop_window_tree_host_->CreateDragDropClient();
   // Mus returns null from CreateDragDropClient().
   if (drag_drop_client_)
     aura::client::SetDragDropClient(host_->window(), drag_drop_client_.get());
@@ -596,7 +606,8 @@ void DesktopNativeWidgetAura::OnWidgetInitDone() {
   desktop_window_tree_host_->OnWidgetInitDone();
 }
 
-NonClientFrameView* DesktopNativeWidgetAura::CreateNonClientFrameView() {
+std::unique_ptr<NonClientFrameView>
+DesktopNativeWidgetAura::CreateNonClientFrameView() {
   return desktop_window_tree_host_->CreateNonClientFrameView();
 }
 
@@ -919,7 +930,7 @@ void DesktopNativeWidgetAura::RunShellDrag(
     std::unique_ptr<ui::OSExchangeData> data,
     const gfx::Point& location,
     int operation,
-    ui::DragDropTypes::DragEventSource source) {
+    ui::mojom::DragEventSource source) {
   views::RunShellDrag(content_window_, std::move(data), location, operation,
                       source);
 }
@@ -1158,6 +1169,10 @@ void DesktopNativeWidgetAura::OnGestureEvent(ui::GestureEvent* event) {
   native_widget_delegate_->OnGestureEvent(event);
 }
 
+base::StringPiece DesktopNativeWidgetAura::GetLogContext() const {
+  return "DesktopNativeWidgetAura";
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // DesktopNativeWidgetAura, wm::ActivationDelegate implementation:
 
@@ -1213,11 +1228,15 @@ void DesktopNativeWidgetAura::OnDragEntered(const ui::DropTargetEvent& event) {
       event.data(), event.location(), event.source_operations());
 }
 
-int DesktopNativeWidgetAura::OnDragUpdated(const ui::DropTargetEvent& event) {
+aura::client::DragUpdateInfo DesktopNativeWidgetAura::OnDragUpdated(
+    const ui::DropTargetEvent& event) {
   DCHECK(drop_helper_.get() != nullptr);
   last_drop_operation_ = drop_helper_->OnDragOver(
       event.data(), event.location(), event.source_operations());
-  return last_drop_operation_;
+
+  return aura::client::DragUpdateInfo(
+      last_drop_operation_,
+      ui::DataTransferEndpoint(ui::EndpointType::kDefault));
 }
 
 void DesktopNativeWidgetAura::OnDragExited() {
@@ -1225,7 +1244,7 @@ void DesktopNativeWidgetAura::OnDragExited() {
   drop_helper_->OnDragExit();
 }
 
-int DesktopNativeWidgetAura::OnPerformDrop(
+ui::mojom::DragOperation DesktopNativeWidgetAura::OnPerformDrop(
     const ui::DropTargetEvent& event,
     std::unique_ptr<ui::OSExchangeData> data) {
   DCHECK(drop_helper_.get() != nullptr);

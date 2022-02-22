@@ -40,8 +40,9 @@
 #ifndef QT3DRENDER_QGEOMETRYRENDERER_H
 #define QT3DRENDER_QGEOMETRYRENDERER_H
 
-#include <Qt3DCore/qcomponent.h>
-#include <Qt3DRender/qgeometry.h>
+#include <Qt3DCore/qboundingvolume.h>
+#include <Qt3DCore/qgeometry.h>
+#include <Qt3DCore/qgeometryview.h>
 #include <Qt3DRender/qt3drender_global.h>
 
 QT_BEGIN_NAMESPACE
@@ -49,11 +50,8 @@ QT_BEGIN_NAMESPACE
 namespace Qt3DRender {
 
 class QGeometryRendererPrivate;
-class QGeometryFactory;
 
-typedef QSharedPointer<QGeometryFactory> QGeometryFactoryPtr;
-
-class Q_3DRENDERSHARED_EXPORT QGeometryRenderer : public Qt3DCore::QComponent
+class Q_3DRENDERSHARED_EXPORT QGeometryRenderer : public Qt3DCore::QBoundingVolume
 {
     Q_OBJECT
     Q_PROPERTY(int instanceCount READ instanceCount WRITE setInstanceCount NOTIFY instanceCountChanged)
@@ -65,9 +63,9 @@ class Q_3DRENDERSHARED_EXPORT QGeometryRenderer : public Qt3DCore::QComponent
     Q_PROPERTY(int restartIndexValue READ restartIndexValue WRITE setRestartIndexValue NOTIFY restartIndexValueChanged)
     Q_PROPERTY(int verticesPerPatch READ verticesPerPatch WRITE setVerticesPerPatch NOTIFY verticesPerPatchChanged)
     Q_PROPERTY(bool primitiveRestartEnabled READ primitiveRestartEnabled WRITE setPrimitiveRestartEnabled NOTIFY primitiveRestartEnabledChanged)
-    Q_PROPERTY(Qt3DRender::QGeometry* geometry READ geometry WRITE setGeometry NOTIFY geometryChanged)
+    Q_PROPERTY(Qt3DCore::QGeometry* geometry READ geometry WRITE setGeometry NOTIFY geometryChanged)
     Q_PROPERTY(PrimitiveType primitiveType READ primitiveType WRITE setPrimitiveType NOTIFY primitiveTypeChanged)
-
+    Q_PROPERTY(float sortIndex READ sortIndex WRITE setSortIndex NOTIFY sortIndexChanged)
 public:
     explicit QGeometryRenderer(Qt3DCore::QNode *parent = nullptr);
     ~QGeometryRenderer();
@@ -100,11 +98,9 @@ public:
     int restartIndexValue() const;
     int verticesPerPatch() const;
     bool primitiveRestartEnabled() const;
-    QGeometry *geometry() const;
+    Qt3DCore::QGeometry *geometry() const;
     PrimitiveType primitiveType() const;
-
-    Q3D_DECL_DEPRECATED QGeometryFactoryPtr geometryFactory() const;
-    Q3D_DECL_DEPRECATED void setGeometryFactory(const QGeometryFactoryPtr &factory);
+    float sortIndex() const;
 
 public Q_SLOTS:
     void setInstanceCount(int instanceCount);
@@ -116,8 +112,9 @@ public Q_SLOTS:
     void setRestartIndexValue(int index);
     void setVerticesPerPatch(int verticesPerPatch);
     void setPrimitiveRestartEnabled(bool enabled);
-    void setGeometry(QGeometry *geometry);
+    void setGeometry(Qt3DCore::QGeometry *geometry);
     void setPrimitiveType(PrimitiveType primitiveType);
+    void setSortIndex(float sortIndex);
 
 Q_SIGNALS:
     void instanceCountChanged(int instanceCount);
@@ -129,17 +126,17 @@ Q_SIGNALS:
     void restartIndexValueChanged(int restartIndexValue);
     void verticesPerPatchChanged(int verticesPerPatch);
     void primitiveRestartEnabledChanged(bool primitiveRestartEnabled);
-    void geometryChanged(QGeometry *geometry);
+    void geometryChanged(Qt3DCore::QGeometry *geometry);
     void primitiveTypeChanged(PrimitiveType primitiveType);
+
+    void sortIndexChanged(float sortIndex);
 
 protected:
     explicit QGeometryRenderer(QGeometryRendererPrivate &dd, Qt3DCore::QNode *parent = nullptr);
-    // TODO Unused remove in Qt6
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) override;
 
 private:
     Q_DECLARE_PRIVATE(QGeometryRenderer)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
+    float m_sortIndex;
 };
 
 } // namespace Qt3DRender

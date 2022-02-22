@@ -117,7 +117,7 @@ void QWaylandInputMethodEventBuilder::setPreeditCursor(int32_t index)
     m_preeditCursor = index;
 }
 
-QInputMethodEvent QWaylandInputMethodEventBuilder::buildCommit(const QString &text)
+QInputMethodEvent *QWaylandInputMethodEventBuilder::buildCommit(const QString &text)
 {
     QList<QInputMethodEvent::Attribute> attributes;
 
@@ -141,17 +141,17 @@ QInputMethodEvent QWaylandInputMethodEventBuilder::buildCommit(const QString &te
                                                           QVariant()));
     }
 
-    QInputMethodEvent event(QString(), attributes);
-    event.setCommitString(text, replacement.first, replacement.second);
+    QInputMethodEvent *event = new QInputMethodEvent(QString(), attributes);
+    event->setCommitString(text, replacement.first, replacement.second);
 
     return event;
 }
 
-QInputMethodEvent QWaylandInputMethodEventBuilder::buildPreedit(const QString &text)
+QInputMethodEvent *QWaylandInputMethodEventBuilder::buildPreedit(const QString &text)
 {
     QList<QInputMethodEvent::Attribute> attributes;
 
-    if (m_preeditCursor < 0) {
+    if (m_preeditCursor <= 0) {
         attributes.append(QInputMethodEvent::Attribute(QInputMethodEvent::Cursor, 0, 0, QVariant()));
     } else if (m_preeditCursor > 0) {
         attributes.append(QInputMethodEvent::Attribute(QInputMethodEvent::Cursor, indexFromWayland(text, m_preeditCursor), 1, QVariant()));
@@ -163,10 +163,10 @@ QInputMethodEvent QWaylandInputMethodEventBuilder::buildPreedit(const QString &t
         attributes.append(QInputMethodEvent::Attribute(attr.type, start, length, attr.value));
     }
 
-    QInputMethodEvent event(text, attributes);
+    QInputMethodEvent *event = new QInputMethodEvent(text, attributes);
 
     const QPair<int, int> replacement = replacementForDeleteSurrounding();
-    event.setCommitString(QString(), replacement.first, replacement.second);
+    event->setCommitString(QString(), replacement.first, replacement.second);
 
     return event;
 }
@@ -265,17 +265,17 @@ int QWaylandInputMethodEventBuilder::indexFromWayland(const QString &text, int l
         return base;
 
     if (length < 0) {
-        const QByteArray &utf8 = text.leftRef(base).toUtf8();
+        const QByteArray &utf8 = QStringView{text}.left(base).toUtf8();
         return QString::fromUtf8(utf8.left(qMax(utf8.length() + length, 0))).length();
     } else {
-        const QByteArray &utf8 = text.midRef(base).toUtf8();
+        const QByteArray &utf8 = QStringView{text}.mid(base).toUtf8();
         return QString::fromUtf8(utf8.left(length)).length() + base;
     }
 }
 
 int QWaylandInputMethodEventBuilder::indexToWayland(const QString &text, int length, int base)
 {
-    return text.midRef(base, length).toUtf8().size();
+    return QStringView{text}.mid(base, length).toUtf8().size();
 }
 
 QT_END_NAMESPACE

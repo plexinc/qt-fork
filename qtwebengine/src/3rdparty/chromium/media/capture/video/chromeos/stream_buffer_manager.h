@@ -14,10 +14,12 @@
 #include <unordered_map>
 #include <vector>
 
+#include "base/containers/flat_map.h"
 #include "base/containers/queue.h"
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
 #include "base/single_thread_task_runner.h"
+#include "media/capture/video/chromeos/camera_device_context.h"
 #include "media/capture/video/chromeos/camera_device_delegate.h"
 #include "media/capture/video/chromeos/mojom/camera3.mojom.h"
 #include "media/capture/video_capture_types.h"
@@ -37,7 +39,6 @@ class GpuMemoryBufferSupport;
 namespace media {
 
 class CameraBufferFactory;
-class CameraDeviceContext;
 
 struct BufferInfo;
 
@@ -64,9 +65,11 @@ class CAPTURE_EXPORT StreamBufferManager final {
   // clockwise degrees that the source frame would be rotated to, and the valid
   // values are 0, 90, 180, and 270.  Returns the VideoCaptureFormat of the
   // returned buffer in |format|.
+  //
+  // TODO(crbug.com/990682): Remove the |rotation| arg when we disable the
+  // camera frame rotation for good.
   base::Optional<Buffer> AcquireBufferForClientById(StreamType stream_type,
                                                     uint64_t buffer_ipc_id,
-                                                    int rotation,
                                                     VideoCaptureFormat* format);
 
   VideoCaptureFormat GetStreamCaptureFormat(StreamType stream_type);
@@ -81,7 +84,7 @@ class CAPTURE_EXPORT StreamBufferManager final {
   // Sets up the stream context and allocate buffers according to the
   // configuration specified in |stream|.
   void SetUpStreamsAndBuffers(
-      VideoCaptureFormat capture_format,
+      base::flat_map<ClientType, VideoCaptureParams> capture_params,
       const cros::mojom::CameraMetadataPtr& static_metadata,
       std::vector<cros::mojom::Camera3StreamPtr> streams);
 
@@ -101,6 +104,8 @@ class CAPTURE_EXPORT StreamBufferManager final {
   gfx::Size GetBufferDimension(StreamType stream_type);
 
   bool IsReprocessSupported();
+
+  bool IsRecordingSupported();
 
  private:
   friend class RequestManagerTest;
@@ -131,6 +136,8 @@ class CAPTURE_EXPORT StreamBufferManager final {
     cros::mojom::Camera3StreamPtr stream;
     // The dimension of the buffer layout.
     gfx::Size buffer_dimension;
+    // The usage of the buffer.
+    gfx::BufferUsage buffer_usage;
     // The allocated buffer pairs.
     std::map<int, BufferPair> buffers;
     // The free buffers of this stream.  The queue stores keys into the

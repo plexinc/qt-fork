@@ -21,6 +21,7 @@
 #include "third_party/blink/renderer/core/css/css_image_value.h"
 
 #include "third_party/blink/public/common/features.h"
+#include "third_party/blink/public/common/loader/referrer_utils.h"
 #include "third_party/blink/public/web/web_local_frame_client.h"
 #include "third_party/blink/renderer/core/css/css_markup.h"
 #include "third_party/blink/renderer/core/dom/document.h"
@@ -35,7 +36,6 @@
 #include "third_party/blink/renderer/platform/loader/fetch/resource_loader_options.h"
 #include "third_party/blink/renderer/platform/network/network_state_notifier.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
-#include "third_party/blink/renderer/platform/weborigin/security_policy.h"
 
 namespace blink {
 
@@ -43,47 +43,58 @@ CSSImageValue::CSSImageValue(const AtomicString& raw_value,
                              const KURL& url,
                              const Referrer& referrer,
                              OriginClean origin_clean,
+                             bool is_ad_related,
                              StyleImage* image)
     : CSSValue(kImageClass),
       relative_url_(raw_value),
       referrer_(referrer),
       absolute_url_(url.GetString()),
       cached_image_(image),
-      origin_clean_(origin_clean) {}
-
-CSSImageValue::CSSImageValue(const AtomicString& absolute_url,
-                             OriginClean origin_clean)
-    : CSSValue(kImageClass),
-      relative_url_(absolute_url),
-      absolute_url_(absolute_url),
-      origin_clean_(OriginClean::kFalse) {}
+      origin_clean_(origin_clean),
+      is_ad_related_(is_ad_related),
+      potentially_dangling_markup_(url.PotentiallyDanglingMarkup()) {}
 
 CSSImageValue::~CSSImageValue() = default;
 
 StyleImage* CSSImageValue::CacheImage(
     const Document& document,
-    FetchParameters::ImageRequestOptimization image_request_optimization,
+    FetchParameters::ImageRequestBehavior image_request_behavior,
     CrossOriginAttributeValue cross_origin) {
   if (!cached_image_) {
     if (absolute_url_.IsEmpty())
       ReResolveURL(document);
-    ResourceRequest resource_request(absolute_url_);
+    // The PotentiallyDanglingMarkup() flag is lost when storing the absolute url
+    // as a string from which the KURL is constructed here.
+    // The url passed into the constructor had the PotentiallyDanglingMarkup flag
+    // set. That information needs to be passed on to the fetch code to block such
+    // resources from loading.
+    KURL request_url = potentially_dangling_markup_
+                           ? document.CompleteURL(relative_url_)
+                           : KURL(absolute_url_);
+    SECURITY_CHECK(request_url.PotentiallyDanglingMarkup() ==
+                   potentially_dangling_markup_);
+    ResourceRequest resource_request(request_url);
     resource_request.SetReferrerPolicy(
-        ReferrerPolicyResolveDefault(referrer_.referrer_policy));
+        ReferrerUtils::MojoReferrerPolicyResolveDefault(
+            referrer_.referrer_policy));
     resource_request.SetReferrerString(referrer_.referrer);
-    ResourceLoaderOptions options;
+    if (is_ad_related_)
+      resource_request.SetIsAdResource();
+    ResourceLoaderOptions options(
+        document.GetExecutionContext()->GetCurrentWorld());
     options.initiator_info.name = initiator_name_.IsEmpty()
                                       ? fetch_initiator_type_names::kCSS
                                       : initiator_name_;
+    options.initiator_info.referrer = referrer_.referrer;
     FetchParameters params(std::move(resource_request), options);
 
     if (cross_origin != kCrossOriginAttributeNotSet) {
-      params.SetCrossOriginAccessControl(document.GetSecurityOrigin(),
-                                         cross_origin);
+      params.SetCrossOriginAccessControl(
+          document.GetExecutionContext()->GetSecurityOrigin(), cross_origin);
     }
 
     bool is_lazily_loaded =
-        image_request_optimization == FetchParameters::kDeferImageLoad &&
+        image_request_behavior == FetchParameters::kDeferImageLoad &&
         // Only http/https images are eligible to be lazily loaded.
         params.Url().ProtocolIsInHTTPFamily();
     if (is_lazily_loaded) {
@@ -97,9 +108,10 @@ StyleImage* CSSImageValue::CacheImage(
     if (base::FeatureList::IsEnabled(blink::features::kSubresourceRedirect) &&
         params.Url().ProtocolIsInHTTPFamily() &&
         GetNetworkStateNotifier().SaveDataEnabled()) {
-      auto& resource_request = params.MutableResourceRequest();
-      resource_request.SetPreviewsState(resource_request.GetPreviewsState() |
-                                        WebURLRequest::kSubresourceRedirectOn);
+      auto& subresource_request = params.MutableResourceRequest();
+      subresource_request.SetPreviewsState(
+          subresource_request.GetPreviewsState() |
+          PreviewsTypes::kSubresourceRedirectOn);
     }
 
     if (origin_clean_ != OriginClean::kTrue)
@@ -116,11 +128,11 @@ void CSSImageValue::RestoreCachedResourceIfNeeded(
   if (!cached_image_ || !document.Fetcher() || absolute_url_.IsNull())
     return;
 
-  ImageResourceContent* resource = cached_image_->CachedImage();
-  if (!resource)
+  ImageResourceContent* cached_content = cached_image_->CachedImage();
+  if (!cached_content)
     return;
 
-  resource->EmulateLoadStartedForInspector(
+  cached_content->EmulateLoadStartedForInspector(
       document.Fetcher(), KURL(absolute_url_),
       initiator_name_.IsEmpty() ? fetch_initiator_type_names::kCSS
                                 : initiator_name_);
@@ -129,8 +141,8 @@ void CSSImageValue::RestoreCachedResourceIfNeeded(
 bool CSSImageValue::HasFailedOrCanceledSubresources() const {
   if (!cached_image_)
     return false;
-  if (ImageResourceContent* cached_resource = cached_image_->CachedImage())
-    return cached_resource->LoadFailedOrCanceled();
+  if (ImageResourceContent* cached_content = cached_image_->CachedImage())
+    return cached_content->LoadFailedOrCanceled();
   return true;
 }
 

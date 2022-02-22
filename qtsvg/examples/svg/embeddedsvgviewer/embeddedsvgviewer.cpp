@@ -85,7 +85,7 @@ EmbeddedSvgViewer::EmbeddedSvgViewer(const QString &filePath)
 
 void EmbeddedSvgViewer::paintEvent(QPaintEvent *event)
 {
-    Q_UNUSED(event)
+    Q_UNUSED(event);
     QPainter painter(this);
     m_renderer->setViewBox(m_viewBox);
     m_renderer->render(&painter);
@@ -94,8 +94,8 @@ void EmbeddedSvgViewer::paintEvent(QPaintEvent *event)
 
 void EmbeddedSvgViewer::mouseMoveEvent ( QMouseEvent * event )
 {
-    int incX = int((event->globalX() - m_mousePress.x()) * m_imageScale);
-    int incY = int((event->globalY() - m_mousePress.y()) * m_imageScale);
+    int incX = int((event->globalPosition().toPoint().x() - m_mousePress.x()) * m_imageScale);
+    int incY = int((event->globalPosition().toPoint().y() - m_mousePress.y()) * m_imageScale);
 
     QPointF newCenter;
     newCenter.setX(m_viewBoxCenterOnMousePress.x() - incX);
@@ -128,7 +128,7 @@ void EmbeddedSvgViewer::mouseMoveEvent ( QMouseEvent * event )
 void EmbeddedSvgViewer::mousePressEvent ( QMouseEvent * event )
 {
     m_viewBoxCenterOnMousePress = m_viewBoxCenter;
-    m_mousePress = event->globalPos();
+    m_mousePress = event->globalPosition().toPoint();
 }
 
 

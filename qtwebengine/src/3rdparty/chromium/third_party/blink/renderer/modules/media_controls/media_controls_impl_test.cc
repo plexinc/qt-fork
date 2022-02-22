@@ -10,9 +10,10 @@
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/input/web_mouse_event.h"
+#include "third_party/blink/public/common/widget/screen_info.h"
 #include "third_party/blink/public/mojom/input/focus_type.mojom-blink.h"
+#include "third_party/blink/public/mojom/widget/screen_orientation.mojom-blink.h"
 #include "third_party/blink/public/platform/modules/remoteplayback/web_remote_playback_client.h"
-#include "third_party/blink/public/platform/web_screen_info.h"
 #include "third_party/blink/public/platform/web_size.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_gc_controller.h"
 #include "third_party/blink/renderer/core/css/css_property_value_set.h"
@@ -26,6 +27,7 @@
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/dom/text.h"
+#include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/geometry/dom_rect.h"
 #include "third_party/blink/renderer/core/html/media/html_media_element.h"
@@ -65,12 +67,18 @@ namespace {
 
 class FakeChromeClient : public EmptyChromeClient {
  public:
-  // ChromeClient overrides.
-  WebScreenInfo GetScreenInfo(LocalFrame&) const override {
-    WebScreenInfo screen_info;
-    screen_info.orientation_type = kWebScreenOrientationLandscapePrimary;
-    return screen_info;
+  FakeChromeClient()
+      : screen_info_({.orientation_type =
+                          mojom::blink::ScreenOrientation::kLandscapePrimary}) {
   }
+
+  // ChromeClient overrides.
+  const ScreenInfo& GetScreenInfo(LocalFrame&) const override {
+    return screen_info_;
+  }
+
+ private:
+  const ScreenInfo screen_info_;
 };
 
 class MockWebMediaPlayerForImpl : public EmptyWebMediaPlayer {
@@ -265,8 +273,7 @@ class MediaControlsImplTest : public PageTestBase,
   void ClickOverflowButton() {
     MediaControls()
         .download_button_->OverflowElementForTests()
-        ->DispatchSimulatedClick(nullptr, kSendNoEvents,
-                                 SimulatedClickCreationScope::kFromUserAgent);
+        ->DispatchSimulatedClick(nullptr);
   }
 
   void SetReady() {
@@ -313,7 +320,7 @@ class MediaControlsImplTest : public PageTestBase,
 };
 
 void MediaControlsImplTest::MouseDownAt(gfx::PointF pos) {
-  WebMouseEvent mouse_down_event(WebInputEvent::kMouseDown,
+  WebMouseEvent mouse_down_event(WebInputEvent::Type::kMouseDown,
                                  pos /* client pos */, pos /* screen pos */,
                                  WebPointerProperties::Button::kLeft, 1,
                                  WebInputEvent::Modifiers::kLeftButtonDown,
@@ -324,7 +331,7 @@ void MediaControlsImplTest::MouseDownAt(gfx::PointF pos) {
 }
 
 void MediaControlsImplTest::MouseMoveTo(gfx::PointF pos) {
-  WebMouseEvent mouse_move_event(WebInputEvent::kMouseMove,
+  WebMouseEvent mouse_move_event(WebInputEvent::Type::kMouseMove,
                                  pos /* client pos */, pos /* screen pos */,
                                  WebPointerProperties::Button::kLeft, 1,
                                  WebInputEvent::Modifiers::kLeftButtonDown,
@@ -336,7 +343,7 @@ void MediaControlsImplTest::MouseMoveTo(gfx::PointF pos) {
 
 void MediaControlsImplTest::MouseUpAt(gfx::PointF pos) {
   WebMouseEvent mouse_up_event(
-      WebMouseEvent::kMouseUp, pos /* client pos */, pos /* screen pos */,
+      WebMouseEvent::Type::kMouseUp, pos /* client pos */, pos /* screen pos */,
       WebPointerProperties::Button::kLeft, 1, WebInputEvent::kNoModifiers,
       WebInputEvent::GetStaticTimeStampForTests());
   mouse_up_event.SetFrameScale(1);
@@ -346,7 +353,7 @@ void MediaControlsImplTest::MouseUpAt(gfx::PointF pos) {
 
 void MediaControlsImplTest::GestureTapAt(gfx::PointF pos) {
   WebGestureEvent gesture_tap_event(
-      WebInputEvent::kGestureTap, WebInputEvent::kNoModifiers,
+      WebInputEvent::Type::kGestureTap, WebInputEvent::kNoModifiers,
       WebInputEvent::GetStaticTimeStampForTests());
 
   // Adjust |pos| by current frame scale.
@@ -677,158 +684,6 @@ TEST_F(MediaControlsImplTest, TimeIndicatorsUpdatedOnSeeking) {
   EXPECT_EQ(duration / 4, timeline->valueAsNumber());
 }
 
-TEST_F(MediaControlsImplTest, TimelineMetricsClick) {
-  double duration = 540;  // 9 minutes
-  LoadMediaWithDuration(duration);
-  EnsureSizing();
-  test::RunPendingTasks();
-
-  ASSERT_TRUE(IsElementVisible(*TimelineElement()));
-  DOMRect* timelineRect = TimelineElement()->getBoundingClientRect();
-  ASSERT_LT(0, timelineRect->width());
-
-  EXPECT_EQ(0, MediaControls().MediaElement().currentTime());
-
-  gfx::PointF trackCenter(timelineRect->left() + timelineRect->width() / 2,
-                          timelineRect->top() + timelineRect->height() / 2);
-  MouseDownAt(trackCenter);
-  MouseUpAt(trackCenter);
-  test::RunPendingTasks();
-
-  EXPECT_LE(0.49 * duration, MediaControls().MediaElement().currentTime());
-  EXPECT_GE(0.51 * duration, MediaControls().MediaElement().currentTime());
-
-  GetHistogramTester().ExpectUniqueSample("Media.Timeline.SeekType." TIMELINE_W,
-                                          0 /* SeekType::kClick */, 1);
-  GetHistogramTester().ExpectTotalCount(
-      "Media.Timeline.DragGestureDuration." TIMELINE_W, 0);
-  GetHistogramTester().ExpectTotalCount(
-      "Media.Timeline.DragPercent." TIMELINE_W, 0);
-  GetHistogramTester().ExpectTotalCount(
-      "Media.Timeline.DragSumAbsTimeDelta." TIMELINE_W, 0);
-  GetHistogramTester().ExpectTotalCount(
-      "Media.Timeline.DragTimeDelta." TIMELINE_W, 0);
-}
-
-TEST_F(MediaControlsImplTest, TimelineMetricsDragFromCurrentPosition) {
-  double duration = 540;  // 9 minutes
-  LoadMediaWithDuration(duration);
-  EnsureSizing();
-  test::RunPendingTasks();
-
-  ASSERT_TRUE(IsElementVisible(*TimelineElement()));
-  DOMRect* timeline_rect = TimelineTrackElement()->getBoundingClientRect();
-  ASSERT_LT(0, timeline_rect->width());
-
-  EXPECT_EQ(0, MediaControls().MediaElement().currentTime());
-
-  DOMRect* thumb_rect =
-      TimelineElement()
-          ->UserAgentShadowRoot()
-          ->getElementById(shadow_element_names::SliderThumb())
-          ->getBoundingClientRect();
-  gfx::PointF thumb(thumb_rect->x() + (thumb_rect->width() / 2),
-                    thumb_rect->y() + 1);
-
-  float y = timeline_rect->top() + timeline_rect->height() / 2;
-  gfx::PointF track_two_thirds(
-      timeline_rect->left() + timeline_rect->width() * 2 / 3, y);
-  MouseDownAt(thumb);
-  MouseMoveTo(track_two_thirds);
-  MouseUpAt(track_two_thirds);
-
-  EXPECT_LE(0.66 * duration, MediaControls().MediaElement().currentTime());
-  EXPECT_GE(0.68 * duration, MediaControls().MediaElement().currentTime());
-
-  GetHistogramTester().ExpectUniqueSample(
-      "Media.Timeline.SeekType." TIMELINE_W,
-      1 /* SeekType::kDragFromCurrentPosition */, 1);
-  GetHistogramTester().ExpectTotalCount(
-      "Media.Timeline.DragGestureDuration." TIMELINE_W, 1);
-  GetHistogramTester().ExpectUniqueSample(
-      "Media.Timeline.DragPercent." TIMELINE_W, 47 /* [60.0%, 70.0%) */, 1);
-  GetHistogramTester().ExpectUniqueSample(
-      "Media.Timeline.DragSumAbsTimeDelta." TIMELINE_W, 16 /* [4m, 8m) */, 1);
-  GetHistogramTester().ExpectUniqueSample(
-      "Media.Timeline.DragTimeDelta." TIMELINE_W, 40 /* [4m, 8m) */, 1);
-}
-
-TEST_F(MediaControlsImplTest, TimelineMetricsDragFromElsewhere) {
-  double duration = 540;  // 9 minutes
-  LoadMediaWithDuration(duration);
-  EnsureSizing();
-  test::RunPendingTasks();
-
-  ASSERT_TRUE(IsElementVisible(*TimelineElement()));
-  DOMRect* timelineRect = TimelineTrackElement()->getBoundingClientRect();
-  ASSERT_LT(0, timelineRect->width());
-
-  EXPECT_EQ(0, MediaControls().MediaElement().currentTime());
-
-  float y = timelineRect->top() + timelineRect->height() / 2;
-  gfx::PointF trackOneThird(
-      timelineRect->left() + timelineRect->width() * 1 / 3, y);
-  gfx::PointF trackTwoThirds(
-      timelineRect->left() + timelineRect->width() * 2 / 3, y);
-  MouseDownAt(trackOneThird);
-  MouseMoveTo(trackTwoThirds);
-  MouseUpAt(trackTwoThirds);
-
-  EXPECT_LE(0.66 * duration, MediaControls().MediaElement().currentTime());
-  EXPECT_GE(0.68 * duration, MediaControls().MediaElement().currentTime());
-
-  GetHistogramTester().ExpectUniqueSample("Media.Timeline.SeekType." TIMELINE_W,
-                                          2 /* SeekType::kDragFromElsewhere */,
-                                          1);
-  GetHistogramTester().ExpectTotalCount(
-      "Media.Timeline.DragGestureDuration." TIMELINE_W, 1);
-  GetHistogramTester().ExpectUniqueSample(
-      "Media.Timeline.DragPercent." TIMELINE_W, 42 /* [30.0%, 35.0%) */, 1);
-  GetHistogramTester().ExpectUniqueSample(
-      "Media.Timeline.DragSumAbsTimeDelta." TIMELINE_W, 15 /* [2m, 4m) */, 1);
-  GetHistogramTester().ExpectUniqueSample(
-      "Media.Timeline.DragTimeDelta." TIMELINE_W, 39 /* [2m, 4m) */, 1);
-}
-
-TEST_F(MediaControlsImplTest, TimelineMetricsDragBackAndForth) {
-  double duration = 540;  // 9 minutes
-  LoadMediaWithDuration(duration);
-  EnsureSizing();
-  test::RunPendingTasks();
-
-  ASSERT_TRUE(IsElementVisible(*TimelineElement()));
-  DOMRect* timelineRect = TimelineTrackElement()->getBoundingClientRect();
-  ASSERT_LT(0, timelineRect->width());
-
-  EXPECT_EQ(0, MediaControls().MediaElement().currentTime());
-
-  float y = timelineRect->top() + timelineRect->height() / 2;
-  gfx::PointF trackTwoThirds(
-      timelineRect->left() + timelineRect->width() * 2 / 3, y);
-  gfx::PointF trackEnd(timelineRect->left() + timelineRect->width(), y);
-  gfx::PointF trackOneThird(
-      timelineRect->left() + timelineRect->width() * 1 / 3, y);
-  MouseDownAt(trackTwoThirds);
-  MouseMoveTo(trackEnd);
-  MouseMoveTo(trackOneThird);
-  MouseUpAt(trackOneThird);
-
-  EXPECT_LE(0.32 * duration, MediaControls().MediaElement().currentTime());
-  EXPECT_GE(0.34 * duration, MediaControls().MediaElement().currentTime());
-
-  GetHistogramTester().ExpectUniqueSample("Media.Timeline.SeekType." TIMELINE_W,
-                                          2 /* SeekType::kDragFromElsewhere */,
-                                          1);
-  GetHistogramTester().ExpectTotalCount(
-      "Media.Timeline.DragGestureDuration." TIMELINE_W, 1);
-  GetHistogramTester().ExpectUniqueSample(
-      "Media.Timeline.DragPercent." TIMELINE_W, 8 /* (-35.0%, -30.0%] */, 1);
-  GetHistogramTester().ExpectUniqueSample(
-      "Media.Timeline.DragSumAbsTimeDelta." TIMELINE_W, 17 /* [8m, 15m) */, 1);
-  GetHistogramTester().ExpectUniqueSample(
-      "Media.Timeline.DragTimeDelta." TIMELINE_W, 9 /* (-4m, -2m] */, 1);
-}
-
 TEST_F(MediaControlsImplTest, TimeIsCorrectlyFormatted) {
   struct {
     double time;
@@ -1124,10 +979,7 @@ TEST_F(MediaControlsImplTest,
 
   test::RunPendingTasks();
 
-  // Needs to call into V8's GC here to trigger a unified garbage collection.
-  V8GCController::CollectAllGarbageForTesting(
-      ThreadState::Current()->GetIsolate(),
-      v8::EmbedderHeapTracer::EmbedderStackState::kEmpty);
+  ThreadState::Current()->CollectAllGarbageForTesting();
   EXPECT_EQ(nullptr, weak_persistent_video);
 }
 

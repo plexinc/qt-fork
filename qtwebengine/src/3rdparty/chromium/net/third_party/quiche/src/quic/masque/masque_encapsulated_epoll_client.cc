@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/masque/masque_encapsulated_epoll_client.h"
-#include "net/third_party/quiche/src/quic/core/quic_utils.h"
-#include "net/third_party/quiche/src/quic/masque/masque_client_session.h"
-#include "net/third_party/quiche/src/quic/masque/masque_encapsulated_client_session.h"
-#include "net/third_party/quiche/src/quic/masque/masque_epoll_client.h"
-#include "net/third_party/quiche/src/quic/masque/masque_utils.h"
+#include "quic/masque/masque_encapsulated_epoll_client.h"
+#include "quic/core/quic_utils.h"
+#include "quic/masque/masque_client_session.h"
+#include "quic/masque/masque_encapsulated_client_session.h"
+#include "quic/masque/masque_epoll_client.h"
+#include "quic/masque/masque_utils.h"
 
 namespace quic {
 
@@ -24,10 +24,10 @@ class MasquePacketWriter : public QuicPacketWriter {
                           const QuicIpAddress& /*self_address*/,
                           const QuicSocketAddress& peer_address,
                           PerPacketOptions* /*options*/) override {
-    DCHECK(peer_address.IsInitialized());
+    QUICHE_DCHECK(peer_address.IsInitialized());
     QUIC_DVLOG(1) << "MasquePacketWriter trying to write " << buf_len
                   << " bytes to " << peer_address;
-    quiche::QuicheStringPiece packet(buffer, buf_len);
+    absl::string_view packet(buffer, buf_len);
     client_->masque_client()->masque_client_session()->SendPacket(
         client_->session()->connection()->client_connection_id(),
         client_->session()->connection()->connection_id(), packet,
@@ -47,10 +47,10 @@ class MasquePacketWriter : public QuicPacketWriter {
   bool SupportsReleaseTime() const override { return false; }
 
   bool IsBatchMode() const override { return false; }
-  char* GetNextWriteLocation(
+  QuicPacketBuffer GetNextWriteLocation(
       const QuicIpAddress& /*self_address*/,
       const QuicSocketAddress& /*peer_address*/) override {
-    return nullptr;
+    return {nullptr, nullptr};
   }
 
   WriteResult Flush() override { return WriteResult(WRITE_STATUS_OK, 0); }

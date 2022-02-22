@@ -86,26 +86,28 @@ namespace QTest {
         }
     }
 
+#  ifdef Q_OS_UNIX
     class QExternalProcess: public QProcess
     {
-    protected:
-#ifdef Q_OS_UNIX
-        void setupChildProcess()
+    public:
+        QExternalProcess()
         {
-            // run in user code
-            QProcess::setupChildProcess();
-
-            if (processChannelMode() == ForwardedChannels) {
-                // reopen /dev/tty into stdin
-                int fd = ::open("/dev/tty", O_RDONLY);
-                if (fd == -1)
-                    return;
-                ::dup2(fd, 0);
-                ::close(fd);
-            }
+            setChildProcessModifier([this]() {
+                // run in user code
+                if (processChannelMode() == ForwardedChannels) {
+                    // reopen /dev/tty into stdin
+                    int fd = ::open("/dev/tty", O_RDONLY);
+                    if (fd == -1)
+                        return;
+                    ::dup2(fd, 0);
+                    ::close(fd);
+                }
+            });
         }
-#endif
     };
+#  else
+    using QExternalProcess = QProcess;
+#  endif
 #endif // QT_CONFIG(process)
 
     class QExternalTestPrivate
@@ -341,7 +343,7 @@ namespace QTest {
         if (qtModules & QExternalTest::QtScript)
             sourceCode += "#include <QtScript/QtScript>\n";
         if (qtModules & QExternalTest::QtTest)
-            sourceCode += "#include <QtTest/QtTest>\n";
+            sourceCode += "#include <QTest>\n";
         if (qtModules & QExternalTest::QtDBus)
             sourceCode += "#include <QtDBus/QtDBus>\n";
         if (qtModules & QExternalTest::QtWebKit)
@@ -588,7 +590,7 @@ namespace QTest {
              << QLatin1String("project.pro");
         qmake.setWorkingDirectory(temporaryDirPath);
 
-        QString cmd = QLibraryInfo::location(QLibraryInfo::BinariesPath) + "/qmake";
+        QString cmd = QLibraryInfo::path(QLibraryInfo::BinariesPath) + "/qmake";
 #ifdef Q_OS_WIN
         cmd.append(".exe");
 #endif

@@ -53,7 +53,7 @@
 
 #include <QVariant>
 #include <QByteArray>
-#include <QVector>
+#include <vector>
 #include <QOpenGLShaderProgram>
 #include <Qt3DCore/qnodeid.h>
 #include <Qt3DRender/private/renderlogging_p.h>
@@ -64,10 +64,6 @@ QT_BEGIN_NAMESPACE
 
 class QOpenGLShaderProgram;
 
-namespace Qt3DCore {
-class QFrameAllocator;
-}
-
 namespace Qt3DRender {
 namespace Render {
 namespace Rhi {
@@ -77,11 +73,12 @@ class GraphicsContext;
 struct BlockToUBO
 {
     int m_blockIndex;
+    int m_bindingIndex;
     Qt3DCore::QNodeId m_bufferID;
     bool m_needsUpdate;
     QHash<QString, QVariant> m_updatedProperties;
 };
-QT3D_DECLARE_TYPEINFO_3(Qt3DRender, Render, Rhi, BlockToUBO, Q_MOVABLE_TYPE)
+QT3D_DECLARE_TYPEINFO_3(Qt3DRender, Render, Rhi, BlockToUBO, Q_RELOCATABLE_TYPE)
 
 struct BlockToSSBO
 {
@@ -91,20 +88,43 @@ struct BlockToSSBO
 };
 QT3D_DECLARE_TYPEINFO_3(Qt3DRender, Render, Rhi, BlockToSSBO, Q_PRIMITIVE_TYPE)
 
+struct ShaderDataForUBO
+{
+    int m_bindingIndex;
+    Qt3DCore::QNodeId m_shaderDataID;
+};
+QT3D_DECLARE_TYPEINFO_3(Qt3DRender, Render, Rhi, ShaderDataForUBO, Q_PRIMITIVE_TYPE)
+
+bool operator==(const ShaderDataForUBO &a, const ShaderDataForUBO &b);
+
 struct PackUniformHash
 {
-    QVector<int> keys;
-    QVector<UniformValue> values;
+    std::vector<int> keys;
+    std::vector<UniformValue> values;
 
     PackUniformHash()
     {
-        keys.reserve(10);
-        values.reserve(10);
+    }
+
+    void reserve(int count)
+    {
+        keys.reserve(count);
+        values.reserve(count);
+    }
+
+    inline int indexForKey(int key) const
+    {
+        const auto b = keys.cbegin();
+        const auto e = keys.cend();
+        const auto it = std::find(b, e, key);
+        if (it == e)
+            return -1;
+        return std::distance(b, it);
     }
 
     void insert(int key, const UniformValue &value)
     {
-        const int idx = keys.indexOf(key);
+        const int idx = indexForKey(key);
         if (idx != -1) {
             values[idx] = value;
         } else {
@@ -113,30 +133,52 @@ struct PackUniformHash
         }
     }
 
-    UniformValue value(int key) const
+    void insert(int key, UniformValue &&value)
     {
-        const int idx = keys.indexOf(key);
-        if (idx != -1)
-            return values.at(idx);
-        return UniformValue();
+        const int idx = indexForKey(key);
+        if (idx != -1) {
+            values[idx] = std::move(value);
+        } else {
+            keys.push_back(key);
+            values.push_back(std::move(value));
+        }
+    }
+
+    const UniformValue &value(int key) const
+    {
+        const int idx = indexForKey(key);
+        return values[idx];
     }
 
     UniformValue &value(int key)
     {
-        const int idx = keys.indexOf(key);
+        const int idx = indexForKey(key);
         if (idx != -1)
             return values[idx];
         insert(key, UniformValue());
         return value(key);
     }
 
-    void erase(int idx)
+    template<typename F>
+    void apply(int key, F func) const noexcept
     {
-        keys.removeAt(idx);
-        values.removeAt(idx);
+        const int idx = indexForKey(key);
+        if (idx != -1)
+            func(values[idx]);
     }
 
-    bool contains(int key) const { return keys.contains(key); }
+    void erase(int idx)
+    {
+        keys.erase(keys.begin() + idx);
+        values.erase(values.begin() + idx);
+    }
+
+    bool contains(int key) const noexcept
+    {
+        const auto b = keys.cbegin();
+        const auto e = keys.cend();
+        return std::find(b, e, key) != e;
+    }
 };
 
 class Q_AUTOTEST_EXPORT ShaderParameterPack
@@ -144,31 +186,36 @@ class Q_AUTOTEST_EXPORT ShaderParameterPack
 public:
     ~ShaderParameterPack();
 
+    void reserve(int uniformCount);
     void setUniform(const int glslNameId, const UniformValue &val);
     void setTexture(const int glslNameId, int uniformArrayIndex, Qt3DCore::QNodeId id);
     void setImage(const int glslNameId, int uniformArrayIndex, Qt3DCore::QNodeId id);
 
     void setUniformBuffer(BlockToUBO blockToUBO);
     void setShaderStorageBuffer(BlockToSSBO blockToSSBO);
-    void setSubmissionUniform(const ShaderUniform &uniform);
+    void setShaderDataForUBO(ShaderDataForUBO shaderDataForUBO);
+    void setSubmissionUniformIndex(const int shaderUniformIndex);
 
     inline PackUniformHash &uniforms() { return m_uniforms; }
     inline const PackUniformHash &uniforms() const { return m_uniforms; }
     UniformValue uniform(const int glslNameId) const { return m_uniforms.value(glslNameId); }
 
+
     struct NamedResource
     {
-        enum Type { Texture = 0, Image };
+        enum Type {
+            Texture = 0,
+            Image
+        };
 
-        NamedResource() { }
-        NamedResource(const int glslNameId, Qt3DCore::QNodeId texId, int uniformArrayIndex,
-                      Type type)
-            : glslNameId(glslNameId),
-              nodeId(texId),
-              uniformArrayIndex(uniformArrayIndex),
-              type(type)
-        {
-        }
+        NamedResource() {}
+        NamedResource(const int glslNameId, Qt3DCore::QNodeId texId,
+                      int uniformArrayIndex, Type type)
+            : glslNameId(glslNameId)
+            , nodeId(texId)
+            , uniformArrayIndex(uniformArrayIndex)
+            , type(type)
+        { }
 
         int glslNameId;
         Qt3DCore::QNodeId nodeId;
@@ -177,32 +224,37 @@ public:
 
         bool operator==(const NamedResource &other) const
         {
-            return glslNameId == other.glslNameId && nodeId == other.nodeId
-                    && uniformArrayIndex == other.uniformArrayIndex && type == other.type;
+            return glslNameId == other.glslNameId &&
+                    nodeId == other.nodeId &&
+                    uniformArrayIndex == other.uniformArrayIndex &&
+                    type == other.type;
         }
 
-        bool operator!=(const NamedResource &other) const { return !(*this == other); }
+        bool operator!=(const NamedResource &other) const
+        {
+            return !(*this == other);
+        }
     };
 
-    inline QVector<NamedResource> textures() const { return m_textures; }
-    inline QVector<NamedResource> images() const { return m_images; }
-    inline QVector<BlockToUBO> uniformBuffers() const { return m_uniformBuffers; }
-    inline QVector<BlockToSSBO> shaderStorageBuffers() const { return m_shaderStorageBuffers; }
-    inline QVector<ShaderUniform> submissionUniforms() const { return m_submissionUniforms; }
-
+    inline const std::vector<NamedResource> &textures() const { return m_textures; }
+    inline const std::vector<NamedResource> &images() const { return m_images; }
+    inline const std::vector<BlockToUBO> &uniformBuffers() const { return m_uniformBuffers; }
+    inline const std::vector<BlockToSSBO> &shaderStorageBuffers() const { return m_shaderStorageBuffers; }
+    inline const std::vector<int> &submissionUniformIndices() const { return m_submissionUniformIndices; }
+    inline const std::vector<ShaderDataForUBO> &shaderDatasForUBOs() const { return m_shaderDatasForUBOs; }
 private:
     PackUniformHash m_uniforms;
 
-    QVector<NamedResource> m_textures;
-    QVector<NamedResource> m_images;
-    QVector<BlockToUBO> m_uniformBuffers;
-    QVector<BlockToSSBO> m_shaderStorageBuffers;
-    QVector<ShaderUniform> m_submissionUniforms;
+    std::vector<NamedResource> m_textures;
+    std::vector<NamedResource> m_images;
+    std::vector<BlockToUBO> m_uniformBuffers;
+    std::vector<BlockToSSBO> m_shaderStorageBuffers;
+    std::vector<int> m_submissionUniformIndices;
+    std::vector<ShaderDataForUBO> m_shaderDatasForUBOs;
 
     friend class RenderView;
 };
-QT3D_DECLARE_TYPEINFO_3(Qt3DRender, Render, Rhi, ShaderParameterPack::NamedResource,
-                        Q_PRIMITIVE_TYPE)
+QT3D_DECLARE_TYPEINFO_3(Qt3DRender, Render, Rhi, ShaderParameterPack::NamedResource, Q_PRIMITIVE_TYPE)
 
 } // namespace Rhi
 } // namespace Render

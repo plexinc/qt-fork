@@ -35,7 +35,7 @@ class MediaControlInputElementImpl final : public MediaControlInputElement {
     SetIsWanted(false);
   }
 
-  void Trace(Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     MediaControlInputElement::Trace(visitor);
   }
 
@@ -171,7 +171,7 @@ TEST_F(MediaControlInputElementTest, ClickRecordsInteraction) {
   ControlInputElement().MaybeRecordDisplayed();
 
   ControlInputElement().DispatchSimulatedClick(
-      Event::CreateBubble(event_type_names::kClick), kSendNoEvents);
+      Event::CreateBubble(event_type_names::kClick));
 
   histogram_tester_.ExpectTotalCount(kControlInputElementHistogramName, 2);
   histogram_tester_.ExpectBucketCount(kControlInputElementHistogramName, 0, 1);

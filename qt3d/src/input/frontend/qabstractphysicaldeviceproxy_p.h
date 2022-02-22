@@ -53,7 +53,9 @@
 
 #include <Qt3DInput/qabstractphysicaldevice.h>
 
+#ifndef Q_QDOC
 #include <Qt3DInput/private/qt3dinput_global_p.h>
+#endif
 
 QT_BEGIN_NAMESPACE
 
@@ -89,7 +91,6 @@ Q_SIGNALS:
 
 protected:
     QAbstractPhysicalDeviceProxy(QAbstractPhysicalDeviceProxyPrivate &dd, Qt3DCore::QNode *parent = nullptr);
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 
 private:
     Q_DECLARE_PRIVATE(QAbstractPhysicalDeviceProxy)

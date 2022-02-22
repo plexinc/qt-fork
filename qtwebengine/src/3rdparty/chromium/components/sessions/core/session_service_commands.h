@@ -9,12 +9,9 @@
 #include <memory>
 #include <string>
 
-#include "base/callback.h"
-#include "base/memory/weak_ptr.h"
 #include "base/optional.h"
-#include "base/task/cancelable_task_tracker.h"
-#include "base/token.h"
 #include "components/sessions/core/command_storage_manager.h"
+#include "components/sessions/core/session_command.h"
 #include "components/sessions/core/session_types.h"
 #include "components/sessions/core/sessions_export.h"
 #include "components/tab_groups/tab_group_id.h"
@@ -75,11 +72,15 @@ SESSIONS_EXPORT std::unique_ptr<SessionCommand>
 CreateSetTabExtensionAppIDCommand(const SessionID& tab_id,
                                   const std::string& extension_id);
 SESSIONS_EXPORT std::unique_ptr<SessionCommand>
-CreateSetTabUserAgentOverrideCommand(const SessionID& tab_id,
-                                     const std::string& user_agent_override);
+CreateSetTabUserAgentOverrideCommand(
+    const SessionID& tab_id,
+    const SerializedUserAgentOverride& user_agent_override);
 SESSIONS_EXPORT std::unique_ptr<SessionCommand> CreateSetWindowAppNameCommand(
     const SessionID& window_id,
     const std::string& app_name);
+SESSIONS_EXPORT std::unique_ptr<SessionCommand> CreateSetWindowUserTitleCommand(
+    const SessionID& window_id,
+    const std::string& user_title);
 SESSIONS_EXPORT std::unique_ptr<SessionCommand> CreateLastActiveTimeCommand(
     const SessionID& tab_id,
     base::TimeTicks last_active_time);
@@ -88,9 +89,17 @@ SESSIONS_EXPORT std::unique_ptr<SessionCommand> CreateSetWindowWorkspaceCommand(
     const SessionID& window_id,
     const std::string& workspace);
 
+SESSIONS_EXPORT std::unique_ptr<SessionCommand>
+CreateSetWindowVisibleOnAllWorkspacesCommand(const SessionID& window_id,
+                                             bool visible_on_all_workspaces);
+
 SESSIONS_EXPORT std::unique_ptr<SessionCommand> CreateSetTabGuidCommand(
     const SessionID& tab_id,
     const std::string& guid);
+
+SESSIONS_EXPORT std::unique_ptr<SessionCommand> CreateSetTabDataCommand(
+    const SessionID& tab_id,
+    const std::map<std::string, std::string>& data);
 
 // Searches for a pending command using |command_storage_manager| that can be
 // replaced with |command|. If one is found, pending command is removed, the

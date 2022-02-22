@@ -4,13 +4,18 @@
 
 #include "net/socket/stream_socket.h"
 
-#include "base/logging.h"
+#include "base/notreached.h"
 
 namespace net {
 
 void StreamSocket::SetBeforeConnectCallback(
     const BeforeConnectCallback& before_connect_callback) {
   NOTREACHED();
+}
+
+base::Optional<base::StringPiece> StreamSocket::GetPeerApplicationSettings()
+    const {
+  return base::nullopt;
 }
 
 void StreamSocket::GetSSLCertRequestInfo(

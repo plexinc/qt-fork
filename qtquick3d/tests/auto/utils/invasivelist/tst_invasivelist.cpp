@@ -66,31 +66,37 @@ private slots:
     void test_copy_lList();
     void test_iteratorSll();
     void test_iteratorLl();
+    void test_sublistSll();
+    void test_insertBadNodeLl();
+    void test_clearSll();
+    void test_removeAllSll();
+    void test_clearLl();
+    void test_removeAllLl();
 };
 
 void invasivelist::test_empty()
 {
     SingleLinkedList sll;
-    QVERIFY(sll.empty());
+    QVERIFY(sll.isEmpty());
     LinkedList ll;
-    QVERIFY(ll.empty());
+    QVERIFY(ll.isEmpty());
     NodeItem node;
     QCOMPARE(node.next, nullptr);
     QCOMPARE(node.prev, nullptr);
 
     sll.push_back(node);
-    QVERIFY(!sll.empty());
+    QVERIFY(!sll.isEmpty());
     sll.remove(node);
     // list should be empty and the node "links" reset
-    QVERIFY(sll.empty());
+    QVERIFY(sll.isEmpty());
     QCOMPARE(node.next, nullptr);
     QCOMPARE(node.prev, nullptr);
 
     ll.push_back(node);
-    QVERIFY(!ll.empty());
+    QVERIFY(!ll.isEmpty());
     ll.remove(node);
     // list should be empty and the node "links" reset
-    QVERIFY(ll.empty());
+    QVERIFY(ll.isEmpty());
     QCOMPARE(node.next, nullptr);
     QCOMPARE(node.prev, nullptr);
 }
@@ -212,7 +218,7 @@ void invasivelist::test_removeSll()
     for (int i = 0; i != itemCount; ++i)
         list.remove(items[i]);
 
-    QVERIFY(list.empty());
+    QVERIFY(list.isEmpty());
 
     for (int i = 0; i != itemCount; ++i) {
         QCOMPARE(items[i].next, nullptr);
@@ -261,7 +267,7 @@ void invasivelist::test_removeLl()
     for (int i = 0; i != itemCount; ++i)
         list.remove(items[i]);
 
-    QVERIFY(list.empty());
+    QVERIFY(list.isEmpty());
 
     for (int i = 0; i != itemCount; ++i) {
         QCOMPARE(items[i].next, nullptr);
@@ -432,15 +438,15 @@ void invasivelist::test_copy_slList()
                                 NodeItem { 1, nullptr, nullptr } };
 
     SingleLinkedList l1, l2;
-    QVERIFY(l1.empty());
-    QVERIFY(l2.empty());
+    QVERIFY(l1.isEmpty());
+    QVERIFY(l2.isEmpty());
     l1.push_back(items[0]);
     l1.push_back(items[1]);
-    QVERIFY(!l1.empty());
-    QVERIFY(l2.empty());
+    QVERIFY(!l1.isEmpty());
+    QVERIFY(l2.isEmpty());
     l2 = l1;
-    QVERIFY(!l1.empty());
-    QVERIFY(!l2.empty());
+    QVERIFY(!l1.isEmpty());
+    QVERIFY(!l2.isEmpty());
 
     for (auto it1 = l1.begin(), it2 = l2.begin(); it1 != l1.end(); ++it1, ++it2)
         QCOMPARE(it2, it1);
@@ -453,15 +459,15 @@ void invasivelist::test_copy_lList()
                                 NodeItem { 1, nullptr, nullptr } };
 
     LinkedList l1, l2;
-    QVERIFY(l1.empty());
-    QVERIFY(l2.empty());
+    QVERIFY(l1.isEmpty());
+    QVERIFY(l2.isEmpty());
     l1.push_back(items[0]);
     l1.push_back(items[1]);
-    QVERIFY(!l1.empty());
-    QVERIFY(l2.empty());
+    QVERIFY(!l1.isEmpty());
+    QVERIFY(l2.isEmpty());
     l2 = l1;
-    QVERIFY(!l1.empty());
-    QVERIFY(!l2.empty());
+    QVERIFY(!l1.isEmpty());
+    QVERIFY(!l2.isEmpty());
 
     for (auto it1 = l1.begin(), it2 = l2.begin(); it1 != l1.end(); ++it1, ++it2)
         QCOMPARE(it2, it1);
@@ -521,6 +527,232 @@ void invasivelist::test_iteratorLl()
             lastValue = rit->value;
         }
         QCOMPARE(lastValue, 0);
+    }
+}
+
+void invasivelist::test_sublistSll()
+{
+    const int itemCount = 6;
+    NodeItem items[itemCount];
+
+    SingleLinkedList l1;
+    for (int i = 0; i != itemCount; ++i) {
+        items[i].value = i;
+        l1.push_back(items[i]);
+    }
+
+    int lastValue = -1;
+    int count = 0;
+    for (const auto &item : qAsConst(l1)) {
+        QVERIFY(item.value > lastValue);
+        lastValue = item.value;
+        ++count;
+    }
+
+    QCOMPARE(lastValue, itemCount - 1);
+    QCOMPARE(count, itemCount);
+
+    {
+        const int badNodeLastValue = 123;
+        { // push_back
+            NodeItem badNode;
+            badNode.value = badNodeLastValue;
+            badNode.next = &items[0];
+            badNode.prev = &items[0];
+            l1.push_back(badNode);
+
+            lastValue = -1;
+            count = 0;
+            for (const auto &item : qAsConst(l1)) {
+                lastValue = item.value;
+                ++count;
+            }
+
+            QCOMPARE(lastValue, badNodeLastValue);
+            QCOMPARE(count, itemCount + 1);
+        }
+    }
+}
+
+void invasivelist::test_insertBadNodeLl()
+{
+    const int itemCount = 6;
+    NodeItem items[itemCount];
+
+    LinkedList l1;
+    for (int i = 0; i != itemCount; ++i) {
+        items[i].value = i;
+        l1.push_back(items[i]);
+    }
+
+    int lastValue = -1;
+    int count = 0;
+    for (const auto &item : qAsConst(l1)) {
+        QVERIFY(item.value > lastValue);
+        lastValue = item.value;
+        ++count;
+    }
+
+    QCOMPARE(lastValue, itemCount - 1);
+    QCOMPARE(count, itemCount);
+
+    {
+        const int badNodeLastValue = 123;
+        { // push_back
+            NodeItem badNode;
+            badNode.value = badNodeLastValue;
+            badNode.next = &items[0];
+            badNode.prev = &items[0];
+            l1.push_back(badNode);
+
+            // Forwarnd
+            lastValue = -1;
+            count = 0;
+            for (const auto &item : qAsConst(l1)) {
+                lastValue = item.value;
+                ++count;
+            }
+
+            QCOMPARE(lastValue, badNodeLastValue);
+            QCOMPARE(count, itemCount + 1);
+
+            // Reverse
+            lastValue = -1;
+            count = 0;
+            for (auto rit = l1.rbegin(), rend = l1.rend(); rit != rend; ++rit) {
+                lastValue = (*rit).value;
+                ++count;
+            }
+
+            QCOMPARE(lastValue,  items[0].value);
+            QCOMPARE(count, itemCount + 1);
+
+            l1.remove(badNode);
+            QCOMPARE(badNode.next, nullptr);
+            QCOMPARE(badNode.prev, nullptr);
+        }
+
+        { // push_front
+            NodeItem badNode;
+            badNode.value = badNodeLastValue;
+            badNode.next = &items[0];
+            badNode.prev = &items[0];
+            l1.push_front(badNode);
+
+            // Forwarnd
+            lastValue = -1;
+            count = 0;
+            for (const auto &item : qAsConst(l1)) {
+                lastValue = item.value;
+                ++count;
+            }
+
+            QCOMPARE(lastValue, items[itemCount - 1].value);
+            QCOMPARE(count, itemCount + 1);
+
+            // Reverse
+            lastValue = -1;
+            count = 0;
+            for (auto rit = l1.rbegin(), rend = l1.rend(); rit != rend; ++rit) {
+                lastValue = (*rit).value;
+                ++count;
+            }
+
+            QCOMPARE(lastValue,  badNodeLastValue);
+            QCOMPARE(count, itemCount + 1);
+
+            l1.remove(badNode);
+            QCOMPARE(badNode.next, nullptr);
+            QCOMPARE(badNode.prev, nullptr);
+        }
+
+    }
+}
+
+void invasivelist::test_clearSll()
+{
+    const int itemCount = 3;
+    NodeItem items[itemCount];
+
+    SingleLinkedList list;
+    for (int i = 0; i != itemCount; ++i) {
+        items[i].value = i;
+        list.push_back(items[i]);
+    }
+
+    QVERIFY(!list.isEmpty());
+    QCOMPARE(items[1].next, &items[2]);
+    list.clear();
+
+    // The only change should that the list is empty.
+    QVERIFY(list.isEmpty());
+    QCOMPARE(items[1].next, &items[2]);
+}
+
+void invasivelist::test_removeAllSll()
+{
+    const int itemCount = 10;
+    NodeItem items[itemCount];
+
+    SingleLinkedList list;
+    for (int i = 0; i != itemCount; ++i) {
+        items[i].value = i;
+        list.push_back(items[i]);
+    }
+
+    QVERIFY(!list.isEmpty());
+    QCOMPARE(items[1].next, &items[2]);
+    list.removeAll();
+
+    // The list should be empty and all the nodes should have their links updated to null.
+    QVERIFY(list.isEmpty());
+    for (int i = 0; i != itemCount; ++i)
+        QCOMPARE(items[i].next, nullptr);
+}
+
+void invasivelist::test_clearLl()
+{
+    const int itemCount = 3;
+    NodeItem items[itemCount];
+
+    LinkedList list;
+    for (int i = 0; i != itemCount; ++i) {
+        items[i].value = i;
+        list.push_back(items[i]);
+    }
+
+    QVERIFY(!list.isEmpty());
+    QCOMPARE(items[1].prev, &items[0]);
+    QCOMPARE(items[1].next, &items[2]);
+    list.clear();
+
+    // The only change should that the list is empty.
+    QVERIFY(list.isEmpty());
+    QCOMPARE(items[1].prev, &items[0]);
+    QCOMPARE(items[1].next, &items[2]);
+}
+
+void invasivelist::test_removeAllLl()
+{
+    const int itemCount = 10;
+    NodeItem items[itemCount];
+
+    LinkedList list;
+    for (int i = 0; i != itemCount; ++i) {
+        items[i].value = i;
+        list.push_back(items[i]);
+    }
+
+    QVERIFY(!list.isEmpty());
+    QCOMPARE(items[1].prev, &items[0]);
+    QCOMPARE(items[1].next, &items[2]);
+    list.removeAll();
+
+    // The list should be empty and all the nodes should have their links updated to null.
+    QVERIFY(list.isEmpty());
+    for (int i = 0; i != itemCount; ++i) {
+        QCOMPARE(items[i].prev, nullptr);
+        QCOMPARE(items[i].next, nullptr);
     }
 }
 

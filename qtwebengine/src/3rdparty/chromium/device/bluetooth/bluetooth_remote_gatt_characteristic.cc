@@ -9,9 +9,11 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/location.h"
+#include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "build/chromeos_buildflags.h"
 #include "device/bluetooth/bluetooth_gatt_notify_session.h"
 #include "device/bluetooth/bluetooth_remote_gatt_descriptor.h"
 
@@ -96,7 +98,7 @@ void BluetoothRemoteGattCharacteristic::StartNotifySession(
                              std::move(error_callback));
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 void BluetoothRemoteGattCharacteristic::StartNotifySession(
     NotificationType notification_type,
     NotifySessionCallback callback,
@@ -105,12 +107,6 @@ void BluetoothRemoteGattCharacteristic::StartNotifySession(
                              std::move(error_callback));
 }
 #endif
-
-bool BluetoothRemoteGattCharacteristic::WriteWithoutResponse(
-    base::span<const uint8_t> value) {
-  NOTIMPLEMENTED();
-  return false;
-}
 
 bool BluetoothRemoteGattCharacteristic::AddDescriptor(
     std::unique_ptr<BluetoothRemoteGattDescriptor> descriptor) {
@@ -225,7 +221,7 @@ void BluetoothRemoteGattCharacteristic::ExecuteStartNotifySession(
   // do whatever else is needed to get the notifications flowing.
   SubscribeToNotifications(
       ccc_descriptor[0],
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
       notification_type.value_or((GetProperties() & PROPERTY_NOTIFY)
                                      ? NotificationType::kNotification
                                      : NotificationType::kIndication),
@@ -287,10 +283,12 @@ void BluetoothRemoteGattCharacteristic::StopNotifySession(
   auto repeating_callback =
       base::AdaptCallbackForRepeating(std::move(callback));
   NotifySessionCommand* command = new NotifySessionCommand(
-      base::Bind(&BluetoothRemoteGattCharacteristic::ExecuteStopNotifySession,
-                 GetWeakPtr(), session, repeating_callback),
-      base::Bind(&BluetoothRemoteGattCharacteristic::CancelStopNotifySession,
-                 GetWeakPtr(), repeating_callback));
+      base::BindOnce(
+          &BluetoothRemoteGattCharacteristic::ExecuteStopNotifySession,
+          GetWeakPtr(), session, repeating_callback),
+      base::BindOnce(
+          &BluetoothRemoteGattCharacteristic::CancelStopNotifySession,
+          GetWeakPtr(), repeating_callback));
 
   pending_notify_commands_.push(std::unique_ptr<NotifySessionCommand>(command));
   if (pending_notify_commands_.size() == 1) {

@@ -92,13 +92,19 @@ public:
     bool open() override;
     void close() override;
 
-    void setConfigurationParameter(int key, const QVariant &value) override;
+    void setConfigurationParameter(ConfigurationKey key, const QVariant &value) override;
 
     bool writeFrame(const QCanBusFrame &newData) override;
 
     QString interpretErrorFrame(const QCanBusFrame &errorFrame) override;
 
+    static QCanBusDeviceInfo socketCanDeviceInfo(const QString &deviceName);
     static QList<QCanBusDeviceInfo> interfaces();
+
+    void resetController() override;
+    bool hasBusStatus() const override;
+    CanBusStatus busStatus() override;
+    QCanBusDeviceInfo deviceInfo() const override;
 
 private Q_SLOTS:
     void readSocket();
@@ -106,10 +112,7 @@ private Q_SLOTS:
 private:
     void resetConfigurations();
     bool connectSocket();
-    bool applyConfigurationParameter(int key, const QVariant &value);
-    void resetController();
-    bool hasBusStatus() const;
-    QCanBusDevice::CanBusStatus busStatus() const;
+    bool applyConfigurationParameter(ConfigurationKey key, const QVariant &value);
 
     int protocol = CAN_RAW;
     canfd_frame m_frame;

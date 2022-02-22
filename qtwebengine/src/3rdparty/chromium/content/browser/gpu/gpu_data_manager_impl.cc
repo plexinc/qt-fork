@@ -4,13 +4,54 @@
 
 #include "content/browser/gpu/gpu_data_manager_impl.h"
 
+#include "base/no_destructor.h"
 #include "content/browser/gpu/gpu_data_manager_impl_private.h"
+#include "content/public/browser/browser_thread.h"
 #include "gpu/ipc/common/memory_stats.h"
+#include "mojo/public/cpp/bindings/receiver_set.h"
 
 namespace content {
 
 namespace {
+
 bool g_initialized = false;
+
+// Implementation of the Blink GpuDataManager interface to forward requests from
+// a renderer to the GpuDataManagerImpl.
+class GpuDataManagerReceiver : public blink::mojom::GpuDataManager {
+ public:
+  GpuDataManagerReceiver() = default;
+  GpuDataManagerReceiver(const GpuDataManagerReceiver&) = delete;
+  GpuDataManagerReceiver& operator=(const GpuDataManagerReceiver&) = delete;
+  ~GpuDataManagerReceiver() override = default;
+
+  void Bind(mojo::PendingReceiver<blink::mojom::GpuDataManager> receiver) {
+    receivers_.Add(this, std::move(receiver));
+  }
+
+  // blink::mojom::GpuDataManager:
+  void Are3DAPIsBlockedForUrl(
+      const GURL& url,
+      Are3DAPIsBlockedForUrlCallback callback) override {
+    auto* manager = GpuDataManagerImpl::GetInstance();
+    if (!manager) {
+      std::move(callback).Run(false);
+      return;
+    }
+
+    std::move(callback).Run(
+        manager->Are3DAPIsBlocked(url, THREE_D_API_TYPE_WEBGL));
+  }
+
+ private:
+  mojo::ReceiverSet<blink::mojom::GpuDataManager> receivers_;
+};
+
+GpuDataManagerReceiver& GetGpuDataManagerReceiver() {
+  static base::NoDestructor<GpuDataManagerReceiver> receiver;
+  return *receiver.get();
+}
+
 }  // namespace
 
 // static
@@ -34,9 +75,9 @@ bool GpuDataManagerImpl::Initialized() {
   return g_initialized;
 }
 
-void GpuDataManagerImpl::BlacklistWebGLForTesting() {
+void GpuDataManagerImpl::BlocklistWebGLForTesting() {
   base::AutoLock auto_lock(lock_);
-  private_->BlacklistWebGLForTesting();
+  private_->BlocklistWebGLForTesting();
 }
 
 gpu::GPUInfo GpuDataManagerImpl::GetGPUInfo() {
@@ -109,6 +150,11 @@ void GpuDataManagerImpl::AppendGpuCommandLine(base::CommandLine* command_line,
   private_->AppendGpuCommandLine(command_line, kind);
 }
 
+void GpuDataManagerImpl::StartUmaTimer() {
+  base::AutoLock auto_lock(lock_);
+  private_->StartUmaTimer();
+}
+
 bool GpuDataManagerImpl::GpuProcessStartAllowed() const {
   base::AutoLock auto_lock(lock_);
   return private_->GpuProcessStartAllowed();
@@ -128,10 +174,14 @@ void GpuDataManagerImpl::UpdateDxDiagNode(
   private_->UpdateDxDiagNode(dx_diagnostics);
 }
 
-void GpuDataManagerImpl::UpdateDx12VulkanInfo(
-    const gpu::Dx12VulkanVersionInfo& dx12_vulkan_version_info) {
+void GpuDataManagerImpl::UpdateDx12Info(uint32_t d3d12_feature_level) {
   base::AutoLock auto_lock(lock_);
-  private_->UpdateDx12VulkanInfo(dx12_vulkan_version_info);
+  private_->UpdateDx12Info(d3d12_feature_level);
+}
+
+void GpuDataManagerImpl::UpdateVulkanInfo(uint32_t vulkan_version) {
+  base::AutoLock auto_lock(lock_);
+  private_->UpdateVulkanInfo(vulkan_version);
 }
 
 void GpuDataManagerImpl::UpdateDevicePerfInfo(
@@ -145,20 +195,34 @@ void GpuDataManagerImpl::UpdateOverlayInfo(
   base::AutoLock auto_lock(lock_);
   private_->UpdateOverlayInfo(overlay_info);
 }
+void GpuDataManagerImpl::UpdateHDRStatus(bool hdr_enabled) {
+  base::AutoLock auto_lock(lock_);
+  private_->UpdateHDRStatus(hdr_enabled);
+}
 
 void GpuDataManagerImpl::UpdateDxDiagNodeRequestStatus(bool request_continues) {
   base::AutoLock auto_lock(lock_);
   private_->UpdateDxDiagNodeRequestStatus(request_continues);
 }
 
-void GpuDataManagerImpl::UpdateDx12VulkanRequestStatus(bool request_continues) {
+void GpuDataManagerImpl::UpdateDx12RequestStatus(bool request_continues) {
   base::AutoLock auto_lock(lock_);
-  private_->UpdateDx12VulkanRequestStatus(request_continues);
+  private_->UpdateDx12RequestStatus(request_continues);
 }
 
-bool GpuDataManagerImpl::Dx12VulkanRequested() const {
+void GpuDataManagerImpl::UpdateVulkanRequestStatus(bool request_continues) {
   base::AutoLock auto_lock(lock_);
-  return private_->Dx12VulkanRequested();
+  private_->UpdateVulkanRequestStatus(request_continues);
+}
+
+bool GpuDataManagerImpl::Dx12Requested() const {
+  base::AutoLock auto_lock(lock_);
+  return private_->Dx12Requested();
+}
+
+bool GpuDataManagerImpl::VulkanRequested() const {
+  base::AutoLock auto_lock(lock_);
+  return private_->VulkanRequested();
 }
 
 void GpuDataManagerImpl::OnBrowserThreadsStarted() {
@@ -182,7 +246,7 @@ void GpuDataManagerImpl::UpdateGpuFeatureInfo(
 }
 
 void GpuDataManagerImpl::UpdateGpuExtraInfo(
-    const gpu::GpuExtraInfo& gpu_extra_info) {
+    const gfx::GpuExtraInfo& gpu_extra_info) {
   base::AutoLock auto_lock(lock_);
   private_->UpdateGpuExtraInfo(gpu_extra_info);
 }
@@ -203,7 +267,17 @@ gpu::GpuFeatureInfo GpuDataManagerImpl::GetGpuFeatureInfoForHardwareGpu()
   return private_->GetGpuFeatureInfoForHardwareGpu();
 }
 
-gpu::GpuExtraInfo GpuDataManagerImpl::GetGpuExtraInfo() const {
+bool GpuDataManagerImpl::GpuAccessAllowedForHardwareGpu(std::string* reason) {
+  base::AutoLock auto_lock(lock_);
+  return private_->GpuAccessAllowedForHardwareGpu(reason);
+}
+
+bool GpuDataManagerImpl::IsGpuCompositingDisabledForHardwareGpu() const {
+  base::AutoLock auto_lock(lock_);
+  return private_->IsGpuCompositingDisabledForHardwareGpu();
+}
+
+gfx::GpuExtraInfo GpuDataManagerImpl::GetGpuExtraInfo() const {
   base::AutoLock auto_lock(lock_);
   return private_->GetGpuExtraInfo();
 }
@@ -254,12 +328,9 @@ void GpuDataManagerImpl::BlockDomainFrom3DAPIs(const GURL& url,
 }
 
 bool GpuDataManagerImpl::Are3DAPIsBlocked(const GURL& top_origin_url,
-                                          int render_process_id,
-                                          int render_frame_id,
                                           ThreeDAPIType requester) {
   base::AutoLock auto_lock(lock_);
-  return private_->Are3DAPIsBlocked(top_origin_url, render_process_id,
-                                    render_frame_id, requester);
+  return private_->Are3DAPIsBlocked(top_origin_url, requester);
 }
 
 void GpuDataManagerImpl::UnblockDomainFrom3DAPIs(const GURL& url) {
@@ -272,12 +343,6 @@ void GpuDataManagerImpl::DisableDomainBlockingFor3DAPIsForTesting() {
   private_->DisableDomainBlockingFor3DAPIsForTesting();
 }
 
-bool GpuDataManagerImpl::UpdateActiveGpu(uint32_t vendor_id,
-                                         uint32_t device_id) {
-  base::AutoLock auto_lock(lock_);
-  return private_->UpdateActiveGpu(vendor_id, device_id);
-}
-
 gpu::GpuMode GpuDataManagerImpl::GetGpuMode() const {
   base::AutoLock auto_lock(lock_);
   return private_->GetGpuMode();
@@ -286,6 +351,11 @@ gpu::GpuMode GpuDataManagerImpl::GetGpuMode() const {
 void GpuDataManagerImpl::FallBackToNextGpuMode() {
   base::AutoLock auto_lock(lock_);
   private_->FallBackToNextGpuMode();
+}
+
+bool GpuDataManagerImpl::CanFallback() const {
+  base::AutoLock auto_lock(lock_);
+  return private_->CanFallback();
 }
 
 bool GpuDataManagerImpl::IsGpuProcessUsingHardwareGpu() const {
@@ -306,6 +376,22 @@ void GpuDataManagerImpl::OnDisplayAdded(const display::Display& new_display) {
 void GpuDataManagerImpl::OnDisplayRemoved(const display::Display& old_display) {
   base::AutoLock auto_lock(lock_);
   private_->OnDisplayRemoved(old_display);
+}
+
+void GpuDataManagerImpl::OnDisplayMetricsChanged(
+    const display::Display& display,
+    uint32_t changed_metrics) {
+  base::AutoLock auto_lock(lock_);
+  private_->OnDisplayMetricsChanged(display, changed_metrics);
+}
+
+// static
+void GpuDataManagerImpl::BindReceiver(
+    mojo::PendingReceiver<blink::mojom::GpuDataManager> receiver) {
+  // This is intentionally always bound on the IO thread to ensure a low-latency
+  // response to sync IPCs.
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  GetGpuDataManagerReceiver().Bind(std::move(receiver));
 }
 
 GpuDataManagerImpl::GpuDataManagerImpl()

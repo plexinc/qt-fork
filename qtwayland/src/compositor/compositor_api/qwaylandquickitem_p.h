@@ -60,17 +60,14 @@ class QWaylandBufferMaterialShader : public QSGMaterialShader
 public:
     QWaylandBufferMaterialShader(QWaylandBufferRef::BufferFormatEgl format);
 
-    void updateState(const RenderState &state, QSGMaterial *newEffect, QSGMaterial *oldEffect) override;
-    char const *const *attributeNames() const override;
-
-protected:
-    void initialize() override;
+    bool updateUniformData(RenderState &state,
+                           QSGMaterial *newMaterial, QSGMaterial *oldMaterial) override;
+    void updateSampledImage(RenderState &state, int binding, QSGTexture **texture,
+                            QSGMaterial *newMaterial, QSGMaterial *oldMaterial) override;
+    void setupExternalOESShader(const QString &shaderFilename);
 
 private:
     const QWaylandBufferRef::BufferFormatEgl m_format;
-    int m_id_matrix;
-    int m_id_opacity;
-    QVarLengthArray<int, 3> m_id_tex;
 };
 
 class QWaylandBufferMaterial : public QSGMaterial
@@ -79,19 +76,25 @@ public:
     QWaylandBufferMaterial(QWaylandBufferRef::BufferFormatEgl format);
     ~QWaylandBufferMaterial() override;
 
-    void setTextureForPlane(int plane, QOpenGLTexture *texture);
+    void setTextureForPlane(int plane, QOpenGLTexture *texture, QSGTexture *scenegraphTexture);
+    void setBufferRef(QWaylandQuickItem *surfaceItem, const QWaylandBufferRef &ref);
 
     void bind();
+    void updateScenegraphTextures(QRhi *rhi);
 
     QSGMaterialType *type() const override;
-    QSGMaterialShader *createShader() const override;
+    QSGMaterialShader *createShader(QSGRendererInterface::RenderMode renderMode) const override;
 
 private:
+    friend QWaylandBufferMaterialShader;
+
     void setTextureParameters(GLenum target);
     void ensureTextures(int count);
 
     const QWaylandBufferRef::BufferFormatEgl m_format;
     QVarLengthArray<QOpenGLTexture*, 3> m_textures;
+    QVarLengthArray<QSGTexture*, 3> m_scenegraphTextures;
+    QWaylandBufferRef m_bufferRef;
 };
 #endif // QT_CONFIG(opengl)
 
@@ -161,8 +164,10 @@ public:
     bool isDragging = false;
     bool newTexture = false;
     bool focusOnClick = true;
-    bool sizeFollowsSurface = true;
     bool belowParent = false;
+#if QT_CONFIG(opengl)
+    bool paintByProvider = false;
+#endif
     QPointF hoverPos;
     QMatrix4x4 lastMatrix;
 
@@ -170,7 +175,7 @@ public:
     QWaylandOutput *connectedOutput = nullptr;
     QWaylandSurface::Origin origin = QWaylandSurface::OriginTopLeft;
     QPointer<QObject> subsurfaceHandler;
-    QVector<QWaylandSeat *> touchingSeats;
+    QList<QWaylandSeat *> touchingSeats;
 };
 
 QT_END_NAMESPACE

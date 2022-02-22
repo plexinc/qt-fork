@@ -45,9 +45,9 @@
 #ifndef QT_NO_OPENGL
 # include <QtGui/private/qopenglcontext_p.h>
 # include <QtGui/QOpenGLContext>
-# include <QtPlatformCompositorSupport/private/qopenglcompositorbackingstore_p.h>
+# include <QtOpenGL/private/qopenglcompositorbackingstore_p.h>
 #endif
-#include <QtEglSupport/private/qeglconvenience_p.h>
+#include <QtGui/private/qeglconvenience_p.h>
 
 #include "qeglfswindow_p.h"
 #ifndef QT_NO_OPENGL
@@ -265,7 +265,7 @@ void QEglFSWindow::requestActivateWindow()
         QOpenGLCompositor::instance()->moveToTop(this);
 #endif
     QWindow *wnd = window();
-    QWindowSystemInterface::handleWindowActivated(wnd);
+    QWindowSystemInterface::handleWindowActivated(wnd, Qt::ActiveWindowFocusReason);
     QWindowSystemInterface::handleExposeEvent(wnd, QRect(QPoint(0, 0), wnd->geometry().size()));
 }
 

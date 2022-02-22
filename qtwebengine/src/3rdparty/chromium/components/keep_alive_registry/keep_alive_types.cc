@@ -4,6 +4,7 @@
 
 #include "components/keep_alive_registry/keep_alive_types.h"
 #include "base/logging.h"
+#include "base/notreached.h"
 
 std::ostream& operator<<(std::ostream& out, const KeepAliveOrigin& origin) {
   switch (origin) {
@@ -19,14 +20,20 @@ std::ostream& operator<<(std::ostream& out, const KeepAliveOrigin& origin) {
       return out << "BACKGROUND_MODE_MANAGER";
     case KeepAliveOrigin::BACKGROUND_MODE_MANAGER_STARTUP:
       return out << "BACKGROUND_MODE_MANAGER_STARTUP";
+    case KeepAliveOrigin::BACKGROUND_MODE_MANAGER_FORCE_INSTALLED_EXTENSIONS:
+      return out << "BACKGROUND_MODE_MANAGER_FORCE_INSTALLED_EXTENSIONS";
     case KeepAliveOrigin::BACKGROUND_SYNC:
       return out << "BACKGROUND_SYNC";
+    case KeepAliveOrigin::BROWSING_DATA_LIFETIME_MANAGER:
+      return out << "BROWSING_DATA_LIFETIME_MANAGER";
     case KeepAliveOrigin::LOGIN_DISPLAY_HOST_WEBUI:
       return out << "LOGIN_DISPLAY_HOST_WEBUI";
     case KeepAliveOrigin::PIN_MIGRATION:
       return out << "PIN_MIGRATION";
     case KeepAliveOrigin::REMOTE_DEBUGGING:
       return out << "REMOTE_DEBUGGING";
+    case KeepAliveOrigin::DEVTOOLS_WINDOW:
+      return out << "DEVTOOLS_WINDOW";
     case KeepAliveOrigin::NOTIFICATION:
       return out << "NOTIFICATION";
     case KeepAliveOrigin::PENDING_NOTIFICATION_CLICK_EVENT:
@@ -37,6 +44,8 @@ std::ostream& operator<<(std::ostream& out, const KeepAliveOrigin& origin) {
       return out << "APP_LIST_SERVICE_VIEWS";
     case KeepAliveOrigin::APP_LIST_SHOWER:
       return out << "APP_LIST_SHOWER";
+    case KeepAliveOrigin::APP_START_URL_MIGRATION:
+      return out << "APP_START_URL_MIGRATION";
     case KeepAliveOrigin::CHROME_APP_DELEGATE:
       return out << "CHROME_APP_DELEGATE";
     case KeepAliveOrigin::CHROME_VIEWS_DELEGATE:

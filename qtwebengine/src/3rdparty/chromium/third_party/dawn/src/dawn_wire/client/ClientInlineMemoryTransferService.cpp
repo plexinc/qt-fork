@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "common/Alloc.h"
 #include "common/Assert.h"
 #include "dawn_wire/WireClient.h"
 #include "dawn_wire/client/Client.h"
@@ -43,7 +44,10 @@ namespace dawn_wire { namespace client {
                     return false;
                 }
 
-                mStagingData = std::unique_ptr<uint8_t[]>(new uint8_t[mSize]);
+                mStagingData = std::unique_ptr<uint8_t[]>(AllocNoThrow<uint8_t>(mSize));
+                if (!mStagingData) {
+                    return false;
+                }
                 memcpy(mStagingData.get(), deserializePointer, mSize);
 
                 ASSERT(data != nullptr);
@@ -74,7 +78,10 @@ namespace dawn_wire { namespace client {
             }
 
             std::pair<void*, size_t> Open() override {
-                mStagingData = std::unique_ptr<uint8_t[]>(new uint8_t[mSize]);
+                mStagingData = std::unique_ptr<uint8_t[]>(AllocNoThrow<uint8_t>(mSize));
+                if (!mStagingData) {
+                    return std::make_pair(nullptr, 0);
+                }
                 memset(mStagingData.get(), 0, mSize);
                 return std::make_pair(mStagingData.get(), mSize);
             }

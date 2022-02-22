@@ -106,12 +106,11 @@ public:
     ~QEventDispatcherUNIX();
 
     bool processEvents(QEventLoop::ProcessEventsFlags flags) override;
-    bool hasPendingEvents() override;
 
     void registerSocketNotifier(QSocketNotifier *notifier) final;
     void unregisterSocketNotifier(QSocketNotifier *notifier) final;
 
-    void registerTimer(int timerId, int interval, Qt::TimerType timerType, QObject *object) final;
+    void registerTimer(int timerId, qint64 interval, Qt::TimerType timerType, QObject *object) final;
     bool unregisterTimer(int timerId) final;
     bool unregisterTimers(QObject *object) final;
     QList<TimerInfo> registeredTimers(QObject *object) const final;
@@ -120,7 +119,6 @@ public:
 
     void wakeUp() override;
     void interrupt() final;
-    void flush() override;
 
 protected:
     QEventDispatcherUNIX(QEventDispatcherUNIXPrivate &dd, QObject *parent = nullptr);
@@ -141,10 +139,10 @@ public:
     void setSocketNotifierPending(QSocketNotifier *notifier);
 
     QThreadPipe threadPipe;
-    QVector<pollfd> pollfds;
+    QList<pollfd> pollfds;
 
     QHash<int, QSocketNotifierSetUNIX> socketNotifiers;
-    QVector<QSocketNotifier *> pendingNotifiers;
+    QList<QSocketNotifier *> pendingNotifiers;
 
     QTimerInfoList timerList;
     QAtomicInt interrupt; // bool

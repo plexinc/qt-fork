@@ -2,16 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/qpack/qpack_decoded_headers_accumulator.h"
+#include "quic/core/qpack/qpack_decoded_headers_accumulator.h"
 
 #include <cstring>
 
-#include "net/third_party/quiche/src/quic/core/qpack/qpack_decoder.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/test_tools/qpack/qpack_decoder_test_utils.h"
-#include "net/third_party/quiche/src/quic/test_tools/qpack/qpack_test_utils.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_text_utils.h"
+#include "absl/strings/escaping.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/qpack/qpack_decoder.h"
+#include "quic/platform/api/quic_test.h"
+#include "quic/test_tools/qpack/qpack_decoder_test_utils.h"
+#include "quic/test_tools/qpack/qpack_test_utils.h"
+#include "common/platform/api/quiche_text_utils.h"
 
 using ::testing::_;
 using ::testing::ElementsAre;
@@ -42,11 +43,14 @@ const char* const kHeaderAcknowledgement = "\x81";
 class MockVisitor : public QpackDecodedHeadersAccumulator::Visitor {
  public:
   ~MockVisitor() override = default;
-  MOCK_METHOD2(OnHeadersDecoded,
-               void(QuicHeaderList headers,
-                    bool header_list_size_limit_exceeded));
-  MOCK_METHOD1(OnHeaderDecodingError,
-               void(quiche::QuicheStringPiece error_message));
+  MOCK_METHOD(void,
+              OnHeadersDecoded,
+              (QuicHeaderList headers, bool header_list_size_limit_exceeded),
+              (override));
+  MOCK_METHOD(void,
+              OnHeaderDecodingError,
+              (absl::string_view error_message),
+              (override));
 };
 
 }  // anonymous namespace
@@ -81,7 +85,7 @@ TEST_F(QpackDecodedHeadersAccumulatorTest, EmptyPayload) {
 
 // HEADERS frame payload must have a complete Header Block Prefix.
 TEST_F(QpackDecodedHeadersAccumulatorTest, TruncatedHeaderBlockPrefix) {
-  accumulator_.Decode(quiche::QuicheTextUtils::HexDecode("00"));
+  accumulator_.Decode(absl::HexStringToBytes("00"));
 
   EXPECT_CALL(visitor_,
               OnHeaderDecodingError(Eq("Incomplete header data prefix.")));
@@ -89,7 +93,7 @@ TEST_F(QpackDecodedHeadersAccumulatorTest, TruncatedHeaderBlockPrefix) {
 }
 
 TEST_F(QpackDecodedHeadersAccumulatorTest, EmptyHeaderList) {
-  std::string encoded_data(quiche::QuicheTextUtils::HexDecode("0000"));
+  std::string encoded_data(absl::HexStringToBytes("0000"));
   accumulator_.Decode(encoded_data);
 
   QuicHeaderList header_list;
@@ -105,7 +109,7 @@ TEST_F(QpackDecodedHeadersAccumulatorTest, EmptyHeaderList) {
 // This payload is the prefix of a valid payload, but EndHeaderBlock() is called
 // before it can be completely decoded.
 TEST_F(QpackDecodedHeadersAccumulatorTest, TruncatedPayload) {
-  accumulator_.Decode(quiche::QuicheTextUtils::HexDecode("00002366"));
+  accumulator_.Decode(absl::HexStringToBytes("00002366"));
 
   EXPECT_CALL(visitor_, OnHeaderDecodingError(Eq("Incomplete header block.")));
   accumulator_.EndHeaderBlock();
@@ -115,12 +119,11 @@ TEST_F(QpackDecodedHeadersAccumulatorTest, TruncatedPayload) {
 TEST_F(QpackDecodedHeadersAccumulatorTest, InvalidPayload) {
   EXPECT_CALL(visitor_,
               OnHeaderDecodingError(Eq("Static table entry not found.")));
-  accumulator_.Decode(quiche::QuicheTextUtils::HexDecode("0000ff23ff24"));
+  accumulator_.Decode(absl::HexStringToBytes("0000ff23ff24"));
 }
 
 TEST_F(QpackDecodedHeadersAccumulatorTest, Success) {
-  std::string encoded_data(
-      quiche::QuicheTextUtils::HexDecode("000023666f6f03626172"));
+  std::string encoded_data(absl::HexStringToBytes("000023666f6f03626172"));
   accumulator_.Decode(encoded_data);
 
   QuicHeaderList header_list;
@@ -138,7 +141,7 @@ TEST_F(QpackDecodedHeadersAccumulatorTest, Success) {
 // otherwise decoding could fail with "incomplete header block" error.
 TEST_F(QpackDecodedHeadersAccumulatorTest, ExceedLimitThenSplitInstruction) {
   // Total length of header list exceeds kMaxHeaderListSize.
-  accumulator_.Decode(quiche::QuicheTextUtils::HexDecode(
+  accumulator_.Decode(absl::HexStringToBytes(
       "0000"                                      // header block prefix
       "26666f6f626172"                            // header key: "foobar"
       "7d61616161616161616161616161616161616161"  // header value: 'a' 125 times
@@ -146,7 +149,7 @@ TEST_F(QpackDecodedHeadersAccumulatorTest, ExceedLimitThenSplitInstruction) {
       "616161616161616161616161616161616161616161616161616161616161616161616161"
       "61616161616161616161616161616161616161616161616161616161616161616161"
       "ff"));  // first byte of a two-byte long Indexed Header Field instruction
-  accumulator_.Decode(quiche::QuicheTextUtils::HexDecode(
+  accumulator_.Decode(absl::HexStringToBytes(
       "0f"  // second byte of a two-byte long Indexed Header Field instruction
       ));
 
@@ -157,7 +160,7 @@ TEST_F(QpackDecodedHeadersAccumulatorTest, ExceedLimitThenSplitInstruction) {
 // Test that header list limit enforcement works with blocked encoding.
 TEST_F(QpackDecodedHeadersAccumulatorTest, ExceedLimitBlocked) {
   // Total length of header list exceeds kMaxHeaderListSize.
-  accumulator_.Decode(quiche::QuicheTextUtils::HexDecode(
+  accumulator_.Decode(absl::HexStringToBytes(
       "0200"            // header block prefix
       "80"              // reference to dynamic table entry not yet received
       "26666f6f626172"  // header key: "foobar"
@@ -179,7 +182,7 @@ TEST_F(QpackDecodedHeadersAccumulatorTest, ExceedLimitBlocked) {
 
 TEST_F(QpackDecodedHeadersAccumulatorTest, BlockedDecoding) {
   // Reference to dynamic table entry not yet received.
-  std::string encoded_data(quiche::QuicheTextUtils::HexDecode("020080"));
+  std::string encoded_data(absl::HexStringToBytes("020080"));
   accumulator_.Decode(encoded_data);
   accumulator_.EndHeaderBlock();
 
@@ -203,7 +206,7 @@ TEST_F(QpackDecodedHeadersAccumulatorTest, BlockedDecoding) {
 TEST_F(QpackDecodedHeadersAccumulatorTest,
        BlockedDecodingUnblockedBeforeEndOfHeaderBlock) {
   // Reference to dynamic table entry not yet received.
-  accumulator_.Decode(quiche::QuicheTextUtils::HexDecode("020080"));
+  accumulator_.Decode(absl::HexStringToBytes("020080"));
 
   // Set dynamic table capacity.
   qpack_decoder_.OnSetDynamicTableCapacity(kMaxDynamicTableCapacity);
@@ -213,7 +216,7 @@ TEST_F(QpackDecodedHeadersAccumulatorTest,
   // Rest of header block: same entry again.
   EXPECT_CALL(decoder_stream_sender_delegate_,
               WriteStreamData(Eq(kHeaderAcknowledgement)));
-  accumulator_.Decode(quiche::QuicheTextUtils::HexDecode("80"));
+  accumulator_.Decode(absl::HexStringToBytes("80"));
 
   QuicHeaderList header_list;
   EXPECT_CALL(visitor_, OnHeadersDecoded(_, false))
@@ -228,12 +231,12 @@ TEST_F(QpackDecodedHeadersAccumulatorTest,
        BlockedDecodingUnblockedAndErrorBeforeEndOfHeaderBlock) {
   // Required Insert Count higher than number of entries causes decoding to be
   // blocked.
-  accumulator_.Decode(quiche::QuicheTextUtils::HexDecode("0200"));
+  accumulator_.Decode(absl::HexStringToBytes("0200"));
   // Indexed Header Field instruction addressing dynamic table entry with
   // relative index 0, absolute index 0.
-  accumulator_.Decode(quiche::QuicheTextUtils::HexDecode("80"));
+  accumulator_.Decode(absl::HexStringToBytes("80"));
   // Relative index larger than or equal to Base is invalid.
-  accumulator_.Decode(quiche::QuicheTextUtils::HexDecode("81"));
+  accumulator_.Decode(absl::HexStringToBytes("81"));
 
   // Set dynamic table capacity.
   qpack_decoder_.OnSetDynamicTableCapacity(kMaxDynamicTableCapacity);

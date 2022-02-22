@@ -5,36 +5,44 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_BLUETOOTH_BLUETOOTH_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_BLUETOOTH_BLUETOOTH_H_
 
-#include "mojo/public/cpp/bindings/associated_receiver_set.h"
-#include "mojo/public/cpp/bindings/receiver_set.h"
-#include "mojo/public/cpp/bindings/remote.h"
 #include "third_party/blink/public/mojom/bluetooth/web_bluetooth.mojom-blink-forward.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
+#include "third_party/blink/renderer/core/frame/navigator.h"
 #include "third_party/blink/renderer/core/page/page_visibility_observer.h"
+#include "third_party/blink/renderer/modules/bluetooth/bluetooth_advertising_event.h"
 #include "third_party/blink/renderer/modules/bluetooth/bluetooth_device.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
+#include "third_party/blink/renderer/platform/mojo/heap_mojo_associated_receiver_set.h"
+#include "third_party/blink/renderer/platform/mojo/heap_mojo_remote.h"
+#include "third_party/blink/renderer/platform/mojo/heap_mojo_wrapper_mode.h"
+#include "third_party/blink/renderer/platform/supplementable.h"
 
 namespace blink {
 
 class BluetoothLEScanOptions;
 class ExceptionState;
 class RequestDeviceOptions;
+class Navigator;
 class ScriptPromise;
 class ScriptState;
 
 class Bluetooth final : public EventTargetWithInlineData,
-                        public ExecutionContextLifecycleObserver,
+                        public Supplement<Navigator>,
                         public PageVisibilityObserver,
-                        public mojom::blink::WebBluetoothScanClient {
+                        public mojom::blink::WebBluetoothAdvertisementClient {
   DEFINE_WRAPPERTYPEINFO();
-  USING_GARBAGE_COLLECTED_MIXIN(Bluetooth);
 
  public:
-  explicit Bluetooth(ExecutionContext*);
+  static const char kSupplementName[];
+
+  // IDL exposed as navigator.bluetooth
+  static Bluetooth* bluetooth(Navigator&);
+
+  explicit Bluetooth(Navigator&);
   ~Bluetooth() override;
 
-  // IDL exposed interface:
+  // IDL exposed bluetooth interface:
   ScriptPromise getAvailability(ScriptState*, ExceptionState&);
   ScriptPromise getDevices(ScriptState*, ExceptionState&);
   ScriptPromise requestDevice(ScriptState*,
@@ -47,18 +55,15 @@ class Bluetooth final : public EventTargetWithInlineData,
 
   mojom::blink::WebBluetoothService* Service() { return service_.get(); }
 
-  // WebBluetoothScanClient
-  void ScanEvent(mojom::blink::WebBluetoothScanResultPtr result) override;
+  // WebBluetoothAdvertisementClient
+  void AdvertisingEvent(mojom::blink::WebBluetoothAdvertisingEventPtr) override;
 
   // EventTarget
   const AtomicString& InterfaceName() const override;
   ExecutionContext* GetExecutionContext() const override;
 
   // GC
-  void Trace(Visitor*) override;
-
-  // ExecutionContextLifecycleObserver
-  void ContextDestroyed() override;
+  void Trace(Visitor*) const override;
 
   DEFINE_ATTRIBUTE_EVENT_LISTENER(advertisementreceived, kAdvertisementreceived)
 
@@ -67,6 +72,9 @@ class Bluetooth final : public EventTargetWithInlineData,
 
   void CancelScan(mojo::ReceiverId);
   bool IsScanActive(mojo::ReceiverId) const;
+
+  BluetoothAdvertisingEvent* CreateBluetoothAdvertisingEvent(
+      mojom::blink::WebBluetoothAdvertisingEventPtr advertising_event);
 
  private:
   BluetoothDevice* GetBluetoothDeviceRepresentingDevice(
@@ -80,9 +88,11 @@ class Bluetooth final : public EventTargetWithInlineData,
                              mojom::blink::WebBluetoothResult,
                              mojom::blink::WebBluetoothDevicePtr);
 
-  void RequestScanningCallback(ScriptPromiseResolver*,
-                               mojo::ReceiverId id,
-                               mojom::blink::RequestScanningStartResultPtr);
+  void RequestScanningCallback(
+      ScriptPromiseResolver*,
+      mojo::ReceiverId,
+      mojom::blink::WebBluetoothRequestLEScanOptionsPtr,
+      mojom::blink::WebBluetoothResult);
 
   void EnsureServiceConnection(ExecutionContext*);
 
@@ -91,10 +101,13 @@ class Bluetooth final : public EventTargetWithInlineData,
   // Bluetooth device inside a single global object.
   HeapHashMap<String, Member<BluetoothDevice>> device_instance_map_;
 
-  mojo::AssociatedReceiverSet<mojom::blink::WebBluetoothScanClient>
+  HeapMojoAssociatedReceiverSet<mojom::blink::WebBluetoothAdvertisementClient,
+                                Bluetooth>
       client_receivers_;
 
-  mojo::Remote<mojom::blink::WebBluetoothService> service_;
+  // HeapMojoRemote objects are associated with a ContextLifecycleNotifier and
+  // cleaned up automatically when it is destroyed.
+  HeapMojoRemote<mojom::blink::WebBluetoothService> service_;
 };
 
 }  // namespace blink

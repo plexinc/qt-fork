@@ -49,7 +49,7 @@ class MainView : public QGraphicsView {
 Q_OBJECT
 
 public:
-    MainView(const bool enableOpenGL, const bool outputFps, const bool imageBasedRendering = false, QWidget *parent = 0);
+    MainView(const bool enableOpenGL, const bool outputFps, const bool imageBasedRendering = false, QWidget *parent = nullptr);
     ~MainView();
 
     void setTestWidget(QGraphicsWidget *testWidget);
@@ -74,7 +74,7 @@ protected:
     virtual void resizeEvent(QResizeEvent * event);
     virtual void paintEvent(QPaintEvent *event);
     virtual void keyPressEvent(QKeyEvent *event);
-    virtual void wheelEvent(QWheelEvent *event) { Q_UNUSED (event); };
+    virtual void wheelEvent(QWheelEvent *event) { Q_UNUSED (event); }
 
 private slots:
     void updateFps();

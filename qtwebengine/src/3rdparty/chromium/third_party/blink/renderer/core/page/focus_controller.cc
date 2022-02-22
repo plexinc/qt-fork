@@ -35,6 +35,7 @@
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/dom/element_traversal.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
+#include "third_party/blink/renderer/core/dom/focus_params.h"
 #include "third_party/blink/renderer/core/dom/range.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/editing/editing_utilities.h"  // For firstPositionInOrBeforeNode
@@ -113,7 +114,7 @@ class FocusNavigation : public GarbageCollected<FocusNavigation> {
     return FindOwner(*root_);
   }
 
-  void Trace(Visitor* visitor) {
+  void Trace(Visitor* visitor) const {
     visitor->Trace(root_);
     visitor->Trace(slot_);
   }
@@ -309,9 +310,6 @@ ScopedFocusNavigation ScopedFocusNavigation::OwnedByIFrame(
     const HTMLFrameOwnerElement& frame,
     FocusController::OwnerMap& owner_map) {
   DCHECK(frame.ContentFrame());
-  To<LocalFrame>(frame.ContentFrame())
-      ->GetDocument()
-      ->UpdateDistributionForLegacyDistributedNodes();
   return ScopedFocusNavigation(
       *To<LocalFrame>(frame.ContentFrame())->GetDocument(), nullptr, owner_map);
 }
@@ -426,7 +424,7 @@ inline bool IsShadowHostWithoutCustomFocusLogic(const Element& element) {
 
 inline bool IsNonKeyboardFocusableShadowHost(const Element& element) {
   return IsShadowHostWithoutCustomFocusLogic(element) &&
-         !(element.ShadowRootIfV1()
+         !(element.GetShadowRoot()
                ? (element.IsFocusable() || element.DelegatesFocus())
                : element.IsKeyboardFocusable());
 }
@@ -917,6 +915,7 @@ void FocusController::FocusHasChanged() {
   }
 
   NotifyFocusChangedObservers();
+  page_->GetPageScheduler()->OnFocusChanged(focused);
 }
 
 void FocusController::SetFocused(bool focused) {
@@ -961,6 +960,8 @@ bool FocusController::AdvanceFocus(
     mojom::blink::FocusType type,
     bool initial_focus,
     InputDeviceCapabilities* source_capabilities) {
+  // TODO (liviutinta) remove TRACE after fixing crbug.com/1063548
+  TRACE_EVENT0("input", "FocusController::AdvanceFocus");
   switch (type) {
     case mojom::blink::FocusType::kForward:
     case mojom::blink::FocusType::kBackward: {
@@ -1016,9 +1017,10 @@ bool FocusController::AdvanceFocusInDocumentOrder(
     mojom::blink::FocusType type,
     bool initial_focus,
     InputDeviceCapabilities* source_capabilities) {
+  // TODO (liviutinta) remove TRACE after fixing crbug.com/1063548
+  TRACE_EVENT0("input", "FocusController::AdvanceFocusInDocumentOrder");
   DCHECK(frame);
   Document* document = frame->GetDocument();
-  document->UpdateDistributionForLegacyDistributedNodes();
   OwnerMap owner_map;
 
   Element* current = start;
@@ -1063,8 +1065,14 @@ bool FocusController::AdvanceFocusInDocumentOrder(
     element = FindFocusableElementDescendingDownIntoFrameDocument(type, element,
                                                                   owner_map);
 
-    if (!element)
+    if (!element) {
+      // TODO (liviutinta) remove TRACE after fixing crbug.com/1063548
+      TRACE_EVENT_INSTANT1(
+          "input", "FocusController::AdvanceFocusInDocumentOrder",
+          TRACE_EVENT_SCOPE_THREAD, "reason_for_no_focus_element",
+          "no_recursive_focusable_element");
       return false;
+    }
   }
 
   if (element == document->FocusedElement()) {
@@ -1093,8 +1101,14 @@ bool FocusController::AdvanceFocusInDocumentOrder(
        !element->IsKeyboardFocusable())) {
     // FIXME: We should not focus frames that have no scrollbars, as focusing
     // them isn't useful to the user.
-    if (!owner->ContentFrame())
+    if (!owner->ContentFrame()) {
+      // TODO (liviutinta) remove TRACE after fixing crbug.com/1063548
+      TRACE_EVENT_INSTANT1(
+          "input", "FocusController::AdvanceFocusInDocumentOrder",
+          TRACE_EVENT_SCOPE_THREAD, "reason_for_no_focus_element",
+          "portal blocks focus");
       return false;
+    }
 
     document->ClearFocusedElement();
 
@@ -1196,7 +1210,7 @@ Element* FocusController::NextFocusableElementInForm(
       return next_element;
     }
     LayoutObject* layout = next_element->GetLayoutObject();
-    if (layout && layout->IsTextControl()) {
+    if (layout && layout->IsTextControlIncludingNG()) {
       // TODO(ajith.v) Extend it for select elements, radio buttons and check
       // boxes
       return next_element;
@@ -1344,7 +1358,7 @@ void FocusController::NotifyFocusChangedObservers() const {
     it->FocusedFrameChanged();
 }
 
-void FocusController::Trace(Visitor* visitor) {
+void FocusController::Trace(Visitor* visitor) const {
   visitor->Trace(page_);
   visitor->Trace(focused_frame_);
   visitor->Trace(focus_changed_observers_);

@@ -48,9 +48,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.14
-import QtQuick3D 1.15
-import QtQuick3D.Effects 1.15
+import QtQuick
+import QtQuick3D
+import QtQuick3D.Effects
 
 View3D {
     id: view3d
@@ -111,7 +111,7 @@ View3D {
         NumberAnimation on displacement {
             // Short-lasting animation that stops is acceptable to lancelot
             // It will grab the steady state when animation is finished
-            duration: 150
+            duration: 50
             loops: 1
             running: view3d.animated
             from: 0

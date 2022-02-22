@@ -105,6 +105,7 @@ class WorkerSchedulerTest : public testing::Test {
 
   void SetUp() override {
     scheduler_->Init();
+    scheduler_->AttachToCurrentThread();
     worker_scheduler_ =
         std::make_unique<WorkerSchedulerForTest>(scheduler_.get());
   }
@@ -286,7 +287,7 @@ TEST_F(WorkerSchedulerTest, MAYBE_PausableTasks) {
   // Tests interlacing pausable, throttable and unpausable tasks and
   // ensures that the pausable & throttable tasks don't run when paused.
   // Throttable
-  PostTestTask(&run_order, "T1", TaskType::kJavascriptTimer);
+  PostTestTask(&run_order, "T1", TaskType::kJavascriptTimerDelayedLowNesting);
   // Pausable
   PostTestTask(&run_order, "T2", TaskType::kNetworking);
   // Unpausable
@@ -304,7 +305,7 @@ TEST_F(WorkerSchedulerTest, MAYBE_NestedPauseHandlesTasks) {
   auto pause_handle = worker_scheduler_->Pause();
   {
     auto pause_handle2 = worker_scheduler_->Pause();
-    PostTestTask(&run_order, "T1", TaskType::kJavascriptTimer);
+    PostTestTask(&run_order, "T1", TaskType::kJavascriptTimerDelayedLowNesting);
     PostTestTask(&run_order, "T2", TaskType::kNetworking);
   }
   RunUntilIdle();

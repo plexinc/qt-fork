@@ -44,12 +44,6 @@
 #include "components/prefs/pref_service.h"
 #include "qtwebenginecoreglobal_p.h"
 
-QT_BEGIN_NAMESPACE
-class QStringList;
-QT_END_NAMESPACE
-
-class ProfileAdapter;
-
 namespace QtWebEngineCore {
 
 class ProfileAdapter;

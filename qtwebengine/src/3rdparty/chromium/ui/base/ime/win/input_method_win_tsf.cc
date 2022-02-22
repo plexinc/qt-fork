@@ -4,8 +4,8 @@
 
 #include "ui/base/ime/win/input_method_win_tsf.h"
 
-#include "ui/base/ime/input_method_keyboard_controller.h"
 #include "ui/base/ime/text_input_client.h"
+#include "ui/base/ime/virtual_keyboard_controller.h"
 #include "ui/base/ime/win/tsf_bridge.h"
 #include "ui/base/ime/win/tsf_event_router.h"
 
@@ -100,7 +100,6 @@ void InputMethodWinTSF::OnTextInputTypeChanged(const TextInputClient* client) {
   }
   ui::TSFBridge::GetInstance()->CancelComposition();
   ui::TSFBridge::GetInstance()->OnTextInputTypeChanged(client);
-  InputMethodWinBase::UpdateEngineFocusAndInputContext();
 }
 
 void InputMethodWinTSF::OnCaretBoundsChanged(const TextInputClient* client) {
@@ -110,14 +109,12 @@ void InputMethodWinTSF::OnCaretBoundsChanged(const TextInputClient* client) {
   }
   NotifyTextInputCaretBoundsChanged(client);
   ui::TSFBridge::GetInstance()->OnTextLayoutChanged();
-  InputMethodWinBase::UpdateCompositionBoundsForEngine(client);
 }
 
 void InputMethodWinTSF::CancelComposition(const TextInputClient* client) {
   if (ui::TSFBridge::GetInstance() && IsTextInputClientFocused(client) &&
       IsWindowFocused(client)) {
     ui::TSFBridge::GetInstance()->CancelComposition();
-    InputMethodWinBase::CancelCompositionForEngine();
   }
 }
 
@@ -145,9 +142,8 @@ bool InputMethodWinTSF::IsCandidatePopupOpen() const {
 void InputMethodWinTSF::OnWillChangeFocusedClient(
     TextInputClient* focused_before,
     TextInputClient* focused) {
-  if (IsWindowFocused(focused_before)) {
-    ConfirmCompositionText(/* reset_engine */ true,
-                           /* keep_selection */ false);
+  if (ui::TSFBridge::GetInstance() && IsWindowFocused(focused_before)) {
+    ConfirmCompositionText();
     ui::TSFBridge::GetInstance()->RemoveFocusedClient(focused_before);
   }
 }
@@ -171,28 +167,16 @@ void InputMethodWinTSF::OnDidChangeFocusedClient(
   InputMethodWinBase::OnDidChangeFocusedClient(focused_before, focused);
 }
 
-void InputMethodWinTSF::ConfirmCompositionText(bool reset_engine,
-                                               bool keep_selection) {
-  // TODO(b/134473433) Modify this function so that when keep_selection is
-  // true, the selection is not changed when text committed
-  if (keep_selection) {
-    NOTIMPLEMENTED_LOG_ONCE();
-  }
+void InputMethodWinTSF::ConfirmCompositionText() {
   if (IsTextInputTypeNone())
     return;
 
-  if (reset_engine && GetTextInputClient()->HasCompositionText())
-    InputMethodWinBase::ResetEngine();
   if (ui::TSFBridge::GetInstance())
     ui::TSFBridge::GetInstance()->ConfirmComposition();
 }
 
 void InputMethodWinTSF::ShowVirtualKeyboardIfEnabled() {
-  // TODO(crbug.com/1031786): Enable this once TSF input pane policy bug is
-  // fixed if (ui::TSFBridge::GetInstance())
-  //   ui::TSFBridge::GetInstance()->SetInputPanelPolicy(
-  //       /*inputPanelPolicyManual*/ false);
-  if (auto* controller = GetInputMethodKeyboardController())
+  if (auto* controller = GetVirtualKeyboardController())
     controller->DisplayVirtualKeyboard();
 }
 

@@ -10,12 +10,13 @@
 
 #include "base/base_switches.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/file_version_info.h"
 #include "base/location.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
@@ -43,6 +44,7 @@
 #include "net/cert/ct_policy_status.h"
 #include "net/cert/known_roots.h"
 #include "net/cookies/canonical_cookie.h"
+#include "net/cookies/cookie_access_delegate.h"
 #include "net/cookies/cookie_monster.h"
 #include "net/cookies/cookie_store.h"
 #include "net/cookies/cookie_util.h"
@@ -89,7 +91,7 @@ base::Value CookieInclusionStatusNetLogParams(
     const std::string& cookie_name,
     const std::string& cookie_domain,
     const std::string& cookie_path,
-    const net::CanonicalCookie::CookieInclusionStatus& status,
+    const net::CookieInclusionStatus& status,
     net::NetLogCaptureMode capture_mode) {
   base::Value dict(base::Value::Type::DICTIONARY);
   dict.SetStringKey("operation", operation);
@@ -150,36 +152,38 @@ void RecordCTHistograms(const net::SSLInfo& ssl_info) {
       "Net.CertificateTransparency.RequestComplianceStatus",
       ssl_info.ct_policy_compliance,
       net::ct::CTPolicyCompliance::CT_POLICY_COUNT);
-  // Record the CT compliance of each request which was required to be CT
-  // compliant. This gives a picture of the sites that are supposed to be
-  // compliant and how well they do at actually being compliant.
-  if (ssl_info.ct_policy_compliance_required) {
-    UMA_HISTOGRAM_ENUMERATION(
-        "Net.CertificateTransparency.CTRequiredRequestComplianceStatus",
-        ssl_info.ct_policy_compliance,
-        net::ct::CTPolicyCompliance::CT_POLICY_COUNT);
+}
+
+net::CookieOptions CreateCookieOptions(
+    net::CookieOptions::SameSiteCookieContext same_site_context,
+    net::CookieOptions::SamePartyCookieContextType same_party_context,
+    const net::IsolationInfo& isolation_info,
+    bool is_in_nontrivial_first_party_set) {
+  net::CookieOptions options;
+  options.set_return_excluded_cookies();
+  options.set_include_httponly();
+  options.set_same_site_cookie_context(same_site_context);
+  options.set_same_party_cookie_context_type(same_party_context);
+  if (isolation_info.party_context().has_value()) {
+    // Count the top-frame site since it's not in the party_context.
+    options.set_full_party_context_size(isolation_info.party_context()->size() +
+                                        1);
   }
+  options.set_is_in_nontrivial_first_party_set(
+      is_in_nontrivial_first_party_set);
+  return options;
 }
 
 }  // namespace
 
 namespace net {
 
-// TODO(darin): make sure the port blocking code is not lost
-// static
-URLRequestJob* URLRequestHttpJob::Factory(URLRequest* request,
-                                          NetworkDelegate* network_delegate,
-                                          const std::string& scheme) {
-  DCHECK(scheme == "http" || scheme == "https" || scheme == "ws" ||
-         scheme == "wss");
-
-  if (!request->context()->http_transaction_factory()) {
-    NOTREACHED() << "requires a valid context";
-    return new URLRequestErrorJob(
-        request, network_delegate, ERR_INVALID_ARGUMENT);
-  }
-
+std::unique_ptr<URLRequestJob> URLRequestHttpJob::Create(URLRequest* request) {
   const GURL& url = request->url();
+
+  // URLRequestContext must have been initialized.
+  DCHECK(request->context()->http_transaction_factory());
+  DCHECK(url.SchemeIsHTTPOrHTTPS() || url.SchemeIsWSOrWSS());
 
   // Check for reasons not to return a URLRequestHttpJob. These don't apply to
   // https and wss requests.
@@ -190,10 +194,9 @@ URLRequestJob* URLRequestHttpJob::Factory(URLRequest* request,
     if (hsts && hsts->ShouldUpgradeToSSL(url.host())) {
       GURL::Replacements replacements;
       replacements.SetSchemeStr(
-
           url.SchemeIs(url::kHttpScheme) ? url::kHttpsScheme : url::kWssScheme);
-      return new URLRequestRedirectJob(
-          request, network_delegate, url.ReplaceComponents(replacements),
+      return std::make_unique<URLRequestRedirectJob>(
+          request, url.ReplaceComponents(replacements),
           // Use status code 307 to preserve the method, so POST requests work.
           URLRequestRedirectJob::REDIRECT_307_TEMPORARY_REDIRECT, "HSTS");
     }
@@ -203,22 +206,20 @@ URLRequestJob* URLRequestHttpJob::Factory(URLRequest* request,
     // ERR_CLEARTEXT_NOT_PERMITTED if not.
     if (request->context()->check_cleartext_permitted() &&
         !android::IsCleartextPermitted(url.host())) {
-      return new URLRequestErrorJob(request, network_delegate,
-                                    ERR_CLEARTEXT_NOT_PERMITTED);
+      return std::make_unique<URLRequestErrorJob>(request,
+                                                  ERR_CLEARTEXT_NOT_PERMITTED);
     }
 #endif
   }
 
-  return new URLRequestHttpJob(request,
-                               network_delegate,
-                               request->context()->http_user_agent_settings());
+  return base::WrapUnique<URLRequestJob>(new URLRequestHttpJob(
+      request, request->context()->http_user_agent_settings()));
 }
 
 URLRequestHttpJob::URLRequestHttpJob(
     URLRequest* request,
-    NetworkDelegate* network_delegate,
     const HttpUserAgentSettings* http_user_agent_settings)
-    : URLRequestJob(request, network_delegate),
+    : URLRequestJob(request),
       num_cookie_lines_left_(0),
       priority_(DEFAULT_PRIORITY),
       response_info_(nullptr),
@@ -262,11 +263,17 @@ void URLRequestHttpJob::Start() {
 
   request_info_.network_isolation_key =
       request_->isolation_info().network_isolation_key();
+  request_info_.possibly_top_frame_origin =
+      request_->isolation_info().top_frame_origin();
+  request_info_.is_subframe_document_resource =
+      request_->isolation_info().request_type() ==
+      net::IsolationInfo::RequestType::kSubFrame;
   request_info_.load_flags = request_->load_flags();
   request_info_.disable_secure_dns = request_->disable_secure_dns();
   request_info_.traffic_annotation =
       net::MutableNetworkTrafficAnnotationTag(request_->traffic_annotation());
   request_info_.socket_tag = request_->socket_tag();
+  request_info_.idempotency = request_->GetIdempotency();
 #if BUILDFLAG(ENABLE_REPORTING)
   request_info_.reporting_upload_depth = request_->reporting_upload_depth();
 #endif
@@ -280,18 +287,10 @@ void URLRequestHttpJob::Start() {
   // plugin could set a referrer although sending the referrer is inhibited.
   request_info_.extra_headers.RemoveHeader(HttpRequestHeaders::kReferer);
 
-  // Our consumer should have made sure that this is a safe referrer. See for
-  // instance WebCore::FrameLoader::HideReferrer.
+  // Our consumer should have made sure that this is a safe referrer (e.g. via
+  // URLRequestJob::ComputeReferrerForPolicy).
   if (referrer.is_valid()) {
     std::string referer_value = referrer.spec();
-    // We limit the `referer` header to 4k: see step 6 of
-    // https://w3c.github.io/webappsec-referrer-policy/#determine-requests-referrer
-    // and https://github.com/whatwg/fetch/issues/903.
-    if (referer_value.length() > 4096) {
-      // Strip the referrer down to its origin, but ensure that it's serialized
-      // as a URL (e.g. retaining a trailing `/` character).
-      referer_value = url::Origin::Create(referrer).GetURL().spec();
-    }
     request_info_.extra_headers.SetHeader(HttpRequestHeaders::kReferer,
                                           referer_value);
   }
@@ -319,6 +318,15 @@ void URLRequestHttpJob::GetConnectionAttempts(ConnectionAttempts* out) const {
     out->clear();
 }
 
+void URLRequestHttpJob::CloseConnectionOnDestruction() {
+  DCHECK(transaction_);
+  transaction_->CloseConnectionOnDestruction();
+}
+
+int URLRequestHttpJob::NotifyConnectedCallback(const TransportInfo& info) {
+  return URLRequestJob::NotifyConnected(info);
+}
+
 void URLRequestHttpJob::NotifyHeadersComplete() {
   DCHECK(!response_info_);
   DCHECK_EQ(0, num_cookie_lines_left_);
@@ -333,9 +341,9 @@ void URLRequestHttpJob::NotifyHeadersComplete() {
   ProcessStrictTransportSecurityHeader();
   ProcessExpectCTHeader();
 
-  // Clear |set_cookie_status_list_| after any processing in case
+  // Clear |set_cookie_access_result_list_| after any processing in case
   // SaveCookiesAndNotifyHeadersComplete is called again.
-  request_->set_maybe_stored_cookies(std::move(set_cookie_status_list_));
+  request_->set_maybe_stored_cookies(std::move(set_cookie_access_result_list_));
 
   // The HTTP transaction may be restarted several times for the purposes
   // of sending authorization information. Each time it restarts, we get
@@ -368,14 +376,15 @@ void URLRequestHttpJob::DestroyTransaction() {
 }
 
 void URLRequestHttpJob::StartTransaction() {
-  if (network_delegate()) {
+  NetworkDelegate* network_delegate = request()->network_delegate();
+  if (network_delegate) {
     OnCallToDelegate(
         NetLogEventType::NETWORK_DELEGATE_BEFORE_START_TRANSACTION);
     // The NetworkDelegate must watch for OnRequestDestroyed and not modify
     // |extra_headers| after it's called.
     // TODO(mattm): change the API to remove the out-params and take the
     // results as params of the callback.
-    int rv = network_delegate()->NotifyBeforeStartTransaction(
+    int rv = network_delegate->NotifyBeforeStartTransaction(
         request_,
         base::BindOnce(&URLRequestHttpJob::NotifyBeforeStartTransactionCallback,
                        weak_factory_.GetWeakPtr()),
@@ -391,8 +400,8 @@ void URLRequestHttpJob::StartTransaction() {
 }
 
 void URLRequestHttpJob::NotifyBeforeStartTransactionCallback(int result) {
-  // Check that there are no callbacks to already canceled requests.
-  DCHECK_NE(URLRequestStatus::CANCELED, GetStatus().status());
+  // The request should not have been cancelled or have already completed.
+  DCHECK(!is_done());
 
   MaybeStartTransactionInternal(result);
 }
@@ -406,10 +415,8 @@ void URLRequestHttpJob::MaybeStartTransactionInternal(int result) {
                                                  "source", "delegate");
     // Don't call back synchronously to the delegate.
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE,
-        base::BindOnce(&URLRequestHttpJob::NotifyStartError,
-                       weak_factory_.GetWeakPtr(),
-                       URLRequestStatus(URLRequestStatus::FAILED, result)));
+        FROM_HERE, base::BindOnce(&URLRequestHttpJob::NotifyStartError,
+                                  weak_factory_.GetWeakPtr(), result));
   }
 }
 
@@ -452,6 +459,8 @@ void URLRequestHttpJob::StartTransactionInternal() {
     }
 
     if (rv == OK) {
+      transaction_->SetConnectedCallback(base::BindRepeating(
+          &URLRequestHttpJob::NotifyConnectedCallback, base::Unretained(this)));
       transaction_->SetRequestHeadersCallback(request_headers_callback_);
       transaction_->SetResponseHeadersCallback(response_headers_callback_);
 
@@ -528,21 +537,42 @@ void URLRequestHttpJob::AddExtraHeaders() {
 
 void URLRequestHttpJob::AddCookieHeaderAndStart() {
   CookieStore* cookie_store = request_->context()->cookie_store();
-  if (cookie_store && !(request_info_.load_flags & LOAD_DO_NOT_SEND_COOKIES)) {
-    CookieOptions options;
-    options.set_return_excluded_cookies();
-    options.set_include_httponly();
-    bool attach_same_site_cookies = request_->attach_same_site_cookies();
+  // Read cookies whenever allow_credentials() is true, even if the PrivacyMode
+  // is being overridden by NetworkDelegate and will eventually block them, as
+  // blocked cookies still need to be logged in that case.
+  if (cookie_store && request_->allow_credentials()) {
+    bool force_ignore_site_for_cookies =
+        request_->force_ignore_site_for_cookies();
     if (cookie_store->cookie_access_delegate() &&
         cookie_store->cookie_access_delegate()
             ->ShouldIgnoreSameSiteRestrictions(request_->url(),
                                                request_->site_for_cookies())) {
-      attach_same_site_cookies = true;
+      force_ignore_site_for_cookies = true;
     }
-    options.set_same_site_cookie_context(
+    bool is_main_frame_navigation =
+        IsolationInfo::RequestType::kMainFrame ==
+            request_->isolation_info().request_type() ||
+        request_->force_main_frame_for_same_site_cookies();
+    CookieOptions::SameSiteCookieContext same_site_context =
         net::cookie_util::ComputeSameSiteContextForRequest(
             request_->method(), request_->url(), request_->site_for_cookies(),
-            request_->initiator(), attach_same_site_cookies));
+            request_->initiator(), is_main_frame_navigation,
+            force_ignore_site_for_cookies);
+
+    net::SchemefulSite request_site(request_->url());
+
+    const CookieAccessDelegate* delegate =
+        cookie_store->cookie_access_delegate();
+
+    CookieOptions::SamePartyCookieContextType same_party_context =
+        net::cookie_util::ComputeSamePartyContext(
+            request_site, request_->isolation_info(), delegate);
+    bool is_in_nontrivial_first_party_set =
+        delegate && delegate->IsInNontrivialFirstPartySet(request_site);
+    CookieOptions options = CreateCookieOptions(
+        same_site_context, same_party_context, request_->isolation_info(),
+        is_in_nontrivial_first_party_set);
+
     static_cast<CookieMonster*>(cookie_store)->GetCookieListWithOptionsAsyncAndFiltered(
         request_->url(), request_->site_for_cookies(), options,
         base::BindOnce(&URLRequestHttpJob::SetCookieHeaderAndStart,
@@ -554,31 +584,22 @@ void URLRequestHttpJob::AddCookieHeaderAndStart() {
 
 void URLRequestHttpJob::SetCookieHeaderAndStart(
     const CookieOptions& options,
-    const CookieStatusList& cookies_with_status_list,
-    const CookieStatusList& excluded_list) {
+    const CookieAccessResultList& cookies_with_access_result_list,
+    const CookieAccessResultList& excluded_list) {
   DCHECK(request_->maybe_sent_cookies().empty());
 
-  // TODO(chlily): This is just for passing to CanGetCookies(), however the
-  // CookieList parameter of CanGetCookies(), which eventually gets passed to
-  // the NetworkDelegate, never actually gets used anywhere except in tests. The
-  // parameter should be removed.
-  CookieList cookie_list =
-      net::cookie_util::StripStatuses(cookies_with_status_list);
-
-  bool can_get_cookies = CanGetCookies(cookie_list);
-  if (!cookies_with_status_list.empty() && can_get_cookies) {
+  bool can_get_cookies =
+      (request_info_.privacy_mode == PRIVACY_MODE_DISABLED && CanGetCookies());
+  if (!cookies_with_access_result_list.empty() && can_get_cookies) {
     std::string cookie_line =
-        CanonicalCookie::BuildCookieLine(cookies_with_status_list);
+        CanonicalCookie::BuildCookieLine(cookies_with_access_result_list);
     UMA_HISTOGRAM_COUNTS_10000("Cookie.HeaderLength", cookie_line.length());
     request_info_.extra_headers.SetHeader(HttpRequestHeaders::kCookie,
                                           cookie_line);
 
-    // Disable privacy mode as we are sending cookies anyway.
-    request_info_.privacy_mode = PRIVACY_MODE_DISABLED;
-
     // TODO(crbug.com/1031664): Reduce the number of times the cookie list is
     // iterated over. Get metrics for every cookie which is included.
-    for (const auto& c : cookies_with_status_list) {
+    for (const auto& c : cookies_with_access_result_list) {
       bool request_is_secure = request_->url().SchemeIsCryptographic();
       net::CookieSourceScheme cookie_scheme = c.cookie.SourceScheme();
       CookieRequestScheme cookie_request_schemes;
@@ -608,39 +629,51 @@ void URLRequestHttpJob::SetCookieHeaderAndStart(
     }
   }
 
-  // Report status for things in |excluded_list| and |cookies_with_status_list|
+  // Report status for things in |excluded_list| and
+  // |cookies_with_access_result_list|
   // after the delegate got a chance to block them.
-  CookieStatusList maybe_sent_cookies = excluded_list;
-  // CanGetCookies only looks at the fields of the URLRequest, not the cookies
-  // it is passed, so if CanGetCookies(cookie_list) is false, then
-  // CanGetCookies(excluded_list) would also be false, so tag also the
-  // excluded cookies as having been blocked by user preferences.
-  if (!can_get_cookies) {
-    for (CookieStatusList::iterator it = maybe_sent_cookies.begin();
-         it != maybe_sent_cookies.end(); ++it) {
-      it->status.AddExclusionReason(
-          CanonicalCookie::CookieInclusionStatus::EXCLUDE_USER_PREFERENCES);
+  CookieAccessResultList maybe_sent_cookies = excluded_list;
+
+  // If the cookie was excluded due to the fix for crbug.com/1166211, this
+  // applies a warning to the status that will show up in the netlog.
+  // TODO(crbug.com/1166211): Remove once no longer needed.
+  if (options.same_site_cookie_context().AffectedByBugfix1166211()) {
+    for (auto& cookie_with_access_result : maybe_sent_cookies) {
+      options.same_site_cookie_context()
+          .MaybeApplyBugfix1166211WarningToStatusAndLogHistogram(
+              cookie_with_access_result.access_result.status);
     }
   }
-  for (const auto& cookie_with_status : cookies_with_status_list) {
-    CanonicalCookie::CookieInclusionStatus status = cookie_with_status.status;
-    if (!can_get_cookies) {
-      status.AddExclusionReason(
-          CanonicalCookie::CookieInclusionStatus::EXCLUDE_USER_PREFERENCES);
+
+  if (!can_get_cookies) {
+    for (CookieAccessResultList::iterator it = maybe_sent_cookies.begin();
+         it != maybe_sent_cookies.end(); ++it) {
+      it->access_result.status.AddExclusionReason(
+          CookieInclusionStatus::EXCLUDE_USER_PREFERENCES);
     }
-    maybe_sent_cookies.push_back({cookie_with_status.cookie, status});
+  }
+
+  for (const auto& cookie_with_access_result :
+       cookies_with_access_result_list) {
+    CookieAccessResult access_result = cookie_with_access_result.access_result;
+    if (!can_get_cookies) {
+      access_result.status.AddExclusionReason(
+          CookieInclusionStatus::EXCLUDE_USER_PREFERENCES);
+    }
+    maybe_sent_cookies.push_back(
+        {cookie_with_access_result.cookie, access_result});
   }
 
   if (request_->net_log().IsCapturing()) {
-    for (const auto& cookie_and_status : maybe_sent_cookies) {
+    for (const auto& cookie_with_access_result : maybe_sent_cookies) {
       request_->net_log().AddEvent(
           NetLogEventType::COOKIE_INCLUSION_STATUS,
           [&](NetLogCaptureMode capture_mode) {
             return CookieInclusionStatusNetLogParams(
-                "send", cookie_and_status.cookie.Name(),
-                cookie_and_status.cookie.Domain(),
-                cookie_and_status.cookie.Path(), cookie_and_status.status,
-                capture_mode);
+                "send", cookie_with_access_result.cookie.Name(),
+                cookie_with_access_result.cookie.Domain(),
+                cookie_with_access_result.cookie.Path(),
+                cookie_with_access_result.access_result.status, capture_mode);
           });
     }
   }
@@ -651,7 +684,7 @@ void URLRequestHttpJob::SetCookieHeaderAndStart(
 }
 
 void URLRequestHttpJob::SaveCookiesAndNotifyHeadersComplete(int result) {
-  DCHECK(set_cookie_status_list_.empty());
+  DCHECK(set_cookie_access_result_list_.empty());
   DCHECK_EQ(0, num_cookie_lines_left_);
 
   // End of the call started in OnStartCompleted.
@@ -660,7 +693,7 @@ void URLRequestHttpJob::SaveCookiesAndNotifyHeadersComplete(int result) {
   if (result != OK) {
     request_->net_log().AddEventWithStringParams(NetLogEventType::CANCELLED,
                                                  "source", "delegate");
-    NotifyStartError(URLRequestStatus(URLRequestStatus::FAILED, result));
+    NotifyStartError(result);
     return;
   }
 
@@ -676,23 +709,34 @@ void URLRequestHttpJob::SaveCookiesAndNotifyHeadersComplete(int result) {
   if (GetResponseHeaders()->GetDateValue(&response_date))
     server_time = base::make_optional(response_date);
 
-  CookieOptions options;
-  options.set_include_httponly();
-  bool attach_same_site_cookies = request_->attach_same_site_cookies();
+  bool force_ignore_site_for_cookies =
+      request_->force_ignore_site_for_cookies();
   if (cookie_store->cookie_access_delegate() &&
       cookie_store->cookie_access_delegate()->ShouldIgnoreSameSiteRestrictions(
           request_->url(), request_->site_for_cookies())) {
-    attach_same_site_cookies = true;
+    force_ignore_site_for_cookies = true;
   }
-  options.set_same_site_cookie_context(
+  bool is_main_frame_navigation = IsolationInfo::RequestType::kMainFrame ==
+                                  request_->isolation_info().request_type();
+  CookieOptions::SameSiteCookieContext same_site_context =
       net::cookie_util::ComputeSameSiteContextForResponse(
           request_->url(), request_->site_for_cookies(), request_->initiator(),
-          attach_same_site_cookies));
+          is_main_frame_navigation, force_ignore_site_for_cookies);
 
-  options.set_return_excluded_cookies();
+  const CookieAccessDelegate* delegate = cookie_store->cookie_access_delegate();
+  net::SchemefulSite request_site(request_->url());
 
-  // Set all cookies, without waiting for them to be set. Any subsequent read
-  // will see the combined result of all cookie operation.
+  CookieOptions::SamePartyCookieContextType same_party_context =
+      net::cookie_util::ComputeSamePartyContext(
+          request_site, request_->isolation_info(), delegate);
+  bool is_in_nontrivial_first_party_set =
+      delegate && delegate->IsInNontrivialFirstPartySet(request_site);
+  CookieOptions options = CreateCookieOptions(
+      same_site_context, same_party_context, request_->isolation_info(),
+      is_in_nontrivial_first_party_set);
+
+  // Set all cookies, without waiting for them to be set. Any subsequent
+  // read will see the combined result of all cookie operation.
   const base::StringPiece name("Set-Cookie");
   std::string cookie_string;
   size_t iter = 0;
@@ -702,13 +746,13 @@ void URLRequestHttpJob::SaveCookiesAndNotifyHeadersComplete(int result) {
   // list has been fully processed, and it can either be called in the
   // callback or after the loop is called, depending on how the last element
   // was handled. |num_cookie_lines_left_| keeps track of how many async
-  // callbacks are currently out (starting from 1 to make sure the loop runs all
-  // the way through before trying to exit). If there are any callbacks still
-  // waiting when the loop ends, then NotifyHeadersComplete will be called when
-  // it reaches 0 in the callback itself.
+  // callbacks are currently out (starting from 1 to make sure the loop runs
+  // all the way through before trying to exit). If there are any callbacks
+  // still waiting when the loop ends, then NotifyHeadersComplete will be
+  // called when it reaches 0 in the callback itself.
   num_cookie_lines_left_ = 1;
   while (headers->EnumerateHeader(&iter, name, &cookie_string)) {
-    CanonicalCookie::CookieInclusionStatus returned_status;
+    CookieInclusionStatus returned_status;
 
     num_cookie_lines_left_++;
 
@@ -724,11 +768,11 @@ void URLRequestHttpJob::SaveCookiesAndNotifyHeadersComplete(int result) {
     }
     if (cookie && !CanSetCookie(*cookie, &options)) {
       returned_status.AddExclusionReason(
-          CanonicalCookie::CookieInclusionStatus::EXCLUDE_USER_PREFERENCES);
+          CookieInclusionStatus::EXCLUDE_USER_PREFERENCES);
     }
     if (!returned_status.IsInclude()) {
       OnSetCookieResult(options, cookie_to_return, std::move(cookie_string),
-                        returned_status);
+                        CookieAccessResult(returned_status));
       continue;
     }
 
@@ -751,24 +795,34 @@ void URLRequestHttpJob::OnSetCookieResult(
     const CookieOptions& options,
     base::Optional<CanonicalCookie> cookie,
     std::string cookie_string,
-    CanonicalCookie::CookieInclusionStatus status) {
+    CookieAccessResult access_result) {
   if (request_->net_log().IsCapturing()) {
-    request_->net_log().AddEvent(
-        NetLogEventType::COOKIE_INCLUSION_STATUS,
-        [&](NetLogCaptureMode capture_mode) {
-          return CookieInclusionStatusNetLogParams(
-              "store", cookie ? cookie.value().Name() : "",
-              cookie ? cookie.value().Domain() : "",
-              cookie ? cookie.value().Path() : "", status, capture_mode);
-        });
+    request_->net_log().AddEvent(NetLogEventType::COOKIE_INCLUSION_STATUS,
+                                 [&](NetLogCaptureMode capture_mode) {
+                                   return CookieInclusionStatusNetLogParams(
+                                       "store",
+                                       cookie ? cookie.value().Name() : "",
+                                       cookie ? cookie.value().Domain() : "",
+                                       cookie ? cookie.value().Path() : "",
+                                       access_result.status, capture_mode);
+                                 });
   }
-  set_cookie_status_list_.emplace_back(std::move(cookie),
-                                       std::move(cookie_string), status);
+
+  // If the cookie was excluded due to the fix for crbug.com/1166211, this
+  // applies a warning to the status that will show up in the netlog.
+  // TODO(crbug.com/1166211): Remove once no longer needed.
+  if (options.same_site_cookie_context().AffectedByBugfix1166211()) {
+    options.same_site_cookie_context()
+        .MaybeApplyBugfix1166211WarningToStatusAndLogHistogram(
+            access_result.status);
+  }
+  set_cookie_access_result_list_.emplace_back(
+      std::move(cookie), std::move(cookie_string), access_result);
 
   num_cookie_lines_left_--;
 
-  // If all the cookie lines have been handled, |set_cookie_status_list_| now
-  // reflects the result of all Set-Cookie lines, and the request can be
+  // If all the cookie lines have been handled, |set_cookie_access_result_list_|
+  // now reflects the result of all Set-Cookie lines, and the request can be
   // continued.
   if (num_cookie_lines_left_ == 0)
     NotifyHeadersComplete();
@@ -819,7 +873,8 @@ void URLRequestHttpJob::ProcessExpectCTHeader() {
   std::string value;
   if (headers->GetNormalizedHeader("Expect-CT", &value)) {
     security_state->ProcessExpectCTHeader(
-        value, HostPortPair::FromURL(request_info_.url), ssl_info);
+        value, HostPortPair::FromURL(request_info_.url), ssl_info,
+        request_->isolation_info().network_isolation_key());
   }
 }
 
@@ -852,7 +907,8 @@ void URLRequestHttpJob::OnStartCompleted(int result) {
   if (result == OK) {
     scoped_refptr<HttpResponseHeaders> headers = GetResponseHeaders();
 
-    if (network_delegate()) {
+    NetworkDelegate* network_delegate = request()->network_delegate();
+    if (network_delegate) {
       // Note that |this| may not be deleted until
       // |URLRequestHttpJob::OnHeadersReceivedCallback()| or
       // |NetworkDelegate::URLRequestDestroyed()| has been called.
@@ -865,7 +921,7 @@ void URLRequestHttpJob::OnStartCompleted(int result) {
       // any of the arguments after it's called.
       // TODO(mattm): change the API to remove the out-params and take the
       // results as params of the callback.
-      int error = network_delegate()->NotifyHeadersReceived(
+      int error = network_delegate->NotifyHeadersReceived(
           request_,
           base::BindOnce(&URLRequestHttpJob::OnHeadersReceivedCallback,
                          weak_factory_.GetWeakPtr()),
@@ -878,7 +934,7 @@ void URLRequestHttpJob::OnStartCompleted(int result) {
           request_->net_log().AddEventWithStringParams(
               NetLogEventType::CANCELLED, "source", "delegate");
           OnCallToDelegateComplete();
-          NotifyStartError(URLRequestStatus(URLRequestStatus::FAILED, error));
+          NotifyStartError(error);
         }
         return;
       }
@@ -901,15 +957,15 @@ void URLRequestHttpJob::OnStartCompleted(int result) {
     // info (e.g. whether there's a cached copy).
     if (transaction_.get())
       response_info_ = transaction_->GetResponseInfo();
-    NotifyStartError(URLRequestStatus(URLRequestStatus::FAILED, result));
+    NotifyStartError(result);
   }
 }
 
 void URLRequestHttpJob::OnHeadersReceivedCallback(int result) {
-  awaiting_callback_ = false;
+  // The request should not have been cancelled or have already completed.
+  DCHECK(!is_done());
 
-  // Check that there are no callbacks to already canceled requests.
-  DCHECK_NE(URLRequestStatus::CANCELED, GetStatus().status());
+  awaiting_callback_ = false;
 
   SaveCookiesAndNotifyHeadersComplete(result);
 }
@@ -1063,14 +1119,6 @@ std::unique_ptr<SourceStream> URLRequestHttpJob::SetUpSourceStream() {
         // Request will not be canceled; though
         // it is expected that user will see malformed / garbage response.
         return upstream;
-      case SourceStream::TYPE_GZIP_FALLBACK_DEPRECATED:
-      case SourceStream::TYPE_SDCH_DEPRECATED:
-      case SourceStream::TYPE_SDCH_POSSIBLE_DEPRECATED:
-      case SourceStream::TYPE_REJECTED:
-      case SourceStream::TYPE_INVALID:
-      case SourceStream::TYPE_MAX:
-        NOTREACHED();
-        return nullptr;
     }
   }
 
@@ -1085,14 +1133,8 @@ std::unique_ptr<SourceStream> URLRequestHttpJob::SetUpSourceStream() {
       case SourceStream::TYPE_DEFLATE:
         downstream = GzipSourceStream::Create(std::move(upstream), type);
         break;
-      case SourceStream::TYPE_GZIP_FALLBACK_DEPRECATED:
-      case SourceStream::TYPE_SDCH_DEPRECATED:
-      case SourceStream::TYPE_SDCH_POSSIBLE_DEPRECATED:
       case SourceStream::TYPE_NONE:
-      case SourceStream::TYPE_INVALID:
-      case SourceStream::TYPE_REJECTED:
       case SourceStream::TYPE_UNKNOWN:
-      case SourceStream::TYPE_MAX:
         NOTREACHED();
         return nullptr;
     }

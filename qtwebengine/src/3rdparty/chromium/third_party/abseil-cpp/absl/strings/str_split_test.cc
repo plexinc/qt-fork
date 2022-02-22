@@ -27,8 +27,10 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "absl/base/dynamic_annotations.h"  // for AbslRunningOnValgrind
+#include "absl/base/dynamic_annotations.h"
 #include "absl/base/macros.h"
+#include "absl/container/flat_hash_map.h"
+#include "absl/container/node_hash_map.h"
 #include "absl/strings/numbers.h"
 
 namespace {
@@ -365,7 +367,7 @@ TEST(SplitIterator, EqualityAsEndCondition) {
 TEST(Splitter, RangeIterators) {
   auto splitter = absl::StrSplit("a,b,c", ',');
   std::vector<absl::string_view> output;
-  for (const absl::string_view p : splitter) {
+  for (const absl::string_view& p : splitter) {
     output.push_back(p);
   }
   EXPECT_THAT(output, ElementsAre("a", "b", "c"));
@@ -421,6 +423,18 @@ TEST(Splitter, ConversionOperator) {
   TestMapConversionOperator<std::multimap<std::string, std::string>>(splitter);
   TestMapConversionOperator<std::unordered_map<std::string, std::string>>(
       splitter);
+  TestMapConversionOperator<
+      absl::node_hash_map<absl::string_view, absl::string_view>>(splitter);
+  TestMapConversionOperator<
+      absl::node_hash_map<absl::string_view, std::string>>(splitter);
+  TestMapConversionOperator<
+      absl::node_hash_map<std::string, absl::string_view>>(splitter);
+  TestMapConversionOperator<
+      absl::flat_hash_map<absl::string_view, absl::string_view>>(splitter);
+  TestMapConversionOperator<
+      absl::flat_hash_map<absl::string_view, std::string>>(splitter);
+  TestMapConversionOperator<
+      absl::flat_hash_map<std::string, absl::string_view>>(splitter);
 
   // Tests conversion to std::pair
 

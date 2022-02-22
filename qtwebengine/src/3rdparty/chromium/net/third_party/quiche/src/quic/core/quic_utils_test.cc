@@ -2,16 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/quic_utils.h"
+#include "quic/core/quic_utils.h"
 
 #include <string>
 
-#include "net/third_party/quiche/src/quic/core/crypto/crypto_protocol.h"
-#include "net/third_party/quiche/src/quic/core/quic_connection_id.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_arraysize.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/base/macros.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/crypto/crypto_protocol.h"
+#include "quic/core/quic_connection_id.h"
+#include "quic/core/quic_types.h"
+#include "quic/platform/api/quic_test.h"
+#include "quic/test_tools/quic_test_utils.h"
 
 namespace quic {
 namespace test {
@@ -100,7 +101,7 @@ TEST_F(QuicUtilsTest, ReferenceTest) {
     data[i] = i % 255;
   }
   EXPECT_EQ(IncrementalHashReference(data.data(), data.size()),
-            QuicUtils::FNV1a_128_Hash(quiche::QuicheStringPiece(
+            QuicUtils::FNV1a_128_Hash(absl::string_view(
                 reinterpret_cast<const char*>(data.data()), data.size())));
 }
 
@@ -125,8 +126,7 @@ TEST_F(QuicUtilsTest, RetransmissionTypeToPacketState) {
       EXPECT_EQ(HANDSHAKE_RETRANSMITTED, state);
     } else if (i == LOSS_RETRANSMISSION) {
       EXPECT_EQ(LOST, state);
-    } else if (i == ALL_UNACKED_RETRANSMISSION ||
-               i == ALL_INITIAL_RETRANSMISSION) {
+    } else if (i == ALL_ZERO_RTT_RETRANSMISSION) {
       EXPECT_EQ(UNACKABLE, state);
     } else if (i == TLP_RETRANSMISSION) {
       EXPECT_EQ(TLP_RETRANSMITTED, state);
@@ -136,8 +136,12 @@ TEST_F(QuicUtilsTest, RetransmissionTypeToPacketState) {
       EXPECT_EQ(PTO_RETRANSMITTED, state);
     } else if (i == PROBING_RETRANSMISSION) {
       EXPECT_EQ(PROBE_RETRANSMITTED, state);
+    } else if (i == PATH_RETRANSMISSION) {
+      EXPECT_EQ(NOT_CONTRIBUTING_RTT, state);
+    } else if (i == ALL_INITIAL_RETRANSMISSION) {
+      EXPECT_EQ(UNACKABLE, state);
     } else {
-      DCHECK(false)
+      QUICHE_DCHECK(false)
           << "No corresponding packet state according to transmission type: "
           << i;
     }
@@ -180,6 +184,23 @@ TEST_F(QuicUtilsTest, ReplacementConnectionIdIsDeterministic) {
   EXPECT_EQ(connection_id72a, connection_id72b);
   EXPECT_EQ(QuicUtils::CreateReplacementConnectionId(connection_id72a),
             QuicUtils::CreateReplacementConnectionId(connection_id72b));
+  // Test variant with custom length.
+  EXPECT_EQ(QuicUtils::CreateReplacementConnectionId(connection_id64a, 7),
+            QuicUtils::CreateReplacementConnectionId(connection_id64b, 7));
+  EXPECT_EQ(QuicUtils::CreateReplacementConnectionId(connection_id64a, 9),
+            QuicUtils::CreateReplacementConnectionId(connection_id64b, 9));
+  EXPECT_EQ(QuicUtils::CreateReplacementConnectionId(connection_id64a, 16),
+            QuicUtils::CreateReplacementConnectionId(connection_id64b, 16));
+  EXPECT_EQ(QuicUtils::CreateReplacementConnectionId(connection_id72a, 7),
+            QuicUtils::CreateReplacementConnectionId(connection_id72b, 7));
+  EXPECT_EQ(QuicUtils::CreateReplacementConnectionId(connection_id72a, 9),
+            QuicUtils::CreateReplacementConnectionId(connection_id72b, 9));
+  EXPECT_EQ(QuicUtils::CreateReplacementConnectionId(connection_id72a, 16),
+            QuicUtils::CreateReplacementConnectionId(connection_id72b, 16));
+  EXPECT_EQ(QuicUtils::CreateReplacementConnectionId(connection_id72a, 32),
+            QuicUtils::CreateReplacementConnectionId(connection_id72b, 32));
+  EXPECT_EQ(QuicUtils::CreateReplacementConnectionId(connection_id72a, 255),
+            QuicUtils::CreateReplacementConnectionId(connection_id72b, 255));
 }
 
 TEST_F(QuicUtilsTest, ReplacementConnectionIdLengthIsCorrect) {
@@ -191,6 +212,22 @@ TEST_F(QuicUtilsTest, ReplacementConnectionIdLengthIsCorrect) {
         QuicUtils::CreateReplacementConnectionId(connection_id);
     EXPECT_EQ(kQuicDefaultConnectionIdLength,
               replacement_connection_id.length());
+    // Test variant with custom length.
+    QuicConnectionId replacement_connection_id7 =
+        QuicUtils::CreateReplacementConnectionId(connection_id, 7);
+    EXPECT_EQ(7, replacement_connection_id7.length());
+    QuicConnectionId replacement_connection_id9 =
+        QuicUtils::CreateReplacementConnectionId(connection_id, 9);
+    EXPECT_EQ(9, replacement_connection_id9.length());
+    QuicConnectionId replacement_connection_id16 =
+        QuicUtils::CreateReplacementConnectionId(connection_id, 16);
+    EXPECT_EQ(16, replacement_connection_id16.length());
+    QuicConnectionId replacement_connection_id32 =
+        QuicUtils::CreateReplacementConnectionId(connection_id, 32);
+    EXPECT_EQ(32, replacement_connection_id32.length());
+    QuicConnectionId replacement_connection_id255 =
+        QuicUtils::CreateReplacementConnectionId(connection_id, 255);
+    EXPECT_EQ(255, replacement_connection_id255.length());
   }
 }
 
@@ -205,6 +242,17 @@ TEST_F(QuicUtilsTest, ReplacementConnectionIdHasEntropy) {
       EXPECT_NE(connection_id_i, connection_id_j);
       EXPECT_NE(QuicUtils::CreateReplacementConnectionId(connection_id_i),
                 QuicUtils::CreateReplacementConnectionId(connection_id_j));
+      // Test variant with custom length.
+      EXPECT_NE(QuicUtils::CreateReplacementConnectionId(connection_id_i, 7),
+                QuicUtils::CreateReplacementConnectionId(connection_id_j, 7));
+      EXPECT_NE(QuicUtils::CreateReplacementConnectionId(connection_id_i, 9),
+                QuicUtils::CreateReplacementConnectionId(connection_id_j, 9));
+      EXPECT_NE(QuicUtils::CreateReplacementConnectionId(connection_id_i, 16),
+                QuicUtils::CreateReplacementConnectionId(connection_id_j, 16));
+      EXPECT_NE(QuicUtils::CreateReplacementConnectionId(connection_id_i, 32),
+                QuicUtils::CreateReplacementConnectionId(connection_id_j, 32));
+      EXPECT_NE(QuicUtils::CreateReplacementConnectionId(connection_id_i, 255),
+                QuicUtils::CreateReplacementConnectionId(connection_id_j, 255));
     }
   }
 }
@@ -214,10 +262,10 @@ TEST_F(QuicUtilsTest, RandomConnectionId) {
   QuicConnectionId connection_id = QuicUtils::CreateRandomConnectionId(&random);
   EXPECT_EQ(connection_id.length(), sizeof(uint64_t));
   char connection_id_bytes[sizeof(uint64_t)];
-  random.RandBytes(connection_id_bytes, QUICHE_ARRAYSIZE(connection_id_bytes));
+  random.RandBytes(connection_id_bytes, ABSL_ARRAYSIZE(connection_id_bytes));
   EXPECT_EQ(connection_id,
             QuicConnectionId(static_cast<char*>(connection_id_bytes),
-                             QUICHE_ARRAYSIZE(connection_id_bytes)));
+                             ABSL_ARRAYSIZE(connection_id_bytes)));
   EXPECT_NE(connection_id, EmptyQuicConnectionId());
   EXPECT_NE(connection_id, TestConnectionId());
   EXPECT_NE(connection_id, TestConnectionId(1));
@@ -233,10 +281,10 @@ TEST_F(QuicUtilsTest, RandomConnectionIdVariableLength) {
       QuicUtils::CreateRandomConnectionId(connection_id_length, &random);
   EXPECT_EQ(connection_id.length(), connection_id_length);
   char connection_id_bytes[connection_id_length];
-  random.RandBytes(connection_id_bytes, QUICHE_ARRAYSIZE(connection_id_bytes));
+  random.RandBytes(connection_id_bytes, ABSL_ARRAYSIZE(connection_id_bytes));
   EXPECT_EQ(connection_id,
             QuicConnectionId(static_cast<char*>(connection_id_bytes),
-                             QUICHE_ARRAYSIZE(connection_id_bytes)));
+                             ABSL_ARRAYSIZE(connection_id_bytes)));
   EXPECT_NE(connection_id, EmptyQuicConnectionId());
   EXPECT_NE(connection_id, TestConnectionId());
   EXPECT_NE(connection_id, TestConnectionId(1));

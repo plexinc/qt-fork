@@ -23,8 +23,9 @@
 #include "components/download/public/common/download_stats.h"
 #include "components/download/public/common/download_task_runner.h"
 #include "components/download/public/common/download_url_parameters.h"
+#include "net/base/isolation_info.h"
 #include "net/base/load_flags.h"
-#include "net/base/network_isolation_key.h"
+#include "net/cookies/site_for_cookies.h"
 #include "net/http/http_request_headers.h"
 #include "net/http/http_status_code.h"
 #include "services/network/public/cpp/resource_request.h"
@@ -49,6 +50,9 @@ const int64_t kInvalidFileWriteOffset = -1;
 // Default expiration time of download in days. Canceled and interrupted
 // downloads will be deleted after expiration.
 const int kDefaultDownloadExpiredTimeInDays = 90;
+
+// Default time for an overwritten download to be removed from the history.
+const int kDefaultOverwrittenDownloadExpiredTimeInDays = 90;
 
 #if defined(OS_ANDROID)
 // Default maximum length of a downloaded file name on Android.
@@ -266,19 +270,26 @@ std::unique_ptr<network::ResourceRequest> CreateResourceRequest(
   request->request_initiator = params->initiator();
   request->trusted_params = network::ResourceRequest::TrustedParams();
 
-  // Treat downloads like top-level frame navigations to be consistent with
-  // cookie behavior. Also, since web-initiated downloads bypass the disk cache,
-  // sites can't use download timing information to tell if a cross-site URL has
-  // been visited before.
-  url::Origin origin = url::Origin::Create(params->url());
-  request->trusted_params->network_isolation_key =
-      net::NetworkIsolationKey(origin, origin);
+  if (params->isolation_info().has_value()) {
+    request->trusted_params->isolation_info = params->isolation_info().value();
+    request->site_for_cookies = params->isolation_info()->site_for_cookies();
+  } else {
+    // Treat downloads like top-level frame navigations to be consistent with
+    // cookie behavior. Also, since web-initiated downloads bypass the disk
+    // cache, sites can't use download timing information to tell if a
+    // cross-site URL has been visited before.
+    url::Origin origin = url::Origin::Create(params->url());
+    request->trusted_params->isolation_info = net::IsolationInfo::Create(
+        net::IsolationInfo::RequestType::kMainFrame, origin, origin,
+        net::SiteForCookies::FromOrigin(origin));
+    request->site_for_cookies = net::SiteForCookies::FromUrl(params->url());
+  }
 
   request->do_not_prompt_for_login = params->do_not_prompt_for_login();
-  request->site_for_cookies = net::SiteForCookies::FromUrl(params->url());
   request->referrer = params->referrer();
   request->referrer_policy = params->referrer_policy();
   request->is_main_frame = true;
+  request->update_first_party_url_on_redirect = true;
 
   // Downloads should be treated as navigations from Fetch spec perspective.
   // See also:
@@ -426,6 +437,7 @@ DownloadDBEntry CreateDownloadDBEntryFromItem(const DownloadItemImpl& item) {
   in_progress_info.metered = item.AllowMetered();
   in_progress_info.bytes_wasted = item.GetBytesWasted();
   in_progress_info.auto_resume_count = item.GetAutoResumeCount();
+  in_progress_info.download_schedule = item.GetDownloadSchedule();
 
   download_info.in_progress_info = in_progress_info;
 
@@ -584,7 +596,7 @@ bool DeleteDownloadedFile(const base::FilePath& path) {
   // Make sure we only delete files.
   if (base::DirectoryExists(path))
     return true;
-  return base::DeleteFile(path, false);
+  return base::DeleteFile(path);
 }
 
 DownloadItem::DownloadRenameResult RenameDownloadedFile(
@@ -632,6 +644,14 @@ base::TimeDelta GetExpiredDownloadDeleteTime() {
   int expired_days = base::GetFieldTrialParamByFeatureAsInt(
       features::kDeleteExpiredDownloads, kExpiredDownloadDeleteTimeFinchKey,
       kDefaultDownloadExpiredTimeInDays);
+  return base::TimeDelta::FromDays(expired_days);
+}
+
+base::TimeDelta GetOverwrittenDownloadDeleteTime() {
+  int expired_days = base::GetFieldTrialParamByFeatureAsInt(
+      features::kDeleteOverwrittenDownloads,
+      kOverwrittenDownloadDeleteTimeFinchKey,
+      kDefaultOverwrittenDownloadExpiredTimeInDays);
   return base::TimeDelta::FromDays(expired_days);
 }
 

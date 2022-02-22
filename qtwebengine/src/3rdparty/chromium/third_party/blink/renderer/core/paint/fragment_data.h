@@ -8,6 +8,7 @@
 #include "base/optional.h"
 #include "third_party/blink/renderer/core/layout/geometry/physical_rect.h"
 #include "third_party/blink/renderer/core/paint/object_paint_properties.h"
+#include "third_party/blink/renderer/platform/graphics/paint/cull_rect.h"
 #include "third_party/blink/renderer/platform/graphics/paint/ref_counted_property_tree_state.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
@@ -27,20 +28,16 @@ class CORE_EXPORT FragmentData {
   FragmentData& EnsureNextFragment();
   void ClearNextFragment() { DestroyTail(); }
 
-  // Visual offset of this fragment's top-left position from the
-  // "paint offset root" which is the containing root PaintLayer of the root
-  // LocalFrameView, or PaintLayer with a transform, whichever is nearer along
-  // the containing block chain.
+  FragmentData& LastFragment();
+  const FragmentData& LastFragment() const;
+
+  // Physical offset of this fragment's local border box's top-left position
+  // from the origin of the transform node of the fragment's property tree
+  // state.
   PhysicalOffset PaintOffset() const { return paint_offset_; }
   void SetPaintOffset(const PhysicalOffset& paint_offset) {
     paint_offset_ = paint_offset;
   }
-
-  // The visual rect computed by the latest paint invalidation.
-  // It's location may be different from PaintOffset when there is visual (ink)
-  // overflow to the top and/or the left.
-  IntRect VisualRect() const { return visual_rect_; }
-  void SetVisualRect(const IntRect& rect) { visual_rect_ = rect; }
 
   // An id for this object that is unique for the lifetime of the WebView.
   UniqueObjectId UniqueId() const {
@@ -54,16 +51,6 @@ class CORE_EXPORT FragmentData {
     return rare_data_ ? rare_data_->layer.get() : nullptr;
   }
   void SetLayer(std::unique_ptr<PaintLayer>);
-
-  // Visual rect of the selection on this object, in the same coordinate space
-  // as DisplayItemClient::VisualRect().
-  IntRect SelectionVisualRect() const {
-    return rare_data_ ? rare_data_->selection_visual_rect : IntRect();
-  }
-  void SetSelectionVisualRect(const IntRect& r) {
-    if (rare_data_ || !r.IsEmpty())
-      EnsureRareData().selection_visual_rect = r;
-  }
 
   // Covers the sub-rectangles of the object that need to be re-rastered, in the
   // object's local coordinate space.  During PrePaint, the rect mapped into
@@ -165,8 +152,14 @@ class CORE_EXPORT FragmentData {
   //   node. Even though the div has no transform, its local border box
   //   properties would have a transform node that points to the div's
   //   ancestor transform space.
-  PropertyTreeState LocalBorderBoxProperties() const {
+  PropertyTreeStateOrAlias LocalBorderBoxProperties() const {
     DCHECK(HasLocalBorderBoxProperties());
+
+    // TODO(chrishtr): this should never happen, but does in practice and
+    // we haven't been able to find all of the cases where it happens yet.
+    // See crbug.com/1137883. Once we find more of them, remove this.
+    if (!rare_data_ || !rare_data_->local_border_box_properties)
+      return PropertyTreeState::Root();
     return rare_data_->local_border_box_properties->GetPropertyTreeState();
   }
   bool HasLocalBorderBoxProperties() const {
@@ -176,7 +169,7 @@ class CORE_EXPORT FragmentData {
     if (rare_data_)
       rare_data_->local_border_box_properties = nullptr;
   }
-  void SetLocalBorderBoxProperties(const PropertyTreeState& state) {
+  void SetLocalBorderBoxProperties(const PropertyTreeStateOrAlias& state) {
     EnsureRareData();
     if (!rare_data_->local_border_box_properties) {
       rare_data_->local_border_box_properties =
@@ -186,41 +179,42 @@ class CORE_EXPORT FragmentData {
     }
   }
 
+  void SetCullRect(const CullRect& cull_rect) {
+    EnsureRareData().cull_rect_ = cull_rect;
+  }
+  CullRect GetCullRect() const {
+    return rare_data_ ? rare_data_->cull_rect_ : CullRect();
+  }
+  void SetContentsCullRect(const CullRect& contents_cull_rect) {
+    EnsureRareData().contents_cull_rect_ = contents_cull_rect;
+  }
+  CullRect GetContentsCullRect() const {
+    return rare_data_ ? rare_data_->contents_cull_rect_ : CullRect();
+  }
+
   // This is the complete set of property nodes that is inherited
   // from the ancestor before applying any local CSS properties,
   // but includes paint offset transform.
-  PropertyTreeState PreEffectProperties() const {
-    return PropertyTreeState(PreTransform(), PreClip(), PreEffect());
+  PropertyTreeStateOrAlias PreEffectProperties() const {
+    return PropertyTreeStateOrAlias(PreTransform(), PreClip(), PreEffect());
   }
 
   // This is the complete set of property nodes that can be used to
   // paint the contents of this fragment. It is similar to
   // |local_border_box_properties_| but includes properties (e.g.,
   // overflow clip, scroll translation) that apply to contents.
-  PropertyTreeState ContentsProperties() const {
-    return PropertyTreeState(PostScrollTranslation(), PostOverflowClip(),
-                             PostIsolationEffect());
+  PropertyTreeStateOrAlias ContentsProperties() const {
+    return PropertyTreeStateOrAlias(PostScrollTranslation(), PostOverflowClip(),
+                                    PostIsolationEffect());
   }
 
-  // This is the complete set of property nodes that can be used to
-  // paint mask-based clip-path.
-  PropertyTreeState ClipPathProperties() const {
-    DCHECK(rare_data_);
-    const auto* properties = rare_data_->paint_properties.get();
-    DCHECK(properties);
-    DCHECK(properties->MaskClip());
-    DCHECK(properties->ClipPath());
-    return PropertyTreeState(properties->MaskClip()->LocalTransformSpace(),
-                             *properties->MaskClip(), *properties->ClipPath());
-  }
-
-  const TransformPaintPropertyNode& PreTransform() const;
-  const TransformPaintPropertyNode& PostScrollTranslation() const;
-  const ClipPaintPropertyNode& PreClip() const;
-  const ClipPaintPropertyNode& PostOverflowClip() const;
-  const EffectPaintPropertyNode& PreEffect() const;
-  const EffectPaintPropertyNode& PreFilter() const;
-  const EffectPaintPropertyNode& PostIsolationEffect() const;
+  const TransformPaintPropertyNodeOrAlias& PreTransform() const;
+  const TransformPaintPropertyNodeOrAlias& PostScrollTranslation() const;
+  const ClipPaintPropertyNodeOrAlias& PreClip() const;
+  const ClipPaintPropertyNodeOrAlias& PostOverflowClip() const;
+  const EffectPaintPropertyNodeOrAlias& PreEffect() const;
+  const EffectPaintPropertyNodeOrAlias& PreFilter() const;
+  const EffectPaintPropertyNodeOrAlias& PostIsolationEffect() const;
 
   // Map a rect from |this|'s local border box space to |fragment|'s local
   // border box space. Both fragments must have local border box properties.
@@ -246,13 +240,14 @@ class CORE_EXPORT FragmentData {
 
    public:
     RareData();
+    RareData(const RareData&) = delete;
+    RareData& operator=(const RareData&) = delete;
     ~RareData();
 
     // The following data fields are not fragment specific. Placed here just to
     // avoid separate data structure for them.
     std::unique_ptr<PaintLayer> layer;
     UniqueObjectId unique_id;
-    IntRect selection_visual_rect;
     PhysicalRect partial_invalidation_local_rect;
     IntRect partial_invalidation_visual_rect;
 
@@ -264,16 +259,14 @@ class CORE_EXPORT FragmentData {
     bool is_clip_path_cache_valid = false;
     base::Optional<IntRect> clip_path_bounding_box;
     scoped_refptr<const RefCountedPath> clip_path_path;
+    CullRect cull_rect_;
+    CullRect contents_cull_rect_;
     std::unique_ptr<FragmentData> next_fragment_;
-
-    DISALLOW_COPY_AND_ASSIGN(RareData);
   };
 
   RareData& EnsureRareData();
 
-  IntRect visual_rect_;
   PhysicalOffset paint_offset_;
-
   std::unique_ptr<RareData> rare_data_;
 };
 

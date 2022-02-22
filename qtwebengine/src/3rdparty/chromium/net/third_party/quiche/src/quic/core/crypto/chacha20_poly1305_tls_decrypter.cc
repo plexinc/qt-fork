@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/crypto/chacha20_poly1305_tls_decrypter.h"
+#include "quic/core/crypto/chacha20_poly1305_tls_decrypter.h"
 
 #include "third_party/boringssl/src/include/openssl/aead.h"
 #include "third_party/boringssl/src/include/openssl/tls1.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_flag_utils.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
+#include "quic/platform/api/quic_flag_utils.h"
+#include "quic/platform/api/quic_flags.h"
 
 namespace quic {
 
@@ -32,6 +32,14 @@ ChaCha20Poly1305TlsDecrypter::~ChaCha20Poly1305TlsDecrypter() {}
 
 uint32_t ChaCha20Poly1305TlsDecrypter::cipher_id() const {
   return TLS1_CK_CHACHA20_POLY1305_SHA256;
+}
+
+QuicPacketCount ChaCha20Poly1305TlsDecrypter::GetIntegrityLimit() const {
+  // For AEAD_CHACHA20_POLY1305, the integrity limit is 2^36 invalid packets.
+  // https://quicwg.org/base-drafts/draft-ietf-quic-tls.html#name-limits-on-aead-usage
+  static_assert(kMaxIncomingPacketSize < 16384,
+                "This key limit requires limits on decryption payload sizes");
+  return 68719476736U;
 }
 
 }  // namespace quic

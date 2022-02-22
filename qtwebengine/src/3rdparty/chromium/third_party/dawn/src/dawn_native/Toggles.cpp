@@ -88,20 +88,11 @@ namespace dawn_native {
               "Enable residency management. This allows page-in and page-out of resource heaps in "
               "GPU memory. This component improves overcommitted performance by keeping the most "
               "recently used resources local to the GPU. Turning this component off can cause "
-              "allocation failures when application memory exceeds physical device memory."}},
+              "allocation failures when application memory exceeds physical device memory.",
+              "https://crbug.com/dawn/193"}},
             {Toggle::SkipValidation,
              {"skip_validation", "Skip expensive validation of Dawn commands.",
               "https://crbug.com/dawn/271"}},
-            {Toggle::UseSpvc,
-             {"use_spvc",
-              "Enable use of spvc for shader compilation, instead of accessing spirv_cross "
-              "directly.",
-              "https://crbug.com/dawn/288"}},
-            {Toggle::UseSpvcParser,
-             {"use_spvc_parser",
-              "Enable usage of spvc's internal parsing and IR generation code, instead of "
-              "spirv_cross's.",
-              "https://crbug.com/dawn/288"}},
             {Toggle::VulkanUseD32S8,
              {"vulkan_use_d32s8",
               "Vulkan mandates support of either D32_FLOAT_S8 or D24_UNORM_S8. When available the "
@@ -111,35 +102,95 @@ namespace dawn_native {
             {Toggle::MetalDisableSamplerCompare,
              {"metal_disable_sampler_compare",
               "Disables the use of sampler compare on Metal. This is unsupported before A9 "
-              "processors."}},
+              "processors.",
+              "https://crbug.com/dawn/342"}},
+            {Toggle::MetalUseSharedModeForCounterSampleBuffer,
+             {"metal_use_shared_mode_for_counter_sample_buffer",
+              "The query set on Metal need to create MTLCounterSampleBuffer which storage mode "
+              "must be either MTLStorageModeShared or MTLStorageModePrivate. But the private mode "
+              "does not work properly on Intel platforms. The workaround is use shared mode "
+              "instead.",
+              "https://crbug.com/dawn/434"}},
             {Toggle::DisableBaseVertex,
              {"disable_base_vertex",
-              "Disables the use of non-zero base vertex which is unsupported on some platforms."}},
+              "Disables the use of non-zero base vertex which is unsupported on some platforms.",
+              "https://crbug.com/dawn/343"}},
             {Toggle::DisableBaseInstance,
              {"disable_base_instance",
               "Disables the use of non-zero base instance which is unsupported on some "
-              "platforms."}},
+              "platforms.",
+              "https://crbug.com/dawn/343"}},
+            {Toggle::DisableIndexedDrawBuffers,
+             {"disable_indexed_draw_buffers",
+              "Disables the use of indexed draw buffer state which is unsupported on some "
+              "platforms.",
+              "https://crbug.com/dawn/582"}},
+            {Toggle::DisableSnormRead,
+             {"disable_snorm_read",
+              "Disables reading from Snorm textures which is unsupported on some platforms.",
+              "https://crbug.com/dawn/667"}},
+            {Toggle::DisableDepthStencilRead,
+             {"disable_depth_stencil_read",
+              "Disables reading from depth/stencil textures which is unsupported on some "
+              "platforms.",
+              "https://crbug.com/dawn/667"}},
+            {Toggle::DisableSampleVariables,
+             {"disable_sample_variables",
+              "Disables gl_SampleMask and related functionality which is unsupported on some "
+              "platforms.",
+              "https://crbug.com/dawn/673"}},
             {Toggle::UseD3D12SmallShaderVisibleHeapForTesting,
              {"use_d3d12_small_shader_visible_heap",
               "Enable use of a small D3D12 shader visible heap, instead of using a large one by "
-              "default. This setting is used to test bindgroup encoding."}},
+              "default. This setting is used to test bindgroup encoding.",
+              "https://crbug.com/dawn/155"}},
+            {Toggle::UseDXC,
+             {"use_dxc",
+              "Use DXC instead of FXC for compiling HLSL when both dxcompiler.dll and dxil.dll "
+              "is available.",
+              "https://crbug.com/dawn/402"}},
+            {Toggle::DisableRobustness,
+             {"disable_robustness", "Disable robust buffer access", "https://crbug.com/dawn/480"}},
+            {Toggle::MetalEnableVertexPulling,
+             {"metal_enable_vertex_pulling",
+              "Uses vertex pulling to protect out-of-bounds reads on Metal",
+              "https://crbug.com/dawn/480"}},
+            {Toggle::DisallowUnsafeAPIs,
+             {"disallow_unsafe_apis",
+              "Produces validation errors on API entry points or parameter combinations that "
+              "aren't considered secure yet.",
+              "http://crbug.com/1138528"}},
+            {Toggle::UseTintGenerator,
+             {"use_tint_generator", "Use Tint instead of SPRIV-cross to generate shaders.",
+              "https://crbug.com/dawn/571"}},
+            {Toggle::FlushBeforeClientWaitSync,
+             {"flush_before_client_wait_sync",
+              "Call glFlush before glClientWaitSync to work around bugs in the latter",
+              "https://crbug.com/dawn/633"}},
+            {Toggle::ConvertTimestampsToNanoseconds,
+             {"convert_timestamps_to_nanoseconds",
+              "If needed, use a compute shader to transform timestamp queries from ticks to "
+              "nanoseconds. This is temporarily needed to avoid requiring Tint to use timestamp "
+              "queries",
+              "https://crbug.com/dawn/686"}}
+            // Dummy comment to separate the }} so it is clearer what to copy-paste to add a toggle.
         }};
 
     }  // anonymous namespace
 
-    void TogglesSet::SetToggle(Toggle toggle, bool enabled) {
+    void TogglesSet::Set(Toggle toggle, bool enabled) {
         ASSERT(toggle != Toggle::InvalidEnum);
         const size_t toggleIndex = static_cast<size_t>(toggle);
         toggleBitset.set(toggleIndex, enabled);
     }
 
-    bool TogglesSet::IsEnabled(Toggle toggle) const {
+    bool TogglesSet::Has(Toggle toggle) const {
         ASSERT(toggle != Toggle::InvalidEnum);
         const size_t toggleIndex = static_cast<size_t>(toggle);
         return toggleBitset.test(toggleIndex);
     }
 
-    std::vector<const char*> TogglesSet::GetEnabledToggleNames() const {
+    std::vector<const char*> TogglesSet::GetContainedToggleNames() const {
         std::vector<const char*> togglesNameInUse(toggleBitset.count());
 
         uint32_t index = 0;

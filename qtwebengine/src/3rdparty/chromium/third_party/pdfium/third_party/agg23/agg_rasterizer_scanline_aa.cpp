@@ -49,6 +49,8 @@
 #include <limits.h>
 #include "agg_rasterizer_scanline_aa.h"
 #include "third_party/base/numerics/safe_math.h"
+namespace pdfium
+{
 namespace agg
 {
 AGG_INLINE void cell_aa::set_cover(int c, int a)
@@ -124,7 +126,7 @@ void outline_aa::allocate_block()
             m_cells = new_cells;
             m_max_blocks += cell_block_pool;
         }
-        m_cells[m_num_blocks++] = FX_Alloc(cell_aa, cell_block_size);
+        m_cells[m_num_blocks++] = FX_AllocUninit(cell_aa, cell_block_size);
     }
     m_cur_cell_ptr = m_cells[m_cur_block++];
 }
@@ -515,3 +517,4 @@ bool rasterizer_scanline_aa::safe_add(int* op1, int op2)
     return true;
 }
 }
+}  // namespace pdfium

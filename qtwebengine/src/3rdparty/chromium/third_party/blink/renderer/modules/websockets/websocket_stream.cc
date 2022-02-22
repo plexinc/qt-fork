@@ -33,7 +33,6 @@
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
 #include "third_party/blink/renderer/platform/bindings/v8_binding.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
-#include "third_party/blink/renderer/platform/heap/visitor.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 
 namespace blink {
@@ -53,7 +52,7 @@ class WebSocketStream::UnderlyingSource final : public UnderlyingSourceBase {
   void DidStartClosingHandshake();
   void DidClose(bool was_clean, uint16_t code, const String& reason);
 
-  void Trace(Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(creator_);
     UnderlyingSourceBase::Trace(visitor);
   }
@@ -85,7 +84,7 @@ class WebSocketStream::UnderlyingSink final : public UnderlyingSinkBase {
   void DidClose(bool was_clean, uint16_t code, const String& reason);
   bool AllDataHasBeenConsumed() { return !is_writing_; }
 
-  void Trace(Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(creator_);
     visitor->Trace(close_resolver_);
     UnderlyingSinkBase::Trace(visitor);
@@ -308,7 +307,7 @@ void WebSocketStream::UnderlyingSink::SendAny(ScriptState* script_state,
   auto* isolate = script_state->GetIsolate();
   if (v8chunk->IsArrayBuffer()) {
     DOMArrayBuffer* data = V8ArrayBuffer::ToImpl(v8chunk.As<v8::ArrayBuffer>());
-    SendArrayBuffer(script_state, data, 0, data->ByteLengthAsSizeT(), resolver,
+    SendArrayBuffer(script_state, data, 0, data->ByteLength(), resolver,
                     std::move(callback));
     return;
   }
@@ -323,9 +322,8 @@ void WebSocketStream::UnderlyingSink::SendAny(ScriptState* script_state,
       return;
     }
 
-    SendArrayBuffer(
-        script_state, data.View()->buffer(), data.View()->byteOffsetAsSizeT(),
-        data.View()->byteLengthAsSizeT(), resolver, std::move(callback));
+    SendArrayBuffer(script_state, data->buffer(), data->byteOffset(),
+                    data->byteLength(), resolver, std::move(callback));
     return;
   }
 
@@ -437,9 +435,9 @@ WebSocketStream::WebSocketStream(ExecutionContext* execution_context,
       closed_resolver_(
           MakeGarbageCollected<ScriptPromiseResolver>(script_state)),
       connection_(script_state->GetIsolate(),
-                  connection_resolver_->Promise().V8Value().As<v8::Promise>()),
+                  connection_resolver_->Promise().V8Promise()),
       closed_(script_state->GetIsolate(),
-              closed_resolver_->Promise().V8Value().As<v8::Promise>()) {}
+              closed_resolver_->Promise().V8Promise()) {}
 
 WebSocketStream::~WebSocketStream() = default;
 
@@ -573,9 +571,6 @@ void WebSocketStream::DidClose(
 void WebSocketStream::ContextDestroyed() {
   DVLOG(1) << "WebSocketStream " << this << " ContextDestroyed()";
   if (channel_) {
-    if (common_.GetState() == WebSocketCommon::kOpen) {
-      channel_->Close(WebSocketChannel::kCloseEventCodeGoingAway, String());
-    }
     channel_ = nullptr;
   }
   if (common_.GetState() != WebSocketCommon::kClosed) {
@@ -587,7 +582,7 @@ bool WebSocketStream::HasPendingActivity() const {
   return channel_;
 }
 
-void WebSocketStream::Trace(Visitor* visitor) {
+void WebSocketStream::Trace(Visitor* visitor) const {
   visitor->Trace(script_state_);
   visitor->Trace(connection_resolver_);
   visitor->Trace(closed_resolver_);
@@ -611,17 +606,17 @@ void WebSocketStream::Connect(ScriptState* script_state,
   // Don't read all of a huge initial message before read() has been called.
   channel_->ApplyBackpressure();
 
-  auto* signal = options->signal();
-  if (signal && signal->aborted()) {
-    auto exception = V8ThrowDOMException::CreateOrEmpty(
-        script_state->GetIsolate(), DOMExceptionCode::kAbortError,
-        "WebSocket handshake was aborted");
-    connection_resolver_->Reject(exception);
-    closed_resolver_->Reject(exception);
-    return;
-  }
+  if (options->hasSignal()) {
+    auto* signal = options->signal();
+    if (signal->aborted()) {
+      auto exception = V8ThrowDOMException::CreateOrEmpty(
+          script_state->GetIsolate(), DOMExceptionCode::kAbortError,
+          "WebSocket handshake was aborted");
+      connection_resolver_->Reject(exception);
+      closed_resolver_->Reject(exception);
+      return;
+    }
 
-  if (signal) {
     signal->AddAlgorithm(
         WTF::Bind(&WebSocketStream::OnAbort, WrapWeakPersistent(this)));
   }

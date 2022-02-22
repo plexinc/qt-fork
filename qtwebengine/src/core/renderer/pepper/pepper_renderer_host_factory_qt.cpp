@@ -43,11 +43,11 @@
 // found in the LICENSE.Chromium file.
 
 #include "pepper_renderer_host_factory_qt.h"
-#include "pepper_flash_renderer_host_qt.h"
 #include "qtwebenginecoreglobal_p.h"
 
 #include "base/memory/ptr_util.h"
 #include "chrome/renderer/pepper/pepper_flash_font_file_host.h"
+#include "chrome/renderer/pepper/pepper_uma_host.h"
 #if QT_CONFIG(webengine_printing_and_pdf)
 #include "components/pdf/renderer/pepper_pdf_host.h"
 #endif // QT_CONFIG(webengine_printing_and_pdf)
@@ -81,25 +81,6 @@ std::unique_ptr<ppapi::host::ResourceHost> PepperRendererHostFactoryQt::CreateRe
     if (!host_->IsValidInstance(instance))
         return nullptr;
 
-    if (host_->GetPpapiHost()->permissions().HasPermission(ppapi::PERMISSION_FLASH)) {
-        switch (message.type()) {
-        case PpapiHostMsg_Flash_Create::ID:
-            return base::WrapUnique(new PepperFlashRendererHostQt(host_, instance, resource));
-        case PpapiHostMsg_FlashMenu_Create::ID: {
-            ppapi::host::ReplyMessageContext reply_context(
-                ppapi::proxy::ResourceMessageReplyParams(resource, 0),
-                NULL,
-                MSG_ROUTING_NONE);
-            reply_context.params.set_result(PP_ERROR_USERCANCEL);
-            host_->GetPpapiHost()->SendReply(reply_context, PpapiPluginMsg_FlashMenu_ShowReply(-1));
-            break;
-        }
-        case PpapiHostMsg_FlashFullscreen_Create::ID:
-            // Not implemented
-            break;
-        }
-    }
-
     // TODO(raymes): PDF also needs access to the FlashFontFileHost currently.
     // We should either rename PPB_FlashFont_File to PPB_FontFile_Private or get
     // rid of its use in PDF if possible.
@@ -113,9 +94,6 @@ std::unique_ptr<ppapi::host::ResourceHost> PepperRendererHostFactoryQt::CreateRe
                 return base::WrapUnique(new PepperFlashFontFileHost(host_, instance, resource, description, charset));
             break;
         }
-        case PpapiHostMsg_FlashDRM_Create::ID:
-            // Not implemented
-            break;
         }
     }
 
@@ -127,6 +105,14 @@ std::unique_ptr<ppapi::host::ResourceHost> PepperRendererHostFactoryQt::CreateRe
         }
     }
 #endif // QT_CONFIG(webengine_printing_and_pdf)
+
+    // Create a default ResourceHost for this message type to suppress
+    // "Failed to create PPAPI resource host" console error message.
+    switch (message.type()) {
+    case PpapiHostMsg_UMA_Create::ID:
+        return std::make_unique<ppapi::host::ResourceHost>(host_->GetPpapiHost(), instance, resource);
+    }
+
     return nullptr;
 }
 

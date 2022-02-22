@@ -2,13 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/congestion_control/rtt_stats.h"
+#include "quic/core/congestion_control/rtt_stats.h"
 
 #include <cstdlib>  // std::abs
 
-#include "net/third_party/quiche/src/quic/platform/api/quic_flag_utils.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
+#include "quic/platform/api/quic_flag_utils.h"
+#include "quic/platform/api/quic_flags.h"
+#include "quic/platform/api/quic_logging.h"
 
 namespace quic {
 
@@ -29,7 +29,6 @@ RttStats::RttStats()
       mean_deviation_(QuicTime::Delta::Zero()),
       calculate_standard_deviation_(false),
       initial_rtt_(QuicTime::Delta::FromMilliseconds(kInitialRttMs)),
-      max_ack_delay_(QuicTime::Delta::Zero()),
       last_update_time_(QuicTime::Zero()),
       ignore_max_ack_delay_(false) {}
 
@@ -73,7 +72,6 @@ void RttStats::UpdateRtt(QuicTime::Delta send_delta,
   // send_delta.
   if (rtt_sample > ack_delay) {
     if (rtt_sample - min_rtt_ >= ack_delay) {
-      max_ack_delay_ = std::max(max_ack_delay_, ack_delay);
       rtt_sample = rtt_sample - ack_delay;
     }
   }
@@ -102,11 +100,10 @@ void RttStats::OnConnectionMigration() {
   smoothed_rtt_ = QuicTime::Delta::Zero();
   mean_deviation_ = QuicTime::Delta::Zero();
   initial_rtt_ = QuicTime::Delta::FromMilliseconds(kInitialRttMs);
-  max_ack_delay_ = QuicTime::Delta::Zero();
 }
 
 QuicTime::Delta RttStats::GetStandardOrMeanDeviation() const {
-  DCHECK(calculate_standard_deviation_);
+  QUICHE_DCHECK(calculate_standard_deviation_);
   if (!standard_deviation_calculator_.has_valid_standard_deviation) {
     return mean_deviation_;
   }
@@ -127,8 +124,21 @@ void RttStats::StandardDeviationCaculator::OnNewRttSample(
 
 QuicTime::Delta
 RttStats::StandardDeviationCaculator::CalculateStandardDeviation() const {
-  DCHECK(has_valid_standard_deviation);
+  QUICHE_DCHECK(has_valid_standard_deviation);
   return QuicTime::Delta::FromMicroseconds(sqrt(m2));
+}
+
+void RttStats::CloneFrom(const RttStats& stats) {
+  latest_rtt_ = stats.latest_rtt_;
+  min_rtt_ = stats.min_rtt_;
+  smoothed_rtt_ = stats.smoothed_rtt_;
+  previous_srtt_ = stats.previous_srtt_;
+  mean_deviation_ = stats.mean_deviation_;
+  standard_deviation_calculator_ = stats.standard_deviation_calculator_;
+  calculate_standard_deviation_ = stats.calculate_standard_deviation_;
+  initial_rtt_ = stats.initial_rtt_;
+  last_update_time_ = stats.last_update_time_;
+  ignore_max_ack_delay_ = stats.ignore_max_ack_delay_;
 }
 
 }  // namespace quic

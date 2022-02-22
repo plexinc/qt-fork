@@ -46,7 +46,7 @@
 #include <QtGui/QBrush>
 #include <QtGui/QFont>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class QBoxPlotSeriesPrivate;
 
@@ -59,7 +59,7 @@ public:
     ~QBoxSetPrivate();
 
     bool append(qreal value);
-    bool append(QList<qreal> values);
+    bool append(const QList<qreal> &values);
 
     int remove(const int index, const int count);
     void clear();
@@ -89,6 +89,6 @@ private:
     friend class QBoxPlotSeriesPrivate;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // QBOXSET_P_H

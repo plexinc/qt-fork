@@ -40,11 +40,13 @@ class TestPerformance : public Performance {
     return HasObserverFor(entry_type);
   }
 
-  void Trace(Visitor* visitor) override { Performance::Trace(visitor); }
+  void Trace(Visitor* visitor) const override { Performance::Trace(visitor); }
 };
 
 class PerformanceTest : public PageTestBase {
  protected:
+  ~PerformanceTest() override { execution_context_->NotifyContextDestroyed(); }
+
   void Initialize(ScriptState* script_state) {
     v8::Local<v8::Function> callback =
         v8::Function::New(script_state->GetContext(), nullptr).ToLocalChecked();

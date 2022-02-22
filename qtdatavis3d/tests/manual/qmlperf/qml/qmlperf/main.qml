@@ -27,13 +27,13 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.1
-import QtQuick.Layouts 1.0
-import QtQuick.Controls 1.0
-import QtDataVisualization 1.1
+import QtQuick
+import QtQuick.Layouts
+import QtQuick.Controls
+import QtDataVisualization 1.2
 import "."
 
-Rectangle {
+Item {
     id: mainview
     width: 1280
     height: 1024
@@ -136,17 +136,17 @@ Rectangle {
                 fpsText.text = itemCount + " : " + scatterPlot.currentFps.toFixed(1);
             }
 
-//            theme: Theme3D {
-//                type: Theme3D.ThemeRetro
-//                colorStyle: Theme3D.ColorStyleRangeGradient
-//                baseGradients: customGradient
+            theme: Theme3D {
+                type: Theme3D.ThemeRetro
+                colorStyle: Theme3D.ColorStyleRangeGradient
+                baseGradients: customGradient
 
-//                ColorGradient {
-//                    id: customGradient
-//                    ColorGradientStop { position: 1.0; color: "red" }
-//                    ColorGradientStop { position: 0.0; color: "blue" }
-//                }
-//            }
+                ColorGradient {
+                    id: customGradient
+                    ColorGradientStop { position: 1.0; color: "red" }
+                    ColorGradientStop { position: 0.0; color: "blue" }
+                }
+            }
 
             Scatter3DSeries {
                 id: scatterSeries

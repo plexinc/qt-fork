@@ -51,8 +51,8 @@ base::Optional<std::array<uint8_t, kClientHelloMessageSize>>
 ConstructHandshakeMessage(base::StringPiece handshake_key,
                           base::span<const uint8_t, 16> client_random_nonce) {
   cbor::Value::MapValue map;
-  map.emplace(0, cbor::Value(kCableClientHelloMessage));
-  map.emplace(1, cbor::Value(client_random_nonce));
+  map.emplace(0, kCableClientHelloMessage);
+  map.emplace(1, client_random_nonce);
   auto client_hello = cbor::Writer::Write(cbor::Value(std::move(map)));
   DCHECK(client_hello);
 
@@ -176,48 +176,6 @@ FidoCableV1HandshakeHandler::GetEncryptionKeyAfterSuccessfulHandshake(
   return crypto::HkdfSha256(session_pre_key_, crypto::SHA256Hash(nonce_message),
                             kCableDeviceEncryptionKeyInfo,
                             /*derived_key_length=*/32);
-}
-
-// kP256PointSize is the number of bytes in an X9.62 encoding of a P-256 point.
-static constexpr size_t kP256PointSize = 65;
-
-FidoCableV2HandshakeHandler::FidoCableV2HandshakeHandler(
-    FidoCableDevice* cable_device,
-    base::span<const uint8_t, 32> psk_gen_key,
-    base::span<const uint8_t, 8> nonce,
-    base::span<const uint8_t, kCableEphemeralIdSize> eid,
-    base::Optional<base::span<const uint8_t, kP256PointSize>> peer_identity,
-    base::Optional<base::span<const uint8_t, kCableIdentityKeySeedSize>>
-        local_seed,
-    base::RepeatingCallback<void(std::unique_ptr<CableDiscoveryData>)>
-        pairing_callback)
-    : cable_device_(cable_device),
-      pairing_callback_(std::move(pairing_callback)),
-      handshake_(psk_gen_key, nonce, eid, peer_identity, local_seed) {}
-
-FidoCableV2HandshakeHandler::~FidoCableV2HandshakeHandler() = default;
-
-void FidoCableV2HandshakeHandler::InitiateCableHandshake(
-    FidoDevice::DeviceCallback callback) {
-  std::vector<uint8_t> message = handshake_.BuildInitialMessage();
-  cable_device_->SendHandshakeMessage(std::move(message), std::move(callback));
-}
-
-bool FidoCableV2HandshakeHandler::ValidateAuthenticatorHandshakeMessage(
-    base::span<const uint8_t> response) {
-  base::Optional<std::pair<std::unique_ptr<cablev2::Crypter>,
-                           base::Optional<std::unique_ptr<CableDiscoveryData>>>>
-      result = handshake_.ProcessResponse(response);
-  if (!result) {
-    return false;
-  }
-
-  if (result->second.has_value()) {
-    pairing_callback_.Run(std::move(result->second.value()));
-  }
-
-  cable_device_->SetV2EncryptionData(std::move(result->first));
-  return true;
 }
 
 }  // namespace device

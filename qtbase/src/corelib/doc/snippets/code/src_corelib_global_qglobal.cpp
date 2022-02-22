@@ -339,8 +339,7 @@ void f(int c)
 
 
 //! [27]
-qWarning() << "Brush:" << myQBrush << "Other value:"
-<< i;
+qWarning() << "Brush:" << myQBrush << "Other value:" << i;
 //! [27]
 
 
@@ -355,8 +354,7 @@ void load(const QString &fileName)
 
 
 //! [29]
-qCritical() << "Brush:" << myQBrush << "Other
-value:" << i;
+qCritical() << "Brush:" << myQBrush << "Other value:" << i;
 //! [29]
 
 
@@ -553,7 +551,7 @@ private:
     int *data;
 };
 
-Q_DECLARE_TYPEINFO(Point2D, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(Point2D, Q_RELOCATABLE_TYPE);
 //! [39]
 
 

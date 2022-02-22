@@ -12,7 +12,7 @@
 #include <utility>
 #include <vector>
 
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "components/history/core/browser/history_backend.h"
 #include "components/history/core/browser/history_backend_observer.h"
 #include "components/history/core/browser/sync/typed_url_sync_metadata_database.h"
@@ -70,9 +70,6 @@ class TypedURLSyncBridge : public syncer::ModelTypeSyncBridge,
   // Called by HistoryBackend when database error is reported through
   // DatabaseErrorCallback.
   void OnDatabaseError();
-
-  // Returns the percentage of DB accesses that have resulted in an error.
-  int GetErrorPercentage() const;
 
   // Return true if this function successfully converts the passed URL
   // information to a TypedUrlSpecifics structure for writing to the sync DB.
@@ -135,10 +132,6 @@ class TypedURLSyncBridge : public syncer::ModelTypeSyncBridge,
   // Synchronously load sync metadata from the TypedURLSyncMetadataDatabase and
   // pass it to the processor so that it can start tracking changes.
   void LoadMetadata();
-
-  // Helper function that clears our error counters (used to reset stats after
-  // merge so we can track merge errors separately).
-  void ClearErrorStats();
 
   // Compares |server_typed_url| from the server against local history to decide
   // how to merge any existing data, and updates appropriate data containers to
@@ -248,19 +241,14 @@ class TypedURLSyncBridge : public syncer::ModelTypeSyncBridge,
   // metadata and state.
   TypedURLSyncMetadataDatabase* sync_metadata_database_;
 
-  // Statistics for the purposes of tracking the percentage of DB accesses that
-  // fail for each client via UMA.
-  int num_db_accesses_;
-  int num_db_errors_;
-
   // Since HistoryBackend use SequencedTaskRunner, so should use SequenceChecker
   // here.
   base::SequenceChecker sequence_checker_;
 
   // Tracks observed history backend, for receiving updates from history
   // backend.
-  ScopedObserver<HistoryBackend, HistoryBackendObserver>
-      history_backend_observer_{this};
+  base::ScopedObservation<HistoryBackend, HistoryBackendObserver>
+      history_backend_observation_{this};
 
   DISALLOW_COPY_AND_ASSIGN(TypedURLSyncBridge);
 };

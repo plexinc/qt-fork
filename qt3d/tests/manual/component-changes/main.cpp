@@ -51,6 +51,7 @@
 #include <QGuiApplication>
 
 #include <Qt3DRender/qcamera.h>
+#include <Qt3DRender/qgeometryrenderer.h>
 #include <Qt3DExtras/qcylindermesh.h>
 #include <Qt3DExtras/qspheremesh.h>
 #include <Qt3DExtras/qphongmaterial.h>

@@ -72,7 +72,7 @@ public:
     void setLoader(Loader *newLoader);
 
     QScxmlStateMachine *compile();
-    QVector<QScxmlError> errors() const;
+    QList<QScxmlError> errors() const;
 
 private:
     friend class QScxmlCompilerPrivate;

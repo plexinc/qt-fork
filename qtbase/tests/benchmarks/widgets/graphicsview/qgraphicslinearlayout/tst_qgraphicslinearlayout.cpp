@@ -26,7 +26,7 @@
 **
 ****************************************************************************/
 
-#include <QtTest>
+#include <QTest>
 #include <QGraphicsLinearLayout>
 #include <QGraphicsWidget>
 #include <QGraphicsView>
@@ -47,7 +47,7 @@ private slots:
 struct MySquareWidget : public QGraphicsWidget
 {
     MySquareWidget() {}
-    virtual QSizeF  sizeHint ( Qt::SizeHint which, const QSizeF & constraint = QSizeF() ) const
+    QSizeF sizeHint(Qt::SizeHint which, const QSizeF &constraint = QSizeF()) const override
     {
         if (which != Qt::PreferredSize)
             return QGraphicsWidget::sizeHint(which, constraint);

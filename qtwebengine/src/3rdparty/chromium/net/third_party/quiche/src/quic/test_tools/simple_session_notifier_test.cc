@@ -2,16 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/test_tools/simple_session_notifier.h"
+#include "quic/test_tools/simple_session_notifier.h"
 
 #include <utility>
 
-#include "net/third_party/quiche/src/quic/core/crypto/null_encrypter.h"
-#include "net/third_party/quiche/src/quic/core/quic_utils.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_connection_peer.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
-#include "net/third_party/quiche/src/quic/test_tools/simple_data_producer.h"
+#include "quic/core/crypto/null_encrypter.h"
+#include "quic/core/quic_utils.h"
+#include "quic/platform/api/quic_test.h"
+#include "quic/test_tools/quic_connection_peer.h"
+#include "quic/test_tools/quic_test_utils.h"
+#include "quic/test_tools/simple_data_producer.h"
 
 using testing::_;
 using testing::InSequence;
@@ -29,11 +29,13 @@ class MockQuicConnectionWithSendStreamData : public MockQuicConnection {
                                        Perspective perspective)
       : MockQuicConnection(helper, alarm_factory, perspective) {}
 
-  MOCK_METHOD4(SendStreamData,
-               QuicConsumedData(QuicStreamId id,
-                                size_t write_length,
-                                QuicStreamOffset offset,
-                                StreamSendingState state));
+  MOCK_METHOD(QuicConsumedData,
+              SendStreamData,
+              (QuicStreamId id,
+               size_t write_length,
+               QuicStreamOffset offset,
+               StreamSendingState state),
+              (override));
 };
 
 class SimpleSessionNotifierTest : public QuicTest {
@@ -263,9 +265,9 @@ TEST_F(SimpleSessionNotifierTest, OnCanWriteCryptoFrames) {
   producer.SaveCryptoData(ENCRYPTION_INITIAL, 500, crypto_data2);
   notifier_.WriteCryptoData(ENCRYPTION_INITIAL, 1024, 0);
   // Send crypto data [1024, 2048) in ENCRYPTION_ZERO_RTT.
-  connection_.SetDefaultEncryptionLevel(ENCRYPTION_ZERO_RTT);
   connection_.SetEncrypter(ENCRYPTION_ZERO_RTT, std::make_unique<NullEncrypter>(
                                                     Perspective::IS_CLIENT));
+  connection_.SetDefaultEncryptionLevel(ENCRYPTION_ZERO_RTT);
   EXPECT_CALL(connection_, SendCryptoData(ENCRYPTION_ZERO_RTT, 1024, 0))
       .WillOnce(Invoke(&connection_,
                        &MockQuicConnection::QuicConnection_SendCryptoData));

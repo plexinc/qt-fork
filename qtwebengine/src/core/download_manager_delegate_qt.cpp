@@ -68,7 +68,6 @@ DownloadManagerDelegateQt::DownloadManagerDelegateQt(ProfileAdapter *profileAdap
     : m_profileAdapter(profileAdapter)
     , m_currentId(0)
     , m_weakPtrFactory(this)
-    , m_nextDownloadIsUserRequested(false)
 {
     Q_ASSERT(m_profileAdapter);
 }
@@ -95,6 +94,7 @@ void DownloadManagerDelegateQt::cancelDownload(content::DownloadTargetCallback c
                             download::DownloadDangerType::DOWNLOAD_DANGER_TYPE_MAYBE_DANGEROUS_CONTENT,
                             download::DownloadItem::UNKNOWN,
                             base::FilePath(),
+                            base::nullopt,
                             download::DownloadInterruptReason::DOWNLOAD_INTERRUPT_REASON_USER_CANCELED);
 }
 
@@ -135,6 +135,7 @@ bool DownloadManagerDelegateQt::DetermineDownloadTarget(download::DownloadItem *
                                  download::DownloadDangerType::DOWNLOAD_DANGER_TYPE_NOT_DANGEROUS,
                                  download::DownloadItem::VALIDATED,
                                  item->GetForcedFilePath(),
+                                 base::nullopt,
                                  download::DownloadInterruptReason::DOWNLOAD_INTERRUPT_REASON_NONE);
         return true;
     }
@@ -142,17 +143,6 @@ bool DownloadManagerDelegateQt::DetermineDownloadTarget(download::DownloadItem *
     QString suggestedFilename = toQt(item->GetSuggestedFilename());
     QString mimeTypeString = toQt(item->GetMimeType());
 
-    int downloadType = 0;
-    if (m_nextDownloadIsUserRequested) {
-        downloadType = ProfileAdapterClient::UserRequested;
-        m_nextDownloadIsUserRequested = false;
-    } else {
-        bool isAttachment = net::HttpContentDisposition(item->GetContentDisposition(), std::string()).is_attachment();
-        if (isAttachment)
-            downloadType = ProfileAdapterClient::Attachment;
-        else
-            downloadType = ProfileAdapterClient::DownloadAttribute;
-    }
 
     if (suggestedFilename.isEmpty())
         suggestedFilename = toQt(net::HttpContentDisposition(item->GetContentDisposition(), net::kCharsetLatin1).filename());
@@ -160,8 +150,11 @@ bool DownloadManagerDelegateQt::DetermineDownloadTarget(download::DownloadItem *
     if (suggestedFilename.isEmpty())
         suggestedFilename = toQt(item->GetTargetFilePath().AsUTF8Unsafe());
 
-    if (suggestedFilename.isEmpty())
-        suggestedFilename = QUrl::fromPercentEncoding(toQByteArray(item->GetURL().ExtractFileName()));
+    if (suggestedFilename.isEmpty()) {
+        GURL itemUrl = item->GetURL();
+        if (!itemUrl.SchemeIs("about") && !itemUrl.SchemeIs("data"))
+            suggestedFilename = QUrl::fromPercentEncoding(toQByteArray(itemUrl.ExtractFileName()));
+    }
 
     if (suggestedFilename.isEmpty()) {
         suggestedFilename = QStringLiteral("qwe_download");
@@ -195,7 +188,7 @@ bool DownloadManagerDelegateQt::DetermineDownloadTarget(download::DownloadItem *
             false /* accepted */,
             false /* paused */,
             false /* done */,
-            downloadType,
+            false /* isSavePageDownload */,
             item->GetLastReason(),
             adapterClient,
             suggestedFilename,
@@ -211,8 +204,16 @@ bool DownloadManagerDelegateQt::DetermineDownloadTarget(download::DownloadItem *
         QFileInfo suggestedFile(info.path);
 
         if (info.accepted && !suggestedFile.absoluteDir().mkpath(suggestedFile.absolutePath())) {
+#if defined(OS_WIN)
+            // TODO: Remove this when https://bugreports.qt.io/browse/QTBUG-85997 is fixed.
+            QDir suggestedDir = QDir(suggestedFile.absolutePath());
+            if (!suggestedDir.isRoot() || !suggestedDir.exists()) {
+#endif
             qWarning("Creating download path failed, download cancelled: %s", suggestedFile.absolutePath().toUtf8().data());
             info.accepted = false;
+#if defined(OS_WIN)
+            }
+#endif
         }
 
         if (!info.accepted) {
@@ -226,6 +227,7 @@ bool DownloadManagerDelegateQt::DetermineDownloadTarget(download::DownloadItem *
                                  download::DownloadDangerType::DOWNLOAD_DANGER_TYPE_MAYBE_DANGEROUS_CONTENT,
                                  download::DownloadItem::VALIDATED,
                                  filePathForCallback.AddExtension(toFilePathString("download")),
+                                 base::nullopt,
                                  download::DownloadInterruptReason::DOWNLOAD_INTERRUPT_REASON_NONE);
     } else
         cancelDownload(std::move(*callback));
@@ -297,7 +299,7 @@ void DownloadManagerDelegateQt::ChooseSavePath(content::WebContents *web_content
         acceptedByDefault,
         false, /* paused */
         false, /* done */
-        ProfileAdapterClient::SavePage,
+        true, /* isSavePageDownload */
         ProfileAdapterClient::NoReason,
         adapterClient,
         QFileInfo(suggestedFilePath).fileName(),

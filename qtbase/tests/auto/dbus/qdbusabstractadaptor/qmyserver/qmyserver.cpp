@@ -26,8 +26,13 @@
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
-#include <QtCore/QtCore>
-#include <QtDBus/QtDBus>
+
+#include <QCoreApplication>
+#include <QDBusServer>
+#include <QDBusContext>
+#include <QDBusConnection>
+#include <QDBusVariant>
+#include <QDBusServer>
 
 #include "../myobject.h"
 
@@ -46,7 +51,7 @@ class MyServer : public QDBusServer, protected QDBusContext
     Q_CLASSINFO("D-Bus Interface", "org.qtproject.autotests.qmyserver")
 
 public:
-    MyServer(QObject* parent = 0)
+    MyServer(QObject* parent = nullptr)
         : QDBusServer(parent),
           m_conn("none"),
           obj(NULL)

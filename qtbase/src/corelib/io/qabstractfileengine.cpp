@@ -101,7 +101,7 @@ QT_BEGIN_NAMESPACE
     \sa QAbstractFileEngine, QAbstractFileEngine::create()
 */
 
-static bool qt_file_engine_handlers_in_use = false;
+static QBasicAtomicInt qt_file_engine_handlers_in_use = Q_BASIC_ATOMIC_INITIALIZER(false);
 
 /*
     All application-wide handlers are stored in this list. The mutex must be
@@ -132,7 +132,7 @@ Q_GLOBAL_STATIC(QAbstractFileEngineHandlerList, fileEngineHandlers)
 QAbstractFileEngineHandler::QAbstractFileEngineHandler()
 {
     QWriteLocker locker(fileEngineHandlerMutex());
-    qt_file_engine_handlers_in_use = true;
+    qt_file_engine_handlers_in_use.storeRelaxed(true);
     fileEngineHandlers()->prepend(this);
 }
 
@@ -148,7 +148,7 @@ QAbstractFileEngineHandler::~QAbstractFileEngineHandler()
         QAbstractFileEngineHandlerList *handlers = fileEngineHandlers();
         handlers->removeOne(this);
         if (handlers->isEmpty())
-            qt_file_engine_handlers_in_use = false;
+            qt_file_engine_handlers_in_use.storeRelaxed(false);
     }
 }
 
@@ -161,7 +161,7 @@ QAbstractFileEngine *qt_custom_file_engine_handler_create(const QString &path)
 {
     QAbstractFileEngine *engine = nullptr;
 
-    if (qt_file_engine_handlers_in_use) {
+    if (qt_file_engine_handlers_in_use.loadRelaxed()) {
         QReadLocker locker(fileEngineHandlerMutex());
 
         // check for registered handlers that can load the file
@@ -267,6 +267,8 @@ QAbstractFileEngine *QAbstractFileEngine::create(const QString &fileName)
     \value CanonicalName Often very similar to LinkName. Will return the true path to the file.
     \value CanonicalPathName Same as CanonicalName, excluding the base name.
     \value BundleName Returns the name of the bundle implies BundleType is set.
+    \value JunctionName The full name of the directory that this NTFS junction
+    is linked to. (This will be empty if this file is not an NTFS junction.)
 
     \omitvalue NFileNames
 
@@ -1076,7 +1078,7 @@ QFileInfo QAbstractFileEngineIterator::currentFileInfo() const
 */
 QVariant QAbstractFileEngineIterator::entryInfo(EntryInfoType type) const
 {
-    Q_UNUSED(type)
+    Q_UNUSED(type);
     return QVariant();
 }
 
@@ -1199,7 +1201,7 @@ qint64 QAbstractFileEngine::readLine(char *data, qint64 maxlen)
    QIODevice can provide a faster implementation by making use of its
    internal buffer. For engines that already provide a fast readLine()
    implementation, returning false for this extension can avoid
-   unnnecessary double-buffering in QIODevice.
+   unnecessary double-buffering in QIODevice.
 
    \value MapExtension Whether the file engine provides the ability to map
    a file to memory.

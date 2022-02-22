@@ -55,7 +55,7 @@
 class Widget : public QWidget
 {
 public:
-    Widget(QWidget *parent = 0);
+    Widget(QWidget *parent = nullptr);
 
     void constCharPointer();
     void constCharArray();
@@ -85,11 +85,9 @@ public:
     void isNullFunction();
     void isEmptyFunction();
     void lastIndexOfFunction();
-    void leftFunction();
+    void firstFunction();
     void leftJustifiedFunction();
-    void leftRefFunction();
-    void midFunction();
-    void midRefFunction();
+    void slicedFunction();
     void numberFunction();
 
     void prependFunction();
@@ -97,9 +95,8 @@ public:
     void replaceFunction();
     void reserveFunction();
     void resizeFunction();
-    void rightFunction();
+    void lastFunction();
     void rightJustifiedFunction();
-    void rightRefFunction();
     void sectionFunction();
     void setNumFunction();
     void simplifiedFunction();
@@ -167,7 +164,7 @@ void Widget::atFunction()
     //! [3]
     QString str;
 
-    for (int i = 0; i < str.size(); ++i) {
+    for (qsizetype i = 0; i < str.size(); ++i) {
         if (str.at(i) >= QChar('a') && str.at(i) <= QChar('f'))
             qDebug() << "Found character in range [a-f]";
     }
@@ -200,7 +197,7 @@ void Widget::index()
 {
     //! [6]
     QString str = "We must be <b>bold</b>, very <b>bold</b>";
-    int j = 0;
+    qsizetype j = 0;
 
     while ((j = str.indexOf("<b>", j)) != -1) {
         qDebug() << "Found <b> tag at index position" << j;
@@ -350,11 +347,6 @@ void Widget::containsFunction()
 
 void Widget::countFunction()
 {
-    //! [18]
-    QString str = "banana and panama";
-    str.count(QRegExp("a[nm]a"));    // returns 4
-    //! [18]
-
     //! [95]
     QString str = "banana and panama";
     str.count(QRegularExpression("a[nm]a"));    // returns 4
@@ -401,7 +393,7 @@ void Widget::fromRawDataFunction()
     static const QChar unicode[] = {
             0x005A, 0x007F, 0x00A4, 0x0060,
             0x1009, 0x0020, 0x0020};
-    int size = sizeof(unicode) / sizeof(QChar);
+    qsizetype size = sizeof(unicode) / sizeof(QChar);
 
     QString str = QString::fromRawData(unicode, size);
     if (str.contains(pattern) {
@@ -425,22 +417,15 @@ void Widget::indexOfFunction()
 
 void Widget::firstIndexOfFunction()
 {
-    //! [25]
-    QString str = "the minimum";
-    str.indexOf(QRegExp("m[aeiou]"), 0);       // returns 4
-    //! [25]
-
     //! [93]
     QString str = "the minimum";
     str.indexOf(QRegularExpression("m[aeiou]"), 0);       // returns 4
-    //! [93]
 
-    //! [99]
     QString str = "the minimum";
     QRegularExpressionMatch match;
     str.indexOf(QRegularExpression("m[aeiou]"), 0, &match);       // returns 4
     // match.captured() == mi
-    //! [99]
+    //! [93]
 }
 
 void Widget::insertFunction()
@@ -482,29 +467,22 @@ void Widget::lastIndexOfFunction()
     x.lastIndexOf(y, 1);        // returns -1
     //! [29]
 
-    //! [30]
-    QString str = "the minimum";
-    str.lastIndexOf(QRegExp("m[aeiou]"));      // returns 8
-    //! [30]
-
     //! [94]
     QString str = "the minimum";
     str.lastIndexOf(QRegularExpression("m[aeiou]"));      // returns 8
-    //! [94]
 
-    //! [100]
     QString str = "the minimum";
     QRegularExpressionMatch match;
     str.lastIndexOf(QRegularExpression("m[aeiou]"), -1, &match);      // returns 8
     // match.captured() == mu
-    //! [100]
+    //! [94]
 }
 
-void Widget::leftFunction()
+void Widget::firstFunction()
 {
     //! [31]
     QString x = "Pineapple";
-    QString y = x.left(4);      // y == "Pine"
+    QString y = x.first(4);      // y == "Pine"
     //! [31]
 }
 
@@ -521,12 +499,12 @@ void Widget::leftJustifiedFunction()
     //! [33]
 }
 
-void Widget::midFunction()
+void Widget::slicedFunction()
 {
     //! [34]
     QString x = "Nine pineapples";
-    QString y = x.mid(5, 4);            // y == "pine"
-    QString z = x.mid(5);               // z == "pineapples"
+    QString y = x.sliced(5, 4);            // y == "pine"
+    QString z = x.sliced(5);               // z == "pineapples"
     //! [34]
 }
 
@@ -563,12 +541,6 @@ void Widget::removeFunction()
     // t == "li Bb"
     //! [38]
 
-    //! [39]
-    QString r = "Telephone";
-    r.remove(QRegExp("[aeiou]."));
-    // r == "The"
-    //! [39]
-
     //! [96]
     QString r = "Telephone";
     r.remove(QRegularExpression("[aeiou]."));
@@ -590,18 +562,6 @@ void Widget::replaceFunction()
     str.replace(QString("ou"), QString("o"));
     // str == "color behavior flavor neighbor"
     //! [41]
-
-    //! [42]
-    QString s = "Banana";
-    s.replace(QRegExp("a[mn]"), "ox");
-    // s == "Boxoxa"
-    //! [42]
-
-    //! [43]
-    QString t = "A <i>bon mot</i>.";
-    t.replace(QRegExp("<i>([^<]*)</i>"), "\\emph{\\1}");
-    // t == "A \\emph{bon mot}."
-    //! [43]
 
     //! [86]
     QString equis = "xxxxxx";
@@ -626,7 +586,7 @@ void Widget::reserveFunction()
 {
     //! [44]
     QString result;
-    int maxSize;
+    qsizetype maxSize;
     bool condition;
     QChar nextChar;
 
@@ -663,11 +623,11 @@ void Widget::resizeFunction()
     //! [47]
 }
 
-void Widget::rightFunction()
+void Widget::lastFunction()
 {
     //! [48]
     QString x = "Pineapple";
-    QString y = x.right(5);      // y == "apple"
+    QString y = x.last(5);      // y == "apple"
     //! [48]
 }
 
@@ -711,13 +671,6 @@ void Widget::sectionFunction()
     str = data.section("**", -3, -2); // str == "middlename**surname"
     //! [54]
 
-    //! [55]
-    QString line = "forename\tmiddlename  surname \t \t phone";
-    QRegExp sep("\\s+");
-    str = line.section(sep, 2, 2); // str == "surname"
-    str = line.section(sep, -3, -2); // str == "middlename  surname"
-    //! [55]
-
     //! [89]
     QString line = "forename\tmiddlename  surname \t \t phone";
     QRegularExpression sep("\\s+");
@@ -747,7 +700,7 @@ void Widget::sizeFunction()
 {
     //! [58]
     QString str = "World";
-    int n = str.size();         // n == 5
+    qsizetype n = str.size();   // n == 5
     str.data()[0];              // returns 'W'
     str.data()[4];              // returns 'd'
     //! [58]
@@ -755,27 +708,6 @@ void Widget::sizeFunction()
 
 void Widget::splitFunction()
 {
-    //! [59]
-    QString str;
-    QStringList list;
-
-    str = "Some  text\n\twith  strange whitespace.";
-    list = str.split(QRegExp("\\s+"));
-    // list: [ "Some", "text", "with", "strange", "whitespace." ]
-    //! [59]
-
-    //! [60]
-    str = "This time, a normal English sentence.";
-    list = str.split(QRegExp("\\W+"), Qt::SkipEmptyParts);
-    // list: [ "This", "time", "a", "normal", "English", "sentence" ]
-    //! [60]
-
-    //! [61]
-    str = "Now: this sentence fragment.";
-    list = str.split(QRegExp("\\b"));
-    // list: [ "", "Now", ": ", "this", " ", "sentence", " ", "fragment", "." ]
-    //! [61]
-
     //! [90]
     QString str;
     QStringList list;
@@ -1022,31 +954,6 @@ void Widget::arrayOperator()
     if (str[0] == QChar('?'))
         str[0] = QChar('_');
     //! [85]
-}
-
-void Widget::midRefFunction()
-{
-    //! [midRef]
-    QString x = "Nine pineapples";
-    QStringRef y = x.midRef(5, 4);      // y == "pine"
-    QStringRef z = x.midRef(5);         // z == "pineapples"
-    //! [midRef]
-}
-
-void Widget::leftRefFunction()
-{
-    //! [leftRef]
-    QString x = "Pineapple";
-    QStringRef y = x.leftRef(4);        // y == "Pine"
-    //! [leftRef]
-}
-
-void Widget::rightRefFunction()
-{
-    //! [rightRef]
-    QString x = "Pineapple";
-    QStringRef y = x.rightRef(5);       // y == "apple"
-    //! [rightRef]
 }
 
 

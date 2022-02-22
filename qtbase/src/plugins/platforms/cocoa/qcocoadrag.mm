@@ -37,12 +37,11 @@
 **
 ****************************************************************************/
 
+#include <AppKit/AppKit.h>
+
 #include "qcocoadrag.h"
 #include "qmacclipboard.h"
 #include "qcocoahelpers.h"
-#ifndef QT_NO_WIDGETS
-#include <QtWidgets/qwidget.h>
-#endif
 #include <QtGui/private/qcoregraphics_p.h>
 #include <QtCore/qsysinfo.h>
 
@@ -284,19 +283,17 @@ QPixmap QCocoaDrag::dragPixmap(QDrag *drag, QPoint &hotSpot) const
                 const int height = fm.height();
                 if (width > 0 && height > 0) {
                     qreal dpr = 1.0;
-                    if (const QWindow *sourceWindow = qobject_cast<QWindow *>(drag->source())) {
-                        dpr = sourceWindow->devicePixelRatio();
+                    QWindow *window = qobject_cast<QWindow *>(drag->source());
+                    if (!window && drag->source()->metaObject()->indexOfMethod("_q_closestWindowHandle()") != -1) {
+                        QMetaObject::invokeMethod(drag->source(), "_q_closestWindowHandle",
+                            Q_RETURN_ARG(QWindow *, window));
                     }
-#ifndef QT_NO_WIDGETS
-                    else if (const QWidget *sourceWidget = qobject_cast<QWidget *>(drag->source())) {
-                        if (const QWindow *sourceWindow = sourceWidget->window()->windowHandle())
-                            dpr = sourceWindow->devicePixelRatio();
-                    }
-#endif
-                    else {
-                        if (const QWindow *focusWindow = qApp->focusWindow())
-                            dpr = focusWindow->devicePixelRatio();
-                    }
+                    if (!window)
+                        window = qApp->focusWindow();
+
+                    if (window)
+                        dpr = window->devicePixelRatio();
+
                     pm = QPixmap(width * dpr, height * dpr);
                     pm.setDevicePixelRatio(dpr);
                     QPainter p(&pm);
@@ -340,7 +337,7 @@ QStringList QCocoaDropData::formats_sys() const
     return formats;
 }
 
-QVariant QCocoaDropData::retrieveData_sys(const QString &mimeType, QVariant::Type type) const
+QVariant QCocoaDropData::retrieveData_sys(const QString &mimeType, QMetaType type) const
 {
     QVariant data;
     PasteboardRef board;

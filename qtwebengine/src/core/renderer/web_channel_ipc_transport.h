@@ -61,11 +61,11 @@ private:
     // qtwebchannel::mojom::WebChannelTransportRender
     void SetWorldId(uint32_t worldId) override;
     void ResetWorldId() override;
-    void DispatchWebChannelMessage(const std::vector<uint8_t> &binaryJson, uint32_t worldId) override;
+    void DispatchWebChannelMessage(const std::vector<uint8_t> &json, uint32_t worldId) override;
 
     // RenderFrameObserver
+    void DidCreateScriptContext(v8::Local<v8::Context> context, int32_t worldId) override;
     void WillReleaseScriptContext(v8::Local<v8::Context> context, int worldId) override;
-    void DidClearWindowObject() override;
     void OnDestruct() override;
     void BindReceiver(mojo::PendingAssociatedReceiver<qtwebchannel::mojom::WebChannelTransportRender> receiver);
 
@@ -76,7 +76,7 @@ private:
     bool m_worldInitialized;
     // True means it's currently OK to manipulate the frame's script context.
     bool m_canUseContext = false;
-    mojo::AssociatedReceiverSet<qtwebchannel::mojom::WebChannelTransportRender> m_receivers;
+    mojo::AssociatedReceiver<qtwebchannel::mojom::WebChannelTransportRender> m_binding;
 };
 
 } // namespace

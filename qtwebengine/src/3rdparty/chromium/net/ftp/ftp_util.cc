@@ -7,10 +7,10 @@
 #include <map>
 #include <vector>
 
+#include "base/check_op.h"
 #include "base/i18n/case_conversion.h"
 #include "base/i18n/char_iterator.h"
 #include "base/i18n/unicodestring.h"
-#include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/singleton.h"
 #include "base/strings/string_number_conversions.h"
@@ -261,12 +261,12 @@ bool FtpUtil::LsDateListingToTime(const base::string16& month,
       return false;
 
     if (!base::StringToInt(
-            StringPiece16(rest.begin(), rest.begin() + colon_pos),
+            base::MakeStringPiece16(rest.begin(), rest.begin() + colon_pos),
             &time_exploded.hour)) {
       return false;
     }
     if (!base::StringToInt(
-            StringPiece16(rest.begin() + colon_pos + 1, rest.end()),
+            base::MakeStringPiece16(rest.begin() + colon_pos + 1, rest.end()),
             &time_exploded.minute)) {
       return false;
     }
@@ -355,7 +355,7 @@ bool FtpUtil::WindowsDateListingToTime(const base::string16& date,
 // static
 base::string16 FtpUtil::GetStringPartAfterColumns(const base::string16& text,
                                                   int columns) {
-  base::i18n::UTF16CharIterator iter(&text);
+  base::i18n::UTF16CharIterator iter(text);
 
   for (int i = 0; i < columns; i++) {
     // Skip the leading whitespace.

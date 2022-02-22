@@ -167,7 +167,7 @@ const std::vector<SkUnichar>& SkPDFFont::GetUnicodeMap(const SkTypeface* typefac
 }
 
 SkAdvancedTypefaceMetrics::FontType SkPDFFont::FontType(const SkAdvancedTypefaceMetrics& metrics) {
-    if (SkToBool(metrics.fFlags & SkAdvancedTypefaceMetrics::kMultiMaster_FontFlag) ||
+    if (SkToBool(metrics.fFlags & SkAdvancedTypefaceMetrics::kVariable_FontFlag) ||
         SkToBool(metrics.fFlags & SkAdvancedTypefaceMetrics::kNotEmbeddable_FontFlag)) {
         // force Type3 fallback.
         return SkAdvancedTypefaceMetrics::kOther_Font;
@@ -435,7 +435,7 @@ private:
     const SkGlyphID fFirst;
     const SkGlyphID fLast;
 };
-}
+}  // namespace
 
 struct ImageAndOffset {
     sk_sp<SkImage> fImage;
@@ -462,7 +462,7 @@ static ImageAndOffset to_image(SkGlyphID gid, SkBulkGlyphMetricsAndImages* small
                 }
             }
             bm.setImmutable();
-            return {SkImage::MakeFromBitmap(bm), {bounds.x(), bounds.y()}};
+            return {bm.asImage(), {bounds.x(), bounds.y()}};
         case SkMask::kA8_Format:
             bm.installPixels(SkImageInfo::MakeA8(bounds.width(), bounds.height()),
                              mask.fImage, mask.fRowBytes);

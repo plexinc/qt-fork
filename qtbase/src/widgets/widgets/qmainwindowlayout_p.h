@@ -60,9 +60,9 @@
 #include "QtGui/qpainter.h"
 #include "QtGui/qevent.h"
 #endif
-#include "QtCore/qvector.h"
-#include "QtCore/qset.h"
 #include "QtCore/qbasictimer.h"
+#include "QtCore/qlist.h"
+#include "QtCore/qset.h"
 #include "private/qlayoutengine_p.h"
 #include "private/qwidgetanimator_p.h"
 
@@ -210,7 +210,7 @@ bool QMainWindowLayoutSeparatorHelper<Layout>::windowEvent(QEvent *event)
 
 #if QT_CONFIG(cursor)
     case QEvent::HoverMove: {
-        adjustCursor(static_cast<QHoverEvent *>(event)->pos());
+        adjustCursor(static_cast<QHoverEvent *>(event)->position().toPoint());
         break;
     }
 
@@ -228,7 +228,7 @@ bool QMainWindowLayoutSeparatorHelper<Layout>::windowEvent(QEvent *event)
 
     case QEvent::MouseButtonPress: {
         QMouseEvent *e = static_cast<QMouseEvent *>(event);
-        if (e->button() == Qt::LeftButton && startSeparatorMove(e->pos())) {
+        if (e->button() == Qt::LeftButton && startSeparatorMove(e->position().toPoint())) {
             // The click was on a separator, eat this event
             e->accept();
             return true;
@@ -240,10 +240,10 @@ bool QMainWindowLayoutSeparatorHelper<Layout>::windowEvent(QEvent *event)
         QMouseEvent *e = static_cast<QMouseEvent *>(event);
 
 #if QT_CONFIG(cursor)
-        adjustCursor(e->pos());
+        adjustCursor(e->position().toPoint());
 #endif
         if (e->buttons() & Qt::LeftButton) {
-            if (separatorMove(e->pos())) {
+            if (separatorMove(e->position().toPoint())) {
                 // We're moving a separator, eat this event
                 e->accept();
                 return true;
@@ -255,7 +255,7 @@ bool QMainWindowLayoutSeparatorHelper<Layout>::windowEvent(QEvent *event)
 
     case QEvent::MouseButtonRelease: {
         QMouseEvent *e = static_cast<QMouseEvent *>(event);
-        if (endSeparatorMove(e->pos())) {
+        if (endSeparatorMove(e->position().toPoint())) {
             // We've released a separator, eat this event
             e->accept();
             return true;
@@ -384,7 +384,7 @@ private:
 #endif // QT_CONFIG(dockwidget)
 
 /* This data structure represents the state of all the tool-bars and dock-widgets. It's value based
-   so it can be easilly copied into a temporary variable. All operations are performed without moving
+   so it can be easily copied into a temporary variable. All operations are performed without moving
    any widgets. Only when we are sure we have the desired state, we call apply(), which moves the
    widgets.
 */

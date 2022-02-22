@@ -9,7 +9,6 @@
 
 #include "xfa/fwl/cfwl_event.h"
 #include "xfa/fwl/cfwl_widget.h"
-#include "xfa/fwl/cfwl_widgetproperties.h"
 
 #define FWL_STYLEEXT_CKB_3State (1L << 6)
 #define FWL_STYLEEXT_CKB_RadioButton (1L << 7)
@@ -28,26 +27,27 @@
 #define FWL_STATE_CKB_CheckMask (3L << (FWL_WGTSTATE_MAX + 2))
 
 class CFWL_MessageMouse;
-class CFWL_WidgetProperties;
-class CFWL_Widget;
 
 class CFWL_CheckBox final : public CFWL_Widget {
  public:
-  explicit CFWL_CheckBox(const CFWL_App* pApp);
+  CONSTRUCT_VIA_MAKE_GARBAGE_COLLECTED;
   ~CFWL_CheckBox() override;
 
   // CFWL_Widget
   FWL_Type GetClassID() const override;
   void Update() override;
-  void DrawWidget(CXFA_Graphics* pGraphics, const CFX_Matrix& matrix) override;
+  void DrawWidget(CFGAS_GEGraphics* pGraphics,
+                  const CFX_Matrix& matrix) override;
 
   void OnProcessMessage(CFWL_Message* pMessage) override;
-  void OnDrawWidget(CXFA_Graphics* pGraphics,
+  void OnDrawWidget(CFGAS_GEGraphics* pGraphics,
                     const CFX_Matrix& matrix) override;
 
   void SetBoxSize(float fHeight);
 
  private:
+  explicit CFWL_CheckBox(CFWL_App* pApp);
+
   void SetCheckState(int32_t iCheck);
   void Layout();
   uint32_t GetPartStates() const;
@@ -60,10 +60,10 @@ class CFWL_CheckBox final : public CFWL_Widget {
   void OnMouseLeave();
   void OnKeyDown(CFWL_MessageKey* pMsg);
 
-  CFX_RectF m_rtClient;
-  CFX_RectF m_rtBox;
-  CFX_RectF m_rtCaption;
-  CFX_RectF m_rtFocus;
+  CFX_RectF m_ClientRect;
+  CFX_RectF m_BoxRect;
+  CFX_RectF m_CaptionRect;
+  CFX_RectF m_FocusRect;
   FDE_TextStyle m_TTOStyles;
   FDE_TextAlignment m_iTTOAlign = FDE_TextAlignment::kCenter;
   bool m_bBtnDown = false;

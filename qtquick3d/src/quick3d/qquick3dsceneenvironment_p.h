@@ -76,11 +76,15 @@ class Q_QUICK3D_EXPORT QQuick3DSceneEnvironment : public QQuick3DObject
     Q_PROPERTY(float aoBias READ aoBias WRITE setAoBias NOTIFY aoBiasChanged)
 
     Q_PROPERTY(QQuick3DTexture *lightProbe READ lightProbe WRITE setLightProbe NOTIFY lightProbeChanged)
-    Q_PROPERTY(float probeBrightness READ probeBrightness WRITE setProbeBrightness NOTIFY probeBrightnessChanged)
-    Q_PROPERTY(bool fastImageBasedLightingEnabled READ fastImageBasedLightingEnabled WRITE setFastImageBasedLightingEnabled NOTIFY fastImageBasedLightingEnabledChanged)
+    Q_PROPERTY(float probeExposure READ probeExposure WRITE setProbeExposure NOTIFY probeExposureChanged)
     Q_PROPERTY(float probeHorizon READ probeHorizon WRITE setProbeHorizon NOTIFY probeHorizonChanged)
-    Q_PROPERTY(float probeFieldOfView READ probeFieldOfView WRITE setProbeFieldOfView NOTIFY probeFieldOfViewChanged)
-    Q_PROPERTY(QQmlListProperty<QQuick3DEffect> effects READ effects REVISION 1)
+    Q_PROPERTY(QVector3D probeOrientation READ probeOrientation WRITE setProbeOrientation NOTIFY probeOrientationChanged)
+
+    Q_PROPERTY(QQuick3DEnvironmentTonemapModes tonemapMode READ tonemapMode WRITE setTonemapMode NOTIFY tonemapModeChanged)
+
+    Q_PROPERTY(QQmlListProperty<QQuick3DEffect> effects READ effects)
+
+    QML_NAMED_ELEMENT(SceneEnvironment)
 
 public:
 
@@ -107,6 +111,15 @@ public:
     };
     Q_ENUM(QQuick3DEnvironmentBackgroundTypes)
 
+    enum QQuick3DEnvironmentTonemapModes {
+        TonemapModeNone = 0,
+        TonemapModeLinear,
+        TonemapModeAces,
+        TonemapModeHejlDawson,
+        TonemapModeFilmic
+    };
+    Q_ENUM(QQuick3DEnvironmentTonemapModes)
+
     explicit QQuick3DSceneEnvironment(QQuick3DObject *parent = nullptr);
     ~QQuick3DSceneEnvironment() override;
 
@@ -126,23 +139,25 @@ public:
     float aoBias() const;
 
     QQuick3DTexture *lightProbe() const;
-    float probeBrightness() const;
-    bool fastImageBasedLightingEnabled() const;
+    float probeExposure() const;
     float probeHorizon() const;
-    float probeFieldOfView() const;
+    QVector3D probeOrientation() const;
 
     bool depthTestEnabled() const;
     bool depthPrePassEnabled() const;
 
+    QQuick3DEnvironmentTonemapModes tonemapMode() const;
+
     QQmlListProperty<QQuick3DEffect> effects();
 
+
 public Q_SLOTS:
-    void setAntialiasingMode(QQuick3DEnvironmentAAModeValues antialiasingMode);
-    void setAntialiasingQuality(QQuick3DEnvironmentAAQualityValues antialiasingQuality);
+    void setAntialiasingMode(QQuick3DSceneEnvironment::QQuick3DEnvironmentAAModeValues antialiasingMode);
+    void setAntialiasingQuality(QQuick3DSceneEnvironment::QQuick3DEnvironmentAAQualityValues antialiasingQuality);
     void setTemporalAAEnabled(bool temporalAAEnabled);
     void setTemporalAAStrength(float strength);
 
-    void setBackgroundMode(QQuick3DEnvironmentBackgroundTypes backgroundMode);
+    void setBackgroundMode(QQuick3DSceneEnvironment::QQuick3DEnvironmentBackgroundTypes backgroundMode);
     void setClearColor(const QColor &clearColor);
 
     void setAoStrength(float aoStrength);
@@ -153,13 +168,14 @@ public Q_SLOTS:
     void setAoBias(float aoBias);
 
     void setLightProbe(QQuick3DTexture *lightProbe);
-    void setProbeBrightness(float probeBrightness);
-    void setFastImageBasedLightingEnabled(bool fastImageBasedLightingEnabled);
+    void setProbeExposure(float probeExposure);
     void setProbeHorizon(float probeHorizon);
-    void setProbeFieldOfView(float probeFieldOfView);
+    void setProbeOrientation(const QVector3D &orientation);
 
     void setDepthTestEnabled(bool depthTestEnabled);
     void setDepthPrePassEnabled(bool depthPrePassEnabled);
+
+    void setTonemapMode(QQuick3DSceneEnvironment::QQuick3DEnvironmentTonemapModes tonemapMode);
 
 Q_SIGNALS:
     void antialiasingModeChanged();
@@ -178,13 +194,14 @@ Q_SIGNALS:
     void aoBiasChanged();
 
     void lightProbeChanged();
-    void probeBrightnessChanged();
-    void fastImageBasedLightingEnabledChanged();
+    void probeExposureChanged();
     void probeHorizonChanged();
-    void probeFieldOfViewChanged();
+    void probeOrientationChanged();
 
     void depthTestEnabledChanged();
     void depthPrePassEnabledChanged();
+
+    void tonemapModeChanged();
 
 protected:
     QSSGRenderGraphObject *updateSpatialNode(QSSGRenderGraphObject *node) override;
@@ -196,11 +213,11 @@ private:
     QVector<QQuick3DEffect *> m_effects;
 
     static void qmlAppendEffect(QQmlListProperty<QQuick3DEffect> *list, QQuick3DEffect *effect);
-    static QQuick3DEffect *qmlEffectAt(QQmlListProperty<QQuick3DEffect> *list, int index);
-    static int qmlEffectsCount(QQmlListProperty<QQuick3DEffect> *list);
+    static QQuick3DEffect *qmlEffectAt(QQmlListProperty<QQuick3DEffect> *list, qsizetype index);
+    static qsizetype qmlEffectsCount(QQmlListProperty<QQuick3DEffect> *list);
     static void qmlClearEffects(QQmlListProperty<QQuick3DEffect> *list);
 
-    void updateSceneManager(const QSharedPointer<QQuick3DSceneManager> &manager);
+    void updateSceneManager(QQuick3DSceneManager *manager);
 
     QQuick3DEnvironmentAAModeValues m_antialiasingMode = NoAA;
     QQuick3DEnvironmentAAQualityValues m_antialiasingQuality = High;
@@ -217,14 +234,14 @@ private:
     int m_aoSampleRate = 2;
     float m_aoBias = 0.0f;
     QQuick3DTexture *m_lightProbe = nullptr;
-    float m_probeBrightness = 100.0f;
-    bool m_fastImageBasedLightingEnabled = false;
-    float m_probeHorizon = -1.0f;
-    float m_probeFieldOfView = 180.0f;
+    float m_probeExposure = 1.0f;
+    float m_probeHorizon = 0.0f;
+    QVector3D m_probeOrientation;
 
-    ConnectionMap m_connections;
+    QHash<QByteArray, QMetaObject::Connection> m_connections;
     bool m_depthTestEnabled = true;
     bool m_depthPrePassEnabled = false;
+    QQuick3DEnvironmentTonemapModes m_tonemapMode = QQuick3DEnvironmentTonemapModes::TonemapModeLinear;
 };
 
 QT_END_NAMESPACE

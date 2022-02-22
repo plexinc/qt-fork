@@ -69,13 +69,13 @@ class Q_3DRENDERSHARED_EXPORT QRenderAspect : public Qt3DCore::QAbstractAspect
 {
     Q_OBJECT
 public:
-    enum RenderType {
-        Synchronous,
-        Threaded
+    enum SubmissionType {
+        Automatic = 0,
+        Manual
     };
 
     explicit QRenderAspect(QObject *parent = nullptr);
-    explicit QRenderAspect(RenderType type, QObject *parent = nullptr);
+    explicit QRenderAspect(SubmissionType submissionType, QObject *parent = nullptr);
     ~QRenderAspect();
 
 protected:
@@ -83,7 +83,7 @@ protected:
     Q_DECLARE_PRIVATE(QRenderAspect)
 
 private:
-    QVector<Qt3DCore::QAspectJobPtr> jobsToExecute(qint64 time) override;
+    std::vector<Qt3DCore::QAspectJobPtr> jobsToExecute(qint64 time) override;
 
     QVariant executeCommand(const QStringList &args) override;
 
@@ -91,6 +91,8 @@ private:
     void onUnregistered() override;
 
     void onEngineStartup() override;
+
+    QStringList dependencies() const override;
 
     friend class Render::Renderer;
     friend class Render::QRenderPlugin;

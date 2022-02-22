@@ -51,7 +51,12 @@
 // We mean it.
 //
 
+#include <QtTest/qttestglobal.h>
+
 #include <QtTest/private/qabstracttestlogger_p.h>
+#include <QtTest/private/qtestelementattribute_p.h>
+
+#include <vector>
 
 QT_BEGIN_NAMESPACE
 
@@ -70,18 +75,27 @@ class QJUnitTestLogger : public QAbstractTestLogger
         void enterTestFunction(const char *function) override;
         void leaveTestFunction() override;
 
+        void enterTestData(QTestData *) override;
+
         void addIncident(IncidentTypes type, const char *description,
                      const char *file = nullptr, int line = 0) override;
-        void addBenchmarkResult(const QBenchmarkResult &result) override;
-        void addTag(QTestElement* element);
-
         void addMessage(MessageTypes type, const QString &message,
                     const char *file = nullptr, int line = 0) override;
 
+        void addBenchmarkResult(const QBenchmarkResult &) override {}
+
     private:
-        QTestElement *listOfTestcases = nullptr;
-        QTestElement *currentLogElement = nullptr;
-        QTestElement *errorLogElement = nullptr;
+        void enterTestCase(const char *name);
+        void leaveTestCase();
+
+        void addFailure(QTest::LogElementType elementType,
+            const char *failureType, const QString &failureDescription);
+
+        QTestElement *currentTestSuite = nullptr;
+        std::vector<QTestElement*> listOfTestcases;
+        QTestElement *currentTestCase = nullptr;
+        QTestElement *systemOutputElement = nullptr;
+        QTestElement *systemErrorElement = nullptr;
         QTestJUnitStreamer *logFormatter = nullptr;
 
         int testCounter = 0;

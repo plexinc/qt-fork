@@ -27,8 +27,8 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
-
+#include <QTest>
+#include <QSignalSpy>
 
 #include <qvalidator.h>
 
@@ -215,6 +215,14 @@ void tst_QDoubleValidator::validate_data()
     QTest::newRow("data_de47") << "de" << 100.0 << 200.0 << 4 << QString("999,9999") << ITM << ITM;
     QTest::newRow("data_de48") << "de" << 0.0 << 2.0 << 2 << QString("9,9999") << INV << INV;
     QTest::newRow("data_de49") << "de" << 100.0 << 200.0 << 4 << QString("9999,9999") << ITM << INV;
+
+    // using default QDoubleValidator parameters for initialization
+    QTest::newRow("inf") << "C" << -HUGE_VAL << HUGE_VAL << 1000 << QString("inf") << INV << INV;
+    QTest::newRow("+inf") << "C" << -HUGE_VAL << HUGE_VAL << 1000 << QString("+inf") << INV << INV;
+    QTest::newRow("-inf") << "C" << -HUGE_VAL << HUGE_VAL << 1000 << QString("-inf") << INV << INV;
+    QTest::newRow("nan") << "C" << -HUGE_VAL << HUGE_VAL << 1000 << QString("nan") << INV << INV;
+    QTest::newRow("+nan") << "C" << -HUGE_VAL << HUGE_VAL << 1000 << QString("+nan") << INV << INV;
+    QTest::newRow("-nan") << "C" << -HUGE_VAL << HUGE_VAL << 1000 << QString("-nan") << INV << INV;
 
     QString arabicNum;
     arabicNum += QChar(1633); // "18.4" in arabic

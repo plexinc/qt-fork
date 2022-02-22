@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
@@ -33,12 +33,16 @@
 #include <QtQuick/qquickview.h>
 #include "private/qquickfocusscope_p.h"
 #include "private/qquickitem_p.h"
+#include <QtGui/private/qevent_p.h>
 #include <qpa/qwindowsysteminterface.h>
+#ifdef Q_OS_WIN
+#include <QOpenGLContext>
+#endif
 #include <QDebug>
 #include <QTimer>
 #include <QQmlEngine>
-#include "../../shared/util.h"
-#include "../shared/viewtestutil.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
+#include <QtQuickTestUtils/private/viewtestutils_p.h>
 #include <QSignalSpy>
 #include <QTranslator>
 #include <QtCore/qregularexpression.h>
@@ -48,41 +52,56 @@
 #include <QMainWindow>
 #endif
 
+Q_LOGGING_CATEGORY(lcTests, "qt.quick.tests")
+
 class TestItem : public QQuickItem
 {
 Q_OBJECT
 public:
     TestItem(QQuickItem *parent = nullptr)
-        : QQuickItem(parent), focused(false), pressCount(0), releaseCount(0)
-        , wheelCount(0), acceptIncomingTouchEvents(true)
-        , touchEventReached(false), timestamp(0)
-        , lastWheelEventPos(0, 0), lastWheelEventGlobalPos(0, 0)
+        : QQuickItem(parent)
     {
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-        setAcceptTouchEvents(true);
-#endif
     }
 
-    bool focused;
-    int pressCount;
-    int releaseCount;
-    int wheelCount;
-    bool acceptIncomingTouchEvents;
-    bool touchEventReached;
-    ulong timestamp;
+    bool focused = false;
+    int pressCount = 0;
+    int releaseCount = 0;
+    int wheelCount = 0;
+    bool acceptIncomingTouchEvents = true;
+    bool touchEventReached = false;
+    ulong timestamp = 0;
     QPoint lastWheelEventPos;
     QPoint lastWheelEventGlobalPos;
     int languageChangeEventCount = 0;
+    int localeChangeEventCount = 0;
 protected:
-    void focusInEvent(QFocusEvent *) override { Q_ASSERT(!focused); focused = true; }
-    void focusOutEvent(QFocusEvent *) override { Q_ASSERT(focused); focused = false; }
-    void mousePressEvent(QMouseEvent *event) override { event->accept(); ++pressCount; }
-    void mouseReleaseEvent(QMouseEvent *event) override { event->accept(); ++releaseCount; }
+    void focusInEvent(QFocusEvent *event) override {
+        qCDebug(lcTests) << objectName() << event;
+        Q_ASSERT(!focused);
+        focused = true;
+    }
+    void focusOutEvent(QFocusEvent *event) override {
+        qCDebug(lcTests) << objectName() << event;
+        Q_ASSERT(focused);
+        focused = false;
+    }
+    void mousePressEvent(QMouseEvent *event) override {
+        qCDebug(lcTests) << objectName() << event;
+        // Tradition holds that an item or widget does not need to accept a mouse event:
+        // it arrives pre-accepted.
+        ++pressCount;
+    }
+    void mouseReleaseEvent(QMouseEvent *event) override {
+        qCDebug(lcTests) << objectName() << event;
+        ++releaseCount;
+    }
     void touchEvent(QTouchEvent *event) override {
+        qCDebug(lcTests) << objectName() << event;
         touchEventReached = true;
         event->setAccepted(acceptIncomingTouchEvents);
     }
     void wheelEvent(QWheelEvent *event) override {
+        qCDebug(lcTests) << objectName() << event;
         event->accept();
         ++wheelCount;
         timestamp = event->timestamp();
@@ -91,9 +110,18 @@ protected:
     }
     bool event(QEvent *e) override
     {
-        if (e->type() == QEvent::LanguageChange)
-            languageChangeEventCount++;
-        return QQuickItem::event(e);
+        Q_ASSERT(e->isAccepted()); // every event is constructed with the accept flag initialized to true
+        switch (e->type()) {
+        case QEvent::LanguageChange:
+            ++languageChangeEventCount;
+            break;
+        case QEvent::LocaleChange:
+            ++localeChangeEventCount;
+            break;
+        default:
+            break;
+        }
+        return QQuickItem::event(e); // default dispatch
     }
 };
 
@@ -104,7 +132,7 @@ public:
         : QQuickWindow()
     {}
 
-    virtual bool event(QEvent *event)
+    bool event(QEvent *event) override
     {
         return QQuickWindow::event(event);
     }
@@ -123,7 +151,7 @@ public:
     int repolishLoopCount = 0;
 
 protected:
-    virtual void updatePolish() {
+    void updatePolish() override {
         wasPolished = true;
         if (repolishLoopCount > 0) {
             --repolishLoopCount;
@@ -145,17 +173,18 @@ public:
 
     bool focused;
 protected:
-    virtual void focusInEvent(QFocusEvent *) { Q_ASSERT(!focused); focused = true; }
-    virtual void focusOutEvent(QFocusEvent *) { Q_ASSERT(focused); focused = false; }
+    void focusInEvent(QFocusEvent *) override { Q_ASSERT(!focused); focused = true; }
+    void focusOutEvent(QFocusEvent *) override { Q_ASSERT(focused); focused = false; }
 };
 
 class tst_qquickitem : public QQmlDataTest
 {
     Q_OBJECT
 public:
+    tst_qquickitem();
 
 private slots:
-    void initTestCase();
+    void initTestCase() override;
 
     void noWindow();
     void simpleFocus();
@@ -175,6 +204,7 @@ private slots:
     void enabledFocus();
 
     void mouseGrab();
+    void mousePropagationToParent();
     void touchEventAcceptIgnore_data();
     void touchEventAcceptIgnore();
     void polishOutsideAnimation();
@@ -200,6 +230,8 @@ private slots:
 
     void contains_data();
     void contains();
+    void containsContainmentMask_data();
+    void containsContainmentMask();
 
     void childAt();
 
@@ -213,6 +245,7 @@ private slots:
 
     void setParentCalledInOnWindowChanged();
     void receivesLanguageChangeEvent();
+    void receivesLocaleChangeEvent();
     void polishLoopDetection_data();
     void polishLoopDetection();
 
@@ -230,6 +263,11 @@ private:
         return QTest::qWaitForWindowActive(w);
     }
 };
+
+tst_qquickitem::tst_qquickitem()
+    : QQmlDataTest(QT_QMLTEST_DATADIR)
+{
+}
 
 void tst_qquickitem::initTestCase()
 {
@@ -1225,104 +1263,117 @@ void tst_qquickitem::enabledFocus()
     QCOMPARE(window.activeFocusItem(), window.contentItem());
 }
 
-static inline QByteArray msgItem(const QQuickItem *item)
-{
-    QString result;
-    QDebug(&result) << item;
-    return result.toLocal8Bit();
-}
-
 void tst_qquickitem::mouseGrab()
 {
-#ifdef Q_OS_WIN
-    if (QOpenGLContext::openGLModuleType() == QOpenGLContext::LibGLES)
-        QSKIP("Fails in the CI for ANGLE builds on Windows, QTBUG-32664");
-#endif
     QQuickWindow window;
-    window.setFramePosition(QPoint(100, 100));
     window.resize(200, 200);
     window.show();
     QVERIFY(QTest::qWaitForWindowExposed(&window));
+    auto devPriv = QPointingDevicePrivate::get(QPointingDevice::primaryPointingDevice());
 
-    QScopedPointer<TestItem> child1(new TestItem);
+    auto child1 = new TestItem(window.contentItem());
     child1->setObjectName(QStringLiteral("child1"));
     child1->setAcceptedMouseButtons(Qt::LeftButton);
     child1->setSize(QSizeF(200, 100));
-    child1->setParentItem(window.contentItem());
 
-    QScopedPointer<TestItem> child2(new TestItem);
+    auto child2 = new TestItem(window.contentItem());
     child2->setObjectName(QStringLiteral("child2"));
     child2->setAcceptedMouseButtons(Qt::LeftButton);
     child2->setY(51);
     child2->setSize(QSizeF(200, 100));
-    child2->setParentItem(window.contentItem());
 
+    // click over child1
     QTest::mousePress(&window, Qt::LeftButton, Qt::NoModifier, QPoint(50,50));
-    QTest::qWait(100);
-    QVERIFY2(window.mouseGrabberItem() == child1.data(), msgItem(window.mouseGrabberItem()).constData());
-    QTest::qWait(100);
-
+    QTRY_COMPARE(devPriv->firstPointExclusiveGrabber(), child1);
     QCOMPARE(child1->pressCount, 1);
+    QCOMPARE(child2->pressCount, 0);
     QTest::mouseRelease(&window, Qt::LeftButton, Qt::NoModifier, QPoint(50,50));
-    QTest::qWait(50);
-    QVERIFY2(window.mouseGrabberItem() == nullptr, msgItem(window.mouseGrabberItem()).constData());
+    QCOMPARE(devPriv->firstPointExclusiveGrabber(), nullptr);
     QCOMPARE(child1->releaseCount, 1);
+    QCOMPARE(child2->releaseCount, 0);
 
+    // press over child1 and then disable it: it doesn't get the release
     QTest::mousePress(&window, Qt::LeftButton, Qt::NoModifier, QPoint(50,50));
-    QTest::qWait(50);
-    QVERIFY2(window.mouseGrabberItem() == child1.data(), msgItem(window.mouseGrabberItem()).constData());
+    QTRY_COMPARE(devPriv->firstPointExclusiveGrabber(), child1);
     QCOMPARE(child1->pressCount, 2);
+    QCOMPARE(child2->pressCount, 0);
     child1->setEnabled(false);
-    QVERIFY2(window.mouseGrabberItem() == nullptr, msgItem(window.mouseGrabberItem()).constData());
+    QCOMPARE(devPriv->firstPointExclusiveGrabber(), nullptr);
     QTest::mouseRelease(&window, Qt::LeftButton, Qt::NoModifier, QPoint(50,50));
-    QTest::qWait(50);
     QCOMPARE(child1->releaseCount, 1);
+    QCOMPARE(child2->releaseCount, 0);
     child1->setEnabled(true);
 
+    // press over child1 and then hide it: it doesn't get the release
     QTest::mousePress(&window, Qt::LeftButton, Qt::NoModifier, QPoint(50,50));
-    QTest::qWait(50);
-    QVERIFY2(window.mouseGrabberItem() == child1.data(), msgItem(window.mouseGrabberItem()).constData());
+    QTRY_COMPARE(devPriv->firstPointExclusiveGrabber(), child1);
     QCOMPARE(child1->pressCount, 3);
+    QCOMPARE(child2->pressCount, 0);
     child1->setVisible(false);
-    QVERIFY2(window.mouseGrabberItem() == nullptr, msgItem(window.mouseGrabberItem()));
+    QCOMPARE(devPriv->firstPointExclusiveGrabber(), nullptr);
     QTest::mouseRelease(&window, Qt::LeftButton, Qt::NoModifier, QPoint(50,50));
     QCOMPARE(child1->releaseCount, 1);
+    QCOMPARE(child2->releaseCount, 0);
     child1->setVisible(true);
 
-    QTest::mousePress(&window, Qt::LeftButton, Qt::NoModifier, QPoint(50,50));
-    QTest::qWait(50);
-    QVERIFY2(window.mouseGrabberItem() == child1.data(), msgItem(window.mouseGrabberItem()).constData());
-    QCOMPARE(child1->pressCount, 4);
-    child2->grabMouse();
-    QVERIFY2(window.mouseGrabberItem() == child2.data(), msgItem(window.mouseGrabberItem()).constData());
-    QTest::mouseRelease(&window, Qt::LeftButton, Qt::NoModifier, QPoint(50,50));
-    QTest::qWait(50);
+    // click in a position over both children: only the top one gets it,
+    // because the event is pre-accepted, which implies that the event
+    // stops propagating and the top item gets the mouse grab.
+    QTest::mousePress(&window, Qt::LeftButton, Qt::NoModifier, QPoint(75,75));
+    QCOMPARE(child1->pressCount, 3);
+    QCOMPARE(child2->pressCount, 1);
+    QCOMPARE(devPriv->firstPointExclusiveGrabber(), child2);
+    QTest::mouseRelease(&window, Qt::LeftButton, Qt::NoModifier, QPoint(75,75));
+    QCOMPARE(devPriv->firstPointExclusiveGrabber(), nullptr);
     QCOMPARE(child1->releaseCount, 1);
     QCOMPARE(child2->releaseCount, 1);
+}
 
-    child2->grabMouse();
-    QVERIFY2(window.mouseGrabberItem() == child2.data(), msgItem(window.mouseGrabberItem()).constData());
+void tst_qquickitem::mousePropagationToParent()
+{
+    QQuickWindow window;
+    window.resize(200, 200);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    auto devPriv = QPointingDevicePrivate::get(QPointingDevice::primaryPointingDevice());
+
+    auto child1 = new TestItem(window.contentItem());
+    child1->setObjectName(QStringLiteral("child1"));
+    child1->setAcceptedMouseButtons(Qt::LeftButton);
+    child1->setSize(QSizeF(200, 100));
+
+    auto child2 = new TestItem(child1);
+    child2->setObjectName(QStringLiteral("child2"));
+    child2->setAcceptedMouseButtons(Qt::LeftButton);
+    child2->setSize(QSizeF(200, 100));
+
     QTest::mousePress(&window, Qt::LeftButton, Qt::NoModifier, QPoint(50,50));
-    QTest::qWait(50);
-    QCOMPARE(child1->pressCount, 4);
-    QCOMPARE(child2->pressCount, 1);
+    // The event is pre-accepted; child2 gets it first because it's on top,
+    // and it does NOT call QPointerEvent::accept(), but by tradition,
+    // the event stops there anyway: child1 does not see it.
+    QTRY_COMPARE(child2->pressCount, 1);
+    QCOMPARE(child1->pressCount, 0);
+    // child1 also does not explicitly grab, but the grab happens because the event is accepted.
+    QCOMPARE(devPriv->firstPointExclusiveGrabber(), child2);
     QTest::mouseRelease(&window, Qt::LeftButton, Qt::NoModifier, QPoint(50,50));
-    QTest::qWait(50);
-    QCOMPARE(child1->releaseCount, 1);
-    QCOMPARE(child2->releaseCount, 2);
+    QTRY_COMPARE(child2->releaseCount, 1);
+    QTRY_COMPARE(child1->releaseCount, 0);
 }
 
 void tst_qquickitem::touchEventAcceptIgnore_data()
 {
-    QTest::addColumn<bool>("itemSupportsTouch");
+    QTest::addColumn<bool>("itemAcceptsTouch");
+    QTest::addColumn<bool>("itemAcceptsTouchEvents");
 
-    QTest::newRow("with touch") << true;
-    QTest::newRow("without touch") << false;
+    QTest::newRow("accepts touch, accepts events") << true << true;
+    QTest::newRow("accepts touch, ignores events") << true << false;
+    QTest::newRow("doesn't accept touch, gets no events") << false << false;
 }
 
 void tst_qquickitem::touchEventAcceptIgnore()
 {
-    QFETCH(bool, itemSupportsTouch);
+    QFETCH(bool, itemAcceptsTouch);
+    QFETCH(bool, itemAcceptsTouchEvents);
 
     TestWindow window;
     window.resize(100, 100);
@@ -1332,88 +1383,27 @@ void tst_qquickitem::touchEventAcceptIgnore()
     QScopedPointer<TestItem> item(new TestItem);
     item->setSize(QSizeF(100, 100));
     item->setParentItem(window.contentItem());
-    item->acceptIncomingTouchEvents = itemSupportsTouch;
+    if (itemAcceptsTouch)
+        item->setAcceptTouchEvents(itemAcceptsTouch); // it's false by default in Qt 6
+    item->acceptIncomingTouchEvents = itemAcceptsTouchEvents;
 
-    static QTouchDevice* device = nullptr;
-    if (!device) {
-        device =new QTouchDevice;
-        device->setType(QTouchDevice::TouchScreen);
-        QWindowSystemInterface::registerTouchDevice(device);
-    }
+    static QPointingDevice* device = QTest::createTouchDevice();
 
     // Send Begin, Update & End touch sequence
-    {
-        QTouchEvent::TouchPoint point;
-        point.setId(1);
-        point.setPos(QPointF(50, 50));
-        point.setScreenPos(point.pos());
-        point.setState(Qt::TouchPointPressed);
+    item->touchEventReached = false;
+    QTest::touchEvent(&window, device).press(1, QPoint(50, 50), &window);
+    QQuickTouchUtils::flush(&window);
+    QTRY_COMPARE(item->touchEventReached, itemAcceptsTouch);
 
-        QTouchEvent event(QEvent::TouchBegin, device,
-                          Qt::NoModifier,
-                          Qt::TouchPointPressed,
-                          QList<QTouchEvent::TouchPoint>() << point);
-        event.setAccepted(true);
+    item->touchEventReached = false;
+    QTest::touchEvent(&window, device).move(1, QPoint(60, 60), &window);
+    QQuickTouchUtils::flush(&window);
+    QTRY_COMPARE(item->touchEventReached, itemAcceptsTouchEvents);
 
-        item->touchEventReached = false;
-
-        bool accepted = window.event(&event);
-        QQuickTouchUtils::flush(&window);
-
-        QVERIFY(item->touchEventReached);
-
-        // always true because QtQuick always eats touch events so as to not
-        // allow QtGui to synthesise them for us.
-        QCOMPARE(accepted && event.isAccepted(), true);
-    }
-    {
-        QTouchEvent::TouchPoint point;
-        point.setId(1);
-        point.setPos(QPointF(60, 60));
-        point.setScreenPos(point.pos());
-        point.setState(Qt::TouchPointMoved);
-
-        QTouchEvent event(QEvent::TouchUpdate, device,
-                          Qt::NoModifier,
-                          Qt::TouchPointMoved,
-                          QList<QTouchEvent::TouchPoint>() << point);
-        event.setAccepted(true);
-
-        item->touchEventReached = false;
-
-        bool accepted = window.event(&event);
-        QQuickTouchUtils::flush(&window);
-
-        QCOMPARE(item->touchEventReached, itemSupportsTouch);
-
-        // always true because QtQuick always eats touch events so as to not
-        // allow QtGui to synthesise them for us.
-        QCOMPARE(accepted && event.isAccepted(), true);
-    }
-    {
-        QTouchEvent::TouchPoint point;
-        point.setId(1);
-        point.setPos(QPointF(60, 60));
-        point.setScreenPos(point.pos());
-        point.setState(Qt::TouchPointReleased);
-
-        QTouchEvent event(QEvent::TouchEnd, device,
-                          Qt::NoModifier,
-                          Qt::TouchPointReleased,
-                          QList<QTouchEvent::TouchPoint>() << point);
-        event.setAccepted(true);
-
-        item->touchEventReached = false;
-
-        bool accepted = window.event(&event);
-        QQuickTouchUtils::flush(&window);
-
-        QCOMPARE(item->touchEventReached, itemSupportsTouch);
-
-        // always true because QtQuick always eats touch events so as to not
-        // allow QtGui to synthesise them for us.
-        QCOMPARE(accepted && event.isAccepted(), true);
-    }
+    item->touchEventReached = false;
+    QTest::touchEvent(&window, device).release(1, QPoint(60, 60), &window);
+    QQuickTouchUtils::flush(&window);
+    QTRY_COMPARE(item->touchEventReached, itemAcceptsTouchEvents);
 }
 
 void tst_qquickitem::polishOutsideAnimation()
@@ -1587,18 +1577,37 @@ public:
     int hoverEnterCount;
     int hoverMoveCount;
     int hoverLeaveCount;
+    QPoint hoverPosition;
+    QPoint hoverScenePosition;
+    QPoint hoverGlobalPosition;
+    QPoint hoverLastGlobalPosition;
 protected:
-    virtual void hoverEnterEvent(QHoverEvent *event) {
+    void hoverEnterEvent(QHoverEvent *event) override {
+        qCDebug(lcTests) << static_cast<QSinglePointEvent *>(event) << event->position() << event->scenePosition() << event->globalPosition();
         event->accept();
         ++hoverEnterCount;
+        hoverPosition = event->position().toPoint();
+        hoverScenePosition = event->scenePosition().toPoint();
+        hoverGlobalPosition = event->globalPosition().toPoint();
+        hoverLastGlobalPosition = event->points().first().globalLastPosition().toPoint();
     }
-    virtual void hoverMoveEvent(QHoverEvent *event) {
+    void hoverMoveEvent(QHoverEvent *event) override {
+        qCDebug(lcTests) << static_cast<QSinglePointEvent *>(event) << event->position() << event->scenePosition() << event->globalPosition();
         event->accept();
         ++hoverMoveCount;
+        hoverPosition = event->position().toPoint();
+        hoverScenePosition = event->scenePosition().toPoint();
+        hoverGlobalPosition = event->globalPosition().toPoint();
+        hoverLastGlobalPosition = event->points().first().globalLastPosition().toPoint();
     }
-    virtual void hoverLeaveEvent(QHoverEvent *event) {
+    void hoverLeaveEvent(QHoverEvent *event) override {
+        qCDebug(lcTests) << static_cast<QSinglePointEvent *>(event) << event->position() << event->scenePosition() << event->globalPosition();
         event->accept();
         ++hoverLeaveCount;
+        hoverPosition = event->position().toPoint();
+        hoverScenePosition = event->scenePosition().toPoint();
+        hoverGlobalPosition = event->globalPosition().toPoint();
+        hoverLastGlobalPosition = event->points().first().globalLastPosition().toPoint();
     }
 };
 
@@ -1619,13 +1628,6 @@ void tst_qquickitem::hoverEvent_data()
     QTest::newRow("invisible, disabled, not accept hover") << false << false << false;
 }
 
-// ### For some unknown reason QTest::mouseMove() isn't working correctly.
-static void sendMouseMove(QObject *object, const QPoint &position)
-{
-    QMouseEvent moveEvent(QEvent::MouseMove, position, Qt::NoButton, Qt::NoButton, nullptr);
-    QGuiApplication::sendEvent(object, &moveEvent);
-}
-
 void tst_qquickitem::hoverEvent()
 {
     QFETCH(bool, visible);
@@ -1635,6 +1637,10 @@ void tst_qquickitem::hoverEvent()
     QQuickWindow *window = new QQuickWindow();
     window->resize(200, 200);
     window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+#if QT_CONFIG(cursor) // Get the cursor out of the way.
+    QCursor::setPos(window->geometry().topRight() + QPoint(100, 100));
+#endif
 
     HoverItem *item = new HoverItem;
     item->setSize(QSizeF(100, 100));
@@ -1644,23 +1650,47 @@ void tst_qquickitem::hoverEvent()
     item->setVisible(visible);
     item->setAcceptHoverEvents(acceptHoverEvents);
 
+    // Ensure that we don't get extra hover events delivered on the
+    // side, since it can affect the number of hover move events we receive below.
+    QQuickWindowPrivate::get(window)->deliveryAgentPrivate()->frameSynchronousHoverEnabled = false;
+    // And flush out any mouse events that might be queued up
+    // in QPA, since QTest::mouseMove() calls processEvents.
+    qGuiApp->processEvents();
+
     const QPoint outside(150, 150);
     const QPoint inside(50, 50);
     const QPoint anotherInside(51, 51);
 
-    sendMouseMove(window, outside);
+    QTest::mouseMove(window, outside);
     item->resetCounters();
 
-    // Enter, then move twice inside, then leave.
-    sendMouseMove(window, inside);
-    sendMouseMove(window, anotherInside);
-    sendMouseMove(window, inside);
-    sendMouseMove(window, outside);
+    auto checkPositions = [=](QPoint pt) {
+        QCOMPARE(item->hoverPosition, pt);
+        QCOMPARE(item->hoverScenePosition, item->mapToScene(pt).toPoint());
+        QCOMPARE(item->hoverGlobalPosition, item->mapToGlobal(pt).toPoint());
+        QVERIFY(!item->hoverLastGlobalPosition.isNull());
+    };
 
-    const bool shouldReceiveHoverEvents = visible && enabled && acceptHoverEvents;
+    // Enter, then move twice inside, then leave.
+    const bool shouldReceiveHoverEvents = visible && acceptHoverEvents;
+    QTest::mouseMove(window, inside);
+    if (shouldReceiveHoverEvents)
+        checkPositions(inside);
+    QTest::mouseMove(window, anotherInside);
+    if (shouldReceiveHoverEvents)
+        checkPositions(anotherInside);
+    QTest::mouseMove(window, inside);
+    if (shouldReceiveHoverEvents)
+        checkPositions(inside);
+    QTest::mouseMove(window, outside);
+    if (shouldReceiveHoverEvents)
+        checkPositions(outside);
+
     if (shouldReceiveHoverEvents) {
         QCOMPARE(item->hoverEnterCount, 1);
-        QCOMPARE(item->hoverMoveCount, 2);
+        QVERIFY(item->hoverMoveCount >= 2);
+        if (item->hoverMoveCount > 2)
+            qCDebug(lcTests) << "expected 2 hover move events, but got" << item->hoverMoveCount;
         QCOMPARE(item->hoverLeaveCount, 1);
     } else {
         QCOMPARE(item->hoverEnterCount, 0);
@@ -1676,6 +1706,10 @@ void tst_qquickitem::hoverEventInParent()
     QQuickWindow window;
     window.resize(200, 200);
     window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+#if QT_CONFIG(cursor) // Get the cursor out of the way.
+    QCursor::setPos(window.geometry().topRight() + QPoint(100, 100));
+#endif
 
     HoverItem *parentItem = new HoverItem(window.contentItem());
     parentItem->setSize(QSizeF(200, 200));
@@ -1693,12 +1727,12 @@ void tst_qquickitem::hoverEventInParent()
     const QPoint insideLeft(50, 100);
     const QPoint insideRight(150, 100);
 
-    sendMouseMove(&window, insideLeft);
+    QTest::mouseMove(&window, insideLeft);
     parentItem->resetCounters();
     leftItem->resetCounters();
     rightItem->resetCounters();
 
-    sendMouseMove(&window, insideRight);
+    QTest::mouseMove(&window, insideRight);
     QCOMPARE(parentItem->hoverEnterCount, 0);
     QCOMPARE(parentItem->hoverLeaveCount, 0);
     QCOMPARE(leftItem->hoverEnterCount, 0);
@@ -1706,7 +1740,7 @@ void tst_qquickitem::hoverEventInParent()
     QCOMPARE(rightItem->hoverEnterCount, 1);
     QCOMPARE(rightItem->hoverLeaveCount, 0);
 
-    sendMouseMove(&window, insideLeft);
+    QTest::mouseMove(&window, insideLeft);
     QCOMPARE(parentItem->hoverEnterCount, 0);
     QCOMPARE(parentItem->hoverLeaveCount, 0);
     QCOMPARE(leftItem->hoverEnterCount, 1);
@@ -2021,7 +2055,7 @@ public slots:
 void tst_qquickitem::testSGInvalidate()
 {
     for (int i=0; i<2; ++i) {
-        QScopedPointer<QQuickView> view(new QQuickView());
+        std::unique_ptr<QQuickView> view(new QQuickView());
 
         InvalidatedItem *item = new InvalidatedItem();
 
@@ -2038,9 +2072,9 @@ void tst_qquickitem::testSGInvalidate()
         item->setParentItem(view->contentItem());
         view->show();
 
-        QVERIFY(QTest::qWaitForWindowExposed(view.data()));
+        QVERIFY(QTest::qWaitForWindowExposed(view.get()));
 
-        delete view.take();
+        view.reset();
         QCOMPARE(invalidateSpy.size(), expected);
     }
 }
@@ -2067,7 +2101,8 @@ void tst_qquickitem::contains_data()
     QTest::newRow("(50, 0) = false") << 50 << 0 << false;
     QTest::newRow("(0, 50) = false") << 0 << 50 << false;
     QTest::newRow("(50, 50) = true") << 50 << 50 << true;
-    QTest::newRow("(100, 100) = true") << 100 << 100 << true;
+    QTest::newRow("(99, 99) = true") << 99 << 99 << true;
+    QTest::newRow("(100, 100) = false") << 100 << 100 << false;
     QTest::newRow("(150, 150) = false") << 150 << 150 << false;
 }
 
@@ -2096,6 +2131,46 @@ void tst_qquickitem::contains()
     QVERIFY(QMetaObject::invokeMethod(root, "childContainsViaMapFromItem",
         Q_RETURN_ARG(QVariant, result), Q_ARG(QVariant, qreal(x)), Q_ARG(QVariant, qreal(y))));
     QCOMPARE(result.toBool(), contains);
+}
+
+void tst_qquickitem::containsContainmentMask_data()
+{
+    QTest::addColumn<QPointF>("point");
+    QTest::addColumn<bool>("contains");
+
+    QTest::newRow("(-6, -6) = false") << QPointF(-6, -6) << false;
+    QTest::newRow("(-5, -5) = true") << QPointF(-5, -5) << true;
+    QTest::newRow("(-4, -4) = true") << QPointF(-4, -4) << true;
+    QTest::newRow("(-3, -3) = true") << QPointF(-3, -3) << true;
+    QTest::newRow("(-2, -2) = true") << QPointF(-2, -2) << true;
+    QTest::newRow("(-1, -1) = true") << QPointF(-1, -1) << true;
+    QTest::newRow("(0, 0) = true") << QPointF(0, 0) << true;
+    QTest::newRow("(1, 1) = true") << QPointF(1, 1) << true;
+    QTest::newRow("(2, 2) = true") << QPointF(2, 2) << true;
+    QTest::newRow("(3, 3) = true") << QPointF(3, 3) << true;
+    QTest::newRow("(4, 4) = true") << QPointF(4, 4) << true;
+    QTest::newRow("(5, 5) = false") << QPointF(5, 5) << false;
+}
+
+void tst_qquickitem::containsContainmentMask()
+{
+    QFETCH(QPointF, point);
+    QFETCH(bool, contains);
+
+    QQuickView view;
+    view.setSource(testFileUrl("containsContainmentMask.qml"));
+
+    QQuickItem *root = qobject_cast<QQuickItem*>(view.rootObject());
+    QVERIFY(root);
+
+    QQuickItem *firstItem = root->findChild<QQuickItem*>("firstItem");
+    QVERIFY(firstItem);
+
+    QQuickItem *secondItem = root->findChild<QQuickItem*>("secondItem");
+    QVERIFY(secondItem);
+
+    QCOMPARE(firstItem->contains(point), contains);
+    QCOMPARE(secondItem->contains(point), contains);
 }
 
 void tst_qquickitem::childAt()
@@ -2269,6 +2344,31 @@ void tst_qquickitem::receivesLanguageChangeEvent()
 
     QTRY_COMPARE(child1->languageChangeEventCount, 1);
     QCOMPARE(child2->languageChangeEventCount, 1);
+}
+
+void tst_qquickitem::receivesLocaleChangeEvent()
+{
+    QQuickWindow window;
+    window.setFramePosition(QPoint(100, 100));
+    window.resize(200, 200);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    QScopedPointer<TestItem> child1(new TestItem);
+    child1->setObjectName(QStringLiteral("child1"));
+    child1->setSize(QSizeF(200, 100));
+    child1->setParentItem(window.contentItem());
+
+    QScopedPointer<TestItem> child2(new TestItem);
+    child2->setObjectName(QStringLiteral("child2"));
+    child2->setSize(QSizeF(50, 50));
+    child2->setParentItem(child1.data());
+
+    QEvent e(QEvent::LocaleChange);
+    QCoreApplication::sendEvent(&window, &e);
+
+    QTRY_COMPARE(child1->localeChangeEventCount, 1);
+    QCOMPARE(child2->localeChangeEventCount, 1);
 }
 
 QTEST_MAIN(tst_qquickitem)

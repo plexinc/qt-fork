@@ -72,9 +72,6 @@ bool QHttpSocketEngine::initialize(QAbstractSocket::SocketType type, QAbstractSo
     setSocketType(type);
     d->socket = new QTcpSocket(this);
     d->reply = new QHttpNetworkReply(QUrl(), this);
-#ifndef QT_NO_BEARERMANAGEMENT // ### Qt6: Remove section
-    d->socket->setProperty("_q_networkSession", property("_q_networkSession"));
-#endif
 
     // Explicitly disable proxying on the proxy socket itself to avoid
     // unwanted recursion.
@@ -645,7 +642,7 @@ void QHttpSocketEngine::slotSocketReadNotification()
             d->socket->readAll();
             //We're done with the reply and need to reset it for the next connection
             delete d->reply;
-            d->reply = new QHttpNetworkReply;
+            d->reply = new QHttpNetworkReply(QUrl(), this);
         }
 
         if (priv->phase == QAuthenticatorPrivate::Done)
@@ -866,3 +863,5 @@ QAbstractSocketEngine *QHttpSocketEngineHandler::createSocketEngine(qintptr, QOb
 QT_END_NAMESPACE
 
 #endif // !QT_NO_NETWORKPROXY
+
+#include "moc_qhttpsocketengine_p.cpp"

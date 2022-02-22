@@ -36,6 +36,11 @@ namespace utils {
             glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 4);
             glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
             glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+        } else if (type == wgpu::BackendType::OpenGLES) {
+            glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+            glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
+            glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
+            glfwWindowHint(GLFW_CONTEXT_CREATION_API, GLFW_EGL_CONTEXT_API);
         } else {
             // Without this GLFW will initialize a GL context on the window, which prevents using
             // the window with other APIs (by crashing in weird ways).
@@ -61,7 +66,7 @@ namespace utils {
             std::make_unique<wgpu::SurfaceDescriptorFromWindowsHWND>();
         desc->hwnd = glfwGetWin32Window(window);
         desc->hinstance = GetModuleHandle(nullptr);
-        return desc;
+        return std::move(desc);
     }
 #elif defined(DAWN_USE_X11)
     std::unique_ptr<wgpu::ChainedStruct> SetupWindowAndGetSurfaceDescriptorForTesting(
@@ -70,7 +75,7 @@ namespace utils {
             std::make_unique<wgpu::SurfaceDescriptorFromXlib>();
         desc->display = glfwGetX11Display();
         desc->window = glfwGetX11Window(window);
-        return desc;
+        return std::move(desc);
     }
 #elif defined(DAWN_ENABLE_BACKEND_METAL)
     // SetupWindowAndGetSurfaceDescriptorForTesting defined in GLFWUtils_metal.mm

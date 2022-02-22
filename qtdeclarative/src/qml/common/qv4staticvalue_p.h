@@ -50,6 +50,8 @@
 // We mean it.
 //
 
+#include <qjsnumbercoercion.h>
+
 #include <QtCore/private/qnumeric_p.h>
 #include <cstring>
 
@@ -68,53 +70,6 @@ namespace QV4 {
 // will return it in a register on all platforms.
 // It will be returned in rax on x64, [eax,edx] on x86 and [r0,r1] on arm
 typedef quint64 ReturnedValue;
-
-struct Double {
-    quint64 d;
-
-    Double(double dbl) {
-        memcpy(&d, &dbl, sizeof(double));
-    }
-
-    int sign() const {
-        return (d >> 63) ? -1 : 1;
-    }
-
-    bool isDenormal() const {
-        return static_cast<int>((d << 1) >> 53) == 0;
-    }
-
-    int exponent() const {
-        return static_cast<int>((d << 1) >> 53) - 1023;
-    }
-
-    quint64 significant() const {
-        quint64 m = (d << 12) >> 12;
-        if (!isDenormal())
-            m |= (static_cast<quint64>(1) << 52);
-        return m;
-    }
-
-    static int toInt32(double d) {
-        int i = static_cast<int>(d);
-        if (i == d)
-            return i;
-        return Double(d).toInt32();
-    }
-
-    int toInt32() {
-        int e = exponent() - 52;
-        if (e < 0) {
-            if (e <= -53)
-                return 0;
-            return sign() * static_cast<int>(significant() >> -e);
-        } else {
-            if (e > 31)
-                return 0;
-            return sign() * (static_cast<int>(significant()) << e);
-        }
-    }
-};
 
 struct StaticValue
 {
@@ -191,9 +146,9 @@ struct StaticValue
 
     quint64 _val;
 
-    QV4_NEARLY_ALWAYS_INLINE Q_DECL_RELAXED_CONSTEXPR quint64 &rawValueRef() { return _val; }
-    QV4_NEARLY_ALWAYS_INLINE Q_DECL_RELAXED_CONSTEXPR quint64 rawValue() const { return _val; }
-    QV4_NEARLY_ALWAYS_INLINE Q_DECL_RELAXED_CONSTEXPR void setRawValue(quint64 raw) { _val = raw; }
+    QV4_NEARLY_ALWAYS_INLINE constexpr quint64 &rawValueRef() { return _val; }
+    QV4_NEARLY_ALWAYS_INLINE constexpr quint64 rawValue() const { return _val; }
+    QV4_NEARLY_ALWAYS_INLINE constexpr void setRawValue(quint64 raw) { _val = raw; }
 
 #if Q_BYTE_ORDER == Q_LITTLE_ENDIAN
     static inline int valueOffset() { return 0; }
@@ -203,22 +158,22 @@ struct StaticValue
     static inline int tagOffset() { return 0; }
 #endif
     static inline constexpr quint64 tagValue(quint32 tag, quint32 value) { return quint64(tag) << 32 | value; }
-    QV4_NEARLY_ALWAYS_INLINE Q_DECL_RELAXED_CONSTEXPR void setTagValue(quint32 tag, quint32 value) { _val = quint64(tag) << 32 | value; }
+    QV4_NEARLY_ALWAYS_INLINE constexpr void setTagValue(quint32 tag, quint32 value) { _val = quint64(tag) << 32 | value; }
     QV4_NEARLY_ALWAYS_INLINE constexpr quint32 value() const { return _val & quint64(~quint32(0)); }
     QV4_NEARLY_ALWAYS_INLINE constexpr quint32 tag() const { return _val >> 32; }
-    QV4_NEARLY_ALWAYS_INLINE Q_DECL_RELAXED_CONSTEXPR void setTag(quint32 tag) { setTagValue(tag, value()); }
+    QV4_NEARLY_ALWAYS_INLINE constexpr void setTag(quint32 tag) { setTagValue(tag, value()); }
 
     QV4_NEARLY_ALWAYS_INLINE constexpr int int_32() const
     {
         return int(value());
     }
-    QV4_NEARLY_ALWAYS_INLINE Q_DECL_RELAXED_CONSTEXPR void setInt_32(int i)
+    QV4_NEARLY_ALWAYS_INLINE constexpr void setInt_32(int i)
     {
         setTagValue(quint32(ValueTypeInternal::Integer), quint32(i));
     }
     QV4_NEARLY_ALWAYS_INLINE uint uint_32() const { return value(); }
 
-    QV4_NEARLY_ALWAYS_INLINE Q_DECL_RELAXED_CONSTEXPR void setEmpty()
+    QV4_NEARLY_ALWAYS_INLINE constexpr void setEmpty()
     {
         setTagValue(quint32(ValueTypeInternal::Empty), 0);
     }
@@ -440,13 +395,15 @@ struct StaticValue
         case Integer_Type:
             return int_32();
         case Double_Type:
-            return Double::toInt32(doubleValue());
+            return QJSNumberCoercion::toInteger(doubleValue());
         case Empty_Type:
         case Undefined_Type:
         case Managed_Type:
-            break;
+            return 0; // Coercion of NaN to int, results in 0;
         }
-        return Double::toInt32(std::numeric_limits<double>::quiet_NaN());
+
+        Q_UNREACHABLE();
+        return 0;
     }
 
     ReturnedValue *data_ptr() { return &_val; }
@@ -488,7 +445,7 @@ struct StaticValue
 
     static int toInt32(double d)
     {
-        return Double::toInt32(d);
+        return QJSNumberCoercion::toInteger(d);
     }
 
     static unsigned int toUInt32(double d)

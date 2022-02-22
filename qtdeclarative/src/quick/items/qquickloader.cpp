@@ -439,9 +439,8 @@ void QQuickLoader::loadFromSource()
     }
 
     if (isComponentComplete()) {
-        QQmlComponent::CompilationMode mode = d->asynchronous ? QQmlComponent::Asynchronous : QQmlComponent::PreferSynchronous;
         if (!d->component)
-            d->component.setObject(new QQmlComponent(qmlEngine(this), d->source, mode, this), this);
+            d->createComponent();
         d->load();
     }
 }
@@ -651,9 +650,9 @@ void QQuickLoaderPrivate::setInitialState(QObject *obj)
         // does, then set the item's size now before bindings are
         // evaluated, otherwise we will end up resizing the item
         // later and triggering any affected bindings/anchors.
-        if (widthValid && !QQuickItemPrivate::get(item)->widthValid)
+        if (widthValid() && !QQuickItemPrivate::get(item)->widthValid())
             item->setWidth(q->width());
-        if (heightValid && !QQuickItemPrivate::get(item)->heightValid)
+        if (heightValid() && !QQuickItemPrivate::get(item)->heightValid())
             item->setHeight(q->height());
         item->setParentItem(q);
     }
@@ -718,7 +717,6 @@ void QQuickLoaderPrivate::incubatorStateChanged(QQmlIncubator::Status status)
     emit q->progressChanged();
     if (status == QQmlIncubator::Ready)
         emit q->loaded();
-    disposeInitialPropertyValues(); // cleanup
 }
 
 void QQuickLoaderPrivate::_q_sourceLoaded()
@@ -737,6 +735,9 @@ void QQuickLoaderPrivate::_q_sourceLoaded()
         disposeInitialPropertyValues(); // cleanup
         return;
     }
+
+    if (!active)
+        return;
 
     QQmlContext *creationContext = component->creationContext();
     if (!creationContext) creationContext = qmlContext(q);
@@ -804,11 +805,8 @@ void QQuickLoader::componentComplete()
     Q_D(QQuickLoader);
     QQuickItem::componentComplete();
     if (active()) {
-        if (d->loadingFromSource) {
-            QQmlComponent::CompilationMode mode = d->asynchronous ? QQmlComponent::Asynchronous : QQmlComponent::PreferSynchronous;
-            if (!d->component)
-                d->component.setObject(new QQmlComponent(qmlEngine(this), d->source, mode, this), this);
-        }
+        if (d->loadingFromSource)
+            d->createComponent();
         d->load();
     }
 }
@@ -944,7 +942,7 @@ void QQuickLoaderPrivate::_q_updateSize(bool loaderGeometryChanged)
 }
 
 /*!
-    \qmlproperty object QtQuick::Loader::item
+    \qmlproperty QtObject QtQuick::Loader::item
     This property holds the top-level object that is currently loaded.
 
     Since \c {QtQuick 2.0}, Loader can load any object type.
@@ -955,13 +953,13 @@ QObject *QQuickLoader::item() const
     return d->object;
 }
 
-void QQuickLoader::geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry)
+void QQuickLoader::geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry)
 {
     Q_D(QQuickLoader);
     if (newGeometry != oldGeometry) {
         d->_q_updateSize();
     }
-    QQuickItem::geometryChanged(newGeometry, oldGeometry);
+    QQuickItem::geometryChange(newGeometry, oldGeometry);
 }
 
 QUrl QQuickLoaderPrivate::resolveSourceUrl(QQmlV4Function *args)
@@ -971,12 +969,7 @@ QUrl QQuickLoaderPrivate::resolveSourceUrl(QQmlV4Function *args)
     if (v->isUndefined())
         return QUrl();
     QString arg = v->toQString();
-    if (arg.isEmpty())
-        return QUrl();
-
-    QQmlContextData *context = scope.engine->callingQmlContext();
-    Q_ASSERT(context);
-    return context->resolvedUrl(QUrl(arg));
+    return arg.isEmpty() ? QUrl() : scope.engine->callingQmlContext()->resolvedUrl(QUrl(arg));
 }
 
 QV4::ReturnedValue QQuickLoaderPrivate::extractInitialPropertyValues(QQmlV4Function *args, QObject *loader, bool *error)
@@ -1040,6 +1033,17 @@ void QQuickLoaderPrivate::updateStatus()
         status = newStatus;
         emit q->statusChanged();
     }
+}
+
+void QQuickLoaderPrivate::createComponent()
+{
+    Q_Q(QQuickLoader);
+    const QQmlComponent::CompilationMode mode = asynchronous
+            ? QQmlComponent::Asynchronous
+            : QQmlComponent::PreferSynchronous;
+    QQmlContext *context = qmlContext(q);
+    component.setObject(new QQmlComponent(
+                            context->engine(), context->resolvedUrl(source), mode, q), q);
 }
 
 #include <moc_qquickloader_p.cpp>

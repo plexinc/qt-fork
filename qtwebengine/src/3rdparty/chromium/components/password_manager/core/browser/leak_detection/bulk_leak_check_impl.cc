@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/optional.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
@@ -76,7 +76,7 @@ BulkLeakCheckImpl::BulkLeakCheckImpl(
     : delegate_(delegate),
       identity_manager_(identity_manager),
       url_loader_factory_(std::move(url_loader_factory)),
-      encryption_key_(CreateNewKey()),
+      encryption_key_(CreateNewKey().value_or("")),
       payload_task_runner_(base::ThreadPool::CreateSequencedTaskRunner(
           {base::TaskPriority::USER_VISIBLE,
            base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN})) {
@@ -96,7 +96,7 @@ void BulkLeakCheckImpl::CheckCredentials(
     const LeakCheckCredential& credential =
         waiting_encryption_.back()->credential;
     PrepareSingleLeakRequestData(
-        payload_task_runner_.get(), encryption_key_,
+        task_tracker_, *payload_task_runner_, encryption_key_,
         base::UTF16ToUTF8(credential.username()),
         base::UTF16ToUTF8(credential.password()),
         base::BindOnce(&BulkLeakCheckImpl::OnPayloadReady,

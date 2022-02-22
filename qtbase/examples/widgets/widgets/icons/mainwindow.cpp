@@ -53,6 +53,7 @@
 #include "iconsizespinbox.h"
 #include "imagedelegate.h"
 
+#include <QActionGroup>
 #include <QApplication>
 #include <QButtonGroup>
 #include <QCheckBox>
@@ -172,15 +173,16 @@ void MainWindow::changeStyle(bool checked)
 //! [4]
 
 //! [5]
-void MainWindow::changeSize(int id, bool checked)
+void MainWindow::changeSize(QAbstractButton *button, bool checked)
 {
     if (!checked)
         return;
 
-    const bool other = id == int(OtherSize);
+    const int index = sizeButtonGroup->id(button);
+    const bool other = index == int(OtherSize);
     const int extent = other
         ? otherSpinBox->value()
-        : QApplication::style()->pixelMetric(static_cast<QStyle::PixelMetric>(id));
+        : QApplication::style()->pixelMetric(static_cast<QStyle::PixelMetric>(index));
 
     previewArea->setSize(QSize(extent, extent));
     otherSpinBox->setEnabled(other);
@@ -188,7 +190,7 @@ void MainWindow::changeSize(int id, bool checked)
 
 void MainWindow::triggerChangeSize()
 {
-    changeSize(sizeButtonGroup->checkedId(), true);
+    changeSize(sizeButtonGroup->checkedButton(), true);
 }
 //! [5]
 
@@ -318,12 +320,6 @@ void MainWindow::loadImages(const QStringList &fileNames)
     }
 }
 
-void MainWindow::useHighDpiPixmapsChanged(int checkState)
-{
-    QCoreApplication::setAttribute(Qt::AA_UseHighDpiPixmaps, checkState == Qt::Checked);
-    changeIcon();
-}
-
 //! [20]
 void MainWindow::removeAllImages()
 {
@@ -372,7 +368,7 @@ QWidget *MainWindow::createIconSizeGroupBox()
     sizeButtonGroup = new QButtonGroup(this);
     sizeButtonGroup->setExclusive(true);
 
-    connect(sizeButtonGroup, QOverload<int, bool>::of(&QButtonGroup::buttonToggled),
+    connect(sizeButtonGroup, &QButtonGroup::buttonToggled,
             this, &MainWindow::changeSize);
 
     QRadioButton *smallRadioButton = new QRadioButton;
@@ -400,7 +396,7 @@ QWidget *MainWindow::createIconSizeGroupBox()
 //! [26]
 
 //! [27]
-    connect(otherSpinBox, QOverload<int>::of(&QSpinBox::valueChanged),
+    connect(otherSpinBox, &QSpinBox::valueChanged,
             this, &MainWindow::triggerChangeSize);
 
     QHBoxLayout *otherSizeLayout = new QHBoxLayout;
@@ -423,7 +419,7 @@ QWidget *MainWindow::createIconSizeGroupBox()
 
 void MainWindow::screenChanged()
 {
-    devicePixelRatioLabel->setText(QString::number(devicePixelRatioF()));
+    devicePixelRatioLabel->setText(QString::number(devicePixelRatio()));
     if (const QWindow *window = windowHandle()) {
         const QScreen *screen = window->screen();
         const QString screenDescription =
@@ -442,10 +438,6 @@ QWidget *MainWindow::createHighDpiIconSizeGroupBox()
     screenNameLabel = new QLabel(highDpiGroupBox);
     layout->addRow(tr("Screen:"), screenNameLabel);
     layout->addRow(tr("Device pixel ratio:"), devicePixelRatioLabel);
-    QCheckBox *highDpiPixmapsCheckBox = new QCheckBox(QLatin1String("Qt::AA_UseHighDpiPixmaps"));
-    highDpiPixmapsCheckBox->setChecked(QCoreApplication::testAttribute(Qt::AA_UseHighDpiPixmaps));
-    connect(highDpiPixmapsCheckBox, &QCheckBox::stateChanged, this, &MainWindow::useHighDpiPixmapsChanged);
-    layout->addRow(highDpiPixmapsCheckBox);
     return highDpiGroupBox;
 }
 

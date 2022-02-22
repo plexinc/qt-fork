@@ -16,7 +16,6 @@
 #include "third_party/skia/include/core/SkSurface.h"
 #include "ui/gfx/gpu_fence.h"
 #include "ui/gfx/presentation_feedback.h"
-#include "ui/ozone/common/gpu/ozone_gpu_message_params.h"
 #include "ui/ozone/platform/drm/common/drm_util.h"
 #include "ui/ozone/platform/drm/gpu/crtc_controller.h"
 #include "ui/ozone/platform/drm/gpu/drm_device.h"
@@ -32,11 +31,9 @@ DrmWindow::DrmWindow(gfx::AcceleratedWidget widget,
                      ScreenManager* screen_manager)
     : widget_(widget),
       device_manager_(device_manager),
-      screen_manager_(screen_manager) {
-}
+      screen_manager_(screen_manager) {}
 
-DrmWindow::~DrmWindow() {
-}
+DrmWindow::~DrmWindow() {}
 
 void DrmWindow::Initialize() {
   TRACE_EVENT1("drm", "DrmWindow::Initialize", "widget", widget_);
@@ -132,10 +129,6 @@ OverlayStatusList DrmWindow::TestPageFlip(
     const OverlaySurfaceCandidateList& overlay_params) {
   return overlay_validator_->TestPageFlip(overlay_params,
                                           last_submitted_planes_);
-}
-
-const DrmOverlayPlane* DrmWindow::GetLastModesetBuffer() const {
-  return DrmOverlayPlane::GetPrimaryPlane(last_submitted_planes_);
 }
 
 void DrmWindow::UpdateCursorImage() {

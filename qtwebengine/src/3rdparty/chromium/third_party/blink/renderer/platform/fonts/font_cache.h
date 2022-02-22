@@ -58,7 +58,7 @@
 #include "third_party/skia/include/core/SkFontMgr.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
 #include "ui/gfx/font_fallback_linux.h"
 #endif
 
@@ -78,9 +78,10 @@ class ProcessMemoryDump;
 
 namespace blink {
 
-class FontFaceCreationParams;
-class FontGlobalContext;
 class FontDescription;
+class FontFaceCreationParams;
+class FontFallbackMap;
+class FontGlobalContext;
 class SimpleFontData;
 
 enum class AlternateFontName {
@@ -90,11 +91,7 @@ enum class AlternateFontName {
   kLastResort
 };
 
-struct FontEnumerationEntry {
-  String postscript_name;
-  String full_name;
-  String family;
-};
+enum CreateIfNeeded { kDoNotCreate, kCreate };
 
 typedef HashMap<unsigned,
                 std::unique_ptr<FontPlatformData>,
@@ -107,7 +104,10 @@ typedef HashMap<FallbackListCompositeKey,
                 FallbackListCompositeKeyHash,
                 FallbackListCompositeKeyTraits>
     FallbackListShaperCache;
-typedef std::vector<FontEnumerationEntry> FontEnumerationCache;
+
+// "und-Zsye", the special locale for retrieving the color emoji font defined
+// in UTS #51: https://unicode.org/reports/tr51/#Emoji_Script
+extern const char kColorEmojiLocale[];
 
 class PLATFORM_EXPORT FontCache {
   friend class FontCachePurgePreventer;
@@ -115,7 +115,11 @@ class PLATFORM_EXPORT FontCache {
   USING_FAST_MALLOC(FontCache);
 
  public:
-  static FontCache* GetFontCache();
+  // FontCache initialisation on Windows depends on a global FontMgr being
+  // configured through a call from the browser process. CreateIfNeeded helps
+  // avoid early creation of a font cache when these globals have not yet
+  // been set.
+  static FontCache* GetFontCache(CreateIfNeeded = kCreate);
 
   void ReleaseFontData(const SimpleFontData*);
 
@@ -178,13 +182,13 @@ class PLATFORM_EXPORT FontCache {
   }
 #endif
 
-#if !defined(OS_MACOSX)
+#if !defined(OS_MAC)
   static const AtomicString& SystemFontFamily();
 #else
   static const AtomicString& LegacySystemFontFamily();
 #endif
 
-#if !defined(OS_WIN) && !defined(OS_MACOSX)
+#if !defined(OS_MAC)
   static void SetSystemFontFamily(const AtomicString&);
 #endif
 
@@ -199,11 +203,11 @@ class PLATFORM_EXPORT FontCache {
   static void SetLCDTextEnabled(bool enabled) { lcd_text_enabled_ = enabled; }
   static void AddSideloadedFontForTesting(sk_sp<SkTypeface>);
   // Functions to cache and retrieve the system font metrics.
-  static void SetMenuFontMetrics(const wchar_t* family_name,
+  static void SetMenuFontMetrics(const AtomicString& family_name,
                                  int32_t font_height);
-  static void SetSmallCaptionFontMetrics(const wchar_t* family_name,
+  static void SetSmallCaptionFontMetrics(const AtomicString& family_name,
                                          int32_t font_height);
-  static void SetStatusFontMetrics(const wchar_t* family_name,
+  static void SetStatusFontMetrics(const AtomicString& family_name,
                                    int32_t font_height);
   static int32_t MenuFontHeight() { return menu_font_height_; }
   static const AtomicString& MenuFontFamily() {
@@ -244,30 +248,26 @@ class PLATFORM_EXPORT FontCache {
       const FontDescription&);
 #endif  // defined(OS_ANDROID)
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
   static bool GetFontForCharacter(UChar32,
                                   const char* preferred_locale,
                                   gfx::FallbackFontData*);
-#endif  // defined(OS_LINUX)
+#endif  // defined(OS_LINUX) || defined(OS_CHROMEOS)
 
   scoped_refptr<SimpleFontData> FontDataFromFontPlatformData(
       const FontPlatformData*,
       ShouldRetain = kRetain,
       bool subpixel_ascent_descent = false);
 
-  const std::vector<FontEnumerationEntry>& EnumerateAvailableFonts();
-  size_t EnumerationCacheSizeForTesting() {
-    return font_enumeration_cache_.size();
-  }
-
   void InvalidateShapeCache();
-  void InvalidateEnumerationCache();
 
   static void CrashWithFontInfo(const FontDescription*);
 
   // Memory reporting
   void DumpFontPlatformDataCache(base::trace_event::ProcessMemoryDump*);
   void DumpShapeResultCache(base::trace_event::ProcessMemoryDump*);
+
+  FontFallbackMap& GetFontFallbackMap();
 
   ~FontCache() = default;
 
@@ -306,9 +306,9 @@ class PLATFORM_EXPORT FontCache {
       const FontDescription&,
       const FontFaceCreationParams&,
       AlternateFontName = AlternateFontName::kAllowAlternate);
-#if !defined(OS_MACOSX)
+#if !defined(OS_MAC)
   FontPlatformData* SystemFontPlatformData(const FontDescription&);
-#endif  // !defined(OS_MACOSX)
+#endif  // !defined(OS_MAC)
 
   // These methods are implemented by each platform.
   std::unique_ptr<FontPlatformData> CreateFontPlatformData(
@@ -321,22 +321,27 @@ class PLATFORM_EXPORT FontCache {
       const FontDescription&,
       const FontFaceCreationParams&,
       float font_size);
-  std::vector<FontEnumerationEntry> EnumeratePlatformAvailableFonts();
 
   sk_sp<SkTypeface> CreateTypeface(const FontDescription&,
                                    const FontFaceCreationParams&,
                                    std::string& name);
 
-#if defined(OS_ANDROID) || defined(OS_LINUX)
+#if defined(OS_ANDROID) || defined(OS_LINUX) || defined(OS_CHROMEOS)
   static AtomicString GetFamilyNameForCharacter(SkFontMgr*,
                                                 UChar32,
                                                 const FontDescription&,
                                                 FontFallbackPriority);
-#endif  // defined(OS_ANDROID) || defined(OS_LINUX)
+#endif  // defined(OS_ANDROID) || defined(OS_LINUX) || defined(OS_CHROMEOS)
 
   scoped_refptr<SimpleFontData> FallbackOnStandardFontStyle(
       const FontDescription&,
       UChar32);
+
+  // When true, the font size is removed from primary keys in
+  // |font_platform_data_cache_|. The font size is not necessary in the primary
+  // key, because per-size FontPlatformData are held in a nested map. This is
+  // controlled by a base::Feature to assess impact with an experiment.
+  const bool no_size_in_key_;
 
   // Don't purge if this count is > 0;
   int purge_prevent_count_;
@@ -376,9 +381,8 @@ class PLATFORM_EXPORT FontCache {
   FontPlatformDataCache font_platform_data_cache_;
   FallbackListShaperCache fallback_list_shaper_cache_;
   FontDataCache font_data_cache_;
-  // TODO(https://crbug.com/1061625): Move to the browser process for better
-  // resource utilization.
-  FontEnumerationCache font_enumeration_cache_;
+
+  Persistent<FontFallbackMap> font_fallback_map_;
 
   void PurgePlatformFontDataCache();
   void PurgeFallbackListShaperCache();

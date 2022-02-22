@@ -56,6 +56,7 @@
 
 #include <QtGui/QWindow>
 #include <QtQuick/private/qquickwindow_p.h>
+#include <QtQuick/private/qquickitem_p.h>
 
 // Used for very high-level info about the renderering and gl context
 // Includes GL_VERSION, type of render loop, atlas size, etc.
@@ -110,10 +111,11 @@ QSGPainterNode *QSGSoftwareContext::createPainterNode(QQuickPaintedItem *item)
     return new QSGSoftwarePainterNode(item);
 }
 
-QSGGlyphNode *QSGSoftwareContext::createGlyphNode(QSGRenderContext *rc, bool preferNativeGlyphNode)
+QSGGlyphNode *QSGSoftwareContext::createGlyphNode(QSGRenderContext *rc, bool preferNativeGlyphNode, int renderTypeQuality)
 {
     Q_UNUSED(rc);
     Q_UNUSED(preferNativeGlyphNode);
+    Q_UNUSED(renderTypeQuality);
     return new QSGSoftwareGlyphNode();
 }
 
@@ -150,15 +152,15 @@ QSGTexture *QSGSoftwareRenderContext::createTexture(const QImage &image, uint fl
     return new QSGSoftwarePixmapTexture(image, flags);
 }
 
-QSGRenderer *QSGSoftwareRenderContext::createRenderer()
+QSGRenderer *QSGSoftwareRenderContext::createRenderer(QSGRendererInterface::RenderMode)
 {
     return new QSGSoftwareRenderer(this);
 }
 
 
-void QSGSoftwareRenderContext::renderNextFrame(QSGRenderer *renderer, uint fbo)
+void QSGSoftwareRenderContext::renderNextFrame(QSGRenderer *renderer)
 {
-    renderer->renderScene(fbo);
+    renderer->renderScene();
 }
 
 int QSGSoftwareRenderContext::maxTextureSize() const

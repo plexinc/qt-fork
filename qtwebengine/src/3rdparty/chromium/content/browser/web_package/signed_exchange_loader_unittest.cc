@@ -12,7 +12,7 @@
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "build/build_config.h"
-#include "content/browser/frame_host/frame_tree_node.h"
+#include "content/browser/renderer_host/frame_tree_node.h"
 #include "content/browser/web_package/mock_signed_exchange_handler.h"
 #include "content/browser/web_package/signed_exchange_devtools_proxy.h"
 #include "content/browser/web_package/signed_exchange_prefetch_metric_recorder.h"
@@ -20,6 +20,7 @@
 #include "content/public/common/content_features.h"
 #include "mojo/public/cpp/system/data_pipe_producer.h"
 #include "mojo/public/cpp/system/string_data_source.h"
+#include "net/base/network_isolation_key.h"
 #include "net/http/http_status_code.h"
 #include "net/http/http_util.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
@@ -85,8 +86,9 @@ class SignedExchangeLoaderTest : public testing::TestWithParam<bool> {
     ~MockURLLoader() override = default;
 
     // network::mojom::URLLoader overrides:
-    MOCK_METHOD3(FollowRedirect,
+    MOCK_METHOD4(FollowRedirect,
                  void(const std::vector<std::string>&,
+                      const net::HttpRequestHeaders&,
                       const net::HttpRequestHeaders&,
                       const base::Optional<GURL>&));
     MOCK_METHOD2(SetPriority,
@@ -180,7 +182,7 @@ TEST_P(SignedExchangeLoaderTest, Simple) {
   mojo::ScopedDataPipeProducerHandle producer_handle;
   mojo::ScopedDataPipeConsumerHandle consumer_handle;
   MojoResult rv =
-      mojo::CreateDataPipe(nullptr, &producer_handle, &consumer_handle);
+      mojo::CreateDataPipe(nullptr, producer_handle, consumer_handle);
   ASSERT_EQ(MOJO_RESULT_OK, rv);
   std::unique_ptr<SignedExchangeLoader> signed_exchange_loader =
       std::make_unique<SignedExchangeLoader>(
@@ -190,8 +192,9 @@ TEST_P(SignedExchangeLoaderTest, Simple) {
           false /* should_redirect_to_fallback */, nullptr /* devtools_proxy */,
           nullptr /* reporter */, CreateMockPingLoaderFactory(),
           base::BindRepeating(&SignedExchangeLoaderTest::ThrottlesGetter),
-          FrameTreeNode::kFrameTreeNodeInvalidId, nullptr /* metric_recorder */,
-          std::string() /* accept_langs */);
+          net::NetworkIsolationKey(), FrameTreeNode::kFrameTreeNodeInvalidId,
+          nullptr /* metric_recorder */, std::string() /* accept_langs */,
+          false /* keep_entry_for_prefetch_cache */);
 
   EXPECT_CALL(mock_loader, PauseReadingBodyFromNet());
   signed_exchange_loader->PauseReadingBodyFromNet();

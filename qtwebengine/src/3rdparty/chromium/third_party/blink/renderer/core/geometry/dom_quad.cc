@@ -45,7 +45,7 @@ class DOMQuadPoint final : public DOMPoint {
       quad_->set_needs_bounds_calculation(true);
   }
 
-  void Trace(Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(quad_);
     DOMPoint::Trace(visitor);
   }
@@ -83,7 +83,7 @@ DOMQuad* DOMQuad::fromQuad(const DOMQuadInit* other) {
       other->hasP1() ? other->p1() : DOMPointInit::Create(),
       other->hasP2() ? other->p2() : DOMPointInit::Create(),
       other->hasP3() ? other->p3() : DOMPointInit::Create(),
-      other->hasP3() ? other->p4() : DOMPointInit::Create());
+      other->hasP4() ? other->p4() : DOMPointInit::Create());
 }
 
 DOMRect* DOMQuad::getBounds() {

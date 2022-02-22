@@ -26,9 +26,12 @@ jumbo_source_set("child_sources") {
 
   sources = [
     "child_thread.h",
-    "dwrite_font_proxy_init_win.h",
     "image_decoder_utils.h",
   ]
+
+  if (is_win) {
+    sources += [ "dwrite_font_proxy_init_win.h" ]
+  }
 
   configs += [
     "//build/config/compiler:wexit_time_destructors",

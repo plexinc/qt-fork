@@ -71,26 +71,24 @@ QKeyMapper::~QKeyMapper()
 {
 }
 
-QList<int> QKeyMapper::possibleKeys(QKeyEvent *e)
+static QList<int> extractKeyFromEvent(QKeyEvent *e)
 {
     QList<int> result;
+    if (e->key() && (e->key() != Qt::Key_unknown))
+        result << e->keyCombination().toCombined();
+    else if (!e->text().isEmpty())
+        result << int(e->text().at(0).unicode() + (int)e->modifiers());
+    return result;
+}
 
-    if (!e->nativeScanCode()) {
-        if (e->key() && (e->key() != Qt::Key_unknown))
-            result << int(e->key() + e->modifiers());
-        else if (!e->text().isEmpty())
-            result << int(e->text().at(0).unicode() + e->modifiers());
-        return result;
-    }
-
+QList<int> QKeyMapper::possibleKeys(QKeyEvent *e)
+{
     return instance()->d_func()->possibleKeys(e);
 }
 
 extern bool qt_sendSpontaneousEvent(QObject *receiver, QEvent *event); // in qapplication_*.cpp
 void QKeyMapper::changeKeyboard()
 {
-    instance()->d_func()->clearMappings();
-
     // ## TODO: Support KeyboardLayoutChange on QPA
 #if 0
     // inform all toplevel widgets of the change
@@ -126,11 +124,6 @@ QKeyMapperPrivate::QKeyMapperPrivate()
 
 QKeyMapperPrivate::~QKeyMapperPrivate()
 {
-    // clearMappings();
-}
-
-void QKeyMapperPrivate::clearMappings()
-{
 }
 
 QList<int> QKeyMapperPrivate::possibleKeys(QKeyEvent *e)
@@ -139,11 +132,19 @@ QList<int> QKeyMapperPrivate::possibleKeys(QKeyEvent *e)
     if (!result.isEmpty())
         return result;
 
-    if (e->key() && (e->key() != Qt::Key_unknown))
-        result << int(e->key() + e->modifiers());
-    else if (!e->text().isEmpty())
-        result << int(e->text().at(0).unicode() + e->modifiers());
-    return result;
+    return extractKeyFromEvent(e);
+}
+
+void *QKeyMapper::resolveInterface(const char *name, int revision) const
+{
+    Q_UNUSED(name); Q_UNUSED(revision);
+    using namespace QNativeInterface::Private;
+
+#if QT_CONFIG(evdev)
+    QT_NATIVE_INTERFACE_RETURN_IF(QEvdevKeyMapper, QGuiApplicationPrivate::platformIntegration());
+#endif
+
+    return nullptr;
 }
 
 QT_END_NAMESPACE

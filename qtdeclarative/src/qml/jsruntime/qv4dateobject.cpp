@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQml module of the Qt Toolkit.
@@ -78,10 +78,21 @@
   QTBUG-75585 for an explanation and possible workarounds.
  */
 #define USE_QTZ_SYSTEM_ZONE
+#elif defined(Q_OS_WASM)
+/*
+    TODO: evaluate using this version of the code more generally, rather than
+    the #else branches of the various USE_QTZ_SYSTEM_ZONE choices. It might even
+    work better than the timezone variant; experiments needed.
+*/
+// Kludge around the lack of time-zone info using QDateTime.
+// It uses localtime() and friends to determine offsets from UTC.
+#define USE_QDT_LOCAL_TIME
 #endif
 
 #ifdef USE_QTZ_SYSTEM_ZONE
 #include <QtCore/QTimeZone>
+#elif defined(USE_QDT_LOCAL_TIME)
+// QDateTime already included above
 #else
 #  ifdef Q_OS_WIN
 #    include <windows.h>
@@ -356,12 +367,19 @@ static inline double MakeDate(double day, double time)
   mean a whole day of DST offset for some zones, that have crossed the
   international date line.  This shall confuse client code.)  The bug report
   against the ECMAScript spec is https://github.com/tc39/ecma262/issues/725
+  and they've now changed the spec so that the following conforms to it ;^>
 */
 
 static inline double DaylightSavingTA(double t, double localTZA) // t is a UTC time
 {
     return QTimeZone::systemTimeZone().offsetFromUtc(
         QDateTime::fromMSecsSinceEpoch(qint64(t), Qt::UTC)) * 1e3 - localTZA;
+}
+#elif defined(USE_QDT_LOCAL_TIME)
+static inline double DaylightSavingTA(double t, double localTZA) // t is a UTC time
+{
+    return QDateTime::fromMSecsSinceEpoch(qint64(t), Qt::UTC
+        ).toLocalTime().offsetFromUtc() * 1e3 - localTZA;
 }
 #else
 // This implementation fails to take account of past changes in standard offset.
@@ -469,16 +487,16 @@ static inline double ParseString(const QString &s, double localTZA)
     bool seenZ = false; // Have seen zone, i.e. +HH:mm or literal Z.
 
     bool error = false;
-    if (*ch == '+' || *ch == '-') {
+    if (*ch == u'+' || *ch == u'-') {
         extendedYear = true;
-        if (*ch == '-')
+        if (*ch == u'-')
             yearSign = -1;
         ++ch;
     }
     for (; ch <= end && !error && format != Done; ++ch) {
-        if (*ch >= '0' && *ch <= '9') {
+        if (*ch >= u'0' && *ch <= u'9') {
             current *= 10;
-            current += ch->unicode() - '0';
+            current += ch->unicode() - u'0';
             ++currentSize;
         } else { // other char, delimits field
             switch (format) {
@@ -524,12 +542,12 @@ static inline double ParseString(const QString &s, double localTZA)
                 error = (currentSize != 2) || current >= 60;
                 break;
             }
-            if (*ch == 'T') {
+            if (*ch == u'T') {
                 if (format >= Hour)
                     error = true;
                 format = Hour;
                 seenT = true;
-            } else if (*ch == '-') {
+            } else if (*ch == u'-') {
                 if (format < Day)
                     ++format;
                 else if (format < Minute)
@@ -541,19 +559,19 @@ static inline double ParseString(const QString &s, double localTZA)
                     offsetSign = -1;
                     format = TimezoneHour;
                 }
-            } else if (*ch == ':') {
+            } else if (*ch == u':') {
                 if (format != Hour && format != Minute && format != TimezoneHour)
                     error = true;
                 ++format;
-            } else if (*ch == '.') {
+            } else if (*ch == u'.') {
                 if (format != Second)
                     error = true;
                 ++format;
-            } else if (*ch == '+') {
+            } else if (*ch == u'+') {
                 if (seenZ || format < Minute || format >= TimezoneHour)
                     error = true;
                 format = TimezoneHour;
-            } else if (*ch == 'Z') {
+            } else if (*ch == u'Z') {
                 if (seenZ || format < Minute || format >= TimezoneHour)
                     error = true;
                 else
@@ -631,13 +649,14 @@ static inline double ParseString(const QString &s, double localTZA)
             QStringLiteral("d MMMM, yyyy"),
             QStringLiteral("d MMMM, yyyy hh:mm"),
             QStringLiteral("d MMMM, yyyy hh:mm:ss"),
+
+            QStringLiteral("yyyy-MM-dd hh:mm:ss t"),
         };
 
         for (const QString &format : formats) {
             dt = format.indexOf(QLatin1String("hh:mm")) < 0
-                ? QDateTime(QDate::fromString(s, format),
-                            QTime(0, 0, 0), Qt::UTC)
-                : QDateTime::fromString(s, format); // as local time
+                    ? QDate::fromString(s, format).startOfDay(Qt::UTC)
+                    : QDateTime::fromString(s, format); // as local time
             if (dt.isValid())
                 break;
         }
@@ -721,6 +740,26 @@ static double getLocalTZA()
     // TODO: QTimeZone::resetSystemTimeZone(), see QTBUG-56899 and comment above.
     // Standard offset, with no daylight-savings adjustment, in ms:
     return QTimeZone::systemTimeZone().standardTimeOffset(QDateTime::currentDateTime()) * 1e3;
+#elif defined(USE_QDT_LOCAL_TIME)
+    QDate today = QDate::currentDate();
+    QDateTime near = today.startOfDay(Qt::LocalTime);
+    // Early out if we're in standard time anyway:
+    if (!near.isDaylightTime())
+        return near.offsetFromUtc() * 1000;
+    int year, month;
+    today.getDate(&year, &month, nullptr);
+    // One of the solstices is probably in standard time:
+    QDate summer(year, 6, 21), winter(year - (month < 7 ? 1 : 0), 12, 21);
+    // But check the one closest to the present by preference, in case there's a
+    // standard time offset change between them:
+    QDateTime far = summer.startOfDay(Qt::LocalTime);
+    near = winter.startOfDay(Qt::LocalTime);
+    if (month > 3 && month < 10)
+        near.swap(far);
+    bool isDst = near.isDaylightTime();
+    if (isDst && far.isDaylightTime()) // Permanent DST, probably an hour west:
+        return (qMin(near.offsetFromUtc(), far.offsetFromUtc()) - 3600) * 1000;
+    return (isDst ? far : near).offsetFromUtc() * 1000;
 #else
 #  ifdef Q_OS_WIN
     TIME_ZONE_INFORMATION tzInfo;
@@ -741,13 +780,13 @@ static double getLocalTZA()
 
 DEFINE_OBJECT_VTABLE(DateObject);
 
-void Heap::DateObject::init(const QDateTime &date)
+void Heap::DateObject::init(const QDateTime &when)
 {
     Object::init();
-    this->date = date.isValid() ? TimeClip(date.toMSecsSinceEpoch()) : qt_qnan();
+    date = when.isValid() ? TimeClip(when.toMSecsSinceEpoch()) : qt_qnan();
 }
 
-void Heap::DateObject::init(const QTime &time)
+void Heap::DateObject::init(QTime time)
 {
     Object::init();
     if (!time.isValid()) {

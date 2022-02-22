@@ -51,12 +51,12 @@ import QtQuick 2.12
 
 Rectangle {
     id: container
+    required property string name
+    required property string description
+
     property Item exampleItem
     width: ListView.view.width
     height: button.implicitHeight + 22
-
-    required property string name
-    required property string description
 
     signal clicked()
 

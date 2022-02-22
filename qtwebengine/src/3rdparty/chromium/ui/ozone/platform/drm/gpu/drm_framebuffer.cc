@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "base/logging.h"
 #include "ui/gfx/buffer_format_util.h"
 #include "ui/gfx/linux/drm_util_linux.h"
 #include "ui/gfx/linux/gbm_buffer.h"
@@ -112,7 +113,8 @@ DrmFramebuffer::DrmFramebuffer(scoped_refptr<DrmDevice> drm_device,
       opaque_framebuffer_pixel_format_(opaque_framebuffer_pixel_format),
       format_modifier_(format_modifier),
       preferred_modifiers_(modifiers),
-      size_(size) {}
+      size_(size),
+      modeset_sequence_id_at_allocation_(drm_device_->modeset_sequence_id()) {}
 
 DrmFramebuffer::~DrmFramebuffer() {
   if (!drm_device_->RemoveFramebuffer(framebuffer_id_))

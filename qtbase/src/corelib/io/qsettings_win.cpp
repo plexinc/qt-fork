@@ -40,7 +40,7 @@
 #include "qsettings.h"
 
 #include "qsettings_p.h"
-#include "qvector.h"
+#include "qlist.h"
 #include "qmap.h"
 #include "qdebug.h"
 #include <qt_windows.h>
@@ -102,7 +102,7 @@ static QString escapedKey(QString uKey)
     QChar *data = uKey.data();
     int l = uKey.length();
     for (int i = 0; i < l; ++i) {
-        ushort &ucs = data[i].unicode();
+        auto &ucs = data[i].unicode();
         if (ucs == '\\')
             ucs = '/';
         else if (ucs == '/')
@@ -233,7 +233,7 @@ static QStringList childKeysOrGroups(HKEY parentHandle, QSettingsPrivate::ChildS
     QByteArray buff(m * sizeof(wchar_t), 0);
     for (int i = 0; i < n; ++i) {
         QString item;
-        DWORD l = buff.size() / sizeof(wchar_t);
+        DWORD l = DWORD(buff.size()) / DWORD(sizeof(wchar_t));
         if (spec == QSettingsPrivate::ChildKeys) {
             res = RegEnumValue(parentHandle, i, reinterpret_cast<wchar_t *>(buff.data()), &l, 0, 0, 0, 0);
         } else {
@@ -369,7 +369,7 @@ void RegistryKey::close()
     m_handle = 0;
 }
 
-typedef QVector<RegistryKey> RegistryKeyList;
+typedef QList<RegistryKey> RegistryKeyList;
 
 /*******************************************************************************
 ** class QWinSettingsPrivate
@@ -670,9 +670,9 @@ void QWinSettingsPrivate::set(const QString &uKey, const QVariant &value)
     QByteArray regValueBuff;
 
     // Determine the type
-    switch (value.type()) {
-        case QVariant::List:
-        case QVariant::StringList: {
+    switch (value.typeId()) {
+        case QMetaType::QVariantList:
+        case QMetaType::QStringList: {
             // If none of the elements contains '\0', we can use REG_MULTI_SZ, the
             // native registry string list type. Otherwise we use REG_BINARY.
             type = REG_MULTI_SZ;
@@ -700,23 +700,23 @@ void QWinSettingsPrivate::set(const QString &uKey, const QVariant &value)
             break;
         }
 
-        case QVariant::Int:
-        case QVariant::UInt: {
+        case QMetaType::Int:
+        case QMetaType::UInt: {
             type = REG_DWORD;
             qint32 i = value.toInt();
             regValueBuff = QByteArray(reinterpret_cast<const char*>(&i), sizeof(qint32));
             break;
         }
 
-        case QVariant::LongLong:
-        case QVariant::ULongLong: {
+        case QMetaType::LongLong:
+        case QMetaType::ULongLong: {
             type = REG_QWORD;
             qint64 i = value.toLongLong();
             regValueBuff = QByteArray(reinterpret_cast<const char*>(&i), sizeof(qint64));
             break;
         }
 
-        case QVariant::ByteArray:
+        case QMetaType::QByteArray:
             Q_FALLTHROUGH();
 
         default: {

@@ -33,11 +33,13 @@
 #include <QtCharts/QChartGlobal>
 #include <QtCore/QObject>
 
+Q_MOC_INCLUDE(<QtCharts/qpieseries.h>)
+
 QT_BEGIN_NAMESPACE
 class QAbstractItemModel;
 QT_END_NAMESPACE
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class QPieModelMapperPrivate;
 class QPieSeries;
@@ -75,6 +77,6 @@ protected:
     Q_DECLARE_PRIVATE(QPieModelMapper)
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // QPIEMODELMAPPER_H

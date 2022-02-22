@@ -27,7 +27,9 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QTimer>
+#include <QSignalSpy>
 
 #include <qcoreapplication.h>
 #include <qdebug.h>
@@ -54,12 +56,24 @@ private slots:
     void task176137_autoRepeatOfAction();
     void qtbug_26956_popupTimerDone();
     void qtbug_34759_sizeHintResetWhenSettingMenu();
+    void defaultActionSynced();
 
 protected slots:
     void sendMouseClick();
 private:
     QPointer<QWidget> m_menu;
 };
+
+class MyToolButton : public QToolButton
+{
+    friend class tst_QToolButton;
+public:
+    void initStyleOption(QStyleOptionToolButton *option) const override
+    {
+        QToolButton::initStyleOption(option);
+    }
+};
+
 
 tst_QToolButton::tst_QToolButton()
 {
@@ -150,16 +164,6 @@ void tst_QToolButton::triggered()
 
 void tst_QToolButton::collapseTextOnPriority()
 {
-    class MyToolButton : public QToolButton
-    {
-        friend class tst_QToolButton;
-    public:
-        void initStyleOption(QStyleOptionToolButton *option)
-        {
-            QToolButton::initStyleOption(option);
-        }
-    };
-
     MyToolButton button;
     button.setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     QAction action(button.style()->standardIcon(QStyle::SP_ArrowBack), "test", 0);
@@ -178,16 +182,6 @@ void tst_QToolButton::task230994_iconSize()
 {
     //we check that the iconsize returned bu initStyleOption is valid
     //when the toolbutton has no parent
-    class MyToolButton : public QToolButton
-    {
-        friend class tst_QToolButton;
-    public:
-        void initStyleOption(QStyleOptionToolButton *option)
-        {
-            QToolButton::initStyleOption(option);
-        }
-    };
-
     MyToolButton button;
     QStyleOptionToolButton option;
     button.initStyleOption(&option);
@@ -215,14 +209,16 @@ void tst_QToolButton::task176137_autoRepeatOfAction()
 
     QSignalSpy spy(&action,SIGNAL(triggered()));
     QTest::mousePress (toolButton, Qt::LeftButton);
-    QTest::mouseRelease (toolButton, Qt::LeftButton, {}, QPoint (), 2000);
+    QTest::qWait(2000);
+    QTest::mouseRelease (toolButton, Qt::LeftButton, {}, {});
     QCOMPARE(spy.count(),1);
 
     // try again with auto repeat
     toolButton->setAutoRepeat (true);
     QSignalSpy repeatSpy(&action,SIGNAL(triggered())); // new spy
     QTest::mousePress (toolButton, Qt::LeftButton);
-    QTest::mouseRelease (toolButton, Qt::LeftButton, {}, QPoint (), 3000);
+    QTest::qWait(3000);
+    QTest::mouseRelease (toolButton, Qt::LeftButton, {}, {});
     const qreal expected = (3000 - toolButton->autoRepeatDelay()) / toolButton->autoRepeatInterval() + 1;
     //we check that the difference is small (on some systems timers are not super accurate)
     qreal diff = (expected - repeatSpy.count()) / expected;
@@ -278,14 +274,69 @@ void tst_QToolButton::qtbug_34759_sizeHintResetWhenSettingMenu()
     button1.show();
     button2.show();
 
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("", "Winrt does not support more than 1 native top level widget.", Abort);
-#endif
     QVERIFY(QTest::qWaitForWindowExposed(&button1));
     QVERIFY(QTest::qWaitForWindowExposed(&button2));
 
     button1.setMenu(new QMenu(&button1));
     QTRY_COMPARE(button1.sizeHint(), button2.sizeHint());
+}
+
+void tst_QToolButton::defaultActionSynced()
+{
+    QAction a;
+    a.setCheckable(true);
+
+    QToolButton tb;
+    tb.setDefaultAction(&a);
+    QVERIFY(tb.isCheckable());
+
+    QSignalSpy tbSpy(&tb, SIGNAL(toggled(bool)));
+    QSignalSpy aSpy(&a, SIGNAL(toggled(bool)));
+
+    int tbToggledCount = 0;
+    int aToggledCount = 0;
+
+    tb.setChecked(true);
+    QVERIFY(a.isChecked());
+    QCOMPARE(tbSpy.count(), ++tbToggledCount);
+    QCOMPARE(aSpy.count(), ++aToggledCount);
+    tb.setChecked(false);
+    QVERIFY(!a.isChecked());
+    QCOMPARE(tbSpy.count(), ++tbToggledCount);
+    QCOMPARE(aSpy.count(), ++aToggledCount);
+
+    a.setChecked(true);
+    QVERIFY(tb.isChecked());
+    QCOMPARE(tbSpy.count(), ++tbToggledCount);
+    QCOMPARE(aSpy.count(), ++aToggledCount);
+    a.setChecked(false);
+    QVERIFY(!tb.isChecked());
+    QCOMPARE(tbSpy.count(), ++tbToggledCount);
+    QCOMPARE(aSpy.count(), ++aToggledCount);
+
+    QAction b;
+    QSignalSpy bSpy(&b, SIGNAL(toggled(bool)));
+    int bToggledCount = 0;
+    tb.setDefaultAction(&b);
+    QVERIFY(!tb.isCheckable());
+    b.setCheckable(true);
+    QVERIFY(tb.isCheckable());
+
+    tb.setChecked(true);
+    QVERIFY(!a.isChecked());
+    QVERIFY(b.isChecked());
+
+    QCOMPARE(tbSpy.count(), ++tbToggledCount);
+    QCOMPARE(aSpy.count(), aToggledCount);
+    QCOMPARE(bSpy.count(), ++bToggledCount);
+
+    tb.click();
+    QVERIFY(!a.isChecked());
+    QVERIFY(!tb.isChecked());
+    QVERIFY(!b.isChecked());
+    QCOMPARE(tbSpy.count(), ++tbToggledCount);
+    QCOMPARE(aSpy.count(), aToggledCount);
+    QCOMPARE(bSpy.count(), ++bToggledCount);
 }
 
 QTEST_MAIN(tst_QToolButton)

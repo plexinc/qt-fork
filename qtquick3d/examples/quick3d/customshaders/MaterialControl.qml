@@ -48,13 +48,17 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.15
-import QtQuick.Controls 2.12
-import QtQuick.Layouts 1.12
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
 
 Rectangle {
     property real time: time.sliderValue
     property real amplitude: amplitude.sliderValue
+    property real alpha: alpha.sliderValue
+    property bool animateRotation: animControl.checkBoxSet
+    property bool texturing: texControl.checkBoxSet
+    property bool textureFromItem : texControl2.checkBoxSet
 
     color: "#6b7080"
     width: parent.width
@@ -76,12 +80,12 @@ Rectangle {
                 value: sliderValue
                 stepSize: 0.01
                 onValueChanged: sliderValue = value
-                Layout.minimumWidth: 200
+                Layout.minimumWidth: 100
                 Layout.maximumWidth: 200
                 background: Rectangle {
                     x: slider.leftPadding
                     y: slider.topPadding + slider.availableHeight / 2 - height / 2
-                    implicitWidth: 200
+                    implicitWidth: 120
                     implicitHeight: 4
                     width: slider.availableWidth
                     height: implicitHeight
@@ -117,16 +121,32 @@ Rectangle {
         }
     }
 
+    Component {
+        id: propertyCheckBox
+        RowLayout {
+            Label {
+                text: checkBoxText
+                font.pointSize: 12
+                font.bold: true
+            }
+            CheckBox {
+                checked: false
+                onCheckedChanged: checkBoxSet = checked
+            }
+        }
+    }
+
     ColumnLayout {
         anchors.horizontalCenter: parent.horizontalCenter
         RowLayout {
+            spacing: 10
             Loader {
                 id: time
                 property real sliderValue: 0.0
                 property string name: "Time"
                 property real fromValue: 0.0
                 property real toValue: 1.0
-                sourceComponent:  propertySlider
+                sourceComponent: propertySlider
             }
             Loader {
                 id: amplitude
@@ -134,7 +154,33 @@ Rectangle {
                 property string name: "Amplitude"
                 property real fromValue: 1.0
                 property real toValue: 20.0
-                sourceComponent:  propertySlider
+                sourceComponent: propertySlider
+            }
+            Loader {
+                id: alpha
+                property real sliderValue: 1.0
+                property string name: "Alpha"
+                property real fromValue: 0.0
+                property real toValue: 1.0
+                sourceComponent: propertySlider
+            }
+            Loader {
+                id: animControl
+                property string checkBoxText: "Rotate"
+                property bool checkBoxSet: false
+                sourceComponent: propertyCheckBox
+            }
+            Loader {
+                id: texControl
+                property string checkBoxText: "Texture"
+                property bool checkBoxSet: false
+                sourceComponent: propertyCheckBox
+            }
+            Loader {
+                id: texControl2
+                property string checkBoxText: "Texture with Item"
+                property bool checkBoxSet: false
+                sourceComponent: propertyCheckBox
             }
         }
     }

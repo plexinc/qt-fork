@@ -117,9 +117,7 @@ public:
     {
     public:
         inline iterator();
-        inline iterator(const iterator &it) = default;
         inline iterator(Range *range, int offset, Group group, int groupCount);
-        inline ~iterator() {}
 
         bool operator ==(const iterator &it) const { return range == it.range && offset == it.offset; }
         bool operator !=(const iterator &it) const { return range != it.range || offset != it.offset; }
@@ -132,7 +130,6 @@ public:
         Range *operator ->() { return range; }
         const Range *operator ->() const { return range; }
 
-        iterator &operator=(const iterator &) = default;
         iterator &operator +=(int difference);
 
         template<typename T> T *list() const { return static_cast<T *>(range->list); }

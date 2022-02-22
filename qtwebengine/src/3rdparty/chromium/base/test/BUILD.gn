@@ -3,14 +3,10 @@
 # found in the LICENSE file.
 
 import("//build/compiled_action.gni")
+import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/nacl/config.gni")
 import("//build/config/ui.gni")
-
-# Reset sources_assignment_filter for the BUILD.gn file to prevent
-# regression during the migration of Chromium away from the feature.
-# See docs/no_sources_assignment_filter.md for more information.
-# TODO(crbug.com/1018739): remove this when migration is done.
-set_sources_assignment_filter([])
+import("//build_overrides/build.gni")
 
 if (is_android) {
   import("//build/config/android/rules.gni")
@@ -27,12 +23,15 @@ static_library("test_config") {
   deps = [
     "//base",
     "//base:clang_profiling_buildflags",
+    "//build:chromeos_buildflags",
   ]
 }
 
 static_library("test_support") {
   testonly = true
   sources = [
+    "../power_monitor/test/fake_power_monitor_source.cc",
+    "../power_monitor/test/fake_power_monitor_source.h",
     "../task/sequence_manager/test/fake_task.cc",
     "../task/sequence_manager/test/fake_task.h",
     "../task/sequence_manager/test/mock_time_domain.cc",
@@ -46,13 +45,14 @@ static_library("test_support") {
     "../task/sequence_manager/test/test_task_time_observer.h",
     "../timer/mock_timer.cc",
     "../timer/mock_timer.h",
-    "../trace_event/trace_config_memory_test_util.h",
-    "bind_test_util.cc",
-    "bind_test_util.h",
+    "bind.cc",
+    "bind.h",
     "copy_only_int.cc",
     "copy_only_int.h",
     "gmock_callback_support.h",
     "gmock_move_support.h",
+    "gtest_links.cc",
+    "gtest_links.h",
     "gtest_util.cc",
     "gtest_util.h",
     "gtest_xml_unittest_result_printer.cc",
@@ -138,10 +138,6 @@ static_library("test_support") {
     "test_waitable_event.h",
     "thread_test_helper.cc",
     "thread_test_helper.h",
-    "trace_event_analyzer.cc",
-    "trace_event_analyzer.h",
-    "trace_to_file.cc",
-    "trace_to_file.h",
     "values_test_util.cc",
     "values_test_util.h",
     "with_feature_override.cc",
@@ -167,6 +163,7 @@ static_library("test_support") {
 
   deps = [
     "//base/third_party/dynamic_annotations",
+    "//build:chromeos_buildflags",
     "//third_party/icu:icuuc",
     "//third_party/libxml:libxml_utils",
     "//third_party/libxml:xml_reader",
@@ -174,6 +171,8 @@ static_library("test_support") {
 
   if (is_win) {
     sources += [
+      "async_results_test_values_win.h",
+      "fake_iasync_operation_win.h",
       "scoped_os_info_override_win.cc",
       "scoped_os_info_override_win.h",
       "test_file_util_win.cc",
@@ -184,7 +183,16 @@ static_library("test_support") {
     ]
   }
 
-  if (is_linux) {
+  if (is_chromeos_ash || is_chromeos_lacros) {
+    sources += [
+      "scoped_chromeos_version_info.cc",
+      "scoped_chromeos_version_info.h",
+      "scoped_running_on_chromeos.cc",
+      "scoped_running_on_chromeos.h",
+    ]
+  }
+
+  if (is_linux || is_chromeos) {
     sources += [ "test_file_util_linux.cc" ]
     public_deps += [ ":fontconfig_util_linux" ]
     data_deps = [ "//third_party/test_fonts" ]
@@ -194,7 +202,7 @@ static_library("test_support") {
   }
 
   if (is_mac) {
-    libs = [ "AppKit.framework" ]
+    frameworks = [ "AppKit.framework" ]
     sources += [
       "mock_chrome_application_mac.h",
       "mock_chrome_application_mac.mm",
@@ -253,6 +261,8 @@ static_library("test_support") {
     sources += [
       "../fuchsia/test_component_context_for_process.cc",
       "../fuchsia/test_component_context_for_process.h",
+      "../fuchsia/test_component_controller.cc",
+      "../fuchsia/test_component_controller.h",
     ]
   }
 
@@ -281,8 +291,6 @@ static_library("test_support") {
       "test_file_util_posix.cc",
       "test_suite.cc",
       "test_suite.h",
-      "trace_to_file.cc",
-      "trace_to_file.h",
     ]
     public_deps -= [ "//base:i18n" ]
     deps -= [
@@ -302,6 +310,20 @@ static_library("test_support") {
       "launcher/unit_test_launcher.cc",
       "multiprocess_test.cc",
     ]
+  }
+
+  if (enable_base_tracing) {
+    sources += [
+      "../trace_event/trace_config_memory_test_util.h",
+      "trace_event_analyzer.cc",
+      "trace_event_analyzer.h",
+    ]
+    if (!is_nacl_nonsfi) {
+      sources += [
+        "trace_to_file.cc",
+        "trace_to_file.h",
+      ]
+    }
   }
 }
 
@@ -384,16 +406,7 @@ shared_library("test_shared_library") {
   deps = [ ":native_library_test_utils" ]
 }
 
-static_library("run_all_base_unittests") {
-  # Only targets in base should depend on this, targets outside base
-  # should depend on run_all_unittests above.
-  visibility = [ "//base/*" ]
-  testonly = true
-  sources = [ "run_all_base_unittests.cc" ]
-  deps = [ ":test_support" ]
-}
-
-if (is_linux) {
+if (is_linux || is_chromeos) {
   source_set("fontconfig_util_linux") {
     sources = [
       "fontconfig_util_linux.cc",
@@ -429,15 +442,12 @@ if (is_linux) {
       # be listed in deps, not data_deps (https://crbug.com/919422).
       deps = [ "//third_party/test_fonts" ]
       args = []
-      outputs = [
-        "$root_out_dir/fontconfig_caches/fb5c91b2895aa445d23aebf7f9e2189c-le64.cache-7",
-        "$root_out_dir/test_fonts/.uuid",
-      ]
+      outputs = [ "$root_out_dir/fontconfig_caches/fb5c91b2895aa445d23aebf7f9e2189c-le64.cache-7" ]
     }
   }
 }
 
-if (is_fuchsia || is_linux) {
+if (is_fuchsia || is_linux || is_chromeos) {
   shared_library("malloc_wrapper") {
     testonly = true
     sources = [ "malloc_wrapper.cc" ]
@@ -471,8 +481,8 @@ if (is_android) {
       "//base:base_java",
       "//base:base_java_test_support",
       "//testing/android/native_test:native_main_runner_java",
-      "//third_party/android_deps:androidx_annotation_annotation_java",
-      "//third_party/jsr-305:jsr_305_javalib",
+      "//third_party/android_deps:com_google_code_findbugs_jsr305_java",
+      "//third_party/androidx:androidx_annotation_annotation_java",
     ]
     srcjar_deps = [ ":test_support_java_aidl" ]
     sources = [
@@ -518,7 +528,7 @@ if (is_ios) {
       ":google_test_runner_shared_headers",
       "//base",
     ]
-    libs = [ "UIKit.framework" ]
+    frameworks = [ "UIKit.framework" ]
     configs += [
       "//build/config/compiler:enable_arc",
       "//build/config/ios:xctest_config",

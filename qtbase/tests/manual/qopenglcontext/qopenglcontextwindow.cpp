@@ -34,7 +34,6 @@
 #include <qpa/qplatformnativeinterface.h>
 
 #include <QtEglSupport/private/qeglconvenience_p.h>
-#include <QtPlatformHeaders/QEGLNativeContext>
 
 QOpenGLContextWindow::QOpenGLContextWindow()
     : m_blitter(0)
@@ -98,7 +97,12 @@ void QOpenGLContextWindow::createForeignContext()
     // underlying native context.  This way the texture, that belongs to the context
     // created here, will be accessible from m_context too.
 
-    EGLContext shareCtx = m_context->nativeHandle().value<QEGLNativeContext>().context();
+    using namespace QNativeInterface;
+    auto *eglContext = m_context->nativeInterface<QEGLContext>();
+    if (!eglContext)
+        qFatal("Not running with EGL backend");
+
+    EGLContext shareCtx = eglContext->nativeContext();
     Q_ASSERT(shareCtx != EGL_NO_CONTEXT);
 
     EGLDisplay dpy = (EGLDisplay) qGuiApp->platformNativeInterface()->nativeResourceForWindow(
@@ -108,7 +112,7 @@ void QOpenGLContextWindow::createForeignContext()
     QSurfaceFormat fmt = format();
     EGLConfig config = q_configFromGLFormat(dpy, fmt);
 
-    QVector<EGLint> contextAttrs;
+    QList<EGLint> contextAttrs;
     contextAttrs.append(EGL_CONTEXT_CLIENT_VERSION);
     contextAttrs.append(fmt.majorVersion());
     contextAttrs.append(EGL_NONE);
@@ -127,12 +131,8 @@ void QOpenGLContextWindow::createForeignContext()
     Q_ASSERT(ctx != EGL_NO_CONTEXT);
 
     // Wrap ctx into a QOpenGLContext.
-    QOpenGLContext *ctxWrap = new QOpenGLContext;
-    ctxWrap->setNativeHandle(QVariant::fromValue<QEGLNativeContext>(QEGLNativeContext(ctx, dpy)));
-    ctxWrap->setShareContext(m_context); // only needed for correct bookkeeping
-    if (!ctxWrap->create())
-        qFatal("Failed to created wrapping context");
-    Q_ASSERT(ctxWrap->nativeHandle().value<QEGLNativeContext>().context() == ctx);
+    QOpenGLContext *ctxWrap = QEGLContext::fromNative(ctx, dpy, m_context);
+    Q_ASSERT(ctxWrap->nativeInterface<QEGLContext>()->nativeContext() == ctx);
 
     QOffscreenSurface surface;
     surface.setFormat(fmt);

@@ -10,6 +10,7 @@
 #include "third_party/blink/renderer/core/css/style_sheet_contents.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
+#include "third_party/blink/renderer/core/html/html_link_element.h"
 #include "third_party/blink/renderer/core/inspector/inspected_frames.h"
 #include "third_party/blink/renderer/core/inspector/inspector_css_agent.h"
 #include "third_party/blink/renderer/core/inspector/inspector_page_agent.h"
@@ -24,19 +25,25 @@
 
 namespace blink {
 
+namespace {
+
+bool ShouldSkipFetchingUrl(const KURL& url) {
+  return !url.IsValid() || url.IsAboutBlankURL() || url.IsAboutSrcdocURL();
+}
+
+}  // namespace
+
 // NOTE: While this is a RawResourceClient, it loads both raw and css stylesheet
 // resources. Stylesheets can only safely use a RawResourceClient because it has
 // no custom interface and simply uses the base ResourceClient.
 class InspectorResourceContentLoader::ResourceClient final
     : public GarbageCollected<InspectorResourceContentLoader::ResourceClient>,
       private RawResourceClient {
-  USING_GARBAGE_COLLECTED_MIXIN(ResourceClient);
-
  public:
   explicit ResourceClient(InspectorResourceContentLoader* loader)
       : loader_(loader) {}
 
-  void Trace(Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(loader_);
     RawResourceClient::Trace(visitor);
   }
@@ -70,6 +77,8 @@ void InspectorResourceContentLoader::Start() {
   InspectedFrames* inspected_frames =
       MakeGarbageCollected<InspectedFrames>(inspected_frame_);
   for (LocalFrame* frame : *inspected_frames) {
+    if (frame->GetDocument()->IsInitialEmptyDocument())
+      continue;
     documents.push_back(frame->GetDocument());
     documents.AppendVector(InspectorPageAgent::ImportsForFrame(frame));
   }
@@ -86,7 +95,8 @@ void InspectorResourceContentLoader::Start() {
       resource_request = ResourceRequest(document->Url());
       resource_request.SetCacheMode(mojom::FetchCacheMode::kOnlyIfCached);
     }
-    resource_request.SetRequestContext(mojom::RequestContextType::INTERNAL);
+    resource_request.SetRequestContext(
+        mojom::blink::RequestContextType::INTERNAL);
     if (document->Loader() &&
         document->Loader()->GetResponse().WasFetchedViaServiceWorker()) {
       resource_request.SetCacheMode(mojom::FetchCacheMode::kDefault);
@@ -98,14 +108,14 @@ void InspectorResourceContentLoader::Start() {
       // context document for getting origin and ResourceFetcher to use the
       // main Document's origin, while using the element document for
       // CompleteURL() to use imported Documents' base URLs.
-      if (!document->ContextDocument()) {
-        continue;
-      }
-      fetcher = document->ContextDocument()->Fetcher();
+      fetcher = document->GetExecutionContext()->Fetcher();
     }
-    if (!resource_request.Url().GetString().IsEmpty()) {
+
+    scoped_refptr<const DOMWrapperWorld> world =
+        document->GetExecutionContext()->GetCurrentWorld();
+    if (!ShouldSkipFetchingUrl(resource_request.Url())) {
       urls_to_fetch.insert(resource_request.Url().GetString());
-      ResourceLoaderOptions options;
+      ResourceLoaderOptions options(world);
       options.initiator_info.name = fetch_initiator_type_names::kInternal;
       FetchParameters params(std::move(resource_request), options);
       ResourceClient* resource_client =
@@ -122,14 +132,15 @@ void InspectorResourceContentLoader::Start() {
       if (style_sheet->IsInline() || !style_sheet->Contents()->LoadCompleted())
         continue;
       String url = style_sheet->href();
-      if (url.IsEmpty() || urls_to_fetch.Contains(url))
+      if (ShouldSkipFetchingUrl(KURL(url)) || urls_to_fetch.Contains(url))
         continue;
       urls_to_fetch.insert(url);
-      ResourceRequest resource_request(url);
-      resource_request.SetRequestContext(mojom::RequestContextType::INTERNAL);
-      ResourceLoaderOptions options;
+      ResourceRequest style_sheet_resource_request(url);
+      style_sheet_resource_request.SetRequestContext(
+          mojom::blink::RequestContextType::INTERNAL);
+      ResourceLoaderOptions options(world);
       options.initiator_info.name = fetch_initiator_type_names::kInternal;
-      FetchParameters params(std::move(resource_request), options);
+      FetchParameters params(std::move(style_sheet_resource_request), options);
       ResourceClient* resource_client =
           MakeGarbageCollected<ResourceClient>(this);
       // Prevent garbage collection by holding a reference to this resource.
@@ -139,6 +150,39 @@ void InspectorResourceContentLoader::Start() {
       // mark the client as pending if it already finished.
       if (resource_client->GetResource())
         pending_resource_clients_.insert(resource_client);
+    }
+
+    // Fetch app manifest if available.
+    // TODO (alexrudenko): This code duplicates the code in manifest_manager.cc
+    // and manifest_fetcher.cc. Move it to a shared place.
+    HTMLLinkElement* link_element = document->LinkManifest();
+    KURL link;
+    if (link_element)
+      link = link_element->Href();
+    if (!ShouldSkipFetchingUrl(link)) {
+      auto use_credentials = EqualIgnoringASCIICase(
+          link_element->FastGetAttribute(html_names::kCrossoriginAttr),
+          "use-credentials");
+      ResourceRequest manifest_request(link);
+      manifest_request.SetMode(network::mojom::RequestMode::kCors);
+      // See https://w3c.github.io/manifest/. Use "include" when use_credentials
+      // is true, and "omit" otherwise.
+      manifest_request.SetCredentialsMode(
+          use_credentials ? network::mojom::CredentialsMode::kInclude
+                          : network::mojom::CredentialsMode::kOmit);
+      manifest_request.SetRequestContext(
+          mojom::blink::RequestContextType::MANIFEST);
+      ResourceLoaderOptions manifest_options(world);
+      manifest_options.initiator_info.name =
+          fetch_initiator_type_names::kInternal;
+      FetchParameters manifest_params(std::move(manifest_request),
+                                      manifest_options);
+      ResourceClient* manifest_client =
+          MakeGarbageCollected<ResourceClient>(this);
+      resources_.push_back(
+          RawResource::Fetch(manifest_params, fetcher, manifest_client));
+      if (manifest_client->GetResource())
+        pending_resource_clients_.insert(manifest_client);
     }
   }
 
@@ -168,7 +212,7 @@ InspectorResourceContentLoader::~InspectorResourceContentLoader() {
   DCHECK(resources_.IsEmpty());
 }
 
-void InspectorResourceContentLoader::Trace(Visitor* visitor) {
+void InspectorResourceContentLoader::Trace(Visitor* visitor) const {
   visitor->Trace(inspected_frame_);
   visitor->Trace(pending_resource_clients_);
   visitor->Trace(resources_);

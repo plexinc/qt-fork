@@ -31,6 +31,7 @@
 #ifndef QWAYLANDOUTPUT_H
 #define QWAYLANDOUTPUT_H
 
+#include <QtWaylandCompositor/qtwaylandqmlinclude.h>
 #include <QtWaylandCompositor/qwaylandcompositorextension.h>
 #include <QtWaylandCompositor/QWaylandOutputMode>
 #include <QtCore/QObject>
@@ -67,8 +68,10 @@ class Q_WAYLAND_COMPOSITOR_EXPORT QWaylandOutput : public QWaylandObject
     Q_PROPERTY(QWaylandOutput::Transform transform READ transform WRITE setTransform NOTIFY transformChanged)
     Q_PROPERTY(int scaleFactor READ scaleFactor WRITE setScaleFactor NOTIFY scaleFactorChanged)
     Q_PROPERTY(bool sizeFollowsWindow READ sizeFollowsWindow WRITE setSizeFollowsWindow NOTIFY sizeFollowsWindowChanged)
-    Q_ENUMS(Subpixel Transform)
 
+    QML_NAMED_ELEMENT(WaylandOutputBase)
+    QML_ADDED_IN_VERSION(1, 0)
+    QML_UNCREATABLE("Cannot create instance of WaylandOutputBase, use WaylandOutput instead")
 public:
     enum Subpixel {
       SubpixelUnknown = 0,

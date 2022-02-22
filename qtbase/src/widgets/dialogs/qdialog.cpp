@@ -49,8 +49,6 @@
 #endif
 
 #include "qevent.h"
-#include "qdesktopwidget.h"
-#include <private/qdesktopwidget_p.h>
 #include "qapplication.h"
 #include "qlayout.h"
 #if QT_CONFIG(sizegrip)
@@ -625,7 +623,7 @@ int QDialog::exec()
   As with QWidget::close(), done() deletes the dialog if the
   Qt::WA_DeleteOnClose flag is set. If the dialog is the application's
   main widget, the application terminates. If the dialog is the
-  last window closed, the QApplication::lastWindowClosed() signal is
+  last window closed, the QGuiApplication::lastWindowClosed() signal is
   emitted.
 
   \sa accept(), reject(), QApplication::activeWindow(), QCoreApplication::quit()
@@ -785,48 +783,47 @@ void QDialog::setVisible(bool visible)
             return;
 
         QWidget::setVisible(visible);
-#if QT_DEPRECATED_SINCE(5, 13)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-        showExtension(d->doShowExtension);
-QT_WARNING_POP
-#endif
-        QWidget *fw = window()->focusWidget();
-        if (!fw)
-            fw = this;
 
-        /*
-          The following block is to handle a special case, and does not
-          really follow propper logic in concern of autoDefault and TAB
-          order. However, it's here to ease usage for the users. If a
-          dialog has a default QPushButton, and first widget in the TAB
-          order also is a QPushButton, then we give focus to the main
-          default QPushButton. This simplifies code for the developers,
-          and actually catches most cases... If not, then they simply
-          have to use [widget*]->setFocus() themselves...
-        */
+        // Window activation might be prevented. We can't test isActiveWindow here,
+        // as the window will be activated asynchronously by the window manager.
+        if (!testAttribute(Qt::WA_ShowWithoutActivating)) {
+            QWidget *fw = window()->focusWidget();
+            if (!fw)
+                fw = this;
+
+            /*
+            The following block is to handle a special case, and does not
+            really follow proper logic in concern of autoDefault and TAB
+            order. However, it's here to ease usage for the users. If a
+            dialog has a default QPushButton, and first widget in the TAB
+            order also is a QPushButton, then we give focus to the main
+            default QPushButton. This simplifies code for the developers,
+            and actually catches most cases... If not, then they simply
+            have to use [widget*]->setFocus() themselves...
+            */
 #if QT_CONFIG(pushbutton)
-        if (d->mainDef && fw->focusPolicy() == Qt::NoFocus) {
-            QWidget *first = fw;
-            while ((first = first->nextInFocusChain()) != fw && first->focusPolicy() == Qt::NoFocus)
-                ;
-            if (first != d->mainDef && qobject_cast<QPushButton*>(first))
-                d->mainDef->setFocus();
-        }
-        if (!d->mainDef && isWindow()) {
-            QWidget *w = fw;
-            while ((w = w->nextInFocusChain()) != fw) {
-                QPushButton *pb = qobject_cast<QPushButton *>(w);
-                if (pb && pb->autoDefault() && pb->focusPolicy() != Qt::NoFocus) {
-                    pb->setDefault(true);
-                    break;
+            if (d->mainDef && fw->focusPolicy() == Qt::NoFocus) {
+                QWidget *first = fw;
+                while ((first = first->nextInFocusChain()) != fw && first->focusPolicy() == Qt::NoFocus)
+                    ;
+                if (first != d->mainDef && qobject_cast<QPushButton*>(first))
+                    d->mainDef->setFocus();
+            }
+            if (!d->mainDef && isWindow()) {
+                QWidget *w = fw;
+                while ((w = w->nextInFocusChain()) != fw) {
+                    QPushButton *pb = qobject_cast<QPushButton *>(w);
+                    if (pb && pb->autoDefault() && pb->focusPolicy() != Qt::NoFocus) {
+                        pb->setDefault(true);
+                        break;
+                    }
                 }
             }
-        }
 #endif
-        if (fw && !fw->hasFocus()) {
-            QFocusEvent e(QEvent::FocusIn, Qt::TabFocusReason);
-            QCoreApplication::sendEvent(fw, &e);
+            if (fw && !fw->hasFocus()) {
+                QFocusEvent e(QEvent::FocusIn, Qt::TabFocusReason);
+                QCoreApplication::sendEvent(fw, &e);
+            }
         }
 
 #ifndef QT_NO_ACCESSIBILITY
@@ -879,23 +876,31 @@ void QDialog::showEvent(QShowEvent *event)
 /*! \internal */
 void QDialog::adjustPosition(QWidget* w)
 {
+    Q_D(QDialog);
 
     if (const QPlatformTheme *theme = QGuiApplicationPrivate::platformTheme())
         if (theme->themeHint(QPlatformTheme::WindowAutoPlacement).toBool())
             return;
     QPoint p(0, 0);
-    int extraw = 0, extrah = 0, scrn = 0;
-    if (w)
-        w = w->window();
-    QRect desk;
+    int extraw = 0, extrah = 0;
+    const QWindow *parentWindow = nullptr;
     if (w) {
-        scrn = QDesktopWidgetPrivate::screenNumber(w);
-    } else if (QDesktopWidgetPrivate::isVirtualDesktop()) {
-        scrn = QDesktopWidgetPrivate::screenNumber(QCursor::pos());
+        w = w->window();
     } else {
-        scrn = QDesktopWidgetPrivate::screenNumber(this);
+        parentWindow = d->transientParentWindow();
     }
-    desk = QDesktopWidgetPrivate::availableGeometry(scrn);
+    QRect desk;
+    QScreen *scrn = nullptr;
+    if (w)
+        scrn = w->screen();
+    else if (parentWindow)
+        scrn = parentWindow->screen();
+    else if (QGuiApplication::primaryScreen()->virtualSiblings().size() > 1)
+        scrn = QGuiApplication::screenAt(QCursor::pos());
+    else
+        scrn = screen();
+    if (scrn)
+        desk = scrn->availableGeometry();
 
     QWidgetList list = QApplication::topLevelWidgets();
     for (int i = 0; (extraw == 0 || extrah == 0) && i < list.size(); ++i) {
@@ -926,6 +931,11 @@ void QDialog::adjustPosition(QWidget* w)
             pp = w->mapToGlobal(QPoint(0,0));
         p = QPoint(pp.x() + w->width()/2,
                     pp.y() + w->height()/ 2);
+    } else if (parentWindow) {
+        // QTBUG-63406: Widget-based dialog in QML, which has no Widget parent
+        // but a transient parent window.
+        QPoint pp = parentWindow->mapToGlobal(QPoint(0, 0));
+        p = QPoint(pp.x() + parentWindow->width() / 2, pp.y() + parentWindow->height() / 2);
     } else {
         // p = middle of the desktop
         p = QPoint(desk.x() + desk.width()/2, desk.y() + desk.height()/2);
@@ -949,160 +959,13 @@ void QDialog::adjustPosition(QWidget* w)
     // QTBUG-52735: Manually set the correct target screen since scaling in a
     // subsequent call to QWindow::resize() may otherwise use the wrong factor
     // if the screen changed notification is still in an event queue.
-    if (scrn >= 0) {
+    if (scrn) {
         if (QWindow *window = windowHandle())
-            window->setScreen(QGuiApplication::screens().at(scrn));
+            window->setScreen(scrn);
     }
 
     move(p);
 }
-
-#if QT_DEPRECATED_SINCE(5, 13)
-/*!
-    \obsolete
-
-    If \a orientation is Qt::Horizontal, the extension will be displayed
-    to the right of the dialog's main area. If \a orientation is
-    Qt::Vertical, the extension will be displayed below the dialog's main
-    area.
-
-    Instead of using this functionality, we recommend that you simply call
-    show() or hide() on the part of the dialog that you want to use as an
-    extension. See the \l{Extension Example} for details.
-
-    \sa setExtension()
-*/
-void QDialog::setOrientation(Qt::Orientation orientation)
-{
-    Q_D(QDialog);
-    d->orientation = orientation;
-}
-
-/*!
-    \obsolete
-
-    Returns the dialog's extension orientation.
-
-    Instead of using this functionality, we recommend that you simply call
-    show() or hide() on the part of the dialog that you want to use as an
-    extension. See the \l{Extension Example} for details.
-
-    \sa extension()
-*/
-Qt::Orientation QDialog::orientation() const
-{
-    Q_D(const QDialog);
-    return d->orientation;
-}
-
-/*!
-    \obsolete
-
-    Sets the widget, \a extension, to be the dialog's extension,
-    deleting any previous extension. The dialog takes ownership of the
-    extension. Note that if \nullptr is passed, any existing extension will be
-    deleted. This function must only be called while the dialog is hidden.
-
-    Instead of using this functionality, we recommend that you simply call
-    show() or hide() on the part of the dialog that you want to use as an
-    extension. See the \l{Extension Example} for details.
-
-    \sa showExtension(), setOrientation()
-*/
-void QDialog::setExtension(QWidget* extension)
-{
-    Q_D(QDialog);
-    delete d->extension;
-    d->extension = extension;
-
-    if (!extension)
-        return;
-
-    if (extension->parentWidget() != this)
-        extension->setParent(this);
-    extension->hide();
-}
-
-/*!
-    \obsolete
-
-    Returns the dialog's extension or \nullptr if no extension has been
-    defined.
-
-    Instead of using this functionality, we recommend that you simply call
-    show() or hide() on the part of the dialog that you want to use as an
-    extension. See the \l{Extension Example} for details.
-
-    \sa showExtension(), setOrientation()
-*/
-QWidget* QDialog::extension() const
-{
-    Q_D(const QDialog);
-    return d->extension;
-}
-
-
-/*!
-    \obsolete
-
-    If \a showIt is true, the dialog's extension is shown; otherwise the
-    extension is hidden.
-
-    Instead of using this functionality, we recommend that you simply call
-    show() or hide() on the part of the dialog that you want to use as an
-    extension. See the \l{Extension Example} for details.
-
-    \sa show(), setExtension(), setOrientation()
-*/
-void QDialog::showExtension(bool showIt)
-{
-    Q_D(QDialog);
-    d->doShowExtension = showIt;
-    if (!d->extension)
-        return;
-    if (!testAttribute(Qt::WA_WState_Visible))
-        return;
-    if (d->extension->isVisible() == showIt)
-        return;
-
-    if (showIt) {
-        d->size = size();
-        d->min = minimumSize();
-        d->max = maximumSize();
-        if (layout())
-            layout()->setEnabled(false);
-        QSize s(d->extension->sizeHint()
-                 .expandedTo(d->extension->minimumSize())
-                 .boundedTo(d->extension->maximumSize()));
-        if (d->orientation == Qt::Horizontal) {
-            int h = qMax(height(), s.height());
-            d->extension->setGeometry(width(), 0, s.width(), h);
-            setFixedSize(width() + s.width(), h);
-        } else {
-            int w = qMax(width(), s.width());
-            d->extension->setGeometry(0, height(), w, s.height());
-            setFixedSize(w, height() + s.height());
-        }
-        d->extension->show();
-#if QT_CONFIG(sizegrip)
-        const bool sizeGripEnabled = isSizeGripEnabled();
-        setSizeGripEnabled(false);
-        d->sizeGripEnabled = sizeGripEnabled;
-#endif
-    } else {
-        d->extension->hide();
-        // workaround for CDE window manager that won't shrink with (-1,-1)
-        setMinimumSize(d->min.expandedTo(QSize(1, 1)));
-        setMaximumSize(d->max);
-        resize(d->size);
-        if (layout())
-            layout()->setEnabled(true);
-#if QT_CONFIG(sizegrip)
-        setSizeGripEnabled(d->sizeGripEnabled);
-#endif
-    }
-}
-#endif
 
 /*! \reimp */
 QSize QDialog::sizeHint() const

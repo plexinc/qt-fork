@@ -4,10 +4,11 @@
 
 #include "components/password_manager/core/browser/statistics_table.h"
 #include <functional>
+#include <memory>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/strings/utf_string_conversions.h"
 #include "sql/database.h"
@@ -45,9 +46,9 @@ class StatisticsTableTest : public testing::Test {
 
   void ReloadDatabase() {
     base::FilePath file = temp_dir_.GetPath().AppendASCII("TestDatabase");
-    db_.reset(new StatisticsTable);
-    connection_.reset(new sql::Database);
-    connection_->set_exclusive_locking();
+    db_ = std::make_unique<StatisticsTable>();
+    connection_ = std::make_unique<sql::Database>(sql::DatabaseOptions{
+        .exclusive_locking = true, .page_size = 4096, .cache_size = 500});
     ASSERT_TRUE(connection_->Open(file));
     db_->Init(connection_.get());
     ASSERT_TRUE(db_->CreateTableIfNecessary());
@@ -149,6 +150,9 @@ TEST_F(StatisticsTableTest, RemoveStatsByOriginAndTime) {
   // Remove the entries with the timestamp 2 that are NOT matching
   // |kTestDomain3|.
   EXPECT_TRUE(db()->RemoveStatsByOriginAndTime(
+      // Can't use the generic `std::not_equal_to<>` here, because BindRepeating
+      // does not support functors with an overloaded call operator.
+      // NOLINTNEXTLINE(modernize-use-transparent-functors)
       base::BindRepeating(std::not_equal_to<GURL>(), stats3.origin_domain),
       base::Time::FromTimeT(2), base::Time()));
   EXPECT_THAT(db()->GetAllRows(), ElementsAre(stats3));
@@ -206,12 +210,6 @@ TEST_F(StatisticsTableTest, GetDomainsAndAccountsDomainsWithNDismissals) {
   }
 
   EXPECT_EQ(5, db()->GetNumAccounts());  // A,B,C,D,E
-
-  EXPECT_EQ(3, db()->GetNumDomainsWithAtLeastNDismissals(1));   // (A,B,C), D, E
-  EXPECT_EQ(2, db()->GetNumDomainsWithAtLeastNDismissals(10));  // (A,B), E
-
-  EXPECT_EQ(5, db()->GetNumAccountsWithAtLeastNDismissals(1));   // A,B,C,D,E
-  EXPECT_EQ(3, db()->GetNumAccountsWithAtLeastNDismissals(10));  // A,B,E
 }
 
 }  // namespace

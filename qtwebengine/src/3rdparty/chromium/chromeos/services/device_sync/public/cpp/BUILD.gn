@@ -16,15 +16,36 @@ source_set("cpp") {
   ]
 
   public_deps = [
+    "//ash/constants",
     "//base",
     "//chromeos/components/multidevice",
     "//chromeos/components/multidevice/logging",
-    "//chromeos/constants",
     "//chromeos/services/device_sync:feature_status_change",
     "//chromeos/services/device_sync/public/mojom",
   ]
 
   deps = [ "//mojo/public/cpp/bindings" ]
+}
+
+source_set("prefs") {
+  sources = [
+    "device_sync_prefs.cc",
+    "device_sync_prefs.h",
+  ]
+
+  public_deps = [
+    "//ash/constants",
+    "//base",
+    "//chromeos/components/multidevice",
+    "//chromeos/components/multidevice/logging",
+    "//chromeos/services/device_sync:feature_status_change",
+    "//chromeos/services/device_sync/public/mojom",
+  ]
+
+  deps = [
+    "//chromeos/services/device_sync",
+    "//components/prefs",
+  ]
 }
 
 static_library("test_support") {
@@ -51,6 +72,7 @@ source_set("unit_tests") {
 
   deps = [
     ":cpp",
+    ":prefs",
     ":test_support",
     "//base",
     "//base/test:test_support",

@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "components/viz/service/frame_sinks/frame_sink_manager_impl.h"
 #include "ui/gfx/overlay_transform.h"
 
@@ -102,6 +102,11 @@ void CompositorFrameSinkImpl::DidAllocateSharedBitmap(
 
 void CompositorFrameSinkImpl::DidDeleteSharedBitmap(const SharedBitmapId& id) {
   support_->DidDeleteSharedBitmap(id);
+}
+
+void CompositorFrameSinkImpl::InitializeCompositorFrameSinkType(
+    mojom::CompositorFrameSinkType type) {
+  support_->InitializeCompositorFrameSinkType(type);
 }
 
 void CompositorFrameSinkImpl::OnClientConnectionLost() {

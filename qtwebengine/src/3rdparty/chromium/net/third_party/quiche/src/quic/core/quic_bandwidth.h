@@ -13,10 +13,11 @@
 #include <ostream>
 #include <string>
 
-#include "net/third_party/quiche/src/quic/core/quic_constants.h"
-#include "net/third_party/quiche/src/quic/core/quic_time.h"
-#include "net/third_party/quiche/src/quic/core/quic_types.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
+#include "quic/core/quic_constants.h"
+#include "quic/core/quic_time.h"
+#include "quic/core/quic_types.h"
+#include "quic/platform/api/quic_export.h"
+#include "quic/platform/api/quic_flag_utils.h"
 
 namespace quic {
 
@@ -54,8 +55,17 @@ class QUIC_EXPORT_PRIVATE QuicBandwidth {
   // Create a new QuicBandwidth based on the bytes per the elapsed delta.
   static inline QuicBandwidth FromBytesAndTimeDelta(QuicByteCount bytes,
                                                     QuicTime::Delta delta) {
-    return QuicBandwidth((8 * bytes * kNumMicrosPerSecond) /
-                         delta.ToMicroseconds());
+    if (bytes == 0) {
+      return QuicBandwidth(0);
+    }
+
+    // 1 bit is 1000000 micro bits.
+    int64_t num_micro_bits = 8 * bytes * kNumMicrosPerSecond;
+    if (num_micro_bits < delta.ToMicroseconds()) {
+      return QuicBandwidth(1);
+    }
+
+    return QuicBandwidth(num_micro_bits / delta.ToMicroseconds());
   }
 
   inline int64_t ToBitsPerSecond() const { return bits_per_second_; }

@@ -55,6 +55,7 @@
 
 #include <private/qintrusivelist_p.h>
 #include <private/qqmlguard_p.h>
+#include <private/qtquickglobal_p.h>
 
 #include <QtCore/qmimedata.h>
 #include <QtCore/qstringlist.h>
@@ -117,14 +118,14 @@ private:
 class QQuickDropEventEx : public QDropEvent
 {
 public:
-    void setProposedAction(Qt::DropAction action) { default_action = action; drop_action = action; }
+    void setProposedAction(Qt::DropAction action) { m_defaultAction = action; m_dropAction = action; }
 
     static void setProposedAction(QDropEvent *event, Qt::DropAction action) {
         static_cast<QQuickDropEventEx *>(event)->setProposedAction(action);
     }
 
     void copyActions(const QDropEvent &from) {
-        default_action = from.proposedAction(); drop_action = from.dropAction(); }
+        m_defaultAction = from.proposedAction(); m_dropAction = from.dropAction(); }
 
     static void copyActions(QDropEvent *to, const QDropEvent &from) {
         static_cast<QQuickDropEventEx *>(to)->copyActions(from);
@@ -154,7 +155,7 @@ private:
 
 class QQmlV4Function;
 class QQuickDragAttached;
-class Q_AUTOTEST_EXPORT QQuickDrag : public QObject
+class Q_QUICK_PRIVATE_EXPORT QQuickDrag : public QObject
 {
     Q_OBJECT
 
@@ -173,6 +174,7 @@ class Q_AUTOTEST_EXPORT QQuickDrag : public QObject
     //### consider drag and drop
 
     QML_NAMED_ELEMENT(Drag)
+    QML_ADDED_IN_VERSION(2, 0)
     QML_UNCREATABLE("Drag is only available via attached properties.")
     QML_ATTACHED(QQuickDragAttached)
 
@@ -243,7 +245,7 @@ private:
 };
 
 class QQuickDragAttachedPrivate;
-class QQuickDragAttached : public QObject
+class Q_QUICK_PRIVATE_EXPORT QQuickDragAttached : public QObject
 {
     Q_OBJECT
     Q_DECLARE_PRIVATE(QQuickDragAttached)
@@ -260,6 +262,7 @@ class QQuickDragAttached : public QObject
     Q_PROPERTY(QQuickDrag::DragType dragType READ dragType WRITE setDragType NOTIFY dragTypeChanged)
 
     QML_ANONYMOUS
+    QML_ADDED_IN_VERSION(2, 0)
 
 public:
     QQuickDragAttached(QObject *parent);

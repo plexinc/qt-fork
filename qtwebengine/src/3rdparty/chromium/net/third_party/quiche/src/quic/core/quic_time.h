@@ -19,7 +19,7 @@
 #include <ostream>
 #include <string>
 
-#include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
+#include "quic/platform/api/quic_export.h"
 
 // TODO(vasilvv): replace with ABSL_MUST_USE_RESULT once we're using absl.
 #if defined(__clang__)
@@ -184,6 +184,14 @@ class QUIC_EXPORT_PRIVATE QuicWallTime {
   QUIC_TIME_WARN_UNUSED_RESULT QuicWallTime
   Subtract(QuicTime::Delta delta) const;
 
+  bool operator==(const QuicWallTime& other) const {
+    return microseconds_ == other.microseconds_;
+  }
+
+  QuicTime::Delta operator-(const QuicWallTime& rhs) const {
+    return QuicTime::Delta::FromMicroseconds(microseconds_ - rhs.microseconds_);
+  }
+
  private:
   explicit constexpr QuicWallTime(uint64_t microseconds)
       : microseconds_(microseconds) {}
@@ -237,7 +245,7 @@ inline bool operator>=(QuicTime lhs, QuicTime rhs) {
   return !(lhs < rhs);
 }
 
-// Override stream output operator for gtest or CHECK macros.
+// Override stream output operator for gtest or QUICHE_CHECK macros.
 inline std::ostream& operator<<(std::ostream& output, const QuicTime t) {
   output << t.ToDebuggingValue();
   return output;
@@ -254,8 +262,8 @@ inline QuicTime::Delta operator*(QuicTime::Delta lhs, int rhs) {
   return QuicTime::Delta(lhs.time_offset_ * rhs);
 }
 inline QuicTime::Delta operator*(QuicTime::Delta lhs, double rhs) {
-  return QuicTime::Delta(
-      static_cast<int64_t>(std::llround(lhs.time_offset_ * rhs)));
+  return QuicTime::Delta(static_cast<int64_t>(
+      std::llround(static_cast<double>(lhs.time_offset_) * rhs)));
 }
 inline QuicTime::Delta operator*(int lhs, QuicTime::Delta rhs) {
   return rhs * lhs;

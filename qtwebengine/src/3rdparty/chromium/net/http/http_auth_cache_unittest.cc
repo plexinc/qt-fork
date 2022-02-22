@@ -12,9 +12,9 @@
 #include "base/test/simple_test_tick_clock.h"
 #include "net/base/net_errors.h"
 #include "net/base/network_isolation_key.h"
+#include "net/base/schemeful_site.h"
 #include "net/http/http_auth_cache.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "url/origin.h"
 
 using base::ASCIIToUTF16;
 
@@ -29,9 +29,11 @@ const char kRealm4[] = "Realm4";
 const char kRealm5[] = "Realm5";
 const base::string16 k123(ASCIIToUTF16("123"));
 const base::string16 k1234(ASCIIToUTF16("1234"));
+const base::string16 k12345(ASCIIToUTF16("12345"));
 const base::string16 kAdmin(ASCIIToUTF16("admin"));
 const base::string16 kAlice(ASCIIToUTF16("alice"));
 const base::string16 kAlice2(ASCIIToUTF16("alice2"));
+const base::string16 kAlice3(ASCIIToUTF16("alice3"));
 const base::string16 kPassword(ASCIIToUTF16("password"));
 const base::string16 kRoot(ASCIIToUTF16("root"));
 const base::string16 kUsername(ASCIIToUTF16("username"));
@@ -326,10 +328,10 @@ TEST(HttpAuthCacheTest, SeparateByTarget) {
 // Make sure server credentials with different NetworkIsolationKeys are treated
 // separately if |key_entries_by_network_isolation_key| is set to true.
 TEST(HttpAuthCacheTest, SeparateServersByNetworkIsolationKey) {
-  const url::Origin kOrigin1 = url::Origin::Create(GURL("https://foo.test/"));
-  const NetworkIsolationKey kNetworkIsolationKey1(kOrigin1, kOrigin1);
-  const url::Origin kOrigin2 = url::Origin::Create(GURL("https://bar.test/"));
-  const NetworkIsolationKey kNetworkIsolationKey2(kOrigin2, kOrigin2);
+  const SchemefulSite kSite1(GURL("https://foo.test/"));
+  const NetworkIsolationKey kNetworkIsolationKey1(kSite1, kSite1);
+  const SchemefulSite kSite2(GURL("https://bar.test/"));
+  const NetworkIsolationKey kNetworkIsolationKey2(kSite2, kSite2);
 
   GURL kPseudoOrigin("http://www.google.com");
   const char kPath[] = "/";
@@ -425,10 +427,10 @@ TEST(HttpAuthCacheTest, SeparateServersByNetworkIsolationKey) {
 // Make sure added proxy credentials ignore NetworkIsolationKey, even if if
 // |key_entries_by_network_isolation_key| is set to true.
 TEST(HttpAuthCacheTest, NeverSeparateProxiesByNetworkIsolationKey) {
-  const url::Origin kOrigin1 = url::Origin::Create(GURL("https://foo.test/"));
-  const NetworkIsolationKey kNetworkIsolationKey1(kOrigin1, kOrigin1);
-  const url::Origin kOrigin2 = url::Origin::Create(GURL("https://bar.test/"));
-  const NetworkIsolationKey kNetworkIsolationKey2(kOrigin2, kOrigin2);
+  const SchemefulSite kSite1(GURL("https://foo.test/"));
+  const NetworkIsolationKey kNetworkIsolationKey1(kSite1, kSite1);
+  const SchemefulSite kSite2(GURL("https://bar.test/"));
+  const NetworkIsolationKey kNetworkIsolationKey2(kSite2, kSite2);
 
   GURL kPseudoOrigin("http://www.google.com");
   const char kPath[] = "/";
@@ -696,7 +698,7 @@ TEST(HttpAuthCacheTest, Remove) {
   EXPECT_FALSE(nullptr == entry);
 }
 
-TEST(HttpAuthCacheTest, ClearEntriesAddedSince) {
+TEST(HttpAuthCacheTest, ClearEntriesAddedBetween) {
   GURL origin("http://foobar.com");
 
   base::Time start_time;
@@ -726,9 +728,16 @@ TEST(HttpAuthCacheTest, ClearEntriesAddedSince) {
             NetworkIsolationKey(), "basic realm=Realm2",
             AuthCredentials(kAdmin, kPassword), "/baz/");
 
-  base::Time test_time;
-  ASSERT_TRUE(base::Time::FromString("30 May 2018 12:00:05", &test_time));
-  cache.ClearEntriesAddedSince(test_time);
+  test_clock.Advance(base::TimeDelta::FromSeconds(10));  // Time now 12:00:20
+  cache.Add(origin, HttpAuth::AUTH_SERVER, kRealm5, HttpAuth::AUTH_SCHEME_BASIC,
+            NetworkIsolationKey(), "basic realm=Realm5",
+            AuthCredentials(kAlice3, k12345), "/");
+
+  base::Time test_time1;
+  ASSERT_TRUE(base::Time::FromString("30 May 2018 12:00:05", &test_time1));
+  base::Time test_time2;
+  ASSERT_TRUE(base::Time::FromString("30 May 2018 12:00:15", &test_time2));
+  cache.ClearEntriesAddedBetween(test_time1, test_time2);
 
   // Realms 1 and 2 are older than 12:00:05 and should not be cleared
   EXPECT_NE(nullptr,
@@ -737,12 +746,18 @@ TEST(HttpAuthCacheTest, ClearEntriesAddedSince) {
   EXPECT_NE(nullptr,
             cache.Lookup(origin, HttpAuth::AUTH_SERVER, kRealm2,
                          HttpAuth::AUTH_SCHEME_BASIC, NetworkIsolationKey()));
+
+  // Realms 5 is newer than 12:00:15 and should not be cleared
+  EXPECT_NE(nullptr,
+            cache.Lookup(origin, HttpAuth::AUTH_SERVER, kRealm5,
+                         HttpAuth::AUTH_SCHEME_BASIC, NetworkIsolationKey()));
+
   // Creation time is set for a whole entry rather than for a particular path.
   // Path added within the requested duration isn't be removed.
   EXPECT_NE(nullptr, cache.LookupByPath(origin, HttpAuth::AUTH_SERVER,
                                         NetworkIsolationKey(), "/baz/"));
 
-  // Realms 3 and 4 are newer than 12:00:05 and should be cleared.
+  // Realms 3 and 4 are between 12:00:05 and 12:00:10 and should be cleared.
   EXPECT_EQ(nullptr,
             cache.Lookup(origin, HttpAuth::AUTH_SERVER, kRealm3,
                          HttpAuth::AUTH_SCHEME_BASIC, NetworkIsolationKey()));
@@ -750,7 +765,8 @@ TEST(HttpAuthCacheTest, ClearEntriesAddedSince) {
             cache.Lookup(origin, HttpAuth::AUTH_SERVER, kRealm4,
                          HttpAuth::AUTH_SCHEME_BASIC, NetworkIsolationKey()));
 
-  cache.ClearEntriesAddedSince(start_time - base::TimeDelta::FromSeconds(1));
+  cache.ClearEntriesAddedBetween(start_time - base::TimeDelta::FromSeconds(1),
+                                 base::Time::Max());
   EXPECT_EQ(nullptr,
             cache.Lookup(origin, HttpAuth::AUTH_SERVER, kRealm1,
                          HttpAuth::AUTH_SCHEME_BASIC, NetworkIsolationKey()));
@@ -761,7 +777,7 @@ TEST(HttpAuthCacheTest, ClearEntriesAddedSince) {
                                         NetworkIsolationKey(), "/baz/"));
 }
 
-TEST(HttpAuthCacheTest, ClearEntriesAddedSinceWithNullTime) {
+TEST(HttpAuthCacheTest, ClearEntriesAddedBetweenWithAllTimeValues) {
   GURL origin("http://foobar.com");
 
   base::SimpleTestClock test_clock;
@@ -789,7 +805,7 @@ TEST(HttpAuthCacheTest, ClearEntriesAddedSinceWithNullTime) {
             NetworkIsolationKey(), "basic realm=Realm2",
             AuthCredentials(kAdmin, kPassword), "/baz/");
 
-  cache.ClearEntriesAddedSince(base::Time());
+  cache.ClearEntriesAddedBetween(base::Time::Min(), base::Time::Max());
 
   // All entries should be cleared.
   EXPECT_EQ(nullptr,

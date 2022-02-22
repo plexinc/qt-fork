@@ -222,7 +222,7 @@ int QDialPrivate::valueFromPoint(const QPoint &p) const
 
     If you are using the mouse wheel to adjust the dial, the increment
     value is determined by the lesser value of
-    \l{QApplication::wheelScrollLines()} {wheelScrollLines} multipled
+    \l{QApplication::wheelScrollLines()} {wheelScrollLines} multiplied
     by \l {QAbstractSlider::singleStep} {singleStep}, and
     \l {QAbstractSlider::pageStep} {pageStep}.
 
@@ -280,7 +280,7 @@ void QDial::mousePressEvent(QMouseEvent *e)
         return;
     }
     e->accept();
-    setSliderPosition(d->valueFromPoint(e->pos()));
+    setSliderPosition(d->valueFromPoint(e->position().toPoint()));
     // ### This isn't quite right,
     // we should be doing a hit test and only setting this if it's
     // the actual dial thingie (similar to what QSlider does), but we have no
@@ -302,7 +302,7 @@ void QDial::mouseReleaseEvent(QMouseEvent * e)
         return;
     }
     e->accept();
-    setValue(d->valueFromPoint(e->pos()));
+    setValue(d->valueFromPoint(e->position().toPoint()));
     setSliderDown(false);
 }
 
@@ -320,7 +320,7 @@ void QDial::mouseMoveEvent(QMouseEvent * e)
     }
     e->accept();
     d->doNotEmit = true;
-    setSliderPosition(d->valueFromPoint(e->pos()));
+    setSliderPosition(d->valueFromPoint(e->position().toPoint()));
     d->doNotEmit = false;
 }
 
@@ -370,11 +370,9 @@ bool QDial::wrapping() const
     \property QDial::notchSize
     \brief the current notch size
 
-    The notch size is in range control units, not pixels, and if
-    possible it is a multiple of singleStep() that results in an
+    The notch size is in range control units, not pixels, and is
+    calculated to be a multiple of singleStep() that results in an
     on-screen notch size near notchTarget().
-
-    By default, this property has a value of 1.
 
     \sa notchTarget(), singleStep()
 */
@@ -383,21 +381,17 @@ int QDial::notchSize() const
 {
     Q_D(const QDial);
     // radius of the arc
-    int r = qMin(width(), height())/2;
+    qreal r = qMin(width(), height())/2.0;
     // length of the whole arc
-    int l = (int)(r * (d->wrapping ? 6 : 5) * Q_PI / 6);
+    int l = qRound(r * (d->wrapping ? 6.0 : 5.0) * Q_PI / 6.0);
     // length of the arc from minValue() to minValue()+pageStep()
     if (d->maximum > d->minimum + d->pageStep)
-        l = (int)(0.5 + l * d->pageStep / (d->maximum - d->minimum));
+        l = qRound(l * d->pageStep / double(d->maximum - d->minimum));
     // length of a singleStep arc
-    l = l * d->singleStep / (d->pageStep ? d->pageStep : 1);
-    if (l < 1)
-        l = 1;
+    l = qMax(l * d->singleStep / (d->pageStep ? d->pageStep : 1), 1);
     // how many times singleStep can be draw in d->target pixels
-    l = (int)(0.5 + d->target / l);
-    // we want notchSize() to be a non-zero multiple of lineStep()
-    if (!l)
-        l = 1;
+    l = qMax(qRound(d->target / l), 1);
+    // we want notchSize() to be a non-zero multiple of singleStep()
     return d->singleStep * l;
 }
 
@@ -464,7 +458,7 @@ QSize QDial::minimumSizeHint() const
 
 QSize QDial::sizeHint() const
 {
-    return QSize(100, 100).expandedTo(QApplication::globalStrut());
+    return QSize(100, 100);
 }
 
 /*!

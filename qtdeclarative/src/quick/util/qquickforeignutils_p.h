@@ -73,13 +73,7 @@ struct QValidatorForeign
     Q_GADGET
     QML_FOREIGN(QValidator)
     QML_ANONYMOUS
-};
-
-struct QRegExpValidatorForeign
-{
-    Q_GADGET
-    QML_FOREIGN(QRegExpValidator)
-    QML_NAMED_ELEMENT(RegExpValidator)
+    QML_ADDED_IN_VERSION(2, 0)
 };
 
 #if QT_CONFIG(regularexpression)
@@ -88,7 +82,7 @@ struct QRegularExpressionValidatorForeign
     Q_GADGET
     QML_FOREIGN(QRegularExpressionValidator)
     QML_NAMED_ELEMENT(RegularExpressionValidator)
-    QML_ADDED_IN_MINOR_VERSION(14)
+    QML_ADDED_IN_VERSION(2, 14)
 };
 #endif // QT_CONFIG(regularexpression)
 
@@ -100,18 +94,18 @@ struct QInputMethodForeign
     Q_GADGET
     QML_FOREIGN(QInputMethod)
     QML_NAMED_ELEMENT(InputMethod)
+    QML_ADDED_IN_VERSION(2, 0)
     QML_UNCREATABLE("InputMethod is an abstract class.")
 };
 #endif // QT_CONFIG(im)
 
 #if QT_CONFIG(shortcut)
-struct QKeySequenceForeign
+namespace QKeySequenceForeign
 {
-    Q_GADGET
-    QML_FOREIGN(QKeySequence)
+    Q_NAMESPACE
+    QML_FOREIGN_NAMESPACE(QKeySequence)
     QML_NAMED_ELEMENT(StandardKey)
-    QML_ADDED_IN_MINOR_VERSION(2)
-    QML_UNCREATABLE("Cannot create an instance of StandardKey.")
+    QML_ADDED_IN_VERSION(2, 2)
 };
 #endif // QT_CONFIG(shortcut)
 

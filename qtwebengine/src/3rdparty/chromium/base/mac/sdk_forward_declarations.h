@@ -8,8 +8,8 @@
 #ifndef BASE_MAC_SDK_FORWARD_DECLARATIONS_H_
 #define BASE_MAC_SDK_FORWARD_DECLARATIONS_H_
 
-#import <AppKit/AppKit.h>
 #include <AvailabilityMacros.h>
+#include <AvailabilityVersions.h>
 #include <os/availability.h>
 
 // NOTE: If an #import is needed only for a newer SDK, it might be found below.
@@ -63,17 +63,5 @@
 //   #endif  // MAC_OS_X_VERSION_10_77
 //
 // ----------------------------------------------------------------------------
-
-#if !defined(MAC_OS_X_VERSION_10_15) || \
-    MAC_OS_X_VERSION_MAX_ALLOWED < MAC_OS_X_VERSION_10_15
-
-@interface NSScreen (ForwardDeclare)
-@property(readonly)
-    CGFloat maximumPotentialExtendedDynamicRangeColorComponentValue
-        API_AVAILABLE(macos(10.15));
-@end
-
-#endif  // MAC_OS_X_VERSION_10_15
-
 
 #endif  // BASE_MAC_SDK_FORWARD_DECLARATIONS_H_

@@ -25,6 +25,7 @@
 
 #include "third_party/blink/renderer/modules/webaudio/audio_node.h"
 
+#include "base/trace_event/trace_event.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_audio_node_options.h"
 #include "third_party/blink/renderer/modules/webaudio/audio_graph_tracer.h"
 #include "third_party/blink/renderer/modules/webaudio/audio_node_input.h"
@@ -334,6 +335,10 @@ void AudioHandler::ProcessIfNecessary(uint32_t frames_to_process) {
   if (!IsInitialized())
     return;
 
+  TRACE_EVENT2(TRACE_DISABLED_BY_DEFAULT("webaudio.audionode"),
+               "AudioHandler::ProcessIfNecessary", "this",
+               static_cast<void*>(this), "node type", NodeTypeName().Ascii());
+
   // Ensure that we only process once per rendering quantum.
   // This handles the "fanout" problem where an output is connected to multiple
   // inputs.  The first time we're called during this time slice we process, but
@@ -609,13 +614,13 @@ void AudioNode::Dispose() {
   BaseAudioContext::GraphAutoLocker locker(context());
   Handler().Dispose();
 
-  // Add the handler to the orphan list if the context is pulling on the audio
-  // graph.  This keeps the handler alive until it can be deleted at a safe
-  // point (in pre/post handler task).  If graph isn't being pulled, we can
-  // delete the handler now since nothing on the audio thread will be touching
-  // it.
+  // Add the handler to the orphan list.  This keeps the handler alive until it
+  // can be deleted at a safe point (in pre/post handler task).  If the graph is
+  // being processed, the handler must be added.  If the context is suspended,
+  // the handler still needs to be added in case the context is resumed.
   DCHECK(context());
-  if (context()->IsPullingAudioGraph()) {
+  if (context()->IsPullingAudioGraph() ||
+      context()->ContextState() == BaseAudioContext::kSuspended) {
     context()->GetDeferredTaskHandler().AddRenderingOrphanHandler(
         std::move(handler_));
   }
@@ -650,7 +655,7 @@ AudioHandler& AudioNode::Handler() const {
   return *handler_;
 }
 
-void AudioNode::Trace(Visitor* visitor) {
+void AudioNode::Trace(Visitor* visitor) const {
   visitor->Trace(context_);
   visitor->Trace(connected_nodes_);
   visitor->Trace(connected_params_);

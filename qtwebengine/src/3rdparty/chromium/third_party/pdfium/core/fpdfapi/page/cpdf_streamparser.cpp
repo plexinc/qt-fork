@@ -6,8 +6,6 @@
 
 #include "core/fpdfapi/page/cpdf_streamparser.h"
 
-#include <limits.h>
-
 #include <algorithm>
 #include <memory>
 #include <sstream>
@@ -31,7 +29,7 @@
 #include "core/fxcrt/fx_extension.h"
 #include "core/fxcrt/fx_memory_wrappers.h"
 #include "core/fxcrt/fx_safe_types.h"
-#include "third_party/base/ptr_util.h"
+#include "third_party/base/check.h"
 
 namespace {
 
@@ -72,13 +70,13 @@ uint32_t DecodeInlineStream(pdfium::span<const uint8_t> src_span,
                             const CPDF_Dictionary* pParam,
                             uint32_t orig_size) {
   // |decoder| should not be an abbreviation.
-  ASSERT(decoder != "A85");
-  ASSERT(decoder != "AHx");
-  ASSERT(decoder != "CCF");
-  ASSERT(decoder != "DCT");
-  ASSERT(decoder != "Fl");
-  ASSERT(decoder != "LZW");
-  ASSERT(decoder != "RL");
+  DCHECK(decoder != "A85");
+  DCHECK(decoder != "AHx");
+  DCHECK(decoder != "CCF");
+  DCHECK(decoder != "DCT");
+  DCHECK(decoder != "Fl");
+  DCHECK(decoder != "LZW");
+  DCHECK(decoder != "RL");
 
   std::unique_ptr<uint8_t, FxFreeDeleter> ignored_result;
   uint32_t ignored_size;
@@ -91,10 +89,9 @@ uint32_t DecodeInlineStream(pdfium::span<const uint8_t> src_span,
                             &ignored_size);
   }
   if (decoder == "DCTDecode") {
-    std::unique_ptr<ScanlineDecoder> pDecoder =
-        fxcodec::ModuleMgr::GetInstance()->GetJpegModule()->CreateDecoder(
-            src_span, width, height, 0,
-            !pParam || pParam->GetIntegerFor("ColorTransform", 1));
+    std::unique_ptr<ScanlineDecoder> pDecoder = JpegModule::CreateDecoder(
+        src_span, width, height, 0,
+        !pParam || pParam->GetIntegerFor("ColorTransform", 1));
     return DecodeAllScanlines(std::move(pDecoder));
   }
   if (decoder == "CCITTFaxDecode") {
@@ -122,7 +119,7 @@ CPDF_StreamParser::CPDF_StreamParser(pdfium::span<const uint8_t> span,
                                      const WeakPtr<ByteStringPool>& pPool)
     : m_pPool(pPool), m_pBuf(span) {}
 
-CPDF_StreamParser::~CPDF_StreamParser() {}
+CPDF_StreamParser::~CPDF_StreamParser() = default;
 
 RetainPtr<CPDF_Stream> CPDF_StreamParser::ReadInlineStream(
     CPDF_Document* pDoc,

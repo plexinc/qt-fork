@@ -45,145 +45,41 @@
 #include <QtQuick3DRuntimeRender/private/qtquick3druntimerenderglobal_p.h>
 #include <QtQuick3DUtils/private/qssgdataref_p.h>
 
-#include <QtGui/QVector4D>
-#include <QtGui/QMatrix4x4>
+#include <QtCore/qvector.h>
+#include <QtGui/QVector3D>
 
 #include <QtQuick3DRuntimeRender/private/qssgrendershadercache_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrendershaderkeys_p.h>
+#include <QtQuick3DRuntimeRender/private/qssgrenderableobjects_p.h>
+
 
 QT_BEGIN_NAMESPACE
-
-// these are our current shader limits
-#define QSSG_MAX_NUM_LIGHTS 16
-#define QSSG_MAX_NUM_SHADOWS 8
-
-// note this struct must exactly match the memory layout of the
-// struct sampleLight.glsllib and sampleArea.glsllib. If you make changes here you need
-// to adjust the code in sampleLight.glsllib and sampleArea.glsllib as well
-struct QSSGLightSourceShader
-{
-    QVector4D position;
-    QVector4D direction; // Specifies the light direction in world coordinates.
-    QVector4D up;
-    QVector4D right;
-    QVector4D diffuse;
-    QVector4D ambient;
-    QVector4D specular;
-    float coneAngle; // Specifies the outer cone angle of the spot light.
-    float innerConeAngle; // Specifies the inner cone angle of the spot light.
-    float constantAttenuation; // Specifies the constant light attenuation factor.
-    float linearAttenuation; // Specifies the linear light attenuation factor.
-    float quadraticAttenuation; // Specifies the quadratic light attenuation factor.
-    float range; // Specifies the maximum distance of the light influence
-    float width; // Specifies the width of the area light surface.
-    float height; // Specifies the height of the area light surface;
-    QVector4D shadowControls;
-    float shadowView[16];
-    qint32 shadowIdx;
-    float padding1[3];
-};
 
 struct QSSGRenderLayer;
 struct QSSGRenderCamera;
 struct QSSGRenderLight;
 class QSSGRenderShadowMap;
-class QSSGRenderTexture2D;
 struct QSSGRenderImage;
-class QSSGShaderStageGeneratorInterface;
-struct QSSGRenderableImage;
-class QSSGRenderShaderProgram;
-struct QSSGRenderGraphObject;
-struct QSSGShaderDefaultMaterialKey;
-class QSSGRenderContextInterface;
-class QSSGShaderProgramGeneratorInterface;
-class QSSGDefaultMaterialVertexPipelineInterface;
-struct QSSGShaderGeneratorGeneratedShader;
-class QSSGRenderConstantBuffer;
+class QRhiTexture;
 
 struct QSSGLayerGlobalRenderProperties
 {
     const QSSGRenderLayer &layer;
     QSSGRenderCamera &camera;
     QVector3D cameraDirection;
-    const QVector<QSSGRenderLight *> &lights;
-    const QVector<QVector3D> &lightDirections;
-    QSSGRef<QSSGRenderShadowMap> shadowMapManager;
-    QSSGRef<QSSGRenderTexture2D> depthTexture;
-    QSSGRef<QSSGRenderTexture2D> ssaoTexture;
+    QSSGRenderShadowMap *shadowMapManager;
+    QRhiTexture *rhiDepthTexture;
+    QRhiTexture *rhiSsaoTexture;
+    QRhiTexture *rhiScreenTexture;
     QSSGRenderImage *lightProbe;
-    QSSGRenderImage *lightProbe2;
     float probeHorizon;
-    float probeBright;
-    float probe2Window;
-    float probe2Pos;
-    float probe2Fade;
-    float probeFOV;
+    float probeExposure;
+    const QMatrix4x4 &probeOrientation;
+    bool isYUpInFramebuffer;
+    bool isYUpInNDC;
+    bool isClipDepthZeroToOne;
 };
 
-class QSSGMaterialShaderGeneratorInterface
-{
-    Q_DISABLE_COPY(QSSGMaterialShaderGeneratorInterface)
-public:
-    QAtomicInt ref;
-
-protected:
-    typedef QHash<QByteArray, QSSGRef<QSSGRenderConstantBuffer>> ConstanBufferMap;
-
-    bool m_hasTransparency = false;
-    QSSGRenderContextInterface *m_renderContext;
-    const QSSGRef<QSSGShaderProgramGeneratorInterface> m_programGenerator;
-
-    QSSGShaderDefaultMaterialKey *m_currentKey = nullptr;
-    QSSGDefaultMaterialVertexPipelineInterface *m_currentPipeline = nullptr;
-    ShaderFeatureSetList m_currentFeatureSet;
-    QVector<QSSGRenderLight *> m_lights;
-    QSSGRenderableImage *m_firstImage = nullptr;
-    QSSGShaderDefaultMaterialKeyProperties m_defaultMaterialShaderKeyProperties;
-    ConstanBufferMap m_constantBuffers; ///< store all constants buffers
-
-
-protected:
-    QSSGMaterialShaderGeneratorInterface(QSSGRenderContextInterface *renderContext);
-public:
-    virtual ~QSSGMaterialShaderGeneratorInterface();
-    struct ImageVariableNames
-    {
-        QByteArray m_imageSampler;
-        QByteArray m_imageFragCoords;
-    };
-
-    virtual ImageVariableNames getImageVariableNames(quint32 inIdx) = 0;
-    virtual void generateImageUVCoordinates(QSSGShaderStageGeneratorInterface &inVertexPipeline,
-                                            quint32 idx,
-                                            quint32 uvSet,
-                                            QSSGRenderableImage &image) = 0;
-
-    // inPipelineName needs to be unique else the shader cache will just return shaders from
-    // different pipelines.
-    virtual QSSGRef<QSSGRenderShaderProgram> generateShader(const QSSGRenderGraphObject &inMaterial,
-                                                                QSSGShaderDefaultMaterialKey inShaderDescription,
-                                                                QSSGShaderStageGeneratorInterface &inVertexPipeline,
-                                                                const ShaderFeatureSetList &inFeatureSet,
-                                                                const QVector<QSSGRenderLight *> &inLights,
-                                                                QSSGRenderableImage *inFirstImage,
-                                                                bool inHasTransparency,
-                                                                const QByteArray &inVertexPipelineName,
-                                                                const QByteArray &inCustomMaterialName = QByteArray()) = 0;
-
-    // Also sets the blend function on the render context.
-    virtual void setMaterialProperties(const QSSGRef<QSSGRenderShaderProgram> &inProgram,
-                                       const QSSGRenderGraphObject &inMaterial,
-                                       const QVector2D &inCameraVec,
-                                       const QMatrix4x4 &inModelViewProjection,
-                                       const QMatrix3x3 &inNormalMatrix,
-                                       const QMatrix4x4 &inGlobalTransform,
-                                       QSSGRenderableImage *inFirstImage,
-                                       float inOpacity,
-                                       const QSSGLayerGlobalRenderProperties &inRenderProperties,
-                                       bool receivesShadows = true) = 0;
-
-    static QSSGRef<QSSGMaterialShaderGeneratorInterface> createCustomMaterialShaderGenerator(QSSGRenderContextInterface *inRenderContext);
-};
 QT_END_NAMESPACE
 
 #endif

@@ -31,7 +31,7 @@
 #include <Qt3DRender/private/qtextureimagedata_p.h>
 #include <Qt3DRender/qtextureimagedata.h>
 
-#include "testpostmanarbiter.h"
+#include "testarbiter.h"
 
 // We need to call QNode::clone which is protected
 // So we sublcass QNode instead of QObject
@@ -59,29 +59,22 @@ private Q_SLOTS:
         QCOMPARE(tid->pixelFormat(), QOpenGLTexture::RGBA);
         QCOMPARE(tid->pixelType(), QOpenGLTexture::UInt8);
         QCOMPARE(tid->isCompressed(), false);
+        QCOMPARE(tid->alignment(), 1);
     }
 
-    void checkCloning_data()
-    {
+    void checkTextureDataUsesFunctor() {
+        Qt3DRender::QTextureImageData *tid = new Qt3DRender::QTextureImageData();
 
+        tid->setLayers(1);
+        tid->setFaces(1);
+        tid->setMipLevels(1);
+        tid->setData({}, [](QByteArray, int, int, int) {
+            return QByteArray("a");
+        }, false);
+
+        QByteArray data = tid->data();
+        QCOMPARE(data.data()[0], 'a');
     }
-
-    void checkCloning()
-    {
-    }
-
-    void checkPropertyUpdates()
-    {
-    }
-/*
-protected:
-
-    Qt3DCore::QNode *doClone() const override
-    {
-        return nullptr;
-    }
-    */
-
 };
 
 QTEST_MAIN(tst_QTextureImageData)

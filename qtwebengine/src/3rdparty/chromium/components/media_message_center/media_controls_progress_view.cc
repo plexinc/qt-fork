@@ -14,6 +14,7 @@
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/flex_layout.h"
 #include "ui/views/layout/flex_layout_types.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/view_class_properties.h"
 
 namespace media_message_center {
@@ -88,11 +89,9 @@ void MediaControlsProgressView::UpdateProgress(
   if (media_position.playback_rate() == 0 && update_progress_timer_.IsRunning())
     update_progress_timer_.Stop();
 
-  base::TimeDelta current_position = media_position.GetPosition();
-  base::TimeDelta duration = media_position.duration();
-
-  double progress = current_position.InSecondsF() / duration.InSecondsF();
-  SetBarProgress(progress);
+  const base::TimeDelta current_position = media_position.GetPosition();
+  const base::TimeDelta duration = media_position.duration();
+  SetBarProgress(current_position / duration);
 
   // Time formatting can't yet represent durations greater than 24 hours in
   // base::DURATION_WIDTH_NUMERIC format.
@@ -194,5 +193,8 @@ void MediaControlsProgressView::HandleSeeking(const gfx::Point& location) {
       static_cast<double>(location_in_bar.x()) / progress_bar_->width();
   seek_callback_.Run(seek_to_progress);
 }
+
+BEGIN_METADATA(MediaControlsProgressView, views::View)
+END_METADATA
 
 }  // namespace media_message_center

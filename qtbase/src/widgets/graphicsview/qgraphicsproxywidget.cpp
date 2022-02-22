@@ -239,6 +239,7 @@ void QGraphicsProxyWidgetPrivate::sendWidgetMouseEvent(QGraphicsSceneHoverEvent 
     mouseEvent.setButton(Qt::NoButton);
     mouseEvent.setButtons({ });
     mouseEvent.setModifiers(event->modifiers());
+    mouseEvent.setTimestamp(event->timestamp());
     sendWidgetMouseEvent(&mouseEvent);
     event->setAccepted(mouseEvent.isAccepted());
 }
@@ -304,6 +305,7 @@ void QGraphicsProxyWidgetPrivate::sendWidgetMouseEvent(QGraphicsSceneMouseEvent 
     QMouseEvent mouseEvent(type, pos, receiver->mapTo(receiver->topLevelWidget(), pos.toPoint()),
                            receiver->mapToGlobal(pos.toPoint()),
                            event->button(), event->buttons(), event->modifiers(), event->source());
+    mouseEvent.setTimestamp(event->timestamp());
 
     QWidget *embeddedMouseGrabberPtr = (QWidget *)embeddedMouseGrabber;
     QApplicationPrivate::sendMouseEvent(receiver, &mouseEvent, alienWidget, widget,
@@ -495,7 +497,7 @@ void QGraphicsProxyWidgetPrivate::embedSubWindow(QWidget *subWin)
 */
 void QGraphicsProxyWidgetPrivate::unembedSubWindow(QWidget *subWin)
 {
-    foreach (QGraphicsItem *child, children) {
+    for (QGraphicsItem *child : qAsConst(children)) {
         if (child->isWidget()) {
             if (QGraphicsProxyWidget *proxy = qobject_cast<QGraphicsProxyWidget *>(static_cast<QGraphicsWidget *>(child))) {
                 if (proxy->widget() == subWin) {
@@ -832,6 +834,10 @@ bool QGraphicsProxyWidget::event(QEvent *event)
         return QGraphicsWidget::event(event);
 
     switch (event->type()) {
+    case QEvent::WindowActivate:
+    case QEvent::WindowDeactivate:
+        QCoreApplication::sendEvent(d->widget, event);
+        break;
     case QEvent::StyleChange:
         // Propagate style changes to the embedded widget.
         if (!d->styleChangeMode) {
@@ -843,7 +849,7 @@ bool QGraphicsProxyWidget::event(QEvent *event)
     case QEvent::FontChange: {
         // Propagate to widget.
         QWidgetPrivate *wd = d->widget->d_func();
-        int mask = d->font.resolve() | d->inheritedFontResolveMask;
+        int mask = d->font.resolveMask() | d->inheritedFontResolveMask;
         wd->inheritedFontResolveMask = mask;
         wd->resolveFont();
         break;
@@ -851,7 +857,7 @@ bool QGraphicsProxyWidget::event(QEvent *event)
     case QEvent::PaletteChange: {
         // Propagate to widget.
         QWidgetPrivate *wd = d->widget->d_func();
-        int mask = d->palette.resolve() | d->inheritedPaletteResolveMask;
+        int mask = d->palette.resolveMask() | d->inheritedPaletteResolveMask;
         wd->inheritedPaletteResolveMask = mask;
         wd->resolvePalette();
         break;
@@ -890,7 +896,7 @@ bool QGraphicsProxyWidget::event(QEvent *event)
         }
         break;
     }
-#ifndef QT_NO_TOOLTIP
+#if QT_CONFIG(tooltip)
     case QEvent::GraphicsSceneHelp: {
         // Propagate the help event (for tooltip) to the widget under mouse
         if (d->lastWidgetUnderMouse) {
@@ -916,16 +922,13 @@ bool QGraphicsProxyWidget::event(QEvent *event)
     case QEvent::TouchBegin:
     case QEvent::TouchUpdate:
     case QEvent::TouchEnd: {
-        if (event->spontaneous())
-            qt_sendSpontaneousEvent(d->widget, event);
-        else
-            QCoreApplication::sendEvent(d->widget, event);
-
-        if (event->isAccepted())
+        QTouchEvent *touchEvent = static_cast<QTouchEvent *>(event);
+        bool res = QApplicationPrivate::translateRawTouchEvent(d->widget, touchEvent);
+        if (res & touchEvent->isAccepted())
             return true;
 
         break;
-   }
+    }
     default:
         break;
     }
@@ -981,7 +984,7 @@ bool QGraphicsProxyWidget::eventFilter(QObject *object, QEvent *event)
                 d->styleChangeMode = QGraphicsProxyWidgetPrivate::NoMode;
             }
             break;
-#ifndef QT_NO_TOOLTIP
+#if QT_CONFIG(tooltip)
         case QEvent::ToolTipChange:
             // Propagate tooltip change to the proxy.
             if (!d->tooltipChangeMode) {
@@ -1044,6 +1047,7 @@ void QGraphicsProxyWidget::contextMenuEvent(QGraphicsSceneContextMenuEvent *even
     // Send mouse event. ### Doesn't propagate the event.
     QContextMenuEvent contextMenuEvent(QContextMenuEvent::Reason(event->reason()),
                                        pos.toPoint(), globalPos, event->modifiers());
+    contextMenuEvent.setTimestamp(event->timestamp());
     QCoreApplication::sendEvent(receiver, &contextMenuEvent);
 
     event->setAccepted(contextMenuEvent.isAccepted());
@@ -1289,6 +1293,19 @@ void QGraphicsProxyWidget::wheelEvent(QGraphicsSceneWheelEvent *event)
     if (!receiver)
         receiver = d->widget;
 
+    // high precision event streams go to the grabber, which will be the
+    // QGraphicsView's viewport. We need to change that temporarily, otherwise
+    // the event we send to the receiver get grabbed by the viewport, resulting
+    // in infinite recursion
+    QPointer<QWidget> prev_grabber = QApplicationPrivate::wheel_widget;
+    if (event->phase() == Qt::ScrollBegin) {
+        QApplicationPrivate::wheel_widget = receiver;
+    } else if (event->phase() != Qt::NoScrollPhase && QApplicationPrivate::wheel_widget != receiver) {
+        // this event is part of a stream that didn't start here, so ignore
+        event->ignore();
+        return;
+    }
+
     // Map event position from us to the receiver
     pos = d->mapToReceiver(pos, receiver);
 
@@ -1300,12 +1317,20 @@ void QGraphicsProxyWidget::wheelEvent(QGraphicsSceneWheelEvent *event)
         angleDelta.setY(event->delta());
     // pixelDelta, inverted, scrollPhase and source from the original QWheelEvent
     // were not preserved in the QGraphicsSceneWheelEvent unfortunately
-    QWheelEvent wheelEvent(pos, event->screenPos(), QPoint(), angleDelta,
-                    event->buttons(), event->modifiers(), Qt::NoScrollPhase, false);
+    QWheelEvent wheelEvent(pos, event->screenPos(), event->pixelDelta(), angleDelta,
+                           event->buttons(), event->modifiers(), event->phase(),
+                           event->isInverted(), Qt::MouseEventSynthesizedByQt,
+                           QPointingDevice::primaryPointingDevice());
     QPointer<QWidget> focusWidget = d->widget->focusWidget();
     extern bool qt_sendSpontaneousEvent(QObject *, QEvent *);
     qt_sendSpontaneousEvent(receiver, &wheelEvent);
     event->setAccepted(wheelEvent.isAccepted());
+
+    if (event->phase() == Qt::ScrollBegin) {
+        // reset the wheel grabber if the event wasn't accepted
+        if (!wheelEvent.isAccepted())
+            QApplicationPrivate::wheel_widget = prev_grabber;
+    }
 
     // ### Remove, this should be done by proper focusIn/focusOut events.
     if (focusWidget && !focusWidget->hasFocus()) {
@@ -1389,6 +1414,11 @@ void QGraphicsProxyWidget::focusInEvent(QFocusEvent *event)
         break;
     }
 
+    // QTBUG-88016
+    if (d->widget && d->widget->focusWidget()
+        && d->widget->focusWidget()->testAttribute(Qt::WA_InputMethodEnabled))
+        QApplication::inputMethod()->reset();
+
     d->proxyIsGivingFocus = false;
 }
 
@@ -1404,8 +1434,14 @@ void QGraphicsProxyWidget::focusOutEvent(QFocusEvent *event)
     if (d->widget) {
         // We need to explicitly remove subfocus from the embedded widget's
         // focus widget.
-        if (QWidget *focusWidget = d->widget->focusWidget())
+        if (QWidget *focusWidget = d->widget->focusWidget()) {
+            // QTBUG-88016 proxyWidget set QTextEdit(QLineEdit etc.) when input preview text,
+            // inputMethod should be reset when proxyWidget lost focus
+            if (focusWidget && focusWidget->testAttribute(Qt::WA_InputMethodEnabled))
+                QApplication::inputMethod()->reset();
+
             d->removeSubFocusHelper(focusWidget, event->reason());
+        }
     }
 }
 
@@ -1539,6 +1575,10 @@ void QGraphicsProxyWidget::paint(QPainter *painter, const QStyleOptionGraphicsIt
     const QRect exposedWidgetRect = (option->exposedRect & rect()).toAlignedRect();
     if (exposedWidgetRect.isEmpty())
         return;
+
+    // When rendering to pdf etc. painting may go outside widget boundaries unless clipped
+    if (painter->device()->devType() != QInternal::Widget && (flags() & ItemClipsChildrenToShape))
+        painter->setClipRect(d->widget->geometry(), Qt::IntersectClip);
 
     d->widget->render(painter, exposedWidgetRect.topLeft(), exposedWidgetRect);
 }

@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 #include <QtCore/QtCore>
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include <math.h>
 
@@ -75,18 +75,14 @@ void NativeMutexUnlock(NativeMutexType *mutex)
 }
 #endif
 #elif defined(Q_OS_WIN)
-#  ifndef Q_OS_WINRT
-#    define _WIN32_WINNT 0x0400
+#  if !defined(_WIN32_WINNT)
+#    define _WIN32_WINNT 0x0A00
 #  endif
 #  include <windows.h>
 typedef CRITICAL_SECTION NativeMutexType;
 void NativeMutexInitialize(NativeMutexType *mutex)
 {
-#ifndef Q_OS_WINRT
     InitializeCriticalSection(mutex);
-#else
-    InitializeCriticalSectionEx(mutex, 0, 0);
-#endif
 }
 void NativeMutexDestroy(NativeMutexType *mutex)
 {
@@ -266,7 +262,8 @@ public:
     NativeMutexThread(NativeMutexType *mutex1, NativeMutexType *mutex2, int iterations, int msleepDuration, bool use2mutexes)
         : mutex1(mutex1), mutex2(mutex2), iterations(iterations), msleepDuration(msleepDuration), use2mutexes(use2mutexes), done(false)
     { }
-    void run() {
+    void run() override
+    {
         forever {
             tst_QMutex::semaphore1.release();
             tst_QMutex::semaphore2.acquire();
@@ -300,7 +297,7 @@ void tst_QMutex::contendedNative()
     NativeMutexInitialize(&mutex1);
     NativeMutexInitialize(&mutex2);
 
-    QVector<NativeMutexThread *> threads(threadCount);
+    QList<NativeMutexThread *> threads(threadCount);
     for (int i = 0; i < threads.count(); ++i) {
         threads[i] = new NativeMutexThread(&mutex1, &mutex2, iterations, msleepDuration, use2mutexes);
         threads[i]->start();
@@ -335,7 +332,8 @@ public:
     QMutexThread(QMutex *mutex1, QMutex *mutex2, int iterations, int msleepDuration, bool use2mutexes)
         : mutex1(mutex1), mutex2(mutex2), iterations(iterations), msleepDuration(msleepDuration), use2mutexes(use2mutexes), done(false)
     { }
-    void run() {
+    void run() override
+    {
         forever {
             tst_QMutex::semaphore1.release();
             tst_QMutex::semaphore2.acquire();
@@ -367,7 +365,7 @@ void tst_QMutex::contendedQMutex()
 
     QMutex mutex1, mutex2;
 
-    QVector<QMutexThread *> threads(threadCount);
+    QList<QMutexThread *> threads(threadCount);
     for (int i = 0; i < threads.count(); ++i) {
         threads[i] = new QMutexThread(&mutex1, &mutex2, iterations, msleepDuration, use2mutexes);
         threads[i]->start();
@@ -399,7 +397,8 @@ public:
     QMutexLockerThread(QMutex *mutex1, QMutex *mutex2, int iterations, int msleepDuration, bool use2mutexes)
         : mutex1(mutex1), mutex2(mutex2), iterations(iterations), msleepDuration(msleepDuration), use2mutexes(use2mutexes), done(false)
     { }
-    void run() {
+    void run() override
+    {
         forever {
             tst_QMutex::semaphore1.release();
             tst_QMutex::semaphore2.acquire();
@@ -429,7 +428,7 @@ void tst_QMutex::contendedQMutexLocker()
 
     QMutex mutex1, mutex2;
 
-    QVector<QMutexLockerThread *> threads(threadCount);
+    QList<QMutexLockerThread *> threads(threadCount);
     for (int i = 0; i < threads.count(); ++i) {
         threads[i] = new QMutexLockerThread(&mutex1, &mutex2, iterations, msleepDuration, use2mutexes);
         threads[i]->start();

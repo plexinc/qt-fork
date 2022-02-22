@@ -80,13 +80,13 @@ static QString escape(const QString &input)
                 || (uc == 0x5F)) {
                 output.append(QChar(uc));
             } else {
-                output.append('%');
+                output.append(u'%');
                 output.append(QLatin1Char(toHexUpper(uc >> 4)));
                 output.append(QLatin1Char(toHexUpper(uc)));
             }
         } else {
-            output.append('%');
-            output.append('u');
+            output.append(u'%');
+            output.append(u'u');
             output.append(QLatin1Char(toHexUpper(uc >> 12)));
             output.append(QLatin1Char(toHexUpper(uc >> 8)));
             output.append(QLatin1Char(toHexUpper(uc >> 4)));
@@ -104,9 +104,9 @@ static QString unescape(const QString &input)
     const int length = input.length();
     while (i < length) {
         QChar c = input.at(i++);
-        if ((c == '%') && (i + 1 < length)) {
+        if ((c == u'%') && (i + 1 < length)) {
             QChar a = input.at(i);
-            if ((a == 'u') && (i + 4 < length)) {
+            if ((a == u'u') && (i + 4 < length)) {
                 int d3 = fromHex(input.at(i+1).unicode());
                 int d2 = fromHex(input.at(i+2).unicode());
                 int d1 = fromHex(input.at(i+3).unicode());
@@ -122,7 +122,7 @@ static QString unescape(const QString &input)
                 int d1 = fromHex(a.unicode());
                 int d0 = fromHex(input.at(i+1).unicode());
                 if ((d1 != -1) && (d0 != -1)) {
-                    c = (d1 << 4) | d0;
+                    c = QChar((d1 << 4) | d0);
                     i += 2;
                 }
                 result.append(c);
@@ -304,7 +304,7 @@ static QString decode(const QString &input, DecodeMode decodeMode, bool *ok)
                         ++r;
                     }
                     if (*r)
-                        output.append(input.midRef(start, i - start + 1));
+                        output.append(QStringView{input}.mid(start, i - start + 1));
                     else
                         output.append(QChar(b));
                 } else {

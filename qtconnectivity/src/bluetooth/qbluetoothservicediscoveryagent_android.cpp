@@ -37,11 +37,11 @@
 **
 ****************************************************************************/
 
+#include <QCoreApplication>
 #include <QtCore/qcoreapplication.h>
 #include <QtCore/QLoggingCategory>
 #include <QtCore/QTimer>
-#include <QtCore/private/qjnihelpers_p.h>
-#include <QtAndroidExtras/QAndroidJniEnvironment>
+#include <QtCore/QJniEnvironment>
 #include <QtBluetooth/QBluetoothHostInfo>
 #include <QtBluetooth/QBluetoothLocalDevice>
 #include <QtBluetooth/QBluetoothServiceDiscoveryAgent>
@@ -85,10 +85,10 @@ QBluetoothServiceDiscoveryAgentPrivate::QBluetoothServiceDiscoveryAgentPrivate(
         }
     }
 
-    if (QtAndroidPrivate::androidSdkVersion() < 15)
+    if (QNativeInterface::QAndroidApplication::sdkVersion() < 15)
         qCWarning(QT_BT_ANDROID)
             << "SDP not supported by Android API below version 15. Detected version: "
-            << QtAndroidPrivate::androidSdkVersion()
+            << QNativeInterface::QAndroidApplication::sdkVersion()
             << "Service discovery will return empty list.";
 
 
@@ -98,7 +98,7 @@ QBluetoothServiceDiscoveryAgentPrivate::QBluetoothServiceDiscoveryAgentPrivate(
     */
 
     if (createAdapter)
-        btAdapter = QAndroidJniObject::callStaticObjectMethod("android/bluetooth/BluetoothAdapter",
+        btAdapter = QJniObject::callStaticObjectMethod("android/bluetooth/BluetoothAdapter",
                                                            "getDefaultAdapter",
                                                            "()Landroid/bluetooth/BluetoothAdapter;");
     if (!btAdapter.isValid())
@@ -136,7 +136,7 @@ void QBluetoothServiceDiscoveryAgentPrivate::start(const QBluetoothAddress &addr
 
         //abort any outstanding discoveries
         discoveredDevices.clear();
-        emit q->error(error);
+        emit q->errorOccurred(error);
         _q_serviceDiscoveryFinished();
 
         return;
@@ -150,7 +150,7 @@ void QBluetoothServiceDiscoveryAgentPrivate::start(const QBluetoothAddress &addr
      *
      * TODO: Use reflection to support getUuuids() where possible.
      * */
-    if (QtAndroidPrivate::androidSdkVersion() < 15) {
+    if (QNativeInterface::QAndroidApplication::sdkVersion() < 15) {
         qCWarning(QT_BT_ANDROID) << "Aborting SDP enquiry due to too low Android API version (requires v15+)";
 
         error = QBluetoothServiceDiscoveryAgent::UnknownError;
@@ -159,21 +159,18 @@ void QBluetoothServiceDiscoveryAgentPrivate::start(const QBluetoothAddress &addr
         //abort any outstanding discoveries
         sdpCache.clear();
         discoveredDevices.clear();
-        emit q->error(error);
+        emit q->errorOccurred(error);
         _q_serviceDiscoveryFinished();
 
         return;
     }
 
-    QAndroidJniObject inputString = QAndroidJniObject::fromString(address.toString());
-    QAndroidJniObject remoteDevice =
+    QJniObject inputString = QJniObject::fromString(address.toString());
+    QJniObject remoteDevice =
             btAdapter.callObjectMethod("getRemoteDevice",
                                                "(Ljava/lang/String;)Landroid/bluetooth/BluetoothDevice;",
                                                inputString.object<jstring>());
-    QAndroidJniEnvironment env;
-    if (env->ExceptionCheck()) {
-        env->ExceptionClear();
-        env->ExceptionDescribe();
+    if (!remoteDevice.isValid()) {
 
         //if it was only device then its error -> otherwise go to next device
         if (singleDevice) {
@@ -182,7 +179,7 @@ void QBluetoothServiceDiscoveryAgentPrivate::start(const QBluetoothAddress &addr
 
             qCWarning(QT_BT_ANDROID) << "Cannot start SDP for" << discoveredDevices.at(0).name()
                                      << "(" << address.toString() << ")";
-            emit q->error(error);
+            emit q->errorOccurred(error);
         }
         _q_serviceDiscoveryFinished();
         return;
@@ -194,14 +191,14 @@ void QBluetoothServiceDiscoveryAgentPrivate::start(const QBluetoothAddress &addr
                                << ")" << address.toString() ;
 
         //Minimal discovery uses BluetoothDevice.getUuids()
-        QAndroidJniObject parcelUuidArray = remoteDevice.callObjectMethod(
+        QJniObject parcelUuidArray = remoteDevice.callObjectMethod(
                     "getUuids", "()[Landroid/os/ParcelUuid;");
 
         if (!parcelUuidArray.isValid()) {
             if (singleDevice) {
                 error = QBluetoothServiceDiscoveryAgent::InputOutputError;
                 errorString = QBluetoothServiceDiscoveryAgent::tr("Cannot obtain service uuids");
-                emit q->error(error);
+                emit q->errorOccurred(error);
             }
             qCWarning(QT_BT_ANDROID) << "Cannot retrieve SDP UUIDs for" << discoveredDevices.at(0).name()
                                      << "(" << address.toString() << ")";
@@ -355,7 +352,7 @@ void QBluetoothServiceDiscoveryAgentPrivate::populateDiscoveredServices(const QB
 
     //find SPP and custom uuid
     bool haveSppClass = false;
-    QVector<int> customUuids;
+    QList<int> customUuids;
 
     for (int i = 0; i < uuids.count(); i++) {
         const QBluetoothUuid uuid = uuids.at(i);
@@ -365,8 +362,7 @@ void QBluetoothServiceDiscoveryAgentPrivate::populateDiscoveredServices(const QB
 
         //check for SPP protocol
         bool ok = false;
-        auto uuid16 = uuid.toUInt16(&ok);
-        haveSppClass |= ok && uuid16 == QBluetoothUuid::SerialPort;
+        haveSppClass |= ok && uuid == QBluetoothUuid::ServiceClassUuid::SerialPort;
 
         //check for custom uuid
         if (uuid.minimumSize() == 16)
@@ -375,7 +371,7 @@ void QBluetoothServiceDiscoveryAgentPrivate::populateDiscoveredServices(const QB
 
     auto rfcommProtocolDescriptorList = []() -> QBluetoothServiceInfo::Sequence {
             QBluetoothServiceInfo::Sequence protocol;
-            protocol << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::Rfcomm))
+            protocol << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::ProtocolUuid::Rfcomm))
                      << QVariant::fromValue(0);
             return protocol;
     };
@@ -383,7 +379,7 @@ void QBluetoothServiceDiscoveryAgentPrivate::populateDiscoveredServices(const QB
     auto sppProfileDescriptorList = []() -> QBluetoothServiceInfo::Sequence {
         QBluetoothServiceInfo::Sequence profileSequence;
         QBluetoothServiceInfo::Sequence classId;
-        classId << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::SerialPort));
+        classId << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::ServiceClassUuid::SerialPort));
         classId << QVariant::fromValue(quint16(0x100));
         profileSequence.append(QVariant::fromValue(classId));
         return profileSequence;
@@ -400,7 +396,7 @@ void QBluetoothServiceDiscoveryAgentPrivate::populateDiscoveredServices(const QB
         QBluetoothServiceInfo::Sequence protocolDescriptorList;
         {
             QBluetoothServiceInfo::Sequence protocol;
-            protocol << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::L2cap));
+            protocol << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::ProtocolUuid::L2cap));
             protocolDescriptorList.append(QVariant::fromValue(protocol));
         }
 
@@ -417,12 +413,12 @@ void QBluetoothServiceDiscoveryAgentPrivate::populateDiscoveredServices(const QB
             QBluetoothServiceInfo::Sequence classId;
             //set SPP service class uuid
             classId << QVariant::fromValue(uuid);
-            classId << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::SerialPort));
+            classId << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::ServiceClassUuid::SerialPort));
             serviceInfo.setAttribute(QBluetoothServiceInfo::ServiceClassIds, classId);
 
             serviceInfo.setServiceName(QBluetoothServiceDiscoveryAgent::tr("Serial Port Profile"));
             serviceInfo.setServiceUuid(uuid);
-        } else if (uuid == QBluetoothUuid{QBluetoothUuid::SerialPort}) {
+        } else if (uuid == QBluetoothUuid{QBluetoothUuid::ServiceClassUuid::SerialPort}) {
             //set rfcomm protocol
             protocolDescriptorList.append(QVariant::fromValue(rfcommProtocolDescriptorList()));
 
@@ -440,7 +436,7 @@ void QBluetoothServiceDiscoveryAgentPrivate::populateDiscoveredServices(const QB
 
         serviceInfo.setAttribute(QBluetoothServiceInfo::ProtocolDescriptorList, protocolDescriptorList);
         QBluetoothServiceInfo::Sequence publicBrowse;
-        publicBrowse << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::PublicBrowseGroup));
+        publicBrowse << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::ServiceClassUuid::PublicBrowseGroup));
         serviceInfo.setAttribute(QBluetoothServiceInfo::BrowseGroupList, publicBrowse);
 
         if (!customUuids.contains(i)) {
@@ -511,7 +507,7 @@ void QBluetoothServiceDiscoveryAgentPrivate::_q_hostModeStateChanged(QBluetoothL
         receiver = nullptr;
 
         Q_Q(QBluetoothServiceDiscoveryAgent);
-        emit q->error(error);
+        emit q->errorOccurred(error);
         _q_serviceDiscoveryFinished();
     }
 }

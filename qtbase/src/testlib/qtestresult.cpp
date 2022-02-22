@@ -57,11 +57,41 @@ QT_BEGIN_NAMESPACE
 
 namespace QTest
 {
+    namespace Internal {
+        static bool failed = false;
+    }
+
+    static void setFailed(bool failed)
+    {
+        static const bool fatalFailure = []() {
+            static const char * const environmentVar = "QTEST_FATAL_FAIL";
+            if (!qEnvironmentVariableIsSet(environmentVar))
+                return false;
+
+            bool ok;
+            const int fatal = qEnvironmentVariableIntValue(environmentVar, &ok);
+            return ok && fatal;
+        }();
+
+        if (failed && fatalFailure)
+            qTerminate();
+        Internal::failed = failed;
+    }
+
+    static void resetFailed()
+    {
+        setFailed(false);
+    }
+
+    static bool hasFailed()
+    {
+        return Internal::failed;
+    }
+
     static QTestData *currentTestData = nullptr;
     static QTestData *currentGlobalTestData = nullptr;
     static const char *currentTestFunc = nullptr;
     static const char *currentTestObjectName = nullptr;
-    static bool failed = false;
     static bool skipCurrentTest = false;
     static bool blacklistCurrentTest = false;
 
@@ -75,7 +105,7 @@ void QTestResult::reset()
     QTest::currentGlobalTestData = nullptr;
     QTest::currentTestFunc = nullptr;
     QTest::currentTestObjectName = nullptr;
-    QTest::failed = false;
+    QTest::resetFailed();
 
     QTest::expectFailComment = nullptr;
     QTest::expectFailMode = 0;
@@ -91,7 +121,7 @@ void QTestResult::setBlacklistCurrentTest(bool b)
 
 bool QTestResult::currentTestFailed()
 {
-    return QTest::failed;
+    return QTest::hasFailed();
 }
 
 QTestData *QTestResult::currentGlobalTestData()
@@ -112,7 +142,7 @@ void QTestResult::setCurrentGlobalTestData(QTestData *data)
 void QTestResult::setCurrentTestData(QTestData *data)
 {
     QTest::currentTestData = data;
-    QTest::failed = false;
+    QTest::resetFailed();
     if (data)
         QTestLog::enterTestData(data);
 }
@@ -120,7 +150,7 @@ void QTestResult::setCurrentTestData(QTestData *data)
 void QTestResult::setCurrentTestFunction(const char *func)
 {
     QTest::currentTestFunc = func;
-    QTest::failed = false;
+    QTest::resetFailed();
     if (func)
         QTestLog::enterTestFunction(func);
 }
@@ -132,38 +162,78 @@ static void clearExpectFail()
     QTest::expectFailComment = nullptr;
 }
 
+/*!
+    This function is called after completing each test function,
+    including test functions that are not data-driven.
+
+    For data-driven functions, this is called after each call to the test
+    function, with distinct data. Otherwise, this function is called once,
+    with currentTestData() and currentGlobalTestData() set to \nullptr.
+
+    The function is called before the test's cleanup(), if it has one.
+
+    For benchmarks, this will be called after each repeat of a function
+    (with the same data row), when the benchmarking code decides to
+    re-run one to get sufficient data.
+
+    \sa finishedCurrentTestDataCleanup()
+*/
 void QTestResult::finishedCurrentTestData()
 {
     if (QTest::expectFailMode)
-        addFailure("QEXPECT_FAIL was called without any subsequent verification statements", nullptr, 0);
+        addFailure("QEXPECT_FAIL was called without any subsequent verification statements");
+
     clearExpectFail();
 
-    if (!QTest::failed && QTestLog::unhandledIgnoreMessages()) {
+    if (!QTest::hasFailed() && QTestLog::unhandledIgnoreMessages()) {
         QTestLog::printUnhandledIgnoreMessages();
-        addFailure("Not all expected messages were received", nullptr, 0);
+        addFailure("Not all expected messages were received");
     }
     QTestLog::clearIgnoreMessages();
 }
 
+/*!
+    This function is called after completing each test function,
+    including test functions that are not data-driven.
+
+    For data-driven functions, this is called after each call to the test
+    function, with distinct data. Otherwise, this function is called once,
+    with currentTestData() and currentGlobalTestData() set to \nullptr.
+
+    The function is called after the test's cleanup(), if it has one.
+
+    For benchmarks, this is called after all repeat calls to the function
+    (with a given data row).
+
+    \sa finishedCurrentTestData()
+*/
 void QTestResult::finishedCurrentTestDataCleanup()
 {
     // If the current test hasn't failed or been skipped, then it passes.
-    if (!QTest::failed && !QTest::skipCurrentTest) {
+    if (!QTest::hasFailed() && !QTest::skipCurrentTest) {
         if (QTest::blacklistCurrentTest)
             QTestLog::addBPass("");
         else
             QTestLog::addPass("");
     }
 
-    QTest::failed = false;
+    QTest::resetFailed();
 }
 
+/*!
+    This function is called after completing each test function,
+    including test functions that are data-driven.
+
+    For data-driven functions, this is called after after all data rows
+    have been tested, and the data table has been cleared, so both
+    currentTestData() and currentGlobalTestData() will be \nullptr.
+*/
 void QTestResult::finishedCurrentTestFunction()
 {
-    QTest::currentTestFunc = nullptr;
-    QTest::failed = false;
-
     QTestLog::leaveTestFunction();
+
+    QTest::currentTestFunc = nullptr;
+    QTest::resetFailed();
 }
 
 const char *QTestResult::currentTestFunction()
@@ -224,7 +294,7 @@ static bool checkStatement(bool statement, const char *msg, const char *file, in
             else
                 QTestLog::addXPass(msg, file, line);
 
-            QTest::failed = true;
+            QTest::setFailed(true);
             bool doContinue = (QTest::expectFailMode == QTest::Continue);
             clearExpectFail();
             return doContinue;
@@ -383,6 +453,16 @@ bool QTestResult::compare(bool success, const char *failureMsg,
     return compareHelper(success, failureMsg, val1, val2, actual, expected, file, line);
 }
 
+#if QT_POINTER_SIZE == 8
+bool QTestResult::compare(bool success, const char *failureMsg,
+                          qsizetype val1, qsizetype val2,
+                          const char *actual, const char *expected,
+                          const char *file, int line)
+{
+    return compareHelper(success, failureMsg, val1, val2, actual, expected, file, line);
+}
+#endif // QT_POINTER_SIZE == 8
+
 bool QTestResult::compare(bool success, const char *failureMsg,
                           unsigned val1, unsigned val2,
                           const char *actual, const char *expected,
@@ -423,7 +503,7 @@ void QTestResult::addFailure(const char *message, const char *file, int line)
         QTestLog::addBFail(message, file, line);
     else
         QTestLog::addFail(message, file, line);
-    QTest::failed = true;
+    QTest::setFailed(true);
 }
 
 void QTestResult::addSkip(const char *message, const char *file, int line)

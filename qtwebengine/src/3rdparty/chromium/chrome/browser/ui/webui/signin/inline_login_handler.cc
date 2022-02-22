@@ -15,15 +15,15 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/signin_promo.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_navigator_params.h"
-#include "chrome/browser/ui/user_manager.h"
+#include "chrome/browser/ui/profile_picker.h"
 #include "chrome/browser/ui/webui/signin/signin_utils.h"
-#include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
 #include "components/metrics/metrics_pref_names.h"
 #include "components/prefs/pref_service.h"
@@ -38,9 +38,9 @@
 const char kSignInPromoQueryKeyShowAccountManagement[] =
     "showAccountManagement";
 
-InlineLoginHandler::InlineLoginHandler() {}
+InlineLoginHandler::InlineLoginHandler() = default;
 
-InlineLoginHandler::~InlineLoginHandler() {}
+InlineLoginHandler::~InlineLoginHandler() = default;
 
 void InlineLoginHandler::RegisterMessages() {
   web_ui()->RegisterMessageCallback(
@@ -60,12 +60,12 @@ void InlineLoginHandler::RegisterMessages() {
       base::BindRepeating(&InlineLoginHandler::HandleSwitchToFullTabMessage,
                           base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
-      "navigationButtonClicked",
-      base::BindRepeating(&InlineLoginHandler::HandleNavigationButtonClicked,
-                          base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
       "dialogClose", base::BindRepeating(&InlineLoginHandler::HandleDialogClose,
                                          base::Unretained(this)));
+}
+
+void InlineLoginHandler::OnJavascriptDisallowed() {
+  weak_ptr_factory_.InvalidateWeakPtrs();
 }
 
 void InlineLoginHandler::HandleInitializeMessage(const base::ListValue* args) {
@@ -86,12 +86,10 @@ void InlineLoginHandler::HandleInitializeMessage(const base::ListValue* args) {
         value == "0") {
       partition->ClearData(
           content::StoragePartition::REMOVE_DATA_MASK_ALL,
-          content::StoragePartition::QUOTA_MANAGED_STORAGE_MASK_ALL,
-          GURL(),
-          base::Time(),
-          base::Time::Max(),
-          base::Bind(&InlineLoginHandler::ContinueHandleInitializeMessage,
-                     weak_ptr_factory_.GetWeakPtr()));
+          content::StoragePartition::QUOTA_MANAGED_STORAGE_MASK_ALL, GURL(),
+          base::Time(), base::Time::Max(),
+          base::BindOnce(&InlineLoginHandler::ContinueHandleInitializeMessage,
+                         weak_ptr_factory_.GetWeakPtr()));
     } else {
       ContinueHandleInitializeMessage();
     }
@@ -172,8 +170,8 @@ void InlineLoginHandler::HandleCompleteLoginMessage(
 
 void InlineLoginHandler::HandleCompleteLoginMessageWithCookies(
     const base::ListValue& args,
-    const net::CookieStatusList& cookies,
-    const net::CookieStatusList& excluded_cookies) {
+    const net::CookieAccessResultList& cookies,
+    const net::CookieAccessResultList& excluded_cookies) {
   const base::Value& dict = args.GetList()[0];
 
   const std::string& email = dict.FindKey("email")->GetString();
@@ -181,9 +179,9 @@ void InlineLoginHandler::HandleCompleteLoginMessageWithCookies(
   const std::string& gaia_id = dict.FindKey("gaiaId")->GetString();
 
   std::string auth_code;
-  for (const auto& cookie_with_status : cookies) {
-    if (cookie_with_status.cookie.Name() == "oauth_code")
-      auth_code = cookie_with_status.cookie.Value();
+  for (const auto& cookie_with_access_result : cookies) {
+    if (cookie_with_access_result.cookie.Name() == "oauth_code")
+      auth_code = cookie_with_access_result.cookie.Value();
   }
 
   bool skip_for_now = dict.FindBoolKey("skipForNow").value_or(false);
@@ -235,21 +233,11 @@ void InlineLoginHandler::HandleSwitchToFullTabMessage(
   CloseDialogFromJavascript();
 }
 
-void InlineLoginHandler::HandleNavigationButtonClicked(
-    const base::ListValue* args) {
-#if !defined(OS_CHROMEOS)
-  NOTREACHED() << "The inline login handler is no longer used in a browser "
-                  "or tab modal dialog.";
-#else
-  FireWebUIListener("navigate-back-in-webview");
-#endif
-}
-
 void InlineLoginHandler::HandleDialogClose(const base::ListValue* args) {
-#if !defined(OS_CHROMEOS)
-  // Does nothing if user manager is not showing.
-  UserManagerProfileDialog::HideDialog();
-#endif  // !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
+  // Does nothing if profile picker is not showing.
+  ProfilePickerForceSigninDialog::HideDialog();
+#endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
 }
 
 void InlineLoginHandler::CloseDialogFromJavascript() {

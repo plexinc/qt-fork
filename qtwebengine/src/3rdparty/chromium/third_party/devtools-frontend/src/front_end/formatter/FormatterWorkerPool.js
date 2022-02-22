@@ -3,24 +3,38 @@
 // found in the LICENSE file.
 
 import * as Common from '../common/common.js';
+import * as FormatterActions from '../formatter_worker/FormatterActions.js';  // eslint-disable-line rulesdir/es_modules_import
 
-const MaxWorkers = 2;
+const MAX_WORKERS = Math.min(2, navigator.hardwareConcurrency - 1);
 
-/**
- * @unrestricted
- */
+/** @type {!FormatterWorkerPool} */
+let formatterWorkerPoolInstance;
+
 export class FormatterWorkerPool {
   constructor() {
+    /** @type {!Array<!Task>} */
     this._taskQueue = [];
     /** @type {!Map<!Common.Worker.WorkerWrapper, ?Task>} */
     this._workerTasks = new Map();
   }
 
   /**
+   * @return {!FormatterWorkerPool}
+   */
+  static instance() {
+    if (!formatterWorkerPoolInstance) {
+      formatterWorkerPoolInstance = new FormatterWorkerPool();
+    }
+
+    return formatterWorkerPoolInstance;
+  }
+
+  /**
    * @return {!Common.Worker.WorkerWrapper}
    */
   _createWorker() {
-    const worker = new Common.Worker.WorkerWrapper('formatter_worker_entrypoint');
+    const worker = Common.Worker.WorkerWrapper.fromURL(
+        new URL('../formatter_worker/formatter_worker-entrypoint.js', import.meta.url));
     worker.onmessage = this._onWorkerMessage.bind(this, worker);
     worker.onerror = this._onWorkerError.bind(this, worker);
     return worker;
@@ -32,7 +46,7 @@ export class FormatterWorkerPool {
     }
 
     let freeWorker = [...this._workerTasks.keys()].find(worker => !this._workerTasks.get(worker));
-    if (!freeWorker && this._workerTasks.size < MaxWorkers) {
+    if (!freeWorker && this._workerTasks.size < MAX_WORKERS) {
       freeWorker = this._createWorker();
     }
     if (!freeWorker) {
@@ -40,8 +54,10 @@ export class FormatterWorkerPool {
     }
 
     const task = this._taskQueue.shift();
-    this._workerTasks.set(freeWorker, task);
-    freeWorker.postMessage({method: task.method, params: task.params});
+    if (task) {
+      this._workerTasks.set(freeWorker, task);
+      freeWorker.postMessage({method: task.method, params: task.params});
+    }
   }
 
   /**
@@ -50,6 +66,9 @@ export class FormatterWorkerPool {
    */
   _onWorkerMessage(worker, event) {
     const task = this._workerTasks.get(worker);
+    if (!task) {
+      return;
+    }
     if (task.isChunked && event.data && !event.data['isLastChunk']) {
       task.callback(event.data);
       return;
@@ -73,13 +92,15 @@ export class FormatterWorkerPool {
     const newWorker = this._createWorker();
     this._workerTasks.set(newWorker, null);
     this._processNextTask();
-    task.callback(null);
+    if (task) {
+      task.callback(null);
+    }
   }
 
   /**
    * @param {string} methodName
    * @param {!Object<string, string>} params
-   * @param {function(boolean, *)} callback
+   * @param {function(boolean, *):void} callback
    */
   _runChunkedTask(methodName, params, callback) {
     const task = new Task(methodName, params, onData, true);
@@ -94,40 +115,23 @@ export class FormatterWorkerPool {
         callback(true, null);
         return;
       }
-      const isLastChunk = !!data['isLastChunk'];
-      const chunk = data['chunk'];
+      const isLastChunk = 'isLastChunk' in data && Boolean(data['isLastChunk']);
+      const chunk = 'chunk' in data && data['chunk'];
       callback(isLastChunk, chunk);
     }
   }
 
   /**
-   * @param {string} methodName
+   * @param {!FormatterActions.FormatterActions} methodName
    * @param {!Object<string, string>} params
    * @return {!Promise<*>}
    */
   _runTask(methodName, params) {
-    let callback;
-    const promise = new Promise(fulfill => callback = fulfill);
-    const task = new Task(methodName, params, callback, false);
-    this._taskQueue.push(task);
-    this._processNextTask();
-    return promise;
-  }
-
-  /**
-   * @param {string} content
-   * @return {!Promise<*>}
-   */
-  parseJSONRelaxed(content) {
-    return this._runTask('parseJSONRelaxed', {content: content});
-  }
-
-  /**
-   * @param {string} content
-   * @return {!Promise<!Array<!SCSSRule>>}
-   */
-  parseSCSS(content) {
-    return this._runTask('parseSCSS', {content: content}).then(rules => rules || []);
+    return new Promise(resolve => {
+      const task = new Task(methodName, params, resolve, false);
+      this._taskQueue.push(task);
+      this._processNextTask();
+    });
   }
 
   /**
@@ -138,7 +142,7 @@ export class FormatterWorkerPool {
    */
   format(mimeType, content, indentString) {
     const parameters = {mimeType: mimeType, content: content, indentString: indentString};
-    return /** @type {!Promise<!FormatResult>} */ (this._runTask('format', parameters));
+    return /** @type {!Promise<!FormatResult>} */ (this._runTask(FormatterActions.FormatterActions.FORMAT, parameters));
   }
 
   /**
@@ -146,7 +150,8 @@ export class FormatterWorkerPool {
    * @return {!Promise<!Array<!{name: string, offset: number}>>}
    */
   javaScriptIdentifiers(content) {
-    return this._runTask('javaScriptIdentifiers', {content: content}).then(ids => ids || []);
+    return this._runTask(FormatterActions.FormatterActions.JAVASCRIPT_IDENTIFIERS, {content: content})
+        .then(ids => ids || []);
   }
 
   /**
@@ -154,15 +159,16 @@ export class FormatterWorkerPool {
    * @return {!Promise<string>}
    */
   evaluatableJavaScriptSubstring(content) {
-    return this._runTask('evaluatableJavaScriptSubstring', {content: content}).then(text => text || '');
+    return this._runTask(FormatterActions.FormatterActions.EVALUATE_JAVASCRIPT_SUBSTRING, {content: content})
+        .then(text => text || '');
   }
 
   /**
    * @param {string} content
-   * @param {function(boolean, !Array<!CSSRule>)} callback
+   * @param {function(boolean, !Array<!CSSRule>):void} callback
    */
   parseCSS(content, callback) {
-    this._runChunkedTask('parseCSS', {content: content}, onDataChunk);
+    this._runChunkedTask(FormatterActions.FormatterActions.PARSE_CSS, {content: content}, onDataChunk);
 
     /**
      * @param {boolean} isLastChunk
@@ -176,10 +182,10 @@ export class FormatterWorkerPool {
 
   /**
    * @param {string} content
-   * @param {function(boolean, !Array<!JSOutlineItem>)} callback
+   * @param {function(boolean, !Array<!JSOutlineItem>):void} callback
    */
   javaScriptOutline(content, callback) {
-    this._runChunkedTask('javaScriptOutline', {content: content}, onDataChunk);
+    this._runChunkedTask(FormatterActions.FormatterActions.JAVASCRIPT_OUTLINE, {content: content}, onDataChunk);
 
     /**
      * @param {boolean} isLastChunk
@@ -194,7 +200,7 @@ export class FormatterWorkerPool {
   /**
    * @param {string} content
    * @param {string} mimeType
-   * @param {function(boolean, !Array<!OutlineItem>)} callback
+   * @param {function(boolean, !Array<!OutlineItem>):void} callback
    * @return {boolean}
    */
   outlineForMimetype(content, mimeType, callback) {
@@ -224,10 +230,10 @@ export class FormatterWorkerPool {
      * @param {!Array<!CSSRule>} rules
      */
     function cssCallback(isLastChunk, rules) {
-      callback(
-          isLastChunk,
-          rules.map(
-              rule => ({line: rule.lineNumber, column: rule.columnNumber, title: rule.selectorText || rule.atRule})));
+      callback(isLastChunk, rules.map(rule => {
+        const title = 'selectorText' in rule ? rule.selectorText : rule.atRule;
+        return {line: rule.lineNumber, subtitle: undefined, column: rule.columnNumber, title};
+      }));
     }
   }
 
@@ -236,7 +242,8 @@ export class FormatterWorkerPool {
    * @return {!Promise<?string>}
    */
   findLastExpression(content) {
-    return /** @type {!Promise<?string>} */ (this._runTask('findLastExpression', {content}));
+    return /** @type {!Promise<?string>} */ (
+        this._runTask(FormatterActions.FormatterActions.FIND_LAST_EXPRESSION, {content}));
   }
 
   /**
@@ -245,7 +252,7 @@ export class FormatterWorkerPool {
    */
   findLastFunctionCall(content) {
     return /** @type {!Promise<?{baseExpression: string, receiver: string, argumentIndex: number, functionName: string}>} */ (
-        this._runTask('findLastFunctionCall', {content}));
+        this._runTask(FormatterActions.FormatterActions.FIND_LAST_FUNCTION_CALL, {content}));
   }
 
   /**
@@ -253,18 +260,16 @@ export class FormatterWorkerPool {
    * @return {!Promise<!Array<string>>}
    */
   argumentsList(content) {
-    return /** @type {!Promise<!Array<string>>} */ (this._runTask('argumentsList', {content}));
+    return /** @type {!Promise<!Array<string>>} */ (
+        this._runTask(FormatterActions.FormatterActions.ARGUMENTS_LIST, {content}));
   }
 }
 
-/**
- * @unrestricted
- */
 class Task {
   /**
    * @param {string} method
    * @param {!Object<string, string>} params
-   * @param {function(?MessageEvent)} callback
+   * @param {function(?MessageEvent):void} callback
    * @param {boolean=} isChunked
    */
   constructor(method, params, callback, isChunked) {
@@ -317,22 +322,6 @@ class CSSProperty {
 }
 
 // eslint-disable-next-line no-unused-vars
-class CSSStyleRule {
-  constructor() {
-    /** @type {string} */
-    this.selectorText;
-    /** @type {!TextRange} */
-    this.styleRange;
-    /** @type {number} */
-    this.lineNumber;
-    /** @type {number} */
-    this.columnNumber;
-    /** @type {!Array.<!CSSProperty>} */
-    this.properties;
-  }
-}
-
-// eslint-disable-next-line no-unused-vars
 class SCSSProperty {
   constructor() {
     /** @type {!TextRange} */
@@ -362,29 +351,35 @@ class SCSSRule {
  * @return {!FormatterWorkerPool}
  */
 export function formatterWorkerPool() {
-  if (!Formatter._formatterWorkerPool) {
-    Formatter._formatterWorkerPool = new FormatterWorkerPool();
-  }
-  return Formatter._formatterWorkerPool;
+  return FormatterWorkerPool.instance();
 }
 
 /** @typedef {{line: number, column: number, title: string, subtitle: (string|undefined) }} */
+// @ts-ignore typedef
 export let OutlineItem;
 
 /** @typedef {{original: !Array<number>, formatted: !Array<number>}} */
+// @ts-ignore typedef
 export let FormatMapping;
+
+/** @typedef {{selectorText: string, styleRange: !TextRange, lineNumber: number, columnNumber: number, properties: !Array<!CSSProperty>}} */
+// @ts-ignore typedef
+export let CSSStyleRule;
 
 /**
  * @typedef {{atRule: string, lineNumber: number, columnNumber: number}}
  */
+// @ts-ignore typedef
 export let CSSAtRule;
 
 /**
  * @typedef {(CSSStyleRule|CSSAtRule)}
  */
+// @ts-ignore typedef
 export let CSSRule;
 
 /**
  * @typedef {{startLine: number, startColumn: number, endLine: number, endColumn: number}}
  */
+// @ts-ignore typedef
 export let TextRange;

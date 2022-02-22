@@ -19,11 +19,23 @@ class PrefService;
 class GURL;
 
 namespace prefs {
+// A list of times at which CSD pings were sent.
+extern const char kSafeBrowsingCsdPingTimestamps[];
+
 // Boolean that is true when SafeBrowsing is enabled.
 extern const char kSafeBrowsingEnabled[];
 
 // Boolean that is true when Safe Browsing Enhanced Protection is enabled.
 extern const char kSafeBrowsingEnhanced[];
+
+// Integer indicating the state of real time URL check. This is managed
+// by enterprise policy and has no effect on users who are not managed by
+// enterprise policy.
+extern const char kSafeBrowsingEnterpriseRealTimeUrlCheckMode[];
+
+// Integer indicating the scope at which the
+// kSafeBrowsingEnterpriseRealTimeUrlCheckMode pref is set.
+extern const char kSafeBrowsingEnterpriseRealTimeUrlCheckScope[];
 
 // Boolean that tells us whether users are given the option to opt in to Safe
 // Browsing extended reporting. This is exposed as a preference that can be
@@ -64,7 +76,7 @@ extern const char kSafeBrowsingNextPasswordCaptureEventLogTime[];
 // List of domains where Safe Browsing should trust. That means Safe Browsing
 // won't check for malware/phishing/Uws on resources on these domains, or
 // trigger warnings. Used for enterprise only.
-extern const char kSafeBrowsingWhitelistDomains[];
+extern const char kSafeBrowsingAllowlistDomains[];
 
 // String indicating the URL where password protection service should send user
 // to change their password if they've been phished. Password protection service
@@ -87,50 +99,17 @@ extern const char kPasswordProtectionWarningTrigger[];
 // microseconds);
 extern const char kAdvancedProtectionLastRefreshInUs[];
 
-// Whether or not to send downloads to Safe Browsing for deep scanning. This
-// is configured by enterprise policy.
-extern const char kSafeBrowsingSendFilesForMalwareCheck[];
-
-// Boolean that indidicates if Chrome reports unsafe events to Google.
-extern const char kUnsafeEventsReportingEnabled[];
-
-// Integer that specifies if large files are blocked form either uploads or
-// downloads or both.
-extern const char kBlockLargeFileTransfer[];
-
-// Integer that specifies if delivery to the user of potentially unsafe data
-// is delayed until a verdict about the data is known.
-extern const char kDelayDeliveryUntilVerdict[];
-
-// Integer that specifies if password protected files can be either uploaded
-// or downloaded or both.
-extern const char kAllowPasswordProtectedFiles[];
-
-// Integer that indicates if Chrome checks data for content compliance.
-extern const char kCheckContentCompliance[];
-
-// Integer that indicates if Chrome blocks data that cannot be checked for
-// content compliance due to unsupported filetypes.
-extern const char kBlockUnsupportedFiletypes[];
-
-// List of url patterns where Chrome should check compliance of downloaded
-// files.
-extern const char kURLsToCheckComplianceOfDownloadedContent[];
-
-// List of url patterns where Chrome should check for malware of uploaded files.
-extern const char kURLsToCheckForMalwareOfUploadedContent[];
-
-// List of url patterns where Chrome should not check for malware downloaded
-// files.
-extern const char kURLsToNotCheckForMalwareOfDownloadedContent[];
-
-// List of url patterns where Chrome should not check compliance of uploaded
-// files.
-extern const char kURLsToNotCheckComplianceOfUploadedContent[];
-
 // Boolean that indicates if Chrome is allowed to provide extra
 // features to users enrolled in the Advanced Protection Program.
 extern const char kAdvancedProtectionAllowed[];
+
+// Integer epoch timestamp in seconds. Indicates the last logging time of Safe
+// Browsing metrics.
+extern const char kSafeBrowsingMetricsLastLogTime[];
+
+// A dictionary of Safe Browsing events and their corresponding timestamps.
+// Used for logging metrics. Structure: go/sb-event-ts-pref-struct.
+extern const char kSafeBrowsingEventTimestamps[];
 
 }  // namespace prefs
 
@@ -171,7 +150,6 @@ enum PasswordProtectionTrigger {
   // Password protection is off.
   PASSWORD_PROTECTION_OFF = 0,
   // Password protection triggered by password reuse event.
-  // Not used for now.
   PASSWORD_REUSE = 1,
   // Password protection triggered by password reuse event on phishing page.
   PHISHING_REUSE = 2,
@@ -179,64 +157,11 @@ enum PasswordProtectionTrigger {
   PASSWORD_PROTECTION_TRIGGER_MAX,
 };
 
-// Enum representing possible values of the SendFilesForMalwareCheck policy.
-// This must be kept in sync with policy_templates.json.
-enum SendFilesForMalwareCheckValues {
-  DO_NOT_SCAN = 0,
-  SEND_DOWNLOADS = 2,
-  SEND_UPLOADS = 3,
-  SEND_UPLOADS_AND_DOWNLOADS = 4,
-  // New options must be added before SEND_FILES_FOR_MALWARE_CHECK_MAX.
-  SEND_FILES_FOR_MALWARE_CHECK_MAX = SEND_UPLOADS_AND_DOWNLOADS,
-};
-
-// Enum representing possible values of the CheckContentCompliance policy. This
-// must be kept in sync with policy_templates.json.
-enum CheckContentComplianceValues {
-  CHECK_NONE = 0,
-  CHECK_DOWNLOADS = 1,
-  CHECK_UPLOADS = 2,
-  CHECK_UPLOADS_AND_DOWNLOADS = 3,
-  // New options must be added before CHECK_CONTENT_COMPLIANCE_MAX.
-  CHECK_CONTENT_COMPLIANCE_MAX = CHECK_UPLOADS_AND_DOWNLOADS,
-};
-
-// Enum representing possible values of the BlockUnsupportedFiletypes policy.
-// This must be kept in sync with policy_templates.json.
-enum BlockUnsupportedFiletypesValues {
-  BLOCK_UNSUPPORTED_FILETYPES_NONE = 0,
-  BLOCK_UNSUPPORTED_FILETYPES_DOWNLOADS = 1,
-  BLOCK_UNSUPPORTED_FILETYPES_UPLOADS = 2,
-  BLOCK_UNSUPPORTED_FILETYPES_UPLOADS_AND_DOWNLOADS = 3,
-};
-
-// Enum representing possible values of the AllowPasswordProtectedFiles policy.
-// This must be kept in sync with policy_templates.json.
-enum AllowPasswordProtectedFilesValues {
-  ALLOW_NONE = 0,
-  ALLOW_DOWNLOADS = 1,
-  ALLOW_UPLOADS = 2,
-  ALLOW_UPLOADS_AND_DOWNLOADS = 3,
-};
-
-// Enum representing possible values of the BlockLargeFileTransfer policy. This
-// must be kept in sync with policy_templates.json.
-enum BlockLargeFileTransferValues {
-  BLOCK_NONE = 0,
-  BLOCK_LARGE_DOWNLOADS = 1,
-  BLOCK_LARGE_UPLOADS = 2,
-  BLOCK_LARGE_UPLOADS_AND_DOWNLOADS = 3,
-};
-
-// Enum representing possible values of the DelayDeliveryUntilVerdict policy.
-// This must be kept in sync with policy_templates.json.
-enum DelayDeliveryUntilVerdictValues {
-  DELAY_NONE = 0,
-  DELAY_DOWNLOADS = 1,
-  DELAY_UPLOADS = 2,
-  DELAY_UPLOADS_AND_DOWNLOADS = 3,
-};
-
+// Enum representing possible values of the Safe Browsing state.
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+// A Java counterpart will be generated for this enum.
+// GENERATED_JAVA_ENUM_PACKAGE: org.chromium.chrome.browser.safe_browsing
 enum SafeBrowsingState {
   // The user is not opted into Safe Browsing.
   NO_SAFE_BROWSING = 0,
@@ -244,9 +169,18 @@ enum SafeBrowsingState {
   STANDARD_PROTECTION = 1,
   // The user selected enhanced protection.
   ENHANCED_PROTECTION = 2,
+
+  kMaxValue = ENHANCED_PROTECTION,
+};
+
+enum EnterpriseRealTimeUrlCheckMode {
+  REAL_TIME_CHECK_DISABLED = 0,
+  REAL_TIME_CHECK_FOR_MAINFRAME_ENABLED = 1,
 };
 
 SafeBrowsingState GetSafeBrowsingState(const PrefService& prefs);
+
+void SetSafeBrowsingState(PrefService* prefs, SafeBrowsingState state);
 
 // Returns whether Safe Browsing is enabled for the user.
 bool IsSafeBrowsingEnabled(const PrefService& prefs);
@@ -277,6 +211,14 @@ bool IsExtendedReportingEnabled(const PrefService& prefs);
 // enterprise policy, meaning the user can't change it.
 bool IsExtendedReportingPolicyManaged(const PrefService& prefs);
 
+// Return whether the Safe Browsing preference is managed. It can be managed by
+// either the SafeBrowsingEnabled policy(legacy) or the
+// SafeBrowsingProtectionLevel policy(new).
+bool IsSafeBrowsingPolicyManaged(const PrefService& prefs);
+
+// Returns whether enhanced protection message is enabled in interstitials.
+bool IsEnhancedProtectionMessageInInterstitialsEnabled();
+
 // Updates UMA metrics about Safe Browsing Extended Reporting states.
 void RecordExtendedReportingMetrics(const PrefService& prefs);
 
@@ -294,11 +236,17 @@ void SetExtendedReportingPrefAndMetric(PrefService* prefs,
                                        ExtendedReportingOptInLocation location);
 
 // This variant is used to simplify test code by omitting the location.
-void SetExtendedReportingPref(PrefService* prefs, bool value);
+void SetExtendedReportingPrefForTests(PrefService* prefs, bool value);
 
 // Sets the currently active Safe Browsing Enhanced Protection to the specified
 // value.
+void SetEnhancedProtectionPrefForTests(PrefService* prefs, bool value);
+
+// Set prefs to enable Safe Browsing Enhanced Protection.
 void SetEnhancedProtectionPref(PrefService* prefs, bool value);
+
+// Set prefs to enable Safe Browsing Standard Protection.
+void SetStandardProtectionPref(PrefService* prefs, bool value);
 
 // Called when a security interstitial is closed by the user.
 // |on_show_pref_existed| indicates whether the pref existed when the
@@ -319,7 +267,7 @@ void UpdatePrefsBeforeSecurityInterstitial(PrefService* prefs);
 base::ListValue GetSafeBrowsingPreferencesList(PrefService* prefs);
 
 // Returns a list of valid domains that Safe Browsing service trusts.
-void GetSafeBrowsingWhitelistDomainsPref(
+void GetSafeBrowsingAllowlistDomainsPref(
     const PrefService& prefs,
     std::vector<std::string>* out_canonicalized_domain_list);
 
@@ -328,16 +276,27 @@ void CanonicalizeDomainList(
     const base::ListValue& raw_domain_list,
     std::vector<std::string>* out_canonicalized_domain_list);
 
-// Helper function to determine if |url| matches Safe Browsing whitelist domains
-// (a.k. a prefs::kSafeBrowsingWhitelistDomains).
+// Helper function to determine if |url| matches Safe Browsing allowlist domains
+// (a.k. a prefs::kSafeBrowsingAllowlistDomains).
 // Called on IO thread.
-bool IsURLWhitelistedByPolicy(const GURL& url,
+bool IsURLAllowlistedByPolicy(const GURL& url,
                               StringListPrefMember* pref_member);
 
-// Helper function to determine if |url| matches Safe Browsing whitelist domains
-// (a.k. a prefs::kSafeBrowsingWhitelistDomains).
+// Helper function to determine if |url| matches Safe Browsing allowlist domains
+// (a.k. a prefs::kSafeBrowsingAllowlistDomains).
 // Called on UI thread.
-bool IsURLWhitelistedByPolicy(const GURL& url, const PrefService& pref);
+bool IsURLAllowlistedByPolicy(const GURL& url, const PrefService& pref);
+
+// Helper function to get a list of Safe Browsing allowlist domains
+// (a.k. a prefs::kSafeBrowsingAllowlistDomains).
+// Called on UI thread.
+std::vector<std::string> GetURLAllowlistByPolicy(PrefService* pref_service);
+
+// Helper function to determine if any entry on the |url_chain| matches Safe
+// Browsing allowlist domains.
+// Called on UI thread.
+bool MatchesEnterpriseAllowlist(const PrefService& pref,
+                                const std::vector<GURL>& url_chain);
 
 // Helper function to get the pref value of password protection login URLs.
 void GetPasswordProtectionLoginURLsPref(const PrefService& prefs,

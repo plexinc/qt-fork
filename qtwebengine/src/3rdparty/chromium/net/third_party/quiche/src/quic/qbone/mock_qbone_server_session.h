@@ -5,8 +5,8 @@
 #ifndef QUICHE_QUIC_QBONE_MOCK_QBONE_SERVER_SESSION_H_
 #define QUICHE_QUIC_QBONE_MOCK_QBONE_SERVER_SESSION_H_
 
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/qbone/qbone_server_session.h"
+#include "quic/platform/api/quic_test.h"
+#include "quic/qbone/qbone_server_session.h"
 
 namespace quic {
 
@@ -25,10 +25,10 @@ class MockQboneServerSession : public QboneServerSession {
                            /*client_ip_subnet_length=*/0,
                            /*handler=*/nullptr) {}
 
-  MOCK_METHOD1(SendClientRequest, bool(const QboneClientRequest&));
+  MOCK_METHOD(bool, SendClientRequest, (const QboneClientRequest&), (override));
 
-  MOCK_METHOD1(ProcessPacketFromNetwork, void(quiche::QuicheStringPiece));
-  MOCK_METHOD1(ProcessPacketFromPeer, void(quiche::QuicheStringPiece));
+  MOCK_METHOD(void, ProcessPacketFromNetwork, (absl::string_view), (override));
+  MOCK_METHOD(void, ProcessPacketFromPeer, (absl::string_view), (override));
 };
 
 }  // namespace quic

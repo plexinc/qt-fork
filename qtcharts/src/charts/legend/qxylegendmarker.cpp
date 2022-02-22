@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the Qt Charts module of the Qt Toolkit.
@@ -31,9 +31,11 @@
 #include <private/qxylegendmarker_p.h>
 #include <private/qxyseries_p.h>
 #include <QtCharts/QXYSeries>
+#if QT_CONFIG(charts_scatter_chart)
 #include <QtCharts/QScatterSeries>
+#endif
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 /*!
     \class QXYLegendMarker
@@ -91,8 +93,9 @@ QXYLegendMarkerPrivate::QXYLegendMarkerPrivate(QXYLegendMarker *q, QXYSeries *se
     q_ptr(q),
     m_series(series)
 {
-    QObject::connect(m_series, SIGNAL(nameChanged()), this, SLOT(updated()));
-    QObject::connect(m_series->d_func(), SIGNAL(updated()), this, SLOT(updated()));
+    connect(m_series->d_func(), &QXYSeriesPrivate::seriesUpdated,
+            this, &QXYLegendMarkerPrivate::updated);
+    connect(m_series, &QXYSeries::nameChanged, this, &QXYLegendMarkerPrivate::updated);
 }
 
 QXYLegendMarkerPrivate::~QXYLegendMarkerPrivate()
@@ -118,7 +121,7 @@ void QXYLegendMarkerPrivate::updated()
         m_item->setLabel(m_series->name());
         labelChanged = true;
     }
-
+#if QT_CONFIG(charts_scatter_chart)
     if (m_series->type()== QAbstractSeries::SeriesTypeScatter)  {
         if (!m_customBrush && (m_item->brush() != m_series->brush())) {
             m_item->setBrush(m_series->brush());
@@ -136,7 +139,9 @@ void QXYLegendMarkerPrivate::updated()
                     m_item->updateMarkerShapeAndSize();
             }
         }
-    } else {
+    } else
+#endif
+    {
         QBrush emptyBrush;
         if (!m_customBrush
             && (m_item->brush() == emptyBrush
@@ -144,9 +149,17 @@ void QXYLegendMarkerPrivate::updated()
             m_item->setBrush(QBrush(m_series->pen().color()));
             brushChanged = true;
         }
+
+        if (m_item->effectiveMarkerShape() == QLegend::MarkerShapeFromSeries
+            && m_series->markerSize() != m_item->markerRect().width()) {
+            m_item->updateMarkerShapeAndSize();
+        }
     }
     m_item->setSeriesBrush(m_series->brush());
     m_item->setSeriesPen(m_series->pen());
+
+    if (m_item->effectiveMarkerShape() == QLegend::MarkerShapeFromSeries)
+        m_item->setSeriesLightMarker(m_series->lightMarker());
 
     invalidateLegend();
 
@@ -156,7 +169,7 @@ void QXYLegendMarkerPrivate::updated()
         emit q_ptr->brushChanged();
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_qxylegendmarker.cpp"
 #include "moc_qxylegendmarker_p.cpp"

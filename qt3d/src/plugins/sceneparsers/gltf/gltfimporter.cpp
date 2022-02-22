@@ -50,6 +50,7 @@
 
 #include <Qt3DCore/qentity.h>
 #include <Qt3DCore/qtransform.h>
+#include <Qt3DCore/qgeometry.h>
 
 #include <Qt3DRender/qcameralens.h>
 #include <Qt3DRender/qcamera.h>
@@ -74,7 +75,6 @@
 #include <Qt3DRender/qstenciltestarguments.h>
 #include <Qt3DRender/qeffect.h>
 #include <Qt3DRender/qfrontface.h>
-#include <Qt3DRender/qgeometry.h>
 #include <Qt3DRender/qgeometryrenderer.h>
 #include <Qt3DRender/qmaterial.h>
 #include <Qt3DRender/qgraphicsapifilter.h>
@@ -475,7 +475,7 @@ Qt3DCore::QEntity* GLTFImporter::node(const QString &id)
     // So if the node has only 1 mesh, we only create 1 QEntity
     // Otherwise if there are n meshes, there is 1 QEntity, with n children for each mesh/material combo
     {
-        QVector<QEntity *> entities;
+        QList<QEntity *> entities;
         const QJsonValue meshesValue = jsonObj.value(KEY_MESHES);
 
         if (meshesValue.isUndefined()) {
@@ -495,7 +495,7 @@ Qt3DCore::QEntity* GLTFImporter::node(const QString &id)
             }
         } else {
             const auto meshes = meshesValue.toArray();
-            for (const QJsonValue &mesh : meshes) {
+            for (const QJsonValue mesh : meshes) {
                 const QString meshName = mesh.toString();
                 const auto geometryRenderers = qAsConst(m_meshDict).equal_range(meshName);
                 if (Q_UNLIKELY(geometryRenderers.first == geometryRenderers.second)) {
@@ -556,7 +556,7 @@ Qt3DCore::QEntity* GLTFImporter::node(const QString &id)
 
     // recursively retrieve children
     const auto children = jsonObj.value(KEY_CHILDREN).toArray();
-    for (const QJsonValue &c : children) {
+    for (const QJsonValue c : children) {
         QEntity* child = node((m_majorVersion > 1) ? QString::number(c.toInt()) : c.toString());
         if (!child)
             continue;
@@ -660,7 +660,7 @@ Qt3DCore::QEntity* GLTFImporter::scene(const QString &id)
         const QJsonObject sceneObj = sceneVal.toObject();
         sceneEntity = new QEntity;
         const auto nodes = sceneObj.value(KEY_NODES).toArray();
-        for (const QJsonValue &n : nodes) {
+        for (const QJsonValue n : nodes) {
             QEntity* child = node(QString::number(n.toInt()));
             if (!child)
                 continue;
@@ -679,7 +679,7 @@ Qt3DCore::QEntity* GLTFImporter::scene(const QString &id)
         const QJsonObject sceneObj = sceneVal.toObject();
         sceneEntity = new QEntity;
         const auto nodes = sceneObj.value(KEY_NODES).toArray();
-        for (const QJsonValue &nnv : nodes) {
+        for (const QJsonValue nnv : nodes) {
             QString nodeName = nnv.toString();
             QEntity* child = node(nodeName);
             if (!child)
@@ -735,7 +735,7 @@ GLTFImporter::AccessorData::AccessorData(const QJsonObject &json, int major, int
       offset(0),
       stride(0)
 {
-    Q_UNUSED(minor)
+    Q_UNUSED(minor);
 
     if (major > 1) {
         bufferViewName = QString::number(json.value(KEY_BUFFER_VIEW).toInt());
@@ -1499,14 +1499,6 @@ void GLTFImporter::processJSONBufferView(const QString &id, const QJsonObject& j
     }
     const auto &bufferData = *it;
 
-    const QJsonValue targetValue = json.value(KEY_TARGET);
-    int target;
-    if (targetValue.isUndefined()) {
-        target = GL_ARRAY_BUFFER;
-    } else {
-        target = targetValue.toInt();
-    }
-
     quint64 offset = 0;
     const auto byteOffset = json.value(KEY_BYTE_OFFSET);
     if (!byteOffset.isUndefined()) {
@@ -1522,7 +1514,7 @@ void GLTFImporter::processJSONBufferView(const QString &id, const QJsonObject& j
                   qUtf16PrintableImpl(bufferData.path), qUtf16PrintableImpl(id));
     }
 
-    Qt3DRender::QBuffer *b = new Qt3DRender::QBuffer();
+    Qt3DCore::QBuffer *b = new Qt3DCore::QBuffer();
     b->setData(bytes);
     m_buffers[id] = b;
 }
@@ -1688,7 +1680,7 @@ void GLTFImporter::processJSONTechnique(const QString &id, const QJsonObject &js
         t->graphicsApiFilter()->setVendor(gabifilter.value(KEY_VENDOR).toString());
         QStringList extensionList;
         QJsonArray extArray = gabifilter.value(KEY_EXTENSIONS).toArray();
-        for (const QJsonValue &extValue : extArray)
+        for (const QJsonValue extValue : extArray)
             extensionList << extValue.toString();
         t->graphicsApiFilter()->setExtensions(extensionList);
 
@@ -1706,7 +1698,7 @@ void GLTFImporter::processJSONTechnique(const QString &id, const QJsonObject &js
 
         // Render passes
         const QJsonArray passArray = jsonObject.value(KEY_RENDERPASSES).toArray();
-        for (const QJsonValue &passValue : passArray) {
+        for (const QJsonValue passValue : passArray) {
             const QString passName = passValue.toString();
             QRenderPass *pass = m_renderPasses.value(passName);
             if (pass) {
@@ -1733,13 +1725,14 @@ void GLTFImporter::processJSONMesh(const QString &id, const QJsonObject &json)
     if (meshType.isEmpty()) {
         // Custom mesh
         const QJsonArray primitivesArray = json.value(KEY_PRIMITIVES).toArray();
-        for (const QJsonValue &primitiveValue : primitivesArray) {
+        for (const QJsonValue primitiveValue : primitivesArray) {
             const QJsonObject primitiveObject = primitiveValue.toObject();
             const QJsonValue type = primitiveObject.value(KEY_MODE);
             const QJsonValue matValue = primitiveObject.value(KEY_MATERIAL);
             const QString material = (m_majorVersion > 1) ? QString::number(matValue.toInt()) : matValue.toString();
 
             QGeometryRenderer *geometryRenderer = new QGeometryRenderer;
+            QGeometryView *geometryView = new QGeometryView;
             QGeometry *meshGeometry = new QGeometry(geometryRenderer);
 
             //Set Primitive Type
@@ -1768,7 +1761,7 @@ void GLTFImporter::processJSONMesh(const QString &id, const QJsonObject &json)
                     attributeName = attrName;
 
                 //Get buffer handle for accessor
-                Qt3DRender::QBuffer *buffer = m_buffers.value(accessorIt->bufferViewName, nullptr);
+                Qt3DCore::QBuffer *buffer = m_buffers.value(accessorIt->bufferViewName, nullptr);
                 if (Q_UNLIKELY(!buffer)) {
                     qCWarning(GLTFImporterLog, "unknown buffer-view: %ls processing accessor: %ls",
                               qUtf16PrintableImpl(accessorIt->bufferViewName),
@@ -1796,7 +1789,7 @@ void GLTFImporter::processJSONMesh(const QString &id, const QJsonObject &json)
                               qUtf16PrintableImpl(accIndex), qUtf16PrintableImpl(id));
                 } else {
                     //Get buffer handle for accessor
-                    Qt3DRender::QBuffer *buffer = m_buffers.value(accessorIt->bufferViewName, nullptr);
+                    Qt3DCore::QBuffer *buffer = m_buffers.value(accessorIt->bufferViewName, nullptr);
                     if (Q_UNLIKELY(!buffer)) {
                         qCWarning(GLTFImporterLog, "unknown buffer-view: %ls processing accessor: %ls",
                                   qUtf16PrintableImpl(accessorIt->bufferViewName),
@@ -1815,7 +1808,8 @@ void GLTFImporter::processJSONMesh(const QString &id, const QJsonObject &json)
                 }
             } // of has indices
 
-            geometryRenderer->setGeometry(meshGeometry);
+            geometryView->setGeometry(meshGeometry);
+            geometryRenderer->setView(geometryView);
             geometryRenderer->setObjectName(meshName);
 
             m_meshDict.insert(id, geometryRenderer);
@@ -1844,30 +1838,38 @@ void GLTFImporter::processJSONMesh(const QString &id, const QJsonObject &json)
         if (mesh) {
             // Read and set properties
             const QJsonObject propObj = json.value(KEY_PROPERTIES).toObject();
+            QObject *target = mesh;
+            if (mesh->view())
+                target = mesh->view();
             for (auto it = propObj.begin(), end = propObj.end(); it != end; ++it) {
                 const QByteArray propName = it.key().toLatin1();
                 // Basic mesh types only have bool, int, float, and QSize type properties
                 if (it.value().isBool()) {
-                    mesh->setProperty(propName.constData(), QVariant(it.value().toBool()));
+                    target->setProperty(propName.constData(), QVariant(it.value().toBool()));
                 } else if (it.value().isArray()) {
                     const QJsonArray valueArray = it.value().toArray();
                     if (valueArray.size() == 2) {
                         QSize size;
                         size.setWidth(valueArray.at(0).toInt());
                         size.setHeight(valueArray.at(1).toInt());
-                        mesh->setProperty(propName.constData(), QVariant(size));
+                        target->setProperty(propName.constData(), QVariant(size));
                     }
                 } else {
-                    const QVariant::Type propType = mesh->property(propName.constData()).type();
-                    if (propType == QVariant::Int) {
-                        mesh->setProperty(propName.constData(), QVariant(it.value().toInt()));
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+                    const QMetaType propType = target->property(propName.constData()).metaType();
+#else
+                    const QMetaType propType(target->property(propName.constData()).type());
+#endif
+                    if (propType.id() == QMetaType::Int) {
+                        target->setProperty(propName.constData(), QVariant(it.value().toInt()));
                     } else {
-                        mesh->setProperty(propName.constData(),
-                                          QVariant(float(it.value().toDouble())));
+                        target->setProperty(propName.constData(),
+                                            QVariant(float(it.value().toDouble())));
                     }
                 }
             }
             mesh->setObjectName(meshName);
+            mesh->view()->setObjectName(meshName);
             m_meshMaterialDict[mesh] = (m_majorVersion > 1) ?
                         QString::number(json.value(KEY_MATERIAL).toInt()) :
                         json.value(KEY_MATERIAL).toString();
@@ -2019,7 +2021,7 @@ void GLTFImporter::processJSONEffect(const QString &id, const QJsonObject &jsonO
         effect->addParameter(buildParameter(it.key(), it.value().toObject()));
 
     const QJsonArray techArray = jsonObject.value(KEY_TECHNIQUES).toArray();
-    for (const QJsonValue &techValue : techArray) {
+    for (const QJsonValue techValue : techArray) {
         const QString techName = techValue.toString();
         QTechnique *tech = m_techniques.value(techName);
         if (tech) {
@@ -2136,8 +2138,8 @@ QVariant GLTFImporter::parameterValueFromJSON(int type, const QJsonValue &value)
         QVector2D vector2D;
         QVector3D vector3D;
         QVector4D vector4D;
-        QVector<float> dataMat2(4, 0.0f);
-        QVector<float> dataMat3(9, 0.0f);
+        std::vector<float> dataMat2(4, 0.0f);
+        std::vector<float> dataMat3(9, 0.0f);
 
         switch (type) {
         case GL_BYTE:
@@ -2207,7 +2209,7 @@ QVariant GLTFImporter::parameterValueFromJSON(int type, const QJsonValue &value)
             dataMat2[1] = static_cast<GLfloat>(valueArray.at(2).toDouble());
             dataMat2[2] = static_cast<GLfloat>(valueArray.at(1).toDouble());
             dataMat2[3] = static_cast<GLfloat>(valueArray.at(3).toDouble());
-            return QVariant::fromValue(QMatrix2x2(dataMat2.constData()));
+            return QVariant::fromValue(QMatrix2x2(dataMat2.data()));
         case GL_FLOAT_MAT3:
             //Matrix3x3 is in Row Major ordering (so we need to convert)
             dataMat3[0] = static_cast<GLfloat>(valueArray.at(0).toDouble());
@@ -2219,7 +2221,7 @@ QVariant GLTFImporter::parameterValueFromJSON(int type, const QJsonValue &value)
             dataMat3[6] = static_cast<GLfloat>(valueArray.at(2).toDouble());
             dataMat3[7] = static_cast<GLfloat>(valueArray.at(5).toDouble());
             dataMat3[8] = static_cast<GLfloat>(valueArray.at(8).toDouble());
-            return QVariant::fromValue(QMatrix3x3(dataMat3.constData()));
+            return QVariant::fromValue(QMatrix3x3(dataMat3.data()));
         case GL_FLOAT_MAT4:
             //Matrix4x4 is Column Major ordering
             return QVariant(QMatrix4x4(static_cast<GLfloat>(valueArray.at(0).toDouble()),
@@ -2514,8 +2516,8 @@ void GLTFImporter::populateRenderStates(QRenderPass *pass, const QJsonObject &st
 {
     // Process states to enable
     const QJsonArray enableStatesArray = states.value(KEY_ENABLE).toArray();
-    QVector<int> enableStates;
-    for (const QJsonValue &enableValue : enableStatesArray)
+    QList<int> enableStates;
+    for (const QJsonValue enableValue : enableStatesArray)
         enableStates.append(enableValue.toInt());
 
     // Process the list of state functions

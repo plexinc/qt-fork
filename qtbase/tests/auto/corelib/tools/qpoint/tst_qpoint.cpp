@@ -26,7 +26,8 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QBuffer>
 
 #include <qpoint.h>
 
@@ -75,6 +76,8 @@ private slots:
     void stream_data();
     void stream();
 #endif
+
+    void structuredBinding();
 };
 
 void tst_QPoint::isNull()
@@ -346,6 +349,9 @@ void tst_QPoint::operator_eq()
     QCOMPARE(equal, expectEqual);
     bool notEqual = point1 != point2;
     QCOMPARE(notEqual, !expectEqual);
+
+    if (equal)
+        QCOMPARE(qHash(point1), qHash(point2));
 }
 
 #ifndef QT_NO_DATASTREAM
@@ -377,6 +383,63 @@ void tst_QPoint::stream()
     QCOMPARE(pointFromStream, point);
 }
 #endif
+
+void tst_QPoint::structuredBinding()
+{
+    {
+        QPoint p(1, 2);
+        auto [x, y] = p;
+        QCOMPARE(x, 1);
+        QCOMPARE(y, 2);
+
+        p.setX(42);
+        QCOMPARE(x, 1);
+        QCOMPARE(y, 2);
+
+        p.setY(-123);
+        QCOMPARE(x, 1);
+        QCOMPARE(y, 2);
+    }
+    {
+        QPoint p(1, 2);
+
+        auto &[x, y] = p;
+        QCOMPARE(x, 1);
+        QCOMPARE(y, 2);
+
+        x = 42;
+        QCOMPARE(x, 42);
+        QCOMPARE(p.x(), 42);
+        QCOMPARE(p.rx(), 42);
+        QCOMPARE(y, 2);
+        QCOMPARE(p.y(), 2);
+        QCOMPARE(p.ry(), 2);
+
+        y = -123;
+        QCOMPARE(x, 42);
+        QCOMPARE(p.x(), 42);
+        QCOMPARE(p.rx(), 42);
+        QCOMPARE(y, -123);
+        QCOMPARE(p.y(), -123);
+        QCOMPARE(p.ry(), -123);
+
+        p.setX(0);
+        QCOMPARE(x, 0);
+        QCOMPARE(p.x(), 0);
+        QCOMPARE(p.rx(), 0);
+        QCOMPARE(y, -123);
+        QCOMPARE(p.y(), -123);
+        QCOMPARE(p.ry(), -123);
+
+        p.ry() = 10;
+        QCOMPARE(x, 0);
+        QCOMPARE(p.x(), 0);
+        QCOMPARE(p.rx(), 0);
+        QCOMPARE(y, 10);
+        QCOMPARE(p.y(), 10);
+        QCOMPARE(p.ry(), 10);
+    }
+}
 
 QTEST_MAIN(tst_QPoint)
 #include "tst_qpoint.moc"

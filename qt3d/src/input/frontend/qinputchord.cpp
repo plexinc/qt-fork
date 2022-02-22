@@ -40,7 +40,6 @@
 #include "qinputchord_p.h"
 
 #include <Qt3DInput/qabstractphysicaldevice.h>
-#include <Qt3DCore/qnodecreatedchange.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -154,7 +153,7 @@ void QInputChord::addChord(QAbstractActionInput *input)
         if (!input->parent())
             input->setParent(this);
 
-        d->updateNode(input, "input", Qt3DCore::PropertyValueAdded);
+        d->update();
     }
 }
 
@@ -167,7 +166,7 @@ void QInputChord::removeChord(QAbstractActionInput *input)
 {
     Q_D(QInputChord);
     if (d->m_chords.contains(input)) {
-        d->updateNode(input, "input", Qt3DCore::PropertyValueRemoved);
+        d->update();
 
         d->m_chords.removeOne(input);
 
@@ -179,22 +178,10 @@ void QInputChord::removeChord(QAbstractActionInput *input)
 /*!
     Returns the QInputChord's chord vector.
  */
-QVector<QAbstractActionInput *> QInputChord::chords() const
+QList<QAbstractActionInput *> QInputChord::chords() const
 {
     Q_D(const QInputChord);
     return d->m_chords;
-}
-
-Qt3DCore::QNodeCreatedChangeBasePtr QInputChord::createNodeCreationChange() const
-{
-    auto creationChange = Qt3DCore::QNodeCreatedChangePtr<QInputChordData>::create(this);
-    QInputChordData &data = creationChange->data;
-
-    Q_D(const QInputChord);
-    data.chordIds = qIdsForNodes(chords());
-    data.timeout = d->m_timeout;
-
-    return creationChange;
 }
 
 QInputChordPrivate::QInputChordPrivate()

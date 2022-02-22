@@ -32,7 +32,7 @@
 #include <private/abstractchartlayout_p.h>
 #include <QtCharts/QDateTimeAxis>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 PolarChartDateTimeAxisAngular::PolarChartDateTimeAxisAngular(QDateTimeAxis *axis, QGraphicsItem *item)
     : PolarChartAxisAngular(axis, item)
@@ -45,12 +45,12 @@ PolarChartDateTimeAxisAngular::~PolarChartDateTimeAxisAngular()
 {
 }
 
-QVector<qreal> PolarChartDateTimeAxisAngular::calculateLayout() const
+QList<qreal> PolarChartDateTimeAxisAngular::calculateLayout() const
 {
     int tickCount = static_cast<QDateTimeAxis *>(axis())->tickCount();
     Q_ASSERT(tickCount >= 2);
 
-    QVector<qreal> points;
+    QList<qreal> points;
     points.resize(tickCount);
 
     const qreal d = 360.0 / qreal(tickCount - 1);
@@ -62,7 +62,7 @@ QVector<qreal> PolarChartDateTimeAxisAngular::calculateLayout() const
 
     return points;
 }
-void PolarChartDateTimeAxisAngular::createAxisLabels(const QVector<qreal> &layout)
+void PolarChartDateTimeAxisAngular::createAxisLabels(const QList<qreal> &layout)
 {
     QStringList labelList = createDateTimeLabels(min(), max(), layout.size(), static_cast<QDateTimeAxis *>(axis())->format());
     setLabels(labelList);
@@ -84,6 +84,6 @@ void PolarChartDateTimeAxisAngular::handleFormatChanged(const QString &format)
         presenter()->layout()->invalidate();
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_polarchartdatetimeaxisangular_p.cpp"

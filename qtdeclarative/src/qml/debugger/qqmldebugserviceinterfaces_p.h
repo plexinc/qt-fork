@@ -65,9 +65,11 @@ QT_BEGIN_NAMESPACE
 
 class QWindow;
 class QQuickWindow;
-class QQmlTranslationBinding;
+
 
 #if !QT_CONFIG(qml_debug)
+
+class TranslationBindingInformation;
 
 class QV4DebugService
 {
@@ -91,7 +93,7 @@ class QQmlEngineDebugService
 {
 public:
     void objectCreated(QJSEngine *, QObject *) {}
-    virtual void setStatesDelegate(QQmlDebugStatesDelegate *) {}
+    static void setStatesDelegateFactory(QQmlDebugStatesDelegate *(*)()) {}
 };
 
 class QQmlInspectorService {
@@ -106,8 +108,7 @@ class QQmlEngineControlService {};
 class QQmlNativeDebugService {};
 class QQmlDebugTranslationService {
 public:
-    virtual QString foundElidedText(QObject *, const QString &, const QString &) {return {};}
-    virtual void foundTranslationBinding(QQmlTranslationBinding *, QObject *, QQmlContextData *) {}
+    virtual void foundTranslationBinding(const TranslationBindingInformation &) {}
 };
 
 #else
@@ -157,7 +158,8 @@ public:
     static const QString s_key;
 
     virtual void objectCreated(QJSEngine *engine, QObject *object) = 0;
-    virtual void setStatesDelegate(QQmlDebugStatesDelegate *) = 0;
+    static void setStatesDelegateFactory(QQmlDebugStatesDelegate *(*factory)());
+    static QQmlDebugStatesDelegate *createStatesDelegate();
 
 protected:
     friend class QQmlDebugConnector;
@@ -168,14 +170,22 @@ protected:
     QQmlBoundSignal *nextSignal(QQmlBoundSignal *prev) { return prev->m_nextSignal; }
 };
 
+#if QT_CONFIG(translation)
+struct TranslationBindingInformation
+{
+    QQmlRefPointer<QV4::ExecutableCompilationUnit> compilationUnit;
+    const QV4::CompiledData::Binding *compiledBinding;
+    QObject *scopeObject;
+    QQmlRefPointer<QQmlContextData> ctxt;
+};
+
 class Q_QML_PRIVATE_EXPORT QQmlDebugTranslationService : public QQmlDebugService
 {
     Q_OBJECT
 public:
     static const QString s_key;
 
-    virtual QString foundElidedText(QObject *qQuickTextObject, const QString &layoutText, const QString &elideText) = 0;
-    virtual void foundTranslationBinding(QQmlTranslationBinding *binding, QObject *scopeObject, QQmlContextData *contextData) = 0;
+    virtual void foundTranslationBinding(const TranslationBindingInformation &translationBindingInformation) = 0;
 protected:
     friend class QQmlDebugConnector;
 
@@ -183,6 +193,7 @@ protected:
         QQmlDebugService(s_key, version, parent) {}
 
 };
+#endif //QT_CONFIG(translation)
 
 class Q_QML_PRIVATE_EXPORT QQmlInspectorService : public QQmlDebugService
 {

@@ -51,8 +51,10 @@ class Q_QUICK3D_EXPORT QQuick3DCustomCamera : public QQuick3DCamera
     Q_OBJECT
     Q_PROPERTY(QMatrix4x4 projection READ projection WRITE setProjection NOTIFY projectionChanged)
 
+    QML_NAMED_ELEMENT(CustomCamera)
+
 public:
-    QQuick3DCustomCamera();
+    explicit QQuick3DCustomCamera(QQuick3DNode *parent = nullptr);
 
     QMatrix4x4 projection() const;
 
@@ -63,7 +65,7 @@ Q_SIGNALS:
     void projectionChanged();
 
 protected:
-    bool checkSpatialNode(QSSGRenderCamera *camera) override;
+    QSSGRenderGraphObject *updateSpatialNode(QSSGRenderGraphObject *node) override;
 
 private:
     QMatrix4x4 m_projection;

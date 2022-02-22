@@ -225,6 +225,21 @@ QQnxWindow::QQnxWindow(QWindow *window, screen_context_t context, bool needRootW
     if (windowGroup.isValid() && windowGroup.canConvert<QByteArray>())
         joinWindowGroup(windowGroup.toByteArray());
 
+    QVariant pipelineValue = window->property("_q_platform_qnxPipeline");
+    if (pipelineValue.isValid()) {
+        bool ok = false;
+        int pipeline = pipelineValue.toInt(&ok);
+        if (ok) {
+            qWindowDebug() << "Set pipeline value to" << pipeline;
+
+            Q_SCREEN_CHECKERROR(
+                screen_set_window_property_iv(m_window, SCREEN_PROPERTY_PIPELINE, &pipeline),
+                "Failed to set window pipeline");
+        } else {
+            qWindowDebug() << "Invalid pipeline value:" << pipelineValue;
+        }
+    }
+
     int debug = 0;
     if (Q_UNLIKELY(debug_fps())) {
         debug |= SCREEN_DEBUG_GRAPH_FPS;
@@ -551,7 +566,7 @@ void QQnxWindow::removeFromParent()
         if (Q_UNLIKELY(!m_parentWindow->m_childWindows.removeAll(this)))
             qFatal("QQnxWindow: Window Hierarchy broken; window has parent, but parent hasn't got child.");
         else
-            m_parentWindow = 0;
+            m_parentWindow = nullptr;
     } else if (m_screen) {
         m_screen->removeWindow(this);
     }
@@ -619,7 +634,7 @@ void QQnxWindow::lower()
 
 void QQnxWindow::requestActivateWindow()
 {
-    QQnxWindow *focusWindow = 0;
+    QQnxWindow *focusWindow = nullptr;
     if (QGuiApplication::focusWindow())
         focusWindow = static_cast<QQnxWindow*>(QGuiApplication::focusWindow()->handle());
 
@@ -649,7 +664,7 @@ void QQnxWindow::requestActivateWindow()
                   platformScreen->rootWindow()->m_windowGroupName == currentWindow->m_parentGroupName) {
                 currentWindow = platformScreen->rootWindow();
             } else {
-                currentWindow = 0;
+                currentWindow = nullptr;
             }
         }
 
@@ -931,10 +946,12 @@ void QQnxWindow::applyWindowState()
 
 void QQnxWindow::windowPosted()
 {
-    if (m_cover)
+    if (m_cover) {
         m_cover->updateCover();
-
-    qqnxLgmonFramePosted(m_cover);  // for performance measurements
+        qqnxLgmonFramePosted(true);  // for performance measurements
+    } else {
+        qqnxLgmonFramePosted(false);  // for performance measurements
+    }
 }
 
 bool QQnxWindow::shouldMakeFullScreen() const

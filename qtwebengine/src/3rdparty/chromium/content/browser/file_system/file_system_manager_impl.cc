@@ -7,13 +7,13 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/check_op.h"
 #include "base/files/file_path.h"
-#include "base/logging.h"
 #include "base/macros.h"
 #include "base/metrics/user_metrics.h"
+#include "base/notreached.h"
 #include "base/sequenced_task_runner.h"
 #include "base/strings/string_util.h"
-#include "base/task/post_task.h"
 #include "base/threading/thread.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
@@ -36,7 +36,6 @@
 #include "storage/common/file_system/file_system_info.h"
 #include "storage/common/file_system/file_system_types.h"
 #include "storage/common/file_system/file_system_util.h"
-#include "third_party/blink/public/common/features.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
@@ -87,14 +86,14 @@ blink::mojom::FileSystemType ToMojoFileSystemType(
     case storage::FileSystemType::kFileSystemTypeUnknown:
     case storage::FileSystemType::kFileSystemInternalTypeEnumStart:
     case storage::FileSystemType::kFileSystemTypeTest:
-    case storage::FileSystemType::kFileSystemTypeNativeLocal:
-    case storage::FileSystemType::kFileSystemTypeRestrictedNativeLocal:
+    case storage::FileSystemType::kFileSystemTypeLocal:
+    case storage::FileSystemType::kFileSystemTypeRestrictedLocal:
     case storage::FileSystemType::kFileSystemTypeDragged:
-    case storage::FileSystemType::kFileSystemTypeNativeMedia:
+    case storage::FileSystemType::kFileSystemTypeLocalMedia:
     case storage::FileSystemType::kFileSystemTypeDeviceMedia:
     case storage::FileSystemType::kFileSystemTypeSyncable:
     case storage::FileSystemType::kFileSystemTypeSyncableForInternalSync:
-    case storage::FileSystemType::kFileSystemTypeNativeForPlatformApp:
+    case storage::FileSystemType::kFileSystemTypeLocalForPlatformApp:
     case storage::FileSystemType::kFileSystemTypeForTransientFile:
     case storage::FileSystemType::kFileSystemTypePluginPrivate:
     case storage::FileSystemType::kFileSystemTypeCloudDevice:
@@ -212,6 +211,13 @@ void FileSystemManagerImpl::Open(const url::Origin& origin,
                                  blink::mojom::FileSystemType file_system_type,
                                  OpenCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
+
+  if (!security_policy_->CanAccessDataForOrigin(process_id_, origin)) {
+    NOTREACHED();
+    receivers_.ReportBadMessage("FSMI_OPEN_INVALID_ORIGIN");
+    return;
+  }
+
   if (file_system_type == blink::mojom::FileSystemType::kTemporary) {
     RecordAction(base::UserMetricsAction("OpenFileSystemTemporary"));
   } else if (file_system_type == blink::mojom::FileSystemType::kPersistent) {
@@ -267,10 +273,10 @@ void FileSystemManagerImpl::Move(const GURL& src_path,
     return;
   }
 
-  operation_runner()->Move(
-      src_url, dest_url, storage::FileSystemOperation::OPTION_NONE,
-      base::BindRepeating(&FileSystemManagerImpl::DidFinish, GetWeakPtr(),
-                          base::Passed(&callback)));
+  operation_runner()->Move(src_url, dest_url,
+                           storage::FileSystemOperation::OPTION_NONE,
+                           base::BindOnce(&FileSystemManagerImpl::DidFinish,
+                                          GetWeakPtr(), std::move(callback)));
 }
 
 void FileSystemManagerImpl::Copy(const GURL& src_path,
@@ -296,8 +302,8 @@ void FileSystemManagerImpl::Copy(const GURL& src_path,
       src_url, dest_url, storage::FileSystemOperation::OPTION_NONE,
       FileSystemOperation::ERROR_BEHAVIOR_ABORT,
       storage::FileSystemOperationRunner::CopyProgressCallback(),
-      base::BindRepeating(&FileSystemManagerImpl::DidFinish, GetWeakPtr(),
-                          base::Passed(&callback)));
+      base::BindOnce(&FileSystemManagerImpl::DidFinish, GetWeakPtr(),
+                     std::move(callback)));
 }
 
 void FileSystemManagerImpl::Remove(const GURL& path,
@@ -315,10 +321,9 @@ void FileSystemManagerImpl::Remove(const GURL& path,
     return;
   }
 
-  operation_runner()->Remove(
-      url, recursive,
-      base::BindRepeating(&FileSystemManagerImpl::DidFinish, GetWeakPtr(),
-                          base::Passed(&callback)));
+  operation_runner()->Remove(url, recursive,
+                             base::BindOnce(&FileSystemManagerImpl::DidFinish,
+                                            GetWeakPtr(), std::move(callback)));
 }
 
 void FileSystemManagerImpl::ReadMetadata(const GURL& path,
@@ -341,8 +346,8 @@ void FileSystemManagerImpl::ReadMetadata(const GURL& path,
       FileSystemOperation::GET_METADATA_FIELD_IS_DIRECTORY |
           FileSystemOperation::GET_METADATA_FIELD_SIZE |
           FileSystemOperation::GET_METADATA_FIELD_LAST_MODIFIED,
-      base::BindRepeating(&FileSystemManagerImpl::DidGetMetadata, GetWeakPtr(),
-                          base::Passed(&callback)));
+      base::BindOnce(&FileSystemManagerImpl::DidGetMetadata, GetWeakPtr(),
+                     std::move(callback)));
 }
 
 void FileSystemManagerImpl::Create(const GURL& path,
@@ -365,13 +370,13 @@ void FileSystemManagerImpl::Create(const GURL& path,
   if (is_directory) {
     operation_runner()->CreateDirectory(
         url, exclusive, recursive,
-        base::BindRepeating(&FileSystemManagerImpl::DidFinish, GetWeakPtr(),
-                            base::Passed(&callback)));
+        base::BindOnce(&FileSystemManagerImpl::DidFinish, GetWeakPtr(),
+                       std::move(callback)));
   } else {
     operation_runner()->CreateFile(
         url, exclusive,
-        base::BindRepeating(&FileSystemManagerImpl::DidFinish, GetWeakPtr(),
-                            base::Passed(&callback)));
+        base::BindOnce(&FileSystemManagerImpl::DidFinish, GetWeakPtr(),
+                       std::move(callback)));
   }
 }
 
@@ -392,12 +397,12 @@ void FileSystemManagerImpl::Exists(const GURL& path,
 
   if (is_directory) {
     operation_runner()->DirectoryExists(
-        url, base::BindRepeating(&FileSystemManagerImpl::DidFinish,
-                                 GetWeakPtr(), base::Passed(&callback)));
+        url, base::BindOnce(&FileSystemManagerImpl::DidFinish, GetWeakPtr(),
+                            std::move(callback)));
   } else {
     operation_runner()->FileExists(
-        url, base::BindRepeating(&FileSystemManagerImpl::DidFinish,
-                                 GetWeakPtr(), base::Passed(&callback)));
+        url, base::BindOnce(&FileSystemManagerImpl::DidFinish, GetWeakPtr(),
+                            std::move(callback)));
   }
 }
 
@@ -531,8 +536,8 @@ void FileSystemManagerImpl::Truncate(
 
   OperationID op_id = operation_runner()->Truncate(
       url, length,
-      base::BindRepeating(&FileSystemManagerImpl::DidFinish, GetWeakPtr(),
-                          base::Passed(&callback)));
+      base::BindOnce(&FileSystemManagerImpl::DidFinish, GetWeakPtr(),
+                     std::move(callback)));
   cancellable_operations_.Add(
       std::make_unique<FileSystemCancellableOperationImpl>(op_id, this),
       std::move(op_receiver));
@@ -555,8 +560,8 @@ void FileSystemManagerImpl::TruncateSync(const GURL& file_path,
 
   operation_runner()->Truncate(
       url, length,
-      base::BindRepeating(&FileSystemManagerImpl::DidFinish, GetWeakPtr(),
-                          base::Passed(&callback)));
+      base::BindOnce(&FileSystemManagerImpl::DidFinish, GetWeakPtr(),
+                     std::move(callback)));
 }
 
 void FileSystemManagerImpl::CreateSnapshotFile(
@@ -588,12 +593,12 @@ void FileSystemManagerImpl::CreateSnapshotFile(
         FileSystemOperation::GET_METADATA_FIELD_IS_DIRECTORY |
             FileSystemOperation::GET_METADATA_FIELD_SIZE |
             FileSystemOperation::GET_METADATA_FIELD_LAST_MODIFIED,
-        base::BindRepeating(&FileSystemManagerImpl::DidGetMetadataForStreaming,
-                            GetWeakPtr(), base::Passed(&callback)));
+        base::BindOnce(&FileSystemManagerImpl::DidGetMetadataForStreaming,
+                       GetWeakPtr(), std::move(callback)));
   } else {
     operation_runner()->CreateSnapshotFile(
-        url, base::BindRepeating(&FileSystemManagerImpl::DidCreateSnapshot,
-                                 GetWeakPtr(), base::Passed(&callback), url));
+        url, base::BindOnce(&FileSystemManagerImpl::DidCreateSnapshot,
+                            GetWeakPtr(), std::move(callback), url));
   }
 }
 
@@ -612,8 +617,8 @@ void FileSystemManagerImpl::Cancel(
     FileSystemCancellableOperationImpl::CancelCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   operation_runner()->Cancel(
-      op_id, base::BindRepeating(&FileSystemManagerImpl::DidFinish,
-                                 GetWeakPtr(), base::Passed(&callback)));
+      op_id, base::BindOnce(&FileSystemManagerImpl::DidFinish, GetWeakPtr(),
+                            std::move(callback)));
 }
 
 void FileSystemManagerImpl::DidReceiveSnapshotFile(int snapshot_id) {
@@ -829,8 +834,8 @@ void FileSystemManagerImpl::GetPlatformPathOnFileThread(
           [](base::WeakPtr<FileSystemManagerImpl> file_system_manager,
              GetPlatformPathCallback callback,
              const base::FilePath& platform_path) {
-            base::PostTask(
-                FROM_HERE, {BrowserThread::IO},
+            GetIOThreadTaskRunner({})->PostTask(
+                FROM_HERE,
                 base::BindOnce(&FileSystemManagerImpl::DidGetPlatformPath,
                                std::move(file_system_manager),
                                std::move(callback), platform_path));

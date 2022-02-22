@@ -32,23 +32,79 @@
 import * as Common from '../common/common.js';
 import * as Host from '../host/host.js';
 import * as Platform from '../platform/platform.js';
-import * as ProtocolClient from '../protocol_client/protocol_client.js';
+import * as ProtocolClient from '../protocol_client/protocol_client.js';  // eslint-disable-line no-unused-vars
+import * as Root from '../root/root.js';
 
 import {CSSModel} from './CSSModel.js';
+import {FrameManager} from './FrameManager.js';
 import {OverlayModel} from './OverlayModel.js';
 import {RemoteObject} from './RemoteObject.js';  // eslint-disable-line no-unused-vars
 import {RuntimeModel} from './RuntimeModel.js';
 import {Capability, SDKModel, Target, TargetManager} from './SDKModel.js';  // eslint-disable-line no-unused-vars
 
-/**
- * @unrestricted
- */
 export class DOMNode {
   /**
    * @param {!DOMModel} domModel
    */
   constructor(domModel) {
     this._domModel = domModel;
+    this._agent = this._domModel._agent;
+    /** @type {?DOMDocument} */
+    this.ownerDocument;
+    /** @type {boolean} */
+    this._isInShadowTree;
+    /** @type {number} */
+    this.id;
+    /** @type {number|undefined} */
+    this.index = undefined;
+    /** @type {number} */
+    this._backendNodeId;
+    /** @type {number} */
+    this._nodeType;
+    /** @type {string} */
+    this._nodeName;
+    /** @type {string} */
+    this._localName;
+    /** @type {string} */
+    this._nodeValue;
+    /** @type {!Protocol.DOM.PseudoType|undefined} */
+    this._pseudoType;
+    /** @type {!Protocol.DOM.ShadowRootType|undefined} */
+    this._shadowRootType;
+    /** @type {?string} */
+    this._frameOwnerFrameId;
+    /** @type {string|undefined} */
+    this._xmlVersion;
+    /** @type {boolean} */
+    this._isSVGNode;
+    /** @type {?Promise<?Protocol.Runtime.StackTrace>} */
+    this._creationStackTrace = null;
+    /** @type {!Map<string, !DOMNode>} */
+    this._pseudoElements = new Map();
+    /** @type {!Array.<!DOMNodeShortcut>} */
+    this._distributedNodes = [];
+    /** @type {!Array.<!DOMNode>} */
+    this._shadowRoots = [];
+    /** @type {!Map<string, !Attribute>} */
+    this._attributes = new Map();
+    /** @type {!Map<string, ?>} */
+    this._markers = new Map();
+    /** @type {number} */
+    this._subtreeMarkerCount = 0;
+    /** @type {number} */
+    this._childNodeCount;
+    /** @type {?Array.<!DOMNode>} */
+    this._children = null;
+    /** @type {!DOMNode|null} */
+    this.nextSibling = null;
+    /** @type {!DOMNode|null} */
+    this.previousSibling = null;
+    /** @type {!DOMNode|null} */
+    this.firstChild = null;
+    /** @type {!DOMNode|null} */
+    this.lastChild = null;
+    /** @type {!DOMNode|null} */
+    this.parentNode = null;
   }
 
   /**
@@ -65,10 +121,10 @@ export class DOMNode {
   }
 
   /**
-   * @param {?DOMDocument} doc
-   * @param {boolean} isInShadowTree
-   * @param {!Protocol.DOM.Node} payload
-   */
+  * @param {?DOMDocument} doc
+  * @param {boolean} isInShadowTree
+  * @param {!Protocol.DOM.Node} payload
+  */
   _init(doc, isInShadowTree, payload) {
     this._agent = this._domModel._agent;
     this.ownerDocument = doc;
@@ -85,30 +141,14 @@ export class DOMNode {
     this._shadowRootType = payload.shadowRootType;
     this._frameOwnerFrameId = payload.frameId || null;
     this._xmlVersion = payload.xmlVersion;
-    this._isSVGNode = !!payload.isSVG;
-    this._creationStackTrace = null;
+    this._isSVGNode = Boolean(payload.isSVG);
 
-    this._shadowRoots = [];
-
-    /** @type {!Map<string, !Attribute>} */
-    this._attributes = new Map();
     if (payload.attributes) {
       this._setAttributesPayload(payload.attributes);
     }
 
-    /** @type {!Map<string, ?>} */
-    this._markers = new Map();
-    this._subtreeMarkerCount = 0;
 
     this._childNodeCount = payload.childNodeCount || 0;
-    this._children = null;
-
-    this.nextSibling = null;
-    this.previousSibling = null;
-    this.firstChild = null;
-    this.lastChild = null;
-    this.parentNode = null;
-
     if (payload.shadowRoots) {
       for (let i = 0; i < payload.shadowRoots.length; ++i) {
         const root = payload.shadowRoots[i];
@@ -174,6 +214,20 @@ export class DOMNode {
   /**
    * @return {boolean}
    */
+  isAdFrameNode() {
+    if (this.isIframe() && this._frameOwnerFrameId) {
+      const frame = FrameManager.instance().getFrame(this._frameOwnerFrameId);
+      if (!frame) {
+        return false;
+      }
+      return frame.adFrameType() !== Protocol.Page.AdFrameType.None;
+    }
+    return false;
+  }
+
+  /**
+   * @return {boolean}
+   */
   isSVGNode() {
     return this._isSVGNode;
   }
@@ -187,7 +241,7 @@ export class DOMNode {
     }
 
     const stackTracesPromise = this._agent.invoke_getNodeStackTraces({nodeId: this.id});
-    this._creationStackTrace = stackTracesPromise.then(res => res.creation);
+    this._creationStackTrace = stackTracesPromise.then(res => res.creation || null);
     return this._creationStackTrace;
   }
 
@@ -230,7 +284,7 @@ export class DOMNode {
    * @return {boolean}
    */
   hasShadowRoots() {
-    return !!this._shadowRoots.length;
+    return Boolean(this._shadowRoots.length);
   }
 
   /**
@@ -317,7 +371,7 @@ export class DOMNode {
     if (!this._pseudoElements) {
       return null;
     }
-    return this._pseudoElements.get(DOMNode.PseudoElementNames.Before);
+    return this._pseudoElements.get(DOMNode.PseudoElementNames.Before) || null;
   }
 
   /**
@@ -327,7 +381,7 @@ export class DOMNode {
     if (!this._pseudoElements) {
       return null;
     }
-    return this._pseudoElements.get(DOMNode.PseudoElementNames.After);
+    return this._pseudoElements.get(DOMNode.PseudoElementNames.After) || null;
   }
 
   /**
@@ -337,7 +391,7 @@ export class DOMNode {
     if (!this._pseudoElements) {
       return null;
     }
-    return this._pseudoElements.get(DOMNode.PseudoElementNames.Marker);
+    return this._pseudoElements.get(DOMNode.PseudoElementNames.Marker) || null;
   }
 
   /**
@@ -352,7 +406,7 @@ export class DOMNode {
    * @return {!Array.<!DOMNodeShortcut>}
    */
   distributedNodes() {
-    return this._distributedNodes || [];
+    return this._distributedNodes;
   }
 
   /**
@@ -378,7 +432,7 @@ export class DOMNode {
       return null;
     }
 
-    let current = this;
+    let current = /** @type {?DOMNode} */ (this);
     while (current && !current.isShadowRoot()) {
       current = current.parentNode;
     }
@@ -400,7 +454,7 @@ export class DOMNode {
    * @return {boolean}
    */
   isShadowRoot() {
-    return !!this._shadowRootType;
+    return Boolean(this._shadowRootType);
   }
 
   /**
@@ -439,12 +493,11 @@ export class DOMNode {
    */
   setNodeName(name, callback) {
     this._agent.invoke_setNodeName({nodeId: this.id, name}).then(response => {
-      if (!response[ProtocolClient.InspectorBackend.ProtocolError]) {
+      if (!response.getError()) {
         this._domModel.markUndoableState();
       }
       if (callback) {
-        callback(
-            response[ProtocolClient.InspectorBackend.ProtocolError] || null, this._domModel.nodeForId(response.nodeId));
+        callback(response.getError() || null, this._domModel.nodeForId(response.nodeId));
       }
     });
   }
@@ -469,11 +522,11 @@ export class DOMNode {
    */
   setNodeValue(value, callback) {
     this._agent.invoke_setNodeValue({nodeId: this.id, value}).then(response => {
-      if (!response[ProtocolClient.InspectorBackend.ProtocolError]) {
+      if (!response.getError()) {
         this._domModel.markUndoableState();
       }
       if (callback) {
-        callback(response[ProtocolClient.InspectorBackend.ProtocolError] || null);
+        callback(response.getError() || null);
       }
     });
   }
@@ -494,11 +547,11 @@ export class DOMNode {
    */
   setAttribute(name, text, callback) {
     this._agent.invoke_setAttributesAsText({nodeId: this.id, text, name}).then(response => {
-      if (!response[ProtocolClient.InspectorBackend.ProtocolError]) {
+      if (!response.getError()) {
         this._domModel.markUndoableState();
       }
       if (callback) {
-        callback(response[ProtocolClient.InspectorBackend.ProtocolError] || null);
+        callback(response.getError() || null);
       }
     });
   }
@@ -510,11 +563,11 @@ export class DOMNode {
    */
   setAttributeValue(name, value, callback) {
     this._agent.invoke_setAttributeValue({nodeId: this.id, name, value}).then(response => {
-      if (!response[ProtocolClient.InspectorBackend.ProtocolError]) {
+      if (!response.getError()) {
         this._domModel.markUndoableState();
       }
       if (callback) {
-        callback(response[ProtocolClient.InspectorBackend.ProtocolError] || null);
+        callback(response.getError() || null);
       }
     });
   }
@@ -537,11 +590,11 @@ export class DOMNode {
 
   /**
    * @param {string} name
-   * @return {!Promise}
+   * @return {!Promise<void>}
    */
   async removeAttribute(name) {
     const response = await this._agent.invoke_removeAttribute({nodeId: this.id, name});
-    if (response[ProtocolClient.InspectorBackend.ProtocolError]) {
+    if (response.getError()) {
       return;
     }
     this._attributes.delete(name);
@@ -549,7 +602,7 @@ export class DOMNode {
   }
 
   /**
-   * @param {function(?Array<!DOMNode>)} callback
+   * @param {function(?Array<!DOMNode>):void} callback
    */
   getChildNodes(callback) {
     if (this._children) {
@@ -557,7 +610,7 @@ export class DOMNode {
       return;
     }
     this._agent.invoke_requestChildNodes({nodeId: this.id}).then(response => {
-      callback(response[ProtocolClient.InspectorBackend.ProtocolError] ? null : this.children());
+      callback(response.getError() ? null : this.children());
     });
   }
 
@@ -568,14 +621,15 @@ export class DOMNode {
    */
   async getSubtree(depth, pierce) {
     const response = await this._agent.invoke_requestChildNodes({nodeId: this.id, depth: depth, pierce: pierce});
-    return response[ProtocolClient.InspectorBackend.ProtocolError] ? null : this._children;
+    return response.getError() ? null : this._children;
   }
 
   /**
    * @return {!Promise<?string>}
    */
-  getOuterHTML() {
-    return this._agent.getOuterHTML(this.id);
+  async getOuterHTML() {
+    const {outerHTML} = await this._agent.invoke_getOuterHTML({nodeId: this.id});
+    return outerHTML;
   }
 
   /**
@@ -584,11 +638,11 @@ export class DOMNode {
    */
   setOuterHTML(html, callback) {
     this._agent.invoke_setOuterHTML({nodeId: this.id, outerHTML: html}).then(response => {
-      if (!response[ProtocolClient.InspectorBackend.ProtocolError]) {
+      if (!response.getError()) {
         this._domModel.markUndoableState();
       }
       if (callback) {
-        callback(response[ProtocolClient.InspectorBackend.ProtocolError] || null);
+        callback(response.getError() || null);
       }
     });
   }
@@ -598,11 +652,11 @@ export class DOMNode {
    */
   removeNode(callback) {
     this._agent.invoke_removeNode({nodeId: this.id}).then(response => {
-      if (!response[ProtocolClient.InspectorBackend.ProtocolError]) {
+      if (!response.getError()) {
         this._domModel.markUndoableState();
       }
       if (callback) {
-        callback(response[ProtocolClient.InspectorBackend.ProtocolError] || null);
+        callback(response.getError() || null);
       }
     });
   }
@@ -611,11 +665,11 @@ export class DOMNode {
    * @return {!Promise<?string>}
    */
   async copyNode() {
-    const text = await this._agent.getOuterHTML(this.id);
-    if (text !== null) {
-      Host.InspectorFrontendHost.InspectorFrontendHostInstance.copyText(text);
+    const {outerHTML} = await this._agent.invoke_getOuterHTML({nodeId: this.id});
+    if (outerHTML !== null) {
+      Host.InspectorFrontendHost.InspectorFrontendHostInstance.copyText(outerHTML);
     }
-    return text;
+    return outerHTML;
   }
 
   /**
@@ -623,15 +677,15 @@ export class DOMNode {
    */
   path() {
     /**
-     * @param {?DOMNode} node
+     * @param {!DOMNode} node
      */
     function canPush(node) {
-      return node && ('index' in node || (node.isShadowRoot() && node.parentNode)) && node._nodeName.length;
+      return (node.index !== undefined || (node.isShadowRoot() && node.parentNode)) && node._nodeName.length;
     }
 
     const path = [];
-    let node = this;
-    while (canPush(node)) {
+    let node = /** @type {?DOMNode} */ (this);
+    while (node && canPush(node)) {
       const index = typeof node.index === 'number' ?
           node.index :
           (node.shadowRootType() === DOMNode.ShadowRootTypes.UserAgent ? 'u' : 'a');
@@ -699,7 +753,8 @@ export class DOMNode {
         continue;
       }
 
-      if (!oldAttributesMap.has(name) || oldAttributesMap.get(name).value !== value) {
+      const oldAttribute = oldAttributesMap.get(name);
+      if (!oldAttribute || oldAttribute.value !== value) {
         attributesChanged = true;
       }
     }
@@ -712,6 +767,9 @@ export class DOMNode {
    * @return {!DOMNode}
    */
   _insertChild(prev, payload) {
+    if (!this._children) {
+      throw new Error('DOMNode._children is expected to not be null.');
+    }
     const node = DOMNode.create(this._domModel, this.ownerDocument, this._isInShadowTree, payload);
     this._children.splice(this._children.indexOf(prev) + 1, 0, node);
     this._renumber();
@@ -722,14 +780,20 @@ export class DOMNode {
    * @param {!DOMNode} node
    */
   _removeChild(node) {
-    if (node.pseudoType()) {
-      this._pseudoElements.delete(node.pseudoType());
+    const pseudoType = node.pseudoType();
+    if (pseudoType) {
+      this._pseudoElements.delete(pseudoType);
     } else {
       const shadowRootIndex = this._shadowRoots.indexOf(node);
       if (shadowRootIndex !== -1) {
         this._shadowRoots.splice(shadowRootIndex, 1);
       } else {
-        console.assert(this._children.indexOf(node) !== -1);
+        if (!this._children) {
+          throw new Error('DOMNode._children is expected to not be null.');
+        }
+        if (this._children.indexOf(node) === -1) {
+          throw new Error('DOMNode._children is expected to contain the node to be removed.');
+        }
         this._children.splice(this._children.indexOf(node), 1);
       }
     }
@@ -758,7 +822,6 @@ export class DOMNode {
    * @param {!Array.<!Protocol.DOM.Node>|undefined} payloads
    */
   _setPseudoElements(payloads) {
-    this._pseudoElements = new Map();
     if (!payloads) {
       return;
     }
@@ -766,7 +829,11 @@ export class DOMNode {
     for (let i = 0; i < payloads.length; ++i) {
       const node = DOMNode.create(this._domModel, this.ownerDocument, this._isInShadowTree, payloads[i]);
       node.parentNode = this;
-      this._pseudoElements.set(node.pseudoType(), node);
+      const pseudoType = node.pseudoType();
+      if (!pseudoType) {
+        throw new Error('DOMNode.pseudoType() is expected to be defined.');
+      }
+      this._pseudoElements.set(pseudoType, node);
     }
   }
 
@@ -782,6 +849,9 @@ export class DOMNode {
   }
 
   _renumber() {
+    if (!this._children) {
+      throw new Error('DOMNode._children is expected to not be null.');
+    }
     this._childNodeCount = this._children.length;
     if (this._childNodeCount === 0) {
       this.firstChild = null;
@@ -831,18 +901,18 @@ export class DOMNode {
   /**
    * @param {!DOMNode} targetNode
    * @param {?DOMNode} anchorNode
-   * @param {function(?ProtocolClient.InspectorBackend.ProtocolError, !Protocol.DOM.NodeId=)=} callback
+   * @param {function(?ProtocolClient.InspectorBackend.ProtocolError, ?DOMNode)=} callback
    */
   copyTo(targetNode, anchorNode, callback) {
     this._agent
         .invoke_copyTo(
             {nodeId: this.id, targetNodeId: targetNode.id, insertBeforeNodeId: anchorNode ? anchorNode.id : undefined})
         .then(response => {
-          if (!response[ProtocolClient.InspectorBackend.ProtocolError]) {
+          if (!response.getError()) {
             this._domModel.markUndoableState();
           }
           if (callback) {
-            callback(response[ProtocolClient.InspectorBackend.ProtocolError] || null, response.nodeId);
+            callback(response.getError() || null, this._domModel.nodeForId(response.nodeId));
           }
         });
   }
@@ -850,20 +920,18 @@ export class DOMNode {
   /**
    * @param {!DOMNode} targetNode
    * @param {?DOMNode} anchorNode
-   * @param {function(?ProtocolClient.InspectorBackend.ProtocolError, ?SDK.DOMNode)=} callback
+   * @param {function(?ProtocolClient.InspectorBackend.ProtocolError, ?DOMNode)=} callback
    */
   moveTo(targetNode, anchorNode, callback) {
     this._agent
         .invoke_moveTo(
             {nodeId: this.id, targetNodeId: targetNode.id, insertBeforeNodeId: anchorNode ? anchorNode.id : undefined})
         .then(response => {
-          if (!response[ProtocolClient.InspectorBackend.ProtocolError]) {
+          if (!response.getError()) {
             this._domModel.markUndoableState();
           }
           if (callback) {
-            callback(
-                response[ProtocolClient.InspectorBackend.ProtocolError] || null,
-                this._domModel.nodeForId(response.nodeId));
+            callback(response.getError() || null, this._domModel.nodeForId(response.nodeId));
           }
         });
   }
@@ -872,7 +940,7 @@ export class DOMNode {
    * @return {boolean}
    */
   isXMLNode() {
-    return !!this._xmlVersion;
+    return Boolean(this._xmlVersion);
   }
 
   /**
@@ -886,22 +954,22 @@ export class DOMNode {
       }
 
       this._markers.delete(name);
-      for (let node = this; node; node = node.parentNode) {
+      for (let node = /** @type {?DOMNode} */ (this); node; node = node.parentNode) {
         --node._subtreeMarkerCount;
       }
-      for (let node = this; node; node = node.parentNode) {
+      for (let node = /** @type {?DOMNode} */ (this); node; node = node.parentNode) {
         this._domModel.dispatchEventToListeners(Events.MarkersChanged, node);
       }
       return;
     }
 
     if (this.parentNode && !this._markers.has(name)) {
-      for (let node = this; node; node = node.parentNode) {
+      for (let node = /** @type {?DOMNode} */ (this); node; node = node.parentNode) {
         ++node._subtreeMarkerCount;
       }
     }
     this._markers.set(name, value);
-    for (let node = this; node; node = node.parentNode) {
+    for (let node = /** @type {?DOMNode} */ (this); node; node = node.parentNode) {
       this._domModel.dispatchEventToListeners(Events.MarkersChanged, node);
     }
   }
@@ -916,7 +984,7 @@ export class DOMNode {
   }
 
   /**
-   * @param {function(!DOMNode, string)} visitor
+   * @param {function(!DOMNode, string):void} visitor
    */
   traverseMarkers(visitor) {
     /**
@@ -947,8 +1015,9 @@ export class DOMNode {
     if (!url) {
       return url;
     }
-    for (let frameOwnerCandidate = this; frameOwnerCandidate; frameOwnerCandidate = frameOwnerCandidate.parentNode) {
-      if (frameOwnerCandidate.baseURL) {
+    for (let frameOwnerCandidate = /** @type {?DOMNode} */ (this); frameOwnerCandidate;
+         frameOwnerCandidate = frameOwnerCandidate.parentNode) {
+      if (frameOwnerCandidate instanceof DOMDocument && frameOwnerCandidate.baseURL) {
         return Common.ParsedURL.ParsedURL.completeURL(frameOwnerCandidate.baseURL, url);
       }
     }
@@ -959,11 +1028,11 @@ export class DOMNode {
    * @param {string=} mode
    */
   highlight(mode) {
-    this._domModel.overlayModel().highlightInOverlay({node: this}, mode);
+    this._domModel.overlayModel().highlightInOverlay({node: this, selectorList: undefined}, mode);
   }
 
   highlightForTwoSeconds() {
-    this._domModel.overlayModel().highlightInOverlayForTwoSeconds({node: this});
+    this._domModel.overlayModel().highlightInOverlayForTwoSeconds({node: this, selectorList: undefined});
   }
 
   /**
@@ -971,23 +1040,24 @@ export class DOMNode {
    * @return {!Promise<?RemoteObject>}
    */
   async resolveToObject(objectGroup) {
-    const object = await this._agent.resolveNode(this.id, undefined, objectGroup);
-    return object && this._domModel._runtimeModel.createRemoteObject(object);
+    const {object} = await this._agent.invoke_resolveNode({nodeId: this.id, backendNodeId: undefined, objectGroup});
+    return object && this._domModel._runtimeModel.createRemoteObject(object) || null;
   }
 
   /**
    * @return {!Promise<?Protocol.DOM.BoxModel>}
    */
-  boxModel() {
-    return this._agent.getBoxModel(this.id);
+  async boxModel() {
+    const {model} = await this._agent.invoke_getBoxModel({nodeId: this.id});
+    return model;
   }
 
-  setAsInspectedNode() {
-    let node = this;
-    if (node.pseudoType()) {
+  async setAsInspectedNode() {
+    let node = /** @type {?DOMNode} */ (this);
+    if (node && node.pseudoType()) {
       node = node.parentNode;
     }
-    while (true) {
+    while (node) {
       let ancestor = node.ancestorUserAgentShadowRoot();
       if (!ancestor) {
         break;
@@ -999,14 +1069,17 @@ export class DOMNode {
       // User agent shadow root, keep climbing up.
       node = ancestor;
     }
-    this._agent.setInspectedNode(node.id);
+    if (!node) {
+      throw new Error('In DOMNode.setAsInspectedNode: node is expected to not be null.');
+    }
+    await this._agent.invoke_setInspectedNode({nodeId: node.id});
   }
 
   /**
    *  @return {?DOMNode}
    */
   enclosingElementOrSelf() {
-    let node = this;
+    let node = /** @type {?DOMNode} */ (this);
     if (node && node.nodeType() === Node.TEXT_NODE && node.parentNode) {
       node = node.parentNode;
     }
@@ -1031,7 +1104,6 @@ export class DOMNode {
     node.highlightForTwoSeconds();
 
     /**
-     * @suppressReceiverCheck
      * @this {!Element}
      */
     function scrollIntoView() {
@@ -1041,6 +1113,9 @@ export class DOMNode {
 
   async focus() {
     const node = this.enclosingElementOrSelf();
+    if (!node) {
+      throw new Error('DOMNode.focus expects node to not be null.');
+    }
     const object = await node.resolveToObject();
     if (!object) {
       return;
@@ -1048,11 +1123,10 @@ export class DOMNode {
     await object.callFunction(focusInPage);
     object.release();
     node.highlightForTwoSeconds();
-    this._domModel.target().pageAgent().bringToFront();
+    await this._domModel.target().pageAgent().invoke_bringToFront();
 
     /**
-     * @suppressReceiverCheck
-     * @this {!Element}
+     * @this {!HTMLElement}
      */
     function focusInPage() {
       this.focus();
@@ -1067,16 +1141,19 @@ export class DOMNode {
     if (this.nodeType() !== Node.ELEMENT_NODE) {
       return lowerCaseName;
     }
-    if (lowerCaseName === 'input' && this.getAttribute('type') && !this.getAttribute('id') &&
-        !this.getAttribute('class')) {
-      return lowerCaseName + '[type="' + this.getAttribute('type') + '"]';
+    const type = this.getAttribute('type');
+    const id = this.getAttribute('id');
+    const classes = this.getAttribute('class');
+
+    if (lowerCaseName === 'input' && type && !id && !classes) {
+      return lowerCaseName + '[type="' + CSS.escape(type) + '"]';
     }
-    if (this.getAttribute('id')) {
-      return lowerCaseName + '#' + this.getAttribute('id');
+    if (id) {
+      return lowerCaseName + '#' + CSS.escape(id);
     }
-    if (this.getAttribute('class')) {
-      return (lowerCaseName === 'div' ? '' : lowerCaseName) + '.' +
-          this.getAttribute('class').trim().replace(/\s+/g, '.');
+    if (classes) {
+      const classList = classes.trim().split(/\s+/g);
+      return (lowerCaseName === 'div' ? '' : lowerCaseName) + '.' + classList.map(cls => CSS.escape(cls)).join('.');
     }
     return lowerCaseName;
   }
@@ -1100,9 +1177,7 @@ DOMNode.ShadowRootTypes = {
   Closed: 'closed'
 };
 
-/**
- * @unrestricted
- */
+
 export class DeferredDOMNode {
   /**
    * @param {!Target} target
@@ -1114,7 +1189,7 @@ export class DeferredDOMNode {
   }
 
   /**
-   * @param {function(?DOMNode)} callback
+   * @param {function(?DOMNode):void} callback
    */
   resolve(callback) {
     this.resolvePromise().then(callback);
@@ -1143,13 +1218,11 @@ export class DeferredDOMNode {
   }
 
   highlight() {
-    this._domModel.overlayModel().highlightInOverlay({deferredNode: this});
+    this._domModel.overlayModel().highlightInOverlay({deferredNode: this, selectorList: undefined});
   }
 }
 
-/**
- * @unrestricted
- */
+
 export class DOMNodeShortcut {
   /**
    * @param {!Target} target
@@ -1164,9 +1237,6 @@ export class DOMNodeShortcut {
   }
 }
 
-/**
- * @unrestricted
- */
 export class DOMDocument extends DOMNode {
   /**
    * @param {!DOMModel} domModel
@@ -1174,15 +1244,16 @@ export class DOMDocument extends DOMNode {
    */
   constructor(domModel, payload) {
     super(domModel);
+    /** @type {?DOMNode} */
+    this.body = null;
+    /** @type {?DOMNode} */
+    this.documentElement = null;
     this._init(this, false, payload);
     this.documentURL = payload.documentURL || '';
     this.baseURL = payload.baseURL || '';
   }
 }
 
-/**
- * @unrestricted
- */
 export class DOMModel extends SDKModel {
   /**
    * @param {!Target} target
@@ -1201,13 +1272,18 @@ export class DOMModel extends SDKModel {
     target.registerDOMDispatcher(new DOMDispatcher(this));
 
     this._runtimeModel = /** @type {!RuntimeModel} */ (target.model(RuntimeModel));
+    /** @type {number} */
+    this._lastMutationId;
+
+    /** @type {?Promise<?DOMDocument>} */
+    this._pendingDocumentRequestPromise = null;
 
     if (!target.suspended()) {
-      this._agent.enable();
+      this._agent.invoke_enable();
     }
 
     if (Root.Runtime.experiments.isEnabled('captureNodeCreationStacks')) {
-      this._agent.setNodeStackTracesEnabled(true);
+      this._agent.invoke_setNodeStackTracesEnabled({enable: true});
     }
   }
 
@@ -1264,7 +1340,7 @@ export class DOMModel extends SDKModel {
   }
 
   /**
-   * @return {!Promise<!DOMDocument>}
+   * @return {!Promise<?DOMDocument>}
    */
   requestDocument() {
     if (this._document) {
@@ -1277,11 +1353,24 @@ export class DOMModel extends SDKModel {
   }
 
   /**
+   * @param {!Protocol.Page.FrameId} frameId
+   * @returns {!Promise<?DeferredDOMNode>}
+   */
+  async getOwnerNodeForFrame(frameId) {
+    // Returns an error if the frameId does not belong to the current target.
+    const response = await this._agent.invoke_getFrameOwner({frameId});
+    if (response.getError()) {
+      return null;
+    }
+    return new DeferredDOMNode(this.target(), response.backendNodeId);
+  }
+
+  /**
    * @return {!Promise<?DOMDocument>}
    */
   async _requestDocument() {
-    const documentPayload = await this._agent.getDocument();
-    delete this._pendingDocumentRequestPromise;
+    const {root: documentPayload} = await this._agent.invoke_getDocument({});
+    this._pendingDocumentRequestPromise = null;
 
     if (documentPayload) {
       this._setDocument(documentPayload);
@@ -1295,7 +1384,7 @@ export class DOMModel extends SDKModel {
     if (parentModel && !this._frameOwnerNode) {
       await parentModel.requestDocument();
       const response = await parentModel._agent.invoke_getFrameOwner({frameId: this.target().id()});
-      if (!response[ProtocolClient.InspectorBackend.ProtocolError]) {
+      if (!response.getError() && response.nodeId) {
         this._frameOwnerNode = parentModel.nodeForId(response.nodeId);
       }
     }
@@ -1328,7 +1417,7 @@ export class DOMModel extends SDKModel {
    */
   async pushNodeToFrontend(objectId) {
     await this.requestDocument();
-    const nodeId = await this._agent.requestNode(objectId);
+    const {nodeId} = await this._agent.invoke_requestNode({objectId});
     return nodeId ? this.nodeForId(nodeId) : null;
   }
 
@@ -1337,7 +1426,9 @@ export class DOMModel extends SDKModel {
    * @return {!Promise<?Protocol.DOM.NodeId>}
    */
   pushNodeByPathToFrontend(path) {
-    return this.requestDocument().then(() => this._agent.pushNodeByPathToFrontend(path));
+    return this.requestDocument()
+        .then(() => this._agent.invoke_pushNodeByPathToFrontend({path}))
+        .then(({nodeId}) => nodeId);
   }
 
   /**
@@ -1347,7 +1438,7 @@ export class DOMModel extends SDKModel {
   async pushNodesByBackendIdsToFrontend(backendNodeIds) {
     await this.requestDocument();
     const backendNodeIdsArray = [...backendNodeIds];
-    const nodeIds = await this._agent.pushNodesByBackendIdsToFrontend(backendNodeIdsArray);
+    const {nodeIds} = await this._agent.invoke_pushNodesByBackendIdsToFrontend({backendNodeIds: backendNodeIdsArray});
     if (!nodeIds) {
       return null;
     }
@@ -1359,24 +1450,6 @@ export class DOMModel extends SDKModel {
       }
     }
     return map;
-  }
-
-  /**
-   * @param {function(?T)} callback
-   * @return {function(?ProtocolClient.InspectorBackend.ProtocolError, !T=)}
-   * @template T
-   */
-  _wrapClientCallback(callback) {
-    /**
-     * @param {?ProtocolClient.InspectorBackend.ProtocolError} error
-     * @param {!T=} result
-     * @template T
-     */
-    function wrapper(error, result) {
-      // Caller is responsible for handling the actual error.
-      callback(error ? null : result || null);
-    }
-    return wrapper;
   }
 
   /**
@@ -1413,7 +1486,7 @@ export class DOMModel extends SDKModel {
    * @param {!Array<!Protocol.DOM.NodeId>} nodeIds
    */
   _inlineStyleInvalidated(nodeIds) {
-    this._attributeLoadNodeIds.addAll(nodeIds);
+    Platform.SetUtilities.addAll(this._attributeLoadNodeIds, nodeIds);
     if (!this._loadNodeAttributesTimeout) {
       this._loadNodeAttributesTimeout = setTimeout(this._loadNodeAttributes.bind(this), 20);
     }
@@ -1422,7 +1495,7 @@ export class DOMModel extends SDKModel {
   _loadNodeAttributes() {
     delete this._loadNodeAttributesTimeout;
     for (const nodeId of this._attributeLoadNodeIds) {
-      this._agent.getAttributes(nodeId).then(attributes => {
+      this._agent.invoke_getAttributes({nodeId}).then(({attributes}) => {
         if (!attributes) {
           // We are calling _loadNodeAttributes asynchronously, it is ok if node is not found.
           return;
@@ -1452,11 +1525,11 @@ export class DOMModel extends SDKModel {
   }
 
   /**
-   * @param {!Protocol.DOM.NodeId} nodeId
+   * @param {?Protocol.DOM.NodeId} nodeId
    * @return {?DOMNode}
    */
   nodeForId(nodeId) {
-    return this._idToDOMNode[nodeId] || null;
+    return nodeId ? this._idToDOMNode[nodeId] || null : null;
   }
 
   _documentUpdated() {
@@ -1479,7 +1552,7 @@ export class DOMModel extends SDKModel {
     } else {
       this._document = null;
     }
-    self.SDK.domModelUndoStack._dispose(this);
+    DOMModelUndoStack.instance()._dispose(this);
 
     if (!this.parentModel()) {
       this.dispatchEventToListeners(Events.DocumentUpdated, this);
@@ -1597,8 +1670,15 @@ export class DOMModel extends SDKModel {
     const node = DOMNode.create(this, parent.ownerDocument, false, pseudoElement);
     node.parentNode = parent;
     this._idToDOMNode[node.id] = node;
-    console.assert(!parent._pseudoElements.get(node.pseudoType()));
-    parent._pseudoElements.set(node.pseudoType(), node);
+    const pseudoType = node.pseudoType();
+    if (!pseudoType) {
+      throw new Error('DOMModel._pseudoElementAdded expects pseudoType to be defined.');
+    }
+    const previousPseudoType = parent._pseudoElements.get(pseudoType);
+    if (previousPseudoType) {
+      throw new Error('DOMModel._pseudoElementAdded expects parent to not already have this pseudo type added.');
+    }
+    parent._pseudoElements.set(pseudoType, node);
     this.dispatchEventToListeners(Events.NodeInserted, node);
     this._scheduleMutationEvent(node);
   }
@@ -1657,16 +1737,34 @@ export class DOMModel extends SDKModel {
   }
 
   /**
+   * @param {!Array<!{name: string, value: string}>} computedStyles
+   * @param {boolean} pierce
+   * @return {!Promise<!Array<number>>}
+   */
+  async getNodesByStyle(computedStyles, pierce = false) {
+    await this.requestDocument();
+    if (!this._document) {
+      throw new Error('DOMModel.getNodesByStyle expects to have a document.');
+    }
+    const response =
+        await this._agent.invoke_getNodesForSubtreeByStyle({nodeId: this._document.id, computedStyles, pierce});
+    if (response.getError()) {
+      throw response.getError();
+    }
+    return response.nodeIds;
+  }
+
+  /**
    * @param {string} query
    * @param {boolean} includeUserAgentShadowDOM
    * @return {!Promise<number>}
    */
   async performSearch(query, includeUserAgentShadowDOM) {
     const response = await this._agent.invoke_performSearch({query, includeUserAgentShadowDOM});
-    if (!response[ProtocolClient.InspectorBackend.ProtocolError]) {
+    if (!response.getError()) {
       this._searchId = response.searchId;
     }
-    return response[ProtocolClient.InspectorBackend.ProtocolError] ? 0 : response.resultCount;
+    return response.getError() ? 0 : response.resultCount;
   }
 
   /**
@@ -1677,7 +1775,8 @@ export class DOMModel extends SDKModel {
     if (!this._searchId) {
       return null;
     }
-    const nodeIds = await this._agent.getSearchResults(this._searchId, index, index + 1);
+    const {nodeIds} =
+        await this._agent.invoke_getSearchResults({searchId: this._searchId, fromIndex: index, toIndex: index + 1});
     return nodeIds && nodeIds.length === 1 ? this.nodeForId(nodeIds[0]) : null;
   }
 
@@ -1685,7 +1784,7 @@ export class DOMModel extends SDKModel {
     if (!this._searchId) {
       return;
     }
-    this._agent.discardSearchResults(this._searchId);
+    this._agent.invoke_discardSearchResults({searchId: this._searchId});
     delete this._searchId;
   }
 
@@ -1694,32 +1793,32 @@ export class DOMModel extends SDKModel {
    * @return {!Promise<!Array<string>>}
    */
   classNamesPromise(nodeId) {
-    return this._agent.collectClassNamesFromSubtree(nodeId).then(classNames => classNames || []);
+    return this._agent.invoke_collectClassNamesFromSubtree({nodeId}).then(({classNames}) => classNames || []);
   }
 
   /**
    * @param {!Protocol.DOM.NodeId} nodeId
-   * @param {string} selectors
+   * @param {string} selector
    * @return {!Promise<?Protocol.DOM.NodeId>}
    */
-  querySelector(nodeId, selectors) {
-    return this._agent.querySelector(nodeId, selectors);
+  querySelector(nodeId, selector) {
+    return this._agent.invoke_querySelector({nodeId, selector}).then(({nodeId}) => nodeId);
   }
 
   /**
    * @param {!Protocol.DOM.NodeId} nodeId
-   * @param {string} selectors
+   * @param {string} selector
    * @return {!Promise<?Array<!Protocol.DOM.NodeId>>}
    */
-  querySelectorAll(nodeId, selectors) {
-    return this._agent.querySelectorAll(nodeId, selectors);
+  querySelectorAll(nodeId, selector) {
+    return this._agent.invoke_querySelectorAll({nodeId, selector}).then(({nodeIds}) => nodeIds);
   }
 
   /**
    * @param {boolean=} minorChange
    */
   markUndoableState(minorChange) {
-    self.SDK.domModelUndoStack._markUndoableState(this, minorChange || false);
+    DOMModelUndoStack.instance()._markUndoableState(this, minorChange || false);
   }
 
   /**
@@ -1730,7 +1829,7 @@ export class DOMModel extends SDKModel {
    */
   async nodeForLocation(x, y, includeUserAgentShadowDOM) {
     const response = await this._agent.invoke_getNodeForLocation({x, y, includeUserAgentShadowDOM});
-    if (response[ProtocolClient.InspectorBackend.ProtocolError] || !response.nodeId) {
+    if (response.getError() || !response.nodeId) {
       return null;
     }
     return this.nodeForId(response.nodeId);
@@ -1746,25 +1845,25 @@ export class DOMModel extends SDKModel {
 
   /**
    * @override
-   * @return {!Promise}
+   * @return {!Promise<void>}
    */
   suspendModel() {
-    return this._agent.disable().then(() => this._setDocument(null));
+    return this._agent.invoke_disable().then(() => this._setDocument(null));
   }
 
   /**
    * @override
-   * @return {!Promise}
+   * @return {!Promise<void>}
    */
-  resumeModel() {
-    return this._agent.enable();
+  async resumeModel() {
+    await this._agent.invoke_enable();
   }
 
   /**
    * @override
    */
   dispose() {
-    self.SDK.domModelUndoStack._dispose(this);
+    DOMModelUndoStack.instance()._dispose(this);
   }
 
   /**
@@ -1791,8 +1890,7 @@ export const Events = {
 };
 
 /**
- * @implements {Protocol.DOMDispatcher}
- * @unrestricted
+ * @implements {ProtocolProxyApi.DOMDispatcher}
  */
 class DOMDispatcher {
   /**
@@ -1811,122 +1909,113 @@ class DOMDispatcher {
 
   /**
    * @override
-   * @param {!Protocol.DOM.NodeId} nodeId
-   * @param {string} name
-   * @param {string} value
+   * @param {!Protocol.DOM.AttributeModifiedEvent} event
    */
-  attributeModified(nodeId, name, value) {
+  attributeModified({nodeId, name, value}) {
     this._domModel._attributeModified(nodeId, name, value);
   }
 
   /**
    * @override
-   * @param {!Protocol.DOM.NodeId} nodeId
-   * @param {string} name
+   * @param {!Protocol.DOM.AttributeRemovedEvent} event
    */
-  attributeRemoved(nodeId, name) {
+  attributeRemoved({nodeId, name}) {
     this._domModel._attributeRemoved(nodeId, name);
   }
 
   /**
    * @override
-   * @param {!Array.<!Protocol.DOM.NodeId>} nodeIds
+   * @param {!Protocol.DOM.InlineStyleInvalidatedEvent} event
    */
-  inlineStyleInvalidated(nodeIds) {
+  inlineStyleInvalidated({nodeIds}) {
     this._domModel._inlineStyleInvalidated(nodeIds);
   }
 
   /**
    * @override
-   * @param {!Protocol.DOM.NodeId} nodeId
-   * @param {string} characterData
+   * @param {!Protocol.DOM.CharacterDataModifiedEvent} event
    */
-  characterDataModified(nodeId, characterData) {
+  characterDataModified({nodeId, characterData}) {
     this._domModel._characterDataModified(nodeId, characterData);
   }
 
   /**
    * @override
-   * @param {!Protocol.DOM.NodeId} parentId
-   * @param {!Array.<!Protocol.DOM.Node>} payloads
+   * @param {!Protocol.DOM.SetChildNodesEvent} event
    */
-  setChildNodes(parentId, payloads) {
-    this._domModel._setChildNodes(parentId, payloads);
+  setChildNodes({parentId, nodes}) {
+    this._domModel._setChildNodes(parentId, nodes);
   }
 
   /**
    * @override
-   * @param {!Protocol.DOM.NodeId} nodeId
-   * @param {number} childNodeCount
+   * @param {!Protocol.DOM.ChildNodeCountUpdatedEvent} event
    */
-  childNodeCountUpdated(nodeId, childNodeCount) {
+  childNodeCountUpdated({nodeId, childNodeCount}) {
     this._domModel._childNodeCountUpdated(nodeId, childNodeCount);
   }
 
   /**
    * @override
-   * @param {!Protocol.DOM.NodeId} parentNodeId
-   * @param {!Protocol.DOM.NodeId} previousNodeId
-   * @param {!Protocol.DOM.Node} payload
+   * @param {!Protocol.DOM.ChildNodeInsertedEvent} event
    */
-  childNodeInserted(parentNodeId, previousNodeId, payload) {
-    this._domModel._childNodeInserted(parentNodeId, previousNodeId, payload);
+  childNodeInserted({parentNodeId, previousNodeId, node}) {
+    this._domModel._childNodeInserted(parentNodeId, previousNodeId, node);
   }
 
   /**
    * @override
-   * @param {!Protocol.DOM.NodeId} parentNodeId
-   * @param {!Protocol.DOM.NodeId} nodeId
+   * @param {!Protocol.DOM.ChildNodeRemovedEvent} event
    */
-  childNodeRemoved(parentNodeId, nodeId) {
+  childNodeRemoved({parentNodeId, nodeId}) {
     this._domModel._childNodeRemoved(parentNodeId, nodeId);
   }
 
   /**
    * @override
-   * @param {!Protocol.DOM.NodeId} hostId
-   * @param {!Protocol.DOM.Node} root
+   * @param {!Protocol.DOM.ShadowRootPushedEvent} event
    */
-  shadowRootPushed(hostId, root) {
+  shadowRootPushed({hostId, root}) {
     this._domModel._shadowRootPushed(hostId, root);
   }
 
   /**
    * @override
-   * @param {!Protocol.DOM.NodeId} hostId
-   * @param {!Protocol.DOM.NodeId} rootId
+   * @param {!Protocol.DOM.ShadowRootPoppedEvent} event
    */
-  shadowRootPopped(hostId, rootId) {
+  shadowRootPopped({hostId, rootId}) {
     this._domModel._shadowRootPopped(hostId, rootId);
   }
 
   /**
    * @override
-   * @param {!Protocol.DOM.NodeId} parentId
-   * @param {!Protocol.DOM.Node} pseudoElement
+   * @param {!Protocol.DOM.PseudoElementAddedEvent} event
    */
-  pseudoElementAdded(parentId, pseudoElement) {
+  pseudoElementAdded({parentId, pseudoElement}) {
     this._domModel._pseudoElementAdded(parentId, pseudoElement);
   }
 
   /**
    * @override
-   * @param {!Protocol.DOM.NodeId} parentId
-   * @param {!Protocol.DOM.NodeId} pseudoElementId
+   * @param {!Protocol.DOM.PseudoElementRemovedEvent} event
    */
-  pseudoElementRemoved(parentId, pseudoElementId) {
+  pseudoElementRemoved({parentId, pseudoElementId}) {
     this._domModel._pseudoElementRemoved(parentId, pseudoElementId);
   }
 
   /**
    * @override
-   * @param {!Protocol.DOM.NodeId} insertionPointId
-   * @param {!Array.<!Protocol.DOM.BackendNode>} distributedNodes
+   * @param {!Protocol.DOM.DistributedNodesUpdatedEvent} event
    */
-  distributedNodesUpdated(insertionPointId, distributedNodes) {
+  distributedNodesUpdated({insertionPointId, distributedNodes}) {
     this._domModel._distributedNodesUpdated(insertionPointId, distributedNodes);
   }
 }
+
+/**
+ * @type {?DOMModelUndoStack}
+ */
+let DOMModelUndoStackInstance;
 
 export class DOMModelUndoStack {
   constructor() {
@@ -1938,10 +2027,23 @@ export class DOMModelUndoStack {
   }
 
   /**
+   * @param {{forceNew: ?boolean}} opts
+   * @return {!DOMModelUndoStack}
+   */
+  static instance(opts = {forceNew: null}) {
+    const {forceNew} = opts;
+    if (!DOMModelUndoStackInstance || forceNew) {
+      DOMModelUndoStackInstance = new DOMModelUndoStack();
+    }
+
+    return DOMModelUndoStackInstance;
+  }
+
+  /**
    * @param {!DOMModel} model
    * @param {boolean} minorChange
    */
-  _markUndoableState(model, minorChange) {
+  async _markUndoableState(model, minorChange) {
     // Both minor and major changes get into the stack, but minor updates are coalesced.
     // Commit major undoable state in the old model upon model switch.
     if (this._lastModelWithMinorChange && model !== this._lastModelWithMinorChange) {
@@ -1963,33 +2065,33 @@ export class DOMModelUndoStack {
     if (minorChange) {
       this._lastModelWithMinorChange = model;
     } else {
-      model._agent.markUndoableState();
+      await model._agent.invoke_markUndoableState();
       this._lastModelWithMinorChange = null;
     }
   }
 
   /**
-   * @return {!Promise}
+   * @return {!Promise<void>}
    */
-  undo() {
+  async undo() {
     if (this._index === 0) {
       return Promise.resolve();
     }
     --this._index;
     this._lastModelWithMinorChange = null;
-    return this._stack[this._index]._agent.undo();
+    await this._stack[this._index]._agent.invoke_undo();
   }
 
   /**
-   * @return {!Promise}
+   * @return {!Promise<void>}
    */
-  redo() {
+  async redo() {
     if (this._index >= this._stack.length) {
       return Promise.resolve();
     }
     ++this._index;
     this._lastModelWithMinorChange = null;
-    return this._stack[this._index - 1]._agent.redo();
+    await this._stack[this._index - 1]._agent.invoke_redo();
   }
 
   /**
@@ -2013,4 +2115,5 @@ export class DOMModelUndoStack {
 SDKModel.register(DOMModel, Capability.DOM, true);
 
 /** @typedef {{name: string, value: string, _node: DOMNode}} */
+// @ts-ignore typedef
 export let Attribute;

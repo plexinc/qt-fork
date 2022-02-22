@@ -39,15 +39,17 @@
 
 #include "qsqlresult.h"
 
-#include "qvariant.h"
 #include "qhash.h"
+#include "qlist.h"
+#include "qpointer.h"
+#include "qsqldriver.h"
 #include "qsqlerror.h"
 #include "qsqlfield.h"
 #include "qsqlrecord.h"
-#include "qvector.h"
-#include "qsqldriver.h"
-#include "qpointer.h"
 #include "qsqlresult_p.h"
+#include "quuid.h"
+#include "qvariant.h"
+#include "qdatetime.h"
 #include "private/qsqldriver_p.h"
 #include <QDebug>
 
@@ -58,23 +60,9 @@ QString QSqlResultPrivate::holderAt(int index) const
     return holders.size() > index ? holders.at(index).holderName : fieldSerial(index);
 }
 
-// return a unique id for bound names
 QString QSqlResultPrivate::fieldSerial(int i) const
 {
-    ushort arr[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-    ushort *end = &arr[(sizeof(arr)/sizeof(*arr))];
-    ushort *ptr = end;
-
-    while (i > 0) {
-        *(--ptr) = 'a' + i % 16;
-        i >>= 4;
-    }
-
-    const int nb = end - ptr;
-    *(--ptr) = 'a' + nb;
-    *(--ptr) = ':';
-
-    return QString::fromUtf16(ptr, int(end - ptr));
+    return QString(QLatin1String(":%1")).arg(i);
 }
 
 static bool qIsAlnum(QChar ch)
@@ -633,6 +621,31 @@ bool QSqlResult::prepare(const QString& query)
     return true; // fake prepares should always succeed
 }
 
+bool QSqlResultPrivate::isVariantNull(const QVariant &variant)
+{
+    if (variant.isNull())
+        return true;
+
+    switch (variant.typeId()) {
+    case qMetaTypeId<QString>():
+        return static_cast<const QString*>(variant.constData())->isNull();
+    case qMetaTypeId<QByteArray>():
+        return static_cast<const QByteArray*>(variant.constData())->isNull();
+    case qMetaTypeId<QDateTime>():
+        return static_cast<const QDateTime*>(variant.constData())->isNull();
+    case qMetaTypeId<QDate>():
+        return static_cast<const QDate*>(variant.constData())->isNull();
+    case qMetaTypeId<QTime>():
+        return static_cast<const QTime*>(variant.constData())->isNull();
+    case qMetaTypeId<QUuid>():
+        return static_cast<const QUuid*>(variant.constData())->isNull();
+    default:
+        break;
+    }
+
+    return false;
+}
+
 /*!
     Executes the query, returning true if successful; otherwise returns
     false.
@@ -652,8 +665,11 @@ bool QSqlResult::exec()
         for (i = d->holders.count() - 1; i >= 0; --i) {
             holder = d->holders.at(i).holderName;
             val = d->values.value(d->indexes.value(holder).value(0,-1));
-            QSqlField f(QLatin1String(""), QVariant::Type(val.userType()));
-            f.setValue(val);
+            QSqlField f(QLatin1String(""), val.metaType());
+            if (QSqlResultPrivate::isVariantNull(val))
+                f.setValue(QVariant());
+            else
+                f.setValue(val);
             query = query.replace(d->holders.at(i).holderPos,
                                    holder.length(), driver()->formatValue(f));
         }
@@ -666,8 +682,8 @@ bool QSqlResult::exec()
             if (i == -1)
                 continue;
             QVariant var = d->values.value(idx);
-            QSqlField f(QLatin1String(""), QVariant::Type(var.userType()));
-            if (var.isNull())
+            QSqlField f(QLatin1String(""), var.metaType());
+            if (QSqlResultPrivate::isVariantNull(var))
                 f.clear();
             else
                 f.setValue(var);
@@ -696,7 +712,7 @@ void QSqlResult::bindValue(int index, const QVariant& val, QSql::ParamType param
 {
     Q_D(QSqlResult);
     d->binds = PositionalBinding;
-    QVector<int> &indexes = d->indexes[d->fieldSerial(index)];
+    QList<int> &indexes = d->indexes[d->fieldSerial(index)];
     if (!indexes.contains(index))
         indexes.append(index);
     if (d->values.count() <= index)
@@ -723,7 +739,7 @@ void QSqlResult::bindValue(const QString& placeholder, const QVariant& val,
     d->binds = NamedBinding;
     // if the index has already been set when doing emulated named
     // bindings - don't reset it
-    const QVector<int> indexes = d->indexes.value(placeholder);
+    const QList<int> indexes = d->indexes.value(placeholder);
     for (int idx : indexes) {
         if (d->values.count() <= idx)
             d->values.resize(idx + 1);
@@ -770,7 +786,7 @@ QVariant QSqlResult::boundValue(int index) const
 QVariant QSqlResult::boundValue(const QString& placeholder) const
 {
     Q_D(const QSqlResult);
-    const QVector<int> indexes = d->indexes.value(placeholder);
+    const QList<int> indexes = d->indexes.value(placeholder);
     return d->values.value(indexes.value(0,-1));
 }
 
@@ -814,7 +830,7 @@ int QSqlResult::boundValueCount() const
 
     \sa boundValueCount()
 */
-QVector<QVariant>& QSqlResult::boundValues() const
+QList<QVariant> &QSqlResult::boundValues() const
 {
     Q_D(const QSqlResult);
     return const_cast<QSqlResultPrivate *>(d)->values;
@@ -949,7 +965,7 @@ void QSqlResult::virtual_hook(int, void *)
     contain equal amount of values (rows).
 
     NULL values are passed in as typed QVariants, for example
-    \c {QVariant(QVariant::Int)} for an integer NULL value.
+    \c {QVariant(QMetaType::Int)} for an integer NULL value.
 
     Example:
 
@@ -964,7 +980,7 @@ bool QSqlResult::execBatch(bool arrayBind)
     Q_UNUSED(arrayBind);
     Q_D(QSqlResult);
 
-    QVector<QVariant> values = d->values;
+    QList<QVariant> values = d->values;
     if (values.count() == 0)
         return false;
     for (int i = 0; i < values.at(0).toList().count(); ++i) {

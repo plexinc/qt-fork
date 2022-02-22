@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/modules/font_access/navigator_fonts.h"
 
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/execution_context/security_context.h"
 #include "third_party/blink/renderer/core/frame/navigator.h"
 #include "third_party/blink/renderer/core/workers/worker_navigator.h"
@@ -21,8 +22,6 @@ template <typename T>
 class NavigatorFontsImpl final : public GarbageCollected<NavigatorFontsImpl<T>>,
                                  public Supplement<T>,
                                  public NameClient {
-  USING_GARBAGE_COLLECTED_MIXIN(NavigatorFontsImpl);
-
  public:
   static const char kSupplementName[];
 
@@ -38,14 +37,14 @@ class NavigatorFontsImpl final : public GarbageCollected<NavigatorFontsImpl<T>>,
 
   explicit NavigatorFontsImpl(T& navigator) : Supplement<T>(navigator) {}
 
-  FontManager* GetFontManager() const {
+  FontManager* GetFontManager(ExecutionContext* context) const {
     if (!font_manager_) {
-      font_manager_ = MakeGarbageCollected<FontManager>();
+      font_manager_ = MakeGarbageCollected<FontManager>(context);
     }
     return font_manager_.Get();
   }
 
-  void Trace(blink::Visitor* visitor) override {
+  void Trace(blink::Visitor* visitor) const override {
     visitor->Trace(font_manager_);
     Supplement<T>::Trace(visitor);
   }
@@ -68,16 +67,8 @@ FontManager* NavigatorFonts::fonts(ScriptState* script_state,
                                    Navigator& navigator,
                                    ExceptionState& exception_state) {
   DCHECK(ExecutionContext::From(script_state)->IsContextThread());
-  return NavigatorFontsImpl<Navigator>::From(navigator).GetFontManager();
-}
-
-FontManager* NavigatorFonts::fonts(ScriptState* script_state,
-                                   WorkerNavigator& navigator,
-                                   ExceptionState& exception_state) {
-  DCHECK(ExecutionContext::From(script_state)->IsContextThread());
-  // TODO(https://crbug.com/1043348): Support FeaturePolicy when it's ready for
-  // workers.
-  return NavigatorFontsImpl<WorkerNavigator>::From(navigator).GetFontManager();
+  ExecutionContext* context = ExecutionContext::From(script_state);
+  return NavigatorFontsImpl<Navigator>::From(navigator).GetFontManager(context);
 }
 
 }  // namespace blink

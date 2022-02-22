@@ -115,13 +115,13 @@ public:
     QPersistentModelIndex rootIndex;
     QQmlListAccessor list;
 
-    int modelItemRevision = 0;
+    QTypeRevision modelItemRevision = QTypeRevision::zero();
 
     QQmlAdaptorModel();
     ~QQmlAdaptorModel();
 
     inline QVariant model() const { return list.list(); }
-    void setModel(const QVariant &variant, QObject *parent, QQmlEngine *engine);
+    void setModel(const QVariant &variant, QObject *parent);
     void invalidateModel();
 
     bool isValid() const;
@@ -132,7 +132,7 @@ public:
     int columnAt(int index) const;
     int indexAt(int row, int column) const;
 
-    void useImportVersion(int minorVersion);
+    void useImportVersion(QTypeRevision revision);
 
     inline bool adaptsAim() const { return qobject_cast<QAbstractItemModel *>(object()); }
     inline QAbstractItemModel *aim() { return static_cast<QAbstractItemModel *>(object()); }

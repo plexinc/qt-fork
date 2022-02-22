@@ -45,7 +45,7 @@
 #include <QtGui/qevent.h>
 #include <QtGui/qtextdocument.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class Q_CHARTS_PRIVATE_EXPORT EditableAxisLabel : public QGraphicsTextItem
 {
@@ -53,13 +53,13 @@ class Q_CHARTS_PRIVATE_EXPORT EditableAxisLabel : public QGraphicsTextItem
 public:
     EditableAxisLabel(QGraphicsItem *parent = nullptr);
 
-    void focusInEvent(QFocusEvent *event);
-    void focusOutEvent(QFocusEvent *event);
-    bool sceneEvent(QEvent *event);
+    void focusInEvent(QFocusEvent *event) override;
+    void focusOutEvent(QFocusEvent *event) override;
+    bool sceneEvent(QEvent *event) override;
     void setEditable(bool editable);
     void reloadBeforeEditContent();
 
-    QRectF boundingRect() const;
+    QRectF boundingRect() const override;
 
 protected:
     QString m_htmlBeforeEdit;
@@ -73,6 +73,6 @@ protected:
     bool isEditEndingKeyPress(QKeyEvent *event);
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // EDITABLEAXISLABEL_P_H

@@ -63,13 +63,13 @@ QT_WARNING_POP
 
 // silence compilers that complain about this being a static function declared
 // but never defined
-static CborError Q_DECL_UNUSED cbor_encoder_close_container_checked(CborEncoder*, const CborEncoder*)
+[[maybe_unused]] static CborError cbor_encoder_close_container_checked(CborEncoder*, const CborEncoder*)
 {
     Q_UNREACHABLE();
     return CborErrorInternalError;
 }
 
-static CborError Q_DECL_UNUSED cbor_encode_float_as_half_float(CborEncoder *, float)
+[[maybe_unused]] static CborError cbor_encode_float_as_half_float(CborEncoder *, float)
 {
     Q_UNREACHABLE();
     return CborErrorInternalError;
@@ -92,8 +92,7 @@ Q_DECLARE_TYPEINFO(CborEncoder, Q_PRIMITIVE_TYPE);
    Representation, a very compact form of binary data encoding that is
    compatible with JSON. It was created by the IETF Constrained RESTful
    Environments (CoRE) WG, which has used it in many new RFCs. It is meant to
-   be used alongside the \l{https://tools.ietf.org/html/rfc7252}{CoAP
-   protocol}.
+   be used alongside the \l{RFC 7252}{CoAP protocol}.
 
    QCborStreamWriter provides a StAX-like API, similar to that of
    \l{QXmlStreamWriter}. It is rather low-level and requires a bit of knowledge
@@ -123,7 +122,7 @@ Q_DECLARE_TYPEINFO(CborEncoder, Q_PRIMITIVE_TYPE);
 
    QCborStreamWriter supports all CBOR features required to create canonical
    and strict streams. It implements almost all of the features specified in
-   \l {https://tools.ietf.org/html/rfc7049}{RFC 7049}.
+   \l {RFC 7049}.
 
    The following table lists the CBOR features that QCborStreamWriter supports.
 
@@ -151,7 +150,7 @@ Q_DECLARE_TYPEINFO(CborEncoder, Q_PRIMITIVE_TYPE);
    \section2 Canonical CBOR encoding
 
    Canonical CBOR encoding is defined by
-   \l{https://tools.ietf.org/html/rfc7049#section-3.9}{Section 3.9 of RFC
+   \l{RFC 7049, section 3.9}{Section 3.9 of RFC
    7049}. Canonical encoding is not a requirement for Qt's CBOR decoding
    functionality, but it may be required for some protocols. In particular,
    protocols that require the ability to reproduce the same stream identically
@@ -181,7 +180,7 @@ Q_DECLARE_TYPEINFO(CborEncoder, Q_PRIMITIVE_TYPE);
    \section2 Strict CBOR mode
 
    Strict mode is defined by
-   \l{https://tools.ietf.org/html/rfc7049#section-3.10}{Section 3.10 of RFC
+   \l{RFC 7049, section 3.10}{Section 3.10 of RFC
    7049}. As for Canonical encoding above, QCborStreamWriter makes it possible
    to create strict CBOR streams, but does not require them or validate that
    the output is so.
@@ -217,7 +216,7 @@ Q_DECLARE_TYPEINFO(CborEncoder, Q_PRIMITIVE_TYPE);
 class QCborStreamWriterPrivate
 {
 public:
-    static Q_CONSTEXPR quint64 IndefiniteLength = (std::numeric_limits<quint64>::max)();
+    static constexpr quint64 IndefiniteLength = (std::numeric_limits<quint64>::max)();
 
     QIODevice *device;
     CborEncoder encoder;
@@ -243,7 +242,7 @@ public:
 
     void createContainer(CborError (*f)(CborEncoder *, CborEncoder *, size_t), quint64 len = IndefiniteLength)
     {
-        Q_STATIC_ASSERT(size_t(IndefiniteLength) == CborIndefiniteLength);
+        static_assert(size_t(IndefiniteLength) == CborIndefiniteLength);
         if (sizeof(len) != sizeof(size_t) && len != IndefiniteLength) {
             if (Q_UNLIKELY(len >= CborIndefiniteLength)) {
                 // TinyCBOR can't do this in 32-bit mode
@@ -729,7 +728,7 @@ void QCborStreamWriter::appendTextString(const char *utf8, qsizetype len)
    length is implied by the elements contained in it. Note, however, that use
    of indeterminate-length arrays is not compliant with canonical CBOR encoding.
 
-   The following example appends elements from the linked list of strings
+   The following example appends elements from the list of strings
    passed as input:
 
    \snippet code/src_corelib_serialization_qcborstream.cpp 20
@@ -802,7 +801,7 @@ bool QCborStreamWriter::endArray()
    indeterminate-length maps is not compliant with canonical CBOR encoding
    (canonical encoding also requires keys to be unique and in sorted order).
 
-   The following example appends elements from the linked list of int and
+   The following example appends elements from the list of int and
    string pairs passed as input:
 
    \snippet code/src_corelib_serialization_qcborstream.cpp 22

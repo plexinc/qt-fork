@@ -2,14 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/quic_one_block_arena.h"
+#include "quic/core/quic_one_block_arena.h"
 
 #include <cstdint>
 
-#include "net/third_party/quiche/src/quic/platform/api/quic_containers.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_expect_bug.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
+#include "quic/platform/api/quic_containers.h"
+#include "quic/platform/api/quic_expect_bug.h"
+#include "quic/platform/api/quic_test.h"
+#include "quic/test_tools/quic_test_utils.h"
 
 namespace quic {
 namespace {
@@ -23,14 +23,14 @@ struct TestObject {
 class QuicOneBlockArenaTest : public QuicTest {};
 
 TEST_F(QuicOneBlockArenaTest, AllocateSuccess) {
-  QuicOneBlockArena<1200> arena;
+  QuicOneBlockArena<1024> arena;
   QuicArenaScopedPtr<TestObject> ptr = arena.New<TestObject>();
   EXPECT_TRUE(ptr.is_from_arena());
 }
 
 TEST_F(QuicOneBlockArenaTest, Exhaust) {
-  QuicOneBlockArena<1200> arena;
-  for (size_t i = 0; i < 1200 / kMaxAlign; ++i) {
+  QuicOneBlockArena<1024> arena;
+  for (size_t i = 0; i < 1024 / kMaxAlign; ++i) {
     QuicArenaScopedPtr<TestObject> ptr = arena.New<TestObject>();
     EXPECT_TRUE(ptr.is_from_arena());
   }
@@ -41,10 +41,10 @@ TEST_F(QuicOneBlockArenaTest, Exhaust) {
 }
 
 TEST_F(QuicOneBlockArenaTest, NoOverlaps) {
-  QuicOneBlockArena<1200> arena;
+  QuicOneBlockArena<1024> arena;
   std::vector<QuicArenaScopedPtr<TestObject>> objects;
   QuicIntervalSet<uintptr_t> used;
-  for (size_t i = 0; i < 1200 / kMaxAlign; ++i) {
+  for (size_t i = 0; i < 1024 / kMaxAlign; ++i) {
     QuicArenaScopedPtr<TestObject> ptr = arena.New<TestObject>();
     EXPECT_TRUE(ptr.is_from_arena());
 

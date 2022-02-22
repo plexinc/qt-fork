@@ -7,6 +7,7 @@
 
 #include <string>
 
+#include "ash/public/cpp/clipboard_history_controller.h"
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
@@ -20,7 +21,9 @@ class AudioSystem;
 
 namespace extensions {
 
-class ChromeVirtualKeyboardDelegate : public VirtualKeyboardDelegate {
+class ChromeVirtualKeyboardDelegate
+    : public VirtualKeyboardDelegate,
+      public ash::ClipboardHistoryController::Observer {
  public:
   explicit ChromeVirtualKeyboardDelegate(
       content::BrowserContext* browser_context);
@@ -43,9 +46,10 @@ class ChromeVirtualKeyboardDelegate : public VirtualKeyboardDelegate {
                     const std::string& key_name,
                     int modifiers) override;
   bool ShowLanguageSettings() override;
-  bool IsLanguageSettingsEnabled() override;
+  bool ShowSuggestionSettings() override;
+  bool IsSettingsEnabled() override;
   bool SetVirtualKeyboardMode(int mode_enum,
-                              base::Optional<gfx::Rect> target_bounds,
+                              gfx::Rect target_bounds,
                               OnSetModeCallback on_set_mode_callback) override;
   bool SetDraggableArea(
       const api::virtual_keyboard_private::Bounds& rect) override;
@@ -53,11 +57,21 @@ class ChromeVirtualKeyboardDelegate : public VirtualKeyboardDelegate {
   bool SetOccludedBounds(const std::vector<gfx::Rect>& bounds) override;
   bool SetHitTestBounds(const std::vector<gfx::Rect>& bounds) override;
   bool SetAreaToRemainOnScreen(const gfx::Rect& bounds) override;
-
+  bool SetWindowBoundsInScreen(const gfx::Rect& bounds_in_screen) override;
+  void GetClipboardHistory(
+      const std::set<std::string>& item_ids_filter,
+      OnGetClipboardHistoryCallback get_history_callback) override;
+  bool PasteClipboardItem(const std::string& clipboard_item_id) override;
+  bool DeleteClipboardItem(const std::string& clipboard_item_id) override;
   api::virtual_keyboard::FeatureRestrictions RestrictFeatures(
       const api::virtual_keyboard::RestrictFeatures::Params& params) override;
 
  private:
+  // ash::ClipboardHistoryController::Observer:
+  void OnClipboardHistoryItemListAddedOrRemoved() override;
+  void OnClipboardHistoryItemsUpdated(
+      const std::vector<base::UnguessableToken>& menu_item_ids) override;
+
   void OnHasInputDevices(OnKeyboardSettingsCallback on_settings_callback,
                          bool has_audio_input_devices);
   void DispatchConfigChangeEvent(

@@ -42,6 +42,7 @@
 #include "third_party/blink/public/platform/web_http_header_visitor.h"
 #include "third_party/blink/public/platform/web_security_origin.h"
 #include "third_party/blink/public/platform/web_url.h"
+#include "third_party/blink/public/platform/web_url_request_extra_data.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_request.h"
 #include "third_party/blink/renderer/platform/loader/fetch/trust_token_params_conversion.h"
 #include "third_party/blink/renderer/platform/network/encoded_form_data.h"
@@ -79,8 +80,6 @@ net::RequestPriority ConvertWebKitPriorityToNetPriority(
       return net::LOW;
   }
 }
-
-WebURLRequest::ExtraData::ExtraData() : render_frame_id_(MSG_ROUTING_NONE) {}
 
 WebURLRequest::~WebURLRequest() = default;
 
@@ -244,7 +243,7 @@ bool WebURLRequest::ReportRawHeaders() const {
   return resource_request_->ReportRawHeaders();
 }
 
-mojom::RequestContextType WebURLRequest::GetRequestContext() const {
+mojom::blink::RequestContextType WebURLRequest::GetRequestContext() const {
   return resource_request_->GetRequestContext();
 }
 
@@ -278,12 +277,16 @@ bool WebURLRequest::HasUserGesture() const {
   return resource_request_->HasUserGesture();
 }
 
+bool WebURLRequest::HasTextFragmentToken() const {
+  return resource_request_->HasTextFragmentToken();
+}
+
 void WebURLRequest::SetHasUserGesture(bool has_user_gesture) {
   resource_request_->SetHasUserGesture(has_user_gesture);
 }
 
 void WebURLRequest::SetRequestContext(
-    mojom::RequestContextType request_context) {
+    mojom::blink::RequestContextType request_context) {
   resource_request_->SetRequestContext(request_context);
 }
 
@@ -344,6 +347,14 @@ void WebURLRequest::SetMode(network::mojom::RequestMode mode) {
   return resource_request_->SetMode(mode);
 }
 
+bool WebURLRequest::GetFavicon() const {
+  return resource_request_->IsFavicon();
+}
+
+void WebURLRequest::SetFavicon(bool) {
+  resource_request_->SetFavicon(true);
+}
+
 network::mojom::CredentialsMode WebURLRequest::GetCredentialsMode() const {
   return resource_request_->GetCredentialsMode();
 }
@@ -368,22 +379,22 @@ void WebURLRequest::SetFetchIntegrity(const WebString& integrity) {
   return resource_request_->SetFetchIntegrity(integrity);
 }
 
-WebURLRequest::PreviewsState WebURLRequest::GetPreviewsState() const {
+PreviewsState WebURLRequest::GetPreviewsState() const {
   return resource_request_->GetPreviewsState();
 }
 
-void WebURLRequest::SetPreviewsState(
-    WebURLRequest::PreviewsState previews_state) {
+void WebURLRequest::SetPreviewsState(PreviewsState previews_state) {
   return resource_request_->SetPreviewsState(previews_state);
 }
 
-const scoped_refptr<WebURLRequest::ExtraData>& WebURLRequest::GetExtraData()
-    const {
-  return resource_request_->GetExtraData();
+const scoped_refptr<WebURLRequestExtraData>&
+WebURLRequest::GetURLRequestExtraData() const {
+  return resource_request_->GetURLRequestExtraData();
 }
 
-void WebURLRequest::SetExtraData(scoped_refptr<ExtraData> extra_data) {
-  resource_request_->SetExtraData(std::move(extra_data));
+void WebURLRequest::SetURLRequestExtraData(
+    scoped_refptr<WebURLRequestExtraData> extra_data) {
+  resource_request_->SetURLRequestExtraData(std::move(extra_data));
 }
 
 bool WebURLRequest::IsDownloadToNetworkCacheOnly() const {
@@ -496,18 +507,12 @@ int WebURLRequest::GetLoadFlagsForWebUrlRequest() const {
       break;
   }
 
-  if (!resource_request_->AllowStoredCredentials()) {
-    load_flags |= net::LOAD_DO_NOT_SAVE_COOKIES;
-    load_flags |= net::LOAD_DO_NOT_SEND_COOKIES;
-    load_flags |= net::LOAD_DO_NOT_SEND_AUTH_DATA;
-  }
-
   if (resource_request_->GetRequestContext() ==
-      blink::mojom::RequestContextType::PREFETCH)
+      blink::mojom::blink::RequestContextType::PREFETCH)
     load_flags |= net::LOAD_PREFETCH;
 
-  if (resource_request_->GetExtraData()) {
-    if (resource_request_->GetExtraData()->is_for_no_state_prefetch())
+  if (resource_request_->GetURLRequestExtraData()) {
+    if (resource_request_->GetURLRequestExtraData()->is_for_no_state_prefetch())
       load_flags |= net::LOAD_PREFETCH;
   }
   if (resource_request_->AllowsStaleResponse()) {
@@ -515,9 +520,7 @@ int WebURLRequest::GetLoadFlagsForWebUrlRequest() const {
   }
   if (resource_request_->PrefetchMaybeForTopLeveNavigation()) {
     DCHECK_EQ(resource_request_->GetRequestContext(),
-              blink::mojom::RequestContextType::PREFETCH);
-    DCHECK(base::FeatureList::IsEnabled(
-        network::features::kPrefetchMainResourceNetworkIsolationKey));
+              blink::mojom::blink::RequestContextType::PREFETCH);
     if (!resource_request_->RequestorOrigin()->IsSameOriginWith(
             SecurityOrigin::Create(resource_request_->Url()).get())) {
       load_flags |= net::LOAD_RESTRICTED_PREFETCH;
@@ -551,6 +554,20 @@ base::Optional<base::UnguessableToken> WebURLRequest::RecursivePrefetchToken()
 
 network::OptionalTrustTokenParams WebURLRequest::TrustTokenParams() const {
   return ConvertTrustTokenParams(resource_request_->TrustTokenParams());
+}
+
+base::Optional<WebURL> WebURLRequest::WebBundleUrl() const {
+  if (resource_request_->GetWebBundleTokenParams()) {
+    return resource_request_->GetWebBundleTokenParams()->bundle_url;
+  }
+  return base::nullopt;
+}
+
+base::Optional<base::UnguessableToken> WebURLRequest::WebBundleToken() const {
+  if (resource_request_->GetWebBundleTokenParams()) {
+    return resource_request_->GetWebBundleTokenParams()->token;
+  }
+  return base::nullopt;
 }
 
 WebURLRequest::WebURLRequest(ResourceRequest& r) : resource_request_(&r) {}

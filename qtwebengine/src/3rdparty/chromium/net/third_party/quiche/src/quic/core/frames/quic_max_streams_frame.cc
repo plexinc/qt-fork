@@ -2,15 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/frames/quic_max_streams_frame.h"
+#include "quic/core/frames/quic_max_streams_frame.h"
 
 namespace quic {
 
 QuicMaxStreamsFrame::QuicMaxStreamsFrame()
-    : QuicInlinedFrame(MAX_STREAMS_FRAME),
-      control_frame_id(kInvalidControlFrameId),
-      stream_count(0),
-      unidirectional(false) {}
+    : QuicInlinedFrame(MAX_STREAMS_FRAME) {}
 
 QuicMaxStreamsFrame::QuicMaxStreamsFrame(QuicControlFrameId control_frame_id,
                                          QuicStreamCount stream_count,

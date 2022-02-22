@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/containers/contains.h"
 #include "base/location.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
@@ -44,12 +45,6 @@ enum class FaviconFetchResult {
   COUNT = 3
 };
 
-void RecordFaviconFetchResult(FaviconFetchResult result) {
-  UMA_HISTOGRAM_ENUMERATION(
-      "NewTabPage.ContentSuggestions.ArticleFaviconFetchResult", result,
-      FaviconFetchResult::COUNT);
-}
-
 }  // namespace
 
 ContentSuggestionsService::ContentSuggestionsService(
@@ -62,8 +57,6 @@ ContentSuggestionsService::ContentSuggestionsService(
     std::unique_ptr<UserClassifier> user_classifier,
     std::unique_ptr<RemoteSuggestionsScheduler> remote_suggestions_scheduler)
     : state_(state),
-      identity_manager_observer_(this),
-      history_service_observer_(this),
       remote_suggestions_provider_(nullptr),
       large_icon_service_(large_icon_service),
       pref_service_(pref_service),
@@ -72,11 +65,11 @@ ContentSuggestionsService::ContentSuggestionsService(
       category_ranker_(std::move(category_ranker)) {
   // Can be null in tests.
   if (identity_manager) {
-    identity_manager_observer_.Add(identity_manager);
+    identity_manager_observation_.Observe(identity_manager);
   }
 
   if (history_service) {
-    history_service_observer_.Add(history_service);
+    history_service_observation_.Observe(history_service);
   }
 
   RestoreDismissedCategoriesFromPrefs();
@@ -182,7 +175,6 @@ void ContentSuggestionsService::FetchSuggestionFavicon(
   if (!domain_with_favicon.is_valid() || !large_icon_service_) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), gfx::Image()));
-    RecordFaviconFetchResult(FaviconFetchResult::FAILURE);
     return;
   }
 
@@ -244,11 +236,6 @@ void ContentSuggestionsService::OnGetFaviconFromCacheFinished(
     const favicon_base::LargeIconImageResult& result) {
   if (!result.image.IsEmpty()) {
     std::move(callback).Run(result.image);
-    // The icon is from cache if we haven't gone to Google server yet. The icon
-    // is freshly fetched, otherwise.
-    RecordFaviconFetchResult(continue_to_google_server
-                                 ? FaviconFetchResult::SUCCESS_CACHED
-                                 : FaviconFetchResult::SUCCESS_FETCHED);
     // Update the time when the icon was last requested - postpone thus the
     // automatic eviction of the favicon from the favicon database.
     large_icon_service_->TouchIconFromGoogleServer(result.icon_url);
@@ -262,7 +249,6 @@ void ContentSuggestionsService::OnGetFaviconFromCacheFinished(
     // cache (resulting in non-default background color) or if we already did
     // so.
     std::move(callback).Run(gfx::Image());
-    RecordFaviconFetchResult(FaviconFetchResult::FAILURE);
     return;
   }
 
@@ -308,7 +294,6 @@ void ContentSuggestionsService::OnGetFaviconFromGoogleServerFinished(
     favicon_base::GoogleFaviconServerRequestStatus status) {
   if (status != favicon_base::GoogleFaviconServerRequestStatus::SUCCESS) {
     std::move(callback).Run(gfx::Image());
-    RecordFaviconFetchResult(FaviconFetchResult::FAILURE);
     return;
   }
 
@@ -516,14 +501,18 @@ void ContentSuggestionsService::OnSuggestionInvalidated(
   }
 }
 // signin::IdentityManager::Observer implementation
-void ContentSuggestionsService::OnPrimaryAccountSet(
-    const CoreAccountInfo& account_info) {
-  OnSignInStateChanged(/*has_signed_in=*/true);
-}
-
-void ContentSuggestionsService::OnPrimaryAccountCleared(
-    const CoreAccountInfo& account_info) {
-  OnSignInStateChanged(/*has_signed_in=*/false);
+void ContentSuggestionsService::OnPrimaryAccountChanged(
+    const signin::PrimaryAccountChangeEvent& event_details) {
+  switch (event_details.GetEventTypeFor(signin::ConsentLevel::kSync)) {
+    case signin::PrimaryAccountChangeEvent::Type::kSet:
+      OnSignInStateChanged(/*has_signed_in=*/true);
+      break;
+    case signin::PrimaryAccountChangeEvent::Type::kCleared:
+      OnSignInStateChanged(/*has_signed_in=*/false);
+      break;
+    case signin::PrimaryAccountChangeEvent::Type::kNone:
+      break;
+  }
 }
 
 // history::HistoryServiceObserver implementation.
@@ -566,7 +555,8 @@ void ContentSuggestionsService::OnURLsDeleted(
 
 void ContentSuggestionsService::HistoryServiceBeingDeleted(
     history::HistoryService* history_service) {
-  history_service_observer_.RemoveAll();
+  DCHECK(history_service_observation_.IsObservingSource(history_service));
+  history_service_observation_.Reset();
 }
 
 bool ContentSuggestionsService::TryRegisterProviderForCategory(

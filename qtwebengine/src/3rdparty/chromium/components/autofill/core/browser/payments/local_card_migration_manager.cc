@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/containers/contains.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -41,9 +42,6 @@ LocalCardMigrationManager::LocalCardMigrationManager(
       payments_client_(payments_client),
       app_locale_(app_locale),
       personal_data_manager_(personal_data_manager) {
-  // This is to initialize StrikeDatabase is if it hasn't been already, so that
-  // its cache would be loaded and ready to use when the first LCMM is created.
-  client_->GetStrikeDatabase();
 }
 
 LocalCardMigrationManager::~LocalCardMigrationManager() {}

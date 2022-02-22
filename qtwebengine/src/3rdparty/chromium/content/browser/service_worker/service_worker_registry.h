@@ -7,16 +7,16 @@
 
 #include <memory>
 
+#include "base/containers/flat_set.h"
+#include "base/containers/unique_ptr_adapters.h"
 #include "base/files/file_path.h"
 #include "base/memory/scoped_refptr.h"
-#include "content/browser/service_worker/service_worker_database.h"
+#include "base/threading/sequence_bound.h"
+#include "components/services/storage/public/mojom/service_worker_storage_control.mojom.h"
 #include "content/browser/service_worker/service_worker_registration.h"
-#include "content/browser/service_worker/service_worker_storage.h"
 #include "content/common/content_export.h"
-
-namespace base {
-class SequencedTaskRunner;
-}
+#include "mojo/public/cpp/bindings/remote.h"
+#include "storage/browser/quota/storage_policy_observer.h"
 
 namespace storage {
 class QuotaManagerProxy;
@@ -35,16 +35,33 @@ FORWARD_DECLARE_TEST(ServiceWorkerRegistryTest, StoragePolicyChange);
 // (i.e., ServiceWorkerRegistration) including installing and uninstalling
 // registrations. The instance of this class is owned by
 // ServiceWorkerContextCore and has the same lifetime of the owner.
-// The instance owns ServiceworkerStorage and uses it to store/retrieve
-// registrations to/from persistent storage.
-// The instance lives on the core thread.
+// The instance uses ServiceWorkerStorageControl via a mojo remote to
+// store/retrieve registrations to/from persistent storage.
+// The instance lives on the UI thread.
+//
+// Most methods of this class take callbacks. The instance tries to execute
+// callbacks as much as possible during shutdown and/or DeleteAndStartOver. In
+// other words, the destructor of the instance calls pending callbacks with
+// default values (which imply operations are aborted). The advantage
+// of this behavior is that call sites can pass callbacks which own mojo
+// callbacks without having worry about the "not-run-but-still-connected"
+// callback problem.
+// TODO(crbug.com/1168991): Make all pending callbacks being called in the
+// destructor. Currently only some pending callbacks are executed.
+// TODO(crbug.com/1168991): Revisit the current behavior. The downside of this
+// behavior is that it might hide potential bugs in call sites, e.g., a mojo
+// connection should be closed before shutdown.
 class CONTENT_EXPORT ServiceWorkerRegistry {
  public:
-  using ResourceList = ServiceWorkerStorage::ResourceList;
-  using RegistrationList = ServiceWorkerStorage::RegistrationList;
+  using ResourceList =
+      std::vector<storage::mojom::ServiceWorkerResourceRecordPtr>;
+  using RegistrationList =
+      std::vector<storage::mojom::ServiceWorkerRegistrationDataPtr>;
   using FindRegistrationCallback = base::OnceCallback<void(
       blink::ServiceWorkerStatusCode status,
       scoped_refptr<ServiceWorkerRegistration> registration)>;
+  using GetRegisteredOriginsCallback =
+      storage::mojom::ServiceWorkerStorageControl::GetRegisteredOriginsCallback;
   using GetRegistrationsCallback = base::OnceCallback<void(
       blink::ServiceWorkerStatusCode status,
       const std::vector<scoped_refptr<ServiceWorkerRegistration>>&
@@ -56,20 +73,20 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
       base::OnceCallback<void(const std::vector<std::string>& data,
                               blink::ServiceWorkerStatusCode status)>;
   using GetUserKeysAndDataCallback = base::OnceCallback<void(
-      const base::flat_map<std::string, std::string>& data_map,
-      blink::ServiceWorkerStatusCode status)>;
+      blink::ServiceWorkerStatusCode status,
+      const base::flat_map<std::string, std::string>& data_map)>;
   using GetUserDataForAllRegistrationsCallback = base::OnceCallback<void(
       const std::vector<std::pair<int64_t, std::string>>& user_data,
       blink::ServiceWorkerStatusCode status)>;
+  using GetStorageUsageForOriginCallback =
+      base::OnceCallback<void(blink::ServiceWorkerStatusCode status,
+                              int64_t usage)>;
   using StatusCallback =
       base::OnceCallback<void(blink::ServiceWorkerStatusCode status)>;
 
-  ServiceWorkerRegistry(
-      const base::FilePath& user_data_directory,
-      ServiceWorkerContextCore* context,
-      scoped_refptr<base::SequencedTaskRunner> database_task_runner,
-      storage::QuotaManagerProxy* quota_manager_proxy,
-      storage::SpecialStoragePolicy* special_storage_policy);
+  ServiceWorkerRegistry(ServiceWorkerContextCore* context,
+                        storage::QuotaManagerProxy* quota_manager_proxy,
+                        storage::SpecialStoragePolicy* special_storage_policy);
 
   // For re-creating the registry from the old one. This is called when
   // something went wrong during storage access.
@@ -77,8 +94,6 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
                         ServiceWorkerRegistry* old_registry);
 
   ~ServiceWorkerRegistry();
-
-  ServiceWorkerStorage* storage() const { return storage_.get(); }
 
   // Creates a new in-memory representation of registration. Can be null when
   // storage is disabled. This method must be called after storage is
@@ -118,7 +133,7 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
   // is considered as "findable" when the registration is stored or in the
   // installing state.
   void FindRegistrationForId(int64_t registration_id,
-                             const GURL& origin,
+                             const url::Origin& origin,
                              FindRegistrationCallback callback);
   // Generally |FindRegistrationForId| should be used to look up a registration
   // by |registration_id| since it's more efficient. But if a |registration_id|
@@ -129,16 +144,22 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
                                  FindRegistrationCallback callback);
 
   // Returns all stored and installing registrations for a given origin.
-  void GetRegistrationsForOrigin(const GURL& origin,
+  void GetRegistrationsForOrigin(const url::Origin& origin,
                                  GetRegistrationsCallback callback);
 
+  // Reads the total resource size stored in the storage for a given origin.
+  void GetStorageUsageForOrigin(const url::Origin& origin,
+                                GetStorageUsageForOriginCallback callback);
+
   // Returns info about all stored and initially installing registrations.
+  // TODO(crbug.com/807440,1055677): Consider removing this method. Getting all
+  // registrations at once might not be a good idea.
   void GetAllRegistrationsInfos(GetRegistrationsInfosCallback callback);
 
   ServiceWorkerRegistration* GetUninstallingRegistration(const GURL& scope);
 
   std::vector<scoped_refptr<ServiceWorkerRegistration>>
-  GetUninstallingRegistrationsForOrigin(const GURL& origin);
+  GetUninstallingRegistrationsForOrigin(const url::Origin& origin);
 
   // Commits |registration| with the installed but not activated |version|
   // to storage, overwriting any pre-existing registration data for the scope.
@@ -191,7 +212,6 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
                                      StatusCallback callback);
   void StoreUncommittedResourceId(int64_t resource_id, const GURL& origin);
   void DoomUncommittedResource(int64_t resource_id);
-  void DoomUncommittedResources(const std::set<int64_t>& resource_ids);
   void GetUserData(int64_t registration_id,
                    const std::vector<std::string>& keys,
                    GetUserDataCallback callback);
@@ -203,7 +223,7 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
                                      GetUserKeysAndDataCallback callback);
   void StoreUserData(
       int64_t registration_id,
-      const GURL& origin,
+      const url::Origin& origin,
       const std::vector<std::pair<std::string, std::string>>& key_value_pairs,
       StatusCallback callback);
   void ClearUserData(int64_t registration_id,
@@ -222,20 +242,40 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
       const std::string& key_prefix,
       GetUserDataForAllRegistrationsCallback callback);
 
-  // Disables the internal storage to prepare for error recovery.
-  void PrepareForDeleteAndStarOver();
+  // Returns a set of origins which have at least one stored registration.
+  // The set doesn't include installing/uninstalling/uninstalled registrations.
+  void GetRegisteredOrigins(GetRegisteredOriginsCallback callback);
 
+  // Performs internal storage cleanup. Operations to the storage in the past
+  // (e.g. deletion) are usually recorded in disk for a certain period until
+  // compaction happens. This method wipes them out to ensure that the deleted
+  // entries and other traces like log files are removed.
+  void PerformStorageCleanup(base::OnceClosure callback);
+
+  // Disables the internal storage to prepare for error recovery.
+  void PrepareForDeleteAndStartOver();
   // Deletes this registry and internal storage, then starts over for error
   // recovery.
   void DeleteAndStartOver(StatusCallback callback);
 
-  void DisableDeleteAndStartOverForTesting();
+  mojo::Remote<storage::mojom::ServiceWorkerStorageControl>&
+  GetRemoteStorageControl();
+
+  // Call storage::mojom::ServiceWorkerStorageControl::Disable() immediately.
+  // This method sends an IPC message without using the queuing mechanism.
+  void DisableStorageForTesting(base::OnceClosure callback);
 
  private:
   friend class ServiceWorkerRegistryTest;
   FRIEND_TEST_ALL_PREFIXES(ServiceWorkerRegistryTest, StoragePolicyChange);
+  FRIEND_TEST_ALL_PREFIXES(ServiceWorkerRegistryTest,
+                           RetryInflightCalls_ApplyPolicyUpdates);
 
   void Start();
+
+  void FindRegistrationForIdInternal(int64_t registration_id,
+                                     const base::Optional<url::Origin>& origin,
+                                     FindRegistrationCallback callback);
 
   ServiceWorkerRegistration* FindInstallingRegistrationForClientUrl(
       const GURL& client_url);
@@ -246,7 +286,9 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
 
   scoped_refptr<ServiceWorkerRegistration> GetOrCreateRegistration(
       const storage::mojom::ServiceWorkerRegistrationData& data,
-      const ResourceList& resources);
+      const ResourceList& resources,
+      mojo::PendingRemote<storage::mojom::ServiceWorkerLiveVersionRef>
+          version_reference);
 
   // Looks up live registrations and returns an optional value which may contain
   // a "findable" registration. See the implementation of this method for
@@ -254,35 +296,38 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
   base::Optional<scoped_refptr<ServiceWorkerRegistration>>
   FindFromLiveRegistrationsForId(int64_t registration_id);
 
+  void DoomUncommittedResources(const std::vector<int64_t>& resource_ids);
+
   void DidFindRegistrationForClientUrl(
       const GURL& client_url,
       int64_t trace_event_id,
       FindRegistrationCallback callback,
-      storage::mojom::ServiceWorkerRegistrationDataPtr data,
-      std::unique_ptr<ResourceList> resources,
-      storage::mojom::ServiceWorkerDatabaseStatus database_status);
+      storage::mojom::ServiceWorkerDatabaseStatus database_status,
+      storage::mojom::ServiceWorkerFindRegistrationResultPtr result);
   void DidFindRegistrationForScope(
       FindRegistrationCallback callback,
-      storage::mojom::ServiceWorkerRegistrationDataPtr data,
-      std::unique_ptr<ResourceList> resources,
-      storage::mojom::ServiceWorkerDatabaseStatus database_status);
+      storage::mojom::ServiceWorkerDatabaseStatus database_status,
+      storage::mojom::ServiceWorkerFindRegistrationResultPtr result);
   void DidFindRegistrationForId(
       int64_t registration_id,
       FindRegistrationCallback callback,
-      storage::mojom::ServiceWorkerRegistrationDataPtr data,
-      std::unique_ptr<ResourceList> resources,
-      storage::mojom::ServiceWorkerDatabaseStatus database_status);
+      storage::mojom::ServiceWorkerDatabaseStatus database_status,
+      storage::mojom::ServiceWorkerFindRegistrationResultPtr result);
 
   void DidGetRegistrationsForOrigin(
       GetRegistrationsCallback callback,
-      const GURL& origin_filter,
+      const url::Origin& origin_filter,
       storage::mojom::ServiceWorkerDatabaseStatus database_status,
-      std::unique_ptr<RegistrationList> registration_data_list,
-      std::unique_ptr<std::vector<ResourceList>> resources_list);
+      std::vector<storage::mojom::ServiceWorkerFindRegistrationResultPtr>
+          entries);
   void DidGetAllRegistrations(
       GetRegistrationsInfosCallback callback,
       storage::mojom::ServiceWorkerDatabaseStatus database_status,
-      std::unique_ptr<RegistrationList> registration_data_list);
+      RegistrationList registration_data_list);
+  void DidGetStorageUsageForOrigin(
+      GetStorageUsageForOriginCallback callback,
+      storage::mojom::ServiceWorkerDatabaseStatus database_status,
+      int64_t usage);
 
   void DidStoreRegistration(
       int64_t stored_registration_id,
@@ -290,79 +335,136 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
       const GURL& stored_scope,
       StatusCallback callback,
       storage::mojom::ServiceWorkerDatabaseStatus database_status,
-      int64_t deleted_version_id,
-      const std::vector<int64_t>& newly_purgeable_resources);
+      uint64_t deleted_resources_size);
   void DidDeleteRegistration(
       int64_t registration_id,
       const GURL& origin,
       StatusCallback callback,
       storage::mojom::ServiceWorkerDatabaseStatus database_status,
-      ServiceWorkerStorage::OriginState origin_state,
-      int64_t deleted_version_id,
-      const std::vector<int64_t>& newly_purgeable_resources);
+      uint64_t deleted_resources_size,
+      storage::mojom::ServiceWorkerStorageOriginState origin_state);
 
+  void DidUpdateRegistration(
+      StatusCallback callback,
+      storage::mojom::ServiceWorkerDatabaseStatus status);
   void DidUpdateToActiveState(
-      const GURL& origin,
+      const url::Origin& origin,
       StatusCallback callback,
       storage::mojom::ServiceWorkerDatabaseStatus status);
   void DidWriteUncommittedResourceIds(
+      const url::Origin& origin,
       storage::mojom::ServiceWorkerDatabaseStatus status);
   void DidDoomUncommittedResourceIds(
-      const std::set<int64_t>& resource_ids,
       storage::mojom::ServiceWorkerDatabaseStatus status);
   void DidGetUserData(GetUserDataCallback callback,
-                      const std::vector<std::string>& data,
-                      storage::mojom::ServiceWorkerDatabaseStatus status);
+                      storage::mojom::ServiceWorkerDatabaseStatus status,
+                      const std::vector<std::string>& data);
   void DidGetUserKeysAndData(
       GetUserKeysAndDataCallback callback,
-      const base::flat_map<std::string, std::string>& data_map,
-      storage::mojom::ServiceWorkerDatabaseStatus status);
+      storage::mojom::ServiceWorkerDatabaseStatus status,
+      const base::flat_map<std::string, std::string>& data_map);
   void DidStoreUserData(StatusCallback callback,
+                        const url::Origin& origin,
                         storage::mojom::ServiceWorkerDatabaseStatus status);
   void DidClearUserData(StatusCallback callback,
                         storage::mojom::ServiceWorkerDatabaseStatus status);
   void DidGetUserDataForAllRegistrations(
       GetUserDataForAllRegistrationsCallback callback,
-      const std::vector<std::pair<int64_t, std::string>>& user_data,
-      storage::mojom::ServiceWorkerDatabaseStatus status);
+      storage::mojom::ServiceWorkerDatabaseStatus status,
+      std::vector<storage::mojom::ServiceWorkerUserDataPtr> entries);
 
   void DidGetNewRegistrationId(
       blink::mojom::ServiceWorkerRegistrationOptions options,
       NewRegistrationCallback callback,
       int64_t registration_id);
-  void DidGetNewVersionId(scoped_refptr<ServiceWorkerRegistration> registration,
-                          const GURL& script_url,
-                          blink::mojom::ScriptType script_type,
-                          NewVersionCallback callback,
-                          int64_t version_id);
+  void DidGetNewVersionId(
+      scoped_refptr<ServiceWorkerRegistration> registration,
+      const GURL& script_url,
+      blink::mojom::ScriptType script_type,
+      NewVersionCallback callback,
+      int64_t version_id,
+      mojo::PendingRemote<storage::mojom::ServiceWorkerLiveVersionRef>
+          version_reference);
 
   void ScheduleDeleteAndStartOver();
+  void DidDeleteAndStartOver(
+      StatusCallback callback,
+      storage::mojom::ServiceWorkerDatabaseStatus status);
 
-  // TODO(bashi): Consider introducing a helper class that handles the below.
-  // These are almost the same as DOMStorageContextWrapper.
-  void DidGetRegisteredOriginsOnStartup(std::vector<url::Origin> origins);
-  void EnsureRegisteredOriginIsTracked(const url::Origin& origin);
-  void OnStoragePolicyChanged();
-  bool ShouldPurgeOnShutdown(const url::Origin& origin);
+  void DidGetRegisteredOrigins(GetRegisteredOriginsCallback callback,
+                               const std::vector<url::Origin>& origins);
+  void DidPerformStorageCleanup(base::OnceClosure callback);
+  void DidDisable();
+  void DidApplyPolicyUpdates(
+      storage::mojom::ServiceWorkerDatabaseStatus status);
+
+  void DidGetRegisteredOriginsOnStartup(
+      const std::vector<url::Origin>& origins);
+  void ApplyPolicyUpdates(
+      std::vector<storage::mojom::StoragePolicyUpdatePtr> policy_updates);
+  bool ShouldPurgeOnShutdownForTesting(const url::Origin& origin);
+
+  void OnRemoteStorageDisconnected();
+
+  void DidRecover();
+
+  // Represents an inflight mojo remote call. Used to support retry.
+  class InflightCall {
+   public:
+    virtual ~InflightCall() = default;
+    virtual void Run() = 0;
+  };
+
+  template <typename...>
+  friend class InflightCallWithInvoker;
+
+  void StartRemoteCall(std::unique_ptr<InflightCall> call);
+  void FinishRemoteCall(const InflightCall* call);
+
+  // A helper function to call a mojo remote call that will automatically be
+  // reissued if the mojo::Remote becomes disconnected. To allow the call to be
+  // dispatched multiple times, all arguments must be either be:
+  //
+  // - passed by const reference
+  // - copyable
+  // - or clonable via `mojo::Clone()`.
+  //
+  // Example:
+  //
+  //   (in mojom)
+  //   Foo(int64 arg1, int64 arg2) => (ServiceWorkerDatabaseStatus status);
+  //
+  //   CreateInvokerAndStartRemoteCall(
+  //       &storage::mojom::ServiceWorkerStorageControl::Foo,
+  //       base::BindOnce(&ServiceWorkerRegistry::DidFoo,
+  //                      weak_factory_.GetWeakPtr(),
+  //                      std::move(callback)),
+  //       arg1, arg2);
+  //
+  //   void ServiceWorkerRegistry::DidFoo(
+  //       FooCallback callback,
+  //       storage::mojom::ServiceWorkerDatabaseStatus status) {
+  //     // ...
+  //   }
+  template <typename Functor, typename... Args, typename... CallbackArgs>
+  void CreateInvokerAndStartRemoteCall(
+      Functor&& f,
+      base::OnceCallback<void(CallbackArgs...)> callback,
+      Args&&... args);
 
   // The ServiceWorkerContextCore object must outlive this.
   ServiceWorkerContextCore* const context_;
 
-  std::unique_ptr<ServiceWorkerStorage> storage_;
+  mojo::Remote<storage::mojom::ServiceWorkerStorageControl>
+      remote_storage_control_;
+
   bool is_storage_disabled_ = false;
 
+  // TODO(crbug.com/1016065): Consider moving QuotaManagerProxy to
+  // ServiceWorkerStorage once QuotaManager gets mojofied.
+  const scoped_refptr<storage::QuotaManagerProxy> quota_manager_proxy_;
   const scoped_refptr<storage::SpecialStoragePolicy> special_storage_policy_;
-  class StoragePolicyObserver;
-  base::SequenceBound<StoragePolicyObserver> storage_policy_observer_;
-
-  // TODO(bashi): Avoid duplication. Merge this with LocalStorageOriginState.
-  struct StorageOriginState {
-    bool should_purge_on_shutdown = false;
-    bool will_purge_on_shutdown = false;
-  };
-  // IMPORTANT: Don't use this other than updating storage policies. This can
-  // be out of sync with |registered_origins_| in ServiceWorkerStorage.
-  std::map<url::Origin, StorageOriginState> tracked_origins_for_policy_update_;
+  base::Optional<storage::StoragePolicyObserver> storage_policy_observer_;
 
   // For finding registrations being installed or uninstalled.
   using RegistrationRefsById =
@@ -372,6 +474,16 @@ class CONTENT_EXPORT ServiceWorkerRegistry {
 
   // Indicates whether recovery process should be scheduled.
   bool should_schedule_delete_and_start_over_ = true;
+
+  enum class ConnectionState {
+    kNormal,
+    kRecovering,
+  };
+  ConnectionState connection_state_ = ConnectionState::kNormal;
+  size_t recovery_retry_counts_ = 0;
+
+  base::flat_set<std::unique_ptr<InflightCall>, base::UniquePtrComparator>
+      inflight_calls_;
 
   base::WeakPtrFactory<ServiceWorkerRegistry> weak_factory_{this};
 };

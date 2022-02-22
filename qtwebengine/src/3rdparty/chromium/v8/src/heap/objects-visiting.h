@@ -9,62 +9,53 @@
 #include "src/objects/map.h"
 #include "src/objects/objects.h"
 #include "src/objects/visitors.h"
+#include "torque-generated/field-offsets.h"
 
 namespace v8 {
 namespace internal {
 
-#define TYPED_VISITOR_ID_LIST(V)       \
-  V(AllocationSite)                    \
-  V(BigInt)                            \
-  V(ByteArray)                         \
-  V(BytecodeArray)                     \
-  V(Cell)                              \
-  V(Code)                              \
-  V(CodeDataContainer)                 \
-  V(ConsString)                        \
-  V(Context)                           \
-  V(CoverageInfo)                      \
-  V(DataHandler)                       \
-  V(DescriptorArray)                   \
-  V(EmbedderDataArray)                 \
-  V(EphemeronHashTable)                \
-  V(FeedbackCell)                      \
-  V(FeedbackMetadata)                  \
-  V(FeedbackVector)                    \
-  V(FixedArray)                        \
-  V(FixedDoubleArray)                  \
-  V(JSArrayBuffer)                     \
-  V(JSDataView)                        \
-  V(JSFunction)                        \
-  V(JSObject)                          \
-  V(JSTypedArray)                      \
-  V(WeakCell)                          \
-  V(JSWeakCollection)                  \
-  V(JSWeakRef)                         \
-  V(Map)                               \
-  V(NativeContext)                     \
-  V(Oddball)                           \
-  V(PreparseData)                      \
-  V(PropertyArray)                     \
-  V(PropertyCell)                      \
-  V(PrototypeInfo)                     \
-  V(SeqOneByteString)                  \
-  V(SeqTwoByteString)                  \
-  V(SharedFunctionInfo)                \
-  V(SlicedString)                      \
-  V(SmallOrderedHashMap)               \
-  V(SmallOrderedHashSet)               \
-  V(SmallOrderedNameDictionary)        \
-  V(SourceTextModule)                  \
-  V(Symbol)                            \
-  V(SyntheticModule)                   \
-  V(ThinString)                        \
-  V(TransitionArray)                   \
-  V(UncompiledDataWithoutPreparseData) \
-  V(UncompiledDataWithPreparseData)    \
-  V(WasmCapiFunctionData)              \
-  V(WasmIndirectFunctionTable)         \
-  V(WasmInstanceObject)
+#define TYPED_VISITOR_ID_LIST(V) \
+  V(AllocationSite)              \
+  V(BigInt)                      \
+  V(ByteArray)                   \
+  V(BytecodeArray)               \
+  V(Cell)                        \
+  V(Code)                        \
+  V(CodeDataContainer)           \
+  V(CoverageInfo)                \
+  V(DataHandler)                 \
+  V(EmbedderDataArray)           \
+  V(EphemeronHashTable)          \
+  V(FeedbackCell)                \
+  V(FeedbackMetadata)            \
+  V(FixedDoubleArray)            \
+  V(JSArrayBuffer)               \
+  V(JSDataView)                  \
+  V(JSFunction)                  \
+  V(JSObject)                    \
+  V(JSTypedArray)                \
+  V(WeakCell)                    \
+  V(JSWeakCollection)            \
+  V(JSWeakRef)                   \
+  V(Map)                         \
+  V(NativeContext)               \
+  V(PreparseData)                \
+  V(PropertyArray)               \
+  V(PropertyCell)                \
+  V(PrototypeInfo)               \
+  V(SmallOrderedHashMap)         \
+  V(SmallOrderedHashSet)         \
+  V(SmallOrderedNameDictionary)  \
+  V(SourceTextModule)            \
+  V(SwissNameDictionary)         \
+  V(Symbol)                      \
+  V(SyntheticModule)             \
+  V(TransitionArray)             \
+  V(WasmArray)                   \
+  V(WasmIndirectFunctionTable)   \
+  V(WasmInstanceObject)          \
+  V(WasmStruct)                  \
+  V(WasmTypeInfo)
 
 #define FORWARD_DECLARE(TypeName) class TypeName;
 TYPED_VISITOR_ID_LIST(FORWARD_DECLARE)
@@ -112,7 +103,6 @@ class HeapVisitor : public ObjectVisitor {
   V8_INLINE ResultType VisitJSApiObject(Map map, JSObject object);
   V8_INLINE ResultType VisitStruct(Map map, HeapObject object);
   V8_INLINE ResultType VisitFreeSpace(Map map, FreeSpace object);
-  V8_INLINE ResultType VisitWeakArray(Map map, HeapObject object);
 
   template <typename T>
   static V8_INLINE T Cast(HeapObject object);

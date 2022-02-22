@@ -43,7 +43,7 @@
 #include "qbar3dseries.h"
 #include "qabstract3dseries_p.h"
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 class QBar3DSeriesPrivate : public QAbstract3DSeriesPrivate
 {
@@ -52,9 +52,9 @@ public:
     QBar3DSeriesPrivate(QBar3DSeries *q);
     virtual ~QBar3DSeriesPrivate();
 
-    virtual void setDataProxy(QAbstractDataProxy *proxy);
-    virtual void connectControllerAndProxy(Abstract3DController *newController);
-    virtual void createItemLabel();
+    void setDataProxy(QAbstractDataProxy *proxy) override;
+    void connectControllerAndProxy(Abstract3DController *newController) override;
+    void createItemLabel() override;
 
     void handleMeshRotationChanged(const QQuaternion &rotation);
 
@@ -71,6 +71,6 @@ private:
     friend class QBar3DSeries;
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

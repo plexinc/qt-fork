@@ -63,6 +63,7 @@ class Q_WAYLAND_CLIENT_EXPORT QWaylandClientExtension : public QObject
     Q_PROPERTY(bool active READ isActive NOTIFY activeChanged)
 public:
     QWaylandClientExtension(const int version);
+    ~QWaylandClientExtension();
 
     QtWaylandClient::QWaylandIntegration *integration() const;
     int version() const;
@@ -76,8 +77,8 @@ Q_SIGNALS:
     void versionChanged();
     void activeChanged();
 
-private Q_SLOTS:
-    void addRegistryListener();
+protected Q_SLOTS:
+    void initialize();
 };
 
 template <typename T>

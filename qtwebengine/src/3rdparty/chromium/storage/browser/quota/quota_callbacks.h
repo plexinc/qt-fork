@@ -14,9 +14,8 @@
 #include <vector>
 
 #include "base/callback.h"
+#include "base/containers/contains.h"
 #include "base/optional.h"
-#include "base/stl_util.h"
-#include "storage/browser/quota/quota_client.h"
 #include "third_party/blink/public/mojom/quota/quota_types.mojom-forward.h"
 
 namespace url {
@@ -29,6 +28,7 @@ struct UsageInfo;
 using UsageInfoEntries = std::vector<UsageInfo>;
 
 // Common callback types that are used throughout in the quota module.
+using AddChangeListenerCallback = base::OnceCallback<void()>;
 using GlobalUsageCallback =
     base::OnceCallback<void(int64_t usage, int64_t unlimited_usage)>;
 using QuotaCallback =

@@ -41,7 +41,7 @@
 #include "qeglfskmsegldeviceintegration.h"
 #include "qeglfskmsegldevice.h"
 #include "qeglfskmsegldevicescreen.h"
-#include <QtEglSupport/private/qeglconvenience_p.h>
+#include <QtGui/private/qeglconvenience_p.h>
 #include "private/qeglfswindow_p.h"
 #include "private/qeglfscursor_p.h"
 #include <QLoggingCategory>
@@ -171,7 +171,7 @@ void QEglFSKmsEglDeviceWindow::resetSurface()
 
     qCDebug(qLcEglfsKmsDebug, "Output has %d layers", count);
 
-    QVector<EGLOutputLayerEXT> layers;
+    QList<EGLOutputLayerEXT> layers;
     layers.resize(count);
     EGLint actualCount;
     if (!m_integration->m_funcs->get_output_layers(display, nullptr, layers.data(), count, &actualCount)) {

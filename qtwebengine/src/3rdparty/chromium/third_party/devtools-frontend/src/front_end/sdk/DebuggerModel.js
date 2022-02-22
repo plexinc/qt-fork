@@ -30,17 +30,90 @@
 
 import * as Common from '../common/common.js';
 import * as Host from '../host/host.js';
-import * as ProtocolClient from '../protocol_client/protocol_client.js';
+import * as i18n from '../i18n/i18n.js';
+import * as Platform from '../platform/platform.js';
+import * as ProtocolClient from '../protocol_client/protocol_client.js';  // eslint-disable-line no-unused-vars
+import * as Root from '../root/root.js';
 
-import {GetPropertiesResult, RemoteObject, RemoteObjectImpl, ScopeRef} from './RemoteObject.js';  // eslint-disable-line no-unused-vars
+import {GetPropertiesResult, RemoteObject, ScopeRef} from './RemoteObject.js';  // eslint-disable-line no-unused-vars
+import {Events as ResourceTreeModelEvents, ResourceTreeModel} from './ResourceTreeModel.js';  // eslint-disable-line no-unused-vars
 import {EvaluationOptions, EvaluationResult, ExecutionContext, RuntimeModel} from './RuntimeModel.js';  // eslint-disable-line no-unused-vars
 import {Script} from './Script.js';
 import {Capability, SDKModel, Target, Type} from './SDKModel.js';  // eslint-disable-line no-unused-vars
 import {SourceMapManager} from './SourceMapManager.js';
 
+export const UIStrings = {
+  /**
+  *@description Text in Debugger Model
+  */
+  local: 'Local',
+  /**
+  *@description Text that refers to closure as a programming term
+  */
+  closure: 'Closure',
+  /**
+  *@description Text in Debugger Model
+  */
+  catch: 'Catch',
+  /**
+  *@description Noun that represents a section or block of code in the Debugger Model. Shown in the Sources tab, while paused on a breakpoint.
+  */
+  block: 'Block',
+  /**
+  *@description Label for a group of JavaScript files
+  */
+  script: 'Script',
+  /**
+  *@description Text in Debugger Model
+  */
+  withBlock: 'With Block',
+  /**
+  *@description Text describing global shortcuts and settings that are available throughout the DevTools
+  */
+  global: 'Global',
+  /**
+  *@description Text for a module, the programming concept
+  */
+  module: 'Module',
+  /**
+  *@description Text for a stack, the programming concept
+  */
+  stack: 'Stack',
+};
+const str_ = i18n.i18n.registerUIStrings('sdk/DebuggerModel.js', UIStrings);
+const i18nString = i18n.i18n.getLocalizedString.bind(undefined, str_);
 /**
- * @unrestricted
- */
+*  @param {!Array<!LocationRange>} locationRanges
+*  @return {!Array<!LocationRange>}
+*/
+export function sortAndMergeRanges(locationRanges) {
+  if (locationRanges.length === 0) {
+    return [];
+  }
+  locationRanges.sort(LocationRange.comparator);
+  let prev = locationRanges[0];
+  const merged = [];
+  for (let i = 1; i < locationRanges.length; ++i) {
+    const current = locationRanges[i];
+    if (prev.overlap(current)) {
+      const largerEnd = prev.end.compareTo(current.end) > 0 ? prev.end : current.end;
+      prev = new LocationRange(prev.scriptId, prev.start, largerEnd);
+    } else {
+      merged.push(prev);
+      prev = current;
+    }
+  }
+  merged.push(prev);
+  return merged;
+}
+
+/** @enum {symbol} */
+export const StepMode = {
+  StepInto: Symbol('StepInto'),
+  StepOut: Symbol('StepOut'),
+  StepOver: Symbol('StepOver')
+};
+
 export class DebuggerModel extends SDKModel {
   /**
    * @param {!Target} target
@@ -65,6 +138,27 @@ export class DebuggerModel extends SDKModel {
     this._scriptsBySourceURL = new Map();
     /** @type {!Array.<!Script>} */
     this._discardableScripts = [];
+    /** @type {(function(!DebuggerPausedDetails):boolean)|null} */
+    this._continueToLocationCallback = null;
+    /** @type {?CallFrame} */
+    this._selectedCallFrame = null;
+    /** @type {boolean} */
+    this._debuggerEnabled = false;
+    /** @type {?string} */
+    this._debuggerId = null;
+    /** @type {number} */
+    this._skipAllPausesTimeout = 0;
+    /** @type {(function(!DebuggerPausedDetails):boolean)|null} */
+    this._beforePausedCallback = null;
+    /** @type {?function(!StepMode, !CallFrame):!Promise<!Array<!{start: !Location, end: !Location}>>} */
+    this._computeAutoStepRangesCallback = null;
+    /** @type {?function(!Array<!CallFrame>):!Promise<!Array<!CallFrame>>} */
+    this._expandCallFramesCallback = null;
+    /** @type {?function(!CallFrame, !EvaluationOptions):!Promise<?EvaluationResult>} */
+    this._evaluateOnCallFrameCallback = null;
+
+    /** @type {boolean} */
+    this._ignoreDebuggerPausedEvents = false;
 
     /** @type {!Common.ObjectWrapper.ObjectWrapper} */
     this._breakpointResolvedEventTarget = new Common.ObjectWrapper.ObjectWrapper();
@@ -90,12 +184,16 @@ export class DebuggerModel extends SDKModel {
       this._enableDebugger();
     }
 
-    /** @type {!Map<string, string>} */
-    this._stringMap = new Map();
     this._sourceMapManager.setEnabled(Common.Settings.Settings.instance().moduleSetting('jsSourceMapsEnabled').get());
     Common.Settings.Settings.instance()
         .moduleSetting('jsSourceMapsEnabled')
         .addChangeListener(event => this._sourceMapManager.setEnabled(/** @type {boolean} */ (event.data)));
+
+    const resourceTreeModel =
+        /** @type {!ResourceTreeModel} */ (target.model(ResourceTreeModel));
+    if (resourceTreeModel) {
+      resourceTreeModel.addEventListener(ResourceTreeModelEvents.FrameNavigated, this._onFrameNavigated, this);
+    }
   }
 
   /**
@@ -129,43 +227,67 @@ export class DebuggerModel extends SDKModel {
    * @return {boolean}
    */
   debuggerEnabled() {
-    return !!this._debuggerEnabled;
+    return Boolean(this._debuggerEnabled);
   }
 
   /**
-   * @return {!Promise}
+   * @param {boolean} ignore
    */
-  _enableDebugger() {
+  ignoreDebuggerPausedEvents(ignore) {
+    this._ignoreDebuggerPausedEvents = ignore;
+  }
+
+  /**
+   * @return {!Promise<void>}
+   */
+  async _enableDebugger() {
     if (this._debuggerEnabled) {
-      return Promise.resolve();
+      return;
     }
     this._debuggerEnabled = true;
 
     // Set a limit for the total size of collected script sources retained by debugger.
     // 10MB for remote frontends, 100MB for others.
-    const isRemoteFrontend = Root.Runtime.queryParam('remoteFrontend') || Root.Runtime.queryParam('ws');
+    const isRemoteFrontend = Root.Runtime.Runtime.queryParam('remoteFrontend') || Root.Runtime.Runtime.queryParam('ws');
     const maxScriptsCacheSize = isRemoteFrontend ? 10e6 : 100e6;
-    const enablePromise = this._agent.enable(maxScriptsCacheSize);
+    const enablePromise = this._agent.invoke_enable({maxScriptsCacheSize});
     enablePromise.then(this._registerDebugger.bind(this));
     this._pauseOnExceptionStateChanged();
     this._asyncStackTracesStateChanged();
     if (!Common.Settings.Settings.instance().moduleSetting('breakpointsActive').get()) {
       this._breakpointsActiveChanged();
     }
-    if (DebuggerModel._scheduledPauseOnAsyncCall) {
-      this._pauseOnAsyncCall(DebuggerModel._scheduledPauseOnAsyncCall);
+    if (_scheduledPauseOnAsyncCall) {
+      this._pauseOnAsyncCall(_scheduledPauseOnAsyncCall);
     }
     this.dispatchEventToListeners(Events.DebuggerWasEnabled, this);
+    await enablePromise;
+  }
+
+  async syncDebuggerId() {
+    const isRemoteFrontend = Root.Runtime.Runtime.queryParam('remoteFrontend') || Root.Runtime.Runtime.queryParam('ws');
+    const maxScriptsCacheSize = isRemoteFrontend ? 10e6 : 100e6;
+    const enablePromise = this._agent.invoke_enable({maxScriptsCacheSize});
+    enablePromise.then(this._registerDebugger.bind(this));
     return enablePromise;
   }
 
-  /**
-   * @param {string|null} debuggerId
-   */
-  _registerDebugger(debuggerId) {
-    if (!debuggerId) {
+  _onFrameNavigated() {
+    if (DebuggerModel._shouldResyncDebuggerId) {
       return;
     }
+
+    DebuggerModel._shouldResyncDebuggerId = true;
+  }
+
+  /**
+   * @param {!Protocol.Debugger.EnableResponse} response
+   */
+  _registerDebugger(response) {
+    if (response.getError()) {
+      return;
+    }
+    const {debuggerId} = response;
     _debuggerIdToModel.set(debuggerId, this);
     this._debuggerId = debuggerId;
     this.dispatchEventToListeners(Events.DebuggerIsReadyToPause, this);
@@ -175,32 +297,47 @@ export class DebuggerModel extends SDKModel {
    * @return {boolean}
    */
   isReadyToPause() {
-    return !!this._debuggerId;
+    return Boolean(this._debuggerId);
   }
 
   /**
    * @param {string} debuggerId
-   * @return {?DebuggerModel}
+   * @return {Promise<?DebuggerModel>}
    */
-  static modelForDebuggerId(debuggerId) {
+  static async modelForDebuggerId(debuggerId) {
+    if (DebuggerModel._shouldResyncDebuggerId) {
+      await DebuggerModel.resyncDebuggerIdForModels();
+      DebuggerModel._shouldResyncDebuggerId = false;
+    }
     return _debuggerIdToModel.get(debuggerId) || null;
   }
 
+  static async resyncDebuggerIdForModels() {
+    const dbgModels = _debuggerIdToModel.values();
+    for (const dbgModel of dbgModels) {
+      if (dbgModel.debuggerEnabled()) {
+        await dbgModel.syncDebuggerId();
+      }
+    }
+  }
+
   /**
-   * @return {!Promise}
+   * @return {!Promise<void>}
    */
   async _disableDebugger() {
     if (!this._debuggerEnabled) {
-      return Promise.resolve();
+      return;
     }
     this._debuggerEnabled = false;
 
     await this._asyncStackTracesStateChanged();
-    await this._agent.disable();
+    await this._agent.invoke_disable();
     this._isPausing = false;
     this.globalObjectCleared();
     this.dispatchEventToListeners(Events.DebuggerWasDisabled);
-    _debuggerIdToModel.delete(this._debuggerId);
+    if (typeof this._debuggerId === 'string') {
+      _debuggerIdToModel.delete(this._debuggerId);
+    }
   }
 
   /**
@@ -209,9 +346,9 @@ export class DebuggerModel extends SDKModel {
   _skipAllPauses(skip) {
     if (this._skipAllPausesTimeout) {
       clearTimeout(this._skipAllPausesTimeout);
-      delete this._skipAllPausesTimeout;
+      this._skipAllPausesTimeout = 0;
     }
-    this._agent.setSkipAllPauses(skip);
+    this._agent.invoke_setSkipAllPauses({skip});
   }
 
   /**
@@ -221,68 +358,105 @@ export class DebuggerModel extends SDKModel {
     if (this._skipAllPausesTimeout) {
       clearTimeout(this._skipAllPausesTimeout);
     }
-    this._agent.setSkipAllPauses(true);
+    this._agent.invoke_setSkipAllPauses({skip: true});
     // If reload happens before the timeout, the flag will be already unset and the timeout callback won't change anything.
-    this._skipAllPausesTimeout = setTimeout(this._skipAllPauses.bind(this, false), timeout);
+    this._skipAllPausesTimeout = window.setTimeout(this._skipAllPauses.bind(this, false), timeout);
   }
 
   _pauseOnExceptionStateChanged() {
+    /** @type {!Protocol.Debugger.SetPauseOnExceptionsRequestState} */
     let state;
     if (!Common.Settings.Settings.instance().moduleSetting('pauseOnExceptionEnabled').get()) {
-      state = PauseOnExceptionsState.DontPauseOnExceptions;
+      state = Protocol.Debugger.SetPauseOnExceptionsRequestState.None;
     } else if (Common.Settings.Settings.instance().moduleSetting('pauseOnCaughtException').get()) {
-      state = PauseOnExceptionsState.PauseOnAllExceptions;
+      state = Protocol.Debugger.SetPauseOnExceptionsRequestState.All;
     } else {
-      state = PauseOnExceptionsState.PauseOnUncaughtExceptions;
+      state = Protocol.Debugger.SetPauseOnExceptionsRequestState.Uncaught;
     }
 
-    this._agent.setPauseOnExceptions(state);
+    this._agent.invoke_setPauseOnExceptions({state});
   }
 
   _asyncStackTracesStateChanged() {
     const maxAsyncStackChainDepth = 32;
     const enabled =
         !Common.Settings.Settings.instance().moduleSetting('disableAsyncStackTraces').get() && this._debuggerEnabled;
-    return this._agent.setAsyncCallStackDepth(enabled ? maxAsyncStackChainDepth : 0);
+    const maxDepth = enabled ? maxAsyncStackChainDepth : 0;
+    return this._agent.invoke_setAsyncCallStackDepth({maxDepth});
   }
 
   _breakpointsActiveChanged() {
-    this._agent.setBreakpointsActive(Common.Settings.Settings.instance().moduleSetting('breakpointsActive').get());
+    this._agent.invoke_setBreakpointsActive(
+        {active: Common.Settings.Settings.instance().moduleSetting('breakpointsActive').get()});
   }
 
-  stepInto() {
-    this._agent.stepInto();
+  /**
+   * @param {?function(!StepMode, !CallFrame):!Promise<!Array<!{start: !Location, end: !Location}>>} callback
+   */
+  setComputeAutoStepRangesCallback(callback) {
+    this._computeAutoStepRangesCallback = callback;
   }
 
-  stepOver() {
+  /**
+   * @param {!StepMode} mode
+   * @return {!Promise<!Array<!Protocol.Debugger.LocationRange>>}
+   */
+  async _computeAutoStepSkipList(mode) {
+    /** @type {!Array<!{start: !Location, end: !Location}>} */
+    let ranges = [];
+    if (this._computeAutoStepRangesCallback && this._debuggerPausedDetails) {
+      const [callFrame] = this._debuggerPausedDetails.callFrames;
+      ranges = await this._computeAutoStepRangesCallback.call(null, mode, callFrame);
+    }
+    const skipList = ranges.map(
+        location => new LocationRange(
+            location.start.scriptId, new ScriptPosition(location.start.lineNumber, location.start.columnNumber),
+            new ScriptPosition(location.end.lineNumber, location.end.columnNumber)));
+    return sortAndMergeRanges(skipList).map(x => x.payload());
+  }
+
+  async stepInto() {
+    const skipList = await this._computeAutoStepSkipList(StepMode.StepInto);
+    this._agent.invoke_stepInto({breakOnAsyncCall: false, skipList});
+  }
+
+  async stepOver() {
     // Mark that in case of auto-stepping, we should be doing
     // step-over instead of step-in.
     this._autoStepOver = true;
-    this._agent.stepOver();
+    const skipList = await this._computeAutoStepSkipList(StepMode.StepOver);
+    this._agent.invoke_stepOver({skipList});
   }
 
-  stepOut() {
-    this._agent.stepOut();
+  async stepOut() {
+    const skipList = await this._computeAutoStepSkipList(StepMode.StepOut);
+    if (skipList.length !== 0) {
+      this._agent.invoke_stepOver({skipList});
+    } else {
+      this._agent.invoke_stepOut();
+    }
   }
 
   scheduleStepIntoAsync() {
-    this._agent.invoke_stepInto({breakOnAsyncCall: true});
+    this._computeAutoStepSkipList(StepMode.StepInto).then(skipList => {
+      this._agent.invoke_stepInto({breakOnAsyncCall: true, skipList});
+    });
   }
 
   resume() {
-    this._agent.resume();
+    this._agent.invoke_resume({terminateOnResume: false});
     this._isPausing = false;
   }
 
   pause() {
     this._isPausing = true;
     this._skipAllPauses(false);
-    this._agent.pause();
+    this._agent.invoke_pause();
   }
 
   /**
    * @param {!Protocol.Runtime.StackTraceId} parentStackTraceId
-   * @return {!Promise}
+   * @return {!Promise<!Object>}
    */
   _pauseOnAsyncCall(parentStackTraceId) {
     return this._agent.invoke_pauseOnAsyncCall({parentStackTraceId: parentStackTraceId});
@@ -300,7 +474,8 @@ export class DebuggerModel extends SDKModel {
     let urlRegex;
     if (this.target().type() === Type.Node) {
       const platformPath = Common.ParsedURL.ParsedURL.urlToPlatformPath(url, Host.Platform.isWin());
-      urlRegex = `${platformPath.escapeForRegExp()}|${url.escapeForRegExp()}`;
+      urlRegex =
+          `${Platform.StringUtilities.escapeForRegExp(platformPath)}|${Platform.StringUtilities.escapeForRegExp(url)}`;
     }
     // Adjust column if needed.
     let minColumnNumber = 0;
@@ -311,7 +486,7 @@ export class DebuggerModel extends SDKModel {
         minColumnNumber = minColumnNumber ? Math.min(minColumnNumber, script.columnOffset) : script.columnOffset;
       }
     }
-    columnNumber = Math.max(columnNumber, minColumnNumber);
+    columnNumber = Math.max(columnNumber || 0, minColumnNumber);
     const response = await this._agent.invoke_setBreakpointByUrl({
       lineNumber: lineNumber,
       url: urlRegex ? undefined : url,
@@ -319,14 +494,15 @@ export class DebuggerModel extends SDKModel {
       columnNumber: columnNumber,
       condition: condition
     });
-    if (response[ProtocolClient.InspectorBackend.ProtocolError]) {
+    if (response.getError()) {
       return {locations: [], breakpointId: null};
     }
+    /** @type {!Array<!Location>} */
     let locations = [];
     if (response.locations) {
       locations = response.locations.map(payload => Location.fromPayload(this, payload));
     }
-    return {locations: locations, breakpointId: response.breakpointId};
+    return {locations, breakpointId: response.breakpointId};
   }
 
   /**
@@ -340,7 +516,7 @@ export class DebuggerModel extends SDKModel {
   async setBreakpointInAnonymousScript(scriptId, scriptHash, lineNumber, columnNumber, condition) {
     const response = await this._agent.invoke_setBreakpointByUrl(
         {lineNumber: lineNumber, scriptHash: scriptHash, columnNumber: columnNumber, condition: condition});
-    const error = response[ProtocolClient.InspectorBackend.ProtocolError];
+    const error = response.getError();
     if (error) {
       // Old V8 backend doesn't support scriptHash argument.
       if (error !== 'Either url or urlRegex must be specified.') {
@@ -348,11 +524,12 @@ export class DebuggerModel extends SDKModel {
       }
       return this._setBreakpointBySourceId(scriptId, lineNumber, columnNumber, condition);
     }
+    /** @type {!Array<!Location>} */
     let locations = [];
     if (response.locations) {
       locations = response.locations.map(payload => Location.fromPayload(this, payload));
     }
-    return {locations: locations, breakpointId: response.breakpointId};
+    return {locations, breakpointId: response.breakpointId};
   }
 
   /**
@@ -366,9 +543,10 @@ export class DebuggerModel extends SDKModel {
     // This method is required for backward compatibility with V8 before 6.3.275.
     const response = await this._agent.invoke_setBreakpoint(
         {location: {scriptId: scriptId, lineNumber: lineNumber, columnNumber: columnNumber}, condition: condition});
-    if (response[ProtocolClient.InspectorBackend.ProtocolError]) {
+    if (response.getError()) {
       return {breakpointId: null, locations: []};
     }
+    /** @type {!Array<!Location>} */
     let actualLocation = [];
     if (response.actualLocation) {
       actualLocation = [Location.fromPayload(this, response.actualLocation)];
@@ -378,12 +556,12 @@ export class DebuggerModel extends SDKModel {
 
   /**
    * @param {!Protocol.Debugger.BreakpointId} breakpointId
-   * @return {!Promise}
+   * @return {!Promise<void>}
    */
   async removeBreakpoint(breakpointId) {
     const response = await this._agent.invoke_removeBreakpoint({breakpointId});
-    if (response[ProtocolClient.InspectorBackend.ProtocolError]) {
-      console.error('Failed to remove breakpoint: ' + response[ProtocolClient.InspectorBackend.ProtocolError]);
+    if (response.getError()) {
+      console.error('Failed to remove breakpoint: ' + response.getError());
     }
   }
 
@@ -399,7 +577,7 @@ export class DebuggerModel extends SDKModel {
       end: endLocation ? endLocation.payload() : undefined,
       restrictToFunction: restrictToFunction
     });
-    if (response[ProtocolClient.InspectorBackend.ProtocolError] || !response.locations) {
+    if (response.getError() || !response.locations) {
       return [];
     }
     return response.locations.map(location => BreakLocation.fromPayload(this, location));
@@ -411,7 +589,7 @@ export class DebuggerModel extends SDKModel {
    */
   async fetchAsyncStackTrace(stackId) {
     const response = await this._agent.invoke_getStackTrace({stackTraceId: stackId});
-    return response[ProtocolClient.InspectorBackend.ProtocolError] ? null : response.stackTrace;
+    return response.getError() ? null : response.stackTrace;
   }
 
   /**
@@ -437,7 +615,6 @@ export class DebuggerModel extends SDKModel {
 
     this._scripts.clear();
     this._scriptsBySourceURL.clear();
-    this._stringMap.clear();
     this._discardableScripts = [];
     this._autoStepOver = false;
   }
@@ -458,6 +635,7 @@ export class DebuggerModel extends SDKModel {
   }
 
   /**
+   * @param {?string} sourceURL
    * @return {!Array.<!Script>}
    */
   scriptsForSourceURL(sourceURL) {
@@ -484,17 +662,19 @@ export class DebuggerModel extends SDKModel {
   /**
    * @param {!Protocol.Runtime.ScriptId} scriptId
    * @param {string} newSource
-   * @param {function(?ProtocolClient.InspectorBackend.ProtocolError, !Protocol.Runtime.ExceptionDetails=)} callback
+   * @param {function(?ProtocolClient.InspectorBackend.ProtocolError, !Protocol.Runtime.ExceptionDetails=):void} callback
    */
   setScriptSource(scriptId, newSource, callback) {
-    this._scripts.get(scriptId).editSource(
-        newSource, this._didEditScriptSource.bind(this, scriptId, newSource, callback));
+    const script = this._scripts.get(scriptId);
+    if (script) {
+      script.editSource(newSource, this._didEditScriptSource.bind(this, scriptId, newSource, callback));
+    }
   }
 
   /**
    * @param {!Protocol.Runtime.ScriptId} scriptId
    * @param {string} newSource
-   * @param {function(?ProtocolClient.InspectorBackend.ProtocolError, !Protocol.Runtime.ExceptionDetails=)} callback
+   * @param {function(?ProtocolClient.InspectorBackend.ProtocolError, !Protocol.Runtime.ExceptionDetails=):void} callback
    * @param {?ProtocolClient.InspectorBackend.ProtocolError} error
    * @param {!Protocol.Runtime.ExceptionDetails=} exceptionDetails
    * @param {!Array.<!Protocol.Debugger.CallFrame>=} callFrames
@@ -511,7 +691,7 @@ export class DebuggerModel extends SDKModel {
       return;
     }
 
-    if (!error && callFrames && callFrames.length) {
+    if (!error && callFrames && callFrames.length && this._debuggerPausedDetails) {
       this._pausedScript(
           callFrames, this._debuggerPausedDetails.reason, this._debuggerPausedDetails.auxData,
           this._debuggerPausedDetails.breakpointIds, asyncStackTrace, asyncStackTraceId);
@@ -537,11 +717,11 @@ export class DebuggerModel extends SDKModel {
    * @return {boolean}
    */
   _setDebuggerPausedDetails(debuggerPausedDetails) {
-    this._isPausing = false;
-    this._debuggerPausedDetails = debuggerPausedDetails;
-    if (this._debuggerPausedDetails) {
+    if (debuggerPausedDetails) {
+      this._isPausing = false;
+      this._debuggerPausedDetails = debuggerPausedDetails;
       if (this._beforePausedCallback) {
-        if (!this._beforePausedCallback.call(null, this._debuggerPausedDetails)) {
+        if (!this._beforePausedCallback.call(null, debuggerPausedDetails)) {
           return false;
         }
       }
@@ -549,10 +729,10 @@ export class DebuggerModel extends SDKModel {
       // step-over marker.
       this._autoStepOver = false;
       this.dispatchEventToListeners(Events.DebuggerPaused, this);
-    }
-    if (debuggerPausedDetails) {
       this.setSelectedCallFrame(debuggerPausedDetails.callFrames[0]);
     } else {
+      this._isPausing = false;
+      this._debuggerPausedDetails = null;
       this.setSelectedCallFrame(null);
     }
     return true;
@@ -566,8 +746,22 @@ export class DebuggerModel extends SDKModel {
   }
 
   /**
-   * @param {!Array.<!Protocol.Debugger.CallFrame>} callFrames
-   * @param {string} reason
+   * @param {?function(!Array<!CallFrame>):!Promise<!Array<!CallFrame>>} callback
+   */
+  setExpandCallFramesCallback(callback) {
+    this._expandCallFramesCallback = callback;
+  }
+
+  /**
+   * @param {?function(!CallFrame, !EvaluationOptions):!Promise<?EvaluationResult>} callback
+   */
+  setEvaluateOnCallFrameCallback(callback) {
+    this._evaluateOnCallFrameCallback = callback;
+  }
+
+  /**
+   * @param {!Array<!Protocol.Debugger.CallFrame>} callFrames
+   * @param {!Protocol.Debugger.PausedEventReason} reason
    * @param {!Object|undefined} auxData
    * @param {!Array.<string>} breakpointIds
    * @param {!Protocol.Runtime.StackTrace=} asyncStackTrace
@@ -576,9 +770,13 @@ export class DebuggerModel extends SDKModel {
    */
   async _pausedScript(
       callFrames, reason, auxData, breakpointIds, asyncStackTrace, asyncStackTraceId, asyncCallStackTraceId) {
+    if (this._ignoreDebuggerPausedEvents) {
+      return;
+    }
+
     if (asyncCallStackTraceId) {
       // Note: this is only to support old backends. Newer ones do not send asyncCallStackTraceId.
-      DebuggerModel._scheduledPauseOnAsyncCall = asyncCallStackTraceId;
+      _scheduledPauseOnAsyncCall = asyncCallStackTraceId;
       const promises = [];
       for (const model of _debuggerIdToModel.values()) {
         promises.push(model._pauseOnAsyncCall(asyncCallStackTraceId));
@@ -590,16 +788,14 @@ export class DebuggerModel extends SDKModel {
 
     const pausedDetails =
         new DebuggerPausedDetails(this, callFrames, reason, auxData, breakpointIds, asyncStackTrace, asyncStackTraceId);
-    const pluginManager = Bindings.debuggerWorkspaceBinding.getLanguagePluginManager(this);
-    if (pluginManager) {
-      for (const callFrame of pausedDetails.callFrames) {
-        callFrame.sourceScopeChain = await pluginManager.resolveScopeChain(callFrame);
-      }
+
+    if (this._expandCallFramesCallback) {
+      pausedDetails.callFrames = await this._expandCallFramesCallback.call(null, pausedDetails.callFrames);
     }
 
-    if (pausedDetails && this._continueToLocationCallback) {
+    if (this._continueToLocationCallback) {
       const callback = this._continueToLocationCallback;
-      delete this._continueToLocationCallback;
+      this._continueToLocationCallback = null;
       if (callback(pausedDetails)) {
         return;
       }
@@ -607,13 +803,15 @@ export class DebuggerModel extends SDKModel {
 
     if (!this._setDebuggerPausedDetails(pausedDetails)) {
       if (this._autoStepOver) {
-        this._agent.stepOver();
+        this.stepOver();
       } else {
-        this._agent.stepInto();
+        this.stepInto();
       }
+    } else {
+      Common.EventTarget.fireEvent('DevTools.DebuggerPaused');
     }
 
-    DebuggerModel._scheduledPauseOnAsyncCall = null;
+    _scheduledPauseOnAsyncCall = null;
   }
 
   _resumedScript() {
@@ -639,41 +837,39 @@ export class DebuggerModel extends SDKModel {
    * @param {?Protocol.Runtime.StackTrace} originStackTrace
    * @param {?number} codeOffset
    * @param {?string} scriptLanguage
+   * @param {?Protocol.Debugger.DebugSymbols} debugSymbols
+   * @param {?string} embedderName
    * @return {!Script}
    */
   _parsedScriptSource(
       scriptId, sourceURL, startLine, startColumn, endLine, endColumn, executionContextId, hash,
       executionContextAuxData, isLiveEdit, sourceMapURL, hasSourceURLComment, hasSyntaxError, length, originStackTrace,
-      codeOffset, scriptLanguage) {
-    if (this._scripts.has(scriptId)) {
-      return this._scripts.get(scriptId);
+      codeOffset, scriptLanguage, debugSymbols, embedderName) {
+    const knownScript = this._scripts.get(scriptId);
+    if (knownScript) {
+      return knownScript;
     }
     let isContentScript = false;
     if (executionContextAuxData && ('isDefault' in executionContextAuxData)) {
       isContentScript = !executionContextAuxData['isDefault'];
     }
-    sourceURL = this._internString(sourceURL);
     const script = new Script(
-        this, scriptId, sourceURL, startLine, startColumn, endLine, endColumn, executionContextId,
-        this._internString(hash), isContentScript, isLiveEdit, sourceMapURL, hasSourceURLComment, length,
-        originStackTrace, codeOffset, scriptLanguage);
+        this, scriptId, sourceURL, startLine, startColumn, endLine, endColumn, executionContextId, hash,
+        isContentScript, isLiveEdit, sourceMapURL, hasSourceURLComment, length, originStackTrace, codeOffset,
+        scriptLanguage, debugSymbols, embedderName);
     this._registerScript(script);
     this.dispatchEventToListeners(Events.ParsedScriptSource, script);
 
-    const pluginManager = Bindings.debuggerWorkspaceBinding.getLanguagePluginManager(this);
-    if (!Root.Runtime.experiments.isEnabled('wasmDWARFDebugging') || !pluginManager ||
-        !pluginManager.hasPluginForScript(script)) {
-      const sourceMapId = DebuggerModel._sourceMapId(script.executionContextId, script.sourceURL, script.sourceMapURL);
-      if (sourceMapId && !hasSyntaxError) {
-        // Consecutive script evaluations in the same execution context with the same sourceURL
-        // and sourceMappingURL should result in source map reloading.
-        const previousScript = this._sourceMapIdToScript.get(sourceMapId);
-        if (previousScript) {
-          this._sourceMapManager.detachSourceMap(previousScript);
-        }
-        this._sourceMapIdToScript.set(sourceMapId, script);
-        this._sourceMapManager.attachSourceMap(script, script.sourceURL, script.sourceMapURL);
+    const sourceMapId = DebuggerModel._sourceMapId(script.executionContextId, script.sourceURL, script.sourceMapURL);
+    if (sourceMapId && !hasSyntaxError) {
+      // Consecutive script evaluations in the same execution context with the same sourceURL
+      // and sourceMappingURL should result in source map reloading.
+      const previousScript = this._sourceMapIdToScript.get(sourceMapId);
+      if (previousScript) {
+        this._sourceMapManager.detachSourceMap(previousScript);
       }
+      this._sourceMapIdToScript.set(sourceMapId, script);
+      this._sourceMapManager.attachSourceMap(script, script.sourceURL, script.sourceMapURL);
     }
 
     const isDiscardable = hasSyntaxError && script.isAnonymousScript();
@@ -711,7 +907,7 @@ export class DebuggerModel extends SDKModel {
     const sourceMapIds = Array.from(this._sourceMapIdToScript.keys());
     for (const sourceMapId of sourceMapIds) {
       const script = this._sourceMapIdToScript.get(sourceMapId);
-      if (script.executionContextId === executionContext.id) {
+      if (script && script.executionContextId === executionContext.id) {
         this._sourceMapIdToScript.delete(sourceMapId);
         this._sourceMapManager.detachSourceMap(script);
       }
@@ -761,7 +957,7 @@ export class DebuggerModel extends SDKModel {
    * @return {!Location}
    */
   createRawLocation(script, lineNumber, columnNumber) {
-    return new Location(this, script.scriptId, lineNumber, columnNumber);
+    return this.createRawLocationByScriptId(script.scriptId, lineNumber, columnNumber);
   }
 
   /**
@@ -794,11 +990,10 @@ export class DebuggerModel extends SDKModel {
    * @param {!Protocol.Runtime.ScriptId} scriptId
    * @param {number} lineNumber
    * @param {number} columnNumber
-   * @return {?Location}
+   * @return {!Location}
    */
   createRawLocationByScriptId(scriptId, lineNumber, columnNumber) {
-    const script = this.scriptForId(scriptId);
-    return script ? this.createRawLocation(script, lineNumber, columnNumber) : null;
+    return new Location(this, scriptId, lineNumber, columnNumber);
   }
 
   /**
@@ -807,11 +1002,13 @@ export class DebuggerModel extends SDKModel {
    */
   createRawLocationsByStackTrace(stackTrace) {
     const frames = [];
-    while (stackTrace) {
-      for (const frame of stackTrace.callFrames) {
+    /** @type {!Protocol.Runtime.StackTrace|undefined} */
+    let current = stackTrace;
+    while (current) {
+      for (const frame of current.callFrames) {
         frames.push(frame);
       }
-      stackTrace = stackTrace.parent;
+      current = current.parent;
     }
 
     const rawLocations = [];
@@ -828,7 +1025,7 @@ export class DebuggerModel extends SDKModel {
    * @return {boolean}
    */
   isPaused() {
-    return !!this.debuggerPausedDetails();
+    return Boolean(this.debuggerPausedDetails());
   }
 
   /**
@@ -860,8 +1057,12 @@ export class DebuggerModel extends SDKModel {
    * @param {!EvaluationOptions} options
    * @return {!Promise<!EvaluationResult>}
    */
-  evaluateOnSelectedCallFrame(options) {
-    return this.selectedCallFrame().evaluate(options);
+  async evaluateOnSelectedCallFrame(options) {
+    const callFrame = this.selectedCallFrame();
+    if (!callFrame) {
+      throw new Error('No call frame selected');
+    }
+    return callFrame.evaluate(options);
   }
 
   /**
@@ -919,7 +1120,7 @@ export class DebuggerModel extends SDKModel {
    */
   async setVariableValue(scopeNumber, variableName, newValue, callFrameId) {
     const response = await this._agent.invoke_setVariableValue({scopeNumber, variableName, newValue, callFrameId});
-    const error = response[ProtocolClient.InspectorBackend.ProtocolError];
+    const error = response.getError();
     if (error) {
       console.error(error);
     }
@@ -928,7 +1129,7 @@ export class DebuggerModel extends SDKModel {
 
   /**
    * @param {!Protocol.Debugger.BreakpointId} breakpointId
-   * @param {function(!Common.EventTarget.EventTargetEvent)} listener
+   * @param {function(!Common.EventTarget.EventTargetEvent):void} listener
    * @param {!Object=} thisObject
    */
   addBreakpointListener(breakpointId, listener, thisObject) {
@@ -937,7 +1138,7 @@ export class DebuggerModel extends SDKModel {
 
   /**
    * @param {!Protocol.Debugger.BreakpointId} breakpointId
-   * @param {function(!Common.EventTarget.EventTargetEvent)} listener
+   * @param {function(!Common.EventTarget.EventTargetEvent):void} listener
    * @param {!Object=} thisObject
    */
   removeBreakpointListener(breakpointId, listener, thisObject) {
@@ -950,7 +1151,7 @@ export class DebuggerModel extends SDKModel {
    */
   async setBlackboxPatterns(patterns) {
     const response = await this._agent.invoke_setBlackboxPatterns({patterns});
-    const error = response[ProtocolClient.InspectorBackend.ProtocolError];
+    const error = response.getError();
     if (error) {
       console.error(error);
     }
@@ -962,7 +1163,9 @@ export class DebuggerModel extends SDKModel {
    */
   dispose() {
     this._sourceMapManager.dispose();
-    _debuggerIdToModel.delete(this._debuggerId);
+    if (this._debuggerId) {
+      _debuggerIdToModel.delete(this._debuggerId);
+    }
     Common.Settings.Settings.instance()
         .moduleSetting('pauseOnExceptionEnabled')
         .removeChangeListener(this._pauseOnExceptionStateChanged, this);
@@ -976,7 +1179,7 @@ export class DebuggerModel extends SDKModel {
 
   /**
    * @override
-   * @return {!Promise}
+   * @return {!Promise<void>}
    */
   async suspendModel() {
     await this._disableDebugger();
@@ -984,29 +1187,20 @@ export class DebuggerModel extends SDKModel {
 
   /**
    * @override
-   * @return {!Promise}
+   * @return {!Promise<void>}
    */
   async resumeModel() {
     await this._enableDebugger();
   }
-
-  /**
-   * @param {string} string
-   * @return {string} string
-   */
-  _internString(string) {
-    if (!this._stringMap.has(string)) {
-      this._stringMap.set(string, string);
-    }
-    return this._stringMap.get(string);
-  }
 }
+
+DebuggerModel._shouldResyncDebuggerId = false;
 
 /** @type {!Map<string, !DebuggerModel>} */
 export const _debuggerIdToModel = new Map();
 
 /** @type {?Protocol.Runtime.StackTraceId} */
-export const _scheduledPauseOnAsyncCall = null;
+export let _scheduledPauseOnAsyncCall = null;
 
 /**
  * Keep these in sync with WebCore::V8Debugger
@@ -1034,27 +1228,8 @@ export const Events = {
   DebuggerIsReadyToPause: Symbol('DebuggerIsReadyToPause'),
 };
 
-/** @enum {string} */
-export const BreakReason = {
-  DOM: 'DOM',
-  EventListener: 'EventListener',
-  XHR: 'XHR',
-  Exception: 'exception',
-  PromiseRejection: 'promiseRejection',
-  Assert: 'assert',
-  DebugCommand: 'debugCommand',
-  OOM: 'OOM',
-  Other: 'other'
-};
-
-const ContinueToLocationTargetCallFrames = {
-  Any: 'any',
-  Current: 'current'
-};
-
 /**
- * @extends {Protocol.DebuggerDispatcher}
- * @unrestricted
+ * @implements {ProtocolProxyApi.DebuggerDispatcher}
  */
 class DebuggerDispatcher {
   /**
@@ -1066,118 +1241,128 @@ class DebuggerDispatcher {
 
   /**
    * @override
-   * @param {!Array.<!Protocol.Debugger.CallFrame>} callFrames
-   * @param {string} reason
-   * @param {!Object=} auxData
-   * @param {!Array.<string>=} breakpointIds
-   * @param {!Protocol.Runtime.StackTrace=} asyncStackTrace
-   * @param {!Protocol.Runtime.StackTraceId=} asyncStackTraceId
-   * @param {!Protocol.Runtime.StackTraceId=} asyncCallStackTraceId
+   * @param {!Protocol.Debugger.PausedEvent} event
    */
-  paused(callFrames, reason, auxData, breakpointIds, asyncStackTrace, asyncStackTraceId, asyncCallStackTraceId) {
+  paused({callFrames, reason, data, hitBreakpoints, asyncStackTrace, asyncStackTraceId, asyncCallStackTraceId}) {
+    if (!this._debuggerModel.debuggerEnabled()) {
+      return;
+    }
     this._debuggerModel._pausedScript(
-        callFrames, reason, auxData, breakpointIds || [], asyncStackTrace, asyncStackTraceId, asyncCallStackTraceId);
+        callFrames, reason, data, hitBreakpoints || [], asyncStackTrace, asyncStackTraceId, asyncCallStackTraceId);
   }
 
   /**
    * @override
    */
   resumed() {
+    if (!this._debuggerModel.debuggerEnabled()) {
+      return;
+    }
     this._debuggerModel._resumedScript();
   }
 
   /**
    * @override
-   * @param {!Protocol.Runtime.ScriptId} scriptId
-   * @param {string} sourceURL
-   * @param {number} startLine
-   * @param {number} startColumn
-   * @param {number} endLine
-   * @param {number} endColumn
-   * @param {!Protocol.Runtime.ExecutionContextId} executionContextId
-   * @param {string} hash
-   * @param {*=} executionContextAuxData
-   * @param {boolean=} isLiveEdit
-   * @param {string=} sourceMapURL
-   * @param {boolean=} hasSourceURL
-   * @param {boolean=} isModule
-   * @param {number=} length
-   * @param {!Protocol.Runtime.StackTrace=} stackTrace
-   * @param {number=} codeOffset
-   * @param {string=} scriptLanguage
+   * @param {!Protocol.Debugger.ScriptParsedEvent} event
    */
-  scriptParsed(
-      scriptId, sourceURL, startLine, startColumn, endLine, endColumn, executionContextId, hash,
-      executionContextAuxData, isLiveEdit, sourceMapURL, hasSourceURL, isModule, length, stackTrace, codeOffset,
-      scriptLanguage) {
+  scriptParsed({
+    scriptId,
+    url,
+    startLine,
+    startColumn,
+    endLine,
+    endColumn,
+    executionContextId,
+    hash,
+    executionContextAuxData,
+    isLiveEdit,
+    sourceMapURL,
+    hasSourceURL,
+    isModule,
+    length,
+    stackTrace,
+    codeOffset,
+    scriptLanguage,
+    debugSymbols,
+    embedderName
+  }) {
+    if (!this._debuggerModel.debuggerEnabled()) {
+      return;
+    }
     this._debuggerModel._parsedScriptSource(
-        scriptId, sourceURL, startLine, startColumn, endLine, endColumn, executionContextId, hash,
-        executionContextAuxData, !!isLiveEdit, sourceMapURL, !!hasSourceURL, false, length || 0, stackTrace || null,
-        codeOffset || null, scriptLanguage || null);
+        scriptId, url, startLine, startColumn, endLine, endColumn, executionContextId, hash, executionContextAuxData,
+        Boolean(isLiveEdit), sourceMapURL, Boolean(hasSourceURL), false, length || 0, stackTrace || null,
+        codeOffset || null, scriptLanguage || null, debugSymbols || null, embedderName || null);
   }
 
   /**
    * @override
-   * @param {!Protocol.Runtime.ScriptId} scriptId
-   * @param {string} sourceURL
-   * @param {number} startLine
-   * @param {number} startColumn
-   * @param {number} endLine
-   * @param {number} endColumn
-   * @param {!Protocol.Runtime.ExecutionContextId} executionContextId
-   * @param {string} hash
-   * @param {*=} executionContextAuxData
-   * @param {string=} sourceMapURL
-   * @param {boolean=} hasSourceURL
-   * @param {boolean=} isModule
-   * @param {number=} length
-   * @param {!Protocol.Runtime.StackTrace=} stackTrace
-   * @param {number=} codeOffset
-   * @param {string=} scriptLanguage
+   * @param {!Protocol.Debugger.ScriptFailedToParseEvent} event
    */
-  scriptFailedToParse(
-      scriptId, sourceURL, startLine, startColumn, endLine, endColumn, executionContextId, hash,
-      executionContextAuxData, sourceMapURL, hasSourceURL, isModule, length, stackTrace, codeOffset, scriptLanguage) {
+  scriptFailedToParse({
+    scriptId,
+    url,
+    startLine,
+    startColumn,
+    endLine,
+    endColumn,
+    executionContextId,
+    hash,
+    executionContextAuxData,
+    sourceMapURL,
+    hasSourceURL,
+    isModule,
+    length,
+    stackTrace,
+    codeOffset,
+    scriptLanguage,
+    embedderName
+  }) {
+    if (!this._debuggerModel.debuggerEnabled()) {
+      return;
+    }
     this._debuggerModel._parsedScriptSource(
-        scriptId, sourceURL, startLine, startColumn, endLine, endColumn, executionContextId, hash,
-        executionContextAuxData, false, sourceMapURL, !!hasSourceURL, true, length || 0, stackTrace || null,
-        codeOffset || null, scriptLanguage || null);
+        scriptId, url, startLine, startColumn, endLine, endColumn, executionContextId, hash, executionContextAuxData,
+        false, sourceMapURL, Boolean(hasSourceURL), true, length || 0, stackTrace || null, codeOffset || null,
+        scriptLanguage || null, null, embedderName || null);
   }
 
   /**
    * @override
-   * @param {!Protocol.Debugger.BreakpointId} breakpointId
-   * @param {!Protocol.Debugger.Location} location
+   * @param {!Protocol.Debugger.BreakpointResolvedEvent} event
    */
-  breakpointResolved(breakpointId, location) {
+  breakpointResolved({breakpointId, location}) {
+    if (!this._debuggerModel.debuggerEnabled()) {
+      return;
+    }
     this._debuggerModel._breakpointResolved(breakpointId, location);
   }
 }
 
-/**
- * @unrestricted
- */
 export class Location {
   /**
    * @param {!DebuggerModel} debuggerModel
    * @param {string} scriptId
    * @param {number} lineNumber
    * @param {number=} columnNumber
+   * @param {number=} inlineFrameIndex
    */
-  constructor(debuggerModel, scriptId, lineNumber, columnNumber) {
+  constructor(debuggerModel, scriptId, lineNumber, columnNumber, inlineFrameIndex) {
     this.debuggerModel = debuggerModel;
     this.scriptId = scriptId;
     this.lineNumber = lineNumber;
     this.columnNumber = columnNumber || 0;
+    this.inlineFrameIndex = inlineFrameIndex || 0;
   }
 
   /**
    * @param {!DebuggerModel} debuggerModel
    * @param {!Protocol.Debugger.Location} payload
+   * @param {number=} inlineFrameIndex
    * @return {!Location}
    */
-  static fromPayload(debuggerModel, payload) {
-    return new Location(debuggerModel, payload.scriptId, payload.lineNumber, payload.columnNumber);
+  static fromPayload(debuggerModel, payload, inlineFrameIndex) {
+    return new Location(debuggerModel, payload.scriptId, payload.lineNumber, payload.columnNumber, inlineFrameIndex);
   }
 
   /**
@@ -1195,17 +1380,20 @@ export class Location {
   }
 
   /**
-   * @param {function()=} pausedCallback
+   * @param {function():void=} pausedCallback
    */
   continueToLocation(pausedCallback) {
     if (pausedCallback) {
       this.debuggerModel._continueToLocationCallback = this._paused.bind(this, pausedCallback);
     }
-    this.debuggerModel._agent.continueToLocation(this.payload(), ContinueToLocationTargetCallFrames.Current);
+    this.debuggerModel._agent.invoke_continueToLocation({
+      location: this.payload(),
+      targetCallFrames: Protocol.Debugger.ContinueToLocationRequestTargetCallFrames.Current
+    });
   }
 
   /**
-   * @param {function()|undefined} pausedCallback
+   * @param {function():void|undefined} pausedCallback
    * @param {!DebuggerPausedDetails} debuggerPausedDetails
    * @return {boolean}
    */
@@ -1227,9 +1415,101 @@ export class Location {
   }
 }
 
-/**
- * @unrestricted
- */
+export class ScriptPosition {
+  /**
+   * @param {number} lineNumber
+   * @param {number} columnNumber
+   */
+  constructor(lineNumber, columnNumber) {
+    this.lineNumber = lineNumber;
+    this.columnNumber = columnNumber;
+  }
+
+  /**
+   * @return {!Protocol.Debugger.ScriptPosition}
+   */
+  payload() {
+    return {lineNumber: this.lineNumber, columnNumber: this.columnNumber};
+  }
+
+  /**
+  * @param {!ScriptPosition} other
+  * @return {number}
+  */
+  compareTo(other) {
+    if (this.lineNumber !== other.lineNumber) {
+      return this.lineNumber - other.lineNumber;
+    }
+    return this.columnNumber - other.columnNumber;
+  }
+}
+
+export class LocationRange {
+  /**
+   * @param {string} scriptId
+   * @param {!ScriptPosition} start
+   * @param {!ScriptPosition} end
+   */
+  constructor(scriptId, start, end) {
+    this.scriptId = scriptId;
+    this.start = start;
+    this.end = end;
+  }
+
+  /**
+   * @return {!Protocol.Debugger.LocationRange}
+   */
+  payload() {
+    return {scriptId: this.scriptId, start: this.start.payload(), end: this.end.payload()};
+  }
+
+  /**
+   * @param {!LocationRange} location1
+   * @param {!LocationRange} location2
+   * @return {number}
+   */
+  static comparator(location1, location2) {
+    return location1.compareTo(location2);
+  }
+
+  /**
+   * @param {!LocationRange} other
+   * @return {number}
+   */
+  compareTo(other) {
+    if (this.scriptId !== other.scriptId) {
+      return this.scriptId > other.scriptId ? 1 : -1;
+    }
+
+    const startCmp = this.start.compareTo(other.start);
+    if (startCmp) {
+      return startCmp;
+    }
+
+    return this.end.compareTo(other.end);
+  }
+
+  /**
+   * @param {!LocationRange} other
+   * @return boolean
+   */
+  overlap(other) {
+    if (this.scriptId !== other.scriptId) {
+      return false;
+    }
+
+    const startCmp = this.start.compareTo(other.start);
+    if (startCmp < 0) {
+      return this.end.compareTo(other.start) >= 0;
+    }
+    if (startCmp > 0) {
+      return this.start.compareTo(other.end) <= 0;
+    }
+
+    return true;
+  }
+}
+
 export class BreakLocation extends Location {
   /**
    * @param {!DebuggerModel} debuggerModel
@@ -1256,24 +1536,24 @@ export class BreakLocation extends Location {
   }
 }
 
-/**
- * @unrestricted
- */
 export class CallFrame {
   /**
    * @param {!DebuggerModel} debuggerModel
    * @param {!Script} script
    * @param {!Protocol.Debugger.CallFrame} payload
+   * @param {number=} inlineFrameIndex
+   * @param {string=} functionName
    */
-  constructor(debuggerModel, script, payload) {
+  constructor(debuggerModel, script, payload, inlineFrameIndex, functionName) {
     this.debuggerModel = debuggerModel;
-    /** @type {?Array<!RemoteObjectImpl>} */
-    this.sourceScopeChain = null;
     this._script = script;
     this._payload = payload;
-    this._location = Location.fromPayload(debuggerModel, payload.location);
+    this._location = Location.fromPayload(debuggerModel, payload.location, inlineFrameIndex);
+    /** @type {!Array<!Scope>} */
     this._scopeChain = [];
     this._localScope = null;
+    this._inlineFrameIndex = inlineFrameIndex || 0;
+    this._functionName = functionName || payload.functionName;
     for (let i = 0; i < payload.scopeChain.length; ++i) {
       const scope = new Scope(this, i);
       this._scopeChain.push(scope);
@@ -1306,6 +1586,14 @@ export class CallFrame {
   }
 
   /**
+   * @param {number=} inlineFrameIndex
+   * @param {string=} functionName
+   */
+  createVirtualCallFrame(inlineFrameIndex, functionName) {
+    return new CallFrame(this.debuggerModel, this._script, this._payload, inlineFrameIndex, functionName);
+  }
+
+  /**
    * @return {!Script}
    */
   get script() {
@@ -1317,6 +1605,13 @@ export class CallFrame {
    */
   get id() {
     return this._payload.callFrameId;
+  }
+
+  /**
+   * @return {number}
+   */
+  get inlineFrameIndex() {
+    return this._inlineFrameIndex;
   }
 
   /**
@@ -1358,11 +1653,11 @@ export class CallFrame {
 
     const evaluateResponse = await this.debuggerModel._agent.invoke_evaluateOnCallFrame(
         {callFrameId: this.id, expression: expression, silent: true, objectGroup: 'backtrace'});
-    if (evaluateResponse[ProtocolClient.InspectorBackend.ProtocolError] || evaluateResponse.exceptionDetails) {
+    if (evaluateResponse.getError() || evaluateResponse.exceptionDetails) {
       return null;
     }
     const response = await this.debuggerModel._agent.invoke_setReturnValue({newValue: evaluateResponse.result});
-    if (response[ProtocolClient.InspectorBackend.ProtocolError]) {
+    if (response.getError()) {
       return null;
     }
     this._returnValue = this.debuggerModel._runtimeModel.createRemoteObject(evaluateResponse.result);
@@ -1373,7 +1668,7 @@ export class CallFrame {
    * @return {string}
    */
   get functionName() {
-    return this._payload.functionName;
+    return this._functionName;
   }
 
   /**
@@ -1395,13 +1690,22 @@ export class CallFrame {
    * @return {!Promise<!EvaluationResult>}
    */
   async evaluate(options) {
-    const runtimeModel = this.debuggerModel.runtimeModel();
+    const debuggerModel = this.debuggerModel;
+    const runtimeModel = debuggerModel.runtimeModel();
+
     // Assume backends either support both throwOnSideEffect and timeout options or neither.
-    const needsTerminationOptions = !!options.throwOnSideEffect || options.timeout !== undefined;
+    const needsTerminationOptions = Boolean(options.throwOnSideEffect) || options.timeout !== undefined;
     if (needsTerminationOptions &&
         (runtimeModel.hasSideEffectSupport() === false ||
          (runtimeModel.hasSideEffectSupport() === null && !await runtimeModel.checkSideEffectSupport()))) {
       return {error: 'Side-effect checks not supported by backend.'};
+    }
+
+    if (debuggerModel._evaluateOnCallFrameCallback) {
+      const result = await debuggerModel._evaluateOnCallFrameCallback(this, options);
+      if (result) {
+        return result;
+      }
     }
 
     const response = await this.debuggerModel._agent.invoke_evaluateOnCallFrame({
@@ -1415,7 +1719,7 @@ export class CallFrame {
       throwOnSideEffect: options.throwOnSideEffect,
       timeout: options.timeout
     });
-    const error = response[ProtocolClient.InspectorBackend.ProtocolError];
+    const error = response.getError();
     if (error) {
       console.error(error);
       return {error: error};
@@ -1425,14 +1729,83 @@ export class CallFrame {
 
   async restart() {
     const response = await this.debuggerModel._agent.invoke_restartFrame({callFrameId: this._payload.callFrameId});
-    if (!response[ProtocolClient.InspectorBackend.ProtocolError]) {
+    if (!response.getError()) {
       this.debuggerModel.stepInto();
     }
   }
 }
 
 /**
- * @unrestricted
+ * @interface
+ */
+export class ScopeChainEntry {
+  /**
+   * @return {!CallFrame}
+   */
+  callFrame() {
+    throw new Error('not implemented');
+  }
+
+  /**
+   * @return {string}
+   */
+  type() {
+    throw new Error('not implemented');
+  }
+
+  /**
+   * @return {string}
+   */
+  typeName() {
+    throw new Error('not implemented');
+  }
+
+
+  /**
+   * @return {string|undefined}
+   */
+  name() {
+    throw new Error('not implemented');
+  }
+
+  /**
+   * @return {?Location}
+   */
+  startLocation() {
+    throw new Error('not implemented');
+  }
+
+  /**
+   * @return {?Location}
+   */
+  endLocation() {
+    throw new Error('not implemented');
+  }
+
+  /**
+   * @return {!RemoteObject}
+   */
+  object() {
+    throw new Error('not implemented');
+  }
+
+  /**
+   * @return {string}
+   */
+  description() {
+    throw new Error('not implemented');
+  }
+
+  /**
+   * @return {string|undefined}
+   */
+  icon() {
+    throw new Error('not implemented');
+  }
+}
+
+/**
+ * @implements {ScopeChainEntry}
  */
 export class Scope {
   /**
@@ -1449,9 +1822,12 @@ export class Scope {
         this._payload.startLocation ? Location.fromPayload(callFrame.debuggerModel, this._payload.startLocation) : null;
     this._endLocation =
         this._payload.endLocation ? Location.fromPayload(callFrame.debuggerModel, this._payload.endLocation) : null;
+    /** @type {?RemoteObject} */
+    this._object = null;
   }
 
   /**
+   * @override
    * @return {!CallFrame}
    */
   callFrame() {
@@ -1459,6 +1835,7 @@ export class Scope {
   }
 
   /**
+   * @override
    * @return {string}
    */
   type() {
@@ -1466,34 +1843,36 @@ export class Scope {
   }
 
   /**
+   * @override
    * @return {string}
    */
   typeName() {
     switch (this._type) {
       case Protocol.Debugger.ScopeType.Local:
-        return Common.UIString.UIString('Local');
+        return i18nString(UIStrings.local);
       case Protocol.Debugger.ScopeType.Closure:
-        return Common.UIString.UIString('Closure');
+        return i18nString(UIStrings.closure);
       case Protocol.Debugger.ScopeType.Catch:
-        return Common.UIString.UIString('Catch');
+        return i18nString(UIStrings.catch);
       case Protocol.Debugger.ScopeType.Block:
-        return Common.UIString.UIString('Block');
+        return i18nString(UIStrings.block);
       case Protocol.Debugger.ScopeType.Script:
-        return Common.UIString.UIString('Script');
+        return i18nString(UIStrings.script);
       case Protocol.Debugger.ScopeType.With:
-        return Common.UIString.UIString('With Block');
+        return i18nString(UIStrings.withBlock);
       case Protocol.Debugger.ScopeType.Global:
-        return Common.UIString.UIString('Global');
+        return i18nString(UIStrings.global);
       case Protocol.Debugger.ScopeType.Module:
-        return Common.UIString.UIString('Module');
+        return i18nString(UIStrings.module);
       case Protocol.Debugger.ScopeType.WasmExpressionStack:
-        return Common.UIString.UIString('Stack');
+        return i18nString(UIStrings.stack);
     }
     return '';
   }
 
 
   /**
+   * @override
    * @return {string|undefined}
    */
   name() {
@@ -1501,6 +1880,7 @@ export class Scope {
   }
 
   /**
+   * @override
    * @return {?Location}
    */
   startLocation() {
@@ -1508,6 +1888,7 @@ export class Scope {
   }
 
   /**
+   * @override
    * @return {?Location}
    */
   endLocation() {
@@ -1515,6 +1896,7 @@ export class Scope {
   }
 
   /**
+   * @override
    * @return {!RemoteObject}
    */
   object() {
@@ -1536,6 +1918,7 @@ export class Scope {
   }
 
   /**
+   * @override
    * @return {string}
    */
   description() {
@@ -1543,17 +1926,21 @@ export class Scope {
         this._type !== Protocol.Debugger.ScopeType.With && this._type !== Protocol.Debugger.ScopeType.Global;
     return declarativeScope ? '' : (this._payload.object.description || '');
   }
+
+  /**
+   * @override
+   */
+  icon() {
+    return undefined;
+  }
 }
 
-/**
- * @unrestricted
- */
 export class DebuggerPausedDetails {
   /**
    * @param {!DebuggerModel} debuggerModel
-   * @param {!Array.<!Protocol.Debugger.CallFrame>} callFrames
-   * @param {string} reason
-   * @param {!Object|undefined} auxData
+   * @param {!Array<!Protocol.Debugger.CallFrame>} callFrames
+   * @param {!Protocol.Debugger.PausedEventReason} reason
+   * @param {!Object.<string, *>|undefined} auxData
    * @param {!Array.<string>} breakpointIds
    * @param {!Protocol.Runtime.StackTrace=} asyncStackTrace
    * @param {!Protocol.Runtime.StackTraceId=} asyncStackTraceId
@@ -1574,7 +1961,8 @@ export class DebuggerPausedDetails {
    * @return {?RemoteObject}
    */
   exception() {
-    if (this.reason !== BreakReason.Exception && this.reason !== BreakReason.PromiseRejection) {
+    if (this.reason !== Protocol.Debugger.PausedEventReason.Exception &&
+        this.reason !== Protocol.Debugger.PausedEventReason.PromiseRejection) {
       return null;
     }
     return this.debuggerModel._runtimeModel.createRemoteObject(
@@ -1586,6 +1974,7 @@ export class DebuggerPausedDetails {
    * @return {!Protocol.Runtime.StackTrace}
    */
   _cleanRedundantFrames(asyncStackTrace) {
+    /** @type {!Protocol.Runtime.StackTrace|undefined} */
     let stack = asyncStackTrace;
     let previous = null;
     while (stack) {
@@ -1606,6 +1995,7 @@ export class DebuggerPausedDetails {
 SDKModel.register(DebuggerModel, Capability.JS, true);
 
 /** @typedef {{location: ?Location, functionName: string}} */
+// @ts-ignore typedef
 export let FunctionDetails;
 
 /** @typedef {{
@@ -1613,4 +2003,5 @@ export let FunctionDetails;
  *    locations: !Array<!Location>
  *  }}
  */
+// @ts-ignore typedef
 export let SetBreakpointResult;

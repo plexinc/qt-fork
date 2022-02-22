@@ -14,7 +14,6 @@
 #include "base/values.h"
 #include "components/viz/common/surfaces/surface_info.h"
 #include "content/common/content_param_traits.h"
-#include "content/common/resource_messages.h"
 #include "content/public/common/content_constants.h"
 #include "ipc/ipc_message.h"
 #include "ipc/ipc_message_utils.h"
@@ -27,8 +26,6 @@
 #include "printing/page_range.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
-#include "ui/base/cursor/cursor.h"
-#include "ui/base/mojom/cursor_type.mojom-shared.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/ipc/gfx_param_traits.h"
 #include "ui/gfx/ipc/skia/gfx_skia_param_traits.h"
@@ -268,21 +265,4 @@ TEST(IPCMessageTest, SurfaceInfo) {
       IPC::ParamTraits<viz::SurfaceInfo>::Read(&msg, &iter, &surface_info_out));
 
   ASSERT_EQ(surface_info_in, surface_info_out);
-}
-
-TEST(IPCMessageTest, WebCursor) {
-  ui::Cursor cursor(ui::mojom::CursorType::kCustom);
-  SkBitmap bitmap;
-  bitmap.allocN32Pixels(32, 32);
-  cursor.set_custom_bitmap(bitmap);
-  cursor.set_custom_hotspot(gfx::Point(10, 20));
-  cursor.set_image_scale_factor(1.5f);
-  content::WebCursor input(cursor);
-  IPC::Message msg(1, 2, IPC::Message::PRIORITY_NORMAL);
-  IPC::ParamTraits<content::WebCursor>::Write(&msg, input);
-
-  content::WebCursor output;
-  base::PickleIterator iter(msg);
-  ASSERT_TRUE(IPC::ParamTraits<content::WebCursor>::Read(&msg, &iter, &output));
-  EXPECT_EQ(output, input);
 }

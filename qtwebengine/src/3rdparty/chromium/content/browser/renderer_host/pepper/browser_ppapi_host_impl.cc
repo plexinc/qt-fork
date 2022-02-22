@@ -17,7 +17,7 @@ namespace content {
 BrowserPpapiHost* BrowserPpapiHost::CreateExternalPluginProcess(
     IPC::Sender* sender,
     ppapi::PpapiPermissions permissions,
-    base::ProcessHandle plugin_child_process,
+    base::Process plugin_child_process,
     IPC::ChannelProxy* channel,
     int render_process_id,
     int render_view_id,
@@ -31,8 +31,7 @@ BrowserPpapiHost* BrowserPpapiHost::CreateExternalPluginProcess(
                                profile_directory,
                                false /* in_process */,
                                true /* external_plugin */);
-  browser_ppapi_host->set_plugin_process(
-      base::Process::DeprecatedGetProcessFromHandle(plugin_child_process));
+  browser_ppapi_host->set_plugin_process(std::move(plugin_child_process));
 
   scoped_refptr<PepperMessageFilter> pepper_message_filter(
       new PepperMessageFilter());
@@ -188,24 +187,6 @@ void BrowserPpapiHostImpl::RemoveInstanceObserver(PP_Instance instance,
     it->second->observer_list.RemoveObserver(observer);
 }
 
-void BrowserPpapiHostImpl::OnThrottleStateChanged(PP_Instance instance,
-                                                  bool is_throttled) {
-  auto it = instance_map_.find(instance);
-  if (it != instance_map_.end()) {
-    it->second->is_throttled = is_throttled;
-    for (auto& observer : it->second->observer_list)
-      observer.OnThrottleStateChanged(is_throttled);
-  }
-}
-
-bool BrowserPpapiHostImpl::IsThrottled(PP_Instance instance) const {
-  auto it = instance_map_.find(instance);
-  if (it != instance_map_.end())
-    return it->second->is_throttled;
-
-  return false;
-}
-
 BrowserPpapiHostImpl::HostMessageFilter::HostMessageFilter(
     ppapi::host::PpapiHost* ppapi_host,
     BrowserPpapiHostImpl* browser_ppapi_host_impl)
@@ -243,8 +224,7 @@ void BrowserPpapiHostImpl::HostMessageFilter::OnHostMsgLogInterfaceUsage(
 
 BrowserPpapiHostImpl::InstanceData::InstanceData(
     const PepperRendererInstanceData& renderer_data)
-    : renderer_data(renderer_data), is_throttled(false) {
-}
+    : renderer_data(renderer_data) {}
 
 BrowserPpapiHostImpl::InstanceData::~InstanceData() {
 }

@@ -29,12 +29,12 @@ viz::ResourceFormat WGPUFormatToViz(WGPUTextureFormat format) {
 WebGPUSwapBufferProvider::WebGPUSwapBufferProvider(
     Client* client,
     scoped_refptr<DawnControlClientHolder> dawn_control_client,
-    uint64_t device_client_id,
+    WGPUDevice device,
     WGPUTextureUsage usage,
     WGPUTextureFormat format)
     : dawn_control_client_(dawn_control_client),
       client_(client),
-      device_client_id_(device_client_id),
+      device_(device),
       usage_(usage),
       format_(WGPUFormatToViz(format)) {
   // Create a layer that will be used by the canvas and will ask for a
@@ -43,22 +43,33 @@ WebGPUSwapBufferProvider::WebGPUSwapBufferProvider(
 
   layer_->SetIsDrawable(true);
   layer_->SetBlendBackgroundColor(false);
-  layer_->SetNearestNeighbor(true);
+  layer_->SetNearestNeighbor(false);
   layer_->SetFlipped(false);
   // TODO(cwallez@chromium.org): These flags aren't taken into account when the
   // layer is promoted to an overlay. Make sure we have fallback / emulation
   // paths to keep the rendering correct in that cases.
   layer_->SetContentsOpaque(true);
   layer_->SetPremultipliedAlpha(true);
+
+  dawn_control_client_->GetProcs().deviceReference(device_);
 }
 
 WebGPUSwapBufferProvider::~WebGPUSwapBufferProvider() {
   Neuter();
+  dawn_control_client_->GetProcs().deviceRelease(device_);
+  device_ = nullptr;
 }
 
 cc::Layer* WebGPUSwapBufferProvider::CcLayer() {
   DCHECK(!neutered_);
   return layer_.get();
+}
+
+void WebGPUSwapBufferProvider::SetFilterQuality(
+    SkFilterQuality filter_quality) {
+  if (layer_) {
+    layer_->SetNearestNeighbor(filter_quality == kNone_SkFilterQuality);
+  }
 }
 
 void WebGPUSwapBufferProvider::Neuter() {
@@ -71,7 +82,7 @@ void WebGPUSwapBufferProvider::Neuter() {
     layer_ = nullptr;
   }
 
-  if (current_swap_buffer_ && !dawn_control_client_->IsDestroyed()) {
+  if (current_swap_buffer_) {
     // Ensure we wait for previous WebGPU commands before destroying the shared
     // image.
     gpu::webgpu::WebGPUInterface* webgpu = dawn_control_client_->GetInterface();
@@ -85,7 +96,7 @@ void WebGPUSwapBufferProvider::Neuter() {
 }
 
 WGPUTexture WebGPUSwapBufferProvider::GetNewTexture(const IntSize& size) {
-  DCHECK(!current_swap_buffer_ && !dawn_control_client_->IsDestroyed());
+  DCHECK(!current_swap_buffer_);
 
   gpu::webgpu::WebGPUInterface* webgpu = dawn_control_client_->GetInterface();
   gpu::SharedImageInterface* sii =
@@ -95,9 +106,11 @@ WGPUTexture WebGPUSwapBufferProvider::GetNewTexture(const IntSize& size) {
   // TODO(cwallez@chromium.org): have some recycling mechanism.
   gpu::Mailbox mailbox = sii->CreateSharedImage(
       format_, static_cast<gfx::Size>(size), gfx::ColorSpace::CreateSRGB(),
+      kTopLeft_GrSurfaceOrigin, kPremul_SkAlphaType,
       gpu::SHARED_IMAGE_USAGE_WEBGPU |
           gpu::SHARED_IMAGE_USAGE_WEBGPU_SWAP_CHAIN_TEXTURE |
-          gpu::SHARED_IMAGE_USAGE_DISPLAY);
+          gpu::SHARED_IMAGE_USAGE_DISPLAY,
+      gpu::kNullSurfaceHandle);
   gpu::SyncToken creation_token = sii->GenUnverifiedSyncToken();
 
   current_swap_buffer_ = base::AdoptRef(new SwapBuffer(
@@ -108,14 +121,14 @@ WGPUTexture WebGPUSwapBufferProvider::GetNewTexture(const IntSize& size) {
       current_swap_buffer_->access_finished_token.GetConstData());
 
   // Associate the mailbox to a dawn_wire client DawnTexture object
-  gpu::webgpu::ReservedTexture reservation =
-      webgpu->ReserveTexture(device_client_id_);
+  gpu::webgpu::ReservedTexture reservation = webgpu->ReserveTexture(device_);
   DCHECK(reservation.texture);
   wire_texture_id_ = reservation.id;
   wire_texture_generation_ = reservation.generation;
 
   webgpu->AssociateMailbox(
-      device_client_id_, 0, reservation.id, reservation.generation, usage_,
+      reservation.deviceId, reservation.deviceGeneration, reservation.id,
+      reservation.generation, usage_,
       reinterpret_cast<GLbyte*>(&current_swap_buffer_->mailbox));
 
   // When the page request a texture it means we'll need to present it on the
@@ -129,8 +142,7 @@ bool WebGPUSwapBufferProvider::PrepareTransferableResource(
     cc::SharedBitmapIdRegistrar* bitmap_registrar,
     viz::TransferableResource* out_resource,
     std::unique_ptr<viz::SingleReleaseCallback>* out_release_callback) {
-  DCHECK(!neutered_ && !dawn_control_client_->IsDestroyed());
-
+  DCHECK(!neutered_);
   if (!current_swap_buffer_ || neutered_) {
     return false;
   }
@@ -139,12 +151,11 @@ bool WebGPUSwapBufferProvider::PrepareTransferableResource(
   client_->OnTextureTransferred();
 
   // Make Dawn relinquish access to the texture so it can be used by the
-  // compositor. This will call dawn::Texture::Destroy so that further accesses
+  // compositor. This will call wgpu::Texture::Destroy so that further accesses
   // to the texture are errors.
   gpu::webgpu::WebGPUInterface* webgpu = dawn_control_client_->GetInterface();
   DCHECK_NE(wire_texture_id_, 0u);
-  webgpu->DissociateMailbox(device_client_id_, wire_texture_id_,
-                            wire_texture_generation_);
+  webgpu->DissociateMailbox(wire_texture_id_, wire_texture_generation_);
 
   // Make the compositor wait on previous Dawn commands.
   webgpu->GenUnverifiedSyncTokenCHROMIUM(
@@ -156,7 +167,7 @@ bool WebGPUSwapBufferProvider::PrepareTransferableResource(
   // eglBindTexImage (on ANGLE or system drivers) so they use the 2D texture
   // target.
   const uint32_t texture_target =
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
       GL_TEXTURE_RECTANGLE_ARB
 #else
       GL_TEXTURE_2D
@@ -204,9 +215,6 @@ WebGPUSwapBufferProvider::SwapBuffer::SwapBuffer(
       access_finished_token(creation_token) {}
 
 WebGPUSwapBufferProvider::SwapBuffer::~SwapBuffer() {
-  if (swap_buffers->dawn_control_client_->IsDestroyed()) {
-    return;
-  }
   gpu::SharedImageInterface* sii =
       swap_buffers->dawn_control_client_->GetContextProvider()
           ->SharedImageInterface();

@@ -42,6 +42,7 @@
 #include <QStringList>
 #include <QSocketNotifier>
 #include <QGuiApplication>
+#include <QPointingDevice>
 #include <QLoggingCategory>
 #include <QtCore/private/qcore_unix_p.h>
 #include <qpa/qwindowsysteminterface.h>
@@ -114,10 +115,10 @@ void QEvdevTabletData::processInputEvent(input_event *ev)
             state.down = ev->value != 0;
             break;
         case BTN_TOOL_PEN:
-            state.tool = ev->value ? QTabletEvent::Pen : 0;
+            state.tool = ev->value ? int(QPointingDevice::PointerType::Pen) : 0;
             break;
         case BTN_TOOL_RUBBER:
-            state.tool = ev->value ? QTabletEvent::Eraser : 0;
+            state.tool = ev->value ? int(QPointingDevice::PointerType::Eraser) : 0;
             break;
         default:
             break;
@@ -131,7 +132,7 @@ void QEvdevTabletData::processInputEvent(input_event *ev)
 void QEvdevTabletData::report()
 {
     if (!state.lastReportTool && state.tool)
-        QWindowSystemInterface::handleTabletEnterProximityEvent(QTabletEvent::Stylus, state.tool, q->deviceId());
+        QWindowSystemInterface::handleTabletEnterProximityEvent(int(QInputDevice::DeviceType::Stylus), state.tool, q->deviceId());
 
     qreal nx = (state.x - minValues.x) / qreal(maxValues.x - minValues.x);
     qreal ny = (state.y - minValues.y) / qreal(maxValues.y - minValues.y);
@@ -150,14 +151,14 @@ void QEvdevTabletData::report()
 
     if (state.down || state.lastReportDown) {
         QWindowSystemInterface::handleTabletEvent(0, QPointF(), globalPos,
-                                                  QTabletEvent::Stylus, pointer,
+                                                  int(QInputDevice::DeviceType::Stylus), pointer,
                                                   state.down ? Qt::LeftButton : Qt::NoButton,
                                                   pressure, 0, 0, 0, 0, 0, q->deviceId(),
                                                   qGuiApp->keyboardModifiers());
     }
 
     if (state.lastReportTool && !state.tool)
-        QWindowSystemInterface::handleTabletLeaveProximityEvent(QTabletEvent::Stylus, state.tool, q->deviceId());
+        QWindowSystemInterface::handleTabletLeaveProximityEvent(int(QInputDevice::DeviceType::Stylus), state.tool, q->deviceId());
 
     state.lastReportDown = state.down;
     state.lastReportTool = state.tool;
@@ -168,7 +169,7 @@ void QEvdevTabletData::report()
 QEvdevTabletHandler::QEvdevTabletHandler(const QString &device, const QString &spec, QObject *parent)
     : QObject(parent), m_fd(-1), m_device(device), m_notifier(0), d(0)
 {
-    Q_UNUSED(spec)
+    Q_UNUSED(spec);
 
     setObjectName(QLatin1String("Evdev Tablet Handler"));
 

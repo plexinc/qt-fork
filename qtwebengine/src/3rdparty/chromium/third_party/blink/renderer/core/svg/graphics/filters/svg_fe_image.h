@@ -37,6 +37,7 @@ class FEImage final : public FilterEffect {
  public:
   FEImage(Filter*, scoped_refptr<Image>, const SVGPreserveAspectRatio*);
   FEImage(Filter*, const SVGElement*, const SVGPreserveAspectRatio*);
+  ~FEImage() override = default;
 
   // feImage does not perform color interpolation of any kind, so doesn't
   // depend on the value of color-interpolation-filters.
@@ -45,10 +46,9 @@ class FEImage final : public FilterEffect {
   WTF::TextStream& ExternalRepresentation(WTF::TextStream&,
                                           int indention) const override;
 
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
  private:
-  ~FEImage() override = default;
   const LayoutObject* ReferencedLayoutObject() const;
 
   FilterEffectType GetFilterEffectType() const override {

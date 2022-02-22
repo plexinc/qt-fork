@@ -15,12 +15,13 @@
 #include "base/containers/queue.h"
 #include "base/debug/activity_tracker.h"
 #include "base/location.h"
+#include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop_current.h"
 #include "base/message_loop/message_pump_for_io.h"
 #include "base/process/process_handle.h"
 #include "base/synchronization/lock.h"
+#include "base/task/current_thread.h"
 #include "base/task_runner.h"
 #include "base/win/scoped_handle.h"
 #include "base/win/win_util.h"
@@ -77,7 +78,7 @@ class ChannelWinMessageQueue {
 };
 
 class ChannelWin : public Channel,
-                   public base::MessageLoopCurrent::DestructionObserver,
+                   public base::CurrentThread::DestructionObserver,
                    public base::MessagePumpForIO::IOHandler {
  public:
   ChannelWin(Delegate* delegate,
@@ -85,6 +86,7 @@ class ChannelWin : public Channel,
              HandlePolicy handle_policy,
              scoped_refptr<base::SingleThreadTaskRunner> io_task_runner)
       : Channel(delegate, handle_policy),
+        base::MessagePumpForIO::IOHandler(FROM_HERE),
         self_(this),
         io_task_runner_(io_task_runner) {
     if (connection_params.server_endpoint().is_valid()) {
@@ -112,13 +114,13 @@ class ChannelWin : public Channel,
   }
 
   void Write(MessagePtr message) override {
-    if (remote_process().is_valid()) {
+    if (remote_process().IsValid()) {
       // If we know the remote process handle, we transfer all outgoing handles
       // to the process now rewriting them in the message.
       std::vector<PlatformHandleInTransit> handles = message->TakeHandles();
       for (auto& handle : handles) {
         if (handle.handle().is_valid())
-          handle.TransferToProcess(remote_process().Clone());
+          handle.TransferToProcess(remote_process().Duplicate());
       }
       message->SetHandles(std::move(handles));
     }
@@ -170,12 +172,12 @@ class ChannelWin : public Channel,
           base::win::Uint32ToHandle(extra_header_handles[i].handle);
       if (PlatformHandleInTransit::IsPseudoHandle(handle_value))
         return false;
-      if (remote_process().is_valid()) {
+      if (remote_process().IsValid()) {
         // If we know the remote process's handle, we assume it doesn't know
         // ours; that means any handle values still belong to that process, and
         // we need to transfer them to this process.
         handle_value = PlatformHandleInTransit::TakeIncomingRemoteHandle(
-                           handle_value, remote_process().get())
+                           handle_value, remote_process().Handle())
                            .ReleaseHandle();
       }
       handles->emplace_back(base::win::ScopedHandle(std::move(handle_value)));
@@ -185,12 +187,11 @@ class ChannelWin : public Channel,
 
  private:
   // May run on any thread.
-  ~ChannelWin() override {}
+  ~ChannelWin() override = default;
 
   void StartOnIOThread() {
-    base::MessageLoopCurrent::Get()->AddDestructionObserver(this);
-    base::MessageLoopCurrentForIO::Get()->RegisterIOHandler(handle_.Get(),
-                                                            this);
+    base::CurrentThread::Get()->AddDestructionObserver(this);
+    base::CurrentIOThread::Get()->RegisterIOHandler(handle_.Get(), this);
 
     if (needs_connection_) {
       BOOL ok = ::ConnectNamedPipe(handle_.Get(), &connect_context_.overlapped);
@@ -231,7 +232,7 @@ class ChannelWin : public Channel,
   }
 
   void ShutDownOnIOThread() {
-    base::MessageLoopCurrent::Get()->RemoveDestructionObserver(this);
+    base::CurrentThread::Get()->RemoveDestructionObserver(this);
 
     // TODO(https://crbug.com/583525): This function is expected to be called
     // once, and |handle_| should be valid at this point.
@@ -246,7 +247,7 @@ class ChannelWin : public Channel,
     self_ = nullptr;
   }
 
-  // base::MessageLoopCurrent::DestructionObserver:
+  // base::CurrentThread::DestructionObserver:
   void WillDestroyCurrentMessageLoop() override {
     DCHECK(io_task_runner_->RunsTasksInCurrentSequence());
     if (self_)

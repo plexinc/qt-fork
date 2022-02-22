@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -31,17 +31,10 @@
     \brief The Qt PrintSupport module provides classes to make printing easier and portable.
 
     \ingroup modules
+    \qtcmakepackage PrintSupport
     \qtvariable printsupport
 
-    To include the definitions of the module's classes, use the
-    following directive:
+    The \l{Qt Print Support} page contains information about using the module.
 
-    \snippet code/doc_src_qtprintsupport.cpp 1
-
-    \if !defined(qtforpython)
-    To link against the module, add this line to your \l qmake \c
-    .pro file:
-
-    \snippet code/doc_src_qtprintsupport.pro 0
-    \endif
+    Qt Print Support is not available on iOS.
 */

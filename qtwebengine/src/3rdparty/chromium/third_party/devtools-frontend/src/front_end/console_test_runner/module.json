@@ -2,9 +2,10 @@
   "dependencies": [
     "test_runner",
     "console",
+    "object_ui",
     "console_counters"
   ],
-  "scripts": [
-    "ConsoleTestRunner.js"
+  "modules": [
+    "console_test_runner.js"
   ]
 }

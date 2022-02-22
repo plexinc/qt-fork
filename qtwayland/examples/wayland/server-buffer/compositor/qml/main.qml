@@ -48,15 +48,12 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.6
-import QtWayland.Compositor 1.0
-import QtQuick.Window 2.2
+import QtQuick
+import QtWayland.Compositor
+import QtWayland.Compositor.WlShell
+import QtQuick.Window
 
-import com.theqtcompany.sharebufferextension 1.0
-
-import QtQuick 2.6
-import QtQuick.Window 2.2
-import QtWayland.Compositor 1.0
+import io.qt.examples.sharebufferextension
 
 WaylandCompositor {
     WaylandOutput {

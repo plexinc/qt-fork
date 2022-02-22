@@ -48,10 +48,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.15
-import QtQuick3D 1.15
-import QtQuick3D.Materials 1.15
-import QtQuick3D.Helpers 1.15
+import QtQuick
+import QtQuick3D
 
 Rectangle {
     width: 320
@@ -69,7 +67,7 @@ Rectangle {
         environment: SceneEnvironment {
             backgroundMode: SceneEnvironment.Transparent
         }
-        renderMode: View3D.Texture
+        renderMode: View3D.Offscreen
 
         Node {
             id: sceneRoot

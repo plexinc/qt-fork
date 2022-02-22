@@ -48,10 +48,13 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.6
-import QtQuick.Window 2.2
+import QtQuick
+import QtQuick.Window
 import QtQuick.Controls 2.2
-import QtWayland.Compositor 1.3
+import QtWayland.Compositor
+import QtWayland.Compositor.XdgShell
+import QtWayland.Compositor.WlShell
+import QtWayland.Compositor.IviApplication
 
 WaylandCompositor {
     WaylandOutput {
@@ -156,6 +159,6 @@ WaylandCompositor {
         shellSurfaces.append({shSurface: shellSurface, animatePosition: false, animateOpacity: false, level: 0});
     }
     XdgShell { onToplevelCreated: addShellSurface(xdgSurface) }
-    XdgShellV6 { onToplevelCreated: addShellSurface(xdgSurface) }
+    IviApplication { onIviSurfaceCreated: addShellSurface(iviSurface) }
     WlShell { onWlShellSurfaceCreated: addShellSurface(shellSurface) }
 }

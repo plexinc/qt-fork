@@ -18,20 +18,6 @@
 
 namespace captive_portal {
 
-// static
-void CaptivePortalTabHelper::CreateForWebContents(
-    content::WebContents* contents,
-    CaptivePortalService* captive_portal_service,
-    const CaptivePortalTabReloader::OpenLoginTabCallback&
-        open_login_tab_callback) {
-  if (FromWebContents(contents))
-    return;
-  contents->SetUserData(
-      UserDataKey(),
-      base::WrapUnique(new CaptivePortalTabHelper(
-          contents, captive_portal_service, open_login_tab_callback)));
-}
-
 CaptivePortalTabHelper::CaptivePortalTabHelper(
     content::WebContents* web_contents,
     CaptivePortalService* captive_portal_service,
@@ -47,8 +33,8 @@ CaptivePortalTabHelper::CaptivePortalTabHelper(
       login_detector_(new CaptivePortalLoginDetector(captive_portal_service)),
       is_captive_portal_window_(false),
       subscription_(captive_portal_service->RegisterCallback(
-          base::Bind(&CaptivePortalTabHelper::Observe,
-                     base::Unretained(this)))) {
+          base::BindRepeating(&CaptivePortalTabHelper::Observe,
+                              base::Unretained(this)))) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 }
 

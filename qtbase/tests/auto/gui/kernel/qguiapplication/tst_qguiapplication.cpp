@@ -27,7 +27,8 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QSignalSpy>
 #include <QtGui/QGuiApplication>
 #include <QtGui/QWindow>
 #include <QtGui/QScreen>
@@ -186,7 +187,7 @@ class DummyWindow : public QWindow
 public:
     DummyWindow() : m_focusObject(nullptr) {}
 
-    virtual QObject *focusObject() const
+    virtual QObject *focusObject() const override
     {
         return m_focusObject;
     }
@@ -353,14 +354,14 @@ void tst_QGuiApplication::abortQuitOnShow()
 class FocusChangeWindow: public QWindow
 {
 protected:
-    virtual bool event(QEvent *ev)
+    virtual bool event(QEvent *ev) override
     {
         if (ev->type() == QEvent::FocusAboutToChange)
             windowDuringFocusAboutToChange = qGuiApp->focusWindow();
         return QWindow::event(ev);
     }
 
-    virtual void focusOutEvent(QFocusEvent *)
+    virtual void focusOutEvent(QFocusEvent *) override
     {
         windowDuringFocusOut = qGuiApp->focusWindow();
     }
@@ -374,9 +375,6 @@ public:
 
 void tst_QGuiApplication::changeFocusWindow()
 {
-#ifdef Q_OS_WINRT
-    QSKIP("WinRt does not support multiple native windows.");
-#endif
     int argc = 0;
     QGuiApplication app(argc, nullptr);
 
@@ -496,12 +494,12 @@ void tst_QGuiApplication::keyboardModifiers()
     QCOMPARE(QGuiApplication::keyboardModifiers(), Qt::ControlModifier);
 
     // touch events
-    QList<const QTouchDevice *> touchDevices = QTouchDevice::devices();
-    if (!touchDevices.isEmpty()) {
-        QTouchDevice *touchDevice = const_cast<QTouchDevice *>(touchDevices.first());
-        QTest::touchEvent(window.data(), touchDevice).press(1, center).release(1, center);
-        QCOMPARE(QGuiApplication::keyboardModifiers(), Qt::NoModifier);
-    }
+    QPointingDevice touchDevice(QLatin1String("test touchscreen"), 0,
+                                QInputDevice::DeviceType::TouchScreen, QPointingDevice::PointerType::Finger,
+                                QPointingDevice::Capability::Position, 10, 0);
+    QWindowSystemInterface::registerInputDevice(&touchDevice);
+    QTest::touchEvent(window.data(), &touchDevice).press(1, center).release(1, center);
+    QCOMPARE(QGuiApplication::keyboardModifiers(), Qt::NoModifier);
 
     window->close();
 }
@@ -513,7 +511,7 @@ void tst_QGuiApplication::keyboardModifiers()
 */
 static bool palettesMatch(const QPalette &actual, const QPalette &expected)
 {
-    if (actual.resolve() != expected.resolve())
+    if (actual.resolveMask() != expected.resolveMask())
         return false;
 
     for (int i = 0; i < QPalette::NColorGroups; i++) {
@@ -544,7 +542,7 @@ void tst_QGuiApplication::palette()
     QCOMPARE(QGuiApplication::palette(), QPalette());
 
     // The default application palette is not resolved
-    QVERIFY(!QGuiApplication::palette().resolve());
+    QVERIFY(!QGuiApplication::palette().resolveMask());
 
     QSignalSpy signalSpy(&app, SIGNAL(paletteChanged(QPalette)));
 
@@ -605,7 +603,7 @@ public:
     inline explicit BlockableWindow(QWindow *parent = nullptr)
         : QWindow(parent), blocked(false), leaves(0), enters(0) {}
 
-    bool event(QEvent *e)
+    bool event(QEvent *e) override
     {
         switch (e->type()) {
         case QEvent::WindowBlocked:
@@ -635,9 +633,6 @@ public:
 
 void tst_QGuiApplication::modalWindow()
 {
-#ifdef Q_OS_WINRT
-    QSKIP("WinRt does not support multiple native windows.");
-#endif
     int argc = 0;
     QGuiApplication app(argc, nullptr);
     const QRect screenGeometry = QGuiApplication::primaryScreen()->availableVirtualGeometry();
@@ -982,8 +977,6 @@ public:
     TestPlugin()
     {
         QScreen* screen = QGuiApplication::primaryScreen();
-        // Make sure the orientation we want to send doesn't get filtered out.
-        screen->setOrientationUpdateMask(screen->orientationUpdateMask() | testOrientationToSend);
         QWindowSystemInterface::handleScreenOrientationChange(screen, testOrientationToSend);
     }
 };
@@ -993,7 +986,7 @@ class TestPluginFactory : public QGenericPlugin
     Q_OBJECT
     Q_PLUGIN_METADATA(IID "org.qt-project.Qt.QGenericPluginFactoryInterface" FILE "testplugin.json")
 public:
-    QObject* create(const QString &key, const QString &)
+    QObject* create(const QString &key, const QString &) override
     {
         if (key == "testplugin")
             return new TestPlugin;
@@ -1011,7 +1004,7 @@ public:
         : customEvents(0)
     {}
 
-    virtual void customEvent(QEvent *)
+    virtual void customEvent(QEvent *) override
     {
         customEvents++;
     }
@@ -1027,13 +1020,7 @@ void tst_QGuiApplication::genericPluginsAndWindowSystemEvents()
     QCoreApplication::postEvent(&testReceiver, new QEvent(QEvent::User));
     QCOMPARE(testReceiver.customEvents, 0);
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     QStaticPlugin testPluginInfo(qt_plugin_instance, qt_plugin_query_metadata);
-#else
-    QStaticPlugin testPluginInfo;
-    testPluginInfo.instance = qt_plugin_instance;
-    testPluginInfo.rawMetaData = qt_plugin_query_metadata;
-#endif
     qRegisterStaticPluginFunction(testPluginInfo);
     int argc = 3;
     char *argv[] = { const_cast<char*>(QTest::currentAppName()), const_cast<char*>("-plugin"), const_cast<char*>("testplugin") };
@@ -1127,16 +1114,23 @@ void tst_QGuiApplication::staticFunctions()
     QGuiApplication::setWindowIcon(QIcon());
     QGuiApplication::windowIcon();
     QGuiApplication::platformName();
+    QTest::ignoreMessage(QtWarningMsg, "Must construct a QGuiApplication first.");
     QGuiApplication::modalWindow();
     QGuiApplication::focusWindow();
     QGuiApplication::focusObject();
     QGuiApplication::primaryScreen();
     QGuiApplication::screens();
+    QTest::ignoreMessage(QtWarningMsg, "Must construct a QGuiApplication first.");
     QGuiApplication::overrideCursor();
+    QTest::ignoreMessage(QtWarningMsg, "Must construct a QGuiApplication first.");
     QGuiApplication::setOverrideCursor(QCursor());
+    QTest::ignoreMessage(QtWarningMsg, "Must construct a QGuiApplication first.");
     QGuiApplication::changeOverrideCursor(QCursor());
+    QTest::ignoreMessage(QtWarningMsg, "Must construct a QGuiApplication first.");
     QGuiApplication::restoreOverrideCursor();
+    QTest::ignoreMessage(QtWarningMsg, "Must construct a QGuiApplication first.");
     QGuiApplication::keyboardModifiers();
+    QTest::ignoreMessage(QtWarningMsg, "Must construct a QGuiApplication first.");
     QGuiApplication::queryKeyboardModifiers();
     QGuiApplication::mouseButtons();
     QGuiApplication::setLayoutDirection(Qt::LeftToRight);
@@ -1146,11 +1140,13 @@ void tst_QGuiApplication::staticFunctions()
     QGuiApplication::desktopSettingsAware();
     QGuiApplication::inputMethod();
     QGuiApplication::platformNativeInterface();
+    QTest::ignoreMessage(QtWarningMsg, "QGuiApplication::platformFunction(): Must construct a QGuiApplication before accessing a platform function");
     QGuiApplication::platformFunction(QByteArrayLiteral("bla"));
     QGuiApplication::setQuitOnLastWindowClosed(true);
     QGuiApplication::quitOnLastWindowClosed();
     QGuiApplication::applicationState();
 
+    QTest::ignoreMessage(QtWarningMsg, "QPixmap: QGuiApplication must be created before calling defaultDepth().");
     QPixmap::defaultDepth();
 }
 

@@ -53,7 +53,7 @@ QT_BEGIN_NAMESPACE
     \ingroup ssl
     \inmodule QtNetwork
 
-    The QOcspResponse class represents the revocation status of a server's certficate,
+    The QOcspResponse class represents the revocation status of a server's certificate,
     received by the client-side socket during the TLS handshake. QSslSocket must be
     configured with OCSP stapling enabled.
 
@@ -95,7 +95,7 @@ QT_BEGIN_NAMESPACE
     \inmodule QtNetwork
 
 
-    This enumeration describes revocation reasons, defined in \l{https://tools.ietf.org/html/rfc5280#section-5.3.1}{RFC 5280, section 5.3.1}
+    This enumeration describes revocation reasons, defined in \l{RFC 5280, section 5.3.1}
 
     \value None
     \value Unspecified
@@ -145,14 +145,14 @@ QOcspResponse::~QOcspResponse() = default;
 /*!
     \since 5.13
 
-    Copy-assigns and returns a reference to this response.
+    Copy-assigns \a other and returns a reference to this response.
 */
 QOcspResponse &QOcspResponse::operator=(const QOcspResponse &) = default;
 
 /*!
     \since 5.13
 
-    Move-assigns to this QOcspResponse instance.
+    Move-assigns \a other to this QOcspResponse instance.
 */
 QOcspResponse &QOcspResponse::operator=(QOcspResponse &&) noexcept = default;
 
@@ -206,46 +206,48 @@ QSslCertificate QOcspResponse::subject() const
 }
 
 /*!
-    \fn bool operator==(const QOcspResponse &lhs, const QOcspResponse &rhs)
+    \fn bool QOcspResponse::operator==(const QOcspResponse &lhs, const QOcspResponse &rhs)
 
     Returns \c true if \a lhs and \a rhs are the responses for the same
     certificate, signed by the same responder, have the same
     revocation reason and the same certificate status.
 
     \since 5.13
-    \relates QOcspResponse
- */
-Q_NETWORK_EXPORT bool operator==(const QOcspResponse &lhs, const QOcspResponse &rhs)
-{
-    return lhs.d == rhs.d || *lhs.d == *rhs.d;
-}
-
-/*!
-  \fn bool operator != (const QOcspResponse &lhs, const QOcspResponse &rhs)
-
-  Returns \c true if \a lhs and \a rhs are responses for different certificates,
-  or signed by different responders, or have different revocation reasons, or different
-  certificate statuses.
-
-  \since 5.13
-  \relates QOcspResponse
 */
 
 /*!
-    \fn uint qHash(const QOcspResponse &response, uint seed)
+    \fn bool QOcspResponse::operator!=(const QOcspResponse &lhs, const QOcspResponse &rhs)
+
+    Returns \c true if \a lhs and \a rhs are responses for different certificates,
+    or signed by different responders, or have different revocation reasons, or different
+    certificate statuses.
+
+    \since 5.13
+*/
+
+/*!
+    \internal
+*/
+bool QOcspResponse::isEqual(const QOcspResponse &other) const
+{
+    return d == other.d || *d == *other.d;
+}
+
+/*!
+    \fn size_t qHash(const QOcspResponse &response, size_t seed)
 
     Returns the hash value for the \a response, using \a seed to seed the calculation.
 
     \since 5.13
     \relates QHash
 */
-uint qHash(const QOcspResponse &response, uint seed) noexcept
+size_t qHash(const QOcspResponse &response, size_t seed) noexcept
 {
     const QOcspResponsePrivate *d = response.d.data();
     Q_ASSERT(d);
 
     QtPrivate::QHashCombine hasher;
-    uint hash = hasher(seed, int(d->certificateStatus));
+    size_t hash = hasher(seed, int(d->certificateStatus));
     hash = hasher(hash, int(d->revocationReason));
     if (!d->signerCert.isNull())
         hash = hasher(hash, d->signerCert);

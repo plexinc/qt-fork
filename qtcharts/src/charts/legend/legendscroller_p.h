@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the Qt Charts module of the Qt Toolkit.
@@ -45,7 +45,7 @@
 #include <private/scroller_p.h>
 #include <QtCharts/private/qchartglobal_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class Q_CHARTS_PRIVATE_EXPORT LegendScroller: public QLegend, public Scroller
 {
@@ -54,14 +54,31 @@ class Q_CHARTS_PRIVATE_EXPORT LegendScroller: public QLegend, public Scroller
 public:
     LegendScroller(QChart *chart);
 
-    void setOffset(const QPointF &point);
-    QPointF offset() const;
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget = nullptr) override;
 
-    void mousePressEvent(QGraphicsSceneMouseEvent *event);
-    void mouseMoveEvent(QGraphicsSceneMouseEvent *event);
-    void mouseReleaseEvent(QGraphicsSceneMouseEvent *event);
+    void setOffset(const QPointF &point) override;
+    QPointF offset() const override;
+
+    void mousePressEvent(QGraphicsSceneMouseEvent *event) override;
+    void mouseMoveEvent(QGraphicsSceneMouseEvent *event) override;
+    void mouseReleaseEvent(QGraphicsSceneMouseEvent *event) override;
+    void mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) override;
+    void hoverEnterEvent(QGraphicsSceneHoverEvent *event) override;
+    void hoverMoveEvent(QGraphicsSceneHoverEvent *event) override;
+    void hoverLeaveEvent(QGraphicsSceneHoverEvent *event) override;
+
+private:
+    void handleInteractiveChanged(bool interactive);
+    void updateForResizerChange();
+
+    bool m_forwardMouseEvents{false};
+    bool m_forwardHoverEvents{false};
+    bool m_cachedShouldShowMoveEvents{false};
+
+private slots:
+    void handleDetached(bool attached);
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif

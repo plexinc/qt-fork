@@ -22,7 +22,7 @@ const std::vector<PermissionType>& GetAllPermissionTypes() {
         std::vector<PermissionType> all_types;
         all_types.reserve(NUM_TYPES - 4);
         for (int i = 1; i < NUM_TYPES; ++i) {
-          if (i == 2 || i == 14 || i == 15)  // Skip removed entries.
+          if (i == 2 || i == 11 || i == 14 || i == 15)  // Skip removed entries.
             continue;
           all_types.push_back(static_cast<PermissionType>(i));
         }
@@ -57,7 +57,12 @@ base::Optional<PermissionType> PermissionDescriptorToPermissionType(
     case PermissionName::AUDIO_CAPTURE:
       return PermissionType::AUDIO_CAPTURE;
     case PermissionName::VIDEO_CAPTURE:
-      return PermissionType::VIDEO_CAPTURE;
+      if (descriptor->extension && descriptor->extension->is_camera_device() &&
+          descriptor->extension->get_camera_device()->panTiltZoom) {
+        return PermissionType::CAMERA_PAN_TILT_ZOOM;
+      } else {
+        return PermissionType::VIDEO_CAPTURE;
+      }
     case PermissionName::BACKGROUND_SYNC:
       return PermissionType::BACKGROUND_SYNC;
     case PermissionName::SENSORS:
@@ -82,25 +87,20 @@ base::Optional<PermissionType> PermissionDescriptorToPermissionType(
       return PermissionType::IDLE_DETECTION;
     case PermissionName::PERIODIC_BACKGROUND_SYNC:
       return PermissionType::PERIODIC_BACKGROUND_SYNC;
-    case PermissionName::WAKE_LOCK:
-      if (descriptor->extension && descriptor->extension->is_wake_lock()) {
-        switch (descriptor->extension->get_wake_lock()->type) {
-          case blink::mojom::WakeLockType::kScreen:
-            return PermissionType::WAKE_LOCK_SCREEN;
-            break;
-          case blink::mojom::WakeLockType::kSystem:
-            return PermissionType::WAKE_LOCK_SYSTEM;
-            break;
-          default:
-            NOTREACHED();
-            return base::nullopt;
-        }
-      }
-      break;
+    case PermissionName::SCREEN_WAKE_LOCK:
+      return PermissionType::WAKE_LOCK_SCREEN;
+    case PermissionName::SYSTEM_WAKE_LOCK:
+      return PermissionType::WAKE_LOCK_SYSTEM;
     case PermissionName::NFC:
       return PermissionType::NFC;
     case PermissionName::STORAGE_ACCESS:
       return PermissionType::STORAGE_ACCESS_GRANT;
+    case PermissionName::WINDOW_PLACEMENT:
+      return PermissionType::WINDOW_PLACEMENT;
+    case PermissionName::FONT_ACCESS:
+      return PermissionType::FONT_ACCESS;
+    case PermissionName::DISPLAY_CAPTURE:
+      return PermissionType::DISPLAY_CAPTURE;
   }
 
   NOTREACHED();

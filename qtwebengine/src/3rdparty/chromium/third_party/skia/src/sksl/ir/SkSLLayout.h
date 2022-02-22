@@ -24,22 +24,24 @@ struct Layout {
         kOverrideCoverage_Flag           = 1 <<  1,
         kPushConstant_Flag               = 1 <<  2,
         kBlendSupportAllEquations_Flag   = 1 <<  3,
-        kBlendSupportMultiply_Flag       = 1 <<  4,
-        kBlendSupportScreen_Flag         = 1 <<  5,
-        kBlendSupportOverlay_Flag        = 1 <<  6,
-        kBlendSupportDarken_Flag         = 1 <<  7,
-        kBlendSupportLighten_Flag        = 1 <<  8,
-        kBlendSupportColorDodge_Flag     = 1 <<  9,
-        kBlendSupportColorBurn_Flag      = 1 << 10,
-        kBlendSupportHardLight_Flag      = 1 << 11,
-        kBlendSupportSoftLight_Flag      = 1 << 12,
-        kBlendSupportDifference_Flag     = 1 << 13,
-        kBlendSupportExclusion_Flag      = 1 << 14,
-        kBlendSupportHSLHue_Flag         = 1 << 15,
-        kBlendSupportHSLSaturation_Flag  = 1 << 16,
-        kBlendSupportHSLColor_Flag       = 1 << 17,
-        kBlendSupportHSLLuminosity_Flag  = 1 << 18,
-        kTracked_Flag                    = 1 << 19
+        kTracked_Flag                    = 1 <<  4,
+        kSRGBUnpremul_Flag               = 1 <<  5,
+        kKey_Flag                        = 1 <<  6,
+
+        // These flags indicate if the qualifier appeared, regardless of the accompanying value.
+        kLocation_Flag                   = 1 <<  7,
+        kOffset_Flag                     = 1 <<  8,
+        kBinding_Flag                    = 1 <<  9,
+        kIndex_Flag                      = 1 << 10,
+        kSet_Flag                        = 1 << 11,
+        kBuiltin_Flag                    = 1 << 12,
+        kInputAttachmentIndex_Flag       = 1 << 13,
+        kPrimitive_Flag                  = 1 << 14,
+        kMaxVertices_Flag                = 1 << 15,
+        kInvocations_Flag                = 1 << 16,
+        kMarker_Flag                     = 1 << 17,
+        kWhen_Flag                       = 1 << 18,
+        kCType_Flag                      = 1 << 19,
     };
 
     enum Primitive {
@@ -51,31 +53,6 @@ struct Layout {
         kTriangles_Primitive,
         kTriangleStrip_Primitive,
         kTrianglesAdjacency_Primitive
-    };
-
-    // These are used by images in GLSL. We only support a subset of what GL supports.
-    enum class Format {
-        kUnspecified = -1,
-        kRGBA32F,
-        kR32F,
-        kRGBA16F,
-        kR16F,
-        kLUMINANCE16F,
-        kRGBA8,
-        kR8,
-        kRGBA8I,
-        kR8I,
-        kRG16F,
-    };
-
-    // used by SkSL processors
-    enum Key {
-        // field is not a key
-        kNo_Key,
-        // field is a key
-        kKey_Key,
-        // key is 0 or 1 depending on whether the matrix is an identity matrix
-        kIdentity_Key,
     };
 
     enum class CType {
@@ -98,58 +75,6 @@ struct Layout {
         kGrSurfaceProxyView,
         kGrFragmentProcessor,
     };
-
-    static const char* FormatToStr(Format format) {
-        switch (format) {
-            case Format::kUnspecified:  return "";
-            case Format::kRGBA32F:      return "rgba32f";
-            case Format::kR32F:         return "r32f";
-            case Format::kRGBA16F:      return "rgba16f";
-            case Format::kR16F:         return "r16f";
-            case Format::kLUMINANCE16F: return "lum16f";
-            case Format::kRGBA8:        return "rgba8";
-            case Format::kR8:           return "r8";
-            case Format::kRGBA8I:       return "rgba8i";
-            case Format::kR8I:          return "r8i";
-            case Format::kRG16F:        return "rg16f";
-        }
-        ABORT("Unexpected format");
-    }
-
-    static bool ReadFormat(String str, Format* format) {
-        if (str == "rgba32f") {
-            *format = Format::kRGBA32F;
-            return true;
-        } else if (str == "r32f") {
-            *format = Format::kR32F;
-            return true;
-        } else if (str == "rgba16f") {
-            *format = Format::kRGBA16F;
-            return true;
-        } else if (str == "r16f") {
-            *format = Format::kR16F;
-            return true;
-        } else if (str == "lum16f") {
-            *format = Format::kLUMINANCE16F;
-            return true;
-        } else if (str == "rgba8") {
-            *format = Format::kRGBA8;
-            return true;
-        } else if (str == "r8") {
-            *format = Format::kR8;
-            return true;
-        } else if (str == "rgba8i") {
-            *format = Format::kRGBA8I;
-            return true;
-        } else if (str == "r8i") {
-            *format = Format::kR8I;
-            return true;
-        } else if (str == "rg16f") {
-            *format = Format::kRG16F;
-            return true;
-        }
-        return false;
-    }
 
     static const char* CTypeToStr(CType ctype) {
         switch (ctype) {
@@ -188,8 +113,8 @@ struct Layout {
     }
 
     Layout(int flags, int location, int offset, int binding, int index, int set, int builtin,
-           int inputAttachmentIndex, Format format, Primitive primitive, int maxVertices,
-           int invocations, StringFragment when, Key key, CType ctype)
+           int inputAttachmentIndex, Primitive primitive, int maxVertices, int invocations,
+           StringFragment marker, StringFragment when, CType ctype)
     : fFlags(flags)
     , fLocation(location)
     , fOffset(offset)
@@ -198,12 +123,11 @@ struct Layout {
     , fSet(set)
     , fBuiltin(builtin)
     , fInputAttachmentIndex(inputAttachmentIndex)
-    , fFormat(format)
     , fPrimitive(primitive)
     , fMaxVertices(maxVertices)
     , fInvocations(invocations)
+    , fMarker(marker)
     , fWhen(when)
-    , fKey(key)
     , fCType(ctype) {}
 
     Layout()
@@ -215,176 +139,106 @@ struct Layout {
     , fSet(-1)
     , fBuiltin(-1)
     , fInputAttachmentIndex(-1)
-    , fFormat(Format::kUnspecified)
     , fPrimitive(kUnspecified_Primitive)
     , fMaxVertices(-1)
     , fInvocations(-1)
-    , fKey(kNo_Key)
     , fCType(CType::kDefault) {}
+
+    static Layout builtin(int builtin) {
+        Layout result;
+        result.fBuiltin = builtin;
+        return result;
+    }
 
     String description() const {
         String result;
-        String separator;
+        auto separator = [firstSeparator = true]() mutable -> String {
+            if (firstSeparator) {
+                firstSeparator = false;
+                return "";
+            } else {
+                return ", ";
+            }};
         if (fLocation >= 0) {
-            result += separator + "location = " + to_string(fLocation);
-            separator = ", ";
+            result += separator() + "location = " + to_string(fLocation);
         }
         if (fOffset >= 0) {
-            result += separator + "offset = " + to_string(fOffset);
-            separator = ", ";
+            result += separator() + "offset = " + to_string(fOffset);
         }
         if (fBinding >= 0) {
-            result += separator + "binding = " + to_string(fBinding);
-            separator = ", ";
+            result += separator() + "binding = " + to_string(fBinding);
         }
         if (fIndex >= 0) {
-            result += separator + "index = " + to_string(fIndex);
-            separator = ", ";
+            result += separator() + "index = " + to_string(fIndex);
         }
         if (fSet >= 0) {
-            result += separator + "set = " + to_string(fSet);
-            separator = ", ";
+            result += separator() + "set = " + to_string(fSet);
         }
         if (fBuiltin >= 0) {
-            result += separator + "builtin = " + to_string(fBuiltin);
-            separator = ", ";
+            result += separator() + "builtin = " + to_string(fBuiltin);
         }
         if (fInputAttachmentIndex >= 0) {
-            result += separator + "input_attachment_index = " + to_string(fInputAttachmentIndex);
-            separator = ", ";
-        }
-        if (Format::kUnspecified != fFormat) {
-            result += separator + FormatToStr(fFormat);
-            separator = ", ";
+            result += separator() + "input_attachment_index = " + to_string(fInputAttachmentIndex);
         }
         if (fFlags & kOriginUpperLeft_Flag) {
-            result += separator + "origin_upper_left";
-            separator = ", ";
+            result += separator() + "origin_upper_left";
         }
         if (fFlags & kOverrideCoverage_Flag) {
-            result += separator + "override_coverage";
-            separator = ", ";
+            result += separator() + "override_coverage";
         }
         if (fFlags & kBlendSupportAllEquations_Flag) {
-            result += separator + "blend_support_all_equations";
-            separator = ", ";
-        }
-        if (fFlags & kBlendSupportMultiply_Flag) {
-            result += separator + "blend_support_multiply";
-            separator = ", ";
-        }
-        if (fFlags & kBlendSupportScreen_Flag) {
-            result += separator + "blend_support_screen";
-            separator = ", ";
-        }
-        if (fFlags & kBlendSupportOverlay_Flag) {
-            result += separator + "blend_support_overlay";
-            separator = ", ";
-        }
-        if (fFlags & kBlendSupportDarken_Flag) {
-            result += separator + "blend_support_darken";
-            separator = ", ";
-        }
-        if (fFlags & kBlendSupportLighten_Flag) {
-            result += separator + "blend_support_lighten";
-            separator = ", ";
-        }
-        if (fFlags & kBlendSupportColorDodge_Flag) {
-            result += separator + "blend_support_colordodge";
-            separator = ", ";
-        }
-        if (fFlags & kBlendSupportColorBurn_Flag) {
-            result += separator + "blend_support_colorburn";
-            separator = ", ";
-        }
-        if (fFlags & kBlendSupportHardLight_Flag) {
-            result += separator + "blend_support_hardlight";
-            separator = ", ";
-        }
-        if (fFlags & kBlendSupportSoftLight_Flag) {
-            result += separator + "blend_support_softlight";
-            separator = ", ";
-        }
-        if (fFlags & kBlendSupportDifference_Flag) {
-            result += separator + "blend_support_difference";
-            separator = ", ";
-        }
-        if (fFlags & kBlendSupportExclusion_Flag) {
-            result += separator + "blend_support_exclusion";
-            separator = ", ";
-        }
-        if (fFlags & kBlendSupportHSLHue_Flag) {
-            result += separator + "blend_support_hsl_hue";
-            separator = ", ";
-        }
-        if (fFlags & kBlendSupportHSLSaturation_Flag) {
-            result += separator + "blend_support_hsl_saturation";
-            separator = ", ";
-        }
-        if (fFlags & kBlendSupportHSLColor_Flag) {
-            result += separator + "blend_support_hsl_color";
-            separator = ", ";
-        }
-        if (fFlags & kBlendSupportHSLLuminosity_Flag) {
-            result += separator + "blend_support_hsl_luminosity";
-            separator = ", ";
+            result += separator() + "blend_support_all_equations";
         }
         if (fFlags & kPushConstant_Flag) {
-            result += separator + "push_constant";
-            separator = ", ";
+            result += separator() + "push_constant";
         }
         if (fFlags & kTracked_Flag) {
-            result += separator + "tracked";
-            separator = ", ";
+            result += separator() + "tracked";
+        }
+        if (fFlags & kSRGBUnpremul_Flag) {
+            result += separator() + "srgb_unpremul";
         }
         switch (fPrimitive) {
             case kPoints_Primitive:
-                result += separator + "points";
-                separator = ", ";
+                result += separator() + "points";
                 break;
             case kLines_Primitive:
-                result += separator + "lines";
-                separator = ", ";
+                result += separator() + "lines";
                 break;
             case kLineStrip_Primitive:
-                result += separator + "line_strip";
-                separator = ", ";
+                result += separator() + "line_strip";
                 break;
             case kLinesAdjacency_Primitive:
-                result += separator + "lines_adjacency";
-                separator = ", ";
+                result += separator() + "lines_adjacency";
                 break;
             case kTriangles_Primitive:
-                result += separator + "triangles";
-                separator = ", ";
+                result += separator() + "triangles";
                 break;
             case kTriangleStrip_Primitive:
-                result += separator + "triangle_strip";
-                separator = ", ";
+                result += separator() + "triangle_strip";
                 break;
             case kTrianglesAdjacency_Primitive:
-                result += separator + "triangles_adjacency";
-                separator = ", ";
+                result += separator() + "triangles_adjacency";
                 break;
             case kUnspecified_Primitive:
                 break;
         }
         if (fMaxVertices >= 0) {
-            result += separator + "max_vertices = " + to_string(fMaxVertices);
-            separator = ", ";
+            result += separator() + "max_vertices = " + to_string(fMaxVertices);
         }
         if (fInvocations >= 0) {
-            result += separator + "invocations = " + to_string(fInvocations);
-            separator = ", ";
+            result += separator() + "invocations = " + to_string(fInvocations);
+        }
+        if (fMarker.fLength) {
+            result += separator() + "marker = " + fMarker;
         }
         if (fWhen.fLength) {
-            result += separator + "when = " + fWhen;
-            separator = ", ";
+            result += separator() + "when = " + fWhen;
         }
         if (result.size() > 0) {
             result = "layout (" + result + ")";
         }
-        if (fKey) {
+        if (fFlags & kKey_Flag) {
             result += "/* key */";
         }
         return result;
@@ -399,10 +253,12 @@ struct Layout {
                fSet                  == other.fSet &&
                fBuiltin              == other.fBuiltin &&
                fInputAttachmentIndex == other.fInputAttachmentIndex &&
-               fFormat               == other.fFormat &&
                fPrimitive            == other.fPrimitive &&
                fMaxVertices          == other.fMaxVertices &&
-               fInvocations          == other.fInvocations;
+               fInvocations          == other.fInvocations &&
+               fMarker               == other.fMarker &&
+               fWhen                 == other.fWhen &&
+               fCType                == other.fCType;
     }
 
     bool operator!=(const Layout& other) const {
@@ -421,15 +277,15 @@ struct Layout {
     // input_attachment_index comes from Vulkan/SPIR-V to connect a shader variable to the a
     // corresponding attachment on the subpass in which the shader is being used.
     int fInputAttachmentIndex;
-    Format fFormat;
     Primitive fPrimitive;
     int fMaxVertices;
     int fInvocations;
+    // marker refers to matrices tagged on the SkCanvas with markCTM
+    StringFragment fMarker;
     StringFragment fWhen;
-    Key fKey;
     CType fCType;
 };
 
-} // namespace
+}  // namespace SkSL
 
 #endif

@@ -93,6 +93,7 @@ class Q_WAYLAND_COMPOSITOR_EXPORT QWaylandXdgSurface : public QWaylandShellSurfa
     Q_PROPERTY(QWaylandXdgToplevel *toplevel READ toplevel NOTIFY toplevelCreated)
     Q_PROPERTY(QWaylandXdgPopup *popup READ popup NOTIFY popupCreated)
     Q_PROPERTY(QRect windowGeometry READ windowGeometry NOTIFY windowGeometryChanged)
+    Q_MOC_INCLUDE("qwaylandsurface.h")
 
 public:
     explicit QWaylandXdgSurface();
@@ -177,7 +178,7 @@ public:
     QString appId() const;
     QSize maxSize() const;
     QSize minSize() const;
-    QVector<QWaylandXdgToplevel::State> states() const;
+    QList<QWaylandXdgToplevel::State> states() const;
     bool maximized() const;
     bool fullscreen() const;
     bool resizing() const;
@@ -185,8 +186,8 @@ public:
     DecorationMode decorationMode() const;
 
     Q_INVOKABLE QSize sizeForResize(const QSizeF &size, const QPointF &delta, Qt::Edges edges) const;
-    uint sendConfigure(const QSize &size, const QVector<State> &states);
-    Q_INVOKABLE uint sendConfigure(const QSize &size, const QVector<int> &states);
+    uint sendConfigure(const QSize &size, const QList<State> &states);
+    Q_INVOKABLE uint sendConfigure(const QSize &size, const QList<int> &states);
     Q_INVOKABLE void sendClose();
     Q_INVOKABLE uint sendMaximized(const QSize &size);
     Q_INVOKABLE uint sendUnmaximized(const QSize &size = QSize(0, 0));
@@ -258,7 +259,7 @@ public:
     QPoint unconstrainedPosition() const;
 
     Q_INVOKABLE uint sendConfigure(const QRect &geometry);
-    Q_REVISION(14) Q_INVOKABLE void sendPopupDone();
+    Q_REVISION(1, 14) Q_INVOKABLE void sendPopupDone();
 
     static QWaylandSurfaceRole *role();
 

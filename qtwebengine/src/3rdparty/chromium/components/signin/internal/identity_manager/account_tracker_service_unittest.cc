@@ -11,8 +11,10 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/metrics/histogram_tester.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/image_fetcher/core/fake_image_decoder.h"
 #include "components/image_fetcher/core/image_data_fetcher.h"
 #include "components/prefs/pref_service.h"
@@ -23,6 +25,7 @@
 #include "components/signin/internal/identity_manager/fake_profile_oauth2_token_service.h"
 #include "components/signin/public/base/avatar_icon_util.h"
 #include "components/signin/public/base/signin_pref_names.h"
+#include "components/signin/public/base/signin_switches.h"
 #include "components/signin/public/base/test_signin_client.h"
 #include "components/signin/public/identity_manager/account_info.h"
 #include "google_apis/gaia/gaia_oauth_client.h"
@@ -37,6 +40,9 @@
 #endif
 
 namespace {
+
+using TokenResponseBuilder = OAuth2AccessTokenConsumer::TokenResponse::Builder;
+
 // Simple wrapper around a static string; used to avoid implicit conversion
 // of the account key to an std::string (which is the type used for account
 // identifier). This is a POD type so it can be used for static storage const
@@ -53,7 +59,7 @@ const AccountKey kAccountKeyIncomplete = {"incomplete"};
 const AccountKey kAccountKeyFooBar = {"foobar"};
 const AccountKey kAccountKeyFooDotBar = {"foo.bar"};
 
-#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS) && !defined(OS_IOS)
+#if !defined(OS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH) && !defined(OS_IOS)
 const AccountKey kAccountKeyAdvancedProtection = {"advanced_protection"};
 #endif
 
@@ -107,11 +113,10 @@ std::string AccountKeyToPictureURL(AccountKey account_key) {
       account_key.value);
 }
 
-std::string AccountKeyToPictureURLWithSize(AccountKey account_key) {
+GURL AccountKeyToPictureURLWithSize(AccountKey account_key) {
   return signin::GetAvatarImageURLWithOptions(
-             GURL(AccountKeyToPictureURL(account_key)),
-             signin::kAccountInfoImageSize, true /* no_silhouette */)
-      .spec();
+      GURL(AccountKeyToPictureURL(account_key)), signin::kAccountInfoImageSize,
+      true /* no_silhouette */);
 }
 
 class TrackingEvent {
@@ -272,9 +277,11 @@ class AccountTrackerServiceTest : public testing::Test {
   void IssueAccessToken(AccountKey account_key) {
     fake_oauth2_token_service_.IssueAllTokensForAccount(
         AccountKeyToAccountId(account_key),
-        OAuth2AccessTokenConsumer::TokenResponse(
-            base::StringPrintf("access_token-%s", account_key.value),
-            base::Time::Max(), std::string()));
+        TokenResponseBuilder()
+            .WithAccessToken(
+                base::StringPrintf("access_token-%s", account_key.value))
+            .WithExpirationTime(base::Time::Max())
+            .build());
   }
 
   std::string GenerateValidTokenInfoResponse(AccountKey account_key) {
@@ -315,7 +322,8 @@ class AccountTrackerServiceTest : public testing::Test {
   }
 
  protected:
-  void ReturnFetchResults(net::HttpStatusCode response_code,
+  void ReturnFetchResults(const GURL& url,
+                          net::HttpStatusCode response_code,
                           const std::string& response_string);
 
   base::test::TaskEnvironment task_environment_;
@@ -371,9 +379,9 @@ class AccountTrackerServiceTest : public testing::Test {
 };
 
 void AccountTrackerServiceTest::ReturnFetchResults(
+    const GURL& url,
     net::HttpStatusCode response_code,
     const std::string& response_string) {
-  GURL url = GaiaUrls::GetInstance()->oauth_user_info_url();
   EXPECT_TRUE(GetTestURLLoaderFactory()->IsPending(url.spec()));
 
   // It's possible for multiple requests to be pending. Respond to all of them.
@@ -388,35 +396,35 @@ void AccountTrackerServiceTest::ReturnFetchResults(
 void AccountTrackerServiceTest::ReturnAccountInfoFetchSuccess(
     AccountKey account_key) {
   IssueAccessToken(account_key);
-  ReturnFetchResults(net::HTTP_OK, GenerateValidTokenInfoResponse(account_key));
+  ReturnFetchResults(GaiaUrls::GetInstance()->oauth_user_info_url(),
+                     net::HTTP_OK, GenerateValidTokenInfoResponse(account_key));
 }
 
 void AccountTrackerServiceTest::ReturnAccountInfoFetchSuccessIncomplete(
     AccountKey account_key) {
   IssueAccessToken(account_key);
-  ReturnFetchResults(net::HTTP_OK,
+  ReturnFetchResults(GaiaUrls::GetInstance()->oauth_user_info_url(),
+                     net::HTTP_OK,
                      GenerateIncompleteTokenInfoResponse(account_key));
 }
 
 void AccountTrackerServiceTest::ReturnAccountInfoFetchFailure(
     AccountKey account_key) {
   IssueAccessToken(account_key);
-  ReturnFetchResults(net::HTTP_BAD_REQUEST, std::string());
+  ReturnFetchResults(GaiaUrls::GetInstance()->oauth_user_info_url(),
+                     net::HTTP_BAD_REQUEST, std::string());
 }
 
 void AccountTrackerServiceTest::ReturnAccountImageFetchSuccess(
     AccountKey account_key) {
-  GetTestURLLoaderFactory()->AddResponse(
-      AccountKeyToPictureURLWithSize(account_key), "image data");
-  task_environment_.RunUntilIdle();
+  ReturnFetchResults(AccountKeyToPictureURLWithSize(account_key), net::HTTP_OK,
+                     "image data");
 }
 
 void AccountTrackerServiceTest::ReturnAccountImageFetchFailure(
     AccountKey account_key) {
-  GetTestURLLoaderFactory()->AddResponse(
-      AccountKeyToPictureURLWithSize(account_key), std::string(),
-      net::HTTP_BAD_REQUEST);
-  task_environment_.RunUntilIdle();
+  ReturnFetchResults(AccountKeyToPictureURLWithSize(account_key),
+                     net::HTTP_BAD_REQUEST, "image data");
 }
 
 TEST_F(AccountTrackerServiceTest, Basic) {}
@@ -563,6 +571,44 @@ TEST_F(AccountTrackerServiceTest, TwoTokenAvailable_OneUserInfo) {
   }));
 }
 
+// Regression test for http://crbug.com/1135958
+TEST_F(AccountTrackerServiceTest,
+       AccountSeeded_TokenAvailable_UserInfoSuccess) {
+  // Setup: Seed the account before simulating that the refresh token is
+  // available.
+  account_tracker()->SeedAccountInfo(AccountKeyToGaiaId(kAccountKeyAlpha),
+                                     AccountKeyToEmail(kAccountKeyAlpha));
+
+  // Account fetcher service should fetch user info for accounts that were
+  // seeded.
+  SimulateTokenAvailable(kAccountKeyAlpha);
+  ReturnAccountInfoFetchSuccess(kAccountKeyAlpha);
+  EXPECT_TRUE(account_fetcher()->IsAllUserInfoFetched());
+}
+
+// Regression test for http://crbug.com/1135958
+TEST_F(AccountTrackerServiceTest, RefreshAccount_FetchImageSuccess) {
+  CoreAccountId account_id = AccountKeyToAccountId(kAccountKeyAlpha);
+
+  // Setup: User info fetched successfully, but missing the account image.
+  SimulateTokenAvailable(kAccountKeyAlpha);
+  ReturnAccountInfoFetchSuccess(kAccountKeyAlpha);
+  ReturnAccountImageFetchFailure(kAccountKeyAlpha);
+  ASSERT_TRUE(account_tracker()->GetAccountInfo(account_id).IsValid());
+  ASSERT_TRUE(
+      account_tracker()->GetAccountInfo(account_id).account_image.IsEmpty());
+
+  // Account fetcher should fetch the account image even when user info if
+  // the account image was not fetched before.
+  SimulateTokenAvailable(kAccountKeyAlpha);
+  ReturnAccountImageFetchSuccess(kAccountKeyAlpha);
+  AccountInfo account_info = account_tracker()->GetAccountInfo(
+      AccountKeyToAccountId(kAccountKeyAlpha));
+  EXPECT_FALSE(account_info.account_image.IsEmpty());
+  EXPECT_EQ(account_info.last_downloaded_image_url_with_size,
+            AccountKeyToPictureURLWithSize(kAccountKeyAlpha));
+}
+
 TEST_F(AccountTrackerServiceTest, GetAccounts) {
   SimulateTokenAvailable(kAccountKeyAlpha);
   SimulateTokenAvailable(kAccountKeyBeta);
@@ -660,6 +706,11 @@ TEST_F(AccountTrackerServiceTest, FindAccountInfoByEmail) {
 }
 
 TEST_F(AccountTrackerServiceTest, Persistence) {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(switches::kAccountIdMigration);
+#endif
+
   // Define a user data directory for the account image storage.
   base::ScopedTempDir scoped_user_data_dir;
   ASSERT_TRUE(scoped_user_data_dir.CreateUniqueTempDir());
@@ -715,7 +766,7 @@ TEST_F(AccountTrackerServiceTest, Persistence) {
                                        true);
 #endif
 
-#if !defined(OS_CHROMEOS) && !defined(OS_ANDROID) && !defined(OS_IOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH) && !defined(OS_ANDROID) && !defined(OS_IOS)
   account_tracker()->SetIsAdvancedProtectionAccount(
       AccountKeyToAccountId(kAccountKeyBeta), true);
 #endif
@@ -728,7 +779,7 @@ TEST_F(AccountTrackerServiceTest, Persistence) {
   ASSERT_EQ(1u, infos.size());
   CheckAccountDetails(kAccountKeyBeta, infos[0]);
   EXPECT_TRUE(infos[0].is_child_account);
-#if !defined(OS_CHROMEOS) && !defined(OS_ANDROID) && !defined(OS_IOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH) && !defined(OS_ANDROID) && !defined(OS_IOS)
   EXPECT_TRUE(infos[0].is_under_advanced_protection);
 #else
   EXPECT_FALSE(infos[0].is_under_advanced_protection);
@@ -816,6 +867,11 @@ TEST_F(AccountTrackerServiceTest, SeedAccountInfoFull) {
 }
 
 TEST_F(AccountTrackerServiceTest, UpgradeToFullAccountInfo) {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(switches::kAccountIdMigration);
+#endif
+
   // Start by simulating an incomplete account info and let it be saved to
   // prefs.
   ResetAccountTracker();
@@ -943,8 +999,10 @@ TEST_F(AccountTrackerServiceTest, LegacyDottedAccountIds) {
 }
 
 TEST_F(AccountTrackerServiceTest, MigrateAccountIdToGaiaId) {
-  if (!AccountTrackerService::IsMigrationSupported())
-    return;
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(switches::kAccountIdMigration);
+#endif
 
   const std::string email_alpha = AccountKeyToEmail(kAccountKeyAlpha);
   const std::string gaia_alpha = AccountKeyToGaiaId(kAccountKeyAlpha);
@@ -990,8 +1048,10 @@ TEST_F(AccountTrackerServiceTest, MigrateAccountIdToGaiaId) {
 }
 
 TEST_F(AccountTrackerServiceTest, CanNotMigrateAccountIdToGaiaId) {
-  if (!AccountTrackerService::IsMigrationSupported())
-    return;
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(switches::kAccountIdMigration);
+#endif
 
   const std::string email_alpha = AccountKeyToEmail(kAccountKeyAlpha);
   const std::string gaia_alpha = AccountKeyToGaiaId(kAccountKeyAlpha);
@@ -1036,8 +1096,10 @@ TEST_F(AccountTrackerServiceTest, CanNotMigrateAccountIdToGaiaId) {
 }
 
 TEST_F(AccountTrackerServiceTest, GaiaIdMigrationCrashInTheMiddle) {
-  if (!AccountTrackerService::IsMigrationSupported())
-    return;
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(switches::kAccountIdMigration);
+#endif
 
   const std::string email_alpha = AccountKeyToEmail(kAccountKeyAlpha);
   const std::string gaia_alpha = AccountKeyToGaiaId(kAccountKeyAlpha);
@@ -1139,7 +1201,8 @@ TEST_F(AccountTrackerServiceTest, ChildAccountUpdatedAndRevoked) {
   account_tracker()->SetIsChildAccount(AccountKeyToAccountId(kAccountKeyChild),
                                        false);
 #endif
-  ReturnFetchResults(net::HTTP_OK,
+  ReturnFetchResults(GaiaUrls::GetInstance()->oauth_user_info_url(),
+                     net::HTTP_OK,
                      GenerateValidTokenInfoResponse(kAccountKeyChild));
   EXPECT_TRUE(CheckAccountTrackerEvents({
       TrackingEvent(UPDATED, AccountKeyToAccountId(kAccountKeyChild),
@@ -1167,7 +1230,8 @@ TEST_F(AccountTrackerServiceTest, ChildAccountUpdatedAndRevokedWithUpdate) {
   account_tracker()->SetIsChildAccount(AccountKeyToAccountId(kAccountKeyChild),
                                        true);
 #endif
-  ReturnFetchResults(net::HTTP_OK,
+  ReturnFetchResults(GaiaUrls::GetInstance()->oauth_user_info_url(),
+                     net::HTTP_OK,
                      GenerateValidTokenInfoResponse(kAccountKeyChild));
   EXPECT_TRUE(CheckAccountTrackerEvents({
       TrackingEvent(UPDATED, AccountKeyToAccountId(kAccountKeyChild),
@@ -1253,7 +1317,8 @@ TEST_F(AccountTrackerServiceTest, ChildAccountGraduation) {
   AccountInfo info = account_tracker()->GetAccountInfo(
       AccountKeyToAccountId(kAccountKeyChild));
   EXPECT_TRUE(info.is_child_account);
-  ReturnFetchResults(net::HTTP_OK,
+  ReturnFetchResults(GaiaUrls::GetInstance()->oauth_user_info_url(),
+                     net::HTTP_OK,
                      GenerateValidTokenInfoResponse(kAccountKeyChild));
   EXPECT_TRUE(CheckAccountTrackerEvents({
       TrackingEvent(UPDATED, AccountKeyToAccountId(kAccountKeyChild),
@@ -1305,7 +1370,7 @@ TEST_F(AccountTrackerServiceTest, RemoveAccountBeforeImageFetchDone) {
   }));
 }
 
-#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS) && !defined(OS_IOS)
+#if !defined(OS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH) && !defined(OS_IOS)
 TEST_F(AccountTrackerServiceTest, AdvancedProtectionAccountBasic) {
   SimulateTokenAvailable(kAccountKeyAdvancedProtection);
   IssueAccessToken(kAccountKeyAdvancedProtection);

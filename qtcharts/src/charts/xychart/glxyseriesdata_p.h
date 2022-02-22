@@ -47,12 +47,12 @@
 #include <QtGui/QVector2D>
 #include <QtGui/QMatrix4x4>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class AbstractDomain;
 
 struct GLXYSeriesData {
-    QVector<float> array;
+    QList<float> array;
     bool dirty;
     QVector3D color;
     float width;
@@ -106,8 +106,10 @@ public Q_SLOTS:
     void handleSeriesPenChange();
     void handleSeriesOpenGLChange();
     void handleSeriesVisibilityChange();
+#if QT_CONFIG(charts_scatter_chart)
     void handleScatterColorChange();
     void handleScatterMarkerSizeChange();
+#endif
 
 Q_SIGNALS:
     void seriesRemoved(const QXYSeries *series);
@@ -117,6 +119,6 @@ private:
     bool m_mapDirty;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif

@@ -4,7 +4,6 @@
 
 #include "third_party/blink/renderer/core/inspector/legacy_dom_snapshot_agent.h"
 
-#include "third_party/blink/renderer/bindings/core/v8/script_event_listener.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
 #include "third_party/blink/renderer/core/css/css_computed_style_declaration.h"
 #include "third_party/blink/renderer/core/dom/attribute.h"
@@ -27,6 +26,7 @@
 #include "third_party/blink/renderer/core/html/html_link_element.h"
 #include "third_party/blink/renderer/core/html/html_template_element.h"
 #include "third_party/blink/renderer/core/input_type_names.h"
+#include "third_party/blink/renderer/core/inspector/dom_traversal_utils.h"
 #include "third_party/blink/renderer/core/inspector/identifiers_factory.h"
 #include "third_party/blink/renderer/core/inspector/inspector_dom_agent.h"
 #include "third_party/blink/renderer/core/inspector/inspector_dom_debugger_agent.h"
@@ -125,7 +125,7 @@ Response LegacyDOMSnapshotAgent::GetSnapshot(
   // Look up the CSSPropertyIDs for each entry in |style_filter|.
   for (const String& entry : *style_filter) {
     CSSPropertyID property_id =
-        cssPropertyID(document->GetExecutionContext(), entry);
+        CssPropertyID(document->GetExecutionContext(), entry);
     if (property_id == CSSPropertyID::kInvalid)
       continue;
     css_property_filter_->emplace_back(entry, property_id);
@@ -303,16 +303,16 @@ LegacyDOMSnapshotAgent::VisitContainerChildren(
     bool include_user_agent_shadow_tree) {
   auto children = std::make_unique<protocol::Array<int>>();
 
-  if (!InspectorDOMSnapshotAgent::HasChildren(*container,
-                                              include_user_agent_shadow_tree))
+  if (!blink::dom_traversal_utils::HasChildren(*container,
+                                               include_user_agent_shadow_tree))
     return nullptr;
 
-  Node* child = InspectorDOMSnapshotAgent::FirstChild(
+  Node* child = blink::dom_traversal_utils::FirstChild(
       *container, include_user_agent_shadow_tree);
   while (child) {
     children->emplace_back(VisitNode(child, include_event_listeners,
                                      include_user_agent_shadow_tree));
-    child = InspectorDOMSnapshotAgent::NextSibling(
+    child = blink::dom_traversal_utils::NextSibling(
         *child, include_user_agent_shadow_tree);
   }
 
@@ -385,7 +385,7 @@ int LegacyDOMSnapshotAgent::VisitLayoutTreeNode(LayoutObject* layout_object,
   if (style_index != -1)
     layout_tree_node->setStyleIndex(style_index);
 
-  if (layout_object->Style() && layout_object->Style()->IsStackingContext())
+  if (layout_object->Style() && layout_object->IsStackingContext())
     layout_tree_node->setIsStackingContext(true);
 
   if (paint_order_map_) {
@@ -399,7 +399,7 @@ int LegacyDOMSnapshotAgent::VisitLayoutTreeNode(LayoutObject* layout_object,
   }
 
   if (layout_object->IsText()) {
-    LayoutText* layout_text = ToLayoutText(layout_object);
+    auto* layout_text = To<LayoutText>(layout_object);
     layout_tree_node->setLayoutText(layout_text->GetText());
     Vector<LayoutText::TextBoxInfo> text_boxes = layout_text->GetTextBoxInfo();
     if (!text_boxes.IsEmpty()) {

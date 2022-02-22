@@ -6,12 +6,16 @@
 #define QUICHE_QUIC_CORE_QUIC_UNACKED_PACKET_MAP_H_
 
 #include <cstddef>
+#include <cstdint>
 #include <deque>
 
-#include "net/third_party/quiche/src/quic/core/quic_packets.h"
-#include "net/third_party/quiche/src/quic/core/quic_transmission_info.h"
-#include "net/third_party/quiche/src/quic/core/session_notifier_interface.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
+#include "absl/strings/str_cat.h"
+#include "quic/core/quic_circular_deque.h"
+#include "quic/core/quic_packets.h"
+#include "quic/core/quic_transmission_info.h"
+#include "quic/core/session_notifier_interface.h"
+#include "quic/platform/api/quic_export.h"
+#include "quic/platform/api/quic_flags.h"
 
 namespace quic {
 
@@ -30,16 +34,17 @@ class QUIC_EXPORT_PRIVATE QuicUnackedPacketMap {
   QuicUnackedPacketMap& operator=(const QuicUnackedPacketMap&) = delete;
   ~QuicUnackedPacketMap();
 
-  // Adds |serialized_packet| to the map and marks it as sent at |sent_time|.
+  // Adds |mutable_packet| to the map and marks it as sent at |sent_time|.
   // Marks the packet as in flight if |set_in_flight| is true.
   // Packets marked as in flight are expected to be marked as missing when they
   // don't arrive, indicating the need for retransmission.
-  // Any AckNotifierWrappers in |serialized_packet| are swapped from the
-  // serialized packet into the QuicTransmissionInfo.
-  void AddSentPacket(SerializedPacket* serialized_packet,
+  // Any retransmittible_frames in |mutable_packet| are swapped from
+  // |mutable_packet| into the QuicTransmissionInfo.
+  void AddSentPacket(SerializedPacket* mutable_packet,
                      TransmissionType transmission_type,
                      QuicTime sent_time,
-                     bool set_in_flight);
+                     bool set_in_flight,
+                     bool measure_rtt);
 
   // Returns true if the packet |packet_number| is unacked.
   bool IsUnacked(QuicPacketNumber packet_number) const;
@@ -54,10 +59,8 @@ class QUIC_EXPORT_PRIVATE QuicUnackedPacketMap {
   void NotifyFramesLost(const QuicTransmissionInfo& info,
                         TransmissionType type);
 
-  // Notifies session_notifier to retransmit frames in |info| with
-  // |transmission_type|.
-  void RetransmitFrames(const QuicTransmissionInfo& info,
-                        TransmissionType type);
+  // Notifies session_notifier to retransmit frames with |transmission_type|.
+  void RetransmitFrames(const QuicFrames& frames, TransmissionType type);
 
   // Marks |info| as no longer in flight.
   void RemoveFromInFlight(QuicTransmissionInfo* info);
@@ -109,15 +112,16 @@ class QUIC_EXPORT_PRIVATE QuicUnackedPacketMap {
   // been acked by the peer.  If there are no unacked packets, returns 0.
   QuicPacketNumber GetLeastUnacked() const;
 
-  // This can not be a QuicCircularDeque since pointers into this are
-  // assumed to be stable.
-  typedef std::deque<QuicTransmissionInfo> UnackedPacketMap;
-
-  typedef UnackedPacketMap::const_iterator const_iterator;
-  typedef UnackedPacketMap::iterator iterator;
+  using const_iterator =
+      QuicCircularDeque<QuicTransmissionInfo>::const_iterator;
+  using const_reverse_iterator =
+      QuicCircularDeque<QuicTransmissionInfo>::const_reverse_iterator;
+  using iterator = QuicCircularDeque<QuicTransmissionInfo>::iterator;
 
   const_iterator begin() const { return unacked_packets_.begin(); }
   const_iterator end() const { return unacked_packets_.end(); }
+  const_reverse_iterator rbegin() const { return unacked_packets_.rbegin(); }
+  const_reverse_iterator rend() const { return unacked_packets_.rend(); }
   iterator begin() { return unacked_packets_.begin(); }
   iterator end() { return unacked_packets_.end(); }
 
@@ -228,10 +232,30 @@ class QUIC_EXPORT_PRIVATE QuicUnackedPacketMap {
 
   void EnableMultiplePacketNumberSpacesSupport();
 
+  // Returns a bitfield of retransmittable frames of last packet in
+  // unacked_packets_. For example, if the packet contains STREAM_FRAME, content
+  // & (1 << STREAM_FRAME) would be set. Returns max uint32_t if
+  // unacked_packets_ is empty.
+  int32_t GetLastPacketContent() const;
+
   Perspective perspective() const { return perspective_; }
 
   bool supports_multiple_packet_number_spaces() const {
     return supports_multiple_packet_number_spaces_;
+  }
+
+  void ReserveInitialCapacity(size_t initial_capacity) {
+    unacked_packets_.reserve(initial_capacity);
+  }
+
+  std::string DebugString() const {
+    return absl::StrCat(
+        "{size: ", unacked_packets_.size(),
+        ", least_unacked: ", least_unacked_.ToString(),
+        ", largest_sent_packet: ", largest_sent_packet_.ToString(),
+        ", largest_acked: ", largest_acked_.ToString(),
+        ", bytes_in_flight: ", bytes_in_flight_,
+        ", packets_in_flight: ", packets_in_flight_, "}");
   }
 
  private:
@@ -276,11 +300,15 @@ class QUIC_EXPORT_PRIVATE QuicUnackedPacketMap {
   // If the old packet is acked before the new packet, then the old entry will
   // be removed from the map and the new entry's retransmittable frames will be
   // set to nullptr.
-  UnackedPacketMap unacked_packets_;
+  QuicCircularDeque<QuicTransmissionInfo> unacked_packets_;
+
   // The packet at the 0th index of unacked_packets_.
   QuicPacketNumber least_unacked_;
 
   QuicByteCount bytes_in_flight_;
+  // Bytes in flight per packet number space.
+  QuicByteCount
+      bytes_in_flight_per_packet_number_space_[NUM_PACKET_NUMBER_SPACES];
   QuicPacketCount packets_in_flight_;
 
   // Time that the last inflight packet was sent.

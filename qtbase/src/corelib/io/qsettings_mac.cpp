@@ -95,7 +95,7 @@ static QCFType<CFPropertyListRef> macValue(const QVariant &value);
 static CFArrayRef macList(const QList<QVariant> &list)
 {
     int n = list.size();
-    QVarLengthArray<QCFType<CFPropertyListRef> > cfvalues(n);
+    QVarLengthArray<QCFType<CFPropertyListRef>> cfvalues(n);
     for (int i = 0; i < n; ++i)
         cfvalues[i] = macValue(list.at(i));
     return CFArrayCreate(kCFAllocatorDefault, reinterpret_cast<const void **>(cfvalues.data()),
@@ -106,8 +106,8 @@ static QCFType<CFPropertyListRef> macValue(const QVariant &value)
 {
     CFPropertyListRef result = 0;
 
-    switch (value.type()) {
-    case QVariant::ByteArray:
+    switch (value.metaType().id()) {
+    case QMetaType::QByteArray:
         {
             QByteArray ba = value.toByteArray();
             result = CFDataCreate(kCFAllocatorDefault, reinterpret_cast<const UInt8 *>(ba.data()),
@@ -115,64 +115,37 @@ static QCFType<CFPropertyListRef> macValue(const QVariant &value)
         }
         break;
     // should be same as below (look for LIST)
-    case QVariant::List:
-    case QVariant::StringList:
-    case QVariant::Polygon:
+    case QMetaType::QVariantList:
+    case QMetaType::QStringList:
+    case QMetaType::QPolygon:
         result = macList(value.toList());
         break;
-    case QVariant::Map:
+    case QMetaType::QVariantMap:
         {
-            /*
-                QMap<QString, QVariant> is potentially a multimap,
-                whereas CFDictionary is a single-valued map. To allow
-                for multiple values with the same key, we store
-                multiple values in a CFArray. To avoid ambiguities,
-                we also wrap lists in a CFArray singleton.
-            */
-            QMap<QString, QVariant> map = value.toMap();
-            QMap<QString, QVariant>::const_iterator i = map.constBegin();
+            const QVariantMap &map = value.toMap();
+            const int mapSize = map.size();
 
-            int maxUniqueKeys = map.size();
-            int numUniqueKeys = 0;
-            QVarLengthArray<QCFType<CFPropertyListRef> > cfkeys(maxUniqueKeys);
-            QVarLengthArray<QCFType<CFPropertyListRef> > cfvalues(maxUniqueKeys);
+            QVarLengthArray<QCFType<CFPropertyListRef>> cfkeys;
+            cfkeys.reserve(mapSize);
+            std::transform(map.keyBegin(), map.keyEnd(),
+                           std::back_inserter(cfkeys),
+                           [](const auto &key) { return key.toCFString(); });
 
-            while (i != map.constEnd()) {
-                const QString &key = i.key();
-                QList<QVariant> values;
-
-                do {
-                    values << i.value();
-                    ++i;
-                } while (i != map.constEnd() && i.key() == key);
-
-                bool singleton = (values.count() == 1);
-                if (singleton) {
-                    switch (values.constFirst().type()) {
-                    // should be same as above (look for LIST)
-                    case QVariant::List:
-                    case QVariant::StringList:
-                    case QVariant::Polygon:
-                        singleton = false;
-                    default:
-                        ;
-                    }
-                }
-
-                cfkeys[numUniqueKeys] = key.toCFString();
-                cfvalues[numUniqueKeys] = singleton ? macValue(values.constFirst()) : macList(values);
-                ++numUniqueKeys;
-            }
+            QVarLengthArray<QCFType<CFPropertyListRef>> cfvalues;
+            cfvalues.reserve(mapSize);
+            std::transform(map.begin(), map.end(),
+                           std::back_inserter(cfvalues),
+                           [](const auto &value) { return macValue(value); });
 
             result = CFDictionaryCreate(kCFAllocatorDefault,
                                         reinterpret_cast<const void **>(cfkeys.data()),
                                         reinterpret_cast<const void **>(cfvalues.data()),
-                                        CFIndex(numUniqueKeys),
+                                        CFIndex(mapSize),
                                         &kCFTypeDictionaryKeyCallBacks,
                                         &kCFTypeDictionaryValueCallBacks);
         }
         break;
-    case QVariant::DateTime:
+    case QMetaType::QDateTime:
         {
             QDateTime dateTime = value.toDateTime();
             // CFDate, unlike QDateTime, doesn't store timezone information
@@ -182,30 +155,30 @@ static QCFType<CFPropertyListRef> macValue(const QVariant &value)
                 goto string_case;
         }
         break;
-    case QVariant::Bool:
+    case QMetaType::Bool:
         result = value.toBool() ? kCFBooleanTrue : kCFBooleanFalse;
         break;
-    case QVariant::Int:
-    case QVariant::UInt:
+    case QMetaType::Int:
+    case QMetaType::UInt:
         {
             int n = value.toInt();
             result = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &n);
         }
         break;
-    case QVariant::Double:
+    case QMetaType::Double:
         {
             double n = value.toDouble();
             result = CFNumberCreate(kCFAllocatorDefault, kCFNumberDoubleType, &n);
         }
         break;
-    case QVariant::LongLong:
-    case QVariant::ULongLong:
+    case QMetaType::LongLong:
+    case QMetaType::ULongLong:
         {
             qint64 n = value.toLongLong();
             result = CFNumberCreate(0, kCFNumberLongLongType, &n);
         }
         break;
-    case QVariant::String:
+    case QMetaType::QString:
     string_case:
     default:
         QString string = QSettingsPrivate::variantToString(value);
@@ -253,7 +226,7 @@ static QVariant qtValue(CFPropertyListRef cfvalue)
         bool metNonString = false;
         for (CFIndex i = 0; i < size; ++i) {
             QVariant value = qtValue(CFArrayGetValueAtIndex(cfarray, i));
-            if (value.type() != QVariant::String)
+            if (value.typeId() != QMetaType::QString)
                 metNonString = true;
             list << value;
         }
@@ -274,7 +247,15 @@ static QVariant qtValue(CFPropertyListRef cfvalue)
         }
 
         const QString str = QString::fromUtf8(byteArray.constData(), byteArray.size());
-        return QSettingsPrivate::stringToVariant(str);
+        QVariant variant = QSettingsPrivate::stringToVariant(str);
+        if (variant == QVariant(str)) {
+            // We did not find an encoded variant in the string,
+            // so return the raw byte array instead.
+            byteArray.detach();
+            return byteArray;
+        }
+
+        return variant;
     } else if (typeId == CFDictionaryGetTypeID()) {
         CFDictionaryRef cfdict = static_cast<CFDictionaryRef>(cfvalue);
         CFTypeID arrayTypeId = CFArrayGetTypeID();
@@ -283,15 +264,18 @@ static QVariant qtValue(CFPropertyListRef cfvalue)
         QVarLengthArray<CFPropertyListRef> values(size);
         CFDictionaryGetKeysAndValues(cfdict, keys.data(), values.data());
 
-        QMultiMap<QString, QVariant> map;
+        QVariantMap map;
         for (int i = 0; i < size; ++i) {
             QString key = QString::fromCFString(static_cast<CFStringRef>(keys[i]));
 
             if (CFGetTypeID(values[i]) == arrayTypeId) {
                 CFArrayRef cfarray = static_cast<CFArrayRef>(values[i]);
                 CFIndex arraySize = CFArrayGetCount(cfarray);
-                for (CFIndex j = arraySize - 1; j >= 0; --j)
-                    map.insert(key, qtValue(CFArrayGetValueAtIndex(cfarray, j)));
+                QVariantList list;
+                list.reserve(arraySize);
+                for (CFIndex j = 0; j < arraySize; ++j)
+                    list.append(qtValue(CFArrayGetValueAtIndex(cfarray, j)));
+                map.insert(key, list);
             } else {
                 map.insert(key, qtValue(values[i]));
             }
@@ -413,11 +397,11 @@ QMacSettingsPrivate::QMacSettingsPrivate(QSettings::Scope scope, const QString &
     }
 
     while ((nextDot = domainName.indexOf(QLatin1Char('.'), curPos)) != -1) {
-        javaPackageName.prepend(domainName.midRef(curPos, nextDot - curPos));
+        javaPackageName.prepend(QStringView{domainName}.mid(curPos, nextDot - curPos));
         javaPackageName.prepend(QLatin1Char('.'));
         curPos = nextDot + 1;
     }
-    javaPackageName.prepend(domainName.midRef(curPos));
+    javaPackageName.prepend(QStringView{domainName}.mid(curPos));
     javaPackageName = std::move(javaPackageName).toLower();
     if (curPos == 0)
         javaPackageName.prepend(QLatin1String("com."));
@@ -509,7 +493,7 @@ QStringList QMacSettingsPrivate::children(const QString &prefix, ChildSpec spec)
                     QString currentKey =
                             qtKey(static_cast<CFStringRef>(CFArrayGetValueAtIndex(cfarray, k)));
                     if (currentKey.startsWith(prefix))
-                        processChild(currentKey.midRef(startPos), spec, result);
+                        processChild(QStringView{currentKey}.mid(startPos), spec, result);
                 }
             }
         }

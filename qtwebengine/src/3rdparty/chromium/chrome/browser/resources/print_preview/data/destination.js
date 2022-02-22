@@ -9,7 +9,11 @@ import {isChromeOS} from 'chrome://resources/js/cr.m.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 
 // <if expr="chromeos">
+import {NativeLayerCrosImpl} from '../native_layer_cros.js';
+
+import {Cdd} from './cdd.js';
 import {ColorModeRestriction, DestinationPolicies, DuplexModeRestriction, PinModeRestriction} from './destination_policies.js';
+import {getStatusReasonFromPrinterStatus, PrinterStatus, PrinterStatusReason} from './printer_status_cros.js';
 // </if>
 
 /**
@@ -90,104 +94,6 @@ export const DestinationCertificateStatus = {
   // Printer has a valid 2018 certificate. Sent by GCP server.
   YES: 'YES',
 };
-
-/**
- * @typedef {{
- *   display_name: (string),
- *   type: (string | undefined),
- *   value: (number | string | boolean),
- *   is_default: (boolean | undefined),
- * }}
- */
-export let VendorCapabilitySelectOption;
-
-/**
- * Same as cloud_devices::printer::TypedValueVendorCapability::ValueType.
- * @enum {string}
- */
-export const VendorCapabilityValueType = {
-  BOOLEAN: 'BOOLEAN',
-  FLOAT: 'FLOAT',
-  INTEGER: 'INTEGER',
-  STRING: 'STRING',
-};
-
-/**
- * Specifies a custom vendor capability.
- * @typedef {{
- *   id: (string),
- *   display_name: (string),
- *   localized_display_name: (string | undefined),
- *   type: (string),
- *   select_cap: ({
- *     option: (Array<!VendorCapabilitySelectOption>|undefined),
- *   }|undefined),
- *   typed_value_cap: ({
- *     default: (number | string | boolean | undefined),
- *     value_type: (VendorCapabilityValueType | undefined),
- *   }|undefined),
- *   range_cap: ({
- *     default: (number),
- *   }),
- * }}
- */
-export let VendorCapability;
-
-/**
- * Capabilities of a print destination represented in a CDD.
- * Pin capability is not a part of standard CDD description and is defined
- * only on Chrome OS.
- *
- * @typedef {{
- *   vendor_capability: !Array<!VendorCapability>,
- *   collate: ({default: (boolean|undefined)}|undefined),
- *   color: ({
- *     option: !Array<{
- *       type: (string|undefined),
- *       vendor_id: (string|undefined),
- *       custom_display_name: (string|undefined),
- *       is_default: (boolean|undefined)
- *     }>
- *   }|undefined),
- *   copies: ({default: (number|undefined),
- *             max: (number|undefined)}|undefined),
- *   duplex: ({option: !Array<{type: (string|undefined),
- *                             is_default: (boolean|undefined)}>}|undefined),
- *   page_orientation: ({
- *     option: !Array<{type: (string|undefined),
- *                      is_default: (boolean|undefined)}>
- *   }|undefined),
- *   media_size: ({
- *     option: !Array<{
- *       type: (string|undefined),
- *       vendor_id: (string|undefined),
- *       custom_display_name: (string|undefined),
- *       is_default: (boolean|undefined)
- *     }>
- *   }|undefined),
- *   dpi: ({
- *     option: !Array<{
- *       vendor_id: (string|undefined),
- *       horizontal_dpi: number,
- *       vertical_dpi: number,
- *       is_default: (boolean|undefined)
- *     }>
- *   }|undefined),
- *   pin: ({supported: (boolean|undefined)}|undefined)
- * }}
- */
-export let CddCapabilities;
-
-/**
- * The CDD (Cloud Device Description) describes the capabilities of a print
- * destination.
- *
- * @typedef {{
- *   version: string,
- *   printer: !CddCapabilities,
- * }}
- */
-export let Cdd;
 
 /**
  * Enumeration of color modes used by Chromium.
@@ -412,6 +318,18 @@ export class Destination {
      * @private {string}
      */
     this.eulaUrl_ = '';
+
+    /**
+     * Stores the printer status reason for a local Chrome OS printer.
+     * @private {?PrinterStatusReason}
+     */
+    this.printerStatusReason_ = null;
+
+    /**
+     * Promise returns |key_| when the printer status request is completed.
+     * @private {?Promise<string>}
+     */
+    this.printerStatusRequestedPromise_ = null;
     // </if>
 
     assert(
@@ -476,8 +394,7 @@ export class Destination {
     return this.origin_ === DestinationOrigin.LOCAL ||
         this.origin_ === DestinationOrigin.EXTENSION ||
         this.origin_ === DestinationOrigin.CROS ||
-        (this.origin_ === DestinationOrigin.PRIVET &&
-         this.connectionStatus_ !== DestinationConnectionStatus.UNREGISTERED);
+        this.origin_ === DestinationOrigin.PRIVET;
   }
 
   /** @return {boolean} Whether the destination is a Privet local printer */
@@ -597,6 +514,49 @@ export class Destination {
   set eulaUrl(eulaUrl) {
     this.eulaUrl_ = eulaUrl;
   }
+
+  /**
+   * @return {?PrinterStatusReason} The printer status reason for a local
+   *    Chrome OS printer.
+   */
+  get printerStatusReason() {
+    return this.printerStatusReason_;
+  }
+
+  /**
+   * Requests a printer status for the destination.
+   * @return {!Promise<string>} Promise with destination key.
+   */
+  requestPrinterStatus() {
+    // Requesting printer status only allowed for local CrOS printers.
+    if (this.origin_ !== DestinationOrigin.CROS) {
+      return Promise.reject();
+    }
+
+    // Immediately resolve promise if |printerStatusReason_| is already
+    // available.
+    if (this.printerStatusReason_) {
+      return Promise.resolve(this.key);
+    }
+
+    // Return existing promise if the printer status has already been requested.
+    if (this.printerStatusRequestedPromise_) {
+      return this.printerStatusRequestedPromise_;
+    }
+
+    // Request printer status then set and return the promise.
+    this.printerStatusRequestedPromise_ =
+        NativeLayerCrosImpl.getInstance()
+            .requestPrinterStatusUpdate(this.id_)
+            .then(status => {
+              if (status) {
+                this.printerStatusReason_ = getStatusReasonFromPrinterStatus(
+                    /** @type {!PrinterStatus} */ (status));
+              }
+              return Promise.resolve(this.key);
+            });
+    return this.printerStatusRequestedPromise_;
+  }
   // </if>
 
   /**
@@ -689,6 +649,11 @@ export class Destination {
 
   /** @return {string} Path to the SVG for the destination's icon. */
   get icon() {
+    // <if expr="chromeos">
+    if (this.id_ === Destination.GooglePromotedId.SAVE_TO_DRIVE_CROS) {
+      return 'print-preview:save-to-drive';
+    }
+    // </if>
     if (this.id_ === Destination.GooglePromotedId.DOCS) {
       return 'print-preview:save-to-drive';
     }
@@ -700,9 +665,6 @@ export class Destination {
     }
     if (this.isLocal) {
       return 'print-preview:print';
-    }
-    if (this.type_ === DestinationType.MOBILE && this.isOwned_) {
-      return 'print-preview:smartphone';
     }
     if (this.type_ === DestinationType.MOBILE) {
       return 'print-preview:smartphone';
@@ -766,7 +728,7 @@ export class Destination {
   }
 
   /**
-   * @return (Object} Copies capability of this destination.
+   * @return {Object} Copies capability of this destination.
    * @private
    */
   copiesCapability_() {
@@ -947,5 +909,19 @@ Destination.LOCATION_TAG_PREFIXES =
  */
 Destination.GooglePromotedId = {
   DOCS: '__google__docs',
-  SAVE_AS_PDF: 'Save as PDF'
+  SAVE_AS_PDF: 'Save as PDF',
+  // <if expr="chromeos">
+  SAVE_TO_DRIVE_CROS: 'Save to Drive CrOS',
+  // </if>
 };
+
+/** @type {string} Unique identifier for the Save as PDF destination */
+export const PDF_DESTINATION_KEY =
+    `${Destination.GooglePromotedId.SAVE_AS_PDF}/${DestinationOrigin.LOCAL}/`;
+
+// <if expr="chromeos">
+/** @type {string} Unique identifier for the Save to Drive CrOS destination */
+export const SAVE_TO_DRIVE_CROS_DESTINATION_KEY =
+    `${Destination.GooglePromotedId.SAVE_TO_DRIVE_CROS}/${
+        DestinationOrigin.LOCAL}/`;
+// </if>

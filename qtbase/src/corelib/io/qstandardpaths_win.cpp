@@ -84,7 +84,7 @@ static void appendOrganizationAndApp(QString &path) // Courtesy qstandardpaths_u
     if (!appName.isEmpty())
         path += QLatin1Char('/') + appName;
 #else // !QT_BOOTSTRAPPED
-    Q_UNUSED(path)
+    Q_UNUSED(path);
 #endif
 }
 
@@ -100,8 +100,6 @@ static bool isProcessLowIntegrity() {
     // Disable function until Qt CI is updated
     return false;
 #else
-    if (QOperatingSystemVersion::current() < QOperatingSystemVersion::Windows8)
-        return false;
     // non-leaking pseudo-handle. Expanded inline function GetCurrentProcessToken()
     // (was made an inline function in Windows 8).
     const auto process_token = HANDLE(quintptr(-4));
@@ -110,7 +108,7 @@ static bool isProcessLowIntegrity() {
     auto* token_info = reinterpret_cast<TOKEN_MANDATORY_LABEL*>(token_info_buf.data());
     DWORD token_info_length = token_info_buf.size();
     if (!GetTokenInformation(process_token, TokenIntegrityLevel, token_info, token_info_length, &token_info_length)) {
-        // grow bufer and retry GetTokenInformation
+        // grow buffer and retry GetTokenInformation
         token_info_buf.resize(token_info_length);
         token_info = reinterpret_cast<TOKEN_MANDATORY_LABEL*>(token_info_buf.data());
         if (!GetTokenInformation(process_token, TokenIntegrityLevel, token_info, token_info_length, &token_info_length))
@@ -137,7 +135,7 @@ static GUID writableSpecialFolderId(QStandardPaths::StandardLocation type)
         FOLDERID_Videos,        // MoviesLocation
         FOLDERID_Pictures,      // PicturesLocation
         GUID(), GUID(),         // TempLocation/HomeLocation
-        FOLDERID_LocalAppData,  // AppLocalDataLocation ("Local" path), AppLocalDataLocation = DataLocation
+        FOLDERID_LocalAppData,  // AppLocalDataLocation ("Local" path)
         GUID(),                 // CacheLocation
         FOLDERID_LocalAppData,  // GenericDataLocation ("Local" path)
         GUID(),                 // RuntimeLocation
@@ -147,7 +145,7 @@ static GUID writableSpecialFolderId(QStandardPaths::StandardLocation type)
         FOLDERID_RoamingAppData,// AppDataLocation ("Roaming" path)
         FOLDERID_LocalAppData,  // AppConfigLocation ("Local" path)
     };
-    Q_STATIC_ASSERT(sizeof(folderIds) / sizeof(folderIds[0]) == size_t(QStandardPaths::AppConfigLocation + 1));
+    static_assert(sizeof(folderIds) / sizeof(folderIds[0]) == size_t(QStandardPaths::AppConfigLocation + 1));
 
     // folders for low integrity processes
     static const GUID folderIds_li[] = {
@@ -159,7 +157,7 @@ static GUID writableSpecialFolderId(QStandardPaths::StandardLocation type)
         FOLDERID_Videos,         // MoviesLocation
         FOLDERID_Pictures,       // PicturesLocation
         GUID(), GUID(),          // TempLocation/HomeLocation
-        FOLDERID_LocalAppDataLow,// AppLocalDataLocation ("Local" path), AppLocalDataLocation = DataLocation
+        FOLDERID_LocalAppDataLow,// AppLocalDataLocation ("Local" path)
         GUID(),                  // CacheLocation
         FOLDERID_LocalAppDataLow,// GenericDataLocation ("Local" path)
         GUID(),                  // RuntimeLocation
@@ -169,7 +167,7 @@ static GUID writableSpecialFolderId(QStandardPaths::StandardLocation type)
         FOLDERID_RoamingAppData, // AppDataLocation ("Roaming" path)
         FOLDERID_LocalAppDataLow,// AppConfigLocation ("Local" path)
     };
-    Q_STATIC_ASSERT(sizeof(folderIds_li) == sizeof(folderIds));
+    static_assert(sizeof(folderIds_li) == sizeof(folderIds));
 
     static bool low_integrity_process = isProcessLowIntegrity();
     if (size_t(type) < sizeof(folderIds) / sizeof(folderIds[0]))
@@ -181,13 +179,8 @@ static GUID writableSpecialFolderId(QStandardPaths::StandardLocation type)
 static QString sHGetKnownFolderPath(const GUID &clsid)
 {
     QString result;
-    typedef HRESULT (WINAPI *GetKnownFolderPath)(const GUID&, DWORD, HANDLE, LPWSTR*);
-
-    static const GetKnownFolderPath sHGetKnownFolderPath = // Vista onwards.
-        reinterpret_cast<GetKnownFolderPath>(QSystemLibrary::resolve(QLatin1String("shell32"), "SHGetKnownFolderPath"));
-
     LPWSTR path;
-    if (Q_LIKELY(sHGetKnownFolderPath && SUCCEEDED(sHGetKnownFolderPath(clsid, KF_FLAG_DONT_VERIFY, 0, &path)))) {
+    if (Q_LIKELY(SUCCEEDED(SHGetKnownFolderPath(clsid, KF_FLAG_DONT_VERIFY, 0, &path)))) {
         result = convertCharArray(path);
         CoTaskMemFree(path);
     }

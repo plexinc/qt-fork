@@ -41,7 +41,7 @@
 #define QDYNAMICTOOLBAR_H
 
 #include <QtWidgets/qtwidgetsglobal.h>
-#include <QtWidgets/qaction.h>
+#include <QtGui/qaction.h>
 #include <QtWidgets/qwidget.h>
 
 QT_REQUIRE_CONFIG(toolbar);
@@ -60,8 +60,10 @@ class Q_WIDGETS_EXPORT QToolBar : public QWidget
     Q_OBJECT
 
     Q_PROPERTY(bool movable READ isMovable WRITE setMovable NOTIFY movableChanged)
-    Q_PROPERTY(Qt::ToolBarAreas allowedAreas READ allowedAreas WRITE setAllowedAreas NOTIFY allowedAreasChanged)
-    Q_PROPERTY(Qt::Orientation orientation READ orientation WRITE setOrientation NOTIFY orientationChanged)
+    Q_PROPERTY(Qt::ToolBarAreas allowedAreas READ allowedAreas WRITE setAllowedAreas
+               NOTIFY allowedAreasChanged)
+    Q_PROPERTY(Qt::Orientation orientation READ orientation WRITE setOrientation
+               NOTIFY orientationChanged)
     Q_PROPERTY(QSize iconSize READ iconSize WRITE setIconSize NOTIFY iconSizeChanged)
     Q_PROPERTY(Qt::ToolButtonStyle toolButtonStyle READ toolButtonStyle WRITE setToolButtonStyle
                NOTIFY toolButtonStyleChanged)
@@ -181,7 +183,7 @@ protected:
     void changeEvent(QEvent *event) override;
     void paintEvent(QPaintEvent *event) override;
     bool event(QEvent *event) override;
-    void initStyleOption(QStyleOptionToolBar *option) const;
+    virtual void initStyleOption(QStyleOptionToolBar *option) const;
 
 
 private:

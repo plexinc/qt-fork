@@ -48,6 +48,7 @@
 #include <QtWidgets/QHBoxLayout>
 #include <QtWidgets/QMenu>
 #include <QtGui/QKeyEvent>
+#include <QtGui/QRegularExpressionValidator>
 #include <QtWidgets/QApplication>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QToolButton>
@@ -56,6 +57,7 @@
 #include <QtWidgets/QSpacerItem>
 #include <QtWidgets/QKeySequenceEdit>
 #include <QtCore/QMap>
+#include <QtCore/QRegularExpression>
 
 #if defined(Q_CC_MSVC)
 #    pragma warning(disable: 4786) /* MS VS 6: truncating debug info after 255 characters */
@@ -889,7 +891,7 @@ class QtLineEditFactoryPrivate : public EditorFactoryPrivate<QLineEdit>
 public:
 
     void slotPropertyChanged(QtProperty *property, const QString &value);
-    void slotRegExpChanged(QtProperty *property, const QRegExp &regExp);
+    void slotRegExpChanged(QtProperty *property, const QRegularExpression &regExp);
     void slotSetValue(const QString &value);
 };
 
@@ -907,7 +909,7 @@ void QtLineEditFactoryPrivate::slotPropertyChanged(QtProperty *property,
 }
 
 void QtLineEditFactoryPrivate::slotRegExpChanged(QtProperty *property,
-            const QRegExp &regExp)
+            const QRegularExpression &regExp)
 {
     const auto it = m_createdEditors.constFind(property);
     if (it == m_createdEditors.constEnd())
@@ -922,7 +924,7 @@ void QtLineEditFactoryPrivate::slotRegExpChanged(QtProperty *property,
         const QValidator *oldValidator = editor->validator();
         QValidator *newValidator = 0;
         if (regExp.isValid()) {
-            newValidator = new QRegExpValidator(regExp, editor);
+            newValidator = new QRegularExpressionValidator(regExp, editor);
         }
         editor->setValidator(newValidator);
         if (oldValidator)
@@ -985,8 +987,8 @@ void QtLineEditFactory::connectPropertyManager(QtStringPropertyManager *manager)
 {
     connect(manager, SIGNAL(valueChanged(QtProperty*,QString)),
                 this, SLOT(slotPropertyChanged(QtProperty*,QString)));
-    connect(manager, SIGNAL(regExpChanged(QtProperty*,QRegExp)),
-                this, SLOT(slotRegExpChanged(QtProperty*,QRegExp)));
+    connect(manager, SIGNAL(regExpChanged(QtProperty*,QRegularExpression)),
+                this, SLOT(slotRegExpChanged(QtProperty*,QRegularExpression)));
 }
 
 /*!
@@ -999,9 +1001,9 @@ QWidget *QtLineEditFactory::createEditor(QtStringPropertyManager *manager,
 {
 
     QLineEdit *editor = d_ptr->createEditor(property, parent);
-    QRegExp regExp = manager->regExp(property);
-    if (regExp.isValid()) {
-        QValidator *validator = new QRegExpValidator(regExp, editor);
+    QRegularExpression regExp = manager->regExp(property);
+    if (regExp.isValid() && !regExp.pattern().isEmpty()) {
+        QValidator *validator = new QRegularExpressionValidator(regExp, editor);
         editor->setValidator(validator);
     }
     editor->setText(manager->value(property));
@@ -1022,8 +1024,8 @@ void QtLineEditFactory::disconnectPropertyManager(QtStringPropertyManager *manag
 {
     disconnect(manager, SIGNAL(valueChanged(QtProperty*,QString)),
                 this, SLOT(slotPropertyChanged(QtProperty*,QString)));
-    disconnect(manager, SIGNAL(regExpChanged(QtProperty*,QRegExp)),
-                this, SLOT(slotRegExpChanged(QtProperty*,QRegExp)));
+    disconnect(manager, SIGNAL(regExpChanged(QtProperty*,QRegularExpression)),
+                this, SLOT(slotRegExpChanged(QtProperty*,QRegularExpression)));
 }
 
 // QtDateEditFactory
@@ -1034,12 +1036,12 @@ class QtDateEditFactoryPrivate : public EditorFactoryPrivate<QDateEdit>
     Q_DECLARE_PUBLIC(QtDateEditFactory)
 public:
 
-    void slotPropertyChanged(QtProperty *property, const QDate &value);
-    void slotRangeChanged(QtProperty *property, const QDate &min, const QDate &max);
-    void slotSetValue(const QDate &value);
+    void slotPropertyChanged(QtProperty *property, QDate value);
+    void slotRangeChanged(QtProperty *property, QDate min, QDate max);
+    void slotSetValue(QDate value);
 };
 
-void QtDateEditFactoryPrivate::slotPropertyChanged(QtProperty *property, const QDate &value)
+void QtDateEditFactoryPrivate::slotPropertyChanged(QtProperty *property, QDate value)
 {
     const auto it = m_createdEditors.constFind(property);
     if (it == m_createdEditors.constEnd())
@@ -1051,8 +1053,7 @@ void QtDateEditFactoryPrivate::slotPropertyChanged(QtProperty *property, const Q
     }
 }
 
-void QtDateEditFactoryPrivate::slotRangeChanged(QtProperty *property,
-                const QDate &min, const QDate &max)
+void QtDateEditFactoryPrivate::slotRangeChanged(QtProperty *property, QDate min, QDate max)
 {
     const auto it = m_createdEditors.constFind(property);
     if (it == m_createdEditors.constEnd())
@@ -1070,7 +1071,7 @@ void QtDateEditFactoryPrivate::slotRangeChanged(QtProperty *property,
     }
 }
 
-void QtDateEditFactoryPrivate::slotSetValue(const QDate &value)
+void QtDateEditFactoryPrivate::slotSetValue(QDate value)
 {
     QObject *object = q_ptr->sender();
     const QMap<QDateEdit *, QtProperty *>::ConstIterator  ecend = m_editorToProperty.constEnd();
@@ -1170,11 +1171,11 @@ class QtTimeEditFactoryPrivate : public EditorFactoryPrivate<QTimeEdit>
     Q_DECLARE_PUBLIC(QtTimeEditFactory)
 public:
 
-    void slotPropertyChanged(QtProperty *property, const QTime &value);
-    void slotSetValue(const QTime &value);
+    void slotPropertyChanged(QtProperty *property, QTime value);
+    void slotSetValue(QTime value);
 };
 
-void QtTimeEditFactoryPrivate::slotPropertyChanged(QtProperty *property, const QTime &value)
+void QtTimeEditFactoryPrivate::slotPropertyChanged(QtProperty *property, QTime value)
 {
     const auto it = m_createdEditors.constFind(property);
     if (it == m_createdEditors.constEnd())
@@ -1186,7 +1187,7 @@ void QtTimeEditFactoryPrivate::slotPropertyChanged(QtProperty *property, const Q
     }
 }
 
-void QtTimeEditFactoryPrivate::slotSetValue(const QTime &value)
+void QtTimeEditFactoryPrivate::slotSetValue(QTime value)
 {
     QObject *object = q_ptr->sender();
     const  QMap<QTimeEdit *, QtProperty *>::ConstIterator ecend = m_editorToProperty.constEnd();
@@ -1505,17 +1506,17 @@ public:
     QtCharEdit(QWidget *parent = 0);
 
     QChar value() const;
-    bool eventFilter(QObject *o, QEvent *e);
+    bool eventFilter(QObject *o, QEvent *e) override;
 public Q_SLOTS:
     void setValue(const QChar &value);
 Q_SIGNALS:
     void valueChanged(const QChar &value);
 protected:
-    void focusInEvent(QFocusEvent *e);
-    void focusOutEvent(QFocusEvent *e);
-    void keyPressEvent(QKeyEvent *e);
-    void keyReleaseEvent(QKeyEvent *e);
-    bool event(QEvent *e);
+    void focusInEvent(QFocusEvent *e) override;
+    void focusOutEvent(QFocusEvent *e) override;
+    void keyPressEvent(QKeyEvent *e) override;
+    void keyReleaseEvent(QKeyEvent *e) override;
+    bool event(QEvent *e) override;
 private slots:
     void slotClearChar();
 private:
@@ -2121,7 +2122,7 @@ class QtColorEditWidget : public QWidget {
 public:
     QtColorEditWidget(QWidget *parent);
 
-    bool eventFilter(QObject *obj, QEvent *ev);
+    bool eventFilter(QObject *obj, QEvent *ev) override;
 
 public Q_SLOTS:
     void setValue(const QColor &value);
@@ -2318,7 +2319,7 @@ class QtFontEditWidget : public QWidget {
 public:
     QtFontEditWidget(QWidget *parent);
 
-    bool eventFilter(QObject *obj, QEvent *ev);
+    bool eventFilter(QObject *obj, QEvent *ev) override;
 
 public Q_SLOTS:
     void setValue(const QFont &value);

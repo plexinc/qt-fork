@@ -37,19 +37,19 @@
 #include <QtQml/qqmlproperty.h>
 #include <QDebug>
 #include <private/qquickstate_p.h>
-#include "../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 
 class tst_qqmllistreference : public QQmlDataTest
 {
     Q_OBJECT
 public:
-    tst_qqmllistreference() {}
+    tst_qqmllistreference() : QQmlDataTest(QT_QMLTEST_DATADIR) {}
 
 private:
     void modeData();
 
 private slots:
-    void initTestCase();
+    void initTestCase() override;
     void qmllistreference();
     void qmllistreference_invalid();
     void isValid();
@@ -77,6 +77,7 @@ private slots:
     void engineTypes();
     void variantToList();
     void listProperty();
+    void compositeListProperty();
 };
 
 class TestType : public QObject
@@ -92,30 +93,29 @@ public:
         SyntheticClearAndReplace,
         SyntheticRemoveLast,
         SyntheticRemoveLastAndReplace,
-        AutomaticReference,
         AutomaticPointer
     };
 
     static void append(QQmlListProperty<TestType> *p, TestType *v) {
         reinterpret_cast<QList<TestType *> *>(p->data)->append(v);
     }
-    static int count(QQmlListProperty<TestType> *p) {
+    static qsizetype count(QQmlListProperty<TestType> *p) {
         return reinterpret_cast<QList<TestType *> *>(p->data)->count();
     }
-    static TestType *at(QQmlListProperty<TestType> *p, int idx) {
+    static TestType *at(QQmlListProperty<TestType> *p, qsizetype idx) {
         return reinterpret_cast<QList<TestType *> *>(p->data)->at(idx);
     }
     static void clear(QQmlListProperty<TestType> *p) {
         return reinterpret_cast<QList<TestType *> *>(p->data)->clear();
     }
-    static void replace(QQmlListProperty<TestType> *p, int idx, TestType *v) {
+    static void replace(QQmlListProperty<TestType> *p, qsizetype idx, TestType *v) {
         return reinterpret_cast<QList<TestType *> *>(p->data)->replace(idx, v);
     }
     static void removeLast(QQmlListProperty<TestType> *p) {
         return reinterpret_cast<QList<TestType *> *>(p->data)->removeLast();
     }
 
-    TestType(Mode mode = AutomaticReference)
+    TestType(Mode mode = AutomaticPointer)
     {
         switch (mode) {
         case SyntheticClear:
@@ -138,9 +138,6 @@ public:
             property = QQmlListProperty<TestType>(this, &data, append, count, at, clear,
                                                   nullptr, nullptr);
             break;
-        case AutomaticReference:
-            property = QQmlListProperty<TestType>(this, data);
-            break;
         case AutomaticPointer:
             property = QQmlListProperty<TestType>(this, &data);
             break;
@@ -159,7 +156,6 @@ Q_DECLARE_METATYPE(TestType::Mode)
 void tst_qqmllistreference::modeData()
 {
     QTest::addColumn<TestType::Mode>("mode");
-    QTest::addRow("AutomaticReference") << TestType::AutomaticReference;
     QTest::addRow("AutomaticPointer") << TestType::AutomaticPointer;
     QTest::addRow("SyntheticClear") << TestType::SyntheticClear;
     QTest::addRow("SyntheticReplace") << TestType::SyntheticReplace;
@@ -184,6 +180,17 @@ void tst_qqmllistreference::qmllistreference()
 
     tt.data.append(&tt);
     QCOMPARE(r.count(), 1);
+
+    const QMetaObject *m = tt.metaObject();
+    const int index = m->indexOfProperty("data");
+    const QMetaProperty prop = m->property(index);
+    const QVariant var = prop.read(&tt);
+
+    QQmlListReference fromVar(var);
+    QVERIFY(fromVar.isValid());
+    QCOMPARE(fromVar.count(), 1);
+    fromVar.append(&tt);
+    QCOMPARE(tt.data.count(), 2);
 }
 
 void tst_qqmllistreference::qmllistreference_invalid()
@@ -810,6 +817,17 @@ void tst_qqmllistreference::engineTypes()
     QVERIFY(ref.listElementType());
     QVERIFY(ref.listElementType() != &QObject::staticMetaObject);
 
+
+    const QMetaObject *m = o->metaObject();
+    const int index = m->indexOfProperty("myList");
+    const QMetaProperty prop = m->property(index);
+    const QVariant var = prop.read(o);
+
+    QQmlListReference fromVar(var, &engine);
+    QVERIFY(fromVar.isValid());
+    QCOMPARE(fromVar.count(), 2);
+    QCOMPARE(fromVar.listElementType(), ref.listElementType());
+
     delete o;
 }
 
@@ -848,6 +866,33 @@ void tst_qqmllistreference::listProperty()
     QCOMPARE( state2->name(), QStringLiteral("MyState2") );
 }
 
+void tst_qqmllistreference::compositeListProperty()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("compositeListProp.qml"));
+    QScopedPointer<QObject> object(component.create());
+    QVERIFY(!object.isNull());
+
+    QQmlComponent item(&engine, testFileUrl("AListItem.qml"));
+    QScopedPointer<QObject> i1(item.create());
+    QScopedPointer<QObject> i2(item.create());
+    QVERIFY(!i1.isNull());
+    QVERIFY(!i2.isNull());
+
+    // Without engine
+    QQmlListReference list1(object.data(), "items");
+    QCOMPARE(list1.listElementType(), nullptr);
+
+    // Doesn't work because element type is unknown.
+    QVERIFY(!list1.append(i1.data()));
+    QVERIFY(!list1.replace(0, i2.data()));
+
+    // With engine
+    QQmlListReference list2(object.data(), "items", &engine);
+    QVERIFY(list2.listElementType() != nullptr);
+    QVERIFY(list2.append(i1.data()));
+    QVERIFY(list2.replace(0, i2.data()));
+}
 
 QTEST_MAIN(tst_qqmllistreference)
 

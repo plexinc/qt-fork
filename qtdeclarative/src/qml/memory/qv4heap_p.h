@@ -50,12 +50,11 @@
 // We mean it.
 //
 
-#include <QtCore/QString>
 #include <private/qv4global_p.h>
 #include <private/qv4mmdefs_p.h>
 #include <private/qv4writebarrier_p.h>
 #include <private/qv4vtable_p.h>
-#include <QSharedPointer>
+#include <QtCore/QSharedPointer>
 
 // To check if Heap::Base::init is called (meaning, all subclasses did their init and called their
 // parent's init all up the inheritance chain), define QML_CHECK_INIT_DESTROY_CALLS below.
@@ -69,7 +68,7 @@ namespace Heap {
 
 template <typename T, size_t o>
 struct Pointer {
-    static Q_CONSTEXPR size_t offset = o;
+    static constexpr size_t offset = o;
     T operator->() const { return get(); }
     operator T () const { return get(); }
 
@@ -204,11 +203,11 @@ Base *Pointer<T, o>::base() {
 
 #ifdef QT_NO_QOBJECT
 template <class T>
-struct QQmlQPointer {
+struct QV4QPointer {
 };
 #else
 template <class T>
-struct QQmlQPointer {
+struct QV4QPointer {
     void init()
     {
         d = nullptr;
@@ -238,14 +237,14 @@ struct QQmlQPointer {
     }
     operator T*() const { return data(); }
     inline T* operator->() const { return data(); }
-    QQmlQPointer &operator=(T *o)
+    QV4QPointer &operator=(T *o)
     {
         if (d)
             destroy();
         init(o);
         return *this;
     }
-    bool isNull() const Q_DECL_NOTHROW
+    bool isNull() const noexcept
     {
         return d == nullptr || qObject == nullptr || d->strongref.loadRelaxed() == 0;
     }
@@ -254,7 +253,7 @@ private:
     QtSharedPointer::ExternalRefCountData *d;
     QObject *qObject;
 };
-Q_STATIC_ASSERT(std::is_trivial< QQmlQPointer<QObject> >::value);
+Q_STATIC_ASSERT(std::is_trivial< QV4QPointer<QObject> >::value);
 #endif
 
 }

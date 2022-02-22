@@ -18,12 +18,11 @@ NGFragmentChildIterator::NGFragmentChildIterator(
     : parent_fragment_(&parent),
       parent_break_token_(parent_break_token),
       is_fragmentation_context_root_(parent.IsFragmentationContextRoot()) {
-  DCHECK(RuntimeEnabledFeatures::LayoutNGFragmentItemEnabled());
   current_.link_.fragment = nullptr;
   if (parent_break_token)
     child_break_tokens_ = parent_break_token->ChildBreakTokens();
   if (parent.HasItems()) {
-    current_.cursor_.emplace(*parent.Items());
+    current_.cursor_.emplace(parent);
     current_.block_break_token_ = parent_break_token;
     UpdateSelfFromCursor();
   } else {
@@ -92,12 +91,21 @@ void NGFragmentChildIterator::UpdateSelfFromFragment(
   if (child_break_token_idx_ < child_break_tokens_.size()) {
     current_.block_break_token_ =
         To<NGBlockBreakToken>(child_break_tokens_[child_break_token_idx_]);
-    DCHECK(!current_.link_.fragment->GetLayoutObject() ||
-           current_.block_break_token_->InputNode().GetLayoutBox() ==
-               current_.link_.fragment->GetLayoutObject());
-    current_.break_token_for_fragmentainer_only_ = false;
+    // TODO(mstensho): Clean up this. What we're trying to do here is to detect
+    // whether the incoming break token matches the current fragment or not.
+    // Figuring out if a fragment is generated from a given node is currently
+    // not possible without checking the LayoutObject associated.
+    const auto* layout_object = current_.link_.fragment->GetLayoutObject();
+    if (layout_object &&
+        layout_object !=
+            current_.block_break_token_->InputNode().GetLayoutBox()) {
+      DCHECK(current_.link_.fragment->IsColumnSpanAll());
+      current_.break_token_for_fragmentainer_only_ = true;
+    } else {
+      current_.break_token_for_fragmentainer_only_ = false;
+    }
   } else if (is_fragmentation_context_root_ && previous_fragment) {
-    if (previous_fragment->IsColumnBox()) {
+    if (previous_fragment->IsFragmentainerBox()) {
       // The outgoing break token from one fragmentainer is the incoming break
       // token to the next one. This is also true when there are column spanners
       // between two columns (fragmentainers); the outgoing break token from the
@@ -108,17 +116,33 @@ void NGFragmentChildIterator::UpdateSelfFromFragment(
           To<NGBlockBreakToken>(previous_fragment->BreakToken());
       current_.break_token_for_fragmentainer_only_ = true;
     } else {
-      // This is a column spanner. We'll leave |current_block_break_token_|
-      // alone here, as it will be used as in incoming break token when we get
-      // to the next column.
-      DCHECK(
-          NGBlockNode(ToLayoutBox(previous_fragment->GetMutableLayoutObject()))
-              .IsColumnSpanAll());
-
-      // If the previous fragment is a column spanner, it's not expected to have
-      // a break token; if a spanner runs out of space, no columns (or spanners)
-      // would fit after it.
-      DCHECK(!previous_fragment->BreakToken());
+      // This is a column spanner, or in the case of a fieldset, this could be a
+      // rendered legend. We'll leave |current_block_break_token_| alone here,
+      // as it will be used as in incoming break token when we get to the next
+      // column.
+      DCHECK(previous_fragment->IsRenderedLegend() ||
+             previous_fragment->IsColumnSpanAll());
+    }
+  } else if (current_.link_.fragment->IsOutOfFlowPositioned() &&
+             !To<NGPhysicalBoxFragment>(current_.link_.fragment)
+                  ->IsFirstForNode()) {
+    // If an out-of-flow positioned element fragments beyond the last existing
+    // fragmentainer in a nested fragmentation context, instead of creating a
+    // new fragmentainer to hold it, we add it to the last existing
+    // fragmentainer at the correct inline offset. Therefore, in order to find
+    // the corrcet incoming break token in such cases, we must look for any
+    // previous fragments inside |children| that were created by the same node.
+    current_.block_break_token_ = nullptr;
+    const auto* layout_object = current_.link_.fragment->GetLayoutObject();
+    DCHECK(layout_object);
+    for (wtf_size_t index = child_fragment_idx_; index > 0; index--) {
+      const auto* child_fragment = children[index - 1].fragment;
+      if (layout_object == child_fragment->GetLayoutObject()) {
+        current_.block_break_token_ = To<NGBlockBreakToken>(
+            To<NGPhysicalBoxFragment>(child_fragment)->BreakToken());
+        current_.break_token_for_fragmentainer_only_ = false;
+        break;
+      }
     }
   } else {
     current_.block_break_token_ = nullptr;
@@ -127,28 +151,7 @@ void NGFragmentChildIterator::UpdateSelfFromFragment(
 
 bool NGFragmentChildIterator::AdvanceWithCursor() {
   DCHECK(current_.cursor_);
-  const NGFragmentItem* item = current_.cursor_->CurrentItem();
-  if (item->HasChildren()) {
-    // If we're advancing past a non-atomic inline, we also need to advance past
-    // any break tokens for fragments in there.
-    for (wtf_size_t remaining = item->DescendantsCount(); remaining;
-         remaining--) {
-      if (item->IsFloating()) {
-        SkipToBlockBreakToken();
-        if (child_break_token_idx_ < child_break_tokens_.size()) {
-          DCHECK_EQ(child_break_tokens_[child_break_token_idx_]
-                        ->InputNode()
-                        .GetLayoutBox(),
-                    item->GetLayoutObject());
-          child_break_token_idx_++;
-        }
-      }
-      current_.cursor_->MoveToNext();
-      item = current_.cursor_->CurrentItem();
-    }
-  } else {
-    current_.cursor_->MoveToNext();
-  }
+  current_.cursor_->MoveToNextSkippingChildren();
   UpdateSelfFromCursor();
   if (current_.cursor_->CurrentItem())
     return true;
@@ -172,26 +175,7 @@ void NGFragmentChildIterator::UpdateSelfFromCursor() {
     current_.link_.fragment = nullptr;
     return;
   }
-  current_.link_ = {item->BoxFragment(), item->OffsetInContainerBlock()};
-  if (!current_.link_.fragment || !current_.link_.fragment->IsFloating()) {
-    DCHECK(!current_.link_.fragment ||
-           current_.link_.fragment->GetLayoutObject()->IsInline());
-    return;
-  }
-  if (!parent_break_token_)
-    return;
-  // Floats may fragment, in which case there's a designated break token for
-  // them.
-  SkipToBlockBreakToken();
-  if (child_break_token_idx_ >= child_break_tokens_.size()) {
-    current_.block_break_token_ = nullptr;
-    return;
-  }
-  current_.block_break_token_ =
-      To<NGBlockBreakToken>(child_break_tokens_[child_break_token_idx_]);
-  DCHECK(!current_.link_.fragment->GetLayoutObject() ||
-         current_.block_break_token_->InputNode().GetLayoutBox() ==
-             current_.link_.fragment->GetLayoutObject());
+  current_.link_ = {item->BoxFragment(), item->OffsetInContainerFragment()};
 }
 
 void NGFragmentChildIterator::SkipToBoxFragment() {

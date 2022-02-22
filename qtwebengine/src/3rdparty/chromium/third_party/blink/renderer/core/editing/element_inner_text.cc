@@ -152,12 +152,12 @@ bool ElementInnerTextCollector::IsDisplayBlockLevel(const Node& node) {
   const LayoutObject* const layout_object = node.GetLayoutObject();
   if (!layout_object)
     return false;
+  if (layout_object->IsTableSection()) {
+    // Note: |LayoutTableSection::IsInline()| returns false, but it is not
+    // block-level.
+    return false;
+  }
   if (!layout_object->IsLayoutBlock()) {
-    if (layout_object->IsTableSection()) {
-      // Note: |LayoutTableSeleciton::IsInline()| returns false, but it is not
-      // block-level.
-      return false;
-    }
     // Note: Block-level replaced elements, e.g. <img style=display:block>,
     // reach here. Unlike |LayoutBlockFlow::AddChild()|, innerText considers
     // floats and absolutely-positioned elements as block-level node.
@@ -464,6 +464,20 @@ String Element::innerText() {
   // boxes in the layout tree.
   GetDocument().UpdateStyleAndLayoutForNode(this,
                                             DocumentUpdateReason::kJavaScript);
+  return GetInnerTextWithoutUpdate();
+}
+
+// Used for callers that must ensure no document lifecycle rewind.
+String Element::GetInnerTextWithoutUpdate() {
+  // TODO(https:://crbug.com/1165850 https:://crbug.com/1166296) Layout should
+  // always be clean here, but the lifecycle does not report the correctly
+  // updated value unless servicing animations. Fix the UpdateStyleAndLayout()
+  // to correctly advance the lifecycle, and then update the following DCHECK to
+  // always require clean layout in active documents.
+  // DCHECK(!GetDocument().IsActive() || !GetDocument().GetPage() ||
+  //        GetDocument().Lifecycle().GetState() >=
+  //            DocumentLifecycle::kLayoutClean)
+  //     << "Layout must be clean when GetInnerTextWithoutUpdate() is called.";
   return ElementInnerTextCollector().RunOn(*this);
 }
 

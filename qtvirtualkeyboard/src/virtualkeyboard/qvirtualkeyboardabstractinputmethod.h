@@ -42,6 +42,9 @@ class QVIRTUALKEYBOARD_EXPORT QVirtualKeyboardAbstractInputMethod : public QObje
     Q_OBJECT
     Q_DECLARE_PRIVATE(QVirtualKeyboardAbstractInputMethod)
 
+protected:
+    QVirtualKeyboardAbstractInputMethod(QVirtualKeyboardAbstractInputMethodPrivate &dd, QObject *parent = nullptr);
+
 public:
     explicit QVirtualKeyboardAbstractInputMethod(QObject *parent = nullptr);
     ~QVirtualKeyboardAbstractInputMethod();
@@ -78,6 +81,7 @@ Q_SIGNALS:
 public Q_SLOTS:
     virtual void reset();
     virtual void update();
+    Q_REVISION(6, 1) virtual void clearInputMode();
 
 private:
     void setInputEngine(QVirtualKeyboardInputEngine *inputEngine);

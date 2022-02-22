@@ -26,14 +26,12 @@ class CORE_EXPORT ValueWrapperSyntheticModuleScript final
     : public ModuleScript {
  public:
   static ValueWrapperSyntheticModuleScript*
-  CreateCSSWrapperSyntheticModuleScript(
-      const base::Optional<ModuleScriptCreationParams>& params,
-      Modulator* settings_object);
+  CreateCSSWrapperSyntheticModuleScript(const ModuleScriptCreationParams&,
+                                        Modulator* settings_object);
 
   static ValueWrapperSyntheticModuleScript*
-  CreateJSONWrapperSyntheticModuleScript(
-      const base::Optional<ModuleScriptCreationParams>& params,
-      Modulator* settings_object);
+  CreateJSONWrapperSyntheticModuleScript(const ModuleScriptCreationParams&,
+                                         Modulator* settings_object);
 
   static ValueWrapperSyntheticModuleScript* CreateWithDefaultExport(
       v8::Local<v8::Value> value,
@@ -70,7 +68,7 @@ class CORE_EXPORT ValueWrapperSyntheticModuleScript final
       v8::Local<v8::Context> context,
       v8::Local<v8::Module> module);
 
-  void Trace(Visitor* visitor) override;
+  void Trace(Visitor* visitor) const override;
 
  private:
   TraceWrapperV8Reference<v8::Value> export_value_;

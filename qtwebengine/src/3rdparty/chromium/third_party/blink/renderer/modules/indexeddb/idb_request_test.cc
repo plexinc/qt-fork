@@ -93,13 +93,6 @@ class BackendDatabaseWithMockedClose
                          mojom::blink::IDBTransactionDurability) override {}
   MOCK_METHOD0(Close, void());
   void VersionChangeIgnored() override {}
-  void AddObserver(int64_t transaction_id,
-                   int32_t observer_id,
-                   bool include_transaction,
-                   bool no_records,
-                   bool values,
-                   uint32_t operation_types) override {}
-  void RemoveObservers(const WTF::Vector<int32_t>& observers) override {}
   void Get(int64_t transaction_id,
            int64_t object_store_id,
            int64_t index_id,
@@ -175,7 +168,7 @@ class BackendDatabaseWithMockedClose
 class IDBRequestTest : public testing::Test {
  protected:
   void SetUp() override {
-    url_loader_mock_factory_ = platform_->GetURLLoaderMockFactory();
+    url_loader_mock_factory_ = WebURLLoaderMockFactory::GetSingletonInstance();
     WebURLResponse response;
     response.SetCurrentRequestUrl(KURL("blob:"));
     url_loader_mock_factory_->RegisterURLProtocol(WebString("blob"), response,
@@ -192,8 +185,7 @@ class IDBRequestTest : public testing::Test {
       std::unique_ptr<MockWebIDBTransaction> transaction_backend) {
     db_ = MakeGarbageCollected<IDBDatabase>(
         scope.GetExecutionContext(), std::move(database_backend),
-        MakeGarbageCollected<IDBDatabaseCallbacks>(), scope.GetIsolate(),
-        mojo::NullRemote());
+        MakeGarbageCollected<IDBDatabaseCallbacks>(), mojo::NullRemote());
 
     HashSet<String> transaction_scope = {"store"};
     transaction_ = IDBTransaction::CreateNonVersionChange(
@@ -233,7 +225,6 @@ void EnsureIDBCallbacksDontThrow(IDBRequest* request,
   request->HandleResponse();
   request->HandleResponse(IDBKey::CreateInvalid(), IDBKey::CreateInvalid(),
                           CreateNullIDBValueForTesting(scope.GetIsolate()));
-  request->EnqueueResponse(Vector<String>());
 
   EXPECT_TRUE(!exception_state.HadException());
 }
@@ -412,7 +403,7 @@ TEST_F(IDBRequestTest, ConnectionsAfterStopping) {
     mojo::AssociatedRemote<mojom::blink::IDBDatabase> remote;
     std::unique_ptr<BackendDatabaseWithMockedClose> mock_database =
         std::make_unique<BackendDatabaseWithMockedClose>(
-            remote.BindNewEndpointAndPassDedicatedReceiverForTesting());
+            remote.BindNewEndpointAndPassDedicatedReceiver());
     EXPECT_CALL(*mock_database, Close()).Times(1);
 
     auto transaction_backend = std::make_unique<MockWebIDBTransaction>(
@@ -435,7 +426,7 @@ TEST_F(IDBRequestTest, ConnectionsAfterStopping) {
     mojo::AssociatedRemote<mojom::blink::IDBDatabase> remote;
     std::unique_ptr<BackendDatabaseWithMockedClose> mock_database =
         std::make_unique<BackendDatabaseWithMockedClose>(
-            remote.BindNewEndpointAndPassDedicatedReceiverForTesting());
+            remote.BindNewEndpointAndPassDedicatedReceiver());
     EXPECT_CALL(*mock_database, Close()).Times(1);
 
     auto transaction_backend = std::make_unique<MockWebIDBTransaction>(

@@ -12,6 +12,7 @@
 #include "components/services/patch/in_process_file_patcher.h"
 #include "components/services/unzip/in_process_unzipper.h"
 #include "components/update_client/activity_data_service.h"
+#include "components/update_client/crx_downloader_factory.h"
 #include "components/update_client/net/network_chromium.h"
 #include "components/update_client/patch/patch_impl.h"
 #include "components/update_client/patcher.h"
@@ -55,7 +56,7 @@ TestConfigurator::TestConfigurator(PrefService* pref_service)
 
 TestConfigurator::~TestConfigurator() = default;
 
-int TestConfigurator::InitialDelay() const {
+double TestConfigurator::InitialDelay() const {
   return initial_time_;
 }
 
@@ -124,6 +125,11 @@ TestConfigurator::GetNetworkFetcherFactory() {
   return network_fetcher_factory_;
 }
 
+scoped_refptr<CrxDownloaderFactory>
+TestConfigurator::GetCrxDownloaderFactory() {
+  return crx_downloader_factory_;
+}
+
 scoped_refptr<UnzipperFactory> TestConfigurator::GetUnzipperFactory() {
   return unzip_factory_;
 }
@@ -156,7 +162,7 @@ void TestConfigurator::SetOnDemandTime(int seconds) {
   ondemand_time_ = seconds;
 }
 
-void TestConfigurator::SetInitialDelay(int seconds) {
+void TestConfigurator::SetInitialDelay(double seconds) {
   initial_time_ = seconds;
 }
 
@@ -180,6 +186,11 @@ void TestConfigurator::SetUpdateCheckUrl(const GURL& url) {
 
 void TestConfigurator::SetPingUrl(const GURL& url) {
   ping_url_ = url;
+}
+
+void TestConfigurator::SetCrxDownloaderFactory(
+    scoped_refptr<CrxDownloaderFactory> crx_downloader_factory) {
+  crx_downloader_factory_ = crx_downloader_factory;
 }
 
 PrefService* TestConfigurator::GetPrefService() const {

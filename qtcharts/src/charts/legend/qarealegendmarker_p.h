@@ -45,7 +45,7 @@
 #include <QtCharts/QAreaSeries>
 #include <QtCharts/private/qchartglobal_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class QAreaLegendMarker;
 
@@ -56,11 +56,11 @@ public:
     explicit QAreaLegendMarkerPrivate(QAreaLegendMarker *q, QAreaSeries *series, QLegend *legend);
     virtual ~QAreaLegendMarkerPrivate();
 
-    virtual QAreaSeries* series();
-    virtual QObject* relatedObject();
+    QAreaSeries* series() override;
+    QObject* relatedObject() override;
 
 public Q_SLOTS:
-    virtual void updated();
+    void updated() override;
 
 private:
     QAreaLegendMarker *q_ptr;
@@ -69,6 +69,6 @@ private:
     Q_DECLARE_PUBLIC(QAreaLegendMarker)
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // QAREALEGENDMARKER_P_H

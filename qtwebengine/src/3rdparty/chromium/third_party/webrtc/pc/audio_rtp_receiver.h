@@ -12,22 +12,28 @@
 #define PC_AUDIO_RTP_RECEIVER_H_
 
 #include <stdint.h>
-
 #include <string>
 #include <vector>
 
 #include "absl/types/optional.h"
 #include "api/crypto/frame_decryptor_interface.h"
+#include "api/dtls_transport_interface.h"
+#include "api/frame_transformer_interface.h"
 #include "api/media_stream_interface.h"
+#include "api/media_stream_track_proxy.h"
 #include "api/media_types.h"
 #include "api/rtp_parameters.h"
+#include "api/rtp_receiver_interface.h"
 #include "api/scoped_refptr.h"
+#include "api/transport/rtp/rtp_source.h"
 #include "media/base/media_channel.h"
+#include "pc/audio_track.h"
 #include "pc/jitter_buffer_delay_interface.h"
 #include "pc/remote_audio_source.h"
 #include "pc/rtp_receiver.h"
 #include "rtc_base/ref_counted_object.h"
 #include "rtc_base/thread.h"
+#include "rtc_base/thread_annotations.h"
 
 namespace webrtc {
 
@@ -84,6 +90,7 @@ class AudioRtpReceiver : public ObserverInterface,
 
   // RtpReceiverInternal implementation.
   void Stop() override;
+  void StopAndEndTrack() override;
   void SetupMediaChannel(uint32_t ssrc) override;
   void SetupUnsignaledMediaChannel() override;
   uint32_t ssrc() const override { return ssrc_.value_or(0); }
@@ -116,7 +123,7 @@ class AudioRtpReceiver : public ObserverInterface,
   rtc::Thread* const worker_thread_;
   const std::string id_;
   const rtc::scoped_refptr<RemoteAudioSource> source_;
-  const rtc::scoped_refptr<AudioTrackInterface> track_;
+  const rtc::scoped_refptr<AudioTrackProxyWithInternal<AudioTrack>> track_;
   cricket::VoiceMediaChannel* media_channel_ = nullptr;
   absl::optional<uint32_t> ssrc_;
   std::vector<rtc::scoped_refptr<MediaStreamInterface>> streams_;

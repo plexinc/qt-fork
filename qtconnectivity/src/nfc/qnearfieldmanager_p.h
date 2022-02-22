@@ -68,73 +68,43 @@ class Q_AUTOTEST_EXPORT QNearFieldManagerPrivate : public QObject
     Q_OBJECT
 
 public:
-    explicit QNearFieldManagerPrivate(QObject *parent = 0)
+    explicit QNearFieldManagerPrivate(QObject *parent = nullptr)
     :   QObject(parent)
     {
     }
 
-    ~QNearFieldManagerPrivate()
+    virtual ~QNearFieldManagerPrivate()
     {
     }
 
-    virtual bool isAvailable() const
+    virtual bool isEnabled() const
     {
         return false;
     }
 
-    virtual bool isSupported() const
+    virtual bool isSupported(QNearFieldTarget::AccessMethod) const
     {
         return false;
     }
 
-    virtual bool startTargetDetection()
+    virtual bool startTargetDetection(QNearFieldTarget::AccessMethod)
     {
         return false;
     }
 
-    virtual void stopTargetDetection()
+    virtual void stopTargetDetection(const QString &)
     {
     }
 
-    virtual int registerNdefMessageHandler(QObject *object, const QMetaMethod &/*method*/)
+    virtual void setUserInformation(const QString &)
     {
-        Q_UNUSED(object);
-
-        return -1;
-    }
-
-    virtual int registerNdefMessageHandler(const QNdefFilter &/*filter*/,
-                                           QObject *object, const QMetaMethod &/*method*/)
-    {
-        Q_UNUSED(object);
-
-        return -1;
-    }
-
-    virtual bool unregisterNdefMessageHandler(int handlerId)
-    {
-        Q_UNUSED(handlerId);
-
-        return false;
-    }
-
-    virtual void requestAccess(QNearFieldManager::TargetAccessModes accessModes)
-    {
-        m_requestedModes |= accessModes;
-    }
-
-    virtual void releaseAccess(QNearFieldManager::TargetAccessModes accessModes)
-    {
-        m_requestedModes &= ~accessModes;
     }
 
 signals:
     void adapterStateChanged(QNearFieldManager::AdapterState state);
+    void targetDetectionStopped();
     void targetDetected(QNearFieldTarget *target);
     void targetLost(QNearFieldTarget *target);
-
-public:
-    QNearFieldManager::TargetAccessModes m_requestedModes;
 };
 
 QT_END_NAMESPACE

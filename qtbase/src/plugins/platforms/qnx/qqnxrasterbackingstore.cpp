@@ -79,7 +79,7 @@ QPaintDevice *QQnxRasterBackingStore::paintDevice()
 
 void QQnxRasterBackingStore::flush(QWindow *window, const QRegion &region, const QPoint &offset)
 {
-    Q_UNUSED(offset)
+    Q_UNUSED(offset);
 
     qRasterBackingStoreDebug() << "w =" << this->window();
 
@@ -89,7 +89,7 @@ void QQnxRasterBackingStore::flush(QWindow *window, const QRegion &region, const
     if (!m_needsPosting)
         return;
 
-    QQnxWindow *targetWindow = 0;
+    QQnxWindow *targetWindow = nullptr;
     if (window)
         targetWindow = static_cast<QQnxWindow *>(window->handle());
 

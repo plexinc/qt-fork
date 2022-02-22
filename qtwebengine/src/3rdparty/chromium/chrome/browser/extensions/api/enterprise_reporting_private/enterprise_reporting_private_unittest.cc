@@ -4,29 +4,24 @@
 
 #include "chrome/browser/extensions/api/enterprise_reporting_private/enterprise_reporting_private_api.h"
 
-#include "base/bind.h"
+#include "base/command_line.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
-#include "base/path_service.h"
-#include "base/strings/stringprintf.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/api/enterprise_reporting_private/chrome_desktop_report_request_helper.h"
 #include "chrome/browser/extensions/extension_api_unittest.h"
 #include "chrome/browser/extensions/extension_function_test_utils.h"
-#include "chrome/browser/policy/fake_browser_dm_token_storage.h"
+#include "chrome/browser/policy/dm_token_utils.h"
 #include "chrome/common/extensions/api/enterprise_reporting_private.h"
-#include "components/policy/core/common/cloud/mock_cloud_policy_client.h"
-#include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
-#include "services/network/test/test_url_loader_factory.h"
-#include "testing/gmock/include/gmock/gmock.h"
+#include "components/enterprise/browser/controller/fake_browser_dm_token_storage.h"
+#include "components/policy/core/common/policy_types.h"
+#include "components/safe_browsing/core/common/safe_browsing_prefs.h"
+#include "components/version_info/version_info.h"
+#include "testing/gtest/include/gtest/gtest.h"
 
 #if defined(OS_WIN)
 #include "base/test/test_reg_util_win.h"
 #endif
-
-using ::testing::_;
-using ::testing::Invoke;
-using ::testing::WithArgs;
 
 namespace enterprise_reporting_private =
     ::extensions::api::enterprise_reporting_private;
@@ -34,99 +29,9 @@ namespace enterprise_reporting_private =
 namespace extensions {
 namespace {
 
-const char kFakeDMToken[] = "fake-dm-token";
 const char kFakeClientId[] = "fake-client-id";
-const char kFakeMachineNameReport[] = "{\"computername\":\"name\"}";
 
 }  // namespace
-
-// Test for API enterprise.reportingPrivate.uploadChromeDesktopReport
-class EnterpriseReportingPrivateUploadChromeDesktopReportTest
-    : public ExtensionApiUnittest {
- public:
-  EnterpriseReportingPrivateUploadChromeDesktopReportTest() {}
-
-  ExtensionFunction* CreateChromeDesktopReportingFunction(
-      const std::string& dm_token) {
-    EnterpriseReportingPrivateUploadChromeDesktopReportFunction* function =
-        EnterpriseReportingPrivateUploadChromeDesktopReportFunction::
-            CreateForTesting(test_url_loader_factory_.GetSafeWeakWrapper());
-    auto client = std::make_unique<policy::MockCloudPolicyClient>(
-        test_url_loader_factory_.GetSafeWeakWrapper());
-    client_ = client.get();
-    function->SetCloudPolicyClientForTesting(std::move(client));
-    if (dm_token.empty()) {
-      function->SetRegistrationInfoForTesting(
-          policy::DMToken::CreateEmptyTokenForTesting(), kFakeClientId);
-    } else {
-      function->SetRegistrationInfoForTesting(
-          policy::DMToken::CreateValidTokenForTesting(dm_token), kFakeClientId);
-    }
-    return function;
-  }
-
-  std::string GenerateArgs(const char* name) {
-    return base::StringPrintf("[{\"machineName\":%s}]", name);
-  }
-
-  std::string GenerateInvalidReport() {
-    // This report is invalid as the chromeSignInUser dictionary should not be
-    // wrapped in a list.
-    return std::string(
-        "[{\"browserReport\": "
-        "{\"chromeUserProfileReport\":[{\"chromeSignInUser\":\"Name\"}]}}]");
-  }
-
-  policy::MockCloudPolicyClient* client_;
-
- private:
-  network::TestURLLoaderFactory test_url_loader_factory_;
-
-  DISALLOW_COPY_AND_ASSIGN(
-      EnterpriseReportingPrivateUploadChromeDesktopReportTest);
-};
-
-TEST_F(EnterpriseReportingPrivateUploadChromeDesktopReportTest,
-       DeviceIsNotEnrolled) {
-  ASSERT_EQ(enterprise_reporting::kDeviceNotEnrolled,
-            RunFunctionAndReturnError(
-                CreateChromeDesktopReportingFunction(std::string()),
-                GenerateArgs(kFakeMachineNameReport)));
-}
-
-TEST_F(EnterpriseReportingPrivateUploadChromeDesktopReportTest,
-       ReportIsNotValid) {
-  ASSERT_EQ(enterprise_reporting::kInvalidInputErrorMessage,
-            RunFunctionAndReturnError(
-                CreateChromeDesktopReportingFunction(kFakeDMToken),
-                GenerateInvalidReport()));
-}
-
-TEST_F(EnterpriseReportingPrivateUploadChromeDesktopReportTest, UploadFailed) {
-  ExtensionFunction* function =
-      CreateChromeDesktopReportingFunction(kFakeDMToken);
-  EXPECT_CALL(*client_, SetupRegistration(kFakeDMToken, kFakeClientId, _))
-      .Times(1);
-  EXPECT_CALL(*client_, UploadChromeDesktopReportProxy(_, _))
-      .WillOnce(WithArgs<1>(policy::ScheduleStatusCallback(false)));
-  ASSERT_EQ(enterprise_reporting::kUploadFailed,
-            RunFunctionAndReturnError(function,
-                                      GenerateArgs(kFakeMachineNameReport)));
-  ::testing::Mock::VerifyAndClearExpectations(client_);
-}
-
-TEST_F(EnterpriseReportingPrivateUploadChromeDesktopReportTest,
-       UploadSucceeded) {
-  ExtensionFunction* function =
-      CreateChromeDesktopReportingFunction(kFakeDMToken);
-  EXPECT_CALL(*client_, SetupRegistration(kFakeDMToken, kFakeClientId, _))
-      .Times(1);
-  EXPECT_CALL(*client_, UploadChromeDesktopReportProxy(_, _))
-      .WillOnce(WithArgs<1>(policy::ScheduleStatusCallback(true)));
-  ASSERT_EQ(nullptr, RunFunctionAndReturnValue(
-                         function, GenerateArgs(kFakeMachineNameReport)));
-  ::testing::Mock::VerifyAndClearExpectations(client_);
-}
 
 // Test for API enterprise.reportingPrivate.getDeviceId
 class EnterpriseReportingPrivateGetDeviceIdTest : public ExtensionApiUnittest {
@@ -204,7 +109,7 @@ TEST_F(EnterpriseReportingPrivateDeviceDataFunctionsTest, DeviceDataMissing) {
                                              browser(),
                                              extensions::api_test_utils::NONE);
   ASSERT_TRUE(function->GetResultList());
-  EXPECT_EQ(1u, function->GetResultList()->GetSize());
+  EXPECT_EQ(0u, function->GetResultList()->GetSize());
   EXPECT_TRUE(function->GetError().empty());
 }
 
@@ -282,11 +187,8 @@ TEST_F(EnterpriseReportingPrivateDeviceDataFunctionsTest, RetrieveDeviceData) {
                                              std::move(values2), browser(),
                                              extensions::api_test_utils::NONE);
   ASSERT_TRUE(get_function2->GetResultList());
-  EXPECT_TRUE(get_function2->GetResultList()->Get(0, &single_result));
+  EXPECT_EQ(0u, get_function2->GetResultList()->GetSize());
   EXPECT_TRUE(get_function2->GetError().empty());
-  ASSERT_TRUE(single_result);
-  ASSERT_TRUE(single_result->is_blob());
-  EXPECT_EQ(base::Value::BlobStorage(), single_result->GetBlob());
 }
 
 // TODO(pastarmovj): Remove once implementation for the other platform exists.
@@ -324,7 +226,7 @@ TEST_F(EnterpriseReportingPrivateGetPersistentSecretFunctionTest, GetSecret) {
   ASSERT_TRUE(result1->is_blob());
   auto generated_blob = result1->GetBlob();
 
-  // Re=running should not change the secret.
+  // Re-running should not change the secret.
   auto function2 = base::MakeRefCounted<
       EnterpriseReportingPrivateGetPersistentSecretFunction>();
   std::unique_ptr<base::Value> result2 =
@@ -332,6 +234,40 @@ TEST_F(EnterpriseReportingPrivateGetPersistentSecretFunctionTest, GetSecret) {
   ASSERT_TRUE(result2);
   ASSERT_TRUE(result2->is_blob());
   ASSERT_EQ(generated_blob, result2->GetBlob());
+
+  // Re-running should not change the secret even when force recreate is set.
+  auto function3 = base::MakeRefCounted<
+      EnterpriseReportingPrivateGetPersistentSecretFunction>();
+  std::unique_ptr<base::Value> result3 =
+      RunFunctionAndReturnValue(function3.get(), "[true]");
+  ASSERT_TRUE(result3);
+  ASSERT_TRUE(result3->is_blob());
+  ASSERT_EQ(generated_blob, result3->GetBlob());
+
+  const wchar_t kDefaultRegistryPath[] =
+      L"SOFTWARE\\Google\\Endpoint Verification";
+  const wchar_t kValueName[] = L"Safe Storage";
+
+  base::win::RegKey key;
+  ASSERT_EQ(ERROR_SUCCESS,
+            key.Create(HKEY_CURRENT_USER, kDefaultRegistryPath, KEY_WRITE));
+  // Mess up with the value.
+  ASSERT_EQ(ERROR_SUCCESS, key.WriteValue(kValueName, 1337));
+
+  // Re-running with no recreate enforcement should return an error.
+  auto function4 = base::MakeRefCounted<
+      EnterpriseReportingPrivateGetPersistentSecretFunction>();
+  std::string error = RunFunctionAndReturnError(function4.get(), "[]");
+  ASSERT_FALSE(error.empty());
+
+  // Re=running should not change the secret even when force recreate is set.
+  auto function5 = base::MakeRefCounted<
+      EnterpriseReportingPrivateGetPersistentSecretFunction>();
+  std::unique_ptr<base::Value> result5 =
+      RunFunctionAndReturnValue(function5.get(), "[true]");
+  ASSERT_TRUE(result5);
+  ASSERT_TRUE(result5->is_blob());
+  ASSERT_NE(generated_blob, result5->GetBlob());
 }
 
 #endif  // defined(OS_WIN)
@@ -349,11 +285,11 @@ TEST_F(EnterpriseReportingPrivateGetDeviceInfoTest, GetDeviceInfo) {
   ASSERT_TRUE(enterprise_reporting_private::DeviceInfo::Populate(
       *device_info_value, &info));
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   EXPECT_EQ("macOS", info.os_name);
 #elif defined(OS_WIN)
   EXPECT_EQ("windows", info.os_name);
-#elif defined(OS_LINUX)
+#elif defined(OS_LINUX) || defined(OS_CHROMEOS)
   std::unique_ptr<base::Environment> env(base::Environment::Create());
   env->SetVar("XDG_CURRENT_DESKTOP", "XFCE");
   EXPECT_EQ("linux", info.os_name);
@@ -368,7 +304,89 @@ TEST_F(EnterpriseReportingPrivateGetDeviceInfoTest, GetDeviceInfo) {
             info.screen_lock_secured);
   EXPECT_EQ(enterprise_reporting_private::SETTING_VALUE_DISABLED,
             info.disk_encrypted);
+  ASSERT_EQ(1, info.mac_addresses.size());
+  EXPECT_EQ("00:00:00:00:00:00", info.mac_addresses[0]);
 #endif
+}
+
+class EnterpriseReportingPrivateGetContextInfoTest
+    : public ExtensionApiUnittest {
+ public:
+  enterprise_reporting_private::ContextInfo GetContextInfo() {
+    auto function = base::MakeRefCounted<
+        EnterpriseReportingPrivateGetContextInfoFunction>();
+    std::unique_ptr<base::Value> context_info_value =
+        RunFunctionAndReturnValue(function.get(), "[]");
+    EXPECT_TRUE(context_info_value.get());
+
+    enterprise_reporting_private::ContextInfo info;
+    EXPECT_TRUE(enterprise_reporting_private::ContextInfo::Populate(
+        *context_info_value, &info));
+
+    return info;
+  }
+};
+
+TEST_F(EnterpriseReportingPrivateGetContextInfoTest, NoSpecialContext) {
+  // This tests the data returned by the API is correct when no special context
+  // is present, ie no policies are set, the browser is unamanaged, etc.
+  enterprise_reporting_private::ContextInfo info = GetContextInfo();
+
+  EXPECT_TRUE(info.browser_affiliation_ids.empty());
+  EXPECT_TRUE(info.profile_affiliation_ids.empty());
+  EXPECT_TRUE(info.on_file_attached_providers.empty());
+  EXPECT_TRUE(info.on_file_downloaded_providers.empty());
+  EXPECT_TRUE(info.on_bulk_data_entry_providers.empty());
+  EXPECT_EQ(enterprise_reporting_private::REALTIME_URL_CHECK_MODE_DISABLED,
+            info.realtime_url_check_mode);
+  EXPECT_TRUE(info.on_security_event_providers.empty());
+  EXPECT_EQ(version_info::GetVersionNumber(), info.browser_version);
+}
+
+class EnterpriseReportingPrivateGetContextInfoRealTimeURLCheckTest
+    : public EnterpriseReportingPrivateGetContextInfoTest,
+      public testing::WithParamInterface<bool> {
+ public:
+  EnterpriseReportingPrivateGetContextInfoRealTimeURLCheckTest() {
+    policy::SetDMTokenForTesting(
+        policy::DMToken::CreateValidTokenForTesting("fake-token"));
+  }
+
+  bool url_check_enabled() const { return GetParam(); }
+};
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    EnterpriseReportingPrivateGetContextInfoRealTimeURLCheckTest,
+    testing::Bool());
+
+TEST_P(EnterpriseReportingPrivateGetContextInfoRealTimeURLCheckTest, Test) {
+  profile()->GetPrefs()->SetInteger(
+      prefs::kSafeBrowsingEnterpriseRealTimeUrlCheckMode,
+      url_check_enabled() ? safe_browsing::REAL_TIME_CHECK_FOR_MAINFRAME_ENABLED
+                          : safe_browsing::REAL_TIME_CHECK_DISABLED);
+  profile()->GetPrefs()->SetInteger(
+      prefs::kSafeBrowsingEnterpriseRealTimeUrlCheckScope,
+      policy::POLICY_SCOPE_MACHINE);
+
+  enterprise_reporting_private::ContextInfo info = GetContextInfo();
+
+  if (url_check_enabled()) {
+    EXPECT_EQ(enterprise_reporting_private::
+                  REALTIME_URL_CHECK_MODE_ENABLED_MAIN_FRAME,
+              info.realtime_url_check_mode);
+  } else {
+    EXPECT_EQ(enterprise_reporting_private::REALTIME_URL_CHECK_MODE_DISABLED,
+              info.realtime_url_check_mode);
+  }
+
+  EXPECT_TRUE(info.browser_affiliation_ids.empty());
+  EXPECT_TRUE(info.profile_affiliation_ids.empty());
+  EXPECT_TRUE(info.on_file_attached_providers.empty());
+  EXPECT_TRUE(info.on_file_downloaded_providers.empty());
+  EXPECT_TRUE(info.on_bulk_data_entry_providers.empty());
+  EXPECT_TRUE(info.on_security_event_providers.empty());
+  EXPECT_EQ(version_info::GetVersionNumber(), info.browser_version);
 }
 
 }  // namespace extensions

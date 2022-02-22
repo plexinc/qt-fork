@@ -8,30 +8,32 @@
 #include <cstdint>
 #include <memory>
 
+#include "absl/strings/string_view.h"
 #include "url/gurl.h"
 #include "url/origin.h"
-#include "net/third_party/quiche/src/quic/core/crypto/quic_crypto_client_config.h"
-#include "net/third_party/quiche/src/quic/core/quic_config.h"
-#include "net/third_party/quiche/src/quic/core/quic_connection.h"
-#include "net/third_party/quiche/src/quic/core/quic_crypto_client_stream.h"
-#include "net/third_party/quiche/src/quic/core/quic_crypto_stream.h"
-#include "net/third_party/quiche/src/quic/core/quic_server_id.h"
-#include "net/third_party/quiche/src/quic/core/quic_session.h"
-#include "net/third_party/quiche/src/quic/core/quic_stream.h"
-#include "net/third_party/quiche/src/quic/core/quic_versions.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_bug_tracker.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_containers.h"
-#include "net/third_party/quiche/src/quic/quic_transport/quic_transport_protocol.h"
-#include "net/third_party/quiche/src/quic/quic_transport/quic_transport_session_interface.h"
-#include "net/third_party/quiche/src/quic/quic_transport/quic_transport_stream.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "quic/core/crypto/quic_crypto_client_config.h"
+#include "quic/core/quic_config.h"
+#include "quic/core/quic_connection.h"
+#include "quic/core/quic_crypto_client_stream.h"
+#include "quic/core/quic_crypto_stream.h"
+#include "quic/core/quic_datagram_queue.h"
+#include "quic/core/quic_server_id.h"
+#include "quic/core/quic_session.h"
+#include "quic/core/quic_stream.h"
+#include "quic/core/quic_versions.h"
+#include "quic/platform/api/quic_bug_tracker.h"
+#include "quic/platform/api/quic_containers.h"
+#include "quic/quic_transport/quic_transport_protocol.h"
+#include "quic/quic_transport/quic_transport_session_interface.h"
+#include "quic/quic_transport/quic_transport_stream.h"
 
 namespace quic {
 
 // A client session for the QuicTransport protocol.
 class QUIC_EXPORT_PRIVATE QuicTransportClientSession
     : public QuicSession,
-      public QuicTransportSessionInterface {
+      public QuicTransportSessionInterface,
+      public QuicCryptoClientStream::ProofHandler {
  public:
   class QUIC_EXPORT_PRIVATE ClientVisitor {
    public:
@@ -48,26 +50,28 @@ class QUIC_EXPORT_PRIVATE QuicTransportClientSession
     virtual void OnIncomingUnidirectionalStreamAvailable() = 0;
 
     // Notifies the visitor when a new datagram has been received.
-    virtual void OnDatagramReceived(quiche::QuicheStringPiece datagram) = 0;
+    virtual void OnDatagramReceived(absl::string_view datagram) = 0;
 
     // Notifies the visitor that a new outgoing stream can now be created.
     virtual void OnCanCreateNewOutgoingBidirectionalStream() = 0;
     virtual void OnCanCreateNewOutgoingUnidirectionalStream() = 0;
   };
 
-  QuicTransportClientSession(QuicConnection* connection,
-                             Visitor* owner,
-                             const QuicConfig& config,
-                             const ParsedQuicVersionVector& supported_versions,
-                             const GURL& url,
-                             QuicCryptoClientConfig* crypto_config,
-                             url::Origin origin,
-                             ClientVisitor* visitor);
+  QuicTransportClientSession(
+      QuicConnection* connection,
+      Visitor* owner,
+      const QuicConfig& config,
+      const ParsedQuicVersionVector& supported_versions,
+      const GURL& url,
+      QuicCryptoClientConfig* crypto_config,
+      url::Origin origin,
+      ClientVisitor* visitor,
+      std::unique_ptr<QuicDatagramQueue::Observer> datagram_observer);
 
   std::vector<std::string> GetAlpnsToOffer() const override {
     return std::vector<std::string>({QuicTransportAlpn()});
   }
-  void OnAlpnSelected(quiche::QuicheStringPiece alpn) override;
+  void OnAlpnSelected(absl::string_view alpn) override;
   bool alpn_received() const { return alpn_received_; }
 
   void CryptoConnect() { crypto_stream_->CryptoConnect(); }
@@ -95,8 +99,8 @@ class QUIC_EXPORT_PRIVATE QuicTransportClientSession
   }
 
   void SetDefaultEncryptionLevel(EncryptionLevel level) override;
-  void OnOneRttKeysAvailable() override;
-  void OnMessageReceived(quiche::QuicheStringPiece message) override;
+  void OnTlsHandshakeComplete() override;
+  void OnMessageReceived(absl::string_view message) override;
 
   // Return the earliest incoming stream that has been received by the session
   // but has not been accepted.  Returns nullptr if there are no incoming
@@ -110,6 +114,11 @@ class QUIC_EXPORT_PRIVATE QuicTransportClientSession
   QuicTransportStream* OpenOutgoingUnidirectionalStream();
 
   using QuicSession::datagram_queue;
+
+  // QuicCryptoClientStream::ProofHandler implementation.
+  void OnProofValid(const QuicCryptoClientConfig::CachedState& cached) override;
+  void OnProofVerifyDetailsAvailable(
+      const ProofVerifyDetails& verify_details) override;
 
  protected:
   class QUIC_EXPORT_PRIVATE ClientIndication : public QuicStream {

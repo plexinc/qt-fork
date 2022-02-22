@@ -6,6 +6,7 @@
  */
 
 #include "include/core/SkShader.h"
+#include "include/private/SkTPin.h"
 #include "include/private/SkTo.h"
 #include "src/core/SkBitmapProcState.h"
 #include "src/core/SkUtils.h"
@@ -64,7 +65,7 @@ static void decal_nofilter_scale(uint32_t dst[], SkFixed fx, SkFixed dx, int cou
 
     SkASSERT(count <= 2);
     switch (count) {
-        case 2: ((uint16_t*)dst)[1] = SkToU16((fx + dx) >> 16);
+        case 2: ((uint16_t*)dst)[1] = SkToU16((fx + dx) >> 16); [[fallthrough]];
         case 1: ((uint16_t*)dst)[0] = SkToU16((fx +  0) >> 16);
     }
 }
@@ -473,9 +474,9 @@ SkBitmapProcState::MatrixProc SkBitmapProcState::chooseMatrixProc(bool translate
 
     if( fTileModeX == fTileModeY ) {
         // Check for our special case translate methods when there is no scale/affine/perspective.
-        if (translate_only_matrix && kNone_SkFilterQuality == fFilterQuality) {
+        if (translate_only_matrix && !fBilerp) {
             switch (fTileModeX) {
-                default: SkASSERT(false);
+                default: SkASSERT(false); [[fallthrough]];
                 case SkTileMode::kClamp:  return  clampx_nofilter_trans<int_clamp>;
                 case SkTileMode::kRepeat: return repeatx_nofilter_trans<int_repeat>;
                 case SkTileMode::kMirror: return mirrorx_nofilter_trans<int_mirror>;
@@ -483,7 +484,7 @@ SkBitmapProcState::MatrixProc SkBitmapProcState::chooseMatrixProc(bool translate
         }
 
         // The arrays are all [ nofilter, filter ].
-        int index = fFilterQuality > kNone_SkFilterQuality ? 1 : 0;
+        int index = fBilerp ? 1 : 0;
         if (!fInvMatrix.isScaleTranslate()) {
             index |= 2;
         }

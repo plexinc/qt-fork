@@ -4,7 +4,7 @@
 
 #include "content/renderer/media/android/stream_texture_wrapper_impl.h"
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/run_loop.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -35,9 +35,9 @@ TEST_F(StreamTextureWrapperImplTest, ConstructionDestruction_ShouldSucceed) {
   // we try to initialize it.
   int result = 0;
   stream_texture_wrapper->Initialize(
-      base::DoNothing(), gfx::Size(0, 0),
+      base::DoNothing(),
       blink::scheduler::GetSingleThreadTaskRunnerForTesting(),
-      base::BindRepeating(
+      base::BindOnce(
           [](int* result_out, bool result) { *result_out = result ? 1 : 2; },
           &result));
   base::RunLoop().RunUntilIdle();

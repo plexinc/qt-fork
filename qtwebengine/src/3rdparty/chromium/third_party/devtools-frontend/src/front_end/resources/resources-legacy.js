@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// @ts-nocheck
+
 import * as ResourcesModule from './resources.js';
 
 self.Resources = self.Resources || {};
@@ -35,12 +37,12 @@ Resources.BackgroundServiceView = ResourcesModule.BackgroundServiceView.Backgrou
 Resources.BackgroundServiceView.ActionDelegate = ResourcesModule.BackgroundServiceView.ActionDelegate;
 
 /** @constructor */
-Resources.ClearStorageView = ResourcesModule.ClearStorageView.ClearStorageView;
+Resources.StorageView = ResourcesModule.StorageView.StorageView;
 
-Resources.ClearStorageView.AllStorageTypes = ResourcesModule.ClearStorageView.AllStorageTypes;
+Resources.StorageView.AllStorageTypes = ResourcesModule.StorageView.AllStorageTypes;
 
 /** @constructor */
-Resources.ClearStorageView.ActionDelegate = ResourcesModule.ClearStorageView.ActionDelegate;
+Resources.StorageView.ActionDelegate = ResourcesModule.StorageView.ActionDelegate;
 
 /** @constructor */
 Resources.CookieItemsView = ResourcesModule.CookieItemsView.CookieItemsView;
@@ -88,6 +90,9 @@ Resources.IDBDatabaseView = ResourcesModule.IndexedDBViews.IDBDatabaseView;
 Resources.IDBDataView = ResourcesModule.IndexedDBViews.IDBDataView;
 
 /** @constructor */
+Resources.OpenedWindowDetailsView = ResourcesModule.OpenedWindowDetailsView.OpenedWindowDetailsView;
+
+/** @constructor */
 Resources.ResourcesPanel = ResourcesModule.ResourcesPanel.ResourcesPanel;
 
 /** @constructor */
@@ -104,3 +109,13 @@ Resources.ServiceWorkerCacheView = ResourcesModule.ServiceWorkerCacheViews.Servi
 
 /** @constructor */
 Resources.ServiceWorkersView = ResourcesModule.ServiceWorkersView.ServiceWorkersView;
+
+/**
+ * @type {function(boolean):void}
+ */
+Resources.ServiceWorkersView.setThrottleDisabledForDebugging =
+    ResourcesModule.ServiceWorkersView.setThrottleDisabledForDebugging;
+
+Object.defineProperty(Resources.ServiceWorkersView, '_noThrottle', {
+  set: ResourcesModule.ServiceWorkersView.setThrottleDisabledForDebugging,
+});

@@ -39,6 +39,7 @@
 #include "include/private/SkTArray.h"
 #include "src/core/SkLineClipper.h"
 #include "tools/Resources.h"
+#include "tools/ToolUtils.h"
 #include "tools/gpu/YUVUtils.h"
 
 #include <array>
@@ -187,7 +188,8 @@ static void draw_clipping_boundaries(SkCanvas* canvas, const SkMatrix& local) {
 }
 
 static void draw_text(SkCanvas* canvas, const char* text) {
-    canvas->drawString(text, 0, 0, SkFont(nullptr, 12), SkPaint());
+    SkFont font(ToolUtils::create_portable_typeface(), 12);
+    canvas->drawString(text, 0, 0, font, SkPaint());
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
@@ -197,8 +199,6 @@ static void draw_text(SkCanvas* canvas, const char* text) {
 
 class ClipTileRenderer : public SkRefCntBase {
 public:
-    virtual ~ClipTileRenderer() {}
-
     // Draw the base rect, possibly clipped by 'clip' if that is not null. The edges to antialias
     // are specified in 'edgeAA' (to make manipulation easier than an unsigned bitfield). 'tileID'
     // represents the location of rect within the tile grid, 'quadID' is the unique ID of the clip
@@ -538,7 +538,7 @@ private:
         SkASSERT(fMatrices.count() == fMatrixNames.count());
     }
 
-    typedef skiagm::GM INHERITED;
+    using INHERITED = skiagm::GM;
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
@@ -608,7 +608,7 @@ private:
             : fAAOverride(aa)
             , fEnableAAOverride(enableAAOverrde) {}
 
-    typedef ClipTileRenderer INHERITED;
+    using INHERITED = ClipTileRenderer;
 };
 
 // Tests tmp_drawEdgeAAQuad
@@ -635,7 +635,7 @@ private:
 
     SolidColorRenderer(const SkColor4f& color) : fColor(color) {}
 
-    typedef ClipTileRenderer INHERITED;
+    using INHERITED = ClipTileRenderer;
 };
 
 // Tests drawEdgeAAImageSet(), but can batch the entries together in different ways
@@ -736,11 +736,10 @@ public:
 
         // This acts like the whole image is rendered over the entire tile grid, so derive local
         // coordinates from 'rect', based on the grid to image transform.
-        SkMatrix gridToImage = SkMatrix::MakeRectToRect(SkRect::MakeWH(kColCount * kTileWidth,
-                                                                       kRowCount * kTileHeight),
-                                                        SkRect::MakeWH(fImage->width(),
-                                                                       fImage->height()),
-                                                        SkMatrix::kFill_ScaleToFit);
+        SkMatrix gridToImage = SkMatrix::RectToRect(SkRect::MakeWH(kColCount * kTileWidth,
+                                                                   kRowCount * kTileHeight),
+                                                    SkRect::MakeWH(fImage->width(),
+                                                                   fImage->height()));
         SkRect localRect = gridToImage.mapRect(rect);
 
         // drawTextureSet automatically derives appropriate local quad from localRect if clipPtr
@@ -814,7 +813,6 @@ private:
 
     void configureTilePaint(const SkRect& rect, SkPaint* paint) const {
         paint->setAntiAlias(true);
-        paint->setFilterQuality(kLow_SkFilterQuality);
         paint->setBlendMode(SkBlendMode::kSrcOver);
 
         // Send non-white RGB, that should be ignored
@@ -825,8 +823,7 @@ private:
             if (fResetEachQuad) {
                 // Apply a local transform in the shader to map from the tile rectangle to (0,0,w,h)
                 static const SkRect kTarget = SkRect::MakeWH(kTileWidth, kTileHeight);
-                SkMatrix local = SkMatrix::MakeRectToRect(kTarget, rect,
-                                                          SkMatrix::kFill_ScaleToFit);
+                SkMatrix local = SkMatrix::RectToRect(kTarget, rect);
                 paint->setShader(fShader->makeWithLocalMatrix(local));
             } else {
                 paint->setShader(fShader);
@@ -874,7 +871,8 @@ private:
 
         canvas->experimental_DrawEdgeAAImageSet(
                 fSetEntries.begin(), fSetEntries.count(), fDstClips.begin(),
-                fPreViewMatrices.begin(), &paint, SkCanvas::kFast_SrcRectConstraint);
+                fPreViewMatrices.begin(), SkSamplingOptions(SkFilterMode::kLinear),
+                &paint, SkCanvas::kFast_SrcRectConstraint);
 
         // Reset for next tile
         fDstClips.reset();
@@ -885,7 +883,7 @@ private:
         return 1;
     }
 
-    typedef ClipTileRenderer INHERITED;
+    using INHERITED = ClipTileRenderer;
 };
 
 class YUVTextureSetRenderer : public ClipTileRenderer {
@@ -897,7 +895,8 @@ public:
     int drawTiles(SkCanvas* canvas) override {
         // Refresh the SkImage at the start, so that it's not attempted for every set entry
         if (fYUVData) {
-            fImage = fYUVData->refImage(canvas->getGrContext());
+            fImage = fYUVData->refImage(canvas->recordingContext(),
+                                        sk_gpu_test::LazyYUVImage::Type::kFromPixmaps);
             if (!fImage) {
                 return 0;
             }
@@ -922,11 +921,10 @@ public:
 
         // This acts like the whole image is rendered over the entire tile grid, so derive local
         // coordinates from 'rect', based on the grid to image transform.
-        SkMatrix gridToImage = SkMatrix::MakeRectToRect(SkRect::MakeWH(kColCount * kTileWidth,
-                                                                       kRowCount * kTileHeight),
-                                                        SkRect::MakeWH(fImage->width(),
-                                                                       fImage->height()),
-                                                        SkMatrix::kFill_ScaleToFit);
+        SkMatrix gridToImage = SkMatrix::RectToRect(SkRect::MakeWH(kColCount * kTileWidth,
+                                                                   kRowCount * kTileHeight),
+                                                    SkRect::MakeWH(fImage->width(),
+                                                                   fImage->height()));
         SkRect localRect = gridToImage.mapRect(rect);
 
         // drawTextureSet automatically derives appropriate local quad from localRect if clipPtr
@@ -971,11 +969,11 @@ private:
 
         SkPaint paint;
         paint.setAntiAlias(true);
-        paint.setFilterQuality(kLow_SkFilterQuality);
         paint.setBlendMode(SkBlendMode::kSrcOver);
 
         canvas->experimental_DrawEdgeAAImageSet(
-                fSetEntries.begin(), fSetEntries.count(), fDstClips.begin(), nullptr, &paint,
+                fSetEntries.begin(), fSetEntries.count(), fDstClips.begin(), nullptr,
+                SkSamplingOptions(SkFilterMode::kLinear), &paint,
                 SkCanvas::kFast_SrcRectConstraint);
 
         // Reset for next tile
@@ -985,7 +983,7 @@ private:
         return 1;
     }
 
-    typedef ClipTileRenderer INHERITED;
+    using INHERITED = ClipTileRenderer;
 };
 
 static SkTArray<sk_sp<ClipTileRenderer>> make_debug_renderers() {
@@ -1006,7 +1004,7 @@ static SkTArray<sk_sp<ClipTileRenderer>> make_shader_renderers() {
     SkBitmap bm;
     bm.allocPixels(info);
     bm.eraseColor(SK_ColorWHITE);
-    sk_sp<SkImage> image = SkImage::MakeFromBitmap(bm);
+    sk_sp<SkImage> image = bm.asImage();
 
     SkTArray<sk_sp<ClipTileRenderer>> renderers;
     renderers.push_back(TextureSetRenderer::MakeShader("Gradient", image, gradient, false));

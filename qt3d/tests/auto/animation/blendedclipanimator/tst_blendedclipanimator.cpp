@@ -35,7 +35,7 @@
 #include <Qt3DCore/private/qscene_p.h>
 #include <Qt3DCore/private/qbackendnode_p.h>
 #include <qbackendnodetester.h>
-#include <testpostmanarbiter.h>
+#include <testarbiter.h>
 
 #include <QtTest/QTest>
 #include <Qt3DAnimation/qblendedclipanimator.h>
@@ -43,7 +43,6 @@
 #include <Qt3DAnimation/qchannelmapper.h>
 #include <Qt3DAnimation/private/qblendedclipanimator_p.h>
 #include <Qt3DAnimation/private/blendedclipanimator_p.h>
-#include "qbackendnodetester.h"
 
 class tst_BlendedClipAnimator : public Qt3DCore::QBackendNodeTester
 {

@@ -44,7 +44,8 @@
 #include <QtQuick3DRuntimeRender/private/qssgrendergraphobject_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrendernode_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrendermesh_p.h>
-#include <QtQuick3DAssetImport/private/qssgmeshutilities_p.h>
+#include <QtQuick3DRuntimeRender/private/qssgrendererutil_p.h>
+#include <QtQuick3DUtils/private/qssgmesh_p.h>
 
 #include <QtCore/qbytearray.h>
 
@@ -53,72 +54,37 @@ QT_BEGIN_NAMESPACE
 class Q_QUICK3DRUNTIMERENDER_EXPORT QSSGRenderGeometry : public QSSGRenderGraphObject
 {
 public:
-    enum PrimitiveType {
-        UnknownType = 0,
-        Points,
-        LineStrip,
-        LineLoop,
-        Lines,
-        TriangleStrip,
-        TriangleFan,
-        Triangles, // Default primitive type
-        Patches
-    };
-
     struct Attribute {
-        enum Semantic {
-            UnknownSemantic = 0,
-            IndexSemantic,
-            PositionSemantic, // attr_pos
-            NormalSemantic,   // attr_norm
-            TexCoordSemantic, // attr_uv0
-            TangentSemantic,  // attr_textan
-            BinormalSemantic  // attr_binormal
-        };
-        enum ComponentType {
-            DefaultType = 0,
-            U8Type,
-            I8Type,
-            U16Type,
-            I16Type,
-            U32Type, // Default for IndexSemantic
-            I32Type,
-            U64Type,
-            I64Type,
-            F16Type,
-            F32Type, // Default for other semantics
-            F64Type
-        };
-        Semantic semantic = PositionSemantic;
+        QSSGMesh::RuntimeMeshData::Attribute::Semantic semantic = QSSGMesh::RuntimeMeshData::Attribute::PositionSemantic;
         int offset = -1;
-        ComponentType componentType = DefaultType;
+        QSSGMesh::Mesh::ComponentType componentType = QSSGMesh::Mesh::ComponentType::Float32;
     };
 
     explicit QSSGRenderGeometry();
     virtual ~QSSGRenderGeometry();
 
-    QString path() const;
     const QByteArray &vertexBuffer() const;
     QByteArray &vertexBuffer();
     const QByteArray &indexBuffer() const;
     QByteArray &indexBuffer();
     int attributeCount() const;
     Attribute attribute(int idx) const;
-    PrimitiveType primitiveType() const;
+    QSSGMesh::Mesh::DrawMode primitiveType() const;
     QVector3D boundsMin() const;
     QVector3D boundsMax() const;
     int stride() const;
 
-    void setPath(const QString &path);
     void setVertexData(const QByteArray &data);
     void setIndexData(const QByteArray &data);
     void setStride(int stride);
     void setBounds(const QVector3D &min, const QVector3D &max);
-    void setPrimitiveType(PrimitiveType type);
+    void setPrimitiveType(QSSGMesh::Mesh::DrawMode type);
 
-    void addAttribute(Attribute::Semantic semantic, int offset,
-                      Attribute::ComponentType componentType);
+    void addAttribute(QSSGMesh::RuntimeMeshData::Attribute::Semantic semantic,
+                      int offset,
+                      QSSGMesh::Mesh::ComponentType componentType);
     void addAttribute(const Attribute &att);
+    void addSubset(quint32 offset, quint32 count, const QVector3D &boundsMin, const QVector3D &boundsMax, const QString &name = {});
 
     void clear();
     void clearAttributes();
@@ -129,9 +95,7 @@ protected:
     Q_DISABLE_COPY(QSSGRenderGeometry)
 
     bool m_dirty = true;
-    QSSGRenderMeshPath m_meshPath;
-    QSSGMeshUtilities::MeshData m_meshData;
-    QSSGRef<QSSGMeshUtilities::QSSGMeshBuilder> m_meshBuilder;
+    QSSGMesh::RuntimeMeshData m_meshData;
     QSSGBounds3 m_bounds;
 };
 

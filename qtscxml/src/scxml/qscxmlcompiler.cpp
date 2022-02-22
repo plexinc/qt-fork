@@ -43,7 +43,7 @@
 #include <qxmlstream.h>
 #include <qloggingcategory.h>
 #include <qfile.h>
-#include <qvector.h>
+#include <qlist.h>
 #include <qstring.h>
 
 #ifndef BUILD_QSCXMLC
@@ -117,7 +117,7 @@ private:
                 scxml->initialTransition = createInitialTransition({firstChild});
             }
         } else {
-            QVector<DocumentModel::AbstractState *> initialStates;
+            QList<DocumentModel::AbstractState *> initialStates;
             for (const QString &initial : qAsConst(scxml->initial)) {
                 if (DocumentModel::AbstractState *s = m_stateById.value(initial))
                     initialStates.append(s);
@@ -155,7 +155,7 @@ private:
                 }
             } else {
                 Q_ASSERT(state->type == DocumentModel::State::Normal);
-                QVector<DocumentModel::AbstractState *> initialStates;
+                QList<DocumentModel::AbstractState *> initialStates;
                 for (const QString &initialState : qAsConst(state->initial)) {
                     if (DocumentModel::AbstractState *s = m_stateById.value(initialState)) {
                         initialStates.append(s);
@@ -387,7 +387,7 @@ private:
         return true;
     }
 
-    static const QVector<DocumentModel::StateOrTransition *> &allChildrenOfContainer(
+    static const QList<DocumentModel::StateOrTransition *> &allChildrenOfContainer(
             DocumentModel::StateContainer *container)
     {
         if (auto state = container->asState())
@@ -402,7 +402,7 @@ private:
     {
         const auto &allChildren = allChildrenOfContainer(container);
 
-        QVector<DocumentModel::AbstractState *> childStates;
+        QList<DocumentModel::AbstractState *> childStates;
         for (DocumentModel::StateOrTransition *child : qAsConst(allChildren)) {
             if (DocumentModel::State *s = child->asState())
                 return s;
@@ -412,12 +412,12 @@ private:
         return nullptr;
     }
 
-    static QVector<DocumentModel::AbstractState *> allAbstractStates(
+    static QList<DocumentModel::AbstractState *> allAbstractStates(
             DocumentModel::StateContainer *container)
     {
         const auto &allChildren = allChildrenOfContainer(container);
 
-        QVector<DocumentModel::AbstractState *> childStates;
+        QList<DocumentModel::AbstractState *> childStates;
         for (DocumentModel::StateOrTransition *child : qAsConst(allChildren)) {
             if (DocumentModel::State *s = child->asState())
                 childStates.append(s);
@@ -428,7 +428,7 @@ private:
     }
 
     DocumentModel::Transition *createInitialTransition(
-            const QVector<DocumentModel::AbstractState *> &states)
+            const QList<DocumentModel::AbstractState *> &states)
     {
         auto *newTransition = m_doc->newTransition(nullptr, DocumentModel::XmlLocation(-1, -1));
         newTransition->type = DocumentModel::Transition::Synthetic;
@@ -460,7 +460,7 @@ private:
     DocumentModel::ScxmlDocument *m_doc;
     bool m_hasErrors;
     QHash<QString, DocumentModel::AbstractState *> m_stateById;
-    QVector<DocumentModel::Node *> m_parentNodes;
+    QList<DocumentModel::Node *> m_parentNodes;
 };
 
 #ifndef BUILD_QSCXMLC
@@ -469,8 +469,8 @@ class InvokeDynamicScxmlFactory: public QScxmlInvokableServiceFactory
     Q_OBJECT
 public:
     InvokeDynamicScxmlFactory(const QScxmlExecutableContent::InvokeInfo &invokeInfo,
-                              const QVector<QScxmlExecutableContent::StringId> &namelist,
-                              const QVector<QScxmlExecutableContent::ParameterInfo> &params)
+                              const QList<QScxmlExecutableContent::StringId> &namelist,
+                              const QList<QScxmlExecutableContent::ParameterInfo> &params)
         : QScxmlInvokableServiceFactory(invokeInfo, namelist, params)
     {}
 
@@ -485,9 +485,31 @@ private:
 
 class DynamicStateMachinePrivate : public QScxmlStateMachinePrivate
 {
+    struct DynamicMetaObject : public QAbstractDynamicMetaObject
+    {
+        QAbstractDynamicMetaObject *toDynamicMetaObject(QObject *) override
+        {
+            return this;
+        }
+
+        int metaCall(QObject *o, QMetaObject::Call c, int id, void **a) override
+        {
+            return o->qt_metacall(c, id, a);
+        }
+    };
+
 public:
     DynamicStateMachinePrivate() :
-        QScxmlStateMachinePrivate(&QScxmlStateMachine::staticMetaObject) {}
+        QScxmlStateMachinePrivate(&QScxmlStateMachine::staticMetaObject)
+    {
+        metaObject = new DynamicMetaObject;
+    }
+
+    void setDynamicMetaObject(const QMetaObject *m) {
+        // Prevent the QML engine from creating a property cache for this thing.
+        static_cast<DynamicMetaObject *>(metaObject)->d = m->d;
+        m_metaObject = m;
+    }
 };
 
 class DynamicStateMachine: public QScxmlStateMachine, public QScxmlInternal::GeneratedTableData
@@ -544,7 +566,7 @@ private:
         b.setClassName("DynamicStateMachine");
         b.setSuperClass(&QScxmlStateMachine::staticMetaObject);
         b.setStaticMetacallFunction(qt_static_metacall);
-        d->m_metaObject = b.toMetaObject();
+        d->setDynamicMetaObject(b.toMetaObject());
     }
 
     void initDynamicParts(const MetaDataInfo &info)
@@ -553,7 +575,7 @@ private:
         // Release the temporary QMetaObject.
         Q_ASSERT(d->m_metaObject != &QScxmlStateMachine::staticMetaObject);
         free(const_cast<QMetaObject *>(d->m_metaObject));
-        d->m_metaObject = &QScxmlStateMachine::staticMetaObject;
+        d->setDynamicMetaObject(&QScxmlStateMachine::staticMetaObject);
 
         // Build the real one.
         QMetaObjectBuilder b;
@@ -579,7 +601,7 @@ private:
         }
 
         // And we're done
-        d->m_metaObject = b.toMetaObject();
+        d->setDynamicMetaObject(b.toMetaObject());
     }
 
 public:
@@ -588,7 +610,7 @@ public:
         Q_D(DynamicStateMachine);
         if (d->m_metaObject != &QScxmlStateMachine::staticMetaObject) {
             free(const_cast<QMetaObject *>(d->m_metaObject));
-            d->m_metaObject = &QScxmlStateMachine::staticMetaObject;
+            d->setDynamicMetaObject(&QScxmlStateMachine::staticMetaObject);
         }
     }
 
@@ -602,8 +624,8 @@ public:
         DataModelInfo dm;
         auto factoryIdCreator = [stateMachine](
                 const QScxmlExecutableContent::InvokeInfo &invokeInfo,
-                const QVector<QScxmlExecutableContent::StringId> &namelist,
-                const QVector<QScxmlExecutableContent::ParameterInfo> &params,
+                const QList<QScxmlExecutableContent::StringId> &namelist,
+                const QList<QScxmlExecutableContent::ParameterInfo> &params,
                 const QSharedPointer<DocumentModel::ScxmlDocument> &content) -> int {
             auto factory = new InvokeDynamicScxmlFactory(invokeInfo, namelist, params);
             factory->setContent(content);
@@ -629,7 +651,7 @@ private:
     }
 
 private:
-    QVector<QScxmlInvokableServiceFactory *> m_allFactoriesById;
+    QList<QScxmlInvokableServiceFactory *> m_allFactoriesById;
     int m_propertyCount;
 };
 
@@ -840,7 +862,7 @@ QScxmlStateMachine *QScxmlCompilerPrivate::instantiateStateMachine() const
 void QScxmlCompilerPrivate::instantiateDataModel(QScxmlStateMachine *stateMachine) const
 {
 #ifdef BUILD_QSCXMLC
-    Q_UNUSED(stateMachine)
+    Q_UNUSED(stateMachine);
 #else
     if (!m_errors.isEmpty()) {
         qWarning() << "SCXML document has errors";
@@ -864,7 +886,7 @@ void QScxmlCompilerPrivate::instantiateDataModel(QScxmlStateMachine *stateMachin
 /*!
  * Returns the list of parse errors.
  */
-QVector<QScxmlError> QScxmlCompiler::errors() const
+QList<QScxmlError> QScxmlCompiler::errors() const
 {
     return d->errors();
 }
@@ -1008,7 +1030,7 @@ bool QScxmlCompilerPrivate::ParserState::isExecutableContent(ParserState::Kind k
     return false;
 }
 
-QScxmlCompilerPrivate::ParserState::Kind QScxmlCompilerPrivate::ParserState::nameToParserStateKind(const QStringRef &name)
+QScxmlCompilerPrivate::ParserState::Kind QScxmlCompilerPrivate::ParserState::nameToParserStateKind(QStringView name)
 {
     static QMap<QString, ParserState::Kind> nameToKind;
     if (nameToKind.isEmpty()) {
@@ -1333,7 +1355,7 @@ bool QScxmlCompilerPrivate::verifyDocument()
         this->addError(location, msg);
     };
 
-    if (ScxmlVerifier(handler).verify(m_doc.data()))
+    if (ScxmlVerifier(handler).verify(m_doc.get()))
         return true;
     else
         return false;
@@ -1341,7 +1363,7 @@ bool QScxmlCompilerPrivate::verifyDocument()
 
 DocumentModel::ScxmlDocument *QScxmlCompilerPrivate::scxmlDocument() const
 {
-    return m_doc && m_errors.isEmpty() ? m_doc.data() : nullptr;
+    return m_doc && m_errors.isEmpty() ? m_doc.get() : nullptr;
 }
 
 QString QScxmlCompilerPrivate::fileName() const
@@ -1372,7 +1394,7 @@ void QScxmlCompilerPrivate::parseSubDocument(DocumentModel::Invoke *parentInvoke
     p.setFileName(fileName);
     p.setLoader(loader());
     p.d->readDocument();
-    parentInvoke->content.reset(p.d->m_doc.take());
+    parentInvoke->content.reset(p.d->m_doc.release());
     m_doc->allSubDocuments.append(parentInvoke->content.data());
     m_errors.append(p.errors());
 }
@@ -1386,7 +1408,7 @@ bool QScxmlCompilerPrivate::parseSubElement(DocumentModel::Invoke *parentInvoke,
     p.setLoader(loader());
     p.d->resetDocument();
     bool ok = p.d->readElement();
-    parentInvoke->content.reset(p.d->m_doc.take());
+    parentInvoke->content.reset(p.d->m_doc.release());
     m_doc->allSubDocuments.append(parentInvoke->content.data());
     m_errors.append(p.errors());
     return ok;
@@ -1407,7 +1429,7 @@ bool QScxmlCompilerPrivate::preReadElementScxml()
         scxml->initial += initial.split(QChar::Space, Qt::SkipEmptyParts);
     }
 
-    const QStringRef datamodel = attributes.value(QLatin1String("datamodel"));
+    const QStringView datamodel = attributes.value(QLatin1String("datamodel"));
     if (datamodel.isEmpty() || datamodel == QLatin1String("null")) {
         scxml->dataModel = DocumentModel::Scxml::NullDataModel;
     } else if (datamodel == QLatin1String("ecmascript")) {
@@ -1431,7 +1453,7 @@ bool QScxmlCompilerPrivate::preReadElementScxml()
         addError(QStringLiteral("Unsupported data model '%1' in scxml")
                  .arg(datamodel.toString()));
     }
-    const QStringRef binding = attributes.value(QLatin1String("binding"));
+    const QStringView binding = attributes.value(QLatin1String("binding"));
     if (binding.isEmpty() || binding == QLatin1String("early")) {
         scxml->binding = DocumentModel::Scxml::EarlyBinding;
     } else if (binding == QLatin1String("late")) {
@@ -1441,7 +1463,7 @@ bool QScxmlCompilerPrivate::preReadElementScxml()
                  .arg(binding.toString()));
         return false;
     }
-    const QStringRef name = attributes.value(QLatin1String("name"));
+    const QStringView name = attributes.value(QLatin1String("name"));
     if (!name.isEmpty()) {
         scxml->name = name.toString();
     }
@@ -1529,7 +1551,7 @@ bool QScxmlCompilerPrivate::preReadElementTransition()
     transition->targets = attributes.value(QLatin1String("target")).toString().split(QLatin1Char(' '), Qt::SkipEmptyParts);
     if (attributes.hasAttribute(QStringLiteral("cond")))
         transition->condition.reset(new QString(attributes.value(QLatin1String("cond")).toString()));
-    QStringRef type = attributes.value(QLatin1String("type"));
+    QStringView type = attributes.value(QLatin1String("type"));
     if (type.isEmpty() || type == QLatin1String("external")) {
         transition->type = DocumentModel::Transition::External;
     } else if (type == QLatin1String("internal")) {
@@ -1565,7 +1587,7 @@ bool QScxmlCompilerPrivate::preReadElementHistory()
     if (!maybeId(attributes, &newState->id))
         return false;
 
-    const QStringRef type = attributes.value(QLatin1String("type"));
+    const QStringView type = attributes.value(QLatin1String("type"));
     if (type.isEmpty() || type == QLatin1String("shallow")) {
         newState->type = DocumentModel::HistoryState::Shallow;
     } else if (type == QLatin1String("deep")) {
@@ -1845,11 +1867,11 @@ bool QScxmlCompilerPrivate::preReadElementInvoke()
     invoke->idLocation = attributes.value(QLatin1String("idlocation")).toString();
     invoke->type = attributes.value(QLatin1String("type")).toString();
     invoke->typeexpr = attributes.value(QLatin1String("typeexpr")).toString();
-    QStringRef autoforwardS = attributes.value(QLatin1String("autoforward"));
-    if (QStringRef::compare(autoforwardS, QLatin1String("true"), Qt::CaseInsensitive) == 0
-            || QStringRef::compare(autoforwardS, QLatin1String("yes"), Qt::CaseInsensitive) == 0
-            || QStringRef::compare(autoforwardS, QLatin1String("t"), Qt::CaseInsensitive) == 0
-            || QStringRef::compare(autoforwardS, QLatin1String("y"), Qt::CaseInsensitive) == 0
+    QStringView autoforwardS = attributes.value(QLatin1String("autoforward"));
+    if (autoforwardS.compare(QLatin1String("true"), Qt::CaseInsensitive) == 0
+            || autoforwardS.compare(QLatin1String("yes"), Qt::CaseInsensitive) == 0
+            || autoforwardS.compare(QLatin1String("t"), Qt::CaseInsensitive) == 0
+            || autoforwardS.compare(QLatin1String("y"), Qt::CaseInsensitive) == 0
             || autoforwardS == QLatin1String("1"))
         invoke->autoforward = true;
     else
@@ -2113,7 +2135,7 @@ bool QScxmlCompilerPrivate::readDocument()
     for (bool finished = false; !finished && !m_reader->hasError();) {
         switch (m_reader->readNext()) {
         case QXmlStreamReader::StartElement : {
-            const QStringRef newTag = m_reader->name();
+            const QStringView newTag = m_reader->name();
             const ParserState::Kind newElementKind = ParserState::nameToParserStateKind(newTag);
 
             auto ns = m_reader->namespaceUri();
@@ -2154,7 +2176,7 @@ bool QScxmlCompilerPrivate::readDocument()
 
 bool QScxmlCompilerPrivate::readElement()
 {
-    const QStringRef currentTag = m_reader->name();
+    const QStringView currentTag = m_reader->name();
     const QXmlStreamAttributes attributes = m_reader->attributes();
 
     const ParserState::Kind elementKind = ParserState::nameToParserStateKind(currentTag);
@@ -2219,7 +2241,7 @@ bool QScxmlCompilerPrivate::readElement()
     for (bool finished = false; !finished && !m_reader->hasError();) {
         switch (m_reader->readNext()) {
         case QXmlStreamReader::StartElement : {
-            const QStringRef newTag = m_reader->name();
+            const QStringView newTag = m_reader->name();
             const ParserState::Kind newElementKind = ParserState::nameToParserStateKind(newTag);
 
             auto ns = m_reader->namespaceUri();
@@ -2327,7 +2349,7 @@ QByteArray QScxmlCompilerPrivate::load(const QString &name, bool *ok)
     return result;
 }
 
-QVector<QScxmlError> QScxmlCompilerPrivate::errors() const
+QList<QScxmlError> QScxmlCompilerPrivate::errors() const
 {
     return m_errors;
 }
@@ -2416,7 +2438,7 @@ bool QScxmlCompilerPrivate::checkAttributes(const QXmlStreamAttributes &attribut
 {
     QStringList required = requiredNames;
     for (const QXmlStreamAttribute &attribute : attributes) {
-        const QStringRef ns = attribute.namespaceUri();
+        const QStringView ns = attribute.namespaceUri();
         if (!ns.isEmpty() && ns != scxmlNamespace && ns != qtScxmlNamespace)
             continue;
 
@@ -2451,7 +2473,7 @@ QByteArray QScxmlCompilerPrivate::DefaultLoader::load(const QString &name, const
     const QUrl url(name);
     if (!url.isLocalFile() && !url.isRelative())
         errs << QStringLiteral("src attribute is not a local file (%1)").arg(name);
-    QFileInfo fInfo = url.isLocalFile() ? url.toLocalFile() : name;
+    QFileInfo fInfo(url.isLocalFile() ? url.toLocalFile() : name);
 #endif // BUILD_QSCXMLC
     if (fInfo.isRelative())
         fInfo = QFileInfo(QDir(baseDir).filePath(fInfo.filePath()));

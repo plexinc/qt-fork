@@ -53,7 +53,8 @@ enum DotNET {
     NET2013 = 0xc0,
     NET2015 = 0xd0,
     NET2017 = 0xe0,
-    NET2019
+    NET2019,
+    NET2022
 };
 
 DotNET vsVersionFromString(const ProString &versionString);
@@ -527,6 +528,7 @@ public:
     inlineExpansionOption   InlineFunctionExpansion;
     triState                KeepComments;
     QString                 LanguageStandard;
+    QString                 LanguageStandard_C;
     triState                MinimalRebuild;
     QString                 ObjectFile;
     triState                OmitDefaultLibName;
@@ -872,7 +874,6 @@ public:
 
     bool                    suppressUnknownOptionWarnings;
     DotNET                  CompilerVersion;
-    bool                    WinRT;
 
     // Variables
     triState                ATLMinimizesCRunTimeLibraryUsage;
@@ -959,7 +960,7 @@ public:
     VCCLCompilerTool        CompilerTool;
 };
 
-typedef QVector<VCFilter> VCFilterList;
+typedef QList<VCFilter> VCFilterList;
 class VCProjectSingleConfig
 {
 public:
@@ -1003,7 +1004,7 @@ public:
     const VCFilter &filterByName(const QString &name) const;
     const VCFilter &filterForExtraCompiler(const QString &compilerName) const;
 };
-Q_DECLARE_TYPEINFO(VCProjectSingleConfig, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(VCProjectSingleConfig, Q_RELOCATABLE_TYPE);
 
 // Tree & Flat view of files --------------------------------------------------
 class VCFilter;

@@ -48,8 +48,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.5
-import QtQuick.VirtualKeyboard 2.1
+// ![keyboard]
+import QtQuick
+import QtQuick.VirtualKeyboard
 
 InputPanel {
     visible: active
@@ -57,4 +58,5 @@ InputPanel {
     anchors.left: parent.left
     anchors.right: parent.right
 }
+// ![keyboard]
 

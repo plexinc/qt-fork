@@ -50,14 +50,17 @@
 
 #include "qaxbase.h"
 
+#include <QtAxBase/private/qaxtypefunctions_p.h>
+
 #include <qmetaobject.h>
 #include <quuid.h>
 #include <qt_windows.h>
 #include <qtextstream.h>
+#include <qiodevicebase.h>
 
 #include <ctype.h>
 
-#include "../shared/qaxtypes.h"
+#include "../shared/qaxtypes_p.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -117,10 +120,8 @@ static QByteArray namedPrototype(const QByteArrayList &parameterTypes, const QBy
 
 static QByteArray toType(const QByteArray &t)
 {
-    QByteArray type = t;
-    int vartype = QVariant::nameToType(type);
-    if (vartype == QVariant::Invalid)
-        type = "int";
+    QByteArray type = QMetaType::fromName(type).id() != QMetaType::UnknownType
+        ? t : QByteArrayLiteral("int");
 
     if (type.at(0) == 'Q')
         type.remove(0, 1);
@@ -137,7 +138,7 @@ static QByteArray toType(const QByteArray &t)
 
 QString qax_generateDocumentation(QAxBase *that)
 {
-    that->metaObject();
+    that->axBaseMetaObject();
 
     if (that->isNull())
         return QString();
@@ -149,9 +150,9 @@ QString qax_generateDocumentation(QAxBase *that)
         dispatch->GetTypeInfo(0, LOCALE_SYSTEM_DEFAULT, &typeInfo);
 
     QString docu;
-    QTextStream stream(&docu, QIODevice::WriteOnly);
+    QTextStream stream(&docu, QIODeviceBase::WriteOnly);
 
-    const QMetaObject *mo = that->metaObject();
+    const QMetaObject *mo = that->axBaseMetaObject();
     QString coClass  = QLatin1String(mo->classInfo(mo->indexOfClassInfo("CoClass")).value());
 
     stream << "<h1 align=center>" << coClass << " Reference</h1>" << Qt::endl;
@@ -323,14 +324,14 @@ QString qax_generateDocumentation(QAxBase *that)
                              QLatin1String(type.constData()) +
                              QLatin1Char(' ') + QLatin1String(name.constData()) + QLatin1String("</h3>\n");
             detail += docuFromName(typeInfo, QString::fromLatin1(name));
-            QVariant::Type vartype = QVariant::nameToType(type);
             if (!prop.isReadable())
                 continue;
 
-            if (prop.isEnumType())
-                vartype = QVariant::Int;
+            const int vartype = prop.isEnumType()
+                ? int(QMetaType::Int)
+                : QMetaType::fromName(type).id();
 
-            if (vartype != QVariant::Invalid) {
+            if (vartype != QMetaType::UnknownType) {
                 detail += QLatin1String("<p>Read this property's value using QObject::property:<pre>\n");
                 if (prop.isEnumType())
                     detail += QLatin1String("\tint val = ");

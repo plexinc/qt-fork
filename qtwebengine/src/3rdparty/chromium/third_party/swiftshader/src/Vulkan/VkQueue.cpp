@@ -102,11 +102,10 @@ VkResult Queue::submit(uint32_t submitCount, const VkSubmitInfo *pSubmits, Fence
 	Task task;
 	task.submitCount = submitCount;
 	task.pSubmits = DeepCopySubmitInfo(submitCount, pSubmits);
-	task.events = fence;
-
-	if(task.events)
+	if(fence)
 	{
-		task.events->start();
+		task.events = fence->getCountedEvent();
+		task.events->add();
 	}
 
 	pending.put(task);
@@ -132,7 +131,7 @@ void Queue::submitQueue(const Task &task)
 		{
 			CommandBuffer::ExecutionState executionState;
 			executionState.renderer = renderer.get();
-			executionState.events = task.events;
+			executionState.events = task.events.get();
 			for(uint32_t j = 0; j < submitInfo.commandBufferCount; j++)
 			{
 				vk::Cast(submitInfo.pCommandBuffers[j])->submit(executionState);
@@ -155,7 +154,7 @@ void Queue::submitQueue(const Task &task)
 		// TODO: fix renderer signaling so that work submitted separately from (but before) a fence
 		// is guaranteed complete by the time the fence signals.
 		renderer->synchronize();
-		task.events->finish();
+		task.events->done();
 	}
 }
 
@@ -187,14 +186,14 @@ void Queue::taskLoop(marl::Scheduler *scheduler)
 VkResult Queue::waitIdle()
 {
 	// Wait for task queue to flush.
-	sw::WaitGroup wg;
-	wg.add();
+	auto event = std::make_shared<sw::CountedEvent>();
+	event->add();  // done() is called at the end of submitQueue()
 
 	Task task;
-	task.events = &wg;
+	task.events = event;
 	pending.put(task);
 
-	wg.wait();
+	event->wait();
 
 	garbageCollect();
 
@@ -249,5 +248,20 @@ VkResult Queue::present(const VkPresentInfoKHR *presentInfo)
 	return commandResult;
 }
 #endif
+
+void Queue::beginDebugUtilsLabel(const VkDebugUtilsLabelEXT *pLabelInfo)
+{
+	// Optional debug label region
+}
+
+void Queue::endDebugUtilsLabel()
+{
+	// Close debug label region opened with beginDebugUtilsLabel()
+}
+
+void Queue::insertDebugUtilsLabel(const VkDebugUtilsLabelEXT *pLabelInfo)
+{
+	// Optional single debug label
+}
 
 }  // namespace vk

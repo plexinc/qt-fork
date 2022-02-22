@@ -74,7 +74,7 @@ public:
     Qt3DCore::Sqt localPose() const { return m_localPose; }
     QMatrix4x4 inverseBindMatrix() const { return m_inverseBindMatrix; }
     QString name() const { return m_name; }
-    QVector<Qt3DCore::QNodeId> childJointIds() const { return m_childJointIds; }
+    QList<Qt3DCore::QNodeId> childJointIds() const { return m_childJointIds; }
 
     QVector3D translation() const { return m_localPose.translation; }
     QQuaternion rotation() const { return m_localPose.rotation; }
@@ -92,7 +92,7 @@ public:
 private:
     QMatrix4x4 m_inverseBindMatrix;
     Qt3DCore::Sqt m_localPose;
-    QVector<Qt3DCore::QNodeId> m_childJointIds;
+    QList<Qt3DCore::QNodeId> m_childJointIds;
     QString m_name;
     JointManager *m_jointManager;
     SkeletonManager *m_skeletonManager;
@@ -105,7 +105,7 @@ public:
     explicit JointFunctor(AbstractRenderer *renderer,
                           JointManager *jointManager,
                           SkeletonManager *skeletonManager);
-    Qt3DCore::QBackendNode *create(const Qt3DCore::QNodeCreatedChangeBasePtr &change) const final;
+    Qt3DCore::QBackendNode *create(Qt3DCore::QNodeId id) const final;
     Qt3DCore::QBackendNode *get(Qt3DCore::QNodeId id) const final;
     void destroy(Qt3DCore::QNodeId id) const final;
 

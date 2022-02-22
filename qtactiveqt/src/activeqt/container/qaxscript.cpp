@@ -49,7 +49,8 @@
 ****************************************************************************/
 
 #include "qaxscript.h"
-#include "../shared/qaxutils_p.h"
+#include <QtAxBase/private/qaxutils_p.h>
+#include <QtAxBase/private/qaxtypefunctions_p.h>
 
 #if defined(Q_CC_GNU) && (__MINGW64_VERSION_MAJOR == 3 && __MINGW64_VERSION_MINOR > 0 || __MINGW64_VERSION_MAJOR >= 4)
 // Workaround for mingw-w64 bug #464
@@ -63,7 +64,7 @@
 #include <qmetaobject.h>
 #include <quuid.h>
 #include <qwidget.h>
-#include <qvector.h>
+#include <qlist.h>
 
 #include <qt_windows.h>
 #ifndef QT_NO_QAXSCRIPT
@@ -71,12 +72,12 @@
 #include <activscp.h>
 #endif
 
-#include "../shared/qaxtypes.h"
+#include "../shared/qaxtypes_p.h"
 
 QT_BEGIN_NAMESPACE
 
 struct QAxEngineDescriptor { QString name, extension, code; };
-static QVector<QAxEngineDescriptor> engines;
+static QList<QAxEngineDescriptor> engines;
 
 class QAxScriptManagerPrivate
 {

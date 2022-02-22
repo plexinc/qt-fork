@@ -11,6 +11,7 @@
 #include "src/gpu/GrCaps.h"
 
 #include "include/gpu/d3d/GrD3DTypes.h"
+#include "src/gpu/d3d/GrD3DAttachment.h"
 
 class GrShaderCaps;
 
@@ -26,7 +27,6 @@ public:
     GrD3DCaps(const GrContextOptions& contextOptions, IDXGIAdapter1*, ID3D12Device*);
 
     bool isFormatSRGB(const GrBackendFormat&) const override;
-    SkImage::CompressionType compressionType(const GrBackendFormat&) const override;
 
     bool isFormatTexturable(const GrBackendFormat&) const override;
     bool isFormatTexturable(DXGI_FORMAT) const;
@@ -44,8 +44,7 @@ public:
     int maxRenderTargetSampleCount(const GrBackendFormat&) const override;
     int maxRenderTargetSampleCount(DXGI_FORMAT) const;
 
-    size_t bytesPerPixel(const GrBackendFormat&) const override;
-    size_t bytesPerPixel(DXGI_FORMAT) const;
+    GrColorType getFormatColorType(DXGI_FORMAT) const;
 
     SupportedWrite supportedWritePixelsColorType(GrColorType surfaceColorType,
                                                  const GrBackendFormat& surfaceFormat,
@@ -53,8 +52,35 @@ public:
 
     SurfaceReadPixelsSupport surfaceSupportsReadPixels(const GrSurface*) const override;
 
-    GrColorType getYUVAColorTypeFromBackendFormat(const GrBackendFormat&,
-                                                  bool isAlphaChannel) const override;
+    /**
+     * Returns both a supported and most preferred stencil format to use in draws.
+     */
+    DXGI_FORMAT preferredStencilFormat() const {
+        return fPreferredStencilFormat;
+    }
+    static int GetStencilFormatTotalBitCount(DXGI_FORMAT format) {
+        switch (format) {
+        case DXGI_FORMAT_D24_UNORM_S8_UINT:
+            return 32;
+        case DXGI_FORMAT_D32_FLOAT_S8X24_UINT:
+            // DXGI_FORMAT_D32_FLOAT_S8X24_UINT has 24 unused bits at the end so total bits is 64.
+            return 64;
+        default:
+            SkASSERT(false);
+            return 0;
+        }
+    }
+
+    /**
+     * Helpers used by canCopySurface. In all cases if the SampleCnt parameter is zero that means
+     * the surface is not a render target, otherwise it is the number of samples in the render
+     * target.
+     */
+    bool canCopyTexture(DXGI_FORMAT dstFormat, int dstSampleCnt,
+                        DXGI_FORMAT srcFormat, int srcSamplecnt) const;
+
+    bool canCopyAsResolve(DXGI_FORMAT dstFormat, int dstSampleCnt,
+                          DXGI_FORMAT srcFormat, int srcSamplecnt) const;
 
     GrBackendFormat getBackendFormatFromCompressionType(SkImage::CompressionType) const override;
 
@@ -63,7 +89,6 @@ public:
         return fColorTypeToFormatTable[idx];
     }
 
-    GrSwizzle getReadSwizzle(const GrBackendFormat&, GrColorType) const override;
     GrSwizzle getWriteSwizzle(const GrBackendFormat&, GrColorType) const override;
 
     uint64_t computeFormatKey(const GrBackendFormat&) const override;
@@ -72,7 +97,9 @@ public:
                             GrSamplerState,
                             const GrBackendFormat&) const override;
 
-    GrProgramDesc makeDesc(const GrRenderTarget*, const GrProgramInfo&) const override;
+    GrProgramDesc makeDesc(GrRenderTarget*,
+                           const GrProgramInfo&,
+                           ProgramDescOverrideFlags) const override;
 
 #if GR_TEST_UTILS
     std::vector<TestFormatColorTypeCombination> getTestingCombinations() const override;
@@ -91,10 +118,11 @@ private:
     void init(const GrContextOptions& contextOptions, IDXGIAdapter1*, ID3D12Device*);
 
     void initGrCaps(const D3D12_FEATURE_DATA_D3D12_OPTIONS&,
-                    const D3D12_FEATURE_DATA_D3D12_OPTIONS2&);
+                    ID3D12Device*);
     void initShaderCaps(int vendorID, const D3D12_FEATURE_DATA_D3D12_OPTIONS& optionsDesc);
 
     void initFormatTable(const DXGI_ADAPTER_DESC&, ID3D12Device*);
+    void initStencilFormat(ID3D12Device*);
 
     void applyDriverCorrectnessWorkarounds(int vendorID);
 
@@ -107,6 +135,8 @@ private:
 
     SupportedRead onSupportedReadPixelsColorType(GrColorType, const GrBackendFormat&,
                                                  GrColorType) const override;
+
+    GrSwizzle onGetReadSwizzle(const GrBackendFormat&, GrColorType) const override;
 
     // ColorTypeInfo for a specific format
     struct ColorTypeInfo {
@@ -150,13 +180,16 @@ private:
         uint16_t fFlags = 0;
 
         SkTDArray<int> fColorSampleCounts;
-        // This value is only valid for regular formats. Compressed formats will be 0.
-        size_t fBytesPerPixel = 0;
+
+        // This GrColorType represents how the actually GPU format lays out its memory. This is used
+        // for uploading data to backend textures to make sure we've arranged the memory in the
+        // correct order.
+        GrColorType fFormatColorType = GrColorType::kUnknown;
 
         std::unique_ptr<ColorTypeInfo[]> fColorTypeInfos;
         int fColorTypeInfoCount = 0;
     };
-    static const size_t kNumDxgiFormats = 16;
+    static const size_t kNumDxgiFormats = 15;
     FormatInfo fFormatTable[kNumDxgiFormats];
 
     FormatInfo& getFormatInfo(DXGI_FORMAT);
@@ -168,7 +201,9 @@ private:
     int fMaxPerStageShaderResourceViews;
     int fMaxPerStageUnorderedAccessViews;
 
-    typedef GrCaps INHERITED;
+    DXGI_FORMAT fPreferredStencilFormat;
+
+    using INHERITED = GrCaps;
 };
 
 #endif

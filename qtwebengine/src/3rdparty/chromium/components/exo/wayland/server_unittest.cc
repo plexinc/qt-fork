@@ -16,9 +16,14 @@
 #include "base/process/process_handle.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread.h"
+#include "build/chromeos_buildflags.h"
 #include "components/exo/display.h"
 #include "components/exo/test/exo_test_base_views.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "components/exo/test/exo_test_base.h"
+#endif
 
 namespace exo {
 namespace wayland {
@@ -31,22 +36,32 @@ std::string GetUniqueSocketName() {
                             g_next_socket_id.GetNext());
 }
 
-class ServerTest : public test::ExoTestBaseViews {
+// Use ExoTestBase on Chrome OS because Server starts to depends on ash::Shell,
+// which is unavailable on other platforms so then ExoTestBaseViews instead.
+using TestBase =
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+    test::ExoTestBase
+#else
+    test::ExoTestBaseViews
+#endif
+    ;
+
+class ServerTest : public TestBase {
  public:
-  ServerTest() {}
-  ~ServerTest() override {}
+  ServerTest() = default;
+  ServerTest(const ServerTest&) = delete;
+  ServerTest& operator=(const ServerTest&) = delete;
+  ~ServerTest() override = default;
 
   void SetUp() override {
     ASSERT_TRUE(xdg_temp_dir_.CreateUniqueTempDir());
     setenv("XDG_RUNTIME_DIR", xdg_temp_dir_.GetPath().MaybeAsASCII().c_str(),
            1 /* overwrite */);
-    test::ExoTestBaseViews::SetUp();
+    TestBase::SetUp();
   }
 
  private:
   base::ScopedTempDir xdg_temp_dir_;
-
-  DISALLOW_COPY_AND_ASSIGN(ServerTest);
 };
 
 TEST_F(ServerTest, AddSocket) {

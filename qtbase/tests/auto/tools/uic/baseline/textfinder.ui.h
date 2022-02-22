@@ -1,7 +1,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'textfinder.ui'
 **
-** Created by: Qt User Interface Compiler version 5.12.0
+** Created by: Qt User Interface Compiler version 6.0.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -86,7 +86,7 @@ public:
 #endif // QT_CONFIG(shortcut)
 
         retranslateUi(Form);
-        QObject::connect(lineEdit, SIGNAL(returnPressed()), findButton, SLOT(animateClick()));
+        QObject::connect(lineEdit, &QLineEdit::returnPressed, findButton, qOverload<>(&QPushButton::animateClick));
 
         QMetaObject::connectSlotsByName(Form);
     } // setupUi

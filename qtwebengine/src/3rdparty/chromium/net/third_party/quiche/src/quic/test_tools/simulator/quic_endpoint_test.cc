@@ -2,16 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/test_tools/simulator/quic_endpoint.h"
+#include "quic/test_tools/simulator/quic_endpoint.h"
 
 #include <utility>
 
-#include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_connection_peer.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
-#include "net/third_party/quiche/src/quic/test_tools/simulator/simulator.h"
-#include "net/third_party/quiche/src/quic/test_tools/simulator/switch.h"
+#include "quic/platform/api/quic_flags.h"
+#include "quic/platform/api/quic_test.h"
+#include "quic/test_tools/quic_connection_peer.h"
+#include "quic/test_tools/quic_test_utils.h"
+#include "quic/test_tools/simulator/simulator.h"
+#include "quic/test_tools/simulator/switch.h"
 
 using ::testing::_;
 using ::testing::NiceMock;
@@ -155,8 +155,6 @@ TEST_F(QuicEndpointTest, TwoWayTransmission) {
 
 // Simulate three hosts trying to send data to a fourth one simultaneously.
 TEST_F(QuicEndpointTest, Competition) {
-  // TODO(63765788): Turn back on this flag when the issue if fixed.
-  SetQuicReloadableFlag(quic_bbr_one_mss_conservation, false);
   auto endpoint_a = std::make_unique<QuicEndpoint>(
       &simulator_, "Endpoint A", "Endpoint D (A)", Perspective::IS_CLIENT,
       test::TestConnectionId(42));

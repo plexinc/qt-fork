@@ -8,8 +8,8 @@
 
 #include "base/bind.h"
 #include "base/task/post_task.h"
+#include "content/browser/service_worker/service_worker_container_host.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
-#include "content/browser/service_worker/service_worker_main_resource_handle_core.h"
 #include "content/common/service_worker/service_worker_utils.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -18,27 +18,22 @@
 namespace content {
 
 ServiceWorkerMainResourceHandle::ServiceWorkerMainResourceHandle(
-    ServiceWorkerContextWrapper* context_wrapper)
-    : context_wrapper_(context_wrapper) {
+    scoped_refptr<ServiceWorkerContextWrapper> context_wrapper,
+    ServiceWorkerAccessedCallback on_service_worker_accessed)
+    : service_worker_accessed_callback_(std::move(on_service_worker_accessed)),
+      context_wrapper_(std::move(context_wrapper)) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  core_ = new ServiceWorkerMainResourceHandleCore(weak_factory_.GetWeakPtr(),
-                                                  context_wrapper);
 }
 
-ServiceWorkerMainResourceHandle::~ServiceWorkerMainResourceHandle() {
-  DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  // Delete the ServiceWorkerMainResourceHandleCore on the core thread.
-  BrowserThread::DeleteSoon(ServiceWorkerContext::GetCoreThreadId(), FROM_HERE,
-                            core_);
-}
+ServiceWorkerMainResourceHandle::~ServiceWorkerMainResourceHandle() = default;
 
-void ServiceWorkerMainResourceHandle::OnCreatedProviderHost(
-    blink::mojom::ServiceWorkerProviderInfoForClientPtr provider_info) {
+void ServiceWorkerMainResourceHandle::OnCreatedContainerHost(
+    blink::mojom::ServiceWorkerContainerInfoForClientPtr container_info) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  DCHECK(provider_info->host_remote.is_valid() &&
-         provider_info->client_receiver.is_valid());
+  DCHECK(container_info->host_remote.is_valid() &&
+         container_info->client_receiver.is_valid());
 
-  provider_info_ = std::move(provider_info);
+  container_info_ = std::move(container_info);
 }
 
 void ServiceWorkerMainResourceHandle::OnBeginNavigationCommit(
@@ -47,27 +42,35 @@ void ServiceWorkerMainResourceHandle::OnBeginNavigationCommit(
     const network::CrossOriginEmbedderPolicy& cross_origin_embedder_policy,
     mojo::PendingRemote<network::mojom::CrossOriginEmbedderPolicyReporter>
         coep_reporter,
-    blink::mojom::ServiceWorkerProviderInfoForClientPtr* out_provider_info) {
+    blink::mojom::ServiceWorkerContainerInfoForClientPtr* out_container_info,
+    ukm::SourceId document_ukm_source_id) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  // We may have failed to pre-create the provider host.
-  if (!provider_info_)
+  // We may have failed to pre-create the container host.
+  if (!container_info_)
     return;
-  ServiceWorkerContextWrapper::RunOrPostTaskOnCoreThread(
-      FROM_HERE,
-      base::BindOnce(
-          &ServiceWorkerMainResourceHandleCore::OnBeginNavigationCommit,
-          base::Unretained(core_), render_process_id, render_frame_id,
-          cross_origin_embedder_policy, std::move(coep_reporter)));
-  *out_provider_info = std::move(provider_info_);
+  *out_container_info = std::move(container_info_);
+
+  if (container_host_) {
+    container_host_->OnBeginNavigationCommit(
+        render_process_id, render_frame_id, cross_origin_embedder_policy,
+        std::move(coep_reporter), document_ukm_source_id);
+  }
+}
+
+void ServiceWorkerMainResourceHandle::OnEndNavigationCommit() {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  if (container_host_)
+    container_host_->OnEndNavigationCommit();
 }
 
 void ServiceWorkerMainResourceHandle::OnBeginWorkerCommit(
-    const network::CrossOriginEmbedderPolicy& cross_origin_embedder_policy) {
+    const network::CrossOriginEmbedderPolicy& cross_origin_embedder_policy,
+    ukm::SourceId worker_ukm_source_id) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  ServiceWorkerContextWrapper::RunOrPostTaskOnCoreThread(
-      FROM_HERE,
-      base::BindOnce(&ServiceWorkerMainResourceHandleCore::OnBeginWorkerCommit,
-                     base::Unretained(core_), cross_origin_embedder_policy));
+  if (container_host_) {
+    container_host_->CompleteWebWorkerPreparation(cross_origin_embedder_policy,
+                                                  worker_ukm_source_id);
+  }
 }
 
 }  // namespace content

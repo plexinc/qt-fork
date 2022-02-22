@@ -50,30 +50,33 @@ HTMLMapElement* AXImageMapLink::MapElement() const {
   return Traversal<HTMLMapElement>::FirstAncestor(*area);
 }
 
-AXObject* AXImageMapLink::ComputeParent() const {
-  DCHECK(!IsDetached());
-  if (parent_)
-    return parent_;
-
-  if (!MapElement())
-    return nullptr;
-
-  return AXObjectCache().GetOrCreate(MapElement()->GetLayoutObject());
+AXObject* AXImageMapLink::ComputeParentImpl() const {
+  if (MapElement()) {
+    AXObject* ax_parent =
+        AXObjectCache().GetOrCreate(MapElement()->GetLayoutObject());
+    if (ax_parent)
+      return ax_parent;
+  }
+  return AXNodeObject::ComputeParentImpl();
 }
 
-ax::mojom::Role AXImageMapLink::RoleValue() const {
-  const AtomicString& aria_role =
-      GetAOMPropertyOrARIAAttribute(AOMStringProperty::kRole);
-  if (!aria_role.IsEmpty())
-    return AXObject::AriaRoleToWebCoreRole(aria_role);
-
+ax::mojom::blink::Role AXImageMapLink::DetermineAccessibilityRole() {
   // https://www.w3.org/TR/html-aam-1.0/#html-element-role-mappings
   // <area> tags without an href should be treated as static text.
+  // If the area has child nodes, those will be rendered naturally, and the
+  // role needs to be a generic container role that allows children.
   KURL url = Url();
-  if (url.IsNull() || url.IsEmpty())
-    return ax::mojom::Role::kStaticText;
+  bool has_url = !url.IsNull() && !url.IsEmpty();
+  if (has_url)
+    native_role_ = ax::mojom::blink::Role::kLink;
+  else if (!GetElement()->hasChildren())
+    native_role_ = ax::mojom::blink::Role::kStaticText;
+  else
+    native_role_ = ax::mojom::blink::Role::kGenericContainer;
 
-  return ax::mojom::Role::kLink;
+  aria_role_ = DetermineAriaRoleAttribute();
+  return aria_role_ == ax::mojom::blink::Role::kUnknown ? native_role_
+                                                        : aria_role_;
 }
 
 bool AXImageMapLink::ComputeAccessibilityIsIgnored(
@@ -122,7 +125,11 @@ void AXImageMapLink::GetRelativeBounds(AXObject** out_container,
   *out_container = AXObjectCache().GetOrCreate(layout_object);
 }
 
-void AXImageMapLink::Trace(Visitor* visitor) {
+bool AXImageMapLink::IsImageMapLink() const {
+  return true;
+}
+
+void AXImageMapLink::Trace(Visitor* visitor) const {
   AXNodeObject::Trace(visitor);
 }
 

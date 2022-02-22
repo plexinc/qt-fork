@@ -42,43 +42,44 @@
 // We mean it.
 //
 
-#include <QtQuick3DRender/private/qssgrenderbasetypes_p.h>
+#include <QtQuick3DUtils/private/qssgrenderbasetypes_p.h>
 
 QT_BEGIN_NAMESPACE
 
-class QSSGResourceManager;
-class QSSGResourceTexture2D;
-class QSSGRenderContext;
-
-class QSSGRendererUtil
+namespace QSSGRendererUtil
 {
-    static const qint16 MAX_SSAA_DIM = 8192; // max render traget size for SSAA mode
+inline constexpr quint32 nextMultipleOf4(quint32 value) {
+    return (value + 3) & ~3;
+}
+}
 
+class QSSGRenderPath
+{
 public:
-    static void resolveMutisampleFBOColorOnly(const QSSGRef<QSSGResourceManager> &inManager,
-                                              QSSGResourceTexture2D &ioResult,
-                                              QSSGRenderContext &inRenderContext,
-                                              qint32 inWidth,
-                                              qint32 inHeight,
-                                              QSSGRenderTextureFormat inColorFormat,
-                                              const QSSGRef<QSSGRenderFrameBuffer> &inSourceFBO);
+    QSSGRenderPath() = default;
+    explicit inline QSSGRenderPath(const QString &p) noexcept
+        : m_path(p), m_key(qHash(p, qGlobalQHashSeed())) {}
 
-    static void resolveSSAAFBOColorOnly(const QSSGRef<QSSGResourceManager> &inManager,
-                                        QSSGResourceTexture2D &ioResult,
-                                        qint32 outWidth,
-                                        qint32 outHeight,
-                                        QSSGRenderContext &inRenderContext,
-                                        qint32 inWidth,
-                                        qint32 inHeight,
-                                        QSSGRenderTextureFormat inColorFormat,
-                                        const QSSGRef<QSSGRenderFrameBuffer> &inSourceFBO);
-
-    static void getSSAARenderSize(qint32 inWidth, qint32 inHeight, qint32 &outWidth, qint32 &outHeight);
-
-    static quint32 nextMultipleOf4(quint32 value) {
-        return (value + 3) & ~3;
-    }
+    inline bool isNull() const { return m_path.isNull(); }
+    inline bool isEmpty() const { return m_path.isEmpty(); }
+    QString path() const { return m_path; }
+private:
+    friend bool operator==(const QSSGRenderPath &, const QSSGRenderPath &);
+    friend size_t qHash(const QSSGRenderPath &, size_t) Q_DECL_NOTHROW;
+    QString m_path;
+    size_t m_key = 0;
 };
+
+inline bool operator==(const QSSGRenderPath &p1, const QSSGRenderPath &p2)
+{
+    return (p1.m_key == p2.m_key) && (p1.m_path == p2.m_path);
+}
+
+inline size_t qHash(const QSSGRenderPath &path, size_t seed) Q_DECL_NOTHROW
+{
+    return (path.m_key) ? path.m_key : qHash(path.m_path, seed);
+}
+
 QT_END_NAMESPACE
 
 #endif

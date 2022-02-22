@@ -53,6 +53,7 @@
 
 #include <QtCore/qpointer.h>
 #include <QtQuick/QQuickItem>
+#include <Qt3DCore/qentity.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -69,7 +70,6 @@ class QCamera;
 class QRenderAspect;
 class Scene3DRenderer;
 class Scene3DCleaner;
-class Scene3DView;
 class QFrameGraphNode;
 class QRenderSurfaceSelector;
 class AspectEngineDestroyer;
@@ -110,9 +110,6 @@ public:
     Q_ENUM(CompositingMode) // LCOV_EXCL_LINE
     CompositingMode compositingMode() const;
 
-    void addView(Scene3DView *view);
-    void removeView(Scene3DView *view);
-
 public Q_SLOTS:
     void setAspects(const QStringList &aspects);
     void setEntity(Qt3DCore::QEntity *entity);
@@ -147,8 +144,6 @@ private:
 
     QStringList m_aspects;
     Qt3DCore::QEntity *m_entity;
-    Qt3DCore::QEntity *m_viewHolderEntity;
-    Qt3DRender::QFrameGraphNode *m_viewHolderFG;
 
     Qt3DCore::QAspectEngine *m_aspectEngine;
     Qt3DCore::QAspectEngine *m_aspectToDelete;
@@ -157,9 +152,6 @@ private:
 
     bool m_multisample;
     bool m_dirty;
-    bool m_dirtyViews;
-    bool m_clearsWindowByDefault;
-    bool m_disableClearWindow;
     bool m_wasFrameProcessed;
     bool m_wasSGUpdated;
 
@@ -167,8 +159,10 @@ private:
     CameraAspectRatioMode m_cameraAspectRatioMode;
     CompositingMode m_compositingMode;
     QOffscreenSurface *m_dummySurface;
-    QVector<Scene3DView *> m_views;
     QMetaObject::Connection m_windowConnection;
+    qint8 m_framesToRender;
+
+    static const qint8 ms_framesNeededToFlushPipeline = 2;
 };
 
 } // Qt3DRender

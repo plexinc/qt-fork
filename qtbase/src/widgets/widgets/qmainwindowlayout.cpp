@@ -200,7 +200,6 @@ public:
     QDockWidgetGroupLayout(QDockWidgetGroupWindow* parent) : QLayout(parent) {
         setSizeConstraint(QLayout::SetMinAndMaxSize);
         resizer = new QWidgetResizeHandler(parent);
-        resizer->setMovingEnabled(false);
     }
     ~QDockWidgetGroupLayout() {
         layoutState.deleteAllLayoutItems();
@@ -259,7 +258,7 @@ public:
         li->apply(false);
         if (savedState.rect.isValid())
             savedState.rect = li->rect;
-        resizer->setActive(QWidgetResizeHandler::Resize, !nativeWindowDeco());
+        resizer->setEnabled(!nativeWindowDeco());
     }
 
     QDockAreaLayoutInfo *dockAreaLayoutInfo() { return &layoutState; }
@@ -342,7 +341,7 @@ void QDockWidgetGroupWindow::paintEvent(QPaintEvent *)
 
     if (!nativeDeco) {
         QStyleOptionFrame framOpt;
-        framOpt.init(this);
+        framOpt.initFrom(this);
         QStylePainter p(this);
         p.drawPrimitive(QStyle::PE_FrameDockWidget, framOpt);
     }
@@ -647,7 +646,7 @@ QSize QMainWindowLayoutState::sizeHint() const
 #if QT_CONFIG(dockwidget)
     result = dockAreaLayout.sizeHint();
 #else
-    if (centralWidgetItem != 0)
+    if (centralWidgetItem)
         result = centralWidgetItem->sizeHint();
 #endif
 
@@ -665,7 +664,7 @@ QSize QMainWindowLayoutState::minimumSize() const
 #if QT_CONFIG(dockwidget)
     result = dockAreaLayout.minimumSize();
 #else
-    if (centralWidgetItem != 0)
+    if (centralWidgetItem)
         result = centralWidgetItem->minimumSize();
 #endif
 
@@ -686,9 +685,9 @@ void QMainWindowLayoutState::apply(bool animated)
 //    dumpLayout(dockAreaLayout, QString());
     dockAreaLayout.apply(animated);
 #else
-    if (centralWidgetItem != 0) {
+    if (centralWidgetItem) {
         QMainWindowLayout *layout = qt_mainwindow_layout(mainWindow);
-        Q_ASSERT(layout != 0);
+        Q_ASSERT(layout);
         layout->widgetAnimator.animate(centralWidgetItem->widget(), centralWidgetRect, animated);
     }
 #endif
@@ -745,7 +744,7 @@ QLayoutItem *QMainWindowLayoutState::itemAt(int index, int *x) const
     if (QLayoutItem *ret = dockAreaLayout.itemAt(x, index))
         return ret;
 #else
-    if (centralWidgetItem != 0 && (*x)++ == index)
+    if (centralWidgetItem  && (*x)++ == index)
         return centralWidgetItem;
 #endif
 
@@ -763,9 +762,9 @@ QLayoutItem *QMainWindowLayoutState::takeAt(int index, int *x)
     if (QLayoutItem *ret = dockAreaLayout.takeAt(x, index))
         return ret;
 #else
-    if (centralWidgetItem != 0 && (*x)++ == index) {
+    if (centralWidgetItem && (*x)++ == index) {
         QLayoutItem *ret = centralWidgetItem;
-        centralWidgetItem = 0;
+        centralWidgetItem = nullptr;
         return ret;
     }
 #endif
@@ -808,7 +807,7 @@ bool QMainWindowLayoutState::contains(QWidget *widget) const
     if (!dockAreaLayout.indexOf(widget).isEmpty())
         return true;
 #else
-    if (centralWidgetItem != 0 && centralWidgetItem->widget() == widget)
+    if (centralWidgetItem && centralWidgetItem->widget() == widget)
         return true;
 #endif
 
@@ -857,7 +856,7 @@ QList<int> QMainWindowLayoutState::gapIndex(QWidget *widget,
 
 #if QT_CONFIG(toolbar)
     // is it a toolbar?
-    if (qobject_cast<QToolBar*>(widget) != 0) {
+    if (qobject_cast<QToolBar*>(widget) != nullptr) {
         result = toolBarAreaLayout.gapIndex(pos);
         if (!result.isEmpty())
             result.prepend(0);
@@ -867,7 +866,7 @@ QList<int> QMainWindowLayoutState::gapIndex(QWidget *widget,
 
 #if QT_CONFIG(dockwidget)
     // is it a dock widget?
-    if (qobject_cast<QDockWidget *>(widget) != 0
+    if (qobject_cast<QDockWidget *>(widget) != nullptr
             || qobject_cast<QDockWidgetGroupWindow *>(widget)) {
         bool disallowTabs = false;
 #if QT_CONFIG(tabbar)
@@ -895,7 +894,7 @@ bool QMainWindowLayoutState::insertGap(const QList<int> &path, QLayoutItem *item
 
 #if QT_CONFIG(toolbar)
     if (i == 0) {
-        Q_ASSERT(qobject_cast<QToolBar*>(item->widget()) != 0);
+        Q_ASSERT(qobject_cast<QToolBar*>(item->widget()) != nullptr);
         return toolBarAreaLayout.insertGap(path.mid(1), item);
     }
 #endif
@@ -1714,7 +1713,7 @@ void QMainWindowTabBar::mouseMoveEvent(QMouseEvent *e)
         int offset = QApplication::startDragDistance() + 1;
         offset *= 3;
         QRect r = rect().adjusted(-offset, -offset, offset, offset);
-        if (d->dragInProgress && !r.contains(e->pos()) && d->validIndex(d->pressedIndex)) {
+        if (d->dragInProgress && !r.contains(e->position().toPoint()) && d->validIndex(d->pressedIndex)) {
             QMainWindowLayout* mlayout = qt_mainwindow_layout(mainWindow);
             QDockAreaLayoutInfo *info = mlayout->dockInfo(this);
             Q_ASSERT(info);
@@ -1744,7 +1743,7 @@ void QMainWindowTabBar::mouseMoveEvent(QMouseEvent *e)
     if (draggingDock) {
         QDockWidgetPrivate *dockPriv = static_cast<QDockWidgetPrivate *>(QObjectPrivate::get(draggingDock));
         if (dockPriv->state && dockPriv->state->dragging) {
-            QPoint pos = e->globalPos() - dockPriv->state->pressPos;
+            QPoint pos = e->globalPosition().toPoint() - dockPriv->state->pressPos;
             draggingDock->move(pos);
             // move will call QMainWindowLayout::hover
         }
@@ -1896,8 +1895,10 @@ void QMainWindowLayout::raise(QDockWidget *widget)
 
 int QMainWindowLayout::count() const
 {
-    qWarning("QMainWindowLayout::count: ?");
-    return 0; //#################################################
+    int result = 0;
+    while (itemAt(result))
+        ++result;
+    return result;
 }
 
 QLayoutItem *QMainWindowLayout::itemAt(int index) const
@@ -2154,7 +2155,7 @@ bool QMainWindowLayout::plug(QLayoutItem *widgetItem)
     QRect globalRect = currentGapRect;
     globalRect.moveTopLeft(parentWidget()->mapToGlobal(globalRect.topLeft()));
 #if QT_CONFIG(dockwidget)
-    if (qobject_cast<QDockWidget*>(widget) != 0) {
+    if (qobject_cast<QDockWidget*>(widget) != nullptr) {
         QDockWidgetLayout *layout = qobject_cast<QDockWidgetLayout*>(widget->layout());
         if (layout->nativeWindowDeco()) {
             globalRect.adjust(0, layout->titleHeight(), 0, 0);
@@ -2261,7 +2262,7 @@ void QMainWindowLayout::animationFinished(QWidget *widget)
 
 #if QT_CONFIG(dockwidget)
 #if QT_CONFIG(tabbar)
-        if (qobject_cast<QDockWidget*>(widget) != 0) {
+        if (qobject_cast<QDockWidget*>(widget) != nullptr) {
             // info() might return null if the widget is destroyed while
             // animating but before the animationFinished signal is received.
             if (QDockAreaLayoutInfo *info = dockInfo(widget))
@@ -2592,7 +2593,7 @@ void QMainWindowLayout::hover(QLayoutItem *widgetItem, const QPoint &mousePos)
                 continue;
             if (!qobject_cast<QDockWidget*>(w) && !qobject_cast<QDockWidgetGroupWindow *>(w))
                 continue;
-            if (w != widget && w->isTopLevel() && w->isVisible() && !w->isMinimized())
+            if (w != widget && w->isWindow() && w->isVisible() && !w->isMinimized())
                 candidates << w;
             if (QDockWidgetGroupWindow *group = qobject_cast<QDockWidgetGroupWindow *>(w)) {
                 // Sometimes, there are floating QDockWidget that have a QDockWidgetGroupWindow as a parent.

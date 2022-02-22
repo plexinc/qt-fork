@@ -21,7 +21,7 @@
 #include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/post_task.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/version.h"
@@ -32,6 +32,7 @@
 #include "components/update_client/component.h"
 #include "components/update_client/net/url_loader_post_interceptor.h"
 #include "components/update_client/persisted_data.h"
+#include "components/update_client/test_activity_data_service.h"
 #include "components/update_client/test_configurator.h"
 #include "components/update_client/update_engine.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -55,58 +56,6 @@ base::FilePath test_file(const char* file) {
 }
 
 const char kUpdateItemId[] = "jebgalgnebhfojomionfpkfelancnnkf";
-
-class ActivityDataServiceTest final : public ActivityDataService {
- public:
-  bool GetActiveBit(const std::string& id) const override;
-  void ClearActiveBit(const std::string& id) override;
-  int GetDaysSinceLastActive(const std::string& id) const override;
-  int GetDaysSinceLastRollCall(const std::string& id) const override;
-
-  void SetActiveBit(const std::string& id, bool value);
-  void SetDaysSinceLastActive(const std::string& id, int daynum);
-  void SetDaysSinceLastRollCall(const std::string& id, int daynum);
-
- private:
-  std::map<std::string, bool> actives_;
-  std::map<std::string, int> days_since_last_actives_;
-  std::map<std::string, int> days_since_last_rollcalls_;
-};
-
-bool ActivityDataServiceTest::GetActiveBit(const std::string& id) const {
-  const auto& it = actives_.find(id);
-  return it != actives_.end() ? it->second : false;
-}
-
-void ActivityDataServiceTest::ClearActiveBit(const std::string& id) {
-  SetActiveBit(id, false);
-}
-
-int ActivityDataServiceTest::GetDaysSinceLastActive(
-    const std::string& id) const {
-  const auto& it = days_since_last_actives_.find(id);
-  return it != days_since_last_actives_.end() ? it->second : -2;
-}
-
-int ActivityDataServiceTest::GetDaysSinceLastRollCall(
-    const std::string& id) const {
-  const auto& it = days_since_last_rollcalls_.find(id);
-  return it != days_since_last_rollcalls_.end() ? it->second : -2;
-}
-
-void ActivityDataServiceTest::SetActiveBit(const std::string& id, bool value) {
-  actives_[id] = value;
-}
-
-void ActivityDataServiceTest::SetDaysSinceLastActive(const std::string& id,
-                                                     int daynum) {
-  days_since_last_actives_[id] = daynum;
-}
-
-void ActivityDataServiceTest::SetDaysSinceLastRollCall(const std::string& id,
-                                                       int daynum) {
-  days_since_last_rollcalls_[id] = daynum;
-}
 
 }  // namespace
 
@@ -132,7 +81,7 @@ class UpdateCheckerTest : public testing::TestWithParam<bool> {
   std::unique_ptr<Component> MakeComponent() const;
 
   scoped_refptr<TestConfigurator> config_;
-  std::unique_ptr<ActivityDataServiceTest> activity_data_service_;
+  std::unique_ptr<TestActivityDataService> activity_data_service_;
   std::unique_ptr<TestingPrefServiceSimple> pref_;
   std::unique_ptr<PersistedData> metadata_;
 
@@ -172,7 +121,7 @@ void UpdateCheckerTest::SetUp() {
   config_ = base::MakeRefCounted<TestConfigurator>();
 
   pref_ = std::make_unique<TestingPrefServiceSimple>();
-  activity_data_service_ = std::make_unique<ActivityDataServiceTest>();
+  activity_data_service_ = std::make_unique<TestActivityDataService>();
   PersistedData::RegisterPrefs(pref_->registry());
   metadata_ = std::make_unique<PersistedData>(pref_.get(),
                                               activity_data_service_.get());
@@ -227,9 +176,9 @@ void UpdateCheckerTest::UpdateCheckComplete(
 scoped_refptr<UpdateContext> UpdateCheckerTest::MakeMockUpdateContext() const {
   return base::MakeRefCounted<UpdateContext>(
       config_, false, std::vector<std::string>(),
-      UpdateClient::CrxDataCallback(), UpdateClient::CrxStateChangeCallback(),
+      UpdateClient::CrxStateChangeCallback(),
       UpdateEngine::NotifyObserversCallback(), UpdateEngine::Callback(),
-      nullptr, nullptr);
+      nullptr);
 }
 
 std::unique_ptr<Component> UpdateCheckerTest::MakeComponent() const {
@@ -492,10 +441,10 @@ TEST_P(UpdateCheckerTest, UpdateCheckDownloadPreference) {
 
   // The request must contain dlpref="cacheable".
   const auto request = post_interceptor_->GetRequestBody(0);
-    const auto root = base::JSONReader().Read(request);
-    ASSERT_TRUE(root);
-    EXPECT_EQ("cacheable",
-              root->FindKey("request")->FindKey("dlpref")->GetString());
+  const auto root = base::JSONReader::Read(request);
+  ASSERT_TRUE(root);
+  EXPECT_EQ("cacheable",
+            root->FindKey("request")->FindKey("dlpref")->GetString());
 }
 
 // This test is checking that an update check signed with CUP fails, since there
@@ -646,7 +595,7 @@ TEST_P(UpdateCheckerTest, UpdateCheckLastActive) {
   RunThreads();
 
   // The active bit should be reset.
-  EXPECT_FALSE(metadata_->GetActiveBit(kUpdateItemId));
+  EXPECT_FALSE(activity_data_service_->GetActiveBit(kUpdateItemId));
 
   activity_data_service_->SetActiveBit(kUpdateItemId, true);
   update_checker_ = UpdateChecker::Create(config_, metadata_.get());
@@ -658,7 +607,7 @@ TEST_P(UpdateCheckerTest, UpdateCheckLastActive) {
   RunThreads();
 
   // The active bit should be reset.
-  EXPECT_FALSE(metadata_->GetActiveBit(kUpdateItemId));
+  EXPECT_FALSE(activity_data_service_->GetActiveBit(kUpdateItemId));
 
   update_checker_ = UpdateChecker::Create(config_, metadata_.get());
   update_checker_->CheckForUpdates(
@@ -668,7 +617,7 @@ TEST_P(UpdateCheckerTest, UpdateCheckLastActive) {
                      base::Unretained(this)));
   RunThreads();
 
-  EXPECT_FALSE(metadata_->GetActiveBit(kUpdateItemId));
+  EXPECT_FALSE(activity_data_service_->GetActiveBit(kUpdateItemId));
 
   EXPECT_EQ(3, post_interceptor_->GetHitCount())
       << post_interceptor_->GetRequestsAsString();

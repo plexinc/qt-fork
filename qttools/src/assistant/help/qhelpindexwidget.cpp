@@ -135,7 +135,6 @@ void QHelpIndexProvider::run()
         return;
 
     QHelpCollectionHandler collectionHandler(collectionFile);
-    collectionHandler.setReadOnly(true);
     if (!collectionHandler.openCollectionFile())
         return;
 
@@ -233,20 +232,6 @@ QHelpEngineCore *QHelpIndexModel::helpEngine() const
     return d->helpEngine->q;
 }
 
-#if QT_DEPRECATED_SINCE(5, 15)
-/*!
-    \obsolete
-    Use QHelpEngineCore::documentsForKeyword() instead.
-*/
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-QMap<QString, QUrl> QHelpIndexModel::linksForKeyword(const QString &keyword) const
-{
-    return d->helpEngine->q->linksForKeyword(keyword);
-}
-QT_WARNING_POP
-#endif
-
 /*!
     Filters the indices and returns the model index of the best
     matching keyword. In a first step, only the keywords containing
@@ -269,7 +254,9 @@ QModelIndex QHelpIndexModel::filter(const QString &filter, const QString &wildca
     int perfectMatch = -1;
 
     if (!wildcard.isEmpty()) {
-        const QRegExp regExp(wildcard, Qt::CaseInsensitive, QRegExp::Wildcard);
+        auto re = QRegularExpression::wildcardToRegularExpression(wildcard,
+                                                                  QRegularExpression::UnanchoredWildcardConversion);
+        const QRegularExpression regExp(re, QRegularExpression::CaseInsensitiveOption);
         for (const QString &index : qAsConst(d->indices)) {
             if (index.contains(regExp)) {
                 lst.append(index);
@@ -323,26 +310,13 @@ QModelIndex QHelpIndexModel::filter(const QString &filter, const QString &wildca
     \fn void QHelpIndexWidget::linkActivated(const QUrl &link,
         const QString &keyword)
 
-    \obsolete
+    \deprecated
 
     Use documentActivated() instead.
 
     This signal is emitted when an item is activated and its
     associated \a link should be shown. To know where the link
     belongs to, the \a keyword is given as a second parameter.
-*/
-
-/*!
-    \fn void QHelpIndexWidget::linksActivated(const QMap<QString, QUrl> &links,
-        const QString &keyword)
-
-    \obsolete
-
-    Use documentsActivated() instead.
-
-    This signal is emitted when the item representing the \a keyword
-    is activated and the item has more than one link associated.
-    The \a links consist of the document titles and their URLs.
 */
 
 /*!
@@ -393,9 +367,9 @@ void QHelpIndexWidget::showLink(const QModelIndex &index)
         emit documentsActivated(docs, name);
         QT_WARNING_PUSH
         QT_WARNING_DISABLE_DEPRECATED
-        QMap<QString, QUrl> links;
+        QMultiMap<QString, QUrl> links;
         for (const auto &doc : docs)
-            static_cast<QMultiMap<QString, QUrl> &>(links).insert(doc.title, doc.url);
+            links.insert(doc.title, doc.url);
         emit linksActivated(links, name);
         QT_WARNING_POP
     } else if (!docs.isEmpty()) {

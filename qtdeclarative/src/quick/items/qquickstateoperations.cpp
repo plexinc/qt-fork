@@ -359,8 +359,7 @@ QQuickStateOperation::ActionList QQuickParentChange::actions()
             actions << xa;
         } else {
             QQmlProperty property(d->target, QLatin1String("x"));
-            QQmlBinding *newBinding = QQmlBinding::create(&QQmlPropertyPrivate::get(property)->core, d->xString.value, d->target, qmlContext(this));
-            newBinding->setTarget(property);
+            auto newBinding = QQmlAnyBinding::createFromScriptString(property, d->xString.value, d->target, qmlContext(this));
             QQuickStateAction xa;
             xa.property = property;
             xa.toBinding = newBinding;
@@ -378,8 +377,7 @@ QQuickStateOperation::ActionList QQuickParentChange::actions()
             actions << ya;
         } else {
             QQmlProperty property(d->target, QLatin1String("y"));
-            QQmlBinding *newBinding = QQmlBinding::create(&QQmlPropertyPrivate::get(property)->core, d->yString.value, d->target, qmlContext(this));
-            newBinding->setTarget(property);
+            auto newBinding = QQmlAnyBinding::createFromScriptString(property, d->yString.value, d->target, qmlContext(this));
             QQuickStateAction ya;
             ya.property = property;
             ya.toBinding = newBinding;
@@ -397,8 +395,7 @@ QQuickStateOperation::ActionList QQuickParentChange::actions()
             actions << sa;
         } else {
             QQmlProperty property(d->target, QLatin1String("scale"));
-            QQmlBinding *newBinding = QQmlBinding::create(&QQmlPropertyPrivate::get(property)->core, d->scaleString.value, d->target, qmlContext(this));
-            newBinding->setTarget(property);
+            auto newBinding = QQmlAnyBinding::createFromScriptString(property, d->scaleString.value, d->target, qmlContext(this));
             QQuickStateAction sa;
             sa.property = property;
             sa.toBinding = newBinding;
@@ -416,8 +413,7 @@ QQuickStateOperation::ActionList QQuickParentChange::actions()
             actions << ra;
         } else {
             QQmlProperty property(d->target, QLatin1String("rotation"));
-            QQmlBinding *newBinding = QQmlBinding::create(&QQmlPropertyPrivate::get(property)->core, d->rotationString.value, d->target, qmlContext(this));
-            newBinding->setTarget(property);
+            auto newBinding = QQmlAnyBinding::createFromScriptString(property, d->rotationString.value, d->target, qmlContext(this));
             QQuickStateAction ra;
             ra.property = property;
             ra.toBinding = newBinding;
@@ -435,8 +431,7 @@ QQuickStateOperation::ActionList QQuickParentChange::actions()
             actions << wa;
         } else {
             QQmlProperty property(d->target, QLatin1String("width"));
-            QQmlBinding *newBinding = QQmlBinding::create(&QQmlPropertyPrivate::get(property)->core, d->widthString.value, d->target, qmlContext(this));
-            newBinding->setTarget(property);
+            auto newBinding = QQmlAnyBinding::createFromScriptString(property, d->widthString, d->target, qmlContext(this));
             QQuickStateAction wa;
             wa.property = property;
             wa.toBinding = newBinding;
@@ -454,8 +449,7 @@ QQuickStateOperation::ActionList QQuickParentChange::actions()
             actions << ha;
         } else {
             QQmlProperty property(d->target, QLatin1String("height"));
-            QQmlBinding *newBinding = QQmlBinding::create(&QQmlPropertyPrivate::get(property)->core, d->heightString.value, d->target, qmlContext(this));
-            newBinding->setTarget(property);
+            auto newBinding = QQmlAnyBinding::createFromScriptString(property, d->heightString, d->target, qmlContext(this));
             QQuickStateAction ha;
             ha.property = property;
             ha.toBinding = newBinding;
@@ -492,11 +486,13 @@ void QQuickParentChangePrivate::reverseRewindHelper(const std::unique_ptr<QQuick
 {
     if (!target || !snapshot)
         return;
-    target->setX(snapshot->x);
-    target->setY(snapshot->y);
+    auto targetPriv = QQuickItemPrivate::get(target);
+    // leave existing bindings alive; new bindings are applied in applyBindings
+    targetPriv->x.setValueBypassingBindings(snapshot->x);
+    targetPriv->y.setValueBypassingBindings(snapshot->y);
+    targetPriv->width.setValueBypassingBindings(snapshot->width);
+    targetPriv->height.setValueBypassingBindings(snapshot->height);
     target->setScale(snapshot->scale);
-    target->setWidth(snapshot->width);
-    target->setHeight(snapshot->height);
     target->setRotation(snapshot->rotation);
     target->setParentItem(snapshot->parent);
     if (snapshot->stackBefore)
@@ -573,7 +569,7 @@ void QQuickParentChange::rewind()
     The AnchorChanges type is used to modify the anchors of an item in a \l State.
 
     AnchorChanges cannot be used to modify the margins on an item. For this, use
-    PropertyChanges intead.
+    PropertyChanges instead.
 
     In the following example we change the top and bottom anchors of an item
     using AnchorChanges, and the top and bottom anchor margins using
@@ -788,13 +784,13 @@ public:
     QQuickItem *target;
     QQuickAnchorSet *anchorSet;
 
-    QExplicitlySharedDataPointer<QQmlBinding> leftBinding;
-    QExplicitlySharedDataPointer<QQmlBinding> rightBinding;
-    QExplicitlySharedDataPointer<QQmlBinding> hCenterBinding;
-    QExplicitlySharedDataPointer<QQmlBinding> topBinding;
-    QExplicitlySharedDataPointer<QQmlBinding> bottomBinding;
-    QExplicitlySharedDataPointer<QQmlBinding> vCenterBinding;
-    QExplicitlySharedDataPointer<QQmlBinding> baselineBinding;
+    QQmlBinding::Ptr leftBinding;
+    QQmlBinding::Ptr rightBinding;
+    QQmlBinding::Ptr hCenterBinding;
+    QQmlBinding::Ptr topBinding;
+    QQmlBinding::Ptr bottomBinding;
+    QQmlBinding::Ptr vCenterBinding;
+    QQmlBinding::Ptr baselineBinding;
 
     QQmlAbstractBinding::Ptr origLeftBinding;
     QQmlAbstractBinding::Ptr origRightBinding;
@@ -1198,9 +1194,9 @@ void QQuickAnchorChanges::saveOriginals()
     d->origBaselineBinding = QQmlPropertyPrivate::binding(d->baselineProp);
 
     QQuickItemPrivate *targetPrivate = QQuickItemPrivate::get(d->target);
-    if (targetPrivate->widthValid)
+    if (targetPrivate->widthValid())
         d->origWidth = d->target->width();
-    if (targetPrivate->heightValid)
+    if (targetPrivate->heightValid())
         d->origHeight = d->target->height();
     d->origX = d->target->x();
     d->origY = d->target->y();
@@ -1332,10 +1328,10 @@ void QQuickAnchorChanges::rewind()
     //restore previous values (but not previous bindings, i.e. anchors)
     d->target->setX(d->rewindX);
     d->target->setY(d->rewindY);
-    if (targetPrivate->widthValid) {
+    if (targetPrivate->widthValid()) {
         d->target->setWidth(d->rewindWidth);
     }
-    if (targetPrivate->heightValid) {
+    if (targetPrivate->heightValid()) {
         d->target->setHeight(d->rewindHeight);
     }
 }
@@ -1373,7 +1369,6 @@ void QQuickAnchorChanges::saveTargetValues()
     d->toHeight = d->target->height();
 }
 
-#include <moc_qquickstateoperations_p.cpp>
-
 QT_END_NAMESPACE
 
+#include <moc_qquickstateoperations_p.cpp>

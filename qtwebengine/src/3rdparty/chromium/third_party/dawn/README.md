@@ -20,19 +20,21 @@ Helpful links:
  - [Dawn's bug tracker](https://bugs.chromium.org/p/dawn/issues/entry) if you find issues with Dawn.
  - [Dawn's mailing list](https://groups.google.com/forum/#!members/dawn-graphics) for other discussions related to Dawn.
  - [Dawn's source code](https://dawn.googlesource.com/dawn)
+ - [Dawn's Matrix chatroom](https://matrix.to/#/#webgpu-dawn:matrix.org) for live discussion around contributing or using Dawn.
+ - [WebGPU's Matrix chatroom](https://matrix.to/#/#WebGPU:matrix.org)
 
 ## Documentation table of content
 
 Developer documentation:
 
  - [Dawn overview](docs/overview.md)
- - [Building Dawn](docs/buiding.md)
+ - [Building Dawn](docs/building.md)
  - [Contributing to Dawn](CONTRIBUTING.md)
  - [Testing Dawn](docs/testing.md)
  - [Debugging Dawn](docs/debugging.md)
  - [Dawn's infrastructure](docs/infra.md)
 
-User documentation: (TODO, figure out what overlaps with webgpu.h docs)
+User documentation: (TODO, figure out what overlaps with the webgpu.h docs)
 
 ## Status
 

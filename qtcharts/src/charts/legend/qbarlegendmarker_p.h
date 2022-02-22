@@ -46,7 +46,7 @@
 #include <QtCharts/QBarSet>
 #include <QtCharts/private/qchartglobal_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class QBarLegendMarker;
 
@@ -57,11 +57,11 @@ public:
     explicit QBarLegendMarkerPrivate(QBarLegendMarker *q, QAbstractBarSeries *series, QBarSet *barset, QLegend *legend);
     virtual ~QBarLegendMarkerPrivate();
 
-    virtual QAbstractBarSeries* series();
-    virtual QObject* relatedObject();
+    QAbstractBarSeries* series() override;
+    QObject* relatedObject() override;
 
 public Q_SLOTS:
-    virtual void updated();
+    void updated() override;
 
 private:
     QBarLegendMarker *q_ptr;
@@ -71,6 +71,6 @@ private:
     Q_DECLARE_PUBLIC(QBarLegendMarker)
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // QBARLEGENDMARKER_P_H

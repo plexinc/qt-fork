@@ -34,8 +34,6 @@
 #include <QtDataVisualization/qabstract3dseries.h>
 #include <QtGui/QFont>
 
-using namespace QtDataVisualization;
-
 class ScatterDataModifier : public QObject
 {
     Q_OBJECT
@@ -65,7 +63,7 @@ Q_SIGNALS:
     void backgroundEnabledChanged(bool enabled);
     void gridEnabledChanged(bool enabled);
     void shadowQualityChanged(int quality);
-    void fontChanged(QFont font);
+    void fontChanged(const QFont &font);
 
 private:
     QVector3D randVector();

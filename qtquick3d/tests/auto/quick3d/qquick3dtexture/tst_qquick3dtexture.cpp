@@ -31,6 +31,7 @@
 #include <QSignalSpy>
 #include <QtQuick/qquickitem.h>
 #include <QtQuick3D/private/qquick3dtexture_p.h>
+#include <QtQuick3D/QQuick3DTextureData>
 #include <QtQuick3D/private/qquick3dviewport_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrenderimage_p.h>
 
@@ -49,8 +50,9 @@ private slots:
     void testSetSource();
     void testSetSourceItem();
     void testMappingAndTilingModes();
+    void testSamplerFilteringModes();
     void testTransformations();
-    void testFormat();
+    void testTextureData();
 };
 
 void tst_QQuick3DTexture::testSetSource()
@@ -70,7 +72,7 @@ void tst_QQuick3DTexture::testSetSource()
     const QString expectedPath {QString::fromLatin1("path/to/resource")};
     texture.setSource(fileWithScheme);
     node.reset(static_cast<QSSGRenderImage *>(texture.updateSpatialNode(nullptr)));
-    QCOMPARE(expectedPath, node->m_imagePath);
+    QCOMPARE(expectedPath, node->m_imagePath.path());
     QCOMPARE(spy.count(), 1);
 
     // Same url again
@@ -128,6 +130,34 @@ void tst_QQuick3DTexture::testMappingAndTilingModes()
     }
 }
 
+void tst_QQuick3DTexture::testSamplerFilteringModes()
+{
+    Texture texture;
+    std::unique_ptr<QSSGRenderImage> node;
+
+    for (const auto filterMode : {QQuick3DTexture::None, QQuick3DTexture::Linear, QQuick3DTexture::Nearest}) {
+        texture.setMinFilter(filterMode);
+        node.reset(static_cast<QSSGRenderImage *>(texture.updateSpatialNode(nullptr)));
+        QCOMPARE(int(filterMode), int(node->m_minFilterType));
+
+        texture.setMagFilter(filterMode);
+        node.reset(static_cast<QSSGRenderImage *>(texture.updateSpatialNode(nullptr)));
+        QCOMPARE(int(filterMode), int(node->m_magFilterType));
+
+        texture.setMipFilter(filterMode);
+        node.reset(static_cast<QSSGRenderImage *>(texture.updateSpatialNode(nullptr)));
+        QCOMPARE(int(filterMode), int(node->m_mipFilterType));
+    }
+
+    // generate mipmaps
+    node.reset(static_cast<QSSGRenderImage *>(texture.updateSpatialNode(nullptr)));
+    QCOMPARE(node->m_generateMipmaps, false);
+
+    texture.setGenerateMipmaps(true);
+    node.reset(static_cast<QSSGRenderImage *>(texture.updateSpatialNode(nullptr)));
+    QCOMPARE(node->m_generateMipmaps, true);
+}
+
 void tst_QQuick3DTexture::testTransformations()
 {
     Texture texture;
@@ -169,23 +199,32 @@ void tst_QQuick3DTexture::testTransformations()
     QCOMPARE(pivotV, node->m_pivot.y());
 }
 
-void tst_QQuick3DTexture::testFormat()
+void tst_QQuick3DTexture::testTextureData()
 {
     Texture texture;
+    QQuick3DTextureData textureData;
     std::unique_ptr<QSSGRenderImage> node;
 
-    // This test _also_ relies on two enums having the same values
-    // (QQ3DT::Format & QSSGRenderTextureFormat::Format).
-    auto metaEnum = QMetaEnum::fromType<QQuick3DTexture::Format>();
-    for (int i = 0; i < metaEnum.keyCount(); i++) {
-        const auto format = QQuick3DTexture::Format(metaEnum.value(i));
+    node.reset(static_cast<QSSGRenderImage *>(texture.updateSpatialNode(nullptr)));
+    QVERIFY(node);
 
-        texture.setFormat(format);
-        node.reset(static_cast<QSSGRenderImage *>(texture.updateSpatialNode(nullptr)));
-        QCOMPARE(int(format), int(node->m_format.format));
-    }
+    // check that we get the same node out when passing in the old one
+    QCOMPARE(node.get(), texture.updateSpatialNode(node.get()));
+
+    // No textureData by default
+    QSignalSpy spy(&texture, SIGNAL(textureDataChanged()));
+    QCOMPARE(spy.count(), 0);
+
+    // Set textureData
+    QVERIFY(!texture.textureData());
+    texture.setTextureData(&textureData);
+    QVERIFY(texture.textureData());
+    QCOMPARE(spy.count(), 1);
+
+    // Same textureData again
+    texture.setTextureData(&textureData);
+    QCOMPARE(spy.count(), 1);
 }
-
 
 QTEST_APPLESS_MAIN(tst_QQuick3DTexture)
 #include "tst_qquick3dtexture.moc"

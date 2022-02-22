@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <memory>
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/logging.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
@@ -94,6 +94,16 @@ void CodecAllocator::CreateMediaCodecAsync(
 
   if (force_sw_codecs_)
     codec_config->codec_type = CodecType::kSoftware;
+
+  // If we're still allowed to pick any type we want, then limit to software for
+  // low resolution.  https://crbug.com/1166833
+  if (codec_config->codec_type == CodecType::kAny &&
+      (codec_config->initial_expected_coded_size.width() <
+           kMinHardwareResolution.width() ||
+       codec_config->initial_expected_coded_size.height() <
+           kMinHardwareResolution.height())) {
+    codec_config->codec_type = CodecType::kSoftware;
+  }
 
   const auto start_time = tick_clock_->NowTicks();
   pending_operations_.push_back(start_time);

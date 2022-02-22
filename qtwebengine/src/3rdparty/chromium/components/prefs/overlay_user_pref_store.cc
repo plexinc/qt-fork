@@ -63,7 +63,7 @@ void OverlayUserPrefStore::RemoveObserver(PrefStore::Observer* observer) {
 }
 
 bool OverlayUserPrefStore::HasObservers() const {
-  return observers_.might_have_observers();
+  return !observers_.empty();
 }
 
 bool OverlayUserPrefStore::IsInitializationComplete() const {
@@ -157,6 +157,11 @@ void OverlayUserPrefStore::RemoveValue(const std::string& key, uint32_t flags) {
 
   written_ephemeral_names_.insert(key);
   ephemeral_user_pref_store_->RemoveValue(key, flags);
+}
+
+void OverlayUserPrefStore::RemoveValuesByPrefixSilently(
+    const std::string& prefix) {
+  NOTIMPLEMENTED();
 }
 
 bool OverlayUserPrefStore::ReadOnly() const {

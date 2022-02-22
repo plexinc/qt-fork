@@ -15,6 +15,7 @@ AXObject* AccessibilityMediaElement::Create(
     LayoutObject* layout_object,
     AXObjectCacheImpl& ax_object_cache) {
   DCHECK(layout_object->GetNode());
+  DCHECK(IsA<HTMLMediaElement>(layout_object->GetNode()));
   return MakeGarbageCollected<AccessibilityMediaElement>(layout_object,
                                                          ax_object_cache);
 }
@@ -41,6 +42,15 @@ String AccessibilityMediaElement::TextAlternative(
       related_objects, name_sources);
 }
 
+bool AccessibilityMediaElement::CanHaveChildren() const {
+  return HasControls();
+}
+
+bool AccessibilityMediaElement::ComputeAccessibilityIsIgnored(
+    IgnoredReasons* ignored_reasons) const {
+  return !HasControls() && HasEmptySource();
+}
+
 AXRestriction AccessibilityMediaElement::Restriction() const {
   if (IsUnplayable())
     return kRestrictionDisabled;
@@ -48,7 +58,27 @@ AXRestriction AccessibilityMediaElement::Restriction() const {
   return AXNodeObject::Restriction();
 }
 
+bool AccessibilityMediaElement::HasControls() const {
+  if (IsDetached())
+    return false;
+  if (!IsA<HTMLMediaElement>(GetNode()) || !GetNode()->isConnected()) {
+    NOTREACHED() << "Accessible media element not ready: " << GetNode()
+                 << "  isConnected? " << GetNode()->isConnected();
+    return false;
+  }
+  return To<HTMLMediaElement>(GetNode())->ShouldShowControls();
+}
+
+bool AccessibilityMediaElement::HasEmptySource() const {
+  if (IsDetached())
+    return false;
+  return To<HTMLMediaElement>(GetNode())->getNetworkState() ==
+         HTMLMediaElement::kNetworkEmpty;
+}
+
 bool AccessibilityMediaElement::IsUnplayable() const {
+  if (IsDetached())
+    return true;
   HTMLMediaElement* element =
       static_cast<HTMLMediaElement*>(layout_object_->GetNode());
   HTMLMediaElement::NetworkState network_state = element->getNetworkState();

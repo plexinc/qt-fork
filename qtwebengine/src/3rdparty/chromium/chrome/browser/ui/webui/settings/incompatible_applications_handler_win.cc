@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/strings/utf_string_conversions.h"
@@ -102,9 +102,9 @@ void IncompatibleApplicationsHandler::HandleRequestIncompatibleApplicationsList(
     base::Value dict(base::Value::Type::DICTIONARY);
     dict.SetKey("name", base::Value(application.info.name));
     dict.SetKey("type",
-                base::Value(application.blacklist_action->message_type()));
+                base::Value(application.blocklist_action->message_type()));
     dict.SetKey("url",
-                base::Value(application.blacklist_action->message_url()));
+                base::Value(application.blocklist_action->message_url()));
     application_list.Append(std::move(dict));
   }
 

@@ -18,17 +18,6 @@
 
 namespace media {
 
-namespace {
-
-void CloseReceiverOnBadMessage(
-    mojo::SelfOwnedReceiverRef<mojom::Renderer> receiver) {
-  LOG(ERROR) << __func__;
-  DCHECK(receiver);
-  receiver->Close();
-}
-
-}  // namespace
-
 // Time interval to update media time.
 const int kTimeUpdateIntervalMs = 50;
 
@@ -43,9 +32,6 @@ mojo::SelfOwnedReceiverRef<mojom::Renderer> MojoRendererService::Create(
   mojo::SelfOwnedReceiverRef<mojom::Renderer> self_owned_receiver =
       mojo::MakeSelfOwnedReceiver<mojom::Renderer>(base::WrapUnique(service),
                                                    std::move(receiver));
-
-  service->set_bad_message_cb(
-      base::Bind(&CloseReceiverOnBadMessage, self_owned_receiver));
 
   return self_owned_receiver;
 }
@@ -79,9 +65,10 @@ void MojoRendererService::Initialize(
 
   if (!media_url_params) {
     DCHECK(streams.has_value());
-    media_resource_.reset(new MediaResourceShim(
-        std::move(*streams), base::Bind(&MojoRendererService::OnStreamReady,
-                                        weak_this_, base::Passed(&callback))));
+    media_resource_ = std::make_unique<MediaResourceShim>(
+        std::move(*streams),
+        base::BindOnce(&MojoRendererService::OnAllStreamsReady, weak_this_,
+                       std::move(callback)));
     return;
   }
 
@@ -123,7 +110,9 @@ void MojoRendererService::SetVolume(float volume) {
   renderer_->SetVolume(volume);
 }
 
-void MojoRendererService::SetCdm(int32_t cdm_id, SetCdmCallback callback) {
+void MojoRendererService::SetCdm(
+    const base::Optional<base::UnguessableToken>& cdm_id,
+    SetCdmCallback callback) {
   if (cdm_context_ref_) {
     DVLOG(1) << "Switching CDM not supported";
     std::move(callback).Run(false);
@@ -136,9 +125,16 @@ void MojoRendererService::SetCdm(int32_t cdm_id, SetCdmCallback callback) {
     return;
   }
 
-  auto cdm_context_ref = mojo_cdm_service_context_->GetCdmContextRef(cdm_id);
+  if (!cdm_id) {
+    DVLOG(1) << "The CDM ID is invalid.";
+    std::move(callback).Run(false);
+    return;
+  }
+
+  auto cdm_context_ref =
+      mojo_cdm_service_context_->GetCdmContextRef(cdm_id.value());
   if (!cdm_context_ref) {
-    DVLOG(1) << "CdmContextRef not found for CDM ID: " << cdm_id;
+    DVLOG(1) << "CdmContextRef not found for CDM ID: " << cdm_id.value();
     std::move(callback).Run(false);
     return;
   }
@@ -157,7 +153,9 @@ void MojoRendererService::SetCdm(int32_t cdm_id, SetCdmCallback callback) {
 void MojoRendererService::OnError(PipelineStatus error) {
   DVLOG(1) << __func__ << "(" << error << ")";
   state_ = STATE_ERROR;
-  client_->OnError();
+  StatusCode status_code = PipelineStatusToStatusCode(error);
+  auto status = Status(status_code, PipelineStatusToString(error));
+  client_->OnError(status);
 }
 
 void MojoRendererService::OnEnded() {
@@ -210,7 +208,7 @@ void MojoRendererService::OnVideoFrameRateChange(base::Optional<int> fps) {
   // TODO(liberato): plumb to |client_|.
 }
 
-void MojoRendererService::OnStreamReady(
+void MojoRendererService::OnAllStreamsReady(
     base::OnceCallback<void(bool)> callback) {
   DCHECK_EQ(state_, STATE_INITIALIZING);
 
@@ -263,7 +261,8 @@ void MojoRendererService::SchedulePeriodicMediaTimeUpdates() {
   UpdateMediaTime(true);
   time_update_timer_.Start(
       FROM_HERE, base::TimeDelta::FromMilliseconds(kTimeUpdateIntervalMs),
-      base::Bind(&MojoRendererService::UpdateMediaTime, weak_this_, false));
+      base::BindRepeating(&MojoRendererService::UpdateMediaTime, weak_this_,
+                          false));
 }
 
 void MojoRendererService::OnFlushCompleted(FlushCallback callback) {

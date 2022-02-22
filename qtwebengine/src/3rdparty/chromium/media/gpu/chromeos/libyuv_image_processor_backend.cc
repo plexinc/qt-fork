@@ -12,64 +12,62 @@
 #include "third_party/libyuv/include/libyuv/convert.h"
 #include "third_party/libyuv/include/libyuv/convert_from.h"
 #include "third_party/libyuv/include/libyuv/convert_from_argb.h"
+#include "third_party/libyuv/include/libyuv/rotate.h"
 #include "third_party/libyuv/include/libyuv/scale.h"
 
 namespace media {
 
 namespace {
 
-// TODO(https://bugs.chromium.org/p/libyuv/issues/detail?id=838): Remove
-// this once libyuv implements NV12Scale and use the libyuv::NV12Scale().
-// This is copy-pasted from
-// third_party/webrtc/common_video/libyuv/include/webrtc_libyuv.h.
-void NV12Scale(uint8_t* tmp_buffer,
-               const uint8_t* src_y,
-               int src_stride_y,
-               const uint8_t* src_uv,
-               int src_stride_uv,
-               int src_width,
-               int src_height,
-               uint8_t* dst_y,
-               int dst_stride_y,
-               uint8_t* dst_uv,
-               int dst_stride_uv,
-               int dst_width,
-               int dst_height) {
-  const int src_chroma_width = (src_width + 1) / 2;
-  const int src_chroma_height = (src_height + 1) / 2;
-
-  if (src_width == dst_width && src_height == dst_height) {
-    // No scaling.
-    libyuv::CopyPlane(src_y, src_stride_y, dst_y, dst_stride_y, src_width,
-                      src_height);
-    libyuv::CopyPlane(src_uv, src_stride_uv, dst_uv, dst_stride_uv,
-                      src_chroma_width * 2, src_chroma_height);
-    return;
+// TODO(https://bugs.chromium.org/p/libyuv/issues/detail?id=840): Remove
+// this once libyuv implements NV12Rotate() and use the libyuv::NV12Rotate().
+bool NV12Rotate(uint8_t* tmp_buffer,
+                const uint8_t* src_y,
+                int src_stride_y,
+                const uint8_t* src_uv,
+                int src_stride_uv,
+                int src_width,
+                int src_height,
+                uint8_t* dst_y,
+                int dst_stride_y,
+                uint8_t* dst_uv,
+                int dst_stride_uv,
+                int dst_width,
+                int dst_height,
+                VideoRotation relative_rotation) {
+  libyuv::RotationModeEnum rotation = libyuv::kRotate0;
+  switch (relative_rotation) {
+    case VIDEO_ROTATION_0:
+      NOTREACHED() << "Unexpected rotation: " << rotation;
+      return false;
+    case VIDEO_ROTATION_90:
+      rotation = libyuv::kRotate90;
+      break;
+    case VIDEO_ROTATION_180:
+      rotation = libyuv::kRotate180;
+      break;
+    case VIDEO_ROTATION_270:
+      rotation = libyuv::kRotate270;
+      break;
   }
 
-  // Scaling.
-  // Allocate temporary memory for spitting UV planes and scaling them.
-  const int dst_chroma_width = (dst_width + 1) / 2;
-  const int dst_chroma_height = (dst_height + 1) / 2;
+  // Rotating.
+  const int tmp_uv_width = (dst_width + 1) / 2;
+  const int tmp_uv_height = (dst_height + 1) / 2;
+  uint8_t* const tmp_u = tmp_buffer;
+  uint8_t* const tmp_v = tmp_u + tmp_uv_width * tmp_uv_height;
 
-  uint8_t* const src_u = tmp_buffer;
-  uint8_t* const src_v = src_u + src_chroma_width * src_chroma_height;
-  uint8_t* const dst_u = src_v + src_chroma_width * src_chroma_height;
-  uint8_t* const dst_v = dst_u + dst_chroma_width * dst_chroma_height;
-
-  // Split source UV plane into separate U and V plane using the temporary data.
-  libyuv::SplitUVPlane(src_uv, src_stride_uv, src_u, src_chroma_width, src_v,
-                       src_chroma_width, src_chroma_width, src_chroma_height);
-
-  // Scale the planes.
-  libyuv::I420Scale(
-      src_y, src_stride_y, src_u, src_chroma_width, src_v, src_chroma_width,
-      src_width, src_height, dst_y, dst_stride_y, dst_u, dst_chroma_width,
-      dst_v, dst_chroma_width, dst_width, dst_height, libyuv::kFilterBox);
+  // Rotate the NV12 planes to I420.
+  int ret = libyuv::NV12ToI420Rotate(
+      src_y, src_stride_y, src_uv, src_stride_uv, dst_y, dst_stride_y, tmp_u,
+      tmp_uv_width, tmp_v, tmp_uv_width, src_width, src_height, rotation);
+  if (ret != 0)
+    return false;
 
   // Merge the UV planes into the destination.
-  libyuv::MergeUVPlane(dst_u, dst_chroma_width, dst_v, dst_chroma_width, dst_uv,
-                       dst_stride_uv, dst_chroma_width, dst_chroma_height);
+  libyuv::MergeUVPlane(tmp_u, tmp_uv_width, tmp_v, tmp_uv_width, dst_uv,
+                       dst_stride_uv, tmp_uv_width, tmp_uv_height);
+  return true;
 }
 
 enum class SupportResult {
@@ -90,7 +88,7 @@ SupportResult IsFormatSupported(Fourcc input_fourcc, Fourcc output_fourcc) {
       {Fourcc::YV12, Fourcc::NV12, false},
       {Fourcc::AB24, Fourcc::NV12, true},
       {Fourcc::XB24, Fourcc::NV12, true},
-      // Scaling.
+      // Scaling or Rotating.
       {Fourcc::NV12, Fourcc::NV12, true},
   };
 
@@ -128,6 +126,7 @@ std::unique_ptr<ImageProcessorBackend> LibYUVImageProcessorBackend::Create(
     const PortConfig& input_config,
     const PortConfig& output_config,
     const std::vector<OutputMode>& preferred_output_modes,
+    VideoRotation relative_rotation,
     ErrorCB error_cb,
     scoped_refptr<base::SequencedTaskRunner> backend_task_runner) {
   VLOGF(2);
@@ -201,18 +200,6 @@ std::unique_ptr<ImageProcessorBackend> LibYUVImageProcessorBackend::Create(
                << output_config.visible_rect.ToString();
       return nullptr;
     }
-    // Down-scaling support only.
-    // This restriction is to simplify |intermediate_frame_| creation. It is
-    // used as |tmp_buffer| in NV12Scale().
-    // TODO(hiroh): Remove this restriction once libyuv:NV12Scale() is arrived.
-    if (!gfx::Rect(input_config.visible_rect.size())
-             .Contains(gfx::Rect(output_config.visible_rect.size()))) {
-      VLOGF(2) << "Down-scaling support only, input_config.visible_rect="
-               << input_config.visible_rect.ToString()
-               << ", output_config.visible_rect="
-               << output_config.visible_rect.ToString();
-      return nullptr;
-    }
   }
 
   scoped_refptr<VideoFrame> intermediate_frame;
@@ -237,7 +224,7 @@ std::unique_ptr<ImageProcessorBackend> LibYUVImageProcessorBackend::Create(
           PortConfig(output_config.fourcc, output_config.size,
                      output_config.planes, output_config.visible_rect,
                      {output_storage_type}),
-          OutputMode::IMPORT, std::move(error_cb),
+          OutputMode::IMPORT, relative_rotation, std::move(error_cb),
           std::move(backend_task_runner)));
   VLOGF(2) << "LibYUVImageProcessorBackend created for converting from "
            << input_config.ToString() << " to " << output_config.ToString();
@@ -251,11 +238,13 @@ LibYUVImageProcessorBackend::LibYUVImageProcessorBackend(
     const PortConfig& input_config,
     const PortConfig& output_config,
     OutputMode output_mode,
+    VideoRotation relative_rotation,
     ErrorCB error_cb,
     scoped_refptr<base::SequencedTaskRunner> backend_task_runner)
     : ImageProcessorBackend(input_config,
                             output_config,
                             output_mode,
+                            relative_rotation,
                             std::move(error_cb),
                             std::move(backend_task_runner)),
       input_frame_mapper_(std::move(input_frame_mapper)),
@@ -353,19 +342,39 @@ int LibYUVImageProcessorBackend::DoConversion(const VideoFrame* const input,
         return LIBYUV_FUNC(I420ToNV12, Y_U_V_DATA(intermediate_frame_),
                            Y_UV_DATA(output));
       case PIXEL_FORMAT_NV12:
-        // The size of |tmp_buffer| of NV12Scale() should be
-        // input_visible_rect().GetArea() / 2 +
-        // output_visible_rect().GetArea() / 2. Although |intermediate_frame_|
-        // is much larger than the required size, we use the frame to simplify
-        // the code.
-        NV12Scale(intermediate_frame_->data(0),
-                  input->visible_data(VideoFrame::kYPlane),
-                  input->stride(VideoFrame::kYPlane),
-                  input->visible_data(VideoFrame::kUPlane),
-                  input->stride(VideoFrame::kUPlane),
-                  input->visible_rect().width(), input->visible_rect().height(),
-                  Y_UV_DATA(output), output->visible_rect().width(),
-                  output->visible_rect().height());
+        // Rotation mode.
+        if (relative_rotation_ != VIDEO_ROTATION_0) {
+          // The size of |tmp_buffer| of NV12Rotate() should be
+          // output_visible_rect().GetArea() / 2, which used to store temporary
+          // U and V planes for I420 data. Although
+          // |intermediate_frame_->data(0)| is much larger than the required
+          // size, we use the frame to simplify the code.
+          NV12Rotate(intermediate_frame_->data(0),
+                     input->visible_data(VideoFrame::kYPlane),
+                     input->stride(VideoFrame::kYPlane),
+                     input->visible_data(VideoFrame::kUPlane),
+                     input->stride(VideoFrame::kUPlane),
+                     input->visible_rect().width(),
+                     input->visible_rect().height(), Y_UV_DATA(output),
+                     output->visible_rect().width(),
+                     output->visible_rect().height(), relative_rotation_);
+          return 0;
+        }
+
+        // Scaling mode.
+        libyuv::NV12Scale(input->visible_data(VideoFrame::kYPlane),
+                          input->stride(VideoFrame::kYPlane),
+                          input->visible_data(VideoFrame::kUVPlane),
+                          input->stride(VideoFrame::kUVPlane),
+                          input->visible_rect().width(),
+                          input->visible_rect().height(),
+                          output->visible_data(VideoFrame::kYPlane),
+                          output->stride(VideoFrame::kYPlane),
+                          output->visible_data(VideoFrame::kUVPlane),
+                          output->stride(VideoFrame::kUVPlane),
+                          output->visible_rect().width(),
+                          output->visible_rect().height(),
+                          libyuv::kFilterBilinear);
         return 0;
       default:
         VLOGF(1) << "Unexpected input format: " << input->format();

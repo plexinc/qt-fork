@@ -27,7 +27,8 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QSignalSpy>
 #include <qapplication.h>
 #include <qmainwindow.h>
 #include <qmenubar.h>
@@ -232,19 +233,25 @@ TestMenu tst_QMenuBar::initSimpleMenuBar(QMenuBar *mb, bool forceNonNative) {
     connect(mb, SIGNAL(triggered(QAction*)), this, SLOT(onSimpleActivated(QAction*)));
     QMenu *menu = mb->addMenu(QStringLiteral("&accel"));
     QAction *action = menu->addAction(QStringLiteral("menu1") );
-    action->setShortcut(QKeySequence(Qt::ALT + Qt::Key_A));
-    action->setShortcut(QKeySequence(Qt::CTRL + Qt::Key_A));
+#if QT_CONFIG(shortcut)
+    action->setShortcut(QKeySequence(Qt::ALT | Qt::Key_A));
+    action->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_A));
+#endif
     connect(menu, SIGNAL(triggered(QAction*)), this, SLOT(onSimpleActivated(QAction*)));
     result.menus << menu;
     result.actions << action;
 
     menu = mb->addMenu(QStringLiteral("accel1"));
     action = menu->addAction(QStringLiteral("&Open...") );
+#if QT_CONFIG(shortcut)
     action->setShortcut(Qt::Key_O);
+#endif
     result.actions << action;
 
     action = menu->addAction(QStringLiteral("action"));
-    action->setShortcut(QKeySequence(Qt::ALT + Qt::Key_Z));
+#if QT_CONFIG(shortcut)
+    action->setShortcut(QKeySequence(Qt::ALT | Qt::Key_Z));
+#endif
     result.actions << action;
 
     result.menus << menu;
@@ -283,7 +290,9 @@ QAction *tst_QMenuBar::createCharacterAction(QMenu *menu, char lowerAscii)
     QAction *action = menu->addAction(text);
     action->setObjectName(text);
     action->setData(QVariant(int(lowerAscii)));
-    action->setShortcut(Qt::CTRL + (lowerAscii - 'a' + Qt::Key_A));
+#if QT_CONFIG(shortcut)
+    action->setShortcut(Qt::CTRL | Qt::Key(lowerAscii - 'a' + int(Qt::Key_A)));
+#endif
     connect(action, SIGNAL(triggered()), this, SLOT(onComplexActionTriggered()));
     return action;
 }
@@ -318,7 +327,9 @@ TestMenu tst_QMenuBar::initComplexMenuBar(QMenuBar *mb)
 
     QAction *action = mb->addAction(QStringLiteral("M&enu 3"));
     action->setData(QVariant(3));
-    action->setShortcut(Qt::ALT + Qt::Key_J);
+#if QT_CONFIG(shortcut)
+    action->setShortcut(Qt::ALT | Qt::Key_J);
+#endif
     connect(action, SIGNAL(triggered()), this, SLOT(onComplexActionTriggered()));
     result.actions << action;
 
@@ -910,7 +921,7 @@ void tst_QMenuBar::check_escKey()
 
     if (!QGuiApplication::platformName().compare(QLatin1String("minimal"), Qt::CaseInsensitive)
         || !QGuiApplication::platformName().compare(QLatin1String("offscreen"), Qt::CaseInsensitive)) {
-        QWARN("Skipping menu button test on minimal/offscreen platforms");
+        qWarning("Skipping menu button test on minimal/offscreen platforms");
         return;
     }
 
@@ -1216,9 +1227,6 @@ void tst_QMenuBar::check_menuPosition()
         mbItemRect.moveTo(w.menuBar()->mapToGlobal(mbItemRect.topLeft()));
         QTest::keyClick(&w, Qt::Key_M, Qt::AltModifier );
         QVERIFY(menu.isActiveWindow());
-#ifdef Q_OS_WINRT
-        QEXPECT_FAIL("", "QTest::keyClick does not work on WinRT.", Abort);
-#endif
         QCOMPARE(menu.pos(), QPoint(mbItemRect.x(), mbItemRect.top() - menu.height()));
         menu.close();
     }
@@ -1348,7 +1356,8 @@ void tst_QMenuBar::menubarSizeHint()
     {
         MyStyle() : QProxyStyle(QStyleFactory::create("windows")) { }
 
-        virtual int pixelMetric(PixelMetric metric, const QStyleOption * option = 0, const QWidget * widget = 0 ) const
+        int pixelMetric(PixelMetric metric, const QStyleOption *option = 0,
+                        const QWidget *widget = 0) const override
         {
             // I chose strange values (prime numbers to be more sure that the size of the menubar is correct)
             switch (metric)
@@ -1406,10 +1415,7 @@ void tst_QMenuBar::menubarSizeHint()
     QSize resSize = QSize(result.x(), result.y()) + result.size()
         + QSize(panelWidth + hmargin, panelWidth + vmargin);
 
-
-    resSize = style.sizeFromContents(QStyle::CT_MenuBar, &opt,
-                                         resSize.expandedTo(QApplication::globalStrut()),
-                                         &mb);
+    resSize = style.sizeFromContents(QStyle::CT_MenuBar, &opt, resSize, &mb);
 
     QCOMPARE(resSize, mb.sizeHint());
 }
@@ -1422,7 +1428,9 @@ void tst_QMenuBar::taskQTBUG4965_escapeEaten()
     menubar.setNativeMenuBar(false);
     QMenu menu("menu1");
     QAction *first = menubar.addMenu(&menu);
+#if QT_CONFIG(shortcut)
     menu.addAction("quit", &menubar, SLOT(close()), QKeySequence("ESC"));
+#endif
     centerOnScreen(&menubar);
     menubar.show();
     QApplication::setActiveWindow(&menubar);
@@ -1556,9 +1564,6 @@ void tst_QMenuBar::cornerWidgets()
     case Qt::TopLeftCorner:
         QVERIFY2(fileMenuGeometry.left() >= cornerWidgetWidth,
                  msgComparison(fileMenuGeometry.left(), ">=", cornerWidgetWidth));
-#ifdef Q_OS_WINRT
-        QEXPECT_FAIL("", "Broken on WinRT - QTBUG-68297", Abort);
-#endif
         QVERIFY2(menuBarWidth - editMenuGeometry.right() < cornerWidgetWidth,
                  msgComparison(menuBarWidth - editMenuGeometry.right(), "<", cornerWidgetWidth));
         break;

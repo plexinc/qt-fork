@@ -48,9 +48,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.15
-import QtQuick3D 1.15
-import QtQuick.Window 2.12
+import QtQuick
+import QtQuick3D
+import QtQuick.Window
 import "qml"
 
 Rectangle {
@@ -93,7 +93,7 @@ Rectangle {
                 diffuseMap: Texture {
                     id: myTexture
                     Component.onCompleted: {
-                        const item = sourceItemComponent.createObject(myTexture);
+                        const item = sourceItemComponent.createObject(sourceItemContainer);
                         myTexture.sourceItem = item;
                     }
                 }
@@ -128,7 +128,7 @@ Rectangle {
                     id: myTexture3
                     sourceItem: RedFill { }
                     Component.onCompleted: {
-                        const item = sourceItemComponent2.createObject(myTexture3);
+                        const item = sourceItemComponent2.createObject(sourceItemContainer);
                         myTexture3.sourceItem = item;
                     }
                 }
@@ -152,5 +152,10 @@ Rectangle {
                 }
             }
         }
+    }
+
+    Item {
+        id: sourceItemContainer
+        visible: false
     }
 }

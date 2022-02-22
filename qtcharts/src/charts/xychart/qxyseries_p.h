@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the Qt Charts module of the Qt Toolkit.
@@ -42,7 +42,7 @@
 #include <private/qabstractseries_p.h>
 #include <QtCharts/private/qchartglobal_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class QXYSeries;
 class QAbstractAxis;
@@ -54,25 +54,40 @@ class Q_CHARTS_PRIVATE_EXPORT QXYSeriesPrivate: public QAbstractSeriesPrivate
 public:
     QXYSeriesPrivate(QXYSeries *q);
 
-    void initializeDomain();
-    void initializeAxes();
-    void initializeAnimations(QtCharts::QChart::AnimationOptions options, int duration,
-                              QEasingCurve &curve);
+    void initializeDomain() override;
+    void initializeAxes() override;
+    void initializeAnimations(QChart::AnimationOptions options, int duration,
+                              QEasingCurve &curve) override;
 
-    QList<QLegendMarker*> createLegendMarkers(QLegend* legend);
+    QList<QLegendMarker*> createLegendMarkers(QLegend* legend) override;
 
-    QAbstractAxis::AxisType defaultAxisType(Qt::Orientation orientation) const;
-    QAbstractAxis* createDefaultAxis(Qt::Orientation orientation) const;
+    QAbstractAxis::AxisType defaultAxisType(Qt::Orientation orientation) const override;
+    QAbstractAxis* createDefaultAxis(Qt::Orientation orientation) const override;
 
-    void drawSeriesPointLabels(QPainter *painter, const QVector<QPointF> &points,
-                               const int offset = 0);
+    void drawPointLabels(QPainter *painter, const QList<QPointF> &allPoints, const int offset = 0);
+    void drawSeriesPointLabels(QPainter *painter, const QList<QPointF> &points,
+                               const int offset = 0, const QHash<int, int> &offsets = {},
+                               const QList<int> &indexesToSkip = {});
+
+    void drawBestFitLine(QPainter *painter, const QRectF &clipRect);
+    QPair<qreal, qreal> bestFitLineEquation(bool &ok) const;
+
+    void setPointSelected(int index, bool selected, bool &callSignal);
+    bool isPointSelected(int index);
+
+    bool isMarkerSizeDefault();
+    void setMarkerSize(qreal markerSize);
+
+    QList<qreal> colorByData() const;
 
 Q_SIGNALS:
-    void updated();
+    void seriesUpdated();
 
 protected:
-    QVector<QPointF> m_points;
+    QList<QPointF> m_points;
+    QSet<int> m_selectedPoints;
     QPen m_pen;
+    QColor m_selectedColor;
     QBrush m_brush;
     bool m_pointsVisible;
     QString m_pointLabelsFormat;
@@ -80,12 +95,21 @@ protected:
     QFont m_pointLabelsFont;
     QColor m_pointLabelsColor;
     bool m_pointLabelsClipping;
+    QImage m_lightMarker;
+    QImage m_selectedLightMarker;
+    QPen m_bestFitLinePen;
+    bool m_bestFitLineVisible;
+    qreal m_markerSize;
+    bool m_markerSizeDefault = true;
+
+    QHash<int, QHash<QXYSeries::PointConfiguration, QVariant>> m_pointsConfiguration;
+    QList<qreal> m_colorByData;
 
 private:
     Q_DECLARE_PUBLIC(QXYSeries)
     friend class QScatterSeries;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif

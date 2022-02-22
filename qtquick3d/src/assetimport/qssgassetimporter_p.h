@@ -50,6 +50,12 @@
 
 QT_BEGIN_NAMESPACE
 
+class QQuick3DNode;
+
+namespace QSSGSceneDesc {
+struct Scene;
+}
+
 class Q_QUICK3DASSETIMPORT_EXPORT QSSGAssetImporter : public QObject
 {
     Q_OBJECT
@@ -64,6 +70,9 @@ public:
                                  const QDir &savePath,
                                  const QVariantMap &options,
                                  QStringList *generatedFiles = nullptr) = 0;
+    virtual QString import(const QUrl &url,
+                           const QVariantMap &options,
+                           QSSGSceneDesc::Scene &scene) = 0;
 };
 
 QT_END_NAMESPACE

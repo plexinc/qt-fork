@@ -61,7 +61,7 @@ namespace Qt3DRender {
 
 namespace {
 
-const int qVectorShaderDataTypeId = qMetaTypeId<QVector<QShaderData*> >();
+const int qVectorShaderDataTypeId = qMetaTypeId<QList<QShaderData *>>();
 
 }
 
@@ -75,7 +75,7 @@ class QShaderDataPropertyReader: public PropertyReaderInterface
             return QVariant::fromValue(node->id());
         } else if (v.userType() == qVectorShaderDataTypeId) {
             QVariantList vlist;
-            const auto data_ = v.value<QVector<QShaderData *> >();
+            const auto data_ = v.value<QList<QShaderData *>>();
             for (QShaderData *data : data_) {
                 if (data)
                     vlist.append(QVariant::fromValue(data->id()));
@@ -94,12 +94,6 @@ public:
     PropertyReaderInterfacePtr m_propertyReader;
 
     Q_DECLARE_PUBLIC(QShaderData)
-};
-
-struct QShaderDataData
-{
-    QVector<QPair<QByteArray, QVariant>> properties;
-    PropertyReaderInterfacePtr propertyReader;
 };
 
 } // namespace Qt3DRender

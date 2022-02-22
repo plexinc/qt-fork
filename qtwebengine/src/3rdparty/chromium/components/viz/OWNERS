@@ -7,12 +7,8 @@
 
 # display / resources / quads / passes
 danakj@chromium.org
-ericrk@chromium.org
 vmpstr@chromium.org
 weiliangc@chromium.org
-
-# CopyOutputRequests/Results and FrameSinkVideoCapture
-miu@chromium.org
 
 # renderers (GL/Skia/Software)
 weiliangc@chromium.org
@@ -28,12 +24,13 @@ sadrul@chromium.org
 
 # frame sinks / surfaces
 kylechar@chromium.org
-samans@chromium.org
 jonross@chromium.org
+
+# frame sink video capturer
+per-file client_frame_sink_video_capturer*=ilnik@chromium.org
 
 # gpu
 danakj@chromium.org
-ericrk@chromium.org
 sadrul@chromium.org
 kylechar@chromium.org
 
@@ -47,7 +44,8 @@ flackr@chromium.org
 # overlays
 ccameron@chromium.org
 dcastagna@chromium.org
-khushalsagar@chromium.org
+vasilyt@chromium.org
+magchen@chromium.org
 
 # scheduling / begin frames
 sunnyps@chromium.org
@@ -56,6 +54,3 @@ sunnyps@chromium.org
 danakj@chromium.org
 vmpstr@chromium.org
 kylechar@chromium.org
-
-# TEAM: graphics-dev@chromium.org
-# COMPONENT: Internals>Compositing

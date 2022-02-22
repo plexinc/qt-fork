@@ -4,7 +4,7 @@
 #include "components/ukm/test_ukm_recorder.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "third_party/blink/renderer/core/loader/interactive_detector.h"
 
 #include "testing/gtest/include/gtest/gtest.h"
@@ -21,6 +21,7 @@
 namespace blink {
 
 using InputEvent = ukm::builders::InputEvent;
+using PageLoad = ukm::builders::PageLoad;
 
 class NetworkActivityCheckerForTest
     : public InteractiveDetector::NetworkActivityChecker {
@@ -564,26 +565,6 @@ TEST_F(InteractiveDetectorTest, LongTaskAfterTTIDoesNothing) {
   platform_->RunForPeriodSeconds(5.1);
   // TTI time should not change.
   EXPECT_EQ(GetInteractiveTime(), long_task_1_end_time);
-}
-
-TEST_F(InteractiveDetectorTest, RecordInputDelayUKM) {
-  base::TimeDelta delay = base::TimeDelta::FromMilliseconds(10);
-  Event event;
-  event.SetTrusted(true);
-  event.SetType(event_type_names::kClick);
-  base::TimeTicks processing_start = Now() + delay;
-  base::TimeTicks event_platform_timestamp = Now();
-
-  ukm::TestAutoSetUkmRecorder test_ukm_recorder;
-  GetDetector()->SetUkmRecorderForTesting(&test_ukm_recorder);
-  GetDetector()->HandleForInputDelay(event, event_platform_timestamp,
-                                     processing_start);
-  auto entries = test_ukm_recorder.GetEntriesByName(InputEvent::kEntryName);
-  EXPECT_EQ(1ul, entries.size());
-  auto* entry = entries[0];
-  test_ukm_recorder.ExpectEntryMetric(
-      entry, InputEvent::kInteractiveTiming_InputDelayName,
-      delay.InMilliseconds());
 }
 
 // In tests for Total Blocking Time (TBT) we call SetTimeToInteractive() instead

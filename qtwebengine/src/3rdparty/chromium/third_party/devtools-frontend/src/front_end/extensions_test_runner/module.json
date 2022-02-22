@@ -3,11 +3,8 @@
     "test_runner",
     "extensions"
   ],
-  "scripts": [
-    "ExtensionsNetworkTestRunner.js",
-    "ExtensionsTestRunner.js"
-  ],
-  "skip_compilation": [
+  "modules": [
+    "extensions_test_runner.js",
     "ExtensionsNetworkTestRunner.js",
     "ExtensionsTestRunner.js"
   ]

@@ -37,8 +37,8 @@
 **
 ****************************************************************************/
 
-#ifndef QMEDIARECORDER_P_H
-#define QMEDIARECORDER_P_H
+#ifndef QMediaRecorder_P_H
+#define QMediaRecorder_P_H
 
 //
 //  W A R N I N G
@@ -52,59 +52,36 @@
 //
 
 #include "qmediarecorder.h"
-#include "qmediaobject_p.h"
+#include "qcamera.h"
 #include <QtCore/qurl.h>
+#include <QtCore/qpointer.h>
+#include "private/qplatformmediarecorder_p.h"
 
 QT_BEGIN_NAMESPACE
 
-class QMediaRecorderControl;
-class QMediaContainerControl;
-class QAudioEncoderSettingsControl;
-class QVideoEncoderSettingsControl;
-class QMetaDataWriterControl;
-class QMediaAvailabilityControl;
+class QPlatformMediaRecorder;
 class QTimer;
 
 class QMediaRecorderPrivate
 {
-    Q_DECLARE_NON_CONST_PUBLIC(QMediaRecorder)
+    Q_DECLARE_PUBLIC(QMediaRecorder)
 
 public:
     QMediaRecorderPrivate();
-    virtual ~QMediaRecorderPrivate() {}
 
-    void applySettingsLater();
-    void restartCamera();
+    static QString msgFailedStartRecording();
 
-    QMediaObject *mediaObject;
+    QMediaCaptureSession *captureSession = nullptr;
+    QPlatformMediaRecorder *control = nullptr;
 
-    QMediaRecorderControl *control;
-    QMediaContainerControl *formatControl;
-    QAudioEncoderSettingsControl *audioControl;
-    QVideoEncoderSettingsControl *videoControl;
-    QMetaDataWriterControl *metaDataControl;
-    QMediaAvailabilityControl *availabilityControl;
+    bool settingsChanged = false;
 
-    bool settingsChanged;
+    QMediaEncoderSettings encoderSettings;
 
-    QTimer* notifyTimer;
-
-    QMediaRecorder::State state;
-    QMediaRecorder::Error error;
-    QString errorString;
-    QUrl actualLocation;
-
-    void _q_stateChanged(QMediaRecorder::State state);
-    void _q_error(int error, const QString &errorString);
-    void _q_serviceDestroyed();
-    void _q_updateActualLocation(const QUrl &);
-    void _q_notify();
-    void _q_updateNotifyInterval(int ms);
-    void _q_applySettings();
-    void _q_availabilityChanged(QMultimedia::AvailabilityStatus availability);
-
-    QMediaRecorder *q_ptr;
+    QMediaRecorder *q_ptr = nullptr;
 };
+
+#undef Q_DECLARE_NON_CONST_PUBLIC
 
 QT_END_NAMESPACE
 

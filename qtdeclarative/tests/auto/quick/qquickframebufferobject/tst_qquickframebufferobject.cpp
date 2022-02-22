@@ -30,13 +30,13 @@
 
 #include <QtQuick/qquickitem.h>
 #include <QtQuick/qquickview.h>
-#include <QtGui/qopenglcontext.h>
-#include <QtGui/qopenglframebufferobject.h>
-#include <QtGui/qopenglfunctions.h>
+#include <qopenglcontext.h>
+#include <qopenglframebufferobject.h>
+#include <qopenglfunctions.h>
 
 #include <QtQuick/QQuickFramebufferObject>
 
-#include "../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 
 #ifndef GL_MAX_SAMPLES
 #define GL_MAX_SAMPLES 0x8D57
@@ -143,12 +143,26 @@ class tst_QQuickFramebufferObject: public QQmlDataTest
 {
     Q_OBJECT
 public:
+    tst_QQuickFramebufferObject();
+
 private slots:
+    void initTestCase() override;
     void testThatStuffWorks_data();
     void testThatStuffWorks();
 
     void testInvalidate();
 };
+
+tst_QQuickFramebufferObject::tst_QQuickFramebufferObject()
+    : QQmlDataTest(QT_QMLTEST_DATADIR)
+{
+}
+
+void tst_QQuickFramebufferObject::initTestCase()
+{
+    QQmlDataTest::initTestCase();
+    QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGLRhi);
+}
 
 void tst_QQuickFramebufferObject::testThatStuffWorks_data()
 {

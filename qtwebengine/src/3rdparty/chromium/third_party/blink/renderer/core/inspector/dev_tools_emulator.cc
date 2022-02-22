@@ -6,6 +6,7 @@
 
 #include <algorithm>
 
+#include "third_party/blink/public/mojom/widget/device_emulation_params.mojom-blink.h"
 #include "third_party/blink/public/web/web_settings.h"
 #include "third_party/blink/renderer/core/events/web_input_event_conversion.h"
 #include "third_party/blink/renderer/core/exported/web_view_impl.h"
@@ -67,10 +68,8 @@ DevToolsEmulator::DevToolsEmulator(WebViewImpl* web_view)
       is_overlay_scrollbars_enabled_(false),
       is_orientation_event_enabled_(false),
       is_mobile_layout_theme_enabled_(false),
-      original_default_minimum_page_scale_factor_(0),
-      original_default_maximum_page_scale_factor_(0),
       embedder_text_autosizing_enabled_(
-          web_view->GetPage()->GetSettings().TextAutosizingEnabled()),
+          web_view->GetPage()->GetSettings().GetTextAutosizingEnabled()),
       embedder_device_scale_adjustment_(
           web_view->GetPage()->GetSettings().GetDeviceScaleAdjustment()),
       embedder_prefer_compositing_to_lcd_text_enabled_(
@@ -93,6 +92,14 @@ DevToolsEmulator::DevToolsEmulator(WebViewImpl* web_view)
           web_view->GetPage()
               ->GetSettings()
               .GetMainFrameResizesAreOrientationChanges()),
+      embedder_min_page_scale_(web_view->DefaultMinimumPageScaleFactor()),
+      embedder_max_page_scale_(web_view->DefaultMaximumPageScaleFactor()),
+      embedder_shrink_viewport_content_(
+          web_view->GetPage()->GetSettings().GetShrinksViewportContentToFit()),
+      embedder_viewport_enabled_(
+          web_view->GetPage()->GetSettings().GetViewportEnabled()),
+      embedder_viewport_meta_enabled_(
+          web_view->GetPage()->GetSettings().GetViewportMetaEnabled()),
       touch_event_emulation_enabled_(false),
       double_tap_to_zoom_enabled_(false),
       original_max_touch_points_(0),
@@ -106,7 +113,7 @@ DevToolsEmulator::DevToolsEmulator(WebViewImpl* web_view)
           web_view->GetPage()->GetSettings().GetCookieEnabled()),
       document_cookie_disabled_(false) {}
 
-void DevToolsEmulator::Trace(Visitor* visitor) {}
+void DevToolsEmulator::Trace(Visitor* visitor) const {}
 
 void DevToolsEmulator::SetTextAutosizingEnabled(bool enabled) {
   embedder_text_autosizing_enabled_ = enabled;
@@ -139,7 +146,7 @@ void DevToolsEmulator::SetPreferCompositingToLCDTextEnabled(bool enabled) {
   }
 }
 
-void DevToolsEmulator::SetViewportStyle(WebViewportStyle style) {
+void DevToolsEmulator::SetViewportStyle(mojom::blink::ViewportStyle style) {
   embedder_viewport_style_ = style;
   bool emulate_mobile_enabled =
       device_metrics_enabled_ && emulate_mobile_enabled_;
@@ -192,13 +199,54 @@ void DevToolsEmulator::SetMainFrameResizesAreOrientationChanges(bool value) {
   }
 }
 
+void DevToolsEmulator::SetDefaultPageScaleLimits(float min_scale,
+                                                 float max_scale) {
+  embedder_min_page_scale_ = min_scale;
+  embedder_max_page_scale_ = max_scale;
+  bool emulate_mobile_enabled =
+      device_metrics_enabled_ && emulate_mobile_enabled_;
+  if (!emulate_mobile_enabled) {
+    web_view_->GetPage()->SetDefaultPageScaleLimits(min_scale, max_scale);
+  }
+}
+
+void DevToolsEmulator::SetShrinksViewportContentToFit(
+    bool shrink_viewport_content) {
+  embedder_shrink_viewport_content_ = shrink_viewport_content;
+  bool emulate_mobile_enabled =
+      device_metrics_enabled_ && emulate_mobile_enabled_;
+  if (!emulate_mobile_enabled) {
+    web_view_->GetPage()->GetSettings().SetShrinksViewportContentToFit(
+        shrink_viewport_content);
+  }
+}
+
+void DevToolsEmulator::SetViewportEnabled(bool enabled) {
+  embedder_viewport_enabled_ = enabled;
+  bool emulate_mobile_enabled =
+      device_metrics_enabled_ && emulate_mobile_enabled_;
+  if (!emulate_mobile_enabled) {
+    web_view_->GetPage()->GetSettings().SetViewportEnabled(enabled);
+  }
+}
+
+void DevToolsEmulator::SetViewportMetaEnabled(bool enabled) {
+  embedder_viewport_meta_enabled_ = enabled;
+  bool emulate_mobile_enabled =
+      device_metrics_enabled_ && emulate_mobile_enabled_;
+  if (!emulate_mobile_enabled) {
+    web_view_->GetPage()->GetSettings().SetViewportMetaEnabled(enabled);
+  }
+}
+
 void DevToolsEmulator::SetAvailablePointerTypes(int types) {
   embedder_available_pointer_types_ = types;
   if (!touch_event_emulation_enabled_)
     web_view_->GetPage()->GetSettings().SetAvailablePointerTypes(types);
 }
 
-void DevToolsEmulator::SetPrimaryPointerType(PointerType pointer_type) {
+void DevToolsEmulator::SetPrimaryPointerType(
+    mojom::blink::PointerType pointer_type) {
   embedder_primary_pointer_type_ = pointer_type;
   if (!touch_event_emulation_enabled_)
     web_view_->GetPage()->GetSettings().SetPrimaryPointerType(pointer_type);
@@ -210,17 +258,17 @@ void DevToolsEmulator::SetAvailableHoverTypes(int types) {
     web_view_->GetPage()->GetSettings().SetAvailableHoverTypes(types);
 }
 
-void DevToolsEmulator::SetPrimaryHoverType(HoverType hover_type) {
+void DevToolsEmulator::SetPrimaryHoverType(mojom::blink::HoverType hover_type) {
   embedder_primary_hover_type_ = hover_type;
   if (!touch_event_emulation_enabled_)
     web_view_->GetPage()->GetSettings().SetPrimaryHoverType(hover_type);
 }
 
 TransformationMatrix DevToolsEmulator::EnableDeviceEmulation(
-    const WebDeviceEmulationParams& params) {
+    const DeviceEmulationParams& params) {
   if (device_metrics_enabled_ &&
       emulation_params_.view_size == params.view_size &&
-      emulation_params_.screen_position == params.screen_position &&
+      emulation_params_.screen_type == params.screen_type &&
       emulation_params_.device_scale_factor == params.device_scale_factor &&
       emulation_params_.scale == params.scale &&
       emulation_params_.viewport_offset == params.viewport_offset &&
@@ -235,11 +283,11 @@ TransformationMatrix DevToolsEmulator::EnableDeviceEmulation(
   device_metrics_enabled_ = true;
 
   web_view_->GetPage()->GetSettings().SetDeviceScaleAdjustment(
-      calculateDeviceScaleAdjustment(params.view_size.width,
-                                     params.view_size.height,
+      calculateDeviceScaleAdjustment(params.view_size.width(),
+                                     params.view_size.height(),
                                      params.device_scale_factor));
 
-  if (params.screen_position == WebDeviceEmulationParams::kMobile)
+  if (params.screen_type == mojom::blink::EmulatedScreenType::kMobile)
     EnableMobileEmulation();
   else
     DisableMobileEmulation();
@@ -301,11 +349,11 @@ void DevToolsEmulator::EnableMobileEmulation() {
   Page::PlatformColorsChanged();
   web_view_->GetPage()->GetSettings().SetForceAndroidOverlayScrollbar(true);
   web_view_->GetPage()->GetSettings().SetViewportStyle(
-      WebViewportStyle::kMobile);
+      mojom::blink::ViewportStyle::kMobile);
   web_view_->GetPage()->GetSettings().SetViewportEnabled(true);
   web_view_->GetPage()->GetSettings().SetViewportMetaEnabled(true);
   web_view_->GetPage()->GetVisualViewport().InitializeScrollbars();
-  web_view_->GetSettings()->SetShrinksViewportContentToFit(true);
+  web_view_->GetPage()->GetSettings().SetShrinksViewportContentToFit(true);
   web_view_->GetPage()->GetSettings().SetTextAutosizingEnabled(true);
   web_view_->GetPage()->GetSettings().SetPreferCompositingToLCDTextEnabled(
       true);
@@ -313,12 +361,7 @@ void DevToolsEmulator::EnableMobileEmulation() {
   web_view_->GetPage()->GetSettings().SetMainFrameResizesAreOrientationChanges(
       true);
   web_view_->SetZoomFactorOverride(1);
-
-  original_default_minimum_page_scale_factor_ =
-      web_view_->DefaultMinimumPageScaleFactor();
-  original_default_maximum_page_scale_factor_ =
-      web_view_->DefaultMaximumPageScaleFactor();
-  web_view_->SetDefaultPageScaleLimits(0.25f, 5);
+  web_view_->GetPage()->SetDefaultPageScaleLimits(0.25f, 5);
 
   // TODO(wjmaclean): Update all local frames in the WebView's frame tree, not
   // just a local main frame.
@@ -338,10 +381,13 @@ void DevToolsEmulator::DisableMobileEmulation() {
   ComputedStyle::InvalidateInitialStyle();
   Page::PlatformColorsChanged();
   web_view_->GetPage()->GetSettings().SetForceAndroidOverlayScrollbar(false);
-  web_view_->GetPage()->GetSettings().SetViewportEnabled(false);
-  web_view_->GetPage()->GetSettings().SetViewportMetaEnabled(false);
+  web_view_->GetPage()->GetSettings().SetViewportEnabled(
+      embedder_viewport_enabled_);
+  web_view_->GetPage()->GetSettings().SetViewportMetaEnabled(
+      embedder_viewport_meta_enabled_);
   web_view_->GetPage()->GetVisualViewport().InitializeScrollbars();
-  web_view_->GetSettings()->SetShrinksViewportContentToFit(false);
+  web_view_->GetSettings()->SetShrinksViewportContentToFit(
+      embedder_shrink_viewport_content_);
   web_view_->GetPage()->GetSettings().SetTextAutosizingEnabled(
       embedder_text_autosizing_enabled_);
   web_view_->GetPage()->GetSettings().SetPreferCompositingToLCDTextEnabled(
@@ -353,10 +399,9 @@ void DevToolsEmulator::DisableMobileEmulation() {
   web_view_->GetPage()->GetSettings().SetMainFrameResizesAreOrientationChanges(
       embedder_main_frame_resizes_are_orientation_changes_);
   web_view_->SetZoomFactorOverride(0);
+  web_view_->GetPage()->SetDefaultPageScaleLimits(embedder_min_page_scale_,
+                                                  embedder_max_page_scale_);
   emulate_mobile_enabled_ = false;
-  web_view_->SetDefaultPageScaleLimits(
-      original_default_minimum_page_scale_factor_,
-      original_default_maximum_page_scale_factor_);
   // MainFrameImpl() could be null during cleanup or remote <-> local swap.
   if (web_view_->MainFrameImpl())
     web_view_->MainFrameImpl()->GetFrameView()->UpdateLayout();
@@ -430,10 +475,10 @@ void DevToolsEmulator::OverrideVisibleRect(
   if (!viewport_override_ || !frame)
     return;
 
-  FloatSize scaled_viewport_size(viewport_size);
-  scaled_viewport_size.Scale(1. / viewport_override_->scale);
+  // Don't apply viewport_override_->scale because all coordinates here are
+  // under the same scale.
   IntRect visible_rect_in_document = EnclosingIntRect(
-      FloatRect(viewport_override_->position, scaled_viewport_size));
+      FloatRect(viewport_override_->position, FloatSize(viewport_size)));
   *visible_rect_in_frame =
       frame->GetFrameView()->DocumentToFrame(visible_rect_in_document);
 }
@@ -455,13 +500,17 @@ void DevToolsEmulator::SetTouchEventEmulationEnabled(bool enabled,
   web_view_->GetPage()->GetSettings().SetMaxTouchPoints(
       enabled ? max_touch_points : original_max_touch_points_);
   web_view_->GetPage()->GetSettings().SetAvailablePointerTypes(
-      enabled ? kPointerTypeCoarse : embedder_available_pointer_types_);
+      enabled ? static_cast<int>(mojom::blink::PointerType::kPointerCoarseType)
+              : embedder_available_pointer_types_);
   web_view_->GetPage()->GetSettings().SetPrimaryPointerType(
-      enabled ? kPointerTypeCoarse : embedder_primary_pointer_type_);
+      enabled ? mojom::blink::PointerType::kPointerCoarseType
+              : embedder_primary_pointer_type_);
   web_view_->GetPage()->GetSettings().SetAvailableHoverTypes(
-      enabled ? kHoverTypeNone : embedder_available_hover_types_);
+      enabled ? static_cast<int>(mojom::blink::HoverType::kHoverNone)
+              : embedder_available_hover_types_);
   web_view_->GetPage()->GetSettings().SetPrimaryHoverType(
-      enabled ? kHoverTypeNone : embedder_primary_hover_type_);
+      enabled ? mojom::blink::HoverType::kHoverNone
+              : embedder_primary_hover_type_);
   WebLocalFrameImpl* frame = web_view_->MainFrameImpl();
   if (enabled && frame)
     frame->GetFrame()->GetEventHandler().ClearMouseEventManager();

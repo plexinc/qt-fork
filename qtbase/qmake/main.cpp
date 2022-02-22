@@ -32,9 +32,10 @@
 #include "option.h"
 #include "cachekeys.h"
 #include "metamakefile.h"
+#include <qcoreapplication.h>
 #include <qnamespace.h>
 #include <qdebug.h>
-#include <qregexp.h>
+#include <qregularexpression.h>
 #include <qdir.h>
 #include <qdiriterator.h>
 #include <stdio.h>
@@ -60,14 +61,14 @@ QT_BEGIN_NAMESPACE
 #ifdef Q_OS_WIN
 
 struct SedSubst {
-    QRegExp from;
+    QRegularExpression from;
     QString to;
 };
-Q_DECLARE_TYPEINFO(SedSubst, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(SedSubst, Q_RELOCATABLE_TYPE);
 
 static int doSed(int argc, char **argv)
 {
-    QVector<SedSubst> substs;
+    QList<SedSubst> substs;
     QList<const char *> inFiles;
     for (int i = 0; i < argc; i++) {
         if (!strcmp(argv[i], "-e")) {
@@ -85,7 +86,7 @@ static int doSed(int argc, char **argv)
                     return 3;
                 }
                 QChar sep = ++j < cmd.length() ? cmd.at(j) : QChar();
-                Qt::CaseSensitivity matchcase = Qt::CaseSensitive;
+                QRegularExpression::PatternOptions matchcase = QRegularExpression::NoPatternOption;
                 bool escaped = false;
                 int phase = 1;
                 QStringList phases;
@@ -110,7 +111,7 @@ static int doSed(int argc, char **argv)
                         && (c == QLatin1Char('+') || c == QLatin1Char('?') || c == QLatin1Char('|')
                             || c == QLatin1Char('{') || c == QLatin1Char('}')
                             || c == QLatin1Char('(') || c == QLatin1Char(')'))) {
-                        // translate sed rx to QRegExp
+                        // translate sed rx to QRegularExpression
                         escaped ^= 1;
                     }
                     if (escaped) {
@@ -129,14 +130,14 @@ static int doSed(int argc, char **argv)
                 }
                 if (curr.contains(QLatin1Char('i'))) {
                     curr.remove(QLatin1Char('i'));
-                    matchcase = Qt::CaseInsensitive;
+                    matchcase = QRegularExpression::CaseInsensitiveOption;
                 }
                 if (curr != QLatin1String("g")) {
                     fprintf(stderr, "Error: sed s command supports only g & i options; g is required\n");
                     return 3;
                 }
                 SedSubst subst;
-                subst.from = QRegExp(phases.at(0), matchcase);
+                subst.from = QRegularExpression(phases.at(0), matchcase);
                 subst.to = phases.at(1);
                 subst.to.replace(QLatin1String("\\\\"), QLatin1String("\\")); // QString::replace(rx, sub) groks \1, but not \\.
                 substs << subst;
@@ -265,6 +266,8 @@ static bool copyFileTimes(QFile &targetFile, const QString &sourceFilePath,
                 return false;
         }
     }
+#else
+    Q_UNUSED(mustEnsureWritability);
 #endif
     if (!IoUtils::touchFile(targetFile.fileName(), sourceFilePath, errorString))
         return false;
@@ -455,6 +458,8 @@ int runQMake(int argc, char **argv)
     setvbuf(stdout, (char *)NULL, _IONBF, 0);
 
     // Workaround for inferior/missing command line tools on Windows: make our own!
+    if (argc >= 4 && !strcmp(argv[1], "-qtconf") && !strcmp(argv[3], "-install"))
+        return doInstall(argc - 4, argv + 4);
     if (argc >= 2 && !strcmp(argv[1], "-install"))
         return doInstall(argc - 2, argv + 2);
 
@@ -504,10 +509,18 @@ int runQMake(int argc, char **argv)
     }
 
     QMakeProperty prop;
-    if(Option::qmake_mode == Option::QMAKE_QUERY_PROPERTY ||
-       Option::qmake_mode == Option::QMAKE_SET_PROPERTY ||
-       Option::qmake_mode == Option::QMAKE_UNSET_PROPERTY)
-        return prop.exec() ? 0 : 101;
+    switch (Option::qmake_mode) {
+    case Option::QMAKE_QUERY_PROPERTY:
+        return prop.queryProperty(Option::prop::properties);
+    case Option::QMAKE_SET_PROPERTY:
+        return prop.setProperty(Option::prop::properties);
+    case Option::QMAKE_UNSET_PROPERTY:
+        prop.unsetProperty(Option::prop::properties);
+        return 0;
+    default:
+        break;
+    }
+
     globals.setQMakeProperty(&prop);
 
     ProFileCache proFileCache;
@@ -586,5 +599,7 @@ QT_END_NAMESPACE
 
 int main(int argc, char **argv)
 {
+    // Set name of the qmake application in QCoreApplication instance
+    QT_PREPEND_NAMESPACE(QCoreApplication) app(argc, argv);
     return QT_PREPEND_NAMESPACE(runQMake)(argc, argv);
 }

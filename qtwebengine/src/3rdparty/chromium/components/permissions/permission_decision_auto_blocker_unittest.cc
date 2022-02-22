@@ -48,12 +48,11 @@ class PermissionDecisionAutoBlockerUnitTest : public testing::Test {
         &browser_context_);
   }
 
-  void SetLastEmbargoStatus(base::Closure quit_closure, bool status) {
+  void SetLastEmbargoStatus(base::OnceClosure quit_closure, bool status) {
     callback_was_run_ = true;
     last_embargoed_status_ = status;
     if (quit_closure) {
-      quit_closure.Run();
-      quit_closure.Reset();
+      std::move(quit_closure).Run();
     }
   }
 
@@ -76,7 +75,7 @@ class PermissionDecisionAutoBlockerUnitTest : public testing::Test {
 // Check removing the the embargo for a single permission on a site works, and
 // that it doesn't interfere with other embargoed permissions or the same
 // permission embargoed on other sites.
-TEST_F(PermissionDecisionAutoBlockerUnitTest, RemoveEmbargoByUrl) {
+TEST_F(PermissionDecisionAutoBlockerUnitTest, RemoveEmbargoAndResetCounts) {
   GURL url1("https://www.google.com");
   GURL url2("https://www.example.com");
 
@@ -117,7 +116,8 @@ TEST_F(PermissionDecisionAutoBlockerUnitTest, RemoveEmbargoByUrl) {
 
   // Remove the embargo on notifications. Verify it is no longer under embargo,
   // but location still is.
-  autoblocker()->RemoveEmbargoByUrl(url1, ContentSettingsType::NOTIFICATIONS);
+  autoblocker()->RemoveEmbargoAndResetCounts(
+      url1, ContentSettingsType::NOTIFICATIONS);
   result =
       autoblocker()->GetEmbargoResult(url1, ContentSettingsType::GEOLOCATION);
   EXPECT_EQ(CONTENT_SETTING_BLOCK, result.content_setting);
@@ -134,7 +134,7 @@ TEST_F(PermissionDecisionAutoBlockerUnitTest, RemoveEmbargoByUrl) {
   EXPECT_EQ(PermissionStatusSource::MULTIPLE_DISMISSALS, result.source);
 }
 
-// Test it still only takes one more dismissal to re-trigger embargo after
+// Test it does not take one more dismissal to re-trigger embargo after
 // removing the embargo status for a site.
 TEST_F(PermissionDecisionAutoBlockerUnitTest,
        DismissAfterRemovingEmbargoByURL) {
@@ -155,22 +155,112 @@ TEST_F(PermissionDecisionAutoBlockerUnitTest,
   EXPECT_EQ(PermissionStatusSource::MULTIPLE_DISMISSALS, result.source);
 
   // Remove embargo and verify this is true.
-  autoblocker()->RemoveEmbargoByUrl(url, ContentSettingsType::GEOLOCATION);
+  autoblocker()->RemoveEmbargoAndResetCounts(url,
+                                             ContentSettingsType::GEOLOCATION);
   result =
       autoblocker()->GetEmbargoResult(url, ContentSettingsType::GEOLOCATION);
   EXPECT_EQ(CONTENT_SETTING_ASK, result.content_setting);
   EXPECT_EQ(PermissionStatusSource::UNSPECIFIED, result.source);
 
-  // Record another dismissal and verify location is under embargo again.
+  // Record another dismissal and verify location is not under embargo again.
   autoblocker()->RecordDismissAndEmbargo(url, ContentSettingsType::GEOLOCATION,
                                          false);
   result =
       autoblocker()->GetEmbargoResult(url, ContentSettingsType::GEOLOCATION);
-  EXPECT_EQ(CONTENT_SETTING_BLOCK, result.content_setting);
-  EXPECT_EQ(PermissionStatusSource::MULTIPLE_DISMISSALS, result.source);
+  EXPECT_EQ(CONTENT_SETTING_ASK, result.content_setting);
+  EXPECT_EQ(PermissionStatusSource::UNSPECIFIED, result.source);
 }
 
-TEST_F(PermissionDecisionAutoBlockerUnitTest, RemoveCountsByUrl) {
+TEST_F(PermissionDecisionAutoBlockerUnitTest,
+       NonembargoedOriginRemoveEmbargoCounts) {
+  GURL gurl_to_embargo("https://www.google.com");
+
+  // Make sure that an origin's Dismiss count is 0.
+  EXPECT_EQ(0, autoblocker()->GetDismissCount(
+                   gurl_to_embargo, ContentSettingsType::GEOLOCATION));
+
+  // Dismiss the origin a few times but do not add under embargo.
+  autoblocker()->RecordDismissAndEmbargo(
+      gurl_to_embargo, ContentSettingsType::GEOLOCATION, false);
+  autoblocker()->RecordDismissAndEmbargo(
+      gurl_to_embargo, ContentSettingsType::GEOLOCATION, false);
+
+  EXPECT_EQ(2, autoblocker()->GetDismissCount(
+                   gurl_to_embargo, ContentSettingsType::GEOLOCATION));
+
+  autoblocker()->RemoveEmbargoAndResetCounts(gurl_to_embargo,
+                                             ContentSettingsType::GEOLOCATION);
+
+  EXPECT_EQ(0, autoblocker()->GetDismissCount(
+                   gurl_to_embargo, ContentSettingsType::GEOLOCATION));
+
+  autoblocker()->RecordIgnoreAndEmbargo(gurl_to_embargo,
+                                        ContentSettingsType::MIDI_SYSEX, false);
+  autoblocker()->RecordIgnoreAndEmbargo(gurl_to_embargo,
+                                        ContentSettingsType::MIDI_SYSEX, false);
+
+  EXPECT_EQ(2, autoblocker()->GetIgnoreCount(gurl_to_embargo,
+                                             ContentSettingsType::MIDI_SYSEX));
+
+  autoblocker()->RemoveEmbargoAndResetCounts(gurl_to_embargo,
+                                             ContentSettingsType::MIDI_SYSEX);
+
+  EXPECT_EQ(0, autoblocker()->GetIgnoreCount(gurl_to_embargo,
+                                             ContentSettingsType::MIDI_SYSEX));
+}
+
+TEST_F(PermissionDecisionAutoBlockerUnitTest, RemoveEmbargoCounts) {
+  GURL gurl_to_embargo("https://www.google.com");
+
+  // Add an origin under embargo for 2 dismissed and 1 ignored
+  // ContentSettingsType.
+  autoblocker()->RecordDismissAndEmbargo(
+      gurl_to_embargo, ContentSettingsType::GEOLOCATION, false);
+  autoblocker()->RecordDismissAndEmbargo(
+      gurl_to_embargo, ContentSettingsType::GEOLOCATION, false);
+  autoblocker()->RecordDismissAndEmbargo(
+      gurl_to_embargo, ContentSettingsType::GEOLOCATION, false);
+
+  EXPECT_EQ(3, autoblocker()->GetDismissCount(
+                   gurl_to_embargo, ContentSettingsType::GEOLOCATION));
+
+  autoblocker()->RecordDismissAndEmbargo(
+      gurl_to_embargo, ContentSettingsType::NOTIFICATIONS, false);
+  autoblocker()->RecordDismissAndEmbargo(
+      gurl_to_embargo, ContentSettingsType::NOTIFICATIONS, false);
+  autoblocker()->RecordDismissAndEmbargo(
+      gurl_to_embargo, ContentSettingsType::NOTIFICATIONS, false);
+
+  EXPECT_EQ(3, autoblocker()->GetDismissCount(
+                   gurl_to_embargo, ContentSettingsType::NOTIFICATIONS));
+
+  autoblocker()->RecordIgnoreAndEmbargo(gurl_to_embargo,
+                                        ContentSettingsType::MIDI_SYSEX, false);
+  autoblocker()->RecordIgnoreAndEmbargo(gurl_to_embargo,
+                                        ContentSettingsType::MIDI_SYSEX, false);
+  autoblocker()->RecordIgnoreAndEmbargo(gurl_to_embargo,
+                                        ContentSettingsType::MIDI_SYSEX, false);
+  autoblocker()->RecordIgnoreAndEmbargo(gurl_to_embargo,
+                                        ContentSettingsType::MIDI_SYSEX, false);
+
+  EXPECT_EQ(4, autoblocker()->GetIgnoreCount(gurl_to_embargo,
+                                             ContentSettingsType::MIDI_SYSEX));
+
+  autoblocker()->RemoveEmbargoAndResetCounts(gurl_to_embargo,
+                                             ContentSettingsType::GEOLOCATION);
+
+  // GEOLOCATION has been cleared, a dismiss count should be 0.
+  EXPECT_EQ(0, autoblocker()->GetDismissCount(
+                   gurl_to_embargo, ContentSettingsType::GEOLOCATION));
+  // GEOLOCATION has been cleared, but other counts should be
+  // preservet.
+  EXPECT_EQ(3, autoblocker()->GetDismissCount(
+                   gurl_to_embargo, ContentSettingsType::NOTIFICATIONS));
+  EXPECT_EQ(4, autoblocker()->GetIgnoreCount(gurl_to_embargo,
+                                             ContentSettingsType::MIDI_SYSEX));
+}
+
+TEST_F(PermissionDecisionAutoBlockerUnitTest, RemoveEmbargoAndResetCounts_All) {
   GURL url1("https://www.google.com");
   GURL url2("https://www.example.com");
 
@@ -216,7 +306,8 @@ TEST_F(PermissionDecisionAutoBlockerUnitTest, RemoveCountsByUrl) {
   EXPECT_EQ(
       2, autoblocker()->GetIgnoreCount(url2, ContentSettingsType::GEOLOCATION));
 
-  autoblocker()->RemoveCountsByUrl(base::Bind(&FilterGoogle));
+  autoblocker()->RemoveEmbargoAndResetCounts(
+      base::BindRepeating(&FilterGoogle));
 
   // Expect that url1's actions are gone, but url2's remain.
   EXPECT_EQ(0, autoblocker()->GetDismissCount(
@@ -267,7 +358,7 @@ TEST_F(PermissionDecisionAutoBlockerUnitTest, RemoveCountsByUrl) {
       1, autoblocker()->GetIgnoreCount(url2, ContentSettingsType::MIDI_SYSEX));
 
   // Remove everything and expect that it's all gone.
-  autoblocker()->RemoveCountsByUrl(base::Bind(&FilterAll));
+  autoblocker()->RemoveEmbargoAndResetCounts(base::BindRepeating(&FilterAll));
 
   EXPECT_EQ(0, autoblocker()->GetDismissCount(
                    url1, ContentSettingsType::GEOLOCATION));
@@ -286,82 +377,6 @@ TEST_F(PermissionDecisionAutoBlockerUnitTest, RemoveCountsByUrl) {
                    url2, ContentSettingsType::DURABLE_STORAGE));
   EXPECT_EQ(
       0, autoblocker()->GetIgnoreCount(url2, ContentSettingsType::MIDI_SYSEX));
-}
-
-// Check that we do not apply embargo to the plugins content type, as prompts
-// should be triggered only when necessary by Html5ByDefault.
-TEST_F(PermissionDecisionAutoBlockerUnitTest,
-       PluginsNotEmbargoedByMultipleDismissesOrIgnores) {
-  GURL url("https://www.google.com");
-
-  // Check dismisses first.
-  autoblocker()->RecordDismissAndEmbargo(url, ContentSettingsType::PLUGINS,
-                                         false);
-  autoblocker()->RecordDismissAndEmbargo(url, ContentSettingsType::PLUGINS,
-                                         false);
-  PermissionResult result =
-      autoblocker()->GetEmbargoResult(url, ContentSettingsType::PLUGINS);
-
-  EXPECT_EQ(CONTENT_SETTING_ASK, result.content_setting);
-  EXPECT_EQ(PermissionStatusSource::UNSPECIFIED, result.source);
-  EXPECT_EQ(2,
-            autoblocker()->GetDismissCount(url, ContentSettingsType::PLUGINS));
-
-  // The third dismiss would normally embargo, but this shouldn't happen for
-  // plugins.
-  EXPECT_FALSE(autoblocker()->RecordDismissAndEmbargo(
-      url, ContentSettingsType::PLUGINS, false));
-  result = autoblocker()->GetEmbargoResult(url, ContentSettingsType::PLUGINS);
-
-  EXPECT_EQ(CONTENT_SETTING_ASK, result.content_setting);
-  EXPECT_EQ(PermissionStatusSource::UNSPECIFIED, result.source);
-  EXPECT_EQ(3,
-            autoblocker()->GetDismissCount(url, ContentSettingsType::PLUGINS));
-
-  // Extra one for sanity checking.
-  EXPECT_FALSE(autoblocker()->RecordDismissAndEmbargo(
-      url, ContentSettingsType::PLUGINS, false));
-  result = autoblocker()->GetEmbargoResult(url, ContentSettingsType::PLUGINS);
-
-  EXPECT_EQ(CONTENT_SETTING_ASK, result.content_setting);
-  EXPECT_EQ(PermissionStatusSource::UNSPECIFIED, result.source);
-  EXPECT_EQ(4,
-            autoblocker()->GetDismissCount(url, ContentSettingsType::PLUGINS));
-
-  // Check ignores.
-  autoblocker()->RecordIgnoreAndEmbargo(url, ContentSettingsType::PLUGINS,
-                                        false);
-  autoblocker()->RecordIgnoreAndEmbargo(url, ContentSettingsType::PLUGINS,
-                                        false);
-  autoblocker()->RecordIgnoreAndEmbargo(url, ContentSettingsType::PLUGINS,
-                                        false);
-  result = autoblocker()->GetEmbargoResult(url, ContentSettingsType::PLUGINS);
-
-  EXPECT_EQ(CONTENT_SETTING_ASK, result.content_setting);
-  EXPECT_EQ(PermissionStatusSource::UNSPECIFIED, result.source);
-  EXPECT_EQ(3,
-            autoblocker()->GetIgnoreCount(url, ContentSettingsType::PLUGINS));
-
-  // The fourth ignore would normally embargo, but this shouldn't happen for
-  // plugins.
-  EXPECT_FALSE(autoblocker()->RecordIgnoreAndEmbargo(
-      url, ContentSettingsType::PLUGINS, false));
-  result = autoblocker()->GetEmbargoResult(url, ContentSettingsType::PLUGINS);
-
-  EXPECT_EQ(CONTENT_SETTING_ASK, result.content_setting);
-  EXPECT_EQ(PermissionStatusSource::UNSPECIFIED, result.source);
-  EXPECT_EQ(4,
-            autoblocker()->GetIgnoreCount(url, ContentSettingsType::PLUGINS));
-
-  // Extra one for sanity checking.
-  EXPECT_FALSE(autoblocker()->RecordIgnoreAndEmbargo(
-      url, ContentSettingsType::PLUGINS, false));
-  result = autoblocker()->GetEmbargoResult(url, ContentSettingsType::PLUGINS);
-
-  EXPECT_EQ(CONTENT_SETTING_ASK, result.content_setting);
-  EXPECT_EQ(PermissionStatusSource::UNSPECIFIED, result.source);
-  EXPECT_EQ(5,
-            autoblocker()->GetIgnoreCount(url, ContentSettingsType::PLUGINS));
 }
 
 // Check that GetEmbargoedOrigins only returns origins where embargo is the
@@ -404,7 +419,8 @@ TEST_F(PermissionDecisionAutoBlockerUnitTest, CheckEmbargoedOrigins) {
   EXPECT_EQ(1UL, origins.count(url2));
 
   // Remove an embargo and confirm it's removed from origins
-  autoblocker()->RemoveEmbargoByUrl(url1, ContentSettingsType::GEOLOCATION);
+  autoblocker()->RemoveEmbargoAndResetCounts(url1,
+                                             ContentSettingsType::GEOLOCATION);
   origins = autoblocker()->GetEmbargoedOrigins(content_types);
   EXPECT_EQ(1UL, origins.size());
   EXPECT_EQ(1UL, origins.count(url2));
@@ -593,7 +609,8 @@ TEST_F(PermissionDecisionAutoBlockerUnitTest, CheckEmbargoStartTime) {
 
   // Remove records of dismiss and ignore embargoes and confirm start time
   // reverts to default.
-  autoblocker()->RemoveCountsByUrl(base::Bind(&FilterGoogle));
+  autoblocker()->RemoveEmbargoAndResetCounts(
+      base::BindRepeating(&FilterGoogle));
   embargo_start_time =
       autoblocker()->GetEmbargoStartTime(url, ContentSettingsType::GEOLOCATION);
   EXPECT_EQ(base::Time(), embargo_start_time);

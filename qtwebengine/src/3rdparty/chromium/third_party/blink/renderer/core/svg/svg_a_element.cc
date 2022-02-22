@@ -42,6 +42,7 @@
 #include "third_party/blink/renderer/core/page/chrome_client.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/svg/animation/svg_smil_element.h"
+#include "third_party/blink/renderer/core/svg/svg_animated_string.h"
 #include "third_party/blink/renderer/core/svg_names.h"
 #include "third_party/blink/renderer/core/xlink_names.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
@@ -58,7 +59,7 @@ SVGAElement::SVGAElement(Document& document)
   AddToPropertyMap(svg_target_);
 }
 
-void SVGAElement::Trace(Visitor* visitor) {
+void SVGAElement::Trace(Visitor* visitor) const {
   visitor->Trace(svg_target_);
   SVGGraphicsElement::Trace(visitor);
   SVGURIReference::Trace(visitor);
@@ -74,11 +75,11 @@ String SVGAElement::title() const {
   return SVGElement::title();
 }
 
-void SVGAElement::SvgAttributeChanged(const QualifiedName& attr_name) {
+void SVGAElement::SvgAttributeChanged(const SvgAttributeChangedParams& params) {
   // Unlike other SVG*Element classes, SVGAElement only listens to
   // SVGURIReference changes as none of the other properties changes the linking
   // behaviour for our <a> element.
-  if (SVGURIReference::IsKnownAttribute(attr_name)) {
+  if (SVGURIReference::IsKnownAttribute(params.name)) {
     SVGElement::InvalidationGuard invalidation_guard(this);
 
     bool was_link = IsLink();
@@ -93,7 +94,7 @@ void SVGAElement::SvgAttributeChanged(const QualifiedName& attr_name) {
     return;
   }
 
-  SVGGraphicsElement::SvgAttributeChanged(attr_name);
+  SVGGraphicsElement::SvgAttributeChanged(params);
 }
 
 LayoutObject* SVGAElement::CreateLayoutObject(const ComputedStyle&,
@@ -136,11 +137,13 @@ void SVGAElement::DefaultEventHandler(Event& event) {
         return;
 
       FrameLoadRequest frame_request(
-          &GetDocument(), ResourceRequest(GetDocument().CompleteURL(url)));
+          GetDocument().domWindow(),
+          ResourceRequest(GetDocument().CompleteURL(url)));
       frame_request.SetNavigationPolicy(NavigationPolicyFromEvent(&event));
       frame_request.SetTriggeringEventInfo(
-          event.isTrusted() ? TriggeringEventInfo::kFromTrustedEvent
-                            : TriggeringEventInfo::kFromUntrustedEvent);
+          event.isTrusted()
+              ? mojom::blink::TriggeringEventInfo::kFromTrustedEvent
+              : mojom::blink::TriggeringEventInfo::kFromUntrustedEvent);
       frame_request.GetResourceRequest().SetHasUserGesture(
           LocalFrame::HasTransientUserActivation(GetDocument().GetFrame()));
 

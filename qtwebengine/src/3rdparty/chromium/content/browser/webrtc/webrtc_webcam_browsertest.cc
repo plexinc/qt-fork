@@ -10,6 +10,7 @@
 #include "build/build_config.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
@@ -22,7 +23,7 @@ namespace {
 
 const base::CommandLine::StringType FAKE_DEVICE_FLAG =
 #if defined(OS_WIN)
-    base::ASCIIToUTF16(switches::kUseFakeDeviceForMediaStream);
+    base::ASCIIToWide(switches::kUseFakeDeviceForMediaStream);
 #else
     switches::kUseFakeDeviceForMediaStream;
 #endif

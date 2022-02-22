@@ -10,7 +10,6 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/editing/forward.h"
 #include "third_party/blink/renderer/core/editing/position.h"
-#include "third_party/blink/renderer/core/editing/selection_type.h"
 #include "third_party/blink/renderer/core/editing/text_affinity.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
@@ -84,7 +83,7 @@ class SelectionTemplate final {
     explicit InvalidSelectionResetter(const SelectionTemplate&);
     ~InvalidSelectionResetter();
 
-    void Trace(Visitor*);
+    void Trace(Visitor*) const;
 
    private:
     const Member<const Document> document_;
@@ -118,10 +117,7 @@ class SelectionTemplate final {
   PositionTemplate<Strategy> ComputeStartPosition() const;
   EphemeralRangeTemplate<Strategy> ComputeRange() const;
 
-  // Returns |SelectionType| for |this| based on |base_| and |extent_|.
-  SelectionType Type() const;
-
-  void Trace(Visitor*);
+  void Trace(Visitor*) const;
 
   void PrintTo(std::ostream*, const char* type) const;
 #if DCHECK_IS_ON()

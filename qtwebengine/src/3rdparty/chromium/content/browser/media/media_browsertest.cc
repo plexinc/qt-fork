@@ -8,9 +8,11 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test_utils.h"
 #include "content/shell/browser/shell.h"
@@ -35,11 +37,6 @@ void MediaBrowserTest::SetUpCommandLine(base::CommandLine* command_line) {
       switches::kAutoplayPolicy,
       switches::autoplay::kNoUserGestureRequiredPolicy);
   command_line->AppendSwitch(switches::kExposeInternalsForTesting);
-#if defined(OS_LINUX)
-  // Due to problems with PulseAudio failing to start, use a fake audio
-  // stream. crbug.com/1047655#c70
-  command_line->AppendSwitch(switches::kDisableAudioOutput);
-#endif
 
   std::vector<base::Feature> enabled_features = {
 #if defined(OS_ANDROID)
@@ -51,6 +48,16 @@ void MediaBrowserTest::SetUpCommandLine(base::CommandLine* command_line) {
     // Disable fallback after decode error to avoid unexpected test pass on
     // the fallback path.
     media::kFallbackAfterDecodeError,
+
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
+    // Disable out of process audio on Linux due to process spawn
+    // failures. http://crbug.com/986021
+    features::kAudioServiceOutOfProcess,
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+    media::kDeprecateLowUsageCodecs,
+#endif
   };
 
   scoped_feature_list_.InitWithFeatures(enabled_features, disabled_features);
@@ -165,6 +172,26 @@ class MediaTest : public testing::WithParamInterface<bool>,
   }
 };
 
+#if defined(OS_ANDROID)
+class AndroidPlayerMediaTest : public MediaTest {
+ private:
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    MediaTest::SetUpCommandLine(command_line);
+    command_line->AppendSwitch(switches::kDisableAcceleratedVideoDecode);
+  }
+};
+
+// TODO(crbug.com/1094571): Flaky.
+IN_PROC_BROWSER_TEST_P(AndroidPlayerMediaTest, DISABLED_VideoBearMp4) {
+  PlayVideo("bear.mp4", GetParam());
+}
+
+INSTANTIATE_TEST_SUITE_P(File,
+                         AndroidPlayerMediaTest,
+                         ::testing::Values(false));
+INSTANTIATE_TEST_SUITE_P(Http, AndroidPlayerMediaTest, ::testing::Values(true));
+#endif  // defined(OS_ANDROID)
+
 // Android doesn't support Theora.
 #if !defined(OS_ANDROID)
 IN_PROC_BROWSER_TEST_P(MediaTest, VideoBearTheora) {
@@ -266,7 +293,7 @@ IN_PROC_BROWSER_TEST_F(MediaTest, LoadManyVideos) {
 }
 #endif  // !defined(OS_ANDROID)
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 IN_PROC_BROWSER_TEST_P(MediaTest, VideoBearAviMp3Mpeg4) {
   PlayVideo("bear_mpeg4_mp3.avi", GetParam());
 }
@@ -290,7 +317,7 @@ IN_PROC_BROWSER_TEST_P(MediaTest, VideoBear3gpAmrnbMpeg4) {
 IN_PROC_BROWSER_TEST_P(MediaTest, VideoBearWavGsmms) {
   PlayAudio("bear_gsm_ms.wav", GetParam());
 }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 #endif  // BUILDFLAG(USE_PROPRIETARY_CODECS)
 
 IN_PROC_BROWSER_TEST_P(MediaTest, AudioBearFlac) {
@@ -336,10 +363,16 @@ IN_PROC_BROWSER_TEST_P(MediaTest, VideoErrorEmptySrcAttribute) {
 }
 
 IN_PROC_BROWSER_TEST_P(MediaTest, VideoErrorNoSupportedStreams) {
-  RunErrorMessageTest(
-      "video", "no_streams.webm",
-      "DEMUXER_ERROR_NO_SUPPORTED_STREAMS: FFmpegDemuxer: no supported streams",
-      GetParam());
+  // The test doesn't work from file: scheme without AllowFileAccessFromFiles.
+  // TODO(wolenetz): https://crbug.com/1071473: Investigate and reenable the
+  // test.
+  if (!GetParam())
+    return;
+
+  RunErrorMessageTest("video", "no_streams.webm",
+                      "DEMUXER_ERROR_NO_SUPPORTED_STREAMS: FFmpegDemuxer: no "
+                      "supported streams",
+                      GetParam());
 }
 
 // Covers tear-down when navigating away as opposed to browser exiting.

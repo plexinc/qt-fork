@@ -42,8 +42,10 @@ const bool PlatformStyle::kTextfieldUsesDragCursorWhenDraggable = false;
 const bool PlatformStyle::kTableViewSupportsKeyboardNavigationByCell = false;
 const bool PlatformStyle::kTreeViewSelectionPaintsEntireRow = true;
 const bool PlatformStyle::kUseRipples = false;
-const bool PlatformStyle::kPreferFocusRings = true;
 const bool PlatformStyle::kInactiveWidgetControlsAppearDisabled = true;
+const bool PlatformStyle::kAdjustBubbleIfOffscreen = false;
+const View::FocusBehavior PlatformStyle::kDefaultFocusBehavior =
+    View::FocusBehavior::ACCESSIBLE_ONLY;
 
 const Button::KeyClickAction PlatformStyle::kKeyClickActionOnSpace =
     Button::KeyClickAction::kOnKeyPress;
@@ -68,9 +70,9 @@ gfx::Range PlatformStyle::RangeToDeleteBackwards(const base::string16& text,
   if (cursor_position == 0)
     return gfx::Range();
 
-  base::ScopedCFTypeRef<CFStringRef> cf_string(
-      CFStringCreateWithCharactersNoCopy(kCFAllocatorDefault, text.data(),
-                                         text.size(), kCFAllocatorNull));
+  base::ScopedCFTypeRef<CFStringRef> cf_string(CFStringCreateWithCharacters(
+      kCFAllocatorDefault, reinterpret_cast<const UniChar*>(text.data()),
+      text.size()));
   CFRange range_to_delete = CFStringGetRangeOfCharacterClusterAtIndex(
       cf_string, cursor_position - 1, kCFStringBackwardDeletionCluster);
 
@@ -81,4 +83,5 @@ gfx::Range PlatformStyle::RangeToDeleteBackwards(const base::string16& text,
   return gfx::Range(range_to_delete.location + range_to_delete.length,
                     range_to_delete.location);
 }
+
 }  // namespace views

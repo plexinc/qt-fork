@@ -28,6 +28,7 @@
 
 #include "project.h"
 
+#include "cachekeys.h"
 #include "option.h"
 #include <qmakeevaluator_p.h>
 
@@ -52,8 +53,10 @@ QMakeProject::QMakeProject(QMakeProject *p)
 
 bool QMakeProject::boolRet(VisitReturn vr)
 {
-    if (vr == ReturnError)
+    if (vr == ReturnError) {
+        qmakeClearCaches();
         exit(3);
+    }
     Q_ASSERT(vr == ReturnTrue || vr == ReturnFalse);
     return vr != ReturnFalse;
 }
@@ -125,7 +128,7 @@ QStringList QMakeProject::expand(const ProKey &func, const QList<ProStringList> 
 ProString QMakeProject::expand(const QString &expr, const QString &where, int line)
 {
     ProString ret;
-    ProFile *pro = m_parser->parsedProBlock(QStringRef(&expr), 0, where, line,
+    ProFile *pro = m_parser->parsedProBlock(QStringView(expr), 0, where, line,
                                             QMakeParser::ValueGrammar);
     if (pro->isOk()) {
         m_current.pro = pro;

@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2020 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Copyright (C) 2020 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
@@ -27,18 +27,20 @@
 **
 ****************************************************************************/
 
-#include <emulationdetector.h>
+#include <QTest>
+#include <QTestEventLoop>
+#include <QSignalSpy>
 
-#include <QtTest/QtTest>
 #include <QtCore/QProcess>
 #include <QtCore/QDir>
 #include <QtCore/QElapsedTimer>
 #include <QtCore/QFile>
 #include <QtCore/QThread>
 #include <QtCore/QTemporaryDir>
-#include <QtCore/QRegExp>
+#include <QtCore/QRegularExpression>
 #include <QtCore/QDebug>
 #include <QtCore/QMetaType>
+#include <QtCore/QScopeGuard>
 #include <QtNetwork/QHostInfo>
 
 #include <qplatformdefs.h>
@@ -48,8 +50,6 @@
 
 #include <stdlib.h>
 
-typedef void (QProcess::*QProcessFinishedSignal1)(int);
-typedef void (QProcess::*QProcessFinishedSignal2)(int, QProcess::ExitStatus);
 typedef void (QProcess::*QProcessErrorSignal)(QProcess::ProcessError);
 
 class tst_QProcess : public QObject
@@ -65,7 +65,8 @@ private slots:
     void getSetCheck();
     void constructing();
     void simpleStart();
-    void setupChildProcess();
+    void setChildProcessModifier();
+    void startCommand();
     void startWithOpen();
     void startWithOldOpen();
     void execute();
@@ -118,6 +119,7 @@ private slots:
     void discardUnwantedOutput();
     void setWorkingDirectory();
     void setNonExistentWorkingDirectory();
+    void detachedSetNonExistentWorkingDirectory();
 
     void exitStatus_data();
     void exitStatus();
@@ -158,13 +160,6 @@ private slots:
     void failToStartEmptyArgs_data();
     void failToStartEmptyArgs();
 
-#if QT_DEPRECATED_SINCE(5, 13)
-    void crashTest2_deprecated();
-    void restartProcessDeadlock_deprecated();
-    void waitForReadyReadInAReadyReadSlot_deprecated();
-    void finishProcessBeforeReadingDone_deprecated();
-#endif
-
 protected slots:
     void readFromProcess();
     void exitLoopSlot();
@@ -201,14 +196,6 @@ void tst_QProcess::getSetCheck()
     QProcess obj1;
     // ProcessChannelMode QProcess::readChannelMode()
     // void QProcess::setProcessChannelMode(ProcessChannelMode)
-#if QT_DEPRECATED_SINCE(5, 13)
-    obj1.setProcessChannelMode(QProcess::ProcessChannelMode(QProcess::SeparateChannels));
-    QCOMPARE(QProcess::ProcessChannelMode(QProcess::SeparateChannels), obj1.readChannelMode());
-    obj1.setProcessChannelMode(QProcess::ProcessChannelMode(QProcess::MergedChannels));
-    QCOMPARE(QProcess::ProcessChannelMode(QProcess::MergedChannels), obj1.readChannelMode());
-    obj1.setProcessChannelMode(QProcess::ProcessChannelMode(QProcess::ForwardedChannels));
-    QCOMPARE(QProcess::ProcessChannelMode(QProcess::ForwardedChannels), obj1.readChannelMode());
-#endif
     obj1.setProcessChannelMode(QProcess::ProcessChannelMode(QProcess::SeparateChannels));
     QCOMPARE(QProcess::ProcessChannelMode(QProcess::SeparateChannels), obj1.processChannelMode());
     obj1.setProcessChannelMode(QProcess::ProcessChannelMode(QProcess::MergedChannels));
@@ -284,49 +271,56 @@ void tst_QProcess::simpleStart()
     QCOMPARE(qvariant_cast<QProcess::ProcessState>(spy.at(2).at(0)), QProcess::NotRunning);
 }
 
-void tst_QProcess::setupChildProcess()
-{
-    /* This test exists because in Qt 5.15, the Unix version of QProcess has
-     * some code that depends on whether it's an actual QProcess or a
-     * derived class */
-    static const char setupChildMessage[] = "Called from setupChildProcess()";
-    class DerivedProcessClass : public QProcess {
-    public:
-        int fd;
-        DerivedProcessClass(int fd) : fd(fd)
-        {
-        }
-
-    protected:
-        void setupChildProcess() override
-        {
-            QT_WRITE(fd, setupChildMessage, sizeof(setupChildMessage) - 1);
-            QT_CLOSE(fd);
-        }
-    };
-
-    int pipes[2] = { -1 , -1 };
 #ifdef Q_OS_UNIX
-    QVERIFY(qt_safe_pipe(pipes) == 0);
+static const char messageFromChildProcess[] = "Message from the child process";
+static void childProcessModifier(int fd)
+{
+    QT_WRITE(fd, messageFromChildProcess, sizeof(messageFromChildProcess) - 1);
+    QT_CLOSE(fd);
+}
 #endif
 
-    DerivedProcessClass process(pipes[1]);
+void tst_QProcess::setChildProcessModifier()
+{
+#ifdef Q_OS_UNIX
+    int pipes[2] = { -1 , -1 };
+    QVERIFY(qt_safe_pipe(pipes) == 0);
+
+    QProcess process;
+    process.setChildProcessModifier([pipes]() {
+        ::childProcessModifier(pipes[1]);
+    });
     process.start("testProcessNormal/testProcessNormal");
     if (process.state() != QProcess::Starting)
         QCOMPARE(process.state(), QProcess::Running);
     QVERIFY2(process.waitForStarted(5000), qPrintable(process.errorString()));
 
-#ifdef Q_OS_UNIX
-    char buf[sizeof setupChildMessage] = {};
+    char buf[sizeof messageFromChildProcess] = {};
     qt_safe_close(pipes[1]);
-    QCOMPARE(qt_safe_read(pipes[0], buf, sizeof(buf)), qint64(sizeof(setupChildMessage) - 1));
-    QCOMPARE(buf, setupChildMessage);
+    QCOMPARE(qt_safe_read(pipes[0], buf, sizeof(buf)), qint64(sizeof(messageFromChildProcess)) - 1);
+    QCOMPARE(buf, messageFromChildProcess);
     qt_safe_close(pipes[0]);
-#endif
 
     QVERIFY2(process.waitForFinished(5000), qPrintable(process.errorString()));
     QCOMPARE(process.exitStatus(), QProcess::NormalExit);
     QCOMPARE(process.exitCode(), 0);
+#else
+    QSKIP("Unix-only test");
+#endif
+}
+
+void tst_QProcess::startCommand()
+{
+    QProcess process;
+    process.startCommand("testProcessSpacesArgs/nospace foo \"b a r\" baz");
+    QVERIFY2(process.waitForStarted(), qPrintable(process.errorString()));
+    QVERIFY2(process.waitForFinished(), qPrintable(process.errorString()));
+    QCOMPARE(process.exitStatus(), QProcess::NormalExit);
+    QCOMPARE(process.exitCode(), 0);
+    QByteArray actual = process.readAll();
+    actual.remove(0, actual.indexOf('|') + 1);
+    QByteArray expected = "foo|b a r|baz";
+    QCOMPARE(actual, expected);
 }
 
 void tst_QProcess::startWithOpen()
@@ -402,14 +396,9 @@ void tst_QProcess::crashTest()
     qRegisterMetaType<QProcess::ExitStatus>("QProcess::ExitStatus");
 
     QSignalSpy spy(process.data(), &QProcess::errorOccurred);
-    QSignalSpy spy2(process.data(), static_cast<QProcessFinishedSignal2>(&QProcess::finished));
+    QSignalSpy spy2(process.data(), &QProcess::finished);
     QVERIFY(spy.isValid());
     QVERIFY(spy2.isValid());
-
-#if QT_DEPRECATED_SINCE(5, 6)
-    QSignalSpy spy3(process.data(), static_cast<QProcessErrorSignal>(&QProcess::error));
-    QVERIFY(spy3.isValid());
-#endif
 
     QVERIFY(process->waitForFinished(30000));
 
@@ -418,11 +407,6 @@ void tst_QProcess::crashTest()
 
     QCOMPARE(spy2.count(), 1);
     QCOMPARE(*static_cast<const QProcess::ExitStatus *>(spy2.at(0).at(1).constData()), QProcess::CrashExit);
-
-#if QT_DEPRECATED_SINCE(5, 6)
-    QCOMPARE(spy3.count(), 1);
-    QCOMPARE(*static_cast<const QProcess::ProcessError *>(spy3.at(0).at(0).constData()), QProcess::Crashed);
-#endif
 
     QCOMPARE(process->exitStatus(), QProcess::CrashExit);
 
@@ -445,13 +429,12 @@ void tst_QProcess::crashTest2()
     qRegisterMetaType<QProcess::ExitStatus>("QProcess::ExitStatus");
 
     QSignalSpy spy(&process, static_cast<QProcessErrorSignal>(&QProcess::errorOccurred));
-    QSignalSpy spy2(&process, static_cast<QProcessFinishedSignal2>(&QProcess::finished));
+    QSignalSpy spy2(&process, &QProcess::finished);
 
     QVERIFY(spy.isValid());
     QVERIFY(spy2.isValid());
 
-    QObject::connect(&process, static_cast<QProcessFinishedSignal2>(&QProcess::finished),
-                     this, &tst_QProcess::exitLoopSlot);
+    QObject::connect(&process, &QProcess::finished, this, &tst_QProcess::exitLoopSlot);
 
     QTestEventLoop::instance().enterLoop(30);
     if (QTestEventLoop::instance().timeout())
@@ -717,10 +700,6 @@ void tst_QProcess::readTimeoutAndThenCrash()
     qRegisterMetaType<QProcess::ProcessError>("QProcess::ProcessError");
     QSignalSpy spy(&process, &QProcess::errorOccurred);
     QVERIFY(spy.isValid());
-#if QT_DEPRECATED_SINCE(5, 6)
-    QSignalSpy spy2(&process, static_cast<QProcessErrorSignal>(&QProcess::error));
-    QVERIFY(spy2.isValid());
-#endif
 
     process.kill();
 
@@ -729,10 +708,6 @@ void tst_QProcess::readTimeoutAndThenCrash()
 
     QCOMPARE(spy.count(), 1);
     QCOMPARE(*static_cast<const QProcess::ProcessError *>(spy.at(0).at(0).constData()), QProcess::Crashed);
-#if QT_DEPRECATED_SINCE(5, 6)
-    QCOMPARE(spy2.count(), 1);
-    QCOMPARE(*static_cast<const QProcess::ProcessError *>(spy2.at(0).at(0).constData()), QProcess::Crashed);
-#endif
 }
 
 void tst_QProcess::waitForFinished()
@@ -776,15 +751,14 @@ void tst_QProcess::restartProcessDeadlock()
     // process in the finished() connected slot causes a deadlock
     // because of the way QProcessManager uses its locks.
     QProcess process;
-    connect(&process, static_cast<QProcessFinishedSignal2>(&QProcess::finished),
-            this, &tst_QProcess::restartProcess);
+    connect(&process, &QProcess::finished, this, &tst_QProcess::restartProcess);
 
     process.start("testProcessEcho/testProcessEcho");
 
     QCOMPARE(process.write("", 1), qlonglong(1));
     QVERIFY(process.waitForFinished(5000));
 
-    QObject::disconnect(&process, static_cast<QProcessFinishedSignal2>(&QProcess::finished), nullptr, nullptr);
+    QObject::disconnect(&process, &QProcess::finished, nullptr, nullptr);
 
     QCOMPARE(process.write("", 1), qlonglong(1));
     QVERIFY(process.waitForFinished(5000));
@@ -983,8 +957,7 @@ public:
 
     SoftExitProcess(int n) : waitedForFinished(false), n(n), killing(false)
     {
-        connect(this, static_cast<QProcessFinishedSignal2>(&QProcess::finished),
-                this, &SoftExitProcess::finishedSlot);
+        connect(this, &QProcess::finished, this, &SoftExitProcess::finishedSlot);
 
         switch (n) {
         case 0:
@@ -1152,6 +1125,10 @@ void tst_QProcess::forwardedChannels_data()
             << true
             << int(QProcess::SeparateChannels) << int(QProcess::ManagedInputChannel)
             << QByteArray("out data") << QByteArray("err data");
+    QTest::newRow("detached-merged-forwarding")
+            << true
+            << int(QProcess::MergedChannels) << int(QProcess::ManagedInputChannel)
+            << QByteArray("out data" "err data") << QByteArray();
 }
 
 void tst_QProcess::forwardedChannels()
@@ -1169,9 +1146,8 @@ void tst_QProcess::forwardedChannels()
     QVERIFY(process.waitForStarted(5000));
     QCOMPARE(process.write("input"), 5);
     process.closeWriteChannel();
-    QVERIFY(process.waitForFinished(5000));
+    QVERIFY(process.waitForFinished(40000));    // testForwarding has a 30s wait
     QCOMPARE(process.exitStatus(), QProcess::NormalExit);
-    QCOMPARE(process.exitCode(), 0);
     const char *err;
     switch (process.exitCode()) {
     case 0: err = "ok"; break;
@@ -1224,13 +1200,12 @@ public:
     }
 
 protected:
-    inline void run()
+    inline void run() override
     {
         exitCode = 90210;
 
         QProcess process;
-        connect(&process, static_cast<QProcessFinishedSignal2>(&QProcess::finished),
-                this, &TestThread::catchExitCode, Qt::DirectConnection);
+        connect(&process, &QProcess::finished, this, &TestThread::catchExitCode, Qt::DirectConnection);
 
         process.start("testProcessEcho/testProcessEcho");
 
@@ -1261,8 +1236,10 @@ void tst_QProcess::processInAThread()
 
 void tst_QProcess::processesInMultipleThreads()
 {
-    if (EmulationDetector::isRunningArmOnX86())
-        QSKIP("Flakily hangs in QEMU. QTBUG-67760");
+#if defined(Q_OS_QNX)
+    QSKIP("QNX: Large amount of threads is unstable and do not finish in given time");
+#endif
+
     for (int i = 0; i < 10; ++i) {
         // run from 1 to 10 threads, but run at least some tests
         // with more threads than the ideal
@@ -1270,18 +1247,16 @@ void tst_QProcess::processesInMultipleThreads()
         if (i > 7)
             threadCount = qMax(threadCount, QThread::idealThreadCount() + 2);
 
-        QVector<TestThread *> threads(threadCount);
+        QList<TestThread *> threads(threadCount);
+        QScopeGuard cleanup([&threads]() { qDeleteAll(threads); });
         for (int j = 0; j < threadCount; ++j)
             threads[j] = new TestThread;
         for (int j = 0; j < threadCount; ++j)
             threads[j]->start();
-        for (int j = 0; j < threadCount; ++j) {
+        for (int j = 0; j < threadCount; ++j)
             QVERIFY(threads[j]->wait(10000));
-        }
-        for (int j = 0; j < threadCount; ++j) {
+        for (int j = 0; j < threadCount; ++j)
             QCOMPARE(threads[j]->code(), 0);
-        }
-        qDeleteAll(threads);
     }
 }
 
@@ -1303,8 +1278,7 @@ void tst_QProcess::waitForReadyReadInAReadyReadSlot()
 {
     QProcess process;
     connect(&process, &QIODevice::readyRead, this, &tst_QProcess::waitForReadyReadInAReadyReadSlotSlot);
-    connect(&process, static_cast<QProcessFinishedSignal2>(&QProcess::finished),
-            this, &tst_QProcess::exitLoopSlot);
+    connect(&process, &QProcess::finished, this, &tst_QProcess::exitLoopSlot);
     bytesAvailable = 0;
 
     process.start("testProcessEcho/testProcessEcho");
@@ -1322,7 +1296,7 @@ void tst_QProcess::waitForReadyReadInAReadyReadSlot()
     QVERIFY(process.waitForFinished(5000));
     QCOMPARE(process.exitStatus(), QProcess::NormalExit);
     QCOMPARE(process.exitCode(), 0);
-    QVERIFY(process.bytesAvailable() > bytesAvailable);
+    QVERIFY(process.bytesAvailable() >= bytesAvailable);
 }
 
 void tst_QProcess::waitForReadyReadInAReadyReadSlotSlot()
@@ -1332,6 +1306,8 @@ void tst_QProcess::waitForReadyReadInAReadyReadSlotSlot()
     bytesAvailable = process->bytesAvailable();
     process->write("bar", 4);
     QVERIFY(process->waitForReadyRead(5000));
+    QVERIFY(process->bytesAvailable() > bytesAvailable);
+    bytesAvailable = process->bytesAvailable();
     QTestEventLoop::instance().exitLoop();
 }
 
@@ -1424,6 +1400,9 @@ void tst_QProcess::spaceArgsTest()
     QFETCH(QStringList, args);
     QFETCH(QString, stringArgs);
 
+    auto splitString = QProcess::splitCommand(stringArgs);
+    QCOMPARE(args, splitString);
+
     QStringList programs;
     programs << QString::fromLatin1("testProcessSpacesArgs/nospace")
              << QString::fromLatin1("testProcessSpacesArgs/one space")
@@ -1445,28 +1424,6 @@ void tst_QProcess::spaceArgsTest()
         QCOMPARE(process.exitCode(), 0);
 
         QStringList actual = QString::fromLatin1(process.readAll()).split("|");
-        QVERIFY(!actual.isEmpty());
-        // not interested in the program name, it might be different.
-        actual.removeFirst();
-
-        QCOMPARE(actual, args);
-
-        if (program.contains(QLatin1Char(' ')))
-            program = QLatin1Char('"') + program + QLatin1Char('"');
-
-        if (!stringArgs.isEmpty())
-            program += QLatin1Char(' ') + stringArgs;
-
-        errorMessage.clear();
-        process.start(program);
-        started = process.waitForStarted(5000);
-        if (!started)
-            errorMessage = startFailMessage(program, process);
-
-        QVERIFY2(started, errorMessage.constData());
-        QVERIFY(process.waitForFinished(5000));
-
-        actual = QString::fromLatin1(process.readAll()).split("|");
         QVERIFY(!actual.isEmpty());
         // not interested in the program name, it might be different.
         actual.removeFirst();
@@ -1526,7 +1483,7 @@ void tst_QProcess::exitCodeTest()
 {
     for (int i = 0; i < 255; ++i) {
         QProcess process;
-        process.start("testExitCodes/testExitCodes " + QString::number(i));
+        process.start("testExitCodes/testExitCodes", {QString::number(i)});
         QVERIFY(process.waitForFinished(5000));
         QCOMPARE(process.exitCode(), i);
         QCOMPARE(process.error(), QProcess::UnknownError);
@@ -1542,19 +1499,10 @@ void tst_QProcess::failToStart()
     QProcess process;
     QSignalSpy stateSpy(&process, &QProcess::stateChanged);
     QSignalSpy errorSpy(&process, &QProcess::errorOccurred);
-    QSignalSpy finishedSpy(&process, static_cast<QProcessFinishedSignal2>(&QProcess::finished));
+    QSignalSpy finishedSpy(&process, &QProcess::finished);
     QVERIFY(stateSpy.isValid());
     QVERIFY(errorSpy.isValid());
     QVERIFY(finishedSpy.isValid());
-
-#if QT_DEPRECATED_SINCE(5, 6)
-    QSignalSpy errorSpy2(&process, static_cast<QProcessErrorSignal>(&QProcess::error));
-    QVERIFY(errorSpy2.isValid());
-#endif
-#if QT_DEPRECATED_SINCE(5, 13)
-    QSignalSpy finishedSpy2(&process, static_cast<QProcessFinishedSignal1>(&QProcess::finished));
-    QVERIFY(finishedSpy2.isValid());
-#endif
 
 // OS X and HP-UX have a really low default process limit (~100), so spawning
 // to many processes here will cause test failures later on.
@@ -1569,9 +1517,6 @@ void tst_QProcess::failToStart()
     for (int j = 0; j < 8; ++j) {
         for (int i = 0; i < attempts; ++i) {
             QCOMPARE(errorSpy.count(), j * attempts + i);
-#if QT_DEPRECATED_SINCE(5, 6)
-            QCOMPARE(errorSpy2.count(), j * attempts + i);
-#endif
             process.start("/blurp");
 
             switch (j) {
@@ -1597,12 +1542,6 @@ void tst_QProcess::failToStart()
             QCOMPARE(process.error(), QProcess::FailedToStart);
             QCOMPARE(errorSpy.count(), j * attempts + i + 1);
             QCOMPARE(finishedSpy.count(), 0);
-#if QT_DEPRECATED_SINCE(5, 6)
-            QCOMPARE(errorSpy2.count(), j * attempts + i + 1);
-#endif
-#if QT_DEPRECATED_SINCE(5, 13)
-            QCOMPARE(finishedSpy2.count(), 0);
-#endif
 
             int it = j * attempts + i + 1;
 
@@ -1621,18 +1560,9 @@ void tst_QProcess::failToStartWithWait()
     QProcess process;
     QEventLoop loop;
     QSignalSpy errorSpy(&process, &QProcess::errorOccurred);
-    QSignalSpy finishedSpy(&process, static_cast<QProcessFinishedSignal2>(&QProcess::finished));
+    QSignalSpy finishedSpy(&process, &QProcess::finished);
     QVERIFY(errorSpy.isValid());
     QVERIFY(finishedSpy.isValid());
-
-#if QT_DEPRECATED_SINCE(5, 6)
-    QSignalSpy errorSpy2(&process, static_cast<QProcessErrorSignal>(&QProcess::error));
-    QVERIFY(errorSpy2.isValid());
-#endif
-#if QT_DEPRECATED_SINCE(5, 13)
-    QSignalSpy finishedSpy2(&process, static_cast<QProcessFinishedSignal1>(&QProcess::finished));
-    QVERIFY(finishedSpy2.isValid());
-#endif
 
     for (int i = 0; i < 50; ++i) {
         process.start("/blurp", QStringList() << "-v" << "-debug");
@@ -1641,13 +1571,6 @@ void tst_QProcess::failToStartWithWait()
         QCOMPARE(process.error(), QProcess::FailedToStart);
         QCOMPARE(errorSpy.count(), i + 1);
         QCOMPARE(finishedSpy.count(), 0);
-#if QT_DEPRECATED_SINCE(5, 6)
-        QCOMPARE(errorSpy2.count(), i + 1);
-#endif
-#if QT_DEPRECATED_SINCE(5, 13)
-        QCOMPARE(finishedSpy2.count(), 0);
-#endif
-
     }
 }
 
@@ -1659,18 +1582,9 @@ void tst_QProcess::failToStartWithEventLoop()
     QProcess process;
     QEventLoop loop;
     QSignalSpy errorSpy(&process, &QProcess::errorOccurred);
-    QSignalSpy finishedSpy(&process, static_cast<QProcessFinishedSignal2>(&QProcess::finished));
+    QSignalSpy finishedSpy(&process, &QProcess::finished);
     QVERIFY(errorSpy.isValid());
     QVERIFY(finishedSpy.isValid());
-
-#if QT_DEPRECATED_SINCE(5, 6)
-    QSignalSpy errorSpy2(&process, static_cast<QProcessErrorSignal>(&QProcess::error));
-    QVERIFY(errorSpy2.isValid());
-#endif
-#if QT_DEPRECATED_SINCE(5, 13)
-    QSignalSpy finishedSpy2(&process, static_cast<QProcessFinishedSignal1>(&QProcess::finished));
-    QVERIFY(finishedSpy2.isValid());
-#endif
 
     // The error signal may be emitted before start() returns
     connect(&process, &QProcess::errorOccurred, &loop, &QEventLoop::quit, Qt::QueuedConnection);
@@ -1684,12 +1598,6 @@ void tst_QProcess::failToStartWithEventLoop()
         QCOMPARE(process.error(), QProcess::FailedToStart);
         QCOMPARE(errorSpy.count(), i + 1);
         QCOMPARE(finishedSpy.count(), 0);
-#if QT_DEPRECATED_SINCE(5, 6)
-        QCOMPARE(errorSpy2.count(), i + 1);
-#endif
-#if QT_DEPRECATED_SINCE(5, 13)
-        QCOMPARE(finishedSpy2.count(), 0);
-#endif
     }
 }
 
@@ -1697,8 +1605,7 @@ void tst_QProcess::failToStartEmptyArgs_data()
 {
     QTest::addColumn<int>("startOverload");
     QTest::newRow("start(QString, QStringList, OpenMode)") << 0;
-    QTest::newRow("start(QString, OpenMode)") << 1;
-    QTest::newRow("start(OpenMode)") << 2;
+    QTest::newRow("start(OpenMode)") << 1;
 }
 
 void tst_QProcess::failToStartEmptyArgs()
@@ -1709,19 +1616,12 @@ void tst_QProcess::failToStartEmptyArgs()
     QProcess process;
     QSignalSpy errorSpy(&process, static_cast<QProcessErrorSignal>(&QProcess::errorOccurred));
     QVERIFY(errorSpy.isValid());
-#if QT_DEPRECATED_SINCE(5, 6)
-    QSignalSpy errorSpy2(&process, static_cast<QProcessErrorSignal>(&QProcess::error));
-    QVERIFY(errorSpy2.isValid());
-#endif
 
     switch (startOverload) {
     case 0:
         process.start(QString(), QStringList(), QIODevice::ReadWrite);
         break;
     case 1:
-        process.start(QString(), QIODevice::ReadWrite);
-        break;
-    case 2:
         process.start(QIODevice::ReadWrite);
         break;
     default:
@@ -1730,9 +1630,6 @@ void tst_QProcess::failToStartEmptyArgs()
 
     QVERIFY(!process.waitForStarted());
     QCOMPARE(errorSpy.count(), 1);
-#if QT_DEPRECATED_SINCE(5, 6)
-    QCOMPARE(errorSpy2.count(), 1);
-#endif
     QCOMPARE(process.error(), QProcess::FailedToStart);
 }
 
@@ -1789,9 +1686,9 @@ void tst_QProcess::setEnvironment()
         QStringList environment = QProcess::systemEnvironment();
         if (value.isNull()) {
             int pos;
-            QRegExp rx(name + "=.*");
+            QRegularExpression rx(name + "=.*");
 #ifdef Q_OS_WIN
-            rx.setCaseSensitivity(Qt::CaseInsensitive);
+            rx.setPatternOptions(QRegularExpression::CaseInsensitiveOption);
 #endif
             while ((pos = environment.indexOf(rx)) != -1)
                 environment.removeAt(pos);
@@ -1914,7 +1811,7 @@ void tst_QProcess::systemEnvironment()
     QVERIFY(!QProcessEnvironment::systemEnvironment().isEmpty());
 
     QVERIFY(QProcessEnvironment::systemEnvironment().contains("PATH"));
-    QVERIFY(!QProcess::systemEnvironment().filter(QRegExp("^PATH=", Qt::CaseInsensitive)).isEmpty());
+    QVERIFY(!QProcess::systemEnvironment().filter(QRegularExpression("^PATH=", QRegularExpression::CaseInsensitiveOption)).isEmpty());
 }
 
 void tst_QProcess::spaceInName()
@@ -1964,18 +1861,9 @@ void tst_QProcess::waitForReadyReadForNonexistantProcess()
 
     QProcess process;
     QSignalSpy errorSpy(&process, &QProcess::errorOccurred);
-    QSignalSpy finishedSpy(&process, static_cast<QProcessFinishedSignal2>(&QProcess::finished));
+    QSignalSpy finishedSpy(&process, &QProcess::finished);
     QVERIFY(errorSpy.isValid());
     QVERIFY(finishedSpy.isValid());
-
-#if QT_DEPRECATED_SINCE(5, 6)
-    QSignalSpy errorSpy2(&process, static_cast<QProcessErrorSignal>(&QProcess::error));
-        QVERIFY(errorSpy2.isValid());
-#endif
-#if QT_DEPRECATED_SINCE(5, 13)
-    QSignalSpy finishedSpy1(&process, static_cast<QProcessFinishedSignal1>(&QProcess::finished));
-    QVERIFY(finishedSpy1.isValid());
-#endif
 
     QVERIFY(!process.waitForReadyRead()); // used to crash
     process.start("doesntexist");
@@ -1983,13 +1871,6 @@ void tst_QProcess::waitForReadyReadForNonexistantProcess()
     QCOMPARE(errorSpy.count(), 1);
     QCOMPARE(errorSpy.at(0).at(0).toInt(), 0);
     QCOMPARE(finishedSpy.count(), 0);
-#if QT_DEPRECATED_SINCE(5, 6)
-    QCOMPARE(errorSpy2.count(), 1);
-    QCOMPARE(errorSpy2.at(0).at(0).toInt(), 0);
-#endif
-#if QT_DEPRECATED_SINCE(5, 13)
-    QCOMPARE(finishedSpy1.count(), 0);
-#endif
 }
 
 void tst_QProcess::setStandardInputFile()
@@ -2150,14 +2031,18 @@ void tst_QProcess::setStandardOutputProcess_data()
 void tst_QProcess::setStandardOutputProcess()
 {
     QProcess source;
+    QProcess intermediate;
     QProcess sink;
 
     QFETCH(bool, merged);
     QFETCH(bool, waitForBytesWritten);
     source.setProcessChannelMode(merged ? QProcess::MergedChannels : QProcess::SeparateChannels);
-    source.setStandardOutputProcess(&sink);
+    source.setStandardOutputProcess(&intermediate);
+    intermediate.setStandardOutputProcess(&sink);
 
     source.start("testProcessEcho2/testProcessEcho2");
+    intermediate.setProgram("testProcessEcho/testProcessEcho");
+    QVERIFY(intermediate.startDetached());
     sink.start("testProcessEcho2/testProcessEcho2");
 
     QByteArray data("Hello, World");
@@ -2199,7 +2084,7 @@ void tst_QProcess::fileWriterProcess()
             QVERIFY(QFile::remove(fileName));
         QProcess process;
         process.setWorkingDirectory(m_temporaryDir.path());
-        process.start(binary, QIODevice::ReadWrite | QIODevice::Text);
+        process.start(binary, {}, QIODevice::ReadWrite | QIODevice::Text);
         process.write(stdinStr);
         process.closeWriteChannel();
         while (process.bytesToWrite()) {
@@ -2379,9 +2264,26 @@ void tst_QProcess::setNonExistentWorkingDirectory()
     QCOMPARE(int(process.error()), int(QProcess::FailedToStart));
 
 #ifdef Q_OS_UNIX
-#  ifdef QPROCESS_USE_SPAWN
-    QEXPECT_FAIL("", "QProcess cannot detect failure to start when using posix_spawn()", Continue);
-#  endif
+    QVERIFY2(process.errorString().startsWith("chdir:"), process.errorString().toLocal8Bit());
+#endif
+}
+
+void tst_QProcess::detachedSetNonExistentWorkingDirectory()
+{
+    QProcess process;
+    process.setWorkingDirectory("this/directory/should/not/exist/for/sure");
+
+    // use absolute path because on Windows, the executable is relative to the parent's CWD
+    // while on Unix with fork it's relative to the child's (with posix_spawn, it could be either).
+    process.setProgram(QFileInfo("testSetWorkingDirectory/testSetWorkingDirectory").absoluteFilePath());
+
+    qint64 pid = -1;
+    QVERIFY(!process.startDetached(&pid));
+    QCOMPARE(pid, -1);
+    QCOMPARE(process.error(), QProcess::FailedToStart);
+    QVERIFY(process.errorString() != "Unknown error");
+
+#ifdef Q_OS_UNIX
     QVERIFY2(process.errorString().startsWith("chdir:"), process.errorString().toLocal8Bit());
 #endif
 }
@@ -2410,7 +2312,6 @@ void tst_QProcess::invalidProgramString_data()
     QTest::addColumn<QString>("programString");
     QTest::newRow("null string") << QString();
     QTest::newRow("empty string") << QString("");
-    QTest::newRow("only blank string") << QString("  ");
 }
 
 void tst_QProcess::invalidProgramString()
@@ -2421,17 +2322,10 @@ void tst_QProcess::invalidProgramString()
     qRegisterMetaType<QProcess::ProcessError>("QProcess::ProcessError");
     QSignalSpy spy(&process, &QProcess::errorOccurred);
     QVERIFY(spy.isValid());
-#if QT_DEPRECATED_SINCE(5, 6)
-    QSignalSpy spy2(&process, static_cast<QProcessErrorSignal>(&QProcess::error));
-    QVERIFY(spy2.isValid());
-#endif
 
     process.start(programString);
     QCOMPARE(process.error(), QProcess::FailedToStart);
     QCOMPARE(spy.count(), 1);
-#if QT_DEPRECATED_SINCE(5, 6)
-    QCOMPARE(spy2.count(), 1);
-#endif
 
     QVERIFY(!QProcess::startDetached(programString));
 }
@@ -2442,7 +2336,7 @@ void tst_QProcess::onlyOneStartedSignal()
     QProcess process;
 
     QSignalSpy spyStarted(&process,  &QProcess::started);
-    QSignalSpy spyFinished(&process, static_cast<QProcessFinishedSignal2>(&QProcess::finished));
+    QSignalSpy spyFinished(&process, &QProcess::finished);
 
     QVERIFY(spyStarted.isValid());
     QVERIFY(spyFinished.isValid());
@@ -2485,13 +2379,12 @@ void tst_QProcess::finishProcessBeforeReadingDone()
     QProcess process;
     BlockOnReadStdOut blocker(&process);
     QEventLoop loop;
-    connect(&process, static_cast<QProcessFinishedSignal2>(&QProcess::finished),
-            &loop, &QEventLoop::quit);
+    connect(&process, &QProcess::finished, &loop, &QEventLoop::quit);
     process.start("testProcessOutput/testProcessOutput");
     QVERIFY(process.waitForStarted());
     loop.exec();
     QStringList lines = QString::fromLocal8Bit(process.readAllStandardOutput()).split(
-            QRegExp(QStringLiteral("[\r\n]")), Qt::SkipEmptyParts);
+            QRegularExpression(QStringLiteral("[\r\n]")), Qt::SkipEmptyParts);
     QVERIFY(!lines.isEmpty());
     QCOMPARE(lines.last(), QStringLiteral("10239 -this is a number"));
     QCOMPARE(process.exitStatus(), QProcess::NormalExit);
@@ -2582,7 +2475,7 @@ void tst_QProcess::startStopStartStopBuffers()
 #endif
 
     process.setProcessChannelMode(QProcess::ProcessChannelMode(channelMode2));
-    process.start("testProcessEcho2/testProcessEcho2", QIODevice::ReadWrite | QIODevice::Text);
+    process.start("testProcessEcho2/testProcessEcho2", {}, QIODevice::ReadWrite | QIODevice::Text);
 
     // the buffers should now be empty
     QCOMPARE(process.bytesToWrite(), qint64(0));
@@ -2630,107 +2523,6 @@ void tst_QProcess::processEventsInAReadyReadSlot()
     if (process.state() == QProcess::Running)
         QVERIFY(process.waitForFinished());
 }
-
-#if QT_DEPRECATED_SINCE(5, 13)
-
-void tst_QProcess::crashTest2_deprecated()
-{
-    QProcess process;
-    process.start("testProcessCrash/testProcessCrash");
-    QVERIFY(process.waitForStarted(5000));
-
-    qRegisterMetaType<QProcess::ProcessError>("QProcess::ProcessError");
-    qRegisterMetaType<QProcess::ExitStatus>("QProcess::ExitStatus");
-
-    QSignalSpy spy(&process, static_cast<QProcessErrorSignal>(&QProcess::errorOccurred));
-    QSignalSpy spy2(&process, static_cast<QProcessFinishedSignal2>(&QProcess::finished));
-
-    QVERIFY(spy.isValid());
-    QVERIFY(spy2.isValid());
-
-    QObject::connect(&process, static_cast<QProcessFinishedSignal1>(&QProcess::finished),
-                     this, &tst_QProcess::exitLoopSlot);
-
-    QTestEventLoop::instance().enterLoop(30);
-    if (QTestEventLoop::instance().timeout())
-        QFAIL("Failed to detect crash : operation timed out");
-
-    QCOMPARE(spy.count(), 1);
-    QCOMPARE(*static_cast<const QProcess::ProcessError *>(spy.at(0).at(0).constData()), QProcess::Crashed);
-
-    QCOMPARE(spy2.count(), 1);
-    QCOMPARE(*static_cast<const QProcess::ExitStatus *>(spy2.at(0).at(1).constData()), QProcess::CrashExit);
-
-    QCOMPARE(process.exitStatus(), QProcess::CrashExit);
-}
-
-void tst_QProcess::restartProcessDeadlock_deprecated()
-{
-    // The purpose of this test is to detect whether restarting a
-    // process in the finished() connected slot causes a deadlock
-    // because of the way QProcessManager uses its locks.
-    QProcess process;
-    connect(&process, static_cast<QProcessFinishedSignal1>(&QProcess::finished),
-            this, &tst_QProcess::restartProcess);
-
-    process.start("testProcessEcho/testProcessEcho");
-
-    QCOMPARE(process.write("", 1), qlonglong(1));
-    QVERIFY(process.waitForFinished(5000));
-
-    QObject::disconnect(&process, static_cast<QProcessFinishedSignal1>(&QProcess::finished), nullptr, nullptr);
-
-    QCOMPARE(process.write("", 1), qlonglong(1));
-    QVERIFY(process.waitForFinished(5000));
-    QCOMPARE(process.exitStatus(), QProcess::NormalExit);
-    QCOMPARE(process.exitCode(), 0);
-}
-
-void tst_QProcess::waitForReadyReadInAReadyReadSlot_deprecated()
-{
-    QProcess process;
-    connect(&process, &QIODevice::readyRead, this, &tst_QProcess::waitForReadyReadInAReadyReadSlotSlot);
-    connect(&process, static_cast<QProcessFinishedSignal1>(&QProcess::finished),
-            this, &tst_QProcess::exitLoopSlot);
-    bytesAvailable = 0;
-
-    process.start("testProcessEcho/testProcessEcho");
-    QVERIFY(process.waitForStarted(5000));
-
-    QSignalSpy spy(&process, &QProcess::readyRead);
-    QVERIFY(spy.isValid());
-    process.write("foo");
-    QTestEventLoop::instance().enterLoop(30);
-    QVERIFY(!QTestEventLoop::instance().timeout());
-
-    QCOMPARE(spy.count(), 1);
-
-    process.disconnect();
-    QVERIFY(process.waitForFinished(5000));
-    QCOMPARE(process.exitStatus(), QProcess::NormalExit);
-    QCOMPARE(process.exitCode(), 0);
-    QVERIFY(process.bytesAvailable() > bytesAvailable);
-}
-
-void tst_QProcess::finishProcessBeforeReadingDone_deprecated()
-{
-    QProcess process;
-    BlockOnReadStdOut blocker(&process);
-    QEventLoop loop;
-    connect(&process, static_cast<QProcessFinishedSignal1>(&QProcess::finished),
-            &loop, &QEventLoop::quit);
-    process.start("testProcessOutput/testProcessOutput");
-    QVERIFY(process.waitForStarted());
-    loop.exec();
-    QStringList lines = QString::fromLocal8Bit(process.readAllStandardOutput()).split(
-            QRegExp(QStringLiteral("[\r\n]")), Qt::SkipEmptyParts);
-    QVERIFY(!lines.isEmpty());
-    QCOMPARE(lines.last(), QStringLiteral("10239 -this is a number"));
-    QCOMPARE(process.exitStatus(), QProcess::NormalExit);
-    QCOMPARE(process.exitCode(), 0);
-}
-
-#endif
 
 QTEST_MAIN(tst_QProcess)
 #include "tst_qprocess.moc"

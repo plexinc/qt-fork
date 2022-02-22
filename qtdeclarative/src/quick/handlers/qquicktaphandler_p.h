@@ -68,7 +68,7 @@ class Q_QUICK_PRIVATE_EXPORT QQuickTapHandler : public QQuickSinglePointHandler
     Q_PROPERTY(GesturePolicy gesturePolicy READ gesturePolicy WRITE setGesturePolicy NOTIFY gesturePolicyChanged)
 
     QML_NAMED_ELEMENT(TapHandler)
-    QML_ADDED_IN_MINOR_VERSION(12)
+    QML_ADDED_IN_VERSION(2, 12)
 
 public:
     enum GesturePolicy {
@@ -97,19 +97,21 @@ Q_SIGNALS:
     void timeHeldChanged();
     void longPressThresholdChanged();
     void gesturePolicyChanged();
-    void tapped(QQuickEventPoint *eventPoint);
-    void singleTapped(QQuickEventPoint *eventPoint);
-    void doubleTapped(QQuickEventPoint *eventPoint);
+    // the second argument (Qt::MouseButton) was added in 6.2: avoid name clashes with IDs by not naming it for now
+    void tapped(QEventPoint eventPoint, Qt::MouseButton /* button */);
+    void singleTapped(QEventPoint eventPoint, Qt::MouseButton /* button */);
+    void doubleTapped(QEventPoint eventPoint, Qt::MouseButton /* button */);
     void longPressed();
 
 protected:
-    void onGrabChanged(QQuickPointerHandler *grabber, QQuickEventPoint::GrabTransition transition, QQuickEventPoint *point) override;
+    void onGrabChanged(QQuickPointerHandler *grabber, QPointingDevice::GrabTransition transition,
+                       QPointerEvent *ev, QEventPoint &point) override;
     void timerEvent(QTimerEvent *event) override;
-    bool wantsEventPoint(QQuickEventPoint *point) override;
-    void handleEventPoint(QQuickEventPoint *point) override;
+    bool wantsEventPoint(const QPointerEvent *event, const QEventPoint &point) override;
+    void handleEventPoint(QPointerEvent *event, QEventPoint &point) override;
 
 private:
-    void setPressed(bool press, bool cancel, QQuickEventPoint *point);
+    void setPressed(bool press, bool cancel, QPointerEvent *event, QEventPoint &point);
     int longPressThresholdMilliseconds() const;
     void connectPreRenderSignal(bool conn = true);
     void updateTimeHeld();

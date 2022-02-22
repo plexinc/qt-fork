@@ -27,15 +27,28 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QMimeData>
+#include <QSignalSpy>
+#if QT_CONFIG(process)
+#include <QProcess>
+#endif
 #include <QtCore/QDebug>
 #include <QtCore/QFileInfo>
 #include <QtCore/QDir>
+#include <QtCore/QVariant>
 #include <QtGui/QGuiApplication>
 #include <QtGui/QClipboard>
 #include <QtGui/QImage>
+#include <QtGui/QPixmap>
 #include <QtGui/QColor>
 #include "../../../shared/platformclipboard.h"
+
+#ifdef Q_OS_WIN
+#  include <QtGui/private/qguiapplication_p.h>
+#  include <QtGui/private/qwindowsmime_p.h>
+#  include <QtGui/qpa/qplatformintegration.h>
+#endif
 
 class tst_QClipboard : public QObject
 {
@@ -53,7 +66,12 @@ private slots:
     void testSignals();
     void setMimeData();
     void clearBeforeSetText();
-#endif
+#  ifdef Q_OS_WIN
+    void testWindowsMimeRegisterType();
+    void testWindowsMime_data();
+    void testWindowsMime();
+#  endif // Q_OS_WIN
+#endif // clipboard
 };
 
 void tst_QClipboard::initTestCase()
@@ -250,9 +268,9 @@ static bool runHelper(const QString &program, const QStringList &arguments, QByt
     }
     return true;
 #else // QT_CONFIG(process)
-    Q_UNUSED(program)
-    Q_UNUSED(arguments)
-    Q_UNUSED(errorMessage)
+    Q_UNUSED(program);
+    Q_UNUSED(arguments);
+    Q_UNUSED(errorMessage);
     return false;
 #endif // QT_CONFIG(process)
 }
@@ -430,6 +448,93 @@ void tst_QClipboard::clearBeforeSetText()
     QGuiApplication::processEvents();
     QCOMPARE(QGuiApplication::clipboard()->text(), text);
 }
+
+#  ifdef Q_OS_WIN
+
+using QWindowsMime = QNativeInterface::Private::QWindowsMime;
+using QWindowsApplication = QNativeInterface::Private::QWindowsApplication;
+
+class TestMime : public QWindowsMime
+{
+public:
+    bool canConvertFromMime(const FORMATETC &, const QMimeData *) const override
+    {
+        return false;
+    }
+
+    bool convertFromMime(const FORMATETC &, const QMimeData *, STGMEDIUM *) const override
+    {
+        return false;
+    }
+
+    QList<FORMATETC> formatsForMime(const QString &, const QMimeData *) const override
+    {
+        formatsForMimeCalled = true;
+        return {};
+    }
+
+    bool canConvertToMime(const QString &, IDataObject *) const override
+    {
+        return false;
+    }
+
+    QVariant convertToMime(const QString &, IDataObject *, QMetaType) const override
+    {
+        return QVariant();
+    }
+
+    QString mimeForFormat(const FORMATETC &) const override
+    {
+        return {};
+    }
+
+    mutable bool formatsForMimeCalled = false;
+};
+
+void tst_QClipboard::testWindowsMimeRegisterType()
+{
+    auto nativeWindowsApp = dynamic_cast<QWindowsApplication *>(QGuiApplicationPrivate::platformIntegration());
+    QVERIFY(nativeWindowsApp);
+    const int type = nativeWindowsApp->registerMimeType("foo/bar");
+    QVERIFY2(type >= 0, QByteArray::number(type));
+}
+
+void tst_QClipboard::testWindowsMime_data()
+{
+    QTest::addColumn<QVariant>("data");
+    QTest::newRow("string") << QVariant(QStringLiteral("bla"));
+    QPixmap pm(10, 10);
+    pm.fill(Qt::black);
+    QTest::newRow("pixmap") << QVariant(pm);
+}
+
+void tst_QClipboard::testWindowsMime()
+{
+    QFETCH(QVariant, data);
+    // Basic smoke test for crashes, copy some text into clipboard and check whether
+    // the test implementation is called.
+    TestMime testMime;
+    auto nativeWindowsApp = dynamic_cast<QWindowsApplication *>(QGuiApplicationPrivate::platformIntegration());
+    QVERIFY(nativeWindowsApp);
+    nativeWindowsApp->registerMime(&testMime);
+
+    auto clipboard = QGuiApplication::clipboard();
+    switch (data.metaType().id()) {
+    case QMetaType::QString:
+        clipboard->setText(data.toString());
+        break;
+    case QMetaType::QPixmap:
+        clipboard->setPixmap(data.value<QPixmap>());
+        break;
+    default:
+        break;
+    }
+    QTRY_VERIFY(testMime.formatsForMimeCalled);
+
+    nativeWindowsApp->unregisterMime(&testMime);
+}
+
+#  endif // Q_OS_WIN
 
 #endif // QT_CONFIG(clipboard)
 

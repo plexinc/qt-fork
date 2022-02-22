@@ -59,6 +59,8 @@
 
 #include <QtCore/QCoreApplication>
 
+#include <QtGui/private/qfontdatabase_p.h>
+
 QT_BEGIN_NAMESPACE
 
 #define FONTLOADER_MAXIMUM_REDIRECT_RECURSION 16
@@ -74,7 +76,7 @@ public:
     void download(const QUrl &url, QNetworkAccessManager *manager);
 
 Q_SIGNALS:
-    void fontDownloaded(const QString&, QQuickFontLoader::Status);
+    void fontDownloaded(int id);
 
 private:
     int redirectCount = 0;
@@ -123,14 +125,11 @@ void QQuickFontObject::replyFinished()
 
         if (!reply->error()) {
             id = QFontDatabase::addApplicationFontFromData(reply->readAll());
-            if (id != -1)
-                emit fontDownloaded(QFontDatabase::applicationFontFamilies(id).at(0), QQuickFontLoader::Ready);
-            else
-                emit fontDownloaded(QString(), QQuickFontLoader::Error);
+            emit fontDownloaded(id);
         } else {
             qWarning("%s: Unable to load font '%s': %s", Q_FUNC_INFO,
                      qPrintable(reply->url().toString()), qPrintable(reply->errorString()));
-            emit fontDownloaded(QString(), QQuickFontLoader::Error);
+            emit fontDownloaded(-1);
         }
         reply->deleteLater();
         reply = nullptr;
@@ -146,7 +145,7 @@ public:
     QQuickFontLoaderPrivate() {}
 
     QUrl url;
-    QString name;
+    QFont font;
     QQuickFontLoader::Status status = QQuickFontLoader::Null;
 };
 
@@ -198,9 +197,9 @@ static void q_QFontLoaderFontsStaticReset()
     \instantiates QQuickFontLoader
     \inqmlmodule QtQuick
     \ingroup qtquick-text-utility
-    \brief Allows fonts to be loaded by name or URL.
+    \brief Allows fonts to be loaded by URL.
 
-    The FontLoader type is used to load fonts by name or URL.
+    The FontLoader type is used to load fonts by URL.
 
     The \l status indicates when the font has been loaded, which is useful
     for fonts loaded from remote sources.
@@ -210,11 +209,9 @@ static void q_QFontLoaderFontsStaticReset()
     import QtQuick 2.0
 
     Column {
-        FontLoader { id: fixedFont; name: "Courier" }
         FontLoader { id: webFont; source: "http://www.mysite.com/myfont.ttf" }
 
-        Text { text: "Fixed-size font"; font.family: fixedFont.name }
-        Text { text: "Fancy font"; font.family: webFont.name }
+        Text { text: "Fancy font"; font: webFont.font }
     }
     \endqml
 
@@ -223,6 +220,7 @@ static void q_QFontLoaderFontsStaticReset()
 QQuickFontLoader::QQuickFontLoader(QObject *parent)
     : QObject(*(new QQuickFontLoaderPrivate), parent)
 {
+    connect(this, &QQuickFontLoader::fontChanged, this, &QQuickFontLoader::nameChanged);
 }
 
 QQuickFontLoader::~QQuickFontLoader()
@@ -247,72 +245,155 @@ void QQuickFontLoader::setSource(const QUrl &url)
     d->url = url;
     emit sourceChanged();
 
-    QString localFile = QQmlFile::urlToLocalFileOrQrc(d->url);
+    const QQmlContext *context = qmlContext(this);
+    const QUrl &resolvedUrl = context ? context->resolvedUrl(d->url) : d->url;
+    QString localFile = QQmlFile::urlToLocalFileOrQrc(resolvedUrl);
     if (!localFile.isEmpty()) {
-        if (!fontLoaderFonts()->map.contains(d->url)) {
+        if (!fontLoaderFonts()->map.contains(resolvedUrl)) {
             int id = QFontDatabase::addApplicationFont(localFile);
+            updateFontInfo(id);
             if (id != -1) {
-                updateFontInfo(QFontDatabase::applicationFontFamilies(id).at(0), Ready);
                 QQuickFontObject *fo = new QQuickFontObject(id);
-                fontLoaderFonts()->map[d->url] = fo;
-            } else {
-                updateFontInfo(QString(), Error);
+                fontLoaderFonts()->map[resolvedUrl] = fo;
             }
         } else {
-            updateFontInfo(QFontDatabase::applicationFontFamilies(fontLoaderFonts()->map.value(d->url)->id).at(0), Ready);
+            updateFontInfo(fontLoaderFonts()->map.value(resolvedUrl)->id);
         }
     } else {
-        if (!fontLoaderFonts()->map.contains(d->url)) {
+        if (!fontLoaderFonts()->map.contains(resolvedUrl)) {
+            Q_ASSERT(context);
 #if QT_CONFIG(qml_network)
             QQuickFontObject *fo = new QQuickFontObject;
-            fontLoaderFonts()->map[d->url] = fo;
-            fo->download(d->url, qmlEngine(this)->networkAccessManager());
+            fontLoaderFonts()->map[resolvedUrl] = fo;
+            fo->download(resolvedUrl, context->engine()->networkAccessManager());
             d->status = Loading;
             emit statusChanged();
-            QObject::connect(fo, SIGNAL(fontDownloaded(QString,QQuickFontLoader::Status)),
-                this, SLOT(updateFontInfo(QString,QQuickFontLoader::Status)));
+            QObject::connect(fo, SIGNAL(fontDownloaded(int)),
+                this, SLOT(updateFontInfo(int)));
 #else
 // Silently fail if compiled with no_network
 #endif
         } else {
-            QQuickFontObject *fo = fontLoaderFonts()->map.value(d->url);
+            QQuickFontObject *fo = fontLoaderFonts()->map.value(resolvedUrl);
             if (fo->id == -1) {
 #if QT_CONFIG(qml_network)
                 d->status = Loading;
                 emit statusChanged();
-                QObject::connect(fo, SIGNAL(fontDownloaded(QString,QQuickFontLoader::Status)),
-                    this, SLOT(updateFontInfo(QString,QQuickFontLoader::Status)));
+                QObject::connect(fo, SIGNAL(fontDownloaded(int)),
+                    this, SLOT(updateFontInfo(int)));
 #else
 // Silently fail if compiled with no_network
 #endif
             }
             else
-                updateFontInfo(QFontDatabase::applicationFontFamilies(fo->id).at(0), Ready);
+                updateFontInfo(fo->id);
         }
     }
 }
 
-void QQuickFontLoader::updateFontInfo(const QString& name, QQuickFontLoader::Status status)
+void QQuickFontLoader::updateFontInfo(int id)
 {
     Q_D(QQuickFontLoader);
 
-    if (name != d->name) {
-        d->name = name;
-        emit nameChanged();
+    QFont font;
+
+    QQuickFontLoader::Status status = Error;
+    if (id >= 0) {
+        QFontDatabasePrivate *p = QFontDatabasePrivate::instance();
+        if (id < p->applicationFonts.size()) {
+            const QFontDatabasePrivate::ApplicationFont &applicationFont = p->applicationFonts.at(id);
+
+            if (!applicationFont.properties.isEmpty()) {
+                const QFontDatabasePrivate::ApplicationFont::Properties &properties = applicationFont.properties.at(0);
+                font.setFamily(properties.familyName);
+                font.setStyleName(properties.styleName);
+                font.setWeight(QFont::Weight(properties.weight));
+                font.setStyle(properties.style);
+                font.setStretch(properties.stretch);
+            }
+        }
+
+        status = Ready;
     }
+
+    if (font != d->font) {
+        d->font = font;
+        emit fontChanged();
+    }
+
     if (status != d->status) {
-        if (status == Error)
-            qmlWarning(this) << "Cannot load font: \"" << d->url.toString() << '"';
+        if (status == Error) {
+            const QQmlContext *context = qmlContext(this);
+            qmlWarning(this) << "Cannot load font: \""
+                             << (context ? context->resolvedUrl(d->url) : d->url).toString() << '"';
+        }
         d->status = status;
         emit statusChanged();
     }
 }
 
 /*!
+    \qmlproperty font QtQuick::FontLoader::font
+    \since 6.0
+
+    This property holds a default query for the loaded font.
+
+    You can use this to select the font if other properties than just the
+    family name are needed to disambiguate. You can either specify the
+    font using individual properties:
+
+    \qml
+    Item {
+        width: 200; height: 50
+
+        FontLoader {
+            id: webFont
+            source: "http://www.mysite.com/myfont.ttf"
+        }
+        Text {
+            text: "Fancy font"
+            font.family: webFont.font.family
+            font.weight: webFont.font.weight
+            font.style: webFont.font.style
+            font.pixelSize: 24
+        }
+    }
+    \endqml
+
+    Or you can set the full font query directly:
+
+    \qml
+    Item {
+        width: 200; height: 50
+
+        FontLoader {
+            id: webFont
+            source: "http://www.mysite.com/myfont.ttf"
+        }
+        Text {
+            text: "Fancy font"
+            font: webFont.font
+        }
+    }
+    \endqml
+
+    In this case, the default font query will be used with no modifications
+    (so font size, for instance, will be the system default).
+*/
+QFont QQuickFontLoader::font() const
+{
+    Q_D(const QQuickFontLoader);
+    return d->font;
+}
+
+/*!
     \qmlproperty string QtQuick::FontLoader::name
+    \readonly
 
     This property holds the name of the font family.
     It is set automatically when a font is loaded using the \l source property.
+
+    This is equivalent to the family property of the FontLoader's \l font property.
 
     Use this to set the \c font.family property of a \c Text item.
 
@@ -335,18 +416,7 @@ void QQuickFontLoader::updateFontInfo(const QString& name, QQuickFontLoader::Sta
 QString QQuickFontLoader::name() const
 {
     Q_D(const QQuickFontLoader);
-    return d->name;
-}
-
-void QQuickFontLoader::setName(const QString &name)
-{
-    Q_D(QQuickFontLoader);
-    if (d->name == name)
-        return;
-    d->name = name;
-    emit nameChanged();
-    d->status = Ready;
-    emit statusChanged();
+    return d->font.resolveMask() == 0 ? QString() : d->font.family();
 }
 
 /*!

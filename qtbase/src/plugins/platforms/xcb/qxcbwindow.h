@@ -41,6 +41,7 @@
 #define QXCBWINDOW_H
 
 #include <qpa/qplatformwindow.h>
+#include <qpa/qplatformwindow_p.h>
 #include <QtGui/QSurfaceFormat>
 #include <QtGui/QImage>
 
@@ -49,8 +50,6 @@
 
 #include "qxcbobject.h"
 
-#include <QtPlatformHeaders/qxcbwindowfunctions.h>
-
 QT_BEGIN_NAMESPACE
 
 class QXcbScreen;
@@ -58,6 +57,7 @@ class QXcbSyncWindowRequest;
 class QIcon;
 
 class Q_XCB_EXPORT QXcbWindow : public QXcbObject, public QXcbWindowEventListener, public QPlatformWindow
+                              , public QNativeInterface::Private::QXcbWindow
 {
 public:
     enum NetWmState {
@@ -73,6 +73,14 @@ public:
     };
 
     Q_DECLARE_FLAGS(NetWmStates, NetWmState)
+
+    enum Task {
+        Map,
+        Unmap,
+        SetGeometry,
+        SetWindowFlags,
+        SetWindowState
+    };
 
     QXcbWindow(QWindow *window);
     ~QXcbWindow();
@@ -93,7 +101,7 @@ public:
     QPoint mapFromGlobal(const QPoint &pos) const override;
 
     void setWindowTitle(const QString &title) override;
-    void setWindowIconText(const QString &title);
+    void setWindowIconText(const QString &title) override;
     void setWindowIcon(const QIcon &icon) override;
     void raise() override;
     void lower() override;
@@ -143,24 +151,22 @@ public:
 
     QXcbWindow *toWindow() override;
 
+    bool shouldDeferTask(Task task);
+    void handleDeferredTasks();
+
     void handleMouseEvent(xcb_timestamp_t time, const QPoint &local, const QPoint &global,
                           Qt::KeyboardModifiers modifiers, QEvent::Type type, Qt::MouseEventSource source);
 
     void updateNetWmUserTime(xcb_timestamp_t timestamp);
 
-    static void setWmWindowTypeStatic(QWindow *window, QXcbWindowFunctions::WmWindowTypes windowTypes);
-    static void setWmWindowRoleStatic(QWindow *window, const QByteArray &role);
-    static uint visualIdStatic(QWindow *window);
-
-    QXcbWindowFunctions::WmWindowTypes wmWindowTypes() const;
-    void setWmWindowType(QXcbWindowFunctions::WmWindowTypes types, Qt::WindowFlags flags);
-    void setWmWindowRole(const QByteArray &role);
-
-    static void setWindowIconTextStatic(QWindow *window, const QString &text);
+    WindowTypes wmWindowTypes() const;
+    void setWmWindowType(WindowTypes types, Qt::WindowFlags flags);
+    void setWindowType(WindowTypes windowTypes) override { setWmWindowType(windowTypes, window()->flags()); }
+    void setWindowRole(const QString &role) override;
 
     void setParentRelativeBackPixmap();
     bool requestSystemTrayWindowDock();
-    uint visualId() const;
+    uint visualId() const override;
 
     bool needsSync() const;
 
@@ -281,6 +287,11 @@ protected:
     int m_swapInterval = -1;
 
     qreal m_sizeHintsScaleFactor = 1.0;
+
+    bool m_wmStateValid = true;
+    QVector<Task> m_deferredTasks;
+    bool m_isWmManagedWindow = true;
+    QRect m_deferredGeometry;
 };
 
 class QXcbForeignWindow : public QXcbWindow
@@ -295,7 +306,7 @@ protected:
     void create() override {} // No-op
 };
 
-QVector<xcb_rectangle_t> qRegionToXcbRectangleList(const QRegion &region);
+QList<xcb_rectangle_t> qRegionToXcbRectangleList(const QRegion &region);
 
 QT_END_NAMESPACE
 

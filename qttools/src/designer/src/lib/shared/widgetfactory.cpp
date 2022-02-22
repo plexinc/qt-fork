@@ -71,6 +71,10 @@
 #include <QtCore/qmetaobject.h>
 #include <QtCore/qpointer.h>
 
+#ifdef QT_OPENGLWIDGETS_LIB
+#  include <QtOpenGLWidgets/qopenglwidget.h>
+#endif
+
 QT_BEGIN_NAMESPACE
 
 #ifdef Q_OS_WIN
@@ -78,7 +82,7 @@ static inline bool isAxWidget(const QObject *o)
 {
     // Is it one of  QDesignerAxWidget/QDesignerAxPluginWidget?
     static const char *axWidgetName = "QDesignerAx";
-    static const unsigned axWidgetNameLen = qstrlen(axWidgetName);
+    static const size_t axWidgetNameLen = qstrlen(axWidgetName);
     return qstrncmp(o->metaObject()->className(), axWidgetName, axWidgetNameLen) == 0;
 }
 #endif

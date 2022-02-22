@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Copyright (C) 2014 Petroules Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
@@ -28,7 +28,7 @@
 ****************************************************************************/
 
 #include <QtCore/QDateTime>
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <Foundation/Foundation.h>
@@ -49,7 +49,7 @@ void tst_QDateTime_macTypes()
         QDateTime qtDateTime = QDateTime::fromMSecsSinceEpoch(0);
         const CFDateRef cfDate = qtDateTime.toCFDate();
         QDateTime qtDateTimeCopy(qtDateTime);
-        qtDateTime.setTime_t(10000); // modify
+        qtDateTime.setSecsSinceEpoch(10000); // modify
         QCOMPARE(QDateTime::fromCFDate(cfDate), qtDateTimeCopy);
     }
     // QDateTime <-> NSDate
@@ -64,7 +64,7 @@ void tst_QDateTime_macTypes()
         QDateTime qtDateTime = QDateTime::fromMSecsSinceEpoch(0);
         const NSDate *nsDate = qtDateTime.toNSDate();
         QDateTime qtDateTimeCopy(qtDateTime);
-        qtDateTime.setTime_t(10000); // modify
+        qtDateTime.setSecsSinceEpoch(10000); // modify
         QCOMPARE(QDateTime::fromNSDate(nsDate), qtDateTimeCopy);
     }
 }

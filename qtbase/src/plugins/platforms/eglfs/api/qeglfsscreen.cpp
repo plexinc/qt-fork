@@ -43,7 +43,7 @@
 #include <qpa/qwindowsysteminterface.h>
 #include <qpa/qplatformcursor.h>
 #ifndef QT_NO_OPENGL
-# include <QtPlatformCompositorSupport/private/qopenglcompositor_p.h>
+# include <QtOpenGL/private/qopenglcompositor_p.h>
 #endif
 
 #include "qeglfsscreen_p.h"
@@ -115,9 +115,9 @@ QDpi QEglFSScreen::logicalDpi() const
     return qt_egl_device_integration()->logicalDpi();
 }
 
-qreal QEglFSScreen::pixelDensity() const
+QDpi QEglFSScreen::logicalBaseDpi() const
 {
-    return qt_egl_device_integration()->pixelDensity();
+    return qt_egl_device_integration()->logicalBaseDpi();
 }
 
 Qt::ScreenOrientation QEglFSScreen::nativeOrientation() const

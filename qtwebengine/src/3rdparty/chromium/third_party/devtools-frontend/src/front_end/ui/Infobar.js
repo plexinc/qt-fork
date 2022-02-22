@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 import * as Common from '../common/common.js';  // eslint-disable-line no-unused-vars
+import * as i18n from '../i18n/i18n.js';
 
 import * as ARIAUtils from './ARIAUtils.js';
 import {Keys} from './KeyboardShortcut.js';
@@ -10,28 +11,49 @@ import {createTextButton} from './UIUtils.js';
 import {createShadowRootWithCoreStyles} from './utils/create-shadow-root-with-core-styles.js';
 import {Widget} from './Widget.js';  // eslint-disable-line no-unused-vars
 
-/**
- * @unrestricted
- */
+export const UIStrings = {
+  /**
+  *@description Text on a button to close the infobar and never show the infobar in the future
+  */
+  dontShowAgain: 'Don\'t show again',
+  /**
+  *@description Text that is usually a hyperlink to more documentation
+  */
+  learnMore: 'Learn more',
+  /**
+  *@description Text to close something
+  */
+  close: 'Close',
+};
+const str_ = i18n.i18n.registerUIStrings('ui/Infobar.js', UIStrings);
+const i18nString = i18n.i18n.getLocalizedString.bind(undefined, str_);
 export class Infobar {
   /**
    * @param {!Type} type
    * @param {string} text
    * @param {!Array<!InfobarAction>=} actions
-   * @param {!Common.Settings.Setting=} disableSetting
+   * @param {!Common.Settings.Setting<*>=} disableSetting
    */
   constructor(type, text, actions, disableSetting) {
-    this.element = createElementWithClass('div', 'flex-none');
-    this._shadowRoot = createShadowRootWithCoreStyles(this.element, 'ui/infobar.css');
-    this._contentElement = this._shadowRoot.createChild('div', 'infobar infobar-' + type);
+    this.element = /** @type {!HTMLElement} */ (document.createElement('div'));
+    this.element.classList.add('flex-none');
+    this._shadowRoot = createShadowRootWithCoreStyles(
+        this.element, {cssFile: 'ui/infobar.css', enableLegacyPatching: true, delegatesFocus: undefined});
+    /** @type {!HTMLDivElement} */
+    this._contentElement =
+        /** @type {!HTMLDivElement} */ (this._shadowRoot.createChild('div', 'infobar infobar-' + type));
 
     this._mainRow = this._contentElement.createChild('div', 'infobar-main-row');
     this._detailsRows = this._contentElement.createChild('div', 'infobar-details-rows hidden');
+    this._hasDetails = false;
 
     this._infoContainer = this._mainRow.createChild('div', 'infobar-info-container');
 
     this._infoMessage = this._infoContainer.createChild('div', 'infobar-info-message');
+
+    // Icon is in separate file and included via CSS.
     this._infoMessage.createChild('div', type + '-icon icon');
+
     this._infoText = this._infoMessage.createChild('div', 'infobar-info-text');
     this._infoText.textContent = text;
     ARIAUtils.markAsAlert(this._infoText);
@@ -50,23 +72,28 @@ export class Infobar {
       }
     }
 
-    /** @type {?Common.Settings.Setting} */
+    /** @type {?Common.Settings.Setting<*>} */
     this._disableSetting = disableSetting || null;
     if (disableSetting) {
-      const disableButton = createTextButton(ls`Don't show again`, this._onDisable.bind(this), 'infobar-button');
+      const disableButton =
+          createTextButton(i18nString(UIStrings.dontShowAgain), this._onDisable.bind(this), 'infobar-button');
       this._actionContainer.appendChild(disableButton);
     }
 
     this._closeContainer = this._mainRow.createChild('div', 'infobar-close-container');
-    this._toggleElement =
-        createTextButton(ls`Learn more`, this._onToggleDetails.bind(this), 'link-style devtools-link hidden');
+    this._toggleElement = createTextButton(
+        i18nString(UIStrings.learnMore), this._onToggleDetails.bind(this), 'link-style devtools-link hidden');
     this._closeContainer.appendChild(this._toggleElement);
     this._closeButton = this._closeContainer.createChild('div', 'close-button', 'dt-close-button');
+    // @ts-ignore This is a custom element defined in UIUitls.js that has a `setTabbable` that TS doesn't
+    //            know about.
     this._closeButton.setTabbable(true);
-    ARIAUtils.setDescription(this._closeButton, ls`Close`);
+    ARIAUtils.setDescription(this._closeButton, i18nString(UIStrings.close));
     self.onInvokeElement(this._closeButton, this.dispose.bind(this));
 
-    this._contentElement.tabIndex = 0;
+    if (type !== Type.Issue) {
+      this._contentElement.tabIndex = 0;
+    }
     ARIAUtils.setAccessibleName(this._contentElement, text);
     this._contentElement.addEventListener('keydown', event => {
       if (event.keyCode === Keys.Esc.code) {
@@ -79,14 +106,14 @@ export class Infobar {
         return;
       }
 
-      if (event.key === 'Enter') {
+      if (event.key === 'Enter' && this._hasDetails) {
         this._onToggleDetails();
         event.consume();
         return;
       }
     });
 
-    /** @type {?function()} */
+    /** @type {?function():*} */
     this._closeCallback = null;
   }
 
@@ -94,7 +121,7 @@ export class Infobar {
    * @param {!Type} type
    * @param {string} text
    * @param {!Array<!InfobarAction>=} actions
-   * @param {!Common.Settings.Setting=} disableSetting
+   * @param {!Common.Settings.Setting<*>=} disableSetting
    * @return {?Infobar}
    */
   static create(type, text, actions, disableSetting) {
@@ -121,7 +148,7 @@ export class Infobar {
   }
 
   /**
-   * @param {?function()} callback
+   * @param {?function():*} callback
    */
   setCloseCallback(callback) {
     this._closeCallback = callback;
@@ -136,7 +163,7 @@ export class Infobar {
 
   /**
    * @param {!InfobarAction} action
-   * @returns {!function()}
+   * @returns {!function():void}
    */
   _actionCallbackFactory(action) {
     if (!action.delegate) {
@@ -148,7 +175,9 @@ export class Infobar {
     }
 
     return (() => {
-             action.delegate();
+             if (action.delegate) {
+               action.delegate();
+             }
              this.dispose();
            })
         .bind(this);
@@ -161,7 +190,9 @@ export class Infobar {
   }
 
   _onDisable() {
-    this._disableSetting.set(true);
+    if (this._disableSetting) {
+      this._disableSetting.set(true);
+    }
     this.dispose();
   }
 
@@ -176,6 +207,7 @@ export class Infobar {
    * @return {!Element}
    */
   createDetailsRowMessage(message) {
+    this._hasDetails = true;
     this._toggleElement.classList.remove('hidden');
     const infobarDetailsRow = this._detailsRows.createChild('div', 'infobar-details-row');
     const detailsRowMessage = infobarDetailsRow.createChild('span', 'infobar-row-message');
@@ -187,14 +219,16 @@ export class Infobar {
 /** @typedef {{
  *        text: !string,
  *        highlight: !boolean,
- *        delegate: ?function(),
+ *        delegate: ?function():void,
  *        dismiss: !boolean
  * }}
  */
+// @ts-ignore typedef
 export let InfobarAction;
 
 /** @enum {string} */
 export const Type = {
   Warning: 'warning',
-  Info: 'info'
+  Info: 'info',
+  Issue: 'issue',
 };

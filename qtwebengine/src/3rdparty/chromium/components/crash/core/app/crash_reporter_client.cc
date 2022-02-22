@@ -4,13 +4,14 @@
 
 #include "components/crash/core/app/crash_reporter_client.h"
 
+#include "build/branding_buildflags.h"
 #include "build/build_config.h"
 
 // On Windows don't use FilePath and logging.h.
 // http://crbug.com/604923
 #if !defined(OS_WIN)
+#include "base/check.h"
 #include "base/files/file_path.h"
-#include "base/logging.h"
 #else
 #include <assert.h>
 #define DCHECK assert
@@ -21,6 +22,10 @@ namespace crash_reporter {
 namespace {
 
 CrashReporterClient* g_client = nullptr;
+
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING) && defined(OFFICIAL_BUILD)
+const char kDefaultUploadURL[] = "https://clients2.google.com/cr/report";
+#endif
 
 }  // namespace
 
@@ -36,42 +41,36 @@ CrashReporterClient* GetCrashReporterClient() {
 CrashReporterClient::CrashReporterClient() {}
 CrashReporterClient::~CrashReporterClient() {}
 
-#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_ANDROID)
+#if !defined(OS_APPLE) && !defined(OS_WIN) && !defined(OS_ANDROID)
 void CrashReporterClient::SetCrashReporterClientIdFromGUID(
     const std::string& client_guid) {}
 #endif
 
 #if defined(OS_WIN)
 bool CrashReporterClient::ShouldCreatePipeName(
-    const base::string16& process_type) {
+    const std::wstring& process_type) {
   return process_type == L"browser";
 }
 
 bool CrashReporterClient::GetAlternativeCrashDumpLocation(
-    base::string16* crash_dir) {
+    std::wstring* crash_dir) {
   return false;
 }
 
-void CrashReporterClient::GetProductNameAndVersion(
-    const base::string16& exe_path,
-    base::string16* product_name,
-    base::string16* version,
-    base::string16* special_build,
-    base::string16* channel_name) {
+void CrashReporterClient::GetProductNameAndVersion(const std::wstring& exe_path,
+                                                   std::wstring* product_name,
+                                                   std::wstring* version,
+                                                   std::wstring* special_build,
+                                                   std::wstring* channel_name) {
 }
 
-bool CrashReporterClient::ShouldShowRestartDialog(base::string16* title,
-                                                  base::string16* message,
+bool CrashReporterClient::ShouldShowRestartDialog(std::wstring* title,
+                                                  std::wstring* message,
                                                   bool* is_rtl_locale) {
   return false;
 }
 
 bool CrashReporterClient::AboutToRestart() {
-  return false;
-}
-
-bool CrashReporterClient::GetDeferredUploadsSupported(
-    bool is_per_usr_install) {
   return false;
 }
 
@@ -88,7 +87,7 @@ int CrashReporterClient::GetResultCodeRespawnFailed() {
 }
 #endif
 
-#if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_IOS)
+#if defined(OS_POSIX) && !defined(OS_MAC)
 void CrashReporterClient::GetProductNameAndVersion(const char** product_name,
                                                    const char** version) {
 }
@@ -108,7 +107,7 @@ bool CrashReporterClient::HandleCrashDump(const char* crashdump_filename,
 #endif
 
 #if defined(OS_WIN)
-bool CrashReporterClient::GetCrashDumpLocation(base::string16* crash_dir) {
+bool CrashReporterClient::GetCrashDumpLocation(std::wstring* crash_dir) {
 #else
 bool CrashReporterClient::GetCrashDumpLocation(base::FilePath* crash_dir) {
 #endif
@@ -116,19 +115,11 @@ bool CrashReporterClient::GetCrashDumpLocation(base::FilePath* crash_dir) {
 }
 
 #if defined(OS_WIN)
-bool CrashReporterClient::GetCrashMetricsLocation(base::string16* crash_dir) {
+bool CrashReporterClient::GetCrashMetricsLocation(std::wstring* crash_dir) {
 #else
 bool CrashReporterClient::GetCrashMetricsLocation(base::FilePath* crash_dir) {
 #endif
   return false;
-}
-
-bool CrashReporterClient::UseCrashKeysWhiteList() {
-  return false;
-}
-
-const char* const* CrashReporterClient::GetCrashKeyWhiteList() {
-  return nullptr;
 }
 
 bool CrashReporterClient::IsRunningUnattended() {
@@ -185,16 +176,26 @@ bool CrashReporterClient::ShouldWriteMinidumpToLog() {
 
 #endif
 
-#if defined(OS_ANDROID) || defined(OS_LINUX)
+#if defined(OS_ANDROID) || defined(OS_LINUX) || defined(OS_CHROMEOS)
 void CrashReporterClient::GetSanitizationInformation(
-    const char* const** annotations_whitelist,
+    const char* const** allowed_annotations,
     void** target_module,
     bool* sanitize_stacks) {
-  *annotations_whitelist = nullptr;
+  *allowed_annotations = nullptr;
   *target_module = nullptr;
   *sanitize_stacks = false;
 }
 #endif
+
+std::string CrashReporterClient::GetUploadUrl() {
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING) && defined(OFFICIAL_BUILD)
+  // Only allow the possibility of report upload in official builds. This
+  // crash server won't have symbols for any other build types.
+  return kDefaultUploadURL;
+#else
+  return std::string();
+#endif
+}
 
 bool CrashReporterClient::ShouldMonitorCrashHandlerExpensively() {
   return false;

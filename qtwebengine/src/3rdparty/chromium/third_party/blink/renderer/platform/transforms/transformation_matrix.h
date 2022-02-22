@@ -36,6 +36,7 @@
 #include "third_party/blink/renderer/platform/geometry/float_point.h"
 #include "third_party/blink/renderer/platform/geometry/float_point_3d.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
+#include "third_party/skia/include/core/SkM44.h"
 #include "third_party/skia/include/core/SkMatrix44.h"
 
 namespace gfx {
@@ -83,7 +84,7 @@ class PLATFORM_EXPORT TransformationMatrix {
   TransformationMatrix() {
     MakeIdentity();
   }
-  TransformationMatrix(const AffineTransform&);
+  explicit TransformationMatrix(const AffineTransform&);
   TransformationMatrix(const TransformationMatrix& t) {
     *this = t;
   }
@@ -114,7 +115,7 @@ class PLATFORM_EXPORT TransformationMatrix {
     SetMatrix(m11, m12, m13, m14, m21, m22, m23, m24, m31, m32, m33, m34, m41,
               m42, m43, m44);
   }
-  TransformationMatrix(const SkMatrix44& matrix) {
+  explicit TransformationMatrix(const SkMatrix44& matrix) {
     SetMatrix(
         matrix.get(0, 0), matrix.get(1, 0), matrix.get(2, 0), matrix.get(3, 0),
         matrix.get(0, 1), matrix.get(1, 1), matrix.get(2, 1), matrix.get(3, 1),
@@ -215,14 +216,13 @@ class PLATFORM_EXPORT TransformationMatrix {
   // dropped, effectively projecting the quad into the z=0 plane
   FloatQuad MapQuad(const FloatQuad&) const;
 
-  // Map a point on the z=0 plane into a point on
-  // the plane with with the transform applied, by extending
-  // a ray perpendicular to the source plane and computing
-  // the local x,y position of the point where that ray intersects
+  // Map a point on the z=0 plane into a point on the plane with with the
+  // transform applied, by extending a ray perpendicular to the source plane and
+  // computing the local x,y position of the point where that ray intersects
   // with the destination plane.
   FloatPoint ProjectPoint(const FloatPoint&, bool* clamped = nullptr) const;
-  // Projects the four corners of the quad
-  FloatQuad ProjectQuad(const FloatQuad&, bool* clamped = nullptr) const;
+  // Projects the four corners of the quad.
+  FloatQuad ProjectQuad(const FloatQuad&) const;
   // Projects the four corners of the quad and takes a bounding box,
   // while sanitizing values created when the w component is negative.
   LayoutRect ClampedBoundsOfProjectedQuad(const FloatQuad&) const;
@@ -459,6 +459,7 @@ class PLATFORM_EXPORT TransformationMatrix {
   void ToColumnMajorFloatArray(FloatMatrix4& result) const;
 
   static SkMatrix44 ToSkMatrix44(const TransformationMatrix&);
+  static SkM44 ToSkM44(const TransformationMatrix&);
   static gfx::Transform ToTransform(const TransformationMatrix&);
 
   // If |asMatrix|, return the matrix in row-major order. Otherwise, return

@@ -61,6 +61,7 @@ public:
 
     // content::WebContentsObserver overrides.
     void RenderFrameCreated(content::RenderFrameHost *render_frame_host) override;
+    void RenderViewReady() override;
 
 private:
     friend class content::WebContentsUserData<ExtensionWebContentsObserverQt>;

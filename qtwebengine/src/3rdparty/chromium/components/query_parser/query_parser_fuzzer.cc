@@ -6,12 +6,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "base/at_exit.h"
 #include "base/i18n/icu_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/query_parser/query_parser.h"
 
 struct Environment {
   Environment() { CHECK(base::i18n::InitializeICU()); }
+  base::AtExitManager at_exit_manager;
 };
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
@@ -27,9 +29,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   const base::string16 query16 = base::UTF8ToUTF16(
       data_provider.ConsumeBytesAsString(data_provider.remaining_bytes()));
 
-  query_parser::QueryParser parser;
   std::vector<base::string16> words;
-  parser.ParseQueryWords(query16, matching_alg, &words);
+  query_parser::QueryParser::ParseQueryWords(query16, matching_alg, &words);
 
   return 0;
 }

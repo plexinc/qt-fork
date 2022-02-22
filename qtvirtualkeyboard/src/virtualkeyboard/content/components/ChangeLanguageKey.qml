@@ -27,9 +27,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import QtQuick.VirtualKeyboard 2.1
-import QtQuick.VirtualKeyboard.Styles 2.1
+import QtQuick
+import QtQuick.VirtualKeyboard
+import QtQuick.VirtualKeyboard.Styles
 
 /*!
     \qmltype ChangeLanguageKey
@@ -65,15 +65,12 @@ BaseKey {
     property bool customLayoutsOnly: false
 
     id: changeLanguageKey
+    keyType: QtVirtualKeyboard.ChangeLanguageKey
     objectName: "changeLanguageKey"
     functionKey: true
+    highlighted: true
     displayText: keyboard.locale.split("_")[0]
     keyPanelDelegate: keyboard.style ? keyboard.style.languageKeyPanel : undefined
-    onClicked: {
-        if (keyboard.style.languagePopupListEnabled)
-            keyboard.showLanguagePopup(changeLanguageKey, false)
-        else
-            keyboard.changeInputLanguage(customLayoutsOnly)
-    }
-    enabled: keyboard.canChangeInputLanguage(customLayoutsOnly)
+    onClicked: keyboard.doKeyboardFunction(QtVirtualKeyboard.ChangeLanguage, customLayoutsOnly)
+    enabled: keyboard.isKeyboardFunctionAvailable(QtVirtualKeyboard.ChangeLanguage, customLayoutsOnly)
 }

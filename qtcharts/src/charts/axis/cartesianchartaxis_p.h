@@ -43,7 +43,7 @@
 #include <private/chartaxiselement_p.h>
 #include <QtCharts/private/qchartglobal_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class QAbstractAxis;
 
@@ -56,28 +56,28 @@ public:
     CartesianChartAxis(QAbstractAxis *axis, QGraphicsItem *item = 0, bool intervalAxis = false);
     ~CartesianChartAxis();
 
-    void setGeometry(const QRectF &axis, const QRectF &grid);
-    QRectF gridGeometry() const { return m_gridRect; }
-    bool isEmpty();
+    void setGeometry(const QRectF &axis, const QRectF &grid) override;
+    QRectF gridGeometry() const override { return m_gridRect; }
+    bool emptyAxis() const override;
 
-    virtual QSizeF sizeHint(Qt::SizeHint which, const QSizeF &constraint = QSizeF()) const;
+    QSizeF sizeHint(Qt::SizeHint which, const QSizeF &constraint = QSizeF()) const override;
 
     void setDateTimeLabelsFormat(const QString &format);
 
 protected:
-    void setGeometry(const QRectF &size) { Q_UNUSED(size);}
-    virtual void updateGeometry() = 0;
-    void updateLayout(QVector<qreal> &layout);
+    void setGeometry(const QRectF &size) override { Q_UNUSED(size);}
+    void updateGeometry() override = 0;
+    void updateLayout(const QList<qreal> &layout) override;
 
 public Q_SLOTS:
-    virtual void handleArrowPenChanged(const QPen &pen);
-    virtual void handleGridPenChanged(const QPen &pen);
-    virtual void handleShadesBrushChanged(const QBrush &brush);
-    virtual void handleShadesPenChanged(const QPen &pen);
-    virtual void handleMinorArrowPenChanged(const QPen &pen);
-    virtual void handleMinorGridPenChanged(const QPen &pen);
-    virtual void handleGridLineColorChanged(const QColor &color);
-    virtual void handleMinorGridLineColorChanged(const QColor &color);
+    void handleArrowPenChanged(const QPen &pen) override;
+    void handleGridPenChanged(const QPen &pen) override;
+    void handleShadesBrushChanged(const QBrush &brush) override;
+    void handleShadesPenChanged(const QPen &pen) override;
+    void handleMinorArrowPenChanged(const QPen &pen) override;
+    void handleMinorGridPenChanged(const QPen &pen) override;
+    void handleGridLineColorChanged(const QColor &color) override;
+    void handleMinorGridLineColorChanged(const QColor &color) override;
 
 protected:
     void updateLabelsValues(QValueAxis *axis);
@@ -95,6 +95,6 @@ private:
     friend class LineArrowItem;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif /* CARTESIANCHARTAXIS_H */

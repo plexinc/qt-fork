@@ -27,15 +27,11 @@
 ****************************************************************************/
 
 #include <QTemporaryDir>
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QtNetwork/QtNetwork>
-#include "../../../network-settings.h"
+#include <QSignalSpy>
 
-#ifndef QT_NO_BEARERMANAGEMENT
-#include <QtNetwork/qnetworkconfigmanager.h>
-#include <QtNetwork/qnetworkconfiguration.h>
-#include <QtNetwork/qnetworksession.h>
-#endif
+#include "../../../network-settings.h"
 
 #include <algorithm>
 
@@ -77,18 +73,13 @@ private:
     void runTest();
     void checkSynchronous();
 
-#ifndef QT_NO_BEARERMANAGEMENT
-    QNetworkConfigurationManager *netConfMan;
-    QNetworkConfiguration networkConfiguration;
-    QScopedPointer<QNetworkSession> networkSession;
-#endif
 };
 
 class NetworkDiskCache : public QNetworkDiskCache
 {
     Q_OBJECT
 public:
-    NetworkDiskCache(QObject *parent = 0)
+    NetworkDiskCache(QObject *parent = nullptr)
         : QNetworkDiskCache(parent)
         , tempDir(QDir::tempPath() + QLatin1String("/tst_qabstractnetworkcache.XXXXXX"))
         , gotData(false)
@@ -97,7 +88,7 @@ public:
         clear();
     }
 
-    QIODevice *data(const QUrl &url)
+    QIODevice *data(const QUrl &url) override
     {
         gotData = true;
         return QNetworkDiskCache::data(url);
@@ -132,16 +123,6 @@ void tst_QAbstractNetworkCache::initTestCase()
 #else
     if (!QtNetworkSettings::verifyTestNetworkSettings())
         QSKIP("No network test server available");
-#endif
-
-#ifndef QT_NO_BEARERMANAGEMENT
-    netConfMan = new QNetworkConfigurationManager(this);
-    networkConfiguration = netConfMan->defaultConfiguration();
-    networkSession.reset(new QNetworkSession(networkConfiguration));
-    if (!networkSession->isOpen()) {
-        networkSession->open();
-        QVERIFY(networkSession->waitForOpened(30000));
-    }
 #endif
 }
 

@@ -1,7 +1,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'translationsettings.ui'
 **
-** Created by: Qt User Interface Compiler version 5.12.0
+** Created by: Qt User Interface Compiler version 6.0.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -10,6 +10,7 @@
 #define TRANSLATIONSETTINGS_H
 
 #include <QtCore/QVariant>
+#include <QtWidgets/QAbstractButton>
 #include <QtWidgets/QApplication>
 #include <QtWidgets/QComboBox>
 #include <QtWidgets/QDialog>
@@ -91,8 +92,8 @@ public:
 #endif // QT_CONFIG(shortcut)
 
         retranslateUi(TranslationSettings);
-        QObject::connect(buttonBox, SIGNAL(accepted()), TranslationSettings, SLOT(accept()));
-        QObject::connect(buttonBox, SIGNAL(rejected()), TranslationSettings, SLOT(reject()));
+        QObject::connect(buttonBox, &QDialogButtonBox::accepted, TranslationSettings, qOverload<>(&QDialog::accept));
+        QObject::connect(buttonBox, &QDialogButtonBox::rejected, TranslationSettings, qOverload<>(&QDialog::reject));
 
         QMetaObject::connectSlotsByName(TranslationSettings);
     } // setupUi

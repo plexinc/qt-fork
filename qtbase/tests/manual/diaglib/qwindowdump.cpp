@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
@@ -61,8 +61,8 @@ void formatObject(QTextStream &str, const QObject *o)
 
 void formatRect(QTextStream &str, const QRect &geom)
 {
-    str << geom.width() << 'x' << geom.height()
-        << Qt::forcesign << geom.x() << geom.y() << Qt::noforcesign;
+    str << geom.width() << 'x' << geom.height() << Qt::forcesign
+        << geom.x() << geom.y() << Qt::noforcesign;
 }
 
 #define debugType(s, type, typeConstant) \
@@ -123,7 +123,8 @@ void formatWindow(QTextStream &str, const QWindow *w, FormatWindowOptions option
     formatObject(str, w);
     str << ' ' << (w->isVisible() ? "[visible] " : "[hidden] ");
     if (const WId nativeWinId = pw ? pw->winId() : WId(0))
-        str << "[native: " << Qt::hex << Qt::showbase << nativeWinId << Qt::dec << Qt::noshowbase << "] ";
+        str << "[native: " << Qt::hex << Qt::showbase << nativeWinId << Qt::dec << Qt::noshowbase
+            << "] ";
     if (w->isTopLevel())
         str << "[top] ";
     if (w->isExposed())

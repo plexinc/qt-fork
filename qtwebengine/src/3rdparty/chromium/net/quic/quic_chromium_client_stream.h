@@ -9,12 +9,13 @@
 
 #include <stddef.h>
 
+#include <memory>
 #include <vector>
 
 #include "base/callback_forward.h"
-#include "base/containers/circular_deque.h"
 #include "base/macros.h"
 #include "net/base/completion_once_callback.h"
+#include "net/base/idempotency.h"
 #include "net/base/ip_endpoint.h"
 #include "net/base/net_export.h"
 #include "net/base/upload_data_stream.h"
@@ -24,6 +25,7 @@
 #include "net/log/net_log_with_source.h"
 #include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 #include "net/third_party/quiche/src/quic/core/http/quic_spdy_stream.h"
+#include "net/third_party/quiche/src/spdy/core/spdy_header_block.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 
 namespace quic {
@@ -50,7 +52,7 @@ class NET_EXPORT_PRIVATE QuicChromiumClientStream
     // the headers arrive.
     // TODO(rch): Invoke |callback| when there is a stream or connection error
     // instead of calling OnClose() or OnError().
-    int ReadInitialHeaders(spdy::SpdyHeaderBlock* header_block,
+    int ReadInitialHeaders(spdy::Http2HeaderBlock* header_block,
                            CompletionOnceCallback callback);
 
     // Reads at most |buffer_len| bytes of body into |buffer| and returns the
@@ -68,7 +70,7 @@ class NET_EXPORT_PRIVATE QuicChromiumClientStream
     // the headers arrive.
     // TODO(rch): Invoke |callback| when there is a stream or connection error
     // instead of calling OnClose() or OnError().
-    int ReadTrailingHeaders(spdy::SpdyHeaderBlock* header_block,
+    int ReadTrailingHeaders(spdy::Http2HeaderBlock* header_block,
                             CompletionOnceCallback callback);
 
     // Writes |header_block| to the peer. Closes the write side if |fin| is
@@ -77,7 +79,7 @@ class NET_EXPORT_PRIVATE QuicChromiumClientStream
     // an error writing the headers, or the number of bytes written on
     // success. Will not return ERR_IO_PENDING.
     int WriteHeaders(
-        spdy::SpdyHeaderBlock header_block,
+        spdy::Http2HeaderBlock header_block,
         bool fin,
         quic::QuicReferenceCountedPointer<quic::QuicAckListenerInterface>
             ack_notifier_delegate);
@@ -133,6 +135,11 @@ class NET_EXPORT_PRIVATE QuicChromiumClientStream
 
     const NetLogWithSource& net_log() const;
 
+    // Sets the idempotency of the request.
+    void SetRequestIdempotency(Idempotency idempotency);
+    // Returns the idempotency of the request.
+    Idempotency GetRequestIdempotency() const;
+
    private:
     friend class QuicChromiumClientStream;
 
@@ -166,7 +173,7 @@ class NET_EXPORT_PRIVATE QuicChromiumClientStream
 
     // Callback to be invoked when ReadHeaders completes asynchronously.
     CompletionOnceCallback read_headers_callback_;
-    spdy::SpdyHeaderBlock* read_headers_buffer_;
+    spdy::Http2HeaderBlock* read_headers_buffer_;
 
     // Callback to be invoked when ReadBody completes asynchronously.
     CompletionOnceCallback read_body_callback_;
@@ -187,6 +194,7 @@ class NET_EXPORT_PRIVATE QuicChromiumClientStream
     bool is_done_reading_;
     bool is_first_stream_;
     size_t num_bytes_consumed_;
+    Idempotency idempotency_ = DEFAULT_IDEMPOTENCY;
 
     int net_error_;
 
@@ -228,7 +236,7 @@ class NET_EXPORT_PRIVATE QuicChromiumClientStream
   void OnClose() override;
   void OnCanWrite() override;
   size_t WriteHeaders(
-      spdy::SpdyHeaderBlock header_block,
+      spdy::Http2HeaderBlock header_block,
       bool fin,
       quic::QuicReferenceCountedPointer<quic::QuicAckListenerInterface>
           ack_listener) override;
@@ -240,7 +248,7 @@ class NET_EXPORT_PRIVATE QuicChromiumClientStream
   // Writes |data| to the peer and closes the write side if |fin| is true.
   // Returns true if the data have been fully written. If the data was not fully
   // written, returns false and OnCanWrite() will be invoked later.
-  bool WriteStreamData(quiche::QuicheStringPiece data, bool fin);
+  bool WriteStreamData(absl::string_view data, bool fin);
   // Same as WriteStreamData except it writes data from a vector of IOBuffers,
   // with the length of each buffer at the corresponding index in |lengths|.
   bool WritevStreamData(const std::vector<scoped_refptr<IOBuffer>>& buffers,
@@ -253,6 +261,7 @@ class NET_EXPORT_PRIVATE QuicChromiumClientStream
   // Clears |handle_| from this stream.
   void ClearHandle();
 
+  // Notifies the stream handle of error, but doesn't close the stream.
   void OnError(int error);
 
   // Reads at most |buf_len| bytes into |buf|. Returns the number of bytes read.
@@ -271,9 +280,9 @@ class NET_EXPORT_PRIVATE QuicChromiumClientStream
   // True if this stream is the first data stream created on this session.
   bool IsFirstStream();
 
-  int DeliverInitialHeaders(spdy::SpdyHeaderBlock* header_block);
+  int DeliverInitialHeaders(spdy::Http2HeaderBlock* header_block);
 
-  bool DeliverTrailingHeaders(spdy::SpdyHeaderBlock* header_block,
+  bool DeliverTrailingHeaders(spdy::Http2HeaderBlock* header_block,
                               int* frame_len);
 
   using quic::QuicSpdyStream::HasBufferedData;
@@ -305,7 +314,7 @@ class NET_EXPORT_PRIVATE QuicChromiumClientStream
   // True if initial headers have been delivered to the handle..
   bool headers_delivered_;
   // Stores the initial header until they are delivered to the handle.
-  spdy::SpdyHeaderBlock initial_headers_;
+  spdy::Http2HeaderBlock initial_headers_;
   // Length of the HEADERS frame containing initial headers.
   size_t initial_headers_frame_len_;
 

@@ -33,7 +33,7 @@
 ##
 #############################################################################
 
-# This script installs CMake 3.7.2
+# This script installs CMake
 
 # CMake is needed for autotests that verify that Qt can be built with CMake
 
@@ -42,12 +42,13 @@ source "${BASH_SOURCE%/*}/../unix/InstallFromCompressedFileFromURL.sh"
 # shellcheck source=../unix/SetEnvVar.sh
 source "${BASH_SOURCE%/*}/../unix/SetEnvVar.sh"
 
-version="3.7.2"
-PrimaryUrl="http://ci-files01-hki.intra.qt.io/input/cmake/cmake-3.7.2-Linux-x86_64.tar.gz"
-AltUrl="https://cmake.org/files/v3.7/cmake-3.7.2-Linux-x86_64.tar.gz"
-SHA1="915bc981aab354821fb9fd28374a720fdb3aa180"
+majorminorversion="3.21"
+version="3.21.1"
+PrimaryUrl="http://ci-files01-hki.intra.qt.io/input/cmake/cmake-$version-linux-x86_64.tar.gz"
+AltUrl="https://cmake.org/files/v$majorminorversion/cmake-$version-linux-x86_64.tar.gz"
+SHA1="591e3b0729ae07c37c1fa3c6adde7cc21387059d"
 targetFolder="/opt/cmake-$version"
-appPrefix="cmake-$version-Linux-x86_64"
+appPrefix="cmake-$version-linux-x86_64"
 
 InstallFromCompressedFileFromURL "$PrimaryUrl" "$AltUrl" "$SHA1" "$targetFolder" "$appPrefix"
 

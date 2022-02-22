@@ -30,6 +30,7 @@
 #include "qwasmeventdispatcher.h"
 
 #include <QtCore/qcoreapplication.h>
+#include <QtGui/qpa/qwindowsysteminterface.h>
 
 #include <emscripten.h>
 
@@ -90,6 +91,16 @@ bool QWasmEventDispatcher::processEvents(QEventLoop::ProcessEventsFlags flags)
     if (!(flags & QEventLoop::EventLoopExec))
         return QUnixEventDispatcherQPA::processEvents(flags);
 
+    if (flags & QEventLoop::DialogExec) {
+        qWarning() << "Warning: dialog exec() is not supported on Qt for WebAssembly, please use"
+                   << "show() instead. When using exec() the dialog will show, the user can interact"
+                   << "with it and the appropriate signals will be emitted on close. However, the"
+                   << "exec() call never returns, stack content at the time of the exec() call"
+                   << "is leaked, and the exec() call may interfere with input event processing";
+
+        emscripten_sleep(1); // This call never returns
+    }
+
     // Handle processEvents from QEventLoop::exec():
     //
     // At this point the application has created its root objects on
@@ -144,7 +155,8 @@ void QWasmEventDispatcher::doMaintainTimers()
     // native timer.
 
     // Schedule a zero-timer to continue processing any pending events.
-    if (!m_hasZeroTimer && hasPendingEvents()) {
+    extern uint qGlobalPostedEventsCount(); // from qapplication.cpp
+    if (!m_hasZeroTimer && (qGlobalPostedEventsCount() || QWindowSystemInterface::windowSystemEventsQueued())) {
         auto callback = [](void *eventDispatcher) {
             QWasmEventDispatcher *that = static_cast<QWasmEventDispatcher *>(eventDispatcher);
             that->m_hasZeroTimer = false;
@@ -193,9 +205,15 @@ void QWasmEventDispatcher::doMaintainTimers()
 void QWasmEventDispatcher::wakeUp()
 {
 #ifdef EMSCRIPTEN_HAS_ASYNC_RUN_IN_MAIN_RUNTIME_THREAD
-    if (!emscripten_is_main_runtime_thread())
-        if (m_hasMainLoop)
-            emscripten_async_run_in_main_runtime_thread_(EM_FUNC_SIG_VI, (void*)(&QWasmEventDispatcher::mainThreadWakeUp), this);
+    if (!emscripten_is_main_runtime_thread() && m_hasMainLoop) {
+
+        // Make two-step async call to mainThreadWakeUp in order to make sure the
+        // call is made at a point where the main thread is idle.
+        void (*intermediate)(void *) = [](void *eventdispatcher){
+            emscripten_async_call(QWasmEventDispatcher::mainThreadWakeUp, eventdispatcher, 0);
+        };
+        emscripten_async_run_in_main_runtime_thread_(EM_FUNC_SIG_VI, (void *)intermediate, this);
+    }
 #endif
     QEventDispatcherUNIX::wakeUp();
 }

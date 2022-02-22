@@ -11,6 +11,16 @@ namespace extensions_features {
 // (performance focused, privacy focused or neutral) to show.
 const base::Feature kExtensionsCheckup{"ExtensionsCheckup",
                                        base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Controls whether we disable extensions for malware.
+const base::Feature kDisableMalwareExtensionsRemotely{
+    "DisableMalwareExtensionsRemotely", base::FEATURE_ENABLED_BY_DEFAULT};
+
+// Controls whether we disable extensions not allowlisted for Enhanced Safe
+// Browsing users.
+const base::Feature kEnforceSafeBrowsingExtensionAllowlist{
+    "EnforceSafeBrowsingExtensionAllowlist", base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Parameters for ExtensionsCheckup feature.
 const char kExtensionsCheckupEntryPointParameter[] = "entry_point";
 const char kExtensionsCheckupBannerMessageParameter[] = "banner_message_type";
@@ -37,5 +47,23 @@ const base::Feature kForceWebRequestProxyForTest{
 const base::Feature kAllowWithholdingExtensionPermissionsOnInstall{
     "AllowWithholdingExtensionPermissionsOnInstall",
     base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Enables support for the "match_origin_as_fallback" property in content
+// scripts.
+const base::Feature kContentScriptsMatchOriginAsFallback{
+    "ContentScriptsMatchOriginAsFallback", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Whether Manifest Version 3-based extensions are supported.
+const base::Feature kMv3ExtensionsSupported{"Mv3ExtensionsSupported",
+                                            base::FEATURE_ENABLED_BY_DEFAULT};
+
+// Reports Extensions.WebRequest.KeepaliveRequestFinished when enabled.
+const base::Feature kReportKeepaliveUkm{"ReportKeepaliveUkm",
+                                        base::FEATURE_ENABLED_BY_DEFAULT};
+
+// Enables default Chrome apps on Chrome OS to sync uninstallation across
+// devices.
+const base::Feature kDefaultChromeAppUninstallSync{
+    "DefaultChromeAppUninstallSync", base::FEATURE_DISABLED_BY_DEFAULT};
 
 }  // namespace extensions_features

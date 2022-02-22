@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/masque/masque_encapsulated_client_session.h"
+#include "quic/masque/masque_encapsulated_client_session.h"
 
 namespace quic {
 
@@ -23,7 +23,7 @@ MasqueEncapsulatedClientSession::MasqueEncapsulatedClientSession(
       masque_client_session_(masque_client_session) {}
 
 void MasqueEncapsulatedClientSession::ProcessPacket(
-    quiche::QuicheStringPiece packet,
+    absl::string_view packet,
     QuicSocketAddress server_address) {
   QuicTime now = connection()->clock()->ApproximateNow();
   QuicReceivedPacket received_packet(packet.data(), packet.length(), now);

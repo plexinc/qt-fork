@@ -30,6 +30,16 @@ enable_uiaccess_require_admin_manifest =
     "//remoting/host/win/enable_uiaccess_require_admin.manifest"
 
 # Depending on this target gives a default executable manifest with the addition
+# of the requestedExecutionLevel of requireAdministrator.
+windows_manifest("elevated_exe_manifest") {
+  sources = [
+    common_controls_manifest,
+    default_compatibility_manifest,
+    require_administrator_manifest,
+  ]
+}
+
+# Depending on this target gives a default executable manifest with the addition
 # of the DPI aware tag.
 windows_manifest("dpi_aware_exe_manifest") {
   sources = [
@@ -104,6 +114,8 @@ source_set("win") {
     "session_input_injector.h",
     "window_station_and_desktop.cc",
     "window_station_and_desktop.h",
+    "windows_event_logger.cc",
+    "windows_event_logger.h",
     "worker_process_launcher.cc",
     "worker_process_launcher.h",
     "wts_terminal_monitor.cc",
@@ -136,6 +148,7 @@ source_set("win") {
     "//remoting/protocol",
     "//remoting/resources",
     "//services/device/wake_lock/power_save_blocker",
+    "//third_party/wtl",
     "//ui/base",
     "//ui/events:dom_keycode_converter",
     "//ui/events/platform",
@@ -156,6 +169,9 @@ source_set("unit_tests") {
   sources = [
     "elevated_native_messaging_host.cc",
     "elevated_native_messaging_host.h",
+    "event_trace_data.cc",
+    "event_trace_data.h",
+    "event_trace_data_unittest.cc",
     "launch_native_messaging_host_process.cc",
     "launch_native_messaging_host_process.h",
     "rdp_client_unittest.cc",
@@ -178,24 +194,13 @@ source_set("unit_tests") {
   ]
 }
 
-action("generate_idl") {
-  script = "//build/util/version.py"
-
-  inputs = [ "chromoting_lib_idl.templ" ]
-  outputs = [ "$target_gen_dir/chromoting_lib.idl" ]
-
-  args = [
-    "-e",
-    "RDP_DESKTOP_SESSION_CLSID='$rdp_desktop_session_clsid'",
-    rebase_path(inputs[0], root_build_dir),
-    rebase_path(outputs[0], root_build_dir),
-  ]
-}
+RDP_DESKTOP_SESSION_PLACEHOLDER_CLSID =
+    "PLACEHOLDER-GUID-6741fd0a-6a8a-5838-a35e-8088697e2088"
 
 midl("remoting_lib_idl") {
-  sources = get_target_outputs(":generate_idl")
-  dynamic_guid = rdp_desktop_session_clsid
-  deps = [ ":generate_idl" ]
+  sources = [ "chromoting_lib.templ" ]
+  dynamic_guids =
+      "$RDP_DESKTOP_SESSION_PLACEHOLDER_CLSID=$rdp_desktop_session_clsid"
   writes_tlb = true
 }
 
@@ -220,8 +225,8 @@ config("MIDL_config") {
 
 static_library("remoting_lib_ps") {
   sources = [
-    "$root_gen_dir/remoting/host/win/chromoting_lib.dlldata.c",
-    "$root_gen_dir/remoting/host/win/chromoting_lib_p.c",
+    "$target_gen_dir/chromoting_lib.dlldata.c",
+    "$target_gen_dir/chromoting_lib_p.c",
   ]
 
   configs -= [ "//build/config/compiler:chromium_code" ]
@@ -274,6 +279,7 @@ executable("remoting_console") {
     ":dpi_aware_exe_manifest",
     ":remoting_core",
     ":remoting_windows_resources",
+    "//base:clang_profiling_buildflags",
   ]
 
   sources = [
@@ -281,7 +287,7 @@ executable("remoting_console") {
     "entry_point.cc",
   ]
 
-  if (!is_asan) {
+  if (!is_asan && !use_clang_profiling) {
     no_default_deps = true
     ldflags = [
       "/ENTRY:HostEntryPoint",
@@ -312,7 +318,7 @@ executable("remoting_me2me_host") {
 
   output_name = "remoting_host"
 
-  if (!is_asan) {
+  if (!is_asan && !use_clang_profiling) {
     no_default_deps = true
     ldflags = [
       "/ENTRY:HostEntryPoint",
@@ -360,6 +366,8 @@ shared_library("remoting_core") {
     "//remoting/host/it2me/it2me_native_messaging_host_main.h",
     "//remoting/host/setup/host_starter.cc",
     "//remoting/host/setup/host_starter.h",
+    "//remoting/host/setup/host_stopper.cc",
+    "//remoting/host/setup/host_stopper.h",
     "//remoting/host/setup/me2me_native_messaging_host_main.cc",
     "//remoting/host/setup/me2me_native_messaging_host_main.h",
     "//remoting/host/setup/start_host_main.cc",
@@ -373,6 +381,17 @@ shared_library("remoting_core") {
     "core_resource.h",
     "elevated_native_messaging_host.cc",
     "elevated_native_messaging_host.h",
+    "etw_trace_consumer.cc",
+    "etw_trace_consumer.h",
+    "etw_trace_controller.cc",
+    "etw_trace_controller.h",
+    "event_trace_data.cc",
+    "event_trace_data.h",
+    "host_event_file_logger.cc",
+    "host_event_file_logger.h",
+    "host_event_logger.h",
+    "host_event_windows_event_logger.cc",
+    "host_event_windows_event_logger.h",
     "host_service.cc",
     "host_service.h",
     "launch_native_messaging_host_process.cc",
@@ -459,7 +478,7 @@ executable("remoting_desktop") {
     "entry_point.cc",
   ]
 
-  if (!is_asan) {
+  if (!is_asan && !use_clang_profiling) {
     no_default_deps = true
     ldflags = [
       "/ENTRY:HostEntryPoint",

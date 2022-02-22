@@ -26,7 +26,8 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QReadWriteLock>
 
 #include <qatomic.h>
 #include <qcoreapplication.h>
@@ -77,7 +78,7 @@ public:
     inline wait_QMutex_Thread_1()
     { }
 
-    void run()
+    void run() override
     {
         mutex.lock();
         cond.wakeOne();
@@ -95,10 +96,10 @@ public:
     QWaitCondition *cond;
 
     inline wait_QMutex_Thread_2()
-    : mutex(0), cond(0)
+    : mutex(nullptr), cond(nullptr)
     { }
 
-    void run()
+    void run() override
     {
         mutex->lock();
         started.wakeOne();
@@ -116,7 +117,7 @@ public:
     inline wait_QReadWriteLock_Thread_1()
     { }
 
-    void run()
+    void run() override
     {
         readWriteLock.lockForWrite();
         cond.wakeOne();
@@ -134,10 +135,10 @@ public:
     QWaitCondition *cond;
 
     inline wait_QReadWriteLock_Thread_2()
-    : readWriteLock(0), cond(0)
+    : readWriteLock(nullptr), cond(nullptr)
     { }
 
-    void run()
+    void run() override
     {
         readWriteLock->lockForRead();
         started.wakeOne();
@@ -392,13 +393,13 @@ public:
     QWaitCondition *cond;
 
     inline wake_Thread()
-    : mutex(0), cond(0)
+    : mutex(nullptr), cond(nullptr)
     { }
 
     static inline void sleep(ulong s)
     { QThread::sleep(s); }
 
-    void run()
+    void run() override
     {
         Q_ASSERT(count);
         Q_ASSERT(mutex);
@@ -424,13 +425,13 @@ public:
     QWaitCondition *cond;
 
     inline wake_Thread_2()
-    : readWriteLock(0), cond(0)
+    : readWriteLock(nullptr), cond(nullptr)
     { }
 
     static inline void sleep(ulong s)
     { QThread::sleep(s); }
 
-    void run()
+    void run() override
     {
         Q_ASSERT(count);
         Q_ASSERT(readWriteLock);
@@ -764,7 +765,8 @@ public:
     QWaitCondition *startup;
     QWaitCondition *waitCondition;
 
-    void run() {
+    void run() override
+    {
         mutex->lock();
 
         ready = true;
@@ -796,7 +798,8 @@ public:
     QWaitCondition *startup;
     QWaitCondition *waitCondition;
 
-    void run() {
+    void run() override
+    {
         readWriteLock->lockForWrite();
 
         ready = true;

@@ -42,7 +42,7 @@ class V8_EXPORT_PRIVATE RegExpMacroAssemblerARM64
   virtual void CheckNotBackReference(int start_reg, bool read_backward,
                                      Label* on_no_match);
   virtual void CheckNotBackReferenceIgnoreCase(int start_reg,
-                                               bool read_backward,
+                                               bool read_backward, bool unicode,
                                                Label* on_no_match);
   virtual void CheckNotCharacter(unsigned c, Label* on_not_equal);
   virtual void CheckNotCharacterAfterAnd(unsigned c,
@@ -73,9 +73,8 @@ class V8_EXPORT_PRIVATE RegExpMacroAssemblerARM64
   virtual void IfRegisterLT(int reg, int comparand, Label* if_lt);
   virtual void IfRegisterEqPos(int reg, Label* if_eq);
   virtual IrregexpImplementation Implementation();
-  virtual void LoadCurrentCharacterImpl(int cp_offset, Label* on_end_of_input,
-                                        bool check_bounds, int characters,
-                                        int eats_at_least);
+  virtual void LoadCurrentCharacterUnchecked(int cp_offset,
+                                             int character_count);
   virtual void PopCurrentPosition();
   virtual void PopRegister(int register_index);
   virtual void PushBacktrack(Label* label);
@@ -102,18 +101,19 @@ class V8_EXPORT_PRIVATE RegExpMacroAssemblerARM64
 
  private:
   // Above the frame pointer - Stored registers and stack passed parameters.
-  // Callee-saved registers x19-x29, where x29 is the old frame pointer.
-  static const int kCalleeSavedRegisters = 0;
-  // Return address.
-  // It is placed above the 11 callee-saved registers.
-  static const int kReturnAddress =
-      kCalleeSavedRegisters + 11 * kSystemPointerSize;
+  static const int kFramePointer = 0;
+  static const int kReturnAddress = kFramePointer + kSystemPointerSize;
+  // Callee-saved registers (x19-x28).
+  static const int kNumCalleeSavedRegisters = 10;
+  static const int kCalleeSavedRegisters = kReturnAddress + kSystemPointerSize;
   // Stack parameter placed by caller.
-  static const int kIsolate = kReturnAddress + kSystemPointerSize;
+  // It is placed above the FP, LR and the callee-saved registers.
+  static const int kIsolate =
+      kCalleeSavedRegisters + kNumCalleeSavedRegisters * kSystemPointerSize;
 
   // Below the frame pointer.
   // Register parameters stored by setup code.
-  static const int kDirectCall = kCalleeSavedRegisters - kSystemPointerSize;
+  static const int kDirectCall = -kSystemPointerSize;
   static const int kStackBase = kDirectCall - kSystemPointerSize;
   static const int kOutputSize = kStackBase - kSystemPointerSize;
   static const int kInput = kOutputSize - kSystemPointerSize;
@@ -138,10 +138,6 @@ class V8_EXPORT_PRIVATE RegExpMacroAssemblerARM64
   // contain one capture, that is two 32 bit registers. We can cache at most
   // 16 registers.
   static const int kNumCachedRegisters = 16;
-
-  // Load a number of characters at the given offset from the
-  // current position, into the current-character register.
-  void LoadCurrentCharacterUnchecked(int cp_offset, int character_count);
 
   // Check whether preemption has been requested.
   void CheckPreemption();
@@ -284,6 +280,7 @@ class V8_EXPORT_PRIVATE RegExpMacroAssemblerARM64
   Label exit_label_;
   Label check_preempt_label_;
   Label stack_overflow_label_;
+  Label fallback_label_;
 };
 
 }  // namespace internal

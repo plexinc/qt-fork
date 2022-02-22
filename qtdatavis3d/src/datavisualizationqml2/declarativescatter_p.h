@@ -45,7 +45,7 @@
 #include "scatter3dcontroller_p.h"
 #include "qscatter3dseries.h"
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 class DeclarativeScatter : public AbstractDeclarative
 {
@@ -70,8 +70,8 @@ public:
 
     QQmlListProperty<QScatter3DSeries> seriesList();
     static void appendSeriesFunc(QQmlListProperty<QScatter3DSeries> *list, QScatter3DSeries *series);
-    static int countSeriesFunc(QQmlListProperty<QScatter3DSeries> *list);
-    static QScatter3DSeries *atSeriesFunc(QQmlListProperty<QScatter3DSeries> *list, int index);
+    static qsizetype countSeriesFunc(QQmlListProperty<QScatter3DSeries> *list);
+    static QScatter3DSeries *atSeriesFunc(QQmlListProperty<QScatter3DSeries> *list, qsizetype index);
     static void clearSeriesFunc(QQmlListProperty<QScatter3DSeries> *list);
     Q_INVOKABLE void addSeries(QScatter3DSeries *series);
     Q_INVOKABLE void removeSeries(QScatter3DSeries *series);
@@ -79,9 +79,9 @@ public:
     QScatter3DSeries *selectedSeries() const;
 
 public Q_SLOTS:
-    void handleAxisXChanged(QAbstract3DAxis *axis);
-    void handleAxisYChanged(QAbstract3DAxis *axis);
-    void handleAxisZChanged(QAbstract3DAxis *axis);
+    void handleAxisXChanged(QAbstract3DAxis *axis) override;
+    void handleAxisYChanged(QAbstract3DAxis *axis) override;
+    void handleAxisZChanged(QAbstract3DAxis *axis) override;
 
 Q_SIGNALS:
     void axisXChanged(QValue3DAxis *axis);
@@ -93,6 +93,6 @@ protected:
     Scatter3DController *m_scatterController;
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

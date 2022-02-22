@@ -2,24 +2,24 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/quic_transport/quic_transport_client_session.h"
+#include "quic/quic_transport/quic_transport_client_session.h"
 
 #include <memory>
 #include <utility>
 
+#include "absl/base/macros.h"
 #include "url/gurl.h"
-#include "net/third_party/quiche/src/quic/core/quic_data_writer.h"
-#include "net/third_party/quiche/src/quic/core/quic_server_id.h"
-#include "net/third_party/quiche/src/quic/core/quic_types.h"
-#include "net/third_party/quiche/src/quic/core/quic_utils.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_expect_bug.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/test_tools/crypto_test_utils.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_session_peer.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_stream_peer.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_transport_test_tools.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_arraysize.h"
+#include "quic/core/quic_data_writer.h"
+#include "quic/core/quic_server_id.h"
+#include "quic/core/quic_types.h"
+#include "quic/core/quic_utils.h"
+#include "quic/platform/api/quic_expect_bug.h"
+#include "quic/platform/api/quic_test.h"
+#include "quic/test_tools/crypto_test_utils.h"
+#include "quic/test_tools/quic_session_peer.h"
+#include "quic/test_tools/quic_stream_peer.h"
+#include "quic/test_tools/quic_test_utils.h"
+#include "quic/test_tools/quic_transport_test_tools.h"
 
 namespace quic {
 namespace test {
@@ -65,7 +65,7 @@ class QuicTransportClientSessionTest : public QuicTest {
     session_ = std::make_unique<QuicTransportClientSession>(
         &connection_, nullptr, DefaultQuicConfig(), GetVersions(),
         GURL("quic-transport://test.example.com:50000" + url_suffix),
-        &crypto_config_, origin, &visitor_);
+        &crypto_config_, origin, &visitor_, /*datagram_observer=*/nullptr);
     session_->Initialize();
     crypto_stream_ = static_cast<QuicCryptoClientStream*>(
         session_->GetMutableCryptoStream());
@@ -108,14 +108,15 @@ TEST_F(QuicTransportClientSessionTest, SuccessfulConnection) {
   Connect();
   EXPECT_TRUE(session_->IsSessionReady());
 
-  QuicStream* client_indication_stream =
-      QuicSessionPeer::zombie_streams(session_.get())[ClientIndicationStream()]
+  QuicStream* client_indication_stream;
+  client_indication_stream =
+      QuicSessionPeer::stream_map(session_.get())[ClientIndicationStream()]
           .get();
   ASSERT_TRUE(client_indication_stream != nullptr);
   const std::string client_indication = DataInStream(client_indication_stream);
   const std::string expected_client_indication{
       kTestOriginClientIndication,
-      QUICHE_ARRAYSIZE(kTestOriginClientIndication) - 1};
+      ABSL_ARRAYSIZE(kTestOriginClientIndication) - 1};
   EXPECT_EQ(client_indication, expected_client_indication);
 }
 
@@ -133,14 +134,15 @@ TEST_F(QuicTransportClientSessionTest, SuccessfulConnectionWithPath) {
   Connect();
   EXPECT_TRUE(session_->IsSessionReady());
 
-  QuicStream* client_indication_stream =
-      QuicSessionPeer::zombie_streams(session_.get())[ClientIndicationStream()]
+  QuicStream* client_indication_stream;
+  client_indication_stream =
+      QuicSessionPeer::stream_map(session_.get())[ClientIndicationStream()]
           .get();
   ASSERT_TRUE(client_indication_stream != nullptr);
   const std::string client_indication = DataInStream(client_indication_stream);
   const std::string expected_client_indication{
       kTestOriginClientIndication,
-      QUICHE_ARRAYSIZE(kTestOriginClientIndication) - 1};
+      ABSL_ARRAYSIZE(kTestOriginClientIndication) - 1};
   EXPECT_EQ(client_indication, expected_client_indication);
 }
 

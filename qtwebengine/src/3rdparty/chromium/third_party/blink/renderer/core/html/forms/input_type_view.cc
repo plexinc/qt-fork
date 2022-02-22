@@ -28,6 +28,8 @@
 
 #include "third_party/blink/renderer/core/html/forms/input_type_view.h"
 
+#include "third_party/blink/renderer/core/dom/events/simulated_click_options.h"
+#include "third_party/blink/renderer/core/dom/focus_params.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/events/keyboard_event.h"
@@ -38,9 +40,13 @@
 
 namespace blink {
 
+void InputTypeView::WillBeDestroyed() {
+  will_be_destroyed_ = true;
+}
+
 InputTypeView::~InputTypeView() = default;
 
-void InputTypeView::Trace(Visitor* visitor) {
+void InputTypeView::Trace(Visitor* visitor) const {
   visitor->Trace(element_);
 }
 
@@ -72,7 +78,7 @@ void InputTypeView::DispatchSimulatedClickIfActive(KeyboardEvent& event) const {
   event.SetDefaultHandled();
 }
 
-void InputTypeView::AccessKeyAction(bool) {
+void InputTypeView::AccessKeyAction(SimulatedClickCreationScope) {
   GetElement().focus(FocusParams(SelectionBehaviorOnFocus::kReset,
                                  mojom::blink::FocusType::kNone, nullptr));
 }
@@ -175,9 +181,15 @@ void InputTypeView::SubtreeHasChanged() {
 
 void InputTypeView::ListAttributeTargetChanged() {}
 
+void InputTypeView::CapsLockStateMayHaveChanged() {}
+
+bool InputTypeView::ShouldDrawCapsLockIndicator() const {
+  return false;
+}
+
 void InputTypeView::UpdateClearButtonVisibility() {}
 
-void InputTypeView::UpdatePlaceholderText() {}
+void InputTypeView::UpdatePlaceholderText(bool) {}
 
 AXObject* InputTypeView::PopupRootAXObject() {
   return nullptr;
@@ -191,7 +203,8 @@ FormControlState InputTypeView::SaveFormControlState() const {
 }
 
 void InputTypeView::RestoreFormControlState(const FormControlState& state) {
-  GetElement().setValue(state[0]);
+  GetElement().setValue(state[0],
+                        TextFieldEventBehavior::kDispatchInputAndChangeEvent);
 }
 
 bool InputTypeView::IsDraggedSlider() const {
@@ -202,13 +215,9 @@ bool InputTypeView::HasBadInput() const {
   return false;
 }
 
-void ClickHandlingState::Trace(Visitor* visitor) {
+void ClickHandlingState::Trace(Visitor* visitor) const {
   visitor->Trace(checked_radio_button);
   EventDispatchHandlingState::Trace(visitor);
-}
-
-String InputTypeView::RawValue() const {
-  return g_empty_string;
 }
 
 }  // namespace blink

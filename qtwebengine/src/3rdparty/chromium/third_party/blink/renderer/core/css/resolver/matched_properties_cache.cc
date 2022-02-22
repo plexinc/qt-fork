@@ -31,10 +31,19 @@
 #include "third_party/blink/renderer/core/css/resolver/matched_properties_cache.h"
 
 #include "third_party/blink/renderer/core/css/css_property_value_set.h"
+#include "third_party/blink/renderer/core/css/properties/css_property_ref.h"
 #include "third_party/blink/renderer/core/css/resolver/style_resolver_state.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
+#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+#include "third_party/blink/renderer/platform/wtf/text/string_hasher.h"
 
 namespace blink {
+
+static unsigned ComputeMatchedPropertiesHash(const MatchResult& result) {
+  const MatchedPropertiesVector& vector = result.GetMatchedProperties();
+  return StringHasher::HashMemory(vector.data(),
+                                  sizeof(MatchedProperties) * vector.size());
+}
 
 void CachedMatchedProperties::Set(const ComputedStyle& style,
                                   const ComputedStyle& parent_style,
@@ -53,28 +62,69 @@ void CachedMatchedProperties::Set(const ComputedStyle& style,
 
 void CachedMatchedProperties::Clear() {
   matched_properties.clear();
+  matched_properties_types.clear();
   computed_style = nullptr;
   parent_computed_style = nullptr;
 }
 
+bool CachedMatchedProperties::DependenciesEqual(
+    const StyleResolverState& state) {
+  if (!state.ParentStyle())
+    return false;
+  if ((parent_computed_style->IsEnsuredInDisplayNone() ||
+       computed_style->IsEnsuredOutsideFlatTree()) &&
+      !state.ParentStyle()->IsEnsuredInDisplayNone() &&
+      !state.Style()->IsEnsuredOutsideFlatTree()) {
+    // If we cached a ComputedStyle in a display:none subtree, or outside the
+    // flat tree,  we would not have triggered fetches for external resources
+    // and have StylePendingImages in the ComputedStyle. Instead of having to
+    // inspect the cached ComputedStyle for such resources, don't use a cached
+    // ComputedStyle when it was cached in display:none but is now rendered.
+    return false;
+  }
+
+  if (parent_computed_style->GetWritingMode() !=
+      state.ParentStyle()->GetWritingMode()) {
+    return false;
+  }
+  if (parent_computed_style->Direction() != state.ParentStyle()->Direction())
+    return false;
+  if (computed_style->HasVariableReferenceFromNonInheritedProperty()) {
+    if (parent_computed_style->InheritedVariables() !=
+        state.ParentStyle()->InheritedVariables()) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 MatchedPropertiesCache::MatchedPropertiesCache() = default;
 
-const CachedMatchedProperties* MatchedPropertiesCache::Find(
-    unsigned hash,
-    const StyleResolverState& style_resolver_state,
-    const MatchedPropertiesVector& properties) {
-  DCHECK(hash);
+MatchedPropertiesCache::Key::Key(const MatchResult& result)
+    : Key(result,
+          result.IsCacheable() ? ComputeMatchedPropertiesHash(result)
+                               : HashTraits<unsigned>::EmptyValue()) {}
 
-  Cache::iterator it = cache_.find(hash);
+MatchedPropertiesCache::Key::Key(const MatchResult& result, unsigned hash)
+    : result_(result), hash_(hash) {}
+
+const CachedMatchedProperties* MatchedPropertiesCache::Find(
+    const Key& key,
+    const StyleResolverState& style_resolver_state) {
+  DCHECK(key.IsValid());
+  Cache::iterator it = cache_.find(key.hash_);
   if (it == cache_.end())
     return nullptr;
   CachedMatchedProperties* cache_item = it->value.Get();
   if (!cache_item)
     return nullptr;
-  if (*cache_item != properties)
+  if (*cache_item != key.result_.GetMatchedProperties())
     return nullptr;
   if (cache_item->computed_style->InsideLink() !=
       style_resolver_state.Style()->InsideLink())
+    return nullptr;
+  if (!cache_item->DependenciesEqual(style_resolver_state))
     return nullptr;
   return cache_item;
 }
@@ -104,12 +154,11 @@ bool CachedMatchedProperties::operator!=(
   return !(*this == properties);
 }
 
-void MatchedPropertiesCache::Add(const ComputedStyle& style,
-                                 const ComputedStyle& parent_style,
-                                 unsigned hash,
-                                 const MatchedPropertiesVector& properties) {
-  DCHECK(hash);
-  Cache::AddResult add_result = cache_.insert(hash, nullptr);
+void MatchedPropertiesCache::Add(const Key& key,
+                                 const ComputedStyle& style,
+                                 const ComputedStyle& parent_style) {
+  DCHECK(key.IsValid());
+  Cache::AddResult add_result = cache_.insert(key.hash_, nullptr);
   if (add_result.is_new_entry || !add_result.stored_value->value) {
     add_result.stored_value->value =
         MakeGarbageCollected<CachedMatchedProperties>();
@@ -119,7 +168,7 @@ void MatchedPropertiesCache::Add(const ComputedStyle& style,
   if (!add_result.is_new_entry)
     cache_item->Clear();
 
-  cache_item->Set(style, parent_style, properties);
+  cache_item->Set(style, parent_style, key.result_.GetMatchedProperties());
 }
 
 void MatchedPropertiesCache::Clear() {
@@ -153,13 +202,9 @@ bool MatchedPropertiesCache::IsStyleCacheable(const ComputedStyle& style) {
     return false;
   if (style.TextAutosizingMultiplier() != 1)
     return false;
-  if (style.GetWritingMode() !=
-          ComputedStyleInitialValues::InitialWritingMode() ||
-      style.Direction() != ComputedStyleInitialValues::InitialDirection())
-    return false;
-  // styles with non inherited properties that reference variables are not
-  // cacheable.
-  if (style.HasVariableReferenceFromNonInheritedProperty())
+  // -internal-light-dark() values in UA sheets have different computed values
+  // based on the used value of color-scheme.
+  if (style.HasNonInheritedLightDarkValue())
     return false;
   return true;
 }
@@ -170,15 +215,17 @@ bool MatchedPropertiesCache::IsCacheable(const StyleResolverState& state) {
 
   if (!IsStyleCacheable(style))
     return false;
+
   // The cache assumes static knowledge about which properties are inherited.
   // Without a flat tree parent, StyleBuilder::ApplyProperty will not
-  // SetHasExplicitlyInheritedProperties on the parent style.
-  if (!state.ParentNode() || parent_style.HasExplicitlyInheritedProperties())
+  // SetChildHasExplicitInheritance on the parent style.
+  if (!state.ParentNode() || parent_style.ChildHasExplicitInheritance())
     return false;
+
   return true;
 }
 
-void MatchedPropertiesCache::Trace(Visitor* visitor) {
+void MatchedPropertiesCache::Trace(Visitor* visitor) const {
   visitor->Trace(cache_);
   visitor->RegisterWeakCallbackMethod<
       MatchedPropertiesCache,
@@ -187,7 +234,7 @@ void MatchedPropertiesCache::Trace(Visitor* visitor) {
 }
 
 void MatchedPropertiesCache::RemoveCachedMatchedPropertiesWithDeadEntries(
-    const WeakCallbackInfo& info) {
+    const LivenessBroker& info) {
   Vector<unsigned> to_remove;
   for (const auto& entry_pair : cache_) {
     // A nullptr value indicates that the entry is currently being created; see

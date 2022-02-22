@@ -43,7 +43,7 @@
 #include "abstractitemmodelhandler_p.h"
 #include "qitemmodelbardataproxy_p.h"
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 class BarItemModelHandler : public AbstractItemModelHandler
 {
@@ -53,25 +53,25 @@ public:
     virtual ~BarItemModelHandler();
 
 public Q_SLOTS:
-    virtual void handleDataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight,
-                                   const QVector<int> &roles = QVector<int> ());
+    void handleDataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight,
+                           const QList<int> &roles = QList<int>()) override;
 
 protected:
-    void virtual resolveModel();
+    void resolveModel() override;
 
     QItemModelBarDataProxy *m_proxy; // Not owned
     QBarDataArray *m_proxyArray; // Not owned
     int m_columnCount;
     int m_valueRole;
     int m_rotationRole;
-    QRegExp m_valuePattern;
-    QRegExp m_rotationPattern;
+    QRegularExpression m_valuePattern;
+    QRegularExpression m_rotationPattern;
     QString m_valueReplace;
     QString m_rotationReplace;
     bool m_haveValuePattern;
     bool m_haveRotationPattern;
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

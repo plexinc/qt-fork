@@ -117,12 +117,13 @@ void QLowEnergyControllerPrivate::setError(
         break;
     }
 
-    emit q->error(newError);
+    emit q->errorOccurred(newError);
 }
 
 void QLowEnergyControllerPrivate::setState(
         QLowEnergyController::ControllerState newState)
 {
+    qCDebug(QT_BT) << "QLowEnergyControllerPrivate setting state to" << newState;
     Q_Q(QLowEnergyController);
     if (state == newState)
         return;
@@ -318,7 +319,7 @@ QLowEnergyService *QLowEnergyControllerPrivate::addServiceHelper(
     }
 
     if (localServices.contains(servicePrivate->uuid)) {
-        qWarning() << "Overriding existing local service with uuid"
+        qCWarning(QT_BT) << "Overriding existing local service with uuid"
                    << servicePrivate->uuid;
     }
     this->localServices.insert(servicePrivate->uuid, servicePrivate);

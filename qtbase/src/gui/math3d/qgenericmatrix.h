@@ -64,7 +64,7 @@ public:
 
     void fill(T value);
 
-    Q_REQUIRED_RESULT QGenericMatrix<M, N, T> transposed() const;
+    [[nodiscard]] QGenericMatrix<M, N, T> transposed() const;
 
     QGenericMatrix<N, M, T>& operator+=(const QGenericMatrix<N, M, T>& other);
     QGenericMatrix<N, M, T>& operator-=(const QGenericMatrix<N, M, T>& other);
@@ -108,12 +108,6 @@ template <int N, int M, typename T>
 class QTypeInfo<QGenericMatrix<N, M, T> >
     : public QTypeInfoMerger<QGenericMatrix<N, M, T>, T>
 {
-#if QT_VERSION < QT_VERSION_CHECK(6,0,0)
-public:
-    enum {
-        isStatic = true,
-    }; // at least Q_RELOCATABLE_TYPE, for BC during Qt 5
-#endif
 };
 
 template <int N, int M, typename T>
@@ -220,9 +214,7 @@ Q_OUTOFLINE_TEMPLATE QGenericMatrix<N, M, T>& QGenericMatrix<N, M, T>::operator*
 }
 
 QT_WARNING_PUSH
-QT_WARNING_DISABLE_CLANG("-Wfloat-equal")
-QT_WARNING_DISABLE_GCC("-Wfloat-equal")
-QT_WARNING_DISABLE_INTEL(1572)
+QT_WARNING_DISABLE_FLOAT_COMPARE
 
 template <int N, int M, typename T>
 Q_OUTOFLINE_TEMPLATE bool QGenericMatrix<N, M, T>::operator==(const QGenericMatrix<N, M, T>& other) const
@@ -352,7 +344,7 @@ QDebug operator<<(QDebug dbg, const QGenericMatrix<N, M, T> &m)
 {
     QDebugStateSaver saver(dbg);
     dbg.nospace() << "QGenericMatrix<" << N << ", " << M
-        << ", " << QTypeInfo<T>::name()
+        << ", " << QMetaType::fromType<T>().name()
         << ">(" << Qt::endl << qSetFieldWidth(10);
     for (int row = 0; row < M; ++row) {
         for (int col = 0; col < N; ++col)

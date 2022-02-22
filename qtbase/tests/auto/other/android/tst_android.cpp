@@ -26,7 +26,11 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <jni.h>
+
+#include <QTest>
+#include <QtCore/qnativeinterface.h>
+#include <QtCore/qjniobject.h>
 
 class tst_Android : public QObject
 {
@@ -34,18 +38,20 @@ Q_OBJECT
 private slots:
     void assetsRead();
     void assetsNotWritable();
+    void testAndroidSdkVersion();
+    void testAndroidActivity();
 };
 
 void tst_Android::assetsRead()
 {
     {
-        QFile file("assets:/test.txt");
+        QFile file(QStringLiteral("assets:/test.txt"));
         QVERIFY(file.open(QIODevice::ReadOnly));
         QCOMPARE(file.readAll(), QByteArray("FooBar"));
     }
 
     {
-        QFile file("assets:/test.txt");
+        QFile file(QStringLiteral("assets:/test.txt"));
         QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
         QCOMPARE(file.readAll(), QByteArray("FooBar"));
     }
@@ -53,10 +59,22 @@ void tst_Android::assetsRead()
 
 void tst_Android::assetsNotWritable()
 {
-    QFile file("assets:/test.txt");
+    QFile file(QStringLiteral("assets:/test.txt"));
     QVERIFY(!file.open(QIODevice::WriteOnly));
     QVERIFY(!file.open(QIODevice::ReadWrite));
     QVERIFY(!file.open(QIODevice::Append));
+}
+
+void tst_Android::testAndroidSdkVersion()
+{
+    QVERIFY(QNativeInterface::QAndroidApplication::sdkVersion() > 0);
+}
+
+void tst_Android::testAndroidActivity()
+{
+    QJniObject activity = QNativeInterface::QAndroidApplication::context();
+    QVERIFY(activity.isValid());
+    QVERIFY(activity.callMethod<jboolean>("isTaskRoot"));
 }
 
 QTEST_MAIN(tst_Android)

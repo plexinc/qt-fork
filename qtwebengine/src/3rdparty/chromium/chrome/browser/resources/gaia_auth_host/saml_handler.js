@@ -51,15 +51,19 @@ cr.define('cr.login', function() {
       'x-verified-access-challenge-response';
 
   /** @const */
+  const BEGIN_CERTIFICATE = '-----BEGIN CERTIFICATE-----';
+
+  /** @const */
+  const END_CERTIFICATE = '-----END CERTIFICATE-----';
+
+  /** @const */
   const injectedScriptName = 'samlInjected';
 
   /**
    * The script to inject into webview and its sub frames.
    * @type {string}
    */
-  const injectedJs = String.raw`
-      // <include src="webview_saml_injected.js">
-  `;
+  const injectedJs = 'webview_saml_injected.js';
 
   /**
    * @typedef {{
@@ -109,17 +113,6 @@ cr.define('cr.login', function() {
    */
   function stripParams(url) {
     return url.substring(0, url.indexOf('?')) || url;
-  }
-
-  /**
-   * Extract domain name from an URL.
-   * @param {string} url An URL string.
-   * @return {string} The host name of the URL.
-   */
-  function extractDomain(url) {
-    const a = document.createElement('a');
-    a.href = url;
-    return a.hostname;
   }
 
   /**
@@ -187,12 +180,6 @@ cr.define('cr.login', function() {
        * @private {?string}
        */
       this.abortedTopLevelUrl_ = null;
-
-      /**
-       * The domain of the Saml IdP.
-       * @type {string}
-       */
-      this.authDomain = '';
 
       /**
        * Scraped password stored in an id to password field value map.
@@ -264,6 +251,12 @@ cr.define('cr.login', function() {
       this.verifiedAccessChallengeResponse_ = null;
 
       /**
+       * Certificate that were extracted from the SAMLResponse.
+       * @public {?string}
+       */
+      this.x509certificate = null;
+
+      /**
        * The password-attributes that were extracted from the SAMLResponse, if
        * any. (Doesn't contain the password itself).
        * @private {!PasswordAttributes}
@@ -318,7 +311,7 @@ cr.define('cr.login', function() {
       this.webview_.addContentScripts([{
         name: injectedScriptName,
         matches: ['http://*/*', 'https://*/*'],
-        js: {code: injectedJs},
+        js: {files: [injectedJs]},
         all_frames: true,
         run_at: 'document_start'
       }]);
@@ -441,6 +434,7 @@ cr.define('cr.login', function() {
       this.lastApiPasswordBytes_ = null;
       this.passwordAttributes_ =
           samlPasswordAttributes.PasswordAttributes.EMPTY;
+      this.x509certificate = null;
     }
 
     /**
@@ -527,6 +521,31 @@ cr.define('cr.login', function() {
     }
 
     /**
+     * Set x509certificate in pem-format which is extracted from samlResponse
+     * and will be used to record SAML provider
+     * @param {string} samlResponse SAML response which is received from SAML
+     *     page.
+     * @private
+     */
+    setX509certificate_(samlResponse) {
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(samlResponse, 'text/xml');
+      let certificate = xmlDoc.getElementsByTagName('ds:X509Certificate');
+      if (!certificate || certificate.length == 0) {
+        // tag 'ds:X509Certificate' doesn't exist
+        certificate = xmlDoc.getElementsByTagName('X509Certificate');
+      }
+
+      if (certificate && certificate.length > 0 && certificate[0].childNodes &&
+          certificate[0].childNodes[0] &&
+          certificate[0].childNodes[0].nodeValue) {
+        certificate = certificate[0].childNodes[0].nodeValue;
+        this.x509certificate = BEGIN_CERTIFICATE + '\n' + certificate.trim() +
+            '\n' + END_CERTIFICATE + '\n';
+      }
+    }
+
+    /**
      * Handler for webRequest.onBeforeRequest that looks for the Base64
      * encoded SAMLResponse in the POST-ed formdata sent from the SAML page.
      * Non-blocking.
@@ -556,6 +575,8 @@ cr.define('cr.login', function() {
         console.warn('SAMLResponse is not Base64 encoded');
         return;
       }
+
+      this.setX509certificate_(samlResponse);
 
       this.passwordAttributes_ =
           samlPasswordAttributes.readPasswordAttributes(samlResponse);
@@ -808,14 +829,8 @@ cr.define('cr.login', function() {
     }
 
     onPageLoaded_(channel, msg) {
-      this.authDomain = extractDomain(msg.url);
-      this.dispatchEvent(new CustomEvent('authPageLoaded', {
-        detail: {
-          url: msg.url,
-          isSAMLPage: this.isSamlPage_,
-          domain: this.authDomain
-        }
-      }));
+      this.dispatchEvent(new CustomEvent(
+          'authPageLoaded', {detail: {isSAMLPage: this.isSamlPage_}}));
     }
 
     onScrollInfo_(channel, msg) {

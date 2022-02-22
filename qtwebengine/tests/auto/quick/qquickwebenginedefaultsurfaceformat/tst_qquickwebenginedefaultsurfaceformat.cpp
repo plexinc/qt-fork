@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 #include "testwindow.h"
-#include "util.h"
+#include "quickutil.h"
 
 #include <QGuiApplication>
 #include <QtQml/QQmlEngine>
@@ -63,8 +63,8 @@ void tst_QQuickWebEngineDefaultSurfaceFormat::initEngineAndViewComponent() {
     m_engine = new QQmlEngine(this);
     QQuickWebEngineProfile::defaultProfile()->setOffTheRecord(true);
     m_component.reset(new QQmlComponent(m_engine, this));
-    m_component->setData(QByteArrayLiteral("import QtQuick 2.0\n"
-                                           "import QtWebEngine 1.2\n"
+    m_component->setData(QByteArrayLiteral("import QtQuick\n"
+                                           "import QtWebEngine\n"
                                            "WebEngineView {}")
                          , QUrl());
 }
@@ -93,7 +93,7 @@ inline QQuickWebEngineView *tst_QQuickWebEngineDefaultSurfaceFormat::webEngineVi
 
 QUrl tst_QQuickWebEngineDefaultSurfaceFormat::urlFromTestPath(const char *localFilePath)
 {
-    QString testSourceDirPath = QString::fromLocal8Bit(TESTS_SOURCE_DIR);
+    QString testSourceDirPath = QDir(QT_TESTCASE_SOURCEDIR).canonicalPath();
     if (!testSourceDirPath.endsWith(QLatin1Char('/')))
         testSourceDirPath.append(QLatin1Char('/'));
 
@@ -116,7 +116,7 @@ void tst_QQuickWebEngineDefaultSurfaceFormat::customDefaultSurfaceFormat()
     QSurfaceFormat::setDefaultFormat( format );
 
     QGuiApplication app(argc, argv);
-    QtWebEngine::initialize();
+    QtWebEngineQuick::initialize();
 
     initEngineAndViewComponent();
     initWindow();
@@ -126,10 +126,10 @@ void tst_QQuickWebEngineDefaultSurfaceFormat::customDefaultSurfaceFormat()
 
     QObject::connect(
         view,
-        &QQuickWebEngineView::loadingChanged, [](QQuickWebEngineLoadRequest* request)
+        &QQuickWebEngineView::loadingChanged, [](const QWebEngineLoadingInfo &info)
         {
-            if (request->status() == QQuickWebEngineView::LoadSucceededStatus
-               || request->status() == QQuickWebEngineView::LoadFailedStatus)
+            if (info.status() == QWebEngineLoadingInfo::LoadSucceededStatus
+               || info.status() == QWebEngineLoadingInfo::LoadFailedStatus)
                 QTimer::singleShot(100, qApp, &QCoreApplication::quit);
         }
     );

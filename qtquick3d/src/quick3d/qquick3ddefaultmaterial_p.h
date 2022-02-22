@@ -58,9 +58,8 @@ class Q_QUICK3D_EXPORT QQuick3DDefaultMaterial : public QQuick3DMaterial
     Q_PROPERTY(QColor diffuseColor READ diffuseColor WRITE setDiffuseColor NOTIFY diffuseColorChanged)
     Q_PROPERTY(QQuick3DTexture *diffuseMap READ diffuseMap WRITE setDiffuseMap NOTIFY diffuseMapChanged)
 
-    Q_PROPERTY(float emissiveFactor READ emissiveFactor WRITE setEmissiveFactor NOTIFY emissiveFactorChanged)
+    Q_PROPERTY(QVector3D emissiveFactor READ emissiveFactor WRITE setEmissiveFactor NOTIFY emissiveFactorChanged)
     Q_PROPERTY(QQuick3DTexture *emissiveMap READ emissiveMap WRITE setEmissiveMap NOTIFY emissiveMapChanged)
-    Q_PROPERTY(QColor emissiveColor READ emissiveColor WRITE setEmissiveColor NOTIFY emissiveColorChanged)
 
     Q_PROPERTY(QQuick3DTexture *specularReflectionMap READ specularReflectionMap WRITE setSpecularReflectionMap NOTIFY specularReflectionMapChanged)
     Q_PROPERTY(QQuick3DTexture *specularMap READ specularMap WRITE setSpecularMap NOTIFY specularMapChanged)
@@ -72,11 +71,11 @@ class Q_QUICK3D_EXPORT QQuick3DDefaultMaterial : public QQuick3DMaterial
     Q_PROPERTY(float specularAmount READ specularAmount WRITE setSpecularAmount NOTIFY specularAmountChanged)
     Q_PROPERTY(float specularRoughness READ specularRoughness WRITE setSpecularRoughness NOTIFY specularRoughnessChanged)
     Q_PROPERTY(QQuick3DTexture *roughnessMap READ roughnessMap WRITE setRoughnessMap NOTIFY roughnessMapChanged)
-    Q_PROPERTY(TextureChannelMapping roughnessChannel READ roughnessChannel WRITE setRoughnessChannel NOTIFY roughnessChannelChanged REVISION 1)
+    Q_PROPERTY(TextureChannelMapping roughnessChannel READ roughnessChannel WRITE setRoughnessChannel NOTIFY roughnessChannelChanged)
 
     Q_PROPERTY(float opacity READ opacity WRITE setOpacity NOTIFY opacityChanged)
     Q_PROPERTY(QQuick3DTexture *opacityMap READ opacityMap WRITE setOpacityMap NOTIFY opacityMapChanged)
-    Q_PROPERTY(TextureChannelMapping opacityChannel READ opacityChannel WRITE setOpacityChannel NOTIFY opacityChannelChanged REVISION 1)
+    Q_PROPERTY(TextureChannelMapping opacityChannel READ opacityChannel WRITE setOpacityChannel NOTIFY opacityChannelChanged)
 
     Q_PROPERTY(QQuick3DTexture *bumpMap READ bumpMap WRITE setBumpMap NOTIFY bumpMapChanged)
     Q_PROPERTY(float bumpAmount READ bumpAmount WRITE setBumpAmount NOTIFY bumpAmountChanged)
@@ -84,21 +83,26 @@ class Q_QUICK3D_EXPORT QQuick3DDefaultMaterial : public QQuick3DMaterial
     Q_PROPERTY(QQuick3DTexture *normalMap READ normalMap WRITE setNormalMap NOTIFY normalMapChanged)
 
     Q_PROPERTY(QQuick3DTexture *translucencyMap READ translucencyMap WRITE setTranslucencyMap NOTIFY translucencyMapChanged)
-    Q_PROPERTY(TextureChannelMapping translucencyChannel READ translucencyChannel WRITE setTranslucencyChannel NOTIFY translucencyChannelChanged REVISION 1)
+    Q_PROPERTY(TextureChannelMapping translucencyChannel READ translucencyChannel WRITE setTranslucencyChannel NOTIFY translucencyChannelChanged)
     Q_PROPERTY(float translucentFalloff READ translucentFalloff WRITE setTranslucentFalloff NOTIFY translucentFalloffChanged)
 
     Q_PROPERTY(float diffuseLightWrap READ diffuseLightWrap WRITE setDiffuseLightWrap NOTIFY diffuseLightWrapChanged)
 
     Q_PROPERTY(bool vertexColorsEnabled READ vertexColorsEnabled WRITE setVertexColorsEnabled NOTIFY vertexColorsEnabledChanged)
 
+    Q_PROPERTY(float pointSize READ pointSize WRITE setPointSize NOTIFY pointSizeChanged)
+    Q_PROPERTY(float lineWidth READ lineWidth WRITE setLineWidth NOTIFY lineWidthChanged)
+
+    QML_NAMED_ELEMENT(DefaultMaterial)
+
 public:
     enum Lighting { NoLighting = 0, FragmentLighting };
     Q_ENUM(Lighting)
 
-    enum BlendMode { SourceOver = 0, Screen, Multiply, Overlay, ColorBurn, ColorDodge };
+    enum BlendMode { SourceOver = 0, Screen, Multiply };
     Q_ENUM(BlendMode)
 
-    enum SpecularModel { Default = 0, KGGX, KWard };
+    enum SpecularModel { Default = 0, KGGX };
     Q_ENUM(SpecularModel)
 
     explicit QQuick3DDefaultMaterial(QQuick3DObject *parent = nullptr);
@@ -108,9 +112,8 @@ public:
     BlendMode blendMode() const;
     QColor diffuseColor() const;
     QQuick3DTexture *diffuseMap() const;
-    float emissiveFactor() const;
+    QVector3D emissiveFactor() const;
     QQuick3DTexture *emissiveMap() const;
-    QColor emissiveColor() const;
     QQuick3DTexture *specularReflectionMap() const;
     QQuick3DTexture *specularMap() const;
     SpecularModel specularModel() const;
@@ -130,23 +133,25 @@ public:
     float translucentFalloff() const;
     float diffuseLightWrap() const;
     bool vertexColorsEnabled() const;
-    Q_REVISION(1) TextureChannelMapping roughnessChannel() const;
-    Q_REVISION(1) TextureChannelMapping opacityChannel() const;
-    Q_REVISION(1) TextureChannelMapping translucencyChannel() const;
+    TextureChannelMapping roughnessChannel() const;
+    TextureChannelMapping opacityChannel() const;
+    TextureChannelMapping translucencyChannel() const;
+
+    float pointSize() const;
+    float lineWidth() const;
 
 public Q_SLOTS:
 
-    void setLighting(Lighting lighting);
-    void setBlendMode(BlendMode blendMode);
+    void setLighting(QQuick3DDefaultMaterial::Lighting lighting);
+    void setBlendMode(QQuick3DDefaultMaterial::BlendMode blendMode);
     void setDiffuseColor(QColor diffuseColor);
     void setDiffuseMap(QQuick3DTexture *diffuseMap);
-    void setEmissiveFactor(float emissiveFactor);
+    void setEmissiveFactor(QVector3D emissiveFactor);
     void setEmissiveMap(QQuick3DTexture *emissiveMap);
 
-    void setEmissiveColor(QColor emissiveColor);
     void setSpecularReflectionMap(QQuick3DTexture *specularReflectionMap);
     void setSpecularMap(QQuick3DTexture *specularMap);
-    void setSpecularModel(SpecularModel specularModel);
+    void setSpecularModel(QQuick3DDefaultMaterial::SpecularModel specularModel);
     void setSpecularTint(QColor specularTint);
     void setIndexOfRefraction(float indexOfRefraction);
     void setFresnelPower(float fresnelPower);
@@ -164,21 +169,23 @@ public Q_SLOTS:
     void setDiffuseLightWrap(float diffuseLightWrap);
     void setVertexColorsEnabled(bool vertexColorsEnabled);
 
-    Q_REVISION(1) void setRoughnessChannel(TextureChannelMapping channel);
-    Q_REVISION(1) void setOpacityChannel(TextureChannelMapping channel);
-    Q_REVISION(1) void setTranslucencyChannel(TextureChannelMapping channel);
+    void setRoughnessChannel(QQuick3DMaterial::TextureChannelMapping channel);
+    void setOpacityChannel(QQuick3DMaterial::TextureChannelMapping channel);
+    void setTranslucencyChannel(QQuick3DMaterial::TextureChannelMapping channel);
+
+    void setPointSize(float size);
+    void setLineWidth(float width);
 
 Q_SIGNALS:
-    void lightingChanged(Lighting lighting);
-    void blendModeChanged(BlendMode blendMode);
+    void lightingChanged(QQuick3DDefaultMaterial::Lighting lighting);
+    void blendModeChanged(QQuick3DDefaultMaterial::BlendMode blendMode);
     void diffuseColorChanged(QColor diffuseColor);
     void diffuseMapChanged(QQuick3DTexture *diffuseMap);
-    void emissiveFactorChanged(float emissiveFactor);
+    void emissiveFactorChanged(QVector3D emissiveFactor);
     void emissiveMapChanged(QQuick3DTexture *emissiveMap);
-    void emissiveColorChanged(QColor emissiveColor);
     void specularReflectionMapChanged(QQuick3DTexture *specularReflectionMap);
     void specularMapChanged(QQuick3DTexture *specularMap);
-    void specularModelChanged(SpecularModel specularModel);
+    void specularModelChanged(QQuick3DDefaultMaterial::SpecularModel specularModel);
     void specularTintChanged(QColor specularTint);
     void indexOfRefractionChanged(float indexOfRefraction);
     void fresnelPowerChanged(float fresnelPower);
@@ -194,9 +201,11 @@ Q_SIGNALS:
     void translucentFalloffChanged(float translucentFalloff);
     void diffuseLightWrapChanged(float diffuseLightWrap);
     void vertexColorsEnabledChanged(bool vertexColorsEnabled);
-    Q_REVISION(1) void roughnessChannelChanged(TextureChannelMapping channel);
-    Q_REVISION(1) void opacityChannelChanged(TextureChannelMapping channel);
-    Q_REVISION(1) void translucencyChannelChanged(TextureChannelMapping channel);
+    void roughnessChannelChanged(QQuick3DMaterial::TextureChannelMapping channel);
+    void opacityChannelChanged(QQuick3DMaterial::TextureChannelMapping channel);
+    void translucencyChannelChanged(QQuick3DMaterial::TextureChannelMapping channel);
+    void pointSizeChanged();
+    void lineWidthChanged();
 
 protected:
     QSSGRenderGraphObject *updateSpatialNode(QSSGRenderGraphObject *node) override;
@@ -213,18 +222,19 @@ private:
         BumpDirty = 0x00000040,
         NormalDirty = 0x00000080,
         TranslucencyDirty = 0x00000100,
-        VertexColorsDirty = 0x00000200
+        VertexColorsDirty = 0x00000200,
+        PointSizeDirty = 0x00000400,
+        LineWidthDirty = 0x00000800
     };
 
-    void updateSceneManager(const QSharedPointer<QQuick3DSceneManager> &sceneManager);
+    void updateSceneManager(QQuick3DSceneManager *sceneManager);
     Lighting m_lighting = FragmentLighting;
     BlendMode m_blendMode = SourceOver;
     QColor m_diffuseColor;
     QQuick3DTexture *m_diffuseMap = nullptr;
-    float m_emissiveFactor = 0;
+    QVector3D m_emissiveFactor;
     QQuick3DTexture *m_emissiveMap = nullptr;
 
-    QColor m_emissiveColor;
     QQuick3DTexture *m_specularReflectionMap = nullptr;
     QQuick3DTexture *m_specularMap = nullptr;
     SpecularModel m_specularModel = Default;
@@ -232,7 +242,7 @@ private:
     float m_indexOfRefraction = 1.45f;
     float m_fresnelPower = 0.0f;
     float m_specularAmount = 0.0f;
-    float m_specularRoughness = 50.0f;
+    float m_specularRoughness = 0.0f;
     QQuick3DTexture *m_roughnessMap = nullptr;
     float m_opacity = 1.0f;
     QQuick3DTexture *m_opacityMap = nullptr;
@@ -249,10 +259,11 @@ private:
     TextureChannelMapping m_opacityChannel = QQuick3DMaterial::A;
     TextureChannelMapping m_translucencyChannel = QQuick3DMaterial::A;
 
+    float m_pointSize = 1.0f;
+    float m_lineWidth = 1.0f;
+
     quint32 m_dirtyAttributes = 0xffffffff; // all dirty by default
     void markDirty(DirtyType type);
-
-    ConnectionMap m_connections;
 };
 
 QT_END_NAMESPACE

@@ -197,22 +197,26 @@
     \printuntil menu->popup
     \printline }
 
-    \section1 Implementing WebPage Functionality
+    \section1 Implementing WebPage and WebView Functionality
 
-    We implement \c WebPage as a subclass of QWebEnginePage to enable HTTP,
-    proxy authentication, and ignoring SSL certificate errors when accessing web
-    pages:
+    We implement \c WebPage as a subclass of QWebEnginePage and \c WebView as
+    as subclass of QWebEngineView to enable HTTP, proxy authentication, as well
+    as ignoring SSL certificate errors when accessing web pages:
 
     \quotefromfile webenginewidgets/simplebrowser/webpage.h
     \skipto WebPage :
+    \printuntil }
+
+    \quotefromfile webenginewidgets/simplebrowser/webview.h
+    \skipto WebView :
     \printuntil }
 
     In all the cases above, we display the appropriate dialog to the user. In
     case of authentication, we need to set the correct credential values on the
     QAuthenticator object:
 
-    \quotefromfile webenginewidgets/simplebrowser/webpage.cpp
-    \skipto WebPage::handleAuthenticationRequired(
+    \quotefromfile webenginewidgets/simplebrowser/webview.cpp
+    \skipto WebView::handleAuthenticationRequired(
     \printuntil }
     \printuntil }
     \printline }
@@ -224,7 +228,7 @@
     whether the certificate should be ignored.
 
     \quotefromfile webenginewidgets/simplebrowser/webpage.cpp
-    \skipto WebPage::certificateError(
+    \skipto WebPage::handleCertificateError(
     \printuntil }
     \printuntil }
 
@@ -281,8 +285,8 @@
     \skipto private:
     \printline private:
     \dots
-    \skipto m_otrProfile
-    \printline m_otrProfile
+    \skipto m_profile
+    \printline m_profile
     \printline /^\};$/
 
     Required profile for \e{private browsing} is created together with its
@@ -292,7 +296,7 @@
     \quotefromfile webenginewidgets/simplebrowser/browser.cpp
 
     \skipto Browser::createWindow
-    \printuntil m_otrProfile.reset
+    \printuntil m_profile.reset
     \dots
 
     All that is left to do is to pass the appropriate profile down to the
@@ -302,7 +306,7 @@
     \e{off-the-record} profile instance:
 
     \dots
-    \skipto m_otrProfile.get
+    \skipto m_profile.get
     \printuntil mainWindow = new BrowserWindow
     \skipto return mainWindow
     \printuntil /^\}/
@@ -314,7 +318,7 @@
 
     Downloads are associated with a \l QWebEngineProfile. Whenever a download is
     triggered on a web page the \l QWebEngineProfile::downloadRequested signal is
-    emitted with a \l QWebEngineDownloadItem, which in this example is forwarded
+    emitted with a \l QWebEngineDownloadRequest, which in this example is forwarded
     to \c DownloadManagerWidget::downloadRequested:
 
     \quotefromfile webenginewidgets/simplebrowser/browser.cpp
@@ -329,10 +333,10 @@
     \skipto DownloadManagerWidget::downloadRequested
     \printuntil /^\}/
 
-    The \l QWebEngineDownloadItem object will periodically emit the \l
-    {QWebEngineDownloadItem::}{downloadProgress} signal to notify potential
+    The \l QWebEngineDownloadRequest object will periodically emit the \l
+    {QWebEngineDownloadRequest::}{receivedBytesChanged} signal to notify potential
     observers of the download progress and the \l
-    {QWebEngineDownloadItem::}{stateChanged} signal when the download is
+    {QWebEngineDownloadRequest::}{stateChanged} signal when the download is
     finished or when an error occurs. See \c downloadmanagerwidget.cpp for an
     example of how these signals can be handled.
 

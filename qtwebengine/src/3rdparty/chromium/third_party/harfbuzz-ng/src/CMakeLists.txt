@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 2.8.0)
 project(harfbuzz)
 
-message("HarfBuzz has a Meson port also and tries to migrate all the other build systems to it, please consider using it.")
+message(WARN "HarfBuzz has a Meson port and tries to migrate all the other build systems to it, please consider using it as we might remove our cmake port soon.")
 
 ## Limit framework build to Xcode generator
 if (BUILD_FRAMEWORK)
@@ -88,7 +88,7 @@ endmacro ()
 if (UNIX)
   list(APPEND CMAKE_REQUIRED_LIBRARIES m)
 endif ()
-check_funcs(atexit mprotect sysconf getpagesize mmap isatty newlocale strtod_l roundf)
+check_funcs(atexit mprotect sysconf getpagesize mmap isatty)
 check_include_file(unistd.h HAVE_UNISTD_H)
 if (${HAVE_UNISTD_H})
   add_definitions(-DHAVE_UNISTD_H)
@@ -96,10 +96,6 @@ endif ()
 check_include_file(sys/mman.h HAVE_SYS_MMAN_H)
 if (${HAVE_SYS_MMAN_H})
   add_definitions(-DHAVE_SYS_MMAN_H)
-endif ()
-check_include_file(xlocale.h HAVE_XLOCALE_H)
-if (${HAVE_XLOCALE_H})
-  add_definitions(-DHAVE_XLOCALE_H)
 endif ()
 check_include_file(stdbool.h HAVE_STDBOOL_H)
 if (${HAVE_STDBOOL_H})
@@ -237,7 +233,7 @@ endif ()
 if (HB_HAVE_ICU)
   add_definitions(-DHAVE_ICU)
 
-  # https://github.com/WebKit/webkit/blob/master/Source/cmake/FindICU.cmake
+  # https://github.com/WebKit/webkit/blob/fdd7733f2f30eab7fe096a9791f98c60f62f49c0/Source/cmake/FindICU.cmake
   find_package(PkgConfig)
   pkg_check_modules(PC_ICU QUIET icu-uc)
 
@@ -306,6 +302,7 @@ if (WIN32 AND HB_HAVE_DIRECTWRITE)
 endif ()
 
 if (HB_HAVE_GOBJECT)
+  add_definitions(-DHAVE_GOBJECT)
   include (FindPerl)
 
   # Use the hints from glib-2.0.pc to find glib-mkenums

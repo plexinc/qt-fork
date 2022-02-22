@@ -28,18 +28,33 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+import * as Platform from '../platform/platform.js';
+
 import {FormattedContentBuilder} from './FormattedContentBuilder.js';  // eslint-disable-line no-unused-vars
 import {createTokenizer} from './FormatterWorker.js';
 
-/**
- * @unrestricted
- */
 export class CSSFormatter {
   /**
    * @param {!FormattedContentBuilder} builder
    */
   constructor(builder) {
     this._builder = builder;
+
+    /** @type {number} */
+    this._toOffset;
+    /** @type {number} */
+    this._fromOffset;
+    /** @type {!Array.<number>} */
+    this._lineEndings;
+    /** @type {number} */
+    this._lastLine = -1;
+    /** @type {{ eatWhitespace: (boolean|undefined), seenProperty: (boolean|undefined), inPropertyValue: (boolean|undefined), afterClosingBrace: (boolean|undefined)}} */
+    this._state = {
+      eatWhitespace: undefined,
+      seenProperty: undefined,
+      inPropertyValue: undefined,
+      afterClosingBrace: undefined,
+    };
   }
 
   /**
@@ -52,8 +67,13 @@ export class CSSFormatter {
     this._lineEndings = lineEndings;
     this._fromOffset = fromOffset;
     this._toOffset = toOffset;
+    this._state = {
+      eatWhitespace: undefined,
+      seenProperty: undefined,
+      inPropertyValue: undefined,
+      afterClosingBrace: undefined,
+    };
     this._lastLine = -1;
-    this._state = {};
     const tokenize = createTokenizer('text/css');
     const oldEnforce = this._builder.setEnforceSpaceBetweenWords(false);
     tokenize(text.substring(this._fromOffset, this._toOffset), this._tokenCallback.bind(this));
@@ -67,11 +87,14 @@ export class CSSFormatter {
    */
   _tokenCallback(token, type, startPosition) {
     startPosition += this._fromOffset;
-    const startLine = this._lineEndings.lowerBound(startPosition);
+    const startLine = Platform.ArrayUtilities.lowerBound(
+        this._lineEndings, startPosition, Platform.ArrayUtilities.DEFAULT_COMPARATOR);
     if (startLine !== this._lastLine) {
       this._state.eatWhitespace = true;
     }
-    if (/^property/.test(type) && !this._state.inPropertyValue) {
+    // The css- prefix is optional, as we override that in the tokenizer defined
+    // in CodeMirrorTextEditor.js. In a worker context, we don't use the prefix.
+    if (type && (/^(css-)?property/.test(type) || /^(css-)?variable-2/.test(type)) && !this._state.inPropertyValue) {
       this._state.seenProperty = true;
     }
     this._lastLine = startLine;

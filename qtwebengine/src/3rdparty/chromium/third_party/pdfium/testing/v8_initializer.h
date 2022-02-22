@@ -23,11 +23,13 @@ class StartupData;
 // |snapshot_blob| is an optional out parameter.
 std::unique_ptr<v8::Platform> InitializeV8ForPDFiumWithStartupData(
     const std::string& exe_path,
+    const std::string& js_flags,
     const std::string& bin_dir,
     v8::StartupData* snapshot_blob);
 #else
 std::unique_ptr<v8::Platform> InitializeV8ForPDFium(
+    const std::string& js_flags,
     const std::string& exe_path);
 #endif
-
+void ShutdownV8ForPDFium();
 #endif  // TESTING_V8_INITIALIZER_H_

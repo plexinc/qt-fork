@@ -48,6 +48,7 @@
 #include <QtCore/qmetaobject.h>
 #include <QtCore/qsharedpointer.h>
 #include <QtCore/qtemporarydir.h>
+#include <QtCore/qthread.h>
 
 #include <string.h>
 
@@ -101,6 +102,7 @@ do {\
                              " but no exception caught", __FILE__, __LINE__);\
                 return;\
             } QT_CATCH (const exceptiontype &) {\
+                /* success */\
             }\
         } QT_CATCH (const std::exception &e) {\
             QByteArray msg = QByteArray() + "Expected exception of type " #exceptiontype \
@@ -110,7 +112,7 @@ do {\
         } QT_CATCH (...) {\
             QTest::qFail("Expected exception of type " #exceptiontype " to be thrown" \
                          " but unknown exception caught", __FILE__, __LINE__);\
-            return;\
+            QT_RETHROW;\
         }\
     } while (false)
 
@@ -124,11 +126,11 @@ do {\
  * in their code.
  */
 #  define QVERIFY_EXCEPTION_THROWN(expression, exceptiontype) \
-    Q_STATIC_ASSERT_X(false, "Support of exceptions is disabled")
+    static_assert(false, "Support of exceptions is disabled")
 
 #endif // !QT_NO_EXCEPTIONS
 
-
+// NB: not do {...} while (0) wrapped, as qt_test_i is accessed after it
 #define QTRY_LOOP_IMPL(expr, timeoutValue, step) \
     if (!(expr)) { \
         QTest::qWait(0); \
@@ -153,8 +155,8 @@ do {\
 #define QTRY_IMPL(expr, timeout)\
     const int qt_test_step = timeout < 350 ? timeout / 7 + 1 : 50; \
     const int qt_test_timeoutValue = timeout; \
-    { QTRY_LOOP_IMPL((expr), qt_test_timeoutValue, qt_test_step); } \
-    QTRY_TIMEOUT_DEBUG_IMPL((expr), qt_test_timeoutValue, qt_test_step)\
+    { QTRY_LOOP_IMPL(QTest::currentTestFailed() || (expr), qt_test_timeoutValue, qt_test_step); } \
+    QTRY_TIMEOUT_DEBUG_IMPL(QTest::currentTestFailed() || (expr), qt_test_timeoutValue, qt_test_step)
 
 // Will try to wait for the expression to become true while allowing event processing
 #define QTRY_VERIFY_WITH_TIMEOUT(expr, timeout) \
@@ -209,12 +211,14 @@ do {\
         return;\
 } while (false)
 
-#define QWARN(msg)\
-    QTest::qWarn(static_cast<const char *>(msg), __FILE__, __LINE__)
-
 #ifdef QT_TESTCASE_BUILDDIR
+
+#ifndef QT_TESTCASE_SOURCEDIR
+#define QT_TESTCASE_SOURCEDIR nullptr
+#endif
+
 # define QFINDTESTDATA(basepath)\
-    QTest::qFindTestData(basepath, __FILE__, __LINE__, QT_TESTCASE_BUILDDIR)
+    QTest::qFindTestData(basepath, __FILE__, __LINE__, QT_TESTCASE_BUILDDIR, QT_TESTCASE_SOURCEDIR)
 #else
 # define QFINDTESTDATA(basepath)\
     QTest::qFindTestData(basepath, __FILE__, __LINE__)
@@ -240,8 +244,14 @@ namespace QTest
         return qstrdup(me.valueToKey(int(e))); // int cast is necessary to support enum classes
     }
 
+    template <typename T>
+    inline typename std::enable_if<!QtPrivate::IsQEnumHelper<T>::Value && std::is_enum_v<T>, char*>::type toString(const T &e)
+    {
+        return qstrdup(QByteArray::number(static_cast<std::underlying_type_t<T>>(e)).constData());
+    }
+
     template <typename T> // Fallback
-    inline typename std::enable_if<!QtPrivate::IsQEnumHelper<T>::Value, char*>::type toString(const T &)
+    inline typename std::enable_if<!QtPrivate::IsQEnumHelper<T>::Value && !std::is_enum_v<T>, char*>::type toString(const T &)
     {
         return nullptr;
     }
@@ -283,7 +293,9 @@ namespace QTest
     Q_TESTLIB_EXPORT char *toPrettyCString(const char *unicode, int length);
     Q_TESTLIB_EXPORT char *toPrettyUnicode(QStringView string);
     Q_TESTLIB_EXPORT char *toString(const char *);
-    Q_TESTLIB_EXPORT char *toString(const void *);
+    Q_TESTLIB_EXPORT char *toString(const volatile void *);
+    Q_TESTLIB_EXPORT char *toString(const void *); // ### FIXME: Qt 7: Remove
+    Q_TESTLIB_EXPORT char *toString(const volatile QObject *);
 
     Q_TESTLIB_EXPORT void qInit(QObject *testObject, int argc = 0, char **argv = nullptr);
     Q_TESTLIB_EXPORT int qRun();
@@ -309,8 +321,8 @@ namespace QTest
 #if QT_CONFIG(temporaryfile)
     Q_TESTLIB_EXPORT QSharedPointer<QTemporaryDir> qExtractTestData(const QString &dirName);
 #endif
-    Q_TESTLIB_EXPORT QString qFindTestData(const char* basepath, const char* file = nullptr, int line = 0, const char* builddir = nullptr);
-    Q_TESTLIB_EXPORT QString qFindTestData(const QString& basepath, const char* file = nullptr, int line = 0, const char* builddir = nullptr);
+    Q_TESTLIB_EXPORT QString qFindTestData(const char* basepath, const char* file = nullptr, int line = 0, const char* builddir = nullptr, const char* sourcedir = nullptr);
+    Q_TESTLIB_EXPORT QString qFindTestData(const QString& basepath, const char* file = nullptr, int line = 0, const char* builddir = nullptr, const char *sourcedir = nullptr);
 
     Q_TESTLIB_EXPORT void *qData(const char *tagName, int typeId);
     Q_TESTLIB_EXPORT void *qGlobalData(const char *tagName, int typeId);
@@ -330,14 +342,13 @@ namespace QTest
                                          char *val1, char *val2,
                                          const char *actual, const char *expected,
                                          const char *file, int line);
-    Q_TESTLIB_EXPORT void qSleep(int ms);
     Q_TESTLIB_EXPORT void addColumnInternal(int id, const char *name);
 
     template <typename T>
     inline void addColumn(const char *name, T * = nullptr)
     {
         using QIsSameTConstChar = std::is_same<T, const char*>;
-        Q_STATIC_ASSERT_X(!QIsSameTConstChar::value, "const char* is not allowed as a test data format.");
+        static_assert(!QIsSameTConstChar::value, "const char* is not allowed as a test data format.");
         addColumnInternal(qMetaTypeId<T>(), name);
     }
     Q_TESTLIB_EXPORT QTestData &newRow(const char *dataTag);
@@ -365,6 +376,11 @@ namespace QTest
 
     Q_TESTLIB_EXPORT bool qCompare(int t1, int t2, const char *actual, const char *expected,
                                    const char *file, int line);
+
+#if QT_POINTER_SIZE == 8
+    Q_TESTLIB_EXPORT bool qCompare(qsizetype t1, qsizetype t2, const char *actual, const char *expected,
+                                   const char *file, int line);
+#endif
 
     Q_TESTLIB_EXPORT bool qCompare(unsigned t1, unsigned t2, const char *actual, const char *expected,
                                    const char *file, int line);
@@ -402,6 +418,27 @@ namespace QTest
     {
         return compare_helper(t1 == t2, "Compared pointers are not the same",
                               toString(t1), toString(t2), actual, expected, file, line);
+    }
+
+    inline bool compare_ptr_helper(const volatile QObject *t1, const volatile QObject *t2, const char *actual,
+                                   const char *expected, const char *file, int line)
+    {
+        return compare_helper(t1 == t2, "Compared QObject pointers are not the same",
+                              toString(t1), toString(t2), actual, expected, file, line);
+    }
+
+    inline bool compare_ptr_helper(const volatile QObject *t1, std::nullptr_t, const char *actual,
+                                   const char *expected, const char *file, int line)
+    {
+        return compare_helper(t1 == nullptr, "Compared QObject pointers are not the same",
+                              toString(t1), toString(nullptr), actual, expected, file, line);
+    }
+
+    inline bool compare_ptr_helper(std::nullptr_t, const volatile QObject *t2, const char *actual,
+                                   const char *expected, const char *file, int line)
+    {
+        return compare_helper(nullptr == t2, "Compared QObject pointers are not the same",
+                              toString(nullptr), toString(t2), actual, expected, file, line);
     }
 
     inline bool compare_ptr_helper(const volatile void *t1, std::nullptr_t, const char *actual,
@@ -536,6 +573,19 @@ namespace QTest
 }
 
 #undef QTEST_COMPARE_DECL
+
+#if QT_DEPRECATED_SINCE(6, 2)
+namespace QTestPrivate {
+QT_DEPRECATED_VERSION_X_6_2("Use qWarning() instead")
+Q_DECL_UNUSED static inline void qWarnMacro(const char *message, const char *file = nullptr, int line = 0)
+{
+    QTest::qWarn(message, file, line);
+}
+}
+#endif
+
+#define QWARN(msg) \
+    QTestPrivate::qWarnMacro(static_cast<const char *>(msg), __FILE__, __LINE__)
 
 QT_END_NAMESPACE
 

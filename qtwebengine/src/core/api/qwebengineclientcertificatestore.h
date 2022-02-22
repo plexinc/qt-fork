@@ -41,8 +41,10 @@
 #define QWEBENGINECLIENTCERTIFICATESTORE_H
 
 #include <QtWebEngineCore/qtwebenginecoreglobal.h>
+#include <QtNetwork/qtnetwork-config.h>
 
-#include <QtCore/qvector.h>
+#if QT_CONFIG(ssl)
+#include <QtCore/qlist.h>
 #include <QtNetwork/qsslcertificate.h>
 #include <QtNetwork/qsslkey.h>
 
@@ -53,13 +55,12 @@ class ProfileAdapter;
 
 QT_BEGIN_NAMESPACE
 
-#if QT_CONFIG(ssl)
-
-class Q_WEBENGINECORE_EXPORT QWebEngineClientCertificateStore {
+class Q_WEBENGINECORE_EXPORT QWebEngineClientCertificateStore
+{
 
 public:
     void add(const QSslCertificate &certificate, const QSslKey &privateKey);
-    QVector<QSslCertificate> certificates() const;
+    QList<QSslCertificate> certificates() const;
     void remove(const QSslCertificate &certificate);
     void clear();
 
@@ -72,8 +73,7 @@ private:
     QtWebEngineCore::ClientCertificateStoreData *m_storeData;
 };
 
-#endif // QT_CONFIG(ssl)
-
 QT_END_NAMESPACE
 
+#endif // QT_CONFIG(ssl)
 #endif // QWebEngineClientCertificateStore_H

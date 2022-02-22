@@ -271,6 +271,23 @@ __gCrWeb.form.getFormElementFromIdentifier = function(name) {
 };
 
 /**
+ * Returns the form element from an unique form id.
+ *
+ * @param {number} identifier An ID string obtained via getFormIdentifier.
+ * @return {HTMLFormElement} The original form element, if it can be determined.
+ */
+__gCrWeb.form.getFormElementFromUniqueFormId = function(identifier) {
+  const forms = document.forms;
+  for (let i = 0; i < forms.length; i++) {
+    const form = forms[i];
+    if (identifier.toString() === __gCrWeb.fill.getUniqueID(form)) {
+      return form;
+    }
+  }
+  return null;
+};
+
+/**
  * Returns whether the last |input| or |change| event on |element| was
  * triggered by a user action (was "trusted").
  */

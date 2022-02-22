@@ -40,9 +40,8 @@
 #ifndef QCOCOAWINDOW_H
 #define QCOCOAWINDOW_H
 
-#include <AppKit/AppKit.h>
-
 #include <qpa/qplatformwindow.h>
+#include <qpa/qplatformwindow_p.h>
 #include <QRect>
 #include <QPointer>
 
@@ -54,6 +53,17 @@
 
 #if QT_CONFIG(vulkan)
 #include <MoltenVK/mvk_vulkan.h>
+#endif
+
+#include <QHash>
+
+Q_FORWARD_DECLARE_OBJC_CLASS(NSWindow);
+Q_FORWARD_DECLARE_OBJC_CLASS(NSView);
+Q_FORWARD_DECLARE_OBJC_CLASS(NSCursor);
+
+#if !defined(__OBJC__)
+using NSInteger = long;
+using NSUInteger = unsigned long;
 #endif
 
 QT_BEGIN_NAMESPACE
@@ -91,7 +101,8 @@ class QDebug;
 
 class QCocoaMenuBar;
 
-class QCocoaWindow : public QObject, public QPlatformWindow
+class QCocoaWindow : public QObject, public QPlatformWindow,
+    public QNativeInterface::Private::QCocoaWindow
 {
     Q_OBJECT
 public:
@@ -102,6 +113,7 @@ public:
 
     void setGeometry(const QRect &rect) override;
     QRect geometry() const override;
+    QRect normalGeometry() const override;
     void setCocoaGeometry(const QRect &rect);
 
     void setVisible(bool visible) override;
@@ -163,6 +175,8 @@ public:
     Q_NOTIFICATION_HANDLER(NSWindowDidChangeScreenNotification) void windowDidChangeScreen();
     Q_NOTIFICATION_HANDLER(NSWindowWillCloseNotification) void windowWillClose();
 
+    void windowWillZoom();
+
     bool windowShouldClose();
     bool windowIsPopupType(Qt::WindowType type = Qt::Widget) const;
 
@@ -185,7 +199,7 @@ public:
     void setContentBorderThickness(int topThickness, int bottomThickness);
     void registerContentBorderArea(quintptr identifier, int upper, int lower);
     void setContentBorderAreaEnabled(quintptr identifier, bool enable);
-    void setContentBorderEnabled(bool enable);
+    void setContentBorderEnabled(bool enable) override;
     bool testContentBorderAreaPosition(int position) const;
     void applyContentBorderThickness(NSWindow *window = nullptr);
     void updateNSToolbar();
@@ -194,8 +208,9 @@ public:
     QWindow *childWindowAt(QPoint windowPoint);
     bool shouldRefuseKeyWindowAndFirstResponder();
 
-    static QPoint bottomLeftClippedByNSWindowOffsetStatic(QWindow *window);
-    QPoint bottomLeftClippedByNSWindowOffset() const;
+    QPoint bottomLeftClippedByNSWindowOffset() const override;
+
+    void updateNormalGeometry();
 
     enum RecreationReason {
         RecreationNotNeeded = 0,
@@ -253,16 +268,15 @@ public: // for QNSView
     bool m_inSetStyleMask;
     QCocoaMenuBar *m_menubar;
 
-    bool m_needsInvalidateShadow;
-
     bool m_frameStrutEventsEnabled;
     QRect m_exposedRect;
+    QRect m_normalGeometry;
     int m_registerTouchCount;
     bool m_resizableTransientParent;
 
     static const int NoAlertRequest;
     NSInteger m_alertRequest;
-    id monitor;
+    NSObject *m_monitor;
 
     bool m_drawContentBorderGradient;
     int m_topContentBorderThickness;
@@ -277,13 +291,15 @@ public: // for QNSView
               return upper < right.upper;
         }
     };
-    QHash<quintptr, BorderRange> m_contentBorderAreas; // identifer -> uppper/lower
-    QHash<quintptr, bool> m_enabledContentBorderAreas; // identifer -> enabled state (true/false)
+    QHash<quintptr, BorderRange> m_contentBorderAreas; // identifier -> uppper/lower
+    QHash<quintptr, bool> m_enabledContentBorderAreas; // identifier -> enabled state (true/false)
 
 #if QT_CONFIG(vulkan)
     VkSurfaceKHR m_vulkanSurface = nullptr;
 #endif
 };
+
+extern const NSNotificationName QCocoaWindowWillReleaseQNSViewNotification;
 
 #ifndef QT_NO_DEBUG_STREAM
 QDebug operator<<(QDebug debug, const QCocoaWindow *window);

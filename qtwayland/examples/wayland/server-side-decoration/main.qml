@@ -48,10 +48,11 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.12
-import QtQuick.Window 2.2
-import QtQuick.Layouts 1.3
-import QtWayland.Compositor 1.3
+import QtQuick
+import QtQuick.Window
+import QtQuick.Layouts
+import QtWayland.Compositor
+import QtWayland.Compositor.XdgShell
 
 WaylandCompositor {
     // The output defines the screen.
@@ -68,6 +69,8 @@ WaylandCompositor {
 
             Repeater {
                 model: shellSurfaces
+
+                // ![decoration]
                 Column {
                     id: chrome
                     width: shellSurfaceItem.implicitWidth
@@ -96,19 +99,22 @@ WaylandCompositor {
                     ShellSurfaceItem {
                         id: shellSurfaceItem
                         moveItem: parent
-                        autoCreatePopupItems: true
                         shellSurface: modelData
                         onSurfaceDestroyed: shellSurfaces.remove(index)
                     }
                 }
+                // ![decoration]
             }
         }
     }
+
+    // ![XdgShell]
     XdgShell {
         onToplevelCreated: shellSurfaces.append({shellSurface: xdgSurface});
     }
     XdgDecorationManagerV1 {
         preferredMode: XdgToplevel.ServerSideDecoration
     }
+    // ![XdgShell]
     ListModel { id: shellSurfaces }
 }

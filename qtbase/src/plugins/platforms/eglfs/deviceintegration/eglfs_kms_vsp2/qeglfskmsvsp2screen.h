@@ -42,15 +42,18 @@
 #ifndef QEGLFSKMSVSP2SCREEN_H
 #define QEGLFSKMSVSP2SCREEN_H
 
-#include "qeglfskmsscreen.h"
+#include "qeglfskmsscreen_p.h"
 #include "qvsp2blendingdevice.h"
 #include <QtCore/QMutex>
+
+#include <qpa/qplatformscreen_p.h>
 
 #include <gbm.h>
 
 QT_BEGIN_NAMESPACE
 
 class QEglFSKmsVsp2Screen : public QEglFSKmsScreen
+    , public QNativeInterface::Private::QVsp2Screen
 {
 public:
     QEglFSKmsVsp2Screen(QEglFSKmsDevice *device, const QKmsOutput &output);
@@ -63,12 +66,12 @@ public:
     void initQtLayer();
 
     //TODO: use a fixed index API instead of auto increment?
-    int addLayer(int dmabufFd, const QSize &size, const QPoint &position, uint drmPixelFormat, uint bytesPerLine);
-    void setLayerBuffer(int id, int dmabufFd);
-    void setLayerPosition(int id, const QPoint &position);
-    void setLayerAlpha(int id, qreal alpha);
-    bool removeLayer(int id);
-    void addBlendListener(void (*callback)());
+    int addLayer(int dmabufFd, const QSize &size, const QPoint &position, uint drmPixelFormat, uint bytesPerLine) override;
+    void setLayerBuffer(int id, int dmabufFd) override;
+    void setLayerPosition(int id, const QPoint &position) override;
+    void setLayerAlpha(int id, qreal alpha) override;
+    bool removeLayer(int id) override;
+    void addBlendListener(void (*callback)()) override;
 
     void flip();
     void blendAndFlipDrm();
@@ -97,7 +100,7 @@ private:
     std::array<FrameBuffer, 2> m_frameBuffers;
     uint m_backFb = 0;
     void initDumbFrameBuffer(FrameBuffer &fb);
-    QVector<void (*)()> m_blendFinishedCallbacks;
+    QList<void (*)()> m_blendFinishedCallbacks;
 
     struct DmaBuffer { //these are for qt buffers before blending with additional layers (gbm buffer data)
         int dmabufFd = -1;

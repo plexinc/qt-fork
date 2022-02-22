@@ -5,8 +5,11 @@ osx
 windows
 macos # Can't move cursor (QTBUG-76312)
 
-[devTools]
-msvc-2019
+[acceptNavigationRequestNavigationType]
+b2qt arm
 
-[setLifecycleStateWithDevTools]
-msvc-2019
+[comboBoxPopupPositionAfterMove]
+macos
+
+[comboBoxPopupPositionAfterChildMove]
+macos

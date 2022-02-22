@@ -48,8 +48,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.15
-import QtQuick3D 1.15
+import QtQuick
+import QtQuick3D
 
 Item {
     width: 460
@@ -63,7 +63,6 @@ Item {
             position: Qt.vector3d(0, 0, 200)
         }
         DirectionalLight {
-            brightness: 100
         }
         Model {
             source: "#Cube"
@@ -132,7 +131,7 @@ Item {
         importScene: sceneRoot2
         Component.onCompleted: {
             // Currently this doesn't do anything
-            importScene = undefined;
+            importScene = null;
         }
         Model {
             // Behind, so partly visible
@@ -215,7 +214,6 @@ Item {
                 position: Qt.vector3d(0, 0, 200)
             }
             DirectionalLight {
-                brightness: 100
             }
             Model {
                 source: "#Cube"

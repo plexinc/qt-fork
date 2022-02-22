@@ -2,14 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import * as Action from './Action.js';
-import * as ActionDelegate from './ActionDelegate.js';
+import * as ActionRegistration from './ActionRegistration.js';
 import * as ActionRegistry from './ActionRegistry.js';
 import * as ARIAUtils from './ARIAUtils.js';
 import * as Context from './Context.js';
 import * as ContextFlavorListener from './ContextFlavorListener.js';
 import * as ContextMenu from './ContextMenu.js';
 import * as Dialog from './Dialog.js';
+import * as DockController from './DockController.js';
 import * as DropTarget from './DropTarget.js';
 import * as EmptyWidget from './EmptyWidget.js';
 import * as FilterBar from './FilterBar.js';
@@ -38,12 +38,10 @@ import * as SearchableView from './SearchableView.js';
 import * as SegmentedButton from './SegmentedButton.js';
 import * as SettingsUI from './SettingsUI.js';
 import * as ShortcutRegistry from './ShortcutRegistry.js';
-import * as ShortcutsScreen from './ShortcutsScreen.js';
 import * as SoftContextMenu from './SoftContextMenu.js';
 import * as SoftDropDown from './SoftDropDown.js';
 import * as SplitWidget from './SplitWidget.js';
 import * as SuggestBox from './SuggestBox.js';
-import * as SyntaxHighlighter from './SyntaxHighlighter.js';
 import * as TabbedPane from './TabbedPane.js';
 import * as TargetCrashedScreen from './TargetCrashedScreen.js';
 import * as TextEditor from './TextEditor.js';
@@ -62,18 +60,15 @@ import * as XLink from './XLink.js';
 import * as XWidget from './XWidget.js';
 import * as ZoomManager from './ZoomManager.js';
 
-/** @typedef {{box: !AnchorBox, show:(function(!GlassPane.GlassPane):!Promise<boolean>), hide:(function()|undefined)}} */
-export let PopoverRequest;
-
 export {
-  Action,
-  ActionDelegate,
+  ActionRegistration,
   ActionRegistry,
   ARIAUtils,
   Context,
   ContextFlavorListener,
   ContextMenu,
   Dialog,
+  DockController,
   DropTarget,
   EmptyWidget,
   FilterBar,
@@ -102,12 +97,10 @@ export {
   SegmentedButton,
   SettingsUI,
   ShortcutRegistry,
-  ShortcutsScreen,
   SoftContextMenu,
   SoftDropDown,
   SplitWidget,
   SuggestBox,
-  SyntaxHighlighter,
   TabbedPane,
   TargetCrashedScreen,
   TextEditor,

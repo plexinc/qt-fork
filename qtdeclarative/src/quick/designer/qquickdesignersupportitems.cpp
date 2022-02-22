@@ -72,7 +72,6 @@ static void stopAnimation(QObject *object)
 //        QQuickScriptAction *scriptAimation = qobject_cast<QQuickScriptAction*>(animation);
 //        if (scriptAimation) FIXME
 //            scriptAimation->setScript(QQmlScriptString());
-        animation->setLoops(1);
         animation->complete();
         animation->setDisableUserControl();
     } else if (timer) {
@@ -115,7 +114,7 @@ static void allSubObjects(QObject *object, QObjectList &objectList)
         // search recursive in property objects
         if (metaProperty.isReadable()
                 && metaProperty.isWritable()
-                && QQmlMetaType::isQObject(metaProperty.userType())) {
+                && metaProperty.metaType().flags().testFlag(QMetaType::PointerToQObject)) {
             if (qstrcmp(metaProperty.name(), "parent")) {
                 QObject *propertyObject = QQmlMetaType::toQObject(metaProperty.read(object));
                 allSubObjects(propertyObject, objectList);
@@ -125,10 +124,10 @@ static void allSubObjects(QObject *object, QObjectList &objectList)
 
         // search recursive in property object lists
         if (metaProperty.isReadable()
-                && QQmlMetaType::isList(metaProperty.userType())) {
+                && QQmlMetaType::isList(metaProperty.metaType())) {
             QQmlListReference list(object, metaProperty.name());
             if (list.canCount() && list.canAt()) {
-                for (int i = 0; i < list.count(); i++) {
+                for (qsizetype i = 0; i < list.count(); i++) {
                     QObject *propertyObject = list.at(i);
                     allSubObjects(propertyObject, objectList);
 
@@ -210,14 +209,14 @@ static bool isCrashingType(const QQmlType &type)
     return false;
 }
 
-QObject *QQuickDesignerSupportItems::createPrimitive(const QString &typeName, int majorNumber, int minorNumber, QQmlContext *context)
+QObject *QQuickDesignerSupportItems::createPrimitive(const QString &typeName, QTypeRevision version, QQmlContext *context)
 {
     ComponentCompleteDisabler disableComponentComplete;
 
-    Q_UNUSED(disableComponentComplete)
+    Q_UNUSED(disableComponentComplete);
 
     QObject *object = nullptr;
-    QQmlType type = QQmlMetaType::qmlType(typeName, majorNumber, minorNumber);
+    QQmlType type = QQmlMetaType::qmlType(typeName, version);
 
     if (isCrashingType(type)) {
         object = new QObject;
@@ -242,7 +241,8 @@ QObject *QQuickDesignerSupportItems::createPrimitive(const QString &typeName, in
 
     if (!object) {
         qWarning() << "QuickDesigner: Cannot create an object of type"
-                   << QString::fromLatin1("%1 %2,%3").arg(typeName).arg(majorNumber).arg(minorNumber)
+                   << QString::fromLatin1("%1 %2,%3").arg(typeName)
+                      .arg(version.majorVersion()).arg(version.minorVersion())
                    << "- type isn't known to declarative meta type system";
     }
 
@@ -259,7 +259,7 @@ QObject *QQuickDesignerSupportItems::createPrimitive(const QString &typeName, in
 QObject *QQuickDesignerSupportItems::createComponent(const QUrl &componentUrl, QQmlContext *context)
 {
     ComponentCompleteDisabler disableComponentComplete;
-    Q_UNUSED(disableComponentComplete)
+    Q_UNUSED(disableComponentComplete);
 
     QQmlComponent component(context->engine(), componentUrl);
 

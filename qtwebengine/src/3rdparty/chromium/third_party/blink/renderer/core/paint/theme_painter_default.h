@@ -34,6 +34,7 @@
 
 namespace blink {
 
+class GraphicsContextStateSaver;
 class LayoutThemeDefault;
 
 class ThemePainterDefault final : public ThemePainter {
@@ -41,54 +42,56 @@ class ThemePainterDefault final : public ThemePainter {
   explicit ThemePainterDefault(LayoutThemeDefault&);
 
  private:
-  bool PaintCheckbox(const Node*,
+  bool PaintCheckbox(const Element&,
                      const Document&,
                      const ComputedStyle&,
                      const PaintInfo&,
                      const IntRect&) override;
-  bool PaintRadio(const Node*,
+  bool PaintRadio(const Element&,
                   const Document&,
                   const ComputedStyle&,
                   const PaintInfo&,
                   const IntRect&) override;
-  bool PaintButton(const Node*,
+  bool PaintButton(const Element&,
                    const Document&,
                    const ComputedStyle&,
                    const PaintInfo&,
                    const IntRect&) override;
-  bool PaintTextField(const Node*,
+  bool PaintTextField(const Element&,
                       const ComputedStyle&,
                       const PaintInfo&,
                       const IntRect&) override;
-  bool PaintMenuList(const Node*,
+  bool PaintMenuList(const Element&,
                      const Document&,
                      const ComputedStyle&,
                      const PaintInfo&,
                      const IntRect&) override;
-  bool PaintMenuListButton(const Node*,
+  bool PaintMenuListButton(const Element&,
                            const Document&,
                            const ComputedStyle&,
                            const PaintInfo&,
                            const IntRect&) override;
-  bool PaintSliderTrack(const LayoutObject&,
+  bool PaintSliderTrack(const Element& element,
+                        const LayoutObject&,
                         const PaintInfo&,
                         const IntRect&) override;
-  bool PaintSliderThumb(const Node*,
+  bool PaintSliderThumb(const Element&,
                         const ComputedStyle&,
                         const PaintInfo&,
                         const IntRect&) override;
-  bool PaintInnerSpinButton(const Node*,
+  bool PaintInnerSpinButton(const Element&,
                             const ComputedStyle&,
                             const PaintInfo&,
                             const IntRect&) override;
-  bool PaintProgressBar(const LayoutObject&,
+  bool PaintProgressBar(const Element& element,
+                        const LayoutObject&,
                         const PaintInfo&,
                         const IntRect&) override;
-  bool PaintTextArea(const Node*,
+  bool PaintTextArea(const Element&,
                      const ComputedStyle&,
                      const PaintInfo&,
                      const IntRect&) override;
-  bool PaintSearchField(const Node*,
+  bool PaintSearchField(const Element&,
                         const ComputedStyle&,
                         const PaintInfo&,
                         const IntRect&) override;
@@ -100,6 +103,11 @@ class ThemePainterDefault final : public ThemePainter {
                           const ComputedStyle&,
                           const IntRect&,
                           WebThemeEngine::ExtraParams&);
+
+  IntRect ApplyZoomToRect(const IntRect&,
+                          const PaintInfo&,
+                          GraphicsContextStateSaver&,
+                          float zoom_level);
 
   // ThemePaintDefault is a part object of m_theme.
   LayoutThemeDefault& theme_;

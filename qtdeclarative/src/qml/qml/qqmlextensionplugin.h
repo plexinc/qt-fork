@@ -44,6 +44,15 @@
 #include <QtCore/QUrl>
 #include <QtQml/qqmlextensioninterface.h>
 
+#if defined(Q_CC_GHS)
+#  define Q_GHS_KEEP_REFERENCE(S) QT_DO_PRAGMA(ghs reference S ##__Fv)
+#else
+#  define Q_GHS_KEEP_REFERENCE(S)
+#endif
+
+#define Q_IMPORT_QML_PLUGIN(PLUGIN) \
+    Q_IMPORT_PLUGIN(PLUGIN)
+
 QT_BEGIN_NAMESPACE
 
 class QQmlEngine;
@@ -64,6 +73,7 @@ public:
     QUrl baseUrl() const;
 
     void registerTypes(const char *uri) override = 0;
+    virtual void unregisterTypes();
     void initializeEngine(QQmlEngine *engine, const char *uri) override;
 
 private:

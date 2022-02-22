@@ -17,6 +17,7 @@
 #include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/clipboard/scoped_clipboard_writer.h"
@@ -32,6 +33,7 @@
 #include "ui/views/background.h"
 #include "ui/views/controls/menu/menu_runner.h"
 #include "ui/views/focus/focus_manager.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/native_cursor.h"
 #include "ui/views/selection_controller.h"
 
@@ -70,7 +72,6 @@ Label::Label(const base::string16& text,
       text_style_(text_style),
       context_menu_contents_(this) {
   Init(text, style::GetFont(text_context, text_style), directionality_mode);
-  SetLineHeight(style::GetLineHeight(text_context, text_style));
 }
 
 Label::Label(const base::string16& text, const CustomFont& font)
@@ -89,7 +90,8 @@ const gfx::FontList& Label::GetDefaultFontList() {
 
 void Label::SetFontList(const gfx::FontList& font_list) {
   full_text_->SetFontList(font_list);
-  ResetLayout();
+  ClearDisplayText();
+  PreferredSizeChanged();
 }
 
 const base::string16& Label::GetText() const {
@@ -100,12 +102,71 @@ void Label::SetText(const base::string16& new_text) {
   if (new_text == GetText())
     return;
   full_text_->SetText(new_text);
-  OnPropertyChanged(&full_text_ + kLabelText, kPropertyEffectsLayout);
+  ClearDisplayText();
+  OnPropertyChanged(&full_text_ + kLabelText,
+                    kPropertyEffectsPreferredSizeChanged);
   stored_selection_range_ = gfx::Range::InvalidRange();
+}
+
+void Label::SetAccessibleName(const base::string16& name) {
+  if (name == accessible_name_)
+    return;
+  accessible_name_ = name;
+  OnPropertyChanged(&accessible_name_, kPropertyEffectsNone);
+  NotifyAccessibilityEvent(ax::mojom::Event::kTextChanged, true);
+}
+
+const base::string16& Label::GetAccessibleName() const {
+  return accessible_name_.empty() ? full_text_->GetDisplayText()
+                                  : accessible_name_;
 }
 
 int Label::GetTextContext() const {
   return text_context_;
+}
+
+void Label::SetTextContext(int text_context) {
+  if (text_context == text_context_)
+    return;
+  text_context_ = text_context;
+  full_text_->SetFontList(style::GetFont(text_context_, text_style_));
+  full_text_->SetMinLineHeight(GetLineHeight());
+  ClearDisplayText();
+  UpdateColorsFromTheme();
+  OnPropertyChanged(&text_context_, kPropertyEffectsPreferredSizeChanged);
+}
+
+int Label::GetTextStyle() const {
+  return text_style_;
+}
+
+void Label::SetTextStyle(int style) {
+  if (style == text_style_)
+    return;
+
+  text_style_ = style;
+  full_text_->SetFontList(style::GetFont(text_context_, text_style_));
+  full_text_->SetMinLineHeight(GetLineHeight());
+  ClearDisplayText();
+  UpdateColorsFromTheme();
+  OnPropertyChanged(&text_style_, kPropertyEffectsPreferredSizeChanged);
+}
+
+void Label::SetTextStyleRange(int style, const gfx::Range& range) {
+  if (style == text_style_ || !range.IsValid() || range.is_empty() ||
+      !gfx::Range(0, GetText().size()).Contains(range))
+    return;
+
+  const auto details = style::GetFontDetails(text_context_, style);
+  // This function is not prepared to handle style requests that vary by
+  // anything other than weight.
+  DCHECK_EQ(details.typeface,
+            style::GetFontDetails(text_context_, text_style_).typeface);
+  DCHECK_EQ(details.size_delta,
+            style::GetFontDetails(text_context_, text_style_).size_delta);
+  full_text_->ApplyWeight(details.weight, range);
+  ClearDisplayText();
+  PreferredSizeChanged();
 }
 
 bool Label::GetAutoColorReadabilityEnabled() const {
@@ -117,6 +178,7 @@ void Label::SetAutoColorReadabilityEnabled(
   if (auto_color_readability_enabled_ == auto_color_readability_enabled)
     return;
   auto_color_readability_enabled_ = auto_color_readability_enabled;
+  RecalculateColors();
   OnPropertyChanged(&auto_color_readability_enabled_, kPropertyEffectsPaint);
 }
 
@@ -129,6 +191,7 @@ void Label::SetEnabledColor(SkColor color) {
     return;
   requested_enabled_color_ = color;
   enabled_color_set_ = true;
+  RecalculateColors();
   OnPropertyChanged(&requested_enabled_color_, kPropertyEffectsPaint);
 }
 
@@ -141,6 +204,7 @@ void Label::SetBackgroundColor(SkColor color) {
     return;
   background_color_ = color;
   background_color_set_ = true;
+  RecalculateColors();
   OnPropertyChanged(&background_color_, kPropertyEffectsPaint);
 }
 
@@ -153,6 +217,7 @@ void Label::SetSelectionTextColor(SkColor color) {
     return;
   requested_selection_text_color_ = color;
   selection_text_color_set_ = true;
+  RecalculateColors();
   OnPropertyChanged(&requested_selection_text_color_, kPropertyEffectsPaint);
 }
 
@@ -165,6 +230,7 @@ void Label::SetSelectionBackgroundColor(SkColor color) {
     return;
   selection_background_color_ = color;
   selection_background_color_set_ = true;
+  RecalculateColors();
   OnPropertyChanged(&selection_background_color_, kPropertyEffectsPaint);
 }
 
@@ -176,7 +242,9 @@ void Label::SetShadows(const gfx::ShadowValues& shadows) {
   if (full_text_->shadows() == shadows)
     return;
   full_text_->set_shadows(shadows);
-  OnPropertyChanged(&full_text_ + kLabelShadows, kPropertyEffectsLayout);
+  ClearDisplayText();
+  OnPropertyChanged(&full_text_ + kLabelShadows,
+                    kPropertyEffectsPreferredSizeChanged);
 }
 
 bool Label::GetSubpixelRenderingEnabled() const {
@@ -187,7 +255,23 @@ void Label::SetSubpixelRenderingEnabled(bool subpixel_rendering_enabled) {
   if (subpixel_rendering_enabled_ == subpixel_rendering_enabled)
     return;
   subpixel_rendering_enabled_ = subpixel_rendering_enabled;
+  ApplyTextColors();
   OnPropertyChanged(&subpixel_rendering_enabled_, kPropertyEffectsPaint);
+}
+
+bool Label::GetSkipSubpixelRenderingOpacityCheck() const {
+  return skip_subpixel_rendering_opacity_check_;
+}
+
+void Label::SetSkipSubpixelRenderingOpacityCheck(
+    bool skip_subpixel_rendering_opacity_check) {
+  if (skip_subpixel_rendering_opacity_check_ ==
+      skip_subpixel_rendering_opacity_check)
+    return;
+  skip_subpixel_rendering_opacity_check_ =
+      skip_subpixel_rendering_opacity_check;
+  OnPropertyChanged(&skip_subpixel_rendering_opacity_check_,
+                    kPropertyEffectsNone);
 }
 
 gfx::HorizontalAlignment Label::GetHorizontalAlignment() const {
@@ -199,8 +283,9 @@ void Label::SetHorizontalAlignment(gfx::HorizontalAlignment alignment) {
   if (GetHorizontalAlignment() == alignment)
     return;
   full_text_->SetHorizontalAlignment(alignment);
+  ClearDisplayText();
   OnPropertyChanged(&full_text_ + kLabelHorizontalAlignment,
-                    kPropertyEffectsLayout);
+                    kPropertyEffectsPaint);
 }
 
 gfx::VerticalAlignment Label::GetVerticalAlignment() const {
@@ -211,20 +296,27 @@ void Label::SetVerticalAlignment(gfx::VerticalAlignment alignment) {
   if (GetVerticalAlignment() == alignment)
     return;
   full_text_->SetVerticalAlignment(alignment);
-  // TODO(dfried): consider if this should be kPropertyEffectsPaint instead.
+  ClearDisplayText();
   OnPropertyChanged(&full_text_ + kLabelVerticalAlignment,
-                    kPropertyEffectsLayout);
+                    kPropertyEffectsPaint);
 }
 
 int Label::GetLineHeight() const {
-  return full_text_->min_line_height();
+  // TODO(pkasting): If we can replace SetFontList() with context/style setter
+  // calls, we can eliminate the reference to font_list().GetHeight() here.
+  return line_height_.value_or(
+      std::max(style::GetLineHeight(text_context_, text_style_),
+               font_list().GetHeight()));
 }
 
-void Label::SetLineHeight(int height) {
-  if (GetLineHeight() == height)
+void Label::SetLineHeight(int line_height) {
+  if (line_height_ == line_height)
     return;
-  full_text_->SetMinLineHeight(height);
-  OnPropertyChanged(&full_text_ + kLabelLineHeight, kPropertyEffectsLayout);
+  line_height_ = line_height;
+  full_text_->SetMinLineHeight(line_height);
+  ClearDisplayText();
+  OnPropertyChanged(&full_text_ + kLabelLineHeight,
+                    kPropertyEffectsPreferredSizeChanged);
 }
 
 bool Label::GetMultiLine() const {
@@ -238,7 +330,8 @@ void Label::SetMultiLine(bool multi_line) {
     return;
   multi_line_ = multi_line;
   full_text_->SetMultiline(multi_line);
-  OnPropertyChanged(&multi_line_, kPropertyEffectsLayout);
+  ClearDisplayText();
+  OnPropertyChanged(&multi_line_, kPropertyEffectsPreferredSizeChanged);
 }
 
 int Label::GetMaxLines() const {
@@ -249,7 +342,7 @@ void Label::SetMaxLines(int max_lines) {
   if (max_lines_ == max_lines)
     return;
   max_lines_ = max_lines;
-  OnPropertyChanged(&max_lines_, kPropertyEffectsLayout);
+  OnPropertyChanged(&max_lines_, kPropertyEffectsPreferredSizeChanged);
 }
 
 bool Label::GetObscured() const {
@@ -260,9 +353,11 @@ void Label::SetObscured(bool obscured) {
   if (this->GetObscured() == obscured)
     return;
   full_text_->SetObscured(obscured);
+  ClearDisplayText();
   if (obscured)
     SetSelectable(false);
-  OnPropertyChanged(&full_text_ + kLabelObscured, kPropertyEffectsLayout);
+  OnPropertyChanged(&full_text_ + kLabelObscured,
+                    kPropertyEffectsPreferredSizeChanged);
 }
 
 bool Label::IsDisplayTextTruncated() const {
@@ -277,8 +372,7 @@ bool Label::IsDisplayTextTruncated() const {
 }
 
 bool Label::GetAllowCharacterBreak() const {
-  return full_text_->word_wrap_behavior() == gfx::WRAP_LONG_WORDS ? true
-                                                                  : false;
+  return full_text_->word_wrap_behavior() == gfx::WRAP_LONG_WORDS;
 }
 
 void Label::SetAllowCharacterBreak(bool allow_character_break) {
@@ -287,8 +381,17 @@ void Label::SetAllowCharacterBreak(bool allow_character_break) {
   if (full_text_->word_wrap_behavior() == behavior)
     return;
   full_text_->SetWordWrapBehavior(behavior);
+  ClearDisplayText();
   OnPropertyChanged(&full_text_ + kLabelAllowCharacterBreak,
-                    kPropertyEffectsLayout);
+                    kPropertyEffectsPreferredSizeChanged);
+}
+
+size_t Label::GetTextIndexOfLine(size_t line) const {
+  return full_text_->GetTextIndexOfLine(line);
+}
+
+void Label::SetTruncateLength(size_t truncate_length) {
+  return full_text_->set_truncate_length(truncate_length);
 }
 
 gfx::ElideBehavior Label::GetElideBehavior() const {
@@ -301,7 +404,9 @@ void Label::SetElideBehavior(gfx::ElideBehavior elide_behavior) {
   if (elide_behavior_ == elide_behavior)
     return;
   elide_behavior_ = elide_behavior;
-  OnPropertyChanged(&elide_behavior_, kPropertyEffectsLayout);
+  UpdateFullTextElideBehavior();
+  ClearDisplayText();
+  OnPropertyChanged(&elide_behavior_, kPropertyEffectsPreferredSizeChanged);
 }
 
 base::string16 Label::GetTooltipText() const {
@@ -344,7 +449,17 @@ void Label::SetMaximumWidth(int max_width) {
   if (max_width_ == max_width)
     return;
   max_width_ = max_width;
-  OnPropertyChanged(&max_width_, kPropertyEffectsLayout);
+  OnPropertyChanged(&max_width_, kPropertyEffectsPreferredSizeChanged);
+}
+
+void Label::SetMaximumWidthSingleLine(int max_width) {
+  DCHECK(!GetMultiLine());
+  if (max_width_single_line_ == max_width)
+    return;
+  max_width_single_line_ = max_width;
+  UpdateFullTextElideBehavior();
+  OnPropertyChanged(&max_width_single_line_,
+                    kPropertyEffectsPreferredSizeChanged);
 }
 
 bool Label::GetCollapseWhenHidden() const {
@@ -364,7 +479,6 @@ size_t Label::GetRequiredLines() const {
 }
 
 base::string16 Label::GetDisplayTextForTesting() {
-  ClearDisplayText();
   MaybeBuildDisplayText();
   return display_text_ ? display_text_->GetDisplayText() : base::string16();
 }
@@ -427,7 +541,15 @@ void Label::SelectRange(const gfx::Range& range) {
     SchedulePaint();
 }
 
-views::PropertyChangedSubscription Label::AddTextChangedCallback(
+std::vector<gfx::Rect> Label::GetSubstringBounds(const gfx::Range& range) {
+  auto substring_bounds = full_text_->GetSubstringBounds(range);
+  for (auto& bound : substring_bounds) {
+    bound.Offset(GetInsets().left(), GetInsets().top());
+  }
+  return substring_bounds;
+}
+
+base::CallbackListSubscription Label::AddTextChangedCallback(
     views::PropertyChangedCallback callback) {
   return AddPropertyChangedCallback(&full_text_ + kLabelText,
                                     std::move(callback));
@@ -466,7 +588,7 @@ gfx::Size Label::GetMinimumSize() const {
     return gfx::Size();
 
   // Always reserve vertical space for at least one line.
-  gfx::Size size(0, std::max(font_list().GetHeight(), GetLineHeight()));
+  gfx::Size size(0, GetLineHeight());
   if (elide_behavior_ == gfx::ELIDE_HEAD ||
       elide_behavior_ == gfx::ELIDE_MIDDLE ||
       elide_behavior_ == gfx::ELIDE_TAIL ||
@@ -496,9 +618,11 @@ int Label::GetHeightForWidth(int w) const {
 
   w -= GetInsets().width();
   int height = 0;
-  int base_line_height = std::max(GetLineHeight(), font_list().GetHeight());
-  if (!GetMultiLine() || GetText().empty() || w <= 0) {
+  int base_line_height = GetLineHeight();
+  if (!GetMultiLine() || GetText().empty() || w < 0) {
     height = base_line_height;
+  } else if (w == 0) {
+    height = std::max(GetMaxLines(), 1) * base_line_height;
   } else {
     // SetDisplayRect() has a side effect for later calls of GetStringSize().
     // Be careful to invoke |full_text_->SetDisplayRect(gfx::Rect())| to
@@ -526,7 +650,7 @@ View* Label::GetTooltipHandlerForPoint(const gfx::Point& point) {
   return HitTestPoint(point) ? this : nullptr;
 }
 
-bool Label::CanProcessEventsWithinSubtree() const {
+bool Label::GetCanProcessEventsWithinSubtree() const {
   return !!GetRenderTextForSelectionController();
 }
 
@@ -540,7 +664,7 @@ void Label::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   else
     node_data->role = ax::mojom::Role::kStaticText;
 
-  node_data->SetName(full_text_->GetDisplayText());
+  node_data->SetName(GetAccessibleName());
 }
 
 base::string16 Label::GetTooltipText(const gfx::Point& p) const {
@@ -555,15 +679,6 @@ base::string16 Label::GetTooltipText(const gfx::Point& p) const {
   return base::string16();
 }
 
-void Label::OnHandlePropertyChangeEffects(PropertyEffects property_effects) {
-  if (property_effects & kPropertyEffectsPreferredSizeChanged)
-    SizeToPreferredSize();
-  if (property_effects & kPropertyEffectsLayout)
-    ResetLayout();
-  if (property_effects & kPropertyEffectsPaint)
-    RecalculateColors();
-}
-
 std::unique_ptr<gfx::RenderText> Label::CreateRenderText() const {
   // Multi-line labels only support NO_ELIDE and ELIDE_TAIL for now.
   // TODO(warx): Investigate more elide text support.
@@ -572,17 +687,13 @@ std::unique_ptr<gfx::RenderText> Label::CreateRenderText() const {
                                                            : elide_behavior_;
 
   std::unique_ptr<gfx::RenderText> render_text =
-      gfx::RenderText::CreateRenderText();
+      full_text_->CreateInstanceOfSameStyle(GetText());
   render_text->SetHorizontalAlignment(GetHorizontalAlignment());
   render_text->SetVerticalAlignment(GetVerticalAlignment());
-  render_text->SetDirectionalityMode(full_text_->directionality_mode());
   render_text->SetElideBehavior(elide_behavior);
   render_text->SetObscured(GetObscured());
   render_text->SetMinLineHeight(GetLineHeight());
-  render_text->SetFontList(font_list());
   render_text->set_shadows(GetShadows());
-  render_text->SetCursorEnabled(false);
-  render_text->SetText(GetText());
   const bool multiline = GetMultiLine();
   render_text->SetMultiline(multiline);
   render_text->SetMaxLines(multiline ? GetMaxLines() : 0);
@@ -596,10 +707,6 @@ std::unique_ptr<gfx::RenderText> Label::CreateRenderText() const {
   }
 
   return render_text;
-}
-
-void Label::PaintFocusRing(gfx::Canvas* canvas) const {
-  // No focus ring by default.
 }
 
 gfx::Rect Label::GetTextBounds() const {
@@ -618,20 +725,35 @@ void Label::PaintText(gfx::Canvas* canvas) {
   if (display_text_)
     display_text_->Draw(canvas);
 
-#if DCHECK_IS_ON()
-  // Attempt to ensure that if we're using subpixel rendering, we're painting
-  // to an opaque background. What we don't want to find is an ancestor in the
-  // hierarchy that paints to a non-opaque layer.
-  if (!display_text_ || display_text_->subpixel_rendering_suppressed())
+#if DCHECK_IS_ON() && !BUILDFLAG(IS_CHROMEOS_ASH) && \
+    !BUILDFLAG(IS_CHROMEOS_LACROS)
+  // TODO(crbug.com/1139395): Enable this DCHECK on ChromeOS and LaCrOS by
+  // fixing either this check (to correctly idenfify more paints-on-opaque
+  // cases), refactoring parents to use background() or by fixing
+  // subpixel-rendering issues that the DCHECK detects.
+  if (!display_text_ || display_text_->subpixel_rendering_suppressed() ||
+      skip_subpixel_rendering_opacity_check_)
     return;
 
+  // Ensure that, if we're using subpixel rendering, we're painted to an opaque
+  // region. Subpixel rendering will sample from the r,g,b color channels of the
+  // canvas. These values are incorrect when sampling from transparent pixels.
+  // Note that these checks may need to be amended for other methods of painting
+  // opaquely underneath the Label. For now, individual cases can skip this
+  // DCHECK by calling Label::SetSkipSubpixelRenderingOpacityCheck().
   for (View* view = this; view; view = view->parent()) {
+    // This is our approximation of being painted on an opaque region. If any
+    // parent has an opaque background we assume that that background covers the
+    // text bounds. This is not necessarily true as the background could be
+    // inset from the parent bounds, and get_color() does not imply that all of
+    // the background is painted with the same opaque color.
     if (view->background() && IsOpaque(view->background()->get_color()))
       break;
 
-    if (view->layer() && view->layer()->fills_bounds_opaquely()) {
-      DLOG(WARNING) << "Ancestor view has a non-opaque layer: "
-                    << view->GetClassName() << " with ID " << view->GetID();
+    if (view->layer()) {
+      // If we aren't painted to an opaque background, we must paint to an
+      // opaque layer.
+      DCHECK(view->layer()->fills_bounds_opaquely());
       break;
     }
   }
@@ -645,8 +767,6 @@ void Label::OnBoundsChanged(const gfx::Rect& previous_bounds) {
 void Label::OnPaint(gfx::Canvas* canvas) {
   View::OnPaint(canvas);
   PaintText(canvas);
-  if (HasFocus())
-    PaintFocusRing(canvas);
 }
 
 void Label::OnThemeChanged() {
@@ -695,15 +815,18 @@ bool Label::OnMousePressed(const ui::MouseEvent& event) {
     GetFocusManager()->SetFocusedView(this);
   }
 
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
   if (event.IsOnlyMiddleMouseButton() && GetFocusManager() && !had_focus)
     GetFocusManager()->SetFocusedView(this);
 #endif
 
   return selection_controller_->OnMousePressed(
       event, false,
-      had_focus ? SelectionController::FOCUSED
-                : SelectionController::UNFOCUSED);
+      had_focus
+          ? SelectionController::InitialFocusStateOnMousePress::kFocused
+          : SelectionController::InitialFocusStateOnMousePress::kUnFocused);
 }
 
 bool Label::OnMouseDragged(const ui::MouseEvent& event) {
@@ -789,7 +912,7 @@ void Label::OnDeviceScaleFactorChanged(float old_device_scale_factor,
   // When the device scale factor is changed, some font rendering parameters is
   // changed (especially, hinting). The bounding box of the text has to be
   // re-computed based on the new parameters. See crbug.com/441439
-  ResetLayout();
+  PreferredSizeChanged();
 }
 
 void Label::VisibilityChanged(View* starting_from, bool is_visible) {
@@ -881,7 +1004,9 @@ bool Label::PasteSelectionClipboard() {
 }
 
 void Label::UpdateSelectionClipboard() {
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
   if (!GetObscured()) {
     ui::ScopedClipboardWriter(ui::ClipboardBuffer::kSelection)
         .WriteText(GetSelectedText());
@@ -895,9 +1020,9 @@ bool Label::IsCommandIdChecked(int command_id) const {
 
 bool Label::IsCommandIdEnabled(int command_id) const {
   switch (command_id) {
-    case IDS_APP_COPY:
+    case MenuCommands::kCopy:
       return HasSelection() && !GetObscured();
-    case IDS_APP_SELECT_ALL:
+    case MenuCommands::kSelectAll:
       return GetRenderTextForSelectionController() && !GetText().empty();
   }
   return false;
@@ -905,10 +1030,10 @@ bool Label::IsCommandIdEnabled(int command_id) const {
 
 void Label::ExecuteCommand(int command_id, int event_flags) {
   switch (command_id) {
-    case IDS_APP_COPY:
+    case MenuCommands::kCopy:
       CopyToClipboard();
       break;
-    case IDS_APP_SELECT_ALL:
+    case MenuCommands::kSelectAll:
       SelectAll();
       DCHECK(HasSelection());
       UpdateSelectionClipboard();
@@ -921,11 +1046,11 @@ void Label::ExecuteCommand(int command_id, int event_flags) {
 bool Label::GetAcceleratorForCommandId(int command_id,
                                        ui::Accelerator* accelerator) const {
   switch (command_id) {
-    case IDS_APP_COPY:
+    case MenuCommands::kCopy:
       *accelerator = ui::Accelerator(ui::VKEY_C, ui::EF_CONTROL_DOWN);
       return true;
 
-    case IDS_APP_SELECT_ALL:
+    case MenuCommands::kSelectAll:
       *accelerator = ui::Accelerator(ui::VKEY_A, ui::EF_CONTROL_DOWN);
       return true;
 
@@ -948,31 +1073,23 @@ void Label::Init(const base::string16& text,
                  gfx::DirectionalityMode directionality_mode) {
   full_text_ = gfx::RenderText::CreateRenderText();
   full_text_->SetHorizontalAlignment(gfx::ALIGN_CENTER);
-  full_text_->SetDirectionalityMode(directionality_mode);
-  // NOTE: |full_text_| should not be elided at all. This is used to keep
-  // some properties and to compute the size of the string.
-  full_text_->SetElideBehavior(gfx::NO_ELIDE);
   full_text_->SetFontList(font_list);
   full_text_->SetCursorEnabled(false);
   full_text_->SetWordWrapBehavior(gfx::TRUNCATE_LONG_WORDS);
+  full_text_->SetMinLineHeight(GetLineHeight());
+  UpdateFullTextElideBehavior();
+  full_text_->SetDirectionalityMode(directionality_mode);
 
-  UpdateColorsFromTheme();
   SetText(text);
 
   // Only selectable labels will get requests to show the context menu, due to
-  // CanProcessEventsWithinSubtree().
+  // GetCanProcessEventsWithinSubtree().
   BuildContextMenuContents();
   set_context_menu_controller(this);
 
   // This allows the BrowserView to pass the copy command from the Chrome menu
   // to the Label.
   AddAccelerator(ui::Accelerator(ui::VKEY_C, ui::EF_CONTROL_DOWN));
-}
-
-void Label::ResetLayout() {
-  PreferredSizeChanged();
-  SchedulePaint();
-  ClearDisplayText();
 }
 
 void Label::MaybeBuildDisplayText() const {
@@ -993,7 +1110,16 @@ void Label::MaybeBuildDisplayText() const {
 gfx::Size Label::GetTextSize() const {
   gfx::Size size;
   if (GetText().empty()) {
-    size = gfx::Size(0, std::max(GetLineHeight(), font_list().GetHeight()));
+    size = gfx::Size(0, GetLineHeight());
+  } else if (max_width_single_line_ > 0) {
+    DCHECK(!GetMultiLine());
+    // Enable eliding during text width calculation. This allows the RenderText
+    // to report an accurate width given the constraints and how it determines
+    // to elide the text. If we simply clamp the width to the max after the
+    // fact, then there may be some empty space left over *after* an ellipsis.
+    full_text_->SetDisplayRect(
+        gfx::Rect(0, 0, max_width_single_line_ - GetInsets().width(), 0));
+    size = full_text_->GetStringSize();
   } else {
     // Cancel the display rect of |full_text_|. The display rect may be
     // specified in GetHeightForWidth(), and specifying empty Rect cancels
@@ -1073,7 +1199,7 @@ bool Label::ShouldShowDefaultTooltip() const {
           (GetMultiLine() && text_size.height() > size.height()));
 }
 
-void Label::ClearDisplayText() const {
+void Label::ClearDisplayText() {
   // The HasSelection() call below will build |display_text_| in case it is
   // empty. Return early to avoid this.
   if (!display_text_)
@@ -1085,6 +1211,8 @@ void Label::ClearDisplayText() const {
         GetRenderTextForSelectionController()->selection();
   }
   display_text_ = nullptr;
+
+  SchedulePaint();
 }
 
 base::string16 Label::GetSelectedText() const {
@@ -1101,34 +1229,45 @@ void Label::CopyToClipboard() {
 }
 
 void Label::BuildContextMenuContents() {
-  context_menu_contents_.AddItemWithStringId(IDS_APP_COPY, IDS_APP_COPY);
-  context_menu_contents_.AddItemWithStringId(IDS_APP_SELECT_ALL,
+  context_menu_contents_.AddItemWithStringId(MenuCommands::kCopy, IDS_APP_COPY);
+  context_menu_contents_.AddItemWithStringId(MenuCommands::kSelectAll,
                                              IDS_APP_SELECT_ALL);
 }
 
-BEGIN_METADATA(Label)
-METADATA_PARENT_CLASS(View)
-ADD_PROPERTY_METADATA(Label, bool, AutoColorReadabilityEnabled)
-ADD_PROPERTY_METADATA(Label, base::string16, Text)
-ADD_PROPERTY_METADATA(Label, SkColor, EnabledColor)
-ADD_PROPERTY_METADATA(Label, gfx::ElideBehavior, ElideBehavior)
-ADD_PROPERTY_METADATA(Label, SkColor, BackgroundColor)
-ADD_PROPERTY_METADATA(Label, SkColor, SelectionTextColor)
-ADD_PROPERTY_METADATA(Label, SkColor, SelectionBackgroundColor)
-ADD_PROPERTY_METADATA(Label, bool, SubpixelRenderingEnabled)
-ADD_PROPERTY_METADATA(Label, gfx::ShadowValues, Shadows)
-ADD_PROPERTY_METADATA(Label, gfx::HorizontalAlignment, HorizontalAlignment)
-ADD_PROPERTY_METADATA(Label, gfx::VerticalAlignment, VerticalAlignment)
-ADD_PROPERTY_METADATA(Label, int, LineHeight)
-ADD_PROPERTY_METADATA(Label, bool, MultiLine)
-ADD_PROPERTY_METADATA(Label, int, MaxLines)
-ADD_PROPERTY_METADATA(Label, bool, Obscured)
-ADD_PROPERTY_METADATA(Label, bool, AllowCharacterBreak)
-ADD_PROPERTY_METADATA(Label, base::string16, TooltipText)
-ADD_PROPERTY_METADATA(Label, bool, HandlesTooltips)
-ADD_PROPERTY_METADATA(Label, bool, CollapseWhenHidden)
-ADD_PROPERTY_METADATA(Label, int, MaximumWidth)
-ADD_READONLY_PROPERTY_METADATA(Label, int, TextContext)
-END_METADATA()
+void Label::UpdateFullTextElideBehavior() {
+  // In single line mode when a max width has been set, |full_text_| uses
+  // elision to properly calculate the text size. Otherwise, it is not elided.
+  full_text_->SetElideBehavior(max_width_single_line_ > 0 ? elide_behavior_
+                                                          : gfx::NO_ELIDE);
+}
+
+BEGIN_METADATA(Label, View)
+ADD_PROPERTY_METADATA(base::string16, Text)
+ADD_PROPERTY_METADATA(int, TextContext)
+ADD_PROPERTY_METADATA(int, TextStyle)
+ADD_PROPERTY_METADATA(bool, AutoColorReadabilityEnabled)
+ADD_PROPERTY_METADATA(SkColor, EnabledColor, metadata::SkColorConverter)
+ADD_PROPERTY_METADATA(gfx::ElideBehavior, ElideBehavior)
+ADD_PROPERTY_METADATA(SkColor, BackgroundColor, metadata::SkColorConverter)
+ADD_PROPERTY_METADATA(SkColor, SelectionTextColor, metadata::SkColorConverter)
+ADD_PROPERTY_METADATA(SkColor,
+                      SelectionBackgroundColor,
+                      metadata::SkColorConverter)
+ADD_PROPERTY_METADATA(bool, SubpixelRenderingEnabled)
+ADD_PROPERTY_METADATA(bool, SkipSubpixelRenderingOpacityCheck)
+ADD_PROPERTY_METADATA(gfx::ShadowValues, Shadows)
+ADD_PROPERTY_METADATA(gfx::HorizontalAlignment, HorizontalAlignment)
+ADD_PROPERTY_METADATA(gfx::VerticalAlignment, VerticalAlignment)
+ADD_PROPERTY_METADATA(int, LineHeight)
+ADD_PROPERTY_METADATA(bool, MultiLine)
+ADD_PROPERTY_METADATA(int, MaxLines)
+ADD_PROPERTY_METADATA(bool, Obscured)
+ADD_PROPERTY_METADATA(bool, AllowCharacterBreak)
+ADD_PROPERTY_METADATA(base::string16, TooltipText)
+ADD_PROPERTY_METADATA(bool, HandlesTooltips)
+ADD_PROPERTY_METADATA(bool, CollapseWhenHidden)
+ADD_PROPERTY_METADATA(int, MaximumWidth)
+ADD_PROPERTY_METADATA(base::string16, AccessibleName)
+END_METADATA
 
 }  // namespace views

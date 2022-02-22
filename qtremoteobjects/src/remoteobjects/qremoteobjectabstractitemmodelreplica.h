@@ -57,7 +57,8 @@ public:
 
     QItemSelectionModel* selectionModel() const;
 
-    QVariant data(const QModelIndex & index, int role = Qt::DisplayRole) const override;
+    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const final;
+    void multiData(const QModelIndex &index, QModelRoleDataSpan roleDataSpan) const override;
     bool setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) override;
     QModelIndex parent(const QModelIndex & index) const  override;
     QModelIndex index(int row, int column, const QModelIndex & parent = QModelIndex()) const override;
@@ -66,7 +67,7 @@ public:
     int columnCount(const QModelIndex & parent = QModelIndex()) const override;
     QVariant headerData(int section, Qt::Orientation orientation, int role) const override;
     Qt::ItemFlags flags(const QModelIndex &index) const override;
-    QVector<int> availableRoles() const;
+    QList<int> availableRoles() const;
     QHash<int, QByteArray> roleNames() const override;
 
     bool isInitialized() const;
@@ -79,7 +80,7 @@ Q_SIGNALS:
     void initialized();
 
 private:
-    explicit QAbstractItemModelReplica(QAbstractItemModelReplicaImplementation *rep, QtRemoteObjects::InitialAction action, const QVector<int> &rolesHint);
+    explicit QAbstractItemModelReplica(QAbstractItemModelReplicaImplementation *rep, QtRemoteObjects::InitialAction action, const QList<int> &rolesHint);
     QScopedPointer<QAbstractItemModelReplicaImplementation> d;
     friend class QAbstractItemModelReplicaImplementation;
     friend class QRemoteObjectNode;

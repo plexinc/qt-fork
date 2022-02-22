@@ -1,7 +1,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'qprintsettingsoutput.ui'
 **
-** Created by: Qt User Interface Compiler version 5.12.0
+** Created by: Qt User Interface Compiler version 6.0.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -265,8 +265,8 @@ public:
 #endif // QT_CONFIG(shortcut)
 
         retranslateUi(QPrintSettingsOutput);
-        QObject::connect(printRange, SIGNAL(toggled(bool)), from, SLOT(setEnabled(bool)));
-        QObject::connect(printRange, SIGNAL(toggled(bool)), to, SLOT(setEnabled(bool)));
+        QObject::connect(printRange, &QRadioButton::toggled, from, &QSpinBox::setEnabled);
+        QObject::connect(printRange, &QRadioButton::toggled, to, &QSpinBox::setEnabled);
 
         tabs->setCurrentIndex(0);
 

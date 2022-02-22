@@ -30,13 +30,14 @@
 #include "core/fpdfapi/parser/cpdf_stream_acc.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
 #include "core/fxcrt/fx_codepage.h"
+#include "core/fxcrt/fx_memory.h"
 #include "core/fxcrt/fx_safe_types.h"
 #include "core/fxge/cfx_font.h"
 #include "core/fxge/cfx_fontmapper.h"
 #include "core/fxge/cfx_substfont.h"
 #include "core/fxge/cfx_unicodeencoding.h"
 #include "core/fxge/fx_font.h"
-#include "third_party/base/ptr_util.h"
+#include "third_party/base/check.h"
 #include "third_party/base/stl_util.h"
 
 namespace {
@@ -258,7 +259,7 @@ RetainPtr<CPDF_ColorSpace> CPDF_DocPageData::GetColorSpaceInternal(
   if (!pCSObj)
     return nullptr;
 
-  if (pdfium::ContainsKey(*pVisitedInternal, pCSObj))
+  if (pdfium::Contains(*pVisitedInternal, pCSObj))
     return nullptr;
 
   pdfium::ScopedSetInsertion<const CPDF_Object*> insertion(pVisitedInternal,
@@ -358,7 +359,7 @@ RetainPtr<CPDF_Pattern> CPDF_DocPageData::GetPattern(CPDF_Object* pPatternObj,
 }
 
 RetainPtr<CPDF_Image> CPDF_DocPageData::GetImage(uint32_t dwStreamObjNum) {
-  ASSERT(dwStreamObjNum);
+  DCHECK(dwStreamObjNum);
   auto it = m_ImageMap.find(dwStreamObjNum);
   if (it != m_ImageMap.end())
     return it->second;
@@ -369,7 +370,7 @@ RetainPtr<CPDF_Image> CPDF_DocPageData::GetImage(uint32_t dwStreamObjNum) {
 }
 
 void CPDF_DocPageData::MaybePurgeImage(uint32_t dwStreamObjNum) {
-  ASSERT(dwStreamObjNum);
+  DCHECK(dwStreamObjNum);
   auto it = m_ImageMap.find(dwStreamObjNum);
   if (it != m_ImageMap.end() && it->second->HasOneRef())
     m_ImageMap.erase(it);
@@ -403,7 +404,7 @@ RetainPtr<CPDF_IccProfile> CPDF_DocPageData::GetIccProfile(
 
 RetainPtr<CPDF_StreamAcc> CPDF_DocPageData::GetFontFileStreamAcc(
     const CPDF_Stream* pFontStream) {
-  ASSERT(pFontStream);
+  DCHECK(pFontStream);
   auto it = m_FontFileMap.find(pFontStream);
   if (it != m_FontFileMap.end())
     return it->second;
@@ -440,7 +441,7 @@ std::unique_ptr<CPDF_Font::FormIface> CPDF_DocPageData::CreateForm(
     CPDF_Document* pDocument,
     CPDF_Dictionary* pPageResources,
     CPDF_Stream* pFormStream) {
-  return pdfium::MakeUnique<CPDF_Form>(pDocument, pPageResources, pFormStream);
+  return std::make_unique<CPDF_Form>(pDocument, pPageResources, pFormStream);
 }
 
 RetainPtr<CPDF_Font> CPDF_DocPageData::AddStandardFont(
@@ -466,7 +467,7 @@ RetainPtr<CPDF_Font> CPDF_DocPageData::AddFont(std::unique_ptr<CFX_Font> pFont,
 
   CPDF_Dictionary* pBaseDict = GetDocument()->NewIndirect<CPDF_Dictionary>();
   pBaseDict->SetNewFor<CPDF_Name>("Type", "Font");
-  auto pEncoding = pdfium::MakeUnique<CFX_UnicodeEncoding>(pFont.get());
+  auto pEncoding = std::make_unique<CFX_UnicodeEncoding>(pFont.get());
   CPDF_Dictionary* pFontDict = pBaseDict;
   if (!bCJK) {
     auto pWidths = pdfium::MakeRetain<CPDF_Array>();
@@ -485,7 +486,7 @@ RetainPtr<CPDF_Font> CPDF_DocPageData::AddFont(std::unique_ptr<CFX_Font> pFont,
       }
     } else {
       size_t i = CalculateEncodingDict(charset, pBaseDict);
-      if (i < FX_ArraySize(g_FX_CharsetUnicodes)) {
+      if (i < pdfium::size(g_FX_CharsetUnicodes)) {
         const uint16_t* pUnicodes = g_FX_CharsetUnicodes[i].m_pUnicodes;
         for (int j = 0; j < 128; j++) {
           int glyph_index = pEncoding->GlyphFromCharCode(pUnicodes[j]);
@@ -516,7 +517,7 @@ RetainPtr<CPDF_Font> CPDF_DocPageData::AddFont(std::unique_ptr<CFX_Font> pFont,
     nStemV = pFont->GetSubstFont()->m_Weight / 5;
   } else {
     static const char stem_chars[] = {'i', 'I', '!', '1'};
-    const size_t count = FX_ArraySize(stem_chars);
+    const size_t count = pdfium::size(stem_chars);
     uint32_t glyph = pEncoding->GlyphFromCharCode(stem_chars[0]);
     nStemV = pFont->GetGlyphWidth(glyph);
     for (size_t i = 1; i < count; i++) {
@@ -621,11 +622,11 @@ RetainPtr<CPDF_Font> CPDF_DocPageData::AddWindowsFont(LOGFONTA* pLogFont) {
 size_t CPDF_DocPageData::CalculateEncodingDict(int charset,
                                                CPDF_Dictionary* pBaseDict) {
   size_t i;
-  for (i = 0; i < FX_ArraySize(g_FX_CharsetUnicodes); ++i) {
+  for (i = 0; i < pdfium::size(g_FX_CharsetUnicodes); ++i) {
     if (g_FX_CharsetUnicodes[i].m_Charset == charset)
       break;
   }
-  if (i == FX_ArraySize(g_FX_CharsetUnicodes))
+  if (i == pdfium::size(g_FX_CharsetUnicodes))
     return i;
 
   CPDF_Dictionary* pEncodingDict =

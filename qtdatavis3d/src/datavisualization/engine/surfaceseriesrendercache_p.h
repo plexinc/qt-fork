@@ -48,7 +48,7 @@
 
 #include <QtGui/QMatrix4x4>
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 class Surface3DRenderer;
 
@@ -58,8 +58,8 @@ public:
     SurfaceSeriesRenderCache(QAbstract3DSeries *series, Surface3DRenderer *renderer);
     virtual ~SurfaceSeriesRenderCache();
 
-    virtual void populate(bool newSeries);
-    virtual void cleanup(TextureHelper *texHelper);
+    void populate(bool newSeries) override;
+    void cleanup(TextureHelper *texHelper) override;
 
     inline bool surfaceVisible() const { return m_surfaceVisible; }
     inline bool surfaceGridVisible() const { return m_surfaceGridVisible; }
@@ -121,6 +121,6 @@ protected:
     GLuint m_surfaceTexture;
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

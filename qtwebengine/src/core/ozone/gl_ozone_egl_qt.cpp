@@ -38,11 +38,10 @@
 ****************************************************************************/
 
 #if defined(USE_OZONE)
-#include <QtCore/qobject.h>
-#include <QtGui/qtgui-config.h>
 #include "gl_context_qt.h"
 #include "gl_ozone_egl_qt.h"
 #include "gl_surface_egl_qt.h"
+
 #include "base/files/file_path.h"
 #include "base/native_library.h"
 #include "ui/gl/gl_context_egl.h"
@@ -50,7 +49,6 @@
 #include "ui/gl/gl_surface.h"
 #include "ui/gl/init/gl_factory.h"
 #include "ui/gl/init/gl_initializer.h"
-
 
 #include <EGL/egl.h>
 #include <dlfcn.h>
@@ -79,13 +77,11 @@ bool GLOzoneEGLQt::LoadGLES2Bindings(gl::GLImplementation /*implementation*/)
             reinterpret_cast<gl::GLGetProcAddressProc>(
                 base::GetFunctionPointerFromNativeLibrary(eglgles2Library,
                                                           "eglGetProcAddress"));
-#if QT_CONFIG(opengl)
     if (!get_proc_address) {
         // QTBUG-63341 most likely libgles2 not linked with libegl -> fallback to qpa
         get_proc_address =
                 reinterpret_cast<gl::GLGetProcAddressProc>(GLContextHelper::getEglGetProcAddress());
     }
-#endif
 
     if (!get_proc_address) {
         LOG(ERROR) << "eglGetProcAddress not found.";

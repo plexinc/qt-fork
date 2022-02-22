@@ -20,7 +20,9 @@
 #include "base/process/process.h"
 #include "base/process/process_handle.h"
 #include "base/strings/string_piece.h"
+#include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 
 #if defined(OS_WIN)
 #include <windows.h>
@@ -33,7 +35,7 @@
 #include "base/posix/file_descriptor_shuffle.h"
 #endif
 
-#if defined(OS_MACOSX) && !defined(OS_IOS)
+#if defined(OS_MAC)
 #include "base/mac/mach_port_rendezvous.h"
 #endif
 
@@ -59,7 +61,7 @@ typedef std::vector<std::pair<int, int>> FileHandleMappingVector;
 // Options for launching a subprocess that are passed to LaunchProcess().
 // The default constructor constructs the object with default options.
 struct BASE_EXPORT LaunchOptions {
-#if (defined(OS_POSIX) || defined(OS_FUCHSIA)) && !defined(OS_MACOSX)
+#if (defined(OS_POSIX) || defined(OS_FUCHSIA)) && !defined(OS_APPLE)
   // Delegate to be run in between fork and exec in the subprocess (see
   // pre_exec_delegate below)
   class BASE_EXPORT PreExecDelegate {
@@ -163,6 +165,14 @@ struct BASE_EXPORT LaunchOptions {
   // If set to true, permission to bring windows to the foreground is passed to
   // the launched process if the current process has such permission.
   bool grant_foreground_privilege = false;
+
+  // If set to true, sets a process mitigation flag to disable Hardware-enforced
+  // Stack Protection for the process.
+  // This overrides /cetcompat if set on the executable. See:
+  // https://docs.microsoft.com/en-us/cpp/build/reference/cetcompat?view=msvc-160
+  // If not supported by Windows, has no effect. This flag weakens security by
+  // turning off ROP protection.
+  bool disable_cetcompat = false;
 #elif defined(OS_POSIX) || defined(OS_FUCHSIA)
   // Remap file descriptors according to the mapping of src_fd->dest_fd to
   // propagate FDs into the child process.
@@ -180,7 +190,7 @@ struct BASE_EXPORT LaunchOptions {
   bool clear_environment = false;
 #endif  // OS_WIN || OS_POSIX || OS_FUCHSIA
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
   // If non-zero, start the process using clone(), using flags as provided.
   // Unlike in clone, clone_flags may not contain a custom termination signal
   // that is sent to the parent when the child dies. The termination signal will
@@ -193,9 +203,9 @@ struct BASE_EXPORT LaunchOptions {
 
   // Sets parent process death signal to SIGKILL.
   bool kill_on_parent_death = false;
-#endif  // defined(OS_LINUX)
+#endif  // defined(OS_LINUX) || defined(OS_CHROMEOS)
 
-#if defined(OS_MACOSX) && !defined(OS_IOS)
+#if defined(OS_MAC)
   // Mach ports that will be accessible to the child process. These are not
   // directly inherited across process creation, but they are stored by a Mach
   // IPC server that a child process can communicate with to retrieve them.
@@ -213,7 +223,14 @@ struct BASE_EXPORT LaunchOptions {
   // code, the responsibility for the child process should be disclaimed so
   // that any TCC requests are not associated with the parent.
   bool disclaim_responsibility = false;
-#endif
+
+#if defined(ARCH_CPU_ARM64)
+  // If true, the child process will be launched as x86_64 code under Rosetta
+  // translation. The executable being launched must contain x86_64 code, either
+  // as a thin Mach-O file targeting x86_64, or a fat file with an x86_64 slice.
+  bool launch_x86_64 = false;
+#endif  // ARCH_CPU_ARM64
+#endif  // OS_MAC
 
 #if defined(OS_FUCHSIA)
   // If valid, launches the application in that job object.
@@ -237,8 +254,8 @@ struct BASE_EXPORT LaunchOptions {
 
   // Specifies which basic capabilities to grant to the child process.
   // By default the child process will receive the caller's complete namespace,
-  // access to the current base::fuchsia::DefaultJob(), handles for stdio and
-  // access to the dynamic library loader.
+  // access to the current base::GetDefaultJob(), handles for stdio and access
+  // to the dynamic library loader.
   // Note that the child is always provided access to the loader service.
   uint32_t spawn_flags = FDIO_SPAWN_CLONE_NAMESPACE | FDIO_SPAWN_CLONE_STDIO |
                          FDIO_SPAWN_CLONE_JOB;
@@ -265,7 +282,7 @@ struct BASE_EXPORT LaunchOptions {
   // argv[0].
   base::FilePath real_path;
 
-#if !defined(OS_MACOSX)
+#if !defined(OS_APPLE)
   // If non-null, a delegate to be run immediately prior to executing the new
   // program in the child process.
   //
@@ -273,7 +290,7 @@ struct BASE_EXPORT LaunchOptions {
   // code running in this delegate essentially needs to be async-signal safe
   // (see man 7 signal for a list of allowed functions).
   PreExecDelegate* pre_exec_delegate = nullptr;
-#endif  // !defined(OS_MACOSX)
+#endif  // !defined(OS_APPLE)
 
   // Each element is an RLIMIT_* constant that should be raised to its
   // rlim_max.  This pointer is owned by the caller and must live through
@@ -286,11 +303,11 @@ struct BASE_EXPORT LaunchOptions {
   bool new_process_group = false;
 #endif  // defined(OS_POSIX)
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
   // If non-negative, the specified file descriptor will be set as the launched
   // process' controlling terminal.
   int ctrl_terminal_fd = -1;
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
 };
 
 // Launch a process via the command line |cmdline|.
@@ -339,12 +356,12 @@ BASE_EXPORT Process LaunchElevatedProcess(const CommandLine& cmdline,
 BASE_EXPORT Process LaunchProcess(const std::vector<std::string>& argv,
                                   const LaunchOptions& options);
 
-#if !defined(OS_MACOSX)
+#if !defined(OS_APPLE)
 // Close all file descriptors, except those which are a destination in the
 // given multimap. Only call this function in a child process where you know
 // that there aren't any other threads.
 BASE_EXPORT void CloseSuperfluousFds(const InjectiveMultimap& saved_map);
-#endif  // defined(OS_MACOSX)
+#endif  // defined(OS_APPLE)
 #endif  // defined(OS_WIN)
 
 #if defined(OS_WIN)
@@ -401,7 +418,7 @@ BASE_EXPORT void RaiseProcessToHighPriority();
 // binary. This should not be called in production/released code.
 BASE_EXPORT LaunchOptions LaunchOptionsForTest();
 
-#if defined(OS_LINUX) || defined(OS_NACL_NONSFI)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_NACL_NONSFI)
 // A wrapper for clone with fork-like behavior, meaning that it returns the
 // child's pid in the parent and 0 in the child. |flags|, |ptid|, and |ctid| are
 // as in the clone system call (the CLONE_VM flag is not supported).
@@ -420,6 +437,17 @@ BASE_EXPORT LaunchOptions LaunchOptionsForTest();
 // However, performing an exec() will lift this restriction.
 BASE_EXPORT pid_t ForkWithFlags(unsigned long flags, pid_t* ptid, pid_t* ctid);
 #endif
+
+namespace internal {
+
+// Friend and derived class of ScopedAllowBaseSyncPrimitives which allows
+// GetAppOutputInternal() to join a process. GetAppOutputInternal() can't itself
+// be a friend of ScopedAllowBaseSyncPrimitives because it is in the anonymous
+// namespace.
+class GetAppOutputScopedAllowBaseSyncPrimitives
+    : public base::ScopedAllowBaseSyncPrimitives {};
+
+}  // namespace internal
 
 }  // namespace base
 

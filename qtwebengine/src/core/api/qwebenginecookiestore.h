@@ -53,13 +53,13 @@ namespace QtWebEngineCore {
 class ContentBrowserClientQt;
 class CookieMonsterDelegateQt;
 class ProfileAdapter;
-class RestrictedCookieManagerQt;
 } // namespace QtWebEngineCore
 
 QT_BEGIN_NAMESPACE
 
 class QWebEngineCookieStorePrivate;
-class Q_WEBENGINECORE_EXPORT QWebEngineCookieStore : public QObject {
+class Q_WEBENGINECORE_EXPORT QWebEngineCookieStore : public QObject
+{
     Q_OBJECT
 
 public:
@@ -85,11 +85,10 @@ Q_SIGNALS:
     void cookieRemoved(const QNetworkCookie &cookie);
 
 private:
-    explicit QWebEngineCookieStore(QObject *parent = Q_NULLPTR);
+    explicit QWebEngineCookieStore(QObject *parent = nullptr);
     friend class QtWebEngineCore::ContentBrowserClientQt;
     friend class QtWebEngineCore::CookieMonsterDelegateQt;
     friend class QtWebEngineCore::ProfileAdapter;
-    friend class QtWebEngineCore::RestrictedCookieManagerQt;
     Q_DISABLE_COPY(QWebEngineCookieStore)
     Q_DECLARE_PRIVATE(QWebEngineCookieStore)
     QScopedPointer<QWebEngineCookieStorePrivate> d_ptr;

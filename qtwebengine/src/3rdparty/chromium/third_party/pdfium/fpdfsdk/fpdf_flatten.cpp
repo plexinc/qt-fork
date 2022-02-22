@@ -6,6 +6,8 @@
 
 #include "public/fpdf_flatten.h"
 
+#include <limits.h>
+
 #include <algorithm>
 #include <memory>
 #include <utility>
@@ -27,6 +29,7 @@
 #include "core/fpdfapi/parser/cpdf_stream_acc.h"
 #include "core/fpdfdoc/cpdf_annot.h"
 #include "fpdfsdk/cpdfsdk_helpers.h"
+#include "third_party/base/notreached.h"
 
 enum FPDF_TYPE { MAX, MIN };
 enum FPDF_VALUE { TOP, LEFT, RIGHT, BOTTOM };
@@ -269,12 +272,15 @@ FPDF_EXPORT int FPDF_CALLCONV FPDFPage_Flatten(FPDF_PAGE page, int nFlag) {
   if (pPageDict->KeyExist(pdfium::page_object::kCropBox))
     rcOriginalMB = pPageDict->GetRectFor(pdfium::page_object::kCropBox);
 
+  rcOriginalMB.Normalize();
   if (rcOriginalMB.IsEmpty())
     rcOriginalMB = CFX_FloatRect(0.0f, 0.0f, 612.0f, 792.0f);
 
   CFX_FloatRect rcOriginalCB;
-  if (pPageDict->KeyExist(pdfium::page_object::kCropBox))
+  if (pPageDict->KeyExist(pdfium::page_object::kCropBox)) {
     rcOriginalCB = pPageDict->GetRectFor(pdfium::page_object::kCropBox);
+    rcOriginalCB.Normalize();
+  }
   if (rcOriginalCB.IsEmpty())
     rcOriginalCB = rcOriginalMB;
 

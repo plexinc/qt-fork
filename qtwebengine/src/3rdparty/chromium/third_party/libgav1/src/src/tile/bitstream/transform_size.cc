@@ -117,9 +117,11 @@ TransformSize Tile::ReadFixedTransformSize(const Block& block) {
   const auto context = static_cast<int>(top_width >= max_tx_width) +
                        static_cast<int>(left_height >= max_tx_height);
   const int cdf_index = kTxDepthCdfIndex[block.size];
-  const int symbol_count = 3 - static_cast<int>(cdf_index == 0);
-  const int tx_depth = reader_.ReadSymbol(
-      symbol_decoder_context_.tx_depth_cdf[cdf_index][context], symbol_count);
+  uint16_t* const cdf =
+      symbol_decoder_context_.tx_depth_cdf[cdf_index][context];
+  const int tx_depth = (cdf_index == 0)
+                           ? static_cast<int>(reader_.ReadSymbol(cdf))
+                           : reader_.ReadSymbol<3>(cdf);
   assert(tx_depth < 3);
   TransformSize tx_size = max_rect_tx_size;
   if (tx_depth == 0) return tx_size;
@@ -141,7 +143,7 @@ void Tile::ReadVariableTransformTree(const Block& block, int row4x4,
   Stack<TransformTreeNode, 7> stack;
   stack.Push(TransformTreeNode(column4x4, row4x4, tx_size, 0));
 
-  while (!stack.Empty()) {
+  do {
     TransformTreeNode node = stack.Pop();
     const int tx_width4x4 = kTransformWidth4x4[node.tx_size];
     const int tx_height4x4 = kTransformHeight4x4[node.tx_size];
@@ -189,7 +191,7 @@ void Tile::ReadVariableTransformTree(const Block& block, int row4x4,
     }
     block_parameters_holder_.Find(node.y, node.x)->transform_size =
         node.tx_size;
-  }
+  } while (!stack.Empty());
 }
 
 void Tile::DecodeTransformSize(const Block& block) {

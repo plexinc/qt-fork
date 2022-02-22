@@ -11,7 +11,8 @@
 #include <string>
 
 #include "base/containers/flat_set.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_multi_source_observation.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browsing_data/cookies_tree_model.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_observer.h"
@@ -68,7 +69,7 @@ class SiteSettingsHandler
   void TreeNodeChanged(ui::TreeModel* model, ui::TreeModelNode* node) override;
   void TreeModelEndBatch(CookiesTreeModel* model) override;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // Alert the Javascript that the |kEnableDRM| pref has changed.
   void OnPrefEnableDrmChanged();
 #endif
@@ -76,8 +77,7 @@ class SiteSettingsHandler
   // content_settings::Observer:
   void OnContentSettingChanged(const ContentSettingsPattern& primary_pattern,
                                const ContentSettingsPattern& secondary_pattern,
-                               ContentSettingsType content_type,
-                               const std::string& resource_identifier) override;
+                               ContentSettingsType content_type) override;
 
   // ProfileObserver:
   void OnOffTheRecordProfileCreated(Profile* off_the_record) override;
@@ -88,7 +88,6 @@ class SiteSettingsHandler
       ContentSettingsType guard_content_settings_type,
       ContentSettingsType data_content_settings_type) override;
 
-  // content::HostZoomMap subscription.
   void OnZoomLevelChanged(const content::HostZoomMap::ZoomLevelChange& change);
 
  private:
@@ -118,6 +117,9 @@ class SiteSettingsHandler
   FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest, GetAndSetForInvalidURLs);
   FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest, GetAndSetOriginPermissions);
   FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest, Incognito);
+  FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest, IncognitoExceptions);
+  FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest,
+                           ResetCategoryPermissionForEmbargoedOrigins);
   FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest, Origins);
   FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest, Patterns);
   FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest, PatternsAndContentType);
@@ -125,11 +127,13 @@ class SiteSettingsHandler
   FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest, ZoomLevels);
   FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest,
                            HandleClearEtldPlus1DataAndCookies);
-  FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest, CookieControlsManagedState);
   FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest, CookieSettingDescription);
   FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest, HandleGetFormattedBytes);
   FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest,
                            NotificationPermissionRevokeUkm);
+  FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest, ExcludeWebUISchemesInLists);
+  FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest,
+                           IncludeWebUISchemesInGetOriginPermissions);
 
   // Creates the CookiesTreeModel if necessary.
   void EnsureCookiesTreeModelCreated();
@@ -168,10 +172,6 @@ class SiteSettingsHandler
   // the front end when fetching finished.
   void HandleGetAllSites(const base::ListValue* args);
 
-  // Returns whether each of the cookie controls is managed and if so what
-  // the source of that management is.
-  void HandleGetCookieControlsManagedState(const base::ListValue* args);
-
   // Returns a string for display describing the current cookie settings.
   void HandleGetCookieSettingDescription(const base::ListValue* args);
 
@@ -206,10 +206,6 @@ class SiteSettingsHandler
   // '*CategoryPermissionForPattern' equivalents below with these methods.
   void HandleGetOriginPermissions(const base::ListValue* args);
   void HandleSetOriginPermissions(const base::ListValue* args);
-
-  // Clears the Flash data setting used to remember if the user has changed the
-  // Flash permission for an origin.
-  void HandleClearFlashPref(const base::ListValue* args);
 
   // Handles setting and resetting an origin permission.
   void HandleResetCategoryPermissionForPattern(const base::ListValue* args);
@@ -266,11 +262,11 @@ class SiteSettingsHandler
   Profile* profile_;
   web_app::AppRegistrar& app_registrar_;
 
-  ScopedObserver<Profile, ProfileObserver> observed_profiles_{this};
+  base::ScopedMultiSourceObservation<Profile, ProfileObserver>
+      observed_profiles_{this};
 
   // Keeps track of events related to zooming.
-  std::unique_ptr<content::HostZoomMap::Subscription>
-      host_zoom_map_subscription_;
+  base::CallbackListSubscription host_zoom_map_subscription_;
 
   // The host for which to fetch usage.
   std::string usage_host_;
@@ -279,13 +275,15 @@ class SiteSettingsHandler
   std::string clearing_origin_;
 
   // Change observer for content settings.
-  ScopedObserver<HostContentSettingsMap, content_settings::Observer> observer_{
-      this};
+  base::ScopedMultiSourceObservation<HostContentSettingsMap,
+                                     content_settings::Observer>
+      observations_{this};
 
   // Change observer for chooser permissions.
-  ScopedObserver<permissions::ChooserContextBase,
-                 permissions::ChooserContextBase::PermissionObserver>
-      chooser_observer_{this};
+  base::ScopedMultiSourceObservation<
+      permissions::ChooserContextBase,
+      permissions::ChooserContextBase::PermissionObserver>
+      chooser_observations_{this};
 
   // Change observer for prefs.
   std::unique_ptr<PrefChangeRegistrar> pref_change_registrar_;

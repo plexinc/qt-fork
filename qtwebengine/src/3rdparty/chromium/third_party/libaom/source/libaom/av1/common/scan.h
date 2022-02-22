@@ -15,9 +15,9 @@
 #include "aom/aom_integer.h"
 #include "aom_ports/mem.h"
 
-#include "av1/common/enums.h"
-#include "av1/common/onyxc_int.h"
+#include "av1/common/av1_common_int.h"
 #include "av1/common/blockd.h"
+#include "av1/common/enums.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -34,7 +34,6 @@ enum {
   SCAN_MODES
 } UENUM1BYTE(SCAN_MODE);
 
-extern const SCAN_ORDER av1_default_scan_orders[TX_SIZES];
 extern const SCAN_ORDER av1_scan_orders[TX_SIZES_ALL][TX_TYPES];
 
 void av1_deliver_eob_threshold(const AV1_COMMON *cm, MACROBLOCKD *xd);

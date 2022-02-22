@@ -38,6 +38,7 @@
 ****************************************************************************/
 
 #include "qtremoteobjectglobal.h"
+#include "qremoteobjectpacket_p.h"
 
 #include <QtCore/qdatastream.h>
 #include <QtCore/qmetaobject.h>
@@ -48,11 +49,34 @@ Q_LOGGING_CATEGORY(QT_REMOTEOBJECT, "qt.remoteobjects", QtWarningMsg)
 Q_LOGGING_CATEGORY(QT_REMOTEOBJECT_MODELS, "qt.remoteobjects.models", QtWarningMsg)
 Q_LOGGING_CATEGORY(QT_REMOTEOBJECT_IO, "qt.remoteobjects.io", QtWarningMsg)
 
+/*!
+    \namespace QtRemoteObjects
+    \inmodule QtRemoteObjects
+
+    \brief The QtRemoteObjects namespace contains identifiers used in the
+    Remote Objects module, as well as some functions used from code generated
+    by the \l{Qt Remote Objects Compiler}{Replica Compiler (repc)}.
+*/
+
+/*!
+    \enum QtRemoteObjects::InitialAction
+
+    This enum type specifies the initial action when acquiring a \l Replica derived
+    from QAbstractItemModel.
+
+    \value FetchRootSize Only the size of the model is requested before the
+                         \l {QRemoteObjectReplica::}{initialized} signal is emitted,
+                         no data will be prefetched before that.
+    \value PrefetchData  Some data can be prefetched before the
+                         \l {QRemoteObjectReplica::}{initialized} signal is emitted.
+
+    \sa QRemoteObjectNode::acquireModel(), QRemoteObjectReplica::initialized()
+*/
+
 namespace QtRemoteObjects {
 
 void copyStoredProperties(const QMetaObject *mo, const void *src, void *dst)
 {
-#if (QT_VERSION >= QT_VERSION_CHECK(5, 5, 0))
     if (!src) {
         qCWarning(QT_REMOTEOBJECT) << Q_FUNC_INFO << ": trying to copy from a null source";
         return;
@@ -66,16 +90,10 @@ void copyStoredProperties(const QMetaObject *mo, const void *src, void *dst)
         const QMetaProperty mp = mo->property(i);
         mp.writeOnGadget(dst, mp.readOnGadget(src));
     }
-#else
-    Q_UNUSED(mo);
-    Q_UNUSED(src);
-    Q_UNUSED(dst);
-#endif
 }
 
 void copyStoredProperties(const QMetaObject *mo, const void *src, QDataStream &dst)
 {
-#if (QT_VERSION >= QT_VERSION_CHECK(5, 5, 0))
     if (!src) {
         qCWarning(QT_REMOTEOBJECT) << Q_FUNC_INFO << ": trying to copy from a null source";
         return;
@@ -83,18 +101,12 @@ void copyStoredProperties(const QMetaObject *mo, const void *src, QDataStream &d
 
     for (int i = 0, end = mo->propertyCount(); i != end; ++i) {
         const QMetaProperty mp = mo->property(i);
-        dst << mp.readOnGadget(src);
+        dst << QRemoteObjectPackets::encodeVariant(mp.readOnGadget(src));
     }
-#else
-    Q_UNUSED(mo);
-    Q_UNUSED(src);
-    Q_UNUSED(dst);
-#endif
 }
 
 void copyStoredProperties(const QMetaObject *mo, QDataStream &src, void *dst)
 {
-#if (QT_VERSION >= QT_VERSION_CHECK(5, 5, 0))
     if (!dst) {
         qCWarning(QT_REMOTEOBJECT) << Q_FUNC_INFO << ": trying to copy to a null destination";
         return;
@@ -104,13 +116,8 @@ void copyStoredProperties(const QMetaObject *mo, QDataStream &src, void *dst)
         const QMetaProperty mp = mo->property(i);
         QVariant v;
         src >> v;
-        mp.writeOnGadget(dst, v);
+        mp.writeOnGadget(dst, QRemoteObjectPackets::decodeVariant(std::move(v), mp.metaType()));
     }
-#else
-    Q_UNUSED(mo);
-    Q_UNUSED(src);
-    Q_UNUSED(dst);
-#endif
 }
 
 } // namespace QtRemoteObjects

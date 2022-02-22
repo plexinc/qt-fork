@@ -6,6 +6,7 @@
 
 #include "base/macros.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "extensions/common/constants.h"
 
 namespace extension_urls {
@@ -37,13 +38,9 @@ const char kGooglePlayMusicAppId[] = "icppfcnhkcmnfdhfhphakoifcfokfdhg";
 const char kGooglePlusAppId[] = "dlppkpafhbajpcmmoheippocdidnckmm";
 const char kGoogleSheetsAppId[] = "felcaaldnbdncclmgdcncolpebgiejap";
 const char kGoogleSlidesAppId[] = "aapocclcgogkmnckokdopfmhonfmgoek";
-const char kHTermAppId[] = "pnhechapfaindjhompbnflcldabbghjo";
-const char kHTermDevAppId[] = "okddffdblfhhnmhodogpojmfkjmhinfp";
 const char kIdentityApiUiAppId[] = "ahjaciijnoiaklcomgnblndopackapon";
-const char kCroshBuiltinAppId[] = "nkoccljplnhpfnfiajclkommnmllphnl";
 const char kTextEditorAppId[] = "mmfbcljfglbokpmkimbfghdkjmjhdgbg";
 const char kInAppPaymentsSupportAppId[] = "nmmhkkegccagdldgiimedpiccmgmieda";
-const char kMediaRouterStableExtensionId[] = "pkedcjkdefgpdelpbcmbmeomcjbeemfm";
 
 const char* const kBuiltInFirstPartyExtensionIds[] = {
     kCalculatorAppId,
@@ -64,16 +61,13 @@ const char* const kBuiltInFirstPartyExtensionIds[] = {
     kGooglePlusAppId,
     kGoogleSheetsAppId,
     kGoogleSlidesAppId,
-    kHTermAppId,
-    kHTermDevAppId,
     kIdentityApiUiAppId,
-    kCroshBuiltinAppId,
     kTextEditorAppId,
     kInAppPaymentsSupportAppId,
-    kMediaRouterStableExtensionId,
-#if defined(OS_CHROMEOS)
+    kCastExtensionIdRelease,
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     kAssessmentAssistantExtensionId,
-    kAutoclickExtensionId,
+    kAccessibilityCommonExtensionId,
     kSelectToSpeakExtensionId,
     kSwitchAccessExtensionId,
     kFilesManagerAppId,
@@ -82,15 +76,20 @@ const char* const kBuiltInFirstPartyExtensionIds[] = {
     kGoogleSpeechSynthesisExtensionId,
     kWallpaperManagerId,
     kZipArchiverExtensionId,
-#endif        // defined(OS_CHROMEOS)
+#endif        // BUILDFLAG(IS_CHROMEOS_ASH)
     nullptr,  // Null-terminated array.
 };
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 const char kAssessmentAssistantExtensionId[] =
     "gndmhdcefbhlchkhipcnnbkcmicncehk";
-const char kAutoclickExtensionId[] = "egfdjlfmgnehecnclamagfafdccgfndp";
-const char kAutoclickExtensionPath[] = "chromeos/accessibility/autoclick";
+const char kAccessibilityCommonExtensionId[] =
+    "egfdjlfmgnehecnclamagfafdccgfndp";
+const char kAccessibilityCommonExtensionPath[] = "chromeos/accessibility";
+const char kAccessibilityCommonManifestFilename[] =
+    "accessibility_common_manifest.json";
+const char kAccessibilityCommonGuestManifestFilename[] =
+    "accessibility_common_manifest_guest.json";
 const char kChromeVoxExtensionPath[] = "chromeos/accessibility";
 const char kChromeVoxManifestFilename[] = "chromevox_manifest.json";
 const char kChromeVoxGuestManifestFilename[] = "chromevox_manifest_guest.json";

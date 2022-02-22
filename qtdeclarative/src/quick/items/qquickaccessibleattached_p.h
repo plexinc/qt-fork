@@ -81,7 +81,6 @@ QT_BEGIN_NAMESPACE
     } \
     Q_SIGNAL void P ## Changed(bool arg);
 
-
 class Q_QUICK_PRIVATE_EXPORT QQuickAccessibleAttached : public QObject
 {
     Q_OBJECT
@@ -91,11 +90,12 @@ class Q_QUICK_PRIVATE_EXPORT QQuickAccessibleAttached : public QObject
     Q_PROPERTY(bool ignored READ ignored WRITE setIgnored NOTIFY ignoredChanged FINAL)
 
     QML_NAMED_ELEMENT(Accessible)
+    QML_ADDED_IN_VERSION(2, 0)
     QML_UNCREATABLE("Accessible is only available via attached properties.")
     QML_ATTACHED(QQuickAccessibleAttached)
+    QML_EXTENDED_NAMESPACE(QAccessible)
 
 public:
-    Q_ENUMS(QAccessible::Role QAccessible::Event)
     STATE_PROPERTY(checkable)
     STATE_PROPERTY(checked)
     STATE_PROPERTY(editable)
@@ -188,6 +188,8 @@ public:
     bool ignored() const;
     bool doAction(const QString &actionName);
     void availableActions(QStringList *actions) const;
+
+    Q_REVISION(6, 2) Q_INVOKABLE static QString stripHtml(const QString &html);
 
 public Q_SLOTS:
     void valueChanged() {

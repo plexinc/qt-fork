@@ -27,10 +27,10 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
+import QtQuick
 // Deliberately imported after QtQuick to avoid missing restoreMode property in Binding. Fix in Qt 6.
-import QtQml 2.14
-import QtQuick.VirtualKeyboard 2.1
+import QtQml
+import QtQuick.VirtualKeyboard
 
 /*!
     \qmltype InputPanel
@@ -48,6 +48,10 @@ import QtQuick.VirtualKeyboard 2.1
     the module, the \c QT_IM_MODULE environment variable must be set to
     \c qtvirtualkeyboard before using InputPanel. For more information, see
     \l {Loading the Plugin}.
+
+    \note You can have only one InputPanel instance in your application. The panel
+    will not be blocked by modal dialogs, but it can be obscured by items with a higher
+    \l {Item::}{z} value.
 */
 
 Item {
@@ -85,10 +89,10 @@ Item {
         It serves as a hook to display a custom language dialog instead of
         the built-in language popup in the virtual keyboard.
 
-        The \e localeList parameter contains a list of locale names to choose
+        The \a localeList parameter contains a list of locale names to choose
         from. To get more information about a particular language, use the
-        \l {QtQml::Qt::locale()}{Qt.locale()} function. The \e currentIndex
-        is the index of current locale in the \e localeList. This item should
+        \l[QtQml]{Qt::locale()}{Qt.locale()} function. The \a currentIndex
+        is the index of current locale in the \a localeList. This item should
         be highlighted as the current item in the UI.
 
         To select a new language, use the \l {VirtualKeyboardSettings::locale}
@@ -126,6 +130,7 @@ Item {
     implicitHeight: keyboard.height
     Keyboard {
         id: keyboard
+        readonly property real yOffset: keyboard.wordCandidateView.currentYOffset - (keyboard.shadowInputControl.visible ? keyboard.shadowInputControl.height : 0)
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
@@ -139,12 +144,22 @@ Item {
     Binding {
         target: InputContext.priv
         property: "keyboardRectangle"
-        value: mapToItem(null,
-                         desktopPanel ? keyboard.x : x,
-                         (desktopPanel ? keyboard.y : y) + keyboard.wordCandidateView.currentYOffset - (keyboard.shadowInputControl.visible ? keyboard.shadowInputControl.height : 0),
-                         keyboard.width,
-                         keyboard.height - keyboard.wordCandidateView.currentYOffset + (keyboard.shadowInputControl.visible ? keyboard.shadowInputControl.height : 0))
+        value: keyboardRectangle()
         when: !InputContext.animating
         restoreMode: Binding.RestoreBinding
+    }
+
+    /*! \internal */
+    function keyboardRectangle() {
+        var rect = Qt.rect(0, keyboard.yOffset, keyboard.width, keyboard.height - keyboard.yOffset)
+        if (desktopPanel) {
+            rect.x += keyboard.x
+            rect.y += keyboard.y
+        }
+        // Read the inputPanel position.
+        // This ensures that the Binding works.
+        var unusedX = inputPanel.x
+        var unusedY = inputPanel.y
+        return mapToItem(null, rect)
     }
 }

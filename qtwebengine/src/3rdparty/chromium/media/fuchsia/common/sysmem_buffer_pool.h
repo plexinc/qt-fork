@@ -43,6 +43,11 @@ class SysmemBufferPool {
         std::vector<fuchsia::sysmem::BufferCollectionTokenPtr> shared_tokens);
     ~Creator();
 
+    // Sets the name of the created buffers. Priority is a number used to choose
+    // which name to use when multiple clients set names. Must be called before
+    // Create. See fuchsia.sysmem/BufferCollection.SetName for a description of
+    // the arguments.
+    void SetName(uint32_t priority, base::StringPiece name);
     void Create(fuchsia::sysmem::BufferCollectionConstraints constraints,
                 CreateCB build_cb);
 
@@ -95,14 +100,19 @@ class SysmemBufferPool {
 // Wrapper of sysmem Allocator.
 class BufferAllocator {
  public:
-  BufferAllocator();
+  explicit BufferAllocator(base::StringPiece client_name);
   ~BufferAllocator();
+
+  fuchsia::sysmem::BufferCollectionTokenPtr CreateNewToken();
 
   std::unique_ptr<SysmemBufferPool::Creator> MakeBufferPoolCreator(
       size_t num_shared_token);
 
-  // TODO(sergeyu): Update FuchsiaVideoDecoder to use SysmemBufferPool and
-  // remove this function.
+  std::unique_ptr<SysmemBufferPool::Creator> MakeBufferPoolCreatorFromToken(
+      fuchsia::sysmem::BufferCollectionTokenPtr token);
+
+  // TODO(crbug.com/1131183): Update FuchsiaVideoDecoder to use SysmemBufferPool
+  // and remove this function.
   fuchsia::sysmem::Allocator* raw() { return allocator_.get(); }
 
  private:

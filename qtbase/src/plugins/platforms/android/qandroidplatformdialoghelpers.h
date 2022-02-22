@@ -1,6 +1,7 @@
 /****************************************************************************
 **
 ** Copyright (C) 2013 BogDan Vatra <bogdan@kde.org>
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the plugins of the Qt Toolkit.
@@ -39,10 +40,13 @@
 
 #ifndef QANDROIDPLATFORMDIALOGHELPERS_H
 #define QANDROIDPLATFORMDIALOGHELPERS_H
+
 #include <jni.h>
-#include <qpa/qplatformdialoghelper.h>
+
 #include <QEventLoop>
-#include <private/qjni_p.h>
+#include <QtCore/QJniEnvironment>
+#include <QtCore/QJniObject>
+#include <qpa/qplatformdialoghelper.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -68,7 +72,7 @@ private:
 private:
     int m_buttonId;
     QEventLoop m_loop;
-    QJNIObjectPrivate m_javaMessageDialog;
+    QJniObject m_javaMessageDialog;
     bool m_shown;
 };
 

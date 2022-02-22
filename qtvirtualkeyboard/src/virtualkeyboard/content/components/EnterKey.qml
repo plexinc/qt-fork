@@ -27,8 +27,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import QtQuick.VirtualKeyboard 2.1
+import QtQuick
+import QtQuick.VirtualKeyboard
 
 /*!
     \qmltype EnterKey
@@ -47,11 +47,12 @@ BaseKey {
     */
     readonly property int actionId: InputContext.priv.hasEnterKeyAction(InputContext.priv.inputItem) ? InputContext.priv.inputItem.EnterKeyAction.actionId : EnterKeyAction.None
 
+    keyType: QtVirtualKeyboard.EnterKey
     text: "\n"
     displayText: InputContext.priv.hasEnterKeyAction(InputContext.priv.inputItem) ? InputContext.priv.inputItem.EnterKeyAction.label : ""
     key: Qt.Key_Return
     showPreview: false
-    highlighted: enabled && displayText.length > 0
+    highlighted: true
     enabled: InputContext.priv.hasEnterKeyAction(InputContext.priv.inputItem) ? InputContext.priv.inputItem.EnterKeyAction.enabled : true
     keyPanelDelegate: keyboard.style ? keyboard.style.enterKeyPanel : undefined
 }

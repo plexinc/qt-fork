@@ -9,15 +9,16 @@
 #include "xfa/fwl/cfwl_datetimepicker.h"
 #include "xfa/fwl/cfwl_themebackground.h"
 
-CFWL_DateTimePickerTP::CFWL_DateTimePickerTP() {}
+CFWL_DateTimePickerTP::CFWL_DateTimePickerTP() = default;
 
-CFWL_DateTimePickerTP::~CFWL_DateTimePickerTP() {}
+CFWL_DateTimePickerTP::~CFWL_DateTimePickerTP() = default;
 
 void CFWL_DateTimePickerTP::DrawBackground(
     const CFWL_ThemeBackground& pParams) {
   switch (pParams.m_iPart) {
     case CFWL_Part::Border:
-      DrawBorder(pParams.m_pGraphics.Get(), pParams.m_rtPart, pParams.m_matrix);
+      DrawBorder(pParams.m_pGraphics.Get(), pParams.m_PartRect,
+                 pParams.m_matrix);
       break;
     case CFWL_Part::DropDownButton:
       DrawDropDownButton(pParams, pParams.m_matrix);
@@ -53,6 +54,6 @@ void CFWL_DateTimePickerTP::DrawDropDownButton(
     default:
       break;
   }
-  DrawArrowBtn(pParams.m_pGraphics.Get(), pParams.m_rtPart,
+  DrawArrowBtn(pParams.m_pGraphics.Get(), pParams.m_PartRect,
                FWLTHEME_DIRECTION_Down, eState, matrix);
 }

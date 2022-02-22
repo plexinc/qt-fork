@@ -76,7 +76,7 @@ namespace Qt3DRender {
 
     For generalised ray casting queries, see Qt3DRender::QRayCaster and Qt3DRender::QScreenRayCaster.
 
-    \sa Qt3DRender::QPickingSettings, Qt3DRender::QGeometry, Qt3DRender::QAttribute,
+    \sa Qt3DRender::QPickingSettings, Qt3DCore::QGeometry, Qt3DCore::QAttribute,
         Qt3DRender::QPickEvent, Qt3DRender::QPickTriangleEvent, Qt3DRender::QNoPicking
 
     \note Instances of this component shouldn't be shared, not respecting that
@@ -292,11 +292,6 @@ void QObjectPicker::setPriority(int priority)
     }
 }
 
-// TODO Unused remove in Qt6
-void QObjectPicker::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &)
-{
-}
-
 /*!
     \qmlproperty bool Qt3D.Render::ObjectPicker::dragEnabled
 */
@@ -476,17 +471,6 @@ void QObjectPickerPrivate::releasedEvent(QPickEvent *event)
         event->setAccepted(false);
         propagateEvent(event, Released);
     }
-}
-
-Qt3DCore::QNodeCreatedChangeBasePtr QObjectPicker::createNodeCreationChange() const
-{
-    auto creationChange = Qt3DCore::QNodeCreatedChangePtr<QObjectPickerData>::create(this);
-    auto &data = creationChange->data;
-    Q_D(const QObjectPicker);
-    data.hoverEnabled = d->m_hoverEnabled;
-    data.dragEnabled = d->m_dragEnabled;
-    data.priority = d->m_priority;
-    return creationChange;
 }
 
 } // Qt3DRender

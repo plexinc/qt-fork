@@ -2,7 +2,7 @@
 
 #############################################################################
 ##
-## Copyright (C) 2017 The Qt Company Ltd.
+## Copyright (C) 2021 The Qt Company Ltd.
 ## Contact: http://www.qt.io/licensing/
 ##
 ## This file is part of the provisioning scripts of the Qt Toolkit.
@@ -33,26 +33,31 @@
 ##
 #############################################################################
 
-# This script installs INTEGRITY
+# This script installs needed toolchains for INTEGRITY
 
 # shellcheck source=../unix/InstallFromCompressedFileFromURL.sh
 source "${BASH_SOURCE%/*}/../unix/InstallFromCompressedFileFromURL.sh"
+# shellcheck source=../unix/DownloadURL.sh
+source "${BASH_SOURCE%/*}/../unix/DownloadURL.sh"
 # shellcheck source=../unix/SetEnvVar.sh
 source "${BASH_SOURCE%/*}/../unix/SetEnvVar.sh"
 
-version="11.4.4"
-PrimaryUrl="http://ci-files01-hki.intra.qt.io/input/integrity/ghs_$version.tar.gz"
-AltUrl="$PrimaryUrl" # we lack an external source for this
-SHA1="4afa3c15e13c91734951b73f6b21388294c5d794"
-targetFolder="/opt/ghs"
+urlToolchainEs7="http://ci-files01-hki.intra.qt.io/input/integrity/integrity_toolchain_es7_25102021.zip"
+urlLibeglmegapack="http://ci-files01-hki.intra.qt.io/input/integrity/integrity_libeglmegapack.zip"
+SHA1_toolchainEs7="13f634213187d94f70d184c6af38eb38f0bf44f0"
+SHA1_Libeglmegapack="7f8ca64132eaea66202ea8db7f71f3300aab0777"
+targetFolder="$HOME"
 appPrefix=""
 
-InstallFromCompressedFileFromURL "$PrimaryUrl" "$AltUrl" "$SHA1" "$targetFolder" "$appPrefix"
+toolchain_file="${BASH_SOURCE%/*}/cmake_toolchain_files/integrity_toolchain.cmake"
 
-SetEnvVar "INTEGRITY_BSP" "platform-cortex-a9"
-SetEnvVar "INTEGRITY_PATH" "$targetFolder/comp_201654"
-SetEnvVar "INTEGRITY_DIR" "$targetFolder/int1144"
-SetEnvVar "INTEGRITY_GL_INC_DIR" "\$INTEGRITY_DIR/INTEGRITY-include/Vivante/sdk/inc"
-SetEnvVar "INTEGRITY_GL_LIB_DIR" "\$INTEGRITY_DIR/libs/Vivante"
+echo "Install Integrity toolchain es7"
+InstallFromCompressedFileFromURL "$urlToolchainEs7" "$urlToolchainEs7" "$SHA1_toolchainEs7" "$targetFolder" "$appPrefix"
 
-echo "INTEGRITY = $version" >> ~/versions.txt
+echo "Install Integrity toolchain addons"
+DownloadURL "$urlLibeglmegapack" "$urlLibeglmegapack" "$SHA1_Libeglmegapack" "/tmp/integrity_libeglmegapack.zip"
+unzip "/tmp/integrity_libeglmegapack.zip" -d "/tmp"
+mv /tmp/toolchain/* $targetFolder/toolchain
+mv $targetFolder/toolchain $targetFolder/integrity_toolchain
+cp $toolchain_file "$targetFolder/integrity_toolchain/toolchain.cmake"
+sudo rm -fr /tmp/toolchain

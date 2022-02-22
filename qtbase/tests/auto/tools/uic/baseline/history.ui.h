@@ -1,7 +1,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'history.ui'
 **
-** Created by: Qt User Interface Compiler version 5.12.0
+** Created by: Qt User Interface Compiler version 6.0.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -10,6 +10,7 @@
 #define HISTORY_H
 
 #include <QtCore/QVariant>
+#include <QtWidgets/QAbstractButton>
 #include <QtWidgets/QApplication>
 #include <QtWidgets/QDialog>
 #include <QtWidgets/QDialogButtonBox>
@@ -84,7 +85,7 @@ public:
 
 
         retranslateUi(HistoryDialog);
-        QObject::connect(buttonBox, SIGNAL(accepted()), HistoryDialog, SLOT(accept()));
+        QObject::connect(buttonBox, &QDialogButtonBox::accepted, HistoryDialog, qOverload<>(&QDialog::accept));
 
         QMetaObject::connectSlotsByName(HistoryDialog);
     } // setupUi

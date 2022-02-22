@@ -4,6 +4,7 @@
 
 #include "base/android/jni_string.h"
 #include "base/feature_list.h"
+#include "base/notreached.h"
 #include "base/stl_util.h"
 
 #include "components/browser_ui/site_settings/android/features.h"
@@ -21,6 +22,7 @@ namespace {
 // in other locations in the code base (e.g. content_features.h).
 const base::Feature* kFeaturesExposedToJava[] = {
     &kAppNotificationStatusMessaging,
+    &kActionableContentSettings,
 };
 
 // TODO(crbug.com/1060097): Remove this once a generalized FeatureList exists.
@@ -35,10 +37,6 @@ const base::Feature* FindFeatureExposedToJava(const std::string& feature_name) {
 }
 
 }  // namespace
-
-static jboolean JNI_SiteSettingsFeatureList_IsInitialized(JNIEnv* env) {
-  return !!base::FeatureList::GetInstance();
-}
 
 static jboolean JNI_SiteSettingsFeatureList_IsEnabled(
     JNIEnv* env,

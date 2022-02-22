@@ -44,19 +44,36 @@
 #include <private/qcolorspace_p.h>
 #include <private/qfont_p.h>
 
-
 QT_BEGIN_NAMESPACE
 
-namespace QQuickValueTypes {
-    void registerValueTypes()
-    {
-        QQmlValueTypeFactory::registerValueTypes("QtQuick", 2, 0);
-    }
+QVariant QQuickColorValueType::create(const QJSValue &params)
+{
+    return params.isString() ? QColor(params.toString()) : QVariant();
 }
 
 QString QQuickColorValueType::toString() const
 {
     return v.name(v.alpha() != 255 ? QColor::HexArgb : QColor::HexRgb);
+}
+
+QVariant QQuickColorValueType::lighter(qreal factor) const
+{
+    return QQml_colorProvider()->lighter(this->v, factor);
+}
+
+QVariant QQuickColorValueType::darker(qreal factor) const
+{
+    return QQml_colorProvider()->darker(this->v, factor);
+}
+
+QVariant QQuickColorValueType::alpha(qreal value) const
+{
+    return QQml_colorProvider()->alpha(this->v, value);
+}
+
+QVariant QQuickColorValueType::tint(QVariant tintColor) const
+{
+    return QQml_colorProvider()->tint(this->v, tintColor);
 }
 
 qreal QQuickColorValueType::r() const
@@ -136,44 +153,91 @@ void QQuickColorValueType::setA(qreal a)
 
 void QQuickColorValueType::setHsvHue(qreal hsvHue)
 {
-    qreal hue, saturation, value, alpha;
+    float hue, saturation, value, alpha;
     v.getHsvF(&hue, &saturation, &value, &alpha);
     v.setHsvF(hsvHue, saturation, value, alpha);
 }
 
 void QQuickColorValueType::setHsvSaturation(qreal hsvSaturation)
 {
-    qreal hue, saturation, value, alpha;
+    float hue, saturation, value, alpha;
     v.getHsvF(&hue, &saturation, &value, &alpha);
     v.setHsvF(hue, hsvSaturation, value, alpha);
 }
 
 void QQuickColorValueType::setHsvValue(qreal hsvValue)
 {
-    qreal hue, saturation, value, alpha;
+    float hue, saturation, value, alpha;
     v.getHsvF(&hue, &saturation, &value, &alpha);
     v.setHsvF(hue, saturation, hsvValue, alpha);
 }
 
 void QQuickColorValueType::setHslHue(qreal hslHue)
 {
-    qreal hue, saturation, lightness, alpha;
+    float hue, saturation, lightness, alpha;
     v.getHslF(&hue, &saturation, &lightness, &alpha);
     v.setHslF(hslHue, saturation, lightness, alpha);
 }
 
 void QQuickColorValueType::setHslSaturation(qreal hslSaturation)
 {
-    qreal hue, saturation, lightness, alpha;
+    float hue, saturation, lightness, alpha;
     v.getHslF(&hue, &saturation, &lightness, &alpha);
     v.setHslF(hue, hslSaturation, lightness, alpha);
 }
 
 void QQuickColorValueType::setHslLightness(qreal hslLightness)
 {
-    qreal hue, saturation, lightness, alpha;
+    float hue, saturation, lightness, alpha;
     v.getHslF(&hue, &saturation, &lightness, &alpha);
     v.setHslF(hue, saturation, hslLightness, alpha);
+}
+
+template<typename T, int NumParams>
+QVariant createValueTypeFromNumberString(const QString &s)
+{
+    Q_STATIC_ASSERT_X(NumParams == 2 || NumParams == 3 || NumParams == 4 || NumParams == 16,
+                      "Unsupported number of params; add an additional case below if necessary.");
+
+    if (s.count(u',') != NumParams - 1)
+        return QVariant();
+
+    QVarLengthArray<float, NumParams> parameters;
+    bool ok = true;
+    for (qsizetype prev = 0, next = s.indexOf(u','), length = s.length(); ok && prev < length;) {
+        parameters.append(s.mid(prev, next - prev).toFloat(&ok));
+        prev = next + 1;
+        next = (parameters.length() == NumParams - 1) ? length : s.indexOf(u',', prev);
+    }
+
+    if (!ok)
+        return QVariant();
+
+    if constexpr (NumParams == 2) {
+        return T(parameters[0], parameters[1]);
+    } else if constexpr (NumParams == 3) {
+        return T(parameters[0], parameters[1], parameters[2]);
+    } else if constexpr (NumParams == 4) {
+        return T(parameters[0], parameters[1], parameters[2], parameters[3]);
+    } else if constexpr (NumParams == 16) {
+        return T(parameters[0], parameters[1], parameters[2], parameters[3],
+                 parameters[4], parameters[5], parameters[6], parameters[7],
+                 parameters[8], parameters[9], parameters[10], parameters[11],
+                 parameters[12], parameters[13], parameters[14], parameters[15]);
+    } else {
+        Q_UNREACHABLE();
+    }
+
+    return QVariant();
+}
+
+QVariant QQuickVector2DValueType::create(const QJSValue &params)
+{
+    if (params.isString())
+        return createValueTypeFromNumberString<QVector2D, 2>(params.toString());
+    if (params.isArray())
+        return QVector2D(params.property(0).toNumber(), params.property(1).toNumber());
+    return QVariant();
 }
 
 QString QQuickVector2DValueType::toString() const
@@ -259,6 +323,18 @@ bool QQuickVector2DValueType::fuzzyEquals(const QVector2D &vec, qreal epsilon) c
 bool QQuickVector2DValueType::fuzzyEquals(const QVector2D &vec) const
 {
     return qFuzzyCompare(v, vec);
+}
+
+QVariant QQuickVector3DValueType::create(const QJSValue &params)
+{
+    if (params.isString())
+        return createValueTypeFromNumberString<QVector3D, 3>(params.toString());
+
+    if (params.isArray()) {
+        return QVector3D(params.property(0).toNumber(), params.property(1).toNumber(),
+                         params.property(2).toNumber());
+    }
+    return QVariant();
 }
 
 QString QQuickVector3DValueType::toString() const
@@ -366,6 +442,19 @@ bool QQuickVector3DValueType::fuzzyEquals(const QVector3D &vec, qreal epsilon) c
 bool QQuickVector3DValueType::fuzzyEquals(const QVector3D &vec) const
 {
     return qFuzzyCompare(v, vec);
+}
+
+QVariant QQuickVector4DValueType::create(const QJSValue &params)
+{
+    if (params.isString())
+        return createValueTypeFromNumberString<QVector4D, 4>(params.toString());
+
+    if (params.isArray()) {
+        return QVector4D(params.property(0).toNumber(), params.property(1).toNumber(),
+                         params.property(2).toNumber(), params.property(3).toNumber());
+    }
+
+    return QVariant();
 }
 
 QString QQuickVector4DValueType::toString() const
@@ -482,6 +571,19 @@ bool QQuickVector4DValueType::fuzzyEquals(const QVector4D &vec) const
     return qFuzzyCompare(v, vec);
 }
 
+QVariant QQuickQuaternionValueType::create(const QJSValue &params)
+{
+    if (params.isString())
+        return createValueTypeFromNumberString<QQuaternion, 4>(params.toString());
+
+    if (params.isArray()) {
+        return QQuaternion(params.property(0).toNumber(), params.property(1).toNumber(),
+                           params.property(2).toNumber(), params.property(3).toNumber());
+    }
+
+    return QVariant();
+}
+
 QString QQuickQuaternionValueType::toString() const
 {
     return QString(QLatin1String("QQuaternion(%1, %2, %3, %4)")).arg(v.scalar()).arg(v.x()).arg(v.y()).arg(v.z());
@@ -525,6 +627,36 @@ void QQuickQuaternionValueType::setY(qreal y)
 void QQuickQuaternionValueType::setZ(qreal z)
 {
     v.setZ(z);
+}
+
+QVariant QQuickMatrix4x4ValueType::create(const QJSValue &params)
+{
+    if (params.isNull() || params.isUndefined())
+        return QMatrix4x4();
+
+    if (params.isString())
+        return createValueTypeFromNumberString<QMatrix4x4, 16>(params.toString());
+
+    if (params.isArray() && params.property(QStringLiteral("length")).toInt() == 16) {
+        return QMatrix4x4(params.property(0).toNumber(),
+                          params.property(1).toNumber(),
+                          params.property(2).toNumber(),
+                          params.property(3).toNumber(),
+                          params.property(4).toNumber(),
+                          params.property(5).toNumber(),
+                          params.property(6).toNumber(),
+                          params.property(7).toNumber(),
+                          params.property(8).toNumber(),
+                          params.property(9).toNumber(),
+                          params.property(10).toNumber(),
+                          params.property(11).toNumber(),
+                          params.property(12).toNumber(),
+                          params.property(13).toNumber(),
+                          params.property(14).toNumber(),
+                          params.property(15).toNumber());
+    }
+
+    return QVariant();
 }
 
 QMatrix4x4 QQuickMatrix4x4ValueType::times(const QMatrix4x4 &m) const
@@ -600,6 +732,78 @@ bool QQuickMatrix4x4ValueType::fuzzyEquals(const QMatrix4x4 &m) const
     return qFuzzyCompare(v, m);
 }
 
+template<typename T>
+void setFontProperty(QFont &font, void (QFont::*setter)(T value), QString name,
+                     const QJSValue &params, bool *ok)
+{
+    const QJSValue value = params.property(name);
+
+    if constexpr (std::is_same_v<T, bool>) {
+        if (value.isBool()) {
+            (font.*setter)(value.toBool());
+            *ok = true;
+        }
+    } else if constexpr (std::is_same_v<
+            typename std::remove_cv<typename std::remove_reference<T>::type>::type,
+            QString>) {
+        if (value.isString()) {
+            (font.*setter)(value.toString());
+            *ok = true;
+        }
+    } else if constexpr (std::is_integral_v<T> || std::is_enum_v<T>) {
+        if (value.isNumber()) {
+            (font.*setter)(T(value.toInt()));
+            *ok = true;
+        }
+    } else if constexpr (std::is_floating_point_v<T>) {
+        if (value.isNumber()) {
+            (font.*setter)(value.toNumber());
+            *ok = true;
+        }
+    }
+}
+
+QVariant QQuickFontValueType::create(const QJSValue &params)
+{
+    if (!params.isObject())
+        return QVariant();
+
+    bool ok = false;
+    QFont ret;
+
+    setFontProperty(ret, &QFont::setBold, QStringLiteral("bold"), params, &ok);
+    setFontProperty(ret, &QFont::setCapitalization, QStringLiteral("capitalization"), params, &ok);
+    setFontProperty(ret, &QFont::setFamily, QStringLiteral("family"), params, &ok);
+    setFontProperty(ret, &QFont::setItalic, QStringLiteral("italic"), params, &ok);
+    setFontProperty(ret, &QFont::setPixelSize, QStringLiteral("pixelSize"), params, &ok);
+    setFontProperty(ret, &QFont::setPointSize, QStringLiteral("pointSize"), params, &ok);
+    setFontProperty(ret, &QFont::setStrikeOut, QStringLiteral("strikeout"), params, &ok);
+    setFontProperty(ret, &QFont::setUnderline, QStringLiteral("underline"), params, &ok);
+    setFontProperty(ret, &QFont::setWeight, QStringLiteral("weight"), params, &ok);
+    setFontProperty(ret, &QFont::setWordSpacing, QStringLiteral("wordSpacing"), params, &ok);
+    setFontProperty(ret, &QFont::setHintingPreference, QStringLiteral("hintingPreference"), params, &ok);
+    setFontProperty(ret, &QFont::setKerning, QStringLiteral("kerning"), params, &ok);
+
+    const QJSValue vlspac = params.property(QStringLiteral("letterSpacing"));
+    if (vlspac.isNumber()) {
+        ret.setLetterSpacing(QFont::AbsoluteSpacing, vlspac.toNumber());
+        ok = true;
+    }
+
+    const QJSValue vshaping = params.property(QStringLiteral("preferShaping"));
+    if (vshaping.isBool()) {
+        const bool enable = vshaping.toBool();
+        const QFont::StyleStrategy strategy = ret.styleStrategy();
+        if (enable)
+            ret.setStyleStrategy(QFont::StyleStrategy(strategy & ~QFont::PreferNoShaping));
+        else
+            ret.setStyleStrategy(QFont::StyleStrategy(strategy | QFont::PreferNoShaping));
+        ok = true;
+    }
+
+    return ok ? ret : QVariant();
+}
+
 QString QQuickFontValueType::toString() const
 {
     return QString(QLatin1String("QFont(%1)")).arg(v.toString());
@@ -635,14 +839,14 @@ void QQuickFontValueType::setBold(bool b)
     v.setBold(b);
 }
 
-QQuickFontValueType::FontWeight QQuickFontValueType::weight() const
+int QQuickFontValueType::weight() const
 {
-    return (QQuickFontValueType::FontWeight)v.weight();
+    return v.weight();
 }
 
-void QQuickFontValueType::setWeight(QQuickFontValueType::FontWeight w)
+void QQuickFontValueType::setWeight(int w)
 {
-    v.setWeight((QFont::Weight)w);
+    v.setWeight(QFont::Weight(w));
 }
 
 bool QQuickFontValueType::italic() const
@@ -695,7 +899,7 @@ qreal QQuickFontValueType::pointSize() const
 
 void QQuickFontValueType::setPointSize(qreal size)
 {
-    if ((v.resolve() & QFont::SizeResolved) && v.pixelSize() != -1) {
+    if ((v.resolveMask() & QFont::SizeResolved) && v.pixelSize() != -1) {
         qWarning() << "Both point size and pixel size set. Using pixel size.";
         return;
     }
@@ -716,18 +920,18 @@ int QQuickFontValueType::pixelSize() const
 void QQuickFontValueType::setPixelSize(int size)
 {
     if (size >0) {
-        if ((v.resolve() & QFont::SizeResolved) && v.pointSizeF() != -1)
+        if ((v.resolveMask() & QFont::SizeResolved) && v.pointSizeF() != -1)
             qWarning() << "Both point size and pixel size set. Using pixel size.";
         v.setPixelSize(size);
     }
 }
 
-QQuickFontValueType::Capitalization QQuickFontValueType::capitalization() const
+QQuickFontEnums::Capitalization QQuickFontValueType::capitalization() const
 {
-    return (QQuickFontValueType::Capitalization)v.capitalization();
+    return (QQuickFontEnums::Capitalization)v.capitalization();
 }
 
-void QQuickFontValueType::setCapitalization(QQuickFontValueType::Capitalization c)
+void QQuickFontValueType::setCapitalization(QQuickFontEnums::Capitalization c)
 {
     v.setCapitalization((QFont::Capitalization)c);
 }
@@ -752,12 +956,12 @@ void QQuickFontValueType::setWordSpacing(qreal size)
     v.setWordSpacing(size);
 }
 
-QQuickFontValueType::HintingPreference QQuickFontValueType::hintingPreference() const
+QQuickFontEnums::HintingPreference QQuickFontValueType::hintingPreference() const
 {
-    return QQuickFontValueType::HintingPreference(v.hintingPreference());
+    return QQuickFontEnums::HintingPreference(v.hintingPreference());
 }
 
-void QQuickFontValueType::setHintingPreference(QQuickFontValueType::HintingPreference hintingPreference)
+void QQuickFontValueType::setHintingPreference(QQuickFontEnums::HintingPreference hintingPreference)
 {
     v.setHintingPreference(QFont::HintingPreference(hintingPreference));
 }
@@ -785,33 +989,61 @@ void QQuickFontValueType::setPreferShaping(bool enable)
         v.setStyleStrategy(static_cast<QFont::StyleStrategy>(v.styleStrategy() | QFont::PreferNoShaping));
 }
 
-QQuickColorSpaceValueType::NamedColorSpace QQuickColorSpaceValueType::namedColorSpace() const noexcept
+QVariant QQuickColorSpaceValueType::create(const QJSValue &params)
+{
+    if (!params.isObject())
+        return QVariant();
+
+
+    const QJSValue vName = params.property(QStringLiteral("namedColorSpace"));
+    if (vName.isNumber())
+        return QColorSpace((QColorSpace::NamedColorSpace)vName.toInt());
+
+    const QJSValue vPri = params.property(QStringLiteral("primaries"));
+    const QJSValue vTra = params.property(QStringLiteral("transferFunction"));
+    if (!vPri.isNumber() || !vTra.isNumber())
+        return QVariant();
+
+    QColorSpace::Primaries pri = static_cast<QColorSpace::Primaries>(vPri.toInt());
+    QColorSpace::TransferFunction tra = static_cast<QColorSpace::TransferFunction>(vTra.toInt());
+    float gamma = 0.0f;
+    if (tra == QColorSpace::TransferFunction::Gamma) {
+        const QJSValue vGam = params.property(QStringLiteral("gamma"));
+        if (!vGam.isNumber())
+            return QVariant();
+        gamma = vGam.toNumber();
+    }
+
+    return QColorSpace(pri, tra, gamma);
+}
+
+QQuickColorSpaceEnums::NamedColorSpace QQuickColorSpaceValueType::namedColorSpace() const noexcept
 {
     if (const auto *p = QColorSpacePrivate::get(v))
-        return (QQuickColorSpaceValueType::NamedColorSpace)p->namedColorSpace;
-    return QQuickColorSpaceValueType::Unknown;
+        return (QQuickColorSpaceEnums::NamedColorSpace)p->namedColorSpace;
+    return QQuickColorSpaceEnums::Unknown;
 }
-void QQuickColorSpaceValueType::setNamedColorSpace(QQuickColorSpaceValueType::NamedColorSpace namedColorSpace)
+void QQuickColorSpaceValueType::setNamedColorSpace(QQuickColorSpaceEnums::NamedColorSpace namedColorSpace)
 {
     v = { (QColorSpace::NamedColorSpace)namedColorSpace };
 }
 
-QQuickColorSpaceValueType::Primaries QQuickColorSpaceValueType::primaries() const noexcept
+QQuickColorSpaceEnums::Primaries QQuickColorSpaceValueType::primaries() const noexcept
 {
-    return (QQuickColorSpaceValueType::Primaries)v.primaries();
+    return (QQuickColorSpaceEnums::Primaries)v.primaries();
 }
 
-void QQuickColorSpaceValueType::setPrimaries(QQuickColorSpaceValueType::Primaries primariesId)
+void QQuickColorSpaceValueType::setPrimaries(QQuickColorSpaceEnums::Primaries primariesId)
 {
     v.setPrimaries((QColorSpace::Primaries)primariesId);
 }
 
-QQuickColorSpaceValueType::TransferFunction QQuickColorSpaceValueType::transferFunction() const noexcept
+QQuickColorSpaceEnums::TransferFunction QQuickColorSpaceValueType::transferFunction() const noexcept
 {
-    return (QQuickColorSpaceValueType::TransferFunction)v.transferFunction();
+    return (QQuickColorSpaceEnums::TransferFunction)v.transferFunction();
 }
 
-void QQuickColorSpaceValueType::setTransferFunction(QQuickColorSpaceValueType::TransferFunction transferFunction)
+void QQuickColorSpaceValueType::setTransferFunction(QQuickColorSpaceEnums::TransferFunction transferFunction)
 {
     v.setTransferFunction((QColorSpace::TransferFunction)transferFunction, v.gamma());
 }

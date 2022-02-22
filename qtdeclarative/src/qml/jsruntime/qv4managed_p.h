@@ -92,7 +92,7 @@ inline void qYouForgotTheQ_MANAGED_Macro(T1, T2) {}
 
 #define V4_MANAGED(DataClass, superClass) \
     private: \
-        DataClass() Q_DECL_EQ_DELETE; \
+        DataClass() = delete; \
         Q_DISABLE_COPY(DataClass) \
         V4_MANAGED_ITSELF(DataClass, superClass) \
         Q_STATIC_ASSERT(std::is_trivial< QV4::Heap::DataClass >::value);
@@ -119,7 +119,7 @@ struct Q_QML_PRIVATE_EXPORT Managed : Value, VTableBase
     };
 private:
     void *operator new(size_t);
-    Managed() Q_DECL_EQ_DELETE;
+    Managed() = delete;
     Q_DISABLE_COPY(Managed)
 
 public:
@@ -144,6 +144,8 @@ public:
         Type_JsonObject,
         Type_MathObject,
         Type_ProxyObject,
+        Type_UrlObject,
+        Type_UrlSearchParamsObject,
 
         Type_ExecutionContext,
         Type_InternalClass,
@@ -154,7 +156,7 @@ public:
         Type_ForInIterator,
         Type_RegExp,
 
-        Type_QmlSequence
+        Type_V4Sequence
     };
     Q_MANAGED_TYPE(Invalid)
 
@@ -162,7 +164,7 @@ public:
     const VTable *vtable() const { return d()->internalClass->vtable; }
     inline ExecutionEngine *engine() const { return internalClass()->engine; }
 
-    bool isListType() const { return d()->internalClass->vtable->type == Type_QmlSequence; }
+    bool isListType() const { return d()->internalClass->vtable->type == Type_V4Sequence; }
     bool isArrayLike() const { return isArrayObject() || isListType(); }
 
     bool isArrayObject() const { return d()->internalClass->vtable->type == Type_ArrayObject; }

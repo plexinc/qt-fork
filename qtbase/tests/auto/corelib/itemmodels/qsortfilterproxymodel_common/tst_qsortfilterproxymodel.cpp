@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
@@ -36,13 +36,17 @@
 #include <QStringListModel>
 #include <QTableView>
 #include <QTreeView>
-#include <QtTest>
+#include <QTest>
+#include <QStack>
+#include <QSignalSpy>
+#include <QAbstractItemModelTester>
+#include <QtTest/private/qpropertytesthelper_p.h>
 
 Q_LOGGING_CATEGORY(lcItemModels, "qt.corelib.tests.itemmodels")
 
 using IntPair = QPair<int, int>;
-using IntList = QVector<int>;
-using IntPairList = QVector<IntPair>;
+using IntList = QList<int>;
+using IntPairList = QList<IntPair>;
 
 // Testing get/set functions
 void tst_QSortFilterProxyModel::getSetCheck()
@@ -78,15 +82,7 @@ void tst_QSortFilterProxyModel::cleanupTestCase()
 
 void tst_QSortFilterProxyModel::cleanup()
 {
-    switch (m_filterType) {
-    case FilterType::RegExp:
-        m_proxy->setFilterRegExp(QRegExp());
-        break;
-    case FilterType::RegularExpression:
-        m_proxy->setFilterRegularExpression(QRegularExpression());
-        break;
-    }
-
+    m_proxy->setFilterRegularExpression(QRegularExpression());
     m_proxy->sort(-1, Qt::AscendingOrder);
     m_model->clear();
     m_model->insertColumns(0, 1);
@@ -553,7 +549,7 @@ void tst_QSortFilterProxyModel::appendRowFromCombobox()
 
     QSortFilterProxyModel proxy;
     proxy.setSourceModel(&model);
-    proxy.setFilterRegExp(pattern);
+    proxy.setFilterRegularExpression(pattern);
 
     QComboBox comboBox;
     comboBox.setModel(&proxy);
@@ -873,29 +869,16 @@ class MyFilteredColumnProxyModel : public QSortFilterProxyModel
 {
     Q_OBJECT
 public:
-    MyFilteredColumnProxyModel(FilterType filterType, QObject *parent = nullptr) :
-        QSortFilterProxyModel(parent),
-        m_filterType(filterType)
+    MyFilteredColumnProxyModel(QObject *parent = nullptr) :
+        QSortFilterProxyModel(parent)
     { }
 
 protected:
     bool filterAcceptsColumn(int sourceColumn, const QModelIndex &) const override
     {
         QString key = sourceModel()->headerData(sourceColumn, Qt::Horizontal).toString();
-        bool result = false;
-        switch (m_filterType) {
-        case FilterType::RegExp:
-            result = key.contains(filterRegExp());
-            break;
-        case FilterType::RegularExpression:
-            result = key.contains(filterRegularExpression());
-            break;
-        }
-        return result;
+        return key.contains(filterRegularExpression());
     }
-
-private:
-    FilterType m_filterType;
 };
 
 void tst_QSortFilterProxyModel::removeColumns_data()
@@ -1104,7 +1087,7 @@ void tst_QSortFilterProxyModel::removeColumns()
     QFETCH(QStringList, expectedSource);
 
     QStandardItemModel model;
-    MyFilteredColumnProxyModel proxy(m_filterType);
+    MyFilteredColumnProxyModel proxy;
     proxy.setSourceModel(&model);
     if (!filter.isEmpty())
         setupFilter(&proxy, filter);
@@ -1358,14 +1341,7 @@ void tst_QSortFilterProxyModel::checkHierarchy(const QStringList &l, const QAbst
 
 void tst_QSortFilterProxyModel::setupFilter(QSortFilterProxyModel *model, const QString& pattern)
 {
-    switch (m_filterType) {
-    case FilterType::RegExp:
-        model->setFilterRegExp(pattern);
-        break;
-    case FilterType::RegularExpression:
-        model->setFilterRegularExpression(pattern);
-        break;
-    }
+    model->setFilterRegularExpression(pattern);
 }
 
 class TestModel: public QAbstractTableModel
@@ -1490,8 +1466,8 @@ void tst_QSortFilterProxyModel::changeSourceLayout()
     QSortFilterProxyModel proxy;
     proxy.setSourceModel(&model);
 
-    QVector<QPersistentModelIndex> persistentSourceIndexes;
-    QVector<QPersistentModelIndex> persistentProxyIndexes;
+    QList<QPersistentModelIndex> persistentSourceIndexes;
+    QList<QPersistentModelIndex> persistentProxyIndexes;
     for (int row = 0; row < model.rowCount(); ++row) {
         persistentSourceIndexes.append(model.index(row, 0));
         persistentProxyIndexes.append(proxy.index(row, 0));
@@ -1637,16 +1613,16 @@ void tst_QSortFilterProxyModel::removeSourceRows()
     QCOMPARE(aboutToRemoveSpy.count(), expectedRemovedProxyIntervals.count());
     for (int i = 0; i < aboutToRemoveSpy.count(); ++i) {
         const auto &args = aboutToRemoveSpy.at(i);
-        QCOMPARE(args.at(1).type(), QVariant::Int);
-        QCOMPARE(args.at(2).type(), QVariant::Int);
+        QCOMPARE(args.at(1).userType(), QMetaType::Int);
+        QCOMPARE(args.at(2).userType(), QMetaType::Int);
         QCOMPARE(args.at(1).toInt(), expectedRemovedProxyIntervals.at(i).first);
         QCOMPARE(args.at(2).toInt(), expectedRemovedProxyIntervals.at(i).second);
     }
     QCOMPARE(removeSpy.count(), expectedRemovedProxyIntervals.count());
     for (int i = 0; i < removeSpy.count(); ++i) {
         const auto &args = removeSpy.at(i);
-        QCOMPARE(args.at(1).type(), QVariant::Int);
-        QCOMPARE(args.at(2).type(), QVariant::Int);
+        QCOMPARE(args.at(1).userType(), QMetaType::Int);
+        QCOMPARE(args.at(2).userType(), QMetaType::Int);
         QCOMPARE(args.at(1).toInt(), expectedRemovedProxyIntervals.at(i).first);
         QCOMPARE(args.at(2).toInt(), expectedRemovedProxyIntervals.at(i).second);
     }
@@ -1815,8 +1791,8 @@ void tst_QSortFilterProxyModel::changeFilter()
     QCOMPARE(initialInsertSpy.count(), 0);
     for (int i = 0; i < initialRemoveSpy.count(); ++i) {
         const auto &args = initialRemoveSpy.at(i);
-        QCOMPARE(args.at(1).type(), QVariant::Int);
-        QCOMPARE(args.at(2).type(), QVariant::Int);
+        QCOMPARE(args.at(1).userType(), QMetaType::Int);
+        QCOMPARE(args.at(2).userType(), QMetaType::Int);
         QCOMPARE(args.at(1).toInt(), initialRemoveIntervals.at(i).first);
         QCOMPARE(args.at(2).toInt(), initialRemoveIntervals.at(i).second);
     }
@@ -1838,8 +1814,8 @@ void tst_QSortFilterProxyModel::changeFilter()
     QCOMPARE(finalRemoveSpy.count(), finalRemoveIntervals.count());
     for (int i = 0; i < finalRemoveSpy.count(); ++i) {
         const auto &args = finalRemoveSpy.at(i);
-        QCOMPARE(args.at(1).type(), QVariant::Int);
-        QCOMPARE(args.at(2).type(), QVariant::Int);
+        QCOMPARE(args.at(1).userType(), QMetaType::Int);
+        QCOMPARE(args.at(2).userType(), QMetaType::Int);
         QCOMPARE(args.at(1).toInt(), finalRemoveIntervals.at(i).first);
         QCOMPARE(args.at(2).toInt(), finalRemoveIntervals.at(i).second);
     }
@@ -1847,8 +1823,8 @@ void tst_QSortFilterProxyModel::changeFilter()
     QCOMPARE(finalInsertSpy.count(), insertIntervals.count());
     for (int i = 0; i < finalInsertSpy.count(); ++i) {
         const auto &args = finalInsertSpy.at(i);
-        QCOMPARE(args.at(1).type(), QVariant::Int);
-        QCOMPARE(args.at(2).type(), QVariant::Int);
+        QCOMPARE(args.at(1).userType(), QMetaType::Int);
+        QCOMPARE(args.at(2).userType(), QMetaType::Int);
         QCOMPARE(args.at(1).toInt(), insertIntervals.at(i).first);
         QCOMPARE(args.at(2).toInt(), insertIntervals.at(i).second);
     }
@@ -2053,8 +2029,8 @@ void tst_QSortFilterProxyModel::changeSourceData()
     QCOMPARE(removeSpy.count(), removeIntervals.count());
     for (int i = 0; i < removeSpy.count(); ++i) {
         const auto &args = removeSpy.at(i);
-        QCOMPARE(args.at(1).type(), QVariant::Int);
-        QCOMPARE(args.at(2).type(), QVariant::Int);
+        QCOMPARE(args.at(1).userType(), QMetaType::Int);
+        QCOMPARE(args.at(2).userType(), QMetaType::Int);
         QCOMPARE(args.at(1).toInt(), removeIntervals.at(i).first);
         QCOMPARE(args.at(2).toInt(), removeIntervals.at(i).second);
     }
@@ -2062,8 +2038,8 @@ void tst_QSortFilterProxyModel::changeSourceData()
     QCOMPARE(insertSpy.count(), insertIntervals.count());
     for (int i = 0; i < insertSpy.count(); ++i) {
         const auto &args = insertSpy.at(i);
-        QCOMPARE(args.at(1).type(), QVariant::Int);
-        QCOMPARE(args.at(2).type(), QVariant::Int);
+        QCOMPARE(args.at(1).userType(), QMetaType::Int);
+        QCOMPARE(args.at(2).userType(), QMetaType::Int);
         QCOMPARE(args.at(1).toInt(), insertIntervals.at(i).first);
         QCOMPARE(args.at(2).toInt(), insertIntervals.at(i).second);
     }
@@ -2174,7 +2150,7 @@ void tst_QSortFilterProxyModel::changeSourceDataForwardsRoles_qtbug35440()
 
     // QStringListModel doesn't distinguish between edit and display roles,
     // so changing one always changes the other, too.
-    QVector<int> expectedChangedRoles;
+    QList<int> expectedChangedRoles;
     expectedChangedRoles.append(Qt::DisplayRole);
     expectedChangedRoles.append(Qt::EditRole);
 
@@ -2182,13 +2158,242 @@ void tst_QSortFilterProxyModel::changeSourceDataForwardsRoles_qtbug35440()
     QVERIFY(index.isValid());
     model.setData(index, QStringLiteral("teststring"), Qt::DisplayRole);
     QCOMPARE(spy.length(), 1);
-    QCOMPARE(spy.at(0).at(2).value<QVector<int> >(), expectedChangedRoles);
+    QCOMPARE(spy.at(0).at(2).value<QList<int> >(), expectedChangedRoles);
 
     index = model.index(1, 0);
     QVERIFY(index.isValid());
     model.setData(index, QStringLiteral("teststring2"), Qt::EditRole);
     QCOMPARE(spy.length(), 2);
-    QCOMPARE(spy.at(1).at(2).value<QVector<int> >(), expectedChangedRoles);
+    QCOMPARE(spy.at(1).at(2).value<QList<int> >(), expectedChangedRoles);
+}
+
+void tst_QSortFilterProxyModel::changeSourceDataProxySendDataChanged_qtbug87781()
+{
+    QStandardItemModel baseModel;
+    QSortFilterProxyModel proxyModelBefore;
+    QSortFilterProxyModel proxyModelAfter;
+
+    QSignalSpy baseDataChangedSpy(&baseModel, &QStandardItemModel::dataChanged);
+    QSignalSpy beforeDataChangedSpy(&proxyModelBefore, &QSortFilterProxyModel::dataChanged);
+    QSignalSpy afterDataChangedSpy(&proxyModelAfter, &QSortFilterProxyModel::dataChanged);
+
+    QVERIFY(baseDataChangedSpy.isValid());
+    QVERIFY(beforeDataChangedSpy.isValid());
+    QVERIFY(afterDataChangedSpy.isValid());
+
+    proxyModelBefore.setSourceModel(&baseModel);
+    baseModel.insertRows(0, 1);
+    baseModel.insertColumns(0, 1);
+    proxyModelAfter.setSourceModel(&baseModel);
+
+    QCOMPARE(baseDataChangedSpy.size(), 0);
+    QCOMPARE(beforeDataChangedSpy.size(), 0);
+    QCOMPARE(afterDataChangedSpy.size(), 0);
+
+    baseModel.setData(baseModel.index(0, 0), QStringLiteral("new data"), Qt::DisplayRole);
+    QCOMPARE(baseDataChangedSpy.size(), 1);
+    QCOMPARE(beforeDataChangedSpy.size(), 1);
+    QCOMPARE(afterDataChangedSpy.size(), 1);
+}
+
+void tst_QSortFilterProxyModel::changeSourceDataTreeModel()
+{
+    QStandardItemModel treeModel;
+    QSortFilterProxyModel treeProxyModelBefore;
+    QSortFilterProxyModel treeProxyModelAfter;
+
+    QSignalSpy treeBaseDataChangedSpy(&treeModel, &QStandardItemModel::dataChanged);
+    QSignalSpy treeBeforeDataChangedSpy(&treeProxyModelBefore, &QSortFilterProxyModel::dataChanged);
+    QSignalSpy treeAfterDataChangedSpy(&treeProxyModelAfter, &QSortFilterProxyModel::dataChanged);
+
+    QVERIFY(treeBaseDataChangedSpy.isValid());
+    QVERIFY(treeBeforeDataChangedSpy.isValid());
+    QVERIFY(treeAfterDataChangedSpy.isValid());
+
+    treeProxyModelBefore.setSourceModel(&treeModel);
+    QStandardItem treeNode1("data1");
+    QStandardItem treeNode11("data11");
+    QStandardItem treeNode111("data111");
+
+    treeNode1.appendRow(&treeNode11);
+    treeNode11.appendRow(&treeNode111);
+    treeModel.appendRow(&treeNode1);
+    treeProxyModelAfter.setSourceModel(&treeModel);
+
+    QCOMPARE(treeBaseDataChangedSpy.size(), 0);
+    QCOMPARE(treeBeforeDataChangedSpy.size(), 0);
+    QCOMPARE(treeAfterDataChangedSpy.size(), 0);
+
+    treeNode111.setData(QStringLiteral("new data"), Qt::DisplayRole);
+    QCOMPARE(treeBaseDataChangedSpy.size(), 1);
+    QCOMPARE(treeBeforeDataChangedSpy.size(), 1);
+    QCOMPARE(treeAfterDataChangedSpy.size(), 1);
+}
+
+void tst_QSortFilterProxyModel::changeSourceDataProxyFilterSingleColumn()
+{
+    enum modelRow { Row0, Row1, RowCount };
+    enum modelColumn { Column0, Column1, Column2, Column3, Column4, Column5, ColumnCount };
+
+    class FilterProxyModel : public QSortFilterProxyModel
+    {
+    public:
+        bool filterAcceptsColumn(int source_column, const QModelIndex &source_parent) const override {
+            Q_UNUSED(source_parent);
+            switch (source_column) {
+            case Column2:
+            case Column4:
+              return true;
+            default:
+              return false;
+            }
+        }
+    };
+
+    QStandardItemModel model;
+    FilterProxyModel proxy;
+    proxy.setSourceModel(&model);
+    model.insertRows(0, RowCount);
+    model.insertColumns(0, ColumnCount);
+
+    QSignalSpy modelDataChangedSpy(&model, &QSortFilterProxyModel::dataChanged);
+    QSignalSpy proxyDataChangedSpy(&proxy, &FilterProxyModel::dataChanged);
+
+    QVERIFY(modelDataChangedSpy.isValid());
+    QVERIFY(proxyDataChangedSpy.isValid());
+
+    modelDataChangedSpy.clear();
+    proxyDataChangedSpy.clear();
+    model.setData(model.index(Row0, Column1), QStringLiteral("new data"), Qt::DisplayRole);
+    QCOMPARE(modelDataChangedSpy.size(), 1);
+    QCOMPARE(proxyDataChangedSpy.size(), 0);
+
+    modelDataChangedSpy.clear();
+    proxyDataChangedSpy.clear();
+    model.setData(model.index(Row0, Column2), QStringLiteral("new data"), Qt::DisplayRole);
+    QCOMPARE(modelDataChangedSpy.size(), 1);
+    QCOMPARE(proxyDataChangedSpy.size(), 1);
+
+    modelDataChangedSpy.clear();
+    proxyDataChangedSpy.clear();
+    model.setData(model.index(Row0, Column3), QStringLiteral("new data"), Qt::DisplayRole);
+    QCOMPARE(modelDataChangedSpy.size(), 1);
+    QCOMPARE(proxyDataChangedSpy.size(), 0);
+
+    modelDataChangedSpy.clear();
+    proxyDataChangedSpy.clear();
+    model.setData(model.index(Row0, Column4), QStringLiteral("new data"), Qt::DisplayRole);
+    QCOMPARE(modelDataChangedSpy.size(), 1);
+    QCOMPARE(proxyDataChangedSpy.size(), 1);
+
+    modelDataChangedSpy.clear();
+    proxyDataChangedSpy.clear();
+    model.setData(model.index(Row0, Column5), QStringLiteral("new data"), Qt::DisplayRole);
+    QCOMPARE(modelDataChangedSpy.size(), 1);
+    QCOMPARE(proxyDataChangedSpy.size(), 0);
+}
+
+void tst_QSortFilterProxyModel::changeSourceDataProxyFilterMultipleColumns()
+{
+    class FilterProxyModel : public QSortFilterProxyModel
+    {
+    public:
+        bool filterAcceptsColumn(int source_column, const QModelIndex &source_parent) const override {
+            Q_UNUSED(source_parent);
+            switch (source_column) {
+            case 2:
+            case 4:
+              return true;
+            default:
+              return false;
+            }
+        }
+    };
+
+    class MyTableModel : public QAbstractTableModel
+    {
+    public:
+        explicit MyTableModel() = default;
+        int rowCount(const QModelIndex &parent = QModelIndex()) const override {
+            Q_UNUSED(parent)
+            return 10;
+        }
+        int columnCount(const QModelIndex &parent = QModelIndex()) const override {
+            Q_UNUSED(parent)
+            return 10;
+        }
+        QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override {
+            Q_UNUSED(index)
+            Q_UNUSED(role)
+            return QString("testData");
+        }
+
+        void testDataChanged(const int topLeftRow, const int topLeftColumn, const int bottomRightRow, const int bottomRightColumn) {
+            QModelIndex topLeft = index(topLeftRow, topLeftColumn);
+            QModelIndex bottomRight = index(bottomRightRow, bottomRightColumn);
+            QVERIFY(topLeft.isValid());
+            QVERIFY(bottomRight.isValid());
+            emit dataChanged(topLeft, bottomRight);
+        }
+    };
+
+    MyTableModel baseModel;
+    FilterProxyModel proxyModel;
+
+    proxyModel.setSourceModel(&baseModel);
+
+    QSignalSpy baseModelDataChangedSpy(&baseModel, &MyTableModel::dataChanged);
+    QSignalSpy proxyModelDataChangedSpy(&proxyModel, &FilterProxyModel::dataChanged);
+
+    connect(&proxyModel, &FilterProxyModel::dataChanged, [=](const QModelIndex &topLeft, const QModelIndex &bottomRight) {
+        QVERIFY(topLeft.isValid());
+        QVERIFY(bottomRight.isValid());
+
+        //make sure every element is valid
+        int topLeftRow = topLeft.row();
+        int topLeftColumn = topLeft.column();
+        int bottomRightRow = bottomRight.row();
+        int bottomRightColumn = bottomRight.column();
+        for (int row = topLeftRow; row <= bottomRightRow; ++row) {
+            for (int column = topLeftColumn; column <= bottomRightColumn; ++column) {
+                QModelIndex index = topLeft.model()->index(row, column);
+                QVERIFY(index.isValid());
+            }
+        }
+    });
+
+    QVERIFY(baseModelDataChangedSpy.isValid());
+    QVERIFY(proxyModelDataChangedSpy.isValid());
+
+    baseModelDataChangedSpy.clear();
+    proxyModelDataChangedSpy.clear();
+    baseModel.testDataChanged(0, 0, 1, 1);
+    QCOMPARE(baseModelDataChangedSpy.size(), 1);
+    QCOMPARE(proxyModelDataChangedSpy.size(), 0);
+
+    baseModelDataChangedSpy.clear();
+    proxyModelDataChangedSpy.clear();
+    baseModel.testDataChanged(0, 0, 1, 2);
+    QCOMPARE(baseModelDataChangedSpy.size(), 1);
+    QCOMPARE(proxyModelDataChangedSpy.size(), 1);
+
+    baseModelDataChangedSpy.clear();
+    proxyModelDataChangedSpy.clear();
+    baseModel.testDataChanged(0, 3, 1, 3);
+    QCOMPARE(baseModelDataChangedSpy.size(), 1);
+    QCOMPARE(proxyModelDataChangedSpy.size(), 0);
+
+    baseModelDataChangedSpy.clear();
+    proxyModelDataChangedSpy.clear();
+    baseModel.testDataChanged(0, 3, 1, 5);
+    QCOMPARE(baseModelDataChangedSpy.size(), 1);
+    QCOMPARE(proxyModelDataChangedSpy.size(), 1);
+
+    baseModelDataChangedSpy.clear();
+    proxyModelDataChangedSpy.clear();
+    baseModel.testDataChanged(0, 0, 1, 5);
+    QCOMPARE(baseModelDataChangedSpy.size(), 1);
+    QCOMPARE(proxyModelDataChangedSpy.size(), 1);
 }
 
 void tst_QSortFilterProxyModel::sortFilterRole()
@@ -2198,12 +2403,12 @@ void tst_QSortFilterProxyModel::sortFilterRole()
     proxy.setSourceModel(&model);
     model.insertColumns(0, 1);
 
-    const QVector<QPair<QVariant, QVariant>>
+    const QList<QPair<QVariant, QVariant>>
         sourceItems({QPair<QVariant, QVariant>("b", 3),
                      QPair<QVariant, QVariant>("c", 2),
                      QPair<QVariant, QVariant>("a", 1)});
 
-    const QVector<int> orderedItems({2, 1});
+    const QList<int> orderedItems({2, 1});
 
     model.insertRows(0, sourceItems.count());
     for (int i = 0; i < sourceItems.count(); ++i) {
@@ -2851,7 +3056,7 @@ public:
 
     bool hasChildren(const QModelIndex &parent = QModelIndex()) const override
     {
-        Q_UNUSED(parent)
+        Q_UNUSED(parent);
         return true;
     }
 
@@ -2862,7 +3067,7 @@ public:
 
     int columnCount(const QModelIndex& parent = QModelIndex()) const override
     {
-        Q_UNUSED(parent)
+        Q_UNUSED(parent);
         return cols;
     }
 
@@ -3528,7 +3733,7 @@ public:
     }
 
 private slots:
-  void resetInternalData()
+  void resetInternalData() override
   {
       m_backgroundColours.clear();
   }
@@ -4014,14 +4219,14 @@ public:
     using QAbstractListModel::QAbstractListModel;
     QVariant data(const QModelIndex &index, int role) const override
     {
-        Q_UNUSED(index)
-        Q_UNUSED(role)
+        Q_UNUSED(index);
+        Q_UNUSED(role);
         return QVariant();
     }
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const  override
     {
-        Q_UNUSED(parent)
+        Q_UNUSED(parent);
         return 0;
     }
 
@@ -4062,15 +4267,15 @@ public:
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const override
     {
-        Q_UNUSED(parent)
+        Q_UNUSED(parent);
         return 10;
     }
 
     bool canDropMimeData(const QMimeData *, Qt::DropAction,
                          int row, int column, const QModelIndex &parent) const override
     {
-        Q_UNUSED(row)
-        Q_UNUSED(column)
+        Q_UNUSED(row);
+        Q_UNUSED(column);
         return parent.row() % 2 == 0;
     }
 };
@@ -4634,16 +4839,16 @@ void tst_QSortFilterProxyModel::removeIntervals()
     QCOMPARE(aboutToRemoveSpy.count(), expectedRemovedProxyIntervals.count());
     for (int i = 0; i < aboutToRemoveSpy.count(); ++i) {
         const auto &args = aboutToRemoveSpy.at(i);
-        QCOMPARE(args.at(1).type(), QVariant::Int);
-        QCOMPARE(args.at(2).type(), QVariant::Int);
+        QCOMPARE(args.at(1).userType(), QMetaType::Int);
+        QCOMPARE(args.at(2).userType(), QMetaType::Int);
         QCOMPARE(args.at(1).toInt(), expectedRemovedProxyIntervals.at(i).first);
         QCOMPARE(args.at(2).toInt(), expectedRemovedProxyIntervals.at(i).second);
     }
     QCOMPARE(removeSpy.count(), expectedRemovedProxyIntervals.count());
     for (int i = 0; i < removeSpy.count(); ++i) {
         const auto &args = removeSpy.at(i);
-        QCOMPARE(args.at(1).type(), QVariant::Int);
-        QCOMPARE(args.at(2).type(), QVariant::Int);
+        QCOMPARE(args.at(1).userType(), QMetaType::Int);
+        QCOMPARE(args.at(2).userType(), QMetaType::Int);
         QCOMPARE(args.at(1).toInt(), expectedRemovedProxyIntervals.at(i).first);
         QCOMPARE(args.at(2).toInt(), expectedRemovedProxyIntervals.at(i).second);
     }
@@ -4799,7 +5004,7 @@ void tst_QSortFilterProxyModel::filterAndInsertColumn()
         {}
         bool filterAcceptsColumn(int source_column, const QModelIndex &source_parent) const override
         {
-            Q_UNUSED(source_parent)
+            Q_UNUSED(source_parent);
             switch (filerMode){
             case FilterAll:
                 return true;
@@ -4822,7 +5027,7 @@ void tst_QSortFilterProxyModel::filterAndInsertColumn()
     model.insertRows(0, 1);
     for (int i = 0; i < model.rowCount(); ++i) {
         for (int j = 0; j < model.columnCount(); ++j)
-            model.setData(model.index(i, j), QString('A' + j) + QString::number(i + 1));
+            model.setData(model.index(i, j), QString(QChar('A' + j)) + QString::number(i + 1));
     }
     ColumnFilterProxy proxy(filterMode);
     proxy.setSourceModel(&model);
@@ -4928,7 +5133,7 @@ void tst_QSortFilterProxyModel::filterAndInsertRow()
     model.setStringList(initialModelList);
     proxyModel.setSourceModel(&model);
     proxyModel.setDynamicSortFilter(true);
-    proxyModel.setFilterRegExp(filterRegExp);
+    proxyModel.setFilterRegularExpression(filterRegExp);
 
     QVERIFY(proxyModel.insertRow(row));
     QCOMPARE(model.stringList(), expectedModelList);
@@ -4938,6 +5143,383 @@ void tst_QSortFilterProxyModel::filterAndInsertRow()
       QVERIFY(index.isValid());
       QCOMPARE(proxyModel.data(index).toString(), expectedProxyModelList.at(r));
     }
+}
+
+
+namespace CheckFilteredIndexes {
+class TableModel : public QAbstractTableModel
+{
+    Q_OBJECT
+public:
+    static const int s_rowCount = 1000;
+    static const int s_columnCount = 1;
+    TableModel(QObject *parent = nullptr) : QAbstractTableModel(parent)
+    {
+        m_data.resize(s_rowCount);
+        for (int r = 0; r < s_rowCount; ++r) {
+            auto &curRow = m_data[r];
+            curRow.resize(s_columnCount);
+            for (int c = 0; c < s_columnCount; ++c) {
+                curRow[c] = QVariant(QString::number(r % 100) +
+                                     QLatin1Char('_') + QString::number(r / 100) +
+                                     QString::number(c));
+            }
+        }
+    }
+    int rowCount(const QModelIndex &parent = QModelIndex()) const override
+    {
+        return parent.isValid() ? 0 : s_rowCount;
+    }
+    int columnCount(const QModelIndex &parent = QModelIndex()) const override
+    {
+        return parent.isValid() ? 0 : s_columnCount;
+    }
+    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override
+    {
+        if (role != Qt::DisplayRole || !index.isValid())
+            return QVariant();
+        return m_data[index.row()][index.column()];
+    }
+    QList<QList<QVariant>> m_data;
+};
+
+class SortFilterProxyModel final : public QSortFilterProxyModel
+{
+    Q_OBJECT
+public:
+    using QSortFilterProxyModel::QSortFilterProxyModel;
+    using QSortFilterProxyModel::invalidateFilter;
+
+    void setSourceModel(QAbstractItemModel *m) override
+    {
+        m_sourceModel = qobject_cast<TableModel*>(m);
+        QSortFilterProxyModel::setSourceModel(m);
+    }
+    bool lessThan(const QModelIndex &left, const QModelIndex &right) const override
+    {
+        if (!left.isValid() || !right.isValid() || !m_sourceModel)
+            return QSortFilterProxyModel::lessThan(left, right);
+        return m_sourceModel->m_data.at(left.row()).at(left.column()).toString() <
+               m_sourceModel->m_data.at(right.row()).at(right.column()).toString();
+    }
+    bool filterAcceptsRow(int source_row, const QModelIndex &source_parent) const override
+    {
+        if (m_filteredRows == 0 || source_parent.isValid())
+            return true;
+        return (source_row % m_filteredRows) != 0;
+    }
+
+    TableModel *m_sourceModel = nullptr;
+    int m_filteredRows = 0;
+    bool m_bInverseFilter = false;
+};
+}
+
+void tst_QSortFilterProxyModel::checkFilteredIndexes()
+{
+    using namespace CheckFilteredIndexes;
+    auto checkIndexes = [](const SortFilterProxyModel &s)
+    {
+        for (int r = 0; r < s.rowCount(); ++r) {
+            const QModelIndex idxSFPM = s.index(r, 0);
+            const QModelIndex idxTM = s.mapToSource(idxSFPM);
+            QVERIFY(idxTM.isValid());
+            QVERIFY(idxTM.row() % s.m_filteredRows != 0);
+        }
+    };
+
+    TableModel m;
+    SortFilterProxyModel s;
+    s.m_filteredRows = 2; // every 2nd row is filtered
+    s.setSourceModel(&m);
+    s.sort(0);
+
+    s.invalidateFilter();
+    checkIndexes(s);
+
+    s.m_filteredRows = 5; // every 5th row is filtered
+    s.invalidateFilter();
+    checkIndexes(s);
+
+    s.m_filteredRows = 3; // every 3rd row is filtered
+    s.invalidateFilter();
+    checkIndexes(s);
+}
+
+void tst_QSortFilterProxyModel::invalidateColumnsOrRowsFilter()
+{
+    class FilterProxy : public QSortFilterProxyModel
+    {
+    public:
+        FilterProxy()
+        {}
+        bool filterAcceptsRow(int source_row, const QModelIndex &source_parent) const override
+        {
+            rowFiltered++;
+
+            if (sourceModel()->data(sourceModel()->index(source_row, 0, source_parent)).toString() == QLatin1String("A1"))
+                return !rejectA1;
+            return true;
+        }
+        bool filterAcceptsColumn(int source_column, const QModelIndex &source_parent) const override
+        {
+            Q_UNUSED(source_column);
+            Q_UNUSED(source_parent);
+
+            columnFiltered++;
+            return true;
+        }
+
+        mutable int rowFiltered = 0;
+        mutable int columnFiltered = 0;
+        bool rejectA1 = false;
+
+        using QSortFilterProxyModel::invalidateFilter;
+        using QSortFilterProxyModel::invalidateRowsFilter;
+        using QSortFilterProxyModel::invalidateColumnsFilter;
+    };
+    QStandardItemModel model(10, 4);
+    for (int i = 0; i < model.rowCount(); ++i) {
+        for (int j = 0; j < model.columnCount(); ++j) {
+            model.setItem(i, j, new QStandardItem(QString(QChar('A' + j)) + QString::number(i + 1)));
+            model.item(i, 0)->appendColumn({ new QStandardItem(QString("child col %0").arg(j)) });
+        }
+    }
+    FilterProxy proxy;
+    proxy.setSourceModel(&model);
+
+    QTreeView view;
+    view.setModel(&proxy);
+    view.expandAll();
+
+    QCOMPARE(proxy.rowFiltered, 20); //10 parents + 10 children
+    QCOMPARE(proxy.columnFiltered, 44); // 4 parents + 4 * 10 children
+
+    proxy.rowFiltered = proxy.columnFiltered = 0;
+    proxy.invalidateFilter();
+
+    QCOMPARE(proxy.rowFiltered, 20);
+    QCOMPARE(proxy.columnFiltered, 44);
+
+    proxy.rowFiltered = proxy.columnFiltered = 0;
+    proxy.invalidateRowsFilter();
+
+    QCOMPARE(proxy.rowFiltered, 20);
+    QCOMPARE(proxy.columnFiltered, 0);
+
+    proxy.rowFiltered = proxy.columnFiltered = 0;
+    proxy.invalidateColumnsFilter();
+
+    QCOMPARE(proxy.rowFiltered, 0);
+    QCOMPARE(proxy.columnFiltered, 44);
+
+    QCOMPARE(proxy.rowCount(), 10);
+    proxy.rejectA1 = true;
+    proxy.rowFiltered = proxy.columnFiltered = 0;
+    proxy.invalidateRowsFilter();
+    QCOMPARE(proxy.rowCount(), 9);
+    QCOMPARE(proxy.rowFiltered, 19); // it will not check the child row of A1
+
+    proxy.rowFiltered = proxy.columnFiltered = 0;
+    proxy.setRecursiveFilteringEnabled(true); // this triggers invalidateRowsFilter()
+    QCOMPARE(proxy.rowCount(), 10);
+    QCOMPARE(proxy.rowFiltered, 20);
+}
+
+void tst_QSortFilterProxyModel::filterKeyColumnBinding()
+{
+    QSortFilterProxyModel proxyModel;
+    QCOMPARE(proxyModel.filterKeyColumn(), 0);
+    QTestPrivate::testReadWritePropertyBasics<QSortFilterProxyModel, int>(proxyModel, 10, 5,
+                                                                          "filterKeyColumn");
+}
+
+void tst_QSortFilterProxyModel::dynamicSortFilterBinding()
+{
+    QSortFilterProxyModel proxyModel;
+    QCOMPARE(proxyModel.dynamicSortFilter(), true);
+    QTestPrivate::testReadWritePropertyBasics<QSortFilterProxyModel, bool>(proxyModel, false, true,
+                                                                           "dynamicSortFilter");
+}
+
+void tst_QSortFilterProxyModel::sortCaseSensitivityBinding()
+{
+    QSortFilterProxyModel proxyModel;
+    QCOMPARE(proxyModel.sortCaseSensitivity(), Qt::CaseSensitive);
+    QTestPrivate::testReadWritePropertyBasics<QSortFilterProxyModel, Qt::CaseSensitivity>(
+            proxyModel, Qt::CaseInsensitive, Qt::CaseSensitive, "sortCaseSensitivity");
+}
+
+void tst_QSortFilterProxyModel::isSortLocaleAwareBinding()
+{
+    QSortFilterProxyModel proxyModel;
+    QCOMPARE(proxyModel.isSortLocaleAware(), false);
+    QTestPrivate::testReadWritePropertyBasics<QSortFilterProxyModel, bool>(proxyModel, true, false,
+                                                                           "isSortLocaleAware");
+}
+
+void tst_QSortFilterProxyModel::sortRoleBinding()
+{
+    QSortFilterProxyModel proxyModel;
+    QCOMPARE(proxyModel.sortRole(), Qt::DisplayRole);
+    QTestPrivate::testReadWritePropertyBasics<QSortFilterProxyModel, int>(
+            proxyModel, Qt::TextAlignmentRole, Qt::ToolTipRole, "sortRole");
+}
+
+void tst_QSortFilterProxyModel::filterRoleBinding()
+{
+    QSortFilterProxyModel proxyModel;
+    QCOMPARE(proxyModel.filterRole(), Qt::DisplayRole);
+    QTestPrivate::testReadWritePropertyBasics<QSortFilterProxyModel, int>(
+            proxyModel, Qt::DecorationRole, Qt::CheckStateRole, "filterRole");
+}
+
+void tst_QSortFilterProxyModel::recursiveFilteringEnabledBinding()
+{
+    QSortFilterProxyModel proxyModel;
+    QCOMPARE(proxyModel.isRecursiveFilteringEnabled(), false);
+    QTestPrivate::testReadWritePropertyBasics<QSortFilterProxyModel, bool>(
+            proxyModel, true, false, "recursiveFilteringEnabled");
+}
+
+void tst_QSortFilterProxyModel::autoAcceptChildRowsBinding()
+{
+    QSortFilterProxyModel proxyModel;
+    QCOMPARE(proxyModel.autoAcceptChildRows(), false);
+    QTestPrivate::testReadWritePropertyBasics<QSortFilterProxyModel, bool>(proxyModel, true, false,
+                                                                           "autoAcceptChildRows");
+}
+
+void tst_QSortFilterProxyModel::filterCaseSensitivityBinding()
+{
+    QSortFilterProxyModel proxyModel;
+    QCOMPARE(proxyModel.filterCaseSensitivity(), Qt::CaseSensitive);
+    QTestPrivate::testReadWritePropertyBasics<QSortFilterProxyModel, Qt::CaseSensitivity>(
+            proxyModel, Qt::CaseInsensitive, Qt::CaseSensitive, "filterCaseSensitivity");
+    if (QTest::currentTestFailed())
+        return;
+
+    // Make sure that setting QRegularExpression updates filterCaseSensitivity
+    // and invalidates its binding.
+    QProperty<Qt::CaseSensitivity> setter(Qt::CaseSensitive);
+    proxyModel.bindableFilterCaseSensitivity().setBinding(Qt::makePropertyBinding(setter));
+    QCOMPARE(proxyModel.filterCaseSensitivity(), Qt::CaseSensitive);
+    QVERIFY(proxyModel.bindableFilterCaseSensitivity().hasBinding());
+
+    QSignalSpy spy(&proxyModel, &QSortFilterProxyModel::filterCaseSensitivityChanged);
+    QRegularExpression regExp("pattern", QRegularExpression::CaseInsensitiveOption);
+    proxyModel.setFilterRegularExpression(regExp);
+    QCOMPARE(proxyModel.filterCaseSensitivity(), Qt::CaseInsensitive);
+    QCOMPARE(spy.count(), 1);
+    QVERIFY(!proxyModel.bindableFilterCaseSensitivity().hasBinding());
+}
+
+void tst_QSortFilterProxyModel::filterRegularExpressionBinding()
+{
+    QSortFilterProxyModel proxyModel;
+    QCOMPARE(proxyModel.filterRegularExpression(), QRegularExpression());
+    const QRegularExpression initial("initial", QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpression changed("changed");
+    QTestPrivate::testReadWritePropertyBasics<QSortFilterProxyModel, QRegularExpression>(
+            proxyModel, initial, changed, "filterRegularExpression");
+    if (QTest::currentTestFailed())
+        return;
+
+    // Make sure that setting filterCaseSensitivity updates QRegularExpression
+    // and invalidates its binding.
+    QProperty<QRegularExpression> setter(initial);
+    proxyModel.bindableFilterRegularExpression().setBinding(Qt::makePropertyBinding(setter));
+    QCOMPARE(proxyModel.filterRegularExpression(), initial);
+    QVERIFY(proxyModel.bindableFilterRegularExpression().hasBinding());
+
+    int counter = 0;
+    auto handler = proxyModel.bindableFilterRegularExpression().onValueChanged(
+            [&counter]() { ++counter; });
+    Q_UNUSED(handler);
+    proxyModel.setFilterCaseSensitivity(Qt::CaseSensitive);
+    QCOMPARE(proxyModel.filterRegularExpression(), QRegularExpression(initial.pattern()));
+    QCOMPARE(counter, 1);
+    QVERIFY(!proxyModel.bindableFilterRegularExpression().hasBinding());
+
+    QProperty<Qt::CaseSensitivity> csSetter(Qt::CaseInsensitive);
+    // Make sure that setting filter string updates QRegularExpression, but does
+    // not break the binding for case sensitivity.
+    proxyModel.setFilterRegularExpression(initial);
+    proxyModel.bindableFilterCaseSensitivity().setBinding(Qt::makePropertyBinding(csSetter));
+    QVERIFY(proxyModel.bindableFilterCaseSensitivity().hasBinding());
+
+    counter = 0;
+    proxyModel.setFilterRegularExpression("ch(ang|opp)ed");
+    // The pattern has changed, but the case sensitivity options are the same.
+    QCOMPARE(proxyModel.filterRegularExpression(),
+             QRegularExpression("ch(ang|opp)ed", QRegularExpression::CaseInsensitiveOption));
+    QCOMPARE(counter, 1);
+    QVERIFY(proxyModel.bindableFilterCaseSensitivity().hasBinding());
+
+    // Make sure that setting filter wildcard updates QRegularExpression, but
+    // does not break the binding for case sensitivity.
+    proxyModel.setFilterRegularExpression(initial);
+    proxyModel.bindableFilterCaseSensitivity().setBinding(Qt::makePropertyBinding(csSetter));
+    QVERIFY(proxyModel.bindableFilterCaseSensitivity().hasBinding());
+
+    counter = 0;
+    proxyModel.setFilterWildcard("*.jpeg");
+    const QString wildcardStr = QRegularExpression::wildcardToRegularExpression(
+            "*.jpeg", QRegularExpression::UnanchoredWildcardConversion);
+    // The pattern has changed, but the case sensitivity options are the same.
+    QCOMPARE(proxyModel.filterRegularExpression(),
+             QRegularExpression(wildcardStr, QRegularExpression::CaseInsensitiveOption));
+    QCOMPARE(counter, 1);
+    QVERIFY(proxyModel.bindableFilterCaseSensitivity().hasBinding());
+
+    // Make sure that setting filter fixed string updates QRegularExpression,
+    // but does not break the binding for case sensitivity.
+    proxyModel.setFilterRegularExpression(initial);
+    proxyModel.bindableFilterCaseSensitivity().setBinding(Qt::makePropertyBinding(csSetter));
+    QVERIFY(proxyModel.bindableFilterCaseSensitivity().hasBinding());
+
+    counter = 0;
+    proxyModel.setFilterFixedString("test");
+    // The pattern has changed, but the case sensitivity options are the same.
+    QCOMPARE(proxyModel.filterRegularExpression(),
+             QRegularExpression("test", QRegularExpression::CaseInsensitiveOption));
+    QCOMPARE(counter, 1);
+    QVERIFY(proxyModel.bindableFilterCaseSensitivity().hasBinding());
+}
+
+void tst_QSortFilterProxyModel::createPersistentOnLayoutAboutToBeChanged() // QTBUG-93466
+{
+    QStandardItemModel model(3, 1);
+    for (int row = 0; row < 3; ++row)
+        model.setData(model.index(row, 0), row, Qt::UserRole);
+    QSortFilterProxyModel proxy;
+    new QAbstractItemModelTester(&proxy, &proxy);
+    proxy.setSourceModel(&model);
+    proxy.setSortRole(Qt::UserRole);
+    QList<QPersistentModelIndex> idxList;
+    QSignalSpy layoutAboutToBeChangedSpy(&proxy, &QAbstractItemModel::layoutAboutToBeChanged);
+    QSignalSpy layoutChangedSpy(&proxy, &QAbstractItemModel::layoutChanged);
+    connect(&proxy, &QAbstractItemModel::layoutAboutToBeChanged, this, [&idxList, &proxy](){
+        idxList.clear();
+        for (int row = 0; row < 3; ++row)
+            idxList << QPersistentModelIndex(proxy.index(row, 0));
+    });
+    connect(&proxy, &QAbstractItemModel::layoutChanged, this, [&idxList](){
+        QCOMPARE(idxList.size(), 3);
+        QCOMPARE(idxList.at(0).row(), 1);
+        QCOMPARE(idxList.at(0).column(), 0);
+        QCOMPARE(idxList.at(0).data(Qt::UserRole).toInt(), 0);
+        QCOMPARE(idxList.at(1).row(), 0);
+        QCOMPARE(idxList.at(1).column(), 0);
+        QCOMPARE(idxList.at(1).data(Qt::UserRole).toInt(), -1);
+        QCOMPARE(idxList.at(2).row(), 2);
+        QCOMPARE(idxList.at(2).column(), 0);
+        QCOMPARE(idxList.at(2).data(Qt::UserRole).toInt(), 2);
+    });
+    model.setData(model.index(1, 0), -1, Qt::UserRole);
+    proxy.sort(0);
+    QCOMPARE(layoutAboutToBeChangedSpy.size(), 1);
+    QCOMPARE(layoutChangedSpy.size(), 1);
 }
 
 #include "tst_qsortfilterproxymodel.moc"

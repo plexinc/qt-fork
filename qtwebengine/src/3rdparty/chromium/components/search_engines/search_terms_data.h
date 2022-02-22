@@ -22,6 +22,11 @@ class SearchTermsData {
   // implementation simply returns the default value.
   virtual std::string GoogleBaseURLValue() const;
 
+  // Returns the value to use for the GOOGLE_BASE_SEARCH_BY_IMAGE_URL. Points
+  // at Lens if the user is enrolled in the Lens experiment, and defaults to
+  // Image Search otherwise.
+  virtual std::string GoogleBaseSearchByImageURLValue() const;
+
   // Returns the value for the GOOGLE_BASE_SUGGEST_URL term.  This
   // implementation simply returns the default value.
   std::string GoogleBaseSuggestURLValue() const;
@@ -40,8 +45,9 @@ class SearchTermsData {
 
   // The suggest client parameter ("client") passed with Google suggest
   // requests.  See GetSuggestRequestIdentifier() for more details.
+  // |from_ntp| is true if the search is made from a non-searchbox NTP surface.
   // This implementation returns the empty string.
-  virtual std::string GetSuggestClient() const;
+  virtual std::string GetSuggestClient(bool from_ntp) const;
 
   // The suggest request identifier parameter ("gs_ri") passed with Google
   // suggest requests.   Along with suggestclient (See GetSuggestClient()),

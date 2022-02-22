@@ -5,8 +5,8 @@
 #ifndef QUICHE_QUIC_CORE_QUIC_TRACE_VISITOR_H_
 #define QUICHE_QUIC_CORE_QUIC_TRACE_VISITOR_H_
 
-#include "net/third_party/quiche/src/quic/core/quic_connection.h"
-#include "net/third_party/quiche/src/quic/core/quic_types.h"
+#include "quic/core/quic_connection.h"
+#include "quic/core/quic_types.h"
 #include "third_party/quic_trace/lib/quic_trace.pb.h"
 
 namespace quic {
@@ -18,8 +18,13 @@ class QUIC_NO_EXPORT QuicTraceVisitor : public QuicConnectionDebugVisitor {
  public:
   explicit QuicTraceVisitor(const QuicConnection* connection);
 
-  void OnPacketSent(const SerializedPacket& serialized_packet,
+  void OnPacketSent(QuicPacketNumber packet_number,
+                    QuicPacketLength packet_length,
+                    bool has_crypto_handshake,
                     TransmissionType transmission_type,
+                    EncryptionLevel encryption_level,
+                    const QuicFrames& retransmittable_frames,
+                    const QuicFrames& nonretransmittable_frames,
                     QuicTime sent_time) override;
 
   void OnIncomingAck(QuicPacketNumber ack_packet_number,

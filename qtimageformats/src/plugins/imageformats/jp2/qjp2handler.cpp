@@ -573,17 +573,13 @@ bool Jpeg2000JasperReader::read(QImage *pImage)
     }
 
     // Create a QImage of the correct type
-    if (jasperColorspaceFamily == JAS_CLRSPC_FAM_RGB) {
-        qtImage = QImage(qtWidth, qtHeight, hasAlpha
-                                                ? QImage::Format_ARGB32
-                                                : QImage::Format_RGB32);
-    } else if (jasperColorspaceFamily == JAS_CLRSPC_FAM_GRAY) {
-        if (hasAlpha) {
-            qtImage = QImage(qtWidth, qtHeight, QImage::Format_ARGB32);
-        } else {
-            qtImage = QImage(qtWidth, qtHeight, QImage::Format_Grayscale8);
-        }
-    }
+    QImage::Format qtFormat = QImage::Format_Invalid;
+    if (jasperColorspaceFamily == JAS_CLRSPC_FAM_RGB)
+        qtFormat = hasAlpha ? QImage::Format_ARGB32 : QImage::Format_RGB32;
+    else if (jasperColorspaceFamily == JAS_CLRSPC_FAM_GRAY)
+        qtFormat = hasAlpha ? QImage::Format_ARGB32 : QImage::Format_Grayscale8;
+    if (!QImageIOHandler::allocateImage(QSize(qtWidth, qtHeight), qtFormat, &qtImage))
+        return false;
 
     // Copy data
     if (oddComponentSubsampling) {
@@ -1199,7 +1195,7 @@ void Jpeg2000JasperReader::printMetadata(jas_image_t *image)
 
     qDebug("Component metadata:");
 
-    for (int c = 0; c < jas_image_numcmpts(image); ++c) {
+    for (int c = 0; c < static_cast<int>(jas_image_numcmpts(image)); ++c) {
         qDebug("Component %d:", c);
         qDebug("    Component type: %ld", long(jas_image_cmpttype(image, c)));
         qDebug("    Width: %ld", long(jas_image_cmptwidth(image, c)));

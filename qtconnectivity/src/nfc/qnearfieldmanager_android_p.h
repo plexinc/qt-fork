@@ -53,13 +53,13 @@
 
 #include "qnearfieldmanager_p.h"
 #include "qnearfieldmanager.h"
-#include "qnearfieldtarget.h"
+#include "qnearfieldtarget_android_p.h"
 #include "android/androidjninfc_p.h"
 
 #include <QHash>
 #include <QMap>
-#include <QtAndroidExtras/QAndroidJniObject>
-#include <QtAndroidExtras/QAndroidJniEnvironment>
+#include <QtCore/QJniObject>
+#include <QtCore/QJniEnvironment>
 
 QT_BEGIN_NAMESPACE
 
@@ -75,39 +75,27 @@ public:
     QNearFieldManagerPrivateImpl();
     ~QNearFieldManagerPrivateImpl() override;
 
-    bool isAvailable() const override;
-    bool isSupported() const override;
-    bool startTargetDetection() override;
-    void stopTargetDetection() override;
-    int registerNdefMessageHandler(QObject *object, const QMetaMethod &method) override;
-    int registerNdefMessageHandler(const QNdefFilter &filter, QObject *object, const QMetaMethod &method) override;
-    bool unregisterNdefMessageHandler(int handlerId) override;
-    void requestAccess(QNearFieldManager::TargetAccessModes accessModes) override;
-    void releaseAccess(QNearFieldManager::TargetAccessModes accessModes) override;
-    void newIntent(QAndroidJniObject intent);
-    QByteArray getUid(const QAndroidJniObject &intent);
-
-public slots:
-    void onTargetDiscovered(QAndroidJniObject intent);
-    void onTargetDestroyed(const QByteArray &uid);
-    void handlerTargetDetected(QNearFieldTarget *target);
-    void handlerTargetLost(QNearFieldTarget *target);
-    void handlerNdefMessageRead(const QNdefMessage &message, const QNearFieldTarget::RequestId &id);
-    void handlerRequestCompleted(const QNearFieldTarget::RequestId &id);
-    void handlerError(QNearFieldTarget::Error error, const QNearFieldTarget::RequestId &id);
+    bool isEnabled() const override;
+    bool isSupported(QNearFieldTarget::AccessMethod accessMethod) const override;
+    bool startTargetDetection(QNearFieldTarget::AccessMethod accessMethod) override;
+    void stopTargetDetection(const QString &errorMessage) override;
+    void newIntent(QJniObject intent) override;
+    QByteArray getUid(const QJniObject &intent);
 
 protected:
-    static QByteArray getUidforTag(const QAndroidJniObject &tag);
+    static QByteArray getUidforTag(const QJniObject &tag);
     void updateReceiveState();
 
 private:
-    bool m_detecting;
-    QHash<QByteArray, NearFieldTarget*> m_detectedTargets;
-    QMap<QNearFieldTarget::RequestId, QNearFieldTarget*> m_idToTarget;
+    bool detecting;
+    QNearFieldTarget::AccessMethod requestedMethod;
+    QHash<QByteArray, QNearFieldTargetPrivateImpl*> detectedTargets;
 
-    int m_handlerID;
-    QList< QPair<QPair<int, QObject *>, QMetaMethod> > ndefMessageHandlers;
-    QList< QPair<QPair<int, QObject *>, QPair<QNdefFilter, QMetaMethod> > > ndefFilterHandlers;
+private slots:
+    void onTargetDiscovered(QJniObject intent);
+    void onTargetDestroyed(const QByteArray &uid);
+    void onTargetDetected(QNearFieldTargetPrivateImpl *target);
+    void onTargetLost(QNearFieldTargetPrivateImpl *target);
 };
 
 QT_END_NAMESPACE

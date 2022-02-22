@@ -70,6 +70,7 @@ class TestImage : public Image {
             const cc::PaintFlags&,
             const FloatRect&,
             const FloatRect&,
+            const SkSamplingOptions&,
             RespectImageOrientationEnum,
             ImageClampingMode,
             ImageDecodingMode) override {
@@ -77,6 +78,8 @@ class TestImage : public Image {
   }
 
   PaintImage PaintImageForCurrentFrame() override {
+    if (!image_)
+      return PaintImage();
     return CreatePaintImageBuilder()
         .set_image(image_, cc::PaintImage::GetNextContentId())
         .TakePaintImage();

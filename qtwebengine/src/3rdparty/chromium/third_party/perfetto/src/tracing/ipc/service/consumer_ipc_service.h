@@ -67,6 +67,10 @@ class ConsumerIPCService : public protos::gen::ConsumerPort {
                      DeferredObserveEventsResponse) override;
   void QueryServiceState(const protos::gen::QueryServiceStateRequest&,
                          DeferredQueryServiceStateResponse) override;
+  void QueryCapabilities(const protos::gen::QueryCapabilitiesRequest&,
+                         DeferredQueryCapabilitiesResponse) override;
+  void SaveTraceForBugreport(const protos::gen::SaveTraceForBugreportRequest&,
+                             DeferredSaveTraceForBugreportResponse) override;
   void OnClientDisconnected() override;
 
  private:
@@ -82,7 +86,7 @@ class ConsumerIPCService : public protos::gen::ConsumerPort {
     // no connection here, these methods are posted straight away.
     void OnConnect() override;
     void OnDisconnect() override;
-    void OnTracingDisabled() override;
+    void OnTracingDisabled(const std::string& error) override;
     void OnTraceData(std::vector<TracePacket>, bool has_more) override;
     void OnDetach(bool) override;
     void OnAttach(bool, const TraceConfig&) override;
@@ -122,6 +126,10 @@ class ConsumerIPCService : public protos::gen::ConsumerPort {
   // This has to be a container that doesn't invalidate iterators.
   using PendingFlushResponses = std::list<DeferredFlushResponse>;
   using PendingQuerySvcResponses = std::list<DeferredQueryServiceStateResponse>;
+  using PendingQueryCapabilitiesResponses =
+      std::list<DeferredQueryCapabilitiesResponse>;
+  using PendingSaveTraceForBugreportResponses =
+      std::list<DeferredSaveTraceForBugreportResponse>;
 
   ConsumerIPCService(const ConsumerIPCService&) = delete;
   ConsumerIPCService& operator=(const ConsumerIPCService&) = delete;
@@ -134,6 +142,12 @@ class ConsumerIPCService : public protos::gen::ConsumerPort {
   void OnQueryServiceCallback(bool success,
                               const TracingServiceState&,
                               PendingQuerySvcResponses::iterator);
+  void OnQueryCapabilitiesCallback(const TracingServiceCapabilities&,
+                                   PendingQueryCapabilitiesResponses::iterator);
+  void OnSaveTraceForBugreportCallback(
+      bool success,
+      const std::string& msg,
+      PendingSaveTraceForBugreportResponses::iterator);
 
   TracingService* const core_service_;
 
@@ -143,6 +157,8 @@ class ConsumerIPCService : public protos::gen::ConsumerPort {
 
   PendingFlushResponses pending_flush_responses_;
   PendingQuerySvcResponses pending_query_service_responses_;
+  PendingQueryCapabilitiesResponses pending_query_capabilities_responses_;
+  PendingSaveTraceForBugreportResponses pending_bugreport_responses_;
 
   base::WeakPtrFactory<ConsumerIPCService> weak_ptr_factory_;  // Keep last.
 };

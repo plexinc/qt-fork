@@ -58,6 +58,7 @@
 
 #include <QtWaylandClient/qtwaylandclientglobal.h>
 #include <QtWaylandClient/private/qwaylandshellsurface_p.h>
+#include <QtWaylandClient/private/qwaylandwindow_p.h>
 
 #include <QtCore/QSize>
 #include <QtGui/QRegion>
@@ -69,7 +70,6 @@ class QWindow;
 namespace QtWaylandClient {
 
 class QWaylandDisplay;
-class QWaylandWindow;
 class QWaylandInputDevice;
 class QWaylandXdgShell;
 
@@ -97,6 +97,8 @@ public:
 
     void setSizeHints();
 
+    void *nativeResource(const QByteArray &resource);
+
 protected:
     void requestWindowStates(Qt::WindowStates states) override;
     void xdg_surface_configure(uint32_t serial) override;
@@ -123,6 +125,7 @@ private:
             QSize size = {0, 0};
             Qt::WindowStates states = Qt::WindowNoState;
         }  m_pending, m_applied;
+        QWaylandWindow::ToplevelWindowTilingStates m_toplevelStates = QWaylandWindow::WindowNoState;
         QSize m_normalSize;
 
         QWaylandXdgSurface *m_xdgSurface = nullptr;
@@ -153,6 +156,7 @@ private:
     bool m_configured = false;
     QRegion m_exposeRegion;
     uint m_pendingConfigureSerial = 0;
+    uint m_appliedConfigureSerial = 0;
 
     friend class QWaylandXdgShell;
 };

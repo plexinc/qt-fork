@@ -30,10 +30,28 @@
 
 #include <QtCore/QCoreApplication>
 #include <QtCore/QtDebug>
-#include <QtTest/QtTest>
 
+#include <QTest>
 #include <QtConcurrentRun>
 #include <QFutureSynchronizer>
+#include <QVariant>
+#include <QSemaphore>
+#include <QLine>
+#include <QMimeType>
+#include <QMimeDatabase>
+
+static_assert(QTypeTraits::has_ostream_operator_v<QDebug, int>);
+static_assert(QTypeTraits::has_ostream_operator_v<QDebug, QList<int>>);
+static_assert(QTypeTraits::has_ostream_operator_v<QDebug, QMap<int, QString>>);
+struct NonStreamable {};
+static_assert(!QTypeTraits::has_ostream_operator_v<QDebug, NonStreamable>);
+static_assert(!QTypeTraits::has_ostream_operator_v<QDebug, QList<NonStreamable>>);
+static_assert(!QTypeTraits::has_ostream_operator_v<QDebug, QMap<int, NonStreamable>>);
+struct ConvertsToQVariant {
+    operator QVariant() {return QVariant::fromValue(*this);};
+};
+static_assert(!QTypeTraits::has_ostream_operator_v<QDebug, ConvertsToQVariant>);
+
 
 class tst_QDebug: public QObject
 {
@@ -49,6 +67,7 @@ private slots:
     void assignment() const;
     void warningWithoutDebug() const;
     void criticalWithoutDebug() const;
+    void basics() const;
     void debugWithBool() const;
     void debugSpaceHandling() const;
     void debugNoQuotes() const;
@@ -57,15 +76,18 @@ private slots:
     void veryLongWarningMessage() const;
     void qDebugQChar() const;
     void qDebugQString() const;
-    void qDebugQStringRef() const;
     void qDebugQStringView() const;
+    void qDebugQUtf8StringView() const;
     void qDebugQLatin1String() const;
     void qDebugQByteArray() const;
+    void qDebugQByteArrayView() const;
     void qDebugQFlags() const;
     void textStreamModifiers() const;
     void resetFormat() const;
     void defaultMessagehandler() const;
     void threadSafety() const;
+    void toString() const;
+    void noQVariantEndlessRecursion() const;
 };
 
 void tst_QDebug::assignment() const
@@ -153,6 +175,46 @@ void tst_QDebug::criticalWithoutDebug() const
     QCOMPARE(QString::fromLatin1(s_file), file);
     QCOMPARE(s_line, line);
     QCOMPARE(QString::fromLatin1(s_function), function);
+}
+
+void tst_QDebug::basics() const
+{
+    // test simple types, without quoting or other modifications
+    // (bool tested in the next function)
+    MessageHandlerSetter mhs(myMessageHandler);
+
+    qDebug() << 'X';
+    QCOMPARE(s_msg, "X");
+
+    qDebug() << 123;
+    QCOMPARE(s_msg, "123");
+
+    qDebug() << 456U;
+    QCOMPARE(s_msg, "456");
+
+    qDebug() << -123L;
+    QCOMPARE(s_msg, "-123");
+
+    qDebug() << 456UL;
+    QCOMPARE(s_msg, "456");
+
+    qDebug() << Q_INT64_C(-123);
+    QCOMPARE(s_msg, "-123");
+
+    qDebug() << Q_UINT64_C(456);
+    QCOMPARE(s_msg, "456");
+
+    qDebug() << "Hello";
+    QCOMPARE(s_msg, "Hello");
+
+    qDebug() << u"World";
+    QCOMPARE(s_msg, "World");
+
+    qDebug() << (void *)0xfff;
+    QCOMPARE(s_msg, "0xfff");
+
+    qDebug() << nullptr;
+    QCOMPARE(s_msg, "(nullptr)");
 }
 
 void tst_QDebug::debugWithBool() const
@@ -388,7 +450,7 @@ void tst_QDebug::qDebugQString() const
         QString file, function;
         int line = 0;
         const QString in(QLatin1String("input"));
-        const QStringRef inRef(&in);
+        const QStringView inRef{ in };
 
         MessageHandlerSetter mhs(myMessageHandler);
         { qDebug() << inRef; }
@@ -453,51 +515,10 @@ void tst_QDebug::qDebugQString() const
     QCOMPARE(s_msg, QString("\"\\U000E0001 \\U00100000\""));
 
     // broken surrogate pairs
-    ushort utf16[] = { 0xDC00, 0xD800, 'x', 0xD800, 0 };
+    char16_t utf16[] = { 0xDC00, 0xD800, 'x', 0xD800, 0 };
     string = QString::fromUtf16(utf16);
     qDebug() << string;
     QCOMPARE(s_msg, QString("\"\\uDC00\\uD800x\\uD800\""));
-}
-
-void tst_QDebug::qDebugQStringRef() const
-{
-    /* Use a basic string. */
-    {
-        QString file, function;
-        int line = 0;
-        const QString in(QLatin1String("input"));
-        const QStringRef inRef(&in);
-
-        MessageHandlerSetter mhs(myMessageHandler);
-        { qDebug() << inRef; }
-#ifndef QT_NO_MESSAGELOGCONTEXT
-        file = __FILE__; line = __LINE__ - 2; function = Q_FUNC_INFO;
-#endif
-        QCOMPARE(s_msgType, QtDebugMsg);
-        QCOMPARE(s_msg, QString::fromLatin1("\"input\""));
-        QCOMPARE(QString::fromLatin1(s_file), file);
-        QCOMPARE(s_line, line);
-        QCOMPARE(QString::fromLatin1(s_function), function);
-    }
-
-    /* Use a null QStringRef. */
-    {
-        QString file, function;
-        int line = 0;
-
-        const QStringRef inRef;
-
-        MessageHandlerSetter mhs(myMessageHandler);
-        { qDebug() << inRef; }
-#ifndef QT_NO_MESSAGELOGCONTEXT
-        file = __FILE__; line = __LINE__ - 2; function = Q_FUNC_INFO;
-#endif
-        QCOMPARE(s_msgType, QtDebugMsg);
-        QCOMPARE(s_msg, QString::fromLatin1("\"\""));
-        QCOMPARE(QString::fromLatin1(s_file), file);
-        QCOMPARE(s_line, line);
-        QCOMPARE(QString::fromLatin1(s_function), function);
-    }
 }
 
 void tst_QDebug::qDebugQStringView() const
@@ -526,6 +547,46 @@ void tst_QDebug::qDebugQStringView() const
         int line = 0;
 
         const QStringView inView;
+
+        MessageHandlerSetter mhs(myMessageHandler);
+        { qDebug() << inView; }
+#ifndef QT_NO_MESSAGELOGCONTEXT
+        file = __FILE__; line = __LINE__ - 2; function = Q_FUNC_INFO;
+#endif
+        QCOMPARE(s_msgType, QtDebugMsg);
+        QCOMPARE(s_msg, QLatin1String("\"\""));
+        QCOMPARE(QLatin1String(s_file), file);
+        QCOMPARE(s_line, line);
+        QCOMPARE(QLatin1String(s_function), function);
+    }
+}
+
+void tst_QDebug::qDebugQUtf8StringView() const
+{
+    /* Use a utf8 string. */
+    {
+        QLatin1String file, function;
+        int line = 0;
+        const QUtf8StringView inView = u8"\U0001F609 is ;-)";
+
+        MessageHandlerSetter mhs(myMessageHandler);
+        { qDebug() << inView; }
+#ifndef QT_NO_MESSAGELOGCONTEXT
+        file = QLatin1String(__FILE__); line = __LINE__ - 2; function = QLatin1String(Q_FUNC_INFO);
+#endif
+        QCOMPARE(s_msgType, QtDebugMsg);
+        QCOMPARE(s_msg, QString::fromUtf8("\"\\xF0\\x9F\\x98\\x89 is ;-)\""));
+        QCOMPARE(QLatin1String(s_file), file);
+        QCOMPARE(s_line, line);
+        QCOMPARE(QLatin1String(s_function), function);
+    }
+
+    /* Use a null QUtf8StringView. */
+    {
+        QString file, function;
+        int line = 0;
+
+        const QUtf8StringView inView;
 
         MessageHandlerSetter mhs(myMessageHandler);
         { qDebug() << inView; }
@@ -617,6 +678,48 @@ void tst_QDebug::qDebugQByteArray() const
 
     // ensure that it closes hex escape sequences correctly
     qDebug() << QByteArray("\377FFFF");
+    QCOMPARE(s_msg, QString("\"\\xFF\"\"FFFF\""));
+}
+
+void tst_QDebug::qDebugQByteArrayView() const
+{
+    QString file, function;
+    int line = 0;
+    MessageHandlerSetter mhs(myMessageHandler);
+    {
+        QDebug d = qDebug();
+        d << QByteArrayView("foo") << QByteArrayView("") << QByteArrayView("barbaz", 3);
+        d.nospace().noquote() << QByteArrayView("baz");
+    }
+#ifndef QT_NO_MESSAGELOGCONTEXT
+    file = __FILE__; line = __LINE__ - 5; function = Q_FUNC_INFO;
+#endif
+    QCOMPARE(s_msgType, QtDebugMsg);
+    QCOMPARE(s_msg, QString::fromLatin1("\"foo\" \"\" \"bar\" baz"));
+    QCOMPARE(QString::fromLatin1(s_file), file);
+    QCOMPARE(s_line, line);
+    QCOMPARE(QString::fromLatin1(s_function), function);
+
+    /* simpler tests from now on */
+    QByteArrayView ba = "\"Hello\"";
+    qDebug() << ba;
+    QCOMPARE(s_msg, QString("\"\\\"Hello\\\"\""));
+
+    qDebug().noquote().nospace() << ba;
+    QCOMPARE(s_msg, QString::fromLatin1(ba));
+
+    qDebug().noquote().nospace() << qSetFieldWidth(8) << ba;
+    QCOMPARE(s_msg, " " + QString::fromLatin1(ba));
+
+    ba = "\nSm\xC3\xB8rg\xC3\xA5sbord\\";
+    qDebug().noquote().nospace() << ba;
+    QCOMPARE(s_msg, QString::fromUtf8(ba));
+
+    qDebug() << ba;
+    QCOMPARE(s_msg, QString("\"\\nSm\\xC3\\xB8rg\\xC3\\xA5sbord\\\\\""));
+
+    // ensure that it closes hex escape sequences correctly
+    qDebug() << QByteArrayView("\377FFFF");
     QCOMPARE(s_msg, QString("\"\\xFF\"\"FFFF\""));
 }
 
@@ -738,6 +841,36 @@ void tst_QDebug::threadSafety() const
     for (int i = 0; i < numThreads; ++i) {
         QCOMPARE(s_messages.at(i), QStringLiteral("doDebug"));
     }
+}
+
+void tst_QDebug::toString() const
+{
+    // By reference.
+    {
+        MyPoint point(3, 4);
+        QString expectedString;
+        QDebug stream(&expectedString);
+        stream.nospace() << point;
+        QCOMPARE(QDebug::toString(point), expectedString);
+    }
+
+    // By pointer.
+    {
+        QObject qobject;
+        qobject.setObjectName("test");
+        QString expectedString;
+        QDebug stream(&expectedString);
+        stream.nospace() << &qobject;
+        QCOMPARE(QDebug::toString(&qobject), expectedString);
+    }
+}
+
+void tst_QDebug::noQVariantEndlessRecursion() const
+{
+    ConvertsToQVariant conv;
+    QVariant var = QVariant::fromValue(conv);
+    QTest::ignoreMessage(QtDebugMsg, "QVariant(ConvertsToQVariant, )");
+    qDebug() << var;
 }
 
 // Should compile: instentiation of unrelated operator<< should not cause cause compilation

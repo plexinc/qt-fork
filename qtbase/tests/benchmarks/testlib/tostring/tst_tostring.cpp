@@ -26,7 +26,7 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QtCore/qmath.h> // pi, e
 
 // Tests for QTest::toString
@@ -95,7 +95,8 @@ void tst_toString::numeric()
     QFETCH(T, datum);
 
     QBENCHMARK {
-        QTest::toString<T>(datum);
+        auto tst = QTest::toString<T>(datum);
+        delete [] tst;
     }
 }
 

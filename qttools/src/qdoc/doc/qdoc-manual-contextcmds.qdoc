@@ -47,26 +47,30 @@
 
     \list
       \li \l {abstract-command} {\\abstract}
-      \li \l {ingroup-command}{\\ingroup},
-      \li \l {inheaderfile-command}{\\inheaderfile},
-      \li \l {inherits-command}{\\inherits},
-      \li \l {inmodule-command}{\\inmodule},
-      \li \l {internal-command}{\\internal},
-      \li \l {nextpage-command}{\\nextpage},
-      \li \l {nonreentrant-command}{\\nonreentrant},
-      \li \l {obsolete-command}{\\obsolete},
-      \li \l {overload-command}{\\overload},
-      \li \l {preliminary-command}{\\preliminary},
-      \li \l {previouspage-command}{\\previouspage},
+      \li \l {default-command} {\\default}
+      \li \l {deprecated-command}{\\deprecated}
+      \li \l {ingroup-command}{\\ingroup}
+      \li \l {inheaderfile-command}{\\inheaderfile}
+      \li \l {inherits-command}{\\inherits}
+      \li \l {inmodule-command}{\\inmodule}
+      \li \l {internal-command}{\\internal}
+      \li \l {nextpage-command}{\\nextpage}
+      \li \l {nonreentrant-command}{\\nonreentrant}
+      \li \l {overload-command}{\\overload}
+      \li \l {preliminary-command}{\\preliminary}
+      \li \l {previouspage-command}{\\previouspage}
       \li \l {qmlabstract-command} {\\qmlabstract}
+      \li \l {qmldefault-command} {\\qmldefault}
+      \li \l {qtcmakepackage-command} {\\qtcmakepackage}
       \li \l {readonly-command} {\\readonly}
-      \li \l {reentrant-command}{\\reentrant},
-      \li \l {reimp-command}{\\reimp},
-      \li \l {relates-command}{\\relates},
-      \li \l {since-command}{\\since},
-      \li \l {startpage-command}{\\startpage},
+      \li \l {reentrant-command}{\\reentrant}
+      \li \l {reimp-command}{\\reimp}
+      \li \l {relates-command}{\\relates}
+      \li \l {required-command} {\\required}
+      \li \l {since-command}{\\since}
+      \li \l {startpage-command}{\\startpage}
       \li \l {subtitle-command}{\\subtitle}
-      \li \l {threadsafe-command}{\\threadsafe},
+      \li \l {threadsafe-command}{\\threadsafe}
       \li \l {title-command}{\\title}
     \endlist
 
@@ -141,7 +145,7 @@
     \section2 \\previouspage
 
     The \\previouspage command links the current page to the previous
-    page in a sequence.a The command has two arguments, each enclosed
+    page in a sequence. The command has two arguments, each enclosed
     by curly braces: the first is the link target (the title of
     the previous page), the second is the link text. If the page's
     title is equivalent to the link text, the second argument can be
@@ -179,12 +183,12 @@
     \title Status
 
     These commands are for indicating that a documented element has
-    some special status. The element could be marked as about to be
-    made obsolete, or that it is simply not to be included in the public
-    interface. The \l {since-command}{\\since} command is for
-    specifying the version number in which a function or class first
-    appeared. The \l {qmlabstract-command} {\\qmlabstract} command is
-    for marking a QML type as an abstract base class.
+    some special status. The element could be marked \e deprecated,
+    that is, it's about to be made obsolete and no longer included
+    in the public interface. The \l {since-command}{\\since} command
+    is for specifying the version number in which a function or class
+    first appeared. The \l {qmlabstract-command} {\\qmlabstract} command
+    is for marking a QML type as an abstract base class.
 
     \target abstract-command
     \target qmlabstract-command
@@ -208,7 +212,30 @@
     \target default-command
     \section1 \\default
 
-    The \\default command is for marking a QML property as the
+    The \\default command is used for documenting a default value for
+    a QML property. The command takes a single argument, which is
+    displayed in the documentation as the default value.
+
+    \badcode *
+    /\1!
+        \qmlproperty real Item::x
+        \default 0.0
+    \1/
+    \endcode
+
+    If the default value is a non-empty string, use quotes:
+
+    \badcode *
+    /\1!
+        \qmlproperty string Item::state
+        \default "invalid"
+    \1/
+    \endcode
+
+    \target qmldefault-command
+    \section1 \\qmldefault
+
+    The \\qmldefault command is for marking a QML property as the
     \l {default-properties}
     {default property}. The word \c default is displayed in
     the documentation of the property.
@@ -217,16 +244,16 @@
     / *!
         \qmlproperty list<Change> State::changes
         This property holds the changes to apply for this state.
-        \default
+        \qmldefault
 
-        By default these changes are applied against the default state. If the state
+        By default, these changes are applied against the default state. If the state
         extends another state, then the changes are applied against the state being
         extended.
     * /
     \endcode
 
     See how QDoc renders this property on the reference page for the
-    \l {State::changes}{State} type.
+    \l {QtQuick::State::changes}{State} type.
 
     \target dontdocument-command
     \section1 \\dontdocument
@@ -271,26 +298,40 @@
     See also \l {class-command}{\\class} and
              \l {headerfile-command}{\\headerfile}.
 
+
     \target obsolete-command
     \section1 \\obsolete
+    The \\obsolete command is superceded by the \\deprecated command.
 
-    The \\obsolete command is for indicating that a function is being
-    deprecated, and it should no longer be used in new code. There is
-    no guarantee for how long it will remain in the library.
+    This command is kept for backwards compatibility reasons only.
+    It may be removed in a future version of QDoc. Use the \\deprecated
+    command instead.
 
-    The \\obsolete command takes no arguments.
+    See also \l {deprecated-command}{\\deprecated}.
+
+    \target deprecated-command
+    \section1 \\deprecated
+
+    The \\deprecated command is for indicating that a function is being
+    deprecated, and that it should no longer be used in new code. There
+    is no guarantee for how long it will remain in the library.
+
+    The \\deprecated command takes two optional arguments:
+    \list
+        \li A version in square brackets (e.g. [6.2]).
+        \li A string with more information, for example a suggested
+            replacement.
+    \endlist
 
     When generating the reference documentation for a class, QDoc will
-    create and link to a separate page documenting its obsolete
-    functions. Usually an equivalent function is provided as an
-    alternative.
+    create and link to a separate page documenting its deprecated
+    functions. It is good practice to suggest an equivalent function
+    as an alternative.
 
     \code
     / *!
-        \fn MyClass::MyObsoleteFunction
-        \obsolete
-
-        Use MyNewFunction() instead.
+        \fn MyClass::MyDeprecatedFunction
+        \deprecated [6.2] Use MyNewFunction() instead.
     * /
     \endcode
 
@@ -298,25 +339,26 @@
 
     \quotation
         \raw HTML
-        <h1>Obsolete Members for MyClass</h1>
+        <h1>Deprecated Members for MyClass</h1>
         \endraw
 
-        \b {The following class members are obsolete.} They are
-        provided to keep old source code working. We strongly advise
-        against using them in new code.
+        \b {The following class members are deprecated.}  We strongly
+        advise against using them in new code.
 
         ...
 
         \list
-            \li void MyObsoleteFunction() \c (obsolete)
+            \li void MyDeprecatedFunction() \c (deprecated)
             \li ...
         \endlist
 
         \raw HTML
         <hr />
         <h2>Member Function Documentation</h2>
-        <h3>void MyObsoleteFunction ()</h3>
-        <p>Use MyNewFunction() instead.</p>
+        <h3>void MyDeprecatedFunction ()</h3>
+        <p>This function is deprecated since 6.2. It is provided to
+        keep old source code working. We strongly advise against using
+        it in new code. Use MyNewFunction() instead.</p>
         \endraw
         ...
     \endquotation
@@ -350,7 +392,9 @@
     }
     \endcode
 
-    This function will not be included in the documentation.
+    This function will not be included in the documentation, unless QDoc
+    is called with the \c{-showinternal} command line option or the
+    \c{QDOC_SHOW_INTERNAL} environment variable is set.
 
     \target preliminary-command
     \section1 \\preliminary
@@ -412,6 +456,14 @@
 
     The \\readonly command is used in conjunction with a \l {qmlproperty-command}
     {\\qmlproperty} command to mark the QML property as read-only.
+
+    \target required-command
+    \section1 \\required
+
+    The \\required command is used in conjunction with a \l {qmlproperty-command}
+    {\\qmlproperty} command to mark the QML property as required.
+
+    \b {See also} \l {The Property System}.
 
     \target since-command
     \section1 \\since
@@ -802,7 +854,7 @@
 
     The \\relates command is for including the documentation of a
     global element to some class or header file. The argument is a
-    class name or header file.
+    class name or header file. For template types, use the type name only.
 
     \code
     / *!

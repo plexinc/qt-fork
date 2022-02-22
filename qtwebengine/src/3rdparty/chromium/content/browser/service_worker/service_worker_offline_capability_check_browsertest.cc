@@ -4,24 +4,27 @@
 
 #include "base/barrier_closure.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/guid.h"
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/optional.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
+#include "build/build_config.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/browser/service_worker/service_worker_fetch_dispatcher.h"
 #include "content/browser/service_worker/service_worker_version.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/storage_partition.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
 #include "content/shell/browser/shell.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
+#include "services/network/public/mojom/fetch_api.mojom.h"
 #include "third_party/blink/public/common/service_worker/service_worker_status_code.h"
 #include "url/gurl.h"
 
@@ -151,7 +154,7 @@ class FetchEventTestHelper {
 
     fetch_event_dispatch->fetch_dispatcher =
         std::make_unique<ServiceWorkerFetchDispatcher>(
-            std::move(request), blink::mojom::ResourceType::kMainFrame,
+            std::move(request), network::mojom::RequestDestination::kDocument,
             base::GenerateGUID() /* client_id */, std::move(version),
             base::DoNothing() /* prepare callback */, std::move(fetch_callback),
             fetch_event_dispatch->param_and_expected_result.param
@@ -276,15 +279,21 @@ class ServiceWorkerOfflineCapabilityCheckBrowserTest
     base::Optional<OfflineCapability> out_offline_capability;
     RunOrPostTaskOnThread(
         FROM_HERE, ServiceWorkerContext::GetCoreThreadId(),
-        base::BindOnce(&ServiceWorkerOfflineCapabilityCheckBrowserTest::
-                           CheckOfflineCapabilityOnCoreThread,
-                       base::Unretained(this), path,
-                       base::BindLambdaForTesting(
-                           [&out_offline_capability, &fetch_run_loop](
-                               OfflineCapability offline_capability) {
-                             out_offline_capability = offline_capability;
-                             fetch_run_loop.Quit();
-                           })));
+        base::BindOnce(
+            &ServiceWorkerOfflineCapabilityCheckBrowserTest::
+                CheckOfflineCapabilityOnCoreThread,
+            base::Unretained(this), path,
+            base::BindLambdaForTesting([&out_offline_capability,
+                                        &fetch_run_loop](
+                                           OfflineCapability offline_capability,
+                                           int64_t registration_id) {
+              out_offline_capability = offline_capability;
+              if (offline_capability == OfflineCapability::kSupported) {
+                EXPECT_NE(registration_id,
+                          blink::mojom::kInvalidServiceWorkerRegistrationId);
+              }
+              fetch_run_loop.Quit();
+            })));
     fetch_run_loop.Run();
     DCHECK(out_offline_capability.has_value());
     return *out_offline_capability;
@@ -306,6 +315,14 @@ class ServiceWorkerOfflineCapabilityCheckBrowserTest
           ServiceWorkerFetchDispatcher::FetchEventResult::kGotResponse,
           network::mojom::FetchResponseSource::kUnspecified,
           200,
+      };
+
+  const FetchEventTestHelper::ExpectedResult kRedirect =
+      FetchEventTestHelper::ExpectedResult{
+          blink::ServiceWorkerStatusCode::kOk,
+          ServiceWorkerFetchDispatcher::FetchEventResult::kGotResponse,
+          network::mojom::FetchResponseSource::kUnspecified,
+          301,
       };
 
   const FetchEventTestHelper::ExpectedResult kFailed =
@@ -459,6 +476,22 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerOfflineCapabilityCheckBrowserTest,
           is_offline_capability_check,
       },
       kFailed,
+  }});
+
+  RunFetchEventDispatchTest({{
+      {
+          "/service_worker/empty.html?redirect",
+          normal,
+      },
+      kRedirect,
+  }});
+
+  RunFetchEventDispatchTest({{
+      {
+          "/service_worker/empty.html?redirect",
+          is_offline_capability_check,
+      },
+      kRedirect,
   }});
 }
 
@@ -638,6 +671,7 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerOfflineCapabilityCheckBrowserTest,
 
 // Sites with a service worker are identified as supporting offline capability
 // only when it returns a valid response in the offline mode.
+
 IN_PROC_BROWSER_TEST_F(ServiceWorkerOfflineCapabilityCheckBrowserTest,
                        CheckOfflineCapability) {
   EXPECT_TRUE(NavigateToURL(shell(),
@@ -666,6 +700,30 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerOfflineCapabilityCheckBrowserTest,
   EXPECT_EQ(
       OfflineCapability::kSupported,
       CheckOfflineCapability("/service_worker/empty.html?fetch_or_offline"));
+
+  EXPECT_EQ(OfflineCapability::kUnsupported,
+            CheckOfflineCapability("/service_worker/empty.html?cache_add"));
+
+  EXPECT_EQ(
+      OfflineCapability::kSupported,
+      CheckOfflineCapability("/service_worker/empty.html?sleep_then_offline"));
+
+  // Site that takes more than the timeout is considered as "offline capable".
+  EXPECT_EQ(OfflineCapability::kSupported,
+            CheckOfflineCapability(
+                "/service_worker/empty.html?sleep_then_offline&sleep=20000"));
+
+  EXPECT_EQ(
+      OfflineCapability::kUnsupported,
+      CheckOfflineCapability("/service_worker/empty.html?sleep_then_fetch"));
+
+  // Site that takes more than the timeout is considered as "offline capable".
+  EXPECT_EQ(OfflineCapability::kSupported,
+            CheckOfflineCapability(
+                "/service_worker/empty.html?sleep_then_fetch&sleep=20000"));
+
+  EXPECT_EQ(OfflineCapability::kSupported,
+            CheckOfflineCapability("/service_worker/empty.html?redirect"));
 }
 
 // Sites with a service worker which is not activated yet are identified as
@@ -683,6 +741,26 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerOfflineCapabilityCheckBrowserTest,
                    "pendingInstallEvent')"));
   EXPECT_EQ(OfflineCapability::kUnsupported,
             CheckOfflineCapability("/service_worker/empty.html?offline"));
+}
+
+// Sites with a service worker that enable navigation preload are identified
+// as supporting offline capability only when they return a valid response in
+// offline mode.
+IN_PROC_BROWSER_TEST_F(ServiceWorkerOfflineCapabilityCheckBrowserTest,
+                       CheckOfflineCapabilityForNavigationPreload) {
+  EXPECT_TRUE(NavigateToURL(shell(),
+                            embedded_test_server()->GetURL(
+                                "/service_worker/create_service_worker.html")));
+  EXPECT_EQ("DONE", EvalJs(shell(),
+                           "register('navigation_preload_worker.js')"));
+
+  EXPECT_EQ(OfflineCapability::kUnsupported,
+            CheckOfflineCapability("/service_worker/empty.html"));
+
+  EXPECT_EQ(
+      OfflineCapability::kSupported,
+      CheckOfflineCapability(
+          "/service_worker/empty.html?navpreload_or_offline"));
 }
 
 }  // namespace content

@@ -12,21 +12,50 @@
 #include "base/strings/string16.h"
 #include "content/browser/accessibility/browser_accessibility.h"
 #include "content/browser/accessibility/browser_accessibility_manager.h"
+#include "content/common/content_export.h"
+#include "ui/accessibility/ax_node_position.h"
+#include "ui/accessibility/ax_range.h"
 
 namespace content {
 
 // Used to store changes in edit fields, required by VoiceOver in order to
 // support character echo and other announcements during editing.
-struct AXTextEdit {
-  AXTextEdit() = default;
-  AXTextEdit(base::string16 inserted_text, base::string16 deleted_text)
-      : inserted_text(inserted_text), deleted_text(deleted_text) {}
+struct CONTENT_EXPORT AXTextEdit {
+  AXTextEdit();
+  AXTextEdit(base::string16 inserted_text,
+             base::string16 deleted_text,
+             id edit_text_marker);
+  AXTextEdit(const AXTextEdit& other);
+  ~AXTextEdit();
 
   bool IsEmpty() const { return inserted_text.empty() && deleted_text.empty(); }
 
   base::string16 inserted_text;
   base::string16 deleted_text;
+  base::scoped_nsprotocol<id> edit_text_marker;
 };
+
+// Uses a system API to verify that the given object is an AXTextMarker object.
+bool IsAXTextMarker(id text_marker);
+
+// Uses a system API to verify that the given object is an AXTextMarkerRange
+// object.
+bool IsAXTextMarkerRange(id marker_range);
+
+// Returns the AXNodePosition representing the given AXTextMarker.
+CONTENT_EXPORT BrowserAccessibility::AXPosition AXTextMarkerToAXPosition(
+    id text_marker);
+
+// Returns the AXRange representing the given AXTextMarkerRange.
+BrowserAccessibility::AXRange AXTextMarkerRangeToAXRange(id marker_range);
+
+// Returns an AXTextMarker representing the given position in the tree.
+id AXTextMarkerFrom(const BrowserAccessibilityCocoa* anchor,
+                    int offset,
+                    ax::mojom::TextAffinity affinity);
+
+// Returns an AXTextMarkerRange that spans the given AXTextMarkers.
+id AXTextMarkerRangeFrom(id anchor_text_marker, id focus_text_marker);
 
 }  // namespace content
 
@@ -37,7 +66,12 @@ struct AXTextEdit {
 @interface BrowserAccessibilityCocoa : NSAccessibilityElement {
  @private
   content::BrowserAccessibility* _owner;
+  // An array of children of this object. Cached to avoid re-computing.
   base::scoped_nsobject<NSMutableArray> _children;
+  // Whether the children have changed and need to be updated.
+  bool _needsToUpdateChildren;
+  // Whether _children is currently being computed.
+  bool _gettingChildren;
   // Stores the previous value of an edit field.
   base::string16 _oldValue;
 }
@@ -86,6 +120,16 @@ struct AXTextEdit {
 
 - (NSString*)valueForRange:(NSRange)range;
 - (NSAttributedString*)attributedValueForRange:(NSRange)range;
+- (NSRect)frameForRange:(NSRange)range;
+
+// Find the index of the given row among the descendants of this object
+// or return nil if this row is not found.
+- (bool)findRowIndex:(BrowserAccessibilityCocoa*)toFind
+    withCurrentIndex:(int*)currentIndex;
+
+// Choose the appropriate accessibility object to receive an action depending
+// on the characteristics of this accessibility node.
+- (content::BrowserAccessibility*)actionTarget;
 
 // Internally-used property.
 @property(nonatomic, readonly) NSPoint origin;
@@ -123,6 +167,7 @@ struct AXTextEdit {
 @property(nonatomic, readonly, getter=isIgnored) BOOL ignored;
 // Index of a row, column, or tree item.
 @property(nonatomic, readonly) NSNumber* index;
+@property(nonatomic, readonly) NSNumber* treeItemRowIndex;
 @property(nonatomic, readonly) NSNumber* insertionPointLineNumber;
 @property(nonatomic, readonly) NSString* invalid;
 @property(nonatomic, readonly) NSNumber* isMultiSelectable;

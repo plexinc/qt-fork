@@ -48,6 +48,11 @@ struct hash<egl::BlobCacheKey>
 namespace egl
 {
 
+bool CompressBlobCacheData(angle::MemoryBuffer *cacheData, angle::MemoryBuffer *compressedData);
+bool DecompressBlobCacheData(const uint8_t *compressedData,
+                             const size_t compressedSize,
+                             angle::MemoryBuffer *uncompressedData);
+
 class BlobCache final : angle::NonCopyable
 {
   public:
@@ -102,7 +107,8 @@ class BlobCache final : angle::NonCopyable
     // set, those will be used.  Otherwise they key is looked up in this object's cache.
     ANGLE_NO_DISCARD bool get(angle::ScratchBuffer *scratchBuffer,
                               const BlobCache::Key &key,
-                              BlobCache::Value *valueOut);
+                              BlobCache::Value *valueOut,
+                              size_t *bufferSizeOut);
 
     // For querying the contents of the cache.
     ANGLE_NO_DISCARD bool getAt(size_t index,

@@ -39,6 +39,7 @@
 #ifndef DECLARATIVEPIESERIES_H
 #define DECLARATIVEPIESERIES_H
 
+#include <QtQml/qqmlregistration.h>
 #include <QtCharts/QPieSeries>
 #include <QtCharts/QPieSlice>
 #include <private/declarativechartglobal_p.h>
@@ -46,12 +47,15 @@
 #include <QtQuick/QQuickItem>
 #include <QtQml/QQmlParserStatus>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class Q_QMLCHARTS_PRIVATE_EXPORT DeclarativePieSlice : public QPieSlice
 {
     Q_OBJECT
     Q_PROPERTY(QString brushFilename READ brushFilename WRITE setBrushFilename NOTIFY brushFilenameChanged)
+    QML_NAMED_ELEMENT(PieSlice)
+    QML_ADDED_IN_VERSION(1, 0)
+    QML_EXTRA_VERSION(2, 0)
 
 public:
     explicit DeclarativePieSlice(QObject *parent = 0);
@@ -75,6 +79,9 @@ class DeclarativePieSeries : public QPieSeries, public QQmlParserStatus
     Q_INTERFACES(QQmlParserStatus)
     Q_PROPERTY(QQmlListProperty<QObject> seriesChildren READ seriesChildren)
     Q_CLASSINFO("DefaultProperty", "seriesChildren")
+    QML_NAMED_ELEMENT(PieSeries)
+    QML_ADDED_IN_VERSION(1, 0)
+    QML_EXTRA_VERSION(2, 0)
 
 public:
     explicit DeclarativePieSeries(QQuickItem *parent = 0);
@@ -86,8 +93,8 @@ public:
     Q_INVOKABLE void clear();
 
 public:
-    void classBegin();
-    void componentComplete();
+    void classBegin() override;
+    void componentComplete() override;
 
 Q_SIGNALS:
     void sliceAdded(QPieSlice *slice);
@@ -95,10 +102,10 @@ Q_SIGNALS:
 
 public Q_SLOTS:
     static void appendSeriesChildren(QQmlListProperty<QObject> *list, QObject *element);
-    void handleAdded(QList<QPieSlice *> slices);
-    void handleRemoved(QList<QPieSlice *> slices);
+    void handleAdded(const QList<QPieSlice *> &slices);
+    void handleRemoved(const QList<QPieSlice *> &slices);
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // DECLARATIVEPIESERIES_H

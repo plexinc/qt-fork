@@ -219,7 +219,7 @@ Rectangle {
     }
 }
 //! [opacity target]
-//![shaderon]
+//! [shaderon]
 ShaderEffect {
     width: 50
     height: 50
@@ -229,18 +229,11 @@ ShaderEffect {
         to: 1
         duration: 1000
     }
-    fragmentShader:
-    "
-        uniform lowp float t;
-        varying highp vec2 qt_TexCoord0;
-        void main() {
-            lowp float c = qt_TexCoord0.y;
-            gl_FragColor = vec4(c * t, 0, 0, 1);
-        }
-    "
+    fragmentShader: "qrc:shader.frag.qsb"
 }
-//![shaderon]
-//![shader target]
+
+//! [shaderon]
+//! [shader target]
 ShaderEffect {
     id: shader
     width: 50
@@ -254,18 +247,11 @@ ShaderEffect {
         duration: 1000
         running: true
     }
-    fragmentShader:
-    "
-        uniform lowp float t;
-        varying highp vec2 qt_TexCoord0;
-        void main() {
-            lowp float c = qt_TexCoord0.y;
-            gl_FragColor = vec4(0, 0, c * t, 1);
-        }
-    "
+    fragmentShader: "qrc:shader.frag.qsb"
 }
-//![shader target]
-//![mixed]
+
+//! [shader target]
+//! [mixed]
 Rectangle {
     id: mixBox
     width: 50

@@ -13,6 +13,7 @@
 #include "base/memory/unsafe_shared_memory_region.h"
 #include "base/numerics/checked_math.h"
 #include "base/posix/eintr_wrapper.h"
+#include "skia/ext/legacy_display_globals.h"
 #include "third_party/skia/include/core/SkRegion.h"
 #include "ui/gfx/skia_util.h"
 #include "ui/gfx/vsync_provider.h"
@@ -57,6 +58,7 @@ class WaylandCanvasSurface::SharedMemoryBuffer {
   // based wl_buffer, which can be attached to a surface and have its contents
   // shown on a screen.
   bool Initialize(const gfx::Size& size) {
+    size_ = size;
     base::CheckedNumeric<size_t> checked_length(size.width());
     checked_length *= size.height();
     checked_length *= 4;
@@ -79,9 +81,10 @@ class WaylandCanvasSurface::SharedMemoryBuffer {
     buffer_manager_->CreateShmBasedBuffer(
         std::move(fd_pair.fd), checked_length.ValueOrDie(), size, buffer_id_);
 
+    SkSurfaceProps props = skia::LegacyDisplayGlobals::GetSkSurfaceProps();
     sk_surface_ = SkSurface::MakeRasterDirect(
         SkImageInfo::MakeN32Premul(size.width(), size.height()),
-        shm_mapping_.memory(), CalculateStride(size.width()));
+        shm_mapping_.memory(), CalculateStride(size.width()), &props);
     if (!sk_surface_)
       return false;
 
@@ -90,7 +93,8 @@ class WaylandCanvasSurface::SharedMemoryBuffer {
   }
 
   void CommitBuffer(const gfx::Rect& damage) {
-    buffer_manager_->CommitBuffer(widget_, buffer_id_, damage);
+    buffer_manager_->CommitBuffer(widget_, buffer_id_, gfx::Rect(size_),
+                                  damage);
   }
 
   void OnUse() {
@@ -132,6 +136,9 @@ class WaylandCanvasSurface::SharedMemoryBuffer {
   }
 
  private:
+  // The size of the buffer.
+  gfx::Size size_;
+
   // The id of the buffer this surface is backed.
   const uint32_t buffer_id_;
 

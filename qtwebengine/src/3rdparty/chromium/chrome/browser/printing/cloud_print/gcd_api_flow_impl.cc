@@ -23,9 +23,9 @@
 #include "components/signin/public/identity_manager/scope_set.h"
 #include "google_apis/gaia/google_service_auth_error.h"
 #include "net/base/load_flags.h"
+#include "net/base/net_errors.h"
 #include "net/base/url_util.h"
 #include "net/http/http_status_code.h"
-#include "net/url_request/url_request_status.h"
 #include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/simple_url_loader.h"
@@ -129,9 +129,10 @@ void GCDApiFlowImpl::OnAccessTokenFetchComplete(
   request->headers.SetHeader(kCloudPrintOAuthHeaderKey,
                              GetOAuthHeaderValue(access_token_info.token));
 
-  std::vector<std::string> extra_headers = request_->GetExtraRequestHeaders();
-  for (const std::string& header : extra_headers)
-    request->headers.AddHeaderFromString(header);
+  auto extra_headers = request_->GetExtraRequestHeaders();
+  for (const auto& header : extra_headers) {
+    request->headers.SetHeader(header.first, header.second);
+  }
 
   url_loader_ = network::SimpleURLLoader::Create(
       std::move(request),

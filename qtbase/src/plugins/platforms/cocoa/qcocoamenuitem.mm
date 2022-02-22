@@ -38,6 +38,8 @@
 **
 ****************************************************************************/
 
+#include <AppKit/AppKit.h>
+
 #include <qpa/qplatformtheme.h>
 
 #include "qcocoamenuitem.h"
@@ -50,9 +52,9 @@
 #include "qcocoamenuloader.h"
 #include <QtGui/private/qcoregraphics_p.h>
 #include <QtCore/qregularexpression.h>
+#include <QtGui/private/qapplekeymapper_p.h>
 
 #include <QtCore/QDebug>
-#include <QtCore/QRegExp>
 
 QT_BEGIN_NAMESPACE
 
@@ -77,42 +79,6 @@ QString qt_mac_applicationmenu_string(int type)
         return QCoreApplication::translate("MAC_APPLICATION_MENU", application_menu_strings[type]);
     }
 }
-
-static quint32 constructModifierMask(quint32 accel_key)
-{
-    quint32 ret = 0;
-    const bool dontSwap = qApp->testAttribute(Qt::AA_MacDontSwapCtrlAndMeta);
-    if ((accel_key & Qt::CTRL) == Qt::CTRL)
-        ret |= (dontSwap ? NSEventModifierFlagControl : NSEventModifierFlagCommand);
-    if ((accel_key & Qt::META) == Qt::META)
-        ret |= (dontSwap ? NSEventModifierFlagCommand : NSEventModifierFlagControl);
-    if ((accel_key & Qt::ALT) == Qt::ALT)
-        ret |= NSEventModifierFlagOption;
-    if ((accel_key & Qt::SHIFT) == Qt::SHIFT)
-        ret |= NSEventModifierFlagShift;
-    return ret;
-}
-
-#ifndef QT_NO_SHORTCUT
-// return an autoreleased string given a QKeySequence (currently only looks at the first one).
-NSString *keySequenceToKeyEqivalent(const QKeySequence &accel)
-{
-    quint32 accel_key = (accel[0] & ~(Qt::MODIFIER_MASK | Qt::UNICODE_ACCEL));
-    QChar cocoa_key = qt_mac_qtKey2CocoaKey(Qt::Key(accel_key));
-    if (cocoa_key.isNull())
-        cocoa_key = QChar(accel_key).toLower().unicode();
-    // Similar to qt_mac_removePrivateUnicode change the delete key so the symbol is correctly seen in native menubar
-    if (cocoa_key.unicode() == NSDeleteFunctionKey)
-        cocoa_key = NSDeleteCharacter;
-    return [NSString stringWithCharacters:&cocoa_key.unicode() length:1];
-}
-
-// return the cocoa modifier mask for the QKeySequence (currently only looks at the first one).
-NSUInteger keySequenceModifierMask(const QKeySequence &accel)
-{
-    return constructModifierMask(accel[0]);
-}
-#endif
 
 QCocoaMenuItem::QCocoaMenuItem() :
     m_native(nil),
@@ -203,7 +169,7 @@ void QCocoaMenuItem::setIsSeparator(bool isSeparator)
 
 void QCocoaMenuItem::setFont(const QFont &font)
 {
-    Q_UNUSED(font)
+    Q_UNUSED(font);
 }
 
 void QCocoaMenuItem::setRole(MenuRole role)
@@ -300,8 +266,7 @@ NSMenuItem *QCocoaMenuItem::sync()
             while (depth < 3 && p && !(menubar = qobject_cast<QCocoaMenuBar *>(p))) {
                 ++depth;
                 QCocoaMenuObject *menuObject = dynamic_cast<QCocoaMenuObject *>(p);
-                Q_ASSERT(menuObject);
-                p = menuObject->menuParent();
+                p = menuObject ? menuObject->menuParent() : nullptr;
             }
 
             if (menubar && depth < 3)
@@ -387,8 +352,19 @@ NSMenuItem *QCocoaMenuItem::sync()
 
 #ifndef QT_NO_SHORTCUT
     if (accel.count() == 1) {
-        m_native.keyEquivalent = keySequenceToKeyEqivalent(accel);
-        m_native.keyEquivalentModifierMask = keySequenceModifierMask(accel);
+        auto key = accel[0].key();
+        auto modifiers = accel[0].keyboardModifiers();
+
+        QChar cocoaKey = QAppleKeyMapper::toCocoaKey(key);
+        if (cocoaKey.isNull())
+            cocoaKey = QChar(key).toLower().unicode();
+        // Similar to qt_mac_removePrivateUnicode change the delete key,
+        // so the symbol is correctly seen in native menu bar.
+        if (cocoaKey.unicode() == NSDeleteFunctionKey)
+            cocoaKey = QChar(NSDeleteCharacter);
+
+        m_native.keyEquivalent = QStringView(&cocoaKey, 1).toNSString();
+        m_native.keyEquivalentModifierMask = QAppleKeyMapper::toCocoaModifiers(modifiers);
     } else
 #endif
     {
@@ -398,7 +374,7 @@ NSMenuItem *QCocoaMenuItem::sync()
 
     m_native.image = [NSImage imageFromQIcon:m_icon withSize:m_iconSize];
 
-    m_native.state = m_checked ?  NSOnState : NSOffState;
+    m_native.state = m_checked ?  NSControlStateValueOn : NSControlStateValueOff;
     return m_native;
 }
 

@@ -42,7 +42,7 @@
 #include <QtGui/QPainter>
 #include <QtGui/QTextDocument>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 AbstractBarChartItem::AbstractBarChartItem(QAbstractBarSeries *series, QGraphicsItem* item) :
     ChartItem(series->d_func(),item),
@@ -120,7 +120,7 @@ void AbstractBarChartItem::initializeFullLayout()
     }
 }
 
-void AbstractBarChartItem::applyLayout(const QVector<QRectF> &layout)
+void AbstractBarChartItem::applyLayout(const QList<QRectF> &layout)
 {
     QSizeF size = geometry().size();
     if (geometry().size().isValid()) {
@@ -152,7 +152,7 @@ void AbstractBarChartItem::setAnimation(BarAnimation *animation)
     m_resetAnimation = true;
 }
 
-void AbstractBarChartItem::setLayout(const QVector<QRectF> &layout)
+void AbstractBarChartItem::setLayout(const QList<QRectF> &layout)
 {
     int setCount = m_series->count();
     if (layout.size() != m_layout.size() || m_barMap.size() != setCount)
@@ -199,7 +199,7 @@ void AbstractBarChartItem::handleLayoutChanged()
     if ((m_rect.width() <= 0) || (m_rect.height() <= 0))
         return; // rect size zero.
     updateBarItems();
-    QVector<QRectF> layout = calculateLayout();
+    QList<QRectF> layout = calculateLayout();
     handleUpdatedBars();
     applyLayout(layout);
 }
@@ -265,6 +265,7 @@ void AbstractBarChartItem::handleUpdatedBars()
 
         for (int set = 0; set < setCount; set++) {
             QBarSet *barSet = m_series->d_func()->barsetAt(set);
+
             QBarSetPrivate *barSetP = barSet->d_ptr.data();
             const bool setVisualsDirty = barSetP->visualsDirty();
             const bool setLabelsDirty = barSetP->labelsDirty();
@@ -277,7 +278,11 @@ void AbstractBarChartItem::handleUpdatedBars()
                 Bar *bar = bars.at(i);
                 if (seriesVisualsDirty || setVisualsDirty || bar->visualsDirty()) {
                     bar->setPen(barSetP->m_pen);
-                    bar->setBrush(barSetP->m_brush);
+                    if (barSet->isBarSelected(i) && barSetP->m_selectedColor.isValid())
+                        bar->setBrush(barSetP->m_selectedColor);
+                    else
+                        bar->setBrush(barSetP->m_brush);
+
                     bar->setVisualsDirty(false);
                     bar->update();
                 }
@@ -374,7 +379,7 @@ void AbstractBarChartItem::positionLabels()
     }
 }
 
-void AbstractBarChartItem::handleBarValueChange(int index, QtCharts::QBarSet *barset)
+void AbstractBarChartItem::handleBarValueChange(int index, QBarSet *barset)
 {
     markLabelsDirty(barset, index, 1);
     handleLayoutChanged();
@@ -382,7 +387,7 @@ void AbstractBarChartItem::handleBarValueChange(int index, QtCharts::QBarSet *ba
 
 void AbstractBarChartItem::handleBarValueAdd(int index, int count, QBarSet *barset)
 {
-    Q_UNUSED(count)
+    Q_UNUSED(count);
 
     // Value insertions into middle of barset need to dirty the rest of the labels of the set
     markLabelsDirty(barset, index, -1);
@@ -391,7 +396,7 @@ void AbstractBarChartItem::handleBarValueAdd(int index, int count, QBarSet *bars
 
 void AbstractBarChartItem::handleBarValueRemove(int index, int count, QBarSet *barset)
 {
-    Q_UNUSED(count)
+    Q_UNUSED(count);
 
     // Value removals from the middle of barset need to dirty the rest of the labels of the set.
     markLabelsDirty(barset, index, -1);
@@ -409,7 +414,7 @@ void AbstractBarChartItem::handleBarValueRemove(int index, int count, QBarSet *b
 
 void AbstractBarChartItem::handleSeriesAdded(QAbstractSeries *series)
 {
-    Q_UNUSED(series)
+    Q_UNUSED(series);
 
     // If the parent series was added, do nothing, as series pos and width calculations will
     // happen anyway.
@@ -597,7 +602,7 @@ void AbstractBarChartItem::updateBarItems()
 
     int layoutSize = m_categoryCount * newSets.size();
 
-    QVector<QRectF> oldLayout = m_layout;
+    QList<QRectF> oldLayout = m_layout;
     if (layoutSize != m_layout.size())
         m_layout.resize(layoutSize);
 
@@ -628,7 +633,7 @@ void AbstractBarChartItem::updateBarItems()
         }
         // Update bar indexes
         QHash<int, Bar*> indexMap;
-        QVector<Bar *> unassignedBars(m_categoryCount, nullptr);
+        QList<Bar *> unassignedBars(m_categoryCount, nullptr);
         int unassignedIndex(0);
         QList<Bar *> newBars;
         newBars.reserve(m_categoryCount);
@@ -727,6 +732,6 @@ ChartAnimation *AbstractBarChartItem::animation() const
     return m_animation;
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_abstractbarchartitem_p.cpp"

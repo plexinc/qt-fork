@@ -26,18 +26,15 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_HTML_MEDIA_HTML_VIDEO_ELEMENT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_MEDIA_HTML_VIDEO_ELEMENT_H_
 
+#include "third_party/blink/public/common/media/display_type.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/html/canvas/canvas_image_source.h"
 #include "third_party/blink/renderer/core/html/html_image_loader.h"
 #include "third_party/blink/renderer/core/html/media/html_media_element.h"
 #include "third_party/blink/renderer/core/imagebitmap/image_bitmap_source.h"
+#include "third_party/blink/renderer/core/paint/compositing/paint_layer_compositor.h"
+#include "third_party/blink/renderer/platform/graphics/canvas_resource_provider.h"
 #include "third_party/khronos/GLES2/gl2.h"
-
-namespace gpu {
-namespace gles2 {
-class GLES2Interface;
-}
-}  // namespace gpu
 
 namespace blink {
 class ImageBitmapOptions;
@@ -45,6 +42,7 @@ class IntersectionObserverEntry;
 class MediaCustomControlsFullscreenDetector;
 class MediaRemotingInterstitial;
 class PictureInPictureInterstitial;
+class StaticBitmapImage;
 class VideoWakeLock;
 
 class CORE_EXPORT HTMLVideoElement final
@@ -57,8 +55,8 @@ class CORE_EXPORT HTMLVideoElement final
  public:
   static const int kNoAlreadyUploadedFrame = -1;
 
-  HTMLVideoElement(Document&);
-  void Trace(Visitor*) override;
+  explicit HTMLVideoElement(Document&);
+  void Trace(Visitor*) const override;
 
   bool HasPendingActivity() const final;
 
@@ -91,73 +89,28 @@ class CORE_EXPORT HTMLVideoElement final
   // Used by canvas to gain raw pixel access
   //
   // PaintFlags is optional. If unspecified, its blend mode defaults to kSrc.
-  void PaintCurrentFrame(
-      cc::PaintCanvas*,
-      const IntRect&,
-      const cc::PaintFlags*,
-      int already_uploaded_id = kNoAlreadyUploadedFrame,
-      WebMediaPlayer::VideoFrameUploadMetadata* out_metadata = nullptr) const;
-
-  // Used by WebGL to do GPU-GPU texture copy if possible.
-  bool CopyVideoTextureToPlatformTexture(
-      gpu::gles2::GLES2Interface*,
-      GLenum target,
-      GLuint texture,
-      GLenum internal_format,
-      GLenum format,
-      GLenum type,
-      GLint level,
-      bool premultiply_alpha,
-      bool flip_y,
-      int already_uploaded_id,
-      WebMediaPlayer::VideoFrameUploadMetadata* out_metadata);
-
-  // Used by WebGL to do YUV-RGB, CPU-GPU texture copy if possible.
-  bool CopyVideoYUVDataToPlatformTexture(
-      gpu::gles2::GLES2Interface*,
-      GLenum target,
-      GLuint texture,
-      GLenum internal_format,
-      GLenum format,
-      GLenum type,
-      GLint level,
-      bool premultiply_alpha,
-      bool flip_y,
-      int already_uploaded_id,
-      WebMediaPlayer::VideoFrameUploadMetadata* out_metadata);
-
-  // Used by WebGL to do CPU-GPU texture upload if possible.
-  bool TexImageImpl(WebMediaPlayer::TexImageFunctionID,
-                    GLenum target,
-                    gpu::gles2::GLES2Interface*,
-                    GLuint texture,
-                    GLint level,
-                    GLint internalformat,
-                    GLenum format,
-                    GLenum type,
-                    GLint xoffset,
-                    GLint yoffset,
-                    GLint zoffset,
-                    bool flip_y,
-                    bool premultiply_alpha);
-
-  // Used by WebGL to do GPU_GPU texture sharing if possible.
-  bool PrepareVideoFrameForWebGL(
-      gpu::gles2::GLES2Interface*,
-      GLenum target,
-      GLuint texture,
-      int already_uploaded_id,
-      WebMediaPlayer::VideoFrameUploadMetadata* out_metadata);
-
-  bool ShouldDisplayPosterImage() const { return GetDisplayMode() == kPoster; }
+  void PaintCurrentFrame(cc::PaintCanvas*,
+                         const IntRect&,
+                         const cc::PaintFlags*) const;
 
   bool HasAvailableVideoFrame() const;
 
   KURL PosterImageURL() const override;
 
+  // Returns whether the current poster image URL is the default for the
+  // document.
+  // TODO(1190335): Remove this once default poster image URL is removed.
+  bool IsDefaultPosterImageURL() const;
+
+  // Helper for GetSourceImageForCanvas() and other external callers who want a
+  // StaticBitmapImage of the current VideoFrame. If |allow_accelerated_images|
+  // is set to false a software backed CanvasResourceProvider will be used to
+  // produce the StaticBitmapImage.
+  scoped_refptr<StaticBitmapImage> CreateStaticBitmapImage(
+      bool allow_accelerated_images = true);
+
   // CanvasImageSource implementation
   scoped_refptr<Image> GetSourceImageForCanvas(SourceImageStatus*,
-                                               AccelerationHint,
                                                const FloatSize&) override;
   bool IsVideoElement() const override { return true; }
   bool WouldTaintOrigin() const override;
@@ -172,7 +125,6 @@ class CORE_EXPORT HTMLVideoElement final
   // ImageBitmapSource implementation
   IntSize BitmapSourceSize() const override;
   ScriptPromise CreateImageBitmap(ScriptState*,
-                                  EventTarget&,
                                   base::Optional<IntRect> crop_rect,
                                   const ImageBitmapOptions*,
                                   ExceptionState&) override;
@@ -188,10 +140,8 @@ class CORE_EXPORT HTMLVideoElement final
   void MediaRemotingStarted(const WebString& remote_device_friendly_name) final;
   bool SupportsPictureInPicture() const final;
   void MediaRemotingStopped(int error_code) final;
-  WebMediaPlayer::DisplayType DisplayType() const final;
+  DisplayType GetDisplayType() const final;
   bool IsInAutoPIP() const final;
-  void RequestEnterPictureInPicture() final;
-  void RequestExitPictureInPicture() final;
   void OnPictureInPictureStateChange() final;
 
   // Used by the PictureInPictureController as callback when the video element
@@ -202,13 +152,6 @@ class CORE_EXPORT HTMLVideoElement final
   void SetIsEffectivelyFullscreen(blink::WebFullscreenVideoStatus);
   void SetIsDominantVisibleContent(bool is_dominant);
 
-  void SetImageForTest(ImageResourceContent* content) {
-    if (!image_loader_)
-      image_loader_ = MakeGarbageCollected<HTMLImageLoader>(this);
-    image_loader_->SetImageForTest(content);
-    SetDisplayMode(kPoster);
-  }
-
   VideoWakeLock* wake_lock_for_tests() const { return wake_lock_; }
 
  protected:
@@ -217,6 +160,7 @@ class CORE_EXPORT HTMLVideoElement final
                           RegisteredEventListener&) override;
 
   void OnWebMediaPlayerCreated() final;
+  void OnWebMediaPlayerCleared() final;
 
   void AttributeChanged(const AttributeModificationParams& params) override;
 
@@ -232,6 +176,7 @@ class CORE_EXPORT HTMLVideoElement final
   bool LayoutObjectIsNeeded(const ComputedStyle&) const override;
   LayoutObject* CreateLayoutObject(const ComputedStyle&, LegacyLayout) override;
   void AttachLayoutTree(AttachContext&) override;
+  void UpdatePosterImage();
   void ParseAttribute(const AttributeModificationParams&) override;
   bool IsPresentationAttribute(const QualifiedName&) const override;
   void CollectStyleForPresentationAttribute(
@@ -241,12 +186,16 @@ class CORE_EXPORT HTMLVideoElement final
   bool IsURLAttribute(const Attribute&) const override;
   const AtomicString ImageSourceURL() const override;
 
-  void UpdateDisplayState() override;
   void OnPlay() final;
   void OnLoadStarted() final;
   void OnLoadFinished() final;
+
+  // Video-specific overrides for part of the media::mojom::MediaPlayer
+  // interface, fully implemented in the parent class HTMLMediaElement.
+  void RequestEnterPictureInPicture() final;
+  void RequestExitPictureInPicture() final;
+
   void DidMoveToNewDocument(Document& old_document) override;
-  void SetDisplayMode(DisplayMode) override;
 
   void UpdatePictureInPictureAvailability();
 
@@ -286,6 +235,10 @@ class CORE_EXPORT HTMLVideoElement final
 
   // True, if the video element occupies most of the viewport.
   bool mostly_filling_viewport_ : 1;
+
+  // Used to fulfill blink::Image requests (CreateImage(),
+  // GetSourceImageForCanvas(), etc). Created on demand.
+  std::unique_ptr<CanvasResourceProvider> resource_provider_;
 };
 
 }  // namespace blink

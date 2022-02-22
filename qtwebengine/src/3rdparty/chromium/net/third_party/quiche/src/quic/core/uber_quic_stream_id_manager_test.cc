@@ -2,13 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/uber_quic_stream_id_manager.h"
+#include "quic/core/uber_quic_stream_id_manager.h"
 
-#include "net/third_party/quiche/src/quic/core/quic_utils.h"
-#include "net/third_party/quiche/src/quic/core/quic_versions.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_stream_id_manager_peer.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
+#include "quic/core/quic_utils.h"
+#include "quic/core/quic_versions.h"
+#include "quic/platform/api/quic_test.h"
+#include "quic/test_tools/quic_stream_id_manager_peer.h"
+#include "quic/test_tools/quic_test_utils.h"
 
 using testing::_;
 using testing::StrictMock;
@@ -27,7 +27,7 @@ struct TestParams {
 
 // Used by ::testing::PrintToStringParamName().
 std::string PrintToString(const TestParams& p) {
-  return quiche::QuicheStrCat(
+  return absl::StrCat(
       ParsedQuicVersionToString(p.version), "_",
       (p.perspective == Perspective::IS_CLIENT ? "client" : "server"));
 }
@@ -46,8 +46,10 @@ std::vector<TestParams> GetTestParams() {
 
 class MockDelegate : public QuicStreamIdManager::DelegateInterface {
  public:
-  MOCK_METHOD2(SendMaxStreams,
-               void(QuicStreamCount stream_count, bool unidirectional));
+  MOCK_METHOD(void,
+              SendMaxStreams,
+              (QuicStreamCount stream_count, bool unidirectional),
+              (override));
 };
 
 class UberQuicStreamIdManagerTest : public QuicTestWithParam<TestParams> {
@@ -64,25 +66,25 @@ class UberQuicStreamIdManagerTest : public QuicTestWithParam<TestParams> {
   QuicStreamId GetNthClientInitiatedBidirectionalId(int n) {
     return QuicUtils::GetFirstBidirectionalStreamId(transport_version(),
                                                     Perspective::IS_CLIENT) +
-           kV99StreamIdIncrement * n;
+           QuicUtils::StreamIdDelta(transport_version()) * n;
   }
 
   QuicStreamId GetNthClientInitiatedUnidirectionalId(int n) {
     return QuicUtils::GetFirstUnidirectionalStreamId(transport_version(),
                                                      Perspective::IS_CLIENT) +
-           kV99StreamIdIncrement * n;
+           QuicUtils::StreamIdDelta(transport_version()) * n;
   }
 
   QuicStreamId GetNthServerInitiatedBidirectionalId(int n) {
     return QuicUtils::GetFirstBidirectionalStreamId(transport_version(),
                                                     Perspective::IS_SERVER) +
-           kV99StreamIdIncrement * n;
+           QuicUtils::StreamIdDelta(transport_version()) * n;
   }
 
   QuicStreamId GetNthServerInitiatedUnidirectionalId(int n) {
     return QuicUtils::GetFirstUnidirectionalStreamId(transport_version(),
                                                      Perspective::IS_SERVER) +
-           kV99StreamIdIncrement * n;
+           QuicUtils::StreamIdDelta(transport_version()) * n;
   }
 
   QuicStreamId GetNthPeerInitiatedBidirectionalStreamId(int n) {
@@ -201,16 +203,16 @@ TEST_P(UberQuicStreamIdManagerTest, SetMaxOpenIncomingStreams) {
   EXPECT_FALSE(manager_.MaybeIncreaseLargestPeerStreamId(
       GetNthPeerInitiatedUnidirectionalStreamId(i), &error_details));
   EXPECT_EQ(error_details,
-            quiche::QuicheStrCat(
+            absl::StrCat(
                 "Stream id ", GetNthPeerInitiatedUnidirectionalStreamId(i),
                 " would exceed stream count limit ", kNumMaxIncomingStreams));
   EXPECT_FALSE(manager_.MaybeIncreaseLargestPeerStreamId(
       GetNthPeerInitiatedBidirectionalStreamId(i + 1), &error_details));
-  EXPECT_EQ(
-      error_details,
-      quiche::QuicheStrCat(
-          "Stream id ", GetNthPeerInitiatedBidirectionalStreamId(i + 1),
-          " would exceed stream count limit ", kNumMaxIncomingStreams + 1));
+  EXPECT_EQ(error_details,
+            absl::StrCat("Stream id ",
+                         GetNthPeerInitiatedBidirectionalStreamId(i + 1),
+                         " would exceed stream count limit ",
+                         kNumMaxIncomingStreams + 1));
 }
 
 TEST_P(UberQuicStreamIdManagerTest, GetNextOutgoingStreamId) {
@@ -287,7 +289,8 @@ TEST_P(UberQuicStreamIdManagerTest, OnStreamsBlockedFrame) {
                                 /*unidirectional=*/false);
   EXPECT_CALL(delegate_,
               SendMaxStreams(manager_.max_incoming_bidirectional_streams(),
-                             frame.unidirectional));
+                             frame.unidirectional))
+      .Times(0);
   EXPECT_TRUE(manager_.OnStreamsBlockedFrame(frame, nullptr));
 
   stream_count = manager_.advertised_max_incoming_unidirectional_streams() - 1;
@@ -296,19 +299,9 @@ TEST_P(UberQuicStreamIdManagerTest, OnStreamsBlockedFrame) {
 
   EXPECT_CALL(delegate_,
               SendMaxStreams(manager_.max_incoming_unidirectional_streams(),
-                             frame.unidirectional));
+                             frame.unidirectional))
+      .Times(0);
   EXPECT_TRUE(manager_.OnStreamsBlockedFrame(frame, nullptr));
-}
-
-TEST_P(UberQuicStreamIdManagerTest, IsIncomingStream) {
-  EXPECT_TRUE(
-      manager_.IsIncomingStream(GetNthPeerInitiatedBidirectionalStreamId(0)));
-  EXPECT_TRUE(
-      manager_.IsIncomingStream(GetNthPeerInitiatedUnidirectionalStreamId(0)));
-  EXPECT_FALSE(
-      manager_.IsIncomingStream(GetNthSelfInitiatedBidirectionalStreamId(0)));
-  EXPECT_FALSE(
-      manager_.IsIncomingStream(GetNthSelfInitiatedUnidirectionalStreamId(0)));
 }
 
 TEST_P(UberQuicStreamIdManagerTest, SetMaxOpenOutgoingStreamsPlusFrame) {

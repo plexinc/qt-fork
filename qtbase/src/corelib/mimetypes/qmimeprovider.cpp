@@ -244,15 +244,18 @@ void QMimeBinaryProvider::addFileNameMatches(const QString &fileName, QMimeGlobM
     const QString lowerFileName = fileName.toLower();
     // Check literals (e.g. "Makefile")
     matchGlobList(result, m_cacheFile, m_cacheFile->getUint32(PosLiteralListOffset), fileName);
-    // Check complex globs (e.g. "callgrind.out[0-9]*")
-    matchGlobList(result, m_cacheFile, m_cacheFile->getUint32(PosGlobListOffset), fileName);
     // Check the very common *.txt cases with the suffix tree
-    const int reverseSuffixTreeOffset = m_cacheFile->getUint32(PosReverseSuffixTreeOffset);
-    const int numRoots = m_cacheFile->getUint32(reverseSuffixTreeOffset);
-    const int firstRootOffset = m_cacheFile->getUint32(reverseSuffixTreeOffset + 4);
-    matchSuffixTree(result, m_cacheFile, numRoots, firstRootOffset, lowerFileName, lowerFileName.length() - 1, false);
+    if (result.m_matchingMimeTypes.isEmpty()) {
+        const int reverseSuffixTreeOffset = m_cacheFile->getUint32(PosReverseSuffixTreeOffset);
+        const int numRoots = m_cacheFile->getUint32(reverseSuffixTreeOffset);
+        const int firstRootOffset = m_cacheFile->getUint32(reverseSuffixTreeOffset + 4);
+        matchSuffixTree(result, m_cacheFile, numRoots, firstRootOffset, lowerFileName, lowerFileName.length() - 1, false);
+        if (result.m_matchingMimeTypes.isEmpty())
+            matchSuffixTree(result, m_cacheFile, numRoots, firstRootOffset, fileName, fileName.length() - 1, true);
+    }
+    // Check complex globs (e.g. "callgrind.out[0-9]*" or "README*")
     if (result.m_matchingMimeTypes.isEmpty())
-        matchSuffixTree(result, m_cacheFile, numRoots, firstRootOffset, fileName, fileName.length() - 1, true);
+        matchGlobList(result, m_cacheFile, m_cacheFile->getUint32(PosGlobListOffset), fileName);
 }
 
 void QMimeBinaryProvider::matchGlobList(QMimeGlobMatchResult &result, CacheFile *cacheFile, int off, const QString &fileName)
@@ -272,7 +275,6 @@ void QMimeBinaryProvider::matchGlobList(QMimeGlobMatchResult &result, CacheFile 
         //qDebug() << pattern << mimeType << weight << caseSensitive;
         QMimeGlobPattern glob(pattern, QString() /*unused*/, weight, qtCaseSensitive);
 
-        // TODO: this could be done faster for literals where a simple == would do.
         if (glob.matchFileName(fileName))
             result.addMatch(QLatin1String(mimeType), weight, pattern);
     }
@@ -286,7 +288,7 @@ bool QMimeBinaryProvider::matchSuffixTree(QMimeGlobMatchResult &result, QMimeBin
     while (min <= max) {
         const int mid = (min + max) / 2;
         const int off = firstOffset + 12 * mid;
-        const QChar ch = cacheFile->getUint32(off);
+        const QChar ch = char16_t(cacheFile->getUint32(off));
         if (ch < fileChar)
             min = mid + 1;
         else if (ch > fileChar)
@@ -311,7 +313,7 @@ bool QMimeBinaryProvider::matchSuffixTree(QMimeGlobMatchResult &result, QMimeBin
                     const bool caseSensitive = flagsAndWeight & 0x100;
                     if (caseSensitiveCheck || !caseSensitive) {
                         result.addMatch(QLatin1String(mimeType), weight,
-                                        QLatin1Char('*') + fileName.midRef(charPos + 1), fileName.size() - charPos - 2);
+                                        QLatin1Char('*') + QStringView{fileName}.mid(charPos + 1), fileName.size() - charPos - 2);
                         success = true;
                     }
                 }
@@ -461,11 +463,12 @@ void QMimeBinaryProvider::loadMimeTypeList()
         // So we have to parse the plain-text files called "types".
         QFile file(m_directory + QStringLiteral("/types"));
         if (file.open(QIODevice::ReadOnly)) {
-            QTextStream stream(&file);
-            stream.setCodec("ISO 8859-1");
-            QString line;
-            while (stream.readLineInto(&line))
-                m_mimetypeNames.insert(line);
+            while (!file.atEnd()) {
+                QByteArray line = file.readLine();
+                if (line.endsWith('\n'))
+                    line.chop(1);
+                m_mimetypeNames.insert(QString::fromLatin1(line));
+            }
         }
     }
 }
@@ -521,14 +524,14 @@ void QMimeBinaryProvider::loadMimeTypePrivate(QMimeTypePrivate &data)
             if (xml.name() != QLatin1String("mime-type")) {
                 continue;
             }
-            const QStringRef name = xml.attributes().value(QLatin1String("type"));
+            const auto name = xml.attributes().value(QLatin1String("type"));
             if (name.isEmpty())
                 continue;
             if (name.compare(data.name, Qt::CaseInsensitive))
                 qWarning() << "Got name" << name << "in file" << file << "expected" << data.name;
 
             while (xml.readNextStartElement()) {
-                const QStringRef tag = xml.name();
+                const auto tag = xml.name();
                 if (tag == QLatin1String("comment")) {
                     QString lang = xml.attributes().value(QLatin1String("xml:lang")).toString();
                     const QString text = xml.readElementText();
@@ -635,10 +638,10 @@ static QString internalMimeFileName()
 QMimeXMLProvider::QMimeXMLProvider(QMimeDatabasePrivate *db, InternalDatabaseEnum)
     : QMimeProviderBase(db, internalMimeFileName())
 {
-    Q_STATIC_ASSERT_X(sizeof(mimetype_database), "Bundled MIME database is empty");
-    Q_STATIC_ASSERT_X(sizeof(mimetype_database) <= MimeTypeDatabaseOriginalSize,
+    static_assert(sizeof(mimetype_database), "Bundled MIME database is empty");
+    static_assert(sizeof(mimetype_database) <= MimeTypeDatabaseOriginalSize,
                       "Compressed MIME database is larger than the original size");
-    Q_STATIC_ASSERT_X(MimeTypeDatabaseOriginalSize <= 16*1024*1024,
+    static_assert(MimeTypeDatabaseOriginalSize <= 16*1024*1024,
                       "Bundled MIME database is too big");
     const char *data = reinterpret_cast<const char *>(mimetype_database);
     qsizetype size = MimeTypeDatabaseOriginalSize;

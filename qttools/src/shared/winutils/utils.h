@@ -46,7 +46,6 @@ enum PlatformFlag {
     // OS
     WindowsBased = 0x00001,
     UnixBased    = 0x00002,
-    WinRt        = 0x00004,
     // CPU
     IntelBased   = 0x00010,
     ArmBased     = 0x00020,
@@ -60,8 +59,6 @@ enum PlatformFlag {
     WindowsDesktopMinGW = WindowsBased + IntelBased + MinGW,
     WindowsDesktopClangMsvc = WindowsBased + IntelBased + ClangMsvc,
     WindowsDesktopClangMinGW = WindowsBased + IntelBased + ClangMinGW,
-    WinRtIntelMsvc = WindowsBased + WinRt + IntelBased + Msvc,
-    WinRtArmMsvc = WindowsBased + WinRt + ArmBased + Msvc,
     Unix = UnixBased,
     UnknownPlatform
 };
@@ -176,7 +173,7 @@ QString findInPath(const QString &file);
 
 extern const char *qmakeInfixKey; // Fake key containing the libinfix
 
-QMap<QString, QString> queryQMakeAll(QString *errorMessage);
+QMap<QString, QString> queryQMakeAll(const QString &qmakeBinary, QString *errorMessage);
 QString queryQMake(const QString &variable, QString *errorMessage);
 
 enum DebugMatchMode {
@@ -195,7 +192,6 @@ bool runProcess(const QString &binary, const QStringList &args,
                 const QString &workingDirectory = QString(),
                 unsigned long *exitCode = 0, QByteArray *stdOut = 0, QByteArray *stdErr = 0,
                 QString *errorMessage = 0);
-bool runElevatedBackgroundProcess(const QString &binary, const QStringList &args, Qt::HANDLE *processHandle);
 
 bool readPeExecutable(const QString &peExecutableFileName, QString *errorMessage,
                       QStringList *dependentLibraries = 0, unsigned *wordSize = 0,

@@ -31,10 +31,10 @@
 #include <QtQuick/qquickitem.h>
 #include <QtQuick/qquickview.h>
 #include <QtQuick/qsgrendererinterface.h>
-#include <QtGui/qopenglcontext.h>
-#include <QtGui/qopenglfunctions.h>
+#include <qopenglcontext.h>
+#include <qopenglfunctions.h>
 
-#include "../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 
 #include <QtGui/private/qguiapplication_p.h>
 #include <QtGui/qpa/qplatformintegration.h>
@@ -87,55 +87,24 @@ private slots:
 
 private:
     void mirroringCheck(int mirroring, int x, bool shouldMirror, const QImage &fb);
-
-    bool m_isMesaSoftwareRasterizer = false;
-    int m_mesaVersion = 0;
-    bool m_isOpenGLRenderer = true;
 };
 
-tst_QQuickItemLayer::tst_QQuickItemLayer() { }
+bool isOffscreen()
+{
+    return (QGuiApplication::platformName() == QLatin1String("offscreen"))
+            || (QGuiApplication::platformName() == QLatin1String("minimal"));
+}
+const char skipOffscreenMsg[] =
+        "Skipping due to grabWindow not functional on offscreen/minimal platformsi (QTBUG-63185)";
+
+tst_QQuickItemLayer::tst_QQuickItemLayer() : QQmlDataTest(QT_QMLTEST_DATADIR) { }
 
 void tst_QQuickItemLayer::initTestCase()
 {
     QQmlDataTest::initTestCase();
-#if QT_CONFIG(opengl)
-    if (QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::OpenGL)) {
-        QWindow window;
-        QOpenGLContext context;
-        window.setSurfaceType(QWindow::OpenGLSurface);
-        window.create();
-        QVERIFY(context.create());
-        QVERIFY(context.makeCurrent(&window));
-        const char *vendor = (const char *)context.functions()->glGetString(GL_VENDOR);
-        const char *renderer = (const char *)context.functions()->glGetString(GL_RENDERER);
-        m_isMesaSoftwareRasterizer = strcmp(vendor, "Mesa Project") == 0
-                && strcmp(renderer, "Software Rasterizer") == 0;
-        if (m_isMesaSoftwareRasterizer) {
-            // Expects format: <OpenGL version> Mesa <Mesa version>[-devel] [...]
-            const char *version = (const char *)context.functions()->glGetString(GL_VERSION);
-            QList<QByteArray> list = QByteArray(version).split(' ');
-            if (list.size() >= 3) {
-                list = list.at(2).split('-').at(0).split('.');
-                int major = 0;
-                int minor = 0;
-                int patch = 0;
-                if (list.size() >= 1)
-                    major = list.at(0).toInt();
-                if (list.size() >= 2)
-                    minor = list.at(1).toInt();
-                if (list.size() >= 3)
-                    patch = list.at(2).toInt();
-                m_mesaVersion = QT_VERSION_CHECK(major, minor, patch);
-            }
-        }
-        window.create();
-    }
-#endif
     QQuickView view;
     view.showNormal();
     QVERIFY(QTest::qWaitForWindowExposed(&view));
-    if (view.rendererInterface()->graphicsApi() != QSGRendererInterface::OpenGL)
-        m_isOpenGLRenderer = false;
 }
 
 // The test draws a red and a blue box next to each other and tests that the
@@ -144,12 +113,8 @@ void tst_QQuickItemLayer::initTestCase()
 
 void tst_QQuickItemLayer::layerSmooth()
 {
-    if (m_isMesaSoftwareRasterizer && m_mesaVersion < QT_VERSION_CHECK(7, 11, 0))
-        QSKIP("Mesa Software Rasterizer below version 7.11 does not render this test correctly.");
-
-    if ((QGuiApplication::platformName() == QLatin1String("offscreen"))
-        || (QGuiApplication::platformName() == QLatin1String("minimal")))
-        QSKIP("Skipping due to grabWindow not functional on offscreen/minimal platforms");
+    if (isOffscreen())
+        QSKIP(skipOffscreenMsg);
 
     QImage fb = runTest("Smooth.qml");
     QVERIFY(!fb.size().isEmpty());
@@ -169,12 +134,8 @@ void tst_QQuickItemLayer::layerSmooth()
 
 void tst_QQuickItemLayer::layerEnabled()
 {
-    if (m_isMesaSoftwareRasterizer && m_mesaVersion < QT_VERSION_CHECK(7, 11, 0))
-        QSKIP("Mesa Software Rasterizer below version 7.11 does not render this test correctly.");
-
-    if ((QGuiApplication::platformName() == QLatin1String("offscreen"))
-        || (QGuiApplication::platformName() == QLatin1String("minimal")))
-        QSKIP("Skipping due to grabWindow not functional on offscreen/minimal platforms");
+    if (isOffscreen())
+        QSKIP(skipOffscreenMsg);
 
     QImage fb = runTest("Enabled.qml");
     QVERIFY(!fb.size().isEmpty());
@@ -190,9 +151,6 @@ void tst_QQuickItemLayer::layerEnabled()
 
 void tst_QQuickItemLayer::layerMipmap()
 {
-    if (m_isMesaSoftwareRasterizer)
-        QSKIP("Mipmapping does not work with the Mesa Software Rasterizer.");
-
     QImage fb = runTest("Mipmap.qml");
     QVERIFY(fb.pixel(0, 0) != 0xff000000);
     QVERIFY(fb.pixel(0, 0) != 0xffffffff);
@@ -205,12 +163,8 @@ void tst_QQuickItemLayer::layerMipmap()
 
 void tst_QQuickItemLayer::layerEffect()
 {
-    if (m_isMesaSoftwareRasterizer && m_mesaVersion < QT_VERSION_CHECK(7, 11, 0))
-        QSKIP("Mesa Software Rasterizer below version 7.11 does not render this test correctly.");
-
-    if ((QGuiApplication::platformName() == QLatin1String("offscreen"))
-        || (QGuiApplication::platformName() == QLatin1String("minimal")))
-        QSKIP("Skipping due to grabWindow not functional on offscreen/minimal platforms");
+    if (isOffscreen())
+        QSKIP(skipOffscreenMsg);
 
     QImage fb = runTest("Effect.qml");
     QVERIFY(!fb.size().isEmpty());
@@ -224,11 +178,8 @@ void tst_QQuickItemLayer::layerEffect()
 // a shader that pads transparent to blue. Everything else is red.
 void tst_QQuickItemLayer::layerSourceRect()
 {
-    if (m_isMesaSoftwareRasterizer && m_mesaVersion < QT_VERSION_CHECK(7, 11, 0))
-        QSKIP("Mesa Software Rasterizer below version 7.11 does not render this test correctly.");
-
-    if (!m_isOpenGLRenderer)
-        QSKIP("Only OpenGL Renderer supports GLSL ShaderEffects");
+    if (isOffscreen())
+        QSKIP(skipOffscreenMsg);
 
     QImage fb = runTest("SourceRect.qml");
     QVERIFY(!fb.size().isEmpty());
@@ -249,11 +200,8 @@ void tst_QQuickItemLayer::layerSourceRect()
 // directly in a stand alone ShaderEffect
 void tst_QQuickItemLayer::layerIsTextureProvider()
 {
-    if (m_isMesaSoftwareRasterizer && m_mesaVersion < QT_VERSION_CHECK(7, 11, 0))
-        QSKIP("Mesa Software Rasterizer below version 7.11 does not render this test correctly.");
-
-    if (!m_isOpenGLRenderer)
-        QSKIP("Only OpenGL Renderer supports GLSL ShaderEffects");
+    if (isOffscreen())
+        QSKIP(skipOffscreenMsg);
 
     QImage fb = runTest("TextureProvider.qml");
     QVERIFY(!fb.size().isEmpty());
@@ -286,11 +234,8 @@ void tst_QQuickItemLayer::layerVisibility_data()
 
 void tst_QQuickItemLayer::layerVisibility()
 {
-    if (m_isMesaSoftwareRasterizer && m_mesaVersion < QT_VERSION_CHECK(7, 11, 0))
-        QSKIP("Mesa Software Rasterizer below version 7.11 does not render this test correctly.");
-
-    if (!m_isOpenGLRenderer)
-        QSKIP("Only OpenGL Renderer supports GLSL ShaderEffects");
+    if (isOffscreen())
+        QSKIP(skipOffscreenMsg);
 
     QFETCH(bool, visible);
     QFETCH(bool, effect);
@@ -337,11 +282,8 @@ void tst_QQuickItemLayer::layerZOrder_data()
 
 void tst_QQuickItemLayer::layerZOrder()
 {
-    if (m_isMesaSoftwareRasterizer && m_mesaVersion < QT_VERSION_CHECK(7, 11, 0))
-        QSKIP("Mesa Software Rasterizer below version 7.11 does not render this test correctly.");
-
-    if (!m_isOpenGLRenderer)
-        QSKIP("Only OpenGL Renderer supports GLSL ShaderEffects");
+    if (isOffscreen())
+        QSKIP(skipOffscreenMsg);
 
     QFETCH(bool, effect);
 
@@ -374,11 +316,8 @@ void tst_QQuickItemLayer::changeZOrder_data()
 
 void tst_QQuickItemLayer::changeZOrder()
 {
-    if (m_isMesaSoftwareRasterizer && m_mesaVersion < QT_VERSION_CHECK(7, 11, 0))
-        QSKIP("Mesa Software Rasterizer below version 7.11 does not render this test correctly.");
-
-    if (!m_isOpenGLRenderer)
-        QSKIP("Only OpenGL Renderer supports GLSL ShaderEffects");
+    if (isOffscreen())
+        QSKIP(skipOffscreenMsg);
 
     QFETCH(bool, layered);
     QFETCH(bool, effect);
@@ -445,11 +384,8 @@ void tst_QQuickItemLayer::disableLayer()
 
 void tst_QQuickItemLayer::changeSamplerName()
 {
-    if (m_isMesaSoftwareRasterizer && m_mesaVersion < QT_VERSION_CHECK(7, 11, 0))
-        QSKIP("Mesa Software Rasterizer below version 7.11 does not render this test correctly.");
-
-    if (!m_isOpenGLRenderer)
-        QSKIP("Only OpenGL Renderer supports GLSL ShaderEffects");
+    if (isOffscreen())
+        QSKIP(skipOffscreenMsg);
 
     QImage fb = runTest("SamplerNameChange.qml");
     QVERIFY(!fb.size().isEmpty());
@@ -458,10 +394,8 @@ void tst_QQuickItemLayer::changeSamplerName()
 
 void tst_QQuickItemLayer::itemEffect()
 {
-    if (m_isMesaSoftwareRasterizer && m_mesaVersion < QT_VERSION_CHECK(7, 11, 0))
-        QSKIP("Mesa Software Rasterizer below version 7.11 does not render this test correctly.");
-    if (!m_isOpenGLRenderer)
-        QSKIP("Only OpenGL Renderer supports GLSL ShaderEffects");
+    if (isOffscreen())
+        QSKIP(skipOffscreenMsg);
 
     QImage fb = runTest("ItemEffect.qml");
     QVERIFY(!fb.size().isEmpty());
@@ -473,9 +407,8 @@ void tst_QQuickItemLayer::itemEffect()
 
 void tst_QQuickItemLayer::rectangleEffect()
 {
-    if ((QGuiApplication::platformName() == QLatin1String("offscreen"))
-        || (QGuiApplication::platformName() == QLatin1String("minimal")))
-        QSKIP("Skipping due to grabWindow not functional on offscreen/minimal platforms");
+    if (isOffscreen())
+        QSKIP(skipOffscreenMsg);
 
     QImage fb = runTest("RectangleEffect.qml");
     QVERIFY(!fb.size().isEmpty());
@@ -502,10 +435,10 @@ void tst_QQuickItemLayer::textureMirroring_data()
 
 void tst_QQuickItemLayer::textureMirroring()
 {
-    QFETCH(int, mirroring);
+    if (isOffscreen())
+        QSKIP(skipOffscreenMsg);
 
-    if (!m_isOpenGLRenderer)
-        QSKIP("Only OpenGL Renderer supports GLSL ShaderEffects");
+    QFETCH(int, mirroring);
 
     QQuickView view;
     view.setSource(testFileUrl("TextureMirroring.qml"));

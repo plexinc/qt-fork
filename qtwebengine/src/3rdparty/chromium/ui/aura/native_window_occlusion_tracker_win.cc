@@ -4,11 +4,16 @@
 
 #include "ui/aura/native_window_occlusion_tracker_win.h"
 
+#include <dwmapi.h>
+#include <powersetting.h>
 #include <memory>
+#include <string>
 
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/strings/string_util_win.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
@@ -18,8 +23,7 @@
 #include "base/win/scoped_gdi_object.h"
 #include "base/win/windows_version.h"
 #include "ui/aura/window_tree_host.h"
-
-#include "dwmapi.h"
+#include "ui/gfx/win/hwnd_util.h"
 
 namespace aura {
 
@@ -121,7 +125,8 @@ NativeWindowOcclusionTrackerWin::NativeWindowOcclusionTrackerWin()
            base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN})),
       session_change_observer_(
           base::BindRepeating(&NativeWindowOcclusionTrackerWin::OnSessionChange,
-                              base::Unretained(this))) {
+                              base::Unretained(this))),
+      power_setting_change_listener_(this) {
   WindowOcclusionCalculator::CreateInstance(
       update_occlusion_task_runner_, base::SequencedTaskRunnerHandle::Get(),
       base::BindRepeating(
@@ -163,7 +168,7 @@ bool NativeWindowOcclusionTrackerWin::IsWindowVisibleAndFullyOpaque(
   if (IsIconic(hwnd))
     return false;
 
-  LONG ex_styles = GetWindowLong(hwnd, GWL_EXSTYLE);
+  LONG ex_styles = ::GetWindowLong(hwnd, GWL_EXSTYLE);
   // Filter out "transparent" windows, windows where the mouse clicks fall
   // through them.
   if (ex_styles & WS_EX_TRANSPARENT)
@@ -220,13 +225,24 @@ bool NativeWindowOcclusionTrackerWin::IsWindowVisibleAndFullyOpaque(
     return false;
   if (IsRectEmpty(&win_rect))
     return false;
+
+  // Ignore popup windows since they're transient unless it is a Chrome Widget
+  // Window.
+  if (::GetWindowLong(hwnd, GWL_STYLE) & WS_POPUP) {
+    if (!base::StartsWith(gfx::GetClassName(hwnd), L"Chrome_WidgetWin_")) {
+      return false;
+    }
+  }
+
   *window_rect = gfx::Rect(win_rect);
+
   return true;
 }
 
 void NativeWindowOcclusionTrackerWin::UpdateOcclusionState(
     const base::flat_map<HWND, Window::OcclusionState>&
-        root_window_hwnds_occlusion_state) {
+        root_window_hwnds_occlusion_state,
+    bool show_all_windows) {
   num_visible_root_windows_ = 0;
   for (const auto& root_window_pair : root_window_hwnds_occlusion_state) {
     auto it = hwnd_root_window_map_.find(root_window_pair.first);
@@ -235,17 +251,22 @@ void NativeWindowOcclusionTrackerWin::UpdateOcclusionState(
       continue;
     // Check Window::IsVisible here, on the UI thread, because it can't be
     // checked on the occlusion calculation thread. Do this first before
-    // checking screen_locked_ so that hidden windows remain hidden.
+    // checking screen_locked_ or display_on_ so that hidden windows remain
+    // hidden.
     if (!it->second->IsVisible()) {
       it->second->GetHost()->SetNativeWindowOcclusionState(
           Window::OcclusionState::HIDDEN);
       continue;
     }
-    // If the screen is locked, ignore occlusion state results and
+    Window::OcclusionState occl_state = root_window_pair.second;
+    // If the screen is locked or off, ignore occlusion state results and
     // mark the window as occluded.
-    it->second->GetHost()->SetNativeWindowOcclusionState(
-        screen_locked_ ? Window::OcclusionState::OCCLUDED
-                       : root_window_pair.second);
+    if (screen_locked_ || !display_on_)
+      occl_state = Window::OcclusionState::OCCLUDED;
+    else if (show_all_windows)
+      occl_state = Window::OcclusionState::VISIBLE;
+
+    it->second->GetHost()->SetNativeWindowOcclusionState(occl_state);
     num_visible_root_windows_++;
   }
 }
@@ -261,14 +282,29 @@ void NativeWindowOcclusionTrackerWin::OnSessionChange(
     screen_locked_ = false;
   } else if (status_code == WTS_SESSION_LOCK && is_current_session) {
     screen_locked_ = true;
-    // Set all visible root windows as occluded. If not visible,
-    // set them as hidden.
-    for (const auto& root_window_hwnd_pair : hwnd_root_window_map_) {
-      root_window_hwnd_pair.second->GetHost()->SetNativeWindowOcclusionState(
-          IsIconic(root_window_hwnd_pair.first)
-              ? Window::OcclusionState::HIDDEN
-              : Window::OcclusionState::OCCLUDED);
-    }
+    MarkNonIconicWindowsOccluded();
+  }
+}
+
+void NativeWindowOcclusionTrackerWin::OnDisplayStateChanged(bool display_on) {
+  if (display_on == display_on_)
+    return;
+
+  display_on_ = display_on;
+  // Display changing to on will cause a foreground window change,
+  // which will trigger an occlusion calculation on its own.
+  if (!display_on_)
+    MarkNonIconicWindowsOccluded();
+}
+
+void NativeWindowOcclusionTrackerWin::MarkNonIconicWindowsOccluded() {
+  // Set all visible root windows as occluded. If not visible,
+  // set them as hidden.
+  for (const auto& root_window_hwnd_pair : hwnd_root_window_map_) {
+    root_window_hwnd_pair.second->GetHost()->SetNativeWindowOcclusionState(
+        IsIconic(root_window_hwnd_pair.first)
+            ? Window::OcclusionState::HIDDEN
+            : Window::OcclusionState::OCCLUDED);
   }
 }
 
@@ -326,6 +362,8 @@ void NativeWindowOcclusionTrackerWin::WindowOcclusionCalculator::
     DisableOcclusionTrackingForWindow(HWND hwnd) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   root_window_hwnds_occlusion_state_.erase(hwnd);
+  if (moving_window_ == hwnd)
+    moving_window_ = 0;
   if (root_window_hwnds_occlusion_state_.empty()) {
     UnregisterEventHooks();
     if (occlusion_update_timer_.IsRunning())
@@ -470,8 +508,9 @@ void NativeWindowOcclusionTrackerWin::WindowOcclusionCalculator::
   // Post a task to the browser ui thread to update the window occlusion state
   // on the root windows.
   ui_thread_task_runner_->PostTask(
-      FROM_HERE, base::BindOnce(update_occlusion_state_callback_,
-                                root_window_hwnds_occlusion_state_));
+      FROM_HERE,
+      base::BindOnce(update_occlusion_state_callback_,
+                     root_window_hwnds_occlusion_state_, showing_thumbnails_));
 }
 
 void NativeWindowOcclusionTrackerWin::WindowOcclusionCalculator::
@@ -516,9 +555,17 @@ void NativeWindowOcclusionTrackerWin::WindowOcclusionCalculator::
   // Detects foreground window changing.
   RegisterGlobalEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND);
 
+  // Detects objects getting shown and hidden. Used to know when the task bar
+  // and alt tab are showing preview windows so we can unocclude Chrome windows.
+  RegisterGlobalEventHook(EVENT_OBJECT_SHOW, EVENT_OBJECT_HIDE);
+
   // Detects object state changes, e.g., enable/disable state, native window
   // maximize and native window restore events.
   RegisterGlobalEventHook(EVENT_OBJECT_STATECHANGE, EVENT_OBJECT_STATECHANGE);
+
+  // Cloaking and uncloaking of windows should trigger an occlusion calculation.
+  // In particular, switching virtual desktops seems to generate these events.
+  RegisterGlobalEventHook(EVENT_OBJECT_CLOAKED, EVENT_OBJECT_UNCLOAKED);
 
   // Determine which subset of processes to set EVENT_OBJECT_LOCATIONCHANGE on
   // because otherwise event throughput is very high, as it generates events
@@ -578,6 +625,10 @@ bool NativeWindowOcclusionTrackerWin::WindowOcclusionCalculator::
     return true;
   }
 
+  // Ignore moving windows when deciding if windows under it are occluded.
+  if (hwnd == moving_window_)
+    return true;
+
   // Check if |hwnd| is a root window; if so, we're done figuring out
   // if it's occluded because we've seen all the windows "over" it.
   auto it = root_window_hwnds_occlusion_state_.find(hwnd);
@@ -623,22 +674,77 @@ void NativeWindowOcclusionTrackerWin::WindowOcclusionCalculator::
   if (id_object != OBJID_WINDOW)
     return;
 
-  // Don't continually calculate occlusion while a window is moving, but rather
-  // once at the beginning and once at the end.
-  if (event == EVENT_SYSTEM_MOVESIZESTART) {
-    window_is_moving_ = true;
-  } else if (event == EVENT_SYSTEM_MOVESIZEEND) {
-    window_is_moving_ = false;
-  } else if (window_is_moving_) {
-    if (event == EVENT_OBJECT_LOCATIONCHANGE ||
-        event == EVENT_OBJECT_STATECHANGE) {
+  // We generally ignore events for popup windows, except for when the taskbar
+  // is hidden or when the popup is a Chrome Widget, in which case we
+  // recalculate occlusion.
+  bool calculate_occlusion = true;
+  if (::GetWindowLong(hwnd, GWL_STYLE) & WS_POPUP) {
+    calculate_occlusion =
+        base::StartsWith(gfx::GetClassName(hwnd), L"Chrome_WidgetWin_");
+  }
+
+  // Detect if either the alt tab view or the task list thumbnail is being
+  // shown. If so, mark all non-hidden windows as occluded, and remember that
+  // we're in the showing_thumbnails state. This lasts until we get told that
+  // either the alt tab view or task list thumbnail are hidden.
+  if (event == EVENT_OBJECT_SHOW) {
+    // Avoid getting the hwnd's class name, and recomputing occlusion, if not
+    // needed.
+    if (showing_thumbnails_)
+      return;
+    std::string hwnd_class_name = base::WideToUTF8(gfx::GetClassName(hwnd));
+    if ((hwnd_class_name == "MultitaskingViewFrame" ||
+         hwnd_class_name == "TaskListThumbnailWnd")) {
+      showing_thumbnails_ = true;
+      ui_thread_task_runner_->PostTask(
+          FROM_HERE, base::BindOnce(update_occlusion_state_callback_,
+                                    root_window_hwnds_occlusion_state_,
+                                    showing_thumbnails_));
       return;
     }
-    // If we get an event that isn't a location/state change, then we probably
-    // missed the movesizeend notification, or got events out of order. In
-    // that case, we want to go back to calculating occlusion.
-    window_is_moving_ = false;
+  } else if (event == EVENT_OBJECT_HIDE) {
+    // Avoid getting the hwnd's class name, and recomputing occlusion, if not
+    // needed.
+    if (!showing_thumbnails_)
+      return;
+    std::string hwnd_class_name = base::WideToUTF8(gfx::GetClassName(hwnd));
+    if (hwnd_class_name == "MultitaskingViewFrame" ||
+        hwnd_class_name == "TaskListThumbnailWnd") {
+      showing_thumbnails_ = false;
+      // Let occlusion calculation fix occlusion state, even though hwnd might
+      // be a popup window.
+      calculate_occlusion = true;
+    }
   }
+  // Don't continually calculate occlusion while a window is moving (unless it's
+  // a root window), but instead once at the beginning and once at the end.
+  // Remember the window being moved so if it's a root window, we can ignore
+  // it when deciding if windows under it are occluded.
+  else if (event == EVENT_SYSTEM_MOVESIZESTART) {
+    moving_window_ = hwnd;
+  } else if (event == EVENT_SYSTEM_MOVESIZEEND) {
+    moving_window_ = 0;
+  } else if (moving_window_ != 0) {
+    if (event == EVENT_OBJECT_LOCATIONCHANGE ||
+        event == EVENT_OBJECT_STATECHANGE) {
+      // Ignore move events if it's not a root window that's being moved. If it
+      // is a root window, we want to calculate occlusion to support tab
+      // dragging to windows that were occluded when the drag was started but
+      // are no longer occluded.
+      if (root_window_hwnds_occlusion_state_.find(hwnd) ==
+          root_window_hwnds_occlusion_state_.end()) {
+        return;
+      }
+    } else {
+      // If we get an event that isn't a location/state change, then we probably
+      // missed the movesizeend notification, or got events out of order. In
+      // that case, we want to go back to normal occlusion calculation.
+      moving_window_ = 0;
+    }
+  }
+
+  if (!calculate_occlusion)
+    return;
 
   // ProcessEventHookCallback is called from the task_runner's PeekMessage
   // call, on the task runner's thread, but before the task_tracker thread sets
@@ -669,18 +775,18 @@ bool NativeWindowOcclusionTrackerWin::WindowOcclusionCalculator::
         HWND hwnd,
         gfx::Rect* window_rect) {
   return IsWindowVisibleAndFullyOpaque(hwnd, window_rect) &&
-         (IsWindowOnCurrentVirtualDesktop(hwnd) != false);
+         (IsWindowOnCurrentVirtualDesktop(hwnd) == true);
 }
 
 base::Optional<bool> NativeWindowOcclusionTrackerWin::
     WindowOcclusionCalculator::IsWindowOnCurrentVirtualDesktop(HWND hwnd) {
-  if (virtual_desktop_manager_) {
-    BOOL on_current_desktop;
+  if (!virtual_desktop_manager_)
+    return true;
 
-    if (SUCCEEDED(virtual_desktop_manager_->IsWindowOnCurrentVirtualDesktop(
-            hwnd, &on_current_desktop))) {
-      return on_current_desktop;
-    }
+  BOOL on_current_desktop;
+  if (SUCCEEDED(virtual_desktop_manager_->IsWindowOnCurrentVirtualDesktop(
+          hwnd, &on_current_desktop))) {
+    return on_current_desktop;
   }
   return base::nullopt;
 }

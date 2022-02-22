@@ -54,6 +54,8 @@
 #include <QMainWindow>
 
 class QTextEdit;
+class QTextFrame;
+class QTextBlock;
 
 class MainWindow : public QMainWindow
 {
@@ -67,8 +69,10 @@ public slots:
 
 private:
     bool writeXml(const QString &fileName);
+    void processBlock(QTextBlock);
+    void processFrame(QTextFrame *frame);
 
-    QTextEdit *editor;
+    QTextEdit *editor = nullptr;
 };
 
 #endif

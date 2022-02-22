@@ -44,13 +44,13 @@ class COMPOSITOR_EXPORT LayerOwner {
   std::unique_ptr<Layer> AcquireLayer();
 
   // Similar to AcquireLayer(), but layer() will be set to nullptr immediately.
-  std::unique_ptr<Layer> ReleaseLayer();
+  virtual std::unique_ptr<Layer> ReleaseLayer();
 
   // Releases the ownership of the current layer, and takes ownership of
   // |layer|.
   void Reset(std::unique_ptr<Layer> layer);
 
-  // Asks the owner to recreate the layer, returning the old Layer. NULL is
+  // Asks the owner to recreate the layer, returning the old Layer. nullptr is
   // returned if there is no existing layer, or recreate is not supported.
   //
   // This does not recurse. Existing children of the layer are moved to the new
@@ -63,13 +63,13 @@ class COMPOSITOR_EXPORT LayerOwner {
   bool OwnsLayer() const;
 
  protected:
-  void SetLayer(std::unique_ptr<Layer> layer);
+  virtual void SetLayer(std::unique_ptr<Layer> layer);
   void DestroyLayer();
 
  private:
   // The LayerOwner owns its layer unless ownership is relinquished via a call
   // to AcquireLayer(). After that moment |layer_| will still be valid but
-  // |layer_owner_| will be NULL. The reason for releasing ownership is that
+  // |layer_owner_| will be nullptr. The reason for releasing ownership is that
   // the client may wish to animate the layer beyond the lifetime of the owner,
   // e.g. fading it out when it is destroyed.
   std::unique_ptr<Layer> layer_owner_;

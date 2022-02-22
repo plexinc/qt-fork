@@ -17,14 +17,14 @@ ExtensionFunction::ResponseAction
 MediaPerceptionPrivateGetStateFunction::Run() {
   MediaPerceptionAPIManager* manager =
       MediaPerceptionAPIManager::Get(browser_context());
-  manager->GetState(base::Bind(
+  manager->GetState(base::BindOnce(
       &MediaPerceptionPrivateGetStateFunction::GetStateCallback, this));
   return RespondLater();
 }
 
 void MediaPerceptionPrivateGetStateFunction::GetStateCallback(
     extensions::api::media_perception_private::State state) {
-  Respond(OneArgument(state.ToValue()));
+  Respond(OneArgument(base::Value::FromUniquePtrValue(state.ToValue())));
 }
 
 MediaPerceptionPrivateSetStateFunction ::
@@ -88,14 +88,14 @@ MediaPerceptionPrivateSetStateFunction::Run() {
       MediaPerceptionAPIManager::Get(browser_context());
   manager->SetState(
       params->state,
-      base::Bind(&MediaPerceptionPrivateSetStateFunction::SetStateCallback,
-                 this));
+      base::BindOnce(&MediaPerceptionPrivateSetStateFunction::SetStateCallback,
+                     this));
   return RespondLater();
 }
 
 void MediaPerceptionPrivateSetStateFunction::SetStateCallback(
     extensions::api::media_perception_private::State state) {
-  Respond(OneArgument(state.ToValue()));
+  Respond(OneArgument(base::Value::FromUniquePtrValue(state.ToValue())));
 }
 
 MediaPerceptionPrivateGetDiagnosticsFunction ::
@@ -108,7 +108,7 @@ ExtensionFunction::ResponseAction
 MediaPerceptionPrivateGetDiagnosticsFunction::Run() {
   MediaPerceptionAPIManager* manager =
       MediaPerceptionAPIManager::Get(browser_context());
-  manager->GetDiagnostics(base::Bind(
+  manager->GetDiagnostics(base::BindOnce(
       &MediaPerceptionPrivateGetDiagnosticsFunction::GetDiagnosticsCallback,
       this));
   return RespondLater();
@@ -116,7 +116,7 @@ MediaPerceptionPrivateGetDiagnosticsFunction::Run() {
 
 void MediaPerceptionPrivateGetDiagnosticsFunction::GetDiagnosticsCallback(
     extensions::api::media_perception_private::Diagnostics diagnostics) {
-  Respond(OneArgument(diagnostics.ToValue()));
+  Respond(OneArgument(base::Value::FromUniquePtrValue(diagnostics.ToValue())));
 }
 
 MediaPerceptionPrivateSetAnalyticsComponentFunction::
@@ -147,7 +147,8 @@ void MediaPerceptionPrivateSetAnalyticsComponentFunction::
     OnAnalyticsComponentSet(
         extensions::api::media_perception_private::ComponentState
             component_state) {
-  Respond(OneArgument(component_state.ToValue()));
+  Respond(
+      OneArgument(base::Value::FromUniquePtrValue(component_state.ToValue())));
 }
 
 MediaPerceptionPrivateSetComponentProcessStateFunction::
@@ -185,7 +186,8 @@ MediaPerceptionPrivateSetComponentProcessStateFunction::Run() {
 void MediaPerceptionPrivateSetComponentProcessStateFunction::
     OnComponentProcessStateSet(
         extensions::api::media_perception_private::ProcessState process_state) {
-  Respond(OneArgument(process_state.ToValue()));
+  Respond(
+      OneArgument(base::Value::FromUniquePtrValue(process_state.ToValue())));
 }
 
 }  // namespace extensions

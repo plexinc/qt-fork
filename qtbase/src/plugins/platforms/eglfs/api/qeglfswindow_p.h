@@ -57,7 +57,7 @@
 
 #include <qpa/qplatformwindow.h>
 #ifndef QT_NO_OPENGL
-# include <QtPlatformCompositorSupport/private/qopenglcompositor_p.h>
+# include <QtOpenGL/private/qopenglcompositor_p.h>
 #endif
 
 QT_BEGIN_NAMESPACE
@@ -97,9 +97,6 @@ public:
     EGLNativeWindowType eglWindow() const;
     EGLSurface surface() const;
     QEglFSScreen *screen() const override;
-#if QT_CONFIG(vulkan)
-    virtual void *vulkanSurfacePtr() { return nullptr; }
-#endif
 
     bool hasNativeWindow() const { return m_flags.testFlag(HasNativeWindow); }
 

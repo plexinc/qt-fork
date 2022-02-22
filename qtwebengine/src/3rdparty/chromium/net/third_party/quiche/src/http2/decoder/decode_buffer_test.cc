@@ -2,13 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/http2/decoder/decode_buffer.h"
+#include "http2/decoder/decode_buffer.h"
 
 #include <functional>
 
-#include "testing/gtest/include/gtest/gtest.h"
-#include "net/third_party/quiche/src/http2/platform/api/http2_logging.h"
-#include "net/third_party/quiche/src/http2/test_tools/http2_random.h"
+#include "http2/platform/api/http2_logging.h"
+#include "http2/platform/api/http2_test_helpers.h"
+#include "http2/test_tools/http2_random.h"
+#include "common/platform/api/quiche_test.h"
 
 namespace http2 {
 namespace test {
@@ -43,7 +44,7 @@ struct TestStruct {
   TestEnum8 f8;
 };
 
-class DecodeBufferTest : public ::testing::Test {
+class DecodeBufferTest : public QuicheTest {
  protected:
   Http2Random random_;
   uint32_t decode_offset_;

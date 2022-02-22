@@ -57,6 +57,9 @@
 #include <QtGui/qsurfaceformat.h>
 #include <QtGui/qwindow.h>
 #include <QtGui/qopengl.h>
+#include <QtGui/qopenglcontext.h>
+
+#include <QtCore/qnativeinterface.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -92,6 +95,7 @@ public:
 
 private:
     friend class QOpenGLContext;
+    friend class QOpenGLContextPrivate;
 
     QScopedPointer<QPlatformOpenGLContextPrivate> d_ptr;
 
@@ -99,6 +103,43 @@ private:
 
     Q_DISABLE_COPY(QPlatformOpenGLContext)
 };
+
+namespace QNativeInterface::Private {
+
+#if defined(Q_OS_MACOS)
+struct Q_GUI_EXPORT QCocoaGLIntegration
+{
+    QT_DECLARE_NATIVE_INTERFACE(QCocoaGLIntegration)
+    virtual QOpenGLContext *createOpenGLContext(NSOpenGLContext *, QOpenGLContext *shareContext) const = 0;
+};
+#endif
+
+#if defined(Q_OS_WIN)
+struct Q_GUI_EXPORT QWindowsGLIntegration
+{
+    QT_DECLARE_NATIVE_INTERFACE(QWindowsGLIntegration)
+    virtual HMODULE openGLModuleHandle() const = 0;
+    virtual QOpenGLContext *createOpenGLContext(HGLRC context, HWND window, QOpenGLContext *shareContext) const = 0;
+};
+#endif
+
+#if QT_CONFIG(xcb_glx_plugin)
+struct Q_GUI_EXPORT QGLXIntegration
+{
+    QT_DECLARE_NATIVE_INTERFACE(QGLXIntegration)
+    virtual QOpenGLContext *createOpenGLContext(GLXContext context, void *visualInfo, QOpenGLContext *shareContext) const = 0;
+};
+#endif
+
+#if QT_CONFIG(egl)
+struct Q_GUI_EXPORT QEGLIntegration
+{
+    QT_DECLARE_NATIVE_INTERFACE(QEGLIntegration)
+    virtual QOpenGLContext *createOpenGLContext(EGLContext context, EGLDisplay display, QOpenGLContext *shareContext) const = 0;
+};
+#endif
+
+} // QNativeInterface::Private
 
 QT_END_NAMESPACE
 

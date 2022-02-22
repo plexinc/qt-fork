@@ -38,6 +38,7 @@
 ****************************************************************************/
 
 #include <QtCore/qglobal.h>
+#include <QtCore/qversionnumber.h>
 
 #ifndef QOPERATINGSYSTEMVERSION_H
 #define QOPERATINGSYSTEMVERSION_H
@@ -45,7 +46,6 @@
 QT_BEGIN_NAMESPACE
 
 class QString;
-class QVersionNumber;
 
 class Q_CORE_EXPORT QOperatingSystemVersion
 {
@@ -84,8 +84,12 @@ public:
     static const QOperatingSystemVersion AndroidNougat;
     static const QOperatingSystemVersion AndroidNougat_MR1;
     static const QOperatingSystemVersion AndroidOreo;
+    static const QOperatingSystemVersion AndroidOreo_MR1;
+    static const QOperatingSystemVersion AndroidPie;
+    static const QOperatingSystemVersion Android10;
+    static const QOperatingSystemVersion Android11;
 
-    Q_DECL_CONSTEXPR QOperatingSystemVersion(OSType osType,
+    constexpr QOperatingSystemVersion(OSType osType,
                                              int vmajor, int vminor = -1, int vmicro = -1)
         : m_os(osType),
           m_major(qMax(-1, vmajor)),
@@ -95,7 +99,7 @@ public:
 
     static QOperatingSystemVersion current();
 
-    static Q_DECL_CONSTEXPR OSType currentType()
+    static constexpr OSType currentType()
     {
 #if defined(Q_OS_WIN)
         return Windows;
@@ -114,15 +118,17 @@ public:
 #endif
     }
 
-    Q_DECL_CONSTEXPR int majorVersion() const { return m_major; }
-    Q_DECL_CONSTEXPR int minorVersion() const { return m_minor; }
-    Q_DECL_CONSTEXPR int microVersion() const { return m_micro; }
+    QVersionNumber version() const { return QVersionNumber(m_major, m_minor, m_micro); }
 
-    Q_DECL_CONSTEXPR int segmentCount() const
+    constexpr int majorVersion() const { return m_major; }
+    constexpr int minorVersion() const { return m_minor; }
+    constexpr int microVersion() const { return m_micro; }
+
+    constexpr int segmentCount() const
     { return m_micro >= 0 ? 3 : m_minor >= 0 ? 2 : m_major >= 0 ? 1 : 0; }
 
     bool isAnyOfType(std::initializer_list<OSType> types) const;
-    Q_DECL_CONSTEXPR OSType type() const { return m_os; }
+    constexpr OSType type() const { return m_os; }
     QString name() const;
 
     friend bool operator>(const QOperatingSystemVersion &lhs, const QOperatingSystemVersion &rhs)
@@ -146,7 +152,7 @@ private:
 
     static int compare(const QOperatingSystemVersion &v1, const QOperatingSystemVersion &v2);
 };
-Q_DECLARE_TYPEINFO(QOperatingSystemVersion, QT_VERSION < QT_VERSION_CHECK(6, 0, 0) ? Q_RELOCATABLE_TYPE : Q_PRIMITIVE_TYPE);
+Q_DECLARE_TYPEINFO(QOperatingSystemVersion, Q_PRIMITIVE_TYPE);
 
 #ifndef QT_NO_DEBUG_STREAM
 class QDebug;

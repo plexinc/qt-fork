@@ -61,7 +61,7 @@ void FramePainter::PaintContents(GraphicsContext& context,
   // TODO(wangxianzhu): The following check should be stricter, but currently
   // this is blocked by the svg root issue (crbug.com/442939).
   DCHECK(document->Lifecycle().GetState() >=
-         DocumentLifecycle::kCompositingClean);
+         DocumentLifecycle::kCompositingAssignmentsClean);
 
   FramePaintTiming frame_paint_timing(context, &GetFrameView().GetFrame());
   TRACE_EVENT1("devtools.timeline,rail", "Paint", "data",
@@ -74,9 +74,8 @@ void FramePainter::PaintContents(GraphicsContext& context,
   FontCachePurgePreventer font_cache_purge_preventer;
 
   PaintLayerFlags root_layer_paint_flags = 0;
-  // This will prevent clipping the root PaintLayer to its visible content
-  // rect when root layer scrolling is enabled.
-  if (document->IsCapturingLayout())
+  // This will prevent clipping the root PaintLayer to its visible content rect.
+  if (document->IsPrintingOrPaintingPreview())
     root_layer_paint_flags = kPaintLayerPaintingOverflowContents;
 
   PaintLayer* root_layer = layout_view->Layer();

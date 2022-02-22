@@ -77,11 +77,10 @@ class QAccelerometerPrivate;
 class Q_SENSORS_EXPORT QAccelerometer : public QSensor
 {
     Q_OBJECT
-    Q_ENUMS(AccelerationMode)
     Q_PROPERTY(AccelerationMode accelerationMode READ accelerationMode WRITE setAccelerationMode
                NOTIFY accelerationModeChanged)
 public:
-    explicit QAccelerometer(QObject *parent = Q_NULLPTR);
+    explicit QAccelerometer(QObject *parent = nullptr);
     virtual ~QAccelerometer();
 
     // Keep this enum in sync with QmlAccelerometer::AccelerationMode
@@ -90,12 +89,13 @@ public:
         Gravity,
         User
     };
+    Q_ENUM(AccelerationMode)
 
     AccelerationMode accelerationMode() const;
     void setAccelerationMode(AccelerationMode accelerationMode);
 
     QAccelerometerReading *reading() const;
-    static char const * const type;
+    static char const * const sensorType;
 
 Q_SIGNALS:
     void accelerationModeChanged(AccelerationMode accelerationMode);
@@ -108,4 +108,3 @@ private:
 QT_END_NAMESPACE
 
 #endif
-

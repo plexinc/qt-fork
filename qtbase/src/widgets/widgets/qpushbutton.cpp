@@ -39,8 +39,6 @@
 
 #include "qapplication.h"
 #include "qbitmap.h"
-#include "qdesktopwidget.h"
-#include <private/qdesktopwidget_p.h>
 #if QT_CONFIG(dialog)
 #include <private/qdialog_p.h>
 #endif
@@ -332,6 +330,8 @@ void QPushButton::initStyleOption(QStyleOptionButton *option) const
         option->state |= QStyle::State_On;
     if (!d->flat && !d->down)
         option->state |= QStyle::State_Raised;
+    if (underMouse() && hasMouseTracking())
+        option->state.setFlag(QStyle::State_MouseOver, d->hovering);
     option->text = d->text;
     option->icon = d->icon;
     option->iconSize = iconSize();
@@ -352,7 +352,7 @@ void QPushButton::setAutoDefault(bool enable)
 bool QPushButton::autoDefault() const
 {
     Q_D(const QPushButton);
-    if(d->autoDefault == QPushButtonPrivate::Auto)
+    if (d->autoDefault == QPushButtonPrivate::Auto)
         return ( d->dialogParent() != nullptr );
     return d->autoDefault;
 }
@@ -418,17 +418,16 @@ QSize QPushButton::sizeHint() const
         s = QStringLiteral("XXXX");
     QFontMetrics fm = fontMetrics();
     QSize sz = fm.size(Qt::TextShowMnemonic, s);
-    if(!empty || !w)
+    if (!empty || !w)
         w += sz.width();
-    if(!empty || !h)
+    if (!empty || !h)
         h = qMax(h, sz.height());
     opt.rect.setSize(QSize(w, h)); // PM_MenuButtonIndicator depends on the height
 #if QT_CONFIG(menu)
     if (menu())
         w += style()->pixelMetric(QStyle::PM_MenuButtonIndicator, &opt, this);
 #endif
-    d->sizeHint = (style()->sizeFromContents(QStyle::CT_PushButton, &opt, QSize(w, h), this).
-                  expandedTo(QApplication::globalStrut()));
+    d->sizeHint = style()->sizeFromContents(QStyle::CT_PushButton, &opt, QSize(w, h), this);
     return d->sizeHint;
 }
 
@@ -507,6 +506,25 @@ void QPushButton::focusOutEvent(QFocusEvent *e)
     if (d->menu && d->menu->isVisible())        // restore pressed status
         setDown(true);
 #endif
+}
+
+/*!
+    \reimp
+*/
+void QPushButton::mouseMoveEvent(QMouseEvent *e)
+{
+    Q_D(QPushButton);
+
+    if (testAttribute(Qt::WA_Hover)) {
+        bool hit = false;
+        if (underMouse())
+            hit = hitButton(e->position().toPoint());
+
+        if (hit != d->hovering) {
+            update(rect());
+            d->hovering = hit;
+        }
+    }
 }
 
 /*!
@@ -623,7 +641,7 @@ QPoint QPushButtonPrivate::adjustedMenuPosition()
     QPoint globalPos = q->mapToGlobal(rect.topLeft());
     int x = globalPos.x();
     int y = globalPos.y();
-    const QRect availableGeometry = QDesktopWidgetPrivate::availableGeometry(q);
+    const QRect availableGeometry = QWidgetPrivate::availableScreenGeometry(q);
     if (horizontal) {
         if (globalPos.y() + rect.height() + menuSize.height() <= availableGeometry.bottom()) {
             y += rect.height();
@@ -644,6 +662,13 @@ QPoint QPushButtonPrivate::adjustedMenuPosition()
 }
 
 #endif // QT_CONFIG(menu)
+
+void QPushButtonPrivate::init()
+{
+    Q_Q(QPushButton);
+    q->setAttribute(Qt::WA_MacShowFocusRect);
+    resetLayoutItemMargins();
+}
 
 void QPushButtonPrivate::resetLayoutItemMargins()
 {

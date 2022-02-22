@@ -5,8 +5,9 @@
 #include "content/renderer/pepper/pepper_platform_video_capture.h"
 
 #include "base/bind.h"
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/memory/ref_counted.h"
+#include "base/notreached.h"
 #include "content/renderer/pepper/pepper_media_device_manager.h"
 #include "content/renderer/pepper/pepper_video_capture_host.h"
 #include "content/renderer/render_frame_impl.h"
@@ -133,10 +134,13 @@ void PepperPlatformVideoCapture::OnStateUpdate(blink::VideoCaptureState state) {
 }
 
 void PepperPlatformVideoCapture::OnFrameReady(
-    scoped_refptr<media::VideoFrame> frame,
+    scoped_refptr<media::VideoFrame> video_frame,
+    std::vector<scoped_refptr<media::VideoFrame>> /*scaled_video_frames*/,
     base::TimeTicks estimated_capture_time) {
-  if (handler_ && stop_capture_cb_)
-    handler_->OnFrameReady(*frame);
+  if (handler_ && stop_capture_cb_) {
+    // The scaled video frames are ignored by Pepper.
+    handler_->OnFrameReady(std::move(video_frame));
+  }
 }
 
 PepperMediaDeviceManager* PepperPlatformVideoCapture::GetMediaDeviceManager() {

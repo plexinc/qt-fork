@@ -5,6 +5,7 @@
 #include "components/autofill_assistant/browser/web/element_rect_getter.h"
 
 #include "base/callback.h"
+#include "base/logging.h"
 #include "base/values.h"
 #include "components/autofill_assistant/browser/devtools/devtools/domains/types_runtime.h"
 #include "components/autofill_assistant/browser/devtools/devtools_client.h"
@@ -45,12 +46,12 @@ void ElementRectGetter::GetBoundingClientRect(
     ElementRectCallback callback) {
   std::string object_id;
   std::string node_frame_id;
-  if (index < element->frame_stack.size()) {
-    object_id = element->frame_stack[index].object_id;
-    node_frame_id = element->frame_stack[index].node_frame_id;
+  if (index < element->frame_stack().size()) {
+    object_id = element->frame_stack()[index].object_id;
+    node_frame_id = element->frame_stack()[index].node_frame_id;
   } else {
-    object_id = element->object_id;
-    node_frame_id = element->node_frame_id;
+    object_id = element->object_id();
+    node_frame_id = element->node_frame_id();
   }
 
   std::vector<std::unique_ptr<runtime::CallArgument>> arguments;
@@ -85,7 +86,9 @@ void ElementRectGetter::OnGetClientRectResult(
       !result->GetResult()->GetValue()->is_list() ||
       result->GetResult()->GetValue()->GetList().size() != 4u) {
     VLOG(2) << __func__ << " Failed to get element rect: " << status;
-    std::move(callback).Run(false, RectF());
+    std::move(callback).Run(
+        JavaScriptErrorStatus(reply_status, __FILE__, __LINE__, nullptr),
+        RectF());
     return;
   }
 
@@ -106,12 +109,13 @@ void ElementRectGetter::OnGetClientRectResult(
     rect.bottom = std::min(stacked_rect.bottom, stacked_rect.top + rect.bottom);
   }
 
-  if (index >= element->frame_stack.size()) {
-    std::move(callback).Run(true, rect);
-  } else {
-    GetBoundingClientRect(std::move(element), index + 1, rect,
-                          std::move(callback));
+  if (index >= element->frame_stack().size()) {
+    std::move(callback).Run(OkClientStatus(), rect);
+    return;
   }
+
+  GetBoundingClientRect(std::move(element), index + 1, rect,
+                        std::move(callback));
 }
 
 }  // namespace autofill_assistant

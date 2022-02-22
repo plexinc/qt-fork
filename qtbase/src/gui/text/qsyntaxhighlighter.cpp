@@ -87,7 +87,7 @@ public:
     }
 
     void applyFormatChanges();
-    QVector<QTextCharFormat> formatChanges;
+    QList<QTextCharFormat> formatChanges;
     QTextBlock currentBlock;
     bool rehighlightPending;
     bool inReformatBlocks;
@@ -99,7 +99,7 @@ void QSyntaxHighlighterPrivate::applyFormatChanges()
 
     QTextLayout *layout = currentBlock.layout();
 
-    QVector<QTextLayout::FormatRange> ranges = layout->formats();
+    QList<QTextLayout::FormatRange> ranges = layout->formats();
 
     const int preeditAreaStart = layout->preeditAreaPosition();
     const int preeditAreaLength = layout->preeditAreaText().length();
@@ -109,12 +109,8 @@ void QSyntaxHighlighterPrivate::applyFormatChanges()
             return range.start < preeditAreaStart
                     || range.start + range.length > preeditAreaStart + preeditAreaLength;
         };
-        const auto it = std::remove_if(ranges.begin(), ranges.end(),
-                                       isOutsidePreeditArea);
-        if (it != ranges.end()) {
-            ranges.erase(it, ranges.end());
+        if (ranges.removeIf(isOutsidePreeditArea) > 0)
             formatsChanged = true;
-        }
     } else if (!ranges.isEmpty()) {
         ranges.clear();
         formatsChanged = true;
@@ -173,7 +169,7 @@ void QSyntaxHighlighterPrivate::reformatBlocks(int from, int charsRemoved, int c
     if (lastBlock.isValid())
         endPosition = lastBlock.position() + lastBlock.length();
     else
-        endPosition = doc->docHandle()->length();
+        endPosition = QTextDocumentPrivate::get(doc)->length();
 
     bool forceHighlightOfNextBlock = false;
 

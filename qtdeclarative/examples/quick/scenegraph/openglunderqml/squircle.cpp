@@ -51,8 +51,8 @@
 #include "squircle.h"
 
 #include <QtQuick/qquickwindow.h>
-#include <QtGui/QOpenGLShaderProgram>
-#include <QtGui/QOpenGLContext>
+#include <QOpenGLShaderProgram>
+#include <QOpenGLContext>
 #include <QtCore/QRunnable>
 
 //! [7]
@@ -137,7 +137,7 @@ void SquircleRenderer::init()
 {
     if (!m_program) {
         QSGRendererInterface *rif = m_window->rendererInterface();
-        Q_ASSERT(rif->graphicsApi() == QSGRendererInterface::OpenGL || rif->graphicsApi() == QSGRendererInterface::OpenGLRhi);
+        Q_ASSERT(rif->graphicsApi() == QSGRendererInterface::OpenGL);
 
         initializeOpenGLFunctions();
 
@@ -201,10 +201,6 @@ void SquircleRenderer::paint()
 
     m_program->disableAttributeArray(0);
     m_program->release();
-
-    // Not strictly needed for this example, but generally useful for when
-    // mixing with raw OpenGL.
-    m_window->resetOpenGLState();
 
     m_window->endExternalCommands();
 }

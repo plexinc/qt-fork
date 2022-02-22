@@ -16,6 +16,7 @@
 #include "net/base/net_errors.h"
 #include "net/base/network_isolation_key.h"
 #include "net/dns/mock_host_resolver.h"
+#include "net/dns/public/secure_dns_mode.h"
 #include "net/log/net_log.h"
 #include "net/socket/client_socket_factory.h"
 #include "net/socket/client_socket_handle.h"
@@ -195,6 +196,9 @@ TEST_F(SOCKSConnectJobTest, SOCKS4) {
       test_delegate.StartJobExpectingResult(
           &socks_connect_job, OK,
           host_resolution_synchronous && read_and_writes_synchronous);
+
+      // Proxies should not set any DNS aliases.
+      EXPECT_TRUE(test_delegate.socket()->GetDnsAliases().empty());
     }
   }
 }
@@ -232,6 +236,9 @@ TEST_F(SOCKSConnectJobTest, SOCKS5) {
       test_delegate.StartJobExpectingResult(
           &socks_connect_job, OK,
           host_resolution_synchronous && read_and_writes_synchronous);
+
+      // Proxies should not set any DNS aliases.
+      EXPECT_TRUE(test_delegate.socket()->GetDnsAliases().empty());
     }
   }
 }
@@ -392,7 +399,7 @@ TEST_F(SOCKSConnectJobTest, DisableSecureDns) {
     EXPECT_EQ(disable_secure_dns,
               host_resolver_.last_secure_dns_mode_override().has_value());
     if (disable_secure_dns) {
-      EXPECT_EQ(net::DnsConfig::SecureDnsMode::OFF,
+      EXPECT_EQ(net::SecureDnsMode::kOff,
                 host_resolver_.last_secure_dns_mode_override().value());
     }
   }

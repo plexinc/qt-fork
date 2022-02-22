@@ -30,14 +30,12 @@
 #include <QtCore/qglobal.h>
 #ifdef Q_OS_WIN
 # include <QtCore/qt_windows.h>
-#ifndef Q_OS_WINRT
 # include <oleacc.h>
-# include <QtWindowsUIAutomationSupport/private/qwindowsuiawrapper_p.h>
-#endif
+# include <QtGui/private/qwindowsuiawrapper_p.h>
 # include <servprov.h>
 # include <winuser.h>
 #endif
-#include <QtTest/QtTest>
+#include <QTest>
 #include <QtGui>
 #include <QtWidgets>
 #include <math.h>
@@ -203,11 +201,15 @@ private slots:
     void applicationTest();
     void mainWindowTest();
     void subWindowTest();
+#if QT_CONFIG(shortcut)
     void buttonTest();
+#endif
     void scrollBarTest();
     void tabTest();
     void tabWidgetTest();
+#if QT_CONFIG(shortcut)
     void menuTest();
+#endif
     void spinBoxTest();
     void doubleSpinBoxTest();
     void textEditTest();
@@ -234,8 +236,10 @@ private slots:
     void dockWidgetTest();
     void comboBoxTest();
     void accessibleName();
+#if QT_CONFIG(shortcut)
     void labelTest();
     void accelerators();
+#endif
     void bridgeTest();
     void focusChild();
 
@@ -288,7 +292,7 @@ void tst_QAccessibility::cleanup()
 {
     const EventList list = QTestAccessibility::events();
     if (!list.isEmpty()) {
-        qWarning("%d accessibility event(s) were not handled in testfunction '%s':", list.count(),
+        qWarning("%zd accessibility event(s) were not handled in testfunction '%s':", size_t(list.count()),
                  QString(QTest::currentTestFunction()).toLatin1().constData());
         for (int i = 0; i < list.count(); ++i)
             qWarning(" %d: Object: %p Event: '%s' Child: %d", i + 1, list.at(i)->object(),
@@ -860,6 +864,9 @@ void tst_QAccessibility::actionTest()
 
 void tst_QAccessibility::applicationTest()
 {
+    if (!QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::WindowActivation))
+        QSKIP("Platform does not support window activation");
+
     {
     QLatin1String name = QLatin1String("My Name");
     qApp->setApplicationName(name);
@@ -902,6 +909,9 @@ void tst_QAccessibility::applicationTest()
 
 void tst_QAccessibility::mainWindowTest()
 {
+    if (!QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::WindowActivation))
+        QSKIP("Platform does not support window activation");
+
     {
     QMainWindow *mw = new QMainWindow;
     mw->resize(300, 200);
@@ -1026,6 +1036,8 @@ public Q_SLOTS:
         ++clickCount;
     }
 };
+
+#if QT_CONFIG(shortcut)
 
 void tst_QAccessibility::buttonTest()
 {
@@ -1198,6 +1210,8 @@ void tst_QAccessibility::buttonTest()
 //    QCOMPARE(test->state(2), (int)QAccessible::HasPopup);
 //    test->release();
 }
+
+#endif // QT_CONFIG(shortcut)
 
 void tst_QAccessibility::scrollBarTest()
 {
@@ -1407,6 +1421,8 @@ void tst_QAccessibility::tabWidgetTest()
     delete tabWidget;
     QTestAccessibility::clearEvents();
 }
+
+#if QT_CONFIG(shortcut)
 
 void tst_QAccessibility::menuTest()
 {
@@ -1618,6 +1634,8 @@ void tst_QAccessibility::menuTest()
     QTestAccessibility::clearEvents();
 }
 
+#endif // QT_CONFIG(shortcut)
+
 void tst_QAccessibility::spinBoxTest()
 {
     QSpinBox * const spinBox = new QSpinBox();
@@ -1745,7 +1763,7 @@ void tst_QAccessibility::textEditTest()
         QString text = "<p>hello world.<br/>How are you today?</p><p>I'm fine, thanks</p>";
         edit.setHtml(text);
         if (pass == 1) {
-            QFont font("Helvetica");
+            QFont font(QStringList{"Helvetica"});
             font.setPointSizeF(12.5);
             font.setWordSpacing(1.1);
             edit.document()->setDefaultFont(font);
@@ -2487,7 +2505,8 @@ void tst_QAccessibility::groupBoxTest()
     QCOMPARE(iface->role(), QAccessible::Grouping);
     QCOMPARE(iface->text(QAccessible::Name), QLatin1String("Test QGroupBox"));
     QCOMPARE(iface->text(QAccessible::Description), QLatin1String("This group box will be used to test accessibility"));
-    QVector<QPair<QAccessibleInterface*, QAccessible::Relation> > relations = rButtonIface->relations();
+    QList<QPair<QAccessibleInterface *, QAccessible::Relation>> relations =
+            rButtonIface->relations();
     QCOMPARE(relations.size(), 1);
     QPair<QAccessibleInterface*, QAccessible::Relation> relation = relations.first();
     QCOMPARE(relation.first->object(), groupBox);
@@ -2560,7 +2579,7 @@ void tst_QAccessibility::dialogButtonBoxTest()
     child = iface->child(0);
     QCOMPARE(child->role(), QAccessible::PushButton);
 
-    QVector<QAccessibleInterface *> buttons;
+    QList<QAccessibleInterface *> buttons;
     for (int i = 0; i < iface->childCount(); ++i)
         buttons <<  iface->child(i);
 
@@ -2612,7 +2631,7 @@ void tst_QAccessibility::dialogButtonBoxTest()
     QApplication::processEvents();
     QStringList actualOrder;
 
-    QVector<QAccessibleInterface *> buttons;
+    QList<QAccessibleInterface *> buttons;
     for (int i = 0; i < iface->childCount(); ++i)
         buttons <<  iface->child(i);
 
@@ -3630,6 +3649,8 @@ void tst_QAccessibility::comboBoxTest()
     QTestAccessibility::clearEvents();
 }
 
+#if QT_CONFIG(shortcut)
+
 void tst_QAccessibility::labelTest()
 {
     QWidget *window = new QWidget;
@@ -3658,7 +3679,7 @@ void tst_QAccessibility::labelTest()
     QCOMPARE(acc_label->state().focusable, false);
     QCOMPARE(acc_label->state().readOnly, true);
 
-    QVector<QPair<QAccessibleInterface *, QAccessible::Relation> > rels =  acc_label->relations();
+    QList<QPair<QAccessibleInterface *, QAccessible::Relation>> rels = acc_label->relations();
     QCOMPARE(rels.count(), 1);
     QAccessibleInterface *iface = rels.first().first;
     QAccessible::Relation rel = rels.first().second;
@@ -3730,6 +3751,8 @@ void tst_QAccessibility::accelerators()
     QTestAccessibility::clearEvents();
 }
 
+#endif // QT_CONFIG(shortcut)
+
 #ifdef QT_SUPPORTS_IACCESSIBLE2
 static IUnknown *queryIA2(IAccessible *acc, const IID &iid)
 {
@@ -3756,7 +3779,7 @@ void tst_QAccessibility::bridgeTest()
 {
     // For now this is a simple test to see if the bridge is working at all.
     // Ideally it should be extended to test all aspects of the bridge.
-#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#if defined(Q_OS_WIN)
 
     QWidget window;
     QVBoxLayout *lay = new QVBoxLayout(&window);
@@ -3809,8 +3832,10 @@ void tst_QAccessibility::bridgeTest()
     QVERIFY(SUCCEEDED(hr));
 
     // Get UI Automation interface.
+    const GUID CLSID_CUIAutomation_test{0xff48dba4, 0x60ef, 0x4201,
+                                        {0xaa,0x87, 0x54,0x10,0x3e,0xef,0x59,0x4e}};
     IUIAutomation *automation = nullptr;
-    hr = CoCreateInstance(CLSID_CUIAutomation, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&automation));
+    hr = CoCreateInstance(CLSID_CUIAutomation_test, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&automation));
     QVERIFY(SUCCEEDED(hr));
 
     // Get button element from UI Automation using point.
@@ -3996,7 +4021,7 @@ public:
     }
 
 private:
-    QVector<QAccessibleInterface *> m_children;
+    QList<QAccessibleInterface *> m_children;
 };
 
 void tst_QAccessibility::focusChild()

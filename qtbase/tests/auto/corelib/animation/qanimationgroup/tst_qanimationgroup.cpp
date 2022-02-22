@@ -26,7 +26,11 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QPauseAnimation>
+#include <QVariantAnimation>
+#include <QPropertyAnimation>
+#include <QSignalSpy>
 
 #include <QtCore/qanimationgroup.h>
 #include <QtCore/qsequentialanimationgroup.h>
@@ -79,12 +83,12 @@ class TestAnimation : public QVariantAnimation
 {
     Q_OBJECT
 public:
-    virtual void updateCurrentValue(const QVariant &value) { Q_UNUSED(value)};
+    virtual void updateCurrentValue(const QVariant &value) override { Q_UNUSED(value)};
     virtual void updateState(QAbstractAnimation::State oldState,
-                             QAbstractAnimation::State newState)
+                             QAbstractAnimation::State newState) override
     {
-        Q_UNUSED(oldState)
-        Q_UNUSED(newState)
+        Q_UNUSED(oldState);
+        Q_UNUSED(newState);
     };
 };
 
@@ -92,16 +96,16 @@ class UncontrolledAnimation : public QPropertyAnimation
 {
     Q_OBJECT
 public:
-    UncontrolledAnimation(QObject *target, const QByteArray &propertyName, QObject *parent = 0)
+    UncontrolledAnimation(QObject *target, const QByteArray &propertyName, QObject *parent = nullptr)
         : QPropertyAnimation(target, propertyName, parent), id(0)
     {
         setDuration(250);
     }
 
-    int duration() const { return -1; /* not time driven */ }
+    int duration() const override { return -1; /* not time driven */ }
 
 protected:
-    void timerEvent(QTimerEvent *event)
+    void timerEvent(QTimerEvent *event) override
     {
         if (event->timerId() == id)
             stop();
@@ -286,7 +290,8 @@ void tst_QAnimationGroup::setParentAutoAdd()
 
 void tst_QAnimationGroup::beginNestedGroup()
 {
-    QAnimationGroup *parent = new QParallelAnimationGroup();
+    QParallelAnimationGroup group;
+    QAnimationGroup *parent = &group;
 
     for (int i = 0; i < 10; ++i) {
         if (i & 1) {
@@ -343,7 +348,8 @@ void tst_QAnimationGroup::addChildTwice()
 
 void tst_QAnimationGroup::loopWithoutStartValue()
 {
-    QAnimationGroup *parent = new QSequentialAnimationGroup();
+    QSequentialAnimationGroup group;
+    QAnimationGroup *parent = &group;
     QObject o;
     o.setProperty("ole", 0);
     QCOMPARE(o.property("ole").toInt(), 0);

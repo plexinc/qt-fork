@@ -97,7 +97,7 @@ IDBTransaction::IDBTransaction(
               ->GetScheduler()
               ->RegisterFeature(
                   SchedulingPolicy::Feature::kOutstandingIndexedDBTransaction,
-                  {SchedulingPolicy::RecordMetricsForBackForwardCache()})) {
+                  {SchedulingPolicy::DisableBackForwardCache()})) {
   DCHECK(database_);
   DCHECK(!scope_.IsEmpty()) << "Non-versionchange transactions must operate "
                                "on a well-defined set of stores";
@@ -127,9 +127,9 @@ IDBTransaction::IDBTransaction(
       open_db_request_(open_db_request),
       mode_(mojom::IDBTransactionMode::VersionChange),
       durability_(mojom::IDBTransactionDurability::Default),
+      scope_(),
       state_(kInactive),
       old_database_metadata_(old_metadata),
-      scope_(),
       event_queue_(
           MakeGarbageCollected<EventQueue>(execution_context,
                                            TaskType::kDatabaseAccess)) {
@@ -148,7 +148,7 @@ IDBTransaction::~IDBTransaction() {
   DCHECK(request_list_.IsEmpty() || !GetExecutionContext());
 }
 
-void IDBTransaction::Trace(Visitor* visitor) {
+void IDBTransaction::Trace(Visitor* visitor) const {
   visitor->Trace(database_);
   visitor->Trace(open_db_request_);
   visitor->Trace(error_);

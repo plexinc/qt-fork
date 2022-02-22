@@ -11,7 +11,7 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/macros.h"
@@ -19,22 +19,22 @@
 #include "build/build_config.h"
 #include "crypto/openssl_util.h"
 #include "jingle/glue/thread_wrapper.h"
+#include "media/base/decoder_factory.h"
 #include "media/base/media_permission.h"
 #include "media/filters/ffmpeg_glue.h"
 #include "media/media_buildflags.h"
 #include "media/video/gpu_video_accelerator_factories.h"
+#include "net/net_buildflags.h"
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/common/peerconnection/webrtc_ip_handling_policy.h"
 #include "third_party/blink/public/platform/modules/webrtc/webrtc_logging.h"
 #include "third_party/blink/public/platform/platform.h"
-#include "third_party/blink/public/platform/web_media_stream.h"
-#include "third_party/blink/public/platform/web_media_stream_source.h"
-#include "third_party/blink/public/platform/web_media_stream_track.h"
 #include "third_party/blink/public/platform/web_url.h"
 #include "third_party/blink/public/web/modules/mediastream/media_stream_video_source.h"
-#include "third_party/blink/public/web/modules/mediastream/media_stream_video_track.h"
 #include "third_party/blink/public/web/web_document.h"
 #include "third_party/blink/public/web/web_local_frame.h"
+#include "third_party/blink/public/web/web_local_frame_client.h"
+#include "third_party/blink/renderer/modules/peerconnection/rtc_error_util.h"
 #include "third_party/blink/renderer/modules/peerconnection/rtc_peer_connection_handler.h"
 #include "third_party/blink/renderer/modules/webrtc/webrtc_audio_device_impl.h"
 #include "third_party/blink/renderer/platform/mediastream/media_constraints.h"
@@ -47,7 +47,6 @@
 #include "third_party/blink/renderer/platform/p2p/port_allocator.h"
 #include "third_party/blink/renderer/platform/p2p/socket_dispatcher.h"
 #include "third_party/blink/renderer/platform/peerconnection/audio_codec_factory.h"
-#include "third_party/blink/renderer/platform/peerconnection/rtc_peer_connection_handler_platform.h"
 #include "third_party/blink/renderer/platform/peerconnection/stun_field_trial.h"
 #include "third_party/blink/renderer/platform/peerconnection/video_codec_factory.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
@@ -59,8 +58,8 @@
 #include "third_party/webrtc/media/engine/fake_video_codec_factory.h"
 #include "third_party/webrtc/media/engine/multiplex_codec_factory.h"
 #include "third_party/webrtc/media/engine/webrtc_media_engine.h"
-#include "third_party/webrtc/modules/audio_processing/include/audio_processing.h"
 #include "third_party/webrtc/modules/video_coding/codecs/h264/include/h264.h"
+#include "third_party/webrtc/rtc_base/openssl_stream_adapter.h"
 #include "third_party/webrtc/rtc_base/ref_counted_object.h"
 #include "third_party/webrtc/rtc_base/ssl_adapter.h"
 #include "third_party/webrtc_overrides/task_queue_factory.h"
@@ -117,10 +116,11 @@ PeerConnectionDependencyFactory::PeerConnectionDependencyFactory(
     : network_manager_(nullptr),
       p2p_socket_dispatcher_(
           create_p2p_socket_dispatcher ? new P2PSocketDispatcher() : nullptr),
-      signaling_thread_(nullptr),
-      worker_thread_(nullptr),
       chrome_signaling_thread_("WebRTC_Signaling"),
-      chrome_worker_thread_("WebRTC_Worker") {
+      chrome_network_thread_("WebRTC_Network") {
+  if (base::FeatureList::IsEnabled(features::kWebRtcDistinctWorkerThread)) {
+    chrome_worker_thread_.emplace("WebRTC_Worker");
+  }
   TryScheduleStunProbeTrial();
 }
 
@@ -137,7 +137,7 @@ PeerConnectionDependencyFactory::GetInstance() {
   return &instance;
 }
 
-std::unique_ptr<RTCPeerConnectionHandlerPlatform>
+std::unique_ptr<RTCPeerConnectionHandler>
 PeerConnectionDependencyFactory::CreateRTCPeerConnectionHandler(
     RTCPeerConnectionHandlerClient* client,
     scoped_refptr<base::SingleThreadTaskRunner> task_runner,
@@ -169,10 +169,12 @@ void PeerConnectionDependencyFactory::CreatePeerConnectionFactory() {
   DCHECK(!pc_factory_.get());
   DCHECK(!signaling_thread_);
   DCHECK(!worker_thread_);
+  DCHECK(!network_thread_);
   DCHECK(!network_manager_);
   DCHECK(!socket_factory_);
   DCHECK(!chrome_signaling_thread_.IsRunning());
-  DCHECK(!chrome_worker_thread_.IsRunning());
+  DCHECK(!chrome_worker_thread_ || !chrome_worker_thread_->IsRunning());
+  DCHECK(!chrome_network_thread_.IsRunning());
 
   DVLOG(1) << "PeerConnectionDependencyFactory::CreatePeerConnectionFactory()";
 
@@ -191,25 +193,35 @@ void PeerConnectionDependencyFactory::CreatePeerConnectionFactory() {
   webrtc::DisableRtcUseH264();
 #endif  // BUILDFLAG(RTC_USE_H264) && BUILDFLAG(ENABLE_FFMPEG_VIDEO_DECODERS)
 
-  base::MessageLoopCurrent::Get()->AddDestructionObserver(this);
+  base::CurrentThread::Get()->AddDestructionObserver(this);
   // To allow sending to the signaling/worker threads.
   jingle_glue::JingleThreadWrapper::EnsureForCurrentMessageLoop();
   jingle_glue::JingleThreadWrapper::current()->set_send_allowed(true);
 
   EnsureWebRtcAudioDeviceImpl();
 
-  CHECK(chrome_signaling_thread_.Start());
-  CHECK(chrome_worker_thread_.Start());
+  // Init SSL, which will be needed by PeerConnection.
+  if (!rtc::InitializeSSL()) {
+    LOG(ERROR) << "Failed on InitializeSSL.";
+    NOTREACHED();
+    return;
+  }
 
   base::WaitableEvent start_worker_event(
       base::WaitableEvent::ResetPolicy::MANUAL,
       base::WaitableEvent::InitialState::NOT_SIGNALED);
-  PostCrossThreadTask(
-      *chrome_worker_thread_.task_runner().get(), FROM_HERE,
-      CrossThreadBindOnce(
-          &PeerConnectionDependencyFactory::InitializeWorkerThread,
-          CrossThreadUnretained(this), CrossThreadUnretained(&worker_thread_),
-          CrossThreadUnretained(&start_worker_event)));
+  if (chrome_worker_thread_) {
+    CHECK(chrome_worker_thread_->Start());
+    PostCrossThreadTask(
+        *chrome_worker_thread_->task_runner().get(), FROM_HERE,
+        CrossThreadBindOnce(
+            &PeerConnectionDependencyFactory::InitializeWorkerThread,
+            CrossThreadUnretained(this), CrossThreadUnretained(&worker_thread_),
+            CrossThreadUnretained(&start_worker_event)));
+  }
+
+  CHECK(chrome_signaling_thread_.Start());
+  CHECK(chrome_network_thread_.Start());
 
   base::WaitableEvent create_network_manager_event(
       base::WaitableEvent::ResetPolicy::MANUAL,
@@ -224,23 +236,22 @@ void PeerConnectionDependencyFactory::CreatePeerConnectionFactory() {
   }
 #endif  // BUILDFLAG(ENABLE_MDNS)
   PostCrossThreadTask(
-      *chrome_worker_thread_.task_runner().get(), FROM_HERE,
+      *chrome_network_thread_.task_runner().get(), FROM_HERE,
       CrossThreadBindOnce(&PeerConnectionDependencyFactory::
-                              CreateIpcNetworkManagerOnWorkerThread,
+                              CreateIpcNetworkManagerOnNetworkThread,
                           CrossThreadUnretained(this),
                           CrossThreadUnretained(&create_network_manager_event),
-                          std::move(mdns_responder)));
+                          std::move(mdns_responder),
+                          CrossThreadUnretained(&network_thread_)));
 
-  start_worker_event.Wait();
   create_network_manager_event.Wait();
+  CHECK(network_thread_);
 
-  CHECK(worker_thread_);
-
-  // Init SSL, which will be needed by PeerConnection.
-  if (!rtc::InitializeSSL()) {
-    LOG(ERROR) << "Failed on InitializeSSL.";
-    NOTREACHED();
-    return;
+  // Wait for the worker thread, since `InitializeSignalingThread` needs to
+  // refer to `worker_thread_`.
+  if (chrome_worker_thread_) {
+    start_worker_event.Wait();
+    CHECK(worker_thread_);
   }
 
   base::WaitableEvent start_signaling_event(
@@ -252,6 +263,7 @@ void PeerConnectionDependencyFactory::CreatePeerConnectionFactory() {
           &PeerConnectionDependencyFactory::InitializeSignalingThread,
           CrossThreadUnretained(this),
           CrossThreadUnretained(Platform::Current()->GetGpuFactories()),
+          CrossThreadUnretained(Platform::Current()->GetMediaDecoderFactory()),
           CrossThreadUnretained(&start_signaling_event)));
 
   start_signaling_event.Wait();
@@ -260,9 +272,10 @@ void PeerConnectionDependencyFactory::CreatePeerConnectionFactory() {
 
 void PeerConnectionDependencyFactory::InitializeSignalingThread(
     media::GpuVideoAcceleratorFactories* gpu_factories,
+    media::DecoderFactory* media_decoder_factory,
     base::WaitableEvent* event) {
   DCHECK(chrome_signaling_thread_.task_runner()->BelongsToCurrentThread());
-  DCHECK(worker_thread_);
+  DCHECK(network_thread_);
   DCHECK(p2p_socket_dispatcher_.get());
 
   jingle_glue::JingleThreadWrapper::EnsureForCurrentMessageLoop();
@@ -308,10 +321,12 @@ void PeerConnectionDependencyFactory::InitializeSignalingThread(
   socket_factory_.reset(new IpcPacketSocketFactory(p2p_socket_dispatcher_.get(),
                                                    traffic_annotation));
 
+  gpu_factories_ = gpu_factories;
   std::unique_ptr<webrtc::VideoEncoderFactory> webrtc_encoder_factory =
       blink::CreateWebrtcVideoEncoderFactory(gpu_factories);
   std::unique_ptr<webrtc::VideoDecoderFactory> webrtc_decoder_factory =
-      blink::CreateWebrtcVideoDecoderFactory(gpu_factories);
+      blink::CreateWebrtcVideoDecoderFactory(gpu_factories,
+                                             media_decoder_factory);
 
   // Enable Multiplex codec in SDP optionally.
   if (base::FeatureList::IsEnabled(blink::features::kWebRtcMultiplexCodec)) {
@@ -329,9 +344,9 @@ void PeerConnectionDependencyFactory::InitializeSignalingThread(
   }
 
   webrtc::PeerConnectionFactoryDependencies pcf_deps;
-  pcf_deps.worker_thread = worker_thread_;
-  pcf_deps.network_thread = worker_thread_;
+  pcf_deps.worker_thread = worker_thread_ ? worker_thread_ : signaling_thread_;
   pcf_deps.signaling_thread = signaling_thread_;
+  pcf_deps.network_thread = network_thread_;
   pcf_deps.task_queue_factory = CreateWebRtcTaskQueueFactory();
   pcf_deps.call_factory = webrtc::CreateCallFactory();
   pcf_deps.event_log_factory = std::make_unique<webrtc::RtcEventLogFactory>(
@@ -343,7 +358,9 @@ void PeerConnectionDependencyFactory::InitializeSignalingThread(
   media_deps.audio_decoder_factory = blink::CreateWebrtcAudioDecoderFactory();
   media_deps.video_encoder_factory = std::move(webrtc_encoder_factory);
   media_deps.video_decoder_factory = std::move(webrtc_decoder_factory);
-  media_deps.audio_processing = webrtc::AudioProcessingBuilder().Create();
+  // Audio Processing Module (APM) instances are owned and handled by the Blink
+  // media stream module.
+  DCHECK_EQ(media_deps.audio_processing, nullptr);
   pcf_deps.media_engine = cricket::CreateMediaEngine(std::move(media_deps));
   pc_factory_ = webrtc::CreateModularPeerConnectionFactory(std::move(pcf_deps));
   CHECK(pc_factory_.get());
@@ -365,18 +382,28 @@ scoped_refptr<webrtc::PeerConnectionInterface>
 PeerConnectionDependencyFactory::CreatePeerConnection(
     const webrtc::PeerConnectionInterface::RTCConfiguration& config,
     blink::WebLocalFrame* web_frame,
-    webrtc::PeerConnectionObserver* observer) {
+    webrtc::PeerConnectionObserver* observer,
+    ExceptionState& exception_state) {
   CHECK(web_frame);
   CHECK(observer);
   if (!GetPcFactory().get())
     return nullptr;
 
+  rtc::SetAllowLegacyTLSProtocols(
+      web_frame->Client()->AllowRTCLegacyTLSProtocols());
   webrtc::PeerConnectionDependencies dependencies(observer);
   dependencies.allocator = CreatePortAllocator(web_frame);
   dependencies.async_resolver_factory = CreateAsyncResolverFactory();
-  return GetPcFactory()
-      ->CreatePeerConnection(config, std::move(dependencies))
-      .get();
+  auto pc_or_error = GetPcFactory()->CreatePeerConnectionOrError(
+      config, std::move(dependencies));
+  if (pc_or_error.ok()) {
+    // Convert from rtc::scoped_refptr to scoped_refptr
+    return pc_or_error.value().get();
+  } else {
+    // Convert error
+    ThrowExceptionFromRTCError(pc_or_error.error(), exception_state);
+    return nullptr;
+  }
 }
 
 std::unique_ptr<cricket::PortAllocator>
@@ -500,12 +527,12 @@ scoped_refptr<webrtc::VideoTrackSourceInterface>
 PeerConnectionDependencyFactory::CreateVideoTrackSourceProxy(
     webrtc::VideoTrackSourceInterface* source) {
   // PeerConnectionFactory needs to be instantiated to make sure that
-  // signaling_thread_ and worker_thread_ exist.
+  // signaling_thread_ and network_thread_ exist.
   if (!PeerConnectionFactoryCreated())
     CreatePeerConnectionFactory();
 
   return webrtc::VideoTrackSourceProxy::Create(signaling_thread_,
-                                               worker_thread_, source)
+                                               network_thread_, source)
       .get();
 }
 
@@ -514,14 +541,6 @@ PeerConnectionDependencyFactory::CreateLocalVideoTrack(
     const String& id,
     webrtc::VideoTrackSourceInterface* source) {
   return GetPcFactory()->CreateVideoTrack(id.Utf8(), source).get();
-}
-
-webrtc::SessionDescriptionInterface*
-PeerConnectionDependencyFactory::CreateSessionDescription(
-    const String& type,
-    const String& sdp,
-    webrtc::SdpParseError* error) {
-  return webrtc::CreateSessionDescription(type.Utf8(), sdp.Utf8(), error);
 }
 
 webrtc::IceCandidateInterface*
@@ -557,34 +576,41 @@ void PeerConnectionDependencyFactory::TryScheduleStunProbeTrial() {
   GetPcFactory();
 
   PostDelayedCrossThreadTask(
-      *chrome_worker_thread_.task_runner().get(), FROM_HERE,
+      *chrome_network_thread_.task_runner().get(), FROM_HERE,
       CrossThreadBindOnce(
-          &PeerConnectionDependencyFactory::StartStunProbeTrialOnWorkerThread,
+          &PeerConnectionDependencyFactory::StartStunProbeTrialOnNetworkThread,
           CrossThreadUnretained(this), String(*params)),
       base::TimeDelta::FromMilliseconds(blink::kExperimentStartDelayMs));
 }
 
-void PeerConnectionDependencyFactory::StartStunProbeTrialOnWorkerThread(
+void PeerConnectionDependencyFactory::StartStunProbeTrialOnNetworkThread(
     const String& params) {
   DCHECK(network_manager_);
-  DCHECK(chrome_worker_thread_.task_runner()->BelongsToCurrentThread());
+  DCHECK(chrome_network_thread_.task_runner()->BelongsToCurrentThread());
   // TODO(crbug.com/787254): Remove the UTF8 conversion when StunProberTrial
   // operates over WTF::String.
   stun_trial_.reset(new StunProberTrial(network_manager_.get(), params.Utf8(),
                                         socket_factory_.get()));
 }
 
-void PeerConnectionDependencyFactory::CreateIpcNetworkManagerOnWorkerThread(
+void PeerConnectionDependencyFactory::CreateIpcNetworkManagerOnNetworkThread(
     base::WaitableEvent* event,
-    std::unique_ptr<MdnsResponderAdapter> mdns_responder) {
-  DCHECK(chrome_worker_thread_.task_runner()->BelongsToCurrentThread());
+    std::unique_ptr<MdnsResponderAdapter> mdns_responder,
+    rtc::Thread** thread) {
+  DCHECK(chrome_network_thread_.task_runner()->BelongsToCurrentThread());
+
+  jingle_glue::JingleThreadWrapper::EnsureForCurrentMessageLoop();
+  jingle_glue::JingleThreadWrapper::current()->set_send_allowed(true);
+  *thread = jingle_glue::JingleThreadWrapper::current();
+
   network_manager_ = std::make_unique<blink::IpcNetworkManager>(
       p2p_socket_dispatcher_.get(), std::move(mdns_responder));
+
   event->Signal();
 }
 
 void PeerConnectionDependencyFactory::DeleteIpcNetworkManager() {
-  DCHECK(chrome_worker_thread_.task_runner()->BelongsToCurrentThread());
+  DCHECK(chrome_network_thread_.task_runner()->BelongsToCurrentThread());
   network_manager_.reset();
 }
 
@@ -594,16 +620,17 @@ void PeerConnectionDependencyFactory::CleanupPeerConnectionFactory() {
   if (network_manager_) {
     // The network manager needs to free its resources on the thread they were
     // created, which is the worked thread.
-    if (chrome_worker_thread_.IsRunning()) {
+    if (chrome_network_thread_.IsRunning()) {
       PostCrossThreadTask(
-          *chrome_worker_thread_.task_runner().get(), FROM_HERE,
+          *chrome_network_thread_.task_runner().get(), FROM_HERE,
           CrossThreadBindOnce(
               &PeerConnectionDependencyFactory::DeleteIpcNetworkManager,
               CrossThreadUnretained(this)));
       // Stopping the thread will wait until all tasks have been
       // processed before returning. We wait for the above task to finish before
       // letting the the function continue to avoid any potential race issues.
-      chrome_worker_thread_.Stop();
+      chrome_network_thread_.Stop();
+      DCHECK(!network_manager_);
     } else {
       NOTREACHED() << "Worker thread not running.";
     }
@@ -616,10 +643,11 @@ void PeerConnectionDependencyFactory::EnsureInitialized() {
 }
 
 scoped_refptr<base::SingleThreadTaskRunner>
-PeerConnectionDependencyFactory::GetWebRtcWorkerTaskRunner() {
+PeerConnectionDependencyFactory::GetWebRtcNetworkTaskRunner() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  return chrome_worker_thread_.IsRunning() ? chrome_worker_thread_.task_runner()
-                                           : nullptr;
+  return chrome_network_thread_.IsRunning()
+             ? chrome_network_thread_.task_runner()
+             : nullptr;
 }
 
 scoped_refptr<base::SingleThreadTaskRunner>
@@ -663,4 +691,8 @@ PeerConnectionDependencyFactory::GetReceiverCapabilities(const String& kind) {
   return nullptr;
 }
 
+media::GpuVideoAcceleratorFactories*
+PeerConnectionDependencyFactory::GetGpuFactories() {
+  return gpu_factories_;
+}
 }  // namespace blink

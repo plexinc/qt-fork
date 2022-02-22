@@ -1,8 +1,15 @@
-#extension GL_OES_EGL_image_external : require
-varying highp vec2 v_texcoord;
-uniform highp samplerExternalOES tex0;
-uniform lowp float qt_Opacity;
+// This shader stump cannot be precompiled and is compiled at run-time.
+// Appropriate target preamble added when it is loaded.
 
-void main() {
-   gl_FragColor = qt_Opacity * texture2D(tex0, v_texcoord);
+varying vec2 v_texcoord;
+struct buf {
+    mat4 qt_Matrix;
+    float qt_Opacity;
+};
+uniform buf ubuf;
+uniform samplerExternalOES tex0;
+
+void main()
+{
+    gl_FragColor = ubuf.qt_Opacity * texture2D(tex0, v_texcoord);
 }

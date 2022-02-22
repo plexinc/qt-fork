@@ -140,7 +140,7 @@ void VulkanRenderer::initResources()
     m_devFuncs = inst->deviceFunctions(m_window->device());
 
     QString info;
-    info += QString::asprintf("Number of physical devices: %d\n", m_window->availablePhysicalDevices().count());
+    info += QString::asprintf("Number of physical devices: %d\n", int(m_window->availablePhysicalDevices().count()));
 
     QVulkanFunctions *f = inst->functions();
     VkPhysicalDeviceProperties props;
@@ -170,7 +170,7 @@ void VulkanRenderer::initResources()
                               m_window->colorFormat(), m_window->depthStencilFormat());
 
     info += QStringLiteral("Supported sample counts:");
-    const QVector<int> sampleCounts = m_window->supportedSampleCounts();
+    const QList<int> sampleCounts = m_window->supportedSampleCounts();
     for (int count : sampleCounts)
         info += QLatin1Char(' ') + QString::number(count);
     info += QLatin1Char('\n');

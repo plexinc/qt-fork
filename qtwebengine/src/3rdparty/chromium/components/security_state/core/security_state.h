@@ -18,8 +18,6 @@
 #include "net/cert/x509_certificate.h"
 #include "url/gurl.h"
 
-class PrefRegistrySimple;
-
 // Provides helper methods and data types that are used to determine the
 // high-level security information about a page or request.
 //
@@ -55,7 +53,9 @@ enum SecurityLevel {
   // HTTP_SHOW_WARNING = 1,
 
   // HTTPS with valid EV cert.
-  EV_SECURE = 2,
+  // DEPRECATED: EV certs no longer receive special UI treatment.
+  // See https://crbug.com/1006943.
+  // EV_SECURE = 2,
 
   // HTTPS (non-EV) with valid cert.
   SECURE = 3,
@@ -201,13 +201,10 @@ struct VisibleSecurityState {
   bool is_reader_mode;
   // True if the page was loaded over a legacy TLS version.
   bool connection_used_legacy_tls;
-  // True if the page should be excluded from a UI treatment for legacy TLS
-  // (used for control group in an experimental UI rollout).
-  bool should_suppress_legacy_tls_warning;
-  // True if the page should be excluded from a warning UI treatment for mixed
-  // content. If set to false, the page will receive a neutral (rather than
-  // positively secure) UI treatment.
-  bool should_suppress_mixed_content_warning;
+  // True if mixed forms should be treated as secure from the visible security
+  // state perspective (for example, if a different warning is being shown for
+  // them).
+  bool should_treat_displayed_mixed_forms_as_secure;
   // Contains information about input events that may impact the security
   // level of the page.
   InsecureInputEventData insecure_input_events;
@@ -233,16 +230,14 @@ SecurityLevel GetSecurityLevel(
 bool HasMajorCertificateError(
     const VisibleSecurityState& visible_security_state);
 
-void RegisterProfilePrefs(PrefRegistrySimple* registry);
-
 // Returns true for a valid |url| with a cryptographic scheme, e.g., HTTPS, WSS.
 bool IsSchemeCryptographic(const GURL& url);
 
 // Returns true for a valid |url| with localhost or file:// scheme origin.
 bool IsOriginLocalhostOrFile(const GURL& url);
 
-// Returns true if the page has a valid SSL certificate. Only EV_SECURE,
-// SECURE, and SECURE_WITH_POLICY_INSTALLED_CERT are considered valid.
+// Returns true if the page has a valid SSL certificate. Only SECURE and
+// SECURE_WITH_POLICY_INSTALLED_CERT are considered valid.
 bool IsSslCertificateValid(security_state::SecurityLevel security_level);
 
 // Returns the given prefix suffixed with a dot and the current security level.
@@ -254,8 +249,7 @@ std::string GetSafetyTipHistogramName(const std::string& prefix,
                                       SafetyTipStatus safety_tip_status);
 
 // Returns whether the given VisibleSecurityState would trigger a legacy TLS
-// warning (i.e., uses legacy TLS and isn't in the control group), if the user
-// were in the appropriate field trial.
+// warning.
 bool GetLegacyTLSWarningStatus(
     const VisibleSecurityState& visible_security_state);
 
@@ -267,9 +261,9 @@ std::string GetLegacyTLSHistogramName(
 
 bool IsSHA1InChain(const VisibleSecurityState& visible_security_state);
 
-// Returns whether the WARNING state should downgrade the security icon from
-// info to danger triangle as part of an experiment (crbug.com/997972).
-bool ShouldShowDangerTriangleForWarningLevel();
+// Returns true if Safety Tip UI should be shown because a relevant field trial
+// is enabled.
+bool IsSafetyTipUIFeatureEnabled();
 
 }  // namespace security_state
 

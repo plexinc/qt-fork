@@ -1,7 +1,6 @@
 TEMPLATE = subdirs
 
 SUBDIRS = \
-    coretest \
     core \
     cmake \
     global
@@ -19,11 +18,5 @@ qtConfig(qt3d-render) {
         qtHaveModule(quick) {
             SUBDIRS += quick3d
         }
-    }
-}
-
-for(subdir, SUBDIRS) {
-    !equals(subdir, coretest) {
-        $${subdir}.depends += coretest
     }
 }

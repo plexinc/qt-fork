@@ -6,8 +6,11 @@
 #define CC_TREES_SINGLE_THREAD_PROXY_H_
 
 #include <limits>
+#include <memory>
+#include <vector>
 
 #include "base/cancelable_callback.h"
+#include "base/containers/flat_set.h"
 #include "base/time/time.h"
 #include "cc/scheduler/scheduler.h"
 #include "cc/trees/layer_tree_host_impl.h"
@@ -60,16 +63,19 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
   void SetMutator(std::unique_ptr<LayerTreeMutator> mutator) override;
   void SetPaintWorkletLayerPainter(
       std::unique_ptr<PaintWorkletLayerPainter> painter) override;
-  bool SupportsImplScrolling() const override;
   bool MainFrameWillHappenForTesting() override;
   void SetSourceURL(ukm::SourceId source_id, const GURL& url) override {
     // Single-threaded mode is only for browser compositing and for renderers in
     // layout tests. This will still get called in the latter case, but we don't
     // need to record UKM in that case.
   }
+  void SetUkmSmoothnessDestination(
+      base::WritableSharedMemoryMapping ukm_smoothness_data) override {}
   void ClearHistory() override;
   void SetRenderFrameObserver(
       std::unique_ptr<RenderFrameMetadataObserver> observer) override;
+  void SetEnableFrameRateThrottling(
+      bool enable_frame_rate_throttling) override {}
 
   void UpdateBrowserControlsState(BrowserControlsState constraints,
                                   BrowserControlsState current,
@@ -77,7 +83,8 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
 
   // SchedulerClient implementation
   bool WillBeginImplFrame(const viz::BeginFrameArgs& args) override;
-  void DidFinishImplFrame() override;
+  void DidFinishImplFrame(
+      const viz::BeginFrameArgs& last_activated_args) override;
   void DidNotProduceFrame(const viz::BeginFrameAck& ack,
                           FrameSkippedReason reason) override;
   void WillNotReceiveBeginFrame() override;
@@ -95,11 +102,7 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
   void ScheduledActionBeginMainFrameNotExpectedUntil(
       base::TimeTicks time) override;
   void FrameIntervalUpdated(base::TimeDelta interval) override;
-  size_t CompositedAnimationsCount() const override;
-  size_t MainThreadAnimationsCount() const override;
   bool HasCustomPropertyAnimations() const override;
-  bool CurrentFrameHadRAF() const override;
-  bool NextFrameHasPendingRAF() const override;
 
   // LayerTreeHostImplClient implementation
   void DidLoseLayerTreeFrameSinkOnImplThread() override;
@@ -129,19 +132,32 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
   void NotifyImageDecodeRequestFinished() override;
   void DidPresentCompositorFrameOnImplThread(
       uint32_t frame_token,
-      std::vector<LayerTreeHost::PresentationTimeCallback> callbacks,
+      PresentationTimeCallbackBuffer::PendingCallbacks callbacks,
       const viz::FrameTimingDetails& details) override;
   void NotifyAnimationWorkletStateChange(
       AnimationWorkletMutationState state,
       ElementListType element_list_type) override;
   void NotifyPaintWorkletStateChange(
       Scheduler::PaintWorkletState state) override;
+  void NotifyThroughputTrackerResults(CustomTrackerResults results) override;
+  bool IsInSynchronousComposite() const override;
+  void FrameSinksToThrottleUpdated(
+      const base::flat_set<viz::FrameSinkId>& ids) override;
 
   void RequestNewLayerTreeFrameSink();
 
+  void DidObserveFirstScrollDelay(
+      base::TimeDelta first_scroll_delay,
+      base::TimeTicks first_scroll_timestamp) override {
+    // Single-threaded mode is only for browser compositing and for renderers in
+    // layout tests. This will still get called in the latter case, but we don't
+    // need to record UKM in that case.
+  }
+
   // Called by the legacy path where RenderWidget does the scheduling.
   // Rasterization of tiles is only performed when |raster| is true.
-  void CompositeImmediately(base::TimeTicks frame_begin_time, bool raster);
+  void CompositeImmediatelyForTest(base::TimeTicks frame_begin_time,
+                                   bool raster);
 
  protected:
   SingleThreadProxy(LayerTreeHost* layer_tree_host,
@@ -164,6 +180,7 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
   void IssueImageDecodeFinishedCallbacks();
 
   void DidReceiveCompositorFrameAck();
+  void NotifyThroughputTrackerResultsOnMainThread(CustomTrackerResults results);
 
   // Accessed on main thread only.
   LayerTreeHost* layer_tree_host_;
@@ -190,6 +207,7 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
   bool defer_main_frame_update_;
   bool defer_commits_;
   bool animate_requested_;
+  bool update_layers_requested_;
   bool commit_requested_;
   bool inside_synchronous_composite_;
   bool needs_impl_frame_;

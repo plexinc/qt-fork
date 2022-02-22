@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/memory/ptr_util.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/optional.h"
@@ -92,23 +92,39 @@ void TCPServerSocket::OnAcceptCompleted(int result) {
   auto pending_accept = std::move(pending_accepts_queue_.front());
   pending_accepts_queue_.erase(pending_accepts_queue_.begin());
 
+  mojo::ScopedDataPipeProducerHandle send_producer_handle;
+  mojo::ScopedDataPipeConsumerHandle send_consumer_handle;
   if (result == net::OK) {
     DCHECK(accepted_socket_);
-    mojo::DataPipe send_pipe;
-    mojo::DataPipe receive_pipe;
+    if (mojo::CreateDataPipe(nullptr, send_producer_handle,
+                             send_consumer_handle) != MOJO_RESULT_OK) {
+      result = net::ERR_FAILED;
+    }
+  }
+
+  mojo::ScopedDataPipeProducerHandle receive_producer_handle;
+  mojo::ScopedDataPipeConsumerHandle receive_consumer_handle;
+  if (result == net::OK) {
+    if (mojo::CreateDataPipe(nullptr, receive_producer_handle,
+                             receive_consumer_handle) != MOJO_RESULT_OK) {
+      result = net::ERR_FAILED;
+    }
+  }
+
+  if (result == net::OK) {
     mojo::PendingRemote<mojom::TCPConnectedSocket> socket;
     auto connected_socket = std::make_unique<TCPConnectedSocket>(
         std::move(pending_accept->observer),
         base::WrapUnique(static_cast<net::TransportClientSocket*>(
             accepted_socket_.release())),
-        std::move(receive_pipe.producer_handle),
-        std::move(send_pipe.consumer_handle), traffic_annotation_);
+        std::move(receive_producer_handle), std::move(send_consumer_handle),
+        traffic_annotation_);
     delegate_->OnAccept(std::move(connected_socket),
                         socket.InitWithNewPipeAndPassReceiver());
     std::move(pending_accept->callback)
         .Run(result, accepted_address_, std::move(socket),
-             std::move(receive_pipe.consumer_handle),
-             std::move(send_pipe.producer_handle));
+             std::move(receive_consumer_handle),
+             std::move(send_producer_handle));
   } else {
     std::move(pending_accept->callback)
         .Run(result, base::nullopt, mojo::NullRemote(),
@@ -123,8 +139,8 @@ void TCPServerSocket::ProcessNextAccept() {
     return;
   int result =
       socket_->Accept(&accepted_socket_,
-                      base::BindRepeating(&TCPServerSocket::OnAcceptCompleted,
-                                          base::Unretained(this)),
+                      base::BindOnce(&TCPServerSocket::OnAcceptCompleted,
+                                     base::Unretained(this)),
                       &accepted_address_);
   if (result == net::ERR_IO_PENDING)
     return;

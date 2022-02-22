@@ -4,6 +4,7 @@
 
 #include "components/metrics/metrics_provider.h"
 
+#include "base/notreached.h"
 #include "third_party/metrics_proto/chrome_user_metrics_extension.pb.h"
 
 namespace metrics {
@@ -29,6 +30,8 @@ void MetricsProvider::OnRecordingEnabled() {
 
 void MetricsProvider::OnRecordingDisabled() {
 }
+
+void MetricsProvider::OnClientStateCleared() {}
 
 void MetricsProvider::OnAppEnterBackground() {
 }

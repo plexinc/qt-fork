@@ -43,7 +43,7 @@
 #include <QtWidgets/QGraphicsItem>
 #include <QtCharts/private/qchartglobal_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class Q_CHARTS_PRIVATE_EXPORT HorizontalBarChartItem : public AbstractBarChartItem
 {
@@ -52,12 +52,12 @@ public:
     HorizontalBarChartItem(QAbstractBarSeries *series, QGraphicsItem* item = 0);
 
 private:
-    virtual QVector<QRectF> calculateLayout();
-    void initializeLayout(int set, int category, int layoutIndex, bool resetAnimation);
+    QList<QRectF> calculateLayout() override;
+    void initializeLayout(int set, int category, int layoutIndex, bool resetAnimation) override;
     QPointF topLeftPoint(int set, int setCount, int category, qreal barWidth, qreal value);
     QPointF bottomRightPoint(int set, int setCount, int category, qreal barWidth, qreal value);
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // HORIZONTALBARCHARTITEM_H

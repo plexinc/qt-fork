@@ -7,10 +7,11 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback_helpers.h"
+#include "base/debug/dump_without_crashing.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "services/data_decoder/public/cpp/data_decoder.h"
+#include "skia/ext/skia_utils_base.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 
 namespace data_decoder {
@@ -25,7 +26,6 @@ void OnDecodeImage(mojo::Remote<mojom::ImageDecoder> decoder,
                    const SkBitmap& bitmap) {
   std::move(callback).Run(bitmap);
 }
-
 void OnDecodeImages(mojo::Remote<mojom::ImageDecoder> decoder,
                     mojom::ImageDecoder::DecodeAnimationCallback callback,
                     std::vector<mojom::AnimationFramePtr> bitmaps) {

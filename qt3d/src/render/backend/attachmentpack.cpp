@@ -52,20 +52,28 @@ AttachmentPack::AttachmentPack()
 
 AttachmentPack::AttachmentPack(const RenderTarget *target,
                                AttachmentManager *attachmentManager,
-                               const QVector<QRenderTargetOutput::AttachmentPoint> &drawBuffers)
+                               const QList<QRenderTargetOutput::AttachmentPoint> &drawBuffers)
 {
     // Copy attachments
     const auto outputIds = target->renderOutputs();
     for (Qt3DCore::QNodeId outputId : outputIds) {
         const RenderTargetOutput *output = attachmentManager->lookupResource(outputId);
         if (output)
-            m_attachments.append(*output->attachment());
+            m_attachments.push_back(*output->attachment());
     }
+
+    // Sort by attachment point
+    std::sort(m_attachments.begin(),
+              m_attachments.end(),
+              [] (const Attachment &a, const Attachment &b) {
+            return a.m_point < b.m_point;
+    });
+
 
     // Create actual DrawBuffers list that is used for glDrawBuffers
 
     // If nothing is specified, use all the attachments as draw buffers
-    if (drawBuffers.isEmpty()) {
+    if (drawBuffers.empty()) {
         m_drawBuffers.reserve(m_attachments.size());
         for (const Attachment &attachment : qAsConst(m_attachments))
             // only consider Color Attachments
@@ -82,9 +90,9 @@ AttachmentPack::AttachmentPack(const RenderTarget *target,
 // return index of given attachment within actual draw buffers list
 int AttachmentPack::getDrawBufferIndex(QRenderTargetOutput::AttachmentPoint attachmentPoint) const
 {
-    for (int i = 0; i < m_drawBuffers.size(); i++)
+    for (size_t i = 0; i < m_drawBuffers.size(); i++)
         if (m_drawBuffers.at(i) == (int)attachmentPoint)
-            return i;
+            return int(i);
     return -1;
 }
 

@@ -16,6 +16,8 @@
 
 namespace page_load_metrics {
 
+class PageLoadMetricsMemoryTracker;
+
 class TestMetricsWebContentsObserverEmbedder
     : public PageLoadMetricsEmbedderInterface,
       public test::WeakMockTimerProvider {
@@ -29,6 +31,8 @@ class TestMetricsWebContentsObserverEmbedder
   std::unique_ptr<base::OneShotTimer> CreateTimer() override;
   bool IsPrerender(content::WebContents* web_contents) override;
   bool IsExtensionUrl(const GURL& url) override;
+  PageLoadMetricsMemoryTracker* GetMemoryTrackerForBrowserContext(
+      content::BrowserContext* browser_context) override;
 
   void set_is_ntp(bool is_ntp) { is_ntp_ = is_ntp; }
 
@@ -72,6 +76,10 @@ class TestMetricsWebContentsObserverEmbedder
     return completed_filtered_urls_;
   }
 
+  int count_on_enter_back_forward_cache() const {
+    return count_on_enter_back_forward_cache_;
+  }
+
  private:
   std::vector<mojom::PageLoadTimingPtr> updated_timings_;
   std::vector<mojom::PageLoadTimingPtr> updated_subframe_timings_;
@@ -84,6 +92,7 @@ class TestMetricsWebContentsObserverEmbedder
   std::vector<mojom::PageLoadFeatures> observed_features_;
   base::Optional<bool> is_first_navigation_in_web_contents_;
   bool is_ntp_ = false;
+  int count_on_enter_back_forward_cache_ = 0;
 };
 
 }  // namespace page_load_metrics

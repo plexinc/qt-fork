@@ -43,7 +43,12 @@
 #include <QtCore/QTextStream>
 #include <QtConcurrent/QtConcurrentRun>
 
-#include <QtTest/QtTest>
+#include <QTest>
+#include <QBuffer>
+#include <QTemporaryFile>
+#if QT_CONFIG(process)
+#include <QProcess>
+#endif
 
 static const char *const additionalMimeFiles[] = {
     "yast2-metapackage-handler-mimetypes.xml",
@@ -70,15 +75,15 @@ static inline QString testSuiteWarning()
 
     QString result;
     QTextStream str(&result);
-    str << "\nCannot find the shared-mime-info test suite\nstarting from: "
+    str << "\nCannot find the shared-mime-info test suite\nin the parent of: "
         << QDir::toNativeSeparators(QDir::currentPath()) << "\n"
            "cd " << QDir::toNativeSeparators(QStringLiteral("tests/auto/corelib/mimetypes/qmimedatabase")) << "\n"
-           "wget http://cgit.freedesktop.org/xdg/shared-mime-info/snapshot/Release-1-10.zip\n"
-           "unzip Release-1-10.zip\n";
+           "wget https://gitlab.freedesktop.org/xdg/shared-mime-info/-/archive/2.1/shared-mime-info-2.1.zip\n"
+           "unzip shared-mime-info-2.1.zip\n";
 #ifdef Q_OS_WIN
-    str << "mkdir testfiles\nxcopy /s Release-1-10 s-m-i\n";
+    str << "mkdir testfiles\nxcopy /s shared-mime-info-2.1 s-m-i\n";
 #else
-    str << "ln -s Release-1-10 s-m-i\n";
+    str << "ln -s shared-mime-info-2.1 s-m-i\n";
 #endif
     return result;
 }
@@ -154,7 +159,7 @@ void tst_QMimeDatabase::initTestCase()
     QVERIFY2(copyResourceFile(xmlFileName, xmlTargetFileName, &errorMessage), qPrintable(errorMessage));
 #endif
 
-    m_testSuite = QFINDTESTDATA("s-m-i/tests");
+    m_testSuite = QFINDTESTDATA("../s-m-i/tests/mime-detection");
     if (m_testSuite.isEmpty())
         qWarning("%s", qPrintable(testSuiteWarning()));
 
@@ -611,7 +616,7 @@ void tst_QMimeDatabase::allMimeTypes()
     QVERIFY(!lst.isEmpty());
 
     // Hardcoding this is the only way to check both providers find the same number of mimetypes.
-    QCOMPARE(lst.count(), 779);
+    QCOMPARE(lst.count(), 811);
 
     foreach (const QMimeType &mime, lst) {
         const QString name = mime.name();
@@ -631,10 +636,9 @@ void tst_QMimeDatabase::suffixes_data()
 
     QTest::newRow("mimetype with a single pattern") << "application/pdf" << "*.pdf" << "pdf";
     QTest::newRow("mimetype with multiple patterns") << "application/x-kpresenter" << "*.kpr;*.kpt" << "kpr";
-    QTest::newRow("jpeg") << "image/jpeg" << "*.jpe;*.jpg;*.jpeg" << "jpeg";
-    //if (KMimeType::sharedMimeInfoVersion() > KDE_MAKE_VERSION(0, 60, 0)) {
-        QTest::newRow("mimetype with many patterns") << "application/vnd.wordperfect" << "*.wp;*.wp4;*.wp5;*.wp6;*.wpd;*.wpp" << "wp";
-    //}
+    // The preferred suffix for image/jpeg is *.jpg, as per https://bugs.kde.org/show_bug.cgi?id=176737
+    QTest::newRow("jpeg") << "image/jpeg" << "*.jpe;*.jpg;*.jpeg" << "jpg";
+    QTest::newRow("mimetype with many patterns") << "application/vnd.wordperfect" << "*.wp;*.wp4;*.wp5;*.wp6;*.wpd;*.wpp" << "wp";
     QTest::newRow("oasis text mimetype") << "application/vnd.oasis.opendocument.text" << "*.odt" << "odt";
     QTest::newRow("oasis presentation mimetype") << "application/vnd.oasis.opendocument.presentation" << "*.odp" << "odp";
     QTest::newRow("mimetype with multiple patterns") << "text/plain" << "*.asc;*.txt;*,v" << "txt";
@@ -674,7 +678,7 @@ void tst_QMimeDatabase::knownSuffix()
 
 void tst_QMimeDatabase::symlinkToFifo() // QTBUG-48529
 {
-#ifdef Q_OS_UNIX
+#if defined(Q_OS_UNIX) && !defined(Q_OS_INTEGRITY)
     QTemporaryDir tempDir;
     QVERIFY(tempDir.isValid());
     const QString dir = tempDir.path();
@@ -858,14 +862,14 @@ void tst_QMimeDatabase::fromThreads()
     QThreadPool tp;
     tp.setMaxThreadCount(20);
     // Note that data-based tests cannot be used here (QTest::fetchData asserts).
-    QtConcurrent::run(&tp, this, &tst_QMimeDatabase::mimeTypeForName);
-    QtConcurrent::run(&tp, this, &tst_QMimeDatabase::aliases);
-    QtConcurrent::run(&tp, this, &tst_QMimeDatabase::allMimeTypes);
-    QtConcurrent::run(&tp, this, &tst_QMimeDatabase::icons);
-    QtConcurrent::run(&tp, this, &tst_QMimeDatabase::inheritance);
-    QtConcurrent::run(&tp, this, &tst_QMimeDatabase::knownSuffix);
-    QtConcurrent::run(&tp, this, &tst_QMimeDatabase::mimeTypeForFileWithContent);
-    QtConcurrent::run(&tp, this, &tst_QMimeDatabase::allMimeTypes); // a second time
+    Q_UNUSED(QtConcurrent::run(&tp, &tst_QMimeDatabase::mimeTypeForName, this));
+    Q_UNUSED(QtConcurrent::run(&tp, &tst_QMimeDatabase::aliases, this));
+    Q_UNUSED(QtConcurrent::run(&tp, &tst_QMimeDatabase::allMimeTypes, this));
+    Q_UNUSED(QtConcurrent::run(&tp, &tst_QMimeDatabase::icons, this));
+    Q_UNUSED(QtConcurrent::run(&tp, &tst_QMimeDatabase::inheritance, this));
+    Q_UNUSED(QtConcurrent::run(&tp, &tst_QMimeDatabase::knownSuffix, this));
+    Q_UNUSED(QtConcurrent::run(&tp, &tst_QMimeDatabase::mimeTypeForFileWithContent, this));
+    Q_UNUSED(QtConcurrent::run(&tp, &tst_QMimeDatabase::allMimeTypes, this)); // a second time
     QVERIFY(tp.waitForDone(60000));
 }
 
@@ -883,7 +887,7 @@ static bool runUpdateMimeDatabase(const QString &path) // TODO make it a QMimeDa
         qWarning("%s does not exist.", qPrintable(umdCommand));
         return false;
     }
-
+#if QT_CONFIG(process)
     QElapsedTimer timer;
     QProcess proc;
     proc.setProcessChannelMode(QProcess::MergedChannels); // silence output
@@ -898,6 +902,7 @@ static bool runUpdateMimeDatabase(const QString &path) // TODO make it a QMimeDa
     const bool success = proc.waitForFinished(UpdateMimeDatabaseTimeout);
     qDebug().noquote() << "runUpdateMimeDatabase: done,"
         << success << timer.elapsed() << "ms";
+#endif
     return true;
 }
 

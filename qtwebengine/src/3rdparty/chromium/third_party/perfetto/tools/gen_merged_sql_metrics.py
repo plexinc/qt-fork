@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # Copyright (C) 2019 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -95,9 +95,19 @@ def main():
     for path, sql in sql_outputs.items():
       name = os.path.basename(path)
       variable = filename_to_variable(os.path.splitext(name)[0])
-      output.write(
-          '\nconst char {}[] = R"gendelimiter(\n{})gendelimiter";\n'.format(
-              variable, sql))
+      output.write('\nconst char {}[] = '.format(variable))
+      # MSVC doesn't like string literals that are individually longer than 16k.
+      # However it's still fine "if" "we" "concatenate" "many" "of" "them".
+      # This code splits the sql in string literals of ~1000 chars each.
+      line_groups = ['']
+      for line in sql.split('\n'):
+        line_groups[-1] += line + '\n'
+        if len(line_groups[-1]) > 1000:
+          line_groups.append('')
+
+      for line in line_groups:
+        output.write('R"_d3l1m1t3r_({})_d3l1m1t3r_"\n'.format(line))
+      output.write(';\n')
 
     output.write(FILE_TO_SQL_STRUCT)
 
@@ -108,7 +118,7 @@ def main():
       variable = filename_to_variable(os.path.splitext(name)[0])
 
       # This is for Windows which has \ as a path separator.
-      path = path.replace("\\", "\\\\")
+      path = path.replace("\\", "/")
       output.write('\n  {{"{}", {}}},\n'.format(path, variable))
     output.write("};\n")
 

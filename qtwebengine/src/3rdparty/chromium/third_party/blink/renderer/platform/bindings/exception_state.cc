@@ -30,6 +30,7 @@
 
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 
+#include "base/notreached.h"
 #include "third_party/blink/renderer/platform/bindings/exception_messages.h"
 #include "third_party/blink/renderer/platform/bindings/v8_throw_exception.h"
 
@@ -125,6 +126,12 @@ void ExceptionState::ThrowTypeError(const String& message) {
                                                  AddExceptionContext(message)));
 }
 
+void ExceptionState::ThrowWasmCompileError(const String& message) {
+  SetException(ToExceptionCode(ESErrorType::kWasmCompileError), message,
+               V8ThrowException::CreateWasmCompileError(
+                   isolate_, AddExceptionContext(message)));
+}
+
 void ExceptionState::ThrowDOMException(DOMExceptionCode exception_code,
                                        const char* message) {
   ThrowDOMException(exception_code, String(message));
@@ -141,6 +148,10 @@ void ExceptionState::ThrowRangeError(const char* message) {
 
 void ExceptionState::ThrowTypeError(const char* message) {
   ThrowTypeError(String(message));
+}
+
+void ExceptionState::ThrowWasmCompileError(const char* message) {
+  ThrowWasmCompileError(String(message));
 }
 
 void ExceptionState::RethrowV8Exception(v8::Local<v8::Value> value) {
@@ -170,42 +181,72 @@ void ExceptionState::SetException(ExceptionCode exception_code,
   }
 }
 
-String ExceptionState::AddExceptionContext(const String& message) const {
-  if (message.IsEmpty())
-    return message;
+void ExceptionState::PushContextScope(ContextScope* scope) {
+  scope->SetParent(context_stack_top_);
+  context_stack_top_ = scope;
+}
 
-  String processed_message = message;
-  if (PropertyName() && InterfaceName() && context_ != kUnknownContext) {
-    if (context_ == kDeletionContext)
-      processed_message = ExceptionMessages::FailedToDelete(
-          PropertyName(), InterfaceName(), message);
-    else if (context_ == kExecutionContext)
-      processed_message = ExceptionMessages::FailedToExecute(
-          PropertyName(), InterfaceName(), message);
-    else if (context_ == kGetterContext)
-      processed_message = ExceptionMessages::FailedToGet(
-          PropertyName(), InterfaceName(), message);
-    else if (context_ == kSetterContext)
-      processed_message = ExceptionMessages::FailedToSet(
-          PropertyName(), InterfaceName(), message);
-  } else if (!PropertyName() && InterfaceName()) {
-    if (context_ == kConstructionContext)
-      processed_message =
-          ExceptionMessages::FailedToConstruct(InterfaceName(), message);
-    else if (context_ == kEnumerationContext)
-      processed_message =
-          ExceptionMessages::FailedToEnumerate(InterfaceName(), message);
-    else if (context_ == kIndexedDeletionContext)
-      processed_message =
-          ExceptionMessages::FailedToDeleteIndexed(InterfaceName(), message);
-    else if (context_ == kIndexedGetterContext)
-      processed_message =
-          ExceptionMessages::FailedToGetIndexed(InterfaceName(), message);
-    else if (context_ == kIndexedSetterContext)
-      processed_message =
-          ExceptionMessages::FailedToSetIndexed(InterfaceName(), message);
+void ExceptionState::PopContextScope() {
+  DCHECK(!context_stack_top_);
+  context_stack_top_ = context_stack_top_->GetParent();
+}
+
+namespace {
+
+String AddContextToMessage(const String& message,
+                           const ExceptionContext& context) {
+  const char* c = context.GetClassName();
+  const char* p = context.GetPropertyName();
+  const String& m = message;
+
+  switch (context.GetContext()) {
+    case ExceptionState::kConstructionContext:
+      return ExceptionMessages::FailedToConstruct(c, m);
+    case ExceptionState::kExecutionContext:
+      return ExceptionMessages::FailedToExecute(p, c, m);
+    case ExceptionState::kGetterContext:
+      return ExceptionMessages::FailedToGet(p, c, m);
+    case ExceptionState::kSetterContext:
+      return ExceptionMessages::FailedToSet(p, c, m);
+    case ExceptionState::kEnumerationContext:
+      return ExceptionMessages::FailedToEnumerate(c, m);
+    case ExceptionState::kQueryContext:
+      break;
+    case ExceptionState::kIndexedGetterContext:
+      return ExceptionMessages::FailedToGetIndexed(c, m);
+    case ExceptionState::kIndexedSetterContext:
+      return ExceptionMessages::FailedToSetIndexed(c, m);
+    case ExceptionState::kIndexedDeletionContext:
+      return ExceptionMessages::FailedToDeleteIndexed(c, m);
+    case ExceptionState::kNamedGetterContext:
+      return ExceptionMessages::FailedToGetNamed(c, m);
+    case ExceptionState::kNamedSetterContext:
+      return ExceptionMessages::FailedToSetNamed(c, m);
+    case ExceptionState::kNamedDeletionContext:
+      return ExceptionMessages::FailedToDeleteNamed(c, m);
+    case ExceptionState::kUnknownContext:
+      break;
+    default:
+      NOTREACHED();
+      break;
   }
-  return processed_message;
+  return m;
+}
+
+}  // namespace
+
+String ExceptionState::AddExceptionContext(
+    const String& original_message) const {
+  if (original_message.IsEmpty())
+    return original_message;
+
+  String message = original_message;
+  for (const ContextScope* scope = context_stack_top_; scope;
+       scope = scope->GetParent()) {
+    message = AddContextToMessage(message, scope->GetContext());
+  }
+  message = AddContextToMessage(message, main_context_);
+  return message;
 }
 
 NonThrowableExceptionState::NonThrowableExceptionState()
@@ -245,6 +286,11 @@ void NonThrowableExceptionState::ThrowTypeError(const String& message) {
   DCHECK_AT(false, file_, line_) << "TypeError should not be thrown.";
 }
 
+void NonThrowableExceptionState::ThrowWasmCompileError(const String& message) {
+  DCHECK_AT(false, file_, line_)
+      << "WebAssembly.CompileError should not be thrown.";
+}
+
 void NonThrowableExceptionState::RethrowV8Exception(v8::Local<v8::Value>) {
   DCHECK_AT(false, file_, line_) << "An exception should not be rethrown.";
 }
@@ -270,6 +316,12 @@ void DummyExceptionStateForTesting::ThrowSecurityError(
 
 void DummyExceptionStateForTesting::ThrowTypeError(const String& message) {
   SetException(ToExceptionCode(ESErrorType::kTypeError), message,
+               v8::Local<v8::Value>());
+}
+
+void DummyExceptionStateForTesting::ThrowWasmCompileError(
+    const String& message) {
+  SetException(ToExceptionCode(ESErrorType::kWasmCompileError), message,
                v8::Local<v8::Value>());
 }
 

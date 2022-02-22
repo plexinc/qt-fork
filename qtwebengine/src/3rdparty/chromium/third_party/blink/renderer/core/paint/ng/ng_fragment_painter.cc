@@ -14,18 +14,13 @@
 namespace blink {
 
 void NGFragmentPainter::PaintOutline(const PaintInfo& paint_info,
-                                     const PhysicalOffset& paint_offset) {
-  DCHECK(ShouldPaintSelfOutline(paint_info.phase));
-
+                                     const PhysicalOffset& paint_offset,
+                                     const ComputedStyle& style_to_use) {
   const NGPhysicalBoxFragment& fragment = PhysicalFragment();
-  if (!NGOutlineUtils::HasPaintedOutline(fragment.Style(), fragment.GetNode()))
-    return;
-
+  DCHECK(NGOutlineUtils::HasPaintedOutline(style_to_use, fragment.GetNode()));
   Vector<PhysicalRect> outline_rects;
   fragment.AddSelfOutlineRects(
-      paint_offset,
-      fragment.GetLayoutObject()
-          ->OutlineRectsShouldIncludeBlockVisualOverflow(),
+      paint_offset, style_to_use.OutlineRectsShouldIncludeBlockVisualOverflow(),
       &outline_rects);
 
   if (outline_rects.IsEmpty())
@@ -36,9 +31,12 @@ void NGFragmentPainter::PaintOutline(const PaintInfo& paint_info,
           paint_info.context, display_item_client, paint_info.phase))
     return;
 
+  IntRect visual_rect =
+      PixelSnappedIntRect(UnionRectEvenIfEmpty(outline_rects));
+  visual_rect.Inflate(style_to_use.OutlineOutsetExtent());
   DrawingRecorder recorder(paint_info.context, display_item_client,
-                           paint_info.phase);
-  PaintOutlineRects(paint_info, outline_rects, fragment.Style());
+                           paint_info.phase, visual_rect);
+  PaintOutlineRects(paint_info, outline_rects, style_to_use);
 }
 
 void NGFragmentPainter::AddURLRectIfNeeded(const PaintInfo& paint_info,
@@ -59,11 +57,13 @@ void NGFragmentPainter::AddURLRectIfNeeded(const PaintInfo& paint_info,
   if (!url.IsValid())
     return;
 
-  const DisplayItemClient& display_item_client = GetDisplayItemClient();
-  IntRect rect = display_item_client.VisualRect();
+  auto outline_rects = fragment.GetLayoutObject()->OutlineRects(
+      paint_offset, NGOutlineType::kIncludeBlockVisualOverflow);
+  IntRect rect = PixelSnappedIntRect(UnionRect(outline_rects));
   if (rect.IsEmpty())
     return;
 
+  const DisplayItemClient& display_item_client = GetDisplayItemClient();
   if (DrawingRecorder::UseCachedDrawingIfPossible(
           paint_info.context, display_item_client,
           DisplayItem::kPrintedContentPDFURLRect))

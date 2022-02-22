@@ -44,6 +44,7 @@
 #include <Qt3DRender/QParameter>
 #include <Qt3DRender/QPointLight>
 #include <Qt3DRender/QLayer>
+#include <Qt3DRender/QGeometryRenderer>
 #include <Qt3DCore/QTransform>
 
 QT_BEGIN_NAMESPACE
@@ -102,7 +103,6 @@ SceneEntity::SceneEntity(Qt3DCore::QNode *parent)
         sphereTwo->addComponent(light3);
     }
 }
-
 
 Qt3DRender::QLayer *SceneEntity::layer() const
 {

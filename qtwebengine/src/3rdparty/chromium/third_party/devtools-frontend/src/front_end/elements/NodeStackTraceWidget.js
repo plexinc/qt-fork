@@ -3,29 +3,51 @@
 // found in the LICENSE file.
 
 import * as Components from '../components/components.js';
+import * as i18n from '../i18n/i18n.js';
 import * as SDK from '../sdk/sdk.js';
 import * as UI from '../ui/ui.js';
 
-/**
- * @unrestricted
- */
+export const UIStrings = {
+  /**
+  *@description Message displayed when no JavaScript stack trace is available for the DOM node in the Stack Trace widget of the Elements panel
+  */
+  noStackTraceAvailable: 'No stack trace available',
+};
+const str_ = i18n.i18n.registerUIStrings('elements/NodeStackTraceWidget.js', UIStrings);
+const i18nString = i18n.i18n.getLocalizedString.bind(undefined, str_);
+/** @type {!NodeStackTraceWidget} */
+let nodeStackTraceWidgetInstance;
+
 export class NodeStackTraceWidget extends UI.ThrottledWidget.ThrottledWidget {
   constructor() {
     super(true /* isWebComponent */);
-    this.registerRequiredCSS('elements/nodeStackTraceWidget.css');
+    this.registerRequiredCSS('elements/nodeStackTraceWidget.css', {enableLegacyPatching: false});
 
     this._noStackTraceElement = this.contentElement.createChild('div', 'gray-info-message');
-    this._noStackTraceElement.textContent = ls`No stack trace available`;
+    this._noStackTraceElement.textContent = i18nString(UIStrings.noStackTraceAvailable);
     this._creationStackTraceElement = this.contentElement.createChild('div', 'stack-trace');
 
     this._linkifier = new Components.Linkifier.Linkifier(MaxLengthForLinks);
   }
 
   /**
+   * @param {{forceNew: ?boolean}=} opts
+   * @return {!NodeStackTraceWidget}
+   */
+  static instance(opts = {forceNew: null}) {
+    const {forceNew} = opts;
+    if (!nodeStackTraceWidgetInstance || forceNew) {
+      nodeStackTraceWidgetInstance = new NodeStackTraceWidget();
+    }
+
+    return nodeStackTraceWidgetInstance;
+  }
+
+  /**
    * @override
    */
   wasShown() {
-    self.UI.context.addFlavorChangeListener(SDK.DOMModel.DOMNode, this.update, this);
+    UI.Context.Context.instance().addFlavorChangeListener(SDK.DOMModel.DOMNode, this.update, this);
     this.update();
   }
 
@@ -33,16 +55,16 @@ export class NodeStackTraceWidget extends UI.ThrottledWidget.ThrottledWidget {
    * @override
    */
   willHide() {
-    self.UI.context.removeFlavorChangeListener(SDK.DOMModel.DOMNode, this.update, this);
+    UI.Context.Context.instance().removeFlavorChangeListener(SDK.DOMModel.DOMNode, this.update, this);
   }
 
   /**
    * @override
    * @protected
-   * @return {!Promise<undefined>}
+   * @return {!Promise<void>}
    */
   async doUpdate() {
-    const node = self.UI.context.flavor(SDK.DOMModel.DOMNode);
+    const node = UI.Context.Context.instance().flavor(SDK.DOMModel.DOMNode);
 
     if (!node) {
       this._noStackTraceElement.classList.remove('hidden');
@@ -56,7 +78,8 @@ export class NodeStackTraceWidget extends UI.ThrottledWidget.ThrottledWidget {
       this._creationStackTraceElement.classList.remove('hidden');
 
       const stackTracePreview = Components.JSPresentationUtils.buildStackTracePreviewContents(
-          node.domModel().target(), this._linkifier, {stackTrace: creationStackTrace});
+          node.domModel().target(), this._linkifier,
+          {stackTrace: creationStackTrace, contentUpdated: undefined, tabStops: undefined});
       this._creationStackTraceElement.removeChildren();
       this._creationStackTraceElement.appendChild(stackTracePreview.element);
     } else {

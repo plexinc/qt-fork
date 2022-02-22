@@ -40,7 +40,6 @@
 #include "readtask.h"
 
 #include <QObject>
-#include <QScopedPointer>
 
 QT_BEGIN_NAMESPACE
 
@@ -64,7 +63,7 @@ public:
     int  printDevices(const QString &pluginName);
 
 private:
-    bool parseDataField(quint32 &id, QString &payload);
+    bool parseDataField(QCanBusFrame::FrameId &id, QString &payload);
     bool setFrameFromPayload(QString payload, QCanBusFrame *frame);
     bool connectCanDevice();
     bool sendData();
@@ -77,7 +76,7 @@ private:
     QString m_pluginName;
     QString m_deviceName;
     QString m_data;
-    QScopedPointer<QCanBusDevice> m_canDevice;
+    std::unique_ptr<QCanBusDevice> m_canDevice;
     ReadTask *m_readTask = nullptr;
     using ConfigurationParameter = QHash<QCanBusDevice::ConfigurationKey, QVariant>;
     ConfigurationParameter m_configurationParameter;

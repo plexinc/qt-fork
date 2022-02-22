@@ -33,9 +33,9 @@
 #include <QtWaylandCompositor/QWaylandCompositor>
 #include <QtWaylandCompositor/private/qwayland-server-wayland.h>
 #include <qpa/qplatformnativeinterface.h>
+#include <QtOpenGL/QOpenGLTexture>
 #include <QtGui/QGuiApplication>
 #include <QtGui/QOpenGLContext>
-#include <QtGui/QOpenGLTexture>
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -105,6 +105,11 @@ static QOpenGLTexture::TextureFormat openGLFormatFromBufferFormat(QWaylandBuffer
     }
 }
 
+// Initialize the EGLImage for a dmabuf buffer which conceptually consists of a
+// single plane. Note that depending on the modifiers, the buffer may be actually
+// transported as multiple dmabuf planes which must be combined into a single
+// EGLImage. For formats where the buffer needs to be represented as multiple
+// EGLImages (e.g., various YUV formats) a different approach is required.
 bool LinuxDmabufClientBufferIntegration::initSimpleTexture(LinuxDmabufWlBuffer *dmabufBuffer)
 {
     bool success = true;
@@ -118,79 +123,67 @@ bool LinuxDmabufClientBufferIntegration::initSimpleTexture(LinuxDmabufWlBuffer *
         success = false;
     }
 
-    for (uint32_t i = 0; i < dmabufBuffer->planesNumber(); ++i) {
-        QVarLengthArray<EGLint, 17> attribs;
-        switch (i) {
-        case 0:
-            attribs = {
-                EGL_WIDTH,                          dmabufBuffer->size().width(),
-                EGL_HEIGHT,                         dmabufBuffer->size().height(),
-                EGL_LINUX_DRM_FOURCC_EXT,           EGLint(dmabufBuffer->drmFormat()),
-                EGL_DMA_BUF_PLANE0_FD_EXT,          dmabufBuffer->plane(i).fd,
-                EGL_DMA_BUF_PLANE0_OFFSET_EXT,      EGLint(dmabufBuffer->plane(i).offset),
-                EGL_DMA_BUF_PLANE0_PITCH_EXT,       EGLint(dmabufBuffer->plane(i).stride),
-                EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT, EGLint(dmabufBuffer->plane(i).modifiers & 0xffffffff),
-                EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT, EGLint(dmabufBuffer->plane(i).modifiers >> 32),
-                EGL_NONE
-            };
-            break;
-        case 1:
-            attribs = {
-                EGL_WIDTH,                          dmabufBuffer->size().width(),
-                EGL_HEIGHT,                         dmabufBuffer->size().height(),
-                EGL_LINUX_DRM_FOURCC_EXT,           EGLint(dmabufBuffer->drmFormat()),
-                EGL_DMA_BUF_PLANE1_FD_EXT,          dmabufBuffer->plane(i).fd,
-                EGL_DMA_BUF_PLANE1_OFFSET_EXT,      EGLint(dmabufBuffer->plane(i).offset),
-                EGL_DMA_BUF_PLANE1_PITCH_EXT,       EGLint(dmabufBuffer->plane(i).stride),
-                EGL_DMA_BUF_PLANE1_MODIFIER_LO_EXT, EGLint(dmabufBuffer->plane(i).modifiers & 0xffffffff),
-                EGL_DMA_BUF_PLANE1_MODIFIER_HI_EXT, EGLint(dmabufBuffer->plane(i).modifiers >> 32),
-                EGL_NONE
-            };
-            break;
-        case 2:
-            attribs = {
-                EGL_WIDTH,                          dmabufBuffer->size().width(),
-                EGL_HEIGHT,                         dmabufBuffer->size().height(),
-                EGL_LINUX_DRM_FOURCC_EXT,           EGLint(dmabufBuffer->drmFormat()),
-                EGL_DMA_BUF_PLANE2_FD_EXT,          dmabufBuffer->plane(i).fd,
-                EGL_DMA_BUF_PLANE2_OFFSET_EXT,      EGLint(dmabufBuffer->plane(i).offset),
-                EGL_DMA_BUF_PLANE2_PITCH_EXT,       EGLint(dmabufBuffer->plane(i).stride),
-                EGL_DMA_BUF_PLANE2_MODIFIER_LO_EXT, EGLint(dmabufBuffer->plane(i).modifiers & 0xffffffff),
-                EGL_DMA_BUF_PLANE2_MODIFIER_HI_EXT, EGLint(dmabufBuffer->plane(i).modifiers >> 32),
-                EGL_NONE
-            };
-            break;
-        case 3:
-            attribs = {
-                EGL_WIDTH,                          dmabufBuffer->size().width(),
-                EGL_HEIGHT,                         dmabufBuffer->size().height(),
-                EGL_LINUX_DRM_FOURCC_EXT,           EGLint(dmabufBuffer->drmFormat()),
-                EGL_DMA_BUF_PLANE3_FD_EXT,          dmabufBuffer->plane(i).fd,
-                EGL_DMA_BUF_PLANE3_OFFSET_EXT,      EGLint(dmabufBuffer->plane(i).offset),
-                EGL_DMA_BUF_PLANE3_PITCH_EXT,       EGLint(dmabufBuffer->plane(i).stride),
-                EGL_DMA_BUF_PLANE3_MODIFIER_LO_EXT, EGLint(dmabufBuffer->plane(i).modifiers & 0xffffffff),
-                EGL_DMA_BUF_PLANE3_MODIFIER_HI_EXT, EGLint(dmabufBuffer->plane(i).modifiers >> 32),
-                EGL_NONE
-            };
+    // 6 entries for the common attribs plus 10 per possible plane, plus 1 for
+    // the final EGL_NONE sentinel.
+    QVarLengthArray<EGLint, 6 + 10 * 4 + 1> attribs;
+
+    attribs.append(EGL_WIDTH);
+    attribs.append(dmabufBuffer->size().width());
+    attribs.append(EGL_HEIGHT);
+    attribs.append(dmabufBuffer->size().height());
+    attribs.append(EGL_LINUX_DRM_FOURCC_EXT);
+    attribs.append(EGLint(dmabufBuffer->drmFormat()));
+
+#define ADD_PLANE_ATTRIBS(plane_idx) { \
+    attribs.append(EGL_DMA_BUF_PLANE ## plane_idx ## _FD_EXT); \
+    attribs.append(dmabufBuffer->plane(plane_idx).fd); \
+    attribs.append(EGL_DMA_BUF_PLANE ## plane_idx ## _OFFSET_EXT); \
+    attribs.append(EGLint(dmabufBuffer->plane(plane_idx).offset)); \
+    attribs.append(EGL_DMA_BUF_PLANE ## plane_idx ## _PITCH_EXT); \
+    attribs.append(EGLint(dmabufBuffer->plane(plane_idx).stride)); \
+    if (dmabufBuffer->plane(plane_idx).modifiers != DRM_FORMAT_MOD_INVALID) { \
+        attribs.append(EGL_DMA_BUF_PLANE ## plane_idx ## _MODIFIER_LO_EXT); \
+        attribs.append(EGLint(dmabufBuffer->plane(plane_idx).modifiers & 0xffffffff)); \
+        attribs.append(EGL_DMA_BUF_PLANE ## plane_idx ## _MODIFIER_HI_EXT); \
+        attribs.append(EGLint(dmabufBuffer->plane(plane_idx).modifiers >> 32)); \
+    } \
+}
+
+    switch (dmabufBuffer->planesNumber()) {
+    case 4:
+        ADD_PLANE_ATTRIBS(3);
+        Q_FALLTHROUGH();
+    case 3:
+        ADD_PLANE_ATTRIBS(2);
+        Q_FALLTHROUGH();
+    case 2:
+        ADD_PLANE_ATTRIBS(1);
+        Q_FALLTHROUGH();
+    case 1:
+        ADD_PLANE_ATTRIBS(0);
         break;
-        default:
-            return false;
-        }
-
-        // note: EGLImageKHR does NOT take ownership of the file descriptors
-        EGLImageKHR image = egl_create_image(m_eglDisplay,
-                                             EGL_NO_CONTEXT,
-                                             EGL_LINUX_DMA_BUF_EXT,
-                                             (EGLClientBuffer) nullptr,
-                                             attribs.constData());
-
-        if (image == EGL_NO_IMAGE_KHR) {
-            qCWarning(qLcWaylandCompositorHardwareIntegration) << "failed to create EGL image for plane" << i;
-            success = false;
-        }
-
-        dmabufBuffer->initImage(i, image);
+    default:
+        qCWarning(qLcWaylandCompositorHardwareIntegration) << "Buffer uses invalid number of planes:" << dmabufBuffer->planesNumber();
+        return false;
     }
+
+    attribs.append(EGL_NONE);
+
+    // note: EGLImageKHR does NOT take ownership of the file descriptors
+    EGLImageKHR image = egl_create_image(m_eglDisplay,
+                                         EGL_NO_CONTEXT,
+                                         EGL_LINUX_DMA_BUF_EXT,
+                                         (EGLClientBuffer) nullptr,
+                                         attribs.constData());
+
+    if (image == EGL_NO_IMAGE_KHR) {
+        qCWarning(qLcWaylandCompositorHardwareIntegration) << "failed to create EGL image from" <<
+            dmabufBuffer->planesNumber() << "plane(s)";
+        success = false;
+    }
+
+    dmabufBuffer->initImage(0, image);
+
     return success;
 }
 
@@ -337,48 +330,48 @@ void LinuxDmabufClientBufferIntegration::initializeHardware(struct ::wl_display 
     }
 
     // request and sent formats/modifiers only after egl_display is bound
-    QHash<uint32_t, QVector<uint64_t>> modifiers;
+    QHash<uint32_t, QList<uint64_t>> modifiers;
     for (const auto &format : supportedDrmFormats()) {
         modifiers[format] = supportedDrmModifiers(format);
     }
     m_linuxDmabuf->setSupportedModifiers(modifiers);
 }
 
-QVector<uint32_t> LinuxDmabufClientBufferIntegration::supportedDrmFormats()
+QList<uint32_t> LinuxDmabufClientBufferIntegration::supportedDrmFormats()
 {
     if (!egl_query_dmabuf_formats_ext)
-        return QVector<uint32_t>();
+        return QList<uint32_t>();
 
     // request total number of formats
     EGLint count = 0;
     EGLBoolean success = egl_query_dmabuf_formats_ext(m_eglDisplay, 0, nullptr, &count);
 
     if (success && count > 0) {
-        QVector<uint32_t> drmFormats(count);
+        QList<uint32_t> drmFormats(count);
         if (egl_query_dmabuf_formats_ext(m_eglDisplay, count, (EGLint *) drmFormats.data(), &count))
             return drmFormats;
     }
 
-    return QVector<uint32_t>();
+    return QList<uint32_t>();
 }
 
-QVector<uint64_t> LinuxDmabufClientBufferIntegration::supportedDrmModifiers(uint32_t format)
+QList<uint64_t> LinuxDmabufClientBufferIntegration::supportedDrmModifiers(uint32_t format)
 {
     if (!egl_query_dmabuf_modifiers_ext)
-        return QVector<uint64_t>();
+        return QList<uint64_t>();
 
     // request total number of formats
     EGLint count = 0;
     EGLBoolean success = egl_query_dmabuf_modifiers_ext(m_eglDisplay, format, 0, nullptr, nullptr, &count);
 
     if (success && count > 0) {
-        QVector<uint64_t> modifiers(count);
+        QList<uint64_t> modifiers(count);
         if (egl_query_dmabuf_modifiers_ext(m_eglDisplay, format, count, modifiers.data(), nullptr, &count)) {
             return modifiers;
         }
     }
 
-    return QVector<uint64_t>();
+    return QList<uint64_t>();
 }
 
 void LinuxDmabufClientBufferIntegration::deleteOrphanedTextures()
@@ -395,16 +388,12 @@ void LinuxDmabufClientBufferIntegration::deleteImage(EGLImageKHR image)
 
 QtWayland::ClientBuffer *LinuxDmabufClientBufferIntegration::createBufferFor(wl_resource *resource)
 {
-    // fallback for shared memory buffers
-    if (wl_shm_buffer_get(resource))
-        return nullptr;
-
     auto it = m_importedBuffers.find(resource);
     if (it != m_importedBuffers.end()) {
         m_importedBuffers.value(resource);
         return new LinuxDmabufClientBuffer(this, it.value()->resource()->handle, m_importedBuffers.value(resource));
     }
-    qCWarning(qLcWaylandCompositorHardwareIntegration) << "could not create client buffer for dmabuf buffer";
+
     return nullptr;
 }
 
@@ -456,6 +445,7 @@ QOpenGLTexture *LinuxDmabufClientBuffer::toOpenGlTexture(int plane)
     }
 
     if (m_textureDirty) {
+        m_textureDirty = false;
         texture->bind();
         glTexParameterf(target, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         m_integration->gl_egl_image_target_texture_2d(target, d->image(plane));

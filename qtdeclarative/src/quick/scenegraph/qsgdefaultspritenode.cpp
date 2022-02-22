@@ -40,7 +40,6 @@
 #include "qsgdefaultspritenode_p.h"
 
 #include <QtQuick/QSGMaterial>
-#include <QtGui/QOpenGLShaderProgram>
 
 QT_BEGIN_NAMESPACE
 
@@ -64,11 +63,7 @@ public:
     QQuickSpriteMaterial();
     ~QQuickSpriteMaterial();
     QSGMaterialType *type() const  override { static QSGMaterialType type; return &type; }
-    QSGMaterialShader *createShader() const override;
-    int compare(const QSGMaterial *other) const override
-    {
-        return this - static_cast<const QQuickSpriteMaterial *>(other);
-    }
+    QSGMaterialShader *createShader(QSGRendererInterface::RenderMode renderMode) const override;
 
     QSGTexture *texture = nullptr;
 
@@ -84,7 +79,6 @@ public:
 QQuickSpriteMaterial::QQuickSpriteMaterial()
 {
     setFlag(Blending, true);
-    setFlag(SupportsRhiShader, true);
 }
 
 QQuickSpriteMaterial::~QQuickSpriteMaterial()
@@ -92,51 +86,7 @@ QQuickSpriteMaterial::~QQuickSpriteMaterial()
     delete texture;
 }
 
-class SpriteMaterialShader : public QSGMaterialShader
-{
-public:
-    SpriteMaterialShader()
-    {
-        setShaderSourceFile(QOpenGLShader::Vertex, QStringLiteral(":/qt-project.org/scenegraph/shaders/sprite.vert"));
-        setShaderSourceFile(QOpenGLShader::Fragment, QStringLiteral(":/qt-project.org/scenegraph/shaders/sprite.frag"));
-    }
-
-    void updateState(const RenderState &state, QSGMaterial *newEffect, QSGMaterial *) override
-    {
-        QQuickSpriteMaterial *m = static_cast<QQuickSpriteMaterial *>(newEffect);
-        m->texture->bind();
-
-        program()->setUniformValue(m_opacity_id, state.opacity());
-        program()->setUniformValue(m_animData_id, m->animW, m->animH, m->animT);
-        program()->setUniformValue(m_animPos_id, m->animX1, m->animY1, m->animX2, m->animY2);
-
-        if (state.isMatrixDirty())
-            program()->setUniformValue(m_matrix_id, state.combinedMatrix());
-    }
-
-    void initialize() override {
-        m_matrix_id = program()->uniformLocation("qt_Matrix");
-        m_opacity_id = program()->uniformLocation("qt_Opacity");
-        m_animData_id = program()->uniformLocation("animData");
-        m_animPos_id = program()->uniformLocation("animPos");
-    }
-
-    char const *const *attributeNames() const override {
-        static const char *attr[] = {
-           "vPos",
-           "vTex",
-            nullptr
-        };
-        return attr;
-    }
-
-    int m_matrix_id;
-    int m_opacity_id;
-    int m_animData_id;
-    int m_animPos_id;
-};
-
-class SpriteMaterialRhiShader : public QSGMaterialRhiShader
+class SpriteMaterialRhiShader : public QSGMaterialShader
 {
 public:
      SpriteMaterialRhiShader();
@@ -199,16 +149,14 @@ void SpriteMaterialRhiShader::updateSampledImage(RenderState &state, int binding
     QQuickSpriteMaterial *mat = static_cast<QQuickSpriteMaterial *>(newMaterial);
 
     QSGTexture *t = mat->texture;
-    t->updateRhiTexture(state.rhi(), state.resourceUpdateBatch());
+    t->commitTextureOperations(state.rhi(), state.resourceUpdateBatch());
     *texture = t;
 }
 
-QSGMaterialShader *QQuickSpriteMaterial::createShader() const
+QSGMaterialShader *QQuickSpriteMaterial::createShader(QSGRendererInterface::RenderMode renderMode) const
 {
-    if (flags().testFlag(RhiShaderWanted))
-        return new SpriteMaterialRhiShader;
-    else
-        return new SpriteMaterialShader;
+    Q_UNUSED(renderMode);
+    return new SpriteMaterialRhiShader;
 }
 
 static QSGGeometry::Attribute Sprite_Attributes[] = {

@@ -4,7 +4,6 @@
 
 #include "third_party/blink/renderer/core/inspector/inspector_dom_snapshot_agent.h"
 
-#include "third_party/blink/renderer/bindings/core/v8/script_event_listener.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
 #include "third_party/blink/renderer/core/css/css_computed_style_declaration.h"
 #include "third_party/blink/renderer/core/dom/attribute.h"
@@ -41,6 +40,7 @@
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/core/paint/paint_layer_paint_order_iterator.h"
 #include "third_party/blink/renderer/core/paint/paint_layer_scrollable_area.h"
+#include "third_party/blink/renderer/platform/bindings/v8_binding.h"
 #include "v8/include/v8-inspector.h"
 
 namespace blink {
@@ -65,9 +65,9 @@ std::unique_ptr<protocol::Array<double>> BuildRectForLayout(const int x,
 
 Document* GetEmbeddedDocument(PaintLayer* layer) {
   // Documents are embedded on their own PaintLayer via a LayoutEmbeddedContent.
-  if (layer->GetLayoutObject().IsLayoutEmbeddedContent()) {
-    FrameView* frame_view =
-        ToLayoutEmbeddedContent(layer->GetLayoutObject()).ChildFrameView();
+  if (auto* embedded =
+          DynamicTo<LayoutEmbeddedContent>(layer->GetLayoutObject())) {
+    FrameView* frame_view = embedded->ChildFrameView();
     if (auto* local_frame_view = DynamicTo<LocalFrameView>(frame_view))
       return local_frame_view->GetFrame().GetDocument();
   }
@@ -94,29 +94,6 @@ std::unique_ptr<protocol::DOMSnapshot::RareBooleanData> BooleanData() {
       .build();
 }
 
-String GetOriginUrlFast(int max_stack_depth) {
-  static const v8::StackTrace::StackTraceOptions stackTraceOptions =
-      static_cast<v8::StackTrace::StackTraceOptions>(v8::StackTrace::kDetailed);
-  v8::Isolate* isolate = v8::Isolate::GetCurrent();
-  DCHECK(isolate);
-
-  v8::Local<v8::StackTrace> v8StackTrace = v8::StackTrace::CurrentStackTrace(
-      isolate, max_stack_depth, stackTraceOptions);
-  if (v8StackTrace.IsEmpty())
-    return String();
-  for (int i = 0, frame_count = v8StackTrace->GetFrameCount(); i < frame_count;
-       ++i) {
-    v8::Local<v8::StackFrame> frame = v8StackTrace->GetFrame(isolate, i);
-    if (frame.IsEmpty())
-      continue;
-    v8::Local<v8::String> script_name = frame->GetScriptNameOrSourceURL();
-    if (script_name.IsEmpty() || !script_name->Length())
-      continue;
-    return ToCoreString(script_name);
-  }
-  return String();
-}
-
 String GetOriginUrl(const Node* node) {
   v8::Isolate* isolate = v8::Isolate::GetCurrent();
   ThreadDebugger* debugger = ThreadDebugger::From(isolate);
@@ -124,10 +101,10 @@ String GetOriginUrl(const Node* node) {
     return String();
   v8::HandleScope handleScope(isolate);
   // Try not getting the entire stack first.
-  String url = GetOriginUrlFast(/* maxStackSize=*/5);
+  String url = GetCurrentScriptUrl(/* maxStackSize=*/5);
   if (!url.IsEmpty())
     return url;
-  url = GetOriginUrlFast(/* maxStackSize=*/200);
+  url = GetCurrentScriptUrl(/* maxStackSize=*/200);
   if (!url.IsEmpty())
     return url;
   // If we did not get anything from the sync stack, let's try the slow
@@ -140,6 +117,58 @@ String GetOriginUrl(const Node* node) {
   // Fall back to document url.
   return node->GetDocument().Url().GetString();
 }
+
+class DOMTreeIterator {
+  STACK_ALLOCATED();
+
+ public:
+  DOMTreeIterator(Node* root, int root_node_id)
+      : current_(root), path_to_current_node_({root_node_id}) {
+    DCHECK(current_);
+  }
+
+  void Advance(int next_node_id) {
+    DCHECK(current_);
+    const bool skip_shadow_root =
+        current_->GetShadowRoot() && current_->GetShadowRoot()->IsUserAgent();
+    if (Node* first_child = skip_shadow_root
+                                ? current_->firstChild()
+                                : FlatTreeTraversal::FirstChild(*current_)) {
+      current_ = first_child;
+      path_to_current_node_.push_back(next_node_id);
+      return;
+    }
+    // No children, let's try siblings, then ancestor siblings.
+    while (current_) {
+      const bool in_ua_shadow_tree =
+          current_->ParentElementShadowRoot() &&
+          current_->ParentElementShadowRoot()->IsUserAgent();
+      if (Node* node = in_ua_shadow_tree
+                           ? current_->nextSibling()
+                           : FlatTreeTraversal::NextSibling(*current_)) {
+        path_to_current_node_.back() = next_node_id;
+        current_ = node;
+        return;
+      }
+      current_ = in_ua_shadow_tree ? current_->parentNode()
+                                   : FlatTreeTraversal::Parent(*current_);
+      path_to_current_node_.pop_back();
+    }
+    DCHECK(path_to_current_node_.IsEmpty());
+  }
+
+  Node* CurrentNode() const { return current_; }
+
+  int ParentNodeId() const {
+    return path_to_current_node_.size() > 1
+               ? *(path_to_current_node_.rbegin() + 1)
+               : -1;
+  }
+
+ private:
+  Node* current_;
+  WTF::Vector<int> path_to_current_node_;
+};
 
 }  // namespace
 
@@ -260,13 +289,14 @@ protocol::Response InspectorDOMSnapshotAgent::captureSnapshot(
       protocol::Array<protocol::DOMSnapshot::DocumentSnapshot>>();
 
   css_property_filter_ = std::make_unique<CSSPropertyFilter>();
-  // Look up the CSSPropertyIDs for each entry in |computed_styles|.
-  for (String& entry : *computed_styles) {
-    CSSPropertyID property_id = cssPropertyID(main_window, entry);
-    if (property_id == CSSPropertyID::kInvalid)
-      continue;
-    css_property_filter_->emplace_back(std::move(entry),
-                                       std::move(property_id));
+  // Resolve all property names to CSSProperty references.
+  for (String& property_name : *computed_styles) {
+    const CSSPropertyID id =
+        UnresolvedCSSPropertyID(main_window, property_name);
+    if (id == CSSPropertyID::kInvalid || id == CSSPropertyID::kVariable)
+      return Response::InvalidParams("invalid CSS property");
+    const auto& property = CSSProperty::Get(ResolveCSSPropertyID(id));
+    css_property_filter_->push_back(&property);
   }
 
   if (include_paint_order.fromMaybe(false)) {
@@ -293,6 +323,8 @@ protocol::Response InspectorDOMSnapshotAgent::captureSnapshot(
   string_table_.clear();
   document_order_map_.clear();
   documents_.reset();
+  css_value_cache_.clear();
+  style_cache_.clear();
   return Response::Success();
 }
 
@@ -339,7 +371,7 @@ void InspectorDOMSnapshotAgent::VisitDocument(Document* document) {
   // order was calculated, since layout trees were already updated during
   // TraversePaintLayerTree().
   if (!paint_order_map_)
-    document->UpdateStyleAndLayout(DocumentUpdateReason::kInspector);
+    document->UpdateStyleAndLayoutTreeForSubtree(document);
 
   DocumentType* doc_type = document->doctype();
 
@@ -417,11 +449,16 @@ void InspectorDOMSnapshotAgent::VisitDocument(Document* document) {
         std::make_unique<protocol::Array<protocol::Array<double>>>());
   }
 
-  VisitNode(document, -1);
+  auto* node_names = document_->getNodes()->getNodeName(nullptr);
+  for (DOMTreeIterator it(document, node_names->size()); it.CurrentNode();
+       it.Advance(node_names->size())) {
+    DCHECK(!it.CurrentNode()->IsInUserAgentShadowRoot());
+    VisitNode(it.CurrentNode(), it.ParentNodeId());
+  }
   documents_->emplace_back(std::move(document_));
 }
 
-int InspectorDOMSnapshotAgent::VisitNode(Node* node, int parent_index) {
+void InspectorDOMSnapshotAgent::VisitNode(Node* node, int parent_index) {
   String node_value;
   switch (node->getNodeType()) {
     case Node::kTextNode:
@@ -508,62 +545,6 @@ int InspectorDOMSnapshotAgent::VisitNode(Node* node, int parent_index) {
               image_element->currentSrc());
     }
   }
-  if (node->IsContainerNode())
-    VisitContainerChildren(node, index);
-  return index;
-}
-
-// static
-Node* InspectorDOMSnapshotAgent::FirstChild(
-    const Node& node,
-    bool include_user_agent_shadow_tree) {
-  DCHECK(include_user_agent_shadow_tree || !node.IsInUserAgentShadowRoot());
-  if (!include_user_agent_shadow_tree) {
-    ShadowRoot* shadow_root = node.GetShadowRoot();
-    if (shadow_root && shadow_root->GetType() == ShadowRootType::kUserAgent) {
-      Node* child = node.firstChild();
-      while (child && !child->CanParticipateInFlatTree())
-        child = child->nextSibling();
-      return child;
-    }
-  }
-  return FlatTreeTraversal::FirstChild(node);
-}
-
-// static
-bool InspectorDOMSnapshotAgent::HasChildren(
-    const Node& node,
-    bool include_user_agent_shadow_tree) {
-  return FirstChild(node, include_user_agent_shadow_tree);
-}
-
-// static
-Node* InspectorDOMSnapshotAgent::NextSibling(
-    const Node& node,
-    bool include_user_agent_shadow_tree) {
-  DCHECK(include_user_agent_shadow_tree || !node.IsInUserAgentShadowRoot());
-  if (!include_user_agent_shadow_tree) {
-    if (node.ParentElementShadowRoot() &&
-        node.ParentElementShadowRoot()->GetType() ==
-            ShadowRootType::kUserAgent) {
-      Node* sibling = node.nextSibling();
-      while (sibling && !sibling->CanParticipateInFlatTree())
-        sibling = sibling->nextSibling();
-      return sibling;
-    }
-  }
-  return FlatTreeTraversal::NextSibling(node);
-}
-
-void InspectorDOMSnapshotAgent::VisitContainerChildren(Node* container,
-                                                       int parent_index) {
-  if (!HasChildren(*container, false))
-    return;
-
-  for (Node* child = FirstChild(*container, false); child;
-       child = NextSibling(*child, false)) {
-    VisitNode(child, parent_index);
-  }
 }
 
 void InspectorDOMSnapshotAgent::VisitPseudoElements(Element* parent,
@@ -637,7 +618,7 @@ int InspectorDOMSnapshotAgent::BuildLayoutTreeNode(LayoutObject* layout_object,
     }
   }
 
-  if (layout_object->Style() && layout_object->Style()->IsStackingContext())
+  if (layout_object->IsStackingContext())
     SetRare(layout_tree_snapshot->getStackingContexts(), layout_index);
 
   if (paint_order_map_) {
@@ -647,8 +628,9 @@ int InspectorDOMSnapshotAgent::BuildLayoutTreeNode(LayoutObject* layout_object,
     layout_tree_snapshot->getPaintOrders(nullptr)->emplace_back(paint_order);
   }
 
-  String text = layout_object->IsText() ? ToLayoutText(layout_object)->GetText()
-                                        : String();
+  String text = layout_object->IsText()
+                    ? To<LayoutText>(layout_object)->GetText()
+                    : String();
   layout_tree_snapshot->getText()->emplace_back(AddString(text));
 
   if (node->GetPseudoId()) {
@@ -665,7 +647,7 @@ int InspectorDOMSnapshotAgent::BuildLayoutTreeNode(LayoutObject* layout_object,
   if (!layout_object->IsText())
     return layout_index;
 
-  LayoutText* layout_text = ToLayoutText(layout_object);
+  auto* layout_text = To<LayoutText>(layout_object);
   Vector<LayoutText::TextBoxInfo> text_boxes = layout_text->GetTextBoxInfo();
   if (text_boxes.IsEmpty())
     return layout_index;
@@ -684,12 +666,37 @@ int InspectorDOMSnapshotAgent::BuildLayoutTreeNode(LayoutObject* layout_object,
 
 std::unique_ptr<protocol::Array<int>>
 InspectorDOMSnapshotAgent::BuildStylesForNode(Node* node) {
-  auto* computed_style_info =
-      MakeGarbageCollected<CSSComputedStyleDeclaration>(node, true);
+  DCHECK(
+      !node->GetDocument().NeedsLayoutTreeUpdateForNodeIncludingDisplayLocked(
+          *node, true /* ignore_adjacent_style */));
   auto result = std::make_unique<protocol::Array<int>>();
-  for (const auto& pair : *css_property_filter_) {
-    String value = computed_style_info->GetPropertyValue(pair.second);
-    result->emplace_back(AddString(value));
+  auto* layout_object = node->GetLayoutObject();
+  if (!layout_object)
+    return result;
+  const ComputedStyle* style = node->EnsureComputedStyle(kPseudoIdNone);
+  if (!style)
+    return result;
+  auto cached_style = style_cache_.find(style);
+  if (cached_style != style_cache_.end())
+    return std::make_unique<protocol::Array<int>>(*cached_style->value);
+  style_cache_.insert(style, result.get());
+  result->reserve(css_property_filter_->size());
+  for (const auto* property : *css_property_filter_) {
+    const CSSValue* value = property->CSSValueFromComputedStyle(
+        *style, layout_object, /* allow_visited_style= */ true);
+    if (!value) {
+      result->emplace_back(-1);
+      continue;
+    }
+    int index;
+    auto it = css_value_cache_.find(value);
+    if (it == css_value_cache_.end()) {
+      index = AddString(value->CssText());
+      css_value_cache_.insert(value, index);
+    } else {
+      index = it->value;
+    }
+    result->emplace_back(index);
   }
   return result;
 }
@@ -708,7 +715,7 @@ void InspectorDOMSnapshotAgent::TraversePaintLayerTree(
     PaintOrderMap* paint_order_map) {
   // Update layout before traversal of document so that we inspect a
   // current and consistent state of all trees.
-  document->UpdateStyleAndLayout(DocumentUpdateReason::kInspector);
+  document->UpdateStyleAndLayoutTreeForSubtree(document);
 
   PaintLayer* root_layer = document->GetLayoutView()->Layer();
   // LayoutView requires a PaintLayer.
@@ -738,10 +745,11 @@ void InspectorDOMSnapshotAgent::VisitPaintLayer(
     VisitPaintLayer(child_layer, paint_order_map);
 }
 
-void InspectorDOMSnapshotAgent::Trace(Visitor* visitor) {
+void InspectorDOMSnapshotAgent::Trace(Visitor* visitor) const {
   visitor->Trace(inspected_frames_);
   visitor->Trace(dom_debugger_agent_);
   visitor->Trace(document_order_map_);
+  visitor->Trace(css_value_cache_);
   InspectorBaseAgent::Trace(visitor);
 }
 

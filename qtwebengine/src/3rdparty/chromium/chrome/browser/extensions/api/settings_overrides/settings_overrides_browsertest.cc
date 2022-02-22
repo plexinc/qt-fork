@@ -25,6 +25,7 @@
 #include "components/search_engines/template_url_prepopulate_data.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/version_info/version_info.h"
+#include "content/public/test/browser_test.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/mock_external_provider.h"
 #include "extensions/browser/test_extension_registry_observer.h"
@@ -34,7 +35,7 @@
 namespace extensions {
 
 namespace {
-#if defined(OS_WIN) || defined(OS_MACOSX)
+#if defined(OS_WIN) || defined(OS_MAC)
 // Prepopulated id hardcoded in test_extension.
 const int kTestExtensionPrepopulatedId = 3;
 // TemplateURLData with search engines settings from test extension manifest.
@@ -80,9 +81,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, OverrideHomePageSettings) {
   prefs->SetString(prefs::kHomePage, "http://google.com/");
   prefs->SetBoolean(prefs::kHomePageIsNewTabPage, true);
 
-  const extensions::Extension* extension = LoadExtensionWithInstallParam(
-      test_data_dir_.AppendASCII("settings_override"), kFlagEnableFileAccess,
-      "10");
+  const extensions::Extension* extension = LoadExtension(
+      test_data_dir_.AppendASCII("settings_override"), {.install_param = "10"});
   ASSERT_TRUE(extension);
   EXPECT_EQ("http://www.homepage.de/?param=10",
             prefs->GetString(prefs::kHomePage));
@@ -100,9 +100,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, OverrideStartupPagesSettings) {
   startup_pref.urls.assign(urls, urls + base::size(urls));
   SessionStartupPref::SetStartupPref(prefs, startup_pref);
 
-  const extensions::Extension* extension = LoadExtensionWithInstallParam(
-      test_data_dir_.AppendASCII("settings_override"), kFlagEnableFileAccess,
-      "10");
+  const extensions::Extension* extension = LoadExtension(
+      test_data_dir_.AppendASCII("settings_override"), {.install_param = "10"});
   ASSERT_TRUE(extension);
   startup_pref = SessionStartupPref::GetStartupPref(prefs);
   EXPECT_EQ(SessionStartupPref::URLS, startup_pref.type);
@@ -126,9 +125,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, OverrideDSE) {
   ASSERT_TRUE(default_provider);
   EXPECT_EQ(TemplateURL::NORMAL, default_provider->type());
 
-  const extensions::Extension* extension = LoadExtensionWithInstallParam(
-      test_data_dir_.AppendASCII("settings_override"), kFlagEnableFileAccess,
-      "10");
+  const extensions::Extension* extension = LoadExtension(
+      test_data_dir_.AppendASCII("settings_override"), {.install_param = "10"});
   ASSERT_TRUE(extension);
   const TemplateURL* current_dse = url_service->GetDefaultSearchProvider();
   EXPECT_EQ(TemplateURL::NORMAL_CONTROLLED_BY_EXTENSION, current_dse->type());
@@ -158,9 +156,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, PRE_OverridenDSEPersists) {
   EXPECT_NE(base::ASCIIToUTF16("keyword.de"), default_provider->keyword());
 
   // Install extension that overrides DSE.
-  const extensions::Extension* extension = LoadExtensionWithInstallParam(
-      test_data_dir_.AppendASCII("settings_override"), kFlagEnableFileAccess,
-      "10");
+  const extensions::Extension* extension = LoadExtension(
+      test_data_dir_.AppendASCII("settings_override"), {.install_param = "10"});
   ASSERT_TRUE(extension);
 }
 
@@ -214,9 +211,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, BeforeTemplateUrlServiceLoad) {
   ASSERT_TRUE(url_service);
 
   EXPECT_FALSE(url_service->IsExtensionControlledDefaultSearch());
-  const extensions::Extension* extension = LoadExtensionWithInstallParam(
-      test_data_dir_.AppendASCII("settings_override"), kFlagEnableFileAccess,
-      "10");
+  const extensions::Extension* extension = LoadExtension(
+      test_data_dir_.AppendASCII("settings_override"), {.install_param = "10"});
   ASSERT_TRUE(extension);
   const TemplateURL* current_dse = url_service->GetDefaultSearchProvider();
   EXPECT_EQ(TemplateURL::NORMAL_CONTROLLED_BY_EXTENSION, current_dse->type());
@@ -283,7 +279,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionsDisabledWithSettingsOverrideAPI,
       test_data_dir_.AppendASCII("api_test/settings_overrides/homepage.crx"));
   extension_service()->AddProviderForTesting(std::move(provider));
   extension_service()->CheckForExternalUpdates();
-  const Extension* extension = observer.WaitForExtensionLoaded();
+  scoped_refptr<const Extension> extension = observer.WaitForExtensionLoaded();
   EXPECT_EQ(kExternalId, extension->id());
 }
 IN_PROC_BROWSER_TEST_F(ExtensionsDisabledWithSettingsOverrideAPI,
@@ -300,8 +296,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionsDisabledWithSettingsOverrideAPI,
 #else
 IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, SettingsOverridesDisallowed) {
   const extensions::Extension* extension =
-      LoadExtensionWithFlags(test_data_dir_.AppendASCII("settings_override"),
-                             kFlagIgnoreManifestWarnings);
+      LoadExtension(test_data_dir_.AppendASCII("settings_override"),
+                    {.ignore_manifest_warnings = true});
   ASSERT_TRUE(extension);
   ASSERT_EQ(1u, extension->install_warnings().size());
   EXPECT_EQ(std::string("'chrome_settings_overrides' "

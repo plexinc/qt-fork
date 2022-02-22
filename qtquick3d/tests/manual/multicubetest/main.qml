@@ -1,6 +1,6 @@
-import QtQuick 2.15
-import QtQuick.Window 2.12
-import QtQuick3D 1.15
+import QtQuick
+import QtQuick.Window
+import QtQuick3D
 
 Window {
     id: window
@@ -167,7 +167,7 @@ Window {
 
         NumberAnimation {
             target: greenRect
-            property: "eulerRotation"
+            property: "rotation"
             duration: 2000
             easing.type: Easing.InOutQuad
             from: 0

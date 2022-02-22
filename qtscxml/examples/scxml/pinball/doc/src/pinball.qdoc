@@ -200,7 +200,7 @@
     which means that if you have not hit a target yet, the target is blinking,
     indicating that it is currently worth hitting. This blinking
     means that the light state switches between on and off at short intervals,
-    while the target state is continouosly off, because it has not been hit yet.
+    while the target state is continuously off, because it has not been hit yet.
     The author of a pinball table can decide that
     after a target is hit (that is, after the target state switches to on)
     the target's light is continuously turned off or on or the intervals between
@@ -306,7 +306,7 @@
     \c goToHurryOn event occurs and from \c hurryStateOn to \c hurryStateOff
     when the \c goToHurryOff event occurs. When we exit the \c hurryStateOn
     state, we cancel the possibly pending delayed event that was marked with
-    \c hurryId. This is important in case the five secons have not elapsed yet,
+    \c hurryId. This is important in case the five seconds have not elapsed yet,
     but players have collected all the five letters in the hurry state. We then
     collect the jackpot and want the pending timer to finish.
 

@@ -54,6 +54,11 @@ Item {
     signal foo(var bar)
 
     /*!
+    Signals that something is \a really happening.
+    */
+    signal itsHappening(bool really)
+
+    /*!
         \qmlproperty string DocTest::name
 
         Name of the test.
@@ -64,10 +69,11 @@ Item {
         }
         \endqml
     */
-    property string name
+    required property string name
 
     /*!
         Whether the test is active.
+        \default true
 
         \sa name
     */

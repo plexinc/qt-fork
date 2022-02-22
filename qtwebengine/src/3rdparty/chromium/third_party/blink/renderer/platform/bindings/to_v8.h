@@ -17,6 +17,7 @@
 #include "third_party/blink/renderer/platform/bindings/callback_interface_base.h"
 #include "third_party/blink/renderer/platform/bindings/dictionary_base.h"
 #include "third_party/blink/renderer/platform/bindings/dom_data_store.h"
+#include "third_party/blink/renderer/platform/bindings/enumeration_base.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/bindings/union_base.h"
@@ -45,7 +46,7 @@ inline v8::Local<v8::Value> ToV8(ScriptWrappable* impl,
 
 // Dictionary
 
-inline v8::Local<v8::Value> ToV8(bindings::DictionaryBase* dictionary,
+inline v8::Local<v8::Value> ToV8(const bindings::DictionaryBase* dictionary,
                                  v8::Local<v8::Object> creation_context,
                                  v8::Isolate* isolate) {
   if (UNLIKELY(!dictionary))
@@ -86,15 +87,12 @@ inline v8::Local<v8::Value> ToV8(CallbackInterfaceBase* callback,
                   : v8::Null(isolate).As<v8::Value>();
 }
 
-// Union type
+// Enumeration
 
-inline v8::Local<v8::Value> ToV8(const bindings::UnionBase& value,
+inline v8::Local<v8::Value> ToV8(const bindings::EnumerationBase& enumeration,
                                  v8::Local<v8::Object> creation_context,
                                  v8::Isolate* isolate) {
-  v8::Local<v8::Value> v8_value =
-      value.CreateV8Object(isolate, creation_context);
-  DCHECK(!v8_value.IsEmpty());
-  return v8_value;
+  return V8String(isolate, enumeration.AsCStr());
 }
 
 // Primitives
@@ -357,15 +355,19 @@ inline v8::Local<v8::Value> ToV8(base::Time date, ScriptState* script_state) {
 }
 
 // Only declare ToV8(void*,...) for checking function overload mismatch.
-// This ToV8(void*,...) should be never used. So we will find mismatch
-// because of "unresolved external symbol".
+// This ToV8(void*,...) should be never used.
 // Without ToV8(void*, ...), call to toV8 with T* will match with
 // ToV8(bool, ...) if T is not a subclass of ScriptWrappable or if T is
 // declared but not defined (so it's not clear that T is a subclass of
 // ScriptWrappable).
 // This hack helps detect such unwanted implicit conversions from T* to bool.
 v8::Local<v8::Value> ToV8(void* value,
-                          v8::Local<v8::Object> creation_context,
+                          v8::Local<v8::Object>,
+                          v8::Isolate*) = delete;
+// Similarly, this helps detect unwanted implicit conversion from const T* to
+// bool, e.g. ToV8(const Element*).
+v8::Local<v8::Value> ToV8(const void* value,
+                          v8::Local<v8::Object>,
                           v8::Isolate*) = delete;
 
 }  // namespace blink

@@ -42,14 +42,17 @@
 
 #include <QtCore/qt_windows.h>
 #include <QtCore/qpointer.h>
+#include "qwindowsapplication.h"
 #include "qwindowscursor.h"
 
 #include <qpa/qplatformwindow.h>
-#include <QtPlatformHeaders/qwindowswindowfunctions.h>
+#include <qpa/qplatformwindow_p.h>
 
 #if QT_CONFIG(vulkan)
 #include "qwindowsvulkaninstance.h"
 #endif
+
+#include <optional>
 
 QT_BEGIN_NAMESPACE
 
@@ -121,10 +124,14 @@ struct QWindowsWindowData
                                      const QString &title);
 };
 
-class QWindowsBaseWindow : public QPlatformWindow
+class QWindowsBaseWindow : public QPlatformWindow,
+                           public QNativeInterface::Private::QWindowsWindow
 {
     Q_DISABLE_COPY_MOVE(QWindowsBaseWindow)
 public:
+    using TouchWindowTouchType = QNativeInterface::Private::QWindowsApplication::TouchWindowTouchType;
+    using TouchWindowTouchTypes = QNativeInterface::Private::QWindowsApplication::TouchWindowTouchTypes;
+
     explicit QWindowsBaseWindow(QWindow *window) : QPlatformWindow(window) {}
 
     WId winId() const override { return WId(handle()); }
@@ -133,6 +140,12 @@ public:
     QPoint mapToGlobal(const QPoint &pos) const override;
     QPoint mapFromGlobal(const QPoint &pos) const override;
     virtual QMargins fullFrameMargins() const { return frameMargins_sys(); }
+
+    void setHasBorderInFullScreen(bool border) override;
+    bool hasBorderInFullScreen() const override;
+
+    QMargins customMargins() const override;
+    void setCustomMargins(const QMargins &margins) override;
 
     using QPlatformWindow::screenForGeometry;
 
@@ -153,6 +166,7 @@ protected:
     QRect geometry_sys() const;
     void setGeometry_sys(const QRect &rect) const;
     QMargins frameMargins_sys() const;
+    std::optional<TouchWindowTouchTypes> touchWindowTouchTypes_sys() const;
     void hide_sys();
     void raise_sys();
     void lower_sys();
@@ -205,7 +219,6 @@ public:
         WithinSetParent = 0x2,
         WithinSetGeometry = 0x8,
         OpenGLSurface = 0x10,
-        OpenGL_ES2 = 0x20,
         OpenGLDoubleBuffered = 0x40,
         OpenGlPixelFormatInitialized = 0x80,
         BlockedByModal = 0x100,
@@ -222,10 +235,11 @@ public:
         MaximizeToFullScreen = 0x80000,
         Compositing = 0x100000,
         HasBorderInFullScreen = 0x200000,
-        WithinDpiChanged = 0x400000,
-        VulkanSurface = 0x800000,
-        ResizeMoveActive = 0x1000000,
-        DisableNonClientScaling = 0x2000000
+        VulkanSurface = 0x400000,
+        ResizeMoveActive = 0x800000,
+        DisableNonClientScaling = 0x1000000,
+        Direct3DSurface = 0x2000000,
+        RestoreOverrideCursor = 0x4000000
     };
 
     QWindowsWindow(QWindow *window, const QWindowsWindowData &data);
@@ -293,18 +307,20 @@ public:
     QWindowsMenuBar *menuBar() const;
     void setMenuBar(QWindowsMenuBar *mb);
 
-    QMargins customMargins() const { return m_data.customMargins; }
-    void setCustomMargins(const QMargins &m);
+    QMargins customMargins() const override { return m_data.customMargins; }
+    void setCustomMargins(const QMargins &m) override;
 
     void setStyle(unsigned s) const;
     void setExStyle(unsigned s) const;
 
-    bool handleWmPaint(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
+    bool handleWmPaint(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam, LRESULT *result);
 
     void handleMoved();
     void handleResized(int wParam);
     void handleHidden();
     void handleCompositionSettingsChanged();
+    void handleDpiScaledSize(WPARAM wParam, LPARAM lParam, LRESULT *result);
+    void handleDpiChanged(HWND hwnd, WPARAM wParam, LPARAM lParam);
 
     static void displayChanged();
     static void settingsChanged();
@@ -348,15 +364,18 @@ public:
     enum ScreenChangeMode { FromGeometryChange, FromDpiChange };
     void checkForScreenChanged(ScreenChangeMode mode = FromGeometryChange);
 
-    static void setTouchWindowTouchTypeStatic(QWindow *window, QWindowsWindowFunctions::TouchWindowTouchTypes touchTypes);
-    void registerTouchWindow(QWindowsWindowFunctions::TouchWindowTouchTypes touchTypes = QWindowsWindowFunctions::NormalTouch);
+    void registerTouchWindow();
     static void setHasBorderInFullScreenStatic(QWindow *window, bool border);
     static void setHasBorderInFullScreenDefault(bool border);
-    void setHasBorderInFullScreen(bool border);
+    void setHasBorderInFullScreen(bool border) override;
+    bool hasBorderInFullScreen() const override;
     static QString formatWindowTitle(const QString &title);
 
     static const char *embeddedNativeParentHandleProperty;
     static const char *hasBorderInFullScreenProperty;
+
+    void setSavedDpi(int dpi) { m_savedDpi = dpi; }
+    int savedDpi() const { return m_savedDpi; }
 
 private:
     inline void show_sys() const;
@@ -391,6 +410,7 @@ private:
     HICON m_iconSmall = nullptr;
     HICON m_iconBig = nullptr;
     void *m_surface = nullptr;
+    int m_savedDpi = 96;
 
     static bool m_screenForGLInitialized;
 
@@ -399,6 +419,7 @@ private:
     VkSurfaceKHR m_vkSurface = VK_NULL_HANDLE;
 #endif
     static bool m_borderInFullScreenDefault;
+    static bool m_inSetgeometry;
 };
 
 #ifndef QT_NO_DEBUG_STREAM

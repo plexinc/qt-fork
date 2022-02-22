@@ -53,9 +53,9 @@ NativeWebKeyboardEvent::NativeWebKeyboardEvent(
     : WebKeyboardEvent(web_event), os_event(nullptr), skip_in_browser(false) {
   NSEventType type = NSKeyUp;
   int flags = modifiersForEvent(web_event.GetModifiers());
-  if (web_event.GetType() == blink::WebInputEvent::kChar ||
-      web_event.GetType() == blink::WebInputEvent::kRawKeyDown ||
-      web_event.GetType() == blink::WebInputEvent::kKeyDown) {
+  if (web_event.GetType() == blink::WebInputEvent::Type::kChar ||
+      web_event.GetType() == blink::WebInputEvent::Type::kRawKeyDown ||
+      web_event.GetType() == blink::WebInputEvent::Type::kKeyDown) {
     type = NSKeyDown;
   }
   size_t text_length = WebKeyboardEventTextLength(web_event.text);
@@ -69,11 +69,12 @@ NativeWebKeyboardEvent::NativeWebKeyboardEvent(
   if (unmod_text_length == 0)
     type = NSFlagsChanged;
 
-  NSString* text =
-      [[[NSString alloc] initWithCharacters:web_event.text length:text_length]
-          autorelease];
+  NSString* text = [[[NSString alloc]
+      initWithCharacters:reinterpret_cast<const UniChar*>(web_event.text)
+                  length:text_length] autorelease];
   NSString* unmodified_text =
-      [[[NSString alloc] initWithCharacters:web_event.unmodified_text
+      [[[NSString alloc] initWithCharacters:reinterpret_cast<const UniChar*>(
+                                                web_event.unmodified_text)
                                      length:unmod_text_length] autorelease];
 
   os_event = [[NSEvent keyEventWithType:type

@@ -58,16 +58,15 @@
 
 int main(int argc, char *argv[])
 {
-    //QLoggingCategory::setFilterRules(QStringLiteral("qt.bluetooth* = true"));
-    QGuiApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
+    // QLoggingCategory::setFilterRules(QStringLiteral("qt.bluetooth* = true"));
     QGuiApplication app(argc, argv);
 
     Device d;
-    auto view = new QQuickView;
-    view->rootContext()->setContextProperty("device", &d);
+    QQuickView view;
+    view.rootContext()->setContextProperty("device", &d);
 
-    view->setSource(QUrl("qrc:/assets/main.qml"));
-    view->setResizeMode(QQuickView::SizeRootObjectToView);
-    view->show();
+    view.setSource(QUrl("qrc:/assets/main.qml"));
+    view.setResizeMode(QQuickView::SizeRootObjectToView);
+    view.show();
     return QGuiApplication::exec();
 }

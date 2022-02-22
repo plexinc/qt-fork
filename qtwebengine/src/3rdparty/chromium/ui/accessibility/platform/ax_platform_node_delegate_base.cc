@@ -31,6 +31,53 @@ const AXTreeData& AXPlatformNodeDelegateBase::GetTreeData() const {
   return *empty_data;
 }
 
+base::string16 AXPlatformNodeDelegateBase::GetInnerText() const {
+  // Unlike in web content The "kValue" attribute always takes precedence,
+  // because we assume that users of this base class, such as Views controls,
+  // are carefully crafted by hand, in contrast to HTML pages, where any content
+  // that might be present in the shadow DOM (AKA in the internal accessibility
+  // tree) is actually used by the renderer when assigning the "kValue"
+  // attribute, including any redundant white space.
+  base::string16 value =
+      GetData().GetString16Attribute(ax::mojom::StringAttribute::kValue);
+  if (!value.empty())
+    return value;
+
+  // TODO(https://crbug.com/1030703): The check for IsInvisibleOrIgnored()
+  // should not be needed. ChildAtIndex() and GetChildCount() are already
+  // supposed to skip over nodes that are invisible or ignored, but
+  // ViewAXPlatformNodeDelegate does not currently implement this behavior.
+  if (IsLeaf() && !GetData().IsInvisibleOrIgnored())
+    return GetData().GetString16Attribute(ax::mojom::StringAttribute::kName);
+
+  base::string16 inner_text;
+  for (int i = 0; i < GetChildCount(); ++i) {
+    // TODO(nektar): Add const to all tree traversal methods and remove
+    // const_cast.
+    const AXPlatformNode* child = AXPlatformNode::FromNativeViewAccessible(
+        const_cast<AXPlatformNodeDelegateBase*>(this)->ChildAtIndex(i));
+    if (!child || !child->GetDelegate())
+      continue;
+    inner_text += child->GetDelegate()->GetInnerText();
+  }
+  return inner_text;
+}
+
+base::string16 AXPlatformNodeDelegateBase::GetValueForControl() const {
+  if (!IsControl(GetData().role) && !GetData().IsRangeValueSupported())
+    return base::string16();
+
+  base::string16 value =
+      GetData().GetString16Attribute(ax::mojom::StringAttribute::kValue);
+  float numeric_value;
+  if (GetData().IsRangeValueSupported() && value.empty() &&
+      GetData().GetFloatAttribute(ax::mojom::FloatAttribute::kValueForRange,
+                                  &numeric_value)) {
+    value = base::NumberToString16(numeric_value);
+  }
+  return value;
+}
+
 const AXTree::Selection AXPlatformNodeDelegateBase::GetUnignoredSelection()
     const {
   return AXTree::Selection{true, -1, -1, ax::mojom::TextAffinity::kDownstream};
@@ -60,6 +107,10 @@ int AXPlatformNodeDelegateBase::GetChildCount() const {
 
 gfx::NativeViewAccessible AXPlatformNodeDelegateBase::ChildAtIndex(int index) {
   return nullptr;
+}
+
+bool AXPlatformNodeDelegateBase::HasModalDialog() const {
+  return false;
 }
 
 gfx::NativeViewAccessible AXPlatformNodeDelegateBase::GetFirstChild() {
@@ -95,12 +146,68 @@ gfx::NativeViewAccessible AXPlatformNodeDelegateBase::GetPreviousSibling() {
 }
 
 bool AXPlatformNodeDelegateBase::IsChildOfLeaf() const {
+  // TODO(nektar): Make all tree traversal methods const and remove const_cast.
+  const AXPlatformNodeDelegate* parent =
+      const_cast<AXPlatformNodeDelegateBase*>(this)->GetParentDelegate();
+  if (!parent)
+    return false;
+  if (parent->IsLeaf())
+    return true;
+  return parent->IsChildOfLeaf();
+}
+
+bool AXPlatformNodeDelegateBase::IsLeaf() const {
+  return !GetChildCount();
+}
+
+bool AXPlatformNodeDelegateBase::IsFocused() const {
   return false;
 }
 
-gfx::NativeViewAccessible AXPlatformNodeDelegateBase::GetClosestPlatformObject()
-    const {
-  return nullptr;
+bool AXPlatformNodeDelegateBase::IsInvisibleOrIgnored() const {
+  return false;
+}
+
+bool AXPlatformNodeDelegateBase::IsToplevelBrowserWindow() {
+  return false;
+}
+
+bool AXPlatformNodeDelegateBase::IsDescendantOfPlainTextField() const {
+  return false;
+}
+
+gfx::NativeViewAccessible
+AXPlatformNodeDelegateBase::GetLowestPlatformAncestor() const {
+  AXPlatformNodeDelegateBase* current_delegate =
+      const_cast<AXPlatformNodeDelegateBase*>(this);
+  AXPlatformNodeDelegateBase* lowest_unignored_delegate = current_delegate;
+  if (lowest_unignored_delegate->IsInvisibleOrIgnored()) {
+    lowest_unignored_delegate = static_cast<AXPlatformNodeDelegateBase*>(
+        lowest_unignored_delegate->GetParentDelegate());
+  }
+  DCHECK(!lowest_unignored_delegate ||
+         !lowest_unignored_delegate->IsInvisibleOrIgnored())
+      << "`AXPlatformNodeDelegateBase::GetParentDelegate()` should return "
+         "either an unignored object or nullptr.";
+
+  // `highest_leaf_delegate` could be nullptr.
+  AXPlatformNodeDelegateBase* highest_leaf_delegate = lowest_unignored_delegate;
+  // For the purposes of this method, a leaf node does not include leaves in the
+  // internal accessibility tree, only in the platform exposed tree.
+  for (AXPlatformNodeDelegateBase* ancestor_delegate =
+           lowest_unignored_delegate;
+       ancestor_delegate;
+       ancestor_delegate = static_cast<AXPlatformNodeDelegateBase*>(
+           ancestor_delegate->GetParentDelegate())) {
+    if (ancestor_delegate->IsLeaf())
+      highest_leaf_delegate = ancestor_delegate;
+  }
+  if (highest_leaf_delegate)
+    return highest_leaf_delegate->GetNativeViewAccessible();
+
+  if (lowest_unignored_delegate)
+    return lowest_unignored_delegate->GetNativeViewAccessible();
+  return current_delegate->GetNativeViewAccessible();
 }
 
 AXPlatformNodeDelegateBase::ChildIteratorBase::ChildIteratorBase(
@@ -200,10 +307,6 @@ bool AXPlatformNodeDelegateBase::SetHypertextSelection(int start_offset,
   return AccessibilityPerformAction(action_data);
 }
 
-base::string16 AXPlatformNodeDelegateBase::GetInnerText() const {
-  return base::string16();
-}
-
 gfx::Rect AXPlatformNodeDelegateBase::GetBoundsRect(
     const AXCoordinateSystem coordinate_system,
     const AXClippingBehavior clipping_behavior,
@@ -247,7 +350,7 @@ gfx::NativeViewAccessible AXPlatformNodeDelegateBase::HitTestSync(
   return nullptr;
 }
 
-gfx::NativeViewAccessible AXPlatformNodeDelegateBase::GetFocus() {
+gfx::NativeViewAccessible AXPlatformNodeDelegateBase::GetFocus() const {
   return nullptr;
 }
 
@@ -293,18 +396,20 @@ base::Optional<int> AXPlatformNodeDelegateBase::GetTableColCount() const {
 }
 
 base::Optional<int> AXPlatformNodeDelegateBase::GetTableAriaColCount() const {
-  int aria_column_count =
-      GetData().GetIntAttribute(ax::mojom::IntAttribute::kAriaColumnCount);
-  if (aria_column_count == ax::mojom::kUnknownAriaColumnOrRowCount)
+  int aria_column_count;
+  if (!GetData().GetIntAttribute(ax::mojom::IntAttribute::kAriaColumnCount,
+                                 &aria_column_count)) {
     return base::nullopt;
+  }
   return aria_column_count;
 }
 
 base::Optional<int> AXPlatformNodeDelegateBase::GetTableAriaRowCount() const {
-  int aria_row_count =
-      GetData().GetIntAttribute(ax::mojom::IntAttribute::kAriaRowCount);
-  if (aria_row_count == ax::mojom::kUnknownAriaColumnOrRowCount)
+  int aria_row_count;
+  if (!GetData().GetIntAttribute(ax::mojom::IntAttribute::kAriaRowCount,
+                                 &aria_row_count)) {
     return base::nullopt;
+  }
   return aria_row_count;
 }
 
@@ -371,13 +476,23 @@ base::Optional<int> AXPlatformNodeDelegateBase::GetTableCellRowSpan() const {
 
 base::Optional<int> AXPlatformNodeDelegateBase::GetTableCellAriaColIndex()
     const {
-  return GetData().GetIntAttribute(
-      ax::mojom::IntAttribute::kAriaCellColumnIndex);
+  if (GetData().HasIntAttribute(
+          ax::mojom::IntAttribute::kAriaCellColumnIndex)) {
+    return GetData().GetIntAttribute(
+        ax::mojom::IntAttribute::kAriaCellColumnIndex);
+  }
+
+  return base::nullopt;
 }
 
 base::Optional<int> AXPlatformNodeDelegateBase::GetTableCellAriaRowIndex()
     const {
-  return GetData().GetIntAttribute(ax::mojom::IntAttribute::kAriaCellRowIndex);
+  if (GetData().HasIntAttribute(ax::mojom::IntAttribute::kAriaCellRowIndex)) {
+    return GetData().GetIntAttribute(
+        ax::mojom::IntAttribute::kAriaCellRowIndex);
+  }
+
+  return base::nullopt;
 }
 
 base::Optional<int32_t> AXPlatformNodeDelegateBase::GetCellId(
@@ -417,6 +532,14 @@ base::Optional<int> AXPlatformNodeDelegateBase::GetPosInSet() const {
 
 base::Optional<int> AXPlatformNodeDelegateBase::GetSetSize() const {
   return base::nullopt;
+}
+
+SkColor AXPlatformNodeDelegateBase::GetColor() const {
+  return SK_ColorBLACK;
+}
+
+SkColor AXPlatformNodeDelegateBase::GetBackgroundColor() const {
+  return SK_ColorWHITE;
 }
 
 bool AXPlatformNodeDelegateBase::AccessibilityPerformAction(
@@ -476,12 +599,16 @@ bool AXPlatformNodeDelegateBase::IsMinimized() const {
   return false;
 }
 
+bool AXPlatformNodeDelegateBase::IsText() const {
+  return ui::IsText(GetData().role);
+}
+
 bool AXPlatformNodeDelegateBase::IsWebContent() const {
   return false;
 }
 
 bool AXPlatformNodeDelegateBase::HasVisibleCaretOrSelection() const {
-  return false;
+  return IsDescendantOfPlainTextField();
 }
 
 AXPlatformNode* AXPlatformNodeDelegateBase::GetTargetNodeForRelation(
@@ -531,6 +658,11 @@ AXPlatformNodeDelegateBase::GetTargetNodesForRelation(
 
 std::set<AXPlatformNode*> AXPlatformNodeDelegateBase::GetReverseRelations(
     ax::mojom::IntAttribute attr) {
+  // TODO(accessibility) Implement these if views ever use relations more
+  // widely. The use so far has been for the Omnibox to the suggestion popup.
+  // If this is ever implemented, then the "popup for" to "controlled by"
+  // mapping in AXPlatformRelationWin can be removed, as it would be
+  // redundant with setting the controls relationship.
   return std::set<AXPlatformNode*>();
 }
 

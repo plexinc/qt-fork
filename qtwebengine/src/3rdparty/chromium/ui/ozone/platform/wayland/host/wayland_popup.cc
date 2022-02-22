@@ -4,11 +4,14 @@
 
 #include "ui/ozone/platform/wayland/host/wayland_popup.h"
 
+#include <aura-shell-client-protocol.h>
+
 #include "ui/ozone/platform/wayland/common/wayland_util.h"
 #include "ui/ozone/platform/wayland/host/shell_object_factory.h"
 #include "ui/ozone/platform/wayland/host/shell_popup_wrapper.h"
 #include "ui/ozone/platform/wayland/host/wayland_buffer_manager_host.h"
 #include "ui/ozone/platform/wayland/host/wayland_connection.h"
+#include "ui/ozone/platform/wayland/host/wayland_zaura_shell.h"
 
 namespace ui {
 
@@ -19,29 +22,39 @@ WaylandPopup::WaylandPopup(PlatformWindowDelegate* delegate,
 WaylandPopup::~WaylandPopup() = default;
 
 bool WaylandPopup::CreateShellPopup() {
-  if (GetBounds().IsEmpty())
-    return false;
-
   DCHECK(parent_window() && !shell_popup_);
 
-  auto bounds_px = AdjustPopupWindowPosition();
+  auto subsurface_bounds_dip =
+      wl::TranslateWindowBoundsToParentDIP(this, parent_window());
 
   ShellObjectFactory factory;
-  shell_popup_ = factory.CreateShellPopupWrapper(connection(), this, bounds_px);
+  shell_popup_ = factory.CreateShellPopupWrapper(connection(), this,
+                                                 subsurface_bounds_dip);
   if (!shell_popup_) {
     LOG(ERROR) << "Failed to create Wayland shell popup";
     return false;
   }
 
   parent_window()->set_child_window(this);
+  InitializeAuraShellSurface();
   return true;
+}
+
+void WaylandPopup::InitializeAuraShellSurface() {
+  DCHECK(shell_popup_);
+  if (!connection()->zaura_shell() || aura_surface_)
+    return;
+  aura_surface_.reset(zaura_shell_get_aura_surface(
+      connection()->zaura_shell()->wl_object(), root_surface()->surface()));
+  if (shadow_type_ == PlatformWindowShadowType::kDrop) {
+    zaura_surface_set_frame(aura_surface_.get(),
+                            ZAURA_SURFACE_FRAME_TYPE_SHADOW);
+  }
 }
 
 void WaylandPopup::Show(bool inactive) {
   if (shell_popup_)
     return;
-
-  set_keyboard_focus(true);
 
   if (!CreateShellPopup()) {
     Close();
@@ -50,6 +63,7 @@ void WaylandPopup::Show(bool inactive) {
 
   UpdateBufferScale(false);
   connection()->ScheduleFlush();
+  WaylandWindow::Show(inactive);
 }
 
 void WaylandPopup::Hide() {
@@ -66,23 +80,18 @@ void WaylandPopup::Hide() {
 
   // Detach buffer from surface in order to completely shutdown popups and
   // tooltips, and release resources.
-  connection()->buffer_manager_host()->ResetSurfaceContents(GetWidget());
+  connection()->buffer_manager_host()->ResetSurfaceContents(root_surface());
 }
 
 bool WaylandPopup::IsVisible() const {
   return !!shell_popup_;
 }
 
-bool WaylandPopup::HasCapture() const {
-  // WaylandPopups always have captures.
-  return shell_popup();
-}
-
 void WaylandPopup::HandlePopupConfigure(const gfx::Rect& bounds_dip) {
   DCHECK(shell_popup());
   DCHECK(parent_window());
 
-  SetBufferScale(parent_window()->buffer_scale(), true);
+  root_surface()->SetBufferScale(parent_window()->buffer_scale(), true);
 
   gfx::Rect new_bounds_dip = bounds_dip;
 
@@ -128,6 +137,10 @@ void WaylandPopup::HandlePopupConfigure(const gfx::Rect& bounds_dip) {
   SetBoundsDip(new_bounds_dip);
 }
 
+void WaylandPopup::HandleSurfaceConfigure(uint32_t serial) {
+  shell_popup()->AckConfigure(serial);
+}
+
 void WaylandPopup::OnCloseRequest() {
   // Before calling OnCloseRequest, the |shell_popup_| must become hidden and
   // only then call OnCloseRequest().
@@ -136,67 +149,12 @@ void WaylandPopup::OnCloseRequest() {
 }
 
 bool WaylandPopup::OnInitialize(PlatformWindowInitProperties properties) {
-  if (!wl::IsMenuType(type()))
-    return false;
-
-  set_parent_window(GetParentWindow(properties.parent_widget));
-  if (!parent_window()) {
-    LOG(ERROR) << "Failed to get a parent window for this popup";
-    return false;
-  }
-  // If parent window is known in advanced, we may set the scale early.
-  SetBufferScale(parent_window()->buffer_scale(), false);
+  DCHECK(wl::IsMenuType(type()));
+  DCHECK(parent_window());
+  root_surface()->SetBufferScale(parent_window()->buffer_scale(), false);
   set_ui_scale(parent_window()->ui_scale());
+  shadow_type_ = properties.shadow_type;
   return true;
-}
-
-gfx::Rect WaylandPopup::AdjustPopupWindowPosition() {
-  auto* top_level_parent = wl::IsMenuType(parent_window()->type())
-                               ? parent_window()->parent_window()
-                               : parent_window();
-  DCHECK(top_level_parent);
-  DCHECK(buffer_scale() == top_level_parent->buffer_scale());
-  DCHECK(ui_scale() == top_level_parent->ui_scale());
-
-  // Chromium positions windows in screen coordinates, but Wayland requires them
-  // to be in local surface coordinates a.k.a relative to parent window.
-  const gfx::Rect parent_bounds_dip =
-      gfx::ScaleToRoundedRect(parent_window()->GetBounds(), 1.0 / ui_scale());
-  gfx::Rect new_bounds_dip = wl::TranslateBoundsToParentCoordinates(
-      gfx::ScaleToRoundedRect(GetBounds(), 1.0 / ui_scale()),
-      parent_bounds_dip);
-
-  // Chromium may decide to position nested menu windows on the left side
-  // instead of the right side of parent menu windows when the size of the
-  // window becomes larger than the display it is shown on. It's correct when
-  // the window is located on one display and occupies the whole work area, but
-  // as soon as it's moved and there is space on the right side, Chromium
-  // continues positioning the nested menus on the left side relative to the
-  // parent menu (Wayland does not provide clients with global coordinates).
-  // Instead, reposition that window to be on the right side of the parent menu
-  // window and let the compositor decide how to position it if it does not fit
-  // a single display. However, there is one exception - if the window is
-  // maximized, let Chromium position it on the left side as long as the Wayland
-  // compositor may decide to position the nested window on the right side of
-  // the parent menu window, which results in showing it on a second display if
-  // more than one display is used.
-  if (wl::IsMenuType(parent_window()->type()) &&
-      parent_window()->parent_window() &&
-      (parent_window()->parent_window()->GetPlatformWindowState() !=
-       PlatformWindowState::kMaximized)) {
-    auto* top_level_window = parent_window()->parent_window();
-    DCHECK(top_level_window && !wl::IsMenuType(top_level_window->type()));
-    if (new_bounds_dip.x() <= 0 && top_level_window->GetPlatformWindowState() !=
-                                       PlatformWindowState::kMaximized) {
-      // Position the child menu window on the right side of the parent window
-      // and let the Wayland compositor decide how to do constraint
-      // adjustments.
-      int new_x = parent_bounds_dip.width() -
-                  (new_bounds_dip.width() + new_bounds_dip.x());
-      new_bounds_dip.set_x(new_x);
-    }
-  }
-  return gfx::ScaleToRoundedRect(new_bounds_dip, ui_scale() / buffer_scale());
 }
 
 }  // namespace ui

@@ -9,7 +9,6 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "components/domain_reliability/scheduler.h"
-#include "net/url_request/url_request_status.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace domain_reliability {
@@ -85,19 +84,23 @@ void TestCallback::OnCalled() {
 }
 
 MockUploader::MockUploader(UploadRequestCallback callback)
-    : callback_(std::move(callback)), discard_uploads_(true) {}
+    : callback_(callback), discard_uploads_(true) {}
 
 MockUploader::~MockUploader() = default;
 
 bool MockUploader::discard_uploads() const { return discard_uploads_; }
 
-void MockUploader::UploadReport(const std::string& report_json,
-                                int max_upload_depth,
-                                const GURL& upload_url,
-                                UploadCallback callback) {
-  std::move(callback_).Run(report_json, max_upload_depth, upload_url,
-                           std::move(callback));
+void MockUploader::UploadReport(
+    const std::string& report_json,
+    int max_upload_depth,
+    const GURL& upload_url,
+    const net::NetworkIsolationKey& network_isolation_key,
+    UploadCallback callback) {
+  callback_.Run(report_json, max_upload_depth, upload_url,
+                network_isolation_key, std::move(callback));
 }
+
+void MockUploader::Shutdown() {}
 
 void MockUploader::SetDiscardUploads(bool discard_uploads) {
   discard_uploads_ = discard_uploads;

@@ -7,8 +7,8 @@
 #include <memory>
 
 #include "base/bind.h"
-#include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/notreached.h"
 #include "base/time/time.h"
 #include "chrome/browser/gcm/instance_id/instance_id_profile_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
@@ -61,17 +61,7 @@ ExtensionFunction::ResponseAction InstanceIDApiFunction::Run() {
     return RespondNow(Error(
         "chrome.instanceID not supported in incognito mode"));
   }
-
-  if (!IsEnabled()) {
-    return RespondNow(Error(
-        InstanceIDResultToError(instance_id::InstanceID::DISABLED)));
-  }
-
   return DoWork();
-}
-
-bool InstanceIDApiFunction::IsEnabled() const {
-  return instance_id::InstanceIDProfileService::IsInstanceIDEnabled();
 }
 
 instance_id::InstanceID* InstanceIDApiFunction::GetInstanceID() const {
@@ -91,7 +81,7 @@ ExtensionFunction::ResponseAction InstanceIDGetIDFunction::DoWork() {
 }
 
 void InstanceIDGetIDFunction::GetIDCompleted(const std::string& id) {
-  Respond(OneArgument(std::make_unique<base::Value>(id)));
+  Respond(OneArgument(base::Value(id)));
 }
 
 InstanceIDGetCreationTimeFunction::InstanceIDGetCreationTimeFunction() {}
@@ -106,8 +96,7 @@ ExtensionFunction::ResponseAction InstanceIDGetCreationTimeFunction::DoWork() {
 
 void InstanceIDGetCreationTimeFunction::GetCreationTimeCompleted(
     const base::Time& creation_time) {
-  Respond(
-      OneArgument(std::make_unique<base::Value>(creation_time.ToDoubleT())));
+  Respond(OneArgument(base::Value(creation_time.ToDoubleT())));
 }
 
 InstanceIDGetTokenFunction::InstanceIDGetTokenFunction() {}
@@ -119,17 +108,9 @@ ExtensionFunction::ResponseAction InstanceIDGetTokenFunction::DoWork() {
       api::instance_id::GetToken::Params::Create(*args_);
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
-  std::map<std::string, std::string> options;
-  if (params->get_token_params.options.get())
-    options = params->get_token_params.options->additional_properties;
-
-  UMA_HISTOGRAM_COUNTS_100("Extensions.InstanceID.GetToken.OptionsCount",
-                           options.size());
-
   GetInstanceID()->GetToken(
       params->get_token_params.authorized_entity,
       params->get_token_params.scope, /*time_to_live=*/base::TimeDelta(),
-      options,
       /*flags=*/{},
       base::BindOnce(&InstanceIDGetTokenFunction::GetTokenCompleted, this));
 
@@ -140,7 +121,7 @@ void InstanceIDGetTokenFunction::GetTokenCompleted(
     const std::string& token,
     instance_id::InstanceID::Result result) {
   if (result == instance_id::InstanceID::SUCCESS)
-    Respond(OneArgument(std::make_unique<base::Value>(token)));
+    Respond(OneArgument(base::Value(token)));
   else
     Respond(Error(InstanceIDResultToError(result)));
 }

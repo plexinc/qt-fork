@@ -44,7 +44,9 @@
 #include "content/browser/renderer_host/render_view_host_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/file_select_listener.h"
+#include "ui/shell_dialogs/select_file_dialog.h"
 
+#include <QtCore/qcoreapplication.h>
 #include <QDir>
 #include <QFileInfo>
 #include <QMimeDatabase>
@@ -53,16 +55,48 @@
 
 namespace QtWebEngineCore {
 
-FilePickerController::FilePickerController(FileChooserMode mode, std::unique_ptr<content::FileSelectListener> listener, const QString &defaultFileName, const QStringList &acceptedMimeTypes, QObject *parent)
+class FilePickerControllerPrivate {
+public:
+    FilePickerController::FileChooserMode mode;
+    scoped_refptr<content::FileSelectListener> fileDialogListener;
+    ui::SelectFileDialog::Listener *fileSystemAccessDialogListener;
+    QString defaultFileName;
+    QStringList acceptedMimeTypes;
+};
+
+FilePickerController *createFilePickerController(
+        FilePickerController::FileChooserMode mode, scoped_refptr<content::FileSelectListener> listener,
+        const QString &defaultFileName, const QStringList &acceptedMimeTypes, QObject *parent = nullptr)
+{
+    auto priv = new FilePickerControllerPrivate { mode, listener, nullptr, defaultFileName,
+                                                  acceptedMimeTypes };
+    return new FilePickerController(priv, parent);
+}
+
+FilePickerController *createFilePickerController(FilePickerController::FileChooserMode mode,
+                                                 ui::SelectFileDialog::Listener *listener,
+                                                 const QString &defaultFileName,
+                                                 const QStringList &acceptedMimeTypes,
+                                                 QObject *parent = nullptr)
+{
+    auto priv = new FilePickerControllerPrivate { mode, nullptr, listener, defaultFileName,
+                                                  acceptedMimeTypes };
+    return new FilePickerController(priv, parent);
+}
+
+FilePickerController::FilePickerController(FilePickerControllerPrivate *priv, QObject *parent)
     : QObject(parent)
-    , m_defaultFileName(defaultFileName)
-    , m_acceptedMimeTypes(acceptedMimeTypes)
-    , m_listener(std::move(listener))
-    , m_mode(mode)
+    , d_ptr(priv)
 {
 }
 
-FilePickerController::~FilePickerController() = default;
+FilePickerController::~FilePickerController()
+{
+    if (!m_isHandled) {
+        rejected();
+    }
+    delete d_ptr;
+}
 
 void FilePickerController::accepted(const QStringList &files)
 {
@@ -79,7 +113,7 @@ void FilePickerController::accepted(const QStringList &files)
         if (urlString.startsWith("file:")) {
             base::FilePath filePath = toFilePath(urlString).NormalizePathSeparators();
             std::vector<base::FilePath::StringType> pathComponents;
-            // Splits the file URL into host name, path and file name.
+            // Splits the file URL into scheme, host name, path and file name.
             filePath.GetComponents(&pathComponents);
 
             QString absolutePath;
@@ -91,7 +125,7 @@ void FilePickerController::accepted(const QStringList &files)
             if (scheme.size() > 5) {
 #if defined(OS_WIN)
                 // There is no slash at the end of the file scheme and it is valid on Windows: file:C:/
-                if (scheme.at(5).isLetter() && scheme.at(6) != ':') {
+                if (scheme.size() == 7 && scheme.at(5).isLetter() && scheme.at(6) == ':') {
                     absolutePath += scheme.at(5) + ":/";
                 } else {
 #endif
@@ -138,7 +172,7 @@ void FilePickerController::accepted(const QVariant &files)
 {
     QStringList stringList;
 
-    if (files.canConvert(QVariant::StringList)) {
+    if (files.canConvert(QMetaType::QStringList)) {
         stringList = files.toStringList();
     } else if (files.canConvert<QList<QUrl> >()) {
         const QList<QUrl> urls = files.value<QList<QUrl>>();
@@ -177,38 +211,55 @@ ASSERT_ENUMS_MATCH(FilePickerController::Save, blink::mojom::FileChooserParams_M
 
 void FilePickerController::filesSelectedInChooser(const QStringList &filesList)
 {
-    QStringList files(filesList);
-    if (this->m_mode == UploadFolder && !filesList.isEmpty()
-            && QFileInfo(filesList.first()).isDir()) // Enumerate the directory
-        files = listRecursively(QDir(filesList.first()));
+    m_isHandled = true;
+    if (d_ptr->fileDialogListener) {
+        QStringList files(filesList);
+        base::FilePath baseDir;
+        if (d_ptr->mode == UploadFolder && !filesList.isEmpty()
+            && QFileInfo(filesList.first()).isDir()) {
+            // Enumerate the directory
+            files = listRecursively(QDir(filesList.first()));
+            baseDir = toFilePath(filesList.first());
+        }
 
-    std::vector<blink::mojom::FileChooserFileInfoPtr> chooser_files;
-    for (const auto &file : qAsConst(files)) {
-        chooser_files.push_back(blink::mojom::FileChooserFileInfo::NewNativeFile(
-            blink::mojom::NativeFileInfo::New(toFilePath(file), base::string16())));
+        std::vector<blink::mojom::FileChooserFileInfoPtr> chooser_files;
+        for (const auto &file : qAsConst(files)) {
+            chooser_files.push_back(blink::mojom::FileChooserFileInfo::NewNativeFile(
+                    blink::mojom::NativeFileInfo::New(toFilePath(file), base::string16())));
+        }
+
+        if (files.isEmpty())
+            d_ptr->fileDialogListener->FileSelectionCanceled();
+        else
+            d_ptr->fileDialogListener->FileSelected(
+                    std::move(chooser_files), baseDir,
+                    static_cast<blink::mojom::FileChooserParams::Mode>(d_ptr->mode));
+    } else if (d_ptr->fileSystemAccessDialogListener) {
+        std::vector<base::FilePath> files;
+        for (const auto &file : qAsConst(filesList)) {
+            files.push_back(toFilePath(file));
+        }
+
+        if (files.empty())
+            d_ptr->fileSystemAccessDialogListener->FileSelectionCanceled(nullptr);
+        else
+            d_ptr->fileSystemAccessDialogListener->MultiFilesSelected(files, nullptr);
     }
-
-    if (files.isEmpty())
-        m_listener->FileSelectionCanceled();
-    else
-        m_listener->FileSelected(std::move(chooser_files),
-                                  /* FIXME? */ base::FilePath(),
-                                 static_cast<blink::mojom::FileChooserParams::Mode>(this->m_mode));
 }
 
 QStringList FilePickerController::acceptedMimeTypes() const
 {
-    return m_acceptedMimeTypes;
+    return d_ptr->acceptedMimeTypes;
 }
 
 FilePickerController::FileChooserMode FilePickerController::mode() const
 {
-    return m_mode;
+    return d_ptr->mode;
 }
 
 QString FilePickerController::defaultFileName() const
 {
-    return m_defaultFileName;
+    return d_ptr->defaultFileName;
 }
 
 QStringList FilePickerController::nameFilters(const QStringList &acceptedMimeTypes)
@@ -256,7 +307,10 @@ QStringList FilePickerController::nameFilters(const QStringList &acceptedMimeTyp
         }
     }
 
-    nameFilters.prepend(QObject::tr("Accepted types") + " (" + acceptedGlobs.join(" ") + ")");
+    const QString filter =
+        QCoreApplication::translate("FilePickerController",
+                                    "Accepted types (%1)").arg(acceptedGlobs.join(' '));
+    nameFilters.prepend(filter);
 
     return nameFilters;
 }

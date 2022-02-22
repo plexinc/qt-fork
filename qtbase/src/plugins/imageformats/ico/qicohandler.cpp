@@ -50,11 +50,14 @@
 #include <QtCore/qendian.h>
 #include <private/qendian_p.h>
 #include <QtGui/QImage>
-#include <QtCore/QFile>
 #include <QtCore/QBuffer>
+#include <QtCore/QFile>
+#include <QtCore/QLoggingCategory>
 #include <qvariant.h>
 
 QT_BEGIN_NAMESPACE
+
+Q_LOGGING_CATEGORY(lcIco, "qt.gui.imageio.ico")
 
 // These next two structs represent how the icon information is stored
 // in an ICO file.
@@ -103,9 +106,9 @@ public:
     QImage iconAt(int index);
     static bool canRead(QIODevice *iodev);
 
-    static QVector<QImage> read(QIODevice *device);
+    static QList<QImage> read(QIODevice *device);
 
-    static bool write(QIODevice *device, const QVector<QImage> &images);
+    static bool write(QIODevice *device, const QList<QImage> &images);
 
     bool readIconEntry(int index, ICONDIRENTRY * iconEntry);
 
@@ -356,7 +359,7 @@ void ICOReader::read1BitBMP(QImage & image)
     if (iod) {
 
         int h = image.height();
-        int bpl = image.bytesPerLine();
+        qsizetype bpl = image.bytesPerLine();
 
         while (--h >= 0) {
             if (iod->read((char*)image.scanLine(h),bpl) != bpl) {
@@ -405,7 +408,7 @@ void ICOReader::read8BitBMP(QImage & image)
     if (iod) {
 
         int h = icoAttrib.h;
-        int bpl = image.bytesPerLine();
+        qsizetype bpl = image.bytesPerLine();
 
         while (--h >= 0) {
             if (iod->read((char *)image.scanLine(h), bpl) != bpl) {
@@ -425,7 +428,7 @@ void ICOReader::read16_24_32BMP(QImage & image)
         QRgb *p;
         QRgb  *end;
         uchar *buf = new uchar[image.bytesPerLine()];
-        int    bpl = ((icoAttrib.w*icoAttrib.nbits+31)/32)*4;
+        qsizetype    bpl = ((qsizetype(icoAttrib.w)*icoAttrib.nbits+31)/32)*4;
         uchar *b;
 
         while (--h >= 0) {
@@ -521,8 +524,9 @@ QImage ICOReader::iconAt(int index)
                 else if (icoAttrib.ncolors > 0)
                     format = QImage::Format_Indexed8;
 
-                QImage image(icoAttrib.w, icoAttrib.h, format);
-                if (!image.isNull()) {
+                QImage image;
+                const QSize size(icoAttrib.w, icoAttrib.h);
+                if (QImageIOHandler::allocateImage(size, format, &image)) {
                     findColorInfo(image);
                     if (!image.isNull()) {
                         readBMP(image);
@@ -563,9 +567,9 @@ QImage ICOReader::iconAt(int index)
 
     \sa write()
 */
-QVector<QImage> ICOReader::read(QIODevice *device)
+QList<QImage> ICOReader::read(QIODevice *device)
 {
-    QVector<QImage> images;
+    QList<QImage> images;
 
     ICOReader reader(device);
     const int N = reader.count();
@@ -589,7 +593,7 @@ QVector<QImage> ICOReader::read(QIODevice *device)
 
     \sa read()
 */
-bool ICOReader::write(QIODevice *device, const QVector<QImage> &images)
+bool ICOReader::write(QIODevice *device, const QList<QImage> &images)
 {
     bool retValue = false;
 
@@ -770,7 +774,7 @@ bool QtIcoHandler::canRead() const
         if (bCanRead)
             setFormat("ico");
     } else {
-        qWarning("QtIcoHandler::canRead() called with no device");
+        qCWarning(lcIco, "QtIcoHandler::canRead() called with no device");
     }
     return bCanRead;
 }
@@ -808,7 +812,7 @@ bool QtIcoHandler::read(QImage *image)
 bool QtIcoHandler::write(const QImage &image)
 {
     QIODevice *device = QImageIOHandler::device();
-    QVector<QImage> imgs;
+    QList<QImage> imgs;
     imgs.append(image);
     return ICOReader::write(device, imgs);
 }

@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
@@ -63,13 +63,13 @@ QDebug operator<<(QDebug debug, const QStyleOption *option)
             debug << ", \"" << (textSize < 20 ? ivo->text : ivo->text.left(20) + QLatin1String("...")) << '"';
         debug << ", ";
 #else // Qt 5
-        Q_UNUSED(ivo)
+        Q_UNUSED(ivo);
 #endif
     } else {
         debug << "QStyleOption(";
     }
-    debug << "rect=" << option->rect.width() << 'x' << option->rect.height()
-          << Qt::forcesign << option->rect.x() << option->rect.y() << Qt::noforcesign;
+    debug << "rect=" << option->rect.width() << 'x' << option->rect.height() << Qt::forcesign
+          << option->rect.x() << option->rect.y() << Qt::noforcesign;
     if (option->state != QStyle::State_None)
         debug << ", state=" << option->state;
 #if QT_VERSION >= 0x050000

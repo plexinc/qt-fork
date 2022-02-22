@@ -11,6 +11,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string16.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/ui/webui/print_preview/printer_handler.h"
 #include "ui/shell_dialogs/select_file_dialog.h"
 
@@ -88,6 +89,9 @@ class PdfPrinterHandler : public PrinterHandler,
   void OnDirectorySelected(const base::FilePath& filename,
                            const base::FilePath& directory);
 
+  // Return save location as the Drive mount or fetch from Download Preferences.
+  base::FilePath GetSaveLocation() const;
+
   Profile* const profile_;
   PrintPreviewStickySettings* const sticky_settings_;
 
@@ -104,6 +108,12 @@ class PdfPrinterHandler : public PrinterHandler,
 
   // The callback to call when complete.
   PrintCallback print_callback_;
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  // Determines if the local Drive mount is sent to the file picker as the
+  // default save location. Set to true for Save to Drive print jobs.
+  bool use_drive_mount_ = false;
+#endif
 
   base::WeakPtrFactory<PdfPrinterHandler> weak_ptr_factory_{this};
 

@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 
 #include <QBuffer>
 #include <QColorSpace>
@@ -1319,10 +1319,10 @@ void tst_QImageReader::devicePosition()
     QVERIFY2(imageFile.open(QFile::ReadOnly), msgFileOpenReadFailed(imageFile).constData());
     QByteArray imageData = imageFile.readAll();
     QVERIFY(!imageData.isNull());
-    int imageDataSize = imageData.size();
+    const qint64 imageDataSize = imageData.size();
 
     const char *preStr = "prebeef\n";
-    int preLen = qstrlen(preStr);
+    const qint64 preLen = qstrlen(preStr);
     imageData.prepend(preStr);
     if (format != "svg" && format != "svgz") // Doesn't handle trailing data
         imageData.append("\npostbeef");
@@ -1335,7 +1335,7 @@ void tst_QImageReader::devicePosition()
         format != "pgm" &&
         format != "pbm" &&
         format != "gif")  // Known not to work
-        QCOMPARE(buf.pos(), qint64(preLen+imageDataSize));
+        QCOMPARE(buf.pos(), preLen + imageDataSize);
 }
 
 
@@ -1462,10 +1462,10 @@ void tst_QImageReader::readFromResources_data()
                                      << QString("");
     QTest::newRow("corrupt-colors.xpm") << QString("corrupt-colors.xpm")
                                                << QByteArray("xpm") << QSize(0, 0)
-                                               << QString("QImage: XPM color specification is missing: bla9an.n#x");
+                                               << QString("XPM color specification is missing: bla9an.n#x");
     QTest::newRow("corrupt-pixels.xpm") << QString("corrupt-pixels.xpm")
                                                << QByteArray("xpm") << QSize(0, 0)
-                                               << QString("QImage: XPM pixels missing on image line 3");
+                                               << QString("XPM pixels missing on image line 3");
     QTest::newRow("corrupt-pixel-count.xpm") << QString("corrupt-pixel-count.xpm")
                                              << QByteArray("xpm") << QSize(0, 0)
                                              << QString("");
@@ -1580,10 +1580,10 @@ void tst_QImageReader::readCorruptImage_data()
     QTest::newRow("corrupt bmp") << QString("corrupt.bmp") << true << QString("") << QByteArray("bmp");
     QTest::newRow("corrupt bmp (clut)") << QString("corrupt_clut.bmp") << true << QString("") << QByteArray("bmp");
     QTest::newRow("corrupt xpm (colors)") << QString("corrupt-colors.xpm") << true
-                                          << QString("QImage: XPM color specification is missing: bla9an.n#x")
+                                          << QString("XPM color specification is missing: bla9an.n#x")
                                           << QByteArray("xpm");
     QTest::newRow("corrupt xpm (pixels)") << QString("corrupt-pixels.xpm") << true
-                                          << QString("QImage: XPM pixels missing on image line 3")
+                                          << QString("XPM pixels missing on image line 3")
                                           << QByteArray("xpm");
     QTest::newRow("corrupt xbm") << QString("corrupt.xbm") << false << QString("") << QByteArray("xbm");
     QTest::newRow("corrupt svg") << QString("corrupt.svg") << true << QString("") << QByteArray("svg");

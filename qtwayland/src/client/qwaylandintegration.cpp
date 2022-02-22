@@ -43,6 +43,7 @@
 #include "qwaylandshmwindow_p.h"
 #include "qwaylandinputdevice_p.h"
 #include "qwaylandinputcontext_p.h"
+#include "qwaylandinputmethodcontext_p.h"
 #include "qwaylandshmbackingstore_p.h"
 #include "qwaylandnativeinterface_p.h"
 #if QT_CONFIG(clipboard)
@@ -51,22 +52,25 @@
 #include "qwaylanddnd_p.h"
 #include "qwaylandwindowmanagerintegration_p.h"
 #include "qwaylandscreen_p.h"
+#include "qwaylandcursor_p.h"
 
 #if defined(Q_OS_MACOS)
-#  include <QtFontDatabaseSupport/private/qcoretextfontdatabase_p.h>
-#  include <QtFontDatabaseSupport/private/qfontengine_coretext_p.h>
+#  include <QtGui/private/qcoretextfontdatabase_p.h>
+#  include <QtGui/private/qfontengine_coretext_p.h>
 #else
-#  include <QtFontDatabaseSupport/private/qgenericunixfontdatabase_p.h>
+#  include <QtGui/private/qgenericunixfontdatabase_p.h>
 #endif
-#include <QtEventDispatcherSupport/private/qgenericunixeventdispatcher_p.h>
-#include <QtThemeSupport/private/qgenericunixthemes_p.h>
+#include <QtGui/private/qgenericunixeventdispatcher_p.h>
+#include <QtGui/private/qgenericunixthemes_p.h>
 
 #include <QtGui/private/qguiapplication_p.h>
 
 #include <qpa/qwindowsysteminterface.h>
 #include <qpa/qplatformcursor.h>
 #include <QtGui/QSurfaceFormat>
+#if QT_CONFIG(opengl)
 #include <QtGui/QOpenGLContext>
+#endif // QT_CONFIG(opengl)
 #include <QSocketNotifier>
 
 #include <qpa/qplatforminputcontextfactory_p.h>
@@ -87,11 +91,11 @@
 #include "qwaylandinputdeviceintegrationfactory_p.h"
 
 #if QT_CONFIG(accessibility_atspi_bridge)
-#include <QtLinuxAccessibilitySupport/private/bridge_p.h>
+#include <QtGui/private/qspiaccessiblebridge_p.h>
 #endif
 
 #if QT_CONFIG(xkbcommon)
-#include <QtXkbCommonSupport/private/qxkbcommon_p.h>
+#include <QtGui/private/qxkbcommon_p.h>
 #endif
 
 #if QT_CONFIG(vulkan)
@@ -109,22 +113,12 @@ QWaylandIntegration::QWaylandIntegration()
 #else
     : mFontDb(new QGenericUnixFontDatabase())
 #endif
-    , mNativeInterface(new QWaylandNativeInterface(this))
 {
-    initializeInputDeviceIntegration();
     mDisplay.reset(new QWaylandDisplay(this));
     if (!mDisplay->isInitialized()) {
         mFailed = true;
         return;
     }
-#if QT_CONFIG(clipboard)
-    mClipboard.reset(new QWaylandClipboard(mDisplay.data()));
-#endif
-#if QT_CONFIG(draganddrop)
-    mDrag.reset(new QWaylandDrag(mDisplay.data()));
-#endif
-
-    reconfigureInputContext();
 }
 
 QWaylandIntegration::~QWaylandIntegration()
@@ -190,15 +184,43 @@ QAbstractEventDispatcher *QWaylandIntegration::createEventDispatcher() const
     return createUnixEventDispatcher();
 }
 
+QPlatformNativeInterface *QWaylandIntegration::createPlatformNativeInterface()
+{
+    return new QWaylandNativeInterface(this);
+}
+
+// Support platform specific initialization
+void QWaylandIntegration::initializePlatform()
+{
+    mDisplay->initialize();
+
+    mNativeInterface.reset(createPlatformNativeInterface());
+    initializeInputDeviceIntegration();
+#if QT_CONFIG(clipboard)
+    mClipboard.reset(new QWaylandClipboard(mDisplay.data()));
+#endif
+#if QT_CONFIG(draganddrop)
+    mDrag.reset(new QWaylandDrag(mDisplay.data()));
+#endif
+
+    reconfigureInputContext();
+}
+
 void QWaylandIntegration::initialize()
 {
-    QAbstractEventDispatcher *dispatcher = QGuiApplicationPrivate::eventDispatcher;
-    QObject::connect(dispatcher, SIGNAL(aboutToBlock()), mDisplay.data(), SLOT(flushRequests()));
-    QObject::connect(dispatcher, SIGNAL(awake()), mDisplay.data(), SLOT(flushRequests()));
-
     int fd = wl_display_get_fd(mDisplay->wl_display());
     QSocketNotifier *sn = new QSocketNotifier(fd, QSocketNotifier::Read, mDisplay.data());
     QObject::connect(sn, SIGNAL(activated(QSocketDescriptor)), mDisplay.data(), SLOT(flushRequests()));
+
+    // Call this after eventDispatcher is connected with QSocketNotifier for QWaylandDisplay::forceRoundTrip()
+    initializePlatform();
+
+    // But the aboutToBlock() and awake() should be connected after initializePlatform().
+    // Otherwise the connected flushRequests() may consumes up all events before processEvents starts to wait,
+    // so that processEvents(QEventLoop::WaitForMoreEvents) may be blocked in the forceRoundTrip().
+    QAbstractEventDispatcher *dispatcher = QGuiApplicationPrivate::eventDispatcher;
+    QObject::connect(dispatcher, SIGNAL(aboutToBlock()), mDisplay.data(), SLOT(flushRequests()));
+    QObject::connect(dispatcher, SIGNAL(awake()), mDisplay.data(), SLOT(flushRequests()));
 
     // Qt does not support running with no screens
     mDisplay->ensureScreen();
@@ -277,6 +299,16 @@ QStringList QWaylandIntegration::themeNames() const
 QPlatformTheme *QWaylandIntegration::createPlatformTheme(const QString &name) const
 {
     return QGenericUnixTheme::createUnixTheme(name);
+}
+
+QWaylandScreen *QWaylandIntegration::createPlatformScreen(QWaylandDisplay *waylandDisplay, int version, uint32_t id) const
+{
+   return new QWaylandScreen(waylandDisplay, version, id);
+}
+
+QWaylandCursor *QWaylandIntegration::createPlatformCursor(QWaylandDisplay *display) const
+{
+   return new QWaylandCursor(display);
 }
 
 #if QT_CONFIG(vulkan)
@@ -396,13 +428,6 @@ void QWaylandIntegration::initializeShellIntegration()
         preferredShells = targetKeys.split(QLatin1Char(';'));
     } else {
         preferredShells << QLatin1String("xdg-shell");
-        preferredShells << QLatin1String("xdg-shell-v6");
-        QString useXdgShell = QString::fromLocal8Bit(qgetenv("QT_WAYLAND_USE_XDG_SHELL"));
-        if (!useXdgShell.isEmpty() && useXdgShell != QLatin1String("0")) {
-            qWarning() << "QT_WAYLAND_USE_XDG_SHELL is deprecated, "
-                          "please specify the shell using QT_WAYLAND_SHELL_INTEGRATION instead";
-            preferredShells << QLatin1String("xdg-shell-v5");
-        }
         preferredShells << QLatin1String("wl-shell") << QLatin1String("ivi-shell");
     }
 
@@ -422,7 +447,7 @@ void QWaylandIntegration::initializeShellIntegration()
     QWindowSystemInterfacePrivate::TabletEvent::setPlatformSynthesizesMouse(false);
 }
 
-QWaylandInputDevice *QWaylandIntegration::createInputDevice(QWaylandDisplay *display, int version, uint32_t id)
+QWaylandInputDevice *QWaylandIntegration::createInputDevice(QWaylandDisplay *display, int version, uint32_t id) const
 {
     if (mInputDeviceIntegration) {
         return mInputDeviceIntegration->createInputDevice(display, version, id);
@@ -463,10 +488,14 @@ void QWaylandIntegration::reconfigureInputContext()
         qCWarning(lcQpaWayland) << "qtvirtualkeyboard currently is not supported at client-side,"
                                    " use QT_IM_MODULE=qtvirtualkeyboard at compositor-side.";
 
-    if (requested.isNull())
-        mInputContext.reset(new QWaylandInputContext(mDisplay.data()));
-    else
+    if (requested.isNull()) {
+        if (mDisplay->textInputMethodManager() != nullptr)
+            mInputContext.reset(new QWaylandInputMethodContext(mDisplay.data()));
+        else
+            mInputContext.reset(new QWaylandInputContext(mDisplay.data()));
+    } else {
         mInputContext.reset(QPlatformInputContextFactory::create(requested));
+    }
 
     const QString defaultInputContext(QStringLiteral("compose"));
     if ((!mInputContext || !mInputContext->isValid()) && requested != defaultInputContext)
@@ -474,12 +503,10 @@ void QWaylandIntegration::reconfigureInputContext()
 
 #if QT_CONFIG(xkbcommon)
     QXkbCommon::setXkbContext(mInputContext.data(), mDisplay->xkbContext());
+    if (QWaylandInputContext* waylandInput = qobject_cast<QWaylandInputContext*>(mInputContext.get())) {
+        waylandInput->setXkbContext(mDisplay->xkbContext());
+    }
 #endif
-
-    // Even if compositor-side input context handling has been requested, we fallback to
-    // client-side handling if compositor does not provide the text-input extension. This
-    // is why we need to check here which input context actually is being used.
-    mDisplay->mUsingInputContextFromCompositor = qobject_cast<QWaylandInputContext *>(mInputContext.data());
 
     qCDebug(lcQpaWayland) << "using input method:" << inputContext()->metaObject()->className();
 }

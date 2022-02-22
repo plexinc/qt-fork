@@ -44,8 +44,9 @@
 #include <private/qguiapplication_p.h>
 #include <limits.h>
 #include <QtGui/QMouseEvent>
-#include "../../shared/util.h"
-#include "testhttpserver.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
+#include <QtQuickTestUtils/private/testhttpserver_p.h>
+#include <QtQuickTestUtils/private/viewtestutils_p.h>
 
 DEFINE_BOOL_CONFIG_OPTION(qmlDisableDistanceField, QML_DISABLE_DISTANCEFIELD)
 
@@ -68,6 +69,7 @@ private slots:
     void wrap();
     void elide();
     void elideParentChanged();
+    void elideRelayoutAfterZeroWidth();
     void multilineElide_data();
     void multilineElide();
     void implicitElide_data();
@@ -197,6 +199,7 @@ void tst_qquicktext::cleanup()
 }
 
 tst_qquicktext::tst_qquicktext()
+    : QQmlDataTest(QT_QMLTEST_DATADIR)
 {
     standard << "the quick brown fox jumped over the lazy dog"
             << "the quick brown fox\n jumped over the lazy dog";
@@ -605,6 +608,15 @@ void tst_qquicktext::elideParentChanged()
     QTRY_VERIFY(!grabResult->image().isNull());
     const QImage actualItemImageGrab(grabResult->image());
     QCOMPARE(actualItemImageGrab, expectedItemImageGrab);
+}
+
+void tst_qquicktext::elideRelayoutAfterZeroWidth()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("elideZeroWidth.qml"));
+    QScopedPointer<QObject> root(component.create());
+    QVERIFY2(root, qPrintable(component.errorString()));
+    QVERIFY(root->property("ok").toBool());
 }
 
 void tst_qquicktext::multilineElide_data()
@@ -1501,18 +1513,18 @@ void tst_qquicktext::weight()
         QQuickText *textObject = qobject_cast<QQuickText*>(textComponent.create());
 
         QVERIFY(textObject != nullptr);
-        QCOMPARE((int)textObject->font().weight(), (int)QQuickFontValueType::Normal);
+        QCOMPARE((int)textObject->font().weight(), int(QQuickFontEnums::Normal));
 
         delete textObject;
     }
     {
-        QString componentStr = "import QtQuick 2.0\nText { font.weight: \"Bold\"; text: \"Hello world!\" }";
+        QString componentStr = "import QtQuick 2.0\nText { font.weight: Font.Bold; text: \"Hello world!\" }";
         QQmlComponent textComponent(&engine);
         textComponent.setData(componentStr.toLatin1(), QUrl::fromLocalFile(""));
         QQuickText *textObject = qobject_cast<QQuickText*>(textComponent.create());
 
         QVERIFY(textObject != nullptr);
-        QCOMPARE((int)textObject->font().weight(), (int)QQuickFontValueType::Bold);
+        QCOMPARE((int)textObject->font().weight(), int(QQuickFontEnums::Bold));
 
         delete textObject;
     }
@@ -1566,7 +1578,7 @@ void tst_qquicktext::capitalization()
         QQuickText *textObject = qobject_cast<QQuickText*>(textComponent.create());
 
         QVERIFY(textObject != nullptr);
-        QCOMPARE((int)textObject->font().capitalization(), (int)QQuickFontValueType::MixedCase);
+        QCOMPARE((int)textObject->font().capitalization(), int(QQuickFontEnums::MixedCase));
 
         delete textObject;
     }
@@ -1577,7 +1589,7 @@ void tst_qquicktext::capitalization()
         QQuickText *textObject = qobject_cast<QQuickText*>(textComponent.create());
 
         QVERIFY(textObject != nullptr);
-        QCOMPARE((int)textObject->font().capitalization(), (int)QQuickFontValueType::AllUppercase);
+        QCOMPARE((int)textObject->font().capitalization(), int(QQuickFontEnums::AllUppercase));
 
         delete textObject;
     }
@@ -1588,7 +1600,7 @@ void tst_qquicktext::capitalization()
         QQuickText *textObject = qobject_cast<QQuickText*>(textComponent.create());
 
         QVERIFY(textObject != nullptr);
-        QCOMPARE((int)textObject->font().capitalization(), (int)QQuickFontValueType::AllLowercase);
+        QCOMPARE((int)textObject->font().capitalization(), int(QQuickFontEnums::AllLowercase));
 
         delete textObject;
     }
@@ -1599,7 +1611,7 @@ void tst_qquicktext::capitalization()
         QQuickText *textObject = qobject_cast<QQuickText*>(textComponent.create());
 
         QVERIFY(textObject != nullptr);
-        QCOMPARE((int)textObject->font().capitalization(), (int)QQuickFontValueType::SmallCaps);
+        QCOMPARE((int)textObject->font().capitalization(), int(QQuickFontEnums::SmallCaps));
 
         delete textObject;
     }
@@ -1610,7 +1622,7 @@ void tst_qquicktext::capitalization()
         QQuickText *textObject = qobject_cast<QQuickText*>(textComponent.create());
 
         QVERIFY(textObject != nullptr);
-        QCOMPARE((int)textObject->font().capitalization(), (int)QQuickFontValueType::Capitalize);
+        QCOMPARE((int)textObject->font().capitalization(), int(QQuickFontEnums::Capitalize));
 
         delete textObject;
     }
@@ -2243,6 +2255,43 @@ void tst_qquicktext::lineCount()
     QCOMPARE(myText->lineCount(), 2);
     QCOMPARE(myText->truncated(), true);
     QCOMPARE(myText->maximumLineCount(), 2);
+
+    // QTBUG-84458
+    myText->resetMaximumLineCount();
+    myText->setText("qqqqq\nqqqqq");
+    QCOMPARE(myText->lineCount(), 2);
+    myText->setText("qqqqq\nqqqqq\nqqqqq");
+    QCOMPARE(myText->lineCount(), 3);
+    myText->setText("");
+    QCOMPARE(myText->lineCount(), 1);
+
+    myText->setText("qqqqq\nqqqqq\nqqqqq");
+    QCOMPARE(myText->lineCount(), 3);
+    myText->setFontSizeMode(QQuickText::HorizontalFit);
+    myText->setText("");
+    QCOMPARE(myText->lineCount(), 1);
+
+    myText->setText("qqqqq\nqqqqq\nqqqqq");
+    QCOMPARE(myText->lineCount(), 3);
+    myText->setFontSizeMode(QQuickText::VerticalFit);
+    myText->setText("");
+    QCOMPARE(myText->lineCount(), 1);
+
+    myText->setText("qqqqq\nqqqqq\nqqqqq");
+    QCOMPARE(myText->lineCount(), 3);
+    myText->setFontSizeMode(QQuickText::Fit);
+    myText->setText("");
+    QCOMPARE(myText->lineCount(), 1);
+
+    QScopedPointer<QQuickView> layoutWindow(createView(testFile("lineLayoutHAlign.qml")));
+    QQuickText *lineLaidOut = layoutWindow->rootObject()->findChild<QQuickText*>("myText");
+    QVERIFY(lineLaidOut != nullptr);
+
+    lineLaidOut->setText("qqqqq\nqqqqq\nqqqqq");
+    QCOMPARE(lineLaidOut->lineCount(), 3);
+    lineLaidOut->setFontSizeMode(QQuickText::FixedSize);
+    lineLaidOut->setText("");
+    QCOMPARE(lineLaidOut->lineCount(), 1);
 }
 
 void tst_qquicktext::lineHeight()
@@ -2256,8 +2305,12 @@ void tst_qquicktext::lineHeight()
     QCOMPARE(myText->lineHeightMode(), QQuickText::ProportionalHeight);
 
     qreal h = myText->height();
+    QVERIFY(myText->lineCount() != 0);
+    const qreal h1stLine = h / myText->lineCount();
+
     myText->setLineHeight(1.5);
     QCOMPARE(myText->height(), qreal(qCeil(h)) * 1.5);
+    QCOMPARE(myText->contentHeight(), qreal(qCeil(h)) * 1.5);
 
     myText->setLineHeightMode(QQuickText::FixedHeight);
     myText->setLineHeight(20);
@@ -2269,11 +2322,21 @@ void tst_qquicktext::lineHeight()
 
     qreal h2 = myText->height();
     myText->setLineHeight(2.0);
-    QVERIFY(myText->height() == h2 * 2.0);
+    QCOMPARE(myText->height(), h2 * 2.0);
 
     myText->setLineHeightMode(QQuickText::FixedHeight);
     myText->setLineHeight(10);
-    QCOMPARE(myText->height(), myText->lineCount() * 10.0);
+    QVERIFY(myText->lineCount() > 1);
+    QCOMPARE(myText->height(), h1stLine + (myText->lineCount() - 1) * 10.0);
+    QCOMPARE(myText->contentHeight(), h1stLine + (myText->lineCount() - 1) * 10.0);
+    QCOMPARE(myText->implicitHeight(), h1stLine + (myText->lineCount() - 1) * 10.0);
+
+    myText->setLineHeightMode(QQuickText::ProportionalHeight);
+    myText->setLineHeight(0.5);
+    const qreal reducedHeight = h1stLine + (myText->lineCount() - 1) * h1stLine * 0.5;
+    QVERIFY(qAbs(myText->height() - reducedHeight) < 1.0); // allow a deviation of one pixel because the exact height depends on the font.
+    QVERIFY(qAbs(myText->contentHeight() - reducedHeight) < 1.0);
+    QVERIFY(qAbs(myText->implicitHeight() - reducedHeight) < 1.0);
 }
 
 void tst_qquicktext::implicitSize_data()
@@ -2763,6 +2826,15 @@ void tst_qquicktext::boundingRect()
     QCOMPARE(text->boundingRect().x(), qreal(0));
     QCOMPARE(text->boundingRect().y(), qreal(0));
     QCOMPARE(text->boundingRect().width(), line.naturalTextWidth());
+
+    QFontMetricsF fontMetrics(QGuiApplication::font());
+    qreal leading = fontMetrics.leading();
+    qreal ascent = fontMetrics.ascent();
+    qreal descent = fontMetrics.descent();
+
+    bool leadingOverflow = text->textFormat() == QQuickText::RichText && qCeil(ascent + descent) < qCeil(ascent + descent + leading);
+    if (leadingOverflow)
+        QEXPECT_FAIL("", "See QTBUG-82954", Continue);
     QCOMPARE(text->boundingRect().height(), line.height());
 
     // the size of the bounding rect shouldn't be bounded by the size of item.
@@ -2770,30 +2842,45 @@ void tst_qquicktext::boundingRect()
     QCOMPARE(text->boundingRect().x(), qreal(0));
     QCOMPARE(text->boundingRect().y(), qreal(0));
     QCOMPARE(text->boundingRect().width(), line.naturalTextWidth());
+
+    if (leadingOverflow)
+        QEXPECT_FAIL("", "See QTBUG-82954", Continue);
     QCOMPARE(text->boundingRect().height(), line.height());
 
     text->setHeight(text->height() * 2);
     QCOMPARE(text->boundingRect().x(), qreal(0));
     QCOMPARE(text->boundingRect().y(), qreal(0));
     QCOMPARE(text->boundingRect().width(), line.naturalTextWidth());
+
+    if (leadingOverflow)
+        QEXPECT_FAIL("", "See QTBUG-82954", Continue);
     QCOMPARE(text->boundingRect().height(), line.height());
 
     text->setHAlign(QQuickText::AlignRight);
     QCOMPARE(text->boundingRect().x(), text->width() - line.naturalTextWidth());
     QCOMPARE(text->boundingRect().y(), qreal(0));
     QCOMPARE(text->boundingRect().width(), line.naturalTextWidth());
+
+    if (leadingOverflow)
+        QEXPECT_FAIL("", "See QTBUG-82954", Continue);
     QCOMPARE(text->boundingRect().height(), line.height());
 
     QQuickItemPrivate::get(text)->setLayoutMirror(true);
     QCOMPARE(text->boundingRect().x(), qreal(0));
     QCOMPARE(text->boundingRect().y(), qreal(0));
     QCOMPARE(text->boundingRect().width(), line.naturalTextWidth());
+
+    if (leadingOverflow)
+        QEXPECT_FAIL("", "See QTBUG-82954", Continue);
     QCOMPARE(text->boundingRect().height(), line.height());
 
     text->setHAlign(QQuickText::AlignLeft);
     QCOMPARE(text->boundingRect().x(), text->width() - line.naturalTextWidth());
     QCOMPARE(text->boundingRect().y(), qreal(0));
     QCOMPARE(text->boundingRect().width(), line.naturalTextWidth());
+
+    if (leadingOverflow)
+        QEXPECT_FAIL("", "See QTBUG-82954", Continue);
     QCOMPARE(text->boundingRect().height(), line.height());
 
     text->setWrapMode(QQuickText::Wrap);
@@ -3766,13 +3853,11 @@ void tst_qquicktext::fontFormatSizes()
     QFETCH(QString, textWithTag);
     QFETCH(bool, fontIsBigger);
 
-    QQuickView *view = new QQuickView;
     {
-        view->setSource(testFileUrl("pointFontSizes.qml"));
-        view->show();
-
-        QQuickText *qtext = view->rootObject()->findChild<QQuickText*>("text");
-        QQuickText *qtextWithTag = view->rootObject()->findChild<QQuickText*>("textWithTag");
+        QQuickView view;
+        QVERIFY(QQuickTest::showView(view, testFileUrl("pointFontSizes.qml")));
+        QQuickText *qtext = view.rootObject()->findChild<QQuickText*>("text");
+        QQuickText *qtextWithTag = view.rootObject()->findChild<QQuickText*>("textWithTag");
         QVERIFY(qtext != nullptr);
         QVERIFY(qtextWithTag != nullptr);
 
@@ -3780,7 +3865,7 @@ void tst_qquicktext::fontFormatSizes()
         qtextWithTag->setText(textWithTag);
 
         for (int size = 6; size < 100; size += 4) {
-            view->rootObject()->setProperty("pointSize", size);
+            view.rootObject()->setProperty("pointSize", size);
             if (fontIsBigger)
                 QVERIFY(qtext->height() <= qtextWithTag->height());
             else
@@ -3789,9 +3874,10 @@ void tst_qquicktext::fontFormatSizes()
     }
 
     {
-        view->setSource(testFileUrl("pixelFontSizes.qml"));
-        QQuickText *qtext = view->rootObject()->findChild<QQuickText*>("text");
-        QQuickText *qtextWithTag = view->rootObject()->findChild<QQuickText*>("textWithTag");
+        QQuickView view;
+        QVERIFY(QQuickTest::showView(view, testFileUrl("pixelFontSizes.qml")));
+        QQuickText *qtext = view.rootObject()->findChild<QQuickText*>("text");
+        QQuickText *qtextWithTag = view.rootObject()->findChild<QQuickText*>("textWithTag");
         QVERIFY(qtext != nullptr);
         QVERIFY(qtextWithTag != nullptr);
 
@@ -3799,14 +3885,13 @@ void tst_qquicktext::fontFormatSizes()
         qtextWithTag->setText(textWithTag);
 
         for (int size = 6; size < 100; size += 4) {
-            view->rootObject()->setProperty("pixelSize", size);
+            view.rootObject()->setProperty("pixelSize", size);
             if (fontIsBigger)
                 QVERIFY(qtext->height() <= qtextWithTag->height());
             else
                 QVERIFY(qtext->height() >= qtextWithTag->height());
         }
     }
-    delete view;
 }
 
 typedef qreal (*ExpectedBaseline)(QQuickText *item);

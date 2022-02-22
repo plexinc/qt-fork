@@ -63,10 +63,6 @@ public:
     QModelIndex filter(const QString &filter,
         const QString &wildcard = QString());
 
-#if QT_DEPRECATED_SINCE(5, 15)
-    QT_DEPRECATED_X("Use QHelpEngineCore::documentsForKeyword() instead")
-    QMap<QString, QUrl> linksForKeyword(const QString &keyword) const;
-#endif
     bool isCreatingIndex() const;
     QHelpEngineCore *helpEngine() const;
 
@@ -88,14 +84,14 @@ private:
 class QHELP_EXPORT QHelpIndexWidget : public QListView
 {
     Q_OBJECT
+    Q_MOC_INCLUDE(<QtHelp/qhelplink.h>)
 
 Q_SIGNALS:
 #if QT_DEPRECATED_SINCE(5, 15)
     QT_DEPRECATED_X("Use documentActivated() instead")
     void linkActivated(const QUrl &link, const QString &keyword);
     QT_DEPRECATED_X("Use documentsActivated() instead")
-    void linksActivated(const QMap<QString, QUrl> &links,
-        const QString &keyword);
+    void linksActivated(const QMultiMap<QString, QUrl> &links, const QString &keyword);
 #endif
     void documentActivated(const QHelpLink &document,
                            const QString &keyword);

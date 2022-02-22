@@ -30,17 +30,16 @@
 #include "../shared/particlestestsshared.h"
 #include <private/qquickparticlesystem_p.h>
 #include <private/qabstractanimation_p.h>
-
-#include "../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 
 class tst_qquickage : public QQmlDataTest
 {
     Q_OBJECT
 public:
-    tst_qquickage() {}
+    tst_qquickage() : QQmlDataTest(QT_QMLTEST_DATADIR) {}
 
 private slots:
-    void initTestCase();
+    void initTestCase() override;
 
     void test_kill();
     void test_jump();

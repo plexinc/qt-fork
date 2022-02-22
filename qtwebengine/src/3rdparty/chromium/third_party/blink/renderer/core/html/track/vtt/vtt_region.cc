@@ -419,9 +419,10 @@ void VTTRegion::ScrollTimerFired(TimerBase*) {
   DisplayLastVTTCueBox();
 }
 
-void VTTRegion::Trace(Visitor* visitor) {
+void VTTRegion::Trace(Visitor* visitor) const {
   visitor->Trace(cue_container_);
   visitor->Trace(region_display_tree_);
+  visitor->Trace(scroll_timer_);
   ScriptWrappable::Trace(visitor);
 }
 

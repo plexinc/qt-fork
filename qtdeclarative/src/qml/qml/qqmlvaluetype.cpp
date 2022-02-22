@@ -44,178 +44,8 @@
 #include <QtCore/qdebug.h>
 #include <private/qqmlengine_p.h>
 #include <private/qmetaobjectbuilder_p.h>
-#if QT_CONFIG(qml_itemmodel)
-#include <private/qqmlmodelindexvaluetype_p.h>
-#endif
-
-Q_DECLARE_METATYPE(QQmlProperty)
 
 QT_BEGIN_NAMESPACE
-
-namespace {
-
-struct QQmlValueTypeFactoryImpl
-{
-    QQmlValueTypeFactoryImpl();
-    ~QQmlValueTypeFactoryImpl();
-
-    bool isValueType(int idx);
-
-    const QMetaObject *metaObjectForMetaType(int);
-    QQmlValueType *valueType(int);
-
-    QQmlValueType *valueTypes[QMetaType::User];
-    QHash<int, QQmlValueType *> userTypes;
-    QMutex mutex;
-
-    QQmlValueType invalidValueType;
-};
-
-QQmlValueTypeFactoryImpl::QQmlValueTypeFactoryImpl()
-{
-    std::fill_n(valueTypes, int(QMetaType::User), &invalidValueType);
-
-#if QT_CONFIG(qml_itemmodel)
-    // See types wrapped in qqmlmodelindexvaluetype_p.h
-    qRegisterMetaType<QItemSelectionRange>();
-#endif
-}
-
-QQmlValueTypeFactoryImpl::~QQmlValueTypeFactoryImpl()
-{
-    for (QQmlValueType *type : valueTypes) {
-        if (type != &invalidValueType)
-            delete type;
-    }
-    qDeleteAll(userTypes);
-}
-
-bool isInternalType(int idx)
-{
-    // Qt internal types
-    switch (idx) {
-    case QMetaType::UnknownType:
-    case QMetaType::QStringList:
-    case QMetaType::QObjectStar:
-    case QMetaType::VoidStar:
-    case QMetaType::Nullptr:
-    case QMetaType::QVariant:
-    case QMetaType::QLocale:
-    case QMetaType::QImage:  // scarce type, keep as QVariant
-    case QMetaType::QPixmap: // scarce type, keep as QVariant
-        return true;
-    default:
-        return false;
-    }
-}
-
-bool QQmlValueTypeFactoryImpl::isValueType(int idx)
-{
-    if (idx < 0 || isInternalType(idx))
-        return false;
-
-    return valueType(idx) != nullptr;
-}
-
-const QMetaObject *QQmlValueTypeFactoryImpl::metaObjectForMetaType(int t)
-{
-    switch (t) {
-    case QMetaType::QPoint:
-        return &QQmlPointValueType::staticMetaObject;
-    case QMetaType::QPointF:
-        return &QQmlPointFValueType::staticMetaObject;
-    case QMetaType::QSize:
-        return &QQmlSizeValueType::staticMetaObject;
-    case QMetaType::QSizeF:
-        return &QQmlSizeFValueType::staticMetaObject;
-    case QMetaType::QRect:
-        return &QQmlRectValueType::staticMetaObject;
-    case QMetaType::QRectF:
-        return &QQmlRectFValueType::staticMetaObject;
-    case QMetaType::QEasingCurve:
-        return &QQmlEasingValueType::staticMetaObject;
-#if QT_CONFIG(qml_itemmodel)
-    case QMetaType::QModelIndex:
-        return &QQmlModelIndexValueType::staticMetaObject;
-    case QMetaType::QPersistentModelIndex:
-        return &QQmlPersistentModelIndexValueType::staticMetaObject;
-#endif
-    default:
-#if QT_CONFIG(qml_itemmodel)
-        if (t == qMetaTypeId<QItemSelectionRange>())
-            return &QQmlItemSelectionRangeValueType::staticMetaObject;
-#endif
-        if (t == qMetaTypeId<QQmlProperty>())
-            return &QQmlPropertyValueType::staticMetaObject;
-        if (const QMetaObject *mo = QQml_valueTypeProvider()->metaObjectForMetaType(t))
-            return mo;
-        break;
-    }
-
-    QMetaType metaType(t);
-    if (metaType.flags() & QMetaType::IsGadget)
-        return metaType.metaObject();
-    return nullptr;
-}
-
-QQmlValueType *QQmlValueTypeFactoryImpl::valueType(int idx)
-{
-    if (idx >= (int)QMetaType::User) {
-        // Protect the hash with a mutex
-        mutex.lock();
-
-        QHash<int, QQmlValueType *>::iterator it = userTypes.find(idx);
-        if (it == userTypes.end()) {
-            QQmlValueType *vt = nullptr;
-            if (const QMetaObject *mo = metaObjectForMetaType(idx))
-                vt = new QQmlValueType(idx, mo);
-            it = userTypes.insert(idx, vt);
-        }
-
-        mutex.unlock();
-        return *it;
-    }
-
-    QQmlValueType *rv = valueTypes[idx];
-    if (rv == &invalidValueType) {
-        // No need for mutex protection - the most we can lose is a valueType instance
-
-        // TODO: Investigate the performance/memory characteristics of
-        // removing the preallocated array
-        if (isInternalType(idx))
-            rv = valueTypes[idx] = nullptr;
-        else if (const QMetaObject *mo = metaObjectForMetaType(idx))
-            rv = valueTypes[idx] = new QQmlValueType(idx, mo);
-        else
-            rv = valueTypes[idx] = nullptr;
-    }
-
-    return rv;
-}
-
-}
-
-Q_GLOBAL_STATIC(QQmlValueTypeFactoryImpl, factoryImpl);
-
-bool QQmlValueTypeFactory::isValueType(int idx)
-{
-    return factoryImpl()->isValueType(idx);
-}
-
-QQmlValueType *QQmlValueTypeFactory::valueType(int idx)
-{
-    return factoryImpl()->valueType(idx);
-}
-
-const QMetaObject *QQmlValueTypeFactory::metaObjectForMetaType(int type)
-{
-    return factoryImpl()->metaObjectForMetaType(type);
-}
-
-void QQmlValueTypeFactory::registerValueTypes(const char *uri, int versionMajor, int versionMinor)
-{
-    qmlRegisterValueTypeEnums<QQmlEasingValueType>(uri, versionMajor, versionMinor, "Easing");
-}
 
 QQmlValueType::QQmlValueType(int typeId, const QMetaObject *gadgetMetaObject)
     : metaType(typeId)
@@ -230,9 +60,9 @@ QQmlValueType::~QQmlValueType()
     ::free(dynamicMetaObject);
 }
 
-QQmlGadgetPtrWrapper *QQmlGadgetPtrWrapper::instance(QQmlEngine *engine, int index)
+QQmlGadgetPtrWrapper *QQmlGadgetPtrWrapper::instance(QQmlEngine *engine, QMetaType type)
 {
-    return engine ? QQmlEnginePrivate::get(engine)->valueTypeInstance(index) : nullptr;
+    return engine ? QQmlEnginePrivate::get(engine)->valueTypeInstance(type) : nullptr;
 }
 
 QQmlGadgetPtrWrapper::QQmlGadgetPtrWrapper(QQmlValueType *valueType, QObject *parent)
@@ -268,7 +98,7 @@ void QQmlGadgetPtrWrapper::write(QObject *obj, int idx, QQmlPropertyData::WriteF
 QVariant QQmlGadgetPtrWrapper::value()
 {
     Q_ASSERT(m_gadgetPtr);
-    return QVariant(metaTypeId(), m_gadgetPtr);
+    return QVariant(QMetaType(metaTypeId()), m_gadgetPtr);
 }
 
 void QQmlGadgetPtrWrapper::setValue(const QVariant &value)
@@ -335,6 +165,11 @@ void QQmlPointFValueType::setY(qreal y)
 }
 
 
+QString QQmlPointValueType::toString() const
+{
+    return QString::asprintf("QPoint(%d, %d)", v.x(), v.y());
+}
+
 int QQmlPointValueType::x() const
 {
     return v.x();
@@ -381,6 +216,11 @@ void QQmlSizeFValueType::setHeight(qreal h)
     v.setHeight(h);
 }
 
+
+QString QQmlSizeValueType::toString() const
+{
+    return QString::asprintf("QSize(%d, %d)", v.width(), v.height());
+}
 
 int QQmlSizeValueType::width() const
 {
@@ -467,6 +307,12 @@ qreal QQmlRectFValueType::bottom() const
     return v.bottom();
 }
 
+
+QString QQmlRectValueType::toString() const
+{
+    return QString::asprintf("QRect(%d, %d, %d, %d)", v.x(), v.y(), v.width(), v.height());
+}
+
 int QQmlRectValueType::x() const
 {
     return v.x();
@@ -527,9 +373,10 @@ int QQmlRectValueType::bottom() const
     return v.bottom();
 }
 
-QQmlEasingValueType::Type QQmlEasingValueType::type() const
+#if QT_CONFIG(easingcurve)
+QQmlEasingEnums::Type QQmlEasingValueType::type() const
 {
-    return (QQmlEasingValueType::Type)v.type();
+    return (QQmlEasingEnums::Type)v.type();
 }
 
 qreal QQmlEasingValueType::amplitude() const
@@ -547,7 +394,7 @@ qreal QQmlEasingValueType::period() const
     return v.period();
 }
 
-void QQmlEasingValueType::setType(QQmlEasingValueType::Type type)
+void QQmlEasingValueType::setType(QQmlEasingEnums::Type type)
 {
     v.setType((QEasingCurve::Type)type);
 }
@@ -601,16 +448,6 @@ void QQmlEasingValueType::setBezierCurve(const QVariantList &customCurveVariant)
     v = newEasingCurve;
 }
 
-QObject *QQmlPropertyValueType::object() const
-{
-    return v.object();
-}
-
-QString QQmlPropertyValueType::name() const
-{
-    return v.name();
-}
-
 QVariantList QQmlEasingValueType::bezierCurve() const
 {
     QVariantList rv;
@@ -620,6 +457,8 @@ QVariantList QQmlEasingValueType::bezierCurve() const
         rv << QVariant(point.x()) << QVariant(point.y());
     return rv;
 }
+#endif // easingcurve
+
 
 QT_END_NAMESPACE
 

@@ -4,7 +4,6 @@
 
 #include "crypto/nss_util.h"
 
-#include <dlfcn.h>
 #include <nss.h>
 #include <pk11pub.h>
 #include <plarena.h>
@@ -16,9 +15,9 @@
 #include <map>
 #include <memory>
 #include <utility>
-#include <vector>
 
 #include "base/bind.h"
+#include "base/callback_list.h"
 #include "base/debug/stack_trace.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -35,6 +34,7 @@
 #include "base/threading/thread_restrictions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
+#include "crypto/chaps_support.h"
 #include "crypto/nss_util_internal.h"
 
 namespace crypto {
@@ -43,15 +43,13 @@ namespace {
 
 const char kUserNSSDatabaseName[] = "UserNSSDB";
 
-// Constants for loading the Chrome OS TPM-backed PKCS #11 library.
-const char kChapsModuleName[] = "Chaps";
-const char kChapsPath[] = "libchaps.so";
-
 class ChromeOSUserData {
  public:
+  using SlotReadyCallback = base::OnceCallback<void(ScopedPK11Slot)>;
+
   explicit ChromeOSUserData(ScopedPK11Slot public_slot)
-      : public_slot_(std::move(public_slot)),
-        private_slot_initialization_started_(false) {}
+      : public_slot_(std::move(public_slot)) {}
+
   ~ChromeOSUserData() {
     if (public_slot_) {
       SECStatus status = SECMOD_CloseUserDB(public_slot_.get());
@@ -65,26 +63,28 @@ class ChromeOSUserData {
                                        : nullptr);
   }
 
-  ScopedPK11Slot GetPrivateSlot(
-      base::OnceCallback<void(ScopedPK11Slot)> callback) {
+  ScopedPK11Slot GetPrivateSlot(SlotReadyCallback callback) {
     if (private_slot_)
       return ScopedPK11Slot(PK11_ReferenceSlot(private_slot_.get()));
-    if (!callback.is_null())
-      tpm_ready_callback_list_.push_back(std::move(callback));
+    if (!callback.is_null()) {
+      // Callback lists cannot hold callbacks that take move-only args, since
+      // Notify()ing such a list would move the arg into the first callback,
+      // leaving it null or unspecified for remaining callbacks.  Instead, adapt
+      // the provided callbacks to accept a raw pointer, which can be copied,
+      // and then wrap in a separate scoping object for each callback.
+      tpm_ready_callback_list_.AddUnsafe(base::BindOnce(
+          [](SlotReadyCallback callback, PK11SlotInfo* info) {
+            std::move(callback).Run(ScopedPK11Slot(PK11_ReferenceSlot(info)));
+          },
+          std::move(callback)));
+    }
     return ScopedPK11Slot();
   }
 
   void SetPrivateSlot(ScopedPK11Slot private_slot) {
     DCHECK(!private_slot_);
     private_slot_ = std::move(private_slot);
-
-    SlotReadyCallbackList callback_list;
-    callback_list.swap(tpm_ready_callback_list_);
-    for (SlotReadyCallbackList::iterator i = callback_list.begin();
-         i != callback_list.end(); ++i) {
-      std::move(*i).Run(
-          ScopedPK11Slot(PK11_ReferenceSlot(private_slot_.get())));
-    }
+    tpm_ready_callback_list_.Notify(private_slot_.get());
   }
 
   bool private_slot_initialization_started() const {
@@ -96,47 +96,15 @@ class ChromeOSUserData {
   }
 
  private:
+  using SlotReadyCallbackList = base::OnceCallbackList<void(PK11SlotInfo*)>;
+
   ScopedPK11Slot public_slot_;
   ScopedPK11Slot private_slot_;
 
-  bool private_slot_initialization_started_;
+  bool private_slot_initialization_started_ = false;
 
-  typedef std::vector<base::OnceCallback<void(ScopedPK11Slot)>>
-      SlotReadyCallbackList;
   SlotReadyCallbackList tpm_ready_callback_list_;
 };
-
-class ScopedChapsLoadFixup {
- public:
-  ScopedChapsLoadFixup();
-  ~ScopedChapsLoadFixup();
-
- private:
-#if defined(COMPONENT_BUILD)
-  void* chaps_handle_;
-#endif
-};
-
-#if defined(COMPONENT_BUILD)
-
-ScopedChapsLoadFixup::ScopedChapsLoadFixup() {
-  // HACK: libchaps links the system protobuf and there are symbol conflicts
-  // with the bundled copy. Load chaps with RTLD_DEEPBIND to workaround.
-  chaps_handle_ = dlopen(kChapsPath, RTLD_LOCAL | RTLD_NOW | RTLD_DEEPBIND);
-}
-
-ScopedChapsLoadFixup::~ScopedChapsLoadFixup() {
-  // LoadNSSModule() will have taken a 2nd reference.
-  if (chaps_handle_)
-    dlclose(chaps_handle_);
-}
-
-#else
-
-ScopedChapsLoadFixup::ScopedChapsLoadFixup() {}
-ScopedChapsLoadFixup::~ScopedChapsLoadFixup() {}
-
-#endif  // defined(COMPONENT_BUILD)
 
 class ChromeOSTokenManager {
  public:
@@ -156,7 +124,7 @@ class ChromeOSTokenManager {
     // the current thread, due to NSS's internal locking requirements
     base::ThreadRestrictions::ScopedAllowIO allow_io;
 
-    base::FilePath nssdb_path = path.AppendASCII(".pki").AppendASCII("nssdb");
+    base::FilePath nssdb_path = GetSoftwareNSSDBPath(path);
     if (!base::CreateDirectory(nssdb_path)) {
       LOG(ERROR) << "Failed to create " << nssdb_path.value() << " directory.";
       return ScopedPK11Slot();
@@ -231,17 +199,7 @@ class ChromeOSTokenManager {
         FROM_HERE, base::BlockingType::WILL_BLOCK);
 
     if (!tpm_args->chaps_module) {
-      ScopedChapsLoadFixup chaps_loader;
-
-      DVLOG(3) << "Loading chaps...";
-      tpm_args->chaps_module = LoadNSSModule(
-          kChapsModuleName, kChapsPath,
-          // For more details on these parameters, see:
-          // https://developer.mozilla.org/en/PKCS11_Module_Specs
-          // slotFlags=[PublicCerts] -- Certificates and public keys can be
-          //   read from this slot without requiring a call to C_Login.
-          // askpw=only -- Only authenticate to the token when necessary.
-          "NSS=\"slotParams=(0={slotFlags=[PublicCerts] askpw=only})\"");
+      tpm_args->chaps_module = LoadChaps();
     }
     if (tpm_args->chaps_module) {
       tpm_args->tpm_slot =
@@ -271,14 +229,7 @@ class ChromeOSTokenManager {
     std::move(callback).Run(!!tpm_slot_);
   }
 
-  void RunAndClearTPMReadyCallbackList() {
-    TPMReadyCallbackList callback_list;
-    callback_list.swap(tpm_ready_callback_list_);
-    for (TPMReadyCallbackList::iterator i = callback_list.begin();
-         i != callback_list.end(); ++i) {
-      std::move(*i).Run();
-    }
-  }
+  void RunAndClearTPMReadyCallbackList() { tpm_ready_callback_list_.Notify(); }
 
   bool IsTPMTokenReady(base::OnceClosure callback) {
     DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
@@ -286,7 +237,7 @@ class ChromeOSTokenManager {
       return true;
 
     if (!callback.is_null())
-      tpm_ready_callback_list_.push_back(std::move(callback));
+      tpm_ready_callback_list_.AddUnsafe(std::move(callback));
 
     return false;
   }
@@ -515,7 +466,7 @@ class ChromeOSTokenManager {
 
   bool tpm_token_enabled_for_nss_ = false;
   bool initializing_tpm_token_ = false;
-  using TPMReadyCallbackList = std::vector<base::OnceClosure>;
+  using TPMReadyCallbackList = base::OnceClosureList;
   TPMReadyCallbackList tpm_ready_callback_list_;
   SECMODModule* chaps_module_ = nullptr;
   crypto::ScopedPK11Slot tpm_slot_;
@@ -529,6 +480,11 @@ class ChromeOSTokenManager {
 base::LazyInstance<ChromeOSTokenManager>::Leaky g_token_manager =
     LAZY_INSTANCE_INITIALIZER;
 }  // namespace
+
+base::FilePath GetSoftwareNSSDBPath(
+    const base::FilePath& profile_directory_path) {
+  return profile_directory_path.AppendASCII(".pki").AppendASCII("nssdb");
+}
 
 ScopedPK11Slot GetSystemNSSKeySlot(
     base::OnceCallback<void(ScopedPK11Slot)> callback) {
@@ -606,15 +562,6 @@ void CloseChromeOSUserForTesting(const std::string& username_hash) {
 void SetPrivateSoftwareSlotForChromeOSUserForTesting(ScopedPK11Slot slot) {
   g_token_manager.Get().SetPrivateSoftwareSlotForChromeOSUserForTesting(
       std::move(slot));
-}
-
-bool IsSlotProvidedByChaps(PK11SlotInfo* slot) {
-  if (!slot)
-    return false;
-
-  SECMODModule* pk11_module = PK11_GetModule(slot);
-  return pk11_module && base::StringPiece(pk11_module->commonName) ==
-                            base::StringPiece(kChapsModuleName);
 }
 
 }  // namespace crypto

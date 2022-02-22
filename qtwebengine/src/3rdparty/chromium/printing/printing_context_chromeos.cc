@@ -26,28 +26,26 @@
 #include "printing/backend/cups_ipp_helper.h"
 #include "printing/backend/cups_printer.h"
 #include "printing/metafile.h"
+#include "printing/mojom/print.mojom.h"
 #include "printing/print_job_constants.h"
 #include "printing/print_settings.h"
 #include "printing/printing_features.h"
+#include "printing/printing_utils.h"
 #include "printing/units.h"
 
 namespace printing {
 
 namespace {
 
-// Convert from a ColorMode setting to a print-color-mode value from PWG 5100.13
-const char* GetColorModelForMode(int color_mode) {
-  const char* mode_string;
-  base::Optional<bool> is_color =
-      PrintingContextChromeos::ColorModeIsColor(color_mode);
-  if (is_color.has_value()) {
-    mode_string = is_color.value() ? CUPS_PRINT_COLOR_MODE_COLOR
-                                   : CUPS_PRINT_COLOR_MODE_MONOCHROME;
-  } else {
-    mode_string = nullptr;
-  }
+// We only support sending username for secure printers.
+const char kUsernamePlaceholder[] = "chronos";
 
-  return mode_string;
+// We only support sending document name for secure printers.
+const char kDocumentNamePlaceholder[] = "-";
+
+bool IsUriInsecure(const base::StringPiece uri) {
+  return !base::StartsWith(uri, "ipps:") && !base::StartsWith(uri, "https:") &&
+         !base::StartsWith(uri, "usb:") && !base::StartsWith(uri, "ippusb:");
 }
 
 // Returns a new char buffer which is a null-terminated copy of |value|.  The
@@ -117,78 +115,6 @@ void ReportEnumUsage(const std::string& attribute_name) {
   base::UmaHistogramEnumeration("Printing.CUPS.IppAttributes", it->second);
 }
 
-// This records UMA for advanced attributes usage, so only call once per job.
-std::vector<ScopedCupsOption> SettingsToCupsOptions(
-    const PrintSettings& settings) {
-  const char* sides = nullptr;
-  switch (settings.duplex_mode()) {
-    case SIMPLEX:
-      sides = CUPS_SIDES_ONE_SIDED;
-      break;
-    case LONG_EDGE:
-      sides = CUPS_SIDES_TWO_SIDED_PORTRAIT;
-      break;
-    case SHORT_EDGE:
-      sides = CUPS_SIDES_TWO_SIDED_LANDSCAPE;
-      break;
-    default:
-      NOTREACHED();
-  }
-
-  std::vector<ScopedCupsOption> options;
-  options.push_back(
-      ConstructOption(kIppColor,
-                      GetColorModelForMode(settings.color())));  // color
-  options.push_back(ConstructOption(kIppDuplex, sides));         // duplexing
-  options.push_back(
-      ConstructOption(kIppMedia,
-                      settings.requested_media().vendor_id));  // paper size
-  options.push_back(
-      ConstructOption(kIppCopies,
-                      base::NumberToString(settings.copies())));  // copies
-  options.push_back(
-      ConstructOption(kIppCollate,
-                      GetCollateString(settings.collate())));  // collate
-  if (!settings.pin_value().empty()) {
-    options.push_back(ConstructOption(kIppPin, settings.pin_value()));
-    options.push_back(ConstructOption(kIppPinEncryption, kPinEncryptionNone));
-  }
-
-  if (base::FeatureList::IsEnabled(
-          printing::features::kAdvancedPpdAttributes)) {
-    size_t regular_attr_count = options.size();
-    std::map<std::string, std::vector<std::string>> multival;
-    for (const auto& setting : settings.advanced_settings()) {
-      const std::string& key = setting.first;
-      const std::string& value = setting.second.GetString();
-      if (value.empty())
-        continue;
-
-      // Check for multivalue enum ("attribute/value").
-      size_t pos = key.find('/');
-      if (pos == std::string::npos) {
-        // Regular value.
-        ReportEnumUsage(key);
-        options.push_back(ConstructOption(key, value));
-        continue;
-      }
-      // Store selected enum values.
-      if (value == kOptionTrue)
-        multival[key.substr(0, pos)].push_back(key.substr(pos + 1));
-    }
-    // Pass multivalue enums as comma-separated lists.
-    for (const auto& it : multival) {
-      ReportEnumUsage(it.first);
-      options.push_back(
-          ConstructOption(it.first, base::JoinString(it.second, ",")));
-    }
-    base::UmaHistogramCounts1000("Printing.CUPS.IppAttributesUsed",
-                                 options.size() - regular_attr_count);
-  }
-
-  return options;
-}
-
 // Given an integral |value| expressed in PWG units (1/100 mm), returns
 // the same value expressed in device units.
 int PwgUnitsToDeviceUnits(int value, float micrometers_per_device_unit) {
@@ -243,6 +169,82 @@ void SetPrintableArea(PrintSettings* settings,
 
 }  // namespace
 
+std::vector<ScopedCupsOption> SettingsToCupsOptions(
+    const PrintSettings& settings) {
+  const char* sides = nullptr;
+  switch (settings.duplex_mode()) {
+    case mojom::DuplexMode::kSimplex:
+      sides = CUPS_SIDES_ONE_SIDED;
+      break;
+    case mojom::DuplexMode::kLongEdge:
+      sides = CUPS_SIDES_TWO_SIDED_PORTRAIT;
+      break;
+    case mojom::DuplexMode::kShortEdge:
+      sides = CUPS_SIDES_TWO_SIDED_LANDSCAPE;
+      break;
+    default:
+      NOTREACHED();
+  }
+
+  std::vector<ScopedCupsOption> options;
+  options.push_back(
+      ConstructOption(kIppColor,
+                      GetIppColorModelForModel(settings.color())));  // color
+  options.push_back(ConstructOption(kIppDuplex, sides));  // duplexing
+  options.push_back(
+      ConstructOption(kIppMedia,
+                      settings.requested_media().vendor_id));  // paper size
+  options.push_back(
+      ConstructOption(kIppCopies,
+                      base::NumberToString(settings.copies())));  // copies
+  options.push_back(
+      ConstructOption(kIppCollate,
+                      GetCollateString(settings.collate())));  // collate
+  if (!settings.pin_value().empty()) {
+    options.push_back(ConstructOption(kIppPin, settings.pin_value()));
+    options.push_back(ConstructOption(kIppPinEncryption, kPinEncryptionNone));
+  }
+
+  if (settings.dpi_horizontal() > 0 && settings.dpi_vertical() > 0) {
+    std::string dpi = base::NumberToString(settings.dpi_horizontal());
+    if (settings.dpi_horizontal() != settings.dpi_vertical())
+      dpi += "x" + base::NumberToString(settings.dpi_vertical());
+    options.push_back(ConstructOption(kIppResolution, dpi + "dpi"));
+  }
+
+  size_t regular_attr_count = options.size();
+  std::map<std::string, std::vector<std::string>> multival;
+  for (const auto& setting : settings.advanced_settings()) {
+    const std::string& key = setting.first;
+    const std::string& value = setting.second.GetString();
+    if (value.empty())
+      continue;
+
+    // Check for multivalue enum ("attribute/value").
+    size_t pos = key.find('/');
+    if (pos == std::string::npos) {
+      // Regular value.
+      ReportEnumUsage(key);
+      options.push_back(ConstructOption(key, value));
+      continue;
+    }
+    // Store selected enum values.
+    if (value == kOptionTrue)
+      multival[key.substr(0, pos)].push_back(key.substr(pos + 1));
+  }
+
+  // Pass multivalue enums as comma-separated lists.
+  for (const auto& it : multival) {
+    ReportEnumUsage(it.first);
+    options.push_back(
+        ConstructOption(it.first, base::JoinString(it.second, ",")));
+  }
+  base::UmaHistogramCounts1000("Printing.CUPS.IppAttributesUsed",
+                               options.size() - regular_attr_count);
+
+  return options;
+}
+
 // static
 std::unique_ptr<PrintingContext> PrintingContext::Create(Delegate* delegate) {
   return std::make_unique<PrintingContextChromeos>(delegate);
@@ -250,46 +252,18 @@ std::unique_ptr<PrintingContext> PrintingContext::Create(Delegate* delegate) {
 
 PrintingContextChromeos::PrintingContextChromeos(Delegate* delegate)
     : PrintingContext(delegate),
-      connection_(GURL(), HTTP_ENCRYPT_NEVER, true),
+      connection_(CupsConnection::Create(GURL(), HTTP_ENCRYPT_NEVER, true)),
+      send_user_info_(false) {}
+
+PrintingContextChromeos::PrintingContextChromeos(
+    Delegate* delegate,
+    std::unique_ptr<CupsConnection> connection)
+    : PrintingContext(delegate),
+      connection_(std::move(connection)),
       send_user_info_(false) {}
 
 PrintingContextChromeos::~PrintingContextChromeos() {
   ReleaseContext();
-}
-
-// static
-base::Optional<bool> PrintingContextChromeos::ColorModeIsColor(int color_mode) {
-  switch (color_mode) {
-    case COLOR:
-    case CMYK:
-    case CMY:
-    case KCMY:
-    case CMY_K:
-    case RGB:
-    case RGB16:
-    case RGBA:
-    case COLORMODE_COLOR:
-    case BROTHER_CUPS_COLOR:
-    case BROTHER_BRSCRIPT3_COLOR:
-    case HP_COLOR_COLOR:
-    case PRINTOUTMODE_NORMAL:
-    case PROCESSCOLORMODEL_CMYK:
-    case PROCESSCOLORMODEL_RGB:
-      return true;
-    case GRAY:
-    case BLACK:
-    case GRAYSCALE:
-    case COLORMODE_MONOCHROME:
-    case BROTHER_CUPS_MONO:
-    case BROTHER_BRSCRIPT3_BLACK:
-    case HP_COLOR_BLACK:
-    case PRINTOUTMODE_NORMAL_GRAY:
-    case PROCESSCOLORMODEL_GREYSCALE:
-      return false;
-    default:
-      LOG(WARNING) << "Unrecognized color mode.";
-      return base::nullopt;
-  }
 }
 
 void PrintingContextChromeos::AskUserForSettings(
@@ -400,14 +374,12 @@ PrintingContext::Result PrintingContextChromeos::UpdatePrinterSettings(
   send_user_info_ = settings_->send_user_info();
   if (send_user_info_) {
     DCHECK(printer_);
-    std::string uri_string = printer_->GetUri();
-    const base::StringPiece uri(uri_string);
-    if (!uri.starts_with("ipps:") && !uri.starts_with("https:") &&
-        !uri.starts_with("usb:") && !uri.starts_with("ippusb:")) {
-      return OnError();
+    if (IsUriInsecure(printer_->GetUri())) {
+      username_ = kUsernamePlaceholder;
+    } else {
+      username_ = settings_->username();
     }
   }
-  username_ = send_user_info_ ? settings_->username() : std::string();
 
   return OK;
 }
@@ -416,7 +388,7 @@ PrintingContext::Result PrintingContextChromeos::InitializeDevice(
     const std::string& device) {
   DCHECK(!in_print_job_);
 
-  std::unique_ptr<CupsPrinter> printer = connection_.GetPrinter(device);
+  std::unique_ptr<CupsPrinter> printer = connection_->GetPrinter(device);
   if (!printer) {
     LOG(WARNING) << "Could not initialize device";
     return OnError();
@@ -433,8 +405,14 @@ PrintingContext::Result PrintingContextChromeos::NewDocument(
   in_print_job_ = true;
 
   std::string converted_name;
-  if (send_user_info_)
-    converted_name = base::UTF16ToUTF8(document_name);
+  if (send_user_info_) {
+    DCHECK(printer_);
+    if (IsUriInsecure(printer_->GetUri())) {
+      converted_name = kDocumentNamePlaceholder;
+    } else {
+      converted_name = base::UTF16ToUTF8(document_name);
+    }
+  }
 
   std::vector<cups_option_t> options;
   for (const ScopedCupsOption& option : cups_options_) {

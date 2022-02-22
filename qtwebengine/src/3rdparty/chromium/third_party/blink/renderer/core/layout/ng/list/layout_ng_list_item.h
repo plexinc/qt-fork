@@ -26,6 +26,7 @@ class CORE_EXPORT LayoutNGListItem final : public LayoutNGBlockFlow {
   }
 
   void UpdateMarkerTextIfNeeded();
+  void UpdateCounterStyle();
 
   void OrdinalValueChanged();
   void WillCollectInlines() override;
@@ -41,11 +42,17 @@ class CORE_EXPORT LayoutNGListItem final : public LayoutNGBlockFlow {
   void WillBeRemovedFromTree() override;
   void StyleDidChange(StyleDifference, const ComputedStyle* old_style) override;
   void SubtreeDidChange() final;
+  void WillBeDestroyed() override;
 
   ListItemOrdinal ordinal_;
 };
 
-DEFINE_LAYOUT_OBJECT_TYPE_CASTS(LayoutNGListItem, IsLayoutNGListItem());
+template <>
+struct DowncastTraits<LayoutNGListItem> {
+  static bool AllowFrom(const LayoutObject& object) {
+    return object.IsLayoutNGListItem();
+  }
+};
 
 }  // namespace blink
 

@@ -7,8 +7,8 @@
 #include <memory>
 #include <string>
 
+#include "base/check.h"
 #include "base/files/file_util.h"
-#include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/threading/thread_restrictions.h"
 #include "components/subresource_filter/core/common/indexed_ruleset.h"
@@ -134,6 +134,16 @@ void TestRulesetCreator::CreateUnindexedRulesetToDisallowURLsWithPathSuffix(
   proto::UrlRule suffix_rule = CreateSuffixRule(suffix);
   ASSERT_NO_FATAL_FAILURE(
       CreateUnindexedRulesetWithRules({suffix_rule}, test_unindexed_ruleset));
+}
+
+void TestRulesetCreator::CreateRulesetToDisallowURLWithSubstrings(
+    std::vector<base::StringPiece> substrings,
+    TestRulesetPair* test_ruleset_pair) {
+  DCHECK(test_ruleset_pair);
+  std::vector<proto::UrlRule> url_rules;
+  for (const auto& substring : substrings)
+    url_rules.push_back(CreateSubstringRule(substring));
+  CreateRulesetWithRules(url_rules, test_ruleset_pair);
 }
 
 void TestRulesetCreator::CreateRulesetToDisallowURLsWithManySuffixes(

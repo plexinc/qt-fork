@@ -57,11 +57,6 @@
 #elif defined(QT_WINRT_BLUETOOTH)
 #include "qtbluetoothglobal_p.h"
 #include "qlowenergycontroller_winrt_p.h"
-#if QT_CONFIG(winrt_btle_no_pairing)
-#include "qlowenergycontroller_winrt_new_p.h"
-#endif
-#elif defined(QT_WIN_BLUETOOTH)
-#include "qlowenergycontroller_win_p.h"
 #elif defined(Q_OS_DARWIN)
 #include "qlowenergycontroller_darwin_p.h"
 #else
@@ -73,7 +68,7 @@
 QT_BEGIN_NAMESPACE
 
 Q_DECLARE_LOGGING_CATEGORY(QT_BT)
-Q_DECLARE_LOGGING_CATEGORY(QT_BT_WINRT)
+Q_DECLARE_LOGGING_CATEGORY(QT_BT_WINDOWS)
 
 /*!
     \class QLowEnergyController
@@ -224,17 +219,33 @@ Q_DECLARE_LOGGING_CATEGORY(QT_BT_WINRT)
     This signal is emitted when the controller successfully connects to the remote
     Low Energy device (if the controller is in the \l CentralRole) or if a remote Low Energy
     device connected to the controller (if the controller is in the \l PeripheralRole).
-    On iOS and OS X this signal is not reliable if the controller is in the \l PeripheralRole
-    - the controller only guesses that some central connected to our peripheral as
-    soon as this central tries to write/read a characteristic/descriptor.
+    On iOS, macOS, and Android this signal is not reliable if the controller is in the
+    \l PeripheralRole. On iOS and macOS the controller only guesses that some central
+    connected to our peripheral as soon as this central tries to write/read a
+    characteristic/descriptor. On Android the controller monitors all connected GATT
+    devices.
+*/
+
+/*!
+    \fn void QLowEnergyController::mtuChanged(int mtu)
+
+    This signal is emitted as a result of a successful MTU change. \a mtu
+    represents the new value.
+
+    \note If the controller is in the \l PeripheralRole, the MTU value is negotiated
+    for each client/central device individually. Therefore this signal can be emitted
+    several times in a row for one or several devices.
+
+    \sa mtu()
 */
 
 /*!
     \fn void QLowEnergyController::disconnected()
 
     This signal is emitted when the controller disconnects from the remote
-    Low Energy device or vice versa. On iOS and OS X this signal is unreliable
-    if the controller is in the \l PeripheralRole.
+    Low Energy device or vice versa. On iOS and macOS this signal is unreliable
+    if the controller is in the \l PeripheralRole. On Android the signal is emitted
+    when the last connected device is disconnected.
 */
 
 /*!
@@ -247,12 +258,13 @@ Q_DECLARE_LOGGING_CATEGORY(QT_BT_WINRT)
 */
 
 /*!
-    \fn void QLowEnergyController::error(QLowEnergyController::Error newError)
+    \fn void QLowEnergyController::errorOccurred(QLowEnergyController::Error newError)
 
     This signal is emitted when an error occurs.
     The \a newError parameter describes the error that occurred.
 
     \sa error(), errorString()
+    \since 6.2
 */
 
 /*!
@@ -322,84 +334,14 @@ static QLowEnergyControllerPrivate *privateController(QLowEnergyController::Role
     return new QLowEnergyControllerPrivateAndroid();
 #elif defined(QT_WINRT_BLUETOOTH)
     Q_UNUSED(role);
-#if QT_CONFIG(winrt_btle_no_pairing)
-    return createWinRTLowEnergyController();
-#else
-    qCDebug(QT_BT_WINRT) << "Using pre 15063 low energy controller";
     return new QLowEnergyControllerPrivateWinRT();
-#endif
-#elif defined(QT_WIN_BLUETOOTH)
-    Q_UNUSED(role);
-    return new QLowEnergyControllerPrivateWin32();
 #elif defined(Q_OS_DARWIN)
-    Q_UNUSED(role)
+    Q_UNUSED(role);
     return new QLowEnergyControllerPrivateDarwin();
 #else
     Q_UNUSED(role);
     return new QLowEnergyControllerPrivateCommon();
 #endif
-}
-
-/*!
-    Constructs a new instance of this class with \a parent.
-
-    The \a remoteDevice must contain the address of the
-    remote Bluetooth Low Energy device to which this object
-    should attempt to connect later on.
-
-    The controller uses the local default Bluetooth adapter for
-    the connection management.
-
-    \obsolete
- */
-QLowEnergyController::QLowEnergyController(
-                            const QBluetoothAddress &remoteDevice,
-                            QObject *parent)
-    : QObject(parent)
-{
-    // Note: a central created using this ctor is useless
-    // on Darwin - no way to use addresses when connecting.
-
-    d_ptr = privateController(CentralRole);
-
-    Q_D(QLowEnergyController);
-    d->q_ptr = this;
-    d->role = CentralRole;
-    d->remoteDevice = remoteDevice;
-    d->localAdapter = QBluetoothLocalDevice().address();
-    d->addressType = QLowEnergyController::PublicAddress;
-    d->init();
-}
-
-/*!
-    Constructs a new instance of this class with \a parent.
-
-    The \a remoteDeviceInfo must contain the details of the
-    remote Bluetooth Low Energy device to which this object
-    should attempt to connect later on.
-
-    The controller uses the local default Bluetooth adapter for
-    the connection management.
-
-    \since 5.5
-    \obsolete
-*/
-QLowEnergyController::QLowEnergyController(
-                            const QBluetoothDeviceInfo &remoteDeviceInfo,
-                            QObject *parent)
-    : QObject(parent)
-{
-    d_ptr = privateController(CentralRole);
-
-    Q_D(QLowEnergyController);
-    d->q_ptr = this;
-    d->role = CentralRole;
-    d->deviceUuid = remoteDeviceInfo.deviceUuid();
-    d->remoteDevice = remoteDeviceInfo.address();
-    d->localAdapter = QBluetoothLocalDevice().address();
-    d->addressType = QLowEnergyController::PublicAddress;
-    d->remoteName = remoteDeviceInfo.name();
-    d->init();
 }
 
 /*!
@@ -415,23 +357,29 @@ QLowEnergyController::QLowEnergyController(
     adapter, \l error() is set to \l InvalidBluetoothAdapterError once
     \l connectToDevice() is called.
 
-    \obsolete
+    \note This is only supported on BlueZ
  */
 QLowEnergyController::QLowEnergyController(
-                            const QBluetoothAddress &remoteDevice,
+                            const QBluetoothDeviceInfo &remoteDevice,
                             const QBluetoothAddress &localDevice,
                             QObject *parent)
     : QObject(parent)
 {
-    // Note: a central create using this ctor is useless on
-    // Darwin (CoreBluetooth does not work with addresses).
     d_ptr = privateController(CentralRole);
 
     Q_D(QLowEnergyController);
     d->q_ptr = this;
     d->role = CentralRole;
-    d->remoteDevice = remoteDevice;
-    d->localAdapter = localDevice;
+    d->deviceUuid = remoteDevice.deviceUuid();
+    d->remoteDevice = remoteDevice.address();
+
+    if (localDevice.isNull())
+        d->localAdapter = QBluetoothLocalDevice().address();
+    else
+        d->localAdapter = localDevice;
+
+    d->addressType = QLowEnergyController::PublicAddress;
+    d->remoteName = remoteDevice.name();
     d->init();
 }
 
@@ -448,7 +396,7 @@ QLowEnergyController::QLowEnergyController(
 QLowEnergyController *QLowEnergyController::createCentral(const QBluetoothDeviceInfo &remoteDevice,
                                                           QObject *parent)
 {
-    return new QLowEnergyController(remoteDevice, parent);
+    return new QLowEnergyController(remoteDevice, QBluetoothAddress(), parent);
 }
 
 /*!
@@ -467,7 +415,7 @@ QLowEnergyController *QLowEnergyController::createCentral(const QBluetoothDevice
 
     \since 5.14
  */
-QLowEnergyController *QLowEnergyController::createCentral(const QBluetoothAddress &remoteDevice,
+QLowEnergyController *QLowEnergyController::createCentral(const QBluetoothDeviceInfo &remoteDevice,
                                                           const QBluetoothAddress &localDevice,
                                                           QObject *parent)
 {
@@ -478,7 +426,8 @@ QLowEnergyController *QLowEnergyController::createCentral(const QBluetoothAddres
 /*!
    Returns a new object of this class that is in the \l PeripheralRole and has the
    parent object \a parent.
-   Typically, the next step is to call \l startAdvertising() on the returned object.
+   Typically, the next steps are to add some services and finally
+   call \l startAdvertising() on the returned object.
 
    The controller uses the local default Bluetooth adapter for the connection management.
 
@@ -487,10 +436,33 @@ QLowEnergyController *QLowEnergyController::createCentral(const QBluetoothAddres
  */
 QLowEnergyController *QLowEnergyController::createPeripheral(QObject *parent)
 {
-    return new QLowEnergyController(parent);
+    return new QLowEnergyController(QBluetoothAddress(), parent);
 }
 
-QLowEnergyController::QLowEnergyController(QObject *parent)
+/*!
+    Returns a new object of this class that is in the \l PeripheralRole and has the
+    parent object \a parent and is using \a localDevice.
+    Typically, the next steps are to add some services and finally
+    call \l startAdvertising() on the returned object.
+
+    The peripheral is created on \a localDevice. If \a localDevice is invalid,
+    the local default device is automatically selected. If \a localDevice specifies
+    a local device that is not a local Bluetooth adapter, \l error() is set to
+    \l InvalidBluetoothAdapterError.
+
+    Selecting \a localDevice is only supported on Linux. On other platform,
+    the parameter is ignored.
+
+    \sa QLowEnergyController::PeripheralRole
+    \since 6.2
+ */
+QLowEnergyController *QLowEnergyController::createPeripheral(const QBluetoothAddress &localDevice,
+                                                             QObject *parent)
+{
+    return new QLowEnergyController(localDevice, parent);
+}
+
+QLowEnergyController::QLowEnergyController(const QBluetoothAddress &localDevice, QObject *parent)
     : QObject(parent)
 {
     d_ptr = privateController(PeripheralRole);
@@ -498,7 +470,12 @@ QLowEnergyController::QLowEnergyController(QObject *parent)
     Q_D(QLowEnergyController);
     d->q_ptr = this;
     d->role = PeripheralRole;
-    d->localAdapter = QBluetoothLocalDevice().address();
+
+    if (localDevice.isNull())
+        d->localAdapter = QBluetoothLocalDevice().address();
+    else
+        d->localAdapter = localDevice;
+
     d->init();
 }
 
@@ -531,7 +508,7 @@ QBluetoothAddress QLowEnergyController::localAddress() const
 
     For a controller in the \l CentralRole, this value will always be the one passed in when
     the controller object was created. For a controller in the \l PeripheralRole, this value
-    is the address of the currently connected client device. In particular, this address will
+    is one of the currently connected client device addresses. This address will
     be invalid if the controller is not currently in the \l ConnectedState.
  */
 QBluetoothAddress QLowEnergyController::remoteAddress() const
@@ -913,6 +890,33 @@ QString QLowEnergyController::errorString() const
 QLowEnergyController::Role QLowEnergyController::role() const
 {
     return d_ptr->role;
+}
+
+/*!
+   Returns the MTU size.
+
+   During connection setup, the ATT MTU size is negotiated.
+   This method provides the result of this negotiation.
+   It can be used to optimize packet sizes in some situations.
+   The maximum amount of data which can be transferred in a single
+   packet is \b {mtu-3} bytes. 3 bytes are required for the ATT
+   protocol header.
+
+   Before the connection setup and MTU negotiation, the
+   default value of \c 23 will be returned.
+
+   Not every platform exposes the MTU value. On those platforms (e.g. Linux)
+   this function always returns \c -1.
+
+   If the controller is in the \l PeripheralRole, there might be several
+   central devices connected to it. In those cases this function returns
+   the MTU of the last connection that was negotiated.
+
+   \since 6.2
+ */
+int QLowEnergyController::mtu() const
+{
+    return d_ptr->mtu();
 }
 
 QT_END_NAMESPACE

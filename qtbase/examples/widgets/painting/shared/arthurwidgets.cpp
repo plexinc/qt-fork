@@ -62,34 +62,23 @@
 #include <QRegularExpression>
 #include <QOffscreenSurface>
 #include <QOpenGLContext>
-#include <QOpenGLPaintDevice>
-#include <QOpenGLWindow>
+#if QT_CONFIG(opengl)
+#include <QtOpenGL/QOpenGLPaintDevice>
+#include <QtOpenGL/QOpenGLWindow>
+#endif
 
 extern QPixmap cached(const QString &img);
 
 ArthurFrame::ArthurFrame(QWidget *parent)
-    : QWidget(parent)
-    , m_prefer_image(false)
+    : QWidget(parent),
+      m_tile(QPixmap(128, 128))
 {
-#if QT_CONFIG(opengl)
-    m_glWindow = nullptr;
-    m_glWidget = nullptr;
-    m_use_opengl = false;
-#endif
-    m_document = nullptr;
-    m_show_doc = false;
-
-    m_tile = QPixmap(128, 128);
     m_tile.fill(Qt::white);
     QPainter pt(&m_tile);
     QColor color(230, 230, 230);
     pt.fillRect(0, 0, 64, 64, color);
     pt.fillRect(64, 64, 64, 64, color);
     pt.end();
-
-//     QPalette pal = palette();
-//     pal.setBrush(backgroundRole(), m_tile);
-//     setPalette(pal);
 }
 
 
@@ -207,7 +196,7 @@ void ArthurFrame::paintEvent(QPaintEvent *e)
     painter.restore();
 
     painter.save();
-    if (m_show_doc)
+    if (m_showDoc)
         paintDescription(&painter);
     painter.restore();
 
@@ -242,9 +231,9 @@ void ArthurFrame::resizeEvent(QResizeEvent *e)
 
 void ArthurFrame::setDescriptionEnabled(bool enabled)
 {
-    if (m_show_doc != enabled) {
-        m_show_doc = enabled;
-        emit descriptionEnabledChanged(m_show_doc);
+    if (m_showDoc != enabled) {
+        m_showDoc = enabled;
+        emit descriptionEnabledChanged(m_showDoc);
         update();
     }
 }
@@ -274,9 +263,8 @@ void ArthurFrame::paintDescription(QPainter *painter)
 
     int pageWidth = qMax(width() - 100, 100);
     int pageHeight = qMax(height() - 100, 100);
-    if (pageWidth != m_document->pageSize().width()) {
+    if (pageWidth != m_document->pageSize().width())
         m_document->setPageSize(QSize(pageWidth, pageHeight));
-    }
 
     QRect textRect(width() / 2 - pageWidth / 2,
                    height() / 2 - pageHeight / 2,
@@ -338,7 +326,7 @@ void ArthurFrame::showSource()
         if (!f.open(QFile::ReadOnly))
             contents = tr("Could not open file: '%1'").arg(m_sourceFileName);
         else
-            contents = f.readAll();
+            contents = QString::fromUtf8(f.readAll());
     }
 
     contents.replace(QLatin1Char('&'), QStringLiteral("&amp;"));
@@ -379,7 +367,7 @@ void ArthurFrame::showSource()
     const QString html = QStringLiteral("<html><pre>") + contents + QStringLiteral("</pre></html>");
 
     QTextBrowser *sourceViewer = new QTextBrowser;
-    sourceViewer->setWindowTitle(tr("Source: %1").arg(m_sourceFileName.midRef(5)));
+    sourceViewer->setWindowTitle(tr("Source: %1").arg(QStringView{ m_sourceFileName }.mid(5)));
     sourceViewer->setParent(this, Qt::Dialog);
     sourceViewer->setAttribute(Qt::WA_DeleteOnClose);
     sourceViewer->setLineWrapMode(QTextEdit::NoWrap);

@@ -72,13 +72,13 @@ SecFetchSiteValue SecFetchSiteHeaderValue(const GURL& target_url,
   return SecFetchSiteValue::kCrossSite;
 }
 
-void SetSecFetchSiteHeader(
-    net::URLRequest* request,
-    const GURL* pending_redirect_url,
-    const mojom::URLLoaderFactoryParams& factory_params) {
+void SetSecFetchSiteHeader(net::URLRequest* request,
+                           const GURL* pending_redirect_url,
+                           const mojom::URLLoaderFactoryParams& factory_params,
+                           const cors::OriginAccessList& origin_access_list) {
   SecFetchSiteValue header_value;
   url::Origin initiator = GetTrustworthyInitiator(
-      factory_params.request_initiator_site_lock, request->initiator());
+      factory_params.request_initiator_origin_lock, request->initiator());
 
   // Browser-initiated requests with no initiator origin, and
   // privileged requests initiated from a "non-webby" context will send
@@ -87,13 +87,8 @@ void SetSecFetchSiteHeader(
   // and walk through the request's URL chain to calculate the
   // correct value.
   if (factory_params.unsafe_non_webby_initiator) {
-    cors::OriginAccessList origin_access_list;
-    origin_access_list.SetAllowListForOrigin(
-        factory_params.factory_bound_access_patterns->source_origin,
-        factory_params.factory_bound_access_patterns->allow_patterns);
-    if (origin_access_list.CheckAccessState(
-            factory_params.factory_bound_access_patterns->source_origin,
-            request->url()) == cors::OriginAccessList::AccessState::kAllowed) {
+    if (origin_access_list.CheckAccessState(initiator, request->url()) ==
+        cors::OriginAccessList::AccessState::kAllowed) {
       header_value = SecFetchSiteValue::kNoOrigin;
     } else {
       header_value = SecFetchSiteValue::kCrossSite;
@@ -138,7 +133,12 @@ void SetSecFetchUserHeader(net::URLRequest* request, bool has_user_activation) {
 // Sec-Fetch-Dest
 void SetSecFetchDestHeader(net::URLRequest* request,
                            network::mojom::RequestDestination dest) {
-  std::string header_value = RequestDestinationToString(dest);
+  // https://w3c.github.io/webappsec-fetch-metadata/#abstract-opdef-set-dest
+  // If r's destination is the empty string, set header's value to the string
+  // "empty". Otherwise, set header's value to r's destination.
+  std::string header_value = dest == mojom::RequestDestination::kEmpty
+                                 ? "empty"
+                                 : RequestDestinationToString(dest);
   request->SetExtraRequestHeaderByName(kSecFetchDest, header_value, true);
 }
 
@@ -150,7 +150,8 @@ void SetFetchMetadataHeaders(
     bool has_user_activation,
     network::mojom::RequestDestination dest,
     const GURL* pending_redirect_url,
-    const mojom::URLLoaderFactoryParams& factory_params) {
+    const mojom::URLLoaderFactoryParams& factory_params,
+    const cors::OriginAccessList& origin_access_list) {
   DCHECK(request);
   DCHECK_NE(0u, request->url_chain().size());
 
@@ -160,7 +161,8 @@ void SetFetchMetadataHeaders(
   if (!IsUrlPotentiallyTrustworthy(target_url))
     return;
 
-  SetSecFetchSiteHeader(request, pending_redirect_url, factory_params);
+  SetSecFetchSiteHeader(request, pending_redirect_url, factory_params,
+                        origin_access_list);
   SetSecFetchModeHeader(request, mode);
   SetSecFetchUserHeader(request, has_user_activation);
   SetSecFetchDestHeader(request, dest);

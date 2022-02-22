@@ -29,6 +29,7 @@
 #ifndef CACHEKEYS_H
 #define CACHEKEYS_H
 
+#include "option.h"
 #include "project.h"
 #include <qstring.h>
 #include <qstringlist.h>
@@ -41,7 +42,7 @@ QT_BEGIN_NAMESPACE
 // -------------------------------------------------------------------------------------------------
 struct FixStringCacheKey
 {
-    mutable uint hash;
+    mutable size_t hash;
     QString string, pwd;
     uchar flags;
     FixStringCacheKey(const QString &s, uchar f)
@@ -58,18 +59,18 @@ struct FixStringCacheKey
                 f.string == string &&
                 f.pwd == pwd);
     }
-    inline uint hashCode() const {
+    inline size_t hashCode() const {
         if(!hash)
             hash = qHash(string) ^ qHash(flags) /*^ qHash(pwd)*/;
         return hash;
     }
 };
-inline uint qHash(const FixStringCacheKey &f) { return f.hashCode(); }
+inline size_t qHash(const FixStringCacheKey &f) { return f.hashCode(); }
 
 // -------------------------------------------------------------------------------------------------
 struct FileInfoCacheKey
 {
-    mutable uint hash;
+    mutable size_t hash;
     QString file, pwd;
     FileInfoCacheKey(const QString &f)
     {
@@ -83,7 +84,7 @@ struct FileInfoCacheKey
         return (hashCode() == f.hashCode() && f.file == file &&
                 f.pwd == pwd);
     }
-    inline uint hashCode() const {
+    inline size_t hashCode() const {
         if(!hash)
             hash = qHash(file) /*^ qHash(pwd)*/;
         return hash;
@@ -94,7 +95,7 @@ struct FileInfoCacheKey
             return true;
 
         const QChar c0 = file.at(0);
-        const QChar c1 = length >= 2 ? file.at(1) : QChar(0);
+        const QChar c1 = length >= 2 ? file.at(1) : QChar::Null;
         return !(c0 == QLatin1Char('/')
                 || c0 == QLatin1Char('\\')
                 || (c0.isLetter() && c1 == QLatin1Char(':'))
@@ -102,7 +103,7 @@ struct FileInfoCacheKey
                 || (c0 == QLatin1Char('\\') && c1 == QLatin1Char('\\')));
     }
 };
-inline uint qHash(const FileInfoCacheKey &f) { return f.hashCode(); }
+inline size_t qHash(const FileInfoCacheKey &f) { return f.hashCode(); }
 
 // -------------------------------------------------------------------------------------------------
 template <typename T>

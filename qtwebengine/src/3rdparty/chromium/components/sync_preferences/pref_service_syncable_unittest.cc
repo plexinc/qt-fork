@@ -9,14 +9,14 @@
 #include <memory>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_string_value_serializer.h"
 #include "base/json/json_writer.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/metrics/histogram_tester.h"
+#include "build/chromeos_buildflags.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_notifier_impl.h"
 #include "components/prefs/scoped_user_pref_update.h"
@@ -25,19 +25,20 @@
 #include "components/sync/model/sync_change.h"
 #include "components/sync/model/sync_change_processor.h"
 #include "components/sync/model/sync_data.h"
-#include "components/sync/model/sync_error_factory_mock.h"
 #include "components/sync/model/syncable_service.h"
 #include "components/sync/protocol/preference_specifics.pb.h"
 #include "components/sync/protocol/sync.pb.h"
+#include "components/sync/test/model/sync_error_factory_mock.h"
 #include "components/sync_preferences/pref_model_associator.h"
 #include "components/sync_preferences/pref_model_associator_client.h"
+#include "components/sync_preferences/pref_service_syncable_observer.h"
 #include "components/sync_preferences/synced_pref_observer.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/constants/ash_features.h"
 #include "base/test/scoped_feature_list.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "testing/gmock/include/gmock/gmock-matchers.h"
 #endif
 
@@ -70,7 +71,7 @@ const char kDefaultCharsetPrefName[] = "default_charset";
 const char kNonDefaultCharsetValue[] = "foo";
 const char kDefaultCharsetValue[] = "utf-8";
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 constexpr ModelTypeSet kAllPreferenceModelTypes(
     syncer::PREFERENCES,
     syncer::PRIORITY_PREFERENCES,
@@ -81,24 +82,23 @@ MATCHER_P(MatchesModelType, model_type, "") {
   const syncer::SyncChange& sync_change = arg;
   return Matches(model_type)(sync_change.sync_data().GetDataType());
 }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 class TestSyncProcessorStub : public syncer::SyncChangeProcessor {
  public:
   explicit TestSyncProcessorStub(syncer::SyncChangeList* output)
       : output_(output), fail_next_(false) {}
 
-  syncer::SyncError ProcessSyncChanges(
+  base::Optional<syncer::ModelError> ProcessSyncChanges(
       const base::Location& from_here,
       const syncer::SyncChangeList& change_list) override {
     if (output_)
       output_->insert(output_->end(), change_list.begin(), change_list.end());
     if (fail_next_) {
       fail_next_ = false;
-      return syncer::SyncError(FROM_HERE, syncer::SyncError::DATATYPE_ERROR,
-                               "Error", syncer::PREFERENCES);
+      return syncer::ModelError(FROM_HERE, "Error");
     }
-    return syncer::SyncError();
+    return base::nullopt;
   }
 
   void FailNextProcessSyncChanges() { fail_next_ = true; }
@@ -122,40 +122,65 @@ class TestSyncedPrefObserver : public SyncedPrefObserver {
     changed_count_++;
   }
 
+  void OnStartedSyncing(const std::string& path) override {
+    synced_pref_ = path;
+    sync_started_count_++;
+  }
+
   std::string last_pref_;
   int changed_count_ = 0;
+
+  std::string synced_pref_;
+  int sync_started_count_ = 0;
 };
 
-syncer::SyncChange MakeRemoteChange(int64_t id,
-                                    const std::string& name,
+class TestPrefServiceSyncableObserver : public PrefServiceSyncableObserver {
+ public:
+  TestPrefServiceSyncableObserver() = default;
+  ~TestPrefServiceSyncableObserver() override = default;
+
+  void OnIsSyncingChanged() override {
+    if (sync_pref_observer_ && sync_pref_observer_->sync_started_count_ > 0)
+      is_syncing_changed_ = true;
+  }
+
+  void SetSyncedPrefObserver(const TestSyncedPrefObserver* sync_pref_observer) {
+    sync_pref_observer_ = sync_pref_observer;
+  }
+
+  bool is_syncing_changed() { return is_syncing_changed_; }
+
+ private:
+  bool is_syncing_changed_ = false;
+  const TestSyncedPrefObserver* sync_pref_observer_ = nullptr;
+};
+
+syncer::SyncChange MakeRemoteChange(const std::string& name,
                                     const base::Value& value,
                                     SyncChange::SyncChangeType change_type,
                                     syncer::ModelType model_type) {
   std::string serialized;
   JSONStringValueSerializer json(&serialized);
-  if (!json.Serialize(value))
-    return syncer::SyncChange();
+  bool success = json.Serialize(value);
+  DCHECK(success);
   sync_pb::EntitySpecifics entity;
   sync_pb::PreferenceSpecifics* pref =
       PrefModelAssociator::GetMutableSpecifics(model_type, &entity);
   pref->set_name(name);
   pref->set_value(serialized);
   return syncer::SyncChange(FROM_HERE, change_type,
-                            syncer::SyncData::CreateRemoteData(id, entity));
+                            syncer::SyncData::CreateRemoteData(entity));
 }
 
 // Creates a SyncChange for model type |PREFERENCES|.
-syncer::SyncChange MakeRemoteChange(int64_t id,
-                                    const std::string& name,
+syncer::SyncChange MakeRemoteChange(const std::string& name,
                                     const base::Value& value,
                                     SyncChange::SyncChangeType type) {
-  return MakeRemoteChange(id, name, value, type,
-                          syncer::ModelType::PREFERENCES);
+  return MakeRemoteChange(name, value, type, syncer::ModelType::PREFERENCES);
 }
 
 // Creates SyncData for a remote pref change.
-SyncData CreateRemoteSyncData(int64_t id,
-                              const std::string& name,
+SyncData CreateRemoteSyncData(const std::string& name,
                               const base::Value& value) {
   std::string serialized;
   JSONStringValueSerializer json(&serialized);
@@ -164,14 +189,12 @@ SyncData CreateRemoteSyncData(int64_t id,
   sync_pb::PreferenceSpecifics* pref_one = one.mutable_preference();
   pref_one->set_name(name);
   pref_one->set_value(serialized);
-  return SyncData::CreateRemoteData(id, one);
+  return SyncData::CreateRemoteData(one);
 }
 
 class PrefServiceSyncableTest : public testing::Test {
  public:
-  PrefServiceSyncableTest()
-      : pref_sync_service_(nullptr),
-        next_pref_remote_sync_node_id_(0) {}
+  PrefServiceSyncableTest() : pref_sync_service_(nullptr) {}
 
   void SetUp() override {
     prefs_.registry()->RegisterStringPref(kUnsyncedPreferenceName,
@@ -193,17 +216,17 @@ class PrefServiceSyncableTest : public testing::Test {
   void AddToRemoteDataList(const std::string& name,
                            const base::Value& value,
                            syncer::SyncDataList* out) {
-    out->push_back(
-        CreateRemoteSyncData(++next_pref_remote_sync_node_id_, name, value));
+    out->push_back(CreateRemoteSyncData(name, value));
   }
 
   void InitWithSyncDataTakeOutput(const syncer::SyncDataList& initial_data,
                                   syncer::SyncChangeList* output) {
-    syncer::SyncMergeResult r = pref_sync_service_->MergeDataAndStartSyncing(
-        syncer::PREFERENCES, initial_data,
-        std::make_unique<TestSyncProcessorStub>(output),
-        std::make_unique<syncer::SyncErrorFactoryMock>());
-    EXPECT_FALSE(r.error().IsSet());
+    base::Optional<syncer::ModelError> error =
+        pref_sync_service_->MergeDataAndStartSyncing(
+            syncer::PREFERENCES, initial_data,
+            std::make_unique<TestSyncProcessorStub>(output),
+            std::make_unique<syncer::SyncErrorFactoryMock>());
+    EXPECT_FALSE(error.has_value());
   }
 
   void InitWithNoSyncData() {
@@ -220,7 +243,8 @@ class PrefServiceSyncableTest : public testing::Test {
                                          const syncer::SyncChangeList& list) {
     auto it = list.begin();
     for (; it != list.end(); ++it) {
-      if (syncer::SyncDataLocal(it->sync_data()).GetTag() == name) {
+      if (it->sync_data().GetClientTagHash() ==
+          syncer::ClientTagHash::FromUnhashed(syncer::PREFERENCES, name)) {
         return base::JSONReader::ReadDeprecated(
             it->sync_data().GetSpecifics().preference().value());
       }
@@ -239,8 +263,6 @@ class PrefServiceSyncableTest : public testing::Test {
   TestingPrefServiceSyncable prefs_;
 
   PrefModelAssociator* pref_sync_service_;
-
-  int next_pref_remote_sync_node_id_;
 };
 
 TEST_F(PrefServiceSyncableTest, CreatePrefSyncData) {
@@ -250,8 +272,9 @@ TEST_F(PrefServiceSyncableTest, CreatePrefSyncData) {
   syncer::SyncData sync_data;
   EXPECT_TRUE(pref_sync_service_->CreatePrefSyncData(
       pref->name(), *pref->GetValue(), &sync_data));
-  EXPECT_EQ(std::string(kStringPrefName),
-            syncer::SyncDataLocal(sync_data).GetTag());
+  EXPECT_EQ(
+      syncer::ClientTagHash::FromUnhashed(syncer::PREFERENCES, kStringPrefName),
+      sync_data.GetClientTagHash());
   const sync_pb::PreferenceSpecifics& specifics(
       sync_data.GetSpecifics().preference());
   EXPECT_EQ(std::string(kStringPrefName), specifics.name());
@@ -326,7 +349,6 @@ TEST_F(PrefServiceSyncableTest, ModelAssociationCloudHasData) {
 // Verifies that the implementation gracefully handles an initial remote sync
 // data of wrong type. The local version should not get modified in these cases.
 TEST_F(PrefServiceSyncableTest, ModelAssociationWithDataTypeMismatch) {
-  base::HistogramTester histogram_tester;
   prefs_.SetString(kStringPrefName, kExampleUrl0);
 
   syncer::SyncDataList in;
@@ -335,8 +357,6 @@ TEST_F(PrefServiceSyncableTest, ModelAssociationWithDataTypeMismatch) {
   syncer::SyncChangeList out;
   InitWithSyncDataTakeOutput(in, &out);
   EXPECT_THAT(out, IsEmpty());
-  histogram_tester.ExpectBucketCount("Sync.Preferences.RemotePrefTypeMismatch",
-                                     true, 1);
   EXPECT_THAT(prefs_.GetString(kStringPrefName), Eq(kExampleUrl0));
 }
 
@@ -352,7 +372,7 @@ class TestPrefModelAssociatorClient : public PrefModelAssociatorClient {
 
   bool IsMergeableDictionaryPreference(
       const std::string& pref_name) const override {
-    return true;
+    return is_dict_pref_;
   }
 
   std::unique_ptr<base::Value> MaybeMergePreferenceValues(
@@ -362,7 +382,11 @@ class TestPrefModelAssociatorClient : public PrefModelAssociatorClient {
     return nullptr;
   }
 
+  void SetIsDictPref(bool is_dict_pref) { is_dict_pref_ = is_dict_pref; }
+
  private:
+  bool is_dict_pref_ = true;
+
   DISALLOW_COPY_AND_ASSIGN(TestPrefModelAssociatorClient);
 };
 
@@ -389,8 +413,7 @@ class PrefServiceSyncableMergeTest : public testing::Test {
             &client_,
             /*read_error_callback=*/base::DoNothing(),
             /*async=*/false),
-        pref_sync_service_(nullptr),
-        next_pref_remote_sync_node_id_(0) {}
+        pref_sync_service_(nullptr) {}
 
   void SetUp() override {
     pref_registry_->RegisterStringPref(kUnsyncedPreferenceName,
@@ -411,8 +434,7 @@ class PrefServiceSyncableMergeTest : public testing::Test {
     ASSERT_THAT(pref_sync_service_, NotNull());
   }
 
-  syncer::SyncChange MakeRemoteChange(int64_t id,
-                                      const std::string& name,
+  syncer::SyncChange MakeRemoteChange(const std::string& name,
                                       const base::Value& value,
                                       SyncChange::SyncChangeType type) {
     std::string serialized;
@@ -423,7 +445,7 @@ class PrefServiceSyncableMergeTest : public testing::Test {
     pref_one->set_name(name);
     pref_one->set_value(serialized);
     return syncer::SyncChange(FROM_HERE, type,
-                              syncer::SyncData::CreateRemoteData(id, entity));
+                              syncer::SyncData::CreateRemoteData(entity));
   }
 
   void AddToRemoteDataList(const std::string& name,
@@ -436,17 +458,17 @@ class PrefServiceSyncableMergeTest : public testing::Test {
     sync_pb::PreferenceSpecifics* pref_one = one.mutable_preference();
     pref_one->set_name(name);
     pref_one->set_value(serialized);
-    out->push_back(
-        SyncData::CreateRemoteData(++next_pref_remote_sync_node_id_, one));
+    out->push_back(SyncData::CreateRemoteData(one));
   }
 
   void InitWithSyncDataTakeOutput(const syncer::SyncDataList& initial_data,
                                   syncer::SyncChangeList* output) {
-    syncer::SyncMergeResult r = pref_sync_service_->MergeDataAndStartSyncing(
-        syncer::PREFERENCES, initial_data,
-        std::make_unique<TestSyncProcessorStub>(output),
-        std::make_unique<syncer::SyncErrorFactoryMock>());
-    EXPECT_FALSE(r.error().IsSet());
+    base::Optional<syncer::ModelError> error =
+        pref_sync_service_->MergeDataAndStartSyncing(
+            syncer::PREFERENCES, initial_data,
+            std::make_unique<TestSyncProcessorStub>(output),
+            std::make_unique<syncer::SyncErrorFactoryMock>());
+    EXPECT_FALSE(error.has_value());
   }
 
   const base::Value& GetPreferenceValue(const std::string& name) {
@@ -459,7 +481,8 @@ class PrefServiceSyncableMergeTest : public testing::Test {
                                          const syncer::SyncChangeList& list) {
     auto it = list.begin();
     for (; it != list.end(); ++it) {
-      if (syncer::SyncDataLocal(it->sync_data()).GetTag() == name) {
+      if (it->sync_data().GetClientTagHash() ==
+          syncer::ClientTagHash::FromUnhashed(syncer::PREFERENCES, name)) {
         return base::JSONReader::ReadDeprecated(
             it->sync_data().GetSpecifics().preference().value());
       }
@@ -476,7 +499,6 @@ class PrefServiceSyncableMergeTest : public testing::Test {
   TestPrefModelAssociatorClient client_;
   PrefServiceSyncable prefs_;
   PrefModelAssociator* pref_sync_service_;
-  int next_pref_remote_sync_node_id_;
 };
 
 TEST_F(PrefServiceSyncableMergeTest, ShouldMergeSelectedListValues) {
@@ -546,8 +568,8 @@ TEST_F(PrefServiceSyncableMergeTest, ManagedListPreferences) {
   base::ListValue sync_value;
   sync_value.AppendString("http://crbug.com");
   syncer::SyncChangeList list;
-  list.push_back(MakeRemoteChange(1, kListPrefName, sync_value,
-                                  SyncChange::ACTION_UPDATE));
+  list.push_back(
+      MakeRemoteChange(kListPrefName, sync_value, SyncChange::ACTION_UPDATE));
   pref_sync_service_->ProcessSyncChanges(FROM_HERE, list);
 
   const base::Value* managed_prefs_result;
@@ -614,7 +636,6 @@ class ShouldNotBeNotifedObserver : public SyncedPrefObserver {
 };
 
 TEST_F(PrefServiceSyncableMergeTest, RegisterShouldClearTypeMismatchingData) {
-  base::HistogramTester histogram_tester;
   const std::string pref_name = "testing.pref";
   user_prefs_->SetString(pref_name, "string_value");
   ASSERT_TRUE(user_prefs_->GetValue(pref_name, nullptr));
@@ -630,8 +651,6 @@ TEST_F(PrefServiceSyncableMergeTest, RegisterShouldClearTypeMismatchingData) {
   EXPECT_TRUE(GetPreferenceValue(pref_name).GetList().empty());
   EXPECT_FALSE(user_prefs_->GetValue(pref_name, nullptr));
 
-  histogram_tester.ExpectBucketCount(
-      "Sync.Preferences.ClearedLocalPrefOnTypeMismatch", true, 1);
   prefs_.RemoveSyncedPrefObserver(pref_name, &observer);
 }
 
@@ -647,7 +666,7 @@ TEST_F(PrefServiceSyncableMergeTest, ShouldIgnoreUpdatesToNotSyncablePrefs) {
 
   syncer::SyncChangeList remote_changes;
   remote_changes.push_back(MakeRemoteChange(
-      1, pref_name, base::Value("remote_value2"), SyncChange::ACTION_UPDATE));
+      pref_name, base::Value("remote_value2"), SyncChange::ACTION_UPDATE));
   pref_sync_service_->ProcessSyncChanges(FROM_HERE, remote_changes);
   // The pref isn't synced.
   EXPECT_THAT(pref_sync_service_->GetAllSyncDataForTesting(syncer::PREFERENCES),
@@ -659,10 +678,11 @@ TEST_F(PrefServiceSyncableTest, FailModelAssociation) {
   syncer::SyncChangeList output;
   TestSyncProcessorStub* stub = new TestSyncProcessorStub(&output);
   stub->FailNextProcessSyncChanges();
-  syncer::SyncMergeResult r = pref_sync_service_->MergeDataAndStartSyncing(
-      syncer::PREFERENCES, syncer::SyncDataList(), base::WrapUnique(stub),
-      std::make_unique<syncer::SyncErrorFactoryMock>());
-  EXPECT_TRUE(r.error().IsSet());
+  base::Optional<syncer::ModelError> error =
+      pref_sync_service_->MergeDataAndStartSyncing(
+          syncer::PREFERENCES, syncer::SyncDataList(), base::WrapUnique(stub),
+          std::make_unique<syncer::SyncErrorFactoryMock>());
+  EXPECT_TRUE(error.has_value());
 }
 
 TEST_F(PrefServiceSyncableTest, UpdatedPreferenceWithDefaultValue) {
@@ -701,8 +721,8 @@ TEST_F(PrefServiceSyncableTest, UpdatedSyncNodeActionUpdate) {
 
   base::Value expected(kExampleUrl1);
   syncer::SyncChangeList list;
-  list.push_back(MakeRemoteChange(1, kStringPrefName, expected,
-                                  SyncChange::ACTION_UPDATE));
+  list.push_back(
+      MakeRemoteChange(kStringPrefName, expected, SyncChange::ACTION_UPDATE));
   pref_sync_service_->ProcessSyncChanges(FROM_HERE, list);
 
   const base::Value& actual = GetPreferenceValue(kStringPrefName);
@@ -712,19 +732,16 @@ TEST_F(PrefServiceSyncableTest, UpdatedSyncNodeActionUpdate) {
 // Verifies that the implementation gracefully handles a remote update with the
 // wrong type. The local version should not get modified in these cases.
 TEST_F(PrefServiceSyncableTest, UpdatedSyncNodeActionUpdateTypeMismatch) {
-  base::HistogramTester histogram_tester;
   GetPrefs()->SetString(kStringPrefName, kExampleUrl0);
   InitWithNoSyncData();
 
   base::Value remote_int_value(123);
   syncer::SyncChangeList remote_changes;
-  remote_changes.push_back(MakeRemoteChange(
-      1, kStringPrefName, remote_int_value, SyncChange::ACTION_UPDATE));
+  remote_changes.push_back(MakeRemoteChange(kStringPrefName, remote_int_value,
+                                            SyncChange::ACTION_UPDATE));
   pref_sync_service_->ProcessSyncChanges(FROM_HERE, remote_changes);
 
   EXPECT_THAT(prefs_.GetString(kStringPrefName), Eq(kExampleUrl0));
-  histogram_tester.ExpectBucketCount("Sync.Preferences.RemotePrefTypeMismatch",
-                                     true, 1);
 }
 
 TEST_F(PrefServiceSyncableTest, UpdatedSyncNodeActionAdd) {
@@ -733,7 +750,7 @@ TEST_F(PrefServiceSyncableTest, UpdatedSyncNodeActionAdd) {
   base::Value expected(kExampleUrl0);
   syncer::SyncChangeList list;
   list.push_back(
-      MakeRemoteChange(1, kStringPrefName, expected, SyncChange::ACTION_ADD));
+      MakeRemoteChange(kStringPrefName, expected, SyncChange::ACTION_ADD));
   pref_sync_service_->ProcessSyncChanges(FROM_HERE, list);
 
   const base::Value& actual = GetPreferenceValue(kStringPrefName);
@@ -745,7 +762,7 @@ TEST_F(PrefServiceSyncableTest, UpdatedSyncNodeUnknownPreference) {
   InitWithNoSyncData();
   syncer::SyncChangeList list;
   base::Value expected(kExampleUrl0);
-  list.push_back(MakeRemoteChange(1, "unknown preference", expected,
+  list.push_back(MakeRemoteChange("unknown preference", expected,
                                   SyncChange::ACTION_UPDATE));
   pref_sync_service_->ProcessSyncChanges(FROM_HERE, list);
   // Nothing interesting happens on the client when it gets an update
@@ -770,8 +787,8 @@ TEST_F(PrefServiceSyncableTest, ManagedPreferences) {
   // value.
   base::Value sync_value("http://crbug.com");
   syncer::SyncChangeList list;
-  list.push_back(MakeRemoteChange(1, kStringPrefName, sync_value,
-                                  SyncChange::ACTION_UPDATE));
+  list.push_back(
+      MakeRemoteChange(kStringPrefName, sync_value, SyncChange::ACTION_UPDATE));
   pref_sync_service_->ProcessSyncChanges(FROM_HERE, list);
 
   EXPECT_TRUE(managed_value.Equals(prefs_.GetManagedPref(kStringPrefName)));
@@ -821,8 +838,8 @@ TEST_F(PrefServiceSyncableTest, DynamicManagedPreferencesWithSyncChange) {
   // Change the sync value.
   base::Value sync_value("http://example.com/sync");
   syncer::SyncChangeList list;
-  list.push_back(MakeRemoteChange(1, kStringPrefName, sync_value,
-                                  SyncChange::ACTION_UPDATE));
+  list.push_back(
+      MakeRemoteChange(kStringPrefName, sync_value, SyncChange::ACTION_UPDATE));
   pref_sync_service_->ProcessSyncChanges(FROM_HERE, list);
 
   // The pref value should still be the one dictated by policy.
@@ -872,13 +889,13 @@ TEST_F(PrefServiceSyncableTest, DeletePreference) {
 
   auto null_value = std::make_unique<base::Value>();
   syncer::SyncChangeList list;
-  list.push_back(MakeRemoteChange(1, kStringPrefName, *null_value,
+  list.push_back(MakeRemoteChange(kStringPrefName, *null_value,
                                   SyncChange::ACTION_DELETE));
   pref_sync_service_->ProcessSyncChanges(FROM_HERE, list);
   EXPECT_TRUE(pref->IsDefaultValue());
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 // The Chrome OS tests exercise pref model association that happens in the
 // constructor of PrefServiceSyncable. The tests must register prefs first,
 // then create the PrefServiceSyncable object. The tests live in this file
@@ -903,6 +920,7 @@ class PrefServiceSyncableChromeOsTest : public testing::Test {
     pref_registry_->RegisterStringPref(
         "os_priority_pref", std::string(),
         PrefRegistrySyncable::SYNCABLE_OS_PRIORITY_PREF);
+    client_.SetIsDictPref(false);
 
     // Create the PrefServiceSyncable after prefs are registered, which is the
     // order used in production.
@@ -917,14 +935,19 @@ class PrefServiceSyncableChromeOsTest : public testing::Test {
         /*async=*/false);
   }
 
+  void InitSyncForType(ModelType type,
+                       syncer::SyncChangeList* output = nullptr) {
+    syncer::SyncDataList empty_data;
+    base::Optional<syncer::ModelError> error =
+        prefs_->GetSyncableService(type)->MergeDataAndStartSyncing(
+            type, empty_data, std::make_unique<TestSyncProcessorStub>(output),
+            std::make_unique<syncer::SyncErrorFactoryMock>());
+    EXPECT_FALSE(error.has_value());
+  }
+
   void InitSyncForAllTypes(syncer::SyncChangeList* output = nullptr) {
     for (ModelType type : kAllPreferenceModelTypes) {
-      syncer::SyncDataList empty_data;
-      syncer::SyncMergeResult r =
-          prefs_->GetSyncableService(type)->MergeDataAndStartSyncing(
-              type, empty_data, std::make_unique<TestSyncProcessorStub>(output),
-              std::make_unique<syncer::SyncErrorFactoryMock>());
-      EXPECT_FALSE(r.error().IsSet());
+      InitSyncForType(type, output);
     }
   }
 
@@ -937,6 +960,20 @@ class PrefServiceSyncableChromeOsTest : public testing::Test {
       }
     }
     return registered_types;
+  }
+
+  SyncData MakeRemoteSyncData(const std::string& name,
+                              const base::Value& value,
+                              syncer::ModelType model_type) {
+    std::string serialized;
+    JSONStringValueSerializer json(&serialized);
+    EXPECT_TRUE(json.Serialize(value));
+    sync_pb::EntitySpecifics entity;
+    sync_pb::PreferenceSpecifics* pref =
+        PrefModelAssociator::GetMutableSpecifics(model_type, &entity);
+    pref->set_name(name);
+    pref->set_value(serialized);
+    return SyncData::CreateRemoteData(entity);
   }
 
  protected:
@@ -991,11 +1028,41 @@ TEST_F(PrefServiceSyncableChromeOsTest, IsPrefRegistered_SplitEnabled) {
 TEST_F(PrefServiceSyncableChromeOsTest, IsSyncing) {
   feature_list_.InitAndEnableFeature(chromeos::features::kSplitSettingsSync);
   CreatePrefService();
+  InitSyncForType(syncer::PREFERENCES);
+  EXPECT_TRUE(prefs_->IsSyncing());
+  EXPECT_FALSE(prefs_->IsPrioritySyncing());
+  EXPECT_FALSE(prefs_->AreOsPrefsSyncing());
+  EXPECT_FALSE(prefs_->AreOsPriorityPrefsSyncing());
+}
+
+TEST_F(PrefServiceSyncableChromeOsTest, IsPrioritySyncing) {
+  feature_list_.InitAndEnableFeature(chromeos::features::kSplitSettingsSync);
+  CreatePrefService();
+  InitSyncForType(syncer::PRIORITY_PREFERENCES);
+  EXPECT_FALSE(prefs_->IsSyncing());
+  EXPECT_TRUE(prefs_->IsPrioritySyncing());
+  EXPECT_FALSE(prefs_->AreOsPrefsSyncing());
+  EXPECT_FALSE(prefs_->AreOsPriorityPrefsSyncing());
+}
+
+TEST_F(PrefServiceSyncableChromeOsTest, AreOsPrefsSyncing) {
+  feature_list_.InitAndEnableFeature(chromeos::features::kSplitSettingsSync);
+  CreatePrefService();
+  InitSyncForType(syncer::OS_PREFERENCES);
   EXPECT_FALSE(prefs_->IsSyncing());
   EXPECT_FALSE(prefs_->IsPrioritySyncing());
-  InitSyncForAllTypes();
-  EXPECT_TRUE(prefs_->IsSyncing());
-  EXPECT_TRUE(prefs_->IsPrioritySyncing());
+  EXPECT_TRUE(prefs_->AreOsPrefsSyncing());
+  EXPECT_FALSE(prefs_->AreOsPriorityPrefsSyncing());
+}
+
+TEST_F(PrefServiceSyncableChromeOsTest, AreOsPriorityPrefsSyncing) {
+  feature_list_.InitAndEnableFeature(chromeos::features::kSplitSettingsSync);
+  CreatePrefService();
+  InitSyncForType(syncer::OS_PRIORITY_PREFERENCES);
+  EXPECT_FALSE(prefs_->IsSyncing());
+  EXPECT_FALSE(prefs_->IsPrioritySyncing());
+  EXPECT_FALSE(prefs_->AreOsPrefsSyncing());
+  EXPECT_TRUE(prefs_->AreOsPriorityPrefsSyncing());
 }
 
 TEST_F(PrefServiceSyncableChromeOsTest, IsPrefSynced_OsPref) {
@@ -1007,7 +1074,7 @@ TEST_F(PrefServiceSyncableChromeOsTest, IsPrefSynced_OsPref) {
   EXPECT_FALSE(associator->IsPrefSyncedForTesting("os_pref"));
 
   syncer::SyncChangeList list;
-  list.push_back(MakeRemoteChange(1, "os_pref", base::Value("value"),
+  list.push_back(MakeRemoteChange("os_pref", base::Value("value"),
                                   SyncChange::ACTION_ADD,
                                   syncer::OS_PREFERENCES));
   associator->ProcessSyncChanges(FROM_HERE, list);
@@ -1023,7 +1090,7 @@ TEST_F(PrefServiceSyncableChromeOsTest, IsPrefSynced_OsPriorityPref) {
   EXPECT_FALSE(associator->IsPrefSyncedForTesting("os_priority_pref"));
 
   syncer::SyncChangeList list;
-  list.push_back(MakeRemoteChange(1, "os_priority_pref", base::Value("value"),
+  list.push_back(MakeRemoteChange("os_priority_pref", base::Value("value"),
                                   SyncChange::ACTION_ADD,
                                   syncer::OS_PRIORITY_PREFERENCES));
   associator->ProcessSyncChanges(FROM_HERE, list);
@@ -1127,7 +1194,7 @@ TEST_F(PrefServiceSyncableChromeOsTest,
   // Simulate an old client that has "os_pref" registered as SYNCABLE_PREF
   // instead of SYNCABLE_OS_PREF.
   syncer::SyncDataList list;
-  list.push_back(CreateRemoteSyncData(1, "os_pref", base::Value("new_value")));
+  list.push_back(CreateRemoteSyncData("os_pref", base::Value("new_value")));
 
   // Simulate the first sync at startup of the legacy browser prefs ModelType.
   auto* browser_associator = static_cast<PrefModelAssociator*>(
@@ -1165,7 +1232,7 @@ TEST_F(PrefServiceSyncableChromeOsTest,
   syncer::SyncChangeList list;
   // Simulate an old client that has "os_pref" registered as SYNCABLE_PREF
   // instead of SYNCABLE_OS_PREF.
-  list.push_back(MakeRemoteChange(1, "os_pref", base::Value("new_value"),
+  list.push_back(MakeRemoteChange("os_pref", base::Value("new_value"),
                                   SyncChange::ACTION_ADD, syncer::PREFERENCES));
 
   // Simulate a sync update after startup.
@@ -1180,7 +1247,98 @@ TEST_F(PrefServiceSyncableChromeOsTest,
 
   prefs_->RemoveSyncedPrefObserver("os_pref", &observer);
 }
-#endif  // defined(OS_CHROMEOS)
+
+TEST_F(PrefServiceSyncableChromeOsTest,
+       SyncedPrefObserver_OsPrefIsChangedFromSync) {
+  feature_list_.InitAndEnableFeature(chromeos::features::kSplitSettingsSync);
+  CreatePrefService();
+  prefs_->SetString("os_pref", "default_value");
+
+  TestSyncedPrefObserver observer;
+  prefs_->AddSyncedPrefObserver("os_pref", &observer);
+
+  TestPrefServiceSyncableObserver pref_service_sync_observer;
+  pref_service_sync_observer.SetSyncedPrefObserver(&observer);
+  prefs_->AddObserver(&pref_service_sync_observer);
+
+  // Simulate that "os_pref" is registered as SYNCABLE_PREF
+  syncer::SyncDataList list;
+  list.push_back(MakeRemoteSyncData("os_pref", base::Value("new_value"),
+                                    syncer::OS_PREFERENCES));
+
+  // Simulate the first sync at startup.
+  syncer::SyncChangeList outgoing_changes;
+  prefs_->GetSyncableService(syncer::OS_PREFERENCES)
+      ->MergeDataAndStartSyncing(
+          syncer::OS_PREFERENCES, list,
+          std::make_unique<TestSyncProcessorStub>(&outgoing_changes),
+          std::make_unique<syncer::SyncErrorFactoryMock>());
+
+  EXPECT_EQ("os_pref", observer.synced_pref_);
+  EXPECT_EQ(1, observer.sync_started_count_);
+  EXPECT_TRUE(pref_service_sync_observer.is_syncing_changed());
+
+  prefs_->RemoveObserver(&pref_service_sync_observer);
+  prefs_->RemoveSyncedPrefObserver("os_pref", &observer);
+}
+
+TEST_F(PrefServiceSyncableChromeOsTest,
+       SyncedPrefObserver_OsPrefIsNotChangedFromSync) {
+  feature_list_.InitAndEnableFeature(chromeos::features::kSplitSettingsSync);
+  CreatePrefService();
+  prefs_->SetString("os_pref", "default_value");
+
+  TestSyncedPrefObserver observer;
+  prefs_->AddSyncedPrefObserver("os_pref", &observer);
+
+  TestPrefServiceSyncableObserver pref_service_sync_observer;
+  pref_service_sync_observer.SetSyncedPrefObserver(&observer);
+  prefs_->AddObserver(&pref_service_sync_observer);
+
+  // Simulate that "os_pref" is registered as SYNCABLE_PREF
+  syncer::SyncDataList list;
+  list.push_back(MakeRemoteSyncData("os_pref", base::Value("new_value"),
+                                    syncer::OS_PREFERENCES));
+
+  // Simulate the first sync at startup.
+  syncer::SyncChangeList outgoing_changes;
+  prefs_->GetSyncableService(syncer::OS_PREFERENCES)
+      ->MergeDataAndStartSyncing(
+          syncer::OS_PREFERENCES, list,
+          std::make_unique<TestSyncProcessorStub>(&outgoing_changes),
+          std::make_unique<syncer::SyncErrorFactoryMock>());
+
+  EXPECT_EQ("os_pref", observer.synced_pref_);
+  EXPECT_EQ(1, observer.sync_started_count_);
+  EXPECT_TRUE(pref_service_sync_observer.is_syncing_changed());
+
+  prefs_->RemoveObserver(&pref_service_sync_observer);
+  prefs_->RemoveSyncedPrefObserver("os_pref", &observer);
+}
+
+TEST_F(PrefServiceSyncableChromeOsTest, SyncedPrefObserver_EmptyCloud) {
+  feature_list_.InitAndEnableFeature(chromeos::features::kSplitSettingsSync);
+  CreatePrefService();
+  prefs_->SetString("os_pref", "new_value");
+
+  TestSyncedPrefObserver observer;
+  prefs_->AddSyncedPrefObserver("os_pref", &observer);
+
+  // Simulate the first sync at startup.
+  syncer::SyncChangeList outgoing_changes;
+  prefs_->GetSyncableService(syncer::OS_PREFERENCES)
+      ->MergeDataAndStartSyncing(
+          syncer::OS_PREFERENCES, syncer::SyncDataList(),
+          std::make_unique<TestSyncProcessorStub>(&outgoing_changes),
+          std::make_unique<syncer::SyncErrorFactoryMock>());
+
+  EXPECT_EQ("", observer.synced_pref_);
+  EXPECT_EQ(0, observer.sync_started_count_);
+
+  prefs_->RemoveSyncedPrefObserver("os_pref", &observer);
+}
+
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 }  // namespace
 

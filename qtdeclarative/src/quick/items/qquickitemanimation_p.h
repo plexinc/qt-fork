@@ -58,7 +58,7 @@
 QT_BEGIN_NAMESPACE
 
 class QQuickParentAnimationPrivate;
-class Q_AUTOTEST_EXPORT QQuickParentAnimation : public QQuickAnimationGroup
+class Q_QUICK_PRIVATE_EXPORT QQuickParentAnimation : public QQuickAnimationGroup
 {
     Q_OBJECT
     Q_DECLARE_PRIVATE(QQuickParentAnimation)
@@ -67,6 +67,7 @@ class Q_AUTOTEST_EXPORT QQuickParentAnimation : public QQuickAnimationGroup
     Q_PROPERTY(QQuickItem *newParent READ newParent WRITE setNewParent NOTIFY newParentChanged)
     Q_PROPERTY(QQuickItem *via READ via WRITE setVia NOTIFY viaChanged)
     QML_NAMED_ELEMENT(ParentAnimation)
+    QML_ADDED_IN_VERSION(2, 0)
 
 public:
     QQuickParentAnimation(QObject *parent=nullptr);
@@ -94,7 +95,7 @@ protected:
 };
 
 class QQuickAnchorAnimationPrivate;
-class Q_AUTOTEST_EXPORT QQuickAnchorAnimation : public QQuickAbstractAnimation
+class Q_QUICK_PRIVATE_EXPORT QQuickAnchorAnimation : public QQuickAbstractAnimation
 {
     Q_OBJECT
     Q_DECLARE_PRIVATE(QQuickAnchorAnimation)
@@ -102,6 +103,7 @@ class Q_AUTOTEST_EXPORT QQuickAnchorAnimation : public QQuickAbstractAnimation
     Q_PROPERTY(int duration READ duration WRITE setDuration NOTIFY durationChanged)
     Q_PROPERTY(QEasingCurve easing READ easing WRITE setEasing NOTIFY easingChanged)
     QML_NAMED_ELEMENT(AnchorAnimation)
+    QML_ADDED_IN_VERSION(2, 0)
 
 public:
     QQuickAnchorAnimation(QObject *parent=nullptr);
@@ -131,7 +133,7 @@ protected:
 class QQuickItem;
 class QQuickPath;
 class QQuickPathAnimationPrivate;
-class Q_AUTOTEST_EXPORT QQuickPathAnimation : public QQuickAbstractAnimation
+class Q_QUICK_PRIVATE_EXPORT QQuickPathAnimation : public QQuickAbstractAnimation
 {
     Q_OBJECT
     Q_DECLARE_PRIVATE(QQuickPathAnimation)
@@ -146,6 +148,7 @@ class Q_AUTOTEST_EXPORT QQuickPathAnimation : public QQuickAbstractAnimation
     Q_PROPERTY(int orientationExitDuration READ orientationExitDuration WRITE setOrientationExitDuration NOTIFY orientationExitDurationChanged)
     Q_PROPERTY(qreal endRotation READ endRotation WRITE setEndRotation NOTIFY endRotationChanged)
     QML_NAMED_ELEMENT(PathAnimation)
+    QML_ADDED_IN_VERSION(2, 0)
 
 public:
     QQuickPathAnimation(QObject *parent=nullptr);

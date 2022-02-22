@@ -8,6 +8,7 @@
 #include "base/files/file_util.h"
 #include "base/process/launch.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 
 #if defined(OS_ANDROID)
 #include "base/android/jni_android.h"
@@ -24,14 +25,14 @@
 
 namespace security_interstitials {
 
-#if !defined(OS_CHROMEOS) && !defined(OS_FUCHSIA)
+#if !BUILDFLAG(IS_CHROMEOS_ASH) && !defined(OS_FUCHSIA)
 void LaunchDateAndTimeSettings() {
 // The code for each OS is completely separate, in order to avoid bugs like
 // https://crbug.com/430877 .
 #if defined(OS_ANDROID)
   JNIEnv* env = base::android::AttachCurrentThread();
   Java_DateAndTimeSettingsHelper_openDateAndTimeSettings(env);
-#elif defined(OS_LINUX)
+#elif defined(OS_LINUX) || defined(OS_CHROMEOS)
   struct ClockCommand {
     const char* const pathname;
     const char* const argument;
@@ -71,7 +72,7 @@ void LaunchDateAndTimeSettings() {
   options.allow_new_privs = true;
   base::LaunchProcess(command, options);
 
-#elif defined(OS_MACOSX)
+#elif defined(OS_APPLE)
   base::CommandLine command(base::FilePath("/usr/bin/open"));
   command.AppendArg("/System/Library/PreferencePanes/DateAndTime.prefPane");
 
@@ -82,8 +83,8 @@ void LaunchDateAndTimeSettings() {
 #elif defined(OS_WIN)
   base::FilePath path;
   base::PathService::Get(base::DIR_SYSTEM, &path);
-  static const base::char16 kControlPanelExe[] = L"control.exe";
-  path = path.Append(base::string16(kControlPanelExe));
+  static const wchar_t kControlPanelExe[] = L"control.exe";
+  path = path.Append(std::wstring(kControlPanelExe));
   base::CommandLine command(path);
   command.AppendArg(std::string("/name"));
   command.AppendArg(std::string("Microsoft.DateAndTime"));

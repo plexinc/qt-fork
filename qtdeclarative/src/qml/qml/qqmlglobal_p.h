@@ -55,6 +55,7 @@
 #include <QtCore/QObject>
 #include <private/qqmlmetaobject_p.h>
 #include <private/qmetaobject_p.h>
+#include <QtQml/qqml.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -219,52 +220,14 @@ inline void QQml_setParent_noEvent(QObject *object, QObject *parent)
 class Q_QML_PRIVATE_EXPORT QQmlValueTypeProvider
 {
 public:
-    QQmlValueTypeProvider();
-    virtual ~QQmlValueTypeProvider();
-
-    const QMetaObject *metaObjectForMetaType(int);
-
     bool initValueType(int, QVariant&);
-
-    QVariant createValueType(int, int, const void *[]);
-    bool createValueFromString(int, const QString &, void *, size_t);
-    bool createStringFromValue(int, const void *, QString *);
-
-    QVariant createVariantFromString(const QString &);
-    QVariant createVariantFromString(int, const QString &, bool *);
-    QVariant createVariantFromJsObject(int, const QV4::Value &, QV4::ExecutionEngine *, bool *);
-
+    bool createValueType(int, const QJSValue &, QVariant &);
     bool equalValueType(int, const void *, const QVariant&);
-    bool storeValueType(int, const void *, void *, size_t);
     bool readValueType(const QVariant&, void *, int);
     bool writeValueType(int, const void *, QVariant&);
-
-private:
-    virtual const QMetaObject *getMetaObjectForMetaType(int);
-    virtual bool init(int, QVariant&);
-
-    virtual bool create(int, int, const void *[], QVariant *);
-    virtual bool createFromString(int, const QString &, void *, size_t);
-    virtual bool createStringFrom(int, const void *, QString *);
-
-    virtual bool variantFromString(const QString &, QVariant *);
-    virtual bool variantFromString(int, const QString &, QVariant *);
-    virtual bool variantFromJsObject(int, const QV4::Value &, QV4::ExecutionEngine *, QVariant *);
-
-    virtual bool equal(int, const void *, const QVariant&);
-    virtual bool store(int, const void *, void *, size_t);
-    virtual bool read(const QVariant&, void *, int);
-    virtual bool write(int, const void *, QVariant&);
-
-    friend Q_QML_PRIVATE_EXPORT void QQml_addValueTypeProvider(QQmlValueTypeProvider *);
-    friend Q_QML_PRIVATE_EXPORT void QQml_removeValueTypeProvider(QQmlValueTypeProvider *);
-
-    QQmlValueTypeProvider *next;
 };
 
-Q_QML_PRIVATE_EXPORT void QQml_addValueTypeProvider(QQmlValueTypeProvider *);
 Q_AUTOTEST_EXPORT QQmlValueTypeProvider *QQml_valueTypeProvider();
-
 
 class Q_QML_PRIVATE_EXPORT QQmlColorProvider
 {
@@ -278,22 +241,23 @@ public:
     virtual QVariant fromHsvF(double, double, double, double);
     virtual QVariant lighter(const QVariant &, qreal);
     virtual QVariant darker(const QVariant &, qreal);
+    virtual QVariant alpha(const QVariant &, qreal);
     virtual QVariant tint(const QVariant &, const QVariant &);
 };
 
 Q_QML_PRIVATE_EXPORT QQmlColorProvider *QQml_setColorProvider(QQmlColorProvider *);
 Q_QML_PRIVATE_EXPORT QQmlColorProvider *QQml_colorProvider();
 
-
+class QQmlApplication;
 class Q_QML_PRIVATE_EXPORT QQmlGuiProvider
 {
 public:
     virtual ~QQmlGuiProvider();
-    virtual QObject *application(QObject *parent);
+    virtual QQmlApplication *application(QObject *parent);
     virtual QObject *inputMethod();
     virtual QObject *styleHints();
     virtual QStringList fontFamilies();
-    virtual bool openUrlExternally(QUrl &);
+    virtual bool openUrlExternally(const QUrl &);
     virtual QString pluginName() const;
 };
 
@@ -311,6 +275,8 @@ class Q_QML_PRIVATE_EXPORT QQmlApplication : public QObject
     Q_PROPERTY(QString version READ version WRITE setVersion NOTIFY versionChanged)
     Q_PROPERTY(QString organization READ organization WRITE setOrganization NOTIFY organizationChanged)
     Q_PROPERTY(QString domain READ domain WRITE setDomain NOTIFY domainChanged)
+    QML_ANONYMOUS
+    QML_ADDED_IN_VERSION(2, 0)
 public:
     QQmlApplication(QObject* parent=nullptr);
 

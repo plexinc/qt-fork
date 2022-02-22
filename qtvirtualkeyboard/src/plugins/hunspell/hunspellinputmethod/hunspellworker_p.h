@@ -46,13 +46,14 @@
 #include <QMutex>
 #include <QStringList>
 #include <QSharedPointer>
-#include <QVector>
+#include <QList>
 #include <QLoggingCategory>
+#include <QStringDecoder>
+#include <QStringEncoder>
 #include <hunspell/hunspell.h>
 #include <QtHunspellInputMethod/qhunspellinputmethod_global.h>
 
 QT_BEGIN_NAMESPACE
-class QTextCodec;
 
 namespace QtVirtualKeyboard {
 
@@ -109,8 +110,8 @@ private:
 private:
     QMutex _lock;
     QStringList _list;
-    QVector<Flags> _flags;
-    QVector<int> _searchIndex;
+    QList<Flags> _flags;
+    QList<int> _searchIndex;
     int _index;
     int _limit;
 };
@@ -149,7 +150,6 @@ public:
 class HunspellBuildSuggestionsTask : public HunspellTask
 {
     Q_OBJECT
-    const QTextCodec *textCodec;
 public:
     QSharedPointer<HunspellWordList> wordList;
     bool autoCorrect;
@@ -158,6 +158,10 @@ public:
     bool spellCheck(const QString &word);
     int levenshteinDistance(const QString &s, const QString &t);
     QString removeAccentsAndDiacritics(const QString& s);
+
+private:
+    QStringDecoder textDecoder;
+    QStringEncoder textEncoder;
 };
 
 class HunspellUpdateSuggestionsTask : public HunspellTask

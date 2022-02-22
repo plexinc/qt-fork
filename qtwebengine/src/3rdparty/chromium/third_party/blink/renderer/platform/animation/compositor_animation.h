@@ -17,7 +17,7 @@
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
-namespace cc {
+namespace gfx {
 class AnimationCurve;
 }
 
@@ -49,6 +49,14 @@ class PLATFORM_EXPORT CompositorAnimation : public cc::AnimationDelegate {
   void SetAnimationDelegate(CompositorAnimationDelegate*);
 
   void AttachElement(const CompositorElementId&);
+  // Specially designed for a custom property animation on a paint worklet
+  // element. It doesn't require an element id to run on the compositor thread.
+  // However, our compositor animation system requires the element to be on the
+  // property tree in order to keep ticking the animation. Therefore, we give a
+  // very special element id for this animation so that the compositor animation
+  // system recognize it. We do not use 0 as the element id because 0 is
+  // kInvalidElementId.
+  void AttachNoElement();
   void DetachElement();
   bool IsElementAttached() const;
 
@@ -57,9 +65,6 @@ class PLATFORM_EXPORT CompositorAnimation : public cc::AnimationDelegate {
   void PauseKeyframeModel(int keyframe_model_id, base::TimeDelta time_offset);
   void AbortKeyframeModel(int keyframe_model_id);
 
-  void UpdateScrollTimeline(base::Optional<cc::ElementId>,
-                            base::Optional<double> start_scroll_offset,
-                            base::Optional<double> end_scroll_offset);
   void UpdatePlaybackRate(double playback_rate);
 
  private:
@@ -76,7 +81,7 @@ class PLATFORM_EXPORT CompositorAnimation : public cc::AnimationDelegate {
   void NotifyAnimationTakeover(base::TimeTicks monotonic_time,
                                int target_property,
                                base::TimeTicks animation_start_time,
-                               std::unique_ptr<cc::AnimationCurve>) override;
+                               std::unique_ptr<gfx::AnimationCurve>) override;
   void NotifyLocalTimeUpdated(
       base::Optional<base::TimeDelta> local_time) override;
 

@@ -12,8 +12,8 @@
 //* See the License for the specific language governing permissions and
 //* limitations under the License.
 
+#include "common/Log.h"
 #include "dawn_wire/client/ApiObjects.h"
-#include "dawn_wire/client/ApiProcs_autogen.h"
 #include "dawn_wire/client/Client.h"
 
 #include <algorithm>
@@ -22,6 +22,16 @@
 #include <vector>
 
 namespace dawn_wire { namespace client {
+
+    //* Outputs an rvalue that's the number of elements a pointer member points to.
+    {% macro member_length(member, accessor) -%}
+        {%- if member.length == "constant" -%}
+            {{member.constant_length}}
+        {%- else -%}
+            {{accessor}}{{as_varName(member.length.name)}}
+        {%- endif -%}
+    {%- endmacro %}
+
     //* Implementation of the client API functions.
     {% for type in by_category["object"] %}
         {% set Type = type.name.CamelCase() %}
@@ -29,15 +39,18 @@ namespace dawn_wire { namespace client {
 
         {% for method in type.methods %}
             {% set Suffix = as_MethodSuffix(type.name, method.name) %}
-            {% if Suffix not in client_handwritten_commands %}
-                {{as_cType(method.return_type.name)}} Client{{Suffix}}(
-                    {{-cType}} cSelf
-                    {%- for arg in method.arguments -%}
-                        , {{as_annotated_cType(arg)}}
-                    {%- endfor -%}
-                ) {
-                    auto self = reinterpret_cast<{{as_wireType(type)}}>(cSelf);
-                    Device* device = self->device;
+
+            {% if Suffix in client_handwritten_commands %}
+                static
+            {% endif %}
+            {{as_cType(method.return_type.name)}} Client{{Suffix}}(
+                {{-cType}} cSelf
+                {%- for arg in method.arguments -%}
+                    , {{as_annotated_cType(arg)}}
+                {%- endfor -%}
+            ) {
+                auto self = reinterpret_cast<{{as_wireType(type)}}>(cSelf);
+                {% if Suffix not in client_handwritten_commands %}
                     {{Suffix}}Cmd cmd;
 
                     //* Create the structure going on the wire on the stack and fill it with the value
@@ -46,8 +59,8 @@ namespace dawn_wire { namespace client {
 
                     //* For object creation, store the object ID the client will use for the result.
                     {% if method.return_type.category == "object" %}
-                        auto* allocation = self->device->GetClient()->{{method.return_type.name.CamelCase()}}Allocator().New(self->device);
-                        cmd.result = ObjectHandle{allocation->object->id, allocation->serial};
+                        auto* allocation = self->client->{{method.return_type.name.CamelCase()}}Allocator().New(self->client);
+                        cmd.result = ObjectHandle{allocation->object->id, allocation->generation};
                     {% endif %}
 
                     {% for arg in method.arguments %}
@@ -55,43 +68,41 @@ namespace dawn_wire { namespace client {
                     {% endfor %}
 
                     //* Allocate space to send the command and copy the value args over.
-                    size_t requiredSize = cmd.GetRequiredSize();
-                    char* allocatedBuffer = static_cast<char*>(device->GetClient()->GetCmdSpace(requiredSize));
-                    cmd.Serialize(allocatedBuffer, *device->GetClient());
+                    self->client->SerializeCommand(cmd);
 
                     {% if method.return_type.category == "object" %}
                         return reinterpret_cast<{{as_cType(method.return_type.name)}}>(allocation->object.get());
                     {% endif %}
-                }
-            {% endif %}
+                {% else %}
+                    return self->{{method.name.CamelCase()}}(
+                        {%- for arg in method.arguments -%}
+                            {%if not loop.first %}, {% endif %} {{as_varName(arg.name)}}
+                        {%- endfor -%});
+                {% endif %}
+            }
         {% endfor %}
 
-        {% if not type.name.canonical_case() == "device" %}
-            //* When an object's refcount reaches 0, notify the server side of it and delete it.
-            void Client{{as_MethodSuffix(type.name, Name("release"))}}({{cType}} cObj) {
-                {{Type}}* obj = reinterpret_cast<{{Type}}*>(cObj);
-                obj->refcount --;
+        //* When an object's refcount reaches 0, notify the server side of it and delete it.
+        void Client{{as_MethodSuffix(type.name, Name("release"))}}({{cType}} cObj) {
+            {{Type}}* obj = reinterpret_cast<{{Type}}*>(cObj);
+            obj->refcount --;
 
-                if (obj->refcount > 0) {
-                    return;
-                }
-
-                DestroyObjectCmd cmd;
-                cmd.objectType = ObjectType::{{type.name.CamelCase()}};
-                cmd.objectId = obj->id;
-
-                size_t requiredSize = cmd.GetRequiredSize();
-                char* allocatedBuffer = static_cast<char*>(obj->device->GetClient()->GetCmdSpace(requiredSize));
-                cmd.Serialize(allocatedBuffer);
-
-                obj->device->GetClient()->{{type.name.CamelCase()}}Allocator().Free(obj);
+            if (obj->refcount > 0) {
+                return;
             }
 
-            void Client{{as_MethodSuffix(type.name, Name("reference"))}}({{cType}} cObj) {
-                {{Type}}* obj = reinterpret_cast<{{Type}}*>(cObj);
-                obj->refcount ++;
-            }
-        {% endif %}
+            DestroyObjectCmd cmd;
+            cmd.objectType = ObjectType::{{type.name.CamelCase()}};
+            cmd.objectId = obj->id;
+
+            obj->client->SerializeCommand(cmd);
+            obj->client->{{type.name.CamelCase()}}Allocator().Free(obj);
+        }
+
+        void Client{{as_MethodSuffix(type.name, Name("reference"))}}({{cType}} cObj) {
+            {{Type}}* obj = reinterpret_cast<{{Type}}*>(cObj);
+            obj->refcount ++;
+        }
     {% endfor %}
 
     namespace {
@@ -148,21 +159,16 @@ namespace dawn_wire { namespace client {
         return result;
     }
 
-    //* Some commands don't have a custom wire format, but need to be handled manually to update
-    //* some client-side state tracking. For these we have two functions:
-    //*  - An autogenerated Client{{suffix}} method that sends the command on the wire
-    //*  - A manual ProxyClient{{suffix}} method that will be inserted in the proctable instead of
-    //*    the autogenerated one, and that will have to call Client{{suffix}}
-    DawnProcTable GetProcs() {
-        DawnProcTable table;
-        table.getProcAddress = ClientGetProcAddress;
-        table.createInstance = ClientCreateInstance;
+    static DawnProcTable gProcTable = {
+        ClientGetProcAddress,
+        ClientCreateInstance,
         {% for type in by_category["object"] %}
             {% for method in c_methods(type) %}
-                {% set suffix = as_MethodSuffix(type.name, method.name) %}
-                table.{{as_varName(type.name, method.name)}} = Client{{suffix}};
+                Client{{as_MethodSuffix(type.name, method.name)}},
             {% endfor %}
         {% endfor %}
-        return table;
+    };
+    const DawnProcTable& GetProcs() {
+        return gProcTable;
     }
 }}  // namespace dawn_wire::client

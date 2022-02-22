@@ -37,7 +37,7 @@
 
 
 #include "psft.h"
-#include FT_INTERNAL_DEBUG_H
+#include <freetype/internal/ftdebug.h>
 
 #include "psglue.h"
 #include "psfont.h"
@@ -310,7 +310,7 @@
       CF2_Hint  hint = &hintmap->edge[i];
 
 
-      FT_TRACE6(( "  %3d    %7.2f  %7.2f  %5d  %s%s%s%s\n",
+      FT_TRACE6(( "  %3ld    %7.2f  %7.2f  %5d  %s%s%s%s\n",
                   hint->index,
                   hint->csCoord / 65536.0,
                   hint->dsCoord / ( hint->scale * 1.0 ),
@@ -1022,10 +1022,17 @@
       }
     }
 
-    FT_TRACE6(( "%s\n", initialMap ? "flags: [p]air [g]host [t]op"
-                                     " [b]ottom [L]ocked [S]ynthetic\n"
-                                     "Initial hintmap"
-                                   : "Hints:" ));
+#ifdef FT_DEBUG_LEVEL_TRACE
+    if ( initialMap )
+    {
+      FT_TRACE6(( "flags: [p]air [g]host [t]op"
+                  " [b]ottom [L]ocked [S]ynthetic\n" ));
+      FT_TRACE6(( "Initial hintmap" ));
+    }
+    else
+      FT_TRACE6(( "Hints:" ));
+#endif
+
     cf2_hintmap_dump( hintmap );
 
     /*

@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2015 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: http://www.qt.io/licensing/
 **
 ** This file is part of the ActiveQt framework of the Qt Toolkit.
@@ -48,7 +48,9 @@
 **
 ****************************************************************************/
 
-#define NOMINMAX
+#ifndef NOMINMAX
+#  define NOMINMAX
+#endif
 
 #include <qabstracteventdispatcher.h>
 #include <qapplication.h>
@@ -75,16 +77,17 @@
 #include <qpa/qplatformnativeinterface.h>
 #include <qabstractnativeeventfilter.h>
 
-#include <qcoreapplication.h>
-#include <qvector.h>
+#include <qlist.h>
+#include <private/qguiapplication_p.h>
 #include <private/qthread_p.h>
 
 #include "qaxfactory.h"
 #include "qaxbindable.h"
 #include "qaxaggregated.h"
 
-#include "../shared/qaxtypes.h"
-#include "../shared/qaxutils_p.h"
+#include "../shared/qaxtypes_p.h"
+#include <QtAxBase/private/qaxutils_p.h>
+#include <QtAxBase/private/qaxtypefunctions_p.h>
 
 #include "qclassfactory_p.h"
 
@@ -232,125 +235,124 @@ public:
     }
 
 // IDispatch
-    STDMETHOD(GetTypeInfoCount)(UINT* pctinfo);
-    STDMETHOD(GetTypeInfo)(UINT itinfo, LCID lcid, ITypeInfo** pptinfo);
-    STDMETHOD(GetIDsOfNames)(REFIID riid, LPOLESTR* rgszNames, UINT cNames, LCID lcid, DISPID* rgdispid);
+    STDMETHOD(GetTypeInfoCount)(UINT* pctinfo) override;
+    STDMETHOD(GetTypeInfo)(UINT itinfo, LCID lcid, ITypeInfo** pptinfo) override;
+    STDMETHOD(GetIDsOfNames)(REFIID riid, LPOLESTR* rgszNames, UINT cNames, LCID lcid, DISPID* rgdispid) override;
     STDMETHOD(Invoke)(DISPID dispidMember, REFIID riid,
                 LCID lcid, WORD wFlags, DISPPARAMS* pdispparams, VARIANT* pvarResult,
-                EXCEPINFO* pexcepinfo, UINT* puArgErr);
+                EXCEPINFO* pexcepinfo, UINT* puArgErr) override;
 
 // IProvideClassInfo
-    STDMETHOD(GetClassInfo)(ITypeInfo** pptinfo);
+    STDMETHOD(GetClassInfo)(ITypeInfo** pptinfo) override;
 
 // IProvideClassInfo2
-    STDMETHOD(GetGUID)(DWORD dwGuidKind, GUID* pGUID);
+    STDMETHOD(GetGUID)(DWORD dwGuidKind, GUID* pGUID) override;
 
 // IOleObject
-    STDMETHOD(Advise)(IAdviseSink* pAdvSink, DWORD* pdwConnection);
-    STDMETHOD(Close)(DWORD dwSaveOption);
-    STDMETHOD(DoVerb)(LONG iVerb, LPMSG lpmsg, IOleClientSite* pActiveSite, LONG lindex, HWND hwndParent, LPCRECT lprcPosRect);
-    STDMETHOD(EnumAdvise)(IEnumSTATDATA** ppenumAdvise);
-    STDMETHOD(EnumVerbs)(IEnumOLEVERB** ppEnumOleVerb);
-    STDMETHOD(GetClientSite)(IOleClientSite** ppClientSite);
-    STDMETHOD(GetClipboardData)(DWORD dwReserved, IDataObject** ppDataObject);
-    STDMETHOD(GetExtent)(DWORD dwDrawAspect, SIZEL* psizel);
-    STDMETHOD(GetMiscStatus)(DWORD dwAspect, DWORD *pdwStatus);
-    STDMETHOD(GetMoniker)(DWORD dwAssign, DWORD dwWhichMoniker, IMoniker** ppmk);
-    STDMETHOD(GetUserClassID)(CLSID* pClsid);
-    STDMETHOD(GetUserType)(DWORD dwFormOfType, LPOLESTR *pszUserType);
-    STDMETHOD(InitFromData)(IDataObject* pDataObject, BOOL fCreation, DWORD dwReserved);
-    STDMETHOD(IsUpToDate)();
-    STDMETHOD(SetClientSite)(IOleClientSite* pClientSite);
-    STDMETHOD(SetColorScheme)(LOGPALETTE* pLogPal);
-    STDMETHOD(SetExtent)(DWORD dwDrawAspect, SIZEL* psizel);
-    STDMETHOD(SetHostNames)(LPCOLESTR szContainerApp, LPCOLESTR szContainerObj);
-    STDMETHOD(SetMoniker)(DWORD dwWhichMoniker, IMoniker* ppmk);
-    STDMETHOD(Unadvise)(DWORD dwConnection);
-    STDMETHOD(Update)();
+    STDMETHOD(Advise)(IAdviseSink* pAdvSink, DWORD* pdwConnection) override;
+    STDMETHOD(Close)(DWORD dwSaveOption) override;
+    STDMETHOD(DoVerb)(LONG iVerb, LPMSG lpmsg, IOleClientSite* pActiveSite, LONG lindex, HWND hwndParent, LPCRECT lprcPosRect) override;
+    STDMETHOD(EnumAdvise)(IEnumSTATDATA** ppenumAdvise) override;
+    STDMETHOD(EnumVerbs)(IEnumOLEVERB** ppEnumOleVerb) override;
+    STDMETHOD(GetClientSite)(IOleClientSite** ppClientSite) override;
+    STDMETHOD(GetClipboardData)(DWORD dwReserved, IDataObject** ppDataObject) override;
+    STDMETHOD(GetExtent)(DWORD dwDrawAspect, SIZEL* psizel) override;
+    STDMETHOD(GetMiscStatus)(DWORD dwAspect, DWORD *pdwStatus) override;
+    STDMETHOD(GetMoniker)(DWORD dwAssign, DWORD dwWhichMoniker, IMoniker** ppmk) override;
+    STDMETHOD(GetUserClassID)(CLSID* pClsid) override;
+    STDMETHOD(GetUserType)(DWORD dwFormOfType, LPOLESTR *pszUserType) override;
+    STDMETHOD(InitFromData)(IDataObject* pDataObject, BOOL fCreation, DWORD dwReserved) override;
+    STDMETHOD(IsUpToDate)() override;
+    STDMETHOD(SetClientSite)(IOleClientSite* pClientSite) override;
+    STDMETHOD(SetColorScheme)(LOGPALETTE* pLogPal) override;
+    STDMETHOD(SetExtent)(DWORD dwDrawAspect, SIZEL* psizel) override;
+    STDMETHOD(SetHostNames)(LPCOLESTR szContainerApp, LPCOLESTR szContainerObj) override;
+    STDMETHOD(SetMoniker)(DWORD dwWhichMoniker, IMoniker* ppmk) override;
+    STDMETHOD(Unadvise)(DWORD dwConnection) override;
+    STDMETHOD(Update)() override;
 
 // IViewObject
     STDMETHOD(Draw)(DWORD dwAspect, LONG lIndex, void *pvAspect, DVTARGETDEVICE *ptd,
                     HDC hicTargetDevice, HDC hdcDraw, LPCRECTL lprcBounds, LPCRECTL lprcWBounds,
-                    BOOL(__stdcall*pfnContinue)(ULONG_PTR), ULONG_PTR dwContinue);
+                    BOOL(__stdcall*pfnContinue)(ULONG_PTR), ULONG_PTR dwContinue) override;
     STDMETHOD(GetColorSet)(DWORD dwDrawAspect, LONG lindex, void *pvAspect, DVTARGETDEVICE *ptd,
-                    HDC hicTargetDev, LOGPALETTE **ppColorSet);
-    STDMETHOD(Freeze)(DWORD dwAspect, LONG lindex, void *pvAspect, DWORD *pdwFreeze);
-    STDMETHOD(Unfreeze)(DWORD dwFreeze);
-    STDMETHOD(SetAdvise)(DWORD aspects, DWORD advf, IAdviseSink *pAdvSink);
-    STDMETHOD(GetAdvise)(DWORD *aspects, DWORD *advf, IAdviseSink **pAdvSink);
+                    HDC hicTargetDev, LOGPALETTE **ppColorSet) override;
+    STDMETHOD(Freeze)(DWORD dwAspect, LONG lindex, void *pvAspect, DWORD *pdwFreeze) override;
+    STDMETHOD(Unfreeze)(DWORD dwFreeze) override;
+    STDMETHOD(SetAdvise)(DWORD aspects, DWORD advf, IAdviseSink *pAdvSink) override;
+    STDMETHOD(GetAdvise)(DWORD *aspects, DWORD *advf, IAdviseSink **pAdvSink) override;
 
 // IViewObject2
-    STDMETHOD(GetExtent)(DWORD dwAspect, LONG lindex, DVTARGETDEVICE *ptd, LPSIZEL lpsizel);
+    STDMETHOD(GetExtent)(DWORD dwAspect, LONG lindex, DVTARGETDEVICE *ptd, LPSIZEL lpsizel) override;
 
 // IOleControl
-    STDMETHOD(FreezeEvents)(BOOL);
-    STDMETHOD(GetControlInfo)(LPCONTROLINFO);
-    STDMETHOD(OnAmbientPropertyChange)(DISPID);
-    STDMETHOD(OnMnemonic)(LPMSG);
+    STDMETHOD(FreezeEvents)(BOOL) override;
+    STDMETHOD(GetControlInfo)(LPCONTROLINFO) override;
+    STDMETHOD(OnAmbientPropertyChange)(DISPID) override;
+    STDMETHOD(OnMnemonic)(LPMSG) override;
 
 // IOleWindow
-    STDMETHOD(GetWindow)(HWND *pHwnd);
-    STDMETHOD(ContextSensitiveHelp)(BOOL fEnterMode);
+    STDMETHOD(GetWindow)(HWND *pHwnd) override;
+    STDMETHOD(ContextSensitiveHelp)(BOOL fEnterMode) override;
 
 // IOleInPlaceObject
-    STDMETHOD(InPlaceDeactivate)();
-    STDMETHOD(UIDeactivate)();
-    STDMETHOD(SetObjectRects)(LPCRECT lprcPosRect, LPCRECT lprcClipRect);
-    STDMETHOD(ReactivateAndUndo)();
+    STDMETHOD(InPlaceDeactivate)() override;
+    STDMETHOD(UIDeactivate)() override;
+    STDMETHOD(SetObjectRects)(LPCRECT lprcPosRect, LPCRECT lprcClipRect) override;
+    STDMETHOD(ReactivateAndUndo)() override;
 
 // IOleInPlaceActiveObject
-    STDMETHOD(TranslateAcceleratorW)(MSG *pMsg);
-    STDMETHOD(TranslateAcceleratorA)(MSG *pMsg);
-    STDMETHOD(OnFrameWindowActivate)(BOOL);
-    STDMETHOD(OnDocWindowActivate)(BOOL fActivate);
-    STDMETHOD(ResizeBorder)(LPCRECT prcBorder, IOleInPlaceUIWindow *pUIWindow, BOOL fFrameWindow);
-    STDMETHOD(EnableModeless)(BOOL);
+    STDMETHOD(TranslateAccelerator)(MSG *pMsg) override;
+    STDMETHOD(OnFrameWindowActivate)(BOOL) override;
+    STDMETHOD(OnDocWindowActivate)(BOOL fActivate) override;
+    STDMETHOD(ResizeBorder)(LPCRECT prcBorder, IOleInPlaceUIWindow *pUIWindow, BOOL fFrameWindow) override;
+    STDMETHOD(EnableModeless)(BOOL) override;
 
 // IConnectionPointContainer
-    STDMETHOD(EnumConnectionPoints)(IEnumConnectionPoints**);
-    STDMETHOD(FindConnectionPoint)(REFIID, IConnectionPoint**);
+    STDMETHOD(EnumConnectionPoints)(IEnumConnectionPoints**) override;
+    STDMETHOD(FindConnectionPoint)(REFIID, IConnectionPoint**) override;
 
 // IPersist
-    STDMETHOD(GetClassID)(GUID*clsid)
+    STDMETHOD(GetClassID)(GUID*clsid) override
     {
         *clsid = qAxFactory()->classID(class_name);
         return S_OK;
     }
 
 // IPersistStreamInit
-    STDMETHOD(InitNew)(VOID);
-    STDMETHOD(IsDirty)();
-    STDMETHOD(Load)(IStream *pStm);
-    STDMETHOD(Save)(IStream *pStm, BOOL fClearDirty);
-    STDMETHOD(GetSizeMax)(ULARGE_INTEGER *pcbSize);
+    STDMETHOD(InitNew)(VOID) override;
+    STDMETHOD(IsDirty)() override;
+    STDMETHOD(Load)(IStream *pStm) override;
+    STDMETHOD(Save)(IStream *pStm, BOOL fClearDirty) override;
+    STDMETHOD(GetSizeMax)(ULARGE_INTEGER *pcbSize) override;
 
 // IPersistPropertyBag
-    STDMETHOD(Load)(IPropertyBag *, IErrorLog *);
-    STDMETHOD(Save)(IPropertyBag *, BOOL, BOOL);
+    STDMETHOD(Load)(IPropertyBag *, IErrorLog *) override;
+    STDMETHOD(Save)(IPropertyBag *, BOOL, BOOL) override;
 
 // IPersistStorage
-    STDMETHOD(InitNew)(IStorage *pStg);
-    STDMETHOD(Load)(IStorage *pStg);
-    STDMETHOD(Save)(IStorage *pStg, BOOL fSameAsLoad);
-    STDMETHOD(SaveCompleted)(IStorage *pStgNew);
-    STDMETHOD(HandsOffStorage)();
+    STDMETHOD(InitNew)(IStorage *pStg) override;
+    STDMETHOD(Load)(IStorage *pStg) override;
+    STDMETHOD(Save)(IStorage *pStg, BOOL fSameAsLoad) override;
+    STDMETHOD(SaveCompleted)(IStorage *pStgNew) override;
+    STDMETHOD(HandsOffStorage)() override;
 
 // IPersistFile
-    STDMETHOD(SaveCompleted)(LPCOLESTR fileName);
-    STDMETHOD(GetCurFile)(LPOLESTR *currentFile);
-    STDMETHOD(Load)(LPCOLESTR fileName, DWORD mode);
-    STDMETHOD(Save)(LPCOLESTR fileName, BOOL fRemember);
+    STDMETHOD(SaveCompleted)(LPCOLESTR fileName) override;
+    STDMETHOD(GetCurFile)(LPOLESTR *currentFile) override;
+    STDMETHOD(Load)(LPCOLESTR fileName, DWORD mode) override;
+    STDMETHOD(Save)(LPCOLESTR fileName, BOOL fRemember) override;
 
 // IDataObject
-    STDMETHOD(GetData)(FORMATETC *pformatetcIn, STGMEDIUM *pmedium);
-    STDMETHOD(GetDataHere)(FORMATETC* /* pformatetc */, STGMEDIUM* /* pmedium */);
-    STDMETHOD(QueryGetData)(FORMATETC* /* pformatetc */);
-    STDMETHOD(GetCanonicalFormatEtc)(FORMATETC* /* pformatectIn */,FORMATETC* /* pformatetcOut */);
-    STDMETHOD(SetData)(FORMATETC* /* pformatetc */, STGMEDIUM* /* pmedium */, BOOL /* fRelease */);
-    STDMETHOD(EnumFormatEtc)(DWORD /* dwDirection */, IEnumFORMATETC** /* ppenumFormatEtc */);
-    STDMETHOD(DAdvise)(FORMATETC *pformatetc, DWORD advf, IAdviseSink *pAdvSink, DWORD *pdwConnection);
-    STDMETHOD(DUnadvise)(DWORD dwConnection);
-    STDMETHOD(EnumDAdvise)(IEnumSTATDATA **ppenumAdvise);
+    STDMETHOD(GetData)(FORMATETC *pformatetcIn, STGMEDIUM *pmedium) override;
+    STDMETHOD(GetDataHere)(FORMATETC* /* pformatetc */, STGMEDIUM* /* pmedium */) override;
+    STDMETHOD(QueryGetData)(FORMATETC* /* pformatetc */) override;
+    STDMETHOD(GetCanonicalFormatEtc)(FORMATETC* /* pformatectIn */,FORMATETC* /* pformatetcOut */) override;
+    STDMETHOD(SetData)(FORMATETC* /* pformatetc */, STGMEDIUM* /* pmedium */, BOOL /* fRelease */) override;
+    STDMETHOD(EnumFormatEtc)(DWORD /* dwDirection */, IEnumFORMATETC** /* ppenumFormatEtc */) override;
+    STDMETHOD(DAdvise)(FORMATETC *pformatetc, DWORD advf, IAdviseSink *pAdvSink, DWORD *pdwConnection) override;
+    STDMETHOD(DUnadvise)(DWORD dwConnection) override;
+    STDMETHOD(EnumDAdvise)(IEnumSTATDATA **ppenumAdvise) override;
 
 // QObject
     int qt_metacall(QMetaObject::Call, int index, void **argv) override;
@@ -424,7 +426,7 @@ private:
 
     IUnknown *m_outerUnknown = nullptr;
     IAdviseSink *m_spAdviseSink = nullptr;
-    QVector<STATDATA> adviseSinks;
+    QList<STATDATA> adviseSinks;
     IOleClientSite *m_spClientSite = nullptr;
     IOleInPlaceSite *m_spInPlaceSite = nullptr;
     IOleInPlaceSiteWindowless *m_spInPlaceSiteWindowless = nullptr;
@@ -558,7 +560,7 @@ public:
 
         return refCount;
     }
-    STDMETHOD(QueryInterface)(REFIID iid, void **iface)
+    STDMETHOD(QueryInterface)(REFIID iid, void **iface) override
     {
         if (!iface)
             return E_POINTER;
@@ -573,7 +575,7 @@ public:
         AddRef();
         return S_OK;
     }
-    STDMETHOD(Next)(ULONG cConnections, IConnectionPoint **cpoint, ULONG *pcFetched)
+    STDMETHOD(Next)(ULONG cConnections, IConnectionPoint **cpoint, ULONG *pcFetched) override
     {
         if (!cpoint)
             return E_POINTER;
@@ -595,7 +597,7 @@ public:
             *pcFetched = i;
         return i == cConnections ? S_OK : S_FALSE;
     }
-    STDMETHOD(Skip)(ULONG cConnections)
+    STDMETHOD(Skip)(ULONG cConnections) override
     {
         const int count = cpoints.count();
         while (cConnections) {
@@ -606,12 +608,12 @@ public:
         }
         return S_OK;
     }
-    STDMETHOD(Reset)()
+    STDMETHOD(Reset)() override
     {
         current = 0;
         return S_OK;
     }
-    STDMETHOD(Clone)(IEnumConnectionPoints **ppEnum)
+    STDMETHOD(Clone)(IEnumConnectionPoints **ppEnum) override
     {
         if (!ppEnum)
             return E_POINTER;
@@ -641,7 +643,7 @@ public:
     QAxConnection(QAxConnection &&) = delete;
     QAxConnection &operator=(QAxConnection &&) = delete;
 
-    using Connections = QVector<CONNECTDATA>;
+    using Connections = QList<CONNECTDATA>;
 
     QAxConnection(QAxServerBase *parent, const QUuid &uuid)
         : that(parent), iid(uuid)
@@ -676,7 +678,7 @@ public:
 
         return refCount;
     }
-    STDMETHOD(QueryInterface)(REFIID iid, void **iface)
+    STDMETHOD(QueryInterface)(REFIID iid, void **iface) override
     {
         if (!iface)
             return E_POINTER;
@@ -693,18 +695,18 @@ public:
         AddRef();
         return S_OK;
     }
-    STDMETHOD(GetConnectionInterface)(IID *pIID)
+    STDMETHOD(GetConnectionInterface)(IID *pIID) override
     {
         if (!pIID)
             return E_POINTER;
         *pIID = iid;
         return S_OK;
     }
-    STDMETHOD(GetConnectionPointContainer)(IConnectionPointContainer **ppCPC)
+    STDMETHOD(GetConnectionPointContainer)(IConnectionPointContainer **ppCPC) override
     {
         return that->QueryInterface(IID_IConnectionPointContainer, reinterpret_cast<void **>(ppCPC));
     }
-    STDMETHOD(Advise)(IUnknown*pUnk, DWORD *pdwCookie)
+    STDMETHOD(Advise)(IUnknown*pUnk, DWORD *pdwCookie) override
     {
         if (!pUnk || !pdwCookie)
             return E_POINTER;
@@ -725,7 +727,7 @@ public:
         *pdwCookie = cd.dwCookie;
         return S_OK;
     }
-    STDMETHOD(Unadvise)(DWORD dwCookie)
+    STDMETHOD(Unadvise)(DWORD dwCookie) override
     {
         const int count = connections.count();
         for (int i = 0; i < count; ++i) {
@@ -739,7 +741,7 @@ public:
         }
         return CONNECT_E_NOCONNECTION;
     }
-    STDMETHOD(EnumConnections)(IEnumConnections **ppEnum)
+    STDMETHOD(EnumConnections)(IEnumConnections **ppEnum) override
     {
         if (!ppEnum)
             return E_POINTER;
@@ -748,7 +750,7 @@ public:
 
         return S_OK;
     }
-    STDMETHOD(Next)(ULONG cConnections, CONNECTDATA *cd, ULONG *pcFetched)
+    STDMETHOD(Next)(ULONG cConnections, CONNECTDATA *cd, ULONG *pcFetched) override
     {
         if (!cd)
             return E_POINTER;
@@ -770,7 +772,7 @@ public:
             *pcFetched = i;
         return i == cConnections ? S_OK : S_FALSE;
     }
-    STDMETHOD(Skip)(ULONG cConnections)
+    STDMETHOD(Skip)(ULONG cConnections) override
     {
         const int count = connections.count();
         while (cConnections) {
@@ -781,12 +783,12 @@ public:
         }
         return S_OK;
     }
-    STDMETHOD(Reset)()
+    STDMETHOD(Reset)() override
     {
         current = 0;
         return S_OK;
     }
-    STDMETHOD(Clone)(IEnumConnections **ppEnum)
+    STDMETHOD(Clone)(IEnumConnections **ppEnum) override
     {
         if (!ppEnum)
             return E_POINTER;
@@ -937,7 +939,7 @@ HRESULT QClassFactory::CreateInstanceHelper(IUnknown *pUnkOuter, REFIID iid, voi
     if (qAxOutProcServer)
         QAbstractEventDispatcher::instance()->installNativeEventFilter(qax_winEventFilter());
     else
-        QApplication::instance()->d_func()->in_exec = true;
+        QGuiApplicationPrivate::instance()->in_exec = true;
 
     // hook into eventloop; this allows a server to create his own QApplication object
     if (!qax_hhook && qax_ownQApp) {
@@ -1030,7 +1032,8 @@ HRESULT QClassFactory::CreateInstanceLic(IUnknown *pUnkOuter, IUnknown * /* pUnk
 void QClassFactory::cleanupCreatedApplication(QCoreApplication &app)
 {
     // Cleanup similar to QCoreApplication::exec()
-    app.d_func()->execCleanup();
+    QCoreApplicationPrivate *priv = static_cast<QCoreApplicationPrivate *>(QObjectPrivate::get(&app));
+    priv->execCleanup();
 }
 
 
@@ -2002,7 +2005,7 @@ int QAxServerBase::qt_metacall(QMetaObject::Call call, int index, void **argv)
                 qAxTypeLibrary->GetTypeInfoOfGuid(qAxFactory()->eventsID(class_name), &eventInfo);
                 if (eventInfo) {
                     QString uni_name = QLatin1String(name);
-                    OLECHAR *olename = reinterpret_cast<OLECHAR *>(const_cast<ushort *>(uni_name.utf16()));
+                    OLECHAR *olename = qaxQString2MutableOleChars(uni_name);
                     eventInfo->GetIDsOfNames(&olename, 1, &eventId);
                     eventInfo->Release();
                 }
@@ -2060,17 +2063,15 @@ int QAxServerBase::qt_metacall(QMetaObject::Call call, int index, void **argv)
                         // convert enum values to int
                         variant = QVariant(*reinterpret_cast<int *>(argv[p+1]));
                     } else {
-                        QVariant::Type vt = QVariant::nameToType(ptype);
-                        if (vt == QVariant::UserType) {
+                        const QMetaType metaType = QMetaType::fromName(ptype);
+                        if (metaType.id() == QMetaType::User) {
                             if (ptype.endsWith('*')) {
-                                variant = QVariant(QMetaType::type(ptype), reinterpret_cast<void **>(argv[p+1]));
-                                // variant.setValue(*(void**)(argv[p + 1]), ptype);
+                                variant = QVariant(metaType, reinterpret_cast<void **>(argv[p+1]));
                             } else {
-                                variant = QVariant(QMetaType::type(ptype), argv[p+1]);
-                                // variant.setValue(argv[p + 1], ptype);
+                                variant = QVariant(metaType, argv[p+1]);
                             }
                         } else {
-                            variant = QVariant(vt, argv[p + 1]);
+                            variant = QVariant(metaType, argv[p + 1]);
                         }
                     }
 
@@ -2400,11 +2401,10 @@ HRESULT WINAPI QAxServerBase::Invoke(DISPID dispidMember, REFIID riid,
                     if (index == -1) {
                         QRegularExpression regexp(QLatin1String("_([0-9])\\("));
                         QRegularExpressionMatch rmatch;
-                        QString::fromLatin1(name.constData()).lastIndexOf(regexp, -1, &rmatch);
-                        if (rmatch.hasMatch()) {
+                        if (QString::fromLatin1(name.constData()).lastIndexOf(regexp, -1, &rmatch) != -1) {
                             name.chop(rmatch.capturedLength(0));
                             name += '(';
-                            int overload = rmatch.capturedRef(1).toInt() + 1;
+                            int overload = rmatch.capturedView(1).toInt() + 1;
 
                             for (int s = 0; s < qt.object->metaObject()->methodCount(); ++s) {
                                 QMetaMethod slot = qt.object->metaObject()->method(s);
@@ -2492,7 +2492,7 @@ HRESULT WINAPI QAxServerBase::Invoke(DISPID dispidMember, REFIID riid,
                 varp[p + 1] = VARIANTToQVariant(pDispParams->rgvarg[pcount - p - 1], ptype);
                 argv_pointer[p + 1] = nullptr;
                 if (varp[p + 1].isValid()) {
-                    if (varp[p + 1].type() == QVariant::UserType) {
+                    if (varp[p + 1].metaType().id() >= QMetaType::User) {
                         argv[p + 1] = varp[p + 1].data();
                     } else if (ptype == "QVariant") {
                         argv[p + 1] = varp + p + 1;
@@ -2514,16 +2514,16 @@ HRESULT WINAPI QAxServerBase::Invoke(DISPID dispidMember, REFIID riid,
 
             // return value
             if (!type.isEmpty() && type != "void") {
-                QVariant::Type vt = QVariant::nameToType(type);
-                if (vt == int(QMetaType::QVariant)) {
+                int vt = QMetaType::fromName(type).id();
+                if (vt == QMetaType::QVariant) {
                     argv[0] = varp;
                 } else {
-                    if (vt == QVariant::UserType)
-                        vt = QVariant::Invalid;
-                    else if (vt == QVariant::Invalid && mo->indexOfEnumerator(slot.typeName()) != -1)
-                        vt = QVariant::Int;
-                    varp[0] = QVariant(vt);
-                    if (varp[0].type() == QVariant::Invalid)
+                    if (vt == QMetaType::User)
+                        vt = QMetaType::UnknownType;
+                    else if (vt == QMetaType::UnknownType && mo->indexOfEnumerator(slot.typeName()) != -1)
+                        vt = QMetaType::Int;
+                    varp[0] = QVariant(QMetaType(vt));
+                    if (varp[0].metaType().id() == QMetaType::UnknownType)
                         argv[0] = nullptr;
                     else
                         argv[0] = const_cast<void*>(varp[0].constData());
@@ -2552,7 +2552,7 @@ HRESULT WINAPI QAxServerBase::Invoke(DISPID dispidMember, REFIID riid,
                 }
                 if (!type.isEmpty() && type != "void" && pvarResult) {
                     if (!varp[0].isValid() && type != "QVariant")
-                        varp[0] = QVariant(QMetaType::type(type), argv_pointer);
+                        varp[0] = QVariant(QMetaType::fromName(type), argv_pointer);
 //                        varp[0].setValue(argv_pointer[0], type);
                     ok = QVariantToVARIANT(varp[0], *pvarResult, type);
                 }
@@ -2590,7 +2590,8 @@ HRESULT WINAPI QAxServerBase::Invoke(DISPID dispidMember, REFIID riid,
                 *pDispParams->rgdispidNamedArgs != DISPID_PROPERTYPUT)
                 return DISP_E_BADPARAMCOUNT;
 
-            QVariant var = VARIANTToQVariant(*pDispParams->rgvarg, property.typeName(), property.type());
+            QVariant var = VARIANTToQVariant(*pDispParams->rgvarg,
+                                             property.typeName(), property.metaType().id());
             if (!var.isValid()) {
                 if (puArgErr)
                     *puArgErr = 0;
@@ -2660,7 +2661,7 @@ HRESULT WINAPI QAxServerBase::Invoke(DISPID dispidMember, REFIID riid,
                 unsigned contextID = 0;
                 const int br = context.indexOf(QLatin1Char('[')); // "error[42]"
                 if (br != -1) {
-                    contextID = context.midRef(br + 1, context.size() - br - 2).toUInt();
+                    contextID = context.mid(br + 1, context.size() - br - 2).toUInt();
                     context.truncate(br-1);
                 }
                 pexcepinfo->bstrHelpFile = QStringToBSTR(context);
@@ -2975,15 +2976,18 @@ HRESULT WINAPI QAxServerBase::Load(IPropertyBag *bag, IErrorLog * /*log*/)
         var.vt = VT_EMPTY;
         HRESULT res = bag->Read(bstr, &var, nullptr);
         if (property.isWritable() && var.vt != VT_EMPTY) {
-            if (res != S_OK || !qt.object->setProperty(pname, VARIANTToQVariant(var, property.typeName(), property.type())))
+            if (res != S_OK
+                || !qt.object->setProperty(pname, VARIANTToQVariant(var, property.typeName(),
+                                                                    property.metaType().id()))) {
                 error = true;
+            }
         }
         SysFreeString(bstr);
     }
 
     updateGeometry();
 
-    Q_UNUSED(error)
+    Q_UNUSED(error);
     return /*error ? E_FAIL :*/ S_OK;
 }
 
@@ -3015,7 +3019,7 @@ HRESULT WINAPI QAxServerBase::Save(IPropertyBag *bag, BOOL clearDirty, BOOL /*sa
         bag->Write(bstr, &var);
         SysFreeString(bstr);
     }
-    Q_UNUSED(error)
+    Q_UNUSED(error);
     return /*error ? E_FAIL :*/ S_OK;
 }
 
@@ -3339,7 +3343,7 @@ HRESULT WINAPI QAxServerBase::OnAmbientPropertyChange(DISPID dispID)
         if (var.vt != VT_DISPATCH || !isWidget)
             break;
         {
-            QVariant qvar = VARIANTToQVariant(var, "QFont", QVariant::Font);
+            QVariant qvar = VARIANTToQVariant(var, "QFont", QMetaType::QFont);
             QFont qfont = qvariant_cast<QFont>(qvar);
             qt.widget->setFont(qfont);
         }
@@ -3654,11 +3658,6 @@ HRESULT WINAPI QAxServerBase::TranslateAcceleratorW(MSG *pMsg)
     SetWindowLong(pMsg->hwnd, GWL_USERDATA, oldData);
 #endif
     return hres;
-}
-
-HRESULT WINAPI QAxServerBase::TranslateAcceleratorA(MSG *pMsg)
-{
-    return TranslateAcceleratorW(pMsg);
 }
 
 HRESULT WINAPI QAxServerBase::OnFrameWindowActivate(BOOL fActivate)
@@ -4356,8 +4355,9 @@ bool QAxServerBase::eventFilter(QObject *o, QEvent *e)
             const QMouseEvent *me = static_cast<const QMouseEvent *>(e);
             int button = me->buttons() & Qt::MouseButtonMask;
             int state = mapModifiers(me->modifiers());
-            int x = me->x();
-            int y = me->y();
+            const auto pos = me->position().toPoint();
+            int x = pos.x();
+            int y = pos.y();
             void *argv[] = {
                 nullptr,
                 &button,
@@ -4373,8 +4373,9 @@ bool QAxServerBase::eventFilter(QObject *o, QEvent *e)
             const QMouseEvent *me = static_cast<const QMouseEvent *>(e);
             int button = me->button();
             int state = mapModifiers(me->modifiers());
-            int x = me->x();
-            int y = me->y();
+            const auto pos = me->position().toPoint();
+            int x = pos.x();
+            int y = pos.y();
             void *argv[] = {
                 nullptr,
                 &button,
@@ -4399,8 +4400,9 @@ bool QAxServerBase::eventFilter(QObject *o, QEvent *e)
             const QMouseEvent *me = static_cast<const QMouseEvent *>(e);
             int button = me->button();
             int state = mapModifiers(me->modifiers());
-            int x = me->x();
-            int y = me->y();
+            const auto pos = me->position().toPoint();
+            int x = pos.x();
+            int y = pos.y();
             void *argv[] = {
                 nullptr,
                 &button,

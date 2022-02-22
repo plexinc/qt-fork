@@ -20,9 +20,9 @@
 #include "chrome/browser/extensions/api/storage/syncable_settings_storage.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/sync/model/sync_change_processor.h"
-#include "components/sync/model/sync_change_processor_wrapper_for_test.h"
 #include "components/sync/model/sync_error_factory.h"
-#include "components/sync/model/sync_error_factory_mock.h"
+#include "components/sync/test/model/sync_change_processor_wrapper_for_test.h"
+#include "components/sync/test/model/sync_error_factory_mock.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/api/storage/backend_task_runner.h"
@@ -104,20 +104,17 @@ class MockSyncChangeProcessor : public syncer::SyncChangeProcessor {
   MockSyncChangeProcessor() : fail_all_requests_(false) {}
 
   // syncer::SyncChangeProcessor implementation.
-  syncer::SyncError ProcessSyncChanges(
+  base::Optional<syncer::ModelError> ProcessSyncChanges(
       const base::Location& from_here,
       const syncer::SyncChangeList& change_list) override {
     if (fail_all_requests_) {
-      return syncer::SyncError(
-          FROM_HERE,
-          syncer::SyncError::DATATYPE_ERROR,
-          "MockSyncChangeProcessor: configured to fail",
-          change_list[0].sync_data().GetDataType());
+      return syncer::ModelError(FROM_HERE,
+                                "MockSyncChangeProcessor: configured to fail");
     }
     for (auto it = change_list.cbegin(); it != change_list.cend(); ++it) {
       changes_.push_back(std::make_unique<SettingSyncData>(*it));
     }
-    return syncer::SyncError();
+    return base::nullopt;
   }
 
   syncer::SyncDataList GetAllSyncData(syncer::ModelType type) const override {
@@ -1028,7 +1025,8 @@ TEST_F(ExtensionSettingsSyncTest, FailingGetAllSyncDataDoesntStopSync) {
       syncer::SyncDataList all_sync_data =
           GetSyncableService(model_type)->GetAllSyncDataForTesting(model_type);
       EXPECT_EQ(1u, all_sync_data.size());
-      EXPECT_EQ("good/foo", syncer::SyncDataLocal(all_sync_data[0]).GetTag());
+      EXPECT_EQ(syncer::ClientTagHash::FromUnhashed(model_type, "good/foo"),
+                all_sync_data[0].GetClientTagHash());
     }
     GetExisting("bad")->set_status_code(ValueStore::OK);
 
@@ -1458,15 +1456,7 @@ static void UnlimitedLocalStorageTestCallback(ValueStore* local_storage) {
 
 }  // namespace
 
-#if defined(OS_WIN)
-// See: http://crbug.com/227296
-#define MAYBE_UnlimitedStorageForLocalButNotSync \
-  DISABLED_UnlimitedStorageForLocalButNotSync
-#else
-#define MAYBE_UnlimitedStorageForLocalButNotSync \
-  UnlimitedStorageForLocalButNotSync
-#endif
-TEST_F(ExtensionSettingsSyncTest, MAYBE_UnlimitedStorageForLocalButNotSync) {
+TEST_F(ExtensionSettingsSyncTest, UnlimitedStorageForLocalButNotSync) {
   const std::string id = "ext";
   std::set<std::string> permissions;
   permissions.insert("unlimitedStorage");
@@ -1474,12 +1464,10 @@ TEST_F(ExtensionSettingsSyncTest, MAYBE_UnlimitedStorageForLocalButNotSync) {
       settings_test_util::AddExtensionWithIdAndPermissions(
           profile_.get(), id, Manifest::TYPE_EXTENSION, permissions);
 
-  frontend_->RunWithStorage(extension,
-                            settings_namespace::SYNC,
-                            base::Bind(&UnlimitedSyncStorageTestCallback));
-  frontend_->RunWithStorage(extension,
-                            settings_namespace::LOCAL,
-                            base::Bind(&UnlimitedLocalStorageTestCallback));
+  frontend_->RunWithStorage(extension, settings_namespace::SYNC,
+                            base::BindOnce(&UnlimitedSyncStorageTestCallback));
+  frontend_->RunWithStorage(extension, settings_namespace::LOCAL,
+                            base::BindOnce(&UnlimitedLocalStorageTestCallback));
 
   content::RunAllTasksUntilIdle();
 }

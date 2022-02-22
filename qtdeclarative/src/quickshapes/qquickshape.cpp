@@ -40,7 +40,6 @@
 #include "qquickshape_p.h"
 #include "qquickshape_p_p.h"
 #include "qquickshapegenericrenderer_p.h"
-#include "qquickshapenvprrenderer_p.h"
 #include "qquickshapesoftwarerenderer_p.h"
 #include <private/qsgplaintexture_p.h>
 #include <private/qquicksvgparser_p.h>
@@ -68,10 +67,17 @@ Q_LOGGING_CATEGORY(QQSHAPE_LOG_TIME_DIRTY_SYNC, "qt.shape.time.sync")
 
     To use the types in this module, import the module with the following line:
 
-    \qml \QtMinorVersion
-    import QtQuick.Shapes 1.\1
+    \qml
+    import QtQuick.Shapes
     \endqml
 */
+
+void QQuickShapes_initializeModule()
+{
+    QQuickShapesModule::defineModule();
+}
+
+Q_CONSTRUCTOR_FUNCTION(QQuickShapes_initializeModule)
 
 void QQuickShapesModule::defineModule()
 {
@@ -531,8 +537,7 @@ void QQuickShapePath::resetFillGradient()
     \since 5.10
 
     Renders a path either by generating geometry via QPainterPath and manual
-    triangulation or by using a GPU vendor extension like
-    \c{GL_NV_path_rendering}.
+    triangulation or by using a GPU vendor extension.
 
     This approach is different from rendering shapes via QQuickPaintedItem or
     the 2D Canvas because the path never gets rasterized in software.
@@ -588,19 +593,13 @@ void QQuickShapePath::resetFillGradient()
 
     \list
 
-    \li When running with the OpenGL backend of Qt Quick, both the generic,
-    triangulation-based and the NVIDIA-specific \c{GL_NV_path_rendering}
-    methods are available. By default only the generic approach is used.
-    Setting Shape.vendorExtensionsEnabled property to \c true leads to using
-    NV_path_rendering on NVIDIA systems when running directly on OpenGL, and
-    the generic method on others. When OpenGL is not used directly by the scene
-    graph, for example because it is using the graphics abstraction layer
+    \li When running with the OpenGL backend of Qt Quick, only the generic,
+    triangulation-based approach is available. When OpenGL is not used directly
+    by the scene graph, for example because it is using the graphics abstraction layer
     (QRhi), only the generic shape renderer is available.
 
     \li The \c software backend is fully supported. The path is rendered via
     QPainter::strokePath() and QPainter::fillPath() in this case.
-
-    \li The Direct 3D 12 backend is not currently supported.
 
     \li The OpenVG backend is not currently supported.
 
@@ -626,16 +625,10 @@ void QQuickShapePath::resetFillGradient()
     a frequently changing property can still result in a lower overall system
     load than with imperative painting approaches (for example, QPainter).
 
-    \li If animating properties other than stroke and fill colors is a must,
-    it is recommended to target systems providing \c{GL_NV_path_rendering}
-    where the cost of property changes is smaller.
-
     \li At the same time, attention must be paid to the number of Shape
-    elements in the scene, in particular when using this special accelerated
-    approach for \c{GL_NV_path_rendering}. The way such a Shape item is
-    represented in the scene graph is different from an ordinary
-    geometry-based item, and incurs a certain cost when it comes to OpenGL
-    state changes.
+    elements in the scene. The way such a Shape item is represented in
+    the scene graph is different from an ordinary geometry-based item,
+    and incurs a certain cost when it comes to OpenGL state changes.
 
     \li As a general rule, scenes should avoid using separate Shape items when
     it is not absolutely necessary. Prefer using one Shape item with multiple
@@ -693,14 +686,8 @@ QQuickShape::~QQuickShape()
     \value Shape.GeometryRenderer
            The generic, driver independent solution for OpenGL. Uses the same
            CPU-based triangulation approach as QPainter's OpenGL 2 paint
-           engine. This is the default on non-NVIDIA hardware when the default,
-           OpenGL Qt Quick scenegraph backend is in use.
-
-    \value Shape.NvprRenderer
-           Path items are rendered by performing OpenGL calls using the
-           \c{GL_NV_path_rendering} extension. This is the default on NVIDIA
-           hardware when the default, OpenGL Qt Quick scenegraph backend is in
-           use.
+           engine. This is the default when the OpenGL Qt Quick scenegraph
+           backend is in use.
 
     \value Shape.SoftwareRenderer
            Pure QPainter drawing using the raster paint engine. This is the
@@ -750,19 +737,11 @@ void QQuickShape::setAsynchronous(bool async)
 /*!
     \qmlproperty bool QtQuick.Shapes::Shape::vendorExtensionsEnabled
 
-    This property controls the usage of non-standard OpenGL extensions like
-    \c GL_NV_path_rendering.
+    This property controls the usage of non-standard OpenGL extensions.
 
     The default value is \c false.
 
-    As of Qt 5.12 Shape.NvprRenderer is disabled by default and a uniform
-    behavior, based on triangulating the path and generating QSGGeometryNode
-    instances, is used regardless of the graphics card and drivers. To enable
-    using vendor-specific path rendering approaches set the value to \c true.
-    Depending on the platform and content, this can lead to improved
-    performance. Setting the value to \c true is safe in any case since
-    rendering falls back to the default method when the vendor-specific
-    approach, such as \c GL_NV_path_rendering, is not supported at run time.
+    As of Qt 6.0 there are no vendor-specific rendering paths implemented.
  */
 
 bool QQuickShape::vendorExtensionsEnabled() const
@@ -897,7 +876,7 @@ static void vpe_clear(QQmlListProperty<QObject> *property)
     Shape. It can also contain any other type of objects, since Shape, like
     Item, allows adding any visual or non-visual objects as children.
 
-    \default
+    \qmldefault
  */
 
 QQmlListProperty<QObject> QQuickShape::data()
@@ -950,8 +929,6 @@ void QQuickShape::updatePolish()
     // when the item is visible.
     if (isVisible() || d->effectRefCount > 0)
         d->sync();
-
-    update();
 }
 
 void QQuickShape::itemChange(ItemChange change, const ItemChangeData &data)
@@ -993,17 +970,6 @@ void QQuickShapePrivate::createRenderer()
         return;
 
     switch (ri->graphicsApi()) {
-#if QT_CONFIG(opengl)
-    case QSGRendererInterface::OpenGL:
-        if (enableVendorExts && QQuickShapeNvprRenderNode::isSupported()) {
-            rendererType = QQuickShape::NvprRenderer;
-            renderer = new QQuickShapeNvprRenderer;
-        } else {
-            rendererType = QQuickShape::GeometryRenderer;
-            renderer = new QQuickShapeGenericRenderer(q);
-        }
-        break;
-#endif
     case QSGRendererInterface::Software:
         rendererType = QQuickShape::SoftwareRenderer;
         renderer = new QQuickShapeSoftwareRenderer;
@@ -1031,19 +997,6 @@ QSGNode *QQuickShapePrivate::createNode()
         return node;
 
     switch (ri->graphicsApi()) {
-#if QT_CONFIG(opengl)
-    case QSGRendererInterface::OpenGL:
-        if (enableVendorExts && QQuickShapeNvprRenderNode::isSupported()) {
-            node = new QQuickShapeNvprRenderNode;
-            static_cast<QQuickShapeNvprRenderer *>(renderer)->setNode(
-                static_cast<QQuickShapeNvprRenderNode *>(node));
-        } else {
-            node = new QQuickShapeGenericNode;
-            static_cast<QQuickShapeGenericRenderer *>(renderer)->setRootNode(
-                static_cast<QQuickShapeGenericNode *>(node));
-        }
-        break;
-#endif
     case QSGRendererInterface::Software:
         node = new QQuickShapeSoftwareRenderNode(q);
         static_cast<QQuickShapeSoftwareRenderer *>(renderer)->setNode(
@@ -1074,7 +1027,7 @@ void QQuickShapePrivate::asyncShapeReady(void *data)
 
 void QQuickShapePrivate::sync()
 {
-    syncTimingTotalDirty = 0;
+    int totalDirty = 0;
     syncTimingActive = QQSHAPE_LOG_TIME_DIRTY_SYNC().isDebugEnabled();
     if (syncTimingActive)
         syncTimer.start();
@@ -1086,12 +1039,13 @@ void QQuickShapePrivate::sync()
     }
 
     const int count = sp.count();
-    renderer->beginSync(count);
+    bool countChanged = false;
+    renderer->beginSync(count, &countChanged);
 
     for (int i = 0; i < count; ++i) {
         QQuickShapePath *p = sp[i];
         int &dirty(QQuickShapePathPrivate::get(p)->dirty);
-        syncTimingTotalDirty |= dirty;
+        totalDirty |= dirty;
 
         if (dirty & QQuickShapePathPrivate::DirtyPath)
             renderer->setPath(i, p);
@@ -1115,6 +1069,7 @@ void QQuickShapePrivate::sync()
         dirty = 0;
     }
 
+    syncTimingTotalDirty = totalDirty;
     if (syncTimingTotalDirty)
         ++syncTimeCounter;
     else
@@ -1128,6 +1083,12 @@ void QQuickShapePrivate::sync()
             qDebug("[Shape %p] [%d] [dirty=0x%x] update took %lld ms",
                    q_func(), syncTimeCounter, syncTimingTotalDirty, syncTimer.elapsed());
     }
+
+    // Must dirty the QQuickItem if something got changed, nothing
+    // else does this for us.
+    Q_Q(QQuickShape);
+    if (totalDirty || countChanged)
+        q->update();
 }
 
 // ***** gradient support *****
@@ -1613,83 +1574,6 @@ QSGTexture *QQuickShapeGradientCache::get(const QQuickShapeGradientCacheKey &gra
     }
     return tx;
 }
-
-#if QT_CONFIG(opengl)
-
-// contexts sharing with each other get the same cache instance
-class QQuickShapeGradientCacheWrapper
-{
-public:
-    QQuickShapeGradientOpenGLCache *get(QOpenGLContext *context)
-    {
-        return m_resource.value<QQuickShapeGradientOpenGLCache>(context);
-    }
-
-private:
-    QOpenGLMultiGroupSharedResource m_resource;
-};
-
-QQuickShapeGradientOpenGLCache *QQuickShapeGradientOpenGLCache::currentCache()
-{
-    static QQuickShapeGradientCacheWrapper qt_path_gradient_caches;
-    return qt_path_gradient_caches.get(QOpenGLContext::currentContext());
-}
-
-// let QOpenGLContext manage the lifetime of the cached textures
-QQuickShapeGradientOpenGLCache::~QQuickShapeGradientOpenGLCache()
-{
-    m_cache.clear();
-}
-
-void QQuickShapeGradientOpenGLCache::invalidateResource()
-{
-    m_cache.clear();
-}
-
-void QQuickShapeGradientOpenGLCache::freeResource(QOpenGLContext *)
-{
-    qDeleteAll(m_cache);
-    m_cache.clear();
-}
-
-QSGTexture *QQuickShapeGradientOpenGLCache::get(const QQuickShapeGradientCacheKey &grad)
-{
-    QSGPlainTexture *tx = m_cache[grad];
-    if (!tx) {
-        QOpenGLFunctions *f = QOpenGLContext::currentContext()->functions();
-        GLuint id;
-        f->glGenTextures(1, &id);
-        f->glBindTexture(GL_TEXTURE_2D, id);
-        static const uint W = 1024; // texture size is 1024x1
-        uint buf[W];
-        generateGradientColorTable(grad, buf, W, 1.0f);
-        f->glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, W, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, buf);
-        tx = new QSGPlainTexture;
-        tx->setTextureId(id);
-        switch (grad.spread) {
-        case QQuickShapeGradient::PadSpread:
-            tx->setHorizontalWrapMode(QSGTexture::ClampToEdge);
-            tx->setVerticalWrapMode(QSGTexture::ClampToEdge);
-            break;
-        case QQuickShapeGradient::RepeatSpread:
-            tx->setHorizontalWrapMode(QSGTexture::Repeat);
-            tx->setVerticalWrapMode(QSGTexture::Repeat);
-            break;
-        case QQuickShapeGradient::ReflectSpread:
-            tx->setHorizontalWrapMode(QSGTexture::MirroredRepeat);
-            tx->setVerticalWrapMode(QSGTexture::MirroredRepeat);
-            break;
-        default:
-            qWarning("Unknown gradient spread mode %d", grad.spread);
-            break;
-        }
-        tx->setFiltering(QSGTexture::Linear);
-        m_cache[grad] = tx;
-    }
-    return tx;
-}
-
-#endif // QT_CONFIG(opengl)
 
 QT_END_NAMESPACE
 

@@ -34,10 +34,11 @@
 
 #include <QtWidgets/qapplication.h>
 #include <QtGui/qfont.h>
-#include <QtWidgets/qdesktopwidget.h>
 #include <QtWidgets/qstyle.h>
 #include <QtWidgets/qstylefactory.h>
 #include <QtWidgets/qapplication.h>
+
+#include <QtGui/qscreen.h>
 
 #include <QtCore/qshareddata.h>
 #include <QtCore/qtextstream.h>
@@ -202,9 +203,9 @@ void DeviceProfile::setName(const QString &n)
 
 void DeviceProfile::systemResolution(int *dpiX, int *dpiY)
 {
-    const QDesktopWidget *dw = qApp->desktop();
-    *dpiX = dw->logicalDpiX();
-    *dpiY = dw->logicalDpiY();
+    auto s = qApp->primaryScreen();
+    *dpiX = s->logicalDotsPerInchX();
+    *dpiY = s->logicalDotsPerInchY();
 }
 
 class FriendlyWidget : public QWidget {
@@ -241,7 +242,7 @@ static void applyFont(const QString &family, int size, DeviceProfile::ApplyMode 
     case DeviceProfile::ApplyPreview: {
         // Preview: Apply only subproperties that have not been changed by designer properties
         bool apply = false;
-        const uint resolve = currentFont.resolve();
+        const uint resolve = currentFont.resolveMask();
         if (!(resolve & QFont::FamilyResolved)) {
             currentFont.setFamily(family);
             apply = true;
@@ -331,7 +332,7 @@ enum ParseStage { ParseBeginning, ParseWithinRoot,
                   ParseName, ParseFontFamily, ParseFontPointSize, ParseDPIX,  ParseDPIY,  ParseStyle,
                   ParseError };
 
-static ParseStage nextStage(ParseStage currentStage, const QStringRef &startElement)
+static ParseStage nextStage(ParseStage currentStage, QStringView startElement)
 {
     switch (currentStage) {
     case ParseBeginning:

@@ -72,10 +72,10 @@ class QQmlPropertyData;
 class Q_QML_EXPORT QQmlMetaObject
 {
 public:
-    typedef QVarLengthArray<int, 9> ArgTypeStorage;
+    typedef QVarLengthArray<QMetaType, 9> ArgTypeStorage;
 
-    inline QQmlMetaObject();
-    inline QQmlMetaObject(QObject *);
+    inline QQmlMetaObject() = default;
+    inline QQmlMetaObject(const QObject *);
     inline QQmlMetaObject(const QMetaObject *);
     inline QQmlMetaObject(QQmlPropertyCache *);
     inline QQmlMetaObject(const QQmlMetaObject &);
@@ -87,14 +87,23 @@ public:
     inline const char *className() const;
     inline int propertyCount() const;
 
-    inline bool hasMetaObject() const;
     inline const QMetaObject *metaObject() const;
 
-    QQmlPropertyCache *propertyCache(QQmlEnginePrivate *) const;
-
-    int methodReturnType(const QQmlPropertyData &data, QByteArray *unknownTypeError) const;
-    int *methodParameterTypes(int index, ArgTypeStorage *argStorage,
+    QMetaType methodReturnType(const QQmlPropertyData &data, QByteArray *unknownTypeError) const;
+    /*!
+      \internal
+      Returns false if one of the types is unknown. Otherwise, fills \a argstorage with the
+      metatypes of the function.
+    */
+    bool methodParameterTypes(int index, ArgTypeStorage *argStorage,
                               QByteArray *unknownTypeError) const;
+    /*!
+      \internal
+      Returns false if one of the types is unknown. Otherwise, fills \a argstorage with the
+      metatypes of the function.
+    */
+    bool constructorParameterTypes(int index, ArgTypeStorage *dummy, QByteArray *unknownTypeError) const;
+
 
     static bool canConvert(const QQmlMetaObject &from, const QQmlMetaObject &to);
 
@@ -102,24 +111,17 @@ public:
     // we need a helper to find the correct meta object and property/method index.
     static void resolveGadgetMethodOrPropertyIndex(QMetaObject::Call type, const QMetaObject **metaObject, int *index);
 
+    static bool methodParameterTypes(const QMetaMethod &method, ArgTypeStorage *argStorage,
+                              QByteArray *unknownTypeError);
 protected:
-    QBiPointer<QQmlPropertyCache, const QMetaObject> _m;
-    int *methodParameterTypes(const QMetaMethod &method, ArgTypeStorage *argStorage,
-                              QByteArray *unknownTypeError) const;
+    const QMetaObject *_m = nullptr;
 
 };
 
-QQmlMetaObject::QQmlMetaObject()
+QQmlMetaObject::QQmlMetaObject(const QObject *o)
 {
-}
-
-QQmlMetaObject::QQmlMetaObject(QObject *o)
-{
-    if (o) {
-        QQmlData *ddata = QQmlData::get(o, false);
-        if (ddata && ddata->propertyCache) _m = ddata->propertyCache;
-        else _m = o->metaObject();
-    }
+    if (o)
+        _m = o->metaObject();
 }
 
 QQmlMetaObject::QQmlMetaObject(const QMetaObject *m)
@@ -128,8 +130,9 @@ QQmlMetaObject::QQmlMetaObject(const QMetaObject *m)
 }
 
 QQmlMetaObject::QQmlMetaObject(QQmlPropertyCache *m)
-    : _m(m)
 {
+    if (m)
+        _m = m->createMetaObject();
 }
 
 QQmlMetaObject::QQmlMetaObject(const QQmlMetaObject &o)
@@ -145,41 +148,26 @@ QQmlMetaObject &QQmlMetaObject::operator=(const QQmlMetaObject &o)
 
 bool QQmlMetaObject::isNull() const
 {
-    return _m.isNull();
+    return !_m;
 }
 
 const char *QQmlMetaObject::className() const
 {
-    if (_m.isNull()) {
+    if (!_m)
         return nullptr;
-    } else if (_m.isT1()) {
-        return _m.asT1()->className();
-    } else {
-        return _m.asT2()->className();
-    }
+    return metaObject()->className();
 }
 
 int QQmlMetaObject::propertyCount() const
 {
-    if (_m.isNull()) {
+    if (!_m)
         return 0;
-    } else if (_m.isT1()) {
-        return _m.asT1()->propertyCount();
-    } else {
-        return _m.asT2()->propertyCount();
-    }
-}
-
-bool QQmlMetaObject::hasMetaObject() const
-{
-    return _m.isT2() || (!_m.isNull() && _m.asT1()->metaObject());
+    return metaObject()->propertyCount();
 }
 
 const QMetaObject *QQmlMetaObject::metaObject() const
 {
-    if (_m.isNull()) return nullptr;
-    if (_m.isT1()) return _m.asT1()->createMetaObject();
-    else return _m.asT2();
+    return _m;
 }
 
 QT_END_NAMESPACE

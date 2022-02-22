@@ -5,8 +5,11 @@
 #ifndef BASE_MESSAGE_LOOP_MESSAGE_PUMP_H_
 #define BASE_MESSAGE_LOOP_MESSAGE_PUMP_H_
 
+#include <utility>
+
 #include "base/base_export.h"
-#include "base/logging.h"
+#include "base/check_op.h"
+#include "base/compiler_specific.h"
 #include "base/message_loop/message_pump_type.h"
 #include "base/message_loop/timer_slack.h"
 #include "base/sequence_checker.h"
@@ -35,18 +38,6 @@ class BASE_EXPORT MessagePump {
   class BASE_EXPORT Delegate {
    public:
     virtual ~Delegate() = default;
-
-    // Called before a unit of work internal to the message pump is executed.
-    // This allows reports about individual units of work to be produced. The
-    // unit of work ends when BeforeDoInternalWork() is called again, or when
-    // BeforeWait(), DoWork(), or DoIdleWork() is called.
-    // TODO(crbug.com/851163): Place calls for all platforms.
-    virtual void BeforeDoInternalWork() = 0;
-
-    // Called before the message pump starts waiting for work.
-    // This indicates the end of the current unit of work, which is required
-    // to produce reports about individual units of work.
-    virtual void BeforeWait() = 0;
 
     struct NextWorkInfo {
       // Helper to extract a TimeDelta for pumps that need a
@@ -85,6 +76,52 @@ class BASE_EXPORT MessagePump {
     // Returns true to indicate that idle work was done. Returning false means
     // the pump will now wait.
     virtual bool DoIdleWork() = 0;
+
+    class ScopedDoNativeWork {
+     public:
+      ScopedDoNativeWork() : outer_(nullptr) {}
+
+      ~ScopedDoNativeWork() {
+        if (outer_)
+          outer_->OnEndNativeWork();
+      }
+
+      ScopedDoNativeWork(ScopedDoNativeWork&& rhs)
+          : outer_(std::exchange(rhs.outer_, nullptr)) {}
+      ScopedDoNativeWork& operator=(ScopedDoNativeWork&& rhs) {
+        outer_ = std::exchange(rhs.outer_, nullptr);
+        return *this;
+      }
+
+     private:
+      friend Delegate;
+
+      explicit ScopedDoNativeWork(Delegate* outer) : outer_(outer) {
+        outer_->OnBeginNativeWork();
+      }
+
+      Delegate* outer_;
+    };
+
+    // Called before a unit of native work is executed. This allows reports
+    // about individual units of work to be produced. The unit of work ends when
+    // the returned ScopedDoNativeWork goes out of scope.
+    // TODO(crbug.com/851163): Place calls for all platforms. Without this, some
+    // state like the top-level "ThreadController active" trace event will not
+    // be correct when native work is performed.
+    ScopedDoNativeWork BeginNativeWork() WARN_UNUSED_RESULT {
+      return ScopedDoNativeWork(this);
+    }
+
+    // Called before the message pump starts waiting for work. This indicates
+    // that the message pump is idle (out of application work and ideally out of
+    // native work -- if it can tell).
+    virtual void BeforeWait() = 0;
+
+   private:
+    // Called upon entering/exiting a ScopedDoNativeWork.
+    virtual void OnBeginNativeWork() = 0;
+    virtual void OnEndNativeWork() = 0;
   };
 
   MessagePump();
@@ -96,13 +133,16 @@ class BASE_EXPORT MessagePump {
   // messages as well as for giving cycles to the delegate periodically. The
   // message pump should take care to mix delegate callbacks with native message
   // processing so neither type of event starves the other of cycles. Each call
-  // to a delegate function or DoInternalWork() is considered the beginning of a
-  // new "unit of work".
+  // to a delegate function is considered the beginning of a new "unit of work".
   //
   // The anatomy of a typical run loop:
   //
   //   for (;;) {
-  //     bool did_internal_work = DoInternalWork();
+  //     bool did_native_work = false;
+  //     {
+  //       auto scoped_do_native_work = state_->delegate->BeginNativeWork();
+  //       did_native_work = DoNativeWork();
+  //     }
   //     if (should_quit_)
   //       break;
   //
@@ -110,7 +150,7 @@ class BASE_EXPORT MessagePump {
   //     if (should_quit_)
   //       break;
   //
-  //     if (did_internal_work || next_work_info.is_immediate())
+  //     if (did_native_work || next_work_info.is_immediate())
   //       continue;
   //
   //     bool did_idle_work = delegate_->DoIdleWork();
@@ -124,12 +164,12 @@ class BASE_EXPORT MessagePump {
   //   }
   //
 
-  // Here, DoInternalWork is some private method of the message pump that is
+  // Here, DoNativeWork is some private method of the message pump that is
   // responsible for dispatching the next UI message or notifying the next IO
   // completion (for example).  WaitForWork is a private method that simply
   // blocks until there is more work of any type to do.
   //
-  // Notice that the run loop cycles between calling DoInternalWork and DoWork
+  // Notice that the run loop cycles between calling DoNativeWork and DoWork
   // methods. This helps ensure that none of these work queues starve the
   // others. This is important for message pumps that are used to drive
   // animations, for example.

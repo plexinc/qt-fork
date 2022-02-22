@@ -24,7 +24,7 @@
 #include "perfetto/base/compiler.h"
 #include "perfetto/base/export.h"
 
-#ifdef __GNUC__
+#if defined(__GNUC__) || defined(__clang__)
 // Ignore GCC warning about a missing argument for a variadic macro parameter.
 #pragma GCC system_header
 #endif
@@ -93,54 +93,28 @@ PERFETTO_EXPORT void LogMessage(LogLev,
                           "%s:%d " fmt, ::perfetto::base::Basename(__FILE__), \
                           __LINE__, ##__VA_ARGS__);                           \
   } while (0)
-#else  // defined(PERFETTO_ANDROID_ASYNC_SAFE_LOG)
+#elif defined(PERFETTO_DISABLE_LOG)
+#define PERFETTO_XLOG(...) ::perfetto::base::ignore_result(__VA_ARGS__)
+#else
 #define PERFETTO_XLOG(level, fmt, ...)                                      \
   ::perfetto::base::LogMessage(level, ::perfetto::base::Basename(__FILE__), \
                                __LINE__, fmt, ##__VA_ARGS__)
-#endif  // defined(PERFETTO_ANDROID_ASYNC_SAFE_LOG)
-
-#if PERFETTO_BUILDFLAG(PERFETTO_COMPILER_CLANG) || PERFETTO_BUILDFLAG(PERFETTO_COMPILER_GCC)
-#define PERFETTO_TRAP_SEQUENCE() __builtin_trap()
-#elif PERFETTO_BUILDFLAG(PERFETTO_COMPILER_MSVC)
-#define PERFETTO_TRAP_SEQUENCE() __debugbreak()
-#else
-#error Port
 #endif
 
-#if PERFETTO_BUILDFLAG(PERFETTO_COMPILER_CLANG) || PERFETTO_BUILDFLAG(PERFETTO_COMPILER_GCC)
-#define PERFETTO_IMMEDIATE_CRASH()    \
-  do {                                \
-    PERFETTO_TRAP_SEQUENCE();         \
-    __builtin_unreachable();          \
-  } while(false)
-#else
-// This is supporting non-chrome use of logging.h to build with MSVC.
-#define PERFETTO_IMMEDIATE_CRASH()  PERFETTO_TRAP_SEQUENCE()
-#endif
-
-#if PERFETTO_BUILDFLAG(PERFETTO_COMPILER_MSVC)
-#define CR_EXPAND_ARG(arg) arg
-#if PERFETTO_BUILDFLAG(PERFETTO_VERBOSE_LOGS)
-#define PERFETTO_LOG(fmt, ...) \
-  CR_EXPAND_ARG(PERFETTO_XLOG(::perfetto::base::kLogInfo, fmt, __VA_ARGS__))
-#else // PERFETTO_BUILDFLAG(PERFETTO_VERBOSE_LOGS)
-#define PERFETTO_LOG(...) ::perfetto::base::ignore_result(__VA_ARGS__)
-#endif // PERFETTO_BUILDFLAG(PERFETTO_VERBOSE_LOGS)
-
-#define PERFETTO_ILOG(fmt, ...) \
-  CR_EXPAND_ARG(                \
-      PERFETTO_XLOG(::perfetto::base::kLogImportant, fmt, __VA_ARGS__))
-#define PERFETTO_ELOG(fmt, ...) \
-  CR_EXPAND_ARG(PERFETTO_XLOG(::perfetto::base::kLogError, fmt, __VA_ARGS__))
-#define PERFETTO_FATAL(fmt, ...)       \
-  do {                                 \
-    CR_EXPAND_ARG(PERFETTO_ELOG(fmt, __VA_ARGS__)); \
-    PERFETTO_IMMEDIATE_CRASH();        \
+#if defined(_MSC_VER)
+#define PERFETTO_IMMEDIATE_CRASH() \
+  do {                             \
+    __debugbreak();                \
+    __assume(0);                   \
   } while (0)
-
-#define PERFETTO_PLOG(x, ...) \
-  CR_EXPAND_ARG(PERFETTO_ELOG(x " (errno: %d, %s)", ##__VA_ARGS__, errno, strerror(errno)))
 #else
+#define PERFETTO_IMMEDIATE_CRASH() \
+  do {                             \
+    __builtin_trap();              \
+    __builtin_unreachable();       \
+  } while (0)
+#endif
+
 #if PERFETTO_BUILDFLAG(PERFETTO_VERBOSE_LOGS)
 #define PERFETTO_LOG(fmt, ...) \
   PERFETTO_XLOG(::perfetto::base::kLogInfo, fmt, ##__VA_ARGS__)
@@ -158,22 +132,35 @@ PERFETTO_EXPORT void LogMessage(LogLev,
     PERFETTO_IMMEDIATE_CRASH();        \
   } while (0)
 
+#if defined(__GNUC__) || defined(__clang__)
 #define PERFETTO_PLOG(x, ...) \
   PERFETTO_ELOG(x " (errno: %d, %s)", ##__VA_ARGS__, errno, strerror(errno))
+#else
+// MSVC expands __VA_ARGS__ in a different order. Give up, not worth it.
+#define PERFETTO_PLOG PERFETTO_ELOG
 #endif
 
+#define PERFETTO_CHECK(x)                            \
+  do {                                               \
+    if (PERFETTO_UNLIKELY(!(x))) {                   \
+      PERFETTO_PLOG("%s", "PERFETTO_CHECK(" #x ")"); \
+      PERFETTO_IMMEDIATE_CRASH();                    \
+    }                                                \
+  } while (0)
+
 #if PERFETTO_DLOG_IS_ON()
-#if PERFETTO_BUILDFLAG(PERFETTO_COMPILER_MSVC)
-#define PERFETTO_DLOG(fmt, ...) \
-  CR_EXPAND_ARG(PERFETTO_XLOG(::perfetto::base::kLogDebug, fmt, __VA_ARGS__))
-#define PERFETTO_DPLOG(x, ...) \
-  CR_EXPAND_ARG(PERFETTO_DLOG(x " (errno: %d, %s)", __VA_ARGS__, errno, strerror(errno)))
-#else
+
 #define PERFETTO_DLOG(fmt, ...) \
   PERFETTO_XLOG(::perfetto::base::kLogDebug, fmt, ##__VA_ARGS__)
+
+#if defined(__GNUC__) || defined(__clang__)
 #define PERFETTO_DPLOG(x, ...) \
   PERFETTO_DLOG(x " (errno: %d, %s)", ##__VA_ARGS__, errno, strerror(errno))
-#endif // PERFETTO_BUILDFLAG(PERFETTO_COMPILER_MSVC)
+#else
+// MSVC expands __VA_ARGS__ in a different order. Give up, not worth it.
+#define PERFETTO_DPLOG PERFETTO_DLOG
+#endif
+
 #else  // PERFETTO_DLOG_IS_ON()
 
 #define PERFETTO_DLOG(...) ::perfetto::base::ignore_result(__VA_ARGS__)
@@ -183,43 +170,8 @@ PERFETTO_EXPORT void LogMessage(LogLev,
 
 #if PERFETTO_DCHECK_IS_ON()
 
-#if PERFETTO_BUILDFLAG(PERFETTO_COMPILER_MSVC)
-#define PERFETTO_DCHECK(x)                           \
-  do {                                               \
-    if (PERFETTO_UNLIKELY(!(x))) {                   \
-      PERFETTO_ELOG("%s (errno: %d, %s)", "PERFETTO_CHECK(" #x ")", errno, strerror(errno)); \
-      PERFETTO_IMMEDIATE_CRASH();                    \
-    }                                                \
-  } while (0)
-
-#define PERFETTO_CHECK(x) PERFETTO_DCHECK(x)
-
-#define PERFETTO_DFATAL(fmt, ...)      \
-  do {                                 \
-    CR_EXPAND_ARG(PERFETTO_ELOG(fmt, __VA_ARGS__)); \
-    PERFETTO_IMMEDIATE_CRASH();        \
-  } while (0)
-
-#define PERFETTO_DFATAL_OR_ELOG(...) PERFETTO_DFATAL(__VA_ARGS__)
-
-#else
-#define PERFETTO_DCHECK(x)                           \
-  do {                                               \
-    if (PERFETTO_UNLIKELY(!(x))) {                   \
-      PERFETTO_PLOG("%s", "PERFETTO_CHECK(" #x ")"); \
-      PERFETTO_IMMEDIATE_CRASH();                    \
-    }                                                \
-  } while (0)
-
-#define PERFETTO_CHECK(x) PERFETTO_DCHECK(x)
-
-#define PERFETTO_DFATAL(fmt, ...)      \
-  do {                                 \
-    PERFETTO_PLOG(fmt, ##__VA_ARGS__); \
-    PERFETTO_IMMEDIATE_CRASH();        \
-  } while (0)
-#endif
-
+#define PERFETTO_DCHECK(x) PERFETTO_CHECK(x)
+#define PERFETTO_DFATAL(...) PERFETTO_FATAL(__VA_ARGS__)
 #define PERFETTO_DFATAL_OR_ELOG(...) PERFETTO_DFATAL(__VA_ARGS__)
 
 #else  // PERFETTO_DCHECK_IS_ON()
@@ -227,14 +179,6 @@ PERFETTO_EXPORT void LogMessage(LogLev,
 #define PERFETTO_DCHECK(x) \
   do {                     \
   } while (false && (x))
-
-#define PERFETTO_CHECK(x)                            \
-  do {                                               \
-    if (PERFETTO_UNLIKELY(!(x))) {                   \
-      PERFETTO_PLOG("%s", "PERFETTO_CHECK(" #x ")"); \
-      PERFETTO_IMMEDIATE_CRASH();                    \
-    }                                                \
-  } while (0)
 
 #define PERFETTO_DFATAL(...) ::perfetto::base::ignore_result(__VA_ARGS__)
 #define PERFETTO_DFATAL_OR_ELOG(...) PERFETTO_ELOG(__VA_ARGS__)

@@ -44,11 +44,11 @@
 #include <xcb/randr.h>
 
 #include <QtCore/QTimer>
+#include <QtGui/qpointingdevice.h>
 #include <QtGui/private/qtguiglobal_p.h>
 #include "qxcbexport.h"
 #include <QHash>
 #include <QList>
-#include <QVector>
 #include <qpa/qwindowsysteminterface.h>
 #include <QtCore/QLoggingCategory>
 #include <QtCore/private/qglobal_p.h>
@@ -78,6 +78,8 @@ class QXcbScreen;
 class QXcbWindow;
 class QXcbDrag;
 class QXcbKeyboard;
+class QXcbScrollingDevice;
+class QXcbScrollingDevicePrivate;
 class QXcbClipboard;
 class QXcbWMSupport;
 class QXcbNativeInterface;
@@ -225,9 +227,8 @@ public:
 
     void xi2SelectStateEvents();
     void xi2SelectDeviceEvents(xcb_window_t window);
-    void xi2SelectDeviceEventsCompatibility(xcb_window_t window);
     bool xi2SetMouseGrabEnabled(xcb_window_t w, bool grab);
-    bool xi2MouseEventsDisabled() const;
+
     Qt::MouseButton xiToQtMouseButton(uint32_t b);
     void xi2UpdateScrollingDevices();
     bool startSystemMoveResizeForTouch(xcb_window_t window, int edges);
@@ -263,10 +264,11 @@ private:
     inline bool timeGreaterThan(xcb_timestamp_t a, xcb_timestamp_t b) const
     { return static_cast<int32_t>(a - b) > 0 || b == XCB_CURRENT_TIME; }
 
-    void xi2SetupDevice(void *info, bool removeExisting = true);
+    void xi2SetupSlavePointerDevice(void *info, bool removeExisting = true, QPointingDevice *master = nullptr);
     void xi2SetupDevices();
+    // TODO get rid of this: store minimal necessary info in a subclass of QPointingDevicePrivate
     struct TouchDeviceData {
-        QTouchDevice *qtTouchDevice = nullptr;
+        QPointingDevice *qtTouchDevice = nullptr;
         QHash<int, QWindowSystemInterface::TouchPoint> touchPoints;
         QHash<int, QPointF> pointPressedPosition; // in screen coordinates where each point was pressed
         struct ValuatorClassInfo {
@@ -275,7 +277,7 @@ private:
             int number = -1;
             QXcbAtom::Atom label;
         };
-        QVector<ValuatorClassInfo> valuatorInfo;
+        QList<ValuatorClassInfo> valuatorInfo;
 
         // Stuff that is relevant only for touchpads
         QPointF firstPressedPosition;        // in screen coordinates where the first point was pressed
@@ -283,17 +285,19 @@ private:
         QSizeF size;                         // device size in mm
         bool providesTouchOrientation = false;
     };
-    TouchDeviceData *populateTouchDevices(void *info);
+    TouchDeviceData *populateTouchDevices(void *info, QXcbScrollingDevicePrivate *scrollingDeviceP);
     TouchDeviceData *touchDeviceForId(int id);
     void xi2HandleEvent(xcb_ge_event_t *event);
     void xi2HandleHierarchyEvent(void *event);
     void xi2HandleDeviceChangedEvent(void *event);
     void xi2ProcessTouch(void *xiDevEvent, QXcbWindow *platformWindow);
 #if QT_CONFIG(tabletevent)
+    // TODO get rid of this: store minimal necessary info in a subclass of QXcbScrollingDevice (some tablets can scroll)
     struct TabletData {
         int deviceId = 0;
-        QTabletEvent::PointerType pointerType = QTabletEvent::UnknownPointer;
-        QTabletEvent::TabletDevice tool = QTabletEvent::Stylus;
+        QString name;
+        QPointingDevice::PointerType pointerType = QPointingDevice::PointerType::Unknown;
+        QInputDevice::DeviceType tool = QInputDevice::DeviceType::Stylus;
         Qt::MouseButtons buttons;
         qint64 serialId = 0;
         bool inProximity = false;
@@ -309,23 +313,12 @@ private:
     friend class QTypeInfo<TabletData::ValuatorClassInfo>;
     bool xi2HandleTabletEvent(const void *event, TabletData *tabletData);
     void xi2ReportTabletEvent(const void *event, TabletData *tabletData);
-    QVector<TabletData> m_tabletData;
+    QList<TabletData> m_tabletData;
     TabletData *tabletDataForDevice(int id);
 #endif // QT_CONFIG(tabletevent)
-    struct ScrollingDevice {
-        int deviceId = 0;
-        int verticalIndex = 0;
-        int horizontalIndex = 0;
-        double verticalIncrement = 0;
-        double horizontalIncrement = 0;
-        Qt::Orientations orientations;
-        Qt::Orientations legacyOrientations;
-        QPointF lastScrollPosition;
-    };
-    QHash<int, ScrollingDevice> m_scrollingDevices;
-    void xi2HandleScrollEvent(void *event, ScrollingDevice &scrollingDevice);
-    void xi2UpdateScrollingDevice(ScrollingDevice &scrollingDevice);
-    ScrollingDevice *scrollingDeviceForId(int id);
+    void xi2HandleScrollEvent(void *event, const QPointingDevice *scrollingDevice);
+    void xi2UpdateScrollingDevice(QInputDevice *scrollingDevice);
+    QXcbScrollingDevice *scrollingDeviceForId(int id);
 
     static bool xi2GetValuatorValueIfSet(const void *event, int valuatorNum, double *value);
 
@@ -373,7 +366,7 @@ private:
     mutable QXcbGlIntegration *m_glIntegration = nullptr;
     mutable bool m_glIntegrationInitialized = false;
     bool m_xiGrab = false;
-    QVector<int> m_xiMasterPointerIds;
+    QList<int> m_xiMasterPointerIds;
 
     xcb_window_t m_qtSelectionOwner = 0;
 
@@ -385,7 +378,7 @@ private:
 };
 #if QT_CONFIG(tabletevent)
 Q_DECLARE_TYPEINFO(QXcbConnection::TabletData::ValuatorClassInfo, Q_PRIMITIVE_TYPE);
-Q_DECLARE_TYPEINFO(QXcbConnection::TabletData, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QXcbConnection::TabletData, Q_RELOCATABLE_TYPE);
 #endif
 
 class QXcbConnectionGrabber

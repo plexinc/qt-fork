@@ -30,7 +30,8 @@
 #ifndef QCHARTGLOBAL_H
 #define QCHARTGLOBAL_H
 
-#include <QtCore/QtGlobal>
+#include <QtCore/qglobal.h>
+#include <QtCharts/qtcharts-config.h>
 
 #define QT_CHARTS_VERSION_STR QT_VERSION_STR
 /*
@@ -41,6 +42,8 @@
    can be used like #if (QT_CHARTS_VERSION >= QT_CHARTS_VERSION_CHECK(1, 1, 0))
 */
 #define QT_CHARTS_VERSION_CHECK(major, minor, patch) ((major<<16)|(minor<<8)|(patch))
+
+QT_BEGIN_NAMESPACE
 
 #ifndef QT_STATIC
 #  if defined(QT_BUILD_CHARTS_LIB)
@@ -54,25 +57,7 @@
 
 #define Q_CHARTS_AUTOTEST_EXPORT Q_AUTOTEST_EXPORT
 
-#ifndef Q_CLANG_QDOC
-#define QT_CHARTS_NAMESPACE QtCharts
-#endif
-
-#ifdef QT_CHARTS_NAMESPACE
-#  define QT_CHARTS_BEGIN_NAMESPACE namespace QT_CHARTS_NAMESPACE {
-#  define QT_CHARTS_END_NAMESPACE }
-#  define QT_CHARTS_USE_NAMESPACE using namespace QT_CHARTS_NAMESPACE;
-#else
-#  define QT_CHARTS_BEGIN_NAMESPACE
-#  define QT_CHARTS_END_NAMESPACE
-#  define QT_CHARTS_USE_NAMESPACE
-#endif
-
-// Make sure we have used the namespace at least once to avoid compile errors when including
-// the QtCharts umbrella header.
-QT_CHARTS_BEGIN_NAMESPACE
-QT_CHARTS_END_NAMESPACE
-
+QT_END_NAMESPACE
 /*
     On Windows min and max conflict with standard macros
 */

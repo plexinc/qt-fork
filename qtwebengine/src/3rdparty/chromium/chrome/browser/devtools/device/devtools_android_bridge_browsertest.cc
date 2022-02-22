@@ -15,6 +15,7 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/prefs/pref_service.h"
+#include "content/public/test/browser_test.h"
 
 class DevToolsAndroidBridgeTest : public InProcessBrowserTest {
 };
@@ -55,7 +56,7 @@ IN_PROC_BROWSER_TEST_F(DevToolsAndroidBridgeTest, DiscoveryListChanges) {
   scoped_refptr<TCPDeviceProvider> provider;
   int called = 0;
   bridge->set_tcp_provider_callback_for_test(
-      base::Bind(assign_from_callback, &provider, &called));
+      base::BindRepeating(assign_from_callback, &provider, &called));
 
   EXPECT_LT(0, called);
   EXPECT_NE(nullptr, provider);
@@ -129,7 +130,7 @@ IN_PROC_BROWSER_TEST_F(DevToolsAndroidBridgeTest, TCPEnableChange) {
   scoped_refptr<TCPDeviceProvider> provider;
   int called = 0;
   bridge->set_tcp_provider_callback_for_test(
-      base::Bind(assign_from_callback, &provider, &called));
+      base::BindRepeating(assign_from_callback, &provider, &called));
 
   EXPECT_NE(nullptr, provider);
 

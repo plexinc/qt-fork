@@ -44,21 +44,22 @@
 #include <qpa/qwindowsysteminterface.h>
 
 #include <private/qwindow_p.h>
+#include <private/qguiapplication_p.h>
 
 QT_BEGIN_NAMESPACE
 
-QOffscreenWindow::QOffscreenWindow(QWindow *window)
+QOffscreenWindow::QOffscreenWindow(QWindow *window, bool frameMarginsEnabled)
     : QPlatformWindow(window)
     , m_positionIncludesFrame(false)
     , m_visible(false)
     , m_pendingGeometryChangeOnShow(true)
+    , m_frameMarginsRequested(frameMarginsEnabled)
 {
-    if (window->windowState() == Qt::WindowNoState)
-        setGeometry(window->geometry());
-    else
+    if (window->windowState() == Qt::WindowNoState) {
+        setGeometry(windowGeometry());
+    } else {
         setWindowState(window->windowStates());
-
-    QWindowSystemInterface::flushWindowSystemEvents();
+    }
 
     static WId counter = 0;
     m_winId = ++counter;
@@ -80,7 +81,7 @@ void QOffscreenWindow::setGeometry(const QRect &rect)
 
     m_positionIncludesFrame = qt_window_private(window())->positionPolicy == QWindowPrivate::WindowFrameInclusive;
 
-    setFrameMarginsEnabled(true);
+    setFrameMarginsEnabled(m_frameMarginsRequested);
     setGeometryImpl(rect);
 
     m_normalGeometry = geometry();
@@ -121,7 +122,7 @@ void QOffscreenWindow::setVisible(bool visible)
 
     if (visible) {
         if (window()->type() != Qt::ToolTip)
-            QWindowSystemInterface::handleWindowActivated(window());
+            QWindowSystemInterface::handleWindowActivated(window(), Qt::ActiveWindowFocusReason);
 
         if (m_pendingGeometryChangeOnShow) {
             m_pendingGeometryChangeOnShow = false;
@@ -129,11 +130,26 @@ void QOffscreenWindow::setVisible(bool visible)
         }
     }
 
+    const QPoint cursorPos = QCursor::pos();
     if (visible) {
         QRect rect(QPoint(), geometry().size());
         QWindowSystemInterface::handleExposeEvent(window(), rect);
+        if (QWindowPrivate::get(window())->isPopup() && QGuiApplicationPrivate::currentMouseWindow) {
+            QWindowSystemInterface::handleLeaveEvent<QWindowSystemInterface::SynchronousDelivery>
+                (QGuiApplicationPrivate::currentMouseWindow);
+        }
+        if (geometry().contains(cursorPos))
+            QWindowSystemInterface::handleEnterEvent(window(),
+                                                     window()->mapFromGlobal(cursorPos), cursorPos);
     } else {
         QWindowSystemInterface::handleExposeEvent(window(), QRegion());
+        if (window()->type() & Qt::Window) {
+            if (QWindow *windowUnderMouse = QGuiApplication::topLevelAt(cursorPos)) {
+                QWindowSystemInterface::handleEnterEvent(windowUnderMouse,
+                                                        windowUnderMouse->mapFromGlobal(cursorPos),
+                                                        cursorPos);
+            }
+        }
     }
 
     m_visible = visible;
@@ -142,7 +158,7 @@ void QOffscreenWindow::setVisible(bool visible)
 void QOffscreenWindow::requestActivateWindow()
 {
     if (m_visible)
-        QWindowSystemInterface::handleWindowActivated(window());
+        QWindowSystemInterface::handleWindowActivated(window(), Qt::ActiveWindowFocusReason);
 }
 
 WId QOffscreenWindow::winId() const
@@ -168,7 +184,7 @@ void QOffscreenWindow::setFrameMarginsEnabled(bool enabled)
 
 void QOffscreenWindow::setWindowState(Qt::WindowStates state)
 {
-    setFrameMarginsEnabled(!(state & Qt::WindowFullScreen));
+    setFrameMarginsEnabled(m_frameMarginsRequested && !(state & Qt::WindowFullScreen));
     m_positionIncludesFrame = false;
 
     if (state & Qt::WindowMinimized)

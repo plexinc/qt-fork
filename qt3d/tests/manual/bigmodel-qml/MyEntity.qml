@@ -64,7 +64,7 @@ Entity {
         SphereMesh { radius: 2 },
         PhongMaterial { id: material },
         ObjectPicker {
-                onClicked: console.log("Clicked", root.name, pick.distance, pick.triangleIndex)
-            }
+            onClicked: console.log("Clicked", root.name, pick.distance, pick.triangleIndex)
+        }
     ]
 }

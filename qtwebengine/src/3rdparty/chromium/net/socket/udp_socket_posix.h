@@ -11,6 +11,7 @@
 
 #include <memory>
 
+#include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/message_loop/message_pump_for_io.h"
@@ -34,7 +35,7 @@
 
 #if defined(__ANDROID__) && defined(__aarch64__)
 #define HAVE_SENDMMSG 1
-#elif defined(OS_LINUX)
+#elif defined(OS_LINUX) || defined(OS_CHROMEOS)
 #define HAVE_SENDMMSG 1
 #else
 #define HAVE_SENDMMSG 0
@@ -387,6 +388,9 @@ class NET_EXPORT UDPSocketPosix {
     experimental_recv_optimization_enabled_ = true;
   }
 
+  // Sets iOS Network Service Type for option SO_NET_SERVICE_TYPE.
+  int SetIOSNetworkServiceType(int ios_network_service_type);
+
  protected:
   // WriteAsync batching etc. are to improve throughput of large high
   // bandwidth uploads.
@@ -494,7 +498,7 @@ class NET_EXPORT UDPSocketPosix {
 
   // Same as SendTo(), except that address is passed by pointer
   // instead of by reference. It is called from Write() with |address|
-  // set to NULL.
+  // set to nullptr.
   int SendToOrWrite(IOBuffer* buf,
                     int buf_len,
                     const IPEndPoint* address,

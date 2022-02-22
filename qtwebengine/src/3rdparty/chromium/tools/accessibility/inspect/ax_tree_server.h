@@ -7,9 +7,10 @@
 
 #include <string>
 
-#include "base/process/process_handle.h"
+#include "base/callback.h"
+#include "base/files/file_path.h"
 #include "build/build_config.h"
-#include "content/public/browser/accessibility_tree_formatter.h"
+#include "ui/accessibility/platform/inspect/ax_tree_formatter.h"
 
 #if defined(OS_WIN)
 #include "base/win/scoped_com_initializer.h"
@@ -19,21 +20,20 @@ namespace content {
 
 class AXTreeServer final {
  public:
-  AXTreeServer(base::ProcessId pid,
-               const base::FilePath& filters_path,
-               bool use_json);
   AXTreeServer(gfx::AcceleratedWidget widget,
-               const base::FilePath& filters_path,
-               bool use_json);
-  AXTreeServer(const base::StringPiece& pattern,
-               const base::FilePath& filters_path,
-               bool use_json);
+               const base::FilePath& filters_path);
+  AXTreeServer(const ui::AXTreeSelector& selector,
+               const base::FilePath& filters_path);
 
  private:
-  void Format(AccessibilityTreeFormatter& formatter,
-              const base::DictionaryValue& dict,
-              const base::FilePath& filters_path,
-              bool use_json);
+  using BuildTree = base::OnceCallback<base::Value(const ui::AXTreeFormatter*)>;
+
+  // Builds and formats the accessible tree.
+  void Run(BuildTree build_tree, const base::FilePath& filters_path);
+
+  // Generates property filters.
+  std::vector<ui::AXPropertyFilter> GetPropertyFilters(
+      const base::FilePath& filters_path);
 
 #if defined(OS_WIN)
   // Only one COM initializer per thread is permitted.

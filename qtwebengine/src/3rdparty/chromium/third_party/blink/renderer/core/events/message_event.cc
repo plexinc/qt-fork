@@ -58,7 +58,7 @@ size_t MessageEvent::SizeOfExternalMemoryInBytes() {
       size_t result = 0;
       for (auto const& array_buffer :
            data_as_serialized_script_value_->ArrayBuffers()) {
-        result += array_buffer->ByteLengthAsSizeT();
+        result += array_buffer->ByteLength();
       }
 
       return result;
@@ -68,7 +68,7 @@ size_t MessageEvent::SizeOfExternalMemoryInBytes() {
     case kDataTypeBlob:
       return static_cast<size_t>(data_as_blob_->size());
     case kDataTypeArrayBuffer:
-      return data_as_array_buffer_->ByteLengthAsSizeT();
+      return data_as_array_buffer_->ByteLength();
   }
 }
 
@@ -96,9 +96,19 @@ MessageEvent::MessageEvent(const AtomicString& type,
     : Event(type, initializer),
       data_type_(kDataTypeScriptValue),
       source_(nullptr) {
+  // TODO(crbug.com/1070964): Remove this existence check.  There is a bug that
+  // the current code generator does not initialize a ScriptValue with the
+  // v8::Null value despite that the dictionary member has the default value of
+  // IDL null.  |hasData| guard is necessary here.
   if (initializer->hasData()) {
-    data_as_v8_value_.Set(initializer->data().GetIsolate(),
-                          initializer->data().V8Value());
+    v8::Local<v8::Value> data = initializer->data().V8Value();
+    // TODO(crbug.com/1070871): Remove the following IsNullOrUndefined() check.
+    // This null/undefined check fills the gap between the new and old bindings
+    // code.  The new behavior is preferred in a long term, and we'll switch to
+    // the new behavior once the migration to the new bindings gets settled.
+    if (!data->IsNullOrUndefined()) {
+      data_as_v8_value_.Set(initializer->data().GetIsolate(), data);
+    }
   }
   if (initializer->hasOrigin())
     origin_ = initializer->origin();
@@ -151,8 +161,7 @@ MessageEvent::MessageEvent(scoped_refptr<SerializedScriptValue> data,
                            EventTarget* source,
                            Vector<MessagePortChannel> channels,
                            UserActivation* user_activation,
-                           bool transfer_user_activation,
-                           bool allow_autoplay)
+                           bool delegate_payment_request)
     : Event(event_type_names::kMessage, Bubbles::kNo, Cancelable::kNo),
       data_type_(kDataTypeSerializedScriptValue),
       data_as_serialized_script_value_(
@@ -162,8 +171,7 @@ MessageEvent::MessageEvent(scoped_refptr<SerializedScriptValue> data,
       source_(source),
       channels_(std::move(channels)),
       user_activation_(user_activation),
-      transfer_user_activation_(transfer_user_activation),
-      allow_autoplay_(allow_autoplay) {
+      delegate_payment_request_(delegate_payment_request) {
   DCHECK(IsValidSource(source_.Get()));
   RegisterAmountOfExternallyAllocatedMemory();
 }
@@ -252,8 +260,7 @@ void MessageEvent::initMessageEvent(const AtomicString& type,
                                     EventTarget* source,
                                     MessagePortArray* ports,
                                     UserActivation* user_activation,
-                                    bool transfer_user_activation,
-                                    bool allow_autoplay) {
+                                    bool delegate_payment_request) {
   if (IsBeingDispatched())
     return;
 
@@ -269,8 +276,7 @@ void MessageEvent::initMessageEvent(const AtomicString& type,
   ports_ = ports;
   is_ports_dirty_ = true;
   user_activation_ = user_activation;
-  transfer_user_activation_ = transfer_user_activation;
-  allow_autoplay_ = allow_autoplay;
+  delegate_payment_request_ = delegate_payment_request;
   RegisterAmountOfExternallyAllocatedMemory();
 }
 
@@ -380,7 +386,7 @@ void MessageEvent::EntangleMessagePorts(ExecutionContext* context) {
   is_ports_dirty_ = true;
 }
 
-void MessageEvent::Trace(Visitor* visitor) {
+void MessageEvent::Trace(Visitor* visitor) const {
   visitor->Trace(data_as_v8_value_);
   visitor->Trace(data_as_serialized_script_value_);
   visitor->Trace(data_as_blob_);

@@ -54,7 +54,16 @@
 #include <Qt3DQuick/qt3dquick_global.h>
 #include <QtQml/qqml.h>
 
+#include <QColor>
+#include <QMatrix4x4>
+#include <QVector2D>
+#include <QVector3D>
+
 #define Q_3DQUICKSHARED_PRIVATE_EXPORT Q_3DQUICKSHARED_EXPORT
+
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+#define QML_ADDED_IN_VERSION(major, minor) QML_ADDED_IN_MINOR_VERSION(minor)
+#endif
 
 QT_BEGIN_NAMESPACE
 

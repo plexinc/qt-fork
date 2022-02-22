@@ -2,10 +2,27 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// @ts-nocheck
+
 import * as UIModule from './ui.js';
 
 self.UI = self.UI || {};
 UI = UI || {};
+
+/** @constructor */
+UI.DockController = UIModule.DockController.DockController;
+
+UI.DockController.State = UIModule.DockController.State;
+
+/** @enum {symbol} */
+UI.DockController.Events = UIModule.DockController.Events;
+
+/** @constructor */
+UI.DockController.ToggleDockActionDelegate = UIModule.DockController.ToggleDockActionDelegate;
+
+/** @constructor */
+UI.DockController.CloseButtonProvider = UIModule.DockController.CloseButtonProvider;
+
 
 /** @constructor */
 UI.Context = UIModule.Context.Context;
@@ -96,7 +113,6 @@ UI.InspectorView = UIModule.InspectorView.InspectorView;
 
 /**
  * @implements {UI.ActionDelegate}
- * @unrestricted
  */
 UI.InspectorView.ActionDelegate = UIModule.InspectorView.ActionDelegate;
 
@@ -133,9 +149,7 @@ UI.SettingUI = UIModule.SettingsUI.SettingUI;
 /** @constructor */
 UI.ShortcutRegistry = UIModule.ShortcutRegistry.ShortcutRegistry;
 
-/**
- * @unrestricted
- */
+
 UI.ShortcutRegistry.ForwardedShortcut = UIModule.ShortcutRegistry.ForwardedShortcut;
 
 /** @constructor */
@@ -149,9 +163,6 @@ UI.SplitWidget = UIModule.SplitWidget.SplitWidget;
 
 /** @constructor */
 UI.SuggestBox = UIModule.SuggestBox.SuggestBox;
-
-/** @constructor */
-UI.SyntaxHighlighter = UIModule.SyntaxHighlighter.SyntaxHighlighter;
 
 /** @constructor */
 UI.TabbedPane = UIModule.TabbedPane.TabbedPane;
@@ -207,9 +218,6 @@ UI.beautifyFunctionName = UIModule.UIUtils.beautifyFunctionName;
 /** @interface */
 UI.View = UIModule.View.View;
 
-/** @public */
-UI.View.widgetSymbol = UIModule.View.widgetSymbol;
-
 /** @constructor */
 UI.SimpleView = UIModule.View.SimpleView;
 
@@ -237,4 +245,10 @@ UI.XLink = UIModule.XLink.XLink;
 UI.XLink.ContextMenuProvider = UIModule.XLink.ContextMenuProvider;
 
 /** @type {!UIModule.Context.Context} */
-self.UI.context = new UIModule.Context.Context();
+self.UI.context = UIModule.Context.Context.instance();
+
+
+/**
+ * @type {!UI.DockController}
+ */
+UI.dockController;

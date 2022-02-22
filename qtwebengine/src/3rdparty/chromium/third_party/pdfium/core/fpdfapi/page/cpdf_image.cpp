@@ -23,14 +23,13 @@
 #include "core/fpdfapi/parser/cpdf_reference.h"
 #include "core/fpdfapi/parser/cpdf_stream.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
-#include "core/fxcodec/fx_codec.h"
 #include "core/fxcodec/jpeg/jpegmodule.h"
 #include "core/fxcrt/fx_memory_wrappers.h"
 #include "core/fxcrt/fx_stream.h"
 #include "core/fxge/dib/cfx_dibitmap.h"
-#include "core/fxge/fx_dib.h"
+#include "core/fxge/dib/fx_dib.h"
+#include "third_party/base/check.h"
 #include "third_party/base/numerics/safe_conversions.h"
-#include "third_party/base/ptr_util.h"
 
 // static
 bool CPDF_Image::IsValidJpegComponent(int32_t comps) {
@@ -43,19 +42,19 @@ bool CPDF_Image::IsValidJpegBitsPerComponent(int32_t bpc) {
 }
 
 CPDF_Image::CPDF_Image(CPDF_Document* pDoc) : m_pDocument(pDoc) {
-  ASSERT(m_pDocument);
+  DCHECK(m_pDocument);
 }
 
 CPDF_Image::CPDF_Image(CPDF_Document* pDoc, RetainPtr<CPDF_Stream> pStream)
     : m_bIsInline(true), m_pDocument(pDoc), m_pStream(std::move(pStream)) {
-  ASSERT(m_pDocument);
+  DCHECK(m_pDocument);
   FinishInitialization(m_pStream->GetDict());
 }
 
 CPDF_Image::CPDF_Image(CPDF_Document* pDoc, uint32_t dwStreamObjNum)
     : m_pDocument(pDoc),
       m_pStream(ToStream(pDoc->GetIndirectObject(dwStreamObjNum))) {
-  ASSERT(m_pDocument);
+  DCHECK(m_pDocument);
   FinishInitialization(m_pStream->GetDict());
 }
 
@@ -83,8 +82,7 @@ CPDF_Dictionary* CPDF_Image::GetDict() const {
 
 RetainPtr<CPDF_Dictionary> CPDF_Image::InitJPEG(
     pdfium::span<uint8_t> src_span) {
-  Optional<JpegModule::JpegImageInfo> info_opt =
-      fxcodec::ModuleMgr::GetInstance()->GetJpegModule()->LoadInfo(src_span);
+  Optional<JpegModule::JpegImageInfo> info_opt = JpegModule::LoadInfo(src_span);
   if (!info_opt.has_value())
     return nullptr;
 
@@ -131,7 +129,7 @@ void CPDF_Image::SetJpegImage(const RetainPtr<IFX_SeekableReadStream>& pFile) {
     return;
 
   uint32_t dwEstimateSize = std::min(size, 8192U);
-  std::vector<uint8_t> data(dwEstimateSize);
+  std::vector<uint8_t, FxAllocAllocator<uint8_t>> data(dwEstimateSize);
   if (!pFile->ReadBlockAtOffset(data.data(), 0, dwEstimateSize))
     return;
 
@@ -153,7 +151,7 @@ void CPDF_Image::SetJpegImageInline(
   if (!size)
     return;
 
-  std::vector<uint8_t> data(size);
+  std::vector<uint8_t, FxAllocAllocator<uint8_t>> data(size);
   if (!pFile->ReadBlockAtOffset(data.data(), 0, size))
     return;
 
@@ -184,7 +182,7 @@ void CPDF_Image::SetImage(const RetainPtr<CFX_DIBitmap>& pBitmap) {
     int32_t set_r = 0;
     int32_t set_g = 0;
     int32_t set_b = 0;
-    if (!pBitmap->IsAlphaMask()) {
+    if (!pBitmap->IsMask()) {
       std::tie(reset_a, reset_r, reset_g, reset_b) =
           ArgbDecode(pBitmap->GetPaletteArgb(0));
       std::tie(set_a, set_r, set_g, set_b) =
@@ -221,7 +219,7 @@ void CPDF_Image::SetImage(const RetainPtr<CFX_DIBitmap>& pBitmap) {
   } else if (bpp == 8) {
     size_t palette_size = pBitmap->GetPaletteSize();
     if (palette_size > 0) {
-      ASSERT(palette_size <= 256);
+      DCHECK(palette_size <= 256);
       CPDF_Array* pCS = m_pDocument->NewIndirect<CPDF_Array>();
       pCS->AppendNew<CPDF_Name>("Indexed");
       pCS->AppendNew<CPDF_Name>("DeviceRGB");
@@ -267,7 +265,7 @@ void CPDF_Image::SetImage(const RetainPtr<CFX_DIBitmap>& pBitmap) {
         CreateXObjectImageDict(maskWidth, maskHeight);
     pMaskDict->SetNewFor<CPDF_Name>("ColorSpace", "DeviceGray");
     pMaskDict->SetNewFor<CPDF_Number>("BitsPerComponent", 8);
-    if (pMaskBitmap->GetFormat() != FXDIB_1bppMask) {
+    if (pMaskBitmap->GetFormat() != FXDIB_Format::k1bppMask) {
       mask_buf.reset(FX_AllocUninit2D(uint8_t, maskHeight, maskWidth));
       mask_size = maskHeight * maskWidth;  // Safe since checked alloc returned.
       for (int32_t a = 0; a < maskHeight; a++) {
@@ -320,7 +318,7 @@ void CPDF_Image::SetImage(const RetainPtr<CFX_DIBitmap>& pBitmap) {
     m_pStream = pdfium::MakeRetain<CPDF_Stream>();
 
   m_pStream->InitStream(dest_span, std::move(pDict));
-  m_bIsMask = pBitmap->IsAlphaMask();
+  m_bIsMask = pBitmap->IsMask();
   m_Width = BitmapWidth;
   m_Height = BitmapHeight;
 }
@@ -353,7 +351,7 @@ RetainPtr<CFX_DIBBase> CPDF_Image::DetachMask() {
 }
 
 bool CPDF_Image::StartLoadDIBBase(const CPDF_Dictionary* pFormResource,
-                                  CPDF_Dictionary* pPageResource,
+                                  const CPDF_Dictionary* pPageResource,
                                   bool bStdCS,
                                   uint32_t GroupFamily,
                                   bool bLoadMask) {

@@ -10,6 +10,8 @@
 
 #include "src/sksl/ir/SkSLLayout.h"
 
+#include <vector>
+
 namespace SkSL {
 
 /**
@@ -24,17 +26,9 @@ struct Modifiers {
         kUniform_Flag        = 1 <<  3,
         kFlat_Flag           = 1 <<  4,
         kNoPerspective_Flag  = 1 <<  5,
-        kReadOnly_Flag       = 1 <<  6,
-        kWriteOnly_Flag      = 1 <<  7,
-        kCoherent_Flag       = 1 <<  8,
-        kVolatile_Flag       = 1 <<  9,
-        kRestrict_Flag       = 1 << 10,
-        kBuffer_Flag         = 1 << 11,
-        kHasSideEffects_Flag = 1 << 12,
-        kPLS_Flag            = 1 << 13,
-        kPLSIn_Flag          = 1 << 14,
-        kPLSOut_Flag         = 1 << 15,
-        kVarying_Flag        = 1 << 16,
+        kHasSideEffects_Flag = 1 <<  6,
+        kVarying_Flag        = 1 <<  7,
+        kInline_Flag         = 1 <<  8,
     };
 
     Modifiers()
@@ -59,35 +53,8 @@ struct Modifiers {
         if (fFlags & kNoPerspective_Flag) {
             result += "noperspective ";
         }
-        if (fFlags & kReadOnly_Flag) {
-            result += "readonly ";
-        }
-        if (fFlags & kWriteOnly_Flag) {
-            result += "writeonly ";
-        }
-        if (fFlags & kCoherent_Flag) {
-            result += "coherent ";
-        }
-        if (fFlags & kVolatile_Flag) {
-            result += "volatile ";
-        }
-        if (fFlags & kRestrict_Flag) {
-            result += "restrict ";
-        }
-        if (fFlags & kBuffer_Flag) {
-            result += "buffer ";
-        }
         if (fFlags & kHasSideEffects_Flag) {
             result += "sk_has_side_effects ";
-        }
-        if (fFlags & kPLS_Flag) {
-            result += "__pixel_localEXT ";
-        }
-        if (fFlags & kPLSIn_Flag) {
-            result += "__pixel_local_inEXT ";
-        }
-        if (fFlags & kPLSOut_Flag) {
-            result += "__pixel_local_outEXT ";
         }
         if (fFlags & kVarying_Flag) {
             result += "varying ";
@@ -115,6 +82,17 @@ struct Modifiers {
     int fFlags;
 };
 
-} // namespace
+} // namespace SkSL
+
+namespace std {
+
+template <>
+struct hash<SkSL::Modifiers> {
+    size_t operator()(const SkSL::Modifiers& key) const {
+        return key.fFlags ^ (key.fLayout.fFlags << 8) ^ ((unsigned) key.fLayout.fBuiltin << 16);
+    }
+};
+
+} // namespace std
 
 #endif

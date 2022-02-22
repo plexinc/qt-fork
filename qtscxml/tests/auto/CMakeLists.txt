@@ -1,0 +1,18 @@
+
+add_subdirectory(scxmlcoutput)
+if(TARGET Qt::Gui AND TARGET Qt::Qml)
+    if(TARGET Qt::Scxml)
+        add_subdirectory(compiled)
+        add_subdirectory(dynamicmetaobject)
+        add_subdirectory(parser)
+        add_subdirectory(scion)
+        add_subdirectory(statemachine)
+        add_subdirectory(statemachineinfo)
+    endif()
+    # More checks inside
+    add_subdirectory(qml)
+    add_subdirectory(qmltest)
+endif()
+if(NOT UIKIT AND TARGET Qt::StateMachine)
+    add_subdirectory(qstatemachine)
+endif()

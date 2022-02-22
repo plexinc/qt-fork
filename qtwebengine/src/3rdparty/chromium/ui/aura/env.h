@@ -24,6 +24,10 @@ class ContextFactory;
 class EventObserver;
 class GestureRecognizer;
 class PlatformEventSource;
+
+#if defined(OS_WIN) || defined(USE_X11)
+class CursorFactory;
+#endif
 }  // namespace ui
 
 namespace aura {
@@ -129,6 +133,10 @@ class AURA_EXPORT Env : public ui::EventTarget,
   void RemoveEventObserver(ui::EventObserver* observer);
   void NotifyEventObservers(const ui::Event& event);
 
+  const std::vector<aura::WindowTreeHost*>& window_tree_hosts() const {
+    return window_tree_hosts_;
+  }
+
  private:
   friend class test::EnvTestHelper;
   friend class EventInjector;
@@ -144,6 +152,9 @@ class AURA_EXPORT Env : public ui::EventTarget,
 
   // Called by the WindowTreeHost when it is initialized. Notifies observers.
   void NotifyHostInitialized(WindowTreeHost* host);
+
+  // Called by the WindowTreeHost before it is destroyed. Notifies observers.
+  void NotifyHostDestroyed(WindowTreeHost* host);
 
   // Overridden from ui::EventTarget:
   bool CanAcceptEvent(const ui::Event& event) override;
@@ -171,6 +182,10 @@ class AURA_EXPORT Env : public ui::EventTarget,
 
   std::unique_ptr<ui::GestureRecognizer> gesture_recognizer_;
 
+#if defined(OS_WIN) || defined(USE_X11)
+  std::unique_ptr<ui::CursorFactory> cursor_factory_;
+#endif
+
   std::unique_ptr<InputStateLookup> input_state_lookup_;
   std::unique_ptr<ui::PlatformEventSource> event_source_;
 
@@ -180,6 +195,8 @@ class AURA_EXPORT Env : public ui::EventTarget,
   bool throttle_input_on_resize_ = initial_throttle_input_on_resize_;
 
   std::unique_ptr<WindowOcclusionTracker> window_occlusion_tracker_;
+
+  std::vector<aura::WindowTreeHost*> window_tree_hosts_;
 
   DISALLOW_COPY_AND_ASSIGN(Env);
 };

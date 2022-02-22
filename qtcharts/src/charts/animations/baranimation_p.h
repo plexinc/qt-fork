@@ -42,7 +42,7 @@
 #include <private/chartanimation_p.h>
 #include <QtCharts/private/qchartglobal_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class AbstractBarChartItem;
 
@@ -55,15 +55,15 @@ public:
     ~BarAnimation();
 
 public: // from QVariantAnimation
-    virtual QVariant interpolated(const QVariant &from, const QVariant &to, qreal progress) const;
-    virtual void updateCurrentValue(const QVariant &value);
+    QVariant interpolated(const QVariant &from, const QVariant &to, qreal progress) const override;
+    void updateCurrentValue(const QVariant &value) override;
 
-    void setup(const QVector<QRectF> &oldLayout, const QVector<QRectF> &newLayout);
+    void setup(const QList<QRectF> &oldLayout, const QList<QRectF> &newLayout);
 
 protected:
     AbstractBarChartItem *m_item;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // BARANIMATION_P_H

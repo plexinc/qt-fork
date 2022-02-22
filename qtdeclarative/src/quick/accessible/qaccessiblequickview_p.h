@@ -58,7 +58,7 @@ QT_BEGIN_NAMESPACE
 
 #if QT_CONFIG(accessibility)
 
-class QAccessibleQuickWindow : public QAccessibleObject
+class Q_QUICK_EXPORT QAccessibleQuickWindow : public QAccessibleObject
 {
 public:
     QAccessibleQuickWindow(QQuickWindow *object);

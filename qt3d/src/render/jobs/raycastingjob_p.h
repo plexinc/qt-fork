@@ -66,7 +66,7 @@ namespace Qt3DRender {
 namespace Render {
 
 namespace PickingUtils {
-typedef QVector<RayCasting::QCollisionQueryResult::Hit> HitList;
+typedef std::vector<RayCasting::QCollisionQueryResult::Hit> HitList;
 }
 
 class RayCastingJobPrivate;
@@ -78,6 +78,9 @@ public:
 
     void markCastersDirty();
     bool runHelper() override;
+
+    QAbstractRayCaster::Hits pick(QAbstractRayCaster *rayCaster);
+    bool pick(const QList<QPair<Entity *, RayCaster *>> &entities);
 
 protected:
     void dispatchHits(RayCaster *rayCaster, const PickingUtils::HitList &sphereHits);

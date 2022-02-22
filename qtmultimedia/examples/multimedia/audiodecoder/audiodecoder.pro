@@ -2,11 +2,9 @@ TEMPLATE = app
 TARGET = audiodecoder
 
 HEADERS = \
-    audiodecoder.h \
-    wavefilewriter.h
+    audiodecoder.h
 SOURCES = main.cpp \
-    audiodecoder.cpp \
-    wavefilewriter.cpp
+    audiodecoder.cpp
 
 QT += multimedia
 CONFIG += console

@@ -46,7 +46,8 @@ void PredictorsHandler::RegisterMessages() {
 
 void PredictorsHandler::RequestAutocompleteActionPredictorDb(
     const base::ListValue* args) {
-  const bool enabled = (autocomplete_action_predictor_ != NULL);
+  AllowJavascript();
+  const bool enabled = !!autocomplete_action_predictor_;
   base::DictionaryValue dict;
   dict.SetBoolean("enabled", enabled);
   if (enabled) {
@@ -67,12 +68,12 @@ void PredictorsHandler::RequestAutocompleteActionPredictorDb(
     dict.Set("db", std::move(db));
   }
 
-  web_ui()->CallJavascriptFunctionUnsafe("updateAutocompleteActionPredictorDb",
-                                         dict);
+  ResolveJavascriptCallback(args->GetList()[0] /* callback_id */, dict);
 }
 
 void PredictorsHandler::RequestResourcePrefetchPredictorDb(
     const base::ListValue* args) {
+  AllowJavascript();
   const bool enabled = (loading_predictor_ != nullptr);
   base::DictionaryValue dict;
   dict.SetBoolean("enabled", enabled);
@@ -95,8 +96,7 @@ void PredictorsHandler::RequestResourcePrefetchPredictorDb(
     }
   }
 
-  web_ui()->CallJavascriptFunctionUnsafe("updateResourcePrefetchPredictorDb",
-                                         dict);
+  ResolveJavascriptCallback(args->GetList()[0] /* callback_id */, dict);
 }
 
 void PredictorsHandler::AddOriginDataMapToListValue(

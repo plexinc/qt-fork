@@ -2,9 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/quic_default_packet_writer.h"
+#include "quic/core/quic_default_packet_writer.h"
 
-#include "net/third_party/quiche/src/quic/core/quic_udp_socket.h"
+#include "quic/core/quic_udp_socket.h"
 
 namespace quic {
 
@@ -19,8 +19,8 @@ WriteResult QuicDefaultPacketWriter::WritePacket(
     const QuicIpAddress& self_address,
     const QuicSocketAddress& peer_address,
     PerPacketOptions* options) {
-  DCHECK(!write_blocked_);
-  DCHECK(nullptr == options)
+  QUICHE_DCHECK(!write_blocked_);
+  QUICHE_DCHECK(nullptr == options)
       << "QuicDefaultPacketWriter does not accept any options.";
   QuicUdpPacketInfo packet_info;
   packet_info.SetPeerAddress(peer_address);
@@ -54,10 +54,10 @@ bool QuicDefaultPacketWriter::IsBatchMode() const {
   return false;
 }
 
-char* QuicDefaultPacketWriter::GetNextWriteLocation(
+QuicPacketBuffer QuicDefaultPacketWriter::GetNextWriteLocation(
     const QuicIpAddress& /*self_address*/,
     const QuicSocketAddress& /*peer_address*/) {
-  return nullptr;
+  return {nullptr, nullptr};
 }
 
 WriteResult QuicDefaultPacketWriter::Flush() {

@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 #include "debugutil_p.h"
-#include "../../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 
 #include <private/qqmldebugclient_p.h>
 #include <private/qqmldebugconnection_p.h>
@@ -47,7 +47,8 @@ public slots:
     void blockEngine(int engineId, const QString &name);
 };
 
-QQmlEngineBlocker::QQmlEngineBlocker(QQmlEngineControlClient *parent): QObject(parent)
+QQmlEngineBlocker::QQmlEngineBlocker(QQmlEngineControlClient *parent)
+     : QObject(parent)
 {
     connect(parent, &QQmlEngineControlClient::engineAboutToBeAdded,
             this, &QQmlEngineBlocker::blockEngine);
@@ -65,6 +66,9 @@ class tst_QQmlEngineControl : public QQmlDebugTest
 {
     Q_OBJECT
 
+public:
+    tst_QQmlEngineControl();
+
 private:
     ConnectResult connectTo(const QString &testFile, bool restrictServices);
     QList<QQmlDebugClient *> createClients() override;
@@ -79,10 +83,15 @@ private slots:
     void stopEngine();
 };
 
+tst_QQmlEngineControl::tst_QQmlEngineControl()
+    : QQmlDebugTest(QT_QMLTEST_DATADIR)
+{
+}
+
 QQmlDebugTest::ConnectResult tst_QQmlEngineControl::connectTo(const QString &file,
                                                             bool restrictServices)
 {
-    return QQmlDebugTest::connectTo(QLibraryInfo::location(QLibraryInfo::BinariesPath) + "/qmlscene",
+    return QQmlDebugTest::connectTo(QLibraryInfo::path(QLibraryInfo::BinariesPath) + "/qmlscene",
                                   restrictServices ? QStringLiteral("EngineControl") : QString(),
                                   testFile(file), true);
 }

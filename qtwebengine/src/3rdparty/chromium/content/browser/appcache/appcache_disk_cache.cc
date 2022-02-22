@@ -8,10 +8,9 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback_helpers.h"
+#include "base/check.h"
 #include "base/files/file_path.h"
-#include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
@@ -192,9 +191,9 @@ class ActiveCall : public base::RefCounted<ActiveCall> {
 
 AppCacheDiskCache::AppCacheDiskCache()
 #if defined(APPCACHE_USE_SIMPLE_CACHE)
-    : AppCacheDiskCache("DiskCache.AppCache", true)
+    : AppCacheDiskCache(true)
 #else
-    : AppCacheDiskCache("DiskCache.AppCache", false)
+    : AppCacheDiskCache(false)
 #endif
 {
 }
@@ -252,8 +251,7 @@ net::Error AppCacheDiskCache::CreateEntry(
     return net::ERR_ABORTED;
 
   if (is_initializing_or_waiting_to_initialize()) {
-    pending_calls_.push_back(
-        PendingCall(CREATE, key, entry, std::move(callback)));
+    pending_calls_.emplace_back(CREATE, key, entry, std::move(callback));
     return net::ERR_IO_PENDING;
   }
 
@@ -273,8 +271,7 @@ net::Error AppCacheDiskCache::OpenEntry(int64_t key,
     return net::ERR_ABORTED;
 
   if (is_initializing_or_waiting_to_initialize()) {
-    pending_calls_.push_back(
-        PendingCall(OPEN, key, entry, std::move(callback)));
+    pending_calls_.emplace_back(OPEN, key, entry, std::move(callback));
     return net::ERR_IO_PENDING;
   }
 
@@ -292,8 +289,7 @@ net::Error AppCacheDiskCache::DoomEntry(int64_t key,
     return net::ERR_ABORTED;
 
   if (is_initializing_or_waiting_to_initialize()) {
-    pending_calls_.push_back(
-        PendingCall(DOOM, key, nullptr, std::move(callback)));
+    pending_calls_.emplace_back(DOOM, key, nullptr, std::move(callback));
     return net::ERR_IO_PENDING;
   }
 
@@ -308,15 +304,10 @@ base::WeakPtr<AppCacheDiskCache> AppCacheDiskCache::GetWeakPtr() {
   return weak_factory_.GetWeakPtr();
 }
 
-AppCacheDiskCache::AppCacheDiskCache(const char* uma_name,
-                                     bool use_simple_cache)
+AppCacheDiskCache::AppCacheDiskCache(bool use_simple_cache)
     : use_simple_cache_(use_simple_cache),
       is_disabled_(false),
-      is_waiting_to_initialize_(false),
-      uma_name_(uma_name) {}
-
-AppCacheDiskCache::PendingCall::PendingCall()
-    : call_type(CREATE), key(0), entry(nullptr) {}
+      is_waiting_to_initialize_(false) {}
 
 AppCacheDiskCache::PendingCall::PendingCall(
     PendingCallType call_type,
@@ -328,7 +319,7 @@ AppCacheDiskCache::PendingCall::PendingCall(
       entry(entry),
       callback(std::move(callback)) {}
 
-AppCacheDiskCache::PendingCall::PendingCall(PendingCall&& other) = default;
+AppCacheDiskCache::PendingCall::PendingCall(PendingCall&&) = default;
 
 AppCacheDiskCache::PendingCall::~PendingCall() = default;
 
@@ -390,6 +381,12 @@ void AppCacheDiskCache::OnCreateBackendComplete(int return_value) {
         return_value = DoomEntry(call.key, copyable_callback);
         break;
     }
+
+    // disk_cache::{Create,Open,Doom}Entry() call their callbacks iff they
+    // return net::ERR_IO_PENDING. In this case, the callback was not called.
+    // However, the corresponding ServiceWorkerDiskCache wrapper returned
+    // net::ERR_IO_PENDING as it queued up the pending call. To follow the
+    // disk_cache API contract, we need to call the callback ourselves here.
     if (return_value != net::ERR_IO_PENDING)
       copyable_callback.Run(return_value);
   }

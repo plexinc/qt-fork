@@ -36,7 +36,7 @@
 #include <private/boxwhiskers_p.h>
 #include <QtGui/QPainter>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 BoxPlotChartItem::BoxPlotChartItem(QBoxPlotSeries *series, QGraphicsItem *item) :
     ChartItem(series->d_func(), item),
@@ -151,9 +151,9 @@ void BoxPlotChartItem::handleUpdatedBars()
     }
 }
 
-void BoxPlotChartItem::handleBoxsetRemove(QList<QBoxSet*> barSets)
+void BoxPlotChartItem::handleBoxsetRemove(const QList<QBoxSet *> &barSets)
 {
-    foreach (QBoxSet *set, barSets) {
+    for (auto *set : barSets) {
         BoxWhiskers *boxItem = m_boxTable.value(set);
         m_boxTable.remove(set);
         delete boxItem;
@@ -203,9 +203,9 @@ void BoxPlotChartItem::initializeLayout()
 {
 }
 
-QVector<QRectF> BoxPlotChartItem::calculateLayout()
+QList<QRectF> BoxPlotChartItem::calculateLayout()
 {
-    return QVector<QRectF>();
+    return QList<QRectF>();
 }
 
 bool BoxPlotChartItem::updateBoxGeometry(BoxWhiskers *box, int index)
@@ -239,6 +239,6 @@ bool BoxPlotChartItem::updateBoxGeometry(BoxWhiskers *box, int index)
     return changed;
 }
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #include "moc_boxplotchartitem_p.cpp"

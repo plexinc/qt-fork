@@ -43,14 +43,15 @@
 
 #include <private/qsgcontext_p.h>
 #include <private/qsgrenderloop_p.h>
+#include <private/qsgrhisupport_p.h>
 
-#include "../../shared/util.h"
-#include "../shared/visualtestutil.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
+#include <QtQuickTestUtils/private/visualtestutils_p.h>
 
 #include <QtGui/private/qguiapplication_p.h>
 #include <QtGui/qpa/qplatformintegration.h>
 
-using namespace QQuickVisualTestUtil;
+using namespace QQuickVisualTestUtils;
 
 class PerPixelRect : public QQuickItem
 {
@@ -70,7 +71,7 @@ public:
 
     QColor color() const { return m_color; }
 
-    QSGNode *updatePaintNode(QSGNode *node, UpdatePaintNodeData *)
+    QSGNode *updatePaintNode(QSGNode *node, UpdatePaintNodeData *) override
     {
         delete node;
         node = new QSGNode;
@@ -101,8 +102,11 @@ class tst_SceneGraph : public QQmlDataTest
 {
     Q_OBJECT
 
+public:
+    tst_SceneGraph();
+
 private slots:
-    void initTestCase();
+    void initTestCase() override;
 
     void manyWindows_data();
     void manyWindows();
@@ -116,9 +120,7 @@ private slots:
     void createTextureFromImage();
 
 private:
-    bool m_brokenMipmapSupport;
     QQuickView *createView(const QString &file, QWindow *parent = nullptr, int x = -1, int y = -1, int w = -1, int h = -1);
-    bool isRunningOnOpenGLDirectly();
     bool isRunningOnRhi();
 };
 
@@ -127,6 +129,11 @@ public:
     ~ScopedList() { qDeleteAll(*this); }
 };
 
+tst_SceneGraph::tst_SceneGraph()
+    : QQmlDataTest(QT_QMLTEST_DATADIR)
+{
+}
+
 void tst_SceneGraph::initTestCase()
 {
     qmlRegisterType<PerPixelRect>("SceneGraphTest", 1, 0, "PerPixelRect");
@@ -134,44 +141,8 @@ void tst_SceneGraph::initTestCase()
     QQmlDataTest::initTestCase();
 
     QSGRenderLoop *loop = QSGRenderLoop::instance();
-    qDebug() << "RenderLoop:        " << loop;
-
-#if QT_CONFIG(opengl)
-    if (QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::OpenGL)) {
-        QOpenGLContext context;
-        context.setFormat(loop->sceneGraphContext()->defaultSurfaceFormat());
-        context.create();
-        QSurfaceFormat format = context.format();
-
-        QOffscreenSurface surface;
-        surface.setFormat(format);
-        surface.create();
-        if (!context.makeCurrent(&surface))
-            qFatal("Failed to create a GL context...");
-
-        QOpenGLFunctions *funcs = QOpenGLContext::currentContext()->functions();
-        qDebug() << "R/G/B/A Buffers:   " << format.redBufferSize() << format.greenBufferSize() << format.blueBufferSize() << format.alphaBufferSize();
-        qDebug() << "Depth Buffer:      " << format.depthBufferSize();
-        qDebug() << "Stencil Buffer:    " << format.stencilBufferSize();
-        qDebug() << "Samples:           " << format.samples();
-        int textureSize;
-        funcs->glGetIntegerv(GL_MAX_TEXTURE_SIZE, &textureSize);
-        qDebug() << "Max Texture Size:  " << textureSize;
-        qDebug() << "GL_VENDOR:         " << (const char *) funcs->glGetString(GL_VENDOR);
-        qDebug() << "GL_RENDERER:       " << (const char *) funcs->glGetString(GL_RENDERER);
-        QByteArray version = (const char *) funcs->glGetString(GL_VERSION);
-        qDebug() << "GL_VERSION:        " << version.constData();
-        QSet<QByteArray> exts = context.extensions();
-        QByteArray all;
-        foreach (const QByteArray &e, exts) all += ' ' + e;
-        qDebug() << "GL_EXTENSIONS:    " << all.constData();
-
-        m_brokenMipmapSupport = version.contains("Mesa 10.1") || version.contains("Mesa 9.");
-        qDebug() << "Broken Mipmap:    " << m_brokenMipmapSupport;
-
-        context.doneCurrent();
-    }
-#endif
+    qDebug() << "RenderLoop:" << loop
+             << "RHI backend:" << QSGRhiSupport::instance()->rhiBackendName();
 }
 
 QQuickView *tst_SceneGraph::createView(const QString &file, QWindow *parent, int x, int y, int w, int h)
@@ -308,7 +279,7 @@ void tst_SceneGraph::manyWindows()
 }
 
 struct Sample {
-    Sample(int xx, int yy, qreal rr, qreal gg, qreal bb, qreal errorMargin = 0.05)
+    constexpr Sample(int xx, int yy, qreal rr, qreal gg, qreal bb, qreal errorMargin = 0.05)
         : x(xx)
         , y(yy)
         , r(rr)
@@ -317,8 +288,18 @@ struct Sample {
         , tolerance(errorMargin)
     {
     }
-    Sample(const Sample &o) : x(o.x), y(o.y), r(o.r), g(o.g), b(o.b), tolerance(o.tolerance) { }
-    Sample() : x(0), y(0), r(0), g(0), b(0), tolerance(0) { }
+    constexpr Sample(const Sample &o) : x(o.x), y(o.y), r(o.r), g(o.g), b(o.b), tolerance(o.tolerance) { }
+    constexpr Sample() : x(0), y(0), r(0), g(0), b(0), tolerance(0) { }
+    constexpr Sample &operator=(const Sample &o)
+    {
+        x = o.x;
+        y = o.y;
+        r = o.r;
+        g = o.g;
+        b = o.b;
+        tolerance = o.tolerance;
+        return *this;
+    }
 
     QString toString(const QImage &image) const {
         QColor color(image.pixel(x,y));
@@ -342,13 +323,13 @@ struct Sample {
     qreal tolerance;
 };
 
-static Sample sample_from_regexp(QRegExp *re) {
-    return Sample(re->cap(1).toInt(),
-                  re->cap(2).toInt(),
-                  re->cap(3).toFloat(),
-                  re->cap(4).toFloat(),
-                  re->cap(5).toFloat(),
-                  re->cap(6).toFloat()
+static Sample sample_from_regexp(QRegularExpressionMatch *match) {
+    return Sample(match->captured(1).toInt(),
+                  match->captured(2).toInt(),
+                  match->captured(3).toFloat(),
+                  match->captured(4).toFloat(),
+                  match->captured(5).toFloat(),
+                  match->captured(6).toFloat()
                   );
 }
 
@@ -402,14 +383,14 @@ void tst_SceneGraph::render_data()
           << "render_StackingOrder.qml"
           << "render_ImageFiltering.qml"
           << "render_bug37422.qml"
-          << "render_OpacityThroughBatchRoot.qml";
-    if (!m_brokenMipmapSupport)
-        files << "render_Mipmap.qml";
+          << "render_OpacityThroughBatchRoot.qml"
+          << "render_Mipmap.qml"
+          << "render_AlphaOverlapRebuild.qml";
 
-    QRegExp sampleCount("#samples: *(\\d+)");
+    QRegularExpression sampleCount("#samples: *(\\d+)");
     //                          X:int   Y:int   R:float       G:float       B:float       Error:float
-    QRegExp baseSamples("#base: *(\\d+) *(\\d+) *(\\d\\.\\d+) *(\\d\\.\\d+) *(\\d\\.\\d+) *(\\d\\.\\d+)");
-    QRegExp finalSamples("#final: *(\\d+) *(\\d+) *(\\d\\.\\d+) *(\\d\\.\\d+) *(\\d\\.\\d+) *(\\d\\.\\d+)");
+    QRegularExpression baseSamples("#base: *(\\d+) *(\\d+) *(\\d\\.\\d+) *(\\d\\.\\d+) *(\\d\\.\\d+) *(\\d\\.\\d+)");
+    QRegularExpression finalSamples("#final: *(\\d+) *(\\d+) *(\\d\\.\\d+) *(\\d\\.\\d+) *(\\d\\.\\d+) *(\\d\\.\\d+)");
 
     foreach (QString fileName, files) {
         QFile file(testFile(fileName));
@@ -421,8 +402,9 @@ void tst_SceneGraph::render_data()
 
         int samples = -1;
         foreach (QString line, contents) {
-            if (sampleCount.indexIn(line) >= 0) {
-                samples = sampleCount.cap(1).toInt();
+            auto match = sampleCount.match(line);
+            if (match.hasMatch()) {
+                samples = match.captured(1).toInt();
                 break;
             }
         }
@@ -431,10 +413,11 @@ void tst_SceneGraph::render_data()
 
         QList<Sample> baseStage, finalStage;
         foreach (QString line, contents) {
-            if (baseSamples.indexIn(line) >= 0)
-                baseStage << sample_from_regexp(&baseSamples);
-            else if (finalSamples.indexIn(line) >= 0)
-                finalStage << sample_from_regexp(&finalSamples);
+            auto match = baseSamples.match(line);
+            if (match.hasMatch())
+                baseStage << sample_from_regexp(&match);
+            else if ((match = finalSamples.match(line)).hasMatch())
+                finalStage << sample_from_regexp(&match);
         }
 
         if (baseStage.size() + finalStage.size() != samples)
@@ -446,8 +429,8 @@ void tst_SceneGraph::render_data()
 
 void tst_SceneGraph::render()
 {
-    if (!isRunningOnOpenGLDirectly() && !isRunningOnRhi())
-        QSKIP("Skipping complex rendering tests due to not running with OpenGL or QRhi");
+    if (!isRunningOnRhi())
+        QSKIP("Skipping complex rendering tests due to not running with QRhi");
 
     QFETCH(QString, file);
     QFETCH(QList<Sample>, baseStage);
@@ -497,8 +480,8 @@ void tst_SceneGraph::render()
 // current on the other window.
 void tst_SceneGraph::hideWithOtherContext()
 {
-    if (!isRunningOnOpenGLDirectly())
-        QSKIP("Skipping OpenGL context test due to not running with OpenGL");
+    if (!isRunningOnRhi())
+        QSKIP("Skipping OpenGL context test due to not running with QRhi");
 
     QWindow window;
     window.setSurfaceType(QWindow::OpenGLSurface);
@@ -515,7 +498,12 @@ void tst_SceneGraph::hideWithOtherContext()
         view.show();
         QVERIFY(QTest::qWaitForWindowExposed(&view));
 
-        renderingOnMainThread = view.openglContext()->thread() == QGuiApplication::instance()->thread();
+        if (view.rendererInterface()->graphicsApi() != QSGRendererInterface::OpenGLRhi)
+            QSKIP("Skipping OpenGL context test due to not using OpenGL");
+
+        QOpenGLContext *ctx = static_cast<QOpenGLContext *>(view.rendererInterface()->getResource(
+                                                                &view, QSGRendererInterface::OpenGLContextResource));
+        renderingOnMainThread = ctx->thread() == QGuiApplication::instance()->thread();
 
         // Make the local context current on the local window...
         context.makeCurrent(&window);
@@ -559,21 +547,6 @@ void tst_SceneGraph::createTextureFromImage()
 
     QScopedPointer<QSGTexture> texture(view.createTextureFromImage(image, (QQuickWindow::CreateTextureOptions) flags));
     QCOMPARE(texture->hasAlphaChannel(), expectedAlpha);
-}
-
-bool tst_SceneGraph::isRunningOnOpenGLDirectly()
-{
-    static bool retval = false;
-    static bool decided = false;
-    if (!decided) {
-        decided = true;
-        QQuickView dummy;
-        dummy.show();
-        if (QTest::qWaitForWindowExposed(&dummy))
-            retval = dummy.rendererInterface()->graphicsApi() == QSGRendererInterface::OpenGL;
-        dummy.hide();
-    }
-    return retval;
 }
 
 bool tst_SceneGraph::isRunningOnRhi()

@@ -48,6 +48,7 @@
 
 #include "extensions/qwlqtkey_p.h"
 #include "extensions/qwaylandtextinput.h"
+#include "extensions/qwaylandqttextinputmethod.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -136,6 +137,7 @@ void QWaylandSeatPrivate::seat_get_touch(wl_seat::Resource *resource, uint32_t i
 
 /*!
  * \qmltype WaylandSeat
+ * \instantiates QWaylandSeat
  * \inqmlmodule QtWayland.Compositor
  * \since 5.8
  * \brief Provides access to keyboard, mouse, and touch input.
@@ -177,6 +179,9 @@ QWaylandSeat::QWaylandSeat(QWaylandCompositor *compositor, CapabilityFlags capab
     d->capabilities = capabilityFlags;
     if (compositor->isCreated())
         initialize();
+
+    // Support deprecated signal for backward compatibility
+    connect(this, &QWaylandSeat::cursorSurfaceRequested, this, &QWaylandSeat::cursorSurfaceRequest);
 }
 
 /*!
@@ -434,7 +439,7 @@ void QWaylandSeat::sendTouchCancelEvent(QWaylandClient *client)
 /*!
  * Sends the \a event to the specified \a surface on the touch device.
  *
- * \warning This API will automatically map \l QTouchEvent::TouchPoint::id to a
+ * \warning This API will automatically map \l QEventPoint::id() to a
  * sequential id before sending it to the client. It should therefore not be
  * used in combination with the other API using explicit ids, as collisions
  * might occur.
@@ -467,6 +472,12 @@ void QWaylandSeat::sendFullKeyEvent(QKeyEvent *event)
         QWaylandTextInput *textInput = QWaylandTextInput::findIn(this);
         if (textInput) {
             textInput->sendKeyEvent(event);
+            return;
+        }
+
+        QWaylandQtTextInputMethod *textInputMethod = QWaylandQtTextInputMethod::findIn(this);
+        if (textInputMethod) {
+            textInputMethod->sendKeyEvent(event);
             return;
         }
     }

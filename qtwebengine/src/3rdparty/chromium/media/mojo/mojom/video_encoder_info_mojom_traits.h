@@ -6,7 +6,7 @@
 #define MEDIA_MOJO_MOJOM_VIDEO_ENCODER_INFO_MOJOM_TRAITS_H_
 
 #include "base/containers/span.h"
-#include "media/mojo/mojom/video_encoder_info.mojom.h"
+#include "media/mojo/mojom/video_encoder_info.mojom-shared.h"
 #include "media/video/video_encoder_info.h"
 #include "ui/gfx/geometry/mojom/geometry_mojom_traits.h"
 
@@ -75,15 +75,14 @@ class StructTraits<media::mojom::VideoEncoderInfoDataView,
       const media::VideoEncoderInfo& video_encoder_info) {
     return video_encoder_info.supports_simulcast;
   }
-  static const media::ScalingSettings& scaling_settings(
+  static const base::Optional<media::ScalingSettings>& scaling_settings(
       const media::VideoEncoderInfo& video_encoder_info) {
     return video_encoder_info.scaling_settings;
   }
   static base::span<const std::vector<uint8_t>,
                     media::VideoEncoderInfo::kMaxSpatialLayers>
   fps_allocation(const media::VideoEncoderInfo& video_encoder_info) {
-    return base::span<const std::vector<uint8_t>,
-            media::VideoEncoderInfo::kMaxSpatialLayers>(video_encoder_info.fps_allocation);
+    return video_encoder_info.fps_allocation;
   }
   static const std::vector<media::ResolutionBitrateLimit>&
   resolution_bitrate_limits(const media::VideoEncoderInfo& video_encoder_info) {

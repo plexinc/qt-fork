@@ -12,7 +12,7 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/sequenced_task_runner.h"
 #include "storage/browser/file_system/file_system_usage_cache.h"
@@ -47,7 +47,7 @@ void QuotaBackendImpl::ReserveQuota(const url::Origin& origin,
   }
   DCHECK(quota_manager_proxy_.get());
   quota_manager_proxy_->GetUsageAndQuota(
-      file_task_runner_.get(), origin, FileSystemTypeToQuotaStorageType(type),
+      origin, FileSystemTypeToQuotaStorageType(type), file_task_runner_,
       base::BindOnce(&QuotaBackendImpl::DidGetUsageAndQuotaForReserveQuota,
                      weak_ptr_factory_.GetWeakPtr(),
                      QuotaReservationInfo(origin, type, delta),
@@ -140,8 +140,9 @@ void QuotaBackendImpl::ReserveQuotaInternal(const QuotaReservationInfo& info) {
   DCHECK(!info.origin.opaque());
   DCHECK(quota_manager_proxy_.get());
   quota_manager_proxy_->NotifyStorageModified(
-      QuotaClient::kFileSystem, info.origin,
-      FileSystemTypeToQuotaStorageType(info.type), info.delta);
+      QuotaClientType::kFileSystem, info.origin,
+      FileSystemTypeToQuotaStorageType(info.type), info.delta,
+      base::Time::Now());
 }
 
 base::File::Error QuotaBackendImpl::GetUsageCachePath(

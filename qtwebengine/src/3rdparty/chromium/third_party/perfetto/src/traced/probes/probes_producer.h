@@ -44,6 +44,8 @@ class ProbesProducer : public Producer, public FtraceController::Observer {
   ProbesProducer();
   ~ProbesProducer() override;
 
+  static ProbesProducer* GetInstance();
+
   // Producer Impl:
   void OnConnect() override;
   void OnDisconnect() override;
@@ -87,8 +89,17 @@ class ProbesProducer : public Producer, public FtraceController::Observer {
   std::unique_ptr<ProbesDataSource> CreateMetatraceDataSource(
       TracingSessionID session_id,
       const DataSourceConfig& config);
+  std::unique_ptr<ProbesDataSource> CreateSystemInfoDataSource(
+      TracingSessionID session_id,
+      const DataSourceConfig& config);
+  std::unique_ptr<ProbesDataSource> CreateInitialDisplayStateDataSource(
+      TracingSessionID session_id,
+      const DataSourceConfig& config);
+  void ActivateTrigger(std::string trigger);
 
  private:
+  static ProbesProducer* instance_;
+
   enum State {
     kNotStarted = 0,
     kNotConnected,

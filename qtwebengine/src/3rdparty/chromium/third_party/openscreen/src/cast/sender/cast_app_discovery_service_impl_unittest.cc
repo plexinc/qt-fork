@@ -4,16 +4,17 @@
 
 #include "cast/sender/cast_app_discovery_service_impl.h"
 
+#include <utility>
+
 #include "cast/common/channel/testing/fake_cast_socket.h"
 #include "cast/common/channel/testing/mock_socket_error_handler.h"
-#include "cast/common/channel/virtual_connection_manager.h"
 #include "cast/common/channel/virtual_connection_router.h"
 #include "cast/common/public/service_info.h"
 #include "cast/sender/testing/test_helpers.h"
 #include "gtest/gtest.h"
 #include "platform/test/fake_clock.h"
 #include "platform/test/fake_task_runner.h"
-#include "util/logging.h"
+#include "util/osp_logging.h"
 
 namespace openscreen {
 namespace cast {
@@ -79,12 +80,10 @@ class CastAppDiscoveryServiceImplTest : public ::testing::Test {
   FakeCastSocketPair fake_cast_socket_pair_;
   int32_t socket_id_;
   MockSocketErrorHandler mock_error_handler_;
-  VirtualConnectionManager manager_;
-  VirtualConnectionRouter router_{&manager_};
+  VirtualConnectionRouter router_;
   FakeClock clock_{Clock::now()};
   FakeTaskRunner task_runner_{&clock_};
-  CastPlatformClient platform_client_{&router_, &manager_, &FakeClock::now,
-                                      &task_runner_};
+  CastPlatformClient platform_client_{&router_, &FakeClock::now, &task_runner_};
   CastAppDiscoveryServiceImpl app_discovery_service_{&platform_client_,
                                                      &FakeClock::now};
 
@@ -108,7 +107,7 @@ TEST_F(CastAppDiscoveryServiceImplTest, StartObservingAvailability) {
 
   CastMessage availability_response =
       CreateAppAvailableResponseChecked(request_id, sender_id, "AAA");
-  EXPECT_TRUE(peer_socket().SendMessage(availability_response).ok());
+  EXPECT_TRUE(peer_socket().Send(availability_response).ok());
   ASSERT_EQ(receivers1.size(), 1u);
   ASSERT_EQ(receivers2.size(), 1u);
   EXPECT_EQ(receivers1[0].unique_id, "deviceId1");
@@ -131,7 +130,7 @@ TEST_F(CastAppDiscoveryServiceImplTest, ReAddAvailQueryUsesCachedValue) {
 
   CastMessage availability_response =
       CreateAppAvailableResponseChecked(request_id, sender_id, "AAA");
-  EXPECT_TRUE(peer_socket().SendMessage(availability_response).ok());
+  EXPECT_TRUE(peer_socket().Send(availability_response).ok());
   ASSERT_EQ(receivers1.size(), 1u);
   EXPECT_EQ(receivers1[0].unique_id, "deviceId1");
 
@@ -154,7 +153,7 @@ TEST_F(CastAppDiscoveryServiceImplTest, AvailQueryUpdatedOnReceiverUpdate) {
   // Result set now includes |receiver_|.
   CastMessage availability_response =
       CreateAppAvailableResponseChecked(request_id, sender_id, "AAA");
-  EXPECT_TRUE(peer_socket().SendMessage(availability_response).ok());
+  EXPECT_TRUE(peer_socket().Send(availability_response).ok());
   ASSERT_EQ(receivers1.size(), 1u);
   EXPECT_EQ(receivers1[0].unique_id, "deviceId1");
 
@@ -202,10 +201,10 @@ TEST_F(CastAppDiscoveryServiceImplTest, Refresh) {
 
   CastMessage availability_response =
       CreateAppAvailableResponseChecked(request_idA, sender_id, "AAA");
-  EXPECT_TRUE(peer_socket().SendMessage(availability_response).ok());
+  EXPECT_TRUE(peer_socket().Send(availability_response).ok());
   availability_response =
       CreateAppUnavailableResponseChecked(request_idB, sender_id, "BBB");
-  EXPECT_TRUE(peer_socket().SendMessage(availability_response).ok());
+  EXPECT_TRUE(peer_socket().Send(availability_response).ok());
   ASSERT_EQ(receivers1.size(), 1u);
   ASSERT_EQ(receivers2.size(), 0u);
   EXPECT_EQ(receivers1[0].unique_id, "deviceId1");
@@ -291,7 +290,7 @@ TEST_F(CastAppDiscoveryServiceImplTest, StartObservingAvailabilityCachedValue) {
 
   CastMessage availability_response =
       CreateAppAvailableResponseChecked(request_id, sender_id, "AAA");
-  EXPECT_TRUE(peer_socket().SendMessage(availability_response).ok());
+  EXPECT_TRUE(peer_socket().Send(availability_response).ok());
   ASSERT_EQ(receivers1.size(), 1u);
   EXPECT_EQ(receivers1[0].unique_id, "deviceId1");
 
@@ -326,7 +325,7 @@ TEST_F(CastAppDiscoveryServiceImplTest, AvailabilityUnknownOrUnavailable) {
 
   CastMessage availability_response =
       CreateAppUnavailableResponseChecked(request_id, sender_id, "AAA");
-  EXPECT_TRUE(peer_socket().SendMessage(availability_response).ok());
+  EXPECT_TRUE(peer_socket().Send(availability_response).ok());
 
   // Known availability so no request sent.
   EXPECT_CALL(peer_client(), OnMessage(_, _)).Times(0);

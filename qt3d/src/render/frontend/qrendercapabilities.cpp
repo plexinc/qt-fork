@@ -106,7 +106,8 @@ namespace Qt3DRender {
 
 /*!
    \class Qt3DRender::QRenderCapabilities
-   \brief The QRenderCapabilities class holds settings related to available rendering engines
+   \inmodule Qt3DRender
+   \brief The QRenderCapabilities class holds settings related to available rendering engines.
 
 QRenderCapabilities provides details of graphical features that are available at runtime.
 It can be used to decide which code path to use for some algorithms, for example, depending
@@ -117,7 +118,7 @@ on whether compute shaders are available or not.
 
 /*!
    \qmltype RenderCapabilities
-   \brief The QRenderCapabilities class holds settings related to available rendering engines
+   \brief The QRenderCapabilities class holds settings related to available rendering engines.
    \since 5.15
    \inqmlmodule Qt3D.Render
    \instantiates Qt3DRender::QRenderCapabilities

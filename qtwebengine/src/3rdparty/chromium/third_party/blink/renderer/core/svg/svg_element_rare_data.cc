@@ -27,19 +27,21 @@ SVGElementRareData::EnsureAnimatedSMILStyleProperties() {
   return animated_smil_style_properties_.Get();
 }
 
-ComputedStyle* SVGElementRareData::OverrideComputedStyle(
+const ComputedStyle* SVGElementRareData::OverrideComputedStyle(
     Element* element,
     const ComputedStyle* parent_style) {
   DCHECK(element);
-  if (!use_override_computed_style_)
-    return nullptr;
   if (!override_computed_style_ || needs_override_computed_style_update_) {
+    // TODO(crbug.com/1145970): Use actual StyleRecalcContext.
+    StyleRecalcContext style_recalc_context;
+
     // The style computed here contains no CSS Animations/Transitions or SMIL
     // induced rules - this is needed to compute the "base value" for the SMIL
     // animation sandwhich model.
     override_computed_style_ =
-        element->GetDocument().EnsureStyleResolver().StyleForElement(
-            element, parent_style, parent_style, kMatchAllRulesExcludingSMIL);
+        element->GetDocument().GetStyleResolver().StyleForElement(
+            element, style_recalc_context, parent_style, parent_style,
+            kMatchAllRulesExcludingSMIL);
     needs_override_computed_style_update_ = false;
   }
   DCHECK(override_computed_style_);
@@ -57,7 +59,7 @@ SVGElementResourceClient& SVGElementRareData::EnsureSVGResourceClient(
   return *resource_client_;
 }
 
-void SVGElementRareData::Trace(Visitor* visitor) {
+void SVGElementRareData::Trace(Visitor* visitor) const {
   visitor->Trace(outgoing_references_);
   visitor->Trace(incoming_references_);
   visitor->Trace(animated_smil_style_properties_);

@@ -52,7 +52,7 @@ class DISCARDABLE_MEMORY_EXPORT DiscardableSharedMemoryHeap {
     DISALLOW_COPY_AND_ASSIGN(Span);
   };
 
-  explicit DiscardableSharedMemoryHeap(size_t block_size);
+  DiscardableSharedMemoryHeap();
   ~DiscardableSharedMemoryHeap();
 
   // Grow heap using |shared_memory| and return a span for this new memory.
@@ -91,10 +91,11 @@ class DISCARDABLE_MEMORY_EXPORT DiscardableSharedMemoryHeap {
   size_t GetSize() const;
 
   // Returns bytes of memory currently in the free lists.
-  size_t GetSizeOfFreeLists() const;
+  size_t GetFreelistSize() const;
 
   // Dumps memory statistics for chrome://tracing.
-  bool OnMemoryDump(base::trace_event::ProcessMemoryDump* pmd);
+  bool OnMemoryDump(const base::trace_event::MemoryDumpArgs& args,
+                    base::trace_event::ProcessMemoryDump* pmd);
 
   // Returns a MemoryAllocatorDump for a given span on |pmd| with the size of
   // the span.
@@ -149,15 +150,17 @@ class DISCARDABLE_MEMORY_EXPORT DiscardableSharedMemoryHeap {
   void ReleaseMemory(const base::DiscardableSharedMemory* shared_memory,
                      size_t size);
 
+  base::Optional<size_t> GetResidentSize() const;
+
   // Dumps memory statistics about a memory segment for chrome://tracing.
   void OnMemoryDump(const base::DiscardableSharedMemory* shared_memory,
                     size_t size,
                     int32_t segment_id,
                     base::trace_event::ProcessMemoryDump* pmd);
 
-  size_t block_size_;
-  size_t num_blocks_;
-  size_t num_free_blocks_;
+  const size_t block_size_;
+  size_t num_blocks_ = 0;
+  size_t num_free_blocks_ = 0;
 
   // Vector of memory segments.
   std::vector<std::unique_ptr<ScopedMemorySegment>> memory_segments_;

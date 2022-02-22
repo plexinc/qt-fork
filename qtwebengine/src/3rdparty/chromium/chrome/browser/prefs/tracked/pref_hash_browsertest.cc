@@ -21,6 +21,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/prefs/chrome_pref_service_factory.h"
 #include "chrome/browser/prefs/profile_pref_store_manager.h"
@@ -35,13 +36,14 @@
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/search_engines/default_search_manager.h"
 #include "components/search_engines/template_url_data.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/test_launcher.h"
 #include "extensions/browser/pref_names.h"
 #include "extensions/common/extension.h"
 #include "services/preferences/public/cpp/tracked/tracked_preference_histogram_names.h"
 
-#if defined(OS_CHROMEOS)
-#include "chromeos/constants/chromeos_switches.h"
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/constants/ash_switches.h"
 #endif
 
 #if defined(OS_WIN)
@@ -68,7 +70,7 @@ enum AllowedBuckets {
 };
 
 #if defined(OS_WIN)
-base::string16 GetRegistryPathForTestProfile() {
+std::wstring GetRegistryPathForTestProfile() {
   // Cleanup follow-up to http://crbug.com/721245 for the previous location of
   // this test key which had similar problems (to a lesser extent). It's
   // redundant but harmless to have multiple callers hit this on the same
@@ -82,6 +84,20 @@ base::string16 GetRegistryPathForTestProfile() {
 
   base::FilePath profile_dir;
   EXPECT_TRUE(base::PathService::Get(chrome::DIR_USER_DATA, &profile_dir));
+
+  // |DIR_USER_DATA| usually has format %TMP%\12345_6789012345\user_data
+  // (unless running with --single-process-tests, where the format is
+  // %TMP%\scoped_dir12345_6789012345). Use the parent directory name instead of
+  // the leaf directory name "user_data" to avoid conflicts in parallel tests,
+  // which would try to modify the same registry key otherwise.
+  if (profile_dir.BaseName().value() == L"user_data") {
+    profile_dir = profile_dir.DirName();
+  }
+  // Try to detect regressions when |DIR_USER_DATA| test location changes, which
+  // could cause this test to become flaky. See http://crbug/1091409 for more
+  // details.
+  DCHECK(profile_dir.BaseName().value().find_first_of(L"0123456789") !=
+         std::string::npos);
 
   // Use a location under the real PreferenceMACs path so that the backup
   // cleanup logic in ChromeTestLauncherDelegate::PreSharding() for interrupted
@@ -129,7 +145,7 @@ int GetTrackedPrefHistogramCount(const char* histogram_name,
   return GetTrackedPrefHistogramCount(histogram_name, "", allowed_buckets);
 }
 
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
 std::unique_ptr<base::DictionaryValue> ReadPrefsDictionary(
     const base::FilePath& pref_file) {
   JSONFileValueDeserializer deserializer(pref_file);
@@ -161,17 +177,9 @@ bool SupportsRegistryValidation() {
 }
 
 #define PREF_HASH_BROWSER_TEST(fixture, test_name)                             \
-  IN_PROC_BROWSER_TEST_P(fixture, PRE_##test_name) { SetupPreferences(); }     \
-  IN_PROC_BROWSER_TEST_P(fixture, test_name) { VerifyReactionToPrefAttack(); } \
-  INSTANTIATE_TEST_SUITE_P(                                                    \
-      fixture##Instance, fixture,                                              \
-      testing::Values(                                                         \
-          chrome_prefs::internals::kSettingsEnforcementGroupNoEnforcement,     \
-          chrome_prefs::internals::kSettingsEnforcementGroupEnforceAlways,     \
-          chrome_prefs::internals::                                            \
-              kSettingsEnforcementGroupEnforceAlwaysWithDSE,                   \
-          chrome_prefs::internals::                                            \
-              kSettingsEnforcementGroupEnforceAlwaysWithExtensionsAndDSE))
+  IN_PROC_BROWSER_TEST_F(fixture, PRE_##test_name) { SetupPreferences(); }     \
+  IN_PROC_BROWSER_TEST_F(fixture, test_name) { VerifyReactionToPrefAttack(); } \
+  static_assert(true, "")
 
 // A base fixture designed such that implementations do two things:
 //  1) Override all three pure-virtual methods below to setup, attack, and
@@ -179,9 +187,7 @@ bool SupportsRegistryValidation() {
 //  2) Instantiate their test via the PREF_HASH_BROWSER_TEST macro above.
 // Based on top of ExtensionBrowserTest to allow easy interaction with the
 // ExtensionRegistry.
-class PrefHashBrowserTestBase
-    : public extensions::ExtensionBrowserTest,
-      public testing::WithParamInterface<std::string> {
+class PrefHashBrowserTestBase : public extensions::ExtensionBrowserTest {
  public:
   // List of potential protection levels for this test in strict increasing
   // order of protection levels.
@@ -196,18 +202,11 @@ class PrefHashBrowserTestBase
     PROTECTION_ENABLED_ALL
   };
 
-  PrefHashBrowserTestBase()
-      : protection_level_(GetProtectionLevelFromTrialGroup(GetParam())) {
-  }
+  PrefHashBrowserTestBase() : protection_level_(GetProtectionLevel()) {}
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
     extensions::ExtensionBrowserTest::SetUpCommandLine(command_line);
-    EXPECT_FALSE(command_line->HasSwitch(switches::kForceFieldTrials));
-    command_line->AppendSwitchASCII(
-        switches::kForceFieldTrials,
-        std::string(chrome_prefs::internals::kSettingsEnforcementTrialName) +
-            "/" + GetParam() + "/");
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     command_line->AppendSwitch(
         chromeos::switches::kIgnoreUserProfileMappingForTests);
 #endif
@@ -219,7 +218,7 @@ class PrefHashBrowserTestBase
     if (content::IsPreTest())
       return extensions::ExtensionBrowserTest::SetUpUserDataDirectory();
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     // For some reason, the Preferences file does not exist in the location
     // below on Chrome OS. Since protection is disabled on Chrome OS, it's okay
     // to simply not attack preferences at all (and still assert that no
@@ -313,7 +312,7 @@ class PrefHashBrowserTestBase
 #if defined(OS_WIN)
     // When done, delete the Registry key to avoid polluting the registry.
     if (!content::IsPreTest()) {
-      base::string16 registry_key = GetRegistryPathForTestProfile();
+      std::wstring registry_key = GetRegistryPathForTestProfile();
       base::win::RegKey key;
       if (key.Open(HKEY_CURRENT_USER, registry_key.c_str(),
                    KEY_SET_VALUE | KEY_WOW64_32KEY) == ERROR_SUCCESS) {
@@ -377,10 +376,8 @@ class PrefHashBrowserTestBase
 
       std::string num_tracked_prefs_str =
           base::NumberToString(num_tracked_prefs_);
-      EXPECT_EQ(static_cast<int>(num_tracked_prefs_str.size()),
-                base::WriteFile(num_tracked_prefs_file,
-                                num_tracked_prefs_str.c_str(),
-                                num_tracked_prefs_str.size()));
+      EXPECT_TRUE(
+          base::WriteFile(num_tracked_prefs_file, num_tracked_prefs_str));
     } else {
       std::string num_tracked_prefs_str;
       EXPECT_TRUE(base::ReadFileToString(num_tracked_prefs_file,
@@ -415,45 +412,23 @@ class PrefHashBrowserTestBase
   const SettingsProtectionLevel protection_level_;
 
  private:
-  SettingsProtectionLevel GetProtectionLevelFromTrialGroup(
-      const std::string& trial_group) {
+  SettingsProtectionLevel GetProtectionLevel() {
     if (!ProfilePrefStoreManager::kPlatformSupportsPreferenceTracking)
       return PROTECTION_DISABLED_ON_PLATFORM;
 
-// Protection levels can't be adjusted via --force-fieldtrials in official
-// builds.
-#if defined(OFFICIAL_BUILD)
-
-#if defined(OS_WIN) || defined(OS_MACOSX)
+#if defined(OS_WIN) || defined(OS_MAC)
     // The strongest mode is enforced on Windows and MacOS in the absence of a
     // field trial.
     return PROTECTION_ENABLED_ALL;
 #else
     return PROTECTION_DISABLED_FOR_GROUP;
-#endif  // defined(OS_WIN) || defined(OS_MACOSX)
-
-#else  // defined(OFFICIAL_BUILD)
-
-    namespace internals = chrome_prefs::internals;
-    if (trial_group == internals::kSettingsEnforcementGroupNoEnforcement)
-      return PROTECTION_DISABLED_FOR_GROUP;
-    if (trial_group == internals::kSettingsEnforcementGroupEnforceAlways)
-      return PROTECTION_ENABLED_BASIC;
-    if (trial_group == internals::kSettingsEnforcementGroupEnforceAlwaysWithDSE)
-      return PROTECTION_ENABLED_DSE;
-    if (trial_group ==
-        internals::kSettingsEnforcementGroupEnforceAlwaysWithExtensionsAndDSE) {
-      return PROTECTION_ENABLED_EXTENSIONS;
-    }
-    ADD_FAILURE();
-    return static_cast<SettingsProtectionLevel>(-1);
-#endif  // defined(OFFICIAL_BUILD)
+#endif  // defined(OS_WIN) || defined(OS_MAC)
   }
 
   int num_tracked_prefs_;
 
 #if defined(OS_WIN)
-  base::string16 registry_key_for_external_validation_;
+  std::wstring registry_key_for_external_validation_;
 #endif
 };
 
@@ -814,7 +789,7 @@ class PrefHashBrowserTestChangedAtomic : public PrefHashBrowserTestBase {
 
 // TODO(gab): This doesn't work on OS_CHROMEOS because we fail to attack
 // Preferences.
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
     // Explicitly verify the result of reported resets.
     EXPECT_EQ(protection_level_ >= PROTECTION_ENABLED_BASIC ? 0U : 2U,
               profile()
@@ -895,16 +870,10 @@ class PrefHashBrowserTestChangedSplitPref : public PrefHashBrowserTestBase {
   }
 
   void VerifyReactionToPrefAttack() override {
-    // Expect a single split pref changed report with a count of 2 for tracked
-    // pref #5 (extensions).
     EXPECT_EQ(protection_level_ > PROTECTION_DISABLED_ON_PLATFORM ? 1 : 0,
               GetTrackedPrefHistogramCount(
                   user_prefs::tracked::kTrackedPrefHistogramChanged,
                   BEGIN_ALLOW_SINGLE_BUCKET + 5));
-    EXPECT_EQ(protection_level_ > PROTECTION_DISABLED_ON_PLATFORM ? 1 : 0,
-              GetTrackedPrefHistogramCount(
-                  "Settings.TrackedSplitPreferenceChanged.extensions.settings",
-                  BEGIN_ALLOW_SINGLE_BUCKET + 2));
 
     // Everything else should have remained unchanged.
     EXPECT_EQ(
@@ -1147,7 +1116,7 @@ class PrefHashBrowserTestRegistryValidationFailure
   void AttackPreferencesOnDisk(
       base::DictionaryValue* unprotected_preferences,
       base::DictionaryValue* protected_preferences) override {
-    base::string16 registry_key =
+    std::wstring registry_key =
         GetRegistryPathForTestProfile() + L"\\PreferenceMACs\\Default";
     base::win::RegKey key;
     ASSERT_EQ(ERROR_SUCCESS, key.Open(HKEY_CURRENT_USER, registry_key.c_str(),
@@ -1264,7 +1233,7 @@ class PrefHashBrowserTestDefaultSearch : public PrefHashBrowserTestBase {
 
     if (protection_level_ < PROTECTION_ENABLED_DSE) {
 // This doesn't work on OS_CHROMEOS because we fail to attack Preferences.
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
       // Attack is successful.
       EXPECT_EQ(DefaultSearchManager::FROM_USER, dse_source);
       EXPECT_EQ(current_dse->keyword(), base::UTF8ToUTF16("badkeyword"));

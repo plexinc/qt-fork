@@ -9,6 +9,7 @@
 #include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/core/layout/layout_object_inlines.h"
 #include "third_party/blink/renderer/core/layout/layout_text.h"
+#include "third_party/blink/renderer/core/layout/layout_text_fragment.h"
 #include "third_party/blink/renderer/core/paint/object_paint_invalidator.h"
 
 #include "third_party/blink/renderer/platform/geometry/layout_unit.h"
@@ -63,6 +64,13 @@ class LineLayoutItem {
   Node* GetNode() const { return layout_object_->GetNode(); }
 
   Node* NonPseudoNode() const { return layout_object_->NonPseudoNode(); }
+
+  Node* GetNodeForOwnerNodeId() const {
+    auto* layout_text_fragment = DynamicTo<LayoutTextFragment>(layout_object_);
+    if (layout_text_fragment)
+      return layout_text_fragment->AssociatedTextNode();
+    return layout_object_->GetNode();
+  }
 
   LineLayoutItem Parent() const {
     return LineLayoutItem(layout_object_->Parent());
@@ -205,7 +213,7 @@ class LineLayoutItem {
   bool IsText() const { return layout_object_->IsText(); }
 
   bool IsEmptyText() const {
-    return IsText() && ToLayoutText(layout_object_)->GetText().IsEmpty();
+    return IsText() && To<LayoutText>(layout_object_)->GetText().IsEmpty();
   }
 
   bool HasLayer() const { return layout_object_->HasLayer(); }
@@ -221,9 +229,18 @@ class LineLayoutItem {
     layout_object_->SetAncestorLineBoxDirty();
   }
 
-  int CaretMinOffset() const { return layout_object_->CaretMinOffset(); }
-
-  int CaretMaxOffset() const { return layout_object_->CaretMaxOffset(); }
+  // TODO(yosin): We should not use |CaretMaxOffset()|, because this function
+  // may be used for creating invalid pointer, e.g. <hr>@1.
+  int CaretMaxOffset() const {
+    if (layout_object_->IsAtomicInlineLevel()) {
+      if (Node* const node = layout_object_->GetNode())
+        return std::max(1u, GetNode()->CountChildren());
+      return 1;
+    }
+    if (layout_object_->IsHR())
+      return 1;
+    return 0;
+  }
 
   bool HasFlippedBlocksWritingMode() const {
     return layout_object_->HasFlippedBlocksWritingMode();
@@ -265,23 +282,24 @@ class LineLayoutItem {
     return layout_object_->CreatePositionWithAffinity(offset, affinity);
   }
 
+  PositionWithAffinity PositionAfterThis() const {
+    return layout_object_->PositionAfterThis();
+  }
+
+  PositionWithAffinity PositionBeforeThis() const {
+    return layout_object_->PositionBeforeThis();
+  }
+
   LineLayoutItem PreviousInPreOrder(const LayoutObject* stay_within) const {
     return LineLayoutItem(layout_object_->PreviousInPreOrder(stay_within));
   }
 
-  bool HasOverflowClip() const { return layout_object_->HasOverflowClip(); }
+  bool IsScrollContainer() const { return layout_object_->IsScrollContainer(); }
 
   // TODO(dgrogan/eae): Can we instead add a TearDown method to the API
   // instead of exposing this and other shutdown code to line layout?
   bool DocumentBeingDestroyed() const {
     return layout_object_->DocumentBeingDestroyed();
-  }
-
-  IntRect VisualRectForInlineBox() const {
-    return layout_object_->VisualRectForInlineBox();
-  }
-  IntRect PartialInvalidationVisualRectForInlineBox() const {
-    return layout_object_->PartialInvalidationVisualRectForInlineBox();
   }
 
   bool IsHashTableDeletedValue() const {
@@ -330,7 +348,6 @@ class LineLayoutItem {
 
 #endif
 
- protected:
   LayoutObject* GetLayoutObject() { return layout_object_; }
   const LayoutObject* GetLayoutObject() const { return layout_object_; }
 

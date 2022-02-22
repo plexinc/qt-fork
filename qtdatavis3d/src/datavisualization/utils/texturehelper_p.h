@@ -43,12 +43,12 @@
 #include "datavisualizationglobal_p.h"
 #include <QtGui/QRgb>
 #include <QtGui/QLinearGradient>
-#if !defined(QT_OPENGL_ES_2)
+#if !QT_CONFIG(opengles2)
 // 3D Textures are not supported by ES set
-#  include <QtGui/QOpenGLFunctions_2_1>
+#  include <QtOpenGL/QOpenGLFunctions_2_1>
 #endif
 
-QT_BEGIN_NAMESPACE_DATAVISUALIZATION
+QT_BEGIN_NAMESPACE
 
 class TextureHelper : protected QOpenGLFunctions
 {
@@ -59,7 +59,7 @@ class TextureHelper : protected QOpenGLFunctions
     // Ownership of created texture is transferred to caller
     GLuint create2DTexture(const QImage &image, bool useTrilinearFiltering = false,
                            bool convert = true, bool smoothScale = true, bool clampY = false);
-    GLuint create3DTexture(const QVector<uchar> *data, int width, int height, int depth,
+    GLuint create3DTexture(const QList<uchar> *data, int width, int height, int depth,
                            QImage::Format dataFormat);
     GLuint createCubeMapTexture(const QImage &image, bool useTrilinearFiltering = false);
     // Returns selection texture and inserts generated framebuffers to framebuffer parameters
@@ -77,8 +77,8 @@ class TextureHelper : protected QOpenGLFunctions
     void convertToGLFormatHelper(QImage &dstImage, const QImage &srcImage, GLenum texture_format);
     QRgb qt_gl_convertToGLFormatHelper(QRgb src_pixel, GLenum texture_format);
 
-#if !defined(QT_OPENGL_ES_2)
-    QOpenGLFunctions_2_1 *m_openGlFunctions_2_1; // Not owned
+#if !QT_CONFIG(opengles2)
+    QOpenGLFunctions_2_1 *m_openGlFunctions_2_1 = nullptr;
 #endif
     friend class Bars3DRenderer;
     friend class Surface3DRenderer;
@@ -86,6 +86,6 @@ class TextureHelper : protected QOpenGLFunctions
     friend class Abstract3DRenderer;
 };
 
-QT_END_NAMESPACE_DATAVISUALIZATION
+QT_END_NAMESPACE
 
 #endif

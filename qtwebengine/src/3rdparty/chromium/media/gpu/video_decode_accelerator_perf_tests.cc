@@ -49,10 +49,10 @@ constexpr const char* help_msg =
     "                       will be stored in the current working directory.\n"
     "  --use_vd             use the new VD-based video decoders, instead of\n"
     "                       the default VDA-based video decoders.\n"
-    "  --use_vd_vda         use the new VD-based video decoders with a wrapper"
-    "                       that translates to the VDA interface, used to test"
-    "                       interaction with older components expecting the VDA"
-    "                       interface.\n"
+    "  --use_vd_vda         use the new VD-based video decoders with a\n"
+    "                       wrapper that translates to the VDA interface,\n"
+    "                       used to test interaction with older components\n"
+    "                       expecting the VDA interface.\n"
     "  --gtest_help         display the gtest help and exit.\n"
     "  --help               display this help and exit.\n";
 
@@ -440,7 +440,9 @@ int main(int argc, char** argv) {
   // Set up our test environment.
   media::test::VideoPlayerTestEnvironment* test_environment =
       media::test::VideoPlayerTestEnvironment::Create(
-          video_path, video_metadata_path, false, implementation,
+          video_path, video_metadata_path, /*validator_type=*/
+          media::test::VideoPlayerTestEnvironment::ValidatorType::kNone,
+          implementation,
           base::FilePath(output_folder));
   if (!test_environment)
     return EXIT_FAILURE;

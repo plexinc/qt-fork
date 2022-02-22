@@ -80,7 +80,7 @@ Window::Window()
 
     connect(showMessageButton, &QAbstractButton::clicked, this, &Window::showMessage);
     connect(showIconCheckBox, &QAbstractButton::toggled, trayIcon, &QSystemTrayIcon::setVisible);
-    connect(iconComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged),
+    connect(iconComboBox, &QComboBox::currentIndexChanged,
             this, &Window::setIcon);
     connect(trayIcon, &QSystemTrayIcon::messageClicked, this, &Window::messageClicked);
     connect(trayIcon, &QSystemTrayIcon::activated, this, &Window::iconActivated);
@@ -111,11 +111,8 @@ void Window::setVisible(bool visible)
 //! [2]
 void Window::closeEvent(QCloseEvent *event)
 {
-#ifdef Q_OS_MACOS
-    if (!event->spontaneous() || !isVisible()) {
+    if (!event->spontaneous() || !isVisible())
         return;
-    }
-#endif
     if (trayIcon->isVisible()) {
         QMessageBox::information(this, tr("Systray"),
                                  tr("The program will keep running in the "

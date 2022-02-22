@@ -101,6 +101,7 @@ public:
     }
 
     static QFileSystemEntry getLinkTarget(const QFileSystemEntry &link, QFileSystemMetaData &data);
+    static QFileSystemEntry getJunctionTarget(const QFileSystemEntry &link, QFileSystemMetaData &data);
     static QFileSystemEntry canonicalName(const QFileSystemEntry &entry, QFileSystemMetaData &data);
     static QFileSystemEntry absoluteName(const QFileSystemEntry &entry);
     static QByteArray id(const QFileSystemEntry &entry);
@@ -115,7 +116,7 @@ public:
 #if defined(Q_OS_DARWIN)
     static QString bundleName(const QFileSystemEntry &entry);
 #else
-    static QString bundleName(const QFileSystemEntry &entry) { Q_UNUSED(entry) return QString(); }
+    static QString bundleName(const QFileSystemEntry &) { return QString(); }
 #endif
 
     static bool fillMetaData(const QFileSystemEntry &entry, QFileSystemMetaData &data,
@@ -130,7 +131,7 @@ public:
                                QFileSystemMetaData *data = nullptr);
 #endif
 #if defined(Q_OS_WIN)
-
+    static QFileSystemEntry junctionTarget(const QFileSystemEntry &link, QFileSystemMetaData &data);
     static bool uncListSharesOnServer(const QString &server, QStringList *list); //Used also by QFSFileEngineIterator::hasNext()
     static bool fillMetaData(int fd, QFileSystemMetaData &data,
                              QFileSystemMetaData::MetaDataFlags what);
@@ -143,6 +144,7 @@ public:
                             QAbstractFileEngine::FileTime whatTime, QSystemError &error);
     static QString owner(const QFileSystemEntry &entry, QAbstractFileEngine::FileOwner own);
     static QString nativeAbsoluteFilePath(const QString &path);
+    static bool isDirPath(const QString &path, bool *existed);
 #endif
     //homePath, rootPath and tempPath shall return clean paths
     static QString homePath();

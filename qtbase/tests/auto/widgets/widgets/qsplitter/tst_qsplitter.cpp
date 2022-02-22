@@ -27,7 +27,7 @@
 ****************************************************************************/
 
 
-#include <QtTest/QtTest>
+#include <QTest>
 #include <qapplication.h>
 #include <qsplitter.h>
 #include <qstyle.h>
@@ -147,7 +147,7 @@ void tst_QSplitter::init()
 void tst_QSplitter::removeThirdWidget()
 {
     delete w3;
-    w3 = 0;
+    w3 = nullptr;
     int handleWidth = splitter->style()->pixelMetric(QStyle::PM_SplitterWidth);
     splitter->setFixedSize(400 + handleWidth, 400);
 }
@@ -302,7 +302,7 @@ class TestSplitterStyle : public QProxyStyle
 {
 public:
     TestSplitterStyle() : handleWidth(5) {}
-    int pixelMetric(PixelMetric metric, const QStyleOption *option = 0, const QWidget *widget = 0) const override
+    int pixelMetric(PixelMetric metric, const QStyleOption *option = nullptr, const QWidget *widget = nullptr) const override
     {
         if (metric == QStyle::PM_SplitterWidth)
             return handleWidth;
@@ -652,7 +652,7 @@ void tst_QSplitter::testRemoval()
 class MyFriendlySplitter : public QSplitter
 {
 public:
-    MyFriendlySplitter(QWidget *parent = 0) : QSplitter(parent) {}
+    MyFriendlySplitter(QWidget *parent = nullptr) : QSplitter(parent) {}
     void setRubberBand(int pos) { QSplitter::setRubberBand(pos); }
 
     void moveSplitter(int pos, int index) { QSplitter::moveSplitter(pos, index); }
@@ -763,7 +763,7 @@ void tst_QSplitter::replaceWidget()
     // the same size on the new widget. Because of QLabel's sizing
     // constraints (they can expand but not shrink) the easiest is
     // to set a shorter label.
-    QLabel *newWidget = new QLabel(QLatin1String("<b>NEW</b>"));
+    QLabel *newWidget = new QLabel(QLatin1String("NEW"));
 
     EventCounterSpy ef(&sp);
     ef.installEventFilter();
@@ -783,16 +783,12 @@ void tst_QSplitter::replaceWidget()
         const int expectedResizeCount = visible ? 1 : 0; // new widget only
         const int expectedPaintCount = visible && !collapsed ? 2 : 0; // splitter and new widget
         QTRY_COMPARE(ef.resizeCount, expectedResizeCount);
-#ifndef Q_OS_WINRT // QTBUG-68297
         QTRY_COMPARE(ef.paintCount, expectedPaintCount);
-#endif
         QCOMPARE(newWidget->parentWidget(), &sp);
         QCOMPARE(newWidget->isVisible(), visible);
         if (visible && !collapsed)
             QCOMPARE(newWidget->geometry(), oldGeom);
-#ifndef Q_OS_WINRT // QTBUG-68297
         QCOMPARE(newWidget->size().isEmpty(), !visible || collapsed);
-#endif
         delete res;
     }
     QCOMPARE(sp.count(), count);
@@ -844,9 +840,7 @@ void tst_QSplitter::replaceWidgetWithSplitterChild()
         QTRY_VERIFY(ef.resizeCount > 0);
         QTRY_VERIFY(ef.paintCount > 0);
         QCOMPARE(sp.count(), count + 1);
-#ifndef Q_OS_WINRT // QTBUG-68297
         QCOMPARE(sp.sizes().mid(0, count), sizes);
-#endif
         QCOMPARE(sp.sizes().last(), sibling->width());
     } else {
         // No-op for the rest
@@ -958,11 +952,11 @@ class MyTextEdit : public QTextEdit
         {
             setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Maximum);
         }
-        virtual QSize minimumSizeHint () const
+        virtual QSize minimumSizeHint () const override
         {
             return QSize(200, 200) * m_iFactor;
         }
-        virtual QSize sizeHint() const
+        virtual QSize sizeHint() const override
         {
             return QSize(390, 390) * m_iFactor;
         }

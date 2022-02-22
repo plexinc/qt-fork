@@ -32,8 +32,8 @@ namespace blink {
 // The painting of a layer occurs in 5 phases, Each involves a recursive
 // descent into the layer's layout objects in painting order:
 //  1. Background phase: backgrounds and borders of all blocks are painted.
-//     Inlines are not painted at all. Touch-action hit test rects are also
-//     painted during this phase (see: paint/README.md#hit-test-painting).
+//     Inlines are not painted at all. Touch-action and wheel hit test rects are
+//     also painted during this phase (see: paint/README.md#hit-test-painting).
 //  2. ForcedColorsModeBackplate phase: a readability backplate is painted
 //     behind all inline text, split by paragraph. This phase should only paint
 //     content when in forced colors mode to ensure readability for text above
@@ -133,12 +133,9 @@ enum GlobalPaintFlag {
   // ignore the hardware layers and paint the whole tree
   // into the topmost layer.
   kGlobalPaintFlattenCompositingLayers = 1 << 1,
-  // Used when printing in order to adapt the output to the medium, for
-  // instance by not painting shadows and selections on text.
-  kGlobalPaintPrinting = 1 << 2,
   // Used when printing or painting a preview to in order to add URL
   // metadata for links.
-  kGlobalPaintAddUrlMetadata = 1 << 3
+  kGlobalPaintAddUrlMetadata = 1 << 2
 };
 
 typedef unsigned GlobalPaintFlags;

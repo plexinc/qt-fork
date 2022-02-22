@@ -111,12 +111,12 @@ PlayerControls::PlayerControls(QWidget *parent)
     setLayout(layout);
 }
 
-QMediaPlayer::State PlayerControls::state() const
+QMediaPlayer::PlaybackState PlayerControls::state() const
 {
     return m_playerState;
 }
 
-void PlayerControls::setState(QMediaPlayer::State state)
+void PlayerControls::setState(QMediaPlayer::PlaybackState state)
 {
     if (state != m_playerState) {
         m_playerState = state;
@@ -138,18 +138,18 @@ void PlayerControls::setState(QMediaPlayer::State state)
     }
 }
 
-int PlayerControls::volume() const
+float PlayerControls::volume() const
 {
     qreal linearVolume =  QAudio::convertVolume(m_volumeSlider->value() / qreal(100),
                                                 QAudio::LogarithmicVolumeScale,
                                                 QAudio::LinearVolumeScale);
 
-    return qRound(linearVolume * 100);
+    return linearVolume;
 }
 
-void PlayerControls::setVolume(int volume)
+void PlayerControls::setVolume(float volume)
 {
-    qreal logarithmicVolume = QAudio::convertVolume(volume / qreal(100),
+    qreal logarithmicVolume = QAudio::convertVolume(volume,
                                                     QAudio::LinearVolumeScale,
                                                     QAudio::LogarithmicVolumeScale);
 

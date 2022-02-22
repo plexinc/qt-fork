@@ -9,20 +9,22 @@
 #include <utility>
 
 #include "base/callback.h"
+#include "base/containers/contains.h"
 #include "base/containers/span.h"
 #include "base/feature_list.h"
 #include "base/logging.h"
 #include "base/metrics/field_trial.h"
-#include "base/stl_util.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_tokenizer.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/flags_ui/feature_entry.h"
 #include "components/flags_ui/flags_storage.h"
 #include "components/flags_ui/flags_ui_switches.h"
+#include "components/variations/field_trial_config/field_trial_util.h"
 #include "components/variations/variations_associated_data.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "url/gurl.h"
@@ -124,34 +126,25 @@ bool IsValidFeatureEntry(const FeatureEntry& e) {
     case FeatureEntry::SINGLE_VALUE:
     case FeatureEntry::SINGLE_DISABLE_VALUE:
     case FeatureEntry::ORIGIN_LIST_VALUE:
-      DCHECK_EQ(0, e.num_options);
-      DCHECK(!e.choices);
       return true;
     case FeatureEntry::MULTI_VALUE:
-      DCHECK_GT(e.num_options, 0);
-      DCHECK(e.choices);
+      DCHECK_GT(e.choices.size(), 0u);
       DCHECK(e.ChoiceForOption(0).command_line_switch);
       DCHECK_EQ('\0', e.ChoiceForOption(0).command_line_switch[0]);
       return true;
     case FeatureEntry::ENABLE_DISABLE_VALUE:
-      DCHECK_EQ(3, e.num_options);
-      DCHECK(!e.choices);
-      DCHECK(e.command_line_switch);
-      DCHECK(e.command_line_value);
-      DCHECK(e.disable_command_line_switch);
-      DCHECK(e.disable_command_line_value);
+      DCHECK(e.switches.command_line_switch);
+      DCHECK(e.switches.command_line_value);
+      DCHECK(e.switches.disable_command_line_switch);
+      DCHECK(e.switches.disable_command_line_value);
       return true;
     case FeatureEntry::FEATURE_VALUE:
-      DCHECK_EQ(3, e.num_options);
-      DCHECK(!e.choices);
-      DCHECK(e.feature);
+      DCHECK(e.feature.feature);
       return true;
     case FeatureEntry::FEATURE_WITH_PARAMS_VALUE:
-      DCHECK_GT(e.num_options, 2);
-      DCHECK(!e.choices);
-      DCHECK(e.feature);
-      DCHECK(e.feature_variations);
-      DCHECK(e.feature_trial_name);
+      DCHECK(e.feature.feature);
+      DCHECK(e.feature.feature_variations.size());
+      DCHECK(e.feature.feature_trial_name);
       return true;
   }
   NOTREACHED();
@@ -170,7 +163,7 @@ bool IsDefaultValue(const FeatureEntry& entry,
     case FeatureEntry::ENABLE_DISABLE_VALUE:
     case FeatureEntry::FEATURE_VALUE:
     case FeatureEntry::FEATURE_WITH_PARAMS_VALUE:
-      for (int i = 0; i < entry.num_options; ++i) {
+      for (int i = 0; i < entry.NumOptions(); ++i) {
         if (enabled_entries.count(entry.NameForOption(i)) > 0)
           return false;
       }
@@ -189,7 +182,7 @@ std::unique_ptr<base::Value> CreateOptionsData(
          entry.type == FeatureEntry::FEATURE_VALUE ||
          entry.type == FeatureEntry::FEATURE_WITH_PARAMS_VALUE);
   auto result = std::make_unique<base::ListValue>();
-  for (int i = 0; i < entry.num_options; ++i) {
+  for (int i = 0; i < entry.NumOptions(); ++i) {
     auto value = std::make_unique<base::DictionaryValue>();
     const std::string name = entry.NameForOption(i);
     value->SetString("internal_name", name);
@@ -297,7 +290,7 @@ std::string GetCombinedOriginListValue(const FlagsStorage& flags_storage,
   return CombineAndSanitizeOriginLists(existing_value, new_value);
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 // ChromeOS does not call ConvertFlagsToSwitches on startup (see
 // ChromeFeatureListCreator::ConvertFlagsToSwitches() for details) so the
 // command line cannot be updated using pref values. Instead, this method
@@ -305,7 +298,7 @@ std::string GetCombinedOriginListValue(const FlagsStorage& flags_storage,
 void DidModifyOriginListFlag(const FlagsStorage& flags_storage,
                              const FeatureEntry& entry) {
   const std::string new_value = GetCombinedOriginListValue(
-      flags_storage, entry.internal_name, entry.command_line_switch);
+      flags_storage, entry.internal_name, entry.switches.command_line_switch);
 
   // Remove the switch if it exists.
   base::CommandLine* current_cl = base::CommandLine::ForCurrentProcess();
@@ -314,7 +307,7 @@ void DidModifyOriginListFlag(const FlagsStorage& flags_storage,
   for (const auto& it : switches) {
     const auto& switch_name = it.first;
     const auto& switch_value = it.second;
-    if (switch_name != entry.command_line_switch) {
+    if (switch_name != entry.switches.command_line_switch) {
       if (switch_value.empty()) {
         new_cl.AppendSwitch(switch_name);
       } else {
@@ -326,7 +319,7 @@ void DidModifyOriginListFlag(const FlagsStorage& flags_storage,
 
   const std::string sanitized =
       CombineAndSanitizeOriginLists(std::string(), new_value);
-  current_cl->AppendSwitchASCII(entry.command_line_switch, sanitized);
+  current_cl->AppendSwitchASCII(entry.switches.command_line_switch, sanitized);
 }
 #endif
 
@@ -348,7 +341,8 @@ struct FlagsState::SwitchEntry {
   SwitchEntry() : feature_state(false) {}
 };
 
-bool FlagsState::Delegate::ShouldExcludeFlag(const FeatureEntry& entry) {
+bool FlagsState::Delegate::ShouldExcludeFlag(const FlagsStorage* state,
+                                             const FeatureEntry& entry) {
   return false;
 }
 
@@ -443,7 +437,7 @@ void FlagsState::SetFeatureEntryEnabled(FlagsStorage* flags_storage,
     else
       needs_restart_ |= (enabled_entries.erase(internal_name) > 0);
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     // If an origin list was enabled or disabled, update the command line flag.
     if (e->type == FeatureEntry::ORIGIN_LIST_VALUE && enable)
       DidModifyOriginListFlag(*flags_storage, *e);
@@ -460,7 +454,7 @@ void FlagsState::SetFeatureEntryEnabled(FlagsStorage* flags_storage,
       needs_restart_ |= enabled_entries.insert(e->NameForOption(0)).second;
     } else {
       // Find the currently enabled choice and disable it.
-      for (int i = 0; i < e->num_options; ++i) {
+      for (int i = 0; i < e->NumOptions(); ++i) {
         std::string choice_name = e->NameForOption(i);
         if (enabled_entries.find(choice_name) != enabled_entries.end()) {
           needs_restart_ = true;
@@ -482,7 +476,7 @@ void FlagsState::SetOriginListFlag(const std::string& internal_name,
       CombineAndSanitizeOriginLists(std::string(), value);
   flags_storage->SetOriginListFlag(internal_name, new_value);
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   const FeatureEntry* entry = FindFeatureEntryByName(internal_name);
   DCHECK(entry);
 
@@ -508,7 +502,7 @@ void FlagsState::RemoveFlagsSwitches(
     // The below is either a std::string or a base::string16 based on platform.
     const auto& existing_value = (*switch_list)[switch_name];
 #if defined(OS_WIN)
-    const std::string existing_value_utf8 = base::UTF16ToUTF8(existing_value);
+    const std::string existing_value_utf8 = base::WideToUTF8(existing_value);
 #else
     const std::string& existing_value_utf8 = existing_value;
 #endif
@@ -530,7 +524,7 @@ void FlagsState::RemoveFlagsSwitches(
     } else {
       std::string switch_value = base::JoinString(remaining_features, ",");
 #if defined(OS_WIN)
-      (*switch_list)[switch_name] = base::UTF8ToUTF16(switch_value);
+      (*switch_list)[switch_name] = base::UTF8ToWide(switch_value);
 #else
       (*switch_list)[switch_name] = switch_value;
 #endif
@@ -564,13 +558,13 @@ std::vector<std::string> FlagsState::RegisterAllFeatureVariationParameters(
   // First collect all the data for each trial.
   for (const FeatureEntry& entry : feature_entries_) {
     if (entry.type == FeatureEntry::FEATURE_WITH_PARAMS_VALUE) {
-      for (int j = 0; j < entry.num_options; ++j) {
+      for (int j = 0; j < entry.NumOptions(); ++j) {
         if (entry.StateForOption(j) == FeatureEntry::FeatureState::ENABLED &&
             enabled_entries.count(entry.NameForOption(j))) {
-          std::string trial_name = entry.feature_trial_name;
+          std::string trial_name = entry.feature.feature_trial_name;
           // The user has chosen to enable the feature by this option.
           enabled_features_by_trial_name[trial_name].insert(
-              entry.feature->name);
+              entry.feature.feature->name);
 
           const FeatureEntry::FeatureVariation* variation =
               entry.VariationForOption(j);
@@ -622,6 +616,7 @@ void FlagsState::GetFlagFeatureEntries(
     base::ListValue* supported_entries,
     base::ListValue* unsupported_entries,
     base::RepeatingCallback<bool(const FeatureEntry&)> skip_feature_entry) {
+  DCHECK(flags_storage);
   std::set<std::string> enabled_entries;
   GetSanitizedEnabledFlags(flags_storage, &enabled_entries);
 
@@ -658,7 +653,7 @@ void FlagsState::GetFlagFeatureEntries(
         data->SetString(
             "origin_list_value",
             GetCombinedOriginListValue(*flags_storage, entry.internal_name,
-                                       entry.command_line_switch));
+                                       entry.switches.command_line_switch));
         break;
       case FeatureEntry::MULTI_VALUE:
       case FeatureEntry::ENABLE_DISABLE_VALUE:
@@ -669,7 +664,7 @@ void FlagsState::GetFlagFeatureEntries(
     }
 
     bool supported = (entry.supported_platforms & current_platform) != 0;
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     if (access == kOwnerAccessToFlags &&
         (entry.supported_platforms & kOsCrOSOwnerOnly) != 0) {
       supported = true;
@@ -685,15 +680,16 @@ void FlagsState::GetFlagFeatureEntries(
 
 // static
 int FlagsState::GetCurrentPlatform() {
-#if defined(OS_IOS)  // Needs to be before the OS_MACOSX check.
+#if defined(OS_IOS)
   return kOsIos;
-#elif defined(OS_MACOSX)
+#elif defined(OS_MAC)
   return kOsMac;
 #elif defined(OS_WIN)
   return kOsWin;
-#elif defined(OS_CHROMEOS)  // Needs to be before the OS_LINUX check.
+#elif BUILDFLAG(IS_CHROMEOS_ASH)
   return kOsCrOS;
-#elif defined(OS_LINUX) || defined(OS_OPENBSD)
+#elif (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)) || \
+    defined(OS_OPENBSD)
   return kOsLinux;
 #elif defined(OS_ANDROID)
   return kOsAndroid;
@@ -833,6 +829,7 @@ void FlagsState::MergeFeatureCommandLineSwitch(
 }
 
 std::set<std::string> FlagsState::SanitizeList(
+    const FlagsStorage* storage,
     const std::set<std::string>& enabled_entries,
     int platform_mask) const {
   std::set<std::string> new_enabled_entries;
@@ -843,7 +840,7 @@ std::set<std::string> FlagsState::SanitizeList(
   // |feature_entries_| first because |feature_entries_| is large and
   // |enabled_entries| should generally be small/empty.
   for (const std::string& entry_name : enabled_entries) {
-    if (IsSupportedFeature(entry_name, platform_mask))
+    if (IsSupportedFeature(storage, entry_name, platform_mask))
       new_enabled_entries.insert(entry_name);
   }
 
@@ -853,7 +850,8 @@ std::set<std::string> FlagsState::SanitizeList(
 void FlagsState::GetSanitizedEnabledFlags(FlagsStorage* flags_storage,
                                           std::set<std::string>* result) const {
   std::set<std::string> enabled_entries = flags_storage->GetFlags();
-  std::set<std::string> new_enabled_entries = SanitizeList(enabled_entries, -1);
+  std::set<std::string> new_enabled_entries =
+      SanitizeList(flags_storage, enabled_entries, -1);
   if (new_enabled_entries.size() != enabled_entries.size())
     flags_storage->SetFlags(new_enabled_entries);
   result->swap(new_enabled_entries);
@@ -867,10 +865,11 @@ void FlagsState::GetSanitizedEnabledFlagsForCurrentPlatform(
   GetSanitizedEnabledFlags(flags_storage, result);
 
   int platform_mask = GetCurrentPlatform();
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   platform_mask |= kOsCrOSOwnerOnly;
 #endif
-  std::set<std::string> platform_entries = SanitizeList(*result, platform_mask);
+  std::set<std::string> platform_entries =
+      SanitizeList(flags_storage, *result, platform_mask);
   result->swap(platform_entries);
 }
 
@@ -884,8 +883,9 @@ void FlagsState::GenerateFlagsToSwitchesMapping(
     switch (entry.type) {
       case FeatureEntry::SINGLE_VALUE:
       case FeatureEntry::SINGLE_DISABLE_VALUE:
-        AddSwitchMapping(entry.internal_name, entry.command_line_switch,
-                         entry.command_line_value, name_to_switch_map);
+        AddSwitchMapping(entry.internal_name,
+                         entry.switches.command_line_switch,
+                         entry.switches.command_line_value, name_to_switch_map);
         break;
 
       case FeatureEntry::ORIGIN_LIST_VALUE: {
@@ -893,15 +893,17 @@ void FlagsState::GenerateFlagsToSwitchesMapping(
         // This is done to retain the existing list from the command line when
         // the browser is restarted. Otherwise, the user provided list would
         // overwrite the list provided from the command line.
-        const std::string origin_list_value = GetCombinedOriginListValue(
-            *flags_storage, entry.internal_name, entry.command_line_switch);
-        AddSwitchMapping(entry.internal_name, entry.command_line_switch,
-                         origin_list_value, name_to_switch_map);
+        const std::string origin_list_value =
+            GetCombinedOriginListValue(*flags_storage, entry.internal_name,
+                                       entry.switches.command_line_switch);
+        AddSwitchMapping(entry.internal_name,
+                         entry.switches.command_line_switch, origin_list_value,
+                         name_to_switch_map);
         break;
       }
 
       case FeatureEntry::MULTI_VALUE:
-        for (int j = 0; j < entry.num_options; ++j) {
+        for (int j = 0; j < entry.NumOptions(); ++j) {
           AddSwitchMapping(entry.NameForOption(j),
                            entry.ChoiceForOption(j).command_line_switch,
                            entry.ChoiceForOption(j).command_line_value,
@@ -912,24 +914,43 @@ void FlagsState::GenerateFlagsToSwitchesMapping(
       case FeatureEntry::ENABLE_DISABLE_VALUE:
         AddSwitchMapping(entry.NameForOption(0), std::string(), std::string(),
                          name_to_switch_map);
-        AddSwitchMapping(entry.NameForOption(1), entry.command_line_switch,
-                         entry.command_line_value, name_to_switch_map);
-        AddSwitchMapping(entry.NameForOption(2),
-                         entry.disable_command_line_switch,
-                         entry.disable_command_line_value, name_to_switch_map);
+        AddSwitchMapping(entry.NameForOption(1),
+                         entry.switches.command_line_switch,
+                         entry.switches.command_line_value, name_to_switch_map);
+        AddSwitchMapping(
+            entry.NameForOption(2), entry.switches.disable_command_line_switch,
+            entry.switches.disable_command_line_value, name_to_switch_map);
         break;
 
       case FeatureEntry::FEATURE_VALUE:
       case FeatureEntry::FEATURE_WITH_PARAMS_VALUE:
-        for (int j = 0; j < entry.num_options; ++j) {
+        for (int j = 0; j < entry.NumOptions(); ++j) {
           FeatureEntry::FeatureState state = entry.StateForOption(j);
           if (state == FeatureEntry::FeatureState::DEFAULT) {
             AddFeatureMapping(entry.NameForOption(j), std::string(), false,
                               name_to_switch_map);
           } else {
-            AddFeatureMapping(entry.NameForOption(j), entry.feature->name,
-                              state == FeatureEntry::FeatureState::ENABLED,
-                              name_to_switch_map);
+            const FeatureEntry::FeatureVariation* variation =
+                entry.VariationForOption(j);
+            std::string feature_name(entry.feature.feature->name);
+            std::vector<std::string> params_value;
+
+            if (variation) {
+              feature_name.append(":");
+              for (int i = 0; i < variation->num_params; ++i) {
+                std::string param_name =
+                    variations::EscapeValue(variation->params[i].param_name);
+                std::string param_value =
+                    variations::EscapeValue(variation->params[i].param_value);
+                params_value.push_back(
+                    param_name.append("/").append(param_value));
+              }
+            }
+            AddFeatureMapping(
+                entry.NameForOption(j),
+                feature_name.append(base::JoinString(params_value, "/")),
+                state == FeatureEntry::FeatureState::ENABLED,
+                name_to_switch_map);
           }
         }
         break;
@@ -946,7 +967,8 @@ const FeatureEntry* FlagsState::FindFeatureEntryByName(
   return nullptr;
 }
 
-bool FlagsState::IsSupportedFeature(const std::string& name,
+bool FlagsState::IsSupportedFeature(const FlagsStorage* storage,
+                                    const std::string& name,
                                     int platform_mask) const {
   for (const auto& entry : feature_entries_) {
     DCHECK(IsValidFeatureEntry(entry));
@@ -954,7 +976,7 @@ bool FlagsState::IsSupportedFeature(const std::string& name,
       continue;
     if (!entry.InternalNameMatches(name))
       continue;
-    if (delegate_ && delegate_->ShouldExcludeFlag(entry))
+    if (delegate_ && delegate_->ShouldExcludeFlag(storage, entry))
       continue;
     return true;
   }

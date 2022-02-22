@@ -2,6 +2,7 @@
 # found in the LICENSE file.
 
 import("//build/config/chromecast_build.gni")
+import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/jumbo.gni")
 import("//extensions/buildflags/buildflags.gni")
 import("//testing/test.gni")
@@ -125,6 +126,10 @@ jumbo_static_library("test_support") {
     "test/result_catcher.h",
     "test/test_background_page_first_load_observer.cc",
     "test/test_background_page_first_load_observer.h",
+    "test/test_background_page_ready_observer.cc",
+    "test/test_background_page_ready_observer.h",
+    "test/test_content_script_load_waiter.cc",
+    "test/test_content_script_load_waiter.h",
     "test/test_content_utility_client.cc",
     "test/test_content_utility_client.h",
     "test/test_extension_dir.cc",
@@ -141,6 +146,7 @@ jumbo_static_library("test_support") {
   deps = [
     ":extensions_resources",
     "//base",
+    "//build:chromeos_buildflags",
     "//chrome/common:buildflags",
     "//components/cast_certificate:test_support",
     "//components/cast_channel:test_support",
@@ -151,11 +157,13 @@ jumbo_static_library("test_support") {
     "//content/test:test_support",
     "//extensions/browser",
     "//extensions/browser:test_support",
+    "//extensions/browser/api/storage",
     "//extensions/common",
     "//extensions/common:core_api_provider",
     "//extensions/common/api",
     "//extensions/common/api:extensions_features",
     "//net:test_support",
+    "//services/network/public/mojom",
     "//testing/gmock",
     "//testing/gtest",
     "//third_party/cld_3/src/src:cld_3",
@@ -172,6 +180,7 @@ repack("shell_and_test_pak") {
     "$root_gen_dir/content/content_resources.pak",
     "$root_gen_dir/content/dev_ui_content_resources.pak",
     "$root_gen_dir/content/shell/shell_resources.pak",
+    "$root_gen_dir/device/bluetooth/strings/bluetooth_strings_en-US.pak",
     "$root_gen_dir/extensions/extensions_browser_resources_100_percent.pak",
     "$root_gen_dir/extensions/extensions_renderer_resources.pak",
     "$root_gen_dir/extensions/extensions_resources.pak",
@@ -194,6 +203,7 @@ repack("shell_and_test_pak") {
     "//content:dev_ui_content_resources",
     "//content/browser/devtools:devtools_resources",
     "//content/shell:resources",
+    "//device/bluetooth/strings",
     "//extensions/shell:resources",
     "//extensions/strings",
     "//mojo/public/js:resources",
@@ -206,6 +216,8 @@ repack("shell_and_test_pak") {
 }
 
 test("extensions_unittests") {
+  use_xvfb = use_xvfb_in_this_config
+
   sources = [
     "test/extensions_unittests_main.cc",
     "test/logging_timer_unittest.cc",
@@ -240,6 +252,8 @@ test("extensions_unittests") {
 }
 
 test("extensions_browsertests") {
+  use_xvfb = use_xvfb_in_this_config
+
   data = [
     "//extensions/test/data/",
     "//net/tools/testserver/",
@@ -283,6 +297,7 @@ source_set("chrome_extensions_browsertests") {
     "//base",
     "//base:i18n",
     "//base/test:test_support",
+    "//build:chromeos_buildflags",
     "//chrome/browser",
     "//chrome/common/extensions/api",
     "//chrome/renderer",
@@ -293,7 +308,6 @@ source_set("chrome_extensions_browsertests") {
     "//components/dom_distiller/core:test_support",
     "//components/guest_view/browser:test_support",
     "//components/javascript_dialogs",
-    "//components/printing/common",
     "//components/resources",
     "//components/strings",
     "//components/sync",
@@ -313,7 +327,6 @@ source_set("chrome_extensions_browsertests") {
     "//testing/gtest",
     "//testing/perf",
     "//third_party/blink/public:blink",
-    "//third_party/cacheinvalidation",
     "//third_party/icu",
     "//third_party/leveldatabase",
     "//third_party/libaddressinput",
@@ -327,7 +340,7 @@ source_set("chrome_extensions_browsertests") {
     "//v8",
   ]
 
-  if (is_chromeos) {
+  if (is_chromeos_ash) {
     deps += [ "//components/user_manager:test_support" ]
   }
 }

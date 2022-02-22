@@ -53,7 +53,8 @@
 #endif
 
 #ifdef Q_OS_ANDROID
-#  include <private/qjnihelpers_p.h>
+#include <private/qjnihelpers_p.h>
+#include <QtCore/qjnienvironment.h>
 #endif
 
 QT_BEGIN_NAMESPACE
@@ -61,10 +62,10 @@ QT_BEGIN_NAMESPACE
 static QString qdlerror()
 {
     const char *err = dlerror();
-    return err ? QLatin1Char('(') + QString::fromLocal8Bit(err) + QLatin1Char(')'): QString();
+    return err ? QLatin1Char('(') + QString::fromLocal8Bit(err) + QLatin1Char(')') : QString();
 }
 
-QStringList QLibraryPrivate::suffixes_sys(const QString& fullVersion)
+QStringList QLibraryPrivate::suffixes_sys(const QString &fullVersion)
 {
     QStringList suffixes;
 #if defined(Q_OS_HPUX)
@@ -141,7 +142,7 @@ bool QLibraryPrivate::load_sys()
         suffixes = suffixes_sys(fullVersion);
     }
     int dlFlags = 0;
-    int loadHints = this->loadHints();
+    auto loadHints = this->loadHints();
     if (loadHints & QLibrary::ResolveAllSymbolsHint) {
         dlFlags |= RTLD_NOW;
     } else {
@@ -243,10 +244,10 @@ bool QLibraryPrivate::load_sys()
             }
             if (hnd) {
                 using JniOnLoadPtr = jint (*)(JavaVM *vm, void *reserved);
-                JniOnLoadPtr jniOnLoad = reinterpret_cast<JniOnLoadPtr>(dlsym(pHnd, "JNI_OnLoad"));
-                if (jniOnLoad && jniOnLoad(QtAndroidPrivate::javaVM(), nullptr) == JNI_ERR) {
+                JniOnLoadPtr jniOnLoad = reinterpret_cast<JniOnLoadPtr>(dlsym(hnd, "JNI_OnLoad"));
+                if (jniOnLoad && jniOnLoad(QJniEnvironment::javaVM(), nullptr) == JNI_ERR) {
                     dlclose(hnd);
-                    pHnd = nullptr;
+                    hnd = nullptr;
                 }
             }
 #endif
@@ -266,7 +267,7 @@ bool QLibraryPrivate::load_sys()
         QByteArray utf8Bundle = fileName.toUtf8();
         QCFType<CFURLRef> bundleUrl = CFURLCreateFromFileSystemRepresentation(NULL, reinterpret_cast<const UInt8*>(utf8Bundle.data()), utf8Bundle.length(), true);
         QCFType<CFBundleRef> bundle = CFBundleCreate(NULL, bundleUrl);
-        if(bundle) {
+        if (bundle) {
             QCFType<CFURLRef> url = CFBundleCopyExecutableURL(bundle);
             char executableFile[FILENAME_MAX];
             CFURLGetFileSystemRepresentation(url, true, reinterpret_cast<UInt8*>(executableFile), FILENAME_MAX);
@@ -320,7 +321,7 @@ Q_CORE_EXPORT QFunctionPointer qt_mac_resolve_sys(void *handle, const char *symb
 }
 #endif
 
-QFunctionPointer QLibraryPrivate::resolve_sys(const char* symbol)
+QFunctionPointer QLibraryPrivate::resolve_sys(const char *symbol)
 {
     QFunctionPointer address = QFunctionPointer(dlsym(pHnd.loadAcquire(), symbol));
     return address;

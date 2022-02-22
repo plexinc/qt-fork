@@ -33,7 +33,7 @@
 #include <QTimer>
 #include <QQmlContext>
 #include <qqmlinfo.h>
-#include "../../shared/util.h"
+#include <QtQuickTestUtils/private/qmlutils_p.h>
 
 #include "attached.h"
 
@@ -41,7 +41,7 @@ class tst_qqmlinfo : public QQmlDataTest
 {
     Q_OBJECT
 public:
-    tst_qqmlinfo() {}
+    tst_qqmlinfo() : QQmlDataTest(QT_QMLTEST_DATADIR) {}
 
 private slots:
     void qmlObject();
@@ -182,7 +182,7 @@ void tst_qqmlinfo::types()
     //### should this be quoted?
     QTest::ignoreMessage(QtInfoMsg, "<Unknown File>: World");
     QString str("Hello World");
-    QStringRef ref(&str, 6, 5);
+    auto ref = QStringView(str).mid(6, 5);
     qmlInfo(nullptr) << ref;
 
     //### should this be quoted?
@@ -193,7 +193,7 @@ void tst_qqmlinfo::types()
 void tst_qqmlinfo::chaining()
 {
     QString str("Hello World");
-    QStringRef ref(&str, 6, 5);
+    auto ref = QStringView(str).mid(6, 5);
     QTest::ignoreMessage(QtInfoMsg, "<Unknown File>: false 1.1 1.2 15 hello 'b' World \"Qt\" true Quick QUrl(\"http://www.qt-project.org\") ");
     qmlInfo(nullptr) << false << ' '
                << 1.1 << ' '
@@ -234,19 +234,15 @@ void tst_qqmlinfo::component()
     qmlInfo(delegate) << "Delegate error";
 }
 
-Q_DECLARE_METATYPE(QList<QQmlError>)
-
 void tst_qqmlinfo::attachedObject()
 {
-    qRegisterMetaType<QList<QQmlError>>();
-
     QQmlComponent component(&engine, testFileUrl("AttachedObject.qml"));
 
     QSignalSpy warningSpy(&engine, SIGNAL(warnings(const QList<QQmlError> &)));
     QVERIFY(warningSpy.isValid());
 
     const QString qmlBindingLoopMessage = "QML Rectangle: Binding loop detected for property \"width\"";
-    const QString qmlBindingLoopMessageFull = component.url().toString() + ":7:5: " + qmlBindingLoopMessage;
+    const QString qmlBindingLoopMessageFull = component.url().toString() + ":8:9: " + qmlBindingLoopMessage;
     QTest::ignoreMessage(QtWarningMsg, qPrintable(qmlBindingLoopMessageFull));
 
     const QString cppBindingLoopMessage = "QML AttachedObject (parent or ancestor of Attached): Binding loop detected for property \"a\"";

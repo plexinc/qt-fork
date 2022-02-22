@@ -2,20 +2,19 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/frames/quic_stream_frame.h"
+#include "quic/core/frames/quic_stream_frame.h"
 
-#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/string_view.h"
+#include "quic/platform/api/quic_logging.h"
 
 namespace quic {
 
-QuicStreamFrame::QuicStreamFrame()
-    : QuicStreamFrame(-1, false, 0, nullptr, 0) {}
+QuicStreamFrame::QuicStreamFrame() : QuicInlinedFrame(STREAM_FRAME) {}
 
 QuicStreamFrame::QuicStreamFrame(QuicStreamId stream_id,
                                  bool fin,
                                  QuicStreamOffset offset,
-                                 quiche::QuicheStringPiece data)
+                                 absl::string_view data)
     : QuicStreamFrame(stream_id, fin, offset, data.data(), data.length()) {}
 
 QuicStreamFrame::QuicStreamFrame(QuicStreamId stream_id,

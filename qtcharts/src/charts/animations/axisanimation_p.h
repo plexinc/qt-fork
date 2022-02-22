@@ -43,7 +43,7 @@
 #include <QtCharts/private/qchartglobal_p.h>
 #include <QtCore/QPointF>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class ChartAxisElement;
 
@@ -55,17 +55,18 @@ public:
     ~AxisAnimation();
     void setAnimationType(Animation type);
     void setAnimationPoint(const QPointF &point);
-    void setValues(QVector<qreal> &oldLayout, QVector<qreal> &newLayout);
+    void setValues(QList<qreal> &oldLayout, const QList<qreal> &newLayout);
+
 protected:
-    QVariant interpolated(const QVariant &from, const QVariant &to, qreal progress) const;
-    void updateCurrentValue(const QVariant &value);
+    QVariant interpolated(const QVariant &from, const QVariant &to, qreal progress) const override;
+    void updateCurrentValue(const QVariant &value) override;
 private:
     ChartAxisElement *m_axis;
     Animation m_type;
     QPointF m_point;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 
 

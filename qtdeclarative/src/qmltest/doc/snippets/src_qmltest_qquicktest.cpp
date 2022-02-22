@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2018 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -48,15 +48,8 @@
 **
 ****************************************************************************/
 
-//! [1]
-//! [0]
-#include <QtQuickTest>
-//! [0]
-QUICK_TEST_MAIN(example)
-//! [1]
-
 //! [2]
-// tst_mytest.cpp
+// src_qmltest_qquicktest.cpp
 #include <QtQuickTest>
 #include <QQmlEngine>
 #include <QQmlContext>
@@ -77,5 +70,5 @@ public slots:
 
 QUICK_TEST_MAIN_WITH_SETUP(mytest, Setup)
 
-#include "tst_mytest.moc"
+#include "src_qmltest_qquicktest.moc"
 //! [2]

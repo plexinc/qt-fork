@@ -38,9 +38,9 @@
 ****************************************************************************/
 
 #include "qwidgetaction.h"
+#include "qwidget.h"
 #include "qdebug.h"
 
-#ifndef QT_NO_ACTION
 #include "qwidgetaction_p.h"
 
 QT_BEGIN_NAMESPACE
@@ -250,7 +250,7 @@ bool QWidgetAction::eventFilter(QObject *obj, QEvent *event)
 */
 QWidget *QWidgetAction::createWidget(QWidget *parent)
 {
-    Q_UNUSED(parent)
+    Q_UNUSED(parent);
     return nullptr;
 }
 
@@ -282,5 +282,3 @@ QList<QWidget *> QWidgetAction::createdWidgets() const
 QT_END_NAMESPACE
 
 #include "moc_qwidgetaction.cpp"
-
-#endif // QT_NO_ACTION

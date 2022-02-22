@@ -51,11 +51,8 @@ static CGLPixelFormatObj GetPixelFormat(const int core_profile = 0) {
     g_support_renderer_switching = false;
   }
   if (GetGLImplementation() == kGLImplementationDesktopGLCoreProfile) {
-    // These constants don't exist in the 10.6 SDK against which
-    // Chromium currently compiles.
-    const int kOpenGLProfile = 99;
-    attribs.push_back(static_cast<CGLPixelFormatAttribute>(kOpenGLProfile));
-    attribs.push_back(static_cast<CGLPixelFormatAttribute>(core_profile));
+    attribs.push_back(kCGLPFAOpenGLProfile);
+    attribs.push_back((CGLPixelFormatAttribute)core_profile);
   }
 
   attribs.push_back((CGLPixelFormatAttribute) 0);
@@ -210,7 +207,7 @@ YUVToRGBConverter* GLContextCGL::GetYUVToRGBConverter(
   return yuv_to_rgb_converter.get();
 }
 
-bool GLContextCGL::MakeCurrent(GLSurface* surface) {
+bool GLContextCGL::MakeCurrentImpl(GLSurface* surface) {
   DCHECK(context_);
 
   if (!ForceGpuSwitchIfNeeded())

@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
@@ -16,7 +16,10 @@
 #include "content/public/test/browser_test.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/remote.h"
+#include "net/cookies/cookie_access_result.h"
+#include "net/cookies/cookie_util.h"
 #include "net/extras/sqlite/cookie_crypto_delegate.h"
+#include "services/cert_verifier/public/mojom/cert_verifier_service_factory.mojom.h"
 #include "services/network/public/cpp/features.h"
 #include "services/network/public/mojom/network_service.mojom.h"
 
@@ -42,18 +45,17 @@ net::CookieList GetCookies(
 void SetCookie(
     const mojo::Remote<network::mojom::CookieManager>& cookie_manager) {
   base::Time t = base::Time::Now();
-  net::CanonicalCookie cookie(kCookieName, kCookieValue, "www.test.com", "/", t,
-                              t + base::TimeDelta::FromDays(1), base::Time(),
-                              true /* secure */, false /* http-only*/,
-                              net::CookieSameSite::NO_RESTRICTION,
-                              net::COOKIE_PRIORITY_DEFAULT);
+  auto cookie = net::CanonicalCookie::CreateUnsafeCookieForTesting(
+      kCookieName, kCookieValue, "www.test.com", "/", t,
+      t + base::TimeDelta::FromDays(1), base::Time(), true /* secure */,
+      false /* http-only*/, net::CookieSameSite::NO_RESTRICTION,
+      net::COOKIE_PRIORITY_DEFAULT, false /* same_party */);
   base::RunLoop run_loop;
   cookie_manager->SetCanonicalCookie(
-      cookie, "https", net::CookieOptions(),
+      *cookie, net::cookie_util::SimulatedCookieSource(*cookie, "https"),
+      net::CookieOptions(),
       base::BindLambdaForTesting(
-          [&](net::CanonicalCookie::CookieInclusionStatus status) {
-            run_loop.Quit();
-          }));
+          [&](net::CookieAccessResult result) { run_loop.Quit(); }));
   run_loop.Run();
 }
 
@@ -87,6 +89,8 @@ class ChromeNetworkServiceBrowserTest
     context_params->enable_encrypted_cookies = enable_encrypted_cookies;
     context_params->cookie_path =
         browser()->profile()->GetPath().Append(FILE_PATH_LITERAL("cookies"));
+    context_params->cert_verifier_params = content::GetCertVerifierParams(
+        cert_verifier::mojom::CertVerifierCreationParams::New());
     GetNetworkService()->CreateNetworkContext(
         network_context.InitWithNewPipeAndPassReceiver(),
         std::move(context_params));
@@ -117,7 +121,7 @@ IN_PROC_BROWSER_TEST_P(ChromeNetworkServiceBrowserTest, PRE_EncryptedCookies) {
 }
 
 // This flakes on Mac10.12 and Windows: http://crbug.com/868667
-#if defined(OS_MACOSX) || defined(OS_WIN)
+#if defined(OS_MAC) || defined(OS_WIN)
 #define MAYBE_EncryptedCookies DISABLED_EncryptedCookies
 #else
 #define MAYBE_EncryptedCookies EncryptedCookies

@@ -55,10 +55,11 @@
 
 #include <QtWaylandClient/private/qtwaylandclientglobal_p.h>
 
-#include <QtGui/QTabletEvent>
 #include <QtCore/QObject>
 #include <QtCore/QPointer>
 #include <QtCore/QPointF>
+#include <QtGui/QPointingDevice>
+#include <QtGui/QInputDevice>
 
 QT_BEGIN_NAMESPACE
 
@@ -93,9 +94,9 @@ protected:
     void zwp_tablet_seat_v2_pad_added(struct ::zwp_tablet_pad_v2 *id) override;
 
 private:
-    QVector<QWaylandTabletV2 *> m_tablets;
-    QVector<QWaylandTabletToolV2 *> m_tools;
-    QVector<QWaylandTabletPadV2 *> m_pads;
+    QList<QWaylandTabletV2 *> m_tablets;
+    QList<QWaylandTabletToolV2 *> m_tools;
+    QList<QWaylandTabletPadV2 *> m_pads;
 };
 
 class Q_WAYLAND_CLIENT_EXPORT QWaylandTabletV2 : public QObject, public QtWayland::zwp_tablet_v2
@@ -142,8 +143,8 @@ protected:
 private:
 
     // Static state (sent before done event)
-    QTabletEvent::PointerType m_pointerType = QTabletEvent::PointerType::UnknownPointer;
-    QTabletEvent::TabletDevice m_tabletDevice = QTabletEvent::TabletDevice::NoDevice;
+    QPointingDevice::PointerType m_pointerType = QPointingDevice::PointerType::Unknown;
+    QInputDevice::DeviceType m_tabletDevice = QInputDevice::DeviceType::Unknown;
     type m_toolType = type_pen;
     bool m_hasRotation = false;
     quint64 m_uid = 0;

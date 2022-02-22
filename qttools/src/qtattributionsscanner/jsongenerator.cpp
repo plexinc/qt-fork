@@ -55,15 +55,22 @@ static QJsonObject generate(Package package)
 
     obj.insert(QStringLiteral("License"), package.license);
     obj.insert(QStringLiteral("LicenseId"), package.licenseId);
-    obj.insert(QStringLiteral("LicenseFile"), package.licenseFile);
+    if (package.licenseFiles.isEmpty())
+        obj.insert(QStringLiteral("LicenseFile"), QString());
+    else if (package.licenseFiles.size() == 1)
+        obj.insert(QStringLiteral("LicenseFile"), package.licenseFiles.first());
+    else
+        obj.insert(QStringLiteral("LicenseFiles"),
+                   QJsonArray::fromStringList(package.licenseFiles));
 
     obj.insert(QStringLiteral("Copyright"), package.copyright);
+    obj.insert(QStringLiteral("CopyrightFile"), package.copyrightFile);
     obj.insert(QStringLiteral("PackageComment"), package.packageComment);
 
     return obj;
 }
 
-void generate(QTextStream &out, const QVector<Package> &packages, LogLevel logLevel)
+void generate(QTextStream &out, const QList<Package> &packages, LogLevel logLevel)
 {
     if (logLevel == VerboseLog)
         std::cerr << qPrintable(tr("Generating json...\n"));

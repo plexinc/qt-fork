@@ -421,10 +421,9 @@ void KeyboardDevice::setButtonValue(int key, bool value)
     }
 }
 
-void KeyboardDevice::updateKeyEvents(const QList<QT_PREPEND_NAMESPACE(QKeyEvent)> &events)
+void KeyboardDevice::updateKeyEvent(QT_PREPEND_NAMESPACE(QKeyEvent) *event)
 {
-    for (const QT_PREPEND_NAMESPACE(QKeyEvent) &e : events)
-        setButtonValue(e.key(), e.type() == QT_PREPEND_NAMESPACE(QKeyEvent)::KeyPress ? true : false);
+    setButtonValue(event->key(), event->type() == QT_PREPEND_NAMESPACE(QKeyEvent)::KeyPress ? true : false);
 }
 
 KeyboardDeviceFunctor::KeyboardDeviceFunctor(QInputAspect *inputaspect, InputHandler *handler)
@@ -433,12 +432,12 @@ KeyboardDeviceFunctor::KeyboardDeviceFunctor(QInputAspect *inputaspect, InputHan
 {
 }
 
-Qt3DCore::QBackendNode *KeyboardDeviceFunctor::create(const Qt3DCore::QNodeCreatedChangeBasePtr &change) const
+Qt3DCore::QBackendNode *KeyboardDeviceFunctor::create(Qt3DCore::QNodeId id) const
 {
-    KeyboardDevice *keyboardDevice = m_handler->keyboardDeviceManager()->getOrCreateResource(change->subjectId());
+    KeyboardDevice *keyboardDevice = m_handler->keyboardDeviceManager()->getOrCreateResource(id);
     keyboardDevice->setInputAspect(m_inputAspect);
     keyboardDevice->setInputHandler(m_handler);
-    m_handler->appendKeyboardDevice(m_handler->keyboardDeviceManager()->lookupHandle(change->subjectId()));
+    m_handler->appendKeyboardDevice(m_handler->keyboardDeviceManager()->lookupHandle(id));
     return keyboardDevice;
 }
 

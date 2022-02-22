@@ -53,7 +53,6 @@
 #include "qstyleoption.h"
 #include "qtextstream.h"
 #include "qvarlengtharray.h"
-#include "qvector.h"
 #include "private/qlayoutengine_p.h"
 #include "private/qsplitter_p.h"
 #include "qtimer.h"
@@ -228,10 +227,9 @@ QSize QSplitterHandle::sizeHint() const
     Q_D(const QSplitterHandle);
     int hw = d->s->handleWidth();
     QStyleOption opt(0);
-    opt.init(d->s);
+    opt.initFrom(d->s);
     opt.state = QStyle::State_None;
-    return parentWidget()->style()->sizeFromContents(QStyle::CT_Splitter, &opt, QSize(hw, hw), d->s)
-        .expandedTo(QApplication::globalStrut());
+    return parentWidget()->style()->sizeFromContents(QStyle::CT_Splitter, &opt, QSize(hw, hw), d->s);
 }
 
 /*!
@@ -293,7 +291,7 @@ void QSplitterHandle::mouseMoveEvent(QMouseEvent *e)
     Q_D(QSplitterHandle);
     if (!(e->buttons() & Qt::LeftButton))
         return;
-    int pos = d->pick(parentWidget()->mapFromGlobal(e->globalPos()))
+    int pos = d->pick(parentWidget()->mapFromGlobal(e->globalPosition().toPoint()))
                  - d->mouseOffset;
     if (opaqueResize()) {
         moveSplitter(pos);
@@ -309,7 +307,7 @@ void QSplitterHandle::mousePressEvent(QMouseEvent *e)
 {
     Q_D(QSplitterHandle);
     if (e->button() == Qt::LeftButton) {
-        d->mouseOffset = d->pick(e->pos());
+        d->mouseOffset = d->pick(e->position().toPoint());
         d->pressed = true;
         update();
     }
@@ -322,7 +320,7 @@ void QSplitterHandle::mouseReleaseEvent(QMouseEvent *e)
 {
     Q_D(QSplitterHandle);
     if (!opaqueResize() && e->button() == Qt::LeftButton) {
-        int pos = d->pick(parentWidget()->mapFromGlobal(e->globalPos()))
+        int pos = d->pick(parentWidget()->mapFromGlobal(e->globalPosition().toPoint()))
                      - d->mouseOffset;
         d->s->setRubberBand(-1);
         moveSplitter(pos);
@@ -441,9 +439,9 @@ void QSplitterPrivate::recalc(bool update)
 
             QSize minS = qSmartMinSize(s->widget);
             minl += pick(minS);
-            maxl += pick(s->widget->maximumSize());
+            maxl += pick(qSmartMaxSize(s->widget));
             mint = qMax(mint, trans(minS));
-            int tm = trans(s->widget->maximumSize());
+            int tm = trans(qSmartMaxSize(s->widget));
             if (tm > 0)
                 maxt = qMin(maxt, tm);
         }
@@ -485,7 +483,7 @@ void QSplitterPrivate::doResize()
     Q_Q(QSplitter);
     QRect r = q->contentsRect();
     int n = list.count();
-    QVector<QLayoutStruct> a(n*2);
+    QList<QLayoutStruct> a(n * 2);
     int i;
 
     bool noStretchFactorsSet = true;
@@ -520,7 +518,7 @@ void QSplitterPrivate::doResize()
             a[j].maximumSize = 0;
         } else {
             a[j].minimumSize = pick(qSmartMinSize(s->widget));
-            a[j].maximumSize = pick(s->widget->maximumSize());
+            a[j].maximumSize = pick(qSmartMaxSize(s->widget));
             a[j].empty = false;
 
             bool stretch = noStretchFactorsSet;
@@ -582,7 +580,7 @@ void QSplitterPrivate::addContribution(int index, int *min, int *max, bool mayCo
         if (mayCollapse || !s->collapsed)
             *min += pick(qSmartMinSize(s->widget));
 
-        *max += pick(s->widget->maximumSize());
+        *max += pick(qSmartMaxSize(s->widget));
     }
 }
 
@@ -805,7 +803,7 @@ void QSplitterPrivate::doMove(bool backwards, int hPos, int index, int delta, bo
         int  ws = backwards ? hPos - pick(s->rect.topLeft())
                  : pick(s->rect.bottomRight()) - hPos -hs + 1;
         if (ws > 0 || (!s->collapsed && !mayCollapse)) {
-            ws = qMin(ws, pick(w->maximumSize()));
+            ws = qMin(ws, pick(qSmartMaxSize(w)));
             ws = qMax(ws, pick(qSmartMinSize(w)));
         } else {
             ws = 0;
@@ -1193,8 +1191,6 @@ QWidget *QSplitter::replaceWidget(int index, QWidget *widget)
 }
 
 /*!
-    \fn int QSplitter::indexOf(QWidget *widget) const
-
     Returns the index in the splitter's layout of the specified \a widget,
     or -1 if \a widget is not found. This also works for handles.
 
@@ -1204,12 +1200,12 @@ QWidget *QSplitter::replaceWidget(int index, QWidget *widget)
 
     \sa count(), widget()
 */
-int QSplitter::indexOf(QWidget *w) const
+int QSplitter::indexOf(QWidget *widget) const
 {
     Q_D(const QSplitter);
     for (int i = 0; i < d->list.size(); ++i) {
         QSplitterLayoutStruct *s = d->list.at(i);
-        if (s->widget == w || s->handle == w)
+        if (s->widget == widget || s->handle == widget)
             return i;
     }
     return -1;
@@ -1381,7 +1377,7 @@ bool QSplitter::event(QEvent *e)
 }
 
 /*!
-    \fn QSplitter::splitterMoved(int pos, int index)
+    \fn void QSplitter::splitterMoved(int pos, int index)
 
     This signal is emitted when the splitter handle at a particular \a
     index has been moved to position \a pos.
@@ -1408,10 +1404,10 @@ void QSplitter::moveSplitter(int pos, int index)
 {
     Q_D(QSplitter);
     QSplitterLayoutStruct *s = d->list.at(index);
-    int farMin;
-    int min;
-    int max;
-    int farMax;
+    int farMin = 0;
+    int min = 0;
+    int max = 0;
+    int farMax = 0;
 
 #ifdef QSPLITTER_DEBUG
     int debugp = pos;
@@ -1475,7 +1471,10 @@ void QSplitter::getRange(int index, int *min, int *max) const
 int QSplitter::closestLegalPosition(int pos, int index)
 {
     Q_D(QSplitter);
-    int x, i, n, u;
+    int x = 0;
+    int i = 0;
+    int n = 0;
+    int u = 0;
     return d->adjustPos(pos, index, &u, &n, &i, &x);
 }
 
@@ -1656,7 +1655,7 @@ void QSplitter::setHandleWidth(int width)
 void QSplitter::changeEvent(QEvent *ev)
 {
     Q_D(QSplitter);
-    if(ev->type() == QEvent::StyleChange)
+    if (ev->type() == QEvent::StyleChange)
         d->updateHandles();
     QFrame::changeEvent(ev);
 }
@@ -1780,40 +1779,6 @@ void QSplitter::setStretchFactor(int index, int stretch)
     sp.setVerticalStretch(stretch);
     widget->setSizePolicy(sp);
 }
-
-
-#if QT_DEPRECATED_SINCE(5, 13)
-/*!
-    \relates QSplitter
-    \obsolete
-
-    Use \a ts << \a{splitter}.saveState() instead.
-*/
-
-QTextStream& operator<<(QTextStream& ts, const QSplitter& splitter)
-{
-    ts << splitter.saveState() << Qt::endl;
-    return ts;
-}
-
-/*!
-    \relates QSplitter
-    \obsolete
-
-    Use \a ts >> \a{splitter}.restoreState() instead.
-*/
-
-QTextStream& operator>>(QTextStream& ts, QSplitter& splitter)
-{
-    QString line = ts.readLine();
-    line = line.simplified();
-    line.replace(QLatin1Char(' '), QString());
-    line = std::move(line).toUpper();
-
-    splitter.restoreState(std::move(line).toLatin1());
-    return ts;
-}
-#endif
 
 QT_END_NAMESPACE
 

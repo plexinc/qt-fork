@@ -10,6 +10,7 @@
 
 #include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
+#include "base/notreached.h"
 #include "base/strings/string_number_conversions.h"
 #include "crypto/sha2.h"
 #include "net/base/net_errors.h"
@@ -545,7 +546,7 @@ bool CertPathIter::GetNextPath(ParsedCertificateList* out_certs,
     }
 
     switch (next_issuer_.trust.type) {
-      // If the trust for this issuer is "known" (either becuase it is
+      // If the trust for this issuer is "known" (either because it is
       // distrusted, or because it is trusted) then stop building and return the
       // path.
       case CertificateTrustType::DISTRUSTED:

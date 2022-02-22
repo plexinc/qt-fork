@@ -4,7 +4,7 @@
 
 #include "components/viz/service/frame_sinks/surface_resource_holder.h"
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "components/viz/service/frame_sinks/surface_resource_holder_client.h"
 
 namespace viz {
@@ -14,9 +14,6 @@ SurfaceResourceHolder::SurfaceResourceHolder(
     : client_(client) {}
 
 SurfaceResourceHolder::~SurfaceResourceHolder() = default;
-
-SurfaceResourceHolder::ResourceRefs::ResourceRefs()
-    : refs_received_from_child(0), refs_holding_resource_alive(0) {}
 
 void SurfaceResourceHolder::Reset() {
   resource_id_info_map_.clear();
@@ -34,6 +31,10 @@ void SurfaceResourceHolder::ReceiveFromChild(
 void SurfaceResourceHolder::RefResources(
     const std::vector<TransferableResource>& resources) {
   for (const auto& resource : resources) {
+    // We don't handle reserved resources here.
+    if (resource.id >= kVizReservedRangeStartId)
+      continue;
+
     auto count_it = resource_id_info_map_.find(resource.id);
     DCHECK(count_it != resource_id_info_map_.end());
     count_it->second.refs_holding_resource_alive++;
@@ -45,6 +46,10 @@ void SurfaceResourceHolder::UnrefResources(
   std::vector<ReturnedResource> resources_available_to_return;
 
   for (const auto& resource : resources) {
+    // We don't handle reserved resources here.
+    if (resource.id >= kVizReservedRangeStartId)
+      continue;
+
     auto count_it = resource_id_info_map_.find(resource.id);
     if (count_it == resource_id_info_map_.end())
       continue;

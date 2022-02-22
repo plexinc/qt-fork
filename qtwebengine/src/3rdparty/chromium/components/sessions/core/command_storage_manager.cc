@@ -9,7 +9,6 @@
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/sequenced_task_runner.h"
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/thread.h"
@@ -21,47 +20,46 @@
 namespace sessions {
 namespace {
 
-// Helper used by ScheduleGetLastSessionCommands. It runs callback on TaskRunner
-// thread if it's not canceled.
-void RunIfNotCanceled(
-    const base::CancelableTaskTracker::IsCanceledCallback& is_canceled,
-    CommandStorageManager::GetCommandsCallback callback,
-    std::vector<std::unique_ptr<SessionCommand>> commands) {
-  if (is_canceled.Run())
-    return;
-  std::move(callback).Run(std::move(commands));
-}
-
-void PostOrRunInternalGetCommandsCallback(
-    base::SequencedTaskRunner* task_runner,
-    CommandStorageManager::GetCommandsCallback callback,
-    std::vector<std::unique_ptr<SessionCommand>> commands) {
-  if (task_runner->RunsTasksInCurrentSequence()) {
-    std::move(callback).Run(std::move(commands));
-  } else {
-    task_runner->PostTask(
-        FROM_HERE, base::BindOnce(std::move(callback), std::move(commands)));
-  }
-}
-
-}  // namespace
-
 // Delay between when a command is received, and when we save it to the
 // backend.
 constexpr base::TimeDelta kSaveDelay = base::TimeDelta::FromMilliseconds(2500);
 
-CommandStorageManager::CommandStorageManager(
-    const base::FilePath& path,
-    CommandStorageManagerDelegate* delegate,
-    bool enable_crypto)
-    : CommandStorageManager(base::MakeRefCounted<CommandStorageBackend>(
-                                CreateDefaultBackendTaskRunner(),
-                                path),
-                            delegate) {
-  use_crypto_ = enable_crypto;
+void AdaptGetLastSessionCommands(
+    CommandStorageManager::GetCommandsCallback callback,
+    CommandStorageBackend::ReadCommandsResult result) {
+  std::move(callback).Run(std::move(result.commands), result.error_reading);
 }
 
+}  // namespace
+
+CommandStorageManager::CommandStorageManager(
+    SessionType type,
+    const base::FilePath& path,
+    CommandStorageManagerDelegate* delegate,
+    bool use_marker,
+    bool enable_crypto,
+    const std::vector<uint8_t>& decryption_key,
+    scoped_refptr<base::SequencedTaskRunner> backend_task_runner)
+    : backend_(base::MakeRefCounted<CommandStorageBackend>(
+          backend_task_runner ? backend_task_runner
+                              : CreateDefaultBackendTaskRunner(),
+          path,
+          type,
+          use_marker,
+          decryption_key)),
+      use_crypto_(enable_crypto),
+      pending_reset_(use_marker),
+      delegate_(delegate),
+      backend_task_runner_(backend_->owning_task_runner()) {}
+
 CommandStorageManager::~CommandStorageManager() = default;
+
+// static
+scoped_refptr<base::SequencedTaskRunner>
+CommandStorageManager::CreateDefaultBackendTaskRunner() {
+  return base::ThreadPool::CreateSequencedTaskRunner(
+      {base::MayBlock(), base::TaskShutdownBehavior::BLOCK_SHUTDOWN});
+}
 
 // static
 std::vector<uint8_t> CommandStorageManager::CreateCryptoKey() {
@@ -131,6 +129,8 @@ void CommandStorageManager::StartSaveTimer() {
 }
 
 void CommandStorageManager::Save() {
+  weak_factory_for_timer_.InvalidateWeakPtrs();
+
   // Inform the delegate that we will save the commands now, giving it the
   // opportunity to append more commands.
   delegate_->OnWillSaveCommands();
@@ -143,11 +143,13 @@ void CommandStorageManager::Save() {
     crypto_key = CreateCryptoKey();
     delegate_->OnGeneratedNewCryptoKey(crypto_key);
   }
-  backend_task_runner()->PostNonNestableTask(
+  auto error_callback = base::BindOnce(
+      &CommandStorageManager::OnErrorWritingToFile, weak_factory_.GetWeakPtr());
+  backend_task_runner_->PostNonNestableTask(
       FROM_HERE,
       base::BindOnce(&CommandStorageBackend::AppendCommands, backend_,
-                     std::move(pending_commands_), pending_reset_, crypto_key));
-
+                     std::move(pending_commands_), pending_reset_,
+                     std::move(error_callback), crypto_key));
   if (pending_reset_) {
     commands_since_reset_ = 0;
     pending_reset_ = false;
@@ -158,55 +160,31 @@ bool CommandStorageManager::HasPendingSave() const {
   return weak_factory_for_timer_.HasWeakPtrs();
 }
 
-base::CancelableTaskTracker::TaskId
-CommandStorageManager::ScheduleGetCurrentSessionCommands(
-    GetCommandsCallback callback,
-    const std::vector<uint8_t>& decryption_key,
-    base::CancelableTaskTracker* tracker) {
-  base::CancelableTaskTracker::IsCanceledCallback is_canceled;
-  GetCommandsCallback backend_callback;
-  const base::CancelableTaskTracker::TaskId id = CreateCallbackForGetCommands(
-      tracker, std::move(callback), &is_canceled, &backend_callback);
-
-  backend_task_runner()->PostNonNestableTask(
+void CommandStorageManager::MoveCurrentSessionToLastSession() {
+  Save();
+  backend_task_runner_->PostNonNestableTask(
       FROM_HERE,
-      base::BindOnce(&CommandStorageBackend::ReadCurrentSessionCommands,
-                     backend_.get(), is_canceled, decryption_key,
-                     std::move(backend_callback)));
-  return id;
+      base::BindOnce(&CommandStorageBackend::MoveCurrentSessionToLastSession,
+                     backend()));
 }
 
-CommandStorageManager::CommandStorageManager(
-    scoped_refptr<CommandStorageBackend> backend,
-    CommandStorageManagerDelegate* delegate)
-    : backend_(std::move(backend)),
-      delegate_(delegate),
-      backend_task_runner_(backend_->owning_task_runner()) {}
-
-// static
-scoped_refptr<base::SequencedTaskRunner>
-CommandStorageManager::CreateDefaultBackendTaskRunner() {
-  return base::ThreadPool::CreateSequencedTaskRunner(
-      {base::MayBlock(), base::TaskShutdownBehavior::BLOCK_SHUTDOWN});
+void CommandStorageManager::DeleteLastSession() {
+  backend_task_runner_->PostNonNestableTask(
+      FROM_HERE,
+      base::BindOnce(&CommandStorageBackend::DeleteLastSession, backend()));
 }
 
-base::CancelableTaskTracker::TaskId
-CommandStorageManager::CreateCallbackForGetCommands(
-    base::CancelableTaskTracker* tracker,
-    GetCommandsCallback callback,
-    base::CancelableTaskTracker::IsCanceledCallback* is_canceled,
-    GetCommandsCallback* backend_callback) {
-  const base::CancelableTaskTracker::TaskId id =
-      tracker->NewTrackedTaskId(is_canceled);
+void CommandStorageManager::GetLastSessionCommands(
+    GetCommandsCallback callback) {
+  backend_task_runner_->PostTaskAndReplyWithResult(
+      FROM_HERE,
+      base::BindOnce(&CommandStorageBackend::ReadLastSessionCommands,
+                     backend()),
+      base::BindOnce(&AdaptGetLastSessionCommands, std::move(callback)));
+}
 
-  GetCommandsCallback run_if_not_canceled =
-      base::BindOnce(&RunIfNotCanceled, *is_canceled, std::move(callback));
-
-  *backend_callback =
-      base::BindOnce(&PostOrRunInternalGetCommandsCallback,
-                     base::RetainedRef(base::ThreadTaskRunnerHandle::Get()),
-                     std::move(run_if_not_canceled));
-  return id;
+void CommandStorageManager::OnErrorWritingToFile() {
+  delegate_->OnErrorWritingSessionCommands();
 }
 
 }  // namespace sessions

@@ -42,7 +42,7 @@ export class FormatterInterface {}
  * @param {!Common.ResourceType.ResourceType} contentType
  * @param {string} mimeType
  * @param {string} content
- * @param {function(string, !FormatterSourceMapping)} callback
+ * @param {function(string, !FormatterSourceMapping):!Promise<void>} callback
  */
 FormatterInterface.format = function(contentType, mimeType, content, callback) {
   if (contentType.isDocumentOrScriptOrStyleSheet()) {
@@ -68,7 +68,8 @@ FormatterInterface.locationToPosition = function(lineEndings, lineNumber, column
  * @return {!Array<number>}
  */
 FormatterInterface.positionToLocation = function(lineEndings, position) {
-  const lineNumber = lineEndings.upperBound(position - 1);
+  const lineNumber =
+      Platform.ArrayUtilities.upperBound(lineEndings, position - 1, Platform.ArrayUtilities.DEFAULT_COMPARATOR);
   let columnNumber;
   if (!lineNumber) {
     columnNumber = position;
@@ -80,22 +81,31 @@ FormatterInterface.positionToLocation = function(lineEndings, position) {
 
 /**
  * @implements {FormatterInterface}
- * @unrestricted
  */
 export class ScriptFormatter {
   /**
    * @param {string} mimeType
    * @param {string} content
-   * @param {function(string, !FormatterSourceMapping)} callback
+   * @param {function(string, !FormatterSourceMapping):!Promise<void>} callback
    */
   constructor(mimeType, content, callback) {
-    content = content.replace(/\r\n?|[\n\u2028\u2029]/g, '\n').replace(/^\uFEFF/, '');
+    this._mimeType = mimeType;
+    this._originalContent = content.replace(/\r\n?|[\n\u2028\u2029]/g, '\n').replace(/^\uFEFF/, '');
     this._callback = callback;
-    this._originalContent = content;
 
-    formatterWorkerPool()
-        .format(mimeType, content, Common.Settings.Settings.instance().moduleSetting('textEditorIndent').get())
-        .then(this._didFormatContent.bind(this));
+    this._initialize();
+  }
+
+  async _initialize() {
+    const pool = formatterWorkerPool();
+    const indent = Common.Settings.Settings.instance().moduleSetting('textEditorIndent').get();
+
+    const formatResult = await pool.format(this._mimeType, this._originalContent, indent);
+    if (!formatResult) {
+      this._callback(this._originalContent, new IdentityFormatterSourceMapping());
+    } else {
+      this._didFormatContent(formatResult);
+    }
   }
 
   /**
@@ -113,13 +123,12 @@ export class ScriptFormatter {
 
 /**
  * @implements {FormatterInterface}
- * @unrestricted
  */
 class ScriptIdentityFormatter {
   /**
    * @param {string} mimeType
    * @param {string} content
-   * @param {function(string, !FormatterSourceMapping)} callback
+   * @param {function(string, !FormatterSourceMapping):!Promise<void>} callback
    */
   constructor(mimeType, content, callback) {
     callback(content, new IdentityFormatterSourceMapping());
@@ -136,6 +145,7 @@ export class FormatterSourceMapping {
    * @return {!Array.<number>}
    */
   originalToFormatted(lineNumber, columnNumber) {
+    throw new Error('Not implemented yet.');
   }
 
   /**
@@ -143,12 +153,13 @@ export class FormatterSourceMapping {
    * @param {number=} columnNumber
    * @return {!Array.<number>}
    */
-  formattedToOriginal(lineNumber, columnNumber) {}
+  formattedToOriginal(lineNumber, columnNumber) {
+    throw new Error('Not implemented yet.');
+  }
 }
 
 /**
  * @implements {FormatterSourceMapping}
- * @unrestricted
  */
 class IdentityFormatterSourceMapping {
   /**
@@ -174,7 +185,6 @@ class IdentityFormatterSourceMapping {
 
 /**
  * @implements {FormatterSourceMapping}
- * @unrestricted
  */
 class FormatterSourceMappingImpl {
   /**
@@ -222,7 +232,8 @@ class FormatterSourceMappingImpl {
    * @return {number}
    */
   _convertPosition(positions1, positions2, position) {
-    const index = positions1.upperBound(position) - 1;
+    const index =
+        Platform.ArrayUtilities.upperBound(positions1, position, Platform.ArrayUtilities.DEFAULT_COMPARATOR) - 1;
     let convertedPosition = positions2[index] + position - positions1[index];
     if (index < positions2.length - 1 && convertedPosition > positions2[index + 1]) {
       convertedPosition = positions2[index + 1];

@@ -23,7 +23,7 @@
 #include "core/fxcodec/scanlinedecoder.h"
 #include "core/fxcrt/fx_extension.h"
 #include "core/fxcrt/fx_safe_types.h"
-#include "third_party/base/numerics/safe_math.h"
+#include "third_party/base/check.h"
 #include "third_party/base/stl_util.h"
 
 namespace {
@@ -42,7 +42,7 @@ bool CheckFlateDecodeParams(int Colors, int BitsPerComponent, int Columns) {
   if (Colors < 0 || BitsPerComponent < 0 || Columns < 0)
     return false;
 
-  pdfium::base::CheckedNumeric<int> check = Columns;
+  FX_SAFE_INT32 check = Columns;
   check *= Colors;
   check *= BitsPerComponent;
   if (!check.IsValid())
@@ -106,7 +106,7 @@ bool ValidateDecoderPipeline(const CPDF_Array* pDecoders) {
       "FlateDecode",    "Fl",  "LZWDecode",       "LZW", "ASCII85Decode", "A85",
       "ASCIIHexDecode", "AHx", "RunLengthDecode", "RL"};
   for (size_t i = 0; i < count - 1; ++i) {
-    if (!pdfium::ContainsValue(kValidDecoders, pDecoders->GetStringAt(i)))
+    if (!pdfium::Contains(kValidDecoders, pDecoders->GetStringAt(i)))
       return false;
   }
   return true;
@@ -388,7 +388,7 @@ Optional<DecoderArray> GetDecoderArray(const CPDF_Dictionary* pDict) {
            pParamsArray ? pParamsArray->GetDictAt(i) : nullptr});
     }
   } else {
-    ASSERT(pFilter->IsName());
+    DCHECK(pFilter->IsName());
     decoder_array.push_back(
         {pFilter->GetString(), pParams ? pParams->GetDict() : nullptr});
   }

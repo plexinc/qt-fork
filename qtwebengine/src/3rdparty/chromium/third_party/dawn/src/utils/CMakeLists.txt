@@ -22,25 +22,37 @@ target_sources(dawn_utils PRIVATE
     "ComboRenderPipelineDescriptor.h"
     "GLFWUtils.cpp"
     "GLFWUtils.h"
+    "PlatformDebugLogger.h"
     "SystemUtils.cpp"
     "SystemUtils.h"
     "TerribleCommandBuffer.cpp"
     "TerribleCommandBuffer.h"
+    "TestUtils.cpp"
+    "TestUtils.h"
     "TextureFormatUtils.cpp"
     "TextureFormatUtils.h"
     "Timer.h"
     "WGPUHelpers.cpp"
     "WGPUHelpers.h"
+    "WireHelper.cpp"
+    "WireHelper.h"
 )
 target_link_libraries(dawn_utils
     PUBLIC dawncpp_headers
     PRIVATE dawn_internal_config
             dawn_common
             dawn_native
+            dawn_proc
             dawn_wire
             shaderc
             glfw
 )
+
+if(WIN32)
+    target_sources(dawn_utils PRIVATE "WindowsDebugLogger.cpp")
+else()
+    target_sources(dawn_utils PRIVATE "EmptyDebugLogger.cpp")
+endif()
 
 if(WIN32)
     target_sources(dawn_utils PRIVATE "WindowsTimer.cpp")

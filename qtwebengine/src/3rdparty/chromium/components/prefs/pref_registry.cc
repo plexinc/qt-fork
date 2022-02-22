@@ -6,8 +6,8 @@
 
 #include <utility>
 
-#include "base/logging.h"
-#include "base/stl_util.h"
+#include "base/check_op.h"
+#include "base/containers/contains.h"
 #include "base/values.h"
 #include "components/prefs/default_pref_store.h"
 #include "components/prefs/pref_store.h"

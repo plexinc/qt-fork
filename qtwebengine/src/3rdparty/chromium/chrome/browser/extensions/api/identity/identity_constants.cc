@@ -13,6 +13,7 @@ const char kAuthFailure[] = "OAuth2 request failed: ";
 const char kNoGrant[] = "OAuth2 not granted or revoked.";
 const char kUserRejected[] = "The user did not approve access.";
 const char kUserNotSignedIn[] = "The user is not signed in.";
+const char kUserNonPrimary[] = "Only the primary user account is allowed";
 const char kBrowserSigninNotAllowed[] = "The user turned off browser signin";
 const char kInteractionRequired[] = "User interaction required.";
 const char kInvalidRedirect[] = "Did not redirect to the right URL.";
@@ -22,7 +23,7 @@ const char kSetAccountsInCookieFailure[] = "Account cookies could not be set.";
 const char kInvalidConsentResult[] = "Returned an invalid consent result.";
 const char kCanceled[] = "canceled";
 
-const int kCachedIssueAdviceTTLSeconds = 1;
+const int kCachedRemoteConsentTTLSeconds = 1;
 }  // namespace identity_constants
 
 }  // namespace extensions

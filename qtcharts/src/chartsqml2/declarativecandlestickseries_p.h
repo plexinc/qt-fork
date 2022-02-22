@@ -39,21 +39,24 @@
 #ifndef DECLARATIVECANDLESTICKSERIES_H
 #define DECLARATIVECANDLESTICKSERIES_H
 
+#include <QtQml/qqmlregistration.h>
 #include <QtCharts/QCandlestickSeries>
+#include <QtCharts/qabstractaxis.h>
 #include <QtCharts/QCandlestickSet>
 #include <QtQml/QQmlParserStatus>
 #include <QtQuick/QQuickItem>
 #include <private/declarativechartglobal_p.h>
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class DeclarativeAxes;
-class QAbstractAxis;
 
 class Q_QMLCHARTS_PRIVATE_EXPORT DeclarativeCandlestickSet : public QCandlestickSet
 {
     Q_OBJECT
     Q_PROPERTY(QString brushFilename READ brushFilename WRITE setBrushFilename NOTIFY brushFilenameChanged)
+    QML_NAMED_ELEMENT(CandlestickSet)
+    QML_ADDED_IN_VERSION(2, 2)
 
 public:
     explicit DeclarativeCandlestickSet(qreal timestamp = 0.0, QObject *parent = nullptr);
@@ -75,13 +78,15 @@ class DeclarativeCandlestickSeries : public QCandlestickSeries, public QQmlParse
 {
     Q_OBJECT
     Q_INTERFACES(QQmlParserStatus)
-    Q_PROPERTY(QtCharts::QAbstractAxis *axisX READ axisX WRITE setAxisX NOTIFY axisXChanged)
-    Q_PROPERTY(QtCharts::QAbstractAxis *axisY READ axisY WRITE setAxisY NOTIFY axisYChanged)
-    Q_PROPERTY(QtCharts::QAbstractAxis *axisXTop READ axisXTop WRITE setAxisXTop NOTIFY axisXTopChanged)
-    Q_PROPERTY(QtCharts::QAbstractAxis *axisYRight READ axisYRight WRITE setAxisYRight NOTIFY axisYRightChanged)
+    Q_PROPERTY(QAbstractAxis *axisX READ axisX WRITE setAxisX NOTIFY axisXChanged)
+    Q_PROPERTY(QAbstractAxis *axisY READ axisY WRITE setAxisY NOTIFY axisYChanged)
+    Q_PROPERTY(QAbstractAxis *axisXTop READ axisXTop WRITE setAxisXTop NOTIFY axisXTopChanged)
+    Q_PROPERTY(QAbstractAxis *axisYRight READ axisYRight WRITE setAxisYRight NOTIFY axisYRightChanged)
     Q_PROPERTY(QQmlListProperty<QObject> seriesChildren READ seriesChildren)
     Q_PROPERTY(QString brushFilename READ brushFilename WRITE setBrushFilename NOTIFY brushFilenameChanged)
     Q_CLASSINFO("DefaultProperty", "seriesChildren")
+    QML_NAMED_ELEMENT(CandlestickSeries)
+    QML_ADDED_IN_VERSION(2, 2)
 
 public:
     explicit DeclarativeCandlestickSeries(QQuickItem *parent = nullptr);
@@ -107,8 +112,8 @@ public:
     Q_INVOKABLE void clear();
 
 public: // from QDeclarativeParserStatus
-    void classBegin();
-    void componentComplete();
+    void classBegin() override;
+    void componentComplete() override;
 
 Q_SIGNALS:
     void axisXChanged(QAbstractAxis *axis);
@@ -141,6 +146,6 @@ private:
     QImage m_brushImage;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // DECLARATIVECANDLESTICKSERIES_H

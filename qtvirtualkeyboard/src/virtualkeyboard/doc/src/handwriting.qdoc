@@ -45,66 +45,27 @@ For instructions on how to activate and use the handwriting input mode, see the
 For information about building Qt Virtual Keyboard with a particular
 handwriting engine, see \l {Configuration Options}.
 
-\section1 Lipi Toolkit
+\section1 Cerence Handwriting
 
-\l {http://lipitk.sourceforge.net/lipi-toolkit.htm}{Lipi Toolkit} is an
-open source handwriting recognition engine.
-
-Lipi Toolkit only supports handwriting written in the English language.
-
-\section1 T9 Write
-
-\l {https://www.nuance.com/mobile/mobile-solutions/text-input-solutions/t9-write.html}{T9 Write}
+\l {https://cerence.com}{Cerence Handwriting}
 is a commercial handwriting recognition engine.
 
-T9 Write supports handwriting written in the following languages:
+Cerence Handwriting works with all languages supported by the virtual keyboard.
 
-\table
-\row
-\li \list
-  \li Arabic
-  \li Bulgarian
-  \li Croatian
-  \li Czech
-  \li Danish
-  \li Dutch
-  \li English
-\endlist
-\li \list
-  \li Estonian
-  \li Finnish
-  \li French
-  \li German
-  \li Greek
-  \li Hebrew
-  \li Hungarian
-\endlist
-\li \list
-  \li Italian
-  \li Japanese
-  \li Korean
-  \li Norwegian
-  \li Persian/Farsi
-  \li Polish
-  \li Portugese
-\endlist
-\li \list
-  \li Romanian
-  \li Russian
-  \li Serbian
-  \li Simplified Chinese
-  \li Spanish
-  \li Swedish
-  \li Traditional Chinese
-\endlist
-\endtable
+  \list
+    \li \l {Qt Virtual Keyboard#Supported Languages}{Supported Languages}
+  \endlist
+
+\b {See also}: \l {Cerence Handwriting Integration}
+
+\b {See also}: \l {Cerence XT9 Advanced Input}
 
 \section1 MyScript
 
 \l {https://www.myscript.com}{MyScript}
 SDK is a commercial handwriting recognition engine.
 
-MyScript SDK supports 71 handwriting recognition languages:
+MyScript SDK supports 72 handwriting recognition languages:
 
 \table
 \row
@@ -126,12 +87,13 @@ MyScript SDK supports 71 handwriting recognition languages:
   \li Croatian
   \li Czech
   \li Danish
+  \li Dutch, Flemish
 \endlist
 \li \list
-  \li Dutch, Flemish
   \li Dutch
   \li English - Canada
   \li English - Philippines
+  \li English - South Africa
   \li English - United Kingdom
   \li English - United States
   \li Estonian

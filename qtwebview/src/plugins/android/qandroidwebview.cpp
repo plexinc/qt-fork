@@ -38,7 +38,7 @@
 #include <private/qwebview_p.h>
 #include <private/qwebviewloadrequest_p.h>
 #include <QtCore/private/qjnihelpers_p.h>
-#include <QtCore/private/qjni_p.h>
+#include <QtCore/qjniobject.h>
 
 #include <QtCore/qmap.h>
 #include <android/bitmap.h>
@@ -50,7 +50,7 @@
 
 QT_BEGIN_NAMESPACE
 
-static const char qtAndroidWebViewControllerClass[] = "org/qtproject/qt5/android/view/QtAndroidWebViewController";
+static const char qtAndroidWebViewControllerClass[] = "org/qtproject/qt/android/view/QtAndroidWebViewController";
 
 //static bool favIcon(JNIEnv *env, jobject icon, QImage *image)
 //{
@@ -78,10 +78,10 @@ QAndroidWebViewPrivate::QAndroidWebViewPrivate(QObject *p)
     , m_callbackId(0)
     , m_window(0)
 {
-    m_viewController = QJNIObjectPrivate(qtAndroidWebViewControllerClass,
-                                         "(Landroid/app/Activity;J)V",
-                                         QtAndroidPrivate::activity(),
-                                         m_id);
+    m_viewController = QJniObject(qtAndroidWebViewControllerClass,
+                                  "(Landroid/app/Activity;J)V",
+                                  QtAndroidPrivate::activity(),
+                                  m_id);
     m_webView = m_viewController.callObjectMethod("getWebView",
                                                   "()Landroid/webkit/WebView;");
 
@@ -112,7 +112,7 @@ void QAndroidWebViewPrivate::setHttpUserAgent(const QString &userAgent)
 {
     m_viewController.callMethod<void>("setUserAgent",
                                       "(Ljava/lang/String;)V",
-                                      QJNIObjectPrivate::fromString(userAgent).object());
+                                      QJniObject::fromString(userAgent).object());
     Q_EMIT httpUserAgentChanged(userAgent);
 }
 
@@ -125,13 +125,13 @@ void QAndroidWebViewPrivate::setUrl(const QUrl &url)
 {
     m_viewController.callMethod<void>("loadUrl",
                                       "(Ljava/lang/String;)V",
-                                      QJNIObjectPrivate::fromString(url.toString()).object());
+                                      QJniObject::fromString(url.toString()).object());
 }
 
 void QAndroidWebViewPrivate::loadHtml(const QString &html, const QUrl &baseUrl)
 {
-    const QJNIObjectPrivate &htmlString = QJNIObjectPrivate::fromString(html);
-    const QJNIObjectPrivate &mimeTypeString = QJNIObjectPrivate::fromString(QLatin1String("text/html;charset=UTF-8"));
+    const QJniObject &htmlString = QJniObject::fromString(html);
+    const QJniObject &mimeTypeString = QJniObject::fromString(QLatin1String("text/html;charset=UTF-8"));
 
     baseUrl.isEmpty() ? m_viewController.callMethod<void>("loadData",
                                                           "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
@@ -141,7 +141,7 @@ void QAndroidWebViewPrivate::loadHtml(const QString &html, const QUrl &baseUrl)
 
                       : m_viewController.callMethod<void>("loadDataWithBaseURL",
                                                           "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
-                                                          QJNIObjectPrivate::fromString(baseUrl.toString()).object(),
+                                                          QJniObject::fromString(baseUrl.toString()).object(),
                                                           htmlString.object(),
                                                           mimeTypeString.object(),
                                                           0,
@@ -205,7 +205,7 @@ void QAndroidWebViewPrivate::runJavaScriptPrivate(const QString &script,
 
     m_viewController.callMethod<void>("runJavaScript",
                                       "(Ljava/lang/String;J)V",
-                                      static_cast<jstring>(QJNIObjectPrivate::fromString(script).object()),
+                                      static_cast<jstring>(QJniObject::fromString(script).object()),
                                       callbackId);
 }
 
@@ -263,15 +263,15 @@ static void c_onRunJavaScriptResult(JNIEnv *env,
                                     jlong callbackId,
                                     jstring result)
 {
-    Q_UNUSED(env)
-    Q_UNUSED(thiz)
+    Q_UNUSED(env);
+    Q_UNUSED(thiz);
 
     const WebViews &wv = (*g_webViews);
     QAndroidWebViewPrivate *wc = static_cast<QAndroidWebViewPrivate *>(wv[id]);
     if (!wc)
         return;
 
-    const QString &resultString = QJNIObjectPrivate(result).toString();
+    const QString &resultString = QJniObject(result).toString();
 
     // The result string is in JSON format, lets parse it to see what we got.
     QJsonValue jsonValue;
@@ -293,14 +293,14 @@ static void c_onPageFinished(JNIEnv *env,
                              jlong id,
                              jstring url)
 {
-    Q_UNUSED(env)
-    Q_UNUSED(thiz)
+    Q_UNUSED(env);
+    Q_UNUSED(thiz);
     const WebViews &wv = (*g_webViews);
     QAndroidWebViewPrivate *wc = wv[id];
     if (!wc)
         return;
 
-    QWebViewLoadRequestPrivate loadRequest(QUrl(QJNIObjectPrivate(url).toString()),
+    QWebViewLoadRequestPrivate loadRequest(QUrl(QJniObject(url).toString()),
                                            QWebView::LoadSucceededStatus,
                                            QString());
     Q_EMIT wc->loadingChanged(loadRequest);
@@ -312,14 +312,14 @@ static void c_onPageStarted(JNIEnv *env,
                             jstring url,
                             jobject icon)
 {
-    Q_UNUSED(env)
-    Q_UNUSED(thiz)
-    Q_UNUSED(icon)
+    Q_UNUSED(env);
+    Q_UNUSED(thiz);
+    Q_UNUSED(icon);
     const WebViews &wv = (*g_webViews);
     QAndroidWebViewPrivate *wc = wv[id];
     if (!wc)
         return;
-    QWebViewLoadRequestPrivate loadRequest(QUrl(QJNIObjectPrivate(url).toString()),
+    QWebViewLoadRequestPrivate loadRequest(QUrl(QJniObject(url).toString()),
                                            QWebView::LoadStartedStatus,
                                            QString());
     Q_EMIT wc->loadingChanged(loadRequest);
@@ -337,8 +337,8 @@ static void c_onProgressChanged(JNIEnv *env,
                                 jlong id,
                                 jint newProgress)
 {
-    Q_UNUSED(env)
-    Q_UNUSED(thiz)
+    Q_UNUSED(env);
+    Q_UNUSED(thiz);
     const WebViews &wv = (*g_webViews);
     QAndroidWebViewPrivate *wc = wv[id];
     if (!wc)
@@ -352,10 +352,10 @@ static void c_onReceivedIcon(JNIEnv *env,
                              jlong id,
                              jobject icon)
 {
-    Q_UNUSED(env)
-    Q_UNUSED(thiz)
-    Q_UNUSED(id)
-    Q_UNUSED(icon)
+    Q_UNUSED(env);
+    Q_UNUSED(thiz);
+    Q_UNUSED(id);
+    Q_UNUSED(icon);
 
     const WebViews &wv = (*g_webViews);
     QAndroidWebViewPrivate *wc = wv[id];
@@ -375,14 +375,14 @@ static void c_onReceivedTitle(JNIEnv *env,
                               jlong id,
                               jstring title)
 {
-    Q_UNUSED(env)
-    Q_UNUSED(thiz)
+    Q_UNUSED(env);
+    Q_UNUSED(thiz);
     const WebViews &wv = (*g_webViews);
     QAndroidWebViewPrivate *wc = wv[id];
     if (!wc)
         return;
 
-    const QString &qTitle = QJNIObjectPrivate(title).toString();
+    const QString &qTitle = QJniObject(title).toString();
     Q_EMIT wc->titleChanged(qTitle);
 }
 
@@ -393,17 +393,17 @@ static void c_onReceivedError(JNIEnv *env,
                               jstring description,
                               jstring url)
 {
-    Q_UNUSED(env)
-    Q_UNUSED(thiz)
-    Q_UNUSED(errorCode)
+    Q_UNUSED(env);
+    Q_UNUSED(thiz);
+    Q_UNUSED(errorCode);
 
     const WebViews &wv = (*g_webViews);
     QAndroidWebViewPrivate *wc = wv[id];
     if (!wc)
         return;
-    QWebViewLoadRequestPrivate loadRequest(QUrl(QJNIObjectPrivate(url).toString()),
+    QWebViewLoadRequestPrivate loadRequest(QUrl(QJniObject(url).toString()),
                                            QWebView::LoadFailedStatus,
-                                           QJNIObjectPrivate(description).toString());
+                                           QJniObject(description).toString());
     Q_EMIT wc->loadingChanged(loadRequest);
 }
 
@@ -426,8 +426,7 @@ JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* /*reserved*/)
         return JNI_ERR;
 
     JNIEnv *env = uenv.nativeEnvironment;
-
-    jclass clazz = QJNIEnvironmentPrivate::findClass(qtAndroidWebViewControllerClass, env);
+    jclass clazz = QtAndroidPrivate::findClass(qtAndroidWebViewControllerClass, env);
     if (!clazz)
         return JNI_ERR;
 

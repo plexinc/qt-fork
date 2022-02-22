@@ -71,15 +71,9 @@ Item {
                     id: mask
                     objectName: "shaderEffect"
                     property variant source
-                    property variant mask: rect
+                    property variant maskSource: rect
 
-                    fragmentShader: "
-                        uniform lowp sampler2D source;
-                        uniform lowp sampler2D mask;
-                        varying highp vec2 qt_TexCoord0;
-                        void main() {
-                            gl_FragColor = texture2D(source, qt_TexCoord0) * texture2D(mask, qt_TexCoord0).a;
-                        }"
+                    fragmentShader: "opacity-mask.frag.qsb"
                 }
             }
 

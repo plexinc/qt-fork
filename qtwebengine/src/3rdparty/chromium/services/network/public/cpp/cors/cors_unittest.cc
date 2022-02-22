@@ -6,6 +6,7 @@
 
 #include <limits.h>
 
+#include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 #include "url/origin.h"
@@ -391,6 +392,8 @@ TEST_F(CorsTest, SafelistedSecCHLang) {
 TEST_F(CorsTest, SafelistedSecCHUA) {
   EXPECT_TRUE(IsCorsSafelistedHeader("Sec-CH-UA", "\"User Agent!\""));
   EXPECT_TRUE(IsCorsSafelistedHeader("Sec-CH-UA-Platform", "\"Platform!\""));
+  EXPECT_TRUE(IsCorsSafelistedHeader("Sec-CH-UA-Platform-Version",
+                                     "\"Platform-Version!\""));
   EXPECT_TRUE(IsCorsSafelistedHeader("Sec-CH-UA-Arch", "\"Architecture!\""));
   EXPECT_TRUE(IsCorsSafelistedHeader("Sec-CH-UA-Model", "\"Model!\""));
 

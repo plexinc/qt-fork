@@ -38,11 +38,14 @@
 ****************************************************************************/
 
 #include "qlibinputtouch_p.h"
-#include "qtouchoutputmapping_p.h"
+#include "qoutputmapping_p.h"
 #include <libinput.h>
 #include <QtGui/QGuiApplication>
+#include <QtGui/QPointingDevice>
 #include <QtGui/QScreen>
+#include <QtGui/QPointingDevice>
 #include <QtGui/private/qhighdpiscaling_p.h>
+#include <QtGui/private/qpointingdevice_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -65,9 +68,8 @@ QLibInputTouch::DeviceState *QLibInputTouch::deviceState(libinput_event_touch *e
     return &m_devState[dev];
 }
 
-QPointF QLibInputTouch::getPos(libinput_event_touch *e)
+QRect QLibInputTouch::screenGeometry(DeviceState *state)
 {
-    DeviceState *state = deviceState(e);
     QScreen *screen = QGuiApplication::primaryScreen();
     if (!state->m_screenName.isEmpty()) {
         if (!m_screen) {
@@ -82,7 +84,13 @@ QPointF QLibInputTouch::getPos(libinput_event_touch *e)
         if (m_screen)
             screen = m_screen;
     }
-    const QRect geom = QHighDpi::toNativePixels(screen->geometry(), screen);
+    return screen ? QHighDpi::toNativePixels(screen->geometry(), screen) : QRect();
+}
+
+QPointF QLibInputTouch::getPos(libinput_event_touch *e)
+{
+    DeviceState *state = deviceState(e);
+    QRect geom = screenGeometry(state);
     const double x = libinput_event_touch_get_x_transformed(e, geom.width());
     const double y = libinput_event_touch_get_y_transformed(e, geom.height());
     return geom.topLeft() + QPointF(x, y);
@@ -98,26 +106,33 @@ void QLibInputTouch::registerDevice(libinput_device *dev)
     qCDebug(qLcLibInput, "libinput: registerDevice %s - %s",
             qPrintable(devNode), qPrintable(devName));
 
-    QTouchOutputMapping mapping;
-    if (mapping.load()) {
-        m_devState[dev].m_screenName = mapping.screenNameForDeviceNode(devNode);
-        if (!m_devState[dev].m_screenName.isEmpty())
-            qCDebug(qLcLibInput, "libinput: Mapping device %s to screen %s",
-                    qPrintable(devNode), qPrintable(m_devState[dev].m_screenName));
+    QOutputMapping *mapping = QOutputMapping::get();
+    QRect geom;
+    if (mapping->load()) {
+        m_devState[dev].m_screenName = mapping->screenNameForDeviceNode(devNode);
+        if (!m_devState[dev].m_screenName.isEmpty()) {
+            geom = screenGeometry(&m_devState[dev]);
+            qCDebug(qLcLibInput) << "libinput: Mapping device" << devNode
+                                 << "to screen" << m_devState[dev].m_screenName
+                                 << "with geometry" << geom;
+        }
     }
 
-    QTouchDevice *&td = m_devState[dev].m_touchDevice;
-    td = new QTouchDevice;
-    td->setName(devName);
-    td->setType(QTouchDevice::TouchScreen);
-    td->setCapabilities(QTouchDevice::Position | QTouchDevice::Area);
-    QWindowSystemInterface::registerTouchDevice(td);
+    QPointingDevice *&td = m_devState[dev].m_touchDevice;
+    td = new QPointingDevice(devName, udev_device_get_devnum(udev_device),
+                             QInputDevice::DeviceType::TouchScreen, QPointingDevice::PointerType::Finger,
+                             QPointingDevice::Capability::Position | QPointingDevice::Capability::Area, 16, 0);
+    auto devPriv = QPointingDevicePrivate::get(td);
+    devPriv->busId = QString::fromLocal8Bit(udev_device_get_syspath(udev_device)); // TODO is that the best to choose?
+    if (!geom.isNull())
+        devPriv->setAvailableVirtualGeometry(geom);
+    QWindowSystemInterface::registerInputDevice(td);
 }
 
 void QLibInputTouch::unregisterDevice(libinput_device *dev)
 {
     Q_UNUSED(dev);
-    // There is no way to remove a QTouchDevice.
+    // There is no way to remove a QPointingDevice.
 }
 
 void QLibInputTouch::processTouchDown(libinput_event_touch *e)
@@ -130,7 +145,7 @@ void QLibInputTouch::processTouchDown(libinput_event_touch *e)
     } else {
         QWindowSystemInterface::TouchPoint newTp;
         newTp.id = qMax(0, slot);
-        newTp.state = Qt::TouchPointPressed;
+        newTp.state = QEventPoint::State::Pressed;
         newTp.area = QRect(0, 0, 8, 8);
         newTp.area.moveCenter(getPos(e));
         state->m_points.append(newTp);
@@ -143,15 +158,15 @@ void QLibInputTouch::processTouchMotion(libinput_event_touch *e)
     DeviceState *state = deviceState(e);
     QWindowSystemInterface::TouchPoint *tp = state->point(slot);
     if (tp) {
-        Qt::TouchPointState tmpState = Qt::TouchPointMoved;
+        QEventPoint::State tmpState = QEventPoint::State::Updated;
         const QPointF p = getPos(e);
         if (tp->area.center() == p)
-            tmpState = Qt::TouchPointStationary;
+            tmpState = QEventPoint::State::Stationary;
         else
             tp->area.moveCenter(p);
         // 'down' may be followed by 'motion' within the same "frame".
         // Handle this by compressing and keeping the Pressed state until the 'frame'.
-        if (tp->state != Qt::TouchPointPressed && tp->state != Qt::TouchPointReleased)
+        if (tp->state != QEventPoint::State::Pressed && tp->state != QEventPoint::State::Released)
             tp->state = tmpState;
     } else {
         qWarning("Inconsistent touch state (got 'motion' without 'down')");
@@ -164,12 +179,12 @@ void QLibInputTouch::processTouchUp(libinput_event_touch *e)
     DeviceState *state = deviceState(e);
     QWindowSystemInterface::TouchPoint *tp = state->point(slot);
     if (tp) {
-        tp->state = Qt::TouchPointReleased;
+        tp->state = QEventPoint::State::Released;
         // There may not be a Frame event after the last Up. Work this around.
-        Qt::TouchPointStates s;
+        QEventPoint::States s;
         for (int i = 0; i < state->m_points.count(); ++i)
             s |= state->m_points.at(i).state;
-        if (s == Qt::TouchPointReleased)
+        if (s == QEventPoint::State::Released)
             processTouchFrame(e);
     } else {
         qWarning("Inconsistent touch state (got 'up' without 'down')");
@@ -200,10 +215,10 @@ void QLibInputTouch::processTouchFrame(libinput_event_touch *e)
 
     for (int i = 0; i < state->m_points.count(); ++i) {
         QWindowSystemInterface::TouchPoint &tp(state->m_points[i]);
-        if (tp.state == Qt::TouchPointReleased)
+        if (tp.state == QEventPoint::State::Released)
             state->m_points.removeAt(i--);
-        else if (tp.state == Qt::TouchPointPressed)
-            tp.state = Qt::TouchPointStationary;
+        else if (tp.state == QEventPoint::State::Pressed)
+            tp.state = QEventPoint::State::Stationary;
     }
 }
 

@@ -17,22 +17,24 @@
 
 #include "dawn_native/Sampler.h"
 
+#include "common/NSRef.h"
+
 #import <Metal/Metal.h>
 
 namespace dawn_native { namespace metal {
 
     class Device;
 
-    class Sampler : public SamplerBase {
+    class Sampler final : public SamplerBase {
       public:
         static ResultOrError<Sampler*> Create(Device* device, const SamplerDescriptor* descriptor);
-        ~Sampler();
 
         id<MTLSamplerState> GetMTLSamplerState();
 
       private:
         Sampler(Device* device, const SamplerDescriptor* descriptor);
-        id<MTLSamplerState> mMtlSamplerState = nil;
+
+        NSPRef<id<MTLSamplerState>> mMtlSamplerState;
     };
 
 }}  // namespace dawn_native::metal

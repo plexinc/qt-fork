@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2018 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtWidgets module of the Qt Toolkit.
@@ -107,11 +107,10 @@ public:
         if (keyboardTracking)
             return maximum.toDateTime();
         if (spec != Qt::LocalTime)
-            return QDateTime(QDATETIMEEDIT_DATE_MIN.startOfDay(spec));
+            return QDateTime(QDATETIMEEDIT_DATE_MAX.endOfDay(spec));
         return QDateTimeParser::getMaximum();
     }
     QLocale locale() const override { return q_func()->locale(); }
-    QString getAmPmText(AmPm ap, Case cs) const override;
     int cursorPosition() const override { return edit ? edit->cursorPosition() : -1; }
 
     int absoluteIndex(QDateTimeEdit::Section s, int index) const;
@@ -124,6 +123,7 @@ public:
 
     void updateCache(const QVariant &val, const QString &str) const;
 
+    QDateTime convertTimeSpec(const QDateTime &datetime);
     void updateTimeSpec();
     QString valueToText(const QVariant &var) const { return textFromValue(var); }
 
@@ -140,17 +140,17 @@ public:
     void initCalendarPopup(QCalendarWidget *cw = nullptr);
     void positionCalendarPopup();
 
-    QDateTimeEdit::Sections sections;
-    mutable bool cacheGuard;
+    QDateTimeEdit::Sections sections = {};
+    mutable bool cacheGuard = false;
 
     QString defaultDateFormat, defaultTimeFormat, defaultDateTimeFormat, unreversedFormat;
     mutable QVariant conflictGuard;
-    bool hasHadFocus, formatExplicitlySet, calendarPopup;
-    QStyle::StateFlag arrowState;
-    QCalendarPopup *monthCalendar;
+    bool hasHadFocus = false, formatExplicitlySet = false, calendarPopup = false;
+    QStyle::StateFlag arrowState = QStyle::State_None;
+    QCalendarPopup *monthCalendar = nullptr;
 
 #ifdef QT_KEYPAD_NAVIGATION
-    bool focusOnButton;
+    bool focusOnButton = false;
 #endif
 
     Qt::TimeSpec spec = Qt::LocalTime;

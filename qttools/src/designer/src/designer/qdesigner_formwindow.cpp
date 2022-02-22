@@ -39,17 +39,18 @@
 #include <QtDesigner/taskmenu.h>
 #include <QtDesigner/qextensionmanager.h>
 
-#include <QtCore/qfile.h>
-#include <QtCore/qregularexpression.h>
-
-#include <QtWidgets/qaction.h>
 #include <QtWidgets/qfiledialog.h>
 #include <QtWidgets/qmessagebox.h>
 #include <QtWidgets/qpushbutton.h>
 #include <QtWidgets/qboxlayout.h>
-#include <QtWidgets/qundostack.h>
 
+#include <QtGui/qaction.h>
 #include <QtGui/qevent.h>
+#include <QtGui/qundostack.h>
+
+#include <QtCore/qfile.h>
+#include <QtCore/qregularexpression.h>
+
 QT_BEGIN_NAMESPACE
 
 QDesignerFormWindow::QDesignerFormWindow(QDesignerFormWindowInterface *editor, QDesignerWorkbench *workbench, QWidget *parent, Qt::WindowFlags flags)
@@ -173,7 +174,7 @@ int QDesignerFormWindow::getNumberOfUntitledWindows() const
                 if (maxUntitled == 0)
                     ++maxUntitled;
                 if (match.lastCapturedIndex() >= 2) {
-                    const auto numberCapture = match.capturedRef(2);
+                    const auto numberCapture = match.capturedView(2);
                     if (!numberCapture.isEmpty())
                         maxUntitled = qMax(numberCapture.toInt(), maxUntitled);
                 }

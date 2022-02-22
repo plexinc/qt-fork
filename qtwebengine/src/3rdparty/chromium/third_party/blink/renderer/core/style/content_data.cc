@@ -24,6 +24,7 @@
 
 #include <memory>
 #include "third_party/blink/renderer/core/dom/pseudo_element.h"
+#include "third_party/blink/renderer/core/dom/tree_scope.h"
 #include "third_party/blink/renderer/core/layout/layout_counter.h"
 #include "third_party/blink/renderer/core/layout/layout_image.h"
 #include "third_party/blink/renderer/core/layout/layout_image_resource.h"
@@ -48,7 +49,7 @@ ContentData* ContentData::Clone() const {
   return result;
 }
 
-void ContentData::Trace(Visitor* visitor) {
+void ContentData::Trace(Visitor* visitor) const {
   visitor->Trace(next_);
 }
 
@@ -67,7 +68,7 @@ LayoutObject* ImageContentData::CreateLayoutObject(
   return image;
 }
 
-void ImageContentData::Trace(Visitor* visitor) {
+void ImageContentData::Trace(Visitor* visitor) const {
   visitor->Trace(image_);
   ContentData::Trace(visitor);
 }
@@ -96,9 +97,14 @@ LayoutObject* CounterContentData::CreateLayoutObject(
     PseudoElement& pseudo,
     const ComputedStyle& pseudo_style,
     LegacyLayout) const {
-  LayoutObject* layout_object = new LayoutCounter(pseudo, *counter_);
+  LayoutObject* layout_object = new LayoutCounter(pseudo, *this);
   layout_object->SetPseudoElementStyle(&pseudo_style);
   return layout_object;
+}
+
+void CounterContentData::Trace(Visitor* visitor) const {
+  visitor->Trace(tree_scope_);
+  ContentData::Trace(visitor);
 }
 
 LayoutObject* QuoteContentData::CreateLayoutObject(

@@ -41,7 +41,10 @@
 #include "qparameter_p.h"
 #include <Qt3DRender/private/renderlogging_p.h>
 #include <Qt3DRender/qtexture.h>
-
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+#include <QtCore/qiterable.h>
+#include <QtCore/qsequentialiterable.h>
+#endif
 
 /*!
     \qmltype Parameter
@@ -196,7 +199,11 @@ inline QVariant toBackendValue(const QVariant &v)
 
 void QParameterPrivate::setValue(const QVariant &v)
 {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    if (v.metaType().id() == QMetaType::QVariantList) {
+#else
     if (v.type() == QVariant::List) {
+#endif
         QSequentialIterable iterable = v.value<QSequentialIterable>();
         QVariantList variants;
         variants.reserve(iterable.size());
@@ -314,16 +321,6 @@ QVariant QParameter::value() const
 {
     Q_D(const QParameter);
     return d->m_value;
-}
-
-Qt3DCore::QNodeCreatedChangeBasePtr QParameter::createNodeCreationChange() const
-{
-    auto creationChange = Qt3DCore::QNodeCreatedChangePtr<QParameterData>::create(this);
-    auto &data = creationChange->data;
-    Q_D(const QParameter);
-    data.name = d->m_name;
-    data.backendValue = d->m_backendValue;
-    return creationChange;
 }
 
 } // namespace Qt3DRender

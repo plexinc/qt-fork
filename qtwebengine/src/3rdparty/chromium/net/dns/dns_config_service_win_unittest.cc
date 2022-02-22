@@ -4,11 +4,16 @@
 
 #include "net/dns/dns_config_service_win.h"
 
-#include "base/logging.h"
+#include <string>
+#include <vector>
+
+#include "base/check.h"
 #include "base/memory/free_deleter.h"
+#include "base/optional.h"
 #include "net/base/ip_address.h"
 #include "net/base/ip_endpoint.h"
 #include "net/dns/public/dns_protocol.h"
+#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace net {
@@ -17,34 +22,23 @@ namespace {
 
 TEST(DnsConfigServiceWinTest, ParseSearchList) {
   const struct TestCase {
-    const base::char16* input;
-    const char* output[4];  // NULL-terminated, empty if expected false
+    const wchar_t* input;
+    std::vector<std::string> expected;
   } cases[] = {
-      {STRING16_LITERAL("chromium.org"), {"chromium.org", nullptr}},
-      {STRING16_LITERAL("chromium.org,org"), {"chromium.org", "org", nullptr}},
+      {L"chromium.org", {"chromium.org"}},
+      {L"chromium.org,org", {"chromium.org", "org"}},
       // Empty suffixes terminate the list
-      {STRING16_LITERAL("crbug.com,com,,org"), {"crbug.com", "com", nullptr}},
+      {L"crbug.com,com,,org", {"crbug.com", "com"}},
       // IDN are converted to punycode
-      {STRING16_LITERAL("\u017c\xf3\u0142ta.pi\u0119\u015b\u0107.pl,pl"),
-       {"xn--ta-4ja03asj.xn--pi-wla5e0q.pl", "pl", nullptr}},
+      {L"\u017c\xf3\u0142ta.pi\u0119\u015b\u0107.pl,pl",
+       {"xn--ta-4ja03asj.xn--pi-wla5e0q.pl", "pl"}},
       // Empty search list is invalid
-      {STRING16_LITERAL(""), {nullptr}},
-      {STRING16_LITERAL(",,"), {nullptr}},
+      {L"", {}},
+      {L",,", {}},
   };
 
   for (const auto& t : cases) {
-    std::vector<std::string> actual_output, expected_output;
-    actual_output.push_back("UNSET");
-    for (const char* const* output = t.output; *output; ++output) {
-      expected_output.push_back(*output);
-    }
-    bool result = internal::ParseSearchList(t.input, &actual_output);
-    if (!expected_output.empty()) {
-      EXPECT_TRUE(result);
-      EXPECT_EQ(expected_output, actual_output);
-    } else {
-      EXPECT_FALSE(result) << "Unexpected parse success on " << t.input;
-    }
+    EXPECT_EQ(internal::ParseSearchList(t.input), t.expected);
   }
 }
 
@@ -183,17 +177,13 @@ TEST(DnsConfigServiceWinTest, ConvertAdapterAddresses) {
       expected_nameservers.push_back(IPEndPoint(ip, port));
     }
 
-    DnsConfig config;
-    internal::ConfigParseWinResult result =
-        internal::ConvertSettingsToDnsConfig(settings, &config);
-    internal::ConfigParseWinResult expected_result =
-        expected_nameservers.empty() ? internal::CONFIG_PARSE_WIN_NO_NAMESERVERS
-            : internal::CONFIG_PARSE_WIN_OK;
-    EXPECT_EQ(expected_result, result);
-    EXPECT_EQ(expected_nameservers, config.nameservers);
-    if (result == internal::CONFIG_PARSE_WIN_OK) {
-      ASSERT_EQ(1u, config.search.size());
-      EXPECT_EQ(t.expected_suffix, config.search[0]);
+    base::Optional<DnsConfig> config =
+        internal::ConvertSettingsToDnsConfig(settings);
+    bool expected_success = !expected_nameservers.empty();
+    EXPECT_EQ(expected_success, config.has_value());
+    if (config.has_value()) {
+      EXPECT_EQ(expected_nameservers, config->nameservers);
+      EXPECT_THAT(config->search, testing::ElementsAre(t.expected_suffix));
     }
   }
 }
@@ -214,16 +204,15 @@ TEST(DnsConfigServiceWinTest, ConvertSuffixSearch) {
       internal::DnsSystemSettings::DevolutionSetting dnscache_devolution;
       internal::DnsSystemSettings::DevolutionSetting tcpip_devolution;
     } input_settings;
-    std::string expected_search[5];
+    std::vector<std::string> expected_search;
   } cases[] = {
       {
           // Policy SearchList override.
           {
-              {true,
-               STRING16_LITERAL("policy.searchlist.a,policy.searchlist.b")},
-              {true, STRING16_LITERAL("tcpip.searchlist.a,tcpip.searchlist.b")},
-              {true, STRING16_LITERAL("tcpip.domain")},
-              {true, STRING16_LITERAL("primary.dns.suffix")},
+              {true, L"policy.searchlist.a,policy.searchlist.b"},
+              {true, L"tcpip.searchlist.a,tcpip.searchlist.b"},
+              {true, L"tcpip.domain"},
+              {true, L"primary.dns.suffix"},
           },
           {"policy.searchlist.a", "policy.searchlist.b"},
       },
@@ -231,18 +220,18 @@ TEST(DnsConfigServiceWinTest, ConvertSuffixSearch) {
           // User-specified SearchList override.
           {
               {false},
-              {true, STRING16_LITERAL("tcpip.searchlist.a,tcpip.searchlist.b")},
-              {true, STRING16_LITERAL("tcpip.domain")},
-              {true, STRING16_LITERAL("primary.dns.suffix")},
+              {true, L"tcpip.searchlist.a,tcpip.searchlist.b"},
+              {true, L"tcpip.domain"},
+              {true, L"primary.dns.suffix"},
           },
           {"tcpip.searchlist.a", "tcpip.searchlist.b"},
       },
       {
           // Void SearchList. Using tcpip.domain
           {
-              {true, STRING16_LITERAL(",bad.searchlist,parsed.as.empty")},
-              {true, STRING16_LITERAL("tcpip.searchlist,good.but.overridden")},
-              {true, STRING16_LITERAL("tcpip.domain")},
+              {true, L",bad.searchlist,parsed.as.empty"},
+              {true, L"tcpip.searchlist,good.but.overridden"},
+              {true, L"tcpip.domain"},
               {false},
           },
           {"tcpip.domain", "connection.suffix"},
@@ -250,10 +239,10 @@ TEST(DnsConfigServiceWinTest, ConvertSuffixSearch) {
       {
           // Void SearchList. Using primary.dns.suffix
           {
-              {true, STRING16_LITERAL(",bad.searchlist,parsed.as.empty")},
-              {true, STRING16_LITERAL("tcpip.searchlist,good.but.overridden")},
-              {true, STRING16_LITERAL("tcpip.domain")},
-              {true, STRING16_LITERAL("primary.dns.suffix")},
+              {true, L",bad.searchlist,parsed.as.empty"},
+              {true, L"tcpip.searchlist,good.but.overridden"},
+              {true, L"tcpip.domain"},
+              {true, L"primary.dns.suffix"},
           },
           {"primary.dns.suffix", "connection.suffix"},
       },
@@ -261,19 +250,19 @@ TEST(DnsConfigServiceWinTest, ConvertSuffixSearch) {
           // Void SearchList. Using tcpip.domain when primary.dns.suffix is
           // empty
           {
-              {true, STRING16_LITERAL(",bad.searchlist,parsed.as.empty")},
-              {true, STRING16_LITERAL("tcpip.searchlist,good.but.overridden")},
-              {true, STRING16_LITERAL("tcpip.domain")},
-              {true, STRING16_LITERAL("")},
+              {true, L",bad.searchlist,parsed.as.empty"},
+              {true, L"tcpip.searchlist,good.but.overridden"},
+              {true, L"tcpip.domain"},
+              {true, L""},
           },
           {"tcpip.domain", "connection.suffix"},
       },
       {
           // Void SearchList. Using tcpip.domain when primary.dns.suffix is NULL
           {
-              {true, STRING16_LITERAL(",bad.searchlist,parsed.as.empty")},
-              {true, STRING16_LITERAL("tcpip.searchlist,good.but.overridden")},
-              {true, STRING16_LITERAL("tcpip.domain")},
+              {true, L",bad.searchlist,parsed.as.empty"},
+              {true, L"tcpip.searchlist,good.but.overridden"},
+              {true, L"tcpip.domain"},
               {true},
           },
           {"tcpip.domain", "connection.suffix"},
@@ -294,7 +283,7 @@ TEST(DnsConfigServiceWinTest, ConvertSuffixSearch) {
           {
               {false},
               {false},
-              {true, STRING16_LITERAL("a.b.c.d.e")},
+              {true, L"a.b.c.d.e"},
               {false},
               {{true, 1}, {false}},    // policy_devolution: enabled, level
               {{true, 0}, {true, 3}},  // dnscache_devolution
@@ -307,8 +296,8 @@ TEST(DnsConfigServiceWinTest, ConvertSuffixSearch) {
           {
               {false},
               {false},
-              {true, STRING16_LITERAL("a.b.c.d.e")},
-              {true, STRING16_LITERAL("f.g.i.l.j")},
+              {true, L"a.b.c.d.e"},
+              {true, L"f.g.i.l.j"},
               {{false}, {true, 4}},
               {{true, 1}, {false}},
               {{true, 0}, {true, 3}},
@@ -320,7 +309,7 @@ TEST(DnsConfigServiceWinTest, ConvertSuffixSearch) {
           {
               {false},
               {false},
-              {true, STRING16_LITERAL("a.b.c.d.e")},
+              {true, L"a.b.c.d.e"},
               {false},
               {{false}, {false}},
               {{false}, {true, 3}},
@@ -333,7 +322,7 @@ TEST(DnsConfigServiceWinTest, ConvertSuffixSearch) {
           {
               {false},
               {false},
-              {true, STRING16_LITERAL("a.b")},
+              {true, L"a.b"},
               {false},
               {{false}, {false}},
               {{false}, {true, 2}},
@@ -346,7 +335,7 @@ TEST(DnsConfigServiceWinTest, ConvertSuffixSearch) {
           {
               {false},
               {false},
-              {true, STRING16_LITERAL("a.b.c.d.e")},
+              {true, L"a.b.c.d.e"},
               {false},
               {{true, 1}, {false}},
               {{true, 1}, {false}},
@@ -359,7 +348,7 @@ TEST(DnsConfigServiceWinTest, ConvertSuffixSearch) {
           {
               {false},
               {false},
-              {true, STRING16_LITERAL("a.b.c.d.e")},
+              {true, L"a.b.c.d.e"},
               {false},
               {{false}, {true, 1}},
               {{true, 1}, {true, 3}},
@@ -372,7 +361,7 @@ TEST(DnsConfigServiceWinTest, ConvertSuffixSearch) {
           {
               {false},
               {false},
-              {true, STRING16_LITERAL("a.b.c.d.e")},
+              {true, L"a.b.c.d.e"},
               {false},
               {{false}, {true, 3}},
               {{false}, {true, 3}},
@@ -393,14 +382,10 @@ TEST(DnsConfigServiceWinTest, ConvertSuffixSearch) {
     settings.dnscache_devolution = t.input_settings.dnscache_devolution;
     settings.tcpip_devolution = t.input_settings.tcpip_devolution;
 
-    DnsConfig config;
-    EXPECT_EQ(internal::CONFIG_PARSE_WIN_OK,
-              internal::ConvertSettingsToDnsConfig(settings, &config));
-    std::vector<std::string> expected_search;
-    for (size_t j = 0; !t.expected_search[j].empty(); ++j) {
-      expected_search.push_back(t.expected_search[j]);
-    }
-    EXPECT_EQ(expected_search, config.search);
+    EXPECT_THAT(
+        internal::ConvertSettingsToDnsConfig(settings),
+        testing::Optional(testing::Field(
+            &DnsConfig::search, testing::ElementsAreArray(t.expected_search))));
   }
 }
 
@@ -421,10 +406,10 @@ TEST(DnsConfigServiceWinTest, AppendToMultiLabelName) {
     internal::DnsSystemSettings settings;
     settings.addresses = CreateAdapterAddresses(infos);
     settings.append_to_multi_label_name = t.input;
-    DnsConfig config;
-    EXPECT_EQ(internal::CONFIG_PARSE_WIN_OK,
-              internal::ConvertSettingsToDnsConfig(settings, &config));
-    EXPECT_EQ(t.expected_output, config.append_to_multi_label_name);
+    EXPECT_THAT(
+        internal::ConvertSettingsToDnsConfig(settings),
+        testing::Optional(testing::Field(&DnsConfig::append_to_multi_label_name,
+                                         testing::Eq(t.expected_output))));
   }
 }
 
@@ -438,21 +423,20 @@ TEST(DnsConfigServiceWinTest, HaveNRPT) {
   const struct TestCase {
     bool have_nrpt;
     bool unhandled_options;
-    internal::ConfigParseWinResult result;
   } cases[] = {
-    { false, false, internal::CONFIG_PARSE_WIN_OK },
-    { true, true, internal::CONFIG_PARSE_WIN_UNHANDLED_OPTIONS },
+      {false, false},
+      {true, true},
   };
 
   for (const auto& t : cases) {
     internal::DnsSystemSettings settings;
     settings.addresses = CreateAdapterAddresses(infos);
     settings.have_name_resolution_policy = t.have_nrpt;
-    DnsConfig config;
-    EXPECT_EQ(t.result,
-              internal::ConvertSettingsToDnsConfig(settings, &config));
-    EXPECT_EQ(t.unhandled_options, config.unhandled_options);
-    EXPECT_EQ(t.have_nrpt, config.use_local_ipv6);
+    base::Optional<DnsConfig> config =
+        internal::ConvertSettingsToDnsConfig(settings);
+    ASSERT_TRUE(config.has_value());
+    EXPECT_EQ(t.unhandled_options, config->unhandled_options);
+    EXPECT_EQ(t.have_nrpt, config->use_local_ipv6);
   }
 }
 
@@ -466,20 +450,19 @@ TEST(DnsConfigServiceWinTest, HaveProxy) {
   const struct TestCase {
     bool have_proxy;
     bool unhandled_options;
-    internal::ConfigParseWinResult result;
   } cases[] = {
-      {false, false, internal::CONFIG_PARSE_WIN_OK},
-      {true, true, internal::CONFIG_PARSE_WIN_UNHANDLED_OPTIONS},
+      {false, false},
+      {true, true},
   };
 
   for (const auto& t : cases) {
     internal::DnsSystemSettings settings;
     settings.addresses = CreateAdapterAddresses(infos);
     settings.have_proxy = t.have_proxy;
-    DnsConfig config;
-    EXPECT_EQ(t.result,
-              internal::ConvertSettingsToDnsConfig(settings, &config));
-    EXPECT_EQ(t.unhandled_options, config.unhandled_options);
+    EXPECT_THAT(
+        internal::ConvertSettingsToDnsConfig(settings),
+        testing::Optional(testing::Field(&DnsConfig::unhandled_options,
+                                         testing::Eq(t.unhandled_options))));
   }
 }
 
@@ -493,10 +476,9 @@ TEST(DnsConfigServiceWinTest, UsesVpn) {
 
   internal::DnsSystemSettings settings;
   settings.addresses = CreateAdapterAddresses(infos);
-  DnsConfig config;
-  EXPECT_EQ(internal::CONFIG_PARSE_WIN_UNHANDLED_OPTIONS,
-            internal::ConvertSettingsToDnsConfig(settings, &config));
-  EXPECT_TRUE(config.unhandled_options);
+  EXPECT_THAT(internal::ConvertSettingsToDnsConfig(settings),
+              testing::Optional(testing::Field(&DnsConfig::unhandled_options,
+                                               testing::IsTrue())));
 }
 
 }  // namespace

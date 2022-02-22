@@ -86,7 +86,7 @@ TIntermTyped *CreateZeroNode(const TType &type)
         return node;
     }
 
-    TIntermSequence *arguments = new TIntermSequence();
+    TIntermSequence arguments;
 
     if (type.isArray())
     {
@@ -96,7 +96,7 @@ TIntermTyped *CreateZeroNode(const TType &type)
         size_t arraySize = type.getOutermostArraySize();
         for (size_t i = 0; i < arraySize; ++i)
         {
-            arguments->push_back(CreateZeroNode(elementType));
+            arguments.push_back(CreateZeroNode(elementType));
         }
     }
     else
@@ -106,11 +106,11 @@ TIntermTyped *CreateZeroNode(const TType &type)
         const TStructure *structure = type.getStruct();
         for (const auto &field : structure->fields())
         {
-            arguments->push_back(CreateZeroNode(*field->type()));
+            arguments.push_back(CreateZeroNode(*field->type()));
         }
     }
 
-    return TIntermAggregate::CreateConstructor(constType, arguments);
+    return TIntermAggregate::CreateConstructor(constType, &arguments);
 }
 
 TIntermConstantUnion *CreateFloatNode(float value)
@@ -128,6 +128,15 @@ TIntermConstantUnion *CreateIndexNode(int index)
     u[0].setIConst(index);
 
     TType type(EbtInt, EbpUndefined, EvqConst, 1);
+    return new TIntermConstantUnion(u, type);
+}
+
+TIntermConstantUnion *CreateUIntNode(unsigned int value)
+{
+    TConstantUnion *u = new TConstantUnion[1];
+    u[0].setUConst(value);
+
+    TType type(EbtUInt, EbpUndefined, EvqConst, 1);
     return new TIntermConstantUnion(u, type);
 }
 
@@ -244,11 +253,11 @@ const TVariable *DeclareInterfaceBlock(TIntermBlock *root,
     interfaceBlockDecl->appendDeclarator(interfaceBlockDeclarator);
 
     // Insert the declarations before the first function.
-    TIntermSequence *insertSequence = new TIntermSequence;
-    insertSequence->push_back(interfaceBlockDecl);
+    TIntermSequence insertSequence;
+    insertSequence.push_back(interfaceBlockDecl);
 
     size_t firstFunctionIndex = FindFirstFunctionDefinitionIndex(root);
-    root->insertChildNodes(firstFunctionIndex, *insertSequence);
+    root->insertChildNodes(firstFunctionIndex, insertSequence);
 
     return interfaceBlockVar;
 }

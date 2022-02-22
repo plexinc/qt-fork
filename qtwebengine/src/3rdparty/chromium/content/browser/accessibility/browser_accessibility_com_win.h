@@ -181,6 +181,7 @@ class __declspec(uuid("562072fe-3390-43b1-9e2c-dd4118f5ac79"))
   CONTENT_EXPORT IFACEMETHODIMP get_nHyperlinks(LONG* hyperlink_count) override;
 
   CONTENT_EXPORT IFACEMETHODIMP
+  // A hyperlink represents an embedded object character (leading to a subtree).
   get_hyperlink(LONG index, IAccessibleHyperlink** hyperlink) override;
 
   CONTENT_EXPORT IFACEMETHODIMP
@@ -343,21 +344,18 @@ class __declspec(uuid("562072fe-3390-43b1-9e2c-dd4118f5ac79"))
 
  private:
   // Private accessors.
-  const std::vector<base::string16>& ia2_attributes() const {
+  const std::vector<std::wstring>& ia2_attributes() const {
     return win_attributes_->ia2_attributes;
   }
-  base::string16 name() const { return win_attributes_->name; }
-  base::string16 description() const { return win_attributes_->description; }
-  base::string16 value() const { return win_attributes_->value; }
+  std::wstring name() const { return win_attributes_->name; }
+  std::wstring description() const { return win_attributes_->description; }
+  std::wstring value() const { return win_attributes_->value; }
 
   // Setter and getter for the browser accessibility owner
   BrowserAccessibilityWin* owner() const { return owner_; }
   void SetOwner(BrowserAccessibilityWin* owner) { owner_ = owner; }
 
   BrowserAccessibilityManager* Manager() const;
-
-  // Private helper methods.
-  bool ShouldFireHypertextEvents() const;
 
   //
   // AXPlatformNode overrides
@@ -403,10 +401,6 @@ class __declspec(uuid("562072fe-3390-43b1-9e2c-dd4118f5ac79"))
   // TODO(nektar): Rename this function to GetFromNodeID.
   BrowserAccessibilityComWin* GetFromID(int32_t id) const;
 
-  // Returns true if this is a list box option with a parent of type list box,
-  // or a menu list option with a parent of type menu list popup.
-  bool IsListBoxOptionOrMenuListOption();
-
   // Fire a Windows-specific accessibility event notification on this node.
   void FireNativeEvent(LONG win_event_type) const;
   struct WinAttributes {
@@ -421,16 +415,16 @@ class __declspec(uuid("562072fe-3390-43b1-9e2c-dd4118f5ac79"))
     int32_t ia_state;
 
     // IAccessible name, description, help, value.
-    base::string16 name;
-    base::string16 description;
-    base::string16 value;
+    std::wstring name;
+    std::wstring description;
+    std::wstring value;
 
     // IAccessible2 role and state.
     int32_t ia2_role;
     int32_t ia2_state;
 
     // IAccessible2 attributes.
-    std::vector<base::string16> ia2_attributes;
+    std::vector<std::wstring> ia2_attributes;
 
     // Maps each style span to its start offset in hypertext.
     ui::TextAttributeMap offset_to_text_attributes;

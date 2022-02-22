@@ -53,12 +53,15 @@ class QVariant;
 class QObject;
 struct QMetaObject;
 class QDateTime;
+class QJSPrimitiveValue;
 
 typedef QList<QJSValue> QJSValueList;
 namespace QV4 {
     struct ExecutionEngine;
-    struct Value;
 }
+
+class QJSPrimitiveValue;
+class QJSManagedValue;
 
 class Q_QML_EXPORT QJSValue
 {
@@ -77,6 +80,11 @@ public:
         SyntaxError,
         TypeError,
         URIError
+    };
+
+    enum ObjectConversionBehavior {
+        ConvertJSObjects,
+        RetainJSObjects
     };
 
 public:
@@ -102,6 +110,9 @@ public:
 
     QJSValue &operator=(const QJSValue &other);
 
+    explicit QJSValue(QJSPrimitiveValue &&value);
+    explicit QJSValue(QJSManagedValue &&value);
+
     bool isBool() const;
     bool isNumber() const;
     bool isNull() const;
@@ -115,13 +126,18 @@ public:
     bool isRegExp() const;
     bool isArray() const;
     bool isError() const;
+    bool isUrl() const;
 
     QString toString() const;
     double toNumber() const;
     qint32 toInt() const;
     quint32 toUInt() const;
     bool toBool() const;
+
     QVariant toVariant() const;
+    QVariant toVariant(ObjectConversionBehavior behavior) const;
+    QJSPrimitiveValue toPrimitive() const;
+
     QObject *toQObject() const;
     const QMetaObject *toQMetaObject() const;
     QDateTime toDateTime() const;
@@ -144,23 +160,24 @@ public:
     bool deleteProperty(const QString &name);
 
     bool isCallable() const;
-    QJSValue call(const QJSValueList &args = QJSValueList()); // ### Qt6: Make const
-    QJSValue callWithInstance(const QJSValue &instance, const QJSValueList &args = QJSValueList()); // ### Qt6: Make const
-    QJSValue callAsConstructor(const QJSValueList &args = QJSValueList()); // ### Qt6: Make const
+    QJSValue call(const QJSValueList &args = QJSValueList()) const;
+    QJSValue callWithInstance(const QJSValue &instance, const QJSValueList &args = QJSValueList()) const;
+    QJSValue callAsConstructor(const QJSValueList &args = QJSValueList()) const;
 
     ErrorType errorType() const;
-#ifdef QT_DEPRECATED
-    QT_DEPRECATED QJSEngine *engine() const;
-#endif
 
-    QJSValue(QV4::ExecutionEngine *e, quint64 val);
 private:
     friend class QJSValuePrivate;
     // force compile error, prevent QJSValue(bool) to be called
-    QJSValue(void *) Q_DECL_EQ_DELETE;
+    QJSValue(void *) = delete;
 
-    mutable quintptr d;
+    quint64 d;
 };
+
+#ifndef QT_NO_DATASTREAM
+Q_QML_EXPORT QDataStream &operator<<(QDataStream &, const QJSValue &);
+Q_QML_EXPORT QDataStream &operator>>(QDataStream &, QJSValue &);
+#endif
 
 QT_END_NAMESPACE
 

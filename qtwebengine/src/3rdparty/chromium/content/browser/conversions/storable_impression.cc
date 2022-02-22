@@ -4,7 +4,7 @@
 
 #include "content/browser/conversions/storable_impression.h"
 
-#include "base/logging.h"
+#include "base/check_op.h"
 
 namespace content {
 
@@ -34,5 +34,9 @@ StorableImpression::StorableImpression(const StorableImpression& other) =
     default;
 
 StorableImpression::~StorableImpression() = default;
+
+net::SchemefulSite StorableImpression::ConversionDestination() const {
+  return net::SchemefulSite(conversion_origin_);
+}
 
 }  // namespace content

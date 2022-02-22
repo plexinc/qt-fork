@@ -7,25 +7,40 @@ import * as UI from '../ui/ui.js';  // eslint-disable-line no-unused-vars
 
 import {SourcesSearchScope} from './SourcesSearchScope.js';
 
+/** @type {!SearchSourcesView} */
+let searchSourcesViewInstance;
+
 export class SearchSourcesView extends Search.SearchView.SearchView {
+  /**
+   * @private
+   */
   constructor() {
     super('sources');
+  }
+
+  static instance() {
+    if (!searchSourcesViewInstance) {
+      searchSourcesViewInstance = new SearchSourcesView();
+    }
+    return searchSourcesViewInstance;
   }
 
   /**
    * @param {string} query
    * @param {boolean=} searchImmediately
-   * @return {!Promise}
+   * @return {!Promise<!UI.Widget.Widget>}
    */
   static async openSearch(query, searchImmediately) {
-    const view = UI.ViewManager.ViewManager.instance().view('sources.search-sources-tab');
+    const view =
+        /** @type {!UI.View.View} */ (UI.ViewManager.ViewManager.instance().view('sources.search-sources-tab'));
     // Deliberately use target location name so that it could be changed
     // based on the setting later.
-    const location = await UI.ViewManager.ViewManager.instance().resolveLocation('drawer-view');
+    const location = /** @type {!UI.View.ViewLocation} */ (
+        /** @type {*} */ (await UI.ViewManager.ViewManager.instance().resolveLocation('drawer-view')));
     location.appendView(view);
     await UI.ViewManager.ViewManager.instance().revealView(/** @type {!UI.View.View} */ (view));
     const widget = /** @type {!Search.SearchView.SearchView} */ (await view.widget());
-    widget.toggle(query, !!searchImmediately);
+    widget.toggle(query, Boolean(searchImmediately));
     return widget;
   }
 
@@ -38,10 +53,25 @@ export class SearchSourcesView extends Search.SearchView.SearchView {
   }
 }
 
+/** @type {!ActionDelegate} */
+let actionDelegateInstance;
+
 /**
- * @implements {UI.ActionDelegate.ActionDelegate}
+ * @implements {UI.ActionRegistration.ActionDelegate}
  */
 export class ActionDelegate {
+  /**
+   * @param {{forceNew: ?boolean}=} opts
+   * @return {!ActionDelegate}
+   */
+  static instance(opts = {forceNew: null}) {
+    const {forceNew} = opts;
+    if (!actionDelegateInstance || forceNew) {
+      actionDelegateInstance = new ActionDelegate();
+    }
+
+    return actionDelegateInstance;
+  }
   /**
    * @override
    * @param {!UI.Context.Context} context
@@ -54,12 +84,12 @@ export class ActionDelegate {
   }
 
   /**
-   * @return {!Promise}
+   * @return {!Promise<!UI.Widget.Widget>}
    */
   _showSearch() {
-    const selection = self.UI.inspectorView.element.window().getSelection();
+    const selection = UI.InspectorView.InspectorView.instance().element.window().getSelection();
     let queryCandidate = '';
-    if (selection.rangeCount) {
+    if (selection && selection.rangeCount) {
       queryCandidate = selection.toString().replace(/\r?\n.*/, '');
     }
 

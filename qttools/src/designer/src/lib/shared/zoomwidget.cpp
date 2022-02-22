@@ -31,10 +31,11 @@
 #include <QtWidgets/qgraphicsscene.h>
 #include <QtWidgets/qgraphicsproxywidget.h>
 #include <QtWidgets/qmenu.h>
-#include <QtWidgets/qaction.h>
-#include <QtWidgets/qactiongroup.h>
-#include <QtGui/qevent.h>
 #include <QtWidgets/qscrollbar.h>
+
+#include <QtGui/qaction.h>
+#include <QtGui/qactiongroup.h>
+#include <QtGui/qevent.h>
 
 #include <QtCore/qtextstream.h>
 #include <QtCore/qmath.h>
@@ -103,9 +104,9 @@ void ZoomMenu::slotZoomMenu(QAction *a)
     emit zoomChanged(zoomOf(a));
 }
 
-QVector<int> ZoomMenu::zoomValues()
+QList<int> ZoomMenu::zoomValues()
 {
-    QVector<int> rc;
+    QList<int> rc;
     const int nz = sizeof(menuZoomList)/sizeof(int);
     rc.reserve(nz);
     for (int i = 0; i < nz; i++)

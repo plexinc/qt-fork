@@ -6,7 +6,7 @@
 
 #include <algorithm>
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/memory/ptr_util.h"
 #include "device/bluetooth/bluetooth_common.h"
 
@@ -93,6 +93,10 @@ void BluetoothDiscoveryFilter::AddDeviceFilter(
 const base::flat_set<BluetoothDiscoveryFilter::DeviceInfoFilter>*
 BluetoothDiscoveryFilter::GetDeviceFilters() const {
   return &device_filters_;
+}
+
+void BluetoothDiscoveryFilter::ClearDeviceFilters() {
+  device_filters_.clear();
 }
 
 void BluetoothDiscoveryFilter::CopyFrom(

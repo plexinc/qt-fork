@@ -11,31 +11,31 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "components/safe_browsing/core/db/test_database_manager.h"
-#include "third_party/blink/public/mojom/loader/resource_load_info.mojom-shared.h"
+#include "services/network/public/mojom/fetch_api.mojom.h"
 
 class GURL;
 
-// Database manager that allows any URL to be configured as blacklisted for
+// Database manager that allows any URL to be configured as blocklisted for
 // testing.
 class FakeSafeBrowsingDatabaseManager
     : public safe_browsing::TestSafeBrowsingDatabaseManager {
  public:
   FakeSafeBrowsingDatabaseManager();
 
-  void AddBlacklistedUrl(const GURL& url,
+  void AddBlocklistedUrl(const GURL& url,
                          safe_browsing::SBThreatType threat_type,
                          const safe_browsing::ThreatMetadata& metadata);
-  void AddBlacklistedUrl(const GURL& url,
+  void AddBlocklistedUrl(const GURL& url,
                          safe_browsing::SBThreatType threat_type,
                          safe_browsing::ThreatPatternType pattern_type =
                              safe_browsing::ThreatPatternType::NONE);
-  void RemoveBlacklistedUrl(const GURL& url);
-  void RemoveAllBlacklistedUrls();
+  void RemoveBlocklistedUrl(const GURL& url);
+  void RemoveAllBlocklistedUrls();
 
   void SimulateTimeout();
 
   // If set, will synchronously fail from CheckUrlForSubresourceFilter rather
-  // than posting a task to fail if the URL does not match the blacklist.
+  // than posting a task to fail if the URL does not match the blocklist.
   void set_synchronous_failure() { synchronous_failure_ = true; }
 
  protected:
@@ -47,8 +47,9 @@ class FakeSafeBrowsingDatabaseManager
   bool IsSupported() const override;
   void CancelCheck(Client* client) override;
   bool ChecksAreAlwaysAsync() const override;
-  bool CanCheckResourceType(
-      blink::mojom::ResourceType /* resource_type */) const override;
+  bool CanCheckRequestDestination(
+      network::mojom::RequestDestination /* request_destination */)
+      const override;
   safe_browsing::ThreatSource GetThreatSource() const override;
   bool CheckExtensionIDs(const std::set<std::string>& extension_ids,
                          Client* client) override;

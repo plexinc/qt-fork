@@ -68,8 +68,7 @@ class URLLoaderFactoryManager {
   //   if the factory will be used by an extension frame (e.g. from an extension
   //   background page).
   // - "content script": For most extensions no changes are made to
-  //   |factory_params| (e.g. for non-allowlisted and/or manifest V3+
-  //   extensions), but some extensions might need to set extension-specific
+  //   |factory_params|, but platform apps might need to set app-specific
   //   security properties in the URLLoaderFactory used by content scripts.
   // The method recognizes the intended consumer based on |origin| ("web" vs
   // other cases) and |is_for_isolated_world| ("extension" vs "content script").
@@ -77,29 +76,25 @@ class URLLoaderFactoryManager {
   // The following examples might help understand the difference between
   // |origin| and other properties of a factory and/or network request:
   //
-  //                               |    web      |  extension  | content script
-  // ------------------------------|-------------|-------------|---------------
-  // network::ResourceRequest:     |             |             |
-  // - request_initiator           |    web      |  extension  |     web
-  // - isolated_world_origin       |   nullopt   |   nullopt   |  extension
-  //                               |             |             |
-  // OverrideFactory...Params:     |             |             |
-  // - origin                      |    web      |  extension  |  extension
-  //                               |             |             |
-  // URLLoaderFactoryParams:       |             |             |
-  // - request_initiator_site_lock |    web      |  extension  |     web
-  // - overridden properties?      |    no       |     yes     |  if needed
-  //    - is_corb_enabled          |  secure     |  ext-based  | ext-based if
-  //    - ..._access_patterns      |    default  |             |   allowlisted
+  //                                 |   web     |  extension  | content script
+  // --------------------------------|-----------|-------------|---------------
+  // network::ResourceRequest:       |           |             |
+  // - request_initiator             |    web    |  extension  |     web
+  // - isolated_world_origin         |  nullopt  |   nullopt   |  extension
+  //                                 |           |             |
+  // OverrideFactory...Params:       |           |             |
+  // - origin                        |    web    |  extension  |  extension
+  //                                 |           |             |
+  // URLLoaderFactoryParams:         |           |             |
+  // - request_initiator_origin_lock |    web    |  extension  |     web
+  // - overridden properties?        |   no      |     yes     |  if needed
+  //    - is_corb_enabled            | secure    |  ext-based  | ext-based for
+  //    - ..._access_patterns        |   default |             | platform apps
   static void OverrideURLLoaderFactoryParams(
       content::BrowserContext* browser_context,
       const url::Origin& origin,
       bool is_for_isolated_world,
       network::mojom::URLLoaderFactoryParams* factory_params);
-
-  static void AddExtensionToAllowlistForTesting(const Extension& extension);
-  static void RemoveExtensionFromAllowlistForTesting(
-      const Extension& extension);
 
  private:
   // If |extension|'s manifest declares that it may inject JavaScript content

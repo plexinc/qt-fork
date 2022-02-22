@@ -2,37 +2,37 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "net/third_party/quiche/src/quic/core/quic_crypto_server_stream_base.h"
+#include "quic/core/quic_crypto_server_stream_base.h"
 
 #include <map>
 #include <memory>
 #include <utility>
 #include <vector>
 
-#include "net/third_party/quiche/src/quic/core/crypto/aes_128_gcm_12_encrypter.h"
-#include "net/third_party/quiche/src/quic/core/crypto/crypto_framer.h"
-#include "net/third_party/quiche/src/quic/core/crypto/crypto_handshake.h"
-#include "net/third_party/quiche/src/quic/core/crypto/crypto_protocol.h"
-#include "net/third_party/quiche/src/quic/core/crypto/crypto_utils.h"
-#include "net/third_party/quiche/src/quic/core/crypto/quic_crypto_server_config.h"
-#include "net/third_party/quiche/src/quic/core/crypto/quic_decrypter.h"
-#include "net/third_party/quiche/src/quic/core/crypto/quic_encrypter.h"
-#include "net/third_party/quiche/src/quic/core/crypto/quic_random.h"
-#include "net/third_party/quiche/src/quic/core/quic_crypto_client_stream.h"
-#include "net/third_party/quiche/src/quic/core/quic_packets.h"
-#include "net/third_party/quiche/src/quic/core/quic_session.h"
-#include "net/third_party/quiche/src/quic/core/quic_utils.h"
-#include "net/third_party/quiche/src/quic/core/quic_versions.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_socket_address.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/test_tools/crypto_test_utils.h"
-#include "net/third_party/quiche/src/quic/test_tools/failing_proof_source.h"
-#include "net/third_party/quiche/src/quic/test_tools/fake_proof_source.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_crypto_server_config_peer.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "absl/strings/string_view.h"
+#include "quic/core/crypto/aes_128_gcm_12_encrypter.h"
+#include "quic/core/crypto/crypto_framer.h"
+#include "quic/core/crypto/crypto_handshake.h"
+#include "quic/core/crypto/crypto_protocol.h"
+#include "quic/core/crypto/crypto_utils.h"
+#include "quic/core/crypto/quic_crypto_server_config.h"
+#include "quic/core/crypto/quic_decrypter.h"
+#include "quic/core/crypto/quic_encrypter.h"
+#include "quic/core/crypto/quic_random.h"
+#include "quic/core/quic_crypto_client_stream.h"
+#include "quic/core/quic_packets.h"
+#include "quic/core/quic_session.h"
+#include "quic/core/quic_utils.h"
+#include "quic/core/quic_versions.h"
+#include "quic/platform/api/quic_flags.h"
+#include "quic/platform/api/quic_logging.h"
+#include "quic/platform/api/quic_socket_address.h"
+#include "quic/platform/api/quic_test.h"
+#include "quic/test_tools/crypto_test_utils.h"
+#include "quic/test_tools/failing_proof_source.h"
+#include "quic/test_tools/fake_proof_source.h"
+#include "quic/test_tools/quic_crypto_server_config_peer.h"
+#include "quic/test_tools/quic_test_utils.h"
 
 namespace quic {
 class QuicConnection;
@@ -50,7 +50,9 @@ namespace {
 const char kServerHostname[] = "test.example.com";
 const uint16_t kServerPort = 443;
 
-class QuicCryptoServerStreamTest : public QuicTestWithParam<bool> {
+// This test tests the server-side of the QUIC crypto handshake. It does not
+// test the TLS handshake - that is in tls_server_handshaker_test.cc.
+class QuicCryptoServerStreamTest : public QuicTest {
  public:
   QuicCryptoServerStreamTest()
       : QuicCryptoServerStreamTest(crypto_test_utils::ProofSourceForTesting()) {
@@ -88,13 +90,13 @@ class QuicCryptoServerStreamTest : public QuicTestWithParam<bool> {
         helpers_.back().get(), alarm_factories_.back().get(),
         &server_crypto_config_, &server_compressed_certs_cache_,
         &server_connection_, &server_session);
-    CHECK(server_session);
+    QUICHE_CHECK(server_session);
     server_session_.reset(server_session);
     EXPECT_CALL(*server_session_->helper(), CanAcceptClientHello(_, _, _, _, _))
         .Times(testing::AnyNumber());
     EXPECT_CALL(*server_session_, SelectAlpn(_))
         .WillRepeatedly(
-            [this](const std::vector<quiche::QuicheStringPiece>& alpns) {
+            [this](const std::vector<absl::string_view>& alpns) {
               return std::find(
                   alpns.cbegin(), alpns.cend(),
                   AlpnForVersion(server_session_->connection()->version()));
@@ -122,13 +124,13 @@ class QuicCryptoServerStreamTest : public QuicTestWithParam<bool> {
         server_id_, QuicTime::Delta::FromSeconds(100000), supported_versions_,
         helpers_.back().get(), alarm_factories_.back().get(),
         &client_crypto_config_, &client_connection_, &client_session);
-    CHECK(client_session);
+    QUICHE_CHECK(client_session);
     client_session_.reset(client_session);
   }
 
   int CompleteCryptoHandshake() {
-    CHECK(server_connection_);
-    CHECK(server_session_ != nullptr);
+    QUICHE_CHECK(server_connection_);
+    QUICHE_CHECK(server_session_ != nullptr);
 
     return crypto_test_utils::HandshakeWithFakeClient(
         helpers_.back().get(), alarm_factories_.back().get(),
@@ -139,8 +141,8 @@ class QuicCryptoServerStreamTest : public QuicTestWithParam<bool> {
   // Performs a single round of handshake message-exchange between the
   // client and server.
   void AdvanceHandshakeWithFakeClient() {
-    CHECK(server_connection_);
-    CHECK(client_session_ != nullptr);
+    QUICHE_CHECK(server_connection_);
+    QUICHE_CHECK(client_session_ != nullptr);
 
     EXPECT_CALL(*client_session_, OnProofValid(_)).Times(testing::AnyNumber());
     EXPECT_CALL(*client_session_, OnProofVerifyDetailsAvailable(_))
@@ -150,28 +152,6 @@ class QuicCryptoServerStreamTest : public QuicTestWithParam<bool> {
     client_stream()->CryptoConnect();
     crypto_test_utils::AdvanceHandshake(client_connection_, client_stream(), 0,
                                         server_connection_, server_stream(), 0);
-  }
-
-  void UseTlsHandshake() {
-    client_options_.only_tls_versions = true;
-    supported_versions_.clear();
-    for (ParsedQuicVersion version : AllSupportedVersions()) {
-      if (version.handshake_protocol != PROTOCOL_TLS1_3) {
-        continue;
-      }
-      supported_versions_.push_back(version);
-    }
-  }
-
-  void UseQuicCryptoHandshake() {
-    client_options_.only_quic_crypto_versions = true;
-    supported_versions_.clear();
-    for (ParsedQuicVersion version : AllSupportedVersions()) {
-      if (version.handshake_protocol != PROTOCOL_QUIC_CRYPTO) {
-        continue;
-      }
-      supported_versions_.push_back(version);
-    }
   }
 
  protected:
@@ -197,43 +177,28 @@ class QuicCryptoServerStreamTest : public QuicTestWithParam<bool> {
   crypto_test_utils::FakeClientOptions client_options_;
 
   // Which QUIC versions the client and server support.
-  ParsedQuicVersionVector supported_versions_ = AllSupportedVersions();
+  ParsedQuicVersionVector supported_versions_ =
+      AllSupportedVersionsWithQuicCrypto();
 };
 
-INSTANTIATE_TEST_SUITE_P(Tests,
-                         QuicCryptoServerStreamTest,
-                         ::testing::Bool(),
-                         ::testing::PrintToStringParamName());
-
-TEST_P(QuicCryptoServerStreamTest, NotInitiallyConected) {
+TEST_F(QuicCryptoServerStreamTest, NotInitiallyConected) {
   Initialize();
   EXPECT_FALSE(server_stream()->encryption_established());
   EXPECT_FALSE(server_stream()->one_rtt_keys_available());
 }
 
-TEST_P(QuicCryptoServerStreamTest, ConnectedAfterCHLO) {
+TEST_F(QuicCryptoServerStreamTest, ConnectedAfterCHLO) {
   // CompleteCryptoHandshake returns the number of client hellos sent. This
   // test should send:
   //   * One to get a source-address token and certificates.
   //   * One to complete the handshake.
-  UseQuicCryptoHandshake();
   Initialize();
   EXPECT_EQ(2, CompleteCryptoHandshake());
   EXPECT_TRUE(server_stream()->encryption_established());
   EXPECT_TRUE(server_stream()->one_rtt_keys_available());
 }
 
-TEST_P(QuicCryptoServerStreamTest, ConnectedAfterTlsHandshake) {
-  UseTlsHandshake();
-  Initialize();
-  CompleteCryptoHandshake();
-  EXPECT_EQ(PROTOCOL_TLS1_3, server_stream()->handshake_protocol());
-  EXPECT_TRUE(server_stream()->encryption_established());
-  EXPECT_TRUE(server_stream()->one_rtt_keys_available());
-}
-
-TEST_P(QuicCryptoServerStreamTest, ForwardSecureAfterCHLO) {
-  UseQuicCryptoHandshake();
+TEST_F(QuicCryptoServerStreamTest, ForwardSecureAfterCHLO) {
   Initialize();
   InitializeFakeClient();
 
@@ -254,15 +219,14 @@ TEST_P(QuicCryptoServerStreamTest, ForwardSecureAfterCHLO) {
             server_session_->connection()->encryption_level());
 }
 
-TEST_P(QuicCryptoServerStreamTest, ZeroRTT) {
-  UseQuicCryptoHandshake();
+TEST_F(QuicCryptoServerStreamTest, ZeroRTT) {
   Initialize();
   InitializeFakeClient();
 
   // Do a first handshake in order to prime the client config with the server's
   // information.
   AdvanceHandshakeWithFakeClient();
-  EXPECT_FALSE(server_stream()->ZeroRttAttempted());
+  EXPECT_FALSE(server_stream()->ResumptionAttempted());
 
   // Now do another handshake, hopefully in 0-RTT.
   QUIC_LOG(INFO) << "Resetting for 0-RTT handshake attempt";
@@ -283,11 +247,10 @@ TEST_P(QuicCryptoServerStreamTest, ZeroRTT) {
       client_connection_, client_stream(), server_connection_, server_stream());
 
   EXPECT_EQ(1, client_stream()->num_sent_client_hellos());
-  EXPECT_TRUE(server_stream()->ZeroRttAttempted());
+  EXPECT_TRUE(server_stream()->ResumptionAttempted());
 }
 
-TEST_P(QuicCryptoServerStreamTest, FailByPolicy) {
-  UseQuicCryptoHandshake();
+TEST_F(QuicCryptoServerStreamTest, FailByPolicy) {
   Initialize();
   InitializeFakeClient();
 
@@ -299,8 +262,7 @@ TEST_P(QuicCryptoServerStreamTest, FailByPolicy) {
   AdvanceHandshakeWithFakeClient();
 }
 
-TEST_P(QuicCryptoServerStreamTest, MessageAfterHandshake) {
-  UseQuicCryptoHandshake();
+TEST_F(QuicCryptoServerStreamTest, MessageAfterHandshake) {
   Initialize();
   CompleteCryptoHandshake();
   EXPECT_CALL(
@@ -311,8 +273,7 @@ TEST_P(QuicCryptoServerStreamTest, MessageAfterHandshake) {
                                                   Perspective::IS_CLIENT);
 }
 
-TEST_P(QuicCryptoServerStreamTest, BadMessageType) {
-  UseQuicCryptoHandshake();
+TEST_F(QuicCryptoServerStreamTest, BadMessageType) {
   Initialize();
 
   message_.set_tag(kSHLO);
@@ -322,7 +283,7 @@ TEST_P(QuicCryptoServerStreamTest, BadMessageType) {
                                                   Perspective::IS_SERVER);
 }
 
-TEST_P(QuicCryptoServerStreamTest, OnlySendSCUPAfterHandshakeComplete) {
+TEST_F(QuicCryptoServerStreamTest, OnlySendSCUPAfterHandshakeComplete) {
   // An attempt to send a SCUP before completing handshake should fail.
   Initialize();
 
@@ -330,8 +291,7 @@ TEST_P(QuicCryptoServerStreamTest, OnlySendSCUPAfterHandshakeComplete) {
   EXPECT_EQ(0, server_stream()->NumServerConfigUpdateMessagesSent());
 }
 
-TEST_P(QuicCryptoServerStreamTest, SendSCUPAfterHandshakeComplete) {
-  UseQuicCryptoHandshake();
+TEST_F(QuicCryptoServerStreamTest, SendSCUPAfterHandshakeComplete) {
   Initialize();
 
   InitializeFakeClient();
@@ -363,13 +323,7 @@ class QuicCryptoServerStreamTestWithFailingProofSource
             std::unique_ptr<FailingProofSource>(new FailingProofSource)) {}
 };
 
-INSTANTIATE_TEST_SUITE_P(MoreTests,
-                         QuicCryptoServerStreamTestWithFailingProofSource,
-                         ::testing::Bool(),
-                         ::testing::PrintToStringParamName());
-
-TEST_P(QuicCryptoServerStreamTestWithFailingProofSource, Test) {
-  UseQuicCryptoHandshake();
+TEST_F(QuicCryptoServerStreamTestWithFailingProofSource, Test) {
   Initialize();
   InitializeFakeClient();
 
@@ -399,16 +353,10 @@ class QuicCryptoServerStreamTestWithFakeProofSource
   QuicCryptoServerConfigPeer crypto_config_peer_;
 };
 
-INSTANTIATE_TEST_SUITE_P(YetMoreTests,
-                         QuicCryptoServerStreamTestWithFakeProofSource,
-                         ::testing::Bool(),
-                         ::testing::PrintToStringParamName());
-
 // Regression test for b/35422225, in which multiple CHLOs arriving on the same
 // connection in close succession could cause a crash, especially when the use
 // of Mentat signing meant that it took a while for each CHLO to be processed.
-TEST_P(QuicCryptoServerStreamTestWithFakeProofSource, MultipleChlo) {
-  UseQuicCryptoHandshake();
+TEST_F(QuicCryptoServerStreamTestWithFakeProofSource, MultipleChlo) {
   Initialize();
   GetFakeProofSource()->Activate();
   EXPECT_CALL(*server_session_->helper(), CanAcceptClientHello(_, _, _, _, _))

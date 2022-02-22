@@ -51,7 +51,7 @@
 // We mean it.
 //
 
-#include <QtQuickTest/quicktestglobal.h>
+#include <QtQuickTest/private/quicktestglobal_p.h>
 #include <QtCore/qobject.h>
 #include <QtCore/qstring.h>
 #include <QtCore/qstringlist.h>
@@ -63,7 +63,7 @@ QT_BEGIN_NAMESPACE
 class QUrl;
 class QuickTestResultPrivate;
 
-class Q_QUICK_TEST_EXPORT QuickTestResult : public QObject
+class Q_QUICK_TEST_PRIVATE_EXPORT QuickTestResult : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QString testCaseName READ testCaseName WRITE setTestCaseName NOTIFY testCaseNameChanged)
@@ -76,6 +76,9 @@ class Q_QUICK_TEST_EXPORT QuickTestResult : public QObject
     Q_PROPERTY(int skipCount READ skipCount)
     Q_PROPERTY(QStringList functionsToRun READ functionsToRun)
     Q_PROPERTY(QStringList tagsToRun READ tagsToRun)
+
+    QML_NAMED_ELEMENT(TestResult)
+    QML_ADDED_IN_VERSION(1, 0)
 
 public:
     QuickTestResult(QObject *parent = nullptr);
@@ -158,10 +161,10 @@ public Q_SLOTS:
 
     QObject *grabImage(QQuickItem *item);
 
-    Q_REVISION(1) QObject *findChild(QObject *parent, const QString &objectName);
+    Q_REVISION(1, 1) QObject *findChild(QObject *parent, const QString &objectName);
 
-    Q_REVISION(13) bool isPolishScheduled(QQuickItem *item) const;
-    Q_REVISION(13) bool waitForItemPolished(QQuickItem *item, int timeout);
+    Q_REVISION(1, 13) bool isPolishScheduled(QQuickItem *item) const;
+    Q_REVISION(1, 13) bool waitForItemPolished(QQuickItem *item, int timeout);
 
 public:
     // Helper functions for the C++ main() shell.

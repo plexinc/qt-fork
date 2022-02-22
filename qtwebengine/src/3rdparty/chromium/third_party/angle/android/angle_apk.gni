@@ -38,6 +38,8 @@ if (enable_java_templates) {
       forward_variables_from(invoker, "*")
       android_manifest = manifest_path
       android_manifest_dep = ":$manifest_target_name"
+      version_code = invoker.version_code
+      version_name = invoker.version_name
       min_sdk_version = 26
       target_sdk_version = 28
       deps = [ ":${invoker.package_name}_assets" ]
@@ -59,10 +61,9 @@ if (enable_java_templates) {
           }
           if (angle_enable_vulkan_validation_layers) {
             foreach(_layer, vulkan_validation_layers) {
-              secondary_abi_shared_libraries += [
-                "$angle_root/third_party/vulkan-validation-layers:${_layer}" +
-                    "($android_secondary_abi_toolchain)",
-              ]
+              secondary_abi_shared_libraries +=
+                  [ "$angle_vulkan_validation_layers_dir:${_layer}" +
+                    "($android_secondary_abi_toolchain)" ]
             }
           }
         } else {
@@ -90,7 +91,7 @@ if (enable_java_templates) {
         if (angle_enable_vulkan_validation_layers) {
           foreach(_layer, vulkan_validation_layers) {
             shared_libraries +=
-                [ "$angle_root/third_party/vulkan-validation-layers:${_layer}" ]
+                [ "$angle_vulkan_validation_layers_dir:${_layer}" ]
           }
         }
       } else {

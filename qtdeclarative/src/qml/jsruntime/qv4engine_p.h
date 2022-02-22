@@ -240,6 +240,8 @@ public:
         MapIteratorProto,
         ArrayIteratorProto,
         StringIteratorProto,
+        UrlProto,
+        UrlSearchParamsProto,
 
         Object_Ctor,
         String_Ctor,
@@ -267,6 +269,8 @@ public:
         WeakMap_Ctor,
         Map_Ctor,
         IntrinsicTypedArray_Ctor,
+        Url_Ctor,
+        UrlSearchParams_Ctor,
 
         GetSymbolSpecies,
 
@@ -307,6 +311,14 @@ public:
     FunctionObject *weakMapCtor() const { return reinterpret_cast<FunctionObject *>(jsObjects + WeakMap_Ctor); }
     FunctionObject *mapCtor() const { return reinterpret_cast<FunctionObject *>(jsObjects + Map_Ctor); }
     FunctionObject *intrinsicTypedArrayCtor() const { return reinterpret_cast<FunctionObject *>(jsObjects + IntrinsicTypedArray_Ctor); }
+    FunctionObject *urlCtor() const
+    {
+        return reinterpret_cast<FunctionObject *>(jsObjects + Url_Ctor);
+    }
+    FunctionObject *urlSearchParamsCtor() const
+    {
+        return reinterpret_cast<FunctionObject *>(jsObjects + UrlSearchParams_Ctor);
+    }
     FunctionObject *typedArrayCtors;
 
     FunctionObject *getSymbolSpecies() const { return reinterpret_cast<FunctionObject *>(jsObjects + GetSymbolSpecies); }
@@ -354,6 +366,8 @@ public:
     Object *mapIteratorPrototype() const { return reinterpret_cast<Object *>(jsObjects + MapIteratorProto); }
     Object *arrayIteratorPrototype() const { return reinterpret_cast<Object *>(jsObjects + ArrayIteratorProto); }
     Object *stringIteratorPrototype() const { return reinterpret_cast<Object *>(jsObjects + StringIteratorProto); }
+    Object *urlPrototype() const { return reinterpret_cast<Object *>(jsObjects + UrlProto); }
+    Object *urlSearchParamsPrototype() const { return reinterpret_cast<Object *>(jsObjects + UrlSearchParamsProto); }
 
     EvalFunction *evalFunction() const { return reinterpret_cast<EvalFunction *>(jsObjects + Eval_Function); }
     FunctionObject *getStackFunction() const { return reinterpret_cast<FunctionObject *>(jsObjects + GetStack_Function); }
@@ -547,7 +561,10 @@ public:
     void setProfiler(Profiling::Profiler *profiler);
 #endif // QT_CONFIG(qml_debug)
 
-    ExecutionContext *currentContext() const;
+    ExecutionContext *currentContext() const
+    {
+        return static_cast<ExecutionContext *>(&currentStackFrame->jsFrame->context);
+    }
 
     // ensure we always get odd prototype IDs. This helps make marking in QV4::Lookup fast
     quintptr newProtoId() { return (protoIdCount += 2); }
@@ -575,14 +592,17 @@ public:
 
     Heap::DateObject *newDateObject(const Value &value);
     Heap::DateObject *newDateObject(const QDateTime &dt);
-    Heap::DateObject *newDateObjectFromTime(const QTime &t);
+    Heap::DateObject *newDateObjectFromTime(QTime t);
 
     Heap::RegExpObject *newRegExpObject(const QString &pattern, int flags);
     Heap::RegExpObject *newRegExpObject(RegExp *re);
-    Heap::RegExpObject *newRegExpObject(const QRegExp &re);
 #if QT_CONFIG(regularexpression)
     Heap::RegExpObject *newRegExpObject(const QRegularExpression &re);
 #endif
+
+    Heap::UrlObject *newUrlObject();
+    Heap::UrlObject *newUrlObject(const QUrl &url);
+    Heap::UrlSearchParamsObject *newUrlSearchParamsObject();
 
     Heap::Object *newErrorObject(const Value &value);
     Heap::Object *newErrorObject(const QString &message);
@@ -607,9 +627,28 @@ public:
     Heap::Object *newMapIteratorObject(Object *o);
     Heap::Object *newArrayIteratorObject(Object *o);
 
+    static Heap::ExecutionContext *qmlContext(Heap::ExecutionContext *ctx)
+    {
+        Heap::ExecutionContext *outer = ctx->outer;
+
+        if (ctx->type != Heap::ExecutionContext::Type_QmlContext && !outer)
+            return nullptr;
+
+        while (outer && outer->type != Heap::ExecutionContext::Type_GlobalContext) {
+            ctx = outer;
+            outer = ctx->outer;
+        }
+
+        Q_ASSERT(ctx);
+        if (ctx->type != Heap::ExecutionContext::Type_QmlContext)
+            return nullptr;
+
+        return ctx;
+    }
+
     Heap::QmlContext *qmlContext() const;
     QObject *qmlScopeObject() const;
-    QQmlContextData *callingQmlContext() const;
+    QQmlRefPointer<QQmlContextData> callingQmlContext() const;
 
 
     StackTrace stackTrace(int frameLimit = -1) const;
@@ -643,13 +682,13 @@ public:
     QQmlError catchExceptionAsQmlError();
 
     // variant conversions
-    QVariant toVariant(const QV4::Value &value, int typeHint, bool createJSValueForObjects = true);
+    QVariant toVariant(const QV4::Value &value, QMetaType typeHint, bool createJSValueForObjects = true);
     QV4::ReturnedValue fromVariant(const QVariant &);
 
     QVariantMap variantMapFromJS(const QV4::Object *o);
 
-    bool metaTypeFromJS(const Value *value, int type, void *data);
-    QV4::ReturnedValue metaTypeToJS(int type, const void *data);
+    static bool metaTypeFromJS(const Value &value, QMetaType type, void *data);
+    QV4::ReturnedValue metaTypeToJS(QMetaType type, const void *data);
 
     int maxJSStackSize() const;
     int maxGCStackSize() const;
@@ -661,8 +700,10 @@ public:
 #if QT_CONFIG(qml_jit)
         if (!m_canAllocateExecutableMemory)
             return false;
-        if (f)
-            return !f->isGenerator() && f->interpreterCallCount >= jitCallCountThreshold;
+        if (f) {
+            return !f->aotFunction && !f->isGenerator()
+                    && f->interpreterCallCount >= jitCallCountThreshold;
+        }
         return true;
 #else
         Q_UNUSED(f);
@@ -673,6 +714,7 @@ public:
     QV4::ReturnedValue global();
     void initQmlGlobalObject();
     void initializeGlobal();
+    void createQtObject();
 
     void freezeObject(const QV4::Value &value);
 
@@ -718,11 +760,27 @@ public:
 
     mutable QMutex moduleMutex;
     QHash<QUrl, QQmlRefPointer<ExecutableCompilationUnit>> modules;
+
+    // QV4::PersistentValue would be preferred, but using QHash will create copies,
+    // and QV4::PersistentValue doesn't like creating copies.
+    // Instead, we allocate a raw pointer using the same manual memory management
+    // technique in QV4::PersistentValue.
+    QHash<QUrl, QV4::Value*> nativeModules;
+
     void injectModule(const QQmlRefPointer<ExecutableCompilationUnit> &moduleUnit);
     QQmlRefPointer<ExecutableCompilationUnit> moduleForUrl(const QUrl &_url, const ExecutableCompilationUnit *referrer = nullptr) const;
     QQmlRefPointer<ExecutableCompilationUnit> loadModule(const QUrl &_url, const ExecutableCompilationUnit *referrer = nullptr);
+    void registerModule(const QString &name, const QJSValue &module);
+
+    bool diskCacheEnabled() const;
+
+    void callInContext(Function *function, QObject *self, QQmlRefPointer<QQmlContextData> ctxtdata,
+                       int argc, void **args, QMetaType *types);
 
 private:
+    QV4::ReturnedValue fromData(
+            const QMetaType &type, const void *ptr, const QVariant *variant = nullptr);
+
 #if QT_CONFIG(qml_debug)
     QScopedPointer<QV4::Debugging::Debugger> m_debugger;
     QScopedPointer<QV4::Profiling::Profiler> m_profiler;

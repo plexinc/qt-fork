@@ -157,7 +157,7 @@ public:
                         + buffer->toHex();
 
                     if (buffer->size() < mbpaHeaderSize) {
-                        qCDebug(QT_MODBUS) << "(TCP server) ADU too short. Waiting for more data.";
+                        qCDebug(QT_MODBUS) << "(TCP server) MBPA header too short. Waiting for more data.";
                         return;
                     }
 
@@ -174,7 +174,8 @@ public:
                     // Identifier and the PDU, so we remove on byte.
                     bytesPdu--;
 
-                    if (buffer->size() < mbpaHeaderSize + bytesPdu) {
+                    const quint16 current = mbpaHeaderSize + bytesPdu;
+                    if (buffer->size() < current) {
                         qCDebug(QT_MODBUS) << "(TCP server) PDU too short. Waiting for more data";
                         return;
                     }
@@ -182,7 +183,7 @@ public:
                     QModbusRequest request;
                     input >> request;
 
-                    buffer->remove(0, mbpaHeaderSize + bytesPdu);
+                    buffer->remove(0, current);
 
                     if (!matchingServerAddress(unitId))
                         continue;
@@ -225,7 +226,7 @@ public:
     }
 
     QTcpServer *m_tcpServer { nullptr };
-    QVector<QTcpSocket *> connections;
+    QList<QTcpSocket *> connections;
 
     std::unique_ptr<QModbusTcpConnectionObserver> m_observer;
 

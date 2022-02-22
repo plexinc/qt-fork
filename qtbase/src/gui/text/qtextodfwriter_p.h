@@ -55,11 +55,11 @@
 // We mean it.
 //
 
-#include <QtCore/QXmlStreamWriter>
 #include <QtCore/qhash.h>
+#include <QtCore/qlist.h>
 #include <QtCore/qset.h>
 #include <QtCore/qstack.h>
-#include <QtCore/qvector.h>
+#include <QtCore/QXmlStreamWriter>
 
 #include "qtextdocument_p.h"
 #include "qtextdocumentwriter.h"
@@ -86,7 +86,6 @@ public:
     QTextOdfWriter(const QTextDocument &document, QIODevice *device);
     bool writeAll();
 
-    void setCodec(QTextCodec *codec) { m_codec = codec; }
     void setCreateArchive(bool on) { m_createArchive = on; }
     bool createArchive() const { return m_createArchive; }
 
@@ -97,8 +96,8 @@ public:
     void writeListFormat(QXmlStreamWriter &writer, QTextListFormat format, int formatIndex) const;
     void writeFrameFormat(QXmlStreamWriter &writer, QTextFrameFormat format, int formatIndex) const;
     void writeTableFormat(QXmlStreamWriter &writer, QTextTableFormat format, int formatIndex) const;
-    void writeTableCellFormat(QXmlStreamWriter &writer, QTextTableCellFormat format, int formatIndex,
-                              QVector<QTextFormat> &styles) const;
+    void writeTableCellFormat(QXmlStreamWriter &writer, QTextTableCellFormat format,
+                              int formatIndex, QList<QTextFormat> &styles) const;
     void writeFrame(QXmlStreamWriter &writer, const QTextFrame *frame);
     void writeInlineCharacter(QXmlStreamWriter &writer, const QTextFragment &fragment) const;
 
@@ -116,12 +115,11 @@ private:
     QIODevice *m_device;
 
     QOutputStrategy *m_strategy;
-    QTextCodec *m_codec;
     bool m_createArchive;
 
     QStack<QTextList *> m_listStack;
 
-    QHash<int, QVector<int>> m_cellFormatsInTablesWithBorders;
+    QHash<int, QList<int>> m_cellFormatsInTablesWithBorders;
     QSet<int> m_tableFormatsWithBorders;
     mutable QSet<int> m_tableFormatsWithColWidthConstraints;
 };

@@ -29,12 +29,29 @@
 namespace perfetto {
 namespace profiling {
 
-void HeapTracker::RecordMalloc(const std::vector<FrameData>& callstack,
-                               uint64_t address,
-                               uint64_t sample_size,
-                               uint64_t alloc_size,
-                               uint64_t sequence_number,
-                               uint64_t timestamp) {
+void HeapTracker::RecordMalloc(
+    const std::vector<unwindstack::FrameData>& callstack,
+    const std::vector<std::string>& build_ids,
+    uint64_t address,
+    uint64_t sample_size,
+    uint64_t alloc_size,
+    uint64_t sequence_number,
+    uint64_t timestamp) {
+  PERFETTO_CHECK(callstack.size() == build_ids.size());
+  std::vector<Interned<Frame>> frames;
+  frames.reserve(callstack.size());
+  for (size_t i = 0; i < callstack.size(); ++i) {
+    const unwindstack::FrameData& loc = callstack[i];
+    const std::string& build_id = build_ids[i];
+    auto frame_it = frame_cache_.find(loc.pc);
+    if (frame_it != frame_cache_.end()) {
+      frames.emplace_back(frame_it->second);
+    } else {
+      frames.emplace_back(callsites_->InternCodeLocation(loc, build_id));
+      frame_cache_.emplace(loc.pc, frames.back());
+    }
+  }
+
   auto it = allocations_.find(address);
   if (it != allocations_.end()) {
     Allocation& alloc = it->second;
@@ -55,14 +72,14 @@ void HeapTracker::RecordMalloc(const std::vector<FrameData>& callstack,
       }
 
       SubtractFromCallstackAllocations(alloc);
-      GlobalCallstackTrie::Node* node = callsites_->CreateCallsite(callstack);
+      GlobalCallstackTrie::Node* node = callsites_->CreateCallsite(frames);
       alloc.sample_size = sample_size;
       alloc.alloc_size = alloc_size;
       alloc.sequence_number = sequence_number;
       alloc.SetCallstackAllocations(MaybeCreateCallstackAllocations(node));
     }
   } else {
-    GlobalCallstackTrie::Node* node = callsites_->CreateCallsite(callstack);
+    GlobalCallstackTrie::Node* node = callsites_->CreateCallsite(frames);
     allocations_.emplace(address,
                          Allocation(sample_size, alloc_size, sequence_number,
                                     MaybeCreateCallstackAllocations(node)));
@@ -93,7 +110,8 @@ void HeapTracker::RecordOperation(uint64_t sequence_number,
 void HeapTracker::CommitOperation(uint64_t sequence_number,
                                   const PendingOperation& operation) {
   committed_sequence_number_++;
-  committed_timestamp_ = operation.timestamp;
+  if (operation.timestamp)
+    committed_timestamp_ = operation.timestamp;
 
   uint64_t address = operation.allocation_address;
 
@@ -117,9 +135,12 @@ void HeapTracker::CommitOperation(uint64_t sequence_number,
   //  be treated as a no-op.
 }
 
-uint64_t HeapTracker::GetSizeForTesting(const std::vector<FrameData>& stack) {
+uint64_t HeapTracker::GetSizeForTesting(
+    const std::vector<unwindstack::FrameData>& stack,
+    std::vector<std::string> build_ids) {
   PERFETTO_DCHECK(!dump_at_max_mode_);
-  GlobalCallstackTrie::Node* node = callsites_->CreateCallsite(stack);
+  GlobalCallstackTrie::Node* node =
+      callsites_->CreateCallsite(stack, build_ids);
   // Hack to make it go away again if it wasn't used before.
   // This is only good because this is used for testing only.
   GlobalCallstackTrie::IncrementNode(node);
@@ -132,9 +153,12 @@ uint64_t HeapTracker::GetSizeForTesting(const std::vector<FrameData>& stack) {
   return alloc.value.totals.allocated - alloc.value.totals.freed;
 }
 
-uint64_t HeapTracker::GetMaxForTesting(const std::vector<FrameData>& stack) {
+uint64_t HeapTracker::GetMaxForTesting(
+    const std::vector<unwindstack::FrameData>& stack,
+    std::vector<std::string> build_ids) {
   PERFETTO_DCHECK(dump_at_max_mode_);
-  GlobalCallstackTrie::Node* node = callsites_->CreateCallsite(stack);
+  GlobalCallstackTrie::Node* node =
+      callsites_->CreateCallsite(stack, build_ids);
   // Hack to make it go away again if it wasn't used before.
   // This is only good because this is used for testing only.
   GlobalCallstackTrie::IncrementNode(node);
@@ -147,6 +171,23 @@ uint64_t HeapTracker::GetMaxForTesting(const std::vector<FrameData>& stack) {
   return alloc.value.retain_max.max;
 }
 
+uint64_t HeapTracker::GetMaxCountForTesting(
+    const std::vector<unwindstack::FrameData>& stack,
+    std::vector<std::string> build_ids) {
+  PERFETTO_DCHECK(dump_at_max_mode_);
+  GlobalCallstackTrie::Node* node =
+      callsites_->CreateCallsite(stack, build_ids);
+  // Hack to make it go away again if it wasn't used before.
+  // This is only good because this is used for testing only.
+  GlobalCallstackTrie::IncrementNode(node);
+  GlobalCallstackTrie::DecrementNode(node);
+  auto it = callstack_allocations_.find(node);
+  if (it == callstack_allocations_.end()) {
+    return 0;
+  }
+  const CallstackAllocations& alloc = it->second;
+  return alloc.value.retain_max.max_count;
+}
 
 }  // namespace profiling
 }  // namespace perfetto

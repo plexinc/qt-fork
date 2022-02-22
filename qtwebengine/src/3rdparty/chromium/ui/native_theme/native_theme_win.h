@@ -15,6 +15,7 @@
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/no_destructor.h"
+#include "base/optional.h"
 #include "base/win/registry.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/geometry/size.h"
@@ -72,6 +73,7 @@ class NATIVE_THEME_EXPORT NativeThemeWin : public NativeTheme,
   gfx::Rect GetNinePatchAperture(Part part) const override;
   bool ShouldUseDarkColors() const override;
   PreferredColorScheme CalculatePreferredColorScheme() const override;
+  PreferredContrast CalculatePreferredContrast() const override;
   ColorScheme GetDefaultSystemColorScheme() const override;
 
  protected:
@@ -196,7 +198,7 @@ class NATIVE_THEME_EXPORT NativeThemeWin : public NativeTheme,
 
   // Returns the platform provided high contrast color for the given
   // |color_id|.
-  SkColor GetPlatformHighContrastColor(ColorId color_id) const;
+  base::Optional<SkColor> GetPlatformHighContrastColor(ColorId color_id) const;
 
   // Dark Mode registry key.
   base::win::RegKey hkcu_themes_regkey_;
@@ -208,7 +210,7 @@ class NATIVE_THEME_EXPORT NativeThemeWin : public NativeTheme,
   gfx::ScopedSysColorChangeListener color_change_listener_;
 
   // Used to notify the web native theme of changes to dark mode, high
-  // contrast, and preferred color scheme.
+  // contrast, preferred color scheme, and preferred contrast.
   std::unique_ptr<NativeTheme::ColorSchemeNativeThemeObserver>
       color_scheme_observer_;
 

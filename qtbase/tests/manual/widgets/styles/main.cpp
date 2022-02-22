@@ -32,19 +32,19 @@
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QLabel>
+#include <QList>
 #include <QMainWindow>
 #include <QMenu>
 #include <QMenuBar>
 #include <QPalette>
 #include <QPixmap>
 #include <QPlainTextEdit>
+#include <QScreen>
 #include <QStyle>
 #include <QTabWidget>
 #include <QTextStream>
 #include <QVBoxLayout>
-#include <QVector>
 #include <QWindow>
-#include <QScreen>
 
 // Format enumeration value and strip off the class name
 // added by QDebug: "QStyle::StandardPixmap(SP_Icon)" -> "SP_Icon".
@@ -82,9 +82,9 @@ static bool operator<(const StyleIconEntry &e1, const StyleIconEntry &e2)
     return e1.name < e2.name;
 }
 
-static QVector<StyleIconEntry> styleIconEntries()
+static QList<StyleIconEntry> styleIconEntries()
 {
-    QVector<StyleIconEntry> result;
+    QList<StyleIconEntry> result;
     const int count = int(QStyle::SP_LineEditClearButton) + 1;
     result.reserve(count);
     for (int i = 0; i < count; ++i) {
@@ -131,7 +131,7 @@ static QWidget *createStandardPixmapPage(QWidget *parent)
     QGridLayout *grid = new QGridLayout(result);
     int row = 0;
     int column = 0;
-    QVector<StyleIconEntry> entries = styleIconEntries();
+    QList<StyleIconEntry> entries = styleIconEntries();
     for (int i = 0, size = entries.size(); i < size; ++i) {
         grid->addWidget(createStandardPixmapDisplay(entries.at(i), parent), row, column++);
         if (column >= maxColumns) {
@@ -169,7 +169,7 @@ static QWidget *createStandardIconPage(QWidget *parent)
     int column = 0;
     const int largeIconSize = parent->style()->pixelMetric(QStyle::PM_LargeIconSize);
     const QSize displaySize(largeIconSize, largeIconSize);
-    QVector<StyleIconEntry> entries = styleIconEntries();
+    QList<StyleIconEntry> entries = styleIconEntries();
     for (int i = 0, size = entries.size(); i < size; ++i) {
         grid->addWidget(createStandardIconDisplay(entries.at(i), displaySize, parent), row, column++);
         if (column >= maxColumns) {
@@ -216,22 +216,24 @@ static QWidget *createColorsPage(QWidget *parent)
     QWidget *result = new QWidget(parent);
     QGridLayout *grid = new QGridLayout;
     const QPalette palette = QGuiApplication::palette();
-    int row = 0;
     for (int r = 0; r < int(QPalette::NColorRoles); ++r) {
         const QPalette::ColorRole role = static_cast<QPalette::ColorRole>(r);
-        const QColor color = palette.color(QPalette::Active, role);
-        if (color.isValid()) {
-            const QString description =
+        const QString description =
                 formatEnumValue(role) + QLatin1Char('(') + QString::number(r)
-                + QLatin1String(") ") + color.name(QColor::HexArgb);
-            grid->addWidget(new QLabel(description), row, 0);
-            QLabel *displayLabel = new QLabel;
-            QPixmap pixmap(20, 20);
-            pixmap.fill(color);
-            displayLabel->setPixmap(pixmap);
-            displayLabel->setFrameShape(QFrame::Box);
-            grid->addWidget(displayLabel, row, 1);
-            ++row;
+                + QLatin1String(") ") + palette.color(QPalette::Active, role).name(QColor::HexArgb);
+        grid->addWidget(new QLabel(description), r, 0);
+        int col = 1;
+        for (int g : {QPalette::Active, QPalette::Inactive, QPalette::Disabled}) {
+            const QColor color = palette.color(QPalette::ColorGroup(g), role);
+            if (color.isValid()) {
+                QLabel *displayLabel = new QLabel;
+                QPixmap pixmap(20, 20);
+                pixmap.fill(color);
+                displayLabel->setPixmap(pixmap);
+                displayLabel->setFrameShape(QFrame::Box);
+                grid->addWidget(displayLabel, r, col);
+            }
+            ++col;
         }
     }
     QHBoxLayout *hBox = new QHBoxLayout;
@@ -262,7 +264,7 @@ MainWindow::MainWindow()
 {
     QMenu *fileMenu = menuBar()->addMenu("&File");
     QAction *a = fileMenu->addAction("Quit", this, &QWidget::close);
-    a->setShortcut(Qt::CTRL + Qt::Key_Q);
+    a->setShortcut(Qt::CTRL | Qt::Key_Q);
 
     QWidget *central = new QWidget;
     QVBoxLayout *mainLayout = new QVBoxLayout(central);
@@ -284,7 +286,7 @@ void MainWindow::updateDescription()
     QString text;
     QTextStream str(&text);
     str << "Qt " << QT_VERSION_STR << ", platform: " << QGuiApplication::platformName()
-        << ", Style: \"" << style()->objectName() << "\", DPR=" << devicePixelRatioF()
+        << ", Style: \"" << style()->objectName() << "\", DPR=" << devicePixelRatio()
         << ' ' << logicalDpiX() << ',' << logicalDpiY() << "DPI";
     if (const QWindow *w = windowHandle())
         str << ", Screen: \"" << w->screen()->name() << '"';
@@ -293,7 +295,6 @@ void MainWindow::updateDescription()
 
 int main(int argc, char *argv[])
 {
-    QCoreApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
     QApplication app(argc, argv);
     MainWindow mw;
     mw.show();

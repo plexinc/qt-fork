@@ -61,10 +61,7 @@ void BookDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option,
                            const QModelIndex &index) const
 {
     if (index.column() != 5) {
-        QStyleOptionViewItem opt = option;
-        // Since we draw the grid ourselves:
-        opt.rect.adjust(0, 0, -1, -1);
-        QSqlRelationalDelegate::paint(painter, opt, index);
+        QSqlRelationalDelegate::paint(painter, option, index);
     } else {
         const QAbstractItemModel *model = index.model();
         QPalette::ColorGroup cg = (option.state & QStyle::State_Enabled) ?
@@ -87,8 +84,6 @@ void BookDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option,
             painter->drawPixmap(x, y, star);
             x += width;
         }
-        // Since we draw the grid ourselves:
-        drawFocus(painter, option, option.rect.adjusted(0, 0, -1, -1));
     }
 
     QPen pen = painter->pen();
@@ -116,7 +111,7 @@ bool BookDelegate::editorEvent(QEvent *event, QAbstractItemModel *model,
 
     if (event->type() == QEvent::MouseButtonPress) {
         QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
-        int stars = qBound(0, int(0.7 + qreal(mouseEvent->pos().x()
+        int stars = qBound(0, int(0.7 + qreal(mouseEvent->position().toPoint().x()
             - option.rect.x()) / star.width()), 5);
         model->setData(index, QVariant(stars));
         // So that the selection can change:

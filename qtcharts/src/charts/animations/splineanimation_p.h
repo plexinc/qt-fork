@@ -43,9 +43,9 @@
 #include <QtCharts/private/qchartglobal_p.h>
 #include <QtCore/QPointF>
 
-typedef  QPair<QVector<QPointF >, QVector<QPointF > >  SplineVector;
+typedef QPair<QList<QPointF>, QList<QPointF>> SplineVector;
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class SplineChartItem;
 
@@ -54,12 +54,14 @@ class Q_CHARTS_PRIVATE_EXPORT SplineAnimation : public XYAnimation
 public:
     SplineAnimation(SplineChartItem *item, int duration, QEasingCurve &curve);
     ~SplineAnimation();
-    void setup(QVector<QPointF> &oldPoints, QVector<QPointF> &newPoints, QVector<QPointF> &oldContorlPoints, QVector<QPointF> &newControlPoints, int index = -1);
+    void setup(const QList<QPointF> &oldPoints, const QList<QPointF> &newPoints,
+               const QList<QPointF> &oldContorlPoints, const QList<QPointF> &newControlPoints,
+               int index = -1);
 
 protected:
-    QVariant interpolated(const QVariant &start, const QVariant &end, qreal progress) const;
-    void updateCurrentValue(const QVariant &value);
-    void updateState(QAbstractAnimation::State newState, QAbstractAnimation::State oldState);
+    QVariant interpolated(const QVariant &start, const QVariant &end, qreal progress) const override;
+    void updateCurrentValue(const QVariant &value) override;
+    void updateState(QAbstractAnimation::State newState, QAbstractAnimation::State oldState) override;
 
 private:
     SplineVector m_oldSpline;
@@ -68,6 +70,6 @@ private:
     bool m_valid;
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif

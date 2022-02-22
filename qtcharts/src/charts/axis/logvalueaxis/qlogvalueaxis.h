@@ -36,7 +36,7 @@ QT_BEGIN_NAMESPACE
 class QDateTime;
 QT_END_NAMESPACE
 
-QT_CHARTS_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 class QLogValueAxisPrivate;
 
@@ -58,7 +58,7 @@ protected:
     QLogValueAxis(QLogValueAxisPrivate &d, QObject *parent = nullptr);
 
 public:
-    AxisType type() const;
+    AxisType type() const override;
 
     //range handling
     void setMin(qreal min);
@@ -92,6 +92,6 @@ private:
     Q_DISABLE_COPY(QLogValueAxis)
 };
 
-QT_CHARTS_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // QLOGVALUEAXIS_H

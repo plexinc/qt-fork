@@ -379,41 +379,68 @@ Mojom definitions may have their meaning altered by **attributes**, specified
 with a syntax similar to Java or C# attributes. There are a handle of
 interesting attributes supported today.
 
-**`[Sync]`**
-:   The `Sync` attribute may be specified for any interface method which expects
-    a response. This makes it so that callers of the method can wait
-    synchronously for a response. See
-    [Synchronous Calls](/mojo/public/cpp/bindings/README.md#Synchronous-Calls)
-    in the C++ bindings documentation. Note that sync calls are not currently
-    supported in other target languages.
+* **`[Sync]`**:
+  The `Sync` attribute may be specified for any interface method which expects a
+  response. This makes it so that callers of the method can wait synchronously
+  for a response. See [Synchronous
+  Calls](/mojo/public/cpp/bindings/README.md#Synchronous-Calls) in the C++
+  bindings documentation. Note that sync methods are only actually synchronous
+  when called from C++.
 
-**`[Extensible]`**
-:   The `Extensible` attribute may be specified for any enum definition. This
-    essentially disables builtin range validation when receiving values of the
-    enum type in a message, allowing older bindings to tolerate unrecognized
-    values from newer versions of the enum.
+* **`[Default]`**:
+  The `Default` attribute may be used to specify an enumerator value that
+  will be used if an `Extensible` enumeration does not deserialize to a known
+  value on the receiver side, i.e. the sender is using a newer version of the
+  enum. This allows unknown values to be mapped to a well-defined value that can
+  be appropriately handled.
 
-**`[Native]`**
-:   The `Native` attribute may be specified for an empty struct declaration to
-    provide a nominal bridge between Mojo IPC and legacy `IPC::ParamTraits` or
-    `IPC_STRUCT_TRAITS*` macros.
-    See
-    [Repurposing Legacy IPC Traits](/docs/mojo_ipc_conversion.md#repurposing-and-invocations)
-    for more details. Note support for this attribute is strictly limited to C++
-    bindings generation.
+* **`[Extensible]`**:
+  The `Extensible` attribute may be specified for any enum definition. This
+  essentially disables builtin range validation when receiving values of the
+  enum type in a message, allowing older bindings to tolerate unrecognized
+  values from newer versions of the enum.
 
-**`[MinVersion=N]`**
-:   The `MinVersion` attribute is used to specify the version at which a given
-    field, enum value, interface method, or method parameter was introduced.
-    See [Versioning](#Versioning) for more details.
+  Note: in the future, an `Extensible` enumeration will require that a `Default`
+  enumerator value also be specified.
 
-**`[EnableIf=value]`**
-:   The `EnableIf` attribute is used to conditionally enable definitions when
-    the mojom is parsed. If the `mojom` target in the GN file does not include
-    the matching `value` in the list of `enabled_features`, the definition
-    will be disabled. This is useful for mojom definitions that only make
-    sense on one platform. Note that the `EnableIf` attribute can only be set
-    once per definition.
+* **`[Native]`**:
+  The `Native` attribute may be specified for an empty struct declaration to
+  provide a nominal bridge between Mojo IPC and legacy `IPC::ParamTraits` or
+  `IPC_STRUCT_TRAITS*` macros. See [Repurposing Legacy IPC
+  Traits](/docs/mojo_ipc_conversion.md#repurposing-and-invocations) for more
+  details. Note support for this attribute is strictly limited to C++ bindings
+  generation.
+
+* **`[MinVersion=N]`**:
+  The `MinVersion` attribute is used to specify the version at which a given
+  field, enum value, interface method, or method parameter was introduced.
+  See [Versioning](#Versioning) for more details.
+
+* **`[Stable]`**:
+  The `Stable` attribute specifies that a given mojom type or interface
+  definition can be considered stable over time, meaning it is safe to use for
+  things like persistent storage or communication between independent
+  version-skewed binaries. Stable definitions may only depend on builtin mojom
+  types or other stable definitions, and changes to such definitions MUST
+  preserve backward-compatibility through appropriate use of versioning.
+  Backward-compatibility of changes is enforced in the Chromium tree using a
+  strict presubmit check. See [Versioning](#Versioning) for more details on
+  backward-compatibility constraints.
+
+* **`[Uuid=<UUID>]`**:
+  Specifies a UUID to be associated with a given interface. The UUID is intended
+  to remain stable across all changes to the interface definition, including
+  name changes. The value given for this attribute should be a standard UUID
+  string representation as specified by RFC 4122. New UUIDs can be generated
+  with common tools such as `uuidgen`.
+
+* **`[EnableIf=value]`**:
+  The `EnableIf` attribute is used to conditionally enable definitions when the
+  mojom is parsed. If the `mojom` target in the GN file does not include the
+  matching `value` in the list of `enabled_features`, the definition will be
+  disabled. This is useful for mojom definitions that only make sense on one
+  platform. Note that the `EnableIf` attribute can only be set once per
+  definition.
 
 ## Generated Code For Target Languages
 
@@ -544,13 +571,14 @@ struct Employee {
 };
 ```
 
-and you would like to add a birthday field. You can do:
+and you would like to add birthday and nickname fields. You can do:
 
 ``` cpp
 struct Employee {
   uint64 employee_id;
   string name;
   [MinVersion=1] Date? birthday;
+  [MinVersion=1] string? nickname;
 };
 ```
 
@@ -559,10 +587,14 @@ struct definition (*i.e*., existing fields must not change **ordinal value**)
 with the `MinVersion` attribute set to a number greater than any previous
 existing versions.
 
+The value of `MinVersion` is unrelated to ordinals. The choice of a particular
+version number is arbitrary. All its usage means is that a field isn't present
+before the numbered version.
+
 *** note
 **NOTE:** do not change existing fields in versioned structs, as this is
 not backwards-compatible. Instead, rename the old field to make its
-deprecation clear and add a new field with the new version number.
+deprecation clear and add a new field with a new `MinVersion` number.
 ***
 
 **Ordinal value** refers to the relative positional layout of a struct's fields
@@ -578,7 +610,9 @@ the following hard constraints:
     an ordinal value, all fields or methods must explicitly specify an ordinal
     value.
 * For an *N*-field struct or *N*-method interface, the set of explicitly
-    assigned ordinal values must be limited to the range *[0, N-1]*.
+    assigned ordinal values must be limited to the range *[0, N-1]*. Interfaces
+    should include placeholder methods to fill the ordinal positions of removed
+    methods (for example "Unused_Message_7@7()" or "RemovedMessage@42()", etc).
 
 You may reorder fields, but you must ensure that the ordinal values of existing
 fields remain unchanged. For example, the following struct remains
@@ -589,6 +623,7 @@ struct Employee {
   uint64 employee_id@0;
   [MinVersion=1] Date? birthday@2;
   string name@1;
+  [MinVersion=1] string? nickname@3;
 };
 ```
 
@@ -692,6 +727,24 @@ With extensible enums, bound interface implementations may receive unknown enum
 values and will need to deal with them gracefully. See
 [C++ Versioning Considerations](/mojo/public/cpp/bindings/README.md#Versioning-Considerations)
 for details.
+
+### Renaming versioned structs
+It's possible to rename versioned structs by using the `[RenamedFrom]` attribute.
+RenamedFrom
+
+``` cpp
+module asdf.mojom;
+
+// Old version:
+[Stable]
+struct OldStruct {
+};
+
+// New version:
+[Stable, RenamedFrom="asdf.mojom.OldStruct"]
+struct NewStruct {
+};
+```
 
 ## Grammar Reference
 

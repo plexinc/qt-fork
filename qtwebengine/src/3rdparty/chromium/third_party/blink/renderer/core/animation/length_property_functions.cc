@@ -38,6 +38,7 @@ ValueRange LengthPropertyFunctions::GetValueRange(const CSSProperty& property) {
     case CSSPropertyID::kRowGap:
     case CSSPropertyID::kColumnWidth:
     case CSSPropertyID::kWidth:
+    case CSSPropertyID::kTabSize:
       return kValueRangeNonNegative;
     default:
       return kValueRangeAll;
@@ -129,10 +130,10 @@ bool LengthPropertyFunctions::GetLength(const CSSProperty& property,
       result = style.Bottom();
       return true;
     case CSSPropertyID::kCx:
-      result = style.SvgStyle().Cx();
+      result = style.Cx();
       return true;
     case CSSPropertyID::kCy:
-      result = style.SvgStyle().Cy();
+      result = style.Cy();
       return true;
     case CSSPropertyID::kFlexBasis:
       result = style.FlexBasis();
@@ -183,16 +184,16 @@ bool LengthPropertyFunctions::GetLength(const CSSProperty& property,
       result = style.PaddingTop();
       return true;
     case CSSPropertyID::kR:
-      result = style.SvgStyle().R();
+      result = style.R();
       return true;
     case CSSPropertyID::kRight:
       result = style.Right();
       return true;
     case CSSPropertyID::kRx:
-      result = style.SvgStyle().Rx();
+      result = style.Rx();
       return true;
     case CSSPropertyID::kRy:
-      result = style.SvgStyle().Ry();
+      result = style.Ry();
       return true;
     case CSSPropertyID::kShapeMargin:
       result = style.ShapeMargin();
@@ -222,10 +223,10 @@ bool LengthPropertyFunctions::GetLength(const CSSProperty& property,
       result = style.Width();
       return true;
     case CSSPropertyID::kX:
-      result = style.SvgStyle().X();
+      result = style.X();
       return true;
     case CSSPropertyID::kY:
-      result = style.SvgStyle().Y();
+      result = style.Y();
       return true;
 
     case CSSPropertyID::kBorderBottomWidth:
@@ -256,14 +257,14 @@ bool LengthPropertyFunctions::GetLength(const CSSProperty& property,
       result = Length::Fixed(style.VerticalBorderSpacing());
       return true;
     case CSSPropertyID::kRowGap:
-      if (style.RowGap().IsNormal())
+      if (!style.RowGap())
         return false;
-      result = style.RowGap().GetLength();
+      result = *style.RowGap();
       return true;
     case CSSPropertyID::kColumnGap:
-      if (style.ColumnGap().IsNormal())
+      if (!style.ColumnGap())
         return false;
-      result = style.ColumnGap().GetLength();
+      result = *style.ColumnGap();
       return true;
     case CSSPropertyID::kColumnRuleWidth:
       result = Length::Fixed(style.ColumnRuleWidth());
@@ -276,15 +277,20 @@ bool LengthPropertyFunctions::GetLength(const CSSProperty& property,
       return true;
 
     case CSSPropertyID::kBaselineShift:
-      if (style.BaselineShift() != BS_LENGTH)
+      if (style.BaselineShiftType() != EBaselineShiftType::kLength)
         return false;
-      result = style.BaselineShiftValue();
+      result = style.BaselineShift();
       return true;
     case CSSPropertyID::kLineHeight:
       // Percent Lengths are used to represent numbers on line-height.
       if (style.SpecifiedLineHeight().IsPercentOrCalc())
         return false;
       result = style.SpecifiedLineHeight();
+      return true;
+    case CSSPropertyID::kTabSize:
+      if (style.GetTabSize().IsSpaces())
+        return false;
+      result = Length::Fixed(style.GetTabSize().float_value_);
       return true;
     case CSSPropertyID::kPerspective:
       if (!style.HasPerspective())
@@ -316,7 +322,8 @@ bool LengthPropertyFunctions::SetLength(const CSSProperty& property,
   switch (property.PropertyID()) {
     // Setters that take a Length value.
     case CSSPropertyID::kBaselineShift:
-      style.SetBaselineShiftValue(value);
+      style.SetBaselineShiftType(EBaselineShiftType::kLength);
+      style.SetBaselineShift(value);
       return true;
     case CSSPropertyID::kBottom:
       style.SetBottom(value);
@@ -445,6 +452,9 @@ bool LengthPropertyFunctions::SetLength(const CSSProperty& property,
     case CSSPropertyID::kColumnWidth:
     case CSSPropertyID::kWebkitTransformOriginZ:
     case CSSPropertyID::kWordSpacing:
+    case CSSPropertyID::kTabSize:
+      return false;
+
       return false;
 
     default:

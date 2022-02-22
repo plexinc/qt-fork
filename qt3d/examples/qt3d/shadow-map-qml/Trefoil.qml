@@ -58,7 +58,7 @@ Entity {
 
     Mesh {
         id: trefoilMesh
-        source: "assets/obj/trefoil.obj"
+        source: "qrc:///assets/obj/trefoil.obj"
     }
 
     Transform {

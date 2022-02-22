@@ -10,6 +10,7 @@
 #include <string>
 
 #include "base/macros.h"
+#include "base/observer_list.h"
 #include "base/optional.h"
 #include "base/timer/timer.h"
 #include "chromeos/dbus/concierge_client.h"
@@ -38,6 +39,12 @@ class ArcPowerBridge : public KeyedService,
                        public display::DisplayConfigurator::Observer,
                        public mojom::PowerHost {
  public:
+  class Observer : public base::CheckedObserver {
+   public:
+    // Notifies that wakefulness mode is changed.
+    virtual void OnWakefulnessChanged(mojom::WakefulnessMode mode) = 0;
+  };
+
   // Returns singleton instance for the given BrowserContext,
   // or nullptr if the browser |context| is not allowed to use ARC.
   static ArcPowerBridge* GetForBrowserContext(content::BrowserContext* context);
@@ -45,6 +52,9 @@ class ArcPowerBridge : public KeyedService,
   ArcPowerBridge(content::BrowserContext* context,
                  ArcBridgeService* bridge_service);
   ~ArcPowerBridge() override;
+
+  void AddObserver(Observer* observer);
+  void RemoveObserver(Observer* observer);
 
   void SetUserIdHash(const std::string& user_id_hash);
 
@@ -62,7 +72,7 @@ class ArcPowerBridge : public KeyedService,
 
   // chromeos::PowerManagerClient::Observer overrides.
   void SuspendImminent(power_manager::SuspendImminent::Reason reason) override;
-  void SuspendDone(const base::TimeDelta& sleep_duration) override;
+  void SuspendDone(base::TimeDelta sleep_duration) override;
   void ScreenBrightnessChanged(
       const power_manager::BacklightBrightnessChange& change) override;
   void PowerChanged(const power_manager::PowerSupplyProperties& proto) override;
@@ -75,6 +85,7 @@ class ArcPowerBridge : public KeyedService,
   void OnReleaseDisplayWakeLock(mojom::DisplayWakeLockType type) override;
   void IsDisplayOn(IsDisplayOnCallback callback) override;
   void OnScreenBrightnessUpdateRequest(double percent) override;
+  void OnWakefulnessChanged(mojom::WakefulnessMode mode) override;
 
   void SetWakeLockProviderForTesting(
       mojo::Remote<device::mojom::WakeLockProvider> provider) {
@@ -126,6 +137,14 @@ class ArcPowerBridge : public KeyedService,
   // Timer used to run UpdateAndroidScreenBrightness() to notify Android
   // about brightness changes.
   base::OneShotTimer notify_brightness_timer_;
+
+  // List of observers.
+  base::ObserverList<Observer> observer_list_;
+
+  // Represents whether a device suspend is currently underway, ie. a
+  // SuspendImminent event has been observed, but a SuspendDone event has not
+  // yet been observed.
+  bool is_suspending_ = false;
 
   base::WeakPtrFactory<ArcPowerBridge> weak_ptr_factory_{this};
 

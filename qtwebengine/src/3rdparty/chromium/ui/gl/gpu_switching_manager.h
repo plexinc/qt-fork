@@ -7,6 +7,7 @@
 
 #include "base/memory/singleton.h"
 #include "base/observer_list.h"
+#include "base/synchronization/lock.h"
 #include "build/build_config.h"
 #include "ui/gl/gl_export.h"
 #include "ui/gl/gpu_preference.h"
@@ -25,7 +26,7 @@ class GL_EXPORT GpuSwitchingManager {
   // Called when a GPU switch is noticed by the system. In the browser process
   // this is occurs as a result of a system observer. In the GPU process, this
   // occurs as a result of an IPC from the browser. The system observer is kept
-  // in the browser process only so that any workarounds or blacklisting can
+  // in the browser process only so that any workarounds or blocklisting can
   // be applied there.
   //
   // The GpuPreference argument is a heuristic indicating whether the
@@ -40,13 +41,18 @@ class GL_EXPORT GpuSwitchingManager {
   // Called when a monitor is unplugged.  Only Windows is supported for now.
   void NotifyDisplayRemoved();
 
+  // Called when the display metrics changed.  Only Windows is supported for
+  // now.
+  void NotifyDisplayMetricsChanged();
+
  private:
   friend struct base::DefaultSingletonTraits<GpuSwitchingManager>;
 
   GpuSwitchingManager();
   virtual ~GpuSwitchingManager();
 
-  base::ObserverList<GpuSwitchingObserver>::Unchecked observer_list_;
+  base::Lock lock_;
+  base::ObserverList<GpuSwitchingObserver>::Unchecked GUARDED_BY(lock_) observer_list_;
 
   DISALLOW_COPY_AND_ASSIGN(GpuSwitchingManager);
 };

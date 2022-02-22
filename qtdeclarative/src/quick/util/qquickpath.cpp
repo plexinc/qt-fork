@@ -89,17 +89,14 @@ QT_BEGIN_NAMESPACE
         \li Element
         \li PathView
         \li Shape
-        \li Shape, GL_NV_path_rendering
         \li Shape, software
     \row
         \li PathMove
         \li N/A
         \li Yes
         \li Yes
-        \li Yes
     \row
         \li PathLine
-        \li Yes
         \li Yes
         \li Yes
         \li Yes
@@ -108,9 +105,8 @@ QT_BEGIN_NAMESPACE
         \li Yes
         \li Yes
         \li Yes
-        \li Yes
+    \row
     \li PathMultiLine
-        \li Yes
         \li Yes
         \li Yes
         \li Yes
@@ -119,10 +115,8 @@ QT_BEGIN_NAMESPACE
         \li Yes
         \li Yes
         \li Yes
-        \li Yes
     \row
         \li PathCubic
-        \li Yes
         \li Yes
         \li Yes
         \li Yes
@@ -131,10 +125,8 @@ QT_BEGIN_NAMESPACE
         \li Yes
         \li Yes
         \li Yes
-        \li Yes
     \row
         \li PathAngleArc
-        \li Yes
         \li Yes
         \li Yes
         \li Yes
@@ -143,11 +135,9 @@ QT_BEGIN_NAMESPACE
         \li Yes
         \li Yes
         \li Yes
-        \li Yes
     \row
         \li PathAttribute
         \li Yes
-        \li N/A
         \li N/A
         \li N/A
     \row
@@ -155,11 +145,9 @@ QT_BEGIN_NAMESPACE
         \li Yes
         \li N/A
         \li N/A
-        \li N/A
     \row
         \li PathCurve
         \li Yes
-        \li No
         \li No
         \li No
     \endtable
@@ -246,7 +234,7 @@ bool QQuickPath::isClosed() const
     \qmlproperty list<PathElement> QtQuick::Path::pathElements
     This property holds the objects composing the path.
 
-    \default
+    \qmldefault
 
     A path can contain the following path objects:
     \list
@@ -283,7 +271,7 @@ static QQuickPathPrivate *privatePath(QObject *object)
     return QQuickPathPrivate::get(path);
 }
 
-QQuickPathElement *QQuickPath::pathElements_at(QQmlListProperty<QQuickPathElement> *property, int index)
+QQuickPathElement *QQuickPath::pathElements_at(QQmlListProperty<QQuickPathElement> *property, qsizetype index)
 {
     QQuickPathPrivate *d = privatePath(property->object);
 
@@ -315,7 +303,7 @@ void QQuickPath::pathElements_append(QQmlListProperty<QQuickPathElement> *proper
     }
 }
 
-int QQuickPath::pathElements_count(QQmlListProperty<QQuickPathElement> *property)
+qsizetype QQuickPath::pathElements_count(QQmlListProperty<QQuickPathElement> *property)
 {
     QQuickPathPrivate *d = privatePath(property->object);
 
@@ -2235,11 +2223,6 @@ void QQuickPathAngleArc::addToPath(QPainterPath &path, const QQuickPathData &)
     }
     \endqml
     \endtable
-
-    \note Mixing PathSvg with other type of elements is not always supported.
-    For example, when \l Shape is backed by \c{GL_NV_path_rendering}, a
-    ShapePath can contain one or more PathSvg elements, or one or more other
-    type of elements, but not both.
 
     \sa Path, PathLine, PathQuad, PathCubic, PathArc, PathAngleArc, PathCurve
 */

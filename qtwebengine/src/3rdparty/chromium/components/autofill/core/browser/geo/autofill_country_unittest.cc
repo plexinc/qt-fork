@@ -5,7 +5,7 @@
 #include <set>
 #include <string>
 
-#include "base/stl_util.h"
+#include "base/containers/contains.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/autofill/core/browser/geo/autofill_country.h"
 #include "components/autofill/core/browser/geo/country_data.h"
@@ -24,8 +24,6 @@ TEST(AutofillCountryTest, AutofillCountry) {
   AutofillCountry united_states_en("US", "en_US");
   EXPECT_EQ("US", united_states_en.country_code());
   EXPECT_EQ(ASCIIToUTF16("United States"), united_states_en.name());
-  EXPECT_EQ(ASCIIToUTF16("ZIP code"), united_states_en.postal_code_label());
-  EXPECT_EQ(ASCIIToUTF16("State"), united_states_en.state_label());
 
   AutofillCountry united_states_es("US", "es");
   EXPECT_EQ("US", united_states_es.country_code());
@@ -39,8 +37,6 @@ TEST(AutofillCountryTest, AutofillCountry) {
   AutofillCountry canada_en("CA", "en_US");
   EXPECT_EQ("CA", canada_en.country_code());
   EXPECT_EQ(ASCIIToUTF16("Canada"), canada_en.name());
-  EXPECT_EQ(ASCIIToUTF16("Postal code"), canada_en.postal_code_label());
-  EXPECT_EQ(ASCIIToUTF16("Province"), canada_en.state_label());
 
   AutofillCountry canada_hu("CA", "hu");
   EXPECT_EQ("CA", canada_hu.country_code());
@@ -56,6 +52,45 @@ TEST(AutofillCountryTest, CountryCodeForLocale) {
   // "es-419" isn't associated with a country. See base/l10n/l10n_util.cc
   // for details about this locale. Default to US.
   EXPECT_EQ("US", AutofillCountry::CountryCodeForLocale("es-419"));
+}
+
+// Test the address requirement methods for the US.
+TEST(AutofillCountryTest, UsaAddressRequirements) {
+  // The US requires a zip, state, city and line1 entry.
+  AutofillCountry us_autofill_country("US", "en_US");
+
+  EXPECT_FALSE(us_autofill_country.requires_zip_or_state());
+  EXPECT_TRUE(us_autofill_country.requires_zip());
+  EXPECT_TRUE(us_autofill_country.requires_state());
+  EXPECT_TRUE(us_autofill_country.requires_city());
+  EXPECT_TRUE(us_autofill_country.requires_line1());
+}
+
+// Test the address requirement method for Brazil.
+TEST(AutofillCountryTest, BrAddressRequirements) {
+  // Brazil only requires a zip entry.
+  AutofillCountry brazil_autofill_country("BR", "en_US");
+
+  EXPECT_FALSE(brazil_autofill_country.requires_zip_or_state());
+  EXPECT_TRUE(brazil_autofill_country.requires_zip());
+  EXPECT_TRUE(brazil_autofill_country.requires_state());
+  EXPECT_TRUE(brazil_autofill_country.requires_city());
+  EXPECT_TRUE(brazil_autofill_country.requires_line1());
+}
+
+// Test the address requirement method for Turkey.
+TEST(AutofillCountryTest, TrAddressRequirements) {
+  // Brazil only requires a zip entry.
+  AutofillCountry turkey_autofill_country("TR", "en_US");
+
+  // Although ZIP codes are existing in Turkey, they are commonly used.
+  EXPECT_FALSE(turkey_autofill_country.requires_zip());
+  // In Turkey, a district is the largest level of the address hierarchy and
+  // mapped to the Autofill state.
+  EXPECT_TRUE(turkey_autofill_country.requires_state());
+  // And the province as the second largest level is mapped to city.
+  EXPECT_TRUE(turkey_autofill_country.requires_city());
+  EXPECT_TRUE(turkey_autofill_country.requires_line1());
 }
 
 // Test mapping all country codes to country names.
@@ -85,7 +120,7 @@ TEST(AutofillCountryTest, AliasMappingsForCountryData) {
   CountryDataMap* country_data_map = CountryDataMap::GetInstance();
 
   // There should be country data for the "GB".
-  EXPECT_TRUE(country_data_map->HasCountryData("GB"));
+  EXPECT_TRUE(country_data_map->HasRequiredFieldsForAddressImport("GB"));
 
   // Check the correctness of the alias definitions.
   EXPECT_TRUE(country_data_map->HasCountryCodeAlias("UK"));

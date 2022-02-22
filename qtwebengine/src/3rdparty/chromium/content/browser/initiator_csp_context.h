@@ -5,7 +5,7 @@
 #ifndef CONTENT_BROWSER_INITIATOR_CSP_CONTEXT_H_
 #define CONTENT_BROWSER_INITIATOR_CSP_CONTEXT_H_
 
-#include "content/browser/frame_host/render_frame_host_impl.h"
+#include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/common/navigation_params.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/remote.h"
@@ -24,14 +24,12 @@ class InitiatorCSPContext : public network::CSPContext {
  public:
   InitiatorCSPContext(
       std::vector<network::mojom::ContentSecurityPolicyPtr> policies,
-      network::mojom::CSPSourcePtr self_source,
       mojo::PendingRemote<blink::mojom::NavigationInitiator>
           navigation_initiator);
   ~InitiatorCSPContext() override;
 
   void ReportContentSecurityPolicyViolation(
       network::mojom::CSPViolationPtr violation_params) override;
-  bool SchemeShouldBypassCSP(const base::StringPiece& scheme) override;
   void SetReportingRenderFrameHost(RenderFrameHostImpl* rfh);
   void SanitizeDataForUseInCspViolation(
       bool is_redirect,
